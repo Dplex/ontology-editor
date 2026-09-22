@@ -9,6 +9,7 @@
 import {
   AmbientLight,
   Box3,
+  Sphere,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
@@ -209,6 +210,29 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
   tick()
 
+  /**
+   * 상자가 화면에 꽉 차도록 카메라를 놓는다.
+   *
+   * 긴 변 하나만 보고 거리를 잡으면 안 된다. 세로 시야각으로만 계산하면 가로로 넓적한 건물이
+   * 화면 밖으로 삐져나가고, 비스듬히 보는 각도에서는 더 커 보인다. 외접구 반지름을 가로·세로
+   * 시야각 중 **좁은 쪽**에 맞춘다.
+   */
+  function fit(box: Box3) {
+    const sphere = box.getBoundingSphere(new Sphere())
+    if (sphere.radius <= 0) return
+
+    const vFov = (camera.fov * Math.PI) / 180
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * (camera.aspect || 1.6))
+    const distance = (sphere.radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.1
+
+    controls.target.copy(sphere.center)
+    camera.position.copy(sphere.center).add(new Vector3(1, 0.65, 1).normalize().multiplyScalar(distance))
+    camera.near = Math.max(distance / 1000, 0.01)
+    camera.far = distance * 10
+    camera.updateProjectionMatrix()
+    controls.update()
+  }
+
   /** 요소 하나의 메시. 좌표는 이미 three 세계 좌표(y 가 높이)라 여기서 돌리지 않는다. */
   function elementMesh(data: { positions: Float32Array; normals: Float32Array; indices: Uint32Array }, color: number) {
     const geometry = new BufferGeometry()
@@ -267,21 +291,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const box = new Box3().setFromObject(content)
       if (box.isEmpty()) return
 
-      const size = box.getSize(new Vector3())
-      const center = box.getCenter(new Vector3())
-      const span = Math.max(size.x, size.y, size.z, 1)
-
-      // 화면에 꽉 차게 맞춘다. 시야각에서 거리를 계산하지 않고 span 을 그대로 쓰면, 배관처럼
-      // 가는 것이 점만 하게 작아져서 계통이 어디로 지나는지가 안 보인다.
-      const distance = (span / 2 / Math.tan((camera.fov * Math.PI) / 360)) * 1.15
-      const dir = new Vector3(1, 0.65, 1).normalize()
-
-      controls.target.copy(center)
-      camera.position.copy(center).add(dir.multiplyScalar(distance))
-      camera.near = span / 100
-      camera.far = span * 100
-      camera.updateProjectionMatrix()
-      controls.update()
+      fit(box)
     },
 
     setHighlight(highlight) {
@@ -337,16 +347,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         for (const { mesh } of byEquipment.get(id) ?? []) box.expandByObject(mesh)
       }
       if (box.isEmpty()) return
-
-      const size = box.getSize(new Vector3())
-      const center = box.getCenter(new Vector3())
-      const span = Math.max(size.x, size.y, size.z, 0.5)
-      const distance = (span / 2 / Math.tan((camera.fov * Math.PI) / 360)) * 1.3
-
-      controls.target.copy(center)
-      camera.position.copy(center).add(new Vector3(1, 0.65, 1).normalize().multiplyScalar(distance))
-      camera.updateProjectionMatrix()
-      controls.update()
+      fit(box)
     },
 
     dispose() {
