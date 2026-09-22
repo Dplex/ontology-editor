@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { importIfc } from './import'
+import { importIfc, numbers } from './import'
 import { countOf, type Model } from '../model'
 import { trace } from '../topology'
 
@@ -318,5 +318,23 @@ describe('공간 경계 (F6)', () => {
     // 바깥 공기에 면한 경계다. 경계가 아니라 열린 면이라서 부재 목록에 들어가면 안 된다.
     const meeting = model.storeys[0].spaces.find((s) => s.name === '101')!
     expect(meeting.boundedBy.every((id) => id !== '')).toBe(true)
+  })
+})
+
+// web-ifc 가 스키마에 따라 숫자를 다르게 준다. IFC4 는 IfcReal 객체로 감싸고 IFC2x3 은
+// 맨 숫자로 준다. 한쪽만 맞춰 두면 **오류 없이 회전만 조용히 사라진다** — 방이 안 돌아간
+// 채로 놓이는데 넓이는 그대로라 숫자만 봐서는 안 보인다. Duplex 세 판본이 이 상태였다.
+describe('스키마마다 다른 숫자 표현', () => {
+  it('싸여 있든 아니든 읽는다', () => {
+    expect(numbers([0, 0, 1])).toEqual([0, 0, 1])
+    expect(numbers([{ value: 0 }, { value: -1 }])).toEqual([0, -1])
+  })
+
+  it('숫자가 아닌 것이 섞이면 통째로 버린다', () => {
+    // 일부만 읽어 내면 (1, undefined) 같은 반쪽 벡터가 만들어져서, 회전이 엉뚱하게 잡힌다.
+    // 모르는 것은 모르는 채로 둬야 호출부가 기본값으로 떨어진다.
+    expect(numbers([1, {}])).toBeNull()
+    expect(numbers([1, null])).toBeNull()
+    expect(numbers(undefined)).toBeNull()
   })
 })

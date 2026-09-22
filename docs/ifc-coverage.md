@@ -127,7 +127,41 @@ MEP 항목이 같은 말을 한다). **설비 소속 물리존(F11)은 원천적
 Duplex MEP 는 반대로 공간 42개가 있고, 그중 **167개 설비를 BIM 이 직접 공간에 담아 줬다**
 (926 중 18%). 나머지 759개는 좌표 판정이 필요하다.
 
-**⑤ 표준 Pset 은 거의 안 쓰인다.** Revit 은 전부 `PSet_Revit_Mechanical`,
+**⑤ 공간 외곽선이 어디 들어 있는지가 저작 도구마다 다르다.** 이것 하나로 Duplex 전 판본에서
+방이 한 칸도 안 그려지고 있었다.
+
+| 파일 | `IfcSpace` 의 형상 표현 | 외곽선 |
+|---|---|---|
+| AC20-FZK-Haus (ArchiCAD) | `FootPrint/GeometricCurveSet` + `Body/Brep` | 7 / 7 |
+| Duplex Arch (Revit) | **`Body/SweptSolid`** (FootPrint 없음) | 19 / 21 |
+| Duplex MEP-Optimized (Revit) | **`Body/SweptSolid`** | 42 / 42 |
+| Duplex COBie Design | **형상 표현이 아예 없음** | 0 / 22 |
+
+`FootPrint` 만 읽는 것은 **ArchiCAD 모양의 가정**이었다. Revit 은 FootPrint 를 만들지 않는다.
+다행히 `SweptSolid` 는 메시가 아니라서 `IfcExtrudedAreaSolid.SweptArea` 가 곧 바닥 단면이고,
+Brep 처럼 삼각형을 자를 필요 없이 폴리라인을 그대로 꺼낼 수 있다. 실측 61개가 전부
+`IfcArbitraryClosedProfileDef`(폴리라인) 아니면 `IfcRectangleProfileDef`(가로·세로)였다.
+
+남는 둘은 `SurfaceModel`(Duplex Arch 2개)과 **형상 표현 자체가 없는 경우**다. 후자는 COBie
+교환 판본이 이름·속성만 담기 때문이고, 고쳐서 될 일이 아니다 — 건축 판본을 따로 받아야 한다.
+
+**외곽선이 없으면 설비 소속 판정이 통째로 못 돈다.** Duplex MEP 의 미소속 설비가 759대에서
+**424대로** 줄었다. 335대가 외곽선 하나 때문에 갈 곳을 못 찾고 있었다.
+
+**⑥ web-ifc 가 스키마에 따라 숫자를 다르게 준다.** IFC4 는 `IfcDirection.DirectionRatios` 를
+`IfcReal` 객체로 감싸는데 **IFC2x3 은 맨 숫자 배열로 준다.**
+
+```
+two-rooms (IFC4) : [{type:4, _representationValue:0, …}, …]   ← .value 로 읽힌다
+Duplex MEP (IFC2x3): [0, 0, 1]                                 ← 그냥 숫자다
+```
+
+한쪽 모양만 가정하면 다른 쪽에서 **오류 없이 회전만 조용히 사라진다.** 방이 안 돌아간 채로
+놓이는데 넓이도 개수도 그대로라 숫자만 봐서는 안 보인다. IFC2x3 파일 전부가 이 상태였다.
+`numbers()` 가 두 모양을 다 받고, 숫자가 아닌 것이 섞이면 통째로 버린다 — 반쪽짜리 벡터가
+만들어지면 회전이 엉뚱하게 잡히기 때문이다.
+
+**⑦ 표준 Pset 은 거의 안 쓰인다.** Revit 은 전부 `PSet_Revit_Mechanical`,
 `PSet_Revit_Type_Fitting` 처럼 내보낸다. 대신 **COBie 필드는 926개 전부 채워져 있다**
 (`AssetIdentifier`, `SerialNumber`, `WarrantyStartDate`, `ExpectedLife`, `ReplacementCost`…).
 자산 관리 쪽 확장 여지가 오히려 넓다.
@@ -263,7 +297,7 @@ Duplex MEP-Optimized 에서 연결이 없는 설비 **224대**를 갈라 보면 
 |---|---|---|---|
 | **0. 공간** | F1–F7. 공간 계층, 외곽선, 벽·문·창, 공간 경계 | `IfcSpace`(닫힌 FootPrint), `IfcBuildingStorey`, 벽·개구부, 배치 사슬 | AC20-FZK-Haus |
 | **1. 설비 목록** | + F8·F9. 설비 종류·이름·좌표 | `IfcDistributionElement` + 배치 | Duplex MEP |
-| **2. 설비 소속** | + F11. `brick:hasLocation` | **같은 파일**에 `IfcSpace` + 같은 좌표계 | Duplex MEP (167은 BIM 이 직접) |
+| **2. 설비 소속** | + F11. `brick:hasLocation` | **같은 파일**에 `IfcSpace` + 같은 좌표계 + 공간에 `FootPrint` 나 `SweptSolid` | Duplex MEP (926 중 502) |
 | **3. 계통·연결망** | + F10·F16(방향 없음). 계통별 연결망, 상·하류 없는 이웃 | `IfcSystem` 또는 Revit `System Name`, **닿는 솔리드 기하** | Duplex MEP (690 연결) |
 | **4. 흐름 방향** | + F16(방향 있음). `brick:feeds` | **포트 + SOURCE/SINK** (또는 소스·싱크가 한 망에) | **ifc4Mep 만** (1,995 / 1,995) |
 | **5. 운영** | + F12·F13. 공조존, 관제점 | **IFC 에 없다.** IDF·gbXML·BAS 필요 | 없음 |

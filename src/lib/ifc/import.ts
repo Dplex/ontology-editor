@@ -24,7 +24,7 @@ import type {
   Wall,
 } from '../model'
 import { polygonArea } from '../model'
-import { apply, foldChain, foldElevation, fromAxisPlacement, type Transform2 } from './placement'
+import { apply, compose, foldChain, foldElevation, fromAxisPlacement, type Transform2 } from './placement'
 import { assignEquipmentToSpaces, unlocatedEquipment } from '../mapping'
 import { lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
@@ -127,6 +127,30 @@ function val<T>(wrapped: { value?: T } | null | undefined): T | undefined {
 }
 
 /**
+ * 숫자를 읽는다. **싸여 있을 수도 있고 아닐 수도 있다.**
+ *
+ * web-ifc 는 스키마에 따라 다르게 준다. IFC4 는 `IfcDirection.DirectionRatios` 를
+ * `IfcReal` 객체로 감싸 주는데 **IFC2x3 은 맨 숫자 배열로 준다.** 그래서 `val` 을 걸면
+ * IFC2x3 에서 전부 `undefined` 가 되고, `fromAxisPlacement` 가 기본값(회전 없음)으로
+ * 떨어진다 — **오류 없이 회전만 조용히 사라진다.** Duplex 세 판본(IFC2x3)이 이 상태였다.
+ *
+ * 좌표(`Coordinates`)는 두 스키마 다 싸서 주지만, 한쪽만 맞춰 두면 다음에 또 같은 데
+ * 걸린다. 숫자를 읽는 자리는 전부 이걸 쓴다.
+ */
+function num(v: unknown): number | undefined {
+  if (typeof v === 'number') return v
+  const inner = (v as { value?: unknown } | null | undefined)?.value
+  return typeof inner === 'number' ? inner : undefined
+}
+
+/** IFC 의 숫자 배열(좌표, 방향 비율)을 읽는다. 없으면 null. */
+export function numbers(raw: unknown): number[] | null {
+  if (!Array.isArray(raw)) return null
+  const out = raw.map(num)
+  return out.some((v) => v === undefined) ? null : (out as number[])
+}
+
+/**
  * 다른 줄을 가리키는 참조를 읽는다. 없으면 null 이다.
  *
  * IFC 의 빈 값(`$`)은 속성이 **없는** 것이 아니라 **값이 null 인** 형태로 온다.
@@ -166,10 +190,10 @@ class Reader {
     for (let guard = 0; cur !== undefined && guard < 64; guard++) {
       const lp = this.line(cur)
       const rel = lp?.RelativePlacement ? this.line(lp.RelativePlacement.value) : null
-      const raw = rel?.Location ? this.line(rel.Location.value).Coordinates?.map(val) : null
+      const raw = rel?.Location ? numbers(this.line(rel.Location.value).Coordinates) : null
       // 방향 벡터는 비율이라 단위와 무관하다. 위치만 환산한다.
       const loc = raw ? (raw as number[]).map((v) => v * this.scale) : null
-      const dir = rel?.RefDirection ? this.line(rel.RefDirection.value).DirectionRatios?.map(val) : null
+      const dir = rel?.RefDirection ? numbers(this.line(rel.RefDirection.value).DirectionRatios) : null
       chain.push(fromAxisPlacement(loc, dir ?? null))
       cur = lp?.PlacementRelTo?.value
     }
@@ -191,7 +215,7 @@ class Reader {
     for (let guard = 0; cur !== undefined && guard < 64; guard++) {
       const lp = this.line(cur)
       const rel = lp?.RelativePlacement ? this.line(lp.RelativePlacement.value) : null
-      const coords = rel?.Location ? this.line(rel.Location.value).Coordinates?.map(val) : null
+      const coords = rel?.Location ? numbers(this.line(rel.Location.value).Coordinates) : null
       zs.push(((coords?.[2] as number) ?? 0) * this.scale)
       cur = lp?.PlacementRelTo?.value
     }
@@ -234,12 +258,68 @@ class Reader {
     return out
   }
 
+  /** IfcAxis2Placement2D/3D 를 평면 변환으로. 이동량은 여기서 환산한다. */
+  private axisTransform(handle: { value?: number } | null | undefined): Transform2 {
+    const id = ref(handle)
+    if (id === null) return fromAxisPlacement(null, null)
+    const pos = this.line(id)
+    const raw = pos?.Location ? numbers(this.line(pos.Location.value).Coordinates) : null
+    const dir = pos?.RefDirection ? numbers(this.line(pos.RefDirection.value).DirectionRatios) : null
+    return fromAxisPlacement(raw ? raw.map((v) => v * this.scale) : null, dir ?? null)
+  }
+
+  /**
+   * 단면 프로파일의 바깥 고리를 프로파일 국소 좌표로 돌려준다.
+   *
+   * 실측에서 나온 두 가지만 다룬다. `IfcArbitraryClosedProfileDef`(폴리라인)와
+   * `IfcRectangleProfileDef`(가로·세로). Duplex 의 공간 61개가 전부 이 둘이었다.
+   */
+  private profileRing(profileID: number | null): Vec2[] {
+    if (profileID === null) return []
+    const profile = this.line(profileID)
+    if (!profile) return []
+    // 매개변수 프로파일(사각형 등)만 Position 을 갖는다. 폴리라인 쪽은 없다.
+    const t = profile.Position ? this.axisTransform(profile.Position) : fromAxisPlacement(null, null)
+
+    const outer = ref(profile.OuterCurve)
+    if (outer !== null) {
+      const curve = this.line(outer)
+      if (!Array.isArray(curve?.Points)) return []
+      return curve.Points.map((p: any) => {
+        const c = numbers(this.line(p.value).Coordinates) ?? []
+        return apply(t, [c[0] * this.scale, c[1] * this.scale])
+      })
+    }
+
+    const x = val(profile.XDim) as number | undefined
+    const y = val(profile.YDim) as number | undefined
+    if (x === undefined || y === undefined) return []
+    // 사각형 프로파일은 Position 원점을 **중심**으로 놓인다. 모서리에 놓으면 방이 절반씩
+    // 어긋나는데, 넓이는 맞아서 숫자만 봐서는 안 보인다.
+    const hx = (x * this.scale) / 2
+    const hy = (y * this.scale) / 2
+    return [
+      apply(t, [-hx, -hy]),
+      apply(t, [hx, -hy]),
+      apply(t, [hx, hy]),
+      apply(t, [-hx, hy]),
+      apply(t, [-hx, -hy]),
+    ]
+  }
+
   /**
    * 공간의 바닥 외곽선을 세계 좌표 고리로 돌려준다.
    *
-   * FootPrint 표현을 쓴다. Body 는 Brep(삼각형 껍데기)이라 평면 외곽선을 되찾으려면
-   * 메시를 잘라야 하는데, FootPrint 에 이미 정확한 폴리라인이 들어 있다.
-   * FootPrint 가 없는 모델도 있어서, 없으면 빈 고리를 주고 경고로 남긴다.
+   * **저작 도구마다 다른 표현에 넣는다.** ArchiCAD 는 `FootPrint` 에 폴리라인을 따로
+   * 내보내지만, **Revit 은 FootPrint 를 아예 안 만들고 `Body/SweptSolid` 만 낸다.**
+   * FootPrint 만 읽던 시절 Duplex 세 판본(Revit)의 공간 85개가 전부 외곽선 0 이었고,
+   * 그래서 3D 에 방이 한 칸도 안 그려지고 설비 소속 판정도 못 돌았다.
+   *
+   * 다행히 SweptSolid 는 메시가 아니다. `IfcExtrudedAreaSolid` 의 `SweptArea` 가 곧
+   * 바닥 단면이라 폴리라인을 그대로 꺼내 쓸 수 있다 — Brep 처럼 삼각형을 자를 필요가 없다.
+   * Brep(`Body/Brep`)과 `SurfaceModel` 은 여전히 안 읽고 경고로 남긴다.
+   *
+   * FootPrint 를 먼저 본다. 있으면 그것이 저작 도구가 직접 말한 외곽선이다.
    */
   footprint(entity: any): Vec2[] {
     const reps = entity?.Representation ? this.line(entity.Representation.value)?.Representations : null
@@ -259,13 +339,32 @@ class Reader {
           const el = this.line(elHandle.value)
           if (!Array.isArray(el?.Points)) continue
           const ring = el.Points.map((p: any) => {
-            const c = this.line(p.value).Coordinates.map(val) as number[]
+            const c = numbers(this.line(p.value).Coordinates) ?? []
             // 국소 좌표를 먼저 환산하고 나서 변환을 적용한다. 변환의 이동량은 이미 환산돼
             // 있으므로, 순서를 바꾸면 이동량만 두 번 곱해진다.
             return apply(t, [c[0] * this.scale, c[1] * this.scale])
           })
           if (ring.length >= 3) return ring
         }
+      }
+    }
+
+    // FootPrint 가 없다. Revit 이 내보낸 파일이 여기로 온다.
+    for (const handle of reps) {
+      const rep = this.line(handle.value)
+      if (val(rep?.RepresentationType) !== 'SweptSolid') continue
+
+      for (const itemHandle of rep.Items ?? []) {
+        const solid = this.line(itemHandle.value)
+        // 밀어 올린 방향이 수직이 아니면 바닥 단면이 바닥 외곽선이 아니다. 그런 공간은
+        // 건너뛴다 — 기울어진 단면을 평면 외곽선인 척 내보내면 넓이가 조용히 틀린다.
+        const dir = solid?.ExtrudedDirection ? numbers(this.line(solid.ExtrudedDirection.value)?.DirectionRatios) : null
+        if (dir && Math.abs((dir[2] as number) ?? 0) < 0.999) continue
+
+        const ring = this.profileRing(ref(solid?.SweptArea))
+        if (ring.length < 3) continue
+        const placed = compose(t, this.axisTransform(solid.Position))
+        return ring.map((p) => apply(placed, p))
       }
     }
     return []
@@ -795,7 +894,10 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
       const shown = noFootprint.slice(0, 3).join(', ')
       const rest = noFootprint.length > 3 ? ` 외 ${noFootprint.length - 3}개` : ''
       warnings.push(
-        `공간 ${noFootprint.length}개에 FootPrint 표현이 없어 외곽선을 만들지 못했습니다(${shown}${rest}).`,
+        // FootPrint 와 SweptSolid 를 둘 다 본 뒤에도 못 얻은 것들이다. Brep 이나
+        // SurfaceModel 로만 그려진 공간, 그리고 형상 표현이 아예 없는 공간(COBie 판본의
+        // IfcSpace 22개가 그랬다)이 여기 걸린다.
+        `공간 ${noFootprint.length}개에서 바닥 외곽선을 얻지 못했습니다. FootPrint 도 SweptSolid 도 없습니다(${shown}${rest}).`,
       )
     }
 

@@ -101,9 +101,16 @@ id 는 IfcGlobalId 를 그대로 쓴다. 저작 도구가 GUID 를 유지한 채
 이 "원점에 있는 것" 으로 바뀌어서, 원점 근처 물리존에 자동으로 소속돼 버린다. `position` 과
 `spaceId` 가 `null` 을 그대로 들고 다니는 이유다.
 
-공간 외곽선은 Body(Brep)가 아니라 **FootPrint 표현**에서 가져온다. Brep 은 삼각형 껍데기라
-평면 외곽선을 되찾으려면 메시를 잘라야 하는데, FootPrint 에 정확한 폴리라인이 이미 있다.
-FootPrint 가 없는 모델도 있어서 그때는 빈 고리를 주고 경고로 남긴다.
+공간 외곽선이 **어느 표현에 들어 있는지가 저작 도구마다 다르다.** ArchiCAD 는 `FootPrint` 를
+따로 내보내지만 **Revit 은 만들지 않고 `Body/SweptSolid` 만 낸다.** FootPrint 만 읽던 시절
+Duplex 세 판본(Revit)의 공간 85개가 전부 외곽선 0 이었고, 3D 에 방이 한 칸도 안 그려졌다.
+지금은 FootPrint 를 먼저 보고 없으면 `IfcExtrudedAreaSolid` 의 `SweptArea` 를 쓴다 — 그게 곧
+바닥 단면이라 Brep 과 달리 메시를 자를 필요가 없다. Brep·SurfaceModel 과 형상 표현이 아예
+없는 공간(COBie 판본)은 여전히 빈 고리를 주고 경고로 남긴다.
+
+**web-ifc 가 스키마에 따라 숫자를 다르게 준다.** IFC4 는 `DirectionRatios` 를 `IfcReal` 객체로
+감싸는데 IFC2x3 은 맨 숫자 배열로 준다. 한쪽만 가정하면 **오류 없이 회전만 조용히 사라진다** —
+넓이도 개수도 그대로라 눈으로 보기 전에는 모른다. 숫자를 읽는 자리는 `numbers()` 를 쓴다.
 
 ## 테스트 입력이 두 갈래다
 

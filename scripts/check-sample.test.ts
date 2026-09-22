@@ -180,6 +180,36 @@ describe.skipIf(!existsSync(DUPLEX_HVAC))('Duplex HVAC 판본 (밀리미터)', (
 // 그런데 요소마다 Revit 의 `System Name` 속성이 있고, 배관 끝과 피팅 끝의 꼭짓점이 맞닿아
 // 있다. BIM 이 연결을 말해 주지 않을 때 어디까지 되찾을 수 있는지를 이 파일이 지킨다.
 const DUPLEX_MEP = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP-Optimized.ifc'
+const DUPLEX_ARCH = 'data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc'
+
+// **저작 도구마다 공간 외곽선을 다른 표현에 넣는다.** ArchiCAD 는 FootPrint 를 따로 내보내고
+// Revit 은 안 만든다 — Body/SweptSolid 뿐이다. FootPrint 만 읽던 시절 Duplex 세 판본의
+// 공간 85개가 전부 외곽선 0 이었고, 그래서 3D 에 방이 한 칸도 안 그려지고 설비 소속 판정도
+// 통째로 못 돌았다. 이 검사가 그 회귀를 지킨다.
+describe.skipIf(!existsSync(DUPLEX_ARCH))('Revit 이 낸 공간 외곽선 (SweptSolid)', () => {
+  it('FootPrint 가 없어도 SweptSolid 에서 바닥 단면을 꺼낸다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfc(api, new Uint8Array(readFileSync(DUPLEX_ARCH)))
+    const spaces = model.storeys.flatMap((s) => s.spaces)
+
+    expect(spaces).toHaveLength(21)
+    // 19개가 SweptSolid 다. 나머지 둘은 SurfaceModel 이라 아직 못 읽고 경고로 남는다 —
+    // 못 읽는 것을 읽은 척하지 않는다.
+    expect(spaces.filter((s) => s.footprint.length >= 3)).toHaveLength(19)
+    expect(model.warnings.some((w) => w.includes('바닥 외곽선을 얻지 못했습니다'))).toBe(true)
+
+    // 방이 저마다 다른 자리에 있어야 한다. 배치를 안 타면 전부 원점에 겹치는데 넓이는
+    // 그대로라 개수만 봐서는 안 보인다.
+    const drawn = spaces.filter((s) => s.footprint.length >= 3)
+    expect(new Set(drawn.map((s) => JSON.stringify(s.footprint[0]))).size).toBe(19)
+
+    // 두 세대짜리 주택이다. 합이 수백 제곱미터 규모여야 한다.
+    const total = drawn.reduce((n, s) => n + s.areaM2, 0)
+    expect(total).toBeGreaterThan(300)
+    expect(total).toBeLessThan(500)
+  }, 300_000)
+})
 
 describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', () => {
   it('계통을 속성으로 세우고, 연결을 형상으로 추정한다', async () => {
@@ -191,6 +221,12 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     expect(counts.equipment).toBe(926)
     // 926대 전부 형상이 있다. 점으로만 찍던 시절에는 이 파일이 점 926개였다.
     expect(meshes.size).toBe(926)
+
+    // 공간 42개 전부 외곽선이 나온다(SweptSolid). 외곽선이 없던 시절에는 소속 판정을
+    // 아예 못 돌려서 미소속이 759대였다. 지금은 424대이고, 그 차이가 외곽선의 값어치다.
+    expect(counts.spaces).toBe(42)
+    expect(model.storeys.flatMap((s) => s.spaces).every((s) => s.footprint.length >= 3)).toBe(true)
+    expect(counts.unlocatedEquipment).toBe(424)
 
     // **실제 기기는 141대뿐이다.** 나머지 785대가 덕트·배관 구간과 이음쇠다.
     // IFC2x3 이라 클래스가 전부 추상 이름(FlowSegment, FlowTerminal)인데도 역할은 나온다 —

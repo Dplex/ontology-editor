@@ -78,7 +78,7 @@ BIM 으로 만드는 일과 만든 것을 고치는 일은 한 벌이다. BIM �
 | 피처 | IFC4 규격 | 지금 임포터 | 실측 샘플(AC20-FZK-Haus) |
 |---|---|---|---|
 | F1 공간 계층 | `IfcBuildingStorey`, `IfcSpace` | 읽는다 | 층 2, 물리존 7 |
-| F2 물리존 기하 | `FootPrint` 또는 `Body` 표현 | `FootPrint` 만 읽는다 | 7개 전부 추출, Buero 12.985㎡ |
+| F2 물리존 기하 | `FootPrint` 또는 `Body` 표현 | `FootPrint` + `Body/SweptSolid` 를 읽는다 | 7개 전부 추출, Buero 12.985㎡ |
 | F3 공간 이름 | `Name`, `LongName` | 읽는다 | Schlafzimmer, Bad, Buero 등 7개 |
 | F4 벽·문·창 | `IfcWall`, `IfcDoor`, `IfcWindow` | 개수와 이름만 읽는다 | 벽 13, 문 5, 창 11 |
 | F4 벽 두께 | `IfcMaterialLayerSetUsage` | 읽는다 | 13장 전부. 내벽 0.24m · 외벽 0.3m |
