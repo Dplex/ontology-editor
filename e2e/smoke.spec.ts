@@ -52,7 +52,9 @@ test('MEP 가 든 IFC 는 설비와 계통까지 보여 준다', async ({ page }
 
   const tile = (label: string) => page.locator('.tiles li', { hasText: label }).locator('b')
   // 다섯은 층에, 하나는 공간에 매달려 있다. 층만 보면 여섯 번째를 놓친다.
-  await expect(tile('설비')).toHaveText('6')
+  // 기기와 덕트·배관을 따로 센다 — 합치면 대수가 부푼다(실측에서 85%가 도관이었다).
+  await expect(tile('기기')).toHaveText('5')
+  await expect(tile('덕트·배관')).toHaveText('1')
   await expect(tile('계통')).toHaveText('1')
 
   // 빠진 것이 무엇인지 화면이 말한다. 이게 고객사 BIM 스펙 협의에 쓰이는 목록이다.

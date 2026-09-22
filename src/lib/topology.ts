@@ -88,6 +88,97 @@ export function inferConnections(elements: readonly ElementPoints[], tolerance =
   return out
 }
 
+/**
+ * 연결이 하나도 없는 요소. **왜 없는지가 둘로 갈린다.**
+ *
+ *   `'derived'`  상대는 있는데 허용 오차 밖이라 못 이었다. **오차를 키우면 붙는다.**
+ *   `'primary'`  주변에 상대가 아예 없다. 접합 부재가 모델에 없는 것이다.
+ *
+ * 이 구분이 고객사에 할 말을 정한다. 전자는 "우리가 판정 기준을 조정하겠다" 이고 후자는
+ * **"모델을 다시 그려 달라"** 다. 둘을 "연결 없음" 하나로 뭉치면 그 말을 할 수 없다.
+ * Lilis 2025 가 1차·2차 결손(primary / derived knowledge gap)이라 부른 것이다.
+ */
+export type Gap = {
+  id: string
+  kind: 'primary' | 'derived'
+  /** 이을 수 있었을 가장 가까운 요소까지의 거리(미터). `reach` 안에서 못 찾으면 `null`. */
+  nearest: number | null
+}
+
+/**
+ * 연결이 없는 요소를 찾아 그 이유를 가른다.
+ *
+ * `reach` 는 "이 정도면 원래 이어졌어야 할 거리" 다. 기본 50mm 는 실측에서 온 값이다 —
+ * ifc4Mep 의 포트를 정답지로 놓고 허용 오차를 키워 보면 50mm 에서 재현율이 94.3% 로
+ * 사실상 포화하고, 그래도 안 붙는 113개는 오차를 더 키워도 안 붙었다. 그 경계가 여기다.
+ *
+ * 계통이 다른 상대는 세지 않는다. 오차를 키워도 어차피 안 이을 것이라, 세면 "오차 문제" 라고
+ * 잘못 말하게 된다.
+ */
+export function findGaps(
+  elements: readonly ElementPoints[],
+  connections: readonly Connection[],
+  reach = 0.05,
+): Gap[] {
+  const connected = new Set<string>()
+  for (const c of connections) {
+    connected.add(c.from)
+    connected.add(c.to)
+  }
+  const lonely = elements.filter((e) => !connected.has(e.id))
+  if (lonely.length === 0) return []
+
+  // 격자 칸을 reach 로 잡으면 이웃 27칸 밖의 점은 반드시 reach 보다 멀다. inferConnections
+  // 와 같은 장치인데, 여기서는 "닿았나" 가 아니라 "얼마나 가까운가" 를 본다.
+  const cell = (v: number) => Math.floor(v / reach)
+  const key = (x: number, y: number, z: number) => `${x},${y},${z}`
+  const grid = new Map<string, { index: number; x: number; y: number; z: number }[]>()
+  elements.forEach((el, index) => {
+    for (let i = 0; i + 2 < el.points.length; i += 3) {
+      const x = el.points[i]
+      const y = el.points[i + 1]
+      const z = el.points[i + 2]
+      const k = key(cell(x), cell(y), cell(z))
+      const list = grid.get(k)
+      if (list) list.push({ index, x, y, z })
+      else grid.set(k, [{ index, x, y, z }])
+    }
+  })
+
+  const compatible = (a: ElementPoints, b: ElementPoints) =>
+    a.systems === null || b.systems === null || a.systems.some((s) => b.systems!.includes(s))
+
+  const indexOf = new Map(elements.map((e, i) => [e.id, i]))
+  const limit = reach * reach
+  return lonely.map((el) => {
+    const self = indexOf.get(el.id)!
+    let best = Infinity
+    for (let i = 0; i + 2 < el.points.length; i += 3) {
+      const x = el.points[i]
+      const y = el.points[i + 1]
+      const z = el.points[i + 2]
+      const cx = cell(x)
+      const cy = cell(y)
+      const cz = cell(z)
+      for (let dx = -1; dx <= 1; dx++)
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dz = -1; dz <= 1; dz++) {
+            const near = grid.get(key(cx + dx, cy + dy, cz + dz))
+            if (!near) continue
+            for (const q of near) {
+              if (q.index === self) continue
+              const d = (x - q.x) ** 2 + (y - q.y) ** 2 + (z - q.z) ** 2
+              if (d >= best || d > limit) continue
+              if (!compatible(el, elements[q.index])) continue
+              best = d
+            }
+          }
+    }
+    const nearest = best === Infinity ? null : Math.sqrt(best)
+    return { id: el.id, kind: nearest === null ? 'primary' : 'derived', nearest } as Gap
+  })
+}
+
 export type Trace = {
   /** 흐름을 거슬러 올라가서만 닿는 요소. */
   upstream: Set<string>

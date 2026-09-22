@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { inferConnections, neighbors, trace, type ElementPoints } from './topology'
+import { findGaps, inferConnections, neighbors, trace, type ElementPoints } from './topology'
 import type { Connection } from './model'
 
 /** x 축을 따라 놓인 배관 한 토막. 양 끝에 꼭짓점을 둔다. */
@@ -42,6 +42,37 @@ describe('inferConnections', () => {
   it('한 쌍은 한 번만 적는다', () => {
     // 맞닿은 꼭짓점이 여럿이어도 연결은 하나다.
     expect(inferConnections([pipe('p1', 0, 1), pipe('p2', 1, 2)])).toHaveLength(1)
+  })
+})
+
+describe('findGaps', () => {
+  it('이어진 요소는 결손이 아니다', () => {
+    const els = [pipe('p1', 0, 1), pipe('p2', 1, 2)]
+    expect(findGaps(els, inferConnections(els))).toEqual([])
+  })
+
+  it('오차 밖이지만 가까우면 2차 결손이다 — 오차를 키우면 붙는다', () => {
+    // 20mm 떨어져 있다. 기본 허용 오차 5mm 로는 안 붙지만 reach 50mm 안에는 든다.
+    const els = [pipe('p1', 0, 1), pipe('p2', 1.02, 2)]
+    const gaps = findGaps(els, inferConnections(els))
+    expect(gaps.map((g) => g.kind)).toEqual(['derived', 'derived'])
+    expect(gaps[0].nearest).toBeCloseTo(0.02, 6)
+  })
+
+  it('주변에 아무것도 없으면 1차 결손이다 — 모델을 다시 그려야 한다', () => {
+    const els = [pipe('p1', 0, 1), pipe('far', 10, 11)]
+    const gaps = findGaps(els, inferConnections(els))
+    expect(gaps.map((g) => [g.id, g.kind, g.nearest])).toEqual([
+      ['p1', 'primary', null],
+      ['far', 'primary', null],
+    ])
+  })
+
+  it('가까워도 계통이 다르면 1차 결손이다', () => {
+    // 오차를 키워도 계통이 다르면 어차피 안 잇는다. 2차 결손이라 부르면 "오차 문제" 라고
+    // 잘못 말하는 것이 된다.
+    const els = [pipe('cold', 0, 1, ['냉수']), pipe('hot', 1.02, 2, ['온수'])]
+    expect(findGaps(els, inferConnections(els)).map((g) => g.kind)).toEqual(['primary', 'primary'])
   })
 })
 

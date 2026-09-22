@@ -35,6 +35,8 @@ describe('importIfc', () => {
       unknownLoadBearingWalls: 2,
       // 건축만 있는 모델이다. 설비·계통이 0 인 것이 이 픽스처의 성질이다.
       equipment: 0,
+      devices: 0,
+      conduits: 0,
       unplacedEquipment: 0,
       equipmentWithoutCapacity: 0,
       systems: 0,
@@ -141,6 +143,14 @@ describe('MEP 임포트', () => {
       'Sensor',
       'UnitaryEquipment',
     ])
+
+    // 역할은 IFC 클래스 계층에서 읽는다. 덕트 한 토막만 도관이고 나머지 다섯은 기기다.
+    expect(counts.devices).toBe(5)
+    expect(counts.conduits).toBe(1)
+    expect(byName('AHU-1').role).toBe('conversion')
+    expect(byName('AT-101-01').role).toBe('terminal')
+    expect(byName('DUCT-01').role).toBe('segment')
+    expect(byName('TEMP-101-01').role).toBe('sensing')
   })
 
   it('층이 아니라 공간에 매달린 설비도 읽는다', () => {

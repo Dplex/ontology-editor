@@ -12,6 +12,9 @@ import type { Equipment, Model } from '../model'
 
 const PREFIXES = [
   '@prefix brick: <https://brickschema.org/schema/Brick#> .',
+  // 덕트·배관 구간은 Brick 이 맡지 않는다. FSO 가 그 자리다 — 아래 classOf 주석 참조.
+  // 네임스페이스는 FSO 공식 문서(alikucukavci.github.io/FSO)가 적은 것을 그대로 쓴다.
+  '@prefix fso: <http://www.w3id.org/fso#> .',
   '@prefix ex: <http://example.org/building#> .',
   '@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .',
 ]
@@ -58,7 +61,21 @@ const BRICK_CLASS: Record<string, string> = {
   LightFixture: 'brick:Lighting_Equipment',
 }
 
-export function brickClassOf(equipment: Equipment): string {
+/**
+ * 설비 하나의 클래스. **기기는 Brick, 도관은 FSO 다.**
+ *
+ * Brick 은 기기(공조기, 칠러, 토출구)의 어휘이지 덕트 한 토막의 어휘가 아니다. 구간과
+ * 이음쇠를 `ex:FlowSegment` 같은 이름으로 밀어 넣으면 읽는 쪽에서 기기와 구별할 수 없고,
+ * 설비 대수를 세면 여섯 배로 부푼다(실측: Duplex MEP 926대 중 785대가 도관).
+ * 최근 BIM→Brick 연구들이 Brick 과 FSO 를 짝으로 쓰는 이유가 이것이다.
+ *
+ * **IFC 클래스가 아니라 역할로 가른다.** IFC2x3 파일은 구체 클래스가 없어서 구간이
+ * `IfcFlowSegment` 그 자체로 들어오고, IFC4 파일은 `IfcPipeSegment`·`IfcDuctSegment` 로
+ * 갈린다. 이름으로 가르면 한쪽을 놓친다.
+ */
+export function classOf(equipment: Equipment): string {
+  if (equipment.role === 'segment') return 'fso:Segment'
+  if (equipment.role === 'fitting') return 'fso:Fitting'
   return BRICK_CLASS[equipment.ifcClass] ?? `ex:${equipment.ifcClass}`
 }
 
@@ -103,7 +120,7 @@ export function modelToTTL(model: Model): string {
     }
 
     for (const equipment of storey.equipment) {
-      lines.push(`${ref(equipment.id)} a ${brickClassOf(equipment)} ;`)
+      lines.push(`${ref(equipment.id)} a ${classOf(equipment)} ;`)
       lines.push(`    rdfs:label ${label(equipment.name)} ;`)
       // 소속 물리존. 좌표로 판정한 결과이고(PRD #12), 이상 알림의 '발생 위치' 가 이걸 쓴다.
       // 못 찾았으면 아예 안 적는다 — 빈 값을 적으면 "어디에도 없다" 와 "모른다" 가 섞인다.

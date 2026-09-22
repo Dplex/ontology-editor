@@ -69,11 +69,58 @@ export type Opening = {
   passable: boolean
 }
 
+/**
+ * IFC 계층이 말하는 역할. `IfcDistributionFlowElement` 의 하위 추상 타입을 그대로 옮긴 것이다.
+ *
+ * **해석이 아니라 전사다.** "소스", "싱크" 같은 말은 여기서 하지 않는다 — 보일러는 온수의
+ * 소스이면서 가스의 싱크라, 한 단어로 찍으면 절반이 틀린다. 쓰는 쪽에서 용도에 맞게
+ * 해석하고, 그 해석은 해석한 자리에 주석으로 남긴다.
+ *
+ * 이 값은 **거의 비지 않는다.** 포트·`IfcSystem`·`PredefinedType` 이 전부 빈 파일에서도
+ * 역할은 나온다. IFC 스키마가 클래스 계층으로 강제하기 때문이다. 실측 세 파일에서 설비
+ * 3,626대 중 분류가 안 된 것이 1대였다(`docs/ifc-coverage.md` §2).
+ */
+export type EquipmentRole =
+  /** 에너지를 바꾼다. 보일러, 칠러, 공조기, 열교환기 (`IfcEnergyConversionDevice`) */
+  | 'conversion'
+  /** 흐름을 민다. 펌프, 팬, 압축기 (`IfcFlowMovingDevice`) */
+  | 'moving'
+  /** 담아 둔다. 탱크 (`IfcFlowStorageDevice`) */
+  | 'storage'
+  /** 소비하거나 내보낸다. 토출구, 라디에이터, 위생기구, 콘센트 (`IfcFlowTerminal`) */
+  | 'terminal'
+  /** 거른다. 필터 (`IfcFlowTreatmentDevice`) */
+  | 'treatment'
+  /** 흐름을 조절한다. 밸브, 댐퍼 (`IfcFlowController`) */
+  | 'control'
+  /** 도관의 곧은 구간. 덕트·배관 (`IfcFlowSegment`) */
+  | 'segment'
+  /** 도관의 이음쇠. 엘보, 티, 레듀서 (`IfcFlowFitting`) */
+  | 'fitting'
+  /** 재거나 움직인다. 센서, 액추에이터 (`IfcDistributionControlElement`) */
+  | 'sensing'
+
+/**
+ * 도관인가 — 덕트·배관 구간과 이음쇠인가.
+ *
+ * **이 구분이 없으면 설비 대수가 거짓이 된다.** 실측에서 설비의 85%가 도관이었다
+ * (Duplex MEP 926대 중 785대). "설비 926대" 로 DT 에 나가면 기기가 여섯 배로 부푼다.
+ * 온톨로지 쪽에서도 자리가 다르다 — 기기는 Brick, 도관은 FSO 가 맡는다.
+ */
+export function isConduit(role: EquipmentRole | null): boolean {
+  return role === 'segment' || role === 'fitting'
+}
+
 export type Equipment = {
   id: string
   name: string
   /** IFC 클래스 이름에서 Ifc 를 뗀 것(UnitaryEquipment, AirTerminal, Sensor …). */
   ifcClass: string
+  /**
+   * IFC 계층에서 읽은 역할. `null` 이면 `IfcDistributionFlowElement` 아래가 아니라는 뜻이고,
+   * 그런 것은 드물다(`IfcDistributionChamberElement` 같은 것).
+   */
+  role: EquipmentRole | null
   /**
    * 세계 좌표. **`null` 이면 BIM 에 위치가 없다는 뜻이다.**
    * PRD #13 의 "미배치 목록" 이 이것이고, 사람이 3D 에서 직접 놓아 줘야 한다.
@@ -192,6 +239,9 @@ export function countOf(model: Model) {
     loadBearingWalls: sum((s) => s.walls.filter((w) => w.loadBearing === true).length),
     unknownLoadBearingWalls: sum((s) => s.walls.filter((w) => w.loadBearing === null).length),
     equipment: sum((s) => s.equipment.length),
+    // 설비를 기기와 도관으로 나눠 센다. 합치면 대수가 거짓이 된다 — isConduit 의 주석 참조.
+    devices: sum((s) => s.equipment.filter((e) => !isConduit(e.role)).length),
+    conduits: sum((s) => s.equipment.filter((e) => isConduit(e.role)).length),
     // 좌표가 없는 설비는 자동 배치가 안 되어 사람 손이 필요하다. 그래서 따로 센다.
     unplacedEquipment: sum((s) => s.equipment.filter((e) => e.position === null).length),
     // 용량이 없으면 공조존 용량 검증(Z-03)을 돌릴 수 없다.

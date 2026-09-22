@@ -94,8 +94,15 @@ describe('설비 내보내기', () => {
     const ttl = modelToTTL(mep)
     expect(ttl).toContain('a brick:Air_Handling_Unit ;')
     expect(ttl).toContain('a brick:Air_Diffuser ;')
-    // DuctSegment 는 Brick 에 대응 클래스가 없다. 지어내는 대신 ex: 로 뺀다.
-    expect(ttl).toContain('a ex:DuctSegment ;')
+  })
+
+  it('덕트·배관 구간은 Brick 이 아니라 FSO 로 뺀다', () => {
+    // Brick 은 기기의 어휘이지 덕트 한 토막의 어휘가 아니다. ex:DuctSegment 로 두면 읽는
+    // 쪽에서 기기와 구별할 수 없고, 설비 대수를 세면 실측 기준 여섯 배로 부푼다.
+    const ttl = modelToTTL(mep)
+    expect(ttl).toContain('@prefix fso: <http://www.w3id.org/fso#> .')
+    expect(ttl).toContain('a fso:Segment ;')
+    expect(ttl).not.toContain('a ex:DuctSegment ;')
   })
 
   it('소속 물리존을 hasLocation 으로 잇는다', () => {

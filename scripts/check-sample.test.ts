@@ -5,6 +5,7 @@ import { importIfc, importIfcWithMeshes } from '../src/lib/ifc/import'
 import { countOf } from '../src/lib/model'
 import { modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
+import { inferConnections } from '../src/lib/topology'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
 // 표현 방식이 훨씬 다양하기 때문이다. 그래서 공개 샘플 하나를 기준값으로 박아 둔다.
@@ -37,6 +38,8 @@ describe.skipIf(!existsSync(SAMPLE))('실제 BIM (AC20-FZK-Haus)', () => {
       // 건축 전용 모델이라 MEP 가 하나도 없다. 이 값이 0 이 아니게 되면 설비 판정 기준이
       // 넓어진 것이다 — 한때 IfcAnnotation 14개를 설비로 셌다.
       equipment: 0,
+      devices: 0,
+      conduits: 0,
       unplacedEquipment: 0,
       equipmentWithoutCapacity: 0,
       unlocatedEquipment: 0,
@@ -101,6 +104,9 @@ describe.skipIf(!existsSync(MEP))('실제 MEP BIM (ifc4Mep, IFC4)', () => {
 
     expect(model.schema).toBe('IFC4')
     expect(counts.equipment).toBe(2202)
+    // 설비의 86%가 덕트·배관이다. 합쳐서 "설비 2,202대" 로 내보내면 기기가 일곱 배로 부푼다.
+    expect(counts.devices).toBe(307)
+    expect(counts.conduits).toBe(1895)
     // IfcDistributionSystem 15 + IfcDistributionCircuit 22. 상속으로 골라야 37 이 된다.
     expect(counts.systems).toBe(37)
     expect(counts.unplacedEquipment).toBe(28)
@@ -186,6 +192,25 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     // 926대 전부 형상이 있다. 점으로만 찍던 시절에는 이 파일이 점 926개였다.
     expect(meshes.size).toBe(926)
 
+    // **실제 기기는 141대뿐이다.** 나머지 785대가 덕트·배관 구간과 이음쇠다.
+    // IFC2x3 이라 클래스가 전부 추상 이름(FlowSegment, FlowTerminal)인데도 역할은 나온다 —
+    // 역할은 클래스 계층에서 오는 것이라 PredefinedType 이 비어도 채워진다.
+    expect(counts.devices).toBe(141)
+    expect(counts.conduits).toBe(785)
+    const roles = new Map<string, number>()
+    for (const e of model.storeys.flatMap((s) => s.equipment)) {
+      roles.set(e.role ?? 'null', (roles.get(e.role ?? 'null') ?? 0) + 1)
+    }
+    expect(Object.fromEntries(roles)).toEqual({
+      segment: 427,
+      fitting: 358,
+      terminal: 105,
+      conversion: 16,
+      control: 14,
+      moving: 4,
+      sensing: 2,
+    })
+
     // IfcSystem 은 0 이다. 20개는 Revit 의 `System Name` 속성에서 세운 것이다.
     expect(counts.systems).toBe(20)
     expect(model.systems.every((s) => s.source === 'property')).toBe(true)
@@ -207,6 +232,13 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     })
     // 두 계통에 걸친 설비(온수기 같은 것)는 양쪽 이름을 다 갖고 있어서 여기 걸릴 수 있다.
     expect(crossing.length).toBeLessThan(counts.connections * 0.2)
+
+    // 못 이은 것을 이유별로 가른다. **절반 이상이 되살릴 수 있는 쪽이다** — 이 비율이
+    // 고객사에 "판정 기준을 조정하겠다" 와 "모델을 다시 그려 달라" 중 무엇을 말할지 정한다.
+    const gap = model.warnings.find((w) => w.includes('연결이 하나도 없습니다'))
+    expect(gap).toContain('설비 224대')
+    expect(gap).toContain('121대는 50mm 안에 이을 상대가 있어')
+    expect(gap).toContain('103대는 주변에 상대가 없습니다')
   }, 300_000)
 })
 
@@ -224,6 +256,64 @@ describe.skipIf(!existsSync(MEP))('포트 연결 (ifc4Mep, IFC4)', () => {
     expect(counts.directedConnections).toBe(1995)
     expect(model.connections.every((c) => c.source === 'port')).toBe(true)
   }, 300_000)
+})
+
+// 형상 추정이 얼마나 맞는지는 지금까지 잰 적이 없었다. 잴 수가 없어서다 — 포트가 없는
+// 파일에서 추정을 돌리니 맞춰 볼 정답지가 없다.
+//
+// **ifc4Mep 이 정답지다.** 포트가 4,232개이고 전부 SOURCE/SINK 라 연결 1,995개의 방향까지
+// 확정이다. 이 파일에 일부러 포트를 무시하고 형상 추정을 돌리면, 우리 알고리즘이 BIM 이
+// 말한 것을 얼마나 되살리는지 그대로 나온다.
+//
+// 틀리는 방향이 둘이라는 데 주의한다(Lilis 2025 의 혼동행렬).
+//   기하는 닿았는데 BIM 은 연결이라 안 함 → 붙어만 있고 안 이어진 것이거나 BIM 오류
+//   기하는 안 닿았는데 BIM 은 연결이라 함 → 접합부에 틈이 있는 모델링·내보내기 오류
+// 전자를 FP, 후자를 FN 으로 센다. **FP 가 전부 우리 잘못은 아니다** — 아래 주석 참조.
+describe.skipIf(!existsSync(MEP))('형상 추정의 정확도 (ifc4Mep 의 포트를 정답지로)', () => {
+  it('허용오차를 키우면 재현율이 오르고 정밀도가 떨어진다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const { model, meshes } = importIfcWithMeshes(api, new Uint8Array(readFileSync(MEP)))
+
+    const key = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
+    // 양쪽 다 메시가 있는 연결만 정답지로 둔다. 메시가 없으면 기하로는 애초에 못 찾으니
+    // 그것까지 못 맞췄다고 세면 알고리즘이 아니라 입력을 탓하는 것이 된다.
+    const truth = new Set(
+      model.connections.filter((c) => meshes.has(c.from) && meshes.has(c.to)).map((c) => key(c.from, c.to)),
+    )
+    expect(model.connections.length).toBe(1995)
+    expect(truth.size).toBe(1972)
+
+    const systemsOf = new Map<string, string[]>()
+    for (const s of model.systems) for (const id of s.memberIds) systemsOf.set(id, [...(systemsOf.get(id) ?? []), s.name])
+    const points = [...meshes].map(([id, m]) => ({ id, points: m.positions, systems: systemsOf.get(id) ?? null }))
+
+    const score = (tolerance: number) => {
+      const got = new Set(inferConnections(points, tolerance).map((c) => key(c.from, c.to)))
+      let tp = 0
+      for (const g of got) if (truth.has(g)) tp++
+      return { got: got.size, tp, fp: got.size - tp, fn: truth.size - tp, precision: tp / got.size, recall: tp / truth.size }
+    }
+
+    // 지금 기본값. 열 중 여덟을 맞히고 넷 중 셋을 찾는다.
+    const mm5 = score(0.005)
+    expect(mm5).toEqual({ got: 1878, tp: 1494, fp: 384, fn: 478, precision: 1494 / 1878, recall: 1494 / 1972 })
+
+    // 좁히면 정밀해지고 놓친다. 넓히면 다 찾는데 엉뚱한 것이 딸려 온다.
+    const mm1 = score(0.001)
+    const mm50 = score(0.05)
+    expect(mm1.precision).toBeGreaterThan(mm5.precision)
+    expect(mm1.recall).toBeLessThan(mm5.recall)
+    expect(mm50.recall).toBeGreaterThan(mm5.recall)
+    expect(mm50.precision).toBeLessThan(mm5.precision)
+
+    // 1mm 에서도 재현율이 절반이 안 된다. 접합부의 꼭짓점이 딱 맞물리게 그려진 모델이
+    // 드물다는 뜻이고, 허용 오차를 0 에 가깝게 두는 선택지는 없다는 뜻이다.
+    expect(mm1.recall).toBeLessThan(0.5)
+    // 50mm 까지 넓혀도 113개는 끝내 못 찾는다. 그건 오차 문제가 아니라 접합 부재가 아예
+    // 없는 것(1차 결손)이라, 알고리즘으로 메울 수 없다.
+    expect(mm50.fn).toBe(113)
+  }, 600_000)
 })
 
 describe.skipIf(!existsSync(DUPLEX_HVAC))('포트 연결 (Duplex HVAC, IFC2x3)', () => {

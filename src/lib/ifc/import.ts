@@ -10,12 +10,24 @@
 // "층에 속한다" 는 말인데 IFC 가 관계를 나눠 놓아서, 한쪽만 읽으면 절반이 빈다.
 
 import * as WebIFC from 'web-ifc'
-import type { Connection, Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall } from '../model'
+import type {
+  Connection,
+  Equipment,
+  EquipmentRole,
+  Model,
+  Opening,
+  Space,
+  Storey,
+  System,
+  Vec2,
+  Vec3,
+  Wall,
+} from '../model'
 import { polygonArea } from '../model'
 import { apply, foldChain, foldElevation, fromAxisPlacement, type Transform2 } from './placement'
 import { assignEquipmentToSpaces, unlocatedEquipment } from '../mapping'
 import { lengthScale } from './units'
-import { inferConnections } from '../topology'
+import { findGaps, inferConnections } from '../topology'
 
 /**
  * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
@@ -587,6 +599,27 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
     // 또 틀리므로, 포함 기준을 IFC 계층에 맡긴다.
     const mepIDs = new Set(r.ids(WebIFC.IFCDISTRIBUTIONELEMENT, true))
 
+    // 그 계층 한 단계 아래가 곧 역할이다. IfcDistributionFlowElement 의 하위 추상 타입이
+    // 소비·이송·변환·도관을 이미 나눠 놓았다.
+    //
+    // **이 조회는 상속 포함(true)이라야 한다.** IFC4 파일은 구체 클래스(IfcPipeSegment)로,
+    // IFC2x3 파일은 추상 클래스(IfcFlowSegment) 그 자체로 들어오는데, 상속을 안 켜면
+    // 두 경우 중 한쪽이 통째로 0 이 된다.
+    const roleOf = new Map<number, EquipmentRole>()
+    for (const [role, type] of [
+      ['conversion', WebIFC.IFCENERGYCONVERSIONDEVICE],
+      ['moving', WebIFC.IFCFLOWMOVINGDEVICE],
+      ['storage', WebIFC.IFCFLOWSTORAGEDEVICE],
+      ['terminal', WebIFC.IFCFLOWTERMINAL],
+      ['treatment', WebIFC.IFCFLOWTREATMENTDEVICE],
+      ['control', WebIFC.IFCFLOWCONTROLLER],
+      ['segment', WebIFC.IFCFLOWSEGMENT],
+      ['fitting', WebIFC.IFCFLOWFITTING],
+      ['sensing', WebIFC.IFCDISTRIBUTIONCONTROLELEMENT],
+    ] as const) {
+      for (const id of r.ids(type, true)) roleOf.set(id, role)
+    }
+
     // 계통도 같은 방식으로 고른다. IfcSystem 아래에 IfcDistributionSystem 이 있고 그 아래에
     // 다시 IfcDistributionCircuit(전기 회로, 배관 분기)이 있다. 정확히 일치하는 타입만
     // 받으면 실측 IFC4 MEP 모델에서 계통 37개 중 22개를 놓쳤다.
@@ -728,6 +761,7 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
               name,
               // GetNameFromTypeCode 는 'IfcAirTerminal' 을 준다. 앞의 Ifc 만 뗀다.
               ifcClass: api.GetNameFromTypeCode(el.type).replace(/^Ifc/i, ''),
+              role: roleOf.get(elementID) ?? null,
               position: r.position3(el),
               capacity: capacity.get(elementID)?.value ?? null,
               capacityProperty: capacity.get(elementID)?.property ?? null,
@@ -832,12 +866,28 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
       for (const system of systems) {
         for (const id of system.memberIds) systemsOf.set(id, [...(systemsOf.get(id) ?? []), system.name])
       }
-      result.connections = inferConnections(
-        [...meshes].map(([id, mesh]) => ({ id, points: mesh.positions, systems: systemsOf.get(id) ?? null })),
-      )
+      const points = [...meshes].map(([id, mesh]) => ({
+        id,
+        points: mesh.positions,
+        systems: systemsOf.get(id) ?? null,
+      }))
+      result.connections = inferConnections(points)
       if (result.connections.length > 0) {
         warnings.push(
           `BIM 에 포트(IfcDistributionPort) 연결이 없어 형상이 맞닿은 것으로 연결 ${result.connections.length}개를 추정했습니다. 흐름 방향은 모릅니다.`,
+        )
+      }
+
+      // 이은 것만 세면 못 이은 것이 조용히 사라진다. **못 이은 이유가 둘이고, 고객사에 할
+      // 말이 서로 다르다** — 오차를 키우면 붙는 것과 접합 부재가 아예 없는 것.
+      const gaps = findGaps(points, result.connections)
+      const derived = gaps.filter((g) => g.kind === 'derived').length
+      if (gaps.length > 0) {
+        warnings.push(
+          `설비 ${gaps.length}대에 연결이 하나도 없습니다. ` +
+            (derived > 0
+              ? `그중 ${derived}대는 50mm 안에 이을 상대가 있어 판정 오차 문제이고, 나머지 ${gaps.length - derived}대는 주변에 상대가 없습니다(접합 부재 누락).`
+              : '전부 주변에 이을 상대가 없습니다(접합 부재 누락). 모델을 다시 그려야 이어집니다.'),
         )
       }
     }

@@ -163,6 +163,21 @@ const selectedNeighbors = computed(() => {
 
 const systemById = computed(() => new Map((model.value?.systems ?? []).map((s) => [s.id, s])))
 
+// IFC 계층이 말하는 역할을 사람 말로. IFC2x3 파일은 클래스가 전부 'FlowTerminal' 처럼
+// 추상 이름이라 종류를 알 수 없는데, 역할만은 언제나 나온다.
+const ROLE_LABEL: Record<NonNullable<Equipment['role']>, string> = {
+  conversion: '에너지 변환',
+  moving: '이송',
+  storage: '저장',
+  terminal: '말단',
+  treatment: '처리',
+  control: '조절',
+  segment: '구간',
+  fitting: '이음쇠',
+  sensing: '계측',
+}
+const roleLabel = (role: Equipment['role']) => (role ? ROLE_LABEL[role] : '')
+
 // 계통 범례. 색은 3D 와 같은 자리에서 가져온다.
 const legend = computed(() => {
   if (!model.value) return []
@@ -374,7 +389,9 @@ function exportTTL() {
           <li><b>{{ counts.doors }}</b><span>문</span></li>
           <li><b>{{ counts.windows }}</b><span>창문</span></li>
           <li><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span></li>
-          <li><b>{{ counts.equipment }}</b><span>설비</span></li>
+          <!-- 설비를 하나로 세면 대수가 부푼다. 실측에서 85%가 덕트·배관이었다. -->
+          <li><b>{{ counts.devices }}</b><span>기기</span></li>
+          <li><b>{{ counts.conduits }}</b><span>덕트·배관</span></li>
           <li><b>{{ counts.systems }}</b><span>계통</span></li>
           <li><b>{{ counts.connections }}</b><span>연결</span></li>
           <li><b>{{ counts.directedConnections }}</b><span>흐름 방향</span></li>
@@ -426,7 +443,7 @@ function exportTTL() {
           <div>
             <h3>{{ selected.name || '(이름 없음)' }}</h3>
             <p class="stats">
-              {{ selected.ifcClass }} ·
+              {{ selected.ifcClass }}<template v-if="roleLabel(selected.role)"> ({{ roleLabel(selected.role) }})</template> ·
               {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }} ·
               {{ spaceNameOf(selected.spaceId) }}
             </p>
