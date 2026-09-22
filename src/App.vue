@@ -15,6 +15,22 @@ import {
   type Change,
 } from './lib/edit'
 
+// 테마는 라이트가 기본이고, 고른 값만 저장한다. 선행 스크립트(index.html)가 첫 페인트
+// 전에 같은 값을 읽어 깜빡임을 막는다.
+const dark = ref(document.documentElement.getAttribute('data-theme') === 'dark')
+
+function toggleTheme() {
+  dark.value = !dark.value
+  const root = document.documentElement
+  if (dark.value) root.setAttribute('data-theme', 'dark')
+  else root.removeAttribute('data-theme')
+  try {
+    localStorage.setItem('oe-theme', dark.value ? 'dark' : 'light')
+  } catch {
+    // 저장을 못 해도 이번 세션 동안은 바뀐 채로 쓴다.
+  }
+}
+
 const fileName = ref('')
 const busy = ref(false)
 const error = ref('')
@@ -167,8 +183,15 @@ function exportTTL() {
 <template>
   <main>
     <header>
-      <h1>ontology-editor</h1>
-      <p class="sub">BIM(IFC4)을 읽어 공간 온톨로지 초안을 만듭니다.</p>
+      <div class="title">
+        <div>
+          <h1>ontology-editor</h1>
+          <p class="sub">BIM(IFC4)을 읽어 공간 온톨로지 초안을 만듭니다.</p>
+        </div>
+        <button type="button" class="theme" :aria-pressed="dark" @click="toggleTheme">
+          {{ dark ? '라이트' : '다크' }}
+        </button>
+      </div>
     </header>
 
     <section

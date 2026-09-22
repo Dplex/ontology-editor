@@ -4,6 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ontology-editor</title>
+
+    <!-- 테마 결정은 스타일시트가 그려지기 전에 끝나야 한다. 나중에 하면 라이트로 한 프레임
+         그렸다가 다크로 튀는 깜빡임이 생긴다.
+
+         **기본은 라이트다.** 시스템이 다크라도 따라가지 않는다. 온종일 값을 고쳐 넣는
+         도구라서 밝은 쪽을 기본으로 두고, 원하는 사람만 토글로 바꾼다. -->
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem('oe-theme') === 'dark') {
+            document.documentElement.setAttribute('data-theme', 'dark')
+          }
+        } catch (e) {
+          // 사생활 보호 모드에서는 저장소를 못 읽는다. 그때는 기본값인 라이트로 둔다.
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

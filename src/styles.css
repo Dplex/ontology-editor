@@ -1,31 +1,75 @@
-/* 색은 토큰 하나로 모으고, 라이트 모드는 시스템 설정을 따른다.
-   토글은 화면이 더 자랄 때 붙인다. */
-:root {
-  --bg: #12141a;
-  --fg: #e6e8ee;
-  --muted: #8b90a0;
-  --line: #262a35;
-  --accent: #5ac8fa;
-  --error: #ff7b72;
-  --warn-fg: #ffd9a0;
-  --warn-bg: #2a2215;
-  --warn-line: #4a3a1d;
+/* ontology-editor — 캐주얼 라이트
+ *
+ * ieum-pipeline 운영 콘솔은 IMMERSIVE GARDEN(순흑 + 그레인 + 대형 편집 타이포)이다.
+ * 이 화면은 일부러 반대로 간다. **맑은 중립 회색 바탕, 흰 카드, 파란 액센트 하나.**
+ * 에디터는 DT 안이 아니라 별도로 도는 도구라(PRD 1.7) 콘솔과 같은 옷을 입을 이유가 없고,
+ * 온종일 값을 고쳐 넣는 화면이라 눈에 덜 부담스러운 쪽이 맞다.
+ *
+ * **중립을 지킨다.** 한때 따뜻한 쪽으로 기울였다가 세피아처럼 보였다. 회색에 색을 섞으면
+ * 캐주얼이 아니라 낡아 보인다. 회색은 회색으로 두고, 색은 액센트 하나로만 쓴다.
+ *
+ * 장치를 쓰지 않는다. 그레인도, 오로라도 없다. 깊이는 옅은 면 대비와 아주 낮은 그림자
+ * 하나로만 만든다. 화려함은 한 번 보기엔 좋지만 표와 입력칸이 대부분인 화면을 방해한다.
+ *
+ * 다크는 지우지 않고 변형으로 남긴다. **다만 시스템 설정을 따르지 않는다.** 대부분의 OS 가
+ * 다크로 맞춰져 있어서 시스템을 따르면 라이트 기본이라는 결정이 사실상 무효가 된다.
+ * 기본은 라이트이고, 바꾸고 싶은 사람이 토글을 누른다(index.html 의 선행 스크립트). */
 
-  color-scheme: dark light;
+:root {
+  color-scheme: light;
+
+  /* 표면 — 바탕은 아주 옅은 회색, 카드는 순백. 이 한 단 차이가 깊이를 만든다. */
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-soft: #f1f3f6;
+
+  /* 잉크 — 순흑을 피하되 색은 섞지 않는다. */
+  --fg: #1a1d21;
+  --muted: #6b7280;
+  --line: #e3e6ea;
+  --line-soft: #eef0f3;
+
+  /* 액센트 하나. 파란 계열이라 경고(주황)·오류(붉은색)와 안 부딪친다. */
+  --accent: #2f6fed;
+  --accent-soft: #eaf1fe;
+  --on-accent: #ffffff;
+
+  --error: #d1372b;
+  --error-soft: #fdeceb;
+  --warn-fg: #8a5300;
+  --warn-bg: #fff8e8;
+  --warn-line: #f5e2b8;
+
+  /* 그림자는 한 단계만. 두 단계를 넘어가면 장식이 된다. */
+  --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+
+  /* 둥글기와 여백을 토큰으로 둔다. 캐주얼한 인상은 색보다 이 둘이 만든다. */
+  --radius: 0.75rem;
+  --radius-sm: 0.5rem;
+  --gap: 1rem;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg: #fbfbfd;
-    --fg: #1b1d23;
-    --muted: #666c7a;
-    --line: #e2e4ea;
-    --accent: #0a84c8;
-    --error: #c0392b;
-    --warn-fg: #7a4b00;
-    --warn-bg: #fff6e5;
-    --warn-line: #f0d9ac;
-  }
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* 다크도 중립이다. 갈색 기운이 조금만 섞여도 낡아 보인다. */
+  --bg: #15171c;
+  --surface: #1c1f26;
+  --surface-soft: #23262e;
+  --fg: #e8eaee;
+  --muted: #8f96a3;
+  --line: #2b2f38;
+  --line-soft: #23262e;
+  --accent: #6f9bf5;
+  --accent-soft: #1d2735;
+  --on-accent: #0f1319;
+  --error: #f08076;
+  --error-soft: #2c1d1c;
+  --warn-fg: #edc77e;
+  --warn-bg: #2b2415;
+  --warn-line: #463a1f;
+  /* 어두운 면 위에서 옅은 그림자는 보이지 않는다. 깊이는 면 대비가 낸다. */
+  --shadow: none;
 }
 
 * {
@@ -37,24 +81,29 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  line-height: 1.6;
+  /* 줄 사이를 넉넉히. 촘촘한 표가 많아서 이게 인상을 크게 바꾼다. */
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
 }
 
 main {
-  max-width: 68rem;
+  max-width: 72rem;
   margin: 0 auto;
-  padding: 2.5rem 1rem 4rem;
+  padding: 3rem 1.25rem 5rem;
 }
 
+/* 제목을 키우지 않는다. 대형 타이포는 잘 보이지만 도구 화면에서는 자리만 먹는다. */
 h1 {
   margin: 0;
-  font-size: 1.5rem;
-  letter-spacing: -0.01em;
+  font-size: 1.45rem;
+  font-weight: 650;
+  letter-spacing: -0.015em;
 }
 
 h2 {
   margin: 0 0 0.25rem;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
+  font-weight: 620;
 }
 
 .sub,
@@ -67,15 +116,19 @@ h2 {
 
 .drop {
   margin-top: 2rem;
-  padding: 2.5rem 1rem;
-  border: 1px dashed var(--line);
-  border-radius: 0.75rem;
+  padding: 3rem 1.25rem;
+  border: 1.5px dashed var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
   text-align: center;
-  transition: border-color 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
 }
 
 .drop.over {
   border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .drop p {
@@ -85,10 +138,18 @@ h2 {
 
 .pick {
   display: inline-block;
-  padding: 0.5rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
+  padding: 0.55rem 1.25rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 560;
   cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.pick:hover {
+  opacity: 0.88;
 }
 
 .pick input {
@@ -97,7 +158,12 @@ h2 {
 
 .error {
   margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--error);
+  border-radius: var(--radius-sm);
+  background: var(--error-soft);
   color: var(--error);
+  font-size: 0.9rem;
 }
 
 .loaded {
@@ -114,8 +180,13 @@ table {
 th,
 td {
   text-align: left;
-  padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--line);
+  padding: 0.6rem 0.85rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* 표 안을 읽을 때 줄을 놓치지 않게 아주 옅게만 짚어 준다. 줄무늬는 쓰지 않는다. */
+tbody tr:hover {
+  background: var(--surface-soft);
 }
 
 th {
@@ -150,9 +221,11 @@ th {
 
 .tiles li {
   flex: 1 1 6rem;
-  padding: 0.75rem 1rem;
+  padding: 0.9rem 1.1rem;
   border: 1px solid var(--line);
-  border-radius: 0.6rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
 .tiles b {
@@ -168,9 +241,9 @@ th {
 
 .warnings {
   margin: 1.25rem 0 0;
-  padding: 0.75rem 1rem 0.75rem 2rem;
+  padding: 0.85rem 1rem 0.85rem 2rem;
   border: 1px solid var(--warn-line);
-  border-radius: 0.6rem;
+  border-radius: var(--radius);
   background: var(--warn-bg);
   color: var(--warn-fg);
   font-size: 0.9rem;
@@ -180,7 +253,9 @@ th {
   margin-top: 1.5rem;
   height: 26rem;
   border: 1px solid var(--line);
-  border-radius: 0.75rem;
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
   overflow: hidden;
 }
 
@@ -207,17 +282,22 @@ th {
 }
 
 .actions button {
-  padding: 0.55rem 1rem;
+  padding: 0.6rem 1.15rem;
   border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  background: transparent;
+  border-radius: 999px;
+  background: var(--surface);
   color: var(--fg);
   font: inherit;
+  font-weight: 540;
   cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
 }
 
 .actions button:hover {
   border-color: var(--accent);
+  background: var(--accent-soft);
 }
 
 .note {
@@ -231,8 +311,11 @@ th {
 
 .editor {
   margin-top: 2.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid var(--line);
+  padding: 1.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
 }
 
 .editor h3 {
@@ -264,17 +347,22 @@ th {
 }
 
 .editor input {
-  padding: 0.35rem 0.55rem;
+  padding: 0.4rem 0.6rem;
   border: 1px solid var(--line);
-  border-radius: 0.4rem;
-  background: transparent;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   color: var(--fg);
   font: inherit;
   font-size: 0.9rem;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
+/* 초점 표시를 테두리 색만으로 두지 않는다. 얇은 고리를 더해야 눈에 들어온다. */
 .editor input:focus {
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
   outline: none;
 }
 
@@ -300,9 +388,10 @@ th {
 
 .report {
   margin: 0;
-  padding: 0.75rem 1rem 0.75rem 2rem;
-  border: 1px solid var(--line);
-  border-radius: 0.6rem;
+  padding: 0.85rem 1rem 0.85rem 2rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--accent-soft);
   font-size: 0.9rem;
 }
 
@@ -324,12 +413,40 @@ th {
 
 .vertex {
   display: inline-flex;
-  gap: 0.15rem;
-  padding: 0.15rem;
-  border: 1px solid var(--line);
-  border-radius: 0.4rem;
+  gap: 0.2rem;
+  padding: 0.2rem;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
 }
 
 .vertex .coord {
   width: 4.5rem;
+}
+
+.title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.theme {
+  flex: 0 0 auto;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.theme:hover {
+  color: var(--fg);
+  border-color: var(--accent);
 }

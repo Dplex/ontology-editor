@@ -23,8 +23,14 @@ import {
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import type { Model, Vec2 } from './model'
 
-/** 층을 구분하는 색. 층 수만큼 순환한다. */
-const STOREY_COLORS = [0x5ac8fa, 0xffd166, 0x9b8cff, 0x6fcf97, 0xff8a65]
+/**
+ * 층을 구분하는 색. 층 수만큼 순환한다.
+ *
+ * 파랑에서 시작해 색상환을 도는 중채도 계열이다. 흙빛 계열을 써 봤더니 밝은 배경 위에서
+ * 낡아 보였고, 형광색은 반대로 튀기만 한다. 채도는 중간, 명도는 비슷하게 맞춰서 어느
+ * 층이 위인지가 색이 아니라 높이로 읽히게 한다.
+ */
+const STOREY_COLORS = [0x6f9bf5, 0x4fc3a1, 0xb08ef0, 0xf0a94e, 0xef7d7d]
 
 /**
  * 공간 하나를 얇은 판으로 세운다.
@@ -46,7 +52,7 @@ export function spaceMesh(footprint: readonly Vec2[], color: number): Mesh | nul
 
   return new Mesh(
     geometry,
-    new MeshLambertMaterial({ color, transparent: true, opacity: 0.75, side: DoubleSide }),
+    new MeshLambertMaterial({ color, transparent: true, opacity: 0.8, side: DoubleSide }),
   )
 }
 
@@ -57,7 +63,8 @@ export function spaceMesh(footprint: readonly Vec2[], color: number): Mesh | nul
  * 기계실 설비가 바닥 가까이 있는 게 보이면 z 를 제대로 읽은 것이다.
  */
 export function equipmentMarker(position: readonly [number, number, number]): Mesh {
-  const mesh = new Mesh(new BoxGeometry(0.4, 0.4, 0.4), new MeshBasicMaterial({ color: 0xff5252 }))
+  // 설비는 작아서 눈에 띄어야 한다. 층 색과 겹치지 않는 진한 남색으로 둔다.
+  const mesh = new Mesh(new BoxGeometry(0.4, 0.4, 0.4), new MeshBasicMaterial({ color: 0x1f3d99 }))
   // IFC 는 z 가 높이지만 three 는 y 가 높이다. 여기서 축을 바꾼다.
   mesh.position.set(position[0], position[2], position[1])
   return mesh
@@ -75,8 +82,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const controls = new OrbitControls(camera, canvas)
   controls.enableDamping = true
 
-  scene.add(new AmbientLight(0xffffff, 1.6))
-  const sun = new DirectionalLight(0xffffff, 1.2)
+  // 밝은 배경 위에서는 빛을 덜 준다. 그러지 않으면 면이 하얗게 날아가 경계가 사라진다.
+  scene.add(new AmbientLight(0xffffff, 1.25))
+  const sun = new DirectionalLight(0xffffff, 0.9)
   sun.position.set(20, 40, 20)
   scene.add(sun)
 
