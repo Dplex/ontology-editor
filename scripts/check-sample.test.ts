@@ -14,6 +14,7 @@ import { modelToGeoJSON } from '../src/lib/export/geojson'
 //
 // 받는 법: npm run fetch:sample
 const SAMPLE = 'data/AC20-FZK-Haus.ifc'
+const MEP = 'data/ifc4Mep_IFC4.ifc'
 
 describe.skipIf(!existsSync(SAMPLE))('실제 BIM (AC20-FZK-Haus)', () => {
   it('개수와 넓이가 기준값과 맞는다', async () => {
@@ -63,4 +64,36 @@ describe.skipIf(!existsSync(SAMPLE))('실제 BIM (AC20-FZK-Haus)', () => {
 it.skipIf(existsSync(SAMPLE))('샘플이 없으면 건너뛴다', () => {
   console.log(`${SAMPLE} 이 없어 실제 BIM 검사를 건너뜁니다. npm run fetch:sample 로 받으세요.`)
   expect(existsSync(SAMPLE)).toBe(false)
+})
+
+// 설비가 실제로 든 IFC4 모델. DDS-CAD 이 내보낸 것이고 건축은 들어 있지 않다.
+//
+//   출처: github.com/opensourceBIM/TestFiles  TestData/data/ifc4Mep export 17-12-2013_IFC4.ifc
+//
+// 손으로 쓴 픽스처가 통과해도 여기서 깨진 적이 있다. 계통을 정확히 일치하는 타입으로만
+// 고르다가 IfcDistributionCircuit 22개를 놓쳤다.
+describe.skipIf(!existsSync(MEP))('실제 MEP BIM (ifc4Mep, IFC4)', () => {
+  it('설비와 계통을 기준값대로 읽는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfc(api, new Uint8Array(readFileSync(MEP)))
+    const counts = countOf(model)
+
+    expect(model.schema).toBe('IFC4')
+    expect(counts.equipment).toBe(2202)
+    // IfcDistributionSystem 15 + IfcDistributionCircuit 22. 상속으로 골라야 37 이 된다.
+    expect(counts.systems).toBe(37)
+    expect(counts.unplacedEquipment).toBe(28)
+
+    const equipment = model.storeys.flatMap((s) => s.equipment)
+    expect(equipment.filter((e) => e.systemId !== null)).toHaveLength(1714)
+
+    // 설비 전용 모델이라 물리존이 없다. 소속을 하나도 못 찾는 것이 정상이고,
+    // 이것이 건축 모델과 합쳐야 하는 이유다.
+    expect(counts.spaces).toBe(0)
+    expect(counts.unlocatedEquipment).toBe(2202)
+
+    // 용량은 하나도 안 읽힌다. DDS-CAD 이 우리가 찾는 이름을 쓰지 않는다.
+    expect(counts.equipmentWithoutCapacity).toBe(2202)
+  }, 300_000)
 })

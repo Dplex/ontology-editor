@@ -13,7 +13,8 @@
 
 ```bash
 npm install
-npm run fetch:sample          # 실측 샘플 BIM 을 data/ 로 받는다 (2.5MB)
+npm run fetch:sample          # 실측 샘플 BIM 셋을 data/ 로 받는다 (합계 약 45MB)
+unzip -o data/NBU_Duplex_ifc.zip -d data/   # Duplex 는 압축이라 풀어야 한다
 npx playwright install chromium
 
 npm test                      # 58개 통과가 정상이다
@@ -32,7 +33,7 @@ npm run dev                   # http://localhost:5174
 |---|---|
 | F1 F2 F3 공간 계층·기하·이름 | 임포트된다. 실제 BIM 으로 확인했다 |
 | F7 내력벽 | 읽는다. 값이 없는 경우를 `null` 로 구분한다 |
-| F8 F9 F10 설비·위치·계통 | 읽는다. 손으로 쓴 픽스처로만 확인했다 |
+| F8 F9 F10 설비·위치·계통 | 읽는다. 실제 IFC4 MEP 모델(설비 2,202 · 계통 37)로 확인했다 |
 | F11 설비 소속 물리존 | 좌표로 판정한다 |
 | 내보내기 | 기하는 GeoJSON, 의미는 Brick TTL 로 나간다 |
 | E1 E5 E6 편집 | 물리존 이름 수정, 설비 이동, 미배치 설비 배치 |
@@ -89,21 +90,48 @@ npm run dev                   # http://localhost:5174
 **주의할 규칙 둘.** 한 층에 물리존이 최소 하나는 남아야 한다. 물리존을 지워도 층에 구멍이 생기는
 것이 아니라 주변 물리존으로 그 공간이 귀속된다(PRD #9).
 
-### 4. MEP 가 든 실제 BIM 으로 확인한다
+### 4. 길이 단위를 읽는다 (새로 올라온 1순위)
 
-**왜.** 설비 임포트는 손으로 쓴 픽스처로만 확인했다. 실제 저작 도구가 내보낸 파일은 표현 방식이
-훨씬 다양하다.
+**왜.** 실제 MEP 모델을 구해서 돌려 보니 여기서 걸렸다. `IfcUnitAssignment` 을 안 읽어서
+미터가 아닌 모델의 좌표가 통째로 틀린다. 확인한 네 파일 중 둘이 그랬다.
 
-**막혀 있는 것.** 공개 샘플 넷을 확인했는데 넷 다 MEP 계통이 없었다. 구할 데를 찾아야 한다.
-고객사 BIM 을 받을 수 있으면 그게 가장 좋다.
+| 모델 | 선언된 길이 단위 | 지금 읽히는 값 |
+|---|---|---|
+| AC20-FZK-Haus | METRE | 맞다 |
+| ifc4Mep | METRE | 맞다 |
+| NBU_Duplex-Apt_Eng-HVAC | MILLIMETRE | 1,000배로 들어온다 |
+| NBU_Duplex-Apt_Eng-MEP-1 | FOOT | 3.28배로 들어온다 |
 
-**받을 때 확인하는 방법.**
+**오류가 나지 않고 숫자가 그럴듯해서 눈으로 보기 전에는 모른다.** 소속 물리존 판정과 넓이가
+전부 여기에 딸려 있으므로 다른 것보다 먼저 고친다.
 
-```bash
-grep -oE "^#[0-9]+= *IFC[A-Z0-9]+" 받은파일.ifc | sed -E 's/.*= *//' | sort | uniq -c | sort -rn | head -30
-```
+**어디부터.** `IfcProject.UnitsInContext` 에서 `LENGTHUNIT` 을 찾는다. `IfcSIUnit` 이면
+`Prefix`(MILLI, CENTI 등)로 배수를 정하고, `IfcConversionBasedUnit` 이면 `ConversionFactor` 를
+읽는다. 읽은 배수를 `Reader` 에 들고 다니며 좌표와 길이에 곱한다.
 
-`IfcSystem` 이 0 이면 계통이 없는 파일이다.
+**무엇이 통과면 끝인가.** 픽스처를 밀리미터로 선언한 판본을 하나 만들어 같은 결과가 나오는지
+본다. `check-sample.test.ts` 에 Duplex HVAC 의 설비 좌표 기준값을 미터로 박는다.
+
+### 5. 실제 MEP BIM 으로 확인한다 (구해 놓았다)
+
+`npm run fetch:sample` 이 셋을 받는다. 이미 `check:sample` 이 둘을 대조하고 있다.
+
+| 파일 | 무엇을 증명하나 |
+|---|---|
+| `AC20-FZK-Haus.ifc` | 건축만 있는 IFC4. 공간 골격의 범위 |
+| `ifc4Mep_IFC4.ifc` | 설비만 있는 IFC4. 설비 2,202 · 계통 37 · 포트 4,232 |
+| `NBU_Duplex_ifc.zip` | 건축과 설비가 갈린 실제 프로젝트. COBie 판본에 계통 10 |
+
+**여기서 나온 남은 일 셋.**
+
+1. **설비가 `IfcSpace` 에 담긴 경우를 못 읽는다.** Duplex COBie 판본은 설비 133대가 있는데
+   우리는 0 으로 읽었다. 지금은 층의 `IfcRelContainedInSpatialStructure` 만 보기 때문이다.
+   공간에 담긴 것도 같이 읽어야 한다.
+2. **건축 모델과 설비 모델을 합치지 못한다.** 한 번에 파일 하나만 연다. 설비 모델에는 물리존이
+   없어서(`ifc4Mep` 의 물리존 0) 소속 판정이 전부 실패한다. 여러 파일을 겹쳐 읽는 기능이
+   필요하고, 겹칠 때 좌표계가 같은지 확인하는 절차도 같이 필요하다.
+3. **용량 파라미터 이름이 도구마다 다르다.** `ifc4Mep`(DDS-CAD)은 2,202대 전부 용량이 안
+   읽혔다. 지금 찾는 이름 넷으로는 부족하다. 실제 파일에 무슨 이름이 쓰이는지 세어 보고 늘린다.
 
 ---
 
@@ -149,3 +177,6 @@ grep -oE "^#[0-9]+= *IFC[A-Z0-9]+" 받은파일.ifc | sed -E 's/.*= *//' | sort 
   한때 `IfcAnnotation` 14개를 설비로 셌다.
 - **`data/` 와 `public/web-ifc.wasm` 은 커밋하지 않는다.** 각각 `fetch:sample` 과 `sync-wasm.mjs`
   가 만든다.
+- **타입을 정확히 일치시켜 고르지 말고 상속으로 고른다.** 설비는 `IfcDistributionElement`,
+  계통은 `IfcSystem` 을 `includeInherited` 로 조회한다. 계통을 정확히 일치로 골랐다가 실측
+  모델에서 `IfcDistributionCircuit` 22개를 놓쳤다.

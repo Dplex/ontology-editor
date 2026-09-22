@@ -209,6 +209,11 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
     // 또 틀리므로, 포함 기준을 IFC 계층에 맡긴다.
     const mepIDs = new Set(r.ids(WebIFC.IFCDISTRIBUTIONELEMENT, true))
 
+    // 계통도 같은 방식으로 고른다. IfcSystem 아래에 IfcDistributionSystem 이 있고 그 아래에
+    // 다시 IfcDistributionCircuit(전기 회로, 배관 분기)이 있다. 정확히 일치하는 타입만
+    // 받으면 실측 IFC4 MEP 모델에서 계통 37개 중 22개를 놓쳤다.
+    const systemIDs = new Set(r.ids(WebIFC.IFCSYSTEM, true))
+
     const firstName = (type: number) => {
       const [id] = r.ids(type)
       return id === undefined ? '' : ((val(r.line(id)?.Name) as string) ?? '')
@@ -240,9 +245,9 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
       const rel = r.line(relID)
       const groupID = rel?.RelatingGroup?.value
       if (groupID === undefined) continue
-      const group = r.line(groupID)
       // 그룹은 계통 말고도 쓰인다(존, 작업 묶음 등). 계통 계열만 취한다.
-      if (group?.type !== WebIFC.IFCDISTRIBUTIONSYSTEM && group?.type !== WebIFC.IFCSYSTEM) continue
+      if (!systemIDs.has(groupID)) continue
+      const group = r.line(groupID)
 
       const id = (val(group?.GlobalId) as string) ?? `system-${groupID}`
       const memberIDs = (rel.RelatedObjects ?? []).map((h: any) => h.value)
