@@ -6,7 +6,14 @@ import { countOf, type Model } from './lib/model'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
 import { createViewer, type Viewer } from './lib/viewer'
-import { moveEquipment, renameSpace, summarize, type Change } from './lib/edit'
+import {
+  moveEquipment,
+  moveSpaceVertex,
+  renameSpace,
+  summarize,
+  type BoundaryChange,
+  type Change,
+} from './lib/edit'
 
 const fileName = ref('')
 const busy = ref(false)
@@ -25,6 +32,20 @@ const counts = computed(() => (model.value ? countOf(model.value) : null))
 // triggerRef 로 알린다. 모델을 통째로 복사하면 3D 가 매번 다시 만들어진다.
 const changes = ref<Change[]>([])
 const report = computed(() => summarize(changes.value))
+
+// 넓이는 편집할 때마다 조금씩 움직인다. 매번 한 줄씩 쌓지 말고 처음과 끝만 적는다.
+const areaSummary = computed(() => {
+  const first = new Map<string, BoundaryChange>()
+  for (const c of areaChanges.value) if (!first.has(c.spaceId)) first.set(c.spaceId, c)
+
+  const parts: string[] = []
+  for (const [spaceId, start] of first) {
+    const now = areaChanges.value.filter((c) => c.spaceId === spaceId).at(-1)!
+    if (Math.abs(now.toAreaM2 - start.fromAreaM2) < 0.005) continue
+    parts.push(`${start.spaceName} ${start.fromAreaM2.toFixed(1)}㎡ → ${now.toAreaM2.toFixed(1)}㎡`)
+  }
+  return parts.join(' · ')
+})
 
 // 층의 벽 두께 종류를 한 줄로 요약한다. 값이 여럿이면 내벽과 외벽이 섞인 것이다.
 const wallThicknessOf = (storey: { walls: { thickness: number | null }[] }) => {
@@ -56,6 +77,26 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
   viewer?.setModel(model.value)
 }
 
+// 경계 편집은 넓이와 설비 소속을 동시에 흔든다. 두 변화를 같은 자리에서 보여 준다.
+const areaChanges = ref<BoundaryChange[]>([])
+const selfIntersecting = computed(() => areaChanges.value.some((c) => c.selfIntersecting))
+
+function applyVertex(spaceId: string, index: number, axis: 0 | 1, raw: string, current: readonly number[]) {
+  const value = Number(raw)
+  if (!model.value || !Number.isFinite(value)) return
+
+  const point: [number, number] = [current[0], current[1]]
+  point[axis] = value
+
+  const change = moveSpaceVertex(model.value, spaceId, index, point)
+  if (!change) return
+
+  areaChanges.value = [...areaChanges.value, change]
+  changes.value = [...changes.value, ...change.equipment]
+  triggerRef(model)
+  viewer?.setModel(model.value)
+}
+
 function applyRename(spaceId: string, name: string) {
   if (!model.value) return
   renameSpace(model.value, spaceId, name)
@@ -79,6 +120,7 @@ async function load(file: File) {
     fileName.value = file.name
     // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다.
     changes.value = []
+    areaChanges.value = []
   } catch (e) {
     // 실패한 채로 이전 모델을 남겨 두면 화면이 방금 연 파일을 보여 주는 것처럼 보인다.
     model.value = null
@@ -225,6 +267,51 @@ function exportTTL() {
           </li>
         </ul>
 
+        <h3>물리존 경계 (E2)</h3>
+        <p class="hint">
+          꼭짓점을 고치면 넓이가 다시 계산되고, 경계 밖으로 밀려난 설비의 소속이 바뀝니다.
+        </p>
+        <table class="equipment">
+          <thead>
+            <tr>
+              <th>물리존</th>
+              <th class="num">넓이</th>
+              <th>꼭짓점 (x, y)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="s in model.storeys" :key="s.id">
+              <tr v-for="sp in s.spaces" :key="sp.id">
+                <td>{{ sp.longName || sp.name }}</td>
+                <td class="num mono">{{ sp.areaM2.toFixed(1) }} ㎡</td>
+                <td class="vertices">
+                  <!-- 닫는 점은 첫 점과 같으므로 보여 주지 않는다. 두 번 고치게 된다. -->
+                  <span v-for="(p, i) in sp.footprint.slice(0, -1)" :key="i" class="vertex">
+                    <input
+                      class="coord mono"
+                      type="number"
+                      step="0.1"
+                      :value="p[0]"
+                      @change="applyVertex(sp.id, i, 0, ($event.target as HTMLInputElement).value, p)"
+                    />
+                    <input
+                      class="coord mono"
+                      type="number"
+                      step="0.1"
+                      :value="p[1]"
+                      @change="applyVertex(sp.id, i, 1, ($event.target as HTMLInputElement).value, p)"
+                    />
+                  </span>
+                  <span v-if="!sp.footprint.length" class="muted">외곽선 없음</span>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <p v-if="selfIntersecting" class="error" role="alert">
+          경계가 자기 자신과 교차합니다. 이 상태에서는 넓이와 소속 판정이 뜻을 잃습니다.
+        </p>
+
         <h3>설비 위치와 소속 (E5 · E6)</h3>
         <table class="equipment">
           <thead>
@@ -260,11 +347,12 @@ function exportTTL() {
         <p v-if="counts.equipment === 0" class="empty">이 BIM 에는 설비가 없습니다.</p>
 
         <h3>바뀌는 것 (PRD #21)</h3>
-        <ul v-if="report.length" class="report">
+        <ul v-if="report.length || areaChanges.length" class="report">
           <li v-for="c in report" :key="c.equipmentId">
             {{ c.equipmentName }}:
             <b>{{ spaceNameOf(c.fromSpaceId) }}</b> → <b>{{ spaceNameOf(c.toSpaceId) }}</b>
           </li>
+          <li v-if="areaSummary" class="muted">{{ areaSummary }}</li>
         </ul>
         <p v-else class="empty">아직 바뀐 소속 관계가 없습니다.</p>
       </section>

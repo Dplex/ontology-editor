@@ -94,3 +94,34 @@ test('설비를 옮기면 소속 물리존이 다시 판정된다', async ({ pag
 
   expect(errors).toEqual([])
 })
+
+test('물리존 경계를 고치면 넓이와 설비 소속이 같이 바뀐다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+
+  const spaceRow = page.locator('.equipment tbody tr', { hasText: '사무실' }).first()
+  await expect(spaceRow).toContainText('80.0 ㎡')
+
+  // AT-101-02 는 (7,4) 에 있다. 두 번째 꼭짓점 x 를 5 로 당기면 밖으로 밀려난다.
+  const terminal = page.locator('.equipment tbody tr', { hasText: 'AT-101-02' })
+  await expect(terminal).toContainText('사무실')
+
+  // 오른쪽 두 꼭짓점의 x 를 5 로 당겨 폭을 절반으로 줄인다. 하나만 당기면 사다리꼴이
+  // 되어 (7,4) 가 아직 안에 남는다 — 경계 편집은 이렇게 직관과 어긋난다.
+  for (const i of [1, 2]) {
+    const x = spaceRow.locator('.vertex').nth(i).locator('.coord').first()
+    await x.fill('5')
+    await x.blur()
+  }
+
+  // 넓이가 줄고, 소속이 빠지고, 리포트에 둘 다 남는다.
+  await expect(spaceRow).toContainText('40.0 ㎡')
+  await expect(page.locator('.report')).toContainText('AT-101-02')
+  await expect(page.locator('.report')).toContainText('80.0㎡ → 40.0㎡')
+
+  expect(errors).toEqual([])
+})

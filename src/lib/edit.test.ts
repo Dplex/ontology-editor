@@ -3,7 +3,15 @@ import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
-import { moveEquipment, moveEquipmentToStorey, renameSpace, summarize, type Change } from './edit'
+import {
+  moveEquipment,
+  moveEquipmentToStorey,
+  moveSpaceVertex,
+  renameSpace,
+  replaceSpaceFootprint,
+  summarize,
+  type Change,
+} from './edit'
 import type { Model } from './model'
 
 let api: WebIFC.IfcAPI
@@ -108,5 +116,90 @@ describe('결과 리포트 (PRD #21)', () => {
 
   it('바뀐 것이 없으면 빈 목록이다', () => {
     expect(summarize([])).toEqual([])
+  })
+})
+
+describe('물리존 경계 수정 (E2)', () => {
+  const office = () => model.storeys[0].spaces[0]
+
+  it('넓이가 다시 계산된다', () => {
+    // 사무실은 (0,0)-(10,8) 이라 80㎡ 다. 한 꼭짓점을 당기면 줄어든다.
+    expect(office().areaM2).toBeCloseTo(80, 6)
+
+    // (10,0) 을 (5,0) 으로 당기면 사각형이 사다리꼴이 된다. 윗변 10, 아랫변 5, 높이 8 이라 60㎡.
+    const change = moveSpaceVertex(model, office().id, 1, [5, 0])!
+    expect(change.fromAreaM2).toBeCloseTo(80, 6)
+    expect(change.toAreaM2).toBeCloseTo(60, 6)
+    expect(office().areaM2).toBeCloseTo(60, 6)
+  })
+
+  it('경계 밖으로 밀려난 설비의 소속이 바뀐다', () => {
+    // AT-101-02 는 (7,4) 에 있다. 경계를 x=5 까지 당기면 밖으로 나간다.
+    const terminal = equip('AT-101-02')
+    expect(terminal.spaceId).toBe(office().id)
+
+    const change = replaceSpaceFootprint(model, office().id, [
+      [0, 0],
+      [5, 0],
+      [5, 8],
+      [0, 8],
+      [0, 0],
+    ])!
+
+    expect(terminal.spaceId).toBe(null)
+    expect(change.equipment.map((c) => c.equipmentName)).toContain('AT-101-02')
+    expect(change.equipment.find((c) => c.equipmentName === 'AT-101-02')!.toSpaceId).toBe(null)
+  })
+
+  it('안에 남은 설비는 변화 목록에 없다', () => {
+    // AHU-1 은 (1,1) 이라 줄인 뒤에도 안에 있다. 바뀌지 않은 것을 적으면 리포트가 부풀려진다.
+    const change = replaceSpaceFootprint(model, office().id, [
+      [0, 0],
+      [5, 0],
+      [5, 8],
+      [0, 8],
+      [0, 0],
+    ])!
+    expect(change.equipment.map((c) => c.equipmentName)).not.toContain('AHU-1')
+  })
+
+  it('BIM 이 소속을 말한 설비는 경계를 바꿔도 그대로다', () => {
+    // LIGHT-101-01 은 좌표가 (50,50) 으로 밖인데 IFC 가 사무실에 담아 두었다.
+    const light = equip('LIGHT-101-01')
+    replaceSpaceFootprint(model, office().id, [
+      [0, 0],
+      [1, 0],
+      [1, 1],
+      [0, 1],
+      [0, 0],
+    ])
+    expect(light.spaceId).toBe(office().id)
+    expect(light.spaceSource).toBe('bim')
+  })
+
+  it('닫힌 고리의 첫 점을 옮기면 끝 점도 따라온다', () => {
+    // 하나만 옮기면 고리가 벌어져서 넓이가 엉뚱해진다.
+    const change = moveSpaceVertex(model, office().id, 0, [-2, -2])!
+    const ring = office().footprint
+    expect(ring[0]).toEqual([-2, -2])
+    expect(ring[ring.length - 1]).toEqual([-2, -2])
+    expect(change.toAreaM2).toBeGreaterThan(80)
+  })
+
+  it('자기 자신과 교차하면 알린다', () => {
+    const change = replaceSpaceFootprint(model, office().id, [
+      [0, 0],
+      [10, 8],
+      [10, 0],
+      [0, 8],
+      [0, 0],
+    ])!
+    // 막지는 않는다. 끌다 보면 잠깐 교차했다 풀리는 일이 흔하다.
+    expect(change.selfIntersecting).toBe(true)
+  })
+
+  it('없는 꼭짓점이면 아무것도 안 한다', () => {
+    expect(moveSpaceVertex(model, office().id, 99, [0, 0])).toBe(null)
+    expect(moveSpaceVertex(model, '없는-id', 0, [0, 0])).toBe(null)
   })
 })

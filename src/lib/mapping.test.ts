@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { pointInPolygon } from './mapping'
+import { isSelfIntersecting, pointInPolygon } from './mapping'
 import type { Vec2 } from './model'
 
 // 4 x 3 직사각형. 왼쪽 아래가 (0,0) 이다.
@@ -49,5 +49,28 @@ describe('pointInPolygon', () => {
   it('점이 세 개 미만이면 밖이다', () => {
     // FootPrint 를 못 읽은 공간이 이렇게 들어온다. 예외를 던지는 대신 아무도 안 담는다.
     expect(pointInPolygon([0, 0], [])).toBe(false)
+  })
+})
+
+describe('isSelfIntersecting', () => {
+  it('보통 방은 교차하지 않는다', () => {
+    expect(isSelfIntersecting(RECT)).toBe(false)
+    expect(isSelfIntersecting(L_SHAPE)).toBe(false)
+  })
+
+  it('나비 모양은 교차한다', () => {
+    // 두 꼭짓점을 엇갈리게 이으면 8자가 된다. 넓이도 안팎 판정도 뜻을 잃는다.
+    const bowtie: Vec2[] = [
+      [0, 0],
+      [4, 4],
+      [4, 0],
+      [0, 4],
+      [0, 0],
+    ]
+    expect(isSelfIntersecting(bowtie)).toBe(true)
+  })
+
+  it('꼭짓점이 셋 이하면 교차할 수 없다', () => {
+    expect(isSelfIntersecting([[0, 0], [1, 0], [0, 1], [0, 0]])).toBe(false)
   })
 })
