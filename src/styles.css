@@ -226,3 +226,86 @@ th {
   color: var(--muted);
   font-size: 0.85rem;
 }
+
+/* ---- 편집 ---- */
+
+.editor {
+  margin-top: 2.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.editor h3 {
+  margin: 1.75rem 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.editor h3:first-child {
+  margin-top: 0;
+}
+
+.rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+}
+
+.tag {
+  min-width: 3.5rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.editor input {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.editor input:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.row input {
+  flex: 1 1 14rem;
+  max-width: 22rem;
+}
+
+.coord {
+  width: 5.5rem;
+  text-align: right;
+}
+
+.equipment {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.report {
+  margin: 0;
+  padding: 0.75rem 1rem 0.75rem 2rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  font-size: 0.9rem;
+}
+
+.report b {
+  font-weight: 600;
+}

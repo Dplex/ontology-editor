@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, triggerRef, watch } from 'vue'
 import { ifcApi } from './lib/ifc/open'
 import { importIfc } from './lib/ifc/import'
 import { countOf, type Model } from './lib/model'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
 import { createViewer, type Viewer } from './lib/viewer'
+import { moveEquipment, renameSpace, summarize, type Change } from './lib/edit'
 
 const fileName = ref('')
 const busy = ref(false)
@@ -17,6 +18,43 @@ const canvas = ref<HTMLCanvasElement | null>(null)
 let viewer: Viewer | null = null
 
 const counts = computed(() => (model.value ? countOf(model.value) : null))
+
+// --- 편집 -------------------------------------------------------------------
+//
+// 편집은 모델을 그 자리에서 고친다. shallowRef 는 안쪽 변화를 못 보므로 편집한 뒤에
+// triggerRef 로 알린다. 모델을 통째로 복사하면 3D 가 매번 다시 만들어진다.
+const changes = ref<Change[]>([])
+const report = computed(() => summarize(changes.value))
+
+const spaceNameOf = (spaceId: string | null) => {
+  if (!model.value || !spaceId) return '(소속 없음)'
+  for (const storey of model.value.storeys) {
+    const space = storey.spaces.find((s) => s.id === spaceId)
+    if (space) return space.longName || space.name
+  }
+  return spaceId
+}
+
+function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: readonly number[] | null) {
+  const value = Number(raw)
+  if (!model.value || !Number.isFinite(value)) return
+
+  // 미배치 설비는 기준 좌표가 없다. 한 축만 받아도 나머지를 0 으로 채워 배치한다(E6).
+  const base: [number, number, number] = current ? [current[0], current[1], current[2]] : [0, 0, 0]
+  base[axis] = value
+
+  const change = moveEquipment(model.value, equipmentId, base)
+  if (!change) return
+  changes.value = [...changes.value, change]
+  triggerRef(model)
+  viewer?.setModel(model.value)
+}
+
+function applyRename(spaceId: string, name: string) {
+  if (!model.value) return
+  renameSpace(model.value, spaceId, name)
+  triggerRef(model)
+}
 
 watch([model, canvas], ([m, el]) => {
   if (!m || !el) return
@@ -33,6 +71,8 @@ async function load(file: File) {
     const api = await ifcApi()
     model.value = importIfc(api, new Uint8Array(await file.arrayBuffer()))
     fileName.value = file.name
+    // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다.
+    changes.value = []
   } catch (e) {
     // 실패한 채로 이전 모델을 남겨 두면 화면이 방금 연 파일을 보여 주는 것처럼 보인다.
     model.value = null
@@ -152,6 +192,69 @@ function exportTTL() {
             </tr>
           </tbody>
         </table>
+      </section>
+
+      <!-- 편집. 3D 조작 대신 값을 직접 고친다. PoC 에서 확인할 것은 조작감이 아니라
+           한 번의 편집이 온톨로지의 어느 관계를 바꾸는가이기 때문이다. -->
+      <section class="editor">
+        <h3>물리존 이름 (E1)</h3>
+        <ul class="rows">
+          <li v-for="s in model.storeys" :key="s.id">
+            <template v-for="sp in s.spaces" :key="sp.id">
+              <label class="row">
+                <span class="tag mono">{{ s.name }}</span>
+                <input
+                  type="text"
+                  :value="sp.longName"
+                  @change="applyRename(sp.id, ($event.target as HTMLInputElement).value)"
+                />
+              </label>
+            </template>
+          </li>
+        </ul>
+
+        <h3>설비 위치와 소속 (E5 · E6)</h3>
+        <table class="equipment">
+          <thead>
+            <tr>
+              <th>설비</th>
+              <th>종류</th>
+              <th class="num">x</th>
+              <th class="num">y</th>
+              <th class="num">z</th>
+              <th>소속 물리존</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="s in model.storeys" :key="s.id">
+              <tr v-for="e in s.equipment" :key="e.id">
+                <td>{{ e.name }}</td>
+                <td class="muted">{{ e.ifcClass }}</td>
+                <td v-for="axis in [0, 1, 2]" :key="axis" class="num">
+                  <input
+                    class="coord mono"
+                    type="number"
+                    step="0.1"
+                    :value="e.position ? e.position[axis] : ''"
+                    placeholder="—"
+                    @change="applyMove(e.id, axis as 0 | 1 | 2, ($event.target as HTMLInputElement).value, e.position)"
+                  />
+                </td>
+                <td :class="{ muted: !e.spaceId }">{{ spaceNameOf(e.spaceId) }}</td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+        <p v-if="counts.equipment === 0" class="empty">이 BIM 에는 설비가 없습니다.</p>
+
+        <h3>바뀌는 것 (PRD #21)</h3>
+        <ul v-if="report.length" class="report">
+          <li v-for="c in report" :key="c.equipmentId">
+            {{ c.equipmentName }}:
+            <b>{{ spaceNameOf(c.fromSpaceId) }}</b> → <b>{{ spaceNameOf(c.toSpaceId) }}</b>
+          </li>
+        </ul>
+        <p v-else class="empty">아직 바뀐 소속 관계가 없습니다.</p>
       </section>
 
       <section class="actions">

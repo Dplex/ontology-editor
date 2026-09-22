@@ -61,3 +61,35 @@ test('MEP 가 든 IFC 는 설비와 계통까지 보여 준다', async ({ page }
 
   expect(errors).toEqual([])
 })
+
+test('설비를 옮기면 소속 물리존이 다시 판정된다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+
+  const row = (name: string) => page.locator('.equipment tbody tr', { hasText: name })
+
+  // AHU-1 은 사무실 안에 있다.
+  await expect(row('AHU-1')).toContainText('사무실')
+  await expect(page.locator('.report')).toHaveCount(0)
+
+  // 물리존 밖으로 옮기면 소속이 사라진다. 이게 온톨로지에서 hasLocation 한 줄이다.
+  await row('AHU-1').locator('.coord').first().fill('50')
+  await row('AHU-1').locator('.coord').first().blur()
+  await expect(row('AHU-1')).toContainText('(소속 없음)')
+  await expect(page.locator('.report')).toContainText('사무실')
+
+  // 좌표가 없던 센서에 값을 주면 소속이 생긴다(E6).
+  const sensor = row('TEMP-101-01')
+  await expect(sensor).toContainText('(소속 없음)')
+  await sensor.locator('.coord').nth(0).fill('5')
+  await sensor.locator('.coord').nth(0).blur()
+  await sensor.locator('.coord').nth(1).fill('4')
+  await sensor.locator('.coord').nth(1).blur()
+  await expect(sensor).toContainText('사무실')
+
+  expect(errors).toEqual([])
+})
