@@ -1,52 +1,84 @@
 # ontology-editor
 
-건물 온톨로지(Turtle)를 브라우저에서 열어 고치는 화면. 부모 `~/git/dt/CLAUDE.md` 가 말투와
-플랫폼 공통 규칙을 정하니 여기엔 이 repo 안에서만 참인 것만 적는다.
+BIM(IFC4)으로 공간 온톨로지를 만들고 고치는 PoC. 부모 `~/git/dt/CLAUDE.md` 가 말투와 플랫폼
+공통 규칙을 정하니 여기엔 이 repo 안에서만 참인 것만 적는다.
+
+## 이 repo 는 PRD_011 의 R1.5 다
+
+정본은 사내 Confluence 의 `[DT2.0] PRD_011(온톨로지 구축 자동화 플랫폼)`(IoTSolution 공간).
+이 repo 가 맡은 것은 "초기 구축 모드"(#5~#8)다 — BIM·IDF 임포트, 수동 구축, 온톨로지 생성.
+운영 편집(#9~#21)은 나중이다. 번호(#6 같은 것)는 그 PRD 의 기능 번호를 가리킨다.
+
+기억으로 답하지 말고 그 페이지를 연다. 사내망이라 `curl` 은 302 로 막히니 Chrome 확장으로.
 
 ## 지금 어디까지 왔나
 
-**뼈대 단계다.** 파일을 열어 접두사 선언을 표로 보여 주는 것까지가 전부다. 삼중항 파서도,
-편집도, 저장도 없다. 진행률을 후하게 매기지 말 것.
+**임포트와 내보내기까지.** 편집은 한 줄도 없다. 진행률을 후하게 매기지 말 것.
+설비·배관·공조존은 손도 안 댔다.
 
-## 백엔드가 없다 — 알고 고른 것
+## 기하와 의미를 따로 낸다 — 이 PoC 의 전제
 
-파일을 브라우저 안에서만 읽는다(`File.text()`). 그래서 이 repo 에는 `.env` 도, 포트도,
-마이그레이션도 없고, 정문(`:8000`) 라우트에 올릴 것도 없다.
+내보내기가 두 파일이다. GeoJSON 이 기하를, Brick TTL 이 의미를 갖고, **id 하나로만 이어진다.**
 
-**서버를 붙이자는 말이 나오면 무엇을 저장하려는 것인지 먼저 묻는다.** 고친 TTL 을 내려받기로
-끝낼 수 있으면 서버는 필요 없다. 여럿이 같은 파일을 고치고 이력을 남겨야 한다면 그때 서버가
-정당해지고, 그 순간 부모 CLAUDE.md 의 "새 서비스를 붙일 때" 다섯 단계가 전부 걸린다.
+합치자는 말이 나오면 무엇이 막히는지 먼저 본다. Brick 에 다각형을 넣으려면 WKT 문자열이
+되는데, 그러면 "이 물리존이 저 공조존과 겹치는가" 를 물을 수 없다. 그 교집합 연산이
+PRD #12(설비-물리존 재매핑)의 본체다. 반대로 IMDF 에는 `feeds`·`hasPoint` 를 담을 자리가 없다.
+**TTL 에 좌표가 새어 들어가면 이 전제가 깨진다.** `export.test.ts` 가 그걸 막고 있다.
+
+id 는 IfcGlobalId 를 그대로 쓴다. 저작 도구가 GUID 를 유지한 채 재내보내기할 수 있어서
+(PRD #6), 재임포트 때 같은 공간을 같은 것으로 알아본다. **`$` 가 들어 있어서 Turtle 지역
+이름으로 쓸 때 이스케이프해야 한다** — 안 하면 파일이 깨지는 게 아니라 주어가 조용히 갈라진다.
+
+## 기존 온톨로지에 좌표가 없다
+
+`ieum-pipeline/data/ontology/SR_Building_ontology_260723.ttl` 을 세어 보면
+`brick:Zone` 4016, `ex:DVM` 3359, `brick:Indoor_Unit` 3028, `brick:Floor` 201 인데
+술어는 `feeds`·`hasLocation`·`hasPart`·`hasPoint` 넷뿐이다. **기하가 하나도 없다.**
+이 repo 가 만드는 것이 바로 그 빠진 절반이다. 그래서 쓰는 술어를 저 넷으로 맞춘다 —
+`ieum-pipeline/internal/ontology/ttl.go` 가 읽을 수 있어야 한다.
+
+## IFC 에서 조용히 틀리는 곳 셋
+
+1. **배치 사슬(IfcLocalPlacement)을 안 타면 방이 전부 원점에 겹친다.** 개수도 넓이도 그대로라
+   숫자만 봐서는 멀쩡해 보인다. 3D 뷰가 이걸 잡으라고 있는 것이고, 테스트도 "두 방의 첫 점이
+   다르다" 를 따로 본다.
+2. **층과 공간은 분해 관계(IfcRelAggregates), 벽·문·창은 포함 관계
+   (IfcRelContainedInSpatialStructure)로 묶인다.** 같은 "층에 속한다" 인데 IFC 가 관계를 나눠
+   놔서, 한쪽만 읽으면 절반이 빈다.
+3. **`loadBearing: null` 은 "모름" 이지 "아니오" 가 아니다.** 실제 BIM 에 Structural 속성이
+   없는 일이 흔하다(샘플 AC20-FZK-Haus 는 13장 전부 없다. Pset_WallCommon 은 있는데 그 안에
+   ThermalTransmittance 만 들어 있다). false 와 섞으면 편집 제한이 엉뚱하게 걸린다.
+
+공간 외곽선은 Body(Brep)가 아니라 **FootPrint 표현**에서 가져온다. Brep 은 삼각형 껍데기라
+평면 외곽선을 되찾으려면 메시를 잘라야 하는데, FootPrint 에 정확한 폴리라인이 이미 있다.
+FootPrint 가 없는 모델도 있어서 그때는 빈 고리를 주고 경고로 남긴다.
+
+## 테스트 입력이 두 갈래다
+
+- `npm test` — 입력이 `src/lib/ifc/fixtures/two-rooms.ifc` 다. 손으로 쓴 최소 IFC4 라서
+  무엇이 들어가면 무엇이 나오는지 파일 하나로 보인다. 회전이 있는 방, FootPrint 가 없는 방,
+  내력벽 참/거짓/모름이 일부러 다 들어 있다.
+- `npm run check:sample` — 입력이 실제 BIM(`data/AC20-FZK-Haus.ifc`)이고 gitignore 다.
+  없으면 실패가 아니라 이유를 찍고 건너뛴다(`npm run fetch:sample` 로 받는다).
+  손으로 쓴 픽스처가 통과해도 진짜 저작 도구 출력에서 깨질 수 있어서 따로 둔다.
+
+## WASM 은 커밋하지 않는다
+
+`public/web-ifc.wasm` 은 `scripts/sync-wasm.mjs` 가 node_modules 에서 복사한다. 릴리스 바이트
+그대로여야 버전 올리기가 재배치가 아니라 설치 한 번으로 끝난다. `predev`·`prebuild`·`pree2e`
+에 걸려 있어서 따로 부를 일은 없다.
 
 ## dev 포트는 5174 다
 
-5173 은 `ieum-pipeline/web`(운영 콘솔)이 쓴다. 두 화면을 같이 띄우는 일이 잦아서 비켜 뒀다.
-Playwright 의 `baseURL` 과 `webServer.url` 도 같은 값이라 포트를 바꾸면 세 군데를 같이 고친다.
-
-## 온톨로지 정본은 여기 없다
-
-`ieum-pipeline/data/ontology/SR_Building_ontology_260723.ttl` 이 정본이고,
-`ieum-pipeline/tools/space-scene/` 아래 조명·기하 판본이 따로 있다. 이 repo 는 읽어서 보여 줄
-뿐이라 사본을 커밋하지 않는다. 손으로 끌어다 둘 때는 `/data/`(gitignore) 아래에 둔다.
-
-## Turtle 을 줄 단위로 세지 말 것
-
-마침표는 IRI 안에도 문자열 리터럴 안에도 나온다. 줄이나 마침표로 삼중항을 세는 코드는 대충
-맞는 값이 아니라 **틀린 값**을 준다. `src/lib/ttl.ts` 가 접두사만 다루는 이유가 이것이고,
-삼중항이 필요해지면 직접 세지 말고 검증된 파서를 붙인다.
-
-접두사 규칙 둘은 명세에서 온 것이라 테스트로 고정해 뒀다: 재선언은 뒤에 나온 것이 이기고,
-IRI 를 줄일 때는 가장 긴 접두사를 먼저 맞춘다(짧은 쪽을 먼저 맞추면 더 구체적인 접두사가
-있는데도 넓은 쪽으로 줄어든다).
-
-## 테스트 두 갈래
-
-- `npm test` — vitest. `src/**/*.test.ts` 만 본다. `e2e/` 를 걸러내지 않으면 vitest 가
-  브라우저 API 를 못 찾고 깨진다(`vite.config.ts` 의 `test.include`).
-- `npm run e2e` — Playwright. 픽스처 파일을 두지 않고 `setInputFiles` 에 buffer 를 그대로
-  넣는다. 어떤 입력이 어떤 화면을 만드는지가 테스트 안에서 다 보인다.
+5173 은 `ieum-pipeline/web`(운영 콘솔)이 쓴다. 바꾸려면 `vite.config.ts` 와
+`playwright.config.ts` 의 두 자리를 같이 고친다.
 
 ## 배포 경로가 아직 없다
 
-`ieum-apm/scripts/autodeploy55.sh` 가 배포하는 네 repo 에 이 repo 는 들어 있지 않다. 정적
-번들이라 배포가 파일을 어디에 두느냐의 문제인데, 그 자리를 아직 안 정했다. 정하기 전까지
-"배포된다" 고 말하지 말 것.
+`ieum-apm/scripts/autodeploy55.sh` 가 배포하는 네 repo 에 이 repo 는 없다. 정적 번들이라
+배포가 파일을 어디에 두느냐의 문제인데 그 자리를 안 정했다. "배포된다" 고 말하지 말 것.
+
+PRD 1.7 은 DT 와의 데이터 교환 방식을 셋으로 열어 두고 개발 확인이 필요하다고 적었다
+(① 파일 export→import ② 온톨로지 서버에 API 로 직접 쓰기 ③ 공유 DB). 지금 이 repo 는
+①을 전제로 만들어져 있다. ②·③ 으로 정해지면 서버가 생기고, 그때 부모 CLAUDE.md 의
+"새 서비스를 붙일 때" 다섯 단계가 전부 걸린다.

@@ -4,17 +4,27 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "sync:wasm": "node scripts/sync-wasm.mjs",
+    "predev": "npm run sync:wasm",
     "dev": "vite",
+    "prebuild": "npm run sync:wasm",
     "build": "vue-tsc --noEmit && vite build",
     "test": "vitest run",
+    "pree2e": "npm run sync:wasm",
     "e2e": "playwright test",
-    "preview": "vite preview"
+    "check:sample": "vitest run --config vitest.sample.config.ts",
+    "preview": "vite preview",
+    "fetch:sample": "node scripts/fetch-sample.mjs"
   },
   "dependencies": {
-    "vue": "^3.5.13"
+    "three": "^0.186.0",
+    "vue": "^3.5.13",
+    "web-ifc": "^0.0.78"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "@types/node": "^26.6.2",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-vue": "^5.2.1",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",

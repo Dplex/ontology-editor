@@ -1,0 +1,97 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('two-rooms.ifc','2026-09-22T00:00:00',(''),(''),'','ontology-editor fixture','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+/* 단위와 표현 문맥 */
+#1= IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#2= IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);
+#3= IFCUNITASSIGNMENT((#1,#2));
+#4= IFCCARTESIANPOINT((0.,0.,0.));
+#5= IFCDIRECTION((0.,0.,1.));
+#6= IFCDIRECTION((1.,0.,0.));
+#7= IFCAXIS2PLACEMENT3D(#4,#5,#6);
+#8= IFCDIRECTION((0.,1.));
+#9= IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#7,#8);
+
+/* 공간 계층: 프로젝트 > 대지 > 건물 > 층 */
+#10= IFCPROJECT('0PoC$Project$00000000','$',$,$,$,$,$,(#9),#3);
+#11= IFCLOCALPLACEMENT($,#7);
+#12= IFCSITE('0PoC$Site$000000000000',$,'\X2\D3C4C9C0\X0\','$',$,#11,$,$,.ELEMENT.,$,$,$,$,$);
+#13= IFCLOCALPLACEMENT(#11,#7);
+#14= IFCBUILDING('0PoC$Building$0000000',$,'PoC Building',$,$,#13,$,$,.ELEMENT.,$,$,$);
+
+/* 1층은 원점, 2층은 3m 위. 두 층의 배치가 다르면 사슬 접기가 검증된다. */
+#15= IFCLOCALPLACEMENT(#13,#7);
+#16= IFCBUILDINGSTOREY('0PoC$Storey$1F$00000',$,'1F',$,$,#15,$,$,.ELEMENT.,0.);
+#17= IFCCARTESIANPOINT((0.,0.,3.));
+#18= IFCAXIS2PLACEMENT3D(#17,#5,#6);
+#19= IFCLOCALPLACEMENT(#13,#18);
+#20= IFCBUILDINGSTOREY('0PoC$Storey$2F$00000',$,'2F',$,$,#19,$,$,.ELEMENT.,3.);
+
+/* 1층 회의실: 원점에서 (2,1) 만큼 옮기고 회전은 없다. 4m x 3m. */
+#21= IFCCARTESIANPOINT((2.,1.,0.));
+#22= IFCAXIS2PLACEMENT3D(#21,#5,#6);
+#23= IFCLOCALPLACEMENT(#15,#22);
+#24= IFCCARTESIANPOINT((0.,0.));
+#25= IFCCARTESIANPOINT((4.,0.));
+#26= IFCCARTESIANPOINT((4.,3.));
+#27= IFCCARTESIANPOINT((0.,3.));
+#28= IFCPOLYLINE((#24,#25,#26,#27,#24));
+#29= IFCGEOMETRICCURVESET((#28));
+#30= IFCSHAPEREPRESENTATION(#9,'FootPrint','GeometricCurveSet',(#29));
+#31= IFCPRODUCTDEFINITIONSHAPE($,$,(#30));
+#32= IFCSPACE('0PoC$Space$Meeting$000',$,'101','$',$,#23,#31,'\X2\D68CC758C2E4\X0\',.ELEMENT.,.SPACE.,$);
+
+/* 1층 복도: RefDirection (0,-1) 로 -90도 돌려 놓는다. 회전까지 타야 값이 맞는다. */
+#33= IFCCARTESIANPOINT((10.,8.,0.));
+#34= IFCDIRECTION((0.,-1.,0.));
+#35= IFCAXIS2PLACEMENT3D(#33,#5,#34);
+#36= IFCLOCALPLACEMENT(#15,#35);
+#37= IFCCARTESIANPOINT((0.,0.));
+#38= IFCCARTESIANPOINT((6.,0.));
+#39= IFCCARTESIANPOINT((6.,2.));
+#40= IFCCARTESIANPOINT((0.,2.));
+#41= IFCPOLYLINE((#37,#38,#39,#40,#37));
+#42= IFCGEOMETRICCURVESET((#41));
+#43= IFCSHAPEREPRESENTATION(#9,'FootPrint','GeometricCurveSet',(#42));
+#44= IFCPRODUCTDEFINITIONSHAPE($,$,(#43));
+#45= IFCSPACE('0PoC$Space$Corridor$00',$,'102',$,$,#36,#44,'\X2\BCF5B3C4\X0\',.ELEMENT.,.SPACE.,$);
+
+/* 2층 창고: FootPrint 가 없다. 외곽선을 못 만드는 경우를 픽스처가 직접 담는다. */
+#46= IFCLOCALPLACEMENT(#19,#7);
+#47= IFCSPACE('0PoC$Space$Store$00000',$,'201',$,$,#46,$,'\X2\CC3DACE0\X0\',.ELEMENT.,.SPACE.,$);
+
+/* 벽 넷: 1층 셋(하나만 내력벽, 하나는 명시적 비내력, 하나는 속성 없음) + 2층 하나 */
+#50= IFCWALLSTANDARDCASE('0PoC$Wall$Bearing$000',$,'W-1F-01',$,$,#15,$,'W1',.NOTDEFINED.);
+#51= IFCWALLSTANDARDCASE('0PoC$Wall$Partition$00',$,'W-1F-02',$,$,#15,$,'W2',.NOTDEFINED.);
+#52= IFCWALLSTANDARDCASE('0PoC$Wall$Unknown$000',$,'W-1F-03',$,$,#15,$,'W3',.NOTDEFINED.);
+#53= IFCWALLSTANDARDCASE('0PoC$Wall$2F$00000000',$,'W-2F-01',$,$,#19,$,'W4',.NOTDEFINED.);
+
+/* 문 하나, 창 둘 */
+#60= IFCDOOR('0PoC$Door$000000000000',$,'D-1F-01',$,$,#15,$,'D1',2.1,0.9,.DOOR.,.SINGLE_SWING_LEFT.,$);
+#61= IFCWINDOW('0PoC$Window$1F$0000000',$,'WD-1F-01',$,$,#15,$,'N1',1.5,1.2,.WINDOW.,.NOTDEFINED.,$);
+#62= IFCWINDOW('0PoC$Window$2F$0000000',$,'WD-2F-01',$,$,#19,$,'N2',1.5,1.2,.WINDOW.,.NOTDEFINED.,$);
+
+/* Pset_WallCommon. #50 은 참, #51 은 거짓, #52 는 아예 선언이 없다. */
+#70= IFCPROPERTYSINGLEVALUE('LoadBearing',$,IFCBOOLEAN(.T.),$);
+#71= IFCPROPERTYSET('0PoC$Pset$Bearing$000',$,'Pset_WallCommon',$,(#70));
+#72= IFCRELDEFINESBYPROPERTIES('0PoC$Rel$Pset$Bear$000',$,$,$,(#50),#71);
+#73= IFCPROPERTYSINGLEVALUE('LoadBearing',$,IFCBOOLEAN(.F.),$);
+#74= IFCPROPERTYSET('0PoC$Pset$Partition$0',$,'Pset_WallCommon',$,(#73));
+#75= IFCRELDEFINESBYPROPERTIES('0PoC$Rel$Pset$Part$000',$,$,$,(#51),#74);
+
+/* 분해 관계: 층과 공간을 묶는다 */
+#80= IFCRELAGGREGATES('0PoC$Rel$Proj$Site$00',$,$,$,#10,(#12));
+#81= IFCRELAGGREGATES('0PoC$Rel$Site$Bldg$00',$,$,$,#12,(#14));
+#82= IFCRELAGGREGATES('0PoC$Rel$Bldg$Storey$',$,$,$,#14,(#16,#20));
+#83= IFCRELAGGREGATES('0PoC$Rel$1F$Spaces$00',$,$,$,#16,(#32,#45));
+#84= IFCRELAGGREGATES('0PoC$Rel$2F$Spaces$00',$,$,$,#20,(#47));
+
+/* 포함 관계: 층과 벽·문·창을 묶는다 */
+#90= IFCRELCONTAINEDINSPATIALSTRUCTURE('0PoC$Rel$1F$Elements$',$,$,$,(#50,#51,#52,#60,#61),#16);
+#91= IFCRELCONTAINEDINSPATIALSTRUCTURE('0PoC$Rel$2F$Elements$',$,$,$,(#53,#62),#20);
+ENDSEC;
+END-ISO-10303-21;

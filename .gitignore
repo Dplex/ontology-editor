@@ -37,3 +37,6 @@ desktop.ini
 # ---- local data ----
 # 열어 보려고 끌어다 둔 온톨로지 원본. 정본은 ieum-pipeline/data/ontology 에 있다.
 /data/
+
+# web-ifc 릴리스 바이트 그대로다. scripts/sync-wasm.mjs 가 node_modules 에서 복사한다.
+public/web-ifc.wasm

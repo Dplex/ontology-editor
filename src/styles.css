@@ -7,6 +7,9 @@
   --line: #262a35;
   --accent: #5ac8fa;
   --error: #ff7b72;
+  --warn-fg: #ffd9a0;
+  --warn-bg: #2a2215;
+  --warn-line: #4a3a1d;
 
   color-scheme: dark light;
 }
@@ -19,6 +22,9 @@
     --line: #e2e4ea;
     --accent: #0a84c8;
     --error: #c0392b;
+    --warn-fg: #7a4b00;
+    --warn-bg: #fff6e5;
+    --warn-line: #f0d9ac;
   }
 }
 
@@ -125,4 +131,98 @@ th {
 .iri {
   word-break: break-all;
   color: var(--muted);
+}
+
+/* ---- 임포트 검토 화면 ---- */
+
+.review {
+  margin-top: 2.5rem;
+}
+
+.tiles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tiles li {
+  flex: 1 1 6rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+}
+
+.tiles b {
+  display: block;
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.tiles span {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.warnings {
+  margin: 1.25rem 0 0;
+  padding: 0.75rem 1rem 0.75rem 2rem;
+  border: 1px solid var(--warn-line);
+  border-radius: 0.6rem;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.9rem;
+}
+
+.viewport {
+  margin-top: 1.5rem;
+  height: 26rem;
+  border: 1px solid var(--line);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.viewport canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.storeys {
+  margin-top: 1.5rem;
+}
+
+.num {
+  text-align: right;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 2rem;
+}
+
+.actions button {
+  padding: 0.55rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.actions button:hover {
+  border-color: var(--accent);
+}
+
+.note {
+  flex: 1 1 18rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.85rem;
 }

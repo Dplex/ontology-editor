@@ -10,7 +10,8 @@
     "noEmit": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
-    "types": ["vite/client"]
+    // 테스트가 파일을 읽고, scripts/ 가 Node 에서 돈다.
+    "types": ["vite/client", "node"]
   },
-  "include": ["src/**/*.ts", "src/**/*.vue", "vite.config.ts"]
+  "include": ["src/**/*.ts", "src/**/*.vue", "scripts/**/*.ts", "vite.config.ts", "vitest.sample.config.ts", "playwright.config.ts"]
 }
