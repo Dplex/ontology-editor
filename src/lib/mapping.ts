@@ -39,13 +39,19 @@ export function pointInPolygon(point: Vec2, ring: readonly Vec2[]): boolean {
 export function assignEquipmentToSpaces(model: Model): void {
   for (const storey of model.storeys) {
     for (const equipment of storey.equipment) {
+      // BIM 이 직접 말한 소속은 다시 계산하지 않는다. 설계자가 정한 값이라 좌표 판정보다
+      // 정확하고, 벽에 걸친 설비처럼 판정이 애매한 경우에도 답이 하나로 정해진다.
+      if (equipment.spaceSource === 'bim') continue
+
       equipment.spaceId = null
+      equipment.spaceSource = null
       if (!equipment.position) continue
 
       const flat: Vec2 = [equipment.position[0], equipment.position[1]]
       for (const space of storey.spaces) {
         if (pointInPolygon(flat, space.footprint)) {
           equipment.spaceId = space.id
+          equipment.spaceSource = 'computed'
           break
         }
       }

@@ -130,7 +130,7 @@ describe('설비 내보내기', () => {
   it('물리존과 설비가 같은 파일에 들어간다', () => {
     const kinds = storeyToGeoJSON(mep.storeys[0]).features.map((f) => f.properties.kind)
     expect(kinds.filter((k) => k === 'space')).toHaveLength(1)
-    expect(kinds.filter((k) => k === 'equipment')).toHaveLength(5)
+    expect(kinds.filter((k) => k === 'equipment')).toHaveLength(6)
   })
 
   it('설비도 두 파일이 같은 id 로 이어진다', () => {

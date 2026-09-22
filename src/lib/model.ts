@@ -23,11 +23,23 @@ export type Space = {
   /** 닫힌 고리. 첫 점과 끝 점이 같다. 세계 좌표로 변환된 뒤의 값이다. */
   footprint: Vec2[]
   areaM2: number
+  /**
+   * 이 물리존을 둘러싼 부재의 id 목록. `IfcRelSpaceBoundary` 에서 온다.
+   *
+   * 기하 연산으로 유추하지 않아도 BIM 이 직접 알려 주는 관계다. 벽을 지웠을 때 어느
+   * 물리존이 영향을 받는지를 이걸로 바로 안다(E4).
+   */
+  boundedBy: string[]
 }
 
 export type Wall = {
   id: string
   name: string
+  /**
+   * 벽 두께(미터). `IfcMaterialLayerSetUsage` 의 재료층 두께를 합한 값이다.
+   * `null` 이면 BIM 에 재료 구성이 없다는 뜻이고, 벽을 선으로만 그릴 수 있다.
+   */
+  thickness: number | null
   /**
    * 내력벽 여부. **`null` 은 "모름" 이지 "아니오" 가 아니다.**
    * BIM 에 Structural 속성이 없으면 null 이 되고, 이 벽들은 검토 화면에 따로 나열된다
@@ -40,6 +52,21 @@ export type Opening = {
   id: string
   kind: 'door' | 'window'
   name: string
+  /** 개구부 너비·높이(미터). BIM 에 없으면 null 이다. */
+  width: number | null
+  height: number | null
+  /**
+   * 이 개구부가 뚫린 벽의 id. `IfcRelVoidsElement` 와 `IfcRelFillsElement` 를 타고 찾는다.
+   * 로봇 통과 판정(F15)과 벽 편집(E4)이 이 관계를 쓴다.
+   */
+  wallId: string | null
+  /**
+   * 로봇이 지나갈 수 있는가.
+   *
+   * 문은 통과하고 창문은 못 한다(PRD #3). 개구부 종류에서 바로 나오는 값이지만, 소비하는
+   * 쪽이 `kind` 의 뜻을 다시 해석하지 않도록 여기서 한 번 정해 둔다.
+   */
+  passable: boolean
 }
 
 export type Equipment = {
@@ -57,13 +84,26 @@ export type Equipment = {
    * PRD #6 의 "용량 파라미터 누락 설비" 이고, 공조존 용량 검증(Z-03)이 이 값에 걸린다.
    */
   capacity: number | null
+  /**
+   * 용량을 읽어 온 속성 이름. 표준 Pset 이름으로 들어오는 일이 드물어서 출처를 남긴다.
+   * 고객사와 BIM 스펙을 맞출 때 "지금 이 이름으로 들어온다" 는 근거가 된다.
+   */
+  capacityProperty: string | null
   /** 속한 계통(IfcSystem)의 id. `null` 이면 어느 계통에도 안 묶여 있다. */
   systemId: string | null
   /**
-   * 소속 물리존의 id. BIM 이 주는 값이 아니라 좌표로 판정한 결과다(PRD #12).
-   * `lib/mapping.ts` 가 채우고, 편집으로 경계가 바뀔 때마다 다시 채워야 한다.
+   * 소속 물리존의 id. 편집으로 경계가 바뀌면 다시 채워야 한다(PRD #12).
    */
   spaceId: string | null
+  /**
+   * 소속을 어떻게 정했나.
+   *
+   * `'bim'` 은 BIM 이 `IfcRelContainedInSpatialStructure` 로 직접 말한 것이고,
+   * `'computed'` 는 좌표가 어느 외곽선에 드는지 우리가 계산한 것이다. **BIM 이 말한 것이
+   * 우선한다** — 설계자가 정한 소속이 좌표 판정보다 정확하고, 벽에 걸친 설비처럼 판정이
+   * 애매한 경우에도 답이 하나로 정해진다.
+   */
+  spaceSource: 'bim' | 'computed' | null
 }
 
 /** 계통. 공조기에서 덕트를 지나 토출구까지 이어지는 묶음이다. */

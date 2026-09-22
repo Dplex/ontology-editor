@@ -14,6 +14,7 @@ import type { Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall
 import { polygonArea } from '../model'
 import { apply, foldChain, foldElevation, fromAxisPlacement, type Transform2 } from './placement'
 import { assignEquipmentToSpaces, unlocatedEquipment } from '../mapping'
+import { lengthScale } from './units'
 
 /** web-ifc 의 Vector 를 평범한 배열로. 이 타입이 코드 곳곳에 번지지 않게 입구에서 바꾼다. */
 function toArray(vector: { size(): number; get(i: number): number }): number[] {
@@ -25,12 +26,27 @@ function val<T>(wrapped: { value?: T } | null | undefined): T | undefined {
   return wrapped?.value
 }
 
+/**
+ * 다른 줄을 가리키는 참조를 읽는다. 없으면 null 이다.
+ *
+ * IFC 의 빈 값(`$`)은 속성이 **없는** 것이 아니라 **값이 null 인** 형태로 온다.
+ * `attr?.value` 만 보고 `undefined` 인지 묻는 검사는 그래서 빈 값을 걸러내지 못한다.
+ * 실제로 `IfcRelSpaceBoundary` 의 바깥 공기 경계가 이 형태라, 부재가 없는 경계를
+ * "element-null" 이라는 가짜 id 로 읽은 적이 있다.
+ */
+function ref(attr: { value?: number } | null | undefined): number | null {
+  const v = attr?.value
+  return typeof v === 'number' ? v : null
+}
+
 type Api = InstanceType<typeof WebIFC.IfcAPI>
 
 class Reader {
   constructor(
     private api: Api,
     private model: number,
+    /** 이 모델의 길이 1 이 몇 미터인가. 좌표와 길이를 읽는 자리마다 곱한다. */
+    private scale: number,
   ) {}
 
   ids(type: number, includeInherited = false): number[] {
@@ -50,9 +66,11 @@ class Reader {
     for (let guard = 0; cur !== undefined && guard < 64; guard++) {
       const lp = this.line(cur)
       const rel = lp?.RelativePlacement ? this.line(lp.RelativePlacement.value) : null
-      const loc = rel?.Location ? this.line(rel.Location.value).Coordinates?.map(val) : null
+      const raw = rel?.Location ? this.line(rel.Location.value).Coordinates?.map(val) : null
+      // 방향 벡터는 비율이라 단위와 무관하다. 위치만 환산한다.
+      const loc = raw ? (raw as number[]).map((v) => v * this.scale) : null
       const dir = rel?.RefDirection ? this.line(rel.RefDirection.value).DirectionRatios?.map(val) : null
-      chain.push(fromAxisPlacement(loc ?? null, dir ?? null))
+      chain.push(fromAxisPlacement(loc, dir ?? null))
       cur = lp?.PlacementRelTo?.value
     }
     return foldChain(chain)
@@ -74,7 +92,7 @@ class Reader {
       const lp = this.line(cur)
       const rel = lp?.RelativePlacement ? this.line(lp.RelativePlacement.value) : null
       const coords = rel?.Location ? this.line(rel.Location.value).Coordinates?.map(val) : null
-      zs.push((coords?.[2] as number) ?? 0)
+      zs.push(((coords?.[2] as number) ?? 0) * this.scale)
       cur = lp?.PlacementRelTo?.value
     }
 
@@ -83,14 +101,14 @@ class Reader {
   }
 
   /**
-   * 설비별 용량 파라미터를 모은다.
+   * 설비별 용량 파라미터를 모은다. 어느 속성에서 왔는지도 같이 남긴다.
    *
-   * 이름이 도구마다 다르다. Revit·ArchiCAD 가 쓰는 이름을 나열해 두고 먼저 맞는 것을 쓴다.
-   * 못 찾으면 null 로 두고, 검토 화면이 "용량 없는 설비" 로 센다(PRD #6).
+   * 출처를 남기는 이유는 **표준 이름으로 들어오는 일이 드물기 때문이다.** 실측한 두
+   * 모델에서 표준 Pset 이름은 한 건도 없었고, Duplex HVAC 은 Revit 이 붙인 `Flow` 로
+   * 155건이 들어 있었다. 어느 이름이 쓰였는지 보이면 고객사와 스펙을 맞출 때 근거가 된다.
    */
-  capacityByElement(): Map<number, number> {
-    const WANTED = ['NominalAirFlowRate', 'AirFlowRate', 'NominalCapacity', 'TotalCoolingCapacity']
-    const out = new Map<number, number>()
+  capacityByElement(): Map<number, { value: number; property: string }> {
+    const out = new Map<number, { value: number; property: string }>()
 
     for (const relID of this.ids(WebIFC.IFCRELDEFINESBYPROPERTIES)) {
       const rel = this.line(relID)
@@ -100,12 +118,16 @@ class Reader {
       for (const propHandle of def.HasProperties) {
         const prop = this.line(propHandle.value)
         const name = val(prop?.Name) as string
-        if (!WANTED.includes(name)) continue
-        const v = Number(val(prop?.NominalValue))
-        if (!Number.isFinite(v)) continue
+        const rank = CAPACITY_NAMES.indexOf(name)
+        if (rank < 0) continue
+        const value = Number(val(prop?.NominalValue))
+        if (!Number.isFinite(value)) continue
+
         for (const objHandle of rel.RelatedObjects ?? []) {
-          // 앞선 이름이 이긴다. 같은 설비에 여러 용량이 붙는 경우가 있다.
-          if (!out.has(objHandle.value)) out.set(objHandle.value, v)
+          // 목록에서 앞선 이름이 이긴다. 표준 이름을 비표준 이름보다 먼저 두었다.
+          const had = out.get(objHandle.value)
+          if (had && CAPACITY_NAMES.indexOf(had.property) <= rank) continue
+          out.set(objHandle.value, { value, property: name })
         }
       }
     }
@@ -138,13 +160,100 @@ class Reader {
           if (!Array.isArray(el?.Points)) continue
           const ring = el.Points.map((p: any) => {
             const c = this.line(p.value).Coordinates.map(val) as number[]
-            return apply(t, [c[0], c[1]])
+            // 국소 좌표를 먼저 환산하고 나서 변환을 적용한다. 변환의 이동량은 이미 환산돼
+            // 있으므로, 순서를 바꾸면 이동량만 두 번 곱해진다.
+            return apply(t, [c[0] * this.scale, c[1] * this.scale])
           })
           if (ring.length >= 3) return ring
         }
       }
     }
     return []
+  }
+
+  /**
+   * 부재별 두께를 모은다. 재료층 두께의 합이다.
+   *
+   * IFC 는 벽 두께를 기하가 아니라 **재료 구성**에 둔다. 석고보드 12mm + 단열재 50mm 처럼
+   * 층으로 쌓은 것의 합이 벽 두께다. 그래서 형상만 봐서는 두께를 알 수 없고, 이 관계를
+   * 타야 한다. 실측 샘플(AC20-FZK-Haus)에서 0.24m 가 이렇게 들어 있었다.
+   */
+  thicknessByElement(): Map<number, number> {
+    const out = new Map<number, number>()
+
+    for (const relID of this.ids(WebIFC.IFCRELASSOCIATESMATERIAL)) {
+      const rel = this.line(relID)
+      const material = rel?.RelatingMaterial ? this.line(rel.RelatingMaterial.value) : null
+      if (!material) continue
+
+      // 부재에는 보통 LayerSetUsage 가 붙고, 그것이 실제 LayerSet 을 가리킨다.
+      // 타입 객체에는 LayerSet 이 바로 붙기도 해서 둘 다 받는다.
+      const layerSet = material.ForLayerSet
+        ? this.line(material.ForLayerSet.value)
+        : material.MaterialLayers
+          ? material
+          : null
+      if (!layerSet?.MaterialLayers) continue
+
+      let total = 0
+      for (const layerHandle of layerSet.MaterialLayers) {
+        total += (val(this.line(layerHandle.value)?.LayerThickness) as number) ?? 0
+      }
+      if (total <= 0) continue
+
+      for (const objHandle of rel.RelatedObjects ?? []) {
+        out.set(objHandle.value, total * this.scale)
+      }
+    }
+    return out
+  }
+
+  /**
+   * 개구부(문·창)가 어느 벽에 뚫렸는지 모은다.
+   *
+   * 관계가 두 단계다. `IfcRelVoidsElement` 가 벽에 구멍(`IfcOpeningElement`)을 내고,
+   * `IfcRelFillsElement` 가 그 구멍을 문이나 창으로 채운다. 한 단계만 보면 이어지지 않는다.
+   */
+  wallByOpening(): Map<number, number> {
+    const wallOfVoid = new Map<number, number>()
+    for (const relID of this.ids(WebIFC.IFCRELVOIDSELEMENT)) {
+      const rel = this.line(relID)
+      const wall = ref(rel?.RelatingBuildingElement)
+      const hole = ref(rel?.RelatedOpeningElement)
+      if (wall !== null && hole !== null) wallOfVoid.set(hole, wall)
+    }
+
+    const out = new Map<number, number>()
+    for (const relID of this.ids(WebIFC.IFCRELFILLSELEMENT)) {
+      const rel = this.line(relID)
+      const hole = ref(rel?.RelatingOpeningElement)
+      const filler = ref(rel?.RelatedBuildingElement)
+      if (hole === null || filler === null) continue
+      const wall = wallOfVoid.get(hole)
+      if (wall !== undefined) out.set(filler, wall)
+    }
+    return out
+  }
+
+  /**
+   * 물리존을 둘러싼 부재를 모은다.
+   *
+   * `IfcRelSpaceBoundary` 는 "이 공간의 이 면은 저 벽이다" 를 직접 말해 준다. 기하 연산으로
+   * 유추할 필요가 없다. 실측 샘플에 81건, 더 큰 모델에는 수천 건이 들어 있었다.
+   */
+  boundaryElementsBySpace(): Map<number, number[]> {
+    const out = new Map<number, number[]>()
+    for (const relID of this.ids(WebIFC.IFCRELSPACEBOUNDARY, true)) {
+      const rel = this.line(relID)
+      const space = ref(rel?.RelatingSpace)
+      const element = ref(rel?.RelatedBuildingElement)
+      // 바깥 공기에 면한 경계는 부재가 없다. 그건 경계가 아니라 열린 면이다.
+      if (space === null || element === null) continue
+      const list = out.get(space) ?? []
+      if (!list.includes(element)) list.push(element)
+      out.set(space, list)
+    }
+    return out
   }
 
   /**
@@ -173,7 +282,13 @@ class Reader {
   }
 }
 
-function spaceOf(r: Reader, expressID: number, warnings: string[]): Space {
+function spaceOf(
+  r: Reader,
+  expressID: number,
+  globalIdOf: (elementID: number) => string,
+  boundaries: Map<number, number[]>,
+  warnings: string[],
+): Space {
   const e = r.line(expressID)
   const id = (val(e?.GlobalId) as string) ?? `space-${expressID}`
   const footprint = r.footprint(e)
@@ -189,6 +304,60 @@ function spaceOf(r: Reader, expressID: number, warnings: string[]): Space {
     longName,
     footprint,
     areaM2: polygonArea(footprint),
+    boundedBy: (boundaries.get(expressID) ?? []).map(globalIdOf),
+  }
+}
+
+/**
+ * 용량으로 받아들이는 속성 이름. **앞에 있을수록 우선한다.**
+ *
+ * 앞쪽 넷은 IFC 표준 Pset 의 이름이고, 뒤쪽은 저작 도구가 임의로 붙이는 이름이다.
+ * 실측한 모델에서는 뒤쪽만 나왔다. 표준 이름을 먼저 두는 이유는, 둘 다 있는 파일이라면
+ * 표준 쪽이 검증을 거친 값이기 때문이다.
+ */
+const CAPACITY_NAMES = [
+  'NominalAirFlowRate',
+  'AirFlowRate',
+  'NominalCapacity',
+  'TotalCoolingCapacity',
+  // Revit 이 내보내는 이름들. 공백이 들어간 것도 그대로 쓴다.
+  'Flow',
+  'Air Flow',
+  'Design Flow',
+  'Rated Flow',
+]
+
+/**
+ * 문·창 하나를 중간 모델로 옮긴다.
+ *
+ * 치수는 객체에 바로 붙어 있고(`OverallWidth`·`OverallHeight`), 어느 벽에 뚫렸는지는
+ * 관계를 두 단계 타야 나온다. 통과 가능 여부는 종류에서 바로 정해진다(PRD #3).
+ */
+function openingOf(
+  entity: any,
+  id: string,
+  name: string,
+  kind: 'door' | 'window',
+  expressID: number,
+  wallOfOpening: Map<number, number>,
+  globalIdOf: (elementID: number) => string,
+  scale: number,
+): Opening {
+  const size = (wrapped: unknown) => {
+    const v = val(wrapped as { value?: unknown }) as number | undefined
+    return typeof v === 'number' && Number.isFinite(v) ? v * scale : null
+  }
+  const wall = wallOfOpening.get(expressID)
+
+  return {
+    id,
+    name,
+    kind,
+    width: size(entity?.OverallWidth),
+    height: size(entity?.OverallHeight),
+    wallId: wall === undefined ? null : globalIdOf(wall),
+    // 문은 바닥이 뚫려 있어 지나갈 수 있고, 창문은 바닥·천장이 모두 막혀 있다.
+    passable: kind === 'door',
   }
 }
 
@@ -196,10 +365,22 @@ function spaceOf(r: Reader, expressID: number, warnings: string[]): Space {
 export function importIfc(api: Api, bytes: Uint8Array): Model {
   const model = api.OpenModel(bytes)
   try {
-    const r = new Reader(api, model)
+    const { scale, found: unitFound } = lengthScale(api, model)
+    const r = new Reader(api, model, scale)
     const warnings: string[] = []
+
+    if (!unitFound) {
+      warnings.push('길이 단위 선언을 찾지 못해 미터로 가정했습니다. 치수가 전부 어긋날 수 있습니다.')
+    }
     const loadBearing = r.loadBearingByElement()
     const capacity = r.capacityByElement()
+    const thickness = r.thicknessByElement()
+    const wallOfOpening = r.wallByOpening()
+    const boundaries = r.boundaryElementsBySpace()
+
+    /** express id 를 GlobalId 로. 모델 안의 참조를 밖에서 쓰는 id 로 바꾼다. */
+    const globalIdOf = (elementID: number) =>
+      (val(r.line(elementID)?.GlobalId) as string) ?? `element-${elementID}`
 
     // 무엇이 설비인가는 IFC 의 클래스 계층에 이미 답이 있다. IfcDistributionElement 아래에
     // 공조·배관·전기·계측이 전부 들어간다(IfcAirTerminal, IfcDuctSegment, IfcSensor …).
@@ -225,16 +406,18 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
 
     // 층 → 공간: 분해 관계
     const spacesByStorey = new Map<number, number[]>()
+    const storeyOfSpace = new Map<number, number>()
     for (const relID of r.ids(WebIFC.IFCRELAGGREGATES)) {
       const rel = r.line(relID)
-      const parent = rel?.RelatingObject?.value
-      if (parent === undefined) continue
+      const parent = ref(rel?.RelatingObject)
+      if (parent === null) continue
       for (const child of rel.RelatedObjects ?? []) {
         const line = r.line(child.value)
         if (line?.type !== WebIFC.IFCSPACE) continue
         const list = spacesByStorey.get(parent) ?? []
         list.push(child.value)
         spacesByStorey.set(parent, list)
+        storeyOfSpace.set(child.value, parent)
       }
     }
 
@@ -243,8 +426,8 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
     const systemOfElement = new Map<number, string>()
     for (const relID of r.ids(WebIFC.IFCRELASSIGNSTOGROUP)) {
       const rel = r.line(relID)
-      const groupID = rel?.RelatingGroup?.value
-      if (groupID === undefined) continue
+      const groupID = ref(rel?.RelatingGroup)
+      if (groupID === null) continue
       // 그룹은 계통 말고도 쓰인다(존, 작업 묶음 등). 계통 계열만 취한다.
       if (!systemIDs.has(groupID)) continue
       const group = r.line(groupID)
@@ -261,14 +444,34 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
     }
 
     // 층 → 벽·문·창: 포함 관계
+    //
+    // **상위 구조가 층이 아니라 공간일 수 있다.** Duplex 의 COBie 판본은 설비 133대를
+    // 전부 `IfcSpace` 에 매달아 두었고 층에 매달린 것은 하나도 없었다. 층만 보면 설비가
+    // 0 으로 읽힌다. 공간에 매달린 것은 그 공간의 층으로 올려 담고, 동시에 **BIM 이
+    // 말해 준 소속 공간**으로 기억해 둔다.
     const elementsByStorey = new Map<number, number[]>()
+    const declaredSpaceOf = new Map<number, string>()
+
     for (const relID of r.ids(WebIFC.IFCRELCONTAINEDINSPATIALSTRUCTURE)) {
       const rel = r.line(relID)
-      const parent = rel?.RelatingStructure?.value
-      if (parent === undefined) continue
-      const list = elementsByStorey.get(parent) ?? []
+      const structure = ref(rel?.RelatingStructure)
+      if (structure === null) continue
+
+      const structureLine = r.line(structure)
+      let storeyID = structure
+      if (structureLine?.type === WebIFC.IFCSPACE) {
+        const parentStorey = storeyOfSpace.get(structure)
+        if (parentStorey === undefined) continue
+        storeyID = parentStorey
+        const spaceGlobalID = val(structureLine?.GlobalId) as string
+        if (spaceGlobalID) {
+          for (const child of rel.RelatedElements ?? []) declaredSpaceOf.set(child.value, spaceGlobalID)
+        }
+      }
+
+      const list = elementsByStorey.get(storeyID) ?? []
       for (const child of rel.RelatedElements ?? []) list.push(child.value)
-      elementsByStorey.set(parent, list)
+      elementsByStorey.set(storeyID, list)
     }
 
     const storeys: Storey[] = r.ids(WebIFC.IFCBUILDINGSTOREY).map((storeyID) => {
@@ -285,13 +488,18 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
         switch (el?.type) {
           case WebIFC.IFCWALL:
           case WebIFC.IFCWALLSTANDARDCASE:
-            walls.push({ id, name, loadBearing: loadBearing.get(elementID) ?? null })
+            walls.push({
+              id,
+              name,
+              loadBearing: loadBearing.get(elementID) ?? null,
+              thickness: thickness.get(elementID) ?? null,
+            })
             break
           case WebIFC.IFCDOOR:
-            openings.push({ id, name, kind: 'door' })
+            openings.push(openingOf(el, id, name, 'door', elementID, wallOfOpening, globalIdOf, scale))
             break
           case WebIFC.IFCWINDOW:
-            openings.push({ id, name, kind: 'window' })
+            openings.push(openingOf(el, id, name, 'window', elementID, wallOfOpening, globalIdOf, scale))
             break
           default:
             if (!mepIDs.has(elementID)) break
@@ -301,10 +509,13 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
               // GetNameFromTypeCode 는 'IfcAirTerminal' 을 준다. 앞의 Ifc 만 뗀다.
               ifcClass: api.GetNameFromTypeCode(el.type).replace(/^Ifc/i, ''),
               position: r.position3(el),
-              capacity: capacity.get(elementID) ?? null,
+              capacity: capacity.get(elementID)?.value ?? null,
+              capacityProperty: capacity.get(elementID)?.property ?? null,
               systemId: systemOfElement.get(elementID) ?? null,
-              // 좌표로 판정하는 값이라 층이 다 모인 뒤에 채운다.
-              spaceId: null,
+              // BIM 이 소속을 말해 줬으면 그대로 쓴다. 아니면 좌표로 판정하는데, 그건
+              // 층이 다 모인 뒤라야 돌 수 있어서 아래에서 채운다.
+              spaceId: declaredSpaceOf.get(elementID) ?? null,
+              spaceSource: declaredSpaceOf.has(elementID) ? ('bim' as const) : null,
             })
         }
       }
@@ -312,8 +523,10 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
       return {
         id: (val(e?.GlobalId) as string) ?? `storey-${storeyID}`,
         name: (val(e?.Name) as string) ?? '',
-        elevation: (val(e?.Elevation) as number) ?? 0,
-        spaces: (spacesByStorey.get(storeyID) ?? []).map((id) => spaceOf(r, id, warnings)),
+        elevation: ((val(e?.Elevation) as number) ?? 0) * scale,
+        spaces: (spacesByStorey.get(storeyID) ?? []).map((id) =>
+          spaceOf(r, id, globalIdOf, boundaries, warnings),
+        ),
         walls,
         openings,
         equipment,
@@ -323,7 +536,29 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
     // 층이 낮은 것부터 보여야 층 선택 목록이 건물과 같은 순서가 된다.
     storeys.sort((a, b) => a.elevation - b.elevation)
 
-    const unknown = storeys.flatMap((s) => s.walls).filter((w) => w.loadBearing === null).length
+    const allWalls = storeys.flatMap((s) => s.walls)
+    const noThickness = allWalls.filter((w) => w.thickness === null).length
+    if (noThickness > 0) {
+      warnings.push(
+        `벽 ${noThickness}장에 재료 구성이 없어 두께를 모릅니다. 선으로만 그릴 수 있고 벽 편집이 제한됩니다.`,
+      )
+    }
+
+    const looseOpenings = storeys.flatMap((s) => s.openings).filter((o) => o.wallId === null).length
+    if (looseOpenings > 0) {
+      warnings.push(
+        `문·창 ${looseOpenings}개가 어느 벽에 뚫렸는지 모릅니다. 벽을 지울 때 함께 지울 대상을 찾지 못합니다.`,
+      )
+    }
+
+    const noBoundary = storeys.flatMap((s) => s.spaces).filter((sp) => sp.boundedBy.length === 0).length
+    if (noBoundary > 0) {
+      warnings.push(
+        `물리존 ${noBoundary}개에 공간 경계 정보가 없습니다. 벽을 고칠 때 영향받는 물리존을 BIM 에서 알 수 없어 기하로 유추해야 합니다.`,
+      )
+    }
+
+    const unknown = allWalls.filter((w) => w.loadBearing === null).length
     if (unknown > 0) {
       warnings.push(
         `벽 ${unknown}장에 Structural(내력) 속성이 없습니다. 내력벽으로 처리하지 않으며, 편집 제한도 걸리지 않습니다.`,

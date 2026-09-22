@@ -64,6 +64,13 @@ DATA;
 /* 좌표가 없는 설비. PRD #13 의 "미배치 목록" 이 실제로 이렇게 들어온다. */
 #55= IFCSENSOR('0MEP$Equip$SEN01$000',$,'TEMP-101-01',$,$,$,$,'S1',.TEMPERATURESENSOR.);
 
+/* 층이 아니라 공간에 매달린 설비. Duplex 의 COBie 판본이 설비 133대를 전부 이렇게 담았다.
+   좌표는 사무실 밖(50,50)에 두었다 — BIM 이 말한 소속이 좌표 판정을 이겨야 하기 때문이다. */
+#56= IFCCARTESIANPOINT((50.,50.,2.7));
+#57= IFCAXIS2PLACEMENT3D(#56,#4,#5);
+#58= IFCLOCALPLACEMENT(#14,#57);
+#59= IFCLIGHTFIXTURE('0MEP$Equip$LGT01$000',$,'LIGHT-101-01',$,$,#58,$,'L1',.NOTDEFINED.);
+
 /* 용량 파라미터. AT-102 에는 일부러 붙이지 않는다 — PRD #6 의 "용량 파라미터 누락 설비". */
 #60= IFCPROPERTYSINGLEVALUE('NominalAirFlowRate',$,IFCREAL(6000.),$);
 #61= IFCPROPERTYSET('0MEP$Pset$AHU1$0000',$,'Pset_UnitaryEquipmentTypeCommon',$,(#60));
@@ -88,5 +95,6 @@ DATA;
 #92= IFCRELAGGREGATES('0MEP$Rel$Bldg$Storey$',$,$,$,#13,(#15));
 #93= IFCRELAGGREGATES('0MEP$Rel$1F$Spaces$00',$,$,$,#15,(#27));
 #94= IFCRELCONTAINEDINSPATIALSTRUCTURE('0MEP$Rel$1F$Elements$',$,$,$,(#33,#43,#47,#53,#55),#15);
+#95= IFCRELCONTAINEDINSPATIALSTRUCTURE('0MEP$Rel$Space$Elem$00',$,$,$,(#59),#27);
 ENDSEC;
 END-ISO-10303-21;

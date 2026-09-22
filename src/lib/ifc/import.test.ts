@@ -126,11 +126,39 @@ describe('MEP 임포트', () => {
 
   it('설비를 종류별로 읽는다', () => {
     const counts = countOf(mep)
-    expect(counts.equipment).toBe(5)
+    expect(counts.equipment).toBe(6)
     expect(counts.systems).toBe(1)
 
     const classes = mep.storeys.flatMap((s) => s.equipment.map((e) => e.ifcClass)).sort()
-    expect(classes).toEqual(['AirTerminal', 'AirTerminal', 'DuctSegment', 'Sensor', 'UnitaryEquipment'])
+    expect(classes).toEqual([
+      'AirTerminal',
+      'AirTerminal',
+      'DuctSegment',
+      'LightFixture',
+      'Sensor',
+      'UnitaryEquipment',
+    ])
+  })
+
+  it('층이 아니라 공간에 매달린 설비도 읽는다', () => {
+    // 층만 보면 이 설비가 0 으로 읽힌다. Duplex 의 COBie 판본이 133대를 이렇게 담았다.
+    const light = byName('LIGHT-101-01')
+    expect(light).toBeDefined()
+    expect(mep.storeys[0].equipment).toContain(light)
+  })
+
+  it('BIM 이 말한 소속이 좌표 판정을 이긴다', () => {
+    // 이 조명은 좌표가 사무실 밖(50,50)인데 IFC 가 사무실에 담아 두었다. 설계자가 정한
+    // 소속이 좌표보다 정확하므로 BIM 쪽을 따른다.
+    const light = byName('LIGHT-101-01')
+    expect(light.position).toEqual([50, 50, 2.7])
+    expect(light.spaceId).toBe(mep.storeys[0].spaces[0].id)
+    expect(light.spaceSource).toBe('bim')
+  })
+
+  it('좌표로 판정한 것은 출처가 computed 다', () => {
+    expect(byName('AHU-1').spaceSource).toBe('computed')
+    expect(byName('TEMP-101-01').spaceSource).toBe(null)
   })
 
   it('설비 좌표를 x·y·z 로 읽는다', () => {
@@ -173,5 +201,76 @@ describe('MEP 임포트', () => {
   it('빠진 것을 경고로 남긴다', () => {
     expect(mep.warnings.some((w) => w.includes('좌표가 없어'))).toBe(true)
     expect(mep.warnings.some((w) => w.includes('용량 파라미터가 없습니다'))).toBe(true)
+  })
+})
+
+// --- F4·F5·F6: 벽 두께, 개구부 치수와 소속, 공간 경계 ---------------------------
+describe('벽 두께 (F4)', () => {
+  const wall = (name: string) => model.storeys.flatMap((s) => s.walls).find((w) => w.name === name)!
+
+  it('재료층 두께를 합해서 읽는다', () => {
+    // IFC 는 벽 두께를 기하가 아니라 재료 구성에 둔다. 형상만 봐서는 알 수 없다.
+    expect(wall('W-1F-01').thickness).toBeCloseTo(0.2, 9)
+  })
+
+  it('여러 층이면 합이 두께다', () => {
+    // 석고보드 100mm + 단열재 50mm = 150mm.
+    expect(wall('W-1F-02').thickness).toBeCloseTo(0.15, 9)
+  })
+
+  it('재료 구성이 없으면 null 이다', () => {
+    // 0 으로 채우면 두께 없는 벽과 모르는 벽이 섞인다.
+    expect(wall('W-1F-03').thickness).toBe(null)
+  })
+})
+
+describe('개구부 (F4 · F5 · F15)', () => {
+  const opening = (name: string) => model.storeys.flatMap((s) => s.openings).find((o) => o.name === name)!
+
+  it('치수를 읽는다', () => {
+    expect(opening('D-1F-01').width).toBeCloseTo(0.9, 9)
+    expect(opening('D-1F-01').height).toBeCloseTo(2.1, 9)
+  })
+
+  it('어느 벽에 뚫렸는지 두 단계를 타고 찾는다', () => {
+    // RelVoids 가 벽에 구멍을 내고 RelFills 가 그 구멍을 채운다. 한 단계만 보면 안 이어진다.
+    const walls = model.storeys.flatMap((s) => s.walls)
+    expect(opening('D-1F-01').wallId).toBe(walls.find((w) => w.name === 'W-1F-01')!.id)
+    expect(opening('WD-1F-01').wallId).toBe(walls.find((w) => w.name === 'W-1F-02')!.id)
+  })
+
+  it('관계가 없는 개구부는 null 이다', () => {
+    expect(opening('WD-2F-01').wallId).toBe(null)
+  })
+
+  it('문은 지나갈 수 있고 창문은 못 한다', () => {
+    expect(opening('D-1F-01').passable).toBe(true)
+    expect(opening('WD-1F-01').passable).toBe(false)
+  })
+})
+
+describe('공간 경계 (F6)', () => {
+  it('물리존을 둘러싼 부재를 BIM 에서 그대로 받는다', () => {
+    // 기하 연산으로 유추하지 않는다. IfcRelSpaceBoundary 가 직접 말해 준다.
+    const meeting = model.storeys[0].spaces.find((s) => s.name === '101')!
+    const walls = model.storeys.flatMap((s) => s.walls)
+    const w1 = walls.find((w) => w.name === 'W-1F-01')!
+    const w2 = walls.find((w) => w.name === 'W-1F-02')!
+
+    expect(meeting.boundedBy).toContain(w1.id)
+    expect(meeting.boundedBy).toContain(w2.id)
+  })
+
+  it('같은 부재가 여러 면으로 걸려도 한 번만 센다', () => {
+    // 한 벽이 공간의 여러 면을 이룰 수 있다. 목록이 중복되면 영향 범위가 부풀려진다.
+    const meeting = model.storeys[0].spaces.find((s) => s.name === '101')!
+    expect(new Set(meeting.boundedBy).size).toBe(meeting.boundedBy.length)
+    expect(meeting.boundedBy).toHaveLength(2)
+  })
+
+  it('부재가 없는 경계는 세지 않는다', () => {
+    // 바깥 공기에 면한 경계다. 경계가 아니라 열린 면이라서 부재 목록에 들어가면 안 된다.
+    const meeting = model.storeys[0].spaces.find((s) => s.name === '101')!
+    expect(meeting.boundedBy.every((id) => id !== '')).toBe(true)
   })
 })

@@ -26,6 +26,12 @@ const counts = computed(() => (model.value ? countOf(model.value) : null))
 const changes = ref<Change[]>([])
 const report = computed(() => summarize(changes.value))
 
+// 층의 벽 두께 종류를 한 줄로 요약한다. 값이 여럿이면 내벽과 외벽이 섞인 것이다.
+const wallThicknessOf = (storey: { walls: { thickness: number | null }[] }) => {
+  const values = [...new Set(storey.walls.map((w) => w.thickness).filter((t): t is number => t !== null))]
+  return values.sort((a, b) => a - b).map((t) => `${(t * 1000).toFixed(0)}mm`).join('/')
+}
+
 const spaceNameOf = (spaceId: string | null) => {
   if (!model.value || !spaceId) return '(소속 없음)'
   for (const storey of model.value.storeys) {
@@ -177,6 +183,7 @@ function exportTTL() {
               <th class="num">높이</th>
               <th>물리존</th>
               <th class="num">넓이 합</th>
+              <th class="num">벽</th>
               <th class="num">설비</th>
             </tr>
           </thead>
@@ -187,6 +194,11 @@ function exportTTL() {
               <td>{{ s.spaces.map((x) => x.longName || x.name).join(', ') || '—' }}</td>
               <td class="num mono">
                 {{ s.spaces.reduce((n, x) => n + x.areaM2, 0).toFixed(1) }} ㎡
+              </td>
+              <td class="num mono">
+                {{ s.walls.length }}<template v-if="s.walls.some((w) => w.thickness !== null)">
+                  <span class="muted"> · {{ wallThicknessOf(s) }}</span>
+                </template>
               </td>
               <td class="num mono">{{ s.equipment.length }}</td>
             </tr>
