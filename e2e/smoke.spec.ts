@@ -159,3 +159,31 @@ test('물리존 경계를 고치면 넓이와 설비 소속이 같이 바뀐다'
 
   expect(errors).toEqual([])
 })
+
+test('설비 파일에 건축 파일을 덧붙이면 합쳐서 소속을 다시 판정한다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+
+  await page.goto('/')
+  // 설비 파일을 먼저 연다. 덧붙이는 순서와 무관하게 방을 더 그린 쪽이 기준이 되어야 한다.
+  await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+
+  await page.locator('.append input[type=file]').setInputFiles(FIXTURE)
+  await expect(page.getByRole('heading', { name: 'two-rooms.ifc + mep.ifc' })).toBeVisible({ timeout: 30_000 })
+
+  const tile = (label: string) => page.locator('.tiles li', { hasText: label }).locator('b')
+  // 회의실·복도·창고(two-rooms) + 사무실(mep). 층 GUID 가 달라도 1F 로 맞춘다.
+  await expect(tile('물리존')).toHaveText('4')
+  await expect(tile('층')).toHaveText('2')
+  await expect(tile('기기')).toHaveText('5')
+
+  const merge = page.locator('.merge')
+  await expect(merge).toContainText('이름으로 1')
+  await expect(merge).toContainText('좌표 겹침')
+  // 경고에 어느 파일 이야기인지 이름표가 붙는다.
+  await expect(page.locator('.warnings')).toContainText('[mep.ifc]')
+  await expect(page.locator('.warnings')).toContainText('[two-rooms.ifc]')
+
+  expect(errors).toEqual([])
+})

@@ -2,7 +2,10 @@
 import { computed, onBeforeUnmount, ref, shallowRef, triggerRef, watch } from 'vue'
 import { ifcApi } from './lib/ifc/open'
 import { importIfcWithMeshes, type MeshMap } from './lib/ifc/import'
-import { countOf, type Equipment, type Model } from './lib/model'
+import { countOf, isConduit, type Equipment, type Model } from './lib/model'
+import { mergeModels, type MergeReport } from './lib/merge'
+import { profileOf, type Profile } from './lib/profile'
+import TierChips from './components/TierChips.vue'
 import { neighbors, trace, TOLERANCE } from './lib/topology'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
@@ -260,21 +263,50 @@ onBeforeUnmount(() => viewer?.dispose())
 
 // dev 서버가 data/ 의 .ifc 목록을 준다(vite.config.ts). 빌드 번들에선 실패하고 빈 목록이 된다.
 const dataFiles = ref<{ path: string; size: number }[]>([])
-const dataPick = ref('')
+
+// 파일마다 온톨로지를 어디까지 채우는지. dev 서버가 앱과 같은 임포터로 재서 준다(vite.config.ts).
+// 한 파일에 1초 남짓 걸려서 목록을 먼저 보이고, 요약은 하나씩 채운다.
+type Profiled = { profile: Profile } | { error: string }
+const profiles = ref<Record<string, Profiled>>({})
 
 fetch('./__data/')
   .then((r) => (r.ok ? r.json() : []))
-  .then((files) => (dataFiles.value = Array.isArray(files) ? files : []))
+  .then(async (files) => {
+    dataFiles.value = Array.isArray(files) ? files : []
+    for (const f of dataFiles.value) {
+      try {
+        const r = await fetch(`./__data/${f.path.split('/').map(encodeURIComponent).join('/')}?profile`)
+        if (r.ok) profiles.value = { ...profiles.value, [f.path]: await r.json() }
+      } catch {
+        // 요약을 못 받아도 파일은 열 수 있다. 칸을 비워 둔다.
+      }
+    }
+  })
   .catch(() => {})
 
-function onDataPick() {
-  const path = dataPick.value
-  if (!path) return
-  void load(path.split('/').pop() ?? path, async () => {
-    const r = await fetch(`./__data/${path.split('/').map(encodeURIComponent).join('/')}`)
-    if (!r.ok) throw new Error(`data/${path} 를 받지 못했습니다 (HTTP ${r.status})`)
-    return r.arrayBuffer()
-  })
+const baseName = (path: string) => path.split('/').pop() ?? path
+const profileAt = (path: string): Profile | null => {
+  const p = profiles.value[path]
+  return p && 'profile' in p ? p.profile : null
+}
+const errorAt = (path: string): string => {
+  const p = profiles.value[path]
+  return p && 'error' in p ? p.error : ''
+}
+
+function openData(path: string) {
+  void load(baseName(path), () => fetchData(path))
+}
+
+function appendData(path: string) {
+  void append(baseName(path), () => fetchData(path))
+}
+
+/** 요약 옆에 붙이는 한마디. 이 파일이 혼자 쓰이는지, 짝이 필요한지. */
+function roleHint(p: Profile): string {
+  if (p.needsArchitecture) return '방이 없다 — 건축 파일과 합칠 짝'
+  if (p.needsEquipment) return '설비가 없다 — 설비 파일을 덧붙일 자리'
+  return ''
 }
 
 function mb(bytes: number) {
@@ -290,6 +322,7 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     meshes = result.meshes
     model.value = result.model
     fileName.value = name
+    mergeReport.value = null
     selectedId.value = null
     // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다.
     changes.value = []
@@ -299,11 +332,109 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     model.value = null
     meshes = new Map()
     fileName.value = ''
+    mergeReport.value = null
     error.value = `IFC 를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`
   } finally {
     busy.value = false
   }
 }
+
+// --- 파일 덧붙이기 ------------------------------------------------------------
+//
+// 실제 프로젝트는 건축과 설비가 다른 파일이다. 설비 파일에는 방이 없어서 혼자 열면 소속
+// 물리존(F11)이 안 나온다. 열린 모델에 다른 파일을 합친다.
+const mergeReport = shallowRef<MergeReport | null>(null)
+
+/** 외곽선이 있는 물리존 수. 이게 많은 쪽이 물리존을 대는 기준 모델이 된다. */
+const drawnSpaces = (m: Model) => m.storeys.reduce((n, s) => n + s.spaces.filter((sp) => sp.footprint.length >= 3).length, 0)
+
+// 편집한 뒤에는 덧붙이지 못하게 한다. 합치기는 모델을 새로 만드는 일이라, 앞선 편집이 합친
+// 모델에 섞여 들어가면서 편집 이력에는 안 남는다 — 리포트가 모르는 변경이 생긴다.
+const canAppend = computed(() => !!model.value && changes.value.length === 0 && areaChanges.value.length === 0)
+
+async function append(name: string, read: () => Promise<ArrayBuffer>) {
+  if (!model.value) return
+  busy.value = true
+  error.value = ''
+  try {
+    const api = await ifcApi()
+    const next = importIfcWithMeshes(api, new Uint8Array(await read()))
+    const current = { name: fileName.value, model: model.value }
+    const incoming = { name, model: next.model }
+    // 어느 파일을 먼저 열었는지와 무관하게 방을 더 많이 그린 쪽이 기준이다. 설비 파일을 먼저
+    // 열고 건축 파일을 덧붙여도 결과가 같아야 한다.
+    const [base, overlay] =
+      drawnSpaces(incoming.model) > drawnSpaces(current.model) ? [incoming, current] : [current, incoming]
+    const merged = mergeModels(base.model, overlay.model, { base: base.name, overlay: overlay.name })
+
+    meshes = new Map([...meshes, ...next.meshes])
+    model.value = merged.model
+    mergeReport.value = merged.report
+    fileName.value = `${base.name} + ${overlay.name}`
+    selectedId.value = null
+    selectedSystemId.value = null
+  } catch (e) {
+    // 덧붙이기가 실패하면 열려 있던 모델은 그대로 둔다. 실패한 파일만 알린다.
+    error.value = `${name} 를 덧붙이지 못했습니다: ${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    busy.value = false
+  }
+}
+
+function onAppendPick(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (file) void append(file.name, () => file.arrayBuffer())
+  // 같은 파일을 다시 고를 수 있게 비운다.
+  input.value = ''
+}
+
+
+async function fetchData(path: string) {
+  const r = await fetch(`./__data/${path.split('/').map(encodeURIComponent).join('/')}`)
+  if (!r.ok) throw new Error(`data/${path} 를 받지 못했습니다 (HTTP ${r.status})`)
+  return r.arrayBuffer()
+}
+
+/** 합치기 보고를 한 줄씩. 문제는 경고가 말하고, 여기는 무엇을 했는지를 말한다. */
+const mergeLines = computed(() => {
+  const r = mergeReport.value
+  if (!r) return []
+  const byName = r.storeys.filter((s) => s.by === 'name').length
+  const byElevation = r.storeys.filter((s) => s.by === 'elevation').length
+  const added = r.storeys.filter((s) => s.by === null).length
+  const lines = [
+    `층 ${r.storeys.length}개 중 이름으로 ${byName}` +
+      (byElevation ? ` · 높이로 ${byElevation}` : '') +
+      (added ? ` · 새 층 ${added}` : ''),
+  ]
+  if (r.alignment) lines.push(`좌표 겹침 ${Math.round(r.alignment.ratio * 100)}% (${r.alignment.inside}/${r.alignment.placed})`)
+  const { dropped, kept, borrowed } = r.spaces
+  const spaceParts = [
+    dropped ? `겹친 물리존 ${dropped}개 뺌` : '',
+    kept ? `빈자리 물리존 ${kept}개 받음` : '',
+    borrowed ? `외곽선 ${borrowed}개 빌림` : '',
+  ].filter(Boolean)
+  if (spaceParts.length) lines.push(spaceParts.join(' · '))
+  lines.push(`덧붙인 설비 미소속 ${r.unlocated.before} → ${r.unlocated.after}`)
+  return lines
+})
+
+// 소속을 못 찾은 설비는 임포트 경고로 굳히지 않고 그때그때 센다. 경계 편집·설비 이동·
+// 덧붙이기가 전부 이 값을 바꾼다. 기기와 도관을 나눠 말한다 — 이상 알림이 비는 것은 기기다.
+const unlocatedLine = computed(() => {
+  if (!model.value) return ''
+  const all = model.value.storeys.flatMap((s) => s.equipment).filter((e) => e.spaceId === null)
+  if (all.length === 0) return ''
+  const conduits = all.filter((e) => isConduit(e.role)).length
+  const devices = all.length - conduits
+  return `기기 ${devices}대 · 덕트·배관 ${conduits}대의 소속 물리존을 찾지 못했습니다. 이상 알림의 '발생 위치' 가 빈 채로 나갑니다.`
+})
+
+// 열린 모델의 등급 칩. 파일 목록의 칩과 같은 계산이라, 덧붙인 뒤 어느 칸이 찼는지 견줄 수 있다.
+const currentTiers = computed(() => (model.value ? profileOf(model.value).tiers : []))
+
+const warnings = computed(() => [...(model.value?.warnings ?? []), ...(unlocatedLine.value ? [unlocatedLine.value] : [])])
 
 function onPick(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0]
@@ -365,15 +496,38 @@ function exportTTL() {
         파일 선택
         <input type="file" accept=".ifc" :disabled="busy" @change="onPick" />
       </label>
-      <div v-if="dataFiles.length" class="data-pick">
-        <span>또는 data/ 에서</span>
-        <select v-model="dataPick" :disabled="busy" @change="onDataPick">
-          <option value="" disabled>샘플 고르기</option>
-          <option v-for="f in dataFiles" :key="f.path" :value="f.path">
-            {{ f.path }} · {{ mb(f.size) }}
-          </option>
-        </select>
-      </div>
+
+    </section>
+
+    <!-- data/ 의 샘플. 파일마다 온톨로지를 어디까지 채우는지 먼저 보고 고른다. -->
+    <section v-if="dataFiles.length" class="catalog">
+      <h2>data/ 의 IFC</h2>
+      <p class="hint">
+        칸은 등급이다 — 공간(외곽선을 얻은 물리존) · 설비(좌표가 있는 기기) · 소속(방을 찾은 기기) ·
+        연결망(연결 수) · 방향(흐름 방향을 아는 연결 비율). 칸에 마우스를 올리면 무엇을 셌는지 보인다.
+      </p>
+      <table>
+        <tbody>
+          <tr v-for="f in dataFiles" :key="f.path">
+            <td class="name">
+              <span>{{ f.path }}</span>
+              <span class="muted">{{ mb(f.size) }}<template v-if="profileAt(f.path)"> · {{ profileAt(f.path)!.schema }}</template></span>
+            </td>
+            <td class="chips">
+              <span v-if="!profiles[f.path]" class="muted">재는 중…</span>
+              <span v-else-if="errorAt(f.path)" class="unreadable" :title="errorAt(f.path)">열 수 없음</span>
+              <template v-else>
+                <TierChips :tiers="profileAt(f.path)!.tiers" />
+                <span v-if="roleHint(profileAt(f.path)!)" class="muted role">{{ roleHint(profileAt(f.path)!) }}</span>
+              </template>
+            </td>
+            <td class="row-actions">
+              <button type="button" class="ghost" :disabled="busy" @click="openData(f.path)">열기</button>
+              <button v-if="canAppend" type="button" class="ghost" :disabled="busy" @click="appendData(f.path)">덧붙이기</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </section>
 
     <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -402,8 +556,23 @@ function exportTTL() {
           <li><b>{{ counts.directedConnections }}</b><span>흐름 방향</span></li>
         </ul>
 
-        <ul v-if="model.warnings.length" class="warnings">
-          <li v-for="w in model.warnings" :key="w">{{ w }}</li>
+        <!-- 건축과 설비가 다른 파일일 때. 편집을 시작한 뒤에는 닫는다(canAppend 주석 참조). -->
+        <div v-if="canAppend" class="append">
+          <label class="ghost">
+            파일 덧붙이기
+            <input type="file" accept=".ifc" :disabled="busy" @change="onAppendPick" />
+          </label>
+          <span class="hint">건축과 설비가 다른 파일이면 합쳐야 설비의 소속 물리존이 나옵니다.</span>
+        </div>
+
+        <TierChips :tiers="currentTiers" />
+
+        <ul v-if="mergeLines.length" class="merge">
+          <li v-for="line in mergeLines" :key="line">{{ line }}</li>
+        </ul>
+
+        <ul v-if="warnings.length" class="warnings">
+          <li v-for="w in warnings" :key="w">{{ w }}</li>
         </ul>
       </section>
 

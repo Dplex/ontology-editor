@@ -6,7 +6,7 @@
 // 편집할 때마다 다시 돌아야 하는 계산이라 임포트와 떼어 놓았다. 벽을 옮겨 물리존 경계가
 // 바뀌면 설비 소속이 바뀌고, 그게 이상 알림의 '발생 위치' 와 탐색기 트리에 그대로 나간다.
 
-import type { Model, Vec2, Vec3 } from './model'
+import type { Model, Space, Vec2, Vec3 } from './model'
 
 /**
  * 점이 다각형 안에 있는지 본다. 광선 교차 방식이다.
@@ -31,12 +31,119 @@ export function pointInPolygon(point: Vec2, ring: readonly Vec2[]): boolean {
 }
 
 /**
+ * 다각형의 넓이 중심. 오목한 방이면 방 밖에 떨어질 수 있으므로 쓰는 쪽이 안팎을 확인한다.
+ * 넓이가 0 이면(퇴화한 고리) 꼭짓점 평균으로 대신한다.
+ */
+export function centroid(ring: readonly Vec2[]): Vec2 | null {
+  if (ring.length < 3) return null
+  let a = 0
+  let cx = 0
+  let cy = 0
+  for (let i = 0; i < ring.length; i++) {
+    const [x0, y0] = ring[i]
+    const [x1, y1] = ring[(i + 1) % ring.length]
+    const f = x0 * y1 - x1 * y0
+    a += f
+    cx += (x0 + x1) * f
+    cy += (y0 + y1) * f
+  }
+  if (Math.abs(a) < 1e-12) {
+    const n = ring.length
+    return [ring.reduce((s, p) => s + p[0], 0) / n, ring.reduce((s, p) => s + p[1], 0) / n]
+  }
+  return [cx / (3 * a), cy / (3 * a)]
+}
+
+/**
+ * 다각형 안에 반드시 드는 점 하나.
+ *
+ * 넓이 중심이 안에 들면 그것을 쓴다. ㄱ 자·ㄷ 자 방은 중심이 방 밖(옆 방)에 떨어질 수 있어서,
+ * 그때는 중심 높이의 수평선이 다각형을 가로지르는 구간 중 가장 넓은 것의 가운데를 쓴다.
+ * "이 방이 저 방과 같은 자리인가" 를 물을 때 중심을 그대로 쓰면, 계단실이 옆 현관과 같은
+ * 방으로 판정된다(Duplex 의 A105 Stair 가 실제로 그랬다).
+ */
+export function interiorPoint(ring: readonly Vec2[]): Vec2 | null {
+  const c = centroid(ring)
+  if (!c) return null
+  if (pointInPolygon(c, ring)) return c
+
+  const y = c[1]
+  const xs: number[] = []
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]
+    const [xj, yj] = ring[j]
+    if (yi > y !== yj > y) xs.push(xi + ((y - yi) * (xj - xi)) / (yj - yi))
+  }
+  xs.sort((p, q) => p - q)
+  let best: Vec2 | null = null
+  let width = 0
+  for (let k = 0; k + 1 < xs.length; k += 2) {
+    if (xs[k + 1] - xs[k] > width) {
+      width = xs[k + 1] - xs[k]
+      best = [(xs[k] + xs[k + 1]) / 2, y]
+    }
+  }
+  return best
+}
+
+/** 점에서 고리의 가장 가까운 변까지의 거리. */
+export function distanceToRing(point: Vec2, ring: readonly Vec2[]): number {
+  let best = Infinity
+  for (let i = 0; i < ring.length; i++) {
+    const [ax, ay] = ring[i]
+    const [bx, by] = ring[(i + 1) % ring.length]
+    const dx = bx - ax
+    const dy = by - ay
+    const len2 = dx * dx + dy * dy
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((point[0] - ax) * dx + (point[1] - ay) * dy) / len2))
+    best = Math.min(best, Math.hypot(point[0] - (ax + t * dx), point[1] - (ay + t * dy)))
+  }
+  return best
+}
+
+/**
+ * 외곽선 밖이어도 이 거리 안이면 가장 가까운 물리존에 붙인다(미터).
+ *
+ * **벽에 붙은 설비는 좌표가 정확히 벽면에 있다.** 콘센트·스위치·벽부 조명의 삽입점이 방 외곽선
+ * 위에 떨어져서, 점이 다각형 안에 드는지만 보면 절반쯤이 "어느 방에도 없음" 이 된다. Duplex
+ * MEP 판본에서 BIM 이 소속을 직접 말한 설비 167대를 정답지로 채점했을 때 49대(29%)가 그랬고,
+ * 그중 44대가 외곽선에서 15cm 안이었다(중앙값 0mm).
+ *
+ * 같은 167대로 값을 쓸어 봤다. 0 에서 73.1%, 2cm 에서 94.0%, **5cm 에서 95.8% 로 포화**하고
+ * 30cm 까지 넓혀도 그대로다(다른 방으로 잘못 가는 것도 2대 그대로). 포화하는 가장 작은 값을
+ * 쓴다 — 그 위로는 정답지가 없는 덕트·배관만 더 붙는데(미소속 270 → 31), 벽 속 배관이 어느
+ * 쪽 방인지는 맞았는지 잴 방법이 없다. 틀린 관계가 들어가는 쪽이 빠지는 쪽보다 나쁘다.
+ * 채점표는 `npm run check:sample` 에 박혀 있다.
+ */
+export const SNAP = 0.05
+
+/**
+ * 한 층의 물리존 중 이 점이 속한 것. 안에 드는 것이 먼저고, 없으면 SNAP 안의 가장 가까운 것.
+ * 어디에도 없으면 null 이다.
+ */
+export function locate(point: Vec2, spaces: readonly Space[], snap = SNAP): string | null {
+  for (const space of spaces) if (pointInPolygon(point, space.footprint)) return space.id
+
+  let best: string | null = null
+  let bestDistance = snap
+  for (const space of spaces) {
+    if (space.footprint.length < 3) continue
+    const d = distanceToRing(point, space.footprint)
+    if (d <= bestDistance) {
+      bestDistance = d
+      best = space.id
+    }
+  }
+  return best
+}
+
+/**
  * 모든 설비에 소속 물리존을 채워 넣는다. 모델을 그 자리에서 고친다.
  *
  * 설비는 자기 층의 물리존 안에서만 찾는다. 층을 안 가리면 위아래 층의 같은 자리에 있는
  * 방에 붙을 수 있는데, 천장 설비는 다음 층 바닥과 높이가 겹쳐서 실제로 그렇게 된다.
  */
-export function assignEquipmentToSpaces(model: Model): void {
+export function assignEquipmentToSpaces(model: Model, snap = SNAP): void {
   for (const storey of model.storeys) {
     for (const equipment of storey.equipment) {
       // BIM 이 직접 말한 소속은 다시 계산하지 않는다. 설계자가 정한 값이라 좌표 판정보다
@@ -47,16 +154,50 @@ export function assignEquipmentToSpaces(model: Model): void {
       equipment.spaceSource = null
       if (!equipment.position) continue
 
-      const flat: Vec2 = [equipment.position[0], equipment.position[1]]
-      for (const space of storey.spaces) {
-        if (pointInPolygon(flat, space.footprint)) {
-          equipment.spaceId = space.id
-          equipment.spaceSource = 'computed'
-          break
-        }
+      const found = locate([equipment.position[0], equipment.position[1]], storey.spaces, snap)
+      if (found !== null) {
+        equipment.spaceId = found
+        equipment.spaceSource = 'computed'
       }
     }
   }
+}
+
+/**
+ * 좌표 판정을 BIM 이 직접 말한 소속에 대 본다. **F11 의 정확도를 재는 유일한 정답지다.**
+ *
+ * BIM 이 소속을 말한 설비(`spaceSource === 'bim'`)마다, 그 말을 무시하고 좌표로 판정했으면
+ * 어디가 나왔을지를 센다. 같은 방이 두 번 들어 있는 파일(Revit 의 MEP Space 와 건축 Room
+ * 사본)이 있어서, "같은 방" 은 id 가 아니라 **같은 자리**로 본다 — 판정된 방 안에 BIM 이 말한
+ * 방의 안쪽 점이 드는가.
+ */
+export function scoreAgainstDeclared(
+  model: Model,
+  snap = SNAP,
+): { total: number; agreed: number; outside: number; otherRoom: number } {
+  const out = { total: 0, agreed: 0, outside: 0, otherRoom: 0 }
+  for (const storey of model.storeys) {
+    for (const e of storey.equipment) {
+      if (e.spaceSource !== 'bim' || !e.position) continue
+      const declared = storey.spaces.find((s) => s.id === e.spaceId)
+      if (!declared || declared.footprint.length < 3) continue
+      out.total++
+
+      const flat: Vec2 = [e.position[0], e.position[1]]
+      // 겹친 사본 중 어느 것이 먼저 잡혀도 같은 자리면 맞힌 것이다. 그래서 첫 것 하나가
+      // 아니라 판정에 걸린 방을 전부 본다.
+      const inside = storey.spaces.filter((s) => pointInPolygon(flat, s.footprint))
+      const hits = inside.length > 0 ? inside : storey.spaces.filter((s) => s.id === locate(flat, storey.spaces, snap))
+      if (hits.length === 0) {
+        out.outside++
+        continue
+      }
+      const anchor = interiorPoint(declared.footprint)
+      if (hits.some((h) => h.id === declared.id || (anchor && pointInPolygon(anchor, h.footprint)))) out.agreed++
+      else out.otherRoom++
+    }
+  }
+  return out
 }
 
 /** 소속 물리존을 못 찾은 설비. 검토 화면이 이걸 세어 보여 준다. */

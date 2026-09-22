@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { isSelfIntersecting, pointInPolygon } from './mapping'
-import type { Vec2 } from './model'
+import { interiorPoint, isSelfIntersecting, locate, pointInPolygon, SNAP } from './mapping'
+import type { Space, Vec2 } from './model'
 
 // 4 x 3 직사각형. 왼쪽 아래가 (0,0) 이다.
 const RECT: Vec2[] = [
@@ -72,5 +72,51 @@ describe('isSelfIntersecting', () => {
 
   it('꼭짓점이 셋 이하면 교차할 수 없다', () => {
     expect(isSelfIntersecting([[0, 0], [1, 0], [0, 1], [0, 0]])).toBe(false)
+  })
+})
+
+describe('locate — 벽면에 붙은 설비', () => {
+  const room = (id: string, footprint: Vec2[]): Space => ({ id, name: id, longName: id, footprint, areaM2: 0, boundedBy: [] })
+  // 두 방 사이에 0.24m 칸막이벽이 있다. 왼쪽 방 외곽선은 x=4, 오른쪽 방은 x=4.24 부터다.
+  const left = room('left', RECT)
+  const right = room('right', RECT.map(([x, y]) => [x + 4.24, y] as Vec2))
+
+  it('안에 든 점은 그 방이다', () => {
+    expect(locate([2, 1], [left, right])).toBe('left')
+  })
+
+  it('외곽선 바로 위의 점은 그 방에 붙인다', () => {
+    // 콘센트의 삽입점이 정확히 벽면에 있다. 광선 교차는 이 점을 밖이라 할 수 있다.
+    expect(locate([4, 1.5], [left, right])).toBe('left')
+    expect(locate([4 + SNAP * 0.9, 1.5], [left, right])).toBe('left')
+  })
+
+  it('벽 반대쪽 방으로 넘어가지 않는다', () => {
+    // 오른쪽 방 벽면에 붙은 콘센트는 오른쪽이다. 가까운 쪽을 고른다.
+    expect(locate([4.24, 1.5], [left, right])).toBe('right')
+  })
+
+  it('SNAP 밖은 어느 방에도 붙이지 않는다', () => {
+    // 벽 한가운데(두 면에서 각각 0.12m). 어느 방이라고 말할 근거가 없다.
+    expect(locate([4.12, 1.5], [left, right])).toBe(null)
+    expect(locate([20, 1.5], [left, right])).toBe(null)
+  })
+})
+
+describe('interiorPoint', () => {
+  it('볼록한 방은 넓이 중심이다', () => {
+    expect(interiorPoint(RECT)).toEqual([2, 1.5])
+  })
+
+  it('ㄷ 자 방은 넓이 중심이 파인 자리에 떨어져도 안쪽 점을 준다', () => {
+    // 넓이 중심은 (3, 1.83) — 가운데 파인 자리라 방 밖이다.
+    const U: Vec2[] = [[0, 0], [6, 0], [6, 4], [4, 4], [4, 1], [2, 1], [2, 4], [0, 4], [0, 0]]
+    expect(pointInPolygon([3, 11 / 6], U)).toBe(false)
+    const p = interiorPoint(U)!
+    expect(pointInPolygon(p, U)).toBe(true)
+  })
+
+  it('외곽선이 없으면 null 이다', () => {
+    expect(interiorPoint([])).toBe(null)
   })
 })

@@ -25,7 +25,7 @@ import type {
 } from '../model'
 import { polygonArea } from '../model'
 import { apply, compose, foldChain, foldElevation, fromAxisPlacement, type Transform2 } from './placement'
-import { assignEquipmentToSpaces, unlocatedEquipment } from '../mapping'
+import { assignEquipmentToSpaces } from '../mapping'
 import { lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
 
@@ -114,6 +114,52 @@ function readMeshes(api: Api, model: number, ids: Set<number>, globalIdOf: (id: 
     out.set(globalIdOf(flat.expressID), { positions, normals, indices })
   })
   return out
+}
+
+/**
+ * 배치점이 자기 형상에서 이만큼 넘게 떨어져 있으면 배치점을 믿지 않는다(미터).
+ * 천장 설비의 삽입점이 몸체 윗면에 있는 정도는 정상이라 조금 여유를 둔다.
+ */
+export const ANCHOR_MARGIN = 0.5
+
+/**
+ * 배치점이 자기 형상 밖에 있는 설비는 형상의 중심을 좌표로 쓴다. 고친 대수를 돌려준다.
+ *
+ * **Revit 이 IFC2x3 으로 낸 덕트 구간은 `ObjectPlacement` 가 층 원점이다.** 형상은 제자리에
+ * 있고 배치점만 (0, 0) 에 찍힌다. Duplex HVAC 의 구간 231개가 전부 그랬다. 이 좌표로 소속을
+ * 판정하면 **원점이 든 방 하나에 231개가 조용히 몰린다** — Duplex 는 원점이 건물 모서리 밖이라
+ * "미소속" 으로 끝났을 뿐, 원점이 방 안에 있는 건물이었으면 오류 없이 틀렸다.
+ *
+ * 좌표가 없는 설비(`null`)는 건드리지 않는다. 배치가 없는 요소의 형상은 국소 좌표 그대로라
+ * 그 중심도 믿을 수 없다.
+ */
+export function anchorToGeometry(equipment: Equipment[], meshes: MeshMap): number {
+  let fixed = 0
+  for (const e of equipment) {
+    const mesh = meshes.get(e.id)
+    if (!e.position || !mesh || mesh.positions.length === 0) continue
+
+    // 메시는 three.js 좌표(x, 높이, -y)다. IFC 평면으로 되돌려 잰다.
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity, maxZ = -Infinity
+    for (let i = 0; i < mesh.positions.length; i += 3) {
+      const x = mesh.positions[i]
+      const z = mesh.positions[i + 1]
+      const y = -mesh.positions[i + 2]
+      if (x < minX) minX = x
+      if (x > maxX) maxX = x
+      if (y < minY) minY = y
+      if (y > maxY) maxY = y
+      if (z < minZ) minZ = z
+      if (z > maxZ) maxZ = z
+    }
+    const [px, py, pz] = e.position
+    const off = Math.max(minX - px, px - maxX, minY - py, py - maxY, minZ - pz, pz - maxZ)
+    if (off <= ANCHOR_MARGIN) continue
+
+    e.position = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2]
+    fixed++
+  }
+  return fixed
 }
 
 /** web-ifc 의 Vector 를 평범한 배열로. 이 타입이 코드 곳곳에 번지지 않게 입구에서 바꾼다. */
@@ -650,6 +696,31 @@ function openingOf(
   }
 }
 
+/**
+ * 계통 이름에서 id 를 짓는다. 영문·숫자·밑줄만 남겨 TTL 과 GeoJSON 에 같은 문자열로 나가게 한다.
+ *
+ * 이름이 달라도 줄이면 같아질 수 있다("Unit A-1" 과 "Unit A 1"). 그때 한 계통으로 합치면 안
+ * 되므로 뒤에 번호를 붙인다. 같은 파일을 다시 읽으면 같은 순서로 같은 번호가 나온다.
+ */
+export function systemIdOf(name: string, taken: Set<string>): string {
+  const base = `system_${name.normalize('NFKC').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unnamed'}`
+  let id = base
+  for (let n = 2; taken.has(id); n++) id = `${base}_${n}`
+  taken.add(id)
+  return id
+}
+
+/** STEP 구문이 깨져 web-ifc 가 파일을 열지 못했다. 저작 도구 쪽 문제라 우리가 고칠 수 없다. */
+export class UnreadableIfcError extends Error {
+  constructor() {
+    super(
+      'STEP 구문 오류로 파일을 열지 못했습니다. 문자열 속 작은따옴표가 \'\' 로 이스케이프되지 않았는지 ' +
+        '확인해야 합니다(예: 6\'8" 같은 피트·인치 표기). 저작 도구에서 다시 내보내야 합니다.',
+    )
+    this.name = 'UnreadableIfcError'
+  }
+}
+
 /** IFC 바이트를 읽어 중간 모델을 만든다. 호출부가 api 를 넘겨 초기화를 통제한다. */
 export function importIfc(api: Api, bytes: Uint8Array): Model {
   return read(api, bytes, false).model
@@ -670,6 +741,11 @@ export function importIfcWithMeshes(api: Api, bytes: Uint8Array): { model: Model
 
 function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model; meshes: MeshMap } {
   const model = api.OpenModel(bytes)
+  // **web-ifc 는 구문이 깨진 파일에 예외 대신 -1 을 준다.** 확인하지 않고 진행하면 한참 뒤
+  // 엉뚱한 곳에서 "Cannot read properties of undefined" 로 죽어서 무엇이 잘못됐는지 모른다.
+  // Duplex COBie 판본 5개 중 3개가 이랬다 — 문자열 속 피트·인치 표기(`'Atherton 6'8" Smooth'`)의
+  // 작은따옴표가 STEP 규칙대로 `''` 로 이스케이프되지 않아, 문자열이 중간에 끝나 버린다.
+  if (model < 0) throw new UnreadableIfcError()
   try {
     const { scale, found: unitFound } = lengthScale(api, model)
     const r = new Reader(api, model, scale)
@@ -761,7 +837,7 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
       if (!systemIDs.has(groupID)) continue
       const group = r.line(groupID)
 
-      const id = (val(group?.GlobalId) as string) ?? `system-${groupID}`
+      const id = (val(group?.GlobalId) as string) ?? `system_${groupID}`
       const memberIDs = (rel.RelatedObjects ?? []).map((h: any) => h.value)
       for (const m of memberIDs) systemOfElement.set(m, id)
 
@@ -778,20 +854,25 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
     //
     // id 는 이름에서 만든다. GlobalId 가 없는 묶음이라 달리 붙일 것이 없고, 같은 파일을
     // 다시 읽어도 같은 id 가 나와야 재임포트 때 같은 계통으로 알아본다.
+    //
+    // **id 에는 영문·숫자·밑줄만 남긴다.** 이름을 그대로 넣었을 때("system-Unit A Domestic Cold
+    // Water") TTL 은 공백을 `_` 로, `-` 를 `\-` 로 바꿔 써야 해서, 받는 쪽 키와 GeoJSON 의
+    // systemId 가 서로 다른 문자열이 됐다. 우리가 짓는 id 는 처음부터 고칠 것이 없게 짓는다.
     if (systems.length === 0) {
       const byName = new Map<string, System>()
+      const taken = new Set<string>()
       for (const [elementID, names] of r.systemNamesByElement()) {
         if (!mepIDs.has(elementID)) continue
         for (const name of names) {
           let system = byName.get(name)
           if (!system) {
-            system = { id: `system-${name}`, name, memberIds: [], source: 'property' }
+            system = { id: systemIdOf(name, taken), name, memberIds: [], source: 'property' }
             byName.set(name, system)
             systems.push(system)
           }
           system.memberIds.push(globalIdOf(elementID))
         }
-        systemOfElement.set(elementID, `system-${names[0]}`)
+        systemOfElement.set(elementID, byName.get(names[0])!.id)
       }
     }
 
@@ -941,10 +1022,25 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
       warnings,
     }
 
+    const allEquipment = storeys.flatMap((s) => s.equipment)
+    const meshes: MeshMap = withMeshes ? readMeshes(api, model, mepIDs, globalIdOf) : new Map()
+
+    // 배치점을 형상에 맞춘 뒤에 소속을 판정한다. 순서를 바꾸면 층 원점에 찍힌 덕트가 원점이
+    // 든 방으로 먼저 들어가 버린다.
+    const anchored = anchorToGeometry(allEquipment, meshes)
+    if (anchored > 0) {
+      warnings.push(
+        `설비 ${anchored}대의 배치점이 자기 형상에서 ${ANCHOR_MARGIN}m 넘게 떨어져 있어(층 원점에 찍힌 것으로 보입니다) 형상 중심을 좌표로 썼습니다.`,
+      )
+    }
+
     // 설비의 소속 물리존은 좌표로 판정한다. 층이 다 모인 뒤에야 돌 수 있다.
+    //
+    // "소속을 못 찾은 설비 N대" 는 경고로 굳히지 않는다. 경계를 고치거나(E2) 설비를 옮기거나
+    // (E5) 다른 파일을 합치면 바로 달라지는 값이라, 임포트 시점에 적어 두면 낡은 숫자가 화면에
+    // 남는다. 화면이 `countOf` 로 그때그때 센다.
     assignEquipmentToSpaces(result)
 
-    const allEquipment = storeys.flatMap((s) => s.equipment)
     const unplaced = allEquipment.filter((e) => e.position === null).length
     if (unplaced > 0) {
       warnings.push(`설비 ${unplaced}대에 좌표가 없어 자동 배치하지 못했습니다. 3D 에서 직접 놓아야 합니다.`)
@@ -956,13 +1052,6 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
     if (allEquipment.length > 0 && systems.length === 0) {
       warnings.push('설비는 있으나 계통(IfcSystem) 정보가 없습니다. 어느 공조기가 어느 토출구를 담당하는지 알 수 없습니다.')
     }
-    const unlocated = unlocatedEquipment(result).length
-    if (unlocated > 0) {
-      warnings.push(`설비 ${unlocated}대의 소속 물리존을 찾지 못했습니다. 이상 알림의 '발생 위치' 가 빈 채로 나갑니다.`)
-    }
-
-    const meshes: MeshMap = withMeshes ? readMeshes(api, model, mepIDs, globalIdOf) : new Map()
-
     if (withMeshes && result.connections.length === 0 && meshes.size > 0) {
       const systemsOf = new Map<string, string[]>()
       for (const system of systems) {

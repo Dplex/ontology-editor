@@ -330,3 +330,78 @@ export function neighbors(connections: readonly Connection[], id: string): Neigh
   }
   return out
 }
+
+/**
+ * 기기에서 기기로 가는 흐름. **DT 가 받는 연결은 이것이다.**
+ *
+ * 받는 쪽(ieum-pipeline 의 ttl.go)은 덕트·배관을 엔티티로 읽지 않는다(fso: 클래스). 그래서
+ * 연결 개수가 아니라 "기기끼리 닿는가" 를 세야 DT 가 무엇을 받는지 말할 수 있다. 연결 단위로 세면
+ * Duplex HVAC 가 "방향 39%" 로 보이는데, 기기에서 출발한 방향 사슬은 전부 중간의 SOURCEANDSINK
+ * 에서 끊겨서 기기끼리 닿는 흐름은 0 이다.
+ *
+ * - `directed` — 기기에서 출발해 **방향을 아는 변만** 타고 덕트·배관을 지나 닿은 기기. TTL 이
+ *   이 쌍을 `brick:feeds` 로 적는다(Brick 은 원래 "공조기 feeds VAV" 처럼 덕트를 건너뛴다).
+ * - `linked` — 방향과 무관하게 덕트·배관을 지나 **다른 기기와 이어진 기기**. 분모로 쓴다.
+ *
+ * 분모를 쌍으로 잡지 않는다. 한 배관에 나란히 매달린 토출구끼리도 "이어진 쌍" 인데, 형제끼리는
+ * 원래 흐름이 없어서 영원히 채워지지 않는다. 쌍으로 셌을 때 방향이 100% 인 ifc4Mep 이 30/492 로
+ * 나왔다. 기기 단위로 "공급하거나 공급받는 기기가 있는가" 를 센다.
+ *
+ * 둘 다 덕트·배관만 **지나간다.** 중간에 다른 기기(밸브·댐퍼)가 있으면 거기서 멈춘다 —
+ * 공조기 → 댐퍼, 댐퍼 → 토출구 로 따로 적힌다.
+ */
+export function deviceFlows(
+  connections: readonly Connection[],
+  isConduitId: (id: string) => boolean,
+  devices: Iterable<string>,
+): { directed: Map<string, string[]>; linked: Set<string>; fed: Set<string> } {
+  const out = new Map<string, string[]>()
+  const both = new Map<string, string[]>()
+  const push = (map: Map<string, string[]>, a: string, b: string) => {
+    const list = map.get(a)
+    if (list) list.push(b)
+    else map.set(a, [b])
+  }
+  for (const c of connections) {
+    if (c.directed) push(out, c.from, c.to)
+    push(both, c.from, c.to)
+    push(both, c.to, c.from)
+  }
+
+  /** 덕트·배관만 지나서 닿는 기기들. */
+  const reach = (start: string, adj: Map<string, string[]>) => {
+    const found = new Set<string>()
+    const seen = new Set<string>([start])
+    const queue = [...(adj.get(start) ?? [])]
+    for (const id of queue) seen.add(id)
+    while (queue.length > 0) {
+      const at = queue.shift()!
+      if (!isConduitId(at)) {
+        found.add(at)
+        continue
+      }
+      for (const n of adj.get(at) ?? []) {
+        if (seen.has(n)) continue
+        seen.add(n)
+        queue.push(n)
+      }
+    }
+    found.delete(start)
+    return found
+  }
+
+  const directed = new Map<string, string[]>()
+  const linked = new Set<string>()
+  /** 흐름 방향으로 다른 기기와 이어진 기기 — 공급하거나 공급받는다. */
+  const fed = new Set<string>()
+  for (const id of devices) {
+    const down = reach(id, out)
+    if (down.size > 0) {
+      directed.set(id, [...down])
+      fed.add(id)
+      for (const d of down) fed.add(d)
+    }
+    if (reach(id, both).size > 0) linked.add(id)
+  }
+  return { directed, linked, fed }
+}

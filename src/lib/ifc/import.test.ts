@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { importIfc, numbers } from './import'
-import { countOf, type Model } from '../model'
+import { anchorToGeometry, importIfc, numbers, UnreadableIfcError, type MeshMap } from './import'
+import { countOf, type Equipment, type Model } from '../model'
 import { trace } from '../topology'
 
 // 픽스처는 손으로 쓴 최소 IFC4 다(fixtures/two-rooms.ifc). 무엇이 들어가면 무엇이 나오는지
@@ -336,5 +336,81 @@ describe('스키마마다 다른 숫자 표현', () => {
     expect(numbers([1, {}])).toBeNull()
     expect(numbers([1, null])).toBeNull()
     expect(numbers(undefined)).toBeNull()
+  })
+})
+
+describe('배치점이 형상에서 떨어진 설비', () => {
+  // 3D 좌표(x, 높이, -y)로 된 상자 메시. IFC 평면에서 x 4..6, y 2..3, 높이 2.5..2.8 이다.
+  const box = (): MeshMap =>
+    new Map([
+      [
+        'duct',
+        {
+          positions: new Float32Array([4, 2.5, -2, 6, 2.5, -2, 6, 2.8, -3, 4, 2.8, -3]),
+          normals: new Float32Array(12),
+          indices: new Uint32Array([0, 1, 2, 0, 2, 3]),
+        },
+      ],
+    ])
+  const duct = (position: Equipment['position']): Equipment => ({
+    id: 'duct',
+    name: 'duct',
+    ifcClass: 'FlowSegment',
+    role: 'segment',
+    position,
+    capacity: null,
+    capacityProperty: null,
+    systemId: null,
+    spaceId: null,
+    spaceSource: null,
+  })
+
+  it('층 원점에 찍힌 배치점은 형상 중심으로 바꾼다', () => {
+    // Revit IFC2x3 의 덕트 구간이 이렇다. 형상은 제자리인데 배치점만 (0,0) 이다.
+    const e = duct([0, 0, 0])
+    expect(anchorToGeometry([e], box())).toBe(1)
+    expect(e.position![0]).toBeCloseTo(5)
+    expect(e.position![1]).toBeCloseTo(2.5)
+    expect(e.position![2]).toBeCloseTo(2.65)
+  })
+
+  it('형상 가까이 있는 배치점은 그대로 둔다', () => {
+    // 천장 설비의 삽입점이 몸체 윗면에 조금 떠 있는 정도는 정상이다.
+    const e = duct([4.2, 2.1, 3.1])
+    expect(anchorToGeometry([e], box())).toBe(0)
+    expect(e.position).toEqual([4.2, 2.1, 3.1])
+  })
+
+  it('좌표가 없는 설비는 형상이 있어도 채우지 않는다', () => {
+    // 배치가 없는 요소의 형상은 국소 좌표라 그 중심도 믿을 수 없다. "모름" 은 "모름" 으로 둔다.
+    const e = duct(null)
+    expect(anchorToGeometry([e], box())).toBe(0)
+    expect(e.position).toBe(null)
+  })
+})
+
+describe('구문이 깨진 파일', () => {
+  it('web-ifc 가 못 연 파일은 이유를 말하며 멈춘다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    // Duplex COBie 판본 셋이 이렇게 깨져 있었다. 피트·인치 표기의 작은따옴표를 '' 로 안 바꿔서
+    // 문자열이 6' 에서 끝나고, 뒤의 " 를 파서가 이진값으로 읽다가 파일 전체를 거부한다.
+    const bytes = new TextEncoder().encode(
+      [
+        `ISO-10303-21;`,
+        `HEADER;`,
+        `FILE_DESCRIPTION((''),'2;1');`,
+        `FILE_NAME('','',(''),(''),'','','');`,
+        `FILE_SCHEMA(('IFC4'));`,
+        `ENDSEC;`,
+        `DATA;`,
+        `#1=IFCLABEL('Atherton 6'8" Smooth');`,
+        `ENDSEC;`,
+        `END-ISO-10303-21;`,
+      ].join('\n'),
+    )
+    // 확인하지 않던 시절에는 한참 뒤 "Cannot read properties of undefined" 로 죽었다.
+    expect(() => importIfc(api, bytes)).toThrow(UnreadableIfcError)
+    expect(() => importIfc(api, bytes)).toThrow(/작은따옴표/)
   })
 })

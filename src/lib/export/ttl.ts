@@ -8,7 +8,8 @@
 // 계층은 기존 온톨로지와 같은 술어만 쓴다: brick:hasPart, rdfs:label
 // (ieum-pipeline/internal/ontology/ttl.go 가 읽는 술어가 hasPoint·feeds·hasLocation·hasPart 뿐이다).
 
-import type { Equipment, Model } from '../model'
+import { isConduit, type Equipment, type Model } from '../model'
+import { deviceFlows } from '../topology'
 
 const PREFIXES = [
   '@prefix brick: <https://brickschema.org/schema/Brick#> .',
@@ -96,6 +97,34 @@ export function modelToTTL(model: Model): string {
   const lines: string[] = [...PREFIXES, '']
   const ref = (id: string) => `ex:${escapeLocalName(id)}`
 
+  // 흐름 방향을 아는 연결만 brick:feeds 로 적는다.
+  //
+  // **형상이 맞닿은 것으로 추정한 연결은 넣지 않는다.** feeds 는 방향이 있는 술어라,
+  // 방향을 모르는 연결을 넣으려면 둘 중 하나를 찍어야 한다. 찍으면 온톨로지를 읽는 쪽은
+  // 그게 BIM 이 말한 것인지 우리가 찍은 것인지 알 수 없다. 포트가 없는 BIM 에서 이 절이
+  // 통째로 비는 것이 맞고, 그 사실이 고객사에 요구할 스펙(포트에 흐름 방향)의 근거다.
+  //
+  // **주어 자신의 블록 안에 적는다.** 한때 `ex:A brick:feeds ex:B .` 로 따로 떼어 적었는데,
+  // Turtle 로는 맞지만 ieum-pipeline 의 ttl.go 는 `ex:X a 클래스` 로 시작하는 블록만 읽어서
+  // **흐름 연결이 받는 쪽에서 전부 사라졌다**(ifc4Mep 1,995개 → 0). 문자열만 보던 테스트는
+  // 이걸 못 잡았다. 지금은 check:sample 이 실제 ttl.go 로 읽어 본다.
+  // **기기에는 덕트·배관을 건너뛴 하류 기기도 적는다.** 덕트·배관은 fso: 라서 ttl.go 가 블록째
+  // 버리는데, 흐름은 대부분 덕트에서 출발한다. 기기 → 덕트까지만 적으면 받는 쪽은 공조기에서
+  // 토출구에 닿지 못한다. Brick 은 원래 덕트를 모델링하지 않고 "공조기 feeds VAV" 처럼 기기끼리
+  // 잇는 것이 관례라, 이렇게 적는 것이 Brick 에도 맞다. 건너뛸 때는 방향을 아는 변만 탄다
+  // (deviceFlows 주석 참조) — 이어 붙인 결과도 BIM 포트가 말한 것이어야 한다.
+  const all = model.storeys.flatMap((s) => s.equipment)
+  const conduits = new Set(all.filter((e) => isConduit(e.role)).map((e) => e.id))
+  const flows = deviceFlows(model.connections, (id) => conduits.has(id), all.filter((e) => !conduits.has(e.id)).map((e) => e.id))
+  const feeds = new Map<string, string[]>()
+  for (const c of model.connections) {
+    if (!c.directed) continue
+    feeds.set(c.from, [...(feeds.get(c.from) ?? []), c.to])
+  }
+  for (const [from, targets] of flows.directed) {
+    feeds.set(from, [...new Set([...(feeds.get(from) ?? []), ...targets])])
+  }
+
   lines.push(`${ref(model.buildingId)} a brick:Building ;`)
   lines.push(`    rdfs:label ${label(model.buildingName)} ;`)
   lines.push(`    brick:hasPart ${model.storeys.map((s) => ref(s.id)).join(', ')} .`)
@@ -125,27 +154,13 @@ export function modelToTTL(model: Model): string {
       // 소속 물리존. 좌표로 판정한 결과이고(PRD #12), 이상 알림의 '발생 위치' 가 이걸 쓴다.
       // 못 찾았으면 아예 안 적는다 — 빈 값을 적으면 "어디에도 없다" 와 "모른다" 가 섞인다.
       if (equipment.spaceId) lines.push(`    brick:hasLocation ${ref(equipment.spaceId)} ;`)
+      const targets = feeds.get(equipment.id)
+      if (targets) lines.push(`    brick:feeds ${targets.map(ref).join(', ')} ;`)
       if (equipment.capacity !== null) lines.push(`    ex:nominalAirFlowRate ${equipment.capacity} ;`)
       lines.push(`    ex:ifcClass ${label(equipment.ifcClass)} .`)
       lines.push('')
     }
   }
-
-  // 흐름 방향을 아는 연결만 brick:feeds 로 적는다.
-  //
-  // **형상이 맞닿은 것으로 추정한 연결은 넣지 않는다.** feeds 는 방향이 있는 술어라,
-  // 방향을 모르는 연결을 넣으려면 둘 중 하나를 찍어야 한다. 찍으면 온톨로지를 읽는 쪽은
-  // 그게 BIM 이 말한 것인지 우리가 찍은 것인지 알 수 없다. 포트가 없는 BIM 에서 이 절이
-  // 통째로 비는 것이 맞고, 그 사실이 고객사에 요구할 스펙(포트에 흐름 방향)의 근거다.
-  const feeds = new Map<string, string[]>()
-  for (const c of model.connections) {
-    if (!c.directed) continue
-    feeds.set(c.from, [...(feeds.get(c.from) ?? []), c.to])
-  }
-  for (const [from, targets] of feeds) {
-    lines.push(`${ref(from)} brick:feeds ${targets.map(ref).join(', ')} .`)
-  }
-  if (feeds.size > 0) lines.push('')
 
   // 계통은 층에 속하지 않아서 마지막에 따로 적는다. 여러 층에 걸치는 것이 정상이다.
   for (const system of model.systems) {

@@ -156,32 +156,6 @@ h2 {
   display: none;
 }
 
-.data-pick {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  margin-top: 1rem;
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-
-.data-pick select {
-  max-width: 100%;
-  padding: 0.4rem 0.6rem;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--fg);
-  font: inherit;
-}
-
-.data-pick select:focus {
-  outline: none;
-  border-color: var(--accent);
-}
-
 .error {
   margin-top: 1rem;
   padding: 0.75rem 1rem;
@@ -263,6 +237,143 @@ th {
 .tiles span {
   color: var(--muted);
   font-size: 0.85rem;
+}
+
+/* data/ 의 IFC 목록. 파일을 열기 전에 무엇이 들어 있는지 본다. */
+.catalog {
+  margin-top: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.catalog h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.catalog .hint {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.catalog table {
+  margin-top: 0;
+}
+
+.catalog td {
+  padding: 0.5rem 0.5rem;
+  vertical-align: middle;
+  font-size: 0.85rem;
+}
+
+.catalog .name span {
+  display: block;
+}
+
+.catalog .row-actions {
+  white-space: nowrap;
+  text-align: right;
+}
+
+.catalog .row-actions .ghost + .ghost {
+  margin-left: 0.35rem;
+}
+
+.catalog .role {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+}
+
+.catalog .unreadable {
+  color: var(--error);
+  cursor: help;
+}
+
+/* 등급 칩. 색은 액센트 하나와 경고색만 쓴다 — 다 참(액센트), 일부(경고), 없음(회색). */
+.tiers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review .tiers {
+  margin-top: 1rem;
+}
+
+.tiers li {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: baseline;
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 0.78rem;
+  cursor: help;
+}
+
+.tiers li b {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.tiers li.full {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tiers li.partial {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+/* 파일 덧붙이기. 주 동작(파일 열기)보다 한 단 낮은 버튼이다. */
+.append {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.append input {
+  display: none;
+}
+
+.append select {
+  max-width: 100%;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+.append .hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* 합치기가 한 일. 경고가 아니라 사실이라 액센트 면에 둔다. */
+.merge {
+  margin: 1rem 0 0;
+  padding: 0.75rem 1rem 0.75rem 2rem;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  font-size: 0.9rem;
 }
 
 .warnings {
