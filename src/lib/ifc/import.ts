@@ -10,11 +10,99 @@
 // "층에 속한다" 는 말인데 IFC 가 관계를 나눠 놓아서, 한쪽만 읽으면 절반이 빈다.
 
 import * as WebIFC from 'web-ifc'
-import type { Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall } from '../model'
+import type { Connection, Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall } from '../model'
 import { polygonArea } from '../model'
 import { apply, foldChain, foldElevation, fromAxisPlacement, type Transform2 } from './placement'
 import { assignEquipmentToSpaces, unlocatedEquipment } from '../mapping'
 import { lengthScale } from './units'
+import { inferConnections } from '../topology'
+
+/**
+ * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
+ *
+ * 좌표는 **three.js 세계 좌표**(y 가 높이, 미터)로 이미 바뀌어 있다. web-ifc 가 IFC 의
+ * (x, y, z) 를 (x, z, -y) 로 돌리고 단위도 미터로 맞춰서 준다. 공간 판도 같은 변환
+ * (평면 (x, y) → (x, ·, -y))으로 그리므로, 여기서 한 번 더 돌리면 배관이 눕는다.
+ */
+export type ElementMesh = {
+  positions: Float32Array
+  normals: Float32Array
+  indices: Uint32Array
+}
+
+/** GlobalId → 메시. */
+export type MeshMap = Map<string, ElementMesh>
+
+/**
+ * 설비·배관의 형상을 뽑아 요소마다 한 덩어리로 합친다.
+ *
+ * web-ifc 는 요소 하나를 여러 조각(형상 + 배치 행렬)으로 준다. 조각마다 행렬을 미리 곱해
+ * 세계 좌표로 합쳐 두면, 화면은 요소 하나를 메시 하나로 다루고(고르기·강조가 단순해진다)
+ * 연결 추정도 같은 좌표를 그대로 쓴다.
+ */
+function readMeshes(api: Api, model: number, ids: Set<number>, globalIdOf: (id: number) => string): MeshMap {
+  const out: MeshMap = new Map()
+  if (ids.size === 0) return out
+
+  // web-ifc 0.0.78 은 JS 래퍼와 브라우저 wasm 의 인자 수가 어긋나 있다. 래퍼는
+  // StreamMeshes 에 applyLinearScalingFactor 까지 넷을 넘기는데, 이 버전의 web-ifc.wasm 은
+  // 셋만 받는다("called with 4 arguments, expected 3"). node 용 wasm 은 넷을 받아서
+  // 단위 테스트는 멀쩡히 통과하고 브라우저에서만 깨진다. 래퍼를 먼저 쓰고, 막히면 wasm 을
+  // 직접 부른다 — 오류는 스트리밍이 시작되기 전에 나므로 메시가 겹칠 일은 없다.
+  const stream = (handler: (flat: any) => void) => {
+    try {
+      api.StreamMeshes(model, [...ids], handler)
+    } catch {
+      ;(api as unknown as { wasmModule: { StreamMeshes(m: number, ids: number[], cb: (f: any) => void): void } })
+        .wasmModule.StreamMeshes(model, [...ids], handler)
+    }
+  }
+
+  stream((flat) => {
+    const parts: { p: number[]; n: number[]; i: number[] }[] = []
+    let vertexCount = 0
+    let indexCount = 0
+    const size = flat.geometries.size()
+    for (let g = 0; g < size; g++) {
+      const placed = flat.geometries.get(g)
+      const geom = api.GetGeometry(model, placed.geometryExpressID)
+      try {
+        const v = api.GetVertexArray(geom.GetVertexData(), geom.GetVertexDataSize())
+        const idx = api.GetIndexArray(geom.GetIndexData(), geom.GetIndexDataSize())
+        const m = placed.flatTransformation
+        const p: number[] = []
+        const n: number[] = []
+        // 꼭짓점 하나가 6칸이다(위치 3 + 법선 3). 위치엔 이동까지, 법선엔 회전만 곱한다.
+        for (let k = 0; k + 5 < v.length; k += 6) {
+          const x = v[k], y = v[k + 1], z = v[k + 2]
+          p.push(m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13], m[2] * x + m[6] * y + m[10] * z + m[14])
+          const nx = v[k + 3], ny = v[k + 4], nz = v[k + 5]
+          n.push(m[0] * nx + m[4] * ny + m[8] * nz, m[1] * nx + m[5] * ny + m[9] * nz, m[2] * nx + m[6] * ny + m[10] * nz)
+        }
+        parts.push({ p, n, i: Array.from(idx) })
+        vertexCount += p.length / 3
+        indexCount += idx.length
+      } finally {
+        geom.delete()
+      }
+    }
+    if (vertexCount === 0) return
+
+    const positions = new Float32Array(vertexCount * 3)
+    const normals = new Float32Array(vertexCount * 3)
+    const indices = new Uint32Array(indexCount)
+    let vo = 0
+    let io = 0
+    for (const part of parts) {
+      positions.set(part.p, vo * 3)
+      normals.set(part.n, vo * 3)
+      for (const i of part.i) indices[io++] = i + vo
+      vo += part.p.length / 3
+    }
+    out.set(globalIdOf(flat.expressID), { positions, normals, indices })
+  })
+  return out
+}
 
 /** web-ifc 의 Vector 를 평범한 배열로. 이 타입이 코드 곳곳에 번지지 않게 입구에서 바꾼다. */
 function toArray(vector: { size(): number; get(i: number): number }): number[] {
@@ -257,6 +345,94 @@ class Reader {
   }
 
   /**
+   * Revit 이 요소마다 붙이는 `System Name` 속성을 모은다. IfcSystem 이 없는 파일의 대안이다.
+   *
+   * 값이 쉼표로 여럿 이어져 오기도 한다("Unit A Domestic Cold Water,Unit A Domestic Hot
+   * Water"). 두 계통 사이에 앉은 설비(온수기, 분기 피팅)가 그렇다. 첫 것만 쓰면 그 설비가
+   * 한쪽 계통에서 빠져 연결망이 거기서 끊긴다.
+   */
+  systemNamesByElement(): Map<number, string[]> {
+    const out = new Map<number, string[]>()
+    for (const relID of this.ids(WebIFC.IFCRELDEFINESBYPROPERTIES)) {
+      const rel = this.line(relID)
+      const def = rel?.RelatingPropertyDefinition ? this.line(rel.RelatingPropertyDefinition.value) : null
+      if (!def?.HasProperties) continue
+      for (const propHandle of def.HasProperties) {
+        const prop = this.line(propHandle.value)
+        if (val(prop?.Name) !== 'System Name') continue
+        const raw = val(prop?.NominalValue)
+        if (typeof raw !== 'string') continue
+        const names = raw.split(',').map((s) => s.trim()).filter(Boolean)
+        if (names.length === 0) continue
+        for (const objHandle of rel.RelatedObjects ?? []) {
+          if (!out.has(objHandle.value)) out.set(objHandle.value, names)
+        }
+      }
+    }
+    return out
+  }
+
+  /**
+   * 포트끼리의 연결을 요소끼리의 연결로 옮긴다.
+   *
+   * 포트가 요소에 붙는 관계가 스키마마다 다르다. IFC2x3 은 `IfcRelConnectsPortToElement`,
+   * IFC4 는 `IfcRelNests` 다(IFC4 에도 앞의 것이 남아 있어서 둘 다 읽는다). 한쪽만 보면
+   * 다른 버전 파일에서 연결이 0 이 된다.
+   *
+   * 방향은 `FlowDirection` 에서 온다. 한쪽이 SOURCE 고 다른 쪽이 SINK 여야 흐름을 안다.
+   * SOURCEANDSINK(Revit 이 피팅·배관에 흔히 붙인다)나 빈 값이면 방향 없는 연결로 둔다.
+   */
+  portConnections(globalIdOf: (id: number) => string): Connection[] {
+    const elementOf = new Map<number, number>()
+    for (const relID of this.ids(WebIFC.IFCRELCONNECTSPORTTOELEMENT)) {
+      const rel = this.line(relID)
+      const port = ref(rel?.RelatingPort)
+      const element = ref(rel?.RelatedElement)
+      if (port !== null && element !== null) elementOf.set(port, element)
+    }
+    for (const relID of this.ids(WebIFC.IFCRELNESTS)) {
+      const rel = this.line(relID)
+      const element = ref(rel?.RelatingObject)
+      if (element === null) continue
+      for (const h of rel.RelatedObjects ?? []) {
+        if (this.api.GetLineType(this.model, h.value) === WebIFC.IFCDISTRIBUTIONPORT) elementOf.set(h.value, element)
+      }
+    }
+
+    const out: Connection[] = []
+    const seen = new Set<string>()
+    for (const relID of this.ids(WebIFC.IFCRELCONNECTSPORTS)) {
+      const rel = this.line(relID)
+      const pa = ref(rel?.RelatingPort)
+      const pb = ref(rel?.RelatedPort)
+      if (pa === null || pb === null) continue
+      const ea = elementOf.get(pa)
+      const eb = elementOf.get(pb)
+      if (ea === undefined || eb === undefined || ea === eb) continue
+
+      const da = val(this.line(pa)?.FlowDirection) as string | undefined
+      const db = val(this.line(pb)?.FlowDirection) as string | undefined
+      let from = ea
+      let to = eb
+      let directed = false
+      if (da === 'SOURCE' && db === 'SINK') directed = true
+      else if (da === 'SINK' && db === 'SOURCE') {
+        from = eb
+        to = ea
+        directed = true
+      }
+
+      const a = globalIdOf(from)
+      const b = globalIdOf(to)
+      const k = directed ? `${a}>${b}` : [a, b].sort().join('-')
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push({ from: a, to: b, source: 'port', directed })
+    }
+    return out
+  }
+
+  /**
    * Pset_WallCommon 의 LoadBearing 값을 모아 둔다.
    *
    * 속성이 아예 없는 벽과 false 인 벽은 다른 상태다(#3). 그래서 Map 에 없는 것을
@@ -295,7 +471,9 @@ function spaceOf(
   const longName = (val(e?.LongName) as string) ?? ''
 
   if (footprint.length === 0) {
-    warnings.push(`공간 "${longName || id}" 에 FootPrint 표현이 없어 외곽선을 만들지 못했습니다.`)
+    // 이름만 모아 둔다. 한 줄씩 쌓으면 MEP 모델처럼 공간이 수십 개인 파일에서 경고가
+    // 화면을 통째로 덮어, 정작 봐야 할 3D 가 스크롤 밖으로 밀린다. 접는 것은 호출부가 한다.
+    warnings.push(longName || id)
   }
 
   return {
@@ -363,11 +541,30 @@ function openingOf(
 
 /** IFC 바이트를 읽어 중간 모델을 만든다. 호출부가 api 를 넘겨 초기화를 통제한다. */
 export function importIfc(api: Api, bytes: Uint8Array): Model {
+  return read(api, bytes, false).model
+}
+
+/**
+ * 중간 모델과 함께 설비·배관의 형상을 읽는다. 3D 화면이 쓴다.
+ *
+ * 형상은 모델에 넣지 않고 따로 돌려준다. 모델은 내보내기가 그대로 읽는 것이라, 거기 메시가
+ * 들어가면 TTL 에 좌표가 새는 길이 생긴다(이 PoC 의 전제가 깨진다). 테스트와 검사 스크립트는
+ * 형상이 필요 없어서 `importIfc` 를 쓰고, 삼각형을 뽑는 비용을 안 낸다.
+ *
+ * 포트가 없는 파일이면 이 형상으로 연결을 추정해 모델에 채운다. 방향은 모르는 채로 둔다.
+ */
+export function importIfcWithMeshes(api: Api, bytes: Uint8Array): { model: Model; meshes: MeshMap } {
+  return read(api, bytes, true)
+}
+
+function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model; meshes: MeshMap } {
   const model = api.OpenModel(bytes)
   try {
     const { scale, found: unitFound } = lengthScale(api, model)
     const r = new Reader(api, model, scale)
     const warnings: string[] = []
+    /** 외곽선을 못 만든 공간 이름. 한 줄로 접어서 경고에 넣는다. */
+    const noFootprint: string[] = []
 
     if (!unitFound) {
       warnings.push('길이 단위 선언을 찾지 못해 미터로 가정했습니다. 치수가 전부 어긋날 수 있습니다.')
@@ -440,7 +637,30 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
         id,
         name: (val(group?.LongName) as string) || ((val(group?.Name) as string) ?? ''),
         memberIds: memberIDs.map((m: number) => (val(r.line(m)?.GlobalId) as string) ?? `element-${m}`),
+        source: 'ifc',
       })
+    }
+
+    // IfcSystem 이 없으면 Revit 의 `System Name` 속성으로 계통을 세운다. 둘 다 있으면
+    // IfcSystem 을 따른다 — 속성은 저작 도구마다 이름이 달라서 표준 쪽이 더 믿을 만하다.
+    //
+    // id 는 이름에서 만든다. GlobalId 가 없는 묶음이라 달리 붙일 것이 없고, 같은 파일을
+    // 다시 읽어도 같은 id 가 나와야 재임포트 때 같은 계통으로 알아본다.
+    if (systems.length === 0) {
+      const byName = new Map<string, System>()
+      for (const [elementID, names] of r.systemNamesByElement()) {
+        if (!mepIDs.has(elementID)) continue
+        for (const name of names) {
+          let system = byName.get(name)
+          if (!system) {
+            system = { id: `system-${name}`, name, memberIds: [], source: 'property' }
+            byName.set(name, system)
+            systems.push(system)
+          }
+          system.memberIds.push(globalIdOf(elementID))
+        }
+        systemOfElement.set(elementID, `system-${names[0]}`)
+      }
     }
 
     // 층 → 벽·문·창: 포함 관계
@@ -525,7 +745,7 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
         name: (val(e?.Name) as string) ?? '',
         elevation: ((val(e?.Elevation) as number) ?? 0) * scale,
         spaces: (spacesByStorey.get(storeyID) ?? []).map((id) =>
-          spaceOf(r, id, globalIdOf, boundaries, warnings),
+          spaceOf(r, id, globalIdOf, boundaries, noFootprint),
         ),
         walls,
         openings,
@@ -535,6 +755,15 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
 
     // 층이 낮은 것부터 보여야 층 선택 목록이 건물과 같은 순서가 된다.
     storeys.sort((a, b) => a.elevation - b.elevation)
+
+    if (noFootprint.length > 0) {
+      // 이름을 셋까지만 보인다. MEP 모델은 공간이 수십 개라 전부 적으면 경고가 화면을 덮는다.
+      const shown = noFootprint.slice(0, 3).join(', ')
+      const rest = noFootprint.length > 3 ? ` 외 ${noFootprint.length - 3}개` : ''
+      warnings.push(
+        `공간 ${noFootprint.length}개에 FootPrint 표현이 없어 외곽선을 만들지 못했습니다(${shown}${rest}).`,
+      )
+    }
 
     const allWalls = storeys.flatMap((s) => s.walls)
     const noThickness = allWalls.filter((w) => w.thickness === null).length
@@ -572,6 +801,7 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
       buildingName: firstName(WebIFC.IFCBUILDING),
       storeys,
       systems,
+      connections: r.portConnections(globalIdOf),
       warnings,
     }
 
@@ -595,7 +825,24 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
       warnings.push(`설비 ${unlocated}대의 소속 물리존을 찾지 못했습니다. 이상 알림의 '발생 위치' 가 빈 채로 나갑니다.`)
     }
 
-    return result
+    const meshes: MeshMap = withMeshes ? readMeshes(api, model, mepIDs, globalIdOf) : new Map()
+
+    if (withMeshes && result.connections.length === 0 && meshes.size > 0) {
+      const systemsOf = new Map<string, string[]>()
+      for (const system of systems) {
+        for (const id of system.memberIds) systemsOf.set(id, [...(systemsOf.get(id) ?? []), system.name])
+      }
+      result.connections = inferConnections(
+        [...meshes].map(([id, mesh]) => ({ id, points: mesh.positions, systems: systemsOf.get(id) ?? null })),
+      )
+      if (result.connections.length > 0) {
+        warnings.push(
+          `BIM 에 포트(IfcDistributionPort) 연결이 없어 형상이 맞닿은 것으로 연결 ${result.connections.length}개를 추정했습니다. 흐름 방향은 모릅니다.`,
+        )
+      }
+    }
+
+    return { model: result, meshes }
   } finally {
     api.CloseModel(model)
   }

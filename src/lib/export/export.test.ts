@@ -140,6 +140,21 @@ describe('설비 내보내기', () => {
     }
   })
 
+  it('흐름 방향을 아는 연결만 brick:feeds 로 나간다', () => {
+    const ttl = modelToTTL(mep)
+    const eq = (name: string) =>
+      `ex:${escapeLocalName(mep.storeys.flatMap((s) => s.equipment).find((e) => e.name === name)!.id)}`
+
+    // 공조기 → 덕트 → 토출구. ieum-pipeline 의 파서가 읽는 네 술어 중 하나다.
+    expect(ttl).toContain(`${eq('AHU-1')} brick:feeds ${eq('DUCT-01')} .`)
+    expect(ttl).toContain(`${eq('DUCT-01')} brick:feeds ${eq('AT-101-01')} .`)
+
+    // 방향을 모르는 연결(SOURCEANDSINK 포트)은 한 줄도 나가지 않는다. 방향을 찍으면
+    // 읽는 쪽이 BIM 이 말한 것과 우리가 찍은 것을 구별할 수 없다.
+    expect(ttl.match(/brick:feeds/g)).toHaveLength(2)
+    expect(ttl).not.toContain(`brick:feeds ${eq('AT-101-02')}`)
+  })
+
   it('기하는 여전히 TTL 로 새지 않는다', () => {
     expect(modelToTTL(mep)).not.toMatch(/POLYGON|coordinates|wkt/i)
   })

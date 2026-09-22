@@ -276,8 +276,10 @@ th {
 }
 
 .viewport {
+  position: relative;
+  display: flex;
   margin-top: 1.5rem;
-  height: 26rem;
+  height: 32rem;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface);
@@ -285,9 +287,215 @@ th {
   overflow: hidden;
 }
 
+/* 범례는 3D 옆에 세운다. 위에 얹으면 계통이 스무 개일 때 모델을 절반쯤 덮는다. */
+.legend {
+  width: 15rem;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  padding: 0.6rem 0.75rem;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 0.8rem;
+  overflow: hidden;
+}
+
+.legend h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.legend .tag {
+  margin-left: 0.35rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-weight: 500;
+  font-size: 0.7rem;
+}
+
+.legend ul {
+  /* flex 자식은 기본이 min-height:auto 라 목록이 줄지 않고 패널 밖으로 흘러넘친다. */
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.legend li button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.15rem 0.3rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.legend li button:hover {
+  background: var(--surface-soft);
+}
+
+.legend li button.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.legend i {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 0.2rem;
+  flex: none;
+}
+
+.legend .name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pick-hint {
+  position: absolute;
+  /* 범례가 오른쪽을 쓰니 왼쪽에 둔다. 겹치면 둘 다 안 읽힌다. */
+  left: 0.75rem;
+  bottom: 0.75rem;
+  margin: 0;
+  padding: 0.3rem 0.6rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+}
+
+/* 고른 설비의 연결 */
+.picked {
+  margin-top: 1rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.picked-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.picked h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.picked-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex: none;
+}
+
+.flow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.flow li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+  font-size: 0.85rem;
+}
+
+.flow b {
+  font-size: 1.05rem;
+}
+
+/* 3D 의 강조 색과 같은 색을 쓴다. 두 곳이 어긋나면 어느 쪽이 상류인지 헷갈린다. */
+.flow .upstream b,
+.rel.upstream {
+  color: #c06a26;
+}
+
+.flow .downstream b,
+.rel.downstream {
+  color: #148062;
+}
+
+.flow .linked b,
+.rel.linked {
+  color: #7d3fb8;
+}
+
+.neighbors {
+  width: 100%;
+  margin-top: 0.75rem;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.neighbors td {
+  padding: 0.3rem 0.5rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.neighbors .rel {
+  width: 4rem;
+  font-weight: 600;
+}
+
+.chosen > td {
+  background: var(--accent-soft);
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.ghost {
+  padding: 0.35rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .viewport canvas {
   display: block;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 100%;
 }
 

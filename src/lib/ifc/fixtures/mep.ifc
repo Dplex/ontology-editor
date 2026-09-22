@@ -83,12 +83,29 @@ DATA;
 #70= IFCDISTRIBUTIONSYSTEM('0MEP$System$AHU1$000',$,'AHU-1 SA',$,$,'AHU-1 급기 계통',.AIRCONDITIONING.);
 #71= IFCRELASSIGNSTOGROUP('0MEP$Rel$Group$AHU1$0',$,$,$,(#33,#43,#47,#53),$,#70);
 
-/* 포트 연결. 덕트가 어느 설비에 붙는지가 여기 있다. */
+/* 포트 연결. 덕트가 어느 설비에 붙는지가 여기 있다.
+
+   공조기 → 덕트 → 토출구(AT-101-01) 가 SOURCE/SINK 로 이어진다. 이 방향이 있어야
+   "이 토출구의 상류가 어느 공조기인가" 를 물을 수 있다(PRD #11).
+
+   토출구 AT-101-02 는 일부러 SOURCEANDSINK 로 뒀다. Revit 이 배관·피팅 포트를 이렇게
+   내보내는 일이 흔한데, 그러면 이어져 있다는 것만 알고 흐름 방향은 알 수 없다.
+   고객사 BIM 스펙에 "포트에 흐름 방향을 넣어 달라" 를 적는 근거가 이 둘의 차이다. */
 #80= IFCDISTRIBUTIONPORT('0MEP$Port$AHU1$Out$00',$,'AHU-1 SA out',$,$,$,$,.SOURCE.,.DUCT.,$);
 #81= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$AHU1$00',$,$,$,#80,#33);
 #82= IFCDISTRIBUTIONPORT('0MEP$Port$Duct$In$000',$,'DUCT-01 in',$,$,$,$,.SINK.,.DUCT.,$);
 #83= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$Duct$00',$,$,$,#82,#53);
 #84= IFCRELCONNECTSPORTS('0MEP$Rel$Ports$01$0000',$,$,$,#80,#82,$);
+#85= IFCDISTRIBUTIONPORT('0MEP$Port$Duct$Out$00',$,'DUCT-01 out',$,$,$,$,.SOURCE.,.DUCT.,$);
+#86= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$Duct$01',$,$,$,#85,#53);
+#87= IFCDISTRIBUTIONPORT('0MEP$Port$AT01$In$000',$,'AT-101-01 in',$,$,$,$,.SINK.,.DUCT.,$);
+#88= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$AT01$00',$,$,$,#87,#43);
+#89= IFCRELCONNECTSPORTS('0MEP$Rel$Ports$02$0000',$,$,$,#85,#87,$);
+#96= IFCDISTRIBUTIONPORT('0MEP$Port$Duct$Br$000',$,'DUCT-01 branch',$,$,$,$,.SOURCEANDSINK.,.DUCT.,$);
+#97= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$Duct$02',$,$,$,#96,#53);
+#98= IFCDISTRIBUTIONPORT('0MEP$Port$AT02$In$000',$,'AT-101-02 in',$,$,$,$,.SOURCEANDSINK.,.DUCT.,$);
+#99= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$AT02$00',$,$,$,#98,#47);
+#100= IFCRELCONNECTSPORTS('0MEP$Rel$Ports$03$0000',$,$,$,#96,#98,$);
 
 #90= IFCRELAGGREGATES('0MEP$Rel$Proj$Site$00',$,$,$,#9,(#11));
 #91= IFCRELAGGREGATES('0MEP$Rel$Site$Bldg$00',$,$,$,#11,(#13));

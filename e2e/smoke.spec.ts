@@ -63,6 +63,38 @@ test('MEP 가 든 IFC 는 설비와 계통까지 보여 준다', async ({ page }
   expect(errors).toEqual([])
 })
 
+test('연결을 읽어 계통 범례와 상류·하류를 보여 준다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+
+  const tile = (label: string) => page.locator('.tiles li', { hasText: label }).locator('b')
+  // 포트 연결 셋 중 둘만 흐름 방향이 있다. 나머지 하나는 SOURCEANDSINK 라 방향을 모른다.
+  await expect(tile('연결')).toHaveText('3')
+  await expect(tile('흐름 방향')).toHaveText('2')
+
+  // 계통 범례가 3D 옆에 뜬다. 색은 범례와 3D 가 같은 자리에서 가져온다.
+  await expect(page.locator('.legend')).toContainText('AHU-1 급기 계통')
+
+  // 3D 를 클릭하는 대신 설비 표에서 고른다. 픽셀을 찍는 것은 화면 크기에 따라 흔들린다.
+  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
+
+  const picked = page.locator('.picked')
+  await expect(picked).toContainText('DUCT-01')
+  await expect(picked.locator('.flow .upstream b')).toHaveText('1')
+  await expect(picked.locator('.flow .downstream b')).toHaveText('1')
+  // SOURCEANDSINK 로 붙은 토출구. 이어진 것만 알고 방향은 모른다.
+  await expect(picked.locator('.flow .linked b')).toHaveText('1')
+
+  // 출처가 화면에 남는다. BIM 이 말한 것과 우리가 추정한 것을 구별할 수 있어야 한다.
+  await expect(picked.locator('.neighbors')).toContainText('BIM 포트')
+
+  expect(errors).toEqual([])
+})
+
 test('설비를 옮기면 소속 물리존이 다시 판정된다', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))

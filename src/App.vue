@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, shallowRef, triggerRef, watch } from 'vue'
 import { ifcApi } from './lib/ifc/open'
-import { importIfc } from './lib/ifc/import'
-import { countOf, type Model } from './lib/model'
+import { importIfcWithMeshes, type MeshMap } from './lib/ifc/import'
+import { countOf, type Equipment, type Model } from './lib/model'
+import { neighbors, trace } from './lib/topology'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
-import { createViewer, type Viewer } from './lib/viewer'
+import { createViewer, systemColors, type Viewer } from './lib/viewer'
 import {
   moveEquipment,
   moveSpaceVertex,
@@ -39,6 +40,11 @@ const model = shallowRef<Model | null>(null)
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 let viewer: Viewer | null = null
+
+// 설비 형상. **모델과 따로 들고 다닌다** — 모델은 내보내기가 그대로 읽는 것이라 여기에
+// 삼각형이 섞이면 TTL 로 기하가 새는 길이 생긴다. 반응형으로 감쌀 이유도 없다(화면이
+// 값을 읽지 않고 3D 에만 넘긴다). 926개짜리 Map 을 반응형으로 만들면 그만큼 느려진다.
+let meshes: MeshMap = new Map()
 
 const counts = computed(() => (model.value ? countOf(model.value) : null))
 
@@ -90,7 +96,7 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
   if (!change) return
   changes.value = [...changes.value, change]
   triggerRef(model)
-  viewer?.setModel(model.value)
+  viewer?.setModel(model.value, meshes)
 }
 
 // 경계 편집은 넓이와 설비 소속을 동시에 흔든다. 두 변화를 같은 자리에서 보여 준다.
@@ -110,7 +116,7 @@ function applyVertex(spaceId: string, index: number, axis: 0 | 1, raw: string, c
   areaChanges.value = [...areaChanges.value, change]
   changes.value = [...changes.value, ...change.equipment]
   triggerRef(model)
-  viewer?.setModel(model.value)
+  viewer?.setModel(model.value, meshes)
 }
 
 function applyRename(spaceId: string, name: string) {
@@ -121,9 +127,114 @@ function applyRename(spaceId: string, name: string) {
 
 watch([model, canvas], ([m, el]) => {
   if (!m || !el) return
-  if (!viewer) viewer = createViewer(el)
-  viewer.setModel(m)
+  if (!viewer) {
+    viewer = createViewer(el)
+    viewer.onPick((id) => {
+      selectedId.value = id
+    })
+  }
+  viewer.setModel(m, meshes)
+  viewer.setHighlight(null)
 })
+
+// --- 선택과 연결 -------------------------------------------------------------
+const selectedId = ref<string | null>(null)
+
+const equipmentById = computed(() => {
+  const map = new Map<string, Equipment>()
+  for (const storey of model.value?.storeys ?? []) for (const e of storey.equipment) map.set(e.id, e)
+  return map
+})
+
+const selected = computed(() => (selectedId.value ? (equipmentById.value.get(selectedId.value) ?? null) : null))
+
+const traced = computed(() =>
+  model.value && selectedId.value ? trace(model.value.connections, selectedId.value) : null,
+)
+
+// 바로 붙은 이웃. 몇 개인지보다 무엇에 붙어 있는지가 먼저 궁금한 자리다.
+const selectedNeighbors = computed(() => {
+  if (!model.value || !selectedId.value) return []
+  return neighbors(model.value.connections, selectedId.value).map((n) => ({
+    ...n,
+    name: equipmentById.value.get(n.id)?.name || equipmentById.value.get(n.id)?.ifcClass || n.id,
+  }))
+})
+
+const systemById = computed(() => new Map((model.value?.systems ?? []).map((s) => [s.id, s])))
+
+// 계통 범례. 색은 3D 와 같은 자리에서 가져온다.
+const legend = computed(() => {
+  if (!model.value) return []
+  const colors = systemColors(model.value)
+  const counted = new Map<string, number>()
+  for (const storey of model.value.storeys) {
+    for (const e of storey.equipment) if (e.systemId) counted.set(e.systemId, (counted.get(e.systemId) ?? 0) + 1)
+  }
+  return model.value.systems
+    .map((s) => ({
+      id: s.id,
+      name: s.name || '(이름 없는 계통)',
+      source: s.source,
+      count: counted.get(s.id) ?? 0,
+      color: `#${(colors.get(s.id) ?? 0).toString(16).padStart(6, '0')}`,
+    }))
+    .sort((a, b) => b.count - a.count)
+})
+
+/** 범례에서 고른 계통. 설비 선택과 배타다 — 둘을 겹쳐 칠하면 무엇이 강조된 건지 모른다. */
+const selectedSystemId = ref<string | null>(null)
+
+function toggleSystem(id: string) {
+  selectedSystemId.value = selectedSystemId.value === id ? null : id
+  if (selectedSystemId.value) selectedId.value = null
+}
+
+watch([selectedId, selectedSystemId, model], () => {
+  if (!viewer) return
+
+  const t = traced.value
+  if (selectedId.value && t) {
+    viewer.setHighlight({
+      selected: selectedId.value,
+      upstream: t.upstream,
+      downstream: t.downstream,
+      linked: t.linked,
+    })
+    return
+  }
+
+  const system = selectedSystemId.value ? systemById.value.get(selectedSystemId.value) : null
+  if (system) {
+    // 계통은 흐름이 아니라 묶음이다. 상류·하류 색을 쓰지 않고 "이어짐" 한 가지로 칠한다.
+    viewer.setHighlight({
+      selected: null,
+      upstream: new Set(),
+      downstream: new Set(),
+      linked: new Set(system.memberIds),
+      keepColor: true,
+    })
+    return
+  }
+
+  viewer.setHighlight(null)
+})
+
+/** 고른 것과 이어진 것 전체가 화면에 들어오게 시점을 맞춘다. */
+function frameNetwork() {
+  const t = traced.value
+  if (!selectedId.value || !t) return
+  viewer?.frame([selectedId.value, ...t.upstream, ...t.downstream, ...t.linked])
+}
+
+/** 목록에서 고른 것도 3D 에서 고른 것과 같게 다룬다. 3D 는 그 자리로 시점을 옮긴다. */
+function select(id: string | null) {
+  selectedId.value = id
+  if (id) {
+    selectedSystemId.value = null
+    viewer?.focus(id)
+  }
+}
 
 onBeforeUnmount(() => viewer?.dispose())
 
@@ -155,14 +266,18 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
   error.value = ''
   try {
     const api = await ifcApi()
-    model.value = importIfc(api, new Uint8Array(await read()))
+    const result = importIfcWithMeshes(api, new Uint8Array(await read()))
+    meshes = result.meshes
+    model.value = result.model
     fileName.value = name
+    selectedId.value = null
     // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다.
     changes.value = []
     areaChanges.value = []
   } catch (e) {
     // 실패한 채로 이전 모델을 남겨 두면 화면이 방금 연 파일을 보여 주는 것처럼 보인다.
     model.value = null
+    meshes = new Map()
     fileName.value = ''
     error.value = `IFC 를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`
   } finally {
@@ -261,6 +376,8 @@ function exportTTL() {
           <li><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span></li>
           <li><b>{{ counts.equipment }}</b><span>설비</span></li>
           <li><b>{{ counts.systems }}</b><span>계통</span></li>
+          <li><b>{{ counts.connections }}</b><span>연결</span></li>
+          <li><b>{{ counts.directedConnections }}</b><span>흐름 방향</span></li>
         </ul>
 
         <ul v-if="model.warnings.length" class="warnings">
@@ -270,6 +387,86 @@ function exportTTL() {
 
       <section class="viewport">
         <canvas ref="canvas"></canvas>
+
+        <!-- 계통 범례. 색이 스물이면 색만으로는 못 고르니, 여기서 짚는 쪽이 주된 길이다. -->
+        <div v-if="legend.length" class="legend">
+          <h3>
+            계통 {{ legend.length }}
+            <span v-if="legend[0].source === 'property'" class="tag">System Name 속성</span>
+            <span v-else class="tag">IfcSystem</span>
+          </h3>
+          <ul>
+            <li v-for="s in legend" :key="s.id">
+              <button
+                type="button"
+                :class="{ on: s.id === selectedSystemId }"
+                :aria-pressed="s.id === selectedSystemId"
+                @click="toggleSystem(s.id)"
+              >
+                <i :style="{ background: s.color }"></i>
+                <span class="name">{{ s.name }}</span>
+                <span class="mono muted">{{ s.count }}</span>
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <p v-if="counts.equipment > 0" class="hint pick-hint">
+          {{
+            selectedSystemId
+              ? '계통 하나만 켜 두었습니다. 다시 누르면 전체로 돌아갑니다.'
+              : '설비·배관을 클릭하면 이어진 것들이 색으로 뜹니다. 계통은 오른쪽 범례에서 고릅니다.'
+          }}
+        </p>
+      </section>
+
+      <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
+      <section v-if="selected" class="picked">
+        <div class="picked-head">
+          <div>
+            <h3>{{ selected.name || '(이름 없음)' }}</h3>
+            <p class="stats">
+              {{ selected.ifcClass }} ·
+              {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }} ·
+              {{ spaceNameOf(selected.spaceId) }}
+            </p>
+          </div>
+          <div class="picked-actions">
+            <button type="button" class="ghost" @click="frameNetwork">연결망에 맞추기</button>
+            <button type="button" class="ghost" @click="select(null)">선택 해제</button>
+          </div>
+        </div>
+
+        <ul class="flow">
+          <li class="upstream">
+            <b>{{ traced?.upstream.size ?? 0 }}</b><span>상류</span>
+          </li>
+          <li class="downstream">
+            <b>{{ traced?.downstream.size ?? 0 }}</b><span>하류</span>
+          </li>
+          <li class="linked">
+            <b>{{ traced?.linked.size ?? 0 }}</b><span>이어짐 · 방향 모름</span>
+          </li>
+        </ul>
+
+        <p v-if="selectedNeighbors.length === 0" class="hint">
+          이 설비에 붙은 연결이 없습니다.
+        </p>
+        <table v-else class="neighbors">
+          <tbody>
+            <tr v-for="(n, i) in selectedNeighbors" :key="`${n.id}-${i}`">
+              <td :class="['rel', n.relation]">
+                {{ n.relation === 'upstream' ? '상류' : n.relation === 'downstream' ? '하류' : '연결' }}
+              </td>
+              <td>
+                <button type="button" class="link" @click="select(n.id)">{{ n.name }}</button>
+              </td>
+              <td class="muted">
+                {{ n.source === 'port' ? 'BIM 포트' : '형상 추정' }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
       <section class="storeys">
@@ -381,8 +578,12 @@ function exportTTL() {
           </thead>
           <tbody>
             <template v-for="s in model.storeys" :key="s.id">
-              <tr v-for="e in s.equipment" :key="e.id">
-                <td>{{ e.name }}</td>
+              <tr v-for="e in s.equipment" :key="e.id" :class="{ chosen: e.id === selectedId }">
+                <td>
+                  <!-- 표에서 고른 것과 3D 에서 고른 것이 같은 선택이다. 두 화면이 따로 놀면
+                       설비 목록에서 찾은 것을 3D 에서 다시 찾아야 한다. -->
+                  <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
+                </td>
                 <td class="muted">{{ e.ifcClass }}</td>
                 <td v-for="axis in [0, 1, 2]" :key="axis" class="num">
                   <input

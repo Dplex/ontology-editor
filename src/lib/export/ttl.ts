@@ -114,6 +114,22 @@ export function modelToTTL(model: Model): string {
     }
   }
 
+  // 흐름 방향을 아는 연결만 brick:feeds 로 적는다.
+  //
+  // **형상이 맞닿은 것으로 추정한 연결은 넣지 않는다.** feeds 는 방향이 있는 술어라,
+  // 방향을 모르는 연결을 넣으려면 둘 중 하나를 찍어야 한다. 찍으면 온톨로지를 읽는 쪽은
+  // 그게 BIM 이 말한 것인지 우리가 찍은 것인지 알 수 없다. 포트가 없는 BIM 에서 이 절이
+  // 통째로 비는 것이 맞고, 그 사실이 고객사에 요구할 스펙(포트에 흐름 방향)의 근거다.
+  const feeds = new Map<string, string[]>()
+  for (const c of model.connections) {
+    if (!c.directed) continue
+    feeds.set(c.from, [...(feeds.get(c.from) ?? []), c.to])
+  }
+  for (const [from, targets] of feeds) {
+    lines.push(`${ref(from)} brick:feeds ${targets.map(ref).join(', ')} .`)
+  }
+  if (feeds.size > 0) lines.push('')
+
   // 계통은 층에 속하지 않아서 마지막에 따로 적는다. 여러 층에 걸치는 것이 정상이다.
   for (const system of model.systems) {
     lines.push(`${ref(system.id)} a ex:Distribution_System ;`)

@@ -111,6 +111,30 @@ export type System = {
   id: string
   name: string
   memberIds: string[]
+  /**
+   * 계통을 어디서 알았나.
+   *
+   * `'ifc'` 는 `IfcSystem` 으로 묶인 것이고, `'property'` 는 IfcSystem 이 없는 파일에서
+   * Revit 이 요소마다 붙인 `System Name` 속성을 모아 만든 것이다. Duplex MEP 판본은
+   * IfcSystem 이 0 인데 요소 811개에 이 속성이 있었다. 고객사 스펙을 맞출 때 어느 쪽으로
+   * 들어오는지가 근거가 된다.
+   */
+  source: 'ifc' | 'property'
+}
+
+/**
+ * 설비·배관 두 개가 이어져 있다는 사실. 온톨로지의 `brick:feeds` 가 여기서 나온다.
+ *
+ * **출처와 방향을 따로 든다.** BIM 이 포트(IfcDistributionPort)로 말한 연결은 SOURCE→SINK
+ * 로 흐름 방향까지 알려 주지만, 포트가 없는 파일에서 형상이 맞닿은 것으로 추정한 연결은
+ * 방향을 모른다. 둘을 섞으면 "추정한 것" 이 "BIM 이 말한 것" 처럼 온톨로지에 들어간다.
+ */
+export type Connection = {
+  /** directed 가 참이면 흐름이 from 에서 to 로 간다. 거짓이면 두 끝의 순서에 뜻이 없다. */
+  from: string
+  to: string
+  source: 'port' | 'geometry'
+  directed: boolean
 }
 
 export type Storey = {
@@ -134,6 +158,8 @@ export type Model = {
   storeys: Storey[]
   /** 계통은 층에 속하지 않는다. 여러 층에 걸치는 것이 정상이다. */
   systems: System[]
+  /** 설비·배관 사이의 연결. 층을 넘나들므로 계통처럼 모델에 바로 둔다. */
+  connections: Connection[]
   /** 임포트가 그냥 넘어간 것들. 조용히 비는 대신 화면에 뜬다. */
   warnings: string[]
 }
@@ -171,6 +197,9 @@ export function countOf(model: Model) {
     // 용량이 없으면 공조존 용량 검증(Z-03)을 돌릴 수 없다.
     equipmentWithoutCapacity: sum((s) => s.equipment.filter((e) => e.capacity === null).length),
     systems: model.systems.length,
+    connections: model.connections.length,
+    // 흐름 방향까지 아는 연결. 이것만 brick:feeds 로 나간다.
+    directedConnections: model.connections.filter((c) => c.directed).length,
     // 소속 물리존을 못 찾은 설비. 이상 알림의 '발생 위치' 가 비게 된다.
     unlocatedEquipment: sum((s) => s.equipment.filter((e) => e.spaceId === null).length),
   }

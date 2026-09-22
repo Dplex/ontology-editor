@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import * as WebIFC from 'web-ifc'
 import { describe, expect, it } from 'vitest'
-import { importIfc } from '../src/lib/ifc/import'
+import { importIfc, importIfcWithMeshes } from '../src/lib/ifc/import'
 import { countOf } from '../src/lib/model'
 import { modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
@@ -41,6 +41,9 @@ describe.skipIf(!existsSync(SAMPLE))('실제 BIM (AC20-FZK-Haus)', () => {
       equipmentWithoutCapacity: 0,
       unlocatedEquipment: 0,
       systems: 0,
+      // 설비가 없으니 연결도 없다.
+      connections: 0,
+      directedConnections: 0,
     })
 
     // F4·F5·F6. 파일에 들어 있는데 한때 안 읽던 것들이다.
@@ -164,5 +167,75 @@ describe.skipIf(!existsSync(DUPLEX_HVAC))('Duplex HVAC 판본 (밀리미터)', (
     const withCapacity = model.storeys.flatMap((s) => s.equipment).filter((e) => e.capacity !== null)
     expect(withCapacity).toHaveLength(155)
     expect(new Set(withCapacity.map((e) => e.capacityProperty))).toEqual(new Set(['Flow']))
+  }, 300_000)
+})
+
+// Duplex MEP 판본(Solibri 최적화본). **포트도 IfcSystem 도 0 이다.** 원본 MEP 판본도 같다.
+// 그런데 요소마다 Revit 의 `System Name` 속성이 있고, 배관 끝과 피팅 끝의 꼭짓점이 맞닿아
+// 있다. BIM 이 연결을 말해 주지 않을 때 어디까지 되찾을 수 있는지를 이 파일이 지킨다.
+const DUPLEX_MEP = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP-Optimized.ifc'
+
+describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', () => {
+  it('계통을 속성으로 세우고, 연결을 형상으로 추정한다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const { model, meshes } = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_MEP)))
+    const counts = countOf(model)
+
+    expect(counts.equipment).toBe(926)
+    // 926대 전부 형상이 있다. 점으로만 찍던 시절에는 이 파일이 점 926개였다.
+    expect(meshes.size).toBe(926)
+
+    // IfcSystem 은 0 이다. 20개는 Revit 의 `System Name` 속성에서 세운 것이다.
+    expect(counts.systems).toBe(20)
+    expect(model.systems.every((s) => s.source === 'property')).toBe(true)
+    expect(model.systems.map((s) => s.name)).toContain('Unit A Domestic Cold Water')
+
+    // 포트가 없으니 방향은 하나도 없다. **이 값이 0 이 아니게 되면 추정을 단정으로 바꾼 것이다.**
+    expect(counts.connections).toBe(690)
+    expect(counts.directedConnections).toBe(0)
+    expect(model.connections.every((c) => c.source === 'geometry')).toBe(true)
+
+    // 추정이 계통을 넘나들지 않는다. 냉수관과 온수관은 나란히 붙어 달려서, 계통을 보지
+    // 않으면 한 덩어리가 된다.
+    const systemOf = new Map<string, string>()
+    for (const s of model.systems) for (const id of s.memberIds) systemOf.set(id, s.name)
+    const crossing = model.connections.filter((c) => {
+      const a = systemOf.get(c.from)
+      const b = systemOf.get(c.to)
+      return a !== undefined && b !== undefined && a !== b
+    })
+    // 두 계통에 걸친 설비(온수기 같은 것)는 양쪽 이름을 다 갖고 있어서 여기 걸릴 수 있다.
+    expect(crossing.length).toBeLessThan(counts.connections * 0.2)
+  }, 300_000)
+})
+
+describe.skipIf(!existsSync(MEP))('포트 연결 (ifc4Mep, IFC4)', () => {
+  it('IfcRelNests 로 포트를 찾고 SOURCE→SINK 를 방향으로 읽는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfc(api, new Uint8Array(readFileSync(MEP)))
+    const counts = countOf(model)
+
+    // IFC4 는 포트를 IfcRelNests 로 요소에 매단다. IfcRelConnectsPortToElement 만 보면
+    // 이 파일에서 연결이 92개밖에 안 나온다.
+    expect(counts.connections).toBe(1995)
+    // 이 파일은 포트 방향이 전부 SOURCE→SINK 라 연결마다 흐름을 안다.
+    expect(counts.directedConnections).toBe(1995)
+    expect(model.connections.every((c) => c.source === 'port')).toBe(true)
+  }, 300_000)
+})
+
+describe.skipIf(!existsSync(DUPLEX_HVAC))('포트 연결 (Duplex HVAC, IFC2x3)', () => {
+  it('IfcRelConnectsPortToElement 로 읽고, SOURCEANDSINK 는 방향 없는 연결로 둔다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfc(api, new Uint8Array(readFileSync(DUPLEX_HVAC)))
+    const counts = countOf(model)
+
+    expect(counts.connections).toBe(485)
+    // 485개 중 190개만 방향이 있다. 나머지는 Revit 이 피팅·덕트 포트를 SOURCEANDSINK 로
+    // 내보낸 것이라, 이어져 있다는 것만 알고 어느 쪽으로 흐르는지는 모른다.
+    expect(counts.directedConnections).toBe(190)
   }, 300_000)
 })

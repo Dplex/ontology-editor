@@ -4,6 +4,7 @@ import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from './import'
 import { countOf, type Model } from '../model'
+import { trace } from '../topology'
 
 // 픽스처는 손으로 쓴 최소 IFC4 다(fixtures/two-rooms.ifc). 무엇이 들어가면 무엇이 나오는지
 // 파일 하나만 열어 보면 다 보이도록, 바깥에서 받아 온 큰 모델 대신 이걸 기준으로 삼는다.
@@ -38,6 +39,8 @@ describe('importIfc', () => {
       equipmentWithoutCapacity: 0,
       systems: 0,
       unlocatedEquipment: 0,
+      connections: 0,
+      directedConnections: 0,
     })
   })
 
@@ -186,6 +189,39 @@ describe('MEP 임포트', () => {
     expect(byName('AHU-1').systemId).toBe(mep.systems[0].id)
     expect(byName('AT-101-01').systemId).toBe(mep.systems[0].id)
     expect(byName('TEMP-101-01').systemId).toBe(null)
+  })
+
+  it('포트 연결을 읽고, SOURCE→SINK 를 흐름 방향으로 쓴다', () => {
+    // 공조기 → 덕트 → 토출구. 이 방향이 있어야 상류·하류를 물을 수 있다(PRD #11).
+    const ahu = byName('AHU-1')
+    const duct = byName('DUCT-01')
+    const at1 = byName('AT-101-01')
+
+    const directed = mep.connections.filter((c) => c.directed)
+    expect(directed.map((c) => [c.from, c.to])).toEqual([
+      [ahu.id, duct.id],
+      [duct.id, at1.id],
+    ])
+    expect(directed.every((c) => c.source === 'port')).toBe(true)
+  })
+
+  it('SOURCEANDSINK 는 방향 없는 연결로 둔다', () => {
+    // Revit 이 배관·피팅 포트를 이렇게 내보낸다. 이어진 것만 알고 흐름은 모른다.
+    // 여기서 방향을 지어내면 온톨로지의 feeds 가 거짓이 된다.
+    const undirected = mep.connections.filter((c) => !c.directed)
+    expect(undirected).toHaveLength(1)
+    expect([undirected[0].from, undirected[0].to].sort()).toEqual(
+      [byName('DUCT-01').id, byName('AT-101-02').id].sort(),
+    )
+    expect(undirected[0].source).toBe('port')
+  })
+
+  it('상류와 하류를 따라간다', () => {
+    const t = trace(mep.connections, byName('DUCT-01').id)
+    expect([...t.upstream]).toEqual([byName('AHU-1').id])
+    expect([...t.downstream]).toEqual([byName('AT-101-01').id])
+    // 방향 없는 포트로 붙은 토출구는 어느 쪽인지 모르는 채로 남는다.
+    expect([...t.linked]).toEqual([byName('AT-101-02').id])
   })
 
   it('좌표로 소속 물리존을 판정한다', () => {
