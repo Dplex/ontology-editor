@@ -5,13 +5,17 @@
 // 같은 원점·축·단위(m)를 쓰기로 되어 있으므로(PRD 1.7), 그 좌표계를 그대로 둔다.
 // 지도 위에 얹을 일이 생기면 그때 사이트 원점의 위경도와 방위를 받아 한 번에 변환한다.
 
-import type { Model, Space, Storey } from '../model'
+import type { Equipment, Model, Space, Storey } from '../model'
+
+export type Geometry =
+  | { type: 'Polygon'; coordinates: number[][][] }
+  | { type: 'Point'; coordinates: number[] }
 
 export type Feature = {
   type: 'Feature'
   /** 중간 모델의 id. TTL 쪽 주어와 같은 값이고, 두 파일은 이걸로만 이어진다. */
   id: string
-  geometry: { type: 'Polygon'; coordinates: number[][][] } | null
+  geometry: Geometry | null
   properties: Record<string, unknown>
 }
 
@@ -44,9 +48,36 @@ function spaceFeature(space: Space, storey: Storey): Feature {
   }
 }
 
-/** 층 하나를 FeatureCollection 으로. */
+function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
+  return {
+    type: 'Feature',
+    id: equipment.id,
+    // 좌표가 없는 설비도 남긴다. geometry 가 null 이면 "놓을 자리를 아직 모른다" 는 뜻이고,
+    // 그 목록이 곧 사람이 3D 에서 배치해야 할 일감이다(PRD #13).
+    geometry: equipment.position
+      ? { type: 'Point', coordinates: [equipment.position[0], equipment.position[1], equipment.position[2]] }
+      : null,
+    properties: {
+      kind: 'equipment',
+      name: equipment.name,
+      ifcClass: equipment.ifcClass,
+      storeyId: storey.id,
+      spaceId: equipment.spaceId,
+      systemId: equipment.systemId,
+      capacity: equipment.capacity,
+    },
+  }
+}
+
+/** 층 하나를 FeatureCollection 으로. 물리존과 설비가 같은 파일에 들어간다. */
 export function storeyToGeoJSON(storey: Storey): FeatureCollection {
-  return { type: 'FeatureCollection', features: storey.spaces.map((s) => spaceFeature(s, storey)) }
+  return {
+    type: 'FeatureCollection',
+    features: [
+      ...storey.spaces.map((s) => spaceFeature(s, storey)),
+      ...storey.equipment.map((e) => equipmentFeature(e, storey)),
+    ],
+  }
 }
 
 /** 층별 파일 이름과 내용의 짝. 파일로 떨어뜨리는 일은 호출부가 한다. */

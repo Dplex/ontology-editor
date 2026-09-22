@@ -8,12 +8,15 @@ import { modelToGeoJSON, storeyToGeoJSON } from './geojson'
 import { escapeLocalName, modelToTTL } from './ttl'
 
 let model: Model
+let mep: Model
 
 beforeAll(async () => {
   const api = new WebIFC.IfcAPI()
   await api.Init()
-  const path = fileURLToPath(new URL('../ifc/fixtures/two-rooms.ifc', import.meta.url))
-  model = importIfc(api, new Uint8Array(readFileSync(path)))
+  const load = (name: string) =>
+    importIfc(api, new Uint8Array(readFileSync(fileURLToPath(new URL(`../ifc/fixtures/${name}`, import.meta.url)))))
+  model = load('two-rooms.ifc')
+  mep = load('mep.ifc')
 }, 60_000)
 
 describe('GeoJSON', () => {
@@ -41,6 +44,17 @@ describe('Brick TTL', () => {
   it('IFC GUID 의 $ 를 이스케이프한다', () => {
     // 안 하면 그 줄만 다르게 읽혀서 주어가 조용히 갈라진다.
     expect(escapeLocalName('0PoC$Space$Meeting$000')).toBe('0PoC\\$Space\\$Meeting\\$000')
+  })
+
+  it('이스케이프로 못 살리는 문자는 _ 로 바꾼다', () => {
+    // 공백은 Turtle 지역 이름에 들어갈 방법이 없다. 그대로 두면 파일이 통째로 깨진다.
+    expect(escapeLocalName('MEP Building')).toBe('MEP_Building')
+  })
+
+  it('건물 주어로 이름이 아니라 GlobalId 를 쓴다', () => {
+    // 이름에는 공백이 들어간다. id 자리에 이름을 쓰면 재임포트 때 주어도 같이 바뀐다.
+    expect(modelToTTL(model)).toContain('ex:0PoC\\$Building\\$0000000 a brick:Building ;')
+    expect(modelToTTL(model)).not.toContain('ex:PoC Building')
   })
 
   it('계층을 hasPart 로 잇는다', () => {
@@ -71,5 +85,62 @@ describe('두 파일을 잇는 id', () => {
     for (const id of ids) {
       expect(ttl).toContain(`ex:${escapeLocalName(id)} a brick:Room`)
     }
+  })
+})
+
+// --- 설비까지 내보낸다 --------------------------------------------------------
+describe('설비 내보내기', () => {
+  it('Brick 에 있는 클래스는 brick:, 없으면 ex: 로 뺀다', () => {
+    const ttl = modelToTTL(mep)
+    expect(ttl).toContain('a brick:Air_Handling_Unit ;')
+    expect(ttl).toContain('a brick:Air_Diffuser ;')
+    // DuctSegment 는 Brick 에 대응 클래스가 없다. 지어내는 대신 ex: 로 뺀다.
+    expect(ttl).toContain('a ex:DuctSegment ;')
+  })
+
+  it('소속 물리존을 hasLocation 으로 잇는다', () => {
+    const office = mep.storeys[0].spaces[0]
+    expect(modelToTTL(mep)).toContain(`brick:hasLocation ex:${escapeLocalName(office.id)} ;`)
+  })
+
+  it('소속을 못 찾은 설비는 hasLocation 을 아예 안 적는다', () => {
+    // 빈 값을 적으면 "어디에도 없다" 와 "모른다" 가 섞인다.
+    const sensor = mep.storeys[0].equipment.find((e) => e.name === 'TEMP-101-01')!
+    const block = modelToTTL(mep)
+      .split('\n\n')
+      .find((b) => b.startsWith(`ex:${escapeLocalName(sensor.id)} `))!
+    expect(block).not.toContain('hasLocation')
+  })
+
+  it('계통을 hasPart 로 묶는다', () => {
+    const ttl = modelToTTL(mep)
+    expect(ttl).toContain('a ex:Distribution_System ;')
+    expect(ttl).toContain('rdfs:label "AHU-1 급기 계통" ;')
+  })
+
+  it('설비는 GeoJSON 에 Point 로, 좌표 없으면 null 로 들어간다', () => {
+    const fc = storeyToGeoJSON(mep.storeys[0])
+    const ahu = fc.features.find((f) => f.properties.name === 'AHU-1')!
+    expect(ahu.geometry).toEqual({ type: 'Point', coordinates: [1, 1, 3.2] })
+
+    const sensor = fc.features.find((f) => f.properties.name === 'TEMP-101-01')!
+    expect(sensor.geometry).toBe(null)
+  })
+
+  it('물리존과 설비가 같은 파일에 들어간다', () => {
+    const kinds = storeyToGeoJSON(mep.storeys[0]).features.map((f) => f.properties.kind)
+    expect(kinds.filter((k) => k === 'space')).toHaveLength(1)
+    expect(kinds.filter((k) => k === 'equipment')).toHaveLength(5)
+  })
+
+  it('설비도 두 파일이 같은 id 로 이어진다', () => {
+    const ttl = modelToTTL(mep)
+    for (const f of storeyToGeoJSON(mep.storeys[0]).features) {
+      expect(ttl).toContain(`ex:${escapeLocalName(String(f.id))} a `)
+    }
+  })
+
+  it('기하는 여전히 TTL 로 새지 않는다', () => {
+    expect(modelToTTL(mep)).not.toMatch(/POLYGON|coordinates|wkt/i)
   })
 })

@@ -77,3 +77,14 @@ export function foldChain(chain: readonly Transform2[]): Transform2 {
   }
   return acc
 }
+
+/**
+ * 사슬의 z 이동만 더한다.
+ *
+ * 설비는 천장·바닥·벽에 붙어서 높이가 의미를 갖는다(PRD #13 설치면). 평면 변환과 달리
+ * z 는 회전을 안 섞고 더하기만 하면 되는데, 층이 수평이라는 전제 위에서만 맞다.
+ * 기울어진 층을 다루게 되면 여기가 먼저 틀린다.
+ */
+export function foldElevation(elevations: readonly number[]): number {
+  return elevations.reduce((a, b) => a + b, 0)
+}

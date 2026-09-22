@@ -33,6 +33,13 @@ describe.skipIf(!existsSync(SAMPLE))('실제 BIM (AC20-FZK-Haus)', () => {
       // 이 모델의 Pset_WallCommon 에는 ThermalTransmittance 만 있고 LoadBearing 이 없다.
       // PRD #6 이 말하는 "Structural 속성이 비어 있는 벽" 이 실제로 이렇게 생겼다.
       unknownLoadBearingWalls: 13,
+      // 건축 전용 모델이라 MEP 가 하나도 없다. 이 값이 0 이 아니게 되면 설비 판정 기준이
+      // 넓어진 것이다 — 한때 IfcAnnotation 14개를 설비로 셌다.
+      equipment: 0,
+      unplacedEquipment: 0,
+      equipmentWithoutCapacity: 0,
+      unlocatedEquipment: 0,
+      systems: 0,
     })
 
     const buero = model.storeys[0].spaces.find((s) => s.longName === 'Buero')!

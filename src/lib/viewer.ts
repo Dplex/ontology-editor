@@ -6,6 +6,8 @@
 import {
   AmbientLight,
   Box3,
+  BoxGeometry,
+  MeshBasicMaterial,
   DirectionalLight,
   DoubleSide,
   ExtrudeGeometry,
@@ -46,6 +48,19 @@ export function spaceMesh(footprint: readonly Vec2[], color: number): Mesh | nul
     geometry,
     new MeshLambertMaterial({ color, transparent: true, opacity: 0.75, side: DoubleSide }),
   )
+}
+
+/**
+ * 설비 한 대를 작은 상자로 찍는다.
+ *
+ * 좌표가 맞는지 보는 것이 목적이라 모양은 중요하지 않다. 천장 설비가 천장 높이에 뜨고
+ * 기계실 설비가 바닥 가까이 있는 게 보이면 z 를 제대로 읽은 것이다.
+ */
+export function equipmentMarker(position: readonly [number, number, number]): Mesh {
+  const mesh = new Mesh(new BoxGeometry(0.4, 0.4, 0.4), new MeshBasicMaterial({ color: 0xff5252 }))
+  // IFC 는 z 가 높이지만 three 는 y 가 높이다. 여기서 축을 바꾼다.
+  mesh.position.set(position[0], position[2], position[1])
+  return mesh
 }
 
 export type Viewer = {
@@ -106,6 +121,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           if (!mesh) continue
           mesh.position.y = storey.elevation
           content.add(mesh)
+        }
+        // 좌표가 없는 설비는 찍지 않는다. 원점에 찍으면 거기 있는 것처럼 보인다.
+        for (const equipment of storey.equipment) {
+          if (equipment.position) content.add(equipmentMarker(equipment.position))
         }
       })
       scene.add(content)

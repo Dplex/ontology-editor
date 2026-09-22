@@ -1,0 +1,92 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('mep.ifc','2026-09-22T00:00:00',(''),(''),'','ontology-editor fixture: MEP','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+/* 이 픽스처는 "DT 가 쓸 만한 BIM" 이 무엇을 담아야 하는지를 그대로 적은 것이다.
+   설비 하나하나가 좌표를 갖고, 용량 파라미터가 붙고, 계통(System)으로 묶이고,
+   포트로 서로 연결된다. 고객사에 요구할 최소 사양이 실행 가능한 형태로 여기 있다. */
+
+#1= IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#2= IFCUNITASSIGNMENT((#1));
+#3= IFCCARTESIANPOINT((0.,0.,0.));
+#4= IFCDIRECTION((0.,0.,1.));
+#5= IFCDIRECTION((1.,0.,0.));
+#6= IFCAXIS2PLACEMENT3D(#3,#4,#5);
+#7= IFCDIRECTION((0.,1.));
+#8= IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#6,#7);
+#9= IFCPROJECT('0MEP$Project$00000000',$,'MEP fixture',$,$,$,$,(#8),#2);
+#10= IFCLOCALPLACEMENT($,#6);
+#11= IFCSITE('0MEP$Site$0000000000',$,'Site',$,$,#10,$,$,.ELEMENT.,$,$,$,$,$);
+#12= IFCLOCALPLACEMENT(#10,#6);
+#13= IFCBUILDING('0MEP$Building$0000000',$,'MEP Building',$,$,#12,$,$,.ELEMENT.,$,$,$);
+#14= IFCLOCALPLACEMENT(#12,#6);
+#15= IFCBUILDINGSTOREY('0MEP$Storey$1F$00000',$,'1F',$,$,#14,$,$,.ELEMENT.,0.);
+
+/* 물리존 하나. 설비의 소속 물리존은 좌표로 판정하므로 외곽선이 필요하다. */
+#16= IFCCARTESIANPOINT((0.,0.,0.));
+#17= IFCAXIS2PLACEMENT3D(#16,#4,#5);
+#18= IFCLOCALPLACEMENT(#14,#17);
+#19= IFCCARTESIANPOINT((0.,0.));
+#20= IFCCARTESIANPOINT((10.,0.));
+#21= IFCCARTESIANPOINT((10.,8.));
+#22= IFCCARTESIANPOINT((0.,8.));
+#23= IFCPOLYLINE((#19,#20,#21,#22,#19));
+#24= IFCGEOMETRICCURVESET((#23));
+#25= IFCSHAPEREPRESENTATION(#8,'FootPrint','GeometricCurveSet',(#24));
+#26= IFCPRODUCTDEFINITIONSHAPE($,$,(#25));
+#27= IFCSPACE('0MEP$Space$Office$0000',$,'101',$,$,#18,#26,'\X2\C0ACBB34C2E4\X0\',.ELEMENT.,.SPACE.,$);
+
+/* 공조기. 기계실 좌표 (1, 1, 3.2) 에 놓인다. */
+#30= IFCCARTESIANPOINT((1.,1.,3.2));
+#31= IFCAXIS2PLACEMENT3D(#30,#4,#5);
+#32= IFCLOCALPLACEMENT(#14,#31);
+#33= IFCUNITARYEQUIPMENT('0MEP$Equip$AHU1$0000',$,'AHU-1',$,$,#32,$,'AHU-1',.AIRHANDLER.);
+
+/* 토출구 둘. 천장 높이 2.7m. 하나는 용량이 있고 하나는 없다. */
+#40= IFCCARTESIANPOINT((3.,4.,2.7));
+#41= IFCAXIS2PLACEMENT3D(#40,#4,#5);
+#42= IFCLOCALPLACEMENT(#14,#41);
+#43= IFCAIRTERMINAL('0MEP$Equip$AT01$0000',$,'AT-101-01',$,$,#42,$,'AT1',.DIFFUSER.);
+#44= IFCCARTESIANPOINT((7.,4.,2.7));
+#45= IFCAXIS2PLACEMENT3D(#44,#4,#5);
+#46= IFCLOCALPLACEMENT(#14,#45);
+#47= IFCAIRTERMINAL('0MEP$Equip$AT02$0000',$,'AT-101-02',$,$,#46,$,'AT2',.DIFFUSER.);
+
+/* 덕트 한 구간. */
+#50= IFCCARTESIANPOINT((1.,1.,3.));
+#51= IFCAXIS2PLACEMENT3D(#50,#4,#5);
+#52= IFCLOCALPLACEMENT(#14,#51);
+#53= IFCDUCTSEGMENT('0MEP$Duct$D01$00000',$,'DUCT-01',$,$,#52,$,'D1',.RIGIDSEGMENT.);
+
+/* 좌표가 없는 설비. PRD #13 의 "미배치 목록" 이 실제로 이렇게 들어온다. */
+#55= IFCSENSOR('0MEP$Equip$SEN01$000',$,'TEMP-101-01',$,$,$,$,'S1',.TEMPERATURESENSOR.);
+
+/* 용량 파라미터. AT-102 에는 일부러 붙이지 않는다 — PRD #6 의 "용량 파라미터 누락 설비". */
+#60= IFCPROPERTYSINGLEVALUE('NominalAirFlowRate',$,IFCREAL(6000.),$);
+#61= IFCPROPERTYSET('0MEP$Pset$AHU1$0000',$,'Pset_UnitaryEquipmentTypeCommon',$,(#60));
+#62= IFCRELDEFINESBYPROPERTIES('0MEP$Rel$Pset$AHU1$00',$,$,$,(#33),#61);
+#63= IFCPROPERTYSINGLEVALUE('NominalAirFlowRate',$,IFCREAL(900.),$);
+#64= IFCPROPERTYSET('0MEP$Pset$AT01$0000',$,'Pset_AirTerminalTypeCommon',$,(#63));
+#65= IFCRELDEFINESBYPROPERTIES('0MEP$Rel$Pset$AT01$00',$,$,$,(#43),#64);
+
+/* 계통. 이게 있어야 "어느 공조기가 어느 토출구를 담당하는가" 를 알 수 있다. */
+#70= IFCDISTRIBUTIONSYSTEM('0MEP$System$AHU1$000',$,'AHU-1 SA',$,$,'AHU-1 급기 계통',.AIRCONDITIONING.);
+#71= IFCRELASSIGNSTOGROUP('0MEP$Rel$Group$AHU1$0',$,$,$,(#33,#43,#47,#53),$,#70);
+
+/* 포트 연결. 덕트가 어느 설비에 붙는지가 여기 있다. */
+#80= IFCDISTRIBUTIONPORT('0MEP$Port$AHU1$Out$00',$,'AHU-1 SA out',$,$,$,$,.SOURCE.,.DUCT.,$);
+#81= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$AHU1$00',$,$,$,#80,#33);
+#82= IFCDISTRIBUTIONPORT('0MEP$Port$Duct$In$000',$,'DUCT-01 in',$,$,$,$,.SINK.,.DUCT.,$);
+#83= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$Duct$00',$,$,$,#82,#53);
+#84= IFCRELCONNECTSPORTS('0MEP$Rel$Ports$01$0000',$,$,$,#80,#82,$);
+
+#90= IFCRELAGGREGATES('0MEP$Rel$Proj$Site$00',$,$,$,#9,(#11));
+#91= IFCRELAGGREGATES('0MEP$Rel$Site$Bldg$00',$,$,$,#11,(#13));
+#92= IFCRELAGGREGATES('0MEP$Rel$Bldg$Storey$',$,$,$,#13,(#15));
+#93= IFCRELAGGREGATES('0MEP$Rel$1F$Spaces$00',$,$,$,#15,(#27));
+#94= IFCRELCONTAINEDINSPATIALSTRUCTURE('0MEP$Rel$1F$Elements$',$,$,$,(#33,#43,#47,#53,#55),#15);
+ENDSEC;
+END-ISO-10303-21;

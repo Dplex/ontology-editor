@@ -116,6 +116,8 @@ function exportTTL() {
           <li><b>{{ counts.doors }}</b><span>문</span></li>
           <li><b>{{ counts.windows }}</b><span>창문</span></li>
           <li><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span></li>
+          <li><b>{{ counts.equipment }}</b><span>설비</span></li>
+          <li><b>{{ counts.systems }}</b><span>계통</span></li>
         </ul>
 
         <ul v-if="model.warnings.length" class="warnings">
@@ -135,6 +137,7 @@ function exportTTL() {
               <th class="num">높이</th>
               <th>물리존</th>
               <th class="num">넓이 합</th>
+              <th class="num">설비</th>
             </tr>
           </thead>
           <tbody>
@@ -145,6 +148,7 @@ function exportTTL() {
               <td class="num mono">
                 {{ s.spaces.reduce((n, x) => n + x.areaM2, 0).toFixed(1) }} ㎡
               </td>
+              <td class="num mono">{{ s.equipment.length }}</td>
             </tr>
           </tbody>
         </table>

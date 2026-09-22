@@ -32,6 +32,12 @@ describe('importIfc', () => {
       windows: 2,
       loadBearingWalls: 1,
       unknownLoadBearingWalls: 2,
+      // 건축만 있는 모델이다. 설비·계통이 0 인 것이 이 픽스처의 성질이다.
+      equipment: 0,
+      unplacedEquipment: 0,
+      equipmentWithoutCapacity: 0,
+      systems: 0,
+      unlocatedEquipment: 0,
     })
   })
 
@@ -97,5 +103,75 @@ describe('빠진 것을 조용히 넘기지 않는다', () => {
     expect(walls.find((w) => w.name === 'W-1F-01')?.loadBearing).toBe(true)
     expect(walls.find((w) => w.name === 'W-1F-02')?.loadBearing).toBe(false)
     expect(walls.find((w) => w.name === 'W-1F-03')?.loadBearing).toBe(null)
+  })
+})
+
+// --- 설비(MEP) ---------------------------------------------------------------
+//
+// 입력은 fixtures/mep.ifc 다. 공개 BIM 샘플 넷을 뒤져도 MEP 계통이 든 것이 없어서
+// (전부 건축 모델이고, 설비처럼 보이는 것은 타월디스펜서·거울 같은 욕실 액세서리였다)
+// "DT 가 쓸 만한 BIM" 이 무엇을 담아야 하는지를 픽스처로 직접 적었다.
+// 고객사에 요구할 최소 사양이 이 파일이다.
+describe('MEP 임포트', () => {
+  let mep: Model
+
+  beforeAll(async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const path = fileURLToPath(new URL('./fixtures/mep.ifc', import.meta.url))
+    mep = importIfc(api, new Uint8Array(readFileSync(path)))
+  }, 60_000)
+
+  const byName = (name: string) => mep.storeys.flatMap((s) => s.equipment).find((e) => e.name === name)!
+
+  it('설비를 종류별로 읽는다', () => {
+    const counts = countOf(mep)
+    expect(counts.equipment).toBe(5)
+    expect(counts.systems).toBe(1)
+
+    const classes = mep.storeys.flatMap((s) => s.equipment.map((e) => e.ifcClass)).sort()
+    expect(classes).toEqual(['AirTerminal', 'AirTerminal', 'DuctSegment', 'Sensor', 'UnitaryEquipment'])
+  })
+
+  it('설비 좌표를 x·y·z 로 읽는다', () => {
+    // 천장 토출구는 높이가 의미를 갖는다(PRD #13 설치면).
+    expect(byName('AT-101-01').position).toEqual([3, 4, 2.7])
+    expect(byName('AHU-1').position).toEqual([1, 1, 3.2])
+  })
+
+  it('좌표 없는 설비는 원점이 아니라 null 이다', () => {
+    // 0,0,0 으로 채우면 "모르는 것" 이 "원점에 있는 것" 으로 바뀌어 조용히 틀린다.
+    expect(byName('TEMP-101-01').position).toBe(null)
+    expect(countOf(mep).unplacedEquipment).toBe(1)
+  })
+
+  it('용량 파라미터를 읽고, 없는 것은 null 로 둔다', () => {
+    expect(byName('AHU-1').capacity).toBe(6000)
+    expect(byName('AT-101-01').capacity).toBe(900)
+    expect(byName('AT-101-02').capacity).toBe(null)
+  })
+
+  it('계통으로 설비를 묶는다', () => {
+    expect(mep.systems[0].name).toBe('AHU-1 급기 계통')
+    expect(mep.systems[0].memberIds).toHaveLength(4)
+    // 공조기와 토출구가 같은 계통에 있어야 담당 관계를 판정할 수 있다(PRD #11).
+    expect(byName('AHU-1').systemId).toBe(mep.systems[0].id)
+    expect(byName('AT-101-01').systemId).toBe(mep.systems[0].id)
+    expect(byName('TEMP-101-01').systemId).toBe(null)
+  })
+
+  it('좌표로 소속 물리존을 판정한다', () => {
+    // BIM 은 "이 공조기가 사무실에 있다" 는 말을 하지 않는다. 그 관계는 우리가 만든다.
+    const office = mep.storeys[0].spaces[0]
+    expect(byName('AHU-1').spaceId).toBe(office.id)
+    expect(byName('AT-101-01').spaceId).toBe(office.id)
+    // 좌표가 없으면 소속도 없다. 원점으로 채워 사무실에 넣어 버리면 안 된다.
+    expect(byName('TEMP-101-01').spaceId).toBe(null)
+    expect(countOf(mep).unlocatedEquipment).toBe(1)
+  })
+
+  it('빠진 것을 경고로 남긴다', () => {
+    expect(mep.warnings.some((w) => w.includes('좌표가 없어'))).toBe(true)
+    expect(mep.warnings.some((w) => w.includes('용량 파라미터가 없습니다'))).toBe(true)
   })
 })
