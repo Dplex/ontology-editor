@@ -31,7 +31,25 @@ export type ElementPoints = {
  * 반드시 tolerance 보다 멀어서, 놓치는 쌍 없이 비교 횟수만 준다. 격자 좌표를 반올림으로만
  * 맞추면 칸 경계를 사이에 둔 두 점을 놓친다 — 실측에서 연결망이 잘게 쪼개졌다.
  */
-export function inferConnections(elements: readonly ElementPoints[], tolerance = 0.005): Connection[] {
+/**
+ * 형상이 맞닿았다고 볼 거리(미터).
+ *
+ * 5mm 다. ifc4Mep 의 포트를 정답지로 재 보면 정밀도 79.6% · 재현율 75.8% 로, 1mm(88.8% ·
+ * 47.0%)와 10mm(74.5% · 84.1%) 사이의 균형점이다. F1 은 10mm 가 조금 높지만 **온톨로지는
+ * 틀린 관계가 들어가는 쪽이 빠지는 쪽보다 나쁘므로** 정밀도를 택했다.
+ * 측정표는 `docs/ifc-coverage.md` §4.1 에 있고 `npm run check:sample` 이 다시 잰다.
+ */
+export const TOLERANCE = 0.005
+
+/**
+ * 고립된 요소를 살릴 때까지 넓혀 볼 거리(미터).
+ *
+ * 50mm 에서 재현율이 94.3% 로 포화하고, 그래도 안 붙는 것은 더 키워도 안 붙었다.
+ * 그 너머는 오차가 아니라 접합 부재가 없는 것이다.
+ */
+export const REACH = 0.05
+
+export function inferConnections(elements: readonly ElementPoints[], tolerance = TOLERANCE): Connection[] {
   const cell = (v: number) => Math.floor(v / tolerance)
   const key = (x: number, y: number, z: number) => `${x},${y},${z}`
 
@@ -81,7 +99,7 @@ export function inferConnections(elements: readonly ElementPoints[], tolerance =
               const b = elements[q.index]
               if (!compatible(a, b)) continue
               pairs.add(pair)
-              out.push({ from: a.id, to: b.id, source: 'geometry', directed: false })
+              out.push({ from: a.id, to: b.id, source: 'geometry', directed: false, tolerance })
             }
         }
   }
@@ -103,6 +121,8 @@ export type Gap = {
   kind: 'primary' | 'derived'
   /** 이을 수 있었을 가장 가까운 요소까지의 거리(미터). `reach` 안에서 못 찾으면 `null`. */
   nearest: number | null
+  /** 그 가장 가까운 요소의 id. 1차 결손이면 `null` 이다. */
+  nearestId: string | null
 }
 
 /**
@@ -153,6 +173,7 @@ export function findGaps(
   return lonely.map((el) => {
     const self = indexOf.get(el.id)!
     let best = Infinity
+    let bestIndex = -1
     for (let i = 0; i + 2 < el.points.length; i += 3) {
       const x = el.points[i]
       const y = el.points[i + 1]
@@ -171,12 +192,47 @@ export function findGaps(
               if (d >= best || d > limit) continue
               if (!compatible(el, elements[q.index])) continue
               best = d
+              bestIndex = q.index
             }
           }
     }
-    const nearest = best === Infinity ? null : Math.sqrt(best)
-    return { id: el.id, kind: nearest === null ? 'primary' : 'derived', nearest } as Gap
+    const nearest = bestIndex === -1 ? null : Math.sqrt(best)
+    return {
+      id: el.id,
+      kind: nearest === null ? 'primary' : 'derived',
+      nearest,
+      nearestId: bestIndex === -1 ? null : elements[bestIndex].id,
+    } as Gap
   })
+}
+
+/**
+ * 2차 결손을 메운다 — 고립된 요소를 가장 가까운 상대에 잇는다.
+ *
+ * 판정 오차를 전역으로 키우면 안 된다. 실측에서 5mm → 50mm 로 넓히면 재현율은 75.8% →
+ * 94.3% 로 오르지만 정밀도가 79.6% → 55.1% 로 무너진다. 이미 이어진 요소들 사이에 엉뚱한
+ * 연결이 쏟아지기 때문이다.
+ *
+ * **고립된 요소는 사정이 다르다. 잃을 연결이 없다.** 그 주변에서만 넓히면 망에 붙이면서
+ * 정밀도는 건드리지 않는다.
+ *
+ * 요소마다 **가장 가까운 상대 하나에만** 잇는다. 반경 안의 모든 것에 이으면 없던 분기를
+ * 지어내게 된다. 고아를 망에 붙이는 것까지가 우리가 아는 것이고, 그 너머는 추측이다.
+ */
+export function connectGaps(gaps: readonly Gap[]): Connection[] {
+  // 고립된 요소는 정의상 기존 연결에 안 걸려 있다. 그래서 볼 중복은 **고립된 것끼리 서로를
+  // 지목한 경우** 하나뿐이다.
+  const seen = new Set<string>()
+  const out: Connection[] = []
+  for (const gap of gaps) {
+    if (gap.nearestId === null || gap.nearest === null) continue
+    const pair = gap.id < gap.nearestId ? `${gap.id}|${gap.nearestId}` : `${gap.nearestId}|${gap.id}`
+    if (seen.has(pair)) continue
+    seen.add(pair)
+    // 실제로 떨어져 있던 거리를 그대로 적는다. 검토 화면이 이 값을 보여 준다.
+    out.push({ from: gap.id, to: gap.nearestId, source: 'geometry', directed: false, tolerance: gap.nearest })
+  }
+  return out
 }
 
 export type Trace = {
@@ -255,14 +311,22 @@ export function trace(connections: readonly Connection[], start: string): Trace 
 }
 
 /** 한 요소에 바로 붙은 이웃. 선택한 요소의 연결 목록을 보여 줄 때 쓴다. */
-export function neighbors(
-  connections: readonly Connection[],
-  id: string,
-): { id: string; relation: 'upstream' | 'downstream' | 'linked'; source: Connection['source'] }[] {
-  const out: { id: string; relation: 'upstream' | 'downstream' | 'linked'; source: Connection['source'] }[] = []
+export type Neighbor = {
+  id: string
+  relation: 'upstream' | 'downstream' | 'linked'
+  source: Connection['source']
+  /** 형상으로 이었다면 그때의 거리(미터). 넓혀서 이은 것을 검토 화면이 이 값으로 구별한다. */
+  tolerance: number | null
+}
+
+export function neighbors(connections: readonly Connection[], id: string): Neighbor[] {
+  const out: Neighbor[] = []
   for (const c of connections) {
-    if (c.from === id) out.push({ id: c.to, relation: c.directed ? 'downstream' : 'linked', source: c.source })
-    else if (c.to === id) out.push({ id: c.from, relation: c.directed ? 'upstream' : 'linked', source: c.source })
+    if (c.from === id) {
+      out.push({ id: c.to, relation: c.directed ? 'downstream' : 'linked', source: c.source, tolerance: c.tolerance })
+    } else if (c.to === id) {
+      out.push({ id: c.from, relation: c.directed ? 'upstream' : 'linked', source: c.source, tolerance: c.tolerance })
+    }
   }
   return out
 }

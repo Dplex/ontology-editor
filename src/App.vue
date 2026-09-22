@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, shallowRef, triggerRef, watch } from 'v
 import { ifcApi } from './lib/ifc/open'
 import { importIfcWithMeshes, type MeshMap } from './lib/ifc/import'
 import { countOf, type Equipment, type Model } from './lib/model'
-import { neighbors, trace } from './lib/topology'
+import { neighbors, trace, TOLERANCE } from './lib/topology'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
 import { createViewer, systemColors, type Viewer } from './lib/viewer'
@@ -177,6 +177,11 @@ const ROLE_LABEL: Record<NonNullable<Equipment['role']>, string> = {
   sensing: '계측',
 }
 const roleLabel = (role: Equipment['role']) => (role ? ROLE_LABEL[role] : '')
+
+// 형상으로 이은 연결에 거리를 붙여 보여 준다. 기본 판정에서 붙은 것과 고립된 요소를
+// 살리려고 넓혀서 붙인 것은 확신의 정도가 달라서, 검토하는 사람이 구별할 수 있어야 한다.
+const sourceLabel = (tolerance: number | null) =>
+  tolerance !== null && tolerance > TOLERANCE ? `형상 추정 (${Math.round(tolerance * 1000)}mm 띄움)` : '형상 추정'
 
 // 계통 범례. 색은 3D 와 같은 자리에서 가져온다.
 const legend = computed(() => {
@@ -479,7 +484,7 @@ function exportTTL() {
                 <button type="button" class="link" @click="select(n.id)">{{ n.name }}</button>
               </td>
               <td class="muted">
-                {{ n.source === 'port' ? 'BIM 포트' : '형상 추정' }}
+                {{ n.source === 'port' ? 'BIM 포트' : sourceLabel(n.tolerance) }}
               </td>
             </tr>
           </tbody>

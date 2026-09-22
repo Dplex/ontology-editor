@@ -27,7 +27,7 @@ import { polygonArea } from '../model'
 import { apply, foldChain, foldElevation, fromAxisPlacement, type Transform2 } from './placement'
 import { assignEquipmentToSpaces, unlocatedEquipment } from '../mapping'
 import { lengthScale } from './units'
-import { findGaps, inferConnections } from '../topology'
+import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
 
 /**
  * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
@@ -439,7 +439,7 @@ class Reader {
       const k = directed ? `${a}>${b}` : [a, b].sort().join('-')
       if (seen.has(k)) continue
       seen.add(k)
-      out.push({ from: a, to: b, source: 'port', directed })
+      out.push({ from: a, to: b, source: 'port', directed, tolerance: null })
     }
     return out
   }
@@ -880,14 +880,26 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
 
       // 이은 것만 세면 못 이은 것이 조용히 사라진다. **못 이은 이유가 둘이고, 고객사에 할
       // 말이 서로 다르다** — 오차를 키우면 붙는 것과 접합 부재가 아예 없는 것.
+      //
+      // 앞의 것은 메울 수 있다. 고립된 요소는 잃을 연결이 없어서, 그 주변에서만 판정을
+      // 넓혀도 정밀도가 깎이지 않는다(connectGaps 주석 참조).
       const gaps = findGaps(points, result.connections)
-      const derived = gaps.filter((g) => g.kind === 'derived').length
-      if (gaps.length > 0) {
+      const rescued = connectGaps(gaps)
+      result.connections = [...result.connections, ...rescued]
+
+      // **대수와 연결 개수를 섞어 세지 말 것.** 고립된 둘이 서로를 지목하면 연결 하나가
+      // 두 대를 살린다. 대수는 결손 종류로 세고, 연결 개수는 따로 적는다.
+      const joined = gaps.filter((g) => g.kind === 'derived').length
+      const stranded = gaps.length - joined
+      if (joined > 0) {
+        const far = Math.max(...rescued.map((c) => c.tolerance ?? 0))
         warnings.push(
-          `설비 ${gaps.length}대에 연결이 하나도 없습니다. ` +
-            (derived > 0
-              ? `그중 ${derived}대는 50mm 안에 이을 상대가 있어 판정 오차 문제이고, 나머지 ${gaps.length - derived}대는 주변에 상대가 없습니다(접합 부재 누락).`
-              : '전부 주변에 이을 상대가 없습니다(접합 부재 누락). 모델을 다시 그려야 이어집니다.'),
+          `연결이 없던 설비 ${gaps.length}대 중 ${joined}대를 주변에서만 판정을 넓혀(최대 ${Math.round(far * 1000)}mm) 연결망에 붙였습니다(연결 ${rescued.length}개). 검토 화면에서 거리를 확인할 수 있습니다.`,
+        )
+      }
+      if (stranded > 0) {
+        warnings.push(
+          `설비 ${stranded}대는 주변 ${Math.round(REACH * 1000)}mm 안에 이을 상대가 없어 연결망에 붙이지 못했습니다(접합 부재 누락). 모델을 다시 그려야 이어집니다.`,
         )
       }
     }

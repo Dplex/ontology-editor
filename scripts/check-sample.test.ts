@@ -5,7 +5,7 @@ import { importIfc, importIfcWithMeshes } from '../src/lib/ifc/import'
 import { countOf } from '../src/lib/model'
 import { modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
-import { inferConnections } from '../src/lib/topology'
+import { inferConnections, REACH, TOLERANCE } from '../src/lib/topology'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
 // 표현 방식이 훨씬 다양하기 때문이다. 그래서 공개 샘플 하나를 기준값으로 박아 둔다.
@@ -217,9 +217,17 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     expect(model.systems.map((s) => s.name)).toContain('Unit A Domestic Cold Water')
 
     // 포트가 없으니 방향은 하나도 없다. **이 값이 0 이 아니게 되면 추정을 단정으로 바꾼 것이다.**
-    expect(counts.connections).toBe(690)
     expect(counts.directedConnections).toBe(0)
     expect(model.connections.every((c) => c.source === 'geometry')).toBe(true)
+
+    // 기본 판정 5mm 로 690개, 고립된 요소 주변만 넓혀 95개를 더 이었다.
+    const base = model.connections.filter((c) => c.tolerance === TOLERANCE)
+    const stretched = model.connections.filter((c) => (c.tolerance ?? 0) > TOLERANCE)
+    expect(base).toHaveLength(690)
+    expect(stretched).toHaveLength(95)
+    expect(counts.connections).toBe(785)
+    // 넓힌 것도 REACH 안이다. 이 경계를 넘으면 오차가 아니라 없는 부재를 지어낸 것이다.
+    expect(Math.max(...stretched.map((c) => c.tolerance!))).toBeLessThanOrEqual(REACH)
 
     // 추정이 계통을 넘나들지 않는다. 냉수관과 온수관은 나란히 붙어 달려서, 계통을 보지
     // 않으면 한 덩어리가 된다.
@@ -233,12 +241,16 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     // 두 계통에 걸친 설비(온수기 같은 것)는 양쪽 이름을 다 갖고 있어서 여기 걸릴 수 있다.
     expect(crossing.length).toBeLessThan(counts.connections * 0.2)
 
-    // 못 이은 것을 이유별로 가른다. **절반 이상이 되살릴 수 있는 쪽이다** — 이 비율이
+    // 못 이은 것을 이유별로 가른다. **절반 이상이 되살릴 수 있는 쪽이었다** — 이 비율이
     // 고객사에 "판정 기준을 조정하겠다" 와 "모델을 다시 그려 달라" 중 무엇을 말할지 정한다.
-    const gap = model.warnings.find((w) => w.includes('연결이 하나도 없습니다'))
-    expect(gap).toContain('설비 224대')
-    expect(gap).toContain('121대는 50mm 안에 이을 상대가 있어')
-    expect(gap).toContain('103대는 주변에 상대가 없습니다')
+    //
+    // 대수(121)와 연결 개수(95)가 다른 것에 주의한다. 고립된 둘이 서로를 가장 가깝다고
+    // 지목하면 연결 하나가 두 대를 살린다.
+    const joined = model.warnings.find((w) => w.includes('연결망에 붙였습니다'))
+    expect(joined).toContain('설비 224대 중 121대')
+    expect(joined).toContain('연결 95개')
+    const stranded = model.warnings.find((w) => w.includes('접합 부재 누락'))
+    expect(stranded).toContain('설비 103대')
   }, 300_000)
 })
 

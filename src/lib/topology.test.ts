@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { findGaps, inferConnections, neighbors, trace, type ElementPoints } from './topology'
+import { connectGaps, findGaps, inferConnections, neighbors, trace, type ElementPoints } from './topology'
 import type { Connection } from './model'
 
 /** x 축을 따라 놓인 배관 한 토막. 양 끝에 꼭짓점을 둔다. */
@@ -12,7 +12,7 @@ const pipe = (id: string, from: number, to: number, systems: string[] | null = [
 describe('inferConnections', () => {
   it('끝이 맞닿은 두 토막을 방향 없는 형상 연결로 잇는다', () => {
     const out = inferConnections([pipe('p1', 0, 1), pipe('p2', 1, 2)])
-    expect(out).toEqual([{ from: 'p1', to: 'p2', source: 'geometry', directed: false }])
+    expect(out).toEqual([{ from: 'p1', to: 'p2', source: 'geometry', directed: false, tolerance: 0.005 }])
   })
 
   it('허용 오차 밖이면 잇지 않는다', () => {
@@ -76,8 +76,52 @@ describe('findGaps', () => {
   })
 })
 
-const d = (from: string, to: string): Connection => ({ from, to, source: 'port', directed: true })
-const u = (from: string, to: string): Connection => ({ from, to, source: 'geometry', directed: false })
+describe('connectGaps', () => {
+  it('고립된 요소를 실제 거리로 이어 붙인다', () => {
+    // 20mm 떨어져 있어 5mm 판정으로는 안 붙는다. 주변에서만 넓혀 살린다.
+    const els = [pipe('p1', 0, 1), pipe('p2', 1.02, 2)]
+    const base = inferConnections(els)
+    expect(base).toEqual([])
+
+    const rescued = connectGaps(findGaps(els, base))
+    expect(rescued).toHaveLength(1)
+    expect(rescued[0].source).toBe('geometry')
+    expect(rescued[0].directed).toBe(false)
+    // 판정에 쓴 값이 아니라 실제로 떨어져 있던 거리를 적는다.
+    expect(rescued[0].tolerance).toBeCloseTo(0.02, 6)
+  })
+
+  it('이미 이어진 요소는 건드리지 않는다', () => {
+    // 전역으로 오차를 키우면 여기에도 엉뚱한 연결이 붙는다. 그래서 고립된 것만 본다.
+    const els = [pipe('p1', 0, 1), pipe('p2', 1, 2), pipe('p3', 2.02, 3)]
+    const base = inferConnections(els)
+    expect(base).toHaveLength(1)
+
+    const rescued = connectGaps(findGaps(els, base))
+    // p3 만 고립이다. p1-p2 사이에는 아무것도 새로 안 생긴다.
+    expect(rescued.map((c) => [c.from, c.to])).toEqual([['p3', 'p2']])
+  })
+
+  it('서로를 지목한 고립 요소 둘을 한 번만 잇는다', () => {
+    const els = [pipe('a', 0, 1), pipe('b', 1.02, 2)]
+    expect(connectGaps(findGaps(els, []))).toHaveLength(1)
+  })
+
+  it('가장 가까운 하나에만 잇는다 — 없던 분기를 지어내지 않는다', () => {
+    // lonely 주위 reach 안에 둘이 있다. 둘 다 이으면 있지도 않은 티(tee)가 생긴다.
+    const els = [pipe('x', 0, 1), pipe('y', 0, 1), pipe('lonely', 1.01, 2)]
+    const rescued = connectGaps(findGaps(els, inferConnections(els)))
+    expect(rescued.filter((c) => c.from === 'lonely' || c.to === 'lonely')).toHaveLength(1)
+  })
+
+  it('1차 결손은 메우지 않는다', () => {
+    const els = [pipe('p1', 0, 1), pipe('far', 10, 11)]
+    expect(connectGaps(findGaps(els, []))).toEqual([])
+  })
+})
+
+const d = (from: string, to: string): Connection => ({ from, to, source: 'port', directed: true, tolerance: null })
+const u = (from: string, to: string): Connection => ({ from, to, source: 'geometry', directed: false, tolerance: 0.005 })
 
 describe('trace', () => {
   it('방향 있는 사슬에서 상류와 하류를 나눈다', () => {
@@ -125,9 +169,10 @@ describe('neighbors', () => {
   it('바로 붙은 이웃과 방향을 준다', () => {
     const list = neighbors([d('ahu', 'duct'), d('duct', 'diffuser'), u('duct', 'sensor')], 'duct')
     expect(list).toEqual([
-      { id: 'ahu', relation: 'upstream', source: 'port' },
-      { id: 'diffuser', relation: 'downstream', source: 'port' },
-      { id: 'sensor', relation: 'linked', source: 'geometry' },
+      { id: 'ahu', relation: 'upstream', source: 'port', tolerance: null },
+      { id: 'diffuser', relation: 'downstream', source: 'port', tolerance: null },
+      // 형상으로 이은 것은 그때의 거리를 함께 준다. 검토 화면이 넓혀 이은 것을 구별한다.
+      { id: 'sensor', relation: 'linked', source: 'geometry', tolerance: 0.005 },
     ])
   })
 })

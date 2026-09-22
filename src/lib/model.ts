@@ -182,6 +182,14 @@ export type Connection = {
   to: string
   source: 'port' | 'geometry'
   directed: boolean
+  /**
+   * 형상 추정이 **이 거리 안에서 맞닿은 것으로 보았다**(미터). 포트에서 온 연결은 `null` 이다.
+   *
+   * 기본값보다 큰 값은 고립된 요소를 살리려고 그 주변에서만 넓혀 이은 것이다. 같은
+   * `'geometry'` 여도 확신의 정도가 다르므로 섞지 않는다 — 검토 화면이 이 값으로
+   * "5mm 에서 붙은 것" 과 "32mm 까지 늘려서 붙인 것" 을 구별해 보여 준다.
+   */
+  tolerance: number | null
 }
 
 export type Storey = {
