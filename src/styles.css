@@ -1,0 +1,128 @@
+/* 색은 토큰 하나로 모으고, 라이트 모드는 시스템 설정을 따른다.
+   토글은 화면이 더 자랄 때 붙인다. */
+:root {
+  --bg: #12141a;
+  --fg: #e6e8ee;
+  --muted: #8b90a0;
+  --line: #262a35;
+  --accent: #5ac8fa;
+  --error: #ff7b72;
+
+  color-scheme: dark light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #fbfbfd;
+    --fg: #1b1d23;
+    --muted: #666c7a;
+    --line: #e2e4ea;
+    --accent: #0a84c8;
+    --error: #c0392b;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  line-height: 1.6;
+}
+
+main {
+  max-width: 68rem;
+  margin: 0 auto;
+  padding: 2.5rem 1rem 4rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1.1rem;
+}
+
+.sub,
+.stats,
+.empty {
+  color: var(--muted);
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+}
+
+.drop {
+  margin-top: 2rem;
+  padding: 2.5rem 1rem;
+  border: 1px dashed var(--line);
+  border-radius: 0.75rem;
+  text-align: center;
+  transition: border-color 0.15s ease;
+}
+
+.drop.over {
+  border-color: var(--accent);
+}
+
+.drop p {
+  margin: 0 0 1rem;
+  color: var(--muted);
+}
+
+.pick {
+  display: inline-block;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  cursor: pointer;
+}
+
+.pick input {
+  display: none;
+}
+
+.error {
+  margin-top: 1rem;
+  color: var(--error);
+}
+
+.loaded {
+  margin-top: 2.5rem;
+}
+
+table {
+  width: 100%;
+  margin-top: 1rem;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th,
+td {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+
+th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.mono {
+  font-family: ui-monospace, 'JetBrains Mono', 'SF Mono', monospace;
+}
+
+/* IRI 는 길다. 줄바꿈을 막으면 표가 가로로 넘쳐서 좁은 화면에서 읽을 수 없다. */
+.iri {
+  word-break: break-all;
+  color: var(--muted);
+}
