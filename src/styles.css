@@ -156,6 +156,32 @@ h2 {
   display: none;
 }
 
+.data-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.data-pick select {
+  max-width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}
+
+.data-pick select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .error {
   margin-top: 1rem;
   padding: 0.75rem 1rem;

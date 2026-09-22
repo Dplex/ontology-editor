@@ -9,10 +9,11 @@
 import { copyFileSync, mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 const require = createRequire(import.meta.url)
 const from = require.resolve('web-ifc/web-ifc.wasm')
-const to = join(dirname(new URL(import.meta.url).pathname), '..', 'public', 'web-ifc.wasm')
+const to = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'web-ifc.wasm')
 
 mkdirSync(dirname(to), { recursive: true })
 copyFileSync(from, to)

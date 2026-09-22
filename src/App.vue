@@ -127,13 +127,36 @@ watch([model, canvas], ([m, el]) => {
 
 onBeforeUnmount(() => viewer?.dispose())
 
-async function load(file: File) {
+// dev 서버가 data/ 의 .ifc 목록을 준다(vite.config.ts). 빌드 번들에선 실패하고 빈 목록이 된다.
+const dataFiles = ref<{ path: string; size: number }[]>([])
+const dataPick = ref('')
+
+fetch('./__data/')
+  .then((r) => (r.ok ? r.json() : []))
+  .then((files) => (dataFiles.value = Array.isArray(files) ? files : []))
+  .catch(() => {})
+
+function onDataPick() {
+  const path = dataPick.value
+  if (!path) return
+  void load(path.split('/').pop() ?? path, async () => {
+    const r = await fetch(`./__data/${path.split('/').map(encodeURIComponent).join('/')}`)
+    if (!r.ok) throw new Error(`data/${path} 를 받지 못했습니다 (HTTP ${r.status})`)
+    return r.arrayBuffer()
+  })
+}
+
+function mb(bytes: number) {
+  return `${(bytes / 1048576).toFixed(1)} MB`
+}
+
+async function load(name: string, read: () => Promise<ArrayBuffer>) {
   busy.value = true
   error.value = ''
   try {
     const api = await ifcApi()
-    model.value = importIfc(api, new Uint8Array(await file.arrayBuffer()))
-    fileName.value = file.name
+    model.value = importIfc(api, new Uint8Array(await read()))
+    fileName.value = name
     // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다.
     changes.value = []
     areaChanges.value = []
@@ -149,13 +172,13 @@ async function load(file: File) {
 
 function onPick(event: Event) {
   const file = (event.target as HTMLInputElement).files?.[0]
-  if (file) void load(file)
+  if (file) void load(file.name, () => file.arrayBuffer())
 }
 
 function onDrop(event: DragEvent) {
   dragging.value = false
   const file = event.dataTransfer?.files?.[0]
-  if (file) void load(file)
+  if (file) void load(file.name, () => file.arrayBuffer())
 }
 
 function download(name: string, text: string, mime: string) {
@@ -207,6 +230,15 @@ function exportTTL() {
         파일 선택
         <input type="file" accept=".ifc" :disabled="busy" @change="onPick" />
       </label>
+      <div v-if="dataFiles.length" class="data-pick">
+        <span>또는 data/ 에서</span>
+        <select v-model="dataPick" :disabled="busy" @change="onDataPick">
+          <option value="" disabled>샘플 고르기</option>
+          <option v-for="f in dataFiles" :key="f.path" :value="f.path">
+            {{ f.path }} · {{ mb(f.size) }}
+          </option>
+        </select>
+      </div>
     </section>
 
     <p v-if="error" class="error" role="alert">{{ error }}</p>
