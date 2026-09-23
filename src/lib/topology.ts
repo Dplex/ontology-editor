@@ -322,6 +322,39 @@ export function trace(
   return { upstream, downstream, linked }
 }
 
+/** 계통 하나로 좁힌 추적. `systemId` 가 null 이면 덕트·배관 없이 기기끼리 바로 붙은 연결이다. */
+export type SystemTrace = Trace & { systemId: string | null }
+
+/**
+ * 고른 요소의 연결을 **계통별로** 따라간다.
+ *
+ * FCU 하나에는 순환수 공급관·환수관·응축수 배수관·급기 덕트가 같이 붙는다. 한데 섞어 세면 성수에서
+ * "이어짐 3,051" 이 되는데, 엔지니어가 묻는 것은 "이 FCU 의 물은 어느 관에서 와서 어느 관으로 가고, 바람은
+ * 어느 디퓨저로 가는가" 다. 그래서 고른 요소에 바로 붙은 덕트·배관의 계통마다, **그 계통의 덕트·배관을 지나는
+ * 연결만** 남겨 따로 추적한다. 끝에 걸린 기기는 계통 밖이어도 센다(FCU 는 보통 어느 계통의 구성원도 아니다).
+ */
+export function traceBySystem(
+  connections: readonly Connection[],
+  start: string,
+  systemOf: (id: string) => string | null,
+  isConduit: (id: string) => boolean,
+): SystemTrace[] {
+  const keys = new Set<string | null>()
+  for (const c of connections) {
+    const other = c.from === start ? c.to : c.to === start ? c.from : null
+    if (other === null) continue
+    keys.add(isConduit(other) ? systemOf(other) : null)
+  }
+  return [...keys].map((systemId) => {
+    const edges = connections.filter((c) => {
+      const conduits = [c.from, c.to].filter(isConduit)
+      if (systemId === null) return conduits.length === 0
+      return conduits.length > 0 && conduits.every((id) => systemOf(id) === systemId)
+    })
+    return { systemId, ...trace(edges, start, isConduit) }
+  })
+}
+
 /** 한 요소에 바로 붙은 이웃. 선택한 요소의 연결 목록을 보여 줄 때 쓴다. */
 export type Neighbor = {
   id: string

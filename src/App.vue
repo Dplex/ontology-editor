@@ -7,7 +7,7 @@ import { profileOf, type Profile } from './lib/profile'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
 import Src from './components/Src.vue'
-import { neighbors, trace, TOLERANCE, type Neighbor } from './lib/topology'
+import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
@@ -56,6 +56,35 @@ let meshes: MeshMap = new Map()
 
 const counts = computed(() => (model.value ? countOf(model.value) : null))
 
+// --- 보기 / 편집 ---------------------------------------------------------------
+//
+// 온톨로지를 둘러보는 사람과 고치는 사람이 보는 화면을 나눈다. 보기는 3D 와 연결을 넓게 보이고 고치는 손잡이를
+// 전부 숨긴다. 편집은 고칠 수 있는 것(물리존 이름·경계, 설비 위치, 흐름 방향 확정·지정)을 드러내고, 바뀐 것의
+// 수와 내보내기를 화면 위에 붙여 둔다. 편집한 것은 모드를 바꿔도 남는다(보기로 돌아가도 리포트는 그대로다).
+// 고른 모드는 이 브라우저에만 기억한다.
+type Mode = 'view' | 'edit'
+const mode = ref<Mode>(
+  (() => {
+    try {
+      return localStorage.getItem('oe-mode') === 'edit' ? 'edit' : 'view'
+    } catch {
+      return 'view'
+    }
+  })(),
+)
+watch(mode, (m) => {
+  try {
+    localStorage.setItem('oe-mode', m)
+  } catch {
+    // 못 써도 이번 창에서는 그대로 돈다.
+  }
+})
+const editing = computed(() => mode.value === 'edit')
+/** 편집 막대에 보이는 바뀐 것의 수. 리포트(바뀌는 것)에 적히는 줄과 같은 단위로 센다. */
+const changeCount = computed(
+  () => report.value.length + areaLines.value.length + confirmations.value.length + flowEditLines.value.length,
+)
+
 // 3D 에 내력벽을 켜고 끈다. 내력 여부를 모르는 벽도 같이 켠다(모름은 아니오가 아니다).
 const showWalls = ref(false)
 watch(showWalls, (on) => viewer?.setWallsVisible(on))
@@ -83,7 +112,7 @@ const changes = ref<Change[]>([])
 const report = computed(() => summarize(changes.value))
 
 // 넓이는 편집할 때마다 조금씩 움직인다. 매번 한 줄씩 쌓지 말고 처음과 끝만 적는다.
-const areaSummary = computed(() => {
+const areaLines = computed(() => {
   const first = new Map<string, BoundaryChange>()
   for (const c of areaChanges.value) if (!first.has(c.spaceId)) first.set(c.spaceId, c)
 
@@ -93,8 +122,9 @@ const areaSummary = computed(() => {
     if (Math.abs(now.toAreaM2 - start.fromAreaM2) < 0.005) continue
     parts.push(`${start.spaceName} ${start.fromAreaM2.toFixed(1)}㎡ → ${now.toAreaM2.toFixed(1)}㎡`)
   }
-  return parts.join(' · ')
+  return parts
 })
+const areaSummary = computed(() => areaLines.value.join(' · '))
 
 // 층의 벽 두께 종류를 한 줄로 요약한다. 값이 여럿이면 내벽과 외벽이 섞인 것이다.
 const wallThicknessOf = (storey: { walls: { thickness: number | null }[] }) => {
@@ -336,6 +366,55 @@ function relClass(n: NeighborRow) {
 function setFlow(n: NeighborRow, from: string | null) {
   if (setFlowDirection(n.connection, from)) flowVersion.value++
 }
+// --- 계통별로 보기 --------------------------------------------------------------
+//
+// 고른 기기에 붙은 덕트·배관의 계통마다 상류·하류·방향 모름을 따로 센다(topology.ts 의 traceBySystem).
+// 숫자는 기기 대수이고 덕트·배관은 따로 센다. 수천 개여도 대부분은 관 조각이라, 기기 수가 엔지니어가 읽는
+// 숫자다. 방향은 3D 와 같은 것을 쓴다(규칙을 켜 두면 규칙 방향까지).
+const systemColor = computed(() => new Map(legend.value.map((s) => [s.id, s.color])))
+const systemRows = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const id = selectedId.value
+  if (!m || !id) return []
+  const connections = showRules.value && hasRules.value ? withInferred(m.connections) : m.connections
+  const isDevice = (x: string) => !conduitId(x)
+  return traceBySystem(connections, id, (x) => equipmentById.value.get(x)?.systemId ?? null, conduitId)
+    .map((t) => {
+      const all = [...t.upstream, ...t.downstream, ...t.linked]
+      const devices = all.filter(isDevice)
+      const kinds = new Map<string, number>()
+      for (const x of devices) {
+        const e = equipmentById.value.get(x)
+        const label = (e && kindLabel(e)) || '종류 모름'
+        kinds.set(label, (kinds.get(label) ?? 0) + 1)
+      }
+      const system = t.systemId ? systemById.value.get(t.systemId) : null
+      return {
+        key: t.systemId ?? '',
+        name: system ? system.name || '(이름 없는 계통)' : '덕트·배관 없이 바로',
+        kind: system ? (systemKind(system.kind)?.label ?? null) : null,
+        color: system ? (systemColor.value.get(system.id) ?? null) : null,
+        up: [...t.upstream].filter(isDevice).length,
+        down: [...t.downstream].filter(isDevice).length,
+        unknown: [...t.linked].filter(isDevice).length,
+        conduits: all.length - devices.length,
+        kinds: [...kinds].sort((a, b) => b[1] - a[1]),
+        ids: new Set([id, ...all]),
+      }
+    })
+    .sort((a, b) => b.up + b.down + b.unknown - (a.up + a.down + a.unknown) || b.conduits - a.conduits)
+})
+/** 계통별 표에서 고른 줄. 3D 에 그 계통의 추적만 칠한다. 설비를 바꾸면 풀린다. */
+const flowSystemKey = ref<string | null>(null)
+watch(selectedId, () => (flowSystemKey.value = null))
+const flowSystemRow = computed(() => systemRows.value.find((r) => r.key === flowSystemKey.value) ?? null)
+function toggleFlowSystem(key: string) {
+  flowSystemKey.value = flowSystemKey.value === key ? null : key
+}
+const kindsText = (kinds: [string, number][]) =>
+  kinds.slice(0, 3).map(([label, n]) => `${label} ${n}`).join(' · ') + (kinds.length > 3 ? ` 외 ${kinds.length - 3}종` : '')
+
 const flowEditLines = computed(() => {
   void flowVersion.value
   if (!model.value) return []
@@ -476,7 +555,7 @@ function toggleSystem(id: string) {
   if (selectedSystemId.value) selectedId.value = null
 }
 
-watch([selectedId, selectedSystemId, model, showRules], () => {
+watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRow], () => {
   if (!viewer) return
 
   const t = traced.value
@@ -484,14 +563,17 @@ watch([selectedId, selectedSystemId, model, showRules], () => {
     // 포트가 말한 상류·하류는 진한 색, 규칙(사전)으로만 정해진 것은 옅은 색이다. 한 색으로 섞어 칠하면
     // 3D 만 보고는 BIM 이 말한 흐름인지 우리가 정한 흐름인지 알 수 없다.
     const r = showRules.value ? tracedRules.value : null
+    // 계통별 표에서 한 줄을 골랐으면 그 계통의 추적에 든 것만 남긴다.
+    const only = flowSystemRow.value?.ids
+    const keep = (ids: Iterable<string>) => new Set([...ids].filter((id) => !only || only.has(id)))
     const port = new Set([...t.upstream, ...t.downstream])
     viewer.setHighlight({
       selected: selectedId.value,
-      upstream: t.upstream,
-      downstream: t.downstream,
-      ruleUpstream: new Set([...(r?.upstream ?? [])].filter((id) => !port.has(id))),
-      ruleDownstream: new Set([...(r?.downstream ?? [])].filter((id) => !port.has(id))),
-      linked: new Set([...t.linked, ...(r?.linked ?? [])]),
+      upstream: keep(t.upstream),
+      downstream: keep(t.downstream),
+      ruleUpstream: keep([...(r?.upstream ?? [])].filter((id) => !port.has(id))),
+      ruleDownstream: keep([...(r?.downstream ?? [])].filter((id) => !port.has(id))),
+      linked: keep([...t.linked, ...(r?.linked ?? [])]),
     })
     return
   }
@@ -516,7 +598,8 @@ watch([selectedId, selectedSystemId, model, showRules], () => {
 function frameNetwork() {
   const t = tracedShown.value
   if (!selectedId.value || !t) return
-  viewer?.frame([selectedId.value, ...t.upstream, ...t.downstream, ...t.linked])
+  if (flowSystemRow.value) viewer?.frame(flowSystemRow.value.ids)
+  else viewer?.frame([selectedId.value, ...t.upstream, ...t.downstream, ...t.linked])
 }
 
 /** 목록에서 고른 것도 3D 에서 고른 것과 같게 다룬다. 3D 는 그 자리로 시점을 옮긴다. */
@@ -854,7 +937,7 @@ function exportTTL() {
 </script>
 
 <template>
-  <main>
+  <main :class="model ? `mode-${mode}` : ''">
     <header>
       <div class="title">
         <div>
@@ -919,8 +1002,25 @@ function exportTTL() {
     <p v-if="error" class="error" role="alert">{{ error }}</p>
 
     <template v-if="model && counts">
+      <!-- 편집 모드에서만 뜬다. 무엇을 몇 건 바꿨는지와 내보내기를 스크롤과 상관없이 붙여 둔다. -->
+      <div v-if="editing" class="edit-bar" role="status">
+        <b>편집 중</b>
+        <span>바뀐 것 {{ changeCount }}건</span>
+        <a href="#changes" class="link">목록 보기</a>
+        <span class="grow"></span>
+        <button type="button" class="ghost" @click="exportTTL">의미 내보내기 (TTL)</button>
+        <button type="button" class="ghost" @click="mode = 'view'">보기로</button>
+      </div>
+
       <section class="review">
-        <h2>{{ fileName }}</h2>
+        <div class="review-head">
+          <h2>{{ fileName }}</h2>
+          <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
+          <div class="mode-switch" role="group" aria-label="화면 모드">
+            <button type="button" :aria-pressed="mode === 'view'" @click="mode = 'view'">보기</button>
+            <button type="button" :aria-pressed="mode === 'edit'" @click="mode = 'edit'">편집</button>
+          </div>
+        </div>
         <p class="stats">
           {{ model.schema }} · {{ model.siteName || '(대지 이름 없음)' }} ›
           {{ model.buildingName || '(건물 이름 없음)' }}
@@ -1111,8 +1211,9 @@ function exportTTL() {
                 <b :class="{ low: selectedRule.pct < 80 }">{{ selectedRule.pct }}%</b> 가 맞는다.
               </template>
               <template v-else> 포트가 방향을 말한 연결이 없어 대 볼 수 없다.</template>
+              <span v-if="selectedRule.confirmed" class="confirmed">확정함 · brick:feeds 로 나갑니다</span>
               <button
-                v-if="!selectedRule.confirmed"
+                v-else-if="editing"
                 type="button"
                 class="ghost"
                 :disabled="selectedRule.count === 0"
@@ -1120,11 +1221,58 @@ function exportTTL() {
               >
                 이 계통 방향 확정
               </button>
-              <span v-else class="confirmed">확정함 · brick:feeds 로 나갑니다</span>
+              <span v-else class="muted"> 확정은 편집 모드에서 합니다.</span>
             </p>
             <p v-if="selectedRule && selectedRule.pct !== null && selectedRule.pct < 80" class="hint">
               일치율이 낮습니다. 확정하기 전에 3D 에서 흐름을 확인하세요.
             </p>
+          </div>
+
+          <!-- 계통별로 보기. 한 기기에 물·바람·배수가 같이 붙으므로 계통마다 나눠 센다. -->
+          <div v-if="systemRows.length" class="by-system">
+            <h4>
+              계통별로 보기
+              <span class="muted">
+                기기 대수 · 방향 모름은 다음 기기에서 멈춤<template v-if="showRules && hasRules"> · 규칙 방향 포함 <Src kind="dict" /></template>
+                · 줄을 누르면 3D 에 그 계통만
+              </span>
+            </h4>
+            <table>
+              <thead>
+                <tr>
+                  <th>계통 <Src kind="bim" /></th>
+                  <th>종류 <Src kind="dict" /></th>
+                  <th class="num">상류</th>
+                  <th class="num">하류</th>
+                  <th class="num">방향 모름</th>
+                  <th class="num">덕트·배관</th>
+                  <th>이어진 기기</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="r in systemRows"
+                  :key="r.key"
+                  :class="{ chosen: flowSystemKey === r.key }"
+                  @click="toggleFlowSystem(r.key)"
+                >
+                  <td class="sys">
+                    <i :style="{ background: r.color ?? 'transparent' }"></i>
+                    <button type="button" class="link" :aria-pressed="flowSystemKey === r.key">{{ r.name }}</button>
+                  </td>
+                  <td :class="{ muted: !r.kind }">{{ r.kind ?? '모름' }}</td>
+                  <td :class="['num', 'mono', r.up ? 'upstream' : 'muted']">{{ r.up || '·' }}</td>
+                  <td :class="['num', 'mono', r.down ? 'downstream' : 'muted']">{{ r.down || '·' }}</td>
+                  <td :class="['num', 'mono', r.unknown ? 'linked' : 'muted']">{{ r.unknown || '·' }}</td>
+                  <td class="num mono muted">{{ r.conduits || '·' }}</td>
+                  <td class="kinds-cell" :title="r.kinds.map(([l, n]) => `${l} ${n}`).join(', ')">
+                    <template v-if="r.kinds.length">{{ kindsText(r.kinds) }}</template>
+                    <!-- Revit 은 급기 계통을 가지마다 쪼개서, 관이 다른 계통으로 이어질 수 있다. 끊겼다고 단정하지 않는다. -->
+                    <span v-else class="muted">이 계통 안에서 닿는 기기 없음</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
           <p v-if="selectedNeighbors.length === 0" class="hint">
@@ -1146,7 +1294,7 @@ function exportTTL() {
                   </template>
                 </td>
                 <!-- 포트가 방향을 말한 연결은 고칠 수 없다. BIM 이 말한 것을 덮어쓰지 않는다. -->
-                <td class="flow-edit">
+                <td v-if="editing" class="flow-edit">
                   <template v-if="!n.connection.directed">
                     <button
                       type="button"
@@ -1284,6 +1432,7 @@ function exportTTL() {
 
         <!-- 편집. 3D 조작 대신 값을 직접 고친다. PoC 에서 확인할 것은 조작감이 아니라
              한 번의 편집이 온톨로지의 어느 관계를 바꾸는가이기 때문이다. -->
+        <!-- 보기 모드에서도 설비 목록은 남긴다(이름으로 찾아 고르는 길이다). 고치는 칸과 물리존 편집만 숨긴다. -->
         <section class="editor">
           <div v-if="counts.spaces + counts.equipment > SMALL" class="edit-filter">
             <label>
@@ -1297,10 +1446,10 @@ function exportTTL() {
               이름
               <input v-model="editQuery" type="search" placeholder="물리존·설비 이름이나 종류" />
             </label>
-            <span class="muted">아래 세 목록에 같이 걸립니다.</span>
+            <span class="muted">{{ editing ? '아래 세 목록에 같이 걸립니다.' : '설비 목록에 걸립니다.' }}</span>
           </div>
 
-          <Fold title="물리존 이름 (E1)" :meta="`${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
+          <Fold v-if="editing" title="물리존 이름 (E1)" :meta="`${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
             <ul class="rows">
               <li v-for="{ storey, space } in editSpaces.slice(0, editLimit)" :key="space.id">
                 <label class="row">
@@ -1319,7 +1468,7 @@ function exportTTL() {
             </p>
           </Fold>
 
-          <Fold title="물리존 경계 (E2)" :meta="`${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
+          <Fold v-if="editing" title="물리존 경계 (E2)" :meta="`${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
             <p class="hint">
               꼭짓점을 고치면 넓이가 다시 계산되고, 경계 밖으로 밀려난 설비의 소속이 바뀝니다.
             </p>
@@ -1363,12 +1512,12 @@ function exportTTL() {
               <button type="button" class="link" @click="editLimit += EDIT_LIMIT">더 보기</button>
             </p>
           </Fold>
-          <p v-if="selfIntersecting" class="error" role="alert">
+          <p v-if="editing && selfIntersecting" class="error" role="alert">
             경계가 자기 자신과 교차합니다. 이 상태에서는 넓이와 소속 판정이 뜻을 잃습니다.
           </p>
 
           <Fold
-            title="설비 위치와 소속 (E5 · E6)"
+            :title="editing ? '설비 위치와 소속 (E5 · E6)' : '설비 목록'"
             :meta="`기기 ${counts.devices} · 덕트·배관 ${counts.conduits}`"
             :default-open="counts.equipment <= SMALL"
           >
@@ -1395,7 +1544,9 @@ function exportTTL() {
                     {{ e.ifcClass }}<template v-if="kindLabel(e)"> · {{ kindLabel(e) }} <Src kind="dict" /></template>
                   </td>
                   <td v-for="axis in [0, 1, 2]" :key="axis" class="num">
+                    <span v-if="!editing" class="mono">{{ e.position ? e.position[axis].toFixed(2) : '—' }}</span>
                     <input
+                      v-else
                       class="coord mono"
                       type="number"
                       step="0.1"
@@ -1420,7 +1571,8 @@ function exportTTL() {
             <p v-if="counts.equipment === 0" class="empty">이 BIM 에는 설비가 없습니다.</p>
           </Fold>
 
-          <h3>바뀌는 것 (PRD #21)</h3>
+          <template v-if="editing || changeCount > 0">
+          <h3 id="changes">바뀌는 것 (PRD #21)</h3>
           <ul v-if="report.length || areaChanges.length || confirmations.length || flowEditLines.length" class="report">
             <li v-for="c in report" :key="c.equipmentId">
               {{ c.equipmentName }}:
@@ -1435,6 +1587,7 @@ function exportTTL() {
             </li>
           </ul>
           <p v-else class="empty">아직 바뀐 소속 관계가 없습니다.</p>
+          </template>
         </section>
       </div>
 

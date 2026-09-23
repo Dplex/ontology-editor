@@ -1250,3 +1250,160 @@ th {
   margin-top: 0.4rem;
   font-size: 0.8rem;
 }
+
+/* ---- 보기 / 편집 ------------------------------------------------------------ */
+
+.review-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+/* 두 칸짜리 선택. 누른 쪽만 액센트로 채운다. */
+.mode-switch {
+  display: inline-flex;
+  flex: none;
+  padding: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.mode-switch button {
+  padding: 0.3rem 0.95rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.mode-switch button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* 편집 중에는 화면 위에 막대를 붙인다. 무엇을 몇 건 바꿨는지와 내보내기가 스크롤을 따라온다. */
+.edit-bar {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  box-shadow: var(--shadow);
+  font-size: 0.9rem;
+}
+
+.edit-bar b {
+  color: var(--accent);
+}
+
+.edit-bar .grow {
+  flex: 1;
+}
+
+/* 보기는 3D 를 넓게 쓴다. 고칠 목록이 아래에 없으니 세로를 3D 에 준다. */
+.mode-view .viewport {
+  height: 40rem;
+}
+
+/* 편집에서는 고칠 수 있는 칸의 테두리에 액센트를 옅게 섞는다. */
+.mode-edit .picked,
+.mode-edit .editor {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+/* ---- 계통별로 보기 ----------------------------------------------------------- */
+
+.by-system {
+  margin-top: 1rem;
+}
+
+.by-system h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+}
+
+.by-system h4 .muted {
+  margin-left: 0.5rem;
+  font-size: 0.78rem;
+  font-weight: 400;
+}
+
+.by-system table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.by-system th {
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.by-system th.num {
+  text-align: right;
+}
+
+.by-system td {
+  padding: 0.35rem 0.5rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.by-system tbody tr {
+  cursor: pointer;
+}
+
+.by-system tbody tr:hover > td {
+  background: var(--surface-soft);
+}
+
+.by-system tbody tr.chosen > td {
+  background: var(--accent-soft);
+}
+
+.by-system .sys {
+  white-space: nowrap;
+}
+
+.by-system .sys i {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-right: 0.45rem;
+  border-radius: 0.2rem;
+  vertical-align: -0.05rem;
+}
+
+.by-system td.upstream {
+  color: #c06a26;
+}
+
+.by-system td.downstream {
+  color: #148062;
+}
+
+.by-system td.linked {
+  color: #7d3fb8;
+}
+
+.by-system .kinds-cell {
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

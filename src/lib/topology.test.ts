@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { connectGaps, findGaps, inferConnections, neighbors, trace, type ElementPoints } from './topology'
+import { connectGaps, findGaps, inferConnections, neighbors, trace, traceBySystem, type ElementPoints } from './topology'
 import type { Connection } from './model'
 
 /** x 축을 따라 놓인 배관 한 토막. 양 끝에 꼭짓점을 둔다. */
@@ -176,6 +176,31 @@ describe('trace', () => {
     // 고리 위의 요소는 상류이자 하류라 어느 쪽으로도 단정하지 않는다.
     expect(t.upstream.size + t.downstream.size).toBe(0)
     expect([...t.linked].sort()).toEqual(['b', 'c'])
+  })
+})
+
+describe('traceBySystem', () => {
+  it('붙은 덕트·배관의 계통마다 따로 추적한다', () => {
+    // FCU 에 순환수 공급관(ws)·환수관(wr)과 급기 덕트(sa)가 붙어 있다. 공급관에는 다른 FCU 가 매달려 있다.
+    const connections = [
+      d('ws1', 'fcu'),
+      u('ws1', 'fcu2'),
+      d('fcu', 'wr1'),
+      d('fcu', 'sa1'),
+      d('sa1', 'diff'),
+      u('fcu', 'fcu3'), // 덕트 없이 기기끼리 바로 붙은 것
+    ]
+    const system: Record<string, string> = { ws1: 'ws', wr1: 'wr', sa1: 'sa' }
+    const isConduit = (id: string) => id in system
+    const bySystem = new Map(traceBySystem(connections, 'fcu', (id) => system[id] ?? null, isConduit).map((t) => [t.systemId, t]))
+
+    expect([...bySystem.keys()].sort()).toEqual([null, 'sa', 'wr', 'ws'].sort())
+    expect(bySystem.get('ws')!.upstream).toEqual(new Set(['ws1']))
+    expect(bySystem.get('ws')!.linked).toEqual(new Set(['fcu2']))
+    expect(bySystem.get('wr')!.downstream).toEqual(new Set(['wr1']))
+    // 급기 계통에는 덕트 너머의 디퓨저까지 들어가고, 물 계통의 관은 섞이지 않는다.
+    expect(bySystem.get('sa')!.downstream).toEqual(new Set(['sa1', 'diff']))
+    expect(bySystem.get(null)!.linked).toEqual(new Set(['fcu3']))
   })
 })
 
