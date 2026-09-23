@@ -17,8 +17,12 @@ function dataFiles(): Plugin {
   }
 }
 
-export default defineConfig({
-  plugins: [vue(), dataFiles()],
+export default defineConfig(({ mode }) => ({
+  // e2e 는 data/ 목록을 붙이지 않는다. 화면이 뜨자마자 파일마다 등급을 재는데, 측정이 서버와 같은
+  // 스레드에서 돌아서 그동안 dev 서버가 응답하지 않는다. 임포터를 고친 직후에는 캐시가 무효라 성수
+  // 기계 파일(203MB) 하나에 1분 가까이 막혀 e2e 가 전부 시간 초과로 실패했다. e2e 는 픽스처만 쓰고,
+  // gitignore 인 data/ 에 무엇이 있느냐에 결과가 달라져서도 안 된다.
+  plugins: mode === 'e2e' ? [vue()] : [vue(), dataFiles()],
 
   // 5173 은 ieum-pipeline/web 이 쓴다. 두 화면을 같이 띄우는 일이 잦아서 포트를 비켜 둔다.
   server: { port: 5174 },
@@ -37,4 +41,4 @@ export default defineConfig({
   // vitest 는 src 의 순수 로직만 본다. e2e/ 는 Playwright 것이라 여기서 걸러내지 않으면
   // vitest 가 브라우저 API 를 못 찾고 깨진다.
   test: { include: ['src/**/*.test.ts'] },
-})
+}))

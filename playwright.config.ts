@@ -10,7 +10,7 @@ export default defineConfig({
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
 
   use: {
-    baseURL: 'http://localhost:5174',
+    baseURL: 'http://localhost:5175',
     // 실패하면 trace 를 남긴다. 실패 원인을 눈이 아니라 기록으로 좇을 수 있어야 한다.
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -19,8 +19,10 @@ export default defineConfig({
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:5174',
+    // --mode e2e 는 data/ 목록(등급 측정)을 뺀다. 이유는 vite.config.ts. 포트도 dev(5174)와 따로 둔다 —
+    // 같은 포트면 켜 둔 dev 서버를 그대로 써서, 목록이 붙은 서버로 e2e 가 돈다.
+    command: 'npm run dev -- --mode e2e --port 5175 --strictPort',
+    url: 'http://localhost:5175',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },
