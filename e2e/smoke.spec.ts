@@ -342,3 +342,23 @@ test('공기 원천을 고르면 흐름을 따라 말단이 있는 방을 담당
   await page.locator('.equipment tbody tr', { hasText: 'AT-101-01' }).getByRole('button').first().click()
   await expect(page.locator('.picked .served')).toHaveCount(0)
 })
+
+test('완전성 검사는 규칙마다 통과 수를 세고, 어긴 것을 펼쳐 고를 수 있다', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+
+  const checks = page.locator('.checks')
+  const rows = checks.locator('tbody tr')
+  await expect(rows).toHaveCount(5)
+  await expect(checks).toContainText('공기 말단(디퓨저·그릴)은 흐름을 따라 원천(공조기·FCU 등)에 닿는다')
+
+  // 어긴 것이 있는 첫 규칙을 펼치고, 목록에서 하나를 고르면 설비 패널이 뜬다.
+  const failing = rows.filter({ has: page.locator('button') }).first()
+  await failing.click()
+  await expect(failing).toHaveClass(/chosen/)
+  const first = checks.locator('.check-list li button').first()
+  const name = (await first.textContent())!.trim()
+  await first.click()
+  await expect(page.locator('.picked h3')).toHaveText(name)
+})

@@ -1426,3 +1426,70 @@ th {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ---- 완전성 검사 ---- */
+
+.checks tbody tr:not(.skipped) {
+  cursor: pointer;
+}
+
+.checks tbody tr.chosen > td {
+  background: var(--accent-soft);
+}
+
+.checks td small {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+}
+
+.checks td.state {
+  width: 1.5rem;
+}
+
+.checks td.state i {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+}
+
+.checks td.state i.ok {
+  background: #1f9d7a;
+}
+
+.checks td.state i.warn {
+  background: #d9a531;
+}
+
+.checks td.state i.none {
+  border: 1px solid var(--line);
+}
+
+.check-list {
+  margin-top: 1rem;
+}
+
+.check-list h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+}
+
+.check-list h4 .muted {
+  margin-left: 0.5rem;
+  font-weight: 400;
+}
+
+.check-list ul {
+  columns: 3 16rem;
+  font-size: 0.85rem;
+}
+
+.check-list li {
+  break-inside: avoid;
+}
+
+.check-list .muted {
+  margin-left: 0.35rem;
+  font-size: 0.78rem;
+}

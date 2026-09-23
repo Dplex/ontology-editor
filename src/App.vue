@@ -9,6 +9,7 @@ import Fold from './components/Fold.vue'
 import Src from './components/Src.vue'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
+import { completenessChecks } from './lib/checks'
 import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
@@ -460,6 +461,24 @@ const serviceSummary = computed(() => {
 })
 const SERVICE_LIMIT = 200
 
+// --- 완전성 검사 ----------------------------------------------------------------
+//
+// 규칙마다 통과 수와 어긴 요소(checks.ts). 규칙을 펼치면 어긴 것을 목록으로 보이고 3D 에 칠한다.
+// 설비나 계통을 고르면 그쪽이 3D 색을 가져간다.
+const checks = computed(() => (model.value ? completenessChecks(model.value, airServiceList.value) : []))
+const openCheckKey = ref<string | null>(null)
+const openCheck = computed(() => checks.value.find((c) => c.key === openCheckKey.value) ?? null)
+const CHECK_LIMIT = 100
+function toggleCheck(key: string) {
+  openCheckKey.value = openCheckKey.value === key ? null : key
+  const c = openCheck.value
+  if (c && c.failed.length) {
+    selectedId.value = null
+    selectedSystemId.value = null
+    viewer?.frame(c.failed)
+  }
+}
+
 const flowEditLines = computed(() => {
   void flowVersion.value
   if (!model.value) return []
@@ -600,7 +619,7 @@ function toggleSystem(id: string) {
   if (selectedSystemId.value) selectedId.value = null
 }
 
-watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRow], () => {
+watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRow, openCheck], () => {
   if (!viewer) return
 
   const t = traced.value
@@ -633,6 +652,13 @@ watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRo
       linked: new Set(system.memberIds),
       keepColor: true,
     })
+    return
+  }
+
+  // 펼친 완전성 규칙이 있으면 어긴 것을 칠한다. 어디에 몰려 있는지가 먼저 보여야 무엇부터 고칠지 정한다.
+  const check = openCheck.value
+  if (check && !check.skipped && check.failed.length) {
+    viewer.setHighlight({ selected: null, upstream: new Set(), downstream: new Set(), linked: new Set(check.failed) })
     return
   }
 
@@ -1418,6 +1444,77 @@ function exportTTL() {
       <!-- 3D 아래는 전부 접을 수 있다. 행이 많은 목록은 처음부터 접혀 있다(SMALL).
            파일이 바뀌면(key) 접힘 상태도 그 파일 기준으로 다시 정한다. -->
       <div :key="fileName" class="folds">
+        <!-- 완전성 검사. 규칙마다 통과 수와 어긴 것. 펼치면 목록과 3D 에 어긴 것이 뜬다. -->
+        <Fold
+          v-if="checks.length"
+          title="완전성 검사"
+          :meta="`규칙 ${checks.length}개 · 전부 통과 ${checks.filter((c) => !c.skipped && c.total > 0 && c.failed.length === 0).length}개`"
+          class="checks"
+        >
+          <p class="hint">
+            DT 가 쓰려면 이어져 있어야 하는 것을 규칙으로 쟀습니다. 원천·말단은 <Src kind="dict" /> 사전으로 가르고, 흐름과 소속은
+            <Src kind="calc" /> 추정이 섞여 있습니다<template v-if="showRules && hasRules">(규칙 방향 포함)</template>. 줄을 누르면 어긴 것을
+            3D 에 칠합니다.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th></th>
+                <th>규칙</th>
+                <th class="num">통과</th>
+                <th class="num">어긴 것</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="c in checks"
+                :key="c.key"
+                :class="{ chosen: openCheckKey === c.key, skipped: !!c.skipped }"
+                @click="!c.skipped && c.failed.length && toggleCheck(c.key)"
+              >
+                <td class="state">
+                  <i :class="c.skipped || c.total === 0 ? 'none' : c.failed.length ? 'warn' : 'ok'"></i>
+                </td>
+                <td>
+                  {{ c.rule }}
+                  <small class="muted">{{ c.skipped ?? (c.total === 0 ? '이 파일에는 잴 대상이 없습니다' : `비면: ${c.why}`) }}</small>
+                </td>
+                <td class="num mono">
+                  <template v-if="!c.skipped && c.total">{{ c.total - c.failed.length }} / {{ c.total }}</template>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td class="num">
+                  <button
+                    v-if="!c.skipped && c.failed.length"
+                    type="button"
+                    class="link mono"
+                    :aria-pressed="openCheckKey === c.key"
+                  >
+                    {{ c.failed.length }}
+                  </button>
+                  <span v-else class="muted">·</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="openCheck && openCheck.failed.length" class="check-list">
+            <h4>{{ openCheck.rule }} <span class="muted">어긴 것 {{ openCheck.failed.length }}개 · 3D 에 칠했습니다</span></h4>
+            <ul class="plain">
+              <li v-for="id in openCheck.failed.slice(0, CHECK_LIMIT)" :key="id">
+                <button type="button" class="link" @click="select(id)">
+                  {{ equipmentById.get(id)?.name || equipmentById.get(id)?.ifcClass || id }}
+                </button>
+                <span class="muted">
+                  {{ equipmentById.get(id) ? kindLabel(equipmentById.get(id)!) : '' }}
+                </span>
+              </li>
+            </ul>
+            <p v-if="openCheck.failed.length > CHECK_LIMIT" class="hint">
+              {{ openCheck.failed.length }}개 중 {{ CHECK_LIMIT }}개만 보입니다. 3D 에는 전부 칠했습니다.
+            </p>
+          </div>
+        </Fold>
+
         <Fold title="층별 요약" :meta="`${model.storeys.length}개 층`" class="storeys">
           <table>
             <thead>
