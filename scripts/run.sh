@@ -48,6 +48,8 @@ alive() { local p; p="$(pid)"; [[ -n "$p" ]] && kill -0 "$p" 2>/dev/null; }
 build() {
   # prebuild 가 node_modules 의 web-ifc.wasm 을 public/ 으로 복사하고, vue-tsc 가 타입을 본다.
   npm run build
+  # data/ 샘플 목록과 등급 칩을 내주는 모듈을 node 용으로 묶는다(serve.mjs 가 /__data 에 붙인다).
+  npm run build:server
 }
 
 wait_health() {

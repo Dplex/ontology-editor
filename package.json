@@ -9,6 +9,7 @@
     "dev": "vite",
     "prebuild": "npm run sync:wasm",
     "build": "vue-tsc --noEmit && vite build",
+    "build:server": "vite build --ssr src/server/data-catalog.ts --outDir dist-server",
     "test": "vitest run",
     "pree2e": "npm run sync:wasm",
     "e2e": "playwright test",
