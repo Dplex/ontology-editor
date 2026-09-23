@@ -914,15 +914,121 @@ th {
   margin: 0.25rem 0;
 }
 
-.tag-rule {
+.merge .merge-src {
+  margin-left: -1rem;
+  list-style: none;
+}
+
+/* 출처 꼬리표. 색을 새로 들이지 않는다 — 테두리만(BIM), 회색 면(계산), 액센트 면(사전), 점선(편집)으로
+   가른다. 사전에서 나온 것이 제일 눈에 띄어야 한다. 검토할 때 의심해야 할 것이 그쪽이다. */
+.src {
   display: inline-block;
-  margin-right: 0.35rem;
-  padding: 0.05rem 0.5rem;
+  margin: 0 0.2rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--line);
   border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.35;
+  vertical-align: 0.1em;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.src.calc {
+  border-color: transparent;
+  background: var(--surface-soft);
+  color: var(--fg);
+}
+
+.src.dict {
+  border-color: transparent;
   background: var(--accent-soft);
   color: var(--accent);
+}
+
+.src.edit {
+  border-style: dashed;
+  color: var(--fg);
+}
+
+.src-key {
+  margin: 0.75rem 0 0;
+  color: var(--muted);
   font-size: 0.8rem;
-  font-weight: 600;
+}
+
+.src-key .src:not(:first-child) {
+  margin-left: 0.75rem;
+}
+
+.tiles li {
+  position: relative;
+}
+
+/* 칸의 출처는 오른쪽 아래 모서리에 둔다. 이름 뒤에 붙이면 좁은 칸에서 줄이 넘어가 칸마다 높이가
+   달라지고, 위에 두면 다섯 자리 숫자와 겹친다. `.tiles span` 의 글자 크기를 이어받지 않게 되돌린다. */
+.tiles li > .src {
+  position: absolute;
+  right: 0.55rem;
+  bottom: 0.55rem;
+  margin: 0;
+}
+
+.tiles .src {
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
+.tiles .src.calc {
+  color: var(--fg);
+}
+
+.tiles .src.dict {
+  color: var(--accent);
+}
+
+.tiles li.wide {
+  flex-basis: 17rem;
+}
+
+.tiles small {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  /* 모서리의 출처 꼬리표와 겹치지 않게 비워 둔다. */
+  padding-right: 2.5rem;
+}
+
+/* 3D 색 풀이. 고른 설비가 있을 때만 뜬다. 오른쪽은 범례 자리라 캔버스 왼쪽 위에 둔다. */
+.color-key {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  font-size: 0.75rem;
+  list-style: none;
+}
+
+.color-key li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.color-key i {
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 0.2rem;
 }
 
 .rule-toggle {

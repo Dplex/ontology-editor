@@ -179,6 +179,7 @@ export function anchorToGeometry(equipment: Equipment[], meshes: MeshMap): numbe
     if (off <= ANCHOR_MARGIN) continue
 
     e.position = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2]
+    e.positionSource = 'geometry'
     fixed++
   }
   return fixed

@@ -92,7 +92,7 @@ test('연결을 읽어 계통 범례와 상류·하류를 보여 준다', async 
   await expect(picked.locator('.flow .linked b')).toHaveText('1')
 
   // 출처가 화면에 남는다. BIM 이 말한 것과 우리가 추정한 것을 구별할 수 있어야 한다.
-  await expect(picked.locator('.neighbors')).toContainText('BIM 포트')
+  await expect(picked.locator('.neighbors')).toContainText('포트 BIM')
 
   expect(errors).toEqual([])
 })

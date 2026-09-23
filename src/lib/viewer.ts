@@ -69,11 +69,14 @@ const NO_SYSTEM = 0x98a1ab
  * 상류·하류·방향 모름을 서로 다른 색으로 둔다. 방향 모름을 하류와 같은 색으로 두면,
  * 추정한 연결이 BIM 이 말해 준 흐름처럼 보인다.
  */
-const PICK_COLORS = {
+export const PICK_COLORS = {
   selected: 0x1b48b5,
   upstream: 0xe0803a,
   downstream: 0x1f9d7a,
   linked: 0x9b59d0,
+  // 규칙(사전)으로 정한 상류·하류는 같은 색을 옅게 쓴다. 진한 색은 BIM 포트가 말한 것만이다.
+  ruleUpstream: 0xf3c7a0,
+  ruleDownstream: 0x9fd8c6,
   dimmed: 0xc8cdd3,
 }
 
@@ -82,6 +85,9 @@ export type Highlight = {
   upstream: Set<string>
   downstream: Set<string>
   linked: Set<string>
+  /** 규칙 방향(사전)으로만 상류·하류가 된 것. 포트가 말한 것과 다른 색으로 칠한다. */
+  ruleUpstream?: Set<string>
+  ruleDownstream?: Set<string>
   /**
    * 참이면 강조된 것에 제 계통 색을 그대로 둔다. 계통 하나만 켤 때 쓴다 — 범례의 색과
    * 3D 의 색이 달라지면, 켠 계통이 범례에서 짚은 그 계통인지 알 수 없다.
@@ -485,6 +491,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           if (id === highlight.selected) next = PICK_COLORS.selected
           else if (highlight.upstream.has(id)) next = PICK_COLORS.upstream
           else if (highlight.downstream.has(id)) next = PICK_COLORS.downstream
+          else if (highlight.ruleUpstream?.has(id)) next = PICK_COLORS.ruleUpstream
+          else if (highlight.ruleDownstream?.has(id)) next = PICK_COLORS.ruleDownstream
           else if (highlight.linked.has(id)) next = highlight.keepColor ? part.color : PICK_COLORS.linked
           // 고른 것과 상관없는 설비는 흐리게 한다. 지우지 않으면 연결망이 숲에 묻힌다.
           else nextFaded.add(id)

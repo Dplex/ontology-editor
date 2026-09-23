@@ -6,12 +6,13 @@ import { mergeModels, type MergeReport } from './lib/merge'
 import { profileOf, type Profile } from './lib/profile'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
+import Src from './components/Src.vue'
 import { neighbors, trace, TOLERANCE } from './lib/topology'
 import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
-import { createViewer, systemColors, type Viewer } from './lib/viewer'
+import { createViewer, PICK_COLORS, systemColors, type Viewer } from './lib/viewer'
 import {
   moveEquipment,
   moveSpaceVertex,
@@ -287,6 +288,39 @@ const ROLE_LABEL: Record<NonNullable<Equipment['role']>, string> = {
 }
 const roleLabel = (role: Equipment['role']) => (role ? ROLE_LABEL[role] : '')
 const kindLabel = (e: Equipment) => equipmentKind(e.kind)?.label ?? ''
+// Proxy 는 IFC 가 역할을 말하지 않아서, 역할도 이름 사전의 종류에서 나온다.
+const roleSrc = (e: Equipment) => (e.ifcClass === 'BuildingElementProxy' ? 'dict' : 'bim')
+const positionSrc = (e: Equipment) =>
+  e.positionSource === 'edited' ? 'edit' : e.positionSource === 'geometry' ? 'calc' : 'bim'
+const spaceSrc = (e: Equipment) => (e.spaceSource === 'bim' ? 'bim' : 'calc')
+const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`
+
+/**
+ * Proxy 로 들어온 기기. IFC 가 설비라고 말하지 않은 것을 우리가 받은 것이다. 받은 근거가 둘이라 나눠 센다 —
+ * 포트가 달려 연결망에 물려 있으면 BIM 의 연결로 판단한 것(계산), 포트 없이 이름만 사전에 있으면 사전이다.
+ */
+const proxyDevices = computed(() => {
+  const m = model.value
+  if (!m) return { ported: 0, named: 0 }
+  const ported = new Set(m.connections.filter((c) => c.source === 'port').flatMap((c) => [c.from, c.to]))
+  let p = 0
+  let n = 0
+  for (const s of m.storeys) {
+    for (const e of s.equipment) {
+      if (e.ifcClass !== 'BuildingElementProxy' || isConduit(e.role)) continue
+      if (ported.has(e.id)) p++
+      else n++
+    }
+  }
+  return { ported: p, named: n }
+})
+
+/** 연결 수를 출처별로. 포트는 BIM 이 말한 것이고, 형상 추정은 우리가 맞닿음으로 계산한 것이다. */
+const connectionSources = computed(() => {
+  const cs = model.value?.connections ?? []
+  const port = cs.filter((c) => c.source === 'port').length
+  return { port, geometry: cs.length - port }
+})
 
 // --- 종류와 관제점 후보 --------------------------------------------------------------
 //
@@ -369,13 +403,19 @@ function toggleSystem(id: string) {
 watch([selectedId, selectedSystemId, model, showRules], () => {
   if (!viewer) return
 
-  const t = tracedShown.value
+  const t = traced.value
   if (selectedId.value && t) {
+    // 포트가 말한 상류·하류는 진한 색, 규칙(사전)으로만 정해진 것은 옅은 색이다. 한 색으로 섞어 칠하면
+    // 3D 만 보고는 BIM 이 말한 흐름인지 우리가 정한 흐름인지 알 수 없다.
+    const r = showRules.value ? tracedRules.value : null
+    const port = new Set([...t.upstream, ...t.downstream])
     viewer.setHighlight({
       selected: selectedId.value,
       upstream: t.upstream,
       downstream: t.downstream,
-      linked: t.linked,
+      ruleUpstream: new Set([...(r?.upstream ?? [])].filter((id) => !port.has(id))),
+      ruleDownstream: new Set([...(r?.downstream ?? [])].filter((id) => !port.has(id))),
+      linked: new Set([...t.linked, ...(r?.linked ?? [])]),
     })
     return
   }
@@ -798,20 +838,43 @@ function exportTTL() {
           {{ model.buildingName || '(건물 이름 없음)' }}
         </p>
 
+        <!-- 출처 표. 아래 숫자·표·3D 색에 붙는 꼬리표가 무엇을 뜻하는지 한 줄로 먼저 말한다. -->
+        <p class="src-key">
+          <Src kind="bim" /> 파일에 적힌 그대로
+          <Src kind="calc" /> BIM 의 좌표·형상으로 계산
+          <Src kind="dict" /> 이름 사전·흐름 규칙(도메인 지식)으로 만듦
+        </p>
+
         <!-- PRD #6 의 임포트 결과 검토 항목이다. 무엇이 만들어졌는지 숫자로 먼저 본다. -->
         <ul class="tiles">
-          <li><b>{{ counts.storeys }}</b><span>층</span></li>
-          <li><b>{{ counts.spaces }}</b><span>물리존</span></li>
-          <li><b>{{ counts.walls }}</b><span>벽</span></li>
-          <li><b>{{ counts.doors }}</b><span>문</span></li>
-          <li><b>{{ counts.windows }}</b><span>창문</span></li>
-          <li><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span></li>
-          <!-- 설비를 하나로 세면 대수가 부푼다. 실측에서 85%가 덕트·배관이었다. -->
-          <li><b>{{ counts.devices }}</b><span>기기</span></li>
-          <li><b>{{ counts.conduits }}</b><span>덕트·배관</span></li>
-          <li><b>{{ counts.systems }}</b><span>계통</span></li>
-          <li><b>{{ counts.connections }}</b><span>연결</span></li>
-          <li><b>{{ counts.directedConnections }}</b><span>흐름 방향</span></li>
+          <li><b>{{ counts.storeys }}</b><span>층</span><Src kind="bim" /></li>
+          <li><b>{{ counts.spaces }}</b><span>물리존</span><Src kind="bim" /></li>
+          <li><b>{{ counts.walls }}</b><span>벽</span><Src kind="bim" /></li>
+          <li><b>{{ counts.doors }}</b><span>문</span><Src kind="bim" /></li>
+          <li><b>{{ counts.windows }}</b><span>창문</span><Src kind="bim" /></li>
+          <li><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span><Src kind="bim" /></li>
+          <!-- 설비를 하나로 세면 대수가 부푼다. 실측에서 85%가 덕트·배관이었다.
+               Proxy 는 IFC 가 설비라고 말하지 않은 것을 사전이 설비로 받은 것이라 따로 센다. -->
+          <li :class="{ wide: proxyDevices.ported + proxyDevices.named > 0 }">
+            <b>{{ counts.devices }}</b><span>기기</span><Src kind="bim" />
+            <small v-if="proxyDevices.ported + proxyDevices.named > 0">
+              그중 Proxy
+              <template v-if="proxyDevices.ported">포트 {{ proxyDevices.ported }} <Src kind="calc" /></template>
+              <template v-if="proxyDevices.named">이름 {{ proxyDevices.named }} <Src kind="dict" /></template>
+            </small>
+          </li>
+          <li><b>{{ counts.conduits }}</b><span>덕트·배관</span><Src kind="bim" /></li>
+          <li><b>{{ counts.systems }}</b><span>계통</span><Src kind="bim" /></li>
+          <li :class="{ wide: connectionSources.geometry > 0 && connectionSources.port > 0 }">
+            <b>{{ counts.connections }}</b><span>연결</span>
+            <template v-if="connectionSources.geometry === 0"><Src kind="bim" /></template>
+            <template v-else-if="connectionSources.port === 0"><Src kind="calc" /></template>
+            <small v-else>포트 {{ connectionSources.port }} <Src kind="bim" /> · 형상 {{ connectionSources.geometry }} <Src kind="calc" /></small>
+          </li>
+          <li><b>{{ counts.directedConnections }}</b><span>흐름 방향</span><Src kind="bim" /></li>
+          <li v-if="ruleReport && ruleReport.oriented > 0">
+            <b>{{ ruleReport.oriented }}</b><span>규칙 방향</span><Src kind="dict" />
+          </li>
         </ul>
 
         <!-- 건축과 설비가 다른 파일일 때. 편집을 시작한 뒤에는 닫는다(canAppend 주석 참조). -->
@@ -826,6 +889,7 @@ function exportTTL() {
         <TierChips :tiers="currentTiers" />
 
         <ul v-if="mergeLines.length" class="merge">
+          <li class="merge-src"><Src kind="calc" /> 두 파일을 층 이름·높이와 좌표로 맞춰 합쳤습니다.</li>
           <li v-for="line in mergeLines" :key="line">{{ line }}</li>
         </ul>
 
@@ -843,6 +907,7 @@ function exportTTL() {
             계통 {{ legend.length }}
             <span v-if="legend[0].source === 'property'" class="tag">System Name 속성</span>
             <span v-else class="tag">IfcSystem</span>
+            <Src kind="bim" />
           </h3>
           <ul>
             <li v-for="s in legend" :key="s.id">
@@ -860,6 +925,17 @@ function exportTTL() {
           </ul>
         </div>
 
+        <!-- 3D 색이 무엇을 뜻하는지. 진한 색은 BIM 포트가 말한 흐름, 옅은 색은 규칙으로 정한 흐름이다. -->
+        <ul v-if="selected" class="color-key">
+          <li><i :style="{ background: hex(PICK_COLORS.upstream) }"></i>상류 <Src kind="bim" /></li>
+          <li><i :style="{ background: hex(PICK_COLORS.downstream) }"></i>하류 <Src kind="bim" /></li>
+          <template v-if="showRules && tracedRules">
+            <li><i :style="{ background: hex(PICK_COLORS.ruleUpstream) }"></i>상류 <Src kind="dict" /></li>
+            <li><i :style="{ background: hex(PICK_COLORS.ruleDownstream) }"></i>하류 <Src kind="dict" /></li>
+          </template>
+          <li><i :style="{ background: hex(PICK_COLORS.linked) }"></i>방향 모름</li>
+        </ul>
+
         <p v-if="counts.equipment > 0" class="hint pick-hint">
           {{
             selectedSystemId
@@ -875,9 +951,13 @@ function exportTTL() {
           <div>
             <h3>{{ selected.name || '(이름 없음)' }}</h3>
             <p class="stats">
-              <template v-if="kindLabel(selected)">{{ kindLabel(selected) }} · </template>{{ selected.ifcClass }}<template v-if="roleLabel(selected.role)"> ({{ roleLabel(selected.role) }})</template> ·
-              {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }} ·
+              <template v-if="kindLabel(selected)">{{ kindLabel(selected) }} <Src kind="dict" /> · </template>
+              {{ selected.ifcClass }} <Src kind="bim" />
+              <template v-if="roleLabel(selected.role)"> · {{ roleLabel(selected.role) }} <Src :kind="roleSrc(selected)" /></template> ·
+              {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
+              <Src v-if="selected.systemId" kind="bim" /> ·
               {{ spaceNameOf(selected.spaceId) }}
+              <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
             </p>
           </div>
           <div class="picked-actions">
@@ -888,10 +968,10 @@ function exportTTL() {
 
         <ul class="flow">
           <li class="upstream">
-            <b>{{ traced?.upstream.size ?? 0 }}</b><span>상류</span>
+            <b>{{ traced?.upstream.size ?? 0 }}</b><span>상류</span><Src kind="bim" />
           </li>
           <li class="downstream">
-            <b>{{ traced?.downstream.size ?? 0 }}</b><span>하류</span>
+            <b>{{ traced?.downstream.size ?? 0 }}</b><span>하류</span><Src kind="bim" />
           </li>
           <li class="linked">
             <b>{{ traced?.linked.size ?? 0 }}</b><span>이어짐 · 방향 모름</span>
@@ -901,7 +981,7 @@ function exportTTL() {
         <!-- 규칙 방향. 위 숫자는 BIM 포트가 말한 것만이고, 여기부터가 계통·설비 종류로 정한 것이다. -->
         <div v-if="tracedRules" class="rule-box">
           <p>
-            <span class="tag-rule">규칙 방향</span>
+            <Src kind="dict" /> 규칙 방향을
             넣으면 상류 <b>{{ tracedRules.upstream.size }}</b> · 하류 <b>{{ tracedRules.downstream.size }}</b> ·
             방향 모름 <b>{{ tracedRules.linked.size }}</b>
             <label class="rule-toggle">
@@ -947,8 +1027,11 @@ function exportTTL() {
                 <button type="button" class="link" @click="select(n.id)">{{ n.name }}</button>
               </td>
               <td class="muted">
-                {{ n.source === 'port' ? 'BIM 포트' : sourceLabel(n.tolerance)
-                }}<template v-if="n.rule"> · {{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }}</template>
+                <template v-if="n.source === 'port'">포트 <Src kind="bim" /></template>
+                <template v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></template>
+                <template v-if="n.rule">
+                  · {{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" />
+                </template>
               </td>
             </tr>
           </tbody>
@@ -1005,6 +1088,7 @@ function exportTTL() {
           class="kinds"
         >
           <p class="hint">
+            <Src kind="dict" /> 이 칸은 전부 사전에서 나왔습니다.
             이름(Revit 패밀리 이름)을 사전으로 읽어 종류와 Brick 클래스를 붙였습니다. 사전에 없는 이름은 종류를 붙이지 않습니다.
           </p>
           <div class="kind-grid">
@@ -1150,6 +1234,7 @@ function exportTTL() {
                   <th class="num">x</th>
                   <th class="num">y</th>
                   <th class="num">z</th>
+                  <th></th>
                   <th>소속 물리존</th>
                 </tr>
               </thead>
@@ -1160,7 +1245,9 @@ function exportTTL() {
                          설비 목록에서 찾은 것을 3D 에서 다시 찾아야 한다. -->
                     <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
                   </td>
-                  <td class="muted">{{ e.ifcClass }}<template v-if="kindLabel(e)"> · {{ kindLabel(e) }}</template></td>
+                  <td class="muted">
+                    {{ e.ifcClass }}<template v-if="kindLabel(e)"> · {{ kindLabel(e) }} <Src kind="dict" /></template>
+                  </td>
                   <td v-for="axis in [0, 1, 2]" :key="axis" class="num">
                     <input
                       class="coord mono"
@@ -1171,7 +1258,12 @@ function exportTTL() {
                       @change="applyMove(e.id, axis as 0 | 1 | 2, ($event.target as HTMLInputElement).value, e.position)"
                     />
                   </td>
-                  <td :class="{ muted: !e.spaceId }">{{ spaceNameOf(e.spaceId) }}</td>
+                  <!-- 좌표 출처. 배치점이 형상에서 떨어져 형상 중심을 쓴 것(계산)과 사람이 옮긴 것(편집)을 가른다. -->
+                  <td><Src v-if="e.position" :kind="positionSrc(e)" /></td>
+                  <td :class="{ muted: !e.spaceId }">
+                    {{ spaceNameOf(e.spaceId) }}
+                    <Src v-if="e.spaceId" :kind="spaceSrc(e)" />
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -1202,6 +1294,7 @@ function exportTTL() {
         <button type="button" @click="exportTTL">의미 내보내기 (Brick TTL)</button>
         <p class="note">
           두 파일은 같은 id 로 이어집니다. 기하는 GeoJSON 이 갖고, 설비와 계통은 TTL 이 갖습니다.
+          TTL 의 설비·방 클래스는 <Src kind="dict" /> 에서 나오고, 규칙 방향은 확정한 계통만 들어갑니다.
         </p>
       </section>
     </template>

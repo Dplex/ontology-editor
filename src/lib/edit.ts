@@ -51,6 +51,7 @@ export function moveEquipment(model: Model, equipmentId: string, to: Vec3): Chan
 
   const fromSpaceId = equipment.spaceId
   equipment.position = to
+  equipment.positionSource = 'edited'
   assignEquipmentToSpaces(model)
   const toSpaceId = equipment.spaceId
 
