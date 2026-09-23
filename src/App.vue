@@ -454,6 +454,18 @@ function select(id: string | null) {
 
 onBeforeUnmount(() => viewer?.dispose())
 
+// 3D 와 고른 설비 패널을 같이 전체 화면으로 띄운다. 3D 만 띄우면 설비를 눌러도 무엇을 골랐는지 안 보인다.
+// Esc 로 나가는 것은 브라우저가 하므로, 상태는 버튼이 아니라 fullscreenchange 로 따라간다.
+const stage = ref<HTMLElement | null>(null)
+const fullscreen = ref(false)
+const onFullscreenChange = () => (fullscreen.value = document.fullscreenElement === stage.value)
+document.addEventListener('fullscreenchange', onFullscreenChange)
+onBeforeUnmount(() => document.removeEventListener('fullscreenchange', onFullscreenChange))
+function toggleFullscreen() {
+  if (document.fullscreenElement) void document.exitFullscreen()
+  else void stage.value?.requestFullscreen()
+}
+
 // dev 서버가 data/ 의 .ifc 목록을 준다(vite.config.ts). 빌드 번들에선 실패하고 빈 목록이 된다.
 const dataFiles = ref<{ path: string; size: number }[]>([])
 
@@ -898,145 +910,152 @@ function exportTTL() {
         </ul>
       </section>
 
-      <section class="viewport">
-        <canvas ref="canvas"></canvas>
+      <div ref="stage" :class="['stage', { full: fullscreen }]">
+        <section class="viewport">
+          <div class="canvas-wrap">
+            <canvas ref="canvas"></canvas>
+            <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
+              {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
+            </button>
+          </div>
 
-        <!-- 계통 범례. 색이 스물이면 색만으로는 못 고르니, 여기서 짚는 쪽이 주된 길이다. -->
-        <div v-if="legend.length" class="legend">
-          <h3>
-            계통 {{ legend.length }}
-            <span v-if="legend[0].source === 'property'" class="tag">System Name 속성</span>
-            <span v-else class="tag">IfcSystem</span>
-            <Src kind="bim" />
-          </h3>
-          <ul>
-            <li v-for="s in legend" :key="s.id">
-              <button
-                type="button"
-                :class="{ on: s.id === selectedSystemId }"
-                :aria-pressed="s.id === selectedSystemId"
-                @click="toggleSystem(s.id)"
-              >
-                <i :style="{ background: s.color }"></i>
-                <span class="name">{{ s.name }}</span>
-                <span class="mono muted">{{ s.count }}</span>
-              </button>
+          <!-- 계통 범례. 색이 스물이면 색만으로는 못 고르니, 여기서 짚는 쪽이 주된 길이다. -->
+          <div v-if="legend.length" class="legend">
+            <h3>
+              계통 {{ legend.length }}
+              <span v-if="legend[0].source === 'property'" class="tag">System Name 속성</span>
+              <span v-else class="tag">IfcSystem</span>
+              <Src kind="bim" />
+            </h3>
+            <ul>
+              <li v-for="s in legend" :key="s.id">
+                <button
+                  type="button"
+                  :class="{ on: s.id === selectedSystemId }"
+                  :aria-pressed="s.id === selectedSystemId"
+                  @click="toggleSystem(s.id)"
+                >
+                  <i :style="{ background: s.color }"></i>
+                  <span class="name">{{ s.name }}</span>
+                  <span class="mono muted">{{ s.count }}</span>
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <!-- 3D 색이 무엇을 뜻하는지. 진한 색은 BIM 포트가 말한 흐름, 옅은 색은 규칙으로 정한 흐름이다. -->
+          <ul v-if="selected" class="color-key">
+            <li><i :style="{ background: hex(PICK_COLORS.upstream) }"></i>상류 <Src kind="bim" /></li>
+            <li><i :style="{ background: hex(PICK_COLORS.downstream) }"></i>하류 <Src kind="bim" /></li>
+            <template v-if="showRules && tracedRules">
+              <li><i :style="{ background: hex(PICK_COLORS.ruleUpstream) }"></i>상류 <Src kind="dict" /></li>
+              <li><i :style="{ background: hex(PICK_COLORS.ruleDownstream) }"></i>하류 <Src kind="dict" /></li>
+            </template>
+            <li><i :style="{ background: hex(PICK_COLORS.linked) }"></i>방향 모름</li>
+          </ul>
+
+          <p v-if="counts.equipment > 0" class="hint pick-hint">
+            {{
+              selectedSystemId
+                ? '계통 하나만 켜 두었습니다. 다시 누르면 전체로 돌아갑니다.'
+                : '설비·배관을 클릭하면 이어진 것들이 색으로 뜹니다. 계통은 오른쪽 범례에서 고릅니다.'
+            }}
+          </p>
+        </section>
+
+        <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
+        <section v-if="selected" class="picked">
+          <div class="picked-head">
+            <div>
+              <h3>{{ selected.name || '(이름 없음)' }}</h3>
+              <p class="stats">
+                <template v-if="kindLabel(selected)">{{ kindLabel(selected) }} <Src kind="dict" /> · </template>
+                {{ selected.ifcClass }} <Src kind="bim" />
+                <template v-if="roleLabel(selected.role)"> · {{ roleLabel(selected.role) }} <Src :kind="roleSrc(selected)" /></template> ·
+                {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
+                <Src v-if="selected.systemId" kind="bim" /> ·
+                {{ spaceNameOf(selected.spaceId) }}
+                <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
+              </p>
+            </div>
+            <div class="picked-actions">
+              <button type="button" class="ghost" @click="frameNetwork">연결망에 맞추기</button>
+              <button type="button" class="ghost" @click="select(null)">선택 해제</button>
+            </div>
+          </div>
+
+          <ul class="flow">
+            <li class="upstream">
+              <b>{{ traced?.upstream.size ?? 0 }}</b><span>상류</span><Src kind="bim" />
+            </li>
+            <li class="downstream">
+              <b>{{ traced?.downstream.size ?? 0 }}</b><span>하류</span><Src kind="bim" />
+            </li>
+            <li class="linked">
+              <b>{{ traced?.linked.size ?? 0 }}</b><span>이어짐 · 방향 모름</span>
             </li>
           </ul>
-        </div>
 
-        <!-- 3D 색이 무엇을 뜻하는지. 진한 색은 BIM 포트가 말한 흐름, 옅은 색은 규칙으로 정한 흐름이다. -->
-        <ul v-if="selected" class="color-key">
-          <li><i :style="{ background: hex(PICK_COLORS.upstream) }"></i>상류 <Src kind="bim" /></li>
-          <li><i :style="{ background: hex(PICK_COLORS.downstream) }"></i>하류 <Src kind="bim" /></li>
-          <template v-if="showRules && tracedRules">
-            <li><i :style="{ background: hex(PICK_COLORS.ruleUpstream) }"></i>상류 <Src kind="dict" /></li>
-            <li><i :style="{ background: hex(PICK_COLORS.ruleDownstream) }"></i>하류 <Src kind="dict" /></li>
-          </template>
-          <li><i :style="{ background: hex(PICK_COLORS.linked) }"></i>방향 모름</li>
-        </ul>
-
-        <p v-if="counts.equipment > 0" class="hint pick-hint">
-          {{
-            selectedSystemId
-              ? '계통 하나만 켜 두었습니다. 다시 누르면 전체로 돌아갑니다.'
-              : '설비·배관을 클릭하면 이어진 것들이 색으로 뜹니다. 계통은 오른쪽 범례에서 고릅니다.'
-          }}
-        </p>
-      </section>
-
-      <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
-      <section v-if="selected" class="picked">
-        <div class="picked-head">
-          <div>
-            <h3>{{ selected.name || '(이름 없음)' }}</h3>
-            <p class="stats">
-              <template v-if="kindLabel(selected)">{{ kindLabel(selected) }} <Src kind="dict" /> · </template>
-              {{ selected.ifcClass }} <Src kind="bim" />
-              <template v-if="roleLabel(selected.role)"> · {{ roleLabel(selected.role) }} <Src :kind="roleSrc(selected)" /></template> ·
-              {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
-              <Src v-if="selected.systemId" kind="bim" /> ·
-              {{ spaceNameOf(selected.spaceId) }}
-              <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
+          <!-- 규칙 방향. 위 숫자는 BIM 포트가 말한 것만이고, 여기부터가 계통·설비 종류로 정한 것이다. -->
+          <div v-if="tracedRules" class="rule-box">
+            <p>
+              <Src kind="dict" /> 규칙 방향을
+              넣으면 상류 <b>{{ tracedRules.upstream.size }}</b> · 하류 <b>{{ tracedRules.downstream.size }}</b> ·
+              방향 모름 <b>{{ tracedRules.linked.size }}</b>
+              <label class="rule-toggle">
+                <input v-model="showRules" type="checkbox" />
+                3D 에 규칙 방향도 칠하기
+              </label>
+            </p>
+            <p v-if="selectedRule" class="rule-system">
+              계통 <b>{{ selectedRule.name }}</b><template v-if="selectedRule.kind"> ({{ selectedRule.kind }})</template>:
+              규칙으로 방향을 준 연결 {{ selectedRule.count }}개.
+              <template v-if="selectedRule.pct !== null">
+                같은 규칙을 포트가 방향을 말한 연결 {{ selectedRule.checked }}개에 대 보면
+                <b :class="{ low: selectedRule.pct < 80 }">{{ selectedRule.pct }}%</b> 가 맞는다.
+              </template>
+              <template v-else> 포트가 방향을 말한 연결이 없어 대 볼 수 없다.</template>
+              <button
+                v-if="!selectedRule.confirmed"
+                type="button"
+                class="ghost"
+                :disabled="selectedRule.count === 0"
+                @click="confirmRule(selectedRule.systemId, selectedRule.name)"
+              >
+                이 계통 방향 확정
+              </button>
+              <span v-else class="confirmed">확정함 · brick:feeds 로 나갑니다</span>
+            </p>
+            <p v-if="selectedRule && selectedRule.pct !== null && selectedRule.pct < 80" class="hint">
+              일치율이 낮습니다. 확정하기 전에 3D 에서 흐름을 확인하세요.
             </p>
           </div>
-          <div class="picked-actions">
-            <button type="button" class="ghost" @click="frameNetwork">연결망에 맞추기</button>
-            <button type="button" class="ghost" @click="select(null)">선택 해제</button>
-          </div>
-        </div>
 
-        <ul class="flow">
-          <li class="upstream">
-            <b>{{ traced?.upstream.size ?? 0 }}</b><span>상류</span><Src kind="bim" />
-          </li>
-          <li class="downstream">
-            <b>{{ traced?.downstream.size ?? 0 }}</b><span>하류</span><Src kind="bim" />
-          </li>
-          <li class="linked">
-            <b>{{ traced?.linked.size ?? 0 }}</b><span>이어짐 · 방향 모름</span>
-          </li>
-        </ul>
-
-        <!-- 규칙 방향. 위 숫자는 BIM 포트가 말한 것만이고, 여기부터가 계통·설비 종류로 정한 것이다. -->
-        <div v-if="tracedRules" class="rule-box">
-          <p>
-            <Src kind="dict" /> 규칙 방향을
-            넣으면 상류 <b>{{ tracedRules.upstream.size }}</b> · 하류 <b>{{ tracedRules.downstream.size }}</b> ·
-            방향 모름 <b>{{ tracedRules.linked.size }}</b>
-            <label class="rule-toggle">
-              <input v-model="showRules" type="checkbox" />
-              3D 에 규칙 방향도 칠하기
-            </label>
+          <p v-if="selectedNeighbors.length === 0" class="hint">
+            이 설비에 붙은 연결이 없습니다.
           </p>
-          <p v-if="selectedRule" class="rule-system">
-            계통 <b>{{ selectedRule.name }}</b><template v-if="selectedRule.kind"> ({{ selectedRule.kind }})</template>:
-            규칙으로 방향을 준 연결 {{ selectedRule.count }}개.
-            <template v-if="selectedRule.pct !== null">
-              같은 규칙을 포트가 방향을 말한 연결 {{ selectedRule.checked }}개에 대 보면
-              <b :class="{ low: selectedRule.pct < 80 }">{{ selectedRule.pct }}%</b> 가 맞는다.
-            </template>
-            <template v-else> 포트가 방향을 말한 연결이 없어 대 볼 수 없다.</template>
-            <button
-              v-if="!selectedRule.confirmed"
-              type="button"
-              class="ghost"
-              :disabled="selectedRule.count === 0"
-              @click="confirmRule(selectedRule.systemId, selectedRule.name)"
-            >
-              이 계통 방향 확정
-            </button>
-            <span v-else class="confirmed">확정함 · brick:feeds 로 나갑니다</span>
-          </p>
-          <p v-if="selectedRule && selectedRule.pct !== null && selectedRule.pct < 80" class="hint">
-            일치율이 낮습니다. 확정하기 전에 3D 에서 흐름을 확인하세요.
-          </p>
-        </div>
-
-        <p v-if="selectedNeighbors.length === 0" class="hint">
-          이 설비에 붙은 연결이 없습니다.
-        </p>
-        <table v-else class="neighbors">
-          <tbody>
-            <tr v-for="(n, i) in selectedNeighbors" :key="`${n.id}-${i}`">
-              <td :class="['rel', n.rule ? n.rule.relation : n.relation]">
-                <template v-if="n.rule">{{ n.rule.relation === 'upstream' ? '상류' : '하류' }}</template>
-                <template v-else>{{ n.relation === 'upstream' ? '상류' : n.relation === 'downstream' ? '하류' : '연결' }}</template>
-              </td>
-              <td>
-                <button type="button" class="link" @click="select(n.id)">{{ n.name }}</button>
-              </td>
-              <td class="muted">
-                <template v-if="n.source === 'port'">포트 <Src kind="bim" /></template>
-                <template v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></template>
-                <template v-if="n.rule">
-                  · {{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" />
-                </template>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
+          <table v-else class="neighbors">
+            <tbody>
+              <tr v-for="(n, i) in selectedNeighbors" :key="`${n.id}-${i}`">
+                <td :class="['rel', n.rule ? n.rule.relation : n.relation]">
+                  <template v-if="n.rule">{{ n.rule.relation === 'upstream' ? '상류' : '하류' }}</template>
+                  <template v-else>{{ n.relation === 'upstream' ? '상류' : n.relation === 'downstream' ? '하류' : '연결' }}</template>
+                </td>
+                <td>
+                  <button type="button" class="link" @click="select(n.id)">{{ n.name }}</button>
+                </td>
+                <td class="muted">
+                  <template v-if="n.source === 'port'">포트 <Src kind="bim" /></template>
+                  <template v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></template>
+                  <template v-if="n.rule">
+                    · {{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" />
+                  </template>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </div>
 
       <!-- 3D 아래는 전부 접을 수 있다. 행이 많은 목록은 처음부터 접혀 있다(SMALL).
            파일이 바뀌면(key) 접힘 상태도 그 파일 기준으로 다시 정한다. -->

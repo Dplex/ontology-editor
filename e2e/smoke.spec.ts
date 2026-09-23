@@ -187,3 +187,26 @@ test('설비 파일에 건축 파일을 덧붙이면 합쳐서 소속을 다시 
 
   expect(errors).toEqual([])
 })
+
+test('3D 를 전체 화면으로 띄워도 고른 설비 패널이 같이 보인다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
+
+  const button = page.locator('.viewport .fullscreen')
+  await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  // 3D 만이 아니라 패널까지 든 칸이 전체 화면이어야 한다. 3D 만 띄우면 무엇을 골랐는지 안 보인다.
+  expect(await page.evaluate(() => document.fullscreenElement?.classList.contains('stage'))).toBe(true)
+  await expect(page.locator('.stage .picked')).toContainText('DUCT-01')
+
+  await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  expect(await page.evaluate(() => document.fullscreenElement)).toBeNull()
+
+  expect(errors).toEqual([])
+})

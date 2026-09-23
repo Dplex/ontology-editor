@@ -604,11 +604,47 @@ th {
   color: var(--accent);
 }
 
-.viewport canvas {
-  display: block;
+.canvas-wrap {
+  position: relative;
   flex: 1;
   min-width: 0;
+}
+
+.viewport canvas {
+  display: block;
+  width: 100%;
   height: 100%;
+}
+
+/* 범례가 3D 오른쪽에 붙어 있으니, 버튼은 3D 칸 안의 오른쪽 위에 둔다. */
+.fullscreen {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  font-size: 0.8rem;
+}
+
+/* 전체 화면에서는 3D 가 남는 높이를 다 쓰고, 고른 설비 패널은 아래에서 따로 스크롤한다. */
+.stage.full {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--bg);
+}
+
+.stage.full .viewport {
+  flex: 1;
+  min-height: 0;
+  height: auto;
+  margin-top: 0;
+}
+
+.stage.full .picked {
+  flex: none;
+  max-height: 38vh;
+  margin-top: 0;
+  overflow: auto;
 }
 
 .storeys {
