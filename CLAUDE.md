@@ -182,9 +182,11 @@ Duplex 세 판본(Revit)의 공간 85개가 전부 외곽선 0 이었고, 3D 에
 
 **`data/` 샘플 목록과 등급 칩은 dev 서버와 55 가 같은 코드로 낸다.** `src/server/data-catalog.ts`
 하나를 vite 플러그인이 쓰고, `npm run build:server` 로 묶은 판을 `serve.mjs` 가 `/__data` 에 붙인다.
-둘이 따로 구현하면 같은 파일에 다른 칩이 뜬다. 55 의 `data/` 는 gitignore 라 pull 로 오지 않으므로
-한 번 받아 둔다(`npm run fetch:sample` 후 `unzip -o data/NBU_Duplex_ifc.zip -d data/`). 등급은 첫 요청 때
-재서 `data/.profiles.json` 에 캐시하고, 임포터 코드가 바뀌면 다시 잰다.
+둘이 따로 구현하면 같은 파일에 다른 칩이 뜬다. 55 의 `data/` 는 gitignore 라 pull 로 오지 않는다.
+**55 에서 `npm run fetch:sample` 은 안 된다** — 2026-09-23 실측으로 GitHub·tib.eu·npm 레지스트리에 전부
+닿지 않았다. 개발 PC 의 `data/` 에서 IFC 만 복사한다:
+`rsync -a --prune-empty-dirs --include='*/' --include='*.ifc' --exclude='*' data/ 55:/home/dt/git/dt/ontology-editor/data/`.
+등급은 첫 요청 때 재서 `data/.profiles.json` 에 캐시하고(17개 18초), 임포터 코드가 바뀌면 다시 잰다.
 
 PRD 1.7 은 DT 와의 데이터 교환 방식을 셋으로 열어 두고 개발 확인이 필요하다고 적었다
 (① 파일 export→import ② 온톨로지 서버에 API 로 직접 쓰기 ③ 공유 DB). 지금 이 repo 는
