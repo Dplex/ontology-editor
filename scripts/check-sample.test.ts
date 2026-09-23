@@ -109,9 +109,11 @@ describe.skipIf(!existsSync(MEP))('실제 MEP BIM (ifc4Mep, IFC4)', () => {
     const counts = countOf(model)
 
     expect(model.schema).toBe('IFC4')
-    expect(counts.equipment).toBe(2202)
+    // IfcDistributionElement 2,202개 + 포트가 달린 Proxy 1개(`Di2901`). Proxy 는 포트로 배관망에
+    // 붙어 있으면 설비로 받는다(import.ts). 이름이 사전에 없어 종류는 모른다.
+    expect(counts.equipment).toBe(2203)
     // 설비의 86%가 덕트·배관이다. 합쳐서 "설비 2,202대" 로 내보내면 기기가 일곱 배로 부푼다.
-    expect(counts.devices).toBe(307)
+    expect(counts.devices).toBe(308)
     expect(counts.conduits).toBe(1895)
     // IfcDistributionSystem 15 + IfcDistributionCircuit 22. 상속으로 골라야 37 이 된다.
     expect(counts.systems).toBe(37)
@@ -123,10 +125,10 @@ describe.skipIf(!existsSync(MEP))('실제 MEP BIM (ifc4Mep, IFC4)', () => {
     // 설비 전용 모델이라 물리존이 없다. 소속을 하나도 못 찾는 것이 정상이고,
     // 이것이 건축 모델과 합쳐야 하는 이유다.
     expect(counts.spaces).toBe(0)
-    expect(counts.unlocatedEquipment).toBe(2202)
+    expect(counts.unlocatedEquipment).toBe(2203)
 
     // 용량은 하나도 안 읽힌다. DDS-CAD 이 우리가 찾는 이름을 쓰지 않는다.
-    expect(counts.equipmentWithoutCapacity).toBe(2202)
+    expect(counts.equipmentWithoutCapacity).toBe(2203)
   }, 300_000)
 })
 
@@ -338,7 +340,7 @@ describe.skipIf(!existsSync(MEP))('형상 추정의 정확도 (ifc4Mep 의 포�
       model.connections.filter((c) => meshes.has(c.from) && meshes.has(c.to)).map((c) => key(c.from, c.to)),
     )
     expect(model.connections.length).toBe(1995)
-    expect(truth.size).toBe(1972)
+    expect(truth.size).toBe(1974)
 
     const systemsOf = new Map<string, string[]>()
     for (const s of model.systems) for (const id of s.memberIds) systemsOf.set(id, [...(systemsOf.get(id) ?? []), s.name])
@@ -353,7 +355,7 @@ describe.skipIf(!existsSync(MEP))('형상 추정의 정확도 (ifc4Mep 의 포�
 
     // 지금 기본값. 열 중 여덟을 맞히고 넷 중 셋을 찾는다.
     const mm5 = score(0.005)
-    expect(mm5).toEqual({ got: 1878, tp: 1494, fp: 384, fn: 478, precision: 1494 / 1878, recall: 1494 / 1972 })
+    expect(mm5).toEqual({ got: 1882, tp: 1496, fp: 386, fn: 478, precision: 1496 / 1882, recall: 1496 / 1974 })
 
     // 좁히면 정밀해지고 놓친다. 넓히면 다 찾는데 엉뚱한 것이 딸려 온다.
     const mm1 = score(0.001)
@@ -499,7 +501,7 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP))('다른 건물끼리 �
     // 층 높이 0 끼리는 짝이 지어진다(이름이 달라 높이로). 좌표계 경고가 없으면 이 짝을 믿게 된다 —
     // 층 짝짓기만으로는 다른 건물인지 모른다는 뜻이다.
     expect(report.storeys.filter((s) => s.by === 'elevation')).toHaveLength(1)
-    expect(report.unlocated.after).toBe(2202)
+    expect(report.unlocated.after).toBe(2203)
   }, 300_000)
 })
 
@@ -661,7 +663,7 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
     // 37/103 이다 — 나머지 66대는 난방·오수처럼 원천 기기(보일러·펌프)가 모델에 없는 망에 형제로만
     // 매달려서 "누가 이 기기에 공급하나" 에 답이 없다. 연결 단위(100%)로 보이면 DT 가 받는 것을
     // 크게 부풀려 말하게 된다.
-    expect(chips(MEP)).toBe('공간 — | 설비 285/307 | 소속 0/307 | 연결망 1995 | 방향 37/103')
+    expect(chips(MEP)).toBe('공간 — | 설비 286/308 | 소속 0/308 | 연결망 1995 | 방향 37/103')
     // 공간 1 은 지붕뿐이다. 기기 40대가 갈 방이 없다 — 건축 파일을 덧붙이면 소속 40 이 된다.
     // 연결 단위로는 39%(190/485)가 방향을 아는데, 기기에서 출발한 방향 사슬은 전부 중간의
     // SOURCEANDSINK 에서 끊긴다. 기기끼리 닿는 흐름은 0 이다.

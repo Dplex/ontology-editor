@@ -1,0 +1,79 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('proxy.ifc','2026-09-23T00:00:00',(''),(''),'','ontology-editor fixture: Proxy','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+/* Revit 이 IFC 클래스를 지정하지 않은 패밀리를 IfcBuildingElementProxy 로 내보낸 경우를 줄인 것이다.
+   성수 기계 파일은 FCU·AHU·지열 히트펌프·디퓨저가 전부 이렇게 들어왔다.
+
+   - FCU3 Proxy: 포트로 덕트에 붙어 있다. 포트가 있으니 설비로 받는다.
+   - CCTV Proxy: 포트가 없지만 이름이 사전(카메라)에 있다. 관제점 후보로 받는다.
+   - 휠스톱 Proxy: 포트도 없고 이름도 사전에 없다. 건축 부재라 받지 않는다.
+   - FCU → 덕트 → 디퓨저 연결은 전부 SOURCEANDSINK 다(Revit 이 흔히 이렇게 낸다). 포트만으로는 방향을
+     모르고, "급기" 계통과 "FCU 는 공기의 원천" 이라는 규칙으로 방향을 정한다. */
+
+#1= IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#2= IFCUNITASSIGNMENT((#1));
+#3= IFCCARTESIANPOINT((0.,0.,0.));
+#4= IFCDIRECTION((0.,0.,1.));
+#5= IFCDIRECTION((1.,0.,0.));
+#6= IFCAXIS2PLACEMENT3D(#3,#4,#5);
+#7= IFCDIRECTION((0.,1.));
+#8= IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#6,#7);
+#9= IFCPROJECT('0PRX$Project$00000000',$,'Proxy fixture',$,$,$,$,(#8),#2);
+#10= IFCLOCALPLACEMENT($,#6);
+#11= IFCSITE('0PRX$Site$0000000000',$,'Site',$,$,#10,$,$,.ELEMENT.,$,$,$,$,$);
+#12= IFCLOCALPLACEMENT(#10,#6);
+#13= IFCBUILDING('0PRX$Building$0000000',$,'Proxy Building',$,$,#12,$,$,.ELEMENT.,$,$,$);
+#14= IFCLOCALPLACEMENT(#12,#6);
+#15= IFCBUILDINGSTOREY('0PRX$Storey$1F$00000',$,'1F',$,$,#14,$,$,.ELEMENT.,0.);
+
+#20= IFCCARTESIANPOINT((1.,1.,2.8));
+#21= IFCAXIS2PLACEMENT3D(#20,#4,#5);
+#22= IFCLOCALPLACEMENT(#14,#21);
+#23= IFCBUILDINGELEMENTPROXY('0PRX$FCU$000000000000',$,'FCU3:FCU3:1001',$,'FCU3:FCU3',#22,$,'1001',$);
+
+#30= IFCCARTESIANPOINT((3.,1.,2.8));
+#31= IFCAXIS2PLACEMENT3D(#30,#4,#5);
+#32= IFCLOCALPLACEMENT(#14,#31);
+#33= IFCFLOWSEGMENT('0PRX$Duct$00000000000',$,'Rectangular Duct:Standard:2001',$,'Rectangular Duct:Standard',#32,$,'2001');
+
+#40= IFCCARTESIANPOINT((5.,1.,2.7));
+#41= IFCAXIS2PLACEMENT3D(#40,#4,#5);
+#42= IFCLOCALPLACEMENT(#14,#41);
+#43= IFCFLOWTERMINAL('0PRX$Diffuser$0000000',$,'Supply Diffuser:300:3001',$,'Supply Diffuser:300',#42,$,'3001');
+
+#50= IFCCARTESIANPOINT((2.,4.,3.));
+#51= IFCAXIS2PLACEMENT3D(#50,#4,#5);
+#52= IFCLOCALPLACEMENT(#14,#51);
+#53= IFCBUILDINGELEMENTPROXY('0PRX$Camera$000000000',$,'Security_Camera-Vivotek-Ext_Dome:Dome:4001',$,'Security_Camera-Vivotek-Ext_Dome:Dome',#52,$,'4001',$);
+
+#60= IFCCARTESIANPOINT((8.,8.,0.));
+#61= IFCAXIS2PLACEMENT3D(#60,#4,#5);
+#62= IFCLOCALPLACEMENT(#14,#61);
+#63= IFCBUILDINGELEMENTPROXY('0PRX$WheelStop$000000',$,'RThisWheelStops850:850:5001',$,'RThisWheelStops850:850',#62,$,'5001',$);
+
+/* 계통. ObjectType 이 Revit 의 시스템 분류다(급기). 이름에는 번호가 붙는다. */
+#70= IFCDISTRIBUTIONSYSTEM('0PRX$System$SA$000000',$,'Supply Air 1',$,'Supply Air',$,.VENTILATION.);
+#71= IFCRELASSIGNSTOGROUP('0PRX$Rel$Group$SA$000',$,$,$,(#33,#43),$,#70);
+
+/* 포트. 전부 SOURCEANDSINK 다. */
+#80= IFCDISTRIBUTIONPORT('0PRX$Port$FCU$Out$000',$,'FCU out',$,$,$,$,.SOURCEANDSINK.,.DUCT.,$);
+#81= IFCRELCONNECTSPORTTOELEMENT('0PRX$Rel$Port$FCU$000',$,$,$,#80,#23);
+#82= IFCDISTRIBUTIONPORT('0PRX$Port$Duct$A$0000',$,'Duct A',$,$,$,$,.SOURCEANDSINK.,.DUCT.,$);
+#83= IFCRELCONNECTSPORTTOELEMENT('0PRX$Rel$Port$DuctA$00',$,$,$,#82,#33);
+#84= IFCRELCONNECTSPORTS('0PRX$Rel$Ports$01$0000',$,$,$,#80,#82,$);
+#85= IFCDISTRIBUTIONPORT('0PRX$Port$Duct$B$0000',$,'Duct B',$,$,$,$,.SOURCEANDSINK.,.DUCT.,$);
+#86= IFCRELCONNECTSPORTTOELEMENT('0PRX$Rel$Port$DuctB$00',$,$,$,#85,#33);
+#87= IFCDISTRIBUTIONPORT('0PRX$Port$Diff$In$000',$,'Diffuser in',$,$,$,$,.SOURCEANDSINK.,.DUCT.,$);
+#88= IFCRELCONNECTSPORTTOELEMENT('0PRX$Rel$Port$Diff$000',$,$,$,#87,#43);
+#89= IFCRELCONNECTSPORTS('0PRX$Rel$Ports$02$0000',$,$,$,#85,#87,$);
+
+#90= IFCRELAGGREGATES('0PRX$Rel$Proj$Site$00',$,$,$,#9,(#11));
+#91= IFCRELAGGREGATES('0PRX$Rel$Site$Bldg$00',$,$,$,#11,(#13));
+#92= IFCRELAGGREGATES('0PRX$Rel$Bldg$Storey$',$,$,$,#13,(#15));
+#94= IFCRELCONTAINEDINSPATIALSTRUCTURE('0PRX$Rel$1F$Elements$',$,$,$,(#23,#33,#43,#53,#63),#15);
+ENDSEC;
+END-ISO-10303-21;

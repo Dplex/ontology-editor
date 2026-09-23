@@ -30,6 +30,12 @@ export type Space = {
    * 물리존이 영향을 받는지를 이걸로 바로 안다(E4).
    */
   boundedBy: string[]
+  /**
+   * 방 종류. 이름에서 사전(`kinds.ts` 의 ROOM_KINDS)으로 읽는다. `null` 이면 사전에 없는 이름이고
+   * `brick:Room` 으로 나간다. BIM 이 방 분류를 표준 필드로 주는 일이 드물어서(PredefinedType 0/4 파일)
+   * 사람이 붙인 이름이 가장 흔한 근거다.
+   */
+  kind?: string | null
 }
 
 export type Wall = {
@@ -114,6 +120,16 @@ export function isConduit(role: EquipmentRole | null): boolean {
 export type Equipment = {
   id: string
   name: string
+  /**
+   * IFC 의 ObjectType. Revit 은 여기에 "패밀리:유형"(`FCU3:FCU3`, `M_공급 디퓨져_원형:…`)을 적는다.
+   * IFC2x3 에서는 클래스가 추상적이라(`FlowTerminal`) 설비 종류를 알 수 있는 곳이 사실상 여기와 이름뿐이다.
+   */
+  objectType?: string
+  /**
+   * 설비 종류. 이름·ObjectType 에서 사전(`kinds.ts` 의 EQUIPMENT_KINDS)으로 읽는다. `null` 이면 사전에 없다.
+   * Brick 클래스와 흐름 방향 규칙이 이 값을 쓴다.
+   */
+  kind?: string | null
   /** IFC 클래스 이름에서 Ifc 를 뗀 것(UnitaryEquipment, AirTerminal, Sensor …). */
   ifcClass: string
   /**
@@ -167,6 +183,11 @@ export type System = {
    * 들어오는지가 근거가 된다.
    */
   source: 'ifc' | 'property'
+  /**
+   * 계통 종류(급기·배기·순환수 공급 …). Revit 은 IfcSystem 의 ObjectType 에 시스템 분류를 적는다.
+   * 흐름 방향 규칙(`flow-rules.ts`)이 이 값으로 매체(공기·물)와 방향(원천에서 나가는가, 들어오는가)을 정한다.
+   */
+  kind?: string | null
 }
 
 /**
@@ -190,6 +211,15 @@ export type Connection = {
    * "5mm 에서 붙은 것" 과 "32mm 까지 늘려서 붙인 것" 을 구별해 보여 준다.
    */
   tolerance: number | null
+  /**
+   * 규칙으로 정한 흐름 방향. **포트가 방향을 말하지 않은 연결에만 붙는다**(directed 가 거짓일 때).
+   *
+   * 계통 종류(급기면 원천 → 말단)와 설비 종류(공조기·FCU 는 공기의 원천)로 경로를 따라 정한 것이라
+   * BIM 이 말한 방향과 다르다. 그래서 `directed`·`from`·`to` 를 건드리지 않고 따로 든다. 섞으면
+   * 온톨로지를 읽는 쪽이 둘을 구별할 수 없다. 사람이 에디터에서 계통 단위로 확인하면 `confirmed`
+   * 가 되고, 그때부터 `brick:feeds` 로 나간다.
+   */
+  inferred?: { from: string; to: string; systemId: string; confirmed: boolean }
 }
 
 export type Storey = {

@@ -7,6 +7,7 @@
 
 import { countOf, isConduit, type Model } from './model'
 import { deviceFlows } from './topology'
+import { withInferred } from './flow-rules'
 
 /** 한 등급이 얼마나 찼나. 분수로 들고 다니고, 화면이 채움·일부·없음으로 칠한다. */
 export type Tier = {
@@ -65,7 +66,12 @@ export function profileOf(model: Model): Profile {
   // 방향은 연결이 아니라 **기기 쌍**으로 센다. DT 가 받는 것은 덕트·배관을 건너뛴 기기 → 기기
   // 흐름이라(deviceFlows 주석 참조), 연결 단위로 세면 받는 것보다 좋아 보인다.
   const conduitIds = new Set(all.filter((e) => isConduit(e.role)).map((e) => e.id))
-  const flows = deviceFlows(model.connections, (id) => conduitIds.has(id), devices.map((e) => e.id))
+  // 등급은 내보내는 것과 같은 기준으로 잰다. 포트 방향 + 사람이 확정한 규칙 방향이다.
+  const flows = deviceFlows(withInferred(model.connections, true), (id) => conduitIds.has(id), devices.map((e) => e.id))
+  // 확정 전 규칙 방향까지 넣으면 얼마나 채워지는지. 칩 설명에만 쓴다.
+  const candidate = model.connections.some((x) => x.inferred && !x.inferred.confirmed)
+    ? deviceFlows(withInferred(model.connections), (id) => conduitIds.has(id), devices.map((e) => e.id)).fed.size
+    : null
   // 받는 쪽에 가는 흐름 대부분이 방향을 모르는 형상 추정이면 fed 가 비어 있다. linked 에는 없는데
   // fed 에만 있는 기기는 없다(방향 있는 길은 방향 없는 길이기도 하다).
   const fed = flows.fed.size
@@ -132,11 +138,12 @@ export function profileOf(model: Model): Profile {
       level: level(fed, linked),
       figure: figure(fed, linked),
       note:
-        linked === 0
+        (linked === 0
           ? '덕트·배관으로 다른 기기와 이어진 기기가 없다'
           : fed === 0
             ? `다른 기기와 이어진 기기 ${linked}대 중 흐름 방향으로 이어진 것이 없다. brick:feeds 가 기기에 닿지 않는다 (연결 단위로는 ${c.directedConnections}/${c.connections})`
-            : `다른 기기와 이어진 기기 ${linked}대 중 흐름 방향으로 이어진(공급하거나 공급받는) 것 ${fed}대 (연결 단위로는 ${c.directedConnections}/${c.connections})`,
+            : `다른 기기와 이어진 기기 ${linked}대 중 흐름 방향으로 이어진(공급하거나 공급받는) 것 ${fed}대 (연결 단위로는 ${c.directedConnections}/${c.connections})`) +
+        (candidate !== null ? ` · 확정 전 규칙 방향까지 넣으면 ${candidate}대` : ''),
     },
   ]
 

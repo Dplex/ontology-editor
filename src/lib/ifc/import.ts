@@ -28,6 +28,8 @@ import { apply, compose, foldChain, foldElevation, fromAxisPlacement, type Trans
 import { assignEquipmentToSpaces } from '../mapping'
 import { lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
+import { equipmentKindOf, roomKindOf, systemKindOf } from '../kinds'
+import { inferFlowByRules } from '../flow-rules'
 
 /**
  * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
@@ -539,6 +541,24 @@ class Reader {
    * 방향은 `FlowDirection` 에서 온다. 한쪽이 SOURCE 고 다른 쪽이 SINK 여야 흐름을 안다.
    * SOURCEANDSINK(Revit 이 피팅·배관에 흔히 붙인다)나 빈 값이면 방향 없는 연결로 둔다.
    */
+  /** 포트를 가진 요소. Proxy 중 어느 것이 배관망에 붙은 설비인지 가를 때 쓴다. */
+  portOwners(): Set<number> {
+    const owners = new Set<number>()
+    for (const relID of this.ids(WebIFC.IFCRELCONNECTSPORTTOELEMENT)) {
+      const element = ref(this.line(relID)?.RelatedElement)
+      if (element !== null) owners.add(element)
+    }
+    for (const relID of this.ids(WebIFC.IFCRELNESTS)) {
+      const rel = this.line(relID)
+      const element = ref(rel?.RelatingObject)
+      if (element === null) continue
+      if ((rel.RelatedObjects ?? []).some((h: any) => this.api.GetLineType(this.model, h.value) === WebIFC.IFCDISTRIBUTIONPORT)) {
+        owners.add(element)
+      }
+    }
+    return owners
+  }
+
   portConnections(globalIdOf: (id: number) => string): Connection[] {
     const elementOf = new Map<number, number>()
     for (const relID of this.ids(WebIFC.IFCRELCONNECTSPORTTOELEMENT)) {
@@ -640,6 +660,7 @@ function spaceOf(
     footprint,
     areaM2: polygonArea(footprint),
     boundedBy: (boundaries.get(expressID) ?? []).map(globalIdOf),
+    kind: roomKindOf((val(e?.Name) as string) ?? '', longName)?.kind ?? null,
   }
 }
 
@@ -795,6 +816,26 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
       for (const id of r.ids(type, true)) roleOf.set(id, role)
     }
 
+    // **Proxy 중 설비인 것도 받는다.** Revit 은 패밀리의 IFC 클래스를 지정하지 않으면
+    // `IfcBuildingElementProxy` 로 내보낸다. 성수 기계 파일은 FCU 120대·AHU 8대·지열 히트펌프 12대·
+    // 디퓨저 752개가 전부 Proxy 였고, IFC 계층만 보면 목록에서 통째로 빠진다.
+    //
+    // 받는 기준은 둘이다. **포트가 있거나**(배관망에 포트로 붙어 있으면 설비다), **이름이 사전에 있거나**
+    // (포트 없이 놓인 CCTV 같은 장치). 둘 다 아니면 휠스톱·캐노피 같은 건축 부재라 받지 않는다.
+    // 제외 목록을 늘리는 대신 포함 근거를 IFC 구조(포트)와 좁은 사전에 둔다. 역할은 IFC 가 안 주므로
+    // 사전의 것을 쓴다.
+    const ported = r.portOwners()
+    const proxies = { ported: 0, named: 0 }
+    for (const id of r.ids(WebIFC.IFCBUILDINGELEMENTPROXY)) {
+      const el = r.line(id)
+      const info = equipmentKindOf((val(el?.Name) as string) ?? '', (val(el?.ObjectType) as string) ?? '')
+      if (ported.has(id)) proxies.ported++
+      else if (info) proxies.named++
+      else continue
+      mepIDs.add(id)
+      if (info?.role) roleOf.set(id, info.role)
+    }
+
     // 계통도 같은 방식으로 고른다. IfcSystem 아래에 IfcDistributionSystem 이 있고 그 아래에
     // 다시 IfcDistributionCircuit(전기 회로, 배관 분기)이 있다. 정확히 일치하는 타입만
     // 받으면 실측 IFC4 MEP 모델에서 계통 37개 중 22개를 놓쳤다.
@@ -846,6 +887,12 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
         name: (val(group?.LongName) as string) || ((val(group?.Name) as string) ?? ''),
         memberIds: memberIDs.map((m: number) => (val(r.line(m)?.GlobalId) as string) ?? `element-${m}`),
         source: 'ifc',
+        // Revit 은 시스템 분류(급기, 순환수 공급 …)를 ObjectType 에 적는다. 이름에는 번호가 붙는다.
+        kind:
+          systemKindOf(
+            (val(group?.LongName) as string) || ((val(group?.Name) as string) ?? ''),
+            (val(group?.ObjectType) as string) ?? '',
+          )?.kind ?? null,
       })
     }
 
@@ -866,7 +913,7 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
         for (const name of names) {
           let system = byName.get(name)
           if (!system) {
-            system = { id: systemIdOf(name, taken), name, memberIds: [], source: 'property' }
+            system = { id: systemIdOf(name, taken), name, memberIds: [], source: 'property', kind: systemKindOf(name)?.kind ?? null }
             byName.set(name, system)
             systems.push(system)
           }
@@ -936,11 +983,16 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
             break
           default:
             if (!mepIDs.has(elementID)) break
+            {
+            // GetNameFromTypeCode 는 'IfcAirTerminal' 을 준다. 앞의 Ifc 만 뗀다.
+            const ifcClass = api.GetNameFromTypeCode(el.type).replace(/^Ifc/i, '')
+            const objectType = (val(el?.ObjectType) as string) ?? ''
             equipment.push({
               id,
               name,
-              // GetNameFromTypeCode 는 'IfcAirTerminal' 을 준다. 앞의 Ifc 만 뗀다.
-              ifcClass: api.GetNameFromTypeCode(el.type).replace(/^Ifc/i, ''),
+              ifcClass,
+              objectType,
+              kind: equipmentKindOf(name, objectType, ifcClass)?.kind ?? null,
               role: roleOf.get(elementID) ?? null,
               position: r.position3(el),
               capacity: capacity.get(elementID)?.value ?? null,
@@ -951,6 +1003,7 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
               spaceId: declaredSpaceOf.get(elementID) ?? null,
               spaceSource: declaredSpaceOf.has(elementID) ? ('bim' as const) : null,
             })
+            }
         }
       }
 
@@ -1093,6 +1146,22 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
           `설비 ${stranded}대는 주변 ${Math.round(REACH * 1000)}mm 안에 이을 상대가 없어 연결망에 붙이지 못했습니다(접합 부재 누락). 모델을 다시 그려야 이어집니다.`,
         )
       }
+    }
+
+    if (proxies.ported + proxies.named > 0) {
+      warnings.push(
+        `Proxy(IfcBuildingElementProxy) ${proxies.ported + proxies.named}개를 설비로 읽었습니다(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 안 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름에서 추정했습니다. 고객사에는 IFC 클래스로 내보내 달라고 요청합니다(R24).`,
+      )
+    }
+
+    // 포트가 방향을 말하지 않은 연결에 계통·설비 종류로 규칙 방향을 준다. 확정 전에는 내보내지 않는다.
+    const rules = inferFlowByRules(result)
+    if (rules.oriented > 0) {
+      const checked = rules.agree + rules.disagree
+      warnings.push(
+        `포트가 방향을 말하지 않은 연결 ${rules.oriented}개에 계통 종류와 설비 종류로 방향을 추정했습니다(규칙 방향). 확정하기 전에는 brick:feeds 로 내보내지 않습니다.` +
+          (checked > 0 ? ` 같은 규칙을 포트가 방향을 말한 연결 ${checked}개에 대 보면 ${((rules.agree / checked) * 100).toFixed(1)}%가 일치합니다.` : ''),
+      )
     }
 
     return { model: result, meshes }

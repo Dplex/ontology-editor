@@ -8,6 +8,8 @@ import { profileOf, type Profile } from './lib/profile'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
 import { neighbors, trace, TOLERANCE } from './lib/topology'
+import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from './lib/flow-rules'
+import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
 import { createViewer, systemColors, type Viewer } from './lib/viewer'
@@ -159,7 +161,7 @@ const editSpaces = computed(() =>
     .filter(({ space }) => matches(`${space.name} ${space.longName ?? ''}`)),
 )
 const editEquipment = computed(() =>
-  editStoreys.value.flatMap((s) => s.equipment).filter((e) => matches(`${e.name} ${e.ifcClass}`)),
+  editStoreys.value.flatMap((s) => s.equipment).filter((e) => matches(`${e.name} ${e.ifcClass} ${kindLabel(e)}`)),
 )
 
 function applyRename(spaceId: string, name: string) {
@@ -195,11 +197,76 @@ const traced = computed(() =>
   model.value && selectedId.value ? trace(model.value.connections, selectedId.value) : null,
 )
 
+// --- 규칙 방향 -----------------------------------------------------------------
+//
+// 포트가 방향을 말하지 않은 연결에 계통·설비 종류로 정한 방향(flow-rules.ts). **첫 줄의 상류·하류는
+// 포트 기준 그대로 둔다** — BIM 이 말한 것과 우리가 정한 것을 한 숫자에 섞으면 검토하는 사람이
+// 구별할 수 없다. 규칙을 넣은 숫자는 한 줄 아래에 따로 보이고, 3D 에 칠할지는 사람이 고른다.
+const ruleReport = shallowRef<RuleReport | null>(null)
+const showRules = ref(true)
+const confirmations = ref<{ systemName: string; count: number }[]>([])
+// 확정은 연결의 `inferred.confirmed` 만 바꾼다. **모델 전체에 갱신 신호(triggerRef)를 보내지 않는다** —
+// 그러면 3D 가 설비 수만큼 통째로 다시 만들어져 성수(1만 8천 개)에서 화면이 30초 넘게 멈췄다.
+// 확정에 따라 바뀌는 칸(계통 현황, 등급 칩)만 이 값을 읽어 다시 계산한다.
+const flowVersion = ref(0)
+const hasRules = computed(() => !!model.value?.connections.some((c) => c.inferred))
+
+const tracedRules = computed(() =>
+  model.value && selectedId.value && hasRules.value
+    ? trace(withInferred(model.value.connections), selectedId.value)
+    : null,
+)
+/** 3D 에 칠하는 추적. 규칙을 켜 두면 규칙 방향까지 따라간다. */
+const tracedShown = computed(() => (showRules.value && tracedRules.value ? tracedRules.value : traced.value))
+
+/** 고른 설비가 속한 계통의 규칙 방향 현황. 확정 버튼 옆에 근거로 보인다. */
+const selectedRule = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e) return null
+  // 설비 자신의 계통이 먼저고, 없으면(원천 기기는 계통 밖인 일이 흔하다) 붙은 연결의 규칙 계통을 쓴다.
+  const touching = m.connections.filter((c) => c.inferred && (c.from === e.id || c.to === e.id))
+  const systemId = e.systemId && ruleReport.value?.bySystem[e.systemId] ? e.systemId : touching[0]?.inferred?.systemId
+  if (!systemId) return null
+  const system = systemById.value.get(systemId)
+  const tally = ruleReport.value?.bySystem[systemId]
+  const own = m.connections.filter((c) => c.inferred?.systemId === systemId)
+  const checked = tally ? tally.agree + tally.disagree : 0
+  return {
+    systemId,
+    name: system?.name || systemId,
+    kind: systemKind(system?.kind)?.label ?? '',
+    count: own.length,
+    confirmed: own.length > 0 && own.every((c) => c.inferred!.confirmed),
+    agree: tally?.agree ?? 0,
+    checked,
+    pct: checked > 0 ? Math.round(((tally?.agree ?? 0) / checked) * 100) : null,
+  }
+})
+
+function confirmRule(systemId: string, systemName: string) {
+  if (!model.value) return
+  const n = confirmSystemFlow(model.value, systemId)
+  if (n === 0) return
+  confirmations.value = [...confirmations.value, { systemName, count: n }]
+  flowVersion.value++
+}
+
 // 바로 붙은 이웃. 몇 개인지보다 무엇에 붙어 있는지가 먼저 궁금한 자리다.
 const selectedNeighbors = computed(() => {
   if (!model.value || !selectedId.value) return []
-  return neighbors(model.value.connections, selectedId.value).map((n) => ({
+  const id = selectedId.value
+  // 포트가 방향을 말하지 않은 이웃에 규칙 방향이 있으면 같이 적는다. 출처 칸이 둘을 가른다.
+  const ruleOf = new Map<string, { relation: 'upstream' | 'downstream'; confirmed: boolean }>()
+  for (const c of model.value.connections) {
+    if (c.directed || !c.inferred) continue
+    if (c.inferred.from === id) ruleOf.set(c.inferred.to, { relation: 'downstream', confirmed: c.inferred.confirmed })
+    else if (c.inferred.to === id) ruleOf.set(c.inferred.from, { relation: 'upstream', confirmed: c.inferred.confirmed })
+  }
+  return neighbors(model.value.connections, id).map((n) => ({
     ...n,
+    rule: n.relation === 'linked' ? (ruleOf.get(n.id) ?? null) : null,
     name: equipmentById.value.get(n.id)?.name || equipmentById.value.get(n.id)?.ifcClass || n.id,
   }))
 })
@@ -220,6 +287,53 @@ const ROLE_LABEL: Record<NonNullable<Equipment['role']>, string> = {
   sensing: '계측',
 }
 const roleLabel = (role: Equipment['role']) => (role ? ROLE_LABEL[role] : '')
+const kindLabel = (e: Equipment) => equipmentKind(e.kind)?.label ?? ''
+
+// --- 종류와 관제점 후보 --------------------------------------------------------------
+//
+// 이름 사전(kinds.ts)으로 읽은 것을 한 칸에 모은다. IFC2x3·Proxy 파일에서는 설비 종류와 Brick 클래스가
+// 여기서만 나오므로, 무엇을 알아봤고 무엇을 몰랐는지가 한눈에 보여야 사전을 고칠 수 있다.
+const kindSummary = computed(() => {
+  const m = model.value
+  if (!m) return null
+  const devices = m.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
+  const byKind = new Map<string, { label: string; brick: string; count: number; located: number; point: boolean }>()
+  let unknown = 0
+  for (const e of devices) {
+    const info = equipmentKind(e.kind)
+    if (!info) {
+      unknown++
+      continue
+    }
+    const row = byKind.get(info.kind) ?? { label: info.label, brick: info.brick ?? '(ex:)', count: 0, located: 0, point: !!info.point }
+    row.count++
+    if (e.spaceId) row.located++
+    byKind.set(info.kind, row)
+  }
+  const order = new Map(EQUIPMENT_KINDS.map((k, i) => [k.label, i]))
+  const kinds = [...byKind.values()].sort((a, b) => b.count - a.count || (order.get(a.label)! - order.get(b.label)!))
+  const spaces = m.storeys.flatMap((s) => s.spaces)
+  const rooms = new Map<string, number>()
+  for (const sp of spaces) {
+    const label = roomKind(sp.kind)?.label
+    if (label) rooms.set(label, (rooms.get(label) ?? 0) + 1)
+  }
+  const systems = new Map<string, number>()
+  for (const sy of m.systems) {
+    const label = systemKind(sy.kind)?.label ?? '(종류 모름)'
+    systems.set(label, (systems.get(label) ?? 0) + 1)
+  }
+  return {
+    devices: devices.length,
+    unknown,
+    kinds,
+    points: kinds.filter((k) => k.point),
+    roomsKnown: [...rooms.values()].reduce((a, b) => a + b, 0),
+    roomsTotal: spaces.length,
+    rooms: [...rooms].sort((a, b) => b[1] - a[1]),
+    systems: [...systems].sort((a, b) => b[1] - a[1]),
+  }
+})
 
 // 형상으로 이은 연결에 거리를 붙여 보여 준다. 기본 판정에서 붙은 것과 고립된 요소를
 // 살리려고 넓혀서 붙인 것은 확신의 정도가 달라서, 검토하는 사람이 구별할 수 있어야 한다.
@@ -253,10 +367,10 @@ function toggleSystem(id: string) {
   if (selectedSystemId.value) selectedId.value = null
 }
 
-watch([selectedId, selectedSystemId, model], () => {
+watch([selectedId, selectedSystemId, model, showRules], () => {
   if (!viewer) return
 
-  const t = traced.value
+  const t = tracedShown.value
   if (selectedId.value && t) {
     viewer.setHighlight({
       selected: selectedId.value,
@@ -285,7 +399,7 @@ watch([selectedId, selectedSystemId, model], () => {
 
 /** 고른 것과 이어진 것 전체가 화면에 들어오게 시점을 맞춘다. */
 function frameNetwork() {
-  const t = traced.value
+  const t = tracedShown.value
   if (!selectedId.value || !t) return
   viewer?.frame([selectedId.value, ...t.upstream, ...t.downstream, ...t.linked])
 }
@@ -360,6 +474,9 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     const api = await ifcApi()
     const result = importIfcWithMeshes(api, new Uint8Array(await read()))
     meshes = result.meshes
+    // 임포터가 이미 한 번 돌렸다. 계통별 채점표를 화면이 쓰려고 다시 받는다(같은 입력이면 같은 결과다).
+    ruleReport.value = inferFlowByRules(result.model)
+    confirmations.value = []
     model.value = result.model
     fileName.value = name
     mergeReport.value = null
@@ -408,6 +525,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     const merged = mergeModels(base.model, overlay.model, { base: base.name, overlay: overlay.name })
 
     meshes = new Map([...meshes, ...next.meshes])
+    ruleReport.value = inferFlowByRules(merged.model)
     model.value = merged.model
     mergeReport.value = merged.report
     fileName.value = `${base.name} + ${overlay.name}`
@@ -472,7 +590,10 @@ const unlocatedLine = computed(() => {
 })
 
 // 열린 모델의 등급 칩. 파일 목록의 칩과 같은 계산이라, 덧붙인 뒤 어느 칸이 찼는지 견줄 수 있다.
-const currentTiers = computed(() => (model.value ? profileOf(model.value).tiers : []))
+const currentTiers = computed(() => {
+  void flowVersion.value
+  return model.value ? profileOf(model.value).tiers : []
+})
 
 const warnings = computed(() => [...(model.value?.warnings ?? []), ...(unlocatedLine.value ? [unlocatedLine.value] : [])])
 
@@ -659,7 +780,7 @@ function exportTTL() {
           <div>
             <h3>{{ selected.name || '(이름 없음)' }}</h3>
             <p class="stats">
-              {{ selected.ifcClass }}<template v-if="roleLabel(selected.role)"> ({{ roleLabel(selected.role) }})</template> ·
+              <template v-if="kindLabel(selected)">{{ kindLabel(selected) }} · </template>{{ selected.ifcClass }}<template v-if="roleLabel(selected.role)"> ({{ roleLabel(selected.role) }})</template> ·
               {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }} ·
               {{ spaceNameOf(selected.spaceId) }}
             </p>
@@ -682,20 +803,57 @@ function exportTTL() {
           </li>
         </ul>
 
+        <!-- 규칙 방향. 위 숫자는 BIM 포트가 말한 것만이고, 여기부터가 계통·설비 종류로 정한 것이다. -->
+        <div v-if="tracedRules" class="rule-box">
+          <p>
+            <span class="tag-rule">규칙 방향</span>
+            넣으면 상류 <b>{{ tracedRules.upstream.size }}</b> · 하류 <b>{{ tracedRules.downstream.size }}</b> ·
+            방향 모름 <b>{{ tracedRules.linked.size }}</b>
+            <label class="rule-toggle">
+              <input v-model="showRules" type="checkbox" />
+              3D 에 규칙 방향도 칠하기
+            </label>
+          </p>
+          <p v-if="selectedRule" class="rule-system">
+            계통 <b>{{ selectedRule.name }}</b><template v-if="selectedRule.kind"> ({{ selectedRule.kind }})</template>:
+            규칙으로 방향을 준 연결 {{ selectedRule.count }}개.
+            <template v-if="selectedRule.pct !== null">
+              같은 규칙을 포트가 방향을 말한 연결 {{ selectedRule.checked }}개에 대 보면
+              <b :class="{ low: selectedRule.pct < 80 }">{{ selectedRule.pct }}%</b> 가 맞는다.
+            </template>
+            <template v-else> 포트가 방향을 말한 연결이 없어 대 볼 수 없다.</template>
+            <button
+              v-if="!selectedRule.confirmed"
+              type="button"
+              class="ghost"
+              :disabled="selectedRule.count === 0"
+              @click="confirmRule(selectedRule.systemId, selectedRule.name)"
+            >
+              이 계통 방향 확정
+            </button>
+            <span v-else class="confirmed">확정함 · brick:feeds 로 나갑니다</span>
+          </p>
+          <p v-if="selectedRule && selectedRule.pct !== null && selectedRule.pct < 80" class="hint">
+            일치율이 낮습니다. 확정하기 전에 3D 에서 흐름을 확인하세요.
+          </p>
+        </div>
+
         <p v-if="selectedNeighbors.length === 0" class="hint">
           이 설비에 붙은 연결이 없습니다.
         </p>
         <table v-else class="neighbors">
           <tbody>
             <tr v-for="(n, i) in selectedNeighbors" :key="`${n.id}-${i}`">
-              <td :class="['rel', n.relation]">
-                {{ n.relation === 'upstream' ? '상류' : n.relation === 'downstream' ? '하류' : '연결' }}
+              <td :class="['rel', n.rule ? n.rule.relation : n.relation]">
+                <template v-if="n.rule">{{ n.rule.relation === 'upstream' ? '상류' : '하류' }}</template>
+                <template v-else>{{ n.relation === 'upstream' ? '상류' : n.relation === 'downstream' ? '하류' : '연결' }}</template>
               </td>
               <td>
                 <button type="button" class="link" @click="select(n.id)">{{ n.name }}</button>
               </td>
               <td class="muted">
-                {{ n.source === 'port' ? 'BIM 포트' : sourceLabel(n.tolerance) }}
+                {{ n.source === 'port' ? 'BIM 포트' : sourceLabel(n.tolerance)
+                }}<template v-if="n.rule"> · {{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }}</template>
               </td>
             </tr>
           </tbody>
@@ -742,6 +900,61 @@ function exportTTL() {
               </tr>
             </tbody>
           </table>
+        </Fold>
+
+        <Fold
+          v-if="kindSummary"
+          title="종류와 관제점 후보"
+          :meta="`기기 종류 ${kindSummary.kinds.length}종 · 모름 ${kindSummary.unknown}대 · 관제점 후보 ${kindSummary.points.reduce((n, k) => n + k.count, 0)}`"
+          :default-open="false"
+          class="kinds"
+        >
+          <p class="hint">
+            이름(Revit 패밀리 이름)을 사전으로 읽어 종류와 Brick 클래스를 붙였습니다. 사전에 없는 이름은 종류를 붙이지 않습니다.
+          </p>
+          <div class="kind-grid">
+            <table>
+              <thead>
+                <tr><th>기기 종류</th><th class="num">대수</th><th>Brick</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="k in kindSummary.kinds" :key="k.label">
+                  <td>{{ k.label }}</td>
+                  <td class="num mono">{{ k.count }}</td>
+                  <td class="muted mono">{{ k.brick }}</td>
+                </tr>
+                <tr v-if="kindSummary.unknown">
+                  <td class="muted">(사전에 없음)</td>
+                  <td class="num mono">{{ kindSummary.unknown }}</td>
+                  <td class="muted mono">ex:</td>
+                </tr>
+              </tbody>
+            </table>
+            <div>
+              <h4>관제점 후보 (F13)</h4>
+              <p v-if="!kindSummary.points.length" class="empty">감지기·CCTV 가 없습니다.</p>
+              <ul v-else class="plain">
+                <li v-for="k in kindSummary.points" :key="k.label">
+                  {{ k.label }} <b class="mono">{{ k.count }}</b>
+                  <span class="muted"> · 소속 방 {{ k.located }}</span>
+                </li>
+              </ul>
+              <p class="hint">위치와 소속 방은 나와 있습니다. 관제점 ID 는 BAS 에서 받아 이어야 합니다.</p>
+              <h4>방 종류</h4>
+              <p class="muted">{{ kindSummary.roomsKnown }} / {{ kindSummary.roomsTotal }} 개를 알아봤습니다.</p>
+              <ul class="plain">
+                <li v-for="[label, n] in kindSummary.rooms" :key="label">{{ label }} <b class="mono">{{ n }}</b></li>
+              </ul>
+              <h4>계통 종류</h4>
+              <ul class="plain">
+                <li v-for="[label, n] in kindSummary.systems" :key="label">{{ label }} <b class="mono">{{ n }}</b></li>
+              </ul>
+              <p v-if="ruleReport && ruleReport.agree + ruleReport.disagree > 0" class="hint">
+                규칙 방향 {{ ruleReport.oriented }}개. 같은 규칙을 포트 방향 {{ ruleReport.agree + ruleReport.disagree }}개에 대 보면
+                {{ Math.round((ruleReport.agree / (ruleReport.agree + ruleReport.disagree)) * 100) }}% 가 맞습니다.
+              </p>
+            </div>
+          </div>
         </Fold>
 
         <!-- 편집. 3D 조작 대신 값을 직접 고친다. PoC 에서 확인할 것은 조작감이 아니라
@@ -852,7 +1065,7 @@ function exportTTL() {
                          설비 목록에서 찾은 것을 3D 에서 다시 찾아야 한다. -->
                     <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
                   </td>
-                  <td class="muted">{{ e.ifcClass }}</td>
+                  <td class="muted">{{ e.ifcClass }}<template v-if="kindLabel(e)"> · {{ kindLabel(e) }}</template></td>
                   <td v-for="axis in [0, 1, 2]" :key="axis" class="num">
                     <input
                       class="coord mono"
@@ -875,12 +1088,15 @@ function exportTTL() {
           </Fold>
 
           <h3>바뀌는 것 (PRD #21)</h3>
-          <ul v-if="report.length || areaChanges.length" class="report">
+          <ul v-if="report.length || areaChanges.length || confirmations.length" class="report">
             <li v-for="c in report" :key="c.equipmentId">
               {{ c.equipmentName }}:
               <b>{{ spaceNameOf(c.fromSpaceId) }}</b> → <b>{{ spaceNameOf(c.toSpaceId) }}</b>
             </li>
             <li v-if="areaSummary" class="muted">{{ areaSummary }}</li>
+            <li v-for="(c, i) in confirmations" :key="`rule-${i}`">
+              계통 <b>{{ c.systemName }}</b>: 규칙 방향 {{ c.count }}개를 확정했습니다(brick:feeds 로 나갑니다)
+            </li>
           </ul>
           <p v-else class="empty">아직 바뀐 소속 관계가 없습니다.</p>
         </section>

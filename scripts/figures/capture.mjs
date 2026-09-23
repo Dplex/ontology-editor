@@ -89,7 +89,7 @@ const jobs = {
     await page.locator('.edit-filter input').fill('Valve')
     // 칠할 것이 가장 많은 기기를 고른다. 3D 를 클릭하면 화면 크기에 따라 흔들리니 표에서 고른다.
     const rows = page.locator('.equipment tbody tr', {
-      has: page.locator('td.muted', { hasText: /^(Boiler|UnitaryEquipment|AirTerminal|SpaceHeater|Valve)$/ }),
+      has: page.locator('td.muted', { hasText: /^(Boiler|UnitaryEquipment|AirTerminal|SpaceHeater|Valve)\b/ }),
     })
     const n = Math.min(await rows.count(), 60)
     let best = { i: -1, score: -1 }

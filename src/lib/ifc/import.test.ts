@@ -414,3 +414,46 @@ describe('구문이 깨진 파일', () => {
     expect(() => importIfc(api, bytes)).toThrow(/작은따옴표/)
   })
 })
+
+// 입력은 fixtures/proxy.ifc 다. Revit 이 공조기·FCU 를 IfcBuildingElementProxy 로 내보낸 경우를 줄였다.
+describe('Proxy 로 들어온 설비', () => {
+  let proxy: Model
+
+  beforeAll(async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const path = fileURLToPath(new URL('./fixtures/proxy.ifc', import.meta.url))
+    proxy = importIfc(api, new Uint8Array(readFileSync(path)))
+  }, 60_000)
+
+  const byName = (prefix: string) => proxy.storeys.flatMap((s) => s.equipment).find((e) => e.name.startsWith(prefix))
+
+  it('포트가 있는 Proxy 를 설비로 받고, 이름으로 종류와 역할을 붙인다', () => {
+    expect(byName('FCU3')).toMatchObject({ ifcClass: 'BuildingElementProxy', kind: 'fcu', role: 'conversion', objectType: 'FCU3:FCU3' })
+  })
+
+  it('포트가 없어도 이름이 사전에 있으면 받는다(관제점 후보)', () => {
+    expect(byName('Security_Camera')).toMatchObject({ kind: 'camera', role: 'sensing' })
+  })
+
+  it('포트도 없고 이름도 모르는 Proxy 는 받지 않는다', () => {
+    // 휠스톱 같은 건축 부재를 설비로 세면 대수가 부푼다.
+    expect(byName('RThisWheelStops')).toBeUndefined()
+    expect(countOf(proxy).equipment).toBe(4)
+  })
+
+  it('계통 종류를 ObjectType 에서 읽는다', () => {
+    expect(proxy.systems[0]).toMatchObject({ name: 'Supply Air 1', kind: 'supply_air' })
+  })
+
+  it('SOURCEANDSINK 뿐인 연결에 규칙 방향을 주되, 포트 방향으로 섞지 않는다', () => {
+    expect(proxy.connections.every((c) => !c.directed)).toBe(true)
+    const fcu = byName('FCU3')!.id
+    const duct = byName('Rectangular Duct')!.id
+    const diffuser = byName('Supply Diffuser')!.id
+    const arrows = proxy.connections.map((c) => [c.inferred?.from, c.inferred?.to])
+    expect(arrows).toContainEqual([fcu, duct])
+    expect(arrows).toContainEqual([duct, diffuser])
+    expect(proxy.warnings.some((w) => w.includes('Proxy(IfcBuildingElementProxy) 2개'))).toBe(true)
+  })
+})

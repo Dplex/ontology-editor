@@ -14,6 +14,7 @@
 // 모델이 같은 자리를 차지하는지부터 재고, 결과를 보고서로 돌려준다.
 
 import { assignEquipmentToSpaces, interiorPoint, pointInPolygon } from './mapping'
+import { inferFlowByRules } from './flow-rules'
 import type { Connection, Model, Space, Storey, System, Vec2 } from './model'
 
 /** 두 층의 높이가 이 안이면 같은 층으로 본다(미터). 저작 도구의 반올림을 흡수할 만큼만 둔다. */
@@ -277,6 +278,9 @@ export function mergeModels(
   }
 
   assignEquipmentToSpaces(merged)
+  // 규칙 방향도 합친 뒤 다시 정한다. 공조기는 설비 파일에, 계통은 다른 파일에 있을 수 있어서
+  // 한 파일 안에서 정한 방향만으로는 모자란다. 확정된 것은 그대로 둔다(inferFlowByRules 주석).
+  inferFlowByRules(merged)
 
   const report: MergeReport = {
     storeys: storeyReport,

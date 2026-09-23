@@ -10,6 +10,8 @@
 
 import { isConduit, type Equipment, type Model } from '../model'
 import { deviceFlows } from '../topology'
+import { equipmentKind, roomKind } from '../kinds'
+import { withInferred } from '../flow-rules'
 
 const PREFIXES = [
   '@prefix brick: <https://brickschema.org/schema/Brick#> .',
@@ -77,7 +79,9 @@ const BRICK_CLASS: Record<string, string> = {
 export function classOf(equipment: Equipment): string {
   if (equipment.role === 'segment') return 'fso:Segment'
   if (equipment.role === 'fitting') return 'fso:Fitting'
-  return BRICK_CLASS[equipment.ifcClass] ?? `ex:${equipment.ifcClass}`
+  // 이름으로 안 종류가 IFC 클래스보다 먼저다. IFC2x3 은 클래스가 전부 추상적이라(`FlowTerminal`)
+  // 종류를 말하는 곳이 이름뿐이고, Proxy 는 클래스 자체가 아무것도 말하지 않는다.
+  return equipmentKind(equipment.kind)?.brick ?? BRICK_CLASS[equipment.ifcClass] ?? `ex:${equipment.ifcClass}`
 }
 
 function label(text: string): string {
@@ -115,9 +119,11 @@ export function modelToTTL(model: Model): string {
   // (deviceFlows 주석 참조) — 이어 붙인 결과도 BIM 포트가 말한 것이어야 한다.
   const all = model.storeys.flatMap((s) => s.equipment)
   const conduits = new Set(all.filter((e) => isConduit(e.role)).map((e) => e.id))
-  const flows = deviceFlows(model.connections, (id) => conduits.has(id), all.filter((e) => !conduits.has(e.id)).map((e) => e.id))
+  // **규칙 방향은 사람이 확정한 것만 넣는다**(flow-rules.ts). 확정 전의 것은 화면에서만 보인다.
+  const connections = withInferred(model.connections, true)
+  const flows = deviceFlows(connections, (id) => conduits.has(id), all.filter((e) => !conduits.has(e.id)).map((e) => e.id))
   const feeds = new Map<string, string[]>()
-  for (const c of model.connections) {
+  for (const c of connections) {
     if (!c.directed) continue
     feeds.set(c.from, [...(feeds.get(c.from) ?? []), c.to])
   }
@@ -141,7 +147,9 @@ export function modelToTTL(model: Model): string {
 
     for (const space of storey.spaces) {
       // 사람이 부르는 이름이 LongName 에 있고, Name 은 방 번호인 일이 많다. 둘 다 남긴다.
-      lines.push(`${ref(space.id)} a brick:Room ;`)
+      // 방 종류를 이름으로 알면 Brick 방 하위 클래스 하나로 적는다. 받는 쪽 파서는 `a` 뒤 클래스를
+      // 하나만 읽으므로 `brick:Room, brick:Office` 처럼 둘을 적지 않는다(kinds.ts 의 ROOM_KINDS 주석).
+      lines.push(`${ref(space.id)} a ${roomKind(space.kind)?.brick ?? 'brick:Room'} ;`)
       lines.push(`    rdfs:label ${label(space.longName || space.name)} ;`)
       lines.push(`    ex:roomNumber ${label(space.name)} ;`)
       lines.push(`    ex:areaM2 ${Number(space.areaM2.toFixed(4))} .`)

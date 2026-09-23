@@ -61,7 +61,8 @@ describe('Brick TTL', () => {
     const ttl = modelToTTL(model)
     expect(ttl).toContain('a brick:Building ;')
     expect(ttl).toContain('a brick:Floor ;')
-    expect(ttl).toContain('a brick:Room ;')
+    // 방 이름으로 종류를 알면 Brick 방 하위 클래스로 나간다(kinds.ts). 회의실은 Conference_Room 이다.
+    expect(ttl).toContain('a brick:Conference_Room ;')
     expect(ttl).toContain('brick:hasPart ex:0PoC\\$Storey\\$1F\\$00000, ex:0PoC\\$Storey\\$2F\\$00000 .')
   })
 
@@ -83,7 +84,7 @@ describe('두 파일을 잇는 id', () => {
 
     expect(ids).toHaveLength(3)
     for (const id of ids) {
-      expect(ttl).toContain(`ex:${escapeLocalName(id)} a brick:Room`)
+      expect(ttl).toContain(`ex:${escapeLocalName(id)} a brick:`)
     }
   })
 })
