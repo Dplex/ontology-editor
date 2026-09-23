@@ -40,3 +40,7 @@ desktop.ini
 
 # web-ifc 릴리스 바이트 그대로다. scripts/sync-wasm.mjs 가 node_modules 에서 복사한다.
 public/web-ifc.wasm
+
+# ---- 정적 서버(scripts/run.sh) ----
+/run/
+/log/
