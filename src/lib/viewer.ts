@@ -225,6 +225,33 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     pickHandler(pick(raycaster.ray))
   })
 
+  // 누르면 고를 수 있는 곳에 올라가 있으면 손가락 모양으로 바꾼다. 고르는 것과 같은 pick 을 쓰므로
+  // 흐리게 칠한 설비 위에서는 바뀌지 않는다. 마우스가 움직일 때마다 재지 않고 한 프레임에 한 번만 잰다.
+  // 시점이 바뀌어도(휠로 확대) 마우스 아래가 달라지니 다시 잰다.
+  let hoverAt: { x: number; y: number } | null = null
+  let hoverPending = false
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.buttons !== 0) return // 끄는 중에는 시점을 돌리는 것이지 고르려는 것이 아니다.
+    hoverAt = { x: e.clientX, y: e.clientY }
+    hoverPending = true
+  })
+  canvas.addEventListener('pointerleave', () => {
+    hoverAt = null
+    canvas.style.cursor = ''
+  })
+  controls.addEventListener('change', () => {
+    if (hoverAt) hoverPending = true
+  })
+  function updateHover() {
+    hoverPending = false
+    if (!hoverAt) return
+    const rect = canvas.getBoundingClientRect()
+    pointer.x = ((hoverAt.x - rect.left) / rect.width) * 2 - 1
+    pointer.y = -((hoverAt.y - rect.top) / rect.height) * 2 + 1
+    raycaster.setFromCamera(pointer, camera)
+    canvas.style.cursor = pick(raycaster.ray) ? 'pointer' : ''
+  }
+
   /**
    * 광선에 맞은 설비. 합친 형상의 삼각형 수백만 개를 전부 보지 않고, 설비별 상자에 먼저 맞춰 본 뒤
    * 맞은 설비의 삼각형만 본다. 흐리게 칠한 설비는 고르지 않는다(보이지 않는 것을 고르면 헷갈린다).
@@ -280,6 +307,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       renderer.render(scene, camera)
       dirty = false
     }
+    if (hoverPending) updateHover()
     requestAnimationFrame(tick)
   }
   tick()
@@ -504,6 +532,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       fadedIds = nextFaded
       if (changed) splitIndex()
       dirty = true
+      // 흐리게 칠한 것은 고를 수 없으니, 계통을 바꾸면 마우스 아래가 고를 수 있는지도 바뀐다.
+      if (changed && hoverAt) hoverPending = true
     },
 
     onPick(handler) {

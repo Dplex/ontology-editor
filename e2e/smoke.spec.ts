@@ -210,3 +210,36 @@ test('3D 를 전체 화면으로 띄워도 고른 설비 패널이 같이 보인
 
   expect(errors).toEqual([])
 })
+
+test('3D 에서 누를 수 있는 곳에 올라가면 커서가 손가락이 되고, 거기를 누르면 설비가 골라진다', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  // 설비가 작게 보이면 격자로 훑어도 못 맞춘다. 연결망에 맞춰 크게 본 뒤 선택을 푼다.
+  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
+  await page.getByRole('button', { name: '연결망에 맞추기' }).click()
+  await page.getByRole('button', { name: '선택 해제' }).click()
+
+  const canvas = page.locator('.viewport canvas')
+  const box = (await canvas.boundingBox())!
+  const cursor = () => canvas.evaluate((el) => el.style.cursor)
+  const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+
+  // 커서는 픽셀을 찍어서 찾는다. 설비 위치를 화면 좌표로 알려 주는 길이 없고, 그게 사람이 하는 일과도 같다.
+  let hit: { x: number; y: number } | null = null
+  for (let j = 1; j < 16 && !hit; j++) {
+    for (let i = 1; i < 24 && !hit; i++) {
+      const x = box.x + (box.width * i) / 24
+      const y = box.y + (box.height * j) / 16
+      await page.mouse.move(x, y)
+      await settle()
+      if ((await cursor()) === 'pointer') hit = { x, y }
+    }
+  }
+  expect(hit).not.toBeNull()
+  await page.mouse.click(hit!.x, hit!.y)
+  await expect(page.locator('.picked')).toBeVisible()
+
+  await page.mouse.move(box.x + box.width + 50, box.y + box.height + 50)
+  await expect.poll(cursor).toBe('')
+})
