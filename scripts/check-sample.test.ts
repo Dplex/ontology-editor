@@ -258,13 +258,19 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH))('문이 잇는 
   it('벽의 평면 외곽선과 문·창의 자리를 형상에서 읽는다', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
-    const model = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_ARCH))).model
+    const bytes = new Uint8Array(readFileSync(DUPLEX_ARCH))
+    const model = importIfcWithMeshes(api, bytes, undefined, { openings: true }).model
     const walls = model.storeys.flatMap((s) => s.walls)
     const openings = model.storeys.flatMap((s) => s.openings)
     expect(walls.filter((w) => w.footprint?.length)).toHaveLength(57)
     expect(openings.filter((o) => o.position)).toHaveLength(38)
     // 공간 경계가 있는 파일이라 문이 잇는 방은 전부 BIM 에서 온다.
     expect(openings.filter((o) => o.kind === 'door' && o.connectsSource === 'bim')).toHaveLength(14)
+
+    // 문·창 형상은 로봇 경로용이라 기본은 읽지 않는다. 공간 경계가 말한 문-방은 형상이 없어도 나온다.
+    const plain = importIfcWithMeshes(api, bytes).model.storeys.flatMap((s) => s.openings)
+    expect(plain.filter((o) => o.position)).toHaveLength(0)
+    expect(plain.filter((o) => o.kind === 'door' && o.connectsSource === 'bim')).toHaveLength(14)
   })
 })
 

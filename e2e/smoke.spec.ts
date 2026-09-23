@@ -362,3 +362,13 @@ test('완전성 검사는 규칙마다 통과 수를 세고, 어긴 것을 펼�
   await first.click()
   await expect(page.locator('.picked h3')).toHaveText(name)
 })
+
+test('문·창 형상은 기본으로 읽지 않고, 파일을 열기 전에 켤 수 있다', async ({ page }) => {
+  await page.goto('/')
+  const option = page.getByRole('checkbox', { name: /문·창 형상도 읽기/ })
+  await expect(option).not.toBeChecked()
+  await option.check()
+  await page.reload()
+  // 고른 값은 이 브라우저가 기억한다.
+  await expect(page.getByRole('checkbox', { name: /문·창 형상도 읽기/ })).toBeChecked()
+})

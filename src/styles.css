@@ -1493,3 +1493,19 @@ th {
   margin-left: 0.35rem;
   font-size: 0.78rem;
 }
+
+/* 파일을 열 때 고르는 선택. 파일 선택 버튼 아래 한 줄로 둔다. */
+.read-option {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.35rem;
+  margin-top: 0.9rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.read-option .muted {
+  font-size: 0.78rem;
+}

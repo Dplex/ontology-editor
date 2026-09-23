@@ -553,8 +553,8 @@ IFC에 자리가 있는지, 실제 파일이 채웠는지, 우리 코드가 읽�
 |---|---|---|---|---|---|
 | 방 종류 | Agent의 "회의실", 탐색기 | `IfcSpace.PredefinedType`, OmniClass Table 13 속성 | `PredefinedType` 0/4 파일. OmniClass Duplex 건축 **21/21**, AC20 0/7 | 방 이름 사전으로 Brick 방 하위 클래스(`brick:Office`, `brick:Restroom` …). 성수 건축 159/934. 표준 필드(OmniClass)는 아직 읽지 않는다 | TTL 클래스. 술어가 늘지 않는다 |
 | 방 높이 | 3D Map(복층·층고) | `Qto_SpaceBaseQuantities.Height` | AC20 **7/7**(2.5m·4m) | 층 높이만 | GeoJSON |
-| 방-문-방 연결 | 로봇 경로, 피난 | 문이 걸린 `IfcRelSpaceBoundary` | 두 방을 잇는 문 AC20 3/5, Duplex 건축 **9/14**. COBie 판본과 성수 건축은 경계가 없어 0 | 공간 경계가 있으면 그것을, 없으면 문 양쪽을 좌표로 짚는다. 공간 경계를 정답지로 대 보면 18/19 가 맞는다(외곽선이 있는 방 기준). 성수 건축은 문 528개 중 방 둘을 잇는 것 233개 | GeoJSON 문 feature 의 `connects`. Brick 에 인접 관계가 없어 TTL 술어를 늘리지 않았다 |
-| 벽·문·창 위치 | 3D Map, 로봇 | `ObjectPlacement` + 형상 | 확인한 파일 전부 있다 | 형상에서 읽는다. 벽은 맨 아래 면의 테두리로 평면 외곽선을, 문·창은 평면 중심을 잡는다(배치점은 믿지 않는다). 성수 건축 벽 1,291개·개구부 591개 전부 | GeoJSON(벽은 Polygon, 문·창은 Point) |
+| 방-문-방 연결 | 로봇 경로, 피난 | 문이 걸린 `IfcRelSpaceBoundary` | 두 방을 잇는 문 AC20 3/5, Duplex 건축 **9/14**. COBie 판본과 성수 건축은 경계가 없어 0 | 공간 경계가 있으면 그것을 늘 읽고, 없으면 문·창 형상을 읽도록 켰을 때 문 양쪽을 좌표로 짚는다. 공간 경계를 정답지로 대 보면 18/19 가 맞는다(외곽선이 있는 방 기준). 성수 건축은 문 528개 중 방 둘을 잇는 것 233개 | GeoJSON 문 feature 의 `connects`. Brick 에 인접 관계가 없어 TTL 술어를 늘리지 않았다 |
+| 벽·문·창 위치 | 3D Map, 로봇 | `ObjectPlacement` + 형상 | 확인한 파일 전부 있다 | 형상에서 읽는다. 벽은 맨 아래 면의 테두리로 평면 외곽선을, 문·창은 평면 중심을 잡는다(배치점은 믿지 않는다). 성수 건축 벽 1,291개·개구부 591개 전부. 문·창 형상은 로봇 경로용이라 파일을 열 때 켤 때만 읽는다(성수 건축에서 약 7초 더 걸린다) | GeoJSON(벽은 Polygon, 문·창은 Point) |
 | 설비 종류 → Brick 클래스 | 이상 알림 분류, Agent | IFC4 구체 클래스·`PredefinedType`. IFC2x3은 `ObjectType` 문자열뿐 | `PredefinedType` 말단 기준 0%. ifc4Mep은 구체 클래스가 있다 | Revit 패밀리 이름 사전(25종)과 IFC4 클래스로 Brick 클래스. 사전에 없으면 `ex:FlowTerminal` 등 | TTL 클래스 |
 | 유체 종류 | 계통도(냉수·온수·급수·오수) | Revit `System Type` 속성, `IfcSystem` 의 ObjectType | Duplex MEP 811/926, 성수 기계 계통 1,037개 전부 | 계통 종류(급기·환기·배기·순환수 공급/환수·급탕·급수)를 읽어 규칙 방향에 쓴다. TTL 로는 아직 내보내지 않는다 | TTL 계통 클래스 |
 | 자산 정보 | 자산 관리, 유지보수 | COBie 속성(시리얼·보증·수명) | Duplex MEP **926/926** | 읽지 않는다 | 온톨로지 밖(자산 대장)이거나 새 술어. 정해야 한다 |

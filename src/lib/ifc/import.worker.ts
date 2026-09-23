@@ -9,12 +9,12 @@
 // 그만큼 메모리가 두 배로 잠깐 뛴다.
 
 import * as WebIFC from 'web-ifc'
-import { importIfcWithMeshes } from './import'
+import { importIfcWithMeshes, type ImportOptions } from './import'
 
 let ready: Promise<WebIFC.IfcAPI> | null = null
 
-self.onmessage = async (event: MessageEvent<{ bytes: ArrayBuffer; wasmBase: string }>) => {
-  const { bytes, wasmBase } = event.data
+self.onmessage = async (event: MessageEvent<{ bytes: ArrayBuffer; wasmBase: string; options?: ImportOptions }>) => {
+  const { bytes, wasmBase, options } = event.data
   try {
     ready ??= (async () => {
       const api = new WebIFC.IfcAPI()
@@ -23,9 +23,14 @@ self.onmessage = async (event: MessageEvent<{ bytes: ArrayBuffer; wasmBase: stri
       await api.Init()
       return api
     })()
-    const result = importIfcWithMeshes(await ready, new Uint8Array(bytes), (p) => {
-      self.postMessage({ type: 'progress', progress: p })
-    })
+    const result = importIfcWithMeshes(
+      await ready,
+      new Uint8Array(bytes),
+      (p) => {
+        self.postMessage({ type: 'progress', progress: p })
+      },
+      options,
+    )
     const meshes = [...result.meshes]
     const transfer = meshes.flatMap(([, m]) => [m.positions.buffer, m.normals.buffer, m.indices.buffer])
     self.postMessage({ type: 'done', model: result.model, meshes }, { transfer })

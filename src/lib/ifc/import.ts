@@ -189,8 +189,9 @@ export function anchorToGeometry(equipment: Equipment[], meshes: MeshMap): numbe
 /**
  * 벽의 평면 외곽선과 문·창의 자리를 형상에서 읽고, 문이 잇는 방을 채운다(element-geometry.ts).
  *
- * 문이 잇는 방은 BIM 의 공간 경계를 먼저 쓰고, 없으면 문 양쪽을 좌표로 짚는다. 문·창의 형상은 자리만 재고
- * 버린다. 3D 에 그리지 않으니 메모리에 둘 까닭이 없다.
+ * 문이 잇는 방은 BIM 의 공간 경계를 먼저 쓴다. 이건 형상이 필요 없어서 늘 읽는다. 공간 경계가 없는 문은
+ * `openings` 를 켰을 때만 문 양쪽을 좌표로 짚는다. 문·창의 형상은 자리만 재고 버린다. 3D 에 그리지 않으니
+ * 메모리에 둘 까닭이 없다.
  */
 function placeWallsAndOpenings(
   api: Api,
@@ -199,6 +200,7 @@ function placeWallsAndOpenings(
   wallMeshes: MeshMap,
   globalIdOf: (id: number) => string,
   idsOf: (type: number) => number[],
+  openings: boolean,
 ): void {
   for (const storey of result.storeys) {
     for (const wall of storey.walls) {
@@ -207,7 +209,7 @@ function placeWallsAndOpenings(
     }
   }
 
-  const openingIDs = new Set([...idsOf(WebIFC.IFCDOOR), ...idsOf(WebIFC.IFCWINDOW)])
+  const openingIDs = openings ? new Set([...idsOf(WebIFC.IFCDOOR), ...idsOf(WebIFC.IFCWINDOW)]) : new Set<number>()
   const openingMeshes = readMeshes(api, modelID, openingIDs, globalIdOf)
   const declared = new Map<string, string[]>()
   for (const storey of result.storeys) {
@@ -219,7 +221,7 @@ function placeWallsAndOpenings(
     for (const o of storey.openings) {
       const mesh = openingMeshes.get(o.id)
       const placement = mesh ? openingPlacement(mesh) : null
-      o.position = placement?.position ?? null
+      if (openings) o.position = placement?.position ?? null
       if (o.kind !== 'door') continue
       const bim = declared.get(o.id)
       if (bim?.length) {
@@ -825,12 +827,22 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
  *
  * 포트가 없는 파일이면 이 형상으로 연결을 추정해 모델에 채운다. 방향은 모르는 채로 둔다.
  */
+export type ImportOptions = {
+  /**
+   * 문·창의 형상도 읽어 자리(`Opening.position`)를 잡고, 공간 경계가 없는 파일에서 문이 잇는 방을 좌표로
+   * 짚는다. **온톨로지에는 필요 없다** — 로봇 경로·피난처럼 방-문-방 그래프가 필요할 때만 켠다. 성수 건축에서
+   * 문·창 591개의 형상을 더 읽는다. 공간 경계가 말한 문-방은 이 옵션과 상관없이 늘 읽는다.
+   */
+  openings?: boolean
+}
+
 export function importIfcWithMeshes(
   api: Api,
   bytes: Uint8Array,
   onProgress?: OnProgress,
+  options: ImportOptions = {},
 ): { model: Model; meshes: MeshMap } {
-  return read(api, bytes, true, onProgress)
+  return read(api, bytes, true, onProgress, options)
 }
 
 function read(
@@ -838,6 +850,7 @@ function read(
   bytes: Uint8Array,
   withMeshes: boolean,
   onProgress?: OnProgress,
+  options: ImportOptions = {},
 ): { model: Model; meshes: MeshMap } {
   const stage = (step: number, done?: number, total?: number) =>
     onProgress?.({ stage: IMPORT_STAGES[step], step: step + 1, steps: IMPORT_STAGES.length, done, total })
@@ -1259,7 +1272,7 @@ function read(
       )
     }
 
-    if (withMeshes) placeWallsAndOpenings(api, model, result, wallMeshes, globalIdOf, (id) => r.ids(id, true))
+    placeWallsAndOpenings(api, model, result, wallMeshes, globalIdOf, (id) => r.ids(id, true), withMeshes && !!options.openings)
     for (const [id, mesh] of wallMeshes) meshes.set(id, mesh)
     return { model: result, meshes }
   } finally {

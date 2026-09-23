@@ -92,6 +92,25 @@ watch(mode, (m) => {
   }
 })
 const editing = computed(() => mode.value === 'edit')
+
+// 문·창 형상도 읽을까. 온톨로지에는 필요 없고 로봇 경로(문 자리·문이 잇는 방)용이라 기본은 끈다.
+// 파일을 열 때 정하므로, 바꾸면 다음에 여는 파일부터 적용된다. 이 브라우저에만 기억한다.
+const readOpenings = ref(
+  (() => {
+    try {
+      return localStorage.getItem('oe-read-openings') === '1'
+    } catch {
+      return false
+    }
+  })(),
+)
+watch(readOpenings, (on) => {
+  try {
+    localStorage.setItem('oe-read-openings', on ? '1' : '0')
+  } catch {
+    // 못 써도 이번 창에서는 그대로 돈다.
+  }
+})
 /** 편집 막대에 보이는 바뀐 것의 수. 리포트(바뀌는 것)에 적히는 줄과 같은 단위로 센다. */
 const changeCount = computed(
   () => report.value.length + areaLines.value.length + confirmations.value.length + flowEditLines.value.length,
@@ -825,7 +844,10 @@ function importInWorker(bytes: ArrayBuffer): Promise<{ model: Model; meshes: Mes
       worker = null
       reject(new Error(e.message || '임포트 워커가 멈췄습니다'))
     }
-    w.postMessage({ bytes, wasmBase: new URL(import.meta.env.BASE_URL, location.href).href }, [bytes])
+    w.postMessage(
+      { bytes, wasmBase: new URL(import.meta.env.BASE_URL, location.href).href, options: { openings: readOpenings.value } },
+      [bytes],
+    )
   })
 }
 
@@ -1043,6 +1065,12 @@ function exportTTL() {
       <label class="pick">
         파일 선택
         <input type="file" accept=".ifc" :disabled="busy" @change="onPick" />
+      </label>
+      <!-- 로봇 경로용. 온톨로지에는 없어도 되고 큰 파일은 느려져서 기본은 끈다. 다음에 여는 파일부터 적용된다. -->
+      <label class="read-option">
+        <input v-model="readOpenings" type="checkbox" :disabled="busy" />
+        문·창 형상도 읽기
+        <span class="muted">로봇 경로용(문 자리, 공간 경계가 없을 때 문이 잇는 방). 온톨로지에는 필요 없고 큰 파일은 느려집니다.</span>
       </label>
 
     </section>
@@ -1835,6 +1863,7 @@ function exportTTL() {
         <p class="note">
           두 파일은 같은 id 로 이어집니다. 기하는 GeoJSON 이 갖고, 설비와 계통은 TTL 이 갖습니다.
           벽·문·창의 자리와 문이 잇는 방은 GeoJSON 에만 있습니다(Brick 에 건축 부재 클래스가 없습니다).
+          문·창의 자리는 "문·창 형상도 읽기" 를 켜고 연 파일에서만 나갑니다.
           TTL 의 설비·방 클래스는 <Src kind="dict" /> 에서 나오고, 규칙 방향은 확정한 계통만 들어갑니다.
         </p>
       </section>
