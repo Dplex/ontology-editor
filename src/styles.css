@@ -617,11 +617,28 @@ th {
 }
 
 /* 범례가 3D 오른쪽에 붙어 있으니, 버튼은 3D 칸 안의 오른쪽 위에 둔다. */
-.fullscreen {
+.view-tools {
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
+  display: flex;
+  gap: 0.4rem;
+}
+
+.view-tools .ghost {
   font-size: 0.8rem;
+}
+
+.view-tools .ghost.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 모양은 .color-key 와 같고 자리만 버튼 아래다. */
+.viewport .wall-key {
+  top: 3.1rem;
+  left: auto;
+  right: 0.75rem;
 }
 
 /* 전체 화면에서는 3D 가 남는 높이를 다 쓰고, 고른 설비 패널은 아래에서 따로 스크롤한다. */
@@ -1039,7 +1056,8 @@ th {
 }
 
 /* 3D 색 풀이. 고른 설비가 있을 때만 뜬다. 오른쪽은 범례 자리라 캔버스 왼쪽 위에 둔다. */
-.color-key {
+.color-key,
+.wall-key {
   position: absolute;
   top: 0.75rem;
   left: 0.75rem;
@@ -1055,13 +1073,15 @@ th {
   list-style: none;
 }
 
-.color-key li {
+.color-key li,
+.wall-key li {
   display: flex;
   align-items: center;
   gap: 0.35rem;
 }
 
-.color-key i {
+.color-key i,
+.wall-key i {
   width: 0.7rem;
   height: 0.7rem;
   border-radius: 0.2rem;

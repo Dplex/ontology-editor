@@ -80,6 +80,15 @@ export const PICK_COLORS = {
   dimmed: 0xc8cdd3,
 }
 
+/**
+ * 내력벽 색. 내력벽 여부를 BIM 이 말하지 않은 벽은 "모름" 으로 따로 칠한다 — 비내력으로 숨기면
+ * 모르는 벽이 내력벽이 아닌 것처럼 보인다. 비내력벽은 그리지 않는다.
+ */
+export const WALL_COLORS = {
+  loadBearing: 0x39424e,
+  unknown: 0xd9a531,
+}
+
 export type Highlight = {
   selected: string | null
   upstream: Set<string>
@@ -153,6 +162,8 @@ export type Viewer = {
   focus(id: string): void
   /** 주어진 설비들이 화면에 꽉 차게 카메라를 맞춘다. 연결망만 보고 싶을 때 쓴다. */
   frame(ids: Iterable<string>): void
+  /** 내력벽(과 내력 여부를 모르는 벽)을 켜고 끈다. 모델을 바꿔도 켜 둔 상태는 남는다. */
+  setWallsVisible(on: boolean): void
   dispose(): void
 }
 
@@ -166,6 +177,49 @@ type Part = {
   iStart: number
   iCount: number
   box: Box3
+}
+
+/** 내력벽과 내력 여부를 모르는 벽을 한 덩어리로 합친다. 형상을 못 얻은 벽은 건너뛴다. */
+function wallMesh(model: Model, meshes?: MeshMap): Mesh | null {
+  const pieces: { color: Color; mesh: { positions: Float32Array; normals: Float32Array; indices: Uint32Array } }[] = []
+  for (const storey of model.storeys) {
+    for (const wall of storey.walls) {
+      if (wall.loadBearing === false) continue
+      const mesh = meshes?.get(wall.id)
+      if (!mesh) continue
+      pieces.push({ color: new Color(wall.loadBearing ? WALL_COLORS.loadBearing : WALL_COLORS.unknown), mesh })
+    }
+  }
+  if (pieces.length === 0) return null
+  let vTotal = 0
+  let iTotal = 0
+  for (const { mesh } of pieces) {
+    vTotal += mesh.positions.length / 3
+    iTotal += mesh.indices.length
+  }
+  const positions = new Float32Array(vTotal * 3)
+  const normals = new Float32Array(vTotal * 3)
+  const colors = new Float32Array(vTotal * 3)
+  const index = new Uint32Array(iTotal)
+  let vo = 0
+  let io = 0
+  for (const { color, mesh } of pieces) {
+    const vCount = mesh.positions.length / 3
+    positions.set(mesh.positions, vo * 3)
+    normals.set(mesh.normals, vo * 3)
+    for (let v = 0; v < vCount; v++) colors.set([color.r, color.g, color.b], (vo + v) * 3)
+    for (let k = 0; k < mesh.indices.length; k++) index[io + k] = mesh.indices[k] + vo
+    vo += vCount
+    io += mesh.indices.length
+  }
+  const geometry = new BufferGeometry()
+  geometry.setAttribute('position', new BufferAttribute(positions, 3))
+  geometry.setAttribute('normal', new BufferAttribute(normals, 3))
+  geometry.setAttribute('color', new BufferAttribute(colors, 3))
+  geometry.setIndex(new BufferAttribute(index, 1))
+  const mesh = new Mesh(geometry, new MeshLambertMaterial({ vertexColors: true, side: DoubleSide }))
+  mesh.frustumCulled = false
+  return mesh
 }
 
 export function createViewer(canvas: HTMLCanvasElement): Viewer {
@@ -194,6 +248,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let colors: BufferAttribute | null = null
   let solid: Mesh | null = null
   let faded: Mesh | null = null
+  // 내력벽. 고르기 대상이 아니다(pick 은 설비만 본다). 벽 너머의 설비를 누를 수 있어야 해서다.
+  let walls: Mesh | null = null
+  let wallsVisible = false
   let pickHandler: (id: string | null) => void = () => {}
 
   // **움직일 때만 다시 그린다.** 가만히 있을 때도 매 프레임 1만 8천 개를 다시 그리면 화면 전체(스크롤,
@@ -399,8 +456,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       fadedIds = new Set()
 
       const colorOf = systemColors(model)
-      // 배관이 방 안을 지나므로 판을 옅게 깐다. 진하면 배관이 판에 묻힌다.
-      const slabOpacity = meshes && meshes.size > 0 ? 0.25 : 0.8
+      // 배관이 방 안을 지나므로 판을 옅게 깐다. 진하면 배관이 판에 묻힌다. 메시에는 벽도 들어 있으니
+      // 설비 형상이 있는지로 가른다.
+      const hasEquipmentMeshes = !!meshes && model.storeys.some((s) => s.equipment.some((e) => meshes.has(e.id)))
+      const slabOpacity = hasEquipmentMeshes ? 0.25 : 0.8
 
       // 공간 판도 층마다 하나로 합친다. 성수는 방이 934개다.
       model.storeys.forEach((storey, i) => {
@@ -500,6 +559,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         solid.frustumCulled = false
         faded.frustumCulled = false
       }
+      walls = wallMesh(model, meshes)
+      if (walls) {
+        walls.visible = wallsVisible
+        content.add(walls)
+      }
+
       scene.add(content)
       dirty = true
 
@@ -534,6 +599,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       dirty = true
       // 흐리게 칠한 것은 고를 수 없으니, 계통을 바꾸면 마우스 아래가 고를 수 있는지도 바뀐다.
       if (changed && hoverAt) hoverPending = true
+    },
+
+    setWallsVisible(on) {
+      wallsVisible = on
+      if (walls) walls.visible = on
+      dirty = true
     },
 
     onPick(handler) {

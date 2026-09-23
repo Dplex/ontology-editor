@@ -12,7 +12,7 @@ import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } fr
 import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
-import { createViewer, PICK_COLORS, systemColors, type Viewer } from './lib/viewer'
+import { createViewer, PICK_COLORS, systemColors, WALL_COLORS, type Viewer } from './lib/viewer'
 import {
   moveEquipment,
   moveSpaceVertex,
@@ -53,6 +53,25 @@ let viewer: Viewer | null = null
 let meshes: MeshMap = new Map()
 
 const counts = computed(() => (model.value ? countOf(model.value) : null))
+
+// 3D 에 내력벽을 켜고 끈다. 내력 여부를 모르는 벽도 같이 켠다(모름은 아니오가 아니다).
+const showWalls = ref(false)
+watch(showWalls, (on) => viewer?.setWallsVisible(on))
+// 3D 에 그려지는 벽만 센다. 형상이 없는 벽(손으로 쓴 픽스처, COBie 판본)은 켜도 보일 것이 없다.
+// meshes 는 반응형이 아니지만 늘 model 과 같이 바뀌므로 model 을 따라 다시 센다.
+const drawnWalls = computed(() => {
+  if (!model.value) return null
+  let loadBearing = 0
+  let unknown = 0
+  for (const storey of model.value.storeys) {
+    for (const wall of storey.walls) {
+      if (wall.loadBearing === false || !meshes.has(wall.id)) continue
+      if (wall.loadBearing) loadBearing++
+      else unknown++
+    }
+  }
+  return loadBearing + unknown > 0 ? { loadBearing, unknown } : null
+})
 
 // --- 편집 -------------------------------------------------------------------
 //
@@ -177,6 +196,7 @@ watch([model, canvas], ([m, el]) => {
     viewer.onPick((id) => {
       selectedId.value = id
     })
+    viewer.setWallsVisible(showWalls.value)
   }
   viewer.setModel(m, meshes)
   viewer.setHighlight(null)
@@ -914,9 +934,27 @@ function exportTTL() {
         <section class="viewport">
           <div class="canvas-wrap">
             <canvas ref="canvas"></canvas>
-            <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
-              {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
-            </button>
+            <div class="view-tools">
+              <button
+                v-if="drawnWalls"
+                type="button"
+                :class="['ghost', 'walls-toggle', { on: showWalls }]"
+                :aria-pressed="showWalls"
+                @click="showWalls = !showWalls"
+              >
+                내력벽
+              </button>
+              <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
+                {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
+              </button>
+            </div>
+            <!-- 내력 여부는 BIM 의 LoadBearing 속성 그대로다. 비내력벽은 그리지 않는다. -->
+            <ul v-if="showWalls && drawnWalls" class="wall-key">
+              <li><i :style="{ background: hex(WALL_COLORS.loadBearing) }"></i>내력벽 {{ drawnWalls.loadBearing }} <Src kind="bim" /></li>
+              <li v-if="drawnWalls.unknown">
+                <i :style="{ background: hex(WALL_COLORS.unknown) }"></i>내력 여부 모름 {{ drawnWalls.unknown }}
+              </li>
+            </ul>
           </div>
 
           <!-- 계통 범례. 색이 스물이면 색만으로는 못 고르니, 여기서 짚는 쪽이 주된 길이다. -->

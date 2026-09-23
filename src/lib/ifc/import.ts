@@ -54,7 +54,7 @@ export type ElementMesh = {
   indices: Uint32Array
 }
 
-/** GlobalId → 메시. */
+/** GlobalId → 메시. 설비·배관과 벽이 같이 든다(벽은 3D 에서 내력벽을 보이는 데만 쓴다). */
 export type MeshMap = Map<string, ElementMesh>
 
 /**
@@ -1111,9 +1111,16 @@ function read(
     }
 
     const allEquipment = storeys.flatMap((s) => s.equipment)
-    if (withMeshes) stage(3, 0, mepIDs.size)
+    // 벽 형상은 3D 에서 내력벽을 보이는 데만 쓴다. 설비 형상과 따로 읽어 두었다가 맨 끝에 합친다 —
+    // 먼저 합치면 형상으로 연결을 추정할 때 벽까지 배관으로 센다.
+    const wallIDs = withMeshes ? new Set(r.ids(WebIFC.IFCWALL, true)) : new Set<number>()
+    const meshTotal = mepIDs.size + wallIDs.size
+    if (withMeshes) stage(3, 0, meshTotal)
     const meshes: MeshMap = withMeshes
-      ? readMeshes(api, model, mepIDs, globalIdOf, (done, total) => stage(3, done, total))
+      ? readMeshes(api, model, mepIDs, globalIdOf, (done) => stage(3, done, meshTotal))
+      : new Map()
+    const wallMeshes: MeshMap = withMeshes
+      ? readMeshes(api, model, wallIDs, globalIdOf, (done) => stage(3, mepIDs.size + done, meshTotal))
       : new Map()
     stage(4)
 
@@ -1204,6 +1211,7 @@ function read(
       )
     }
 
+    for (const [id, mesh] of wallMeshes) meshes.set(id, mesh)
     return { model: result, meshes }
   } finally {
     api.CloseModel(model)
