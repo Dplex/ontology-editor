@@ -538,6 +538,11 @@ th {
   font-size: 1.05rem;
 }
 
+.flow small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
 /* 3D 의 강조 색과 같은 색을 쓴다. 두 곳이 어긋나면 어느 쪽이 상류인지 헷갈린다. */
 .flow .upstream b,
 .rel.upstream {

@@ -256,8 +256,18 @@ export type Trace = {
  * 방향이 있는 연결은 그 방향으로만, 방향이 없는 연결은 양쪽으로 탄다. 그렇게 내려가서 닿은
  * 곳과 올라가서 닿은 곳을 따로 모은 뒤, 방향 있는 연결만으로 닿은 곳만 상류·하류로 둔다.
  * 나머지는 전부 "이어져 있지만 방향 모름" 이다.
+ *
+ * `isConduit` 를 주면 **방향 모름은 다음 기기에서 멈춘다**(그 기기까지는 넣는다). 주지 않으면
+ * 연결망 끝까지 번진다. 성수 기계 파일은 요소의 68%(13,066개)가 순환수 배관으로 한 덩어리라,
+ * FCU 하나를 고르면 순환수관 → 다른 FCU → 그 FCU 의 덕트·디퓨저로 번져 1만 개가 넘게 "이어짐" 이
+ * 됐다. 멈추면 3,051개(기기 143)다. 방향을 아는 길은 기기를 지나 계속 간다 — 디퓨저의 상류가
+ * 공조기에서 끝나지 않고 그 공조기에 물을 보내는 열원까지 닿아야 한다.
  */
-export function trace(connections: readonly Connection[], start: string): Trace {
+export function trace(
+  connections: readonly Connection[],
+  start: string,
+  isConduit?: (id: string) => boolean,
+): Trace {
   type Edge = { to: string; directed: boolean }
   const forward = new Map<string, Edge[]>()
   const backward = new Map<string, Edge[]>()
@@ -291,6 +301,8 @@ export function trace(connections: readonly Connection[], start: string): Trace 
         if (had === true || (had === false && !nextPure)) continue
         visited.set(e.to, nextPure)
         if (e.to !== start) (nextPure ? strict : any).add(e.to)
+        // 방향을 모르는 채로 닿은 기기는 넣기만 하고 그 너머로는 가지 않는다.
+        if (!nextPure && isConduit && e.to !== start && !isConduit(e.to)) continue
         queue.push([e.to, nextPure])
       }
     }

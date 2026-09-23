@@ -124,6 +124,20 @@ const d = (from: string, to: string): Connection => ({ from, to, source: 'port',
 const u = (from: string, to: string): Connection => ({ from, to, source: 'geometry', directed: false, tolerance: 0.005 })
 
 describe('trace', () => {
+  it('기기를 알려 주면 방향 모름은 다음 기기에서 멈추고, 방향을 아는 길은 기기를 지나간다', () => {
+    // 순환수관(pipe)에 FCU 둘이 매달리고, 다른 FCU 너머에 그 FCU 의 덕트와 디퓨저가 있다.
+    const connections = [u('fcu1', 'pipe'), u('pipe', 'fcu2'), u('fcu2', 'duct2'), u('duct2', 'diff2')]
+    const conduits = new Set(['pipe', 'duct2'])
+    const isConduit = (id: string) => conduits.has(id)
+    expect(trace(connections, 'fcu1').linked).toEqual(new Set(['pipe', 'fcu2', 'duct2', 'diff2']))
+    expect(trace(connections, 'fcu1', isConduit).linked).toEqual(new Set(['pipe', 'fcu2']))
+
+    // 방향을 아는 사슬은 기기(ahu)를 지나 끝까지 간다.
+    const chain = [d('plant', 'pipe'), d('pipe', 'ahu'), d('ahu', 'duct'), d('duct', 'diffuser')]
+    const t = trace(chain, 'diffuser', (id) => id === 'pipe' || id === 'duct')
+    expect(t.upstream).toEqual(new Set(['duct', 'ahu', 'pipe', 'plant']))
+  })
+
   it('방향 있는 사슬에서 상류와 하류를 나눈다', () => {
     // 공조기 → 덕트 → 토출구
     const t = trace([d('ahu', 'duct'), d('duct', 'diffuser')], 'duct')

@@ -215,8 +215,17 @@ const equipmentById = computed(() => {
 
 const selected = computed(() => (selectedId.value ? (equipmentById.value.get(selectedId.value) ?? null) : null))
 
+// 방향 모름은 다음 기기에서 멈춘다(topology.ts 의 trace). 끝까지 따라가면 성수 FCU 하나가 순환수관을
+// 타고 다른 FCU 들의 덕트까지 번져 1만 개가 넘게 "이어짐" 이 된다. 연결 끝이 설비 목록에 없으면 기기로 본다.
+const conduitId = (id: string) => {
+  const e = equipmentById.value.get(id)
+  return !!e && isConduit(e.role)
+}
+/** "이어짐" 중 덕트·배관이 아닌 기기 수. 수천 개여도 대부분은 관이라 기기 수를 따로 말한다. */
+const deviceCount = (ids: Set<string>) => [...ids].filter((id) => !conduitId(id)).length
+
 const traced = computed(() =>
-  model.value && selectedId.value ? trace(model.value.connections, selectedId.value) : null,
+  model.value && selectedId.value ? trace(model.value.connections, selectedId.value, conduitId) : null,
 )
 
 // --- 규칙 방향 -----------------------------------------------------------------
@@ -241,7 +250,7 @@ const hasRules = computed(() => {
 const tracedRules = computed(() => {
   void flowVersion.value
   return model.value && selectedId.value && hasRules.value
-    ? trace(withInferred(model.value.connections), selectedId.value)
+    ? trace(withInferred(model.value.connections), selectedId.value, conduitId)
     : null
 })
 /** 3D 에 칠하는 추적. 규칙을 켜 두면 규칙 방향까지 따라간다. */
@@ -1078,6 +1087,7 @@ function exportTTL() {
             </li>
             <li class="linked">
               <b>{{ traced?.linked.size ?? 0 }}</b><span>이어짐 · 방향 모름</span>
+              <small v-if="traced?.linked.size">그중 기기 {{ deviceCount(traced.linked) }}</small>
             </li>
           </ul>
 
@@ -1087,6 +1097,7 @@ function exportTTL() {
               <Src kind="dict" /> 규칙 방향<template v-if="flowEditLines.length">과 <Src kind="edit" /> 사람이 정한 방향</template>을
               넣으면 상류 <b>{{ tracedRules.upstream.size }}</b> · 하류 <b>{{ tracedRules.downstream.size }}</b> ·
               방향 모름 <b>{{ tracedRules.linked.size }}</b>
+              <template v-if="tracedRules.linked.size">(그중 기기 {{ deviceCount(tracedRules.linked) }})</template>
               <label class="rule-toggle">
                 <input v-model="showRules" type="checkbox" />
                 3D 에 규칙 방향도 칠하기
