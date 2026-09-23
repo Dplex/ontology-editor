@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, triggerRef, watch } from 'vue'
-import { ifcApi } from './lib/ifc/open'
-import { importIfcWithMeshes, type MeshMap } from './lib/ifc/import'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch } from 'vue'
+import type { MeshMap } from './lib/ifc/import'
 import { countOf, isConduit, type Equipment, type Model } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { profileOf, type Profile } from './lib/profile'
@@ -467,12 +466,85 @@ function mb(bytes: number) {
   return `${(bytes / 1048576).toFixed(1)} MB`
 }
 
+// --- 진행 표시 -------------------------------------------------------------------
+//
+// 성수(건축 84MB + 기계 203MB)는 여는 데 수십 초가 걸린다. 무엇을 하는 중인지, 얼마나 남았는지를
+// 보인다. 단계 안에서 몇 개 중 몇 개인지 알면 막대가 차고, 모르면 막대가 흐르기만 한다(억지로 %를
+// 지어내지 않는다).
+type Progress = { label: string; step?: number; steps?: number; done?: number; total?: number; unit?: 'bytes' | 'items' }
+const progress = ref<Progress | null>(null)
+const startedAt = ref(0)
+const now = ref(0)
+let ticker: number | undefined
+
+function beginProgress(label: string) {
+  startedAt.value = Date.now()
+  now.value = startedAt.value
+  progress.value = { label }
+  window.clearInterval(ticker)
+  ticker = window.setInterval(() => (now.value = Date.now()), 250)
+}
+function endProgress() {
+  progress.value = null
+  window.clearInterval(ticker)
+}
+const elapsed = computed(() => Math.max(0, Math.round((now.value - startedAt.value) / 1000)))
+const progressPct = computed(() => {
+  const p = progress.value
+  return p && p.total ? Math.min(100, Math.round(((p.done ?? 0) / p.total) * 100)) : null
+})
+const progressTitle = computed(() => {
+  const p = progress.value
+  return p ? (p.step ? `${p.step}/${p.steps} · ${p.label}` : p.label) : ''
+})
+const progressDetail = computed(() => {
+  const p = progress.value
+  if (!p?.total) return ''
+  return p.unit === 'bytes'
+    ? `${mb(p.done ?? 0)} / ${mb(p.total)}`
+    : `${(p.done ?? 0).toLocaleString()} / ${p.total.toLocaleString()}개`
+})
+
+/** 화면이 한 번 그려질 틈을 준다. 오래 막는 일(3D 만들기) 앞에서 진행 문구가 먼저 보이게 한다. */
+const paint = () => new Promise<void>((r) => requestAnimationFrame(() => setTimeout(r, 0)))
+
+// 임포트는 워커에서 돈다(lib/ifc/import.worker.ts). 화면 스레드에서 돌면 끝날 때까지 진행 막대가
+// 한 번도 다시 그려지지 않는다. wasm 을 한 번만 초기화하도록 워커를 재사용한다.
+//
+// wasm 경로는 페이지 기준의 절대 주소로 넘긴다. vite 설정이 `base: './'` 라 번들이 하위 경로에서도
+// 열리는데, 워커는 assets/ 아래에서 돌아서 상대 경로로 두면 wasm 을 엉뚱한 자리에서 찾는다.
+let worker: Worker | null = null
+function importInWorker(bytes: ArrayBuffer): Promise<{ model: Model; meshes: MeshMap }> {
+  worker ??= new Worker(new URL('./lib/ifc/import.worker.ts', import.meta.url), { type: 'module' })
+  const w = worker
+  return new Promise((resolve, reject) => {
+    w.onmessage = (e: MessageEvent) => {
+      const d = e.data
+      if (d.type === 'progress') {
+        progress.value = { label: d.progress.stage, step: d.progress.step, steps: d.progress.steps, done: d.progress.done, total: d.progress.total, unit: 'items' }
+      } else if (d.type === 'done') {
+        resolve({ model: d.model, meshes: new Map(d.meshes) })
+      } else {
+        reject(new Error(d.message))
+      }
+    }
+    w.onerror = (e) => {
+      // 워커가 죽었으면(메모리 부족 등) 다음 파일은 새 워커로 연다.
+      worker = null
+      reject(new Error(e.message || '임포트 워커가 멈췄습니다'))
+    }
+    w.postMessage({ bytes, wasmBase: new URL(import.meta.env.BASE_URL, location.href).href }, [bytes])
+  })
+}
+
 async function load(name: string, read: () => Promise<ArrayBuffer>) {
   busy.value = true
   error.value = ''
+  beginProgress('파일 읽는 중')
   try {
-    const api = await ifcApi()
-    const result = importIfcWithMeshes(api, new Uint8Array(await read()))
+    const result = await importInWorker(await read())
+    progress.value = { label: '3D 그리는 중' }
+    await paint()
     meshes = result.meshes
     // 임포터가 이미 한 번 돌렸다. 계통별 채점표를 화면이 쓰려고 다시 받는다(같은 입력이면 같은 결과다).
     ruleReport.value = inferFlowByRules(result.model)
@@ -484,6 +556,8 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다.
     changes.value = []
     areaChanges.value = []
+    await nextTick()
+    await paint()
   } catch (e) {
     // 실패한 채로 이전 모델을 남겨 두면 화면이 방금 연 파일을 보여 주는 것처럼 보인다.
     model.value = null
@@ -493,6 +567,7 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     error.value = `IFC 를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`
   } finally {
     busy.value = false
+    endProgress()
   }
 }
 
@@ -513,9 +588,11 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
   if (!model.value) return
   busy.value = true
   error.value = ''
+  beginProgress('파일 읽는 중')
   try {
-    const api = await ifcApi()
-    const next = importIfcWithMeshes(api, new Uint8Array(await read()))
+    const next = await importInWorker(await read())
+    progress.value = { label: '합치는 중' }
+    await paint()
     const current = { name: fileName.value, model: model.value }
     const incoming = { name, model: next.model }
     // 어느 파일을 먼저 열었는지와 무관하게 방을 더 많이 그린 쪽이 기준이다. 설비 파일을 먼저
@@ -524,6 +601,8 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
       drawnSpaces(incoming.model) > drawnSpaces(current.model) ? [incoming, current] : [current, incoming]
     const merged = mergeModels(base.model, overlay.model, { base: base.name, overlay: overlay.name })
 
+    progress.value = { label: '3D 그리는 중' }
+    await paint()
     meshes = new Map([...meshes, ...next.meshes])
     ruleReport.value = inferFlowByRules(merged.model)
     model.value = merged.model
@@ -531,11 +610,14 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     fileName.value = `${base.name} + ${overlay.name}`
     selectedId.value = null
     selectedSystemId.value = null
+    await nextTick()
+    await paint()
   } catch (e) {
     // 덧붙이기가 실패하면 열려 있던 모델은 그대로 둔다. 실패한 파일만 알린다.
     error.value = `${name} 를 덧붙이지 못했습니다: ${e instanceof Error ? e.message : String(e)}`
   } finally {
     busy.value = false
+    endProgress()
   }
 }
 
@@ -551,7 +633,20 @@ function onAppendPick(event: Event) {
 async function fetchData(path: string) {
   const r = await fetch(`./__data/${path.split('/').map(encodeURIComponent).join('/')}`)
   if (!r.ok) throw new Error(`data/${path} 를 받지 못했습니다 (HTTP ${r.status})`)
-  return r.arrayBuffer()
+  // 크기를 알면 받은 만큼 막대를 채운다. 55 에서 203MB 를 받는 동안 멈춘 것처럼 보이지 않게.
+  const total = Number(r.headers.get('Content-Length')) || 0
+  if (!total || !r.body) return r.arrayBuffer()
+  const buf = new Uint8Array(total)
+  const reader = r.body.getReader()
+  let done = 0
+  for (;;) {
+    const chunk = await reader.read()
+    if (chunk.done) break
+    buf.set(chunk.value, done)
+    done += chunk.value.length
+    progress.value = { label: '내려받는 중', done, total, unit: 'bytes' }
+  }
+  return buf.buffer
 }
 
 /** 합치기 보고를 한 줄씩. 문제는 경고가 말하고, 여기는 무엇을 했는지를 말한다. */
@@ -651,7 +746,7 @@ function exportTTL() {
       @dragleave.prevent="dragging = false"
       @drop.prevent="onDrop"
     >
-      <p v-if="busy">읽는 중…</p>
+      <p v-if="busy">읽는 중… 진행 상황은 아래에 보입니다.</p>
       <p v-else>.ifc 파일을 여기에 끌어다 놓으세요.</p>
       <label class="pick">
         파일 선택
@@ -1110,5 +1205,16 @@ function exportTTL() {
         </p>
       </section>
     </template>
+    <!-- 진행 표시. 스크롤 위치와 상관없이 보이도록 화면 아래에 띄운다. -->
+    <div v-if="progress" class="progress-toast" role="status" aria-live="polite">
+      <div class="progress-head">
+        <span>{{ progressTitle }}</span>
+        <span class="muted mono">{{ elapsed }}초</span>
+      </div>
+      <div class="bar" :class="{ indeterminate: progressPct === null }">
+        <i :style="progressPct !== null ? { width: `${progressPct}%` } : undefined"></i>
+      </div>
+      <div v-if="progressDetail" class="muted progress-detail mono">{{ progressDetail }} · {{ progressPct }}%</div>
+    </div>
   </main>
 </template>

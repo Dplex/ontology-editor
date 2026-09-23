@@ -38,6 +38,16 @@ import { inferFlowByRules } from '../flow-rules'
  * (x, y, z) 를 (x, z, -y) 로 돌리고 단위도 미터로 맞춰서 준다. 공간 판도 같은 변환
  * (평면 (x, y) → (x, ·, -y))으로 그리므로, 여기서 한 번 더 돌리면 배관이 눕는다.
  */
+/**
+ * 임포트가 어디까지 왔는지. 브라우저는 임포트를 Web Worker 에서 돌리고 이 값을 받아 진행 막대를 그린다.
+ * `total` 이 있으면 그 단계 안에서 몇 개 중 몇 개인지 알고, 없으면 단계 이름만 안다.
+ */
+export type ImportProgress = { stage: string; step: number; steps: number; done?: number; total?: number }
+export type OnProgress = (p: ImportProgress) => void
+
+/** 임포트 단계. 화면이 "3/6" 처럼 몇 번째인지 보인다. 순서를 바꾸면 여기와 read() 를 같이 고친다. */
+export const IMPORT_STAGES = ['파일 여는 중', '공간·벽 읽는 중', '설비·계통 읽는 중', '형상 읽는 중', '소속·연결 계산 중', '흐름 방향 계산 중'] as const
+
 export type ElementMesh = {
   positions: Float32Array
   normals: Float32Array
@@ -54,9 +64,16 @@ export type MeshMap = Map<string, ElementMesh>
  * 세계 좌표로 합쳐 두면, 화면은 요소 하나를 메시 하나로 다루고(고르기·강조가 단순해진다)
  * 연결 추정도 같은 좌표를 그대로 쓴다.
  */
-function readMeshes(api: Api, model: number, ids: Set<number>, globalIdOf: (id: number) => string): MeshMap {
+function readMeshes(
+  api: Api,
+  model: number,
+  ids: Set<number>,
+  globalIdOf: (id: number) => string,
+  onEach?: (done: number, total: number) => void,
+): MeshMap {
   const out: MeshMap = new Map()
   if (ids.size === 0) return out
+  let seen = 0
 
   // web-ifc 0.0.78 은 JS 래퍼와 브라우저 wasm 의 인자 수가 어긋나 있다. 래퍼는
   // StreamMeshes 에 applyLinearScalingFactor 까지 넷을 넘기는데, 이 버전의 web-ifc.wasm 은
@@ -73,6 +90,9 @@ function readMeshes(api: Api, model: number, ids: Set<number>, globalIdOf: (id: 
   }
 
   stream((flat) => {
+    // 요소 하나마다 알리면 성수(1만 8천 개)에서 메시지가 그만큼 오간다. 200개마다 한 번 알린다.
+    seen++
+    if (onEach && (seen % 200 === 0 || seen === ids.size)) onEach(seen, ids.size)
     const parts: { p: number[]; n: number[]; i: number[] }[] = []
     let vertexCount = 0
     let indexCount = 0
@@ -756,11 +776,23 @@ export function importIfc(api: Api, bytes: Uint8Array): Model {
  *
  * 포트가 없는 파일이면 이 형상으로 연결을 추정해 모델에 채운다. 방향은 모르는 채로 둔다.
  */
-export function importIfcWithMeshes(api: Api, bytes: Uint8Array): { model: Model; meshes: MeshMap } {
-  return read(api, bytes, true)
+export function importIfcWithMeshes(
+  api: Api,
+  bytes: Uint8Array,
+  onProgress?: OnProgress,
+): { model: Model; meshes: MeshMap } {
+  return read(api, bytes, true, onProgress)
 }
 
-function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model; meshes: MeshMap } {
+function read(
+  api: Api,
+  bytes: Uint8Array,
+  withMeshes: boolean,
+  onProgress?: OnProgress,
+): { model: Model; meshes: MeshMap } {
+  const stage = (step: number, done?: number, total?: number) =>
+    onProgress?.({ stage: IMPORT_STAGES[step], step: step + 1, steps: IMPORT_STAGES.length, done, total })
+  stage(0)
   const model = api.OpenModel(bytes)
   // **web-ifc 는 구문이 깨진 파일에 예외 대신 -1 을 준다.** 확인하지 않고 진행하면 한참 뒤
   // 엉뚱한 곳에서 "Cannot read properties of undefined" 로 죽어서 무엇이 잘못됐는지 모른다.
@@ -777,6 +809,7 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
     if (!unitFound) {
       warnings.push('길이 단위 선언을 찾지 못해 미터로 가정했습니다. 치수가 전부 어긋날 수 있습니다.')
     }
+    stage(1)
     const loadBearing = r.loadBearingByElement()
     const capacity = r.capacityByElement()
     const thickness = r.thicknessByElement()
@@ -868,6 +901,7 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
     }
 
     // 계통(IfcSystem)은 층에 속하지 않는다. 설비를 그룹으로 묶는 별도 관계다.
+    stage(2)
     const systems: System[] = []
     const systemOfElement = new Map<number, string>()
     for (const relID of r.ids(WebIFC.IFCRELASSIGNSTOGROUP)) {
@@ -1076,7 +1110,11 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
     }
 
     const allEquipment = storeys.flatMap((s) => s.equipment)
-    const meshes: MeshMap = withMeshes ? readMeshes(api, model, mepIDs, globalIdOf) : new Map()
+    if (withMeshes) stage(3, 0, mepIDs.size)
+    const meshes: MeshMap = withMeshes
+      ? readMeshes(api, model, mepIDs, globalIdOf, (done, total) => stage(3, done, total))
+      : new Map()
+    stage(4)
 
     // 배치점을 형상에 맞춘 뒤에 소속을 판정한다. 순서를 바꾸면 층 원점에 찍힌 덕트가 원점이
     // 든 방으로 먼저 들어가 버린다.
@@ -1155,6 +1193,7 @@ function read(api: Api, bytes: Uint8Array, withMeshes: boolean): { model: Model;
     }
 
     // 포트가 방향을 말하지 않은 연결에 계통·설비 종류로 규칙 방향을 준다. 확정 전에는 내보내지 않는다.
+    stage(5)
     const rules = inferFlowByRules(result)
     if (rules.oriented > 0) {
       const checked = rules.agree + rules.disagree

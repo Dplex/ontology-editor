@@ -129,6 +129,12 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
         })
       return
     }
+    // 크기를 알려 줘야 화면이 내려받기 진행 막대를 그린다. 성수 기계 파일은 203MB 다.
+    try {
+      res.setHeader('Content-Length', statSync(file).size)
+    } catch {
+      // 없는 파일이면 아래 스트림이 404 를 낸다.
+    }
     createReadStream(file)
       .on('error', () => {
         res.statusCode = 404

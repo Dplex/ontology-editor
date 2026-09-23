@@ -975,3 +975,72 @@ th {
   font-size: 0.9rem;
   line-height: 1.7;
 }
+
+/* ---- 진행 표시 ----
+   화면 아래 가운데에 뜬다. 단계 안에서 몇 개 중 몇 개인지 모르면 막대가 흐르기만 한다. */
+
+.progress-toast {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  z-index: 20;
+  width: min(28rem, calc(100vw - 2rem));
+  padding: 0.85rem 1rem;
+  transform: translateX(-50%);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 8px 24px rgba(16, 24, 40, 0.12);
+  font-size: 0.9rem;
+}
+
+.progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.bar {
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-soft);
+}
+
+.bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.bar.indeterminate i {
+  width: 35%;
+  animation: bar-flow 1.2s ease-in-out infinite;
+}
+
+@keyframes bar-flow {
+  from {
+    left: -35%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar.indeterminate i {
+    width: 100%;
+    animation: none;
+    opacity: 0.4;
+  }
+}
+
+.progress-detail {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+}
