@@ -92,6 +92,10 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
           ? [relative(root, join(dir, d.name)).split(sep).join('/')]
           : [],
     )
+  // 고객사 실측 파일(성수)을 맨 위에 두고 나머지는 이름순이다. readdir 순서는 파일 시스템마다 달라서
+  // 정렬하지 않으면 개발 PC 와 55 의 목록 순서가 어긋난다.
+  const rank = (p: string) => (p.startsWith('성수/') ? 0 : 1)
+  const ordered = (paths: string[]) => paths.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ko'))
   const profile = profiler(root, libDir)
 
   return (req: IncomingMessage, res: ServerResponse) => {
@@ -100,7 +104,7 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
     if (!path) {
       const files = (() => {
         try {
-          return list(root).map((p) => ({ path: p, size: statSync(join(root, p)).size }))
+          return ordered(list(root)).map((p) => ({ path: p, size: statSync(join(root, p)).size }))
         } catch {
           return []
         }
