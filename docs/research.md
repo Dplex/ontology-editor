@@ -142,7 +142,7 @@ Duplex MEP 926개 · 연결 690개가 2.9초에 끝난다. 정밀도는 그들�
 
 그리고 통과 정도에 따라 결과물을 **세 등급**으로 낸다 — Ideal Load / Partial Match /
 Perfect Match. 우리 식으로 옮기면 **"이 BIM 으로는 여기까지의 온톨로지가 나옵니다"** 를
-등급으로 말할 수 있다는 뜻이다. 우리 등급표는 `docs/bim-to-dt-ontology.md` §2 끝에 있다.
+등급으로 말할 수 있다는 뜻이다. 우리 등급표는 `docs/bim-to-dt-ontology.md` §3.5 에 있다.
 
 ### 가져올 개념 ⑤ — 방향은 포트 말고도 나올 수 있다
 
@@ -296,7 +296,7 @@ ifc4Mep 의 IfcAirTerminal 43개 — PredefinedType 없음
 | 완전성 규칙을 `warnings` 로 (기수 검사) | Wang 2026 Table 2 | 중 |
 | `docs/requirements.ids` 작성 | IDS v1.0 | 중 |
 | 자유 텍스트 → Brick 클래스 분류 | Brick-DICL | 대 — F13 과 함께 |
-| 방 분류(OmniClass) → Brick Room 하위 클래스 | 정본 §2 확장 표 | 소 — Duplex 21/21 이 채워져 있다 |
+| 방 분류(OmniClass) → Brick Room 하위 클래스 | 정본 §3.6 확장 표 | 소 — Duplex 21/21 이 채워져 있다 |
 | 담당 공간 근사(공조기 → 말단 → 방) | Wang 2026 말단–존 규칙 | 조건을 갖춘 샘플이 없다(정본 R19) |
 
 **안 할 것.** ifcOWL 로 IFC 전체를 RDF 화(무겁고 DT 가 묻는 관계만 필요하다), IFC→IMDF 변환

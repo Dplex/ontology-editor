@@ -505,8 +505,8 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP))('다른 건물끼리 �
 
 // **확장의 여지를 잰다.** 온톨로지를 더 넓히려면 IFC 에 그 정보를 담을 자리가 있어야 하고
 // (스키마), 실제 파일이 그 자리를 채워야 한다(저작 도구). 둘을 따로 센다 — "IFC 에 없다" 와
-// "IFC 에 자리는 있는데 비어 있다" 는 고객사에 할 말이 다르다. `docs/bim-to-dt-ontology.md` §2 끝의
-// 확장 표와 §3 요구사항 표의 숫자가 여기서 나온다. 임포터가 아직 안 읽는 것들이라 web-ifc 로 직접 센다.
+// "IFC 에 자리는 있는데 비어 있다" 는 고객사에 할 말이 다르다. `docs/bim-to-dt-ontology.md` §3.6 의
+// 확장 표와 4장 요구사항 표의 숫자가 여기서 나온다. 임포터가 아직 안 읽는 것들이라 web-ifc 로 직접 센다.
 describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_COBIE))('확장 여지 (자리가 있는가, 채워져 있는가)', () => {
   type Opened = { api: WebIFC.IfcAPI; m: number }
   const ids = ({ api, m }: Opened, type: number, inherited = false) => {

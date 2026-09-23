@@ -75,7 +75,7 @@ const normalize = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase
  * 덧붙인 층의 짝을 기준 모델에서 찾는다.
  *
  * 이름이 먼저다. 층 이름은 사람이 도면에 적는 값이라 디스플린 사이에서 맞춰 두는 것이
- * 관례이고, DT 쪽 층 표기와 맞추는 요구사항도 이미 있다(`docs/bim-to-dt-ontology.md` §3).
+ * 관례이고, DT 쪽 층 표기와 맞추는 요구사항도 이미 있다(`docs/bim-to-dt-ontology.md` 4장).
  * 이름이 안 맞으면 높이로 찾되 **하나만 맞을 때만** 짝짓는다. 둘 이상이면 고를 근거가 없다.
  */
 function matchStorey(storey: Storey, base: Storey[]): { target: Storey; by: 'name' | 'elevation' } | null {
