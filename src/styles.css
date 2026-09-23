@@ -249,8 +249,9 @@ th {
   box-shadow: var(--shadow);
 }
 
-.catalog h2 {
-  margin: 0 0 0.25rem;
+/* 목록 제목은 접기 줄이 맡는다. 파일을 연 뒤에는 접혀서 3D 를 위로 올린다. */
+.catalog .fold-head {
+  padding-top: 0;
   font-size: 1rem;
 }
 
@@ -794,4 +795,106 @@ th {
 .theme:hover {
   color: var(--fg);
   border-color: var(--accent);
+}
+
+/* ---- 접기 ----
+   제목 줄 하나로 접고 편다. 카드 안에서는 얇은 선으로만 나눠, 접힌 목록이 여럿이어도 한 화면에 든다. */
+
+.fold-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.6rem 0.25rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fold-head:hover .fold-title {
+  color: var(--accent);
+}
+
+.chev {
+  display: inline-block;
+  width: 0.9rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  transition: transform 0.15s ease;
+}
+
+.fold.open > .fold-head .chev {
+  transform: rotate(90deg);
+}
+
+.fold-meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.fold-body {
+  padding: 0.25rem 0 0.75rem;
+}
+
+.editor .fold {
+  border-top: 1px solid var(--line-soft);
+}
+
+.editor .fold:first-of-type {
+  border-top: 0;
+}
+
+.edit-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.edit-filter label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.edit-filter .grow {
+  flex: 1 1 16rem;
+}
+
+.edit-filter .grow input {
+  flex: 1;
+}
+
+.edit-filter select {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}
+
+.hint.more {
+  margin-top: 0.5rem;
+}
+
+.storeys .num {
+  white-space: nowrap;
+}
+
+/* 한 층의 방 이름이 수십 개면 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로 본다. */
+.storeys td.names {
+  max-width: 32rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

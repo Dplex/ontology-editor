@@ -35,6 +35,8 @@ async function openData(page, path) {
 }
 
 async function appendData(page, path) {
+  // 파일을 연 뒤에는 목록이 접힌다. 펴고 고른다.
+  if (!(await page.locator('.catalog tr').first().isVisible())) await page.locator('.catalog .fold-head').click()
   const row = page.locator('.catalog tr', { hasText: path }).first()
   await row.getByRole('button', { name: '덧붙이기' }).click()
   await page.locator('.review h2', { hasText: '+' }).waitFor({ timeout: 180_000 })
@@ -82,6 +84,9 @@ const jobs = {
   async flow() {
     const page = await fresh()
     await openData(page, 'ifc4Mep_IFC4.ifc')
+    // 설비가 많으면 목록이 접혀 있고 앞의 200행만 그린다. 펴고, 후보 종류로 좁힌다.
+    await page.locator('.fold-head', { hasText: '설비 위치와 소속' }).click()
+    await page.locator('.edit-filter input').fill('Valve')
     // 칠할 것이 가장 많은 기기를 고른다. 3D 를 클릭하면 화면 크기에 따라 흔들리니 표에서 고른다.
     const rows = page.locator('.equipment tbody tr', {
       has: page.locator('td.muted', { hasText: /^(Boiler|UnitaryEquipment|AirTerminal|SpaceHeater|Valve)$/ }),

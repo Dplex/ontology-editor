@@ -6,6 +6,7 @@ import { countOf, isConduit, type Equipment, type Model } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { profileOf, type Profile } from './lib/profile'
 import TierChips from './components/TierChips.vue'
+import Fold from './components/Fold.vue'
 import { neighbors, trace, TOLERANCE } from './lib/topology'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
@@ -78,6 +79,11 @@ const wallThicknessOf = (storey: { walls: { thickness: number | null }[] }) => {
   return values.sort((a, b) => a - b).map((t) => `${(t * 1000).toFixed(0)}mm`).join('/')
 }
 
+const wallThicknessLabel = (storey: { walls: { thickness: number | null }[] }) => {
+  const kinds = wallThicknessOf(storey).split('/').filter(Boolean)
+  return kinds.length <= 2 ? kinds.join('/') : `두께 ${kinds.length}종`
+}
+
 const spaceNameOf = (spaceId: string | null) => {
   if (!model.value || !spaceId) return '(소속 없음)'
   for (const storey of model.value.storeys) {
@@ -121,6 +127,40 @@ function applyVertex(spaceId: string, index: number, axis: 0 | 1, raw: string, c
   triggerRef(model)
   viewer?.setModel(model.value, meshes)
 }
+
+// --- 편집 목록을 좁히기 ----------------------------------------------------------
+//
+// 성수는 물리존 934개·설비 1만 8천 대다. 전부 한 번에 그리면 스크롤이 끝나지 않고 브라우저도
+// 그만큼 느려진다. 그래서 행이 많은 목록은 처음부터 접어 두고(SMALL), 펼쳐도 앞의 EDIT_LIMIT
+// 행만 그린다. 층과 이름으로 좁히면 원하는 행에 닿는다.
+const SMALL = 50
+const EDIT_LIMIT = 200
+const editStorey = ref('')
+const editQuery = ref('')
+const editLimit = ref(EDIT_LIMIT)
+watch([editStorey, editQuery, fileName], () => {
+  editLimit.value = EDIT_LIMIT
+})
+watch(fileName, () => {
+  editStorey.value = ''
+  editQuery.value = ''
+})
+
+const matches = (text: string) => {
+  const q = editQuery.value.trim().toLowerCase()
+  return !q || text.toLowerCase().includes(q)
+}
+const editStoreys = computed(() =>
+  (model.value?.storeys ?? []).filter((s) => !editStorey.value || s.id === editStorey.value),
+)
+const editSpaces = computed(() =>
+  editStoreys.value
+    .flatMap((storey) => storey.spaces.map((space) => ({ storey, space })))
+    .filter(({ space }) => matches(`${space.name} ${space.longName ?? ''}`)),
+)
+const editEquipment = computed(() =>
+  editStoreys.value.flatMap((s) => s.equipment).filter((e) => matches(`${e.name} ${e.ifcClass}`)),
+)
 
 function applyRename(spaceId: string, name: string) {
   if (!model.value) return
@@ -501,33 +541,35 @@ function exportTTL() {
 
     <!-- data/ 의 샘플. 파일마다 온톨로지를 어디까지 채우는지 먼저 보고 고른다. -->
     <section v-if="dataFiles.length" class="catalog">
-      <h2>data/ 의 IFC</h2>
-      <p class="hint">
-        칸은 등급이다 — 공간(외곽선을 얻은 물리존) · 설비(좌표가 있는 기기) · 소속(방을 찾은 기기) ·
-        연결망(연결 수) · 방향(흐름 방향을 아는 연결 비율). 칸에 마우스를 올리면 무엇을 셌는지 보인다.
-      </p>
-      <table>
-        <tbody>
-          <tr v-for="f in dataFiles" :key="f.path">
-            <td class="name">
-              <span>{{ f.path }}</span>
-              <span class="muted">{{ mb(f.size) }}<template v-if="profileAt(f.path)"> · {{ profileAt(f.path)!.schema }}</template></span>
-            </td>
-            <td class="chips">
-              <span v-if="!profiles[f.path]" class="muted">재는 중…</span>
-              <span v-else-if="errorAt(f.path)" class="unreadable" :title="errorAt(f.path)">열 수 없음</span>
-              <template v-else>
-                <TierChips :tiers="profileAt(f.path)!.tiers" />
-                <span v-if="roleHint(profileAt(f.path)!)" class="muted role">{{ roleHint(profileAt(f.path)!) }}</span>
-              </template>
-            </td>
-            <td class="row-actions">
-              <button type="button" class="ghost" :disabled="busy" @click="openData(f.path)">열기</button>
-              <button v-if="canAppend" type="button" class="ghost" :disabled="busy" @click="appendData(f.path)">덧붙이기</button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+      <!-- 파일을 연 뒤에는 접어 둔다. 목록이 3D 와 검토 화면을 아래로 밀어낸다. 덧붙일 때 다시 편다. -->
+      <Fold :key="model ? 'loaded' : 'empty'" title="data/ 의 IFC" :meta="`${dataFiles.length}개`" :default-open="!model">
+        <p class="hint">
+          칸은 등급이다. 공간(외곽선을 얻은 물리존) · 설비(좌표가 있는 기기) · 소속(방을 찾은 기기) ·
+          연결망(연결 수) · 방향(흐름 방향을 아는 기기 비율). 칸에 마우스를 올리면 무엇을 셌는지 보인다.
+        </p>
+        <table>
+          <tbody>
+            <tr v-for="f in dataFiles" :key="f.path">
+              <td class="name">
+                <span>{{ f.path }}</span>
+                <span class="muted">{{ mb(f.size) }}<template v-if="profileAt(f.path)"> · {{ profileAt(f.path)!.schema }}</template></span>
+              </td>
+              <td class="chips">
+                <span v-if="!profiles[f.path]" class="muted">재는 중…</span>
+                <span v-else-if="errorAt(f.path)" class="unreadable" :title="errorAt(f.path)">열 수 없음</span>
+                <template v-else>
+                  <TierChips :tiers="profileAt(f.path)!.tiers" />
+                  <span v-if="roleHint(profileAt(f.path)!)" class="muted role">{{ roleHint(profileAt(f.path)!) }}</span>
+                </template>
+              </td>
+              <td class="row-actions">
+                <button type="button" class="ghost" :disabled="busy" @click="openData(f.path)">열기</button>
+                <button v-if="canAppend" type="button" class="ghost" :disabled="busy" @click="appendData(f.path)">덧붙이기</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </Fold>
     </section>
 
     <p v-if="error" class="error" role="alert">{{ error }}</p>
@@ -660,149 +702,189 @@ function exportTTL() {
         </table>
       </section>
 
-      <section class="storeys">
-        <table>
-          <thead>
-            <tr>
-              <th>층</th>
-              <th class="num">높이</th>
-              <th>물리존</th>
-              <th class="num">넓이 합</th>
-              <th class="num">벽</th>
-              <th class="num">설비</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="s in model.storeys" :key="s.id">
-              <td>{{ s.name }}</td>
-              <td class="num mono">{{ s.elevation.toFixed(2) }} m</td>
-              <td>{{ s.spaces.map((x) => x.longName || x.name).join(', ') || '—' }}</td>
-              <td class="num mono">
-                {{ s.spaces.reduce((n, x) => n + x.areaM2, 0).toFixed(1) }} ㎡
-              </td>
-              <td class="num mono">
-                {{ s.walls.length }}<template v-if="s.walls.some((w) => w.thickness !== null)">
-                  <span class="muted"> · {{ wallThicknessOf(s) }}</span>
-                </template>
-              </td>
-              <td class="num mono">{{ s.equipment.length }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <!-- 편집. 3D 조작 대신 값을 직접 고친다. PoC 에서 확인할 것은 조작감이 아니라
-           한 번의 편집이 온톨로지의 어느 관계를 바꾸는가이기 때문이다. -->
-      <section class="editor">
-        <h3>물리존 이름 (E1)</h3>
-        <ul class="rows">
-          <li v-for="s in model.storeys" :key="s.id">
-            <template v-for="sp in s.spaces" :key="sp.id">
-              <label class="row">
-                <span class="tag mono">{{ s.name }}</span>
-                <input
-                  type="text"
-                  :value="sp.longName"
-                  @change="applyRename(sp.id, ($event.target as HTMLInputElement).value)"
-                />
-              </label>
-            </template>
-          </li>
-        </ul>
-
-        <h3>물리존 경계 (E2)</h3>
-        <p class="hint">
-          꼭짓점을 고치면 넓이가 다시 계산되고, 경계 밖으로 밀려난 설비의 소속이 바뀝니다.
-        </p>
-        <table class="equipment">
-          <thead>
-            <tr>
-              <th>물리존</th>
-              <th class="num">넓이</th>
-              <th>꼭짓점 (x, y)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="s in model.storeys" :key="s.id">
-              <tr v-for="sp in s.spaces" :key="sp.id">
-                <td>{{ sp.longName || sp.name }}</td>
-                <td class="num mono">{{ sp.areaM2.toFixed(1) }} ㎡</td>
-                <td class="vertices">
-                  <!-- 닫는 점은 첫 점과 같으므로 보여 주지 않는다. 두 번 고치게 된다. -->
-                  <span v-for="(p, i) in sp.footprint.slice(0, -1)" :key="i" class="vertex">
-                    <input
-                      class="coord mono"
-                      type="number"
-                      step="0.1"
-                      :value="p[0]"
-                      @change="applyVertex(sp.id, i, 0, ($event.target as HTMLInputElement).value, p)"
-                    />
-                    <input
-                      class="coord mono"
-                      type="number"
-                      step="0.1"
-                      :value="p[1]"
-                      @change="applyVertex(sp.id, i, 1, ($event.target as HTMLInputElement).value, p)"
-                    />
-                  </span>
-                  <span v-if="!sp.footprint.length" class="muted">외곽선 없음</span>
-                </td>
+      <!-- 3D 아래는 전부 접을 수 있다. 행이 많은 목록은 처음부터 접혀 있다(SMALL).
+           파일이 바뀌면(key) 접힘 상태도 그 파일 기준으로 다시 정한다. -->
+      <div :key="fileName" class="folds">
+        <Fold title="층별 요약" :meta="`${model.storeys.length}개 층`" class="storeys">
+          <table>
+            <thead>
+              <tr>
+                <th>층</th>
+                <th class="num">높이</th>
+                <th>물리존</th>
+                <th class="num">넓이 합</th>
+                <th class="num">벽</th>
+                <th class="num">설비</th>
               </tr>
-            </template>
-          </tbody>
-        </table>
-        <p v-if="selfIntersecting" class="error" role="alert">
-          경계가 자기 자신과 교차합니다. 이 상태에서는 넓이와 소속 판정이 뜻을 잃습니다.
-        </p>
-
-        <h3>설비 위치와 소속 (E5 · E6)</h3>
-        <table class="equipment">
-          <thead>
-            <tr>
-              <th>설비</th>
-              <th>종류</th>
-              <th class="num">x</th>
-              <th class="num">y</th>
-              <th class="num">z</th>
-              <th>소속 물리존</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="s in model.storeys" :key="s.id">
-              <tr v-for="e in s.equipment" :key="e.id" :class="{ chosen: e.id === selectedId }">
-                <td>
-                  <!-- 표에서 고른 것과 3D 에서 고른 것이 같은 선택이다. 두 화면이 따로 놀면
-                       설비 목록에서 찾은 것을 3D 에서 다시 찾아야 한다. -->
-                  <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
+            </thead>
+            <tbody>
+              <tr v-for="s in model.storeys" :key="s.id">
+                <td>{{ s.name }}</td>
+                <td class="num mono">{{ s.elevation.toFixed(2) }} m</td>
+                <!-- 한 층에 방이 수십 개면 이름이 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로. -->
+                <td class="names" :title="s.spaces.map((x) => x.longName || x.name).join(', ')">
+                  <template v-if="s.spaces.length">
+                    <span class="muted">{{ s.spaces.length }}개 · </span>{{ s.spaces.map((x) => x.longName || x.name).join(', ') }}
+                  </template>
+                  <template v-else>—</template>
                 </td>
-                <td class="muted">{{ e.ifcClass }}</td>
-                <td v-for="axis in [0, 1, 2]" :key="axis" class="num">
+                <td class="num mono">
+                  {{ s.spaces.reduce((n, x) => n + x.areaM2, 0).toFixed(1) }} ㎡
+                </td>
+                <!-- 두께가 한두 종류면 그대로 보이고, 많으면 종류 수만 보이고 목록은 툴팁으로 본다.
+                     성수는 한 층에 10종이 넘어 표가 오른쪽으로 넘쳤다. -->
+                <td class="num mono" :title="wallThicknessOf(s)">
+                  {{ s.walls.length }}<template v-if="s.walls.some((w) => w.thickness !== null)">
+                    <span class="muted"> · {{ wallThicknessLabel(s) }}</span>
+                  </template>
+                </td>
+                <td class="num mono">{{ s.equipment.length }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </Fold>
+
+        <!-- 편집. 3D 조작 대신 값을 직접 고친다. PoC 에서 확인할 것은 조작감이 아니라
+             한 번의 편집이 온톨로지의 어느 관계를 바꾸는가이기 때문이다. -->
+        <section class="editor">
+          <div v-if="counts.spaces + counts.equipment > SMALL" class="edit-filter">
+            <label>
+              층
+              <select v-model="editStorey">
+                <option value="">전체</option>
+                <option v-for="s in model.storeys" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
+            </label>
+            <label class="grow">
+              이름
+              <input v-model="editQuery" type="search" placeholder="물리존·설비 이름이나 종류" />
+            </label>
+            <span class="muted">아래 세 목록에 같이 걸립니다.</span>
+          </div>
+
+          <Fold title="물리존 이름 (E1)" :meta="`${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
+            <ul class="rows">
+              <li v-for="{ storey, space } in editSpaces.slice(0, editLimit)" :key="space.id">
+                <label class="row">
+                  <span class="tag mono">{{ storey.name }}</span>
                   <input
-                    class="coord mono"
-                    type="number"
-                    step="0.1"
-                    :value="e.position ? e.position[axis] : ''"
-                    placeholder="—"
-                    @change="applyMove(e.id, axis as 0 | 1 | 2, ($event.target as HTMLInputElement).value, e.position)"
+                    type="text"
+                    :value="space.longName"
+                    @change="applyRename(space.id, ($event.target as HTMLInputElement).value)"
                   />
-                </td>
-                <td :class="{ muted: !e.spaceId }">{{ spaceNameOf(e.spaceId) }}</td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-        <p v-if="counts.equipment === 0" class="empty">이 BIM 에는 설비가 없습니다.</p>
+                </label>
+              </li>
+            </ul>
+            <p v-if="editSpaces.length > editLimit" class="hint more">
+              {{ editSpaces.length }}개 중 {{ editLimit }}개만 보입니다. 층이나 이름으로 좁히거나
+              <button type="button" class="link" @click="editLimit += EDIT_LIMIT">더 보기</button>
+            </p>
+          </Fold>
 
-        <h3>바뀌는 것 (PRD #21)</h3>
-        <ul v-if="report.length || areaChanges.length" class="report">
-          <li v-for="c in report" :key="c.equipmentId">
-            {{ c.equipmentName }}:
-            <b>{{ spaceNameOf(c.fromSpaceId) }}</b> → <b>{{ spaceNameOf(c.toSpaceId) }}</b>
-          </li>
-          <li v-if="areaSummary" class="muted">{{ areaSummary }}</li>
-        </ul>
-        <p v-else class="empty">아직 바뀐 소속 관계가 없습니다.</p>
-      </section>
+          <Fold title="물리존 경계 (E2)" :meta="`${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
+            <p class="hint">
+              꼭짓점을 고치면 넓이가 다시 계산되고, 경계 밖으로 밀려난 설비의 소속이 바뀝니다.
+            </p>
+            <table class="equipment">
+              <thead>
+                <tr>
+                  <th>물리존</th>
+                  <th class="num">넓이</th>
+                  <th>꼭짓점 (x, y)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="{ space: sp } in editSpaces.slice(0, editLimit)" :key="sp.id">
+                  <td>{{ sp.longName || sp.name }}</td>
+                  <td class="num mono">{{ sp.areaM2.toFixed(1) }} ㎡</td>
+                  <td class="vertices">
+                    <!-- 닫는 점은 첫 점과 같으므로 보여 주지 않는다. 두 번 고치게 된다. -->
+                    <span v-for="(p, i) in sp.footprint.slice(0, -1)" :key="i" class="vertex">
+                      <input
+                        class="coord mono"
+                        type="number"
+                        step="0.1"
+                        :value="p[0]"
+                        @change="applyVertex(sp.id, i, 0, ($event.target as HTMLInputElement).value, p)"
+                      />
+                      <input
+                        class="coord mono"
+                        type="number"
+                        step="0.1"
+                        :value="p[1]"
+                        @change="applyVertex(sp.id, i, 1, ($event.target as HTMLInputElement).value, p)"
+                      />
+                    </span>
+                    <span v-if="!sp.footprint.length" class="muted">외곽선 없음</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="editSpaces.length > editLimit" class="hint more">
+              {{ editSpaces.length }}개 중 {{ editLimit }}개만 보입니다. 층이나 이름으로 좁히거나
+              <button type="button" class="link" @click="editLimit += EDIT_LIMIT">더 보기</button>
+            </p>
+          </Fold>
+          <p v-if="selfIntersecting" class="error" role="alert">
+            경계가 자기 자신과 교차합니다. 이 상태에서는 넓이와 소속 판정이 뜻을 잃습니다.
+          </p>
+
+          <Fold
+            title="설비 위치와 소속 (E5 · E6)"
+            :meta="`기기 ${counts.devices} · 덕트·배관 ${counts.conduits}`"
+            :default-open="counts.equipment <= SMALL"
+          >
+            <table class="equipment">
+              <thead>
+                <tr>
+                  <th>설비</th>
+                  <th>종류</th>
+                  <th class="num">x</th>
+                  <th class="num">y</th>
+                  <th class="num">z</th>
+                  <th>소속 물리존</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="e in editEquipment.slice(0, editLimit)" :key="e.id" :class="{ chosen: e.id === selectedId }">
+                  <td>
+                    <!-- 표에서 고른 것과 3D 에서 고른 것이 같은 선택이다. 두 화면이 따로 놀면
+                         설비 목록에서 찾은 것을 3D 에서 다시 찾아야 한다. -->
+                    <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
+                  </td>
+                  <td class="muted">{{ e.ifcClass }}</td>
+                  <td v-for="axis in [0, 1, 2]" :key="axis" class="num">
+                    <input
+                      class="coord mono"
+                      type="number"
+                      step="0.1"
+                      :value="e.position ? e.position[axis] : ''"
+                      placeholder="—"
+                      @change="applyMove(e.id, axis as 0 | 1 | 2, ($event.target as HTMLInputElement).value, e.position)"
+                    />
+                  </td>
+                  <td :class="{ muted: !e.spaceId }">{{ spaceNameOf(e.spaceId) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="editEquipment.length > editLimit" class="hint more">
+              {{ editEquipment.length }}대 중 {{ editLimit }}대만 보입니다. 층이나 이름으로 좁히거나
+              <button type="button" class="link" @click="editLimit += EDIT_LIMIT">더 보기</button>
+            </p>
+            <p v-if="counts.equipment === 0" class="empty">이 BIM 에는 설비가 없습니다.</p>
+          </Fold>
+
+          <h3>바뀌는 것 (PRD #21)</h3>
+          <ul v-if="report.length || areaChanges.length" class="report">
+            <li v-for="c in report" :key="c.equipmentId">
+              {{ c.equipmentName }}:
+              <b>{{ spaceNameOf(c.fromSpaceId) }}</b> → <b>{{ spaceNameOf(c.toSpaceId) }}</b>
+            </li>
+            <li v-if="areaSummary" class="muted">{{ areaSummary }}</li>
+          </ul>
+          <p v-else class="empty">아직 바뀐 소속 관계가 없습니다.</p>
+        </section>
+      </div>
 
       <section class="actions">
         <button type="button" @click="exportGeoJSON">기하 내보내기 (GeoJSON)</button>
