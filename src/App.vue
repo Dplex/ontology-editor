@@ -57,6 +57,16 @@ let viewer: Viewer | null = null
 let meshes: MeshMap = new Map()
 
 const counts = computed(() => (model.value ? countOf(model.value) : null))
+/** 문이 잇는 방(방-문-방 그래프). GeoJSON 문 feature 의 connects 로 나간다. */
+const doorLinks = computed(() => {
+  const doors = (model.value?.storeys ?? []).flatMap((s) => s.openings).filter((o) => o.kind === 'door' && o.connects)
+  return {
+    total: doors.length,
+    two: doors.filter((d) => d.connects!.length >= 2).length,
+    bim: doors.some((d) => d.connectsSource === 'bim'),
+    calc: doors.some((d) => d.connectsSource === 'calc'),
+  }
+})
 
 // --- 보기 / 편집 ---------------------------------------------------------------
 //
@@ -1109,7 +1119,15 @@ function exportTTL() {
           <li><b>{{ counts.storeys }}</b><span>층</span><Src kind="bim" /></li>
           <li><b>{{ counts.spaces }}</b><span>물리존</span><Src kind="bim" /></li>
           <li><b>{{ counts.walls }}</b><span>벽</span><Src kind="bim" /></li>
-          <li><b>{{ counts.doors }}</b><span>문</span><Src kind="bim" /></li>
+          <li :class="{ wide: doorLinks.total > 0 }">
+            <b>{{ counts.doors }}</b><span>문</span><Src kind="bim" />
+            <!-- 방-문-방. BIM 의 공간 경계가 말하면 BIM, 없으면 문 양쪽을 좌표로 짚은 계산이다. -->
+            <small v-if="doorLinks.total > 0">
+              방 둘을 잇는 것 {{ doorLinks.two }}
+              <template v-if="doorLinks.bim"><Src kind="bim" /></template>
+              <template v-if="doorLinks.calc"><Src kind="calc" /></template>
+            </small>
+          </li>
           <li><b>{{ counts.windows }}</b><span>창문</span><Src kind="bim" /></li>
           <li><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span><Src kind="bim" /></li>
           <!-- 설비를 하나로 세면 대수가 부푼다. 실측에서 85%가 덕트·배관이었다.
@@ -1816,6 +1834,7 @@ function exportTTL() {
         <button type="button" @click="exportTTL">의미 내보내기 (Brick TTL)</button>
         <p class="note">
           두 파일은 같은 id 로 이어집니다. 기하는 GeoJSON 이 갖고, 설비와 계통은 TTL 이 갖습니다.
+          벽·문·창의 자리와 문이 잇는 방은 GeoJSON 에만 있습니다(Brick 에 건축 부재 클래스가 없습니다).
           TTL 의 설비·방 클래스는 <Src kind="dict" /> 에서 나오고, 규칙 방향은 확정한 계통만 들어갑니다.
         </p>
       </section>

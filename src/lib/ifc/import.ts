@@ -30,6 +30,7 @@ import { lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
 import { equipmentKindOf, roomKindOf, systemKindOf } from '../kinds'
 import { inferFlowByRules } from '../flow-rules'
+import { footprintRings, openingPlacement, spacesBesideOpening } from './element-geometry'
 
 /**
  * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
@@ -64,7 +65,7 @@ export type MeshMap = Map<string, ElementMesh>
  * 세계 좌표로 합쳐 두면, 화면은 요소 하나를 메시 하나로 다루고(고르기·강조가 단순해진다)
  * 연결 추정도 같은 좌표를 그대로 쓴다.
  */
-function readMeshes(
+export function readMeshes(
   api: Api,
   model: number,
   ids: Set<number>,
@@ -183,6 +184,53 @@ export function anchorToGeometry(equipment: Equipment[], meshes: MeshMap): numbe
     fixed++
   }
   return fixed
+}
+
+/**
+ * 벽의 평면 외곽선과 문·창의 자리를 형상에서 읽고, 문이 잇는 방을 채운다(element-geometry.ts).
+ *
+ * 문이 잇는 방은 BIM 의 공간 경계를 먼저 쓰고, 없으면 문 양쪽을 좌표로 짚는다. 문·창의 형상은 자리만 재고
+ * 버린다. 3D 에 그리지 않으니 메모리에 둘 까닭이 없다.
+ */
+function placeWallsAndOpenings(
+  api: Api,
+  modelID: number,
+  result: Model,
+  wallMeshes: MeshMap,
+  globalIdOf: (id: number) => string,
+  idsOf: (type: number) => number[],
+): void {
+  for (const storey of result.storeys) {
+    for (const wall of storey.walls) {
+      const mesh = wallMeshes.get(wall.id)
+      if (mesh) wall.footprint = footprintRings(mesh)
+    }
+  }
+
+  const openingIDs = new Set([...idsOf(WebIFC.IFCDOOR), ...idsOf(WebIFC.IFCWINDOW)])
+  const openingMeshes = readMeshes(api, modelID, openingIDs, globalIdOf)
+  const declared = new Map<string, string[]>()
+  for (const storey of result.storeys) {
+    for (const space of storey.spaces) {
+      for (const el of space.boundedBy) declared.set(el, [...(declared.get(el) ?? []), space.id])
+    }
+  }
+  for (const storey of result.storeys) {
+    for (const o of storey.openings) {
+      const mesh = openingMeshes.get(o.id)
+      const placement = mesh ? openingPlacement(mesh) : null
+      o.position = placement?.position ?? null
+      if (o.kind !== 'door') continue
+      const bim = declared.get(o.id)
+      if (bim?.length) {
+        o.connects = bim
+        o.connectsSource = 'bim'
+      } else if (placement) {
+        o.connects = spacesBesideOpening(placement, storey.spaces)
+        o.connectsSource = 'calc'
+      }
+    }
+  }
 }
 
 /** web-ifc 의 Vector 를 평범한 배열로. 이 타입이 코드 곳곳에 번지지 않게 입구에서 바꾼다. */
@@ -1211,6 +1259,7 @@ function read(
       )
     }
 
+    if (withMeshes) placeWallsAndOpenings(api, model, result, wallMeshes, globalIdOf, (id) => r.ids(id, true))
     for (const [id, mesh] of wallMeshes) meshes.set(id, mesh)
     return { model: result, meshes }
   } finally {

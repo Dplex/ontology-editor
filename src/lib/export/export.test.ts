@@ -34,9 +34,32 @@ describe('GeoJSON', () => {
 
   it('외곽선이 없는 공간도 geometry: null 로 남긴다', () => {
     // 빼 버리면 온톨로지에는 있는데 지도에는 없는 공간이 생긴다.
-    const fc = storeyToGeoJSON(model.storeys[1])
-    expect(fc.features).toHaveLength(1)
-    expect(fc.features[0].geometry).toBe(null)
+    const spaces = storeyToGeoJSON(model.storeys[1]).features.filter((f) => f.properties.kind === 'space')
+    expect(spaces).toHaveLength(1)
+    expect(spaces[0].geometry).toBe(null)
+  })
+
+  it('벽·문·창은 GeoJSON 에만 나가고, 문이 잇는 방은 TTL 주어를 가리킨다', () => {
+    // Brick 에는 건축 부재 클래스가 없다. 벽·문·창은 3D Map·로봇 경로가 쓰는 기하 층이다.
+    const walled: Model = structuredClone(model)
+    const storey = walled.storeys[0]
+    const [a, b] = storey.spaces
+    storey.walls = [{ id: 'w1', name: 'W', thickness: 0.2, loadBearing: null, footprint: [[[0, 0], [5, 0], [5, 0.2], [0, 0.2], [0, 0]]] }]
+    storey.openings = [
+      { id: 'd1', kind: 'door', name: 'D', width: 0.9, height: 2.1, wallId: 'w1', passable: true, position: [2, 0.1, 0], connects: [a.id, b.id], connectsSource: 'calc' },
+    ]
+    const features = storeyToGeoJSON(storey).features
+    const wall = features.find((f) => f.id === 'w1')!
+    expect(wall.geometry?.type).toBe('Polygon')
+    expect(wall.properties).toMatchObject({ kind: 'wall', loadBearing: null, thickness: 0.2 })
+    const door = features.find((f) => f.id === 'd1')!
+    expect(door.geometry).toEqual({ type: 'Point', coordinates: [2, 0.1, 0] })
+    expect(door.properties).toMatchObject({ kind: 'door', connects: [a.id, b.id], connectsSource: 'calc', passable: true })
+
+    const ttl = modelToTTL(walled)
+    expect(ttl).not.toContain(`ex:${escapeLocalName('w1')} a`)
+    expect(ttl).not.toContain(`ex:${escapeLocalName('d1')} a`)
+    for (const id of [a.id, b.id]) expect(ttl).toContain(`ex:${escapeLocalName(id)} a brick:`)
   })
 })
 
@@ -80,7 +103,10 @@ describe('Brick TTL', () => {
 describe('두 파일을 잇는 id', () => {
   it('GeoJSON feature id 가 TTL 주어와 같다', () => {
     const ttl = modelToTTL(model)
-    const ids = modelToGeoJSON(model).flatMap((f) => f.collection.features.map((x) => x.id))
+    // 벽·문·창은 기하 층이라 TTL 에 주어가 없다(위 GeoJSON 테스트). 물리존·설비만 짝을 본다.
+    const ids = modelToGeoJSON(model).flatMap((f) =>
+      f.collection.features.filter((x) => x.properties.kind === 'space' || x.properties.kind === 'equipment').map((x) => x.id),
+    )
 
     expect(ids).toHaveLength(3)
     for (const id of ids) {

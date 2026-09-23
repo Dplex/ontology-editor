@@ -5,10 +5,11 @@
 // 같은 원점·축·단위(m)를 쓰기로 되어 있으므로(PRD 1.7), 그 좌표계를 그대로 둔다.
 // 지도 위에 얹을 일이 생기면 그때 사이트 원점의 위경도와 방위를 받아 한 번에 변환한다.
 
-import type { Equipment, Model, Space, Storey } from '../model'
+import type { Equipment, Model, Opening, Space, Storey, Wall } from '../model'
 
 export type Geometry =
   | { type: 'Polygon'; coordinates: number[][][] }
+  | { type: 'MultiPolygon'; coordinates: number[][][][] }
   | { type: 'Point'; coordinates: number[] }
 
 export type Feature = {
@@ -69,13 +70,63 @@ function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
   }
 }
 
-/** 층 하나를 FeatureCollection 으로. 물리존과 설비가 같은 파일에 들어간다. */
+// 벽·문·창은 **GeoJSON 에만 있다.** Brick 에는 건축 부재 클래스가 없어서 TTL 에 주어로 나가지 않는다.
+// 3D Map 과 로봇 경로가 쓰는 기하 층이다. 문의 `connects` 는 TTL 주어인 물리존 id 를 가리키므로, 방-문-방
+// 그래프는 두 파일을 id 로 잇는 원칙 안에서 선다.
+
+function wallFeature(wall: Wall, storey: Storey): Feature {
+  const rings = (wall.footprint ?? []).map((r) => r.map((p) => [p[0], p[1]]))
+  return {
+    type: 'Feature',
+    id: wall.id,
+    // 외곽선을 못 읽은 벽도 남긴다. 물리존·설비와 같은 까닭이다.
+    geometry:
+      rings.length === 0
+        ? null
+        : rings.length === 1
+          ? { type: 'Polygon', coordinates: [rings[0]] }
+          : { type: 'MultiPolygon', coordinates: rings.map((r) => [r]) },
+    properties: {
+      kind: 'wall',
+      name: wall.name,
+      storeyId: storey.id,
+      elevation: storey.elevation,
+      thickness: wall.thickness,
+      // null 은 "모름" 이다. false 와 섞지 않는다.
+      loadBearing: wall.loadBearing,
+    },
+  }
+}
+
+function openingFeature(opening: Opening, storey: Storey): Feature {
+  return {
+    type: 'Feature',
+    id: opening.id,
+    geometry: opening.position
+      ? { type: 'Point', coordinates: [opening.position[0], opening.position[1], opening.position[2]] }
+      : null,
+    properties: {
+      kind: opening.kind,
+      name: opening.name,
+      storeyId: storey.id,
+      width: opening.width,
+      height: opening.height,
+      wallId: opening.wallId,
+      passable: opening.passable,
+      ...(opening.kind === 'door' ? { connects: opening.connects ?? [], connectsSource: opening.connectsSource ?? null } : {}),
+    },
+  }
+}
+
+/** 층 하나를 FeatureCollection 으로. 물리존·설비·벽·문·창이 같은 파일에 들어간다. */
 export function storeyToGeoJSON(storey: Storey): FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: [
       ...storey.spaces.map((s) => spaceFeature(s, storey)),
       ...storey.equipment.map((e) => equipmentFeature(e, storey)),
+      ...storey.walls.map((w) => wallFeature(w, storey)),
+      ...storey.openings.map((o) => openingFeature(o, storey)),
     ],
   }
 }

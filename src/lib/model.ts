@@ -52,6 +52,11 @@ export type Wall = {
    * (PRD #3: 값이 없으면 내벽 규칙을 따른다).
    */
   loadBearing: boolean | null
+  /**
+   * 평면 외곽선(고리 여럿일 수 있다). 형상의 맨 아래 면에서 읽는다(`element-geometry.ts`). 형상을 읽지 않는
+   * 임포트(`importIfc`)나 아래 면이 없는 벽이면 비어 있다. GeoJSON 에만 나가고 TTL 에는 들어가지 않는다.
+   */
+  footprint?: Vec2[][]
 }
 
 export type Opening = {
@@ -73,6 +78,14 @@ export type Opening = {
    * 쪽이 `kind` 의 뜻을 다시 해석하지 않도록 여기서 한 번 정해 둔다.
    */
   passable: boolean
+  /** 평면 중심과 바닥 높이. 형상에서 읽는다. 형상이 없으면 null 이다. */
+  position?: Vec3 | null
+  /**
+   * 이 문이 잇는 방. BIM 의 공간 경계가 말하면 그것을(`'bim'`), 없으면 문 양쪽을 좌표로 짚어(`'calc'`) 채운다.
+   * 바깥으로 난 문은 방 하나다. 로봇 경로·피난의 방-문-방 그래프가 이걸로 선다.
+   */
+  connects?: string[]
+  connectsSource?: 'bim' | 'calc'
 }
 
 /**

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { importIfc, importIfcWithMeshes, UnreadableIfcError } from '../src/lib/ifc/import'
+import { importIfc, importIfcWithMeshes, readMeshes, UnreadableIfcError } from '../src/lib/ifc/import'
+import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-geometry'
 import { profileOf } from '../src/lib/profile'
 import { countOf, isConduit } from '../src/lib/model'
 import { assignEquipmentToSpaces, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
@@ -217,6 +218,54 @@ describe.skipIf(!existsSync(DUPLEX_ARCH))('Revit 이 낸 공간 외곽선 (Swept
     expect(total).toBeGreaterThan(300)
     expect(total).toBeLessThan(500)
   }, 300_000)
+})
+
+// 문이 잇는 방을 좌표로 짚는 것(element-geometry.ts)이 BIM 의 공간 경계와 얼마나 맞나. 성수 건축은 공간
+// 경계가 0 이라 좌표로만 잇는다. 정답지는 공간 경계가 있는 두 파일이다. 외곽선이 없는 방은 좌표로 짚을
+// 수 없으니 정답에서 뺀다(Duplex Level 2 의 Hallway 가 외곽선 0 이다). 빼지 않으면 14개 중 6개만 맞는다.
+describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH))('문이 잇는 방 (공간 경계를 정답지로)', () => {
+  it('문 양쪽을 좌표로 짚은 방이 공간 경계와 맞는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const agreement = (path: string) => {
+      const bytes = new Uint8Array(readFileSync(path))
+      const model = importIfc(api, bytes)
+      const id = api.OpenModel(bytes)
+      const doors = new Set(api.GetLineIDsWithType(id, WebIFC.IFCDOOR, true) as unknown as Iterable<number>)
+      const meshes = readMeshes(api, id, doors, (e) => (api.GetLine(id, e) as { GlobalId: { value: string } }).GlobalId.value)
+      api.CloseModel(id)
+      const spaces = model.storeys.flatMap((s) => s.spaces)
+      let same = 0
+      let total = 0
+      for (const storey of model.storeys) {
+        for (const o of storey.openings) {
+          if (o.kind !== 'door') continue
+          const declared = spaces.filter((s) => s.boundedBy.includes(o.id) && s.footprint.length >= 4).map((s) => s.id).sort()
+          const mesh = meshes.get(o.id)
+          if (!declared.length || !mesh) continue
+          const placement = openingPlacement(mesh)!
+          total++
+          if (JSON.stringify(spacesBesideOpening(placement, storey.spaces).sort()) === JSON.stringify(declared)) same++
+        }
+      }
+      return `${same}/${total}`
+    }
+    expect(agreement(SAMPLE)).toBe('5/5')
+    // 하나 남는 것은 폭 1.25m 문이다. 좌표로는 한쪽 방도 못 짚었다.
+    expect(agreement(DUPLEX_ARCH)).toBe('13/14')
+  })
+
+  it('벽의 평면 외곽선과 문·창의 자리를 형상에서 읽는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_ARCH))).model
+    const walls = model.storeys.flatMap((s) => s.walls)
+    const openings = model.storeys.flatMap((s) => s.openings)
+    expect(walls.filter((w) => w.footprint?.length)).toHaveLength(57)
+    expect(openings.filter((o) => o.position)).toHaveLength(38)
+    // 공간 경계가 있는 파일이라 문이 잇는 방은 전부 BIM 에서 온다.
+    expect(openings.filter((o) => o.kind === 'door' && o.connectsSource === 'bim')).toHaveLength(14)
+  })
 })
 
 describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', () => {
