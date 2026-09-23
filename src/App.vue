@@ -7,16 +7,18 @@ import { profileOf, type Profile } from './lib/profile'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
 import Src from './components/Src.vue'
-import { neighbors, trace, TOLERANCE } from './lib/topology'
+import { neighbors, trace, TOLERANCE, type Neighbor } from './lib/topology'
 import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
 import { createViewer, PICK_COLORS, systemColors, WALL_COLORS, type Viewer } from './lib/viewer'
 import {
+  flowEdits,
   moveEquipment,
   moveSpaceVertex,
   renameSpace,
+  setFlowDirection,
   summarize,
   type BoundaryChange,
   type Change,
@@ -229,13 +231,19 @@ const confirmations = ref<{ systemName: string; count: number }[]>([])
 // 그러면 3D 가 설비 수만큼 통째로 다시 만들어져 성수(1만 8천 개)에서 화면이 30초 넘게 멈췄다.
 // 확정에 따라 바뀌는 칸(계통 현황, 등급 칩)만 이 값을 읽어 다시 계산한다.
 const flowVersion = ref(0)
-const hasRules = computed(() => !!model.value?.connections.some((c) => c.inferred))
+// 사람이 정한 방향도 규칙 방향과 같은 자리(추적·3D 의 옅은 색)에 들어간다. 규칙이 하나도 없는 파일에서
+// 사람이 방향을 정해도 추적에 보여야 하므로 둘 다 본다.
+const hasRules = computed(() => {
+  void flowVersion.value
+  return !!model.value?.connections.some((c) => c.inferred || c.edited)
+})
 
-const tracedRules = computed(() =>
-  model.value && selectedId.value && hasRules.value
+const tracedRules = computed(() => {
+  void flowVersion.value
+  return model.value && selectedId.value && hasRules.value
     ? trace(withInferred(model.value.connections), selectedId.value)
-    : null,
-)
+    : null
+})
 /** 3D 에 칠하는 추적. 규칙을 켜 두면 규칙 방향까지 따라간다. */
 const tracedShown = computed(() => (showRules.value && tracedRules.value ? tracedRules.value : traced.value))
 
@@ -274,20 +282,59 @@ function confirmRule(systemId: string, systemName: string) {
 }
 
 // 바로 붙은 이웃. 몇 개인지보다 무엇에 붙어 있는지가 먼저 궁금한 자리다.
-const selectedNeighbors = computed(() => {
+//
+// 포트가 방향을 말하지 않은 연결에는 사람이 정한 방향, 없으면 규칙 방향을 같이 적는다. 방향의 출처가
+// 셋(BIM 포트 · 편집 · 사전)이라 글자와 색을 다르게 둔다. 같은 "하류" 로 쓰면 규칙이 짐작한 것이
+// BIM 이 말한 하류처럼 읽힌다.
+type NeighborRow = Neighbor & {
+  name: string
+  edited: 'upstream' | 'downstream' | null
+  rule: { relation: 'upstream' | 'downstream'; confirmed: boolean } | null
+}
+const selectedNeighbors = computed((): NeighborRow[] => {
+  void flowVersion.value
   if (!model.value || !selectedId.value) return []
   const id = selectedId.value
-  // 포트가 방향을 말하지 않은 이웃에 규칙 방향이 있으면 같이 적는다. 출처 칸이 둘을 가른다.
-  const ruleOf = new Map<string, { relation: 'upstream' | 'downstream'; confirmed: boolean }>()
-  for (const c of model.value.connections) {
-    if (c.directed || !c.inferred) continue
-    if (c.inferred.from === id) ruleOf.set(c.inferred.to, { relation: 'downstream', confirmed: c.inferred.confirmed })
-    else if (c.inferred.to === id) ruleOf.set(c.inferred.from, { relation: 'upstream', confirmed: c.inferred.confirmed })
-  }
-  return neighbors(model.value.connections, id).map((n) => ({
-    ...n,
-    rule: n.relation === 'linked' ? (ruleOf.get(n.id) ?? null) : null,
-    name: equipmentById.value.get(n.id)?.name || equipmentById.value.get(n.id)?.ifcClass || n.id,
+  return neighbors(model.value.connections, id).map((n) => {
+    const c = n.connection
+    const edited = !c.directed && c.edited ? (c.edited.from === id ? 'downstream' : 'upstream') : null
+    const rule =
+      !c.directed && !c.edited && c.inferred
+        ? { relation: c.inferred.from === id ? ('downstream' as const) : ('upstream' as const), confirmed: c.inferred.confirmed }
+        : null
+    return {
+      ...n,
+      edited,
+      rule,
+      name: equipmentById.value.get(n.id)?.name || equipmentById.value.get(n.id)?.ifcClass || n.id,
+    }
+  })
+})
+const REL_LABEL = { upstream: '상류', downstream: '하류', linked: '연결' } as const
+function relLabel(n: NeighborRow) {
+  if (n.edited) return REL_LABEL[n.edited]
+  if (n.rule) return `${REL_LABEL[n.rule.relation]}(${n.rule.confirmed ? '확정' : '추정'})`
+  return REL_LABEL[n.relation]
+}
+function relClass(n: NeighborRow) {
+  if (n.edited) return [n.edited, 'edited']
+  if (n.rule) return [`rule-${n.rule.relation}`]
+  return [n.relation]
+}
+
+// 포트가 방향을 말하지 않은 연결에 사람이 방향을 정한다. from 이 null 이면 정한 것을 지운다.
+// 확정과 같은 이유로 모델 전체에 갱신 신호를 보내지 않고 flowVersion 만 올린다.
+function setFlow(n: NeighborRow, from: string | null) {
+  if (setFlowDirection(n.connection, from)) flowVersion.value++
+}
+const flowEditLines = computed(() => {
+  void flowVersion.value
+  if (!model.value) return []
+  const nameOf = (id: string) => equipmentById.value.get(id)?.name || id
+  return flowEdits(model.value).map((e) => ({
+    from: nameOf(e.from),
+    to: nameOf(e.to),
+    note: e.rule === 'reversed' ? '규칙 방향과 반대' : e.rule === 'same' ? '규칙 방향과 같음' : '규칙이 방향을 못 정한 연결',
   }))
 })
 
@@ -1037,7 +1084,7 @@ function exportTTL() {
           <!-- 규칙 방향. 위 숫자는 BIM 포트가 말한 것만이고, 여기부터가 계통·설비 종류로 정한 것이다. -->
           <div v-if="tracedRules" class="rule-box">
             <p>
-              <Src kind="dict" /> 규칙 방향을
+              <Src kind="dict" /> 규칙 방향<template v-if="flowEditLines.length">과 <Src kind="edit" /> 사람이 정한 방향</template>을
               넣으면 상류 <b>{{ tracedRules.upstream.size }}</b> · 하류 <b>{{ tracedRules.downstream.size }}</b> ·
               방향 모름 <b>{{ tracedRules.linked.size }}</b>
               <label class="rule-toggle">
@@ -1075,18 +1122,49 @@ function exportTTL() {
           <table v-else class="neighbors">
             <tbody>
               <tr v-for="(n, i) in selectedNeighbors" :key="`${n.id}-${i}`">
-                <td :class="['rel', n.rule ? n.rule.relation : n.relation]">
-                  <template v-if="n.rule">{{ n.rule.relation === 'upstream' ? '상류' : '하류' }}</template>
-                  <template v-else>{{ n.relation === 'upstream' ? '상류' : n.relation === 'downstream' ? '하류' : '연결' }}</template>
-                </td>
+                <td :class="['rel', ...relClass(n)]">{{ relLabel(n) }}</td>
                 <td>
                   <button type="button" class="link" @click="select(n.id)">{{ n.name }}</button>
                 </td>
                 <td class="muted">
                   <template v-if="n.source === 'port'">포트 <Src kind="bim" /></template>
                   <template v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></template>
-                  <template v-if="n.rule">
+                  <template v-if="n.edited"> · 사람이 정한 방향 <Src kind="edit" /></template>
+                  <template v-else-if="n.rule">
                     · {{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" />
+                  </template>
+                </td>
+                <!-- 포트가 방향을 말한 연결은 고칠 수 없다. BIM 이 말한 것을 덮어쓰지 않는다. -->
+                <td class="flow-edit">
+                  <template v-if="!n.connection.directed">
+                    <button
+                      type="button"
+                      class="ghost"
+                      :aria-pressed="n.edited === 'upstream'"
+                      :title="`${n.name} 에서 이 설비로 흐른다`"
+                      @click="setFlow(n, n.id)"
+                    >
+                      상류로
+                    </button>
+                    <button
+                      type="button"
+                      class="ghost"
+                      :aria-pressed="n.edited === 'downstream'"
+                      :title="`이 설비에서 ${n.name} 로 흐른다`"
+                      @click="setFlow(n, selectedId)"
+                    >
+                      하류로
+                    </button>
+                    <!-- 자리는 늘 잡아 둔다. 누를 때 생기면 옆 버튼이 밀려 마우스 아래로 다른 버튼이 온다. -->
+                    <button
+                      type="button"
+                      :class="['ghost', { hidden: !n.edited }]"
+                      :disabled="!n.edited"
+                      title="정한 방향을 지운다"
+                      @click="setFlow(n, null)"
+                    >
+                      되돌리기
+                    </button>
                   </template>
                 </td>
               </tr>
@@ -1332,7 +1410,7 @@ function exportTTL() {
           </Fold>
 
           <h3>바뀌는 것 (PRD #21)</h3>
-          <ul v-if="report.length || areaChanges.length || confirmations.length" class="report">
+          <ul v-if="report.length || areaChanges.length || confirmations.length || flowEditLines.length" class="report">
             <li v-for="c in report" :key="c.equipmentId">
               {{ c.equipmentName }}:
               <b>{{ spaceNameOf(c.fromSpaceId) }}</b> → <b>{{ spaceNameOf(c.toSpaceId) }}</b>
@@ -1340,6 +1418,9 @@ function exportTTL() {
             <li v-if="areaSummary" class="muted">{{ areaSummary }}</li>
             <li v-for="(c, i) in confirmations" :key="`rule-${i}`">
               계통 <b>{{ c.systemName }}</b>: 규칙 방향 {{ c.count }}개를 확정했습니다(brick:feeds 로 나갑니다)
+            </li>
+            <li v-for="(f, i) in flowEditLines" :key="`flow-${i}`">
+              <b>{{ f.from }}</b> → <b>{{ f.to }}</b>: 사람이 방향을 정했습니다({{ f.note }}, brick:feeds 로 나갑니다)
             </li>
           </ul>
           <p v-else class="empty">아직 바뀐 소속 관계가 없습니다.</p>

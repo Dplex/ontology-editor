@@ -168,7 +168,7 @@ describe('trace', () => {
 describe('neighbors', () => {
   it('바로 붙은 이웃과 방향을 준다', () => {
     const list = neighbors([d('ahu', 'duct'), d('duct', 'diffuser'), u('duct', 'sensor')], 'duct')
-    expect(list).toEqual([
+    expect(list.map(({ connection, ...n }) => n)).toEqual([
       { id: 'ahu', relation: 'upstream', source: 'port', tolerance: null },
       { id: 'diffuser', relation: 'downstream', source: 'port', tolerance: null },
       // 형상으로 이은 것은 그때의 거리를 함께 준다. 검토 화면이 넓혀 이은 것을 구별한다.

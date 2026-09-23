@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { confirmSystemFlow, inferFlowByRules, withInferred } from './flow-rules'
+import { flowEdits, setFlowDirection } from './edit'
 import type { Connection, Equipment, EquipmentRole, Model } from './model'
 import { modelToTTL } from './export/ttl'
 import { trace } from './topology'
@@ -175,5 +176,43 @@ describe('규칙 방향', () => {
     expect(trace(m.connections, 't').upstream.size).toBe(0)
     expect([...trace(withInferred(m.connections), 't').upstream].sort()).toEqual(['d1', 'd2', 'src'])
     expect(trace(withInferred(m.connections, true), 't').upstream.size).toBe(0)
+  })
+})
+
+describe('사람이 정한 방향', () => {
+  it('확정 없이 brick:feeds 로 나가고, 규칙 방향보다 앞선다', () => {
+    const m = line('supply_air')
+    inferFlowByRules(m)
+    // 규칙은 d2 → t 인데 사람이 t → d2 로 뒤집었다.
+    expect(setFlowDirection(m.connections[2], 't')).toBe(true)
+    expect(m.connections[2].edited).toEqual({ from: 't', to: 'd2' })
+    expect(m.connections[2].directed).toBe(false) // BIM 이 말한 방향 칸은 그대로다
+    expect(flowEdits(m)).toEqual([{ from: 't', to: 'd2', rule: 'reversed' }])
+    expect(trace(withInferred(m.connections, true), 'd2').upstream).toEqual(new Set(['t']))
+    expect(modelToTTL(m)).toMatch(/ex:t a [^.]*brick:feeds [^;]*ex:d2\b/)
+  })
+
+  it('지우면 규칙 방향으로 돌아가고 리포트에서 빠진다', () => {
+    const m = line('supply_air')
+    inferFlowByRules(m)
+    setFlowDirection(m.connections[2], 't')
+    setFlowDirection(m.connections[2], 'd2') // 여러 번 바꾸면 마지막 것만 남는다
+    expect(flowEdits(m)).toEqual([{ from: 'd2', to: 't', rule: 'same' }])
+    setFlowDirection(m.connections[2], null)
+    expect(flowEdits(m)).toEqual([])
+    expect(withInferred(m.connections)[2]).toMatchObject({ from: 'd2', to: 't', directed: true })
+  })
+
+  it('규칙이 닿지 못한 연결도 채울 수 있다', () => {
+    const m = line('supply_air')
+    expect(setFlowDirection(m.connections[0], 'src')).toBe(true)
+    expect(flowEdits(m)).toEqual([{ from: 'src', to: 'd1', rule: null }])
+  })
+
+  it('BIM 포트가 방향을 말한 연결은 고치지 않는다', () => {
+    const m = line('supply_air')
+    m.connections[0] = link('src', 'd1', true)
+    expect(setFlowDirection(m.connections[0], 'd1')).toBe(false)
+    expect(m.connections[0].edited).toBeUndefined()
   })
 })

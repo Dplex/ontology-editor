@@ -567,8 +567,47 @@ th {
 }
 
 .neighbors .rel {
-  width: 4rem;
+  width: 5.5rem;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 규칙이 짐작한 방향은 같은 색을 옅게 쓴다(3D 와 같다). 글자로 읽혀야 하니 3D 보다는 진하다. */
+.rel.rule-upstream {
+  color: #d39a6c;
+}
+
+.rel.rule-downstream {
+  color: #5eae95;
+}
+
+/* 사람이 정한 방향은 색은 BIM 과 같고 밑줄로 가른다. 출처 칸에 [편집] 이 같이 붙는다. */
+.rel.edited {
+  text-decoration: underline dashed;
+  text-underline-offset: 0.2em;
+}
+
+.neighbors .flow-edit {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.flow-edit .ghost {
+  padding: 0.1rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.flow-edit .ghost + .ghost {
+  margin-left: 0.25rem;
+}
+
+.flow-edit .ghost.hidden {
+  visibility: hidden;
+}
+
+.flow-edit .ghost[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .chosen > td {

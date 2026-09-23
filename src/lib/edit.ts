@@ -9,7 +9,7 @@
 
 import { assignEquipmentToSpaces, isSelfIntersecting } from './mapping'
 import { polygonArea } from './model'
-import type { Equipment, Model, Vec2, Vec3 } from './model'
+import type { Connection, Equipment, Model, Vec2, Vec3 } from './model'
 
 /** 편집 한 번이 만든 관계 변화. 좌표가 아니라 관계를 적는다. */
 export type Change = {
@@ -65,6 +65,42 @@ export function moveEquipment(model: Model, equipmentId: string, to: Vec3): Chan
         ? `${equipment.name}: 위치만 바뀌었고 소속은 ${spaceLabel(model, toSpaceId)} 그대로입니다.`
         : `${equipment.name}: 소속이 ${spaceLabel(model, fromSpaceId)} 에서 ${spaceLabel(model, toSpaceId)} 로 바뀝니다.`,
   }
+}
+
+/**
+ * 포트가 방향을 말하지 않은 연결에 사람이 흐름 방향을 정한다. `from` 이 null 이면 정한 것을 지워서
+ * 규칙 방향(있으면)이나 "방향 모름" 으로 돌아간다. BIM 포트가 방향을 말한 연결은 고치지 않는다 —
+ * BIM 이 말한 것을 덮어쓰면 온톨로지를 읽는 쪽이 둘을 구별할 수 없다.
+ *
+ * 정한 방향은 연결에 남으므로 리포트는 `flowEdits` 로 모델에서 다시 센다. 같은 연결을 여러 번
+ * 바꾸면 마지막 것만 남고, 지우면 목록에서 빠진다.
+ */
+export function setFlowDirection(connection: Connection, from: string | null): boolean {
+  if (connection.directed) return false
+  if (from === null) {
+    delete connection.edited
+    return true
+  }
+  if (from !== connection.from && from !== connection.to) return false
+  connection.edited = { from, to: from === connection.from ? connection.to : connection.from }
+  return true
+}
+
+/** 사람이 방향을 정한 연결. 규칙 방향이 있었으면 그것과 같은지 반대인지도 적는다. */
+export type FlowEdit = {
+  from: string
+  to: string
+  rule: 'same' | 'reversed' | null
+}
+
+export function flowEdits(model: Model): FlowEdit[] {
+  return model.connections
+    .filter((c) => !c.directed && c.edited)
+    .map((c) => ({
+      from: c.edited!.from,
+      to: c.edited!.to,
+      rule: c.inferred ? (c.inferred.from === c.edited!.from ? 'same' : 'reversed') : null,
+    }))
 }
 
 /**

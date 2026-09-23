@@ -317,15 +317,17 @@ export type Neighbor = {
   source: Connection['source']
   /** 형상으로 이었다면 그때의 거리(미터). 넓혀서 이은 것을 검토 화면이 이 값으로 구별한다. */
   tolerance: number | null
+  /** 이 이웃과 잇는 연결. 검토 화면이 사람이 정한 방향을 여기에 적는다. */
+  connection: Connection
 }
 
 export function neighbors(connections: readonly Connection[], id: string): Neighbor[] {
   const out: Neighbor[] = []
   for (const c of connections) {
     if (c.from === id) {
-      out.push({ id: c.to, relation: c.directed ? 'downstream' : 'linked', source: c.source, tolerance: c.tolerance })
+      out.push({ id: c.to, relation: c.directed ? 'downstream' : 'linked', source: c.source, tolerance: c.tolerance, connection: c })
     } else if (c.to === id) {
-      out.push({ id: c.from, relation: c.directed ? 'upstream' : 'linked', source: c.source, tolerance: c.tolerance })
+      out.push({ id: c.from, relation: c.directed ? 'upstream' : 'linked', source: c.source, tolerance: c.tolerance, connection: c })
     }
   }
   return out

@@ -226,6 +226,12 @@ export type Connection = {
    * 가 되고, 그때부터 `brick:feeds` 로 나간다.
    */
   inferred?: { from: string; to: string; systemId: string; confirmed: boolean }
+  /**
+   * 사람이 에디터에서 정한 흐름 방향. `inferred` 처럼 **포트가 방향을 말하지 않은 연결에만** 붙는다.
+   * 규칙이 틀린 곳을 고치거나 규칙이 닿지 못한 곳을 채운다. 규칙 방향보다 앞서고, 사람이 정한
+   * 것이라 확정 없이 `brick:feeds` 로 나간다. BIM 포트가 말한 방향은 고칠 수 없다.
+   */
+  edited?: { from: string; to: string }
 }
 
 export type Storey = {

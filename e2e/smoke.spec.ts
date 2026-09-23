@@ -243,3 +243,38 @@ test('3D 에서 누를 수 있는 곳에 올라가면 커서가 손가락이 되
   await page.mouse.move(box.x + box.width + 50, box.y + box.height + 50)
   await expect.poll(cursor).toBe('')
 })
+
+test('규칙이 짐작한 방향은 (추정)으로 보이고, 사람이 연결 하나의 방향을 정하고 되돌릴 수 있다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
+
+  const picked = page.locator('.picked')
+  // 포트가 방향을 말한 이웃은 그냥 "상류" 이고 고칠 수 없다.
+  const ahu = picked.locator('.neighbors tr', { hasText: 'AHU-1' })
+  await expect(ahu.locator('.rel')).toHaveText('상류')
+  await expect(ahu.getByRole('button', { name: '상류로' })).toHaveCount(0)
+
+  // SOURCEANDSINK 로 붙은 토출구. 규칙이 짐작한 방향이라 (추정)이 붙는다.
+  const terminal = picked.locator('.neighbors tr', { hasText: 'AT-101-02' })
+  await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
+
+  // 규칙과 반대로 정해 본다. 편집 표시가 붙고 리포트에 남는다.
+  await terminal.getByRole('button', { name: '상류로' }).click()
+  await expect(terminal.locator('.rel')).toHaveText('상류')
+  await expect(terminal).toContainText('사람이 정한 방향 편집')
+  const report = page.locator('.report')
+  await expect(report).toContainText('AT-101-02 → DUCT-01')
+  await expect(report).toContainText('규칙 방향과 반대')
+
+  // 되돌리면 규칙 방향으로 돌아가고 리포트에서 빠진다.
+  await terminal.getByRole('button', { name: '되돌리기' }).click()
+  await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
+  await expect(page.locator('.report')).toHaveCount(0)
+
+  expect(errors).toEqual([])
+})

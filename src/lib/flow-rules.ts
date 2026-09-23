@@ -212,15 +212,19 @@ export function confirmSystemFlow(model: Model, systemId: string): number {
 }
 
 /**
- * 규칙 방향을 방향 있는 연결로 펼친 목록. 원래 연결은 바꾸지 않는다.
+ * 규칙 방향과 사람이 정한 방향을 방향 있는 연결로 펼친 목록. 원래 연결은 바꾸지 않는다.
  *
- * `confirmedOnly` 가 참이면 사람이 확인한 것만 펼친다. 내보내기(TTL)가 이쪽을 쓴다. 화면의
- * 상류·하류 추적은 확인 전의 것까지 펼쳐서 "규칙으로는 이렇다" 를 보여 준다.
+ * 사람이 정한 방향(`edited`)이 규칙보다 앞선다. `confirmedOnly` 가 참이면 규칙 방향은 확인한 것만
+ * 펼친다(사람이 정한 방향은 늘 펼친다). 내보내기(TTL)가 이쪽을 쓴다. 화면의 상류·하류 추적은
+ * 확인 전의 것까지 펼쳐서 "규칙으로는 이렇다" 를 보여 준다.
  */
 export function withInferred(connections: readonly Connection[], confirmedOnly = false): Connection[] {
-  return connections.map((c) =>
-    !c.directed && c.inferred && (!confirmedOnly || c.inferred.confirmed)
-      ? { ...c, from: c.inferred.from, to: c.inferred.to, directed: true }
-      : c,
-  )
+  return connections.map((c) => {
+    if (c.directed) return c
+    if (c.edited) return { ...c, from: c.edited.from, to: c.edited.to, directed: true }
+    if (c.inferred && (!confirmedOnly || c.inferred.confirmed)) {
+      return { ...c, from: c.inferred.from, to: c.inferred.to, directed: true }
+    }
+    return c
+  })
 }
