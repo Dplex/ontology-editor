@@ -1324,28 +1324,33 @@ th {
 
 /* ---- 계통별로 보기 ----------------------------------------------------------- */
 
-.by-system {
+.by-system,
+.served {
   margin-top: 1rem;
 }
 
-.by-system h4 {
+.by-system h4,
+.served h4 {
   margin: 0 0 0.4rem;
   font-size: 0.9rem;
 }
 
-.by-system h4 .muted {
+.by-system h4 .muted,
+.served h4 .muted {
   margin-left: 0.5rem;
   font-size: 0.78rem;
   font-weight: 400;
 }
 
-.by-system table {
+.by-system table,
+.served table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
 }
 
-.by-system th {
+.by-system th,
+.served th {
   padding: 0.3rem 0.5rem;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
@@ -1355,11 +1360,13 @@ th {
   white-space: nowrap;
 }
 
-.by-system th.num {
+.by-system th.num,
+.served th.num {
   text-align: right;
 }
 
-.by-system td {
+.by-system td,
+.served td {
   padding: 0.35rem 0.5rem;
   border-top: 1px solid var(--line-soft);
 }
@@ -1389,11 +1396,15 @@ th {
   vertical-align: -0.05rem;
 }
 
-.by-system td.upstream {
+.by-system td.upstream,
+.served td.upstream,
+.service td.upstream {
   color: #c06a26;
 }
 
-.by-system td.downstream {
+.by-system td.downstream,
+.served td.downstream,
+.service td.downstream {
   color: #148062;
 }
 
@@ -1403,6 +1414,14 @@ th {
 
 .by-system .kinds-cell {
   max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 원천별 담당 공간. 방 이름이 수십 개여도 한 줄로 자르고 전체는 툴팁으로 본다. */
+.service td.names {
+  max-width: 28rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

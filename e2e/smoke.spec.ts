@@ -321,3 +321,24 @@ test('고른 설비의 연결을 계통별로 나눠 세고, 줄을 누르면 �
   await row.click()
   await expect(row).not.toHaveClass(/chosen/)
 })
+
+test('공기 원천을 고르면 흐름을 따라 말단이 있는 방을 담당 공간으로 보인다', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button').first().click()
+
+  // 토출구 둘이 사무실에 있다(하나는 규칙 방향으로 닿는다). 추정이라 [계산] 이 붙는다.
+  const served = page.locator('.picked .served')
+  await expect(served).toContainText('담당 공간 계산')
+  const office = served.locator('tbody tr', { hasText: '사무실' })
+  await expect(office.locator('td').nth(2)).toHaveText('2')
+
+  // 규칙 방향을 끄면 포트가 말한 토출구 하나만 남는다.
+  await page.locator('.rule-toggle input').uncheck()
+  await expect(office.locator('td').nth(2)).toHaveText('1')
+
+  // 말단을 고르면 담당 공간 칸이 없다. 원천이 아니다.
+  await page.locator('.equipment tbody tr', { hasText: 'AT-101-01' }).getByRole('button').first().click()
+  await expect(page.locator('.picked .served')).toHaveCount(0)
+})

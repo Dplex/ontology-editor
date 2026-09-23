@@ -8,6 +8,7 @@ import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
 import Src from './components/Src.vue'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
+import { airServices, servedSpaces } from './lib/served'
 import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
@@ -414,6 +415,50 @@ function toggleFlowSystem(key: string) {
 }
 const kindsText = (kinds: [string, number][]) =>
   kinds.slice(0, 3).map(([label, n]) => `${label} ${n}`).join(' · ') + (kinds.length > 3 ? ` 외 ${kinds.length - 3}종` : '')
+
+// --- 담당 공간 -----------------------------------------------------------------
+//
+// 공기 원천(공조기·FCU·전열교환기·팬)마다 흐름 방향을 따라 닿는 말단과 그 말단이 있는 방(served.ts).
+// 방향은 3D 와 같은 것을 쓴다. 추정이라 화면에만 보이고 내보내지 않는다.
+const airServiceList = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  if (!m) return []
+  return airServices(m, showRules.value && hasRules.value ? withInferred(m.connections) : m.connections)
+})
+const spaceStorey = computed(() => {
+  const map = new Map<string, string>()
+  for (const storey of model.value?.storeys ?? []) for (const sp of storey.spaces) map.set(sp.id, storey.name)
+  return map
+})
+const selectedService = computed(() => {
+  const m = model.value
+  const id = selectedId.value
+  const service = id ? airServiceList.value.find((s) => s.sourceId === id) : null
+  if (!m || !service) return null
+  return { ...service, rooms: servedSpaces(m, service) }
+})
+/** 건물 전체의 원천별 담당 공간. 말단이 많은 원천부터. */
+const serviceSummary = computed(() => {
+  const m = model.value
+  if (!m) return null
+  const rows = airServiceList.value
+    .map((s) => {
+      const rooms = servedSpaces(m, s).filter((r) => r.spaceId !== null)
+      const e = equipmentById.value.get(s.sourceId)
+      return {
+        id: s.sourceId,
+        name: e?.name || e?.ifcClass || s.sourceId,
+        kind: e ? kindLabel(e) : '',
+        supply: s.supply.length,
+        extract: s.extract.length,
+        rooms: rooms.map((r) => `${spaceStorey.value.get(r.spaceId!) ?? ''} ${spaceNameOf(r.spaceId)}`.trim()),
+      }
+    })
+    .sort((a, b) => b.supply + b.extract - (a.supply + a.extract))
+  return { rows, reaching: rows.filter((r) => r.supply + r.extract > 0).length }
+})
+const SERVICE_LIMIT = 200
 
 const flowEditLines = computed(() => {
   void flowVersion.value
@@ -1275,6 +1320,44 @@ function exportTTL() {
             </table>
           </div>
 
+          <!-- 담당 공간. 공기 원천을 골랐을 때만 뜬다. 계통도가 묻는 "이 공조기가 담당하는 방" 의 근사다. -->
+          <div v-if="selectedService" class="served">
+            <h4>
+              담당 공간 <Src kind="calc" />
+              <span class="muted">
+                흐름 방향을 따라 말단(디퓨저·그릴)까지 가서 말단이 있는 방을 모읍니다<template v-if="showRules && hasRules"> · 규칙 방향 포함 <Src kind="dict" /></template>
+                · 추정이라 내보내지 않습니다
+              </span>
+            </h4>
+            <p v-if="!selectedService.supply.length && !selectedService.extract.length" class="muted">
+              흐름 방향으로 닿는 말단이 없습니다. 방향을 모르는 연결에서 멈췄거나, 덕트 없이 방에 바로 놓인 기기(카세트형 등)일 수 있습니다.
+            </p>
+            <table v-else>
+              <thead>
+                <tr>
+                  <th>방</th>
+                  <th>층</th>
+                  <th class="num">급기 말단</th>
+                  <th class="num">환기·배기 말단</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="r in selectedService.rooms" :key="r.spaceId ?? '-'">
+                  <td :class="{ muted: !r.spaceId }">
+                    {{ r.spaceId ? spaceNameOf(r.spaceId) : '소속 방 없음' }}
+                    <Src v-if="r.spaceId" kind="calc" />
+                  </td>
+                  <td class="muted">{{ r.spaceId ? spaceStorey.get(r.spaceId) : '' }}</td>
+                  <td :class="['num', 'mono', r.supply ? 'downstream' : 'muted']">{{ r.supply || '·' }}</td>
+                  <td :class="['num', 'mono', r.extract ? 'upstream' : 'muted']">{{ r.extract || '·' }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p v-if="selectedService.rooms.some((r) => !r.spaceId) && counts.spaces === 0" class="hint">
+              이 파일에는 방이 없습니다. 건축 파일을 덧붙이면 말단이 있는 방이 나옵니다.
+            </p>
+          </div>
+
           <p v-if="selectedNeighbors.length === 0" class="hint">
             이 설비에 붙은 연결이 없습니다.
           </p>
@@ -1428,6 +1511,46 @@ function exportTTL() {
               </p>
             </div>
           </div>
+        </Fold>
+
+        <!-- 원천별 담당 공간. 계통도를 그리기 전에 "어느 기기가 어느 방을 맡는가" 를 한 장으로 본다. -->
+        <Fold
+          v-if="serviceSummary && serviceSummary.rows.length"
+          title="담당 공간"
+          :meta="`공기 원천 ${serviceSummary.rows.length}대 · 말단에 닿는 것 ${serviceSummary.reaching}대`"
+          :default-open="false"
+          class="service"
+        >
+          <p class="hint">
+            <Src kind="calc" /> 흐름 방향을 따라 원천에서 말단까지 가고, 말단이 있는 방을 모았습니다. 급기는 하류로, 환기·배기는 상류로
+            갑니다. 다른 원천을 만나면 멈춥니다. 추정이라 TTL 로 내보내지 않습니다.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>원천</th>
+                <th>종류 <Src kind="dict" /></th>
+                <th class="num">급기 말단</th>
+                <th class="num">환기·배기 말단</th>
+                <th>방</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in serviceSummary.rows.slice(0, SERVICE_LIMIT)" :key="r.id" :class="{ chosen: r.id === selectedId }">
+                <td><button type="button" class="link" @click="select(r.id)">{{ r.name }}</button></td>
+                <td class="muted">{{ r.kind }}</td>
+                <td :class="['num', 'mono', r.supply ? 'downstream' : 'muted']">{{ r.supply || '·' }}</td>
+                <td :class="['num', 'mono', r.extract ? 'upstream' : 'muted']">{{ r.extract || '·' }}</td>
+                <td class="names" :title="r.rooms.join(', ')">
+                  <template v-if="r.rooms.length">{{ r.rooms.length }}개 · {{ r.rooms.join(', ') }}</template>
+                  <span v-else class="muted">—</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-if="serviceSummary.rows.length > SERVICE_LIMIT" class="hint">
+            {{ serviceSummary.rows.length }}대 중 말단이 많은 {{ SERVICE_LIMIT }}대만 보입니다.
+          </p>
         </Fold>
 
         <!-- 편집. 3D 조작 대신 값을 직접 고친다. PoC 에서 확인할 것은 조작감이 아니라
