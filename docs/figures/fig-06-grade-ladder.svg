@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="640" viewBox="0 0 1240 640">
+  <defs>
+    <style>
+      text{font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;fill:#1f2937;font-size:14px}
+      .mut{fill:#6b7280}.acc{fill:#2563eb}.b{font-weight:700}.s{font-size:12.5px}.xs{font-size:11.5px}.t{font-size:18px;font-weight:700}
+      .g{font-size:26px;font-weight:700}
+      .ok{fill:#e8efff;stroke:#2563eb;stroke-width:1.5}.part{fill:#f0f1f3;stroke:#9ca3af;stroke-width:1.5}
+      .no{fill:#fff;stroke:#9ca3af;stroke-width:1.5;stroke-dasharray:6 4}
+    </style>
+  </defs>
+  <rect width="1240" height="640" fill="#fff"/>
+  <text x="24" y="36" class="t">"이 BIM 으로는 여기까지 나옵니다": 등급은 아래 등급을 전제로 쌓인다</text>
+  <g class="s" transform="translate(760,52)">
+    <rect x="0" y="0" width="16" height="12" class="ok"/><text x="22" y="11">샘플이 도달</text>
+    <rect x="120" y="0" width="16" height="12" class="part"/><text x="142" y="11">재료는 있음, 코드 미구현</text>
+    <rect x="320" y="0" width="16" height="12" class="no"/><text x="342" y="11">도달한 샘플 없음</text>
+  </g>
+
+  <!-- 계단: x = 24 + i*150, 폭 140, 바닥 470 -->
+  <g>
+    <rect x="24"   y="370" width="140" height="100" rx="8" class="ok"/>
+    <text x="38" y="400" class="g acc">0</text><text x="38" y="422" class="b s">공간 골격</text><text x="38" y="442" class="xs">층·물리존 외곽선·이름</text><text x="38" y="460" class="xs">벽·문·창·공간 경계</text>
+
+    <rect x="174"  y="340" width="140" height="130" rx="8" class="part"/>
+    <text x="188" y="370" class="g mut">0+</text><text x="188" y="392" class="b s">공간 의미</text><text x="188" y="412" class="xs">방 종류 · 방 높이</text><text x="188" y="430" class="xs">방-문-방 연결</text>
+
+    <rect x="324"  y="310" width="140" height="160" rx="8" class="ok"/>
+    <text x="338" y="340" class="g acc">1</text><text x="338" y="362" class="b s">설비 목록</text><text x="338" y="382" class="xs">설비 역할·이름·좌표</text>
+
+    <rect x="474"  y="270" width="140" height="200" rx="8" class="ok"/>
+    <text x="488" y="300" class="g acc">2</text><text x="488" y="322" class="b s">설비 소속</text><text x="488" y="342" class="xs">brick:hasLocation</text><text x="488" y="360" class="xs">이상 알림 발생 위치</text>
+
+    <rect x="624"  y="230" width="140" height="240" rx="8" class="ok"/>
+    <text x="638" y="260" class="g acc">3</text><text x="638" y="282" class="b s">계통·연결망</text><text x="638" y="302" class="xs">계통 묶음</text><text x="638" y="320" class="xs">연결(방향 없음)</text>
+
+    <rect x="774"  y="190" width="140" height="280" rx="8" class="ok"/>
+    <text x="788" y="220" class="g acc">4</text><text x="788" y="242" class="b s">흐름 방향</text><text x="788" y="262" class="xs">brick:feeds</text><text x="788" y="280" class="xs">상류·하류</text>
+
+    <rect x="924"  y="150" width="140" height="320" rx="8" class="no"/>
+    <text x="938" y="180" class="g mut">4+</text><text x="938" y="202" class="b s">담당 공간(근사)</text><text x="938" y="222" class="xs">공조기 → 같은 계통</text><text x="938" y="240" class="xs">말단 → 말단이 있는 방</text>
+
+    <rect x="1074" y="110" width="140" height="360" rx="8" class="no"/>
+    <text x="1088" y="140" class="g mut">5</text><text x="1088" y="162" class="b s">운영</text><text x="1088" y="182" class="xs">공조존 · 관제점</text><text x="1088" y="200" class="xs">(IDF · BAS 에서)</text>
+  </g>
+
+  <!-- 도달 샘플 -->
+  <g class="xs mut">
+    <text x="24" y="492">AC20-FZK-Haus</text><text x="24" y="508">Duplex 건축</text>
+    <text x="174" y="492">Duplex 건축에</text><text x="174" y="508">분류 21/21</text>
+    <text x="324" y="492">Duplex MEP·HVAC</text><text x="324" y="508">ifc4Mep</text>
+    <text x="474" y="492">Duplex MEP 141/141</text><text x="474" y="508">건축+HVAC 40/40</text>
+    <text x="624" y="492">Duplex MEP</text><text x="624" y="508">연결 785</text>
+    <text x="774" y="492">ifc4Mep 만</text><text x="774" y="508">기기 단위 37/103</text>
+    <text x="924" y="492">없음</text>
+    <text x="1074" y="492">없음 · IFC 칸은</text><text x="1074" y="508">있으나 값 0</text>
+  </g>
+
+  <!-- 대부분 멈추는 곳 -->
+  <path d="M324,526 V538 H764 V526" fill="none" stroke="#1f2937" stroke-width="1.5"/>
+  <text x="544" y="560" text-anchor="middle" class="s b">대부분의 고객사 BIM 은 1~3 에서 멈춘다</text>
+  <path d="M24,580 V592 H614 V580" fill="none" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="319" y="616" text-anchor="middle" class="s acc b">필수 요구(R0~R13)가 여는 곳: 0 · 1 · 2 (0+ 는 권장)</text>
+</svg>

@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="620" viewBox="0 0 1240 620">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#9ca3af"/></marker>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+    <style>
+      text{font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;fill:#1f2937;font-size:14px}
+      .m,.m text{font-family:'D2Coding','D2CodingLigature Nerd Font','Noto Sans Mono CJK KR',monospace;font-size:13px}
+      .mut{fill:#6b7280}.acc{fill:#2563eb}.b{font-weight:700}.s{font-size:12.5px}.t{font-size:18px;font-weight:700}
+      .card{fill:#f5f6f8;stroke:#e1e4e8}.node{fill:#fff;stroke:#c9ced6}.nodeA{fill:#e8efff;stroke:#2563eb}
+    </style>
+  </defs>
+  <rect width="1240" height="620" fill="#fff"/>
+  <text x="24" y="36" class="t">IFC 파일은 "객체 한 줄 + 관계 한 줄"의 모음이다</text>
+
+  <!-- 왼쪽: 실제 텍스트 -->
+  <rect x="24" y="60" width="640" height="530" rx="12" class="card"/>
+  <text x="44" y="90" class="b">파일 안의 실제 줄 <tspan class="mut s" font-weight="400">(AC20-FZK-Haus.ifc, 일부 생략)</tspan></text>
+  <g class="m">
+    <text x="44" y="130"><tspan class="mut">#479=</tspan> <tspan class="b">IFCBUILDINGSTOREY</tspan>(<tspan class="acc">'2eyxpyOx…'</tspan>,…,'Erdgeschoss',…,0.);</text>
+    <text x="44" y="162"><tspan class="mut">#20909=</tspan> <tspan class="b">IFCSPACE</tspan>(<tspan class="acc">'347jFE2y…'</tspan>,…,'4',…,'Schlafzimmer',…);</text>
+    <text x="44" y="194"><tspan class="mut">#21283=</tspan> <tspan class="b">IFCSPACE</tspan>(<tspan class="acc">'0e_hbkIQ…'</tspan>,…,'3',…,'Bad',…);</text>
+    <text x="44" y="226"><tspan class="mut">#20914=</tspan> <tspan class="b">IFCRELAGGREGATES</tspan>(…,#479,(#20909,#21283,…));</text>
+    <text x="44" y="258"><tspan class="mut">#18465=</tspan> <tspan class="b">IFCWALLSTANDARDCASE</tspan>(<tspan class="acc">'2ptk1k7q…'</tspan>,…,'Wand-Int-ERDG-1',…);</text>
+    <text x="44" y="290"><tspan class="mut">#14517=</tspan> <tspan class="b">IFCRELCONTAINEDINSPATIALSTRUCTURE</tspan>(…,(…,#18465,…),#479);</text>
+  </g>
+  <line x1="44" y1="318" x2="644" y2="318" stroke="#e1e4e8"/>
+  <g>
+    <circle cx="56" cy="350" r="11" fill="#6b7280"/><text x="56" y="355" text-anchor="middle" fill="#fff" class="s b" style="fill:#fff">1</text>
+    <text x="78" y="355"><tspan class="m mut">#479</tspan> 는 파일 안에서만 쓰는 번호다. 다른 줄이 이 번호로 가리킨다.</text>
+    <circle cx="56" cy="398" r="11" fill="#2563eb"/><text x="56" y="403" text-anchor="middle" class="s b" style="fill:#fff">2</text>
+    <text x="78" y="403"><tspan class="m acc">'2eyxpyOx…'</tspan> 는 GlobalId(GUID, 22자)다. 우리 온톨로지의 id 가 된다.</text>
+    <text x="78" y="425" class="mut s">저작 도구가 GUID 를 유지한 채 다시 내보내면, 재임포트 때 같은 방으로 알아본다(R13).</text>
+    <circle cx="56" cy="468" r="11" fill="#1f2937"/><text x="56" y="473" text-anchor="middle" class="s b" style="fill:#fff">3</text>
+    <text x="78" y="473">관계도 한 줄짜리 객체다(<tspan class="m">IFCREL…</tspan>).</text>
+    <text x="78" y="495" class="mut s">"1층이 침실·욕실을 가진다"가 #20914 한 줄로 적혀 있다.</text>
+    <text x="78" y="540" class="s">사람이 읽는 파일이 아니라 도구가 읽는 파일이다. Revit·ArchiCAD 가 내보내고,</text>
+    <text x="78" y="562" class="s">우리는 web-ifc 로 이 줄들을 객체 그래프로 되살린다(오른쪽).</text>
+  </g>
+
+  <!-- 오른쪽: 객체 그래프 -->
+  <text x="700" y="90" class="b">되살린 구조</text>
+  <g>
+    <rect x="700" y="108" width="170" height="46" rx="8" class="node"/><text x="714" y="128" class="s mut">IfcProject</text><text x="714" y="146" class="s">프로젝트</text>
+    <rect x="700" y="186" width="170" height="46" rx="8" class="node"/><text x="714" y="206" class="s mut">IfcSite</text><text x="714" y="224" class="s">대지</text>
+    <rect x="700" y="264" width="170" height="46" rx="8" class="node"/><text x="714" y="284" class="s mut">IfcBuilding</text><text x="714" y="302" class="s">건물 FZK-Haus</text>
+    <rect x="700" y="342" width="170" height="46" rx="8" class="nodeA"/><text x="714" y="362" class="s mut">IfcBuildingStorey</text><text x="714" y="380" class="s b">층 Erdgeschoss</text>
+    <line x1="785" y1="154" x2="785" y2="184" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#a)"/>
+    <line x1="785" y1="232" x2="785" y2="262" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#a)"/>
+    <line x1="785" y1="310" x2="785" y2="340" stroke="#9ca3af" stroke-width="1.5" marker-end="url(#a)"/>
+    <text x="795" y="175" class="s mut">분해</text><text x="795" y="253" class="s mut">분해</text><text x="795" y="331" class="s mut">분해</text>
+  </g>
+  <!-- 분해 그룹 -->
+  <rect x="960" y="140" width="256" height="200" rx="10" fill="#fff" stroke="#2563eb" stroke-dasharray="0"/>
+  <text x="976" y="164" class="s b acc">분해 · IfcRelAggregates</text>
+  <text x="976" y="182" class="s mut">층 → 방(IfcSpace) = 물리존</text>
+  <rect x="976" y="196" width="224" height="38" rx="6" class="nodeA"/><text x="990" y="220" class="s">침실 Schlafzimmer</text>
+  <rect x="976" y="242" width="224" height="38" rx="6" class="nodeA"/><text x="990" y="266" class="s">욕실 Bad</text>
+  <rect x="976" y="288" width="224" height="38" rx="6" class="nodeA"/><text x="990" y="312" class="s">사무실 Buero … (7개)</text>
+  <!-- 포함 그룹 -->
+  <rect x="960" y="380" width="256" height="200" rx="10" fill="#fff" stroke="#6b7280"/>
+  <text x="976" y="404" class="s b">포함 · IfcRelContainedIn…</text>
+  <text x="976" y="422" class="s mut">층 → 벽·문·창·설비</text>
+  <rect x="976" y="436" width="224" height="38" rx="6" class="node"/><text x="990" y="460" class="s">벽 IfcWall · 13</text>
+  <rect x="976" y="482" width="224" height="38" rx="6" class="node"/><text x="990" y="506" class="s">문 IfcDoor · 5</text>
+  <rect x="976" y="528" width="224" height="38" rx="6" class="node"/><text x="990" y="552" class="s">창 IfcWindow · 11</text>
+  <path d="M870,358 C915,358 915,240 958,240" fill="none" stroke="#2563eb" stroke-width="1.8" marker-end="url(#aa)"/>
+  <path d="M870,372 C915,372 915,480 958,480" fill="none" stroke="#6b7280" stroke-width="1.8" marker-end="url(#a)"/>
+  <text x="700" y="440" class="s b">같은 "층에 속한다"인데</text>
+  <text x="700" y="460" class="s b">관계가 두 종류로 나뉜다.</text>
+  <text x="700" y="484" class="s mut">한쪽만 읽으면 절반이 빈다.</text>
+  <text x="700" y="530" class="s mut">방 외곽선은 방 객체의 형상 표현</text>
+  <text x="700" y="550" class="s mut">(FootPrint 또는 Body)에 들어 있다</text>
+  
+</svg>

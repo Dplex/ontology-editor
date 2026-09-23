@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="520" viewBox="0 0 1240 520">
+  <defs>
+    <style>
+      text{font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;fill:#1f2937;font-size:14px}
+      .mut{fill:#6b7280}.acc{fill:#2563eb}.b{font-weight:700}.s{font-size:12.5px}.t{font-size:18px;font-weight:700}
+      .card{fill:#f5f6f8;stroke:#e1e4e8}
+    </style>
+  </defs>
+  <rect width="1240" height="520" fill="#fff"/>
+  <text x="24" y="36" class="t">설비 소속(F11)은 "좌표가 어느 방 외곽선 안에 드는가"로 계산한다</text>
+
+  <!-- 평면 -->
+  <g transform="translate(40,80)">
+    <rect x="0" y="0" width="560" height="340" fill="#fff"/>
+    <!-- 5cm 여유 띠 -->
+    <rect x="-8" y="-8" width="316" height="356" fill="none" stroke="#2563eb" stroke-width="16" stroke-opacity="0.12"/>
+    <rect x="0" y="0" width="300" height="340" fill="#e8efff" stroke="#1f2937" stroke-width="3"/>
+    <rect x="300" y="0" width="260" height="340" fill="#fff" stroke="#1f2937" stroke-width="3"/>
+    <text x="16" y="28" class="b">회의실</text>
+    <text x="316" y="28" class="b">복도</text>
+
+    <!-- 안에 든 설비 -->
+    <rect x="60" y="140" width="28" height="20" rx="3" fill="#2563eb"/>
+    <text x="96" y="156" class="s">FCU · 안에 든다 → 회의실</text>
+    <!-- 벽면 설비 -->
+    <rect x="-7" y="238" width="14" height="24" rx="2" fill="#1f2937"/>
+    <text x="22" y="246" class="s b">콘센트 · 좌표가 벽면 위</text>
+    <text x="22" y="266" class="s mut">점-다각형: 어느 방에도 안 든다</text>
+    <text x="22" y="286" class="s acc">5cm 여유: 가장 가까운 방 → 회의실</text>
+    <!-- 좌표 없음 -->
+    <text x="320" y="200" class="s b">센서 · 좌표 없음</text>
+    <text x="320" y="220" class="s mut">0,0,0 으로 채우지 않는다.</text>
+    <text x="320" y="240" class="s mut">"모름"(null)으로 두고 미배치 목록에.</text>
+    <text x="320" y="260" class="s mut">채우면 원점 근처 방에 자동 소속된다.</text>
+  </g>
+  <text x="40" y="460" class="s mut">연한 파란 띠 = 외곽선에서 5cm. 이 안의 설비는 가장 가까운 방에 붙인다.</text>
+  <text x="40" y="482" class="s mut">BIM 이 소속을 직접 적어 준 설비(IfcSpace 에 매단 것)는 다시 판정하지 않는다. 설계자가 적은 값이 좌표보다 정확하다.</text>
+
+  <!-- 채점 -->
+  <rect x="660" y="80" width="556" height="340" rx="12" class="card"/>
+  <text x="684" y="112" class="b">얼마나 맞나 <tspan class="mut s" font-weight="400">정답지: BIM 이 방에 직접 매단 167 대 (Duplex MEP)</tspan></text>
+  <text x="684" y="160" class="s">점이 외곽선 안에 드는가</text>
+  <rect x="684" y="172" width="500" height="34" rx="6" fill="#fff" stroke="#e1e4e8"/>
+  <rect x="684" y="172" width="365" height="34" rx="6" fill="#9ca3af"/>
+  <text x="698" y="194" class="b" style="fill:#fff">122 / 167 · 73.1%</text>
+  <text x="684" y="246" class="s">+ 외곽선 5cm 안이면 가장 가까운 방</text>
+  <rect x="684" y="258" width="500" height="34" rx="6" fill="#fff" stroke="#e1e4e8"/>
+  <rect x="684" y="258" width="479" height="34" rx="6" fill="#2563eb"/>
+  <text x="698" y="280" class="b" style="fill:#fff">160 / 167 · 95.8%</text>
+  <text x="684" y="330" class="s">빠졌던 43 대는 벽에 붙은 설비(콘센트·스위치)였다</text>
+  <text x="684" y="350" class="s mut">(외곽선까지 거리 중앙값 0mm). 5cm 에서 포화하고,</text>
+  <text x="684" y="370" class="s mut">더 넓히면 채점할 수 없는 벽 속 배관만 더 붙는다.</text>
+  <text x="684" y="400" class="s mut">남은 7 대 = 어느 방에도 안 듦 5 + 다른 방 2</text>
+</svg>

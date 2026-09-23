@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="500" viewBox="0 0 1240 500">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>
+    <style>
+      text{font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;fill:#1f2937;font-size:14px}
+      .m,.m text{font-family:'D2CodingLigature Nerd Font','Noto Sans Mono CJK KR',monospace;font-size:12px}
+      .mut{fill:#6b7280}.acc{fill:#2563eb}.b{font-weight:700}.s{font-size:12.5px}.t{font-size:18px;font-weight:700}
+      .card{fill:#f5f6f8;stroke:#e1e4e8}.node{fill:#fff;stroke:#c9ced6}.nodeA{fill:#e8efff;stroke:#2563eb}
+      .ln{stroke:#6b7280;stroke-width:1.5;fill:none}
+    </style>
+  </defs>
+  <rect width="1240" height="500" fill="#fff"/>
+  <text x="24" y="36" class="t">BIM 에서 온톨로지까지: 기하와 의미를 두 파일로 내보내고, 같은 id 로 잇는다</text>
+
+  <rect x="24" y="90" width="150" height="60" rx="8" class="node"/><text x="40" y="116" class="b">건축 IFC</text><text x="40" y="136" class="s mut">층·방·벽</text>
+  <rect x="24" y="170" width="150" height="60" rx="8" class="node"/><text x="40" y="196" class="b">설비 IFC</text><text x="40" y="216" class="s mut">설비·배관·포트</text>
+
+  <rect x="220" y="70" width="290" height="190" rx="10" class="card"/>
+  <text x="238" y="98" class="b">읽기 (임포터)</text>
+  <g class="s">
+    <text x="238" y="126">· 배치 사슬을 따라 좌표 변환, 단위 환산</text>
+    <text x="238" y="148">· 공간 계층 · 방 외곽선 · 벽 두께</text>
+    <text x="238" y="170">· 설비와 역할(소스·싱크·도관)</text>
+    <text x="238" y="192">· 두 파일 합치기(층 이름·좌표계)</text>
+    <text x="238" y="214">· 설비 소속 판정 (F11)</text>
+    <text x="238" y="236">· 연결 · 흐름 방향 (F16)</text>
+  </g>
+  <line x1="174" y1="120" x2="216" y2="140" class="ln" marker-end="url(#a)"/>
+  <line x1="174" y1="200" x2="216" y2="180" class="ln" marker-end="url(#a)"/>
+
+  <rect x="556" y="70" width="230" height="190" rx="10" class="card"/>
+  <text x="574" y="98" class="b">검토 · 편집</text>
+  <g class="s">
+    <text x="574" y="126">· 빠진 것 경고 (요구사항 대조)</text>
+    <text x="574" y="148">· E1 물리존 이름</text>
+    <text x="574" y="170">· E2 물리존 경계</text>
+    <text x="574" y="192">· E5·E6 설비 이동·배치</text>
+    <text x="574" y="222" class="mut">편집할 때마다 소속을</text>
+    <text x="574" y="240" class="mut">같은 자리에서 다시 판정한다</text>
+  </g>
+  <line x1="510" y1="165" x2="552" y2="165" class="ln" marker-end="url(#a)"/>
+
+  <!-- 두 출력 -->
+  <rect x="832" y="60" width="384" height="130" rx="10" class="nodeA"/>
+  <text x="850" y="88" class="b">GeoJSON: 기하</text>
+  <g class="m">
+    <text x="850" y="114">{ "id": <tspan class="acc">"2RSCzLOB…"</tspan>, "geometry": { "type": "Polygon", … },</text>
+    <text x="866" y="132">"properties": { "kind": "space", "longName": "Buero",</text>
+    <text x="1000" y="150">"areaM2": 12.985, … } }</text>
+  </g>
+  <text x="850" y="176" class="s mut">물리존 외곽선 · 설비 좌표 · 층 높이</text>
+
+  <rect x="832" y="230" width="384" height="150" rx="10" class="nodeA"/>
+  <text x="850" y="258" class="b">Brick TTL: 의미</text>
+  <g class="m">
+    <text x="850" y="284">ex:2eyxpyOx… a brick:Floor ;</text>
+    <text x="874" y="302">brick:hasPart ex:<tspan class="acc">2RSCzLOB…</tspan>, … .</text>
+    <text x="850" y="320">ex:<tspan class="acc">2RSCzLOB…</tspan> a brick:Room ; rdfs:label "Buero" .</text>
+    <text x="850" y="338">ex:(설비 GUID) … brick:hasLocation ex:<tspan class="acc">2RSCzLOB…</tspan> .</text>
+  </g>
+  <text x="850" y="366" class="s mut">쓰는 술어는 hasPart · hasLocation · feeds · hasPoint 넷</text>
+
+  <line x1="786" y1="140" x2="828" y2="125" class="ln" marker-end="url(#a)"/>
+  <line x1="786" y1="190" x2="828" y2="290" class="ln" marker-end="url(#a)"/>
+  <path d="M1200,190 V230" stroke="#2563eb" stroke-width="2" stroke-dasharray="4 3"/>
+  <text x="1070" y="214" class="s acc b">같은 id (IfcGlobalId)</text>
+
+  <!-- 받는 쪽 -->
+  <rect x="832" y="410" width="384" height="80" rx="10" class="node"/>
+  <text x="850" y="434" class="b">DT</text>
+  <text x="850" y="456" class="s mut">3D Map 의 외곽선은 GeoJSON 에서,</text><text x="850" y="476" class="s mut">탐색기·이상 알림·Agent 의 관계는 TTL 에서</text>
+  <line x1="1024" y1="380" x2="1024" y2="406" class="ln" marker-end="url(#a)"/>
+
+  <rect x="24" y="300" width="762" height="180" rx="10" fill="#fff" stroke="#e1e4e8"/>
+  <text x="44" y="330" class="b">왜 두 파일인가</text>
+  <text x="44" y="358" class="s">· 기존 SR 온톨로지에는 설비·관제점 관계만 있고 좌표가 하나도 없다. 이 도구가 채우는 것이 그 빠진 절반(기하)이다.</text>
+  <text x="44" y="382" class="s">· 다각형을 TTL 에 넣으면 문자열(WKT)이 되어 "이 물리존이 저 공조존과 겹치나"를 계산할 수 없다(PRD #12).</text>
+  <text x="44" y="406" class="s">· 그래서 기하는 GeoJSON 에, 관계는 TTL 에 두고 id 하나로만 잇는다. TTL 에는 좌표를 넣지 않는다.</text>
+  <text x="44" y="438" class="s mut">id 는 BIM 의 GUID 를 그대로 쓴다. 저작 도구가 GUID 를 유지하면 재임포트 때 같은 방을 같은 것으로 알아본다.</text>
+  <text x="44" y="460" class="s mut">받는 쪽 형식(IMDF 등)과의 관계는 레이아웃 에디터 논의로 넘긴다(부록).</text>
+</svg>

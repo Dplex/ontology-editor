@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="520" viewBox="0 0 1240 520">
+  <defs>
+    <style>
+      text{font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;fill:#1f2937;font-size:14px}
+      .mut{fill:#6b7280}.acc{fill:#2563eb}.b{font-weight:700}.s{font-size:12.5px}.t{font-size:18px;font-weight:700}
+      .col{fill:#f5f6f8;stroke:#e1e4e8}
+      .cA{fill:#e8efff;stroke:#2563eb}.cB{fill:#fff;stroke:#2563eb;stroke-dasharray:5 3}
+      .cC{fill:#1f2937;stroke:#1f2937}.cD{fill:#fff;stroke:#9ca3af}
+    </style>
+  </defs>
+  <rect width="1240" height="520" fill="#fff"/>
+  <text x="24" y="36" class="t">DT 온톨로지의 피처 16개와 출처: BIM(건축)만으로 나오는 것은 절반이다</text>
+
+  <!-- 열 1: BIM 건축 -->
+  <rect x="24" y="60" width="286" height="440" rx="12" class="col"/>
+  <text x="42" y="90" class="b">BIM · 건축 모델</text><text x="42" y="110" class="s mut">대부분의 BIM 에 있다</text>
+  <g class="s">
+    <rect x="42" y="126" width="250" height="34" rx="17" class="cA"/><text x="58" y="148">F1 공간 계층 (사이트›건물›층›물리존)</text>
+    <rect x="42" y="168" width="250" height="34" rx="17" class="cA"/><text x="58" y="190">F2 물리존 외곽선·면적·높이</text>
+    <rect x="42" y="210" width="250" height="34" rx="17" class="cA"/><text x="58" y="232">F3 공간 이름·방 번호</text>
+    <rect x="42" y="252" width="250" height="34" rx="17" class="cA"/><text x="58" y="274">F4 벽·문·창 형상</text>
+    <rect x="42" y="294" width="250" height="34" rx="17" class="cA"/><text x="58" y="316">F5 개구부 소속 (어느 벽의 문)</text>
+    <rect x="42" y="336" width="250" height="34" rx="17" class="cA"/><text x="58" y="358">F6 공간 경계 (방을 두른 부재)</text>
+    <rect x="42" y="378" width="250" height="34" rx="17" class="cB"/><text x="58" y="400">F7 내력벽 <tspan class="mut">· 속성을 채운 경우만</tspan></text>
+    <rect x="42" y="420" width="250" height="34" rx="17" class="cA"/><text x="58" y="442">F15 로봇 통과 <tspan class="mut">· F4 에서 파생</tspan></text>
+  </g>
+
+  <!-- 열 2: BIM MEP -->
+  <rect x="326" y="60" width="286" height="440" rx="12" class="col"/>
+  <text x="344" y="90" class="b">BIM · 설비(MEP) 모델</text><text x="344" y="110" class="s mut">따로 받아야 있다</text>
+  <g class="s">
+    <rect x="344" y="126" width="250" height="34" rx="17" class="cB"/><text x="360" y="148">F8 설비 목록 (종류·이름·용량)</text>
+    <rect x="344" y="168" width="250" height="34" rx="17" class="cB"/><text x="360" y="190">F9 설비 위치 x·y·z</text>
+    <rect x="344" y="210" width="250" height="34" rx="17" class="cB"/><text x="360" y="232">F10 계통 (공조기→덕트→토출구)</text>
+    <rect x="344" y="252" width="250" height="34" rx="17" class="cB"/><text x="360" y="274">F16 연결·흐름 방향 <tspan class="mut">· 포트</tspan></text>
+  </g>
+  <text x="344" y="330" class="s mut">점선 = 파일에 있어야 읽는다.</text>
+  <text x="344" y="350" class="s mut">공개 BIM 넷 중 설비가 든 것은 둘,</text>
+  <text x="344" y="370" class="s mut">그것도 타월디스펜서·거울·소화기함이었다.</text>
+
+  <!-- 열 3: 계산 -->
+  <rect x="628" y="60" width="286" height="440" rx="12" class="col"/>
+  <text x="646" y="90" class="b">우리가 계산한다</text><text x="646" y="110" class="s mut">BIM 은 좌표만 준다</text>
+  <g class="s">
+    <rect x="646" y="126" width="250" height="34" rx="17" class="cC"/><text x="662" y="148" style="fill:#fff">F11 설비 소속 물리존</text>
+  </g>
+  <text x="646" y="196" class="s">"이 공조기는 회의실에 있다"는 BIM 이</text>
+  <text x="646" y="216" class="s">말하지 않는다. 좌표가 어느 외곽선 안에</text>
+  <text x="646" y="236" class="s">드는지 계산해서 만든다.</text>
+  <text x="646" y="270" class="s b">이 과제의 핵심이다.</text>
+  <text x="646" y="300" class="s mut">없으면 이상 알림이 발생 위치를 못 찍고,</text>
+  <text x="646" y="320" class="s mut">탐색기 트리에 설비가 안 걸린다.</text>
+
+  <!-- 열 4: BIM 밖 -->
+  <rect x="930" y="60" width="286" height="440" rx="12" class="col"/>
+  <text x="948" y="90" class="b">BIM 밖에서 온다</text><text x="948" y="110" class="s mut">IFC 에 칸은 있어도 실측 값 0</text>
+  <g class="s">
+    <rect x="948" y="126" width="250" height="34" rx="17" class="cD"/><text x="964" y="148">F12 공조존 <tspan class="mut">· IDF · gbXML</tspan></text>
+    <rect x="948" y="168" width="250" height="34" rx="17" class="cD"/><text x="964" y="190">F13 관제점 <tspan class="mut">· BAS</tspan></text>
+    <rect x="948" y="210" width="250" height="34" rx="17" class="cD"/><text x="964" y="232">F14 커스텀존 <tspan class="mut">· 운영자</tspan></text>
+  </g>
+  <text x="948" y="280" class="s mut">공조존: IfcZone 자리는 있으나</text>
+  <text x="948" y="300" class="s mut">Duplex 는 템플릿 기본값만 넣었다.</text>
+  <text x="948" y="330" class="s mut">관제점: 센서(IfcSensor)는 BIM 에</text>
+  <text x="948" y="350" class="s mut">있을 수 있지만 관제점 ID 는 BAS 가</text>
+  <text x="948" y="370" class="s mut">들고 있다.</text>
+</svg>

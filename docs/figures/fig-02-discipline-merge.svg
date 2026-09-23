@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="560" viewBox="0 0 1240 560">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+    <style>
+      text{font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;fill:#1f2937;font-size:14px}
+      .m,.m text{font-family:'D2CodingLigature Nerd Font','Noto Sans Mono CJK KR',monospace;font-size:13px}
+      .mut{fill:#6b7280}.acc{fill:#2563eb}.b{font-weight:700}.s{font-size:12.5px}.t{font-size:18px;font-weight:700}
+      .card{fill:#f5f6f8;stroke:#e1e4e8}.yes{fill:#2563eb}.no{fill:#9ca3af}
+    </style>
+  </defs>
+  <rect width="1240" height="560" fill="#fff"/>
+  <text x="24" y="36" class="t">건축과 설비는 다른 파일로 온다. 합쳐야 "이 설비가 어느 방에 있나"가 나온다</text>
+
+  <!-- 건축 파일 -->
+  <rect x="24" y="64" width="330" height="200" rx="12" class="card"/>
+  <text x="44" y="94" class="b">건축 파일 <tspan class="mut s" font-weight="400">Architecture</tspan></text>
+  <g class="s">
+    <text x="44" y="126"><tspan class="yes b" style="fill:#2563eb">●</tspan>  층 · 방(물리존) · 방 외곽선</text>
+    <text x="44" y="152"><tspan style="fill:#2563eb">●</tspan>  벽 · 문 · 창 · 공간 경계</text>
+    <text x="44" y="178"><tspan style="fill:#9ca3af">○</tspan>  <tspan class="mut">설비 0 대</tspan></text>
+    <text x="44" y="220" class="mut">실측: AC20-FZK-Haus 설비 0,</text>
+    <text x="44" y="240" class="mut">Duplex 건축 판본 설비 0</text>
+  </g>
+  <!-- 설비 파일 -->
+  <rect x="24" y="284" width="330" height="236" rx="12" class="card"/>
+  <text x="44" y="314" class="b">설비 파일 <tspan class="mut s" font-weight="400">MEP · HVAC</tspan></text>
+  <g class="s">
+    <text x="44" y="346"><tspan style="fill:#2563eb">●</tspan>  설비 · 덕트 · 배관 · 좌표</text>
+    <text x="44" y="372"><tspan style="fill:#2563eb">●</tspan>  계통(IfcSystem) · 포트</text>
+    <text x="44" y="398"><tspan style="fill:#9ca3af">○</tspan>  <tspan class="mut">방 0 개, 또는 건축 방의 사본</tspan></text>
+    <text x="44" y="440" class="mut">실측: ifc4Mep 설비 2,202 · 방 0</text>
+    <text x="44" y="460" class="mut">Duplex MEP 방 42 = 같은 방 21 × 2</text>
+    <text x="44" y="480" class="mut">(Revit 이 Room 과 MEP Space 를</text>
+    <text x="44" y="500" class="mut"> 둘 다 IfcSpace 로 내보낸다)</text>
+  </g>
+
+  <path d="M354,164 C400,164 400,260 440,260" fill="none" stroke="#6b7280" stroke-width="1.8" marker-end="url(#a)"/>
+  <path d="M354,400 C400,400 400,300 440,300" fill="none" stroke="#6b7280" stroke-width="1.8" marker-end="url(#a)"/>
+
+  <!-- 합치기 조건 -->
+  <rect x="444" y="120" width="370" height="330" rx="12" fill="#fff" stroke="#2563eb" stroke-width="1.5"/>
+  <text x="466" y="152" class="b acc">합치기: 세 가지가 같아야 한다</text>
+  <g class="s">
+    <text x="466" y="194" class="b">① 층 이름 <tspan class="mut" font-weight="400">(R1)</tspan></text>
+    <text x="466" y="214" class="mut">층 GUID 는 판본마다 새로 만들어져서</text>
+    <text x="466" y="232" class="mut">못 쓴다. Level 1 · Level 2 · Roof 로 맞춘다.</text>
+    <text x="466" y="272" class="b">② 방 번호 <tspan class="mut" font-weight="400">(R3)</tspan></text>
+    <text x="466" y="292" class="mut">같은 자리의 방은 하나만 남기고, 외곽선이</text>
+    <text x="466" y="310" class="mut">빠진 방은 같은 번호의 방에서 빌려 온다.</text>
+    <text x="466" y="350" class="b">③ 좌표계 <tspan class="mut" font-weight="400">(R12)</tspan></text>
+    <text x="466" y="370" class="mut">설비가 건축 공간 범위 안에 드는 비율을 잰다.</text>
+    <text x="466" y="388" class="mut">Duplex 100% · 다른 건물을 합치면 2%</text>
+    <text x="466" y="424" class="acc">다른 건물을 합쳐도 오류는 안 난다 → 비율로 경고</text>
+  </g>
+
+  <line x1="814" y1="285" x2="856" y2="285" stroke="#2563eb" stroke-width="1.8" marker-end="url(#aa)"/>
+
+  <!-- 결과 -->
+  <rect x="860" y="64" width="356" height="456" rx="12" class="card"/>
+  <text x="880" y="94" class="b">결과: 설비 소속 물리존 (F11) <tspan class="mut s" font-weight="400">평면은 예시</tspan></text>
+  <!-- 평면 -->
+  <g transform="translate(884,116)">
+    <rect x="0" y="0" width="308" height="200" fill="#fff" stroke="#1f2937" stroke-width="2"/>
+    <line x1="170" y1="0" x2="170" y2="200" stroke="#1f2937" stroke-width="2"/>
+    <line x1="170" y1="110" x2="308" y2="110" stroke="#1f2937" stroke-width="2"/>
+    <rect x="1" y="1" width="168" height="198" fill="#e8efff"/>
+    <text x="14" y="24" class="s b">A201 거실</text>
+    <text x="184" y="24" class="s b">A202 주방</text>
+    <text x="184" y="134" class="s b">A203 욕실</text>
+    <rect x="60" y="80" width="26" height="18" rx="3" fill="#2563eb"/><text x="94" y="94" class="s">FCU-1</text>
+    <circle cx="250" cy="66" r="7" fill="#6b7280"/><text x="262" y="71" class="s mut">싱크</text>
+    <circle cx="240" cy="166" r="7" fill="#6b7280"/><text x="252" y="171" class="s mut">변기</text>
+  </g>
+  <g class="m">
+    <text x="884" y="350">ex:FCU-1</text>
+    <text x="900" y="372"><tspan class="acc">brick:hasLocation</tspan> ex:A201 .</text>
+  </g>
+  <text x="884" y="414" class="s">Duplex 건축 + HVAC 판본을 합치면</text>
+  <text x="884" y="436" class="s">기기 40 대 <tspan class="b">전부 미소속 → 전부 소속</tspan></text>
+  <text x="884" y="476" class="s mut">이 한 줄이 이상 알림의 "발생 위치"이고</text>
+  <text x="884" y="496" class="s mut">탐색기 트리에 설비가 걸리는 자리다.</text>
+</svg>

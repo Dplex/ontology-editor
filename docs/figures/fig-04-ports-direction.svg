@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="600" viewBox="0 0 1240 600">
+  <defs>
+    <marker id="aa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/></marker>
+    <style>
+      text{font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;fill:#1f2937;font-size:14px}
+      .m,.m text{font-family:'D2CodingLigature Nerd Font','Noto Sans Mono CJK KR',monospace;font-size:12.5px}
+      .mut{fill:#6b7280}.acc{fill:#2563eb}.b{font-weight:700}.s{font-size:12.5px}.xs{font-size:11px}.t{font-size:18px;font-weight:700}
+      .dev{fill:#fff;stroke:#1f2937;stroke-width:1.5}.duct{fill:#f0f1f3;stroke:#9ca3af}
+      .src{fill:#2563eb}.snk{fill:#fff;stroke:#2563eb;stroke-width:2}.both{fill:#fff;stroke:#9ca3af;stroke-width:2;stroke-dasharray:3 2}
+    </style>
+  </defs>
+  <rect width="1240" height="600" fill="#fff"/>
+  <text x="24" y="36" class="t">포트가 흐름 방향을 말해야 "이 토출구는 어느 공조기 담당인가"에 답할 수 있다</text>
+
+  <!-- 범례 -->
+  <g class="s" transform="translate(24,58)">
+    <circle cx="8" cy="8" r="7" class="src"/><text x="22" y="13">SOURCE (내보내는 쪽)</text>
+    <circle cx="200" cy="8" r="7" class="snk"/><text x="214" y="13">SINK (받는 쪽)</text>
+    <circle cx="352" cy="8" r="7" class="both"/><text x="366" y="13">SOURCEANDSINK (양쪽 다, 방향 모름)</text>
+    <text x="660" y="13" class="mut">포트 = 설비 끝에 달린 접속구(IfcDistributionPort). 두 포트가 이어진 것이 연결 하나다.</text>
+  </g>
+
+  <!-- 행 1 -->
+  <text x="24" y="118" class="b">① 포트에 방향이 있다 <tspan class="mut s" font-weight="400">· ifc4Mep: 연결 1,995 개 전부 방향을 안다</tspan></text>
+  <g transform="translate(24,134)">
+    <rect x="0" y="0" width="150" height="56" rx="8" class="dev"/><text x="16" y="24" class="b">AHU-1</text><text x="16" y="44" class="s mut">공조기 (소스)</text>
+    <rect x="270" y="10" width="180" height="36" rx="4" class="duct"/><text x="286" y="33" class="s">덕트 구간</text>
+    <rect x="570" y="10" width="120" height="36" rx="4" class="duct"/><text x="586" y="33" class="s">엘보</text>
+    <rect x="810" y="0" width="150" height="56" rx="8" class="dev"/><text x="826" y="24" class="b">AT-101</text><text x="826" y="44" class="s mut">토출구 (싱크)</text>
+    <line x1="158" y1="28" x2="258" y2="28" stroke="#2563eb" stroke-width="2.5" marker-end="url(#aa)"/>
+    <line x1="458" y1="28" x2="558" y2="28" stroke="#2563eb" stroke-width="2.5" marker-end="url(#aa)"/>
+    <line x1="698" y1="28" x2="798" y2="28" stroke="#2563eb" stroke-width="2.5" marker-end="url(#aa)"/>
+    <circle cx="158" cy="28" r="7" class="src"/><circle cx="262" cy="28" r="7" class="snk"/>
+    <circle cx="458" cy="28" r="7" class="src"/><circle cx="562" cy="28" r="7" class="snk"/>
+    <circle cx="698" cy="28" r="7" class="src"/><circle cx="802" cy="28" r="7" class="snk"/>
+    <text x="990" y="22" class="s acc b">brick:feeds 로 나간다</text>
+    <text x="990" y="42" class="s mut">AHU-1 feeds AT-101</text>
+    <text x="990" y="60" class="s mut">(덕트는 건너뛰어 기기끼리 잇는다)</text>
+  </g>
+
+  <!-- 행 2 -->
+  <text x="24" y="242" class="b">② 중간 하나가 SOURCEANDSINK <tspan class="mut s" font-weight="400">· Duplex HVAC: 포트 970 개 중 590 개(61%)가 이렇다</tspan></text>
+  <g transform="translate(24,258)">
+    <rect x="0" y="0" width="150" height="56" rx="8" class="dev"/><text x="16" y="24" class="b">AHU-1</text><text x="16" y="44" class="s mut">공조기</text>
+    <rect x="270" y="10" width="180" height="36" rx="4" class="duct"/><text x="286" y="33" class="s">덕트 구간</text>
+    <rect x="570" y="10" width="120" height="36" rx="4" class="duct"/><text x="586" y="33" class="s">엘보</text>
+    <rect x="810" y="0" width="150" height="56" rx="8" class="dev"/><text x="826" y="24" class="b">AT-101</text><text x="826" y="44" class="s mut">토출구</text>
+    <line x1="158" y1="28" x2="258" y2="28" stroke="#2563eb" stroke-width="2.5" marker-end="url(#aa)"/>
+    <line x1="458" y1="28" x2="562" y2="28" stroke="#9ca3af" stroke-width="2" stroke-dasharray="6 5"/>
+    <line x1="698" y1="28" x2="802" y2="28" stroke="#9ca3af" stroke-width="2" stroke-dasharray="6 5"/>
+    <circle cx="158" cy="28" r="7" class="src"/><circle cx="262" cy="28" r="7" class="snk"/>
+    <circle cx="458" cy="28" r="7" class="both"/><circle cx="562" cy="28" r="7" class="both"/>
+    <circle cx="698" cy="28" r="7" class="both"/><circle cx="802" cy="28" r="7" class="both"/>
+    <text x="470" y="84" class="s">여기서 사슬이 끊긴다. 이어진 건 알지만 어느 쪽으로 흐르는지 모른다.</text>
+    <text x="990" y="22" class="s b">feeds 가 기기에 안 닿는다</text>
+    <text x="990" y="42" class="s mut">연결 단위로는 39% 가 방향을 알지만</text>
+    <text x="990" y="60" class="s mut">기기 단위로는 0/26</text>
+  </g>
+
+  <!-- 행 3 -->
+  <text x="24" y="392" class="b">③ 포트가 아예 없다 <tspan class="mut s" font-weight="400">· Duplex MEP: 메시 끝점이 5mm 안에서 맞닿는 것으로 추정한다(같은 계통끼리만)</tspan></text>
+  <g transform="translate(24,408)">
+    <rect x="0" y="0" width="150" height="56" rx="8" class="dev"/><text x="16" y="24" class="b">보일러</text><text x="16" y="44" class="s mut">원천 기기</text>
+    <rect x="270" y="10" width="180" height="36" rx="4" class="duct"/><text x="286" y="33" class="s">배관 구간</text>
+    <rect x="570" y="10" width="120" height="36" rx="4" class="duct"/><text x="586" y="33" class="s">티</text>
+    <rect x="810" y="0" width="150" height="56" rx="8" class="dev"/><text x="826" y="24" class="b">라디에이터</text><text x="826" y="44" class="s mut">말단</text>
+    <line x1="150" y1="28" x2="270" y2="28" stroke="#9ca3af" stroke-width="2" stroke-dasharray="2 4"/>
+    <line x1="450" y1="28" x2="570" y2="28" stroke="#9ca3af" stroke-width="2" stroke-dasharray="2 4"/>
+    <line x1="690" y1="28" x2="810" y2="28" stroke="#9ca3af" stroke-width="2" stroke-dasharray="2 4"/>
+    <text x="178" y="18" class="xs mut">형상 추정</text><text x="478" y="18" class="xs mut">형상 추정</text><text x="718" y="18" class="xs mut">형상 추정</text>
+    <text x="990" y="22" class="s b">이어짐만 남긴다</text>
+    <text x="990" y="42" class="s mut">방향을 찍지 않는다. TTL 의</text>
+    <text x="990" y="60" class="s mut">feeds 는 비어 있는 게 맞다</text>
+  </g>
+
+  <!-- 결론 -->
+  <rect x="24" y="500" width="1192" height="80" rx="10" fill="#e8efff" stroke="#2563eb"/>
+  <text x="44" y="530" class="b">고객사에 요구할 것 (R18): <tspan class="acc">연결마다 한쪽 포트에만</tspan> SOURCE 또는 SINK 가 있으면 된다.</text>
+  <text x="44" y="556" class="s">한쪽이 SOURCE 면 반대쪽은 SINK 일 수밖에 없다. 모든 포트를 바르게 내보내게 하는 것보다 훨씬 쉽다. 단, 원천 기기(보일러·펌프·공조기)도 모델에 있어야 사슬이 끝까지 이어진다.</text>
+</svg>

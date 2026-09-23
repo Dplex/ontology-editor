@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="540" viewBox="0 0 1240 540">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>
+    <style>
+      text{font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;fill:#1f2937;font-size:14px}
+      .mut{fill:#6b7280}.acc{fill:#2563eb}.b{font-weight:700}.s{font-size:12.5px}.t{font-size:18px;font-weight:700}
+      .q{fill:#fff;stroke:#1f2937;stroke-width:1.5}.o1{fill:#f0f1f3;stroke:#6b7280;stroke-width:1.5}
+      .o2{fill:#e8efff;stroke:#2563eb;stroke-width:1.5}.ox{fill:#fff;stroke:#9ca3af;stroke-dasharray:5 3}
+      .ln{stroke:#6b7280;stroke-width:1.5;fill:none}
+    </style>
+  </defs>
+  <rect width="1240" height="540" fill="#fff"/>
+  <text x="24" y="36" class="t">BIM 에 빠진 것이 있을 때: 다시 요청할지(1안), 에디터로 메울지(2안)는 빠진 것의 종류로 가른다</text>
+
+  <rect x="24" y="72" width="200" height="64" rx="10" fill="#1f2937"/>
+  <text x="44" y="100" class="b" style="fill:#fff">임포트 검토에서</text><text x="44" y="120" class="b" style="fill:#fff">빠진 것을 찾았다</text>
+
+  <!-- 질문들 -->
+  <rect x="270" y="64" width="220" height="80" rx="10" class="q"/>
+  <text x="286" y="92" class="s b">IFC 에 담을 자리가</text><text x="286" y="110" class="s b">아예 없는 정보인가?</text><text x="286" y="130" class="s mut">관제점 ID · 실시간 값</text>
+  <rect x="536" y="64" width="220" height="80" rx="10" class="q"/>
+  <text x="552" y="92" class="s b">필수 요구(R0~R13)가</text><text x="552" y="110" class="s b">빠졌나?</text><text x="552" y="130" class="s mut">층 이름 · 외곽선 · 단위 · 좌표계</text>
+  <rect x="802" y="64" width="220" height="80" rx="10" class="q"/>
+  <text x="818" y="92" class="s b">부재 자체가 없나?</text><text x="818" y="110" class="s mut">1차 결손: 배관 사이 이음 부재가</text><text x="818" y="128" class="s mut">모델에 없다</text>
+
+  <line x1="224" y1="104" x2="266" y2="104" class="ln" marker-end="url(#a)"/>
+  <line x1="490" y1="104" x2="532" y2="104" class="ln" marker-end="url(#a)"/>
+  <line x1="756" y1="104" x2="798" y2="104" class="ln" marker-end="url(#a)"/>
+  <line x1="1022" y1="104" x2="1070" y2="104" class="ln" marker-end="url(#a)"/>
+  <text x="494" y="96" class="s mut">아니오</text><text x="760" y="96" class="s mut">아니오</text><text x="1026" y="96" class="s mut">아니오</text>
+
+  <line x1="380" y1="144" x2="380" y2="196" class="ln" marker-end="url(#a)"/><text x="388" y="176" class="s mut">예</text>
+  <line x1="646" y1="144" x2="646" y2="196" class="ln" marker-end="url(#a)"/><text x="654" y="176" class="s mut">예</text>
+  <line x1="912" y1="144" x2="912" y2="196" class="ln" marker-end="url(#a)"/><text x="920" y="176" class="s mut">예</text>
+
+  <!-- 결과 -->
+  <rect x="270" y="200" width="220" height="140" rx="10" class="ox"/>
+  <text x="286" y="228" class="b">BIM 밖에서 받는다</text>
+  <text x="286" y="254" class="s">관제점 → BAS</text><text x="286" y="274" class="s">공조존 → IDF · gbXML</text>
+  <text x="286" y="304" class="s mut">요구사항에 넣지 않는다.</text><text x="286" y="322" class="s mut">협의만 길어진다.</text>
+
+  <rect x="536" y="200" width="220" height="140" rx="10" class="o1"/>
+  <text x="552" y="228" class="b">1안 · 다시 내보내기</text>
+  <text x="552" y="254" class="s">내보내기 설정의 문제다.</text><text x="552" y="274" class="s">층 이름·단위·좌표계는</text><text x="552" y="294" class="s">우리가 추측으로 채우면</text><text x="552" y="314" class="s">오류 없이 틀린다.</text>
+
+  <rect x="802" y="200" width="220" height="140" rx="10" class="o1"/>
+  <text x="818" y="228" class="b">1안 · 모델 수정 요청</text>
+  <text x="818" y="254" class="s">없는 것은 계산으로</text><text x="818" y="274" class="s">못 만든다.</text><text x="818" y="300" class="s mut">Duplex MEP: 고립 설비 224 대 중</text><text x="818" y="318" class="s mut">103 대가 여기</text>
+
+  <rect x="1074" y="64" width="142" height="276" rx="10" class="o2"/>
+  <text x="1088" y="92" class="b acc">2안 · 에디터</text>
+  <text x="1088" y="118" class="s">관계만 빠졌다</text>
+  <text x="1088" y="138" class="s">(2차 결손)</text>
+  <text x="1088" y="170" class="s">· 연결 판정 오차</text>
+  <text x="1088" y="190" class="s">· 설비 소속 오차</text>
+  <text x="1088" y="210" class="s">· 좌표 없는 설비</text>
+  <text x="1088" y="242" class="s mut">계산으로 메우고</text>
+  <text x="1088" y="260" class="s mut">사람이 확인한다</text>
+  <text x="1088" y="292" class="s mut">Duplex MEP:</text>
+  <text x="1088" y="310" class="s mut">224 대 중 121 대</text>
+
+  <!-- 원칙 -->
+  <rect x="24" y="380" width="1192" height="136" rx="10" fill="#f5f6f8" stroke="#e1e4e8"/>
+  <text x="44" y="410" class="b">왜 이렇게 가르나</text>
+  <text x="44" y="438" class="s">· 1안만 쓰면: 고객사 BIM 이 완벽할 때까지 아무것도 못 한다. 실측 파일 중 필수를 전부 채운 것은 없었다(예: R7 지도 좌표 0/4).</text>
+  <text x="44" y="462" class="s">· 2안만 쓰면: 모델에 없는 부재를 우리가 지어내게 된다. 추정을 사실처럼 내보내면 온톨로지를 읽는 쪽이 BIM 이 말한 것과 구별하지 못한다.</text>
+  <text x="44" y="486" class="s">· 그래서 "계산으로 되살릴 수 있는가"가 경계다. 되살린 것에는 출처(BIM / 추정)를 달아 두고, 추정한 연결에는 방향을 찍지 않는다.</text>
+</svg>
