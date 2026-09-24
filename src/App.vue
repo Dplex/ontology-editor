@@ -40,6 +40,8 @@ import {
   snapshotType,
   typeKeyOf,
   typeNameOf,
+  familyKeyOf,
+  familyNameOf,
   snapshotConfirm,
   snapshotEquipment,
   snapshotFlow,
@@ -724,11 +726,11 @@ function stepUnknown(dir: 1 | -1): boolean {
     note('종류를 모르는 설비가 없습니다')
     return true
   }
-  const here = selected.value ? list.findIndex((t) => t.key === typeKeyOf(selected.value!)) : -1
+  const here = selected.value ? list.findIndex((t) => t.key === familyKeyOf(selected.value!)) : -1
   const i = here < 0 ? (dir > 0 ? 0 : list.length - 1) : (here + dir + list.length) % list.length
   const t = list[i]
   select(t.sampleId)
-  note(`종류를 모르는 타입 ${i + 1}/${list.length}: ${t.label} ${t.count}대 · K 로 종류를 고릅니다`)
+  note(`종류를 모르는 패밀리 ${i + 1}/${list.length}: ${t.label} ${t.count}대 · K 로 종류를 고릅니다`)
   return true
 }
 
@@ -1227,6 +1229,11 @@ const ROLE_LABEL: Record<NonNullable<Equipment['role']>, string> = {
 }
 const roleLabel = (role: Equipment['role']) => (role ? ROLE_LABEL[role] : '')
 const kindLabel = (e: Equipment) => equipmentKind(e.kind)?.label ?? ''
+/** 종류 상자의 무리. 사람만 고르는 종류(사전이 읽지 않고 Brick 이름도 없는 것)는 따로 보인다. */
+const KIND_GROUPS = [
+  { label: '사전이 아는 종류', kinds: EQUIPMENT_KINDS.filter((k) => !k.manual) },
+  { label: '사람만 고르는 종류 (ex: 로 나감)', kinds: EQUIPMENT_KINDS.filter((k) => k.manual) },
+]
 // 종류의 출처. 사전이 읽은 것과 사람이 타입 단위로 정한 것을 가른다.
 const kindSrc = (e: Equipment) => (e.kindEdited ? 'edit' : 'dict')
 
@@ -1235,12 +1242,23 @@ const kindSrc = (e: Equipment) => (e.kindEdited ? 'edit' : 'dict')
 // 사전이 모르는 종류를 사람이 채운다. 한 번에 한 대가 아니라 **같은 타입(Revit 패밀리:유형) 전부**에 붙인다 —
 // 병원 HVAC 는 종류 모르는 기기 327대가 타입 6개였다. 종류는 Brick 클래스와 규칙 방향(원천·말단)을 정하므로,
 // edit.ts 가 규칙을 다시 돌리고 그 채점표를 돌려준다.
-const typeCounts = computed(() => {
-  const map = new Map<string, number>()
-  for (const s of model.value?.storeys ?? []) for (const e of s.equipment) map.set(typeKeyOf(e), (map.get(typeKeyOf(e)) ?? 0) + 1)
+//
+// 묶음은 **패밀리**다(edit.ts 의 familyNameOf). 크기만 다른 유형(VAV 150·200·250 mm)을 하나씩 고르지 않게 한다.
+const familyCounts = computed(() => {
+  const map = new Map<string, { count: number; types: Set<string> }>()
+  for (const s of model.value?.storeys ?? []) {
+    for (const e of s.equipment) {
+      const key = familyKeyOf(e)
+      const row = map.get(key) ?? { count: 0, types: new Set<string>() }
+      row.count++
+      row.types.add(typeKeyOf(e))
+      map.set(key, row)
+    }
+  }
   return map
 })
 const typeLabel = (e: Equipment) => typeNameOf(e) ?? (e.name || e.ifcClass)
+const familyLabel = (e: Equipment) => familyNameOf(e) ?? (e.name || e.ifcClass)
 function setKind(typeKey: string, kind: string | null, label: string) {
   const m = model.value
   if (!m) return
@@ -1256,7 +1274,7 @@ function setKind(typeKey: string, kind: string | null, label: string) {
 /** 고른 설비 패널의 종류 상자. 고른 뒤 포커스를 놓아 준다 — 상자에 남아 있으면 다음 단축키(U, K)를 상자가 먹는다. */
 function pickKind(event: Event, e: Equipment) {
   const el = event.target as HTMLSelectElement
-  setKind(typeKeyOf(e), el.value || null, typeLabel(e))
+  setKind(familyKeyOf(e), el.value || null, familyLabel(e))
   el.blur()
 }
 /** 종류를 모르는 타입 목록의 상자. 고르면 그 줄이 목록에서 빠지고, 포커스는 놓는다(다음 단축키를 상자가 먹지 않게). */
@@ -1265,16 +1283,17 @@ function pickTypeKind(event: Event, typeKey: string, label: string) {
   setKind(typeKey, el.value || null, label)
   el.blur()
 }
-/** 종류를 모르는 기기를 타입으로 묶은 것. 대수가 많은 타입부터 — 위에서 몇 개만 고르면 대부분이 찬다. */
+/** 종류를 모르는 기기를 패밀리로 묶은 것. 대수가 많은 것부터 — 위에서 몇 개만 고르면 대부분이 찬다. */
 const unknownTypes = computed(() => {
-  const rows = new Map<string, { key: string; label: string; ifcClass: string; count: number; sampleId: string }>()
+  const rows = new Map<string, { key: string; label: string; ifcClass: string; count: number; types: Set<string>; sampleId: string }>()
   for (const s of model.value?.storeys ?? []) {
     for (const e of s.equipment) {
       if (isConduit(e.role) || equipmentKind(e.kind)) continue
-      const key = typeKeyOf(e)
-      const row = rows.get(key)
-      if (row) row.count++
-      else rows.set(key, { key, label: typeLabel(e), ifcClass: e.ifcClass, count: 1, sampleId: e.id })
+      const key = familyKeyOf(e)
+      const row = rows.get(key) ?? { key, label: familyLabel(e), ifcClass: e.ifcClass, count: 0, types: new Set<string>(), sampleId: e.id }
+      row.count++
+      row.types.add(typeKeyOf(e))
+      rows.set(key, row)
     }
   }
   return [...rows.values()].sort((a, b) => b.count - a.count)
@@ -1286,13 +1305,18 @@ const kindEditLines = computed(() => {
   if (!m) return []
   const sample = new Map(m.storeys.flatMap((s) => s.equipment).map((e) => [typeKeyOf(e), e]))
   const name = (k: string | null) => (k ? (equipmentKind(k)?.label ?? k) : '모름')
-  return kindEdits(m).map((k) => ({
-    key: k.typeKey,
-    label: sample.get(k.typeKey) ? typeLabel(sample.get(k.typeKey)!) : k.typeKey,
-    count: k.count,
-    from: name(k.from),
-    to: name(k.to),
-  }))
+  // 편집은 타입마다 적히지만(edit-file 도 타입 단위로 저장한다) 리포트는 패밀리 한 줄로 접는다.
+  const rows = new Map<string, { key: string; label: string; count: number; types: number; from: string; to: string }>()
+  for (const k of kindEdits(m)) {
+    const e = sample.get(k.typeKey)
+    const family = e ? familyKeyOf(e) : k.typeKey
+    const key = `${family}|${k.from}|${k.to}`
+    const row = rows.get(key) ?? { key, label: e ? familyLabel(e) : k.typeKey, count: 0, types: 0, from: name(k.from), to: name(k.to) }
+    row.count += k.count
+    row.types++
+    rows.set(key, row)
+  }
+  return [...rows.values()]
 })
 // Proxy 는 IFC 가 역할을 말하지 않아서, 역할도 이름 사전의 종류에서 나온다.
 const roleSrc = (e: Equipment) => (e.ifcClass === 'BuildingElementProxy' ? 'dict' : 'bim')
@@ -2253,14 +2277,16 @@ function exportTTL() {
                 @change="pickKind($event, selected)"
               >
                 <option value="">(모름)</option>
-                <option v-for="k in EQUIPMENT_KINDS" :key="k.kind" :value="k.kind">{{ k.label }}</option>
+                <optgroup v-for="g in KIND_GROUPS" :key="g.label" :label="g.label">
+                  <option v-for="k in g.kinds" :key="k.kind" :value="k.kind">{{ k.label }}</option>
+                </optgroup>
               </select>
             </label>
             <Src v-if="selected.kind || selected.kindEdited" :kind="kindSrc(selected)" />
             <span class="muted" :title="typeLabel(selected)">
               {{
                 typeNameOf(selected)
-                  ? `같은 타입 ${typeCounts.get(typeKeyOf(selected)) ?? 1}대에 같이 붙습니다 · ${typeNameOf(selected)}`
+                  ? `같은 패밀리 ${familyLabel(selected)}${(familyCounts.get(familyKeyOf(selected))?.types.size ?? 1) > 1 ? `(유형 ${familyCounts.get(familyKeyOf(selected))!.types.size}개)` : ''} ${familyCounts.get(familyKeyOf(selected))?.count ?? 1}대에 같이 붙습니다`
                   : '타입 정보(Revit 패밀리:유형, ObjectType)가 없어 이 설비에만 붙습니다'
               }}
             </span>
@@ -2633,27 +2659,31 @@ function exportTTL() {
         >
           <p class="hint">
             <Src kind="dict" /> 이름(Revit 패밀리 이름)을 사전으로 읽어 종류와 Brick 클래스를 붙였습니다. 사전에 없는 이름은 종류를
-            붙이지 않습니다<template v-if="kindEditLines.length">. <Src kind="edit" /> 사람이 타입 단위로 정한 종류
-            {{ kindEditLines.length }}타입이 섞여 있습니다</template>.
+            붙이지 않습니다<template v-if="kindEditLines.length">. <Src kind="edit" /> 사람이 패밀리 단위로 정한 종류
+            {{ kindEditLines.length }}묶음이 섞여 있습니다</template>.
           </p>
-          <!-- 편집 모드에서만. 사전이 모르는 기기를 타입으로 묶어 대수 순으로. 타입마다 한 번 고르면 같은 타입 전부에 붙는다. -->
+          <!-- 편집 모드에서만. 사전이 모르는 기기를 패밀리로 묶어 대수 순으로. 한 번 고르면 그 패밀리 전부에 붙는다. -->
           <div v-if="editing && unknownTypes.length" class="unknown-types">
             <h4>
-              종류를 모르는 타입 {{ unknownTypes.length }}개
+              종류를 모르는 패밀리 {{ unknownTypes.length }}개
               <span class="muted">
-                · 기기 {{ unknownTypes.reduce((n, t) => n + t.count, 0) }}대 · 타입마다 한 번 고르면 같은 타입 전부에 붙습니다
+                · 기기 {{ unknownTypes.reduce((n, t) => n + t.count, 0) }}대 · 한 번 고르면 그 패밀리(크기만 다른 유형 포함) 전부에 붙습니다
               </span>
             </h4>
             <table>
               <tbody>
                 <tr v-for="t in unknownTypes.slice(0, TYPE_LIMIT)" :key="t.key">
-                  <td class="names" :title="t.label">{{ t.label }}</td>
+                  <td class="names" :title="t.label">
+                    {{ t.label }}<small v-if="t.types.size > 1" class="muted"> · 유형 {{ t.types.size }}개</small>
+                  </td>
                   <td class="num mono">{{ t.count }}</td>
                   <td class="muted">{{ t.ifcClass }} <Src kind="bim" /></td>
                   <td>
                     <select :aria-label="`${t.label} 의 종류`" @change="pickTypeKind($event, t.key, t.label)">
                       <option value="" selected>(모름)</option>
-                      <option v-for="k in EQUIPMENT_KINDS" :key="k.kind" :value="k.kind">{{ k.label }}</option>
+                      <optgroup v-for="g in KIND_GROUPS" :key="g.label" :label="g.label">
+                  <option v-for="k in g.kinds" :key="k.kind" :value="k.kind">{{ k.label }}</option>
+                </optgroup>
                     </select>
                   </td>
                   <td><button type="button" class="link" @click="select(t.sampleId)">하나 보기</button></td>
@@ -2914,7 +2944,7 @@ function exportTTL() {
               <b>{{ f.from }}</b> → <b>{{ f.to }}</b>: 사람이 방향을 정했습니다({{ f.note }}, brick:feeds 로 나갑니다)
             </li>
             <li v-for="k in kindEditLines" :key="`kind-${k.key}`">
-              타입 <b>{{ k.label }}</b> {{ k.count }}대: 종류 {{ k.from }} → <b>{{ k.to }}</b>(Brick 클래스로 나갑니다)
+              <b>{{ k.label }}</b><template v-if="k.types > 1">(유형 {{ k.types }}개)</template> {{ k.count }}대: 종류 {{ k.from }} → <b>{{ k.to }}</b>(Brick 클래스로 나갑니다)
             </li>
             <li v-for="r in sinceOpen.restoreyed" :key="`storey-${r.id}`">
               {{ r.name }}: 층 <b>{{ r.from }}</b> → <b>{{ r.to }}</b>(brick:hasPart)

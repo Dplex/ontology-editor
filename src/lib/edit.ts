@@ -415,7 +415,7 @@ export function snapshotType(model: Model, typeKey: string): Snapshot {
     kind: 'kinds',
     entries: model.storeys
       .flatMap((s) => s.equipment)
-      .filter((e) => typeKeyOf(e) === typeKey)
+      .filter((e) => inKindGroup(e, typeKey))
       .map((e) => ({ id: e.id, kind: e.kind, kindEdited: e.kindEdited ? { ...e.kindEdited } : undefined })),
   }
 }
@@ -524,11 +524,33 @@ export function typeKeyOf(e: Equipment): string {
   return name ? `${e.ifcClass}|${name}` : `#${e.id}`
 }
 
+/**
+ * 패밀리 이름. Revit 의 "패밀리:유형" 에서 앞쪽이다. 같은 패밀리는 크기만 다른 같은 물건이 흔하다 — 병원 MEP 의
+ * VAV 128대가 `M_VAV Unit - Single Duct` 한 패밀리에 유형(150·200·250·300·350 mm) 다섯이었다. 타입 단위로만
+ * 고르게 하면 같은 VAV 를 다섯 번 고른다. Revit 모양이 아닌 이름(ObjectType 만 있는 것)은 타입이 곧 패밀리다.
+ */
+export function familyNameOf(e: Equipment): string | null {
+  const type = typeNameOf(e)
+  if (!type) return null
+  return /^(.+:.+):\d+$/.test(e.name) ? type.split(':')[0] : type
+}
+
+/** 패밀리의 열쇠. 타입 열쇠와 가르려고 `family:` 를 붙인다. 이름이 없으면 설비 하나다(타입 열쇠와 같다). */
+export function familyKeyOf(e: Equipment): string {
+  const name = familyNameOf(e)
+  return name ? `family:${e.ifcClass}|${name}` : `#${e.id}`
+}
+
+/** 종류를 붙이는 묶음에 드는가. 열쇠가 `family:` 로 시작하면 패밀리, 아니면 타입이다. */
+export function inKindGroup(e: Equipment, key: string): boolean {
+  return key.startsWith('family:') ? familyKeyOf(e) === key : typeKeyOf(e) === key
+}
+
 /** 사람이 종류를 정한 타입. 리포트(PRD #21)에 한 줄씩 나간다. 사전 값으로 되돌린 타입은 빠진다. */
 export type KindEdit = { typeKey: string; count: number; from: string | null; to: string | null }
 
 /**
- * 한 타입 전부의 종류를 정한다. `kind` 가 `null` 이면 "모름" 이다 — 사전이 잘못 읽은 것(분전반을 조명으로)을
+ * 한 타입(또는 `family:` 열쇠면 한 패밀리) 전부의 종류를 정한다. `kind` 가 `null` 이면 "모름" 이다 — 사전이 잘못 읽은 것(분전반을 조명으로)을
  * 지울 때 쓴다.
  *
  * **규칙 방향을 여기서 다시 돌린다.** 종류가 흐름의 원천·말단을 정해서(공조기는 공기의 원천, 디퓨저는 말단),
@@ -541,7 +563,7 @@ export function setTypeKind(
   kind: string | null,
 ): { count: number; rules: RuleReport } | null {
   if (kind !== null && !equipmentKind(kind)) return null
-  const members = model.storeys.flatMap((s) => s.equipment).filter((e) => typeKeyOf(e) === typeKey)
+  const members = model.storeys.flatMap((s) => s.equipment).filter((e) => inKindGroup(e, typeKey))
   if (members.length === 0 || members.every((e) => (e.kind ?? null) === kind)) return null
   for (const e of members) {
     if (!e.kindEdited) e.kindEdited = { from: e.kind ?? null }

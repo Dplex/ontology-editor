@@ -25,6 +25,8 @@ import {
   snapshotType,
   typeKeyOf,
   typeNameOf,
+  familyKeyOf,
+  familyNameOf,
   wouldSelfIntersect,
   type Change,
 } from './edit'
@@ -465,6 +467,31 @@ describe('타입 단위 종류 지정', () => {
     expect(typeKeyOf({ ...vav2, ifcClass: 'FlowFitting' })).not.toBe(typeKeyOf(vav))
     // 타입 정보가 없으면 그 설비 하나다.
     expect(typeKeyOf({ ...vav, name: 'AHU-1', objectType: '' })).toBe(`#${vav.id}`)
+  })
+
+  it('패밀리로 고르면 크기만 다른 유형까지 한 번에 붙고, 다른 패밀리는 그대로다', () => {
+    // 병원 MEP 의 VAV 는 한 패밀리에 유형(150·200 mm …)이 다섯이었다.
+    const [a, b, c] = ['AT-101-01', 'AT-101-02', 'AHU-1'].map(equip)
+    a.name = 'M_VAV Unit - Single Duct:150 mm:150 mm:1'
+    b.name = 'M_VAV Unit - Single Duct:200 mm:200 mm:2'
+    b.ifcClass = a.ifcClass
+    c.name = 'M_Elbow - Generic:150 mm:150 mm:3'
+    c.ifcClass = a.ifcClass
+    expect(familyNameOf(a)).toBe('M_VAV Unit - Single Duct')
+    expect(typeKeyOf(a)).not.toBe(typeKeyOf(b))
+    expect(familyKeyOf(a)).toBe(familyKeyOf(b))
+    expect(familyKeyOf(c)).not.toBe(familyKeyOf(a))
+    // ObjectType 만 있는 이름(Revit 모양이 아님)은 타입이 곧 패밀리다.
+    expect(familyNameOf({ ...a, name: 'S1', objectType: 'Thermostat' })).toBe('Thermostat')
+
+    const snap = snapshotType(model, familyKeyOf(a))
+    expect(setTypeKind(model, familyKeyOf(a), 'vav')!.count).toBe(2)
+    expect([a.kind, b.kind]).toEqual(['vav', 'vav'])
+    expect(c.kind).toBe('ahu')
+    // 리포트·편집 파일은 타입마다 적힌다(다른 파일에 얹을 때 타입이 더 좁은 열쇠다).
+    expect(kindEdits(model).map((k) => k.typeKey).sort()).toEqual([typeKeyOf(a), typeKeyOf(b)].sort())
+    restore(model, snap)
+    expect([a.kind, b.kind]).toEqual(['air_diffuser', 'air_diffuser'])
   })
 
   it('사전 값으로 되돌리면 편집이 아니고 리포트에서 빠진다', () => {

@@ -38,7 +38,15 @@ export type EquipmentKindInfo = {
   flow: Partial<Record<Medium, FlowPart>>
   /** 관제점 후보(F13)인가. 감지기·카메라처럼 BAS 가 값을 들고 있을 만한 장치. */
   point?: boolean
+  /**
+   * 사람만 고르는 종류. 사전은 이 이름을 읽지 않는다(`test` 가 아무것에도 맞지 않는다). 편집 화면에서 고를 수는
+   * 있어야 하는데 사전을 넓히면 가진 BIM 전부의 숫자가 움직여서(CLAUDE.md 의 과적합 규칙) 따로 둔다.
+   */
+  manual?: true
 }
+
+/** 아무 이름에도 맞지 않는 식. 사람만 고르는 종류의 `test` 다. */
+const NEVER = /(?!)/
 
 export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // --- 공조 기기 ---------------------------------------------------------------
@@ -77,6 +85,14 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   { kind: 'smoke_detector', label: '연기감지기', test: /연기\s*감지|smoke\s*detect/i, brick: 'brick:Smoke_Detector', role: 'sensing', flow: {}, point: true },
   { kind: 'heat_detector', label: '열감지기', test: /열\s*감지|heat\s*detect/i, brick: 'brick:Heat_Detector', role: 'sensing', flow: {}, point: true },
   { kind: 'camera', label: 'CCTV', test: /camera|CCTV|카메라/i, brick: 'brick:Camera', role: 'sensing', flow: {}, point: true },
+  // --- 사람만 고르는 종류 ---------------------------------------------------------
+  // 병원 MEP 에서 종류를 모르는 기기 1,765대 중 1,376대가 콘센트·스프링클러였는데 고를 종류가 없었다. Brick 1.4 에
+  // 맞는 이름을 확인하지 못해 전부 `ex:` 로 나간다.
+  { kind: 'receptacle', label: '콘센트', test: NEVER, brick: null, role: 'terminal', flow: {}, manual: true },
+  { kind: 'sprinkler', label: '스프링클러 헤드', test: NEVER, brick: null, role: 'terminal', flow: { water: 'sink' }, manual: true },
+  { kind: 'plumbing_fixture', label: '위생기구(세면기·싱크·샤워)', test: NEVER, brick: null, role: 'terminal', flow: { water: 'sink' }, manual: true },
+  { kind: 'water_heater', label: '급탕기', test: NEVER, brick: null, role: 'conversion', flow: { water: 'source' }, manual: true },
+  { kind: 'transformer', label: '변압기', test: NEVER, brick: null, role: 'conversion', flow: {}, manual: true },
 ]
 
 const EQUIPMENT_BY_KIND = new Map(EQUIPMENT_KINDS.map((k) => [k.kind, k]))

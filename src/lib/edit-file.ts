@@ -17,7 +17,7 @@ import {
   replaceSpaceFootprint,
   setFlowDirection,
   setTypeKind,
-  typeKeyOf,
+  inKindGroup,
   type Baseline,
   type BoundaryChange,
   type Change,
@@ -132,7 +132,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     if (done) {
       result.applied++
       result.rules = done.rules
-    } else if (!model.storeys.some((s) => s.equipment.some((e) => typeKeyOf(e) === k.typeKey))) {
+    } else if (!model.storeys.some((s) => s.equipment.some((e) => inKindGroup(e, k.typeKey)))) {
       result.missing.kinds++
     }
   }

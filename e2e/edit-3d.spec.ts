@@ -386,14 +386,14 @@ test('고른 설비의 종류를 바꾸면 규칙 방향이 다시 서고, Ctrl+
   expect(errors).toEqual([])
 })
 
-test('종류를 모르는 타입을 목록에서 한 번 고르면 그 타입 설비에 붙고 출처가 편집이 된다', async ({ page }) => {
+test('종류를 모르는 패밀리를 목록에서 한 번 고르면 그 패밀리 설비에 붙고 출처가 편집이 된다', async ({ page }) => {
   const errors = await open(page)
   await page.locator('.edit-toggle input').check()
   await page.getByRole('button', { name: /종류와 관제점 후보/ }).click()
 
   // 픽스처의 온도 센서는 사전에 없다. ObjectType 이 비어 있어 설비 이름이 곧 타입이다(그 한 대에만 붙는다).
   const list = page.locator('.unknown-types')
-  await expect(list).toContainText('종류를 모르는 타입')
+  await expect(list).toContainText('종류를 모르는 패밀리')
   const sensorType = list.locator('tr', { hasText: 'TEMP-101-01' })
   await expect(sensorType).toBeVisible()
   await sensorType.locator('select').selectOption({ label: '열감지기' })

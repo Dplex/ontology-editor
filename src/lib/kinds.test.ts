@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { equipmentKindOf, roomKindOf, systemKindOf } from './kinds'
+import { EQUIPMENT_KINDS, equipmentKindOf, roomKindOf, systemKindOf } from './kinds'
 
 // 입력은 성수·Duplex·ifc4Mep 실측 파일에 실제로 나온 이름이다. 사전을 넓히면 이 표에서 무엇이 바뀌는지 보인다.
 const kind = (name: string, objectType = '', ifcClass = '') => equipmentKindOf(name, objectType, ifcClass)?.kind ?? null
@@ -112,5 +112,17 @@ describe('계통 종류 사전', () => {
   it('위생(배수)은 원천이 없어 규칙 대상이 아니다', () => {
     expect(systemKindOf('위생 6', '위생')).toBeNull()
     expect(systemKindOf('Unit A Sanitary')).toBeNull()
+  })
+})
+
+describe('사람만 고르는 종류', () => {
+  it('사전은 그 이름을 읽지 않는다 — 사전을 넓히면 가진 BIM 전부의 숫자가 움직인다', () => {
+    const manual = EQUIPMENT_KINDS.filter((k) => k.manual)
+    expect(manual.map((k) => k.kind)).toEqual(['receptacle', 'sprinkler', 'plumbing_fixture', 'water_heater', 'transformer'])
+    for (const name of ['M_Duplex Receptacle:Standard:Standard:1', 'M_Sprinkler - Pendent - Hosted:15 mm:1', 'M_Water Heater:380 L:380 L:1']) {
+      expect(manual.map((k) => k.kind)).not.toContain(kind(name))
+    }
+    // Brick 1.4 에 맞는 이름을 확인하지 못했다. ex: 로 나간다.
+    for (const k of manual) expect(k.brick).toBe(null)
   })
 })
