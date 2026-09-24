@@ -510,6 +510,12 @@ function note(text: string) {
 
 function onKey(e: KeyboardEvent) {
   if (e.isComposing || !model.value) return
+  // 글자 칸의 Esc 는 칸에서 나온다. 좌표를 넣은 뒤 마우스 없이 다음 단축키(N, U …)로 이어 가게 한다.
+  if (e.key === 'Escape' && isTextEntry(e.target) && !helpOpen.value) {
+    ;(e.target as HTMLElement).blur()
+    e.preventDefault()
+    return
+  }
   const shortcut = matchShortcut(e)
   if (!shortcut) return
   // 안내가 열려 있으면 뒤의 화면은 키를 받지 않는다(닫기는 대화상자가 Esc 로 한다).
@@ -2392,6 +2398,33 @@ function exportTTL() {
           </p>
 
           <p v-if="editing && kindWarning" class="edit-notice inline" role="alert">{{ kindWarning }}</p>
+
+          <!-- 위치(E5·E6). 아래 설비 표와 같은 칸이다. N 으로 소속 없는 설비에 오면 좌표를 여기서 바로 넣는다 — 표는
+               화면 아래 멀리 있다. 좌표가 없는 설비는 셋이 다 차야 옮긴다(0 으로 채우지 않는다). -->
+          <p v-if="editing" class="position-edit">
+            위치
+            <label v-for="axis in [0, 1, 2] as const" :key="axis">
+              {{ 'xyz'[axis] }}
+              <input
+                class="coord mono"
+                type="number"
+                step="0.1"
+                :value="selected.position ? selected.position[axis] : (positionDrafts.get(selected.id)?.[axis] ?? '')"
+                placeholder="—"
+                @change="applyMove(selected.id, axis, ($event.target as HTMLInputElement).value, selected.position)"
+              />
+            </label>
+            <Src v-if="selected.position" :kind="positionSrc(selected)" />
+            <span class="muted">
+              {{
+                selected.position
+                  ? `소속 ${spaceNameOf(selected.spaceId)} · 방향키로도 옮깁니다`
+                  : positionDrafts.has(selected.id)
+                    ? 'x·y·z 셋 다 넣어야 옮깁니다'
+                    : '좌표가 없습니다. x·y·z 를 넣으면 소속을 판정합니다'
+              }}
+            </span>
+          </p>
 
           <!-- 층 옮기기(E6). 층은 좌표로 판정하지 않고 사람이 고른다(edit.ts). -->
           <p v-if="editing" class="storey-move">

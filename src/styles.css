@@ -1192,6 +1192,7 @@ th {
 }
 
 .kind-edit,
+.position-edit,
 .storey-move {
   display: flex;
   flex-wrap: wrap;
@@ -1837,4 +1838,14 @@ kbd {
 
 .rule-systems .confirmed {
   margin-left: 0;
+}
+
+.position-edit label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.position-edit .coord {
+  width: 6rem;
 }

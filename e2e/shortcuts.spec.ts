@@ -262,3 +262,30 @@ test('N 은 완전성 검사에서 어긴 것을 하나씩 고르고, 펼친 규
   await expect(page.locator('.checks tbody tr.chosen')).toHaveCount(1)
   expect(errors).toEqual([])
 })
+
+test('N 으로 소속 없는 설비에 가서 패널에서 좌표를 넣으면 검사가 통과하고, 남은 것이 없다고 한다', async ({ page }) => {
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await page.keyboard.press('n')
+  await expect(page.locator('.picked h3')).toHaveText('TEMP-101-01')
+  const inputs = page.locator('.position-edit input')
+  await expect(page.locator('.position-edit')).toContainText('좌표가 없습니다')
+
+  // 한 축만 넣으면 옮기지 않는다(0 으로 채우지 않는다).
+  await inputs.nth(0).fill('5')
+  await inputs.nth(0).press('Enter')
+  await expect(page.locator('.position-edit')).toContainText('셋 다 넣어야')
+  await inputs.nth(1).fill('4')
+  await inputs.nth(1).press('Enter')
+  await inputs.nth(2).fill('2.7')
+  await inputs.nth(2).press('Enter')
+  await expect(page.locator('.position-edit')).toContainText('소속 사무실')
+
+  // 글자 칸의 Esc 는 칸에서 나온다. 그다음 N 은 다시 단축키다.
+  await page.keyboard.press('Escape')
+  await expect(inputs.nth(2)).not.toBeFocused()
+  await expect(page.locator('.picked h3')).toHaveText('TEMP-101-01')
+  await page.keyboard.press('n')
+  await expect(page.locator('.key-note')).toContainText('어긴 것이 없습니다')
+  expect(errors).toEqual([])
+})

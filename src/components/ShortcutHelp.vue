@@ -35,7 +35,7 @@ function onClick(e: MouseEvent) {
         <button type="button" class="ghost" @click="emit('close')">닫기 <kbd>Esc</kbd></button>
       </header>
       <p class="hint">
-        글자를 치는 칸과 선택 상자에 커서가 있을 때는 그 칸이 키를 받습니다.
+        글자를 치는 칸과 선택 상자에 커서가 있을 때는 그 칸이 키를 받습니다. 글자 칸에서 <kbd>Esc</kbd> 를 누르면 칸에서 나옵니다.
         <template v-if="!editing"> <b>편집</b> 표시가 붙은 키는 편집 모드(<kbd>E</kbd>)에서만 먹습니다.</template>
       </p>
       <div class="shortcut-groups">
