@@ -31,7 +31,7 @@ import {
   type Change,
 } from './edit'
 import type { Model } from './model'
-import { confirmSystemFlow, inferFlowByRules, withInferred } from './flow-rules'
+import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred } from './flow-rules'
 import { assignEquipmentToSpaces } from './mapping'
 import { modelToTTL } from './export/ttl'
 
@@ -574,5 +574,22 @@ describe('연 때와 견주기', () => {
     const base = baselineOf(model)
     moveEquipment(model, equip('AHU-1').id, [50, 50, 1])
     expect(diffBaseline(model, base).moved).toEqual([])
+  })
+})
+
+describe('종류를 바꿔 규칙이 포트와 어긋나기 시작한 계통', () => {
+  it('포트가 이어 준 디퓨저를 팬(원천)으로 바꾸면 그 계통이 새로 어긋나고, 되돌리면 사라진다', () => {
+    const before = inferFlowByRules(model)
+    expect(before.disagree).toBe(0)
+    const key = typeKeyOf(equip('AT-101-01'))
+    const snap = snapshotType(model, key)
+    // 디퓨저가 원천이 되면 덕트 → 디퓨저 포트 방향을 규칙은 디퓨저 → 덕트로 본다.
+    const after = setTypeKind(model, key, 'fan')!.rules
+    const worse = newlyDisagreeing(before, after)
+    expect(worse).toHaveLength(1)
+    expect(worse[0].agree).toBeLessThan(worse[0].checked)
+
+    const back = restore(model, snap)!
+    expect(newlyDisagreeing(before, back)).toEqual([])
   })
 })

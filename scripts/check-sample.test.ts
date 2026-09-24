@@ -13,10 +13,11 @@ import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
 import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topology'
-import { inferFlowByRules, withInferred } from '../src/lib/flow-rules'
+import { inferFlowByRules, newlyDisagreeing, withInferred } from '../src/lib/flow-rules'
+import { familyKeyOf, familyNameOf, setTypeKind } from '../src/lib/edit'
 import { airServices } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
-import { roomKind } from '../src/lib/kinds'
+import { equipmentKind, roomKind } from '../src/lib/kinds'
 import type { Model } from '../src/lib/model'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -939,6 +940,43 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
       'device-space': '665/668',
       'device-connected': '239/239',
     })
+  }, 300_000)
+
+  // 사람이 사전이 모르는 패밀리 다섯에 종류를 붙인 뒤(편집 화면에서 다섯 번 고른 것과 같다).
+  // **천장 배기팬(흡입구 일체형)을 배기팬으로 정하면 배기 계통 6개가 포트와 정반대(0/21)가 된다.** 배기 계통은
+  // 원천(팬) 쪽으로 흐른다는 규칙이, 흡입구를 품고 덕트로 내보내는 팬에는 거꾸로다. 규칙을 고치면 성수가 움직이므로
+  // 성수를 잴 수 있을 때 고친다. 그때 이 3694 중 어긋남 24 가 줄어야 한다. 지금은 화면이 그 계통을 바로 알린다.
+  it('사람이 종류를 채우면 말단이 원천에 닿는 것이 늘고, 천장 배기팬은 배기 규칙과 거꾸로다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_ARCH))).model
+    const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_HVAC))).model
+    const { model } = mergeModels(arch, hvac)
+    const before = inferFlowByRules(model)
+    const picks: [RegExp, string][] = [[/VAV/, 'vav'], [/Return Register|Exhaust Grill/, 'air_grille'], [/Exhaust Unit/, 'exhaust_fan']]
+    const families = new Map(model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role) && !equipmentKind(e.kind)).map((e) => [familyKeyOf(e), familyNameOf(e) ?? '']))
+    let after = before
+    let n = 0
+    for (const [key, name] of families) {
+      const kind = picks.find(([re]) => re.test(name))?.[1]
+      const done = kind ? setTypeKind(model, key, kind) : null
+      if (done) {
+        after = done.rules
+        n++
+      }
+    }
+    expect(n).toBe(4)
+    expect(checksOf(model)).toEqual({
+      'terminal-source': '439/440',
+      'source-terminal': '4/10',
+      'terminal-single-source': '234/234',
+      'device-space': '665/668',
+      'device-connected': '565/566',
+    })
+    expect({ agree: after.agree, checked: after.agree + after.disagree }).toEqual({ agree: 3670, checked: 3694 })
+    const worse = newlyDisagreeing(before, after).map((w) => model.systems.find((x) => x.id === w.systemId)!)
+    expect(worse.every((sy) => sy.kind === 'exhaust_air')).toBe(true)
+    expect(worse).toHaveLength(6)
   }, 300_000)
 })
 

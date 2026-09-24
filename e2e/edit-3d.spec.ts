@@ -405,3 +405,19 @@ test('종류를 모르는 패밀리를 목록에서 한 번 고르면 그 패밀
   await expect(page.locator('.report')).toContainText('종류 모름 → 열감지기')
   expect(errors).toEqual([])
 })
+
+test('종류를 바꿔 규칙 방향이 포트와 어긋나기 시작하면 그 계통을 바로 알린다', async ({ page }) => {
+  const errors = await open(page)
+  await page.locator('.edit-toggle input').check()
+  await pick(page, 'AT-101-01')
+  // 포트가 덕트 → 디퓨저라고 말한 디퓨저를 팬(공기의 원천)으로 바꾼다.
+  await page.locator('.kind-edit select').selectOption({ label: '팬' })
+  const warning = page.locator('.picked .edit-notice.inline')
+  await expect(warning).toContainText('포트와 어긋나는 계통')
+  await expect(warning).toContainText('AHU-1 급기 계통')
+  await expect(page.locator('.edit-notice').first()).toBeVisible()
+
+  await page.keyboard.press('Control+z')
+  await expect(warning).toHaveCount(0)
+  expect(errors).toEqual([])
+})

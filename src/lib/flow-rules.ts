@@ -228,3 +228,18 @@ export function withInferred(connections: readonly Connection[], confirmedOnly =
     return c
   })
 }
+
+/**
+ * 규칙을 다시 돌리기 전후를 견줘, 포트와 어긋나는 연결이 **늘어난** 계통. 사람이 설비 종류를 바꾸면 원천·말단이
+ * 바뀌어 규칙이 새로 틀리기 시작할 수 있다. 병원 HVAC 에서 천장 배기팬(흡입구 일체형)을 "배기팬" 으로 정하자
+ * 배기 계통 6개가 포트와 0/21 로 정반대가 됐다 — 배기 계통은 원천(팬) 쪽으로 흐른다는 규칙이 흡입구를 품은 팬에는
+ * 거꾸로다. 포트가 있으면 이렇게 잡히고, 사람이 그 계통을 확정하기 전에 알아야 한다.
+ */
+export function newlyDisagreeing(before: RuleReport | null, after: RuleReport): { systemId: string; agree: number; checked: number }[] {
+  const out: { systemId: string; agree: number; checked: number }[] = []
+  for (const [systemId, t] of Object.entries(after.bySystem)) {
+    const was = before?.bySystem[systemId]?.disagree ?? 0
+    if (t.disagree > was) out.push({ systemId, agree: t.agree, checked: t.agree + t.disagree })
+  }
+  return out.sort((a, b) => b.checked - b.agree - (a.checked - a.agree))
+}

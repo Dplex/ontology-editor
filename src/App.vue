@@ -13,7 +13,7 @@ import { applyEdits, exportEdits, parseEditFile } from './lib/edit-file'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
 import { completenessChecks } from './lib/checks'
-import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from './lib/flow-rules'
+import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
@@ -1267,10 +1267,31 @@ function setKind(typeKey: string, kind: string | null, label: string) {
   const done = setTypeKind(m, typeKey, kind)
   if (!done) return
   remember(`${label} ${done.count}대 종류 → ${kind ? equipmentKind(kind)!.label : '모름'}`, snapshot, at)
+  const worse = newlyDisagreeing(ruleReport.value, done.rules)
   ruleReport.value = done.rules
   triggerRef(model)
   flowVersion.value++
+  // remember 가 알림을 지우므로 그 뒤에 건다.
+  kindWarning.value = ''
+  if (worse.length) {
+    const SHOW = 3
+    const names = worse
+      .slice(0, SHOW)
+      .map((w) => `${systemById.value.get(w.systemId)?.name || w.systemId} ${w.agree}/${w.checked}`)
+      .join(', ')
+    editNotice.value =
+      `종류를 바꾸자 규칙 방향이 포트와 어긋나는 계통이 생겼습니다: ${names}` +
+      (worse.length > SHOW ? ` 외 ${worse.length - SHOW}개` : '') +
+      '. 이 종류에는 계통 규칙이 맞지 않을 수 있습니다. 확정하기 전에 3D 에서 흐름을 확인하거나 Ctrl+Z 로 되돌리세요.'
+    kindWarning.value = editNotice.value
+  }
 }
+/** 종류를 바꿔 규칙이 포트와 어긋나기 시작했다는 알림. 3D 아래 알림은 종류 목록에서 안 보여 그 자리에도 둔다. */
+const kindWarning = ref('')
+watch([history, fileName], () => {
+  // 되돌리거나 다른 편집을 하면 그 알림은 지난 이야기다.
+  if (!history.value.at(-1)?.label.includes('종류 →')) kindWarning.value = ''
+})
 /** 고른 설비 패널의 종류 상자. 고른 뒤 포커스를 놓아 준다 — 상자에 남아 있으면 다음 단축키(U, K)를 상자가 먹는다. */
 function pickKind(event: Event, e: Equipment) {
   const el = event.target as HTMLSelectElement
@@ -2292,6 +2313,8 @@ function exportTTL() {
             </span>
           </p>
 
+          <p v-if="editing && kindWarning" class="edit-notice inline" role="alert">{{ kindWarning }}</p>
+
           <!-- 층 옮기기(E6). 층은 좌표로 판정하지 않고 사람이 고른다(edit.ts). -->
           <p v-if="editing" class="storey-move">
             <label>
@@ -2663,6 +2686,7 @@ function exportTTL() {
             {{ kindEditLines.length }}묶음이 섞여 있습니다</template>.
           </p>
           <!-- 편집 모드에서만. 사전이 모르는 기기를 패밀리로 묶어 대수 순으로. 한 번 고르면 그 패밀리 전부에 붙는다. -->
+          <p v-if="editing && kindWarning" class="edit-notice inline" role="alert">{{ kindWarning }}</p>
           <div v-if="editing && unknownTypes.length" class="unknown-types">
             <h4>
               종류를 모르는 패밀리 {{ unknownTypes.length }}개
