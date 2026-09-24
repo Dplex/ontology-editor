@@ -29,6 +29,7 @@ import {
   moveEquipment,
   moveEquipmentToStorey,
   moveSpaceVertex,
+  completePosition,
   renameSpace,
   setFlowDirection,
   summarize,
@@ -233,15 +234,31 @@ function relocate(equipmentId: string, to: Vec3): boolean {
   return true
 }
 
+// 좌표가 없는 설비(E6)에 표로 넣은 축. 셋이 다 차야 옮긴다(completePosition). 새 파일을 열면 비운다.
+const positionDrafts = ref(new Map<string, (number | null)[]>())
+
 function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: readonly number[] | null) {
-  const value = Number(raw)
-  if (!model.value || !Number.isFinite(value)) return
+  if (!model.value) return
+  const value = raw.trim() === '' ? null : Number(raw)
+  if (value !== null && !Number.isFinite(value)) return
 
-  // 미배치 설비는 기준 좌표가 없다. 한 축만 받아도 나머지를 0 으로 채워 배치한다(E6).
-  const base: [number, number, number] = current ? [current[0], current[1], current[2]] : [0, 0, 0]
-  base[axis] = value
+  if (current) {
+    if (value === null) return
+    const base: [number, number, number] = [current[0], current[1], current[2]]
+    base[axis] = value
+    if (relocate(equipmentId, base)) redraw()
+    return
+  }
 
-  if (relocate(equipmentId, base)) redraw()
+  // 미배치 설비는 기준 좌표가 없다. 나머지 축을 0 으로 채우지 않고, 셋이 다 찰 때까지 들고 있는다.
+  const draft = [...(positionDrafts.value.get(equipmentId) ?? [null, null, null])]
+  draft[axis] = value
+  const drafts = new Map(positionDrafts.value)
+  const to = completePosition(draft)
+  if (to) drafts.delete(equipmentId)
+  else drafts.set(equipmentId, draft)
+  positionDrafts.value = drafts
+  if (to && relocate(equipmentId, to)) redraw()
 }
 
 /** 3D 에서 고른 설비를 끌어 놓았다. 3D 는 이미 놓은 자리에 그려져 있어 다시 만들지 않는다. */
@@ -1077,6 +1094,7 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     selectedSpaceId.value = null
     editNotice.value = ''
     storeyMoved.value = new Set()
+    positionDrafts.value = new Map()
     // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다.
     changes.value = []
     areaChanges.value = []
@@ -1134,6 +1152,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     fileName.value = `${base.name} + ${overlay.name}`
     selectedId.value = null
     selectedSpaceId.value = null
+    positionDrafts.value = new Map()
     selectedSystemId.value = null
     await nextTick()
     await paint()
@@ -2107,7 +2126,7 @@ function exportTTL() {
                       class="coord mono"
                       type="number"
                       step="0.1"
-                      :value="e.position ? e.position[axis] : ''"
+                      :value="e.position ? e.position[axis] : (positionDrafts.get(e.id)?.[axis] ?? '')"
                       placeholder="—"
                       @change="applyMove(e.id, axis as 0 | 1 | 2, ($event.target as HTMLInputElement).value, e.position)"
                     />
@@ -2117,6 +2136,7 @@ function exportTTL() {
                   <td :class="{ muted: !e.spaceId }">
                     {{ spaceNameOf(e.spaceId) }}
                     <Src v-if="e.spaceId" :kind="spaceSrc(e)" />
+                    <small v-if="editing && positionDrafts.has(e.id)" class="draft-note">x·y·z 셋 다 넣어야 옮깁니다</small>
                   </td>
                 </tr>
               </tbody>

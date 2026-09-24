@@ -118,14 +118,24 @@ test('설비를 옮기면 소속 물리존이 다시 판정된다', async ({ pag
   await expect(row('AHU-1')).toContainText('(소속 없음)')
   await expect(page.locator('.report')).toContainText('사무실')
 
-  // 좌표가 없던 센서에 값을 주면 소속이 생긴다(E6).
+  // 좌표가 없던 센서에 값을 주면 소속이 생긴다(E6). 셋이 다 차기 전에는 옮기지 않는다 — 빈 축을 0 으로
+  // 채우면 모르는 것이 원점 쪽에 있는 것으로 바뀐다.
   const sensor = row('TEMP-101-01')
+  const changed = page.locator('.edit-bar')
+  await expect(changed).toContainText('바뀐 것 1건')
   await expect(sensor).toContainText('(소속 없음)')
-  await sensor.locator('.coord').nth(0).fill('5')
-  await sensor.locator('.coord').nth(0).blur()
-  await sensor.locator('.coord').nth(1).fill('4')
-  await sensor.locator('.coord').nth(1).blur()
+  for (const [axis, value] of [[0, '5'], [1, '4']] as const) {
+    await sensor.locator('.coord').nth(axis).fill(value)
+    await sensor.locator('.coord').nth(axis).blur()
+    await expect(sensor).toContainText('(소속 없음)')
+    await expect(sensor).toContainText('x·y·z 셋 다 넣어야 옮깁니다')
+    await expect(changed).toContainText('바뀐 것 1건')
+  }
+  await sensor.locator('.coord').nth(2).fill('2.5')
+  await sensor.locator('.coord').nth(2).blur()
   await expect(sensor).toContainText('사무실')
+  await expect(sensor).not.toContainText('셋 다 넣어야')
+  await expect(changed).toContainText('바뀐 것 2건')
 
   expect(errors).toEqual([])
 })

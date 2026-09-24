@@ -1213,6 +1213,12 @@ th {
   font-size: 0.85rem;
 }
 
+/* 좌표 없는 설비에 축을 다 넣지 않았을 때. 모르는 축을 0 으로 채우지 않는다는 안내다. */
+.draft-note {
+  display: block;
+  color: var(--warn-fg);
+}
+
 .space-members li {
   display: inline-flex;
   gap: 0.3rem;

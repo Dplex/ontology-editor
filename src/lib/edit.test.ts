@@ -10,6 +10,7 @@ import {
   renameSpace,
   replaceSpaceFootprint,
   summarize,
+  completePosition,
   wouldSelfIntersect,
   type Change,
 } from './edit'
@@ -79,6 +80,20 @@ describe('미배치 설비 배치 (E6)', () => {
     expect(change.fromSpaceId).toBe(null)
     expect(change.toSpaceId).toBe(model.storeys[0].spaces[0].id)
     expect(change.summary).toContain('(소속 없음) 에서 사무실 로 바뀝니다')
+  })
+})
+
+describe('좌표 초안', () => {
+  it('빈 축이 있으면 좌표를 만들지 않는다', () => {
+    // 한 축만 넣고 나머지를 0 으로 채우면 원점 쪽 물리존에 조용히 소속된다.
+    expect(completePosition([5, null, null])).toBe(null)
+    expect(completePosition([5, 4, null])).toBe(null)
+    expect(completePosition([])).toBe(null)
+  })
+
+  it('셋이 다 차면 좌표가 되고, 0 은 모름이 아니라 값이다', () => {
+    expect(completePosition([5, 4, 2.5])).toEqual([5, 4, 2.5])
+    expect(completePosition([0, 0, 0])).toEqual([0, 0, 0])
   })
 })
 

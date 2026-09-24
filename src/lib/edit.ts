@@ -71,6 +71,17 @@ export function moveEquipment(model: Model, equipmentId: string, to: Vec3): Chan
 }
 
 /**
+ * 좌표가 없는 설비에 표로 넣는 축의 초안. 셋이 다 차야 좌표가 된다.
+ *
+ * 한 축만 받고 나머지를 0 으로 채우면 "모르는 것" 이 "원점 쪽에 있는 것" 으로 바뀌어, 그 자리의 물리존에
+ * 조용히 소속된다. 그래서 빈 축이 있으면 좌표를 만들지 않는다. 0 은 모름이 아니라 값이다.
+ */
+export function completePosition(draft: readonly (number | null)[]): Vec3 | null {
+  const [x, y, z] = draft
+  return typeof x === 'number' && typeof y === 'number' && typeof z === 'number' ? [x, y, z] : null
+}
+
+/**
  * 포트가 방향을 말하지 않은 연결에 사람이 흐름 방향을 정한다. `from` 이 null 이면 정한 것을 지워서
  * 규칙 방향(있으면)이나 "방향 모름" 으로 돌아간다. BIM 포트가 방향을 말한 연결은 고치지 않는다 —
  * BIM 이 말한 것을 덮어쓰면 온톨로지를 읽는 쪽이 둘을 구별할 수 없다.
