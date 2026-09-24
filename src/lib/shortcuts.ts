@@ -77,15 +77,15 @@ export const SHORTCUTS: readonly Shortcut[] = [
     id: 'nudge',
     combos: ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].map((code) => ({ code, shift: 'any' as const })),
     keys: ['← ↑ → ↓'],
-    label: '고른 설비를 화면 방향으로 10cm 옮기기 (Shift 는 1m)',
+    label: '고른 설비(물리존이면 짚은 꼭짓점)를 화면 방향으로 10cm 옮기기 (Shift 는 1m)',
     group: '편집 · 설비',
     edit: true,
   },
   { id: 'storeyUp', combos: [{ code: 'PageUp' }], keys: ['PageUp'], label: '고른 설비를 위층으로', group: '편집 · 설비', edit: true },
   { id: 'storeyDown', combos: [{ code: 'PageDown' }], keys: ['PageDown'], label: '고른 설비를 아래층으로', group: '편집 · 설비', edit: true },
 
-  { id: 'arrowPrev', combos: [{ code: 'BracketLeft' }], keys: ['['], label: '고른 설비의 이전 연결', group: '편집 · 연결 방향', edit: true },
-  { id: 'arrowNext', combos: [{ code: 'BracketRight' }], keys: [']'], label: '고른 설비의 다음 연결', group: '편집 · 연결 방향', edit: true },
+  { id: 'arrowPrev', combos: [{ code: 'BracketLeft' }], keys: ['['], label: '이전 연결 (물리존이면 이전 꼭짓점)', group: '편집 · 연결 방향', edit: true },
+  { id: 'arrowNext', combos: [{ code: 'BracketRight' }], keys: [']'], label: '다음 연결 (물리존이면 다음 꼭짓점)', group: '편집 · 연결 방향', edit: true },
   {
     id: 'flow',
     combos: [{ code: 'KeyD' }],

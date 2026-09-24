@@ -196,3 +196,36 @@ test('방 안에서 옮긴 좌표와 물리존 이름도 바뀐 것으로 세고
   await expect(page.locator('.report')).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('물리존을 고르면 [ ] 로 꼭짓점을 짚고 방향키로 옮기며, 이어 누른 것은 되돌리기 한 번이다', async ({ page }) => {
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  // 사무실 모서리 근처 빈 바닥(edit-3d.spec.ts 와 같은 자리).
+  const floor = (await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))) as { x: number; y: number }
+  await page.mouse.click(floor.x, floor.y)
+  const panel = page.locator('.space-picked')
+  await expect(panel).toContainText('80.0')
+
+  // 짚지 않고 방향키를 누르면 먼저 짚으라고 한다.
+  await page.keyboard.press('ArrowRight')
+  await expect(page.locator('.key-note')).toContainText('[ ]')
+
+  await page.keyboard.press(']')
+  await expect(page.locator('.key-note')).toContainText('꼭짓점 1/4')
+  // 1m 씩 두 번. 사무실 한 변이 2m 늘거나 줄어 넓이가 80 에서 벗어난다. 이어 누른 것은 한 단계다.
+  await page.keyboard.press('Shift+ArrowRight')
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(panel).not.toContainText('80.0')
+  await expect(page.locator('.report')).toContainText('80.0㎡ →')
+  await page.keyboard.press('Control+z')
+  await expect(panel).toContainText('80.0')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+
+  // Esc 는 짚은 꼭짓점을 먼저 풀고, 그다음 물리존을 푼다.
+  await page.keyboard.press('Escape')
+  await expect(panel).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(panel).toHaveCount(0)
+  expect(errors).toEqual([])
+})

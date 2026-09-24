@@ -1257,7 +1257,8 @@ th {
 }
 
 /* 편집 막대가 화면 위에 붙어 있다. 3D 로 스크롤해 올 때 막대 밑에 위쪽 도구(편집 체크박스)가 숨지 않게 한다. */
-.mode-edit .stage {
+.mode-edit .stage,
+#changes {
   scroll-margin-top: 4.5rem;
 }
 

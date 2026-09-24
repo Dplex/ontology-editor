@@ -585,6 +585,7 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
 /** Esc. 짚은 연결 → 고른 설비·물리존·계통 → 펼친 검사 순으로 하나씩 푼다. */
 function clearSelection(): boolean {
   if (activeArrow.value !== null) activeArrow.value = null
+  else if (activeVertex.value !== null) activeVertex.value = null
   else if (selectedId.value) select(null)
   else if (selectedSpaceId.value) selectedSpaceId.value = null
   else if (selectedSystemId.value) selectedSystemId.value = null
@@ -604,6 +605,7 @@ function frameSelection(): boolean {
 
 /** 방향키. 화면의 오른쪽·위쪽에 가장 가까운 평면 축으로 옮긴다(snapAxis). */
 function nudge(code: string, step: number): boolean {
+  if (!selected.value && selectedSpace.value && viewer) return nudgeVertex(code, step)
   const e = selected.value
   if (!e || !viewer) return false
   if (!e.position) {
@@ -616,6 +618,28 @@ function nudge(code: string, step: number): boolean {
   const to: Vec3 = [cm(e.position[0] + sign * ax * step), cm(e.position[1] + sign * ay * step), e.position[2]]
   relocate(e.id, to, undefined, `nudge:${e.id}`)
   note(`${e.name || '설비'} → x ${to[0].toFixed(2)} · y ${to[1].toFixed(2)} · ${spaceNameOf(equipmentById.value.get(e.id)?.spaceId ?? null)}`)
+  return true
+}
+
+/** 짚은 꼭짓점을 방향키로. 끌어 놓을 때처럼 경계가 엇갈리는 자리에는 놓지 않는다. */
+function nudgeVertex(code: string, step: number): boolean {
+  const picked = selectedSpace.value!
+  const index = activeVertex.value
+  if (index === null) {
+    note('[ ] 로 꼭짓점을 먼저 짚으세요')
+    return true
+  }
+  const p = picked.space.footprint[index]
+  const { right, up } = viewer!.planeAxes()
+  const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
+  const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
+  const to: Vec2 = [cm(p[0] + sign * ax * step), cm(p[1] + sign * ay * step)]
+  if (wouldSelfIntersect(model.value!, picked.space.id, index, to)) {
+    note('경계가 자기 자신과 엇갈리는 자리라 옮기지 않았습니다')
+    return true
+  }
+  moveVertex(picked.space.id, index, to, `vertex:${picked.space.id}:${index}`)
+  note(`꼭짓점 ${index + 1} → (${to[0].toFixed(2)}, ${to[1].toFixed(2)}) · ${picked.space.areaM2.toFixed(1)}㎡`)
   return true
 }
 
@@ -636,6 +660,16 @@ function stepStorey(dir: 1 | -1): boolean {
 }
 
 function stepArrow(dir: 1 | -1): boolean {
+  // 물리존을 골랐으면 [ ] 는 꼭짓점을 짚는다.
+  if (!selected.value && selectedSpace.value) {
+    const n = vertexCount.value
+    if (n === 0) return false
+    const cur = activeVertex.value
+    activeVertex.value = cur === null ? (dir > 0 ? 0 : n - 1) : (cur + dir + n) % n
+    const p = selectedSpace.value.space.footprint[activeVertex.value]
+    note(`꼭짓점 ${activeVertex.value + 1}/${n} (${p[0].toFixed(2)}, ${p[1].toFixed(2)}) · ←↑→↓ 로 옮깁니다`)
+    return true
+  }
   const n = arrowConnections.value.length
   if (!selected.value) return false
   if (n === 0) {
@@ -696,13 +730,13 @@ function applyVertex(spaceId: string, index: number, axis: 0 | 1, raw: string, c
 }
 
 /** 꼭짓점 하나를 옮긴다. 표와 3D 가 같이 쓴다. 자기 교차를 막을지는 부르는 쪽이 정한다. */
-function moveVertex(spaceId: string, index: number, to: Vec2) {
+function moveVertex(spaceId: string, index: number, to: Vec2, coalesce?: string) {
   if (!model.value) return
   const snapshot = snapshotSpace(model.value, spaceId)
   const at = mark()
   const change = moveSpaceVertex(model.value, spaceId, index, to)
   if (!change) return
-  remember(`${change.spaceName} 꼭짓점`, snapshot, at)
+  remember(`${change.spaceName} 꼭짓점`, snapshot, at, coalesce)
   areaChanges.value = [...areaChanges.value, change]
   changes.value = [...changes.value, ...change.equipment]
   triggerRef(model)
@@ -840,7 +874,22 @@ watch([selectedSpace, editing, sceneVersion], () => {
   const ring = picked.space.footprint
   const last = ring.at(-1)
   const closed = ring.length > 1 && !!last && ring[0][0] === last[0] && ring[0][1] === last[1]
-  viewer.setSpaceHandles({ id: picked.space.id, ring: closed ? ring.slice(0, -1) : ring, elevation: picked.storey.elevation })
+  viewer.setSpaceHandles({
+    id: picked.space.id,
+    ring: closed ? ring.slice(0, -1) : ring,
+    elevation: picked.storey.elevation,
+    active: activeVertex.value,
+  })
+})
+/** 키보드([ ])로 짚은 꼭짓점. 물리존을 바꾸면 풀린다. */
+const activeVertex = ref<number | null>(null)
+watch([selectedSpaceId, editing], () => (activeVertex.value = null))
+watch(activeVertex, () => sceneVersion.value++)
+/** 손잡이를 다는 꼭짓점 수(닫는 점 빼고). */
+const vertexCount = computed(() => {
+  const ring = selectedSpace.value?.space.footprint ?? []
+  const last = ring.at(-1)
+  return ring.length > 1 && last && ring[0][0] === last[0] && ring[0][1] === last[1] ? ring.length - 1 : ring.length
 })
 
 // --- 선택과 연결 -------------------------------------------------------------
@@ -1195,6 +1244,12 @@ function setKind(typeKey: string, kind: string | null, label: string) {
 function pickKind(event: Event, e: Equipment) {
   const el = event.target as HTMLSelectElement
   setKind(typeKeyOf(e), el.value || null, typeLabel(e))
+  el.blur()
+}
+/** 종류를 모르는 타입 목록의 상자. 고르면 그 줄이 목록에서 빠지고, 포커스는 놓는다(다음 단축키를 상자가 먹지 않게). */
+function pickTypeKind(event: Event, typeKey: string, label: string) {
+  const el = event.target as HTMLSelectElement
+  setKind(typeKey, el.value || null, label)
   el.blur()
 }
 /** 종류를 모르는 기기를 타입으로 묶은 것. 대수가 많은 타입부터 — 위에서 몇 개만 고르면 대부분이 찬다. */
@@ -2114,7 +2169,7 @@ function exportTTL() {
           <p v-else-if="keyNote" class="hint pick-hint key-note" role="status">{{ keyNote }}</p>
           <p v-else-if="editing" class="hint pick-hint">
             <template v-if="selectedSpace">
-              파란 손잡이를 끌면 경계가 바뀝니다 · 끄는 중 <kbd>Esc</kbd> 는 취소 · <kbd>F</kbd> 이 물리존에 맞추기
+              파란 손잡이를 끌거나 <kbd>[ ]</kbd> 로 꼭짓점을 짚고 <kbd>←↑→↓</kbd> 로 옮깁니다 · <kbd>F</kbd> 이 물리존에 맞추기
             </template>
             <template v-else-if="selected">
               끌거나 <kbd>←↑→↓</kbd> 로 옮기기 · <kbd>PageUp/Down</kbd> 층 · 화살표를 누르거나 <kbd>[ ]</kbd> 고르고
@@ -2564,7 +2619,7 @@ function exportTTL() {
                   <td class="num mono">{{ t.count }}</td>
                   <td class="muted">{{ t.ifcClass }} <Src kind="bim" /></td>
                   <td>
-                    <select :aria-label="`${t.label} 의 종류`" @change="setKind(t.key, ($event.target as HTMLSelectElement).value || null, t.label)">
+                    <select :aria-label="`${t.label} 의 종류`" @change="pickTypeKind($event, t.key, t.label)">
                       <option value="" selected>(모름)</option>
                       <option v-for="k in EQUIPMENT_KINDS" :key="k.kind" :value="k.kind">{{ k.label }}</option>
                     </select>

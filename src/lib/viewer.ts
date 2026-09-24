@@ -191,7 +191,13 @@ export const arrowColors = (dark: boolean) => (dark ? ARROW_COLORS_DARK : ARROW_
 const handleColor = (dark: boolean) => (dark ? 0x6f9bf5 : 0x2f6fed)
 
 /** 고른 물리존의 외곽선. 닫는 점(첫 점과 같은 끝 점)은 빼고 넘긴다. */
-export type SpaceHandles = { id: string; ring: readonly Vec2[]; elevation: number }
+export type SpaceHandles = {
+  id: string
+  ring: readonly Vec2[]
+  elevation: number
+  /** 키보드([ ])로 짚은 꼭짓점. 크게, 글자색으로 그려 방향키가 어느 점을 옮길지 보인다. */
+  active?: number | null
+}
 
 export type Viewer = {
   /** keepView 면 시점을 그대로 둔다. 편집한 뒤 다시 그릴 때마다 건물 전체로 튀면 어디를 고치던 중인지 잃는다. */
@@ -397,7 +403,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
   /** 손잡이는 화면에서 늘 같은 크기로 보이게 한다. 성수처럼 넓은 모델에서 10cm 상자는 점도 안 된다. */
   function scaleHandles() {
-    for (const h of handles) h.scale.setScalar(camera.position.distanceTo(h.position) * 0.012)
+    for (const h of handles) h.scale.setScalar(camera.position.distanceTo(h.position) * 0.012 * (h.userData.size ?? 1))
   }
 
   function drawHandles() {
@@ -413,13 +419,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     outline = new LineLoop(new BufferGeometry().setFromPoints(points), new LineBasicMaterial({ color: handleColor(dark), depthTest: false }))
     outline.renderOrder = 10
     overlay.add(outline)
-    for (const p of points) {
-      const h = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial({ color: handleColor(dark), depthTest: false }))
+    points.forEach((p, i) => {
+      const active = i === handleSpace!.active
+      const color = active ? (dark ? 0xffffff : 0x1a1d21) : handleColor(dark)
+      const h = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial({ color, depthTest: false }))
+      h.userData.size = active ? 1.7 : 1
       h.position.copy(p)
       h.renderOrder = 11
       overlay.add(h)
       handles.push(h)
-    }
+    })
     scaleHandles()
   }
 
