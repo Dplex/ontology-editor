@@ -12,7 +12,12 @@ import { assignEquipmentToSpaces, scoreAgainstDeclared, SNAP } from '../src/lib/
 import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
-import { inferConnections, REACH, TOLERANCE } from '../src/lib/topology'
+import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topology'
+import { inferFlowByRules, withInferred } from '../src/lib/flow-rules'
+import { airServices } from '../src/lib/served'
+import { completenessChecks } from '../src/lib/checks'
+import { roomKind } from '../src/lib/kinds'
+import type { Model } from '../src/lib/model'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
 // 표현 방식이 훨씬 다양하기 때문이다. 그래서 공개 샘플 하나를 기준값으로 박아 둔다.
@@ -880,4 +885,180 @@ describe.skipIf(!existsSync(TTL_GO) || !hasGo)('ieum-pipeline 의 ttl.go 가 읽
     expect(unmatched).toEqual(withDollar)
     expect(withDollar.length).toBeGreaterThan(0)
   }, 300_000)
+})
+
+// --- 여러 BIM 에 같이 대 보기 ---------------------------------------------------------
+//
+// **한 파일에 맞춘 조정은 다른 파일에서 떨어진다.** 이름 사전·흐름 규칙·임포터의 숫자(벽면 여유 SNAP, 배치점
+// 보정 0.5m, 형상 추정 거리)는 BIM 마다 저작 습관이 달라서, 한 파일을 올리려고 고치면 다른 파일이 내려가기
+// 쉽다. 그래서 고칠 때마다 가진 BIM 전부에 같이 대 본다. 개수는 그대로 박고, 정확도는 **지금 값 아래로
+// 떨어지면 실패**로 둔다(오르면 기준을 올린다). 하나가 오르고 다른 하나가 내려가는 변경은 과적합이다.
+
+/** 규칙 방향까지 넣은 완전성 검사. 화면(App.vue)과 같은 입력이다. */
+function checksOf(model: Model) {
+  const out: Record<string, string> = {}
+  for (const c of completenessChecks(model, airServices(model, withInferred(model.connections)))) {
+    out[c.key] = c.skipped ? 'skip' : `${c.total - c.failed.length}/${c.total}`
+  }
+  return out
+}
+
+// NIBS Medical Clinic. 성수처럼 Revit 이 IFC2x3 으로 내보낸 건물이고 건축과 설비가 따로 있다. HVAC 판본은
+// 포트가 있고, MEP 판본(207MB)은 포트가 없어 연결을 형상으로 추정한다 — 크기가 성수 기계(203MB)와 비슷하다.
+// 받는 법: npm run fetch:sample 뒤 안내대로 NBU_MedicalClinic 압축을 푼다.
+const CLINIC_ARCH = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc'
+const CLINIC_HVAC = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-HVAC.ifc'
+const CLINIC_MEP = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-MEP.ifc'
+
+describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 건축 + HVAC (포트 있음)', () => {
+  it('소속과 규칙 방향이 BIM 이 말한 것과 맞는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_ARCH))).model
+    const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_HVAC))).model
+    const { model } = mergeModels(arch, hvac)
+
+    const c = countOf(model)
+    expect({ storeys: c.storeys, devices: c.devices, conduits: c.conduits, systems: c.systems, connections: c.connections, directed: c.directedConnections })
+      .toEqual({ storeys: 4, devices: 668, conduits: 3138, systems: 15, connections: 3697, directed: 3695 })
+
+    // F11. BIM 이 소속을 말한 설비 2,216대를 정답지로(2026-09-24 실측 97.4%).
+    const score = scoreAgainstDeclared(model)
+    expect(score.total).toBe(2216)
+    expect(score.agreed / score.total).toBeGreaterThanOrEqual(0.973)
+
+    // 규칙 방향을 포트가 말한 방향에 대 본다(99.9%). 포트가 다 말해서 새로 준 방향은 없다.
+    const rules = inferFlowByRules(model)
+    expect(rules.agree + rules.disagree).toBe(3673)
+    expect(rules.agree / (rules.agree + rules.disagree)).toBeGreaterThanOrEqual(0.999)
+
+    expect(checksOf(model)).toEqual({
+      'terminal-source': '234/234',
+      'source-terminal': '2/4',
+      'terminal-single-source': '234/234',
+      'device-space': '665/668',
+      'device-connected': '239/239',
+    })
+  }, 300_000)
+})
+
+describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건축 + MEP (포트 없음, 207MB)', () => {
+  it('소속은 맞지만, 포트가 없으면 규칙 방향이 거의 서지 않는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_ARCH))).model
+    const mep = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_MEP))).model
+    const { model } = mergeModels(arch, mep)
+
+    const c = countOf(model)
+    expect({ devices: c.devices, conduits: c.conduits, systems: c.systems, connections: c.connections, directed: c.directedConnections })
+      .toEqual({ devices: 3469, conduits: 12645, systems: 16, connections: 13890, directed: 0 })
+
+    // F11(2026-09-24 실측 97.2%).
+    const score = scoreAgainstDeclared(model)
+    expect(score.total).toBe(7742)
+    expect(score.agreed / score.total).toBeGreaterThanOrEqual(0.971)
+
+    // **포트가 없으면 규칙이 퍼질 길이 끊겨 있다.** 연결 13,890개 중 규칙이 방향을 준 것이 12개뿐이고, 공기 말단
+    // 454개 중 원천에 닿는 것이 없다. 설비 1,806대가 어디에도 이어지지 않는다(임포트 경고). R-요구사항의 근거다.
+    // 이 숫자가 오르면 좋은 일이지만, 다른 BIM 이 같이 떨어지지 않았는지 먼저 본다.
+    const rules = inferFlowByRules(model)
+    expect(rules.oriented).toBeGreaterThanOrEqual(12)
+    expect(checksOf(model)).toEqual({
+      'terminal-source': '0/454',
+      'source-terminal': '0/3',
+      'terminal-single-source': '0/0',
+      'device-space': '3337/3469',
+      'device-connected': '626/658',
+    })
+  }, 600_000)
+})
+
+// 성수(고객사 실측). 받을 곳이 없고 성수를 가진 PC 와 55 의 data/성수/ 에만 있다(정본 부록).
+// 기준값은 정본(docs/bim-to-dt-ontology.md)에 적힌 실측이다. **이 기준을 넣은 PC 에는 성수가 없어서 다시 재지
+// 못했다.** 어긋난 것을 한 번에 다 보려고 expect.soft 로 둔다. 어긋나면 코드와 문서 중 어느 쪽이 맞는지 가려
+// 둘 다 고친다. 규칙 일치율 83.8% 만은 soft 가 아니다 — CLAUDE.md 가 규칙을 재는 기준으로 쓰는 값이다.
+const SEONGSU_ARCH = 'data/성수/Factorial_건축.ifc'
+const SEONGSU_MECH = 'data/성수/Factorial_기계.ifc'
+
+describe.skipIf(!existsSync(SEONGSU_ARCH))('성수 건축', () => {
+  it('층·물리존·벽과 문이 잇는 방이 정본의 실측과 같다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    // 문이 잇는 방은 문·창 형상을 읽을 때만 좌표로 짚는다(성수는 공간 경계가 0 이다).
+    const model = importIfcWithMeshes(api, new Uint8Array(readFileSync(SEONGSU_ARCH)), undefined, { openings: true }).model
+    const c = countOf(model)
+    expect.soft(model.schema).toBe('IFC2X3')
+    expect.soft(c.storeys).toBe(19)
+    expect.soft(c.spaces).toBe(934)
+    const walls = model.storeys.flatMap((s) => s.walls)
+    expect.soft({
+      walls: walls.length,
+      loadBearing: walls.filter((w) => w.loadBearing === true).length,
+      not: walls.filter((w) => w.loadBearing === false).length,
+      unknown: walls.filter((w) => w.loadBearing === null).length,
+    }).toEqual({ walls: 1291, loadBearing: 351, not: 913, unknown: 27 })
+    const doors = model.storeys.flatMap((s) => s.openings).filter((o) => o.kind === 'door')
+    expect.soft(doors).toHaveLength(528)
+    expect.soft(doors.filter((d) => (d.connects?.length ?? 0) >= 2)).toHaveLength(233)
+    // 방 이름 사전(정본 4장). 넓히면 오르지만 틀리게 읽는 것도 는다 — 떨어지면 실패로만 둔다.
+    expect.soft(model.storeys.flatMap((s) => s.spaces).filter((sp) => roomKind(sp.kind)).length).toBeGreaterThanOrEqual(159)
+  }, 600_000)
+})
+
+describe.skipIf(!existsSync(SEONGSU_MECH))('성수 기계', () => {
+  it('설비·연결·규칙 방향이 정본의 실측과 같고, 규칙 일치율이 83.8% 아래로 떨어지지 않는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfcWithMeshes(api, new Uint8Array(readFileSync(SEONGSU_MECH))).model
+    const c = countOf(model)
+    expect.soft({ devices: c.devices, conduits: c.conduits, systems: c.systems, connections: c.connections, directed: c.directedConnections })
+      .toEqual({ devices: 3472, conduits: 15864, systems: 1037, connections: 19515, directed: 8702 })
+    const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
+    // Proxy 로 들어온 기기 1,652대(포트가 있어서 1,578 · 이름이 사전에 있어서 74). 사전을 바꾸면 이름 쪽이 움직인다.
+    expect.soft(devices.filter((e) => e.ifcClass === 'BuildingElementProxy')).toHaveLength(1652)
+
+    // 규칙 방향(정본 3.7). 이 83.8% 가 CLAUDE.md 가 말하는 "규칙이 맞는지" 의 기준이다.
+    const rules = inferFlowByRules(model)
+    expect.soft(rules.oriented).toBe(5457)
+    expect.soft(rules.conflicts).toBe(227)
+    expect.soft(rules.agree + rules.disagree).toBe(9219)
+    expect(rules.agree / (rules.agree + rules.disagree)).toBeGreaterThanOrEqual(0.838)
+
+    // 기기 단위 방향. 등급 칩은 포트 + 확정한 규칙이라 1,903/2,929, 확정 전 규칙까지 넣으면 2,759 다.
+    const direction = profileOf(model).tiers.find((t) => t.key === 'direction')!
+    expect.soft([direction.have, direction.of]).toEqual([1903, 2929])
+    const conduitIds = new Set(model.storeys.flatMap((s) => s.equipment).filter((e) => isConduit(e.role)).map((e) => e.id))
+    const withRules = deviceFlows(withInferred(model.connections), (id) => conduitIds.has(id), devices.map((e) => e.id))
+    expect.soft(withRules.fed.size).toBeGreaterThanOrEqual(2759)
+  }, 900_000)
+})
+
+describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 건축 + 기계', () => {
+  it('완전성 검사와 담당 공간이 정본의 실측과 같다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(SEONGSU_ARCH))).model
+    const mech = importIfcWithMeshes(api, new Uint8Array(readFileSync(SEONGSU_MECH))).model
+    const { model } = mergeModels(arch, mech)
+
+    // 공기 원천 268대 중 말단에 닿는 것: 포트만 46, 규칙 방향까지 156(정본 7장).
+    const reaching = (conns: typeof model.connections) =>
+      airServices(model, conns).filter((s) => s.supply.length + s.extract.length > 0).length
+    expect.soft(airServices(model, model.connections)).toHaveLength(268)
+    expect.soft(reaching(model.connections)).toBe(46)
+    expect.soft(reaching(withInferred(model.connections))).toBe(156)
+
+    // 두 원천에서 받는 급기 말단이 0 이라는 것은 이 규칙이 전부 통과라는 뜻이다(분모는 정본에 없다).
+    const checks = checksOf(model)
+    const [pass, total] = checks['terminal-single-source'].split('/')
+    expect.soft(pass).toBe(total)
+    expect.soft({ ...checks, 'terminal-single-source': undefined }).toEqual({
+      'terminal-source': '1386/2378',
+      'source-terminal': '156/268',
+      'terminal-single-source': undefined,
+      'device-space': '4137/4911',
+      'device-connected': '2991/3610',
+    })
+  }, 900_000)
 })

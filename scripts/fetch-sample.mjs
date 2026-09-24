@@ -29,6 +29,12 @@ const SAMPLES = [
     note: 'NIBS Duplex Apartment(DURAARK 아카이브 경유). 건축·MEP·HVAC·COBie 판본',
     unzip: 'data/NBU_Duplex',
   },
+  {
+    out: 'data/NBU_MedicalClinic_ifc.zip',
+    url: 'https://tib.eu/data/duraark/BuildingData/01_IFC/NBU_MedicalClinic_ifc.zip',
+    note: 'NIBS Medical Clinic. 성수처럼 Revit IFC2x3 이고 건축·HVAC(포트)·MEP(포트 없음, 207MB) 판본. 79MB',
+    unzip: 'data/NBU_MedicalClinic',
+  },
 ]
 
 for (const sample of SAMPLES) {

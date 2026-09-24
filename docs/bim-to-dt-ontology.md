@@ -856,6 +856,9 @@ Ctrl+Z로 한 단계씩 되돌아가고, 되돌리면 소속을 다시 판정하
 | Duplex MEP | `NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc` (Solibri 최적화본 `…_Eng-MEP-Optimized.ifc`도 수치가 같다) | IFC2x3 | 설비 926, 포트 0, 설비 167대가 방에 직접 매달려 있어 소속 판정의 정답지로 쓴다 |
 | Duplex MEP-1 · MEP-2 | `NBU_Duplex/NBU_Duplex-Apt_Eng-MEP-1.ifc`, `…-MEP-2.ifc` | IFC2x3 | 같은 모델의 다른 설계 단계 판본(GUID가 6개만 겹친다). MEP-1은 단위가 피트이고 배관이 없다 |
 | Duplex COBie | `NBU_Duplex/NBU_Duplex-Apt-COBie_Arch-*.ifc` 5개 | IFC2x3 | 시설관리 인수용. 계통 10, 형상 표현 없음. 3개는 구문 오류로 열리지 않는다(R0) |
+| 병원 건축 | `NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc` (18MB) | IFC2x3 | NIBS · DURAARK. Revit 출력. 4개 층, 물리존 269 |
+| 병원 HVAC | `NBU_MedicalClinic/NBU_MedicalClinic_Eng-HVAC.ifc` (27MB) | IFC2x3 | 포트 있음(연결 3,695개 전부 방향). 건축과 합치면 BIM이 말한 소속 2,216건 대비 97.4%, 규칙 방향이 포트와 99.9% 맞는다 |
+| 병원 MEP | `NBU_MedicalClinic/NBU_MedicalClinic_Eng-MEP.ifc` (207MB) | IFC2x3 | 포트 없음. 성수 기계와 크기가 비슷해 큰 파일의 편집 속도를 잰다. 형상으로 이은 연결 13,888개에 규칙이 방향을 준 것이 12개뿐이고 설비 1,806대가 어디에도 안 이어진다 — 포트가 없는 BIM에서 규칙 방향의 한계 |
 | 성수 건축 | `성수/Factorial_건축.ifc` (84MB) | IFC2x3 | 고객사 실측 파일. Revit 2024 한국어판 출력. 19개 층, 물리존 934개 |
 | 성수 기계 | `성수/Factorial_기계.ifc` (203MB) | IFC2x3 | 고객사 실측 파일. 방이 없어서 성수 건축과 합쳐야 소속이 나온다. 계통 1,037, 덕트·배관 15,864, `IfcBuildingElementProxy` 1,658개 |
 
