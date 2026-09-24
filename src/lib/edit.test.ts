@@ -15,6 +15,7 @@ import {
   snapshotConfirm,
   snapshotEquipment,
   snapshotFlow,
+  snapshotOf,
   snapshotSpace,
   setFlowDirection,
   setTypeKind,
@@ -342,6 +343,67 @@ describe('되돌리기', () => {
     restore(model, snap)
     expect(ruled.inferred!.confirmed).toBe(false)
     expect(withInferred([ruled], true)[0].directed).toBeFalsy()
+  })
+})
+
+describe('다시 하기', () => {
+  // 되돌리기 직전에 snapshotOf 로 지금 상태를 떠 두고, 다시 하기는 그것을 restore 한다.
+  it('옮긴 설비를 되돌렸다 다시 하면 옮긴 자리·출처·소속으로 돌아간다', () => {
+    const ahu = equip('AHU-1')
+    const before = snapshotEquipment(model, ahu.id)!
+    moveEquipment(model, ahu.id, [50, 50, 1])
+    const moved = { position: [...ahu.position!], positionSource: ahu.positionSource, spaceId: ahu.spaceId }
+
+    const after = snapshotOf(model, before)!
+    restore(model, before)
+    expect(ahu.spaceId).not.toBe(null)
+    restore(model, after)
+    expect({ position: [...ahu.position!], positionSource: ahu.positionSource, spaceId: ahu.spaceId }).toEqual(moved)
+  })
+
+  it('경계를 되돌렸다 다시 하면 넓이와 소속이 편집 뒤로 간다', () => {
+    const office = model.storeys[0].spaces[0]
+    const before = snapshotSpace(model, office.id)!
+    moveSpaceVertex(model, office.id, 1, [4, 4])
+    const area = office.areaM2
+    const after = snapshotOf(model, before)!
+    restore(model, before)
+    restore(model, after)
+    expect(office.areaM2).toBeCloseTo(area, 6)
+    expect(equip('AT-101-02').spaceId).toBe(null)
+  })
+
+  it('계통 확정을 되돌렸다 다시 하면 그 연결이 다시 확정이다', () => {
+    inferFlowByRules(model)
+    const ruled = model.connections.find((x) => x.inferred)!
+    const before = snapshotConfirm(model, ruled.inferred!.systemId)
+    confirmSystemFlow(model, ruled.inferred!.systemId)
+    const after = snapshotOf(model, before)!
+    restore(model, before)
+    expect(ruled.inferred!.confirmed).toBe(false)
+    restore(model, after)
+    expect(ruled.inferred!.confirmed).toBe(true)
+  })
+
+  it('종류와 사람이 정한 방향도 다시 한다', () => {
+    inferFlowByRules(model)
+    const key = typeKeyOf(equip('AHU-1'))
+    const kinds = snapshotType(model, key)
+    setTypeKind(model, key, 'fcu')
+    const kindsAfter = snapshotOf(model, kinds)!
+    restore(model, kinds)
+    expect(equip('AHU-1').kind).toBe('ahu')
+    restore(model, kindsAfter)
+    expect(equip('AHU-1').kind).toBe('fcu')
+    expect(equip('AHU-1').kindEdited).toEqual({ from: 'ahu' })
+
+    const c = model.connections.find((x) => !x.directed)!
+    const flow = snapshotFlow(c)
+    setFlowDirection(c, c.to)
+    const flowAfter = snapshotOf(model, flow)!
+    restore(model, flow)
+    restore(model, flowAfter)
+    expect(c.edited).toEqual({ from: c.to, to: c.from })
   })
 })
 

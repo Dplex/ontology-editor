@@ -481,6 +481,7 @@ th {
   /* 범례가 오른쪽을 쓰니 왼쪽에 둔다. 겹치면 둘 다 안 읽힌다. */
   left: 0.75rem;
   bottom: 0.75rem;
+  max-width: calc(100% - 1.5rem);
   margin: 0;
   padding: 0.3rem 0.6rem;
   border-radius: 999px;
@@ -1233,11 +1234,8 @@ th {
 }
 
 /* 편집 막대의 되돌리기. 마지막 편집을 한 줄로 옆에 둔다. */
-.edit-bar .undo kbd {
+.edit-bar button kbd {
   margin-left: 0.3rem;
-  font-family: inherit;
-  font-size: 0.75em;
-  color: var(--muted);
 }
 
 .edit-bar .last-edit {
@@ -1640,4 +1638,143 @@ th {
 
 .read-option .muted {
   font-size: 0.78rem;
+}
+
+/* --- 단축키 ------------------------------------------------------------------ */
+
+/* 키 모양. 화면 곳곳(편집 막대, 3D 안내, 단축키 안내)이 같은 모양을 쓴다. */
+kbd {
+  display: inline-block;
+  padding: 0 0.35em;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 0.3rem;
+  background: var(--surface-soft);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 0.78em;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.pick-hint kbd {
+  margin: 0 0.1em;
+}
+
+.pick-hint .link {
+  font-size: inherit;
+}
+
+/* 키로 한 일. 안내 자리에 잠깐 뜬다. 경고가 아니라 확인이라 경고색을 쓰지 않는다. */
+.key-note {
+  color: var(--fg);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.view-tools .keys-help {
+  min-width: 2.2rem;
+  font-weight: 600;
+}
+
+/* 고른 설비 패널의 선택 상자. 브라우저 기본 모양이 위아래 칩과 따로 놀았다. */
+.kind-edit select,
+.storey-move select,
+.unknown-types select {
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}
+
+.kind-edit select:focus-visible,
+.storey-move select:focus-visible,
+.unknown-types select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* [ ] 로 짚은 연결. 3D 의 마름모와 같은 연결이다. */
+.neighbors tr.active td {
+  background: var(--accent-soft);
+}
+
+.neighbors tr.active td:first-child {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.shortcut-help {
+  width: min(52rem, calc(100% - 2rem));
+  max-height: calc(100vh - 4rem);
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+
+.shortcut-help::backdrop {
+  background: rgb(15 18 24 / 0.35);
+}
+
+.shortcut-help-body {
+  padding: 1.1rem 1.4rem 1.2rem;
+}
+
+.shortcut-help header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.shortcut-help h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.shortcut-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: 0.25rem 2rem;
+}
+
+.shortcut-groups h3 {
+  margin: 1rem 0 0.4rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.shortcut-groups dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.35rem 0.9rem;
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.shortcut-groups dt {
+  text-align: right;
+}
+
+.shortcut-groups dd {
+  margin: 0;
+}
+
+.shortcut-groups dd .tag {
+  margin-left: 0.3rem;
+}
+
+.shortcut-help-body > .hint:last-child {
+  margin: 1.1rem 0 0;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.shortcut-help :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

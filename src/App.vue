@@ -7,6 +7,8 @@ import { profileOf, type Profile } from './lib/profile'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
 import Src from './components/Src.vue'
+import ShortcutHelp from './components/ShortcutHelp.vue'
+import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
 import { completenessChecks } from './lib/checks'
@@ -15,7 +17,7 @@ import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kind
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
 import {
-  ARROW_COLORS,
+  arrowColors,
   createViewer,
   PICK_COLORS,
   systemColors,
@@ -41,6 +43,7 @@ import {
   snapshotEquipment,
   snapshotFlow,
   snapshotSpace,
+  snapshotOf,
   setFlowDirection,
   summarize,
   wouldSelfIntersect,
@@ -55,6 +58,7 @@ const dark = ref(document.documentElement.getAttribute('data-theme') === 'dark')
 
 function toggleTheme() {
   dark.value = !dark.value
+  viewer?.setDark(dark.value)
   const root = document.documentElement
   if (dark.value) root.setAttribute('data-theme', 'dark')
   else root.removeAttribute('data-theme')
@@ -252,14 +256,14 @@ function moveInScene(id: string, from: Vec3 | null, to: Vec3 | null) {
  * 설비를 옮기는 길은 표(숫자)와 3D(끌기) 둘이지만 하는 일은 하나다. 소속 재판정은 edit.ts 가 한다.
  * `drawnAt` 은 3D 가 이미 그려 둔 자리다(끌어 놓은 경우). 그 자리와 저장한 좌표의 차만큼만 형상을 옮긴다.
  */
-function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3): boolean {
+function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: string): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
   const snapshot = snapshotEquipment(model.value, equipmentId)
   const at = mark()
   const change = moveEquipment(model.value, equipmentId, to)
   if (!change) return false
-  remember(`${change.equipmentName || '설비'} 옮김`, snapshot, at)
+  remember(`${change.equipmentName || '설비'} 옮김`, snapshot, at, coalesce)
   if (drawnAt) shiftMesh(equipmentId, before, drawnAt)
   moveInScene(equipmentId, drawnAt ?? before, to)
   changes.value = [...changes.value, change]
@@ -337,34 +341,91 @@ const selfIntersecting = computed(() => areaChanges.value.some((c) => c.selfInte
 // 그 편집 전의 리포트와 같아진다. 새 파일을 열거나 덧붙일 때만 비운다.
 const UNDO_LIMIT = 100
 type Mark = { changes: number; areaChanges: number; confirmations: number; storeyMoved: Set<string> }
-type HistoryEntry = Mark & { label: string; snapshot: Snapshot }
+/** `coalesce` 가 같고 COALESCE_MS 안에 이어진 편집은 한 단계로 묶는다(방향키를 누르고 있는 것). */
+type HistoryEntry = Mark & { label: string; snapshot: Snapshot; coalesce?: string; time: number }
 const history = shallowRef<HistoryEntry[]>([])
+const COALESCE_MS = 1200
+
+// 다시 하기. 되돌릴 때 그 대상의 지금 상태(snapshotOf)와 잘라 낸 리포트를 쌓아 두었다가 그대로 되돌려 놓는다.
+// 새 편집을 하면 비운다 — 갈라진 이력의 "다시" 는 뜻이 없다.
+type RedoEntry = {
+  entry: HistoryEntry
+  snapshot: Snapshot
+  tail: { changes: Change[]; areaChanges: BoundaryChange[]; confirmations: { systemName: string; count: number }[]; storeyMoved: Set<string> }
+}
+const future = shallowRef<RedoEntry[]>([])
 const mark = (): Mark => ({
   changes: changes.value.length,
   areaChanges: areaChanges.value.length,
   confirmations: confirmations.value.length,
   storeyMoved: storeyMoved.value,
 })
-function remember(label: string, snapshot: Snapshot | null, at: Mark) {
+function remember(label: string, snapshot: Snapshot | null, at: Mark, coalesce?: string) {
   if (!snapshot) return
-  const next = [...history.value, { ...at, label, snapshot }]
+  future.value = []
+  editNotice.value = ''
+  const time = Date.now()
+  const last = history.value.at(-1)
+  if (coalesce && last?.coalesce === coalesce && time - last.time < COALESCE_MS) {
+    // 첫 편집 전의 스냅숏과 표시(mark)를 그대로 둔다. 되돌리면 묶인 것 전부가 한 번에 돌아간다.
+    history.value = [...history.value.slice(0, -1), { ...last, label, time }]
+    return
+  }
+  const next = [...history.value, { ...at, label, snapshot, coalesce, time }]
   // 넘치면 가장 오래된 것부터 버린다. 경계 스냅숏은 외곽선을 통째로 들고 있어 무한히 쌓지 않는다.
   history.value = next.length > UNDO_LIMIT ? next.slice(-UNDO_LIMIT) : next
-  editNotice.value = ''
 }
 
 function undo() {
   const m = model.value
   const entry = history.value.at(-1)
   if (!m || !entry) return
+  const after = snapshotOf(m, entry.snapshot)
   history.value = history.value.slice(0, -1)
-  const s = entry.snapshot
-  const drawnAt = s.kind === 'equipment' ? (equipmentById.value.get(s.id)?.position ?? null) : null
-  const rules = restore(m, s)
+  if (after) {
+    future.value = [
+      ...future.value,
+      {
+        entry,
+        snapshot: after,
+        tail: {
+          changes: changes.value.slice(entry.changes),
+          areaChanges: areaChanges.value.slice(entry.areaChanges),
+          confirmations: confirmations.value.slice(entry.confirmations),
+          storeyMoved: storeyMoved.value,
+        },
+      },
+    ]
+  }
   changes.value = changes.value.slice(0, entry.changes)
   areaChanges.value = areaChanges.value.slice(0, entry.areaChanges)
   confirmations.value = confirmations.value.slice(0, entry.confirmations)
   storeyMoved.value = entry.storeyMoved
+  applySnapshot(entry.snapshot)
+  editNotice.value = `되돌렸습니다: ${entry.label}`
+}
+
+function redo() {
+  const m = model.value
+  const next = future.value.at(-1)
+  if (!m || !next) return
+  future.value = future.value.slice(0, -1)
+  changes.value = [...changes.value, ...next.tail.changes]
+  areaChanges.value = [...areaChanges.value, ...next.tail.areaChanges]
+  confirmations.value = [...confirmations.value, ...next.tail.confirmations]
+  storeyMoved.value = next.tail.storeyMoved
+  // 되돌리기 전의 이력 한 줄을 그대로 돌려놓는다. 그 스냅숏이 가리키는 상태가 지금 상태다.
+  history.value = [...history.value, { ...next.entry, time: 0 }]
+  applySnapshot(next.snapshot)
+  editNotice.value = `다시 했습니다: ${next.entry.label}`
+}
+
+/** 스냅숏을 모델에 되돌려 놓고, 바뀐 것에 맞춰 3D 와 화면을 고친다. 되돌리기와 다시 하기가 같이 쓴다. */
+function applySnapshot(s: Snapshot) {
+  const m = model.value
+  if (!m) return
+  const drawnAt = s.kind === 'equipment' ? (equipmentById.value.get(s.id)?.position ?? null) : null
+  const rules = restore(m, s)
   if (s.kind === 'equipment') {
     triggerRef(model)
     // 형상도 되돌린다. 안 하면 다시 그릴 때 옮긴 자리에 남는다.
@@ -382,7 +443,6 @@ function undo() {
     // 방향·확정은 소속과 상관이 없다. 모델 전체에 갱신 신호를 보내지 않는다(confirmRule 과 같은 이유).
     flowVersion.value++
   }
-  editNotice.value = `되돌렸습니다: ${entry.label}`
 }
 
 /** 글자를 치는 칸. 여기의 Ctrl+Z 는 그 칸의 실행취소다. 체크박스·선택 상자는 치는 칸이 아니다. */
@@ -392,15 +452,218 @@ function isTextEntry(target: EventTarget | null) {
   return target instanceof HTMLInputElement && !['checkbox', 'radio', 'button', 'submit', 'range', 'color', 'file'].includes(target.type)
 }
 
-function onUndoKey(e: KeyboardEvent) {
-  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z') return
-  // 보기 모드에는 고치는 손잡이가 없으니 되돌릴 것도 보이지 않는다. 끄는 중에는 Esc 가 취소다.
-  if (!editing.value || isTextEntry(e.target) || viewer?.isDragging()) return
-  e.preventDefault()
-  undo()
+// --- 단축키 -------------------------------------------------------------------------
+//
+// 키 표는 lib/shortcuts.ts 하나다. `?` 안내도 같은 표를 읽는다. 여기는 눌린 키를 받아 할 일로 옮기기만 한다.
+// 처리한 키만 브라우저 기본 동작을 막는다 — 고른 설비가 없을 때 ↓ 는 여전히 페이지를 내린다.
+const helpOpen = ref(false)
+/** 키로 한 일을 캔버스 아래에 잠깐 알린다. 버튼과 달리 키는 누른 결과가 눈에 안 보일 때가 많다. */
+const keyNote = ref('')
+let keyNoteTimer: number | undefined
+function note(text: string) {
+  keyNote.value = text
+  window.clearTimeout(keyNoteTimer)
+  keyNoteTimer = window.setTimeout(() => (keyNote.value = ''), 2600)
 }
-window.addEventListener('keydown', onUndoKey)
-onBeforeUnmount(() => window.removeEventListener('keydown', onUndoKey))
+
+function onKey(e: KeyboardEvent) {
+  if (e.isComposing || !model.value) return
+  const shortcut = matchShortcut(e)
+  if (!shortcut) return
+  // 안내가 열려 있으면 뒤의 화면은 키를 받지 않는다(닫기는 대화상자가 Esc 로 한다).
+  if (helpOpen.value && shortcut.id !== 'help') return
+  // 글자를 치는 칸의 키는 그 칸 몫이다(그 칸의 Ctrl+Z 는 글자 되돌리기다). 선택 상자는 글자·방향키로 항목을
+  // 고르니 수식 키 없는 키는 넘기고, Ctrl 조합과 Esc 만 받는다.
+  if (isTextEntry(e.target)) return
+  if (e.target instanceof HTMLSelectElement && !(e.ctrlKey || e.metaKey) && shortcut.id !== 'escape') return
+  // 보기 모드에는 고치는 손잡이가 없다. 끄는 중에는 Esc 가 뷰어의 취소다.
+  if (shortcut.edit && !editing.value) return
+  if (viewer?.isDragging()) return
+  if (runShortcut(shortcut, e)) e.preventDefault()
+}
+window.addEventListener('keydown', onKey)
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+
+const searchInput = ref<HTMLInputElement | null>(null)
+const kindSelect = ref<HTMLSelectElement | null>(null)
+
+/** 단축키 하나를 한다. 할 것이 없어서 넘긴 키는 false 다(브라우저 기본 동작을 살린다). */
+function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
+  switch (s.id) {
+    case 'help':
+      helpOpen.value = !helpOpen.value
+      return true
+    case 'mode':
+      mode.value = editing.value ? 'view' : 'edit'
+      note(editing.value ? '편집 모드' : '보기 모드')
+      return true
+    case 'search':
+      if (!searchInput.value) return false
+      searchInput.value.scrollIntoView({ block: 'center' })
+      searchInput.value.focus()
+      return true
+    case 'escape':
+      return clearSelection()
+    case 'frame':
+      return frameSelection()
+    case 'frameAll':
+      viewer?.frameAll()
+      return true
+    case 'rules':
+      showRules.value = !showRules.value
+      note(showRules.value ? '규칙 방향을 칠합니다' : '규칙 방향을 칠하지 않습니다')
+      return true
+    case 'walls':
+      if (!drawnWalls.value) {
+        note('3D 에 그릴 내력벽이 없습니다')
+        return true
+      }
+      showWalls.value = !showWalls.value
+      return true
+    case 'undo':
+      if (!history.value.length) note('되돌릴 편집이 없습니다')
+      undo()
+      return true
+    case 'redo':
+      if (!future.value.length) note('다시 할 편집이 없습니다')
+      redo()
+      return true
+    case 'nudge':
+      return nudge(e.code, e.shiftKey ? 1 : 0.1)
+    case 'storeyUp':
+    case 'storeyDown':
+      return stepStorey(s.id === 'storeyUp' ? 1 : -1)
+    case 'arrowPrev':
+    case 'arrowNext':
+      return stepArrow(s.id === 'arrowNext' ? 1 : -1)
+    case 'flow':
+      return flowByKey()
+    case 'confirm': {
+      const r = selectedRule.value
+      if (!r) return false
+      if (r.confirmed) note(`계통 ${r.name} 은 이미 확정했습니다`)
+      else if (r.count === 0) note('이 계통에는 규칙으로 방향을 준 연결이 없습니다')
+      else confirmRule(r.systemId, r.name)
+      return true
+    }
+    case 'kind':
+      if (!kindSelect.value) return false
+      kindSelect.value.focus()
+      try {
+        // 목록을 바로 편다. 닫힌 채 방향키로 고르면 누를 때마다 종류가 바뀌고 규칙을 다시 돌린다.
+        kindSelect.value.showPicker()
+      } catch {
+        // showPicker 가 없는 브라우저는 포커스만 옮긴다(Alt+↓ 로 편다).
+      }
+      return true
+    case 'nextUnknown':
+    case 'prevUnknown':
+      return stepUnknown(s.id === 'nextUnknown' ? 1 : -1)
+  }
+}
+
+/** Esc. 짚은 연결 → 고른 설비·물리존·계통 → 펼친 검사 순으로 하나씩 푼다. */
+function clearSelection(): boolean {
+  if (activeArrow.value !== null) activeArrow.value = null
+  else if (selectedId.value) select(null)
+  else if (selectedSpaceId.value) selectedSpaceId.value = null
+  else if (selectedSystemId.value) selectedSystemId.value = null
+  else if (openCheckKey.value) openCheckKey.value = null
+  else return false
+  return true
+}
+
+function frameSelection(): boolean {
+  if (selectedId.value) frameNetwork()
+  else if (selectedSpaceId.value) viewer?.frameSpace(selectedSpaceId.value)
+  else if (selectedSystemId.value) viewer?.frame(systemById.value.get(selectedSystemId.value)?.memberIds ?? [])
+  else if (openCheck.value?.failed.length) viewer?.frame(openCheck.value.failed)
+  else viewer?.frameAll()
+  return true
+}
+
+/** 방향키. 화면의 오른쪽·위쪽에 가장 가까운 평면 축으로 옮긴다(snapAxis). */
+function nudge(code: string, step: number): boolean {
+  const e = selected.value
+  if (!e || !viewer) return false
+  if (!e.position) {
+    note('좌표가 없는 설비는 옮기지 않습니다. 아래 표에 x·y·z 를 넣으세요.')
+    return true
+  }
+  const { right, up } = viewer.planeAxes()
+  const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
+  const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
+  const to: Vec3 = [cm(e.position[0] + sign * ax * step), cm(e.position[1] + sign * ay * step), e.position[2]]
+  relocate(e.id, to, undefined, `nudge:${e.id}`)
+  note(`${e.name || '설비'} → x ${to[0].toFixed(2)} · y ${to[1].toFixed(2)} · ${spaceNameOf(equipmentById.value.get(e.id)?.spaceId ?? null)}`)
+  return true
+}
+
+function stepStorey(dir: 1 | -1): boolean {
+  const e = selected.value
+  const m = model.value
+  if (!e || !m) return false
+  const order = [...m.storeys].sort((a, b) => a.elevation - b.elevation)
+  const at = order.findIndex((s) => s.equipment.some((x) => x.id === e.id))
+  const next = order[at + dir]
+  if (!next) {
+    note(dir > 0 ? '맨 위층입니다' : '맨 아래층입니다')
+    return true
+  }
+  moveToStorey(e.id, next.id)
+  note(`${e.name || '설비'} → ${next.name}`)
+  return true
+}
+
+function stepArrow(dir: 1 | -1): boolean {
+  const n = arrowConnections.value.length
+  if (!selected.value) return false
+  if (n === 0) {
+    note('고른 설비에 붙은 연결이 없습니다')
+    return true
+  }
+  const cur = activeArrow.value
+  activeArrow.value = cur === null ? (dir > 0 ? 0 : n - 1) : (cur + dir + n) % n
+  const row = selectedNeighbors.value[activeArrow.value]
+  if (row) note(`연결 ${activeArrow.value + 1}/${n}: ${row.name} (${relLabel(row)}) · D 로 방향을 바꿉니다`)
+  return true
+}
+
+function flowByKey(): boolean {
+  const n = arrowConnections.value.length
+  if (!selected.value) return false
+  if (n === 0) {
+    note('고른 설비에 붙은 연결이 없습니다')
+    return true
+  }
+  if (activeArrow.value === null) {
+    if (n > 1) {
+      activeArrow.value = 0
+      note(`연결이 ${n}개입니다. [ ] 로 고른 뒤 D 를 누르세요`)
+      return true
+    }
+    activeArrow.value = 0
+  }
+  cycleFlow(String(activeArrow.value))
+  const row = selectedNeighbors.value[activeArrow.value]
+  if (row && !row.connection.directed) note(`${row.name}: ${relLabel(row)}`)
+  return true
+}
+
+/** U. 종류를 모르는 타입을 대수 순으로 하나씩 돌며 그 타입의 설비 하나를 고른다. K 로 바로 종류를 붙인다. */
+function stepUnknown(dir: 1 | -1): boolean {
+  const list = unknownTypes.value
+  if (!list.length) {
+    note('종류를 모르는 설비가 없습니다')
+    return true
+  }
+  const here = selected.value ? list.findIndex((t) => t.key === typeKeyOf(selected.value!)) : -1
+  const i = here < 0 ? (dir > 0 ? 0 : list.length - 1) : (here + dir + list.length) % list.length
+  const t = list[i]
+  select(t.sampleId)
+  note(`종류를 모르는 타입 ${i + 1}/${list.length}: ${t.label} ${t.count}대 · K 로 종류를 고릅니다`)
+  return true
+}
 
 function applyVertex(spaceId: string, index: number, axis: 0 | 1, raw: string, current: readonly number[]) {
   const value = Number(raw)
@@ -509,6 +772,7 @@ watch([model, canvas], ([m, el]) => {
     viewer.onArrowClick(cycleFlow)
     viewer.setWallsVisible(showWalls.value)
     viewer.setEditMode(editing.value)
+    viewer.setDark(dark.value)
   }
   // 편집이 보낸 갱신(triggerRef)으로는 다시 만들지 않는다(redraw 참조). 새 모델일 때만이다.
   if (m === drawn) return
@@ -713,15 +977,20 @@ const arrowConnections = computed((): Connection[] => {
   if (!editing.value || !model.value || !selectedId.value) return []
   return neighbors(model.value.connections, selectedId.value).map((n) => n.connection)
 })
-function arrowOf(c: Connection, key: string): Arrow {
-  if (c.directed) return { key, a: c.from, b: c.to, from: c.from, source: 'port' }
-  if (c.edited) return { key, a: c.from, b: c.to, from: c.edited.from, source: 'edit' }
-  if (c.inferred && showRules.value) return { key, a: c.from, b: c.to, from: c.inferred.from, source: 'rule' }
-  return { key, a: c.from, b: c.to, from: null, source: 'none' }
+function arrowOf(c: Connection, key: string, active: boolean): Arrow {
+  const base = { key, a: c.from, b: c.to, active }
+  if (c.directed) return { ...base, from: c.from, source: 'port' }
+  if (c.edited) return { ...base, from: c.edited.from, source: 'edit' }
+  if (c.inferred && showRules.value) return { ...base, from: c.inferred.from, source: 'rule' }
+  return { ...base, from: null, source: 'none' }
 }
-watch([arrowConnections, showRules, sceneVersion], () => {
-  viewer?.setArrows(arrowConnections.value.map((c, i) => arrowOf(c, String(i))))
+/** 키보드([ ])로 짚은 연결의 자리. 연결 표(selectedNeighbors)와 같은 순서다. 설비를 바꾸면 풀린다. */
+const activeArrow = ref<number | null>(null)
+watch([selectedId, editing], () => (activeArrow.value = null))
+watch([arrowConnections, showRules, sceneVersion, activeArrow], () => {
+  viewer?.setArrows(arrowConnections.value.map((c, i) => arrowOf(c, String(i), i === activeArrow.value)))
 })
+const arrowPalette = computed(() => arrowColors(dark.value))
 function cycleFlow(key: string) {
   const c = arrowConnections.value[Number(key)]
   const id = selectedId.value
@@ -901,6 +1170,12 @@ function setKind(typeKey: string, kind: string | null, label: string) {
   ruleReport.value = done.rules
   triggerRef(model)
   flowVersion.value++
+}
+/** 고른 설비 패널의 종류 상자. 고른 뒤 포커스를 놓아 준다 — 상자에 남아 있으면 다음 단축키(U, K)를 상자가 먹는다. */
+function pickKind(event: Event, e: Equipment) {
+  const el = event.target as HTMLSelectElement
+  setKind(typeKeyOf(e), el.value || null, typeLabel(e))
+  el.blur()
 }
 /** 종류를 모르는 기기를 타입으로 묶은 것. 대수가 많은 타입부터 — 위에서 몇 개만 고르면 대부분이 찬다. */
 const unknownTypes = computed(() => {
@@ -1280,6 +1555,7 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     storeyMoved.value = new Set()
     positionDrafts.value = new Map()
     history.value = []
+    future.value = []
     // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다.
     changes.value = []
     areaChanges.value = []
@@ -1340,6 +1616,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     positionDrafts.value = new Map()
     // 합치면 모델을 새로 만든다. 예전 모델을 가리키는 스냅숏은 뜻이 없다.
     history.value = []
+    future.value = []
     selectedSystemId.value = null
     await nextTick()
     await paint()
@@ -1542,8 +1819,18 @@ function exportTTL() {
         >
           되돌리기 <kbd>Ctrl+Z</kbd>
         </button>
+        <button
+          type="button"
+          class="ghost redo"
+          :disabled="!future.length"
+          :title="future.length ? `다시 하기: ${future.at(-1)!.entry.label}` : '다시 할 편집이 없습니다'"
+          @click="redo"
+        >
+          다시 <kbd>Ctrl+Shift+Z</kbd>
+        </button>
         <span v-if="history.length" class="muted last-edit">{{ history.at(-1)!.label }}</span>
         <span class="grow"></span>
+        <button type="button" class="ghost keys-help" title="단축키 안내 (?)" @click="helpOpen = true">단축키 <kbd>?</kbd></button>
         <button type="button" class="ghost" @click="exportTTL">의미 내보내기 (TTL)</button>
         <button type="button" class="ghost" @click="mode = 'view'">보기로</button>
       </div>
@@ -1653,6 +1940,7 @@ function exportTTL() {
               >
                 내력벽
               </button>
+              <button type="button" class="ghost keys-help" title="단축키 안내" aria-label="단축키 안내" @click="helpOpen = true">?</button>
               <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
                 {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
               </button>
@@ -1702,22 +1990,28 @@ function exportTTL() {
             <!-- 편집 모드의 연결 화살표. 색은 상류·하류가 아니라 그 방향을 누가 말했는가다. -->
             <template v-if="editing && hasArrows">
               <li class="key-head">화살표 · 누르면 방향을 바꿉니다</li>
-              <li><i class="bar" :style="{ background: hex(ARROW_COLORS.port) }"></i>포트 방향(못 고침) <Src kind="bim" /></li>
-              <li><i class="bar" :style="{ background: hex(ARROW_COLORS.edit) }"></i>사람이 정한 방향 <Src kind="edit" /></li>
-              <li v-if="showRules"><i class="bar dashed" :style="{ color: hex(ARROW_COLORS.rule) }"></i>규칙 방향 <Src kind="dict" /></li>
-              <li><i class="bar dashed" :style="{ color: hex(ARROW_COLORS.none) }"></i>방향 모름</li>
+              <li><i class="bar" :style="{ background: hex(arrowPalette.port) }"></i>포트 방향(못 고침) <Src kind="bim" /></li>
+              <li><i class="bar" :style="{ background: hex(arrowPalette.edit) }"></i>사람이 정한 방향 <Src kind="edit" /></li>
+              <li v-if="showRules"><i class="bar dashed" :style="{ color: hex(arrowPalette.rule) }"></i>규칙 방향 <Src kind="dict" /></li>
+              <li><i class="bar dashed" :style="{ color: hex(arrowPalette.none) }"></i>방향 모름</li>
             </template>
           </ul>
 
           <p v-if="editNotice" class="edit-notice" role="alert">{{ editNotice }}</p>
+          <p v-else-if="keyNote" class="hint pick-hint key-note" role="status">{{ keyNote }}</p>
           <p v-else-if="editing" class="hint pick-hint">
-            {{
-              selectedSpace
-                ? '파란 손잡이를 끌면 경계가 바뀝니다. 끄는 중 Esc 는 취소입니다.'
-                : selected
-                  ? '고른 설비를 끌면 옮겨집니다 · 화살표를 누르면 흐름 방향이 하류 → 상류 → 지움 순으로 바뀝니다 · Esc 는 끌기 취소'
-                  : '설비를 누르면 고르고, 고른 설비를 끌면 옮깁니다. 바닥을 누르면 물리존 꼭짓점이 뜹니다.'
-            }}
+            <template v-if="selectedSpace">
+              파란 손잡이를 끌면 경계가 바뀝니다 · 끄는 중 <kbd>Esc</kbd> 는 취소 · <kbd>F</kbd> 이 물리존에 맞추기
+            </template>
+            <template v-else-if="selected">
+              끌거나 <kbd>←↑→↓</kbd> 로 옮기기 · <kbd>PageUp/Down</kbd> 층 · 화살표를 누르거나 <kbd>[ ]</kbd> 고르고
+              <kbd>D</kbd> 로 방향 · <kbd>K</kbd> 종류
+            </template>
+            <template v-else>
+              설비를 누르면 고르고, 고른 설비를 끌면 옮깁니다 · 바닥을 누르면 물리존 꼭짓점이 뜹니다 ·
+              <kbd>U</kbd> 종류 모르는 설비로
+            </template>
+            · <button type="button" class="link" @click="helpOpen = true">단축키 <kbd>?</kbd></button>
           </p>
           <p v-else-if="counts.equipment > 0" class="hint pick-hint">
             {{
@@ -1754,8 +2048,9 @@ function exportTTL() {
             <label>
               종류
               <select
+                ref="kindSelect"
                 :value="selected.kind ?? ''"
-                @change="setKind(typeKeyOf(selected), ($event.target as HTMLSelectElement).value || null, typeLabel(selected))"
+                @change="pickKind($event, selected)"
               >
                 <option value="">(모름)</option>
                 <option v-for="k in EQUIPMENT_KINDS" :key="k.kind" :value="k.kind">{{ k.label }}</option>
@@ -1935,7 +2230,7 @@ function exportTTL() {
           </p>
           <table v-else class="neighbors">
             <tbody>
-              <tr v-for="(n, i) in selectedNeighbors" :key="`${n.id}-${i}`">
+              <tr v-for="(n, i) in selectedNeighbors" :key="`${n.id}-${i}`" :class="{ active: editing && i === activeArrow }">
                 <td :class="['rel', ...relClass(n)]">{{ relLabel(n) }}</td>
                 <td>
                   <button type="button" class="link" @click="select(n.id)">{{ n.name }}</button>
@@ -2268,7 +2563,7 @@ function exportTTL() {
             </label>
             <label class="grow">
               이름
-              <input v-model="editQuery" type="search" placeholder="물리존·설비 이름이나 종류" />
+              <input ref="searchInput" v-model="editQuery" type="search" placeholder="물리존·설비 이름이나 종류  ( / )" />
             </label>
             <span class="muted">{{ editing ? '아래 세 목록에 같이 걸립니다.' : '설비 목록에 걸립니다.' }}</span>
           </div>
@@ -2430,6 +2725,7 @@ function exportTTL() {
         </p>
       </section>
     </template>
+    <ShortcutHelp :open="helpOpen" :editing="editing" @close="helpOpen = false" />
     <!-- 진행 표시. 스크롤 위치와 상관없이 보이도록 화면 아래에 띄운다. -->
     <div v-if="progress" class="progress-toast" role="status" aria-live="polite">
       <div class="progress-head">

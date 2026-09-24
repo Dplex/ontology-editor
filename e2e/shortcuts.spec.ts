@@ -1,0 +1,176 @@
+import { expect, test, type Page } from '@playwright/test'
+
+// 편집 화면의 단축키. 키 표(lib/shortcuts.ts)가 안내와 동작을 같이 정하므로, 안내에 적힌 키가 실제로 먹는지를
+// 키보드로 누르며 본다. 3D 가 어디를 그렸는지는 e2e 모드의 window.__viewer 로 묻는다(viewer.ts).
+const MEP = 'src/lib/ifc/fixtures/mep.ifc'
+const AT02 = '0MEP$Equip$AT02$0000'
+
+async function open(page: Page) {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.review h2')).toBeVisible({ timeout: 30_000 })
+  return errors
+}
+
+const settle = (page: Page) =>
+  page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
+
+const row = (page: Page, name: string) => page.locator('.equipment tbody tr', { hasText: name }).last()
+const coords = async (page: Page, name: string) =>
+  Promise.all([0, 1, 2].map(async (i) => Number(await row(page, name).locator('.coord').nth(i).inputValue())))
+
+async function pick(page: Page, name: string) {
+  await row(page, name).getByRole('button', { name, exact: true }).click()
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await settle(page)
+}
+
+test('? 를 누르면 단축키 안내가 뜨고 Esc 로 닫힌다. 글자 칸에서 친 ? 는 안내를 열지 않는다', async ({ page }) => {
+  const errors = await open(page)
+  await page.keyboard.press('Shift+Slash')
+  const help = page.getByRole('dialog', { name: '단축키' })
+  await expect(help).toBeVisible()
+  // 안내는 키 표 그대로다. 보기 모드라 편집 키에는 "편집" 표시가 붙는다.
+  await expect(help).toContainText('보기 ↔ 편집')
+  await expect(help).toContainText('다시 하기')
+  await expect(help.locator('dd', { hasText: '되돌리기' }).locator('.tag')).toHaveText('편집')
+  // 열린 동안 뒤의 화면은 키를 받지 않는다.
+  await page.keyboard.press('e')
+  await expect(page.getByRole('button', { name: '보기', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Escape')
+  await expect(help).toBeHidden()
+
+  // 버튼으로도 연다.
+  await page.locator('.view-tools .keys-help').click()
+  await expect(help).toBeVisible()
+  await help.getByRole('button', { name: /닫기/ }).click()
+  await expect(help).toBeHidden()
+
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const name = page.locator('.rows input').first()
+  await name.click()
+  await page.keyboard.press('Shift+Slash')
+  await expect(help).toBeHidden()
+  expect(errors).toEqual([])
+})
+
+test('E 는 보기와 편집을 오간다', async ({ page }) => {
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await expect(page.locator('.edit-bar')).toBeVisible()
+  await expect(page.locator('.edit-toggle input')).toBeChecked()
+  await page.keyboard.press('e')
+  await expect(page.locator('.edit-bar')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('방향키는 고른 설비를 10cm(Shift 1m) 옮기고, 누른 만큼이 되돌리기 한 번이며, 다시 하기로 돌아온다', async ({ page }) => {
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await pick(page, 'AHU-1')
+  const start = await coords(page, 'AHU-1')
+
+  await page.keyboard.press('ArrowRight')
+  let now = await coords(page, 'AHU-1')
+  // 화면 방향에 가장 가까운 평면 축 하나로만 움직인다. 높이는 그대로다.
+  const moved = [Math.abs(now[0] - start[0]), Math.abs(now[1] - start[1])]
+  expect(moved.sort()).toEqual([0, expect.closeTo(0.1, 5)])
+  expect(now[2]).toBe(start[2])
+  await expect(row(page, 'AHU-1').locator('.src.edit')).toBeVisible()
+
+  await page.keyboard.press('Shift+ArrowRight')
+  await page.keyboard.press('ArrowUp')
+  now = await coords(page, 'AHU-1')
+  expect(Math.hypot(now[0] - start[0], now[1] - start[1])).toBeGreaterThan(1)
+  await expect(page.locator('.key-note')).toContainText('AHU-1')
+
+  // 이어 누른 것은 한 단계다. 한 번 되돌리면 처음 자리다.
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => coords(page, 'AHU-1')).toEqual(start)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.locator('.edit-bar .undo')).toBeDisabled()
+
+  await page.keyboard.press('Control+Shift+z')
+  await expect.poll(() => coords(page, 'AHU-1')).toEqual(now)
+  await expect(page.locator('.edit-bar .redo')).toBeDisabled()
+  // 버튼으로도 되돌리고 다시 한다.
+  await page.locator('.edit-bar .undo').click()
+  await expect.poll(() => coords(page, 'AHU-1')).toEqual(start)
+  await page.locator('.edit-bar .redo').click()
+  await expect.poll(() => coords(page, 'AHU-1')).toEqual(now)
+
+  // 새 편집을 하면 다시 할 것이 사라진다.
+  await page.keyboard.press('Control+z')
+  await page.keyboard.press('ArrowLeft')
+  await expect(page.locator('.edit-bar .redo')).toBeDisabled()
+  expect(errors).toEqual([])
+})
+
+test('[ ] 로 연결을 짚고 D 로 방향을 바꾼다. Esc 는 짚은 연결, 그다음 고른 설비를 푼다', async ({ page }) => {
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await pick(page, 'DUCT-01')
+
+  type ArrowAt = { a: string; b: string; source: string; active: boolean }
+  const arrows = () => page.evaluate(() => (window as any).__viewer.arrows()) as Promise<ArrowAt[]>
+  const rows = page.locator('.picked .neighbors tr')
+  const target = rows.filter({ hasText: 'AT-101-02' })
+  const index = await rows.evaluateAll((trs) => trs.findIndex((tr) => tr.textContent!.includes('AT-101-02')))
+
+  // 연결이 셋이라 D 만 누르면 먼저 짚으라고 한다.
+  await page.keyboard.press('d')
+  await expect(page.locator('.key-note')).toContainText('[ ]')
+  await expect(rows.nth(0)).toHaveClass(/active/)
+
+  for (let i = 0; i < index; i++) await page.keyboard.press(']')
+  await expect(target).toHaveClass(/active/)
+  expect((await arrows()).find((x) => x.a === AT02 || x.b === AT02)!.active).toBe(true)
+
+  await page.keyboard.press('d')
+  await expect(target.locator('.rel')).toHaveText('하류')
+  await expect(page.locator('.report')).toContainText('DUCT-01 → AT-101-02')
+  await page.keyboard.press('d')
+  await expect(target.locator('.rel')).toHaveText('상류')
+  await page.keyboard.press('d')
+  await expect(target.locator('.rel')).toHaveText('하류(추정)')
+
+  await page.keyboard.press('Escape')
+  await expect(target).not.toHaveClass(/active/)
+  await expect(page.locator('.picked')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.picked')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('U 는 종류를 모르는 타입의 설비로 가고, K 로 종류 상자를 연다. 고르면 상자가 포커스를 놓는다', async ({ page }) => {
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await page.keyboard.press('u')
+  await expect(page.locator('.picked h3')).toHaveText('TEMP-101-01')
+  await expect(page.locator('.key-note')).toContainText('1/1')
+
+  await page.keyboard.press('k')
+  const kind = page.locator('.kind-edit select')
+  await expect(kind).toBeFocused()
+  await kind.selectOption({ label: '열감지기' })
+  await expect(kind).not.toBeFocused()
+  await expect(page.locator('.report')).toContainText('열감지기')
+
+  // 상자를 놓았으니 다음 키가 다시 단축키다.
+  await page.keyboard.press('u')
+  await expect(page.locator('.key-note')).toContainText('종류를 모르는 설비가 없습니다')
+  expect(errors).toEqual([])
+})
+
+test('보기 모드에서는 편집 키가 먹지 않는다', async ({ page }) => {
+  const errors = await open(page)
+  await pick(page, 'AHU-1')
+  const before = await row(page, 'AHU-1').locator('td.num').first().textContent()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('PageUp')
+  await expect(row(page, 'AHU-1').locator('td.num').first()).toHaveText(before!)
+  await expect(page.locator('.key-note')).toHaveCount(0)
+  expect(errors).toEqual([])
+})

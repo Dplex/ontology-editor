@@ -367,7 +367,7 @@ export type Snapshot =
     }
   | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; longName: string }
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
-  | { kind: 'confirm'; connections: Connection[] }
+  | { kind: 'confirm'; connections: Connection[]; confirmed: boolean }
   | { kind: 'kinds'; entries: { id: string; kind: string | null | undefined; kindEdited: Equipment['kindEdited'] }[] }
 
 export function snapshotEquipment(model: Model, equipmentId: string): Snapshot | null {
@@ -405,6 +405,7 @@ export function snapshotConfirm(model: Model, systemId: string): Snapshot {
   return {
     kind: 'confirm',
     connections: model.connections.filter((c) => c.inferred?.systemId === systemId && !c.inferred.confirmed),
+    confirmed: false,
   }
 }
 
@@ -416,6 +417,33 @@ export function snapshotType(model: Model, typeKey: string): Snapshot {
       .flatMap((s) => s.equipment)
       .filter((e) => typeKeyOf(e) === typeKey)
       .map((e) => ({ id: e.id, kind: e.kind, kindEdited: e.kindEdited ? { ...e.kindEdited } : undefined })),
+  }
+}
+
+/**
+ * 스냅숏과 같은 대상의 지금 상태. 되돌리기 직전에 떠 두면 다시 하기(Ctrl+Shift+Z)가 이것을 restore 한다 —
+ * 편집을 다시 부르지 않고 상태를 되돌려 놓으므로, 끌어 놓은 자리·확정한 연결이 되돌리기 전과 똑같다.
+ */
+export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
+  switch (snapshot.kind) {
+    case 'equipment':
+      return snapshotEquipment(model, snapshot.id)
+    case 'space':
+      return snapshotSpace(model, snapshot.id)
+    case 'flow':
+      return snapshotFlow(snapshot.connection)
+    case 'confirm':
+      return { kind: 'confirm', connections: snapshot.connections, confirmed: !!snapshot.connections[0]?.inferred?.confirmed }
+    case 'kinds': {
+      const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
+      return {
+        kind: 'kinds',
+        entries: snapshot.entries.flatMap((x) => {
+          const e = byId.get(x.id)
+          return e ? [{ id: e.id, kind: e.kind, kindEdited: e.kindEdited ? { ...e.kindEdited } : undefined }] : []
+        }),
+      }
+    }
   }
 }
 
@@ -434,7 +462,7 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
         if (at >= 0) storey.equipment.splice(at, 1)
       }
       home.equipment.splice(Math.min(snapshot.index, home.equipment.length), 0, equipment)
-      equipment.position = snapshot.position
+      equipment.position = snapshot.position ? [snapshot.position[0], snapshot.position[1], snapshot.position[2]] : null
       if (snapshot.positionSource) equipment.positionSource = snapshot.positionSource
       else delete equipment.positionSource
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
@@ -457,7 +485,7 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete snapshot.connection.edited
       return null
     case 'confirm':
-      for (const c of snapshot.connections) if (c.inferred) c.inferred.confirmed = false
+      for (const c of snapshot.connections) if (c.inferred) c.inferred.confirmed = snapshot.confirmed
       return null
     case 'kinds': {
       const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))

@@ -16,6 +16,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   ConeGeometry,
+  OctahedronGeometry,
   DirectionalLight,
   DoubleSide,
   ExtrudeGeometry,
@@ -170,6 +171,8 @@ export type Arrow = {
   /** 흐름이 나가는 쪽. null 이면 방향을 모른다(화살촉 없이 점선). */
   from: string | null
   source: 'port' | 'edit' | 'rule' | 'none'
+  /** 키보드([ ])로 짚은 연결. 가운데에 표시를 달아 D 가 어느 연결을 바꿀지 보인다. */
+  active?: boolean
 }
 
 /**
@@ -178,8 +181,14 @@ export type Arrow = {
  * 하나로, 규칙(사전)은 옅게 둔다. 규칙과 방향 모름은 점선이다.
  */
 export const ARROW_COLORS = { port: 0x39424e, edit: 0x2f6fed, rule: 0xa3acb7, none: 0xc2c8cf }
-/** 꼭짓점 손잡이. 화면의 액센트 하나와 같은 색이다. */
-const HANDLE_COLOR = 0x2f6fed
+/**
+ * 다크 테마의 화살표 색. 라이트 색을 그대로 두면 포트 방향(진한 회색)이 어두운 바탕에 묻혀, 가장 믿을 만한
+ * 방향이 가장 안 보인다. 밝기 순서(포트 > 편집 > 규칙 > 모름)는 라이트와 같게 둔다.
+ */
+export const ARROW_COLORS_DARK = { port: 0xd5d9e0, edit: 0x6f9bf5, rule: 0x7c8494, none: 0x596070 }
+export const arrowColors = (dark: boolean) => (dark ? ARROW_COLORS_DARK : ARROW_COLORS)
+/** 꼭짓점 손잡이. 화면의 액센트 하나와 같은 색이다(styles.css 의 --accent). */
+const handleColor = (dark: boolean) => (dark ? 0x6f9bf5 : 0x2f6fed)
 
 /** 고른 물리존의 외곽선. 닫는 점(첫 점과 같은 끝 점)은 빼고 넘긴다. */
 export type SpaceHandles = { id: string; ring: readonly Vec2[]; elevation: number }
@@ -220,6 +229,17 @@ export type Viewer = {
   onArrowClick(handler: (key: string) => void): void
   /** 물리존 판만 다시 만든다. 경계 하나를 고쳤다고 설비 1만 8천 개까지 다시 만들 까닭이 없다. */
   updateSpaces(model: Model): void
+  /** 화살표·손잡이 색을 테마에 맞춘다. 바탕이 투명이라 페이지 색이 그대로 비친다. */
+  setDark(on: boolean): void
+  /** 건물 전체가 화면에 들어오게 한다. */
+  frameAll(): void
+  /** 물리존 하나가 화면에 들어오게 한다. */
+  frameSpace(id: string): void
+  /**
+   * 화면의 오른쪽·위쪽이 IFC 평면에서 어느 쪽인가(단위 벡터). 방향키로 설비를 옮길 때 쓴다. 비스듬히 보면
+   * 화면 위쪽은 바닥에서 "멀어지는 쪽" 이다.
+   */
+  planeAxes(): { right: Vec2; up: Vec2 }
   dispose(): void
 }
 
@@ -344,6 +364,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 쪽이 edit.ts 로 한다. 손잡이·화살표는 모델과 따로(overlay) 두고, 모델을 다시 만들면 비운다 — 부르는 쪽이
   // 새 모델 기준으로 다시 넘겨야 예전 좌표의 손잡이가 남지 않는다.
   let editMode = false
+  let dark = false
   let selectedPart: string | null = null
   /** 좌표가 있는 설비. 좌표가 없는 것은 끌지 않는다 — 끌면 원점 근처 어딘가에서 시작한 것이 된다. */
   let movable = new Set<string>()
@@ -389,11 +410,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     // 판 윗면(바닥 + 0.1) 바로 위에 띄운다. 같은 높이면 판과 겹쳐 깜빡인다. 판에 가려지지 않게 깊이는 안 본다.
     const y = handleSpace.elevation + 0.12
     const points = handleSpace.ring.map(([x, z]) => new Vector3(...toScene([x, z, 0])).setY(y))
-    outline = new LineLoop(new BufferGeometry().setFromPoints(points), new LineBasicMaterial({ color: HANDLE_COLOR, depthTest: false }))
+    outline = new LineLoop(new BufferGeometry().setFromPoints(points), new LineBasicMaterial({ color: handleColor(dark), depthTest: false }))
     outline.renderOrder = 10
     overlay.add(outline)
     for (const p of points) {
-      const h = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial({ color: HANDLE_COLOR, depthTest: false }))
+      const h = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial({ color: handleColor(dark), depthTest: false }))
       h.position.copy(p)
       h.renderOrder = 11
       overlay.add(h)
@@ -428,7 +449,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const cb = pb.box.getCenter(new Vector3())
       const len = ca.distanceTo(cb)
       if (len < 1e-6) continue
-      const color = ARROW_COLORS[spec.source]
+      const color = arrowColors(dark)[spec.source]
       // 실선은 누군가(BIM 포트나 사람)가 말한 방향이다. 규칙이 짐작한 것과 방향 모름은 점선이다.
       const dashed = spec.source === 'rule' || spec.source === 'none'
       const material = dashed
@@ -449,6 +470,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         cone.renderOrder = 11
         overlay.add(cone)
         arrowObjects.push(cone)
+      }
+      if (spec.active) {
+        // 키보드로 짚은 연결. 선 색은 출처라 그대로 두고 마름모를 단다. 파랑·초록은 층 판과 계통이 이미 써서
+        // 묻히므로 글자색(라이트는 검정, 다크는 흰색)으로 둔다. 화살촉(0.6)과 겹치지 않게 0.4 에 단다.
+        const r = Math.min(Math.max(len * 0.06, 0.06), 0.35)
+        const mark = new Mesh(new OctahedronGeometry(r), new MeshBasicMaterial({ color: dark ? 0xffffff : 0x1a1d21, depthTest: false }))
+        mark.position.copy(ca).lerp(cb, spec.from === spec.b ? 0.6 : 0.4)
+        mark.renderOrder = 12
+        overlay.add(mark)
+        arrowObjects.push(mark)
       }
       arrowSegs.push({ key: spec.key, a: ca, b: cb })
     }
@@ -888,7 +919,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       arrows: () =>
         arrowSegs.map((seg) => {
           const spec = arrowSpecs.find((a) => a.key === seg.key)
-          return { key: seg.key, a: spec?.a, b: spec?.b, source: spec?.source, at: toScreen(seg.a.clone().lerp(seg.b, 0.5)) }
+          return { key: seg.key, a: spec?.a, b: spec?.b, from: spec?.from, source: spec?.source, active: !!spec?.active, at: toScreen(seg.a.clone().lerp(seg.b, 0.5)) }
         }),
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
     }
@@ -1134,6 +1165,42 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     updateSpaces(model) {
       buildSlabs(model)
+    },
+
+    setDark(on) {
+      if (dark === on) return
+      dark = on
+      drawHandles()
+      drawArrows()
+    },
+
+    frameAll() {
+      const box = new Box3().setFromObject(content)
+      if (!box.isEmpty()) fit(box)
+    },
+
+    frameSpace(id) {
+      const target = spaceTargets.find((t) => t.id === id)
+      if (!target || target.ring.length < 3) return
+      const box = new Box3()
+      for (const [x, y] of target.ring) box.expandByPoint(new Vector3(...toScene([x, y, 0])).setY(target.y))
+      // 판만 맞추면 위에서 내려다보는 납작한 상자라 너무 가까이 간다. 층 높이쯤 띄운다.
+      box.expandByPoint(box.max.clone().setY(target.y + 3))
+      fit(box)
+    },
+
+    planeAxes() {
+      camera.updateMatrixWorld()
+      const right = new Vector3().setFromMatrixColumn(camera.matrixWorld, 0)
+      const up = new Vector3().setFromMatrixColumn(camera.matrixWorld, 1)
+      // 수평으로 보면 화면 위쪽이 하늘이라 바닥에 비추면 0 이다. 그때는 보는 방향(앞)을 위쪽으로 친다.
+      if (Math.hypot(up.x, up.z) < 1e-3) up.setFromMatrixColumn(camera.matrixWorld, 2).negate()
+      // 장면의 (x, z) 는 IFC 의 (x, -y) 다(toScene).
+      const plane = (v: Vector3): Vec2 => {
+        const n = Math.hypot(v.x, v.z) || 1
+        return [v.x / n, -v.z / n]
+      }
+      return { right: plane(right), up: plane(up) }
     },
 
     dispose() {
