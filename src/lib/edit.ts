@@ -8,6 +8,8 @@
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
 import { assignEquipment, isSelfIntersecting } from './mapping'
+import { inferFlowByRules, type RuleReport } from './flow-rules'
+import { equipmentKind } from './kinds'
 import { polygonArea } from './model'
 import type { Connection, Equipment, Model, Vec2, Vec3 } from './model'
 
@@ -366,6 +368,7 @@ export type Snapshot =
   | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; longName: string }
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
   | { kind: 'confirm'; connections: Connection[] }
+  | { kind: 'kinds'; entries: { id: string; kind: string | null | undefined; kindEdited: Equipment['kindEdited'] }[] }
 
 export function snapshotEquipment(model: Model, equipmentId: string): Snapshot | null {
   for (const storey of model.storeys) {
@@ -405,16 +408,27 @@ export function snapshotConfirm(model: Model, systemId: string): Snapshot {
   }
 }
 
+/** 한 타입의 종류 전부. 종류를 바꾸기 전에 뜬다. */
+export function snapshotType(model: Model, typeKey: string): Snapshot {
+  return {
+    kind: 'kinds',
+    entries: model.storeys
+      .flatMap((s) => s.equipment)
+      .filter((e) => typeKeyOf(e) === typeKey)
+      .map((e) => ({ id: e.id, kind: e.kind, kindEdited: e.kindEdited ? { ...e.kindEdited } : undefined })),
+  }
+}
+
 /**
  * 스냅숏을 되돌려 놓고 소속을 다시 판정한다. 좌표·경계를 되돌렸는데 소속이 그대로면 리포트가 거짓이 된다.
  * 연결 방향과 확정은 소속과 상관이 없어 값만 되돌린다.
  */
-export function restore(model: Model, snapshot: Snapshot): void {
+export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
   switch (snapshot.kind) {
     case 'equipment': {
       const equipment = findEquipment(model, snapshot.id)
       const home = model.storeys.find((s) => s.id === snapshot.storeyId)
-      if (!equipment || !home) return
+      if (!equipment || !home) return null
       for (const storey of model.storeys) {
         const at = storey.equipment.indexOf(equipment)
         if (at >= 0) storey.equipment.splice(at, 1)
@@ -427,23 +441,96 @@ export function restore(model: Model, snapshot: Snapshot): void {
       equipment.spaceSource = snapshot.spaceSource
       equipment.spaceId = snapshot.spaceId
       assignEquipment(equipment, home.spaces)
-      return
+      return null
     }
     case 'space': {
       const space = findSpace(model, snapshot.id)
-      if (!space) return
+      if (!space) return null
       space.footprint = [...snapshot.footprint]
       space.areaM2 = snapshot.areaM2
       space.longName = snapshot.longName
       reassignStoreyWith(model, space.id)
-      return
+      return null
     }
     case 'flow':
       if (snapshot.edited) snapshot.connection.edited = { ...snapshot.edited }
       else delete snapshot.connection.edited
-      return
+      return null
     case 'confirm':
       for (const c of snapshot.connections) if (c.inferred) c.inferred.confirmed = false
-      return
+      return null
+    case 'kinds': {
+      const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
+      for (const entry of snapshot.entries) {
+        const e = byId.get(entry.id)
+        if (!e) continue
+        e.kind = entry.kind
+        if (entry.kindEdited) e.kindEdited = { ...entry.kindEdited }
+        else delete e.kindEdited
+      }
+      // 종류가 규칙 방향의 원천·말단을 정하므로 규칙도 다시 돌린다. 되돌리기는 거꾸로 쌓이므로 같은 결과가 나온다.
+      return inferFlowByRules(model)
+    }
   }
+}
+
+// --- 종류 지정 -------------------------------------------------------------------
+
+/**
+ * 설비의 타입 이름. 같은 타입은 같은 물건이라, 사전이 모르는 종류를 사람이 타입 하나에 한 번 정하면 그 타입 전부가
+ * 채워진다(병원 HVAC 는 종류 모르는 기기 327대가 타입 6개였다).
+ *
+ * **ObjectType 만 믿으면 안 된다.** Revit 2011 은 ObjectType 에 유형 이름만 적는다(`150 mm`) — 다른 패밀리의
+ * 같은 유형 이름과 한 묶음이 되어, VAV 로 고른 것이 150 mm 배관 부속에까지 붙는다. Revit 은 Name 에
+ * "패밀리:유형:요소ID" 를 적으므로 요소 ID 를 뗀 것을 먼저 쓰고, 그 모양이 아니면 ObjectType 을 쓴다.
+ * 둘 다 없으면 null 이다(그 설비 하나만 바뀐다).
+ */
+export function typeNameOf(e: Equipment): string | null {
+  const revit = /^(.+:.+):\d+$/.exec(e.name)
+  return revit ? revit[1] : e.objectType || null
+}
+
+/** 타입의 열쇠. IFC 클래스까지 같아야 같은 타입이다 — 이름이 같아도 클래스가 다르면 다른 물건이다. */
+export function typeKeyOf(e: Equipment): string {
+  const name = typeNameOf(e)
+  return name ? `${e.ifcClass}|${name}` : `#${e.id}`
+}
+
+/** 사람이 종류를 정한 타입. 리포트(PRD #21)에 한 줄씩 나간다. 사전 값으로 되돌린 타입은 빠진다. */
+export type KindEdit = { typeKey: string; count: number; from: string | null; to: string | null }
+
+/**
+ * 한 타입 전부의 종류를 정한다. `kind` 가 `null` 이면 "모름" 이다 — 사전이 잘못 읽은 것(분전반을 조명으로)을
+ * 지울 때 쓴다.
+ *
+ * **규칙 방향을 여기서 다시 돌린다.** 종류가 흐름의 원천·말단을 정해서(공조기는 공기의 원천, 디퓨저는 말단),
+ * 종류만 바꾸고 규칙을 그대로 두면 화면의 상류·하류가 바뀐 종류와 어긋난다. 사람이 확정한 계통과 사람이 정한
+ * 방향은 규칙을 다시 돌려도 남는다(inferFlowByRules).
+ */
+export function setTypeKind(
+  model: Model,
+  typeKey: string,
+  kind: string | null,
+): { count: number; rules: RuleReport } | null {
+  if (kind !== null && !equipmentKind(kind)) return null
+  const members = model.storeys.flatMap((s) => s.equipment).filter((e) => typeKeyOf(e) === typeKey)
+  if (members.length === 0 || members.every((e) => (e.kind ?? null) === kind)) return null
+  for (const e of members) {
+    if (!e.kindEdited) e.kindEdited = { from: e.kind ?? null }
+    e.kind = kind
+    if (e.kindEdited.from === kind) delete e.kindEdited
+  }
+  return { count: members.length, rules: inferFlowByRules(model) }
+}
+
+export function kindEdits(model: Model): KindEdit[] {
+  const byType = new Map<string, KindEdit>()
+  for (const e of model.storeys.flatMap((s) => s.equipment)) {
+    if (!e.kindEdited) continue
+    const key = typeKeyOf(e)
+    const row = byType.get(key)
+    if (row) row.count++
+    else byType.set(key, { typeKey: key, count: 1, from: e.kindEdited.from, to: e.kind ?? null })
+  }
+  return [...byType.values()]
 }

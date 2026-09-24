@@ -17,12 +17,18 @@ import {
   snapshotFlow,
   snapshotSpace,
   setFlowDirection,
+  setTypeKind,
+  kindEdits,
+  snapshotType,
+  typeKeyOf,
+  typeNameOf,
   wouldSelfIntersect,
   type Change,
 } from './edit'
 import type { Model } from './model'
 import { confirmSystemFlow, inferFlowByRules, withInferred } from './flow-rules'
 import { assignEquipmentToSpaces } from './mapping'
+import { modelToTTL } from './export/ttl'
 
 let api: WebIFC.IfcAPI
 let model: Model
@@ -366,5 +372,84 @@ describe('바뀐 것만 다시 판정한다', () => {
     same()
     restore(model, snapAhu)
     same()
+  })
+})
+
+describe('타입 단위 종류 지정', () => {
+  it('같은 ObjectType 전부의 종류를 한 번에 정하고, 사람이 정한 것으로 남긴다', () => {
+    // 픽스처의 두 토출구는 ObjectType 이 다르다(AT1, AT2). 같은 타입으로 만들어 본다.
+    equip('AT-101-01').objectType = 'M_Return Register:600'
+    equip('AT-101-02').objectType = 'M_Return Register:600'
+    const done = setTypeKind(model, 'AirTerminal|M_Return Register:600', 'air_grille')!
+    expect(done.count).toBe(2)
+    for (const name of ['AT-101-01', 'AT-101-02']) {
+      expect(equip(name).kind).toBe('air_grille')
+      expect(equip(name).kindEdited).toEqual({ from: 'air_diffuser' })
+    }
+    expect(kindEdits(model)).toEqual([{ typeKey: 'AirTerminal|M_Return Register:600', count: 2, from: 'air_diffuser', to: 'air_grille' }])
+  })
+
+  it('Revit 이름의 패밀리:유형으로 묶고, 유형 이름만 같은 다른 패밀리는 묶지 않는다', () => {
+    // Revit 2011 은 ObjectType 에 유형 이름만 적는다. ObjectType 으로만 묶으면 VAV 와 배관 부속이 한 묶음이 된다.
+    const vav = { ...equip('AT-101-01'), name: 'M_VAV Unit - Single Duct:150 mm:150 mm:585441', objectType: '150 mm' }
+    const vav2 = { ...vav, id: 'x', name: 'M_VAV Unit - Single Duct:150 mm:150 mm:603608' }
+    const fitting = { ...vav, id: 'y', name: 'M_Elbow - Generic:150 mm:150 mm:777', objectType: '150 mm' }
+    expect(typeNameOf(vav)).toBe('M_VAV Unit - Single Duct:150 mm:150 mm')
+    expect(typeKeyOf(vav2)).toBe(typeKeyOf(vav))
+    expect(typeKeyOf(fitting)).not.toBe(typeKeyOf(vav))
+    // 클래스가 다르면 이름이 같아도 다른 타입이다.
+    expect(typeKeyOf({ ...vav2, ifcClass: 'FlowFitting' })).not.toBe(typeKeyOf(vav))
+    // 타입 정보가 없으면 그 설비 하나다.
+    expect(typeKeyOf({ ...vav, name: 'AHU-1', objectType: '' })).toBe(`#${vav.id}`)
+  })
+
+  it('사전 값으로 되돌리면 편집이 아니고 리포트에서 빠진다', () => {
+    const key = typeKeyOf(equip('AHU-1'))
+    setTypeKind(model, key, 'fcu')
+    setTypeKind(model, key, 'ahu')
+    expect(equip('AHU-1').kindEdited).toBeUndefined()
+    expect(kindEdits(model)).toEqual([])
+  })
+
+  it('없는 종류이거나 바뀌는 것이 없으면 아무것도 안 한다', () => {
+    expect(setTypeKind(model, typeKeyOf(equip('AHU-1')), '없는-종류')).toBe(null)
+    expect(setTypeKind(model, typeKeyOf(equip('AHU-1')), 'ahu')).toBe(null)
+    expect(setTypeKind(model, '없는-타입', 'ahu')).toBe(null)
+  })
+
+  it('종류가 바뀌면 규칙 방향을 다시 돌리고, 되돌리면 규칙 방향도 돌아온다', () => {
+    // AHU-1 이 공기의 원천이라 DUCT-01 → AT-101-02 에 규칙 방향이 선다. 공조기를 "모름" 으로 하면 원천이 없다.
+    inferFlowByRules(model)
+    const terminal = model.connections.find((c) => !c.directed && [c.from, c.to].includes(equip('AT-101-02').id))!
+    expect(terminal.inferred).toBeDefined()
+
+    const key = typeKeyOf(equip('AHU-1'))
+    const snap = snapshotType(model, key)
+    const done = setTypeKind(model, key, null)!
+    expect(done.rules.oriented).toBe(0)
+    expect(terminal.inferred).toBeUndefined()
+
+    const again = restore(model, snap)!
+    expect(again.oriented).toBeGreaterThan(0)
+    expect(terminal.inferred).toBeDefined()
+    expect(equip('AHU-1').kind).toBe('ahu')
+    expect(equip('AHU-1').kindEdited).toBeUndefined()
+  })
+
+  it('사람이 정한 종류가 Brick 클래스로 나간다', () => {
+    const key = typeKeyOf(equip('AHU-1'))
+    const snap = snapshotType(model, key)
+    setTypeKind(model, key, 'fcu')
+    expect(modelToTTL(model)).toContain('brick:Fan_Coil_Unit')
+    restore(model, snap)
+    expect(modelToTTL(model)).not.toContain('brick:Fan_Coil_Unit')
+  })
+
+  it('사람이 정한 방향과 확정한 계통은 종류를 바꿔도 남는다', () => {
+    inferFlowByRules(model)
+    const c = model.connections.find((x) => !x.directed)!
+    setFlowDirection(c, c.to)
+    setTypeKind(model, typeKeyOf(equip('AHU-1')), null)
+    expect(c.edited).toEqual({ from: c.to, to: c.from })
   })
 })

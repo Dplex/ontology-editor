@@ -1190,6 +1190,7 @@ th {
   background: repeating-linear-gradient(90deg, currentColor 0 0.25rem, transparent 0.25rem 0.4rem);
 }
 
+.kind-edit,
 .storey-move {
   display: flex;
   flex-wrap: wrap;
@@ -1199,10 +1200,28 @@ th {
   font-size: 0.85rem;
 }
 
+.kind-edit label,
 .storey-move label {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+}
+
+/* 종류를 모르는 타입. 대수가 많은 것부터, 타입마다 한 번 고른다. */
+.unknown-types {
+  margin-top: 1rem;
+}
+
+.unknown-types h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.9rem;
+}
+
+.unknown-types .names {
+  max-width: 28rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .space-members {

@@ -356,3 +356,52 @@ test('고른 설비는 앞에 다른 설비가 가려도 끌 수 있고, 끌지 
   await expect(page.locator('.picked h3')).toHaveText('DUCT-01')
   expect(errors).toEqual([])
 })
+
+// --- 종류 지정 (타입 단위) -------------------------------------------------------------
+
+test('고른 설비의 종류를 바꾸면 규칙 방향이 다시 서고, Ctrl+Z 로 되돌린다', async ({ page }) => {
+  const errors = await open(page)
+  await page.locator('.edit-toggle input').check()
+
+  // DUCT-01 → AT-101-02 는 공조기가 공기의 원천이라서 선 규칙 방향이다.
+  await pick(page, 'DUCT-01')
+  const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
+  await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
+
+  // 공조기의 종류를 "모름" 으로 하면 원천이 없어져 그 규칙 방향도 사라진다.
+  await pick(page, 'AHU-1')
+  const kind = page.locator('.kind-edit select')
+  await expect(kind).toHaveValue('ahu')
+  await expect(page.locator('.kind-edit .src.dict')).toBeVisible()
+  await kind.selectOption('')
+  await expect(page.locator('.report')).toContainText('종류 공조기 → 모름')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+
+  await pick(page, 'DUCT-01')
+  await expect(terminal.locator('.rel')).toHaveText('연결')
+
+  await page.keyboard.press('Control+z')
+  await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  expect(errors).toEqual([])
+})
+
+test('종류를 모르는 타입을 목록에서 한 번 고르면 그 타입 설비에 붙고 출처가 편집이 된다', async ({ page }) => {
+  const errors = await open(page)
+  await page.locator('.edit-toggle input').check()
+  await page.getByRole('button', { name: /종류와 관제점 후보/ }).click()
+
+  // 픽스처의 온도 센서는 사전에 없다. ObjectType 이 비어 있어 설비 이름이 곧 타입이다(그 한 대에만 붙는다).
+  const list = page.locator('.unknown-types')
+  await expect(list).toContainText('종류를 모르는 타입')
+  const sensorType = list.locator('tr', { hasText: 'TEMP-101-01' })
+  await expect(sensorType).toBeVisible()
+  await sensorType.locator('select').selectOption({ label: '열감지기' })
+
+  await expect(list.locator('tr', { hasText: 'TEMP-101-01' })).toHaveCount(0)
+  const sensor = row(page, 'TEMP-101-01')
+  await expect(sensor).toContainText('열감지기')
+  await expect(sensor.locator('.src.edit')).toBeVisible()
+  await expect(page.locator('.report')).toContainText('종류 모름 → 열감지기')
+  expect(errors).toEqual([])
+})
