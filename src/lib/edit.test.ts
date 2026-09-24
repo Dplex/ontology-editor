@@ -4,6 +4,8 @@ import * as WebIFC from 'web-ifc'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import {
+  baselineOf,
+  diffBaseline,
   moveEquipment,
   moveEquipmentToStorey,
   moveSpaceVertex,
@@ -513,5 +515,37 @@ describe('타입 단위 종류 지정', () => {
     setFlowDirection(c, c.to)
     setTypeKind(model, typeKeyOf(equip('AHU-1')), null)
     expect(c.edited).toEqual({ from: c.to, to: c.from })
+  })
+})
+
+describe('연 때와 견주기', () => {
+  it('이름·좌표·층이 바뀐 것을 연 때의 값과 견줘 찾고, 제자리로 돌리면 빠진다', () => {
+    model.storeys.push({ id: 'up', name: '2F', elevation: 3.5, spaces: [], walls: [], openings: [], equipment: [] })
+    const base = baselineOf(model)
+    const office = model.storeys[0].spaces[0]
+    const ahu = equip('AHU-1')
+    const at = ahu.position!
+
+    renameSpace(model, office.id, '대회의실')
+    // 방 안에서 1m. 소속은 그대로라 Change 로는 안 남는다.
+    moveEquipment(model, ahu.id, [at[0] + 1, at[1], at[2]])
+    moveEquipmentToStorey(model, equip('AT-101-01').id, 'up')
+
+    const diff = diffBaseline(model, base)
+    expect(diff.renamed).toEqual([{ spaceId: office.id, from: '사무실', to: '대회의실' }])
+    expect(diff.moved.map((m) => m.name)).toEqual(['AHU-1'])
+    // 층을 옮긴 것은 높이가 바뀌어도 좌표 줄에 다시 세지 않는다.
+    expect(diff.restoreyed).toEqual([{ id: equip('AT-101-01').id, name: 'AT-101-01', from: '1F', to: '2F' }])
+
+    renameSpace(model, office.id, '사무실')
+    moveEquipment(model, ahu.id, at)
+    moveEquipmentToStorey(model, equip('AT-101-01').id, model.storeys[0].id)
+    expect(diffBaseline(model, base)).toEqual({ renamed: [], moved: [], restoreyed: [] })
+  })
+
+  it('소속이 바뀐 이동은 좌표 줄에 넣지 않는다(Change 가 적는다)', () => {
+    const base = baselineOf(model)
+    moveEquipment(model, equip('AHU-1').id, [50, 50, 1])
+    expect(diffBaseline(model, base).moved).toEqual([])
   })
 })

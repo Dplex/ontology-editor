@@ -562,3 +562,70 @@ export function kindEdits(model: Model): KindEdit[] {
   }
   return [...byType.values()]
 }
+
+// --- 연 때와 견주기 ----------------------------------------------------------------
+//
+// 편집 기록(Change)은 소속 관계가 바뀐 것만 적는다. 그런데 내보내는 파일은 그것 말고도 바뀐다 — 이름을 고치면
+// TTL 의 rdfs:label 이, 방 안에서 옮기면 GeoJSON 의 좌표가, 층을 옮기면 brick:hasPart 가 바뀐다. 리포트가 이걸
+// 빼면 "바뀐 것 0건" 인 채로 다른 파일이 나간다. 편집 기록을 쌓는 대신 **연 때의 값과 지금 값을 견준다** —
+// 되돌리기·다시 하기·제자리로 돌린 것이 저절로 맞는다.
+
+export type Baseline = {
+  names: Map<string, string>
+  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null }>
+}
+
+/** 파일을 열거나 합친 직후에 뜬다. */
+export function baselineOf(model: Model): Baseline {
+  const names = new Map<string, string>()
+  const equipment: Baseline['equipment'] = new Map()
+  for (const storey of model.storeys) {
+    for (const space of storey.spaces) names.set(space.id, space.longName)
+    for (const e of storey.equipment) {
+      equipment.set(e.id, {
+        position: e.position ? [e.position[0], e.position[1], e.position[2]] : null,
+        storeyId: storey.id,
+        spaceId: e.spaceId,
+      })
+    }
+  }
+  return { names, equipment }
+}
+
+export type BaselineDiff = {
+  renamed: { spaceId: string; from: string; to: string }[]
+  /** 좌표는 바뀌었는데 소속 물리존은 그대로인 설비. 소속이 바뀐 것은 Change 가 이미 적는다. */
+  moved: { id: string; name: string }[]
+  restoreyed: { id: string; name: string; from: string; to: string }[]
+}
+
+/** 좌표를 같다고 보는 차. 표와 3D 가 센티미터로 자르므로 그보다 작은 차는 같은 자리다. */
+const SAME_PLACE = 0.005
+
+export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
+  const renamed: BaselineDiff['renamed'] = []
+  const moved: BaselineDiff['moved'] = []
+  const restoreyed: BaselineDiff['restoreyed'] = []
+  const storeyName = new Map(model.storeys.map((s) => [s.id, s.name]))
+  for (const storey of model.storeys) {
+    for (const space of storey.spaces) {
+      const from = baseline.names.get(space.id)
+      if (from !== undefined && from !== space.longName) renamed.push({ spaceId: space.id, from, to: space.longName })
+    }
+    for (const e of storey.equipment) {
+      const was = baseline.equipment.get(e.id)
+      if (!was) continue
+      const name = e.name || e.ifcClass
+      if (was.storeyId !== storey.id) {
+        // 층을 옮기면 높이도 옮긴다. 층 줄 하나로 적고 좌표 줄에 다시 세지 않는다.
+        restoreyed.push({ id: e.id, name, from: storeyName.get(was.storeyId) ?? was.storeyId, to: storey.name })
+        continue
+      }
+      const shifted =
+        (was.position === null) !== (e.position === null) ||
+        (!!was.position && !!e.position && was.position.some((v, i) => Math.abs(v - e.position![i]) > SAME_PLACE))
+      if (shifted && was.spaceId === e.spaceId) moved.push({ id: e.id, name })
+    }
+  }
+  return { renamed, moved, restoreyed }
+}

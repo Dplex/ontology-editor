@@ -174,3 +174,25 @@ test('보기 모드에서는 편집 키가 먹지 않는다', async ({ page }) =
   await expect(page.locator('.key-note')).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('방 안에서 옮긴 좌표와 물리존 이름도 바뀐 것으로 세고, 되돌리면 빠진다', async ({ page }) => {
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await pick(page, 'AHU-1')
+  // 방 안에서 1m. 소속은 그대로지만 GeoJSON 의 좌표가 바뀐다.
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.locator('.report .moved-only')).toContainText('AHU-1')
+
+  const name = page.locator('.rows input').first()
+  await name.fill('대회의실')
+  await name.press('Enter')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  await expect(page.locator('.report')).toContainText('사무실 → 대회의실(rdfs:label)')
+
+  await page.locator('.edit-bar .undo').click()
+  await page.locator('.edit-bar .undo').click()
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.locator('.report')).toHaveCount(0)
+  expect(errors).toEqual([])
+})

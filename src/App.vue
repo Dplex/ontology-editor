@@ -44,9 +44,12 @@ import {
   snapshotFlow,
   snapshotSpace,
   snapshotOf,
+  baselineOf,
+  diffBaseline,
   setFlowDirection,
   summarize,
   wouldSelfIntersect,
+  type Baseline,
   type BoundaryChange,
   type Change,
   type Snapshot,
@@ -145,8 +148,20 @@ const changeCount = computed(
     areaLines.value.length +
     confirmations.value.length +
     flowEditLines.value.length +
-    kindEditLines.value.length,
+    kindEditLines.value.length +
+    sinceOpen.value.renamed.length +
+    sinceOpen.value.restoreyed.length +
+    sinceOpen.value.moved.length,
 )
+
+// 연 때의 값. 소속 관계 말고도 내보내는 파일을 바꾸는 편집(이름·방 안 이동·층)을 이것과 견줘 리포트에 올린다
+// (edit.ts 의 diffBaseline). 파일을 열거나 합칠 때 뜬다.
+const baseline = shallowRef<Baseline | null>(null)
+const sinceOpen = computed(() => {
+  const m = model.value
+  return m && baseline.value ? diffBaseline(m, baseline.value) : { renamed: [], moved: [], restoreyed: [] }
+})
+const MOVED_NAMES = 5
 
 // 3D 에 내력벽을 켜고 끈다. 내력 여부를 모르는 벽도 같이 켠다(모름은 아니오가 아니다).
 const showWalls = ref(false)
@@ -1569,6 +1584,7 @@ ${name} 을 열까요?`,
     // 임포터가 이미 한 번 돌렸다. 계통별 채점표를 화면이 쓰려고 다시 받는다(같은 입력이면 같은 결과다).
     ruleReport.value = inferFlowByRules(result.model)
     confirmations.value = []
+    baseline.value = baselineOf(result.model)
     model.value = result.model
     fileName.value = name
     mergeReport.value = null
@@ -1587,6 +1603,7 @@ ${name} 을 열까요?`,
   } catch (e) {
     // 실패한 채로 이전 모델을 남겨 두면 화면이 방금 연 파일을 보여 주는 것처럼 보인다.
     model.value = null
+    baseline.value = null
     meshes = new Map()
     fileName.value = ''
     mergeReport.value = null
@@ -1631,6 +1648,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     await paint()
     meshes = new Map([...meshes, ...next.meshes])
     ruleReport.value = inferFlowByRules(merged.model)
+    baseline.value = baselineOf(merged.model)
     model.value = merged.model
     mergeReport.value = merged.report
     fileName.value = `${base.name} + ${overlay.name}`
@@ -2719,7 +2737,7 @@ function exportTTL() {
 
           <template v-if="editing || changeCount > 0">
           <h3 id="changes">바뀌는 것 (PRD #21)</h3>
-          <ul v-if="report.length || areaChanges.length || confirmations.length || flowEditLines.length || kindEditLines.length" class="report">
+          <ul v-if="changeCount > 0 || areaChanges.length" class="report">
             <li v-for="c in report" :key="c.equipmentId">
               {{ c.equipmentName }}:
               <b>{{ spaceNameOf(c.fromSpaceId) }}</b> → <b>{{ spaceNameOf(c.toSpaceId) }}</b>
@@ -2734,8 +2752,19 @@ function exportTTL() {
             <li v-for="k in kindEditLines" :key="`kind-${k.key}`">
               타입 <b>{{ k.label }}</b> {{ k.count }}대: 종류 {{ k.from }} → <b>{{ k.to }}</b>(Brick 클래스로 나갑니다)
             </li>
+            <li v-for="r in sinceOpen.restoreyed" :key="`storey-${r.id}`">
+              {{ r.name }}: 층 <b>{{ r.from }}</b> → <b>{{ r.to }}</b>(brick:hasPart)
+            </li>
+            <li v-for="r in sinceOpen.renamed" :key="`name-${r.spaceId}`">
+              물리존 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b>(rdfs:label)
+            </li>
+            <li v-if="sinceOpen.moved.length" class="moved-only">
+              소속은 그대로이고 좌표만 옮긴 설비 {{ sinceOpen.moved.length }}대(GeoJSON 의 위치):
+              {{ sinceOpen.moved.slice(0, MOVED_NAMES).map((m) => m.name).join(', ')
+              }}<template v-if="sinceOpen.moved.length > MOVED_NAMES"> 외 {{ sinceOpen.moved.length - MOVED_NAMES }}대</template>
+            </li>
           </ul>
-          <p v-else class="empty">아직 바뀐 소속 관계가 없습니다.</p>
+          <p v-else class="empty">아직 바뀐 것이 없습니다.</p>
           </template>
         </section>
       </div>
