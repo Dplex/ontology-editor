@@ -1234,15 +1234,22 @@ th {
 }
 
 /* 편집 막대의 되돌리기. 마지막 편집을 한 줄로 옆에 둔다. */
-.edit-bar button kbd {
-  margin-left: 0.3rem;
+.edit-bar > * {
+  flex: none;
+  white-space: nowrap;
 }
 
+/* 남는 폭을 다 쓰고, 넘치면 자른다. 버튼 줄이 두 줄로 꺾이지 않게 이것만 줄어든다. */
 .edit-bar .last-edit {
-  max-width: 18rem;
+  flex: 1 1 0;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.edit-bar .keys-help {
+  min-width: 2.2rem;
+  font-weight: 600;
 }
 
 /* 좌표 없는 설비에 축을 다 넣지 않았을 때. 모르는 축을 0 으로 채우지 않는다는 안내다. */
@@ -1424,7 +1431,7 @@ th {
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
   margin-top: 1.5rem;
   padding: 0.55rem 0.9rem;
   border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
@@ -1438,9 +1445,6 @@ th {
   color: var(--accent);
 }
 
-.edit-bar .grow {
-  flex: 1;
-}
 
 /* 보기는 3D 를 넓게 쓴다. 고칠 목록이 아래에 없으니 세로를 3D 에 준다. */
 .mode-view .viewport {
@@ -1666,8 +1670,11 @@ kbd {
   font-size: inherit;
 }
 
-/* 키로 한 일. 안내 자리에 잠깐 뜬다. 경고가 아니라 확인이라 경고색을 쓰지 않는다. */
+/* 키로 한 일. 안내 자리에 잠깐 뜬다. 경고가 아니라 확인이라 경고색을 쓰지 않는다. 한 줄로 둔다. */
 .key-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--fg);
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
 }
@@ -1708,6 +1715,8 @@ kbd {
 .shortcut-help {
   width: min(52rem, calc(100% - 2rem));
   max-height: calc(100vh - 4rem);
+  /* 창이 낮으면 안내 아래가 잘렸다. 대화상자 안에서 내린다. */
+  overflow-y: auto;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);

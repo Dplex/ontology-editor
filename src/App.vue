@@ -257,6 +257,17 @@ function shiftMesh(id: string, from: Vec3 | null, to: Vec3 | null) {
   meshes.set(id, { ...mesh, positions })
 }
 
+/**
+ * 알림·되돌리기 이름에 쓰는 짧은 이름. Revit 은 "패밀리:유형:유형:요소ID" 를 이름으로 내보내서(`M_Return Register:
+ * RR-600 x 600 Face 300 x 300 Connection:…:607161`) 한 줄 알림이 이름만으로 넘쳤다. 패밀리와 요소 ID 만 남긴다.
+ * 제목·표·리포트는 BIM 의 이름 그대로 둔다.
+ */
+function shortName(name: string | undefined | null): string {
+  if (!name) return '설비'
+  const revit = /^([^:]+):.+:(\d+)$/.exec(name)
+  return revit ? `${revit[1]} #${revit[2]}` : name
+}
+
 /** 3D 에서 끈 값은 센티미터로 자른다. 마우스로 1mm 를 뜻하고 놓는 사람은 없다. */
 const cm = (v: number) => Math.round(v * 100) / 100
 
@@ -281,7 +292,7 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
   const at = mark()
   const change = moveEquipment(model.value, equipmentId, to)
   if (!change) return false
-  remember(`${change.equipmentName || '설비'} 옮김`, snapshot, at, coalesce)
+  remember(`${shortName(change.equipmentName)} 옮김`, snapshot, at, coalesce)
   if (drawnAt) shiftMesh(equipmentId, before, drawnAt)
   moveInScene(equipmentId, drawnAt ?? before, to)
   changes.value = [...changes.value, change]
@@ -332,7 +343,7 @@ function moveToStorey(equipmentId: string, storeyId: string) {
   const at = mark()
   const change = moveEquipmentToStorey(model.value, equipmentId, storeyId)
   if (!change) return
-  remember(`${change.equipmentName || '설비'} 층 옮김`, snapshot, at)
+  remember(`${shortName(change.equipmentName)} 층 옮김`, snapshot, at)
   moveInScene(equipmentId, before, equipmentById.value.get(equipmentId)?.position ?? null)
   changes.value = [...changes.value, change]
   storeyMoved.value = new Set([...storeyMoved.value, equipmentId])
@@ -632,7 +643,7 @@ function nudge(code: string, step: number): boolean {
   const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
   const to: Vec3 = [cm(e.position[0] + sign * ax * step), cm(e.position[1] + sign * ay * step), e.position[2]]
   relocate(e.id, to, undefined, `nudge:${e.id}`)
-  note(`${e.name || '설비'} → x ${to[0].toFixed(2)} · y ${to[1].toFixed(2)} · ${spaceNameOf(equipmentById.value.get(e.id)?.spaceId ?? null)}`)
+  note(`${shortName(e.name)} → x ${to[0].toFixed(2)} · y ${to[1].toFixed(2)} · ${spaceNameOf(equipmentById.value.get(e.id)?.spaceId ?? null)}`)
   return true
 }
 
@@ -670,7 +681,7 @@ function stepStorey(dir: 1 | -1): boolean {
     return true
   }
   moveToStorey(e.id, next.id)
-  note(`${e.name || '설비'} → ${next.name}`)
+  note(`${shortName(e.name)} → ${next.name}`)
   return true
 }
 
@@ -694,7 +705,7 @@ function stepArrow(dir: 1 | -1): boolean {
   const cur = activeArrow.value
   activeArrow.value = cur === null ? (dir > 0 ? 0 : n - 1) : (cur + dir + n) % n
   const row = selectedNeighbors.value[activeArrow.value]
-  if (row) note(`연결 ${activeArrow.value + 1}/${n}: ${row.name} (${relLabel(row)}) · D 로 방향을 바꿉니다`)
+  if (row) note(`연결 ${activeArrow.value + 1}/${n}: ${shortName(row.name)} (${relLabel(row)}) · D 로 방향을 바꿉니다`)
   return true
 }
 
@@ -715,11 +726,11 @@ function flowByKey(): boolean {
   }
   cycleFlow(String(activeArrow.value))
   const row = selectedNeighbors.value[activeArrow.value]
-  if (row && !row.connection.directed) note(`${row.name}: ${relLabel(row)}`)
+  if (row && !row.connection.directed) note(`${shortName(row.name)}: ${relLabel(row)}`)
   return true
 }
 
-/** U. 종류를 모르는 타입을 대수 순으로 하나씩 돌며 그 타입의 설비 하나를 고른다. K 로 바로 종류를 붙인다. */
+/** U. 종류를 모르는 패밀리를 대수 순으로 하나씩 돌며 그 패밀리의 설비 하나를 고른다. K 로 바로 종류를 붙인다. */
 function stepUnknown(dir: 1 | -1): boolean {
   const list = unknownTypes.value
   if (!list.length) {
@@ -1279,11 +1290,12 @@ function setKind(typeKey: string, kind: string | null, label: string) {
       .slice(0, SHOW)
       .map((w) => `${systemById.value.get(w.systemId)?.name || w.systemId} ${w.agree}/${w.checked}`)
       .join(', ')
-    editNotice.value =
+    // 3D 아래에는 띄우지 않는다. 종류는 고른 설비 패널이나 종류 목록에서 바꾸고, 알림은 거기 뜬다(둘이 한 화면에
+    // 같이 보여 같은 글이 두 번 떴었다).
+    kindWarning.value =
       `종류를 바꾸자 규칙 방향이 포트와 어긋나는 계통이 생겼습니다: ${names}` +
       (worse.length > SHOW ? ` 외 ${worse.length - SHOW}개` : '') +
       '. 이 종류에는 계통 규칙이 맞지 않을 수 있습니다. 확정하기 전에 3D 에서 흐름을 확인하거나 Ctrl+Z 로 되돌리세요.'
-    kindWarning.value = editNotice.value
   }
 }
 /** 종류를 바꿔 규칙이 포트와 어긋나기 시작했다는 알림. 3D 아래 알림은 종류 목록에서 안 보여 그 자리에도 둔다. */
@@ -1298,7 +1310,7 @@ function pickKind(event: Event, e: Equipment) {
   setKind(familyKeyOf(e), el.value || null, familyLabel(e))
   el.blur()
 }
-/** 종류를 모르는 타입 목록의 상자. 고르면 그 줄이 목록에서 빠지고, 포커스는 놓는다(다음 단축키를 상자가 먹지 않게). */
+/** 종류를 모르는 패밀리 목록의 상자. 고르면 그 줄이 목록에서 빠지고, 포커스는 놓는다(다음 단축키를 상자가 먹지 않게). */
 function pickTypeKind(event: Event, typeKey: string, label: string) {
   const el = event.target as HTMLSelectElement
   setKind(typeKey, el.value || null, label)
@@ -2048,35 +2060,39 @@ function exportTTL() {
 
     <template v-if="model && counts">
       <!-- 편집 모드에서만 뜬다. 무엇을 몇 건 바꿨는지와 내보내기를 스크롤과 상관없이 붙여 둔다. -->
+      <!-- 좁은 폭(콘텐츠 1,110px)에 버튼이 여덟이라, 글자는 한 줄로 두고 단축키는 title 과 ? 안내로 보낸다. 마지막
+           편집 이름만 남는 폭을 쓰고 넘치면 자른다. -->
       <div v-if="editing" class="edit-bar" role="status">
-        <b>편집 중</b>
-        <span>바뀐 것 {{ changeCount }}건</span>
-        <a href="#changes" class="link">목록 보기</a>
+        <span class="state"><b>편집 중</b> · <a href="#changes" class="link">바뀐 것 {{ changeCount }}건</a></span>
         <button
           type="button"
           class="ghost undo"
           :disabled="!history.length"
-          :title="history.length ? `되돌리기: ${history.at(-1)!.label}` : '되돌릴 편집이 없습니다'"
+          :title="history.length ? `되돌리기 (Ctrl+Z): ${history.at(-1)!.label}` : '되돌릴 편집이 없습니다'"
           @click="undo"
         >
-          되돌리기 <kbd>Ctrl+Z</kbd>
+          ↶ 되돌리기
         </button>
         <button
           type="button"
           class="ghost redo"
           :disabled="!future.length"
-          :title="future.length ? `다시 하기: ${future.at(-1)!.entry.label}` : '다시 할 편집이 없습니다'"
+          :title="future.length ? `다시 하기 (Ctrl+Shift+Z): ${future.at(-1)!.entry.label}` : '다시 할 편집이 없습니다'"
           @click="redo"
         >
-          다시 <kbd>Ctrl+Shift+Z</kbd>
+          ↷ 다시
         </button>
-        <span v-if="history.length" class="muted last-edit">{{ history.at(-1)!.label }}</span>
-        <span class="grow"></span>
-        <button type="button" class="ghost save-edits" title="연 때와 달라진 것을 JSON 으로 내려받습니다. 같은 IFC 를 다시 열고 불러오면 이어서 합니다." @click="saveEdits">
-          편집 저장 <kbd>Ctrl+S</kbd>
+        <span class="muted last-edit" :title="history.at(-1)?.label">{{ history.at(-1)?.label ?? '' }}</span>
+        <button
+          type="button"
+          class="ghost save-edits"
+          title="편집 저장 (Ctrl+S). 연 때와 달라진 것을 JSON 으로 내려받습니다. 같은 IFC 를 다시 열고 불러오면 이어서 합니다."
+          @click="saveEdits"
+        >
+          편집 저장
         </button>
-        <button type="button" class="ghost keys-help" title="단축키 안내 (?)" @click="helpOpen = true">단축키 <kbd>?</kbd></button>
-        <button type="button" class="ghost" @click="exportTTL">의미 내보내기 (TTL)</button>
+        <button type="button" class="ghost" title="의미(Brick TTL) 내보내기" @click="exportTTL">TTL 내보내기</button>
+        <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
         <button type="button" class="ghost" @click="mode = 'view'">보기로</button>
       </div>
 
@@ -2288,7 +2304,7 @@ function exportTTL() {
             </div>
           </div>
 
-          <!-- 종류 지정. 사전이 모르거나 잘못 읽은 종류를 같은 타입 전부에 한 번에 정한다. -->
+          <!-- 종류 지정. 사전이 모르거나 잘못 읽은 종류를 같은 패밀리 전부에 한 번에 정한다. -->
           <p v-if="editing" class="kind-edit">
             <label>
               종류

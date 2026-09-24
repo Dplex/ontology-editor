@@ -96,9 +96,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
   },
   { id: 'confirm', combos: [{ code: 'KeyC' }], keys: ['C'], label: '고른 설비 계통의 규칙 방향 확정', group: '편집 · 연결 방향', edit: true },
 
-  { id: 'kind', combos: [{ code: 'KeyK' }], keys: ['K'], label: '고른 설비의 종류 고르기 (같은 타입 전부)', group: '편집 · 종류', edit: true },
-  { id: 'nextUnknown', combos: [{ code: 'KeyU' }], keys: ['U'], label: '종류를 모르는 다음 타입의 설비로', group: '편집 · 종류', edit: true },
-  { id: 'prevUnknown', combos: [{ code: 'KeyU', shift: true }], keys: ['Shift+U'], label: '종류를 모르는 이전 타입의 설비로', group: '편집 · 종류', edit: true },
+  { id: 'kind', combos: [{ code: 'KeyK' }], keys: ['K'], label: '고른 설비의 종류 고르기 (같은 패밀리 전부)', group: '편집 · 종류', edit: true },
+  { id: 'nextUnknown', combos: [{ code: 'KeyU' }], keys: ['U'], label: '종류를 모르는 다음 패밀리의 설비로', group: '편집 · 종류', edit: true },
+  { id: 'prevUnknown', combos: [{ code: 'KeyU', shift: true }], keys: ['Shift+U'], label: '종류를 모르는 이전 패밀리의 설비로', group: '편집 · 종류', edit: true },
 ]
 
 export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ['어디서나', '3D 시점', '편집 · 설비', '편집 · 연결 방향', '편집 · 종류']

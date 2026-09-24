@@ -415,7 +415,8 @@ test('종류를 바꿔 규칙 방향이 포트와 어긋나기 시작하면 그 
   const warning = page.locator('.picked .edit-notice.inline')
   await expect(warning).toContainText('포트와 어긋나는 계통')
   await expect(warning).toContainText('AHU-1 급기 계통')
-  await expect(page.locator('.edit-notice').first()).toBeVisible()
+  // 같은 알림을 3D 아래에 또 띄우지 않는다(패널과 한 화면에 같이 보인다).
+  await expect(page.locator('.viewport .edit-notice')).toHaveCount(0)
 
   await page.keyboard.press('Control+z')
   await expect(warning).toHaveCount(0)
