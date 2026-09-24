@@ -6,7 +6,7 @@
 // 편집할 때마다 다시 돌아야 하는 계산이라 임포트와 떼어 놓았다. 벽을 옮겨 물리존 경계가
 // 바뀌면 설비 소속이 바뀌고, 그게 이상 알림의 '발생 위치' 와 탐색기 트리에 그대로 나간다.
 
-import type { Model, Space, Vec2, Vec3 } from './model'
+import type { Equipment, Model, Space, Vec2, Vec3 } from './model'
 
 /**
  * 점이 다각형 안에 있는지 본다. 광선 교차 방식이다.
@@ -145,21 +145,28 @@ export function locate(point: Vec2, spaces: readonly Space[], snap = SNAP): stri
  */
 export function assignEquipmentToSpaces(model: Model, snap = SNAP): void {
   for (const storey of model.storeys) {
-    for (const equipment of storey.equipment) {
-      // BIM 이 직접 말한 소속은 다시 계산하지 않는다. 설계자가 정한 값이라 좌표 판정보다
-      // 정확하고, 벽에 걸친 설비처럼 판정이 애매한 경우에도 답이 하나로 정해진다.
-      if (equipment.spaceSource === 'bim') continue
+    for (const equipment of storey.equipment) assignEquipment(equipment, storey.spaces, snap)
+  }
+}
 
-      equipment.spaceId = null
-      equipment.spaceSource = null
-      if (!equipment.position) continue
+/**
+ * 설비 하나의 소속을 다시 판정한다. 결과는 그 설비의 좌표와 **자기 층의 물리존**으로만 정해진다 —
+ * 그래서 편집은 모델 전체가 아니라 바뀐 것만 다시 판정해도 전체를 다시 도는 것과 같다. 성수처럼
+ * 설비가 1만 개를 넘으면 전체를 도는 데 편집 한 번에 0.6초가 걸렸다.
+ */
+export function assignEquipment(equipment: Equipment, spaces: readonly Space[], snap = SNAP): void {
+  // BIM 이 직접 말한 소속은 다시 계산하지 않는다. 설계자가 정한 값이라 좌표 판정보다
+  // 정확하고, 벽에 걸친 설비처럼 판정이 애매한 경우에도 답이 하나로 정해진다.
+  if (equipment.spaceSource === 'bim') return
 
-      const found = locate([equipment.position[0], equipment.position[1]], storey.spaces, snap)
-      if (found !== null) {
-        equipment.spaceId = found
-        equipment.spaceSource = 'computed'
-      }
-    }
+  equipment.spaceId = null
+  equipment.spaceSource = null
+  if (!equipment.position) return
+
+  const found = locate([equipment.position[0], equipment.position[1]], spaces, snap)
+  if (found !== null) {
+    equipment.spaceId = found
+    equipment.spaceSource = 'computed'
   }
 }
 

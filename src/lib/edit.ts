@@ -7,7 +7,7 @@
 // 반영 전에 차이를 보여 주는 것이 PRD #16(미리보기)이고, 반영 뒤에 남기는 것이 #21(결과
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
-import { assignEquipmentToSpaces, isSelfIntersecting } from './mapping'
+import { assignEquipment, isSelfIntersecting } from './mapping'
 import { polygonArea } from './model'
 import type { Connection, Equipment, Model, Vec2, Vec3 } from './model'
 
@@ -29,6 +29,21 @@ function spaceLabel(model: Model, spaceId: string | null): string {
     if (space) return space.longName || space.name || spaceId
   }
   return spaceId
+}
+
+/**
+ * 편집은 바뀐 것만 다시 판정한다. 설비 하나의 소속은 그 좌표와 자기 층의 물리존으로만 정해지므로
+ * (mapping.ts 의 assignEquipment), 설비를 옮기면 그 설비만, 경계를 고치면 그 층만 보면 전체를
+ * 다시 도는 것과 결과가 같다.
+ */
+function reassignStoreyOf(model: Model, equipment: Equipment) {
+  const storey = model.storeys.find((s) => s.equipment.includes(equipment))
+  if (storey) assignEquipment(equipment, storey.spaces)
+}
+
+function reassignStoreyWith(model: Model, spaceId: string) {
+  const storey = model.storeys.find((s) => s.spaces.some((sp) => sp.id === spaceId))
+  if (storey) for (const e of storey.equipment) assignEquipment(e, storey.spaces)
 }
 
 function findEquipment(model: Model, equipmentId: string): Equipment | null {
@@ -55,7 +70,7 @@ export function moveEquipment(model: Model, equipmentId: string, to: Vec3): Chan
   // BIM 이 말한 소속은 BIM 이 말한 자리에 대한 것이다. 사람이 옮긴 뒤에도 남겨 두면 방 밖으로 끌어낸
   // 설비가 예전 방에 그대로 속한다. 옮긴 설비는 좌표로 다시 판정한다.
   if (equipment.spaceSource === 'bim') equipment.spaceSource = null
-  assignEquipmentToSpaces(model)
+  reassignStoreyOf(model, equipment)
   const toSpaceId = equipment.spaceId
 
   return {
@@ -149,7 +164,7 @@ export function moveEquipmentToStorey(model: Model, equipmentId: string, storeyI
   target.equipment.push(equipment)
 
   const fromSpaceId = equipment.spaceId
-  assignEquipmentToSpaces(model)
+  assignEquipment(equipment, target.spaces)
 
   return {
     equipmentId,
@@ -290,7 +305,7 @@ export function moveSpaceVertex(
 
   space.footprint = ring
   space.areaM2 = polygonArea(ring)
-  assignEquipmentToSpaces(model)
+  reassignStoreyWith(model, spaceId)
 
   return {
     spaceId,
@@ -316,7 +331,7 @@ export function replaceSpaceFootprint(model: Model, spaceId: string, ring: Vec2[
 
   space.footprint = ring
   space.areaM2 = polygonArea(ring)
-  assignEquipmentToSpaces(model)
+  reassignStoreyWith(model, spaceId)
 
   return {
     spaceId,
@@ -411,7 +426,7 @@ export function restore(model: Model, snapshot: Snapshot): void {
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
       equipment.spaceSource = snapshot.spaceSource
       equipment.spaceId = snapshot.spaceId
-      assignEquipmentToSpaces(model)
+      assignEquipment(equipment, home.spaces)
       return
     }
     case 'space': {
@@ -420,7 +435,7 @@ export function restore(model: Model, snapshot: Snapshot): void {
       space.footprint = [...snapshot.footprint]
       space.areaM2 = snapshot.areaM2
       space.longName = snapshot.longName
-      assignEquipmentToSpaces(model)
+      reassignStoreyWith(model, space.id)
       return
     }
     case 'flow':

@@ -201,6 +201,12 @@ export type Viewer = {
   setEditMode(on: boolean): void
   /** 편집 모드에서 무언가를 끄는 중인가. 그동안의 Ctrl+Z 는 받지 않는다(Esc 가 취소다). */
   isDragging(): boolean
+  /**
+   * 설비 하나의 형상만 옮긴다(IFC 좌표로 옮긴 거리). 표에서 고친 좌표나 되돌리기를 3D 에 반영할 때 쓴다 —
+   * 모델 전체를 다시 만들면 성수 크기에서 2초가 걸린다. 그 설비가 3D 에 없으면 false 를 돌려주고, 그때는
+   * 부르는 쪽이 setModel 로 다시 만든다.
+   */
+  shiftEquipment(id: string, delta: Vec3): boolean
   /** 편집 모드에서 고른 설비를 끌어 놓으면 부른다. 옮긴 거리를 IFC 좌표(미터)로 넘긴다. 높이는 그대로다. */
   onEquipmentMove(handler: (id: string, delta: Vec3) => void): void
   /** 편집 모드에서 설비가 아닌 바닥(물리존 판)을 누르면 부른다. */
@@ -550,9 +556,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         if (!ray.intersectPlane(plane, start)) return
         next = { kind: 'vertex', index, plane, offset: at.clone().sub(start), at }
       } else {
-        // 고른 설비만 끈다. 아무 설비나 끌리면 시점을 돌리려다 덕트를 옮긴다.
-        const id = pick(ray)
-        const part = id && id === selectedPart && movable.has(id) ? partById.get(id) : undefined
+        // 고른 설비만 끈다. 아무 설비나 끌리면 시점을 돌리려다 덕트를 옮긴다. 고른 설비는 앞에 다른 것이
+        // 가려도 잡힌다 — 덕트 사이의 VAV 처럼 가운데가 늘 가려진 설비가 있다. 끌지 않고 떼면 맨 앞의 것을
+        // 고른다(pointerup).
+        const part = grabbable(ray)
         const position = solid?.geometry.getAttribute('position') as BufferAttribute | undefined
         if (!part || !position) return
         const plane = new Plane(new Vector3(0, 1, 0), -part.box.getCenter(new Vector3()).y)
@@ -570,9 +577,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   )
   canvas.addEventListener('pointerup', (e) => {
     if (drag) {
-      pressedAt = null
-      endDrag(true)
-      return
+      const moved = drag.moved
+      const kind = drag.kind
+      endDrag(moved)
+      // 설비를 잡았다가 끌지 않고 뗀 것은 누르기다. 아래로 내려가 평소처럼 맨 앞의 것을 고른다.
+      if (moved || kind === 'vertex') {
+        pressedAt = null
+        return
+      }
     }
     // 시점을 돌린 것과 고른 것을 가른다. 끌었으면 고르기가 아니다.
     if (!pressedAt) return
@@ -654,8 +666,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       return
     }
     const ray = rayAt(x, y)
+    if (editMode && grabbable(ray)) {
+      canvas.style.cursor = 'grab'
+      return
+    }
     const id = pick(ray)
-    if (id) canvas.style.cursor = editMode && id === selectedPart && movable.has(id) ? 'grab' : 'pointer'
+    if (id) canvas.style.cursor = 'pointer'
     else canvas.style.cursor = editMode && pickSpace(ray) ? 'pointer' : ''
   }
 
@@ -690,6 +706,26 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       }
     }
     return best?.id ?? null
+  }
+
+  /** 광선이 이 설비를 지나가는가. 앞에 다른 것이 있어도 참이다(pick 은 맨 앞의 것만 본다). */
+  function hitsPart(ray: Ray, part: Part): boolean {
+    const geometry = solid?.geometry
+    if (!geometry || !ray.intersectBox(part.box, hitPoint)) return false
+    const pos = geometry.getAttribute('position') as BufferAttribute
+    for (let k = part.iStart; k < part.iStart + part.iCount; k += 3) {
+      a.fromBufferAttribute(pos, fullIndex[k])
+      b.fromBufferAttribute(pos, fullIndex[k + 1])
+      c.fromBufferAttribute(pos, fullIndex[k + 2])
+      if (ray.intersectTriangle(a, b, c, false, hitPoint)) return true
+    }
+    return false
+  }
+
+  /** 끌 수 있는 것: 고른 설비이고 좌표가 있고 흐리게 칠해지지 않았다. */
+  function grabbable(ray: Ray): Part | null {
+    const part = selectedPart && movable.has(selectedPart) && !fadedIds.has(selectedPart) ? partById.get(selectedPart) : undefined
+    return part && hitsPart(ray, part) ? part : null
   }
 
   function resize() {
@@ -1050,6 +1086,24 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     isDragging() {
       return drag !== null
+    },
+
+    shiftEquipment(id, delta) {
+      const part = partById.get(id)
+      const position = solid?.geometry.getAttribute('position') as BufferAttribute | undefined
+      if (!part || !position) return false
+      const [dx, dy, dz] = toScene(delta)
+      const arr = position.array as Float32Array
+      for (let v = part.vStart; v < part.vStart + part.vCount; v++) {
+        arr[v * 3] += dx
+        arr[v * 3 + 1] += dy
+        arr[v * 3 + 2] += dz
+      }
+      position.needsUpdate = true
+      part.box.translate(new Vector3(dx, dy, dz))
+      drawArrows()
+      dirty = true
+      return true
     },
 
     onEquipmentMove(handler) {

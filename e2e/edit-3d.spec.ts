@@ -334,3 +334,25 @@ test('글자를 치는 칸의 Ctrl+Z 와 보기 모드의 Ctrl+Z 는 편집을 �
   await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
   expect(errors).toEqual([])
 })
+
+test('고른 설비는 앞에 다른 설비가 가려도 끌 수 있고, 끌지 않고 떼면 앞의 것을 고른다', async ({ page }) => {
+  const errors = await open(page)
+  await page.locator('.edit-toggle input').check()
+  // DUCT-01(z 3.0) 위에 AHU-1(z 3.2) 상자가 겹쳐 있다. 위에서 보면 덕트 가운데는 공조기에 가린다.
+  await pick(page, 'DUCT-01')
+  const center = (await viewer<number[]>(page, 'center', DUCT))!
+  const from = (await viewer<Pt>(page, 'part', DUCT))!
+
+  // 끌지 않고 떼면 맨 앞의 것(공조기)을 고른다 — 가려진 것을 잡을 수 있게 됐다고 앞의 것을 못 고르면 안 된다.
+  await page.mouse.click(from.x, from.y)
+  await expect(page.locator('.picked h3')).toHaveText('AHU-1')
+
+  // 다시 덕트를 고르고 같은 자리에서 끈다. 덕트가 옮겨진다.
+  await pick(page, 'DUCT-01')
+  const x0 = Number(await coord(page, 'DUCT-01', 0))
+  const to = (await viewer<Pt>(page, 'point', [center[0] - 5, center[1], center[2]]))!
+  await drag(page, (await viewer<Pt>(page, 'part', DUCT))!, to)
+  await expect.poll(async () => Number(await coord(page, 'DUCT-01', 0))).toBeCloseTo(x0 - 5, 0)
+  await expect(page.locator('.picked h3')).toHaveText('DUCT-01')
+  expect(errors).toEqual([])
+})

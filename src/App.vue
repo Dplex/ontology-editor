@@ -228,8 +228,21 @@ function shiftMesh(id: string, from: Vec3 | null, to: Vec3 | null) {
 /** 3D 에서 끈 값은 센티미터로 자른다. 마우스로 1mm 를 뜻하고 놓는 사람은 없다. */
 const cm = (v: number) => Math.round(v * 100) / 100
 
-/** 설비를 옮기는 길은 표(숫자)와 3D(끌기) 둘이지만 하는 일은 하나다. 소속 재판정은 edit.ts 가 한다. */
-function relocate(equipmentId: string, to: Vec3): boolean {
+/**
+ * 설비 하나의 3D 형상을 좌표가 바뀐 만큼 옮긴다. 모델 전체를 다시 만들면 성수 크기에서 2초가 걸려서,
+ * 형상 하나만 옮긴다. 3D 에 없던 설비(좌표가 없다가 생긴 것)와 사라질 설비만 다시 그린다.
+ */
+function moveInScene(id: string, from: Vec3 | null, to: Vec3 | null) {
+  shiftMesh(id, from, to)
+  if (from && to && viewer?.shiftEquipment(id, [to[0] - from[0], to[1] - from[1], to[2] - from[2]])) sceneVersion.value++
+  else redraw()
+}
+
+/**
+ * 설비를 옮기는 길은 표(숫자)와 3D(끌기) 둘이지만 하는 일은 하나다. 소속 재판정은 edit.ts 가 한다.
+ * `drawnAt` 은 3D 가 이미 그려 둔 자리다(끌어 놓은 경우). 그 자리와 저장한 좌표의 차만큼만 형상을 옮긴다.
+ */
+function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
   const snapshot = snapshotEquipment(model.value, equipmentId)
@@ -237,7 +250,8 @@ function relocate(equipmentId: string, to: Vec3): boolean {
   const change = moveEquipment(model.value, equipmentId, to)
   if (!change) return false
   remember(`${change.equipmentName || '설비'} 옮김`, snapshot, at)
-  shiftMesh(equipmentId, before, to)
+  if (drawnAt) shiftMesh(equipmentId, before, drawnAt)
+  moveInScene(equipmentId, drawnAt ?? before, to)
   changes.value = [...changes.value, change]
   triggerRef(model)
   return true
@@ -255,7 +269,7 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
     if (value === null) return
     const base: [number, number, number] = [current[0], current[1], current[2]]
     base[axis] = value
-    if (relocate(equipmentId, base)) redraw()
+    relocate(equipmentId, base)
     return
   }
 
@@ -267,16 +281,15 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
   if (to) drafts.delete(equipmentId)
   else drafts.set(equipmentId, draft)
   positionDrafts.value = drafts
-  if (to && relocate(equipmentId, to)) redraw()
+  if (to) relocate(equipmentId, to)
 }
 
 /** 3D 에서 고른 설비를 끌어 놓았다. 3D 는 이미 놓은 자리에 그려져 있어 다시 만들지 않는다. */
 function dropEquipment(equipmentId: string, delta: Vec3) {
   const position = equipmentById.value.get(equipmentId)?.position
   if (!position) return
-  relocate(equipmentId, [cm(position[0] + delta[0]), cm(position[1] + delta[1]), position[2]])
-  // 화살표와 강조는 옮긴 자리 기준으로 다시 넘긴다.
-  sceneVersion.value++
+  const drawnAt: Vec3 = [position[0] + delta[0], position[1] + delta[1], position[2]]
+  relocate(equipmentId, [cm(drawnAt[0]), cm(drawnAt[1]), position[2]], drawnAt)
 }
 
 /** 설비를 다른 층으로(E6). 높이도 두 층 바닥의 차만큼 옮기므로 3D 를 다시 그린다. */
@@ -288,11 +301,10 @@ function moveToStorey(equipmentId: string, storeyId: string) {
   const change = moveEquipmentToStorey(model.value, equipmentId, storeyId)
   if (!change) return
   remember(`${change.equipmentName || '설비'} 층 옮김`, snapshot, at)
-  shiftMesh(equipmentId, before, equipmentById.value.get(equipmentId)?.position ?? null)
+  moveInScene(equipmentId, before, equipmentById.value.get(equipmentId)?.position ?? null)
   changes.value = [...changes.value, change]
   storeyMoved.value = new Set([...storeyMoved.value, equipmentId])
   triggerRef(model)
-  redraw()
 }
 /** 사람이 층을 바꾼 설비. 층 칸의 출처를 BIM 에서 편집으로 바꾼다. */
 const storeyMoved = ref(new Set<string>())
@@ -337,8 +349,7 @@ function undo() {
   if (!m || !entry) return
   history.value = history.value.slice(0, -1)
   const s = entry.snapshot
-  // 형상도 되돌린다. 안 하면 다시 그릴 때 옮긴 자리에 남는다.
-  if (s.kind === 'equipment') shiftMesh(s.id, equipmentById.value.get(s.id)?.position ?? null, s.position)
+  const drawnAt = s.kind === 'equipment' ? (equipmentById.value.get(s.id)?.position ?? null) : null
   restore(m, s)
   changes.value = changes.value.slice(0, entry.changes)
   areaChanges.value = areaChanges.value.slice(0, entry.areaChanges)
@@ -346,7 +357,8 @@ function undo() {
   storeyMoved.value = entry.storeyMoved
   if (s.kind === 'equipment') {
     triggerRef(model)
-    redraw()
+    // 형상도 되돌린다. 안 하면 다시 그릴 때 옮긴 자리에 남는다.
+    moveInScene(s.id, drawnAt, s.position)
   } else if (s.kind === 'space') {
     triggerRef(model)
     viewer?.updateSpaces(m)

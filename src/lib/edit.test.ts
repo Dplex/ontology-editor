@@ -22,6 +22,7 @@ import {
 } from './edit'
 import type { Model } from './model'
 import { confirmSystemFlow, inferFlowByRules, withInferred } from './flow-rules'
+import { assignEquipmentToSpaces } from './mapping'
 
 let api: WebIFC.IfcAPI
 let model: Model
@@ -335,5 +336,35 @@ describe('되돌리기', () => {
     restore(model, snap)
     expect(ruled.inferred!.confirmed).toBe(false)
     expect(withInferred([ruled], true)[0].directed).toBeFalsy()
+  })
+})
+
+describe('바뀐 것만 다시 판정한다', () => {
+  // 편집은 설비 하나나 층 하나만 다시 판정한다. 그 결과가 전체를 다시 돈 것과 같아야 한다 — 다르면
+  // 편집이 판정을 빠뜨린 것이다.
+  const all = () => model.storeys.flatMap((s) => s.equipment.map((e) => `${e.id}:${e.spaceId}:${e.spaceSource}`))
+  const same = () => {
+    const now = all()
+    assignEquipmentToSpaces(model)
+    expect(all()).toEqual(now)
+  }
+
+  it('설비를 옮기고, 층을 옮기고, 경계를 고치고, 되돌린 뒤에도 전체 판정과 같다', () => {
+    model.storeys.push({ id: 'up', name: '2F', elevation: 3.5, spaces: [], walls: [], openings: [], equipment: [] })
+    const office = model.storeys[0].spaces[0]
+    const snapAhu = snapshotEquipment(model, equip('AHU-1').id)!
+    moveEquipment(model, equip('AHU-1').id, [50, 50, 3.2])
+    same()
+    moveEquipment(model, equip('AHU-1').id, [5, 5, 3.2])
+    same()
+    const snapOffice = snapshotSpace(model, office.id)!
+    moveSpaceVertex(model, office.id, 1, [4, 4])
+    same()
+    moveEquipmentToStorey(model, equip('AT-101-01').id, 'up')
+    same()
+    restore(model, snapOffice)
+    same()
+    restore(model, snapAhu)
+    same()
   })
 })
