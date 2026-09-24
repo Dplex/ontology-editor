@@ -9,6 +9,7 @@ import Fold from './components/Fold.vue'
 import Src from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
+import { applyEdits, exportEdits, parseEditFile } from './lib/edit-file'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
 import { completenessChecks } from './lib/checks'
@@ -489,7 +490,8 @@ function onKey(e: KeyboardEvent) {
   if (helpOpen.value && shortcut.id !== 'help') return
   // 글자를 치는 칸의 키는 그 칸 몫이다(그 칸의 Ctrl+Z 는 글자 되돌리기다). 선택 상자는 글자·방향키로 항목을
   // 고르니 수식 키 없는 키는 넘기고, Ctrl 조합과 Esc 만 받는다.
-  if (isTextEntry(e.target)) return
+  // 저장만은 글자 칸에서도 받는다. 거기서 Ctrl+S 는 브라우저의 "페이지 저장" 이라 쓸모가 없다.
+  if (isTextEntry(e.target) && shortcut.id !== 'save') return
   if (e.target instanceof HTMLSelectElement && !(e.ctrlKey || e.metaKey) && shortcut.id !== 'escape') return
   // 보기 모드에는 고치는 손잡이가 없다. 끄는 중에는 Esc 가 뷰어의 취소다.
   if (shortcut.edit && !editing.value) return
@@ -534,6 +536,9 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
         return true
       }
       showWalls.value = !showWalls.value
+      return true
+    case 'save':
+      saveEdits()
       return true
     case 'undo':
       if (!history.value.length) note('되돌릴 편집이 없습니다')
@@ -1549,11 +1554,72 @@ function importInWorker(bytes: ArrayBuffer): Promise<{ model: Model; meshes: Mes
   })
 }
 
+// --- 편집 저장·불러오기 --------------------------------------------------------------
+//
+// 연 때와 달라진 값만 GUID 로 적은 JSON 이다(lib/edit-file.ts). 불러오면 편집 함수를 다시 거쳐 소속·규칙 방향을
+// 다시 판정한다. 불러온 것은 한 번에 되돌리지 못한다 — 되돌리기 이력을 비우고, 리포트에는 연 때와 견준 줄로 남는다.
+const editFileNote = ref('')
+
+function saveEdits() {
+  const m = model.value
+  if (!m || !baseline.value) return
+  if (!hasEdits.value && changeCount.value === 0) {
+    note('저장할 편집이 없습니다')
+    return
+  }
+  const file = exportEdits(m, baseline.value, fileName.value)
+  const stem = fileName.value.replace(/\.ifc/gi, '').replace(/[^\w가-힣.+-]+/g, '_') || 'model'
+  download(`${stem}.edits.json`, JSON.stringify(file, null, 2), 'application/json')
+  note(`편집을 저장했습니다: ${stem}.edits.json`)
+}
+
+async function onEditFilePick(event: Event) {
+  const input = event.target as HTMLInputElement
+  const picked = input.files?.[0]
+  input.value = ''
+  const m = model.value
+  if (!picked || !m) return
+  const file = parseEditFile(await picked.text())
+  if (typeof file === 'string') {
+    editFileNote.value = `${picked.name} 를 불러오지 못했습니다: ${file}`
+    return
+  }
+  // 옮길 설비의 형상도 같이 옮겨야 다시 그릴 때 예전 자리로 튀지 않는다. 얹기 전 좌표를 떠 둔다.
+  const before = new Map(m.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.position]))
+  const result = applyEdits(m, file)
+  for (const e of m.storeys.flatMap((s) => s.equipment)) {
+    const was = before.get(e.id) ?? null
+    if (was !== e.position) shiftMesh(e.id, was, e.position)
+  }
+  changes.value = [...changes.value, ...result.changes]
+  areaChanges.value = [...areaChanges.value, ...result.areaChanges]
+  confirmations.value = [
+    ...confirmations.value,
+    ...result.confirmations.map((c) => ({ systemName: systemById.value.get(c.systemId)?.name || c.systemId, count: c.count })),
+  ]
+  storeyMoved.value = new Set([...storeyMoved.value, ...result.storeyMoved])
+  if (result.rules) ruleReport.value = result.rules
+  history.value = []
+  future.value = []
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+
+  const missing = Object.entries(result.missing).filter(([, n]) => n > 0)
+  const MISSING_LABEL: Record<string, string> = { equipment: '설비', spaces: '물리존', kinds: '타입', flows: '연결', systems: '계통' }
+  editFileNote.value =
+    `${picked.name} 에서 편집 ${result.applied}개를 얹었습니다.` +
+    (file.source && file.source !== fileName.value ? ` 저장한 파일은 ${file.source} 입니다.` : '') +
+    (missing.length ? ` 이 모델에서 못 찾은 것: ${missing.map(([k, n]) => `${MISSING_LABEL[k]} ${n}`).join(' · ')}.` : '') +
+    ' 불러온 편집은 되돌리기로 한 번에 되돌리지 못합니다.'
+}
+
 // --- 편집을 잃지 않게 ----------------------------------------------------------------
 //
 // 편집은 탭 안에만 있다(내보낸 파일에만 남는다). 새로 고침·탭 닫기·다른 파일 열기가 편집을 조용히 버리면, 한 시간
 // 고친 것이 경고 없이 사라진다. 편집이 남아 있으면 먼저 묻는다.
 const hasEdits = computed(() => changeCount.value > 0 || history.value.length > 0)
+watch(fileName, () => (editFileNote.value = ''))
 function onBeforeUnload(e: BeforeUnloadEvent) {
   if (!hasEdits.value) return
   e.preventDefault()
@@ -1567,7 +1633,7 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
   if (
     hasEdits.value &&
     !window.confirm(
-      `지금 파일에서 고친 것(편집 ${history.value.length}번)이 사라집니다. 편집은 내보낸 TTL·GeoJSON 에만 남습니다.
+      `지금 파일에서 고친 것이 사라집니다. 이어서 하려면 먼저 "편집 저장"(Ctrl+S)으로 내려받으세요.
 
 ${name} 을 열까요?`,
     )
@@ -1874,6 +1940,9 @@ function exportTTL() {
         </button>
         <span v-if="history.length" class="muted last-edit">{{ history.at(-1)!.label }}</span>
         <span class="grow"></span>
+        <button type="button" class="ghost save-edits" title="연 때와 달라진 것을 JSON 으로 내려받습니다. 같은 IFC 를 다시 열고 불러오면 이어서 합니다." @click="saveEdits">
+          편집 저장 <kbd>Ctrl+S</kbd>
+        </button>
         <button type="button" class="ghost keys-help" title="단축키 안내 (?)" @click="helpOpen = true">단축키 <kbd>?</kbd></button>
         <button type="button" class="ghost" @click="exportTTL">의미 내보내기 (TTL)</button>
         <button type="button" class="ghost" @click="mode = 'view'">보기로</button>
@@ -2736,7 +2805,15 @@ function exportTTL() {
           </Fold>
 
           <template v-if="editing || changeCount > 0">
-          <h3 id="changes">바뀌는 것 (PRD #21)</h3>
+          <div class="changes-head">
+            <h3 id="changes">바뀌는 것 (PRD #21)</h3>
+            <button type="button" class="ghost" :disabled="changeCount === 0" @click="saveEdits">편집 저장</button>
+            <label class="ghost load-edits">
+              편집 불러오기
+              <input type="file" accept=".json,application/json" @change="onEditFilePick" />
+            </label>
+          </div>
+          <p v-if="editFileNote" class="hint edit-file-note" role="status">{{ editFileNote }}</p>
           <ul v-if="changeCount > 0 || areaChanges.length" class="report">
             <li v-for="c in report" :key="c.equipmentId">
               {{ c.equipmentName }}:

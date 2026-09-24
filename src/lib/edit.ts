@@ -572,15 +572,21 @@ export function kindEdits(model: Model): KindEdit[] {
 
 export type Baseline = {
   names: Map<string, string>
+  /** 물리존 외곽선. 편집 저장(edit-file.ts)이 바뀐 경계만 골라 담는다. */
+  footprints: Map<string, Vec2[]>
   equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null }>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
 export function baselineOf(model: Model): Baseline {
   const names = new Map<string, string>()
+  const footprints = new Map<string, Vec2[]>()
   const equipment: Baseline['equipment'] = new Map()
   for (const storey of model.storeys) {
-    for (const space of storey.spaces) names.set(space.id, space.longName)
+    for (const space of storey.spaces) {
+      names.set(space.id, space.longName)
+      footprints.set(space.id, space.footprint.map((p) => [p[0], p[1]] as Vec2))
+    }
     for (const e of storey.equipment) {
       equipment.set(e.id, {
         position: e.position ? [e.position[0], e.position[1], e.position[2]] : null,
@@ -589,7 +595,7 @@ export function baselineOf(model: Model): Baseline {
       })
     }
   }
-  return { names, equipment }
+  return { names, footprints, equipment }
 }
 
 export type BaselineDiff = {

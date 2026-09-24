@@ -15,6 +15,7 @@ export type ShortcutId =
   | 'walls'
   | 'undo'
   | 'redo'
+  | 'save'
   | 'nudge'
   | 'storeyUp'
   | 'storeyDown'
@@ -46,6 +47,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   // '?' 는 자판마다 자리가 달라 글자로도 받는다.
   { id: 'help', combos: [{ key: '?', shift: 'any' }, { code: 'Slash', shift: true }], keys: ['?'], label: '단축키 안내 열기·닫기', group: '어디서나' },
   { id: 'mode', combos: [{ code: 'KeyE' }], keys: ['E'], label: '보기 ↔ 편집', group: '어디서나' },
+  { id: 'save', combos: [{ code: 'KeyS', ctrl: true }], keys: ['Ctrl+S'], label: '편집 저장(파일로 내려받기)', group: '어디서나' },
   { id: 'search', combos: [{ code: 'Slash' }], keys: ['/'], label: '이름으로 찾기 칸으로', group: '어디서나' },
   {
     id: 'escape',

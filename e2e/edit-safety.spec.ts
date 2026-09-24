@@ -26,7 +26,7 @@ test('편집이 남아 있으면 다른 파일을 열기 전에 묻고, 물리�
   page.on('dialog', (d) => {
     asked++
     expect(d.type()).toBe('confirm')
-    expect(d.message()).toContain('편집 1번')
+    expect(d.message()).toContain('편집 저장')
     void (asked === 1 ? d.dismiss() : d.accept())
   })
   await openFile(page, MEP)
@@ -55,4 +55,42 @@ test('편집이 남아 있으면 탭을 닫기 전에 브라우저가 묻는다'
   const d = await dialog
   expect(d.type()).toBe('beforeunload')
   await d.dismiss()
+})
+
+test('편집을 저장하고 같은 파일을 다시 연 뒤 불러오면 편집이 그대로 돌아온다', async ({ page }, info) => {
+  await page.goto('/')
+  await openFile(page, MEP)
+  await expect(page.locator('.review h2')).toBeVisible({ timeout: 30_000 })
+  await editOnce(page)
+  const name = page.locator('.rows input').first()
+  await name.fill('대회의실')
+  await name.press('Enter')
+  const x = await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().locator('.coord').first().inputValue()
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+
+  // Ctrl+S 는 글자 칸에 커서가 있어도 편집 저장이다.
+  const download = page.waitForEvent('download')
+  await name.press('Control+s')
+  const file = await download
+  expect(file.suggestedFilename()).toBe('mep.edits.json')
+  const path = info.outputPath('mep.edits.json')
+  await file.saveAs(path)
+
+  page.on('dialog', (d) => void d.accept())
+  await openFile(page, MEP)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건', { timeout: 30_000 })
+
+  await page.locator('.load-edits input').setInputFiles(path)
+  await expect(page.locator('.edit-file-note')).toContainText('편집 2개를 얹었습니다')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  await expect(page.locator('.report')).toContainText('사무실 → 대회의실')
+  await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().locator('.coord').first()).toHaveValue(x)
+  await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().locator('.src.edit')).toBeVisible()
+
+  // 다른 파일에 불러오면 못 찾은 것을 센다.
+  await openFile(page, ROOMS)
+  await expect(page.locator('.review h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
+  await page.locator('.load-edits input').setInputFiles(path)
+  await expect(page.locator('.edit-file-note')).toContainText('못 찾은 것: 설비 1 · 물리존 1')
+  await expect(page.locator('.edit-file-note')).toContainText('저장한 파일은 mep.ifc')
 })

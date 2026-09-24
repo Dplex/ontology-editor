@@ -1778,3 +1778,33 @@ kbd {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+
+/* --- 편집 저장·불러오기 -------------------------------------------------------- */
+
+.changes-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 1.75rem 0 0.5rem;
+}
+
+.changes-head h3 {
+  margin: 0 auto 0 0;
+}
+
+.load-edits {
+  cursor: pointer;
+}
+
+.load-edits input {
+  display: none;
+}
+
+.edit-file-note {
+  margin: 0 0 0.5rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: var(--radius-sm);
+  color: var(--fg);
+}
