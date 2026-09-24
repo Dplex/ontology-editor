@@ -214,5 +214,123 @@ test('편집 모드에서 고른 설비의 층을 바꾸면 높이도 층 차만
   await expect(page.locator('.storeys tbody tr', { hasText: '2F' }).locator('td').last()).toHaveText('1')
   // 2F 의 창고에는 외곽선이 없어 소속이 빠진다.
   await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
+
+  // 되돌리면 1F·원래 높이·BIM 출처로 돌아온다. 선택 상자에 초점이 있어도 글자 칸이 아니라 받는다.
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => Number(await coord(page, 'AHU-1', 2))).toBeCloseTo(z0, 5)
+  await expect(select.locator('option:checked')).toHaveText('1F')
+  await expect(page.locator('.storey-move .src.bim')).toBeVisible()
+  await expect(page.locator('.storeys tbody tr', { hasText: '2F' }).locator('td').last()).toHaveText('0')
+  expect(errors).toEqual([])
+})
+
+// --- 되돌리기 (Ctrl+Z) -----------------------------------------------------------
+
+/** AHU-1 을 3D 로 사무실 밖(x −8m)에 끌어 놓는다. 끌기 전 형상 중심과 화면 자리를 돌려준다. */
+async function dragAhuOut(page: Page) {
+  await pick(page, 'AHU-1')
+  const center = (await viewer<number[]>(page, 'center', AHU))!
+  const from = (await viewer<Pt>(page, 'part', AHU))!
+  const to = (await viewer<Pt>(page, 'point', [center[0] - 8, center[1], center[2]]))!
+  await drag(page, from, to)
+  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
+  return { center, from }
+}
+
+test('3D 로 끈 설비는 Ctrl+Z 로 좌표·출처·소속이 끌기 전으로 돌아가고 리포트에서 빠진다', async ({ page }) => {
+  const errors = await open(page)
+  await page.locator('.edit-toggle input').check()
+  const undoButton = page.locator('.edit-bar .undo')
+  await expect(undoButton).toBeDisabled()
+
+  const x0 = await (async () => {
+    await pick(page, 'AHU-1')
+    return coord(page, 'AHU-1', 0)
+  })()
+  const { from } = await dragAhuOut(page)
+  await expect(undoButton).toBeEnabled()
+  await expect(page.locator('.edit-bar')).toContainText('AHU-1 옮김')
+  await expect(page.locator('.report')).toContainText('AHU-1')
+
+  await page.keyboard.press('Control+z')
+  await expect(row(page, 'AHU-1')).toContainText('사무실')
+  expect(await coord(page, 'AHU-1', 0)).toBe(x0)
+  // 출처도 편집에서 BIM 으로 돌아온다. 반대로 옮기는 식이면 여기가 편집으로 남는다.
+  await expect(row(page, 'AHU-1').locator('.src.edit')).toHaveCount(0)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.locator('.report')).toHaveCount(0)
+  await expect(page.locator('.edit-notice')).toContainText('되돌렸습니다: AHU-1 옮김')
+  await expect(undoButton).toBeDisabled()
+
+  // 3D 에서도 제자리다.
+  await settle(page)
+  const back = (await viewer<Pt>(page, 'part', AHU))!
+  expect(Math.hypot(back.x - from.x, back.y - from.y)).toBeLessThan(3)
+  expect(errors).toEqual([])
+})
+
+test('설비 끌기 → 꼭짓점 → 연결 방향을 Ctrl+Z 세 번이면 한 단계씩 거꾸로 되돌린다', async ({ page }) => {
+  const errors = await open(page)
+  await page.locator('.edit-toggle input').check()
+  const bar = page.locator('.edit-bar')
+
+  // ① 설비 끌기
+  await dragAhuOut(page)
+  // ② 꼭짓점: (10,0) 을 (4,4) 로. 넓이 36, AT-101-02 가 밖으로.
+  const floor = (await viewer<Pt>(page, 'point', [9.6, 7.6, 0.1]))!
+  await page.mouse.click(floor.x, floor.y)
+  await drag(page, (await viewer<Pt>(page, 'point', [10, 0, 0.12]))!, (await viewer<Pt>(page, 'point', [4, 4, 0.12]))!)
+  await expect(page.locator('.space-picked')).toContainText('36.0')
+  // ③ 연결 방향: DUCT-01 → AT-101-02 를 사람이 정한다.
+  await pick(page, 'DUCT-01')
+  const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
+  const arrow = (await viewer<{ a: string; b: string; at: Pt }[]>(page, 'arrows')).find((x) => x.a === AT02 || x.b === AT02)!
+  await page.mouse.click(arrow.at.x, arrow.at.y)
+  await expect(terminal.locator('.rel')).toHaveText('하류')
+  await expect(bar).toContainText('방향')
+
+  // ③ 을 되돌린다 — 방향만 규칙으로 돌아가고 앞의 둘은 그대로다.
+  await page.keyboard.press('Control+z')
+  await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
+  await expect(row(page, 'AT-101-02')).toContainText('(소속 없음)')
+  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
+
+  // ② 를 되돌린다 — 넓이 80, AT-101-02 가 사무실로.
+  await page.keyboard.press('Control+z')
+  await expect(row(page, 'AT-101-02')).toContainText('사무실')
+  await expect(page.locator('.equipment tbody tr', { hasText: '사무실' }).first()).toContainText('80.0 ㎡')
+  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
+
+  // ① 을 되돌린다 — 아무것도 안 바뀐 상태.
+  await page.keyboard.press('Control+z')
+  await expect(row(page, 'AHU-1')).toContainText('사무실')
+  await expect(bar).toContainText('바뀐 것 0건')
+  await expect(page.locator('.edit-bar .undo')).toBeDisabled()
+  expect(errors).toEqual([])
+})
+
+test('글자를 치는 칸의 Ctrl+Z 와 보기 모드의 Ctrl+Z 는 편집을 되돌리지 않는다', async ({ page }) => {
+  const errors = await open(page)
+  await page.locator('.edit-toggle input').check()
+  await dragAhuOut(page)
+  const bar = page.locator('.edit-bar')
+  await expect(bar).toContainText('바뀐 것 1건')
+
+  // 물리존 이름 칸에 글자를 치고 Ctrl+Z. 그 칸의 실행취소일 뿐 3D 편집은 그대로다.
+  const name = page.locator('.rows input[type=text]').first()
+  await name.click()
+  await name.press('End')
+  await page.keyboard.type('X')
+  await page.keyboard.press('Control+z')
+  await expect(bar).toContainText('바뀐 것 1건')
+  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
+
+  // 보기 모드에서는 고치는 손잡이가 없으니 되돌리지도 않는다.
+  await page.locator('.edit-toggle input').uncheck()
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await page.locator('.edit-toggle input').check()
+  await expect(bar).toContainText('바뀐 것 1건')
+  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
   expect(errors).toEqual([])
 })

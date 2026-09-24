@@ -327,3 +327,108 @@ export function replaceSpaceFootprint(model: Model, spaceId: string, ring: Vec2[
     selfIntersecting: isSelfIntersecting(ring),
   }
 }
+
+// --- 되돌리기 -----------------------------------------------------------------
+
+/**
+ * 편집 한 번 전의 상태. 되돌리기는 이것을 그대로 되돌려 놓고 소속을 다시 판정한다.
+ *
+ * 반대로 옮기는 식(역연산)으로 되돌리지 않는다. `moveEquipment` 는 좌표 출처를 편집으로 바꾸고 BIM 소속을
+ * 지우므로, 반대로 옮기면 자리는 같아도 출처가 BIM 에서 편집으로 바뀐 채 남는다.
+ */
+export type Snapshot =
+  | {
+      kind: 'equipment'
+      id: string
+      storeyId: string
+      /** 층 목록 안의 자리. 층을 옮겼다 되돌리면 표의 순서도 돌아와야 한다. */
+      index: number
+      position: Vec3 | null
+      positionSource: Equipment['positionSource']
+      spaceId: string | null
+      spaceSource: Equipment['spaceSource']
+    }
+  | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; longName: string }
+  | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
+  | { kind: 'confirm'; connections: Connection[] }
+
+export function snapshotEquipment(model: Model, equipmentId: string): Snapshot | null {
+  for (const storey of model.storeys) {
+    const index = storey.equipment.findIndex((e) => e.id === equipmentId)
+    if (index < 0) continue
+    const e = storey.equipment[index]
+    return {
+      kind: 'equipment',
+      id: e.id,
+      storeyId: storey.id,
+      index,
+      position: e.position ? [e.position[0], e.position[1], e.position[2]] : null,
+      positionSource: e.positionSource,
+      spaceId: e.spaceId,
+      spaceSource: e.spaceSource,
+    }
+  }
+  return null
+}
+
+/** 경계와 이름. 소속은 담지 않는다 — 경계를 되돌리면 재판정이 같은 소속을 다시 낸다. */
+export function snapshotSpace(model: Model, spaceId: string): Snapshot | null {
+  const space = findSpace(model, spaceId)
+  if (!space) return null
+  return { kind: 'space', id: space.id, footprint: [...space.footprint], areaM2: space.areaM2, longName: space.longName }
+}
+
+export function snapshotFlow(connection: Connection): Snapshot {
+  return { kind: 'flow', connection, edited: connection.edited ? { ...connection.edited } : undefined }
+}
+
+/** 계통 확정이 이번에 바꿀 연결. 이미 확정한 것은 되돌릴 때 건드리지 않는다. */
+export function snapshotConfirm(model: Model, systemId: string): Snapshot {
+  return {
+    kind: 'confirm',
+    connections: model.connections.filter((c) => c.inferred?.systemId === systemId && !c.inferred.confirmed),
+  }
+}
+
+/**
+ * 스냅숏을 되돌려 놓고 소속을 다시 판정한다. 좌표·경계를 되돌렸는데 소속이 그대로면 리포트가 거짓이 된다.
+ * 연결 방향과 확정은 소속과 상관이 없어 값만 되돌린다.
+ */
+export function restore(model: Model, snapshot: Snapshot): void {
+  switch (snapshot.kind) {
+    case 'equipment': {
+      const equipment = findEquipment(model, snapshot.id)
+      const home = model.storeys.find((s) => s.id === snapshot.storeyId)
+      if (!equipment || !home) return
+      for (const storey of model.storeys) {
+        const at = storey.equipment.indexOf(equipment)
+        if (at >= 0) storey.equipment.splice(at, 1)
+      }
+      home.equipment.splice(Math.min(snapshot.index, home.equipment.length), 0, equipment)
+      equipment.position = snapshot.position
+      if (snapshot.positionSource) equipment.positionSource = snapshot.positionSource
+      else delete equipment.positionSource
+      // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
+      equipment.spaceSource = snapshot.spaceSource
+      equipment.spaceId = snapshot.spaceId
+      assignEquipmentToSpaces(model)
+      return
+    }
+    case 'space': {
+      const space = findSpace(model, snapshot.id)
+      if (!space) return
+      space.footprint = [...snapshot.footprint]
+      space.areaM2 = snapshot.areaM2
+      space.longName = snapshot.longName
+      assignEquipmentToSpaces(model)
+      return
+    }
+    case 'flow':
+      if (snapshot.edited) snapshot.connection.edited = { ...snapshot.edited }
+      else delete snapshot.connection.edited
+      return
+    case 'confirm':
+      for (const c of snapshot.connections) if (c.inferred) c.inferred.confirmed = false
+      return
+  }
+}

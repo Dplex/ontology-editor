@@ -11,10 +11,17 @@ import {
   replaceSpaceFootprint,
   summarize,
   completePosition,
+  restore,
+  snapshotConfirm,
+  snapshotEquipment,
+  snapshotFlow,
+  snapshotSpace,
+  setFlowDirection,
   wouldSelfIntersect,
   type Change,
 } from './edit'
 import type { Model } from './model'
+import { confirmSystemFlow, inferFlowByRules, withInferred } from './flow-rules'
 
 let api: WebIFC.IfcAPI
 let model: Model
@@ -255,5 +262,78 @@ describe('물리존 경계 수정 (E2)', () => {
   it('없는 꼭짓점이면 아무것도 안 한다', () => {
     expect(moveSpaceVertex(model, office().id, 99, [0, 0])).toBe(null)
     expect(moveSpaceVertex(model, '없는-id', 0, [0, 0])).toBe(null)
+  })
+})
+
+describe('되돌리기', () => {
+  const office = () => model.storeys[0].spaces[0]
+
+  it('BIM 소속이 있던 설비를 옮겼다 되돌리면 좌표·출처·소속이 옮기기 전과 같다', () => {
+    // 반대로 옮기는 식이면 출처가 편집으로 남는다. 스냅숏은 출처까지 되돌린다.
+    const e = model.storeys.flatMap((s) => s.equipment).find((x) => x.spaceSource === 'bim')!
+    const before = { position: e.position, positionSource: e.positionSource, spaceId: e.spaceId, spaceSource: e.spaceSource }
+    const snap = snapshotEquipment(model, e.id)!
+
+    moveEquipment(model, e.id, [50, 50, 1])
+    expect(e.spaceSource).toBe(null)
+
+    restore(model, snap)
+    expect({ position: e.position, positionSource: e.positionSource, spaceId: e.spaceId, spaceSource: e.spaceSource }).toEqual(before)
+  })
+
+  it('층을 옮겼다 되돌리면 원래 층 목록의 원래 자리와 높이로 돌아온다', () => {
+    model.storeys.push({ id: 'up', name: '2F', elevation: 3.5, spaces: [], walls: [], openings: [], equipment: [] })
+    const ahu = equip('AHU-1')
+    const index = model.storeys[0].equipment.indexOf(ahu)
+    const z = ahu.position![2]
+    const snap = snapshotEquipment(model, ahu.id)!
+
+    moveEquipmentToStorey(model, ahu.id, 'up')
+    restore(model, snap)
+    expect(model.storeys[0].equipment.indexOf(ahu)).toBe(index)
+    expect(model.storeys[1].equipment).toHaveLength(0)
+    expect(ahu.position![2]).toBe(z)
+    expect(ahu.spaceId).toBe(office().id)
+  })
+
+  it('경계를 되돌리면 넓이와 밀려났던 설비의 소속이 돌아온다', () => {
+    const snap = snapshotSpace(model, office().id)!
+    // (10,0) 을 (4,4) 로. (7,4) 의 AT-101-02 가 밖으로 나간다.
+    moveSpaceVertex(model, office().id, 1, [4, 4])
+    expect(equip('AT-101-02').spaceId).toBe(null)
+
+    restore(model, snap)
+    expect(office().areaM2).toBeCloseTo(80, 6)
+    expect(equip('AT-101-02').spaceId).toBe(office().id)
+  })
+
+  it('이름을 되돌린다', () => {
+    const snap = snapshotSpace(model, office().id)!
+    renameSpace(model, office().id, '대회의실')
+    restore(model, snap)
+    expect(office().longName).toBe('사무실')
+  })
+
+  it('사람이 정한 방향을 되돌리면 정하기 전(규칙 방향만)으로 돌아간다', () => {
+    inferFlowByRules(model)
+    const c = model.connections.find((x) => !x.directed)!
+    const snap = snapshotFlow(c)
+    setFlowDirection(c, c.to)
+    expect(c.edited).toBeDefined()
+
+    restore(model, snap)
+    expect(c.edited).toBeUndefined()
+  })
+
+  it('계통 확정을 되돌리면 그때 확정한 연결만 다시 미확정이 되고 feeds 로 안 나간다', () => {
+    inferFlowByRules(model)
+    const ruled = model.connections.find((x) => x.inferred)!
+    const systemId = ruled.inferred!.systemId
+    const snap = snapshotConfirm(model, systemId)
+    expect(confirmSystemFlow(model, systemId)).toBeGreaterThan(0)
+
+    restore(model, snap)
+    expect(ruled.inferred!.confirmed).toBe(false)
+    expect(withInferred([ruled], true)[0].directed).toBeFalsy()
   })
 })

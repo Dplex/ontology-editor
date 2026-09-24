@@ -199,6 +199,8 @@ export type Viewer = {
   setWallsVisible(on: boolean): void
   /** 편집 모드를 켜고 끈다. 끄면 3D 는 보기 전용이고, 누르고 끄는 것은 전부 시점 조작이다. */
   setEditMode(on: boolean): void
+  /** 편집 모드에서 무언가를 끄는 중인가. 그동안의 Ctrl+Z 는 받지 않는다(Esc 가 취소다). */
+  isDragging(): boolean
   /** 편집 모드에서 고른 설비를 끌어 놓으면 부른다. 옮긴 거리를 IFC 좌표(미터)로 넘긴다. 높이는 그대로다. */
   onEquipmentMove(handler: (id: string, delta: Vec3) => void): void
   /** 편집 모드에서 설비가 아닌 바닥(물리존 판)을 누르면 부른다. */
@@ -1044,6 +1046,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       drawHandles()
       drawArrows()
       if (hoverAt) hoverPending = true
+    },
+
+    isDragging() {
+      return drag !== null
     },
 
     onEquipmentMove(handler) {

@@ -31,11 +31,17 @@ import {
   moveSpaceVertex,
   completePosition,
   renameSpace,
+  restore,
+  snapshotConfirm,
+  snapshotEquipment,
+  snapshotFlow,
+  snapshotSpace,
   setFlowDirection,
   summarize,
   wouldSelfIntersect,
   type BoundaryChange,
   type Change,
+  type Snapshot,
 } from './lib/edit'
 
 // 테마는 라이트가 기본이고, 고른 값만 저장한다. 선행 스크립트(index.html)가 첫 페인트
@@ -226,8 +232,11 @@ const cm = (v: number) => Math.round(v * 100) / 100
 function relocate(equipmentId: string, to: Vec3): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
+  const snapshot = snapshotEquipment(model.value, equipmentId)
+  const at = mark()
   const change = moveEquipment(model.value, equipmentId, to)
   if (!change) return false
+  remember(`${change.equipmentName || '설비'} 옮김`, snapshot, at)
   shiftMesh(equipmentId, before, to)
   changes.value = [...changes.value, change]
   triggerRef(model)
@@ -274,8 +283,11 @@ function dropEquipment(equipmentId: string, delta: Vec3) {
 function moveToStorey(equipmentId: string, storeyId: string) {
   if (!model.value) return
   const before = equipmentById.value.get(equipmentId)?.position ?? null
+  const snapshot = snapshotEquipment(model.value, equipmentId)
+  const at = mark()
   const change = moveEquipmentToStorey(model.value, equipmentId, storeyId)
   if (!change) return
+  remember(`${change.equipmentName || '설비'} 층 옮김`, snapshot, at)
   shiftMesh(equipmentId, before, equipmentById.value.get(equipmentId)?.position ?? null)
   changes.value = [...changes.value, change]
   storeyMoved.value = new Set([...storeyMoved.value, equipmentId])
@@ -295,6 +307,74 @@ const editNotice = ref('')
 const areaChanges = ref<BoundaryChange[]>([])
 const selfIntersecting = computed(() => areaChanges.value.some((c) => c.selfIntersecting))
 
+// --- 되돌리기 (Ctrl+Z) -------------------------------------------------------------
+//
+// 3D 와 표에서 한 편집을 한 줄로 쌓는다. 어디서 고쳤든 사람에게는 같은 편집이다. 한 단계는 한 번의 조작이고
+// (끌기는 누르고 놓기까지), 거부된 것은 쌓지 않는다. 되돌리기는 편집 전 스냅숏을 되돌려 놓고 소속을 다시
+// 판정한다(edit.ts 의 restore). 리포트는 편집이 붙인 만큼 잘라 낸다 — summarize 가 남은 이력으로 다시 접으므로
+// 그 편집 전의 리포트와 같아진다. 새 파일을 열거나 덧붙일 때만 비운다.
+const UNDO_LIMIT = 100
+type Mark = { changes: number; areaChanges: number; confirmations: number; storeyMoved: Set<string> }
+type HistoryEntry = Mark & { label: string; snapshot: Snapshot }
+const history = shallowRef<HistoryEntry[]>([])
+const mark = (): Mark => ({
+  changes: changes.value.length,
+  areaChanges: areaChanges.value.length,
+  confirmations: confirmations.value.length,
+  storeyMoved: storeyMoved.value,
+})
+function remember(label: string, snapshot: Snapshot | null, at: Mark) {
+  if (!snapshot) return
+  const next = [...history.value, { ...at, label, snapshot }]
+  // 넘치면 가장 오래된 것부터 버린다. 경계 스냅숏은 외곽선을 통째로 들고 있어 무한히 쌓지 않는다.
+  history.value = next.length > UNDO_LIMIT ? next.slice(-UNDO_LIMIT) : next
+  editNotice.value = ''
+}
+
+function undo() {
+  const m = model.value
+  const entry = history.value.at(-1)
+  if (!m || !entry) return
+  history.value = history.value.slice(0, -1)
+  const s = entry.snapshot
+  // 형상도 되돌린다. 안 하면 다시 그릴 때 옮긴 자리에 남는다.
+  if (s.kind === 'equipment') shiftMesh(s.id, equipmentById.value.get(s.id)?.position ?? null, s.position)
+  restore(m, s)
+  changes.value = changes.value.slice(0, entry.changes)
+  areaChanges.value = areaChanges.value.slice(0, entry.areaChanges)
+  confirmations.value = confirmations.value.slice(0, entry.confirmations)
+  storeyMoved.value = entry.storeyMoved
+  if (s.kind === 'equipment') {
+    triggerRef(model)
+    redraw()
+  } else if (s.kind === 'space') {
+    triggerRef(model)
+    viewer?.updateSpaces(m)
+    sceneVersion.value++
+  } else {
+    // 방향·확정은 소속과 상관이 없다. 모델 전체에 갱신 신호를 보내지 않는다(confirmRule 과 같은 이유).
+    flowVersion.value++
+  }
+  editNotice.value = `되돌렸습니다: ${entry.label}`
+}
+
+/** 글자를 치는 칸. 여기의 Ctrl+Z 는 그 칸의 실행취소다. 체크박스·선택 상자는 치는 칸이 아니다. */
+function isTextEntry(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable || target instanceof HTMLTextAreaElement) return true
+  return target instanceof HTMLInputElement && !['checkbox', 'radio', 'button', 'submit', 'range', 'color', 'file'].includes(target.type)
+}
+
+function onUndoKey(e: KeyboardEvent) {
+  if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'z') return
+  // 보기 모드에는 고치는 손잡이가 없으니 되돌릴 것도 보이지 않는다. 끄는 중에는 Esc 가 취소다.
+  if (!editing.value || isTextEntry(e.target) || viewer?.isDragging()) return
+  e.preventDefault()
+  undo()
+}
+window.addEventListener('keydown', onUndoKey)
+onBeforeUnmount(() => window.removeEventListener('keydown', onUndoKey))
+
 function applyVertex(spaceId: string, index: number, axis: 0 | 1, raw: string, current: readonly number[]) {
   const value = Number(raw)
   if (!model.value || !Number.isFinite(value)) return
@@ -302,11 +382,17 @@ function applyVertex(spaceId: string, index: number, axis: 0 | 1, raw: string, c
   const point: [number, number] = [current[0], current[1]]
   point[axis] = value
 
-  recordBoundary(moveSpaceVertex(model.value, spaceId, index, point))
+  moveVertex(spaceId, index, point)
 }
 
-function recordBoundary(change: BoundaryChange | null) {
-  if (!change || !model.value) return
+/** 꼭짓점 하나를 옮긴다. 표와 3D 가 같이 쓴다. 자기 교차를 막을지는 부르는 쪽이 정한다. */
+function moveVertex(spaceId: string, index: number, to: Vec2) {
+  if (!model.value) return
+  const snapshot = snapshotSpace(model.value, spaceId)
+  const at = mark()
+  const change = moveSpaceVertex(model.value, spaceId, index, to)
+  if (!change) return
+  remember(`${change.spaceName} 꼭짓점`, snapshot, at)
   areaChanges.value = [...areaChanges.value, change]
   changes.value = [...changes.value, ...change.equipment]
   triggerRef(model)
@@ -329,7 +415,7 @@ function dropVertex(spaceId: string, index: number, raw: Vec2) {
     return
   }
   editNotice.value = ''
-  recordBoundary(moveSpaceVertex(model.value, spaceId, index, to))
+  moveVertex(spaceId, index, to)
 }
 
 // --- 편집 목록을 좁히기 ----------------------------------------------------------
@@ -368,7 +454,11 @@ const editEquipment = computed(() =>
 
 function applyRename(spaceId: string, name: string) {
   if (!model.value) return
-  renameSpace(model.value, spaceId, name)
+  const snapshot = snapshotSpace(model.value, spaceId)
+  if (snapshot?.kind === 'space' && snapshot.longName === name) return
+  const at = mark()
+  if (!renameSpace(model.value, spaceId, name)) return
+  remember(`이름 ${snapshot?.kind === 'space' ? snapshot.longName || '(없음)' : ''} → ${name}`, snapshot, at)
   triggerRef(model)
 }
 
@@ -522,8 +612,11 @@ const selectedRule = computed(() => {
 
 function confirmRule(systemId: string, systemName: string) {
   if (!model.value) return
+  const snapshot = snapshotConfirm(model.value, systemId)
+  const at = mark()
   const n = confirmSystemFlow(model.value, systemId)
   if (n === 0) return
+  remember(`계통 ${systemName} 확정`, snapshot, at)
   confirmations.value = [...confirmations.value, { systemName, count: n }]
   flowVersion.value++
 }
@@ -572,7 +665,16 @@ function relClass(n: NeighborRow) {
 // 포트가 방향을 말하지 않은 연결에 사람이 방향을 정한다. from 이 null 이면 정한 것을 지운다.
 // 확정과 같은 이유로 모델 전체에 갱신 신호를 보내지 않고 flowVersion 만 올린다.
 function setFlow(n: NeighborRow, from: string | null) {
-  if (setFlowDirection(n.connection, from)) flowVersion.value++
+  flowTo(n.connection, from)
+}
+/** 연결 하나의 방향을 정한다. 표의 버튼과 3D 화살표가 같이 쓴다. */
+function flowTo(c: Connection, from: string | null) {
+  const snapshot = snapshotFlow(c)
+  const at = mark()
+  if (!setFlowDirection(c, from)) return
+  const name = (id: string) => equipmentById.value.get(id)?.name || id
+  remember(`${name(c.from)}–${name(c.to)} 방향`, snapshot, at)
+  flowVersion.value++
 }
 // --- 3D 의 연결 화살표 ------------------------------------------------------------
 //
@@ -604,7 +706,7 @@ function cycleFlow(key: string) {
   editNotice.value = ''
   const other = c.from === id ? c.to : c.from
   const next = !c.edited ? id : c.edited.from === id ? other : null
-  if (setFlowDirection(c, next)) flowVersion.value++
+  flowTo(c, next)
 }
 const hasArrows = computed(() => arrowConnections.value.length > 0)
 
@@ -1095,6 +1197,7 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     editNotice.value = ''
     storeyMoved.value = new Set()
     positionDrafts.value = new Map()
+    history.value = []
     // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다.
     changes.value = []
     areaChanges.value = []
@@ -1153,6 +1256,8 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     selectedId.value = null
     selectedSpaceId.value = null
     positionDrafts.value = new Map()
+    // 합치면 모델을 새로 만든다. 예전 모델을 가리키는 스냅숏은 뜻이 없다.
+    history.value = []
     selectedSystemId.value = null
     await nextTick()
     await paint()
@@ -1346,6 +1451,16 @@ function exportTTL() {
         <b>편집 중</b>
         <span>바뀐 것 {{ changeCount }}건</span>
         <a href="#changes" class="link">목록 보기</a>
+        <button
+          type="button"
+          class="ghost undo"
+          :disabled="!history.length"
+          :title="history.length ? `되돌리기: ${history.at(-1)!.label}` : '되돌릴 편집이 없습니다'"
+          @click="undo"
+        >
+          되돌리기 <kbd>Ctrl+Z</kbd>
+        </button>
+        <span v-if="history.length" class="muted last-edit">{{ history.at(-1)!.label }}</span>
         <span class="grow"></span>
         <button type="button" class="ghost" @click="exportTTL">의미 내보내기 (TTL)</button>
         <button type="button" class="ghost" @click="mode = 'view'">보기로</button>
