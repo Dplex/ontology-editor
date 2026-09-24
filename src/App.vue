@@ -385,11 +385,24 @@ function remember(label: string, snapshot: Snapshot | null, at: Mark, coalesce?:
   if (coalesce && last?.coalesce === coalesce && time - last.time < COALESCE_MS) {
     // 첫 편집 전의 스냅숏과 표시(mark)를 그대로 둔다. 되돌리면 묶인 것 전부가 한 번에 돌아간다.
     history.value = [...history.value.slice(0, -1), { ...last, label, time }]
+    settleLater()
     return
   }
   const next = [...history.value, { ...at, label, snapshot, coalesce, time }]
   // 넘치면 가장 오래된 것부터 버린다. 경계 스냅숏은 외곽선을 통째로 들고 있어 무한히 쌓지 않는다.
   history.value = next.length > UNDO_LIMIT ? next.slice(-UNDO_LIMIT) : next
+  if (coalesce) settleLater()
+}
+/**
+ * 묶는 시간은 앞 편집이 **끝난** 때부터 잰다. 큰 모델에서 편집 하나가 화면을 다시 그리는 데 오래 걸리면, 누른
+ * 때부터 재는 사이 묶는 시간이 지나 방향키 다섯 번이 되돌리기 다섯 단계가 됐다. 화면 갱신(Vue flush, 3D) 뒤에
+ * 도는 setTimeout 에서 시각을 다시 찍는다.
+ */
+function settleLater() {
+  window.setTimeout(() => {
+    const top = history.value.at(-1)
+    if (top?.coalesce) top.time = Date.now()
+  }, 0)
 }
 
 function undo() {
@@ -1855,10 +1868,29 @@ const unlocatedLine = computed(() => {
 })
 
 // 열린 모델의 등급 칩. 파일 목록의 칩과 같은 계산이라, 덧붙인 뒤 어느 칸이 찼는지 견줄 수 있다.
-const currentTiers = computed(() => {
-  void flowVersion.value
-  return model.value ? profileOf(model.value).tiers : []
-})
+//
+// 모델 전체를 다시 재므로 병원 MEP(1만 3천 개)에서 한 번에 0.14초가 든다. 편집마다 재면 방향키를 누를 때마다
+// 그만큼 막힌다. 새 모델은 바로 재고, 편집은 멈춘 뒤(TIERS_DELAY) 한 번 잰다.
+const currentTiers = shallowRef<Profile['tiers']>([])
+const TIERS_DELAY = 400
+let tiersTimer: number | undefined
+let tieredModel: Model | null = null
+watch([model, flowVersion], () => {
+  window.clearTimeout(tiersTimer)
+  const m = model.value
+  if (!m) {
+    currentTiers.value = []
+    tieredModel = null
+    return
+  }
+  const measure = () => (currentTiers.value = profileOf(m).tiers)
+  if (m !== tieredModel) {
+    tieredModel = m
+    measure()
+  } else {
+    tiersTimer = window.setTimeout(measure, TIERS_DELAY)
+  }
+}, { immediate: true })
 
 const warnings = computed(() => [...(model.value?.warnings ?? []), ...(unlocatedLine.value ? [unlocatedLine.value] : [])])
 
