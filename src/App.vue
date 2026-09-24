@@ -1534,7 +1534,30 @@ function importInWorker(bytes: ArrayBuffer): Promise<{ model: Model; meshes: Mes
   })
 }
 
+// --- 편집을 잃지 않게 ----------------------------------------------------------------
+//
+// 편집은 탭 안에만 있다(내보낸 파일에만 남는다). 새로 고침·탭 닫기·다른 파일 열기가 편집을 조용히 버리면, 한 시간
+// 고친 것이 경고 없이 사라진다. 편집이 남아 있으면 먼저 묻는다.
+const hasEdits = computed(() => changeCount.value > 0 || history.value.length > 0)
+function onBeforeUnload(e: BeforeUnloadEvent) {
+  if (!hasEdits.value) return
+  e.preventDefault()
+  // 옛 브라우저는 returnValue 가 있어야 묻는다. 문구는 브라우저가 정한 것으로 바뀐다.
+  e.returnValue = ''
+}
+window.addEventListener('beforeunload', onBeforeUnload)
+onBeforeUnmount(() => window.removeEventListener('beforeunload', onBeforeUnload))
+
 async function load(name: string, read: () => Promise<ArrayBuffer>) {
+  if (
+    hasEdits.value &&
+    !window.confirm(
+      `지금 파일에서 고친 것(편집 ${history.value.length}번)이 사라집니다. 편집은 내보낸 TTL·GeoJSON 에만 남습니다.
+
+${name} 을 열까요?`,
+    )
+  )
+    return
   busy.value = true
   error.value = ''
   beginProgress('파일 읽는 중')
@@ -1701,8 +1724,11 @@ const currentTiers = computed(() => {
 const warnings = computed(() => [...(model.value?.warnings ?? []), ...(unlocatedLine.value ? [unlocatedLine.value] : [])])
 
 function onPick(event: Event) {
-  const file = (event.target as HTMLInputElement).files?.[0]
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
   if (file) void load(file.name, () => file.arrayBuffer())
+  // 같은 파일을 다시 고를 수 있게 비운다. 편집이 남아 열기를 물리친 뒤 같은 파일을 다시 고르면 change 가 안 온다.
+  input.value = ''
 }
 
 function onDrop(event: DragEvent) {
