@@ -605,7 +605,31 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
     case 'nextUnknown':
     case 'prevUnknown':
       return stepUnknown(s.id === 'nextUnknown' ? 1 : -1)
+    case 'nextIssue':
+    case 'prevIssue':
+      return stepIssue(s.id === 'nextIssue' ? 1 : -1)
   }
+}
+
+/**
+ * N. 완전성 검사를 할 일 목록으로 쓴다 — 어긴 것을 하나씩 골라 고치고 N 으로 다음 것에 간다. 고친 것은 목록에서
+ * 빠지므로, 고른 것이 목록에 없으면 남은 것의 처음부터 간다. 펼친 규칙이 없으면 어긴 것이 있는 첫 규칙을 편다.
+ */
+function stepIssue(dir: 1 | -1): boolean {
+  const failing = checks.value.filter((c) => !c.skipped && c.failed.length > 0)
+  if (!failing.length) {
+    note('완전성 검사에서 어긴 것이 없습니다')
+    return true
+  }
+  const check = openCheck.value && openCheck.value.failed.length ? openCheck.value : failing[0]
+  openCheckKey.value = check.key
+  const ids = check.failed
+  const here = selectedId.value ? ids.indexOf(selectedId.value) : -1
+  const i = here < 0 ? (dir > 0 ? 0 : ids.length - 1) : (here + dir + ids.length) % ids.length
+  select(ids[i])
+  const e = equipmentById.value.get(ids[i])
+  note(`${check.rule} — 어긴 것 ${i + 1}/${ids.length}: ${shortName(e?.name || e?.ifcClass)}`)
+  return true
 }
 
 /** Esc. 짚은 연결 → 고른 설비·물리존·계통 → 펼친 검사 순으로 하나씩 푼다. */
@@ -994,6 +1018,44 @@ const selectedRule = computed(() => {
     checked,
     pct: checked > 0 ? Math.round(((tally?.agree ?? 0) / checked) * 100) : null,
   }
+})
+
+/**
+ * 규칙 방향이 선 계통 전부. 확정은 고른 설비의 패널에서만 할 수 있어서, 어느 계통이 남았는지 보려면 계통마다 설비를
+ * 하나씩 찾아 골라야 했다. 확정 안 한 것부터, 규칙 방향이 많은 것부터 둔다. 일치율은 그 계통에서 포트가 이미 말한
+ * 연결에 같은 규칙을 대 본 값이다(확정한 계통은 규칙을 다시 돌리지 않아 비어 있다).
+ */
+const ruleSystems = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const r = ruleReport.value
+  if (!m) return []
+  const bySystem = new Map<string, { count: number; confirmed: number }>()
+  for (const c of m.connections) {
+    if (!c.inferred) continue
+    const row = bySystem.get(c.inferred.systemId) ?? { count: 0, confirmed: 0 }
+    row.count++
+    if (c.inferred.confirmed) row.confirmed++
+    bySystem.set(c.inferred.systemId, row)
+  }
+  return [...bySystem]
+    .map(([id, n]) => {
+      const system = systemById.value.get(id)
+      const tally = r?.bySystem[id]
+      const checked = tally ? tally.agree + tally.disagree : 0
+      return {
+        id,
+        name: system?.name || id,
+        kind: systemKind(system?.kind)?.label ?? '',
+        color: systemColor.value.get(id) ?? null,
+        count: n.count,
+        confirmed: n.confirmed === n.count,
+        agree: tally?.agree ?? 0,
+        checked,
+        pct: checked > 0 ? Math.round(((tally?.agree ?? 0) / checked) * 100) : null,
+      }
+    })
+    .sort((a, b) => Number(a.confirmed) - Number(b.confirmed) || b.count - a.count)
 })
 
 function confirmRule(systemId: string, systemName: string) {
@@ -2587,7 +2649,7 @@ function exportTTL() {
           class="checks"
         >
           <p class="hint">
-            DT 가 쓰려면 이어져 있어야 하는 것을 규칙으로 쟀습니다. 원천·말단은 <Src kind="dict" /> 사전으로 가르고, 흐름과 소속은
+            <kbd>N</kbd> 으로 어긴 것을 하나씩 고르며 고칩니다. DT 가 쓰려면 이어져 있어야 하는 것을 규칙으로 쟀습니다. 원천·말단은 <Src kind="dict" /> 사전으로 가르고, 흐름과 소속은
             <Src kind="calc" /> 추정이 섞여 있습니다<template v-if="showRules && hasRules">(규칙 방향 포함)</template>. 줄을 누르면 어긴 것을
             3D 에 칠합니다.
           </p>
@@ -2648,6 +2710,58 @@ function exportTTL() {
               {{ openCheck.failed.length }}개 중 {{ CHECK_LIMIT }}개만 보입니다. 3D 에는 전부 칠했습니다.
             </p>
           </div>
+        </Fold>
+
+        <!-- 규칙 방향을 계통별로. 확정할 것이 무엇이 남았는지와 그 근거(포트와의 일치율)를 한 표로 본다. -->
+        <Fold
+          v-if="ruleSystems.length"
+          title="규칙 방향 확정 (계통별)"
+          :meta="`계통 ${ruleSystems.length}개 · 확정 ${ruleSystems.filter((r) => r.confirmed).length}개`"
+          :default-open="false"
+          class="rule-systems"
+        >
+          <p class="hint">
+            <Src kind="dict" /> 계통 종류와 설비 종류로 정한 방향입니다. 확정한 계통만 brick:feeds 로 나갑니다. 일치율은 그 계통에서
+            포트(BIM)가 이미 방향을 말한 연결에 같은 규칙을 대 본 값이고, 대 볼 연결이 없으면 비어 있습니다. 이름을 누르면 3D 에
+            그 계통만 남깁니다.
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>계통 <Src kind="bim" /></th>
+                <th>종류 <Src kind="dict" /></th>
+                <th class="num">규칙 방향</th>
+                <th class="num">포트와 일치</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="r in ruleSystems" :key="r.id" :class="{ chosen: selectedSystemId === r.id }">
+                <td class="sys">
+                  <i :style="{ background: r.color ?? 'transparent' }"></i>
+                  <button type="button" class="link" :aria-pressed="selectedSystemId === r.id" @click="toggleSystem(r.id)">
+                    {{ r.name }}
+                  </button>
+                </td>
+                <td :class="{ muted: !r.kind }">{{ r.kind || '모름' }}</td>
+                <td class="num mono">{{ r.count }}</td>
+                <td class="num mono">
+                  <template v-if="r.pct !== null">
+                    <b :class="{ low: r.pct < 80 }">{{ r.pct }}%</b> <span class="muted">{{ r.agree }}/{{ r.checked }}</span>
+                  </template>
+                  <span v-else class="muted">—</span>
+                </td>
+                <td class="rule-state">
+                  <span v-if="r.confirmed" class="confirmed">확정함</span>
+                  <button v-else-if="editing" type="button" class="ghost" @click="confirmRule(r.id, r.name)">확정</button>
+                  <span v-else class="muted">편집 모드에서 확정</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-if="ruleSystems.some((r) => !r.confirmed && r.pct !== null && r.pct < 80)" class="hint">
+            일치율이 80% 아래인 계통은 규칙이 이 건물에 잘 맞지 않습니다. 확정하기 전에 3D 에서 흐름을 확인하세요.
+          </p>
         </Fold>
 
         <Fold title="층별 요약" :meta="`${model.storeys.length}개 층`" class="storeys">

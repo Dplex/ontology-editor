@@ -1281,7 +1281,8 @@ th {
   margin-left: 0.5rem;
 }
 
-.rule-system .low {
+.rule-system .low,
+.rule-systems .low {
   color: var(--warn-fg);
 }
 
@@ -1514,15 +1515,18 @@ th {
   background: var(--surface-soft);
 }
 
-.by-system tbody tr.chosen > td {
+.by-system tbody tr.chosen > td,
+.rule-systems tbody tr.chosen > td {
   background: var(--accent-soft);
 }
 
-.by-system .sys {
+.by-system .sys,
+.rule-systems .sys {
   white-space: nowrap;
 }
 
-.by-system .sys i {
+.by-system .sys i,
+.rule-systems .sys i {
   display: inline-block;
   width: 0.7rem;
   height: 0.7rem;
@@ -1824,4 +1828,13 @@ kbd {
   position: static;
   max-width: none;
   margin: 0.6rem 0;
+}
+
+.rule-systems .rule-state {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.rule-systems .confirmed {
+  margin-left: 0;
 }

@@ -229,3 +229,36 @@ test('물리존을 고르면 [ ] 로 꼭짓점을 짚고 방향키로 옮기며,
   await expect(panel).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('계통별 확정 표에서 남은 계통과 일치율을 보고 바로 확정하며, 되돌리면 다시 확정 전이다', async ({ page }) => {
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await page.getByRole('button', { name: /규칙 방향 확정 \(계통별\)/ }).click()
+  const fold = page.locator('.rule-systems')
+  const row = fold.locator('tbody tr', { hasText: 'AHU-1 급기 계통' })
+  await expect(row).toContainText('100%')
+  await expect(fold).toContainText('확정 0개')
+
+  await row.getByRole('button', { name: '확정' }).click()
+  await expect(row).toContainText('확정함')
+  await expect(page.locator('.report')).toContainText('AHU-1 급기 계통')
+  await expect(fold).toContainText('확정 1개')
+
+  // 이름을 누르면 3D 에 그 계통만 남긴다(범례와 같은 선택).
+  await row.getByRole('button', { name: 'AHU-1 급기 계통' }).click()
+  await expect(row).toHaveClass(/chosen/)
+
+  await page.keyboard.press('Control+z')
+  await expect(row.getByRole('button', { name: '확정' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('N 은 완전성 검사에서 어긴 것을 하나씩 고르고, 펼친 규칙이 없으면 첫 규칙을 편다', async ({ page }) => {
+  const errors = await open(page)
+  await page.keyboard.press('n')
+  await expect(page.locator('.key-note')).toContainText('어긴 것 1/1')
+  await expect(page.locator('.picked h3')).toBeVisible()
+  // 펼친 규칙이 표에 표시된다.
+  await expect(page.locator('.checks tbody tr.chosen')).toHaveCount(1)
+  expect(errors).toEqual([])
+})

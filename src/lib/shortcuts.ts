@@ -26,6 +26,8 @@ export type ShortcutId =
   | 'kind'
   | 'nextUnknown'
   | 'prevUnknown'
+  | 'nextIssue'
+  | 'prevIssue'
 
 /** 키 하나의 조합. `ctrl` 은 Ctrl 또는 ⌘ 다. `shift: 'any'` 는 Shift 를 눌렀든 말든 받는다(처리하는 쪽이 본다). */
 type Combo = ({ code: string; key?: never } | { key: string; code?: never }) & { shift?: boolean | 'any'; ctrl?: boolean }
@@ -49,6 +51,14 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'mode', combos: [{ code: 'KeyE' }], keys: ['E'], label: '보기 ↔ 편집', group: '어디서나' },
   { id: 'save', combos: [{ code: 'KeyS', ctrl: true }], keys: ['Ctrl+S'], label: '편집 저장(파일로 내려받기)', group: '어디서나' },
   { id: 'search', combos: [{ code: 'Slash' }], keys: ['/'], label: '이름으로 찾기 칸으로', group: '어디서나' },
+  {
+    id: 'nextIssue',
+    combos: [{ code: 'KeyN' }],
+    keys: ['N'],
+    label: '완전성 검사에서 어긴 다음 것으로 (펼친 규칙, 없으면 첫 규칙)',
+    group: '어디서나',
+  },
+  { id: 'prevIssue', combos: [{ code: 'KeyN', shift: true }], keys: ['Shift+N'], label: '어긴 이전 것으로', group: '어디서나' },
   {
     id: 'escape',
     combos: [{ code: 'Escape' }],
