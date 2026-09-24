@@ -52,6 +52,9 @@ export function moveEquipment(model: Model, equipmentId: string, to: Vec3): Chan
   const fromSpaceId = equipment.spaceId
   equipment.position = to
   equipment.positionSource = 'edited'
+  // BIM 이 말한 소속은 BIM 이 말한 자리에 대한 것이다. 사람이 옮긴 뒤에도 남겨 두면 방 밖으로 끌어낸
+  // 설비가 예전 방에 그대로 속한다. 옮긴 설비는 좌표로 다시 판정한다.
+  if (equipment.spaceSource === 'bim') equipment.spaceSource = null
   assignEquipmentToSpaces(model)
   const toSpaceId = equipment.spaceId
 
@@ -108,6 +111,9 @@ export function flowEdits(model: Model): FlowEdit[] {
  *
  * 층은 좌표로 판정하지 않는다. 층고를 모르는 모델이 있고, 천장 설비는 다음 층 바닥과 높이가
  * 겹쳐서 z 만으로는 어느 층인지 정해지지 않기 때문이다. 그래서 층은 사람이 고른다.
+ *
+ * 좌표가 있으면 높이도 두 층 바닥의 차만큼 옮긴다. 층만 바꾸고 z 를 두면 목록은 새 층인데 3D 와
+ * GeoJSON 은 예전 층에 그대로 있다. 좌표가 없는 설비는 좌표를 만들지 않는다.
  */
 export function moveEquipmentToStorey(model: Model, equipmentId: string, storeyId: string): Change | null {
   const equipment = findEquipment(model, equipmentId)
@@ -115,6 +121,15 @@ export function moveEquipmentToStorey(model: Model, equipmentId: string, storeyI
 
   const target = model.storeys.find((s) => s.id === storeyId)
   if (!target) return null
+  const source = model.storeys.find((s) => s.equipment.includes(equipment))
+
+  if (equipment.position && source && source !== target) {
+    const [x, y, z] = equipment.position
+    equipment.position = [x, y, z + target.elevation - source.elevation]
+    equipment.positionSource = 'edited'
+  }
+  // 예전 층의 방을 가리키는 BIM 소속은 새 층에서 뜻이 없다.
+  if (source !== target && equipment.spaceSource === 'bim') equipment.spaceSource = null
 
   for (const storey of model.storeys) {
     const at = storey.equipment.findIndex((e) => e.id === equipmentId)
@@ -218,6 +233,30 @@ function diffSpaces(
   return out
 }
 
+/** 꼭짓점 하나를 옮긴 고리. 닫힌 고리면 첫 점과 끝 점을 같이 옮긴다. */
+function ringWithVertex(footprint: readonly Vec2[], vertexIndex: number, to: Vec2): Vec2[] {
+  const ring = [...footprint]
+  ring[vertexIndex] = to
+  // 닫힌 고리의 첫 점과 끝 점은 같은 점이다. 하나만 옮기면 고리가 벌어진다.
+  const last = ring.length - 1
+  const closed = ring.length >= 2 && footprint[0][0] === footprint[last][0] && footprint[0][1] === footprint[last][1]
+  if (closed) {
+    if (vertexIndex === 0) ring[last] = to
+    else if (vertexIndex === last) ring[0] = to
+  }
+  return ring
+}
+
+/**
+ * 꼭짓점을 거기로 옮기면 경계가 자기 자신과 교차하는가. 3D 에서 끌어 놓기 전에 묻는다 — 놓고 나서
+ * 알리면 이미 넓이와 소속이 뜻 없는 값으로 바뀐 뒤다.
+ */
+export function wouldSelfIntersect(model: Model, spaceId: string, vertexIndex: number, to: Vec2): boolean {
+  const space = findSpace(model, spaceId)
+  if (!space || vertexIndex < 0 || vertexIndex >= space.footprint.length) return false
+  return isSelfIntersecting(ringWithVertex(space.footprint, vertexIndex, to))
+}
+
 /**
  * 물리존 경계의 꼭짓점 하나를 옮긴다(E2).
  *
@@ -236,16 +275,7 @@ export function moveSpaceVertex(
 
   const before = snapshotSpaces(model)
   const fromAreaM2 = space.areaM2
-  const ring = [...space.footprint]
-  ring[vertexIndex] = to
-
-  // 닫힌 고리의 첫 점과 끝 점은 같은 점이다. 하나만 옮기면 고리가 벌어진다.
-  const last = ring.length - 1
-  const closed = ring.length >= 2 && space.footprint[0][0] === space.footprint[last][0] && space.footprint[0][1] === space.footprint[last][1]
-  if (closed) {
-    if (vertexIndex === 0) ring[last] = to
-    else if (vertexIndex === last) ring[0] = to
-  }
+  const ring = ringWithVertex(space.footprint, vertexIndex, to)
 
   space.footprint = ring
   space.areaM2 = polygonArea(ring)

@@ -10,6 +10,7 @@ import {
   renameSpace,
   replaceSpaceFootprint,
   summarize,
+  wouldSelfIntersect,
   type Change,
 } from './edit'
 import type { Model } from './model'
@@ -46,6 +47,16 @@ describe('설비 이동 (E5)', () => {
     expect(change.summary).toContain('위치만 바뀌었고')
   })
 
+  it('BIM 이 소속을 말한 설비도 옮기면 좌표로 다시 판정한다', () => {
+    // BIM 의 소속은 BIM 이 말한 자리에 대한 것이다. 방 밖으로 끌어낸 설비가 예전 방에 남으면 안 된다.
+    const declared = model.storeys.flatMap((s) => s.equipment).find((e) => e.spaceSource === 'bim')!
+    expect(declared.spaceId).not.toBe(null)
+
+    const change = moveEquipment(model, declared.id, [50, 50, 1])!
+    expect(change.toSpaceId).toBe(null)
+    expect(declared.spaceSource).toBe(null)
+  })
+
   it('좌표를 바꾸면 소속 판정이 함께 돈다', () => {
     // 호출부가 재판정을 잊을 수 있는 구조면 좌표와 소속이 어긋난 채로 남는다.
     moveEquipment(model, equip('AHU-1').id, [50, 50, 3.2])
@@ -77,6 +88,27 @@ describe('층 이동', () => {
     const change = moveEquipmentToStorey(model, equip('AHU-1').id, model.storeys[0].id)!
     expect(change.summary).toContain('1F 층으로')
     expect(model.storeys[0].equipment.filter((e) => e.name === 'AHU-1')).toHaveLength(1)
+  })
+
+  it('다른 층으로 옮기면 높이도 두 층 바닥의 차만큼 옮긴다', () => {
+    // mep.ifc 는 층이 하나라 위층을 붙인다. 층만 바꾸고 z 를 두면 3D 는 예전 층에 그대로 있다.
+    model.storeys.push({ id: 'up', name: '2F', elevation: 3.5, spaces: [], walls: [], openings: [], equipment: [] })
+    const ahu = equip('AHU-1')
+    const [x, y, z] = ahu.position!
+
+    const change = moveEquipmentToStorey(model, ahu.id, 'up')!
+    expect(ahu.position).toEqual([x, y, z + 3.5])
+    expect(ahu.positionSource).toBe('edited')
+    expect(model.storeys[1].equipment).toContain(ahu)
+    // 새 층에는 방이 없으니 소속이 사라진다.
+    expect(change.toSpaceId).toBe(null)
+  })
+
+  it('좌표가 없는 설비는 층을 옮겨도 좌표를 만들지 않는다', () => {
+    model.storeys.push({ id: 'up', name: '2F', elevation: 3.5, spaces: [], walls: [], openings: [], equipment: [] })
+    const sensor = equip('TEMP-101-01')
+    moveEquipmentToStorey(model, sensor.id, 'up')
+    expect(sensor.position).toBe(null)
   })
 
   it('없는 층이면 아무것도 안 한다', () => {
@@ -121,6 +153,13 @@ describe('결과 리포트 (PRD #21)', () => {
 
 describe('물리존 경계 수정 (E2)', () => {
   const office = () => model.storeys[0].spaces[0]
+
+  it('놓기 전에 자기 교차를 물을 수 있고, 묻기만 해서는 아무것도 바뀌지 않는다', () => {
+    // (0,0)-(10,0)-(10,8)-(0,8). 첫 점을 (20,4) 로 끌면 두 변이 엇갈린다.
+    expect(wouldSelfIntersect(model, office().id, 0, [20, 4])).toBe(true)
+    expect(wouldSelfIntersect(model, office().id, 1, [12, 0])).toBe(false)
+    expect(office().areaM2).toBeCloseTo(80, 6)
+  })
 
   it('넓이가 다시 계산된다', () => {
     // 사무실은 (0,0)-(10,8) 이라 80㎡ 다. 한 꼭짓점을 당기면 줄어든다.

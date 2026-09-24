@@ -15,14 +15,20 @@ import {
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  ConeGeometry,
   DirectionalLight,
   DoubleSide,
   ExtrudeGeometry,
   Group,
+  Line,
+  LineBasicMaterial,
+  LineDashedMaterial,
+  LineLoop,
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
   PerspectiveCamera,
+  Plane,
   Raycaster,
   Scene,
   Shape,
@@ -32,8 +38,9 @@ import {
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import type { Model, Vec2 } from './model'
+import type { Model, Vec2, Vec3 } from './model'
 import type { MeshMap } from './ifc/import'
+import { pointInPolygon } from './mapping'
 
 /**
  * 층을 구분하는 색. 층 수만큼 순환한다.
@@ -152,8 +159,34 @@ export function equipmentMarker(position: readonly [number, number, number], col
   return mesh
 }
 
+/**
+ * 편집 모드에서 고른 설비에 붙은 연결 하나. 화살표로 그리고, 누르면 흐름 방향을 바꾼다.
+ * 뷰어는 흐름의 뜻을 모른다 — 무엇을 어떤 출처로 그릴지는 부르는 쪽이 정한다.
+ */
+export type Arrow = {
+  key: string
+  a: string
+  b: string
+  /** 흐름이 나가는 쪽. null 이면 방향을 모른다(화살촉 없이 점선). */
+  from: string | null
+  source: 'port' | 'edit' | 'rule' | 'none'
+}
+
+/**
+ * 연결 화살표 색. 설비 선택의 상류·하류 색과 달리 **방향의 출처**로 가른다 — 편집할 때 궁금한 것은 어느 쪽이
+ * 상류인가보다 그 방향을 누가 말했는가(고칠 수 있는가)다. 포트(BIM)는 진하게, 사람이 정한 것은 화면의 액센트
+ * 하나로, 규칙(사전)은 옅게 둔다. 규칙과 방향 모름은 점선이다.
+ */
+export const ARROW_COLORS = { port: 0x39424e, edit: 0x2f6fed, rule: 0xa3acb7, none: 0xc2c8cf }
+/** 꼭짓점 손잡이. 화면의 액센트 하나와 같은 색이다. */
+const HANDLE_COLOR = 0x2f6fed
+
+/** 고른 물리존의 외곽선. 닫는 점(첫 점과 같은 끝 점)은 빼고 넘긴다. */
+export type SpaceHandles = { id: string; ring: readonly Vec2[]; elevation: number }
+
 export type Viewer = {
-  setModel(model: Model, meshes?: MeshMap): void
+  /** keepView 면 시점을 그대로 둔다. 편집한 뒤 다시 그릴 때마다 건물 전체로 튀면 어디를 고치던 중인지 잃는다. */
+  setModel(model: Model, meshes?: MeshMap, options?: { keepView?: boolean }): void
   /** 선택과 상류·하류를 색으로 칠한다. null 이면 전부 원래 색으로 되돌린다. */
   setHighlight(highlight: Highlight | null): void
   /** 3D 에서 설비를 고르면 부른다. 빈 곳을 누르면 null 이다. */
@@ -164,6 +197,21 @@ export type Viewer = {
   frame(ids: Iterable<string>): void
   /** 내력벽(과 내력 여부를 모르는 벽)을 켜고 끈다. 모델을 바꿔도 켜 둔 상태는 남는다. */
   setWallsVisible(on: boolean): void
+  /** 편집 모드를 켜고 끈다. 끄면 3D 는 보기 전용이고, 누르고 끄는 것은 전부 시점 조작이다. */
+  setEditMode(on: boolean): void
+  /** 편집 모드에서 고른 설비를 끌어 놓으면 부른다. 옮긴 거리를 IFC 좌표(미터)로 넘긴다. 높이는 그대로다. */
+  onEquipmentMove(handler: (id: string, delta: Vec3) => void): void
+  /** 편집 모드에서 설비가 아닌 바닥(물리존 판)을 누르면 부른다. */
+  onPickSpace(handler: (spaceId: string | null) => void): void
+  /** 고른 물리존의 꼭짓점 손잡이. null 이면 지운다. */
+  setSpaceHandles(space: SpaceHandles | null): void
+  /** 손잡이를 끌어 놓으면 부른다. IFC 평면 좌표로 넘긴다. */
+  onVertexMove(handler: (spaceId: string, index: number, to: Vec2) => void): void
+  /** 연결 화살표. 빈 배열이면 지운다. */
+  setArrows(arrows: readonly Arrow[]): void
+  onArrowClick(handler: (key: string) => void): void
+  /** 물리존 판만 다시 만든다. 경계 하나를 고쳤다고 설비 1만 8천 개까지 다시 만들 까닭이 없다. */
+  updateSpaces(model: Model): void
   dispose(): void
 }
 
@@ -265,21 +313,292 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const pointer = new Vector2()
   let pressedAt: { x: number; y: number } | null = null
 
-  canvas.addEventListener('pointerdown', (e) => {
-    pressedAt = { x: e.clientX, y: e.clientY }
-  })
+  function rayAt(x: number, y: number): Ray {
+    const rect = canvas.getBoundingClientRect()
+    pointer.x = ((x - rect.left) / rect.width) * 2 - 1
+    pointer.y = -((y - rect.top) / rect.height) * 2 + 1
+    raycaster.setFromCamera(pointer, camera)
+    return raycaster.ray
+  }
+
+  const projected = new Vector3()
+  /** 장면의 점이 화면(클라이언트 좌표)의 어디에 찍히는가. 카메라 뒤면 null. */
+  function toScreen(p: Vector3): { x: number; y: number } | null {
+    projected.copy(p).project(camera)
+    if (projected.z > 1) return null
+    const rect = canvas.getBoundingClientRect()
+    return { x: ((projected.x + 1) / 2) * rect.width + rect.left, y: ((1 - projected.y) / 2) * rect.height + rect.top }
+  }
+
+  // --- 편집 ------------------------------------------------------------------
+  //
+  // 편집 모드에서만 3D 가 모델을 고친다. 뷰어는 끌어 놓은 자리만 알리고, 소속 재판정과 변경 기록은 부르는
+  // 쪽이 edit.ts 로 한다. 손잡이·화살표는 모델과 따로(overlay) 두고, 모델을 다시 만들면 비운다 — 부르는 쪽이
+  // 새 모델 기준으로 다시 넘겨야 예전 좌표의 손잡이가 남지 않는다.
+  let editMode = false
+  let selectedPart: string | null = null
+  /** 좌표가 있는 설비. 좌표가 없는 것은 끌지 않는다 — 끌면 원점 근처 어딘가에서 시작한 것이 된다. */
+  let movable = new Set<string>()
+  /** 물리존 판의 윗면. 편집 모드에서 바닥을 눌러 물리존을 고를 때 쓴다. */
+  let spaceTargets: { id: string; y: number; ring: readonly Vec2[] }[] = []
+  let moveHandler: (id: string, delta: Vec3) => void = () => {}
+  let spacePickHandler: (id: string | null) => void = () => {}
+  let vertexHandler: (spaceId: string, index: number, to: Vec2) => void = () => {}
+  let arrowHandler: (key: string) => void = () => {}
+
+  const overlay = new Group()
+  scene.add(overlay)
+  let handleSpace: SpaceHandles | null = null
+  let handles: Mesh[] = []
+  let outline: LineLoop | null = null
+  let arrowSpecs: readonly Arrow[] = []
+  let arrowObjects: (Line | Mesh)[] = []
+  let arrowSegs: { key: string; a: Vector3; b: Vector3 }[] = []
+
+  type Drag =
+    | { kind: 'equipment'; part: Part; original: Float32Array; box: Box3; plane: Plane; start: Vector3; delta: Vector3 }
+    | { kind: 'vertex'; index: number; plane: Plane; offset: Vector3; at: Vector3 }
+  let drag: (Drag & { x: number; y: number; moved: boolean }) | null = null
+
+  function disposeObject(o: Line | Mesh) {
+    overlay.remove(o)
+    o.geometry.dispose()
+    ;(o.material as { dispose(): void }).dispose()
+  }
+
+  /** 손잡이는 화면에서 늘 같은 크기로 보이게 한다. 성수처럼 넓은 모델에서 10cm 상자는 점도 안 된다. */
+  function scaleHandles() {
+    for (const h of handles) h.scale.setScalar(camera.position.distanceTo(h.position) * 0.012)
+  }
+
+  function drawHandles() {
+    for (const h of handles) disposeObject(h)
+    handles = []
+    if (outline) disposeObject(outline)
+    outline = null
+    dirty = true
+    if (!editMode || !handleSpace || handleSpace.ring.length < 3) return
+    // 판 윗면(바닥 + 0.1) 바로 위에 띄운다. 같은 높이면 판과 겹쳐 깜빡인다. 판에 가려지지 않게 깊이는 안 본다.
+    const y = handleSpace.elevation + 0.12
+    const points = handleSpace.ring.map(([x, z]) => new Vector3(...toScene([x, z, 0])).setY(y))
+    outline = new LineLoop(new BufferGeometry().setFromPoints(points), new LineBasicMaterial({ color: HANDLE_COLOR, depthTest: false }))
+    outline.renderOrder = 10
+    overlay.add(outline)
+    for (const p of points) {
+      const h = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial({ color: HANDLE_COLOR, depthTest: false }))
+      h.position.copy(p)
+      h.renderOrder = 11
+      overlay.add(h)
+      handles.push(h)
+    }
+    scaleHandles()
+  }
+
+  function moveHandle(index: number, at: Vector3) {
+    const h = handles[index]
+    if (!h) return
+    h.position.set(at.x, h.position.y, at.z)
+    if (outline) {
+      const position = outline.geometry.getAttribute('position') as BufferAttribute
+      position.setXYZ(index, at.x, h.position.y, at.z)
+      position.needsUpdate = true
+    }
+    scaleHandles()
+  }
+
+  function drawArrows() {
+    for (const o of arrowObjects) disposeObject(o)
+    arrowObjects = []
+    arrowSegs = []
+    dirty = true
+    if (!editMode) return
+    for (const spec of arrowSpecs) {
+      const pa = partById.get(spec.a)
+      const pb = partById.get(spec.b)
+      if (!pa || !pb) continue
+      const ca = pa.box.getCenter(new Vector3())
+      const cb = pb.box.getCenter(new Vector3())
+      const len = ca.distanceTo(cb)
+      if (len < 1e-6) continue
+      const color = ARROW_COLORS[spec.source]
+      // 실선은 누군가(BIM 포트나 사람)가 말한 방향이다. 규칙이 짐작한 것과 방향 모름은 점선이다.
+      const dashed = spec.source === 'rule' || spec.source === 'none'
+      const material = dashed
+        ? new LineDashedMaterial({ color, dashSize: len / 10, gapSize: len / 20, depthTest: false })
+        : new LineBasicMaterial({ color, depthTest: false })
+      const line = new Line(new BufferGeometry().setFromPoints([ca, cb]), material)
+      if (dashed) line.computeLineDistances()
+      line.renderOrder = 10
+      overlay.add(line)
+      arrowObjects.push(line)
+      if (spec.from === spec.a || spec.from === spec.b) {
+        const [tail, head] = spec.from === spec.a ? [ca, cb] : [cb, ca]
+        const dir = head.clone().sub(tail).normalize()
+        const r = Math.min(Math.max(len * 0.07, 0.05), 0.4)
+        const cone = new Mesh(new ConeGeometry(r, r * 3, 12), new MeshBasicMaterial({ color, depthTest: false }))
+        cone.position.copy(tail).addScaledVector(dir, len * 0.6)
+        cone.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), dir)
+        cone.renderOrder = 11
+        overlay.add(cone)
+        arrowObjects.push(cone)
+      }
+      arrowSegs.push({ key: spec.key, a: ca, b: cb })
+    }
+  }
+
+  /** 손잡이는 화면에서 잰다. 크기가 시점 따라 바뀌어도 누르는 너비는 같아야 한다. */
+  function hitHandle(x: number, y: number): number | null {
+    let best: { index: number; d: number } | null = null
+    for (let index = 0; index < handles.length; index++) {
+      const at = toScreen(handles[index].position)
+      if (!at) continue
+      const d = Math.hypot(at.x - x, at.y - y)
+      if (d <= 10 && (!best || d < best.d)) best = { index, d }
+    }
+    return best?.index ?? null
+  }
+
+  /** 화살표도 화면에서 잰다. 양 끝은 설비 위라서(그걸 누르면 설비를 고른다) 가운데 토막만 화살표로 본다. */
+  function hitArrow(x: number, y: number): string | null {
+    let best: { key: string; d: number } | null = null
+    for (const seg of arrowSegs) {
+      const a = toScreen(seg.a)
+      const b = toScreen(seg.b)
+      if (!a || !b) continue
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const len2 = dx * dx + dy * dy
+      if (len2 < 1) continue
+      const t = ((x - a.x) * dx + (y - a.y) * dy) / len2
+      if (t < 0.2 || t > 0.8) continue
+      const d = Math.hypot(a.x + t * dx - x, a.y + t * dy - y)
+      if (d <= 7 && (!best || d < best.d)) best = { key: seg.key, d }
+    }
+    return best?.key ?? null
+  }
+
+  /** 광선이 먼저 닿는 물리존 판. 판 윗면에서 외곽선 안에 드는지로 본다. */
+  function pickSpace(ray: Ray): string | null {
+    let best: { id: string; d: number } | null = null
+    const plane = new Plane(new Vector3(0, 1, 0), 0)
+    const at = new Vector3()
+    for (const target of spaceTargets) {
+      plane.constant = -target.y
+      if (!ray.intersectPlane(plane, at)) continue
+      const d = at.distanceToSquared(ray.origin)
+      if (best && d >= best.d) continue
+      if (pointInPolygon([at.x, -at.z], target.ring)) best = { id: target.id, d }
+    }
+    return best?.id ?? null
+  }
+
+  function placePart(d: Extract<Drag, { kind: 'equipment' }>, delta: Vector3) {
+    const position = solid?.geometry.getAttribute('position') as BufferAttribute | undefined
+    if (!position) return
+    const arr = position.array as Float32Array
+    for (let v = 0; v < d.part.vCount; v++) {
+      const k = (d.part.vStart + v) * 3
+      arr[k] = d.original[v * 3] + delta.x
+      arr[k + 1] = d.original[v * 3 + 1] + delta.y
+      arr[k + 2] = d.original[v * 3 + 2] + delta.z
+    }
+    position.needsUpdate = true
+    d.part.box.copy(d.box).translate(delta)
+  }
+
+  function endDrag(commit: boolean) {
+    const d = drag
+    if (!d) return
+    drag = null
+    controls.enabled = true
+    canvas.style.cursor = ''
+    dirty = true
+    if (hoverAt) hoverPending = true
+    if (d.kind === 'equipment') {
+      if (commit && d.moved) {
+        // IFC 는 z 가 높이고 평면 y 의 부호가 뒤집힌다(toScene). 끌기는 수평면 위라 높이는 그대로다.
+        moveHandler(d.part.id, [d.delta.x, -d.delta.z, 0])
+      } else {
+        placePart(d, new Vector3())
+        drawArrows()
+      }
+    } else if (commit && d.moved && handleSpace) {
+      vertexHandler(handleSpace.id, d.index, [d.at.x, -d.at.z])
+    } else {
+      drawHandles()
+    }
+  }
+
+  // 편집 모드에서 손잡이나 고른 설비 위를 누르면 끌기를 시작한다. OrbitControls 보다 먼저 받도록 capture 로
+  // 걸고, 끄는 동안은 시점이 돌지 않게 컨트롤을 끈다.
+  canvas.addEventListener(
+    'pointerdown',
+    (e) => {
+      pressedAt = { x: e.clientX, y: e.clientY }
+      if (!editMode || e.button !== 0) return
+      // 화살표 위에서 누른 것은 떼면서 방향을 바꾸는 누르기다. 끌기를 시작하지 않는다.
+      if (hitArrow(e.clientX, e.clientY)) return
+      const ray = rayAt(e.clientX, e.clientY)
+      const start = new Vector3()
+      let next: Drag | null = null
+      const index = hitHandle(e.clientX, e.clientY)
+      if (index !== null) {
+        const at = handles[index].position.clone()
+        const plane = new Plane(new Vector3(0, 1, 0), -at.y)
+        if (!ray.intersectPlane(plane, start)) return
+        next = { kind: 'vertex', index, plane, offset: at.clone().sub(start), at }
+      } else {
+        // 고른 설비만 끈다. 아무 설비나 끌리면 시점을 돌리려다 덕트를 옮긴다.
+        const id = pick(ray)
+        const part = id && id === selectedPart && movable.has(id) ? partById.get(id) : undefined
+        const position = solid?.geometry.getAttribute('position') as BufferAttribute | undefined
+        if (!part || !position) return
+        const plane = new Plane(new Vector3(0, 1, 0), -part.box.getCenter(new Vector3()).y)
+        if (!ray.intersectPlane(plane, start)) return
+        const original = (position.array as Float32Array).slice(part.vStart * 3, (part.vStart + part.vCount) * 3)
+        next = { kind: 'equipment', part, original, box: part.box.clone(), plane, start, delta: new Vector3() }
+      }
+      drag = { ...next, x: e.clientX, y: e.clientY, moved: false }
+      controls.enabled = false
+      canvas.setPointerCapture(e.pointerId)
+      e.stopImmediatePropagation()
+      canvas.style.cursor = 'grabbing'
+    },
+    { capture: true },
+  )
   canvas.addEventListener('pointerup', (e) => {
+    if (drag) {
+      pressedAt = null
+      endDrag(true)
+      return
+    }
     // 시점을 돌린 것과 고른 것을 가른다. 끌었으면 고르기가 아니다.
     if (!pressedAt) return
     const dragged = Math.hypot(e.clientX - pressedAt.x, e.clientY - pressedAt.y) > 4
     pressedAt = null
     if (dragged) return
 
-    const rect = canvas.getBoundingClientRect()
-    pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
-    pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
-    raycaster.setFromCamera(pointer, camera)
-    pickHandler(pick(raycaster.ray))
+    if (editMode) {
+      const key = hitArrow(e.clientX, e.clientY)
+      if (key) {
+        arrowHandler(key)
+        return
+      }
+    }
+    const ray = rayAt(e.clientX, e.clientY)
+    const id = pick(ray)
+    if (id || !editMode) {
+      pickHandler(id)
+      return
+    }
+    // 편집 모드에서 설비가 아닌 바닥을 누르면 물리존을 고른다. 경계를 고치는 손잡이가 거기서 뜬다.
+    const space = pickSpace(ray)
+    if (space) {
+      spacePickHandler(space)
+    } else {
+      pickHandler(null)
+      spacePickHandler(null)
+    }
   })
 
   // 누르면 고를 수 있는 곳에 올라가 있으면 손가락 모양으로 바꾼다. 고르는 것과 같은 pick 을 쓰므로
@@ -288,25 +607,54 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let hoverAt: { x: number; y: number } | null = null
   let hoverPending = false
   canvas.addEventListener('pointermove', (e) => {
+    if (drag) {
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4) drag.moved = true
+      const at = new Vector3()
+      if (!rayAt(e.clientX, e.clientY).intersectPlane(drag.plane, at)) return
+      if (drag.kind === 'equipment') {
+        drag.delta.set(at.x - drag.start.x, 0, at.z - drag.start.z)
+        placePart(drag, drag.delta)
+        drawArrows()
+      } else {
+        drag.at.copy(at).add(drag.offset)
+        moveHandle(drag.index, drag.at)
+      }
+      dirty = true
+      return
+    }
     if (e.buttons !== 0) return // 끄는 중에는 시점을 돌리는 것이지 고르려는 것이 아니다.
     hoverAt = { x: e.clientX, y: e.clientY }
     hoverPending = true
   })
   canvas.addEventListener('pointerleave', () => {
     hoverAt = null
-    canvas.style.cursor = ''
+    if (!drag) canvas.style.cursor = ''
   })
   controls.addEventListener('change', () => {
     if (hoverAt) hoverPending = true
   })
+  // 끄는 중 Esc 는 끌기를 버리고 제자리로 돌린다. 캔버스는 포커스를 받지 않으므로 창에 건다.
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && drag) endDrag(false)
+  }
+  window.addEventListener('keydown', onKeyDown)
+
   function updateHover() {
     hoverPending = false
-    if (!hoverAt) return
-    const rect = canvas.getBoundingClientRect()
-    pointer.x = ((hoverAt.x - rect.left) / rect.width) * 2 - 1
-    pointer.y = -((hoverAt.y - rect.top) / rect.height) * 2 + 1
-    raycaster.setFromCamera(pointer, camera)
-    canvas.style.cursor = pick(raycaster.ray) ? 'pointer' : ''
+    if (!hoverAt || drag) return
+    const { x, y } = hoverAt
+    if (editMode && hitHandle(x, y) !== null) {
+      canvas.style.cursor = 'grab'
+      return
+    }
+    if (editMode && hitArrow(x, y)) {
+      canvas.style.cursor = 'pointer'
+      return
+    }
+    const ray = rayAt(x, y)
+    const id = pick(ray)
+    if (id) canvas.style.cursor = editMode && id === selectedPart && movable.has(id) ? 'grab' : 'pointer'
+    else canvas.style.cursor = editMode && pickSpace(ray) ? 'pointer' : ''
   }
 
   /**
@@ -361,6 +709,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     // 관성(damping)으로 도는 동안에는 update 가 참을 돌려준다. 그동안만 계속 그린다.
     if (controls.update()) dirty = true
     if (dirty) {
+      if (handles.length) scaleHandles()
       renderer.render(scene, camera)
       dirty = false
     }
@@ -446,39 +795,91 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     scene.remove(content)
   }
 
+  let slabs = new Group()
+  let slabOpacity = 0.8
+
+  /** 공간 판. 층마다 하나로 합친다. 성수는 방이 934개다. 편집 모드에서 바닥을 눌러 고를 자리도 같이 만든다. */
+  function buildSlabs(model: Model) {
+    slabs.traverse((o) => {
+      if (o instanceof Mesh) {
+        o.geometry.dispose()
+        ;(o.material as { dispose(): void }).dispose()
+      }
+    })
+    content.remove(slabs)
+    slabs = new Group()
+    spaceTargets = []
+    model.storeys.forEach((storey, i) => {
+      const color = STOREY_COLORS[i % STOREY_COLORS.length]
+      const pieces: BufferGeometry[] = []
+      for (const space of storey.spaces) {
+        const mesh = spaceMesh(space.footprint, color, slabOpacity)
+        if (!mesh) continue
+        mesh.geometry.translate(0, storey.elevation, 0)
+        pieces.push(mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry)
+        ;(mesh.material as { dispose(): void }).dispose()
+        // 판 두께가 0.1 이다(spaceMesh). 윗면에서 잰다.
+        spaceTargets.push({ id: space.id, y: storey.elevation + 0.1, ring: space.footprint })
+      }
+      if (pieces.length === 0) return
+      const merged = mergeGeometries(pieces)
+      for (const g of pieces) g.dispose()
+      if (merged) {
+        slabs.add(new Mesh(merged, new MeshLambertMaterial({ color, transparent: true, opacity: slabOpacity, side: DoubleSide })))
+      }
+    })
+    content.add(slabs)
+    dirty = true
+  }
+
+  // e2e 모드에서만 연다. 3D 는 DOM 이 아니라서 테스트가 어디를 눌러야 하는지 알 길이 이것뿐이다.
+  if (import.meta.env.MODE === 'e2e') {
+    ;(window as unknown as { __viewer?: unknown }).__viewer = {
+      part: (id: string) => {
+        const part = partById.get(id)
+        return part ? toScreen(part.box.getCenter(new Vector3())) : null
+      },
+      /** 설비 형상 중심의 IFC 좌표. 끌기는 이 높이의 수평면 위에서 움직인다. */
+      center: (id: string) => {
+        const part = partById.get(id)
+        if (!part) return null
+        const c = part.box.getCenter(new Vector3())
+        return [c.x, -c.z, c.y]
+      },
+      handles: () => handles.map((h) => toScreen(h.position)),
+      arrows: () =>
+        arrowSegs.map((seg) => {
+          const spec = arrowSpecs.find((a) => a.key === seg.key)
+          return { key: seg.key, a: spec?.a, b: spec?.b, source: spec?.source, at: toScreen(seg.a.clone().lerp(seg.b, 0.5)) }
+        }),
+      point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
+    }
+  }
+
   return {
-    setModel(model, meshes) {
+    setModel(model, meshes, options) {
+      // 끄는 중에 모델이 바뀌면 끌던 것은 버린다. 형상을 새로 만드니 되돌릴 것도 없다.
+      drag = null
+      controls.enabled = true
       // 이전 모델의 지오메트리를 놓아 준다. 파일을 여러 번 열면 GPU 메모리가 쌓인다.
       disposeContent()
       content = new Group()
+      slabs = new Group()
       parts = []
       partById = new Map()
       fadedIds = new Set()
+      movable = new Set(model.storeys.flatMap((s) => s.equipment.filter((e) => e.position).map((e) => e.id)))
+      handleSpace = null
+      arrowSpecs = []
+      drawHandles()
+      drawArrows()
 
       const colorOf = systemColors(model)
       // 배관이 방 안을 지나므로 판을 옅게 깐다. 진하면 배관이 판에 묻힌다. 메시에는 벽도 들어 있으니
       // 설비 형상이 있는지로 가른다.
       const hasEquipmentMeshes = !!meshes && model.storeys.some((s) => s.equipment.some((e) => meshes.has(e.id)))
-      const slabOpacity = hasEquipmentMeshes ? 0.25 : 0.8
-
-      // 공간 판도 층마다 하나로 합친다. 성수는 방이 934개다.
-      model.storeys.forEach((storey, i) => {
-        const color = STOREY_COLORS[i % STOREY_COLORS.length]
-        const slabs: BufferGeometry[] = []
-        for (const space of storey.spaces) {
-          const mesh = spaceMesh(space.footprint, color, slabOpacity)
-          if (!mesh) continue
-          mesh.geometry.translate(0, storey.elevation, 0)
-          slabs.push(mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry)
-          ;(mesh.material as { dispose(): void }).dispose()
-        }
-        if (slabs.length === 0) return
-        const merged = mergeGeometries(slabs)
-        for (const g of slabs) g.dispose()
-        if (merged) {
-          content.add(new Mesh(merged, new MeshLambertMaterial({ color, transparent: true, opacity: slabOpacity, side: DoubleSide })))
-        }
-      })
+      slabOpacity = hasEquipmentMeshes ? 0.25 : 0.8
+      buildSlabs(model)
 
       // 설비: 형상이 있으면 그 형상, 없고 좌표만 있으면 작은 상자. 좌표도 없으면 찍지 않는다 —
       // 원점에 찍으면 거기 있는 것처럼 보인다.
@@ -567,6 +968,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
       scene.add(content)
       dirty = true
+      if (options?.keepView) return
 
       // 건물이 화면에 꽉 차게 카메라를 놓는다. 원점 근처에 고정해 두면 실제 좌표가 먼
       // 모델이 화면 밖으로 나가서, 임포트가 잘 됐는데도 빈 화면처럼 보인다.
@@ -576,6 +978,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     setHighlight(highlight) {
+      // 끌 수 있는 것은 고른 설비 하나다(pointerdown 참조).
+      selectedPart = highlight?.selected ?? null
+      if (hoverAt) hoverPending = true
       const nextFaded = new Set<string>()
       for (const part of parts) {
         const id = part.id
@@ -633,8 +1038,48 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       fit(box)
     },
 
+    setEditMode(on) {
+      editMode = on
+      if (!on) endDrag(false)
+      drawHandles()
+      drawArrows()
+      if (hoverAt) hoverPending = true
+    },
+
+    onEquipmentMove(handler) {
+      moveHandler = handler
+    },
+
+    onPickSpace(handler) {
+      spacePickHandler = handler
+    },
+
+    setSpaceHandles(space) {
+      handleSpace = space
+      drawHandles()
+    },
+
+    onVertexMove(handler) {
+      vertexHandler = handler
+    },
+
+    setArrows(arrows) {
+      arrowSpecs = arrows
+      drawArrows()
+    },
+
+    onArrowClick(handler) {
+      arrowHandler = handler
+    },
+
+    updateSpaces(model) {
+      buildSlabs(model)
+    },
+
     dispose() {
       running = false
+      window.removeEventListener('keydown', onKeyDown)
+      if (import.meta.env.MODE === 'e2e') delete (window as unknown as { __viewer?: unknown }).__viewer
       controls.removeEventListener('change', invalidate)
       controls.dispose()
       disposeContent()

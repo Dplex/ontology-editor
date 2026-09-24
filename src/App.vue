@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
-import { countOf, isConduit, type Equipment, type Model } from './lib/model'
+import { countOf, isConduit, type Connection, type Equipment, type Model, type Vec2, type Vec3 } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { profileOf, type Profile } from './lib/profile'
 import TierChips from './components/TierChips.vue'
@@ -14,14 +14,25 @@ import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } fr
 import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
-import { createViewer, PICK_COLORS, systemColors, WALL_COLORS, type Viewer } from './lib/viewer'
+import {
+  ARROW_COLORS,
+  createViewer,
+  PICK_COLORS,
+  systemColors,
+  toScene,
+  WALL_COLORS,
+  type Arrow,
+  type Viewer,
+} from './lib/viewer'
 import {
   flowEdits,
   moveEquipment,
+  moveEquipmentToStorey,
   moveSpaceVertex,
   renameSpace,
   setFlowDirection,
   summarize,
+  wouldSelfIntersect,
   type BoundaryChange,
   type Change,
 } from './lib/edit'
@@ -177,6 +188,51 @@ const spaceNameOf = (spaceId: string | null) => {
   return spaceId
 }
 
+// --- 3D 다시 그리기 --------------------------------------------------------------
+//
+// 편집은 모델을 그 자리에서 고치고 triggerRef 로 알린다. 그때마다 3D 를 통째로 다시 만들면 성수에서
+// 수십 초 멈추고 시점도 건물 전체로 튄다. 그래서 새 모델을 열었을 때만 새로 그리고, 편집 뒤에 무엇을
+// 다시 그릴지는 편집하는 쪽이 정한다. 다시 그린 뒤에는 강조·손잡이·화살표를 다시 넘겨야 해서 판을 센다.
+const sceneVersion = ref(0)
+function redraw() {
+  if (!viewer || !model.value) return
+  viewer.setModel(model.value, meshes, { keepView: true })
+  sceneVersion.value++
+}
+
+/**
+ * 옮긴 설비의 형상을 같이 옮긴다. 형상은 임포트 때의 자리를 들고 있어서, 안 옮기면 다시 그릴 때
+ * 예전 자리로 튄다. 형상이 없는 설비(상자로 찍는 것)는 좌표에서 바로 그리므로 할 일이 없다.
+ */
+function shiftMesh(id: string, from: Vec3 | null, to: Vec3 | null) {
+  const mesh = meshes.get(id)
+  if (!mesh || !from || !to) return
+  const [dx, dy, dz] = toScene([to[0] - from[0], to[1] - from[1], to[2] - from[2]])
+  if (!dx && !dy && !dz) return
+  const positions = mesh.positions.slice()
+  for (let i = 0; i < positions.length; i += 3) {
+    positions[i] += dx
+    positions[i + 1] += dy
+    positions[i + 2] += dz
+  }
+  meshes.set(id, { ...mesh, positions })
+}
+
+/** 3D 에서 끈 값은 센티미터로 자른다. 마우스로 1mm 를 뜻하고 놓는 사람은 없다. */
+const cm = (v: number) => Math.round(v * 100) / 100
+
+/** 설비를 옮기는 길은 표(숫자)와 3D(끌기) 둘이지만 하는 일은 하나다. 소속 재판정은 edit.ts 가 한다. */
+function relocate(equipmentId: string, to: Vec3): boolean {
+  if (!model.value) return false
+  const before = equipmentById.value.get(equipmentId)?.position ?? null
+  const change = moveEquipment(model.value, equipmentId, to)
+  if (!change) return false
+  shiftMesh(equipmentId, before, to)
+  changes.value = [...changes.value, change]
+  triggerRef(model)
+  return true
+}
+
 function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: readonly number[] | null) {
   const value = Number(raw)
   if (!model.value || !Number.isFinite(value)) return
@@ -185,12 +241,38 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
   const base: [number, number, number] = current ? [current[0], current[1], current[2]] : [0, 0, 0]
   base[axis] = value
 
-  const change = moveEquipment(model.value, equipmentId, base)
-  if (!change) return
-  changes.value = [...changes.value, change]
-  triggerRef(model)
-  viewer?.setModel(model.value, meshes)
+  if (relocate(equipmentId, base)) redraw()
 }
+
+/** 3D 에서 고른 설비를 끌어 놓았다. 3D 는 이미 놓은 자리에 그려져 있어 다시 만들지 않는다. */
+function dropEquipment(equipmentId: string, delta: Vec3) {
+  const position = equipmentById.value.get(equipmentId)?.position
+  if (!position) return
+  relocate(equipmentId, [cm(position[0] + delta[0]), cm(position[1] + delta[1]), position[2]])
+  // 화살표와 강조는 옮긴 자리 기준으로 다시 넘긴다.
+  sceneVersion.value++
+}
+
+/** 설비를 다른 층으로(E6). 높이도 두 층 바닥의 차만큼 옮기므로 3D 를 다시 그린다. */
+function moveToStorey(equipmentId: string, storeyId: string) {
+  if (!model.value) return
+  const before = equipmentById.value.get(equipmentId)?.position ?? null
+  const change = moveEquipmentToStorey(model.value, equipmentId, storeyId)
+  if (!change) return
+  shiftMesh(equipmentId, before, equipmentById.value.get(equipmentId)?.position ?? null)
+  changes.value = [...changes.value, change]
+  storeyMoved.value = new Set([...storeyMoved.value, equipmentId])
+  triggerRef(model)
+  redraw()
+}
+/** 사람이 층을 바꾼 설비. 층 칸의 출처를 BIM 에서 편집으로 바꾼다. */
+const storeyMoved = ref(new Set<string>())
+
+const storeyOf = (equipmentId: string) =>
+  model.value?.storeys.find((s) => s.equipment.some((e) => e.id === equipmentId)) ?? null
+
+/** 3D 편집이 받아들이지 않은 것을 한 줄로 알린다. 조용히 제자리로 돌리면 왜 안 됐는지 모른다. */
+const editNotice = ref('')
 
 // 경계 편집은 넓이와 설비 소속을 동시에 흔든다. 두 변화를 같은 자리에서 보여 준다.
 const areaChanges = ref<BoundaryChange[]>([])
@@ -203,13 +285,34 @@ function applyVertex(spaceId: string, index: number, axis: 0 | 1, raw: string, c
   const point: [number, number] = [current[0], current[1]]
   point[axis] = value
 
-  const change = moveSpaceVertex(model.value, spaceId, index, point)
-  if (!change) return
+  recordBoundary(moveSpaceVertex(model.value, spaceId, index, point))
+}
 
+function recordBoundary(change: BoundaryChange | null) {
+  if (!change || !model.value) return
   areaChanges.value = [...areaChanges.value, change]
   changes.value = [...changes.value, ...change.equipment]
   triggerRef(model)
-  viewer?.setModel(model.value, meshes)
+  // 설비는 그대로다. 판만 다시 만든다.
+  viewer?.updateSpaces(model.value)
+  sceneVersion.value++
+}
+
+/**
+ * 3D 에서 꼭짓점을 끌어 놓았다. 표에서 숫자로 고칠 때와 달리 **자기 교차가 되는 자리에는 놓지 않는다** —
+ * 마우스로 끌다 엇갈린 것은 뜻한 모양이 아니고, 놓은 뒤에 알리면 넓이와 소속이 이미 뜻 없는 값으로 바뀐 뒤다.
+ */
+function dropVertex(spaceId: string, index: number, raw: Vec2) {
+  if (!model.value) return
+  const to: Vec2 = [cm(raw[0]), cm(raw[1])]
+  if (wouldSelfIntersect(model.value, spaceId, index, to)) {
+    editNotice.value = '경계가 자기 자신과 엇갈리는 자리라 놓지 않았습니다. 꼭짓점을 제자리로 돌렸습니다.'
+    // 끌던 손잡이를 원래 고리로 다시 그린다.
+    sceneVersion.value++
+    return
+  }
+  editNotice.value = ''
+  recordBoundary(moveSpaceVertex(model.value, spaceId, index, to))
 }
 
 // --- 편집 목록을 좁히기 ----------------------------------------------------------
@@ -252,6 +355,7 @@ function applyRename(spaceId: string, name: string) {
   triggerRef(model)
 }
 
+let drawn: Model | null = null
 watch([model, canvas], ([m, el]) => {
   if (!m || !el) return
   if (!viewer) {
@@ -259,10 +363,66 @@ watch([model, canvas], ([m, el]) => {
     viewer.onPick((id) => {
       selectedId.value = id
     })
+    viewer.onPickSpace((id) => {
+      selectedSpaceId.value = id
+      if (id) {
+        selectedId.value = null
+        selectedSystemId.value = null
+      }
+    })
+    viewer.onEquipmentMove(dropEquipment)
+    viewer.onVertexMove(dropVertex)
+    viewer.onArrowClick(cycleFlow)
     viewer.setWallsVisible(showWalls.value)
+    viewer.setEditMode(editing.value)
   }
+  // 편집이 보낸 갱신(triggerRef)으로는 다시 만들지 않는다(redraw 참조). 새 모델일 때만이다.
+  if (m === drawn) return
+  drawn = m
   viewer.setModel(m, meshes)
-  viewer.setHighlight(null)
+  sceneVersion.value++
+})
+
+watch(editing, (on) => {
+  viewer?.setEditMode(on)
+  editNotice.value = ''
+  // 물리존 고르기는 편집 모드에만 있다(보기 모드에서 바닥을 누르면 선택 해제다).
+  if (!on) selectedSpaceId.value = null
+})
+
+// --- 3D 에서 고른 물리존 (E2) ------------------------------------------------------
+//
+// 편집 모드에서 바닥을 누르면 그 물리존이 골라지고, 꼭짓점에 손잡이가 뜬다. 설비 선택과 배타다.
+const selectedSpaceId = ref<string | null>(null)
+const selectedSpace = computed(() => {
+  const m = model.value
+  const id = selectedSpaceId.value
+  if (!m || !id) return null
+  for (const storey of m.storeys) {
+    const space = storey.spaces.find((s) => s.id === id)
+    if (space) {
+      return {
+        storey,
+        space,
+        equipment: storey.equipment.filter((e) => e.spaceId === id),
+        edited: areaChanges.value.some((c) => c.spaceId === id),
+      }
+    }
+  }
+  return null
+})
+watch([selectedSpace, editing, sceneVersion], () => {
+  const picked = selectedSpace.value
+  if (!viewer) return
+  if (!picked || !editing.value) {
+    viewer.setSpaceHandles(null)
+    return
+  }
+  // 닫는 점(첫 점과 같은 끝 점)은 손잡이를 따로 두지 않는다. 첫 점을 옮기면 edit.ts 가 끝 점을 같이 옮긴다.
+  const ring = picked.space.footprint
+  const last = ring.at(-1)
+  const closed = ring.length > 1 && !!last && ring[0][0] === last[0] && ring[0][1] === last[1]
+  viewer.setSpaceHandles({ id: picked.space.id, ring: closed ? ring.slice(0, -1) : ring, elevation: picked.storey.elevation })
 })
 
 // --- 선택과 연결 -------------------------------------------------------------
@@ -397,6 +557,40 @@ function relClass(n: NeighborRow) {
 function setFlow(n: NeighborRow, from: string | null) {
   if (setFlowDirection(n.connection, from)) flowVersion.value++
 }
+// --- 3D 의 연결 화살표 ------------------------------------------------------------
+//
+// 편집 모드에서 고른 설비에 붙은 연결을 3D 에 화살표로 그린다. 색은 방향의 출처다 — 포트(BIM) 진하게,
+// 사람이 정한 것은 액센트, 규칙(사전)은 옅은 점선, 모르는 것은 촉 없는 점선. 누르면 표의 "하류로 → 상류로 →
+// 되돌리기" 를 차례로 한다. 포트가 말한 방향은 누르지 못한다.
+const arrowConnections = computed((): Connection[] => {
+  void flowVersion.value
+  if (!editing.value || !model.value || !selectedId.value) return []
+  return neighbors(model.value.connections, selectedId.value).map((n) => n.connection)
+})
+function arrowOf(c: Connection, key: string): Arrow {
+  if (c.directed) return { key, a: c.from, b: c.to, from: c.from, source: 'port' }
+  if (c.edited) return { key, a: c.from, b: c.to, from: c.edited.from, source: 'edit' }
+  if (c.inferred && showRules.value) return { key, a: c.from, b: c.to, from: c.inferred.from, source: 'rule' }
+  return { key, a: c.from, b: c.to, from: null, source: 'none' }
+}
+watch([arrowConnections, showRules, sceneVersion], () => {
+  viewer?.setArrows(arrowConnections.value.map((c, i) => arrowOf(c, String(i))))
+})
+function cycleFlow(key: string) {
+  const c = arrowConnections.value[Number(key)]
+  const id = selectedId.value
+  if (!c || !id) return
+  if (c.directed) {
+    editNotice.value = '포트(BIM)가 말한 방향은 고치지 않습니다. BIM 이 말한 것을 덮어쓰면 온톨로지를 읽는 쪽이 둘을 구별할 수 없습니다.'
+    return
+  }
+  editNotice.value = ''
+  const other = c.from === id ? c.to : c.from
+  const next = !c.edited ? id : c.edited.from === id ? other : null
+  if (setFlowDirection(c, next)) flowVersion.value++
+}
+const hasArrows = computed(() => arrowConnections.value.length > 0)
+
 // --- 계통별로 보기 --------------------------------------------------------------
 //
 // 고른 기기에 붙은 덕트·배관의 계통마다 상류·하류·방향 모름을 따로 센다(topology.ts 의 traceBySystem).
@@ -648,7 +842,7 @@ function toggleSystem(id: string) {
   if (selectedSystemId.value) selectedId.value = null
 }
 
-watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRow, openCheck], () => {
+watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRow, openCheck, selectedSpace, sceneVersion], () => {
   if (!viewer) return
 
   const t = traced.value
@@ -679,6 +873,19 @@ watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRo
       upstream: new Set(),
       downstream: new Set(),
       linked: new Set(system.memberIds),
+      keepColor: true,
+    })
+    return
+  }
+
+  // 고른 물리존에 속한 설비. 경계를 끄는 동안 무엇이 드나드는지 보인다.
+  const space = selectedSpace.value
+  if (space) {
+    viewer.setHighlight({
+      selected: null,
+      upstream: new Set(),
+      downstream: new Set(),
+      linked: new Set(space.equipment.map((e) => e.id)),
       keepColor: true,
     })
     return
@@ -867,6 +1074,9 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     fileName.value = name
     mergeReport.value = null
     selectedId.value = null
+    selectedSpaceId.value = null
+    editNotice.value = ''
+    storeyMoved.value = new Set()
     // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다.
     changes.value = []
     areaChanges.value = []
@@ -923,6 +1133,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     mergeReport.value = merged.report
     fileName.value = `${base.name} + ${overlay.name}`
     selectedId.value = null
+    selectedSpaceId.value = null
     selectedSystemId.value = null
     await nextTick()
     await paint()
@@ -1208,6 +1419,15 @@ function exportTTL() {
           <div class="canvas-wrap">
             <canvas ref="canvas"></canvas>
             <div class="view-tools">
+              <!-- 보기 ↔ 편집. 위의 보기/편집 버튼과 같은 상태(mode) 하나다. 3D 를 보다가 손을 떼지 않고 오간다. -->
+              <label class="edit-toggle" title="켜면 3D 에서 설비를 끌어 옮기고, 물리존 꼭짓점을 끌고, 연결 방향을 정합니다.">
+                <input
+                  type="checkbox"
+                  :checked="editing"
+                  @change="mode = ($event.target as HTMLInputElement).checked ? 'edit' : 'view'"
+                />
+                편집
+              </label>
               <button
                 v-if="drawnWalls"
                 type="button"
@@ -1263,9 +1483,27 @@ function exportTTL() {
               <li><i :style="{ background: hex(PICK_COLORS.ruleDownstream) }"></i>하류 <Src kind="dict" /></li>
             </template>
             <li><i :style="{ background: hex(PICK_COLORS.linked) }"></i>방향 모름</li>
+            <!-- 편집 모드의 연결 화살표. 색은 상류·하류가 아니라 그 방향을 누가 말했는가다. -->
+            <template v-if="editing && hasArrows">
+              <li class="key-head">화살표 · 누르면 방향을 바꿉니다</li>
+              <li><i class="bar" :style="{ background: hex(ARROW_COLORS.port) }"></i>포트 방향(못 고침) <Src kind="bim" /></li>
+              <li><i class="bar" :style="{ background: hex(ARROW_COLORS.edit) }"></i>사람이 정한 방향 <Src kind="edit" /></li>
+              <li v-if="showRules"><i class="bar dashed" :style="{ color: hex(ARROW_COLORS.rule) }"></i>규칙 방향 <Src kind="dict" /></li>
+              <li><i class="bar dashed" :style="{ color: hex(ARROW_COLORS.none) }"></i>방향 모름</li>
+            </template>
           </ul>
 
-          <p v-if="counts.equipment > 0" class="hint pick-hint">
+          <p v-if="editNotice" class="edit-notice" role="alert">{{ editNotice }}</p>
+          <p v-else-if="editing" class="hint pick-hint">
+            {{
+              selectedSpace
+                ? '파란 손잡이를 끌면 경계가 바뀝니다. 끄는 중 Esc 는 취소입니다.'
+                : selected
+                  ? '고른 설비를 끌면 옮겨집니다 · 화살표를 누르면 흐름 방향이 하류 → 상류 → 지움 순으로 바뀝니다 · Esc 는 끌기 취소'
+                  : '설비를 누르면 고르고, 고른 설비를 끌면 옮깁니다. 바닥을 누르면 물리존 꼭짓점이 뜹니다.'
+            }}
+          </p>
+          <p v-else-if="counts.equipment > 0" class="hint pick-hint">
             {{
               selectedSystemId
                 ? '계통 하나만 켜 두었습니다. 다시 누르면 전체로 돌아갑니다.'
@@ -1294,6 +1532,30 @@ function exportTTL() {
               <button type="button" class="ghost" @click="select(null)">선택 해제</button>
             </div>
           </div>
+
+          <!-- 층 옮기기(E6). 층은 좌표로 판정하지 않고 사람이 고른다(edit.ts). -->
+          <p v-if="editing" class="storey-move">
+            <label>
+              층
+              <select
+                :value="storeyOf(selected.id)?.id ?? ''"
+                :disabled="model.storeys.length < 2"
+                @change="moveToStorey(selected.id, ($event.target as HTMLSelectElement).value)"
+              >
+                <option v-for="s in model.storeys" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
+            </label>
+            <Src :kind="storeyMoved.has(selected.id) ? 'edit' : 'bim'" />
+            <span class="muted">
+              {{
+                model.storeys.length < 2
+                  ? '층이 하나라 옮길 곳이 없습니다.'
+                  : selected.position
+                    ? '바꾸면 높이도 두 층 바닥의 차만큼 옮기고 소속을 다시 판정합니다.'
+                    : '좌표가 없어 층만 바뀝니다. 좌표를 지어내지 않습니다.'
+              }}
+            </span>
+          </p>
 
           <ul class="flow">
             <li class="upstream">
@@ -1484,6 +1746,35 @@ function exportTTL() {
               </tr>
             </tbody>
           </table>
+        </section>
+
+        <!-- 3D 에서 고른 물리존(E2). 편집 모드에서 바닥을 누르면 뜬다. -->
+        <section v-else-if="selectedSpace" class="picked space-picked">
+          <div class="picked-head">
+            <div>
+              <h3>{{ selectedSpace.space.longName || selectedSpace.space.name }}</h3>
+              <p class="stats">
+                물리존 {{ selectedSpace.space.name }} <Src kind="bim" /> · {{ selectedSpace.storey.name }} <Src kind="bim" /> ·
+                <b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡
+                <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /> · 소속 설비 {{ selectedSpace.equipment.length }}대
+                <Src kind="calc" />
+              </p>
+            </div>
+            <div class="picked-actions">
+              <button type="button" class="ghost" @click="selectedSpaceId = null">선택 해제</button>
+            </div>
+          </div>
+          <p class="hint">
+            파란 손잡이를 끌면 경계가 바뀌고, 넓이와 설비 소속을 다시 판정합니다. 경계가 자기 자신과 엇갈리는 자리에는
+            놓지 않습니다. 소속 설비는 3D 에 제 계통 색으로 남기고 나머지는 흐리게 했습니다.
+          </p>
+          <ul v-if="selectedSpace.equipment.length" class="plain space-members">
+            <li v-for="e in selectedSpace.equipment" :key="e.id">
+              <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
+              <span class="muted">{{ kindLabel(e) }}</span>
+            </li>
+          </ul>
+          <p v-else class="empty">이 물리존에 속한 설비가 없습니다.</p>
         </section>
       </div>
 
