@@ -31,11 +31,17 @@ export type Space = {
    */
   boundedBy: string[]
   /**
-   * 방 종류. 이름에서 사전(`kinds.ts` 의 ROOM_KINDS)으로 읽는다. `null` 이면 사전에 없는 이름이고
-   * `brick:Room` 으로 나간다. BIM 이 방 분류를 표준 필드로 주는 일이 드물어서(PredefinedType 0/4 파일)
-   * 사람이 붙인 이름이 가장 흔한 근거다.
+   * 방 종류. 이름 사전(`kinds.ts` 의 ROOM_KINDS)이 먼저고, 이름이 모르면 OmniClass 코드로 읽는다. `null` 이면
+   * `brick:Room` 으로 나간다. `PredefinedType` 은 방 종류를 말하지 않는다(SPACE·PARKING 같은 것뿐이고 실측 0/4 파일).
    */
   kind?: string | null
+  /** `kind` 를 누가 정했나. `bim` 이면 `omniclass` 에서, `dict` 면 이름 사전에서 읽었다. */
+  kindSource?: 'bim' | 'dict'
+  /**
+   * OmniClass Table 13 코드(`13-15 11 34 11`). Revit 은 방마다 적는다(병원 건축 269/269). 표준 분류 관계가 먼저고,
+   * 없으면 Revit 의 `Category Code` 속성이다. 없으면 `null`.
+   */
+  omniclass?: string | null
 }
 
 export type Wall = {

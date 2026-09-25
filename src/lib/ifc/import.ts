@@ -28,7 +28,7 @@ import { apply, compose, foldChain, foldElevation, fromAxisPlacement, type Trans
 import { assignEquipmentToSpaces } from '../mapping'
 import { lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
-import { equipmentKindOf, resolveEquipmentKind, roomKindOf, systemKindOf } from '../kinds'
+import { equipmentKindOf, omniclassCode, resolveEquipmentKind, resolveRoomKind, systemKindOf } from '../kinds'
 import { capacityRank } from '../capacity'
 import { inferFlowByRules } from '../flow-rules'
 import { footprintRings, openingPlacement, spacesBesideOpening } from './element-geometry'
@@ -400,6 +400,48 @@ class Reader {
       }
       return type ? join(className(type).replace(/Type$/, ''), said(type, 'ElementType')) : null
     }
+  }
+
+  /**
+   * 공간마다 OmniClass Table 13 코드(`13-15 11 34 11`)를 모은다. 방 종류를 이름 사전보다 표준 쪽에서 읽기 위해서다.
+   *
+   * 자리가 셋이고 앞의 것이 이긴다. 표준 분류 관계(`IfcRelAssociatesClassification` → `IfcClassificationReference`,
+   * COBie 판본이 이렇다), Revit 의 `Category Code` 속성(병원·Duplex 건축 전부), Revit 의 `OmniClass Table 13 Category`
+   * 속성(`13-15 11 34 11: Office`). 설비 판본의 Revit 속성은 설명만 적기도 해서(`Office`) 코드가 없으면 건너뛴다.
+   */
+  omniclassBySpace(): Map<number, string> {
+    const spaces = new Set(this.ids(WebIFC.IFCSPACE))
+    const found = new Map<number, { code: string; rank: number }>()
+    const offer = (id: number, text: unknown, rank: number) => {
+      if (!spaces.has(id)) return
+      const code = omniclassCode(typeof text === 'string' ? text : null)
+      if (!code) return
+      const had = found.get(id)
+      if (!had || rank < had.rank) found.set(id, { code, rank })
+    }
+
+    for (const relID of this.ids(WebIFC.IFCRELASSOCIATESCLASSIFICATION)) {
+      const rel = this.tryLine(relID)
+      const ref = rel?.RelatingClassification ? this.tryLine(rel.RelatingClassification.value) : null
+      if (!ref) continue
+      const text = (val(ref.Identification) ?? val(ref.ItemReference) ?? val(ref.Name)) as unknown
+      for (const h of rel.RelatedObjects ?? []) offer(h.value, text, 0)
+    }
+
+    const PROPERTY_RANK: Record<string, number> = { 'Category Code': 1, 'OmniClass Table 13 Category': 2 }
+    for (const relID of this.ids(WebIFC.IFCRELDEFINESBYPROPERTIES)) {
+      const rel = this.line(relID)
+      const targets = (rel?.RelatedObjects ?? []).map((h: any) => h.value).filter((id: number) => spaces.has(id))
+      if (targets.length === 0) continue
+      const def = rel.RelatingPropertyDefinition ? this.tryLine(rel.RelatingPropertyDefinition.value) : null
+      for (const propHandle of def?.HasProperties ?? []) {
+        const prop = this.tryLine(propHandle.value)
+        const rank = PROPERTY_RANK[val(prop?.Name) as string]
+        if (rank === undefined) continue
+        for (const id of targets) offer(id, val(prop?.NominalValue), rank)
+      }
+    }
+    return new Map([...found].map(([id, v]) => [id, v.code]))
   }
 
   /**
@@ -787,6 +829,7 @@ function spaceOf(
   globalIdOf: (elementID: number) => string,
   boundaries: Map<number, number[]>,
   warnings: string[],
+  omniclass: Map<number, string>,
 ): Space {
   const e = r.line(expressID)
   const id = (val(e?.GlobalId) as string) ?? `space-${expressID}`
@@ -806,8 +849,14 @@ function spaceOf(
     footprint,
     areaM2: polygonArea(footprint),
     boundedBy: (boundaries.get(expressID) ?? []).map(globalIdOf),
-    kind: roomKindOf((val(e?.Name) as string) ?? '', longName)?.kind ?? null,
+    omniclass: omniclass.get(expressID) ?? null,
+    ...roomKindFields((val(e?.Name) as string) ?? '', longName, omniclass.get(expressID) ?? null),
   }
+}
+
+function roomKindFields(name: string, longName: string, omniclass: string | null): Pick<Space, 'kind' | 'kindSource'> {
+  const found = resolveRoomKind(name, longName, omniclass)
+  return found ? { kind: found.info.kind, kindSource: found.source } : { kind: null }
 }
 
 
@@ -932,6 +981,7 @@ function read(
     const loadBearing = r.loadBearingByElement()
     const capacity = r.capacityByElement()
     const declaredTypeOf = r.declaredType(api)
+    const omniclass = r.omniclassBySpace()
     const thickness = r.thicknessByElement()
     const wallOfOpening = r.wallByOpening()
     const boundaries = r.boundaryElementsBySpace()
@@ -1172,7 +1222,7 @@ function read(
         name: (val(e?.Name) as string) ?? '',
         elevation: ((val(e?.Elevation) as number) ?? 0) * scale,
         spaces: (spacesByStorey.get(storeyID) ?? []).map((id) =>
-          spaceOf(r, id, globalIdOf, boundaries, noFootprint),
+          spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass),
         ),
         walls,
         openings,

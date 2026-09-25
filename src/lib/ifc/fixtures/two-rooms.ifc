@@ -121,6 +121,14 @@ DATA;
 #83= IFCRELAGGREGATES('0PoC$Rel$1F$Spaces$00',$,$,$,#16,(#32,#45));
 #84= IFCRELAGGREGATES('0PoC$Rel$2F$Spaces$00',$,$,$,#20,(#47));
 
+/* 방 분류: OmniClass Table 13(docs/requirements.ids 의 R14). 창고는 이름과 분류가 같은 것을 말하고,
+   회의실은 분류가 사무실(13-15 11 34 11)이라고 말한다 — 이름이 더 좁게 말하므로 이름이 이긴다. */
+#85= IFCCLASSIFICATION('OCCS',$,$,'OmniClass',$,$,$);
+#86= IFCCLASSIFICATIONREFERENCE($,'13-75 11 11','Storage Room',#85,$,$);
+#87= IFCRELASSOCIATESCLASSIFICATION('0PoC$Rel$Class$Store$0',$,$,$,(#47),#86);
+#88= IFCCLASSIFICATIONREFERENCE($,'13-15 11 34 11','Office',#85,$,$);
+#89= IFCRELASSOCIATESCLASSIFICATION('0PoC$Rel$Class$Meet$00',$,$,$,(#32),#88);
+
 /* 포함 관계: 층과 벽·문·창을 묶는다 */
 #90= IFCRELCONTAINEDINSPATIALSTRUCTURE('0PoC$Rel$1F$Elements$',$,$,$,(#50,#51,#52,#60,#61),#16);
 #91= IFCRELCONTAINEDINSPATIALSTRUCTURE('0PoC$Rel$2F$Elements$',$,$,$,(#53,#62),#20);

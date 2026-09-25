@@ -51,6 +51,8 @@ Brick 클래스는 받는 쪽(`ttl.go` 의 equipClass) 어휘를 먼저 따르�
 IFC2x3 은 개체가 `IfcFlowTerminal` 처럼 추상적이어도 **타입 객체**가 클래스와 값을 든다 — 병원 HVAC 기기 428/668 이
 여기서 정해진다. 이름이 먼저다(성수 `EF-11` 은 IfcFan 이지만 배기팬이다). BIM 이 값을 말했는데 표에 없으면(`SPLITSYSTEM`)
 클래스로 추측하지 않는다. 계통도 같은 식으로 `PredefinedType` + EN 12792 약어(`SUP`·`ETA`·`EHA`·`ODA`)를 먼저 본다.
+방은 이름 사전 다음에 OmniClass Table 13 코드(`ROOM_KINDS.omniclass`)를 본다. Revit 은 표준 분류 관계가 아니라
+`Category Code` 속성에 적는다.
 용량은 양의 종류(`capacity.ts`)마다 다른 술어로 낸다 — 풍량 술어 하나로 내다가 냉동기 출력과 배관 물 유량이 풍량으로 나갔다.
 
 **화면의 값에는 출처를 붙인다(`components/Src.vue`).** BIM(파일에 적힌 그대로) · 계산(BIM 의

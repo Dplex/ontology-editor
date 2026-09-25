@@ -297,7 +297,7 @@ ifc4Mep 의 IfcAirTerminal 43개 — PredefinedType 없음
 | 완전성 규칙을 `warnings` 로 (기수 검사) | Wang 2026 Table 2 | 중 |
 | ~~`docs/requirements.ids` 작성~~ | IDS v1.0 | **초안** — 명세 39개, 정본 §4.6. 어휘는 `kinds.ts`·`capacity.ts` 와 테스트로 묶었다 |
 | 자유 텍스트 → Brick 클래스 분류 | Brick-DICL | 대 — F13 과 함께 |
-| 방 분류(OmniClass) → Brick Room 하위 클래스 | 정본 §3.6 확장 표 | 소 — Duplex 21/21 이 채워져 있다 |
+| ~~방 분류(OmniClass) → Brick Room 하위 클래스~~ | 정본 §3.6 확장 표 | **끝났다** — 병원 건축 118 → 173/269(코드가 55개), 정본 §4.6 |
 | 담당 공간 근사(공조기 → 말단 → 방) | Wang 2026 말단–존 규칙 | 조건을 갖춘 샘플이 없다(정본 R19) |
 
 **안 할 것.** ifcOWL 로 IFC 전체를 RDF 화(무겁고 DT 가 묻는 관계만 필요하다), IFC→IMDF 변환

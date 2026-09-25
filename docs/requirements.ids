@@ -3,7 +3,7 @@
 <ids xmlns="http://standards.buildingsmart.org/IDS" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://standards.buildingsmart.org/IDS http://standards.buildingsmart.org/IDS/1.0/ids.xsd">
   <info>
     <title>DT 온톨로지용 BIM 요구사항</title>
-    <version>0.2 (초안)</version>
+    <version>0.3 (초안)</version>
     <description>BIM(IFC4)에서 DT 공간 온톨로지(Brick TTL + GeoJSON)를 만들기 위해 고객사 BIM 에 요구하는 것. 이름의 [필수]·[권장] 과 R 번호는 docs/bim-to-dt-ontology.md 4장을 따른다. 기하로만 확인하는 요구(R2 외곽선, R7 스캔 정합, R8, R11 배치점 위치, R12, R16)와 IDS 가 담지 못하는 요구(R0 구문, R5 공간 경계, R10 스키마, R13 GUID 유지, R19, R21)는 이 파일에 없다.</description>
     <date>2026-09-25</date>
     <purpose>고객사 BIM 납품 전 자가 검사</purpose>
@@ -87,12 +87,12 @@
         <attribute instructions="설비마다 배치를 준다. 배치점은 자기 형상 위에 둔다(층 원점에 두지 않는다)."><name><simpleValue>ObjectPlacement</simpleValue></name></attribute>
       </requirements>
     </specification>
-    <specification name="[권장] R14 방 분류" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R14" description="방 분류가 있으면 방이 brick:Office 같은 하위 클래스로 나간다. 없으면 모든 방이 brick:Room 하나다.">
+    <specification name="[권장] R14 방 분류" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R14" description="방 분류가 있으면 방이 brick:Office 같은 하위 클래스로 나간다. 없으면 이름 사전으로만 읽고, 사전이 모르면 brick:Room 이다. 병원 건축(Revit)은 269개 방 전부에 코드를 적었고, 이름 사전이 모르는 방 55개를 코드가 말했다.">
       <applicability minOccurs="0" maxOccurs="unbounded">
         <entity><name><simpleValue>IFCSPACE</simpleValue></name></entity>
       </applicability>
       <requirements>
-        <classification instructions="OmniClass Table 13 또는 Uniclass SL 코드를 IfcClassificationReference 로 단다. 분류 체계 이름(IfcClassification.Name)도 적는다."><system><xs:restriction base="xs:string"><xs:pattern value="OmniClass.*|Uniclass.*"/></xs:restriction></system></classification>
+        <classification instructions="OmniClass Table 13 코드를 IfcClassificationReference 로 단다(Identification 에 13-15 11 34 11 처럼). IfcClassification.Name 은 OmniClass 로 적는다. Revit 은 방마다 OmniClass Table 13 Category 속성에 이 코드를 이미 채운다(속성으로만 나오면 이 검사에서는 떨어지지만 우리는 읽는다)."><value><xs:restriction base="xs:string"><xs:pattern value="13-\d{2}( \d{2})*.*"/></xs:restriction></value><system><xs:restriction base="xs:string"><xs:pattern value="OmniClass.*"/></xs:restriction></system></classification>
       </requirements>
     </specification>
     <specification name="[권장] R15 방 높이" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R15" description="없으면 층 높이로 대신한다. 복층을 모른다.">

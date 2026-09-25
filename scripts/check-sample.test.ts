@@ -948,6 +948,18 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     })
   }, 300_000)
 
+  // 방 종류. Revit 은 방마다 OmniClass Table 13 코드를 `Category Code` 속성으로 적는다(269/269). 이름 사전이 먼저이고
+  // (`JAN. CL.` 은 코드로는 창고지만 청소도구실이다), 이름이 모르는 방 55개(사무실 38 · 창고 7 · 회의실 4 · 전기실 3 ·
+  // 기계실 2 · 승강로 1)를 코드가 말한다. 코드 표는 kinds.ts 의 ROOM_KINDS.omniclass 이고 requirements.ids 의 R14 어휘다.
+  it('방 종류: 이름 사전이 놓친 방을 OmniClass 코드가 말한다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const spaces = importIfc(api, new Uint8Array(readFileSync(CLINIC_ARCH))).storeys.flatMap((s) => s.spaces)
+    expect(spaces.filter((s) => s.omniclass)).toHaveLength(269)
+    expect(spaces.filter((s) => s.kind)).toHaveLength(173)
+    expect(spaces.filter((s) => s.kindSource === 'bim')).toHaveLength(55)
+  }, 300_000)
+
   // IFC2x3 은 개체가 `IfcFlowTerminal` 처럼 추상적이지만 타입 객체(`IfcAirTerminalBoxType` …)가 종류를 말한다. 그걸 읽기
   // 전에는 사람이 패밀리 다섯을 골라야 했고, 지금은 BIM 이 말한 대로 붙는다(출처 BIM). 모르는 기기는 1대만 남는다.
   // **천장 배기팬(흡입구 일체형)이 팬이 되면 배기 계통 6개가 포트와 정반대(0/21)가 된다.** 배기 계통은 원천(팬) 쪽으로

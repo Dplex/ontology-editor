@@ -176,7 +176,18 @@ export function equipmentKind(kind: string | null | undefined): EquipmentKindInf
 
 // --- 방 ---------------------------------------------------------------------------
 
-export type RoomKindInfo = { kind: string; label: string; test: RegExp; brick: string }
+export type RoomKindInfo = {
+  kind: string
+  label: string
+  test: RegExp
+  brick: string
+  /**
+   * 이 종류에 해당하는 OmniClass Table 13 코드. **이 표가 곧 고객사에 요구하는 방 분류 어휘(`docs/requirements.ids` 의
+   * R14)다.** 가진 BIM(병원·Duplex, Revit)에 실제로 나온 코드 중 Brick 방 클래스와 뜻이 분명히 맞는 것만 둔다.
+   * 상위 코드로 넓히지 않는다 — `13-75 11 11` 창고는 받지만 `13-75 41 24` 위험물 창고는 받지 않는다.
+   */
+  omniclass?: string[]
+}
 
 /**
  * 방 이름 → Brick 방 클래스. Brick 1.4 에 있는 이름만 쓴다.
@@ -188,27 +199,49 @@ export type RoomKindInfo = { kind: string; label: string; test: RegExp; brick: s
  * 샤프트(P.S, E.A, O.A)와 전실(Vestibule)은 Brick 에 알맞은 방 클래스가 없어 사전에 넣지 않았다.
  */
 export const ROOM_KINDS: RoomKindInfo[] = [
-  { kind: 'restroom', label: '화장실', test: /toilet|restroom|rest\s*room|화장실|\bW\.?C\b/i, brick: 'brick:Restroom' },
-  { kind: 'conference', label: '회의실', test: /conference|meeting|회의/i, brick: 'brick:Conference_Room' },
-  { kind: 'break', label: '휴게실', test: /break\s*room|pantry|lounge|탕비|휴게/i, brick: 'brick:Break_Room' },
-  { kind: 'office', label: '사무실', test: /office(?!\s*storage)|사무/i, brick: 'brick:Office' },
-  { kind: 'staircase', label: '계단실', test: /stair|계단/i, brick: 'brick:Staircase' },
-  { kind: 'elevator_shaft', label: '승강로', test: /elev(ator)?\.?\s*shaft|승강로/i, brick: 'brick:Elevator_Shaft' },
+  { kind: 'restroom', label: '화장실', test: /toilet|restroom|rest\s*room|화장실|\bW\.?C\b/i, brick: 'brick:Restroom', omniclass: ['13-41 11 14 21'] },
+  { kind: 'conference', label: '회의실', test: /conference|meeting|회의/i, brick: 'brick:Conference_Room', omniclass: ['13-11 21 17'] },
+  { kind: 'break', label: '휴게실', test: /break\s*room|pantry|lounge|탕비|휴게/i, brick: 'brick:Break_Room', omniclass: ['13-51 11 21'] },
+  { kind: 'office', label: '사무실', test: /office(?!\s*storage)|사무/i, brick: 'brick:Office', omniclass: ['13-15 11 34 11'] },
+  { kind: 'staircase', label: '계단실', test: /stair|계단/i, brick: 'brick:Staircase', omniclass: ['13-85 21 11'] },
+  { kind: 'elevator_shaft', label: '승강로', test: /elev(ator)?\.?\s*shaft|승강로/i, brick: 'brick:Elevator_Shaft', omniclass: ['13-81 21 31'] },
   { kind: 'lobby', label: '로비·홀', test: /lobby|로비|elev(ator)?\.?\s*hall|\bEV\.?\s*hall|승강기\s*홀|엘리베이터\s*홀/i, brick: 'brick:Lobby' },
-  { kind: 'mechanical', label: '기계실', test: /machine\s*room|mech(anical)?\s*room|\bHVAC\b|pump\s*room|기계실|공조실|펌프실/i, brick: 'brick:Mechanical_Room' },
-  { kind: 'electrical', label: '전기실', test: /\bEPS\b|electric|전기실|변전실/i, brick: 'brick:Electrical_Room' },
+  { kind: 'mechanical', label: '기계실', test: /machine\s*room|mech(anical)?\s*room|\bHVAC\b|pump\s*room|기계실|공조실|펌프실/i, brick: 'brick:Mechanical_Room', omniclass: ['13-81 21 17'] },
+  { kind: 'electrical', label: '전기실', test: /\bEPS\b|electric|전기실|변전실/i, brick: 'brick:Electrical_Room', omniclass: ['13-81 21 21'] },
   { kind: 'telecom', label: '통신실', test: /\bTPS\b|\bMDF\b|\bIDF\b|telecom|통신실/i, brick: 'brick:Telecom_Room' },
   { kind: 'server', label: '전산실', test: /server|전산실/i, brick: 'brick:Server_Room' },
-  { kind: 'storage', label: '창고', test: /storage|창고/i, brick: 'brick:Storage_Room' },
+  { kind: 'storage', label: '창고', test: /storage|창고/i, brick: 'brick:Storage_Room', omniclass: ['13-75 11 11'] },
   { kind: 'janitor', label: '청소도구실', test: /\bJAN\b\.?|janitor|청소/i, brick: 'brick:Janitor_Room' },
-  { kind: 'hallway', label: '복도', test: /corridor|hallway|복도/i, brick: 'brick:Hallway' },
+  { kind: 'hallway', label: '복도', test: /corridor|hallway|복도/i, brick: 'brick:Hallway', omniclass: ['13-85 11 11'] },
 ]
 
 const ROOM_BY_KIND = new Map(ROOM_KINDS.map((k) => [k.kind, k]))
 
-export function roomKindOf(name: string, longName = ''): RoomKindInfo | null {
+const ROOM_BY_OMNICLASS = new Map(ROOM_KINDS.flatMap((k) => (k.omniclass ?? []).map((c) => [c, k] as const)))
+
+/**
+ * 문자열에서 OmniClass Table 13 코드를 꺼낸다. Revit 은 `13-15 11 34 11`(Category Code)이나
+ * `13-15 11 34 11: Office`(OmniClass Table 13 Category, COBie 의 분류 참조)로 적는다. 설명만 있으면(`Office`) null.
+ */
+export function omniclassCode(text: string | null | undefined): string | null {
+  const m = /(?:^|[^\d])(13-\d{2}(?: \d{2})*)(?![\d])/.exec(text ?? '')
+  return m ? m[1] : null
+}
+
+/**
+ * 방 종류와 그 출처. 이름 사전이 먼저다 — 병원의 `JAN. CL.` 은 OmniClass 로는 창고(13-75 11 11)지만 이름이 청소도구실이라고
+ * 더 좁게 말한다. 이름이 모를 때 OmniClass 코드를 쓰고, 그때 출처는 BIM 이다.
+ */
+export function resolveRoomKind(name: string, longName = '', omniclass: string | null = null): { info: RoomKindInfo; source: KindSource } | null {
   const text = `${longName} ${name}`
-  return ROOM_KINDS.find((k) => k.test.test(text)) ?? null
+  const byName = ROOM_KINDS.find((k) => k.test.test(text))
+  if (byName) return { info: byName, source: 'dict' }
+  const byCode = omniclass ? ROOM_BY_OMNICLASS.get(omniclass) : undefined
+  return byCode ? { info: byCode, source: 'bim' } : null
+}
+
+export function roomKindOf(name: string, longName = '', omniclass: string | null = null): RoomKindInfo | null {
+  return resolveRoomKind(name, longName, omniclass)?.info ?? null
 }
 
 export function roomKind(kind: string | null | undefined): RoomKindInfo | null {

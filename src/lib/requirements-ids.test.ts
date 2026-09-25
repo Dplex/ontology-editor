@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
 import { describe, expect, it } from 'vitest'
 import { CAPACITY_PROPERTIES } from './capacity'
-import { EQUIPMENT_KINDS, SYSTEM_IFC } from './kinds'
+import { EQUIPMENT_KINDS, omniclassCode, ROOM_KINDS, SYSTEM_IFC } from './kinds'
 
 // docs/requirements.ids 는 정본(docs/bim-to-dt-ontology.md 4장)과 이름 사전(kinds.ts)·용량 표(capacity.ts)를 고객사가
 // 검사할 수 있게 옮긴 사본이다. 사본이 어긋나는 두 가지를 여기서 막는다.
@@ -99,6 +99,24 @@ describe('requirements.ids', () => {
     // 약어 없이 PredefinedType 만으로 정해지는 것은 계통 종류 명세가 허용해야 한다.
     const allowed = new Set(enumerations(kind.requirements))
     for (const p of Object.keys(SYSTEM_IFC.alone)) expect(allowed.has(p)).toBe(true)
+  })
+
+  it('R14 의 방 분류는 kinds.ts 의 ROOM_KINDS.omniclass 와 같은 체계다', () => {
+    const [spec] = specs('R14 방 분류')
+    const value = /<value>[\s\S]*?<xs:pattern value="([^"]+)"/.exec(spec.requirements)?.[1]
+    const system = /<system>[\s\S]*?<xs:pattern value="([^"]+)"/.exec(spec.requirements)?.[1]
+    expect(system).toBe('OmniClass.*')
+    // XSD 의 패턴은 전체 일치다.
+    const whole = new RegExp(`^(?:${value})$`)
+    const codes = ROOM_KINDS.flatMap((k) => k.omniclass ?? [])
+    expect(codes.length).toBeGreaterThan(5)
+    for (const c of codes) {
+      // IDS 를 지킨 값(코드만, 코드: 설명)을 우리가 같은 코드로 읽는다.
+      for (const v of [c, `${c}: Something`]) {
+        expect([v, whole.test(v)]).toEqual([v, true])
+        expect(omniclassCode(v)).toBe(c)
+      }
+    }
   })
 
   it('R22 의 용량 속성은 capacity.ts 가 읽는 이름이다', () => {

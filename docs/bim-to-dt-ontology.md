@@ -534,7 +534,7 @@ BIM이 아닌 곳에서 받아야 하는 것**이다. 고객사에 필수로 요
 | 등급 | 온톨로지에 나오는 것 | 필요한 IFC | 도달한 샘플 |
 |---|---|---|---|
 | **0. 공간 골격** | F1~F7. 층, 물리존 외곽선, 이름, 벽·문·창, 공간 경계 | `IfcBuildingStorey`, `IfcSpace`(FootPrint 또는 SweptSolid), 벽·개구부, 배치 사슬, 단위 선언 | AC20-FZK-Haus, Duplex 건축 |
-| **0+. 공간 의미** | 방 종류, 방 높이, 방-문-방 연결 | 방 분류(OmniClass 또는 `PredefinedType`), 공간 수량 `Height`, 문이 걸린 `IfcRelSpaceBoundary` | 재료는 샘플에 있다(3.6). **코드가 아직 읽지 않는다** |
+| **0+. 공간 의미** | 방 종류, 방 높이, 방-문-방 연결 | 방 분류(OmniClass Table 13), 공간 수량 `Height`, 문이 걸린 `IfcRelSpaceBoundary` | 방 종류는 이름과 OmniClass 로 읽는다(병원 건축 173/269). 방-문-방 연결도 읽는다(3.6). **방 높이는 아직 읽지 않는다** |
 | **1. 설비 목록** | + F8·F9. 설비 역할·이름·좌표 | `IfcDistributionElement` + 형상 위에 놓인 배치점 | Duplex MEP·HVAC, ifc4Mep |
 | **2. 설비 소속** | + F11. `brick:hasLocation` | `IfcSpace`가 같은 파일에 있거나, 다른 파일이면 **같은 좌표계와 같은 층 이름** | Duplex MEP(기기 141/141), Duplex 건축+HVAC(기기 40/40) |
 | **3. 계통·연결망** | + F10·F16(방향 없음) | `IfcSystem` 또는 Revit `System Name`, 맞닿는 솔리드 | Duplex MEP(연결 785) |
@@ -562,7 +562,7 @@ IFC에 자리가 있는지, 실제 파일이 채웠는지, 우리 코드가 읽�
 
 | 확장 | DT가 쓰는 곳 | IFC의 자리 | 실측 | 지금 | 어디로 나가나 |
 |---|---|---|---|---|---|
-| 방 종류 | Agent의 "회의실", 탐색기 | `IfcSpace.PredefinedType`, OmniClass Table 13 속성 | `PredefinedType` 0/4 파일. OmniClass Duplex 건축 **21/21**, AC20 0/7 | 방 이름 사전으로 Brick 방 하위 클래스(`brick:Office`, `brick:Restroom` …). 성수 건축 159/934. 표준 필드(OmniClass)는 아직 읽지 않는다 | TTL 클래스. 술어가 늘지 않는다 |
+| 방 종류 | Agent의 "회의실", 탐색기 | OmniClass Table 13(분류 참조, Revit은 `Category Code` 속성). `PredefinedType`은 방 종류를 말하지 않는다 | `PredefinedType` 0/4 파일. OmniClass 병원 건축 **269/269**, Duplex 건축 **21/21**, AC20 0/7 | 이름 사전 → OmniClass 코드 순으로 Brick 방 하위 클래스(`brick:Office`, `brick:Restroom` …). 병원 건축 173/269, 그중 55개는 이름이 모르고 코드가 말한 것(출처 BIM). 성수 건축은 이름만으로 159/934(코드를 읽은 뒤 다시 재지 못했다) | TTL 클래스. 술어가 늘지 않는다 |
 | 방 높이 | 3D Map(복층·층고) | `Qto_SpaceBaseQuantities.Height` | AC20 **7/7**(2.5m·4m) | 층 높이만 | GeoJSON |
 | 방-문-방 연결 | 로봇 경로, 피난 | 문이 걸린 `IfcRelSpaceBoundary` | 두 방을 잇는 문 AC20 3/5, Duplex 건축 **9/14**. COBie 판본과 성수 건축은 경계가 없어 0 | 공간 경계가 있으면 그것을 늘 읽고, 없으면 문·창 형상을 읽도록 켰을 때 문 양쪽을 좌표로 짚는다. 공간 경계를 정답지로 대 보면 18/19 가 맞는다(외곽선이 있는 방 기준). 성수 건축은 문 528개 중 방 둘을 잇는 것 233개 | GeoJSON 문 feature 의 `connects`. Brick 에 인접 관계가 없어 TTL 술어를 늘리지 않았다 |
 | 벽·문·창 위치 | 3D Map, 로봇 | `ObjectPlacement` + 형상 | 확인한 파일 전부 있다 | 형상에서 읽는다. 벽은 맨 아래 면의 테두리로 평면 외곽선을, 문·창은 평면 중심을 잡는다(배치점은 믿지 않는다). 성수 건축 벽 1,291개·개구부 591개 전부. 문·창 형상은 로봇 경로용이라 파일을 열 때 켤 때만 읽는다(성수 건축에서 약 7초 더 걸린다) | GeoJSON(벽은 Polygon, 문·창은 Point) |
@@ -637,7 +637,7 @@ IFC에 자리가 있는지, 실제 파일이 채웠는지, 우리 코드가 읽�
 
 | # | 요구 | 확인하는 자리 | 등급 | 실측 | 없으면 |
 |---|---|---|---|---|---|
-| R14 | 방 분류 | `IfcSpace.PredefinedType` 또는 OmniClass Table 13 | 0+ | Duplex 21/21(OmniClass), AC20 0 | 모든 방이 `brick:Room` 하나로 나간다 |
+| R14 | 방 분류, **OmniClass Table 13 코드로**(4.6) | `IfcClassificationReference`(Revit `Category Code` 속성도 우리는 읽는다) | 0+ | 병원 건축 269/269, Duplex 21/21(둘 다 Revit 속성), AC20 0 | 이름 사전으로만 읽는다. 병원 건축에서는 이름이 모르는 방 55개를 코드가 말했다 |
 | R15 | 방 높이 | `Qto_SpaceBaseQuantities.Height` | 0+ | AC20 7/7 | 층 높이로 대신한다. 복층을 모른다 |
 | R16 | 모든 MEP 요소에 솔리드가 있고, **이어진 요소끼리 맞닿거나 겹칠 것** | 형상. 우리가 연다 | 3 | Duplex MEP 연결망 34조각, 103대가 접합 부재 없음 | 포트가 없을 때 연결을 형상으로도 되살리지 못한다 |
 | R17 | 계통 묶음, **계통 이름은 분야별 파일끼리 같게**, **계통 종류는 `PredefinedType`에 공급·환수 약어를 더해**(4.6) | `IfcSystem`(없으면 Revit `System Name`으로 대신), `IfcDistributionSystem.PredefinedType`·`ObjectType` | 3 | ifc4Mep 37(종류 9/15, 약어는 이름에만 있고 `ObjectType` 0/7), Duplex COBie 10, Duplex 일반 판본 0(속성으로 대신) | 어느 설비가 어느 계통인지 모른다. 종류가 없으면 규칙 방향이 계통 이름에 기댄다 |
@@ -806,6 +806,23 @@ IFC4 값은 한 계통 안에서 둘을 가르지 않으므로 `ObjectType`에 �
 
 약어는 그 매체의 `PredefinedType`과 함께일 때만 읽는다(`RETURN`은 공기에도 물에도 붙을 수 있다).
 
+방 분류(R14)는 OmniClass Table 13 코드다. `IfcSpace.PredefinedType`은 방 종류가 아니라 공간의 성격(`SPACE`·`PARKING`·
+`GFA`)만 말하므로 쓰지 않는다. Revit은 방마다 코드를 적는다(병원 건축 269/269, Duplex 건축 21/21). 다만 표준 분류
+관계가 아니라 `Category Code` 속성으로 적어서, IDS 검사에서는 떨어져도 우리는 읽는다. Brick 방 클래스로 옮기는 코드는
+가진 BIM에 실제로 나온 것 중 뜻이 분명히 맞는 것뿐이다(`kinds.ts`의 `ROOM_KINDS.omniclass`).
+
+| 방 종류 | OmniClass Table 13 | Brick |
+|---|---|---|
+| 사무실 · 회의실 · 휴게실 | `13-15 11 34 11` · `13-11 21 17` · `13-51 11 21` | `Office` · `Conference_Room` · `Break_Room` |
+| 화장실 | `13-41 11 14 21` Restroom | `Restroom` |
+| 복도 · 계단실 · 승강로 | `13-85 11 11` · `13-85 21 11` · `13-81 21 31` | `Hallway` · `Staircase` · `Elevator_Shaft` |
+| 기계실 · 전기실 | `13-81 21 17` · `13-81 21 21` | `Mechanical_Room` · `Electrical_Room` |
+| 창고 | `13-75 11 11` | `Storage_Room` |
+
+상위 코드로 넓히지 않는다. `13-75 41 24`(위험물 창고)는 창고로 받지 않고, 주택의 `13-41 11 14 11`(Bathroom)은
+화장실로 받지 않는다. 이름 사전이 먼저다 — 병원의 `JAN. CL.` 9개는 코드로는 창고지만 이름이 청소도구실이라고 더 좁게
+말한다.
+
 용량(R22)은 IFC4 표준 Pset 이름으로 받는다. 대부분 **타입 객체의** `Pset_*TypeCommon`에 붙는다. 임포터는 타입의
 Pset도 읽고, 범위 값(`AirFlowrateRange`, `FlowRateRange`)은 설정값을, 없으면 위 끝을 쓴다. 공조기·FCU는 IFC4 표준에
 용량 자리가 없어서 `DT_Capacity.NominalAirFlowRate`로 적게 했다. 속성 이름은 팬·VAV의 표준 속성과 같게 두었다.
@@ -825,7 +842,7 @@ IDS는 IFC4에만 걸리므로 IFC4 파일 넷에 대 봤다. IFC2x3인 Duplex·
 | R6 단위 | 있음 | 있음 | 있음 | 있음 |
 | R7 지도 좌표 | 없음 | 없음 | 없음 | 없음 |
 | R11 설비 배치 | 설비 없음 | 285/307 | 4/5(좌표 없는 센서) | 설비 없음 |
-| R14 방 분류 | 0/7 | – | 0/1 | 0/3 |
+| R14 방 분류 | 0/7 | – | 0/1 | 2/3 |
 | R15 방 높이 | 7/7(`BaseQuantities`) | – | 0/1 | 0/3 |
 | R17 계통 묶음 · 종류 · 공급·환수 약어 | – | 1,714/2,202 · 9/15 · **0/7** | 4/6 · 1/1 · 1/1 | – |
 | R18 포트 방향 | – | 4,202/4,232 | 6/6 | – |

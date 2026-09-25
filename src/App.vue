@@ -1478,9 +1478,11 @@ const kindSummary = computed(() => {
   const kinds = [...byKind.values()].sort((a, b) => b.count - a.count || (order.get(a.label)! - order.get(b.label)!))
   const spaces = m.storeys.flatMap((s) => s.spaces)
   const rooms = new Map<string, number>()
+  let roomsFromBim = 0
   for (const sp of spaces) {
     const label = roomKind(sp.kind)?.label
     if (label) rooms.set(label, (rooms.get(label) ?? 0) + 1)
+    if (label && sp.kindSource === 'bim') roomsFromBim++
   }
   const systems = new Map<string, number>()
   for (const sy of m.systems) {
@@ -1493,6 +1495,7 @@ const kindSummary = computed(() => {
     kinds,
     points: kinds.filter((k) => k.point),
     roomsKnown: [...rooms.values()].reduce((a, b) => a + b, 0),
+    roomsFromBim,
     roomsTotal: spaces.length,
     rooms: [...rooms].sort((a, b) => b[1] - a[1]),
     systems: [...systems].sort((a, b) => b[1] - a[1]),
@@ -2910,7 +2913,12 @@ function exportTTL() {
               </ul>
               <p class="hint">위치와 소속 방은 나와 있습니다. 관제점 ID 는 BAS 에서 받아 이어야 합니다.</p>
               <h4>방 종류</h4>
-              <p class="muted">{{ kindSummary.roomsKnown }} / {{ kindSummary.roomsTotal }} 개를 알아봤습니다.</p>
+              <p class="muted">
+                {{ kindSummary.roomsKnown }} / {{ kindSummary.roomsTotal }} 개를 알아봤습니다.
+                <template v-if="kindSummary.roomsKnown">
+                  OmniClass {{ kindSummary.roomsFromBim }} <Src kind="bim" /> · 이름 {{ kindSummary.roomsKnown - kindSummary.roomsFromBim }} <Src kind="dict" />
+                </template>
+              </p>
               <ul class="plain">
                 <li v-for="[label, n] in kindSummary.rooms" :key="label">{{ label }} <b class="mono">{{ n }}</b></li>
               </ul>

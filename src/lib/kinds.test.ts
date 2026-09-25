@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EQUIPMENT_KINDS, equipmentKindOf, equipmentKindOfIfc, resolveEquipmentKind, roomKindOf, systemKindOf } from './kinds'
+import { EQUIPMENT_KINDS, equipmentKindOf, equipmentKindOfIfc, omniclassCode, resolveEquipmentKind, resolveRoomKind, roomKindOf, systemKindOf } from './kinds'
 
 // 입력은 성수·Duplex·ifc4Mep 실측 파일에 실제로 나온 이름이다. 사전을 넓히면 이 표에서 무엇이 바뀌는지 보인다.
 const kind = (name: string, objectType = '', ifcClass = '') => equipmentKindOf(name, objectType, ifcClass)?.kind ?? null
@@ -131,6 +131,38 @@ describe('방 종류 사전', () => {
 
   it.each(['Vestibule-1', 'P.S', 'P.S/A.V', 'O.A', 'Digestion Chamber1', 'Buero'])('모르는 방은 null: %s', (name) => {
     expect(roomKindOf('', name)).toBeNull()
+  })
+
+  it.each([
+    // Revit 이 적는 세 가지 모양(병원·Duplex 건축, COBie 판본)
+    ['13-15 11 34 11', '13-15 11 34 11'],
+    ['13-15 11 34 11: Office', '13-15 11 34 11'],
+    ['13-81 31: Service Distribution Spaces', '13-81 31'],
+    // 설비 판본은 설명만 적기도 한다
+    ['Office', null],
+    ['', null],
+  ])('OmniClass 코드를 꺼낸다: %s', (text, code) => {
+    expect(omniclassCode(text)).toBe(code)
+  })
+
+  it.each([
+    // 병원 건축: 이름 사전이 놓치는 방을 OmniClass 가 말한다
+    ['CONF. ROOM', '13-11 21 17', 'conference'],
+    ['MECH. PENTHOUSE', '13-81 21 17', 'mechanical'],
+    ['ELEC. ROOM', '13-81 21 21', 'electrical'],
+    ['ELEVATOR', '13-81 21 31', 'elevator_shaft'],
+    ['COMM. ROOM', '13-15 11 34 11', 'office'],
+  ])('이름이 모르면 OmniClass 로 읽고 출처는 BIM 이다: %s', (name, code, expected) => {
+    expect(resolveRoomKind('', name, code)).toEqual({ info: expect.objectContaining({ kind: expected }), source: 'bim' })
+  })
+
+  it('이름이 먼저다 — 병원의 JAN. CL. 은 OmniClass 로는 창고지만 청소도구실이다', () => {
+    expect(resolveRoomKind('', 'JAN. CL.', '13-75 11 11')).toEqual({ info: expect.objectContaining({ kind: 'janitor' }), source: 'dict' })
+  })
+
+  it('표에 없는 코드는 넓히지 않는다 — 상위 코드가 같아도 다른 방이다', () => {
+    // 13-75 41 24 위험물 창고, 13-51 21 11 침실, 13-41 11 14 11 욕실
+    for (const code of ['13-75 41 24', '13-51 21 11', '13-41 11 14 11']) expect(resolveRoomKind('', 'Room', code)).toBeNull()
   })
 })
 

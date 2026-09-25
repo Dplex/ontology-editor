@@ -63,6 +63,14 @@ describe('importIfc', () => {
   it('LongName 을 사람이 부르는 이름으로 삼는다', () => {
     expect(model.storeys[0].spaces.map((s) => s.longName).sort()).toEqual(['복도', '회의실'])
   })
+
+  it('방 분류(OmniClass)를 표준 분류 관계에서 읽고, 방 종류는 이름이 먼저다', () => {
+    const byName = new Map(model.storeys.flatMap((s) => s.spaces).map((s) => [s.longName, s]))
+    expect(byName.get('창고')).toMatchObject({ omniclass: '13-75 11 11', kind: 'storage', kindSource: 'dict' })
+    // 분류는 사무실이라고 하지만 이름이 회의실이라고 더 좁게 말한다.
+    expect(byName.get('회의실')).toMatchObject({ omniclass: '13-15 11 34 11', kind: 'conference', kindSource: 'dict' })
+    expect(byName.get('복도')).toMatchObject({ omniclass: null, kind: 'hallway' })
+  })
 })
 
 describe('배치 사슬', () => {
