@@ -668,17 +668,15 @@ th {
 }
 
 .neighbors .flow-edit {
-  text-align: right;
-  white-space: nowrap;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
 }
 
 .flow-edit .ghost {
   padding: 0.1rem 0.5rem;
   font-size: 0.75rem;
-}
-
-.flow-edit .ghost + .ghost {
-  margin-left: 0.25rem;
 }
 
 .flow-edit .ghost.hidden {
@@ -701,6 +699,10 @@ th {
   color: var(--accent);
   font: inherit;
   cursor: pointer;
+}
+
+.link {
+  text-align: left;
 }
 
 .link:hover {
@@ -1165,6 +1167,8 @@ th {
 
 .tiles li {
   position: relative;
+  /* 출처 칩(오른쪽 아래)에 줄 하나를 내준다. 없으면 긴 이름(덕트·배관, 흐름 방향)이 칩 밑으로 들어간다. */
+  padding-bottom: 1.75rem;
 }
 
 /* 칸의 출처는 오른쪽 아래 모서리에 둔다. 이름 뒤에 붙이면 좁은 칸에서 줄이 넘어가 칸마다 높이가
@@ -2394,3 +2398,22 @@ main.has-model .catalog {
   text-align: left;
 }
 
+/* 좁은 칸의 머리줄이 한 글자씩 꺾이지 않게. */
+.service th,
+.served th,
+.req-table th {
+  white-space: nowrap;
+}
+
+.neighbors .name-cell {
+  width: 100%;
+}
+
+.neighbors .src-cell {
+  margin-top: 0.1rem;
+  font-size: 0.8rem;
+}
+
+.req-table td.num {
+  white-space: nowrap;
+}

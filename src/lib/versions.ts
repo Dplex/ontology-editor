@@ -22,6 +22,14 @@ export const MATCH_KEY_LABEL: Record<MatchKey, string> = {
   position: '위치',
 }
 
+/** 문장 안에서 "무엇으로 찾았나" 를 말할 때. 조사가 받침에 따라 달라서 따로 둔다. */
+export const MATCH_KEY_BY: Record<MatchKey, string> = {
+  guid: 'GUID로',
+  revitId: 'Revit 요소 ID로',
+  name: '이름으로',
+  position: '위치로',
+}
+
 /**
  * GUID 가 바뀌어도 남기를 바라는 것. 모델 안에서 하나뿐인 값만 담는다(둘 이상이면 짝짓기에 쓸 수 없다).
  * 편집 파일에도 이대로 적힌다.

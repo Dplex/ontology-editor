@@ -255,7 +255,7 @@ test('3D 에서 누를 수 있는 곳에 올라가면 커서가 손가락이 되
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
   // 설비가 작게 보이면 격자로 훑어도 못 맞춘다. 연결망에 맞춰 크게 본 뒤 선택을 푼다.
   await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
-  await page.getByRole('button', { name: '연결망에 맞추기' }).click()
+  await page.getByRole('button', { name: '연결망 보기' }).click()
   await page.getByRole('button', { name: '선택 해제' }).click()
 
   const canvas = page.locator('.viewport canvas')
@@ -311,7 +311,7 @@ test('규칙이 짐작한 방향은 (추정)으로 보이고, 사람이 연결 �
   await expect(report).toContainText('규칙 방향과 반대')
 
   // 되돌리면 규칙 방향으로 돌아가고 리포트에서 빠진다.
-  await terminal.getByRole('button', { name: '되돌리기' }).click()
+  await terminal.getByRole('button', { name: '지우기' }).click()
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
   await expect(page.locator('.report')).toHaveCount(0)
 

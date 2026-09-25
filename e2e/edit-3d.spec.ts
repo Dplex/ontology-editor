@@ -265,7 +265,7 @@ test('3D 로 끈 설비는 Ctrl+Z 로 좌표·출처·소속이 끌기 전으로
   await expect(row(page, 'AHU-1').locator('.src.edit')).toHaveCount(0)
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
   await expect(page.locator('.report')).toHaveCount(0)
-  await expect(page.locator('.edit-notice')).toContainText('되돌림: AHU-1 옮김')
+  await expect(page.locator('.edit-notice')).toContainText('되돌렸습니다: AHU-1 옮김')
   await expect(undoButton).toBeDisabled()
 
   // 3D 에서도 제자리다.

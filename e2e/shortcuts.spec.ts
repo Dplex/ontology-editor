@@ -240,7 +240,7 @@ test('계통별 확정 표에서 남은 계통과 일치율을 보고 바로 확
   await expect(fold).toContainText('확정 0개')
 
   await row.getByRole('button', { name: '확정' }).click()
-  await expect(row).toContainText('확정됨')
+  await expect(row).toContainText('확정함')
   await expect(page.locator('.report')).toContainText('AHU-1 급기 계통')
   await expect(fold).toContainText('확정 1개')
 

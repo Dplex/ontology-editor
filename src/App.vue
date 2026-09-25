@@ -11,7 +11,7 @@ import Src from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { applyEdits, exportEdits, parseEditFile } from './lib/edit-file'
-import { compareVersions, MATCH_KEY_LABEL, type MatchKey, type VersionDiff } from './lib/versions'
+import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
 import { completenessChecks } from './lib/checks'
@@ -446,7 +446,7 @@ function undo() {
   confirmations.value = confirmations.value.slice(0, entry.confirmations)
   storeyMoved.value = entry.storeyMoved
   applySnapshot(entry.snapshot)
-  editNotice.value = `되돌림: ${entry.label}`
+  editNotice.value = `되돌렸습니다: ${entry.label}`
 }
 
 function redo() {
@@ -461,7 +461,7 @@ function redo() {
   // 되돌리기 전의 이력 한 줄을 그대로 돌려놓는다. 그 스냅숏이 가리키는 상태가 지금 상태다.
   history.value = [...history.value, { ...next.entry, time: 0 }]
   applySnapshot(next.snapshot)
-  editNotice.value = `다시 실행: ${next.entry.label}`
+  editNotice.value = `다시 했습니다: ${next.entry.label}`
 }
 
 /** 스냅숏을 모델에 되돌려 놓고, 바뀐 것에 맞춰 3D 와 화면을 고친다. 되돌리기와 다시 하기가 같이 쓴다. */
@@ -562,7 +562,7 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       return true
     case 'rules':
       showRules.value = !showRules.value
-      note(showRules.value ? '규칙 방향 표시' : '규칙 방향 숨김')
+      note(showRules.value ? '3D에 규칙 방향을 표시합니다' : '3D에서 규칙 방향을 숨깁니다')
       return true
     case 'walls':
       if (!drawnWalls.value) {
@@ -725,7 +725,7 @@ function stepArrow(dir: 1 | -1): boolean {
     const cur = activeVertex.value
     activeVertex.value = cur === null ? (dir > 0 ? 0 : n - 1) : (cur + dir + n) % n
     const p = selectedSpace.value.space.footprint[activeVertex.value]
-    note(`꼭짓점 ${activeVertex.value + 1}/${n} (${p[0].toFixed(2)}, ${p[1].toFixed(2)}) · ←↑→↓로 이동`)
+    note(`꼭짓점 ${activeVertex.value + 1}/${n} (${p[0].toFixed(2)}, ${p[1].toFixed(2)}) · ←↑→↓로 옮깁니다`)
     return true
   }
   const n = arrowConnections.value.length
@@ -737,7 +737,7 @@ function stepArrow(dir: 1 | -1): boolean {
   const cur = activeArrow.value
   activeArrow.value = cur === null ? (dir > 0 ? 0 : n - 1) : (cur + dir + n) % n
   const row = selectedNeighbors.value[activeArrow.value]
-  if (row) note(`연결 ${activeArrow.value + 1}/${n}: ${shortName(row.name)} (${relLabel(row)}) · D로 방향 전환`)
+  if (row) note(`연결 ${activeArrow.value + 1}/${n}: ${shortName(row.name)} (${relLabel(row)}) · D로 방향을 바꿉니다`)
   return true
 }
 
@@ -773,7 +773,7 @@ function stepUnknown(dir: 1 | -1): boolean {
   const i = here < 0 ? (dir > 0 ? 0 : list.length - 1) : (here + dir + list.length) % list.length
   const t = list[i]
   selectAndShow(t.sampleId)
-  note(`종류 모르는 패밀리 ${i + 1}/${list.length}: ${t.label} ${t.count}대 · K로 종류 선택`)
+  note(`종류 모르는 패밀리 ${i + 1}/${list.length}: ${t.label} ${t.count}대 · K로 종류를 고릅니다`)
   return true
 }
 
@@ -1219,7 +1219,7 @@ const systemRows = computed(() => {
       const system = t.systemId ? systemById.value.get(t.systemId) : null
       return {
         key: t.systemId ?? '',
-        name: system ? system.name || '(이름 없는 계통)' : '직접 연결',
+        name: system ? system.name || '(이름 없는 계통)' : '계통 없음',
         kind: system ? (systemKind(system.kind)?.label ?? null) : null,
         color: system ? (systemColor.value.get(system.id) ?? null) : null,
         up: [...t.upstream].filter(isDevice).length,
@@ -1331,7 +1331,7 @@ const flowEditLines = computed(() => {
   return flowEdits(model.value).map((e) => ({
     from: nameOf(e.from),
     to: nameOf(e.to),
-    note: e.rule === 'reversed' ? '규칙 방향과 반대' : e.rule === 'same' ? '규칙 방향과 같음' : '규칙 방향 없음',
+    note: e.rule === 'reversed' ? '규칙 방향과 반대' : e.rule === 'same' ? '규칙 방향과 같음' : '규칙으로 정할 수 없는 연결',
   }))
 })
 
@@ -1736,8 +1736,8 @@ function appendData(path: string) {
 
 /** 요약 옆에 붙이는 한마디. 이 파일이 혼자 쓰이는지, 짝이 필요한지. */
 function roleHint(p: Profile): string {
-  if (p.needsArchitecture) return '방 없음 — 건축 파일과 합칠 파일'
-  if (p.needsEquipment) return '설비 없음 — 설비 파일을 덧붙일 파일'
+  if (p.needsArchitecture) return '방이 없습니다. 건축 파일과 합쳐 쓰는 파일입니다'
+  if (p.needsEquipment) return '설비가 없습니다. 설비 파일을 덧붙여 쓰는 파일입니다'
   return ''
 }
 
@@ -1878,7 +1878,7 @@ async function onEditFilePick(event: Event) {
     `편집 ${result.applied}개를 적용했습니다(${picked.name}).` +
     (file.source && file.source !== fileName.value ? ` 원래 파일: ${file.source}.` : '') +
     (rematched.length
-      ? ` GUID가 바뀐 ${rematched.reduce((n, [, k]) => n + k, 0)}개는 다른 기준으로 찾았습니다(${rematched.map(([k, n]) => `${MATCH_KEY_LABEL[k]} ${n}`).join(' · ')}).`
+      ? ` GUID가 바뀐 ${rematched.reduce((n, [, k]) => n + k, 0)}개는 ${rematched.map(([k, n]) => `${MATCH_KEY_BY[k]} ${n}개`).join(', ')} 찾았습니다.`
       : '') +
     (missing.length ? ` 찾지 못함: ${missing.map(([k, n]) => `${MISSING_LABEL[k]} ${n}`).join(' · ')}.` : '') +
     ' 불러온 편집은 되돌리기로 취소할 수 없습니다.'
@@ -2131,19 +2131,19 @@ const mergeLines = computed(() => {
   const byElevation = r.storeys.filter((s) => s.by === 'elevation').length
   const added = r.storeys.filter((s) => s.by === null).length
   const lines = [
-    `층 ${r.storeys.length}개 중 이름으로 ${byName}` +
-      (byElevation ? ` · 높이로 ${byElevation}` : '') +
-      (added ? ` · 새 층 ${added}` : ''),
+    `층 ${r.storeys.length}개를 맞췄습니다: 이름으로 ${byName}개` +
+      (byElevation ? `, 높이로 ${byElevation}개` : '') +
+      (added ? `, 새 층 ${added}개` : ''),
   ]
-  if (r.alignment) lines.push(`좌표 겹침 ${Math.round(r.alignment.ratio * 100)}% (${r.alignment.inside}/${r.alignment.placed})`)
+  if (r.alignment) lines.push(`좌표 겹침 ${Math.round(r.alignment.ratio * 100)}%: 덧붙인 설비 ${r.alignment.placed}대 중 ${r.alignment.inside}대가 건축 공간 안에 있습니다.`)
   const { dropped, kept, borrowed } = r.spaces
   const spaceParts = [
-    dropped ? `겹친 물리존 ${dropped}개 제외` : '',
-    kept ? `빈자리 물리존 ${kept}개 추가` : '',
-    borrowed ? `외곽선 ${borrowed}개 가져옴` : '',
+    dropped ? `건축 파일과 겹치는 물리존 ${dropped}개는 뺐습니다` : '',
+    kept ? `건축 파일에 없는 물리존 ${kept}개는 넣었습니다` : '',
+    borrowed ? `외곽선이 없는 물리존 ${borrowed}개는 설비 파일의 외곽선을 썼습니다` : '',
   ].filter(Boolean)
-  if (spaceParts.length) lines.push(spaceParts.join(' · '))
-  lines.push(`덧붙인 설비 미소속 ${r.unlocated.before} → ${r.unlocated.after}`)
+  if (spaceParts.length) lines.push(spaceParts.join(', ') + '.')
+  lines.push(`소속 방이 없는 설비: ${r.unlocated.before}대 → ${r.unlocated.after}대`)
   return lines
 })
 
@@ -2155,7 +2155,8 @@ const unlocatedLine = computed(() => {
   if (all.length === 0) return ''
   const conduits = all.filter((e) => isConduit(e.role)).length
   const devices = all.length - conduits
-  return `기기 ${devices}대, 덕트·배관 ${conduits}대의 소속 물리존을 찾지 못했습니다. 이 설비는 층까지만 위치가 나갑니다.`
+  const what = [devices ? `기기 ${devices}대` : '', conduits ? `덕트·배관 ${conduits}대` : ''].filter(Boolean).join(', ')
+  return `${what}는 소속 물리존을 찾지 못했습니다. 위치는 층까지만 내보냅니다.`
 })
 
 // 열린 모델의 등급 칩. 파일 목록의 칩과 같은 계산이라, 덧붙인 뒤 어느 칸이 찼는지 견줄 수 있다.
@@ -2213,9 +2214,9 @@ const requirementsMeta = computed(() => {
         count(rows, ['elsewhere']) ? [`다른 자리 ${count(rows, ['elsewhere'])}`] : [],
         count(rows, ['missing', 'partial']) ? [`없음·일부 ${count(rows, ['missing', 'partial'])}`] : [],
       ].flat()
-      return `${level} ${parts.join(' · ')}`
+      return `${level} ${rows.length}개: ${parts.join(' · ')}`
     })
-    .join('  |  ')
+    .join(' / ')
 })
 
 function onPick(event: Event) {
@@ -2490,17 +2491,17 @@ function exportTTL() {
           <p v-else-if="keyNote" class="hint pick-hint key-note" role="status">{{ keyNote }}</p>
           <p v-else-if="editing" class="hint pick-hint">
             <template v-if="selectedSpace">
-              파란 손잡이를 끌거나, <kbd>[ ]</kbd>로 꼭짓점을 고른 뒤 <kbd>←↑→↓</kbd>로 옮깁니다 · <kbd>F</kbd> 이 물리존 보기
+              파란 손잡이 끌기 또는 <kbd>[ ]</kbd> 후 <kbd>←↑→↓</kbd>: 꼭짓점 옮기기 · <kbd>F</kbd>: 이 물리존 보기
             </template>
             <template v-else-if="selected">
-              끌거나 <kbd>←↑→↓</kbd>로 옮기기 · <kbd>PageUp/Down</kbd> 층 이동 · 화살표 클릭 또는 <kbd>[ ]</kbd>로 고른 뒤
-              <kbd>D</kbd>로 방향 · <kbd>K</kbd> 종류
+              끌기 또는 <kbd>←↑→↓</kbd>: 옮기기 · <kbd>PageUp/Down</kbd>: 층 바꾸기 · 화살표 클릭 또는 <kbd>[ ]</kbd>: 연결 고르기 ·
+              <kbd>D</kbd>: 방향 바꾸기 · <kbd>K</kbd>: 종류 고르기
             </template>
             <template v-else>
-              설비를 클릭해 고르고 끌어서 옮깁니다 · 바닥을 클릭하면 물리존 꼭짓점이 나타납니다 ·
-              <kbd>U</kbd> 종류 모르는 설비로
+              설비 클릭: 고르기 · 고른 설비 끌기: 옮기기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
+              <kbd>U</kbd>: 종류 모르는 설비로
             </template>
-            · <button type="button" class="link" @click="helpOpen = true">단축키 <kbd>?</kbd></button>
+            · <button type="button" class="link" @click="helpOpen = true">단축키 전체 <kbd>?</kbd></button>
           </p>
           <p v-else-if="counts.equipment > 0" class="hint pick-hint">
             {{
@@ -2528,7 +2529,7 @@ function exportTTL() {
               </p>
             </div>
             <div class="picked-actions">
-              <button type="button" class="ghost" @click="frameNetwork">연결망에 맞추기</button>
+              <button type="button" class="ghost" @click="frameNetwork">연결망 보기</button>
               <button type="button" class="ghost" @click="select(null)">선택 해제</button>
             </div>
           </div>
@@ -2620,7 +2621,7 @@ function exportTTL() {
               <b>{{ traced?.downstream.size ?? 0 }}</b><span>하류</span><Src kind="bim" />
             </li>
             <li class="linked">
-              <b>{{ traced?.linked.size ?? 0 }}</b><span>이어짐 · 방향 모름</span>
+              <b>{{ traced?.linked.size ?? 0 }}</b><span>방향 모름</span>
               <small v-if="traced?.linked.size">그중 기기 {{ deviceCount(traced.linked) }}</small>
             </li>
           </ul>
@@ -2638,14 +2639,14 @@ function exportTTL() {
               </label>
             </p>
             <p v-if="selectedRule" class="rule-system">
-              계통 <b>{{ selectedRule.name }}</b><template v-if="selectedRule.kind"> ({{ selectedRule.kind }})</template>:
-              규칙 방향 {{ selectedRule.count }}개.
+              <b>{{ selectedRule.name }}</b><template v-if="selectedRule.kind">({{ selectedRule.kind }})</template>: 규칙으로 방향을 정한 연결
+              {{ selectedRule.count }}개.
               <template v-if="selectedRule.pct !== null">
-                포트 방향이 있는 연결 {{ selectedRule.checked }}개와 비교하면
-                <b :class="{ low: selectedRule.pct < 80 }">{{ selectedRule.pct }}%</b> 일치.
+                포트 방향이 있는 연결 {{ selectedRule.checked }}개로 검증하면
+                <b :class="{ low: selectedRule.pct < 80 }">{{ selectedRule.pct }}%</b> 일치합니다.
               </template>
-              <template v-else> 포트 방향이 있는 연결이 없어 비교할 수 없습니다.</template>
-              <span v-if="selectedRule.confirmed" class="confirmed">확정됨 · brick:feeds로 내보냄</span>
+              <template v-else> 포트 방향이 있는 연결이 없어 검증할 수 없습니다.</template>
+              <span v-if="selectedRule.confirmed" class="confirmed">확정했습니다. brick:feeds로 내보냅니다.</span>
               <button
                 v-else-if="editing"
                 type="button"
@@ -2672,19 +2673,18 @@ function exportTTL() {
             <tbody>
               <tr v-for="(n, i) in selectedNeighbors" :key="`${n.id}-${i}`" :class="{ active: editing && i === activeArrow }">
                 <td :class="['rel', ...relClass(n)]">{{ relLabel(n) }}</td>
-                <td>
+                <td class="name-cell">
                   <button type="button" class="link" @click="select(n.id)">{{ n.name }}</button>
-                </td>
-                <!-- 글과 출처 꼬리표가 따로 꺾이지 않게 한 덩어리씩 묶는다. -->
-                <td class="muted src-cell">
-                  <span v-if="n.source === 'port'">포트 <Src kind="bim" /></span>
-                  <span v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></span>
-                  <span v-if="n.edited">직접 정한 방향 <Src kind="edit" /></span>
-                  <span v-else-if="n.rule">{{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
-                </td>
-                <!-- 포트가 방향을 말한 연결은 고칠 수 없다. BIM 이 말한 것을 덮어쓰지 않는다. -->
-                <td v-if="editing" class="flow-edit">
-                  <template v-if="!n.connection.directed">
+                  <!-- 출처는 이름 아래 한 줄. 글과 출처 꼬리표가 따로 꺾이지 않게 한 덩어리씩 묶는다. -->
+                  <div class="muted src-cell">
+                    <span v-if="n.source === 'port'">포트 <Src kind="bim" /></span>
+                    <span v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></span>
+                    <span v-if="n.edited">직접 정한 방향 <Src kind="edit" /></span>
+                    <span v-else-if="n.rule">{{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
+                  </div>
+                  <!-- 방향 버튼은 이름 아래 줄에 둔다. 좁은 패널에서 네 번째 칸으로 두었더니 이름이 한 글자씩 꺾이고 버튼이 잘렸다.
+                       포트가 방향을 말한 연결은 고칠 수 없다. BIM 이 말한 것을 덮어쓰지 않는다. -->
+                  <div v-if="editing && !n.connection.directed" class="flow-edit">
                     <button
                       type="button"
                       class="ghost"
@@ -2711,9 +2711,9 @@ function exportTTL() {
                       title="정한 방향 지우기"
                       @click="setFlow(n, null)"
                     >
-                      되돌리기
+                      지우기
                     </button>
-                  </template>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -2725,8 +2725,8 @@ function exportTTL() {
             <h4 class="picked-sub">
               계통별로 보기 <Src kind="bim" />
               <span class="muted">
-                기기 대수 · 방향을 모르는 연결은 다음 기기까지만 셈<template v-if="showRules && hasRules"> · 규칙 방향 포함 <Src kind="dict" /></template>
-                · 누르면 3D에 그 계통만 표시
+                기기 대수입니다<template v-if="showRules && hasRules">(규칙 방향 포함 <Src kind="dict" />)</template>. 방향을 모르는 연결은 다음 기기까지만
+                셉니다. 누르면 3D에 그 계통만 보입니다.
               </span>
             </h4>
             <ul class="sys-list">
@@ -2759,8 +2759,8 @@ function exportTTL() {
             <h4 class="picked-sub">
               담당 공간 <Src kind="calc" />
               <span class="muted">
-                흐름을 따라 닿는 말단(디퓨저·그릴)이 있는 방<template v-if="showRules && hasRules"> · 규칙 방향 포함 <Src kind="dict" /></template>
-                · 추정값이라 내보내지 않음
+                흐름을 따라 닿는 말단(디퓨저·그릴)이 있는 방입니다<template v-if="showRules && hasRules">(규칙 방향 포함 <Src kind="dict" />)</template>.
+                추정값이라 내보내지 않습니다.
               </span>
             </h4>
             <p v-if="!selectedService.supply.length && !selectedService.extract.length" class="muted">
@@ -2904,7 +2904,7 @@ function exportTTL() {
             <b>{{ counts.doors }}</b><span>문</span><Src kind="bim" />
             <!-- 방-문-방. BIM 의 공간 경계가 말하면 BIM, 없으면 문 양쪽을 좌표로 짚은 계산이다. -->
             <small v-if="doorLinks.total > 0">
-              방 사이 {{ doorLinks.two }}
+              방과 방을 잇는 문 {{ doorLinks.two }}
               <template v-if="doorLinks.bim"><Src kind="bim" /></template>
               <template v-if="doorLinks.calc"><Src kind="calc" /></template>
             </small>
@@ -2948,7 +2948,7 @@ function exportTTL() {
         <Fold v-if="currentRequirements.length" title="요구사항" :meta="requirementsMeta" :default-open="false" class="requirements">
           <table class="req-table">
             <thead>
-              <tr><th>#</th><th>요구</th><th>상태</th><th class="num">표준 · 다른 자리 / 대상</th><th>설명</th></tr>
+              <tr><th>#</th><th>요구</th><th>상태</th><th class="num" title="표준 자리 · 다른 자리 / 전체">개수</th><th>설명</th></tr>
             </thead>
             <tbody v-for="g in requirementGroups" :key="g.level">
               <tr class="req-group">
@@ -2993,7 +2993,7 @@ function exportTTL() {
                 <tr>
                   <th></th>
                   <th class="num">이전 → 지금</th>
-                  <th class="num">양쪽에 있음</th>
+                  <th class="num">양쪽에 있는 것</th>
                   <th>그중 GUID가 바뀐 것 <Src kind="calc" /></th>
                 </tr>
               </thead>
@@ -3006,7 +3006,7 @@ function exportTTL() {
                     <template v-if="k.by.revitId + k.by.name + k.by.position">
                       <b class="mono">{{ k.by.revitId + k.by.name + k.by.position }}</b>
                       <span class="muted">
-                        (찾은 기준: {{ (['revitId', 'name', 'position'] as const).filter((x) => k.by[x]).map((x) => `${MATCH_KEY_LABEL[x]} ${k.by[x]}`).join(' · ') }})
+                        ({{ (['revitId', 'name', 'position'] as const).filter((x) => k.by[x]).map((x) => `${MATCH_KEY_BY[x]} ${k.by[x]}개`).join(', ') }} 찾음)
                       </span>
                     </template>
                     <span v-else class="muted">없음</span>
@@ -3087,7 +3087,7 @@ function exportTTL() {
                 </td>
                 <td>
                   {{ c.rule }}
-                  <small class="muted">{{ c.skipped ?? (c.total === 0 ? '이 파일에는 검사할 대상이 없습니다' : `영향: ${c.why}`) }}</small>
+                  <small class="muted">{{ c.skipped ?? (c.total === 0 ? '이 파일에는 검사할 대상이 없습니다.' : `영향: ${c.why}`) }}</small>
                 </td>
                 <td class="num mono">
                   <template v-if="!c.skipped && c.total">{{ c.total - c.failed.length }} / {{ c.total }}</template>
@@ -3108,7 +3108,7 @@ function exportTTL() {
             </tbody>
           </table>
           <div v-if="openCheck && openCheck.failed.length" class="check-list">
-            <h4>{{ openCheck.rule }} <span class="muted">위반 {{ openCheck.failed.length }}개 · 3D에 표시함</span></h4>
+            <h4>{{ openCheck.rule }} <span class="muted">위반 {{ openCheck.failed.length }}개(3D에 표시)</span></h4>
             <ul class="plain">
               <li v-for="id in openCheck.failed.slice(0, CHECK_LIMIT)" :key="id">
                 <button type="button" class="link" @click="selectAndShow(id)">
@@ -3165,7 +3165,7 @@ function exportTTL() {
                   <span v-else class="muted">—</span>
                 </td>
                 <td class="rule-state">
-                  <span v-if="r.confirmed" class="confirmed">확정됨</span>
+                  <span v-if="r.confirmed" class="confirmed">확정함</span>
                   <button v-else-if="editing" type="button" class="ghost" @click="confirmRule(r.id, r.name)">확정</button>
                   <span v-else class="muted">편집 모드에서 확정</span>
                 </td>
@@ -3192,7 +3192,7 @@ function exportTTL() {
             <tbody>
               <tr v-for="s in model.storeys" :key="s.id">
                 <td>{{ s.name }}</td>
-                <td class="num mono">{{ s.elevation.toFixed(2) }} m</td>
+                <td class="num mono">{{ (Math.abs(s.elevation) < 0.005 ? 0 : s.elevation).toFixed(2) }} m</td>
                 <!-- 한 층에 방이 수십 개면 이름이 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로. -->
                 <td class="names" :title="s.spaces.map((x) => x.longName || x.name).join(', ')">
                   <template v-if="s.spaces.length">
@@ -3233,10 +3233,9 @@ function exportTTL() {
           <div v-if="editing && unknownTypes.length" class="unknown-types">
             <h4>
               종류를 모르는 패밀리 {{ unknownTypes.length }}개
-              <span class="muted">
-                · 기기 {{ unknownTypes.reduce((n, t) => n + t.count, 0) }}대 · 한 번 고르면 같은 패밀리(크기만 다른 유형 포함) 전체에 적용됩니다
-              </span>
+              <span class="muted">(기기 {{ unknownTypes.reduce((n, t) => n + t.count, 0) }}대)</span>
             </h4>
+            <p class="hint">한 번 고르면 같은 패밀리(크기만 다른 유형 포함) 전체에 적용됩니다.</p>
             <table>
               <tbody>
                 <tr v-for="t in unknownTypes.slice(0, TYPE_LIMIT)" :key="t.key">
@@ -3291,10 +3290,8 @@ function exportTTL() {
               <p class="hint">위치와 소속 방은 있습니다. 관제점 ID는 BAS에서 받아 연결해야 합니다.</p>
               <h4>방 종류</h4>
               <p class="muted">
-                {{ kindSummary.roomsKnown }} / {{ kindSummary.roomsTotal }}개 분류됨.
-                <template v-if="kindSummary.roomsKnown">
-                  OmniClass {{ kindSummary.roomsFromBim }} <Src kind="bim" /> · 이름 {{ kindSummary.roomsKnown - kindSummary.roomsFromBim }} <Src kind="dict" />
-                </template>
+                {{ kindSummary.roomsTotal }}개 중 {{ kindSummary.roomsKnown }}개를 분류했습니다<template v-if="kindSummary.roomsKnown">
+                  (OmniClass로 {{ kindSummary.roomsFromBim }}개 <Src kind="bim" />, 이름으로 {{ kindSummary.roomsKnown - kindSummary.roomsFromBim }}개 <Src kind="dict" />)</template>.
               </p>
               <ul class="plain">
                 <li v-for="[label, n] in kindSummary.rooms" :key="label">{{ label }} <b class="mono">{{ n }}</b></li>
@@ -3304,8 +3301,8 @@ function exportTTL() {
                 <li v-for="[label, n] in kindSummary.systems" :key="label">{{ label }} <b class="mono">{{ n }}</b></li>
               </ul>
               <p v-if="ruleReport && ruleReport.agree + ruleReport.disagree > 0" class="hint">
-                규칙 방향 {{ ruleReport.oriented }}개. 포트 방향 {{ ruleReport.agree + ruleReport.disagree }}개와 비교하면
-                {{ Math.round((ruleReport.agree / (ruleReport.agree + ruleReport.disagree)) * 100) }}% 일치.
+                규칙으로 방향을 정한 연결 {{ ruleReport.oriented }}개. 포트 방향이 있는 연결 {{ ruleReport.agree + ruleReport.disagree }}개로 검증하면
+                {{ Math.round((ruleReport.agree / (ruleReport.agree + ruleReport.disagree)) * 100) }}% 일치합니다.
               </p>
             </div>
           </div>

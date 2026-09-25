@@ -35,8 +35,8 @@ function onClick(e: MouseEvent) {
         <button type="button" class="ghost" @click="emit('close')">닫기 <kbd>Esc</kbd></button>
       </header>
       <p class="hint">
-        글자를 치는 칸과 선택 상자에 커서가 있을 때는 그 칸이 키를 받습니다. 글자 칸에서 <kbd>Esc</kbd> 를 누르면 칸에서 나옵니다.
-        <template v-if="!editing"> <b>편집</b> 표시가 붙은 키는 편집 모드(<kbd>E</kbd>)에서만 먹습니다.</template>
+        입력 칸에 커서가 있으면 단축키가 동작하지 않습니다. <kbd>Esc</kbd>로 칸에서 나올 수 있습니다.
+        <template v-if="!editing"> <b>편집</b> 표시가 붙은 키는 편집 모드(<kbd>E</kbd>)에서만 동작합니다.</template>
       </p>
       <div class="shortcut-groups">
         <section v-for="g in groups" :key="g.group">
@@ -55,8 +55,8 @@ function onClick(e: MouseEvent) {
         </section>
       </div>
       <p class="hint">
-        마우스: 끌면 시점이 돌고, 휠은 확대, 오른쪽 끌기는 이동입니다. 편집 모드에서 고른 설비를 끌면 옮기고, 바닥을 누르면
-        물리존 꼭짓점이 뜨고, 화살표를 누르면 흐름 방향이 바뀝니다.
+        마우스: 끌기로 시점 회전, 휠로 확대, 오른쪽 끌기로 이동합니다. 편집 모드에서는 고른 설비를 끌어 옮기고, 바닥을
+        클릭하면 물리존 꼭짓점이 나타나고, 화살표를 클릭하면 흐름 방향이 바뀝니다.
       </p>
     </div>
   </dialog>

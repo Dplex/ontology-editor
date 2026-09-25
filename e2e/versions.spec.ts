@@ -17,7 +17,7 @@ test('이전 판본을 열면 바뀐 것을 보이고, R13 을 잰다', async ({
   await page.getByRole('button', { name: /판본 비교/ }).click()
   await page.locator('.versions input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   const sum = page.locator('.version-sum')
-  await expect(sum.locator('tr', { hasText: '물리존' })).toContainText('이름 1')
+  await expect(sum.locator('tr', { hasText: '물리존' })).toContainText('이름으로 1개')
   await expect(sum.locator('tr', { hasText: '설비' })).toContainText('6 → 6')
   // 진행 표시가 남지 않는다(열기와 같은 워커·진행 표시를 쓴다).
   await expect(page.locator('.progress-toast')).toHaveCount(0)

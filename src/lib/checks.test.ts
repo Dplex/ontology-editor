@@ -60,6 +60,6 @@ describe('완전성 검사', () => {
 
   it('방이 없는 파일에서는 소속 검사를 건너뛰고 이유를 말한다', () => {
     const m = model([eq('fcu', 'fcu', 'conversion', null)], [], [])
-    expect(failed(m)['device-space']).toBe('방이 없는 파일이다. 건축 파일을 덧붙이면 검사할 수 있다')
+    expect(failed(m)['device-space']).toBe('방이 없는 파일입니다. 건축 파일을 덧붙이면 검사할 수 있습니다.')
   })
 })
