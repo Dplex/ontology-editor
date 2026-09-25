@@ -16,7 +16,7 @@ async function open(page: Page, file = MEP) {
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(file)
-  await expect(page.locator('.review h2')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   return errors
 }
 
@@ -197,7 +197,7 @@ test('편집 모드에서 고른 설비의 층을 바꾸면 높이도 층 차만
   const errors = await open(page)
   // 층이 둘인 모델이 필요하다. 설비 파일에 건축 파일을 덧붙인다(1F 는 이름으로 맞춰진다).
   await page.locator('.append input[type=file]').setInputFiles(ROOMS)
-  await expect(page.locator('.review h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
 
   await page.locator('.edit-toggle input').check()
   await pick(page, 'AHU-1')

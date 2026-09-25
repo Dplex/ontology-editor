@@ -1620,6 +1620,18 @@ const fullscreen = ref(false)
 const onFullscreenChange = () => (fullscreen.value = document.fullscreenElement === stage.value)
 document.addEventListener('fullscreenchange', onFullscreenChange)
 onBeforeUnmount(() => document.removeEventListener('fullscreenchange', onFullscreenChange))
+
+// 도구막대 높이를 재서 작업 화면(3D + 오른쪽 패널)이 남은 높이를 쓰게 한다. 폭이 좁으면 막대가 두 줄이 되고, 편집 중에는
+// 편집 줄이 붙는다 — 높이를 고정값으로 빼면 그때마다 3D 아래가 잘린다.
+const appbar = ref<HTMLElement | null>(null)
+const appbarObserver = new ResizeObserver(([entry]) => {
+  document.documentElement.style.setProperty('--appbar-h', `${Math.ceil(entry.target.getBoundingClientRect().height)}px`)
+})
+watch(appbar, (el, old) => {
+  if (old) appbarObserver.unobserve(old)
+  if (el) appbarObserver.observe(el)
+})
+onBeforeUnmount(() => appbarObserver.disconnect())
 function toggleFullscreen() {
   if (document.fullscreenElement) void document.exitFullscreen()
   else void stage.value?.requestFullscreen()
@@ -2118,12 +2130,12 @@ function exportTTL() {
 </script>
 
 <template>
-  <main :class="model ? `mode-${mode}` : ''">
-    <header>
+  <main :class="model ? ['has-model', `mode-${mode}`] : ''">
+    <header v-if="!model">
       <div class="title">
         <div>
           <h1>ontology-editor</h1>
-          <p class="sub">BIM(IFC4)을 읽어 공간 온톨로지 초안을 만듭니다.</p>
+          <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다.</p>
         </div>
         <button type="button" class="theme" :aria-pressed="dark" @click="toggleTheme">
           {{ dark ? '라이트' : '다크' }}
@@ -2132,6 +2144,7 @@ function exportTTL() {
     </header>
 
     <section
+      v-if="!model"
       class="drop"
       :class="{ over: dragging }"
       @dragover.prevent="dragging = true"
@@ -2189,153 +2202,84 @@ function exportTTL() {
     <p v-if="error" class="error" role="alert">{{ error }}</p>
 
     <template v-if="model && counts">
-      <!-- 편집 모드에서만 뜬다. 무엇을 몇 건 바꿨는지와 내보내기를 스크롤과 상관없이 붙여 둔다. -->
-      <!-- 좁은 폭(콘텐츠 1,110px)에 버튼이 여덟이라, 글자는 한 줄로 두고 단축키는 title 과 ? 안내로 보낸다. 마지막
-           편집 이름만 남는 폭을 쓰고 넘치면 자른다. -->
-      <div v-if="editing" class="edit-bar" role="status">
-        <span class="state"><b>편집 중</b> · <a href="#changes" class="link">바뀐 것 {{ changeCount }}건</a></span>
-        <button
-          type="button"
-          class="ghost undo"
-          :disabled="!history.length"
-          :title="history.length ? `되돌리기 (Ctrl+Z): ${history.at(-1)!.label}` : '되돌릴 편집이 없습니다'"
-          @click="undo"
-        >
-          ↶ 되돌리기
-        </button>
-        <button
-          type="button"
-          class="ghost redo"
-          :disabled="!future.length"
-          :title="future.length ? `다시 하기 (Ctrl+Shift+Z): ${future.at(-1)!.entry.label}` : '다시 할 편집이 없습니다'"
-          @click="redo"
-        >
-          ↷ 다시
-        </button>
-        <span class="muted last-edit" :title="history.at(-1)?.label">{{ history.at(-1)?.label ?? '' }}</span>
-        <button
-          type="button"
-          class="ghost save-edits"
-          title="편집 저장 (Ctrl+S). 연 때와 달라진 것을 JSON 으로 내려받습니다. 같은 IFC 를 다시 열고 불러오면 이어서 합니다."
-          @click="saveEdits"
-        >
-          편집 저장
-        </button>
-        <button type="button" class="ghost" title="의미(Brick TTL) 내보내기" @click="exportTTL">TTL 내보내기</button>
-        <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
-        <button type="button" class="ghost" @click="mode = 'view'">보기로</button>
-      </div>
-
-      <section class="review">
-        <div class="review-head">
-          <h2>{{ fileName }}</h2>
-          <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
-          <div class="mode-switch" role="group" aria-label="화면 모드">
-            <button type="button" :aria-pressed="mode === 'view'" @click="mode = 'view'">보기</button>
-            <button type="button" :aria-pressed="mode === 'edit'" @click="mode = 'edit'">편집</button>
+      <!-- 파일을 연 뒤의 도구막대. 스크롤과 상관없이 위에 붙는다. 파일·모드·내보내기가 여기 모이고, 편집 중에는 한 줄이
+           더 붙어 바뀐 것의 수와 되돌리기가 따라온다. 온종일 3D 를 보며 고치는 화면이라 큰 머리말과 파일 받는 칸은 접는다. -->
+      <div ref="appbar" class="appbar">
+        <div class="appbar-row">
+          <div class="file">
+            <h2 :title="fileName">{{ fileName }}</h2>
+            <span class="muted">{{ model.schema }} · {{ model.buildingName || '(건물 이름 없음)' }}</span>
+          </div>
+          <div class="bar-actions">
+            <label
+              class="ghost drop compact"
+              :class="{ over: dragging }"
+              title="다른 IFC 열기. 파일을 여기에 끌어다 놓아도 됩니다."
+              @dragover.prevent="dragging = true"
+              @dragleave.prevent="dragging = false"
+              @drop.prevent="onDrop"
+            >
+              열기
+              <input type="file" accept=".ifc" :disabled="busy" @change="onPick" />
+            </label>
+            <label class="read-option compact" title="다음에 여는 파일부터. 로봇 경로용(문 자리, 공간 경계가 없을 때 문이 잇는 방)이고 큰 파일은 느려집니다.">
+              <input v-model="readOpenings" type="checkbox" :disabled="busy" />
+              문·창
+            </label>
+            <!-- 건축과 설비가 다른 파일일 때. 편집을 시작한 뒤에는 닫는다(canAppend 주석 참조). -->
+            <label v-if="canAppend" class="ghost append" title="건축과 설비가 다른 파일이면 합쳐야 설비의 소속 물리존이 나옵니다.">
+              덧붙이기
+              <input type="file" accept=".ifc" :disabled="busy" @change="onAppendPick" />
+            </label>
+            <a v-if="warnings.length" href="#warnings" class="warn-count" title="임포트가 그냥 넘어간 것들. 아래 요약에 있습니다.">경고 {{ warnings.length }}</a>
+            <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
+            <div class="mode-switch" role="group" aria-label="화면 모드">
+              <button type="button" :aria-pressed="mode === 'view'" @click="mode = 'view'">보기</button>
+              <button type="button" :aria-pressed="mode === 'edit'" @click="mode = 'edit'">편집</button>
+            </div>
+            <span class="bar-sep" aria-hidden="true"></span>
+            <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="기하 내보내기 — 층마다 GeoJSON 하나" @click="exportGeoJSON">GeoJSON</button>
+            <button type="button" class="ghost" aria-label="의미 내보내기 (Brick TTL)" title="의미 내보내기 — Brick TTL 하나" @click="exportTTL">TTL</button>
+            <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
+            <button type="button" class="ghost theme" :aria-pressed="dark" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
           </div>
         </div>
-        <p class="stats">
-          {{ model.schema }} · {{ model.siteName || '(대지 이름 없음)' }} ›
-          {{ model.buildingName || '(건물 이름 없음)' }}
-        </p>
-
-        <!-- 출처 표. 아래 숫자·표·3D 색에 붙는 꼬리표가 무엇을 뜻하는지 한 줄로 먼저 말한다. -->
-        <p class="src-key">
-          <Src kind="bim" /> 파일에 적힌 그대로
-          <Src kind="calc" /> BIM 의 좌표·형상으로 계산
-          <Src kind="dict" /> 이름 사전·흐름 규칙(도메인 지식)으로 만듦
-        </p>
-
-        <!-- PRD #6 의 임포트 결과 검토 항목이다. 무엇이 만들어졌는지 숫자로 먼저 본다. -->
-        <ul class="tiles">
-          <li><b>{{ counts.storeys }}</b><span>층</span><Src kind="bim" /></li>
-          <li><b>{{ counts.spaces }}</b><span>물리존</span><Src kind="bim" /></li>
-          <li><b>{{ counts.walls }}</b><span>벽</span><Src kind="bim" /></li>
-          <li :class="{ wide: doorLinks.total > 0 }">
-            <b>{{ counts.doors }}</b><span>문</span><Src kind="bim" />
-            <!-- 방-문-방. BIM 의 공간 경계가 말하면 BIM, 없으면 문 양쪽을 좌표로 짚은 계산이다. -->
-            <small v-if="doorLinks.total > 0">
-              방 둘을 잇는 것 {{ doorLinks.two }}
-              <template v-if="doorLinks.bim"><Src kind="bim" /></template>
-              <template v-if="doorLinks.calc"><Src kind="calc" /></template>
-            </small>
-          </li>
-          <li><b>{{ counts.windows }}</b><span>창문</span><Src kind="bim" /></li>
-          <li><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span><Src kind="bim" /></li>
-          <!-- 설비를 하나로 세면 대수가 부푼다. 실측에서 85%가 덕트·배관이었다.
-               Proxy 는 IFC 가 설비라고 말하지 않은 것을 사전이 설비로 받은 것이라 따로 센다. -->
-          <li :class="{ wide: proxyDevices.ported + proxyDevices.named > 0 }">
-            <b>{{ counts.devices }}</b><span>기기</span><Src kind="bim" />
-            <small v-if="proxyDevices.ported + proxyDevices.named > 0">
-              그중 Proxy
-              <template v-if="proxyDevices.ported">포트 {{ proxyDevices.ported }} <Src kind="calc" /></template>
-              <template v-if="proxyDevices.named">이름 {{ proxyDevices.named }} <Src kind="dict" /></template>
-            </small>
-          </li>
-          <li><b>{{ counts.conduits }}</b><span>덕트·배관</span><Src kind="bim" /></li>
-          <li><b>{{ counts.systems }}</b><span>계통</span><Src kind="bim" /></li>
-          <li :class="{ wide: connectionSources.geometry > 0 && connectionSources.port > 0 }">
-            <b>{{ counts.connections }}</b><span>연결</span>
-            <template v-if="connectionSources.geometry === 0"><Src kind="bim" /></template>
-            <template v-else-if="connectionSources.port === 0"><Src kind="calc" /></template>
-            <small v-else>포트 {{ connectionSources.port }} <Src kind="bim" /> · 형상 {{ connectionSources.geometry }} <Src kind="calc" /></small>
-          </li>
-          <li><b>{{ counts.directedConnections }}</b><span>흐름 방향</span><Src kind="bim" /></li>
-          <li v-if="ruleReport && ruleReport.oriented > 0">
-            <b>{{ ruleReport.oriented }}</b><span>규칙 방향</span><Src kind="dict" />
-          </li>
-        </ul>
-
-        <!-- 건축과 설비가 다른 파일일 때. 편집을 시작한 뒤에는 닫는다(canAppend 주석 참조). -->
-        <div v-if="canAppend" class="append">
-          <label class="ghost">
-            파일 덧붙이기
-            <input type="file" accept=".ifc" :disabled="busy" @change="onAppendPick" />
-          </label>
-          <span class="hint">건축과 설비가 다른 파일이면 합쳐야 설비의 소속 물리존이 나옵니다.</span>
+        <!-- 편집 모드에서만. 좁은 폭에서는 마지막 편집 이름이 남는 폭을 쓰고 넘치면 자른다. 단축키는 title 과 ? 안내로. -->
+        <div v-if="editing" class="edit-bar" role="status">
+          <span class="state"><b>편집 중</b> · <a href="#changes" class="link">바뀐 것 {{ changeCount }}건</a></span>
+          <button
+            type="button"
+            class="ghost undo"
+            :disabled="!history.length"
+            :title="history.length ? `되돌리기 (Ctrl+Z): ${history.at(-1)!.label}` : '되돌릴 편집이 없습니다'"
+            @click="undo"
+          >
+            ↶ 되돌리기
+          </button>
+          <button
+            type="button"
+            class="ghost redo"
+            :disabled="!future.length"
+            :title="future.length ? `다시 하기 (Ctrl+Shift+Z): ${future.at(-1)!.entry.label}` : '다시 할 편집이 없습니다'"
+            @click="redo"
+          >
+            ↷ 다시
+          </button>
+          <span class="muted last-edit" :title="history.at(-1)?.label">{{ history.at(-1)?.label ?? '' }}</span>
+          <button
+            type="button"
+            class="ghost save-edits"
+            title="편집 저장 (Ctrl+S). 연 때와 달라진 것을 JSON 으로 내려받습니다. 같은 IFC 를 다시 열고 불러오면 이어서 합니다."
+            @click="saveEdits"
+          >
+            편집 저장
+          </button>
         </div>
+      </div>
 
-        <TierChips :tiers="currentTiers" />
-
-        <ul v-if="mergeLines.length" class="merge">
-          <li class="merge-src"><Src kind="calc" /> 두 파일을 층 이름·높이와 좌표로 맞춰 합쳤습니다.</li>
-          <li v-for="line in mergeLines" :key="line">{{ line }}</li>
-        </ul>
-
-        <ul v-if="warnings.length" class="warnings">
-          <li v-for="w in warnings" :key="w">{{ w }}</li>
-        </ul>
-
-        <!-- 고객사 BIM 요구사항(정본 4장)에 대 본 것. IDS 와 달리 "다른 자리에 있다(우리는 읽는다)"를 따로 센다. -->
-        <Fold v-if="currentRequirements.length" title="요구사항" :meta="requirementsMeta" :default-open="false" class="requirements">
-          <table class="req-table">
-            <thead>
-              <tr><th>#</th><th>요구</th><th>상태</th><th class="num">표준 · 다른 자리 / 대상</th><th>설명</th></tr>
-            </thead>
-            <tbody v-for="g in requirementGroups" :key="g.level">
-              <tr class="req-group">
-                <th colspan="5">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 우리가 되살릴 수 없다' : ' — 없으면 계산·사전·사람으로 메운다' }}</th>
-              </tr>
-              <tr v-for="r in g.rows" :key="r.id">
-                <td class="mono">{{ r.id }}</td>
-                <td>{{ r.title }}</td>
-                <td><span :class="['req-state', r.state]">{{ REQUIREMENT_STATE[r.state] }}</span></td>
-                <td class="num mono">
-                  <template v-if="r.counts && r.counts.of">{{ r.counts.standard }}<template v-if="r.counts.elsewhere"> · {{ r.counts.elsewhere }}</template> / {{ r.counts.of }}</template>
-                </td>
-                <td class="muted">{{ r.note }}</td>
-              </tr>
-            </tbody>
-          </table>
-          <p class="hint">
-            표준 자리는 IDS(<span class="mono">docs/requirements.ids</span>)도 통과한다. 다른 자리는 값이 있고 우리도 읽지만, 고객사가
-            내보내기 설정을 바꾸면 표준 자리로 간다. 기준과 이유는 정본 4장에 있다.
-          </p>
-        </Fold>
-      </section>
-
-      <div ref="stage" :class="['stage', { full: fullscreen }]">
+      <!-- 작업 화면: 3D 와 오른쪽 패널이 화면 높이를 나눠 쓴다. 3D 에서 누른 것이 스크롤 없이 바로 옆에 뜬다.
+           전체 화면도 이 둘을 같이 띄운다. -->
+      <div ref="stage" :class="['stage', 'workspace', { full: fullscreen }]">
         <section class="viewport">
           <div class="canvas-wrap">
             <canvas ref="canvas"></canvas>
@@ -2368,30 +2312,6 @@ function exportTTL() {
               <li><i :style="{ background: hex(WALL_COLORS.loadBearing) }"></i>내력벽 {{ drawnWalls.loadBearing }} <Src kind="bim" /></li>
               <li v-if="drawnWalls.unknown">
                 <i :style="{ background: hex(WALL_COLORS.unknown) }"></i>내력 여부 모름 {{ drawnWalls.unknown }}
-              </li>
-            </ul>
-          </div>
-
-          <!-- 계통 범례. 색이 스물이면 색만으로는 못 고르니, 여기서 짚는 쪽이 주된 길이다. -->
-          <div v-if="legend.length" class="legend">
-            <h3>
-              계통 {{ legend.length }}
-              <span v-if="legend[0].source === 'property'" class="tag">System Name 속성</span>
-              <span v-else class="tag">IfcSystem</span>
-              <Src kind="bim" />
-            </h3>
-            <ul>
-              <li v-for="s in legend" :key="s.id">
-                <button
-                  type="button"
-                  :class="{ on: s.id === selectedSystemId }"
-                  :aria-pressed="s.id === selectedSystemId"
-                  @click="toggleSystem(s.id)"
-                >
-                  <i :style="{ background: s.color }"></i>
-                  <span class="name">{{ s.name }}</span>
-                  <span class="mono muted">{{ s.count }}</span>
-                </button>
               </li>
             </ul>
           </div>
@@ -2440,6 +2360,7 @@ function exportTTL() {
           </p>
         </section>
 
+        <aside class="side">
         <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
         <section v-if="selected" class="picked">
           <div class="picked-head">
@@ -2758,7 +2679,137 @@ function exportTTL() {
           </ul>
           <p v-else class="empty">이 물리존에 속한 설비가 없습니다.</p>
         </section>
+        <!-- 아무것도 고르지 않았을 때. 이 파일이 어디까지 찼는지와, 무엇을 누르면 여기 무엇이 뜨는지. -->
+        <section v-else class="overview">
+          <h3>이 파일</h3>
+          <TierChips :tiers="currentTiers" />
+          <ul class="overview-counts">
+            <li><b>{{ counts.storeys }}</b> 층</li>
+            <li><b>{{ counts.spaces }}</b> 물리존</li>
+            <li><b>{{ counts.devices }}</b> 기기</li>
+            <li><b>{{ counts.conduits }}</b> 덕트·배관</li>
+            <li><b>{{ counts.systems }}</b> 계통</li>
+            <li><b>{{ counts.connections }}</b> 연결</li>
+          </ul>
+          <p class="hint">
+            3D 에서 설비·배관을 누르면 이어진 것과 소속이, 바닥을 누르면 물리존이 여기에 뜹니다.
+            <template v-if="warnings.length"><a href="#warnings" class="link">경고 {{ warnings.length }}건</a>과 </template>
+            요구사항·검사·표는 3D 아래에 있습니다.
+          </p>
+          <!-- 출처 표. 숫자·표·3D 색에 붙는 꼬리표가 무엇을 뜻하는지. -->
+          <p class="src-key">
+            <Src kind="bim" /> 파일에 적힌 그대로<br />
+            <Src kind="calc" /> BIM 의 좌표·형상으로 계산<br />
+            <Src kind="dict" /> 이름 사전·흐름 규칙으로 만듦
+          </p>
+        </section>
+
+            <!-- 계통 범례. 색이 스물이면 색만으로는 못 고르니, 여기서 짚는 쪽이 주된 길이다. -->
+            <div v-if="legend.length" class="legend">
+              <h3>
+                계통 {{ legend.length }}
+                <span v-if="legend[0].source === 'property'" class="tag">System Name 속성</span>
+                <span v-else class="tag">IfcSystem</span>
+                <Src kind="bim" />
+              </h3>
+              <ul>
+                <li v-for="s in legend" :key="s.id">
+                  <button
+                    type="button"
+                    :class="{ on: s.id === selectedSystemId }"
+                    :aria-pressed="s.id === selectedSystemId"
+                    @click="toggleSystem(s.id)"
+                  >
+                    <i :style="{ background: s.color }"></i>
+                    <span class="name">{{ s.name }}</span>
+                    <span class="mono muted">{{ s.count }}</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+        </aside>
       </div>
+
+      <section class="review">
+        <h3 class="section-title">요약</h3>
+        <p class="stats">{{ model.siteName || '(대지 이름 없음)' }} › {{ model.buildingName || '(건물 이름 없음)' }}</p>
+
+        <!-- PRD #6 의 임포트 결과 검토 항목이다. 무엇이 만들어졌는지 숫자로 먼저 본다. -->
+        <ul class="tiles">
+          <li><b>{{ counts.storeys }}</b><span>층</span><Src kind="bim" /></li>
+          <li><b>{{ counts.spaces }}</b><span>물리존</span><Src kind="bim" /></li>
+          <li><b>{{ counts.walls }}</b><span>벽</span><Src kind="bim" /></li>
+          <li :class="{ wide: doorLinks.total > 0 }">
+            <b>{{ counts.doors }}</b><span>문</span><Src kind="bim" />
+            <!-- 방-문-방. BIM 의 공간 경계가 말하면 BIM, 없으면 문 양쪽을 좌표로 짚은 계산이다. -->
+            <small v-if="doorLinks.total > 0">
+              방 둘을 잇는 것 {{ doorLinks.two }}
+              <template v-if="doorLinks.bim"><Src kind="bim" /></template>
+              <template v-if="doorLinks.calc"><Src kind="calc" /></template>
+            </small>
+          </li>
+          <li><b>{{ counts.windows }}</b><span>창문</span><Src kind="bim" /></li>
+          <li><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span><Src kind="bim" /></li>
+          <!-- 설비를 하나로 세면 대수가 부푼다. 실측에서 85%가 덕트·배관이었다.
+               Proxy 는 IFC 가 설비라고 말하지 않은 것을 사전이 설비로 받은 것이라 따로 센다. -->
+          <li :class="{ wide: proxyDevices.ported + proxyDevices.named > 0 }">
+            <b>{{ counts.devices }}</b><span>기기</span><Src kind="bim" />
+            <small v-if="proxyDevices.ported + proxyDevices.named > 0">
+              그중 Proxy
+              <template v-if="proxyDevices.ported">포트 {{ proxyDevices.ported }} <Src kind="calc" /></template>
+              <template v-if="proxyDevices.named">이름 {{ proxyDevices.named }} <Src kind="dict" /></template>
+            </small>
+          </li>
+          <li><b>{{ counts.conduits }}</b><span>덕트·배관</span><Src kind="bim" /></li>
+          <li><b>{{ counts.systems }}</b><span>계통</span><Src kind="bim" /></li>
+          <li :class="{ wide: connectionSources.geometry > 0 && connectionSources.port > 0 }">
+            <b>{{ counts.connections }}</b><span>연결</span>
+            <template v-if="connectionSources.geometry === 0"><Src kind="bim" /></template>
+            <template v-else-if="connectionSources.port === 0"><Src kind="calc" /></template>
+            <small v-else>포트 {{ connectionSources.port }} <Src kind="bim" /> · 형상 {{ connectionSources.geometry }} <Src kind="calc" /></small>
+          </li>
+          <li><b>{{ counts.directedConnections }}</b><span>흐름 방향</span><Src kind="bim" /></li>
+          <li v-if="ruleReport && ruleReport.oriented > 0">
+            <b>{{ ruleReport.oriented }}</b><span>규칙 방향</span><Src kind="dict" />
+          </li>
+        </ul>
+
+        <ul v-if="mergeLines.length" class="merge">
+          <li class="merge-src"><Src kind="calc" /> 두 파일을 층 이름·높이와 좌표로 맞춰 합쳤습니다.</li>
+          <li v-for="line in mergeLines" :key="line">{{ line }}</li>
+        </ul>
+
+        <ul v-if="warnings.length" id="warnings" class="warnings">
+          <li v-for="w in warnings" :key="w">{{ w }}</li>
+        </ul>
+
+        <!-- 고객사 BIM 요구사항(정본 4장)에 대 본 것. IDS 와 달리 "다른 자리에 있다(우리는 읽는다)"를 따로 센다. -->
+        <Fold v-if="currentRequirements.length" title="요구사항" :meta="requirementsMeta" :default-open="false" class="requirements">
+          <table class="req-table">
+            <thead>
+              <tr><th>#</th><th>요구</th><th>상태</th><th class="num">표준 · 다른 자리 / 대상</th><th>설명</th></tr>
+            </thead>
+            <tbody v-for="g in requirementGroups" :key="g.level">
+              <tr class="req-group">
+                <th colspan="5">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 우리가 되살릴 수 없다' : ' — 없으면 계산·사전·사람으로 메운다' }}</th>
+              </tr>
+              <tr v-for="r in g.rows" :key="r.id">
+                <td class="mono">{{ r.id }}</td>
+                <td>{{ r.title }}</td>
+                <td><span :class="['req-state', r.state]">{{ REQUIREMENT_STATE[r.state] }}</span></td>
+                <td class="num mono">
+                  <template v-if="r.counts && r.counts.of">{{ r.counts.standard }}<template v-if="r.counts.elsewhere"> · {{ r.counts.elsewhere }}</template> / {{ r.counts.of }}</template>
+                </td>
+                <td class="muted">{{ r.note }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="hint">
+            표준 자리는 IDS(<span class="mono">docs/requirements.ids</span>)도 통과한다. 다른 자리는 값이 있고 우리도 읽지만, 고객사가
+            내보내기 설정을 바꾸면 표준 자리로 간다. 기준과 이유는 정본 4장에 있다.
+          </p>
+        </Fold>
+      </section>
 
       <!-- 3D 아래는 전부 접을 수 있다. 행이 많은 목록은 처음부터 접혀 있다(SMALL).
            파일이 바뀌면(key) 접힘 상태도 그 파일 기준으로 다시 정한다. -->
@@ -3244,10 +3295,10 @@ function exportTTL() {
         </section>
       </div>
 
+      <!-- 내보내기 버튼은 위 도구막대에 있다. 여기는 두 파일이 무엇을 나눠 갖는지만 적는다. -->
       <section class="actions">
-        <button type="button" @click="exportGeoJSON">기하 내보내기 (GeoJSON)</button>
-        <button type="button" @click="exportTTL">의미 내보내기 (Brick TTL)</button>
         <p class="note">
+          <b>내보내기</b>(위 도구막대의 GeoJSON · TTL).
           두 파일은 같은 id 로 이어집니다. 기하는 GeoJSON 이 갖고, 설비와 계통은 TTL 이 갖습니다.
           벽·문·창의 자리와 문이 잇는 방은 GeoJSON 에만 있습니다(Brick 에 건축 부재 클래스가 없습니다).
           문·창의 자리는 "문·창 형상도 읽기" 를 켜고 연 파일에서만 나갑니다.

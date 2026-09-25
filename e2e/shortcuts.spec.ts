@@ -10,7 +10,7 @@ async function open(page: Page) {
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
-  await expect(page.locator('.review h2')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   return errors
 }
 

@@ -19,7 +19,7 @@ async function editOnce(page: Page) {
 test('편집이 남아 있으면 다른 파일을 열기 전에 묻고, 물리치면 편집이 그대로다', async ({ page }) => {
   await page.goto('/')
   await openFile(page, MEP)
-  await expect(page.locator('.review h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
 
   // 편집 전에는 묻지 않는다.
   let asked = 0
@@ -30,25 +30,25 @@ test('편집이 남아 있으면 다른 파일을 열기 전에 묻고, 물리�
     void (asked === 1 ? d.dismiss() : d.accept())
   })
   await openFile(page, MEP)
-  await expect(page.locator('.review h2')).toHaveText('mep.ifc')
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc')
   expect(asked).toBe(0)
 
   await editOnce(page)
   await openFile(page, ROOMS)
   await expect.poll(() => asked).toBe(1)
-  await expect(page.locator('.review h2')).toHaveText('mep.ifc')
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc')
   await expect(page.locator('.edit-bar .last-edit')).toHaveText('AHU-1 옮김')
 
   // 받아들이면 연다. 같은 입력칸에 다른 파일을 고른다.
   await openFile(page, ROOMS)
   await expect.poll(() => asked).toBe(2)
-  await expect(page.locator('.review h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
 })
 
 test('편집이 남아 있으면 탭을 닫기 전에 브라우저가 묻는다', async ({ page }) => {
   await page.goto('/')
   await openFile(page, MEP)
-  await expect(page.locator('.review h2')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await editOnce(page)
   const dialog = page.waitForEvent('dialog')
   void page.close({ runBeforeUnload: true })
@@ -60,7 +60,7 @@ test('편집이 남아 있으면 탭을 닫기 전에 브라우저가 묻는다'
 test('편집을 저장하고 같은 파일을 다시 연 뒤 불러오면 편집이 그대로 돌아온다', async ({ page }, info) => {
   await page.goto('/')
   await openFile(page, MEP)
-  await expect(page.locator('.review h2')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await editOnce(page)
   const name = page.locator('.rows input').first()
   await name.fill('대회의실')
@@ -89,7 +89,7 @@ test('편집을 저장하고 같은 파일을 다시 연 뒤 불러오면 편집
 
   // 다른 파일에 불러오면 못 찾은 것을 센다.
   await openFile(page, ROOMS)
-  await expect(page.locator('.review h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
   await page.locator('.load-edits input').setInputFiles(path)
   await expect(page.locator('.edit-file-note')).toContainText('못 찾은 것: 설비 1 · 물리존 1')
   await expect(page.locator('.edit-file-note')).toContainText('저장한 파일은 mep.ifc')

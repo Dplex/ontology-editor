@@ -337,7 +337,7 @@ test('보기 모드는 고치는 칸을 숨기고, 편집 모드는 막대와 �
   // 편집한 것은 편집 막대가 센다. 보기로 돌아가도 리포트는 남는다.
   await page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' }).getByRole('button', { name: '상류로' }).click()
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
-  await page.locator('.edit-bar').getByRole('button', { name: '보기로' }).click()
+  await page.getByRole('button', { name: '보기', exact: true }).click()
   await expect(page.locator('.report')).toContainText('AT-101-02 → DUCT-01')
 })
 
