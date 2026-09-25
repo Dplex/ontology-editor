@@ -339,6 +339,52 @@ th {
   color: var(--warn-fg);
 }
 
+/* 요구사항 보고서. 상태 칩은 등급 칩과 같은 색 규칙이다 — 표준 자리는 액센트, 다른 자리·일부는 경고색,
+   없음은 오류색, 해당 없음·잴 수 없음은 회색. 색은 이 넷뿐이다. */
+.review .requirements {
+  margin-top: 1.25rem;
+}
+
+.req-table td {
+  vertical-align: top;
+}
+
+.req-table tr.req-group th {
+  padding-top: 1rem;
+  color: var(--fg);
+  font-weight: 600;
+  text-align: left;
+}
+
+.req-state {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.req-state.standard {
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.req-state.elsewhere,
+.req-state.partial {
+  border-color: var(--warn-line);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.req-state.missing {
+  border-color: transparent;
+  background: var(--error-soft);
+  color: var(--error);
+}
+
 /* 파일 덧붙이기. 주 동작(파일 열기)보다 한 단 낮은 버튼이다. */
 .append {
   display: flex;

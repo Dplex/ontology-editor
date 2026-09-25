@@ -42,6 +42,11 @@ export type Space = {
    * 없으면 Revit 의 `Category Code` 속성이다. 없으면 `null`.
    */
   omniclass?: string | null
+  /**
+   * `omniclass` 를 어디서 읽었나. `classification` 은 표준 분류 관계(`IfcClassificationReference`), `property` 는
+   * Revit 이 붙인 속성(`Category Code`)이다. 요구사항 보고서가 "표준 자리"와 "다른 자리"를 가른다.
+   */
+  omniclassSource?: 'classification' | 'property'
 }
 
 export type Wall = {
@@ -225,6 +230,8 @@ export type System = {
    * 흐름 방향 규칙(`flow-rules.ts`)이 이 값으로 매체(공기·물)와 방향(원천에서 나가는가, 들어오는가)을 정한다.
    */
   kind?: string | null
+  /** `kind` 를 누가 정했나. `bim` 이면 PredefinedType 과 약어(kinds.ts 의 SYSTEM_IFC)에서, `dict` 면 이름 사전에서 읽었다. */
+  kindSource?: 'bim' | 'dict'
 }
 
 /**
@@ -290,6 +297,18 @@ export type Model = {
   connections: Connection[]
   /** 임포트가 그냥 넘어간 것들. 조용히 비는 대신 화면에 뜬다. */
   warnings: string[]
+  /**
+   * 모델 요소로는 남지 않는 파일의 사실. 요구사항 보고서(requirements.ts)가 쓴다. 손으로 만든 모델에는 없다.
+   * 두 파일을 합치면 둘 다 참일 때만 참이다(위경도는 한쪽만 있어도 참).
+   */
+  facts?: {
+    /** 길이 단위를 선언했나(R6). 없으면 미터로 가정했다. */
+    lengthUnit: boolean
+    /** IfcMapConversion 이 있나(R7). IFC4 부터 있는 자리다. */
+    mapConversion: boolean
+    /** IfcSite 에 위경도가 있나. 지도에 대략 얹을 수는 있지만 스캔과 맞출 수는 없다. */
+    siteLatLong: boolean
+  }
 }
 
 /** 신발끈 공식. 고리의 방향과 무관하게 넓이를 돌려주려고 절댓값을 취한다. */

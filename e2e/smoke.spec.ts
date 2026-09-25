@@ -65,6 +65,31 @@ test('MEP 가 든 IFC 는 설비와 계통까지 보여 준다', async ({ page }
   expect(errors).toEqual([])
 })
 
+test('요구사항 칸이 R 번호마다 표준 자리·다른 자리·없음을 가른다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+
+  // 접힌 채로 한 줄 요약만 보인다.
+  const fold = page.locator('.requirements')
+  await expect(fold.locator('.fold-meta')).toContainText('필수')
+  await fold.getByRole('button', { name: /요구사항/ }).click()
+
+  const row = (id: string) => fold.locator('tbody tr', { has: page.locator('td.mono', { hasText: new RegExp(`^${id}$`) }) })
+  // 좌표 없는 센서 하나(일부), 용량 없는 토출구 하나(일부), 지도 변환 없음(없음), 단위는 있다(표준 자리).
+  await expect(row('R11').locator('.req-state')).toHaveText('일부')
+  await expect(row('R11')).toContainText('4 / 5')
+  await expect(row('R22').locator('.req-state')).toHaveText('일부')
+  await expect(row('R7').locator('.req-state')).toHaveText('없음')
+  await expect(row('R6').locator('.req-state')).toHaveText('표준 자리')
+  await expect(row('R12').locator('.req-state')).toHaveText('잴 수 없음')
+
+  expect(errors).toEqual([])
+})
+
 test('연결을 읽어 계통 범례와 상류·하류를 보여 준다', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))

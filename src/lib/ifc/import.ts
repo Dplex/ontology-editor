@@ -28,7 +28,7 @@ import { apply, compose, foldChain, foldElevation, fromAxisPlacement, type Trans
 import { assignEquipmentToSpaces } from '../mapping'
 import { lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
-import { equipmentKindOf, omniclassCode, resolveEquipmentKind, resolveRoomKind, systemKindOf } from '../kinds'
+import { equipmentKindOf, omniclassCode, resolveEquipmentKind, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
 import { capacityRank } from '../capacity'
 import { inferFlowByRules } from '../flow-rules'
 import { footprintRings, openingPlacement, spacesBesideOpening } from './element-geometry'
@@ -409,7 +409,7 @@ class Reader {
    * COBie 판본이 이렇다), Revit 의 `Category Code` 속성(병원·Duplex 건축 전부), Revit 의 `OmniClass Table 13 Category`
    * 속성(`13-15 11 34 11: Office`). 설비 판본의 Revit 속성은 설명만 적기도 해서(`Office`) 코드가 없으면 건너뛴다.
    */
-  omniclassBySpace(): Map<number, string> {
+  omniclassBySpace(): Map<number, { code: string; source: 'classification' | 'property' }> {
     const spaces = new Set(this.ids(WebIFC.IFCSPACE))
     const found = new Map<number, { code: string; rank: number }>()
     const offer = (id: number, text: unknown, rank: number) => {
@@ -441,7 +441,7 @@ class Reader {
         for (const id of targets) offer(id, val(prop?.NominalValue), rank)
       }
     }
-    return new Map([...found].map(([id, v]) => [id, v.code]))
+    return new Map([...found].map(([id, v]) => [id, { code: v.code, source: v.rank === 0 ? ('classification' as const) : ('property' as const) }]))
   }
 
   /**
@@ -829,7 +829,7 @@ function spaceOf(
   globalIdOf: (elementID: number) => string,
   boundaries: Map<number, number[]>,
   warnings: string[],
-  omniclass: Map<number, string>,
+  omniclass: Map<number, { code: string; source: 'classification' | 'property' }>,
 ): Space {
   const e = r.line(expressID)
   const id = (val(e?.GlobalId) as string) ?? `space-${expressID}`
@@ -849,9 +849,17 @@ function spaceOf(
     footprint,
     areaM2: polygonArea(footprint),
     boundedBy: (boundaries.get(expressID) ?? []).map(globalIdOf),
-    omniclass: omniclass.get(expressID) ?? null,
-    ...roomKindFields((val(e?.Name) as string) ?? '', longName, omniclass.get(expressID) ?? null),
+    omniclass: omniclass.get(expressID)?.code ?? null,
+    ...(omniclass.has(expressID) ? { omniclassSource: omniclass.get(expressID)!.source } : {}),
+    ...roomKindFields((val(e?.Name) as string) ?? '', longName, omniclass.get(expressID)?.code ?? null),
   }
+}
+
+function systemKindFields(name: string, objectType: string, predefined: string | null): Pick<System, 'kind' | 'kindSource'> {
+  const byIfc = systemKindOfIfc(predefined, objectType)
+  if (byIfc) return { kind: byIfc.kind, kindSource: 'bim' }
+  const byName = systemKindOf(name, objectType)
+  return byName ? { kind: byName.kind, kindSource: 'dict' } : { kind: null }
 }
 
 function roomKindFields(name: string, longName: string, omniclass: string | null): Pick<Space, 'kind' | 'kindSource'> {
@@ -1093,12 +1101,11 @@ function read(
         source: 'ifc',
         // Revit 은 시스템 분류(급기, 순환수 공급 …)를 ObjectType 에 적는다. 이름에는 번호가 붙는다.
         // IFC4 는 PredefinedType 도 있다(IfcDistributionSystem). 요구하는 어휘는 kinds.ts 의 SYSTEM_IFC 다.
-        kind:
-          systemKindOf(
-            (val(group?.LongName) as string) || ((val(group?.Name) as string) ?? ''),
-            (val(group?.ObjectType) as string) ?? '',
-            (val(group?.PredefinedType) as string) ?? null,
-          )?.kind ?? null,
+        ...systemKindFields(
+          (val(group?.LongName) as string) || ((val(group?.Name) as string) ?? ''),
+          (val(group?.ObjectType) as string) ?? '',
+          (val(group?.PredefinedType) as string) ?? null,
+        ),
       })
     }
 
@@ -1119,7 +1126,7 @@ function read(
         for (const name of names) {
           let system = byName.get(name)
           if (!system) {
-            system = { id: systemIdOf(name, taken), name, memberIds: [], source: 'property', kind: systemKindOf(name)?.kind ?? null }
+            system = { id: systemIdOf(name, taken), name, memberIds: [], source: 'property', ...systemKindFields(name, '', null) }
             byName.set(name, system)
             systems.push(system)
           }
@@ -1283,6 +1290,12 @@ function read(
       systems,
       connections: r.portConnections(globalIdOf),
       warnings,
+      facts: {
+        lengthUnit: unitFound,
+        // IfcMapConversion 은 IFC4 부터 있다. IFC2x3 에서는 늘 0 이다.
+        mapConversion: r.ids(WebIFC.IFCMAPCONVERSION).length > 0,
+        siteLatLong: r.ids(WebIFC.IFCSITE).some((id) => (r.line(id)?.RefLatitude?.length ?? 0) > 0),
+      },
     }
 
     const allEquipment = storeys.flatMap((s) => s.equipment)

@@ -17,6 +17,7 @@ import { inferFlowByRules, newlyDisagreeing, withInferred } from '../src/lib/flo
 import { airServices } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
 import { roomKind } from '../src/lib/kinds'
+import { requirementsReport } from '../src/lib/requirements'
 import type { Model } from '../src/lib/model'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -946,6 +947,29 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
       'device-space': '665/668',
       'device-connected': '569/667',
     })
+  }, 300_000)
+
+  // 요구사항 보고서(정본 4장). Revit IFC2x3 의 전형이다 — 필수는 거의 다 차 있고, 권장이 떨어지는 것은 값이 없어서가 아니라
+  // 자리가 달라서다(방 분류는 Category Code, 계통은 System Name, 용량은 PSet_Revit_*). IDS 로는 셋 다 실패로만 보인다.
+  it('요구사항 보고서: 권장은 대부분 "다른 자리"에 있다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_ARCH))).model
+    const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_HVAC))).model
+    const { model, report } = mergeModels(arch, hvac)
+    const rows = new Map(requirementsReport(model, report).map((r) => [r.id, r]))
+    const brief = (id: string) => ({ state: rows.get(id)!.state, counts: rows.get(id)!.counts })
+
+    // 건축 Roof - Main 과 설비 Roof - Mech 가 이름이 달라 높이로 맞췄다.
+    expect(brief('R1')).toEqual({ state: 'partial', counts: { standard: 3, elsewhere: 0, of: 4 } })
+    expect(rows.get('R7')!.state).toBe('missing')
+    expect(brief('R14')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 269, of: 272 } })
+    expect(rows.get('R10')!.state).toBe('elsewhere')
+    expect(brief('R17')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 3701, of: 3806 } })
+    expect(brief('R22')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 563, of: 566 } })
+    // SPLITSYSTEM 2대는 표준 값이지만 받지 않는다(kinds.ts 의 IFC_REJECTED). 이름 사전이 종류를 알아서 다른 자리로 간다.
+    expect(brief('R25')).toEqual({ state: 'partial', counts: { standard: 662, elsewhere: 5, of: 668 } })
+    expect(rows.get('R23')!.note).toContain('기본값')
   }, 300_000)
 
   // 방 종류. Revit 은 방마다 OmniClass Table 13 코드를 `Category Code` 속성으로 적는다(269/269). 이름 사전이 먼저이고

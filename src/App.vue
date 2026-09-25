@@ -4,6 +4,7 @@ import type { MeshMap } from './lib/ifc/import'
 import { countOf, isConduit, type Connection, type Equipment, type Model, type Vec2, type Vec3 } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { profileOf, type Profile } from './lib/profile'
+import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
 import Src from './components/Src.vue'
@@ -2000,6 +2001,8 @@ const unlocatedLine = computed(() => {
 // 모델 전체를 다시 재므로 병원 MEP(1만 3천 개)에서 한 번에 0.14초가 든다. 편집마다 재면 방향키를 누를 때마다
 // 그만큼 막힌다. 새 모델은 바로 재고, 편집은 멈춘 뒤(TIERS_DELAY) 한 번 잰다.
 const currentTiers = shallowRef<Profile['tiers']>([])
+// 요구사항 보고서(정본 4장). 등급 칩과 같은 때에 잰다 — 둘 다 모델 전체를 훑는다.
+const currentRequirements = shallowRef<RequirementRow[]>([])
 const TIERS_DELAY = 400
 let tiersTimer: number | undefined
 let tieredModel: Model | null = null
@@ -2008,10 +2011,14 @@ watch([model, flowVersion], () => {
   const m = model.value
   if (!m) {
     currentTiers.value = []
+    currentRequirements.value = []
     tieredModel = null
     return
   }
-  const measure = () => (currentTiers.value = profileOf(m).tiers)
+  const measure = () => {
+    currentTiers.value = profileOf(m).tiers
+    currentRequirements.value = requirementsReport(m, mergeReport.value)
+  }
   if (m !== tieredModel) {
     tieredModel = m
     measure()
@@ -2021,6 +2028,33 @@ watch([model, flowVersion], () => {
 }, { immediate: true })
 
 const warnings = computed(() => [...(model.value?.warnings ?? []), ...(unlocatedLine.value ? [unlocatedLine.value] : [])])
+
+const REQUIREMENT_STATE: Record<RequirementState, string> = {
+  standard: '표준 자리',
+  elsewhere: '다른 자리',
+  partial: '일부',
+  missing: '없음',
+  none: '해당 없음',
+  unmeasured: '잴 수 없음',
+}
+// 접힌 칸의 제목 옆에 붙는 한 줄. 고객사에 할 말이 셋으로 갈린다 — 할 말 없음, 설정을 바꿔 달라, 값을 넣어 달라.
+// 파일 하나로 잴 수 없는 것(R8·R12·R13)을 분모에 넣으면 필수가 반쯤 빠진 것처럼 읽힌다. 잰 것만 센다.
+const requirementGroups = computed(() =>
+  (['필수', '권장'] as const).map((level) => ({ level, rows: currentRequirements.value.filter((r) => r.level === level) })),
+)
+const requirementsMeta = computed(() => {
+  const count = (list: RequirementRow[], states: RequirementState[]) => list.filter((r) => states.includes(r.state)).length
+  return requirementGroups.value
+    .map(({ level, rows }) => {
+      const parts = [
+        [`표준 ${count(rows, ['standard'])}`],
+        count(rows, ['elsewhere']) ? [`다른 자리 ${count(rows, ['elsewhere'])}`] : [],
+        count(rows, ['missing', 'partial']) ? [`없음·일부 ${count(rows, ['missing', 'partial'])}`] : [],
+      ].flat()
+      return `${level} ${parts.join(' · ')}`
+    })
+    .join('  |  ')
+})
 
 function onPick(event: Event) {
   const input = event.target as HTMLInputElement
@@ -2247,6 +2281,33 @@ function exportTTL() {
         <ul v-if="warnings.length" class="warnings">
           <li v-for="w in warnings" :key="w">{{ w }}</li>
         </ul>
+
+        <!-- 고객사 BIM 요구사항(정본 4장)에 대 본 것. IDS 와 달리 "다른 자리에 있다(우리는 읽는다)"를 따로 센다. -->
+        <Fold v-if="currentRequirements.length" title="요구사항" :meta="requirementsMeta" :default-open="false" class="requirements">
+          <table class="req-table">
+            <thead>
+              <tr><th>#</th><th>요구</th><th>상태</th><th class="num">표준 · 다른 자리 / 대상</th><th>설명</th></tr>
+            </thead>
+            <tbody v-for="g in requirementGroups" :key="g.level">
+              <tr class="req-group">
+                <th colspan="5">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 우리가 되살릴 수 없다' : ' — 없으면 계산·사전·사람으로 메운다' }}</th>
+              </tr>
+              <tr v-for="r in g.rows" :key="r.id">
+                <td class="mono">{{ r.id }}</td>
+                <td>{{ r.title }}</td>
+                <td><span :class="['req-state', r.state]">{{ REQUIREMENT_STATE[r.state] }}</span></td>
+                <td class="num mono">
+                  <template v-if="r.counts && r.counts.of">{{ r.counts.standard }}<template v-if="r.counts.elsewhere"> · {{ r.counts.elsewhere }}</template> / {{ r.counts.of }}</template>
+                </td>
+                <td class="muted">{{ r.note }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <p class="hint">
+            표준 자리는 IDS(<span class="mono">docs/requirements.ids</span>)도 통과한다. 다른 자리는 값이 있고 우리도 읽지만, 고객사가
+            내보내기 설정을 바꾸면 표준 자리로 간다. 기준과 이유는 정본 4장에 있다.
+          </p>
+        </Fold>
       </section>
 
       <div ref="stage" :class="['stage', { full: fullscreen }]">

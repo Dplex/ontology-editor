@@ -13,23 +13,30 @@ export type CapacityQuantity = 'airflow' | 'waterflow' | 'power' | 'flow'
  * `Pset_*TypeCommon` 에 붙는다. 공조기·FCU 는 IFC4 표준에 용량 자리가 없어 `DT_Capacity.NominalAirFlowRate` 로
  * 적게 한다(이름은 팬·VAV 의 표준 속성과 같게 두었다). 뒤쪽은 Revit 이 붙이는 이름이다.
  */
-export const CAPACITY_PROPERTIES: readonly { name: string; quantity: CapacityQuantity }[] = [
-  { name: 'NominalAirFlowRate', quantity: 'airflow' }, // Pset_FanTypeCommon, Pset_AirTerminalBoxTypeCommon, DT_Capacity
-  { name: 'AirFlowRate', quantity: 'airflow' }, // Pset_AirTerminalOccurrence
-  { name: 'AirFlowrateRange', quantity: 'airflow' }, // Pset_AirTerminalTypeCommon. 범위라 설정값, 없으면 위 끝
-  { name: 'FlowRateRange', quantity: 'waterflow' }, // Pset_PumpTypeCommon
-  { name: 'NominalCapacity', quantity: 'power' }, // Pset_ChillerTypeCommon, Pset_CoolingTowerTypeCommon
-  { name: 'OutputCapacity', quantity: 'power' }, // Pset_SpaceHeaterTypeCommon
-  { name: 'TotalCoolingCapacity', quantity: 'power' },
+export const CAPACITY_PROPERTIES: readonly { name: string; quantity: CapacityQuantity; standard: boolean }[] = [
+  { name: 'NominalAirFlowRate', quantity: 'airflow', standard: true }, // Pset_FanTypeCommon, Pset_AirTerminalBoxTypeCommon, DT_Capacity
+  { name: 'AirFlowRate', quantity: 'airflow', standard: true }, // Pset_AirTerminalOccurrence
+  { name: 'AirFlowrateRange', quantity: 'airflow', standard: true }, // Pset_AirTerminalTypeCommon. 범위라 설정값, 없으면 위 끝
+  { name: 'FlowRateRange', quantity: 'waterflow', standard: true }, // Pset_PumpTypeCommon
+  { name: 'NominalCapacity', quantity: 'power', standard: true }, // Pset_ChillerTypeCommon, Pset_CoolingTowerTypeCommon
+  { name: 'OutputCapacity', quantity: 'power', standard: true }, // Pset_SpaceHeaterTypeCommon
+  // IFC4 에는 성능 이력(Pset_CooledBeamPHistory)에만 있어 설계 용량의 표준 자리가 아니다.
+  { name: 'TotalCoolingCapacity', quantity: 'power', standard: false },
   // Revit 이 내보내는 이름들. 공백이 들어간 것도 그대로 쓴다.
-  { name: 'Air Flow', quantity: 'airflow' },
-  { name: 'Flow', quantity: 'flow' },
-  { name: 'Design Flow', quantity: 'flow' },
-  { name: 'Rated Flow', quantity: 'flow' },
+  { name: 'Air Flow', quantity: 'airflow', standard: false },
+  { name: 'Flow', quantity: 'flow', standard: false },
+  { name: 'Design Flow', quantity: 'flow', standard: false },
+  { name: 'Rated Flow', quantity: 'flow', standard: false },
 ]
 
 const RANK = new Map(CAPACITY_PROPERTIES.map((p, i) => [p.name, i]))
 const QUANTITY = new Map(CAPACITY_PROPERTIES.map((p) => [p.name, p.quantity]))
+const STANDARD = new Set(CAPACITY_PROPERTIES.filter((p) => p.standard).map((p) => p.name))
+
+/** IFC4 표준 Pset(또는 공조기·FCU 에 정해 둔 DT_Capacity)의 이름인가. 아니면 저작 도구가 붙인 이름이다. */
+export function isStandardCapacity(property: string | null | undefined): boolean {
+  return !!property && STANDARD.has(property)
+}
 
 /** 용량 속성의 우선순위. 작을수록 앞선다. 용량이 아니면 -1. */
 export function capacityRank(property: string): number {

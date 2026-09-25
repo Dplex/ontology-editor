@@ -140,6 +140,13 @@ export function equipmentKindOfIfc(declared: string | null | undefined): Equipme
 export type KindSource = 'bim' | 'dict'
 
 /**
+ * IFC 표준 값이지만 요구하지 않는 것. 종류를 가르지 못해서다 — `SPLITSYSTEM` 은 실내기와 실외기를 가르지 않는다
+ * (병원 HVAC 는 급기·환기 풍량을 가진 패키지 공조기에 썼다). requirements.ids 의 R25 가 이 값을 받지 않고,
+ * 요구사항 보고서도 표준 자리로 세지 않는다.
+ */
+export const IFC_REJECTED: readonly string[] = ['UnitaryEquipment.SPLITSYSTEM']
+
+/**
  * 설비 종류와 그 출처. 순서가 뜻을 가진다.
  *
  * 1. **이름 사전.** 사전은 좁아서 맞으면 대개 더 구체적이다 — 성수의 `EF-11` 은 IFC 로는 `IfcFan` 이지만 배기팬이다.

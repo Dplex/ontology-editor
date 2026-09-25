@@ -275,6 +275,15 @@ export function mergeModels(
     systems: [...systems.values()],
     connections: [...connections.values()],
     warnings: [...a.warnings.map((w) => `[${labels.base}] ${w}`), ...b.warnings.map((w) => `[${labels.overlay}] ${w}`)],
+    ...(a.facts && b.facts
+      ? {
+          facts: {
+            lengthUnit: a.facts.lengthUnit && b.facts.lengthUnit,
+            mapConversion: a.facts.mapConversion && b.facts.mapConversion,
+            siteLatLong: a.facts.siteLatLong || b.facts.siteLatLong,
+          },
+        }
+      : {}),
   }
 
   assignEquipmentToSpaces(merged)

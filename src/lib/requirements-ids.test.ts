@@ -3,7 +3,8 @@ import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
 import { describe, expect, it } from 'vitest'
 import { CAPACITY_PROPERTIES } from './capacity'
-import { EQUIPMENT_KINDS, omniclassCode, ROOM_KINDS, SYSTEM_IFC } from './kinds'
+import { EQUIPMENT_KINDS, IFC_REJECTED, omniclassCode, ROOM_KINDS, SYSTEM_IFC } from './kinds'
+import { REQUIREMENTS } from './requirements'
 
 // docs/requirements.ids 는 정본(docs/bim-to-dt-ontology.md 4장)과 이름 사전(kinds.ts)·용량 표(capacity.ts)를 고객사가
 // 검사할 수 있게 옮긴 사본이다. 사본이 어긋나는 두 가지를 여기서 막는다.
@@ -61,6 +62,11 @@ describe('requirements.ids', () => {
     for (const [r, level] of inIds) expect([r, doc.get(r)]).toEqual([r, level])
   })
 
+  it('에디터의 요구사항 보고서(requirements.ts)도 정본과 같은 R 번호·등급이다', () => {
+    const doc = levelsInDoc()
+    expect(new Map(REQUIREMENTS.map((r) => [r.id, r.level]))).toEqual(doc)
+  })
+
   it('R25 의 설비 종류는 kinds.ts 의 ifc 표와 같은 어휘다', () => {
     // kinds.ts 에서 `클래스.값` 꼴로 종류가 정해지는 클래스. 클래스만으로 정해지는 것(Boiler …)은 요구하지 않는다.
     const byClass = new Map<string, Set<string>>()
@@ -86,6 +92,8 @@ describe('requirements.ids', () => {
       for (const v of ours) expect([cls, v, allowed.has(v)]).toEqual([cls, v, true])
       // IDS 가 허용한 것 중 표준이 아닌 것(우리가 정한 USERDEFINED 이름)은 우리가 읽어야 한다.
       for (const v of allowed) if (!standard.has(v)) expect([cls, v, ours.has(v)]).toEqual([cls, v, true])
+      // 받지 않기로 한 표준 값은 IDS 도 허용하지 않는다(보고서와 IDS 가 같은 말을 한다).
+      for (const r of IFC_REJECTED) if (r.startsWith(`${cls}.`)) expect(allowed.has(r.slice(cls.length + 1))).toBe(false)
     }
   })
 
