@@ -348,10 +348,10 @@ test('고른 설비의 연결을 계통별로 나눠 세고, 줄을 누르면 �
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
   await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button').first().click()
 
-  const row = page.locator('.by-system tbody tr', { hasText: 'AHU-1 급기 계통' })
+  const row = page.locator('.by-system li', { hasText: 'AHU-1 급기 계통' })
   await expect(row).toBeVisible()
   // 공조기에서 덕트를 따라 토출구 둘까지 내려간다(하나는 규칙 방향).
-  await expect(row.locator('td.downstream')).toHaveText('2')
+  await expect(row.locator('.downstream b')).toHaveText('2')
   await row.click()
   await expect(row).toHaveClass(/chosen/)
   await row.click()
@@ -368,11 +368,11 @@ test('공기 원천을 고르면 흐름을 따라 말단이 있는 방을 담당
   const served = page.locator('.picked .served')
   await expect(served).toContainText('담당 공간 계산')
   const office = served.locator('tbody tr', { hasText: '사무실' })
-  await expect(office.locator('td').nth(2)).toHaveText('2')
+  await expect(office.locator('td').nth(1)).toHaveText('2')
 
   // 규칙 방향을 끄면 포트가 말한 토출구 하나만 남는다.
   await page.locator('.rule-toggle input').uncheck()
-  await expect(office.locator('td').nth(2)).toHaveText('1')
+  await expect(office.locator('td').nth(1)).toHaveText('1')
 
   // 말단을 고르면 담당 공간 칸이 없다. 원천이 아니다.
   await page.locator('.equipment tbody tr', { hasText: 'AT-101-01' }).getByRole('button').first().click()
@@ -407,4 +407,23 @@ test('문·창 형상은 기본으로 읽지 않고, 파일을 열기 전에 켤
   await page.reload()
   // 고른 값은 이 브라우저가 기억한다.
   await expect(page.getByRole('checkbox', { name: /문·창 형상도 읽기/ })).toBeChecked()
+})
+
+test('편집 뒤 화면이 다시 그려져도 치고 있던 칸은 지워지지 않는다', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button').first().click()
+
+  // 오른쪽 패널에서 x 를 바꾸면 조금 뒤(등급을 다시 잴 때) 화면 전체가 다시 그려진다. 그 사이 y 를 치고 있다.
+  const coords = page.locator('.picked .position-edit .coord')
+  await coords.nth(0).fill('2')
+  await coords.nth(0).press('Enter')
+  await coords.nth(1).fill('3.5')
+  await page.waitForTimeout(1000)
+  await expect(coords.nth(1)).toHaveValue('3.5')
+  // 넣는 것은 여전히 Enter 한 번이다.
+  await coords.nth(1).press('Enter')
+  await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).locator('.coord').nth(1)).toHaveValue('3.5')
 })

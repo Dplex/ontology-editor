@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch, type Directive } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
 import { countOf, isConduit, type Connection, type Equipment, type Model, type Vec2, type Vec3 } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
@@ -853,6 +853,28 @@ const editEquipment = computed(() =>
   editStoreys.value.flatMap((s) => s.equipment).filter((e) => matches(`${e.name} ${e.ifcClass} ${kindLabel(e)}`)),
 )
 
+/**
+ * 치는 중인 칸을 모델 값으로 덮지 않는다(`v-keep-typing`).
+ *
+ * Vue 는 화면을 다시 그릴 때마다 `:value` 를 칸에 다시 넣는다. 편집 뒤 등급을 다시 재는 타이머(TIERS_DELAY)가
+ * 화면을 다시 그리면, 그 사이 오른쪽 패널에서 치던 방 이름·좌표가 원래 값으로 돌아갔다(App 템플릿에 바로 있는
+ * 칸이라 App 이 다시 그려질 때마다 덮인다. 아래 표는 Fold 슬롯이라 덜 걸리지만 같은 수를 둔다). 포커스가 있고
+ * 사람이 값을 바꾼 칸만 지킨다. 넣는 것은 여전히 change(Enter·칸 나가기) 한 번이다.
+ */
+const typing = new WeakMap<HTMLInputElement, string>()
+const vKeepTyping: Directive<HTMLInputElement> = {
+  beforeUpdate(el, _binding, _vnode, prev) {
+    if (document.activeElement !== el) return
+    if (el.value !== String(prev.props?.value ?? '')) typing.set(el, el.value)
+  },
+  updated(el) {
+    const draft = typing.get(el)
+    if (draft === undefined) return
+    typing.delete(el)
+    el.value = draft
+  },
+}
+
 function applyRename(spaceId: string, name: string) {
   if (!model.value) return
   const snapshot = snapshotSpace(model.value, spaceId)
@@ -1240,6 +1262,26 @@ const selectedService = computed(() => {
   const service = id ? airServiceList.value.find((s) => s.sourceId === id) : null
   if (!m || !service) return null
   return { ...service, rooms: servedSpaces(m, service) }
+})
+/** 패널에 보일 담당 공간. 말단이 많은 방부터 SERVED_LIMIT 줄만, 층으로 묶는다(층 순서는 모델 순서). */
+const SERVED_LIMIT = 12
+const servedAll = ref(false)
+watch(selectedId, () => (servedAll.value = false))
+const servedView = computed(() => {
+  const rooms = selectedService.value?.rooms ?? []
+  const shown = servedAll.value ? rooms : rooms.slice(0, SERVED_LIMIT)
+  const order = new Map((model.value?.storeys ?? []).map((st, i) => [st.name, i]))
+  const groups = new Map<string, typeof rooms>()
+  for (const r of shown) {
+    const label = r.spaceId ? (spaceStorey.value.get(r.spaceId) ?? '층 모름') : '방 밖'
+    groups.set(label, [...(groups.get(label) ?? []), r])
+  }
+  return {
+    groups: [...groups]
+      .map(([label, rs]) => ({ label, rooms: rs }))
+      .sort((a, b) => (order.get(a.label) ?? Infinity) - (order.get(b.label) ?? Infinity)),
+    hidden: rooms.length - shown.length,
+  }
 })
 /** 건물 전체의 원천별 담당 공간. 말단이 많은 원천부터. */
 const serviceSummary = computed(() => {
@@ -2297,8 +2339,9 @@ function exportTTL() {
           <div class="canvas-wrap">
             <canvas ref="canvas"></canvas>
             <div class="view-tools">
-              <!-- 보기 ↔ 편집. 위의 보기/편집 버튼과 같은 상태(mode) 하나다. 3D 를 보다가 손을 떼지 않고 오간다. -->
-              <label class="edit-toggle" title="켜면 3D 에서 설비를 끌어 옮기고, 물리존 꼭짓점을 끌고, 연결 방향을 정합니다.">
+              <!-- 보기 ↔ 편집, 단축키 안내. 위 도구막대와 같은 일이라 전체 화면(도구막대가 안 보인다)에서만 둔다.
+                   평소에도 두었더니 같은 스위치가 한 화면에 둘이었다. -->
+              <label v-if="fullscreen" class="edit-toggle" title="켜면 3D 에서 설비를 끌어 옮기고, 물리존 꼭짓점을 끌고, 연결 방향을 정합니다.">
                 <input
                   type="checkbox"
                   :checked="editing"
@@ -2315,7 +2358,7 @@ function exportTTL() {
               >
                 내력벽
               </button>
-              <button type="button" class="ghost keys-help" title="단축키 안내" aria-label="단축키 안내" @click="helpOpen = true">?</button>
+              <button v-if="fullscreen" type="button" class="ghost keys-help" title="단축키 안내" aria-label="단축키 안내" @click="helpOpen = true">?</button>
               <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
                 {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
               </button>
@@ -2432,6 +2475,7 @@ function exportTTL() {
                 class="coord mono"
                 type="number"
                 step="0.1"
+                v-keep-typing
                 :value="selected.position ? selected.position[axis] : (positionDrafts.get(selected.id)?.[axis] ?? '')"
                 placeholder="—"
                 @change="applyMove(selected.id, axis, ($event.target as HTMLInputElement).value, selected.position)"
@@ -2523,91 +2567,9 @@ function exportTTL() {
             </p>
           </div>
 
-          <!-- 계통별로 보기. 한 기기에 물·바람·배수가 같이 붙으므로 계통마다 나눠 센다. -->
-          <div v-if="systemRows.length" class="by-system">
-            <h4>
-              계통별로 보기
-              <span class="muted">
-                기기 대수 · 방향 모름은 다음 기기에서 멈춤<template v-if="showRules && hasRules"> · 규칙 방향 포함 <Src kind="dict" /></template>
-                · 줄을 누르면 3D 에 그 계통만
-              </span>
-            </h4>
-            <table>
-              <thead>
-                <tr>
-                  <th>계통 <Src kind="bim" /></th>
-                  <th>종류 <Src kind="dict" /></th>
-                  <th class="num">상류</th>
-                  <th class="num">하류</th>
-                  <th class="num">방향 모름</th>
-                  <th class="num">덕트·배관</th>
-                  <th>이어진 기기</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="r in systemRows"
-                  :key="r.key"
-                  :class="{ chosen: flowSystemKey === r.key }"
-                  @click="toggleFlowSystem(r.key)"
-                >
-                  <td class="sys">
-                    <i :style="{ background: r.color ?? 'transparent' }"></i>
-                    <button type="button" class="link" :aria-pressed="flowSystemKey === r.key">{{ r.name }}</button>
-                  </td>
-                  <td :class="{ muted: !r.kind }">{{ r.kind ?? '모름' }}</td>
-                  <td :class="['num', 'mono', r.up ? 'upstream' : 'muted']">{{ r.up || '·' }}</td>
-                  <td :class="['num', 'mono', r.down ? 'downstream' : 'muted']">{{ r.down || '·' }}</td>
-                  <td :class="['num', 'mono', r.unknown ? 'linked' : 'muted']">{{ r.unknown || '·' }}</td>
-                  <td class="num mono muted">{{ r.conduits || '·' }}</td>
-                  <td class="kinds-cell" :title="r.kinds.map(([l, n]) => `${l} ${n}`).join(', ')">
-                    <template v-if="r.kinds.length">{{ kindsText(r.kinds) }}</template>
-                    <!-- Revit 은 급기 계통을 가지마다 쪼개서, 관이 다른 계통으로 이어질 수 있다. 끊겼다고 단정하지 않는다. -->
-                    <span v-else class="muted">이 계통 안에서 닿는 기기 없음</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- 담당 공간. 공기 원천을 골랐을 때만 뜬다. 계통도가 묻는 "이 공조기가 담당하는 방" 의 근사다. -->
-          <div v-if="selectedService" class="served">
-            <h4>
-              담당 공간 <Src kind="calc" />
-              <span class="muted">
-                흐름 방향을 따라 말단(디퓨저·그릴)까지 가서 말단이 있는 방을 모읍니다<template v-if="showRules && hasRules"> · 규칙 방향 포함 <Src kind="dict" /></template>
-                · 추정이라 내보내지 않습니다
-              </span>
-            </h4>
-            <p v-if="!selectedService.supply.length && !selectedService.extract.length" class="muted">
-              흐름 방향으로 닿는 말단이 없습니다. 방향을 모르는 연결에서 멈췄거나, 덕트 없이 방에 바로 놓인 기기(카세트형 등)일 수 있습니다.
-            </p>
-            <table v-else>
-              <thead>
-                <tr>
-                  <th>방</th>
-                  <th>층</th>
-                  <th class="num">급기 말단</th>
-                  <th class="num">환기·배기 말단</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="r in selectedService.rooms" :key="r.spaceId ?? '-'">
-                  <td :class="{ muted: !r.spaceId }">
-                    {{ r.spaceId ? spaceNameOf(r.spaceId) : '소속 방 없음' }}
-                    <Src v-if="r.spaceId" kind="calc" />
-                  </td>
-                  <td class="muted">{{ r.spaceId ? spaceStorey.get(r.spaceId) : '' }}</td>
-                  <td :class="['num', 'mono', r.supply ? 'downstream' : 'muted']">{{ r.supply || '·' }}</td>
-                  <td :class="['num', 'mono', r.extract ? 'upstream' : 'muted']">{{ r.extract || '·' }}</td>
-                </tr>
-              </tbody>
-            </table>
-            <p v-if="selectedService.rooms.some((r) => !r.spaceId) && counts.spaces === 0" class="hint">
-              이 파일에는 방이 없습니다. 건축 파일을 덧붙이면 말단이 있는 방이 나옵니다.
-            </p>
-          </div>
-
+          <!-- 바로 붙은 연결. 편집 모드에서 방향을 정하는 자리라 계통·담당 공간(길어질 수 있다)보다 앞에 둔다.
+               맨 아래에 두었더니 병원 공조기에서 담당 방 150줄 아래로 묻혔다. -->
+          <h4 class="picked-sub">바로 붙은 연결 <span class="muted">{{ selectedNeighbors.length }}</span></h4>
           <p v-if="selectedNeighbors.length === 0" class="hint">
             이 설비에 붙은 연결이 없습니다.
           </p>
@@ -2618,13 +2580,12 @@ function exportTTL() {
                 <td>
                   <button type="button" class="link" @click="select(n.id)">{{ n.name }}</button>
                 </td>
-                <td class="muted">
-                  <template v-if="n.source === 'port'">포트 <Src kind="bim" /></template>
-                  <template v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></template>
-                  <template v-if="n.edited"> · 사람이 정한 방향 <Src kind="edit" /></template>
-                  <template v-else-if="n.rule">
-                    · {{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" />
-                  </template>
+                <!-- 글과 출처 꼬리표가 따로 꺾이지 않게 한 덩어리씩 묶는다. -->
+                <td class="muted src-cell">
+                  <span v-if="n.source === 'port'">포트 <Src kind="bim" /></span>
+                  <span v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></span>
+                  <span v-if="n.edited">사람이 정한 방향 <Src kind="edit" /></span>
+                  <span v-else-if="n.rule">{{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
                 </td>
                 <!-- 포트가 방향을 말한 연결은 고칠 수 없다. BIM 이 말한 것을 덮어쓰지 않는다. -->
                 <td v-if="editing" class="flow-edit">
@@ -2662,6 +2623,88 @@ function exportTTL() {
               </tr>
             </tbody>
           </table>
+
+          <!-- 계통별로 보기. 한 기기에 물·바람·배수가 같이 붙으므로 계통마다 나눠 센다. 패널이 좁아 표가 아니라
+               줄마다 두세 줄짜리 목록이다 — 일곱 칸 표는 오른쪽 넷(방향 모름·덕트·이어진 기기)이 잘렸다. -->
+          <div v-if="systemRows.length" class="by-system">
+            <h4 class="picked-sub">
+              계통별로 보기 <Src kind="bim" />
+              <span class="muted">
+                기기 대수 · 방향 모름은 다음 기기에서 멈춤<template v-if="showRules && hasRules"> · 규칙 방향 포함 <Src kind="dict" /></template>
+                · 누르면 3D 에 그 계통만
+              </span>
+            </h4>
+            <ul class="sys-list">
+              <li v-for="r in systemRows" :key="r.key" :class="{ chosen: flowSystemKey === r.key }">
+                <button type="button" :aria-pressed="flowSystemKey === r.key" @click="toggleFlowSystem(r.key)">
+                  <span class="sys">
+                    <i :style="{ background: r.color ?? 'transparent' }"></i>
+                    <span class="sys-name">{{ r.name }}</span>
+                    <span :class="['sys-kind', { muted: !r.kind }]">{{ r.kind ?? '종류 모름' }}<Src v-if="r.kind" kind="dict" /></span>
+                  </span>
+                  <span class="sys-counts">
+                    <span v-if="r.up" class="upstream">상류 <b>{{ r.up }}</b></span>
+                    <span v-if="r.down" class="downstream">하류 <b>{{ r.down }}</b></span>
+                    <span v-if="r.unknown" class="linked">방향 모름 <b>{{ r.unknown }}</b></span>
+                    <span v-if="r.conduits" class="muted">덕트·배관 {{ r.conduits }}</span>
+                  </span>
+                  <span class="sys-kinds" :title="r.kinds.map(([l, n]) => `${l} ${n}`).join(', ')">
+                    <template v-if="r.kinds.length">{{ kindsText(r.kinds) }}</template>
+                    <!-- Revit 은 급기 계통을 가지마다 쪼개서, 관이 다른 계통으로 이어질 수 있다. 끊겼다고 단정하지 않는다. -->
+                    <span v-else class="muted">이 계통 안에서 닿는 기기 없음</span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+          </div>
+
+          <!-- 담당 공간. 공기 원천을 골랐을 때만 뜬다. 계통도가 묻는 "이 공조기가 담당하는 방" 의 근사다.
+               병원 공조기 하나가 방 150개에 닿아 패널이 8,000px 이 됐었다. 층으로 묶고 말단이 많은 방부터 몇 줄만 보인다. -->
+          <div v-if="selectedService" class="served">
+            <h4 class="picked-sub">
+              담당 공간 <Src kind="calc" />
+              <span class="muted">
+                흐름을 따라 닿는 말단(디퓨저·그릴)이 있는 방<template v-if="showRules && hasRules"> · 규칙 방향 포함 <Src kind="dict" /></template>
+                · 추정이라 내보내지 않습니다
+              </span>
+            </h4>
+            <p v-if="!selectedService.supply.length && !selectedService.extract.length" class="muted">
+              흐름 방향으로 닿는 말단이 없습니다. 방향을 모르는 연결에서 멈췄거나, 덕트 없이 방에 바로 놓인 기기(카세트형 등)일 수 있습니다.
+            </p>
+            <template v-else>
+              <p class="served-sum">
+                방 <b>{{ selectedService.rooms.filter((r) => r.spaceId).length }}</b> ·
+                급기 말단 <b class="downstream">{{ selectedService.supply.length }}</b> ·
+                환기·배기 말단 <b class="upstream">{{ selectedService.extract.length }}</b>
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>방</th>
+                    <th class="num">급기</th>
+                    <th class="num">환기·배기</th>
+                  </tr>
+                </thead>
+                <tbody v-for="g in servedView.groups" :key="g.label">
+                  <tr class="group">
+                    <th colspan="3">{{ g.label }}</th>
+                  </tr>
+                  <tr v-for="r in g.rooms" :key="r.spaceId ?? '-'">
+                    <td :class="{ muted: !r.spaceId }">{{ r.spaceId ? spaceNameOf(r.spaceId) : '소속 방 없는 말단' }}</td>
+                    <td :class="['num', 'mono', r.supply ? 'downstream' : 'muted']">{{ r.supply || '·' }}</td>
+                    <td :class="['num', 'mono', r.extract ? 'upstream' : 'muted']">{{ r.extract || '·' }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <button v-if="servedView.hidden" type="button" class="link more" @click="servedAll = true">
+                나머지 {{ servedView.hidden }}줄도 보기
+              </button>
+            </template>
+            <p v-if="selectedService.rooms.some((r) => !r.spaceId) && counts.spaces === 0" class="hint">
+              이 파일에는 방이 없습니다. 건축 파일을 덧붙이면 말단이 있는 방이 나옵니다.
+            </p>
+          </div>
+
         </section>
 
         <!-- 3D 에서 고른 물리존(E2). 편집 모드에서 바닥을 누르면 뜬다. -->
@@ -2685,6 +2728,7 @@ function exportTTL() {
             이름
             <input
               type="text"
+              v-keep-typing
               :value="selectedSpace.space.longName"
               @change="applyRename(selectedSpace.space.id, ($event.target as HTMLInputElement).value)"
             />
@@ -3176,6 +3220,7 @@ function exportTTL() {
                     <td>
                       <input
                         type="text"
+                        v-keep-typing
                         :value="sp.longName"
                         :aria-label="`${sp.name} 이름`"
                         @change="applyRename(sp.id, ($event.target as HTMLInputElement).value)"
@@ -3190,6 +3235,7 @@ function exportTTL() {
                           class="coord mono"
                           type="number"
                           step="0.1"
+                          v-keep-typing
                           :value="p[0]"
                           @change="applyVertex(sp.id, i, 0, ($event.target as HTMLInputElement).value, p)"
                         />
@@ -3197,6 +3243,7 @@ function exportTTL() {
                           class="coord mono"
                           type="number"
                           step="0.1"
+                          v-keep-typing
                           :value="p[1]"
                           @change="applyVertex(sp.id, i, 1, ($event.target as HTMLInputElement).value, p)"
                         />
@@ -3251,6 +3298,7 @@ function exportTTL() {
                       class="coord mono"
                       type="number"
                       step="0.1"
+                      v-keep-typing
                       :value="e.position ? e.position[axis] : (positionDrafts.get(e.id)?.[axis] ?? '')"
                       placeholder="—"
                       @change="applyMove(e.id, axis as 0 | 1 | 2, ($event.target as HTMLInputElement).value, e.position)"

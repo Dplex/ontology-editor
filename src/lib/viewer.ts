@@ -800,21 +800,39 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
    * 상자가 화면에 꽉 차도록 카메라를 놓는다.
    *
    * 긴 변 하나만 보고 거리를 잡으면 안 된다. 세로 시야각으로만 계산하면 가로로 넓적한 건물이
-   * 화면 밖으로 삐져나가고, 비스듬히 보는 각도에서는 더 커 보인다. 외접구 반지름을 가로·세로
-   * 시야각 중 **좁은 쪽**에 맞춘다.
+   * 화면 밖으로 삐져나가고, 비스듬히 보는 각도에서는 더 커 보인다. 그렇다고 외접구에 맞추면 너무 멀다 —
+   * 건물은 납작해서 구가 실제로 보이는 모양보다 훨씬 크고, 실제 BIM 이 전부 화면 폭의 60% 쯤에 떴다.
+   * 상자 꼭짓점 여덟을 보는 방향으로 비춰 보고, 가로·세로 어느 쪽으로도 화면의 FILL 을 넘지 않는
+   * 가장 가까운 거리를 잡는다.
    */
+  const FILL = 0.88
   function fit(box: Box3) {
     const sphere = box.getBoundingSphere(new Sphere())
     if (sphere.radius <= 0) return
 
-    const vFov = (camera.fov * Math.PI) / 180
-    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * (camera.aspect || 1.6))
-    const distance = (sphere.radius / Math.sin(Math.min(vFov, hFov) / 2)) * 1.1
+    const back = new Vector3(1, 0.65, 1).normalize() // 대상에서 카메라 쪽
+    const forward = back.clone().negate()
+    const right = new Vector3().crossVectors(forward, camera.up).normalize()
+    const up = new Vector3().crossVectors(right, forward)
+    const tanV = Math.tan((camera.fov * Math.PI) / 360) * FILL
+    const tanH = tanV * (camera.aspect || 1.6)
 
-    controls.target.copy(sphere.center)
-    camera.position.copy(sphere.center).add(new Vector3(1, 0.65, 1).normalize().multiplyScalar(distance))
+    const center = sphere.center
+    let distance = 0
+    const corner = new Vector3()
+    for (let i = 0; i < 8; i++) {
+      corner.set(i & 1 ? box.max.x : box.min.x, i & 2 ? box.max.y : box.min.y, i & 4 ? box.max.z : box.min.z).sub(center)
+      // 카메라에서 이 꼭짓점까지의 깊이는 distance + (꼭짓점·앞). 화면 가장자리에 걸리는 깊이를 거꾸로 푼다.
+      const ahead = corner.dot(forward)
+      distance = Math.max(distance, Math.abs(corner.dot(right)) / tanH - ahead, Math.abs(corner.dot(up)) / tanV - ahead)
+    }
+    // 점 하나(좌표만 있는 설비)여도 붙어 서지 않게.
+    distance = Math.max(distance, 2)
+
+    controls.target.copy(center)
+    camera.position.copy(center).addScaledVector(back, distance)
     camera.near = Math.max(distance / 1000, 0.01)
-    camera.far = distance * 10
+    camera.far = (distance + sphere.radius) * 10
     camera.updateProjectionMatrix()
     controls.update()
     dirty = true
@@ -931,6 +949,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           return { key: seg.key, a: spec?.a, b: spec?.b, from: spec?.from, source: spec?.source, active: !!spec?.active, at: toScreen(seg.a.clone().lerp(seg.b, 0.5)) }
         }),
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
+      /**
+       * 화면의 한 점에서 맨 앞에 맞는 설비, 그 시선이 id 설비도 지나는지, 연결 화살표가 걸리는지.
+       * 가림은 카메라 거리에 따라 달라서 테스트가 찾아 쓴다. 화살표 위를 누르면 고르기가 아니라 방향 바꾸기다.
+       */
+      hit: (x: number, y: number, id: string) => {
+        const part = partById.get(id)
+        const ray = rayAt(x, y).clone()
+        return { front: pick(ray), through: part ? hitsPart(ray, part) : false, arrow: hitArrow(x, y) !== null }
+      },
     }
   }
 

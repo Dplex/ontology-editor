@@ -43,7 +43,7 @@ test('? 를 누르면 단축키 안내가 뜨고 Esc 로 닫힌다. 글자 칸�
   await expect(help).toBeHidden()
 
   // 버튼으로도 연다.
-  await page.locator('.view-tools .keys-help').click()
+  await page.locator('.appbar .keys-help').click()
   await expect(help).toBeVisible()
   await help.getByRole('button', { name: /닫기/ }).click()
   await expect(help).toBeHidden()
@@ -60,7 +60,7 @@ test('E 는 보기와 편집을 오간다', async ({ page }) => {
   const errors = await open(page)
   await page.keyboard.press('e')
   await expect(page.locator('.edit-bar')).toBeVisible()
-  await expect(page.locator('.edit-toggle input')).toBeChecked()
+  await expect(page.getByRole('button', { name: '편집', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await page.keyboard.press('e')
   await expect(page.locator('.edit-bar')).toHaveCount(0)
   expect(errors).toEqual([])

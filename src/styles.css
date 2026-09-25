@@ -633,6 +633,19 @@ th {
   border-top: 1px solid var(--line-soft);
 }
 
+.neighbors .link {
+  text-align: left;
+}
+
+.neighbors .src-cell > span {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.neighbors .src-cell > span + span::before {
+  content: '· ';
+}
+
 .neighbors .rel {
   width: 5.5rem;
   font-weight: 600;
@@ -1501,35 +1514,155 @@ th {
   border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
 }
 
-/* ---- 계통별로 보기 ----------------------------------------------------------- */
+/* ---- 고른 설비 패널의 소제목·계통별·담당 공간 --------------------------------------- */
 
 .by-system,
 .served {
   margin-top: 1rem;
 }
 
-.by-system h4,
-.served h4 {
-  margin: 0 0 0.4rem;
+.picked-sub {
+  margin: 1rem 0 0.4rem;
   font-size: 0.9rem;
 }
 
-.by-system h4 .muted,
-.served h4 .muted {
-  margin-left: 0.5rem;
+.by-system .picked-sub,
+.served .picked-sub {
+  margin-top: 0;
+}
+
+.picked-sub .muted {
+  margin-left: 0.35rem;
   font-size: 0.78rem;
   font-weight: 400;
 }
 
-.by-system table,
+/* 계통별: 패널이 좁아 표가 아니라 줄마다 이름 / 숫자 / 이어진 기기 세 줄이다. 줄 전체가 버튼이다. */
+.sys-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.sys-list li + li {
+  border-top: 1px solid var(--line-soft);
+}
+
+.sys-list button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.45rem 0.5rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sys-list button:hover {
+  background: var(--surface-soft);
+}
+
+.sys-list li.chosen button {
+  background: var(--accent-soft);
+}
+
+.sys-list .sys {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.sys-list .sys-name {
+  overflow: hidden;
+  color: var(--accent);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sys-list .sys-kind {
+  flex: none;
+  margin-left: auto;
+  font-size: 0.8rem;
+}
+
+.sys-list .sys-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.75rem;
+  padding-left: 1.15rem;
+  font-size: 0.8rem;
+}
+
+.sys-list .sys-kinds {
+  overflow: hidden;
+  padding-left: 1.15rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule-systems tbody tr.chosen > td {
+  background: var(--accent-soft);
+}
+
+.rule-systems .sys {
+  white-space: nowrap;
+}
+
+.sys-list .sys i,
+.rule-systems .sys i {
+  display: inline-block;
+  flex: none;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 0.2rem;
+}
+
+.rule-systems .sys i {
+  margin-right: 0.45rem;
+  vertical-align: -0.05rem;
+}
+
+.sys-counts .upstream,
+.served .upstream,
+.served td.upstream,
+.service td.upstream {
+  color: #c06a26;
+}
+
+.sys-counts .downstream,
+.served .downstream,
+.served td.downstream,
+.service td.downstream {
+  color: #148062;
+}
+
+.sys-counts .linked {
+  color: #7d3fb8;
+}
+
+/* 담당 공간: 층을 머리줄로 묶고 층 칸을 뺐다. 출처는 제목에 한 번 붙인다. */
+.served-sum {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+}
+
 .served table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
 }
 
-.by-system th,
-.served th {
+.served thead th {
   padding: 0.3rem 0.5rem;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
@@ -1539,66 +1672,26 @@ th {
   white-space: nowrap;
 }
 
-.by-system th.num,
 .served th.num {
   text-align: right;
 }
 
-.by-system td,
 .served td {
-  padding: 0.35rem 0.5rem;
+  padding: 0.3rem 0.5rem;
   border-top: 1px solid var(--line-soft);
 }
 
-.by-system tbody tr {
-  cursor: pointer;
+.served tr.group th {
+  padding: 0.5rem 0.5rem 0.2rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-align: left;
 }
 
-.by-system tbody tr:hover > td {
-  background: var(--surface-soft);
-}
-
-.by-system tbody tr.chosen > td,
-.rule-systems tbody tr.chosen > td {
-  background: var(--accent-soft);
-}
-
-.by-system .sys,
-.rule-systems .sys {
-  white-space: nowrap;
-}
-
-.by-system .sys i,
-.rule-systems .sys i {
-  display: inline-block;
-  width: 0.7rem;
-  height: 0.7rem;
-  margin-right: 0.45rem;
-  border-radius: 0.2rem;
-  vertical-align: -0.05rem;
-}
-
-.by-system td.upstream,
-.served td.upstream,
-.service td.upstream {
-  color: #c06a26;
-}
-
-.by-system td.downstream,
-.served td.downstream,
-.service td.downstream {
-  color: #148062;
-}
-
-.by-system td.linked {
-  color: #7d3fb8;
-}
-
-.by-system .kinds-cell {
-  max-width: 16rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.served .more {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
 }
 
 /* 원천별 담당 공간. 방 이름이 수십 개여도 한 줄로 자르고 전체는 툴팁으로 본다. */
