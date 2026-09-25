@@ -130,8 +130,10 @@ Revit은 건축용 Room과 설비용 MEP Space를 둘 다 `IfcSpace`로 내보�
 **계통.** `IfcSystem`이 설비를 계통으로 묶는다. Revit 파일은 `IfcSystem` 대신 `System Name` 속성만
 남기기도 한다.
 
-**IFC 버전.** IFC4는 `IfcAirTerminal`처럼 구체 클래스로 설비 종류를 말한다. IFC2x3은 전부
-`IfcFlowTerminal` 같은 추상 클래스라서, 표준 필드만으로는 설비 종류를 알 수 없다.
+**IFC 버전.** IFC4는 `IfcAirTerminal`처럼 구체 클래스로 설비 종류를 말한다. IFC2x3은 개체가 전부
+`IfcFlowTerminal` 같은 추상 클래스이지만, 개체에 붙은 **타입 객체**(`IfcAirTerminalType`)가 구체 클래스와
+`PredefinedType`을 든다. 병원 HVAC(Revit)는 디퓨저 231·그릴 206·VAV 115개를 타입에 적었다. 다만 Revit은 값을
+모르면 USERDEFINED로 두고 유형 이름(`150 mm`)을 적어서, 타입만으로 종류가 다 정해지지는 않는다.
 
 ### 1.6 우리가 내보내는 것
 
@@ -480,12 +482,12 @@ Revit 패밀리 이름(`FCU3:FCU3`, `라인디퓨저:2slot`)에서 사전으로 
 | 성수 기계 | 5,457 | 9,219 | **83.8%**(급기 84.0% · 환기 90.5% · 배기 75.0%) | 1,903/2,929 → **2,759/2,929** |
 | ifc4Mep | 0(포트가 전부 방향을 말한다) | 36 | 88.9% | 37/103 → 37/103 |
 | Duplex MEP | 328 | 0(포트 없음) | 잴 수 없음 | 0/31 → 23/31 |
-| 병원 건축+HVAC | 0(포트가 다 말한다) | 3,673 | 99.9% | — |
-| 병원 건축+HVAC, 사람이 종류 4패밀리를 정한 뒤 | 0 | 3,694 | 99.4% — 새로 대 본 21개가 전부 어긋남 | — |
+| 병원 건축+HVAC | 0(포트가 다 말한다) | 3,694 | 99.35% — 타입 객체의 종류를 읽기 전에는 3,673 · 99.9%. 새로 대 본 21개가 전부 어긋남 | — |
 
-**규칙은 종류에 기대므로, 사람이 종류를 채우면 규칙이 새로 틀릴 수 있다.** 병원 HVAC 에서 천장 배기팬(흡입구
-일체형, `M_Exhaust Unit with Cabinet - Ceiling Mounted`)을 배기팬으로 정하자 배기 계통 6개가 포트와 0/21 로
-정반대가 됐다. "배기 계통은 원천(팬) 쪽으로 흐른다"는 규칙이, 방의 공기를 제 몸으로 빨아 덕트로 내보내는 팬에는
+**규칙은 종류에 기대므로, 종류를 알게 되면 규칙이 새로 틀릴 수 있다.** 병원 HVAC 에서 천장 배기팬(흡입구
+일체형, `M_Exhaust Unit with Cabinet - Ceiling Mounted`)이 팬이 되자 배기 계통 6개가 포트와 0/21 로 정반대가
+됐다. 처음에는 사람이 종류를 골라서 드러났고, 지금은 IFC2x3 타입 객체(`IfcFanType`)가 팬이라고 말해서 열자마자
+드러난다. "배기 계통은 원천(팬) 쪽으로 흐른다"는 규칙이, 방의 공기를 제 몸으로 빨아 덕트로 내보내는 팬에는
 거꾸로다. 규칙을 고치면 성수의 숫자가 움직이므로 성수를 잴 수 있을 때 고친다(`check:sample` 이 이 24개를 기준으로
 들고 있다). 그때까지 편집 화면은 종류를 바꾼 순간 포트와 새로 어긋나기 시작한 계통을 이름과 일치 수로 알린다 —
 포트가 없는 파일에서는 이렇게 잡을 수단이 없으니 그 계통은 3D 로 흐름을 보고 확정한다.
@@ -564,7 +566,7 @@ IFC에 자리가 있는지, 실제 파일이 채웠는지, 우리 코드가 읽�
 | 방 높이 | 3D Map(복층·층고) | `Qto_SpaceBaseQuantities.Height` | AC20 **7/7**(2.5m·4m) | 층 높이만 | GeoJSON |
 | 방-문-방 연결 | 로봇 경로, 피난 | 문이 걸린 `IfcRelSpaceBoundary` | 두 방을 잇는 문 AC20 3/5, Duplex 건축 **9/14**. COBie 판본과 성수 건축은 경계가 없어 0 | 공간 경계가 있으면 그것을 늘 읽고, 없으면 문·창 형상을 읽도록 켰을 때 문 양쪽을 좌표로 짚는다. 공간 경계를 정답지로 대 보면 18/19 가 맞는다(외곽선이 있는 방 기준). 성수 건축은 문 528개 중 방 둘을 잇는 것 233개 | GeoJSON 문 feature 의 `connects`. Brick 에 인접 관계가 없어 TTL 술어를 늘리지 않았다 |
 | 벽·문·창 위치 | 3D Map, 로봇 | `ObjectPlacement` + 형상 | 확인한 파일 전부 있다 | 형상에서 읽는다. 벽은 맨 아래 면의 테두리로 평면 외곽선을, 문·창은 평면 중심을 잡는다(배치점은 믿지 않는다). 성수 건축 벽 1,291개·개구부 591개 전부. 문·창 형상은 로봇 경로용이라 파일을 열 때 켤 때만 읽는다(성수 건축에서 약 7초 더 걸린다) | GeoJSON(벽은 Polygon, 문·창은 Point) |
-| 설비 종류 → Brick 클래스 | 이상 알림 분류, Agent | IFC4 구체 클래스·`PredefinedType`. IFC2x3은 `ObjectType` 문자열뿐 | `PredefinedType` 말단 기준 0%. ifc4Mep은 구체 클래스가 있다 | Revit 패밀리 이름 사전(25종)과 IFC4 클래스로 Brick 클래스. 사전에 없으면 `ex:FlowTerminal` 등 | TTL 클래스 |
+| 설비 종류 → Brick 클래스 | 이상 알림 분류, Agent | IFC4 구체 클래스·`PredefinedType`. IFC2x3은 타입 객체의 클래스·`PredefinedType` | IFC가 말한 종류로 정해지는 기기: 병원 HVAC 428/668, 병원 MEP 1,447/3,469(콘센트 961 포함), ifc4Mep 178/308 | 이름 사전 → IFC가 말한 종류(`kinds.ts`의 `ifc` 표, 출처 BIM) → 값을 말하지 않은 클래스의 추측 순. 모르면 `ex:FlowTerminal` 등 | TTL 클래스 |
 | 유체 종류 | 계통도(냉수·온수·급수·오수) | Revit `System Type` 속성, `IfcSystem` 의 ObjectType | Duplex MEP 811/926, 성수 기계 계통 1,037개 전부 | 계통 종류(급기·환기·배기·순환수 공급/환수·급탕·급수)를 읽어 규칙 방향에 쓴다. TTL 로는 아직 내보내지 않는다 | TTL 계통 클래스 |
 | 자산 정보 | 자산 관리, 유지보수 | COBie 속성(시리얼·보증·수명) | Duplex MEP **926/926** | 읽지 않는다 | 온톨로지 밖(자산 대장)이거나 새 술어. 정해야 한다 |
 | 담당 공간(근사) | 계통도 "이 공조기가 담당하는 방" | `IfcSystem`(기기+말단) + F11 | 조건을 갖춘 파일 0 | 하지 않는다 | 추정이라 `brick:feeds`로 내면 안 된다. 표기를 정해야 한다 |
@@ -581,9 +583,9 @@ IFC에 자리가 있는지, 실제 파일이 채웠는지, 우리 코드가 읽�
 
 | 출처 | 뜻 | 무엇이 틀리면 같이 틀리나 | 해당하는 값 |
 |---|---|---|---|
-| BIM | 파일에 적힌 그대로다 | BIM 파일 | 층·방·외곽선, 설비 목록·좌표·형상, 계통, 포트로 이은 연결과 포트가 말한 방향, BIM이 직접 말한 소속 |
+| BIM | 파일에 적힌 그대로다 | BIM 파일 | 층·방·외곽선, 설비 목록·좌표·형상, 계통, 포트로 이은 연결과 포트가 말한 방향, BIM이 직접 말한 소속, IFC가 클래스·`PredefinedType`으로 말한 설비 종류(IFC2x3은 타입 객체) |
 | 계산 | BIM의 좌표와 형상만으로 계산했다. 바깥 지식은 들어가지 않지만 BIM이 직접 말한 것은 아니다 | 계산 규칙(벽면 여유 5cm, 맞닿음 판정 등) | 좌표로 판정한 소속(F11), 형상이 맞닿아서 추정한 연결, 배치점 대신 형상 중심을 쓴 좌표, 건축·설비 파일 합치기, 포트가 있어서 설비로 받은 Proxy |
-| 사전 | 이름 사전과 흐름 규칙으로 정했다. 도메인 지식이 들어간 값이다 | 사전 | 설비·방·계통 종류, Brick 클래스, 규칙 방향, 관제점 후보, 이름만으로 설비로 받은 Proxy |
+| 사전 | 이름 사전과 흐름 규칙으로 정했다. 도메인 지식이 들어간 값이다 | 사전 | 이름으로 읽은 설비 종류, 방·계통 종류, Brick 클래스, 규칙 방향, 관제점 후보, 이름만으로 설비로 받은 Proxy |
 
 성수 기계 파일을 예로 들면 다음과 같다. 기기 3,472대 중 1,820대는 BIM이 설비 클래스로 준 것이다. 나머지
 1,652대는 Proxy이고, 그중 1,578대는 포트가 있어서 받았고(계산) 74대는 이름이 사전에 있어서 받았다(사전).
@@ -626,7 +628,7 @@ IFC에 자리가 있는지, 실제 파일이 채웠는지, 우리 코드가 읽�
 | R7 | 3D 스캔과 같은 원점·북방향 | `IfcMapConversion`(LoGeoRef 50) 또는 합의한 기준점 | 0 | **0/4**(위경도만 있다) | 오류 없이 통째로 어긋난다. **협의의 첫 항목이다** |
 | R8 | 형상 정확도 LOD 300 이상 | IDS로는 확인할 수 없다. 3D로 연다 | 0 | 해당 없음 | 벽 두께와 위치가 개략이라 스캔과 맞지 않는다 |
 | R9 | MEP 포함 | `IfcDistributionElement` 하위 | 1 | 건축 파일 0, 설비 파일에만 있다 | 설비가 0이다 |
-| R10 | 형식 IFC4 (ADD2 TC1 이상) | 파일 헤더 `FILE_SCHEMA` | 1 | ifc4Mep만. Duplex는 전부 IFC2x3 | **설비 종류를 표준 필드로 알 수 없다.** IFC2x3은 전부 `IfcFlowTerminal` 같은 추상 클래스다 |
+| R10 | 형식 IFC4 (ADD2 TC1 이상) | 파일 헤더 `FILE_SCHEMA` | 1 | ifc4Mep만. Duplex는 전부 IFC2x3 | **IFC2x3은 개체가 `IfcFlowTerminal` 같은 추상 클래스라** 종류를 타입 객체에서 찾아야 하고, 계통 종류(`IfcDistributionSystem.PredefinedType`) 자리가 없다 |
 | R11 | 설비마다 좌표, **배치점이 자기 형상 위에** | `ObjectPlacement` | 1 | ifc4Mep 2,174/2,202. Duplex HVAC 덕트 231개가 층 원점 | 미배치 목록으로 빠진다. 원점에 찍히면 원점이 든 방에 몰린다(지금은 형상 중심으로 보정한다) |
 | R12 | 건축과 설비가 **같은 좌표계** | 우리가 잰다(설비가 건축 공간 범위에 드는 비율) | 2 | Duplex 100%. 다른 건물을 합치면 2% | 설비 소속이 오류 없이 틀린다 |
 | R13 | GUID 유지 설정 | 재내보내기 전후의 `GlobalId` | 해당 없음 | 재내보내기 샘플이 없어 재지 못했다 | 재임포트 때 같은 공간을 같은 것으로 알아보지 못한다 |
@@ -638,14 +640,15 @@ IFC에 자리가 있는지, 실제 파일이 채웠는지, 우리 코드가 읽�
 | R14 | 방 분류 | `IfcSpace.PredefinedType` 또는 OmniClass Table 13 | 0+ | Duplex 21/21(OmniClass), AC20 0 | 모든 방이 `brick:Room` 하나로 나간다 |
 | R15 | 방 높이 | `Qto_SpaceBaseQuantities.Height` | 0+ | AC20 7/7 | 층 높이로 대신한다. 복층을 모른다 |
 | R16 | 모든 MEP 요소에 솔리드가 있고, **이어진 요소끼리 맞닿거나 겹칠 것** | 형상. 우리가 연다 | 3 | Duplex MEP 연결망 34조각, 103대가 접합 부재 없음 | 포트가 없을 때 연결을 형상으로도 되살리지 못한다 |
-| R17 | 계통 묶음, **계통 이름은 분야별 파일끼리 같게** | `IfcSystem`(없으면 Revit `System Name`으로 대신) | 3 | ifc4Mep 37, Duplex COBie 10, Duplex 일반 판본 0(속성으로 대신) | 어느 설비가 어느 계통인지 모른다 |
+| R17 | 계통 묶음, **계통 이름은 분야별 파일끼리 같게**, **계통 종류는 `PredefinedType`에 공급·환수 약어를 더해**(4.6) | `IfcSystem`(없으면 Revit `System Name`으로 대신), `IfcDistributionSystem.PredefinedType`·`ObjectType` | 3 | ifc4Mep 37(종류 9/15, 약어는 이름에만 있고 `ObjectType` 0/7), Duplex COBie 10, Duplex 일반 판본 0(속성으로 대신) | 어느 설비가 어느 계통인지 모른다. 종류가 없으면 규칙 방향이 계통 이름에 기댄다 |
 | R18 | 포트, **연결마다 한쪽에는** 흐름 방향 SOURCE 또는 SINK. **원천 기기(보일러·펌프·공조기)도 모델에 있을 것** | `IfcDistributionPort.FlowDirection` | 4 | 연결 단위 ifc4Mep 100%·Duplex HVAC 39%. **기기 단위 37/103·0/26** | `brick:feeds`가 기기에 닿지 않는다 |
 | R19 | 계통에 **공조기와 말단을 같이** 묶을 것 | `IfcRelAssignsToGroup`의 구성 | 4+ | ifc4Mep 2/37, Duplex 0/34 | 포트가 없을 때 "이 공조기가 담당하는 방"을 근사할 방법이 없다 |
 | R20 | 공조존을 실제 값으로 | `IfcZone`·`IfcSpatialZone` 또는 `VentilationZoneName` | 5 | 자리 있음, 값 0 | IDF에서 받거나 사람이 만든다(PRD #11) |
 | R21 | 센서가 재는 설비 | `IfcRelFlowControlElements` | 5 | 0 | 관제점의 주인을 사람이 잇는다 |
-| R22 | 용량 파라미터 (**LOD 400**) | 표준 Pset 이름이면 IDS로 확인한다 | 해당 없음 | Duplex HVAC 155/498(비표준 `Flow`), ifc4Mep 0 | 용량 검증(Z-03)을 돌리지 못한다. LOD 300에서는 기대하지 말고 설비 대장을 따로 받는다 |
+| R22 | 용량 파라미터 (**LOD 400**) | 표준 Pset(타입 객체여도 된다). 공조기·FCU는 `DT_Capacity.NominalAirFlowRate`(4.6) | 해당 없음 | ifc4Mep 73(타입 객체의 표준 Pset: 디퓨저 43 `AirFlowrateRange`, 방열기 30 `OutputCapacity`), Duplex HVAC 159(Revit `Flow` 155는 배관 구간의 물 유량) | 용량 검증(Z-03)을 돌리지 못한다. LOD 300에서는 기대하지 말고 설비 대장을 따로 받는다 |
 | R23 | 벽의 Structural 속성 | `Pset_WallCommon.LoadBearing` | 해당 없음 | AC20 0/13 | 내력벽 편집 제한이 걸리지 않는다 |
 | R24 | `IfcBuildingElementProxy`를 쓰지 말 것 | 클래스 | 해당 없음 | ifc4Mep 49, 성수 기계 1,658(FCU·공조기·히트펌프·디퓨저) | 종류를 이름으로 추정해야 하고, 이름이 사전에 없으면 역할도 종류도 모른다 |
+| R25 | 설비 종류를 **클래스와 `PredefinedType`으로**, IFC4에 없는 종류는 **정해 둔 USERDEFINED 이름으로**(4.6) | `PredefinedType`, USERDEFINED이면 `ObjectType`(IFC2x3은 타입 객체의 값) | 1 | ifc4Mep 전부(공조 기기 2 · 디퓨저 43 · 방열기 30 · 분전반 3 · 센서 7 · 콘센트 48). IFC2x3 타입 객체도 같은 값을 든다(병원 HVAC 기기 428/668) | 종류를 패밀리 이름으로 추정한다(이름 사전). 모르면 사람이 패밀리 단위로 고른다 |
 
 **R18은 완화된 형태로 먼저 제시한다.** "모든 포트에 SOURCE/SINK"는 저작 도구가 잘 지원하지 않는다
 (Duplex HVAC의 61%가 `SOURCEANDSINK`). "연결마다 한쪽만"은 훨씬 쉽고 그것으로 충분하다. 한쪽이 SOURCE이면
@@ -654,6 +657,12 @@ IFC에 자리가 있는지, 실제 파일이 채웠는지, 우리 코드가 읽�
 **R17의 계통 이름**은 파일을 합칠 때 필요하다. Duplex의 MEP-1은 `Unit A Hydronic Supply In`, MEP-2는
 `Hydronic Supply Unit A`로 같은 계통을 다르게 적었다. 규칙을 추측해 맞추면 다른 계통을 하나로 묶을 위험이
 있어서 코드로는 맞추지 않는다.
+
+**R25는 이름 사전이 하던 일을 BIM 쪽으로 옮긴다.** 사전은 받은 파일의 자유 텍스트에서 종류를 추측하고,
+R25는 받기 전에 종류를 정해진 이름으로 적어 달라고 요구한다. 둘은 같은 어휘를 써야 한다(4.6의 표). R25를 지킨
+파일은 사전 없이 종류가 정해지고, 사전은 R25를 지키지 않은 파일을 위해 남는다. 필수가 아니라 권장인 이유는 종류가
+없어도 등급 1(설비 목록)은 열리기 때문이다. 없으면 Brick 클래스를 IFC 클래스로만 정하게 되는데,
+`IfcUnitaryEquipment` 하나에 공조기·FCU·실내기가 다 들어가서 DT가 셋을 가르지 못한다.
 
 **표준 Pset 이름으로 요구하면 고객사에 Revit 설정을 바꾸라고 요청하는 셈이다.** 실측한 Revit 파일은 전부
 `PSet_Revit_*`로 내보냈다. IDS로 옮길 때 이 점을 함께 전달한다(`docs/research.md` §4).
@@ -697,7 +706,7 @@ PRD #6의 "BIM 내보내기 요구사항(고객사 전달용)" ①~⑦을 위의
 | ③ Air Terminal이 System에 연결 | R17, R19 | 권장. R19는 "공조기와 말단을 같은 계통에"까지 요구한다 |
 | ④ 공유 좌표 | R7, R12 | 필수. R12는 건축·설비 파일끼리 같은 좌표계를 요구한다 |
 | ⑤ Level 이름을 DT 층 표기와 일치 | R1 | 필수. 분야별 파일끼리도 같아야 한다 |
-| ⑥ 형식 IFC4 (MEP 포함) | R9, R10 | 필수. IFC2x3에서는 설비 종류를 표준 필드로 알 수 없다 |
+| ⑥ 형식 IFC4 (MEP 포함) | R9, R10 | 필수. IFC2x3은 종류가 타입 객체에만 있고 계통 종류 자리가 없다 |
 | ⑦ 벽에 Structural 속성 기입 | R23 | **권장.** 실측 샘플은 전부 비어 있었다 |
 | (PRD에 없음) | R0, R2, R4~R6, R8, R11, R13 | PRD에 추가할지 협의가 필요하다 |
 
@@ -718,9 +727,125 @@ PRD 5장은 MVD로 IFC4 Reference View를 권한다. Reference View에 공간 �
 
 *그림 18. `mep.ifc`를 연 검토 화면. 좌표가 없는 센서와 용량이 없는 설비를 경고로 알려 준다*
 
-다음 단계는 확인할 자리가 IFC 속성인 요구(R1·R3·R6·R10·R14·R15·R17·R18·R20~R24)를
-`docs/requirements.ids`로 옮기는 것이다. 기하로만 확인할 수 있는 R2·R7·R8·R11·R12·R16은 IDS로 쓸 수 없고
-우리가 파일을 열어 확인해야 한다.
+#### IDS: 고객사가 납품 전에 스스로 검사한다
+
+`mep.ifc`는 요구사항의 예이고, `docs/requirements.ids`는 요구사항을 검사하는 파일이다. buildingSMART
+IDS 1.0 형식이라서 고객사는 이 파일을 검사기(ifctester, Solibri, usBIM 등)에 걸어 **우리에게 보내기 전에** 빠진
+것을 본다. IDS는 저작 도구가 아니라 내보낸 IFC를 보므로 **고객사나 저작 도구마다 따로 만들지 않는다.** 한 벌로
+모두에게 쓴다.
+
+```
+pip install ifctester
+python -m ifctester docs/requirements.ids 고객사.ifc              # 콘솔
+python -m ifctester docs/requirements.ids 고객사.ifc -r Html -o 보고서.html
+```
+
+명세마다 R 번호가 붙는다(한 R 번호에 명세가 여럿일 수 있다). 이름을 `[필수] R1 층 이름`처럼 적었고, 필수·권장은
+이 4장의 표를 따른다. 두 곳의 등급이 어긋나면 `src/lib/requirements-ids.test.ts`가 실패한다. 명세는 IFC4와 IFC4X3_ADD2에만 걸린다(R10).
+
+IDS가 검사하는 것은 속성·분류·재료·몇 가지 관계뿐이라서 R 번호를 전부 옮기지는 못했다.
+
+| | R 번호 | 이유 |
+|---|---|---|
+| 옮겼다 | R1 R3 R6 R14 R15 R17 R20 R22 R23 R24 R25 | 확인할 자리가 속성이나 관계다 |
+| 일부만 옮겼다 | R2 R4 R7 R9 R11 R18 | R2는 층 소속만 보고 외곽선 표현은 못 본다. R4는 재료층·개구부·슬래브가 있는지만 본다. R9는 파일마다 따로 보므로 건축 파일은 떨어지는 것이 맞다. R7은 `IfcMapConversion`이 있는지만 보고 스캔과 맞는지는 못 본다. R11은 배치가 있는지만 보고 배치점이 형상 위인지는 못 본다. R18은 포트마다 방향이 있는지만 보고 "연결마다 한쪽" 조건은 못 본다 |
+| 못 옮겼다 | R0 R5 R8 R10 R12 R13 R16 R19 R21 | R0은 파서가 먼저 멈춘다. R5 공간 경계와 R21 센서 관계는 IDS가 다루는 관계(`partOf`)에 없다. R10은 IDS가 명세를 걸 스키마를 고를 뿐 파일의 스키마를 검사하지 않는다. 나머지는 기하이거나 두 파일을 견줘야 한다 |
+
+전에는 R10·R21을 IDS로 옮길 수 있다고, R7·R11은 못 옮긴다고 적었다. 옮겨 보니 반대였다.
+
+#### 종류·계통·용량의 이름: DT 온톨로지가 BIM에 요구하는 어휘
+
+R25·R17·R22가 이 IDS의 핵심이다. **BIM의 무엇을 온톨로지의 어느 클래스·방향·값으로 읽을지**를 정한다. 원칙은
+셋이다. IFC4 표준 열거값에 있는 것은 그 값을 쓴다. 없는 것만 USERDEFINED로 두고 `ObjectType`에 정해 둔 이름을
+적게 한다. 이미 쓰이는 표준(EN 12792)이 있으면 새로 짓지 않는다. 이름은 IFC 열거값처럼 대문자로, 공백 없이 쓴다.
+
+**이 표는 코드에 있고, IDS는 그 사본이다.** 종류는 `src/lib/kinds.ts`의 `ifc` 표, 계통은 `SYSTEM_IFC`, 용량은
+`src/lib/capacity.ts`다. 임포터가 이 표로 읽으므로, IDS를 지킨 파일은 이름 사전 없이 종류·방향·용량이 정해진다.
+`requirements-ids.test.ts`는 IDS가 허용한 이름 중 IFC 표준이 아닌 것(우리가 정한 이름)을 우리가 전부 읽는지,
+우리가 읽는 이름을 IDS가 전부 허용하는지를 web-ifc의 IFC4·IFC4X3 열거값에 대 본다.
+
+| 종류(`kinds.ts`) | IFC4에 적는 법 | 출처 | Brick |
+|---|---|---|---|
+| 공조기 | `IfcUnitaryEquipment` · `AIRHANDLER` | 표준 | `Air_Handling_Unit` |
+| FCU | `IfcUnitaryEquipment` · USERDEFINED `FANCOILUNIT` | 정함 | `Fan_Coil_Unit` |
+| 시스템에어컨 실내기 · 실외기 | `IfcUnitaryEquipment` · USERDEFINED `INDOORUNIT` · `OUTDOORUNIT` | 정함 | `Indoor_Unit` · `Outdoor_Unit`(받는 쪽 어휘) |
+| 히트펌프 · 지열 히트펌프 | `IfcUnitaryEquipment` · USERDEFINED `HEATPUMP` · `GROUNDSOURCEHEATPUMP` | 정함 | `Heat_Pump_Condensing_Unit` · `Heat_Pump_Ground_Source_Condensing_Unit` |
+| VAV | `IfcAirTerminalBox` · `VARIABLEFLOWPRESSUREDEPENDANT` 또는 `…INDEPENDANT` | 표준 | `Variable_Air_Volume_Box` |
+| 디퓨저 · 그릴 · 외부 루버 | `IfcAirTerminal` · `DIFFUSER` · `GRILLE`(`REGISTER`도 그릴) · `LOUVRE` | 표준 | `Air_Diffuser` · 없음 · 없음 |
+| 방열기 | `IfcSpaceHeater` · `RADIATOR` | 표준 | `Radiator` |
+| 지중 열교환기 | `IfcHeatExchanger` · USERDEFINED `GROUNDHEATEXCHANGER` | 정함 | `Heat_Exchanger` |
+| 수량계 · 분전반 | `IfcFlowMeter` · `WATERMETER`, `IfcElectricDistributionBoard` · `DISTRIBUTIONBOARD` | 표준 | `Water_Meter` · `Breaker_Panel` |
+| 연기감지기 · 열감지기 · CCTV | `IfcSensor` · `SMOKESENSOR` · `HEATSENSOR`, `IfcAudioVisualAppliance` · `CAMERA` | 표준 | `Smoke_Detector` · `Heat_Detector` · `Camera` |
+| 콘센트 · 스프링클러 헤드 | `IfcOutlet` · `POWEROUTLET`, `IfcFireSuppressionTerminal` · `SPRINKLER` | 표준 | 없음(`ex:`) |
+| 보일러 · 냉동기 · 냉각탑 · 펌프 · 팬 · 댐퍼 · 밸브 · 소음기 · 조명 · 전열교환기 · 위생기구 · 변압기 | 클래스만(`IfcBoiler` …). `PredefinedType`은 요구하지 않는다 | 표준 | 클래스가 곧 종류 |
+
+판단의 근거는 가진 BIM이다.
+
+- **패키지 기기는 `IfcUnitaryEquipment` 한 곳에 모은다.** FCU·실내기·실외기·히트펌프는 IFC4에도 IFC4X3에도
+  자리가 없다. 기기마다 다른 클래스를 빌리면(히트펌프를 `IfcChiller`로) 규칙이 클래스마다 달라진다. 한 클래스에
+  USERDEFINED 이름을 두는 편이 고객사에 설명하기 쉽다.
+- **`SPLITSYSTEM`은 받지 않는다.** 병원 HVAC(Revit)는 급기·환기 풍량을 가진 패키지 공조기 2대에 이 값을 썼고,
+  정의상으로는 실내기와 실외기를 합친 계통이다. 어느 쪽으로 읽어도 틀릴 수 있어서, 임포터도 이 값을 받으면 종류를
+  비워 둔다(추측으로 공조기를 붙이지 않는다).
+- **이름이 IFC 값보다 먼저다.** 성수의 `EF-11`은 IFC로는 팬이지만 이름이 배기팬이라고 더 좁게 말한다. 이름 사전이
+  모를 때만 IFC 값을 쓰고, 그때 출처는 BIM이다.
+- 배기팬은 종류가 아니라 계통으로 가른다(`IfcFan`이 `EXHAUST` 계통에 속한다). 급탕기는 IFC4에 알맞은 자리를 찾지
+  못해 아직 정하지 않았다.
+
+계통 종류(`IfcDistributionSystem.PredefinedType`)는 규칙 방향(3.4)의 입력이라서 **공급과 환수가 갈려야 한다.**
+IFC4 값은 한 계통 안에서 둘을 가르지 않으므로 `ObjectType`에 약어를 하나 더 적게 한다. **공기 약어는 EN 12792의
+것이다.** ifc4Mep(DDS-CAD)이 이미 계통 이름에 쓰고 있다(`1_SUP Supply air`, `2_ETA Extract air`, `1_EHA Exhaust air`,
+`3_ODA Outdoor air`).
+
+| 계통(`kinds.ts`) | `PredefinedType` | `ObjectType` |
+|---|---|---|
+| 급기 · 환기 · 배기 · 외기 | `AIRCONDITIONING` 또는 `VENTILATION` | `SUP` · `ETA`(`RCA`도 환기) · `EHA` · `ODA` |
+| 배기 | `EXHAUST` | 없어도 된다 |
+| 순환수 공급 · 환수 | `HEATING` · `CHILLEDWATER` · `CONDENSERWATER` | `FLOW` · `RETURN` |
+| 급탕 · 급수 | `DOMESTICHOTWATER` · `DOMESTICCOLDWATER` | 없어도 된다 |
+
+약어는 그 매체의 `PredefinedType`과 함께일 때만 읽는다(`RETURN`은 공기에도 물에도 붙을 수 있다).
+
+용량(R22)은 IFC4 표준 Pset 이름으로 받는다. 대부분 **타입 객체의** `Pset_*TypeCommon`에 붙는다. 임포터는 타입의
+Pset도 읽고, 범위 값(`AirFlowrateRange`, `FlowRateRange`)은 설정값을, 없으면 위 끝을 쓴다. 공조기·FCU는 IFC4 표준에
+용량 자리가 없어서 `DT_Capacity.NominalAirFlowRate`로 적게 했다. 속성 이름은 팬·VAV의 표준 속성과 같게 두었다.
+용량은 **양의 종류마다 다른 술어로** 나간다. 풍량은 `ex:nominalAirFlowRate`, 물 유량은 `ex:nominalWaterFlowRate`,
+출력은 `ex:nominalCapacity`, 무엇이 흐르는지 모르는 Revit `Flow`는 `ex:nominalFlowRate`다. 한때 전부 풍량으로 나갔고,
+Duplex HVAC의 `Flow` 155건은 배관 구간의 물 유량이었다.
+
+#### 가진 IFC4 파일에 대 본 결과
+
+IDS는 IFC4에만 걸리므로 IFC4 파일 넷에 대 봤다. IFC2x3인 Duplex·병원은 R10에서 이미 떨어진다.
+
+| 명세 | AC20(건축) | ifc4Mep(설비) | `mep.ifc`(픽스처) | `two-rooms.ifc`(픽스처) |
+|---|---|---|---|---|
+| R1 층 이름 | 2/2 | 5/5 | 1/1 | 2/2 |
+| R2·R3 공간 | 7/7 | 공간 없음 | 1/1 | 3/3 |
+| R4 벽 재료층 · 개구부 | 13/13 · 16/16 | 벽 없음 | 벽 없음 | 2/4 · 2/3 |
+| R6 단위 | 있음 | 있음 | 있음 | 있음 |
+| R7 지도 좌표 | 없음 | 없음 | 없음 | 없음 |
+| R11 설비 배치 | 설비 없음 | 285/307 | 4/5(좌표 없는 센서) | 설비 없음 |
+| R14 방 분류 | 0/7 | – | 0/1 | 0/3 |
+| R15 방 높이 | 7/7(`BaseQuantities`) | – | 0/1 | 0/3 |
+| R17 계통 묶음 · 종류 · 공급·환수 약어 | – | 1,714/2,202 · 9/15 · **0/7** | 4/6 · 1/1 · 1/1 | – |
+| R18 포트 방향 | – | 4,202/4,232 | 6/6 | – |
+| R20 공조존 | 0/7 | – | 0/1 | 0/3 |
+| R22 용량 | – | 디퓨저 43/43 · 방열기 30/30 · 공조기 0/2 | 공조기 1/1 · 디퓨저 1/2(용량 없는 토출구) | – |
+| R23 내력 여부 | 0/13 | – | – | 2/4 |
+| R24 Proxy | 0 | **49** | 0 | 0 |
+| R25 종류 | – | 전부 통과(공조 기기 2 · 디퓨저 43 · 방열기 30 · 분전반 3 · 센서 7 · 콘센트 48) | 4/4 | – |
+
+`mep.ifc`는 일부러 빠뜨린 것(좌표 없는 센서, 용량 없는 토출구)과 설비 픽스처에 없는 방 속성(R14·R15·R20) 말고는
+통과한다. 그렇게 하려고 계통에 `SUP`를 붙이고, 공조기 용량을 `DT_Capacity`로, 토출구 용량을 타입 객체의 표준 Pset
+범위 값으로 옮겼다. 단위도 IFC 기본인 m³/s로 바꿨다(6000 → 1.6667).
+
+**ifc4Mep은 표준 Pset을 쓰고 있었다.** 전에는 "용량 0"으로 적었는데, 값이 타입 객체에 있어서 개체의 Pset만 읽던
+우리가 못 본 것이었다. 계통 약어는 이름에만 있고 `ObjectType`은 비어서 0/7이다. 약어가 이미 쓰이고 있으니 자리만
+옮겨 달라고 하면 된다.
+
+**ifctester 0.8.5는 파생 단위를 쓴 범위 값에서 멈춘다.** ifc4Mep의 `AirFlowrateRange`(단위가 `IfcDerivedUnit`)를
+환산하다 예외를 던진다. IDS의 문제가 아니라 검사기의 문제라서, 위 결과는 그 환산을 건너뛰고 쟀다. 고객사가
+같은 일을 겪으면 다른 검사기를 쓰거나 우리에게 파일을 보낸다.
 
 ---
 
@@ -847,7 +972,7 @@ Ctrl+Z로 한 단계씩 되돌아가고(Ctrl+Shift+Z로 다시 하고), 되돌�
 | 3D로 확인 | 된다. 설비·배관을 실제 형상으로 그리고, 계통별로 색을 나누고, 고른 설비의 상류·하류를 칠한다. 방향을 모르는 연결은 다음 기기에서 멈춘다(성수 FCU 하나가 10,699개에서 3,051개, 그중 기기 143개로 줄었다) |
 | 건축 모델과 설비 모델 합치기 | 된다. 층은 이름으로 맞추고, 좌표계가 어긋나면 경고한다. Duplex 건축+HVAC에서 기기 40대 전부 소속 |
 | 로봇 통과 여부(F15) | 된다. 개구부마다 통과 여부와, 문이 잇는 방(공간 경계가 없으면 좌표로 짚는다)이 GeoJSON으로 나간다. 경로 탐색 자체는 받는 쪽 몫이다 |
-| Proxy 설비와 종류 사전 | 된다. 포트가 있거나 이름이 사전에 있는 Proxy 를 설비로 읽고, 설비 25종·방 14종·계통 8종을 이름으로 가른다 |
+| Proxy 설비와 종류 사전 | 된다. 포트가 있거나 이름이 사전에 있는 Proxy 를 설비로 읽고, 설비 25종·방 14종·계통 8종을 이름으로 가른다. 이름이 모르면 IFC가 말한 종류(`PredefinedType`, IFC2x3은 타입 객체)로 정하고 출처를 BIM으로 붙인다. 계통은 `PredefinedType`과 EN 12792 약어도 읽는다 |
 | 규칙 방향 | 된다. 계통 종류와 설비 종류로 방향을 정하고, 포트 방향과의 일치율을 계통별로 보인다. 사람이 확정한 계통만 `brick:feeds` 로 나간다. 순환수 환수·급탕은 원천을 못 찾는다 |
 | 담당 공간(근사, 4+) | 된다. 공기 원천에서 흐름 방향을 따라 말단까지 가서 말단이 있는 방을 모은다(급기는 하류, 환기·배기는 상류, 다른 원천에서 멈춘다). 성수 건축+기계에서 공기 원천 268대 중 말단에 닿는 것이 포트만으로 46대, 규칙 방향까지 넣으면 156대다. 추정이라 화면에만 보이고 내보내지 않는다 |
 | 완전성 검사 | 된다. DT 가 쓰려면 이어져 있어야 하는 것을 규칙 다섯 줄로 잰다(Wang 2026 Table 2 의 기수 규칙을 코드로 옮겼다). 성수 건축+기계에서 규칙 방향까지 넣으면 원천에 닿는 공기 말단 1,386/2,378, 말단에 닿는 공기 원천 156/268, 두 원천에서 받는 급기 말단 0, 소속 방이 있는 기기 4,137/4,911, 연결망에 붙은 흐름 기기 2,991/3,610 이다. 규칙을 펼치면 어긴 것을 목록과 3D 로 보인다 |
@@ -857,7 +982,7 @@ Ctrl+Z로 한 단계씩 되돌아가고(Ctrl+Shift+Z로 다시 하고), 되돌�
 | 관제점 후보(F13) | 감지기·CCTV 를 종류와 소속 방까지 보인다. 관제점 ID 를 잇는 일(BAS)은 아직이다 |
 | 편집 | E1, E2, E5, E6과 규칙 방향 확정, 연결 하나의 흐름 방향 지정이 있다. 표뿐 아니라 편집 모드의 3D에서도 고치고(설비·꼭짓점 끌기, 연결 화살표, 층 옮기기), Ctrl+Z로 한 단계씩 되돌린다. 편집은 "편집 저장"(Ctrl+S)으로 연 때와 달라진 값만 GUID로 적은 JSON에 내려받고, 같은 IFC(또는 GUID를 유지한 재내보내기)를 다시 연 뒤 불러와 이어 한다. 불러오기는 편집 함수를 다시 거쳐 소속·규칙 방향을 다시 판정하고, 못 찾은 GUID를 센다 |
 | 공조존(F12) | 착수하지 않았다. IDF에서 받는 것이 기본이다. IFC의 자리(`IfcZone`)는 실측 파일이 비워 두어서 읽을 것이 없다 |
-| IDS 요구사항 파일 | 없다. 4.6의 속성 요구부터 옮긴다 |
+| IDS 요구사항 파일 | 초안이 있다(`docs/requirements.ids`, 명세 39개, 4.6). 속성으로 확인되는 R 번호와 종류·계통·용량의 이름 표를 담았다. 이름 표는 `kinds.ts`·`capacity.ts`에 있고 임포터가 그 표로 읽는다. IDS와 코드의 어휘가 같은지는 테스트가 본다 |
 
 ---
 
@@ -878,8 +1003,8 @@ Ctrl+Z로 한 단계씩 되돌아가고(Ctrl+Shift+Z로 다시 하고), 되돌�
 | Duplex MEP-1 · MEP-2 | `NBU_Duplex/NBU_Duplex-Apt_Eng-MEP-1.ifc`, `…-MEP-2.ifc` | IFC2x3 | 같은 모델의 다른 설계 단계 판본(GUID가 6개만 겹친다). MEP-1은 단위가 피트이고 배관이 없다 |
 | Duplex COBie | `NBU_Duplex/NBU_Duplex-Apt-COBie_Arch-*.ifc` 5개 | IFC2x3 | 시설관리 인수용. 계통 10, 형상 표현 없음. 3개는 구문 오류로 열리지 않는다(R0) |
 | 병원 건축 | `NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc` (18MB) | IFC2x3 | NIBS · DURAARK. Revit 출력. 4개 층, 물리존 269 |
-| 병원 HVAC | `NBU_MedicalClinic/NBU_MedicalClinic_Eng-HVAC.ifc` (27MB) | IFC2x3 | 포트 있음(연결 3,695개 전부 방향). 건축과 합치면 BIM이 말한 소속 2,216건 대비 97.4%, 규칙 방향이 포트와 99.9% 맞는다 |
-| 병원 MEP | `NBU_MedicalClinic/NBU_MedicalClinic_Eng-MEP.ifc` (207MB) | IFC2x3 | 포트 없음. 성수 기계와 크기가 비슷해 큰 파일의 편집 속도를 잰다. 형상으로 이은 연결 13,888개에 규칙이 방향을 준 것이 12개뿐이고 설비 1,806대가 어디에도 안 이어진다 — 포트가 없는 BIM에서 규칙 방향의 한계 |
+| 병원 HVAC | `NBU_MedicalClinic/NBU_MedicalClinic_Eng-HVAC.ifc` (27MB) | IFC2x3 | 포트 있음(연결 3,695개 전부 방향). 건축과 합치면 BIM이 말한 소속 2,216건 대비 97.4%, 규칙 방향이 포트와 99.35% 맞는다(어긋난 24개는 천장 배기팬, 3.4) |
+| 병원 MEP | `NBU_MedicalClinic/NBU_MedicalClinic_Eng-MEP.ifc` (207MB) | IFC2x3 | 포트 없음. 성수 기계와 크기가 비슷해 큰 파일의 편집 속도를 잰다. 형상으로 이은 연결 13,888개에 규칙이 방향을 준 것이 1,345개(타입 객체의 종류를 읽기 전에는 12개)이고, 공기 말단 454개 중 원천에 닿는 것은 21개다. 설비 1,806대가 어디에도 안 이어진다 — 포트가 없는 BIM에서 규칙 방향의 한계 |
 | 성수 건축 | `성수/Factorial_건축.ifc` (84MB) | IFC2x3 | 고객사 실측 파일. Revit 2024 한국어판 출력. 19개 층, 물리존 934개 |
 | 성수 기계 | `성수/Factorial_기계.ifc` (203MB) | IFC2x3 | 고객사 실측 파일. 방이 없어서 성수 건축과 합쳐야 소속이 나온다. 계통 1,037, 덕트·배관 15,864, `IfcBuildingElementProxy` 1,658개 |
 

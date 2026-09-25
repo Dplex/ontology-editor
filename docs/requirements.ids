@@ -1,0 +1,320 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 만드는 법: 정본 docs/bim-to-dt-ontology.md 4장의 R 번호를 옮겼다. 열거값은 IFC4·IFC4X3_ADD2 스키마에서 읽었다. -->
+<ids xmlns="http://standards.buildingsmart.org/IDS" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://standards.buildingsmart.org/IDS http://standards.buildingsmart.org/IDS/1.0/ids.xsd">
+  <info>
+    <title>DT 온톨로지용 BIM 요구사항</title>
+    <version>0.2 (초안)</version>
+    <description>BIM(IFC4)에서 DT 공간 온톨로지(Brick TTL + GeoJSON)를 만들기 위해 고객사 BIM 에 요구하는 것. 이름의 [필수]·[권장] 과 R 번호는 docs/bim-to-dt-ontology.md 4장을 따른다. 기하로만 확인하는 요구(R2 외곽선, R7 스캔 정합, R8, R11 배치점 위치, R12, R16)와 IDS 가 담지 못하는 요구(R0 구문, R5 공간 경계, R10 스키마, R13 GUID 유지, R19, R21)는 이 파일에 없다.</description>
+    <date>2026-09-25</date>
+    <purpose>고객사 BIM 납품 전 자가 검사</purpose>
+  </info>
+  <specifications>
+    <specification name="[필수] R1 층 이름" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R1" description="층이 있고 이름이 있어야 한다. 층 표기 규칙(예: B1, 1F, RF)은 프로젝트마다 정해 value 에 넣는다.">
+      <applicability minOccurs="1" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCBUILDINGSTOREY</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <attribute instructions="DT 의 층 표기와 같게, 건축·설비 파일끼리도 같게 적는다. 층은 이름으로 맞춘다(GlobalId 는 분야별 파일마다 달라서 쓸 수 없다)."><name><simpleValue>Name</simpleValue></name></attribute>
+      </requirements>
+    </specification>
+    <specification name="[필수] R2 공간이 층에 속함" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R2" description="공간(IfcSpace)이 있고 층에 묶여 있어야 한다. 바닥 외곽선(FootPrint 또는 Body/SweptSolid)은 IDS 로 확인할 수 없어 따로 연다.">
+      <applicability minOccurs="1" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCSPACE</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <partOf relation="IFCRELAGGREGATES" instructions="IfcSpace 는 IfcRelAggregates 로 층 아래에 둔다."><entity><name><simpleValue>IFCBUILDINGSTOREY</simpleValue></name></entity></partOf>
+      </requirements>
+    </specification>
+    <specification name="[필수] R3 공간 이름과 방 번호" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R3" description="방 번호(Name)와 방 이름(LongName). 합칠 때 방 번호로 외곽선을 빌려 온다.">
+      <applicability minOccurs="1" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCSPACE</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <attribute instructions="방 번호. 건축·설비 파일끼리 같게 적는다."><name><simpleValue>Name</simpleValue></name></attribute>
+        <attribute instructions="방 이름(예: 회의실)."><name><simpleValue>LongName</simpleValue></name></attribute>
+      </requirements>
+    </specification>
+    <specification name="[필수] R4 벽 재료층" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R4" description="벽에 재료층이 있어야 한다.">
+      <applicability minOccurs="1" maxOccurs="unbounded">
+        <entity><name><xs:restriction base="xs:string"><xs:enumeration value="IFCWALL"/><xs:enumeration value="IFCWALLSTANDARDCASE"/></xs:restriction></name></entity>
+      </applicability>
+      <requirements>
+        <material instructions="IfcMaterialLayerSetUsage 로 재료층을 준다. 벽 두께를 여기서 읽는다."/>
+      </requirements>
+    </specification>
+    <specification name="[필수] R4 문·창이 벽 개구부에 끼워짐" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R4" description="문·창이 개구부를 거쳐 벽에 걸려 있어야 한다. 로봇 통과 여부(F15)와 방-문-방 연결에 쓴다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><xs:restriction base="xs:string"><xs:enumeration value="IFCDOOR"/><xs:enumeration value="IFCWINDOW"/></xs:restriction></name></entity>
+      </applicability>
+      <requirements>
+        <partOf relation="IFCRELVOIDSELEMENT IFCRELFILLSELEMENT" instructions="문·창은 IfcOpeningElement 를 거쳐 벽에 끼운다."><entity><name><xs:restriction base="xs:string"><xs:pattern value="IFC[A-Z]+"/></xs:restriction></name></entity></partOf>
+      </requirements>
+    </specification>
+    <specification name="[필수] R4 슬래브" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R4" description="슬래브가 있어야 한다.">
+      <applicability minOccurs="1" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCSLAB</simpleValue></name></entity>
+      </applicability>
+    </specification>
+    <specification name="[필수] R6 길이 단위 선언" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R6" description="프로젝트에 단위 선언이 있어야 한다.">
+      <applicability minOccurs="1" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCPROJECT</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <attribute instructions="IfcUnitAssignment 에 길이 단위를 선언한다. 없으면 좌표가 1,000배나 3.28배로 들어온다."><name><simpleValue>UnitsInContext</simpleValue></name></attribute>
+      </requirements>
+    </specification>
+    <specification name="[필수] R7 지도 좌표 변환" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R7" description="IfcMapConversion(LoGeoRef 50)이 있어야 한다. 3D 스캔과 원점·북방향이 맞는지는 IDS 로 확인할 수 없다. 합의한 기준점으로 대신하기로 했다면 이 항목은 빼고 검사한다.">
+      <applicability minOccurs="1" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCMAPCONVERSION</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <attribute><name><simpleValue>Eastings</simpleValue></name></attribute>
+        <attribute><name><simpleValue>Northings</simpleValue></name></attribute>
+        <attribute instructions="북방향. 3D 스캔과 같은 북방향이어야 한다."><name><simpleValue>XAxisAbscissa</simpleValue></name></attribute>
+        <attribute><name><simpleValue>XAxisOrdinate</simpleValue></name></attribute>
+      </requirements>
+    </specification>
+    <specification name="[필수] R9 설비 포함" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R9" description="설비 파일에 설비가 한 대 이상 있어야 한다. 건축 파일은 이 항목에서 실패하는 것이 맞다.">
+      <applicability minOccurs="1" maxOccurs="unbounded">
+        <entity><name><xs:restriction base="xs:string"><xs:enumeration value="IFCACTUATOR"/><xs:enumeration value="IFCAIRTERMINAL"/><xs:enumeration value="IFCAIRTERMINALBOX"/><xs:enumeration value="IFCAIRTOAIRHEATRECOVERY"/><xs:enumeration value="IFCALARM"/><xs:enumeration value="IFCAUDIOVISUALAPPLIANCE"/><xs:enumeration value="IFCBOILER"/><xs:enumeration value="IFCBURNER"/><xs:enumeration value="IFCCHILLER"/><xs:enumeration value="IFCCOIL"/><xs:enumeration value="IFCCOMMUNICATIONSAPPLIANCE"/><xs:enumeration value="IFCCOMPRESSOR"/><xs:enumeration value="IFCCONDENSER"/><xs:enumeration value="IFCCONTROLLER"/><xs:enumeration value="IFCCOOLEDBEAM"/><xs:enumeration value="IFCCOOLINGTOWER"/><xs:enumeration value="IFCDAMPER"/><xs:enumeration value="IFCDISTRIBUTIONBOARD"/><xs:enumeration value="IFCDISTRIBUTIONCHAMBERELEMENT"/><xs:enumeration value="IFCDISTRIBUTIONCONTROLELEMENT"/><xs:enumeration value="IFCDISTRIBUTIONFLOWELEMENT"/><xs:enumeration value="IFCDUCTSILENCER"/><xs:enumeration value="IFCELECTRICAPPLIANCE"/><xs:enumeration value="IFCELECTRICDISTRIBUTIONBOARD"/><xs:enumeration value="IFCELECTRICFLOWSTORAGEDEVICE"/><xs:enumeration value="IFCELECTRICFLOWTREATMENTDEVICE"/><xs:enumeration value="IFCELECTRICGENERATOR"/><xs:enumeration value="IFCELECTRICMOTOR"/><xs:enumeration value="IFCELECTRICTIMECONTROL"/><xs:enumeration value="IFCENERGYCONVERSIONDEVICE"/><xs:enumeration value="IFCENGINE"/><xs:enumeration value="IFCEVAPORATIVECOOLER"/><xs:enumeration value="IFCEVAPORATOR"/><xs:enumeration value="IFCFAN"/><xs:enumeration value="IFCFILTER"/><xs:enumeration value="IFCFIRESUPPRESSIONTERMINAL"/><xs:enumeration value="IFCFLOWCONTROLLER"/><xs:enumeration value="IFCFLOWINSTRUMENT"/><xs:enumeration value="IFCFLOWMETER"/><xs:enumeration value="IFCFLOWMOVINGDEVICE"/><xs:enumeration value="IFCFLOWSTORAGEDEVICE"/><xs:enumeration value="IFCFLOWTERMINAL"/><xs:enumeration value="IFCFLOWTREATMENTDEVICE"/><xs:enumeration value="IFCHEATEXCHANGER"/><xs:enumeration value="IFCHUMIDIFIER"/><xs:enumeration value="IFCINTERCEPTOR"/><xs:enumeration value="IFCJUNCTIONBOX"/><xs:enumeration value="IFCLAMP"/><xs:enumeration value="IFCLIGHTFIXTURE"/><xs:enumeration value="IFCLIQUIDTERMINAL"/><xs:enumeration value="IFCMEDICALDEVICE"/><xs:enumeration value="IFCMOBILETELECOMMUNICATIONSAPPLIANCE"/><xs:enumeration value="IFCMOTORCONNECTION"/><xs:enumeration value="IFCOUTLET"/><xs:enumeration value="IFCPROTECTIVEDEVICE"/><xs:enumeration value="IFCPROTECTIVEDEVICETRIPPINGUNIT"/><xs:enumeration value="IFCPUMP"/><xs:enumeration value="IFCSANITARYTERMINAL"/><xs:enumeration value="IFCSENSOR"/><xs:enumeration value="IFCSIGNAL"/><xs:enumeration value="IFCSOLARDEVICE"/><xs:enumeration value="IFCSPACEHEATER"/><xs:enumeration value="IFCSTACKTERMINAL"/><xs:enumeration value="IFCSWITCHINGDEVICE"/><xs:enumeration value="IFCTANK"/><xs:enumeration value="IFCTRANSFORMER"/><xs:enumeration value="IFCTUBEBUNDLE"/><xs:enumeration value="IFCUNITARYCONTROLELEMENT"/><xs:enumeration value="IFCUNITARYEQUIPMENT"/><xs:enumeration value="IFCVALVE"/><xs:enumeration value="IFCWASTETERMINAL"/></xs:restriction></name></entity>
+      </applicability>
+    </specification>
+    <specification name="[필수] R11 설비마다 배치" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R11" description="설비에 배치가 있어야 한다. 배치점이 자기 형상 위에 있는지는 IDS 로 확인할 수 없어 따로 연다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><xs:restriction base="xs:string"><xs:enumeration value="IFCACTUATOR"/><xs:enumeration value="IFCAIRTERMINAL"/><xs:enumeration value="IFCAIRTERMINALBOX"/><xs:enumeration value="IFCAIRTOAIRHEATRECOVERY"/><xs:enumeration value="IFCALARM"/><xs:enumeration value="IFCAUDIOVISUALAPPLIANCE"/><xs:enumeration value="IFCBOILER"/><xs:enumeration value="IFCBURNER"/><xs:enumeration value="IFCCHILLER"/><xs:enumeration value="IFCCOIL"/><xs:enumeration value="IFCCOMMUNICATIONSAPPLIANCE"/><xs:enumeration value="IFCCOMPRESSOR"/><xs:enumeration value="IFCCONDENSER"/><xs:enumeration value="IFCCONTROLLER"/><xs:enumeration value="IFCCOOLEDBEAM"/><xs:enumeration value="IFCCOOLINGTOWER"/><xs:enumeration value="IFCDAMPER"/><xs:enumeration value="IFCDISTRIBUTIONBOARD"/><xs:enumeration value="IFCDISTRIBUTIONCHAMBERELEMENT"/><xs:enumeration value="IFCDISTRIBUTIONCONTROLELEMENT"/><xs:enumeration value="IFCDISTRIBUTIONFLOWELEMENT"/><xs:enumeration value="IFCDUCTSILENCER"/><xs:enumeration value="IFCELECTRICAPPLIANCE"/><xs:enumeration value="IFCELECTRICDISTRIBUTIONBOARD"/><xs:enumeration value="IFCELECTRICFLOWSTORAGEDEVICE"/><xs:enumeration value="IFCELECTRICFLOWTREATMENTDEVICE"/><xs:enumeration value="IFCELECTRICGENERATOR"/><xs:enumeration value="IFCELECTRICMOTOR"/><xs:enumeration value="IFCELECTRICTIMECONTROL"/><xs:enumeration value="IFCENERGYCONVERSIONDEVICE"/><xs:enumeration value="IFCENGINE"/><xs:enumeration value="IFCEVAPORATIVECOOLER"/><xs:enumeration value="IFCEVAPORATOR"/><xs:enumeration value="IFCFAN"/><xs:enumeration value="IFCFILTER"/><xs:enumeration value="IFCFIRESUPPRESSIONTERMINAL"/><xs:enumeration value="IFCFLOWCONTROLLER"/><xs:enumeration value="IFCFLOWINSTRUMENT"/><xs:enumeration value="IFCFLOWMETER"/><xs:enumeration value="IFCFLOWMOVINGDEVICE"/><xs:enumeration value="IFCFLOWSTORAGEDEVICE"/><xs:enumeration value="IFCFLOWTERMINAL"/><xs:enumeration value="IFCFLOWTREATMENTDEVICE"/><xs:enumeration value="IFCHEATEXCHANGER"/><xs:enumeration value="IFCHUMIDIFIER"/><xs:enumeration value="IFCINTERCEPTOR"/><xs:enumeration value="IFCJUNCTIONBOX"/><xs:enumeration value="IFCLAMP"/><xs:enumeration value="IFCLIGHTFIXTURE"/><xs:enumeration value="IFCLIQUIDTERMINAL"/><xs:enumeration value="IFCMEDICALDEVICE"/><xs:enumeration value="IFCMOBILETELECOMMUNICATIONSAPPLIANCE"/><xs:enumeration value="IFCMOTORCONNECTION"/><xs:enumeration value="IFCOUTLET"/><xs:enumeration value="IFCPROTECTIVEDEVICE"/><xs:enumeration value="IFCPROTECTIVEDEVICETRIPPINGUNIT"/><xs:enumeration value="IFCPUMP"/><xs:enumeration value="IFCSANITARYTERMINAL"/><xs:enumeration value="IFCSENSOR"/><xs:enumeration value="IFCSIGNAL"/><xs:enumeration value="IFCSOLARDEVICE"/><xs:enumeration value="IFCSPACEHEATER"/><xs:enumeration value="IFCSTACKTERMINAL"/><xs:enumeration value="IFCSWITCHINGDEVICE"/><xs:enumeration value="IFCTANK"/><xs:enumeration value="IFCTRANSFORMER"/><xs:enumeration value="IFCTUBEBUNDLE"/><xs:enumeration value="IFCUNITARYCONTROLELEMENT"/><xs:enumeration value="IFCUNITARYEQUIPMENT"/><xs:enumeration value="IFCVALVE"/><xs:enumeration value="IFCWASTETERMINAL"/></xs:restriction></name></entity>
+      </applicability>
+      <requirements>
+        <attribute instructions="설비마다 배치를 준다. 배치점은 자기 형상 위에 둔다(층 원점에 두지 않는다)."><name><simpleValue>ObjectPlacement</simpleValue></name></attribute>
+      </requirements>
+    </specification>
+    <specification name="[권장] R14 방 분류" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R14" description="방 분류가 있으면 방이 brick:Office 같은 하위 클래스로 나간다. 없으면 모든 방이 brick:Room 하나다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCSPACE</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <classification instructions="OmniClass Table 13 또는 Uniclass SL 코드를 IfcClassificationReference 로 단다. 분류 체계 이름(IfcClassification.Name)도 적는다."><system><xs:restriction base="xs:string"><xs:pattern value="OmniClass.*|Uniclass.*"/></xs:restriction></system></classification>
+      </requirements>
+    </specification>
+    <specification name="[권장] R15 방 높이" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R15" description="없으면 층 높이로 대신한다. 복층을 모른다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCSPACE</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <property dataType="IFCLENGTHMEASURE" instructions="Qto_SpaceBaseQuantities.Height 로 준다. ArchiCAD 가 내는 BaseQuantities 도 받는다."><propertySet><xs:restriction base="xs:string"><xs:enumeration value="Qto_SpaceBaseQuantities"/><xs:enumeration value="BaseQuantities"/></xs:restriction></propertySet><baseName><simpleValue>Height</simpleValue></baseName></property>
+      </requirements>
+    </specification>
+    <specification name="[권장] R17 설비·도관이 계통에 묶임" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R17" description="어느 설비가 어느 계통인지. 규칙 방향(계통 종류로 흐름 방향을 정한다)의 입력이다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><xs:restriction base="xs:string"><xs:enumeration value="IFCACTUATOR"/><xs:enumeration value="IFCAIRTERMINAL"/><xs:enumeration value="IFCAIRTERMINALBOX"/><xs:enumeration value="IFCAIRTOAIRHEATRECOVERY"/><xs:enumeration value="IFCALARM"/><xs:enumeration value="IFCAUDIOVISUALAPPLIANCE"/><xs:enumeration value="IFCBOILER"/><xs:enumeration value="IFCBURNER"/><xs:enumeration value="IFCCABLECARRIERFITTING"/><xs:enumeration value="IFCCABLECARRIERSEGMENT"/><xs:enumeration value="IFCCABLEFITTING"/><xs:enumeration value="IFCCABLESEGMENT"/><xs:enumeration value="IFCCHILLER"/><xs:enumeration value="IFCCOIL"/><xs:enumeration value="IFCCOMMUNICATIONSAPPLIANCE"/><xs:enumeration value="IFCCOMPRESSOR"/><xs:enumeration value="IFCCONDENSER"/><xs:enumeration value="IFCCONTROLLER"/><xs:enumeration value="IFCCONVEYORSEGMENT"/><xs:enumeration value="IFCCOOLEDBEAM"/><xs:enumeration value="IFCCOOLINGTOWER"/><xs:enumeration value="IFCDAMPER"/><xs:enumeration value="IFCDISTRIBUTIONBOARD"/><xs:enumeration value="IFCDISTRIBUTIONCHAMBERELEMENT"/><xs:enumeration value="IFCDISTRIBUTIONCONTROLELEMENT"/><xs:enumeration value="IFCDISTRIBUTIONFLOWELEMENT"/><xs:enumeration value="IFCDUCTFITTING"/><xs:enumeration value="IFCDUCTSEGMENT"/><xs:enumeration value="IFCDUCTSILENCER"/><xs:enumeration value="IFCELECTRICAPPLIANCE"/><xs:enumeration value="IFCELECTRICDISTRIBUTIONBOARD"/><xs:enumeration value="IFCELECTRICFLOWSTORAGEDEVICE"/><xs:enumeration value="IFCELECTRICFLOWTREATMENTDEVICE"/><xs:enumeration value="IFCELECTRICGENERATOR"/><xs:enumeration value="IFCELECTRICMOTOR"/><xs:enumeration value="IFCELECTRICTIMECONTROL"/><xs:enumeration value="IFCENERGYCONVERSIONDEVICE"/><xs:enumeration value="IFCENGINE"/><xs:enumeration value="IFCEVAPORATIVECOOLER"/><xs:enumeration value="IFCEVAPORATOR"/><xs:enumeration value="IFCFAN"/><xs:enumeration value="IFCFILTER"/><xs:enumeration value="IFCFIRESUPPRESSIONTERMINAL"/><xs:enumeration value="IFCFLOWCONTROLLER"/><xs:enumeration value="IFCFLOWFITTING"/><xs:enumeration value="IFCFLOWINSTRUMENT"/><xs:enumeration value="IFCFLOWMETER"/><xs:enumeration value="IFCFLOWMOVINGDEVICE"/><xs:enumeration value="IFCFLOWSEGMENT"/><xs:enumeration value="IFCFLOWSTORAGEDEVICE"/><xs:enumeration value="IFCFLOWTERMINAL"/><xs:enumeration value="IFCFLOWTREATMENTDEVICE"/><xs:enumeration value="IFCHEATEXCHANGER"/><xs:enumeration value="IFCHUMIDIFIER"/><xs:enumeration value="IFCINTERCEPTOR"/><xs:enumeration value="IFCJUNCTIONBOX"/><xs:enumeration value="IFCLAMP"/><xs:enumeration value="IFCLIGHTFIXTURE"/><xs:enumeration value="IFCLIQUIDTERMINAL"/><xs:enumeration value="IFCMEDICALDEVICE"/><xs:enumeration value="IFCMOBILETELECOMMUNICATIONSAPPLIANCE"/><xs:enumeration value="IFCMOTORCONNECTION"/><xs:enumeration value="IFCOUTLET"/><xs:enumeration value="IFCPIPEFITTING"/><xs:enumeration value="IFCPIPESEGMENT"/><xs:enumeration value="IFCPROTECTIVEDEVICE"/><xs:enumeration value="IFCPROTECTIVEDEVICETRIPPINGUNIT"/><xs:enumeration value="IFCPUMP"/><xs:enumeration value="IFCSANITARYTERMINAL"/><xs:enumeration value="IFCSENSOR"/><xs:enumeration value="IFCSIGNAL"/><xs:enumeration value="IFCSOLARDEVICE"/><xs:enumeration value="IFCSPACEHEATER"/><xs:enumeration value="IFCSTACKTERMINAL"/><xs:enumeration value="IFCSWITCHINGDEVICE"/><xs:enumeration value="IFCTANK"/><xs:enumeration value="IFCTRANSFORMER"/><xs:enumeration value="IFCTUBEBUNDLE"/><xs:enumeration value="IFCUNITARYCONTROLELEMENT"/><xs:enumeration value="IFCUNITARYEQUIPMENT"/><xs:enumeration value="IFCVALVE"/><xs:enumeration value="IFCWASTETERMINAL"/></xs:restriction></name></entity>
+      </applicability>
+      <requirements>
+        <partOf relation="IFCRELASSIGNSTOGROUP" instructions="IfcDistributionSystem 에 IfcRelAssignsToGroup 으로 묶는다. 계통 이름은 건축·설비 파일끼리 같게 적는다."><entity><name><xs:restriction base="xs:string"><xs:pattern value="IFC[A-Z]+"/></xs:restriction></name></entity></partOf>
+      </requirements>
+    </specification>
+    <specification name="[권장] R17 계통 종류" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R17" description="계통 종류를 표준 PredefinedType 으로 준다. NOTDEFINED·USERDEFINED 로 두지 않는다. 배기는 EXHAUST, 급탕·급수는 DOMESTICHOTWATER·DOMESTICCOLDWATER 만으로 정해진다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCDISTRIBUTIONSYSTEM</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCDISTRIBUTIONSYSTEM</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="AIRCONDITIONING"/><xs:enumeration value="AUDIOVISUAL"/><xs:enumeration value="CHEMICAL"/><xs:enumeration value="CHILLEDWATER"/><xs:enumeration value="COMMUNICATION"/><xs:enumeration value="COMPRESSEDAIR"/><xs:enumeration value="CONDENSERWATER"/><xs:enumeration value="CONTROL"/><xs:enumeration value="CONVEYING"/><xs:enumeration value="DATA"/><xs:enumeration value="DISPOSAL"/><xs:enumeration value="DOMESTICCOLDWATER"/><xs:enumeration value="DOMESTICHOTWATER"/><xs:enumeration value="DRAINAGE"/><xs:enumeration value="EARTHING"/><xs:enumeration value="ELECTRICAL"/><xs:enumeration value="ELECTROACOUSTIC"/><xs:enumeration value="EXHAUST"/><xs:enumeration value="FIREPROTECTION"/><xs:enumeration value="FUEL"/><xs:enumeration value="GAS"/><xs:enumeration value="HAZARDOUS"/><xs:enumeration value="HEATING"/><xs:enumeration value="LIGHTING"/><xs:enumeration value="LIGHTNINGPROTECTION"/><xs:enumeration value="MUNICIPALSOLIDWASTE"/><xs:enumeration value="OIL"/><xs:enumeration value="OPERATIONAL"/><xs:enumeration value="POWERGENERATION"/><xs:enumeration value="RAINWATER"/><xs:enumeration value="REFRIGERATION"/><xs:enumeration value="SECURITY"/><xs:enumeration value="SEWAGE"/><xs:enumeration value="SIGNAL"/><xs:enumeration value="STORMWATER"/><xs:enumeration value="TELEPHONE"/><xs:enumeration value="TV"/><xs:enumeration value="VACUUM"/><xs:enumeration value="VENT"/><xs:enumeration value="VENTILATION"/><xs:enumeration value="WASTEWATER"/><xs:enumeration value="WATERSUPPLY"/><xs:enumeration value="CATENARY_SYSTEM"/><xs:enumeration value="FIXEDTRANSMISSIONNETWORK"/><xs:enumeration value="MOBILENETWORK"/><xs:enumeration value="MONITORINGSYSTEM"/><xs:enumeration value="OPERATIONALTELEPHONYSYSTEM"/><xs:enumeration value="OVERHEAD_CONTACTLINE_SYSTEM"/><xs:enumeration value="RETURN_CIRCUIT"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+    <specification name="[권장] R17 공기 계통의 공급·환수" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R17" description="AIRCONDITIONING·VENTILATION 은 급기와 환기를 가르지 않아 흐름 방향을 정할 수 없다. ObjectType 에 EN 12792 약어를 적는다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCDISTRIBUTIONSYSTEM</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="AIRCONDITIONING"/><xs:enumeration value="VENTILATION"/></xs:restriction></predefinedType></entity>
+      </applicability>
+      <requirements>
+        <attribute instructions="EN 12792 약어를 적는다. SUP 급기, ETA 환기(실에서 뽑는 공기), EHA 배기(밖으로), ODA 외기, RCA 재순환."><name><simpleValue>ObjectType</simpleValue></name><value><xs:restriction base="xs:string"><xs:enumeration value="SUP"/><xs:enumeration value="ETA"/><xs:enumeration value="EHA"/><xs:enumeration value="ODA"/><xs:enumeration value="RCA"/></xs:restriction></value></attribute>
+      </requirements>
+    </specification>
+    <specification name="[권장] R17 물 계통의 공급·환수" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R17" description="HEATING·CHILLEDWATER·CONDENSERWATER 는 공급과 환수를 가르지 않아 흐름 방향을 정할 수 없다. ObjectType 에 FLOW 또는 RETURN 을 적는다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCDISTRIBUTIONSYSTEM</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="HEATING"/><xs:enumeration value="CHILLEDWATER"/><xs:enumeration value="CONDENSERWATER"/></xs:restriction></predefinedType></entity>
+      </applicability>
+      <requirements>
+        <attribute instructions="공급이면 FLOW, 환수면 RETURN."><name><simpleValue>ObjectType</simpleValue></name><value><xs:restriction base="xs:string"><xs:enumeration value="FLOW"/><xs:enumeration value="RETURN"/></xs:restriction></value></attribute>
+      </requirements>
+    </specification>
+    <specification name="[권장] R18 포트의 흐름 방향" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R18" description="포트가 흐름 방향을 말해야 brick:feeds 가 나간다. '연결마다 한쪽은 SOURCE 또는 SINK' 는 연결 단위 조건이라 IDS 로 쓸 수 없어 우리 임포터가 잰다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCDISTRIBUTIONPORT</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <attribute instructions="SOURCE 또는 SINK 를 준다. 연결마다 한쪽만 SOURCE/SINK 여도 된다. NOTDEFINED 는 두지 않는다."><name><simpleValue>FlowDirection</simpleValue></name><value><xs:restriction base="xs:string"><xs:enumeration value="SOURCE"/><xs:enumeration value="SINK"/><xs:enumeration value="SOURCEANDSINK"/></xs:restriction></value></attribute>
+      </requirements>
+    </specification>
+    <specification name="[권장] R20 공조존" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R20" description="IFC 에 공조존 자리는 있다. 실측 파일은 비워 두었다. 없으면 IDF 에서 받거나 사람이 만든다(PRD #11).">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCSPACE</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <partOf relation="IFCRELASSIGNSTOGROUP" instructions="공간을 공조존(IfcZone)에 묶는다. 템플릿 기본값이 아니라 실제 존으로."><entity><name><simpleValue>IFCZONE</simpleValue></name></entity></partOf>
+      </requirements>
+    </specification>
+    <specification name="[권장] R22 용량 — IFCUNITARYEQUIPMENT" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R22" description="표준 Pset 이름으로 용량을 준다. Revit 은 기본 설정에서 PSet_Revit_* 로 내보내므로 내보내기 설정의 속성 매핑을 바꿔야 한다. 공조기·FCU·실내기는 IFC4 표준 Pset 에 용량 자리가 없다. DT_Capacity 에 설계 풍량을 적는다(이름은 팬·VAV 의 표준 속성과 같다).">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCUNITARYEQUIPMENT</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <property dataType="IFCVOLUMETRICFLOWRATEMEASURE" instructions="공조기·FCU·실내기는 IFC4 표준 Pset 에 용량 자리가 없다. DT_Capacity 에 설계 풍량을 적는다(이름은 팬·VAV 의 표준 속성과 같다)."><propertySet><simpleValue>DT_Capacity</simpleValue></propertySet><baseName><simpleValue>NominalAirFlowRate</simpleValue></baseName></property>
+      </requirements>
+    </specification>
+    <specification name="[권장] R22 용량 — IFCFAN" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R22" description="표준 Pset 이름으로 용량을 준다. Revit 은 기본 설정에서 PSet_Revit_* 로 내보내므로 내보내기 설정의 속성 매핑을 바꿔야 한다. ">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCFAN</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <property dataType="IFCVOLUMETRICFLOWRATEMEASURE"><propertySet><simpleValue>Pset_FanTypeCommon</simpleValue></propertySet><baseName><simpleValue>NominalAirFlowRate</simpleValue></baseName></property>
+      </requirements>
+    </specification>
+    <specification name="[권장] R22 용량 — IFCPUMP" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R22" description="표준 Pset 이름으로 용량을 준다. Revit 은 기본 설정에서 PSet_Revit_* 로 내보내므로 내보내기 설정의 속성 매핑을 바꿔야 한다. 범위로 적는다. 설정값이 있으면 그것을, 없으면 위 끝을 용량으로 읽는다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCPUMP</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <property instructions="범위로 적는다. 설정값이 있으면 그것을, 없으면 위 끝을 용량으로 읽는다."><propertySet><simpleValue>Pset_PumpTypeCommon</simpleValue></propertySet><baseName><simpleValue>FlowRateRange</simpleValue></baseName></property>
+      </requirements>
+    </specification>
+    <specification name="[권장] R22 용량 — IFCCHILLER" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R22" description="표준 Pset 이름으로 용량을 준다. Revit 은 기본 설정에서 PSet_Revit_* 로 내보내므로 내보내기 설정의 속성 매핑을 바꿔야 한다. ">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCCHILLER</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <property dataType="IFCPOWERMEASURE"><propertySet><simpleValue>Pset_ChillerTypeCommon</simpleValue></propertySet><baseName><simpleValue>NominalCapacity</simpleValue></baseName></property>
+      </requirements>
+    </specification>
+    <specification name="[권장] R22 용량 — IFCCOOLINGTOWER" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R22" description="표준 Pset 이름으로 용량을 준다. Revit 은 기본 설정에서 PSet_Revit_* 로 내보내므로 내보내기 설정의 속성 매핑을 바꿔야 한다. ">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCCOOLINGTOWER</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <property dataType="IFCPOWERMEASURE"><propertySet><simpleValue>Pset_CoolingTowerTypeCommon</simpleValue></propertySet><baseName><simpleValue>NominalCapacity</simpleValue></baseName></property>
+      </requirements>
+    </specification>
+    <specification name="[권장] R22 용량 — IFCSPACEHEATER" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R22" description="표준 Pset 이름으로 용량을 준다. Revit 은 기본 설정에서 PSet_Revit_* 로 내보내므로 내보내기 설정의 속성 매핑을 바꿔야 한다. ">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCSPACEHEATER</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <property dataType="IFCPOWERMEASURE"><propertySet><simpleValue>Pset_SpaceHeaterTypeCommon</simpleValue></propertySet><baseName><simpleValue>OutputCapacity</simpleValue></baseName></property>
+      </requirements>
+    </specification>
+    <specification name="[권장] R22 용량 — IFCAIRTERMINALBOX" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R22" description="표준 Pset 이름으로 용량을 준다. Revit 은 기본 설정에서 PSet_Revit_* 로 내보내므로 내보내기 설정의 속성 매핑을 바꿔야 한다. ">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCAIRTERMINALBOX</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <property dataType="IFCVOLUMETRICFLOWRATEMEASURE"><propertySet><simpleValue>Pset_AirTerminalBoxTypeCommon</simpleValue></propertySet><baseName><simpleValue>NominalAirFlowRate</simpleValue></baseName></property>
+      </requirements>
+    </specification>
+    <specification name="[권장] R22 용량 — IFCAIRTERMINAL" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R22" description="표준 Pset 이름으로 용량을 준다. Revit 은 기본 설정에서 PSet_Revit_* 로 내보내므로 내보내기 설정의 속성 매핑을 바꿔야 한다. 개체의 Pset_AirTerminalOccurrence.AirFlowRate 나 타입의 Pset_AirTerminalTypeCommon.AirFlowrateRange(범위) 중 하나.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCAIRTERMINAL</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <property instructions="개체의 Pset_AirTerminalOccurrence.AirFlowRate 나 타입의 Pset_AirTerminalTypeCommon.AirFlowrateRange(범위) 중 하나."><propertySet><xs:restriction base="xs:string"><xs:enumeration value="Pset_AirTerminalOccurrence"/><xs:enumeration value="Pset_AirTerminalTypeCommon"/></xs:restriction></propertySet><baseName><xs:restriction base="xs:string"><xs:enumeration value="AirFlowRate"/><xs:enumeration value="AirFlowrateRange"/></xs:restriction></baseName></property>
+      </requirements>
+    </specification>
+    <specification name="[권장] R23 벽의 내력 여부" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R23" description="내력벽 편집 제한에 쓴다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><xs:restriction base="xs:string"><xs:enumeration value="IFCWALL"/><xs:enumeration value="IFCWALLSTANDARDCASE"/></xs:restriction></name></entity>
+      </applicability>
+      <requirements>
+        <property dataType="IFCBOOLEAN" instructions="참·거짓을 적는다. 비워 두면 '모름' 이다."><propertySet><simpleValue>Pset_WallCommon</simpleValue></propertySet><baseName><simpleValue>LoadBearing</simpleValue></baseName></property>
+      </requirements>
+    </specification>
+    <specification name="[권장] R24 Proxy 를 쓰지 않음" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R24" description="FCU·공조기·히트펌프를 IfcBuildingElementProxy 로 내보내면 종류를 이름으로 추정해야 한다. 설비는 알맞은 IfcDistributionElement 하위 클래스로 낸다.">
+      <applicability minOccurs="0" maxOccurs="0">
+        <entity><name><simpleValue>IFCBUILDINGELEMENTPROXY</simpleValue></name></entity>
+      </applicability>
+    </specification>
+    <specification name="[권장] R25 설비 종류 — IFCUNITARYEQUIPMENT" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R25" description="클래스만으로는 종류가 정해지지 않는다. PredefinedType 을 NOTDEFINED 로 두지 않는다. 공조기는 AIRHANDLER. IFC4 에 없는 FCU·시스템에어컨 실내기·실외기·히트펌프·지열 히트펌프는 USERDEFINED 로 두고 ObjectType 에 FANCOILUNIT·INDOORUNIT·OUTDOORUNIT·HEATPUMP·GROUNDSOURCEHEATPUMP 를 적는다. SPLITSYSTEM 은 실내기와 실외기를 가르지 않아 쓰지 않는다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCUNITARYEQUIPMENT</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCUNITARYEQUIPMENT</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="AIRHANDLER"/><xs:enumeration value="AIRCONDITIONINGUNIT"/><xs:enumeration value="DEHUMIDIFIER"/><xs:enumeration value="ROOFTOPUNIT"/><xs:enumeration value="FANCOILUNIT"/><xs:enumeration value="INDOORUNIT"/><xs:enumeration value="OUTDOORUNIT"/><xs:enumeration value="HEATPUMP"/><xs:enumeration value="GROUNDSOURCEHEATPUMP"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+    <specification name="[권장] R25 설비 종류 — IFCAIRTERMINAL" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R25" description="클래스만으로는 종류가 정해지지 않는다. PredefinedType 을 NOTDEFINED 로 두지 않는다. 디퓨저·그릴·루버를 가른다. 루버는 건물 밖과 통하는 것에만 쓴다(흐름 방향이 실내 그릴과 반대다).">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCAIRTERMINAL</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCAIRTERMINAL</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="DIFFUSER"/><xs:enumeration value="GRILLE"/><xs:enumeration value="LOUVRE"/><xs:enumeration value="REGISTER"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+    <specification name="[권장] R25 설비 종류 — IFCAIRTERMINALBOX" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R25" description="클래스만으로는 종류가 정해지지 않는다. PredefinedType 을 NOTDEFINED 로 두지 않는다. VAV 는 VARIABLEFLOWPRESSUREDEPENDANT 또는 VARIABLEFLOWPRESSUREINDEPENDANT.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCAIRTERMINALBOX</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCAIRTERMINALBOX</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="CONSTANTFLOW"/><xs:enumeration value="VARIABLEFLOWPRESSUREDEPENDANT"/><xs:enumeration value="VARIABLEFLOWPRESSUREINDEPENDANT"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+    <specification name="[권장] R25 설비 종류 — IFCHEATEXCHANGER" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R25" description="클래스만으로는 종류가 정해지지 않는다. PredefinedType 을 NOTDEFINED 로 두지 않는다. 지중 열교환기는 USERDEFINED 로 두고 ObjectType 에 GROUNDHEATEXCHANGER 를 적는다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCHEATEXCHANGER</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCHEATEXCHANGER</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="PLATE"/><xs:enumeration value="SHELLANDTUBE"/><xs:enumeration value="TURNOUTHEATING"/><xs:enumeration value="GROUNDHEATEXCHANGER"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+    <specification name="[권장] R25 설비 종류 — IFCFLOWMETER" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R25" description="클래스만으로는 종류가 정해지지 않는다. PredefinedType 을 NOTDEFINED 로 두지 않는다. 수량계는 WATERMETER.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCFLOWMETER</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCFLOWMETER</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="ENERGYMETER"/><xs:enumeration value="GASMETER"/><xs:enumeration value="OILMETER"/><xs:enumeration value="WATERMETER"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+    <specification name="[권장] R25 설비 종류 — IFCSPACEHEATER" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R25" description="클래스만으로는 종류가 정해지지 않는다. PredefinedType 을 NOTDEFINED 로 두지 않는다. 방열기는 RADIATOR.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCSPACEHEATER</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCSPACEHEATER</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="CONVECTOR"/><xs:enumeration value="RADIATOR"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+    <specification name="[권장] R25 설비 종류 — IFCELECTRICDISTRIBUTIONBOARD" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R25" description="클래스만으로는 종류가 정해지지 않는다. PredefinedType 을 NOTDEFINED 로 두지 않는다. 분전반은 DISTRIBUTIONBOARD.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCELECTRICDISTRIBUTIONBOARD</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCELECTRICDISTRIBUTIONBOARD</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="CONSUMERUNIT"/><xs:enumeration value="DISTRIBUTIONBOARD"/><xs:enumeration value="MOTORCONTROLCENTRE"/><xs:enumeration value="SWITCHBOARD"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+    <specification name="[권장] R25 설비 종류 — IFCSENSOR" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R25" description="클래스만으로는 종류가 정해지지 않는다. PredefinedType 을 NOTDEFINED 로 두지 않는다. 연기감지기는 SMOKESENSOR, 열감지기는 HEATSENSOR. 관제점 후보(F13)가 된다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCSENSOR</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCSENSOR</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="COSENSOR"/><xs:enumeration value="CO2SENSOR"/><xs:enumeration value="CONDUCTANCESENSOR"/><xs:enumeration value="CONTACTSENSOR"/><xs:enumeration value="FIRESENSOR"/><xs:enumeration value="FLOWSENSOR"/><xs:enumeration value="FROSTSENSOR"/><xs:enumeration value="GASSENSOR"/><xs:enumeration value="HEATSENSOR"/><xs:enumeration value="HUMIDITYSENSOR"/><xs:enumeration value="IDENTIFIERSENSOR"/><xs:enumeration value="IONCONCENTRATIONSENSOR"/><xs:enumeration value="LEVELSENSOR"/><xs:enumeration value="LIGHTSENSOR"/><xs:enumeration value="MOISTURESENSOR"/><xs:enumeration value="MOVEMENTSENSOR"/><xs:enumeration value="PHSENSOR"/><xs:enumeration value="PRESSURESENSOR"/><xs:enumeration value="RADIATIONSENSOR"/><xs:enumeration value="RADIOACTIVITYSENSOR"/><xs:enumeration value="SMOKESENSOR"/><xs:enumeration value="SOUNDSENSOR"/><xs:enumeration value="TEMPERATURESENSOR"/><xs:enumeration value="WINDSENSOR"/><xs:enumeration value="EARTHQUAKESENSOR"/><xs:enumeration value="FOREIGNOBJECTDETECTIONSENSOR"/><xs:enumeration value="OBSTACLESENSOR"/><xs:enumeration value="RAINSENSOR"/><xs:enumeration value="SNOWDEPTHSENSOR"/><xs:enumeration value="TRAINSENSOR"/><xs:enumeration value="TURNOUTCLOSURESENSOR"/><xs:enumeration value="WHEELSENSOR"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+    <specification name="[권장] R25 설비 종류 — IFCAUDIOVISUALAPPLIANCE" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R25" description="클래스만으로는 종류가 정해지지 않는다. PredefinedType 을 NOTDEFINED 로 두지 않는다. CCTV 는 CAMERA.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCAUDIOVISUALAPPLIANCE</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCAUDIOVISUALAPPLIANCE</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="AMPLIFIER"/><xs:enumeration value="CAMERA"/><xs:enumeration value="DISPLAY"/><xs:enumeration value="MICROPHONE"/><xs:enumeration value="PLAYER"/><xs:enumeration value="PROJECTOR"/><xs:enumeration value="RECEIVER"/><xs:enumeration value="SPEAKER"/><xs:enumeration value="SWITCHER"/><xs:enumeration value="TELEPHONE"/><xs:enumeration value="TUNER"/><xs:enumeration value="COMMUNICATIONTERMINAL"/><xs:enumeration value="RECORDINGEQUIPMENT"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+    <specification name="[권장] R25 설비 종류 — IFCOUTLET" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R25" description="클래스만으로는 종류가 정해지지 않는다. PredefinedType 을 NOTDEFINED 로 두지 않는다. 콘센트는 POWEROUTLET.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCOUTLET</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCOUTLET</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="AUDIOVISUALOUTLET"/><xs:enumeration value="COMMUNICATIONSOUTLET"/><xs:enumeration value="POWEROUTLET"/><xs:enumeration value="DATAOUTLET"/><xs:enumeration value="TELEPHONEOUTLET"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+    <specification name="[권장] R25 설비 종류 — IFCFIRESUPPRESSIONTERMINAL" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R25" description="클래스만으로는 종류가 정해지지 않는다. PredefinedType 을 NOTDEFINED 로 두지 않는다. 스프링클러 헤드는 SPRINKLER.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCFIRESUPPRESSIONTERMINAL</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <entity><name><simpleValue>IFCFIRESUPPRESSIONTERMINAL</simpleValue></name><predefinedType><xs:restriction base="xs:string"><xs:enumeration value="BREECHINGINLET"/><xs:enumeration value="FIREHYDRANT"/><xs:enumeration value="HOSEREEL"/><xs:enumeration value="SPRINKLER"/><xs:enumeration value="SPRINKLERDEFLECTOR"/><xs:enumeration value="FIREMONITOR"/></xs:restriction></predefinedType></entity>
+      </requirements>
+    </specification>
+  </specifications>
+</ids>

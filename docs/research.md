@@ -295,7 +295,7 @@ ifc4Mep 의 IfcAirTerminal 43개 — PredefinedType 없음
 | ~~고립된 요소 주변에서만 판정 오차를 넓히기~~ | 위 121대가 붙는다 | **끝났다** — `connectGaps`, 연결 95개 |
 | ~~역할·계통 종류로 흐름 방향 유도(방법 ②)~~ | Wang 2026 §4 | **끝났다** — 성수 기계 파일에서 포트 방향과 83.8% 일치. 확정한 계통만 내보낸다(정본 §3.4) |
 | 완전성 규칙을 `warnings` 로 (기수 검사) | Wang 2026 Table 2 | 중 |
-| `docs/requirements.ids` 작성 | IDS v1.0 | 중 |
+| ~~`docs/requirements.ids` 작성~~ | IDS v1.0 | **초안** — 명세 39개, 정본 §4.6. 어휘는 `kinds.ts`·`capacity.ts` 와 테스트로 묶었다 |
 | 자유 텍스트 → Brick 클래스 분류 | Brick-DICL | 대 — F13 과 함께 |
 | 방 분류(OmniClass) → Brick Room 하위 클래스 | 정본 §3.6 확장 표 | 소 — Duplex 21/21 이 채워져 있다 |
 | 담당 공간 근사(공조기 → 말단 → 방) | Wang 2026 말단–존 규칙 | 조건을 갖춘 샘플이 없다(정본 R19) |
