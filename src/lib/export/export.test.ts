@@ -137,13 +137,15 @@ describe('설비 내보내기', () => {
     expect(modelToTTL(mep)).toContain(`brick:hasLocation ex:${escapeLocalName(office.id)} ;`)
   })
 
-  it('소속을 못 찾은 설비는 hasLocation 을 아예 안 적는다', () => {
-    // 빈 값을 적으면 "어디에도 없다" 와 "모른다" 가 섞인다.
+  it('방을 못 찾은 설비는 BIM 이 말한 층을 hasLocation 으로 적는다', () => {
+    // 층까지 비우면 설비가 계층 어디에도 걸리지 않아 이상 알림에 위치가 없다. 층은 BIM 이 말한 것이고,
+    // 목적어가 brick:Floor 라 방과 갈린다(받는 쪽 공간 장면 도구도 같은 관례다).
     const sensor = mep.storeys[0].equipment.find((e) => e.name === 'TEMP-101-01')!
-    const block = modelToTTL(mep)
-      .split('\n\n')
-      .find((b) => b.startsWith(`ex:${escapeLocalName(sensor.id)} `))!
-    expect(block).not.toContain('hasLocation')
+    expect(sensor.spaceId).toBeNull()
+    const ttl = modelToTTL(mep)
+    const block = ttl.split('\n\n').find((b) => b.startsWith(`ex:${escapeLocalName(sensor.id)} `))!
+    expect(block).toContain(`brick:hasLocation ex:${escapeLocalName(mep.storeys[0].id)} ;`)
+    expect(ttl).toContain(`ex:${escapeLocalName(mep.storeys[0].id)} a brick:Floor ;`)
   })
 
   it('용량은 양의 종류마다 다른 술어로 나간다', () => {

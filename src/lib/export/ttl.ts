@@ -163,8 +163,11 @@ export function modelToTTL(model: Model): string {
       lines.push(`${ref(equipment.id)} a ${classOf(equipment)} ;`)
       lines.push(`    rdfs:label ${label(equipment.name)} ;`)
       // 소속 물리존. 좌표로 판정한 결과이고(PRD #12), 이상 알림의 '발생 위치' 가 이걸 쓴다.
-      // 못 찾았으면 아예 안 적는다 — 빈 값을 적으면 "어디에도 없다" 와 "모른다" 가 섞인다.
-      if (equipment.spaceId) lines.push(`    brick:hasLocation ${ref(equipment.spaceId)} ;`)
+      // **방을 못 찾으면 층을 적는다.** 층은 BIM 이 말한 것이라(IfcRelContainedInSpatialStructure, 합칠 때는 층
+      // 이름으로 맞춘 것) 지어낸 값이 아니고, 방과는 목적어의 클래스(brick:Floor)로 갈린다. 받는 쪽도 같은 관례다 —
+      // ieum-pipeline 의 공간 장면 도구가 방을 모르는 설비에 `hasLocation ex:SLAB_{층}` 을 적는다. 층까지 비우면
+      // 설비가 계층 어디에도 걸리지 않아 이상 알림에 위치가 아예 없다.
+      lines.push(`    brick:hasLocation ${ref(equipment.spaceId ?? storey.id)} ;`)
       const targets = feeds.get(equipment.id)
       if (targets) lines.push(`    brick:feeds ${targets.map(ref).join(', ')} ;`)
       // 양의 종류마다 술어가 다르다(capacity.ts). 풍량과 출력을 한 술어로 내면 받는 쪽이 둘을 섞는다.
