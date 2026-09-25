@@ -2417,3 +2417,11 @@ main.has-model .catalog {
 .req-table td.num {
   white-space: nowrap;
 }
+
+/* 이름 옆의 설비 종류(디퓨저·덕트 …). 이름만 있으면 AT-101-01 이 무엇인지 알 수 없다. */
+.what {
+  margin-left: 0.4rem;
+  color: var(--fg);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}

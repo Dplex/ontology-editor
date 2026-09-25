@@ -181,6 +181,66 @@ export function equipmentKind(kind: string | null | undefined): EquipmentKindInf
   return kind ? (EQUIPMENT_BY_KIND.get(kind) ?? null) : null
 }
 
+/**
+ * IFC 클래스를 화면에 보일 우리말로. 종류(kind)가 없는 설비가 무엇인지 말할 때 쓴다 — 덕트·배관·이음쇠는 종류를
+ * 붙이지 않아서, 연결 목록에 이름(`DUCT-01`, `Pipe Types:Standard:745565`)만 보이면 무엇인지 알 수 없었다.
+ * 종류를 정하는 데는 쓰지 않는다(그건 `ifc` 표와 이름 사전의 일이다). 표에 없으면 null.
+ */
+const IFC_CLASS_LABEL: Record<string, string> = {
+  DuctSegment: '덕트',
+  DuctFitting: '덕트 이음쇠',
+  PipeSegment: '배관',
+  PipeFitting: '배관 이음쇠',
+  CableSegment: '케이블',
+  CableFitting: '케이블 이음쇠',
+  CableCarrierSegment: '전선관',
+  CableCarrierFitting: '전선관 이음쇠',
+  FlowSegment: '덕트·배관',
+  FlowFitting: '덕트·배관 이음쇠',
+  AirTerminal: '공기 말단',
+  AirTerminalBox: 'VAV·CAV 박스',
+  Damper: '댐퍼',
+  Valve: '밸브',
+  Pump: '펌프',
+  Fan: '팬',
+  Coil: '코일',
+  Boiler: '보일러',
+  Chiller: '냉동기',
+  CoolingTower: '냉각탑',
+  HeatExchanger: '열교환기',
+  UnitaryEquipment: '공조 기기',
+  Filter: '필터',
+  Tank: '탱크',
+  Sensor: '센서',
+  Actuator: '구동기',
+  Controller: '제어기',
+  Alarm: '경보기',
+  FlowMeter: '유량계',
+  LightFixture: '조명',
+  Lamp: '조명',
+  Outlet: '콘센트',
+  SwitchingDevice: '스위치',
+  ElectricAppliance: '전기 기기',
+  SanitaryTerminal: '위생기구',
+  WasteTerminal: '배수구',
+  FireSuppressionTerminal: '소화 설비',
+  SpaceHeater: '난방기',
+  FlowTerminal: '말단 기기',
+  FlowController: '조절 기기',
+  FlowMovingDevice: '이송 기기',
+  FlowStorageDevice: '저장 기기',
+  FlowTreatmentDevice: '처리 기기',
+  EnergyConversionDevice: '에너지 변환 기기',
+  DistributionControlElement: '계측·제어 기기',
+  BuildingElementProxy: '기타(Proxy)',
+}
+
+/** `AirTerminal.DIFFUSER` 나 `FlowSegment` 같은 IFC 클래스(PredefinedType 이 붙어도 된다)의 우리말. */
+export function ifcClassLabel(ifcClass: string | null | undefined): string | null {
+  if (!ifcClass) return null
+  return IFC_CLASS_LABEL[ifcClass.split('.')[0]] ?? null
+}
+
 // --- 방 ---------------------------------------------------------------------------
 
 export type RoomKindInfo = {

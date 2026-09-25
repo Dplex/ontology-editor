@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EQUIPMENT_KINDS, equipmentKindOf, equipmentKindOfIfc, omniclassCode, resolveEquipmentKind, resolveRoomKind, roomKindOf, systemKindOf } from './kinds'
+import { EQUIPMENT_KINDS, equipmentKindOf, equipmentKindOfIfc, ifcClassLabel, omniclassCode, resolveEquipmentKind, resolveRoomKind, roomKindOf, systemKindOf } from './kinds'
 
 // 입력은 성수·Duplex·ifc4Mep 실측 파일에 실제로 나온 이름이다. 사전을 넓히면 이 표에서 무엇이 바뀌는지 보인다.
 const kind = (name: string, objectType = '', ifcClass = '') => equipmentKindOf(name, objectType, ifcClass)?.kind ?? null
@@ -228,5 +228,18 @@ describe('이름으로는 읽지 않는 종류', () => {
     for (const k of manual.slice(0, 5)) expect(k.brick).toBe(null)
     // 병원 전기의 콘센트 958개는 IfcOutletType 이 POWEROUTLET 이라고 말한다.
     expect(equipmentKindOfIfc('Outlet.POWEROUTLET')?.kind).toBe('receptacle')
+  })
+})
+
+describe('IFC 클래스의 우리말', () => {
+  it('종류가 없는 덕트·배관·이음쇠도 무엇인지 말한다', () => {
+    expect(ifcClassLabel('DuctSegment')).toBe('덕트')
+    expect(ifcClassLabel('PipeFitting')).toBe('배관 이음쇠')
+    // IFC2x3 의 추상 클래스와 PredefinedType 이 붙은 값도 받는다.
+    expect(ifcClassLabel('FlowSegment')).toBe('덕트·배관')
+    expect(ifcClassLabel('AirTerminal.DIFFUSER')).toBe('공기 말단')
+    // 모르는 클래스는 지어 부르지 않는다.
+    expect(ifcClassLabel('SomethingElse')).toBeNull()
+    expect(ifcClassLabel(null)).toBeNull()
   })
 })

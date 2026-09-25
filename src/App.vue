@@ -7,7 +7,7 @@ import { profileOf, type Profile } from './lib/profile'
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
-import Src from './components/Src.vue'
+import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { applyEdits, exportEdits, parseEditFile } from './lib/edit-file'
@@ -16,7 +16,7 @@ import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib
 import { airServices, servedSpaces } from './lib/served'
 import { completenessChecks } from './lib/checks'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
-import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kinds'
+import { EQUIPMENT_KINDS, equipmentKind, ifcClassLabel, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
 import {
@@ -1106,6 +1106,7 @@ function confirmRule(systemId: string, systemName: string) {
 // BIM 이 말한 하류처럼 읽힌다.
 type NeighborRow = Neighbor & {
   name: string
+  what: { label: string; src: SrcKind } | null
   edited: 'upstream' | 'downstream' | null
   rule: { relation: 'upstream' | 'downstream'; confirmed: boolean } | null
 }
@@ -1125,6 +1126,7 @@ const selectedNeighbors = computed((): NeighborRow[] => {
       edited,
       rule,
       name: equipmentById.value.get(n.id)?.name || equipmentById.value.get(n.id)?.ifcClass || n.id,
+      what: whatIs(equipmentById.value.get(n.id)),
     }
   })
 })
@@ -1359,6 +1361,19 @@ const KIND_GROUPS = [
 ]
 // 종류의 출처. 사전이 읽은 것과 사람이 타입 단위로 정한 것을 가른다.
 const kindSrc = (e: Equipment) => (e.kindEdited ? 'edit' : e.kindSource === 'bim' ? 'bim' : 'dict')
+
+/**
+ * 이 설비가 무엇인지 한 낱말로. 종류가 있으면 종류(출처는 그 종류의 출처), 없으면 IFC 클래스를 우리말로(출처 BIM).
+ * 덕트·배관·이음쇠는 종류가 없어서, 목록에 이름만 있으면 `AT-101-01`·`Pipe Types:…:745565` 가 무엇인지 알 수 없었다.
+ * 둘 다 없으면 null — 모르는 것을 지어 부르지 않는다.
+ */
+function whatIs(e: Equipment | undefined | null): { label: string; src: SrcKind } | null {
+  if (!e) return null
+  const kind = kindLabel(e)
+  if (kind) return { label: kind, src: kindSrc(e) }
+  const label = ifcClassLabel(e.declaredType) ?? ifcClassLabel(e.ifcClass)
+  return label ? { label, src: 'bim' } : null
+}
 
 // --- 종류 지정 (타입 단위) -----------------------------------------------------------
 //
@@ -2519,7 +2534,7 @@ function exportTTL() {
             <div>
               <h3>{{ selected.name || '(이름 없음)' }}</h3>
               <p class="stats">
-                <template v-if="kindLabel(selected)">{{ kindLabel(selected) }} <Src :kind="kindSrc(selected)" /> · </template>
+                <template v-if="whatIs(selected)">{{ whatIs(selected)!.label }} <Src :kind="whatIs(selected)!.src" /> · </template>
                 {{ selected.declaredType ?? selected.ifcClass }} <Src kind="bim" />
                 <template v-if="roleLabel(selected.role)"> · {{ roleLabel(selected.role) }} <Src :kind="roleSrc(selected)" /></template> ·
                 {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
@@ -2675,6 +2690,7 @@ function exportTTL() {
                 <td :class="['rel', ...relClass(n)]">{{ relLabel(n) }}</td>
                 <td class="name-cell">
                   <button type="button" class="link" @click="select(n.id)">{{ n.name }}</button>
+                  <span v-if="n.what" class="what">{{ n.what.label }} <Src :kind="n.what.src" /></span>
                   <!-- 출처는 이름 아래 한 줄. 글과 출처 꼬리표가 따로 꺾이지 않게 한 덩어리씩 묶는다. -->
                   <div class="muted src-cell">
                     <span v-if="n.source === 'port'">포트 <Src kind="bim" /></span>
@@ -2835,7 +2851,7 @@ function exportTTL() {
           <ul v-if="selectedSpace.equipment.length" class="plain space-members">
             <li v-for="e in selectedSpace.equipment" :key="e.id">
               <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
-              <span class="muted">{{ kindLabel(e) }}</span>
+              <span class="muted">{{ whatIs(e)?.label }}</span>
             </li>
           </ul>
           <p v-else class="empty">이 물리존에 속한 설비가 없습니다.</p>
@@ -3038,6 +3054,9 @@ function exportTTL() {
                   <tr v-for="r in versionRows.slice(0, EDIT_LIMIT)" :key="r.id">
                     <td>
                       <button v-if="r.target === 'equipment'" type="button" class="link" @click="selectAndShow(r.id)">{{ r.name }}</button>
+                      <span v-if="r.target === 'equipment' && whatIs(equipmentById.get(r.id))" class="muted what">
+                        {{ whatIs(equipmentById.get(r.id))!.label }}
+                      </span>
                       <button v-else-if="r.target === 'space'" type="button" class="link" @click="showSpace(r.id)">{{ r.name }}</button>
                       <span v-else>{{ r.name }}</span>
                     </td>
@@ -3115,7 +3134,7 @@ function exportTTL() {
                   {{ equipmentById.get(id)?.name || equipmentById.get(id)?.ifcClass || id }}
                 </button>
                 <span class="muted">
-                  {{ equipmentById.get(id) ? kindLabel(equipmentById.get(id)!) : '' }}
+                  {{ whatIs(equipmentById.get(id))?.label }}
                 </span>
               </li>
             </ul>
@@ -3459,7 +3478,7 @@ function exportTTL() {
                     <button type="button" class="link" @click="selectAndShow(e.id)">{{ e.name || e.ifcClass }}</button>
                   </td>
                   <td class="muted">
-                    {{ e.ifcClass }}<template v-if="kindLabel(e)"> · {{ kindLabel(e) }} <Src :kind="kindSrc(e)" /></template>
+                    {{ e.ifcClass }}<template v-if="whatIs(e)"> · {{ whatIs(e)!.label }} <Src :kind="whatIs(e)!.src" /></template>
                   </td>
                   <td v-for="axis in [0, 1, 2]" :key="axis" class="num">
                     <span v-if="!editing" class="mono">{{ e.position ? e.position[axis].toFixed(2) : '—' }}</span>
