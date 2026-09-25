@@ -174,7 +174,8 @@ test('물리존 경계를 고치면 넓이와 설비 소속이 같이 바뀐다'
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
 
-  const spaceRow = page.locator('.equipment tbody tr', { hasText: '사무실' }).first()
+  // 물리존은 이름·경계를 한 표에서 고친다. 이름은 입력칸이라 행 글자로는 방 번호(101)로 찾는다.
+  const spaceRow = page.locator('.spaces-edit tbody tr', { hasText: '101' }).first()
   await expect(spaceRow).toContainText('80.0 ㎡')
 
   // AT-101-02 는 (7,4) 에 있다. 두 번째 꼭짓점 x 를 5 로 당기면 밖으로 밀려난다.

@@ -633,7 +633,7 @@ function stepIssue(dir: 1 | -1): boolean {
   const ids = check.failed
   const here = selectedId.value ? ids.indexOf(selectedId.value) : -1
   const i = here < 0 ? (dir > 0 ? 0 : ids.length - 1) : (here + dir + ids.length) % ids.length
-  select(ids[i])
+  selectAndShow(ids[i])
   const e = equipmentById.value.get(ids[i])
   note(`${check.rule} — 어긴 것 ${i + 1}/${ids.length}: ${shortName(e?.name || e?.ifcClass)}`)
   return true
@@ -771,7 +771,7 @@ function stepUnknown(dir: 1 | -1): boolean {
   const here = selected.value ? list.findIndex((t) => t.key === familyKeyOf(selected.value!)) : -1
   const i = here < 0 ? (dir > 0 ? 0 : list.length - 1) : (here + dir + list.length) % list.length
   const t = list[i]
-  select(t.sampleId)
+  selectAndShow(t.sampleId)
   note(`종류를 모르는 패밀리 ${i + 1}/${list.length}: ${t.label} ${t.count}대 · K 로 종류를 고릅니다`)
   return true
 }
@@ -1616,6 +1616,19 @@ onBeforeUnmount(() => viewer?.dispose())
 // 3D 와 고른 설비 패널을 같이 전체 화면으로 띄운다. 3D 만 띄우면 설비를 눌러도 무엇을 골랐는지 안 보인다.
 // Esc 로 나가는 것은 브라우저가 하므로, 상태는 버튼이 아니라 fullscreenchange 로 따라간다.
 const stage = ref<HTMLElement | null>(null)
+
+/**
+ * 3D 아래(표·검사·목록)에서 고를 때. 고른 결과는 3D 와 오른쪽 패널에 뜨는데 화면이 아래에 머물면 안 보이니,
+ * 작업 화면이 가려져 있으면 올려 보인다. 이미 보이면 움직이지 않는다 — 표를 보며 여럿을 차례로 고를 때 흔들리지 않게.
+ */
+function selectAndShow(id: string) {
+  select(id)
+  const el = stage.value
+  if (!el) return
+  const r = el.getBoundingClientRect()
+  const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--appbar-h')) || 0
+  if (r.top < top - 1 || r.top > window.innerHeight * 0.5) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 const fullscreen = ref(false)
 const onFullscreenChange = () => (fullscreen.value = document.fullscreenElement === stage.value)
 document.addEventListener('fullscreenchange', onFullscreenChange)
@@ -2667,6 +2680,15 @@ function exportTTL() {
               <button type="button" class="ghost" @click="selectedSpaceId = null">선택 해제</button>
             </div>
           </div>
+          <!-- 3D 에서 고른 방의 이름을 그 자리에서 고친다(E1). 아래 표에서 같은 방을 다시 찾지 않게. -->
+          <label v-if="editing" class="space-name">
+            이름
+            <input
+              type="text"
+              :value="selectedSpace.space.longName"
+              @change="applyRename(selectedSpace.space.id, ($event.target as HTMLInputElement).value)"
+            />
+          </label>
           <p class="hint">
             파란 손잡이를 끌면 경계가 바뀌고, 넓이와 설비 소속을 다시 판정합니다. 경계가 자기 자신과 엇갈리는 자리에는
             놓지 않습니다. 소속 설비는 3D 에 제 계통 색으로 남기고 나머지는 흐리게 했습니다.
@@ -2871,7 +2893,7 @@ function exportTTL() {
             <h4>{{ openCheck.rule }} <span class="muted">어긴 것 {{ openCheck.failed.length }}개 · 3D 에 칠했습니다</span></h4>
             <ul class="plain">
               <li v-for="id in openCheck.failed.slice(0, CHECK_LIMIT)" :key="id">
-                <button type="button" class="link" @click="select(id)">
+                <button type="button" class="link" @click="selectAndShow(id)">
                   {{ equipmentById.get(id)?.name || equipmentById.get(id)?.ifcClass || id }}
                 </button>
                 <span class="muted">
@@ -3013,7 +3035,7 @@ function exportTTL() {
                 </optgroup>
                     </select>
                   </td>
-                  <td><button type="button" class="link" @click="select(t.sampleId)">하나 보기</button></td>
+                  <td><button type="button" class="link" @click="selectAndShow(t.sampleId)">하나 보기</button></td>
                 </tr>
               </tbody>
             </table>
@@ -3095,7 +3117,7 @@ function exportTTL() {
             </thead>
             <tbody>
               <tr v-for="r in serviceSummary.rows.slice(0, SERVICE_LIMIT)" :key="r.id" :class="{ chosen: r.id === selectedId }">
-                <td><button type="button" class="link" @click="select(r.id)">{{ r.name }}</button></td>
+                <td><button type="button" class="link" @click="selectAndShow(r.id)">{{ r.name }}</button></td>
                 <td class="muted">{{ r.kind }}</td>
                 <td :class="['num', 'mono', r.supply ? 'downstream' : 'muted']">{{ r.supply || '·' }}</td>
                 <td :class="['num', 'mono', r.extract ? 'upstream' : 'muted']">{{ r.extract || '·' }}</td>
@@ -3127,67 +3149,64 @@ function exportTTL() {
               이름
               <input ref="searchInput" v-model="editQuery" type="search" placeholder="물리존·설비 이름이나 종류  ( / )" />
             </label>
-            <span class="muted">{{ editing ? '아래 세 목록에 같이 걸립니다.' : '설비 목록에 걸립니다.' }}</span>
+            <span class="muted">{{ editing ? '아래 두 표에 같이 걸립니다.' : '설비 목록에 걸립니다.' }}</span>
           </div>
 
-          <Fold v-if="editing" title="물리존 이름 (E1)" :meta="`${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
-            <ul class="rows">
-              <li v-for="{ storey, space } in editSpaces.slice(0, editLimit)" :key="space.id">
-                <label class="row">
-                  <span class="tag mono">{{ storey.name }}</span>
-                  <input
-                    type="text"
-                    :value="space.longName"
-                    @change="applyRename(space.id, ($event.target as HTMLInputElement).value)"
-                  />
-                </label>
-              </li>
-            </ul>
-            <p v-if="editSpaces.length > editLimit" class="hint more">
-              {{ editSpaces.length }}개 중 {{ editLimit }}개만 보입니다. 층이나 이름으로 좁히거나
-              <button type="button" class="link" @click="editLimit += EDIT_LIMIT">더 보기</button>
-            </p>
-          </Fold>
-
-          <Fold v-if="editing" title="물리존 경계 (E2)" :meta="`${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
+          <!-- 물리존 하나를 한 줄에서 고친다. 이름(E1)과 경계(E2)를 두 목록으로 나눴더니 같은 방을 두 번 찾아야 했다.
+               긴 표는 제 상자 안에서 스크롤하고 머리줄은 붙어 있다 — 페이지가 표만큼 길어지면 3D 로 돌아가기가 멀다. -->
+          <Fold v-if="editing" title="물리존 이름·경계 (E1 · E2)" :meta="`${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
             <p class="hint">
-              꼭짓점을 고치면 넓이가 다시 계산되고, 경계 밖으로 밀려난 설비의 소속이 바뀝니다.
+              3D 에서 바닥을 눌러 고르면 오른쪽 패널에서도 고칩니다. 꼭짓점을 고치면 넓이가 다시 계산되고, 경계 밖으로
+              밀려난 설비의 소속이 바뀝니다.
             </p>
-            <table class="equipment">
-              <thead>
-                <tr>
-                  <th>물리존</th>
-                  <th class="num">넓이</th>
-                  <th>꼭짓점 (x, y)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="{ space: sp } in editSpaces.slice(0, editLimit)" :key="sp.id">
-                  <td>{{ sp.longName || sp.name }}</td>
-                  <td class="num mono">{{ sp.areaM2.toFixed(1) }} ㎡</td>
-                  <td class="vertices">
-                    <!-- 닫는 점은 첫 점과 같으므로 보여 주지 않는다. 두 번 고치게 된다. -->
-                    <span v-for="(p, i) in sp.footprint.slice(0, -1)" :key="i" class="vertex">
+            <div class="table-box">
+              <table class="spaces-edit">
+                <thead>
+                  <tr>
+                    <th>층</th>
+                    <th>이름</th>
+                    <th>방 번호</th>
+                    <th class="num">넓이</th>
+                    <th>꼭짓점 (x, y)</th>
+                  </tr>
+                </thead>
+                <tbody class="rows">
+                  <tr v-for="{ storey, space: sp } in editSpaces.slice(0, editLimit)" :key="sp.id" :class="{ chosen: sp.id === selectedSpaceId }">
+                    <td><span class="tag mono">{{ storey.name }}</span></td>
+                    <td>
                       <input
-                        class="coord mono"
-                        type="number"
-                        step="0.1"
-                        :value="p[0]"
-                        @change="applyVertex(sp.id, i, 0, ($event.target as HTMLInputElement).value, p)"
+                        type="text"
+                        :value="sp.longName"
+                        :aria-label="`${sp.name} 이름`"
+                        @change="applyRename(sp.id, ($event.target as HTMLInputElement).value)"
                       />
-                      <input
-                        class="coord mono"
-                        type="number"
-                        step="0.1"
-                        :value="p[1]"
-                        @change="applyVertex(sp.id, i, 1, ($event.target as HTMLInputElement).value, p)"
-                      />
-                    </span>
-                    <span v-if="!sp.footprint.length" class="muted">외곽선 없음</span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+                    </td>
+                    <td class="mono muted">{{ sp.name }}</td>
+                    <td class="num mono">{{ sp.areaM2.toFixed(1) }} ㎡</td>
+                    <td class="vertices">
+                      <!-- 닫는 점은 첫 점과 같으므로 보여 주지 않는다. 두 번 고치게 된다. -->
+                      <span v-for="(p, i) in sp.footprint.slice(0, -1)" :key="i" class="vertex">
+                        <input
+                          class="coord mono"
+                          type="number"
+                          step="0.1"
+                          :value="p[0]"
+                          @change="applyVertex(sp.id, i, 0, ($event.target as HTMLInputElement).value, p)"
+                        />
+                        <input
+                          class="coord mono"
+                          type="number"
+                          step="0.1"
+                          :value="p[1]"
+                          @change="applyVertex(sp.id, i, 1, ($event.target as HTMLInputElement).value, p)"
+                        />
+                      </span>
+                      <span v-if="!sp.footprint.length" class="muted">외곽선 없음</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
             <p v-if="editSpaces.length > editLimit" class="hint more">
               {{ editSpaces.length }}개 중 {{ editLimit }}개만 보입니다. 층이나 이름으로 좁히거나
               <button type="button" class="link" @click="editLimit += EDIT_LIMIT">더 보기</button>
@@ -3202,6 +3221,7 @@ function exportTTL() {
             :meta="`기기 ${counts.devices} · 덕트·배관 ${counts.conduits}`"
             :default-open="counts.equipment <= SMALL"
           >
+            <div class="table-box">
             <table class="equipment">
               <thead>
                 <tr>
@@ -3219,7 +3239,7 @@ function exportTTL() {
                   <td>
                     <!-- 표에서 고른 것과 3D 에서 고른 것이 같은 선택이다. 두 화면이 따로 놀면
                          설비 목록에서 찾은 것을 3D 에서 다시 찾아야 한다. -->
-                    <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
+                    <button type="button" class="link" @click="selectAndShow(e.id)">{{ e.name || e.ifcClass }}</button>
                   </td>
                   <td class="muted">
                     {{ e.ifcClass }}<template v-if="kindLabel(e)"> · {{ kindLabel(e) }} <Src :kind="kindSrc(e)" /></template>
@@ -3246,6 +3266,7 @@ function exportTTL() {
                 </tr>
               </tbody>
             </table>
+            </div>
             <p v-if="editEquipment.length > editLimit" class="hint more">
               {{ editEquipment.length }}대 중 {{ editLimit }}대만 보입니다. 층이나 이름으로 좁히거나
               <button type="button" class="link" @click="editLimit += EDIT_LIMIT">더 보기</button>

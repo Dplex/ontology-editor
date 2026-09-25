@@ -141,6 +141,13 @@ test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓�
   await expect(page.locator('.report')).toContainText('80.0㎡ → 36.0㎡')
   await expect(page.locator('.report')).toContainText('AT-101-02')
 
+  // 고른 방의 이름을 오른쪽 패널에서 그 자리에서 고친다(E1). 아래 표에서 같은 방을 다시 찾지 않는다.
+  const name = panel.locator('.space-name input')
+  await name.fill('대회의실')
+  await name.press('Enter')
+  await expect(panel.locator('h3')).toHaveText('대회의실')
+  await expect(page.locator('.report')).toContainText('물리존 이름 사무실 → 대회의실')
+
   // 보기 모드로 가면 손잡이가 사라진다.
   await page.locator('.edit-toggle input').uncheck()
   expect(await viewer<unknown[]>(page, 'handles')).toHaveLength(0)
@@ -298,7 +305,7 @@ test('설비 끌기 → 꼭짓점 → 연결 방향을 Ctrl+Z 세 번이면 한 
   // ② 를 되돌린다 — 넓이 80, AT-101-02 가 사무실로.
   await page.keyboard.press('Control+z')
   await expect(row(page, 'AT-101-02')).toContainText('사무실')
-  await expect(page.locator('.equipment tbody tr', { hasText: '사무실' }).first()).toContainText('80.0 ㎡')
+  await expect(page.locator('.spaces-edit tbody tr', { hasText: '101' }).first()).toContainText('80.0 ㎡')
   await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
 
   // ① 을 되돌린다 — 아무것도 안 바뀐 상태.
