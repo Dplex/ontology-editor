@@ -71,16 +71,22 @@ DATA;
 #58= IFCLOCALPLACEMENT(#14,#57);
 #59= IFCLIGHTFIXTURE('0MEP$Equip$LGT01$000',$,'LIGHT-101-01',$,$,#58,$,'L1',.NOTDEFINED.);
 
-/* 용량 파라미터. AT-102 에는 일부러 붙이지 않는다 — PRD #6 의 "용량 파라미터 누락 설비". */
-#60= IFCPROPERTYSINGLEVALUE('NominalAirFlowRate',$,IFCREAL(6000.),$);
-#61= IFCPROPERTYSET('0MEP$Pset$AHU1$0000',$,'Pset_UnitaryEquipmentTypeCommon',$,(#60));
+/* 용량 파라미터(docs/requirements.ids 의 R22). AT-102 에는 일부러 붙이지 않는다 — PRD #6 의 "용량 파라미터 누락 설비".
+   단위는 IFC 기본인 m3/s 다(6000 m3/h = 1.6667, 900 m3/h = 0.25).
+
+   공조기는 IFC4 표준 Pset 에 용량 자리가 없어 DT_Capacity 로 적는다. 속성 이름은 팬·VAV 의 표준과 같다.
+   토출구는 표준대로 타입 객체의 Pset_AirTerminalTypeCommon 에 범위로 적는다 — ifc4Mep(DDS-CAD)이 이렇게 낸다. */
+#60= IFCPROPERTYSINGLEVALUE('NominalAirFlowRate',$,IFCVOLUMETRICFLOWRATEMEASURE(1.6667),$);
+#61= IFCPROPERTYSET('0MEP$Pset$AHU1$0000',$,'DT_Capacity',$,(#60));
 #62= IFCRELDEFINESBYPROPERTIES('0MEP$Rel$Pset$AHU1$00',$,$,$,(#33),#61);
-#63= IFCPROPERTYSINGLEVALUE('NominalAirFlowRate',$,IFCREAL(900.),$);
-#64= IFCPROPERTYSET('0MEP$Pset$AT01$0000',$,'Pset_AirTerminalTypeCommon',$,(#63));
-#65= IFCRELDEFINESBYPROPERTIES('0MEP$Rel$Pset$AT01$00',$,$,$,(#43),#64);
+#63= IFCPROPERTYBOUNDEDVALUE('AirFlowrateRange',$,IFCVOLUMETRICFLOWRATEMEASURE(0.25),IFCVOLUMETRICFLOWRATEMEASURE(0.1),$,$);
+#64= IFCPROPERTYSET('0MEP$Pset$ATType$000',$,'Pset_AirTerminalTypeCommon',$,(#63));
+#65= IFCAIRTERMINALTYPE('0MEP$Type$AT600$0000',$,'AT-600',$,$,(#64),$,$,$,.DIFFUSER.);
+#66= IFCRELDEFINESBYTYPE('0MEP$Rel$Type$AT01$00',$,$,$,(#43),#65);
 
 /* 계통. 이게 있어야 "어느 공조기가 어느 토출구를 담당하는가" 를 알 수 있다. */
-#70= IFCDISTRIBUTIONSYSTEM('0MEP$System$AHU1$000',$,'AHU-1 SA',$,$,'AHU-1 급기 계통',.AIRCONDITIONING.);
+/* 종류는 PredefinedType(AIRCONDITIONING) 에 공급·환수를 가르는 EN 12792 약어(SUP)를 ObjectType 에 더한다(R17). */
+#70= IFCDISTRIBUTIONSYSTEM('0MEP$System$AHU1$000',$,'AHU-1 SA',$,'SUP','AHU-1 급기 계통',.AIRCONDITIONING.);
 #71= IFCRELASSIGNSTOGROUP('0MEP$Rel$Group$AHU1$0',$,$,$,(#33,#43,#47,#53),$,#70);
 
 /* 포트 연결. 덕트가 어느 설비에 붙는지가 여기 있다.

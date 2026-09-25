@@ -187,8 +187,11 @@ describe('MEP 임포트', () => {
   })
 
   it('용량 파라미터를 읽고, 없는 것은 null 로 둔다', () => {
-    expect(byName('AHU-1').capacity).toBe(6000)
-    expect(byName('AT-101-01').capacity).toBe(900)
+    expect(byName('AHU-1').capacity).toBe(1.6667)
+    expect(byName('AHU-1').capacityProperty).toBe('NominalAirFlowRate')
+    // 타입 객체의 표준 Pset, 범위 값(설정값이 없어 위 끝)
+    expect(byName('AT-101-01').capacity).toBe(0.25)
+    expect(byName('AT-101-01').capacityProperty).toBe('AirFlowrateRange')
     expect(byName('AT-101-02').capacity).toBe(null)
   })
 

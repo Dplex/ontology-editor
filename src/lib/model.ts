@@ -151,6 +151,13 @@ export type Equipment = {
   /** IFC 클래스 이름에서 Ifc 를 뗀 것(UnitaryEquipment, AirTerminal, Sensor …). */
   ifcClass: string
   /**
+   * IFC 가 말한 종류. `클래스.PredefinedType`(`AirTerminal.DIFFUSER`)이고 값이 없으면 `클래스` 만이다. IFC2x3 은 개체가
+   * 추상적이라(`FlowTerminal`) 타입 객체의 클래스와 값이다. 타입도 없으면 `null`. 이름 사전(`kinds.ts`)의 `ifc` 표로 읽는다.
+   */
+  declaredType?: string | null
+  /** `kind` 를 누가 정했나. `bim` 이면 `declaredType` 에서, `dict` 면 이름 사전에서 읽었다. 사람이 고친 것은 `kindEdited` 가 말한다. */
+  kindSource?: 'bim' | 'dict'
+  /**
    * IFC 계층에서 읽은 역할. `null` 이면 `IfcDistributionFlowElement` 아래가 아니라는 뜻이고,
    * 그런 것은 드물다(`IfcDistributionChamberElement` 같은 것).
    */

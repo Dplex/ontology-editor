@@ -36,11 +36,20 @@ export type EquipmentKindInfo = {
   role: EquipmentRole | null
   /** 매체별 흐름 자리. 없는 매체는 그 계통에서 이 종류가 원천이 아니라는 뜻이다. */
   flow: Partial<Record<Medium, FlowPart>>
+  /**
+   * IFC 가 이 종류를 말하는 법. `클래스.PredefinedType`(`AirTerminal.DIFFUSER`)이거나, PredefinedType 을 가리지 않으면
+   * `클래스`(`Boiler`)다. 클래스는 Ifc 를 뗀 것이고 IFC2x3 에서는 타입 객체의 클래스다(`IfcAirTerminalType` → `AirTerminal`).
+   * USERDEFINED 는 ObjectType(타입이면 ElementType)의 값을 PredefinedType 자리에 둔다(`UnitaryEquipment.FANCOILUNIT`).
+   *
+   * **이 표가 곧 고객사에 요구하는 어휘(`docs/requirements.ids` 의 R25)다.** IFC4 열거값에 있는 것은 그 값을, 없는 것은
+   * 우리가 정한 USERDEFINED 이름을 쓴다. 한쪽에만 넣으면 IDS 를 지킨 파일을 못 읽으므로 `requirements-ids.test.ts` 가 둘을 맞춰 본다.
+   */
+  ifc?: string[]
   /** 관제점 후보(F13)인가. 감지기·카메라처럼 BAS 가 값을 들고 있을 만한 장치. */
   point?: boolean
   /**
-   * 사람만 고르는 종류. 사전은 이 이름을 읽지 않는다(`test` 가 아무것에도 맞지 않는다). 편집 화면에서 고를 수는
-   * 있어야 하는데 사전을 넓히면 가진 BIM 전부의 숫자가 움직여서(CLAUDE.md 의 과적합 규칙) 따로 둔다.
+   * 이름 사전이 읽지 않는 종류(`test` 가 아무것에도 맞지 않는다). BIM 이 `ifc` 로 말하면 받고, 아니면 사람이 고른다.
+   * 사전 식을 넓히면 가진 BIM 전부의 숫자가 움직여서(CLAUDE.md 의 과적합 규칙) 이름으로는 읽지 않는다.
    */
   manual?: true
 }
@@ -51,76 +60,114 @@ const NEVER = /(?!)/
 export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // --- 공조 기기 ---------------------------------------------------------------
   // OHU 는 외기 공조기(Outdoor air Handling Unit)다. 공조기와 같이 본다.
-  { kind: 'ahu', label: '공조기', test: /\b[AO]HU|공조기|air\s*handl/i, brick: 'brick:Air_Handling_Unit', role: 'conversion', flow: { air: 'source', water: 'sink' } },
-  { kind: 'fcu', label: 'FCU', test: /\bFCU|팬\s*코일|fan\s*coil/i, brick: 'brick:Fan_Coil_Unit', role: 'conversion', flow: { air: 'source', water: 'sink' } },
-  { kind: 'indoor_unit', label: '시스템에어컨 실내기', test: /시스템\s*에어컨|실내기|indoor\s*unit|\bIDU\b/i, brick: 'brick:Indoor_Unit', role: 'conversion', flow: { air: 'source' } },
-  { kind: 'vav', label: 'VAV', test: /\bVAV\b/i, brick: 'brick:Variable_Air_Volume_Box', role: 'control', flow: { air: 'through' } },
+  { kind: 'ahu', label: '공조기', test: /\b[AO]HU|공조기|air\s*handl/i, brick: 'brick:Air_Handling_Unit', role: 'conversion', ifc: ['UnitaryEquipment.AIRHANDLER'], flow: { air: 'source', water: 'sink' } },
+  { kind: 'fcu', label: 'FCU', test: /\bFCU|팬\s*코일|fan\s*coil/i, brick: 'brick:Fan_Coil_Unit', role: 'conversion', ifc: ['UnitaryEquipment.FANCOILUNIT'], flow: { air: 'source', water: 'sink' } },
+  { kind: 'indoor_unit', label: '시스템에어컨 실내기', test: /시스템\s*에어컨|실내기|indoor\s*unit|\bIDU\b/i, brick: 'brick:Indoor_Unit', role: 'conversion', ifc: ['UnitaryEquipment.INDOORUNIT'], flow: { air: 'source' } },
+  { kind: 'vav', label: 'VAV', test: /\bVAV\b/i, brick: 'brick:Variable_Air_Volume_Box', role: 'control', ifc: ['AirTerminalBox.VARIABLEFLOWPRESSUREDEPENDANT', 'AirTerminalBox.VARIABLEFLOWPRESSUREINDEPENDANT'], flow: { air: 'through' } },
   // 전열교환기. 성수는 `…PltHeatExchngrs_CounterFlowHeatRecovery…` 로 들어온다. 팬을 품고 있어 공기의 원천이다.
-  { kind: 'heat_recovery', label: '전열교환기', test: /heat\s*recovery|HeatExchngr|전열\s*교환|\bERV\b|\bHRV\b/i, brick: 'brick:Heat_Exchanger', role: 'conversion', flow: { air: 'source' } },
+  { kind: 'heat_recovery', label: '전열교환기', test: /heat\s*recovery|HeatExchngr|전열\s*교환|\bERV\b|\bHRV\b/i, brick: 'brick:Heat_Exchanger', role: 'conversion', ifc: ['AirToAirHeatRecovery'], flow: { air: 'source' } },
   // --- 열원 --------------------------------------------------------------------
-  { kind: 'ground_source_heat_pump', label: '지열 히트펌프', test: /\bGSHP|지열\s*히트|ground\s*source/i, brick: 'brick:Heat_Pump_Ground_Source_Condensing_Unit', role: 'conversion', flow: { water: 'source' } },
-  { kind: 'heat_pump', label: '히트펌프', test: /heat\s*pump|히트\s*펌프/i, brick: 'brick:Heat_Pump_Condensing_Unit', role: 'conversion', flow: { water: 'source' } },
-  { kind: 'ground_heat_exchanger', label: '지중 열교환기', test: /\bGHX\b|지중\s*열교환/i, brick: 'brick:Heat_Exchanger', role: 'conversion', flow: { water: 'through' } },
-  { kind: 'chiller', label: '냉동기', test: /chiller|냉동기|칠러/i, brick: 'brick:Chiller', role: 'conversion', flow: { water: 'source' } },
-  { kind: 'boiler', label: '보일러', test: /boiler|보일러/i, brick: 'brick:Boiler', role: 'conversion', flow: { water: 'source' } },
-  { kind: 'cooling_tower', label: '냉각탑', test: /cooling\s*tower|냉각탑/i, brick: 'brick:Cooling_Tower', role: 'conversion', flow: { water: 'through' } },
+  { kind: 'ground_source_heat_pump', label: '지열 히트펌프', test: /\bGSHP|지열\s*히트|ground\s*source/i, brick: 'brick:Heat_Pump_Ground_Source_Condensing_Unit', role: 'conversion', ifc: ['UnitaryEquipment.GROUNDSOURCEHEATPUMP'], flow: { water: 'source' } },
+  { kind: 'heat_pump', label: '히트펌프', test: /heat\s*pump|히트\s*펌프/i, brick: 'brick:Heat_Pump_Condensing_Unit', role: 'conversion', ifc: ['UnitaryEquipment.HEATPUMP'], flow: { water: 'source' } },
+  { kind: 'ground_heat_exchanger', label: '지중 열교환기', test: /\bGHX\b|지중\s*열교환/i, brick: 'brick:Heat_Exchanger', role: 'conversion', ifc: ['HeatExchanger.GROUNDHEATEXCHANGER'], flow: { water: 'through' } },
+  { kind: 'chiller', label: '냉동기', test: /chiller|냉동기|칠러/i, brick: 'brick:Chiller', role: 'conversion', ifc: ['Chiller'], flow: { water: 'source' } },
+  { kind: 'boiler', label: '보일러', test: /boiler|보일러/i, brick: 'brick:Boiler', role: 'conversion', ifc: ['Boiler'], flow: { water: 'source' } },
+  { kind: 'cooling_tower', label: '냉각탑', test: /cooling\s*tower|냉각탑/i, brick: 'brick:Cooling_Tower', role: 'conversion', ifc: ['CoolingTower'], flow: { water: 'through' } },
   // --- 이송 --------------------------------------------------------------------
   // 태그 이름도 받는다. 성수 배기 계통의 팬은 `EF-11` 처럼 태그로만 들어왔다(EF 배기팬, SF 급기팬, CF 천장팬).
-  { kind: 'pump', label: '펌프', test: /pump|펌프/i, brick: 'brick:Pump', role: 'moving', flow: { water: 'source' } },
+  { kind: 'pump', label: '펌프', test: /pump|펌프/i, brick: 'brick:Pump', role: 'moving', ifc: ['Pump'], flow: { water: 'source' } },
   { kind: 'exhaust_fan', label: '배기팬', test: /fan[-_\s]*exhaust|exhaust[-_\s]*fan|배기\s*(팬|휀)|\b[EC]F-?\d/i, brick: 'brick:Exhaust_Fan', role: 'moving', flow: { air: 'source' } },
-  { kind: 'fan', label: '팬', test: /fan|(^|[^가-힣])팬|휀|\bSF-?\d/i, brick: 'brick:Fan', role: 'moving', flow: { air: 'source' } },
+  { kind: 'fan', label: '팬', test: /fan|(^|[^가-힣])팬|휀|\bSF-?\d/i, brick: 'brick:Fan', role: 'moving', ifc: ['Fan'], flow: { air: 'source' } },
   // --- 말단·조절 ----------------------------------------------------------------
-  { kind: 'air_diffuser', label: '디퓨저', test: /디퓨[저져]|diffuser/i, brick: 'brick:Air_Diffuser', role: 'terminal', flow: { air: 'sink' } },
+  { kind: 'air_diffuser', label: '디퓨저', test: /디퓨[저져]|diffuser/i, brick: 'brick:Air_Diffuser', role: 'terminal', ifc: ['AirTerminal.DIFFUSER'], flow: { air: 'sink' } },
   // 건물 밖과 통하는 루버·벤트캡. 실내 그릴과 흐름이 반대다(flow-rules.ts 의 바깥 가지).
-  { kind: 'outdoor_louver', label: '외부 루버', test: /루버|louver|vent[-_\s]*cap|[_\s-](OA|EA)\b/i, brick: null, role: 'terminal', flow: { air: 'sink' } },
-  { kind: 'air_grille', label: '그릴', test: /그릴|grille/i, brick: null, role: 'terminal', flow: { air: 'sink' } },
-  { kind: 'damper', label: '댐퍼', test: /댐퍼|damper/i, brick: 'brick:Damper', role: 'control', flow: { air: 'through' } },
-  { kind: 'silencer', label: '소음기', test: /silencer|소음기|attenuat/i, brick: null, role: 'treatment', flow: { air: 'through' } },
-  { kind: 'water_meter', label: '수량계', test: /water[-_\s]*meter|수량계|유량계/i, brick: 'brick:Water_Meter', role: 'control', flow: { water: 'through' } },
-  { kind: 'valve', label: '밸브', test: /valve|밸브/i, brick: 'brick:Valve', role: 'control', flow: { water: 'through' } },
+  { kind: 'outdoor_louver', label: '외부 루버', test: /루버|louver|vent[-_\s]*cap|[_\s-](OA|EA)\b/i, brick: null, role: 'terminal', ifc: ['AirTerminal.LOUVRE'], flow: { air: 'sink' } },
+  { kind: 'air_grille', label: '그릴', test: /그릴|grille/i, brick: null, role: 'terminal', ifc: ['AirTerminal.GRILLE', 'AirTerminal.REGISTER'], flow: { air: 'sink' } },
+  { kind: 'damper', label: '댐퍼', test: /댐퍼|damper/i, brick: 'brick:Damper', role: 'control', ifc: ['Damper'], flow: { air: 'through' } },
+  { kind: 'silencer', label: '소음기', test: /silencer|소음기|attenuat/i, brick: null, role: 'treatment', ifc: ['DuctSilencer'], flow: { air: 'through' } },
+  { kind: 'water_meter', label: '수량계', test: /water[-_\s]*meter|수량계|유량계/i, brick: 'brick:Water_Meter', role: 'control', ifc: ['FlowMeter.WATERMETER'], flow: { water: 'through' } },
+  { kind: 'valve', label: '밸브', test: /valve|밸브/i, brick: 'brick:Valve', role: 'control', ifc: ['Valve'], flow: { water: 'through' } },
   // --- 전기·조명 ------------------------------------------------------------------
-  { kind: 'panel', label: '분전반', test: /분전반|\bPNL\b|breaker\s*panel/i, brick: 'brick:Breaker_Panel', role: null, flow: {} },
-  { kind: 'lighting', label: '조명', test: /조명|가로등|luminaire|lighting|pendant|[_\s-]light\b|^light\b/i, brick: 'brick:Luminaire', role: 'terminal', flow: {} },
+  { kind: 'panel', label: '분전반', test: /분전반|\bPNL\b|breaker\s*panel/i, brick: 'brick:Breaker_Panel', role: null, ifc: ['ElectricDistributionBoard.DISTRIBUTIONBOARD'], flow: {} },
+  { kind: 'lighting', label: '조명', test: /조명|가로등|luminaire|lighting|pendant|[_\s-]light\b|^light\b/i, brick: 'brick:Luminaire', role: 'terminal', ifc: ['LightFixture'], flow: {} },
   // --- 관제점 후보(F13) ------------------------------------------------------------
-  { kind: 'smoke_detector', label: '연기감지기', test: /연기\s*감지|smoke\s*detect/i, brick: 'brick:Smoke_Detector', role: 'sensing', flow: {}, point: true },
-  { kind: 'heat_detector', label: '열감지기', test: /열\s*감지|heat\s*detect/i, brick: 'brick:Heat_Detector', role: 'sensing', flow: {}, point: true },
-  { kind: 'camera', label: 'CCTV', test: /camera|CCTV|카메라/i, brick: 'brick:Camera', role: 'sensing', flow: {}, point: true },
+  { kind: 'smoke_detector', label: '연기감지기', test: /연기\s*감지|smoke\s*detect/i, brick: 'brick:Smoke_Detector', role: 'sensing', ifc: ['Sensor.SMOKESENSOR'], flow: {}, point: true },
+  { kind: 'heat_detector', label: '열감지기', test: /열\s*감지|heat\s*detect/i, brick: 'brick:Heat_Detector', role: 'sensing', ifc: ['Sensor.HEATSENSOR'], flow: {}, point: true },
+  { kind: 'camera', label: 'CCTV', test: /camera|CCTV|카메라/i, brick: 'brick:Camera', role: 'sensing', ifc: ['AudioVisualAppliance.CAMERA'], flow: {}, point: true },
   // --- 사람만 고르는 종류 ---------------------------------------------------------
   // 병원 MEP 에서 종류를 모르는 기기 1,765대 중 1,376대가 콘센트·스프링클러였는데 고를 종류가 없었다. Brick 1.4 에
   // 맞는 이름을 확인하지 못해 전부 `ex:` 로 나간다.
-  { kind: 'receptacle', label: '콘센트', test: NEVER, brick: null, role: 'terminal', flow: {}, manual: true },
-  { kind: 'sprinkler', label: '스프링클러 헤드', test: NEVER, brick: null, role: 'terminal', flow: { water: 'sink' }, manual: true },
-  { kind: 'plumbing_fixture', label: '위생기구(세면기·싱크·샤워)', test: NEVER, brick: null, role: 'terminal', flow: { water: 'sink' }, manual: true },
+  { kind: 'receptacle', label: '콘센트', test: NEVER, brick: null, role: 'terminal', ifc: ['Outlet.POWEROUTLET'], flow: {}, manual: true },
+  { kind: 'sprinkler', label: '스프링클러 헤드', test: NEVER, brick: null, role: 'terminal', ifc: ['FireSuppressionTerminal.SPRINKLER'], flow: { water: 'sink' }, manual: true },
+  { kind: 'plumbing_fixture', label: '위생기구(세면기·싱크·샤워)', test: NEVER, brick: null, role: 'terminal', ifc: ['SanitaryTerminal'], flow: { water: 'sink' }, manual: true },
   { kind: 'water_heater', label: '급탕기', test: NEVER, brick: null, role: 'conversion', flow: { water: 'source' }, manual: true },
-  { kind: 'transformer', label: '변압기', test: NEVER, brick: null, role: 'conversion', flow: {}, manual: true },
+  { kind: 'transformer', label: '변압기', test: NEVER, brick: null, role: 'conversion', ifc: ['Transformer'], flow: {}, manual: true },
+  // 시스템에어컨 실외기. IFC4 에 없어 USERDEFINED 로 적게 했다. Brick 1.4 에는 없지만 받는 쪽(ttl.go equipClass)이
+  // Outdoor_Unit 을 ODU 로 읽는다 — Indoor_Unit 과 같은 선례다. 냉매 계통이라 공기·물 흐름 규칙에는 들지 않는다.
+  { kind: 'outdoor_unit', label: '시스템에어컨 실외기', test: NEVER, brick: 'brick:Outdoor_Unit', role: 'conversion', ifc: ['UnitaryEquipment.OUTDOORUNIT'], flow: {}, manual: true },
+  // 방열기. ifc4Mep 의 IfcSpaceHeater RADIATOR 30대. 순환수를 받는 말단이다.
+  { kind: 'radiator', label: '방열기', test: NEVER, brick: 'brick:Radiator', role: 'terminal', ifc: ['SpaceHeater.RADIATOR'], flow: { water: 'sink' }, manual: true },
 ]
 
 const EQUIPMENT_BY_KIND = new Map(EQUIPMENT_KINDS.map((k) => [k.kind, k]))
 
+const EQUIPMENT_BY_IFC = new Map(EQUIPMENT_KINDS.flatMap((k) => (k.ifc ?? []).map((t) => [t, k] as const)))
+
 /**
- * IFC4 의 구체 클래스 → 종류. IFC4 파일은 이름이 번호뿐인 일이 흔해서(ifc4Mep: "1.6.6") 이름보다
- * 클래스가 더 많이 말한다. 이름이 먼저고, 이름으로 못 찾을 때만 클래스를 본다.
+ * PredefinedType 을 말하지 않은 클래스 → 가장 흔한 종류. BIM 이 말한 것이 아니라 우리 추측이라 출처는 사전이다.
+ * `ifc` 표의 `클래스.값` 꼴만 있는 클래스에만 둔다(클래스만으로 정해지는 `Boiler` 같은 것은 표가 맡는다).
  */
-const CLASS_KINDS: Record<string, string> = {
-  Boiler: 'boiler',
-  Chiller: 'chiller',
-  CoolingTower: 'cooling_tower',
-  Pump: 'pump',
-  Fan: 'fan',
+const CLASS_GUESS: Record<string, string> = {
   AirTerminal: 'air_diffuser',
   AirTerminalBox: 'vav',
-  Damper: 'damper',
-  Valve: 'valve',
-  FlowMeter: 'water_meter',
   UnitaryEquipment: 'ahu',
-  AirToAirHeatRecovery: 'heat_recovery',
-  LightFixture: 'lighting',
+  FlowMeter: 'water_meter',
+}
+
+/**
+ * IFC 가 말한 종류(`클래스.PredefinedType` 또는 `클래스`)를 `ifc` 표에서 찾는다. 모르면 null.
+ * `Boiler.WATER` 처럼 값까지는 표에 없어도 클래스가 표에 있으면 그 종류다.
+ */
+export function equipmentKindOfIfc(declared: string | null | undefined): EquipmentKindInfo | null {
+  if (!declared) return null
+  // 클래스와 값은 첫 점으로 가른다. USERDEFINED 값에는 점이 들어갈 수 있다(`1.6.6`). 값은 대소문자를 가리지 않는다.
+  const dot = declared.indexOf('.')
+  const cls = dot < 0 ? declared : declared.slice(0, dot)
+  const value = dot < 0 ? '' : declared.slice(dot + 1).trim().toUpperCase()
+  return (value ? EQUIPMENT_BY_IFC.get(`${cls}.${value}`) : undefined) ?? EQUIPMENT_BY_IFC.get(cls) ?? null
+}
+
+export type KindSource = 'bim' | 'dict'
+
+/**
+ * 설비 종류와 그 출처. 순서가 뜻을 가진다.
+ *
+ * 1. **이름 사전.** 사전은 좁아서 맞으면 대개 더 구체적이다 — 성수의 `EF-11` 은 IFC 로는 `IfcFan` 이지만 배기팬이다.
+ * 2. **IFC 가 말한 종류**(`declared`, 없으면 `ifcClass`). 출처가 BIM 이다. IFC2x3 도 타입 객체에는 종류가 있다
+ *    (병원 HVAC 의 `IfcAirTerminalType` DIFFUSER 231·REGISTER 184, `IfcAirTerminalBoxType` VAV 115).
+ * 3. **PredefinedType 을 말하지 않은 클래스의 추측**(`CLASS_GUESS`). BIM 이 값을 말했는데(`AirTerminal.SD-1200mm`)
+ *    표에 없으면 추측하지 않는다 — BIM 이 다른 것이라고 한 것을 우리가 덮으면 안 된다.
+ */
+export function resolveEquipmentKind(
+  name: string,
+  objectType = '',
+  ifcClass = '',
+  declared: string | null = null,
+): { info: EquipmentKindInfo; source: KindSource } | null {
+  const text = `${name} ${objectType}`
+  const byName = EQUIPMENT_KINDS.find((k) => k.test.test(text))
+  if (byName) return { info: byName, source: 'dict' }
+  const said = declared ?? (ifcClass || null)
+  const byIfc = equipmentKindOfIfc(said)
+  if (byIfc) return { info: byIfc, source: 'bim' }
+  if (said?.includes('.')) return null
+  const guess = equipmentKind(CLASS_GUESS[said ?? ''])
+  return guess ? { info: guess, source: 'dict' } : null
 }
 
 /** 이름과 ObjectType 을 합쳐 사전에서 찾고, 없으면 IFC 클래스로 찾는다. 모르면 null. */
-export function equipmentKindOf(name: string, objectType = '', ifcClass = ''): EquipmentKindInfo | null {
-  const text = `${name} ${objectType}`
-  return EQUIPMENT_KINDS.find((k) => k.test.test(text)) ?? equipmentKind(CLASS_KINDS[ifcClass])
+export function equipmentKindOf(name: string, objectType = '', ifcClass = '', declared: string | null = null): EquipmentKindInfo | null {
+  return resolveEquipmentKind(name, objectType, ifcClass, declared)?.info ?? null
 }
 
 export function equipmentKind(kind: string | null | undefined): EquipmentKindInfo | null {
@@ -201,9 +248,48 @@ export const SYSTEM_KINDS: SystemKindInfo[] = [
 
 const SYSTEM_BY_KIND = new Map(SYSTEM_KINDS.map((k) => [k.kind, k]))
 
-/** ObjectType 을 먼저 보고, 없으면 이름을 본다. 이름에는 번호가 붙어 있어도 된다(`기계 급기 287`). */
-export function systemKindOf(name: string, objectType = ''): SystemKindInfo | null {
-  return SYSTEM_KINDS.find((k) => k.test.test(objectType)) ?? SYSTEM_KINDS.find((k) => k.test.test(name)) ?? null
+/**
+ * IFC 가 계통 종류를 말하는 법. **이 표가 곧 고객사에 요구하는 어휘(`docs/requirements.ids` 의 R17)다.**
+ *
+ * IFC4 의 `IfcDistributionSystem.PredefinedType` 은 한 계통 안에서 공급과 환수를 가르지 않는다(AIRCONDITIONING·
+ * VENTILATION·HEATING·CHILLEDWATER). 방향을 정하려면 그 둘을 갈라야 해서 ObjectType 에 약어를 하나 더 적게 한다.
+ * **공기는 EN 12792 의 약어다** — ifc4Mep 이 계통 이름에 이미 쓰고 있다(`1_SUP Supply air`, `2_ETA Extract air`,
+ * `1_EHA Exhaust air`, `3_ODA Outdoor air`). 물은 표준 약어가 없어 FLOW·RETURN 으로 둔다. 급탕·급수·배기는
+ * PredefinedType 만으로 정해진다.
+ */
+export const SYSTEM_IFC = {
+  air: { predefined: ['AIRCONDITIONING', 'VENTILATION', 'EXHAUST'], codes: { SUP: 'supply_air', ETA: 'return_air', RCA: 'return_air', EHA: 'exhaust_air', ODA: 'outside_air' } },
+  water: { predefined: ['HEATING', 'CHILLEDWATER', 'CONDENSERWATER'], codes: { FLOW: 'hydronic_supply', RETURN: 'hydronic_return' } },
+  alone: { DOMESTICHOTWATER: 'domestic_hot_water', DOMESTICCOLDWATER: 'domestic_cold_water', EXHAUST: 'exhaust_air' },
+} as const
+
+/** IFC 가 말한 계통 종류. 약어는 그 매체의 PredefinedType 과 함께일 때만 읽는다(`RETURN` 은 공기에도 물에도 있을 수 있다). */
+export function systemKindOfIfc(predefined: string | null | undefined, objectType = ''): SystemKindInfo | null {
+  const code = objectType.trim().toUpperCase()
+  const p = predefined ?? ''
+  const pick = (table: Record<string, string>) => (code in table ? systemKind(table[code]) : null)
+  if ((SYSTEM_IFC.air.predefined as readonly string[]).includes(p)) {
+    const hit = pick(SYSTEM_IFC.air.codes)
+    if (hit) return hit
+  }
+  if ((SYSTEM_IFC.water.predefined as readonly string[]).includes(p)) {
+    const hit = pick(SYSTEM_IFC.water.codes)
+    if (hit) return hit
+  }
+  return systemKind((SYSTEM_IFC.alone as Record<string, string>)[p])
+}
+
+/**
+ * IFC 가 말한 것(PredefinedType 과 약어)을 먼저 보고, 다음에 ObjectType, 마지막에 이름을 사전으로 본다.
+ * 이름에는 번호가 붙어 있어도 된다(`기계 급기 287`).
+ */
+export function systemKindOf(name: string, objectType = '', predefined: string | null = null): SystemKindInfo | null {
+  return (
+    systemKindOfIfc(predefined, objectType) ??
+    SYSTEM_KINDS.find((k) => k.test.test(objectType)) ??
+    SYSTEM_KINDS.find((k) => k.test.test(name)) ??
+    null
+  )
 }
 
 export function systemKind(kind: string | null | undefined): SystemKindInfo | null {

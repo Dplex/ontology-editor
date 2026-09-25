@@ -1,0 +1,49 @@
+// 용량으로 받는 속성과 그 양의 종류.
+//
+// **양의 종류를 같이 든다.** 한때 풍량과 출력을 한 칸에 담아 전부 `ex:nominalAirFlowRate` 로 내보냈다. 냉동기의
+// NominalCapacity(W)가 풍량으로 나간다. 무엇이 흐르는지 모르는 저작 도구 이름(Revit 의 `Flow` 는 디퓨저에서는 공기,
+// 방열기에서는 물이다)은 모른다고 둔다.
+
+export type CapacityQuantity = 'airflow' | 'waterflow' | 'power' | 'flow'
+
+/**
+ * **앞에 있을수록 우선한다.** 표준 이름을 저작 도구 이름보다 먼저 둔다 — 둘 다 있으면 표준 쪽이 검증을 거친 값이다.
+ *
+ * 앞쪽은 IFC4 표준 Pset 의 이름이고 `docs/requirements.ids` 의 R22 가 요구하는 것과 같다. 대부분 타입 객체의
+ * `Pset_*TypeCommon` 에 붙는다. 공조기·FCU 는 IFC4 표준에 용량 자리가 없어 `DT_Capacity.NominalAirFlowRate` 로
+ * 적게 한다(이름은 팬·VAV 의 표준 속성과 같게 두었다). 뒤쪽은 Revit 이 붙이는 이름이다.
+ */
+export const CAPACITY_PROPERTIES: readonly { name: string; quantity: CapacityQuantity }[] = [
+  { name: 'NominalAirFlowRate', quantity: 'airflow' }, // Pset_FanTypeCommon, Pset_AirTerminalBoxTypeCommon, DT_Capacity
+  { name: 'AirFlowRate', quantity: 'airflow' }, // Pset_AirTerminalOccurrence
+  { name: 'AirFlowrateRange', quantity: 'airflow' }, // Pset_AirTerminalTypeCommon. 범위라 설정값, 없으면 위 끝
+  { name: 'FlowRateRange', quantity: 'waterflow' }, // Pset_PumpTypeCommon
+  { name: 'NominalCapacity', quantity: 'power' }, // Pset_ChillerTypeCommon, Pset_CoolingTowerTypeCommon
+  { name: 'OutputCapacity', quantity: 'power' }, // Pset_SpaceHeaterTypeCommon
+  { name: 'TotalCoolingCapacity', quantity: 'power' },
+  // Revit 이 내보내는 이름들. 공백이 들어간 것도 그대로 쓴다.
+  { name: 'Air Flow', quantity: 'airflow' },
+  { name: 'Flow', quantity: 'flow' },
+  { name: 'Design Flow', quantity: 'flow' },
+  { name: 'Rated Flow', quantity: 'flow' },
+]
+
+const RANK = new Map(CAPACITY_PROPERTIES.map((p, i) => [p.name, i]))
+const QUANTITY = new Map(CAPACITY_PROPERTIES.map((p) => [p.name, p.quantity]))
+
+/** 용량 속성의 우선순위. 작을수록 앞선다. 용량이 아니면 -1. */
+export function capacityRank(property: string): number {
+  return RANK.get(property) ?? -1
+}
+
+export function capacityQuantity(property: string | null | undefined): CapacityQuantity | null {
+  return property ? (QUANTITY.get(property) ?? null) : null
+}
+
+/** TTL 술어. 양의 종류마다 따로 둔다. */
+export const CAPACITY_PREDICATE: Record<CapacityQuantity, string> = {
+  airflow: 'ex:nominalAirFlowRate',
+  waterflow: 'ex:nominalWaterFlowRate',
+  power: 'ex:nominalCapacity',
+  flow: 'ex:nominalFlowRate',
+}

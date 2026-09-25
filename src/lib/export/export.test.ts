@@ -146,6 +146,23 @@ describe('설비 내보내기', () => {
     expect(block).not.toContain('hasLocation')
   })
 
+  it('용량은 양의 종류마다 다른 술어로 나간다', () => {
+    // 한때 전부 ex:nominalAirFlowRate 였다. 냉동기의 NominalCapacity(W)나 배관의 Revit Flow(물)가 풍량으로 나갔다.
+    const ttl = modelToTTL(mep)
+    expect(ttl).toContain('ex:nominalAirFlowRate 1.6667 ;')
+    expect(ttl).toContain('ex:nominalAirFlowRate 0.25 ;')
+
+    const m = structuredClone(mep)
+    const ahu = m.storeys[0].equipment.find((e) => e.name === 'AHU-1')!
+    Object.assign(ahu, { capacity: 350000, capacityProperty: 'NominalCapacity' })
+    const at = m.storeys[0].equipment.find((e) => e.name === 'AT-101-01')!
+    Object.assign(at, { capacity: 2, capacityProperty: 'Flow' })
+    const out = modelToTTL(m)
+    expect(out).toContain('ex:nominalCapacity 350000 ;')
+    expect(out).toContain('ex:nominalFlowRate 2 ;')
+    expect(out).not.toContain('ex:nominalAirFlowRate')
+  })
+
   it('계통을 hasPart 로 묶는다', () => {
     const ttl = modelToTTL(mep)
     expect(ttl).toContain('a ex:Distribution_System ;')

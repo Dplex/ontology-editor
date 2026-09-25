@@ -11,6 +11,7 @@
 import { isConduit, type Equipment, type Model } from '../model'
 import { deviceFlows } from '../topology'
 import { equipmentKind, roomKind } from '../kinds'
+import { CAPACITY_PREDICATE, capacityQuantity } from '../capacity'
 import { withInferred } from '../flow-rules'
 
 const PREFIXES = [
@@ -164,7 +165,9 @@ export function modelToTTL(model: Model): string {
       if (equipment.spaceId) lines.push(`    brick:hasLocation ${ref(equipment.spaceId)} ;`)
       const targets = feeds.get(equipment.id)
       if (targets) lines.push(`    brick:feeds ${targets.map(ref).join(', ')} ;`)
-      if (equipment.capacity !== null) lines.push(`    ex:nominalAirFlowRate ${equipment.capacity} ;`)
+      // 양의 종류마다 술어가 다르다(capacity.ts). 풍량과 출력을 한 술어로 내면 받는 쪽이 둘을 섞는다.
+      const quantity = capacityQuantity(equipment.capacityProperty)
+      if (equipment.capacity !== null && quantity) lines.push(`    ${CAPACITY_PREDICATE[quantity]} ${equipment.capacity} ;`)
       lines.push(`    ex:ifcClass ${label(equipment.ifcClass)} .`)
       lines.push('')
     }

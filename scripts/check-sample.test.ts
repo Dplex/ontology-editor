@@ -14,10 +14,9 @@ import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
 import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topology'
 import { inferFlowByRules, newlyDisagreeing, withInferred } from '../src/lib/flow-rules'
-import { familyKeyOf, familyNameOf, setTypeKind } from '../src/lib/edit'
 import { airServices } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
-import { equipmentKind, roomKind } from '../src/lib/kinds'
+import { roomKind } from '../src/lib/kinds'
 import type { Model } from '../src/lib/model'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -134,8 +133,11 @@ describe.skipIf(!existsSync(MEP))('실제 MEP BIM (ifc4Mep, IFC4)', () => {
     expect(counts.spaces).toBe(0)
     expect(counts.unlocatedEquipment).toBe(2203)
 
-    // 용량은 하나도 안 읽힌다. DDS-CAD 이 우리가 찾는 이름을 쓰지 않는다.
-    expect(counts.equipmentWithoutCapacity).toBe(2203)
+    // 용량은 타입 객체의 표준 Pset 에 있다. 디퓨저 43개는 Pset_AirTerminalTypeCommon.AirFlowrateRange(범위),
+    // 방열기 30개는 Pset_SpaceHeaterTypeCommon.OutputCapacity. 개체의 Pset 만 읽던 때는 0 이었다.
+    expect(counts.equipmentWithoutCapacity).toBe(2130)
+    const withCapacity = equipment.filter((e) => e.capacity !== null)
+    expect(new Set(withCapacity.map((e) => e.capacityProperty))).toEqual(new Set(['AirFlowrateRange', 'OutputCapacity']))
   }, 300_000)
 })
 
@@ -184,10 +186,12 @@ describe.skipIf(!existsSync(DUPLEX_HVAC))('Duplex HVAC 판본 (밀리미터)', (
     const xs = equipment.map((e) => e.position![0])
     expect(Math.max(...xs)).toBeLessThan(50) // 주택 한 채다. 미터라면 수십 m 를 넘지 않는다
 
-    // 용량은 Revit 이 붙인 비표준 이름으로 들어온다. 표준 Pset 이름은 한 건도 없다.
+    // 용량은 대부분 Revit 이 붙인 비표준 이름이다. `Flow` 155건은 배관 구간의 물 유량인데, 한때 풍량
+    // (ex:nominalAirFlowRate)으로 내보냈다. 무엇이 흐르는지 모르는 이름이라 지금은 ex:nominalFlowRate 로 낸다.
+    // 타입 객체의 FlowRateRange(보일러 2 · 배관 부속 2)도 읽는다.
     const withCapacity = model.storeys.flatMap((s) => s.equipment).filter((e) => e.capacity !== null)
-    expect(withCapacity).toHaveLength(155)
-    expect(new Set(withCapacity.map((e) => e.capacityProperty))).toEqual(new Set(['Flow']))
+    expect(withCapacity).toHaveLength(159)
+    expect(new Set(withCapacity.map((e) => e.capacityProperty))).toEqual(new Set(['Flow', 'FlowRateRange']))
   }, 300_000)
 })
 
@@ -928,55 +932,49 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     expect(score.total).toBe(2216)
     expect(score.agreed / score.total).toBeGreaterThanOrEqual(0.973)
 
-    // 규칙 방향을 포트가 말한 방향에 대 본다(99.9%). 포트가 다 말해서 새로 준 방향은 없다.
+    // 규칙 방향을 포트가 말한 방향에 대 본다. 포트가 다 말해서 새로 준 방향은 없다. 타입 객체에 적힌 종류(VAV 115 ·
+    // 그릴 206 · 팬 6)를 읽으면서 대 볼 연결이 3,673 에서 3,694 로 늘었다. 맞은 수(3,670)는 그대로이고 늘어난 어긋남
+    // 21 은 전부 천장 배기팬이다(아래 테스트). 99.9% → 99.35% 는 규칙이 원래 틀리던 곳이 보이게 된 것이다.
     const rules = inferFlowByRules(model)
-    expect(rules.agree + rules.disagree).toBe(3673)
-    expect(rules.agree / (rules.agree + rules.disagree)).toBeGreaterThanOrEqual(0.999)
+    expect({ agree: rules.agree, checked: rules.agree + rules.disagree }).toEqual({ agree: 3670, checked: 3694 })
+    expect(rules.agree / (rules.agree + rules.disagree)).toBeGreaterThanOrEqual(0.9935)
 
-    expect(checksOf(model)).toEqual({
-      'terminal-source': '234/234',
-      'source-terminal': '2/4',
-      'terminal-single-source': '234/234',
-      'device-space': '665/668',
-      'device-connected': '239/239',
-    })
-  }, 300_000)
-
-  // 사람이 사전이 모르는 패밀리 다섯에 종류를 붙인 뒤(편집 화면에서 다섯 번 고른 것과 같다).
-  // **천장 배기팬(흡입구 일체형)을 배기팬으로 정하면 배기 계통 6개가 포트와 정반대(0/21)가 된다.** 배기 계통은
-  // 원천(팬) 쪽으로 흐른다는 규칙이, 흡입구를 품고 덕트로 내보내는 팬에는 거꾸로다. 규칙을 고치면 성수가 움직이므로
-  // 성수를 잴 수 있을 때 고친다. 그때 이 3694 중 어긋남 24 가 줄어야 한다. 지금은 화면이 그 계통을 바로 알린다.
-  it('사람이 종류를 채우면 말단이 원천에 닿는 것이 늘고, 천장 배기팬은 배기 규칙과 거꾸로다', async () => {
-    const api = new WebIFC.IfcAPI()
-    await api.Init()
-    const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_ARCH))).model
-    const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_HVAC))).model
-    const { model } = mergeModels(arch, hvac)
-    const before = inferFlowByRules(model)
-    const picks: [RegExp, string][] = [[/VAV/, 'vav'], [/Return Register|Exhaust Grill/, 'air_grille'], [/Exhaust Unit/, 'exhaust_fan']]
-    const families = new Map(model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role) && !equipmentKind(e.kind)).map((e) => [familyKeyOf(e), familyNameOf(e) ?? '']))
-    let after = before
-    let n = 0
-    for (const [key, name] of families) {
-      const kind = picks.find(([re]) => re.test(name))?.[1]
-      const done = kind ? setTypeKind(model, key, kind) : null
-      if (done) {
-        after = done.rules
-        n++
-      }
-    }
-    expect(n).toBe(4)
     expect(checksOf(model)).toEqual({
       'terminal-source': '439/440',
       'source-terminal': '4/10',
       'terminal-single-source': '234/234',
       'device-space': '665/668',
-      'device-connected': '565/566',
+      'device-connected': '569/667',
     })
-    expect({ agree: after.agree, checked: after.agree + after.disagree }).toEqual({ agree: 3670, checked: 3694 })
-    const worse = newlyDisagreeing(before, after).map((w) => model.systems.find((x) => x.id === w.systemId)!)
+  }, 300_000)
+
+  // IFC2x3 은 개체가 `IfcFlowTerminal` 처럼 추상적이지만 타입 객체(`IfcAirTerminalBoxType` …)가 종류를 말한다. 그걸 읽기
+  // 전에는 사람이 패밀리 다섯을 골라야 했고, 지금은 BIM 이 말한 대로 붙는다(출처 BIM). 모르는 기기는 1대만 남는다.
+  // **천장 배기팬(흡입구 일체형)이 팬이 되면 배기 계통 6개가 포트와 정반대(0/21)가 된다.** 배기 계통은 원천(팬) 쪽으로
+  // 흐른다는 규칙이, 흡입구를 품고 덕트로 내보내는 팬에는 거꾸로다. 규칙을 고치면 성수가 움직이므로 성수를 잴 수 있을
+  // 때 고친다. 그때 3,694 중 어긋남 24 가 줄어야 한다. 지금은 화면이 그 계통을 바로 알린다.
+  it('타입에 적힌 종류를 읽으면 말단이 원천에 닿는 것이 늘고, 천장 배기팬은 배기 규칙과 거꾸로다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_ARCH))).model
+    const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_HVAC))).model
+    const { model } = mergeModels(arch, hvac)
+    const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
+    expect(devices.filter((e) => e.kindSource === 'bim')).toHaveLength(428)
+    expect(devices.filter((e) => !e.kind)).toHaveLength(1)
+
+    // 타입을 안 읽던 때와 같은 모델.
+    const unread = structuredClone(model)
+    for (const e of unread.storeys.flatMap((s) => s.equipment)) if (e.kindSource === 'bim') e.kind = null
+    expect(checksOf(unread)['terminal-source']).toBe('234/234')
+    expect(checksOf(model)['terminal-source']).toBe('439/440')
+
+    const worse = newlyDisagreeing(inferFlowByRules(unread), inferFlowByRules(model)).map((w) => model.systems.find((x) => x.id === w.systemId)!)
     expect(worse.every((sy) => sy.kind === 'exhaust_air')).toBe(true)
     expect(worse).toHaveLength(6)
+    const fans = devices.filter((e) => e.systemId && worse.some((sy) => sy.id === e.systemId) && e.kind === 'fan')
+    expect(fans.every((e) => e.declaredType?.startsWith('Fan.'))).toBe(true)
+    expect(fans.length).toBeGreaterThan(0)
   }, 300_000)
 })
 
@@ -997,17 +995,17 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
     expect(score.total).toBe(7742)
     expect(score.agreed / score.total).toBeGreaterThanOrEqual(0.971)
 
-    // **포트가 없으면 규칙이 퍼질 길이 끊겨 있다.** 연결 13,890개 중 규칙이 방향을 준 것이 12개뿐이고, 공기 말단
-    // 454개 중 원천에 닿는 것이 없다. 설비 1,806대가 어디에도 이어지지 않는다(임포트 경고). R-요구사항의 근거다.
+    // **포트가 없으면 규칙이 퍼질 길이 끊겨 있다.** 연결 13,890개 중 규칙이 방향을 준 것이 1,345개이고(타입의 종류를
+    // 읽기 전에는 12개), 공기 말단 454개 중 원천에 닿는 것이 21개뿐이다. 설비 1,806대가 어디에도 이어지지 않는다(임포트 경고). R-요구사항의 근거다.
     // 이 숫자가 오르면 좋은 일이지만, 다른 BIM 이 같이 떨어지지 않았는지 먼저 본다.
     const rules = inferFlowByRules(model)
-    expect(rules.oriented).toBeGreaterThanOrEqual(12)
+    expect(rules.oriented).toBeGreaterThanOrEqual(1345)
     expect(checksOf(model)).toEqual({
-      'terminal-source': '0/454',
-      'source-terminal': '0/3',
-      'terminal-single-source': '0/0',
+      'terminal-source': '21/454',
+      'source-terminal': '16/136',
+      'terminal-single-source': '21/21',
       'device-space': '3337/3469',
-      'device-connected': '626/658',
+      'device-connected': '854/985',
     })
   }, 600_000)
 })

@@ -28,7 +28,8 @@ import { apply, compose, foldChain, foldElevation, fromAxisPlacement, type Trans
 import { assignEquipmentToSpaces } from '../mapping'
 import { lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
-import { equipmentKindOf, roomKindOf, systemKindOf } from '../kinds'
+import { equipmentKindOf, resolveEquipmentKind, roomKindOf, systemKindOf } from '../kinds'
+import { capacityRank } from '../capacity'
 import { inferFlowByRules } from '../flow-rules'
 import { footprintRings, openingPlacement, spacesBesideOpening } from './element-geometry'
 
@@ -300,6 +301,18 @@ class Reader {
     return this.api.GetLine(this.model, expressID)
   }
 
+  /**
+   * 읽지 못하는 줄이면 null. web-ifc 가 모르는 줄에서 예외를 던진다(Duplex COBie 판본의 528639 — 타입 객체의
+   * Pset 을 따라가다 걸렸다). 타입 쪽은 없어도 되는 정보라 파일 전체를 멈추지 않는다.
+   */
+  tryLine(expressID: number): any {
+    try {
+      return this.line(expressID)
+    } catch {
+      return null
+    }
+  }
+
   /** 배치 사슬을 타고 올라가 세계 좌표 변환을 만든다. */
   placement(expressID: number | undefined): Transform2 {
     const chain: Transform2[] = []
@@ -343,6 +356,52 @@ class Reader {
     return [flat[0], flat[1], foldElevation(zs)]
   }
 
+  private typeOfCache: Map<number, number> | null = null
+
+  /** 개체 → 타입 객체(IfcRelDefinesByType). */
+  typeOf(): Map<number, number> {
+    if (this.typeOfCache) return this.typeOfCache
+    const out = new Map<number, number>()
+    for (const relID of this.ids(WebIFC.IFCRELDEFINESBYTYPE)) {
+      const rel = this.line(relID)
+      const type = ref(rel?.RelatingType)
+      if (type === null) continue
+      for (const h of rel.RelatedObjects ?? []) out.set(h.value, type)
+    }
+    return (this.typeOfCache = out)
+  }
+
+  /**
+   * 설비마다 IFC 가 말한 종류를 `클래스.PredefinedType` 으로 모은다(`AirTerminal.DIFFUSER`). 값이 없으면 `클래스` 만.
+   *
+   * **IFC2x3 은 개체가 아니라 타입 객체가 말한다.** 개체는 `IfcFlowTerminal` 처럼 추상적이지만 타입은
+   * `IfcAirTerminalType` 이고 PredefinedType 도 거기 있다(병원 HVAC 의 DIFFUSER 231·REGISTER 184). 그래서 개체에
+   * PredefinedType 자리가 없으면 타입의 클래스와 값을 쓴다. IFC4 는 개체의 값을 먼저 보고, 비었으면 타입을 본다.
+   * USERDEFINED 의 실제 값은 개체면 ObjectType, 타입이면 ElementType 에 있다.
+   */
+  declaredType(api: Api): (id: number) => string | null {
+    const typeOf = this.typeOf()
+
+    const said = (line: any, userField: 'ObjectType' | 'ElementType'): string | null => {
+      const v = val(line?.PredefinedType) as string | undefined
+      if (!v || v === 'NOTDEFINED') return null
+      if (v !== 'USERDEFINED') return v
+      return ((val(line?.[userField]) as string) ?? '').trim() || null
+    }
+    const className = (line: any) => api.GetNameFromTypeCode(line.type).replace(/^Ifc/i, '')
+    const join = (cls: string, value: string | null) => (value ? `${cls}.${value}` : cls)
+
+    return (id) => {
+      const el = this.line(id)
+      const typeID = typeOf.get(id)
+      const type = typeID === undefined ? null : this.tryLine(typeID)
+      if (el && 'PredefinedType' in el) {
+        return join(className(el), said(el, 'ObjectType') ?? (type ? said(type, 'ElementType') : null))
+      }
+      return type ? join(className(type).replace(/Type$/, ''), said(type, 'ElementType')) : null
+    }
+  }
+
   /**
    * 설비별 용량 파라미터를 모은다. 어느 속성에서 왔는지도 같이 남긴다.
    *
@@ -352,27 +411,43 @@ class Reader {
    */
   capacityByElement(): Map<number, { value: number; property: string }> {
     const out = new Map<number, { value: number; property: string }>()
+    // 목록에서 앞선 이름이 이긴다. 같은 이름이면 나중에 넣은 것(개체)이 타입을 덮는다 — IFC 에서 개체의 값이 타입의
+    // 값보다 앞선다.
+    const offer = (objectID: number, value: number, property: string) => {
+      const had = out.get(objectID)
+      if (had && capacityRank(had.property) < capacityRank(property)) return
+      out.set(objectID, { value, property })
+    }
+    const read = (psetID: number, objectIDs: number[]) => {
+      const def = this.tryLine(psetID)
+      for (const propHandle of def?.HasProperties ?? []) {
+        const prop = this.tryLine(propHandle.value)
+        const name = val(prop?.Name) as string
+        if (capacityRank(name) < 0) continue
+        // 범위(IfcPropertyBoundedValue)는 설정값을, 없으면 위 끝을 쓴다. 표준의 AirFlowrateRange·FlowRateRange 가 범위다.
+        const raw = prop?.NominalValue ?? prop?.SetPointValue ?? prop?.UpperBoundValue
+        const value = Number(val(raw))
+        if (!Number.isFinite(value)) continue
+        for (const id of objectIDs) offer(id, value, name)
+      }
+    }
+
+    // 타입 객체의 Pset 을 먼저. 표준의 Pset_*TypeCommon 은 대개 여기 붙는다(Pset_FanTypeCommon.NominalAirFlowRate …).
+    const objectsOfType = new Map<number, number[]>()
+    for (const [objectID, typeID] of this.typeOf()) {
+      const list = objectsOfType.get(typeID) ?? []
+      list.push(objectID)
+      objectsOfType.set(typeID, list)
+    }
+    for (const [typeID, objectIDs] of objectsOfType) {
+      for (const h of this.tryLine(typeID)?.HasPropertySets ?? []) read(h.value, objectIDs)
+    }
 
     for (const relID of this.ids(WebIFC.IFCRELDEFINESBYPROPERTIES)) {
       const rel = this.line(relID)
-      const def = rel?.RelatingPropertyDefinition ? this.line(rel.RelatingPropertyDefinition.value) : null
-      if (!def?.HasProperties) continue
-
-      for (const propHandle of def.HasProperties) {
-        const prop = this.line(propHandle.value)
-        const name = val(prop?.Name) as string
-        const rank = CAPACITY_NAMES.indexOf(name)
-        if (rank < 0) continue
-        const value = Number(val(prop?.NominalValue))
-        if (!Number.isFinite(value)) continue
-
-        for (const objHandle of rel.RelatedObjects ?? []) {
-          // 목록에서 앞선 이름이 이긴다. 표준 이름을 비표준 이름보다 먼저 두었다.
-          const had = out.get(objHandle.value)
-          if (had && CAPACITY_NAMES.indexOf(had.property) <= rank) continue
-          out.set(objHandle.value, { value, property: name })
-        }
-      }
+      const psetID = ref(rel?.RelatingPropertyDefinition)
+      if (psetID === null) continue
+      read(psetID, (rel.RelatedObjects ?? []).map((h: any) => h.value))
     }
     return out
   }
@@ -735,24 +810,6 @@ function spaceOf(
   }
 }
 
-/**
- * 용량으로 받아들이는 속성 이름. **앞에 있을수록 우선한다.**
- *
- * 앞쪽 넷은 IFC 표준 Pset 의 이름이고, 뒤쪽은 저작 도구가 임의로 붙이는 이름이다.
- * 실측한 모델에서는 뒤쪽만 나왔다. 표준 이름을 먼저 두는 이유는, 둘 다 있는 파일이라면
- * 표준 쪽이 검증을 거친 값이기 때문이다.
- */
-const CAPACITY_NAMES = [
-  'NominalAirFlowRate',
-  'AirFlowRate',
-  'NominalCapacity',
-  'TotalCoolingCapacity',
-  // Revit 이 내보내는 이름들. 공백이 들어간 것도 그대로 쓴다.
-  'Flow',
-  'Air Flow',
-  'Design Flow',
-  'Rated Flow',
-]
 
 /**
  * 문·창 하나를 중간 모델로 옮긴다.
@@ -874,6 +931,7 @@ function read(
     stage(1)
     const loadBearing = r.loadBearingByElement()
     const capacity = r.capacityByElement()
+    const declaredTypeOf = r.declaredType(api)
     const thickness = r.thicknessByElement()
     const wallOfOpening = r.wallByOpening()
     const boundaries = r.boundaryElementsBySpace()
@@ -984,10 +1042,12 @@ function read(
         memberIds: memberIDs.map((m: number) => (val(r.line(m)?.GlobalId) as string) ?? `element-${m}`),
         source: 'ifc',
         // Revit 은 시스템 분류(급기, 순환수 공급 …)를 ObjectType 에 적는다. 이름에는 번호가 붙는다.
+        // IFC4 는 PredefinedType 도 있다(IfcDistributionSystem). 요구하는 어휘는 kinds.ts 의 SYSTEM_IFC 다.
         kind:
           systemKindOf(
             (val(group?.LongName) as string) || ((val(group?.Name) as string) ?? ''),
             (val(group?.ObjectType) as string) ?? '',
+            (val(group?.PredefinedType) as string) ?? null,
           )?.kind ?? null,
       })
     }
@@ -1083,12 +1143,16 @@ function read(
             // GetNameFromTypeCode 는 'IfcAirTerminal' 을 준다. 앞의 Ifc 만 뗀다.
             const ifcClass = api.GetNameFromTypeCode(el.type).replace(/^Ifc/i, '')
             const objectType = (val(el?.ObjectType) as string) ?? ''
+            const declaredType = declaredTypeOf(elementID)
+            const kind = resolveEquipmentKind(name, objectType, ifcClass, declaredType)
             equipment.push({
               id,
               name,
               ifcClass,
               objectType,
-              kind: equipmentKindOf(name, objectType, ifcClass)?.kind ?? null,
+              declaredType,
+              kind: kind?.info.kind ?? null,
+              ...(kind ? { kindSource: kind.source } : {}),
               role: roleOf.get(elementID) ?? null,
               position: r.position3(el),
               capacity: capacity.get(elementID)?.value ?? null,

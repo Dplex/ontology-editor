@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EQUIPMENT_KINDS, equipmentKindOf, roomKindOf, systemKindOf } from './kinds'
+import { EQUIPMENT_KINDS, equipmentKindOf, equipmentKindOfIfc, resolveEquipmentKind, roomKindOf, systemKindOf } from './kinds'
 
 // 입력은 성수·Duplex·ifc4Mep 실측 파일에 실제로 나온 이름이다. 사전을 넓히면 이 표에서 무엇이 바뀌는지 보인다.
 const kind = (name: string, objectType = '', ifcClass = '') => equipmentKindOf(name, objectType, ifcClass)?.kind ?? null
@@ -57,6 +57,55 @@ describe('설비 종류 사전', () => {
   })
 })
 
+describe('IFC 가 말한 종류', () => {
+  const ifc = (declared: string) => equipmentKindOfIfc(declared)?.kind ?? null
+
+  it.each([
+    // 병원 HVAC(IFC2x3 타입 객체), ifc4Mep(IFC4 개체)에 실제로 나온 값
+    ['AirTerminal.DIFFUSER', 'air_diffuser'],
+    ['AirTerminal.REGISTER', 'air_grille'],
+    ['AirTerminal.GRILLE', 'air_grille'],
+    ['AirTerminalBox.VARIABLEFLOWPRESSUREDEPENDANT', 'vav'],
+    ['UnitaryEquipment.AIRHANDLER', 'ahu'],
+    ['Outlet.POWEROUTLET', 'receptacle'],
+    ['Sensor.HEATSENSOR', 'heat_detector'],
+    // 클래스만으로 정해지는 것은 값을 가리지 않는다
+    ['Boiler.WATER', 'boiler'],
+    ['Fan.CENTRIFUGALFORWARDCURVED', 'fan'],
+    ['Fan.200 mm', 'fan'],
+    ['Valve', 'valve'],
+    // IFC4 에 없어 USERDEFINED 로 적게 한 이름. 대소문자는 가리지 않는다
+    ['UnitaryEquipment.FANCOILUNIT', 'fcu'],
+    ['UnitaryEquipment.fancoilunit', 'fcu'],
+    ['HeatExchanger.GROUNDHEATEXCHANGER', 'ground_heat_exchanger'],
+  ])('%s → %s', (declared, expected) => {
+    expect(ifc(declared)).toBe(expected)
+  })
+
+  it.each(['UnitaryEquipment.SPLITSYSTEM', 'AirTerminal.SD-1200mm', 'Sensor.MOVEMENTSENSOR', 'HeatExchanger.SHELLANDTUBE', 'FlowTerminal'])(
+    '표에 없는 값은 null: %s',
+    (declared) => {
+      expect(ifc(declared)).toBeNull()
+    },
+  )
+
+  it('이름 사전이 먼저다 — 이름이 더 좁게 말한다', () => {
+    // 성수의 EF-11 은 IFC 로는 팬이지만 배기팬이다.
+    expect(resolveEquipmentKind('EF-11:EF-11:1', '', 'FlowMovingDevice', 'Fan')).toEqual({ info: expect.objectContaining({ kind: 'exhaust_fan' }), source: 'dict' })
+  })
+
+  it('이름이 모르면 IFC 가 말한 것을 쓰고, 출처는 BIM 이다', () => {
+    expect(resolveEquipmentKind('150 mm', '', 'FlowTerminal', 'AirTerminalBox.VARIABLEFLOWPRESSUREDEPENDANT')).toEqual({ info: expect.objectContaining({ kind: 'vav' }), source: 'bim' })
+  })
+
+  it('BIM 이 값을 말했는데 표에 없으면 클래스로 추측하지 않는다', () => {
+    // SPLITSYSTEM 은 실내기와 실외기를 가르지 않는다. 공조기로 추측하면 BIM 이 한 말을 덮는다.
+    expect(resolveEquipmentKind('63300000 J', '', 'UnitaryEquipment', 'UnitaryEquipment.SPLITSYSTEM')).toBeNull()
+    // 값을 말하지 않았으면 추측한다(출처는 사전).
+    expect(resolveEquipmentKind('1.6.6', '', 'UnitaryEquipment', 'UnitaryEquipment')).toEqual({ info: expect.objectContaining({ kind: 'ahu' }), source: 'dict' })
+  })
+})
+
 describe('방 종류 사전', () => {
   it.each([
     ['OFFICE', 'office'],
@@ -109,20 +158,43 @@ describe('계통 종류 사전', () => {
     expect(info?.sense).toBe(sense)
   })
 
+  it.each([
+    // IFC4 PredefinedType + ObjectType 약어(요구 어휘). 공기는 EN 12792
+    ['AHU-1 SA', 'SUP', 'AIRCONDITIONING', 'supply_air'],
+    ['x', 'ETA', 'VENTILATION', 'return_air'],
+    ['x', 'EHA', 'EXHAUST', 'exhaust_air'],
+    ['x', 'ODA', 'AIRCONDITIONING', 'outside_air'],
+    ['x', 'FLOW', 'HEATING', 'hydronic_supply'],
+    ['x', 'RETURN', 'CHILLEDWATER', 'hydronic_return'],
+    ['x', '', 'DOMESTICHOTWATER', 'domestic_hot_water'],
+    ['x', '', 'EXHAUST', 'exhaust_air'],
+  ])('%s (%s, %s) → %s', (name, objectType, predefined, expected) => {
+    expect(systemKindOf(name, objectType, predefined)?.kind).toBe(expected)
+  })
+
+  it('약어는 그 매체의 PredefinedType 과 함께일 때만 읽는다', () => {
+    // RETURN 은 물 계통의 약어다. 공기 계통에 붙으면 방향을 정하지 않고 이름으로 넘어간다.
+    expect(systemKindOf('x', 'RETURN', 'VENTILATION')).toBeNull()
+    // 공조·환기만으로는 급기인지 환기인지 모른다.
+    expect(systemKindOf('x', '', 'AIRCONDITIONING')).toBeNull()
+  })
+
   it('위생(배수)은 원천이 없어 규칙 대상이 아니다', () => {
     expect(systemKindOf('위생 6', '위생')).toBeNull()
     expect(systemKindOf('Unit A Sanitary')).toBeNull()
   })
 })
 
-describe('사람만 고르는 종류', () => {
-  it('사전은 그 이름을 읽지 않는다 — 사전을 넓히면 가진 BIM 전부의 숫자가 움직인다', () => {
+describe('이름으로는 읽지 않는 종류', () => {
+  it('사전은 그 이름을 읽지 않는다 — 사전을 넓히면 가진 BIM 전부의 숫자가 움직인다. BIM 이 말하면 받는다', () => {
     const manual = EQUIPMENT_KINDS.filter((k) => k.manual)
-    expect(manual.map((k) => k.kind)).toEqual(['receptacle', 'sprinkler', 'plumbing_fixture', 'water_heater', 'transformer'])
+    expect(manual.map((k) => k.kind)).toEqual(['receptacle', 'sprinkler', 'plumbing_fixture', 'water_heater', 'transformer', 'outdoor_unit', 'radiator'])
     for (const name of ['M_Duplex Receptacle:Standard:Standard:1', 'M_Sprinkler - Pendent - Hosted:15 mm:1', 'M_Water Heater:380 L:380 L:1']) {
       expect(manual.map((k) => k.kind)).not.toContain(kind(name))
     }
-    // Brick 1.4 에 맞는 이름을 확인하지 못했다. ex: 로 나간다.
-    for (const k of manual) expect(k.brick).toBe(null)
+    // 앞의 다섯은 Brick 1.4 에 맞는 이름을 확인하지 못했다. ex: 로 나간다.
+    for (const k of manual.slice(0, 5)) expect(k.brick).toBe(null)
+    // 병원 전기의 콘센트 958개는 IfcOutletType 이 POWEROUTLET 이라고 말한다.
+    expect(equipmentKindOfIfc('Outlet.POWEROUTLET')?.kind).toBe('receptacle')
   })
 })

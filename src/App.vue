@@ -1311,10 +1311,10 @@ const kindLabel = (e: Equipment) => equipmentKind(e.kind)?.label ?? ''
 /** 종류 상자의 무리. 사람만 고르는 종류(사전이 읽지 않고 Brick 이름도 없는 것)는 따로 보인다. */
 const KIND_GROUPS = [
   { label: '사전이 아는 종류', kinds: EQUIPMENT_KINDS.filter((k) => !k.manual) },
-  { label: '사람만 고르는 종류 (ex: 로 나감)', kinds: EQUIPMENT_KINDS.filter((k) => k.manual) },
+  { label: '이름으로는 읽지 않는 종류 (BIM 이 말하거나 사람이 고름)', kinds: EQUIPMENT_KINDS.filter((k) => k.manual) },
 ]
 // 종류의 출처. 사전이 읽은 것과 사람이 타입 단위로 정한 것을 가른다.
-const kindSrc = (e: Equipment) => (e.kindEdited ? 'edit' : 'dict')
+const kindSrc = (e: Equipment) => (e.kindEdited ? 'edit' : e.kindSource === 'bim' ? 'bim' : 'dict')
 
 // --- 종류 지정 (타입 단위) -----------------------------------------------------------
 //
@@ -2358,7 +2358,7 @@ function exportTTL() {
               <h3>{{ selected.name || '(이름 없음)' }}</h3>
               <p class="stats">
                 <template v-if="kindLabel(selected)">{{ kindLabel(selected) }} <Src :kind="kindSrc(selected)" /> · </template>
-                {{ selected.ifcClass }} <Src kind="bim" />
+                {{ selected.declaredType ?? selected.ifcClass }} <Src kind="bim" />
                 <template v-if="roleLabel(selected.role)"> · {{ roleLabel(selected.role) }} <Src :kind="roleSrc(selected)" /></template> ·
                 {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
                 <Src v-if="selected.systemId" kind="bim" /> ·
