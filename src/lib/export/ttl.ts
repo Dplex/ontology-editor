@@ -86,8 +86,9 @@ export function classOf(equipment: Equipment): string {
 }
 
 function label(text: string): string {
-  // 큰따옴표와 역슬래시만 막으면 된다. 줄바꿈은 이름에 들어올 일이 없지만 같이 처리한다.
-  const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n')
+  // Turtle 의 "…" 문자열에 날것으로 못 들어가는 것은 넷이다: 큰따옴표, 역슬래시, \n, \r. 하나라도 새면 그 줄이
+  // 아니라 **파일 전체가** 파서에서 떨어진다. \r 은 윈도에서 쓴 이름에 섞여 들어온다.
+  const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r')
   return `"${escaped}"`
 }
 
@@ -132,9 +133,10 @@ export function modelToTTL(model: Model): string {
     feeds.set(from, [...new Set([...(feeds.get(from) ?? []), ...targets])])
   }
 
+  // 목적어 없는 `brick:hasPart .` 는 문법 오류다(층이 없는 파일, 구성원이 없는 계통). 비면 술어째 뺀다.
   lines.push(`${ref(model.buildingId)} a brick:Building ;`)
-  lines.push(`    rdfs:label ${label(model.buildingName)} ;`)
-  lines.push(`    brick:hasPart ${model.storeys.map((s) => ref(s.id)).join(', ')} .`)
+  if (model.storeys.length > 0) lines.push(`    brick:hasPart ${model.storeys.map((s) => ref(s.id)).join(', ')} ;`)
+  lines.push(`    rdfs:label ${label(model.buildingName)} .`)
   lines.push('')
 
   for (const storey of model.storeys) {
@@ -176,8 +178,8 @@ export function modelToTTL(model: Model): string {
   // 계통은 층에 속하지 않아서 마지막에 따로 적는다. 여러 층에 걸치는 것이 정상이다.
   for (const system of model.systems) {
     lines.push(`${ref(system.id)} a ex:Distribution_System ;`)
-    lines.push(`    rdfs:label ${label(system.name)} ;`)
-    lines.push(`    brick:hasPart ${system.memberIds.map(ref).join(', ')} .`)
+    if (system.memberIds.length > 0) lines.push(`    brick:hasPart ${system.memberIds.map(ref).join(', ')} ;`)
+    lines.push(`    rdfs:label ${label(system.name)} .`)
     lines.push('')
   }
 

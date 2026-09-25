@@ -2076,14 +2076,39 @@ function download(name: string, text: string, mime: string) {
   a.href = url
   a.download = name
   a.click()
-  URL.revokeObjectURL(url)
+  // 클릭 직후에 풀면 브라우저에 따라 받기가 시작되기 전에 끊긴다(큰 파일일수록). 받기가 시작될 틈을 둔다.
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
-function exportGeoJSON() {
+/** 폴더를 골라 파일 여럿을 한 번에 쓰는 브라우저 기능(크롬·엣지). 없으면 undefined. */
+type DirectoryPicker = (options: { mode: 'readwrite' }) => Promise<{
+  getFileHandle(name: string, options: { create: true }): Promise<{ createWritable(): Promise<{ write(text: string): Promise<void>; close(): Promise<void> }> }>
+}>
+
+/**
+ * GeoJSON 은 층마다 한 파일이다(성수 19개). 연달아 내려받으면 크롬이 "여러 파일 다운로드"를 묻고, 거절하거나 창을
+ * 놓치면 둘째 파일부터 **조용히** 빠진다. 폴더를 고를 수 있으면 한 폴더에 한꺼번에 쓰고, 못 하면 내려받는다.
+ */
+async function exportGeoJSON() {
   if (!model.value) return
-  for (const { fileName: n, collection } of modelToGeoJSON(model.value)) {
-    download(n, JSON.stringify(collection, null, 2), 'application/geo+json')
+  const files = modelToGeoJSON(model.value).map((f) => ({ name: f.fileName, text: JSON.stringify(f.collection, null, 2) }))
+  const picker = (window as unknown as { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker
+  if (files.length > 1 && picker) {
+    try {
+      const dir = await picker({ mode: 'readwrite' })
+      for (const f of files) {
+        const writable = await (await dir.getFileHandle(f.name, { create: true })).createWritable()
+        await writable.write(f.text)
+        await writable.close()
+      }
+      note(`GeoJSON ${files.length}개(층마다 하나)를 고른 폴더에 썼습니다.`)
+      return
+    } catch (e) {
+      // 사람이 폴더 고르기를 닫은 것이면 아무것도 하지 않는다. 권한이 막힌 것이면 내려받기로 넘어간다.
+      if ((e as DOMException)?.name === 'AbortError') return
+    }
   }
+  for (const f of files) download(f.name, f.text, 'application/geo+json')
 }
 
 function exportTTL() {

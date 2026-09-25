@@ -149,6 +149,13 @@ TTL이 쓰는 술어는 `brick:hasPart`, `brick:hasLocation`, `brick:feeds`, `br
 온톨로지가 쓰는 술어가 이 넷뿐이라서, DT 쪽 파서(`ieum-pipeline`의 `ttl.go`)가 읽을 수 있게 맞췄다.
 기하와 의미를 나눈 이유와 받는 쪽 형식에 관한 메모는 부록 C에 있다.
 
+용량은 양의 종류마다 술어가 다르다(`ex:nominalAirFlowRate`·`ex:nominalWaterFlowRate`·`ex:nominalCapacity`·
+`ex:nominalFlowRate`, 4.6). GeoJSON에도 숫자 옆에 `capacityQuantity`를 붙인다. GeoJSON은 층마다 한 파일이라, 폴더를
+고를 수 있는 브라우저에서는 한 폴더에 한꺼번에 쓴다 — 연달아 내려받으면 크롬이 여러 파일 받기를 묻고, 거절하면 둘째
+파일부터 조용히 빠진다. 2026-09-25에 내보낸 파일을 표준 Turtle 파서(rdflib)와 GeoJSON 검사에 대 봤다. 가진 BIM에서는
+문법 오류·빈 참조·중복 id가 없었고, 만들어 넣은 경우 셋(층이 없는 모델, 구성원이 없는 계통, 이름의 `\r`)이 파일 전체를
+깨뜨려서 고쳤다.
+
 ---
 
 ## 2. DT가 온톨로지에 묻는 것: 피처 F1~F16

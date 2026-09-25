@@ -86,7 +86,7 @@ describe('Brick TTL', () => {
     expect(ttl).toContain('a brick:Floor ;')
     // 방 이름으로 종류를 알면 Brick 방 하위 클래스로 나간다(kinds.ts). 회의실은 Conference_Room 이다.
     expect(ttl).toContain('a brick:Conference_Room ;')
-    expect(ttl).toContain('brick:hasPart ex:0PoC\\$Storey\\$1F\\$00000, ex:0PoC\\$Storey\\$2F\\$00000 .')
+    expect(ttl).toContain('brick:hasPart ex:0PoC\\$Storey\\$1F\\$00000, ex:0PoC\\$Storey\\$2F\\$00000 ;')
   })
 
   it('기하를 담지 않는다', () => {
@@ -166,7 +166,8 @@ describe('설비 내보내기', () => {
   it('계통을 hasPart 로 묶는다', () => {
     const ttl = modelToTTL(mep)
     expect(ttl).toContain('a ex:Distribution_System ;')
-    expect(ttl).toContain('rdfs:label "AHU-1 급기 계통" ;')
+    expect(ttl).toContain('rdfs:label "AHU-1 급기 계통" .')
+    expect(ttl).toMatch(/a ex:Distribution_System ;\n {4}brick:hasPart ex:\S+/)
   })
 
   it('설비는 GeoJSON 에 Point 로, 좌표 없으면 null 로 들어간다', () => {
@@ -218,5 +219,42 @@ describe('설비 내보내기', () => {
 
   it('기하는 여전히 TTL 로 새지 않는다', () => {
     expect(modelToTTL(mep)).not.toMatch(/POLYGON|coordinates|wkt/i)
+  })
+})
+
+// 가진 BIM 에는 없지만 들어오면 파일 전체가 파서에서 떨어지는 경우들. 한 줄만 틀려도 받는 쪽은 아무것도 못 읽는다.
+describe('내보내기가 깨지지 않는다', () => {
+  it('목적어 없는 hasPart 를 쓰지 않는다 — 층이 없는 파일, 구성원이 없는 계통', () => {
+    const m = structuredClone(mep)
+    m.storeys = []
+    m.systems[0].memberIds = []
+    const ttl = modelToTTL(m)
+    expect(ttl).not.toMatch(/brick:hasPart\s*[;.]/)
+    // 블록마다 마침표로 끝난다.
+    for (const block of ttl.split('\n\n').filter((b) => b.startsWith('ex:'))) expect(block.trimEnd().endsWith('.')).toBe(true)
+  })
+
+  it('이름의 CR 도 이스케이프한다 — 날것이면 Turtle 문자열이 끊긴다', () => {
+    const m = structuredClone(model)
+    m.storeys[0].spaces[0].longName = '회의실\r\n"A"\\B'
+    const ttl = modelToTTL(m)
+    expect(ttl).toContain('rdfs:label "회의실\\r\\n\\"A\\"\\\\B" ;')
+    expect(ttl).not.toContain('\r')
+  })
+
+  it('층 파일 이름이 겹치지 않는다 — 이름이 같은 층, 특수문자만 다른 층', () => {
+    const m = structuredClone(model)
+    m.storeys[0].name = 'B1/B2'
+    m.storeys[1].name = 'B1 B2'
+    m.storeys.push({ ...structuredClone(m.storeys[1]), id: 'third' })
+    const names = modelToGeoJSON(m).map((f) => f.fileName)
+    expect(names).toEqual(['floor-B1_B2.geojson', 'floor-B1_B2-2.geojson', 'floor-B1_B2-3.geojson'])
+  })
+
+  it('GeoJSON 의 용량에 무엇의 양인지 붙인다', () => {
+    const features = storeyToGeoJSON(mep.storeys[0]).features
+    const props = (name: string) => features.find((f) => f.properties.name === name)!.properties
+    expect(props('AHU-1')).toMatchObject({ capacity: 1.6667, capacityQuantity: 'airflow' })
+    expect(props('AT-101-02')).toMatchObject({ capacity: null, capacityQuantity: null })
   })
 })

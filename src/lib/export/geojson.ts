@@ -5,6 +5,7 @@
 // 같은 원점·축·단위(m)를 쓰기로 되어 있으므로(PRD 1.7), 그 좌표계를 그대로 둔다.
 // 지도 위에 얹을 일이 생기면 그때 사이트 원점의 위경도와 방위를 받아 한 번에 변환한다.
 
+import { capacityQuantity } from '../capacity'
 import type { Equipment, Model, Opening, Space, Storey, Wall } from '../model'
 
 export type Geometry =
@@ -66,6 +67,8 @@ function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
       spaceId: equipment.spaceId,
       systemId: equipment.systemId,
       capacity: equipment.capacity,
+      // 용량이 무엇의 양인지(풍량·물 유량·출력·모름). 숫자만 두면 풍량과 출력이 섞인다(capacity.ts).
+      capacityQuantity: equipment.capacity === null ? null : capacityQuantity(equipment.capacityProperty),
     },
   }
 }
@@ -131,11 +134,21 @@ export function storeyToGeoJSON(storey: Storey): FeatureCollection {
   }
 }
 
-/** 층별 파일 이름과 내용의 짝. 파일로 떨어뜨리는 일은 호출부가 한다. */
+/**
+ * 층별 파일 이름과 내용의 짝. 파일로 떨어뜨리는 일은 호출부가 한다.
+ *
+ * **파일 이름이 겹치지 않게 한다.** 층 이름을 걸러 쓰므로 `B1/B2` 와 `B1 B2` 가 같아지고, IFC 는 이름이 같은 층도
+ * 막지 않는다. 겹치면 뒤의 것에 번호를 붙인다 — 그러지 않으면 한 층이 다른 층을 덮거나 브라우저가 `(1)` 을 붙여
+ * 어느 층인지 모르게 된다.
+ */
 export function modelToGeoJSON(model: Model): { fileName: string; collection: FeatureCollection }[] {
-  return model.storeys.map((storey) => ({
+  const taken = new Set<string>()
+  return model.storeys.map((storey) => {
     // 층 이름에는 공백이나 슬래시가 들어올 수 있다. 파일 이름으로 쓰기 전에 걸러 낸다.
-    fileName: `floor-${storey.name.replace(/[^\w가-힣-]+/g, '_') || storey.id}.geojson`,
-    collection: storeyToGeoJSON(storey),
-  }))
+    const stem = `floor-${storey.name.replace(/[^\w가-힣-]+/g, '_') || storey.id}`
+    let fileName = `${stem}.geojson`
+    for (let n = 2; taken.has(fileName.toLowerCase()); n++) fileName = `${stem}-${n}.geojson`
+    taken.add(fileName.toLowerCase())
+    return { fileName, collection: storeyToGeoJSON(storey) }
+  })
 }
