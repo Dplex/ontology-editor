@@ -49,58 +49,170 @@ export const TOLERANCE = 0.005
  */
 export const REACH = 0.05
 
-export function inferConnections(elements: readonly ElementPoints[], tolerance = TOLERANCE): Connection[] {
-  const cell = (v: number) => Math.floor(v / tolerance)
-  const key = (x: number, y: number, z: number) => `${x},${y},${z}`
+/**
+ * 꼭짓점을 칸에 담는 격자. 칸 크기 안쪽의 이웃은 27칸 안에 있다.
+ *
+ * 문자열 열쇠(`"x,y,z"`)와 꼭짓점마다 객체를 쓰던 때 병원 MEP(꼭짓점 1,124만)에서 inferConnections·findGaps 가
+ * 각각 16초를 먹었다 — 계산이 아니라 문자열과 객체를 만드는 데 든 시간이다. 칸은 정수 해시로 찾고(해시가 겹치면
+ * 칸 좌표로 가른다) 점은 타입 배열에 담는다. **칸을 처음 본 순서와 칸 안의 점 순서를 지켜서** 나오는 연결의 순서까지
+ * 문자열 격자 때와 같다.
+ */
+class PointGrid {
+  readonly x: Float32Array
+  readonly y: Float32Array
+  readonly z: Float32Array
+  /** 점의 주인(요소 번호). */
+  readonly owner: Int32Array
+  /** 같은 칸의 다음 점. 없으면 -1. */
+  readonly next: Int32Array
+  private count = 0
+  private readonly heads = new Map<number, number>()
+  readonly cx: number[] = []
+  readonly cy: number[] = []
+  readonly cz: number[] = []
+  /** 칸의 첫 점과 마지막 점. */
+  readonly first: number[] = []
+  private readonly last: number[] = []
+  /** 해시가 같은 다음 칸. */
+  private readonly chain: number[] = []
+  // 바로 앞 점의 칸. 메시의 이웃 꼭짓점은 대개 같은 칸이라 해시를 건너뛴다.
+  private lastCell: [number, number, number, number] = [NaN, NaN, NaN, -1]
 
-  // 한 요소의 같은 꼭짓점은 한 번만 담는다. 메시는 면마다 꼭짓점을 따로 들고 있어서 같은
-  // 점이 여러 번 나온다. 거르는 단위는 칸보다 훨씬 잘게 둔다 — 칸 단위로 거르면 한 칸에 든
-  // 서로 다른 두 끝점 중 하나를 버려서, 그 끝에 붙은 연결을 놓친다.
-  type Entry = { index: number; x: number; y: number; z: number }
-  const grid = new Map<string, Entry[]>()
-  const fine = tolerance / 50
-  elements.forEach((el, index) => {
-    const seen = new Set<string>()
-    for (let i = 0; i + 2 < el.points.length; i += 3) {
-      const x = el.points[i]
-      const y = el.points[i + 1]
-      const z = el.points[i + 2]
-      const dedupe = key(Math.round(x / fine), Math.round(y / fine), Math.round(z / fine))
-      if (seen.has(dedupe)) continue
-      seen.add(dedupe)
-      const k = key(cell(x), cell(y), cell(z))
-      const list = grid.get(k)
-      if (list) list.push({ index, x, y, z })
-      else grid.set(k, [{ index, x, y, z }])
+  constructor(
+    capacity: number,
+    readonly size: number,
+  ) {
+    this.x = new Float32Array(capacity)
+    this.y = new Float32Array(capacity)
+    this.z = new Float32Array(capacity)
+    this.owner = new Int32Array(capacity)
+    this.next = new Int32Array(capacity)
+  }
+
+  get cells() {
+    return this.cx.length
+  }
+
+  cell(v: number) {
+    return Math.floor(v / this.size)
+  }
+
+  private static hash(a: number, b: number, c: number) {
+    return Math.imul(a, 73856093) ^ Math.imul(b, 19349663) ^ Math.imul(c, 83492791)
+  }
+
+  /** 칸 번호. 빈 칸이면 -1. */
+  find(a: number, b: number, c: number): number {
+    let k = this.heads.get(PointGrid.hash(a, b, c)) ?? -1
+    while (k !== -1 && (this.cx[k] !== a || this.cy[k] !== b || this.cz[k] !== c)) k = this.chain[k]
+    return k
+  }
+
+  add(owner: number, x: number, y: number, z: number) {
+    const a = this.cell(x)
+    const b = this.cell(y)
+    const c = this.cell(z)
+    const memo = this.lastCell
+    let k = memo[0] === a && memo[1] === b && memo[2] === c ? memo[3] : this.find(a, b, c)
+    if (k === -1) {
+      k = this.cx.length
+      const h = PointGrid.hash(a, b, c)
+      this.cx.push(a)
+      this.cy.push(b)
+      this.cz.push(c)
+      this.first.push(-1)
+      this.last.push(-1)
+      this.chain.push(this.heads.get(h) ?? -1)
+      this.heads.set(h, k)
     }
-  })
+    const i = this.count++
+    this.x[i] = x
+    this.y[i] = y
+    this.z[i] = z
+    this.owner[i] = owner
+    this.next[i] = -1
+    if (this.last[k] === -1) this.first[k] = i
+    else this.next[this.last[k]] = i
+    this.last[k] = i
+    this.lastCell = [a, b, c, k]
+  }
+}
 
-  const compatible = (a: ElementPoints, b: ElementPoints) =>
-    a.systems === null || b.systems === null || a.systems.some((s) => b.systems!.includes(s))
+/**
+ * 한 요소의 꼭짓점 중 `fine` 격자에서 같은 칸에 드는 것을 한 번만 돌려준다. 메시는 면마다 꼭짓점을 따로 들고
+ * 있어서 같은 점이 여러 번 나온다. 칸은 `Math.round(v / fine)` 이고, 요소 안의 범위로 좁혀 정수 하나로 만든다
+ * (범위가 너무 커서 정수 하나에 안 담기면 문자열로 가른다).
+ */
+function uniquePoints(points: Float32Array, fine: number, visit: (x: number, y: number, z: number) => void) {
+  const n = Math.floor(points.length / 3)
+  if (n === 0) return
+  const r = new Float64Array(n * 3)
+  const lo = [Infinity, Infinity, Infinity]
+  const hi = [-Infinity, -Infinity, -Infinity]
+  for (let i = 0; i < n * 3; i++) {
+    const v = Math.round(points[i] / fine)
+    r[i] = v
+    const axis = i % 3
+    if (v < lo[axis]) lo[axis] = v
+    if (v > hi[axis]) hi[axis] = v
+  }
+  const sx = hi[0] - lo[0] + 1
+  const sy = hi[1] - lo[1] + 1
+  const sz = hi[2] - lo[2] + 1
+  const numeric = sx * sy * sz < Number.MAX_SAFE_INTEGER
+  const seen = new Set<number | string>()
+  for (let i = 0; i < n; i++) {
+    const a = r[i * 3] - lo[0]
+    const b = r[i * 3 + 1] - lo[1]
+    const c = r[i * 3 + 2] - lo[2]
+    const k = numeric ? a + sx * (b + sy * c) : `${a},${b},${c}`
+    if (seen.has(k)) continue
+    seen.add(k)
+    visit(points[i * 3], points[i * 3 + 1], points[i * 3 + 2])
+  }
+}
 
-  const pairs = new Set<string>()
+const compatible = (a: ElementPoints, b: ElementPoints) =>
+  a.systems === null || b.systems === null || a.systems.some((s) => b.systems!.includes(s))
+
+export function inferConnections(elements: readonly ElementPoints[], tolerance = TOLERANCE): Connection[] {
+  // 한 요소의 같은 꼭짓점은 한 번만 담는다. 거르는 단위는 칸보다 훨씬 잘게 둔다 — 칸 단위로 거르면 한 칸에 든
+  // 서로 다른 두 끝점 중 하나를 버려서, 그 끝에 붙은 연결을 놓친다.
+  const fine = tolerance / 50
+  const capacity = elements.reduce((n, el) => n + Math.floor(el.points.length / 3), 0)
+  const grid = new PointGrid(capacity, tolerance)
+  elements.forEach((el, index) => uniquePoints(el.points, fine, (x, y, z) => grid.add(index, x, y, z)))
+
+  const pairs = new Set<number>()
   const out: Connection[] = []
   const limit = tolerance * tolerance
+  const n = elements.length
+  const { x, y, z, owner, next, first } = grid
 
-  for (const [k, entries] of grid) {
-    const [cx, cy, cz] = k.split(',').map(Number)
+  for (let k = 0; k < grid.cells; k++) {
+    const cx = grid.cx[k]
+    const cy = grid.cy[k]
+    const cz = grid.cz[k]
     for (let dx = -1; dx <= 1; dx++)
       for (let dy = -1; dy <= 1; dy++)
         for (let dz = -1; dz <= 1; dz++) {
-          const near = grid.get(key(cx + dx, cy + dy, cz + dz))
-          if (!near) continue
-          for (const p of entries)
-            for (const q of near) {
-              if (q.index <= p.index) continue
-              const pair = `${p.index}:${q.index}`
+          const m = grid.find(cx + dx, cy + dy, cz + dz)
+          if (m === -1) continue
+          for (let p = first[k]; p !== -1; p = next[p]) {
+            const pi = owner[p]
+            for (let q = first[m]; q !== -1; q = next[q]) {
+              const qi = owner[q]
+              if (qi <= pi) continue
+              if ((x[p] - x[q]) ** 2 + (y[p] - y[q]) ** 2 + (z[p] - z[q]) ** 2 > limit) continue
+              const pair = pi * n + qi
               if (pairs.has(pair)) continue
-              if ((p.x - q.x) ** 2 + (p.y - q.y) ** 2 + (p.z - q.z) ** 2 > limit) continue
-              const a = elements[p.index]
-              const b = elements[q.index]
+              const a = elements[pi]
+              const b = elements[qi]
               if (!compatible(a, b)) continue
               pairs.add(pair)
               out.push({ from: a.id, to: b.id, source: 'geometry', directed: false, tolerance })
             }
+          }
         }
   }
   return out
@@ -149,24 +261,13 @@ export function findGaps(
   if (lonely.length === 0) return []
 
   // 격자 칸을 reach 로 잡으면 이웃 27칸 밖의 점은 반드시 reach 보다 멀다. inferConnections
-  // 와 같은 장치인데, 여기서는 "닿았나" 가 아니라 "얼마나 가까운가" 를 본다.
-  const cell = (v: number) => Math.floor(v / reach)
-  const key = (x: number, y: number, z: number) => `${x},${y},${z}`
-  const grid = new Map<string, { index: number; x: number; y: number; z: number }[]>()
+  // 와 같은 장치인데, 여기서는 "닿았나" 가 아니라 "얼마나 가까운가" 를 본다. 거리를 그대로 적으므로 꼭짓점을 거르지 않는다.
+  const capacity = elements.reduce((n, el) => n + Math.floor(el.points.length / 3), 0)
+  const grid = new PointGrid(capacity, reach)
   elements.forEach((el, index) => {
-    for (let i = 0; i + 2 < el.points.length; i += 3) {
-      const x = el.points[i]
-      const y = el.points[i + 1]
-      const z = el.points[i + 2]
-      const k = key(cell(x), cell(y), cell(z))
-      const list = grid.get(k)
-      if (list) list.push({ index, x, y, z })
-      else grid.set(k, [{ index, x, y, z }])
-    }
+    for (let i = 0; i + 2 < el.points.length; i += 3) grid.add(index, el.points[i], el.points[i + 1], el.points[i + 2])
   })
-
-  const compatible = (a: ElementPoints, b: ElementPoints) =>
-    a.systems === null || b.systems === null || a.systems.some((s) => b.systems!.includes(s))
+  const { x: gx, y: gy, z: gz, owner, next, first } = grid
 
   const indexOf = new Map(elements.map((e, i) => [e.id, i]))
   const limit = reach * reach
@@ -174,25 +275,40 @@ export function findGaps(
     const self = indexOf.get(el.id)!
     let best = Infinity
     let bestIndex = -1
+    // 똑같은 꼭짓점(면마다 되풀이된 것)은 한 번만 본다. 같은 점은 후보도 같아서 최소를 바꾸지 못한다.
+    const bits = new Uint32Array(el.points.buffer, el.points.byteOffset, el.points.length)
+    const seen = new Map<number, number[]>()
     for (let i = 0; i + 2 < el.points.length; i += 3) {
+      const same = seen.get(bits[i])
+      if (same?.some((j) => bits[j + 1] === bits[i + 1] && bits[j + 2] === bits[i + 2])) continue
+      if (same) same.push(i)
+      else seen.set(bits[i], [i])
       const x = el.points[i]
       const y = el.points[i + 1]
       const z = el.points[i + 2]
-      const cx = cell(x)
-      const cy = cell(y)
-      const cz = cell(z)
+      const cx = grid.cell(x)
+      const cy = grid.cell(y)
+      const cz = grid.cell(z)
+      // 칸 상자까지의 거리가 지금까지의 최소보다 멀면 그 칸의 점은 전부 아래에서 걸러진다. 미리 건너뛰어도 답이 같다.
+      const gap = (v: number, c: number) => (v < c * reach ? c * reach - v : v > (c + 1) * reach ? v - (c + 1) * reach : 0)
       for (let dx = -1; dx <= 1; dx++)
         for (let dy = -1; dy <= 1; dy++)
           for (let dz = -1; dz <= 1; dz++) {
-            const near = grid.get(key(cx + dx, cy + dy, cz + dz))
-            if (!near) continue
-            for (const q of near) {
-              if (q.index === self) continue
-              const d = (x - q.x) ** 2 + (y - q.y) ** 2 + (z - q.z) ** 2
+            const bx = gap(x, cx + dx)
+            const by = gap(y, cy + dy)
+            const bz = gap(z, cz + dz)
+            const box = bx * bx + by * by + bz * bz
+            if (box >= best || box > limit) continue
+            const m = grid.find(cx + dx, cy + dy, cz + dz)
+            if (m === -1) continue
+            for (let q = first[m]; q !== -1; q = next[q]) {
+              const qi = owner[q]
+              if (qi === self) continue
+              const d = (x - gx[q]) ** 2 + (y - gy[q]) ** 2 + (z - gz[q]) ** 2
               if (d >= best || d > limit) continue
-              if (!compatible(el, elements[q.index])) continue
+              if (!compatible(el, elements[qi])) continue
               best = d
-              bestIndex = q.index
+              bestIndex = qi
             }
           }
     }

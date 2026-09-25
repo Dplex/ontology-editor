@@ -285,6 +285,9 @@ function ref(attr: { value?: number } | null | undefined): number | null {
 
 type Api = InstanceType<typeof WebIFC.IfcAPI>
 
+/** 속성 줄에서 쓰는 값만. `measure` 는 용량이 읽는 값(범위면 설정값, 없으면 위 끝)이다. */
+type PropInfo = { name: string | undefined; nominal: unknown; measure: unknown }
+
 class Reader {
   constructor(
     private api: Api,
@@ -358,6 +361,51 @@ class Reader {
 
   private typeOfCache: Map<number, number> | null = null
 
+  // --- 속성 ---------------------------------------------------------------------------
+  //
+  // 방 분류·용량·System Name·LoadBearing 이 모두 IfcRelDefinesByProperties → 속성 세트 → 속성 줄을 탄다. 넷이 따로
+  // 훑던 때 병원 MEP(207MB)에서 같은 줄을 네 번씩 web-ifc 에서 꺼내느라 11초가 들었다(Revit 은 같은 속성 줄을
+  // 여러 세트가 같이 쓰기도 한다). 관계는 한 번만 훑고, 속성은 쓰는 값만 뽑아 id 로 캐시한다.
+  private propertyRelsCache: { objects: number[]; psetID: number | null }[] | null = null
+  private readonly psetPropsCache = new Map<number, PropInfo[]>()
+  private readonly propCache = new Map<number, PropInfo | null>()
+
+  /** 속성 관계 전부. 대상 개체와 속성 세트 id. */
+  propertyRels(): { objects: number[]; psetID: number | null }[] {
+    if (this.propertyRelsCache) return this.propertyRelsCache
+    const out: { objects: number[]; psetID: number | null }[] = []
+    for (const relID of this.ids(WebIFC.IFCRELDEFINESBYPROPERTIES)) {
+      const rel = this.line(relID)
+      out.push({ objects: (rel?.RelatedObjects ?? []).map((h: any) => h.value), psetID: ref(rel?.RelatingPropertyDefinition) })
+    }
+    return (this.propertyRelsCache = out)
+  }
+
+  /** 속성 세트의 속성들. 읽지 못하는 세트·속성은 건너뛴다(tryLine 참조). */
+  psetProps(psetID: number): PropInfo[] {
+    const had = this.psetPropsCache.get(psetID)
+    if (had) return had
+    const out: PropInfo[] = []
+    for (const h of this.tryLine(psetID)?.HasProperties ?? []) {
+      let prop = this.propCache.get(h.value)
+      if (prop === undefined) {
+        const line = this.tryLine(h.value)
+        prop = line
+          ? {
+              name: val(line.Name) as string | undefined,
+              nominal: val(line.NominalValue) as unknown,
+              // 범위(IfcPropertyBoundedValue)는 설정값을, 없으면 위 끝을 쓴다(용량).
+              measure: val(line.NominalValue ?? line.SetPointValue ?? line.UpperBoundValue) as unknown,
+            }
+          : null
+        this.propCache.set(h.value, prop)
+      }
+      if (prop) out.push(prop)
+    }
+    this.psetPropsCache.set(psetID, out)
+    return out
+  }
+
   /** 개체 → 타입 객체(IfcRelDefinesByType). */
   typeOf(): Map<number, number> {
     if (this.typeOfCache) return this.typeOfCache
@@ -429,16 +477,13 @@ class Reader {
     }
 
     const PROPERTY_RANK: Record<string, number> = { 'Category Code': 1, 'OmniClass Table 13 Category': 2 }
-    for (const relID of this.ids(WebIFC.IFCRELDEFINESBYPROPERTIES)) {
-      const rel = this.line(relID)
-      const targets = (rel?.RelatedObjects ?? []).map((h: any) => h.value).filter((id: number) => spaces.has(id))
-      if (targets.length === 0) continue
-      const def = rel.RelatingPropertyDefinition ? this.tryLine(rel.RelatingPropertyDefinition.value) : null
-      for (const propHandle of def?.HasProperties ?? []) {
-        const prop = this.tryLine(propHandle.value)
-        const rank = PROPERTY_RANK[val(prop?.Name) as string]
+    for (const { objects, psetID } of this.propertyRels()) {
+      const targets = objects.filter((id) => spaces.has(id))
+      if (targets.length === 0 || psetID === null) continue
+      for (const prop of this.psetProps(psetID)) {
+        const rank = PROPERTY_RANK[prop.name as string]
         if (rank === undefined) continue
-        for (const id of targets) offer(id, val(prop?.NominalValue), rank)
+        for (const id of targets) offer(id, prop.nominal, rank)
       }
     }
     return new Map([...found].map(([id, v]) => [id, { code: v.code, source: v.rank === 0 ? ('classification' as const) : ('property' as const) }]))
@@ -461,14 +506,11 @@ class Reader {
       out.set(objectID, { value, property })
     }
     const read = (psetID: number, objectIDs: number[]) => {
-      const def = this.tryLine(psetID)
-      for (const propHandle of def?.HasProperties ?? []) {
-        const prop = this.tryLine(propHandle.value)
-        const name = val(prop?.Name) as string
+      for (const prop of this.psetProps(psetID)) {
+        const name = prop.name as string
         if (capacityRank(name) < 0) continue
         // 범위(IfcPropertyBoundedValue)는 설정값을, 없으면 위 끝을 쓴다. 표준의 AirFlowrateRange·FlowRateRange 가 범위다.
-        const raw = prop?.NominalValue ?? prop?.SetPointValue ?? prop?.UpperBoundValue
-        const value = Number(val(raw))
+        const value = Number(prop.measure)
         if (!Number.isFinite(value)) continue
         for (const id of objectIDs) offer(id, value, name)
       }
@@ -485,11 +527,9 @@ class Reader {
       for (const h of this.tryLine(typeID)?.HasPropertySets ?? []) read(h.value, objectIDs)
     }
 
-    for (const relID of this.ids(WebIFC.IFCRELDEFINESBYPROPERTIES)) {
-      const rel = this.line(relID)
-      const psetID = ref(rel?.RelatingPropertyDefinition)
+    for (const { objects, psetID } of this.propertyRels()) {
       if (psetID === null) continue
-      read(psetID, (rel.RelatedObjects ?? []).map((h: any) => h.value))
+      read(psetID, objects)
     }
     return out
   }
@@ -700,19 +740,16 @@ class Reader {
    */
   systemNamesByElement(): Map<number, string[]> {
     const out = new Map<number, string[]>()
-    for (const relID of this.ids(WebIFC.IFCRELDEFINESBYPROPERTIES)) {
-      const rel = this.line(relID)
-      const def = rel?.RelatingPropertyDefinition ? this.line(rel.RelatingPropertyDefinition.value) : null
-      if (!def?.HasProperties) continue
-      for (const propHandle of def.HasProperties) {
-        const prop = this.line(propHandle.value)
-        if (val(prop?.Name) !== 'System Name') continue
-        const raw = val(prop?.NominalValue)
+    for (const { objects, psetID } of this.propertyRels()) {
+      if (psetID === null) continue
+      for (const prop of this.psetProps(psetID)) {
+        if (prop.name !== 'System Name') continue
+        const raw = prop.nominal
         if (typeof raw !== 'string') continue
         const names = raw.split(',').map((s) => s.trim()).filter(Boolean)
         if (names.length === 0) continue
-        for (const objHandle of rel.RelatedObjects ?? []) {
-          if (!out.has(objHandle.value)) out.set(objHandle.value, names)
+        for (const id of objects) {
+          if (!out.has(id)) out.set(id, names)
         }
       }
     }
@@ -805,18 +842,14 @@ class Reader {
    */
   loadBearingByElement(): Map<number, boolean> {
     const out = new Map<number, boolean>()
-    for (const relID of this.ids(WebIFC.IFCRELDEFINESBYPROPERTIES)) {
-      const rel = this.line(relID)
-      const def = rel?.RelatingPropertyDefinition ? this.line(rel.RelatingPropertyDefinition.value) : null
-      if (!def?.HasProperties) continue
-
-      for (const propHandle of def.HasProperties) {
-        const prop = this.line(propHandle.value)
-        if (val(prop?.Name) !== 'LoadBearing') continue
-        const v = val(prop?.NominalValue) as unknown
+    for (const { objects, psetID } of this.propertyRels()) {
+      if (psetID === null) continue
+      for (const prop of this.psetProps(psetID)) {
+        if (prop.name !== 'LoadBearing') continue
+        const v = prop.nominal
         // IFCBOOLEAN 은 참일 때 true 또는 'T' 로 온다. 내보낸 도구마다 다르다.
         const flag = v === true || v === 'T' || v === '.T.'
-        for (const objHandle of rel.RelatedObjects ?? []) out.set(objHandle.value, flag)
+        for (const id of objects) out.set(id, flag)
       }
     }
     return out
