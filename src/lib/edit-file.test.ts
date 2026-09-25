@@ -88,6 +88,45 @@ describe('편집 저장·불러오기', () => {
     expect(result.missing).toMatchObject({ equipment: 1, spaces: 1, flows: 1 })
   })
 
+  it('GUID 가 전부 바뀐 재내보내기에도 이름·위치로 찾아 얹는다', () => {
+    const a = read('mep.ifc')
+    addUpperStorey(a)
+    const base = baselineOf(a)
+    const office = a.storeys[0].spaces[0]
+    renameSpace(a, office.id, '대회의실')
+    moveSpaceVertex(a, office.id, 1, [9, 1])
+    moveEquipment(a, equip(a, 'AHU-1').id, [2, 3, 3.2])
+    moveEquipmentToStorey(a, equip(a, 'AT-101-01').id, 'up')
+    confirmSystemFlow(a, a.connections.find((c) => c.inferred)!.inferred!.systemId)
+    const free = a.connections.find((c) => !c.directed)!
+    setFlowDirection(free, free.to)
+    const parsed = parseEditFile(JSON.stringify(exportEdits(a, base, 'mep.ifc')))
+    if (typeof parsed === 'string') throw new Error(parsed)
+
+    // 같은 BIM 을 다시 내보냈는데 GUID 가 전부 새로 나온 판본(Duplex MEP-2 에서 방 GUID 가 전부 이랬다).
+    const ids = (m: Model) => [
+      ...m.storeys.flatMap((s) => [s.id, ...s.spaces.map((sp) => sp.id), ...s.equipment.map((e) => e.id)]),
+      ...m.systems.map((s) => s.id),
+    ]
+    // 꼬리는 TTL 지역 이름에서 이스케이프되지 않는 글자만 쓴다(`-` 는 `\-` 가 되어 되돌릴 때 어긋난다).
+    const reexport = (m: Model): Model => {
+      let json = JSON.stringify(m)
+      for (const id of ids(m)) json = json.split(JSON.stringify(id)).join(JSON.stringify(`${id}Qv2`))
+      return JSON.parse(json)
+    }
+    const b = reexport(read('mep.ifc'))
+    addUpperStorey(b)
+    const result = applyEdits(b, parsed)
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0 })
+    expect(result.rematched.name + result.rematched.position).toBeGreaterThan(0)
+    // id 만 다르고 내보내는 내용은 같다.
+    const strip = (m: Model) => {
+      const out = exports(m)
+      return { ttl: out.ttl.split('Qv2').join(''), geo: out.geo.split('Qv2').join('') }
+    }
+    expect(strip(b)).toEqual(exports(a))
+  })
+
   it('편집 파일이 아닌 것은 이유를 말하고 받지 않는다', () => {
     expect(parseEditFile('not json')).toBe('JSON 이 아닙니다.')
     expect(parseEditFile('{"format":"x"}')).toBe('ontology-editor 편집 파일이 아닙니다.')

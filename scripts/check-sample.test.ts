@@ -18,6 +18,7 @@ import { airServices } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
 import { roomKind } from '../src/lib/kinds'
 import { requirementsReport } from '../src/lib/requirements'
+import { compareVersions } from '../src/lib/versions'
 import type { Model } from '../src/lib/model'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -1133,4 +1134,33 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
       'device-connected': '2991/3610',
     })
   }, 900_000)
+})
+
+// 판본 사이에 GUID 가 남는가(요구사항 R13). 같은 Duplex 를 다른 때 다시 낸 판본끼리 견준다. 짝은 GUID → Revit 요소 ID
+// (이름 끝의 숫자) → 이름 → 위치 순으로 짓고, 한 열쇠에 둘 이상이 걸리면 짓지 않는다(lib/versions.ts).
+const DUPLEX_MEP_FULL = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc'
+const DUPLEX_MEP_2 = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP-2.ifc'
+const DUPLEX_MEP_1 = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP-1.ifc'
+
+describe.skipIf(!existsSync(DUPLEX_MEP_FULL) || !existsSync(DUPLEX_MEP_2) || !existsSync(DUPLEX_MEP_1) || !existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_COBIE))('판본 사이의 GUID (Duplex)', () => {
+  it('같은 Revit 요소도 다시 내보내면 GUID 가 자주 바뀐다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const load = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+    const mep = load(DUPLEX_MEP_FULL)
+
+    // 같은 Revit MEP 2011 로 한 달 반 뒤(2011-09-07 → 10-24) 다시 낸 판본. 두 판본에 다 있는 설비 344대 중 GUID 가
+    // 그대로인 것은 127대뿐이고, 217대는 Revit 요소 ID 로만 찾는다(같은 자리에 요소 ID 가 다른 것이 9대 더 있지만 다른 요소다). 방은 42개 중 2개만 짝지어진다 — MEP-2 는 같은
+    // 번호·이름·자리의 방을 두 번씩 담아서, 어느 쪽인지 정할 수 없는 것은 짓지 않는다. GUID 로 맞는 방은 0 이다.
+    const v2 = compareVersions(mep, load(DUPLEX_MEP_2))
+    expect(v2.equipment.by).toEqual({ guid: 127, revitId: 217, name: 0, position: 0 })
+    expect(v2.spaces.by).toEqual({ guid: 0, revitId: 0, name: 2, position: 0 })
+
+    // Revit 2013 으로 올려 전기만 떼어 낸 판본(2012-12). 전기 설비 99대 중 16대의 GUID 가 바뀌었다.
+    expect(compareVersions(mep, load(DUPLEX_MEP_1)).equipment.by).toEqual({ guid: 83, revitId: 16, name: 0, position: 0 })
+
+    // 다른 도구로 반년 뒤 낸 COBie 판본은 방 GUID 를 전부 지켰다. 도구가 GUID 를 지키느냐의 문제이지, 불가능한 일이 아니다.
+    const cobie = compareVersions(load(DUPLEX_ARCH), load(DUPLEX_COBIE))
+    expect(cobie.spaces.by).toEqual({ guid: 21, revitId: 0, name: 0, position: 0 })
+  }, 300_000)
 })

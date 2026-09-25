@@ -1,0 +1,129 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('mep-v2.ifc','2026-10-06T00:00:00',(''),(''),'','ontology-editor fixture: MEP (다음 판본)','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+/* mep.ifc 를 다시 내보낸 다음 판본. 판본 비교(lib/versions.ts)와 요구사항 R13 을 재는 픽스처다.
+   실제 재내보내기처럼 일부 GUID 가 바뀌었다 — 사무실과 공조기(Duplex MEP 재내보내기에서 같은 Revit 요소의 63%,
+   같은 방 전부의 GUID 가 바뀌었다). 그 밖에 토출구 AT-101-02 를 2m 옮기고, 센서를 빼고, 토출구 AT-101-03 을 더했다. */
+/* 이 픽스처는 "DT 가 쓸 만한 BIM" 이 무엇을 담아야 하는지를 그대로 적은 것이다.
+   설비 하나하나가 좌표를 갖고, 용량 파라미터가 붙고, 계통(System)으로 묶이고,
+   포트로 서로 연결된다. 고객사에 요구할 최소 사양이 실행 가능한 형태로 여기 있다. */
+
+#1= IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#2= IFCUNITASSIGNMENT((#1));
+#3= IFCCARTESIANPOINT((0.,0.,0.));
+#4= IFCDIRECTION((0.,0.,1.));
+#5= IFCDIRECTION((1.,0.,0.));
+#6= IFCAXIS2PLACEMENT3D(#3,#4,#5);
+#7= IFCDIRECTION((0.,1.));
+#8= IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#6,#7);
+#9= IFCPROJECT('0MEP$Project$00000000',$,'MEP fixture',$,$,$,$,(#8),#2);
+#10= IFCLOCALPLACEMENT($,#6);
+#11= IFCSITE('0MEP$Site$0000000000',$,'Site',$,$,#10,$,$,.ELEMENT.,$,$,$,$,$);
+#12= IFCLOCALPLACEMENT(#10,#6);
+#13= IFCBUILDING('0MEP$Building$0000000',$,'MEP Building',$,$,#12,$,$,.ELEMENT.,$,$,$);
+#14= IFCLOCALPLACEMENT(#12,#6);
+#15= IFCBUILDINGSTOREY('0MEP$Storey$1F$00000',$,'1F',$,$,#14,$,$,.ELEMENT.,0.);
+
+/* 물리존 하나. 설비의 소속 물리존은 좌표로 판정하므로 외곽선이 필요하다. */
+#16= IFCCARTESIANPOINT((0.,0.,0.));
+#17= IFCAXIS2PLACEMENT3D(#16,#4,#5);
+#18= IFCLOCALPLACEMENT(#14,#17);
+#19= IFCCARTESIANPOINT((0.,0.));
+#20= IFCCARTESIANPOINT((10.,0.));
+#21= IFCCARTESIANPOINT((10.,8.));
+#22= IFCCARTESIANPOINT((0.,8.));
+#23= IFCPOLYLINE((#19,#20,#21,#22,#19));
+#24= IFCGEOMETRICCURVESET((#23));
+#25= IFCSHAPEREPRESENTATION(#8,'FootPrint','GeometricCurveSet',(#24));
+#26= IFCPRODUCTDEFINITIONSHAPE($,$,(#25));
+#27= IFCSPACE('2MEP$Space$Office$0000',$,'101',$,$,#18,#26,'\X2\C0ACBB34C2E4\X0\',.ELEMENT.,.SPACE.,$);
+
+/* 공조기. 기계실 좌표 (1, 1, 3.2) 에 놓인다. */
+#30= IFCCARTESIANPOINT((1.,1.,3.2));
+#31= IFCAXIS2PLACEMENT3D(#30,#4,#5);
+#32= IFCLOCALPLACEMENT(#14,#31);
+#33= IFCUNITARYEQUIPMENT('2MEP$Equip$AHU1$0000',$,'AHU-1',$,$,#32,$,'AHU-1',.AIRHANDLER.);
+
+/* 토출구 둘. 천장 높이 2.7m. 하나는 용량이 있고 하나는 없다. */
+#40= IFCCARTESIANPOINT((3.,4.,2.7));
+#41= IFCAXIS2PLACEMENT3D(#40,#4,#5);
+#42= IFCLOCALPLACEMENT(#14,#41);
+#43= IFCAIRTERMINAL('0MEP$Equip$AT01$0000',$,'AT-101-01',$,$,#42,$,'AT1',.DIFFUSER.);
+#44= IFCCARTESIANPOINT((7.,6.,2.7));
+#45= IFCAXIS2PLACEMENT3D(#44,#4,#5);
+#46= IFCLOCALPLACEMENT(#14,#45);
+#47= IFCAIRTERMINAL('0MEP$Equip$AT02$0000',$,'AT-101-02',$,$,#46,$,'AT2',.DIFFUSER.);
+
+/* 덕트 한 구간. */
+#50= IFCCARTESIANPOINT((1.,1.,3.));
+#51= IFCAXIS2PLACEMENT3D(#50,#4,#5);
+#52= IFCLOCALPLACEMENT(#14,#51);
+#53= IFCDUCTSEGMENT('0MEP$Duct$D01$00000',$,'DUCT-01',$,$,#52,$,'D1',.RIGIDSEGMENT.);
+
+/* 새로 더한 토출구. */
+#110= IFCCARTESIANPOINT((5.,6.,2.7));
+#111= IFCAXIS2PLACEMENT3D(#110,#4,#5);
+#112= IFCLOCALPLACEMENT(#14,#111);
+#113= IFCAIRTERMINAL('0MEP$Equip$AT03$0000',$,'AT-101-03',$,$,#112,$,'AT3',.DIFFUSER.);
+
+/* 층이 아니라 공간에 매달린 설비. Duplex 의 COBie 판본이 설비 133대를 전부 이렇게 담았다.
+   좌표는 사무실 밖(50,50)에 두었다 — BIM 이 말한 소속이 좌표 판정을 이겨야 하기 때문이다. */
+#56= IFCCARTESIANPOINT((50.,50.,2.7));
+#57= IFCAXIS2PLACEMENT3D(#56,#4,#5);
+#58= IFCLOCALPLACEMENT(#14,#57);
+#59= IFCLIGHTFIXTURE('0MEP$Equip$LGT01$000',$,'LIGHT-101-01',$,$,#58,$,'L1',.NOTDEFINED.);
+
+/* 용량 파라미터(docs/requirements.ids 의 R22). AT-102 에는 일부러 붙이지 않는다 — PRD #6 의 "용량 파라미터 누락 설비".
+   단위는 IFC 기본인 m3/s 다(6000 m3/h = 1.6667, 900 m3/h = 0.25).
+
+   공조기는 IFC4 표준 Pset 에 용량 자리가 없어 DT_Capacity 로 적는다. 속성 이름은 팬·VAV 의 표준과 같다.
+   토출구는 표준대로 타입 객체의 Pset_AirTerminalTypeCommon 에 범위로 적는다 — ifc4Mep(DDS-CAD)이 이렇게 낸다. */
+#60= IFCPROPERTYSINGLEVALUE('NominalAirFlowRate',$,IFCVOLUMETRICFLOWRATEMEASURE(1.6667),$);
+#61= IFCPROPERTYSET('0MEP$Pset$AHU1$0000',$,'DT_Capacity',$,(#60));
+#62= IFCRELDEFINESBYPROPERTIES('0MEP$Rel$Pset$AHU1$00',$,$,$,(#33),#61);
+#63= IFCPROPERTYBOUNDEDVALUE('AirFlowrateRange',$,IFCVOLUMETRICFLOWRATEMEASURE(0.25),IFCVOLUMETRICFLOWRATEMEASURE(0.1),$,$);
+#64= IFCPROPERTYSET('0MEP$Pset$ATType$000',$,'Pset_AirTerminalTypeCommon',$,(#63));
+#65= IFCAIRTERMINALTYPE('0MEP$Type$AT600$0000',$,'AT-600',$,$,(#64),$,$,$,.DIFFUSER.);
+#66= IFCRELDEFINESBYTYPE('0MEP$Rel$Type$AT01$00',$,$,$,(#43),#65);
+
+/* 계통. 이게 있어야 "어느 공조기가 어느 토출구를 담당하는가" 를 알 수 있다. */
+/* 종류는 PredefinedType(AIRCONDITIONING) 에 공급·환수를 가르는 EN 12792 약어(SUP)를 ObjectType 에 더한다(R17). */
+#70= IFCDISTRIBUTIONSYSTEM('0MEP$System$AHU1$000',$,'AHU-1 SA',$,'SUP','AHU-1 급기 계통',.AIRCONDITIONING.);
+#71= IFCRELASSIGNSTOGROUP('0MEP$Rel$Group$AHU1$0',$,$,$,(#33,#43,#47,#53),$,#70);
+
+/* 포트 연결. 덕트가 어느 설비에 붙는지가 여기 있다.
+
+   공조기 → 덕트 → 토출구(AT-101-01) 가 SOURCE/SINK 로 이어진다. 이 방향이 있어야
+   "이 토출구의 상류가 어느 공조기인가" 를 물을 수 있다(PRD #11).
+
+   토출구 AT-101-02 는 일부러 SOURCEANDSINK 로 뒀다. Revit 이 배관·피팅 포트를 이렇게
+   내보내는 일이 흔한데, 그러면 이어져 있다는 것만 알고 흐름 방향은 알 수 없다.
+   고객사 BIM 스펙에 "포트에 흐름 방향을 넣어 달라" 를 적는 근거가 이 둘의 차이다. */
+#80= IFCDISTRIBUTIONPORT('0MEP$Port$AHU1$Out$00',$,'AHU-1 SA out',$,$,$,$,.SOURCE.,.DUCT.,$);
+#81= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$AHU1$00',$,$,$,#80,#33);
+#82= IFCDISTRIBUTIONPORT('0MEP$Port$Duct$In$000',$,'DUCT-01 in',$,$,$,$,.SINK.,.DUCT.,$);
+#83= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$Duct$00',$,$,$,#82,#53);
+#84= IFCRELCONNECTSPORTS('0MEP$Rel$Ports$01$0000',$,$,$,#80,#82,$);
+#85= IFCDISTRIBUTIONPORT('0MEP$Port$Duct$Out$00',$,'DUCT-01 out',$,$,$,$,.SOURCE.,.DUCT.,$);
+#86= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$Duct$01',$,$,$,#85,#53);
+#87= IFCDISTRIBUTIONPORT('0MEP$Port$AT01$In$000',$,'AT-101-01 in',$,$,$,$,.SINK.,.DUCT.,$);
+#88= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$AT01$00',$,$,$,#87,#43);
+#89= IFCRELCONNECTSPORTS('0MEP$Rel$Ports$02$0000',$,$,$,#85,#87,$);
+#96= IFCDISTRIBUTIONPORT('0MEP$Port$Duct$Br$000',$,'DUCT-01 branch',$,$,$,$,.SOURCEANDSINK.,.DUCT.,$);
+#97= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$Duct$02',$,$,$,#96,#53);
+#98= IFCDISTRIBUTIONPORT('0MEP$Port$AT02$In$000',$,'AT-101-02 in',$,$,$,$,.SOURCEANDSINK.,.DUCT.,$);
+#99= IFCRELCONNECTSPORTTOELEMENT('0MEP$Rel$Port$AT02$00',$,$,$,#98,#47);
+#100= IFCRELCONNECTSPORTS('0MEP$Rel$Ports$03$0000',$,$,$,#96,#98,$);
+
+#90= IFCRELAGGREGATES('0MEP$Rel$Proj$Site$00',$,$,$,#9,(#11));
+#91= IFCRELAGGREGATES('0MEP$Rel$Site$Bldg$00',$,$,$,#11,(#13));
+#92= IFCRELAGGREGATES('0MEP$Rel$Bldg$Storey$',$,$,$,#13,(#15));
+#93= IFCRELAGGREGATES('0MEP$Rel$1F$Spaces$00',$,$,$,#15,(#27));
+#94= IFCRELCONTAINEDINSPATIALSTRUCTURE('0MEP$Rel$1F$Elements$',$,$,$,(#33,#43,#47,#53,#113),#15);
+#95= IFCRELCONTAINEDINSPATIALSTRUCTURE('0MEP$Rel$Space$Elem$00',$,$,$,(#59),#27);
+ENDSEC;
+END-ISO-10303-21;

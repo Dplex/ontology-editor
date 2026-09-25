@@ -103,7 +103,15 @@ function counted(standard: number, elsewhere: number, of: number) {
   return { state: stateOf(standard, elsewhere, of), counts: { standard, elsewhere, of } }
 }
 
-export function requirementsReport(model: Model, merge: MergeReport | null = null): RequirementRow[] {
+/**
+ * `versions` 는 이전 판본과 견준 결과(versions.ts)다. 두 판본에 다 있는 물리존·설비 중 GUID 가 그대로인 것(kept)과
+ * GUID 는 바뀌었지만 Revit 요소 ID·이름·위치로 찾은 것(rematched)이다. 없으면 R13 은 잴 수 없다.
+ */
+export function requirementsReport(
+  model: Model,
+  merge: MergeReport | null = null,
+  versions: { name: string; kept: number; rematched: number } | null = null,
+): RequirementRow[] {
   const spaces = model.storeys.flatMap((s) => s.spaces)
   const all = model.storeys.flatMap((s) => s.equipment)
   const devices = all.filter((e) => !isConduit(e.role))
@@ -189,7 +197,12 @@ export function requirementsReport(model: Model, merge: MergeReport | null = nul
     set('R12', { ...counted(inside, 0, placed), note: '덧붙인 파일의 설비 중 건축 공간 범위에 든 것.' })
   }
 
-  set('R13', unmeasured('같은 BIM 을 다시 내보낸 파일이 있어야 잰다. 편집 파일을 불러올 때 못 찾은 GUID 수가 이것이다.'))
+  if (!versions) set('R13', unmeasured('같은 BIM 을 다시 내보낸 이전 판본과 견줘야 잰다(판본 비교).'))
+  else set('R13', {
+    ...counted(versions.kept, versions.rematched, versions.kept + versions.rematched),
+    note: `${versions.name} 와 견줌. 두 판본에 다 있는 물리존·설비 중 GUID 가 그대로인 것` +
+      (versions.rematched ? `. 다른 자리 ${versions.rematched}개는 GUID 가 바뀌어 Revit 요소 ID·이름·위치로 찾았다 — 편집은 얹히지만 DT 쪽 id 가 바뀐다.` : '.'),
+  })
 
   {
     const bounded = spaces.filter((s) => s.boundedBy.length > 0).length

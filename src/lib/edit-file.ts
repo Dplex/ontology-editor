@@ -5,8 +5,10 @@
 // 넣는다 — 값을 모델에 바로 덮으면 소속 재판정·규칙 방향 다시 돌리기를 건너뛰어, 좌표는 옮겨졌는데 소속은
 // 예전 것인 상태가 남는다(CLAUDE.md "재판정을 호출부에 맡기지 말 것").
 //
-// id 가 GUID 라서 같은 BIM 을 저작 도구가 다시 내보낸 파일에도 얹힌다(PRD #6). 못 찾은 id 는 조용히 버리지 않고
-// 센다 — 재임포트에서 무엇이 빠졌는지가 그 숫자다.
+// id 가 GUID 라서 같은 BIM 을 저작 도구가 다시 내보낸 파일에도 얹힌다(PRD #6). 다만 GUID 는 판본 사이에 자주
+// 바뀐다(versions.ts — Duplex MEP 재내보내기에서 같은 Revit 요소의 63%). 그래서 적은 id 마다 대체 열쇠(지문)를
+// 같이 적고, 불러올 때 GUID 로 못 찾으면 Revit 요소 ID·이름·위치로 찾는다. 그래도 못 찾은 id 는 조용히 버리지
+// 않고 센다 — 재임포트에서 무엇이 빠졌는지가 그 숫자다.
 
 import { confirmSystemFlow } from './flow-rules'
 import {
@@ -24,6 +26,7 @@ import {
 } from './edit'
 import type { RuleReport } from './flow-rules'
 import type { Model, Vec2, Vec3 } from './model'
+import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
 
 export const EDIT_FORMAT = 'ontology-editor/edits'
 
@@ -38,6 +41,11 @@ export type EditFile = {
   kinds: { typeKey: string; kind: string | null }[]
   flows: { from: string; to: string }[]
   confirmedSystems: string[]
+  /**
+   * 위에 적은 id 마다 연 때의 지문(versions.ts). GUID 가 바뀐 판본에서 같은 것을 찾는 데 쓴다. 이 칸이 없던 때의
+   * 파일도 받는다 — 그때는 GUID 로만 찾는다.
+   */
+  keys?: Record<string, Fingerprint>
 }
 
 const samePoint = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-9)
@@ -67,6 +75,26 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   }
   const confirmed = new Set<string>()
   for (const c of model.connections) if (c.inferred?.confirmed) confirmed.add(c.inferred.systemId)
+  const flows = model.connections.filter((c) => !c.directed && c.edited).map((c) => ({ from: c.edited!.from, to: c.edited!.to }))
+
+  // 적은 id 의 지문. 층을 옮긴 설비는 예전 층도 적는다(새 판본에서 층 GUID 가 바뀌어도 이름으로 찾는다).
+  const all = fingerprints(model, baseline)
+  const keys: Record<string, Fingerprint> = {}
+  const keep = (id: string) => {
+    const fp = all.get(id)
+    if (fp) keys[id] = fp
+  }
+  for (const row of spaces) keep(row.id)
+  for (const row of equipment) {
+    keep(row.id)
+    if (row.storeyId) keep(row.storeyId)
+  }
+  for (const f of flows) {
+    keep(f.from)
+    keep(f.to)
+  }
+  for (const id of confirmed) keep(id)
+
   return {
     format: EDIT_FORMAT,
     version: 1,
@@ -75,8 +103,9 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     equipment,
     spaces,
     kinds: kindEdits(model).map((k) => ({ typeKey: k.typeKey, kind: k.to })),
-    flows: model.connections.filter((c) => !c.directed && c.edited).map((c) => ({ from: c.edited!.from, to: c.edited!.to })),
+    flows,
     confirmedSystems: [...confirmed],
+    keys,
   }
 }
 
@@ -105,6 +134,8 @@ export type ApplyResult = {
   applied: number
   /** 이 모델에서 못 찾은 것. 재내보내기에서 지워졌거나 다른 파일이다. */
   missing: { equipment: number; spaces: number; kinds: number; flows: number; systems: number }
+  /** GUID 로는 못 찾고 다른 열쇠로 찾은 id 수. GUID 가 바뀐 재내보내기에서 뜬다. */
+  rematched: Record<Exclude<MatchKey, 'guid'>, number>
   rules: RuleReport | null
 }
 
@@ -121,11 +152,29 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     storeyMoved: [],
     applied: 0,
     missing: { equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0 },
+    rematched: { revitId: 0, name: 0, position: 0 },
     rules: null,
   }
   const spaceIds = new Set(model.storeys.flatMap((s) => s.spaces.map((sp) => sp.id)))
   const equipmentIds = new Set(model.storeys.flatMap((s) => s.equipment.map((e) => e.id)))
   const storeyIds = new Set(model.storeys.map((s) => s.id))
+
+  // 파일의 id 를 이 모델의 id 로. GUID 가 먼저이고, 없으면 지문으로 찾는다.
+  const referenced = new Map<string, Partial<Fingerprint>>()
+  const ref = (id: string) => referenced.set(id, file.keys?.[id] ?? {})
+  for (const sp of file.spaces) ref(sp.id)
+  for (const e of file.equipment) {
+    ref(e.id)
+    if (e.storeyId) ref(e.storeyId)
+  }
+  for (const f of file.flows) {
+    ref(f.from)
+    ref(f.to)
+  }
+  for (const id of file.confirmedSystems) ref(id)
+  const matching = matchFingerprints(referenced, fingerprints(model))
+  for (const { by } of matching.pairs.values()) if (by !== 'guid') result.rematched[by]++
+  const resolve = (id: string) => matching.pairs.get(id)?.id ?? id
 
   for (const k of file.kinds) {
     const done = setTypeKind(model, k.typeKey, k.kind)
@@ -137,11 +186,13 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     }
   }
 
-  for (const sp of file.spaces) {
-    if (!spaceIds.has(sp.id)) {
+  for (const row of file.spaces) {
+    const id = resolve(row.id)
+    if (!spaceIds.has(id)) {
       result.missing.spaces++
       continue
     }
+    const sp = { ...row, id }
     if (sp.longName !== undefined && renameSpace(model, sp.id, sp.longName)) result.applied++
     if (sp.footprint) {
       const change = replaceSpaceFootprint(model, sp.id, sp.footprint.map((p) => [p[0], p[1]] as Vec2))
@@ -153,7 +204,8 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     }
   }
 
-  for (const e of file.equipment) {
+  for (const row of file.equipment) {
+    const e = { ...row, id: resolve(row.id), storeyId: row.storeyId && resolve(row.storeyId) }
     if (!equipmentIds.has(e.id)) {
       result.missing.equipment++
       continue
@@ -178,7 +230,8 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     }
   }
 
-  for (const systemId of file.confirmedSystems) {
+  for (const savedId of file.confirmedSystems) {
+    const systemId = resolve(savedId)
     const count = confirmSystemFlow(model, systemId)
     if (count > 0) {
       result.applied++
@@ -188,7 +241,8 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     }
   }
 
-  for (const f of file.flows) {
+  for (const row of file.flows) {
+    const f = { from: resolve(row.from), to: resolve(row.to) }
     const c = model.connections.find(
       (x) => !x.directed && ((x.from === f.from && x.to === f.to) || (x.from === f.to && x.to === f.from)),
     )

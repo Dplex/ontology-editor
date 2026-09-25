@@ -11,6 +11,7 @@ import Src from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { applyEdits, exportEdits, parseEditFile } from './lib/edit-file'
+import { compareVersions, MATCH_KEY_LABEL, type MatchKey, type VersionDiff } from './lib/versions'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
 import { completenessChecks } from './lib/checks'
@@ -1871,11 +1872,105 @@ async function onEditFilePick(event: Event) {
 
   const missing = Object.entries(result.missing).filter(([, n]) => n > 0)
   const MISSING_LABEL: Record<string, string> = { equipment: '설비', spaces: '물리존', kinds: '타입', flows: '연결', systems: '계통' }
+  // GUID 가 바뀐 판본에서 다른 열쇠로 찾은 것. 사람이 확인할 수 있게 무엇으로 찾았는지까지 말한다.
+  const rematched = (Object.entries(result.rematched) as [Exclude<MatchKey, 'guid'>, number][]).filter(([, n]) => n > 0)
   editFileNote.value =
     `${picked.name} 에서 편집 ${result.applied}개를 얹었습니다.` +
     (file.source && file.source !== fileName.value ? ` 저장한 파일은 ${file.source} 입니다.` : '') +
+    (rematched.length
+      ? ` GUID 가 바뀐 ${rematched.reduce((n, [, k]) => n + k, 0)}개는 ${rematched.map(([k, n]) => `${MATCH_KEY_LABEL[k]} ${n}`).join(' · ')} 으로 찾았습니다.`
+      : '') +
     (missing.length ? ` 이 모델에서 못 찾은 것: ${missing.map(([k, n]) => `${MISSING_LABEL[k]} ${n}`).join(' · ')}.` : '') +
     ' 불러온 편집은 되돌리기로 한 번에 되돌리지 못합니다.'
+}
+
+// --- 판본 비교 (PRD #6, 요구사항 R13) ----------------------------------------------------
+//
+// 이전 판본 IFC 를 열어 지금 모델과 짝짓는다(lib/versions.ts). 새로 생긴 것·없어진 것·옮겨진 것·소속이 바뀐 것을
+// 보이고, 두 판본에 다 있는 것 중 GUID 가 그대로인 비율이 요구사항 R13 의 실측이 된다. 이전 판본은 짝짓기에만
+// 쓰고 버린다 — 화면·내보내기는 지금 모델 그대로다.
+const versionDiff = shallowRef<{ name: string; diff: VersionDiff } | null>(null)
+const versionBusy = ref(false)
+const versionError = ref('')
+const versionView = ref('equipment-moved')
+watch(fileName, () => {
+  versionDiff.value = null
+  versionError.value = ''
+})
+
+async function onVersionPick(event: Event) {
+  const input = event.target as HTMLInputElement
+  const picked = input.files?.[0]
+  input.value = ''
+  const m = model.value
+  if (!picked || !m) return
+  // 워커는 하나라 열기·덧붙이기와 겹치면 안 된다(onmessage 를 서로 덮는다). busy 로 막고 진행 표시도 같이 쓴다.
+  versionBusy.value = true
+  busy.value = true
+  versionError.value = ''
+  beginProgress('이전 판본 여는 중')
+  try {
+    const { model: prev } = await importInWorker(await picked.arrayBuffer())
+    const diff = compareVersions(prev, m)
+    versionDiff.value = { name: picked.name, diff }
+    // 처음 보일 목록은 비어 있지 않은 것 중 앞의 것.
+    versionView.value = versionLists.value.find((l) => l.rows.length)?.key ?? 'equipment-moved'
+  } catch (e) {
+    versionError.value = `${picked.name} 를 열지 못했습니다: ${e instanceof Error ? e.message : String(e)}`
+  } finally {
+    versionBusy.value = false
+    busy.value = false
+    endProgress()
+  }
+}
+
+/** R13 실측: 두 판본에 다 있는 것 중 GUID 가 그대로인 것과, 바뀌어 다른 열쇠로 찾은 것. */
+const versionStat = computed(() => {
+  const v = versionDiff.value
+  if (!v) return null
+  const sum = (by: Record<MatchKey, number>) => ({ kept: by.guid, rematched: by.revitId + by.name + by.position })
+  const a = sum(v.diff.spaces.by)
+  const b = sum(v.diff.equipment.by)
+  return { name: v.name, kept: a.kept + b.kept, rematched: a.rematched + b.rematched }
+})
+
+type VersionRow = { id: string; name: string; detail: string; target: 'equipment' | 'space' | null }
+const versionLists = computed((): { key: string; label: string; rows: VersionRow[] }[] => {
+  const d = versionDiff.value?.diff
+  if (!d) return []
+  const eq = (r: { id: string; name: string }, detail = ''): VersionRow => ({ ...r, detail, target: 'equipment' })
+  const sp = (r: { id: string; name: string }, detail = ''): VersionRow => ({ ...r, detail, target: 'space' })
+  const gone = (r: { id: string; name: string }): VersionRow => ({ ...r, detail: '', target: null })
+  const spaceName = (id: string) => spaceNameOf(id)
+  return [
+    { key: 'equipment-moved', label: '옮겨진 설비', rows: d.equipment.moved.map((r) => eq(r, `${r.distance.toFixed(2)} m`)) },
+    {
+      key: 'equipment-relocated',
+      label: '소속이 바뀐 설비',
+      rows: d.equipment.relocated.map((r) => eq(r, `${r.from ?? '(소속 없음)'} → ${r.to ?? '(소속 없음)'}`)),
+    },
+    { key: 'equipment-added', label: '새 설비', rows: d.equipment.added.map((r) => eq(r)) },
+    { key: 'equipment-removed', label: '없어진 설비', rows: d.equipment.removed.map(gone) },
+    { key: 'spaces-renamed', label: '이름이 바뀐 물리존', rows: d.spaces.renamed.map((r) => sp({ id: r.id, name: spaceName(r.id) }, `${r.from || '(없음)'} → ${r.to || '(없음)'}`)) },
+    {
+      key: 'spaces-reshaped',
+      label: '넓이가 바뀐 물리존',
+      rows: d.spaces.reshaped.map((r) => sp(r, `${r.from.toFixed(1)} → ${r.to.toFixed(1)} ㎡`)),
+    },
+    { key: 'spaces-added', label: '새 물리존', rows: d.spaces.added.map((r) => sp(r)) },
+    { key: 'spaces-removed', label: '없어진 물리존', rows: d.spaces.removed.map(gone) },
+  ]
+})
+const versionRows = computed(() => versionLists.value.find((l) => l.key === versionView.value)?.rows ?? [])
+
+/** 비교 목록에서 물리존을 고른다. 3D 에서 바닥을 누른 것과 같다(편집 모드가 아니어도 그 방에 맞춘다). */
+function showSpace(id: string) {
+  selectedId.value = null
+  selectedSystemId.value = null
+  selectedSpaceId.value = id
+  viewer?.frameSpace(id)
+  const el = stage.value
+  if (el && el.getBoundingClientRect().top > window.innerHeight * 0.5) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 // --- 편집을 잃지 않게 ----------------------------------------------------------------
@@ -2073,7 +2168,7 @@ const currentRequirements = shallowRef<RequirementRow[]>([])
 const TIERS_DELAY = 400
 let tiersTimer: number | undefined
 let tieredModel: Model | null = null
-watch([model, flowVersion], () => {
+watch([model, flowVersion, versionStat], () => {
   window.clearTimeout(tiersTimer)
   const m = model.value
   if (!m) {
@@ -2084,7 +2179,7 @@ watch([model, flowVersion], () => {
   }
   const measure = () => {
     currentTiers.value = profileOf(m).tiers
-    currentRequirements.value = requirementsReport(m, mergeReport.value)
+    currentRequirements.value = requirementsReport(m, mergeReport.value, versionStat.value)
   }
   if (m !== tieredModel) {
     tieredModel = m
@@ -2874,6 +2969,85 @@ function exportTTL() {
             표준 자리는 IDS(<span class="mono">docs/requirements.ids</span>)도 통과한다. 다른 자리는 값이 있고 우리도 읽지만, 고객사가
             내보내기 설정을 바꾸면 표준 자리로 간다. 기준과 이유는 정본 4장에 있다.
           </p>
+        </Fold>
+
+        <!-- 판본 비교(PRD #6, R13). 이전 판본과 짝지어 무엇이 바뀌었는지와, GUID 가 판본 사이에 남는지를 잰다. -->
+        <Fold
+          title="판본 비교"
+          :meta="versionDiff ? `${versionDiff.name} 와 견줌` : '이전 판본을 열면 바뀐 것을 봅니다'"
+          :default-open="false"
+          class="versions"
+        >
+          <p class="version-pick">
+            <label class="ghost file-pick">
+              {{ versionDiff ? '다른 판본' : '이전 판본 열기' }}
+              <input type="file" accept=".ifc" :disabled="versionBusy || busy" @change="onVersionPick" />
+            </label>
+            <span v-if="versionBusy" class="muted">여는 중…</span>
+            <span v-else class="muted">같은 건물을 전에 내보낸 IFC. 짝짓기에만 쓰고, 화면과 내보내기는 지금 파일 그대로입니다.</span>
+          </p>
+          <p v-if="versionError" class="edit-notice inline" role="alert">{{ versionError }}</p>
+          <template v-if="versionDiff">
+            <table class="version-sum">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th class="num">이전 → 지금</th>
+                  <th class="num">같은 것</th>
+                  <th>그중 GUID 가 바뀐 것 <Src kind="calc" /></th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="[label, k] in [['물리존', versionDiff.diff.spaces], ['설비', versionDiff.diff.equipment]] as const" :key="label">
+                  <th>{{ label }}</th>
+                  <td class="num mono">{{ k.prevCount }} → {{ k.nextCount }}</td>
+                  <td class="num mono">{{ k.by.guid + k.by.revitId + k.by.name + k.by.position }}</td>
+                  <td>
+                    <template v-if="k.by.revitId + k.by.name + k.by.position">
+                      <b class="mono">{{ k.by.revitId + k.by.name + k.by.position }}</b>
+                      <span class="muted">
+                        ({{ (['revitId', 'name', 'position'] as const).filter((x) => k.by[x]).map((x) => `${MATCH_KEY_LABEL[x]} ${k.by[x]}`).join(' · ') }} 로 찾음)
+                      </span>
+                    </template>
+                    <span v-else class="muted">없음</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="hint">
+              GUID 가 바뀐 것은 편집 파일이 Revit 요소 ID·이름·위치로 찾아 얹지만, DT 쪽에서는 다른 id 가 됩니다(요구사항 R13).
+              같은 열쇠에 둘 이상이 걸리면 짝을 짓지 않고 새것·없어진 것으로 셉니다.
+            </p>
+            <div class="version-tabs" role="tablist">
+              <button
+                v-for="l in versionLists"
+                :key="l.key"
+                type="button"
+                role="tab"
+                :class="['ghost', { on: versionView === l.key }]"
+                :aria-selected="versionView === l.key"
+                :disabled="!l.rows.length"
+                @click="versionView = l.key"
+              >
+                {{ l.label }} <b class="mono">{{ l.rows.length }}</b>
+              </button>
+            </div>
+            <div v-if="versionRows.length" class="table-box">
+              <table class="version-rows">
+                <tbody>
+                  <tr v-for="r in versionRows.slice(0, EDIT_LIMIT)" :key="r.id">
+                    <td>
+                      <button v-if="r.target === 'equipment'" type="button" class="link" @click="selectAndShow(r.id)">{{ r.name }}</button>
+                      <button v-else-if="r.target === 'space'" type="button" class="link" @click="showSpace(r.id)">{{ r.name }}</button>
+                      <span v-else>{{ r.name }}</span>
+                    </td>
+                    <td class="muted">{{ r.detail }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p v-if="versionRows.length > EDIT_LIMIT" class="hint">앞의 {{ EDIT_LIMIT }}개만 보입니다.</p>
+            </div>
+          </template>
         </Fold>
       </section>
 

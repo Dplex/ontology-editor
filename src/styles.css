@@ -2309,3 +2309,88 @@ main.has-model .catalog {
 .workspace {
   scroll-margin-top: calc(var(--appbar-h, 4rem) + 0.75rem);
 }
+
+/* ---- 판본 비교 ------------------------------------------------------------------ */
+
+.file-pick {
+  display: inline-flex;
+  align-items: center;
+}
+
+.file-pick input {
+  display: none;
+}
+
+.version-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.version-sum {
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.version-sum th,
+.version-sum td {
+  padding: 0.3rem 0.75rem 0.3rem 0;
+  text-align: left;
+}
+
+.version-sum thead th {
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.version-sum .num {
+  text-align: right;
+}
+
+.version-sum tbody th {
+  font-weight: 600;
+}
+
+.version-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.version-tabs .ghost.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.version-tabs .ghost:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.version-tabs .ghost:disabled:hover {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.version-rows {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.version-rows td {
+  padding: 0.3rem 0.5rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.version-rows .link {
+  text-align: left;
+}
+
