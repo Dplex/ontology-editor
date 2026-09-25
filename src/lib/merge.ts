@@ -318,15 +318,15 @@ function mergeWarnings(report: MergeReport, labels: { base: string; overlay: str
   if (report.alignment && report.alignment.ratio < ALIGNMENT_MIN_RATIO) {
     const pct = Math.round(report.alignment.ratio * 100)
     out.push(
-      `${labels.overlay} 의 설비 ${report.alignment.placed}대 중 ${pct}%만 ${labels.base} 의 공간 범위 안에 있습니다. ` +
-        '두 파일의 좌표계(원점·북방향)가 다른 것 같습니다. 이대로면 설비 소속 판정이 틀립니다.',
+      `${labels.overlay}의 설비 ${report.alignment.placed}대 중 ${pct}%만 ${labels.base}의 공간 범위 안에 있습니다. ` +
+        '두 파일의 좌표계(원점·북방향)가 다른 것 같습니다. 이대로면 설비 소속이 틀립니다.',
     )
   }
 
   const unmatched = report.storeys.filter((s) => s.matchedTo === null)
   if (unmatched.length > 0) {
     out.push(
-      `${labels.overlay} 의 층 ${unmatched.map((s) => `"${s.name}"`).join(', ')} 이(가) ${labels.base} 에 없어 새 층으로 넣었습니다. 층 이름을 맞춰 달라고 해야 합니다.`,
+      `${labels.base}에 없는 층이라 새 층으로 넣었습니다: ${unmatched.map((s) => `"${s.name}"`).join(', ')}(${labels.overlay}). 두 파일의 층 이름을 맞춰야 합니다.`,
     )
   }
 
@@ -342,12 +342,12 @@ function mergeWarnings(report: MergeReport, labels: { base: string; overlay: str
   const lost = report.declaredRemapped.total - report.declaredRemapped.remapped
   if (lost > 0) {
     out.push(
-      `${labels.overlay} 이(가) 직접 말한 설비 소속 ${lost}건이 가리키는 물리존을 찾지 못해 좌표로 다시 판정했습니다.`,
+      `${labels.overlay}에 적힌 설비 소속 ${lost}건은 물리존을 찾지 못해 좌표로 다시 정했습니다.`,
     )
   }
 
   if (report.duplicateIds > 0) {
-    out.push(`두 파일에 같은 GlobalId 가 ${report.duplicateIds}개 있어 ${labels.base} 것을 남겼습니다.`)
+    out.push(`두 파일에 같은 GlobalId가 ${report.duplicateIds}개 있어 ${labels.base} 쪽을 남겼습니다.`)
   }
   return out
 }

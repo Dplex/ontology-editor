@@ -55,7 +55,7 @@ export const REQUIREMENTS: { id: string; level: RequirementLevel; title: string 
   { id: 'R14', level: '권장', title: '방 분류(OmniClass)' },
   { id: 'R10', level: '권장', title: '형식 IFC4' },
   { id: 'R25', level: '권장', title: '설비 종류' },
-  { id: 'R24', level: '권장', title: 'Proxy 를 쓰지 않음' },
+  { id: 'R24', level: '권장', title: 'Proxy를 쓰지 않음' },
   { id: 'R16', level: '권장', title: 'MEP 솔리드가 맞닿음' },
   { id: 'R17', level: '권장', title: '계통 묶음과 종류' },
   { id: 'R18', level: '권장', title: '포트의 흐름 방향' },
@@ -126,7 +126,7 @@ export function requirementsReport(
   const set = (id: string, row: Omit<RequirementRow, 'id' | 'level' | 'title'>) => rows.set(id, row)
   const unmeasured = (note: string) => ({ state: 'unmeasured' as const, counts: null, note })
 
-  set('R0', { state: 'standard', counts: null, note: '열렸다.' })
+  set('R0', { state: 'standard', counts: null, note: '정상.' })
 
   {
     const named = model.storeys.filter((s) => s.name.trim()).length
@@ -135,9 +135,9 @@ export function requirementsReport(
     set('R1', byElevation > 0
       ? {
           ...counted(matched.filter((s) => s.by === 'name').length, 0, matched.length),
-          note: `덧붙인 파일의 층 ${byElevation}개가 이름이 달라 높이로 맞췄다. 층 이름을 두 파일에서 같게 적어 달라고 한다.`,
+          note: `덧붙인 파일의 층 ${byElevation}개는 이름이 달라 높이로 맞췄다. 두 파일의 층 이름을 같게 맞춰야 한다.`,
         }
-      : { ...counted(named, 0, model.storeys.length), note: '층 이름이 있는 층. DT 층 표기와 같은지는 사람이 본다.' })
+      : { ...counted(named, 0, model.storeys.length), note: '이름이 있는 층. DT 층 표기와 같은지는 직접 확인한다.' })
   }
 
   {
@@ -146,7 +146,7 @@ export function requirementsReport(
       ...counted(drawn, 0, spaces.length),
       note: spaces.length === 0
         ? '공간이 없다. 설비 파일이면 건축 파일을 덧붙인다.'
-        : '바닥 외곽선(FootPrint 또는 SweptSolid)을 얻은 공간. 나머지는 Brep·SurfaceModel 이거나 형상이 없다.',
+        : '바닥 외곽선(FootPrint 또는 SweptSolid)이 있는 공간. 나머지는 Brep·SurfaceModel이거나 형상이 없다.',
     })
   }
 
@@ -166,15 +166,15 @@ export function requirementsReport(
     : { state: 'missing', counts: null, note: '선언이 없어 미터로 가정했다. 치수가 전부 어긋날 수 있다.' })
 
   if (!facts) set('R7', unmeasured('파일에서 읽은 모델이 아니다.'))
-  else if (facts.mapConversion) set('R7', { state: 'standard', counts: null, note: 'IfcMapConversion 이 있다. 스캔과 맞는지는 3D 로 본다.' })
+  else if (facts.mapConversion) set('R7', { state: 'standard', counts: null, note: 'IfcMapConversion이 있다. 스캔과 맞는지는 3D에서 확인한다.' })
   else set('R7', {
     state: 'missing',
     counts: null,
     note: (facts.siteLatLong ? '위경도만 있다. ' : '') +
-      (ifc4 ? 'IfcMapConversion 을 넣거나 기준점을 협의한다.' : 'IFC2x3 에는 IfcMapConversion 자리가 없다. 기준점을 협의한다.'),
+      (ifc4 ? 'IfcMapConversion을 넣거나 기준점을 협의한다.' : 'IFC2x3에는 IfcMapConversion 자리가 없다. 기준점을 협의한다.'),
   })
 
-  set('R8', unmeasured('형상의 정확도라 3D 로 열어 본다.'))
+  set('R8', unmeasured('형상 정확도는 3D에서 확인한다.'))
 
   set('R9', devices.length > 0
     ? { state: 'standard', counts: { standard: devices.length, elsewhere: 0, of: devices.length }, note: `설비 ${devices.length}대.` }
@@ -186,22 +186,22 @@ export function requirementsReport(
     set('R11', {
       ...counted(placed.length - moved, moved, devices.length),
       note: moved > 0
-        ? `배치점이 자기 형상에서 떨어져 형상 중심을 쓴 설비 ${moved}대(다른 자리). 나머지 빈 것은 위치가 없어 미배치 목록으로 간다.`
-        : '위치가 있는 설비. 없는 것은 미배치 목록으로 간다.',
+        ? `배치점이 형상과 떨어져 있어 형상 중심을 쓴 설비 ${moved}대(다른 자리). 위치가 없는 설비는 미배치 목록으로 간다.`
+        : '위치가 있는 설비. 없는 설비는 미배치 목록으로 간다.',
     })
   }
 
-  if (!merge?.alignment) set('R12', unmeasured('두 파일을 합쳐야 잰다.'))
+  if (!merge?.alignment) set('R12', unmeasured('두 파일을 합쳐야 잴 수 있다.'))
   else {
     const { placed, inside } = merge.alignment
     set('R12', { ...counted(inside, 0, placed), note: '덧붙인 파일의 설비 중 건축 공간 범위에 든 것.' })
   }
 
-  if (!versions) set('R13', unmeasured('같은 BIM 을 다시 내보낸 이전 판본과 견줘야 잰다(판본 비교).'))
+  if (!versions) set('R13', unmeasured('이전 판본과 비교해야 잴 수 있다(판본 비교).'))
   else set('R13', {
     ...counted(versions.kept, versions.rematched, versions.kept + versions.rematched),
-    note: `${versions.name} 와 견줌. 두 판본에 다 있는 물리존·설비 중 GUID 가 그대로인 것` +
-      (versions.rematched ? `. 다른 자리 ${versions.rematched}개는 GUID 가 바뀌어 Revit 요소 ID·이름·위치로 찾았다 — 편집은 얹히지만 DT 쪽 id 가 바뀐다.` : '.'),
+    note: `이전 판본(${versions.name})과 비교. 양쪽에 있는 물리존·설비 중 GUID가 그대로인 것` +
+      (versions.rematched ? `. 다른 자리 ${versions.rematched}개는 GUID가 바뀌어 Revit 요소 ID·이름·위치로 찾았다. 편집은 적용되지만 DT 쪽 id는 바뀐다.` : '.'),
   })
 
   {
@@ -210,7 +210,7 @@ export function requirementsReport(
     set('R5', {
       ...counted(bounded, 0, spaces.length),
       note: bounded < spaces.length && byCoords > 0
-        ? `공간 경계가 없는 곳은 문 ${byCoords}개의 양쪽을 좌표로 짚어 방-문-방을 채웠다(출처 계산).`
+        ? `공간 경계가 없는 곳은 문 ${byCoords}개 양쪽의 좌표로 방-문-방을 채웠다(출처: 계산).`
         : '공간 경계가 있는 공간.',
     })
   }
@@ -243,8 +243,8 @@ export function requirementsReport(
     set('R25', {
       ...counted(said.length, byName.length, devices.length),
       note: [
-        byName.length > 0 ? `${byName.length}대는 IFC 가 종류를 말하지 않아 패밀리 이름에서 사전으로 읽었다.` : 'IFC 가 클래스·PredefinedType 으로 종류를 말한 설비.',
-        unknown > 0 ? `${unknown}대는 IFC 도 이름도 종류를 말하지 않는다(USERDEFINED 에 유형 이름만 있는 것 등).` : '',
+        byName.length > 0 ? `${byName.length}대는 IFC에 종류가 없어 패밀리 이름으로 정했다.` : 'IFC 클래스·PredefinedType에 종류가 있는 설비.',
+        unknown > 0 ? `${unknown}대는 IFC에도 이름에도 종류가 없다(USERDEFINED에 유형 이름만 있는 경우 등).` : '',
       ].join(' ').trim(),
     })
   }
@@ -254,12 +254,12 @@ export function requirementsReport(
     set('R24', {
       ...counted(devices.length - proxies, proxies, devices.length),
       note: proxies > 0
-        ? `${proxies}대가 IfcBuildingElementProxy 다. 포트가 있거나 이름이 사전에 있어서 설비로 받았다.`
-        : 'Proxy 로 들어온 설비가 없다.',
+        ? `${proxies}대가 IfcBuildingElementProxy다. 포트가 있거나 이름이 사전에 있어 설비로 읽었다.`
+        : 'Proxy로 들어온 설비가 없다.',
     })
   }
 
-  set('R16', unmeasured('형상이 맞닿는지라 연결망을 3D 로 본다.'))
+  set('R16', unmeasured('형상이 맞닿는지는 3D에서 연결망으로 확인한다.'))
 
   {
     const std = all.filter((e) => e.systemId && systemById.get(e.systemId)?.source === 'ifc').length
@@ -282,11 +282,11 @@ export function requirementsReport(
       ? {
           state: model.connections.length > 0 ? 'missing' : 'none',
           counts: null,
-          note: model.connections.length > 0 ? '포트가 없다. 연결은 형상으로 추정했고 방향은 규칙이 정한다(확정 전에는 나가지 않는다).' : '연결이 없다.',
+          note: model.connections.length > 0 ? '포트가 없다. 연결은 형상으로 추정했고, 방향은 규칙으로 정한다(확정 전에는 내보내지 않는다).' : '연결이 없다.',
         }
       : {
           ...counted(directed, 0, ported.length),
-          note: '포트가 SOURCE→SINK 로 방향을 말한 연결. 나머지는 SOURCEANDSINK 다.',
+          note: '포트에 SOURCE→SINK 방향이 있는 연결. 나머지는 SOURCEANDSINK다.',
         })
   }
 
@@ -301,8 +301,8 @@ export function requirementsReport(
       : { state: both > 0 ? 'standard' : 'missing', counts: null, note: `원천 기기와 말단을 같이 묶은 계통 ${both}/${model.systems.length}.` })
   }
 
-  set('R20', unmeasured('공조존은 읽지 않는다. IDF 에서 받는다(PRD 1.6).'))
-  set('R21', unmeasured('센서와 재는 설비의 관계는 읽지 않는다. 관제점과 함께 BAS 에서 잇는다.'))
+  set('R20', unmeasured('공조존은 IFC에서 읽지 않고 IDF에서 받는다.'))
+  set('R21', unmeasured('센서와 측정 대상 설비의 관계는 읽지 않는다. 관제점과 함께 BAS에서 연결한다.'))
 
   {
     const want = devices.filter((e: Equipment) => CAPACITY_KINDS.has(equipmentKind(e.kind)?.kind ?? ''))
@@ -312,7 +312,7 @@ export function requirementsReport(
     set('R22', {
       ...counted(std, other.length, want.length),
       note: other.length > 0
-        ? `${other.length}대는 저작 도구 이름(${names})으로 적었다. 표준 Pset 으로 매핑하면 표준 자리로 간다.`
+        ? `${other.length}대는 저작 도구 속성명(${names})으로 들어 있다. 표준 Pset으로 매핑하면 표준 자리로 간다.`
         : '공조·열원 기기와 말단 중 용량이 있는 것.',
     })
   }
@@ -327,7 +327,7 @@ export function requirementsReport(
         ? '벽이 없다.'
         : uniform
           ? `벽 ${known.length}장이 전부 ${trues === 0 ? '비내력' : '내력'}이다. 모델러가 정한 값이 아니라 Revit 기본값일 수 있다.`
-          : `내력 ${trues} · 비내력 ${known.length - trues}. 없는 것은 "모름"으로 둔다.`,
+          : `내력 ${trues} · 비내력 ${known.length - trues}. 값이 없는 벽은 "모름"으로 둔다.`,
     })
   }
 

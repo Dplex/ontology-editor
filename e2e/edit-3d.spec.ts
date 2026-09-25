@@ -128,7 +128,7 @@ test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓�
 
   // 엇갈리는 자리에는 놓지 않는다. (0,0) 을 (20,4) 로 끌면 두 변이 교차한다.
   await drag(page, (await viewer<Pt>(page, 'point', [0, 0, 0.12]))!, (await viewer<Pt>(page, 'point', [20, 4, 0.12]))!)
-  await expect(page.locator('.edit-notice')).toContainText('엇갈리는')
+  await expect(page.locator('.edit-notice')).toContainText('교차')
   await expect(panel).toContainText('80.0')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
 
@@ -166,7 +166,7 @@ test('편집 모드에서 연결 화살표를 누르면 방향이 하류 → 상
   expect(await arrows()).toHaveLength(3)
   expect((await toward(AHU)).source).toBe('port')
   expect((await toward(AT02)).source).toBe('rule')
-  await expect(page.locator('.color-key')).toContainText('사람이 정한 방향')
+  await expect(page.locator('.color-key')).toContainText('직접 정한 방향')
 
   const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
@@ -175,7 +175,7 @@ test('편집 모드에서 연결 화살표를 누르면 방향이 하류 → 상
   let at = (await toward(AT02)).at
   await page.mouse.click(at.x, at.y)
   await expect(terminal.locator('.rel')).toHaveText('하류')
-  await expect(terminal).toContainText('사람이 정한 방향')
+  await expect(terminal).toContainText('직접 정한 방향')
   expect((await toward(AT02)).source).toBe('edit')
   await expect(page.locator('.report')).toContainText('DUCT-01 → AT-101-02')
 
@@ -265,7 +265,7 @@ test('3D 로 끈 설비는 Ctrl+Z 로 좌표·출처·소속이 끌기 전으로
   await expect(row(page, 'AHU-1').locator('.src.edit')).toHaveCount(0)
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
   await expect(page.locator('.report')).toHaveCount(0)
-  await expect(page.locator('.edit-notice')).toContainText('되돌렸습니다: AHU-1 옮김')
+  await expect(page.locator('.edit-notice')).toContainText('되돌림: AHU-1 옮김')
   await expect(undoButton).toBeDisabled()
 
   // 3D 에서도 제자리다.

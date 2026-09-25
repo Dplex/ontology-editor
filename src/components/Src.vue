@@ -16,9 +16,9 @@ defineProps<{ kind: SrcKind }>()
 const LABEL: Record<SrcKind, string> = { bim: 'BIM', calc: '계산', dict: '사전', edit: '편집' }
 const TITLE: Record<SrcKind, string> = {
   bim: 'BIM 파일에 적힌 그대로입니다.',
-  calc: 'BIM 의 좌표·형상으로 계산했습니다. BIM 이 직접 말한 것은 아닙니다.',
-  dict: '이름 사전·흐름 규칙(도메인 지식)으로 정했습니다. 사전이 틀리면 같이 틀립니다.',
-  edit: '이 화면에서 사람이 고쳤습니다.',
+  calc: 'BIM 좌표·형상으로 계산한 값입니다.',
+  dict: '이름 사전·흐름 규칙으로 추정한 값입니다.',
+  edit: '직접 고친 값입니다.',
 }
 </script>
 

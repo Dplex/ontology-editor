@@ -99,8 +99,8 @@ export function profileOf(model: Model): Profile {
       figure: figure(placed, devices.length),
       note:
         devices.length === 0
-          ? '기기가 없다(MEP 가 안 들어 있다)'
-          : `기기 ${devices.length}대 중 좌표가 있는 것 ${placed}대 · 덕트·배관 ${c.conduits}개는 따로`,
+          ? '기기가 없다(MEP 미포함)'
+          : `기기 ${devices.length}대 중 좌표가 있는 것 ${placed}대 · 덕트·배관 ${c.conduits}개는 제외`,
     },
     {
       key: 'location',
@@ -141,7 +141,7 @@ export function profileOf(model: Model): Profile {
         (linked === 0
           ? '덕트·배관으로 다른 기기와 이어진 기기가 없다'
           : fed === 0
-            ? `다른 기기와 이어진 기기 ${linked}대 중 흐름 방향으로 이어진 것이 없다. brick:feeds 가 기기에 닿지 않는다 (연결 단위로는 ${c.directedConnections}/${c.connections})`
+            ? `다른 기기와 이어진 기기 ${linked}대 중 흐름 방향으로 이어진 것이 없다. brick:feeds가 기기에 닿지 않는다 (연결 단위로는 ${c.directedConnections}/${c.connections})`
             : `다른 기기와 이어진 기기 ${linked}대 중 흐름 방향으로 이어진(공급하거나 공급받는) 것 ${fed}대 (연결 단위로는 ${c.directedConnections}/${c.connections})`) +
         (candidate !== null ? ` · 확정 전 규칙 방향까지 넣으면 ${candidate}대` : ''),
     },

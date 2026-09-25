@@ -953,8 +953,8 @@ export function systemIdOf(name: string, taken: Set<string>): string {
 export class UnreadableIfcError extends Error {
   constructor() {
     super(
-      'STEP 구문 오류로 파일을 열지 못했습니다. 문자열 속 작은따옴표가 \'\' 로 이스케이프되지 않았는지 ' +
-        '확인해야 합니다(예: 6\'8" 같은 피트·인치 표기). 저작 도구에서 다시 내보내야 합니다.',
+      'STEP 구문 오류로 열 수 없습니다. 문자열 안의 작은따옴표가 \'\'로 이스케이프되지 않았을 수 있습니다' +
+        '(예: 6\'8" 같은 피트·인치 표기). 저작 도구에서 다시 내보내야 합니다.',
     )
     this.name = 'UnreadableIfcError'
   }
@@ -1016,7 +1016,7 @@ function read(
     const noFootprint: string[] = []
 
     if (!unitFound) {
-      warnings.push('길이 단위 선언을 찾지 못해 미터로 가정했습니다. 치수가 전부 어긋날 수 있습니다.')
+      warnings.push('길이 단위 선언이 없어 미터로 가정했습니다. 치수가 모두 틀릴 수 있습니다.')
     }
     stage(1)
     const loadBearing = r.loadBearingByElement()
@@ -1281,7 +1281,7 @@ function read(
         // FootPrint 와 SweptSolid 를 둘 다 본 뒤에도 못 얻은 것들이다. Brep 이나
         // SurfaceModel 로만 그려진 공간, 그리고 형상 표현이 아예 없는 공간(COBie 판본의
         // IfcSpace 22개가 그랬다)이 여기 걸린다.
-        `공간 ${noFootprint.length}개에서 바닥 외곽선을 얻지 못했습니다. FootPrint 도 SweptSolid 도 없습니다(${shown}${rest}).`,
+        `공간 ${noFootprint.length}개에 바닥 외곽선(FootPrint, SweptSolid)이 없습니다(${shown}${rest}).`,
       )
     }
 
@@ -1289,28 +1289,28 @@ function read(
     const noThickness = allWalls.filter((w) => w.thickness === null).length
     if (noThickness > 0) {
       warnings.push(
-        `벽 ${noThickness}장에 재료 구성이 없어 두께를 모릅니다. 선으로만 그릴 수 있고 벽 편집이 제한됩니다.`,
+        `벽 ${noThickness}장은 재료 구성이 없어 두께를 알 수 없습니다.`,
       )
     }
 
     const looseOpenings = storeys.flatMap((s) => s.openings).filter((o) => o.wallId === null).length
     if (looseOpenings > 0) {
       warnings.push(
-        `문·창 ${looseOpenings}개가 어느 벽에 뚫렸는지 모릅니다. 벽을 지울 때 함께 지울 대상을 찾지 못합니다.`,
+        `문·창 ${looseOpenings}개는 어느 벽에 있는지 알 수 없습니다(개구부 관계 없음).`,
       )
     }
 
     const noBoundary = storeys.flatMap((s) => s.spaces).filter((sp) => sp.boundedBy.length === 0).length
     if (noBoundary > 0) {
       warnings.push(
-        `물리존 ${noBoundary}개에 공간 경계 정보가 없습니다. 벽을 고칠 때 영향받는 물리존을 BIM 에서 알 수 없어 기하로 유추해야 합니다.`,
+        `물리존 ${noBoundary}개에 공간 경계(IfcRelSpaceBoundary)가 없습니다. 문이 잇는 방은 좌표로 찾습니다.`,
       )
     }
 
     const unknown = allWalls.filter((w) => w.loadBearing === null).length
     if (unknown > 0) {
       warnings.push(
-        `벽 ${unknown}장에 Structural(내력) 속성이 없습니다. 내력벽으로 처리하지 않으며, 편집 제한도 걸리지 않습니다.`,
+        `벽 ${unknown}장에 내력(LoadBearing) 속성이 없습니다. 내력 여부를 "모름"으로 둡니다.`,
       )
     }
 
@@ -1350,7 +1350,7 @@ function read(
     const anchored = anchorToGeometry(allEquipment, meshes)
     if (anchored > 0) {
       warnings.push(
-        `설비 ${anchored}대의 배치점이 자기 형상에서 ${ANCHOR_MARGIN}m 넘게 떨어져 있어(층 원점에 찍힌 것으로 보입니다) 형상 중심을 좌표로 썼습니다.`,
+        `설비 ${anchored}대는 배치점이 형상에서 ${ANCHOR_MARGIN}m 넘게 떨어져 있어(층 원점에 찍힌 것으로 보임) 형상 중심을 좌표로 썼습니다.`,
       )
     }
 
@@ -1363,14 +1363,14 @@ function read(
 
     const unplaced = allEquipment.filter((e) => e.position === null).length
     if (unplaced > 0) {
-      warnings.push(`설비 ${unplaced}대에 좌표가 없어 자동 배치하지 못했습니다. 3D 에서 직접 놓아야 합니다.`)
+      warnings.push(`설비 ${unplaced}대에 좌표가 없습니다. 편집 모드에서 좌표를 넣어야 합니다.`)
     }
     const noCapacity = allEquipment.filter((e) => e.capacity === null).length
     if (noCapacity > 0) {
-      warnings.push(`설비 ${noCapacity}대에 용량 파라미터가 없습니다. 공조존 용량 검증을 돌릴 수 없습니다.`)
+      warnings.push(`설비 ${noCapacity}대에 용량 파라미터가 없습니다. 공조존 용량 검증에서 빠집니다.`)
     }
     if (allEquipment.length > 0 && systems.length === 0) {
-      warnings.push('설비는 있으나 계통(IfcSystem) 정보가 없습니다. 어느 공조기가 어느 토출구를 담당하는지 알 수 없습니다.')
+      warnings.push('설비는 있지만 계통(IfcSystem)이 없습니다. 어느 공조기가 어느 토출구를 맡는지 알 수 없습니다.')
     }
     if (withMeshes && result.connections.length === 0 && meshes.size > 0) {
       const systemsOf = new Map<string, string[]>()
@@ -1385,7 +1385,7 @@ function read(
       result.connections = inferConnections(points)
       if (result.connections.length > 0) {
         warnings.push(
-          `BIM 에 포트(IfcDistributionPort) 연결이 없어 형상이 맞닿은 것으로 연결 ${result.connections.length}개를 추정했습니다. 흐름 방향은 모릅니다.`,
+          `포트(IfcDistributionPort)가 없어 형상이 맞닿은 곳을 연결로 추정했습니다(${result.connections.length}개). 흐름 방향은 알 수 없습니다.`,
         )
       }
 
@@ -1405,19 +1405,19 @@ function read(
       if (joined > 0) {
         const far = Math.max(...rescued.map((c) => c.tolerance ?? 0))
         warnings.push(
-          `연결이 없던 설비 ${gaps.length}대 중 ${joined}대를 주변에서만 판정을 넓혀(최대 ${Math.round(far * 1000)}mm) 연결망에 붙였습니다(연결 ${rescued.length}개). 검토 화면에서 거리를 확인할 수 있습니다.`,
+          `연결이 없던 설비 ${gaps.length}대 중 ${joined}대는 허용 거리를 최대 ${Math.round(far * 1000)}mm까지 늘려 연결망에 붙였습니다(연결 ${rescued.length}개). 거리는 고른 설비의 연결 목록에서 볼 수 있습니다.`,
         )
       }
       if (stranded > 0) {
         warnings.push(
-          `설비 ${stranded}대는 주변 ${Math.round(REACH * 1000)}mm 안에 이을 상대가 없어 연결망에 붙이지 못했습니다(접합 부재 누락). 모델을 다시 그려야 이어집니다.`,
+          `설비 ${stranded}대는 주변 ${Math.round(REACH * 1000)}mm 안에 이어질 부재가 없어 연결하지 못했습니다(접합 부재 누락). 모델을 고쳐야 합니다.`,
         )
       }
     }
 
     if (proxies.ported + proxies.named > 0) {
       warnings.push(
-        `Proxy(IfcBuildingElementProxy) ${proxies.ported + proxies.named}개를 설비로 읽었습니다(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 안 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름에서 추정했습니다. 고객사에는 IFC 클래스로 내보내 달라고 요청합니다(R24).`,
+        `Proxy(IfcBuildingElementProxy) ${proxies.ported + proxies.named}개를 설비로 읽었습니다(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 정한 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름으로 추정했습니다(요구사항 R24).`,
       )
     }
 
@@ -1427,8 +1427,8 @@ function read(
     if (rules.oriented > 0) {
       const checked = rules.agree + rules.disagree
       warnings.push(
-        `포트가 방향을 말하지 않은 연결 ${rules.oriented}개에 계통 종류와 설비 종류로 방향을 추정했습니다(규칙 방향). 확정하기 전에는 brick:feeds 로 내보내지 않습니다.` +
-          (checked > 0 ? ` 같은 규칙을 포트가 방향을 말한 연결 ${checked}개에 대 보면 ${((rules.agree / checked) * 100).toFixed(1)}%가 일치합니다.` : ''),
+        `포트에 방향이 없는 연결 ${rules.oriented}개는 계통 종류와 설비 종류로 방향을 추정했습니다(규칙 방향). 확정하기 전에는 brick:feeds로 내보내지 않습니다.` +
+          (checked > 0 ? ` 포트 방향이 있는 연결 ${checked}개와 비교하면 ${((rules.agree / checked) * 100).toFixed(1)}% 일치합니다.` : ''),
       )
     }
 

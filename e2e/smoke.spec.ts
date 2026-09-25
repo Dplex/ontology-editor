@@ -28,7 +28,7 @@ test('IFC 를 올리면 검토 화면과 3D 가 나온다', async ({ page }) => 
 
   // 빠진 것을 조용히 넘기지 않는다.
   await expect(page.locator('.warnings')).toContainText('FootPrint')
-  await expect(page.locator('.warnings')).toContainText('Structural')
+  await expect(page.locator('.warnings')).toContainText('LoadBearing')
 
   // 층별 표가 실제 이름·높이·넓이 합을 보여 주고, 낮은 층이 먼저 온다.
   const rows = page.locator('.storeys tbody tr')
@@ -59,7 +59,7 @@ test('MEP 가 든 IFC 는 설비와 계통까지 보여 준다', async ({ page }
 
   // 빠진 것이 무엇인지 화면이 말한다. 이게 고객사 BIM 스펙 협의에 쓰이는 목록이다.
   const warnings = page.locator('.warnings')
-  await expect(warnings).toContainText('좌표가 없어')
+  await expect(warnings).toContainText('좌표가 없습니다')
   await expect(warnings).toContainText('용량 파라미터가 없습니다')
 
   expect(errors).toEqual([])
@@ -153,13 +153,13 @@ test('설비를 옮기면 소속 물리존이 다시 판정된다', async ({ pag
     await sensor.locator('.coord').nth(axis).fill(value)
     await sensor.locator('.coord').nth(axis).blur()
     await expect(sensor).toContainText('(소속 없음)')
-    await expect(sensor).toContainText('x·y·z 셋 다 넣어야 옮깁니다')
+    await expect(sensor).toContainText('x·y·z를 모두 넣어야 옮겨집니다')
     await expect(changed).toContainText('바뀐 것 1건')
   }
   await sensor.locator('.coord').nth(2).fill('2.5')
   await sensor.locator('.coord').nth(2).blur()
   await expect(sensor).toContainText('사무실')
-  await expect(sensor).not.toContainText('셋 다 넣어야')
+  await expect(sensor).not.toContainText('모두 넣어야')
   await expect(changed).toContainText('바뀐 것 2건')
 
   expect(errors).toEqual([])
@@ -305,7 +305,7 @@ test('규칙이 짐작한 방향은 (추정)으로 보이고, 사람이 연결 �
   // 규칙과 반대로 정해 본다. 편집 표시가 붙고 리포트에 남는다.
   await terminal.getByRole('button', { name: '상류로' }).click()
   await expect(terminal.locator('.rel')).toHaveText('상류')
-  await expect(terminal).toContainText('사람이 정한 방향 편집')
+  await expect(terminal).toContainText('직접 정한 방향 편집')
   const report = page.locator('.report')
   await expect(report).toContainText('AT-101-02 → DUCT-01')
   await expect(report).toContainText('규칙 방향과 반대')
@@ -387,7 +387,7 @@ test('완전성 검사는 규칙마다 통과 수를 세고, 어긴 것을 펼�
   const checks = page.locator('.checks')
   const rows = checks.locator('tbody tr')
   await expect(rows).toHaveCount(5)
-  await expect(checks).toContainText('공기 말단(디퓨저·그릴)은 흐름을 따라 원천(공조기·FCU 등)에 닿는다')
+  await expect(checks).toContainText('공기 말단(디퓨저·그릴)이 원천(공조기·FCU 등)과 이어져 있다')
 
   // 어긴 것이 있는 첫 규칙을 펼치고, 목록에서 하나를 고르면 설비 패널이 뜬다.
   const failing = rows.filter({ has: page.locator('button') }).first()

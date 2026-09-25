@@ -47,7 +47,7 @@ describe('profileOf — 파일이 온톨로지를 어디까지 채우나', () =>
     ])
     // 도관은 분모에 넣지 않는다. 기기 5대(덕트 1개는 따로)다.
     expect(p.tiers[1].of).toBe(5)
-    expect(p.tiers[1].note).toContain('덕트·배관 1개는 따로')
+    expect(p.tiers[1].note).toContain('덕트·배관 1개는 제외')
   })
 
   it('방 없이 설비만 있는 파일은 건축 파일과 합칠 짝이라고 말한다', () => {

@@ -108,7 +108,7 @@ describe('빠진 것을 조용히 넘기지 않는다', () => {
   })
 
   it('Structural 속성이 없는 벽 수를 경고로 남긴다', () => {
-    expect(model.warnings.some((w) => w.includes('Structural'))).toBe(true)
+    expect(model.warnings.some((w) => w.includes('LoadBearing'))).toBe(true)
   })
 
   it('명시적 false 와 속성 없음을 구별한다', () => {
@@ -256,7 +256,7 @@ describe('MEP 임포트', () => {
   })
 
   it('빠진 것을 경고로 남긴다', () => {
-    expect(mep.warnings.some((w) => w.includes('좌표가 없어'))).toBe(true)
+    expect(mep.warnings.some((w) => w.includes('좌표가 없습니다'))).toBe(true)
     expect(mep.warnings.some((w) => w.includes('용량 파라미터가 없습니다'))).toBe(true)
   })
 })

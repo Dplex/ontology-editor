@@ -81,7 +81,7 @@ test('편집을 저장하고 같은 파일을 다시 연 뒤 불러오면 편집
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건', { timeout: 30_000 })
 
   await page.locator('.load-edits input').setInputFiles(path)
-  await expect(page.locator('.edit-file-note')).toContainText('편집 2개를 얹었습니다')
+  await expect(page.locator('.edit-file-note')).toContainText('편집 2개를 적용했습니다')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
   await expect(page.locator('.report')).toContainText('사무실 → 대회의실')
   await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().locator('.coord').first()).toHaveValue(x)
@@ -91,6 +91,6 @@ test('편집을 저장하고 같은 파일을 다시 연 뒤 불러오면 편집
   await openFile(page, ROOMS)
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
   await page.locator('.load-edits input').setInputFiles(path)
-  await expect(page.locator('.edit-file-note')).toContainText('못 찾은 것: 설비 1 · 물리존 1')
-  await expect(page.locator('.edit-file-note')).toContainText('저장한 파일은 mep.ifc')
+  await expect(page.locator('.edit-file-note')).toContainText('찾지 못함: 설비 1 · 물리존 1')
+  await expect(page.locator('.edit-file-note')).toContainText('원래 파일: mep.ifc')
 })

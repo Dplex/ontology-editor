@@ -218,7 +218,7 @@ describe.skipIf(!existsSync(DUPLEX_ARCH))('Revit 이 낸 공간 외곽선 (Swept
     // 19개가 SweptSolid 다. 나머지 둘은 SurfaceModel 이라 아직 못 읽고 경고로 남는다 —
     // 못 읽는 것을 읽은 척하지 않는다.
     expect(spaces.filter((s) => s.footprint.length >= 3)).toHaveLength(19)
-    expect(model.warnings.some((w) => w.includes('바닥 외곽선을 얻지 못했습니다'))).toBe(true)
+    expect(model.warnings.some((w) => w.includes('바닥 외곽선(FootPrint, SweptSolid)이 없습니다'))).toBe(true)
 
     // 방이 저마다 다른 자리에 있어야 한다. 배치를 안 타면 전부 원점에 겹치는데 넓이는
     // 그대로라 개수만 봐서는 안 보인다.

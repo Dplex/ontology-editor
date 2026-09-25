@@ -188,7 +188,7 @@ test('방 안에서 옮긴 좌표와 물리존 이름도 바뀐 것으로 세고
   await name.fill('대회의실')
   await name.press('Enter')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
-  await expect(page.locator('.report')).toContainText('사무실 → 대회의실(rdfs:label)')
+  await expect(page.locator('.report')).toContainText('사무실 → 대회의실 (rdfs:label)')
 
   await page.locator('.edit-bar .undo').click()
   await page.locator('.edit-bar .undo').click()
@@ -240,7 +240,7 @@ test('계통별 확정 표에서 남은 계통과 일치율을 보고 바로 확
   await expect(fold).toContainText('확정 0개')
 
   await row.getByRole('button', { name: '확정' }).click()
-  await expect(row).toContainText('확정함')
+  await expect(row).toContainText('확정됨')
   await expect(page.locator('.report')).toContainText('AHU-1 급기 계통')
   await expect(fold).toContainText('확정 1개')
 
@@ -256,7 +256,7 @@ test('계통별 확정 표에서 남은 계통과 일치율을 보고 바로 확
 test('N 은 완전성 검사에서 어긴 것을 하나씩 고르고, 펼친 규칙이 없으면 첫 규칙을 편다', async ({ page }) => {
   const errors = await open(page)
   await page.keyboard.press('n')
-  await expect(page.locator('.key-note')).toContainText('어긴 것 1/1')
+  await expect(page.locator('.key-note')).toContainText('위반 1/1')
   await expect(page.locator('.picked h3')).toBeVisible()
   // 펼친 규칙이 표에 표시된다.
   await expect(page.locator('.checks tbody tr.chosen')).toHaveCount(1)
@@ -274,7 +274,7 @@ test('N 으로 소속 없는 설비에 가서 패널에서 좌표를 넣으면 �
   // 한 축만 넣으면 옮기지 않는다(0 으로 채우지 않는다).
   await inputs.nth(0).fill('5')
   await inputs.nth(0).press('Enter')
-  await expect(page.locator('.position-edit')).toContainText('셋 다 넣어야')
+  await expect(page.locator('.position-edit')).toContainText('모두 넣어야')
   await inputs.nth(1).fill('4')
   await inputs.nth(1).press('Enter')
   await inputs.nth(2).fill('2.7')
@@ -286,6 +286,6 @@ test('N 으로 소속 없는 설비에 가서 패널에서 좌표를 넣으면 �
   await expect(inputs.nth(2)).not.toBeFocused()
   await expect(page.locator('.picked h3')).toHaveText('TEMP-101-01')
   await page.keyboard.press('n')
-  await expect(page.locator('.key-note')).toContainText('어긴 것이 없습니다')
+  await expect(page.locator('.key-note')).toContainText('위반이 없습니다')
   expect(errors).toEqual([])
 })
