@@ -41,10 +41,10 @@ function specs(prefix: string): { name: string; applicability: string; requireme
 const enumerations = (xml: string) => [...xml.matchAll(/<xs:enumeration value="([^"]+)"\/>/g)].map((m) => m[1])
 const simpleValues = (xml: string) => [...xml.matchAll(/<simpleValue>([^<]+)<\/simpleValue>/g)].map((m) => m[1])
 
-/** IFC4·IFC4X3 의 표준 열거값. USERDEFINED·NOTDEFINED 는 뺀다. */
+/** IFC2x3·IFC4·IFC4X3 의 표준 열거값. USERDEFINED·NOTDEFINED 는 뺀다. */
 function standardValues(cls: string): Set<string> {
   const out = new Set<string>()
-  for (const schema of [(WebIFC as any).IFC4, (WebIFC as any).IFC4X3]) {
+  for (const schema of [(WebIFC as any).IFC2X3, (WebIFC as any).IFC4, (WebIFC as any).IFC4X3]) {
     for (const v of Object.keys(schema?.[`Ifc${cls}TypeEnum`] ?? {})) out.add(v)
   }
   out.delete('USERDEFINED')

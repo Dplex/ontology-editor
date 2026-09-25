@@ -630,7 +630,7 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
     expect([...a.out.values()].map((p) => p.get('Category Description'))).toContain('Bedroom')
     expect(spaceProps(house).count('OmniClass Table 13 Category')).toBe(0)
 
-    // 방 높이는 ArchiCAD 가 수량으로 준다(7/7). 층 높이만으로는 복층 거실(4m)을 모른다.
+    // 방 높이는 ArchiCAD 가 수량으로 준다(7/7). 층마다 거의 한 값이라(2.5m 6개, 다락 4m 1개) 요구하지 않는다(정본 4.3).
     const h = spaceProps(house)
     expect(h.count('Height')).toBe(7)
     expect(new Set([...h.out.values()].map((p) => p.get('Height')))).toEqual(new Set([2.5, 4]))
