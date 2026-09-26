@@ -177,6 +177,19 @@ export function moveEquipmentToStorey(model: Model, equipmentId: string, storeyI
   }
 }
 
+/**
+ * BIM 이 말한 소속을 버리고 좌표로 다시 잰다. 설비를 옮기거나 다른 층으로 보낼 때 일어나는 일이고, 편집 파일을
+ * 불러올 때 이것을 다시 한다 — 옮겼다가 제자리로 돌려놓은 설비는 좌표가 연 때와 같아도 소속이 BIM 이 말한 방이
+ * 아니다. 좌표만 견주면 그 편집이 파일에서 빠지고, 다시 열면 BIM 소속으로 돌아간다.
+ */
+export function releaseDeclaredSpace(model: Model, equipmentId: string): boolean {
+  const equipment = findEquipment(model, equipmentId)
+  if (!equipment || equipment.spaceSource !== 'bim') return false
+  equipment.spaceSource = null
+  reassignStoreyOf(model, equipment)
+  return true
+}
+
 /** 물리존 이름을 고친다(E1). 라벨만 바뀌므로 다시 계산할 것이 없다. */
 export function renameSpace(model: Model, spaceId: string, longName: string): boolean {
   for (const storey of model.storeys) {
@@ -611,7 +624,7 @@ export type Baseline = {
   names: Map<string, string>
   /** 물리존 외곽선. 편집 저장(edit-file.ts)이 바뀐 경계만 골라 담는다. */
   footprints: Map<string, Vec2[]>
-  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null }>
+  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource'] }>
   /** 연 때 있던 연결(순서 없는 짝). 이은 것·끊은 것을 이것과 견준다. 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
   connections?: Set<string>
 }
@@ -631,6 +644,7 @@ export function baselineOf(model: Model): Baseline {
         position: e.position ? [e.position[0], e.position[1], e.position[2]] : null,
         storeyId: storey.id,
         spaceId: e.spaceId,
+        spaceSource: e.spaceSource,
       })
     }
   }

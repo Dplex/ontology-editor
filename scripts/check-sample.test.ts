@@ -19,6 +19,7 @@ import { completenessChecks } from '../src/lib/checks'
 import { roomKind } from '../src/lib/kinds'
 import { requirementsReport } from '../src/lib/requirements'
 import { compareVersions } from '../src/lib/versions'
+import { fuzzEdits } from '../src/lib/edit-fuzz'
 import type { Model } from '../src/lib/model'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -1135,6 +1136,34 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
       'device-space': '4137/4911',
       'device-connected': '2991/3610',
     })
+  }, 900_000)
+})
+
+// 편집을 무작위로 섞어도 편집 파일·되돌리기가 화면과 같은 결과를 내는가(edit-fuzz.ts). 픽스처 판은 npm test 에 있고,
+// 여기는 실제 BIM 이다 — 계통이 수십 개고, BIM 소속·포트·Revit 이름이 진짜라서 픽스처에 없는 조합이 나온다.
+// 이것으로 찾은 것: 확정 뒤 종류·잇기를 하면 불러온 파일에서 확정 방향이 바뀌던 것, BIM 소속 설비를 옮겼다 돌려놓으면
+// 편집 파일에서 빠지던 것.
+describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP) || !existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('편집을 무작위로 섞기 (실제 BIM)', () => {
+  it('저장·불러오기가 화면과 같고, 전부 되돌리면 연 때와 같다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const load = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+    const sets: [string, Model][] = [
+      ['Duplex 건축+HVAC', mergeModels(load(DUPLEX_ARCH), load(DUPLEX_HVAC)).model],
+      ['Duplex 건축+MEP', mergeModels(load(DUPLEX_ARCH), load(DUPLEX_MEP)).model],
+      ['병원 건축+HVAC', mergeModels(load(CLINIC_ARCH), load(CLINIC_HVAC)).model],
+    ]
+    const failed: string[] = []
+    for (const [name, model] of sets) {
+      // 씨앗 10개. 고치기 전 코드는 씨앗 1~3 에서 이미 떨어졌다. 늘리면 check:sample 이 그만큼 느려진다(20개에 36초).
+      for (let seed = 1; seed <= 10; seed++) {
+        const r = fuzzEdits(model, seed, 30)
+        if (!r.reloadSame || r.missing || !r.undoSame) {
+          failed.push(`${name} seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}`)
+        }
+      }
+    }
+    expect(failed.slice(0, 3)).toEqual([])
   }, 900_000)
 })
 

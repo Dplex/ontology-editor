@@ -2552,7 +2552,10 @@ const drawnSpaces = (m: Model) => m.storeys.reduce((n, s) => n + s.spaces.filter
 
 // 편집한 뒤에는 덧붙이지 못하게 한다. 합치기는 모델을 새로 만드는 일이라, 앞선 편집이 합친
 // 모델에 섞여 들어가면서 편집 이력에는 안 남는다 — 리포트가 모르는 변경이 생긴다.
-const canAppend = computed(() => !!model.value && changes.value.length === 0 && areaChanges.value.length === 0)
+// **소속·경계만 보면 안 된다.** 이름·종류·확정·방향·잇기는 소속을 안 바꿔서 덧붙이기가 열려 있었고, 합치면 값은
+// TTL 에 나가는데 "바뀐 것 0건" 이 되고 편집 파일·자동 저장·되돌리기에서 빠졌다. 바뀐 것 수와 되돌리기 이력을 다 본다
+// (전부 되돌리면 다시 열린다).
+const canAppend = computed(() => !!model.value && !hasEdits.value)
 
 async function append(name: string, read: () => Promise<ArrayBuffer>) {
   if (!model.value) return

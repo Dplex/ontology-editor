@@ -13,6 +13,7 @@ import {
   moveEquipment,
   moveEquipmentToStorey,
   moveSpaceVertex,
+  releaseDeclaredSpace,
   renameSpace,
   setFlowDirection,
   setTypeKind,
@@ -161,6 +162,79 @@ describe('편집 저장·불러오기', () => {
     expect(result.missing.connections).toBe(0)
     expect(connectionBetween(b, ahu, light)?.edited).toEqual({ from: ahu, to: light })
     expect(exports(b)).toEqual(exports(a))
+  })
+
+  // 확정한 계통은 규칙을 다시 돌려도 얼려 둔다. 예전 편집 파일은 계통 id 만 적어서, 불러올 때 종류를 먼저 바꾸고
+  // 확정을 나중에 하면 새 종류로 방향이 다시 정해졌다 — 덕트→토출구로 확정한 것이 토출구→덕트로 나갔다.
+  it('계통을 확정한 뒤 종류를 바꿔도, 불러오면 확정한 방향 그대로다', () => {
+    const a = read('mep.ifc')
+    const base = baselineOf(a)
+    const c = a.connections.find((x) => x.inferred)!
+    const confirmed = { from: c.inferred!.from, to: c.inferred!.to }
+    confirmSystemFlow(a, c.inferred!.systemId)
+    // 토출구를 공기의 원천으로 바꾸면 새로 돌린 규칙은 반대로 정한다. 확정한 것은 그대로다.
+    setTypeKind(a, typeKeyOf(equip(a, 'AT-101-02')), 'ahu')
+    expect({ from: c.inferred!.from, to: c.inferred!.to }).toEqual(confirmed)
+
+    const parsed = parseEditFile(JSON.stringify(exportEdits(a, base, 'mep.ifc')))
+    if (typeof parsed === 'string') throw new Error(parsed)
+    const b = read('mep.ifc')
+    applyEdits(b, parsed)
+    const again = b.connections.find((x) => x.inferred?.confirmed)!
+    expect({ from: again.inferred!.from, to: again.inferred!.to }).toEqual(confirmed)
+    expect(exports(b)).toEqual(exports(a))
+  })
+
+  it('확정한 방향이 없던 때의 편집 파일도 계통 id 로 확정해 불러온다', () => {
+    const a = read('mep.ifc')
+    const base = baselineOf(a)
+    const systemId = a.connections.find((x) => x.inferred)!.inferred!.systemId
+    confirmSystemFlow(a, systemId)
+    const file = exportEdits(a, base, 'mep.ifc')
+    delete file.confirmedFlows
+    const b = read('mep.ifc')
+    const result = applyEdits(b, file)
+    expect(result.confirmations).toEqual([{ systemId, count: 1 }])
+    expect(exports(b)).toEqual(exports(a))
+  })
+
+  // BIM 소속은 옮기는 순간 버리고 좌표로 다시 잰다. 제자리로 돌려놓으면 좌표는 연 때와 같아서 편집 파일에서 빠졌고,
+  // 다시 열면 BIM 소속으로 돌아갔다(화면은 소속 없음, 불러온 뒤는 사무실).
+  it('BIM 이 소속을 말한 설비를 옮겼다 제자리로 돌려놓아도, 불러오면 화면과 같다', () => {
+    const a = read('mep.ifc')
+    const base = baselineOf(a)
+    const light = equip(a, 'LIGHT-101-01')
+    expect(light.spaceSource).toBe('bim')
+    const p = light.position!
+    moveEquipment(a, light.id, [p[0] + 0.1, p[1], p[2]])
+    moveEquipment(a, light.id, [p[0], p[1], p[2]])
+    expect(light.spaceSource).not.toBe('bim')
+
+    const file = exportEdits(a, base, 'mep.ifc')
+    expect(file.equipment).toEqual([{ id: light.id, position: [p[0], p[1], p[2]], released: true }])
+    const b = read('mep.ifc')
+    applyEdits(b, file)
+    expect(equip(b, 'LIGHT-101-01').spaceId).toBe(light.spaceId)
+    expect(exports(b)).toEqual(exports(a))
+  })
+
+  it('좌표 없는 설비가 다른 층에 갔다 와서 BIM 소속을 잃은 것도 편집 파일에 남는다', () => {
+    const a = read('mep.ifc')
+    addUpperStorey(a)
+    const base = baselineOf(a)
+    const light = equip(a, 'LIGHT-101-01')
+    light.position = null
+    base.equipment.get(light.id)!.position = null
+    moveEquipmentToStorey(a, light.id, 'up')
+    moveEquipmentToStorey(a, light.id, a.storeys[0].id)
+    expect(light.spaceId).toBe(null)
+
+    const b = read('mep.ifc')
+    addUpperStorey(b)
+    equip(b, 'LIGHT-101-01').position = null
+    applyEdits(b, exportEdits(a, base, 'mep.ifc'))
+    expect(equip(b, 'LIGHT-101-01').spaceId).toBe(null)
+    expect(releaseDeclaredSpace(b, light.id)).toBe(false)
   })
 
   it('편집 파일이 아닌 것은 이유를 말하고 받지 않는다', () => {
