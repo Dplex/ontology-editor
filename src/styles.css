@@ -2522,3 +2522,53 @@ main.has-model .catalog {
   padding: 0.1rem 0.55rem;
   font-size: 0.75rem;
 }
+
+/* 3D 위의 "이 층만 보기". 도구 버튼들과 같은 높이·모양. */
+.view-tools .storey-view {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
+/* 외곽선 그리기 중 3D 위에 뜨는 막대. 왼쪽 위 색 안내와 겹치지 않게 가운데 위에 둔다. */
+.draw-bar {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: calc(100% - 20rem);
+  padding: 0.45rem 0.75rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  font-size: 0.82rem;
+  transform: translateX(-50%);
+}
+
+.draw-bar .ghost {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+/* 고른 물리존에서 짚은 꼭짓점을 넣거나 지우는 버튼. */
+.vertex-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.4rem 0;
+  font-size: 0.85rem;
+}
+
+.vertex-tools .ghost {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.78rem;
+}

@@ -727,3 +727,49 @@ export function removeConnection(model: Model, connection: Connection): RuleRepo
   model.connections.splice(at, 1)
   return inferFlowByRules(model)
 }
+
+// --- 꼭짓점 넣기·지우기 -----------------------------------------------------------
+//
+// 꼭짓점을 옮기기만 해서는 ㄱ자 방을 사각형으로 바꾸거나 모서리를 하나 더 낼 수 없었다. 닫는 점(첫 점과 같은 끝 점)은
+// 꼭짓점으로 세지 않고, 고친 뒤에도 원래 닫혀 있었으면 닫는다. 결과는 경계를 통째로 바꾼 것과 같아서
+// replaceSpaceFootprint 로 넘긴다(넓이·소속 재판정이 거기 있다).
+
+function isClosedRing(ring: readonly Vec2[]): boolean {
+  const last = ring.at(-1)
+  return ring.length > 1 && !!last && ring[0][0] === last[0] && ring[0][1] === last[1]
+}
+
+/** 닫는 점을 뺀 꼭짓점들. */
+export function openRing(ring: readonly Vec2[]): Vec2[] {
+  return (isClosedRing(ring) ? ring.slice(0, -1) : ring).map((p) => [p[0], p[1]] as Vec2)
+}
+
+const withClosing = (points: Vec2[], closed: boolean): Vec2[] => (closed && points.length ? [...points, [points[0][0], points[0][1]]] : points)
+
+/** index 꼭짓점과 다음 꼭짓점의 가운데에 꼭짓점을 넣는다. 넣은 꼭짓점의 번호는 index + 1 이다. */
+export function insertSpaceVertex(model: Model, spaceId: string, index: number): BoundaryChange | null {
+  const space = findSpace(model, spaceId)
+  if (!space) return null
+  const points = openRing(space.footprint)
+  if (index < 0 || index >= points.length || points.length < 2) return null
+  const a = points[index]
+  const b = points[(index + 1) % points.length]
+  points.splice(index + 1, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2])
+  return replaceSpaceFootprint(model, spaceId, withClosing(points, isClosedRing(space.footprint)))
+}
+
+/** 꼭짓점을 지운다. 셋보다 적어지면 다각형이 아니라서 지우지 않는다. */
+export function deleteSpaceVertex(model: Model, spaceId: string, index: number): BoundaryChange | null {
+  const space = findSpace(model, spaceId)
+  if (!space) return null
+  const points = openRing(space.footprint)
+  if (index < 0 || index >= points.length || points.length <= 3) return null
+  points.splice(index, 1)
+  return replaceSpaceFootprint(model, spaceId, withClosing(points, isClosedRing(space.footprint)))
+}
+
+/** 외곽선이 없던 물리존에 새 외곽선을 준다(3D 에서 찍은 점들). 닫아서 넣는다. */
+export function drawSpaceFootprint(model: Model, spaceId: string, points: readonly Vec2[]): BoundaryChange | null {
+  if (points.length < 3) return null
+  return replaceSpaceFootprint(model, spaceId, withClosing(points.map((p) => [p[0], p[1]] as Vec2), true))
+}

@@ -247,6 +247,17 @@ export type Viewer = {
   setDark(on: boolean): void
   /** 건물 전체가 화면에 들어오게 한다. */
   frameAll(): void
+  /**
+   * 보일 층만 남긴다. storeys 가 null 이면 전부. hidden 은 숨길 설비 id(그 층에 없는 설비) — 층과 설비의 짝은 편집으로
+   * 바뀌므로(층 옮기기) 화면이 셈해서 준다. 숨긴 것은 그리지도, 고르지도 않는다.
+   */
+  setStoreyFilter(storeys: ReadonlySet<string> | null, hidden: ReadonlySet<string>): void
+  /**
+   * 놓기 모드. 높이(IFC z, 층 바닥)를 주면 다음 누르기를 고르기 대신 그 높이 바닥의 점(IFC x, y)으로 알린다.
+   * 좌표가 없는 설비를 3D 에서 놓을 때 쓴다. null 이면 끈다.
+   */
+  setPlaceMode(elevation: number | null): void
+  onPlace(handler: (at: Vec2) => void): void
   /** 물리존 하나가 화면에 들어오게 한다. */
   frameSpace(id: string): void
   /**
@@ -339,10 +350,21 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let solid: Mesh | null = null
   let faded: Mesh | null = null
   // 내력벽. 고르기 대상이 아니다(pick 은 설비만 본다). 벽 너머의 설비를 누를 수 있어야 해서다.
-  let walls: Mesh | null = null
+  let walls: Group | null = null
   let wallsVisible = false
+  // 층별로 보기. 숨긴 층의 판·벽은 visible 을 끄고, 숨긴 설비는 인덱스에서 뺀다(흐리게 칠한 것과 같은 장치).
+  let visibleStoreys: ReadonlySet<string> | null = null
+  let hiddenIds: ReadonlySet<string> = new Set()
+  const storeyShown = (o: { userData: { storeyId?: string } }) => !visibleStoreys || !o.userData.storeyId || visibleStoreys.has(o.userData.storeyId)
+  function applyStoreyVisibility() {
+    for (const o of slabs.children) o.visible = storeyShown(o)
+    for (const o of walls?.children ?? []) o.visible = storeyShown(o)
+    dirty = true
+  }
   let pickHandler: (id: string | null) => void = () => {}
   let hoverHandler: (target: HoverTarget | null, at: { x: number; y: number } | null) => void = () => {}
+  let placeElevation: number | null = null
+  let placeHandler: (at: Vec2) => void = () => {}
 
   // **움직일 때만 다시 그린다.** 가만히 있을 때도 매 프레임 1만 8천 개를 다시 그리면 화면 전체(스크롤,
   // 입력칸)가 같이 느려진다. 시점이 바뀌거나 색·모델이 바뀌었을 때만 그린다.
@@ -384,7 +406,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   /** 좌표가 있는 설비. 좌표가 없는 것은 끌지 않는다 — 끌면 원점 근처 어딘가에서 시작한 것이 된다. */
   let movable = new Set<string>()
   /** 물리존 판의 윗면. 편집 모드에서 바닥을 눌러 물리존을 고를 때 쓴다. */
-  let spaceTargets: { id: string; y: number; ring: readonly Vec2[] }[] = []
+  let spaceTargets: { id: string; storeyId: string; y: number; ring: readonly Vec2[] }[] = []
   let moveHandler: (id: string, delta: Vec3) => void = () => {}
   let spacePickHandler: (id: string | null) => void = () => {}
   let vertexHandler: (spaceId: string, index: number, to: Vec2) => void = () => {}
@@ -540,6 +562,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const plane = new Plane(new Vector3(0, 1, 0), 0)
     const at = new Vector3()
     for (const target of spaceTargets) {
+      if (visibleStoreys && !visibleStoreys.has(target.storeyId)) continue
       plane.constant = -target.y
       if (!ray.intersectPlane(plane, at)) continue
       const d = at.distanceToSquared(ray.origin)
@@ -641,6 +664,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     pressedAt = null
     if (dragged) return
 
+    if (placeElevation !== null) {
+      const at = new Vector3()
+      const plane = new Plane(new Vector3(0, 1, 0), -toScene([0, 0, placeElevation])[1])
+      if (rayAt(e.clientX, e.clientY).intersectPlane(plane, at)) placeHandler([at.x, -at.z])
+      return
+    }
+
     if (editMode) {
       const key = hitArrow(e.clientX, e.clientY)
       if (key) {
@@ -707,6 +737,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
   function updateHover() {
     hoverPending = false
+    if (placeElevation !== null) {
+      canvas.style.cursor = 'crosshair'
+      hoverHandler(null, null)
+      return
+    }
     if (!hoverAt || drag) {
       hoverHandler(null, null)
       return
@@ -746,7 +781,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const pos = geometry.getAttribute('position') as BufferAttribute
     const candidates: { part: Part; d: number }[] = []
     for (const part of parts) {
-      if (fadedIds.has(part.id)) continue
+      if (fadedIds.has(part.id) || hiddenIds.has(part.id)) continue
       if (ray.intersectBox(part.box, hitPoint)) candidates.push({ part, d: hitPoint.distanceToSquared(ray.origin) })
     }
     candidates.sort((x, y) => x.d - y.d)
@@ -781,7 +816,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
   /** 끌 수 있는 것: 고른 설비이고 좌표가 있고 흐리게 칠해지지 않았다. */
   function grabbable(ray: Ray): Part | null {
-    const part = selectedPart && movable.has(selectedPart) && !fadedIds.has(selectedPart) ? partById.get(selectedPart) : undefined
+    const part =
+      selectedPart && movable.has(selectedPart) && !fadedIds.has(selectedPart) && !hiddenIds.has(selectedPart) ? partById.get(selectedPart) : undefined
     return part && hitsPart(ray, part) ? part : null
   }
 
@@ -876,6 +912,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     let solidCount = 0
     let fadedCount = 0
     for (const part of parts) {
+      if (hiddenIds.has(part.id)) continue
       if (fadedIds.has(part.id)) fadedCount += part.iCount
       else solidCount += part.iCount
     }
@@ -884,6 +921,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     let si = 0
     let fi = 0
     for (const part of parts) {
+      if (hiddenIds.has(part.id)) continue
       const slice = fullIndex.subarray(part.iStart, part.iStart + part.iCount)
       if (fadedIds.has(part.id)) {
         fadedIdx.set(slice, fi)
@@ -932,17 +970,19 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         pieces.push(mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry)
         ;(mesh.material as { dispose(): void }).dispose()
         // 판 두께가 0.1 이다(spaceMesh). 윗면에서 잰다.
-        spaceTargets.push({ id: space.id, y: storey.elevation + 0.1, ring: space.footprint })
+        spaceTargets.push({ id: space.id, storeyId: storey.id, y: storey.elevation + 0.1, ring: space.footprint })
       }
       if (pieces.length === 0) return
       const merged = mergeGeometries(pieces)
       for (const g of pieces) g.dispose()
       if (merged) {
-        slabs.add(new Mesh(merged, new MeshLambertMaterial({ color, transparent: true, opacity: slabOpacity, side: DoubleSide })))
+        const slab = new Mesh(merged, new MeshLambertMaterial({ color, transparent: true, opacity: slabOpacity, side: DoubleSide }))
+        slab.userData.storeyId = storey.id
+        slabs.add(slab)
       }
     })
     content.add(slabs)
-    dirty = true
+    applyStoreyVisibility()
   }
 
   // e2e 모드에서만 연다. 3D 는 DOM 이 아니라서 테스트가 어디를 눌러야 하는지 알 길이 이것뿐이다.
@@ -966,6 +1006,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           return { key: seg.key, a: spec?.a, b: spec?.b, from: spec?.from, source: spec?.source, active: !!spec?.active, at: toScreen(seg.a.clone().lerp(seg.b, 0.5)) }
         }),
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
+      /** 보이는 판의 층 id. 층별로 보기를 잰다. */
+      visibleStoreys: () => slabs.children.filter((o) => o.visible).map((o) => o.userData.storeyId as string),
       /**
        * 화면의 한 점에서 맨 앞에 맞는 설비, 그 시선이 id 설비도 지나는지, 연결 화살표가 걸리는지.
        * 가림은 카메라 거리에 따라 달라서 테스트가 찾아 쓴다. 화살표 위를 누르면 고르기가 아니라 방향 바꾸기다.
@@ -1082,10 +1124,19 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         solid.frustumCulled = false
         faded.frustumCulled = false
       }
-      walls = wallMesh(model, meshes)
+      // 층마다 따로 만든다. 층별로 보기가 층 단위로 켜고 끈다.
+      walls = new Group()
+      for (const storey of model.storeys) {
+        const w = wallMesh({ ...model, storeys: [storey] }, meshes)
+        if (!w) continue
+        w.userData.storeyId = storey.id
+        walls.add(w)
+      }
+      if (walls.children.length === 0) walls = null
       if (walls) {
         walls.visible = wallsVisible
         content.add(walls)
+        applyStoreyVisibility()
       }
 
       scene.add(content)
@@ -1232,8 +1283,29 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     frameAll() {
-      const box = new Box3().setFromObject(content)
+      // 보이는 것만. 한 층만 보는 중이면 그 층에 맞춘다.
+      const box = new Box3()
+      for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
+      for (const o of slabs.children) if (o.visible) box.expandByObject(o)
+      if (box.isEmpty()) box.setFromObject(content)
       if (!box.isEmpty()) fit(box)
+    },
+
+    setPlaceMode(elevation) {
+      placeElevation = elevation
+      canvas.style.cursor = elevation === null ? '' : 'crosshair'
+    },
+
+    onPlace(handler) {
+      placeHandler = handler
+    },
+
+    setStoreyFilter(storeys, hidden) {
+      visibleStoreys = storeys
+      hiddenIds = hidden
+      applyStoreyVisibility()
+      splitIndex()
+      if (hoverAt) hoverPending = true
     },
 
     frameSpace(id) {

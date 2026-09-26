@@ -4,6 +4,10 @@ import * as WebIFC from 'web-ifc'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import {
+  insertSpaceVertex,
+  deleteSpaceVertex,
+  drawSpaceFootprint,
+  openRing,
   baselineOf,
   diffBaseline,
   moveEquipment,
@@ -593,3 +597,37 @@ describe('종류를 바꿔 규칙이 포트와 어긋나기 시작한 계통', (
     expect(newlyDisagreeing(before, back)).toEqual([])
   })
 })
+
+describe('물리존 꼭짓점 넣기·지우기, 외곽선 그리기', () => {
+  it('꼭짓점을 가운데에 넣고 지우며, 닫힌 고리는 닫힌 채로 둔다', () => {
+    // 사무실은 (0,0)-(10,8) 네 꼭짓점이다.
+    const office = model.storeys[0].spaces[0]
+    const closed = office.footprint.length > 1 && office.footprint[0][0] === office.footprint.at(-1)![0] && office.footprint[0][1] === office.footprint.at(-1)![1]
+    expect(openRing(office.footprint)).toHaveLength(4)
+    const change = insertSpaceVertex(model, office.id, 0)!
+    expect(openRing(office.footprint)).toHaveLength(5)
+    expect(openRing(office.footprint)[1]).toEqual([5, 0])
+    // 변 위에 넣었으니 넓이는 그대로다.
+    expect(change.toAreaM2).toBeCloseTo(80)
+    const stillClosed = office.footprint[0][0] === office.footprint.at(-1)![0] && office.footprint[0][1] === office.footprint.at(-1)![1]
+    expect(stillClosed).toBe(closed)
+
+    // 모서리 하나를 지우면 삼각형(넓이 절반)이고, 셋에서는 더 지우지 않는다.
+    deleteSpaceVertex(model, office.id, 1)
+    deleteSpaceVertex(model, office.id, 1)
+    expect(openRing(office.footprint)).toHaveLength(3)
+    expect(office.areaM2).toBeCloseTo(40)
+    expect(deleteSpaceVertex(model, office.id, 0)).toBeNull()
+  })
+
+  it('외곽선이 없던 물리존에 찍은 점으로 외곽선을 주고 소속을 다시 잰다', () => {
+    const office = model.storeys[0].spaces[0]
+    office.footprint = []
+    office.areaM2 = 0
+    expect(drawSpaceFootprint(model, office.id, [[0, 0], [10, 0]])).toBeNull()
+    const change = drawSpaceFootprint(model, office.id, [[0, 0], [10, 0], [10, 8], [0, 8]])!
+    expect(change.toAreaM2).toBeCloseTo(80)
+    expect(equip('AHU-1').spaceId).toBe(office.id)
+  })
+})
+

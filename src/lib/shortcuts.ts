@@ -28,11 +28,14 @@ export type ShortcutId =
   | 'prevUnknown'
   | 'nextIssue'
   | 'prevIssue'
+  | 'vertexInsert'
+  | 'vertexDelete'
+  | 'drawFinish'
 
 /** 키 하나의 조합. `ctrl` 은 Ctrl 또는 ⌘ 다. `shift: 'any'` 는 Shift 를 눌렀든 말든 받는다(처리하는 쪽이 본다). */
 type Combo = ({ code: string; key?: never } | { key: string; code?: never }) & { shift?: boolean | 'any'; ctrl?: boolean }
 
-export type ShortcutGroup = '어디서나' | '3D 시점' | '편집 · 설비' | '편집 · 연결 방향' | '편집 · 종류'
+export type ShortcutGroup = '어디서나' | '3D 시점' | '편집 · 설비' | '편집 · 물리존' | '편집 · 연결 방향' | '편집 · 종류'
 
 export type Shortcut = {
   id: ShortcutId
@@ -106,12 +109,15 @@ export const SHORTCUTS: readonly Shortcut[] = [
   },
   { id: 'confirm', combos: [{ code: 'KeyC' }], keys: ['C'], label: '고른 설비 계통의 규칙 방향 확정', group: '편집 · 연결 방향', edit: true },
 
+  { id: 'vertexInsert', combos: [{ code: 'Insert' }], keys: ['Insert'], label: '짚은 꼭짓점과 다음 꼭짓점 사이에 꼭짓점 넣기', group: '편집 · 물리존', edit: true },
+  { id: 'vertexDelete', combos: [{ code: 'Delete' }], keys: ['Delete'], label: '짚은 꼭짓점 지우기(셋은 남긴다)', group: '편집 · 물리존', edit: true },
+  { id: 'drawFinish', combos: [{ code: 'Enter' }], keys: ['Enter'], label: '외곽선 그리기 마치기', group: '편집 · 물리존', edit: true },
   { id: 'kind', combos: [{ code: 'KeyK' }], keys: ['K'], label: '고른 설비의 종류 선택 (같은 패밀리 전체)', group: '편집 · 종류', edit: true },
   { id: 'nextUnknown', combos: [{ code: 'KeyU' }], keys: ['U'], label: '종류를 모르는 다음 패밀리의 설비로', group: '편집 · 종류', edit: true },
   { id: 'prevUnknown', combos: [{ code: 'KeyU', shift: true }], keys: ['Shift+U'], label: '종류를 모르는 이전 패밀리의 설비로', group: '편집 · 종류', edit: true },
 ]
 
-export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ['어디서나', '3D 시점', '편집 · 설비', '편집 · 연결 방향', '편집 · 종류']
+export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ['어디서나', '3D 시점', '편집 · 설비', '편집 · 물리존', '편집 · 연결 방향', '편집 · 종류']
 
 type KeyLike = Pick<KeyboardEvent, 'code' | 'key' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'altKey'>
 

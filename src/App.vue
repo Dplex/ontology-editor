@@ -39,6 +39,9 @@ import {
   completePosition,
   renameSpace,
   restore,
+  insertSpaceVertex,
+  deleteSpaceVertex,
+  drawSpaceFootprint,
   addConnection,
   connectionBetween,
   removeConnection,
@@ -690,6 +693,12 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
     case 'nextIssue':
     case 'prevIssue':
       return stepIssue(s.id === 'nextIssue' ? 1 : -1)
+    case 'vertexInsert':
+      return editVertex('insert')
+    case 'vertexDelete':
+      return editVertex('delete')
+    case 'drawFinish':
+      return finishDraw()
   }
 }
 
@@ -716,7 +725,13 @@ function stepIssue(dir: 1 | -1): boolean {
 
 /** Esc. 짚은 연결 → 고른 설비·물리존·계통 → 펼친 검사 순으로 하나씩 푼다. */
 function clearSelection(): boolean {
-  if (connectFrom.value) {
+  if (drawing.value) {
+    stopDraw()
+    note('외곽선 그리기를 취소했습니다')
+  } else if (placing.value) {
+    stopPlace()
+    note('놓기를 취소했습니다')
+  } else if (connectFrom.value) {
     connectFrom.value = null
     note('잇기를 취소했습니다')
   } else if (activeArrow.value !== null) activeArrow.value = null
@@ -973,6 +988,7 @@ watch([model, canvas], ([m, el]) => {
       selectedId.value = id
     })
     viewer.onHover(onHover)
+    viewer.onPlace((at) => placeAt(at))
     viewer.onPickSpace((id) => {
       selectedSpaceId.value = id
       if (id) {
@@ -1022,9 +1038,16 @@ const selectedSpace = computed(() => {
   }
   return null
 })
-watch([selectedSpace, editing, sceneVersion], () => {
+/** 외곽선이 없던 물리존에 3D 에서 찍어 가는 꼭짓점. 아래 "외곽선 그리기" 참조. */
+const drawing = ref<{ spaceId: string; name: string; elevation: number; points: Vec2[] } | null>(null)
+watch([selectedSpace, editing, sceneVersion, drawing], () => {
   const picked = selectedSpace.value
   if (!viewer) return
+  if (drawing.value) {
+    const d = drawing.value
+    viewer.setSpaceHandles({ id: d.spaceId, ring: d.points, elevation: d.elevation, active: d.points.length ? d.points.length - 1 : null })
+    return
+  }
   if (!picked || !editing.value) {
     viewer.setSpaceHandles(null)
     return
@@ -2088,6 +2111,159 @@ function applyEditFile(file: EditFile, from: string) {
     ' 불러온 편집은 되돌리기로 취소할 수 없습니다.'
 }
 
+// --- 층별로 보기 ---------------------------------------------------------------------
+//
+// 층이 여럿이면 3D 에 전부 겹쳐 그려져, 아래층 설비는 위층 판과 배관에 가려 누르기도 끌기도 어려웠다. 한 층만 남긴다.
+// 다른 층의 것을 표·목록에서 고르면 그 층으로 따라간다 — 고른 것이 안 보이면 고른 줄 모른다.
+const viewStorey = ref<string | null>(null)
+watch(baseline, () => (viewStorey.value = null))
+function applyStoreyFilter() {
+  const m = model.value
+  if (!viewer || !m) return
+  const id = viewStorey.value
+  if (!id || !m.storeys.some((s) => s.id === id)) {
+    viewer.setStoreyFilter(null, new Set())
+    return
+  }
+  const hidden = new Set(m.storeys.filter((s) => s.id !== id).flatMap((s) => s.equipment.map((e) => e.id)))
+  viewer.setStoreyFilter(new Set([id]), hidden)
+}
+watch([viewStorey, model, sceneVersion], applyStoreyFilter)
+watch(viewStorey, () => viewer?.frameAll())
+// 고른 설비·물리존이 다른 층이면 그 층으로.
+watch([selectedId, selectedSpaceId], ([eq, sp]) => {
+  if (!viewStorey.value || !model.value) return
+  const home = eq ? storeyOf(eq) : sp ? model.value.storeys.find((s) => s.spaces.some((x) => x.id === sp)) : null
+  if (home && home.id !== viewStorey.value) viewStorey.value = home.id
+})
+
+// --- 3D 에서 놓기 -------------------------------------------------------------------
+//
+// 좌표가 없는 설비는 x·y·z 를 숫자로 넣어야 했는데, 도면 좌표를 모르면 넣을 수가 없었다. [3D에서 놓기] 를 누르고 바닥을
+// 누르면 그 자리에 놓는다. 높이는 같은 패밀리 설비의 바닥에서 높이(중앙값)를 따르고, 없으면 바닥에 두고 알린다 —
+// 높이를 지어내지 않는다. 놓으면 여느 이동처럼 소속을 다시 판정하고 되돌리기에 쌓인다.
+const placing = ref<string | null>(null)
+function startPlace(id: string) {
+  const home = storeyOf(id)
+  if (!home) return
+  connectFrom.value = null
+  placing.value = id
+  viewer?.setPlaceMode(home.elevation)
+  note(`${nameOfId(id)}을 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
+}
+function stopPlace() {
+  placing.value = null
+  viewer?.setPlaceMode(null)
+}
+watch([selectedId, editing, viewStorey], () => {
+  if (placing.value && (selectedId.value !== placing.value || !editing.value)) stopPlace()
+})
+function placeAt(at: Vec2) {
+  if (drawing.value) {
+    drawing.value = { ...drawing.value, points: [...drawing.value.points, [cm(at[0]), cm(at[1])]] }
+    return
+  }
+  const id = placing.value
+  const m = model.value
+  stopPlace()
+  const home = id ? storeyOf(id) : null
+  const target = id ? equipmentById.value.get(id) : null
+  if (!m || !id || !home || !target) return
+  const key = familyKeyOf(target)
+  const heights = m.storeys
+    .flatMap((st) => st.equipment.filter((e) => e.id !== id && e.position && familyKeyOf(e) === key).map((e) => e.position![2] - st.elevation))
+    .sort((a, b) => a - b)
+  const h = heights.length ? heights[Math.floor(heights.length / 2)] : 0
+  if (!relocate(id, [cm(at[0]), cm(at[1]), cm(home.elevation + h)])) return
+  note(
+    heights.length
+      ? `같은 패밀리의 높이(바닥에서 ${h.toFixed(2)}m)로 놓았습니다`
+      : '바닥 높이에 놓았습니다. 높이는 z 칸에서 고치세요',
+  )
+}
+
+// --- 물리존 꼭짓점 넣기·지우기, 외곽선 그리기 -------------------------------------------------
+//
+// 꼭짓점을 옮기기만 해서는 ㄱ자 방을 사각형으로 바꾸거나 모서리를 더 낼 수 없었고, 외곽선을 못 읽은 방(병원의 CORRIDOR·
+// OPEN TO BELOW)은 손댈 길이 없었다. 셋 다 경계를 통째로 바꾸는 편집이라 한 길(changeFootprint)로 기록한다 — 꼭짓점을
+// 끈 것과 같이 넓이·소속을 다시 재고, 되돌리기·리포트·편집 파일에 들어간다.
+function changeFootprint(spaceId: string, label: string, apply: (m: Model) => BoundaryChange | null): boolean {
+  const m = model.value
+  if (!m) return false
+  const snapshot = snapshotSpace(m, spaceId)
+  const at = mark()
+  const change = apply(m)
+  if (!change) return false
+  remember(label, snapshot, at)
+  areaChanges.value = [...areaChanges.value, change]
+  changes.value = [...changes.value, ...change.equipment]
+  triggerRef(model)
+  viewer?.updateSpaces(m)
+  sceneVersion.value++
+  return true
+}
+function editVertex(op: 'insert' | 'delete'): boolean {
+  const picked = selectedSpace.value
+  const i = activeVertex.value
+  if (!picked || i === null) return false
+  const id = picked.space.id
+  const name = picked.space.longName || picked.space.name
+  if (op === 'insert') {
+    if (changeFootprint(id, `${name} 꼭짓점 넣기`, (m) => insertSpaceVertex(m, id, i))) {
+      activeVertex.value = i + 1
+      note(`꼭짓점을 넣었습니다(${i + 2}번). ←↑→↓로 옮깁니다`)
+    }
+    return true
+  }
+  if (vertexCount.value <= 3) {
+    note('꼭짓점이 셋이라 더 지울 수 없습니다')
+    return true
+  }
+  if (changeFootprint(id, `${name} 꼭짓점 지우기`, (m) => deleteSpaceVertex(m, id, i))) {
+    activeVertex.value = Math.min(i, vertexCount.value - 1)
+    note('꼭짓점을 지웠습니다')
+  }
+  return true
+}
+function startDraw(spaceId: string) {
+  const m = model.value
+  const storey = m?.storeys.find((s) => s.spaces.some((x) => x.id === spaceId))
+  const space = storey?.spaces.find((x) => x.id === spaceId)
+  if (!storey || !space) return
+  stopPlace()
+  connectFrom.value = null
+  selectedId.value = null
+  selectedSpaceId.value = null
+  if (m!.storeys.length > 1) viewStorey.value = storey.id
+  drawing.value = { spaceId, name: space.longName || space.name, elevation: storey.elevation, points: [] }
+  viewer?.setPlaceMode(storey.elevation)
+  stage.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+function stopDraw() {
+  drawing.value = null
+  viewer?.setPlaceMode(null)
+}
+function undoDrawPoint() {
+  if (drawing.value) drawing.value = { ...drawing.value, points: drawing.value.points.slice(0, -1) }
+}
+function finishDraw(): boolean {
+  const d = drawing.value
+  if (!d) return false
+  if (d.points.length < 3) {
+    note('꼭짓점을 셋 이상 찍어야 합니다')
+    return true
+  }
+  stopDraw()
+  if (changeFootprint(d.spaceId, `${d.name} 외곽선 그리기`, (m) => drawSpaceFootprint(m, d.spaceId, d.points))) {
+    selectedSpaceId.value = d.spaceId
+    note(`${d.name}의 외곽선을 그렸습니다. 꼭짓점은 끌거나 [ ]로 골라 고칩니다`)
+  }
+  return true
+}
+watch(editing, (on) => {
+  if (!on && drawing.value) stopDraw()
+})
+
 // --- 연결 잇기·끊기 -----------------------------------------------------------------
 //
 // 고른 설비에서 [잇기] 를 누르고 상대를 고르면(3D·표·목록 어디서든) 둘을 잇는다. 이은 연결은 방향 없이 시작한다 —
@@ -2769,6 +2945,13 @@ function exportTTL() {
         <section class="viewport">
           <div class="canvas-wrap">
             <canvas ref="canvas"></canvas>
+            <!-- 외곽선 그리기 중. 찍은 점 수와 마침·한 점 지우기·취소. -->
+            <div v-if="drawing" class="draw-bar" role="status">
+              <b>{{ drawing.name }}</b> 외곽선 그리기 · 바닥을 눌러 꼭짓점을 찍습니다 · {{ drawing.points.length }}개
+              <button type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
+              <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
+              <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
+            </div>
             <div class="view-tools">
               <!-- 보기 ↔ 편집, 단축키 안내. 위 도구막대와 같은 일이라 전체 화면(도구막대가 안 보인다)에서만 둔다.
                    평소에도 두었더니 같은 스위치가 한 화면에 둘이었다. -->
@@ -2789,6 +2972,11 @@ function exportTTL() {
               >
                 내력벽
               </button>
+              <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
+              <select v-if="model.storeys.length > 1" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
+                <option :value="null">모든 층</option>
+                <option v-for="st in model.storeys" :key="st.id" :value="st.id">{{ st.name }}만</option>
+              </select>
               <button v-if="fullscreen" type="button" class="ghost keys-help" title="단축키 안내" aria-label="단축키 안내" @click="helpOpen = true">?</button>
               <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
                 {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
@@ -2913,6 +3101,15 @@ function exportTTL() {
               />
             </label>
             <Src v-if="selected.position" :kind="positionSrc(selected)" />
+            <button
+              v-if="!selected.position"
+              type="button"
+              :class="['ghost', 'place', { on: placing === selected.id }]"
+              :aria-pressed="placing === selected.id"
+              @click="placing === selected.id ? stopPlace() : startPlace(selected.id)"
+            >
+              {{ placing === selected.id ? '놓기 취소' : '3D에서 놓기' }}
+            </button>
             <span class="muted">
               {{
                 selected.position
@@ -3180,7 +3377,12 @@ function exportTTL() {
           </label>
           <p class="hint">
             파란 손잡이를 끌어 경계를 고칩니다. 넓이와 설비 소속은 다시 계산됩니다. 경계선이 서로 교차하는 곳으로는
-            옮길 수 없습니다.
+            옮길 수 없습니다. <kbd>[ ]</kbd>로 꼭짓점을 고르면 넣거나 지울 수 있습니다.
+          </p>
+          <p v-if="editing && activeVertex !== null" class="vertex-tools">
+            <span>꼭짓점 {{ activeVertex + 1 }}/{{ vertexCount }}</span>
+            <button type="button" class="ghost" title="다음 꼭짓점과의 가운데에 넣습니다 (Insert)" @click="editVertex('insert')">꼭짓점 넣기</button>
+            <button type="button" class="ghost" :disabled="vertexCount <= 3" title="Delete" @click="editVertex('delete')">꼭짓점 지우기</button>
           </p>
           <ul v-if="selectedSpace.equipment.length" class="plain space-members">
             <li v-for="e in selectedSpace.equipment" :key="e.id">
@@ -3782,7 +3984,9 @@ function exportTTL() {
                           @change="applyVertex(sp.id, i, 1, ($event.target as HTMLInputElement).value, p)"
                         />
                       </span>
-                      <span v-if="!sp.footprint.length" class="muted">외곽선 없음</span>
+                      <span v-if="!sp.footprint.length" class="muted">
+                        외곽선 없음 · <button type="button" class="link" @click="startDraw(sp.id)">3D에서 그리기</button>
+                      </span>
                     </td>
                   </tr>
                 </tbody>
