@@ -94,6 +94,13 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   { kind: 'smoke_detector', label: '연기감지기', test: /연기\s*감지|smoke\s*detect/i, brick: 'brick:Smoke_Detector', role: 'sensing', ifc: ['Sensor.SMOKESENSOR'], flow: {}, point: true },
   { kind: 'heat_detector', label: '열감지기', test: /열\s*감지|heat\s*detect/i, brick: 'brick:Heat_Detector', role: 'sensing', ifc: ['Sensor.HEATSENSOR'], flow: {}, point: true },
   { kind: 'camera', label: 'CCTV', test: /camera|CCTV|카메라/i, brick: 'brick:Camera', role: 'sensing', ifc: ['AudioVisualAppliance.CAMERA'], flow: {}, point: true },
+  // --- 설비가 아닌 비치품 ----------------------------------------------------------
+  // Revit 은 "배관 기구" 범주에 든 욕실 부속·소화기함까지 IfcSanitaryTerminal 로 내보낸다. 병원 건축의 위생기구 101대 중
+  // 97대가 안전손잡이·거울·수건함·소화기함·샤워 의자였고, 물을 받는 기구로 잡혀 연결망 검사에서 97대가 "떨어짐" 으로
+  // 떴다. 이름이 IFC 클래스보다 먼저라(EF-11 과 같다) 이름으로 걸러 흐름 없는 종류로 둔다. 진짜 기구(세면기·변기·샤워)는
+  // 이름이 여기 걸리지 않고 IFC 값대로 위생기구가 된다.
+  { kind: 'washroom_accessory', label: '욕실 부속(손잡이·거울·수건함)', test: /grab\s*bar|mirror|towel|tissue|toilet\s*paper|soap\s*dispens|hand\s*dryer|shower\s*seat|안전\s*손잡이|거울|수건|휴지/i, brick: null, role: 'terminal', flow: {} },
+  { kind: 'fire_extinguisher', label: '소화기(함)', test: /fire\s*extinguish|소화기/i, brick: null, role: 'terminal', flow: {} },
   // --- 사람만 고르는 종류 ---------------------------------------------------------
   // 병원 MEP 에서 종류를 모르는 기기 1,765대 중 1,376대가 콘센트·스프링클러였는데 고를 종류가 없었다. Brick 1.4 에
   // 맞는 이름을 확인하지 못해 전부 `ex:` 로 나간다.

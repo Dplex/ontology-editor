@@ -946,7 +946,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
       'source-terminal': '4/10',
       'terminal-single-source': '234/234',
       'device-space': '665/668',
-      'device-connected': '569/667',
+      // 욕실 부속·소화기함 101대는 이름으로 흐름 없는 종류가 되어 빠진다(병원 건축이 SanitaryTerminal 로 냈다). 전에는 569/667.
+      'device-connected': '565/566',
     })
   }, 300_000)
 
@@ -997,7 +998,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_HVAC))).model
     const { model } = mergeModels(arch, hvac)
     const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
-    expect(devices.filter((e) => e.kindSource === 'bim')).toHaveLength(428)
+    // 병원 건축의 욕실 부속·소화기함 101대는 BIM 이 SanitaryTerminal 이라 했지만 이름이 먼저다(전에는 428).
+    expect(devices.filter((e) => e.kindSource === 'bim')).toHaveLength(327)
     expect(devices.filter((e) => !e.kind)).toHaveLength(1)
 
     // 타입을 안 읽던 때와 같은 모델.
@@ -1042,7 +1044,7 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
       'source-terminal': '16/136',
       'terminal-single-source': '21/21',
       'device-space': '3337/3469',
-      'device-connected': '854/985',
+      'device-connected': '850/884',
     })
   }, 600_000)
 })

@@ -48,8 +48,9 @@ Brick 클래스는 받는 쪽(`ttl.go` 의 equipClass) 어휘를 먼저 따르�
 `check:sample` 숫자가 움직이지 않는다. BIM 이 말하거나 사람이 고른다.
 
 **이름이 모르면 IFC 가 말한 종류를 읽는다**(`declaredType` = `클래스.PredefinedType`, `kinds.ts` 의 `ifc` 표, 출처 BIM).
-IFC2x3 은 개체가 `IfcFlowTerminal` 처럼 추상적이어도 **타입 객체**가 클래스와 값을 든다 — 병원 HVAC 기기 428/668 이
-여기서 정해진다. 이름이 먼저다(성수 `EF-11` 은 IfcFan 이지만 배기팬이다). BIM 이 값을 말했는데 표에 없으면(`SPLITSYSTEM`)
+IFC2x3 은 개체가 `IfcFlowTerminal` 처럼 추상적이어도 **타입 객체**가 클래스와 값을 든다 — 병원 HVAC 기기 327/668 이
+여기서 정해진다. 이름이 먼저다(성수 `EF-11` 은 IfcFan 이지만 배기팬이다. 병원 건축은 안전손잡이·거울·소화기함 101대를 SanitaryTerminal 로
+냈다 — 이름으로 흐름 없는 비치품으로 둔다). BIM 이 값을 말했는데 표에 없으면(`SPLITSYSTEM`)
 클래스로 추측하지 않는다. 계통도 같은 식으로 `PredefinedType` + EN 12792 약어(`SUP`·`ETA`·`EHA`·`ODA`)를 먼저 본다.
 방은 이름 사전 다음에 OmniClass Table 13 코드(`ROOM_KINDS.omniclass`)를 본다. Revit 은 표준 분류 관계가 아니라
 `Category Code` 속성에 적는다.
