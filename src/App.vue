@@ -11,11 +11,11 @@ import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import HoverTip from './components/HoverTip.vue'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
-import { applyEdits, exportEdits, parseEditFile } from './lib/edit-file'
+import { applyEdits, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
-import { completenessChecks, explainFailure, type Box } from './lib/checks'
+import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, ifcClassLabel, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
@@ -39,6 +39,10 @@ import {
   completePosition,
   renameSpace,
   restore,
+  addConnection,
+  connectionBetween,
+  removeConnection,
+  snapshotConnection,
   setTypeKind,
   kindEdits,
   snapshotType,
@@ -158,7 +162,9 @@ const changeCount = computed(
     kindEditLines.value.length +
     sinceOpen.value.renamed.length +
     sinceOpen.value.restoreyed.length +
-    sinceOpen.value.moved.length,
+    sinceOpen.value.moved.length +
+    sinceOpen.value.connected.length +
+    sinceOpen.value.disconnected.length,
 )
 
 // 연 때의 값. 소속 관계 말고도 내보내는 파일을 바꾸는 편집(이름·방 안 이동·층)을 이것과 견줘 리포트에 올린다
@@ -166,7 +172,9 @@ const changeCount = computed(
 const baseline = shallowRef<Baseline | null>(null)
 const sinceOpen = computed(() => {
   const m = model.value
-  return m && baseline.value ? diffBaseline(m, baseline.value) : { renamed: [], moved: [], restoreyed: [] }
+  return m && baseline.value
+    ? diffBaseline(m, baseline.value)
+    : { renamed: [], moved: [], restoreyed: [], connected: [], disconnected: [] }
 })
 const MOVED_NAMES = 5
 
@@ -251,7 +259,7 @@ function hoverText(t: HoverTarget): { title: string; lines: string[] } | null {
     const system = e.systemId ? systemById.value.get(e.systemId)?.name : null
     return {
       title: e.name || what || e.ifcClass,
-      lines: [[what, system].filter(Boolean).join(' · '), `소속 ${spaceNameOf(e.spaceId)}`].filter(Boolean),
+      lines: [[what, system].filter(Boolean).join(' · '), e.spaceId ? `소속 ${spaceNameOf(e.spaceId)}` : '소속 방 없음'].filter(Boolean),
     }
   }
   if (t.kind === 'space') {
@@ -544,8 +552,8 @@ function applySnapshot(s: Snapshot) {
     triggerRef(model)
     viewer?.updateSpaces(m)
     sceneVersion.value++
-  } else if (s.kind === 'kinds') {
-    // 종류를 되돌리면 edit.ts 가 규칙 방향도 다시 돌렸다. 채점표도 그것으로 바꾼다.
+  } else if (s.kind === 'kinds' || s.kind === 'connection') {
+    // 종류·연결을 되돌리면 edit.ts 가 규칙 방향도 다시 돌렸다. 채점표도 그것으로 바꾼다.
     if (rules) ruleReport.value = rules
     triggerRef(model)
     flowVersion.value++
@@ -708,7 +716,10 @@ function stepIssue(dir: 1 | -1): boolean {
 
 /** Esc. 짚은 연결 → 고른 설비·물리존·계통 → 펼친 검사 순으로 하나씩 푼다. */
 function clearSelection(): boolean {
-  if (activeArrow.value !== null) activeArrow.value = null
+  if (connectFrom.value) {
+    connectFrom.value = null
+    note('잇기를 취소했습니다')
+  } else if (activeArrow.value !== null) activeArrow.value = null
   else if (activeVertex.value !== null) activeVertex.value = null
   else if (selectedId.value) select(null)
   else if (selectedSpaceId.value) selectedSpaceId.value = null
@@ -958,6 +969,7 @@ watch([model, canvas], ([m, el]) => {
   if (!viewer) {
     viewer = createViewer(el)
     viewer.onPick((id) => {
+      if (connectFrom.value && id) return connectTo(id)
       selectedId.value = id
     })
     viewer.onHover(onHover)
@@ -1412,7 +1424,7 @@ const failReasons = computed(() => {
   void flowVersion.value
   const m = model.value
   const c = openCheck.value
-  if (!m || !c) return new Map<string, string>()
+  if (!m || !c) return new Map<string, ReturnType<typeof diagnoseFailure>>()
   const ctx = {
     model: m,
     connections: showRules.value && hasRules.value ? withInferred(m.connections) : m.connections,
@@ -1424,8 +1436,18 @@ const failReasons = computed(() => {
       return [shortName(e?.name || e?.ifcClass || id), what].filter(Boolean).join(' · ')
     },
   }
-  return new Map(c.failed.slice(0, CHECK_LIMIT).map((id) => [id, explainFailure(c.key, id, ctx)]))
+  return new Map(c.failed.slice(0, CHECK_LIMIT).map((id) => [id, diagnoseFailure(c.key, id, ctx)]))
 })
+/** 위반 목록의 한 번에 고치기. 여느 편집과 같은 길(relocate·connectTo)이라 되돌리기·리포트·자동 저장에 같이 들어간다. */
+function applyFix(id: string, fix: FailureFix) {
+  if (!editing.value) mode.value = 'edit'
+  if (fix.kind === 'move-into') relocate(id, fix.to)
+  else {
+    connectFrom.value = id
+    connectTo(fix.other)
+  }
+}
+const fixLabel = (fix: FailureFix) => (fix.kind === 'move-into' ? `${fix.spaceName} 안으로 옮기기` : `잇기: ${nameOfId(fix.other)}`)
 function toggleCheck(key: string) {
   openCheckKey.value = openCheckKey.value === key ? null : key
   const c = openCheck.value
@@ -1819,6 +1841,8 @@ function frameNetwork() {
 
 /** 목록에서 고른 것도 3D 에서 고른 것과 같게 다룬다. 3D 는 그 자리로 시점을 옮긴다. */
 function select(id: string | null) {
+  // 잇기 중이면 고른 것이 이을 상대다. 표·목록에서 골라도, 3D 에서 눌러도 같다.
+  if (connectFrom.value && id) return connectTo(id)
   selectedId.value = id
   if (id) {
     selectedSystemId.value = null
@@ -2021,6 +2045,13 @@ async function onEditFilePick(event: Event) {
     editFileNote.value = `불러오지 못했습니다(${picked.name}): ${file}`
     return
   }
+  applyEditFile(file, picked.name)
+}
+
+/** 편집 파일을 지금 모델에 얹는다. 파일에서 불러올 때와 자동 저장을 되살릴 때가 같이 쓴다. */
+function applyEditFile(file: EditFile, from: string) {
+  const m = model.value
+  if (!m) return
   // 옮길 설비의 형상도 같이 옮겨야 다시 그릴 때 예전 자리로 튀지 않는다. 얹기 전 좌표를 떠 둔다.
   const before = new Map(m.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.position]))
   const result = applyEdits(m, file)
@@ -2043,11 +2074,12 @@ async function onEditFilePick(event: Event) {
   redraw()
 
   const missing = Object.entries(result.missing).filter(([, n]) => n > 0)
-  const MISSING_LABEL: Record<string, string> = { equipment: '설비', spaces: '물리존', kinds: '타입', flows: '연결', systems: '계통' }
+  const MISSING_LABEL: Record<string, string> = { equipment: '설비', spaces: '물리존', kinds: '타입', flows: '방향', systems: '계통', connections: '연결' }
   // GUID 가 바뀐 판본에서 다른 열쇠로 찾은 것. 사람이 확인할 수 있게 무엇으로 찾았는지까지 말한다.
   const rematched = (Object.entries(result.rematched) as [Exclude<MatchKey, 'guid'>, number][]).filter(([, n]) => n > 0)
+  autosaveArmed = true
   editFileNote.value =
-    `편집 ${result.applied}개를 적용했습니다(${picked.name}).` +
+    `편집 ${result.applied}개를 적용했습니다(${from}).` +
     (file.source && file.source !== fileName.value ? ` 원래 파일: ${file.source}.` : '') +
     (rematched.length
       ? ` GUID가 바뀐 ${rematched.reduce((n, [, k]) => n + k, 0)}개는 ${rematched.map(([k, n]) => `${MATCH_KEY_BY[k]} ${n}개`).join(', ')} 찾았습니다.`
@@ -2055,6 +2087,128 @@ async function onEditFilePick(event: Event) {
     (missing.length ? ` 찾지 못함: ${missing.map(([k, n]) => `${MISSING_LABEL[k]} ${n}`).join(' · ')}.` : '') +
     ' 불러온 편집은 되돌리기로 취소할 수 없습니다.'
 }
+
+// --- 연결 잇기·끊기 -----------------------------------------------------------------
+//
+// 고른 설비에서 [잇기] 를 누르고 상대를 고르면(3D·표·목록 어디서든) 둘을 잇는다. 이은 연결은 방향 없이 시작한다 —
+// 이어서 상류로·하류로를 정하면 그때 brick:feeds 로 나간다. 포트(BIM)가 말한 연결은 끊지 않는다(edit.ts).
+const connectFrom = ref<string | null>(null)
+watch([selectedSpaceId, editing], () => (connectFrom.value = null))
+const nameOfId = (id: string) => shortName(equipmentById.value.get(id)?.name || equipmentById.value.get(id)?.ifcClass || id)
+function startConnect() {
+  if (!selectedId.value) return
+  connectFrom.value = selectedId.value
+  note(`${nameOfId(selectedId.value)}에 이을 상대를 3D나 목록에서 고르세요 (Esc 취소)`)
+}
+function connectTo(id: string) {
+  const m = model.value
+  const from = connectFrom.value
+  connectFrom.value = null
+  if (!m || !from) return
+  if (id === from) return note('같은 설비끼리는 이을 수 없습니다')
+  if (connectionBetween(m, from, id)) return note('이미 이어져 있습니다')
+  const at = mark()
+  const done = addConnection(m, from, id)
+  if (!done) return
+  remember(`${nameOfId(from)}–${nameOfId(id)} 잇기`, { kind: 'connection', connection: done.connection, present: false, index: m.connections.length - 1 }, at)
+  ruleReport.value = done.rules
+  triggerRef(model)
+  flowVersion.value++
+  selectedId.value = from
+  note(`${nameOfId(from)}–${nameOfId(id)}을 이었습니다. 방향은 상류로·하류로로 정합니다`)
+}
+function disconnect(c: Connection) {
+  const m = model.value
+  if (!m) return
+  const snapshot = snapshotConnection(m, c)
+  const at = mark()
+  const rules = removeConnection(m, c)
+  if (!rules) return
+  remember(`${nameOfId(c.from)}–${nameOfId(c.to)} 끊기`, snapshot, at)
+  ruleReport.value = rules
+  triggerRef(model)
+  flowVersion.value++
+}
+
+// --- 자동 저장 ------------------------------------------------------------------------
+//
+// 편집은 탭 안에만 있어서 브라우저가 죽거나 PC 가 다시 켜지면 사라졌다(창 닫기는 묻지만 그 밖은 못 막는다). 편집할
+// 때마다 "편집 저장" 과 같은 파일(lib/edit-file.ts)을 브라우저에 적어 두고, 같은 IFC 를 다시 열면 이어서 할지 묻는다.
+// 되살리기도 편집 파일 불러오기와 같은 길이다 — 값을 덮지 않고 편집 함수에 다시 넣는다.
+//
+// 열자마자 지우면 안 된다. 연 직후에는 바뀐 것이 0 이라, 그대로 저장하면 되살릴 기록을 지운다. 사람이 편집을
+// 시작하거나(되살리기를 고르지 않고 새로 고친 것이다) 되살린 뒤부터 적는다.
+const DRAFT_PREFIX = 'oe-draft:'
+const draft = shallowRef<{ file: EditFile; count: number; savedAt: string } | null>(null)
+let autosaveArmed = false
+let autosaveTimer: number | undefined
+const draftKey = () => DRAFT_PREFIX + fileName.value
+const editCount = (f: EditFile) =>
+  f.equipment.length + f.spaces.length + f.kinds.length + f.flows.length + f.confirmedSystems.length +
+  (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0)
+
+watch(baseline, (b) => {
+  autosaveArmed = false
+  draft.value = null
+  if (!b) return
+  try {
+    const raw = localStorage.getItem(draftKey())
+    const file = raw ? parseEditFile(raw) : null
+    if (file && typeof file !== 'string' && editCount(file) > 0) draft.value = { file, count: editCount(file), savedAt: file.savedAt }
+  } catch {
+    // 브라우저 저장소를 못 읽으면 되살릴 것도 없다.
+  }
+})
+// 되돌리기 이력이 늘면 사람이 편집한 것이다. 남아 있던 기록은 이 편집으로 바뀐다.
+watch(
+  () => history.value.length,
+  (n, was) => {
+    if (n > (was ?? 0)) {
+      autosaveArmed = true
+      draft.value = null
+    }
+  },
+)
+watch([changeCount, flowVersion, () => history.value.length], () => {
+  if (!autosaveArmed) return
+  window.clearTimeout(autosaveTimer)
+  autosaveTimer = window.setTimeout(() => {
+    const m = model.value
+    if (!m || !baseline.value) return
+    try {
+      const file = exportEdits(m, baseline.value, fileName.value)
+      if (editCount(file) > 0) localStorage.setItem(draftKey(), JSON.stringify(file))
+      else localStorage.removeItem(draftKey())
+    } catch {
+      // 저장소가 차거나 막혀 있으면 이번 창에서만 산다. "편집 저장" 으로 내려받는 길은 그대로다.
+    }
+  }, 600)
+})
+
+function restoreDraft() {
+  const d = draft.value
+  if (!d) return
+  draft.value = null
+  mode.value = 'edit'
+  applyEditFile(d.file, '자동 저장')
+}
+function discardDraft() {
+  draft.value = null
+  try {
+    localStorage.removeItem(draftKey())
+  } catch {
+    // 못 지워도 다음 편집이 덮는다.
+  }
+}
+const draftTime = computed(() => {
+  const d = draft.value
+  if (!d) return ''
+  const t = new Date(d.savedAt)
+  const today = new Date().toDateString() === t.toDateString()
+  return today
+    ? `오늘 ${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`
+    : `${t.getMonth() + 1}월 ${t.getDate()}일 ${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`
+})
 
 // --- 판본 비교 (PRD #6, 요구사항 R13) ----------------------------------------------------
 //
@@ -2568,6 +2722,14 @@ function exportTTL() {
           </div>
         </div>
         <!-- 편집 모드에서만. 좁은 폭에서는 마지막 편집 이름이 남는 폭을 쓰고 넘치면 자른다. 단축키는 title 과 ? 안내로. -->
+        <!-- 자동 저장된 편집이 남아 있으면 연 직후에 묻는다. 새로 편집을 시작하면 그 편집이 기록을 대신한다. -->
+        <div v-if="draft" class="draft-bar" role="status">
+          <span>
+            이 파일에서 저장하지 않은 편집 <b>{{ draft.count }}건</b>이 남아 있습니다({{ draftTime }}).
+          </span>
+          <button type="button" class="ghost on" @click="restoreDraft">이어서 하기</button>
+          <button type="button" class="ghost" @click="discardDraft">버리기</button>
+        </div>
         <div v-if="editing" class="edit-bar" role="status">
           <span class="state"><b>편집 중</b> · <a href="#changes" class="link">바뀐 것 {{ changeCount }}건</a></span>
           <button
@@ -2754,7 +2916,7 @@ function exportTTL() {
             <span class="muted">
               {{
                 selected.position
-                  ? `소속 ${spaceNameOf(selected.spaceId)} · 방향키로도 옮길 수 있습니다`
+                  ? `${selected.spaceId ? `소속 ${spaceNameOf(selected.spaceId)}` : '소속 방 없음'} · 방향키로도 옮길 수 있습니다`
                   : positionDrafts.has(selected.id)
                     ? 'x·y·z를 모두 넣어야 옮겨집니다'
                     : '좌표가 없습니다. x·y·z를 넣으면 소속 방을 찾습니다'
@@ -2838,7 +3000,19 @@ function exportTTL() {
 
           <!-- 바로 붙은 연결. 편집 모드에서 방향을 정하는 자리라 계통·담당 공간(길어질 수 있다)보다 앞에 둔다.
                맨 아래에 두었더니 병원 공조기에서 담당 방 150줄 아래로 묻혔다. -->
-          <h4 class="picked-sub">직접 연결 <span class="muted">{{ selectedNeighbors.length }}</span></h4>
+          <h4 class="picked-sub">
+            직접 연결 <span class="muted">{{ selectedNeighbors.length }}</span>
+            <button
+              v-if="editing"
+              type="button"
+              :class="['ghost', 'connect', { on: connectFrom }]"
+              :aria-pressed="!!connectFrom"
+              @click="connectFrom ? (connectFrom = null) : startConnect()"
+            >
+              {{ connectFrom ? '잇기 취소' : '잇기' }}
+            </button>
+          </h4>
+          <p v-if="connectFrom" class="edit-notice inline">이을 상대를 3D나 목록에서 고르세요. <kbd>Esc</kbd>로 취소합니다.</p>
           <p v-if="selectedNeighbors.length === 0" class="hint">
             이 설비에 연결된 것이 없습니다.
           </p>
@@ -2852,6 +3026,7 @@ function exportTTL() {
                   <!-- 출처는 이름 아래 한 줄. 글과 출처 꼬리표가 따로 꺾이지 않게 한 덩어리씩 묶는다. -->
                   <div class="muted src-cell">
                     <span v-if="n.source === 'port'">포트 <Src kind="bim" /></span>
+                    <span v-else-if="n.source === 'manual'">직접 이음 <Src kind="edit" /></span>
                     <span v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></span>
                     <span v-if="n.edited">직접 정한 방향 <Src kind="edit" /></span>
                     <span v-else-if="n.rule">{{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
@@ -2887,6 +3062,7 @@ function exportTTL() {
                     >
                       지우기
                     </button>
+                    <button v-if="n.source !== 'port'" type="button" class="ghost cut" title="이 연결을 끊습니다" @click="disconnect(n.connection)">끊기</button>
                   </div>
                 </td>
               </tr>
@@ -3292,7 +3468,12 @@ function exportTTL() {
                   {{ shortName(equipmentById.get(id)?.name || equipmentById.get(id)?.ifcClass || id) }}
                 </button>
                 <span v-if="whatIs(equipmentById.get(id))" class="what">{{ whatIs(equipmentById.get(id))!.label }}</span>
-                <div v-if="failReasons.get(id)" class="muted reason">{{ failReasons.get(id) }}</div>
+                <div v-if="failReasons.get(id)?.text" class="muted reason">
+                  {{ failReasons.get(id)!.text }}
+                  <button v-if="failReasons.get(id)!.fix" type="button" class="ghost fix" @click="applyFix(id, failReasons.get(id)!.fix!)">
+                    {{ fixLabel(failReasons.get(id)!.fix!) }}
+                  </button>
+                </div>
               </li>
             </ul>
             <p v-if="openCheck.failed.length > CHECK_LIMIT" class="hint">
@@ -3702,6 +3883,12 @@ function exportTTL() {
             </li>
             <li v-for="r in sinceOpen.restoreyed" :key="`storey-${r.id}`">
               {{ r.name }}: 층 <b>{{ r.from }}</b> → <b>{{ r.to }}</b> (brick:hasPart)
+            </li>
+            <li v-for="(c, i) in sinceOpen.connected" :key="`join-${i}`">
+              <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결을 이었습니다(방향을 정하면 brick:feeds)
+            </li>
+            <li v-for="(c, i) in sinceOpen.disconnected" :key="`cut-${i}`">
+              <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결을 끊었습니다
             </li>
             <li v-for="r in sinceOpen.renamed" :key="`name-${r.spaceId}`">
               물리존 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)

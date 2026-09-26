@@ -245,7 +245,8 @@ export type Connection = {
   /** directed 가 참이면 흐름이 from 에서 to 로 간다. 거짓이면 두 끝의 순서에 뜻이 없다. */
   from: string
   to: string
-  source: 'port' | 'geometry'
+  /** `manual` 은 사람이 에디터에서 이은 것이다. 방향 없이 시작하고, 방향을 정해야 `brick:feeds` 로 나간다. */
+  source: 'port' | 'geometry' | 'manual'
   directed: boolean
   /**
    * 형상 추정이 **이 거리 안에서 맞닿은 것으로 보았다**(미터). 포트에서 온 연결은 `null` 이다.

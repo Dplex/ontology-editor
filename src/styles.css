@@ -2471,3 +2471,54 @@ main.has-model .catalog {
 .unknown-types td.clues span {
   display: block;
 }
+
+/* 자동 저장된 편집을 이어서 할지 묻는 줄. 도구막대의 둘째 줄로 붙는다(편집 막대와 같은 자리). */
+.draft-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.9rem;
+}
+
+.draft-bar span {
+  margin-right: auto;
+}
+
+.draft-bar .ghost.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* 직접 연결 제목 옆의 [잇기]. 누르면 다음에 고르는 설비와 잇는다. */
+.picked-sub .connect {
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.picked-sub .connect.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.flow-edit .cut {
+  margin-left: auto;
+}
+
+/* 위반 줄의 한 번에 고치기. */
+.check-list .fix {
+  display: inline-block;
+  margin: 0.2rem 0 0;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.75rem;
+}

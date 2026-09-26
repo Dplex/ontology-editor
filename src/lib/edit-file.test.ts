@@ -4,7 +4,12 @@ import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import {
+  addConnection,
   baselineOf,
+  connectionBetween,
+  removeConnection,
+  restore,
+  snapshotConnection,
   moveEquipment,
   moveEquipmentToStorey,
   moveSpaceVertex,
@@ -65,7 +70,7 @@ describe('편집 저장·불러오기', () => {
     const b = read('mep.ifc')
     addUpperStorey(b)
     const result = applyEdits(b, parsed)
-    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0 })
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0 })
     expect(result.storeyMoved).toEqual([equip(b, 'AT-101-01').id])
     expect(exports(b)).toEqual(exports(a))
     // 사람이 고친 출처도 같다(좌표 출처가 편집, 종류는 사람이 정한 것).
@@ -117,7 +122,7 @@ describe('편집 저장·불러오기', () => {
     const b = reexport(read('mep.ifc'))
     addUpperStorey(b)
     const result = applyEdits(b, parsed)
-    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0 })
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0 })
     expect(result.rematched.name + result.rematched.position).toBeGreaterThan(0)
     // id 만 다르고 내보내는 내용은 같다.
     const strip = (m: Model) => {
@@ -125,6 +130,37 @@ describe('편집 저장·불러오기', () => {
       return { ttl: out.ttl.split('Qv2').join(''), geo: out.geo.split('Qv2').join('') }
     }
     expect(strip(b)).toEqual(exports(a))
+  })
+
+  it('이은 연결과 그 방향이 저장·불러오기와 되돌리기를 거쳐도 같다', () => {
+    const a = read('mep.ifc')
+    const base = baselineOf(a)
+    const ahu = equip(a, 'AHU-1').id
+    const light = equip(a, 'LIGHT-101-01').id
+    // 포트(BIM)가 말한 연결은 끊지 않는다.
+    const port = a.connections.find((c) => c.source === 'port')!
+    expect(removeConnection(a, port)).toBeNull()
+    // 잇는다. 방향 없이 시작하고, 이미 이어진 짝은 다시 잇지 않는다.
+    const done = addConnection(a, ahu, light)!
+    expect(done.connection).toMatchObject({ source: 'manual', directed: false })
+    expect(addConnection(a, light, ahu)).toBeNull()
+    setFlowDirection(done.connection, ahu)
+
+    // 되돌리기: 이은 직후의 스냅숏(없음)으로 돌리면 연결이 빠지고, 그때의 스냅숏으로 다시 넣으면 방향까지 돌아온다.
+    const after = snapshotConnection(a, done.connection)
+    restore(a, { kind: 'connection', connection: done.connection, present: false, index: a.connections.length })
+    expect(connectionBetween(a, ahu, light)).toBeNull()
+    restore(a, after)
+    expect(connectionBetween(a, ahu, light)?.edited).toEqual({ from: ahu, to: light })
+
+    const parsed = parseEditFile(JSON.stringify(exportEdits(a, base, 'mep.ifc')))
+    if (typeof parsed === 'string') throw new Error(parsed)
+    expect(parsed.connections).toEqual({ add: [{ from: ahu, to: light }], remove: [] })
+    const b = read('mep.ifc')
+    const result = applyEdits(b, parsed)
+    expect(result.missing.connections).toBe(0)
+    expect(connectionBetween(b, ahu, light)?.edited).toEqual({ from: ahu, to: light })
+    expect(exports(b)).toEqual(exports(a))
   })
 
   it('편집 파일이 아닌 것은 이유를 말하고 받지 않는다', () => {

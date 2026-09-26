@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { completenessChecks, explainFailure, type Box } from './checks'
+import { completenessChecks, diagnoseFailure, explainFailure, type Box } from './checks'
 import { airServices } from './served'
 import type { Connection, Equipment, EquipmentRole, Model, Space } from './model'
 
@@ -91,5 +91,9 @@ describe('완전성 검사', () => {
     expect(explainFailure('device-space', 'outside', ctx)).toBe('어느 방에도 들어가지 않습니다. 가장 가까운 방은 사무실(0.30m)입니다.')
     expect(explainFailure('device-space', 'nowhere', ctx)).toContain('좌표가 없습니다')
     expect(explainFailure('device-connected', 'orphan', ctx)).toBe('가장 가까운 것: duct, 12mm 떨어져 있습니다. 5mm 안이어야 연결로 봅니다.')
+    // 한 번에 고치기: 벽 밖 0.3m 는 경계 바로 안쪽(10cm)으로, 12mm 떨어진 것은 그 이웃과 잇기.
+    expect(diagnoseFailure('device-space', 'outside', ctx).fix).toEqual({ kind: 'move-into', spaceName: '사무실', to: [9.9, 4, 2.7] })
+    expect(diagnoseFailure('device-connected', 'orphan', ctx).fix).toEqual({ kind: 'connect', other: 'duct' })
+    expect(diagnoseFailure('device-space', 'nowhere', ctx).fix).toBeUndefined()
   })
 })

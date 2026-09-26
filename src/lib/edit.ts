@@ -369,6 +369,8 @@ export type Snapshot =
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
   | { kind: 'confirm'; connections: Connection[]; confirmed: boolean }
   | { kind: 'kinds'; entries: { id: string; kind: string | null | undefined; kindEdited: Equipment['kindEdited'] }[] }
+  /** 연결이 모델에 있었는가. 잇기·끊기를 되돌린다. 연결 객체를 그대로 들고 있어 방향·확정도 같이 돌아온다. */
+  | { kind: 'connection'; connection: Connection; present: boolean; index: number }
 
 export function snapshotEquipment(model: Model, equipmentId: string): Snapshot | null {
   for (const storey of model.storeys) {
@@ -394,6 +396,11 @@ export function snapshotSpace(model: Model, spaceId: string): Snapshot | null {
   const space = findSpace(model, spaceId)
   if (!space) return null
   return { kind: 'space', id: space.id, footprint: [...space.footprint], areaM2: space.areaM2, longName: space.longName }
+}
+
+export function snapshotConnection(model: Model, connection: Connection): Snapshot {
+  const index = model.connections.indexOf(connection)
+  return { kind: 'connection', connection, present: index >= 0, index: index >= 0 ? index : model.connections.length }
 }
 
 export function snapshotFlow(connection: Connection): Snapshot {
@@ -434,6 +441,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotFlow(snapshot.connection)
     case 'confirm':
       return { kind: 'confirm', connections: snapshot.connections, confirmed: !!snapshot.connections[0]?.inferred?.confirmed }
+    case 'connection':
+      return snapshotConnection(model, snapshot.connection)
     case 'kinds': {
       const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
       return {
@@ -487,6 +496,12 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
     case 'confirm':
       for (const c of snapshot.connections) if (c.inferred) c.inferred.confirmed = snapshot.confirmed
       return null
+    case 'connection': {
+      const at = model.connections.indexOf(snapshot.connection)
+      if (snapshot.present && at < 0) model.connections.splice(Math.min(snapshot.index, model.connections.length), 0, snapshot.connection)
+      if (!snapshot.present && at >= 0) model.connections.splice(at, 1)
+      return inferFlowByRules(model)
+    }
     case 'kinds': {
       const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
       for (const entry of snapshot.entries) {
@@ -597,6 +612,8 @@ export type Baseline = {
   /** 물리존 외곽선. 편집 저장(edit-file.ts)이 바뀐 경계만 골라 담는다. */
   footprints: Map<string, Vec2[]>
   equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null }>
+  /** 연 때 있던 연결(순서 없는 짝). 이은 것·끊은 것을 이것과 견준다. 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
+  connections?: Set<string>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
@@ -617,7 +634,7 @@ export function baselineOf(model: Model): Baseline {
       })
     }
   }
-  return { names, footprints, equipment }
+  return { names, footprints, equipment, connections: new Set(model.connections.map((c) => pairKey(c.from, c.to))) }
 }
 
 export type BaselineDiff = {
@@ -625,6 +642,10 @@ export type BaselineDiff = {
   /** 좌표는 바뀌었는데 소속 물리존은 그대로인 설비. 소속이 바뀐 것은 Change 가 이미 적는다. */
   moved: { id: string; name: string }[]
   restoreyed: { id: string; name: string; from: string; to: string }[]
+  /** 연 때 없던 연결(사람이 이은 것). */
+  connected: { from: string; to: string }[]
+  /** 연 때 있었는데 지금 없는 연결(사람이 끊은 것). */
+  disconnected: { from: string; to: string }[]
 }
 
 /** 좌표를 같다고 보는 차. 표와 3D 가 센티미터로 자르므로 그보다 작은 차는 같은 자리다. */
@@ -655,5 +676,54 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
       if (shifted && was.spaceId === e.spaceId) moved.push({ id: e.id, name })
     }
   }
-  return { renamed, moved, restoreyed }
+  const connected: BaselineDiff['connected'] = []
+  const disconnected: BaselineDiff['disconnected'] = []
+  if (baseline.connections) {
+    const now = new Set<string>()
+    for (const c of model.connections) {
+      const key = pairKey(c.from, c.to)
+      now.add(key)
+      if (!baseline.connections.has(key)) connected.push({ from: c.from, to: c.to })
+    }
+    for (const key of baseline.connections) {
+      if (now.has(key)) continue
+      const [from, to] = key.split('\u0000')
+      disconnected.push({ from, to })
+    }
+  }
+  return { renamed, moved, restoreyed, connected, disconnected }
+}
+
+// --- 연결 잇기·끊기 --------------------------------------------------------------
+//
+// 형상 추정이 빠뜨린 연결을 잇고, 잘못 이은 연결을 끊는다. 연결이 곧 `brick:feeds` 의 재료라 온톨로지 편집의
+// 본체다. **포트(BIM)가 말한 연결은 끊지 않는다** — 방향과 같은 이유로, BIM 이 말한 것을 덮어쓰면 읽는 쪽이 둘을
+// 구별할 수 없다. 이은 연결은 방향 없이 시작한다(추정한 것에 방향을 찍지 않는 것과 같다). 잇거나 끊으면 연결망이
+// 바뀌므로 규칙 방향을 다시 돌린다 — 종류를 바꿀 때와 같다.
+
+/** 순서 없는 연결의 열쇠. GUID 에 들어가지 않는 글자로 잇는다. */
+export function pairKey(a: string, b: string): string {
+  return a < b ? `${a}\u0000${b}` : `${b}\u0000${a}`
+}
+
+export function connectionBetween(model: Model, a: string, b: string): Connection | null {
+  const key = pairKey(a, b)
+  return model.connections.find((c) => pairKey(c.from, c.to) === key) ?? null
+}
+
+/** 두 설비를 잇는다. 이미 이어져 있거나 같은 설비면 null. */
+export function addConnection(model: Model, a: string, b: string): { connection: Connection; rules: RuleReport } | null {
+  if (a === b || !findEquipment(model, a) || !findEquipment(model, b) || connectionBetween(model, a, b)) return null
+  const connection: Connection = { from: a, to: b, source: 'manual', directed: false, tolerance: null }
+  model.connections.push(connection)
+  return { connection, rules: inferFlowByRules(model) }
+}
+
+/** 연결을 끊는다. 포트가 말한 연결이면 null. */
+export function removeConnection(model: Model, connection: Connection): RuleReport | null {
+  if (connection.source === 'port') return null
+  const at = model.connections.indexOf(connection)
+  if (at < 0) return null
+  model.connections.splice(at, 1)
+  return inferFlowByRules(model)
 }

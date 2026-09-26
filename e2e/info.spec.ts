@@ -50,3 +50,25 @@ test('종류를 모르는 패밀리에 계통·이웃·위치 단서가 붙는�
   await expect(row.locator('.clues')).toContainText('위치:')
   expect(errors).toEqual([])
 })
+
+test('위반 목록에서 한 번에 고친다: 방 경계 바로 밖의 설비를 방 안으로', async ({ page }) => {
+  const errors = await open(page)
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  // 공조기를 사무실(0..10) 경계 30cm 밖으로 옮긴다.
+  const x = page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).locator('.coord').first()
+  await x.fill('10.3')
+  await x.press('Enter')
+  const fold = page.getByRole('button', { name: /완전성 검사/ })
+  if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
+  await page.locator('.checks tbody tr', { hasText: '소속 방이 있다' }).click()
+  const item = page.locator('.check-list li', { hasText: 'AHU-1' })
+  await expect(item).toContainText('가장 가까운 방은 사무실(0.30m)')
+  await item.getByRole('button', { name: '사무실 안으로 옮기기' }).click()
+  await expect(x).toHaveValue('9.9')
+  await expect(page.locator('.check-list li', { hasText: 'AHU-1' })).toHaveCount(0)
+  // 여느 편집과 같이 되돌릴 수 있다.
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await expect(x).toHaveValue('10.3')
+  expect(errors).toEqual([])
+})

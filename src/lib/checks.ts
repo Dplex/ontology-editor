@@ -9,8 +9,8 @@
 // 소속 방은 좌표로 판정한 것이라 전부 추정이 섞인 검사다.
 
 import { equipmentKind } from './kinds'
-import { distanceToRing } from './mapping'
-import { isConduit, type Connection, type Model } from './model'
+import { distanceToRing, interiorPoint, pointInPolygon } from './mapping'
+import { isConduit, type Connection, type Model, type Vec2, type Vec3 } from './model'
 import { isAirSource, isAirTerminal, type AirService } from './served'
 import { trace, TOLERANCE } from './topology'
 
@@ -116,7 +116,44 @@ const gapBetween = (a: Box, b: Box) =>
  * 다르다 — 좌표가 없는 설비는 좌표를 넣고, 방 경계에서 0.3m 벗어난 설비는 옮기고, 30m 떨어진 설비는 건축 파일이
  * 모자란 것이다. 보이는 줄에만 부른다(검사 전체를 다시 도는 값이 아니다).
  */
+/** 한 번에 고칠 수 있는 것. 화면이 버튼으로 보이고, 누르면 여느 편집과 같이 되돌리기에 쌓인다. */
+export type FailureFix =
+  /** 방 경계 바로 안쪽으로 옮긴다. 경계에서 조금 벗어난 설비(벽에 붙은 것 등)가 흔하다. */
+  | { kind: 'move-into'; spaceName: string; to: Vec3 }
+  /** 가장 가까운 이웃과 잇는다. 형상이 허용 거리 밖에서 떨어진 것. */
+  | { kind: 'connect'; other: string }
+
 export function explainFailure(key: string, id: string, ctx: ExplainContext): string {
+  return diagnoseFailure(key, id, ctx).text
+}
+
+/** 경계에서 가장 가까운 점에서 벽에 수직으로 방 안쪽으로 조금 들어간 점. 오목한 모서리라 안이 아니면 방 안의 한 점. */
+function justInside(p: Vec2, ring: readonly Vec2[], margin = 0.1): Vec2 | null {
+  let best: { q: Vec2; d: number; n: Vec2 } | null = null
+  for (let i = 0; i + 1 < ring.length; i++) {
+    const [ax, ay] = ring[i]
+    const [bx, by] = ring[i + 1]
+    const len2 = (bx - ax) ** 2 + (by - ay) ** 2
+    if (len2 === 0) continue
+    const t = Math.max(0, Math.min(1, ((p[0] - ax) * (bx - ax) + (p[1] - ay) * (by - ay)) / len2))
+    const q: Vec2 = [ax + t * (bx - ax), ay + t * (by - ay)]
+    const d = Math.hypot(q[0] - p[0], q[1] - p[1])
+    const len = Math.sqrt(len2)
+    if (!best || d < best.d) best = { q, d, n: [-(by - ay) / len, (bx - ax) / len] }
+  }
+  if (best) {
+    for (const sign of [1, -1]) {
+      const step: Vec2 = [best.q[0] + sign * best.n[0] * margin, best.q[1] + sign * best.n[1] * margin]
+      if (pointInPolygon(step, ring)) return step
+    }
+  }
+  return interiorPoint(ring)
+}
+
+const cm = (v: number) => Math.round(v * 100) / 100
+
+export function diagnoseFailure(key: string, id: string, ctx: ExplainContext): { text: string; fix?: FailureFix } {
+  const say = (text: string, fix?: FailureFix) => (fix ? { text, fix } : { text })
   const { model, connections } = ctx
   const equipment = model.storeys.flatMap((s) => s.equipment)
   const byId = new Map(equipment.map((e) => [e.id, e]))
@@ -127,37 +164,40 @@ export function explainFailure(key: string, id: string, ctx: ExplainContext): st
   if (key === 'terminal-source' || key === 'source-terminal') {
     if (!touches) {
       return key === 'source-terminal'
-        ? '연결이 하나도 없습니다. 덕트 없이 방에 놓인 기기라면 정상입니다.'
-        : '연결이 하나도 없습니다.'
+        ? say('연결이 하나도 없습니다. 덕트 없이 방에 놓인 기기라면 정상입니다.')
+        : say('연결이 하나도 없습니다.')
     }
     const t = trace(connections, id, conduit)
     const along = new Set([...t.upstream, ...t.downstream])
     const target = key === 'terminal-source' ? '공조기·FCU 같은 원천' : '디퓨저·그릴 같은 말단'
-    if (along.size === 0) return `방향을 모르는 연결에서 끊깁니다(이어진 것 ${t.linked.size}개). 방향을 정하면 따라갈 수 있습니다.`
-    return `흐름을 따라 ${along.size}개까지 가지만 ${target}이 없습니다` + (t.linked.size ? ` (방향 모름 ${t.linked.size}개).` : '.')
+    if (along.size === 0) return say(`방향을 모르는 연결에서 끊깁니다(이어진 것 ${t.linked.size}개). 방향을 정하면 따라갈 수 있습니다.`)
+    return say(`흐름을 따라 ${along.size}개까지 가지만 ${target}이 없습니다` + (t.linked.size ? ` (방향 모름 ${t.linked.size}개).` : '.'))
   }
 
   if (key === 'terminal-single-source') {
     const from = ctx.services.filter((s) => s.supply.includes(id)).map((s) => ctx.label(s.sourceId))
-    return `원천 ${from.length}대에서 받습니다: ${from.join(', ')}`
+    return say(`원천 ${from.length}대에서 받습니다: ${from.join(', ')}`)
   }
 
   if (key === 'device-space') {
-    if (!e?.position) return '좌표가 없습니다. 위치를 넣으면 소속 방을 찾습니다.'
+    if (!e?.position) return say('좌표가 없습니다. 위치를 넣으면 소속 방을 찾습니다.')
     const storey = model.storeys.find((s) => s.equipment.some((x) => x.id === id))
     const spaces = (storey?.spaces ?? []).filter((s) => s.footprint.length >= 3)
-    if (spaces.length === 0) return '이 층에 물리존이 없습니다. 건축 파일을 덧붙이거나 층을 확인하세요.'
-    let best: { name: string; d: number } | null = null
+    if (spaces.length === 0) return say('이 층에 물리존이 없습니다. 건축 파일을 덧붙이거나 층을 확인하세요.')
+    let best: { name: string; d: number; ring: Vec2[] } | null = null
     for (const sp of spaces) {
       const d = distanceToRing([e.position[0], e.position[1]], sp.footprint)
-      if (!best || d < best.d) best = { name: sp.longName || sp.name, d }
+      if (!best || d < best.d) best = { name: sp.longName || sp.name, d, ring: sp.footprint }
     }
-    return `어느 방에도 들어가지 않습니다. 가장 가까운 방은 ${best!.name}(${best!.d.toFixed(2)}m)입니다.`
+    const text = `어느 방에도 들어가지 않습니다. 가장 가까운 방은 ${best!.name}(${best!.d.toFixed(2)}m)입니다.`
+    // 멀리 떨어진 것(건축 파일이 모자라거나 층이 틀린 것)은 옮겨서 고칠 일이 아니다. 경계 가까이에 있을 때만 권한다.
+    const inside = best!.d <= 1 ? justInside([e.position[0], e.position[1]], best!.ring) : null
+    return say(text, inside ? { kind: 'move-into', spaceName: best!.name, to: [cm(inside[0]), cm(inside[1]), e.position[2]] } : undefined)
   }
 
   if (key === 'device-connected') {
     const box = ctx.boxes?.get(id)
-    if (!box) return '포트도, 맞닿은 형상도 없습니다.'
+    if (!box) return say('포트도, 맞닿은 형상도 없습니다.')
     let best: { id: string; d: number } | null = null
     for (const other of equipment) {
       if (other.id === id) continue
@@ -167,8 +207,11 @@ export function explainFailure(key: string, id: string, ctx: ExplainContext): st
       const d = gapBetween(box, b)
       if (!best || d < best.d) best = { id: other.id, d }
     }
-    if (!best || best.d > 1) return '1m 안에 이어질 덕트·배관·설비가 없습니다. 접합 부재가 빠졌을 수 있습니다.'
-    return `가장 가까운 것: ${ctx.label(best.id)}, ${Math.round(best.d * 1000)}mm 떨어져 있습니다. ${Math.round(TOLERANCE * 1000)}mm 안이어야 연결로 봅니다.`
+    if (!best || best.d > 1) return say('1m 안에 이어질 덕트·배관·설비가 없습니다. 접합 부재가 빠졌을 수 있습니다.')
+    return say(
+      `가장 가까운 것: ${ctx.label(best.id)}, ${Math.round(best.d * 1000)}mm 떨어져 있습니다. ${Math.round(TOLERANCE * 1000)}mm 안이어야 연결로 봅니다.`,
+      { kind: 'connect', other: best.id },
+    )
   }
-  return ''
+  return say('')
 }

@@ -12,6 +12,10 @@
 
 import { confirmSystemFlow } from './flow-rules'
 import {
+  addConnection,
+  connectionBetween,
+  diffBaseline,
+  removeConnection,
   kindEdits,
   moveEquipment,
   moveEquipmentToStorey,
@@ -41,6 +45,8 @@ export type EditFile = {
   kinds: { typeKey: string; kind: string | null }[]
   flows: { from: string; to: string }[]
   confirmedSystems: string[]
+  /** 사람이 이은 연결과 끊은 연결(순서 없는 짝). 이 칸이 없던 때의 파일도 받는다. */
+  connections?: { add: { from: string; to: string }[]; remove: { from: string; to: string }[] }
   /**
    * 위에 적은 id 마다 연 때의 지문(versions.ts). GUID 가 바뀐 판본에서 같은 것을 찾는 데 쓴다. 이 칸이 없던 때의
    * 파일도 받는다 — 그때는 GUID 로만 찾는다.
@@ -76,6 +82,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   const confirmed = new Set<string>()
   for (const c of model.connections) if (c.inferred?.confirmed) confirmed.add(c.inferred.systemId)
   const flows = model.connections.filter((c) => !c.directed && c.edited).map((c) => ({ from: c.edited!.from, to: c.edited!.to }))
+  const since = diffBaseline(model, baseline)
+  const connections = { add: since.connected, remove: since.disconnected }
 
   // 적은 id 의 지문. 층을 옮긴 설비는 예전 층도 적는다(새 판본에서 층 GUID 가 바뀌어도 이름으로 찾는다).
   const all = fingerprints(model, baseline)
@@ -94,6 +102,10 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     keep(f.to)
   }
   for (const id of confirmed) keep(id)
+  for (const c of [...connections.add, ...connections.remove]) {
+    keep(c.from)
+    keep(c.to)
+  }
 
   return {
     format: EDIT_FORMAT,
@@ -105,6 +117,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     kinds: kindEdits(model).map((k) => ({ typeKey: k.typeKey, kind: k.to })),
     flows,
     confirmedSystems: [...confirmed],
+    ...(connections.add.length || connections.remove.length ? { connections } : {}),
     keys,
   }
 }
@@ -133,7 +146,7 @@ export type ApplyResult = {
   storeyMoved: string[]
   applied: number
   /** 이 모델에서 못 찾은 것. 재내보내기에서 지워졌거나 다른 파일이다. */
-  missing: { equipment: number; spaces: number; kinds: number; flows: number; systems: number }
+  missing: { equipment: number; spaces: number; kinds: number; flows: number; systems: number; connections: number }
   /** GUID 로는 못 찾고 다른 열쇠로 찾은 id 수. GUID 가 바뀐 재내보내기에서 뜬다. */
   rematched: Record<Exclude<MatchKey, 'guid'>, number>
   rules: RuleReport | null
@@ -151,7 +164,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     confirmations: [],
     storeyMoved: [],
     applied: 0,
-    missing: { equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0 },
+    missing: { equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0 },
     rematched: { revitId: 0, name: 0, position: 0 },
     rules: null,
   }
@@ -172,6 +185,10 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     ref(f.to)
   }
   for (const id of file.confirmedSystems) ref(id)
+  for (const c of [...(file.connections?.add ?? []), ...(file.connections?.remove ?? [])]) {
+    ref(c.from)
+    ref(c.to)
+  }
   const matching = matchFingerprints(referenced, fingerprints(model))
   for (const { by } of matching.pairs.values()) if (by !== 'guid') result.rematched[by]++
   const resolve = (id: string) => matching.pairs.get(id)?.id ?? id
@@ -228,6 +245,23 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
         result.changes.push(change)
       }
     }
+  }
+
+  // 연결은 확정·방향보다 먼저 — 사람이 정한 방향이 사람이 이은 연결에 붙어 있을 수 있다.
+  for (const row of file.connections?.remove ?? []) {
+    const c = connectionBetween(model, resolve(row.from), resolve(row.to))
+    const rules = c ? removeConnection(model, c) : null
+    if (rules) {
+      result.applied++
+      result.rules = rules
+    } else result.missing.connections++
+  }
+  for (const row of file.connections?.add ?? []) {
+    const done = addConnection(model, resolve(row.from), resolve(row.to))
+    if (done) {
+      result.applied++
+      result.rules = done.rules
+    } else if (!connectionBetween(model, resolve(row.from), resolve(row.to))) result.missing.connections++
   }
 
   for (const savedId of file.confirmedSystems) {

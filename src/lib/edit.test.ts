@@ -567,7 +567,7 @@ describe('연 때와 견주기', () => {
     renameSpace(model, office.id, '사무실')
     moveEquipment(model, ahu.id, at)
     moveEquipmentToStorey(model, equip('AT-101-01').id, model.storeys[0].id)
-    expect(diffBaseline(model, base)).toEqual({ renamed: [], moved: [], restoreyed: [] })
+    expect(diffBaseline(model, base)).toEqual({ renamed: [], moved: [], restoreyed: [], connected: [], disconnected: [] })
   })
 
   it('소속이 바뀐 이동은 좌표 줄에 넣지 않는다(Change 가 적는다)', () => {
