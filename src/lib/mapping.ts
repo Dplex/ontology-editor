@@ -122,7 +122,14 @@ export const SNAP = 0.05
  * 어디에도 없으면 null 이다.
  */
 export function locate(point: Vec2, spaces: readonly Space[], snap = SNAP): string | null {
-  for (const space of spaces) if (pointInPolygon(point, space.footprint)) return space.id
+  // 방이 겹친 자리면 가장 작은 방이다. 실제 BIM 도 같은 층 방끼리 겹친다(병원 건축 52쌍 — 큰 대기실이 접수대를 품는다).
+  // 목록의 첫 방을 고르던 때와 견주면, BIM 이 말한 소속에 맞는 수가 가진 파일 전부에서 늘었다(병원 건축+HVAC 156 →
+  // 169/180, 건축+MEP 563 → 584/637, Duplex 111 → 114/118, 건축+MEP 11 → 13/13). 좁은 방이 더 구체적인 자리다.
+  let inside: Space | null = null
+  for (const space of spaces) {
+    if (pointInPolygon(point, space.footprint) && (!inside || space.areaM2 < inside.areaM2)) inside = space
+  }
+  if (inside) return inside.id
 
   let best: string | null = null
   let bestDistance = snap
