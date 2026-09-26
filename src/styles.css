@@ -2425,3 +2425,49 @@ main.has-model .catalog {
   font-size: 0.82rem;
   white-space: nowrap;
 }
+
+/* 3D 설명 풍선. 마우스를 따라다니므로 누르기를 가로채지 않는다. */
+.hover-tip {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  max-width: 22rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  color: var(--fg);
+  font-size: 0.8rem;
+  pointer-events: none;
+}
+
+.hover-tip span {
+  color: var(--muted);
+}
+
+/* 위반 줄마다의 이유. 이름·종류 아래 한 줄로 두고, 줄이 단 사이에서 쪼개지지 않게 한다. */
+.check-list li {
+  break-inside: avoid;
+  margin-bottom: 0.35rem;
+}
+
+.check-list .reason {
+  margin-top: 0.1rem;
+  margin-left: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+/* 종류를 모르는 패밀리의 단서(계통·이웃·위치). 고를 때 3D 를 열지 않고 짐작하게 한다. */
+.unknown-types td.clues {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.unknown-types td.clues span {
+  display: block;
+}

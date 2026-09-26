@@ -9,12 +9,13 @@ import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
 import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
+import HoverTip from './components/HoverTip.vue'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { applyEdits, exportEdits, parseEditFile } from './lib/edit-file'
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
-import { completenessChecks } from './lib/checks'
+import { completenessChecks, explainFailure, type Box } from './lib/checks'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, ifcClassLabel, roomKind, systemKind } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
@@ -28,6 +29,7 @@ import {
   WALL_COLORS,
   type Arrow,
   type Viewer,
+  type HoverTarget,
 } from './lib/viewer'
 import {
   flowEdits,
@@ -227,6 +229,70 @@ const spaceNameOf = (spaceId: string | null) => {
     if (space) return space.longName || space.name
   }
   return spaceId
+}
+
+// --- 3D 설명 풍선 ------------------------------------------------------------------
+//
+// 마우스 아래 있는 것이 무엇인지. 누르지 않고도 이름·종류·계통·소속을 본다(연결 화살표면 두 끝과 방향의 출처).
+// 내용은 대상이 바뀔 때만 새로 만들고, 같은 대상 위에서는 자리만 옮긴다(HoverTip 주석 참조).
+const hoverTip = ref<InstanceType<typeof HoverTip> | null>(null)
+let hoverKey = ''
+function hoverText(t: HoverTarget): { title: string; lines: string[] } | null {
+  const m = model.value
+  if (!m) return null
+  const nameOf = (id: string) => {
+    const e = equipmentById.value.get(id)
+    return e?.name || e?.ifcClass || id
+  }
+  if (t.kind === 'equipment') {
+    const e = equipmentById.value.get(t.id)
+    if (!e) return null
+    const what = whatIs(e)?.label
+    const system = e.systemId ? systemById.value.get(e.systemId)?.name : null
+    return {
+      title: e.name || what || e.ifcClass,
+      lines: [[what, system].filter(Boolean).join(' · '), `소속 ${spaceNameOf(e.spaceId)}`].filter(Boolean),
+    }
+  }
+  if (t.kind === 'space') {
+    for (const storey of m.storeys) {
+      const sp = storey.spaces.find((x) => x.id === t.id)
+      if (!sp) continue
+      const members = storey.equipment.filter((e) => e.spaceId === sp.id).length
+      return {
+        title: sp.longName || sp.name,
+        lines: [`물리존 ${sp.name} · ${storey.name} · ${sp.areaM2.toFixed(1)}㎡ · 설비 ${members}대`, '클릭하면 꼭짓점을 고칠 수 있습니다'],
+      }
+    }
+    return null
+  }
+  const c = arrowConnections.value[Number(t.key)]
+  if (!c) return null
+  const from = c.directed ? c.from : c.edited ? c.edited.from : c.inferred && showRules.value ? c.inferred.from : null
+  const to = from === c.from ? c.to : c.from
+  const source = c.directed
+    ? '포트 방향(BIM) · 고칠 수 없습니다'
+    : c.edited
+      ? '직접 정한 방향 · 클릭하면 바꿉니다'
+      : c.inferred && showRules.value
+        ? `규칙 방향(${c.inferred.confirmed ? '확정' : '추정'}) · 클릭하면 바꿉니다`
+        : '방향 모름 · 클릭하면 정합니다'
+  return { title: from ? `${nameOf(from)} → ${nameOf(to)}` : `${nameOf(c.from)} — ${nameOf(c.to)}`, lines: [source] }
+}
+function onHover(t: HoverTarget | null, at: { x: number; y: number } | null) {
+  const tip = hoverTip.value
+  if (!tip) return
+  if (!t || !at) {
+    hoverKey = ''
+    tip.hide()
+    return
+  }
+  const key = t.kind === 'arrow' ? `arrow:${t.key}` : `${t.kind}:${t.id}`
+  if (key === hoverKey) return tip.move(at)
+  hoverKey = key
+  const text = hoverText(t)
+  if (text) tip.show(text.title, text.lines, at)
+  else tip.hide()
 }
 
 // --- 3D 다시 그리기 --------------------------------------------------------------
@@ -894,6 +960,7 @@ watch([model, canvas], ([m, el]) => {
     viewer.onPick((id) => {
       selectedId.value = id
     })
+    viewer.onHover(onHover)
     viewer.onPickSpace((id) => {
       selectedSpaceId.value = id
       if (id) {
@@ -1316,6 +1383,49 @@ const checks = computed(() => (model.value ? completenessChecks(model.value, air
 const openCheckKey = ref<string | null>(null)
 const openCheck = computed(() => checks.value.find((c) => c.key === openCheckKey.value) ?? null)
 const CHECK_LIMIT = 100
+
+/** 설비 형상의 상자. 연결망 검사의 "이웃과 몇 mm 떨어졌나" 에만 쓴다. 형상이 바뀌면(열기·덧붙이기·옮기기) 다시 잰다. */
+let boxCache: { at: number; boxes: Map<string, Box> } | null = null
+function meshBoxes(): Map<string, Box> {
+  if (boxCache && boxCache.at === sceneVersion.value) return boxCache.boxes
+  const boxes = new Map<string, Box>()
+  for (const [id, mesh] of meshes) {
+    const p = mesh.positions
+    if (p.length < 3) continue
+    let [x0, y0, z0, x1, y1, z1] = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity]
+    for (let i = 0; i + 2 < p.length; i += 3) {
+      if (p[i] < x0) x0 = p[i]
+      if (p[i] > x1) x1 = p[i]
+      if (p[i + 1] < y0) y0 = p[i + 1]
+      if (p[i + 1] > y1) y1 = p[i + 1]
+      if (p[i + 2] < z0) z0 = p[i + 2]
+      if (p[i + 2] > z1) z1 = p[i + 2]
+    }
+    boxes.set(id, [x0, y0, z0, x1, y1, z1])
+  }
+  boxCache = { at: sceneVersion.value, boxes }
+  return boxes
+}
+
+/** 펼친 검사에서 보이는 줄마다 왜 어겼는지(checks.ts 의 explainFailure). */
+const failReasons = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const c = openCheck.value
+  if (!m || !c) return new Map<string, string>()
+  const ctx = {
+    model: m,
+    connections: showRules.value && hasRules.value ? withInferred(m.connections) : m.connections,
+    services: airServiceList.value,
+    boxes: c.key === 'device-connected' ? meshBoxes() : undefined,
+    label: (id: string) => {
+      const e = equipmentById.value.get(id)
+      const what = whatIs(e)?.label
+      return [shortName(e?.name || e?.ifcClass || id), what].filter(Boolean).join(' · ')
+    },
+  }
+  return new Map(c.failed.slice(0, CHECK_LIMIT).map((id) => [id, explainFailure(c.key, id, ctx)]))
+})
 function toggleCheck(key: string) {
   openCheckKey.value = openCheckKey.value === key ? null : key
   const c = openCheck.value
@@ -1459,6 +1569,53 @@ const unknownTypes = computed(() => {
   return [...rows.values()].sort((a, b) => b.count - a.count)
 })
 const TYPE_LIMIT = 50
+
+/**
+ * 종류를 모르는 패밀리마다 고를 단서. 이름이 암호 같아도(`M_Exhaust Unit…:47-84 LPS`) 어느 계통에 있고, 무엇에
+ * 붙어 있고, 어디(천장·바닥·방)에 놓였는지를 보면 대부분 짐작한다 — 급기 계통 끝에서 덕트 하나에 붙어 천장에
+ * 있으면 디퓨저다. 모두 BIM 이 말한 계통·연결·좌표를 모은 것이다. 편집 모드에서 보이는 줄에만 잰다.
+ */
+const familyClues = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const out = new Map<string, { system: string; neighbors: string; place: string }>()
+  if (!m || !editing.value) return out
+  const shown = new Set(unknownTypes.value.slice(0, TYPE_LIMIT).map((t) => t.key))
+  const adjacent = new Map<string, string[]>()
+  for (const c of m.connections) {
+    adjacent.set(c.from, [...(adjacent.get(c.from) ?? []), c.to])
+    adjacent.set(c.to, [...(adjacent.get(c.to) ?? []), c.from])
+  }
+  const tally = () => new Map<string, number>()
+  const add = (map: Map<string, number>, k: string) => map.set(k, (map.get(k) ?? 0) + 1)
+  const top = (map: Map<string, number>, n: number) =>
+    [...map].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, c]) => `${k} ${c}`).join(' · ')
+  const acc = new Map<string, { systems: Map<string, number>; neighbors: Map<string, number>; rooms: Map<string, number>; heights: number[] }>()
+  for (const storey of m.storeys) {
+    for (const e of storey.equipment) {
+      if (isConduit(e.role) || equipmentKind(e.kind)) continue
+      const key = familyKeyOf(e)
+      if (!shown.has(key)) continue
+      const a = acc.get(key) ?? { systems: tally(), neighbors: tally(), rooms: tally(), heights: [] }
+      const sy = e.systemId ? systemById.value.get(e.systemId) : null
+      if (sy) add(a.systems, systemKind(sy.kind)?.label ?? sy.name ?? '이름 없는 계통')
+      for (const other of adjacent.get(e.id) ?? []) add(a.neighbors, whatIs(equipmentById.value.get(other))?.label ?? '종류 모름')
+      if (e.spaceId) add(a.rooms, spaceNameOf(e.spaceId))
+      if (e.position) a.heights.push(e.position[2] - storey.elevation)
+      acc.set(key, a)
+    }
+  }
+  for (const [key, a] of acc) {
+    const h = [...a.heights].sort((x, y) => x - y)
+    const median = h.length ? h[Math.floor(h.length / 2)] : null
+    out.set(key, {
+      system: a.systems.size ? top(a.systems, 2) : '계통 없음',
+      neighbors: a.neighbors.size ? top(a.neighbors, 3) : '연결 없음',
+      place: [median !== null ? `바닥에서 ${median.toFixed(1)}m` : '', top(a.rooms, 2)].filter(Boolean).join(' · ') || '위치 모름',
+    })
+  }
+  return out
+})
 const kindEditLines = computed(() => {
   void flowVersion.value
   const m = model.value
@@ -2446,6 +2603,7 @@ function exportTTL() {
       <!-- 작업 화면: 3D 와 오른쪽 패널이 화면 높이를 나눠 쓴다. 3D 에서 누른 것이 스크롤 없이 바로 옆에 뜬다.
            전체 화면도 이 둘을 같이 띄운다. -->
       <div ref="stage" :class="['stage', 'workspace', { full: fullscreen }]">
+        <HoverTip ref="hoverTip" />
         <section class="viewport">
           <div class="canvas-wrap">
             <canvas ref="canvas"></canvas>
@@ -3130,12 +3288,11 @@ function exportTTL() {
             <h4>{{ openCheck.rule }} <span class="muted">위반 {{ openCheck.failed.length }}개(3D에 표시)</span></h4>
             <ul class="plain">
               <li v-for="id in openCheck.failed.slice(0, CHECK_LIMIT)" :key="id">
-                <button type="button" class="link" @click="selectAndShow(id)">
-                  {{ equipmentById.get(id)?.name || equipmentById.get(id)?.ifcClass || id }}
+                <button type="button" class="link" :title="equipmentById.get(id)?.name" @click="selectAndShow(id)">
+                  {{ shortName(equipmentById.get(id)?.name || equipmentById.get(id)?.ifcClass || id) }}
                 </button>
-                <span class="muted">
-                  {{ whatIs(equipmentById.get(id))?.label }}
-                </span>
+                <span v-if="whatIs(equipmentById.get(id))" class="what">{{ whatIs(equipmentById.get(id))!.label }}</span>
+                <div v-if="failReasons.get(id)" class="muted reason">{{ failReasons.get(id) }}</div>
               </li>
             </ul>
             <p v-if="openCheck.failed.length > CHECK_LIMIT" class="hint">
@@ -3263,6 +3420,13 @@ function exportTTL() {
                   </td>
                   <td class="num mono">{{ t.count }}</td>
                   <td class="muted">{{ t.ifcClass }} <Src kind="bim" /></td>
+                  <td class="clues">
+                    <template v-if="familyClues.get(t.key)">
+                      <span>계통: {{ familyClues.get(t.key)!.system }}</span>
+                      <span>이웃: {{ familyClues.get(t.key)!.neighbors }}</span>
+                      <span>위치: {{ familyClues.get(t.key)!.place }}</span>
+                    </template>
+                  </td>
                   <td>
                     <select :aria-label="`${t.label} 의 종류`" @change="pickTypeKind($event, t.key, t.label)">
                       <option value="" selected>(모름)</option>

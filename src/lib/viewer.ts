@@ -199,6 +199,9 @@ export type SpaceHandles = {
   active?: number | null
 }
 
+/** 마우스 아래에 있는 것. 설비·물리존(편집 모드)·연결 화살표(편집 모드). */
+export type HoverTarget = { kind: 'equipment'; id: string } | { kind: 'space'; id: string } | { kind: 'arrow'; key: string }
+
 export type Viewer = {
   /** keepView 면 시점을 그대로 둔다. 편집한 뒤 다시 그릴 때마다 건물 전체로 튀면 어디를 고치던 중인지 잃는다. */
   setModel(model: Model, meshes?: MeshMap, options?: { keepView?: boolean }): void
@@ -206,6 +209,11 @@ export type Viewer = {
   setHighlight(highlight: Highlight | null): void
   /** 3D 에서 설비를 고르면 부른다. 빈 곳을 누르면 null 이다. */
   onPick(handler: (id: string | null) => void): void
+  /**
+   * 마우스가 움직일 때마다(한 프레임에 한 번) 그 아래에 무엇이 있는지 알린다. 캔버스를 벗어나거나 끄는 중이면 null.
+   * at 은 화면(클라이언트) 좌표다. 누르지 않고도 무엇인지 알 수 있게 하는 설명 풍선이 쓴다.
+   */
+  onHover(handler: (target: HoverTarget | null, at: { x: number; y: number } | null) => void): void
   /** 그 설비가 화면 가운데 오도록 카메라를 돌린다. */
   focus(id: string): void
   /** 주어진 설비들이 화면에 꽉 차게 카메라를 맞춘다. 연결망만 보고 싶을 때 쓴다. */
@@ -334,6 +342,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let walls: Mesh | null = null
   let wallsVisible = false
   let pickHandler: (id: string | null) => void = () => {}
+  let hoverHandler: (target: HoverTarget | null, at: { x: number; y: number } | null) => void = () => {}
 
   // **움직일 때만 다시 그린다.** 가만히 있을 때도 매 프레임 1만 8천 개를 다시 그리면 화면 전체(스크롤,
   // 입력칸)가 같이 느려진다. 시점이 바뀌거나 색·모델이 바뀌었을 때만 그린다.
@@ -661,6 +670,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let hoverAt: { x: number; y: number } | null = null
   let hoverPending = false
   canvas.addEventListener('pointermove', (e) => {
+    // 끌거나 시점을 돌리는 동안에는 설명 풍선을 숨긴다. 그대로 두면 옛 자리에 떠 있다.
+    if (drag || e.buttons !== 0) hoverHandler(null, null)
     if (drag) {
       if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4) drag.moved = true
       const at = new Vector3()
@@ -683,6 +694,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   canvas.addEventListener('pointerleave', () => {
     hoverAt = null
     if (!drag) canvas.style.cursor = ''
+    hoverHandler(null, null)
   })
   controls.addEventListener('change', () => {
     if (hoverAt) hoverPending = true
@@ -695,24 +707,29 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
   function updateHover() {
     hoverPending = false
-    if (!hoverAt || drag) return
+    if (!hoverAt || drag) {
+      hoverHandler(null, null)
+      return
+    }
     const { x, y } = hoverAt
     if (editMode && hitHandle(x, y) !== null) {
       canvas.style.cursor = 'grab'
+      hoverHandler(null, null)
       return
     }
-    if (editMode && hitArrow(x, y)) {
+    const arrow = editMode ? hitArrow(x, y) : null
+    if (arrow) {
       canvas.style.cursor = 'pointer'
+      hoverHandler({ kind: 'arrow', key: arrow }, hoverAt)
       return
     }
     const ray = rayAt(x, y)
-    if (editMode && grabbable(ray)) {
-      canvas.style.cursor = 'grab'
-      return
-    }
     const id = pick(ray)
-    if (id) canvas.style.cursor = 'pointer'
-    else canvas.style.cursor = editMode && pickSpace(ray) ? 'pointer' : ''
+    if (editMode && grabbable(ray)) canvas.style.cursor = 'grab'
+    else if (id) canvas.style.cursor = 'pointer'
+    const space = !id && editMode ? pickSpace(ray) : null
+    if (!id && !(editMode && grabbable(ray))) canvas.style.cursor = space ? 'pointer' : ''
+    hoverHandler(id ? { kind: 'equipment', id } : space ? { kind: 'space', id: space } : null, hoverAt)
   }
 
   /**
@@ -1119,6 +1136,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     onPick(handler) {
       pickHandler = handler
+    },
+
+    onHover(handler) {
+      hoverHandler = handler
     },
 
     focus(id) {

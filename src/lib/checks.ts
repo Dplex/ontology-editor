@@ -9,8 +9,10 @@
 // 소속 방은 좌표로 판정한 것이라 전부 추정이 섞인 검사다.
 
 import { equipmentKind } from './kinds'
-import { isConduit, type Model } from './model'
+import { distanceToRing } from './mapping'
+import { isConduit, type Connection, type Model } from './model'
 import { isAirSource, isAirTerminal, type AirService } from './served'
+import { trace, TOLERANCE } from './topology'
 
 export type CheckResult = {
   key: string
@@ -86,4 +88,87 @@ export function completenessChecks(model: Model, services: readonly AirService[]
       failed: flowing.filter((e) => !connected.has(e.id)).map((e) => e.id),
     },
   ]
+}
+
+/** 설비 형상의 상자(최소 x·y·z, 최대 x·y·z). 연결망에서 떨어진 설비가 이웃과 얼마나 떨어졌는지 잴 때 쓴다. */
+export type Box = readonly [number, number, number, number, number, number]
+
+export type ExplainContext = {
+  model: Model
+  /** 검사에 쓴 연결(화면과 같은 방향. 규칙 방향을 켰으면 그것까지). */
+  connections: readonly Connection[]
+  services: readonly AirService[]
+  /** 설비 형상의 상자. 없으면 연결망 검사의 이웃 거리를 말하지 않는다. */
+  boxes?: ReadonlyMap<string, Box>
+  /** 목록에 보일 이름(이름 · 종류). */
+  label: (id: string) => string
+}
+
+const gapBetween = (a: Box, b: Box) =>
+  Math.hypot(
+    Math.max(0, a[0] - b[3], b[0] - a[3]),
+    Math.max(0, a[1] - b[4], b[1] - a[4]),
+    Math.max(0, a[2] - b[5], b[2] - a[5]),
+  )
+
+/**
+ * 어긴 것 하나가 **왜** 어겼는지. 목록에 이름만 있으면 하나씩 3D 로 열어 봐야 알 수 있었다. 고칠 방법이 이유마다
+ * 다르다 — 좌표가 없는 설비는 좌표를 넣고, 방 경계에서 0.3m 벗어난 설비는 옮기고, 30m 떨어진 설비는 건축 파일이
+ * 모자란 것이다. 보이는 줄에만 부른다(검사 전체를 다시 도는 값이 아니다).
+ */
+export function explainFailure(key: string, id: string, ctx: ExplainContext): string {
+  const { model, connections } = ctx
+  const equipment = model.storeys.flatMap((s) => s.equipment)
+  const byId = new Map(equipment.map((e) => [e.id, e]))
+  const e = byId.get(id)
+  const conduit = (x: string) => isConduit(byId.get(x)?.role ?? null)
+  const touches = connections.some((c) => c.from === id || c.to === id)
+
+  if (key === 'terminal-source' || key === 'source-terminal') {
+    if (!touches) {
+      return key === 'source-terminal'
+        ? '연결이 하나도 없습니다. 덕트 없이 방에 놓인 기기라면 정상입니다.'
+        : '연결이 하나도 없습니다.'
+    }
+    const t = trace(connections, id, conduit)
+    const along = new Set([...t.upstream, ...t.downstream])
+    const target = key === 'terminal-source' ? '공조기·FCU 같은 원천' : '디퓨저·그릴 같은 말단'
+    if (along.size === 0) return `방향을 모르는 연결에서 끊깁니다(이어진 것 ${t.linked.size}개). 방향을 정하면 따라갈 수 있습니다.`
+    return `흐름을 따라 ${along.size}개까지 가지만 ${target}이 없습니다` + (t.linked.size ? ` (방향 모름 ${t.linked.size}개).` : '.')
+  }
+
+  if (key === 'terminal-single-source') {
+    const from = ctx.services.filter((s) => s.supply.includes(id)).map((s) => ctx.label(s.sourceId))
+    return `원천 ${from.length}대에서 받습니다: ${from.join(', ')}`
+  }
+
+  if (key === 'device-space') {
+    if (!e?.position) return '좌표가 없습니다. 위치를 넣으면 소속 방을 찾습니다.'
+    const storey = model.storeys.find((s) => s.equipment.some((x) => x.id === id))
+    const spaces = (storey?.spaces ?? []).filter((s) => s.footprint.length >= 3)
+    if (spaces.length === 0) return '이 층에 물리존이 없습니다. 건축 파일을 덧붙이거나 층을 확인하세요.'
+    let best: { name: string; d: number } | null = null
+    for (const sp of spaces) {
+      const d = distanceToRing([e.position[0], e.position[1]], sp.footprint)
+      if (!best || d < best.d) best = { name: sp.longName || sp.name, d }
+    }
+    return `어느 방에도 들어가지 않습니다. 가장 가까운 방은 ${best!.name}(${best!.d.toFixed(2)}m)입니다.`
+  }
+
+  if (key === 'device-connected') {
+    const box = ctx.boxes?.get(id)
+    if (!box) return '포트도, 맞닿은 형상도 없습니다.'
+    let best: { id: string; d: number } | null = null
+    for (const other of equipment) {
+      if (other.id === id) continue
+      if (e?.systemId && other.systemId && other.systemId !== e.systemId) continue
+      const b = ctx.boxes!.get(other.id)
+      if (!b) continue
+      const d = gapBetween(box, b)
+      if (!best || d < best.d) best = { id: other.id, d }
+    }
+    if (!best || best.d > 1) return '1m 안에 이어질 덕트·배관·설비가 없습니다. 접합 부재가 빠졌을 수 있습니다.'
+    return `가장 가까운 것: ${ctx.label(best.id)}, ${Math.round(best.d * 1000)}mm 떨어져 있습니다. ${Math.round(TOLERANCE * 1000)}mm 안이어야 연결로 봅니다.`
+  }
+  return ''
 }
