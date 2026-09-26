@@ -166,8 +166,9 @@ describe.skipIf(!have)('성수 불변식', () => {
   }, 300_000)
 
   it('합친 두 파일의 좌표계가 맞는다(기계 설비 대부분이 건축 방 범위 안)', () => {
-    expect(mergeReport.alignment).not.toBeNull()
-    expect(mergeReport.alignment!.ratio).toBeGreaterThanOrEqual(ALIGNMENT_MIN_RATIO)
+    // 덧붙인 파일에 좌표 있는 설비가 없으면(구조 파일 등) 잴 것이 없다.
+    if (!mergeReport.alignment) return
+    expect(mergeReport.alignment.ratio).toBeGreaterThanOrEqual(ALIGNMENT_MIN_RATIO)
   })
 
   it('포트(BIM)가 말한 연결은 끊지 못한다', () => {
@@ -187,25 +188,30 @@ describe.skipIf(!have)('성수 불변식', () => {
     const did: string[] = []
 
     // 1) 설비를 같은 층 다른 방으로 옮긴다(E5). 소속은 옮긴 자리를 다시 잰 방이어야 한다.
+    //    그런 층이 없는 파일(설비가 없거나 방이 한 개)은 이 단계를 건너뛴다.
     const storey = m.storeys.find((s) => s.spaces.filter((x) => x.footprint.length >= 4).length >= 2 &&
-      s.equipment.some((e) => !isConduit(e.role) && e.position && e.spaceSource === 'computed'))!
-    const mover = storey.equipment.find((e) => !isConduit(e.role) && e.position && e.spaceSource === 'computed')!
-    const target = storey.spaces.find((x) => x.id !== mover.spaceId && x.footprint.length >= 4 && x.areaM2 > 2)!
-    const p = interiorPoint(target.footprint)!
-    undo.push(snapshotEquipment(m, mover.id)!)
-    timed('편집: 설비 옮기기 1회', () => moveEquipment(m, mover.id, [p[0], p[1], mover.position![2]]))
-    expect(mover.spaceId).toBe(locate(p, storey.spaces))
-    did.push(`설비 ${mover.name} → ${target.longName || target.name}`)
+      s.equipment.some((e) => !isConduit(e.role) && e.position && e.spaceSource === 'computed'))
+    const mover = storey?.equipment.find((e) => !isConduit(e.role) && e.position && e.spaceSource === 'computed')
+    const target = storey?.spaces.find((x) => x.id !== mover?.spaceId && x.footprint.length >= 4 && x.areaM2 > 2)
+    const p = target && interiorPoint(target.footprint)
+    if (storey && mover && target && p) {
+      undo.push(snapshotEquipment(m, mover.id)!)
+      timed('편집: 설비 옮기기 1회', () => moveEquipment(m, mover.id, [p[0], p[1], mover.position![2]]))
+      expect(mover.spaceId).toBe(locate(p, storey.spaces))
+      did.push(`설비 ${mover.name} → ${target.longName || target.name}`)
+    }
 
     // 2) 물리존 이름(E1)과 꼭짓점(E2).
-    const room = storey.spaces.find((x) => x.footprint.length >= 4 && x.id !== target.id)!
-    undo.push(snapshotSpace(m, room.id)!)
-    renameSpace(m, room.id, `${room.longName || room.name} (편집)`)
-    undo.push(snapshotSpace(m, room.id)!)
-    const v = room.footprint[0]
-    const moved = timed('편집: 꼭짓점 옮기기 1회', () => moveSpaceVertex(m, room.id, 0, [v[0] + 0.2, v[1] + 0.2] as Vec2))
-    if (!moved) undo.pop()
-    did.push(`물리존 ${room.name} 이름${moved ? '·꼭짓점' : ''}`)
+    const room = m.storeys.flatMap((s) => s.spaces).find((x) => x.footprint.length >= 4 && x.id !== target?.id)
+    if (room) {
+      undo.push(snapshotSpace(m, room.id)!)
+      renameSpace(m, room.id, `${room.longName || room.name} (편집)`)
+      undo.push(snapshotSpace(m, room.id)!)
+      const v = room.footprint[0]
+      const moved = timed('편집: 꼭짓점 옮기기 1회', () => moveSpaceVertex(m, room.id, 0, [v[0] + 0.2, v[1] + 0.2] as Vec2))
+      if (!moved) undo.pop()
+      did.push(`물리존 ${room.name} 이름${moved ? '·꼭짓점' : ''}`)
+    }
 
     // 3) 종류 모르는 패밀리 하나에 종류를 준다(규칙을 다시 돌린다).
     const unknown = devicesOf(m).find((e) => !e.kind)
@@ -235,9 +241,9 @@ describe.skipIf(!have)('성수 불변식', () => {
     }
 
     // 6) 가까운 기기 둘을 잇는다.
-    const others = storey.equipment.filter((e) => !isConduit(e.role) && e.position && e.id !== mover.id)
+    const others = (storey ?? m.storeys[0]).equipment.filter((e) => !isConduit(e.role) && e.position && e.id !== mover?.id)
     const a = others[0]
-    const b = others.slice(1).filter((e) => !connectionBetween(m, a.id, e.id))
+    const b = a && others.slice(1).filter((e) => !connectionBetween(m, a.id, e.id))
       .sort((x, y) => dist(x, a) - dist(y, a))[0]
     if (a && b) {
       const added = timed('편집: 잇기 1회(규칙 다시 돌리기 포함)', () => addConnection(m, a.id, b.id))!
@@ -246,7 +252,7 @@ describe.skipIf(!have)('성수 불변식', () => {
     }
 
     const edited = exportsOf(m)
-    expect(edited.ttl).not.toBe(before.ttl)
+    if (did.length) expect(edited.ttl).not.toBe(before.ttl)
 
     // 편집 파일로 나갔다 들어온다(자동 저장과 [편집 저장]이 같은 파일이다).
     const file = timed('편집 파일 만들기', () => exportEdits(m, baseline, `${basename(ARCH)} + ${basename(MECH)}`))
