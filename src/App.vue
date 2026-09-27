@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch, type Directive } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
-import { countOf, isConduit, type Connection, type Equipment, type Model, type Vec2, type Vec3 } from './lib/model'
+import { countOf, isConduit, type Connection, type Equipment, type Model, type Opening, type Vec2, type Vec3, type Wall } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { profileOf, type Profile } from './lib/profile'
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
@@ -72,6 +72,14 @@ import {
   splitSpace,
   mergeSpaces,
   snapshotStoreySpaces,
+  addWall,
+  addOpening,
+  moveWall,
+  deleteWall,
+  moveOpening,
+  deleteOpening,
+  setWallLoadBearing,
+  snapshotStoreyElements,
   type Baseline,
   type BoundaryChange,
   type Change,
@@ -213,7 +221,13 @@ const changeCount = computed(
     sinceOpen.value.spacesRemoved.length +
     sinceOpen.value.equipmentAdded.length +
     sinceOpen.value.equipmentRemoved.length +
-    sinceOpen.value.equipmentRenamed.length,
+    sinceOpen.value.equipmentRenamed.length +
+    sinceOpen.value.wallsAdded.length +
+    sinceOpen.value.wallsRemoved.length +
+    sinceOpen.value.wallsChanged.length +
+    sinceOpen.value.openingsAdded.length +
+    sinceOpen.value.openingsRemoved.length +
+    sinceOpen.value.openingsMoved.length,
 )
 
 // 연 때의 값. 소속 관계 말고도 내보내는 파일을 바꾸는 편집(이름·방 안 이동·층)을 이것과 견줘 리포트에 올린다
@@ -234,6 +248,12 @@ const sinceOpen = computed(() => {
         equipmentAdded: [],
         equipmentRemoved: [],
         equipmentRenamed: [],
+        wallsAdded: [],
+        wallsRemoved: [],
+        wallsChanged: [],
+        openingsAdded: [],
+        openingsRemoved: [],
+        openingsMoved: [],
       }
 })
 const MOVED_NAMES = 5
@@ -619,6 +639,13 @@ function applySnapshot(s: Snapshot) {
     triggerRef(model)
     flowVersion.value++
     redraw()
+  } else if (s.kind === 'storey-elements') {
+    if (selectedElementId.value && !m.storeys.some((st) => st.walls.some((w) => w.id === selectedElementId.value) || st.openings.some((o) => o.id === selectedElementId.value))) {
+      selectedElementId.value = null
+    }
+    archEdited = true
+    triggerRef(model)
+    sceneVersion.value++
   } else if (s.kind === 'storey-spaces') {
     if (selectedSpaceId.value && !m.storeys.some((st) => st.spaces.some((x) => x.id === selectedSpaceId.value))) selectedSpaceId.value = null
     triggerRef(model)
@@ -799,8 +826,11 @@ function clearSelection(): boolean {
     stopDraw()
     note(purpose === 'split' ? '나누기를 취소했습니다' : purpose === 'create' ? '물리존 그리기를 취소했습니다' : '외곽선 그리기를 취소했습니다')
   } else if (adding.value) {
+    const what = adding.value.what
     stopAdd()
-    note('설비 더하기를 취소했습니다')
+    note(what === 'equipment' ? '설비 더하기를 취소했습니다' : what === 'door' ? '문 놓기를 취소했습니다' : '창 놓기를 취소했습니다')
+  } else if (selectedElementId.value) {
+    selectedElementId.value = null
   } else if (placing.value) {
     stopPlace()
     note('놓기를 취소했습니다')
@@ -828,6 +858,7 @@ function frameSelection(): boolean {
 
 /** 방향키. 화면의 오른쪽·위쪽에 가장 가까운 평면 축으로 옮긴다(snapAxis). */
 function nudge(code: string, step: number): boolean {
+  if (!selected.value && selectedElement.value && viewer) return nudgeElement(code, step)
   if (!selected.value && selectedSpace.value && viewer) return nudgeVertex(code, step)
   const e = selected.value
   if (!e || !viewer) return false
@@ -1070,6 +1101,7 @@ watch([model, canvas], ([m, el]) => {
       }
     })
     viewer.onEquipmentMove(dropEquipment)
+    viewer.onPickElement((id) => (selectedElementId.value = id))
     viewer.onVertexMove(dropVertex)
     viewer.onArrowClick(cycleFlow)
     viewer.setWallsVisible(showWalls.value)
@@ -1116,7 +1148,7 @@ const selectedSpace = computed(() => {
  * 3D 바닥에 점을 찍는 편집. `footprint` 는 외곽선이 없던 물리존에 외곽선을 그리는 것, `create` 는 새 물리존을 그리는
  * 것(E3), `split` 은 두 점으로 나눌 선을 긋는 것(E3)이다.
  */
-type Drawing = { purpose: 'footprint' | 'create' | 'split'; spaceId: string | null; storeyId: string; name: string; elevation: number; points: Vec2[] }
+type Drawing = { purpose: 'footprint' | 'create' | 'split' | 'wall'; spaceId: string | null; storeyId: string; name: string; elevation: number; points: Vec2[] }
 const drawing = ref<Drawing | null>(null)
 watch([selectedSpace, editing, sceneVersion, drawing], () => {
   const picked = selectedSpace.value
@@ -2179,7 +2211,7 @@ function applyEditFile(file: EditFile, from: string) {
   redraw()
 
   const missing = Object.entries(result.missing).filter(([, n]) => n > 0)
-  const MISSING_LABEL: Record<string, string> = { equipment: '설비', spaces: '물리존', kinds: '타입', flows: '방향', systems: '계통', connections: '연결' }
+  const MISSING_LABEL: Record<string, string> = { equipment: '설비', spaces: '물리존', kinds: '타입', flows: '방향', systems: '계통', connections: '연결', elements: '벽·문·창' }
   // GUID 가 바뀐 판본에서 다른 열쇠로 찾은 것. 사람이 확인할 수 있게 무엇으로 찾았는지까지 말한다.
   const rematched = (Object.entries(result.rematched) as [Exclude<MatchKey, 'guid'>, number][]).filter(([, n]) => n > 0)
   autosaveArmed = true
@@ -2244,11 +2276,12 @@ function placeAt(at: Vec2) {
   if (drawing.value) {
     drawing.value = { ...drawing.value, points: [...drawing.value.points, [cm(at[0]), cm(at[1])]] }
     // 나눌 선은 두 점이면 끝난다.
-    if (drawing.value.purpose === 'split' && drawing.value.points.length === 2) finishDraw()
+    if ((drawing.value.purpose === 'split' || drawing.value.purpose === 'wall') && drawing.value.points.length === 2) finishDraw()
     return
   }
   if (adding.value) {
-    addEquipmentAt(at)
+    if (adding.value.what === 'equipment') addEquipmentAt(at)
+    else addOpeningAt(at)
     return
   }
   const id = placing.value
@@ -2337,6 +2370,20 @@ function undoDrawPoint() {
 function finishDraw(): boolean {
   const d = drawing.value
   if (!d) return false
+  if (d.purpose === 'wall') {
+    if (d.points.length < 2) {
+      note('벽의 두 끝점을 찍어야 합니다')
+      return true
+    }
+    stopDraw()
+    const [a, b] = d.points
+    let made: Wall | null = null
+    if (changeElements(d.storeyId, '벽 긋기', (m) => (made = addWall(m, d.storeyId, a, b)))) {
+      selectedElementId.value = made!.id
+      note('벽을 그었습니다. 내력 여부는 오른쪽 패널에서 정합니다')
+    }
+    return true
+  }
   if (d.purpose === 'split') {
     if (d.points.length < 2) {
       note('나눌 선의 두 점을 찍어야 합니다')
@@ -2483,7 +2530,7 @@ function mergeInto(otherId: string) {
 //
 // 더하기는 [설비 더하기] 를 누르고 바닥을 누른다. 종류는 모르는 채 바닥 높이에 놓고 고르게 한다 — 종류와 높이를
 // 지어내지 않는다. 지우면 붙은 연결·계통 자리도 같이 빠지고 Ctrl+Z 로 그대로 돌아온다(edit.ts).
-const adding = ref<{ storeyId: string; elevation: number } | null>(null)
+const adding = ref<{ storeyId: string; elevation: number; what: 'equipment' | 'door' | 'window' } | null>(null)
 function startAddEquipment() {
   const storey = targetStorey()
   if (!storey) return note('설비를 더할 층을 먼저 고르세요(3D 오른쪽 위의 층 목록)')
@@ -2491,7 +2538,7 @@ function startAddEquipment() {
   stopDraw()
   connectFrom.value = null
   if (model.value!.storeys.length > 1) viewStorey.value = storey.id
-  adding.value = { storeyId: storey.id, elevation: storey.elevation }
+  adding.value = { storeyId: storey.id, elevation: storey.elevation, what: 'equipment' }
   viewer?.setPlaceMode(storey.elevation)
   note(`${storey.name}에 설비를 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
 }
@@ -2545,7 +2592,171 @@ function renameEquipmentTo(id: string, name: string) {
 watch(editing, (on) => {
   if (!on && drawing.value) stopDraw()
   if (!on) stopAdd()
+  if (!on) archMode.value = false
 })
+
+// --- 벽·문·창 편집 (E4) -----------------------------------------------------------------
+//
+// [벽·문·창] 을 켜면 3D 에 벽 외곽선과 문·창 자리가 서고, 바닥을 누르면 물리존보다 벽·문·창을 먼저 고른다. 고른 것은
+// 방향키로 옮기고(10cm, Shift 1m) 오른쪽 패널에서 내력 여부를 정하거나 지운다. 벽은 두 점으로 긋고 문·창은 벽 가까이
+// 누른다. 물리존 경계는 벽에서 다시 만들지 않는다(edit.ts). IFC 형상으로 그리는 내력벽 겹은 편집이 따라가지 않으니,
+// 이 층을 켠 동안에는 숨기고 끌 때 다시 그린다.
+const archMode = ref(false)
+const selectedElementId = ref<string | null>(null)
+let archEdited = false
+const selectedElement = computed(() => {
+  const m = model.value
+  const id = selectedElementId.value
+  if (!m || !id) return null
+  for (const storey of m.storeys) {
+    const wall = storey.walls.find((w) => w.id === id)
+    if (wall) return { kind: 'wall' as const, storey, wall, opening: null }
+    const opening = storey.openings.find((o) => o.id === id)
+    if (opening) return { kind: opening.kind, storey, wall: null, opening }
+  }
+  return null
+})
+watch([archMode, editing, model, sceneVersion, selectedElementId], () => {
+  viewer?.setArchitecture(archMode.value && editing.value ? model.value : null, selectedElementId.value)
+})
+watch(archMode, (on) => {
+  if (on) {
+    viewer?.setWallsVisible(false)
+    return
+  }
+  selectedElementId.value = null
+  viewer?.setWallsVisible(showWalls.value)
+  if (archEdited) {
+    archEdited = false
+    redraw()
+  }
+})
+watch([selectedId, selectedSpaceId], ([a, b]) => {
+  if (a || b) selectedElementId.value = null
+})
+watch(selectedElementId, (id) => {
+  if (!id) return
+  selectedId.value = null
+  selectedSpaceId.value = null
+})
+const elementLabel = (kind: 'wall' | 'door' | 'window') => (kind === 'wall' ? '벽' : kind === 'door' ? '문' : '창')
+const nameOfSpace = (id: string) => spaceNameOf(id)
+
+function changeElements(storeyId: string, label: string, apply: (m: Model) => unknown, coalesce?: string): boolean {
+  const m = model.value
+  if (!m) return false
+  const snapshot = snapshotStoreyElements(m, storeyId)
+  const at = mark()
+  const done = apply(m)
+  if (!done) return false
+  if (typeof done === 'object' && 'refused' in (done as object)) {
+    note((done as { refused: string }).refused)
+    return false
+  }
+  remember(label, snapshot, at, coalesce)
+  archEdited = true
+  triggerRef(model)
+  sceneVersion.value++
+  return true
+}
+
+function setBearing(wall: Wall, raw: string) {
+  const value = raw === 'true' ? true : raw === 'false' ? false : null
+  const storey = selectedElement.value?.storey
+  if (!storey) return
+  changeElements(storey.id, `${wall.name || '벽'} 내력 ${value === null ? '모름' : value ? '내력' : '비내력'}`, (m) => setWallLoadBearing(m, wall.id, value))
+}
+
+function removeElement() {
+  const picked = selectedElement.value
+  if (!picked) return
+  const what = elementLabel(picked.kind)
+  const name = picked.wall?.name || picked.opening?.name || what
+  let openings = 0
+  const ok = changeElements(picked.storey.id, `${name} 지우기`, (m) => {
+    if (picked.wall) {
+      const done = deleteWall(m, picked.wall.id)
+      openings = done?.openings ?? 0
+      return done
+    }
+    return deleteOpening(m, picked.opening!.id)
+  })
+  if (!ok) return
+  selectedElementId.value = null
+  note(`${what} ${name}을 지웠습니다${openings ? `(뚫린 문·창 ${openings}개도 같이)` : ''}. Ctrl+Z 로 되돌립니다`)
+}
+
+/** 방향키로 고른 벽·문·창을 옮긴다. 화면 방향에 가장 가까운 평면 축이다(설비 옮기기와 같다). */
+function nudgeElement(code: string, step: number): boolean {
+  const picked = selectedElement.value
+  if (!picked || !viewer) return false
+  const { right, up } = viewer.planeAxes()
+  const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
+  const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
+  const delta: Vec2 = [cm(sign * ax * step), cm(sign * ay * step)]
+  if (picked.wall) {
+    if (!picked.wall.footprint?.length) {
+      note('외곽선이 없는 벽은 옮길 수 없습니다')
+      return true
+    }
+    changeElements(picked.storey.id, `${picked.wall.name || '벽'} 옮김`, (m) => moveWall(m, picked.wall!.id, delta), `el:${picked.wall.id}`)
+    return true
+  }
+  const o = picked.opening!
+  if (!o.position) {
+    note('자리를 모르는 문·창은 옮길 수 없습니다(읽을 것에서 문·창 자리를 켜고 여세요)')
+    return true
+  }
+  changeElements(picked.storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, [cm(o.position![0] + delta[0]), cm(o.position![1] + delta[1])]), `el:${o.id}`)
+  return true
+}
+
+function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string) {
+  const value = Number(raw)
+  const storey = selectedElement.value?.storey
+  if (!o.position || !storey || raw.trim() === '' || !Number.isFinite(value)) return
+  const to: [number, number] = [o.position[0], o.position[1]]
+  to[axis] = value
+  changeElements(storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, to))
+}
+
+function startWall() {
+  const storey = targetStorey()
+  if (!storey) return note('벽을 그을 층을 먼저 고르세요(3D 오른쪽 위의 층 목록)')
+  stopPlace()
+  stopAdd()
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  drawing.value = { purpose: 'wall', spaceId: null, storeyId: storey.id, name: `${storey.name} 벽`, elevation: storey.elevation, points: [] }
+  viewer?.setPlaceMode(storey.elevation)
+}
+
+function startOpening(kind: 'door' | 'window') {
+  const storey = targetStorey() ?? selectedElement.value?.storey ?? null
+  if (!storey) return note('문·창을 놓을 층을 먼저 고르세요(3D 오른쪽 위의 층 목록)')
+  stopPlace()
+  stopDraw()
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  adding.value = { storeyId: storey.id, elevation: storey.elevation, what: kind }
+  viewer?.setPlaceMode(storey.elevation)
+  note(`${elementLabel(kind)}을 놓을 벽을 3D에서 클릭하세요 (Esc 취소)`)
+}
+
+function addOpeningAt(at: Vec2) {
+  const target = adding.value
+  stopAdd()
+  if (!target || target.what === 'equipment') return
+  const kind = target.what
+  let made: Opening | null = null
+  const ok = changeElements(target.storeyId, `${elementLabel(kind)} 놓기`, (m) => {
+    const done = addOpening(m, target.storeyId, kind, [cm(at[0]), cm(at[1])])
+    if (done && !('refused' in done)) made = done
+    return done
+  })
+  if (ok && made) {
+    selectedElementId.value = (made as Opening).id
+    note(`${elementLabel(kind)}을 놓았습니다. 방향키로 벽을 따라 옮깁니다`)
+  }
+}
 
 // --- 연결 잇기·끊기 -----------------------------------------------------------------
 //
@@ -2605,7 +2816,9 @@ const draftKey = () => DRAFT_PREFIX + fileName.value
 const editCount = (f: EditFile) =>
   f.equipment.length + f.spaces.length + f.kinds.length + f.flows.length + f.confirmedSystems.length +
   (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0) +
-  (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0)
+  (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0) +
+  (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
+  (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0)
 
 watch(baseline, (b) => {
   autosaveArmed = false
@@ -3254,11 +3467,14 @@ function exportTTL() {
               <template v-if="drawing.purpose === 'split'">
                 <b>{{ drawing.name }}</b> 나누기 · 나눌 선의 두 점을 바닥에 찍습니다 · {{ drawing.points.length }}/2
               </template>
+              <template v-else-if="drawing.purpose === 'wall'">
+                <b>{{ drawing.name }}</b> 긋기 · 벽의 두 끝점을 바닥에 찍습니다 · {{ drawing.points.length }}/2
+              </template>
               <template v-else>
                 <b>{{ drawing.name }}</b> {{ drawing.purpose === 'create' ? '그리기' : '외곽선 그리기' }} · 바닥을 눌러 꼭짓점을 찍습니다 ·
                 {{ drawing.points.length }}개
               </template>
-              <button v-if="drawing.purpose !== 'split'" type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
+              <button v-if="drawing.purpose !== 'split' && drawing.purpose !== 'wall'" type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
               <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
               <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
             </div>
@@ -3287,13 +3503,28 @@ function exportTTL() {
                 <button type="button" class="ghost" title="바닥에 꼭짓점을 찍어 새 물리존을 그립니다" @click="startCreateSpace">물리존 그리기</button>
                 <button
                   type="button"
-                  :class="['ghost', { on: !!adding }]"
-                  :aria-pressed="!!adding"
+                  :class="['ghost', { on: adding?.what === 'equipment' }]"
+                  :aria-pressed="adding?.what === 'equipment'"
                   title="바닥을 눌러 새 설비를 놓습니다"
-                  @click="adding ? stopAdd() : startAddEquipment()"
+                  @click="adding?.what === 'equipment' ? stopAdd() : startAddEquipment()"
                 >
-                  {{ adding ? '더하기 취소' : '설비 더하기' }}
+                  {{ adding?.what === 'equipment' ? '더하기 취소' : '설비 더하기' }}
                 </button>
+                <!-- 벽·문·창(E4). 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다. -->
+                <button
+                  type="button"
+                  :class="['ghost', { on: archMode }]"
+                  :aria-pressed="archMode"
+                  title="벽·문·창을 3D에 세우고 고쳐 봅니다"
+                  @click="archMode = !archMode"
+                >
+                  벽·문·창
+                </button>
+                <template v-if="archMode">
+                  <button type="button" class="ghost" title="바닥에 두 점을 찍어 벽을 긋습니다" @click="startWall">벽 긋기</button>
+                  <button type="button" :class="['ghost', { on: adding?.what === 'door' }]" title="벽 가까이 눌러 문을 놓습니다" @click="adding?.what === 'door' ? stopAdd() : startOpening('door')">문 놓기</button>
+                  <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
+                </template>
               </template>
               <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
               <select v-if="model.storeys.length > 1" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
@@ -3691,6 +3922,68 @@ function exportTTL() {
         </section>
 
         <!-- 3D 에서 고른 물리존(E2). 편집 모드에서 바닥을 누르면 뜬다. -->
+        <!-- 3D 에서 고른 벽·문·창(E4). [벽·문·창] 을 켰을 때만 골라진다. -->
+        <section v-else-if="selectedElement" class="picked element-picked">
+          <div class="picked-head">
+            <div>
+              <h3>{{ selectedElement.wall?.name || selectedElement.opening?.name || elementLabel(selectedElement.kind) }}</h3>
+              <p class="stats">
+                {{ elementLabel(selectedElement.kind) }}
+                <Src :kind="(selectedElement.wall ?? selectedElement.opening)?.added ? 'edit' : 'bim'" /> ·
+                {{ selectedElement.storey.name }}
+                <template v-if="selectedElement.wall">
+                  · 두께 {{ selectedElement.wall.thickness !== null ? `${selectedElement.wall.thickness.toFixed(2)}m` : '모름' }}
+                </template>
+                <template v-if="selectedElement.opening?.width">· 너비 {{ selectedElement.opening.width.toFixed(2) }}m</template>
+              </p>
+            </div>
+            <div class="picked-actions">
+              <button type="button" class="ghost" @click="selectedElementId = null">선택 해제</button>
+            </div>
+          </div>
+          <p v-if="selectedElement.wall" class="storey-move">
+            <label>
+              내력
+              <select
+                :value="String(selectedElement.wall.loadBearing)"
+                @change="setBearing(selectedElement.wall!, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="true">내력벽</option>
+                <option value="false">비내력벽</option>
+                <option value="null">모름</option>
+              </select>
+            </label>
+            <Src :kind="selectedElement.wall.added ? 'edit' : 'bim'" />
+            <span class="muted">모름은 아니오가 아닙니다.</span>
+          </p>
+          <p v-if="selectedElement.opening?.position" class="position-edit">
+            자리
+            <label v-for="axis in [0, 1] as const" :key="axis">
+              {{ 'xy'[axis] }}
+              <input
+                class="coord mono"
+                type="number"
+                step="0.1"
+                v-keep-typing
+                :value="selectedElement.opening.position[axis]"
+                @change="applyOpeningPosition(selectedElement.opening!, axis, ($event.target as HTMLInputElement).value)"
+              />
+            </label>
+          </p>
+          <p v-if="selectedElement.opening?.kind === 'door'" class="stats">
+            잇는 방:
+            {{ selectedElement.opening.connects?.length ? selectedElement.opening.connects.map(nameOfSpace).join(' · ') : '(없음)' }}
+            <Src v-if="selectedElement.opening.connectsSource" :kind="selectedElement.opening.connectsSource === 'bim' ? 'bim' : 'calc'" />
+          </p>
+          <p class="space-tools">
+            <button type="button" class="ghost danger" @click="removeElement">
+              {{ elementLabel(selectedElement.kind) }} 지우기
+            </button>
+            <span class="muted">
+              {{ selectedElement.wall ? '뚫린 문·창도 같이 지워집니다. ' : '' }}방향키로 옮깁니다(Shift 1m). 방 경계는 따라 바뀌지 않습니다.
+            </span>
+          </p>
+        </section>
         <section v-else-if="selectedSpace" class="picked space-picked">
           <div class="picked-head">
             <div>
@@ -4472,6 +4765,17 @@ function exportTTL() {
             <li v-for="r in sinceOpen.equipmentRenamed" :key="`eq-name-${r.id}`">
               설비 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)
             </li>
+            <li v-for="r in sinceOpen.wallsAdded" :key="`wall-add-${r.id}`">벽 <b>{{ r.name }}</b>을 그었습니다 (GeoJSON)</li>
+            <li v-for="r in sinceOpen.wallsRemoved" :key="`wall-rm-${r.id}`">벽 <b>{{ r.name }}</b>을 지웠습니다(뚫린 문·창도 같이, GeoJSON)</li>
+            <li v-for="r in sinceOpen.wallsChanged" :key="`wall-ch-${r.id}`">
+              벽 <b>{{ r.name }}</b>:
+              <template v-if="r.moved">옮김</template><template v-if="r.moved && r.loadBearing"> · </template>
+              <template v-if="r.loadBearing">내력 {{ r.loadBearing.from === null ? '모름' : r.loadBearing.from ? '내력' : '비내력' }} → <b>{{ r.loadBearing.to === null ? '모름' : r.loadBearing.to ? '내력' : '비내력' }}</b></template>
+              (GeoJSON)
+            </li>
+            <li v-for="r in sinceOpen.openingsAdded" :key="`op-add-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>을 놓았습니다 (GeoJSON)</li>
+            <li v-for="r in sinceOpen.openingsRemoved" :key="`op-rm-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>을 지웠습니다 (GeoJSON)</li>
+            <li v-for="r in sinceOpen.openingsMoved" :key="`op-mv-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>을 옮겼습니다 (GeoJSON 위치·잇는 방)</li>
             <li v-for="r in sinceOpen.renamed" :key="`name-${r.spaceId}`">
               물리존 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)
             </li>

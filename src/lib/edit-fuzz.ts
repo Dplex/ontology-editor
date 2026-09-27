@@ -32,6 +32,13 @@ export const FUZZ_OPS = [
   'deleteSpace',
   'splitSpace',
   'mergeSpaces',
+  'addWall',
+  'moveWall',
+  'deleteWall',
+  'wallBearing',
+  'addOpening',
+  'moveOpening',
+  'deleteOpening',
 ] as const
 export type FuzzOp = (typeof FUZZ_OPS)[number]
 
@@ -219,6 +226,53 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       if (!done || 'refused' in done) continue
       undo.push(snapshot)
       log.push(`mergeSpaces ${room.name} + ${other.name}`)
+    } else if (op === 'addWall') {
+      // 방의 변 하나를 따라 바깥쪽에 벽을 긋는다. 문을 붙일 자리가 생긴다.
+      const storey = pick(m.storeys)!
+      const next = pick(storey.spaces.filter((x) => x.footprint.length >= 4))
+      if (!next) continue
+      const i = Math.floor(r() * (next.footprint.length - 1))
+      const a = next.footprint[i]
+      const b = next.footprint[i + 1]
+      const snapshot = E.snapshotStoreyElements(m, storey.id)!
+      const wall = E.addWall(m, storey.id, a, b, 0.2, `U_fuzz${seed}_${step}`)
+      if (!wall) continue
+      undo.push(snapshot)
+      log.push(`addWall ${next.name}#${i}`)
+    } else if (op === 'moveWall' || op === 'deleteWall' || op === 'wallBearing') {
+      const storey = pick(m.storeys.filter((s) => s.walls.length))
+      const wall = storey && pick(storey.walls)
+      if (!storey || !wall) continue
+      const snapshot = E.snapshotStoreyElements(m, storey.id)!
+      const done =
+        op === 'moveWall'
+          ? E.moveWall(m, wall.id, [r() < 0.5 ? 0.3 : 0, r() < 0.5 ? -0.2 : 0.1])
+          : op === 'deleteWall'
+            ? !!E.deleteWall(m, wall.id)
+            : E.setWallLoadBearing(m, wall.id, r() < 0.3 ? null : r() < 0.5)
+      if (!done) continue
+      undo.push(snapshot)
+      log.push(`${op} ${wall.name}`)
+    } else if (op === 'addOpening') {
+      const storey = pick(m.storeys.filter((s) => s.walls.some((w) => w.footprint?.length)))
+      const wall = storey && pick(storey.walls.filter((w) => w.footprint?.length))
+      if (!storey || !wall) continue
+      const ring = wall.footprint![0]
+      const at: Vec2 = [(ring[0][0] + ring[2][0]) / 2, (ring[0][1] + ring[2][1]) / 2]
+      const snapshot = E.snapshotStoreyElements(m, storey.id)!
+      const done = E.addOpening(m, storey.id, r() < 0.7 ? 'door' : 'window', at, `U_fuzz${seed}_${step}`)
+      if (!done || 'refused' in done) continue
+      undo.push(snapshot)
+      log.push(`addOpening ${done.kind} on ${wall.name}`)
+    } else if (op === 'moveOpening' || op === 'deleteOpening') {
+      const storey = pick(m.storeys.filter((s) => s.openings.length))
+      const o = storey && pick(op === 'moveOpening' ? storey.openings.filter((x) => x.position) : storey.openings)
+      if (!storey || !o) continue
+      const snapshot = E.snapshotStoreyElements(m, storey.id)!
+      const done = op === 'moveOpening' ? E.moveOpening(m, o.id, [o.position![0] + 0.3, o.position![1] - 0.2]) : E.deleteOpening(m, o.id)
+      if (!done) continue
+      undo.push(snapshot)
+      log.push(`${op} ${o.name}`)
     }
   }
 

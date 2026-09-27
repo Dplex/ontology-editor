@@ -15,6 +15,13 @@ import {
   addConnection,
   addEquipment,
   createSpace,
+  deleteOpening,
+  deleteWall,
+  insertOpening,
+  insertWall,
+  moveOpening,
+  setWallFootprint,
+  setWallLoadBearing,
   deleteEquipment,
   deleteSpace,
   absorbSpace,
@@ -60,6 +67,24 @@ export type EditFile = {
   spacesAdded?: { id: string; storeyId: string; name: string; longName: string; footprint: Vec2[] }[]
   /** 없어진 물리존. `into` 가 있으면 그 방에 합친 것이고(문이 그 방을 가리키게 된다), 없으면 지운 것이다. */
   spacesRemoved?: { id: string; into?: string }[]
+  /** 벽(E4). 옮긴 벽은 끝 외곽선을, 내력 여부를 고친 벽은 그 값을 적는다(`null` 은 모름). */
+  walls?: { id: string; footprint?: Vec2[][]; loadBearing?: boolean | null }[]
+  wallsAdded?: { id: string; storeyId: string; name: string; thickness: number | null; loadBearing: boolean | null; footprint: Vec2[][] }[]
+  /** 지운 벽. 그 벽의 문·창은 따로 적지 않는다(벽과 같이 빠진다). */
+  wallsRemoved?: string[]
+  /** 옮긴 문·창의 끝 자리. */
+  openings?: { id: string; position: Vec3 }[]
+  openingsAdded?: {
+    id: string
+    storeyId: string
+    kind: 'door' | 'window'
+    name: string
+    position: Vec3
+    wallId: string | null
+    through: Vec2
+    depth: number
+  }[]
+  openingsRemoved?: string[]
   kinds: { typeKey: string; kind: string | null }[]
   flows: { from: string; to: string }[]
   /** 확정한 계통. 아래 `confirmedFlows` 가 없던 때의 파일은 이것으로 불러온다. */
@@ -138,6 +163,40 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   const equipmentRemoved = since.equipmentRemoved.map((r) => r.id)
   const spacesRemoved = since.spacesRemoved.map((r) => (mergedInto.has(r.id) ? { id: r.id, into: mergedInto.get(r.id)! } : { id: r.id }))
 
+  // 벽·문·창(E4). 적을 것은 연 때와 견준 결과(diffBaseline)에서 고른다.
+  const wallById = new Map(model.storeys.flatMap((s) => s.walls.map((w) => [w.id, { storey: s, wall: w }] as const)))
+  const openingById = new Map(model.storeys.flatMap((s) => s.openings.map((o) => [o.id, { storey: s, opening: o }] as const)))
+  const walls = since.wallsChanged.map((c) => {
+    const w = wallById.get(c.id)!.wall
+    return {
+      id: c.id,
+      ...(c.moved ? { footprint: (w.footprint ?? []).map((r) => r.map((p) => [p[0], p[1]] as Vec2)) } : {}),
+      ...(c.loadBearing ? { loadBearing: w.loadBearing } : {}),
+    }
+  })
+  const wallsAdded = since.wallsAdded.map((a) => {
+    const { storey, wall } = wallById.get(a.id)!
+    return {
+      id: wall.id,
+      storeyId: storey.id,
+      name: wall.name,
+      thickness: wall.thickness,
+      loadBearing: wall.loadBearing,
+      footprint: (wall.footprint ?? []).map((r) => r.map((p) => [p[0], p[1]] as Vec2)),
+    }
+  })
+  const openings = since.openingsMoved.flatMap((m) => {
+    const p = openingById.get(m.id)!.opening.position
+    return p ? [{ id: m.id, position: [p[0], p[1], p[2]] as Vec3 }] : []
+  })
+  const openingsAdded = since.openingsAdded.flatMap((a) => {
+    const { storey, opening: o } = openingById.get(a.id)!
+    if (!o.position || !o.through) return []
+    return [{ id: o.id, storeyId: storey.id, kind: o.kind, name: o.name, position: [o.position[0], o.position[1], o.position[2]] as Vec3, wallId: o.wallId, through: [o.through[0], o.through[1]] as Vec2, depth: o.depth ?? 0.2 }]
+  })
+  const wallsRemoved = since.wallsRemoved.map((r) => r.id)
+  const openingsRemoved = since.openingsRemoved.map((r) => r.id)
+
   // 적은 id 의 지문. 층을 옮긴 설비는 예전 층도 적는다(새 판본에서 층 GUID 가 바뀌어도 이름으로 찾는다).
   // 지운 것은 지금 모델에 없으니 연 때 떠 둔 지문을 쓴다.
   const all = fingerprints(model, baseline)
@@ -154,6 +213,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const row of [...equipmentAdded, ...spacesAdded]) keep(row.storeyId)
   for (const id of equipmentRemoved) keep(id)
   for (const row of spacesRemoved) keep(row.id)
+  for (const row of [...wallsAdded, ...openingsAdded]) keep(row.storeyId)
   for (const f of flows) {
     keep(f.from)
     keep(f.to)
@@ -184,6 +244,12 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(equipmentRemoved.length ? { equipmentRemoved } : {}),
     ...(spacesAdded.length ? { spacesAdded } : {}),
     ...(spacesRemoved.length ? { spacesRemoved } : {}),
+    ...(walls.length ? { walls } : {}),
+    ...(wallsAdded.length ? { wallsAdded } : {}),
+    ...(wallsRemoved.length ? { wallsRemoved } : {}),
+    ...(openings.length ? { openings } : {}),
+    ...(openingsAdded.length ? { openingsAdded } : {}),
+    ...(openingsRemoved.length ? { openingsRemoved } : {}),
     keys,
   }
 }
@@ -212,7 +278,7 @@ export type ApplyResult = {
   storeyMoved: string[]
   applied: number
   /** 이 모델에서 못 찾은 것. 재내보내기에서 지워졌거나 다른 파일이다. */
-  missing: { equipment: number; spaces: number; kinds: number; flows: number; systems: number; connections: number }
+  missing: { equipment: number; spaces: number; kinds: number; flows: number; systems: number; connections: number; elements: number }
   /** GUID 로는 못 찾고 다른 열쇠로 찾은 id 수. GUID 가 바뀐 재내보내기에서 뜬다. */
   rematched: Record<Exclude<MatchKey, 'guid'>, number>
   rules: RuleReport | null
@@ -230,7 +296,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     confirmations: [],
     storeyMoved: [],
     applied: 0,
-    missing: { equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0 },
+    missing: { equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 },
     rematched: { revitId: 0, name: 0, position: 0 },
     rules: null,
   }
@@ -265,6 +331,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     ref(row.id)
     if (row.into) ref(row.into)
   }
+  for (const row of [...(file.wallsAdded ?? []), ...(file.openingsAdded ?? [])]) ref(row.storeyId)
   const matching = matchFingerprints(referenced, fingerprints(model))
   for (const { by } of matching.pairs.values()) if (by !== 'guid') result.rematched[by]++
   const resolve = (id: string) => matching.pairs.get(id)?.id ?? id
@@ -351,6 +418,50 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       }
     }
     if (e.released && releaseDeclaredSpace(model, e.id)) result.applied++
+  }
+
+  // 벽·문·창(E4). 벽·문·창은 지문이 없어 GUID 로만 찾는다. 더한 것 → 벽 모양·내력 → 지운 벽(뚫린 문·창도 같이) → 문·창
+  // 자리 → 지운 문·창 순이다. 방 경계는 위에서 이미 얹었으므로 문이 잇는 방은 끝 상태로 짚는다.
+  for (const row of file.wallsAdded ?? []) {
+    if (insertWall(model, resolve(row.storeyId), { id: row.id, name: row.name, thickness: row.thickness, loadBearing: row.loadBearing ?? null, footprint: row.footprint.map((r) => r.map((p) => [p[0], p[1]] as Vec2)), added: true })) result.applied++
+    else result.missing.elements++
+  }
+  for (const row of file.openingsAdded ?? []) {
+    const done = insertOpening(model, resolve(row.storeyId), {
+      id: row.id,
+      kind: row.kind,
+      name: row.name,
+      width: null,
+      height: null,
+      wallId: row.wallId,
+      passable: row.kind === 'door',
+      position: [row.position[0], row.position[1], row.position[2]],
+      through: [row.through[0], row.through[1]],
+      depth: row.depth,
+      ...(row.kind === 'door' ? { connects: [], connectsSource: 'calc' as const } : {}),
+      added: true,
+    })
+    if (done) result.applied++
+    else result.missing.elements++
+  }
+  for (const row of file.walls ?? []) {
+    let hit = false
+    if (row.footprint) hit = setWallFootprint(model, row.id, row.footprint) || hit
+    if (row.loadBearing !== undefined) hit = setWallLoadBearing(model, row.id, row.loadBearing) || hit
+    if (hit || model.storeys.some((s) => s.walls.some((w) => w.id === row.id))) result.applied++
+    else result.missing.elements++
+  }
+  for (const id of file.wallsRemoved ?? []) {
+    if (deleteWall(model, id)) result.applied++
+    else result.missing.elements++
+  }
+  for (const row of file.openings ?? []) {
+    if (moveOpening(model, row.id, [row.position[0], row.position[1]])) result.applied++
+    else if (!model.storeys.some((s) => s.openings.some((o) => o.id === row.id))) result.missing.elements++
+  }
+  for (const id of file.openingsRemoved ?? []) {
+    if (deleteOpening(model, id)) result.applied++
+    else result.missing.elements++
   }
 
   // 지운 설비. 붙은 연결도 같이 빠지므로 연결 편집보다 먼저다.

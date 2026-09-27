@@ -75,6 +75,8 @@ export type Wall = {
    * 임포트(`importIfc`)나 아래 면이 없는 벽이면 비어 있다. GeoJSON 에만 나가고 TTL 에는 들어가지 않는다.
    */
   footprint?: Vec2[][]
+  /** 사람이 에디터에서 그은 벽(E4). */
+  added?: true
 }
 
 export type Opening = {

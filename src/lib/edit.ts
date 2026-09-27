@@ -11,7 +11,8 @@ import { assignEquipment, isSelfIntersecting } from './mapping'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { equipmentKind } from './kinds'
 import { polygonArea } from './model'
-import type { Connection, Equipment, Model, Space, Storey, Vec2, Vec3 } from './model'
+import type { Connection, Equipment, Model, Opening, Space, Storey, Vec2, Vec3, Wall } from './model'
+import { spacesBesideOpening } from './ifc/element-geometry'
 import { splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
 
@@ -47,7 +48,10 @@ function reassignStoreyOf(model: Model, equipment: Equipment) {
 
 function reassignStoreyWith(model: Model, spaceId: string) {
   const storey = model.storeys.find((s) => s.spaces.some((sp) => sp.id === spaceId))
-  if (storey) for (const e of storey.equipment) assignEquipment(e, storey.spaces)
+  if (!storey) return
+  for (const e of storey.equipment) assignEquipment(e, storey.spaces)
+  // 방 경계가 바뀌면 좌표로 짚은 문이 잇는 방도 바뀐다.
+  relinkDoors(storey)
 }
 
 function findEquipment(model: Model, equipmentId: string): Equipment | null {
@@ -413,6 +417,16 @@ export type Snapshot =
       equipment: { equipment: Equipment; spaceId: string | null; spaceSource: Equipment['spaceSource'] }[]
       openings: { id: string; connects: string[] | undefined }[]
     }
+  /** 한 층의 벽·문·창(E4). 객체를 그대로 들고 있어 되돌려도 같은 객체다. */
+  | {
+      kind: 'storey-elements'
+      storeyId: string
+      walls: Wall[]
+      wallFields: { wall: Wall; footprint: Vec2[][] | undefined; loadBearing: boolean | null }[]
+      openings: Opening[]
+      openingFields: { opening: Opening; position: Vec3 | null | undefined; connects: string[] | undefined; connectsSource: Opening['connectsSource'] }[]
+      boundedBy: { space: Space; boundedBy: string[] }[]
+    }
 
 export function snapshotEquipment(model: Model, equipmentId: string): Snapshot | null {
   for (const storey of model.storeys) {
@@ -491,6 +505,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotEquipmentSet(model, snapshot.equipment, snapshot.storeyId)
     case 'storey-spaces':
       return snapshotStoreySpaces(model, snapshot.storeyId)
+    case 'storey-elements':
+      return snapshotStoreyElements(model, snapshot.storeyId)
     case 'kinds': {
       const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
       return {
@@ -601,6 +617,28 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
         else delete o.connects
       }
       for (const e of storey.equipment) assignEquipment(e, storey.spaces)
+      relinkDoors(storey)
+      return null
+    }
+    case 'storey-elements': {
+      const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!storey) return null
+      storey.walls = [...snapshot.walls]
+      for (const f of snapshot.wallFields) {
+        if (f.footprint) f.wall.footprint = f.footprint.map((r) => r.map((p) => [p[0], p[1]] as Vec2))
+        else delete f.wall.footprint
+        f.wall.loadBearing = f.loadBearing
+      }
+      storey.openings = [...snapshot.openings]
+      for (const f of snapshot.openingFields) {
+        if (f.position === undefined) delete f.opening.position
+        else f.opening.position = f.position ? [f.position[0], f.position[1], f.position[2]] : null
+        if (f.connects) f.opening.connects = [...f.connects]
+        else delete f.opening.connects
+        if (f.connectsSource) f.opening.connectsSource = f.connectsSource
+        else delete f.opening.connectsSource
+      }
+      for (const b of snapshot.boundedBy) b.space.boundedBy = [...b.boundedBy]
       return null
     }
     case 'kinds': {
@@ -728,6 +766,9 @@ export type Baseline = {
    * GUID 가 바뀐 판본에서도 찾으려면 연 때 떠 둔 것이 있어야 한다.
    */
   keys?: Map<string, Fingerprint>
+  /** 벽·문·창(E4). 옮기고·지우고·더한 것을 이것과 견준다. */
+  walls?: Map<string, { storeyId: string; name: string; footprint: Vec2[][] | undefined; loadBearing: boolean | null }>
+  openings?: Map<string, { storeyId: string; name: string; kind: Opening['kind']; position: Vec3 | null | undefined; wallId: string | null }>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
@@ -735,10 +776,24 @@ export function baselineOf(model: Model): Baseline {
   const names = new Map<string, string>()
   const footprints = new Map<string, Vec2[]>()
   const equipment: Baseline['equipment'] = new Map()
+  const walls: NonNullable<Baseline['walls']> = new Map()
+  const openings: NonNullable<Baseline['openings']> = new Map()
   for (const storey of model.storeys) {
     for (const space of storey.spaces) {
       names.set(space.id, space.longName)
       footprints.set(space.id, space.footprint.map((p) => [p[0], p[1]] as Vec2))
+    }
+    for (const w of storey.walls) {
+      walls.set(w.id, { storeyId: storey.id, name: w.name, footprint: w.footprint?.map((r) => r.map((p) => [p[0], p[1]] as Vec2)), loadBearing: w.loadBearing })
+    }
+    for (const o of storey.openings) {
+      openings.set(o.id, {
+        storeyId: storey.id,
+        name: o.name,
+        kind: o.kind,
+        position: o.position ? [o.position[0], o.position[1], o.position[2]] : o.position,
+        wallId: o.wallId,
+      })
     }
     for (const e of storey.equipment) {
       equipment.set(e.id, {
@@ -756,6 +811,8 @@ export function baselineOf(model: Model): Baseline {
     equipment,
     connections: new Set(model.connections.map((c) => pairKey(c.from, c.to))),
     keys: fingerprints(model),
+    walls,
+    openings,
   }
 }
 
@@ -775,6 +832,13 @@ export type BaselineDiff = {
   equipmentRemoved: { id: string; name: string }[]
   /** 이름(태그)을 고친 설비. */
   equipmentRenamed: { id: string; from: string; to: string }[]
+  /** 벽·문·창(E4). 지운 벽에 뚫려 같이 빠진 문·창은 openingsRemoved 에 세지 않는다. */
+  wallsAdded: { id: string; name: string }[]
+  wallsRemoved: { id: string; name: string }[]
+  wallsChanged: { id: string; name: string; moved: boolean; loadBearing: { from: boolean | null; to: boolean | null } | null }[]
+  openingsAdded: { id: string; name: string; kind: Opening['kind'] }[]
+  openingsRemoved: { id: string; name: string; kind: Opening['kind'] }[]
+  openingsMoved: { id: string; name: string; kind: Opening['kind'] }[]
 }
 
 /** 좌표를 같다고 보는 차. 표와 3D 가 센티미터로 자르므로 그보다 작은 차는 같은 자리다. */
@@ -836,10 +900,62 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     }
   }
   const spacesRemoved = [...baseline.names].filter(([id]) => !spacesNow.has(id)).map(([id, name]) => ({ id, name: name || id }))
+  const e4 = diffElements(model, baseline)
   const equipmentRemoved = [...baseline.equipment]
     .filter(([id]) => !equipmentNow.has(id))
     .map(([id, was]) => ({ id, name: was.name || id }))
-  return { renamed, moved, restoreyed, connected, disconnected, spacesAdded, spacesRemoved, equipmentAdded, equipmentRemoved, equipmentRenamed }
+  return { renamed, moved, restoreyed, connected, disconnected, spacesAdded, spacesRemoved, equipmentAdded, equipmentRemoved, equipmentRenamed, ...e4 }
+}
+
+const sameRings = (a: readonly (readonly Vec2[])[] | undefined, b: readonly (readonly Vec2[])[] | undefined) =>
+  (a?.length ?? 0) === (b?.length ?? 0) &&
+  (a ?? []).every((r, i) => r.length === b![i].length && r.every((p, j) => Math.abs(p[0] - b![i][j][0]) < 1e-9 && Math.abs(p[1] - b![i][j][1]) < 1e-9))
+
+function diffElements(model: Model, baseline: Baseline) {
+  const out: Pick<BaselineDiff, 'wallsAdded' | 'wallsRemoved' | 'wallsChanged' | 'openingsAdded' | 'openingsRemoved' | 'openingsMoved'> = {
+    wallsAdded: [],
+    wallsRemoved: [],
+    wallsChanged: [],
+    openingsAdded: [],
+    openingsRemoved: [],
+    openingsMoved: [],
+  }
+  if (!baseline.walls || !baseline.openings) return out
+  const wallsNow = new Set<string>()
+  const openingsNow = new Set<string>()
+  for (const storey of model.storeys) {
+    for (const w of storey.walls) {
+      wallsNow.add(w.id)
+      const was = baseline.walls.get(w.id)
+      if (!was) {
+        out.wallsAdded.push({ id: w.id, name: w.name })
+        continue
+      }
+      const moved = !sameRings(was.footprint, w.footprint)
+      const lb = was.loadBearing !== w.loadBearing ? { from: was.loadBearing, to: w.loadBearing } : null
+      if (moved || lb) out.wallsChanged.push({ id: w.id, name: w.name, moved, loadBearing: lb })
+    }
+    for (const o of storey.openings) {
+      openingsNow.add(o.id)
+      const was = baseline.openings.get(o.id)
+      if (!was) {
+        out.openingsAdded.push({ id: o.id, name: o.name, kind: o.kind })
+        continue
+      }
+      const a = was.position
+      const b = o.position
+      if ((a == null) !== (b == null) || (a && b && (Math.abs(a[0] - b[0]) > 1e-9 || Math.abs(a[1] - b[1]) > 1e-9))) {
+        out.openingsMoved.push({ id: o.id, name: o.name, kind: o.kind })
+      }
+    }
+  }
+  for (const [id, was] of baseline.walls) if (!wallsNow.has(id)) out.wallsRemoved.push({ id, name: was.name })
+  const wallGone = new Set(out.wallsRemoved.map((w) => w.id))
+  for (const [id, was] of baseline.openings) {
+    if (openingsNow.has(id) || (was.wallId && wallGone.has(was.wallId))) continue
+    out.openingsRemoved.push({ id, name: was.name, kind: was.kind })
+  }
+  return out
 }
 
 // --- 연결 잇기·끊기 --------------------------------------------------------------
@@ -1081,6 +1197,7 @@ function settleStorey(
     o.connects = [...new Set(o.connects.flatMap((id) => (rename.has(id) ? [rename.get(id)!] : gone.has(id) ? [] : [id])))]
   }
   for (const e of storey.equipment) assignEquipment(e, storey.spaces)
+  relinkDoors(storey)
   return diffSpaces(model, before, (id) => spaceLabel(model, id))
 }
 
@@ -1205,4 +1322,241 @@ export function absorbSpace(model: Model, keepId: string, otherId: string): Spac
   const other = storey?.spaces.find((s) => s.id === otherId)
   if (!storey || !keep || !other) return null
   return absorb(model, storey, keep, other, snapshotSpaces(model))
+}
+
+
+// --- 벽·문·창 편집 (E4) --------------------------------------------------------------
+//
+// 벽·문·창은 GeoJSON 에만 있다(TTL 주어가 아니다). 바뀌는 것은 3D Map 과 로봇 경로다 — 벽 외곽선, 문·창 자리, 문이 잇는
+// 방(F15). **물리존 경계는 벽에서 다시 만들지 않는다.** IfcSpace 의 외곽선은 벽과 따로 그려진 것이라, 벽을 옮겨도 방
+// 경계는 사람이 E2 로 고친다. 편집이 방을 지어내지 않는다.
+//
+// 문이 잇는 방은 좌표로 짚은 것(`calc`)이면 문이나 방 경계가 바뀔 때마다 다시 짚는다(relinkDoors). BIM 이 공간 경계로
+// 말한 문은 그대로 두다가, 사람이 그 문을 옮기면 좌표로 다시 짚는다 — 옮긴 문에 BIM 이 말한 방을 남기면 거짓이 된다.
+
+/** 좌표로 짚은 문이 잇는 방을 다시 짚는다. 문 자리·방 경계가 바뀐 뒤에 부른다. 같은 입력이면 같은 답이다(임포트와 같은 함수). */
+export function relinkDoors(storey: Storey): void {
+  for (const o of storey.openings) {
+    if (o.kind !== 'door' || o.connectsSource !== 'calc' || !o.position || !o.through) continue
+    o.connects = spacesBesideOpening({ position: o.position, through: o.through, depth: o.depth ?? 0.2 }, storey.spaces)
+  }
+}
+
+function findWall(model: Model, wallId: string): { storey: Storey; wall: Wall } | null {
+  for (const storey of model.storeys) {
+    const wall = storey.walls.find((w) => w.id === wallId)
+    if (wall) return { storey, wall }
+  }
+  return null
+}
+
+function findOpening(model: Model, openingId: string): { storey: Storey; opening: Opening } | null {
+  for (const storey of model.storeys) {
+    const opening = storey.openings.find((o) => o.id === openingId)
+    if (opening) return { storey, opening }
+  }
+  return null
+}
+
+/** 벽의 내력 여부. `null` 은 "모름" 이다 — false 와 섞지 않는다. */
+export function setWallLoadBearing(model: Model, wallId: string, value: boolean | null): boolean {
+  const found = findWall(model, wallId)
+  if (!found || found.wall.loadBearing === value) return false
+  found.wall.loadBearing = value
+  return true
+}
+
+/** 벽을 평면에서 옮긴다. 그 벽에 뚫린 문·창도 같이 간다. */
+export function moveWall(model: Model, wallId: string, delta: Vec2): boolean {
+  const found = findWall(model, wallId)
+  if (!found || !found.wall.footprint?.length || (delta[0] === 0 && delta[1] === 0)) return false
+  found.wall.footprint = found.wall.footprint.map((ring) => ring.map((p) => [p[0] + delta[0], p[1] + delta[1]] as Vec2))
+  for (const o of found.storey.openings) {
+    if (o.wallId !== wallId || !o.position) continue
+    o.position = [o.position[0] + delta[0], o.position[1] + delta[1], o.position[2]]
+    if (o.kind === 'door' && o.connectsSource === 'bim' && o.through) o.connectsSource = 'calc'
+  }
+  relinkDoors(found.storey)
+  return true
+}
+
+/** 벽 외곽선을 통째로 둔다. 편집 파일을 불러올 때 끝 모양을 얹는다(문·창은 따로 적혀 있어 옮기지 않는다). */
+export function setWallFootprint(model: Model, wallId: string, rings: readonly (readonly Vec2[])[]): boolean {
+  const found = findWall(model, wallId)
+  if (!found) return false
+  found.wall.footprint = rings.map((r) => r.map((p) => [p[0], p[1]] as Vec2))
+  return true
+}
+
+function forgetBoundary(storey: Storey, ids: Set<string>) {
+  for (const space of storey.spaces) {
+    if (space.boundedBy.some((id) => ids.has(id))) space.boundedBy = space.boundedBy.filter((id) => !ids.has(id))
+  }
+}
+
+/** 벽을 지운다. 그 벽에 뚫린 문·창도 같이 지우고, 물리존의 공간 경계 목록에서도 뺀다. */
+export function deleteWall(model: Model, wallId: string): { openings: number } | null {
+  const found = findWall(model, wallId)
+  if (!found) return null
+  const { storey } = found
+  const gone = new Set([wallId, ...storey.openings.filter((o) => o.wallId === wallId).map((o) => o.id)])
+  storey.walls = storey.walls.filter((w) => w.id !== wallId)
+  storey.openings = storey.openings.filter((o) => !gone.has(o.id))
+  forgetBoundary(storey, gone)
+  return { openings: gone.size - 1 }
+}
+
+/** 기본 벽 두께(미터). 사람이 두께를 정하지 않고 그은 벽이다. */
+export const NEW_WALL_THICKNESS = 0.2
+
+/** 두 점을 잇는 벽을 긋는다. 외곽선은 그 선을 가운데로 두께만큼 편 직사각형이다. 내력 여부는 모른다. */
+export function addWall(model: Model, storeyId: string, a: Vec2, b: Vec2, thickness = NEW_WALL_THICKNESS, id?: string): Wall | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+  if (!storey || len < 0.05 || !(thickness > 0)) return null
+  const wallId = id ?? newId()
+  if (findWall(model, wallId)) return null
+  const nx = (-(b[1] - a[1]) / len) * (thickness / 2)
+  const ny = ((b[0] - a[0]) / len) * (thickness / 2)
+  const ring: Vec2[] = [
+    [a[0] + nx, a[1] + ny],
+    [a[0] - nx, a[1] - ny],
+    [b[0] - nx, b[1] - ny],
+    [b[0] + nx, b[1] + ny],
+    [a[0] + nx, a[1] + ny],
+  ]
+  const wall: Wall = { id: wallId, name: '새 벽', thickness, loadBearing: null, footprint: [ring], added: true }
+  storey.walls.push(wall)
+  return wall
+}
+
+/** 문·창을 옮긴다(평면). 높이는 그대로다. 문이면 잇는 방을 좌표로 다시 짚는다. */
+export function moveOpening(model: Model, openingId: string, to: Vec2): boolean {
+  const found = findOpening(model, openingId)
+  const o = found?.opening
+  if (!found || !o || !o.position) return false
+  if (Math.abs(o.position[0] - to[0]) < 1e-9 && Math.abs(o.position[1] - to[1]) < 1e-9) return false
+  o.position = [to[0], to[1], o.position[2]]
+  if (o.kind === 'door' && o.through) o.connectsSource = 'calc'
+  relinkDoors(found.storey)
+  return true
+}
+
+/** 문·창을 지운다. 물리존의 공간 경계 목록에서도 뺀다. */
+export function deleteOpening(model: Model, openingId: string): boolean {
+  const found = findOpening(model, openingId)
+  if (!found) return false
+  found.storey.openings = found.storey.openings.filter((o) => o.id !== openingId)
+  forgetBoundary(found.storey, new Set([openingId]))
+  return true
+}
+
+/** 문·창을 벽에 붙일 수 있는 거리(미터). 벽 외곽선에서 이만큼 안이어야 그 벽의 문·창이다. */
+export const OPENING_SNAP = 0.6
+
+/**
+ * 가장 가까운 벽과, 그 벽의 가장 가까운 변에 수직인 방향. 문이 벽을 뚫는 방향이다.
+ */
+export function nearestWall(storey: Storey, at: Vec2): { wall: Wall; distance: number; through: Vec2 } | null {
+  // 벽 안에 찍은 점은 거리가 0 이지만, 뚫는 방향은 그래도 가장 가까운 변에서 잰다(짧은 마구리 변이 먼저 잡히면 방향이 90° 돈다).
+  let best: { wall: Wall; distance: number; through: Vec2; edge: number } | null = null
+  for (const wall of storey.walls) {
+    for (const ring of wall.footprint ?? []) {
+      for (let i = 0; i + 1 < ring.length; i++) {
+        const a = ring[i]
+        const b = ring[i + 1]
+        const dx = b[0] - a[0]
+        const dy = b[1] - a[1]
+        const l2 = dx * dx + dy * dy
+        if (l2 < 1e-12) continue
+        const t = Math.max(0, Math.min(1, ((at[0] - a[0]) * dx + (at[1] - a[1]) * dy) / l2))
+        const d = Math.hypot(at[0] - (a[0] + t * dx), at[1] - (a[1] + t * dy))
+        const distance = pointInRing(at, ring) ? 0 : d
+        if (!best || distance < best.distance - 1e-9 || (Math.abs(distance - best.distance) <= 1e-9 && d < best.edge)) {
+          const len = Math.sqrt(l2)
+          best = { wall, distance, through: [-dy / len, dx / len], edge: d }
+        }
+      }
+    }
+  }
+  return best && { wall: best.wall, distance: best.distance, through: best.through }
+}
+
+/**
+ * 문·창을 벽에 놓는다. 가장 가까운 벽(OPENING_SNAP 안)에 붙이고, 뚫는 방향은 그 벽의 변에 수직, 두께는 벽 두께다.
+ * 벽 없이 떠 있는 문은 만들지 않는다 — 어느 방을 잇는지 짚을 방향이 없다.
+ */
+export function addOpening(
+  model: Model,
+  storeyId: string,
+  kind: 'door' | 'window',
+  at: Vec2,
+  id?: string,
+): Opening | { refused: string } | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  const near = nearestWall(storey, at)
+  if (!near || near.distance > OPENING_SNAP) {
+    return { refused: storey.walls.some((w) => w.footprint?.length) ? `벽에서 ${OPENING_SNAP}m 안에만 놓습니다.` : '이 층에 외곽선이 있는 벽이 없습니다. 벽을 읽거나 먼저 벽을 그으세요.' }
+  }
+  const openingId = id ?? newId()
+  if (findOpening(model, openingId)) return null
+  const opening: Opening = {
+    id: openingId,
+    kind,
+    name: kind === 'door' ? '새 문' : '새 창',
+    width: null,
+    height: null,
+    wallId: near.wall.id,
+    passable: kind === 'door',
+    position: [at[0], at[1], storey.elevation],
+    through: near.through,
+    depth: near.wall.thickness ?? NEW_WALL_THICKNESS,
+    ...(kind === 'door' ? { connects: [], connectsSource: 'calc' as const } : {}),
+    added: true,
+  }
+  storey.openings.push(opening)
+  relinkDoors(storey)
+  return opening
+}
+
+/** 한 층의 벽·문·창과 공간 경계 목록을 떠 둔다. E4 편집 전에 뜨면 되돌릴 수 있다. */
+export function snapshotStoreyElements(model: Model, storeyId: string): Snapshot | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  return {
+    kind: 'storey-elements',
+    storeyId,
+    walls: [...storey.walls],
+    wallFields: storey.walls.map((wall) => ({
+      wall,
+      footprint: wall.footprint?.map((r) => r.map((p) => [p[0], p[1]] as Vec2)),
+      loadBearing: wall.loadBearing,
+    })),
+    openings: [...storey.openings],
+    openingFields: storey.openings.map((opening) => ({
+      opening,
+      position: opening.position ? [opening.position[0], opening.position[1], opening.position[2]] : opening.position,
+      connects: opening.connects ? [...opening.connects] : undefined,
+      connectsSource: opening.connectsSource,
+    })),
+    boundedBy: storey.spaces.map((space) => ({ space, boundedBy: [...space.boundedBy] })),
+  }
+}
+
+/** 벽을 그대로 넣는다. 편집 파일을 불러올 때 쓴다(모양은 편집 파일이 적은 끝 모양이다). */
+export function insertWall(model: Model, storeyId: string, wall: Wall): boolean {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey || findWall(model, wall.id)) return false
+  storey.walls.push(wall)
+  return true
+}
+
+/** 문·창을 그대로 넣고 잇는 방을 짚는다. 편집 파일을 불러올 때 쓴다. */
+export function insertOpening(model: Model, storeyId: string, opening: Opening): boolean {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey || findOpening(model, opening.id)) return false
+  storey.openings.push(opening)
+  relinkDoors(storey)
+  return true
 }

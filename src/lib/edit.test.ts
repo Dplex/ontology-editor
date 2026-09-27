@@ -41,9 +41,17 @@ import {
   splitSpace,
   mergeSpaces,
   snapshotStoreySpaces,
+  addWall,
+  addOpening,
+  moveWall,
+  deleteWall,
+  moveOpening,
+  setWallLoadBearing,
+  snapshotStoreyElements,
   type Change,
 } from './edit'
-import type { Model } from './model'
+import { polygonArea, type Model, type Opening } from './model'
+import { modelToGeoJSON } from './export/geojson'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred } from './flow-rules'
 import { assignEquipmentToSpaces } from './mapping'
 import { modelToTTL } from './export/ttl'
@@ -591,6 +599,12 @@ describe('연 때와 견주기', () => {
       equipmentAdded: [],
       equipmentRemoved: [],
       equipmentRenamed: [],
+      wallsAdded: [],
+      wallsRemoved: [],
+      wallsChanged: [],
+      openingsAdded: [],
+      openingsRemoved: [],
+      openingsMoved: [],
     })
   })
 
@@ -758,5 +772,85 @@ describe('물리존 생성·삭제·분할·병합 (E3)', () => {
     splitSpace(model, office().id, [6, -1], [6, 9])
     restore(model, snapshot)
     expect(modelToTTL(model)).toBe(before)
+  })
+})
+
+describe('벽·문·창 편집 (E4)', () => {
+  const storey = () => model.storeys[0]
+  const office = () => model.storeys[0].spaces[0]
+  // 사무실(0..10 × 0..8) 오른쪽에 벽 하나(x=10, 두께 0.2)를 긋고, 그 너머에 창고를 둔다.
+  const setup = () => {
+    const wall = addWall(model, storey().id, [10.1, 0], [10.1, 8], 0.2)!
+    const store = createSpace(model, storey().id, { name: '102', longName: '창고', footprint: [[10.2, 0], [14, 0], [14, 8], [10.2, 8]] })!.created[0]
+    return { wall, store }
+  }
+
+  it('두 점으로 벽을 그으면 두께만큼 편 외곽선이고, 내력 여부는 모른다', () => {
+    const { wall } = setup()
+    expect(polygonArea(wall.footprint![0])).toBeCloseTo(8 * 0.2)
+    expect(wall.loadBearing).toBeNull()
+    expect(wall.added).toBe(true)
+  })
+
+  it('문을 벽 가까이 놓으면 그 벽에 붙고, 양쪽 방을 좌표로 짚는다', () => {
+    const { wall, store } = setup()
+    const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening
+    expect(door.wallId).toBe(wall.id)
+    expect(Math.abs(door.through![0])).toBeCloseTo(1)
+    expect(new Set(door.connects)).toEqual(new Set([office().id, store]))
+    expect(door.connectsSource).toBe('calc')
+  })
+
+  it('벽에서 먼 자리에는 놓지 않는다', () => {
+    setup()
+    expect(addOpening(model, storey().id, 'window', [5, 4])).toEqual({ refused: expect.stringContaining('벽에서') })
+  })
+
+  it('벽을 옮기면 뚫린 문도 같이 가고, 잇는 방을 다시 짚는다', () => {
+    const { wall } = setup()
+    const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening
+    expect(moveWall(model, wall.id, [5, 0])).toBe(true)
+    expect(door.position![0]).toBeCloseTo(15.1)
+    // x=15.1 의 양쪽(14.x·15.x)에는 방이 없다.
+    expect(door.connects).toEqual([])
+  })
+
+  it('방 경계를 고쳐도 좌표로 짚은 문이 잇는 방이 바뀐다', () => {
+    const { store } = setup()
+    const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening
+    // 창고를 문에서 멀리 민다.
+    replaceSpaceFootprint(model, store, [[12, 0], [14, 0], [14, 8], [12, 8], [12, 0]])
+    expect(door.connects).toEqual([office().id])
+  })
+
+  it('벽을 지우면 뚫린 문·창도 빠지고, 층 스냅숏으로 되돌리면 그대로다', () => {
+    const { wall } = setup()
+    addOpening(model, storey().id, 'door', [10.1, 4])
+    addOpening(model, storey().id, 'window', [10.1, 1])
+    const before = JSON.stringify(modelToGeoJSON(model))
+    const snapshot = snapshotStoreyElements(model, storey().id)!
+    expect(deleteWall(model, wall.id)).toEqual({ openings: 2 })
+    expect(storey().openings).toHaveLength(0)
+    restore(model, snapshot)
+    expect(JSON.stringify(modelToGeoJSON(model))).toBe(before)
+  })
+
+  it('내력 여부를 고치고, 모름(null)으로도 되돌린다', () => {
+    const { wall } = setup()
+    expect(setWallLoadBearing(model, wall.id, true)).toBe(true)
+    expect(setWallLoadBearing(model, wall.id, null)).toBe(true)
+    expect(wall.loadBearing).toBeNull()
+  })
+
+  it('연 때와 견주면 더한 벽·옮긴 문이 뜨고, 지운 벽의 문은 따로 세지 않는다', () => {
+    const { wall } = setup()
+    const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening
+    const base = baselineOf(model)
+    moveOpening(model, door.id, [10.1, 5])
+    expect(diffBaseline(model, base).openingsMoved.map((o) => o.id)).toEqual([door.id])
+    deleteWall(model, wall.id)
+    const diff = diffBaseline(model, base)
+    expect(diff.wallsRemoved.map((w) => w.id)).toEqual([wall.id])
+    expect(diff.openingsRemoved).toEqual([])
   })
 })

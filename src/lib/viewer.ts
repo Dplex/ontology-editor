@@ -41,7 +41,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { polygonArea, type Model, type Vec2, type Vec3 } from './model'
 import type { MeshMap } from './ifc/import'
-import { pointInPolygon } from './mapping'
+import { distanceToRing, pointInPolygon } from './mapping'
 
 /**
  * 층을 구분하는 색. 층 수만큼 순환한다.
@@ -92,6 +92,13 @@ export const PICK_COLORS = {
  * 내력벽 색. 내력벽 여부를 BIM 이 말하지 않은 벽은 "모름" 으로 따로 칠한다 — 비내력으로 숨기면
  * 모르는 벽이 내력벽이 아닌 것처럼 보인다. 비내력벽은 그리지 않는다.
  */
+/** 벽·문·창 편집 층의 색. 비내력벽은 회색, 고른 것은 액센트 하나다. 내력·모름은 WALL_COLORS 를 같이 쓴다. */
+export const ARCH_COLORS = { wall: 0xb7bec7, door: 0x39424e, window: 0x7fa6cf, selected: 0x2f6fed }
+/** 벽을 세우는 높이(미터). 실제 벽 높이가 아니라 평면이 보일 만큼만 세운다 — 다 세우면 방 안이 가린다. */
+const ARCH_WALL_HEIGHT = 1.2
+/** 문·창을 누를 때 자리에서 이만큼 안이면 그 문·창이다(미터). */
+const ELEMENT_REACH = 0.35
+
 export const WALL_COLORS = {
   loadBearing: 0x39424e,
   unknown: 0xd9a531,
@@ -243,6 +250,12 @@ export type Viewer = {
   onArrowClick(handler: (key: string) => void): void
   /** 물리존 판만 다시 만든다. 경계 하나를 고쳤다고 설비 1만 8천 개까지 다시 만들 까닭이 없다. */
   updateSpaces(model: Model): void
+  /**
+   * 벽·문·창 편집 층(E4). model 이 null 이면 끈다. 켜면 벽 외곽선(모델의 값, 편집이 바로 보인다)과 문·창 자리를
+   * 그리고, 편집 모드에서 바닥을 누르면 물리존보다 벽·문·창을 먼저 고른다.
+   */
+  setArchitecture(model: Model | null, selected: string | null): void
+  onPickElement(handler: (id: string | null) => void): void
   /** 화살표·손잡이 색을 테마에 맞춘다. 바탕이 투명이라 페이지 색이 그대로 비친다. */
   setDark(on: boolean): void
   /** 건물 전체가 화면에 들어오게 한다. */
@@ -359,6 +372,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   function applyStoreyVisibility() {
     for (const o of slabs.children) o.visible = storeyShown(o)
     for (const o of walls?.children ?? []) o.visible = storeyShown(o)
+    for (const o of arch.children) o.visible = storeyShown(o)
     dirty = true
   }
   let pickHandler: (id: string | null) => void = () => {}
@@ -411,6 +425,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let spacePickHandler: (id: string | null) => void = () => {}
   let vertexHandler: (spaceId: string, index: number, to: Vec2) => void = () => {}
   let arrowHandler: (key: string) => void = () => {}
+  let elementHandler: (id: string | null) => void = () => {}
+  // 벽·문·창 편집 층(E4). 누르는 자리는 판처럼 평면에서 잰다 — 벽은 외곽선 안, 문·창은 자리에서 ELEMENT_REACH 안.
+  const arch = new Group()
+  scene.add(arch)
+  let archTargets: { id: string; storeyId: string; y: number; rings?: readonly (readonly Vec2[])[]; at?: Vec2 }[] = []
 
   const overlay = new Group()
   scene.add(overlay)
@@ -579,6 +598,104 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     return best?.id ?? null
   }
 
+  /**
+   * 광선이 닿는 벽·문·창. 세워 그린 벽의 옆면·윗면을 누르는 것이 보통이라 그린 형상에 먼저 쏘고, 맞은 자리의 평면
+   * 좌표로 어느 것인지 가린다. 문·창이 벽보다 먼저다(문은 벽 안에 있다). 형상에 안 맞으면 바닥 평면에서 잰다.
+   */
+  function pickElement(ray: Ray): string | null {
+    raycaster.ray.copy(ray)
+    const hit = raycaster.intersectObjects(arch.children.filter((o) => o.visible), false)[0]
+    if (hit) {
+      const p: Vec2 = [hit.point.x, -hit.point.z]
+      let best: { id: string; rank: number } | null = null
+      for (const t of archTargets) {
+        if (visibleStoreys && !visibleStoreys.has(t.storeyId)) continue
+        if (Math.abs(hit.point.y - t.y) > ARCH_WALL_HEIGHT + 0.5) continue
+        const rank = t.at
+          ? Math.hypot(p[0] - t.at[0], p[1] - t.at[1])
+          : t.rings?.some((r) => pointInPolygon(p, r) || distanceToRing(p, r) < 0.03)
+            ? ELEMENT_REACH + 1
+            : null
+        if (rank === null || (t.at && rank > ELEMENT_REACH)) continue
+        if (!best || rank < best.rank) best = { id: t.id, rank }
+      }
+      if (best) return best.id
+    }
+    const plane = new Plane(new Vector3(0, 1, 0), 0)
+    const at = new Vector3()
+    let best: { id: string; d: number; rank: number } | null = null
+    for (const t of archTargets) {
+      if (visibleStoreys && !visibleStoreys.has(t.storeyId)) continue
+      plane.constant = -t.y
+      if (!ray.intersectPlane(plane, at)) continue
+      const p: Vec2 = [at.x, -at.z]
+      const d = at.distanceToSquared(ray.origin)
+      let rank: number | null = null
+      if (t.at) {
+        const gap = Math.hypot(p[0] - t.at[0], p[1] - t.at[1])
+        if (gap <= ELEMENT_REACH) rank = gap
+      } else if (t.rings?.some((r) => pointInPolygon(p, r))) rank = ELEMENT_REACH + 1
+      if (rank === null) continue
+      if (!best || d < best.d - 1e-6 || (Math.abs(d - best.d) <= 1e-6 && rank < best.rank)) best = { id: t.id, d, rank }
+    }
+    return best?.id ?? null
+  }
+
+  function buildArchitecture(model: Model | null, selected: string | null) {
+    arch.traverse((o) => {
+      if (o instanceof Mesh) {
+        o.geometry.dispose()
+        ;(o.material as { dispose(): void }).dispose()
+      }
+    })
+    arch.clear()
+    archTargets = []
+    if (!model) {
+      dirty = true
+      return
+    }
+    for (const storey of model.storeys) {
+      const y = storey.elevation + 0.1
+      const byColor = new Map<number, BufferGeometry[]>()
+      const add = (color: number, g: BufferGeometry) => byColor.set(color, [...(byColor.get(color) ?? []), g.index ? g.toNonIndexed() : g])
+      for (const wall of storey.walls) {
+        const rings = wall.footprint ?? []
+        if (!rings.length) continue
+        archTargets.push({ id: wall.id, storeyId: storey.id, y, rings })
+        const color = wall.id === selected ? ARCH_COLORS.selected : wall.loadBearing ? WALL_COLORS.loadBearing : wall.loadBearing === null ? WALL_COLORS.unknown : ARCH_COLORS.wall
+        for (const ring of rings) {
+          if (ring.length < 3) continue
+          const shape = new Shape()
+          shape.moveTo(ring[0][0], ring[0][1])
+          for (const p of ring.slice(1)) shape.lineTo(p[0], p[1])
+          const g = new ExtrudeGeometry(shape, { depth: ARCH_WALL_HEIGHT, bevelEnabled: false })
+          g.rotateX(-Math.PI / 2)
+          g.translate(0, y, 0)
+          add(color, g)
+        }
+      }
+      for (const o of storey.openings) {
+        if (!o.position) continue
+        archTargets.push({ id: o.id, storeyId: storey.id, y, at: [o.position[0], o.position[1]] })
+        const color = o.id === selected ? ARCH_COLORS.selected : o.kind === 'door' ? ARCH_COLORS.door : ARCH_COLORS.window
+        const h = o.kind === 'door' ? ARCH_WALL_HEIGHT + 0.3 : ARCH_WALL_HEIGHT + 0.15
+        const g = new BoxGeometry(0.35, h, 0.35)
+        const [sx, , sz] = toScene([o.position[0], o.position[1], 0])
+        g.translate(sx, y + h / 2, sz)
+        add(color, g)
+      }
+      for (const [color, pieces] of byColor) {
+        const merged = mergeGeometries(pieces)
+        for (const g of pieces) g.dispose()
+        if (!merged) continue
+        const mesh = new Mesh(merged, new MeshLambertMaterial({ color, side: DoubleSide }))
+        mesh.userData.storeyId = storey.id
+        arch.add(mesh)
+      }
+    }
+    applyStoreyVisibility()
+  }
+
   function placePart(d: Extract<Drag, { kind: 'equipment' }>, delta: Vector3) {
     const position = solid?.geometry.getAttribute('position') as BufferAttribute | undefined
     if (!position) return
@@ -690,6 +807,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (id || !editMode) {
       pickHandler(id)
       return
+    }
+    // 벽·문·창 편집 층이 켜져 있으면 벽·문·창이 물리존보다 먼저다.
+    if (archTargets.length) {
+      const element = pickElement(ray)
+      if (element) {
+        elementHandler(element)
+        return
+      }
+      elementHandler(null)
     }
     // 편집 모드에서 설비가 아닌 바닥을 누르면 물리존을 고른다. 경계를 고치는 손잡이가 거기서 뜬다.
     const space = pickSpace(ray)
@@ -1013,6 +1139,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           return { key: seg.key, a: spec?.a, b: spec?.b, from: spec?.from, source: spec?.source, active: !!spec?.active, at: toScreen(seg.a.clone().lerp(seg.b, 0.5)) }
         }),
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
+      /** 벽·문·창 편집 층에서 누를 수 있는 것의 id. */
+      elements: () => archTargets.map((t) => t.id),
+      /** 화면의 한 점을 누르면 무엇이 골라지는가(설비·벽·문·창·물리존). */
+      pickAt: (x: number, y: number) => {
+        const ray = rayAt(x, y)
+        return { equipment: pick(ray), element: archTargets.length ? pickElement(ray) : null, space: pickSpace(ray) }
+      },
       /** 보이는 판의 층 id. 층별로 보기를 잰다. */
       visibleStoreys: () => slabs.children.filter((o) => o.visible).map((o) => o.userData.storeyId as string),
       /**
@@ -1280,6 +1413,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     updateSpaces(model) {
       buildSlabs(model)
+    },
+
+    setArchitecture(model, selected) {
+      buildArchitecture(model, selected)
+    },
+
+    onPickElement(handler) {
+      elementHandler = handler
     },
 
     setDark(on) {
