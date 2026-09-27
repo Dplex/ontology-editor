@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergeModels } from './merge'
+import { dropDuplicateSpaces, mergeModels } from './merge'
 import { countOf, polygonArea, type Equipment, type Model, type Space, type Storey, type Vec2 } from './model'
 
 // 건축 파일과 설비 파일을 손으로 만든다. 실제 두 판본이 그렇듯 **층 GUID 가 서로 다르고**
@@ -251,5 +251,60 @@ describe('계통과 연결', () => {
     b.storeys[0].equipment.push(device('living', [1, 1, 0]))
     const { report } = mergeModels(arch(), b)
     expect(report.duplicateIds).toBe(1)
+  })
+})
+
+describe('한 파일 안의 같은 방 (dropDuplicateSpaces)', () => {
+  const named = (id: string, name: string, longName: string, ring: Vec2[]) => ({ ...space(id, name, ring), longName })
+
+  it('외곽선이 같고 이름이 같은 방을 말하면 하나만 남기고, 소속이 걸린 쪽을 남긴다', () => {
+    const m = model([
+      storey('L1', 'Level 1', 0, {
+        spaces: [named('foyer', 'A101', 'Foyer', rect(0, 0, 4, 4)), named('foyer-m', 'A101-M', 'Foyer MEP Space', rect(0, 0, 4, 4))],
+        equipment: [device('outlet', [0, 2, 0.3], { spaceId: 'foyer-m', spaceSource: 'bim' })],
+        openings: [{ id: 'door', kind: 'door', name: '', width: null, height: null, wallId: null, passable: true, connects: ['foyer', 'hall'] }],
+      }),
+    ])
+    expect(dropDuplicateSpaces(m)).toBe(1)
+    expect(m.storeys[0].spaces.map((s) => s.id)).toEqual(['foyer-m'])
+    expect(m.storeys[0].equipment[0].spaceId).toBe('foyer-m')
+    // 버린 방을 가리키던 문은 남긴 방을 가리킨다.
+    expect(m.storeys[0].openings[0].connects).toEqual(['foyer-m', 'hall'])
+  })
+
+  it('이름이 어긋나도 방 번호에 꼬리만 붙었으면 같은 방이다 — Duplex 의 A104 · A104-M', () => {
+    const m = model([
+      storey('L1', 'Level 1', 0, {
+        spaces: [named('bath-m', 'A104-M', 'Bathroom MEP Space', rect(0, 0, 2, 2)), named('bath', 'A104', 'Bathroom 1', rect(0, 0, 2, 2))],
+      }),
+    ])
+    expect(dropDuplicateSpaces(m)).toBe(1)
+    // 소속이 걸린 쪽이 없으면 앞의 것을 남긴다.
+    expect(m.storeys[0].spaces.map((s) => s.id)).toEqual(['bath-m'])
+  })
+
+  it('외곽선이 같아도 이름이 다른 공간은 남긴다 — 병원 HVAC 의 R-Roof 와 R-AT1 Roof', () => {
+    const m = model([
+      storey('R', 'Roof', 9, { spaces: [named('r1', '3R01', 'R-Roof', rect(0, 0, 40, 40)), named('r2', '3R02', 'R-AT1 Roof', rect(0, 0, 40, 40))] }),
+    ])
+    expect(dropDuplicateSpaces(m)).toBe(0)
+    expect(m.storeys[0].spaces).toHaveLength(2)
+  })
+
+  it('큰 방이 작은 방을 품는 것은 겹친 두 방이지 사본이 아니다 — 병원 건축의 대기실과 접수대', () => {
+    const m = model([
+      storey('L1', 'Level 1', 0, {
+        spaces: [named('waiting', '1AC1', 'CENTRAL WAITING', rect(0, 0, 12, 12)), named('reception', '1B01', 'RECEPTION', rect(2, 2, 5, 5))],
+      }),
+    ])
+    expect(dropDuplicateSpaces(m)).toBe(0)
+  })
+
+  it('다른 층의 같은 자리·같은 이름은 사본이 아니다', () => {
+    const m = model([
+      storey('L1', 'Level 1', 0, { spaces: [named('a', 'A', 'Bedroom', rect(0, 0, 4, 4))] }),
+      storey('L2', 'Level 2', 3, { spaces: [named('b', 'A', 'Bedroom', rect(0, 0, 4, 4))] }),
+    ])
+    expect(dropDuplicateSpaces(m)).toBe(0)
   })
 })

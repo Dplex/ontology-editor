@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { interiorPoint, isSelfIntersecting, locate, pointInPolygon, SNAP } from './mapping'
-import type { Space, Vec2 } from './model'
+import { polygonArea, type Space, type Vec2 } from './model'
 
 // 4 x 3 직사각형. 왼쪽 아래가 (0,0) 이다.
 const RECT: Vec2[] = [
@@ -100,6 +100,23 @@ describe('locate — 벽면에 붙은 설비', () => {
     // 벽 한가운데(두 면에서 각각 0.12m). 어느 방이라고 말할 근거가 없다.
     expect(locate([4.12, 1.5], [left, right])).toBe(null)
     expect(locate([20, 1.5], [left, right])).toBe(null)
+  })
+})
+
+describe('locate — 방이 겹친 자리', () => {
+  // 병원 건축의 큰 대기실이 접수대를 품는다. 원본이 그렇게 겹쳐 있다(같은 층 52쌍).
+  const room = (id: string, footprint: Vec2[]): Space => ({ id, name: id, longName: id, footprint, areaM2: polygonArea(footprint), boundedBy: [] })
+  const waiting = room('waiting', [[0, 0], [12, 0], [12, 12], [0, 12], [0, 0]])
+  const reception = room('reception', [[2, 2], [5, 2], [5, 5], [2, 5], [2, 2]])
+
+  it('가장 작은 방에 둔다 — 목록 순서와 상관없다', () => {
+    // 첫 방을 고르던 때는 앞의 대기실로 갔다. BIM 이 말한 소속에 맞는 수가 가진 파일 전부에서 늘었다(check:sample).
+    expect(locate([3, 3], [waiting, reception])).toBe('reception')
+    expect(locate([3, 3], [reception, waiting])).toBe('reception')
+  })
+
+  it('겹치지 않은 자리는 큰 방이다', () => {
+    expect(locate([8, 8], [waiting, reception])).toBe('waiting')
   })
 })
 

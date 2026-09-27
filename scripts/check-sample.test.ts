@@ -8,7 +8,7 @@ import { importIfc, importIfcWithMeshes, readMeshes, UnreadableIfcError } from '
 import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-geometry'
 import { profileOf } from '../src/lib/profile'
 import { countOf, isConduit } from '../src/lib/model'
-import { assignEquipmentToSpaces, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
+import { assignEquipmentToSpaces, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
@@ -298,10 +298,13 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     // 926대 전부 형상이 있다. 점으로만 찍던 시절에는 이 파일이 점 926개였다.
     expect(meshes.size).toBe(926)
 
-    // 공간 42개 전부 외곽선이 나온다(SweptSolid). 외곽선이 없던 시절에는 소속 판정을
+    // 공간 22개 전부 외곽선이 나온다(SweptSolid). 외곽선이 없던 시절에는 소속 판정을
     // 아예 못 돌려서 미소속이 759대였다. 외곽선으로 424대, 벽면 여유(SNAP 5cm)로 270대가
     // 됐다. 남은 270대는 **전부 덕트·배관**이다 — 기기 141대는 한 대도 안 남는다.
-    expect(counts.spaces).toBe(42)
+    // 파일에는 42개가 있다 — "MEP Space" 와 건축 Room 사본이 같은 자리·같은 방 번호로 20쌍(dropDuplicateSpaces).
+    // 지붕 둘(R301 · R301-M)은 외곽선이 달라서(135㎡ · 146㎡) 남긴다.
+    expect(counts.spaces).toBe(22)
+    expect(model.warnings.some((w) => w.includes('물리존 20개가 두 번'))).toBe(true)
     expect(model.storeys.flatMap((s) => s.spaces).every((s) => s.footprint.length >= 3)).toBe(true)
     expect(counts.unlocatedEquipment).toBe(270)
     expect(model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role) && e.spaceId === null)).toHaveLength(0)
@@ -536,14 +539,15 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsS
     const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_ARCH))).model
     const mep = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_MEP))).model
 
-    // 설비 판본 혼자서는 방이 42개다 — "MEP Space" 21개와 건축 Room 사본 21개. 같은 방이 두 번
-    // 온톨로지에 들어간다.
-    expect(countOf(mep).spaces).toBe(42)
+    // 설비 판본은 "MEP Space" 와 건축 Room 사본을 같이 담았다(42개). 열 때 같은 방 20쌍을 걷어 22개다.
+    expect(countOf(mep).spaces).toBe(22)
 
     const { model, report } = mergeModels(arch, mep)
     expect(countOf(model).spaces).toBe(21)
     // 건축 판본의 복도 둘은 외곽선이 없었다. 같은 방 번호(A201, B201)의 외곽선을 빌려 온다.
-    expect(report.spaces).toEqual({ dropped: 42, kept: 0, borrowed: 2 })
+    expect(report.spaces).toEqual({ dropped: 22, kept: 0, borrowed: 2 })
+    // 건축 판본끼리도 방이 겹친다(현관과 계단실). 그 자리의 설비 13대가 전부 가장 작은 방에서 맞는다(첫 방이면 11).
+    expect(overlapScore(model)).toEqual({ total: 13, smallest: 13, first: 11 })
     expect(model.storeys.flatMap((s) => s.spaces).every((s) => s.footprint.length >= 3)).toBe(true)
 
     // BIM 이 말한 소속은 좌표로 다시 판정하지 않고 같은 자리의 방으로 옮겨 적는다. 다시 판정하면
@@ -736,7 +740,7 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
     // 연결 단위로는 39%(190/485)가 방향을 아는데, 기기에서 출발한 방향 사슬은 전부 중간의
     // SOURCEANDSINK 에서 끊긴다. 기기끼리 닿는 흐름은 0 이다.
     expect(chips(DUPLEX_HVAC)).toBe('공간 1 | 설비 40 | 소속 0/40 | 연결망 485 | 방향 0/26')
-    expect(chips(DUPLEX_MEP)).toBe('공간 42 | 설비 141 | 소속 141 | 연결망 785 | 방향 0/31')
+    expect(chips(DUPLEX_MEP)).toBe('공간 22 | 설비 141 | 소속 141 | 연결망 785 | 방향 0/31')
     // COBie 판본은 형상이 없다. 좌표도 외곽선도 0 인데 소속은 BIM 이 전부 말해 준다.
     expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 | 설비 0/133 | 소속 133 | 연결망 0 | 방향 —')
   }, 300_000)
@@ -902,6 +906,26 @@ describe.skipIf(!existsSync(TTL_GO) || !hasGo)('ieum-pipeline 의 ttl.go 가 읽
 // 쉽다. 그래서 고칠 때마다 가진 BIM 전부에 같이 대 본다. 개수는 그대로 박고, 정확도는 **지금 값 아래로
 // 떨어지면 실패**로 둔다(오르면 기준을 올린다). 하나가 오르고 다른 하나가 내려가는 변경은 과적합이다.
 
+/**
+ * 같은 층 방이 겹친 자리에 든 설비를 BIM 이 말한 소속에 대 본다. `smallest` 는 지금 규칙(가장 작은 방, mapping.ts 의
+ * locate), `first` 는 예전 규칙(목록의 첫 방)으로 맞힌 수다. scoreAgainstDeclared 는 걸린 방 중 하나만 맞아도 맞힌 것으로
+ * 세서 이 차이를 못 잰다. **smallest 가 first 아래로 내려가면 규칙을 되돌린 것이다.**
+ */
+function overlapScore(model: Model): { total: number; smallest: number; first: number } {
+  const out = { total: 0, smallest: 0, first: 0 }
+  for (const storey of model.storeys) {
+    for (const e of storey.equipment) {
+      if (e.spaceSource !== 'bim' || !e.position || !e.spaceId) continue
+      const inside = storey.spaces.filter((x) => pointInPolygon([e.position![0], e.position![1]], x.footprint))
+      if (inside.length < 2) continue
+      out.total++
+      if (locate([e.position[0], e.position[1]], storey.spaces) === e.spaceId) out.smallest++
+      if (inside[0].id === e.spaceId) out.first++
+    }
+  }
+  return out
+}
+
 /** 규칙 방향까지 넣은 완전성 검사. 화면(App.vue)과 같은 입력이다. */
 function checksOf(model: Model) {
   const out: Record<string, string> = {}
@@ -934,6 +958,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     const score = scoreAgainstDeclared(model)
     expect(score.total).toBe(2216)
     expect(score.agreed / score.total).toBeGreaterThanOrEqual(0.973)
+    // 방이 겹친 자리(큰 대기실이 접수대를 품는다)의 설비는 가장 작은 방으로. 첫 방을 고르던 때는 156 이었다.
+    expect(overlapScore(model)).toEqual({ total: 180, smallest: 169, first: 156 })
 
     // 규칙 방향을 포트가 말한 방향에 대 본다. 포트가 다 말해서 새로 준 방향은 없다. 타입 객체에 적힌 종류(VAV 115 ·
     // 그릴 206 · 팬 6)를 읽으면서 대 볼 연결이 3,673 에서 3,694 로 늘었다. 맞은 수(3,670)는 그대로이고 늘어난 어긋남
@@ -1034,6 +1060,7 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
     const score = scoreAgainstDeclared(model)
     expect(score.total).toBe(7742)
     expect(score.agreed / score.total).toBeGreaterThanOrEqual(0.971)
+    expect(overlapScore(model)).toEqual({ total: 637, smallest: 584, first: 563 })
 
     // **포트가 없으면 규칙이 퍼질 길이 끊겨 있다.** 연결 13,890개 중 규칙이 방향을 준 것이 1,345개이고(타입의 종류를
     // 읽기 전에는 12개), 공기 말단 454개 중 원천에 닿는 것이 21개뿐이다. 설비 1,806대가 어디에도 이어지지 않는다(임포트 경고). R-요구사항의 근거다.
@@ -1181,11 +1208,12 @@ describe.skipIf(!existsSync(DUPLEX_MEP_FULL) || !existsSync(DUPLEX_MEP_2) || !ex
     const mep = load(DUPLEX_MEP_FULL)
 
     // 같은 Revit MEP 2011 로 한 달 반 뒤(2011-09-07 → 10-24) 다시 낸 판본. 두 판본에 다 있는 설비 344대 중 GUID 가
-    // 그대로인 것은 127대뿐이고, 217대는 Revit 요소 ID 로만 찾는다(같은 자리에 요소 ID 가 다른 것이 9대 더 있지만 다른 요소다). 방은 42개 중 2개만 짝지어진다 — MEP-2 는 같은
-    // 번호·이름·자리의 방을 두 번씩 담아서, 어느 쪽인지 정할 수 없는 것은 짓지 않는다. GUID 로 맞는 방은 0 이다.
+    // 그대로인 것은 127대뿐이고, 217대는 Revit 요소 ID 로만 찾는다(같은 자리에 요소 ID 가 다른 것이 9대 더 있지만 다른 요소다). 방은 이름으로 14개, 위치로 1개가
+    // 짝지어지고 GUID 로 맞는 방은 0 이다. MEP-2 는 같은 번호·이름·자리의 방을 두 번씩 담아서 열 때 한 벌을 걷는다 —
+    // 걷기 전에는 어느 쪽인지 정할 수 없어 2개만 짝지었다.
     const v2 = compareVersions(mep, load(DUPLEX_MEP_2))
     expect(v2.equipment.by).toEqual({ guid: 127, revitId: 217, name: 0, position: 0 })
-    expect(v2.spaces.by).toEqual({ guid: 0, revitId: 0, name: 2, position: 0 })
+    expect(v2.spaces.by).toEqual({ guid: 0, revitId: 0, name: 14, position: 1 })
 
     // Revit 2013 으로 올려 전기만 떼어 낸 판본(2012-12). 전기 설비 99대 중 16대의 GUID 가 바뀌었다.
     expect(compareVersions(mep, load(DUPLEX_MEP_1)).equipment.by).toEqual({ guid: 83, revitId: 16, name: 0, position: 0 })
