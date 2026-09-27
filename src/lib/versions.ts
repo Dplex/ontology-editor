@@ -76,11 +76,13 @@ export function fingerprints(model: Model, baseline?: Baseline): Map<string, Fin
     for (const e of storey.equipment) {
       const was = baseline?.equipment.get(e.id)
       const position = was ? was.position : e.position
-      const revitId = revitElementId(e.name)
+      // 이름도 연 때의 것이다. 사람이 태그를 고쳤어도 새 판본의 BIM 에는 옛 이름이 있다.
+      const name = was?.name ?? e.name
+      const revitId = revitElementId(name)
       out.set(e.id, {
         kind: 'equipment',
         ...(revitId ? { revitId } : {}),
-        ...(e.name ? { name: `${e.ifcClass}|${e.name}` } : {}),
+        ...(name ? { name: `${e.ifcClass}|${name}` } : {}),
         group: e.ifcClass,
         ...(position ? { at: [position[0], position[1], position[2]] as [number, number, number] } : {}),
       })

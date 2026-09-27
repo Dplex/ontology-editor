@@ -2572,3 +2572,59 @@ main.has-model .catalog {
   padding: 0.15rem 0.6rem;
   font-size: 0.78rem;
 }
+
+/* 고른 설비의 이름 고치기·지우기, 고른 물리존의 나누기·합치기·지우기(E7·E3). */
+.equipment-name-edit,
+.space-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.85rem;
+}
+
+.equipment-name-edit label {
+  display: inline-flex;
+  flex: 1 1 12rem;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.equipment-name-edit input,
+.space-tools select {
+  min-width: 0;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}
+
+.equipment-name-edit input {
+  flex: 1 1 auto;
+}
+
+.space-tools select {
+  max-width: 14rem;
+}
+
+.equipment-name-edit input:focus,
+.space-tools select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  outline: none;
+}
+
+.space-tools .ghost,
+.equipment-name-edit .ghost {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+/* 지우는 버튼. 액센트를 늘리지 않고 오류 색 글자로만 가른다(되돌릴 수 있는 편집이라 크게 경고하지 않는다). */
+.ghost.danger {
+  color: var(--error);
+}

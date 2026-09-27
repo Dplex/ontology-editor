@@ -47,6 +47,13 @@ export type Space = {
    * Revit 이 붙인 속성(`Category Code`)이다. 요구사항 보고서가 "표준 자리"와 "다른 자리"를 가른다.
    */
   omniclassSource?: 'classification' | 'property'
+  /** 사람이 에디터에서 만든 물리존(생성·분할, E3). BIM 에 없던 것이라 화면의 출처가 "편집"이다. */
+  added?: true
+  /**
+   * 이 물리존에 합쳐 들인 물리존 id(E3 병합). 편집 파일이 "지운 방" 과 "합친 방" 을 가르는 데 쓴다 — 합친 방을 가리키던
+   * 문은 남는 방을 가리키고, 지운 방을 가리키던 문은 그 방을 놓는다.
+   */
+  merged?: string[]
 }
 
 export type Wall = {
@@ -209,6 +216,10 @@ export type Equipment = {
    * 애매한 경우에도 답이 하나로 정해진다.
    */
   spaceSource: 'bim' | 'computed' | null
+  /** 사람이 에디터에서 더한 설비(E7). BIM 에 없던 것이라 화면의 출처가 "편집"이다. */
+  added?: true
+  /** 사람이 이름(태그)을 고쳤으면 BIM 이 준 이름. 타입·패밀리 묶음은 이 이름으로 잡는다(edit.ts 의 bimName). */
+  nameEdited?: { from: string }
 }
 
 /** 계통. 공조기에서 덕트를 지나 토출구까지 이어지는 묶음이다. */

@@ -13,6 +13,12 @@
 import { confirmSystemFlow, inferFlowByRules } from './flow-rules'
 import {
   addConnection,
+  addEquipment,
+  createSpace,
+  deleteEquipment,
+  deleteSpace,
+  absorbSpace,
+  renameEquipment,
   connectionBetween,
   diffBaseline,
   removeConnection,
@@ -45,8 +51,15 @@ export type EditFile = {
    * `released` 는 BIM 이 말한 소속을 버렸다는 뜻이다. 옮겼다가 제자리로 돌려놓았거나 다른 층에 갔다 온 설비는 좌표·층이
    * 연 때와 같아도 소속을 좌표로 다시 잰 상태다(edit.ts 의 releaseDeclaredSpace).
    */
-  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true }[]
+  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string }[]
   spaces: { id: string; longName?: string; footprint?: Vec2[] }[]
+  /** 사람이 더한 설비(E7). id 는 에디터가 지은 것(`U_…`)이라 다시 열어도 같은 id 로 만든다. */
+  equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3 }[]
+  equipmentRemoved?: string[]
+  /** 사람이 만든 물리존(E3 생성·분할). 나눈 방의 남는 조각은 `spaces` 의 외곽선으로 적힌다. */
+  spacesAdded?: { id: string; storeyId: string; name: string; longName: string; footprint: Vec2[] }[]
+  /** 없어진 물리존. `into` 가 있으면 그 방에 합친 것이고(문이 그 방을 가리키게 된다), 없으면 지운 것이다. */
+  spacesRemoved?: { id: string; into?: string }[]
   kinds: { typeKey: string; kind: string | null }[]
   flows: { from: string; to: string }[]
   /** 확정한 계통. 아래 `confirmedFlows` 가 없던 때의 파일은 이것으로 불러온다. */
@@ -73,8 +86,16 @@ const sameRing = (a: readonly Vec2[], b: readonly Vec2[]) => a.length === b.leng
 export function exportEdits(model: Model, baseline: Baseline, source: string, now = new Date()): EditFile {
   const equipment: EditFile['equipment'] = []
   const spaces: EditFile['spaces'] = []
+  const equipmentAdded: NonNullable<EditFile['equipmentAdded']> = []
+  const spacesAdded: NonNullable<EditFile['spacesAdded']> = []
+  const mergedInto = new Map<string, string>()
   for (const storey of model.storeys) {
     for (const space of storey.spaces) {
+      for (const gone of space.merged ?? []) mergedInto.set(gone, space.id)
+      if (!baseline.names.has(space.id)) {
+        spacesAdded.push({ id: space.id, storeyId: storey.id, name: space.name, longName: space.longName, footprint: space.footprint.map((p) => [p[0], p[1]]) })
+        continue
+      }
       const row: EditFile['spaces'][number] = { id: space.id }
       if (baseline.names.has(space.id) && baseline.names.get(space.id) !== space.longName) row.longName = space.longName
       const ring = baseline.footprints.get(space.id)
@@ -83,8 +104,18 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     }
     for (const e of storey.equipment) {
       const was = baseline.equipment.get(e.id)
-      if (!was) continue
+      if (!was) {
+        equipmentAdded.push({
+          id: e.id,
+          storeyId: storey.id,
+          name: e.name,
+          kind: e.kind ?? null,
+          ...(e.position ? { position: [e.position[0], e.position[1], e.position[2]] as Vec3 } : {}),
+        })
+        continue
+      }
       const row: EditFile['equipment'][number] = { id: e.id }
+      if (was.name !== undefined && was.name !== e.name) row.name = e.name
       if (was.storeyId !== storey.id) row.storeyId = storey.id
       // 좌표는 층을 옮겨 높이가 바뀐 경우에도 끝 값을 적는다. 불러올 때 층을 먼저 옮기고 좌표를 덮는다.
       // 사람이 옮긴 좌표는 연 때와 같아 보여도 적는다 — 다른 층에 갔다 오면 높이에 부동소수 찌꺼기가 남고
@@ -93,7 +124,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
         row.position = [e.position[0], e.position[1], e.position[2]]
       }
       if (was.spaceSource === 'bim' && e.spaceSource !== 'bim') row.released = true
-      if (row.storeyId || row.position || row.released) equipment.push(row)
+      if (row.storeyId || row.position || row.released || row.name !== undefined) equipment.push(row)
     }
   }
   const confirmed = new Set<string>()
@@ -104,12 +135,15 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     .map((c) => ({ from: c.inferred!.from, to: c.inferred!.to, systemId: c.inferred!.systemId }))
   const since = diffBaseline(model, baseline)
   const connections = { add: since.connected, remove: since.disconnected }
+  const equipmentRemoved = since.equipmentRemoved.map((r) => r.id)
+  const spacesRemoved = since.spacesRemoved.map((r) => (mergedInto.has(r.id) ? { id: r.id, into: mergedInto.get(r.id)! } : { id: r.id }))
 
   // 적은 id 의 지문. 층을 옮긴 설비는 예전 층도 적는다(새 판본에서 층 GUID 가 바뀌어도 이름으로 찾는다).
+  // 지운 것은 지금 모델에 없으니 연 때 떠 둔 지문을 쓴다.
   const all = fingerprints(model, baseline)
   const keys: Record<string, Fingerprint> = {}
   const keep = (id: string) => {
-    const fp = all.get(id)
+    const fp = all.get(id) ?? baseline.keys?.get(id)
     if (fp) keys[id] = fp
   }
   for (const row of spaces) keep(row.id)
@@ -117,6 +151,9 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     keep(row.id)
     if (row.storeyId) keep(row.storeyId)
   }
+  for (const row of [...equipmentAdded, ...spacesAdded]) keep(row.storeyId)
+  for (const id of equipmentRemoved) keep(id)
+  for (const row of spacesRemoved) keep(row.id)
   for (const f of flows) {
     keep(f.from)
     keep(f.to)
@@ -143,6 +180,10 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     confirmedSystems: [...confirmed],
     ...(confirmedFlows.length ? { confirmedFlows } : {}),
     ...(connections.add.length || connections.remove.length ? { connections } : {}),
+    ...(equipmentAdded.length ? { equipmentAdded } : {}),
+    ...(equipmentRemoved.length ? { equipmentRemoved } : {}),
+    ...(spacesAdded.length ? { spacesAdded } : {}),
+    ...(spacesRemoved.length ? { spacesRemoved } : {}),
     keys,
   }
 }
@@ -218,9 +259,33 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     ref(c.from)
     ref(c.to)
   }
+  for (const row of [...(file.equipmentAdded ?? []), ...(file.spacesAdded ?? [])]) ref(row.storeyId)
+  for (const id of file.equipmentRemoved ?? []) ref(id)
+  for (const row of file.spacesRemoved ?? []) {
+    ref(row.id)
+    if (row.into) ref(row.into)
+  }
   const matching = matchFingerprints(referenced, fingerprints(model))
   for (const { by } of matching.pairs.values()) if (by !== 'guid') result.rematched[by]++
   const resolve = (id: string) => matching.pairs.get(id)?.id ?? id
+
+  // 사람이 더한 설비·물리존이 먼저다. 뒤의 편집(종류·연결·합치기)이 그것을 가리킬 수 있다. id 는 에디터가 지은
+  // 것이라 판본이 바뀌어도 그대로 쓴다.
+  for (const row of file.equipmentAdded ?? []) {
+    const done = addEquipment(model, resolve(row.storeyId), { id: row.id, name: row.name, kind: row.kind, position: row.position ?? null })
+    if (done) {
+      result.applied++
+      equipmentIds.add(done.id)
+    } else result.missing.equipment++
+  }
+  for (const row of file.spacesAdded ?? []) {
+    const done = createSpace(model, resolve(row.storeyId), { id: row.id, name: row.name, longName: row.longName, footprint: row.footprint })
+    if (done) {
+      result.applied++
+      spaceIds.add(row.id)
+      result.changes.push(...done.equipment)
+    } else result.missing.spaces++
+  }
 
   for (const k of file.kinds) {
     const done = setTypeKind(model, k.typeKey, k.kind)
@@ -250,12 +315,23 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     }
   }
 
+  // 합친 방은 모양을 다시 합치지 않는다. 남는 방의 끝 모양은 위에서 얹었다(absorbSpace 주석). 문이 남는 방을 가리키게만 한다.
+  for (const row of file.spacesRemoved ?? []) {
+    const id = resolve(row.id)
+    const done = row.into ? absorbSpace(model, resolve(row.into), id) : deleteSpace(model, id)
+    if (done && !('refused' in done)) {
+      result.applied++
+      result.changes.push(...done.equipment)
+    } else result.missing.spaces++
+  }
+
   for (const row of file.equipment) {
     const e = { ...row, id: resolve(row.id), storeyId: row.storeyId && resolve(row.storeyId) }
     if (!equipmentIds.has(e.id)) {
       result.missing.equipment++
       continue
     }
+    if (e.name !== undefined && renameEquipment(model, e.id, e.name)) result.applied++
     if (e.storeyId) {
       if (!storeyIds.has(e.storeyId)) result.missing.equipment++
       else {
@@ -275,6 +351,15 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       }
     }
     if (e.released && releaseDeclaredSpace(model, e.id)) result.applied++
+  }
+
+  // 지운 설비. 붙은 연결도 같이 빠지므로 연결 편집보다 먼저다.
+  for (const raw of file.equipmentRemoved ?? []) {
+    const done = deleteEquipment(model, resolve(raw))
+    if (done) {
+      result.applied++
+      result.rules = done.rules
+    } else result.missing.equipment++
   }
 
   // 연결은 확정·방향보다 먼저 — 사람이 정한 방향이 사람이 이은 연결에 붙어 있을 수 있다.

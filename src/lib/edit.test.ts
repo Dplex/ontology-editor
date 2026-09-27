@@ -32,6 +32,15 @@ import {
   familyKeyOf,
   familyNameOf,
   wouldSelfIntersect,
+  addEquipment,
+  deleteEquipment,
+  renameEquipment,
+  snapshotEquipmentSet,
+  createSpace,
+  deleteSpace,
+  splitSpace,
+  mergeSpaces,
+  snapshotStoreySpaces,
   type Change,
 } from './edit'
 import type { Model } from './model'
@@ -571,7 +580,18 @@ describe('연 때와 견주기', () => {
     renameSpace(model, office.id, '사무실')
     moveEquipment(model, ahu.id, at)
     moveEquipmentToStorey(model, equip('AT-101-01').id, model.storeys[0].id)
-    expect(diffBaseline(model, base)).toEqual({ renamed: [], moved: [], restoreyed: [], connected: [], disconnected: [] })
+    expect(diffBaseline(model, base)).toEqual({
+      renamed: [],
+      moved: [],
+      restoreyed: [],
+      connected: [],
+      disconnected: [],
+      spacesAdded: [],
+      spacesRemoved: [],
+      equipmentAdded: [],
+      equipmentRemoved: [],
+      equipmentRenamed: [],
+    })
   })
 
   it('소속이 바뀐 이동은 좌표 줄에 넣지 않는다(Change 가 적는다)', () => {
@@ -631,3 +651,112 @@ describe('물리존 꼭짓점 넣기·지우기, 외곽선 그리기', () => {
   })
 })
 
+
+describe('설비 추가·삭제·이름 (E7)', () => {
+  it('더한 설비는 좌표로 소속을 찾고, 편집 표시가 붙는다', () => {
+    const e = addEquipment(model, model.storeys[0].id, { name: 'FCU-9', kind: 'fcu', position: [2, 2, 2.7] })!
+    expect(e.id).toMatch(/^U_[0-9A-Za-z_]{20}$/)
+    expect(e.added).toBe(true)
+    expect(e.spaceId).toBe(model.storeys[0].spaces[0].id)
+    expect(e.role).toBe('conversion')
+    expect(modelToTTL(model)).toContain(`a brick:Fan_Coil_Unit ;\n    rdfs:label "FCU-9"`)
+  })
+
+  it('모르는 종류로는 더하지 않는다', () => {
+    expect(addEquipment(model, model.storeys[0].id, { name: 'x', kind: 'nope', position: null })).toBeNull()
+  })
+
+  it('지우면 붙은 연결과 계통 자리도 빠진다 — 없는 설비를 가리키는 feeds·hasPart 가 나가지 않게', () => {
+    const duct = equip('DUCT-01')
+    expect(model.connections.some((c) => c.from === duct.id || c.to === duct.id)).toBe(true)
+    const done = deleteEquipment(model, duct.id)!
+    expect(done.connections).toBeGreaterThan(0)
+    expect(model.connections.some((c) => c.from === duct.id || c.to === duct.id)).toBe(false)
+    expect(model.systems.some((s) => s.memberIds.includes(duct.id))).toBe(false)
+    expect(modelToTTL(model)).not.toContain(duct.id)
+  })
+
+  it('지운 것을 되돌리면 연결·계통 자리까지 제자리다', () => {
+    const before = modelToTTL(model)
+    const duct = equip('DUCT-01')
+    const snapshot = snapshotEquipmentSet(model, duct.id)!
+    deleteEquipment(model, duct.id)
+    restore(model, snapshot)
+    expect(modelToTTL(model)).toBe(before)
+  })
+
+  it('이름을 고치면 label 이 바뀌고, 연 때와 견주면 이름 줄에 뜬다', () => {
+    const base = baselineOf(model)
+    const ahu = equip('AHU-1')
+    expect(renameEquipment(model, ahu.id, 'AHU-1A')).toBe(true)
+    expect(modelToTTL(model)).toContain('rdfs:label "AHU-1A"')
+    expect(diffBaseline(model, base).equipmentRenamed).toEqual([{ id: ahu.id, from: 'AHU-1', to: 'AHU-1A' }])
+  })
+})
+
+describe('물리존 생성·삭제·분할·병합 (E3)', () => {
+  const storeyId = () => model.storeys[0].id
+  const office = () => model.storeys[0].spaces[0]
+
+  it('만든 물리존에 설비가 소속을 찾는다 — 사무실 안에 만든 작은 방이 더 구체적인 자리다', () => {
+    const done = createSpace(model, storeyId(), { name: '102', longName: '회의실', footprint: [[2, 3], [4, 3], [4, 5], [2, 5]] })!
+    expect(done.created).toHaveLength(1)
+    expect(equip('AT-101-01').spaceId).toBe(done.created[0])
+    expect(done.equipment.map((c) => c.equipmentName)).toEqual(['AT-101-01'])
+  })
+
+  it('층에 하나 남은 물리존은 지우지 않는다', () => {
+    expect(deleteSpace(model, office().id)).toEqual({ refused: expect.stringContaining('하나 남은') })
+  })
+
+  it('지운 방의 BIM 소속은 버리고 좌표로 다시 잰다', () => {
+    const other = createSpace(model, storeyId(), { name: '102', longName: '창고', footprint: [[20, 0], [30, 0], [30, 8], [20, 8]] })!.created[0]
+    const light = equip('LIGHT-101-01')
+    expect(light.spaceSource).toBe('bim')
+    deleteSpace(model, office().id)
+    expect(model.storeys[0].spaces.map((s) => s.id)).toEqual([other])
+    // (50,50) 은 창고 밖이다. 없는 방을 가리키지 않고 소속 없음이 된다.
+    expect(light.spaceId).toBeNull()
+    expect(light.spaceSource).toBeNull()
+  })
+
+  it('선으로 나누면 넓은 조각이 원래 id 를 갖고, 새 조각의 설비는 새 방으로 간다', () => {
+    const id = office().id
+    const done = splitSpace(model, id, [6, -1], [6, 9])
+    expect(done && 'created' in done).toBe(true)
+    if (!done || 'refused' in done) return
+    const piece = model.storeys[0].spaces.find((s) => s.id === done.created[0])!
+    expect(office().id).toBe(id)
+    expect(office().areaM2).toBe(48)
+    expect(piece.areaM2).toBe(32)
+    expect(piece.longName).toBe('사무실-2')
+    expect(equip('AT-101-01').spaceId).toBe(id)
+    expect(equip('AT-101-02').spaceId).toBe(piece.id)
+  })
+
+  it('방을 안 지나는 선은 이유와 함께 거절한다', () => {
+    expect(splitSpace(model, office().id, [20, 0], [20, 5])).toEqual({ refused: expect.any(String) })
+  })
+
+  it('나눈 것을 다시 합치면 원래 외곽선·넓이이고, 문은 남는 방을 가리킨다', () => {
+    const id = office().id
+    model.storeys[0].openings.push({ id: 'door', kind: 'door', name: '', width: null, height: null, wallId: null, passable: true, connects: [id] })
+    const split = splitSpace(model, id, [6, -1], [6, 9])
+    if (!split || 'refused' in split) throw new Error('split')
+    model.storeys[0].openings[0].connects = [id, split.created[0]]
+    const merged = mergeSpaces(model, id, split.created[0])
+    if (!merged || 'refused' in merged) throw new Error('merge')
+    expect(office().areaM2).toBe(80)
+    expect(model.storeys[0].spaces).toHaveLength(1)
+    expect(model.storeys[0].openings[0].connects).toEqual([id])
+    expect(office().merged).toEqual([split.created[0]])
+  })
+
+  it('층 스냅숏으로 되돌리면 나누기 전과 같다', () => {
+    const before = modelToTTL(model)
+    const snapshot = snapshotStoreySpaces(model, storeyId())!
+    splitSpace(model, office().id, [6, -1], [6, 9])
+    restore(model, snapshot)
+    expect(modelToTTL(model)).toBe(before)
+  })
+})

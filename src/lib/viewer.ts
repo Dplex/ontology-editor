@@ -39,7 +39,7 @@ import {
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import type { Model, Vec2, Vec3 } from './model'
+import { polygonArea, type Model, type Vec2, type Vec3 } from './model'
 import type { MeshMap } from './ifc/import'
 import { pointInPolygon } from './mapping'
 
@@ -556,9 +556,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     return best?.key ?? null
   }
 
-  /** 광선이 먼저 닿는 물리존 판. 판 윗면에서 외곽선 안에 드는지로 본다. */
+  /**
+   * 광선이 먼저 닿는 물리존 판. 판 윗면에서 외곽선 안에 드는지로 본다. 같은 층에서 방이 겹친 자리면 **가장 작은 방**이다 —
+   * 설비 소속(mapping.ts 의 locate)과 같은 규칙이라, 누른 자리의 설비가 속한 방이 골라진다.
+   */
   function pickSpace(ray: Ray): string | null {
-    let best: { id: string; d: number } | null = null
+    let best: { id: string; d: number; area: number } | null = null
     const plane = new Plane(new Vector3(0, 1, 0), 0)
     const at = new Vector3()
     for (const target of spaceTargets) {
@@ -566,8 +569,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       plane.constant = -target.y
       if (!ray.intersectPlane(plane, at)) continue
       const d = at.distanceToSquared(ray.origin)
-      if (best && d >= best.d) continue
-      if (pointInPolygon([at.x, -at.z], target.ring)) best = { id: target.id, d }
+      const tie = best && Math.abs(d - best.d) < 1e-6
+      if (best && d > best.d && !tie) continue
+      if (!pointInPolygon([at.x, -at.z], target.ring)) continue
+      const area = polygonArea(target.ring)
+      if (best && tie && area >= best.area) continue
+      best = { id: target.id, d, area }
     }
     return best?.id ?? null
   }

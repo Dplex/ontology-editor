@@ -11,7 +11,9 @@ import { assignEquipment, isSelfIntersecting } from './mapping'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { equipmentKind } from './kinds'
 import { polygonArea } from './model'
-import type { Connection, Equipment, Model, Vec2, Vec3 } from './model'
+import type { Connection, Equipment, Model, Space, Storey, Vec2, Vec3 } from './model'
+import { splitRing, unionRings } from './polygon'
+import { fingerprints, type Fingerprint } from './versions'
 
 /** 편집 한 번이 만든 관계 변화. 좌표가 아니라 관계를 적는다. */
 export type Change = {
@@ -377,6 +379,8 @@ export type Snapshot =
       positionSource: Equipment['positionSource']
       spaceId: string | null
       spaceSource: Equipment['spaceSource']
+      name: string
+      nameEdited: Equipment['nameEdited']
     }
   | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; longName: string }
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
@@ -384,6 +388,31 @@ export type Snapshot =
   | { kind: 'kinds'; entries: { id: string; kind: string | null | undefined; kindEdited: Equipment['kindEdited'] }[] }
   /** 연결이 모델에 있었는가. 잇기·끊기를 되돌린다. 연결 객체를 그대로 들고 있어 방향·확정도 같이 돌아온다. */
   | { kind: 'connection'; connection: Connection; present: boolean; index: number }
+  /**
+   * 설비가 모델에 있었는가(E7 추가·삭제). 설비와 거기 붙은 연결·계통 자리를 객체째 들고 있어, 되돌리면 방향·확정까지
+   * 그대로 돌아온다.
+   */
+  | {
+      kind: 'equipment-set'
+      equipment: Equipment
+      storeyId: string
+      index: number
+      present: boolean
+      connections: { connection: Connection; index: number }[]
+      systems: { systemId: string; index: number }[]
+    }
+  /**
+   * 한 층의 물리존 목록과 그 층 설비의 소속(E3 생성·삭제·분할·병합). 물리존 객체를 그대로 들고 있어 되돌려도 같은
+   * 객체다 — 다른 스냅숏이 들고 있는 물리존이 엉뚱한 사본을 가리키지 않는다.
+   */
+  | {
+      kind: 'storey-spaces'
+      storeyId: string
+      spaces: Space[]
+      fields: { space: Space; footprint: Vec2[]; areaM2: number; name: string; longName: string; merged: string[] | undefined }[]
+      equipment: { equipment: Equipment; spaceId: string | null; spaceSource: Equipment['spaceSource'] }[]
+      openings: { id: string; connects: string[] | undefined }[]
+    }
 
 export function snapshotEquipment(model: Model, equipmentId: string): Snapshot | null {
   for (const storey of model.storeys) {
@@ -399,6 +428,8 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
       positionSource: e.positionSource,
       spaceId: e.spaceId,
       spaceSource: e.spaceSource,
+      name: e.name,
+      nameEdited: e.nameEdited ? { ...e.nameEdited } : undefined,
     }
   }
   return null
@@ -456,6 +487,10 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return { kind: 'confirm', connections: snapshot.connections, confirmed: !!snapshot.connections[0]?.inferred?.confirmed }
     case 'connection':
       return snapshotConnection(model, snapshot.connection)
+    case 'equipment-set':
+      return snapshotEquipmentSet(model, snapshot.equipment, snapshot.storeyId)
+    case 'storey-spaces':
+      return snapshotStoreySpaces(model, snapshot.storeyId)
     case 'kinds': {
       const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
       return {
@@ -487,6 +522,9 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       equipment.position = snapshot.position ? [snapshot.position[0], snapshot.position[1], snapshot.position[2]] : null
       if (snapshot.positionSource) equipment.positionSource = snapshot.positionSource
       else delete equipment.positionSource
+      equipment.name = snapshot.name
+      if (snapshot.nameEdited) equipment.nameEdited = { ...snapshot.nameEdited }
+      else delete equipment.nameEdited
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
       equipment.spaceSource = snapshot.spaceSource
       equipment.spaceId = snapshot.spaceId
@@ -515,6 +553,56 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       if (!snapshot.present && at >= 0) model.connections.splice(at, 1)
       return inferFlowByRules(model)
     }
+    case 'equipment-set': {
+      const home = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!home) return null
+      for (const storey of model.storeys) {
+        const at = storey.equipment.indexOf(snapshot.equipment)
+        if (at >= 0) storey.equipment.splice(at, 1)
+      }
+      const id = snapshot.equipment.id
+      for (let i = model.connections.length - 1; i >= 0; i--) {
+        const c = model.connections[i]
+        if (c.from === id || c.to === id) model.connections.splice(i, 1)
+      }
+      for (const system of model.systems) system.memberIds = system.memberIds.filter((m) => m !== id)
+      if (snapshot.present) {
+        home.equipment.splice(Math.min(snapshot.index, home.equipment.length), 0, snapshot.equipment)
+        for (const { connection, index } of [...snapshot.connections].sort((a, b) => a.index - b.index)) {
+          model.connections.splice(Math.min(index, model.connections.length), 0, connection)
+        }
+        for (const { systemId, index } of snapshot.systems) {
+          const system = model.systems.find((x) => x.id === systemId)
+          if (system) system.memberIds.splice(Math.min(index, system.memberIds.length), 0, id)
+        }
+      }
+      return inferFlowByRules(model)
+    }
+    case 'storey-spaces': {
+      const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!storey) return null
+      storey.spaces = [...snapshot.spaces]
+      for (const f of snapshot.fields) {
+        f.space.footprint = [...f.footprint]
+        f.space.areaM2 = f.areaM2
+        f.space.name = f.name
+        f.space.longName = f.longName
+        if (f.merged) f.space.merged = [...f.merged]
+        else delete f.space.merged
+      }
+      for (const x of snapshot.equipment) {
+        x.equipment.spaceId = x.spaceId
+        x.equipment.spaceSource = x.spaceSource
+      }
+      for (const o of storey.openings) {
+        const was = snapshot.openings.find((x) => x.id === o.id)
+        if (!was) continue
+        if (was.connects) o.connects = [...was.connects]
+        else delete o.connects
+      }
+      for (const e of storey.equipment) assignEquipment(e, storey.spaces)
+      return null
+    }
     case 'kinds': {
       const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
       for (const entry of snapshot.entries) {
@@ -542,8 +630,16 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
  * 둘 다 없으면 null 이다(그 설비 하나만 바뀐다).
  */
 export function typeNameOf(e: Equipment): string | null {
-  const revit = /^(.+:.+):\d+$/.exec(e.name)
+  const revit = /^(.+:.+):\d+$/.exec(bimName(e))
   return revit ? revit[1] : e.objectType || null
+}
+
+/**
+ * BIM 이 준 이름. 사람이 태그를 고쳐도 타입·패밀리 묶음은 BIM 이름으로 잡는다 — 고친 이름으로 묶으면 이름 하나 고친
+ * 설비가 다른 묶음으로 옮겨 가서, 편집 파일을 불러올 때 종류가 엉뚱한 설비에 붙었다(실제 BIM 퍼징이 잡았다).
+ */
+export function bimName(e: Equipment): string {
+  return e.nameEdited?.from ?? e.name
 }
 
 /** 타입의 열쇠. IFC 클래스까지 같아야 같은 타입이다 — 이름이 같아도 클래스가 다르면 다른 물건이다. */
@@ -560,7 +656,7 @@ export function typeKeyOf(e: Equipment): string {
 export function familyNameOf(e: Equipment): string | null {
   const type = typeNameOf(e)
   if (!type) return null
-  return /^(.+:.+):\d+$/.test(e.name) ? type.split(':')[0] : type
+  return /^(.+:.+):\d+$/.test(bimName(e)) ? type.split(':')[0] : type
 }
 
 /** 패밀리의 열쇠. 타입 열쇠와 가르려고 `family:` 를 붙인다. 이름이 없으면 설비 하나다(타입 열쇠와 같다). */
@@ -624,9 +720,14 @@ export type Baseline = {
   names: Map<string, string>
   /** 물리존 외곽선. 편집 저장(edit-file.ts)이 바뀐 경계만 골라 담는다. */
   footprints: Map<string, Vec2[]>
-  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource'] }>
+  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource']; name?: string }>
   /** 연 때 있던 연결(순서 없는 짝). 이은 것·끊은 것을 이것과 견준다. 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
   connections?: Set<string>
+  /**
+   * 연 때의 지문(versions.ts). 지운 물리존·설비는 지금 모델에 없어서 지문을 다시 잴 수 없다 — 편집 파일이 그것들을
+   * GUID 가 바뀐 판본에서도 찾으려면 연 때 떠 둔 것이 있어야 한다.
+   */
+  keys?: Map<string, Fingerprint>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
@@ -645,10 +746,17 @@ export function baselineOf(model: Model): Baseline {
         storeyId: storey.id,
         spaceId: e.spaceId,
         spaceSource: e.spaceSource,
+        name: e.name,
       })
     }
   }
-  return { names, footprints, equipment, connections: new Set(model.connections.map((c) => pairKey(c.from, c.to))) }
+  return {
+    names,
+    footprints,
+    equipment,
+    connections: new Set(model.connections.map((c) => pairKey(c.from, c.to))),
+    keys: fingerprints(model),
+  }
 }
 
 export type BaselineDiff = {
@@ -658,8 +766,15 @@ export type BaselineDiff = {
   restoreyed: { id: string; name: string; from: string; to: string }[]
   /** 연 때 없던 연결(사람이 이은 것). */
   connected: { from: string; to: string }[]
-  /** 연 때 있었는데 지금 없는 연결(사람이 끊은 것). */
+  /** 연 때 있었는데 지금 없는 연결(사람이 끊은 것). 지운 설비에 붙어 같이 빠진 연결은 세지 않는다. */
   disconnected: { from: string; to: string }[]
+  /** 사람이 만든 물리존·설비(E3·E7). */
+  spacesAdded: { id: string; name: string }[]
+  spacesRemoved: { id: string; name: string }[]
+  equipmentAdded: { id: string; name: string }[]
+  equipmentRemoved: { id: string; name: string }[]
+  /** 이름(태그)을 고친 설비. */
+  equipmentRenamed: { id: string; from: string; to: string }[]
 }
 
 /** 좌표를 같다고 보는 차. 표와 3D 가 센티미터로 자르므로 그보다 작은 차는 같은 자리다. */
@@ -669,15 +784,27 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const renamed: BaselineDiff['renamed'] = []
   const moved: BaselineDiff['moved'] = []
   const restoreyed: BaselineDiff['restoreyed'] = []
+  const spacesAdded: BaselineDiff['spacesAdded'] = []
+  const equipmentAdded: BaselineDiff['equipmentAdded'] = []
+  const equipmentRenamed: BaselineDiff['equipmentRenamed'] = []
   const storeyName = new Map(model.storeys.map((s) => [s.id, s.name]))
+  const spacesNow = new Set<string>()
+  const equipmentNow = new Set<string>()
   for (const storey of model.storeys) {
     for (const space of storey.spaces) {
+      spacesNow.add(space.id)
       const from = baseline.names.get(space.id)
-      if (from !== undefined && from !== space.longName) renamed.push({ spaceId: space.id, from, to: space.longName })
+      if (from === undefined) spacesAdded.push({ id: space.id, name: space.longName || space.name })
+      else if (from !== space.longName) renamed.push({ spaceId: space.id, from, to: space.longName })
     }
     for (const e of storey.equipment) {
+      equipmentNow.add(e.id)
       const was = baseline.equipment.get(e.id)
-      if (!was) continue
+      if (!was) {
+        equipmentAdded.push({ id: e.id, name: e.name || e.ifcClass })
+        continue
+      }
+      if (was.name !== undefined && was.name !== e.name) equipmentRenamed.push({ id: e.id, from: was.name, to: e.name })
       const name = e.name || e.ifcClass
       if (was.storeyId !== storey.id) {
         // 층을 옮기면 높이도 옮긴다. 층 줄 하나로 적고 좌표 줄에 다시 세지 않는다.
@@ -702,10 +829,17 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     for (const key of baseline.connections) {
       if (now.has(key)) continue
       const [from, to] = key.split('\u0000')
+      // 지운 설비에 붙어 있던 연결은 설비와 같이 빠진 것이다. 끊은 연결로 따로 세지 않는다.
+      if (baseline.equipment.has(from) && !equipmentNow.has(from)) continue
+      if (baseline.equipment.has(to) && !equipmentNow.has(to)) continue
       disconnected.push({ from, to })
     }
   }
-  return { renamed, moved, restoreyed, connected, disconnected }
+  const spacesRemoved = [...baseline.names].filter(([id]) => !spacesNow.has(id)).map(([id, name]) => ({ id, name: name || id }))
+  const equipmentRemoved = [...baseline.equipment]
+    .filter(([id]) => !equipmentNow.has(id))
+    .map(([id, was]) => ({ id, name: was.name || id }))
+  return { renamed, moved, restoreyed, connected, disconnected, spacesAdded, spacesRemoved, equipmentAdded, equipmentRemoved, equipmentRenamed }
 }
 
 // --- 연결 잇기·끊기 --------------------------------------------------------------
@@ -786,4 +920,289 @@ export function deleteSpaceVertex(model: Model, spaceId: string, index: number):
 export function drawSpaceFootprint(model: Model, spaceId: string, points: readonly Vec2[]): BoundaryChange | null {
   if (points.length < 3) return null
   return replaceSpaceFootprint(model, spaceId, withClosing(points.map((p) => [p[0], p[1]] as Vec2), true))
+}
+
+// --- 설비 추가·삭제·이름 (E7) ------------------------------------------------------
+//
+// 현장에서 설비가 새로 달리거나 떼어지거나 이름(태그)이 바뀐다. 추가한 설비는 BIM 에 없던 것이라 `added` 로 표시하고
+// 화면의 출처를 "편집"으로 둔다. 지운 설비는 거기 붙은 연결과 계통 자리도 같이 빠진다 — 남기면 온톨로지에 없는
+// 설비를 가리키는 `brick:feeds`·`brick:hasPart` 가 나간다. 연결이 바뀌므로 규칙 방향을 다시 돌린다.
+
+const ID_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_'
+
+/**
+ * 사람이 만든 것의 id. IfcGlobalId 처럼 22자이고, `$` 를 뺀 글자만 쓴다 — `$` 는 Turtle 에서 이스케이프해야 하고
+ * 받는 쪽(ttl.go)이 키에 `\$` 를 남긴다(CLAUDE.md). 첫 두 글자 `U_` 로 BIM 에서 온 것과 가른다.
+ */
+export function newId(): string {
+  const bytes = new Uint8Array(20)
+  crypto.getRandomValues(bytes)
+  return `U_${Array.from(bytes, (b) => ID_CHARS[b % ID_CHARS.length]).join('')}`
+}
+
+export type NewEquipment = { name: string; kind: string | null; position: Vec3 | null; id?: string }
+
+/** 설비를 더한다. 좌표가 있으면 소속을 판정한다. 좌표 없이 더하면 미배치 목록에 들어간다(E6 으로 놓는다). */
+export function addEquipment(model: Model, storeyId: string, spec: NewEquipment): Equipment | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  if (spec.kind !== null && !equipmentKind(spec.kind)) return null
+  const id = spec.id ?? newId()
+  if (findEquipment(model, id)) return null
+  const info = equipmentKind(spec.kind)
+  const equipment: Equipment = {
+    id,
+    name: spec.name,
+    // IFC 클래스는 모른다. 설비 전체의 윗 클래스로 둔다 — 종류를 고르면 Brick 클래스는 종류에서 나온다.
+    ifcClass: 'DistributionElement',
+    objectType: '',
+    declaredType: null,
+    kind: spec.kind,
+    role: info?.role ?? null,
+    position: spec.position ? [spec.position[0], spec.position[1], spec.position[2]] : null,
+    ...(spec.position ? { positionSource: 'edited' as const } : {}),
+    capacity: null,
+    capacityProperty: null,
+    systemId: null,
+    spaceId: null,
+    spaceSource: null,
+    added: true,
+  }
+  storey.equipment.push(equipment)
+  assignEquipment(equipment, storey.spaces)
+  return equipment
+}
+
+/** 설비를 지운다. 붙은 연결과 계통 자리도 뺀다. 지운 연결 수와 다시 돌린 규칙 방향을 돌려준다. */
+export function deleteEquipment(model: Model, equipmentId: string): { connections: number; rules: RuleReport } | null {
+  const storey = model.storeys.find((s) => s.equipment.some((e) => e.id === equipmentId))
+  if (!storey) return null
+  storey.equipment = storey.equipment.filter((e) => e.id !== equipmentId)
+  let removed = 0
+  for (let i = model.connections.length - 1; i >= 0; i--) {
+    const c = model.connections[i]
+    if (c.from === equipmentId || c.to === equipmentId) {
+      model.connections.splice(i, 1)
+      removed++
+    }
+  }
+  for (const system of model.systems) system.memberIds = system.memberIds.filter((m) => m !== equipmentId)
+  return { connections: removed, rules: inferFlowByRules(model) }
+}
+
+/** 설비 이름(태그)을 고친다. TTL 의 rdfs:label 이 바뀐다. */
+export function renameEquipment(model: Model, equipmentId: string, name: string): boolean {
+  const equipment = findEquipment(model, equipmentId)
+  if (!equipment || equipment.name === name) return false
+  if (!equipment.nameEdited) equipment.nameEdited = { from: equipment.name }
+  equipment.name = name
+  if (equipment.nameEdited.from === name) delete equipment.nameEdited
+  return true
+}
+
+/** 설비 추가·삭제 전의 상태. 지우기 전에 뜨면 되돌릴 때 연결·계통 자리까지 제자리로 돌아온다. */
+export function snapshotEquipmentSet(model: Model, equipment: Equipment | string, storeyId?: string): Snapshot | null {
+  const target = typeof equipment === 'string' ? findEquipment(model, equipment) : equipment
+  if (!target) return null
+  const home = model.storeys.find((s) => s.equipment.includes(target))
+  const id = target.id
+  if (!home) {
+    if (!storeyId) return null
+    return { kind: 'equipment-set', equipment: target, storeyId, index: 0, present: false, connections: [], systems: [] }
+  }
+  return {
+    kind: 'equipment-set',
+    equipment: target,
+    storeyId: home.id,
+    index: home.equipment.indexOf(target),
+    present: true,
+    connections: model.connections.flatMap((connection, index) => (connection.from === id || connection.to === id ? [{ connection, index }] : [])),
+    systems: model.systems.flatMap((s) => (s.memberIds.includes(id) ? [{ systemId: s.id, index: s.memberIds.indexOf(id) }] : [])),
+  }
+}
+
+// --- 물리존 생성·삭제·분할·병합 (E3) -------------------------------------------------
+//
+// 경계 편집(E2)과 같이 설비 소속을 그 층에서 다시 판정한다. 다른 것은 물리존이 생기고 없어진다는 것이다.
+//
+// **없어진 물리존을 가리키던 BIM 소속은 버리고 좌표로 다시 잰다.** BIM 이 말한 "이 방" 이 온톨로지에 없으면 없는 방을
+// 가리키는 `brick:hasLocation` 이 나간다. 합칠 때도 같다 — 합친 방은 BIM 이 말한 방이 아니다. 나눌 때는 원래 방의
+// id 가 남는 조각에 있는 설비만 BIM 소속을 지키고, 새 조각으로 간 설비는 좌표로 다시 잰다.
+// 문이 잇는 방(`connects`)도 같이 고친다.
+
+/** 한 층의 물리존과 설비 소속을 떠 둔다. 생성·삭제·분할·병합 전에 뜨면 되돌릴 수 있다. */
+export function snapshotStoreySpaces(model: Model, storeyId: string): Snapshot | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  return {
+    kind: 'storey-spaces',
+    storeyId,
+    spaces: [...storey.spaces],
+    fields: storey.spaces.map((space) => ({
+      space,
+      footprint: [...space.footprint],
+      areaM2: space.areaM2,
+      name: space.name,
+      longName: space.longName,
+      merged: space.merged ? [...space.merged] : undefined,
+    })),
+    equipment: storey.equipment.map((equipment) => ({ equipment, spaceId: equipment.spaceId, spaceSource: equipment.spaceSource })),
+    openings: storey.openings.map((o) => ({ id: o.id, connects: o.connects ? [...o.connects] : undefined })),
+  }
+}
+
+export type SpaceSetChange = {
+  storeyId: string
+  /** 새로 생긴 물리존 id(생성·분할). */
+  created: string[]
+  /** 없어진 물리존 id(삭제·병합). */
+  removed: string[]
+  /** 소속이 바뀐 설비. */
+  equipment: Change[]
+}
+
+function storeyOfSpace(model: Model, spaceId: string): Storey | null {
+  return model.storeys.find((s) => s.spaces.some((x) => x.id === spaceId)) ?? null
+}
+
+/** 없어진 물리존을 가리키던 것을 정리하고 층을 다시 판정한다. `rename` 은 합친 방처럼 다른 방으로 이어지는 것이다. */
+function settleStorey(
+  model: Model,
+  storey: Storey,
+  gone: Set<string>,
+  before: ReturnType<typeof snapshotSpaces>,
+  rename = new Map<string, string>(),
+): Change[] {
+  for (const e of storey.equipment) {
+    if (e.spaceSource === 'bim' && e.spaceId && gone.has(e.spaceId)) e.spaceSource = null
+  }
+  for (const o of storey.openings) {
+    if (!o.connects) continue
+    o.connects = [...new Set(o.connects.flatMap((id) => (rename.has(id) ? [rename.get(id)!] : gone.has(id) ? [] : [id])))]
+  }
+  for (const e of storey.equipment) assignEquipment(e, storey.spaces)
+  return diffSpaces(model, before, (id) => spaceLabel(model, id))
+}
+
+export type NewSpace = { name: string; longName: string; footprint: readonly Vec2[]; id?: string }
+
+/** 물리존을 만든다. 외곽선은 닫아서 넣는다. */
+export function createSpace(model: Model, storeyId: string, spec: NewSpace): SpaceSetChange | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  const points = openRing(spec.footprint)
+  if (!storey || points.length < 3) return null
+  const id = spec.id ?? newId()
+  if (findSpace(model, id)) return null
+  const ring = withClosing(points, true)
+  const before = snapshotSpaces(model)
+  storey.spaces.push({ id, name: spec.name, longName: spec.longName, footprint: ring, areaM2: polygonArea(ring), boundedBy: [], added: true })
+  return { storeyId: storey.id, created: [id], removed: [], equipment: settleStorey(model, storey, new Set(), before) }
+}
+
+/**
+ * 물리존을 지운다. **층에 하나 남은 물리존은 지우지 않는다** — 층이 비면 그 층 설비가 전부 층에만 걸린다.
+ * 지운 방의 설비는 좌표로 다시 판정되어 옆 방이나 층으로 간다.
+ */
+export function deleteSpace(model: Model, spaceId: string): SpaceSetChange | { refused: string } | null {
+  const storey = storeyOfSpace(model, spaceId)
+  if (!storey) return null
+  if (storey.spaces.length <= 1) return { refused: '층에 하나 남은 물리존은 지울 수 없습니다.' }
+  const before = snapshotSpaces(model)
+  storey.spaces = storey.spaces.filter((s) => s.id !== spaceId)
+  return { storeyId: storey.id, created: [], removed: [spaceId], equipment: settleStorey(model, storey, new Set([spaceId]), before) }
+}
+
+function pointInRing(p: Vec2, ring: readonly Vec2[]): boolean {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [xi, yi] = ring[i]
+    const [xj, yj] = ring[j]
+    if (yi > p[1] !== yj > p[1] && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside
+  }
+  return inside
+}
+
+/**
+ * 물리존을 두 점을 지나는 선으로 둘로 나눈다. 넓은 조각이 원래 id·이름을 갖고, 다른 조각은 새 id 에 `이름-2` 다.
+ * 나눌 수 없는 선이면(방을 안 지나거나 셋 이상으로 자르면) 이유를 돌려준다.
+ */
+export function splitSpace(
+  model: Model,
+  spaceId: string,
+  a: Vec2,
+  b: Vec2,
+  newSpaceId?: string,
+): SpaceSetChange | { refused: string } | null {
+  const storey = storeyOfSpace(model, spaceId)
+  const space = storey?.spaces.find((s) => s.id === spaceId)
+  if (!storey || !space) return null
+  const cut = splitRing(space.footprint, a, b)
+  if (!cut.ok) return { refused: cut.reason }
+  const [big, small] = [...cut.rings].sort((x, y) => polygonArea(y) - polygonArea(x))
+  const id = newSpaceId ?? newId()
+  if (findSpace(model, id)) return null
+  const before = snapshotSpaces(model)
+  space.footprint = big
+  space.areaM2 = polygonArea(big)
+  // 새 조각은 목록 끝에 둔다. 원래 방 바로 뒤에 끼우면 편집 파일에서 되살린 층과 순서(hasPart)가 달라진다.
+  storey.spaces.push({
+    id,
+    name: space.name ? `${space.name}-2` : '',
+    longName: space.longName ? `${space.longName}-2` : '',
+    footprint: small,
+    areaM2: polygonArea(small),
+    boundedBy: [],
+    added: true,
+  })
+  // BIM 이 원래 방에 둔 설비 중 새 조각에 든 것은 BIM 소속을 버린다. 원래 방은 이제 그 자리를 품지 않는다.
+  for (const e of storey.equipment) {
+    if (e.spaceSource === 'bim' && e.spaceId === spaceId && e.position && pointInRing([e.position[0], e.position[1]], small)) {
+      e.spaceSource = null
+    }
+  }
+  return { storeyId: storey.id, created: [id], removed: [], equipment: settleStorey(model, storey, new Set(), before) }
+}
+
+/**
+ * 두 물리존을 합친다. `keepId` 가 남고 외곽선이 둘을 합친 것이 된다. 벽 두께만큼 떨어진 방은 벽 자리까지 합친다
+ * (polygon.ts 의 unionRings). 같은 층이 아니거나 합칠 수 없는 모양이면 이유를 돌려준다. 문이 잇던 방은 남는 방으로
+ * 바뀌고, 두 방 사이의 문은 이제 한 방에만 걸린다.
+ */
+export function mergeSpaces(
+  model: Model,
+  keepId: string,
+  otherId: string,
+): (SpaceSetChange & { bridged: boolean }) | { refused: string } | null {
+  if (keepId === otherId) return null
+  const storey = storeyOfSpace(model, keepId)
+  const keep = storey?.spaces.find((s) => s.id === keepId)
+  if (!storey || !keep) return null
+  const other = storey.spaces.find((s) => s.id === otherId)
+  if (!other) return { refused: '같은 층의 물리존끼리만 합칩니다.' }
+  const union = unionRings(keep.footprint, other.footprint)
+  if (!union.ok) return { refused: union.reason }
+  const before = snapshotSpaces(model)
+  keep.footprint = union.ring
+  keep.areaM2 = polygonArea(union.ring)
+  return { ...absorb(model, storey, keep, other, before), bridged: union.bridged }
+}
+
+function absorb(model: Model, storey: Storey, keep: Space, other: Space, before: ReturnType<typeof snapshotSpaces>): SpaceSetChange {
+  keep.merged = [...(keep.merged ?? []), other.id, ...(other.merged ?? [])]
+  storey.spaces = storey.spaces.filter((s) => s !== other)
+  const equipment = settleStorey(model, storey, new Set([other.id]), before, new Map([[other.id, keep.id]]))
+  return { storeyId: storey.id, created: [], removed: [other.id], equipment }
+}
+
+/**
+ * 합친 방을 편집 파일에서 되살린다. 모양은 건드리지 않는다 — 남는 방의 외곽선은 편집 파일이 끝 모양으로 따로 적고,
+ * 합친 뒤에 그 외곽선을 또 고쳤을 수 있다. 합치기를 다시 계산하면 그 뒤의 편집이 덮인다(퍼징이 잡았다).
+ */
+export function absorbSpace(model: Model, keepId: string, otherId: string): SpaceSetChange | null {
+  if (keepId === otherId) return null
+  const storey = storeyOfSpace(model, keepId)
+  const keep = storey?.spaces.find((s) => s.id === keepId)
+  const other = storey?.spaces.find((s) => s.id === otherId)
+  if (!storey || !keep || !other) return null
+  return absorb(model, storey, keep, other, snapshotSpaces(model))
 }

@@ -63,11 +63,23 @@ import {
   setFlowDirection,
   summarize,
   wouldSelfIntersect,
+  addEquipment,
+  deleteEquipment,
+  renameEquipment,
+  snapshotEquipmentSet,
+  createSpace,
+  deleteSpace,
+  splitSpace,
+  mergeSpaces,
+  snapshotStoreySpaces,
   type Baseline,
   type BoundaryChange,
   type Change,
+  type SpaceSetChange,
   type Snapshot,
 } from './lib/edit'
+import { MERGE_GAP } from './lib/polygon'
+import { distanceToRing } from './lib/mapping'
 
 // 테마는 라이트가 기본이고, 고른 값만 저장한다. 선행 스크립트(index.html)가 첫 페인트
 // 전에 같은 값을 읽어 깜빡임을 막는다.
@@ -167,7 +179,12 @@ const changeCount = computed(
     sinceOpen.value.restoreyed.length +
     sinceOpen.value.moved.length +
     sinceOpen.value.connected.length +
-    sinceOpen.value.disconnected.length,
+    sinceOpen.value.disconnected.length +
+    sinceOpen.value.spacesAdded.length +
+    sinceOpen.value.spacesRemoved.length +
+    sinceOpen.value.equipmentAdded.length +
+    sinceOpen.value.equipmentRemoved.length +
+    sinceOpen.value.equipmentRenamed.length,
 )
 
 // 연 때의 값. 소속 관계 말고도 내보내는 파일을 바꾸는 편집(이름·방 안 이동·층)을 이것과 견줘 리포트에 올린다
@@ -177,7 +194,18 @@ const sinceOpen = computed(() => {
   const m = model.value
   return m && baseline.value
     ? diffBaseline(m, baseline.value)
-    : { renamed: [], moved: [], restoreyed: [], connected: [], disconnected: [] }
+    : {
+        renamed: [],
+        moved: [],
+        restoreyed: [],
+        connected: [],
+        disconnected: [],
+        spacesAdded: [],
+        spacesRemoved: [],
+        equipmentAdded: [],
+        equipmentRemoved: [],
+        equipmentRenamed: [],
+      }
 })
 const MOVED_NAMES = 5
 
@@ -555,6 +583,18 @@ function applySnapshot(s: Snapshot) {
     triggerRef(model)
     viewer?.updateSpaces(m)
     sceneVersion.value++
+  } else if (s.kind === 'equipment-set') {
+    // 더하거나 지운 설비. 형상·연결이 같이 바뀌니 3D 를 다시 그리고 규칙 방향 채점도 바꾼다.
+    if (rules) ruleReport.value = rules
+    if (!model.value?.storeys.some((st) => st.equipment.includes(s.equipment)) && selectedId.value === s.equipment.id) selectedId.value = null
+    triggerRef(model)
+    flowVersion.value++
+    redraw()
+  } else if (s.kind === 'storey-spaces') {
+    if (selectedSpaceId.value && !m.storeys.some((st) => st.spaces.some((x) => x.id === selectedSpaceId.value))) selectedSpaceId.value = null
+    triggerRef(model)
+    viewer?.updateSpaces(m)
+    sceneVersion.value++
   } else if (s.kind === 'kinds' || s.kind === 'connection') {
     // 종류·연결을 되돌리면 edit.ts 가 규칙 방향도 다시 돌렸다. 채점표도 그것으로 바꾼다.
     if (rules) ruleReport.value = rules
@@ -726,8 +766,12 @@ function stepIssue(dir: 1 | -1): boolean {
 /** Esc. 짚은 연결 → 고른 설비·물리존·계통 → 펼친 검사 순으로 하나씩 푼다. */
 function clearSelection(): boolean {
   if (drawing.value) {
+    const purpose = drawing.value.purpose
     stopDraw()
-    note('외곽선 그리기를 취소했습니다')
+    note(purpose === 'split' ? '나누기를 취소했습니다' : purpose === 'create' ? '물리존 그리기를 취소했습니다' : '외곽선 그리기를 취소했습니다')
+  } else if (adding.value) {
+    stopAdd()
+    note('설비 더하기를 취소했습니다')
   } else if (placing.value) {
     stopPlace()
     note('놓기를 취소했습니다')
@@ -1039,13 +1083,18 @@ const selectedSpace = computed(() => {
   return null
 })
 /** 외곽선이 없던 물리존에 3D 에서 찍어 가는 꼭짓점. 아래 "외곽선 그리기" 참조. */
-const drawing = ref<{ spaceId: string; name: string; elevation: number; points: Vec2[] } | null>(null)
+/**
+ * 3D 바닥에 점을 찍는 편집. `footprint` 는 외곽선이 없던 물리존에 외곽선을 그리는 것, `create` 는 새 물리존을 그리는
+ * 것(E3), `split` 은 두 점으로 나눌 선을 긋는 것(E3)이다.
+ */
+type Drawing = { purpose: 'footprint' | 'create' | 'split'; spaceId: string | null; storeyId: string; name: string; elevation: number; points: Vec2[] }
+const drawing = ref<Drawing | null>(null)
 watch([selectedSpace, editing, sceneVersion, drawing], () => {
   const picked = selectedSpace.value
   if (!viewer) return
   if (drawing.value) {
     const d = drawing.value
-    viewer.setSpaceHandles({ id: d.spaceId, ring: d.points, elevation: d.elevation, active: d.points.length ? d.points.length - 1 : null })
+    viewer.setSpaceHandles({ id: d.spaceId ?? 'new', ring: d.points, elevation: d.elevation, active: d.points.length ? d.points.length - 1 : null })
     return
   }
   if (!picked || !editing.value) {
@@ -1515,7 +1564,7 @@ const KIND_GROUPS = [
   { label: '이름으로 정하지 않는 종류 (BIM 값 또는 직접 선택)', kinds: EQUIPMENT_KINDS.filter((k) => k.manual) },
 ]
 // 종류의 출처. 사전이 읽은 것과 사람이 타입 단위로 정한 것을 가른다.
-const kindSrc = (e: Equipment) => (e.kindEdited ? 'edit' : e.kindSource === 'bim' ? 'bim' : 'dict')
+const kindSrc = (e: Equipment) => (e.kindEdited || e.added ? 'edit' : e.kindSource === 'bim' ? 'bim' : 'dict')
 
 /**
  * 이 설비가 무엇인지 한 낱말로. 종류가 있으면 종류(출처는 그 종류의 출처), 없으면 IFC 클래스를 우리말로(출처 BIM).
@@ -1681,7 +1730,7 @@ const kindEditLines = computed(() => {
   return [...rows.values()]
 })
 // Proxy 는 IFC 가 역할을 말하지 않아서, 역할도 이름 사전의 종류에서 나온다.
-const roleSrc = (e: Equipment) => (e.ifcClass === 'BuildingElementProxy' ? 'dict' : 'bim')
+const roleSrc = (e: Equipment) => (e.added ? 'edit' : e.ifcClass === 'BuildingElementProxy' ? 'dict' : 'bim')
 const positionSrc = (e: Equipment) =>
   e.positionSource === 'edited' ? 'edit' : e.positionSource === 'geometry' ? 'calc' : 'bim'
 const spaceSrc = (e: Equipment) => (e.spaceSource === 'bim' ? 'bim' : 'calc')
@@ -2161,6 +2210,12 @@ watch([selectedId, editing, viewStorey], () => {
 function placeAt(at: Vec2) {
   if (drawing.value) {
     drawing.value = { ...drawing.value, points: [...drawing.value.points, [cm(at[0]), cm(at[1])]] }
+    // 나눌 선은 두 점이면 끝난다.
+    if (drawing.value.purpose === 'split' && drawing.value.points.length === 2) finishDraw()
+    return
+  }
+  if (adding.value) {
+    addEquipmentAt(at)
     return
   }
   const id = placing.value
@@ -2235,7 +2290,7 @@ function startDraw(spaceId: string) {
   selectedId.value = null
   selectedSpaceId.value = null
   if (m!.storeys.length > 1) viewStorey.value = storey.id
-  drawing.value = { spaceId, name: space.longName || space.name, elevation: storey.elevation, points: [] }
+  drawing.value = { purpose: 'footprint', spaceId, storeyId: storey.id, name: space.longName || space.name, elevation: storey.elevation, points: [] }
   viewer?.setPlaceMode(storey.elevation)
   stage.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
@@ -2249,19 +2304,214 @@ function undoDrawPoint() {
 function finishDraw(): boolean {
   const d = drawing.value
   if (!d) return false
+  if (d.purpose === 'split') {
+    if (d.points.length < 2) {
+      note('나눌 선의 두 점을 찍어야 합니다')
+      return true
+    }
+    stopDraw()
+    const [a, b] = d.points
+    if (changeSpaces(d.storeyId, `${d.name} 나누기`, (m) => splitSpace(m, d.spaceId!, a, b))) {
+      selectedSpaceId.value = d.spaceId
+      note(`${d.name}을 둘로 나눴습니다. 새 조각의 이름은 오른쪽 패널에서 고칩니다`)
+    }
+    return true
+  }
   if (d.points.length < 3) {
     note('꼭짓점을 셋 이상 찍어야 합니다')
     return true
   }
   stopDraw()
-  if (changeFootprint(d.spaceId, `${d.name} 외곽선 그리기`, (m) => drawSpaceFootprint(m, d.spaceId, d.points))) {
-    selectedSpaceId.value = d.spaceId
+  if (d.purpose === 'create') {
+    const n = (model.value?.storeys ?? []).reduce((k, st) => k + st.spaces.filter((x) => x.added).length, 0) + 1
+    let created: string | null = null
+    const ok = changeSpaces(d.storeyId, '물리존 만들기', (m) => {
+      const done = createSpace(m, d.storeyId, { name: '', longName: `새 물리존 ${n}`, footprint: d.points })
+      created = done?.created[0] ?? null
+      return done
+    })
+    if (ok && created) {
+      selectedSpaceId.value = created
+      note(`새 물리존 ${n}을 만들었습니다. 이름은 오른쪽 패널에서 고칩니다`)
+    }
+    return true
+  }
+  const spaceId = d.spaceId!
+  if (changeFootprint(spaceId, `${d.name} 외곽선 그리기`, (m) => drawSpaceFootprint(m, spaceId, d.points))) {
+    selectedSpaceId.value = spaceId
     note(`${d.name}의 외곽선을 그렸습니다. 꼭짓점은 끌거나 [ ]로 골라 고칩니다`)
   }
   return true
 }
+
+// --- 물리존 만들기·지우기·나누기·합치기 (E3) --------------------------------------------------
+//
+// 경계 편집과 같이 넓이와 소속을 다시 재는데, 물리존이 생기고 없어져서 층 하나를 통째로 떠 두고 되돌린다
+// (snapshotStoreySpaces). 거절된 것(층의 마지막 방, 방을 셋으로 자르는 선, 맞닿지 않은 방)은 이유를 알린다.
+function changeSpaces(storeyId: string, label: string, apply: (m: Model) => SpaceSetChange | { refused: string } | null): boolean {
+  const m = model.value
+  if (!m) return false
+  const snapshot = snapshotStoreySpaces(m, storeyId)
+  const at = mark()
+  const done = apply(m)
+  if (!done) return false
+  if ('refused' in done) {
+    note(done.refused)
+    return false
+  }
+  remember(label, snapshot, at)
+  changes.value = [...changes.value, ...done.equipment]
+  triggerRef(model)
+  viewer?.updateSpaces(m)
+  sceneVersion.value++
+  return true
+}
+
+/** 새 물리존·설비를 넣을 층. 층 하나만 보는 중이면 그 층, 고른 물리존·설비가 있으면 그 층, 층이 하나면 그 층이다. */
+function targetStorey() {
+  const m = model.value
+  if (!m) return null
+  return (
+    m.storeys.find((st) => st.id === viewStorey.value) ??
+    selectedSpace.value?.storey ??
+    (selected.value ? storeyOf(selected.value.id) : null) ??
+    (m.storeys.length === 1 ? m.storeys[0] : null)
+  )
+}
+
+function startCreateSpace() {
+  const storey = targetStorey()
+  if (!storey) return note('물리존을 그릴 층을 먼저 고르세요(3D 오른쪽 위의 층 목록)')
+  stopPlace()
+  stopAdd()
+  connectFrom.value = null
+  selectedId.value = null
+  selectedSpaceId.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  drawing.value = { purpose: 'create', spaceId: null, storeyId: storey.id, name: `${storey.name} 새 물리존`, elevation: storey.elevation, points: [] }
+  viewer?.setPlaceMode(storey.elevation)
+}
+
+function startSplit() {
+  const picked = selectedSpace.value
+  if (!picked) return
+  stopPlace()
+  stopAdd()
+  const name = picked.space.longName || picked.space.name
+  drawing.value = { purpose: 'split', spaceId: picked.space.id, storeyId: picked.storey.id, name, elevation: picked.storey.elevation, points: [] }
+  viewer?.setPlaceMode(picked.storey.elevation)
+  note(`${name}을 나눌 선의 두 점을 바닥에 찍으세요 (Esc 취소)`)
+}
+
+function removeSpace() {
+  const picked = selectedSpace.value
+  if (!picked) return
+  const name = picked.space.longName || picked.space.name
+  const id = picked.space.id
+  if (changeSpaces(picked.storey.id, `${name} 지우기`, (m) => deleteSpace(m, id))) {
+    selectedSpaceId.value = null
+    note(`${name}을 지웠습니다. 그 안의 설비는 좌표로 다시 소속을 찾았습니다(Ctrl+Z 로 되돌립니다)`)
+  }
+}
+
+/** 고른 물리존과 합칠 수 있는 같은 층 방. 벽 두께(MERGE_GAP) 안에 있는 것만, 가까운 순으로. */
+const mergeCandidates = computed(() => {
+  const picked = selectedSpace.value
+  if (!picked || picked.space.footprint.length < 3) return []
+  const ring = picked.space.footprint
+  return picked.storey.spaces
+    .filter((x) => x !== picked.space && x.footprint.length >= 3)
+    .map((x) => ({
+      space: x,
+      gap: Math.min(...x.footprint.map((p) => distanceToRing(p, ring)), ...ring.map((p) => distanceToRing(p, x.footprint))),
+    }))
+    .filter((x) => x.gap <= MERGE_GAP)
+    .sort((a, b) => a.gap - b.gap)
+    .slice(0, 12)
+})
+
+function mergeInto(otherId: string) {
+  const picked = selectedSpace.value
+  if (!picked || !otherId) return
+  const other = picked.storey.spaces.find((x) => x.id === otherId)
+  const name = picked.space.longName || picked.space.name
+  const otherName = other ? other.longName || other.name : otherId
+  const keepId = picked.space.id
+  let bridged = false
+  const ok = changeSpaces(picked.storey.id, `${name} + ${otherName} 합치기`, (m) => {
+    const done = mergeSpaces(m, keepId, otherId)
+    if (done && 'bridged' in done) bridged = done.bridged
+    return done
+  })
+  if (ok) note(`${otherName}을 ${name}에 합쳤습니다${bridged ? '. 사이의 벽 자리도 방에 넣었습니다' : ''}`)
+}
+
+// --- 설비 더하기·지우기·이름 (E7) ---------------------------------------------------------
+//
+// 더하기는 [설비 더하기] 를 누르고 바닥을 누른다. 종류는 모르는 채 바닥 높이에 놓고 고르게 한다 — 종류와 높이를
+// 지어내지 않는다. 지우면 붙은 연결·계통 자리도 같이 빠지고 Ctrl+Z 로 그대로 돌아온다(edit.ts).
+const adding = ref<{ storeyId: string; elevation: number } | null>(null)
+function startAddEquipment() {
+  const storey = targetStorey()
+  if (!storey) return note('설비를 더할 층을 먼저 고르세요(3D 오른쪽 위의 층 목록)')
+  stopPlace()
+  stopDraw()
+  connectFrom.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  adding.value = { storeyId: storey.id, elevation: storey.elevation }
+  viewer?.setPlaceMode(storey.elevation)
+  note(`${storey.name}에 설비를 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
+}
+function stopAdd() {
+  if (!adding.value) return
+  adding.value = null
+  viewer?.setPlaceMode(null)
+}
+function addEquipmentAt(at: Vec2) {
+  const m = model.value
+  const target = adding.value
+  stopAdd()
+  if (!m || !target) return
+  const n = m.storeys.reduce((k, st) => k + st.equipment.filter((e) => e.added).length, 0) + 1
+  const mk = mark()
+  const e = addEquipment(m, target.storeyId, { name: `새 설비 ${n}`, kind: null, position: [cm(at[0]), cm(at[1]), cm(target.elevation)] })
+  if (!e) return
+  const snapshot = snapshotEquipmentSet(m, e.id)
+  if (snapshot?.kind === 'equipment-set') remember(`${e.name} 더하기`, { ...snapshot, present: false }, mk)
+  triggerRef(model)
+  redraw()
+  selectedId.value = e.id
+  note(`${e.name}을 바닥 높이에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`)
+}
+function removeEquipment(id: string) {
+  const m = model.value
+  if (!m) return
+  const name = nameOfId(id)
+  const snapshot = snapshotEquipmentSet(m, id)
+  const at = mark()
+  const done = deleteEquipment(m, id)
+  if (!done || !snapshot) return
+  remember(`${name} 지우기`, snapshot, at)
+  ruleReport.value = done.rules
+  if (selectedId.value === id) selectedId.value = null
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+  note(`${name}을 지웠습니다${done.connections ? `(연결 ${done.connections}개도 같이)` : ''}. Ctrl+Z 로 되돌립니다`)
+}
+function renameEquipmentTo(id: string, name: string) {
+  const m = model.value
+  const trimmed = name.trim()
+  if (!m || !trimmed) return
+  const snapshot = snapshotEquipment(m, id)
+  const at = mark()
+  if (!renameEquipment(m, id, trimmed)) return
+  remember(`${shortName(trimmed)} 이름 고침`, snapshot, at)
+  triggerRef(model)
+}
 watch(editing, (on) => {
   if (!on && drawing.value) stopDraw()
+  if (!on) stopAdd()
 })
 
 // --- 연결 잇기·끊기 -----------------------------------------------------------------
@@ -2321,7 +2571,8 @@ let autosaveTimer: number | undefined
 const draftKey = () => DRAFT_PREFIX + fileName.value
 const editCount = (f: EditFile) =>
   f.equipment.length + f.spaces.length + f.kinds.length + f.flows.length + f.confirmedSystems.length +
-  (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0)
+  (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0) +
+  (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0)
 
 watch(baseline, (b) => {
   autosaveArmed = false
@@ -2950,8 +3201,14 @@ function exportTTL() {
             <canvas ref="canvas"></canvas>
             <!-- 외곽선 그리기 중. 찍은 점 수와 마침·한 점 지우기·취소. -->
             <div v-if="drawing" class="draw-bar" role="status">
-              <b>{{ drawing.name }}</b> 외곽선 그리기 · 바닥을 눌러 꼭짓점을 찍습니다 · {{ drawing.points.length }}개
-              <button type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
+              <template v-if="drawing.purpose === 'split'">
+                <b>{{ drawing.name }}</b> 나누기 · 나눌 선의 두 점을 바닥에 찍습니다 · {{ drawing.points.length }}/2
+              </template>
+              <template v-else>
+                <b>{{ drawing.name }}</b> {{ drawing.purpose === 'create' ? '그리기' : '외곽선 그리기' }} · 바닥을 눌러 꼭짓점을 찍습니다 ·
+                {{ drawing.points.length }}개
+              </template>
+              <button v-if="drawing.purpose !== 'split'" type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
               <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
               <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
             </div>
@@ -2975,6 +3232,19 @@ function exportTTL() {
               >
                 내력벽
               </button>
+              <!-- 새 물리존·설비(E3·E7). 넣을 층은 층 하나만 보는 중이면 그 층이다(targetStorey). -->
+              <template v-if="editing && !drawing">
+                <button type="button" class="ghost" title="바닥에 꼭짓점을 찍어 새 물리존을 그립니다" @click="startCreateSpace">물리존 그리기</button>
+                <button
+                  type="button"
+                  :class="['ghost', { on: !!adding }]"
+                  :aria-pressed="!!adding"
+                  title="바닥을 눌러 새 설비를 놓습니다"
+                  @click="adding ? stopAdd() : startAddEquipment()"
+                >
+                  {{ adding ? '더하기 취소' : '설비 더하기' }}
+                </button>
+              </template>
               <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
               <select v-if="model.storeys.length > 1" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
                 <option :value="null">모든 층</option>
@@ -3046,7 +3316,8 @@ function exportTTL() {
               <h3>{{ selected.name || '(이름 없음)' }}</h3>
               <p class="stats">
                 <template v-if="whatIs(selected)">{{ whatIs(selected)!.label }} <Src :kind="whatIs(selected)!.src" /> · </template>
-                {{ selected.declaredType ?? selected.ifcClass }} <Src kind="bim" />
+                <template v-if="selected.added">에디터에서 더한 설비 <Src kind="edit" /></template>
+                <template v-else>{{ selected.declaredType ?? selected.ifcClass }} <Src kind="bim" /></template>
                 <template v-if="roleLabel(selected.role)"> · {{ roleLabel(selected.role) }} <Src :kind="roleSrc(selected)" /></template> ·
                 {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
                 <Src v-if="selected.systemId" kind="bim" /> ·
@@ -3059,6 +3330,23 @@ function exportTTL() {
               <button type="button" class="ghost" @click="select(null)">선택 해제</button>
             </div>
           </div>
+
+          <!-- 이름(태그) 고치기와 지우기(E7). 지우면 붙은 연결·계통 자리도 빠지고 Ctrl+Z 로 돌아온다. -->
+          <p v-if="editing" class="equipment-name-edit">
+            <label>
+              이름
+              <input
+                class="name-input"
+                type="text"
+                v-keep-typing
+                :value="selected.name"
+                @change="renameEquipmentTo(selected.id, ($event.target as HTMLInputElement).value)"
+              />
+            </label>
+            <button type="button" class="ghost danger" title="이 설비와 붙은 연결을 지웁니다 (Ctrl+Z 로 되돌림)" @click="removeEquipment(selected.id)">
+              설비 지우기
+            </button>
+          </p>
 
           <!-- 종류 지정. 사전이 모르거나 잘못 읽은 종류를 같은 패밀리 전부에 한 번에 정한다. -->
           <p v-if="editing" class="kind-edit">
@@ -3381,6 +3669,24 @@ function exportTTL() {
           <p class="hint">
             파란 손잡이를 끌어 경계를 고칩니다. 넓이와 설비 소속은 다시 계산됩니다. 경계선이 서로 교차하는 곳으로는
             옮길 수 없습니다. <kbd>[ ]</kbd>로 꼭짓점을 고르면 넣거나 지울 수 있습니다.
+          </p>
+          <!-- 나누기·합치기·지우기(E3). 합칠 방은 벽 두께 안의 같은 층 방만 가까운 순으로 보인다. -->
+          <p v-if="editing" class="space-tools">
+            <button type="button" class="ghost" :disabled="selectedSpace.space.footprint.length < 4" title="바닥에 선의 두 점을 찍어 둘로 나눕니다" @click="startSplit">
+              나누기
+            </button>
+            <label v-if="mergeCandidates.length">
+              <select :value="''" aria-label="합칠 물리존" @change="mergeInto(($event.target as HTMLSelectElement).value)">
+                <option value="" disabled>합칠 방 고르기…</option>
+                <option v-for="c in mergeCandidates" :key="c.space.id" :value="c.space.id">
+                  {{ c.space.longName || c.space.name || c.space.id }}{{ c.gap > 0.005 ? ` (벽 ${c.gap.toFixed(2)}m 너머)` : '' }}
+                </option>
+              </select>
+            </label>
+            <span v-else class="muted">맞닿은 방이 없어 합칠 수 없습니다</span>
+            <button type="button" class="ghost danger" :disabled="selectedSpace.storey.spaces.length <= 1" title="이 물리존을 지웁니다. 안의 설비는 좌표로 다시 소속을 찾습니다" @click="removeSpace">
+              지우기
+            </button>
           </p>
           <p v-if="editing && activeVertex !== null" class="vertex-tools">
             <span>꼭짓점 {{ activeVertex + 1 }}/{{ vertexCount }}</span>
@@ -4096,6 +4402,21 @@ function exportTTL() {
             </li>
             <li v-for="(c, i) in sinceOpen.disconnected" :key="`cut-${i}`">
               <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결을 끊었습니다
+            </li>
+            <li v-for="r in sinceOpen.spacesAdded" :key="`space-add-${r.id}`">
+              물리존 <b>{{ r.name || r.id }}</b>을 만들었습니다 (brick:hasPart, GeoJSON)
+            </li>
+            <li v-for="r in sinceOpen.spacesRemoved" :key="`space-rm-${r.id}`">
+              물리존 <b>{{ r.name }}</b>이 없어졌습니다(지우거나 합침). 그 안의 설비는 좌표로 다시 소속을 찾았습니다
+            </li>
+            <li v-for="r in sinceOpen.equipmentAdded" :key="`eq-add-${r.id}`">
+              설비 <b>{{ r.name }}</b>을 더했습니다 (brick:hasLocation)
+            </li>
+            <li v-for="r in sinceOpen.equipmentRemoved" :key="`eq-rm-${r.id}`">
+              설비 <b>{{ r.name }}</b>을 지웠습니다(붙은 연결도 같이)
+            </li>
+            <li v-for="r in sinceOpen.equipmentRenamed" :key="`eq-name-${r.id}`">
+              설비 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)
             </li>
             <li v-for="r in sinceOpen.renamed" :key="`name-${r.spaceId}`">
               물리존 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)

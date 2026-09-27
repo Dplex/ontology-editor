@@ -12,7 +12,27 @@ import { confirmSystemFlow } from './flow-rules'
 import { EQUIPMENT_KINDS } from './kinds'
 import { isConduit, type Model, type Vec2 } from './model'
 
-export const FUZZ_OPS = ['move', 'moveBack', 'storey', 'rename', 'vertex', 'insert', 'delete', 'kind', 'confirm', 'flow', 'add', 'remove'] as const
+export const FUZZ_OPS = [
+  'move',
+  'moveBack',
+  'storey',
+  'rename',
+  'vertex',
+  'insert',
+  'delete',
+  'kind',
+  'confirm',
+  'flow',
+  'add',
+  'remove',
+  'addEquipment',
+  'deleteEquipment',
+  'renameEquipment',
+  'createSpace',
+  'deleteSpace',
+  'splitSpace',
+  'mergeSpaces',
+] as const
 export type FuzzOp = (typeof FUZZ_OPS)[number]
 
 /**
@@ -37,6 +57,8 @@ export type FuzzResult = {
   missing: number
   /** 전부 되돌리면 연 때와 **순서까지** 같은가. */
   undoSame: boolean
+  /** 불러온 것이 다를 때 갈린 줄과 편집 파일 앞부분. */
+  detail?: string
 }
 
 /** `pristine` 은 건드리지 않는다. 사본에 편집하고, 편집 파일은 또 다른 사본에 얹는다. */
@@ -49,6 +71,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
   const m = structuredClone(pristine)
   const base = E.baselineOf(m)
   const undo: E.Snapshot[] = []
+  let detail = ''
   const log: string[] = []
   for (let step = 0; step < steps; step++) {
     const op = pick(ops)!
@@ -127,19 +150,101 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       if (!E.removeConnection(m, c)) continue
       undo.push(snapshot)
       log.push('remove')
+    } else if (op === 'addEquipment') {
+      const storey = pick(m.storeys)!
+      const near = pick(storey.spaces.filter((x) => x.footprint.length >= 4))
+      const at = near ? near.footprint[0] : ([0, 0] as Vec2)
+      const kind = r() < 0.3 ? null : pick(EQUIPMENT_KINDS)!.kind
+      // id 를 씨앗에서 짓는다. 같은 씨앗은 같은 편집을 해야 틀린 것을 다시 볼 수 있다.
+      const done = E.addEquipment(m, storey.id, {
+        id: `U_fuzz${seed}_${step}`,
+        name: `새 설비 ${step}`,
+        kind,
+        position: r() < 0.2 ? null : [at[0] + 0.5, at[1] + 0.5, storey.elevation + 2.5],
+      })
+      if (!done) continue
+      undo.push(E.snapshotEquipmentSet(m, done.id)!)
+      ;(undo.at(-1) as Extract<E.Snapshot, { kind: 'equipment-set' }>).present = false
+      log.push(`addEquipment ${done.name} (${kind})`)
+    } else if (op === 'deleteEquipment') {
+      const e = pick(m.storeys.flatMap((s) => s.equipment))
+      if (!e) continue
+      const snapshot = E.snapshotEquipmentSet(m, e.id)!
+      if (!E.deleteEquipment(m, e.id)) continue
+      undo.push(snapshot)
+      log.push(`deleteEquipment ${e.name}`)
+    } else if (op === 'renameEquipment') {
+      const e = pick(devices)
+      if (!e) continue
+      const snapshot = E.snapshotEquipment(m, e.id)!
+      if (!E.renameEquipment(m, e.id, `${e.name}*`)) continue
+      undo.push(snapshot)
+      log.push(`renameEquipment ${e.name}`)
+    } else if (op === 'createSpace') {
+      // 있는 방 오른쪽에 변을 맞대어 만든다. 그래야 합치기가 붙을 자리가 생긴다.
+      const storey = pick(m.storeys)!
+      const next = pick(storey.spaces.filter((x) => x.footprint.length >= 4))
+      const xs = next ? next.footprint.map((p) => p[0]) : [0]
+      const ys = next ? next.footprint.map((p) => p[1]) : [0]
+      const x0 = Math.max(...xs) + (r() < 0.5 ? 0 : 0.2)
+      const y0 = Math.min(...ys)
+      const w = 1 + Math.floor(r() * 4)
+      const snapshot = E.snapshotStoreySpaces(m, storey.id)!
+      const done = E.createSpace(m, storey.id, { id: `U_fuzz${seed}_${step}`, name: `N${step}`, longName: `새 방 ${step}`, footprint: [[x0, y0], [x0 + w, y0], [x0 + w, y0 + 3], [x0, y0 + 3]] })
+      if (!done) continue
+      undo.push(snapshot)
+      log.push(`createSpace ${step} @${x0}`)
+    } else if (op === 'deleteSpace' && room) {
+      const home = m.storeys.find((s) => s.spaces.includes(room))!
+      const snapshot = E.snapshotStoreySpaces(m, home.id)!
+      const done = E.deleteSpace(m, room.id)
+      if (!done || 'refused' in done) continue
+      undo.push(snapshot)
+      log.push(`deleteSpace ${room.name}`)
+    } else if (op === 'splitSpace' && room) {
+      const home = m.storeys.find((s) => s.spaces.includes(room))!
+      const xs = room.footprint.map((p) => p[0])
+      const cut = Math.min(...xs) + (Math.max(...xs) - Math.min(...xs)) * (0.2 + 0.6 * r())
+      const snapshot = E.snapshotStoreySpaces(m, home.id)!
+      const done = E.splitSpace(m, room.id, [cut, -1000], [cut + (r() < 0.5 ? 0 : 1), 1000], `U_fuzz${seed}_${step}`)
+      if (!done || 'refused' in done) continue
+      undo.push(snapshot)
+      log.push(`splitSpace ${room.name} @${cut.toFixed(2)}`)
+    } else if (op === 'mergeSpaces' && room) {
+      const home = m.storeys.find((s) => s.spaces.includes(room))!
+      const other = pick(home.spaces.filter((x) => x !== room && x.footprint.length >= 4))
+      if (!other) continue
+      const snapshot = E.snapshotStoreySpaces(m, home.id)!
+      const done = E.mergeSpaces(m, room.id, other.id)
+      if (!done || 'refused' in done) continue
+      undo.push(snapshot)
+      log.push(`mergeSpaces ${room.name} + ${other.name}`)
     }
   }
 
   const session = exportedContent(m)
-  const parsed = parseEditFile(JSON.stringify(exportEdits(m, base, 'fuzz')))
+  const text = JSON.stringify(exportEdits(m, base, 'fuzz'))
+  const parsed = parseEditFile(text)
   if (typeof parsed === 'string') throw new Error(parsed)
   const fresh = structuredClone(pristine)
   const applied = applyEdits(fresh, parsed)
-  const reloadSame = exportedContent(fresh) === session
+  const reloaded = exportedContent(fresh)
+  const reloadSame = reloaded === session
+  if (!reloadSame) {
+    // 어디서 갈렸는지 첫 몇 줄만. 씨앗 하나를 다시 돌려 볼 때 이것부터 본다.
+    const a = session.split(/\n|(?<=\},)/)
+    const b = new Set(reloaded.split(/\n|(?<=\},)/))
+    const as = new Set(a)
+    detail = [
+      ...a.filter((x) => !b.has(x)).slice(0, 4).map((x) => `- ${x.slice(0, 300)}`),
+      ...[...b].filter((x) => !as.has(x)).slice(0, 4).map((x) => `+ ${x.slice(0, 300)}`),
+      `file ${text.slice(0, 1500)}`,
+    ].join('\n')
+  }
 
   const opened = modelToTTL(pristine) + JSON.stringify(modelToGeoJSON(pristine))
   for (const s of undo.reverse()) E.restore(m, s)
   const undoSame = modelToTTL(m) + JSON.stringify(modelToGeoJSON(m)) === opened
 
-  return { log, reloadSame, missing: Object.values(applied.missing).reduce((a, b) => a + b, 0), undoSame }
+  return { log, reloadSame, missing: Object.values(applied.missing).reduce((a, b) => a + b, 0), undoSame, ...(detail ? { detail } : {}) }
 }
