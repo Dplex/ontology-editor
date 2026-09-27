@@ -401,12 +401,36 @@ test('완전성 검사는 규칙마다 통과 수를 세고, 어긴 것을 펼�
 
 test('문·창 형상은 기본으로 읽지 않고, 파일을 열기 전에 켤 수 있다', async ({ page }) => {
   await page.goto('/')
-  const option = page.getByRole('checkbox', { name: /문·창 형상도 읽기/ })
+  const option = page.getByRole('checkbox', { name: /문·창 자리/ })
   await expect(option).not.toBeChecked()
   await option.check()
   await page.reload()
   // 고른 값은 이 브라우저가 기억한다.
-  await expect(page.getByRole('checkbox', { name: /문·창 형상도 읽기/ })).toBeChecked()
+  await expect(page.getByRole('checkbox', { name: /문·창 자리/ })).toBeChecked()
+})
+
+test('벽·문·창은 피처 단위로 골라 읽고, 읽지 않은 것은 요구사항에서 "없음" 이 아니다', async ({ page }) => {
+  await page.goto('/')
+  const walls = page.getByRole('checkbox', { name: '벽', exact: true })
+  await expect(walls).toBeChecked()
+  await walls.uncheck()
+  await page.getByRole('checkbox', { name: '창', exact: true }).uncheck()
+  // 문도 창도 끄면 문·창 자리는 고를 수 없다.
+  await page.getByRole('checkbox', { name: '문', exact: true }).uncheck()
+  await expect(page.getByRole('checkbox', { name: /문·창 자리/ })).toBeDisabled()
+  await page.getByRole('checkbox', { name: '문', exact: true }).check()
+
+  await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  const tiles = page.locator('.tiles')
+  // 0 이 아니라 "읽지 않음" 이다. 0 이면 BIM 에 벽이 없다는 말이 된다.
+  await expect(tiles.locator('li.skipped', { hasText: '벽' })).toContainText('읽지 않음')
+  await expect(tiles.locator('li.skipped', { hasText: '창문' })).toContainText('읽지 않음')
+  await expect(tiles.locator('li', { hasText: '내력벽' })).toHaveCount(0)
+  await expect(tiles.locator('li', { hasText: '문' }).first()).toBeVisible()
+  // 요구사항 R23(벽의 내력 속성)은 잴 수 없음이다.
+  await page.locator('.requirements .fold-head').click()
+  await expect(page.locator('.requirements tr', { hasText: 'R23' })).toContainText('벽을 읽지 않고 열었습니다')
 })
 
 test('편집 뒤 화면이 다시 그려져도 치고 있던 칸은 지워지지 않는다', async ({ page }) => {

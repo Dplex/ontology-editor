@@ -104,6 +104,11 @@ export type Opening = {
    */
   connects?: string[]
   connectsSource?: 'bim' | 'calc'
+  /** 벽을 뚫는 방향(단위 벡터)과 그 방향 두께(미터). 형상에서 잰다. 옮긴 문의 양쪽 방을 다시 짚을 때 쓴다. */
+  through?: Vec2
+  depth?: number
+  /** 사람이 에디터에서 더한 문·창(E4). */
+  added?: true
 }
 
 /**
@@ -309,6 +314,11 @@ export type Model = {
   connections: Connection[]
   /** 임포트가 그냥 넘어간 것들. 조용히 비는 대신 화면에 뜬다. */
   warnings: string[]
+  /**
+   * 임포트 때 사람이 읽지 않기로 한 피처(ImportOptions). 벽·문·창이 0 이어도 "BIM 에 없다" 가 아니라 "읽지 않았다" 일
+   * 수 있어서 따로 적는다. 합치면 어느 한쪽이라도 읽지 않은 것이다.
+   */
+  skipped?: ('walls' | 'doors' | 'windows')[]
   /**
    * 모델 요소로는 남지 않는 파일의 사실. 요구사항 보고서(requirements.ts)가 쓴다. 손으로 만든 모델에는 없다.
    * 두 파일을 합치면 둘 다 참일 때만 참이다(위경도는 한쪽만 있어도 참).

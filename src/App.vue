@@ -113,6 +113,8 @@ let viewer: Viewer | null = null
 let meshes: MeshMap = new Map()
 
 const counts = computed(() => (model.value ? countOf(model.value) : null))
+/** 임포트 때 읽지 않기로 한 피처(벽·문·창). 숫자 칸이 0 대신 "읽지 않음" 을 보인다. */
+const skipped = computed(() => new Set(model.value?.skipped ?? []))
 /** 문이 잇는 방(방-문-방 그래프). GeoJSON 문 feature 의 connects 로 나간다. */
 const doorLinks = computed(() => {
   const doors = (model.value?.storeys ?? []).flatMap((s) => s.openings).filter((o) => o.kind === 'door' && o.connects)
@@ -167,6 +169,33 @@ watch(readOpenings, (on) => {
     // 못 써도 이번 창에서는 그대로 돈다.
   }
 })
+
+// 벽·문·창을 읽을까(피처 단위). 셋 다 GeoJSON 에만 나가고 온톨로지(TTL)에는 필요 없어서, 큰 파일을 빨리 열거나
+// 설비만 볼 때 끈다. 기본은 예전처럼 다 읽는다. 끈 것은 모델에 "읽지 않음" 으로 적혀 요구사항 보고서가 "없음" 과 가른다.
+type ReadFeatures = { walls: boolean; doors: boolean; windows: boolean }
+const readFeatures = ref<ReadFeatures>(
+  (() => {
+    const all = { walls: true, doors: true, windows: true }
+    try {
+      const saved = JSON.parse(localStorage.getItem('oe-read-features') ?? 'null') as Partial<ReadFeatures> | null
+      return saved ? { ...all, ...saved } : all
+    } catch {
+      return all
+    }
+  })(),
+)
+watch(
+  readFeatures,
+  (v) => {
+    try {
+      localStorage.setItem('oe-read-features', JSON.stringify(v))
+    } catch {
+      // 못 써도 이번 창에서는 그대로 돈다.
+    }
+  },
+  { deep: true },
+)
+const readOpeningShapes = computed(() => readOpenings.value && (readFeatures.value.doors || readFeatures.value.windows))
 /** 편집 막대에 보이는 바뀐 것의 수. 리포트(바뀌는 것)에 적히는 줄과 같은 단위로 센다. */
 const changeCount = computed(
   () =>
@@ -2081,7 +2110,11 @@ function importInWorker(bytes: ArrayBuffer): Promise<{ model: Model; meshes: Mes
       reject(new Error(e.message || '임포트 워커가 멈췄습니다'))
     }
     w.postMessage(
-      { bytes, wasmBase: new URL(import.meta.env.BASE_URL, location.href).href, options: { openings: readOpenings.value } },
+      {
+        bytes,
+        wasmBase: new URL(import.meta.env.BASE_URL, location.href).href,
+        options: { openings: readOpeningShapes.value, ...readFeatures.value },
+      },
       [bytes],
     )
   })
@@ -3064,12 +3097,20 @@ function exportTTL() {
         파일 선택
         <input type="file" accept=".ifc" :disabled="busy" @change="onPick" />
       </label>
-      <!-- 로봇 경로용. 온톨로지에는 없어도 되고 큰 파일은 느려져서 기본은 끈다. 다음에 여는 파일부터 적용된다. -->
-      <label class="read-option">
-        <input v-model="readOpenings" type="checkbox" :disabled="busy" />
-        문·창 형상도 읽기
-        <span class="muted">로봇 경로용입니다. 온톨로지에는 필요 없고, 큰 파일은 느려집니다.</span>
-      </label>
+      <!-- 피처 단위로 읽을 것. 물리존·설비는 늘 읽는다. 다음에 여는 파일부터 적용된다. -->
+      <fieldset class="read-option features" :disabled="busy">
+        <legend>읽을 것</legend>
+        <label><input v-model="readFeatures.walls" type="checkbox" /> 벽</label>
+        <label><input v-model="readFeatures.doors" type="checkbox" /> 문</label>
+        <label><input v-model="readFeatures.windows" type="checkbox" /> 창</label>
+        <label :class="{ off: !readFeatures.doors && !readFeatures.windows }">
+          <input v-model="readOpenings" type="checkbox" :disabled="!readFeatures.doors && !readFeatures.windows" /> 문·창 자리(형상)
+        </label>
+        <span class="muted">
+          물리존·설비는 늘 읽습니다. 벽·문·창은 GeoJSON에만 나가고 온톨로지(TTL)에는 필요 없어서, 끄면 큰 파일이 빨리
+          열립니다. 문·창 자리는 로봇 경로와 문·창 옮기기에 씁니다.
+        </span>
+      </fieldset>
 
     </section>
 
@@ -3129,10 +3170,19 @@ function exportTTL() {
               열기
               <input type="file" accept=".ifc" :disabled="busy" @change="onPick" />
             </label>
-            <label class="read-option compact" title="문·창 형상도 읽기. 다음에 여는 파일부터 적용됩니다. 로봇 경로용이며 큰 파일은 느려집니다.">
-              <input v-model="readOpenings" type="checkbox" :disabled="busy" />
-              문·창
-            </label>
+            <!-- 다음에 열 파일에서 읽을 피처. 첫 화면의 "읽을 것" 과 같은 값이다. -->
+            <details class="read-menu">
+              <summary title="다음에 여는 파일에서 읽을 것">읽을 것</summary>
+              <fieldset class="read-option features" :disabled="busy">
+                <label><input v-model="readFeatures.walls" type="checkbox" /> 벽</label>
+                <label><input v-model="readFeatures.doors" type="checkbox" /> 문</label>
+                <label><input v-model="readFeatures.windows" type="checkbox" /> 창</label>
+                <label :class="{ off: !readFeatures.doors && !readFeatures.windows }">
+                  <input v-model="readOpenings" type="checkbox" :disabled="!readFeatures.doors && !readFeatures.windows" /> 문·창 자리(형상)
+                </label>
+                <span class="muted">다음에 여는 파일부터 적용됩니다.</span>
+              </fieldset>
+            </details>
             <!-- 건축과 설비가 다른 파일일 때. 편집을 시작한 뒤에는 닫는다(canAppend 주석 참조). -->
             <label v-if="canAppend" class="ghost append" title="건축 파일과 설비 파일 합치기. 합쳐야 설비가 어느 방에 있는지 나옵니다.">
               덧붙이기
@@ -3760,8 +3810,11 @@ function exportTTL() {
         <ul class="tiles">
           <li><b>{{ counts.storeys }}</b><span>층</span><Src kind="bim" /></li>
           <li><b>{{ counts.spaces }}</b><span>물리존</span><Src kind="bim" /></li>
-          <li><b>{{ counts.walls }}</b><span>벽</span><Src kind="bim" /></li>
-          <li :class="{ wide: doorLinks.total > 0 }">
+          <!-- 읽지 않기로 한 피처는 0 이 아니라 "읽지 않음" 이다. 0 이면 BIM 에 없다는 말이 된다. -->
+          <li v-if="skipped.has('walls')" class="skipped"><b>–</b><span>벽</span><small>읽지 않음</small></li>
+          <li v-else><b>{{ counts.walls }}</b><span>벽</span><Src kind="bim" /></li>
+          <li v-if="skipped.has('doors')" class="skipped"><b>–</b><span>문</span><small>읽지 않음</small></li>
+          <li v-else :class="{ wide: doorLinks.total > 0 }">
             <b>{{ counts.doors }}</b><span>문</span><Src kind="bim" />
             <!-- 방-문-방. BIM 의 공간 경계가 말하면 BIM, 없으면 문 양쪽을 좌표로 짚은 계산이다. -->
             <small v-if="doorLinks.total > 0">
@@ -3770,8 +3823,9 @@ function exportTTL() {
               <template v-if="doorLinks.calc"><Src kind="calc" /></template>
             </small>
           </li>
-          <li><b>{{ counts.windows }}</b><span>창문</span><Src kind="bim" /></li>
-          <li><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span><Src kind="bim" /></li>
+          <li v-if="skipped.has('windows')" class="skipped"><b>–</b><span>창문</span><small>읽지 않음</small></li>
+          <li v-else><b>{{ counts.windows }}</b><span>창문</span><Src kind="bim" /></li>
+          <li v-if="!skipped.has('walls')"><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span><Src kind="bim" /></li>
           <!-- 설비를 하나로 세면 대수가 부푼다. 실측에서 85%가 덕트·배관이었다.
                Proxy 는 IFC 가 설비라고 말하지 않은 것을 사전이 설비로 받은 것이라 따로 센다. -->
           <li :class="{ wide: proxyDevices.ported + proxyDevices.named > 0 }">
@@ -4438,7 +4492,7 @@ function exportTTL() {
           <b>내보내기</b>(도구막대의 GeoJSON · TTL).
           두 파일은 같은 id로 연결됩니다. 형상은 GeoJSON, 설비와 계통의 관계는 TTL에 들어갑니다.
           벽·문·창과 문이 잇는 방은 GeoJSON에만 있습니다(Brick에 건축 부재 클래스가 없음).
-          문·창 위치는 '문·창 형상도 읽기'를 켜고 연 파일에서만 나갑니다.
+          벽·문·창은 '읽을 것'에서 켠 것만 들어가고, 문·창 위치는 '문·창 자리'를 켜고 연 파일에서만 나갑니다.
           TTL의 설비·방 클래스는 <Src kind="dict" /> 기준이고, 규칙 방향은 확정한 계통만 들어갑니다.
         </p>
       </section>

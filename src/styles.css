@@ -1789,6 +1789,74 @@ th {
   font-size: 0.78rem;
 }
 
+/* 피처 단위로 읽을 것. 체크 넷과 설명 한 줄. */
+fieldset.read-option.features {
+  align-items: center;
+  max-width: 34rem;
+  margin-inline: auto;
+  padding: 0;
+  border: 0;
+  cursor: default;
+}
+
+fieldset.read-option.features legend {
+  float: left;
+  margin-right: 0.35rem;
+  padding: 0;
+  font-weight: 600;
+}
+
+fieldset.read-option.features label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-right: 0.4rem;
+  cursor: pointer;
+}
+
+fieldset.read-option.features label.off {
+  color: var(--muted);
+}
+
+fieldset.read-option.features .muted {
+  flex-basis: 100%;
+  text-align: center;
+}
+
+/* 도구막대의 "읽을 것". 펼치면 아래로 뜬다. */
+.read-menu {
+  position: relative;
+  font-size: 0.8rem;
+}
+
+.read-menu summary {
+  color: var(--muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.read-menu summary::after {
+  content: ' ▾';
+}
+
+.read-menu[open] fieldset.read-option.features {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.4rem);
+  left: 0;
+  width: 16rem;
+  margin: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.read-menu fieldset.read-option.features .muted {
+  text-align: left;
+}
+
 /* --- 단축키 ------------------------------------------------------------------ */
 
 /* 키 모양. 화면 곳곳(편집 막대, 3D 안내, 단축키 안내)이 같은 모양을 쓴다. */

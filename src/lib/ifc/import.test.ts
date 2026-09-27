@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { anchorToGeometry, importIfc, numbers, UnreadableIfcError, type MeshMap } from './import'
 import { countOf, type Equipment, type Model } from '../model'
 import { trace } from '../topology'
+import { requirementsReport } from '../requirements'
 
 // 픽스처는 손으로 쓴 최소 IFC4 다(fixtures/two-rooms.ifc). 무엇이 들어가면 무엇이 나오는지
 // 파일 하나만 열어 보면 다 보이도록, 바깥에서 받아 온 큰 모델 대신 이걸 기준으로 삼는다.
@@ -466,5 +467,35 @@ describe('Proxy 로 들어온 설비', () => {
     expect(arrows).toContainEqual([fcu, duct])
     expect(arrows).toContainEqual([duct, diffuser])
     expect(proxy.warnings.some((w) => w.includes('Proxy(IfcBuildingElementProxy) 2개'))).toBe(true)
+  })
+})
+
+describe('피처 단위로 골라 읽기 (벽·문·창)', () => {
+  let api: WebIFC.IfcAPI
+  const bytes = () => new Uint8Array(readFileSync(fileURLToPath(new URL('./fixtures/two-rooms.ifc', import.meta.url))))
+  beforeAll(async () => {
+    api = new WebIFC.IfcAPI()
+    await api.Init()
+  }, 60_000)
+
+  it('끈 피처는 모델에 넣지 않고, 읽지 않았다고 적는다', () => {
+    const m = importIfc(api, bytes(), { walls: false, windows: false })
+    const c = countOf(m)
+    expect({ walls: c.walls, doors: c.doors, windows: c.windows, spaces: c.spaces }).toEqual({ walls: 0, doors: 1, windows: 0, spaces: 3 })
+    expect(m.skipped).toEqual(['walls', 'windows'])
+    // 벽 경고(두께·내력)도 나오지 않는다. 읽지 않은 것을 "없다" 고 말하지 않는다.
+    expect(m.warnings.some((w) => w.includes('벽'))).toBe(false)
+  })
+
+  it('요구사항 보고서는 읽지 않은 피처를 "없음" 이 아니라 잴 수 없음으로 둔다', () => {
+    const rows = requirementsReport(importIfc(api, bytes(), { walls: false }))
+    expect(rows.find((r) => r.id === 'R23')?.state).toBe('unmeasured')
+    expect(rows.find((r) => r.id === 'R4')?.state).toBe('unmeasured')
+    const all = requirementsReport(importIfc(api, bytes()))
+    expect(all.find((r) => r.id === 'R23')?.state).not.toBe('unmeasured')
+  })
+
+  it('기본은 다 읽는다', () => {
+    expect(importIfc(api, bytes()).skipped).toBeUndefined()
   })
 })

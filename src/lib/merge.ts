@@ -275,6 +275,7 @@ export function mergeModels(
     systems: [...systems.values()],
     connections: [...connections.values()],
     warnings: [...a.warnings.map((w) => `[${labels.base}] ${w}`), ...b.warnings.map((w) => `[${labels.overlay}] ${w}`)],
+    ...(a.skipped || b.skipped ? { skipped: [...new Set([...(a.skipped ?? []), ...(b.skipped ?? [])])] } : {}),
     ...(a.facts && b.facts
       ? {
           facts: {

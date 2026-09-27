@@ -211,7 +211,10 @@ function placeWallsAndOpenings(
     }
   }
 
-  const openingIDs = openings ? new Set([...idsOf(WebIFC.IFCDOOR), ...idsOf(WebIFC.IFCWINDOW)]) : new Set<number>()
+  const loaded = new Set(result.storeys.flatMap((s) => s.openings.map((o) => o.id)))
+  const openingIDs = openings
+    ? new Set([...idsOf(WebIFC.IFCDOOR), ...idsOf(WebIFC.IFCWINDOW)].filter((id) => loaded.has(globalIdOf(id))))
+    : new Set<number>()
   const openingMeshes = readMeshes(api, modelID, openingIDs, globalIdOf)
   const declared = new Map<string, string[]>()
   for (const storey of result.storeys) {
@@ -224,6 +227,11 @@ function placeWallsAndOpenings(
       const mesh = openingMeshes.get(o.id)
       const placement = mesh ? openingPlacement(mesh) : null
       if (openings) o.position = placement?.position ?? null
+      // 벽을 뚫는 방향과 두께. 문을 옮기거나 방 경계를 고친 뒤 문 양쪽 방을 다시 짚을 때 쓴다(edit.ts 의 relinkDoors).
+      if (placement) {
+        o.through = placement.through
+        o.depth = placement.depth
+      }
       if (o.kind !== 'door') continue
       const bim = declared.get(o.id)
       if (bim?.length) {
@@ -962,8 +970,8 @@ export class UnreadableIfcError extends Error {
 }
 
 /** IFC 바이트를 읽어 중간 모델을 만든다. 호출부가 api 를 넘겨 초기화를 통제한다. */
-export function importIfc(api: Api, bytes: Uint8Array): Model {
-  return read(api, bytes, false).model
+export function importIfc(api: Api, bytes: Uint8Array, options: ImportOptions = {}): Model {
+  return read(api, bytes, false, undefined, options).model
 }
 
 /**
@@ -982,6 +990,14 @@ export type ImportOptions = {
    * 문·창 591개의 형상을 더 읽는다. 공간 경계가 말한 문-방은 이 옵션과 상관없이 늘 읽는다.
    */
   openings?: boolean
+  /**
+   * 벽·문·창을 읽을지(피처 단위, 기본은 다 읽는다). 셋 다 GeoJSON 에만 나가고 TTL 에는 없어서 **온톨로지에는 필요
+   * 없다.** 벽은 3D 내력벽·요구사항 R23, 문은 방-문-방(F15), 창은 개구부(F4)에 쓴다. 끄면 그 요소를 모델에 넣지 않고
+   * `Model.skipped` 에 적는다 — 요구사항 보고서가 "없음" 과 "읽지 않음" 을 가른다.
+   */
+  walls?: boolean
+  doors?: boolean
+  windows?: boolean
 }
 
 export function importIfcWithMeshes(
@@ -1019,6 +1035,14 @@ function read(
     if (!unitFound) {
       warnings.push('길이 단위 선언이 없어 미터로 가정했습니다. 치수가 모두 틀릴 수 있습니다.')
     }
+    const readWalls = options.walls !== false
+    const readDoors = options.doors !== false
+    const readWindows = options.windows !== false
+    const skipped: NonNullable<Model['skipped']> = [
+      ...(readWalls ? [] : (['walls'] as const)),
+      ...(readDoors ? [] : (['doors'] as const)),
+      ...(readWindows ? [] : (['windows'] as const)),
+    ]
     stage(1)
     const loadBearing = r.loadBearingByElement()
     const capacity = r.capacityByElement()
@@ -1215,6 +1239,7 @@ function read(
         switch (el?.type) {
           case WebIFC.IFCWALL:
           case WebIFC.IFCWALLSTANDARDCASE:
+            if (!readWalls) break
             walls.push({
               id,
               name,
@@ -1223,10 +1248,10 @@ function read(
             })
             break
           case WebIFC.IFCDOOR:
-            openings.push(openingOf(el, id, name, 'door', elementID, wallOfOpening, globalIdOf, scale))
+            if (readDoors) openings.push(openingOf(el, id, name, 'door', elementID, wallOfOpening, globalIdOf, scale))
             break
           case WebIFC.IFCWINDOW:
-            openings.push(openingOf(el, id, name, 'window', elementID, wallOfOpening, globalIdOf, scale))
+            if (readWindows) openings.push(openingOf(el, id, name, 'window', elementID, wallOfOpening, globalIdOf, scale))
             break
           default:
             if (!mepIDs.has(elementID)) break
@@ -1331,6 +1356,7 @@ function read(
       systems,
       connections: r.portConnections(globalIdOf),
       warnings,
+      ...(skipped.length ? { skipped } : {}),
       facts: {
         lengthUnit: unitFound,
         // IfcMapConversion 은 IFC4 부터 있다. IFC2x3 에서는 늘 0 이다.
@@ -1342,7 +1368,7 @@ function read(
     const allEquipment = storeys.flatMap((s) => s.equipment)
     // 벽 형상은 3D 에서 내력벽을 보이는 데만 쓴다. 설비 형상과 따로 읽어 두었다가 맨 끝에 합친다 —
     // 먼저 합치면 형상으로 연결을 추정할 때 벽까지 배관으로 센다.
-    const wallIDs = withMeshes ? new Set(r.ids(WebIFC.IFCWALL, true)) : new Set<number>()
+    const wallIDs = withMeshes && readWalls ? new Set(r.ids(WebIFC.IFCWALL, true)) : new Set<number>()
     const meshTotal = mepIDs.size + wallIDs.size
     if (withMeshes) stage(3, 0, meshTotal)
     const meshes: MeshMap = withMeshes

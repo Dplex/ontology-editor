@@ -155,7 +155,11 @@ export function requirementsReport(
     set('R3', { ...counted(both, 0, spaces.length), note: spaces.length ? '방 번호(Name)와 이름(LongName)이 모두 있는 공간입니다.' : '공간이 없습니다.' })
   }
 
-  {
+  // 임포트 때 읽지 않기로 한 피처는 "없음" 이 아니라 잴 수 없음이다(Model.skipped).
+  const skipped = new Set(model.skipped ?? [])
+  if (skipped.has('walls') || (skipped.has('doors') && skipped.has('windows'))) {
+    set('R4', unmeasured(skipped.has('walls') ? '벽을 읽지 않고 열었습니다. 벽·문·창을 읽도록 켜고 다시 여세요.' : '문·창을 읽지 않고 열었습니다.'))
+  } else {
     const hung = openings.filter((o) => o.wallId !== null).length
     set('R4', { ...counted(hung, 0, openings.length), note: openings.length ? '어느 벽에 있는지 아는 문·창입니다.' : '문·창이 없습니다. 설비 파일이면 건축 파일을 덧붙이세요.' })
   }
@@ -317,7 +321,8 @@ export function requirementsReport(
     })
   }
 
-  {
+  if (skipped.has('walls')) set('R23', unmeasured('벽을 읽지 않고 열었습니다. 벽을 읽도록 켜고 다시 여세요.'))
+  else {
     const known = walls.filter((w) => w.loadBearing !== null)
     const trues = known.filter((w) => w.loadBearing).length
     const uniform = known.length >= 20 && (trues === 0 || trues === known.length)
