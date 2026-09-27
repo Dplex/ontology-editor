@@ -334,6 +334,12 @@ export type SystemKindInfo = {
    * 급기는 공조기에서 디퓨저로 나가고, 환기·배기는 그릴에서 공조기·팬으로 들어온다.
    */
   sense: 'out' | 'in'
+  /**
+   * TTL 계통 클래스. Brick 에는 급기·환기를 가르는 계통 클래스가 없어서 공기 계통은 `brick:Air_System` 하나이고,
+   * 급기인지 환기인지는 `ex:systemKind` 로 따로 적는다. 급수(냉수)는 Brick 에 맞는 계통 클래스가 없어 윗 클래스
+   * `brick:Water_System` 으로 둔다 — 없는 이름을 지어내는 것보다 덜 구체적인 쪽이 안전하다.
+   */
+  brick: string
 }
 
 /**
@@ -343,14 +349,14 @@ export type SystemKindInfo = {
  * 위생(배수)은 넣지 않았다. 흐름을 내보내는 원천 기기가 없어서 이 규칙으로는 방향을 못 정한다.
  */
 export const SYSTEM_KINDS: SystemKindInfo[] = [
-  { kind: 'supply_air', label: '급기', test: /급기|supply\s*air/i, medium: 'air', sense: 'out' },
-  { kind: 'exhaust_air', label: '배기', test: /공기\s*배출|배기|exhaust|extract\s*air/i, medium: 'air', sense: 'in' },
-  { kind: 'return_air', label: '환기', test: /순환\s*공기|환기|return\s*air/i, medium: 'air', sense: 'in' },
-  { kind: 'outside_air', label: '외기', test: /외기|outside\s*air|outdoor\s*air/i, medium: 'air', sense: 'out' },
-  { kind: 'hydronic_supply', label: '순환수 공급', test: /순환수\s*공급|hydronic\s*supply|냉온수\s*공급|(heat(ing)?|cooling)\s*flow|supply\s*water/i, medium: 'water', sense: 'out' },
-  { kind: 'hydronic_return', label: '순환수 환수', test: /순환수\s*순환|순환수\s*환수|hydronic\s*return|냉온수\s*환수|(heat(ing)?|cooling)\s*return|return\s*water/i, medium: 'water', sense: 'in' },
-  { kind: 'domestic_hot_water', label: '급탕', test: /가정용\s*온수|급탕|domestic\s*hot|hot\s*water/i, medium: 'water', sense: 'out' },
-  { kind: 'domestic_cold_water', label: '급수', test: /가정용\s*냉수|급수|domestic\s*cold|cold\s*water/i, medium: 'water', sense: 'out' },
+  { kind: 'supply_air', label: '급기', test: /급기|supply\s*air/i, medium: 'air', sense: 'out', brick: 'brick:Air_System' },
+  { kind: 'exhaust_air', label: '배기', test: /공기\s*배출|배기|exhaust|extract\s*air/i, medium: 'air', sense: 'in', brick: 'brick:Air_System' },
+  { kind: 'return_air', label: '환기', test: /순환\s*공기|환기|return\s*air/i, medium: 'air', sense: 'in', brick: 'brick:Air_System' },
+  { kind: 'outside_air', label: '외기', test: /외기|outside\s*air|outdoor\s*air/i, medium: 'air', sense: 'out', brick: 'brick:Ventilation_Air_System' },
+  { kind: 'hydronic_supply', label: '순환수 공급', test: /순환수\s*공급|hydronic\s*supply|냉온수\s*공급|(heat(ing)?|cooling)\s*flow|supply\s*water/i, medium: 'water', sense: 'out', brick: 'brick:Water_System' },
+  { kind: 'hydronic_return', label: '순환수 환수', test: /순환수\s*순환|순환수\s*환수|hydronic\s*return|냉온수\s*환수|(heat(ing)?|cooling)\s*return|return\s*water/i, medium: 'water', sense: 'in', brick: 'brick:Water_System' },
+  { kind: 'domestic_hot_water', label: '급탕', test: /가정용\s*온수|급탕|domestic\s*hot|hot\s*water/i, medium: 'water', sense: 'out', brick: 'brick:Domestic_Hot_Water_System' },
+  { kind: 'domestic_cold_water', label: '급수', test: /가정용\s*냉수|급수|domestic\s*cold|cold\s*water/i, medium: 'water', sense: 'out', brick: 'brick:Water_System' },
 ]
 
 const SYSTEM_BY_KIND = new Map(SYSTEM_KINDS.map((k) => [k.kind, k]))

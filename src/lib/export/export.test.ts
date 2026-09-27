@@ -165,11 +165,19 @@ describe('설비 내보내기', () => {
     expect(out).not.toContain('ex:nominalAirFlowRate')
   })
 
-  it('계통을 hasPart 로 묶는다', () => {
+  it('계통을 hasPart 로 묶고, 종류를 알면 Brick 계통 클래스로 적는다', () => {
     const ttl = modelToTTL(mep)
-    expect(ttl).toContain('a ex:Distribution_System ;')
+    // AIRCONDITIONING + SUP 는 급기다. Brick 에는 급기만의 계통 클래스가 없어 공기 계통이고, 급기는 따로 적는다.
+    expect(ttl).toMatch(/a brick:Air_System ;\n {4}ex:systemKind "supply_air" ;\n {4}brick:hasPart ex:\S+/)
     expect(ttl).toContain('rdfs:label "AHU-1 급기 계통" .')
-    expect(ttl).toMatch(/a ex:Distribution_System ;\n {4}brick:hasPart ex:\S+/)
+  })
+
+  it('종류를 모르는 계통은 ex:Distribution_System 으로 둔다', () => {
+    const m = structuredClone(mep)
+    for (const s of m.systems) s.kind = null
+    const ttl = modelToTTL(m)
+    expect(ttl).toContain('a ex:Distribution_System ;')
+    expect(ttl).not.toContain('ex:systemKind')
   })
 
   it('설비는 GeoJSON 에 Point 로, 좌표 없으면 null 로 들어간다', () => {
