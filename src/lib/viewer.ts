@@ -94,6 +94,8 @@ export const PICK_COLORS = {
  */
 /** 벽·문·창 편집 층의 색. 비내력벽은 회색, 고른 것은 액센트 하나다. 내력·모름은 WALL_COLORS 를 같이 쓴다. */
 export const ARCH_COLORS = { wall: 0xb7bec7, door: 0x39424e, window: 0x7fa6cf, selected: 0x2f6fed }
+/** 공조존(IDF) 외곽선 색. 계통 색과 헷갈리지 않게 한 가지로만 그린다. */
+const ZONE_COLOR = 0x6b7280
 /** 벽을 세우는 높이(미터). 실제 벽 높이가 아니라 평면이 보일 만큼만 세운다 — 다 세우면 방 안이 가린다. */
 const ARCH_WALL_HEIGHT = 1.2
 /** 문·창을 누를 때 자리에서 이만큼 안이면 그 문·창이다(미터). */
@@ -255,6 +257,8 @@ export type Viewer = {
    * 그리고, 편집 모드에서 바닥을 누르면 물리존보다 벽·문·창을 먼저 고른다.
    */
   setArchitecture(model: Model | null, selected: string | null): void
+  /** 공조존(IDF) 외곽선. null 이면 지운다. 층별로 보기를 따른다. */
+  setHvacZones(model: Model | null, selected: string | null): void
   onPickElement(handler: (id: string | null) => void): void
   /** 화살표·손잡이 색을 테마에 맞춘다. 바탕이 투명이라 페이지 색이 그대로 비친다. */
   setDark(on: boolean): void
@@ -373,6 +377,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const o of slabs.children) o.visible = storeyShown(o)
     for (const o of walls?.children ?? []) o.visible = storeyShown(o)
     for (const o of arch.children) o.visible = storeyShown(o)
+    for (const o of zoneLines.children) o.visible = storeyShown(o)
     dirty = true
   }
   let pickHandler: (id: string | null) => void = () => {}
@@ -429,6 +434,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 벽·문·창 편집 층(E4). 누르는 자리는 판처럼 평면에서 잰다 — 벽은 외곽선 안, 문·창은 자리에서 ELEMENT_REACH 안.
   const arch = new Group()
   scene.add(arch)
+  // 공조존(IDF) 외곽선. 고르지 않는다 — 바닥을 누르면 물리존이 골라지고, 그 방의 공조존은 패널이 말한다.
+  const zoneLines = new Group()
+  scene.add(zoneLines)
   let archTargets: { id: string; storeyId: string; y: number; rings?: readonly (readonly Vec2[])[]; at?: Vec2 }[] = []
 
   const overlay = new Group()
@@ -1417,6 +1425,31 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     setArchitecture(model, selected) {
       buildArchitecture(model, selected)
+    },
+
+    setHvacZones(model, selected) {
+      zoneLines.traverse((o) => {
+        if (o instanceof LineLoop) {
+          o.geometry.dispose()
+          ;(o.material as { dispose(): void }).dispose()
+        }
+      })
+      zoneLines.clear()
+      const elevation = new Map((model?.storeys ?? []).map((s) => [s.id, s.elevation]))
+      for (const zone of model?.hvac?.zones ?? []) {
+        if (!zone.storeyId) continue
+        const y = (elevation.get(zone.storeyId) ?? 0) + 0.2
+        for (const ring of zone.footprint) {
+          const points = ring.map((p) => new Vector3(p[0], y, -p[1]))
+          const line = new LineLoop(
+            new BufferGeometry().setFromPoints(points),
+            new LineBasicMaterial({ color: zone.id === selected ? ARCH_COLORS.selected : ZONE_COLOR }),
+          )
+          line.userData.storeyId = zone.storeyId
+          zoneLines.add(line)
+        }
+      }
+      applyStoreyVisibility()
     },
 
     onPickElement(handler) {

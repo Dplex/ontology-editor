@@ -71,6 +71,13 @@ describe('unionRings — 물리존 합치기', () => {
     expect(polygonArea(r.ring)).toBeCloseTo(12 + 0.6 + 5.8 * 6)
   })
 
+  it('오목한 홈을 꼭 채우는 조각은 품은 것이 아니다 — IDF 바닥 조각에서 넓이가 빠졌다', () => {
+    // ㄷ자(홈이 오른쪽)와 그 홈을 꼭 채우는 조각. 조각의 꼭짓점은 전부 ㄷ자의 경계 위에 있다.
+    const u: Vec2[] = [[0, 0], [6, 0], [6, 2], [4, 2], [4, 4], [6, 4], [6, 6], [0, 6], [0, 0]]
+    const r = unionRings(u, rect(4, 2, 6, 4), 0)
+    expect(r.ok && polygonArea(r.ring)).toBeCloseTo(36)
+  })
+
   it('품은 방을 합치면 큰 방 외곽선이다 — 대기실과 접수대', () => {
     const r = unionRings(rect(0, 0, 12, 12), rect(2, 2, 5, 5))
     expect(r.ok && polygonArea(r.ring)).toBe(144)

@@ -5,7 +5,7 @@
 // 그 밖(선이 방을 셋 이상으로 자르는 것, 일부만 겹친 두 방)은 **틀린 모양을 만들지 않고 거절한다.**
 
 import type { Vec2 } from './model'
-import { distanceToRing, isSelfIntersecting, pointInPolygon } from './mapping'
+import { distanceToRing, interiorPoint, isSelfIntersecting, pointInPolygon } from './mapping'
 import { polygonArea } from './model'
 
 const EPS = 1e-6
@@ -189,8 +189,15 @@ export function unionRings(ringA: readonly Vec2[], ringB: readonly Vec2[], gap =
   a = ccw(a)
   b = ccw(b)
 
-  if (b.every((p) => pointInPolygon(p, a) || distanceToRing(p, a) < 1e-6)) return { ok: true, ring: closeRing(a), bridged: false }
-  if (a.every((p) => pointInPolygon(p, b) || distanceToRing(p, b) < 1e-6)) return { ok: true, ring: closeRing(b), bridged: false }
+  // 품었다는 것은 꼭짓점이 전부 안이나 경계 위이고 **안쪽 점도 안**인 것이다. 꼭짓점만 보면 오목한 홈을 꼭 채우는 조각
+  // (꼭짓점이 전부 상대 경계 위에 놓인다)을 품은 것으로 보아 버린다 — IDF 바닥 조각을 합치다 넓이가 빠졌다.
+  const contains = (outer: Vec2[], inner: Vec2[]) => {
+    if (!inner.every((p) => pointInPolygon(p, outer) || distanceToRing(p, outer) < 1e-6)) return false
+    const c = interiorPoint(closeRing(inner))
+    return !!c && pointInPolygon(c, outer) && distanceToRing(c, outer) > 1e-6
+  }
+  if (contains(a, b)) return { ok: true, ring: closeRing(a), bridged: false }
+  if (contains(b, a)) return { ok: true, ring: closeRing(b), bridged: false }
   if (b.some((p) => pointInPolygon(p, a) && distanceToRing(p, a) > 1e-6) || a.some((p) => pointInPolygon(p, b) && distanceToRing(p, b) > 1e-6)) {
     return { ok: false, reason: '두 방이 일부만 겹칩니다. 겹친 방은 경계를 먼저 고치세요.' }
   }

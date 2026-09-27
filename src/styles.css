@@ -1155,6 +1155,12 @@ th {
   color: var(--fg);
 }
 
+/* IDF 에서 온 값. BIM 과 같은 "파일에 적힌 것" 이지만 다른 파일이라 글자색으로만 가른다. */
+.src.idf {
+  border-color: var(--muted);
+  color: var(--fg);
+}
+
 .src-key {
   margin: 0.75rem 0 0;
   color: var(--muted);

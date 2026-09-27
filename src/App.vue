@@ -87,6 +87,8 @@ import {
   type Snapshot,
 } from './lib/edit'
 import { MERGE_GAP } from './lib/polygon'
+import { readIdf, type IdfModel } from './lib/idf/read'
+import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
 import { distanceToRing } from './lib/mapping'
 
 // 테마는 라이트가 기본이고, 고른 값만 저장한다. 선행 스크립트(index.html)가 첫 페인트
@@ -257,6 +259,50 @@ const sinceOpen = computed(() => {
       }
 })
 const MOVED_NAMES = 5
+
+// --- 공조존 (IDF, F12) --------------------------------------------------------------
+//
+// IDF 를 열거나 덧붙이면 공조존과 담당 관계가 모델에 얹힌다(idf/attach.ts). 읽은 IDF 는 들고 있다가 IFC 를 덧붙여 층·방이
+// 바뀌면 다시 얹는다. 3D 에는 외곽선만 그린다(고르지 않는다) — 방을 누르면 그 방의 공조존을 패널이 말한다.
+const isIdf = (name: string) => /\.idf$/i.test(name)
+let idfSource: { name: string; idf: IdfModel } | null = null
+const idfReport = shallowRef<IdfAttachReport | null>(null)
+const showZones = ref(true)
+const zoneOfSpace = computed(() => {
+  const map = new Map<string, { id: string; name: string }>()
+  for (const z of model.value?.hvac?.zones ?? []) for (const id of z.spaceIds) map.set(id, z)
+  return map
+})
+/** 공조존 표. 담당은 존을 직접 공급하는 설비(말단)와 그 위의 원천(공조기·실외기)이다. */
+const zoneRows = computed(() => {
+  const hvac = model.value?.hvac
+  if (!hvac) return []
+  const storeyName = new Map((model.value?.storeys ?? []).map((s) => [s.id, s.name]))
+  const upstream = new Map<string, string[]>()
+  for (const e of hvac.equipment) for (const t of e.feeds) upstream.set(t, [...(upstream.get(t) ?? []), e.id])
+  const byId = new Map(hvac.equipment.map((e) => [e.id, e]))
+  const label = (id: string) => {
+    const e = byId.get(id)
+    if (!e) return id
+    const bim = e.bimId ? equipmentById.value.get(e.bimId) : null
+    return bim ? `${bim.name}(BIM)` : e.name
+  }
+  return hvac.zones.map((z) => {
+    const terminals = upstream.get(z.id) ?? []
+    const sources = [...new Set(terminals.flatMap((t) => upstream.get(t) ?? []))]
+    return {
+      id: z.id,
+      name: z.name,
+      storey: z.storeyId ? (storeyName.get(z.storeyId) ?? '') : '(층 모름)',
+      area: z.areaM2,
+      declared: z.declaredAreaM2,
+      spaces: z.spaceIds.map((id) => spaceNameOf(id)),
+      terminals: terminals.map(label),
+      sources: sources.map(label),
+    }
+  })
+})
+const ZONE_LIMIT = 200
 
 // 3D 에 내력벽을 켜고 끈다. 내력 여부를 모르는 벽도 같이 켠다(모름은 아니오가 아니다).
 const showWalls = ref(false)
@@ -2616,6 +2662,7 @@ const selectedElement = computed(() => {
   }
   return null
 })
+watch([showZones, model, sceneVersion], () => viewer?.setHvacZones(showZones.value ? model.value : null, null))
 watch([archMode, editing, model, sceneVersion, selectedElementId], () => {
   viewer?.setArchitecture(archMode.value && editing.value ? model.value : null, selectedElementId.value)
 })
@@ -3001,7 +3048,18 @@ ${name} 파일을 열까요?`,
   error.value = ''
   beginProgress('파일 읽는 중')
   try {
-    const result = await importInWorker(await read())
+    let result: { model: Model; meshes: MeshMap }
+    idfReport.value = null
+    idfSource = null
+    if (isIdf(name)) {
+      // IDF 만 연 것. 공조존과 담당 관계만 있고 방·설비 형상은 없다. 글이라 워커 없이 바로 읽는다.
+      idfSource = { name, idf: readIdf(new TextDecoder().decode(await read())) }
+      const done = modelFromIdf(idfSource.idf, name)
+      idfReport.value = done.report
+      result = { model: done.model, meshes: new Map() }
+    } else {
+      result = await importInWorker(await read())
+    }
     progress.value = { label: '3D 그리는 중' }
     await paint()
     meshes = result.meshes
@@ -3031,7 +3089,7 @@ ${name} 파일을 열까요?`,
     meshes = new Map()
     fileName.value = ''
     mergeReport.value = null
-    error.value = `IFC를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`
+    error.value = `${isIdf(name) ? 'IDF' : 'IFC'}를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`
   } finally {
     busy.value = false
     endProgress()
@@ -3060,6 +3118,22 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
   error.value = ''
   beginProgress('파일 읽는 중')
   try {
+    if (isIdf(name)) {
+      // IDF 는 모델에 공조존과 담당 관계를 얹는다(idf/attach.ts). 방·설비는 그대로다.
+      idfSource = { name, idf: readIdf(new TextDecoder().decode(await read())) }
+      const done = attachIdf(model.value, idfSource.idf, name)
+      idfReport.value = done.report
+      ruleReport.value = inferFlowByRules(done.model)
+      baseline.value = baselineOf(done.model)
+      model.value = done.model
+      fileName.value = `${fileName.value} + ${name}`
+      showZones.value = true
+      history.value = []
+      future.value = []
+      await nextTick()
+      await paint()
+      return
+    }
     const next = await importInWorker(await read())
     progress.value = { label: '합치는 중' }
     await paint()
@@ -3070,6 +3144,12 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     const [base, overlay] =
       drawnSpaces(incoming.model) > drawnSpaces(current.model) ? [incoming, current] : [current, incoming]
     const merged = mergeModels(base.model, overlay.model, { base: base.name, overlay: overlay.name })
+    // 공조존은 층·방에 이어 둔 것이라, 합쳐서 층·방이 바뀌면 IDF 를 다시 얹는다(합치기는 공조존을 모른다).
+    if (idfSource) {
+      const again = attachIdf({ ...merged.model, hvac: undefined, storeys: merged.model.storeys.filter((s) => !s.id.startsWith('IDF_storey_')) }, idfSource.idf, idfSource.name)
+      merged.model = again.model
+      idfReport.value = again.report
+    }
 
     progress.value = { label: '3D 그리는 중' }
     await paint()
@@ -3308,7 +3388,7 @@ function exportTTL() {
       <p v-else>.ifc 파일을 여기에 끌어다 놓으세요.</p>
       <label class="pick">
         파일 선택
-        <input type="file" accept=".ifc" :disabled="busy" @change="onPick" />
+        <input type="file" accept=".ifc,.idf" :disabled="busy" @change="onPick" />
       </label>
       <!-- 피처 단위로 읽을 것. 물리존·설비는 늘 읽는다. 다음에 여는 파일부터 적용된다. -->
       <fieldset class="read-option features" :disabled="busy">
@@ -3381,7 +3461,7 @@ function exportTTL() {
               @drop.prevent="onDrop"
             >
               열기
-              <input type="file" accept=".ifc" :disabled="busy" @change="onPick" />
+              <input type="file" accept=".ifc,.idf" :disabled="busy" @change="onPick" />
             </label>
             <!-- 다음에 열 파일에서 읽을 피처. 첫 화면의 "읽을 것" 과 같은 값이다. -->
             <details class="read-menu">
@@ -3397,9 +3477,9 @@ function exportTTL() {
               </fieldset>
             </details>
             <!-- 건축과 설비가 다른 파일일 때. 편집을 시작한 뒤에는 닫는다(canAppend 주석 참조). -->
-            <label v-if="canAppend" class="ghost append" title="건축 파일과 설비 파일 합치기. 합쳐야 설비가 어느 방에 있는지 나옵니다.">
+            <label v-if="canAppend" class="ghost append" title="건축·설비 IFC 합치기(합쳐야 설비가 어느 방에 있는지 나옵니다), 또는 IDF 를 얹어 공조존 읽기">
               덧붙이기
-              <input type="file" accept=".ifc" :disabled="busy" @change="onAppendPick" />
+              <input type="file" accept=".ifc,.idf" :disabled="busy" @change="onAppendPick" />
             </label>
             <a v-if="warnings.length" href="#warnings" class="warn-count" title="읽으면서 건너뛴 것. 목록은 아래 요약에 있습니다.">경고 {{ warnings.length }}</a>
             <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
@@ -3526,6 +3606,17 @@ function exportTTL() {
                   <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
                 </template>
               </template>
+              <!-- 공조존(IDF) 외곽선. IDF 를 열거나 덧붙였을 때만. -->
+              <button
+                v-if="model.hvac?.zones.length"
+                type="button"
+                :class="['ghost', { on: showZones }]"
+                :aria-pressed="showZones"
+                title="IDF 공조존의 바닥 외곽선"
+                @click="showZones = !showZones"
+              >
+                공조존
+              </button>
               <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
               <select v-if="model.storeys.length > 1" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
                 <option :value="null">모든 층</option>
@@ -3993,6 +4084,9 @@ function exportTTL() {
                 <b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡
                 <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /> · 소속 설비 {{ selectedSpace.equipment.length }}대
                 <Src kind="calc" />
+                <template v-if="zoneOfSpace.get(selectedSpace.space.id)">
+                  · 공조존 {{ zoneOfSpace.get(selectedSpace.space.id)!.name }} <Src kind="idf" />
+                </template>
               </p>
             </div>
             <div class="picked-actions">
@@ -4119,6 +4213,10 @@ function exportTTL() {
           <li v-if="skipped.has('windows')" class="skipped"><b>–</b><span>창문</span><small>읽지 않음</small></li>
           <li v-else><b>{{ counts.windows }}</b><span>창문</span><Src kind="bim" /></li>
           <li v-if="!skipped.has('walls')"><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span><Src kind="bim" /></li>
+          <li v-if="model.hvac" class="wide">
+            <b>{{ model.hvac.zones.length }}</b><span>공조존</span><Src kind="idf" />
+            <small v-if="idfReport">방이 든 존 {{ idfReport.zonesWithSpaces }} · 존에 든 방 {{ idfReport.spacesInZones }}/{{ idfReport.spaces }}</small>
+          </li>
           <!-- 설비를 하나로 세면 대수가 부푼다. 실측에서 85%가 덕트·배관이었다.
                Proxy 는 IFC 가 설비라고 말하지 않은 것을 사전이 설비로 받은 것이라 따로 센다. -->
           <li :class="{ wide: proxyDevices.ported + proxyDevices.named > 0 }">
@@ -4528,6 +4626,35 @@ function exportTTL() {
               </p>
             </div>
           </div>
+        </Fold>
+
+        <!-- 공조존(IDF, F12). 존마다 든 방과 담당(말단 → 원천). IDF 가 말한 것이라 규칙 방향과 달리 확정 없이 나간다. -->
+        <Fold v-if="zoneRows.length" title="공조존 (IDF)" :meta="`${zoneRows.length}개 · ${model.hvac!.source}`" :default-open="zoneRows.length <= SMALL">
+          <p class="hint">
+            IDF 의 Zone 이 공조존이고, 존 설비 목록 → 말단 → 공조기(급기 분기)·실외기(실내기 목록)로 담당을 잇습니다. 방은 안쪽 점이
+            존 바닥 안에 들면 그 존의 일부입니다. 이름이 BIM 설비 하나와 맞는 IDF 설비는 BIM 설비에 담당 관계를 얹습니다
+            (IDF 설비 {{ idfReport?.equipment ?? model.hvac!.equipment.length }}대 중 {{ idfReport?.matchedEquipment ?? model.hvac!.equipment.filter((e) => e.bimId).length }}대).
+            바닥면 넓이는 IDF 가 적은 넓이보다 큰 것이 보통입니다(DesignBuilder 는 순 넓이를 적고 바닥면은 벽 중심선까지 그립니다).
+          </p>
+          <div class="table-box">
+            <table class="equipment zones">
+              <thead>
+                <tr><th>공조존</th><th>층</th><th class="num">바닥면 ㎡</th><th class="num">IDF ㎡</th><th>든 방</th><th>말단</th><th>원천</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="z in zoneRows.slice(0, ZONE_LIMIT)" :key="z.id">
+                  <td>{{ z.name }}</td>
+                  <td>{{ z.storey }}</td>
+                  <td class="num mono">{{ z.area.toFixed(1) }}</td>
+                  <td class="num mono">{{ z.declared?.toFixed(1) ?? '' }}</td>
+                  <td :title="z.spaces.join(', ')">{{ z.spaces.length ? z.spaces.slice(0, 3).join(', ') + (z.spaces.length > 3 ? ` 외 ${z.spaces.length - 3}` : '') : '' }}</td>
+                  <td :title="z.terminals.join(', ')">{{ z.terminals.slice(0, 2).join(', ') }}{{ z.terminals.length > 2 ? ` 외 ${z.terminals.length - 2}` : '' }}</td>
+                  <td :title="z.sources.join(', ')">{{ z.sources.join(', ') }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p v-if="zoneRows.length > ZONE_LIMIT" class="hint">{{ ZONE_LIMIT }}개만 보입니다.</p>
         </Fold>
 
         <!-- 원천별 담당 공간. 계통도를 그리기 전에 "어느 기기가 어느 방을 맡는가" 를 한 장으로 본다. -->

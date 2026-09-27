@@ -6,7 +6,7 @@
 // 지도 위에 얹을 일이 생기면 그때 사이트 원점의 위경도와 방위를 받아 한 번에 변환한다.
 
 import { capacityQuantity } from '../capacity'
-import type { Equipment, Model, Opening, Space, Storey, Wall } from '../model'
+import type { Equipment, HvacZone, Model, Opening, Space, Storey, Wall } from '../model'
 
 export type Geometry =
   | { type: 'Polygon'; coordinates: number[][][] }
@@ -121,8 +121,28 @@ function openingFeature(opening: Opening, storey: Storey): Feature {
   }
 }
 
-/** 층 하나를 FeatureCollection 으로. 물리존·설비·벽·문·창이 같은 파일에 들어간다. */
-export function storeyToGeoJSON(storey: Storey): FeatureCollection {
+/** 공조존(IDF)의 바닥. 조각이 여럿이면 MultiPolygon 이다. 든 방은 TTL 주어 id 로 적는다. */
+function hvacZoneFeature(zone: HvacZone, storey: Storey): Feature {
+  const rings = zone.footprint.map((r) => r.map((p) => [p[0], p[1]]))
+  return {
+    type: 'Feature',
+    id: zone.id,
+    geometry:
+      rings.length === 0 ? null : rings.length === 1 ? { type: 'Polygon', coordinates: [rings[0]] } : { type: 'MultiPolygon', coordinates: rings.map((r) => [r]) },
+    properties: {
+      kind: 'hvacZone',
+      name: zone.name,
+      storeyId: storey.id,
+      elevation: storey.elevation,
+      areaM2: Number(zone.areaM2.toFixed(4)),
+      spaceIds: zone.spaceIds,
+      source: 'IDF',
+    },
+  }
+}
+
+/** 층 하나를 FeatureCollection 으로. 물리존·설비·벽·문·창(과 IDF 공조존)이 같은 파일에 들어간다. */
+export function storeyToGeoJSON(storey: Storey, zones: readonly HvacZone[] = []): FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: [
@@ -130,6 +150,7 @@ export function storeyToGeoJSON(storey: Storey): FeatureCollection {
       ...storey.equipment.map((e) => equipmentFeature(e, storey)),
       ...storey.walls.map((w) => wallFeature(w, storey)),
       ...storey.openings.map((o) => openingFeature(o, storey)),
+      ...zones.filter((z) => z.storeyId === storey.id).map((z) => hvacZoneFeature(z, storey)),
     ],
   }
 }
@@ -149,6 +170,6 @@ export function modelToGeoJSON(model: Model): { fileName: string; collection: Fe
     let fileName = `${stem}.geojson`
     for (let n = 2; taken.has(fileName.toLowerCase()); n++) fileName = `${stem}-${n}.geojson`
     taken.add(fileName.toLowerCase())
-    return { fileName, collection: storeyToGeoJSON(storey) }
+    return { fileName, collection: storeyToGeoJSON(storey, model.hvac?.zones ?? []) }
   })
 }

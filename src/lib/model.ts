@@ -291,6 +291,38 @@ export type Connection = {
   edited?: { from: string; to: string }
 }
 
+/**
+ * 공조존(F12). IDF 의 Zone 이다(PRD 1.6 이 IDF 를 출처로 둔다). 바닥 외곽선은 GeoJSON 에, 담당 관계와 든 방은 TTL 에
+ * 나간다(`brick:HVAC_Zone`, `brick:hasPart` 방, 설비 `brick:feeds` 존).
+ */
+export type HvacZone = {
+  id: string
+  name: string
+  /** 바닥 높이로 맞춘 층. 못 맞추면 null. */
+  storeyId: string | null
+  /** 바닥 외곽선. 맞댄 조각은 합쳤고 떨어진 조각은 여럿으로 남는다. */
+  footprint: Vec2[][]
+  areaM2: number
+  /** IDF 의 Zone 이 적은 바닥 넓이. DesignBuilder 는 순 넓이를 적고 바닥면은 벽 중심선까지 그려서 늘 작다. */
+  declaredAreaM2: number | null
+  /** 이 공조존에 든 물리존(안쪽 점이 바닥 안). */
+  spaceIds: string[]
+}
+
+/** IDF 가 말한 공조 설비(공조기·말단·실외기·실내기). 좌표는 IDF 에 없다. */
+export type HvacEquipment = {
+  id: string
+  name: string
+  idfClass: string
+  kind: string | null
+  /** 이름이 하나의 BIM 설비와 맞으면 그 id. TTL 은 이 설비에 담당 관계를 얹는다. */
+  bimId: string | null
+  /** 공급하는 공조존·IDF 설비의 id. */
+  feeds: string[]
+  /** 담당하는 존이 한 층에만 있으면 그 층(말단). 공조기·실외기는 모른다. */
+  storeyId?: string
+}
+
 export type Storey = {
   id: string
   name: string
@@ -321,6 +353,8 @@ export type Model = {
    * 수 있어서 따로 적는다. 합치면 어느 한쪽이라도 읽지 않은 것이다.
    */
   skipped?: ('walls' | 'doors' | 'windows')[]
+  /** IDF 에서 얹은 공조존과 담당 관계(idf/attach.ts). IFC 만 연 모델에는 없다. */
+  hvac?: { source: string; zones: HvacZone[]; equipment: HvacEquipment[] }
   /**
    * 모델 요소로는 남지 않는 파일의 사실. 요구사항 보고서(requirements.ts)가 쓴다. 손으로 만든 모델에는 없다.
    * 두 파일을 합치면 둘 다 참일 때만 참이다(위경도는 한쪽만 있어도 참).

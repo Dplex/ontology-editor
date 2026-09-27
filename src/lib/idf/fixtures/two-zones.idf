@@ -1,0 +1,56 @@
+! 손으로 쓴 최소 IDF. mep.ifc(사무실 0..10 x 0..8, 1F 높이 0)와 같은 자리에 공조존 둘을 둔다.
+!  - 1F:OFFICE  사무실 자리. 바닥을 두 조각으로 잘라 둔다(DesignBuilder 가 그렇게 낸다). Zone 이 적은 넓이(76)는
+!               바닥면(80)보다 작다 — DesignBuilder 는 순 넓이를 적고 바닥면은 벽 중심선까지 그린다.
+!  - 1F:STORE   사무실 오른쪽(원점 x=10.2, 상대 좌표). BIM 에 방이 없는 자리다.
+! 공조: AHU 1 → (급기 분기) → VAV-101 → 1F:OFFICE,  VRF ODU-1 → 1F:STORE IDU → 1F:STORE.
+! 1F:STORE 에는 이상 부하 장치(IdealLoadsAirSystem)도 하나 있다 — 실제 설비가 아니라 담당 관계에 넣지 않아야 한다.
+
+Version, 22.2;
+
+Building, Test Building, 0, Suburbs, 0.04, 0.4, FullExterior, 25, 6;
+
+GlobalGeometryRules, LowerLeftCorner, CounterClockWise, Relative;
+
+Zone,
+    1F:OFFICE,               !- Name
+    0,                       !- Direction of Relative North {deg}
+    0,                       !- X Origin {m}
+    0,                       !- Y Origin {m}
+    0,                       !- Z Origin {m}
+    1,                       !- Type
+    1,                       !- Multiplier
+    ,                        !- Ceiling Height {m}
+    ,                        !- Volume {m3}
+    76;                      !- Floor Area {m2}
+
+Zone, 1F:STORE, 0, 10.2, 0, 0, 1, 1, , , 28;
+
+BuildingSurface:Detailed, 1F:OFFICE_Floor_0, Floor, Ground floor, 1F:OFFICE, , Ground, , NoSun, NoWind, AutoCalculate, 4,
+    5, 0, 0,   0, 0, 0,   0, 8, 0,   5, 8, 0;
+BuildingSurface:Detailed, 1F:OFFICE_Floor_1, Floor, Ground floor, 1F:OFFICE, , Ground, , NoSun, NoWind, AutoCalculate, 4,
+    10, 0, 0,   5, 0, 0,   5, 8, 0,   10, 8, 0;
+BuildingSurface:Detailed, 1F:OFFICE_Wall_S, Wall, Exterior wall, 1F:OFFICE, , Outdoors, , SunExposed, WindExposed, AutoCalculate, 4,
+    0, 0, 3,   0, 0, 0,   10, 0, 0,   10, 0, 3;
+BuildingSurface:Detailed, 1F:STORE_Floor, Floor, Ground floor, 1F:STORE, , Ground, , NoSun, NoWind, AutoCalculate, 4,
+    3.8, 0, 0,   0, 0, 0,   0, 8, 0,   3.8, 8, 0;
+
+! --- 공조기 → VAV → 사무실 ---------------------------------------------------------
+ZoneHVAC:EquipmentConnections, 1F:OFFICE, 1F:OFFICE Equipment, 1F:OFFICE Inlets, , 1F:OFFICE Air Node, 1F:OFFICE Return;
+ZoneHVAC:EquipmentList, 1F:OFFICE Equipment, SequentialLoad,
+    ZoneHVAC:AirDistributionUnit, 1F:OFFICE ADU, 1, 1, , ;
+ZoneHVAC:AirDistributionUnit, 1F:OFFICE ADU, 1F:OFFICE ADU Outlet, AirTerminal:SingleDuct:VAV:Reheat, VAV-101;
+AirTerminal:SingleDuct:VAV:Reheat, VAV-101, On, VAV-101 Damper Outlet, AHU-1 Splitter Outlet 1, autosize, Constant, 0.3;
+AirLoopHVAC:ZoneSplitter, AHU-1 Zone Splitter, AHU-1 Demand Inlet, AHU-1 Splitter Outlet 1;
+AirLoopHVAC:SupplyPath, AHU-1 Supply Path, AHU-1 Demand Inlet, AirLoopHVAC:ZoneSplitter, AHU-1 Zone Splitter;
+AirLoopHVAC, AHU 1, AHU-1 Controllers, , autosize, AHU-1 Branches, , AHU-1 Supply Inlet, AHU-1 Demand Outlet, AHU-1 Demand Inlets, AHU-1 Supply Outlets;
+NodeList, AHU-1 Demand Inlets, AHU-1 Demand Inlet;
+
+! --- VRF 실외기 → 실내기 → 창고 ------------------------------------------------------
+ZoneHVAC:EquipmentConnections, 1F:STORE, 1F:STORE Equipment, , , 1F:STORE Air Node, ;
+ZoneHVAC:EquipmentList, 1F:STORE Equipment, SequentialLoad,
+    ZoneHVAC:TerminalUnit:VariableRefrigerantFlow, 1F:STORE IDU, 1, 1, , ,
+    ZoneHVAC:IdealLoadsAirSystem, 1F:STORE Ideal, 2, 2, , ;
+ZoneHVAC:TerminalUnit:VariableRefrigerantFlow, 1F:STORE IDU, On, 1F:STORE IDU Inlet, 1F:STORE IDU Outlet;
+ZoneHVAC:IdealLoadsAirSystem, 1F:STORE Ideal, , 1F:STORE Ideal Outlet;
+ZoneTerminalUnitList, VRF ODU-1 List, 1F:STORE IDU;
+AirConditioner:VariableRefrigerantFlow, VRF ODU-1, On, 30000, 3.5, -6, 43, , , , , , , VRF ODU-1 List;

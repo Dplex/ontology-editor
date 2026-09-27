@@ -7,18 +7,20 @@
 // - dict : 우리가 만든 이름 사전과 흐름 규칙에서 나왔다(설비·방·계통 종류, Brick 클래스, 규칙 방향).
 //          도메인 지식이 들어간 것이라 사전이 틀리면 같이 틀린다.
 // - edit : 사람이 이 화면에서 고쳤다.
+// - idf  : IDF(에너지 시뮬레이션 모델)에 적힌 그대로다(공조존, 공조기·말단의 담당 관계). BIM 이 아니다.
 //
 // 온톨로지를 받는 쪽이 이 셋을 구별할 수 없으므로, 적어도 만드는 쪽 화면에서는 구별되어야 한다.
-export type SrcKind = 'bim' | 'calc' | 'dict' | 'edit'
+export type SrcKind = 'bim' | 'calc' | 'dict' | 'edit' | 'idf'
 
 defineProps<{ kind: SrcKind }>()
 
-const LABEL: Record<SrcKind, string> = { bim: 'BIM', calc: '계산', dict: '사전', edit: '편집' }
+const LABEL: Record<SrcKind, string> = { bim: 'BIM', calc: '계산', dict: '사전', edit: '편집', idf: 'IDF' }
 const TITLE: Record<SrcKind, string> = {
   bim: 'BIM 파일에 적힌 그대로입니다.',
   calc: 'BIM 좌표·형상으로 계산한 값입니다.',
   dict: '이름 사전·흐름 규칙으로 추정한 값입니다.',
   edit: '직접 고친 값입니다.',
+  idf: 'IDF(에너지 시뮬레이션 모델)에 적힌 그대로입니다.',
 }
 </script>
 

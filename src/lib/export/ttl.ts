@@ -132,6 +132,15 @@ export function modelToTTL(model: Model): string {
   for (const [from, targets] of flows.directed) {
     feeds.set(from, [...new Set([...(feeds.get(from) ?? []), ...targets])])
   }
+  // IDF 가 말한 담당 관계(공조기 → 말단 → 공조존). BIM 설비와 이름이 맞은 IDF 설비는 BIM 설비의 블록에 적는다 — 받는 쪽은
+  // 주어 자신의 블록만 읽는다(위 주석). IDF 가 말한 것이라 규칙 방향과 달리 확정 없이 나간다.
+  const hvac = model.hvac
+  const subjectOf = new Map((hvac?.equipment ?? []).map((e) => [e.id, e.bimId ?? e.id]))
+  for (const e of hvac?.equipment ?? []) {
+    const from = e.bimId ?? e.id
+    const targets = e.feeds.map((t) => subjectOf.get(t) ?? t)
+    if (targets.length) feeds.set(from, [...new Set([...(feeds.get(from) ?? []), ...targets])])
+  }
 
   // 목적어 없는 `brick:hasPart .` 는 문법 오류다(층이 없는 파일, 구성원이 없는 계통). 비면 술어째 뺀다.
   lines.push(`${ref(model.buildingId)} a brick:Building ;`)
@@ -176,6 +185,26 @@ export function modelToTTL(model: Model): string {
       lines.push(`    ex:ifcClass ${label(equipment.ifcClass)} .`)
       lines.push('')
     }
+  }
+
+  // 공조존(IDF). 든 방은 hasPart 다(Brick 의 HVAC_Zone 은 방으로 이뤄진다). 바닥 외곽선은 GeoJSON 에 있다.
+  for (const zone of hvac?.zones ?? []) {
+    lines.push(`${ref(zone.id)} a brick:HVAC_Zone ;`)
+    lines.push(`    rdfs:label ${label(zone.name)} ;`)
+    if (zone.spaceIds.length) lines.push(`    brick:hasPart ${zone.spaceIds.map(ref).join(', ')} ;`)
+    lines.push(`    ex:areaM2 ${Number(zone.areaM2.toFixed(4))} .`)
+    lines.push('')
+  }
+  // BIM 설비와 이어지지 않은 IDF 설비. 좌표가 없어 방은 모른다. 말단은 담당하는 존의 층에 있다고 보고 층을 적는다.
+  for (const e of hvac?.equipment ?? []) {
+    if (e.bimId) continue
+    lines.push(`${ref(e.id)} a ${equipmentKind(e.kind)?.brick ?? `ex:${e.idfClass.replace(/[^A-Za-z0-9_]+/g, '_')}`} ;`)
+    lines.push(`    rdfs:label ${label(e.name)} ;`)
+    if (e.storeyId) lines.push(`    brick:hasLocation ${ref(e.storeyId)} ;`)
+    const targets = feeds.get(e.id)
+    if (targets?.length) lines.push(`    brick:feeds ${targets.map(ref).join(', ')} ;`)
+    lines.push(`    ex:idfClass ${label(e.idfClass)} .`)
+    lines.push('')
   }
 
   // 계통은 층에 속하지 않아서 마지막에 따로 적는다. 여러 층에 걸치는 것이 정상이다.

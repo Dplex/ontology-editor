@@ -21,6 +21,8 @@ import { requirementsReport } from '../src/lib/requirements'
 import { compareVersions } from '../src/lib/versions'
 import { fuzzEdits } from '../src/lib/edit-fuzz'
 import type { Model } from '../src/lib/model'
+import { readIdf } from '../src/lib/idf/read'
+import { modelFromIdf } from '../src/lib/idf/attach'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
 // 표현 방식이 훨씬 다양하기 때문이다. 그래서 공개 샘플 하나를 기준값으로 박아 둔다.
@@ -1222,4 +1224,38 @@ describe.skipIf(!existsSync(DUPLEX_MEP_FULL) || !existsSync(DUPLEX_MEP_2) || !ex
     const cobie = compareVersions(load(DUPLEX_ARCH), load(DUPLEX_COBIE))
     expect(cobie.spaces.by).toEqual({ guid: 21, revitId: 0, name: 0, position: 0 })
   }, 300_000)
+})
+
+// 공조존(F12)을 IDF 에서 읽는다. 삼성 IDF(DesignBuilder 출력, EnergyPlus 22.2)는 저장소 밖(rl-pipeline/data)에서 data/idf 로
+// 복사해 둔다. 공개 파일이 아니라 받는 명령이 없고, 없으면 건너뛴다.
+const SAMSUNG_IDF = 'data/idf/Samsung_Calibration_5_24fix_case.idf'
+
+describe.skipIf(!existsSync(SAMSUNG_IDF))('IDF 공조존 (삼성, DesignBuilder)', () => {
+  it('존·바닥·담당 사슬을 전부 읽는다', () => {
+    const idf = readIdf(readFileSync(SAMSUNG_IDF, 'utf8'))
+    expect(idf.warnings).toEqual([])
+    const classes = new Map<string, number>()
+    for (const e of idf.equipment) classes.set(e.idfClass, (classes.get(e.idfClass) ?? 0) + 1)
+    // 공조기 16대가 VAV 128대를, VRF 실외기 41대가 실내기 119대를 공급한다. 노드 이름으로 이은 사슬이 전부 닿는다.
+    expect(Object.fromEntries(classes)).toEqual({
+      'ZoneHVAC:TerminalUnit:VariableRefrigerantFlow': 119,
+      'AirTerminal:SingleDuct:VAV:Reheat': 128,
+      AirLoopHVAC: 16,
+      'AirConditioner:VariableRefrigerantFlow': 41,
+    })
+    const ahuFeeds = idf.equipment.filter((e) => e.idfClass === 'AirLoopHVAC').reduce((n, e) => n + e.feeds.length, 0)
+    expect(ahuFeeds).toBe(128)
+
+    const { model, report } = modelFromIdf(idf, 'samsung')
+    // 존 162개가 바닥 높이 16개 층에 전부 올라간다(57.38·57.39 처럼 반올림 차는 한 층이다).
+    expect(report).toMatchObject({ zones: 162, zonesOnStoreys: 162, createdStoreys: 16, equipment: 304 })
+    const zones = model.hvac!.zones
+    // DesignBuilder 는 존 바닥을 조각 321개로 잘라 낸다. 맞댄 조각을 합치면 180개(존 151개가 고리 하나)다.
+    expect(zones.reduce((n, z) => n + z.footprint.length, 0)).toBe(180)
+    expect(zones.filter((z) => z.footprint.length === 1)).toHaveLength(151)
+    // 바닥면은 벽 중심선까지라 Zone 이 적은 순 넓이보다 늘 크다(1.0~1.19 배). 작아지면 합치기가 넓이를 잃은 것이다.
+    const ratios = zones.filter((z) => z.declaredAreaM2).map((z) => z.areaM2 / z.declaredAreaM2!)
+    expect(Math.min(...ratios)).toBeGreaterThanOrEqual(1)
+    expect(Math.max(...ratios)).toBeLessThan(1.2)
+  })
 })
