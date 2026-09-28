@@ -7,7 +7,10 @@ const FIXTURE = 'src/lib/ifc/fixtures/two-rooms.ifc'
 test('처음 열면 파일을 받을 자리만 보인다', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByRole('heading', { name: 'ontology-editor' })).toBeVisible()
-  await expect(page.getByText('.ifc 파일을 여기에 끌어다 놓으세요.')).toBeVisible()
+  await expect(page.getByText('IFC 파일을 여기에 끌어다 놓으세요.')).toBeVisible()
+  // 건축·설비가 따로인 파일을 한 번에 여는 길을 첫 화면에서 말한다.
+  await expect(page.locator('.drop-multi')).toContainText('둘을 같이')
+  await expect(page.locator('.drop input[type=file]')).toHaveAttribute('multiple', '')
 })
 
 test('IFC 를 올리면 검토 화면과 3D 가 나온다', async ({ page }) => {

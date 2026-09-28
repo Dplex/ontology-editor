@@ -37,12 +37,15 @@ import {
   replaceSpaceFootprint,
   setFlowDirection,
   setTypeKind,
+  setEquipmentSystem,
+  setSystemKind,
   inKindGroup,
   type Baseline,
   type BoundaryChange,
   type Change,
 } from './edit'
 import type { RuleReport } from './flow-rules'
+import type { Fluid } from './kinds'
 import type { Model, Vec2, Vec3 } from './model'
 import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
 
@@ -58,10 +61,12 @@ export type EditFile = {
    * `released` 는 BIM 이 말한 소속을 버렸다는 뜻이다. 옮겼다가 제자리로 돌려놓았거나 다른 층에 갔다 온 설비는 좌표·층이
    * 연 때와 같아도 소속을 좌표로 다시 잰 상태다(edit.ts 의 releaseDeclaredSpace).
    */
-  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string }[]
+  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null }[]
+  /** 종류·유체를 고친 계통(E8). 설비의 계통은 위 `equipment` 의 `system` 에 적는다(`null` 은 계통에서 뺀 것). */
+  systems?: { id: string; kind: string | null; fluid: Fluid | null }[]
   spaces: { id: string; longName?: string; footprint?: Vec2[] }[]
   /** 사람이 더한 설비(E7). id 는 에디터가 지은 것(`U_…`)이라 다시 열어도 같은 id 로 만든다. */
-  equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3 }[]
+  equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string }[]
   equipmentRemoved?: string[]
   /** 사람이 만든 물리존(E3 생성·분할). 나눈 방의 남는 조각은 `spaces` 의 외곽선으로 적힌다. */
   spacesAdded?: { id: string; storeyId: string; name: string; longName: string; footprint: Vec2[] }[]
@@ -104,6 +109,12 @@ export type EditFile = {
   keys?: Record<string, Fingerprint>
 }
 
+/**
+ * 에디터가 지은 id(`U_…`, edit.ts 의 newId). 판본이 바뀌어도 그대로라 지문으로 찾지 않는다 — 더한 벽은 불러올 때 아직
+ * 모델에 없어서, 지문으로 찾으면 같은 자리의 BIM 벽에 짝지어져 그 벽에 문이 붙는다.
+ */
+const isEditorId = (id: string) => id.startsWith('U_')
+
 const samePoint = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-9)
 const sameRing = (a: readonly Vec2[], b: readonly Vec2[]) => a.length === b.length && a.every((p, i) => samePoint(p, b[i]))
 
@@ -136,6 +147,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           name: e.name,
           kind: e.kind ?? null,
           ...(e.position ? { position: [e.position[0], e.position[1], e.position[2]] as Vec3 } : {}),
+          ...(e.systemId ? { system: e.systemId } : {}),
         })
         continue
       }
@@ -149,7 +161,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
         row.position = [e.position[0], e.position[1], e.position[2]]
       }
       if (was.spaceSource === 'bim' && e.spaceSource !== 'bim') row.released = true
-      if (row.storeyId || row.position || row.released || row.name !== undefined) equipment.push(row)
+      if (was.systemId !== undefined && was.systemId !== e.systemId) row.system = e.systemId
+      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined) equipment.push(row)
     }
   }
   const confirmed = new Set<string>()
@@ -194,6 +207,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     if (!o.position || !o.through) return []
     return [{ id: o.id, storeyId: storey.id, kind: o.kind, name: o.name, position: [o.position[0], o.position[1], o.position[2]] as Vec3, wallId: o.wallId, through: [o.through[0], o.through[1]] as Vec2, depth: o.depth ?? 0.2 }]
   })
+  const systems = since.systemKinds.map((k) => ({ id: k.id, kind: k.to.kind, fluid: k.to.fluid }))
   const wallsRemoved = since.wallsRemoved.map((r) => r.id)
   const openingsRemoved = since.openingsRemoved.map((r) => r.id)
 
@@ -202,6 +216,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   const all = fingerprints(model, baseline)
   const keys: Record<string, Fingerprint> = {}
   const keep = (id: string) => {
+    if (isEditorId(id)) return
     const fp = all.get(id) ?? baseline.keys?.get(id)
     if (fp) keys[id] = fp
   }
@@ -209,11 +224,17 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const row of equipment) {
     keep(row.id)
     if (row.storeyId) keep(row.storeyId)
+    if (row.system) keep(row.system)
   }
   for (const row of [...equipmentAdded, ...spacesAdded]) keep(row.storeyId)
+  for (const row of equipmentAdded) if (row.system) keep(row.system)
+  for (const row of systems) keep(row.id)
   for (const id of equipmentRemoved) keep(id)
   for (const row of spacesRemoved) keep(row.id)
   for (const row of [...wallsAdded, ...openingsAdded]) keep(row.storeyId)
+  for (const row of [...walls, ...openings]) keep(row.id)
+  for (const id of [...wallsRemoved, ...openingsRemoved]) keep(id)
+  for (const row of openingsAdded) if (row.wallId) keep(row.wallId)
   for (const f of flows) {
     keep(f.from)
     keep(f.to)
@@ -239,6 +260,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     flows,
     confirmedSystems: [...confirmed],
     ...(confirmedFlows.length ? { confirmedFlows } : {}),
+    ...(systems.length ? { systems } : {}),
     ...(connections.add.length || connections.remove.length ? { connections } : {}),
     ...(equipmentAdded.length ? { equipmentAdded } : {}),
     ...(equipmentRemoved.length ? { equipmentRemoved } : {}),
@@ -306,12 +328,15 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
 
   // 파일의 id 를 이 모델의 id 로. GUID 가 먼저이고, 없으면 지문으로 찾는다.
   const referenced = new Map<string, Partial<Fingerprint>>()
-  const ref = (id: string) => referenced.set(id, file.keys?.[id] ?? {})
+  const ref = (id: string) => referenced.set(id, isEditorId(id) ? {} : (file.keys?.[id] ?? {}))
   for (const sp of file.spaces) ref(sp.id)
   for (const e of file.equipment) {
     ref(e.id)
     if (e.storeyId) ref(e.storeyId)
+    if (e.system) ref(e.system)
   }
+  for (const row of file.systems ?? []) ref(row.id)
+  for (const row of file.equipmentAdded ?? []) if (row.system) ref(row.system)
   for (const f of file.flows) {
     ref(f.from)
     ref(f.to)
@@ -332,6 +357,9 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     if (row.into) ref(row.into)
   }
   for (const row of [...(file.wallsAdded ?? []), ...(file.openingsAdded ?? [])]) ref(row.storeyId)
+  for (const row of [...(file.walls ?? []), ...(file.openings ?? [])]) ref(row.id)
+  for (const id of [...(file.wallsRemoved ?? []), ...(file.openingsRemoved ?? [])]) ref(id)
+  for (const row of file.openingsAdded ?? []) if (row.wallId) ref(row.wallId)
   const matching = matchFingerprints(referenced, fingerprints(model))
   for (const { by } of matching.pairs.values()) if (by !== 'guid') result.rematched[by]++
   const resolve = (id: string) => matching.pairs.get(id)?.id ?? id
@@ -362,6 +390,22 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     } else if (!model.storeys.some((s) => s.equipment.some((e) => inKindGroup(e, k.typeKey)))) {
       result.missing.kinds++
     }
+  }
+
+  // 계통 종류·유체(E8). 규칙 방향의 재료라 종류와 같이 앞에 둔다. 확정·방향은 뒤에서 얹는다.
+  for (const row of file.systems ?? []) {
+    const id = resolve(row.id)
+    const rules = setSystemKind(model, id, row.kind, row.fluid)
+    if (rules) {
+      result.applied++
+      result.rules = rules
+    } else if (!model.systems.some((x) => x.id === id)) result.missing.systems++
+  }
+  for (const row of file.equipmentAdded ?? []) {
+    if (!row.system || !equipmentIds.has(row.id)) continue
+    const rules = setEquipmentSystem(model, row.id, resolve(row.system))
+    if (rules) result.rules = rules
+    else result.missing.systems++
   }
 
   for (const row of file.spaces) {
@@ -418,10 +462,17 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       }
     }
     if (e.released && releaseDeclaredSpace(model, e.id)) result.applied++
+    if (e.system !== undefined) {
+      const rules = setEquipmentSystem(model, e.id, e.system === null ? null : resolve(e.system))
+      if (rules) {
+        result.applied++
+        result.rules = rules
+      } else if (e.system !== null && !model.systems.some((x) => x.id === resolve(e.system!))) result.missing.systems++
+    }
   }
 
-  // 벽·문·창(E4). 벽·문·창은 지문이 없어 GUID 로만 찾는다. 더한 것 → 벽 모양·내력 → 지운 벽(뚫린 문·창도 같이) → 문·창
-  // 자리 → 지운 문·창 순이다. 방 경계는 위에서 이미 얹었으므로 문이 잇는 방은 끝 상태로 짚는다.
+  // 벽·문·창(E4). 설비처럼 GUID → Revit 요소 ID → 이름 → 위치로 찾는다. 더한 것 → 벽 모양·내력 → 지운 벽(뚫린 문·창도
+  // 같이) → 문·창 자리 → 지운 문·창 순이다. 방 경계는 위에서 이미 얹었으므로 문이 잇는 방은 끝 상태로 짚는다.
   for (const row of file.wallsAdded ?? []) {
     if (insertWall(model, resolve(row.storeyId), { id: row.id, name: row.name, thickness: row.thickness, loadBearing: row.loadBearing ?? null, footprint: row.footprint.map((r) => r.map((p) => [p[0], p[1]] as Vec2)), added: true })) result.applied++
     else result.missing.elements++
@@ -433,7 +484,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       name: row.name,
       width: null,
       height: null,
-      wallId: row.wallId,
+      wallId: row.wallId && resolve(row.wallId),
       passable: row.kind === 'door',
       position: [row.position[0], row.position[1], row.position[2]],
       through: [row.through[0], row.through[1]],
@@ -444,7 +495,8 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     if (done) result.applied++
     else result.missing.elements++
   }
-  for (const row of file.walls ?? []) {
+  for (const raw of file.walls ?? []) {
+    const row = { ...raw, id: resolve(raw.id) }
     let hit = false
     if (row.footprint) hit = setWallFootprint(model, row.id, row.footprint) || hit
     if (row.loadBearing !== undefined) hit = setWallLoadBearing(model, row.id, row.loadBearing) || hit
@@ -452,15 +504,16 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     else result.missing.elements++
   }
   for (const id of file.wallsRemoved ?? []) {
-    if (deleteWall(model, id)) result.applied++
+    if (deleteWall(model, resolve(id))) result.applied++
     else result.missing.elements++
   }
-  for (const row of file.openings ?? []) {
-    if (moveOpening(model, row.id, [row.position[0], row.position[1]])) result.applied++
-    else if (!model.storeys.some((s) => s.openings.some((o) => o.id === row.id))) result.missing.elements++
+  for (const raw of file.openings ?? []) {
+    const id = resolve(raw.id)
+    if (moveOpening(model, id, [raw.position[0], raw.position[1]])) result.applied++
+    else if (!model.storeys.some((s) => s.openings.some((o) => o.id === id))) result.missing.elements++
   }
   for (const id of file.openingsRemoved ?? []) {
-    if (deleteOpening(model, id)) result.applied++
+    if (deleteOpening(model, resolve(id))) result.applied++
     else result.missing.elements++
   }
 

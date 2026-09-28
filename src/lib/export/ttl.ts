@@ -10,7 +10,7 @@
 
 import { isConduit, type Equipment, type Model } from '../model'
 import { deviceFlows } from '../topology'
-import { equipmentKind, roomKind, systemKind } from '../kinds'
+import { equipmentKind, roomKind, systemBrickClass, systemKind } from '../kinds'
 import { CAPACITY_PREDICATE, capacityQuantity } from '../capacity'
 import { withInferred } from '../flow-rules'
 
@@ -209,9 +209,10 @@ export function modelToTTL(model: Model): string {
 
   // 계통은 층에 속하지 않아서 마지막에 따로 적는다. 여러 층에 걸치는 것이 정상이다.
   // 계통 종류(급기·순환수 …)를 알면 Brick 계통 클래스로 적고 종류를 따로 남긴다. 모르면 예전처럼 ex: 로 둔다.
+  // 순환수는 유체(냉수·온수)를 알면 유체의 계통 클래스다(kinds.ts 의 FLUIDS).
   for (const system of model.systems) {
     const kind = systemKind(system.kind)
-    lines.push(`${ref(system.id)} a ${kind?.brick ?? 'ex:Distribution_System'} ;`)
+    lines.push(`${ref(system.id)} a ${systemBrickClass(system.kind, system.fluid) ?? 'ex:Distribution_System'} ;`)
     if (kind) lines.push(`    ex:systemKind ${label(kind.kind)} ;`)
     if (system.memberIds.length > 0) lines.push(`    brick:hasPart ${system.memberIds.map(ref).join(', ')} ;`)
     lines.push(`    rdfs:label ${label(system.name)} .`)

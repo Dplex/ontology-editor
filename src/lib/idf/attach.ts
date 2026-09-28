@@ -3,9 +3,11 @@
 // **층은 높이로 맞춘다.** IDF 의 층은 이름이 아니라 바닥면 높이다(존 이름에 `1F` 가 붙어 있어도 규칙이 아니다). BIM 층
 // 높이와 가장 가까운 것이 STOREY_TOLERANCE 안이면 그 층이다. BIM 이 없으면(IDF 만 연 것) 높이마다 층을 세운다.
 //
-// **물리존과는 자리로 잇는다.** 물리존의 안쪽 점이 공조존 바닥 안에 들면 그 방은 그 공조존의 일부다(`brick:hasPart`).
-// 넓이 교집합을 재지 않는 것은 다각형 연산 라이브러리를 들이지 않기 때문이고(55 가 npm 에 닿지 않는다), 방 하나가 두
-// 공조존에 걸치는 일은 IDF 가 방 단위로 존을 나누는 한 드물다. 좌표계가 다르면 오류 없이 한 방도 안 들어가므로 따로 잰다.
+// **물리존과는 겹친 넓이로 잇는다(PRD #12 ②).** 물리존 바닥의 절반 넘게를 덮는 공조존이 있으면 그 방은 그 공조존의 일부다
+// (`brick:hasPart`). 여럿이면 가장 많이 덮는 존이다. 예전에는 안쪽 점 하나로 정했는데, 그러면 두 존에 걸친 방을 알 수 없고
+// 방의 10% 만 덮는 존에도 방이 들어갔다. 절반을 못 넘으면 넣지 않고 "걸친 방" 으로 센다 — 어느 존인지 지어내지 않는다.
+// 넓이는 polygon.ts 가 직접 잰다(55 가 npm 에 닿지 않아 라이브러리를 들이지 않는다). 자기 교차한 외곽선은 넓이를 잴 수
+// 없어 안쪽 점으로 되돌아간다. 좌표계가 다르면 오류 없이 한 방도 안 들어가므로 따로 잰다.
 //
 // **IDF 설비는 BIM 설비와 이름으로만 잇는다.** 이름이 하나에만 맞을 때만 잇고(판본 짝짓기와 같은 원칙), 못 이은 IDF
 // 설비는 좌표 없이 IDF 출신으로 남는다. 담당 관계(`brick:feeds`)는 IDF 가 말한 것이라 확정 없이 나간다 — 규칙으로
@@ -13,11 +15,16 @@
 
 import { interiorPoint, pointInPolygon } from '../mapping'
 import { isConduit, polygonArea, type HvacEquipment, type HvacZone, type Model, type Storey, type Vec2 } from '../model'
-import { unionRings } from '../polygon'
+import { overlapArea, unionRings } from '../polygon'
 import type { IdfModel } from './read'
 
 /** IDF 바닥 높이와 BIM 층 높이를 같다고 보는 차(미터). IDF 는 층고를 반올림해 적는 일이 흔하다. */
 export const STOREY_TOLERANCE = 0.5
+
+/** 방이 공조존의 일부라고 볼 몫. 방 바닥의 절반 넘게를 덮어야 한다. */
+export const ZONE_SHARE = 0.5
+/** 두 번째로 많이 덮는 존이 이만큼 넘으면 그 방은 두 존에 걸친 것이다. */
+export const STRADDLE_SHARE = 0.1
 
 export type IdfAttachReport = {
   zones: number
@@ -28,6 +35,12 @@ export type IdfAttachReport = {
   zonesWithSpaces: number
   spacesInZones: number
   spaces: number
+  /** 두 존이 각각 방 바닥의 10% 넘게를 덮는 방. 존 경계가 방을 가로지른다. */
+  straddling: number
+  /** 어느 존도 방 바닥의 절반을 못 덮어 넣지 않은 방(조금이라도 겹친 것만 센다). */
+  partial: number
+  /** 외곽선이 자기 교차해 넓이를 못 재고 안쪽 점으로 정한 방. */
+  byPoint: number
   /** 이름으로 BIM 설비와 이은 IDF 설비. */
   matchedEquipment: number
   equipment: number
@@ -102,15 +115,39 @@ export function attachIdf(model: Model, idf: IdfModel, source: string): { model:
 
   // --- 물리존 ------------------------------------------------------------------------
   let spacesInZones = 0
+  let straddling = 0
+  let partial = 0
+  let byPoint = 0
   for (const storey of m.storeys) {
     const here = zones.filter((zz) => zz.storeyId === storey.id)
     for (const space of storey.spaces) {
-      const p = interiorPoint(space.footprint)
-      if (!p) continue
-      // 바닥 조각이 겹치는 존이 있으면 작은 존이다(방 소속과 같은 규칙).
-      const owner = here
-        .filter((zz) => zz.footprint.some((r) => pointInPolygon(p, r)))
-        .sort((a, b) => a.areaM2 - b.areaM2)[0]
+      const area = polygonArea(space.footprint)
+      if (area <= 0) continue
+      const shares: { zone: HvacZone; share: number }[] = []
+      let measurable = true
+      for (const zone of here) {
+        let sum = 0
+        for (const ring of zone.footprint) {
+          const a = overlapArea(space.footprint, ring)
+          if (a === null) measurable = false
+          else sum += a
+        }
+        if (sum > 1e-6) shares.push({ zone, share: Math.min(1, sum / area) })
+      }
+      let owner: HvacZone | undefined
+      if (measurable) {
+        // 많이 덮는 존이 먼저, 같으면 작은 존이다(방 소속과 같은 규칙).
+        shares.sort((a, b) => b.share - a.share || a.zone.areaM2 - b.zone.areaM2)
+        if (shares.length > 1 && shares[1].share > STRADDLE_SHARE) straddling++
+        if (shares[0]?.share > ZONE_SHARE) {
+          owner = shares[0].zone
+          owner.spaceShares = { ...owner.spaceShares, [space.id]: Math.round(shares[0].share * 1000) / 1000 }
+        } else if (shares.length) partial++
+      } else {
+        const p = interiorPoint(space.footprint)
+        owner = p ? here.filter((zz) => zz.footprint.some((r) => pointInPolygon(p, r))).sort((a, b) => a.areaM2 - b.areaM2)[0] : undefined
+        byPoint++
+      }
       if (!owner) continue
       owner.spaceIds.push(space.id)
       spacesInZones++
@@ -150,6 +187,9 @@ export function attachIdf(model: Model, idf: IdfModel, source: string): { model:
     zonesWithSpaces: zones.filter((z) => z.spaceIds.length).length,
     spacesInZones,
     spaces: m.storeys.reduce((n, s) => n + s.spaces.length, 0),
+    straddling,
+    partial,
+    byPoint,
     matchedEquipment: equipment.filter((e) => e.bimId).length,
     equipment: equipment.length,
     alignment,
@@ -184,6 +224,12 @@ function attachWarnings(r: IdfAttachReport, source: string): string[] {
   const out: string[] = []
   if (r.alignment !== null && r.alignment < 0.5) {
     out.push(`[${source}] 공조존 바닥의 ${Math.round(r.alignment * 100)}%만 BIM 물리존 범위 안에 있습니다. IDF 와 BIM 의 좌표계(원점·북쪽)가 다른 것 같습니다.`)
+  }
+  if (r.straddling > 0) {
+    out.push(`[${source}] 물리존 ${r.straddling}개는 두 공조존에 걸칩니다(각각 바닥의 ${STRADDLE_SHARE * 100}% 넘게). 가장 많이 덮는 존에 넣었습니다.`)
+  }
+  if (r.partial > 0) {
+    out.push(`[${source}] 물리존 ${r.partial}개는 어느 공조존도 바닥의 절반을 덮지 않아 공조존에 넣지 않았습니다.`)
   }
   if (r.zones > r.zonesOnStoreys) {
     out.push(`[${source}] 공조존 ${r.zones - r.zonesOnStoreys}개는 바닥 높이가 BIM 층과 ${STOREY_TOLERANCE}m 안에서 맞지 않아 층을 정하지 못했습니다.`)

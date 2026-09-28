@@ -17,13 +17,21 @@ import {
   renameSpace,
   setFlowDirection,
   setTypeKind,
+  addOpening,
+  addWall,
+  deleteOpening,
+  deleteWall,
+  setWallLoadBearing,
+  setEquipmentSystem,
+  setSystemKind,
   typeKeyOf,
 } from './edit'
-import { applyEdits, exportEdits, parseEditFile } from './edit-file'
+import { applyEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
+import { exportedContent } from './edit-fuzz'
 import { confirmSystemFlow, inferFlowByRules } from './flow-rules'
 import { modelToGeoJSON } from './export/geojson'
 import { modelToTTL } from './export/ttl'
-import type { Model } from './model'
+import type { Model, Opening } from './model'
 
 let api: WebIFC.IfcAPI
 beforeAll(async () => {
@@ -79,6 +87,33 @@ describe('편집 저장·불러오기', () => {
     expect(equip(b, 'TEMP-101-01').kindEdited).toEqual({ from: null })
   })
 
+  it('설비의 계통과 계통 종류·유체를 고친 것도 불러오면 같다(E8)', () => {
+    const withWater = (m: Model) => {
+      m.systems.push({ id: 'W1', name: 'Hydronic Supply 1', memberIds: [], source: 'property', kind: 'hydronic_supply', kindSource: 'dict', fluid: null })
+      return m
+    }
+    const a = withWater(read('mep.ifc'))
+    const base = baselineOf(a)
+    setEquipmentSystem(a, equip(a, 'AHU-1').id, 'W1')
+    setEquipmentSystem(a, equip(a, 'AT-101-01').id, null)
+    setSystemKind(a, 'W1', 'hydronic_supply', 'hot')
+    setSystemKind(a, a.systems[0].id, 'return_air')
+
+    const file = exportEdits(a, base, 'mep.ifc')
+    expect(file.systems).toEqual([
+      { id: a.systems[0].id, kind: 'return_air', fluid: null },
+      { id: 'W1', kind: 'hydronic_supply', fluid: 'hot' },
+    ])
+    expect(file.equipment.map((e) => e.system)).toEqual(['W1', null])
+
+    const b = withWater(read('mep.ifc'))
+    const result = applyEdits(b, parseEditFile(JSON.stringify(file)) as EditFile)
+    expect(result.missing.systems).toBe(0)
+    expect(exportedContent(b)).toBe(exportedContent(a))
+    expect(modelToTTL(b)).toContain('ex:W1 a brick:Hot_Water_System ;')
+    expect(equip(b, 'AHU-1').systemEdited).toEqual({ from: a.systems[0].id })
+  })
+
   it('다른 모델에 얹으면 못 찾은 것을 센다', () => {
     const a = read('mep.ifc')
     const base = baselineOf(a)
@@ -106,6 +141,9 @@ describe('편집 저장·불러오기', () => {
     confirmSystemFlow(a, a.connections.find((c) => c.inferred)!.inferred!.systemId)
     const free = a.connections.find((c) => !c.directed)!
     setFlowDirection(free, free.to)
+    // 계통 편집(E8). 계통 GUID 도 바뀌므로 이름으로 찾아야 한다 — 못 찾으면 설비가 계통 없이 남거나 종류가 안 얹힌다.
+    setEquipmentSystem(a, equip(a, 'DUCT-01').id, null)
+    setSystemKind(a, a.systems[0].id, 'return_air')
     const parsed = parseEditFile(JSON.stringify(exportEdits(a, base, 'mep.ifc')))
     if (typeof parsed === 'string') throw new Error(parsed)
 
@@ -125,12 +163,45 @@ describe('편집 저장·불러오기', () => {
     const result = applyEdits(b, parsed)
     expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 })
     expect(result.rematched.name + result.rematched.position).toBeGreaterThan(0)
+    expect(equip(b, 'DUCT-01').systemId).toBe(null)
+    expect(b.systems[0].kind).toBe('return_air')
     // id 만 다르고 내보내는 내용은 같다.
     const strip = (m: Model) => {
       const out = exports(m)
       return { ttl: out.ttl.split('Qv2').join(''), geo: out.geo.split('Qv2').join('') }
     }
     expect(strip(b)).toEqual(exports(a))
+  })
+
+  it('GUID 가 바뀐 판본에서도 고친 벽·문·창을 이름으로 찾는다. 에디터가 더한 벽은 지문으로 찾지 않는다', () => {
+    const a = read('two-rooms.ifc')
+    const base = baselineOf(a)
+    const byName = (m: Model, name: string) => m.storeys.flatMap((st) => [...st.walls, ...st.openings]).find((x) => x.name === name)!
+    const first = a.storeys[0]
+    setWallLoadBearing(a, byName(a, 'W-1F-03').id, true)
+    deleteWall(a, byName(a, 'W-1F-02').id)
+    deleteOpening(a, byName(a, 'WD-2F-01').id)
+    const wall = addWall(a, first.id, [0, 0], [4, 0], 0.2, 'U_wallTest')!
+    const door = addOpening(a, first.id, 'door', [2, 0], 'U_doorTest') as Opening
+    expect(door.wallId).toBe(wall.id)
+    const file = exportEdits(a, base, 'two-rooms.ifc')
+    // 에디터가 지은 id 는 지문을 적지 않는다.
+    expect(Object.keys(file.keys ?? {}).filter((k) => k.startsWith('U_'))).toEqual([])
+
+    const ids = (m: Model) => m.storeys.flatMap((st) => [st.id, ...st.spaces.map((sp) => sp.id), ...st.walls.map((w) => w.id), ...st.openings.map((o) => o.id)])
+    const reexport = (m: Model): Model => {
+      let json = JSON.stringify(m)
+      for (const id of ids(m)) json = json.split(JSON.stringify(id)).join(JSON.stringify(`${id}Qv2`))
+      return JSON.parse(json)
+    }
+    const b = reexport(read('two-rooms.ifc'))
+    const result = applyEdits(b, parseEditFile(JSON.stringify(file)) as EditFile)
+    expect(result.missing.elements).toBe(0)
+    expect(result.rematched.name).toBeGreaterThanOrEqual(3)
+    expect(byName(b, 'W-1F-03')).toMatchObject({ loadBearing: true })
+    expect(byName(b, 'W-1F-02')).toBeUndefined()
+    expect(byName(b, 'WD-2F-01')).toBeUndefined()
+    expect(b.storeys[0].openings.find((o) => o.id === 'U_doorTest')?.wallId).toBe('U_wallTest')
   })
 
   it('이은 연결과 그 방향이 저장·불러오기와 되돌리기를 거쳐도 같다', () => {

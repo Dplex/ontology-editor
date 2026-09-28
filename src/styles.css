@@ -1263,6 +1263,7 @@ th {
 }
 
 .kind-edit,
+.system-edit,
 .position-edit,
 .storey-move {
   display: flex;
@@ -1274,6 +1275,7 @@ th {
 }
 
 .kind-edit label,
+.system-edit label,
 .storey-move label {
   display: inline-flex;
   align-items: center;
@@ -1904,6 +1906,7 @@ kbd {
 
 /* 고른 설비 패널의 선택 상자. 브라우저 기본 모양이 위아래 칩과 따로 놀았다. */
 .kind-edit select,
+.system-edit select,
 .storey-move select,
 .unknown-types select {
   padding: 0.3rem 0.55rem;
@@ -1915,6 +1918,7 @@ kbd {
 }
 
 .kind-edit select:focus-visible,
+.system-edit select:focus-visible,
 .storey-move select:focus-visible,
 .unknown-types select:focus-visible {
   outline: 2px solid var(--accent);
@@ -2701,4 +2705,78 @@ main.has-model .catalog {
 /* 지우는 버튼. 액센트를 늘리지 않고 오류 색 글자로만 가른다(되돌릴 수 있는 편집이라 크게 경고하지 않는다). */
 .ghost.danger {
   color: var(--error);
+}
+
+/* 계통 상자. 성수는 계통이 1,037개라 이름이 길다. 패널 폭(25rem)을 넘지 않게 줄인다. */
+.system-edit select {
+  max-width: 18rem;
+}
+
+/* 여러 파일 한 번에(건축 + 설비). 첫 화면 한 줄, 목록의 고르기 칸, 한쪽만 연 파일의 짝 권하기. */
+.drop .drop-multi {
+  max-width: 34rem;
+  margin: 0.25rem auto 1rem;
+  text-align: center;
+  font-size: 0.85rem;
+}
+
+.catalog .pick-cell {
+  width: 1.5rem;
+  padding-right: 0;
+}
+
+.catalog tr.picked td {
+  background: var(--accent-soft);
+}
+
+.catalog-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+}
+
+.catalog .pair {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+}
+
+.pair-hint {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  font-size: 0.85rem;
+}
+
+.pair-hint p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.pair-hint input {
+  display: none;
+}
+
+.pair-hint .other {
+  cursor: pointer;
+}
+
+.appbar .append.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.appbar .append.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
 }

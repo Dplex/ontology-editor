@@ -9,9 +9,9 @@
 
 import { assignEquipment, isSelfIntersecting } from './mapping'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
-import { equipmentKind } from './kinds'
+import { equipmentKind, FLUID_KINDS, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
-import type { Connection, Equipment, Model, Opening, Space, Storey, Vec2, Vec3, Wall } from './model'
+import type { Connection, Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall } from './model'
 import { spacesBesideOpening } from './ifc/element-geometry'
 import { splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
@@ -417,6 +417,20 @@ export type Snapshot =
       equipment: { equipment: Equipment; spaceId: string | null; spaceSource: Equipment['spaceSource'] }[]
       openings: { id: string; connects: string[] | undefined }[]
     }
+  /** 계통의 구성원·종류·유체와 설비의 계통(E8). */
+  | {
+      kind: 'systems'
+      systems: {
+        system: System
+        memberIds: string[]
+        kind: System['kind']
+        kindSource: System['kindSource']
+        fluid: System['fluid']
+        fluidSource: System['fluidSource']
+        kindEdited: System['kindEdited']
+      }[]
+      equipment: { equipment: Equipment; systemId: string | null; systemEdited: Equipment['systemEdited'] }[]
+    }
   /** 한 층의 벽·문·창(E4). 객체를 그대로 들고 있어 되돌려도 같은 객체다. */
   | {
       kind: 'storey-elements'
@@ -507,6 +521,12 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotStoreySpaces(model, snapshot.storeyId)
     case 'storey-elements':
       return snapshotStoreyElements(model, snapshot.storeyId)
+    case 'systems':
+      return snapshotSystems(
+        model,
+        snapshot.systems.map((x) => x.system.id),
+        snapshot.equipment.map((x) => x.equipment.id),
+      )
     case 'kinds': {
       const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
       return {
@@ -641,6 +661,25 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       for (const b of snapshot.boundedBy) b.space.boundedBy = [...b.boundedBy]
       return null
     }
+    case 'systems': {
+      const set = <T extends object, K extends keyof T>(o: T, k: K, v: T[K] | undefined) => {
+        if (v === undefined) delete o[k]
+        else o[k] = v
+      }
+      for (const x of snapshot.systems) {
+        x.system.memberIds = [...x.memberIds]
+        set(x.system, 'kind', x.kind)
+        set(x.system, 'kindSource', x.kindSource)
+        set(x.system, 'fluid', x.fluid)
+        set(x.system, 'fluidSource', x.fluidSource)
+        set(x.system, 'kindEdited', x.kindEdited ? { ...x.kindEdited } : undefined)
+      }
+      for (const x of snapshot.equipment) {
+        x.equipment.systemId = x.systemId
+        set(x.equipment, 'systemEdited', x.systemEdited ? { ...x.systemEdited } : undefined)
+      }
+      return inferFlowByRules(model)
+    }
     case 'kinds': {
       const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
       for (const entry of snapshot.entries) {
@@ -758,7 +797,9 @@ export type Baseline = {
   names: Map<string, string>
   /** 물리존 외곽선. 편집 저장(edit-file.ts)이 바뀐 경계만 골라 담는다. */
   footprints: Map<string, Vec2[]>
-  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource']; name?: string }>
+  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource']; name?: string; systemId?: string | null }>
+  /** 계통의 종류·유체(E8). 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
+  systems?: Map<string, { name: string; kind: string | null; fluid: Fluid | null }>
   /** 연 때 있던 연결(순서 없는 짝). 이은 것·끊은 것을 이것과 견준다. 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
   connections?: Set<string>
   /**
@@ -802,10 +843,12 @@ export function baselineOf(model: Model): Baseline {
         spaceId: e.spaceId,
         spaceSource: e.spaceSource,
         name: e.name,
+        systemId: e.systemId,
       })
     }
   }
   return {
+    systems: new Map(model.systems.map((s) => [s.id, { name: s.name, kind: s.kind ?? null, fluid: s.fluid ?? null }])),
     names,
     footprints,
     equipment,
@@ -839,6 +882,10 @@ export type BaselineDiff = {
   openingsAdded: { id: string; name: string; kind: Opening['kind'] }[]
   openingsRemoved: { id: string; name: string; kind: Opening['kind'] }[]
   openingsMoved: { id: string; name: string; kind: Opening['kind'] }[]
+  /** 계통을 바꾼 설비(E8). 계통 id 다. */
+  systemMoved: { id: string; name: string; from: string | null; to: string | null }[]
+  /** 종류·유체를 고친 계통(E8). */
+  systemKinds: { id: string; name: string; from: { kind: string | null; fluid: Fluid | null }; to: { kind: string | null; fluid: Fluid | null } }[]
 }
 
 /** 좌표를 같다고 보는 차. 표와 3D 가 센티미터로 자르므로 그보다 작은 차는 같은 자리다. */
@@ -851,6 +898,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const spacesAdded: BaselineDiff['spacesAdded'] = []
   const equipmentAdded: BaselineDiff['equipmentAdded'] = []
   const equipmentRenamed: BaselineDiff['equipmentRenamed'] = []
+  const systemMoved: BaselineDiff['systemMoved'] = []
   const storeyName = new Map(model.storeys.map((s) => [s.id, s.name]))
   const spacesNow = new Set<string>()
   const equipmentNow = new Set<string>()
@@ -870,6 +918,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
       }
       if (was.name !== undefined && was.name !== e.name) equipmentRenamed.push({ id: e.id, from: was.name, to: e.name })
       const name = e.name || e.ifcClass
+      if (was.systemId !== undefined && was.systemId !== e.systemId) systemMoved.push({ id: e.id, name, from: was.systemId, to: e.systemId })
       if (was.storeyId !== storey.id) {
         // 층을 옮기면 높이도 옮긴다. 층 줄 하나로 적고 좌표 줄에 다시 세지 않는다.
         restoreyed.push({ id: e.id, name, from: storeyName.get(was.storeyId) ?? was.storeyId, to: storey.name })
@@ -904,7 +953,14 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const equipmentRemoved = [...baseline.equipment]
     .filter(([id]) => !equipmentNow.has(id))
     .map(([id, was]) => ({ id, name: was.name || id }))
-  return { renamed, moved, restoreyed, connected, disconnected, spacesAdded, spacesRemoved, equipmentAdded, equipmentRemoved, equipmentRenamed, ...e4 }
+  const systemKinds: BaselineDiff['systemKinds'] = []
+  for (const system of model.systems) {
+    const was = baseline.systems?.get(system.id)
+    const to = { kind: system.kind ?? null, fluid: system.fluid ?? null }
+    // 사람이 고친 것만 센다. 원천 기기로 짐작한 유체(flow-rules.ts 의 inferFluids)는 종류·연결을 고치면 따라 바뀌는 값이다.
+    if (was && system.kindEdited && (was.kind !== to.kind || was.fluid !== to.fluid)) systemKinds.push({ id: system.id, name: system.name, from: { kind: was.kind, fluid: was.fluid }, to })
+  }
+  return { renamed, moved, restoreyed, connected, disconnected, spacesAdded, spacesRemoved, equipmentAdded, equipmentRemoved, equipmentRenamed, ...e4, systemMoved, systemKinds }
 }
 
 const sameRings = (a: readonly (readonly Vec2[])[] | undefined, b: readonly (readonly Vec2[])[] | undefined) =>
@@ -1559,4 +1615,77 @@ export function insertOpening(model: Model, storeyId: string, opening: Opening):
   storey.openings.push(opening)
   relinkDoors(storey)
   return true
+}
+
+// --- 계통 편집 (E8) ------------------------------------------------------------------
+//
+// 연결 잇기·끊기에 더해 설비가 어느 계통에 드는지와 계통이 무엇인지(종류·유체)를 고친다. 둘 다 규칙 방향의 재료라
+// (계통 종류가 매체와 방향을, 구성원이 그 계통이 정할 연결을 정한다) 고치면 규칙을 다시 돌린다 — 종류를 바꿀 때와 같다.
+// TTL 에서는 계통의 `brick:hasPart` 와 계통 클래스가 바뀐다. 사람이 확정한 계통은 규칙이 얼려 두므로 이미 확정한 방향은
+// 그대로다.
+
+function findSystem(model: Model, systemId: string): System | null {
+  return model.systems.find((s) => s.id === systemId) ?? null
+}
+
+/**
+ * 설비를 다른 계통으로 옮긴다. `null` 이면 계통에서 뺀다. 설비의 계통(`systemId`)에서 빼고 새 계통에 넣는다 — 한 설비가
+ * 여러 계통에 든 경우(공조기가 공기·물 둘 다) 나머지 계통 자리는 두고 이 한 자리만 바꾼다.
+ */
+export function setEquipmentSystem(model: Model, equipmentId: string, systemId: string | null): RuleReport | null {
+  const equipment = findEquipment(model, equipmentId)
+  if (!equipment) return null
+  const to = systemId === null ? null : findSystem(model, systemId)
+  if (systemId !== null && !to) return null
+  const from = equipment.systemId
+  if (from === systemId) return null
+  const was = from === null ? null : findSystem(model, from)
+  if (was) was.memberIds = was.memberIds.filter((m) => m !== equipmentId)
+  if (to && !to.memberIds.includes(equipmentId)) to.memberIds.push(equipmentId)
+  if (!equipment.systemEdited) equipment.systemEdited = { from }
+  equipment.systemId = systemId
+  if (equipment.systemEdited.from === systemId) delete equipment.systemEdited
+  return inferFlowByRules(model)
+}
+
+/**
+ * 계통의 종류와 유체를 정한다. `kind` 가 null 이면 "모름" 이다. 유체는 순환수에만 있다 — 다른 종류면 버린다.
+ * 사전·BIM 이 읽은 값으로 되돌리면 편집 표시를 지운다.
+ */
+export function setSystemKind(model: Model, systemId: string, kind: string | null, fluid: Fluid | null = null): RuleReport | null {
+  const system = findSystem(model, systemId)
+  if (!system) return null
+  if (kind !== null && !systemKind(kind)) return null
+  const nextFluid = kind !== null && FLUID_KINDS.includes(kind) ? fluid : null
+  if ((system.kind ?? null) === kind && (system.fluid ?? null) === nextFluid) return null
+  if (!system.kindEdited) system.kindEdited = { kind: system.kind ?? null, fluid: system.fluid ?? null }
+  system.kind = kind
+  system.fluid = nextFluid
+  if (system.kindEdited.kind === kind && system.kindEdited.fluid === nextFluid) delete system.kindEdited
+  return inferFlowByRules(model)
+}
+
+/** 계통 편집 전의 상태. 옮기는 설비와 두 계통(예전·새)을 뜬다. 구성원 순서까지 되돌아온다. */
+export function snapshotSystems(model: Model, systemIds: readonly (string | null)[], equipmentIds: readonly string[] = []): Snapshot {
+  const systems = [...new Set(systemIds)].flatMap((id) => {
+    const system = id === null ? null : findSystem(model, id)
+    return system
+      ? [
+          {
+            system,
+            memberIds: [...system.memberIds],
+            kind: system.kind,
+            kindSource: system.kindSource,
+            fluid: system.fluid,
+            fluidSource: system.fluidSource,
+            kindEdited: system.kindEdited ? { ...system.kindEdited } : undefined,
+          },
+        ]
+      : []
+  })
+  const equipment = equipmentIds.flatMap((id) => {
+    const e = findEquipment(model, id)
+    return e ? [{ equipment: e, systemId: e.systemId, systemEdited: e.systemEdited ? { ...e.systemEdited } : undefined }] : []
+  })
+  return { kind: 'systems', systems, equipment }
 }

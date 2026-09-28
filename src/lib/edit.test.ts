@@ -48,6 +48,9 @@ import {
   moveOpening,
   setWallLoadBearing,
   snapshotStoreyElements,
+  setEquipmentSystem,
+  setSystemKind,
+  snapshotSystems,
   type Change,
 } from './edit'
 import { polygonArea, type Model, type Opening } from './model'
@@ -605,6 +608,8 @@ describe('연 때와 견주기', () => {
       openingsAdded: [],
       openingsRemoved: [],
       openingsMoved: [],
+      systemMoved: [],
+      systemKinds: [],
     })
   })
 
@@ -852,5 +857,117 @@ describe('벽·문·창 편집 (E4)', () => {
     const diff = diffBaseline(model, base)
     expect(diff.wallsRemoved.map((w) => w.id)).toEqual([wall.id])
     expect(diff.openingsRemoved).toEqual([])
+  })
+})
+
+describe('계통 편집 (E8)', () => {
+  const water = () => {
+    model.systems.push({ id: 'W1', name: '순환수 공급', memberIds: [], source: 'ifc', kind: 'hydronic_supply', fluid: null })
+    return model.systems.at(-1)!
+  }
+
+  it('설비를 다른 계통으로 옮기면 두 계통의 구성원과 TTL 이 바뀌고, 제자리로 돌리면 편집 표시가 지워진다', () => {
+    const w = water()
+    const ahu = equip('AHU-1')
+    const from = ahu.systemId!
+    expect(from).toBe(model.systems[0].id)
+    const rules = setEquipmentSystem(model, ahu.id, 'W1')
+    expect(rules).not.toBe(null)
+    expect(ahu.systemId).toBe('W1')
+    expect(ahu.systemEdited).toEqual({ from })
+    expect(model.systems[0].memberIds).not.toContain(ahu.id)
+    expect(w.memberIds).toEqual([ahu.id])
+    expect(modelToTTL(model)).toContain(`W1 a brick:Water_System ;
+    ex:systemKind "hydronic_supply" ;
+    brick:hasPart ex:${ahu.id.replaceAll('$', '\\$')} ;`)
+
+    expect(setEquipmentSystem(model, ahu.id, 'W1')).toBe(null) // 이미 거기다
+    expect(setEquipmentSystem(model, ahu.id, 'no-such')).toBe(null)
+    setEquipmentSystem(model, ahu.id, from)
+    expect(ahu.systemEdited).toBeUndefined()
+    expect(w.memberIds).toEqual([])
+  })
+
+  it('공기·물 계통에 다 든 공조기의 주 계통을 이미 든 물 계통으로 옮겨도 구성원이 두 번 적히지 않고, 되돌리면 두 자리가 다 돌아온다', () => {
+    const w = water()
+    const ahu = equip('AHU-1')
+    const air = model.systems[0]
+    // 공조기는 냉수 코일로 물 계통에도 들어 있다(주 계통은 급기).
+    w.memberIds.push('0MEP$Equip$X', ahu.id)
+    const opened = modelToTTL(model)
+    const snap = snapshotSystems(model, [ahu.systemId, 'W1'], [ahu.id])
+    setEquipmentSystem(model, ahu.id, 'W1')
+    expect(w.memberIds.filter((m) => m === ahu.id)).toHaveLength(1)
+    expect(air.memberIds).not.toContain(ahu.id)
+    restore(model, snap)
+    expect(modelToTTL(model)).toBe(opened)
+    expect(w.memberIds).toEqual(['0MEP$Equip$X', ahu.id])
+  })
+
+  it('계통을 옮긴 설비를 지웠다가 되돌리면 옮긴 계통으로 돌아오고, 한 번 더 되돌리면 원래 계통의 원래 자리다', () => {
+    water()
+    const ahu = equip('AHU-1')
+    const air = model.systems[0]
+    const at = air.memberIds.indexOf(ahu.id)
+    const opened = modelToTTL(model) + JSON.stringify(modelToGeoJSON(model))
+    const s1 = snapshotSystems(model, [ahu.systemId, 'W1'], [ahu.id])
+    setEquipmentSystem(model, ahu.id, 'W1')
+    const s2 = snapshotEquipmentSet(model, ahu.id)!
+    deleteEquipment(model, ahu.id)
+    restore(model, s2)
+    expect(equip('AHU-1').systemId).toBe('W1')
+    expect(model.systems.at(-1)!.memberIds).toEqual([ahu.id])
+    restore(model, s1)
+    expect(air.memberIds.indexOf(ahu.id)).toBe(at)
+    expect(modelToTTL(model) + JSON.stringify(modelToGeoJSON(model))).toBe(opened)
+  })
+
+  it('확정한 계통에서 덕트를 빼도 확정한 방향은 그대로 나가고, 그 덕트의 연결을 다른 계통이 가로채지 않는다', () => {
+    water()
+    inferFlowByRules(model)
+    const system = model.systems[0].id
+    const ruled = model.connections.filter((c) => c.inferred?.systemId === system)
+    expect(ruled.length).toBeGreaterThan(0)
+    confirmSystemFlow(model, system)
+    const before = withInferred(model.connections, true).map((c) => `${c.from}>${c.to}`)
+    const duct = ruled[0].from === equip('AHU-1').id ? ruled[0].to : ruled[0].from
+    setEquipmentSystem(model, duct, 'W1')
+    expect(withInferred(model.connections, true).map((c) => `${c.from}>${c.to}`)).toEqual(before)
+    expect(ruled[0].inferred).toMatchObject({ systemId: system, confirmed: true })
+  })
+
+  it('계통 종류와 유체를 정하면 TTL 계통 클래스가 유체 클래스가 되고, 순환수가 아니면 유체를 버린다', () => {
+    water()
+    setSystemKind(model, 'W1', 'hydronic_supply', 'chilled')
+    expect(model.systems.at(-1)!.fluid).toBe('chilled')
+    expect(modelToTTL(model)).toContain('W1 a brick:Chilled_Water_System ;')
+    expect(model.systems.at(-1)!.kindEdited).toEqual({ kind: 'hydronic_supply', fluid: null })
+
+    setSystemKind(model, 'W1', 'supply_air', 'hot')
+    expect(model.systems.at(-1)!.fluid).toBe(null)
+    expect(modelToTTL(model)).toContain('W1 a brick:Air_System ;')
+
+    expect(setSystemKind(model, 'W1', 'no_such_kind')).toBe(null)
+    setSystemKind(model, 'W1', 'hydronic_supply', null)
+    expect(model.systems.at(-1)!.kindEdited).toBeUndefined()
+  })
+
+  it('되돌리면 구성원 순서와 종류·유체까지 연 때와 같다', () => {
+    water()
+    const opened = modelToTTL(model) + JSON.stringify(modelToGeoJSON(model))
+    const ahu = equip('AHU-1')
+    const s1 = snapshotSystems(model, [ahu.systemId, 'W1'], [ahu.id])
+    setEquipmentSystem(model, ahu.id, 'W1')
+    const s2 = snapshotSystems(model, ['W1'])
+    setSystemKind(model, 'W1', 'hydronic_return', 'hot')
+    // 다시 하기용으로 뜬 것이 지금 상태를 담는다.
+    const redo = snapshotOf(model, s2)!
+    restore(model, s2)
+    restore(model, redo)
+    expect(model.systems.at(-1)!.fluid).toBe('hot')
+    restore(model, s2)
+    restore(model, s1)
+    expect(modelToTTL(model) + JSON.stringify(modelToGeoJSON(model))).toBe(opened)
+    expect(ahu.systemEdited).toBeUndefined()
   })
 })

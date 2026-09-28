@@ -15,7 +15,7 @@
 // **포트가 방향을 말한 연결은 채점에 쓴다.** 같은 규칙으로 그 연결의 방향을 정해 보고 BIM 과 대
 // 보면, 규칙이 이 파일에서 얼마나 맞는지가 숫자로 나온다(`agree`/`disagree`).
 
-import { equipmentKind, systemKind, systemKindOf, type Medium, type SystemKindInfo } from './kinds'
+import { equipmentKind, FLUID_KINDS, systemKind, systemKindOf, type Fluid, type Medium, type SystemKindInfo } from './kinds'
 
 type Sense = SystemKindInfo['sense']
 import { isConduit, type Connection, type Model } from './model'
@@ -196,7 +196,66 @@ export function inferFlowByRules(model: Model): RuleReport {
       }
     }
   }
+  inferFluids(model)
   return report
+}
+
+/**
+ * 계통이 유체를 말하지 않는 순환수의 유체를 원천 기기로 짐작한다. 냉동기(냉수)·보일러(온수)·냉각탑(냉각수)에서 배관을
+ * 따라 가며 닿는 설비에 그 유체를 적고, 계통 구성원이 닿은 유체가 **하나뿐일 때만** 그 계통의 유체로 둔다. 병원 HVAC 의
+ * `Hydronic Supply 1` 은 이름에 유체가 없지만 원천이 냉동기다.
+ *
+ * 원천 기기가 **계통의 구성원**이면 그것도 근거다. 포트 없이 형상으로 이은 파일은 원천에 배관이 닿지 않는 일이 흔하다 —
+ * Duplex MEP 보일러는 연도(배기 덕트)에만 맞닿고, 병원 MEP 냉동기는 환수 쪽에만 닿았다. Revit 은 계통에 원천을 넣어 둔다.
+ * 냉각수 계통에는 냉동기와 냉각탑이 같이 들어 둘이 겹치므로 정하지 않는다. 냉각탑이 다른 계통에 있으면 냉각수 계통을
+ * 냉수로 볼 수 있다 — 그런 파일을 아직 못 봤다. 이름에 `냉각수`·`condenser` 가 있으면 이름이 먼저라 이 짐작까지 오지 않는다.
+ *
+ * 다른 기기(공조기·FCU·열교환기·히트펌프)와 말단은 넘어가지 않는다 — 코일 너머는 다른 물이다. 냉동기는 냉수와 냉각수
+ * 배관에 다 붙어서 냉각수 쪽도 냉수로 닿지만, 냉각탑이 거기 냉각수를 더해 둘이 겹치므로 정하지 않는다(모순된 데에는
+ * 찍지 않는다). BIM·이름·사람이 정한 유체는 건드리지 않고, 짐작한 것(`rule`)만 다시 짐작한다.
+ */
+export function inferFluids(model: Model): void {
+  const equipment = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
+  const adjacent = new Map<string, string[]>()
+  for (const c of model.connections) {
+    adjacent.set(c.from, [...(adjacent.get(c.from) ?? []), c.to])
+    adjacent.set(c.to, [...(adjacent.get(c.to) ?? []), c.from])
+  }
+  const stops = (id: string) => {
+    const e = equipment.get(id)
+    return !e || e.role === 'conversion' || e.role === 'terminal' || equipmentKind(e.kind)?.flow.water === 'sink'
+  }
+  const reached = new Map<string, Set<Fluid>>()
+  for (const [id, e] of equipment) {
+    const fluid = equipmentKind(e.kind)?.fluid
+    if (!fluid) continue
+    const seen = new Set([id])
+    const queue = [id]
+    for (let i = 0; i < queue.length; i++) {
+      for (const next of adjacent.get(queue[i]) ?? []) {
+        if (seen.has(next)) continue
+        seen.add(next)
+        if (stops(next)) continue
+        reached.set(next, (reached.get(next) ?? new Set()).add(fluid))
+        queue.push(next)
+      }
+    }
+  }
+  for (const system of model.systems) {
+    if (!system.kind || !FLUID_KINDS.includes(system.kind) || system.kindEdited) continue
+    if (system.fluidSource && system.fluidSource !== 'rule') continue
+    const fluids = new Set(system.memberIds.flatMap((id) => {
+      const own = equipmentKind(equipment.get(id)?.kind)?.fluid
+      return [...(reached.get(id) ?? []), ...(own ? [own] : [])]
+    }))
+    if (fluids.size === 1) {
+      system.fluid = [...fluids][0]
+      system.fluidSource = 'rule'
+    } else {
+      system.fluid = null
+      delete system.fluidSource
+    }
+  }
 }
 
 /** 한 계통의 규칙 방향을 사람이 확인했다. 확인한 연결 수를 돌려준다. */

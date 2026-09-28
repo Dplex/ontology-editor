@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EQUIPMENT_KINDS, equipmentKindOf, equipmentKindOfIfc, ifcClassLabel, omniclassCode, resolveEquipmentKind, resolveRoomKind, roomKindOf, systemKindOf } from './kinds'
+import { EQUIPMENT_KINDS, equipmentKindOf, equipmentKindOfIfc, ifcClassLabel, omniclassCode, resolveEquipmentKind, resolveRoomKind, roomKindOf, resolveFluid, systemKindOf, FLUIDS, SYSTEM_IFC } from './kinds'
 
 // 입력은 성수·Duplex·ifc4Mep 실측 파일에 실제로 나온 이름이다. 사전을 넓히면 이 표에서 무엇이 바뀌는지 보인다.
 const kind = (name: string, objectType = '', ifcClass = '') => equipmentKindOf(name, objectType, ifcClass)?.kind ?? null
@@ -214,6 +214,31 @@ describe('계통 종류 사전', () => {
   it('위생(배수)은 원천이 없어 규칙 대상이 아니다', () => {
     expect(systemKindOf('위생 6', '위생')).toBeNull()
     expect(systemKindOf('Unit A Sanitary')).toBeNull()
+  })
+})
+
+describe('순환수의 유체', () => {
+  it.each([
+    // ifc4Mep: 같은 Heat Flow 계통 둘 중 하나에만 HEATING 이 있다. 있으면 BIM, 없으면 이름(사전)이다.
+    ['hydronic_supply', '2_HHF Heat Flow', '', 'HEATING', 'hot', 'bim'],
+    ['hydronic_supply', '2_HHF Heat Flow', '', 'NOTDEFINED', 'hot', 'dict'],
+    ['hydronic_return', '4_FRK Cooling Return', '', 'NOTDEFINED', 'chilled', 'dict'],
+    ['hydronic_supply', '냉수 공급 3', '', null, 'chilled', 'dict'],
+    ['hydronic_return', 'x', 'RETURN', 'CHILLEDWATER', 'chilled', 'bim'],
+    ['hydronic_supply', '냉각수 공급', '', null, 'condenser', 'dict'],
+  ] as const)('%s %s (%s, %s) → %s', (kind, name, objectType, predefined, fluid, source) => {
+    expect(resolveFluid(kind, name, objectType, predefined)).toEqual({ fluid, source })
+  })
+
+  it('이름에 유체가 없거나 둘 다 있으면 모른다. 순환수가 아니면 묻지 않는다', () => {
+    // Revit(Duplex·병원)의 `Hydronic Supply` 는 유체를 말하지 않는다.
+    expect(resolveFluid('hydronic_supply', 'Unit A Hydronic Supply In')).toBeNull()
+    expect(resolveFluid('hydronic_supply', '냉온수 공급')).toBeNull()
+    expect(resolveFluid('domestic_hot_water', 'Hot Water', '', 'HEATING')).toBeNull()
+  })
+
+  it('유체를 말하는 PredefinedType 은 IDS 가 이미 요구하는 물 계통 값이다(어휘가 늘지 않는다)', () => {
+    expect(FLUIDS.map((f) => f.predefined).sort()).toEqual([...SYSTEM_IFC.water.predefined].sort())
   })
 })
 

@@ -36,6 +36,7 @@ import {
   type Snapshot,
 } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
+import { fuzzEdits } from '../src/lib/edit-fuzz'
 
 // 성수(고객사 실측)로만 도는 검사. 성수 파일이 있는 PC 와 55 에서만 돈다(`npm run check:seongsu`).
 //
@@ -261,7 +262,7 @@ describe.skipIf(!have)('성수 불변식', () => {
     if (typeof parsed === 'string') throw new Error(parsed)
     const fresh = structuredClone(pristine)
     const result = timed('편집 파일 불러오기', () => applyEdits(fresh, parsed))
-    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0 })
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 })
     const reloaded = exportsOf(fresh)
     expect(reloaded.ttl === edited.ttl).toBe(true)
     expect(reloaded.geo === edited.geo).toBe(true)
@@ -278,6 +279,21 @@ describe.skipIf(!have)('성수 불변식', () => {
 
     section('편집 왕복에 쓴 편집', did.map((d) => `- ${d}`))
     section('편집 파일 크기', [`- 위 편집: ${(json.length / 1024).toFixed(1)} KB`])
+  }, 1_800_000)
+
+  it('편집을 무작위로 섞어도(물리존 구조·벽·문·창·설비 더하기·계통 포함) 저장·불러오기와 되돌리기가 맞는다', () => {
+    // 위 왕복은 고른 편집 몇 개다. 틀린 것은 늘 편집 둘이 만나는 곳에서 나와서 순서를 무작위로 섞는다(edit-fuzz.ts).
+    // 성수는 사본 하나가 크니 씨앗 셋만 돈다. 틀리면 씨앗과 편집 목록이 찍힌다.
+    const failed: string[] = []
+    const t = performance.now()
+    for (let seed = 1; seed <= 3; seed++) {
+      const r = fuzzEdits(pristine, seed, 30)
+      if (!r.reloadSame || r.missing || !r.undoSame) {
+        failed.push(`seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}\n${r.detail ?? ''}`)
+      }
+    }
+    timings.push(['무작위 편집 30개 × 씨앗 3', (performance.now() - t) / 1000])
+    expect(failed).toEqual([])
   }, 1_800_000)
 
   it('계통을 전부 확정해도 편집 파일이 브라우저 자동 저장(localStorage 약 5MB)에 들어간다', () => {
@@ -453,6 +469,23 @@ describe.skipIf(!have)('성수 측정', () => {
         const s = systems.get(id)
         return [(s?.name ?? id).replace(/\|/g, '/'), systemKind(s?.kind)?.label ?? '모름', `${x.agree}/${x.agree + x.disagree}`, sourcesOf(id).replace(/\|/g, '/')]
       })),
+    ])
+  })
+
+  it('계통 종류와 순환수의 유체 (TODO 의 유체 종류)', () => {
+    // 순환수 공급·환수가 냉수인지 온수인지. PredefinedType(IFC4) 이 먼저고 없으면 이름이다. 성수는 IFC2x3 이라 이름뿐이다.
+    const rows = top(merged.systems, (s) => {
+      const k = systemKind(s.kind)?.label ?? '모름'
+      return s.fluid === undefined ? k : `${k} · ${s.fluid ?? '유체 모름'}${s.fluidSource ? ` (${s.fluidSource})` : ''}`
+    }, 30)
+    const water = merged.systems.filter((s) => s.fluid !== undefined)
+    section('계통 종류와 유체', [
+      `- 계통 ${merged.systems.length} · 순환수 ${water.length} · 유체를 안 것 ${water.filter((s) => s.fluid).length}`,
+      '',
+      ...table(['종류 · 유체 (출처)', '계통 수'], rows),
+      '',
+      '유체를 모르는 순환수 계통 이름(상위 15):',
+      ...table(['이름', '수'], top(water.filter((s) => !s.fluid), (s) => s.name.replace(/\d+/g, '#').replace(/\|/g, '/'))),
     ])
   })
 

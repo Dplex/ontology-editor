@@ -257,8 +257,14 @@ export function mergeModels(
   const systems = new Map<string, System>(a.systems.map((s) => [s.id, s]))
   for (const s of b.systems) {
     const had = systems.get(s.id)
-    if (had) had.memberIds = [...new Set([...had.memberIds, ...s.memberIds])]
-    else systems.set(s.id, s)
+    if (had) {
+      had.memberIds = [...new Set([...had.memberIds, ...s.memberIds])]
+      // 유체를 한쪽 판본만 말했으면(분야별로 이름을 달리 적는다) 그 값을 쓴다.
+      if (!had.fluid && s.fluid) {
+        had.fluid = s.fluid
+        if (s.fluidSource) had.fluidSource = s.fluidSource
+      }
+    } else systems.set(s.id, s)
   }
 
   const key = (c: Connection) => (c.directed ? `${c.from}>${c.to}` : [c.from, c.to].sort().join('-'))

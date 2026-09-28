@@ -4,7 +4,7 @@ import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import { mergeModels } from './merge'
-import { profileOf, type Profile } from './profile'
+import { partnerOf, profileOf, type Profile } from './profile'
 
 let api: WebIFC.IfcAPI
 const read = (name: string) =>
@@ -67,5 +67,58 @@ describe('profileOf — 파일이 온톨로지를 어디까지 채우나', () =>
     const { model } = mergeModels(read('two-rooms.ifc'), read('mep.ifc'))
     // 회의실·복도(two-rooms) + 사무실(mep). 창고는 여전히 외곽선이 없다.
     expect(profileOf(model).tiers[0]).toMatchObject({ have: 3, of: 4, figure: '3/4' })
+  })
+})
+
+describe('partnerOf — 건축·설비 짝 파일 권하기', () => {
+  // 같은 건물이면 범위가 거의 같다(병원 건축·HVAC 겹침 0.95). 다른 건물은 extent 를 따로 준다.
+  const here: [number, number, number, number] = [-52, -9.6, 0.2, 56.3]
+  const arch = (devices = 0, extent = here): Profile => ({ ...fake, spaces: 934, devices, needsArchitecture: false, needsEquipment: devices === 0, extent })
+  const mech = (spaces = 0, extent = here): Profile => ({ ...fake, spaces, devices: 3472, needsArchitecture: spaces === 0, needsEquipment: false, extent })
+  const fake: Profile = { schema: 'IFC2X3', storeys: 19, spaces: 0, devices: 0, conduits: 0, systems: 0, connections: 0, tiers: [], needsArchitecture: false, needsEquipment: false }
+
+  it('성수처럼 한 폴더에 건축·기계 한 쌍이면 서로를 권한다 — 건축 파일에 조명 몇 대가 섞여 있어도', () => {
+    const files = [
+      { path: '성수/Factorial_건축.ifc', profile: arch(41) },
+      { path: '성수/Factorial_기계.ifc', profile: mech() },
+      { path: 'AC20-FZK-Haus.ifc', profile: arch() },
+    ]
+    expect(partnerOf('성수/Factorial_기계.ifc', files)).toBe('성수/Factorial_건축.ifc')
+    expect(partnerOf('성수/Factorial_건축.ifc', files)).toBe('성수/Factorial_기계.ifc')
+    // 다른 폴더의 건축 파일은 짝이 아니다(좌표계가 달라 합치면 숫자만 틀린다).
+    expect(partnerOf('AC20-FZK-Haus.ifc', files)).toBe(null)
+  })
+
+  it('한 폴더에 있어도 다른 건물이면 권하지 않는다 — 작은 주택이 큰 설비 모델 범위 안에 들어도', () => {
+    // data/ 바로 아래의 AC20 주택(11×9m)과 ifc4Mep(41×22m, 다른 건물). 합치면 오류 없이 층 짝이 지어지고 숫자만 틀린다.
+    const files = [
+      { path: 'AC20-FZK-Haus.ifc', profile: arch(0, [0.3, 0.3, 11.7, 9.7]) },
+      { path: 'ifc4Mep_IFC4.ifc', profile: mech(0, [0.2, 0.8, 40.8, 22.3]) },
+    ]
+    expect(partnerOf('AC20-FZK-Haus.ifc', files)).toBe(null)
+    expect(partnerOf('ifc4Mep_IFC4.ifc', files)).toBe(null)
+    // 범위를 모르는 옛 캐시(extent 없음)도 권하지 않는다.
+    expect(partnerOf('b.ifc', [{ path: 'a.ifc', profile: { ...arch(), extent: undefined } }, { path: 'b.ifc', profile: mech() }])).toBe(null)
+  })
+
+  it('판본이 여럿인 폴더에서는 권하지 않는다 — 어느 판본과 합칠지 모른다', () => {
+    const files = [
+      { path: 'Duplex/Arch.ifc', profile: arch() },
+      { path: 'Duplex/Arch-Optimized.ifc', profile: arch() },
+      { path: 'Duplex/MEP-1.ifc', profile: mech() },
+    ]
+    expect(partnerOf('Duplex/MEP-1.ifc', files)).toBe(null)
+    // 건축 쪽에서 보면 방 없는 설비 파일은 하나뿐이라 권한다.
+    expect(partnerOf('Duplex/Arch.ifc', files)).toBe('Duplex/MEP-1.ifc')
+  })
+
+  it('설비 판본에 방(MEP Space)이 있으면 혼자 쓸 수 있는 파일이라 권하지 않고, 열지 못한 파일은 짝이 되지 않는다', () => {
+    const files = [
+      { path: 'Clinic/Arch.ifc', profile: arch() },
+      { path: 'Clinic/MEP.ifc', profile: mech(257) },
+      { path: 'Clinic/CON.ifc', profile: null },
+    ]
+    expect(partnerOf('Clinic/Arch.ifc', files)).toBe(null)
+    expect(partnerOf('Clinic/CON.ifc', files)).toBe(null)
   })
 })

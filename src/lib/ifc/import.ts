@@ -29,7 +29,7 @@ import { assignEquipmentToSpaces } from '../mapping'
 import { dropDuplicateSpaces } from '../merge'
 import { lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
-import { equipmentKindOf, omniclassCode, resolveEquipmentKind, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
+import { equipmentKindOf, FLUID_KINDS, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
 import { capacityRank } from '../capacity'
 import { inferFlowByRules } from '../flow-rules'
 import { footprintRings, openingPlacement, spacesBesideOpening } from './element-geometry'
@@ -897,11 +897,18 @@ function spaceOf(
   }
 }
 
-function systemKindFields(name: string, objectType: string, predefined: string | null): Pick<System, 'kind' | 'kindSource'> {
+function systemKindFields(name: string, objectType: string, predefined: string | null): Pick<System, 'kind' | 'kindSource' | 'fluid' | 'fluidSource'> {
   const byIfc = systemKindOfIfc(predefined, objectType)
-  if (byIfc) return { kind: byIfc.kind, kindSource: 'bim' }
-  const byName = systemKindOf(name, objectType)
-  return byName ? { kind: byName.kind, kindSource: 'dict' } : { kind: null }
+  const byName = byIfc ? null : systemKindOf(name, objectType)
+  const kind = byIfc ?? byName
+  if (!kind) return { kind: null }
+  // 순환수면 유체도 읽는다(냉수·온수). 순환수가 아니면 칸을 두지 않는다.
+  const fluid = resolveFluid(kind.kind, name, objectType, predefined)
+  return {
+    kind: kind.kind,
+    kindSource: byIfc ? 'bim' : 'dict',
+    ...(FLUID_KINDS.includes(kind.kind) ? { fluid: fluid?.fluid ?? null, ...(fluid ? { fluidSource: fluid.source } : {}) } : {}),
+  }
 }
 
 function roomKindFields(name: string, longName: string, omniclass: string | null): Pick<Space, 'kind' | 'kindSource'> {

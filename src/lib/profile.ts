@@ -37,6 +37,11 @@ export type Profile = {
   needsArchitecture: boolean
   /** 방은 있고 설비가 없다. 설비 파일을 덧붙일 자리다. */
   needsEquipment: boolean
+  /**
+   * 평면 범위 [x0, y0, x1, y1](미터). 방 외곽선과 기기 좌표를 다 담는다. 짝 파일을 권할 때 두 파일이 같은 자리에 있는지
+   * 본다 — 다른 건물을 합쳐도 오류 없이 합쳐진다(merge.ts). 잴 것이 없으면 null.
+   */
+  extent?: [number, number, number, number] | null
 }
 
 function figure(have: number, of: number): string {
@@ -158,5 +163,54 @@ export function profileOf(model: Model): Profile {
     tiers,
     needsArchitecture: c.spaces === 0 && devices.length > 0,
     needsEquipment: drawn > 0 && all.length === 0,
+    extent: extentOf(model),
   }
+}
+
+function extentOf(model: Model): [number, number, number, number] | null {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity]
+  const add = (x: number, y: number) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    x0 = Math.min(x0, x)
+    y0 = Math.min(y0, y)
+    x1 = Math.max(x1, x)
+    y1 = Math.max(y1, y)
+  }
+  for (const s of model.storeys) {
+    for (const sp of s.spaces) for (const p of sp.footprint) add(p[0], p[1])
+    for (const e of s.equipment) if (e.position && !isConduit(e.role)) add(e.position[0], e.position[1])
+  }
+  return x0 <= x1 ? [x0, y0, x1, y1] : null
+}
+
+/**
+ * 두 범위가 겹친 넓이 / **큰 쪽** 넓이. 작은 쪽으로 나누면 작은 건물이 큰 건물 범위 안에 들기만 해도 1 에 가깝다 —
+ * AC20 주택(11×9m)과 ifc4Mep(41×22m)이 0.94 였다. 큰 쪽으로 나누면 0.12, 같은 건물의 건축·설비는 Duplex 0.64, 병원 0.95 다.
+ * 한 줄로 늘어선 범위(넓이 0)는 1m 두께로 본다.
+ */
+export function extentOverlap(a: readonly number[], b: readonly number[]): number {
+  const area = (r: readonly number[]) => Math.max(r[2] - r[0], 1) * Math.max(r[3] - r[1], 1)
+  const w = Math.min(a[2], b[2]) - Math.max(a[0], b[0])
+  const h = Math.min(a[3], b[3]) - Math.max(a[1], b[1])
+  if (w < 0 || h < 0) return 0
+  return (Math.max(w, 1) * Math.max(h, 1)) / Math.max(area(a), area(b))
+}
+
+/** 짝으로 권할 만큼 두 파일이 같은 자리에 있는가(extentOverlap). 범위를 모르면 권하지 않는다. */
+export const PARTNER_OVERLAP = 0.5
+
+/**
+ * 짝 파일(건축 ↔ 설비). 방이 없는 설비 파일이면 같은 폴더에서 방이 있는 파일, 방이 있는 파일이면 같은 폴더에서 방이 없는
+ * 설비 파일이다. 건축 파일에도 조명·소화기 같은 기기가 섞여 있어서 "설비가 없다" 로 가르지 않는다. **후보가 하나뿐일 때만** 돌려준다 — Duplex 폴더처럼 판본이 여럿이면 어느 것과 합칠지 우리가 모른다.
+ */
+export function partnerOf(path: string, files: readonly { path: string; profile: Profile | null }[]): string | null {
+  const me = files.find((f) => f.path === path)?.profile
+  if (!me) return null
+  const dir = (p: string) => p.slice(0, Math.max(0, p.lastIndexOf('/')))
+  const fits = (p: Profile) =>
+    me.needsArchitecture ? p.spaces > 0 && !p.needsArchitecture : me.spaces > 0 ? p.needsArchitecture : false
+  // 같은 자리에 있어야 한다. data/ 바로 아래처럼 서로 다른 샘플을 모아 둔 폴더에서 다른 건물을 권했다.
+  const near = (p: Profile) => !!me.extent && !!p.extent && extentOverlap(me.extent, p.extent) >= PARTNER_OVERLAP
+  const found = files.filter((f) => f.path !== path && dir(f.path) === dir(path) && f.profile && fits(f.profile) && near(f.profile))
+  return found.length === 1 ? found[0].path : null
 }

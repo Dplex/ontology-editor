@@ -8,6 +8,8 @@
 // 쓴다. Revit·ArchiCAD 가 재내보내기를 해도 GUID 를 유지하도록 설정할 수 있어서
 // (PRD #6 의 내보내기 요구사항), 재임포트 때 같은 공간을 같은 것으로 알아볼 수 있다.
 
+import type { Fluid } from './kinds'
+
 /** 평면 좌표(미터). z 는 층 elevation 으로 따로 들고 있으므로 여기 넣지 않는다. */
 export type Vec2 = readonly [number, number]
 
@@ -210,6 +212,8 @@ export type Equipment = {
   capacityProperty: string | null
   /** 속한 계통(IfcSystem)의 id. `null` 이면 어느 계통에도 안 묶여 있다. */
   systemId: string | null
+  /** 사람이 계통을 바꿨으면 BIM 이 말한 계통(E8). 되돌리면 지운다. 화면의 출처가 "편집"이 된다. */
+  systemEdited?: { from: string | null }
   /**
    * 소속 물리존의 id. 편집으로 경계가 바뀌면 다시 채워야 한다(PRD #12).
    */
@@ -250,6 +254,16 @@ export type System = {
   kind?: string | null
   /** `kind` 를 누가 정했나. `bim` 이면 PredefinedType 과 약어(kinds.ts 의 SYSTEM_IFC)에서, `dict` 면 이름 사전에서 읽었다. */
   kindSource?: 'bim' | 'dict'
+  /**
+   * 순환수의 유체(냉수·온수·냉각수). 순환수 공급·환수에만 있다. PredefinedType(HEATING·CHILLEDWATER)이 먼저고 없으면
+   * 이름이다(kinds.ts 의 resolveFluid). 둘 다 말하지 않으면 배관을 따라 닿는 원천 기기로 짐작한다(`rule`, 냉동기면 냉수).
+   * 모르면 null.
+   */
+  fluid?: Fluid | null
+  /** `rule` 은 원천 기기로 짐작한 것이라 종류·연결이 바뀌면 다시 짐작한다(flow-rules.ts 의 inferFluids). */
+  fluidSource?: 'bim' | 'dict' | 'rule'
+  /** 사람이 종류·유체를 고쳤으면 BIM·사전이 읽었던 값(E8). 사전 값으로 되돌리면 지운다. */
+  kindEdited?: { kind: string | null; fluid: Fluid | null }
 }
 
 /**
@@ -305,8 +319,10 @@ export type HvacZone = {
   areaM2: number
   /** IDF 의 Zone 이 적은 바닥 넓이. DesignBuilder 는 순 넓이를 적고 바닥면은 벽 중심선까지 그려서 늘 작다. */
   declaredAreaM2: number | null
-  /** 이 공조존에 든 물리존(안쪽 점이 바닥 안). */
+  /** 이 공조존에 든 물리존. 방 바닥의 절반 넘게를 이 존이 덮는다(idf/attach.ts). */
   spaceIds: string[]
+  /** 든 물리존마다 이 존이 덮는 몫(0~1). 외곽선이 자기 교차해 넓이를 못 잰 방은 없다. */
+  spaceShares?: Record<string, number>
 }
 
 /** IDF 가 말한 공조 설비(공조기·말단·실외기·실내기). 좌표는 IDF 에 없다. */

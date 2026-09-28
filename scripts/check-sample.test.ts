@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc, importIfcWithMeshes, readMeshes, UnreadableIfcError } from '../src/lib/ifc/import'
 import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-geometry'
 import { profileOf } from '../src/lib/profile'
-import { countOf, isConduit } from '../src/lib/model'
+import { countOf, isConduit, polygonArea } from '../src/lib/model'
 import { assignEquipmentToSpaces, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
@@ -22,7 +22,10 @@ import { compareVersions } from '../src/lib/versions'
 import { fuzzEdits } from '../src/lib/edit-fuzz'
 import type { Model } from '../src/lib/model'
 import { readIdf } from '../src/lib/idf/read'
-import { modelFromIdf } from '../src/lib/idf/attach'
+import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
+import { overlapArea } from '../src/lib/polygon'
+import { baselineOf, deleteWall, moveOpening, moveWall, setWallLoadBearing } from '../src/lib/edit'
+import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
 // 표현 방식이 훨씬 다양하기 때문이다. 그래서 공개 샘플 하나를 기준값으로 박아 둔다.
@@ -132,6 +135,19 @@ describe.skipIf(!existsSync(MEP))('실제 MEP BIM (ifc4Mep, IFC4)', () => {
 
     const equipment = model.storeys.flatMap((s) => s.equipment)
     expect(equipment.filter((e) => e.systemId !== null)).toHaveLength(1714)
+
+    // 순환수 6개의 유체. 온수 넷(Heat Flow·Return 두 벌) 중 HEATING 을 적은 것은 둘뿐이라 나머지는 이름(HHF·HHR)으로
+    // 읽고, 냉수 둘(KVK·FRK)은 PredefinedType 이 NOTDEFINED 라 이름으로만 읽는다. CHILLEDWATER 를 적은 계통은 없다.
+    const fluids = model.systems.filter((s) => s.fluid !== undefined).map((s) => `${s.name}|${s.fluid}|${s.fluidSource}`).sort()
+    expect(fluids).toEqual([
+      '1_HHF Heat Flow|hot|bim',
+      '2_KVK Cooling Flow|chilled|dict',
+      '3_FRK Cooling Return|chilled|dict',
+      '5_HHR Heat Return|hot|bim',
+      '6_HHF Heat Flow|hot|dict',
+      '7_HHR Heat Return|hot|dict',
+    ])
+    expect(modelToTTL(model).match(/a brick:(Hot|Chilled)_Water_System ;/g)).toHaveLength(6)
 
     // 설비 전용 모델이라 물리존이 없다. 소속을 하나도 못 찾는 것이 정상이고,
     // 이것이 건축 모델과 합쳐야 하는 이유다.
@@ -1202,6 +1218,95 @@ const DUPLEX_MEP_FULL = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc'
 const DUPLEX_MEP_2 = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP-2.ifc'
 const DUPLEX_MEP_1 = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP-1.ifc'
 
+// 벽·문·창의 지문(E4 편집 파일). 가진 판본끼리는 벽·문·창 GUID 가 전부 그대로다(Duplex 건축 ↔ Optimized 57/57·38/38,
+// 병원 1,080/1,080·307/307, Duplex 건축 → COBie 설계 문·창 38/38). 설비처럼 바뀐 실례가 없어서, 실제 BIM 의 GUID 를
+// 전부 바꿔 새 판본을 흉내 낸다. 재는 것은 Revit 요소 ID·이름이 실제 파일에서 하나뿐인지다 — 겹치면 짝을 짓지 않는다.
+describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH) || !existsSync(SAMPLE))('벽·문·창 지문 (GUID 를 바꾼 판본)', () => {
+  it('옮기고 지운 벽·문·창을 Revit 은 요소 ID 로, ArchiCAD 는 이름으로 전부 찾는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    for (const [path, expected, by] of [[DUPLEX_ARCH, 15, 'revitId'], [CLINIC_ARCH, 15, 'revitId'], [SAMPLE, 8, 'name']] as const) {
+      const pristine = importIfcWithMeshes(api, new Uint8Array(readFileSync(path)), undefined, { openings: true }).model
+      const a = structuredClone(pristine)
+      const base = baselineOf(a)
+      const walls = a.storeys.flatMap((s) => s.walls).filter((w) => w.footprint?.length)
+      const openings = a.storeys.flatMap((s) => s.openings).filter((o) => o.position)
+      // 벽 다섯은 옮기고, 다섯은 내력 여부를 정하고, 다섯은 지운다. 문·창 다섯은 옮긴다(지운 벽에 뚫린 것은 빼고).
+      for (const w of walls.slice(0, 5)) moveWall(a, w.id, [0.3, 0])
+      for (const w of walls.slice(5, 10)) setWallLoadBearing(a, w.id, true)
+      const gone = walls.slice(10, 15)
+      for (const w of gone) deleteWall(a, w.id)
+      const goneIds = new Set(gone.map((w) => w.id))
+      for (const o of openings.filter((x) => !goneIds.has(x.wallId ?? '') && !walls.slice(0, 5).some((w) => w.id === x.wallId)).slice(0, 5)) {
+        moveOpening(a, o.id, [o.position![0] + 0.2, o.position![1]])
+      }
+      const file = parseEditFile(JSON.stringify(exportEdits(a, base, path)))
+      if (typeof file === 'string') throw new Error(file)
+
+      const ids = (m: Model) => m.storeys.flatMap((st) => [st.id, ...st.spaces.map((sp) => sp.id), ...st.walls.map((w) => w.id), ...st.openings.map((o) => o.id)])
+      let json = JSON.stringify(pristine)
+      for (const id of ids(pristine)) json = json.split(JSON.stringify(id)).join(JSON.stringify(`${id}Qv2`))
+      const b: Model = JSON.parse(json)
+      const result = applyEdits(b, file)
+      expect(result.missing.elements).toBe(0)
+      // 편집 파일에 적힌 벽·문·창은 전부 한 열쇠로 찾는다. 이미 내력이던 벽처럼 바뀌지 않은 것은 파일에 없다.
+      // ArchiCAD(AC20)는 이름에 Revit 요소 ID 가 없어 이름(층|이름)으로 찾는다 — 벽 13·문창 16개 이름이 층마다 하나뿐이다.
+      const written = (file.walls?.length ?? 0) + (file.wallsRemoved?.length ?? 0) + (file.openings?.length ?? 0)
+      expect(written).toBeGreaterThanOrEqual(expected)
+      expect(result.rematched).toEqual({ revitId: 0, name: 0, position: 0, [by]: written })
+      const strip = (m: Model) => JSON.stringify(modelToGeoJSON(m)).split('Qv2').join('')
+      expect(strip(b)).toBe(JSON.stringify(modelToGeoJSON(a)))
+    }
+  }, 600_000)
+})
+
+// 순환수의 유체를 원천 기기로 짐작하기(flow-rules.ts 의 inferFluids). Revit 은 계통 이름에 유체를 적지 않아(`Hydronic
+// Supply 1`) 이름으로는 모두 모름이다. 병원은 공랭식 냉동기 하나가 원천이라 냉수, Duplex 는 온수 보일러가 원천이라 온수다.
+// 형상으로 이은 판본(MEP)은 원천에 배관이 안 닿아서, 원천이 계통 구성원인 것으로 정한다.
+describe.skipIf(!existsSync(CLINIC_HVAC) || !existsSync(CLINIC_MEP) || !existsSync(DUPLEX_MEP))('순환수 유체 짐작 (Revit)', () => {
+  it('병원은 냉수, Duplex 는 온수이고, 원천이 없는 가지 계통은 모름으로 둔다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const fluids = (path: string) => {
+      const m = importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+      return m.systems.filter((s) => s.fluid !== undefined).map((s) => `${s.name}|${s.fluid}|${s.fluidSource ?? '-'}`).sort()
+    }
+    expect(fluids(CLINIC_HVAC)).toEqual(['Hydronic Return 1|chilled|rule', 'Hydronic Supply 1|chilled|rule'])
+    expect(fluids(CLINIC_MEP)).toEqual(['Hydronic Return 1|chilled|rule', 'Hydronic Supply 1|chilled|rule'])
+    // `Supply Out` 은 종류를 모르는 말단 7대뿐이라 원천에 닿지 않는다 — 짐작하지 않고 모름이다.
+    expect(fluids(DUPLEX_MEP)).toEqual([
+      'Unit A Hydronic Return|hot|rule',
+      'Unit A Hydronic Supply In|hot|rule',
+      'Unit A Hydronic Supply Out|null|-',
+      'Unit B Hydronic Return|hot|rule',
+      'Unit B Hydronic Supply In|hot|rule',
+      'Unit B Hydronic Supply Out|null|-',
+    ])
+  }, 600_000)
+})
+
+// 겹친 넓이(polygon.ts)는 방 외곽선을 삼각형으로 쪼갠다. Revit 곡선 벽은 거의 한 줄에 놓인 꼭짓점을 수십 개 내서(병원 방
+// 하나가 94개) 귀 자르기가 걸리기 쉬운 모양이다. 가진 방 전부가 쪼개지고, 자기 자신과 겹친 넓이가 제 넓이와 같아야 한다.
+describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('실제 방 외곽선의 겹친 넓이', () => {
+  it('AC20·Duplex·병원 건축의 방 292개가 전부 삼각형으로 쪼개진다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const failed: string[] = []
+    let n = 0
+    for (const path of [SAMPLE, DUPLEX_ARCH, CLINIC_ARCH]) {
+      for (const sp of importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model.storeys.flatMap((st) => st.spaces)) {
+        if (sp.footprint.length < 4) continue
+        n++
+        const self = overlapArea(sp.footprint, sp.footprint)
+        const area = polygonArea(sp.footprint)
+        if (self === null || Math.abs(self - area) > 1e-6 * Math.max(1, area)) failed.push(`${path} ${sp.name} (${sp.footprint.length}점)`)
+      }
+    }
+    expect(n).toBe(292)
+    expect(failed).toEqual([])
+  }, 600_000)
+})
+
 describe.skipIf(!existsSync(DUPLEX_MEP_FULL) || !existsSync(DUPLEX_MEP_2) || !existsSync(DUPLEX_MEP_1) || !existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_COBIE))('판본 사이의 GUID (Duplex)', () => {
   it('같은 Revit 요소도 다시 내보내면 GUID 가 자주 바뀐다', async () => {
     const api = new WebIFC.IfcAPI()
@@ -1257,5 +1362,19 @@ describe.skipIf(!existsSync(SAMSUNG_IDF))('IDF 공조존 (삼성, DesignBuilder)
     const ratios = zones.filter((z) => z.declaredAreaM2).map((z) => z.areaM2 / z.declaredAreaM2!)
     expect(Math.min(...ratios)).toBeGreaterThanOrEqual(1)
     expect(Math.max(...ratios)).toBeLessThan(1.2)
+
+    // 겹친 넓이(polygon.ts)가 실제 존 바닥 모양을 잰다. 짝이 되는 IFC 가 없어서, 존 바닥 조각을 그대로 물리존으로 둔
+    // 모델에 다시 얹는다. 조각 180개가 전부 삼각형으로 쪼개지고(오목한 것 포함), 조각마다 제 존이 전부를 덮으며,
+    // 존끼리 겹치지 않으니 두 존에 걸친 방이 없어야 한다.
+    const rooms: Model = structuredClone(model)
+    delete rooms.hvac
+    for (const z of zones) {
+      const storey = rooms.storeys.find((st) => st.id === z.storeyId)!
+      z.footprint.forEach((ring, i) => storey.spaces.push({ id: `${z.id}#${i}`, name: z.name, longName: '', footprint: ring, areaM2: polygonArea(ring), boundedBy: [] }))
+    }
+    const again = attachIdf(rooms, idf, 'samsung')
+    expect(again.report).toMatchObject({ spaces: 180, spacesInZones: 180, straddling: 0, partial: 0, byPoint: 0 })
+    const shares = again.model.hvac!.zones.flatMap((z) => Object.values(z.spaceShares ?? {}))
+    expect(Math.min(...shares)).toBeGreaterThan(0.999)
   })
 })

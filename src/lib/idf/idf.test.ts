@@ -8,7 +8,8 @@ import { modelToGeoJSON } from '../export/geojson'
 import { parseIdf } from './parse'
 import { readIdf } from './read'
 import { attachIdf, modelFromIdf, nameKey } from './attach'
-import type { Model } from '../model'
+import type { Model, Space, Vec2 } from '../model'
+import type { IdfModel } from './read'
 
 // 픽스처는 손으로 쓴 IDF 다(fixtures/two-zones.idf). mep.ifc 와 같은 자리에 공조존 둘과 담당 사슬 둘이 있다.
 const text = readFileSync(fileURLToPath(new URL('./fixtures/two-zones.idf', import.meta.url)), 'utf8')
@@ -100,6 +101,61 @@ describe('attachIdf — BIM 에 얹기', () => {
     const { report, model } = attachIdf(mep, readIdf(far), 'far.idf')
     expect(report.alignment).toBeLessThan(0.5)
     expect(model.warnings.some((w) => w.includes('좌표계'))).toBe(true)
+  })
+})
+
+describe('attachIdf — 공조존과 물리존을 겹친 넓이로 잇기', () => {
+  const sq = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+  const room = (id: string, footprint: Vec2[]): Space => ({ id, name: id, longName: id, footprint, areaM2: 0, boundedBy: [] })
+  const zone = (name: string, ring: Vec2[]): IdfModel['zones'][number] => ({ name, floors: [{ ring, z: 0 }], declaredArea: null, multiplier: 1 })
+  const bim = (spaces: Space[]): Model => ({
+    schema: 'IFC4', siteName: '', buildingId: 'B', buildingName: '', systems: [], connections: [], warnings: [],
+    storeys: [{ id: 'S1', name: '1F', elevation: 0, spaces, walls: [], openings: [], equipment: [] }],
+  })
+
+  it('벽 중심선까지 그린 존과 벽 안쪽까지 그린 방: 옆 존으로 조금 삐친 방은 걸친 것으로 세지 않고, 두 존을 잇는 복도만 센다', () => {
+    // DesignBuilder 는 존을 벽 중심선(x=5, 벽 0.2m)까지 그리고, Revit 방은 벽 안쪽 면까지다.
+    const idf: IdfModel = { version: null, warnings: [], equipment: [], zones: [zone('A', sq(0, 0, 5, 8)), zone('B', sq(5, 0, 10, 8))] }
+    const { model, report } = attachIdf(
+      bim([
+        room('office', sq(0.1, 0.1, 4.9, 5.9)),
+        // 방 경계를 벽 중심선 너머 5cm 까지 그린 방. 옆 존에 1% 걸친다 — 걸친 방이 아니다.
+        room('meeting', sq(4.95, 0.1, 9.9, 5.9)),
+        // 두 존을 잇는 복도. 71% 가 A 다.
+        room('corridor', sq(0.1, 6.1, 7, 7.9)),
+      ]),
+      idf,
+      'x.idf',
+    )
+    const [a, b] = model.hvac!.zones
+    expect(a.spaceIds).toEqual(['office', 'corridor'])
+    expect(b.spaceIds).toEqual(['meeting'])
+    expect(a.spaceShares!.corridor).toBeCloseTo(4.9 / 6.9, 3)
+    expect(report).toMatchObject({ spacesInZones: 3, straddling: 1, partial: 0 })
+  })
+
+  it('두 존에 반씩 걸친 방은 어느 존에도 넣지 않는다 — 안쪽 점으로 재면 가운데 점이 놓인 쪽에 우연히 들어간다', () => {
+    const idf: IdfModel = { version: null, warnings: [], equipment: [], zones: [zone('A', sq(0, 0, 5, 8)), zone('B', sq(5, 0, 10, 8))] }
+    const { model, report } = attachIdf(bim([room('hall', sq(2, 1, 8, 3))]), idf, 'x.idf')
+    expect(model.hvac!.zones.flatMap((z) => z.spaceIds)).toEqual([])
+    expect(report).toMatchObject({ straddling: 1, partial: 1 })
+    expect(model.warnings.some((w) => w.includes('절반을 덮지 않아'))).toBe(true)
+  })
+
+  it('오목한 존의 빈 모서리에 놓인 방은 존에 들지 않는다 — 안쪽 점이 존 바깥 모서리에 걸쳐도', () => {
+    // ㄱ자 존. 오른쪽 위 (5..10, 5..10) 이 비었다.
+    const ell: Vec2[] = [[0, 0], [10, 0], [10, 5], [5, 5], [5, 10], [0, 10], [0, 0]]
+    const idf: IdfModel = { version: null, warnings: [], equipment: [], zones: [zone('L', ell)] }
+    const { model } = attachIdf(bim([room('notch', sq(5.5, 5.5, 9.5, 9.5)), room('arm', sq(1, 6, 4, 9))]), idf, 'x.idf')
+    expect(model.hvac!.zones[0].spaceIds).toEqual(['arm'])
+  })
+
+  it('자기 교차한 방은 넓이를 못 재 안쪽 점으로 정한다', () => {
+    const idf: IdfModel = { version: null, warnings: [], equipment: [], zones: [zone('A', sq(0, 0, 10, 10))] }
+    // 셋째 변이 첫 변을 가로지른다.
+    const bow: Vec2[] = [[1, 1], [5, 1], [5, 5], [3, 0.5], [1, 5], [1, 1]]
+    const { report } = attachIdf(bim([room('bow', bow)]), idf, 'x.idf')
+    expect(report.byPoint).toBe(1)
   })
 })
 

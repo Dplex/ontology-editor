@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { confirmSystemFlow, inferFlowByRules, withInferred } from './flow-rules'
+import { applyEdits, exportEdits } from './edit-file'
+import { baselineOf, restore, setSystemKind, setTypeKind, snapshotType } from './edit'
 import { flowEdits, setFlowDirection } from './edit'
 import type { Connection, Equipment, EquipmentRole, Model } from './model'
 import { modelToTTL } from './export/ttl'
@@ -214,5 +216,119 @@ describe('사람이 정한 방향', () => {
     m.connections[0] = link('src', 'd1', true)
     expect(setFlowDirection(m.connections[0], 'd1')).toBe(false)
     expect(m.connections[0].edited).toBeUndefined()
+  })
+})
+
+/**
+ * 수냉식 냉동기 설비실. 계통 이름에 유체가 없는 Revit 모양이다(`Hydronic Supply 1`).
+ *
+ *   냉수:   CH ─ s1 ─ P ─ s2 ─ FCU ─ r1 ─ CH
+ *   냉각수: CH ─ c1 ─ c2 ─ CT
+ *   온수:   B ─ h1 ─ h2 ─ FCU ─ hr1 ─ B        (4관식 FCU: 냉수·온수 코일이 한 기기에 있다)
+ */
+function plant(): Model {
+  const pipe = (id: string) => eq(id, null, 'segment')
+  return {
+    schema: 'IFC2X3',
+    siteName: '',
+    buildingId: 'b',
+    buildingName: '',
+    storeys: [
+      {
+        id: 's',
+        name: 'B1',
+        elevation: 0,
+        spaces: [],
+        walls: [],
+        openings: [],
+        equipment: [
+          eq('CH', 'chiller', 'conversion'),
+          eq('CT', 'cooling_tower', 'conversion'),
+          eq('B', 'boiler', 'conversion'),
+          eq('FCU', 'fcu', 'conversion'),
+          eq('P', 'pump', 'moving'),
+          ...['s1', 's2', 'r1', 'c1', 'c2', 'h1', 'h2', 'hr1'].map(pipe),
+        ],
+      },
+    ],
+    systems: [
+      { id: 'CHS', name: 'Hydronic Supply 1', memberIds: ['s1', 'P', 's2'], source: 'property', kind: 'hydronic_supply', fluid: null },
+      { id: 'CHR', name: 'Hydronic Return 1', memberIds: ['r1', 'CH'], source: 'property', kind: 'hydronic_return', fluid: null },
+      // 냉각수 계통. Revit 은 냉동기와 냉각탑을 둘 다 넣는다.
+      { id: 'CW', name: 'Hydronic Supply 2', memberIds: ['c1', 'c2', 'CH', 'CT'], source: 'property', kind: 'hydronic_supply', fluid: null },
+      { id: 'HWS', name: 'Hydronic Supply 3', memberIds: ['h1', 'h2'], source: 'property', kind: 'hydronic_supply', fluid: null },
+      { id: 'HWR', name: 'Hydronic Return 3', memberIds: ['hr1'], source: 'property', kind: 'hydronic_return', fluid: null },
+    ],
+    connections: [
+      ...[['CH', 's1'], ['s1', 'P'], ['P', 's2'], ['s2', 'FCU'], ['FCU', 'r1'], ['r1', 'CH']],
+      ...[['CH', 'c1'], ['c1', 'c2'], ['c2', 'CT']],
+      ...[['B', 'h1'], ['h1', 'h2'], ['h2', 'FCU'], ['FCU', 'hr1'], ['hr1', 'B']],
+    ].map(([a, b]) => ({ ...link(a, b), source: 'geometry' as const })),
+    warnings: [],
+  }
+}
+const fluids = (m: Model) => Object.fromEntries(m.systems.map((s) => [s.id, s.fluid ?? null]))
+
+describe('순환수의 유체를 원천 기기로 짐작하기', () => {
+  it('4관식 FCU 를 사이에 둔 냉수·온수가 서로 새지 않고, 냉동기가 걸친 냉각수 계통은 냉수로 찍지 않는다', () => {
+    const m = plant()
+    inferFlowByRules(m)
+    // FCU 를 넘어가면 냉수·온수가 한 계통에 겹쳐 둘 다 모름이 된다. 냉각수 계통은 냉동기(냉수)와 냉각탑(냉각수)이 겹쳐 모름이다.
+    expect(fluids(m)).toEqual({ CHS: 'chilled', CHR: 'chilled', CW: null, HWS: 'hot', HWR: 'hot' })
+    expect(modelToTTL(m)).toMatch(/ex:CHS a brick:Chilled_Water_System ;/)
+    expect(modelToTTL(m)).toMatch(/ex:CW a brick:Water_System ;/)
+  })
+
+  it('배관이 원천에 닿지 않아도(형상 추정이 끊김) 원천이 계통 구성원이면 그 유체다', () => {
+    const m = plant()
+    // Duplex MEP 보일러처럼 원천이 배관에 안 닿는다.
+    m.connections = m.connections.filter((c) => c.from !== 'B' && c.to !== 'B')
+    m.systems.find((s) => s.id === 'HWS')!.memberIds.push('B')
+    inferFlowByRules(m)
+    expect(fluids(m).HWS).toBe('hot')
+    // 원천도 배관도 없는 환수는 모른다(4관식 FCU 너머의 냉수를 끌어오지 않는다).
+    expect(fluids(m).HWR).toBe(null)
+  })
+
+  it('이름이 유체를 말하면 배관이 다른 원천에 닿아도 이름을 따른다 — 짐작이 작성자를 덮지 않는다', () => {
+    const m = plant()
+    Object.assign(m.systems.find((s) => s.id === 'HWS')!, { name: '냉수 공급 3', fluid: 'chilled', fluidSource: 'dict' })
+    inferFlowByRules(m)
+    expect(fluids(m).HWS).toBe('chilled')
+  })
+
+  it('사람이 원천 기기의 종류를 고치면 유체가 따라가고, 되돌리거나 편집 파일로 다시 열어도 같다', () => {
+    const m = plant()
+    inferFlowByRules(m)
+    const base = baselineOf(m)
+    // 이름 사전이 보일러를 냉동기로 잘못 읽었다고 하자. 사람이 보일러로 고치면 냉수 계통이 온수가 된다.
+    const snap = snapshotType(m, '#CH')
+    setTypeKind(m, '#CH', 'boiler')
+    expect(fluids(m)).toMatchObject({ CHS: 'hot', CHR: 'hot' })
+    // 짐작이 바뀐 것은 사람이 계통을 고친 것이 아니다. 편집 파일에 계통 줄로 남으면 다시 열 때 얼어붙는다.
+    const file = exportEdits(m, base, 'x')
+    expect(file.systems).toBeUndefined()
+    const fresh = plant()
+    inferFlowByRules(fresh)
+    applyEdits(fresh, JSON.parse(JSON.stringify(file)))
+    expect(fluids(fresh)).toEqual(fluids(m))
+    restore(m, snap)
+    expect(fluids(m)).toMatchObject({ CHS: 'chilled', CHR: 'chilled' })
+  })
+
+  it('사람이 정한 유체는 원천 종류가 바뀌어도 그대로다', () => {
+    const m = plant()
+    inferFlowByRules(m)
+    setSystemKind(m, 'CW', 'hydronic_supply', 'condenser')
+    setTypeKind(m, '#CT', null)
+    // 냉각탑이 모름이 되면 짐작으로는 냉수(냉동기만 남는다)지만, 사람이 냉각수라고 했다.
+    expect(fluids(m).CW).toBe('condenser')
+  })
+
+  it('히트펌프처럼 냉·온을 다 내는 원천은 유체를 정하지 않는다', () => {
+    const m = plant()
+    m.storeys[0].equipment.find((e) => e.id === 'B')!.kind = 'heat_pump'
+    inferFlowByRules(m)
+    expect(fluids(m)).toMatchObject({ HWS: null, HWR: null })
   })
 })

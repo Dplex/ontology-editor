@@ -97,11 +97,12 @@ test('편집을 저장하고 같은 파일을 다시 연 뒤 불러오면 편집
 
 // 합치기는 모델을 새로 만든다. 소속을 안 바꾸는 편집(이름·종류·확정·방향·잇기)도 합치면 "바뀐 것 0건" 이 되고 편집
 // 파일·되돌리기에서 빠졌다 — 값은 TTL 에 그대로 나가는데. 그래서 편집이 하나라도 있으면 덧붙이기를 닫는다.
-test('방 이름만 고쳐도 덧붙이기가 닫히고, 되돌리면 다시 열린다', async ({ page }) => {
+test('방 이름만 고쳐도 덧붙이기가 막히고, 되돌리면 다시 열린다', async ({ page }) => {
   await page.goto('/')
   await openFile(page, MEP)
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
-  const append = page.locator('label.append')
+  // 숨기지 않고 막는다(숨겼더니 버튼을 찾았다). 막힌 것은 disabled 표시로 본다.
+  const append = page.locator('label.append:not(.disabled)')
   await expect(append).toHaveCount(1)
 
   await page.keyboard.press('e')

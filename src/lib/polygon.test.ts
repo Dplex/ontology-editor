@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { polygonArea, type Vec2 } from './model'
-import { splitRing, unionRings } from './polygon'
+import { overlapArea, splitRing, triangulate, unionRings } from './polygon'
 
 const rect = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [
   [x0, y0],
@@ -98,5 +98,33 @@ describe('unionRings — 물리존 합치기', () => {
     // ㄷ자의 파인 곳 오른쪽이 아니라 왼쪽 바깥에 막대를 대면 가운데 구멍이 생긴다.
     const r = unionRings(c, rect(-1, 0, 0, 6))
     expect(r.ok).toBe(false)
+  })
+})
+
+describe('겹친 넓이', () => {
+  const sq = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+  // ㄱ자(오목). 10×10 에서 오른쪽 위 5×5 를 뺀 75㎡.
+  const ell: Vec2[] = [[0, 0], [10, 0], [10, 5], [5, 5], [5, 10], [0, 10], [0, 0]]
+
+  it('사각형끼리, 떨어진 것, 품은 것', () => {
+    expect(overlapArea(sq(0, 0, 4, 4), sq(2, 2, 6, 6))).toBeCloseTo(4)
+    expect(overlapArea(sq(0, 0, 1, 1), sq(3, 3, 4, 4))).toBe(0)
+    expect(overlapArea(sq(0, 0, 10, 10), sq(2, 2, 3, 3))).toBeCloseTo(1)
+  })
+
+  it('오목한 고리도 잰다 — 빈 모서리에 놓인 방은 겹치지 않는다', () => {
+    expect(overlapArea(ell, sq(0, 0, 10, 10))).toBeCloseTo(75)
+    expect(overlapArea(ell, sq(6, 6, 9, 9))).toBeCloseTo(0)
+    expect(overlapArea(ell, sq(4, 4, 6, 6))).toBeCloseTo(3)
+    // 방향(시계·반시계)과 닫는 점은 상관없다.
+    expect(overlapArea([...ell].reverse(), sq(4, 4, 6, 6))).toBeCloseTo(3)
+  })
+
+  it('쪼갠 삼각형의 넓이 합이 원래와 같고, 자기 교차한 고리는 쪼개지 않는다', () => {
+    const t = triangulate(ell)!
+    expect(t.reduce((n, [a, b, c]) => n + Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / 2, 0)).toBeCloseTo(75)
+    const bow: Vec2[] = [[0, 0], [4, 4], [4, 0], [0, 4], [0, 0]]
+    expect(triangulate(bow)).toBeNull()
+    expect(overlapArea(bow, sq(0, 0, 4, 4))).toBeNull()
   })
 })

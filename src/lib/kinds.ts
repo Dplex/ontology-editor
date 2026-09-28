@@ -48,6 +48,11 @@ export type EquipmentKindInfo = {
   /** 관제점 후보(F13)인가. 감지기·카메라처럼 BAS 가 값을 들고 있을 만한 장치. */
   point?: boolean
   /**
+   * 이 기기가 내보내는 순환수의 유체. 계통이 유체를 말하지 않을 때 배관을 따라 이 기기에 닿는 계통의 유체를 짐작한다
+   * (flow-rules.ts 의 inferFluids). 냉동기는 냉수, 보일러는 온수, 냉각탑은 냉각수다. 히트펌프는 냉·온을 다 내서 두지 않는다.
+   */
+  fluid?: Fluid
+  /**
    * 이름 사전이 읽지 않는 종류(`test` 가 아무것에도 맞지 않는다). BIM 이 `ifc` 로 말하면 받고, 아니면 사람이 고른다.
    * 사전 식을 넓히면 가진 BIM 전부의 숫자가 움직여서(CLAUDE.md 의 과적합 규칙) 이름으로는 읽지 않는다.
    */
@@ -70,9 +75,9 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   { kind: 'ground_source_heat_pump', label: '지열 히트펌프', test: /\bGSHP|지열\s*히트|ground\s*source/i, brick: 'brick:Heat_Pump_Ground_Source_Condensing_Unit', role: 'conversion', ifc: ['UnitaryEquipment.GROUNDSOURCEHEATPUMP'], flow: { water: 'source' } },
   { kind: 'heat_pump', label: '히트펌프', test: /heat\s*pump|히트\s*펌프/i, brick: 'brick:Heat_Pump_Condensing_Unit', role: 'conversion', ifc: ['UnitaryEquipment.HEATPUMP'], flow: { water: 'source' } },
   { kind: 'ground_heat_exchanger', label: '지중 열교환기', test: /\bGHX\b|지중\s*열교환/i, brick: 'brick:Heat_Exchanger', role: 'conversion', ifc: ['HeatExchanger.GROUNDHEATEXCHANGER'], flow: { water: 'through' } },
-  { kind: 'chiller', label: '냉동기', test: /chiller|냉동기|칠러/i, brick: 'brick:Chiller', role: 'conversion', ifc: ['Chiller'], flow: { water: 'source' } },
-  { kind: 'boiler', label: '보일러', test: /boiler|보일러/i, brick: 'brick:Boiler', role: 'conversion', ifc: ['Boiler'], flow: { water: 'source' } },
-  { kind: 'cooling_tower', label: '냉각탑', test: /cooling\s*tower|냉각탑/i, brick: 'brick:Cooling_Tower', role: 'conversion', ifc: ['CoolingTower'], flow: { water: 'through' } },
+  { kind: 'chiller', label: '냉동기', test: /chiller|냉동기|칠러/i, brick: 'brick:Chiller', role: 'conversion', ifc: ['Chiller'], flow: { water: 'source' }, fluid: 'chilled' },
+  { kind: 'boiler', label: '보일러', test: /boiler|보일러/i, brick: 'brick:Boiler', role: 'conversion', ifc: ['Boiler'], flow: { water: 'source' }, fluid: 'hot' },
+  { kind: 'cooling_tower', label: '냉각탑', test: /cooling\s*tower|냉각탑/i, brick: 'brick:Cooling_Tower', role: 'conversion', ifc: ['CoolingTower'], flow: { water: 'through' }, fluid: 'condenser' },
   // --- 이송 --------------------------------------------------------------------
   // 태그 이름도 받는다. 성수 배기 계통의 팬은 `EF-11` 처럼 태그로만 들어왔다(EF 배기팬, SF 급기팬, CF 천장팬).
   { kind: 'pump', label: '펌프', test: /pump|펌프/i, brick: 'brick:Pump', role: 'moving', ifc: ['Pump'], flow: { water: 'source' } },
@@ -407,4 +412,63 @@ export function systemKindOf(name: string, objectType = '', predefined: string |
 
 export function systemKind(kind: string | null | undefined): SystemKindInfo | null {
   return kind ? (SYSTEM_BY_KIND.get(kind) ?? null) : null
+}
+
+// --- 유체 -------------------------------------------------------------------------
+//
+// 순환수 공급·환수는 냉수인지 온수인지가 따로다. 계통 종류(공급·환수)는 흐름 방향을, 유체는 무엇이 흐르는지를 말한다 —
+// 냉동기 쪽 배관과 보일러 쪽 배관이 같은 "순환수 공급" 이라 한 클래스(`brick:Water_System`)로 나갔다. Brick 에는
+// 유체마다 계통 클래스가 있어서(`Chilled_Water_System`·`Hot_Water_System`·`Condenser_Water_System`) 알면 그걸로 낸다.
+// 급탕·급수는 계통 종류가 이미 유체를 말하므로 여기서 다루지 않는다.
+
+export type Fluid = 'chilled' | 'hot' | 'condenser'
+
+export type FluidInfo = {
+  fluid: Fluid
+  label: string
+  /** 이 값을 말하는 `IfcDistributionSystem.PredefinedType`. R17 이 이미 요구하는 자리라 어휘가 늘지 않는다. */
+  predefined: string
+  /** 이름·ObjectType 에서 읽는 식. 두 유체가 같이 맞으면(`냉온수`) 정하지 않는다. */
+  test: RegExp
+  brick: string
+}
+
+export const FLUIDS: FluidInfo[] = [
+  { fluid: 'chilled', label: '냉수', predefined: 'CHILLEDWATER', test: /냉수|냉온수|냉방|chill|cooling|\bKVK\b|\bFRK\b/i, brick: 'brick:Chilled_Water_System' },
+  { fluid: 'hot', label: '온수', predefined: 'HEATING', test: /온수|난방|heating|heat\s*(flow|return)|\bHHF\b|\bHHR\b/i, brick: 'brick:Hot_Water_System' },
+  { fluid: 'condenser', label: '냉각수', predefined: 'CONDENSERWATER', test: /냉각수|condenser/i, brick: 'brick:Condenser_Water_System' },
+]
+
+/** 유체를 가를 수 있는 계통 종류. 순환수만이다. */
+export const FLUID_KINDS: readonly string[] = ['hydronic_supply', 'hydronic_return']
+
+export function fluidInfo(fluid: Fluid | null | undefined): FluidInfo | null {
+  return fluid ? (FLUIDS.find((f) => f.fluid === fluid) ?? null) : null
+}
+
+/**
+ * 순환수 계통의 유체와 출처. PredefinedType 이 먼저고(BIM), 없거나 NOTDEFINED 면 이름을 본다(사전). ifc4Mep 은 같은
+ * `Heat Flow` 계통 둘 중 하나에만 HEATING 을 적었다. 이름에 냉·온이 다 있으면(`냉온수 공급`) 모른다 — 한쪽으로 찍지 않는다.
+ * 순환수가 아닌 계통은 null 이다.
+ */
+export function resolveFluid(
+  kind: string | null | undefined,
+  name: string,
+  objectType = '',
+  predefined: string | null = null,
+): { fluid: Fluid; source: KindSource } | null {
+  if (!kind || !FLUID_KINDS.includes(kind)) return null
+  const byIfc = FLUIDS.find((f) => f.predefined === predefined)
+  if (byIfc) return { fluid: byIfc.fluid, source: 'bim' }
+  const text = `${objectType} ${name}`
+  const hits = FLUIDS.filter((f) => f.test.test(text))
+  return hits.length === 1 ? { fluid: hits[0].fluid, source: 'dict' } : null
+}
+
+/** TTL 계통 클래스. 유체를 아는 순환수는 유체 클래스, 아니면 계통 종류의 클래스다. */
+export function systemBrickClass(kind: string | null | undefined, fluid: Fluid | null | undefined): string | null {
+  const info = systemKind(kind)
+  if (!info) return null
+  const f = FLUID_KINDS.includes(info.kind) ? fluidInfo(fluid) : null
+  return f?.brick ?? info.brick
 }

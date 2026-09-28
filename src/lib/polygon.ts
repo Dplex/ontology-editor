@@ -244,3 +244,93 @@ export function unionRings(ringA: readonly Vec2[], ringB: readonly Vec2[], gap =
   }
   return { ok: true, ring: closeRing(ring), bridged }
 }
+
+// --- 겹친 넓이 --------------------------------------------------------------------------
+//
+// 공조존과 물리존이 얼마나 겹치나(PRD #12 ②). 둘 다 오목할 수 있어 볼록 다각형 자르기만으로는 안 된다. 각각을 삼각형으로
+// 쪼개면(귀 자르기) 삼각형은 볼록이라 서로 자를 수 있고, 쪼갠 조각은 겹치지 않으니 조각끼리 겹친 넓이를 더하면 전체다.
+// 자기 교차한 고리는 쪼갤 수 없어 null 을 돌려준다 — 부르는 쪽이 안쪽 점 하나로 되돌아간다.
+
+type Tri = [Vec2, Vec2, Vec2]
+
+const cross = (o: Vec2, a: Vec2, b: Vec2) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+
+/** 점이 삼각형(반시계) 안이나 변 위에 있나. */
+function inTriangle(p: Vec2, [a, b, c]: Tri): boolean {
+  return cross(a, b, p) >= -1e-12 && cross(b, c, p) >= -1e-12 && cross(c, a, p) >= -1e-12
+}
+
+/** 귀 자르기. 단순 다각형만 받는다. 쪼갠 넓이 합이 원래 넓이와 다르면(자기 교차 등) null. */
+export function triangulate(ring: readonly Vec2[]): Tri[] | null {
+  let pts = ccw(dropCollinear(openPoints(ring)))
+  if (pts.length < 3) return null
+  const whole = Math.abs(signedArea(pts))
+  const out: Tri[] = []
+  while (pts.length > 3) {
+    let cut = -1
+    for (let i = 0; i < pts.length && cut < 0; i++) {
+      const tri: Tri = [pts[(i - 1 + pts.length) % pts.length], pts[i], pts[(i + 1) % pts.length]]
+      if (cross(tri[0], tri[1], tri[2]) <= 1e-12) continue
+      if (pts.some((p) => p !== tri[0] && p !== tri[1] && p !== tri[2] && inTriangle(p, tri))) continue
+      cut = i
+      out.push(tri)
+    }
+    if (cut < 0) return null
+    pts = [...pts.slice(0, cut), ...pts.slice(cut + 1)]
+  }
+  out.push([pts[0], pts[1], pts[2]])
+  const sum = out.reduce((n, t) => n + Math.abs(cross(t[0], t[1], t[2])) / 2, 0)
+  return Math.abs(sum - whole) <= 1e-6 * Math.max(1, whole) ? out : null
+}
+
+/** 볼록 다각형(반시계)을 반평면 a→b 의 왼쪽으로 자른다(Sutherland–Hodgman 한 단계). */
+function clipHalf(poly: Vec2[], a: Vec2, b: Vec2): Vec2[] {
+  const out: Vec2[] = []
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]
+    const q = poly[(i + 1) % poly.length]
+    const sp = cross(a, b, p)
+    const sq = cross(a, b, q)
+    if (sp >= 0) out.push(p)
+    if ((sp >= 0) !== (sq >= 0)) {
+      const t = sp / (sp - sq)
+      out.push([p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])])
+    }
+  }
+  return out
+}
+
+function triangleOverlap(s: Tri, t: Tri): number {
+  let poly: Vec2[] = [...s]
+  for (let i = 0; i < 3 && poly.length >= 3; i++) poly = clipHalf(poly, t[i], t[(i + 1) % 3])
+  return poly.length >= 3 ? Math.abs(signedArea(poly)) : 0
+}
+
+const bbox = (pts: readonly Vec2[]) => {
+  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity]
+  for (const [x, y] of pts) {
+    if (x < x0) x0 = x
+    if (x > x1) x1 = x
+    if (y < y0) y0 = y
+    if (y > y1) y1 = y
+  }
+  return [x0, y0, x1, y1] as const
+}
+const apart = (a: readonly number[], b: readonly number[]) => a[2] < b[0] || b[2] < a[0] || a[3] < b[1] || b[3] < a[1]
+
+/** 두 고리가 겹친 넓이(㎡). 어느 한쪽을 삼각형으로 쪼갤 수 없으면 null. */
+export function overlapArea(ringA: readonly Vec2[], ringB: readonly Vec2[]): number | null {
+  if (apart(bbox(ringA), bbox(ringB))) return 0
+  const ta = triangulate(ringA)
+  const tb = triangulate(ringB)
+  if (!ta || !tb) return null
+  const boxes = tb.map(bbox)
+  let sum = 0
+  for (const s of ta) {
+    const box = bbox(s)
+    tb.forEach((t, j) => {
+      if (!apart(box, boxes[j])) sum += triangleOverlap(s, t)
+    })
+  }
+  return sum
+}

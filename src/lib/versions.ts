@@ -35,19 +35,23 @@ export const MATCH_KEY_BY: Record<MatchKey, string> = {
  * 편집 파일에도 이대로 적힌다.
  */
 export type Fingerprint = {
-  kind: 'storey' | 'space' | 'equipment' | 'system'
+  kind: 'storey' | 'space' | 'equipment' | 'system' | 'wall' | 'opening'
   /** Revit 이 이름 끝에 붙이는 요소 ID(`패밀리:유형:621849`). Revit 안에서 요소가 살아 있는 동안 바뀌지 않는다. */
   revitId?: string
-  /** 층·계통은 이름, 물리존은 층|번호|이름, 설비는 클래스|이름. */
+  /** 층·계통은 이름, 물리존은 층|번호|이름, 설비는 클래스|이름, 벽은 층|이름, 문·창은 층|문·창|이름. */
   name?: string
-  /** 위치로 짝지을 무리. 물리존은 층 이름, 설비는 IFC 클래스. 무리가 다르면 가까워도 짝이 아니다. */
+  /** 위치로 짝지을 무리. 물리존·벽은 층 이름, 설비는 IFC 클래스, 문·창은 층|문·창. 무리가 다르면 가까워도 짝이 아니다. */
   group?: string
-  /** 물리존은 외곽선 중심(z 0), 설비는 좌표. */
+  /** 물리존·벽은 외곽선 중심(z 0), 설비·문·창은 좌표. */
   at?: [number, number, number]
 }
 
-/** 위치로 같은 것이라 보는 거리(미터). 물리존 중심은 경계를 조금 고쳐도 움직이니 설비보다 넉넉하다. */
-export const POSITION_TOLERANCE = { space: 0.25, equipment: 0.05 } as const
+/**
+ * 위치로 같은 것이라 보는 거리(미터). 물리존 중심은 경계를 조금 고쳐도 움직이니 설비보다 넉넉하다. 벽은 물리존과 같이
+ * 외곽선 중심이고, 문·창은 설비처럼 한 점이라 설비와 같다.
+ */
+export const POSITION_TOLERANCE = { space: 0.25, equipment: 0.05, wall: 0.25, opening: 0.05 } as const
+const POSITIONED = ['space', 'equipment', 'wall', 'opening'] as const
 
 export function revitElementId(name: string): string | null {
   const m = /:(\d{3,})$/.exec(name)
@@ -85,6 +89,34 @@ export function fingerprints(model: Model, baseline?: Baseline): Map<string, Fin
         ...(name ? { name: `${e.ifcClass}|${name}` } : {}),
         group: e.ifcClass,
         ...(position ? { at: [position[0], position[1], position[2]] as [number, number, number] } : {}),
+      })
+    }
+    // 벽·문·창(E4). 편집 파일이 옮기고 지운 벽·문·창을 GUID 가 바뀐 판본에서도 찾는다. 모양·자리는 연 때의 것이다.
+    for (const w of storey.walls) {
+      const was = baseline?.walls?.get(w.id)
+      const name = was?.name ?? w.name
+      const ring = (was ? was.footprint : w.footprint)?.[0]
+      const c = ring ? centroid(ring) : null
+      const revitId = revitElementId(name)
+      out.set(w.id, {
+        kind: 'wall',
+        ...(revitId ? { revitId } : {}),
+        ...(name ? { name: `${storey.name}|${name}` } : {}),
+        group: storey.name,
+        ...(c ? { at: [c[0], c[1], 0] as [number, number, number] } : {}),
+      })
+    }
+    for (const o of storey.openings) {
+      const was = baseline?.openings?.get(o.id)
+      const name = was?.name ?? o.name
+      const p = was ? was.position : o.position
+      const revitId = revitElementId(name)
+      out.set(o.id, {
+        kind: 'opening',
+        ...(revitId ? { revitId } : {}),
+        ...(name ? { name: `${storey.name}|${o.kind}|${name}` } : {}),
+        group: `${storey.name}|${o.kind}`,
+        ...(p ? { at: [p[0], p[1], p[2]] as [number, number, number] } : {}),
       })
     }
   }
@@ -155,7 +187,7 @@ export function matchFingerprints(prev: ReadonlyMap<string, Partial<Fingerprint>
   }
 
   // 위치: 무리가 같고 거리 안에 서로가 하나뿐인 짝. 칸으로 나눠 가까운 것만 본다(설비가 만 개를 넘는다).
-  for (const kind of ['space', 'equipment'] as const) {
+  for (const kind of POSITIONED) {
     const tol = POSITION_TOLERANCE[kind]
     const cell = (p: readonly number[]) => [Math.floor(p[0] / tol), Math.floor(p[1] / tol), Math.floor(p[2] / tol)]
     const grid = new Map<string, [string, Fingerprint][]>()

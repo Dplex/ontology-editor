@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch
 import type { MeshMap } from './lib/ifc/import'
 import { countOf, isConduit, type Connection, type Equipment, type Model, type Opening, type Vec2, type Vec3, type Wall } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
-import { profileOf, type Profile } from './lib/profile'
+import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile'
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
@@ -17,7 +17,7 @@ import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib
 import { airServices, servedSpaces } from './lib/served'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
-import { EQUIPMENT_KINDS, equipmentKind, ifcClassLabel, roomKind, systemKind } from './lib/kinds'
+import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
 import {
@@ -67,6 +67,9 @@ import {
   deleteEquipment,
   renameEquipment,
   snapshotEquipmentSet,
+  setEquipmentSystem,
+  setSystemKind,
+  snapshotSystems,
   createSpace,
   deleteSpace,
   splitSpace,
@@ -229,7 +232,9 @@ const changeCount = computed(
     sinceOpen.value.wallsChanged.length +
     sinceOpen.value.openingsAdded.length +
     sinceOpen.value.openingsRemoved.length +
-    sinceOpen.value.openingsMoved.length,
+    sinceOpen.value.openingsMoved.length +
+    sinceOpen.value.systemMoved.length +
+    sinceOpen.value.systemKinds.length,
 )
 
 // 연 때의 값. 소속 관계 말고도 내보내는 파일을 바꾸는 편집(이름·방 안 이동·층)을 이것과 견줘 리포트에 올린다
@@ -256,6 +261,8 @@ const sinceOpen = computed(() => {
         openingsAdded: [],
         openingsRemoved: [],
         openingsMoved: [],
+        systemMoved: [],
+        systemKinds: [],
       }
 })
 const MOVED_NAMES = 5
@@ -296,7 +303,11 @@ const zoneRows = computed(() => {
       storey: z.storeyId ? (storeyName.get(z.storeyId) ?? '') : '(층 모름)',
       area: z.areaM2,
       declared: z.declaredAreaM2,
-      spaces: z.spaceIds.map((id) => spaceNameOf(id)),
+      // 방을 다 덮지 않으면 몫을 붙인다(넓이로 잰다, idf/attach.ts).
+      spaces: z.spaceIds.map((id) => {
+        const share = z.spaceShares?.[id]
+        return share !== undefined && share < 0.995 ? `${spaceNameOf(id)} ${Math.round(share * 100)}%` : spaceNameOf(id)
+      }),
       terminals: terminals.map(label),
       sources: sources.map(label),
     }
@@ -702,6 +713,12 @@ function applySnapshot(s: Snapshot) {
     if (rules) ruleReport.value = rules
     triggerRef(model)
     flowVersion.value++
+  } else if (s.kind === 'systems') {
+    // 계통 구성원이 바뀌면 3D 의 계통 색도 바뀐다.
+    if (rules) ruleReport.value = rules
+    triggerRef(model)
+    flowVersion.value++
+    if (s.equipment.length) redraw()
   } else {
     // 방향·확정은 소속과 상관이 없다. 모델 전체에 갱신 신호를 보내지 않는다(confirmRule 과 같은 이유).
     flowVersion.value++
@@ -1903,7 +1920,7 @@ const kindSummary = computed(() => {
   }
   const systems = new Map<string, number>()
   for (const sy of m.systems) {
-    const label = systemKind(sy.kind)?.label ?? '(종류 모름)'
+    const label = sy.kind ? systemKindText(sy.kind, sy.fluid) : '(종류 모름)'
     systems.set(label, (systems.get(label) ?? 0) + 1)
   }
   return {
@@ -1945,6 +1962,58 @@ const legend = computed(() => {
 
 /** 범례에서 고른 계통. 설비 선택과 배타다 — 둘을 겹쳐 칠하면 무엇이 강조된 건지 모른다. */
 const selectedSystemId = ref<string | null>(null)
+const selectedSystem = computed(() => (selectedSystemId.value ? (systemById.value.get(selectedSystemId.value) ?? null) : null))
+
+// --- 계통 편집 (E8) ------------------------------------------------------------------------
+//
+// 설비의 계통 한 자리를 바꾸고(고른 설비 패널), 계통의 종류·유체를 고친다(범례에서 고른 계통 패널). 둘 다 규칙 방향의
+// 재료라 edit.ts 가 규칙을 다시 돌린다. 계통 이름은 BIM 것이라 고치지 않는다(분야별 파일을 합칠 때 이름으로 맞춘다).
+const systemNameOf = (id: string | null) => (id ? systemById.value.get(id)?.name || id : '(계통 없음)')
+/** 계통 종류와 유체를 한 말로. `순환수 공급 · 냉수`. */
+function systemKindText(kind: string | null | undefined, fluid: Fluid | null | undefined): string {
+  const k = systemKind(kind)
+  if (!k) return '모름'
+  const f = FLUID_KINDS.includes(k.kind) ? fluidInfo(fluid) : null
+  return f ? `${k.label} · ${f.label}` : k.label
+}
+/** 계통 상자의 목록. 이름순이고 종류를 붙인다 — 이름이 번호뿐인 계통(ifc4Mep 22개)도 무엇인지 보인다. */
+const systemOptions = computed(() =>
+  (model.value?.systems ?? [])
+    .map((s) => ({ id: s.id, label: `${s.name || '(이름 없음)'}${s.kind ? ` · ${systemKindText(s.kind, s.fluid)}` : ''}` }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'ko', { numeric: true })),
+)
+function pickSystem(event: Event, equipmentId: string) {
+  const el = event.target as HTMLSelectElement
+  const m = model.value
+  const e = equipmentById.value.get(equipmentId)
+  el.blur()
+  if (!m || !e) return
+  const to = el.value || null
+  const snapshot = snapshotSystems(m, [e.systemId, to], [equipmentId])
+  const at = mark()
+  const rules = setEquipmentSystem(m, equipmentId, to)
+  if (!rules) return
+  remember(`${shortName(e.name)} 계통 → ${systemNameOf(to)}`, snapshot, at)
+  ruleReport.value = rules
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+}
+function setSystemKindTo(systemId: string, kind: string | null, fluid: Fluid | null) {
+  const m = model.value
+  const system = systemById.value.get(systemId)
+  if (!m || !system) return
+  const snapshot = snapshotSystems(m, [systemId])
+  const at = mark()
+  const rules = setSystemKind(m, systemId, kind, fluid)
+  if (!rules) return
+  remember(`계통 ${system.name || systemId} 종류 → ${systemKindText(kind, fluid)}`, snapshot, at)
+  ruleReport.value = rules
+  triggerRef(model)
+  flowVersion.value++
+}
+/** 계통 종류의 출처. 사람이 고쳤으면 편집, 아니면 PredefinedType(BIM)·이름(사전). */
+const systemKindSrc = (s: { kindEdited?: unknown; kindSource?: 'bim' | 'dict' }): SrcKind => (s.kindEdited ? 'edit' : (s.kindSource ?? 'dict'))
 
 function toggleSystem(id: string) {
   selectedSystemId.value = selectedSystemId.value === id ? null : id
@@ -2101,12 +2170,35 @@ const errorAt = (path: string): string => {
   return p && 'error' in p ? p.error : ''
 }
 
+/** data/ 에서 연 파일. 짝 파일(건축 ↔ 설비)을 권할 때 쓴다. 손으로 고른 파일이면 null. */
+const openedDataPath = ref<string | null>(null)
+
 function openData(path: string) {
-  void load(baseName(path), () => fetchData(path))
+  void openMany([{ name: baseName(path), read: () => fetchData(path) }], 'open').then(() => {
+    openedDataPath.value = fileName.value === baseName(path) ? path : null
+  })
 }
 
 function appendData(path: string) {
   void append(baseName(path), () => fetchData(path))
+}
+
+/** 목록에서 고른 파일. 건축·설비를 같이 골라 한 번에 연다. */
+const dataPicked = ref<string[]>([])
+function toggleDataPick(path: string) {
+  dataPicked.value = dataPicked.value.includes(path) ? dataPicked.value.filter((p) => p !== path) : [...dataPicked.value, path]
+}
+function openDataSet(paths: readonly string[]) {
+  const list = [...paths]
+  dataPicked.value = []
+  void openMany(list.map((path) => ({ name: baseName(path), read: () => fetchData(path) })), 'open').then(() => {
+    openedDataPath.value = null
+  })
+}
+
+/** 짝 파일(profile.ts 의 partnerOf). 판본이 여럿인 폴더에서는 권하지 않는다. */
+function partnerOf(path: string | null): string | null {
+  return path ? findPartner(path, dataFiles.value.map((f) => ({ path: f.path, profile: profileAt(f.path) }))) : null
 }
 
 /** 요약 옆에 붙이는 한마디. 이 파일이 혼자 쓰이는지, 짝이 필요한지. */
@@ -3179,11 +3271,27 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
 
 function onAppendPick(event: Event) {
   const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (file) void append(file.name, () => file.arrayBuffer())
+  void openMany(sourcesOf(input.files), 'append')
   // 같은 파일을 다시 고를 수 있게 비운다.
   input.value = ''
 }
+
+/**
+ * 한쪽만 연 파일에 모자란 반쪽. 설비만 있으면 방이 없어 소속(F11)이 안 나오고, 방만 있으면 설비가 없다. 요약 칸에서 바로
+ * 덧붙이게 한다 — 도구막대의 [덧붙이기] 를 찾지 못했다.
+ */
+const pairHint = computed(() => {
+  const c = counts.value
+  if (!model.value || !c) return null
+  const partner = partnerOf(openedDataPath.value)
+  if (c.spaces === 0 && c.devices > 0) {
+    return { text: '방이 없는 설비 파일입니다. 건축 IFC를 덧붙이면 설비가 어느 방에 있는지(소속)가 나옵니다.', button: '건축 IFC 덧붙이기', partner }
+  }
+  if (c.devices === 0 && c.spaces > 0) {
+    return { text: '설비가 없는 건축 파일입니다. 설비 IFC를 덧붙이면 설비·계통·연결이 이 방들에 얹힙니다.', button: '설비 IFC 덧붙이기', partner }
+  }
+  return null
+})
 
 
 async function fetchData(path: string) {
@@ -3301,19 +3409,56 @@ const requirementsMeta = computed(() => {
     .join(' / ')
 })
 
+// --- 여러 파일 한 번에 ---------------------------------------------------------------
+//
+// 실제 프로젝트는 건축·설비가 다른 IFC 다. 예전에는 하나를 열고 도구막대의 [덧붙이기] 를 찾아 다른 하나를 골라야 했고,
+// 둘을 같이 끌어다 놓으면 첫 파일만 열리고 나머지는 **조용히** 버려졌다. 이제 같이 고르거나 같이 놓으면 하나를 열고
+// 나머지를 덧붙인다. 어느 것을 먼저 열든 방을 더 그린 쪽이 기준이라(append) 순서는 결과를 바꾸지 않는다. IDF 는 층·방이
+// 다 선 뒤에 얹어야 방을 찾으므로 IFC 뒤로 보낸다.
+type FileSource = { name: string; read: () => Promise<ArrayBuffer> }
+async function openMany(files: readonly FileSource[], into: 'open' | 'append') {
+  const ordered = [...files.filter((f) => !isIdf(f.name)), ...files.filter((f) => isIdf(f.name))]
+  if (!ordered.length) return
+  let rest = ordered
+  if (into === 'open' || !model.value) {
+    await load(ordered[0].name, ordered[0].read)
+    // 편집이 남아 열기를 물리쳤거나 읽지 못했으면 멈춘다.
+    if (!model.value || fileName.value !== ordered[0].name || error.value) return
+    rest = ordered.slice(1)
+  }
+  for (const f of rest) {
+    if (!canAppend.value) {
+      error.value = `편집을 시작한 뒤에는 덧붙이지 않습니다(${f.name}). 파일을 다 합친 다음 편집하세요.`
+      return
+    }
+    await append(f.name, f.read)
+    if (error.value) return
+  }
+}
+const sourcesOf = (list: FileList | null | undefined): FileSource[] =>
+  Array.from(list ?? [], (file) => ({ name: file.name, read: () => file.arrayBuffer() }))
+
 function onPick(event: Event) {
   const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (file) void load(file.name, () => file.arrayBuffer())
+  const files = sourcesOf(input.files)
+  openedDataPath.value = null
+  void openMany(files, 'open')
   // 같은 파일을 다시 고를 수 있게 비운다. 편집이 남아 열기를 물리친 뒤 같은 파일을 다시 고르면 change 가 안 온다.
   input.value = ''
 }
 
 function onDrop(event: DragEvent) {
   dragging.value = false
-  const file = event.dataTransfer?.files?.[0]
-  if (file) void load(file.name, () => file.arrayBuffer())
+  openedDataPath.value = null
+  void openMany(sourcesOf(event.dataTransfer?.files), 'open')
 }
+
+/** [덧붙이기] 에 끌어다 놓기. [열기] 에 놓으면 열려 있던 것을 바꾸므로, 합치려면 여기에 놓는다. */
+function onAppendDrop(event: DragEvent) {
+  appendOver.value = false
+  if (canAppend.value) void openMany(sourcesOf(event.dataTransfer?.files), 'append')
+}
+const appendOver = ref(false)
 
 function download(name: string, text: string, mime: string) {
   const url = URL.createObjectURL(new Blob([text], { type: mime }))
@@ -3385,10 +3530,13 @@ function exportTTL() {
       @drop.prevent="onDrop"
     >
       <p v-if="busy">읽는 중…</p>
-      <p v-else>.ifc 파일을 여기에 끌어다 놓으세요.</p>
+      <template v-else>
+        <p>IFC 파일을 여기에 끌어다 놓으세요.</p>
+        <p class="muted drop-multi">건축과 설비가 다른 파일이면 <b>둘을 같이</b> 놓거나 고르세요(Ctrl·Shift 로 여러 개). 하나로 합쳐 엽니다. IDF 도 같이 고르면 공조존까지 얹습니다.</p>
+      </template>
       <label class="pick">
         파일 선택
-        <input type="file" accept=".ifc,.idf" :disabled="busy" @change="onPick" />
+        <input type="file" accept=".ifc,.idf" multiple :disabled="busy" @change="onPick" />
       </label>
       <!-- 피처 단위로 읽을 것. 물리존·설비는 늘 읽는다. 다음에 여는 파일부터 적용된다. -->
       <fieldset class="read-option features" :disabled="busy">
@@ -3411,13 +3559,24 @@ function exportTTL() {
     <section v-if="dataFiles.length" class="catalog">
       <!-- 파일을 연 뒤에는 접어 둔다. 목록이 3D 와 검토 화면을 아래로 밀어낸다. 덧붙일 때 다시 편다. -->
       <Fold :key="model ? 'loaded' : 'empty'" title="data/ 의 IFC" :meta="`${dataFiles.length}개`" :default-open="!model">
+        <p v-if="dataPicked.length" class="catalog-pick">
+          <button type="button" class="pick" :disabled="busy" @click="openDataSet(dataPicked)">
+            고른 {{ dataPicked.length }}개 {{ dataPicked.length > 1 ? '합쳐서 열기' : '열기' }}
+          </button>
+          <span class="muted">{{ dataPicked.map(baseName).join(' + ') }}</span>
+          <button type="button" class="link" @click="dataPicked = []">고르기 취소</button>
+        </p>
         <p class="hint">
+          건축·설비를 같이 쓰려면 왼쪽 칸에 둘 다 표시하고 [합쳐서 열기]를 누르세요.
           칸마다 얼마나 채워졌는지 보입니다. 공간(외곽선이 있는 물리존) · 설비(좌표가 있는 기기) · 소속(방을 찾은 기기) ·
           연결망(연결 수) · 방향(흐름 방향을 아는 기기 비율). 마우스를 올리면 자세히 보입니다.
         </p>
         <table>
           <tbody>
-            <tr v-for="f in dataFiles" :key="f.path">
+            <tr v-for="f in dataFiles" :key="f.path" :class="{ picked: dataPicked.includes(f.path) }">
+              <td class="pick-cell">
+                <input type="checkbox" :checked="dataPicked.includes(f.path)" :aria-label="`${f.path} 같이 열기`" @change="toggleDataPick(f.path)" />
+              </td>
               <td class="name">
                 <span>{{ f.path }}</span>
                 <span class="muted">{{ mb(f.size) }}<template v-if="profileAt(f.path)"> · {{ profileAt(f.path)!.schema }}</template></span>
@@ -3428,6 +3587,16 @@ function exportTTL() {
                 <template v-else>
                   <TierChips :tiers="profileAt(f.path)!.tiers" />
                   <span v-if="roleHint(profileAt(f.path)!)" class="muted role">{{ roleHint(profileAt(f.path)!) }}</span>
+                  <button
+                    v-if="!model && partnerOf(f.path)"
+                    type="button"
+                    class="link pair"
+                    :disabled="busy"
+                    :title="`${f.path} + ${partnerOf(f.path)}`"
+                    @click="openDataSet([f.path, partnerOf(f.path)!])"
+                  >
+                    짝 {{ baseName(partnerOf(f.path)!) }}와 합쳐서 열기
+                  </button>
                 </template>
               </td>
               <td class="row-actions">
@@ -3461,7 +3630,7 @@ function exportTTL() {
               @drop.prevent="onDrop"
             >
               열기
-              <input type="file" accept=".ifc,.idf" :disabled="busy" @change="onPick" />
+              <input type="file" accept=".ifc,.idf" multiple :disabled="busy" @change="onPick" />
             </label>
             <!-- 다음에 열 파일에서 읽을 피처. 첫 화면의 "읽을 것" 과 같은 값이다. -->
             <details class="read-menu">
@@ -3477,9 +3646,22 @@ function exportTTL() {
               </fieldset>
             </details>
             <!-- 건축과 설비가 다른 파일일 때. 편집을 시작한 뒤에는 닫는다(canAppend 주석 참조). -->
-            <label v-if="canAppend" class="ghost append" title="건축·설비 IFC 합치기(합쳐야 설비가 어느 방에 있는지 나옵니다), 또는 IDF 를 얹어 공조존 읽기">
+            <!-- 편집 뒤에는 숨기지 않고 막아 둔다. 숨겼더니 버튼이 어디 갔는지 찾았다. -->
+            <label
+              class="ghost append"
+              :class="{ disabled: !canAppend, over: appendOver }"
+              :aria-disabled="!canAppend"
+              :title="
+                canAppend
+                  ? '열린 파일에 합치기 — 건축·설비 IFC(합쳐야 설비가 어느 방에 있는지 나옵니다) 또는 IDF(공조존). 여기에 끌어다 놓아도 됩니다'
+                  : '편집을 시작하면 합칠 수 없습니다. 합친 뒤에 편집하세요(편집을 전부 되돌리면 다시 열립니다)'
+              "
+              @dragover.prevent="appendOver = canAppend"
+              @dragleave.prevent="appendOver = false"
+              @drop.prevent="onAppendDrop"
+            >
               덧붙이기
-              <input type="file" accept=".ifc,.idf" :disabled="busy" @change="onAppendPick" />
+              <input type="file" accept=".ifc,.idf" multiple :disabled="busy || !canAppend" @change="onAppendPick" />
             </label>
             <a v-if="warnings.length" href="#warnings" class="warn-count" title="읽으면서 건너뛴 것. 목록은 아래 요약에 있습니다.">경고 {{ warnings.length }}</a>
             <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
@@ -3692,7 +3874,7 @@ function exportTTL() {
                 <template v-else>{{ selected.declaredType ?? selected.ifcClass }} <Src kind="bim" /></template>
                 <template v-if="roleLabel(selected.role)"> · {{ roleLabel(selected.role) }} <Src :kind="roleSrc(selected)" /></template> ·
                 {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
-                <Src v-if="selected.systemId" kind="bim" /> ·
+                <Src v-if="selected.systemEdited" kind="edit" /><Src v-else-if="selected.systemId" kind="bim" /> ·
                 {{ spaceNameOf(selected.spaceId) }}
                 <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
               </p>
@@ -3746,6 +3928,18 @@ function exportTTL() {
           </p>
 
           <p v-if="editing && kindWarning" class="edit-notice inline" role="alert">{{ kindWarning }}</p>
+
+          <!-- 계통(E8). 설비의 계통 한 자리를 바꾼다. 규칙 방향을 다시 돌리고 TTL 의 brick:hasPart 가 바뀐다. -->
+          <p v-if="editing" class="system-edit">
+            <label>
+              계통
+              <select :value="selected.systemId ?? ''" @change="pickSystem($event, selected.id)">
+                <option value="">(계통 없음)</option>
+                <option v-for="o in systemOptions" :key="o.id" :value="o.id">{{ o.label }}</option>
+              </select>
+            </label>
+            <Src v-if="selected.systemEdited" kind="edit" />
+          </p>
 
           <!-- 위치(E5·E6). 아래 설비 표와 같은 칸이다. N 으로 소속 없는 설비에 오면 좌표를 여기서 바로 넣는다 — 표는
                화면 아래 멀리 있다. 좌표가 없는 설비는 셋이 다 차야 옮긴다(0 으로 채우지 않는다). -->
@@ -4142,6 +4336,16 @@ function exportTTL() {
         <section v-else class="overview">
           <h3>이 파일</h3>
           <TierChips :tiers="currentTiers" />
+          <div v-if="pairHint && canAppend" class="pair-hint">
+            <p>{{ pairHint.text }}</p>
+            <button v-if="pairHint.partner" type="button" class="pick" :disabled="busy" @click="appendData(pairHint.partner!)">
+              {{ baseName(pairHint.partner) }} 덧붙이기
+            </button>
+            <label :class="pairHint.partner ? 'ghost other' : 'pick'">
+              {{ pairHint.partner ? '다른 파일 고르기' : pairHint.button }}
+              <input type="file" accept=".ifc,.idf" multiple :disabled="busy" @change="onAppendPick" />
+            </label>
+          </div>
           <ul class="overview-counts">
             <li><b>{{ counts.storeys }}</b> 층</li>
             <li><b>{{ counts.spaces }}</b> 물리존</li>
@@ -4162,6 +4366,47 @@ function exportTTL() {
             <Src kind="dict" /> 이름 사전·흐름 규칙으로 추정
           </p>
         </section>
+
+            <!-- 범례에서 고른 계통. 종류·유체는 규칙 방향과 TTL 계통 클래스를 정한다. 편집 모드에서 고친다(E8). -->
+            <section v-if="selectedSystem" class="picked system-picked">
+              <h3>{{ selectedSystem.name || '(이름 없는 계통)' }}</h3>
+              <p class="stats">
+                구성 {{ selectedSystem.memberIds.length }}개 <Src kind="bim" /> ·
+                {{ systemKindText(selectedSystem.kind, selectedSystem.fluid) }}
+                <Src v-if="selectedSystem.kind || selectedSystem.kindEdited" :kind="systemKindSrc(selectedSystem)" />
+                <template v-if="!selectedSystem.kindEdited && selectedSystem.fluid && selectedSystem.fluidSource === 'rule'">
+                  (유체는 배관이 닿는 원천 기기로 짐작 <Src kind="dict" />)
+                </template>
+                <template v-else-if="!selectedSystem.kindEdited && selectedSystem.fluid && selectedSystem.fluidSource !== selectedSystem.kindSource">
+                  (유체 <Src :kind="selectedSystem.fluidSource === 'bim' ? 'bim' : 'dict'" />)
+                </template>
+              </p>
+              <p v-if="editing" class="system-edit system-kind-edit">
+                <label>
+                  종류
+                  <select
+                    :value="selectedSystem.kind ?? ''"
+                    @change="setSystemKindTo(selectedSystem.id, ($event.target as HTMLSelectElement).value || null, selectedSystem.fluid ?? null)"
+                  >
+                    <option value="">(모름)</option>
+                    <option v-for="k in SYSTEM_KINDS" :key="k.kind" :value="k.kind">{{ k.label }}</option>
+                  </select>
+                </label>
+                <label v-if="selectedSystem.kind && FLUID_KINDS.includes(selectedSystem.kind)">
+                  유체
+                  <select
+                    :value="selectedSystem.fluid ?? ''"
+                    @change="setSystemKindTo(selectedSystem.id, selectedSystem.kind ?? null, (($event.target as HTMLSelectElement).value || null) as Fluid | null)"
+                  >
+                    <option value="">(모름)</option>
+                    <option v-for="f in FLUIDS" :key="f.fluid" :value="f.fluid">{{ f.label }}</option>
+                  </select>
+                </label>
+              </p>
+              <p v-else-if="selectedSystem.kind && FLUID_KINDS.includes(selectedSystem.kind) && !selectedSystem.fluid" class="hint">
+                유체(냉수·온수)를 모릅니다. 편집 모드에서 고르면 TTL 계통 클래스가 유체 클래스가 됩니다.
+              </p>
+            </section>
 
             <!-- 계통 범례. 색이 스물이면 색만으로는 못 고르니, 여기서 짚는 쪽이 주된 길이다. -->
             <div v-if="legend.length" class="legend">
@@ -4215,7 +4460,11 @@ function exportTTL() {
           <li v-if="!skipped.has('walls')"><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span><Src kind="bim" /></li>
           <li v-if="model.hvac" class="wide">
             <b>{{ model.hvac.zones.length }}</b><span>공조존</span><Src kind="idf" />
-            <small v-if="idfReport">방이 든 존 {{ idfReport.zonesWithSpaces }} · 존에 든 방 {{ idfReport.spacesInZones }}/{{ idfReport.spaces }}</small>
+            <small v-if="idfReport">
+              방이 든 존 {{ idfReport.zonesWithSpaces }} · 존에 든 방 {{ idfReport.spacesInZones }}/{{ idfReport.spaces }} <Src kind="calc" />
+              <template v-if="idfReport.straddling"> · 두 존에 걸친 방 {{ idfReport.straddling }}</template>
+              <template v-if="idfReport.partial"> · 절반 못 덮인 방 {{ idfReport.partial }}</template>
+            </small>
           </li>
           <!-- 설비를 하나로 세면 대수가 부푼다. 실측에서 85%가 덕트·배관이었다.
                Proxy 는 IFC 가 설비라고 말하지 않은 것을 사전이 설비로 받은 것이라 따로 센다. -->
@@ -4903,6 +5152,12 @@ function exportTTL() {
             <li v-for="r in sinceOpen.openingsAdded" :key="`op-add-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>을 놓았습니다 (GeoJSON)</li>
             <li v-for="r in sinceOpen.openingsRemoved" :key="`op-rm-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>을 지웠습니다 (GeoJSON)</li>
             <li v-for="r in sinceOpen.openingsMoved" :key="`op-mv-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>을 옮겼습니다 (GeoJSON 위치·잇는 방)</li>
+            <li v-for="r in sinceOpen.systemMoved" :key="`sys-mv-${r.id}`">
+              {{ r.name }}: 계통 <b>{{ systemNameOf(r.from) }}</b> → <b>{{ systemNameOf(r.to) }}</b> (brick:hasPart)
+            </li>
+            <li v-for="r in sinceOpen.systemKinds" :key="`sys-kind-${r.id}`">
+              계통 <b>{{ r.name || r.id }}</b>: 종류 {{ systemKindText(r.from.kind, r.from.fluid) }} → <b>{{ systemKindText(r.to.kind, r.to.fluid) }}</b> (계통 클래스)
+            </li>
             <li v-for="r in sinceOpen.renamed" :key="`name-${r.spaceId}`">
               물리존 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)
             </li>

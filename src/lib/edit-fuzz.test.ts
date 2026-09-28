@@ -19,6 +19,8 @@ const read = (name: string): Model => {
   const model = importIfc(api, new Uint8Array(readFileSync(path)))
   // 층 옮기기를 해 보려면 층이 둘은 있어야 한다.
   model.storeys.push({ id: 'up', name: '2F', elevation: 3.5, spaces: [], walls: [], openings: [], equipment: [] })
+  // 계통 옮기기(E8)를 해 보려면 계통도 둘은 있어야 한다. 유체를 모르는 순환수로 둔다.
+  model.systems.push({ id: 'sys2', name: '순환수 공급', memberIds: [], source: 'ifc', kind: 'hydronic_supply', fluid: null })
   return model
 }
 

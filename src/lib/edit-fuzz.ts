@@ -9,7 +9,7 @@ import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { modelToGeoJSON } from './export/geojson'
 import { modelToTTL } from './export/ttl'
 import { confirmSystemFlow } from './flow-rules'
-import { EQUIPMENT_KINDS } from './kinds'
+import { EQUIPMENT_KINDS, FLUIDS, SYSTEM_KINDS } from './kinds'
 import { isConduit, type Model, type Vec2 } from './model'
 
 export const FUZZ_OPS = [
@@ -39,15 +39,18 @@ export const FUZZ_OPS = [
   'addOpening',
   'moveOpening',
   'deleteOpening',
+  'equipmentSystem',
+  'systemKind',
 ] as const
 export type FuzzOp = (typeof FUZZ_OPS)[number]
 
 /**
  * 내보내는 두 파일. 설비가 층 목록 안에서 선 **순서**만 빼고 견준다 — 다른 층에 갔다 온 설비는 목록 끝으로 가서
- * 파일 안의 순서가 바뀌지만 담긴 것은 같다.
+ * 파일 안의 순서가 바뀌지만 담긴 것은 같다. 계통 구성원의 순서도 같다 — 다른 계통에 갔다 온 설비는 구성원 끝에 선다.
  */
 export function exportedContent(m: Model): string {
-  const ttl = modelToTTL(m).split('\n\n').sort().join('\n\n')
+  const sorted = { ...m, systems: m.systems.map((s) => ({ ...s, memberIds: [...s.memberIds].sort() })) }
+  const ttl = modelToTTL(sorted).split('\n\n').sort().join('\n\n')
   const geo = modelToGeoJSON(m).map((f) => ({
     fileName: f.fileName,
     features: [...f.collection.features].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
@@ -273,6 +276,23 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       if (!done) continue
       undo.push(snapshot)
       log.push(`${op} ${o.name}`)
+    } else if (op === 'equipmentSystem') {
+      const e = pick(m.storeys.flatMap((s) => s.equipment))
+      if (!e) continue
+      const to = r() < 0.2 ? null : (pick(m.systems)?.id ?? null)
+      const snapshot = E.snapshotSystems(m, [e.systemId, to], [e.id])
+      if (!E.setEquipmentSystem(m, e.id, to)) continue
+      undo.push(snapshot)
+      log.push(`equipmentSystem ${e.name} → ${to}`)
+    } else if (op === 'systemKind') {
+      const system = pick(m.systems)
+      if (!system) continue
+      const kind = r() < 0.2 ? null : pick(SYSTEM_KINDS)!.kind
+      const fluid = r() < 0.3 ? null : pick(FLUIDS)!.fluid
+      const snapshot = E.snapshotSystems(m, [system.id])
+      if (!E.setSystemKind(m, system.id, kind, fluid)) continue
+      undo.push(snapshot)
+      log.push(`systemKind ${system.name} → ${kind}/${fluid}`)
     }
   }
 
