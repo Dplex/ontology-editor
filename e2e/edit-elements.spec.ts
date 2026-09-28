@@ -75,3 +75,40 @@ test('벽에서 먼 자리에는 문을 놓지 않고 이유를 알린다', asyn
   await expect(page.locator('.key-note')).toContainText('벽에서')
   expect(errors).toEqual([])
 })
+
+test('[방 경계도 같이] 를 켜고 벽을 옮기면 양쪽 방이 따라오고, 한 번에 되돌린다', async ({ page }) => {
+  const errors = await open(page)
+  // 사무실(0..10) 오른쪽에 창고(10.2..14)를 그리고, 그 사이(10.0..10.2)에 벽을 긋는다.
+  await page.getByRole('button', { name: '물리존 그리기' }).click()
+  for (const [x, y] of [[10.2, 0], [14, 0], [14, 8], [10.2, 8]]) await clickFloor(page, x, y)
+  await page.keyboard.press('Enter')
+  await page.getByRole('button', { name: '벽·문·창' }).click()
+  await page.getByRole('button', { name: '벽 긋기' }).click()
+  await clickFloor(page, 10.1, 0)
+  await clickFloor(page, 10.1, 8)
+  const panel = page.locator('.element-picked')
+  await expect(panel.locator('h3')).toHaveText('새 벽')
+
+  // 끄고 옮기면 방은 그대로다.
+  await page.locator('.viewport canvas').focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(page.locator('.report')).not.toContainText('㎡')
+  await page.keyboard.press('Control+z')
+
+  await panel.locator('.carry-rooms input').check()
+  await page.locator('.viewport canvas').focus()
+  // 방향키 하나는 벽 길이 방향(방은 그대로), 하나는 벽에 수직(방이 따라온다)이다. 화면 방향에 따라 어느 쪽인지 달라서 둘 다 누른다.
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowUp')
+  const report = page.locator('.report')
+  // 벽 길이 8m × 0.1m. 한 방이 늘면 다른 방이 준다.
+  await expect(report).toContainText(/사무실 80\.0㎡ → (80\.8|79\.2)㎡/)
+  const office = (await report.innerText()).match(/사무실 80\.0㎡ → ([\d.]+)㎡/)![1]
+  await expect(report).toContainText(`새 물리존 1 30.4㎡ → ${office === '80.8' ? '29.6' : '31.2'}㎡`)
+  // 방향키 두 번이 되돌리기 한 칸으로 묶인다(같은 벽을 잇달아 옮긴 것).
+  await page.keyboard.press('Control+z')
+  // 벽과 두 방이 한 번에 돌아온다. 앞서 그린 방·벽은 리포트에 남는다.
+  await expect(report).not.toContainText('㎡')
+  await expect(report).toContainText('벽 새 벽을 그었습니다')
+  expect(errors).toEqual([])
+})

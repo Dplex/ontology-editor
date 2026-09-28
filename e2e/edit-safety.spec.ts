@@ -95,25 +95,17 @@ test('편집을 저장하고 같은 파일을 다시 연 뒤 불러오면 편집
   await expect(page.locator('.edit-file-note')).toContainText('원래 파일: mep.ifc')
 })
 
-// 합치기는 모델을 새로 만든다. 소속을 안 바꾸는 편집(이름·종류·확정·방향·잇기)도 합치면 "바뀐 것 0건" 이 되고 편집
-// 파일·되돌리기에서 빠졌다 — 값은 TTL 에 그대로 나가는데. 그래서 편집이 하나라도 있으면 덧붙이기를 닫는다.
-test('방 이름만 고쳐도 덧붙이기가 막히고, 되돌리면 다시 열린다', async ({ page }) => {
+// 합치기는 모델을 새로 만든다. 예전에는 편집이 있으면 덧붙이기를 닫았다(합치면 편집이 기록에서 빠져서). 이제는 편집을
+// 편집 파일로 떠서 합친 모델에 다시 얹는다(merge.spec). 여기서는 편집 뒤에도 열려 있는지만 본다.
+test('방 이름만 고쳐도 덧붙이기는 열려 있다', async ({ page }) => {
   await page.goto('/')
   await openFile(page, MEP)
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
-  // 숨기지 않고 막는다(숨겼더니 버튼을 찾았다). 막힌 것은 disabled 표시로 본다.
-  const append = page.locator('label.append:not(.disabled)')
-  await expect(append).toHaveCount(1)
-
   await page.keyboard.press('e')
   const name = page.locator('.rows input').first()
   await name.fill('대회의실')
   await name.press('Enter')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
-  await expect(append).toHaveCount(0)
-
-  await page.locator('.viewport canvas').click({ position: { x: 5, y: 5 } })
-  await page.keyboard.press('Control+z')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
-  await expect(append).toHaveCount(1)
+  await expect(page.locator('label.append:not(.disabled)')).toHaveCount(1)
+  await expect(page.locator('label.append')).toHaveAttribute('title', /다시 얹습니다/)
 })

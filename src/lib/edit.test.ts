@@ -51,9 +51,14 @@ import {
   setEquipmentSystem,
   setSystemKind,
   snapshotSystems,
+  createSystem,
+  deleteSystem,
+  moveWallWithSpaces,
+  type WallCarryPlan,
+  type Snapshot,
   type Change,
 } from './edit'
-import { polygonArea, type Model, type Opening } from './model'
+import { polygonArea, type Model, type Opening, type Vec2 } from './model'
 import { modelToGeoJSON } from './export/geojson'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred } from './flow-rules'
 import { assignEquipmentToSpaces } from './mapping'
@@ -610,6 +615,8 @@ describe('연 때와 견주기', () => {
       openingsMoved: [],
       systemMoved: [],
       systemKinds: [],
+      systemsAdded: [],
+      systemsRemoved: [],
     })
   })
 
@@ -969,5 +976,94 @@ describe('계통 편집 (E8)', () => {
     restore(model, s1)
     expect(modelToTTL(model) + JSON.stringify(modelToGeoJSON(model))).toBe(opened)
     expect(ahu.systemEdited).toBeUndefined()
+  })
+})
+
+describe('벽과 함께 방 경계 옮기기', () => {
+  const sq = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+  const room = (id: string, footprint: Vec2[]) => ({ id, name: id, longName: id, footprint, areaM2: polygonArea(footprint), boundedBy: [] })
+  /** x=5 에 두께 0.2 벽(4.9..5.1, y 0..6). 왼쪽 방은 벽 면까지, 오른쪽 방은 벽 중심선까지 그렸다(Revit 에 둘 다 있다). */
+  const plan = (): Model => ({
+    schema: 'IFC4', siteName: '', buildingId: 'B', buildingName: '', systems: [], connections: [], warnings: [],
+    storeys: [{
+      id: 'S', name: '1F', elevation: 0, openings: [], equipment: [],
+      walls: [{ id: 'W', name: 'W', thickness: 0.2, loadBearing: null, footprint: [sq(4.9, 0, 5.1, 6)] }],
+      spaces: [room('face', sq(0, 0, 4.9, 6)), room('center', sq(5, 0, 10, 6)), room('far', sq(20, 0, 25, 6))],
+    }],
+  })
+  const xs = (m: Model, id: string) => [...new Set(m.storeys[0].spaces.find((s) => s.id === id)!.footprint.map((p) => +p[0].toFixed(6)))].sort((a, b) => a - b)
+
+  it('벽 면에 붙인 방도, 중심선까지 그린 방도 벽과의 간격을 그대로 두고 따라오고, 먼 방은 그대로다', () => {
+    const m = plan()
+    const done = moveWallWithSpaces(m, 'W', [0.3, 0])!
+    expect(xs(m, 'face')).toEqual([0, 5.2]) // 면(5.2)에 붙은 채
+    expect(xs(m, 'center')).toEqual([5.3, 10]) // 중심선(5.3)에 붙은 채 — 면에 끌어 붙이면 5.4 가 된다
+    expect(xs(m, 'far')).toEqual([20, 25])
+    expect(done.changes.map((c) => [c.spaceId, +(c.toAreaM2 - c.fromAreaM2).toFixed(6)])).toEqual([['face', 1.8], ['center', -1.8]])
+  })
+
+  it('벽 길이 방향으로 밀면 방은 미끄러지지 않는다', () => {
+    const m = plan()
+    moveWallWithSpaces(m, 'W', [0, 0.5])
+    expect(m.storeys[0].spaces.map((s) => polygonArea(s.footprint))).toEqual(plan().storeys[0].spaces.map((s) => polygonArea(s.footprint)))
+  })
+
+  it('벽이 방 변의 가운데에서 끝나면 그 변은 반만 끌려가지 않고 그대로다', () => {
+    const m = plan()
+    // 벽을 y 0..3 으로 줄인다. 왼쪽 방의 오른쪽 변(y 0..6)은 벽 끝을 넘어 이어지고, Revit 외곽선처럼 변 중간(y 2)에 한 줄 위
+    // 꼭짓점이 있다. 벽 옆 조각(y 0..2)만 끌려가면 변이 꺾인다(병원 외벽에서 이렇게 됐다).
+    m.storeys[0].walls[0].footprint = [sq(4.9, 0, 5.1, 3)]
+    const jogged: Vec2[] = [[0, 0], [4.9, 0], [4.9, 2], [4.9, 6], [0, 6], [0, 0]]
+    m.storeys[0].spaces[0] = room('face', jogged)
+    moveWallWithSpaces(m, 'W', [0.3, 0])
+    expect(m.storeys[0].spaces[0].footprint).toEqual(jogged)
+  })
+
+  it('방향키로 다섯 걸음 나갔다 돌아오면 방이 제자리이고, 걸음 사이에 방 꼭짓점을 넣어도 엉뚱한 꼭짓점을 옮기지 않는다', () => {
+    const m = plan()
+    let p: WallCarryPlan | null = null
+    for (let k = 0; k < 5; k++) p = moveWallWithSpaces(m, 'W', [0.1, 0], p)!.plan
+    for (let k = 0; k < 5; k++) p = moveWallWithSpaces(m, 'W', [-0.1, 0], p)!.plan
+    expect(m.storeys[0].spaces.map((s) => s.footprint.map((q) => q.map((v) => +v.toFixed(9))))).toEqual(plan().storeys[0].spaces.map((s) => s.footprint))
+
+    // 계획을 세운 뒤 왼쪽 방 첫 변(바닥)에 꼭짓점을 넣으면 번호가 하나씩 밀린다. 옛 번호로 옮기면 바닥 한가운데가 끌려간다.
+    p = moveWallWithSpaces(m, 'W', [0.1, 0], p)!.plan
+    insertSpaceVertex(m, 'face', 0)
+    moveWallWithSpaces(m, 'W', [0.1, 0], p)
+    expect(xs(m, 'face')).toEqual([0, 2.5, 5.1]) // 넣은 꼭짓점(2.5)은 그대로, 오른쪽 변만 5.1
+  })
+
+  it('한 번에 되돌리면 벽과 방이 같이 돌아온다', () => {
+    const m = plan()
+    const snap: Snapshot = { kind: 'many', parts: [snapshotStoreyElements(m, 'S')!, snapshotStoreySpaces(m, 'S')!] }
+    moveWallWithSpaces(m, 'W', [0.3, 0])
+    restore(m, snap)
+    expect(m).toEqual(plan())
+  })
+})
+
+describe('계통 만들기·지우기 (E8)', () => {
+  it('지운 계통이 주 계통이던 설비는 자기가 든 다른 계통으로 가고, 되돌리면 계통 목록 자리(색)까지 돌아온다', () => {
+    model.systems.push({ id: 'W1', name: '순환수 공급', memberIds: [], source: 'ifc', kind: 'hydronic_supply', fluid: null })
+    const ahu = equip('AHU-1')
+    const air = model.systems[0]
+    model.systems[1].memberIds.push(ahu.id) // 냉수 코일로 물 계통에도 든다
+    const opened = modelToTTL(model) + JSON.stringify(modelToGeoJSON(model))
+    const members = model.storeys.flatMap((s) => s.equipment).filter((e) => e.systemId === air.id).map((e) => e.id)
+    const snap = snapshotSystems(model, [air.id], members, true)
+    deleteSystem(model, air.id)
+    expect(ahu.systemId).toBe('W1')
+    expect(equip('AT-101-01').systemId).toBe(null)
+    expect(modelToTTL(model)).not.toContain(air.id.replace(/\$/g, '\$') + ' a ')
+    restore(model, snap)
+    expect(model.systems.map((s) => s.id)).toEqual([air.id, 'W1'])
+    expect(modelToTTL(model) + JSON.stringify(modelToGeoJSON(model))).toBe(opened)
+  })
+
+  it('사람이 만든 계통의 유체는 원천 짐작이 덮지 않는다', () => {
+    const w = createSystem(model, { name: '냉수 3', kind: 'hydronic_supply', fluid: 'hot' })!
+    inferFlowByRules(model)
+    expect(w.fluid).toBe('hot')
+    expect(createSystem(model, { name: 'x', kind: 'no_such' })).toBe(null)
   })
 })

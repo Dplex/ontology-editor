@@ -7,7 +7,7 @@
 // 반영 전에 차이를 보여 주는 것이 PRD #16(미리보기)이고, 반영 뒤에 남기는 것이 #21(결과
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
-import { assignEquipment, isSelfIntersecting } from './mapping'
+import { assignEquipment, centroid, isSelfIntersecting } from './mapping'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { equipmentKind, FLUID_KINDS, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
@@ -420,6 +420,8 @@ export type Snapshot =
   /** 계통의 구성원·종류·유체와 설비의 계통(E8). */
   | {
       kind: 'systems'
+      /** 계통을 만들거나 지우면 목록 자체를 떠 둔다(없으면 목록은 그대로다). */
+      list?: System[]
       systems: {
         system: System
         memberIds: string[]
@@ -431,6 +433,8 @@ export type Snapshot =
       }[]
       equipment: { equipment: Equipment; systemId: string | null; systemEdited: Equipment['systemEdited'] }[]
     }
+  /** 한 번의 편집이 여러 대상을 바꿀 때(벽과 함께 방 경계 옮기기). 되돌릴 때는 거꾸로 되돌린다. */
+  | { kind: 'many'; parts: Snapshot[] }
   /** 한 층의 벽·문·창(E4). 객체를 그대로 들고 있어 되돌려도 같은 객체다. */
   | {
       kind: 'storey-elements'
@@ -521,11 +525,16 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotStoreySpaces(model, snapshot.storeyId)
     case 'storey-elements':
       return snapshotStoreyElements(model, snapshot.storeyId)
+    case 'many': {
+      const parts = snapshot.parts.map((p) => snapshotOf(model, p))
+      return parts.every((p): p is Snapshot => !!p) ? { kind: 'many', parts } : null
+    }
     case 'systems':
       return snapshotSystems(
         model,
         snapshot.systems.map((x) => x.system.id),
         snapshot.equipment.map((x) => x.equipment.id),
+        !!snapshot.list,
       )
     case 'kinds': {
       const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
@@ -661,11 +670,17 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       for (const b of snapshot.boundedBy) b.space.boundedBy = [...b.boundedBy]
       return null
     }
+    case 'many': {
+      let rules: RuleReport | null = null
+      for (const part of [...snapshot.parts].reverse()) rules = restore(model, part) ?? rules
+      return rules
+    }
     case 'systems': {
       const set = <T extends object, K extends keyof T>(o: T, k: K, v: T[K] | undefined) => {
         if (v === undefined) delete o[k]
         else o[k] = v
       }
+      if (snapshot.list) model.systems = [...snapshot.list]
       for (const x of snapshot.systems) {
         x.system.memberIds = [...x.memberIds]
         set(x.system, 'kind', x.kind)
@@ -884,6 +899,9 @@ export type BaselineDiff = {
   openingsMoved: { id: string; name: string; kind: Opening['kind'] }[]
   /** 계통을 바꾼 설비(E8). 계통 id 다. */
   systemMoved: { id: string; name: string; from: string | null; to: string | null }[]
+  /** 사람이 만든 계통과 없어진 계통(E8). */
+  systemsAdded: { id: string; name: string }[]
+  systemsRemoved: { id: string; name: string }[]
   /** 종류·유체를 고친 계통(E8). */
   systemKinds: { id: string; name: string; from: { kind: string | null; fluid: Fluid | null }; to: { kind: string | null; fluid: Fluid | null } }[]
 }
@@ -960,7 +978,26 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     // 사람이 고친 것만 센다. 원천 기기로 짐작한 유체(flow-rules.ts 의 inferFluids)는 종류·연결을 고치면 따라 바뀌는 값이다.
     if (was && system.kindEdited && (was.kind !== to.kind || was.fluid !== to.fluid)) systemKinds.push({ id: system.id, name: system.name, from: { kind: was.kind, fluid: was.fluid }, to })
   }
-  return { renamed, moved, restoreyed, connected, disconnected, spacesAdded, spacesRemoved, equipmentAdded, equipmentRemoved, equipmentRenamed, ...e4, systemMoved, systemKinds }
+  const systemsAdded = baseline.systems ? model.systems.filter((s) => !baseline.systems!.has(s.id)).map((s) => ({ id: s.id, name: s.name })) : []
+  const systemIds = new Set(model.systems.map((s) => s.id))
+  const systemsRemoved = baseline.systems ? [...baseline.systems].filter(([id]) => !systemIds.has(id)).map(([id, was]) => ({ id, name: was.name })) : []
+  return {
+    renamed,
+    moved,
+    restoreyed,
+    connected,
+    disconnected,
+    spacesAdded,
+    spacesRemoved,
+    equipmentAdded,
+    equipmentRemoved,
+    equipmentRenamed,
+    ...e4,
+    systemMoved,
+    systemKinds,
+    systemsAdded,
+    systemsRemoved,
+  }
 }
 
 const sameRings = (a: readonly (readonly Vec2[])[] | undefined, b: readonly (readonly Vec2[])[] | undefined) =>
@@ -1665,8 +1702,16 @@ export function setSystemKind(model: Model, systemId: string, kind: string | nul
   return inferFlowByRules(model)
 }
 
-/** 계통 편집 전의 상태. 옮기는 설비와 두 계통(예전·새)을 뜬다. 구성원 순서까지 되돌아온다. */
-export function snapshotSystems(model: Model, systemIds: readonly (string | null)[], equipmentIds: readonly string[] = []): Snapshot {
+/**
+ * 계통 편집 전의 상태. 옮기는 설비와 두 계통(예전·새)을 뜬다. 구성원 순서까지 되돌아온다. `withList` 면 계통 목록도 떠서
+ * 만들고 지운 계통이 제자리(색도 목록 순서로 정한다)로 돌아온다.
+ */
+export function snapshotSystems(
+  model: Model,
+  systemIds: readonly (string | null)[],
+  equipmentIds: readonly string[] = [],
+  withList = false,
+): Snapshot {
   const systems = [...new Set(systemIds)].flatMap((id) => {
     const system = id === null ? null : findSystem(model, id)
     return system
@@ -1687,5 +1732,193 @@ export function snapshotSystems(model: Model, systemIds: readonly (string | null
     const e = findEquipment(model, id)
     return e ? [{ equipment: e, systemId: e.systemId, systemEdited: e.systemEdited ? { ...e.systemEdited } : undefined }] : []
   })
-  return { kind: 'systems', systems, equipment }
+  return { kind: 'systems', ...(withList ? { list: [...model.systems] } : {}), systems, equipment }
+}
+
+export type NewSystem = { name: string; kind: string | null; fluid?: Fluid | null; id?: string }
+
+/** 계통을 만든다. 구성원은 없다 — 설비를 넣는 것은 setEquipmentSystem 이다. 같은 id 가 있거나 종류를 모르면 null. */
+export function createSystem(model: Model, spec: NewSystem): System | null {
+  if (spec.kind !== null && !systemKind(spec.kind)) return null
+  const id = spec.id ?? newId()
+  if (findSystem(model, id)) return null
+  const hydronic = spec.kind !== null && FLUID_KINDS.includes(spec.kind)
+  const system: System = {
+    id,
+    name: spec.name,
+    memberIds: [],
+    source: 'edit',
+    added: true,
+    kind: spec.kind,
+    ...(hydronic ? { fluid: spec.fluid ?? null } : {}),
+    // 사람이 만든 계통의 종류·유체는 사람이 정한 것이다. 원천 기기 짐작(inferFluids)이 덮지 않게 편집으로 둔다 — 안 그러면
+    // 편집 파일에서 되살릴 때 사람이 고른 유체가 짐작으로 바뀌었다(퍼징이 잡았다).
+    ...(spec.kind !== null ? { kindEdited: { kind: null, fluid: null } } : {}),
+  }
+  model.systems.push(system)
+  return system
+}
+
+/**
+ * 계통을 지운다. 구성원은 이 계통 자리만 잃는다 — 주 계통이 이것이던 설비는 자기가 든 다른 계통이 있으면 그리로, 없으면
+ * 계통 없음이 된다. 사람이 확정한 방향은 계통이 없어져도 사람이 본 방향이라 남는다. 규칙 방향은 다시 돌린다.
+ */
+export function deleteSystem(model: Model, systemId: string): RuleReport | null {
+  const system = findSystem(model, systemId)
+  if (!system) return null
+  model.systems = model.systems.filter((s) => s !== system)
+  for (const e of model.storeys.flatMap((s) => s.equipment)) {
+    if (e.systemId !== systemId) continue
+    const next = model.systems.find((s) => s.memberIds.includes(e.id))?.id ?? null
+    if (!e.systemEdited) e.systemEdited = { from: systemId }
+    e.systemId = next
+    if (e.systemEdited.from === next) delete e.systemEdited
+  }
+  return inferFlowByRules(model)
+}
+
+// --- 벽과 함께 방 경계 옮기기 (E4) ---------------------------------------------------------
+//
+// 벽을 옮겨도 방 외곽선은 따라오지 않는다(일부러 — 방은 IfcSpace 가 따로 그린 것이다). 사람이 "방 경계도 같이" 를 켜고
+// 벽을 옮길 때만 벽 가까이 있던 방 변을 **벽이 옮겨진 만큼** 같이 옮긴다.
+//
+// **벽 면에 붙이지 않는다.** 처음에는 방 변을 벽 면으로 끌어 붙였는데, Revit 방 경계는 벽 면에 딱 붙어 있지 않아서(벽 중심선이나
+// 마감 두께만큼 떨어진 것) 벽을 옮기지 않고 붙이기만 해도 Duplex 방 37개·병원 방 368개가 바뀌었다. 방마다 벽과의 간격을 그대로
+// 두고 벽이 움직인 만큼만 옮긴다. 벽 면에 수직인 성분만 쓴다 — 벽을 제 길이 방향으로 밀었다고 방이 미끄러지지 않는다.
+
+/** 벽 면에서 이만큼 안의 방 변만 같이 옮긴다(미터). 벽 두께의 절반(중심선에 그린 방)과 마감 두께를 넉넉히 덮는다. */
+export const WALL_CARRY_REACH = 0.6
+/** 방 변이 벽 면과 이 각도 안이어야 같이 옮긴다. 벽에 비스듬히 닿은 변을 끌어오지 않는다. */
+const WALL_CARRY_ANGLE = Math.sin((10 * Math.PI) / 180)
+
+type Face = { a: Vec2; u: Vec2; n: Vec2; len: number }
+
+/** 벽 외곽선의 변마다 바깥 방향. 고리의 돌림 방향으로 바깥을 정해서 오목한 벽(ㄱ자)에도 맞는다. 짧은 마구리는 뺀다. */
+function wallFaces(footprint: readonly (readonly Vec2[])[]): Face[] {
+  const faces: Face[] = []
+  for (const ring of footprint) {
+    const pts = openRing(ring)
+    let area = 0
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i]
+      const q = pts[(i + 1) % pts.length]
+      area += p[0] * q[1] - q[0] * p[1]
+    }
+    const sign = area >= 0 ? 1 : -1
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i]
+      const b = pts[(i + 1) % pts.length]
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+      if (len < 0.3) continue
+      const u: Vec2 = [(b[0] - a[0]) / len, (b[1] - a[1]) / len]
+      faces.push({ a, u, n: [sign * u[1], -sign * u[0]], len })
+    }
+  }
+  return faces
+}
+
+/**
+ * 한 면에 딸린 방 꼭짓점: 면 바깥쪽 방의, 면과 나란하고 면 가까이 있는 변의 두 끝. 없으면 빈 집합.
+ *
+ * **벽 끝을 넘어 이어지는 변은 옮기지 않는다.** 벽이 방 변의 가운데에서 끝나면(외벽 한 칸, 복도 쪽 칸막이) 변의 절반만
+ * 끌려가 방이 비스듬해졌다(병원 건축 벽 300개 중 15개). 그런 변에 걸린 꼭짓점은 빼서, 방 변은 통째로 따라오거나 그대로다.
+ */
+function carriedVertices(footprint: readonly Vec2[], face: Face, reach: number): Set<number> {
+  const pts = openRing(footprint)
+  const keep = new Set<number>()
+  const c = centroid(footprint)
+  const side = (p: Vec2) => (p[0] - face.a[0]) * face.n[0] + (p[1] - face.a[1]) * face.n[1]
+  const along = (p: Vec2) => (p[0] - face.a[0]) * face.u[0] + (p[1] - face.a[1]) * face.u[1]
+  // 방이 이 면의 바깥쪽에 있어야 한다. 벽 건너편 방은 반대쪽 면이 맡는다.
+  if (pts.length < 3 || !c || side(c) <= 0) return keep
+  const close = pts.map((p) => Math.abs(side(p)) <= reach)
+  const within = pts.map((p) => along(p) >= -reach && along(p) <= face.len + reach)
+  const beyond = new Set<number>()
+  for (let i = 0; i < pts.length; i++) {
+    const j = (i + 1) % pts.length
+    if (!close[i] || !close[j]) continue
+    const dx = pts[j][0] - pts[i][0]
+    const dy = pts[j][1] - pts[i][1]
+    const l = Math.hypot(dx, dy)
+    if (l < 1e-6 || Math.abs((dx * face.n[0] + dy * face.n[1]) / l) > WALL_CARRY_ANGLE) continue
+    if (within[i] && within[j]) {
+      keep.add(i)
+      keep.add(j)
+    } else {
+      beyond.add(i)
+      beyond.add(j)
+    }
+  }
+  for (const i of beyond) keep.delete(i)
+  return keep.size >= 2 ? keep : new Set()
+}
+
+/**
+ * 벽을 옮길 때 같이 옮길 방 꼭짓점. 방마다 가장 많이 딸린 면 하나를 고르고, 그 면의 바깥 방향을 적는다.
+ *
+ * **한 번 정해 같은 벽을 계속 옮기는 동안 다시 쓴다.** 방향키로 10cm 씩 옮길 때마다 새로 고르면, 벽이 움직이며 가까워진 다른
+ * 방 변이 새로 끌려오거나 고른 면이 바뀌어서, 옮겼다 되돌려도 방이 제자리로 오지 않았다(병원 벽 300개 중 7개).
+ */
+export type WallCarryPlan = {
+  wallId: string
+  /** 계획을 세운 때 방마다 꼭짓점 수. 달라졌으면(그 사이 경계를 고쳤으면) 계획을 버린다. */
+  items: { spaceId: string; points: number; indices: number[]; n: Vec2 }[]
+}
+
+export function planWallCarry(model: Model, wallId: string, reach = WALL_CARRY_REACH): WallCarryPlan | null {
+  const found = findWall(model, wallId)
+  if (!found || !found.wall.footprint?.length) return null
+  const faces = wallFaces(found.wall.footprint)
+  const items: WallCarryPlan['items'] = []
+  for (const space of found.storey.spaces) {
+    let best: { face: Face; keep: Set<number> } | null = null
+    for (const face of faces) {
+      const keep = carriedVertices(space.footprint, face, reach)
+      if (keep.size && (!best || keep.size > best.keep.size)) best = { face, keep }
+    }
+    if (best) items.push({ spaceId: space.id, points: openRing(space.footprint).length, indices: [...best.keep].sort((x, y) => x - y), n: best.face.n })
+  }
+  return { wallId, items }
+}
+
+/**
+ * 벽을 옮기고, 벽 양쪽 방의 벽 가까운 변을 같이 옮긴다(벽 면에 수직인 성분만). `plan` 을 주면 그대로 쓰고, 안 주거나 다른 벽의
+ * 것이면 지금 자리에서 세운다. 쓴 계획을 돌려준다 — 다음 걸음에 다시 넘긴다.
+ *
+ * 옮긴 모양이 자기 교차해도 옮기고 `crossed` 로 알린다(꼭짓점 끌기와 같다). 처음에는 그 방을 건너뛰었는데, 몇 걸음 옮긴 뒤에
+ * 건너뛰면 그 방만 중간 자리에 남아 되돌아와도 제자리가 아니었다.
+ */
+export function moveWallWithSpaces(
+  model: Model,
+  wallId: string,
+  delta: Vec2,
+  plan?: WallCarryPlan | null,
+): { changes: BoundaryChange[]; crossed: string[]; plan: WallCarryPlan } | null {
+  const spaceById = new Map(model.storeys.flatMap((st) => st.spaces).map((sp) => [sp.id, sp]))
+  // 계획을 세운 뒤 그 방 경계를 따로 고쳤으면(꼭짓점 넣기·지우기) 꼭짓점 번호가 어긋난다. 그때는 새로 세운다.
+  const fresh = (p: WallCarryPlan) =>
+    p.wallId === wallId && p.items.every((x) => spaceById.has(x.spaceId) && openRing(spaceById.get(x.spaceId)!.footprint).length === x.points)
+  const use = plan && fresh(plan) ? plan : planWallCarry(model, wallId)
+  if (!use) return null
+  const next: WallCarryPlan = { wallId, items: [] }
+  const rings: { space: Space; ring: Vec2[] }[] = []
+  for (const item of use.items) {
+    const space = spaceById.get(item.spaceId)
+    const pts = space ? openRing(space.footprint) : []
+    if (!space || pts.length !== item.points) continue
+    const k = delta[0] * item.n[0] + delta[1] * item.n[1]
+    const moved = new Set(item.indices)
+    rings.push({ space, ring: withClosing(pts.map((p, i) => (moved.has(i) ? ([p[0] + k * item.n[0], p[1] + k * item.n[1]] as Vec2) : p)), true) })
+    next.items.push(item)
+  }
+  if (!moveWall(model, wallId, delta)) return null
+  const changes: BoundaryChange[] = []
+  const crossed: string[] = []
+  for (const { space, ring } of rings) {
+    const change = replaceSpaceFootprint(model, space.id, ring)
+    if (!change) continue
+    changes.push(change)
+    if (change.selfIntersecting) crossed.push(space.longName || space.name || space.id)
+  }
+  return { changes, crossed, plan: next }
 }

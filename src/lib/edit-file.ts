@@ -39,6 +39,8 @@ import {
   setTypeKind,
   setEquipmentSystem,
   setSystemKind,
+  createSystem,
+  deleteSystem,
   inKindGroup,
   type Baseline,
   type BoundaryChange,
@@ -64,6 +66,9 @@ export type EditFile = {
   equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null }[]
   /** 종류·유체를 고친 계통(E8). 설비의 계통은 위 `equipment` 의 `system` 에 적는다(`null` 은 계통에서 뺀 것). */
   systems?: { id: string; kind: string | null; fluid: Fluid | null }[]
+  /** 사람이 만든 계통(끝 이름·종류)과 지운 계통. 구성원은 설비 쪽 `system` 으로 적는다. */
+  systemsAdded?: { id: string; name: string; kind: string | null; fluid: Fluid | null }[]
+  systemsRemoved?: string[]
   spaces: { id: string; longName?: string; footprint?: Vec2[] }[]
   /** 사람이 더한 설비(E7). id 는 에디터가 지은 것(`U_…`)이라 다시 열어도 같은 id 로 만든다. */
   equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string }[]
@@ -208,6 +213,12 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     return [{ id: o.id, storeyId: storey.id, kind: o.kind, name: o.name, position: [o.position[0], o.position[1], o.position[2]] as Vec3, wallId: o.wallId, through: [o.through[0], o.through[1]] as Vec2, depth: o.depth ?? 0.2 }]
   })
   const systems = since.systemKinds.map((k) => ({ id: k.id, kind: k.to.kind, fluid: k.to.fluid }))
+  const systemById = new Map(model.systems.map((s) => [s.id, s]))
+  const systemsAdded = since.systemsAdded.map((a) => {
+    const s = systemById.get(a.id)!
+    return { id: s.id, name: s.name, kind: s.kind ?? null, fluid: s.fluid ?? null }
+  })
+  const systemsRemoved = since.systemsRemoved.map((r) => r.id)
   const wallsRemoved = since.wallsRemoved.map((r) => r.id)
   const openingsRemoved = since.openingsRemoved.map((r) => r.id)
 
@@ -229,6 +240,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const row of [...equipmentAdded, ...spacesAdded]) keep(row.storeyId)
   for (const row of equipmentAdded) if (row.system) keep(row.system)
   for (const row of systems) keep(row.id)
+  for (const id of systemsRemoved) keep(id)
   for (const id of equipmentRemoved) keep(id)
   for (const row of spacesRemoved) keep(row.id)
   for (const row of [...wallsAdded, ...openingsAdded]) keep(row.storeyId)
@@ -261,6 +273,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     confirmedSystems: [...confirmed],
     ...(confirmedFlows.length ? { confirmedFlows } : {}),
     ...(systems.length ? { systems } : {}),
+    ...(systemsAdded.length ? { systemsAdded } : {}),
+    ...(systemsRemoved.length ? { systemsRemoved } : {}),
     ...(connections.add.length || connections.remove.length ? { connections } : {}),
     ...(equipmentAdded.length ? { equipmentAdded } : {}),
     ...(equipmentRemoved.length ? { equipmentRemoved } : {}),
@@ -336,6 +350,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     if (e.system) ref(e.system)
   }
   for (const row of file.systems ?? []) ref(row.id)
+  for (const id of file.systemsRemoved ?? []) ref(id)
   for (const row of file.equipmentAdded ?? []) if (row.system) ref(row.system)
   for (const f of file.flows) {
     ref(f.from)
@@ -364,8 +379,12 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   for (const { by } of matching.pairs.values()) if (by !== 'guid') result.rematched[by]++
   const resolve = (id: string) => matching.pairs.get(id)?.id ?? id
 
-  // 사람이 더한 설비·물리존이 먼저다. 뒤의 편집(종류·연결·합치기)이 그것을 가리킬 수 있다. id 는 에디터가 지은
-  // 것이라 판본이 바뀌어도 그대로 쓴다.
+  // 사람이 더한 설비·물리존·계통이 먼저다. 뒤의 편집(종류·연결·합치기·계통 옮기기)이 그것을 가리킬 수 있다. id 는
+  // 에디터가 지은 것이라 판본이 바뀌어도 그대로 쓴다.
+  for (const row of file.systemsAdded ?? []) {
+    if (createSystem(model, { id: row.id, name: row.name, kind: row.kind, fluid: row.fluid })) result.applied++
+    else result.missing.systems++
+  }
   for (const row of file.equipmentAdded ?? []) {
     const done = addEquipment(model, resolve(row.storeyId), { id: row.id, name: row.name, kind: row.kind, position: row.position ?? null })
     if (done) {
@@ -469,6 +488,15 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
         result.rules = rules
       } else if (e.system !== null && !model.systems.some((x) => x.id === resolve(e.system!))) result.missing.systems++
     }
+  }
+
+  // 지운 계통. 설비의 계통 자리를 위에서 옮긴 뒤라 남은 구성원만 자리를 잃는다.
+  for (const raw of file.systemsRemoved ?? []) {
+    const rules = deleteSystem(model, resolve(raw))
+    if (rules) {
+      result.applied++
+      result.rules = rules
+    } else result.missing.systems++
   }
 
   // 벽·문·창(E4). 설비처럼 GUID → Revit 요소 ID → 이름 → 위치로 찾는다. 더한 것 → 벽 모양·내력 → 지운 벽(뚫린 문·창도

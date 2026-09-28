@@ -7,8 +7,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc, importIfcWithMeshes, readMeshes, UnreadableIfcError } from '../src/lib/ifc/import'
 import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-geometry'
 import { profileOf } from '../src/lib/profile'
-import { countOf, isConduit, polygonArea } from '../src/lib/model'
-import { assignEquipmentToSpaces, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
+import { countOf, isConduit, polygonArea, type Vec2 } from '../src/lib/model'
+import { assignEquipment, assignEquipmentToSpaces, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
@@ -24,7 +24,7 @@ import type { Model } from '../src/lib/model'
 import { readIdf } from '../src/lib/idf/read'
 import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
 import { overlapArea } from '../src/lib/polygon'
-import { baselineOf, deleteWall, moveOpening, moveWall, setWallLoadBearing } from '../src/lib/edit'
+import { baselineOf, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, type WallCarryPlan } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -1257,6 +1257,97 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH) || !existsS
       const strip = (m: Model) => JSON.stringify(modelToGeoJSON(m)).split('Qv2').join('')
       expect(strip(b)).toBe(JSON.stringify(modelToGeoJSON(a)))
     }
+  }, 600_000)
+})
+
+// 벽과 함께 방 경계 옮기기(edit.ts 의 moveWallWithSpaces). Revit 방 경계는 벽 면에 딱 붙지 않아(중심선·마감 두께) 벽 면에
+// 끌어 붙이는 방식은 옮기지 않아도 Duplex 방 37개·병원 368개를 바꿨다. 지금은 벽이 움직인 만큼만 옮긴다. 방향키로 다섯 걸음
+// 나갔다 돌아오면 방이 제자리여야 한다 — 걸음마다 끌려올 방을 새로 고르던 때는 병원 벽 300개 중 22개에서 어긋났다.
+describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 함께 방 경계 옮기기 (실제 벽)', () => {
+  it('벽마다 다섯 걸음 나갔다 돌아오면 방이 전부 제자리이고, 벽 길이 방향으로 밀면 방이 그대로다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const failed: string[] = []
+    let carried = 0
+    for (const path of [DUPLEX_ARCH, CLINIC_ARCH]) {
+      const pristine = importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+      const shape = (m: Model) => m.storeys.flatMap((st) => st.spaces.map((sp) => sp.footprint))
+      const same = (a: Vec2[][], b: Vec2[][], tol = 1e-9) => a.every((r, i) => r.length === b[i].length && r.every((p, k) => Math.abs(p[0] - b[i][k][0]) < tol && Math.abs(p[1] - b[i][k][1]) < tol))
+      const opened = shape(pristine)
+      for (const w of pristine.storeys.flatMap((st) => st.walls).filter((x) => x.footprint?.length).slice(0, 300)) {
+        const m = structuredClone(pristine)
+        // 벽 길이 방향은 외곽선 조각 전부에서 가장 긴 변이다. 창·문으로 끊긴 벽은 조각 하나가 두께보다 짧기도 해서(병원 외벽
+        // 0.04×0.27m) 첫 조각만 보면 두께 방향을 길이로 잡는다.
+        let n: Vec2 = [0, 0]
+        let u: Vec2 = [0, 0]
+        let best = 0
+        for (const ring of w.footprint!) {
+          for (let i = 0; i + 1 < ring.length; i++) {
+            const dx = ring[i + 1][0] - ring[i][0]
+            const dy = ring[i + 1][1] - ring[i][1]
+            const l = Math.hypot(dx, dy)
+            if (l > best) [best, n, u] = [l, [-dy / l, dx / l], [dx / l, dy / l]]
+          }
+        }
+        let plan: WallCarryPlan | null = null
+        for (let k = 0; k < 5; k++) {
+          const r: NonNullable<ReturnType<typeof moveWallWithSpaces>> = moveWallWithSpaces(m, w.id, [n[0] * 0.1, n[1] * 0.1], plan)!
+          if (k === 0) carried += r.changes.length
+          plan = r.plan
+        }
+        for (let k = 0; k < 5; k++) plan = moveWallWithSpaces(m, w.id, [-n[0] * 0.1, -n[1] * 0.1], plan)!.plan
+        if (!same(shape(m), opened)) failed.push(`${path} ${w.name} 되돌아오지 않음`)
+        // 벽 길이 방향. 형상에서 읽은 벽 면은 완전히 나란하지 않아(1° 안팎) 방이 몇 mm 움직일 수 있다. 1cm 넘으면 틀린 것이다.
+        moveWallWithSpaces(m, w.id, [u[0] * 0.5, u[1] * 0.5])
+        if (!same(shape(m), opened, 0.01)) failed.push(`${path} ${w.name} 길이 방향에 방이 움직임`)
+      }
+    }
+    // 벽 357개(Duplex 57 + 병원 300)가 첫 걸음에 방 600개 남짓을 끌고 간다. 0 이면 붙일 방을 못 찾는 것이다.
+    expect(carried).toBeGreaterThan(500)
+    expect(failed.slice(0, 5)).toEqual([])
+  }, 900_000)
+})
+
+// 편집한 뒤 덧붙이기(App.vue 의 append). 연 때의 모델을 합치고 편집 파일을 다시 얹는다. 건축 파일에서 방 이름·경계·벽을 고친
+// 뒤 설비 파일을 덧붙여도 편집이 하나도 빠지지 않고, 설비 소속은 고친 경계로 잰다.
+describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC))('편집한 뒤 덧붙이기 (Duplex 건축 → HVAC)', () => {
+  it('건축에서 한 편집이 합친 모델에 전부 얹히고, 소속은 고친 경계를 따른다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_ARCH))).model
+    const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_HVAC))).model
+    const edited = structuredClone(arch)
+    const base = baselineOf(edited)
+    const spaces = edited.storeys.flatMap((st) => st.spaces).filter((sp) => sp.footprint.length >= 4)
+    renameSpace(edited, spaces[0].id, '고친 이름')
+    // 방을 끌고 가는 벽을 벽에 수직으로 옮긴다(벽 길이 방향이면 방이 따라오지 않는다).
+    let carried = 0
+    for (const wall of edited.storeys.flatMap((st) => st.walls).filter((w) => w.footprint?.length)) {
+      const ring = wall.footprint![0]
+      const [dx, dy] = [ring[1][0] - ring[0][0], ring[1][1] - ring[0][1]]
+      const l = Math.hypot(dx, dy)
+      const probe = structuredClone(edited)
+      if (!moveWallWithSpaces(probe, wall.id, [(-dy / l) * 0.3, (dx / l) * 0.3])?.changes.length) continue
+      carried = moveWallWithSpaces(edited, wall.id, [(-dy / l) * 0.3, (dx / l) * 0.3])!.changes.length
+      break
+    }
+    deleteSpace(edited, spaces[1].id)
+    const file = parseEditFile(JSON.stringify(exportEdits(edited, base, 'arch.ifc')))
+    if (typeof file === 'string') throw new Error(file)
+
+    const merged = mergeModels(structuredClone(arch), structuredClone(hvac)).model
+    const result = applyEdits(merged, file)
+    expect(Object.values(result.missing).reduce((a, b) => a + b, 0)).toBe(0)
+    const byId = new Map(merged.storeys.flatMap((st) => st.spaces).map((sp) => [sp.id, sp]))
+    for (const sp of edited.storeys.flatMap((st) => st.spaces)) expect(byId.get(sp.id)?.footprint).toEqual(sp.footprint)
+    expect(byId.get(spaces[0].id)!.longName).toBe('고친 이름')
+    expect(byId.has(spaces[1].id)).toBe(false)
+    expect(carried).toBeGreaterThan(0)
+    // 소속은 합친 뒤 고친 경계로 다시 잰 값이다. 한 번 더 재도 같다.
+    const assigned = merged.storeys.flatMap((st) => st.equipment.map((e) => [e.id, e.spaceId]))
+    const again = structuredClone(merged)
+    for (const st of again.storeys) for (const e of st.equipment) assignEquipment(e, st.spaces)
+    expect(again.storeys.flatMap((st) => st.equipment.map((e) => [e.id, e.spaceId]))).toEqual(assigned)
   }, 600_000)
 })
 

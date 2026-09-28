@@ -246,7 +246,9 @@ export type System = {
    * IfcSystem 이 0 인데 요소 811개에 이 속성이 있었다. 고객사 스펙을 맞출 때 어느 쪽으로
    * 들어오는지가 근거가 된다.
    */
-  source: 'ifc' | 'property'
+  source: 'ifc' | 'property' | 'edit'
+  /** 사람이 에디터에서 만든 계통(E8). 화면의 출처가 "편집"이다. */
+  added?: true
   /**
    * 계통 종류(급기·배기·순환수 공급 …). Revit 은 IfcSystem 의 ObjectType 에 시스템 분류를 적는다.
    * 흐름 방향 규칙(`flow-rules.ts`)이 이 값으로 매체(공기·물)와 방향(원천에서 나가는가, 들어오는가)을 정한다.

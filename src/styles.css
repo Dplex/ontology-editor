@@ -2780,3 +2780,24 @@ main.has-model .catalog {
   background: var(--accent-soft);
   color: var(--accent);
 }
+
+/* 계통 찾기 칸과 새 계통 칸(E8). 패널 폭(25rem) 안에 들게 줄인다. */
+.system-filter {
+  width: 11rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}
+
+.new-system input[type='text'] {
+  width: 10rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}

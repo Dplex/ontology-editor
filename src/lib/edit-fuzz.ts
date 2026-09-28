@@ -41,6 +41,9 @@ export const FUZZ_OPS = [
   'deleteOpening',
   'equipmentSystem',
   'systemKind',
+  'createSystem',
+  'deleteSystem',
+  'moveWallWithSpaces',
 ] as const
 export type FuzzOp = (typeof FUZZ_OPS)[number]
 
@@ -50,7 +53,8 @@ export type FuzzOp = (typeof FUZZ_OPS)[number]
  */
 export function exportedContent(m: Model): string {
   const sorted = { ...m, systems: m.systems.map((s) => ({ ...s, memberIds: [...s.memberIds].sort() })) }
-  const ttl = modelToTTL(sorted).split('\n\n').sort().join('\n\n')
+  // 빈 줄 여럿도 한 칸으로 본다. 순서가 바뀐 블록 옆의 빈 줄 하나가 자리를 바꿔 다르게 보였다(담긴 것은 같다).
+  const ttl = modelToTTL(sorted).split(/\n{2,}/).map((b) => b.trim()).filter(Boolean).sort().join('\n\n')
   const geo = modelToGeoJSON(m).map((f) => ({
     fileName: f.fileName,
     features: [...f.collection.features].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)),
@@ -69,6 +73,8 @@ export type FuzzResult = {
   undoSame: boolean
   /** 불러온 것이 다를 때 갈린 줄과 편집 파일 앞부분. */
   detail?: string
+  /** 불러온 것이 다를 때 두 내보내기 전체(견줄 때 쓴다). */
+  texts?: { session: string; reloaded: string }
 }
 
 /** `pristine` 은 건드리지 않는다. 사본에 편집하고, 편집 파일은 또 다른 사본에 얹는다. */
@@ -293,6 +299,41 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       if (!E.setSystemKind(m, system.id, kind, fluid)) continue
       undo.push(snapshot)
       log.push(`systemKind ${system.name} → ${kind}/${fluid}`)
+    } else if (op === 'createSystem') {
+      // 만들고 설비 하나를 바로 넣는다(화면의 [만들어 넣기] 와 같다).
+      const e = pick(devices)
+      if (!e) continue
+      const kind = r() < 0.3 ? null : pick(SYSTEM_KINDS)!.kind
+      const snapshot = E.snapshotSystems(m, [e.systemId], [e.id], true)
+      const system = E.createSystem(m, { id: `U_fuzz${seed}_${step}`, name: `새 계통 ${step}`, kind })
+      if (!system) continue
+      E.setEquipmentSystem(m, e.id, system.id)
+      undo.push(snapshot)
+      log.push(`createSystem ${system.name} ← ${e.name}`)
+    } else if (op === 'moveWallWithSpaces') {
+      // 방향키로 벽을 몇 걸음 옮기는 것과 같다. 걸음마다 되돌리기 한 칸이고, 계획은 이어 쓴다.
+      const storey = pick(m.storeys.filter((s) => s.walls.some((w) => w.footprint?.length)))
+      const wall = storey && pick(storey.walls.filter((w) => w.footprint?.length))
+      if (!storey || !wall) continue
+      let plan: E.WallCarryPlan | null = null
+      const steps = 1 + Math.floor(r() * 3)
+      const d: Vec2 = r() < 0.5 ? [0.1, 0] : [0, -0.1]
+      for (let k = 0; k < steps; k++) {
+        const parts = [E.snapshotStoreyElements(m, storey.id)!, E.snapshotStoreySpaces(m, storey.id)!]
+        const done = E.moveWallWithSpaces(m, wall.id, d, plan)
+        if (!done) break
+        plan = done.plan
+        undo.push({ kind: 'many', parts })
+      }
+      log.push(`moveWallWithSpaces ${wall.name} ×${steps}`)
+    } else if (op === 'deleteSystem') {
+      const system = pick(m.systems)
+      if (!system) continue
+      const members = m.storeys.flatMap((s) => s.equipment).filter((e) => e.systemId === system.id).map((e) => e.id)
+      const snapshot = E.snapshotSystems(m, [system.id], members, true)
+      if (!E.deleteSystem(m, system.id)) continue
+      undo.push(snapshot)
+      log.push(`deleteSystem ${system.name}`)
     }
   }
 
@@ -320,5 +361,11 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
   for (const s of undo.reverse()) E.restore(m, s)
   const undoSame = modelToTTL(m) + JSON.stringify(modelToGeoJSON(m)) === opened
 
-  return { log, reloadSame, missing: Object.values(applied.missing).reduce((a, b) => a + b, 0), undoSame, ...(detail ? { detail } : {}) }
+  return {
+    log,
+    reloadSame,
+    missing: Object.values(applied.missing).reduce((a, b) => a + b, 0),
+    undoSame,
+    ...(detail ? { detail, texts: { session, reloaded } } : {}),
+  }
 }

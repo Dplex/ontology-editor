@@ -47,3 +47,32 @@ test('설비를 계통에서 빼고, 계통 종류·유체를 고치고, 되돌�
   await expect(page.locator('.report')).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비가 계통 없음이 되며, 되돌리면 차례로 돌아온다', async ({ page }) => {
+  const errors = await open(page)
+  await page.locator('.equipment tbody tr', { hasText: 'AT-101-01' }).getByRole('button', { name: 'AT-101-01', exact: true }).click()
+  const picked = page.locator('.picked')
+  await picked.getByRole('button', { name: '새 계통…' }).click()
+  const form = picked.locator('.new-system')
+  await form.locator('input').fill('2층 급기')
+  await form.locator('select').selectOption('supply_air')
+  await form.getByRole('button', { name: '만들어 넣기' }).click()
+  await expect(picked.locator('.stats')).toContainText('2층 급기')
+  const report = page.locator('.report')
+  await expect(report).toContainText('계통 2층 급기을 만들었습니다')
+  await expect(report).toContainText('AT-101-01: 계통 AHU-1 급기 계통 → 2층 급기')
+
+  await page.locator('.legend button', { hasText: '2층 급기' }).click()
+  await page.locator('.system-picked').getByRole('button', { name: '계통 지우기' }).click()
+  await expect(page.locator('.legend')).not.toContainText('2층 급기')
+  // 만들고 지운 계통은 리포트에 남지 않는다. 설비가 원래 계통을 떠난 것만 남는다.
+  await expect(report).not.toContainText('2층 급기')
+  await expect(report).toContainText('AT-101-01: 계통 AHU-1 급기 계통 → (계통 없음)')
+
+  await undo(page)
+  await expect(page.locator('.legend')).toContainText('2층 급기')
+  await undo(page)
+  await expect(page.locator('.legend')).not.toContainText('2층 급기')
+  await expect(report).toHaveCount(0)
+  expect(errors).toEqual([])
+})

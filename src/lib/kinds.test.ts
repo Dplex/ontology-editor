@@ -242,6 +242,16 @@ describe('순환수의 유체', () => {
   })
 })
 
+describe('이름이 부품을 말할 때', () => {
+  it('세정 밸브가 달린 변기·소변기는 밸브가 아니라 IFC 가 말한 위생기구다(병원 MEP 27대)', () => {
+    expect(resolveEquipmentKind('M_Water Closet - Flush Valve - Wall Mounted:Public - 6.1 Lpf:Public - 6.1 Lpf:1072518', '', 'FlowTerminal', 'SanitaryTerminal.WCSEAT')).toMatchObject({ info: { kind: 'plumbing_fixture' }, source: 'bim' })
+    expect(resolveEquipmentKind('M_Urinal - Wall Hung:25 mm Flush Valve:25 mm Flush Valve:1073001', '', 'FlowTerminal', 'SanitaryTerminal.URINAL')?.info.kind).toBe('plumbing_fixture')
+    // 진짜 밸브는 그대로 밸브다.
+    expect(resolveEquipmentKind('M_Gate Valve - 50mm:1080000', '', 'FlowController', null)?.info.kind).toBe('valve')
+    expect(resolveEquipmentKind('Ball Valve', '', 'Valve', 'Valve.ISOLATING')?.info.kind).toBe('valve')
+  })
+})
+
 describe('이름으로는 읽지 않는 종류', () => {
   it('사전은 그 이름을 읽지 않는다 — 사전을 넓히면 가진 BIM 전부의 숫자가 움직인다. BIM 이 말하면 받는다', () => {
     const manual = EQUIPMENT_KINDS.filter((k) => k.manual)

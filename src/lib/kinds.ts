@@ -91,7 +91,9 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   { kind: 'damper', label: '댐퍼', test: /댐퍼|damper/i, brick: 'brick:Damper', role: 'control', ifc: ['Damper'], flow: { air: 'through' } },
   { kind: 'silencer', label: '소음기', test: /silencer|소음기|attenuat/i, brick: null, role: 'treatment', ifc: ['DuctSilencer'], flow: { air: 'through' } },
   { kind: 'water_meter', label: '수량계', test: /water[-_\s]*meter|수량계|유량계/i, brick: 'brick:Water_Meter', role: 'control', ifc: ['FlowMeter.WATERMETER'], flow: { water: 'through' } },
-  { kind: 'valve', label: '밸브', test: /valve|밸브/i, brick: 'brick:Valve', role: 'control', ifc: ['Valve'], flow: { water: 'through' } },
+  // 세정 밸브(flush valve)는 변기·소변기의 부품이다. 병원 MEP 에서 `M_Water Closet - Flush Valve` 24대와 `M_Urinal …:25 mm
+  // Flush Valve` 3대를 IFC 가 SanitaryTerminal(WCSEAT·URINAL)이라고 말했는데 이름이 먼저라 밸브가 됐다.
+  { kind: 'valve', label: '밸브', test: /(?<!flush[-_\s]*)valve|(?<!세정\s*)밸브/i, brick: 'brick:Valve', role: 'control', ifc: ['Valve'], flow: { water: 'through' } },
   // --- 전기·조명 ------------------------------------------------------------------
   { kind: 'panel', label: '분전반', test: /분전반|\bPNL\b|breaker\s*panel/i, brick: 'brick:Breaker_Panel', role: null, ifc: ['ElectricDistributionBoard.DISTRIBUTIONBOARD'], flow: {} },
   { kind: 'lighting', label: '조명', test: /조명|가로등|luminaire|lighting|pendant|[_\s-]light\b|^light\b/i, brick: 'brick:Luminaire', role: 'terminal', ifc: ['LightFixture'], flow: {} },
