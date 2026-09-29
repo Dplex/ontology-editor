@@ -1509,3 +1509,95 @@ th {
 .read-option .muted {
   font-size: 0.78rem;
 }
+
+/* ---- 편집 세트 ---- */
+
+.file-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.file-button input[type='file'] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.action-file {
+  padding: 0.6rem 1.15rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font-weight: 540;
+}
+
+.edit-bar .saved {
+  font-size: 0.8rem;
+}
+
+.edit-bar .warn-link {
+  color: var(--warn-fg);
+}
+
+.edit-notice {
+  margin: 1rem 0 0;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 0.88rem;
+}
+
+.review-list {
+  margin-top: 1.25rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius);
+  background: var(--warn-bg);
+}
+
+.review-list h3 {
+  margin: 0 0 0.3rem;
+  color: var(--warn-fg);
+}
+
+.review-list ul {
+  margin: 0.6rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-top: 1px solid var(--warn-line);
+  font-size: 0.88rem;
+}
+
+.review-list .grow {
+  flex: 1;
+}
+
+.review-list .reason {
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.review-list .reason.missing {
+  border: 1px solid var(--error);
+  color: var(--error);
+}
+
+.review-list .reason.superseded-by-bim {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}

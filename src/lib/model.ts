@@ -143,6 +143,8 @@ export type Equipment = {
    * Brick 클래스와 흐름 방향 규칙이 이 값을 쓴다.
    */
   kind?: string | null
+  /** 종류를 사람이 에디터에서 골랐으면 'edit'. 없으면 사전에서 온 것이다. */
+  kindSource?: 'edit'
   /** IFC 클래스 이름에서 Ifc 를 뗀 것(UnitaryEquipment, AirTerminal, Sensor …). */
   ifcClass: string
   /**

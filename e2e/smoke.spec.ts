@@ -372,3 +372,69 @@ test('문·창 형상은 기본으로 읽지 않고, 파일을 열기 전에 켤
   // 고른 값은 이 브라우저가 기억한다.
   await expect(page.getByRole('checkbox', { name: /문·창 형상도 읽기/ })).toBeChecked()
 })
+
+test('편집은 새로고침해도 남고, 편집 파일로 다른 브라우저에 옮기면 같은 리포트가 나온다', async ({ page, browser }) => {
+  // IFC 를 여러 번 연다. 한 번에 몇 초라 기본 30초를 넘는다.
+  test.setTimeout(120_000)
+  const open = async (p: typeof page) => {
+    await p.locator('input[type=file]').first().setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+    await expect(p.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  }
+  await page.goto('/')
+  await open(page)
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
+  await page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' }).getByRole('button', { name: '상류로' }).click()
+  await expect(page.locator('.edit-bar')).toContainText('편집 1건')
+
+  // 새로고침 뒤 같은 IFC 를 다시 열면 자동 저장된 편집이 다시 붙는다.
+  await page.reload()
+  await open(page)
+  await expect(page.locator('.edit-notice')).toContainText('자동 저장된 편집 1건을 다시 붙였습니다')
+  await expect(page.locator('.report')).toContainText('AT-101-02 → DUCT-01')
+
+  // 편집 파일로 내보내 다른 브라우저 프로필에서 불러온다.
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('.edit-bar').getByRole('button', { name: '편집 파일 내보내기' }).click(),
+  ])
+  const path = await download.path()
+
+  const other = await browser.newContext()
+  const second = await other.newPage()
+  await second.goto('/')
+  await open(second)
+  await expect(second.locator('.edit-notice')).toHaveCount(0)
+  await second.locator('.actions input[type=file]').setInputFiles(path!)
+  await expect(second.locator('.edit-notice')).toContainText('1건을 붙였습니다')
+  await expect(second.locator('.report')).toContainText('AT-101-02 → DUCT-01')
+  await other.close()
+})
+
+test('대상이 없는 편집은 다시 볼 것에 사라짐으로 남고, 깨진 편집 파일은 이유와 함께 거절된다', async ({ page }) => {
+  // IFC 를 여러 번 연다. 한 번에 몇 초라 기본 30초를 넘는다.
+  test.setTimeout(120_000)
+  await page.goto('/')
+  await page.locator('input[type=file]').first().setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+
+  const file = {
+    format: 'ontology-editor/edits',
+    version: 1,
+    savedAt: '',
+    sources: [{ name: 'old.ifc', size: 1, sha256: '0'.repeat(64) }],
+    edits: { names: {}, footprints: {}, positions: { gone: { value: [1, 1, 1], base: [0, 0, 0] } }, flows: {}, confirmedSystems: {}, kinds: {} },
+    review: [],
+  }
+  const input = page.locator('.actions input[type=file]')
+  await input.setInputFiles({ name: 'old.edits.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(file)) })
+  await expect(page.locator('.edit-notice')).toContainText('다른 IFC 로 만든 편집')
+  const item = page.locator('.review-list li', { hasText: 'gone' })
+  await expect(item.locator('.reason')).toHaveText('사라짐')
+  await item.getByRole('button', { name: '버리기' }).click()
+  await expect(page.locator('.review-list')).toHaveCount(0)
+
+  await input.setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('{ nope') })
+  await expect(page.locator('.edit-notice')).toContainText('편집 파일을 읽지 못했습니다: JSON 이 아닙니다')
+})

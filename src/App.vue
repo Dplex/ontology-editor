@@ -9,6 +9,26 @@ import Fold from './components/Fold.vue'
 import Src from './components/Src.vue'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
+import {
+  applyEditSet,
+  autosaveKey,
+  countEdits,
+  emptyEditSet,
+  parseEditFile,
+  recordConfirm,
+  recordFlow,
+  recordFootprint,
+  recordName,
+  recordPosition,
+  sameSources,
+  sha256Hex,
+  toEditFile,
+  type ApplyResult,
+  type EditKind,
+  type EditSet,
+  type ReviewItem,
+  type SourceFile,
+} from './lib/edit-set'
 import { completenessChecks } from './lib/checks'
 import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, roomKind, systemKind } from './lib/kinds'
@@ -142,6 +162,137 @@ const drawnWalls = computed(() => {
 const changes = ref<Change[]>([])
 const report = computed(() => summarize(changes.value))
 
+// --- 편집 세트: 자동 저장 · 편집 파일 · 다시 붙이기 ------------------------------------
+//
+// 사람이 고친 것은 대상(GUID)마다 결과로 편집 세트에 적는다(lib/edit-set.ts). 편집할 때마다 브라우저에
+// 자동 저장하고, 같은 IFC(내용 지문이 같은 파일)를 다시 열면 그대로 다시 붙인다. 편집 파일로 내보내
+// 다른 브라우저나 고쳐서 다시 온 BIM 에 붙일 수 있다. 그대로 붙지 못한 것은 "다시 볼 것" 에 남긴다 —
+// 말없이 버리지 않는다.
+const editSet = shallowRef<EditSet>(emptyEditSet())
+const editVersion = ref(0)
+const reviewItems = ref<ReviewItem[]>([])
+/** 열린 IFC 들. 합친 모델이면 둘이다. 자동 저장 열쇠와 편집 파일의 출처가 여기서 나온다. */
+const sources = ref<SourceFile[]>([])
+const editNotice = ref('')
+const editCount = computed(() => {
+  void editVersion.value
+  return countEdits(editSet.value)
+})
+
+function touchEdits() {
+  editVersion.value++
+}
+watch(editVersion, () => {
+  if (!sources.value.length) return
+  try {
+    const key = autosaveKey(sources.value)
+    if (countEdits(editSet.value) === 0 && reviewItems.value.length === 0) localStorage.removeItem(key)
+    else localStorage.setItem(key, JSON.stringify(toEditFile(editSet.value, sources.value, reviewItems.value)))
+  } catch {
+    // 저장소가 막혔거나 가득 찼다. 편집은 이 창에 남아 있으니 편집 파일로 내보내 달라고 알린다.
+    editNotice.value = '브라우저에 자동 저장하지 못했습니다. 편집 파일로 내보내 두세요.'
+  }
+})
+
+/** 다시 붙인 결과를 화면의 리포트·검토 목록에 합친다. */
+function absorb(result: ApplyResult) {
+  changes.value = [...changes.value, ...result.changes]
+  areaChanges.value = [...areaChanges.value, ...result.areaChanges]
+  confirmations.value = [...confirmations.value, ...result.confirmations]
+  const seen = new Set(reviewItems.value.map((i) => `${i.kind}:${i.key}`))
+  reviewItems.value = [...reviewItems.value, ...result.review.filter((i) => !seen.has(`${i.kind}:${i.key}`))]
+}
+
+function refreshAfterEdits() {
+  if (!model.value) return
+  triggerRef(model)
+  flowVersion.value++
+  viewer?.setModel(model.value, meshes)
+}
+
+/** 파일을 연 뒤 이 IFC 들로 자동 저장해 둔 편집이 있으면 다시 붙인다. */
+function restoreAutosave() {
+  if (!model.value || !sources.value.length) return
+  let text: string | null = null
+  try {
+    text = localStorage.getItem(autosaveKey(sources.value))
+  } catch {
+    return
+  }
+  if (!text) return
+  const parsed = parseEditFile(text)
+  if (!parsed.ok) {
+    editNotice.value = `자동 저장된 편집을 읽지 못했습니다: ${parsed.reason}`
+    return
+  }
+  editSet.value = parsed.file.edits
+  reviewItems.value = parsed.file.review
+  const result = applyEditSet(model.value, editSet.value)
+  absorb(result)
+  editNotice.value = `자동 저장된 편집 ${result.applied}건을 다시 붙였습니다.${result.review.length ? ` 다시 볼 것 ${result.review.length}건.` : ''}`
+  refreshAfterEdits()
+  touchEdits()
+}
+
+function exportEdits() {
+  if (!model.value) return
+  const file = toEditFile(editSet.value, sources.value, reviewItems.value)
+  const stem = (sources.value[0]?.name ?? 'model').replace(/\.ifc$/i, '')
+  download(`${stem}.edits.json`, JSON.stringify(file, null, 2), 'application/json')
+}
+
+/**
+ * 편집 파일을 지금 모델에 붙인다. 다른 IFC 로 만든 파일이면 고쳐서 다시 온 BIM 으로 보고 붙이고,
+ * 어긋난 것은 검토 목록에 남긴다. 파일 모양이 틀리면 이유를 말하고 지금 편집은 건드리지 않는다.
+ */
+async function importEdits(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || !model.value) return
+  const parsed = parseEditFile(await file.text())
+  if (!parsed.ok) {
+    editNotice.value = `편집 파일을 읽지 못했습니다: ${parsed.reason}. 지금 편집은 그대로입니다.`
+    return
+  }
+  const incoming = parsed.file
+  const merged: EditSet = { ...editSet.value }
+  for (const k of Object.keys(merged) as EditKind[]) {
+    ;(merged as Record<EditKind, Record<string, unknown>>)[k] = { ...editSet.value[k], ...incoming.edits[k] }
+  }
+  editSet.value = merged
+  const result = applyEditSet(model.value, incoming.edits)
+  absorb(result)
+  const other = !sameSources(incoming.sources, sources.value)
+  editNotice.value =
+    `편집 파일 ${file.name}: ${result.applied}건을 붙였습니다.` +
+    (result.review.length ? ` 다시 볼 것 ${result.review.length}건.` : '') +
+    (other ? ' 다른 IFC 로 만든 편집이라 고쳐서 다시 온 BIM 으로 보고 붙였습니다.' : '')
+  refreshAfterEdits()
+  touchEdits()
+}
+
+/** 검토 항목을 사람 편집대로 되살린다. BIM 값을 덮는다. */
+function reviveReview(item: ReviewItem) {
+  if (!model.value) return
+  const result = applyEditSet(model.value, editSet.value, { kind: item.kind, key: item.key })
+  reviewItems.value = reviewItems.value.filter((i) => !(i.kind === item.kind && i.key === item.key))
+  absorb(result)
+  refreshAfterEdits()
+  touchEdits()
+}
+
+/** 검토 항목을 버린다. 편집 세트에서도 뺀다 — BIM 을 따른다. */
+function dropReview(item: ReviewItem) {
+  const next = { ...editSet.value, [item.kind]: { ...editSet.value[item.kind] } } as EditSet
+  delete (next[item.kind] as Record<string, unknown>)[item.key]
+  editSet.value = next
+  reviewItems.value = reviewItems.value.filter((i) => !(i.kind === item.kind && i.key === item.key))
+  touchEdits()
+}
+/** 포트가 방향을 말하게 된 흐름 편집과 사라진 대상은 되살릴 수 없다. */
+const revivable = (item: ReviewItem) => item.reason === 'superseded-by-bim' && item.kind !== 'flows' && item.kind !== 'confirmedSystems'
+
 // 넓이는 편집할 때마다 조금씩 움직인다. 매번 한 줄씩 쌓지 말고 처음과 끝만 적는다.
 const areaLines = computed(() => {
   const first = new Map<string, BoundaryChange>()
@@ -185,8 +336,11 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
   const base: [number, number, number] = current ? [current[0], current[1], current[2]] : [0, 0, 0]
   base[axis] = value
 
+  const before = current ? ([current[0], current[1], current[2]] as const) : null
   const change = moveEquipment(model.value, equipmentId, base)
   if (!change) return
+  recordPosition(editSet.value, equipmentId, before, base)
+  touchEdits()
   changes.value = [...changes.value, change]
   triggerRef(model)
   viewer?.setModel(model.value, meshes)
@@ -203,8 +357,12 @@ function applyVertex(spaceId: string, index: number, axis: 0 | 1, raw: string, c
   const point: [number, number] = [current[0], current[1]]
   point[axis] = value
 
+  const space = model.value.storeys.flatMap((s) => s.spaces).find((sp) => sp.id === spaceId)
+  const before = space ? [...space.footprint] : []
   const change = moveSpaceVertex(model.value, spaceId, index, point)
   if (!change) return
+  if (space) recordFootprint(editSet.value, spaceId, before, space.footprint)
+  touchEdits()
 
   areaChanges.value = [...areaChanges.value, change]
   changes.value = [...changes.value, ...change.equipment]
@@ -248,7 +406,11 @@ const editEquipment = computed(() =>
 
 function applyRename(spaceId: string, name: string) {
   if (!model.value) return
-  renameSpace(model.value, spaceId, name)
+  const space = model.value.storeys.flatMap((s) => s.spaces).find((sp) => sp.id === spaceId)
+  const before = space?.longName ?? ''
+  if (!renameSpace(model.value, spaceId, name)) return
+  recordName(editSet.value, spaceId, before, name)
+  touchEdits()
   triggerRef(model)
 }
 
@@ -347,6 +509,8 @@ function confirmRule(systemId: string, systemName: string) {
   if (!model.value) return
   const n = confirmSystemFlow(model.value, systemId)
   if (n === 0) return
+  recordConfirm(editSet.value, systemId, systemName)
+  touchEdits()
   confirmations.value = [...confirmations.value, { systemName, count: n }]
   flowVersion.value++
 }
@@ -395,7 +559,10 @@ function relClass(n: NeighborRow) {
 // 포트가 방향을 말하지 않은 연결에 사람이 방향을 정한다. from 이 null 이면 정한 것을 지운다.
 // 확정과 같은 이유로 모델 전체에 갱신 신호를 보내지 않고 flowVersion 만 올린다.
 function setFlow(n: NeighborRow, from: string | null) {
-  if (setFlowDirection(n.connection, from)) flowVersion.value++
+  if (!setFlowDirection(n.connection, from)) return
+  recordFlow(editSet.value, n.connection)
+  touchEdits()
+  flowVersion.value++
 }
 // --- 계통별로 보기 --------------------------------------------------------------
 //
@@ -856,7 +1023,10 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
   error.value = ''
   beginProgress('파일 읽는 중')
   try {
-    const result = await importInWorker(await read())
+    const bytes = await read()
+    // 지문은 워커에 넘기기 전에 뜬다. 넘기면(transfer) 이 창에서는 바이트가 비어 버린다.
+    const source: SourceFile = { name, size: bytes.byteLength, sha256: await sha256Hex(bytes) }
+    const result = await importInWorker(bytes)
     progress.value = { label: '3D 그리는 중' }
     await paint()
     meshes = result.meshes
@@ -867,9 +1037,14 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     fileName.value = name
     mergeReport.value = null
     selectedId.value = null
-    // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다.
+    // 새 파일을 열면 이전 파일의 편집 이력은 뜻이 없다. 이 파일로 자동 저장해 둔 편집이 있으면 다시 붙인다.
     changes.value = []
     areaChanges.value = []
+    editSet.value = emptyEditSet()
+    reviewItems.value = []
+    editNotice.value = ''
+    sources.value = [source]
+    restoreAutosave()
     await nextTick()
     await paint()
   } catch (e) {
@@ -878,6 +1053,7 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     meshes = new Map()
     fileName.value = ''
     mergeReport.value = null
+    sources.value = []
     error.value = `IFC 를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`
   } finally {
     busy.value = false
@@ -896,7 +1072,9 @@ const drawnSpaces = (m: Model) => m.storeys.reduce((n, s) => n + s.spaces.filter
 
 // 편집한 뒤에는 덧붙이지 못하게 한다. 합치기는 모델을 새로 만드는 일이라, 앞선 편집이 합친
 // 모델에 섞여 들어가면서 편집 이력에는 안 남는다 — 리포트가 모르는 변경이 생긴다.
-const canAppend = computed(() => !!model.value && changes.value.length === 0 && areaChanges.value.length === 0)
+const canAppend = computed(
+  () => !!model.value && changes.value.length === 0 && areaChanges.value.length === 0 && editCount.value === 0,
+)
 
 async function append(name: string, read: () => Promise<ArrayBuffer>) {
   if (!model.value) return
@@ -904,7 +1082,9 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
   error.value = ''
   beginProgress('파일 읽는 중')
   try {
-    const next = await importInWorker(await read())
+    const bytes = await read()
+    const source: SourceFile = { name, size: bytes.byteLength, sha256: await sha256Hex(bytes) }
+    const next = await importInWorker(bytes)
     progress.value = { label: '합치는 중' }
     await paint()
     const current = { name: fileName.value, model: model.value }
@@ -924,6 +1104,9 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     fileName.value = `${base.name} + ${overlay.name}`
     selectedId.value = null
     selectedSystemId.value = null
+    // 합친 모델은 두 파일의 편집이다. 이 조합으로 자동 저장해 둔 편집이 있으면 다시 붙인다.
+    sources.value = [...sources.value, source]
+    restoreAutosave()
     await nextTick()
     await paint()
   } catch (e) {
@@ -1116,7 +1299,14 @@ function exportTTL() {
         <b>편집 중</b>
         <span>바뀐 것 {{ changeCount }}건</span>
         <a href="#changes" class="link">목록 보기</a>
+        <a v-if="reviewItems.length" href="#review" class="link warn-link">다시 볼 것 {{ reviewItems.length }}건</a>
         <span class="grow"></span>
+        <span class="muted saved">편집 {{ editCount }}건 · 자동 저장</span>
+        <button type="button" class="ghost" :disabled="editCount === 0 && !reviewItems.length" @click="exportEdits">편집 파일 내보내기</button>
+        <label class="ghost file-button">
+          편집 파일 불러오기
+          <input type="file" accept=".json,application/json" @change="importEdits" />
+        </label>
         <button type="button" class="ghost" @click="exportTTL">의미 내보내기 (TTL)</button>
         <button type="button" class="ghost" @click="mode = 'view'">보기로</button>
       </div>
@@ -1201,6 +1391,12 @@ function exportTTL() {
         <ul v-if="warnings.length" class="warnings">
           <li v-for="w in warnings" :key="w">{{ w }}</li>
         </ul>
+
+        <!-- 자동 저장·편집 파일을 붙인 결과. 몇 건이 붙고 몇 건을 다시 봐야 하는지 한 줄로 알린다. -->
+        <p v-if="editNotice" class="edit-notice" role="status">
+          {{ editNotice }}
+          <a v-if="reviewItems.length" href="#review" class="link">다시 볼 것 보기</a>
+        </p>
       </section>
 
       <div ref="stage" :class="['stage', { full: fullscreen }]">
@@ -1854,12 +2050,40 @@ function exportTTL() {
           </ul>
           <p v-else class="empty">아직 바뀐 소속 관계가 없습니다.</p>
           </template>
+
+          <!-- 다시 볼 것. 편집 파일이나 자동 저장을 다시 붙일 때 그대로 붙지 못한 편집이다. 말없이 버리지 않는다. -->
+          <div v-if="reviewItems.length" id="review" class="review-list">
+            <h3>다시 볼 것 {{ reviewItems.length }}건</h3>
+            <p class="hint">
+              사라짐: 대상이 이 BIM 에 없습니다. 이제 BIM 이 말함: BIM 값이 편집 때와 달라졌거나 포트가 방향을 말합니다.
+              되살리면 사람 편집으로 BIM 값을 덮고, 버리면 BIM 을 따릅니다.
+            </p>
+            <ul>
+              <li v-for="item in reviewItems" :key="`${item.kind}:${item.key}`">
+                <span :class="['reason', item.reason]">{{ item.reason === 'missing' ? '사라짐' : '이제 BIM 이 말함' }}</span>
+                <b>{{ item.label }}</b>
+                <span class="muted">{{ item.detail }}</span>
+                <span class="grow"></span>
+                <button v-if="revivable(item)" type="button" class="ghost" @click="reviveReview(item)">되살리기</button>
+                <button type="button" class="ghost" @click="dropReview(item)">버리기</button>
+              </li>
+            </ul>
+          </div>
         </section>
       </div>
 
       <section class="actions">
         <button type="button" @click="exportGeoJSON">기하 내보내기 (GeoJSON)</button>
         <button type="button" @click="exportTTL">의미 내보내기 (Brick TTL)</button>
+        <button type="button" :disabled="editCount === 0 && !reviewItems.length" @click="exportEdits">편집 파일 내보내기</button>
+        <label class="file-button action-file">
+          편집 파일 불러오기
+          <input type="file" accept=".json,application/json" @change="importEdits" />
+        </label>
+        <p class="note">
+          편집 파일은 사람이 고친 것만 GUID 기준으로 담습니다(어느 IFC 에 대한 편집인지 지문도 같이). 고쳐서 다시 온 BIM 에
+          불러오면 맞는 것은 붙고, 어긋난 것은 "다시 볼 것" 에 남습니다. 편집은 이 브라우저에도 자동 저장됩니다.
+        </p>
         <p class="note">
           두 파일은 같은 id 로 이어집니다. 기하는 GeoJSON 이 갖고, 설비와 계통은 TTL 이 갖습니다.
           벽·문·창의 자리와 문이 잇는 방은 GeoJSON 에만 있습니다(Brick 에 건축 부재 클래스가 없습니다).
