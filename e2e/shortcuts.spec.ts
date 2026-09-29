@@ -164,6 +164,20 @@ test('U 는 종류를 모르는 타입의 설비로 가고, K 로 종류 상자�
   expect(errors).toEqual([])
 })
 
+test('되돌린 뒤에도 다음 단축키의 안내가 보인다', async ({ page }) => {
+  // 되돌리기 알림이 경고 칸에 남아 있어서, 뒤이어 누른 U 의 "종류 모르는 패밀리" 안내가 가려졌었다.
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await pick(page, 'AHU-1')
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.key-note')).toContainText('되돌렸습니다')
+  await page.keyboard.press('u')
+  await expect(page.locator('.key-note')).toContainText('종류 모르는 패밀리 1/1')
+  await expect(page.locator('.edit-notice')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
 test('보기 모드에서는 편집 키가 먹지 않는다', async ({ page }) => {
   const errors = await open(page)
   await pick(page, 'AHU-1')

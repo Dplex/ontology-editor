@@ -642,6 +642,7 @@ function settleLater() {
 }
 
 function undo() {
+  flushNudge()
   const m = model.value
   const entry = history.value.at(-1)
   if (!m || !entry) return
@@ -667,10 +668,14 @@ function undo() {
   confirmations.value = confirmations.value.slice(0, entry.confirmations)
   storeyMoved.value = entry.storeyMoved
   applySnapshot(entry.snapshot)
-  editNotice.value = `되돌렸습니다: ${entry.label}`
+  // 오류가 아니라 잠깐 보이는 안내다. 경고 칸(editNotice)에 두면 다음 경고가 올 때까지 남아서, 뒤이어 누른 단축키의
+  // 안내(U 의 "종류 모르는 패밀리 1/23" 같은 것)를 전부 가렸다.
+  editNotice.value = ''
+  note(`되돌렸습니다: ${entry.label}`)
 }
 
 function redo() {
+  flushNudge()
   const m = model.value
   const next = future.value.at(-1)
   if (!m || !next) return
@@ -682,7 +687,8 @@ function redo() {
   // 되돌리기 전의 이력 한 줄을 그대로 돌려놓는다. 그 스냅숏이 가리키는 상태가 지금 상태다.
   history.value = [...history.value, { ...next.entry, time: 0 }]
   applySnapshot(next.snapshot)
-  editNotice.value = `다시 했습니다: ${next.entry.label}`
+  editNotice.value = ''
+  note(`다시 했습니다: ${next.entry.label}`)
 }
 
 /** 스냅숏을 모델에 되돌려 놓고, 바뀐 것에 맞춰 3D 와 화면을 고친다. 되돌리기와 다시 하기가 같이 쓴다. */
@@ -774,6 +780,9 @@ function onKey(e: KeyboardEvent) {
   }
   const shortcut = matchShortcut(e)
   if (!shortcut) return
+  // 모아 둔 방향키는 다른 키보다 먼저 옮긴다. 안 그러면 방향키 바로 뒤의 Ctrl+Z 가 옮기기 전을 되돌리고, 옮기기는
+  // 그 뒤에 일어난다.
+  if (shortcut.id !== 'nudge') flushNudge()
   // 안내가 열려 있으면 뒤의 화면은 키를 받지 않는다(닫기는 대화상자가 Esc 로 한다).
   if (helpOpen.value && shortcut.id !== 'help') return
   // 글자를 치는 칸의 키는 그 칸 몫이다(그 칸의 Ctrl+Z 는 글자 되돌리기다). 선택 상자는 글자·방향키로 항목을
@@ -957,6 +966,7 @@ function nudge(code: string, step: number): boolean {
     pendingNudge.dy += dy
     return true
   }
+  flushNudge()
   pendingNudge = { id: e.id, dx, dy }
   requestAnimationFrame(flushNudge)
   return true
@@ -965,6 +975,8 @@ function nudge(code: string, step: number): boolean {
 // 방향키는 한 프레임에 모아 한 번에 옮긴다. 성수에서 한 번 옮기는 데 0.2초가 들어서, 꾹 누른 키(초당 수십 번)를
 // 하나씩 옮기면 키가 줄을 서서 손을 뗀 뒤에도 몇 초씩 따라 움직였다.
 let pendingNudge: { id: string; dx: number; dy: number } | null = null
+// 마우스로 하는 편집(끌기, 버튼)도 모아 둔 방향키 뒤에 온다.
+window.addEventListener('pointerdown', () => flushNudge(), { capture: true })
 function flushNudge() {
   const p = pendingNudge
   pendingNudge = null
@@ -1183,6 +1195,7 @@ function applyRename(spaceId: string, name: string) {
 }
 
 let drawn: Model | null = null
+let drawTimer: number | undefined
 watch([model, canvas], ([m, el]) => {
   if (!m || !el) return
   if (!viewer) {
@@ -1210,9 +1223,15 @@ watch([model, canvas], ([m, el]) => {
   }
   // 편집이 보낸 갱신(triggerRef)으로는 다시 만들지 않는다(redraw 참조). 새 모델일 때만이다.
   if (m === drawn) return
-  drawn = m
-  viewer.setModel(m, meshes)
-  sceneVersion.value++
+  // 한 태스크 뒤에 그린다. 여는 태스크에 합치기가 이미 0.4초라, 3D 준비(성수 0.35초)까지 붙이면 그만큼 더 멈췄다.
+  window.clearTimeout(drawTimer)
+  drawTimer = window.setTimeout(() => {
+    const now = model.value
+    if (!viewer || !now || now === drawn) return
+    drawn = now
+    viewer.setModel(now, meshes)
+    sceneVersion.value++
+  }, 0)
 })
 
 watch(editing, (on) => {
