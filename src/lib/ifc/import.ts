@@ -1310,7 +1310,7 @@ function read(
     // "경계 없는 물리존" 같은 숫자가 두 배가 된다.
     const duplicates = dropDuplicateSpaces({ storeys })
     if (duplicates > 0) {
-      warnings.push(`같은 자리·같은 이름의 물리존 ${duplicates}개가 두 번 들어 있어 하나만 남겼습니다(Revit 의 MEP Space 사본으로 보임).`)
+      warnings.push(`같은 자리에 같은 방이 두 번 들어 있어 물리존 ${duplicates}개를 걸렀습니다(Revit 의 MEP Space 사본, 또는 기본 이름 "공간"으로 남은 사본으로 보임).`)
     }
 
     if (noFootprint.length > 0) {

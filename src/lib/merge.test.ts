@@ -272,6 +272,26 @@ describe('한 파일 안의 같은 방 (dropDuplicateSpaces)', () => {
     expect(m.storeys[0].openings[0].connects).toEqual(['foyer-m', 'hall'])
   })
 
+  it('한쪽 이름이 Revit 기본값("공간")이면 번호가 달라도 같은 방이다. 이름 있는 쪽을 남기고 소속을 옮긴다 — 성수의 742 TPS · 836 공간', () => {
+    const m = model([
+      storey('L3', '3F', 10, {
+        spaces: [named('space', '836', '공간', rect(0, 0, 3, 2)), named('tps', '742', 'TPS', rect(0, 0, 3, 2)), named('lonely', '900', '공간', rect(5, 0, 8, 2))],
+        equipment: [device('sensor', [1, 1, 12], { spaceId: 'space', spaceSource: 'bim' })],
+      }),
+    ])
+    expect(dropDuplicateSpaces(m)).toBe(1)
+    // 소속이 기본 이름 쪽에 걸려 있어도 이름 있는 쪽을 남긴다. 짝이 없는 "공간" 은 그대로다.
+    expect(m.storeys[0].spaces.map((s) => s.id)).toEqual(['tps', 'lonely'])
+    expect(m.storeys[0].equipment[0].spaceId).toBe('tps')
+  })
+
+  it('둘 다 이름이 있고 서로 다르면 외곽선이 같아도 다른 방이다 — 병원 지붕 R-Roof · R-AT1 Roof', () => {
+    const m = model([
+      storey('R', 'Roof', 12, { spaces: [named('roof', 'R-Roof', 'Roof', rect(0, 0, 4, 4)), named('at1', 'R-AT1', 'AT1 Roof', rect(0, 0, 4, 4))] }),
+    ])
+    expect(dropDuplicateSpaces(m)).toBe(0)
+  })
+
   it('이름이 어긋나도 방 번호에 꼬리만 붙었으면 같은 방이다 — Duplex 의 A104 · A104-M', () => {
     const m = model([
       storey('L1', 'Level 1', 0, {

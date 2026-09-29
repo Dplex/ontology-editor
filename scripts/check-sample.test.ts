@@ -322,7 +322,7 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     // 파일에는 42개가 있다 — "MEP Space" 와 건축 Room 사본이 같은 자리·같은 방 번호로 20쌍(dropDuplicateSpaces).
     // 지붕 둘(R301 · R301-M)은 외곽선이 달라서(135㎡ · 146㎡) 남긴다.
     expect(counts.spaces).toBe(22)
-    expect(model.warnings.some((w) => w.includes('물리존 20개가 두 번'))).toBe(true)
+    expect(model.warnings.some((w) => w.includes('물리존 20개를 걸렀습니다'))).toBe(true)
     expect(model.storeys.flatMap((s) => s.spaces).every((s) => s.footprint.length >= 3)).toBe(true)
     expect(counts.unlocatedEquipment).toBe(270)
     expect(model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role) && e.spaceId === null)).toHaveLength(0)
@@ -1111,8 +1111,9 @@ describe.skipIf(!existsSync(SEONGSU_ARCH))('성수 건축', () => {
     const c = countOf(model)
     expect.soft(model.schema).toBe('IFC2X3')
     expect.soft(c.storeys).toBe(19)
-    // 파일에는 934개인데 같은 자리에 겹쳐 둔 방 하나를 걸러 933개다(중복 방 제거, ef71acc).
-    expect.soft(c.spaces).toBe(933)
+    // 파일에는 934개다. 같은 자리·같은 이름으로 겹쳐 둔 방 하나(ef71acc)와, 이름 붙은 방마다 같은 외곽선으로 하나씩 더 둔
+    // 기본 이름 "공간" 425개를 걸러 508개다(merge.ts 의 PLACEHOLDER_NAMES).
+    expect.soft(c.spaces).toBe(508)
     const walls = model.storeys.flatMap((s) => s.walls)
     expect.soft({
       walls: walls.length,

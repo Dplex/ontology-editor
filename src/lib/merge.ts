@@ -335,6 +335,14 @@ function sameRoomLabel(a: string, b: string): boolean {
 }
 
 /**
+ * Revit 이 이름을 안 붙인 방·공간에 넣는 기본 이름. 성수 건축은 이름 붙은 Room 마다 같은 외곽선의 Space 를 하나씩 더
+ * 두었는데(425쌍) 그 이름이 전부 기본값 "공간" 이고 번호도 따로 매겨져서(`742 TPS` · `836 공간`) 이름으로는 같은 방인 줄
+ * 몰랐다. 기본 이름은 아무 방도 가리키지 않으므로, 외곽선이 같으면 같은 방으로 본다.
+ */
+const PLACEHOLDER_NAMES = new Set(['공간', '방', 'space', 'room'])
+const isPlaceholder = (s: Space) => PLACEHOLDER_NAMES.has(normalize(s.longName ?? ''))
+
+/**
  * **한 파일 안에서 같은 방이 두 번 들어 있으면 하나만 남긴다.** 모델을 그 자리에서 고치고 버린 수를 돌려준다.
  *
  * Revit 설비 판본은 건축 Room 의 사본과 그것을 베낀 "MEP Space" 를 같이 낸다(Duplex MEP 42 = 21 × 2, 병원 MEP
@@ -345,7 +353,9 @@ function sameRoomLabel(a: string, b: string): boolean {
  * 다른 공간이고, Duplex 건축의 현관과 계단실은 서로의 안쪽 점을 품는다(넓이 비 0.76). 합칠 때의 기준(안쪽 점 하나)을
  * 여기 쓰면 병원 건축에서 대기실이 접수대를 먹는다.
  *
- * 남기는 쪽은 **BIM 이 말한 설비 소속이 걸린 것**이다(가진 파일에서 사본 쌍의 소속은 늘 한쪽에만 걸려 있었다).
+ * 한쪽 이름이 Revit 기본 이름("공간" 등)이면 이름은 보지 않는다(PLACEHOLDER_NAMES). 그때는 이름 있는 쪽을 남긴다.
+ *
+ * 그 밖에는 **BIM 이 말한 설비 소속이 걸린 것**을 남긴다(가진 파일에서 사본 쌍의 소속은 늘 한쪽에만 걸려 있었다).
  * 둘 다 걸렸으면 앞의 것을 남기고 버린 쪽을 가리키던 소속·문이 잇는 방을 남긴 쪽으로 옮겨 적는다.
  */
 export function dropDuplicateSpaces(model: Pick<Model, 'storeys'>): number {
@@ -363,7 +373,7 @@ export function dropDuplicateSpaces(model: Pick<Model, 'storeys'>): number {
               (k) =>
                 k.footprint.length >= 3 &&
                 Math.abs(k.areaM2 - space.areaM2) <= 0.01 * Math.max(k.areaM2, space.areaM2) &&
-                (sameRoomLabel(k.longName, space.longName) || sameRoomLabel(k.name, space.name)) &&
+                (sameRoomLabel(k.longName, space.longName) || sameRoomLabel(k.name, space.name) || isPlaceholder(k) || isPlaceholder(space)) &&
                 Math.max(...space.footprint.map((p) => distanceToRing(p, k.footprint)), ...k.footprint.map((p) => distanceToRing(p, space.footprint))) <=
                   SAME_FOOTPRINT,
             )
@@ -372,8 +382,16 @@ export function dropDuplicateSpaces(model: Pick<Model, 'storeys'>): number {
         kept.push(space)
         continue
       }
-      // 소속이 걸린 쪽을 남긴다. 버리는 쪽에만 있던 값(분류·경계)은 남기는 쪽이 비었을 때만 채운다.
-      const [keep, drop] = (declared.get(space.id) ?? 0) > (declared.get(twin.id) ?? 0) ? [space, twin] : [twin, space]
+      // 이름이 기본값인 쪽은 버린다(이름이 온톨로지의 rdfs:label 이다). 아니면 소속이 걸린 쪽을 남긴다. 버린 쪽을 가리키던
+      // 소속은 아래에서 남긴 쪽으로 옮겨 적는다. 버리는 쪽에만 있던 값(분류·경계)은 남기는 쪽이 비었을 때만 채운다.
+      const [keep, drop] =
+        isPlaceholder(space) !== isPlaceholder(twin)
+          ? isPlaceholder(space)
+            ? [twin, space]
+            : [space, twin]
+          : (declared.get(space.id) ?? 0) > (declared.get(twin.id) ?? 0)
+            ? [space, twin]
+            : [twin, space]
       if (keep === space) kept[kept.indexOf(twin)] = space
       keep.boundedBy = [...new Set([...keep.boundedBy, ...drop.boundedBy])]
       if (!keep.omniclass && drop.omniclass) {
