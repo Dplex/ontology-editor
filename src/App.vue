@@ -7,6 +7,7 @@ import { profileOf, type Profile } from './lib/profile'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
 import Src from './components/Src.vue'
+import FloorPlan from './components/FloorPlan.vue'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
 import {
@@ -116,6 +117,9 @@ watch(mode, (m) => {
   }
 })
 const editing = computed(() => mode.value === 'edit')
+/** 3D 와 평면도는 탭으로 갈아 끼운다. 한 번에 하나만 그린다. 고른 층·설비는 둘이 같이 쓴다. */
+const activeTab = ref<'3d' | 'plan'>('3d')
+const planStorey = computed(() => model.value?.storeys.find((s) => s.id === editStorey.value) ?? null)
 
 // 문·창 형상도 읽을까. 온톨로지에는 필요 없고 로봇 경로(문 자리·문이 잇는 방)용이라 기본은 끈다.
 // 파일을 열 때 정하므로, 바꾸면 다음에 여는 파일부터 적용된다. 이 브라우저에만 기억한다.
@@ -392,14 +396,18 @@ const selfIntersecting = computed(() => areaChanges.value.some((c) => c.selfInte
 
 function applyVertex(spaceId: string, index: number, axis: 0 | 1, raw: string, current: readonly number[]) {
   const value = Number(raw)
-  if (!model.value || !Number.isFinite(value)) return
-
+  if (!Number.isFinite(value)) return
   const point: [number, number] = [current[0], current[1]]
   point[axis] = value
+  applyVertexPoint(spaceId, index, point)
+}
 
+/** 꼭짓점 하나를 옮긴다. 표의 숫자 입력과 평면도의 끌기가 같은 길을 탄다(소속 재판정은 lib/edit.ts). */
+function applyVertexPoint(spaceId: string, index: number, point: readonly [number, number]) {
+  if (!model.value) return
   const space = model.value.storeys.flatMap((s) => s.spaces).find((sp) => sp.id === spaceId)
   const before = space ? [...space.footprint] : []
-  const change = moveSpaceVertex(model.value, spaceId, index, point)
+  const change = moveSpaceVertex(model.value, spaceId, index, [point[0], point[1]])
   if (!change) return
   if (space) recordFootprint(editSet.value, spaceId, before, space.footprint)
   touchEdits()
@@ -1450,8 +1458,24 @@ function exportTTL() {
       <div ref="stage" :class="['stage', { full: fullscreen }]">
         <section class="viewport">
           <div class="canvas-wrap">
-            <canvas ref="canvas"></canvas>
+            <canvas v-show="activeTab === '3d'" ref="canvas"></canvas>
+            <!-- 평면도. 3D 와 탭으로 갈아 끼우고, 층 하나를 골랐을 때만 그린다. -->
+            <FloorPlan
+              v-if="activeTab === 'plan' && planStorey"
+              :storey="planStorey"
+              :selected-id="selectedId"
+              :editing="editing"
+              @select="select"
+              @move-vertex="applyVertexPoint"
+            />
+            <p v-else-if="activeTab === 'plan'" class="plan-empty">
+              평면도는 층 하나를 그립니다. 오른쪽 위에서 층을 고르세요.
+            </p>
             <div class="view-tools">
+              <div class="tabs" role="group" aria-label="보기">
+                <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
+                <button type="button" :aria-pressed="activeTab === 'plan'" @click="activeTab = 'plan'">평면도</button>
+              </div>
               <!-- 층별 보기. 편집 표의 층 선택과 같은 상태다. -->
               <select
                 v-if="model.storeys.length > 1"
@@ -1463,7 +1487,7 @@ function exportTTL() {
                 <option v-for="s in model.storeys" :key="s.id" :value="s.id">{{ s.name }}</option>
               </select>
               <button
-                v-if="drawnWalls"
+                v-if="drawnWalls && activeTab === '3d'"
                 type="button"
                 :class="['ghost', 'walls-toggle', { on: showWalls }]"
                 :aria-pressed="showWalls"
@@ -1476,7 +1500,7 @@ function exportTTL() {
               </button>
             </div>
             <!-- 내력 여부는 BIM 의 LoadBearing 속성 그대로다. 비내력벽은 그리지 않는다. -->
-            <ul v-if="showWalls && drawnWalls" class="wall-key">
+            <ul v-if="showWalls && drawnWalls && activeTab === '3d'" class="wall-key">
               <li><i :style="{ background: hex(WALL_COLORS.loadBearing) }"></i>내력벽 {{ drawnWalls.loadBearing }} <Src kind="bim" /></li>
               <li v-if="drawnWalls.unknown">
                 <i :style="{ background: hex(WALL_COLORS.unknown) }"></i>내력 여부 모름 {{ drawnWalls.unknown }}
@@ -1509,7 +1533,7 @@ function exportTTL() {
           </div>
 
           <!-- 3D 색이 무엇을 뜻하는지. 진한 색은 BIM 포트가 말한 흐름, 옅은 색은 규칙으로 정한 흐름이다. -->
-          <ul v-if="selected" class="color-key">
+          <ul v-if="selected && activeTab === '3d'" class="color-key">
             <li><i :style="{ background: hex(PICK_COLORS.upstream) }"></i>상류 <Src kind="bim" /></li>
             <li><i :style="{ background: hex(PICK_COLORS.downstream) }"></i>하류 <Src kind="bim" /></li>
             <template v-if="showRules && tracedRules">
@@ -1519,11 +1543,15 @@ function exportTTL() {
             <li><i :style="{ background: hex(PICK_COLORS.linked) }"></i>방향 모름</li>
           </ul>
 
-          <p v-if="counts.equipment > 0" class="hint pick-hint">
+          <p v-if="counts.equipment > 0 || activeTab === 'plan'" class="hint pick-hint">
             {{
-              selectedSystemId
-                ? '계통 하나만 켜 두었습니다. 다시 누르면 전체로 돌아갑니다.'
-                : '설비·배관을 클릭하면 이어진 것들이 색으로 뜹니다. 계통은 오른쪽 범례에서 고릅니다.'
+              activeTab === 'plan'
+                ? editing
+                  ? '방을 누르면 꼭짓점이 뜹니다. 끌어 놓으면 넓이와 설비 소속이 같이 바뀝니다. 휠로 확대, 빈 곳을 끌어 이동.'
+                  : '설비 점을 누르면 고릅니다. 휠로 확대, 빈 곳을 끌어 이동. 경계를 고치려면 편집 모드로.'
+                : selectedSystemId
+                  ? '계통 하나만 켜 두었습니다. 다시 누르면 전체로 돌아갑니다.'
+                  : '설비·배관을 클릭하면 이어진 것들이 색으로 뜹니다. 계통은 오른쪽 범례에서 고릅니다.'
             }}
           </p>
         </section>
