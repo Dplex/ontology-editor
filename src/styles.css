@@ -2895,3 +2895,15 @@ main.has-model .catalog {
   stroke: var(--accent);
   cursor: grab;
 }
+
+/* 규칙 방향 확정 표 위의 한꺼번에 확정. */
+.rule-systems .bulk-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin: 0.25rem 0 0.75rem;
+}
+.rule-systems .bulk-confirm select {
+  margin: 0 0.25rem;
+}

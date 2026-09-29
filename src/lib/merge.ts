@@ -340,7 +340,8 @@ function sameRoomLabel(a: string, b: string): boolean {
  * 몰랐다. 기본 이름은 아무 방도 가리키지 않으므로, 외곽선이 같으면 같은 방으로 본다.
  */
 const PLACEHOLDER_NAMES = new Set(['공간', '방', 'space', 'room'])
-const isPlaceholder = (s: Space) => PLACEHOLDER_NAMES.has(normalize(s.longName ?? ''))
+/** 이름이 Revit 기본 이름("공간" 등)인 방. 아무 방도 가리키지 않는 이름이다. */
+export const isPlaceholder = (s: Pick<Space, 'longName'>) => PLACEHOLDER_NAMES.has(normalize(s.longName ?? ''))
 
 /**
  * **한 파일 안에서 같은 방이 두 번 들어 있으면 하나만 남긴다.** 모델을 그 자리에서 고치고 버린 수를 돌려준다.

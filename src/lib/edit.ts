@@ -484,10 +484,12 @@ export function snapshotFlow(connection: Connection): Snapshot {
 }
 
 /** 계통 확정이 이번에 바꿀 연결. 이미 확정한 것은 되돌릴 때 건드리지 않는다. */
-export function snapshotConfirm(model: Model, systemId: string): Snapshot {
+export function snapshotConfirm(model: Model, systemId: string | readonly string[]): Snapshot {
+  // 계통 여럿을 한꺼번에 확정할 때도 되돌리기는 한 번이다.
+  const ids = new Set(typeof systemId === 'string' ? [systemId] : systemId)
   return {
     kind: 'confirm',
-    connections: model.connections.filter((c) => c.inferred?.systemId === systemId && !c.inferred.confirmed),
+    connections: model.connections.filter((c) => c.inferred && ids.has(c.inferred.systemId) && !c.inferred.confirmed),
     confirmed: false,
   }
 }

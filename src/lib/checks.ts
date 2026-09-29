@@ -8,6 +8,7 @@
 // 규칙이 보는 방향은 호출부가 정한다(화면과 같은 방향). 원천·말단은 이름 사전(kinds.ts)으로 가르고,
 // 소속 방은 좌표로 판정한 것이라 전부 추정이 섞인 검사다.
 
+import { josa } from './josa'
 import { equipmentKind } from './kinds'
 import { distanceToRing, interiorPoint, pointInPolygon } from './mapping'
 import { isConduit, type Connection, type Model, type Vec2, type Vec3 } from './model'
@@ -171,7 +172,7 @@ export function diagnoseFailure(key: string, id: string, ctx: ExplainContext): {
     const along = new Set([...t.upstream, ...t.downstream])
     const target = key === 'terminal-source' ? '공조기·FCU 같은 원천' : '디퓨저·그릴 같은 말단'
     if (along.size === 0) return say(`방향을 모르는 연결에서 끊깁니다(이어진 것 ${t.linked.size}개). 방향을 정하면 따라갈 수 있습니다.`)
-    return say(`흐름을 따라 ${along.size}개까지 가지만 ${target}이 없습니다` + (t.linked.size ? ` (방향 모름 ${t.linked.size}개).` : '.'))
+    return say(`흐름을 따라 ${along.size}개까지 가지만 ${target}${josa(target, '이/가')} 없습니다` + (t.linked.size ? ` (방향 모름 ${t.linked.size}개).` : '.'))
   }
 
   if (key === 'terminal-single-source') {

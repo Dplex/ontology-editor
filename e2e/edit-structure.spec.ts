@@ -37,7 +37,7 @@ test('설비를 바닥에 더하고, 이름을 고치고, 지우고, Ctrl+Z 로 
   await name.fill('FCU-9')
   await name.press('Enter')
   await expect(picked.locator('h3')).toHaveText('FCU-9')
-  await expect(page.locator('.report')).toContainText('설비 FCU-9을 더했습니다')
+  await expect(page.locator('.report')).toContainText('설비 FCU-9를 더했습니다')
 
   await picked.getByRole('button', { name: '설비 지우기' }).click()
   await expect(picked).toHaveCount(0)
@@ -46,7 +46,7 @@ test('설비를 바닥에 더하고, 이름을 고치고, 지우고, Ctrl+Z 로 
   // 지우기 → 이름 → 더하기 순으로 되돌린다.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
-  await expect(page.locator('.report')).toContainText('설비 FCU-9을 더했습니다')
+  await expect(page.locator('.report')).toContainText('설비 FCU-9를 더했습니다')
   await page.keyboard.press('Control+z')
   await expect(page.locator('.report')).toContainText('설비 새 설비 1을 더했습니다')
   await page.keyboard.press('Control+z')

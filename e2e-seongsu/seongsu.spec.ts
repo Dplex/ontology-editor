@@ -533,7 +533,7 @@ test('E 설비 편집: 끌기·Esc·방향키·층 옮기기·방 밖·더하기
   await expect(page.locator('.picked .kind-edit select')).toHaveValue('')
   await name.fill('새 FCU')
   await name.press('Enter')
-  await expect(page.locator('.report')).toContainText('설비 새 FCU을 더했습니다')
+  await expect(page.locator('.report')).toContainText('설비 새 FCU를 더했습니다')
 
   const undo = await undoAll()
   record('I-2', `${undo.n}번 · 가장 긴 것 ${undo.slowest}ms`, 'E 묶음을 끝까지 되돌려 바뀐 것 0건')

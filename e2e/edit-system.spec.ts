@@ -59,7 +59,7 @@ test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비�
   await form.getByRole('button', { name: '만들어 넣기' }).click()
   await expect(picked.locator('.stats')).toContainText('2층 급기')
   const report = page.locator('.report')
-  await expect(report).toContainText('계통 2층 급기을 만들었습니다')
+  await expect(report).toContainText('계통 2층 급기를 만들었습니다')
   await expect(report).toContainText('AT-101-01: 계통 AHU-1 급기 계통 → 2층 급기')
 
   await page.locator('.legend button', { hasText: '2층 급기' }).click()

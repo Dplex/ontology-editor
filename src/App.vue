@@ -12,6 +12,7 @@ import ShortcutHelp from './components/ShortcutHelp.vue'
 import HoverTip from './components/HoverTip.vue'
 import FloorPlan from './components/FloorPlan.vue'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
+import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
 import { applyEdits, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
@@ -1456,6 +1457,34 @@ const ruleSystems = computed(() => {
     .sort((a, b) => Number(a.confirmed) - Number(b.confirmed) || b.count - a.count)
 })
 
+/**
+ * 포트와 잘 맞는 계통을 한꺼번에 확정한다. 성수는 규칙이 방향을 준 계통이 348개라 하나씩 누르면 45초가 걸렸다.
+ * 포트와 대 볼 연결이 BULK_MIN_CHECKED 개 넘게 있고 일치율이 문턱 이상인 것만 고른다 — 대 볼 것이 없는 계통은
+ * 맞는지 모르므로 사람이 3D 로 흐름을 보고 하나씩 확정한다. 되돌리기는 한 번이다.
+ */
+const BULK_MIN_CHECKED = 20
+const bulkThreshold = ref(90)
+const bulkCandidates = computed(() =>
+  ruleSystems.value.filter((r) => !r.confirmed && r.pct !== null && r.checked >= BULK_MIN_CHECKED && r.pct >= bulkThreshold.value),
+)
+function confirmMatching() {
+  const m = model.value
+  const rows = bulkCandidates.value
+  if (!m || !rows.length) return
+  const snapshot = snapshotConfirm(m, rows.map((r) => r.id))
+  const at = mark()
+  const done: { systemName: string; count: number }[] = []
+  for (const r of rows) {
+    const n = confirmSystemFlow(m, r.id)
+    if (n) done.push({ systemName: r.name, count: n })
+  }
+  if (!done.length) return
+  remember(`계통 ${done.length}개 한꺼번에 확정(포트와 ${bulkThreshold.value}% 이상)`, snapshot, at)
+  confirmations.value = [...confirmations.value, ...done]
+  flowVersion.value++
+  note(`계통 ${done.length}개, 규칙 방향 ${done.reduce((n, d) => n + d.count, 0)}개를 확정했습니다. brick:feeds 로 내보냅니다`)
+}
+
 function confirmRule(systemId: string, systemName: string) {
   if (!model.value) return
   const snapshot = snapshotConfirm(model.value, systemId)
@@ -2145,7 +2174,7 @@ function createSystemFor(equipmentId: string) {
   triggerRef(model)
   flowVersion.value++
   redraw()
-  note(`계통 ${name}을 만들고 ${shortName(e.name)}을 넣었습니다`)
+  note(`계통 ${name}${josa(name, '을/를')} 만들고 ${shortName(e.name)}${josa(shortName(e.name), '을/를')} 넣었습니다`)
 }
 function removeSystem(systemId: string) {
   const m = model.value
@@ -2162,7 +2191,7 @@ function removeSystem(systemId: string) {
   triggerRef(model)
   flowVersion.value++
   redraw()
-  note(`계통 ${system.name || systemId}을 지웠습니다. 구성원 ${system.memberIds.length}개는 이 계통 자리만 잃습니다(Ctrl+Z 로 되돌림)`)
+  note(`계통 ${system.name || systemId}${josa(system.name || systemId, '을/를')} 지웠습니다. 구성원 ${system.memberIds.length}개는 이 계통 자리만 잃습니다(Ctrl+Z 로 되돌림)`)
 }
 /** 계통 종류의 출처. 사람이 고쳤으면 편집, 아니면 PredefinedType(BIM)·이름(사전). */
 const systemKindSrc = (s: { kindEdited?: unknown; kindSource?: 'bim' | 'dict' }): SrcKind => (s.kindEdited ? 'edit' : (s.kindSource ?? 'dict'))
@@ -2566,7 +2595,7 @@ function startPlace(id: string) {
   connectFrom.value = null
   placing.value = id
   viewer?.setPlaceMode(home.elevation)
-  note(`${nameOfId(id)}을 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
+  note(`${nameOfId(id)}${josa(nameOfId(id), '을/를')} 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
 }
 function stopPlace() {
   placing.value = null
@@ -2696,7 +2725,7 @@ function finishDraw(): boolean {
     const [a, b] = d.points
     if (changeSpaces(d.storeyId, `${d.name} 나누기`, (m) => splitSpace(m, d.spaceId!, a, b))) {
       selectedSpaceId.value = d.spaceId
-      note(`${d.name}을 둘로 나눴습니다. 새 조각의 이름은 오른쪽 패널에서 고칩니다`)
+      note(`${d.name}${josa(d.name, '을/를')} 둘로 나눴습니다. 새 조각의 이름은 오른쪽 패널에서 고칩니다`)
     }
     return true
   }
@@ -2715,7 +2744,7 @@ function finishDraw(): boolean {
     })
     if (ok && created) {
       selectedSpaceId.value = created
-      note(`새 물리존 ${n}을 만들었습니다. 이름은 오른쪽 패널에서 고칩니다`)
+      note(`새 물리존 ${n}${josa(String(n), '을/를')} 만들었습니다. 이름은 오른쪽 패널에서 고칩니다`)
     }
     return true
   }
@@ -2783,7 +2812,7 @@ function startSplit() {
   const name = picked.space.longName || picked.space.name
   drawing.value = { purpose: 'split', spaceId: picked.space.id, storeyId: picked.storey.id, name, elevation: picked.storey.elevation, points: [] }
   viewer?.setPlaceMode(picked.storey.elevation)
-  note(`${name}을 나눌 선의 두 점을 바닥에 찍으세요 (Esc 취소)`)
+  note(`${name}${josa(name, '을/를')} 나눌 선의 두 점을 바닥에 찍으세요 (Esc 취소)`)
 }
 
 function removeSpace() {
@@ -2793,7 +2822,7 @@ function removeSpace() {
   const id = picked.space.id
   if (changeSpaces(picked.storey.id, `${name} 지우기`, (m) => deleteSpace(m, id))) {
     selectedSpaceId.value = null
-    note(`${name}을 지웠습니다. 그 안의 설비는 좌표로 다시 소속을 찾았습니다(Ctrl+Z 로 되돌립니다)`)
+    note(`${name}${josa(name, '을/를')} 지웠습니다. 그 안의 설비는 좌표로 다시 소속을 찾았습니다(Ctrl+Z 로 되돌립니다)`)
   }
 }
 
@@ -2826,7 +2855,7 @@ function mergeInto(otherId: string) {
     if (done && 'bridged' in done) bridged = done.bridged
     return done
   })
-  if (ok) note(`${otherName}을 ${name}에 합쳤습니다${bridged ? '. 사이의 벽 자리도 방에 넣었습니다' : ''}`)
+  if (ok) note(`${otherName}${josa(otherName, '을/를')} ${name}에 합쳤습니다${bridged ? '. 사이의 벽 자리도 방에 넣었습니다' : ''}`)
 }
 
 // --- 설비 더하기·지우기·이름 (E7) ---------------------------------------------------------
@@ -2864,7 +2893,7 @@ function addEquipmentAt(at: Vec2) {
   triggerRef(model)
   redraw()
   selectedId.value = e.id
-  note(`${e.name}을 바닥 높이에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`)
+  note(`${e.name}${josa(e.name, '을/를')} 바닥 높이에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`)
 }
 function removeEquipment(id: string) {
   const m = model.value
@@ -2880,7 +2909,7 @@ function removeEquipment(id: string) {
   triggerRef(model)
   flowVersion.value++
   redraw()
-  note(`${name}을 지웠습니다${done.connections ? `(연결 ${done.connections}개도 같이)` : ''}. Ctrl+Z 로 되돌립니다`)
+  note(`${name}${josa(name, '을/를')} 지웠습니다${done.connections ? `(연결 ${done.connections}개도 같이)` : ''}. Ctrl+Z 로 되돌립니다`)
 }
 function renameEquipmentTo(id: string, name: string) {
   const m = model.value
@@ -3010,7 +3039,7 @@ function removeElement() {
   })
   if (!ok) return
   selectedElementId.value = null
-  note(`${what} ${name}을 지웠습니다${openings ? `(뚫린 문·창 ${openings}개도 같이)` : ''}. Ctrl+Z 로 되돌립니다`)
+  note(`${what} ${name}${josa(name, '을/를')} 지웠습니다${openings ? `(뚫린 문·창 ${openings}개도 같이)` : ''}. Ctrl+Z 로 되돌립니다`)
 }
 
 /** 방향키로 고른 벽·문·창을 옮긴다. 화면 방향에 가장 가까운 평면 축이다(설비 옮기기와 같다). */
@@ -3078,7 +3107,7 @@ function startOpening(kind: 'door' | 'window') {
   if (model.value!.storeys.length > 1) viewStorey.value = storey.id
   adding.value = { storeyId: storey.id, elevation: storey.elevation, what: kind }
   viewer?.setPlaceMode(storey.elevation)
-  note(`${elementLabel(kind)}을 놓을 벽을 3D에서 클릭하세요 (Esc 취소)`)
+  note(`${elementLabel(kind)}${josa(elementLabel(kind), '을/를')} 놓을 벽을 3D에서 클릭하세요 (Esc 취소)`)
 }
 
 function addOpeningAt(at: Vec2) {
@@ -3094,7 +3123,7 @@ function addOpeningAt(at: Vec2) {
   })
   if (ok && made) {
     selectedElementId.value = (made as Opening).id
-    note(`${elementLabel(kind)}을 놓았습니다. 방향키로 벽을 따라 옮깁니다`)
+    note(`${elementLabel(kind)}${josa(elementLabel(kind), '을/를')} 놓았습니다. 방향키로 벽을 따라 옮깁니다`)
   }
 }
 
@@ -3125,7 +3154,7 @@ function connectTo(id: string) {
   triggerRef(model)
   flowVersion.value++
   selectedId.value = from
-  note(`${nameOfId(from)}–${nameOfId(id)}을 이었습니다. 방향은 상류로·하류로로 정합니다`)
+  note(`${nameOfId(from)}–${nameOfId(id)}${josa(nameOfId(id), '을/를')} 이었습니다. 방향은 상류로·하류로로 정합니다`)
 }
 function disconnect(c: Connection) {
   const m = model.value
@@ -3580,7 +3609,7 @@ const unlocatedLine = computed(() => {
   const conduits = all.filter((e) => isConduit(e.role)).length
   const devices = all.length - conduits
   const what = [devices ? `기기 ${devices}대` : '', conduits ? `덕트·배관 ${conduits}대` : ''].filter(Boolean).join(', ')
-  return `${what}는 소속 물리존을 찾지 못했습니다. 위치는 층까지만 내보냅니다.`
+  return `${what}${josa(what, '은/는')} 소속 물리존을 찾지 못했습니다. 위치는 층까지만 내보냅니다.`
 })
 
 // 열린 모델의 등급 칩. 파일 목록의 칩과 같은 계산이라, 덧붙인 뒤 어느 칸이 찼는지 견줄 수 있다.
@@ -3830,7 +3859,7 @@ function exportTTL() {
                     :title="`${f.path} + ${partnerOf(f.path)}`"
                     @click="openDataSet([f.path, partnerOf(f.path)!])"
                   >
-                    짝 {{ baseName(partnerOf(f.path)!) }}와 합쳐서 열기
+                    짝 {{ baseName(partnerOf(f.path)!) }}{{ josa(baseName(partnerOf(f.path)!), '과/와') }} 합쳐서 열기
                   </button>
                 </template>
               </td>
@@ -4983,6 +5012,22 @@ function exportTTL() {
             포트(BIM)에 방향이 있는 연결과 비교한 값이고, 비교할 연결이 없으면 비워 둡니다. 이름을 누르면 3D에
             그 계통만 표시합니다.
           </p>
+          <p v-if="editing" class="bulk-confirm">
+            <label>
+              포트와
+              <select v-model.number="bulkThreshold" aria-label="한꺼번에 확정할 일치율">
+                <option :value="98">98%</option>
+                <option :value="95">95%</option>
+                <option :value="90">90%</option>
+                <option :value="80">80%</option>
+              </select>
+              이상 맞는 계통
+            </label>
+            <button type="button" class="ghost" :disabled="!bulkCandidates.length" @click="confirmMatching">
+              {{ bulkCandidates.length }}개 한꺼번에 확정
+            </button>
+            <span class="muted">대 본 연결이 {{ BULK_MIN_CHECKED }}개 넘는 계통만. 비교할 것이 없는 계통은 하나씩 확정합니다.</span>
+          </p>
           <table>
             <thead>
               <tr>
@@ -5410,36 +5455,36 @@ function exportTTL() {
               <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결을 끊었습니다
             </li>
             <li v-for="r in sinceOpen.spacesAdded" :key="`space-add-${r.id}`">
-              물리존 <b>{{ r.name || r.id }}</b>을 만들었습니다 (brick:hasPart, GeoJSON)
+              물리존 <b>{{ r.name || r.id }}</b>{{ josa(r.name || r.id, '을/를') }} 만들었습니다 (brick:hasPart, GeoJSON)
             </li>
             <li v-for="r in sinceOpen.spacesRemoved" :key="`space-rm-${r.id}`">
-              물리존 <b>{{ r.name }}</b>이 없어졌습니다(지우거나 합침). 그 안의 설비는 좌표로 다시 소속을 찾았습니다
+              물리존 <b>{{ r.name }}</b>{{ josa(r.name, '이/가') }} 없어졌습니다(지우거나 합침). 그 안의 설비는 좌표로 다시 소속을 찾았습니다
             </li>
             <li v-for="r in sinceOpen.equipmentAdded" :key="`eq-add-${r.id}`">
-              설비 <b>{{ r.name }}</b>을 더했습니다 (brick:hasLocation)
+              설비 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 더했습니다 (brick:hasLocation)
             </li>
             <li v-for="r in sinceOpen.equipmentRemoved" :key="`eq-rm-${r.id}`">
-              설비 <b>{{ r.name }}</b>을 지웠습니다(붙은 연결도 같이)
+              설비 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다(붙은 연결도 같이)
             </li>
             <li v-for="r in sinceOpen.equipmentRenamed" :key="`eq-name-${r.id}`">
               설비 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)
             </li>
-            <li v-for="r in sinceOpen.wallsAdded" :key="`wall-add-${r.id}`">벽 <b>{{ r.name }}</b>을 그었습니다 (GeoJSON)</li>
-            <li v-for="r in sinceOpen.wallsRemoved" :key="`wall-rm-${r.id}`">벽 <b>{{ r.name }}</b>을 지웠습니다(뚫린 문·창도 같이, GeoJSON)</li>
+            <li v-for="r in sinceOpen.wallsAdded" :key="`wall-add-${r.id}`">벽 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 그었습니다 (GeoJSON)</li>
+            <li v-for="r in sinceOpen.wallsRemoved" :key="`wall-rm-${r.id}`">벽 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다(뚫린 문·창도 같이, GeoJSON)</li>
             <li v-for="r in sinceOpen.wallsChanged" :key="`wall-ch-${r.id}`">
               벽 <b>{{ r.name }}</b>:
               <template v-if="r.moved">옮김</template><template v-if="r.moved && r.loadBearing"> · </template>
               <template v-if="r.loadBearing">내력 {{ r.loadBearing.from === null ? '모름' : r.loadBearing.from ? '내력' : '비내력' }} → <b>{{ r.loadBearing.to === null ? '모름' : r.loadBearing.to ? '내력' : '비내력' }}</b></template>
               (GeoJSON)
             </li>
-            <li v-for="r in sinceOpen.openingsAdded" :key="`op-add-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>을 놓았습니다 (GeoJSON)</li>
-            <li v-for="r in sinceOpen.openingsRemoved" :key="`op-rm-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>을 지웠습니다 (GeoJSON)</li>
-            <li v-for="r in sinceOpen.openingsMoved" :key="`op-mv-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>을 옮겼습니다 (GeoJSON 위치·잇는 방)</li>
+            <li v-for="r in sinceOpen.openingsAdded" :key="`op-add-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 놓았습니다 (GeoJSON)</li>
+            <li v-for="r in sinceOpen.openingsRemoved" :key="`op-rm-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다 (GeoJSON)</li>
+            <li v-for="r in sinceOpen.openingsMoved" :key="`op-mv-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 옮겼습니다 (GeoJSON 위치·잇는 방)</li>
             <li v-for="r in sinceOpen.systemMoved" :key="`sys-mv-${r.id}`">
               {{ r.name }}: 계통 <b>{{ systemNameOf(r.from) }}</b> → <b>{{ systemNameOf(r.to) }}</b> (brick:hasPart)
             </li>
-            <li v-for="r in sinceOpen.systemsAdded" :key="`sys-add-${r.id}`">계통 <b>{{ r.name }}</b>을 만들었습니다 (brick:hasPart)</li>
-            <li v-for="r in sinceOpen.systemsRemoved" :key="`sys-rm-${r.id}`">계통 <b>{{ r.name || r.id }}</b>을 지웠습니다</li>
+            <li v-for="r in sinceOpen.systemsAdded" :key="`sys-add-${r.id}`">계통 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 만들었습니다 (brick:hasPart)</li>
+            <li v-for="r in sinceOpen.systemsRemoved" :key="`sys-rm-${r.id}`">계통 <b>{{ r.name || r.id }}</b>{{ josa(r.name || r.id, '을/를') }} 지웠습니다</li>
             <li v-for="r in sinceOpen.systemKinds" :key="`sys-kind-${r.id}`">
               계통 <b>{{ r.name || r.id }}</b>: 종류 {{ systemKindText(r.from.kind, r.from.fluid) }} → <b>{{ systemKindText(r.to.kind, r.to.fluid) }}</b> (계통 클래스)
             </li>
