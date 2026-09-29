@@ -66,7 +66,7 @@ async function openFold(page, title) {
 
 /** 표에서 이름(또는 종류)으로 설비를 고른다. 검색 칸에서 나와야 뒤의 단축키가 먹는다. */
 async function pick(page, query) {
-  const search = page.getByPlaceholder(/물리존·설비 이름이나 종류/)
+  const search = page.getByPlaceholder(/물리존·설비 이름이나 종류|설비 이름·종류나 소속 방/)
   await search.fill(query)
   await openFold(page, /설비 목록|설비 위치와 소속/)
   const button = page.locator('.equipment tbody tr').first().locator('button').first()
@@ -131,7 +131,7 @@ const jobs = {
   async flow() {
     const page = await fresh()
     await openData(page, 'ifc4Mep_IFC4.ifc')
-    const search = page.getByPlaceholder(/물리존·설비 이름이나 종류/)
+    const search = page.getByPlaceholder(/물리존·설비 이름이나 종류|설비 이름·종류나 소속 방/)
     await search.fill('밸브')
     await openFold(page, /설비 목록|설비 위치와 소속/)
     const rows = page.locator('.equipment tbody tr')
