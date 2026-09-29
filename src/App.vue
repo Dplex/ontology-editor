@@ -3742,6 +3742,9 @@ async function openMany(files: readonly FileSource[], into: 'open' | 'append') {
     // 편집이 남아 열기를 물리쳤거나 읽지 못했으면 멈춘다.
     if (!model.value || fileName.value !== ordered[0].name || error.value) return
     rest = ordered.slice(1)
+    // 작업 화면은 맨 위(3D)부터 보인다. data/ 목록 아래쪽의 [열기] 를 누르면 그 스크롤 자리 그대로 열려, 3D 가 화면 위로
+    // 밀려나고 요약·검사 표부터 보였다.
+    window.scrollTo({ top: 0 })
   }
   for (const f of rest) {
     await append(f.name, f.read)
@@ -4189,9 +4192,11 @@ function exportTTL() {
           </p>
           <p v-else-if="counts.equipment > 0" class="hint pick-hint">
             {{
-              selectedSystemId
-                ? '계통 하나만 보는 중입니다. 다시 누르면 전체를 봅니다.'
-                : '설비·배관을 클릭하면 연결된 것이 색으로 표시됩니다. 계통은 오른쪽 범례에서 고르세요.'
+              activeTab === 'plan'
+                ? '방이나 설비(점)를 누르면 오른쪽에 뜹니다. 휠로 확대, 끌어서 이동합니다.'
+                : selectedSystemId
+                  ? '계통 하나만 보는 중입니다. 다시 누르면 전체를 봅니다.'
+                  : '설비·배관을 클릭하면 연결된 것이 색으로 표시됩니다. 바닥을 누르면 그 방이 뜹니다. 계통은 오른쪽 범례에서 고르세요.'
             }}
           </p>
         </section>

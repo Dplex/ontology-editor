@@ -187,6 +187,20 @@ describe('이름 수정 (E1)', () => {
     // 소속 관계는 건드리지 않는다.
     expect(equip('AHU-1').spaceId).toBe(space.id)
   })
+
+  it('이름 사전으로 정한 방 종류는 이름을 따라가고, 되돌리면 같이 돌아온다', () => {
+    // 계단을 "회의실" 로 고쳤는데 brick:Staircase 로 나갔다. 사람이 방 종류를 바로잡는 길이 이름 고치기뿐이다.
+    const space = model.storeys[0].spaces[0]
+    const before = { kind: space.kind, source: space.kindSource }
+    const snap = snapshotSpace(model, space.id)!
+    renameSpace(model, space.id, '계단실 A')
+    expect([space.kind, space.kindSource]).toEqual(['staircase', 'dict'])
+    expect(modelToTTL(model)).toContain('brick:Staircase')
+    renameSpace(model, space.id, 'S.T')
+    expect(space.kind).toBe(null)
+    restore(model, snap)
+    expect({ kind: space.kind, source: space.kindSource }).toEqual(before)
+  })
 })
 
 describe('결과 리포트 (PRD #21)', () => {

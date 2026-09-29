@@ -9,7 +9,7 @@
 
 import { assignEquipment, centroid, isSelfIntersecting } from './mapping'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
-import { equipmentKind, FLUID_KINDS, systemKind, type Fluid } from './kinds'
+import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
 import type { Connection, Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall } from './model'
 import { spacesBesideOpening } from './ifc/element-geometry'
@@ -197,11 +197,20 @@ export function releaseDeclaredSpace(model: Model, equipmentId: string): boolean
 }
 
 /** 물리존 이름을 고친다(E1). 라벨만 바뀌므로 다시 계산할 것이 없다. */
+function setRoomKind(space: Space, found: ReturnType<typeof resolveRoomKind>) {
+  space.kind = found?.info.kind ?? null
+  if (found) space.kindSource = found.source
+  else delete space.kindSource
+}
+
 export function renameSpace(model: Model, spaceId: string, longName: string): boolean {
   for (const storey of model.storeys) {
     const space = storey.spaces.find((s) => s.id === spaceId)
     if (space) {
       space.longName = longName
+      // 이름 사전으로 정한 방 종류는 이름을 따라간다. 계단을 "회의실" 로 고쳤는데 brick:Staircase 로 나갔다 — 이름을
+      // 고치는 것이 사람이 방 종류를 바로잡는 유일한 길이라서다. 임포트와 같은 순서(이름 사전 → OmniClass)로 다시 읽는다.
+      setRoomKind(space, resolveRoomKind(space.name, longName, space.omniclass ?? null))
       return true
     }
   }
@@ -386,7 +395,7 @@ export type Snapshot =
       name: string
       nameEdited: Equipment['nameEdited']
     }
-  | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; longName: string }
+  | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; longName: string; roomKind: Space['kind']; roomKindSource: Space['kindSource'] }
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
   | { kind: 'confirm'; connections: Connection[]; confirmed: boolean }
   | { kind: 'kinds'; entries: { id: string; kind: string | null | undefined; kindEdited: Equipment['kindEdited'] }[] }
@@ -413,7 +422,16 @@ export type Snapshot =
       kind: 'storey-spaces'
       storeyId: string
       spaces: Space[]
-      fields: { space: Space; footprint: Vec2[]; areaM2: number; name: string; longName: string; merged: string[] | undefined }[]
+      fields: {
+        space: Space
+        footprint: Vec2[]
+        areaM2: number
+        name: string
+        longName: string
+        roomKind: Space['kind']
+        roomKindSource: Space['kindSource']
+        merged: string[] | undefined
+      }[]
       equipment: { equipment: Equipment; spaceId: string | null; spaceSource: Equipment['spaceSource'] }[]
       openings: { id: string; connects: string[] | undefined }[]
     }
@@ -471,7 +489,15 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
 export function snapshotSpace(model: Model, spaceId: string): Snapshot | null {
   const space = findSpace(model, spaceId)
   if (!space) return null
-  return { kind: 'space', id: space.id, footprint: [...space.footprint], areaM2: space.areaM2, longName: space.longName }
+  return {
+    kind: 'space',
+    id: space.id,
+    footprint: [...space.footprint],
+    areaM2: space.areaM2,
+    longName: space.longName,
+    roomKind: space.kind,
+    roomKindSource: space.kindSource,
+  }
 }
 
 export function snapshotConnection(model: Model, connection: Connection): Snapshot {
@@ -584,6 +610,9 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       space.footprint = [...snapshot.footprint]
       space.areaM2 = snapshot.areaM2
       space.longName = snapshot.longName
+      space.kind = snapshot.roomKind
+      if (snapshot.roomKindSource) space.kindSource = snapshot.roomKindSource
+      else delete space.kindSource
       reassignStoreyWith(model, space.id)
       return null
     }
@@ -634,6 +663,9 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
         f.space.areaM2 = f.areaM2
         f.space.name = f.name
         f.space.longName = f.longName
+        f.space.kind = f.roomKind
+        if (f.roomKindSource) f.space.kindSource = f.roomKindSource
+        else delete f.space.kindSource
         if (f.merged) f.space.merged = [...f.merged]
         else delete f.space.merged
       }
@@ -1255,6 +1287,8 @@ export function snapshotStoreySpaces(model: Model, storeyId: string): Snapshot |
       areaM2: space.areaM2,
       name: space.name,
       longName: space.longName,
+      roomKind: space.kind,
+      roomKindSource: space.kindSource,
       merged: space.merged ? [...space.merged] : undefined,
     })),
     equipment: storey.equipment.map((equipment) => ({ equipment, spaceId: equipment.spaceId, spaceSource: equipment.spaceSource })),
@@ -1308,6 +1342,9 @@ export function createSpace(model: Model, storeyId: string, spec: NewSpace): Spa
   const ring = withClosing(points, true)
   const before = snapshotSpaces(model)
   storey.spaces.push({ id, name: spec.name, longName: spec.longName, footprint: ring, areaM2: polygonArea(ring), boundedBy: [], added: true })
+  // 사람이 만든 방도 이름으로 종류를 읽는다. 이름을 고친 방과 같은 규칙이라야 편집 파일로 되살린 방과 같아진다.
+  const made = storey.spaces[storey.spaces.length - 1]
+  setRoomKind(made, resolveRoomKind(made.name, made.longName, null))
   return { storeyId: storey.id, created: [id], removed: [], equipment: settleStorey(model, storey, new Set(), before) }
 }
 
@@ -1366,6 +1403,8 @@ export function splitSpace(
     boundedBy: [],
     added: true,
   })
+  const piece = storey.spaces[storey.spaces.length - 1]
+  setRoomKind(piece, resolveRoomKind(piece.name, piece.longName, null))
   // BIM 이 원래 방에 둔 설비 중 새 조각에 든 것은 BIM 소속을 버린다. 원래 방은 이제 그 자리를 품지 않는다.
   for (const e of storey.equipment) {
     if (e.spaceSource === 'bim' && e.spaceId === spaceId && e.position && pointInRing([e.position[0], e.position[1]], small)) {
