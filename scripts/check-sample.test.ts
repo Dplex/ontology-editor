@@ -1024,11 +1024,11 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     expect(rows.get('R7')!.state).toBe('missing')
     expect(brief('R14')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 269, of: 272 } })
     expect(rows.get('R10')!.state).toBe('elsewhere')
-    expect(brief('R17')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 3701, of: 3806 } })
-    expect(brief('R22')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 563, of: 566 } })
+    expect(brief('R16')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 3701, of: 3806 } })
+    expect(brief('R21')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 563, of: 566 } })
     // SPLITSYSTEM 2대는 표준 값이지만 받지 않는다(kinds.ts 의 IFC_REJECTED). 이름 사전이 종류를 알아서 다른 자리로 간다.
-    expect(brief('R25')).toEqual({ state: 'partial', counts: { standard: 662, elsewhere: 5, of: 668 } })
-    expect(rows.get('R23')!.note).toContain('기본값')
+    expect(brief('R24')).toEqual({ state: 'partial', counts: { standard: 662, elsewhere: 5, of: 668 } })
+    expect(rows.get('R22')!.note).toContain('기본값')
   }, 300_000)
 
   // 방 종류. Revit 은 방마다 OmniClass Table 13 코드를 `Category Code` 속성으로 적는다(269/269). 이름 사전이 먼저이고

@@ -75,6 +75,6 @@
 
   <!-- 결론 -->
   <rect x="24" y="500" width="1192" height="80" rx="10" fill="#e8efff" stroke="#2563eb"/>
-  <text x="44" y="530" class="b">고객사에 요구할 것 (R18): <tspan class="acc">연결마다 한쪽 포트에만</tspan> SOURCE 또는 SINK 가 있으면 된다.</text>
+  <text x="44" y="530" class="b">고객사에 요구할 것 (R17): <tspan class="acc">연결마다 한쪽 포트에만</tspan> SOURCE 또는 SINK 가 있으면 된다.</text>
   <text x="44" y="556" class="s">한쪽이 SOURCE 면 반대쪽은 SINK 일 수밖에 없다. 모든 포트를 바르게 내보내게 하는 것보다 훨씬 쉽다. 단, 원천 기기(보일러·펌프·공조기)도 모델에 있어야 사슬이 끝까지 이어진다.</text>
 </svg>

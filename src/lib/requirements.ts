@@ -53,22 +53,22 @@ export const REQUIREMENTS: { id: string; level: RequirementLevel; title: string 
   { id: 'R5', level: '권장', title: '공간 경계' },
   { id: 'R14', level: '권장', title: '방 분류(OmniClass)' },
   { id: 'R10', level: '권장', title: 'IFC4 형식' },
-  { id: 'R25', level: '권장', title: '설비 종류' },
-  { id: 'R24', level: '권장', title: 'Proxy를 쓰지 않음' },
-  { id: 'R16', level: '권장', title: '설비 형상이 서로 맞닿음' },
+  { id: 'R24', level: '권장', title: '설비 종류' },
+  { id: 'R23', level: '권장', title: 'Proxy를 쓰지 않음' },
+  { id: 'R15', level: '권장', title: '설비 형상이 서로 맞닿음' },
   { id: 'R8', level: '권장', title: '형상 정확도 LOD 300' },
-  { id: 'R17', level: '권장', title: '계통과 계통 종류' },
-  { id: 'R18', level: '권장', title: '포트의 흐름 방향' },
-  { id: 'R19', level: '권장', title: '공조기와 말단을 같은 계통으로' },
-  { id: 'R20', level: '권장', title: '공조존' },
-  { id: 'R21', level: '권장', title: '센서의 측정 대상 설비' },
-  { id: 'R22', level: '권장', title: '용량' },
-  { id: 'R23', level: '권장', title: '벽의 내력 여부' },
+  { id: 'R16', level: '권장', title: '계통과 계통 종류' },
+  { id: 'R17', level: '권장', title: '포트의 흐름 방향' },
+  { id: 'R18', level: '권장', title: '공조기와 말단을 같은 계통으로' },
+  { id: 'R19', level: '권장', title: '공조존' },
+  { id: 'R20', level: '권장', title: '센서의 측정 대상 설비' },
+  { id: 'R21', level: '권장', title: '용량' },
+  { id: 'R22', level: '권장', title: '벽의 내력 여부' },
 ]
 
 /**
  * `클래스.값` 의 값이 IFC 표준 열거값인가(IFC2x3·IFC4·IFC4X3 중 하나에라도 있으면). USERDEFINED 로 적은 유형 이름
- * (`Fan.200 mm`)은 아니다. requirements.ids 의 R25 가 허용하는 것과 같은 기준이다.
+ * (`Fan.200 mm`)은 아니다. requirements.ids 의 R24 가 허용하는 것과 같은 기준이다.
  */
 function isStandardPredefined(declared: string | null | undefined): boolean {
   const dot = declared?.indexOf('.') ?? -1
@@ -243,7 +243,7 @@ export function requirementsReport(
     const said = devices.filter((e) => equipmentKindOfIfc(e.declaredType) || isStandardPredefined(e.declaredType))
     const byName = devices.filter((e) => e.kind && !said.includes(e))
     const unknown = devices.length - said.length - byName.length
-    set('R25', {
+    set('R24', {
       ...counted(said.length, byName.length, devices.length),
       note: [
         byName.length > 0 ? `${byName.length}대는 IFC에 종류가 없어 패밀리 이름으로 정했습니다.` : 'IFC 클래스·PredefinedType에 종류가 있는 설비입니다.',
@@ -254,7 +254,7 @@ export function requirementsReport(
 
   {
     const proxies = devices.filter((e) => e.ifcClass === 'BuildingElementProxy').length
-    set('R24', {
+    set('R23', {
       ...counted(devices.length - proxies, proxies, devices.length),
       note: proxies > 0
         ? `${proxies}대가 IfcBuildingElementProxy입니다. 포트가 있거나 이름이 사전에 있어 설비로 읽었습니다.`
@@ -262,14 +262,14 @@ export function requirementsReport(
     })
   }
 
-  set('R16', unmeasured('형상이 맞닿는지는 3D의 연결망에서 확인하세요.'))
+  set('R15', unmeasured('형상이 맞닿는지는 3D의 연결망에서 확인하세요.'))
 
   {
     const std = all.filter((e) => e.systemId && systemById.get(e.systemId)?.source === 'ifc').length
     const prop = all.filter((e) => e.systemId && systemById.get(e.systemId)?.source === 'property').length
     const kinds = model.systems.filter((s) => s.kind)
     const kindBim = kinds.filter((s) => s.kindSource === 'bim').length
-    set('R17', {
+    set('R16', {
       ...counted(std, prop, all.length),
       note: [
         prop > 0 ? `${prop}개는 IfcSystem 대신 Revit System Name 속성으로 묶었습니다.` : '계통에 묶인 설비·덕트·배관입니다.',
@@ -281,7 +281,7 @@ export function requirementsReport(
   {
     const ported = model.connections.filter((c) => c.source === 'port')
     const directed = ported.filter((c) => c.directed).length
-    set('R18', ported.length === 0
+    set('R17', ported.length === 0
       ? {
           state: model.connections.length > 0 ? 'missing' : 'none',
           counts: null,
@@ -299,20 +299,20 @@ export function requirementsReport(
       const r = s.memberIds.map((id) => role.get(id))
       return r.some((x) => x === 'conversion' || x === 'moving') && r.includes('terminal')
     }).length
-    set('R19', model.systems.length === 0
+    set('R18', model.systems.length === 0
       ? { state: 'none', counts: null, note: '계통이 없습니다.' }
       : { state: both > 0 ? 'standard' : 'missing', counts: null, note: `계통 ${model.systems.length}개 중 원천 기기와 말단을 함께 묶은 것이 ${both}개입니다.` })
   }
 
-  set('R20', unmeasured('공조존은 IFC에서 읽지 않고 IDF에서 받습니다.'))
-  set('R21', unmeasured('센서와 측정 대상 설비의 관계는 읽지 않습니다. 관제점과 함께 BAS에서 연결합니다.'))
+  set('R19', unmeasured('공조존은 IFC에서 읽지 않고 IDF에서 받습니다.'))
+  set('R20', unmeasured('센서와 측정 대상 설비의 관계는 읽지 않습니다. 관제점과 함께 BAS에서 연결합니다.'))
 
   {
     const want = devices.filter((e: Equipment) => CAPACITY_KINDS.has(equipmentKind(e.kind)?.kind ?? ''))
     const std = want.filter((e) => e.capacity !== null && isStandardCapacity(e.capacityProperty)).length
     const other = want.filter((e) => e.capacity !== null && !isStandardCapacity(e.capacityProperty))
     const names = [...new Set(other.map((e) => e.capacityProperty))].slice(0, 3).join(', ')
-    set('R22', {
+    set('R21', {
       ...counted(std, other.length, want.length),
       note: other.length > 0
         ? `${other.length}대는 저작 도구 속성명(${names})으로 들어 있습니다. 표준 Pset으로 매핑하면 표준 자리로 옮겨집니다.`
@@ -320,12 +320,12 @@ export function requirementsReport(
     })
   }
 
-  if (skipped.has('walls')) set('R23', unmeasured('벽을 읽지 않고 열었습니다. 벽을 읽도록 켜고 다시 여세요.'))
+  if (skipped.has('walls')) set('R22', unmeasured('벽을 읽지 않고 열었습니다. 벽을 읽도록 켜고 다시 여세요.'))
   else {
     const known = walls.filter((w) => w.loadBearing !== null)
     const trues = known.filter((w) => w.loadBearing).length
     const uniform = known.length >= 20 && (trues === 0 || trues === known.length)
-    set('R23', {
+    set('R22', {
       ...counted(known.length, 0, walls.length),
       note: walls.length === 0
         ? '벽이 없습니다.'

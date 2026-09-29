@@ -85,7 +85,7 @@ test('요구사항 칸이 R 번호마다 표준 자리·다른 자리·없음을
   // 좌표 없는 센서 하나(일부), 용량 없는 토출구 하나(일부), 지도 변환 없음(없음), 단위는 있다(표준 자리).
   await expect(row('R11').locator('.req-state')).toHaveText('일부')
   await expect(row('R11')).toContainText('4 / 5')
-  await expect(row('R22').locator('.req-state')).toHaveText('일부')
+  await expect(row('R21').locator('.req-state')).toHaveText('일부')
   await expect(row('R7').locator('.req-state')).toHaveText('없음')
   await expect(row('R6').locator('.req-state')).toHaveText('표준 자리')
   await expect(row('R12').locator('.req-state')).toHaveText('잴 수 없음')
@@ -432,9 +432,9 @@ test('벽·문·창은 피처 단위로 골라 읽고, 읽지 않은 것은 요�
   await expect(tiles.locator('li.skipped', { hasText: '창문' })).toContainText('읽지 않음')
   await expect(tiles.locator('li', { hasText: '내력벽' })).toHaveCount(0)
   await expect(tiles.locator('li', { hasText: '문' }).first()).toBeVisible()
-  // 요구사항 R23(벽의 내력 속성)은 잴 수 없음이다.
+  // 요구사항 R22(벽의 내력 속성)은 잴 수 없음이다.
   await page.locator('.requirements .fold-head').click()
-  await expect(page.locator('.requirements tr', { hasText: 'R23' })).toContainText('벽을 읽지 않고 열었습니다')
+  await expect(page.locator('.requirements tr', { hasText: 'R22' })).toContainText('벽을 읽지 않고 열었습니다')
 })
 
 test('편집 뒤 화면이 다시 그려져도 치고 있던 칸은 지워지지 않는다', async ({ page }) => {

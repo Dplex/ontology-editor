@@ -499,10 +499,10 @@ describe('피처 단위로 골라 읽기 (벽·문·창)', () => {
 
   it('요구사항 보고서는 읽지 않은 피처를 "없음" 이 아니라 잴 수 없음으로 둔다', () => {
     const rows = requirementsReport(importIfc(api, bytes(), { walls: false }))
-    expect(rows.find((r) => r.id === 'R23')?.state).toBe('unmeasured')
+    expect(rows.find((r) => r.id === 'R22')?.state).toBe('unmeasured')
     expect(rows.find((r) => r.id === 'R4')?.state).toBe('unmeasured')
     const all = requirementsReport(importIfc(api, bytes()))
-    expect(all.find((r) => r.id === 'R23')?.state).not.toBe('unmeasured')
+    expect(all.find((r) => r.id === 'R22')?.state).not.toBe('unmeasured')
   })
 
   it('기본은 다 읽는다', () => {

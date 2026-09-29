@@ -1011,7 +1011,7 @@ export type ImportOptions = {
   openings?: boolean
   /**
    * 벽·문·창을 읽을지(피처 단위, 기본은 다 읽는다). 셋 다 GeoJSON 에만 나가고 TTL 에는 없어서 **온톨로지에는 필요
-   * 없다.** 벽은 3D 내력벽·요구사항 R23, 문은 방-문-방(F15), 창은 개구부(F4)에 쓴다. 끄면 그 요소를 모델에 넣지 않고
+   * 없다.** 벽은 3D 내력벽·요구사항 R22, 문은 방-문-방(F15), 창은 개구부(F4)에 쓴다. 끄면 그 요소를 모델에 넣지 않고
    * `Model.skipped` 에 적는다 — 요구사항 보고서가 "없음" 과 "읽지 않음" 을 가른다.
    */
   walls?: boolean
@@ -1478,7 +1478,7 @@ function read(
 
     if (proxies.ported + proxies.named > 0) {
       warnings.push(
-        `Proxy(IfcBuildingElementProxy) ${proxies.ported + proxies.named}개를 설비로 읽었습니다(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 정한 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름으로 추정했습니다(요구사항 R24).`,
+        `Proxy(IfcBuildingElementProxy) ${proxies.ported + proxies.named}개를 설비로 읽었습니다(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 정한 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름으로 추정했습니다(요구사항 R23).`,
       )
     }
 

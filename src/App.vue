@@ -4642,6 +4642,14 @@ function exportTTL() {
               <h3>{{ selectedSpace.space.longName || selectedSpace.space.name }}</h3>
               <p class="stats">
                 물리존 {{ selectedSpace.space.name }} <Src kind="bim" /> · {{ selectedSpace.storey.name }} <Src kind="bim" /> ·
+                <!-- 방 종류(TTL 의 Brick 클래스). 이름을 고치면 따라 바뀌므로, 고친 사람이 무엇이 됐는지 여기서 본다. -->
+                <span class="space-kind">
+                  <template v-if="roomKind(selectedSpace.space.kind)">
+                    {{ roomKind(selectedSpace.space.kind)!.label }} <Src :kind="selectedSpace.space.kindSource === 'bim' ? 'bim' : 'dict'" />
+                  </template>
+                  <span v-else class="muted">종류 모름</span>
+                </span>
+                ·
                 <b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡
                 <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /> · 소속 기기 {{ spaceDevices.length }}대<template v-if="spaceConduits.length">
                 · 덕트·배관 {{ spaceConduits.length }}개</template>
@@ -4666,6 +4674,7 @@ function exportTTL() {
             />
           </label>
           <p v-if="editing" class="hint">
+            방 종류는 이름으로 정합니다. 이름을 고치면 종류도 새 이름으로 다시 읽습니다(사전이 모르는 이름이면 BIM 의 방 분류를 씁니다).
             파란 손잡이를 끌어 경계를 고칩니다. 넓이와 설비 소속은 다시 계산됩니다. 경계선이 서로 교차하는 곳으로는
             옮길 수 없습니다. <kbd>[ ]</kbd>로 꼭짓점을 고르면 넣거나 지울 수 있습니다.
           </p>
@@ -5390,6 +5399,7 @@ function exportTTL() {
                   <tr>
                     <th>층</th>
                     <th>이름</th>
+                    <th>종류</th>
                     <th>방 번호</th>
                     <th class="num">넓이</th>
                     <th>꼭짓점 (x, y)</th>
@@ -5406,6 +5416,11 @@ function exportTTL() {
                         :aria-label="`${sp.name} 이름`"
                         @change="applyRename(sp.id, ($event.target as HTMLInputElement).value)"
                       />
+                    </td>
+                    <!-- 이름을 고치면 따라 바뀐다(renameSpace). 옆에 두어야 고친 자리에서 바로 보인다. -->
+                    <td class="space-kind">
+                      <template v-if="roomKind(sp.kind)">{{ roomKind(sp.kind)!.label }} <Src :kind="sp.kindSource === 'bim' ? 'bim' : 'dict'" /></template>
+                      <span v-else class="muted">모름</span>
                     </td>
                     <td class="mono muted">{{ sp.name }}</td>
                     <td class="num mono">{{ sp.areaM2.toFixed(1) }} ㎡</td>

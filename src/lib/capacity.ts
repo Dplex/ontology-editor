@@ -9,7 +9,7 @@ export type CapacityQuantity = 'airflow' | 'waterflow' | 'power' | 'flow'
 /**
  * **앞에 있을수록 우선한다.** 표준 이름을 저작 도구 이름보다 먼저 둔다 — 둘 다 있으면 표준 쪽이 검증을 거친 값이다.
  *
- * 앞쪽은 IFC4 표준 Pset 의 이름이고 `docs/requirements.ids` 의 R22 가 요구하는 것과 같다. 대부분 타입 객체의
+ * 앞쪽은 IFC4 표준 Pset 의 이름이고 `docs/requirements.ids` 의 R21 이 요구하는 것과 같다. 대부분 타입 객체의
  * `Pset_*TypeCommon` 에 붙는다. 공조기·FCU 는 IFC4 표준에 용량 자리가 없어 `DT_Capacity.NominalAirFlowRate` 로
  * 적게 한다(이름은 팬·VAV 의 표준 속성과 같게 두었다). 뒤쪽은 Revit 이 붙이는 이름이다.
  */
@@ -56,9 +56,9 @@ export const CAPACITY_PREDICATE: Record<CapacityQuantity, string> = {
 }
 
 /**
- * 용량을 요구하는 종류. requirements.ids 의 R22 가 요구하는 클래스(공조기·FCU 류, 팬, 펌프, 냉동기, 냉각탑,
+ * 용량을 요구하는 종류. requirements.ids 의 R21 이 요구하는 클래스(공조기·FCU 류, 팬, 펌프, 냉동기, 냉각탑,
  * 방열기, VAV, 에어 터미널)와 같다. 보일러는 IFC4 표준 Pset 에 출력 자리가 없어 빠진다.
- * 요구사항 보고서(R22)와 임포트 경고가 같은 것을 센다 — 경고가 덕트·배관과 거울까지 세서 ifc4Mep 기기 308대에
+ * 요구사항 보고서(R21)와 임포트 경고가 같은 것을 센다 — 경고가 덕트·배관과 거울까지 세서 ifc4Mep 기기 308대에
  * "2130대에 용량이 없다" 고 했다.
  */
 export const CAPACITY_KINDS = new Set([

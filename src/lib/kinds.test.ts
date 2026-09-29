@@ -160,6 +160,31 @@ describe('방 종류 사전', () => {
     expect(resolveRoomKind('', 'JAN. CL.', '13-75 11 11')).toEqual({ info: expect.objectContaining({ kind: 'janitor' }), source: 'dict' })
   })
 
+  // 방 이름 고치기가 방 종류를 바로잡는 길이다(edit.ts 의 renameSpace). 사람이 치는 이름은 낱말이 섞인다 — 목록 순서로
+  // 첫 종류를 고르던 때는 마지막을 뺀 다섯이 틀렸다(계단실·사무실·회의실·계단실·화장실).
+  it.each([
+    ['계단 앞 복도', 'hallway'],
+    ['사무실 옆 계단실', 'staircase'],
+    ['창고(구 회의실)', 'storage'],
+    ['계단쪽 창고', 'storage'],
+    ['화장실 청소도구실', 'janitor'],
+    ['ELEV. LOBBY', 'lobby'],
+  ])('여러 종류가 걸리면 이름의 머리를 따른다: %s → %s', (name, expected) => {
+    expect(roomKindOf('', name)?.kind).toBe(expected)
+  })
+
+  it('자리 말 앞의 낱말은 꾸밈말이다 — 사전이 머리를 모르면 모름이고, 그때는 OmniClass 가 말한다', () => {
+    expect(roomKindOf('', '화장실 앞 대기')).toBeNull()
+    expect(resolveRoomKind('', '화장실 앞 대기', '13-15 11 34 11')).toEqual({ info: expect.objectContaining({ kind: 'office' }), source: 'bim' })
+  })
+
+  it('나란히 적은 이름과 방 번호는 예전처럼 목록 순서다 — 가진 BIM 의 임포트 결과를 바꾸지 않는다', () => {
+    expect(roomKindOf('', 'EPS/TPS')?.kind).toBe('electrical')
+    expect(roomKindOf('', 'OFFICE / STORAGE')?.kind).toBe('office')
+    // 괄호 밖이 아무것도 말하지 않으면 괄호 안을 본다.
+    expect(roomKindOf('', 'Room 3 (Storage)')?.kind).toBe('storage')
+  })
+
   it('표에 없는 코드는 넓히지 않는다 — 상위 코드가 같아도 다른 방이다', () => {
     // 13-75 41 24 위험물 창고, 13-51 21 11 침실, 13-41 11 14 11 욕실
     for (const code of ['13-75 41 24', '13-51 21 11', '13-41 11 14 11']) expect(resolveRoomKind('', 'Room', code)).toBeNull()

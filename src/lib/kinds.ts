@@ -41,7 +41,7 @@ export type EquipmentKindInfo = {
    * `클래스`(`Boiler`)다. 클래스는 Ifc 를 뗀 것이고 IFC2x3 에서는 타입 객체의 클래스다(`IfcAirTerminalType` → `AirTerminal`).
    * USERDEFINED 는 ObjectType(타입이면 ElementType)의 값을 PredefinedType 자리에 둔다(`UnitaryEquipment.FANCOILUNIT`).
    *
-   * **이 표가 곧 고객사에 요구하는 어휘(`docs/requirements.ids` 의 R25)다.** IFC4 열거값에 있는 것은 그 값을, 없는 것은
+   * **이 표가 곧 고객사에 요구하는 어휘(`docs/requirements.ids` 의 R24)다.** IFC4 열거값에 있는 것은 그 값을, 없는 것은
    * 우리가 정한 USERDEFINED 이름을 쓴다. 한쪽에만 넣으면 IDS 를 지킨 파일을 못 읽으므로 `requirements-ids.test.ts` 가 둘을 맞춰 본다.
    */
   ifc?: string[]
@@ -161,7 +161,7 @@ export type KindSource = 'bim' | 'dict'
 
 /**
  * IFC 표준 값이지만 요구하지 않는 것. 종류를 가르지 못해서다 — `SPLITSYSTEM` 은 실내기와 실외기를 가르지 않는다
- * (병원 HVAC 는 급기·환기 풍량을 가진 패키지 공조기에 썼다). requirements.ids 의 R25 가 이 값을 받지 않고,
+ * (병원 HVAC 는 급기·환기 풍량을 가진 패키지 공조기에 썼다). requirements.ids 의 R24 가 이 값을 받지 않고,
  * 요구사항 보고서도 표준 자리로 세지 않는다.
  */
 export const IFC_REJECTED: readonly string[] = ['UnitaryEquipment.SPLITSYSTEM']
@@ -315,13 +315,47 @@ export function omniclassCode(text: string | null | undefined): string | null {
   return m ? m[1] : null
 }
 
+/** 앞 낱말을 꾸밈말로 만드는 자리 말. `계단 앞 복도` 의 `계단` 은 복도가 어디 있는지를 말할 뿐이다. */
+const LOCATIVE = /^\s*(앞|옆|뒤|쪽|근처|주변|맞은편|건너편)(의|에)?(?![가-힣])/
+const ROOM_KINDS_G = ROOM_KINDS.map((k) => ({ info: k, all: new RegExp(k.test.source, k.test.flags.replace('g', '') + 'g') }))
+
+/** 한 이름 조각에서 종류를 가리키는 마지막 낱말(머리). 우리말도 영어도 이름의 머리가 뒤에 온다(`사무실 옆 계단실`, `ELEV. LOBBY`). */
+function headKind(text: string): RoomKindInfo | null {
+  let best: { info: RoomKindInfo; at: number } | null = null
+  for (const { info, all } of ROOM_KINDS_G) {
+    for (const m of text.matchAll(all)) {
+      if (LOCATIVE.test(text.slice(m.index + m[0].length))) continue
+      if (!best || m.index > best.at) best = { info, at: m.index }
+    }
+  }
+  return best?.info ?? null
+}
+
+/**
+ * 이름 사전으로 방 종류를 읽는다. 한 이름에 여러 종류가 걸리면 이름의 머리를 따른다 — 목록 순서로 첫 것을 고르던 때는
+ * `계단 앞 복도` 가 계단실, `창고(구 회의실)` 가 회의실, `화장실 청소도구실` 이 화장실이 됐다. 방 이름 고치기가 방 종류를 바로잡는 길이라(edit.ts 의
+ * renameSpace) 사람이 치는 이런 이름에서 틀리면 안 된다.
+ * - 자리 말(앞·옆·뒤) 앞의 낱말은 꾸밈말이라 세지 않는다. `화장실 앞 대기` 는 화장실이 아니다(사전이 모르면 모름).
+ * - 괄호 안은 덧붙인 말이라 괄호 밖이 아무것도 말하지 않을 때만 본다.
+ * - `/`·`,` 로 나란히 적은 이름(`TPS/EPS`)과 방 번호는 조각마다 머리를 찾고, 조각끼리는 예전처럼 목록 순서로 고른다.
+ *   가진 BIM 의 임포트 결과를 바꾸지 않으려는 것이다(check:sample).
+ */
+function roomKindByName(longName: string, name: string): RoomKindInfo | null {
+  const pieces = (text: string) => text.split(/[/,&+·]/)
+  const pick = (texts: string[]) => {
+    const heads = new Set(texts.flatMap(pieces).map(headKind).filter((k): k is RoomKindInfo => k !== null))
+    return ROOM_KINDS.find((k) => heads.has(k)) ?? null
+  }
+  const plain = (t: string) => t.replace(/\([^)]*\)?/g, ' ')
+  return pick([plain(longName), plain(name)]) ?? pick([longName, name])
+}
+
 /**
  * 방 종류와 그 출처. 이름 사전이 먼저다 — 병원의 `JAN. CL.` 은 OmniClass 로는 창고(13-75 11 11)지만 이름이 청소도구실이라고
  * 더 좁게 말한다. 이름이 모를 때 OmniClass 코드를 쓰고, 그때 출처는 BIM 이다.
  */
 export function resolveRoomKind(name: string, longName = '', omniclass: string | null = null): { info: RoomKindInfo; source: KindSource } | null {
-  const text = `${longName} ${name}`
-  const byName = ROOM_KINDS.find((k) => k.test.test(text))
+  const byName = roomKindByName(longName, name)
   if (byName) return { info: byName, source: 'dict' }
   const byCode = omniclass ? ROOM_BY_OMNICLASS.get(omniclass) : undefined
   return byCode ? { info: byCode, source: 'bim' } : null
@@ -375,7 +409,7 @@ export const SYSTEM_KINDS: SystemKindInfo[] = [
 const SYSTEM_BY_KIND = new Map(SYSTEM_KINDS.map((k) => [k.kind, k]))
 
 /**
- * IFC 가 계통 종류를 말하는 법. **이 표가 곧 고객사에 요구하는 어휘(`docs/requirements.ids` 의 R17)다.**
+ * IFC 가 계통 종류를 말하는 법. **이 표가 곧 고객사에 요구하는 어휘(`docs/requirements.ids` 의 R16)다.**
  *
  * IFC4 의 `IfcDistributionSystem.PredefinedType` 은 한 계통 안에서 공급과 환수를 가르지 않는다(AIRCONDITIONING·
  * VENTILATION·HEATING·CHILLEDWATER). 방향을 정하려면 그 둘을 갈라야 해서 ObjectType 에 약어를 하나 더 적게 한다.
@@ -434,7 +468,7 @@ export type Fluid = 'chilled' | 'hot' | 'condenser'
 export type FluidInfo = {
   fluid: Fluid
   label: string
-  /** 이 값을 말하는 `IfcDistributionSystem.PredefinedType`. R17 이 이미 요구하는 자리라 어휘가 늘지 않는다. */
+  /** 이 값을 말하는 `IfcDistributionSystem.PredefinedType`. R16 이 이미 요구하는 자리라 어휘가 늘지 않는다. */
   predefined: string
   /** 이름·ObjectType 에서 읽는 식. 두 유체가 같이 맞으면(`냉온수`) 정하지 않는다. */
   test: RegExp

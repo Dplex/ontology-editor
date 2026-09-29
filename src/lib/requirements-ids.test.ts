@@ -68,7 +68,7 @@ describe('requirements.ids', () => {
     expect(new Map(REQUIREMENTS.map((r) => [r.id, r.level]))).toEqual(doc)
   })
 
-  it('R25 의 설비 종류는 kinds.ts 의 ifc 표와 같은 어휘다', () => {
+  it('R24 의 설비 종류는 kinds.ts 의 ifc 표와 같은 어휘다', () => {
     // kinds.ts 에서 `클래스.값` 꼴로 종류가 정해지는 클래스. 클래스만으로 정해지는 것(Boiler …)은 요구하지 않는다.
     const byClass = new Map<string, Set<string>>()
     for (const k of EQUIPMENT_KINDS) {
@@ -80,7 +80,7 @@ describe('requirements.ids', () => {
       }
     }
 
-    const r25 = specs('R25 설비 종류')
+    const r25 = specs('R24 설비 종류')
     const idsClasses = r25.map((s) => simpleValues(s.applicability)[0])
     expect(new Set(idsClasses)).toEqual(new Set([...byClass.keys()].map((c) => `IFC${c.toUpperCase()}`)))
 
@@ -98,8 +98,8 @@ describe('requirements.ids', () => {
     }
   })
 
-  it('R17 의 계통 약어는 kinds.ts 의 SYSTEM_IFC 와 같다', () => {
-    const [kind, air, water] = ['R17 계통 종류', 'R17 공기 계통', 'R17 물 계통'].map((p) => specs(p)[0])
+  it('R16 의 계통 약어는 kinds.ts 의 SYSTEM_IFC 와 같다', () => {
+    const [kind, air, water] = ['R16 계통 종류', 'R16 공기 계통', 'R16 물 계통'].map((p) => specs(p)[0])
     expect(kind && air && water).toBeTruthy()
     expect(new Set(enumerations(air.requirements))).toEqual(new Set(Object.keys(SYSTEM_IFC.air.codes)))
     expect(new Set(enumerations(water.requirements))).toEqual(new Set(Object.keys(SYSTEM_IFC.water.codes)))
@@ -138,9 +138,9 @@ describe('requirements.ids', () => {
     for (const n of PLACEHOLDER_NAMES) expect([n, lower.has(n)]).toEqual([n, true])
   })
 
-  it('R22 의 용량 속성은 capacity.ts 가 읽는 이름이다', () => {
+  it('R21 의 용량 속성은 capacity.ts 가 읽는 이름이다', () => {
     const ours = new Set(CAPACITY_PROPERTIES.map((p) => p.name))
-    const names = specs('R22').flatMap((s) => {
+    const names = specs('R21').flatMap((s) => {
       const base = /<baseName>([\s\S]*?)<\/baseName>/.exec(s.requirements)?.[1] ?? ''
       return [...simpleValues(base), ...enumerations(base)]
     })

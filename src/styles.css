@@ -2402,6 +2402,11 @@ main.has-model .catalog {
   min-width: 10rem;
 }
 
+/* 방 종류와 출처 표는 한 덩어리로 둔다. 줄이 바뀌면 출처가 다음 칸 것처럼 보인다. */
+.space-kind {
+  white-space: nowrap;
+}
+
 /* 오른쪽 패널의 물리존 이름칸. */
 .space-name {
   display: flex;
