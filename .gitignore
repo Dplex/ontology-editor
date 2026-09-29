@@ -45,3 +45,6 @@ public/web-ifc.wasm
 # ---- 정적 서버(scripts/run.sh) ----
 /run/
 /log/
+
+# check:seongsu 를 tee 로 남긴 것(docs/seongsu-test.md A)
+seongsu-check.log
