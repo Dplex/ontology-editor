@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 
 // 픽스처 IFC 를 그대로 올린다. 단위 테스트는 Node 에서 파서를 부르지만, 여기서는 브라우저가
@@ -458,4 +459,33 @@ test('층을 고르면 3D 와 편집 표가 그 층으로 같이 좁혀진다', 
 
   await storey.selectOption({ label: '전체 층' })
   await expect(names).toHaveCount(all)
+})
+
+test('사전 밖 기기를 묶음으로 종류를 정하면 편집 출처가 붙고 TTL 클래스가 바뀌며 새로고침 뒤에도 남는다', async ({ page }) => {
+  test.setTimeout(120_000)
+  const open = async () => {
+    await page.locator('input[type=file]').first().setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+    await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  }
+  await page.goto('/')
+  await open()
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+
+  const fold = page.locator('.kind-assign')
+  await expect(fold).toContainText('종류 모름 1대')
+  await fold.getByText('사전 밖 기기의 종류 정하기').click()
+  await fold.getByRole('combobox', { name: 'TEMP-101-01 종류' }).selectOption('heat_detector')
+  await expect(fold).toContainText('종류 모름 0대')
+
+  await page.locator('.equipment tbody tr', { hasText: 'TEMP-101-01' }).getByRole('button').first().click()
+  await expect(page.locator('.picked .stats')).toContainText('열감지기 편집')
+
+  const [download] = await Promise.all([page.waitForEvent('download'), page.locator('.actions').getByRole('button', { name: /Brick TTL/ }).click()])
+  const ttl = readFileSync(await download.path(), 'utf-8')
+  expect(ttl).toContain('brick:Heat_Detector')
+
+  await page.reload()
+  await open()
+  await expect(page.locator('.edit-notice')).toContainText('자동 저장된 편집 1건을 다시 붙였습니다')
+  await expect(page.locator('.kind-assign')).toContainText('종류 모름 0대')
 })

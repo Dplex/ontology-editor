@@ -4,6 +4,8 @@ import * as WebIFC from 'web-ifc'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import {
+  assignKind,
+  kindGroups,
   moveEquipment,
   moveEquipmentToStorey,
   moveSpaceVertex,
@@ -12,7 +14,7 @@ import {
   summarize,
   type Change,
 } from './edit'
-import type { Model } from './model'
+import type { Equipment, Model } from './model'
 
 let api: WebIFC.IfcAPI
 let model: Model
@@ -201,5 +203,69 @@ describe('물리존 경계 수정 (E2)', () => {
   it('없는 꼭짓점이면 아무것도 안 한다', () => {
     expect(moveSpaceVertex(model, office().id, 99, [0, 0])).toBe(null)
     expect(moveSpaceVertex(model, '없는-id', 0, [0, 0])).toBe(null)
+  })
+})
+
+describe('종류 지정', () => {
+  const eqOf = (id: string, name: string, role: Equipment['role'] = 'terminal', kind: string | null = null): Equipment => ({
+    id,
+    name,
+    ifcClass: 'BuildingElementProxy',
+    kind,
+    role,
+    position: null,
+    capacity: null,
+    capacityProperty: null,
+    systemId: null,
+    spaceId: null,
+    spaceSource: null,
+  })
+  const m = (): Model => ({
+    schema: 'IFC2X3',
+    siteName: '',
+    buildingId: 'b',
+    buildingName: '',
+    storeys: [
+      {
+        id: 's',
+        name: '1F',
+        elevation: 0,
+        spaces: [],
+        walls: [],
+        openings: [],
+        equipment: [
+          eqOf('a', 'VAV:Type1:101'),
+          eqOf('b', 'VAV:Type1:102'),
+          eqOf('c', 'Mystery:X:103'),
+          eqOf('d', 'FCU3:FCU3:104', 'conversion', 'fcu'), // 사전이 안다
+          eqOf('e', 'Duct:D:105', 'segment'), // 덕트는 묻지 않는다
+        ],
+      },
+    ],
+    systems: [],
+    connections: [],
+    warnings: [],
+  })
+
+  it('사전이 모르는 기기만 패밀리:타입으로 묶고, 요소 ID 끝자리는 뗀다', () => {
+    const groups = kindGroups(m())
+    expect(groups.map((g) => [g.family, g.ids])).toEqual([
+      ['VAV:Type1', ['a', 'b']],
+      ['Mystery:X', ['c']],
+    ])
+  })
+
+  it('정하면 기기에 편집으로 붙고, 지우면 사전 값으로 돌아간다. 정한 기기도 묶음에 남아 바꿀 수 있다', () => {
+    const model = m()
+    expect(assignKind(model, 'a', 'vav', null)).toEqual({ before: null, after: 'vav' })
+    const a = model.storeys[0].equipment[0]
+    expect(a).toMatchObject({ kind: 'vav', kindSource: 'edit' })
+    // 묶음 안에서 하나만 정했으면 묶음 전체의 값은 없다.
+    expect(kindGroups(model)[0]).toMatchObject({ family: 'VAV:Type1', assigned: null })
+    assignKind(model, 'b', 'vav', null)
+    expect(kindGroups(model)[0].assigned).toBe('vav')
+    assignKind(model, 'a', null, null)
+    expect(a.kind).toBe(null)
+    expect(a.kindSource).toBeUndefined()
   })
 })

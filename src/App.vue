@@ -18,6 +18,7 @@ import {
   recordConfirm,
   recordFlow,
   recordFootprint,
+  recordKind,
   recordName,
   recordPosition,
   sameSources,
@@ -36,7 +37,9 @@ import { modelToGeoJSON } from './lib/export/geojson'
 import { modelToTTL } from './lib/export/ttl'
 import { createViewer, PICK_COLORS, systemColors, WALL_COLORS, type Viewer } from './lib/viewer'
 import {
+  assignKind,
   flowEdits,
+  kindGroups,
   moveEquipment,
   moveSpaceVertex,
   renameSpace,
@@ -44,6 +47,7 @@ import {
   summarize,
   type BoundaryChange,
   type Change,
+  type KindGroup,
 } from './lib/edit'
 
 // 테마는 라이트가 기본이고, 고른 값만 저장한다. 선행 스크립트(index.html)가 첫 페인트
@@ -205,6 +209,8 @@ function absorb(result: ApplyResult) {
 
 function refreshAfterEdits() {
   if (!model.value) return
+  // 붙인 편집에 종류가 있었으면 규칙 방향이 바뀌었다. 계통별 채점표도 새로 받는다.
+  ruleReport.value = inferFlowByRules(model.value)
   triggerRef(model)
   flowVersion.value++
   viewer?.setModel(model.value, meshes)
@@ -290,6 +296,40 @@ function dropReview(item: ReviewItem) {
   reviewItems.value = reviewItems.value.filter((i) => !(i.kind === item.kind && i.key === item.key))
   touchEdits()
 }
+// --- 종류 지정 -------------------------------------------------------------------
+//
+// 사전이 모르는 기기를 Revit 패밀리:타입으로 묶어 보이고, 묶음 하나에 종류를 고르면 그 기기들에 붙인다.
+// 저장은 기기(GUID)별이다 — 같은 패밀리라도 다시 온 BIM 의 새 기기에는 저절로 붙지 않는다.
+// 종류는 Brick 클래스와 흐름 규칙의 원천·말단을 바꾸므로 규칙 방향을 다시 돌린다(확정한 계통은 지킨다).
+const kindGroupList = computed(() => {
+  void editVersion.value
+  return model.value ? kindGroups(model.value) : []
+})
+const unknownKindCount = computed(() => {
+  void editVersion.value
+  return (model.value?.storeys ?? [])
+    .flatMap((s) => s.equipment)
+    .filter((e) => !isConduit(e.role) && !e.kind).length
+})
+function assignGroupKind(group: KindGroup, value: string) {
+  const m = model.value
+  if (!m) return
+  const kind = value || null
+  for (const id of group.ids) {
+    const e = equipmentById.value.get(id)
+    if (!e) continue
+    // 사전이 준 값. 사람이 이미 정했으면 편집 세트가 들고 있다.
+    const base = editSet.value.kinds[id]?.base ?? (e.kindSource === 'edit' ? null : (e.kind ?? null))
+    if (!assignKind(m, id, kind, base)) continue
+    recordKind(editSet.value, id, base, kind)
+  }
+  ruleReport.value = inferFlowByRules(m)
+  touchEdits()
+  flowVersion.value++
+  triggerRef(model)
+}
+const kindSrc = (e: Equipment) => (e.kindSource === 'edit' ? 'edit' : 'dict')
+
 /** 포트가 방향을 말하게 된 흐름 편집과 사라진 대상은 되살릴 수 없다. */
 const revivable = (item: ReviewItem) => item.reason === 'superseded-by-bim' && item.kind !== 'flows' && item.kind !== 'confirmedSystems'
 
@@ -1494,7 +1534,7 @@ function exportTTL() {
             <div>
               <h3>{{ selected.name || '(이름 없음)' }}</h3>
               <p class="stats">
-                <template v-if="kindLabel(selected)">{{ kindLabel(selected) }} <Src kind="dict" /> · </template>
+                <template v-if="kindLabel(selected)">{{ kindLabel(selected) }} <Src :kind="kindSrc(selected)" /> · </template>
                 {{ selected.ifcClass }} <Src kind="bim" />
                 <template v-if="roleLabel(selected.role)"> · {{ roleLabel(selected.role) }} <Src :kind="roleSrc(selected)" /></template> ·
                 {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
@@ -2021,7 +2061,7 @@ function exportTTL() {
                     <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
                   </td>
                   <td class="muted">
-                    {{ e.ifcClass }}<template v-if="kindLabel(e)"> · {{ kindLabel(e) }} <Src kind="dict" /></template>
+                    {{ e.ifcClass }}<template v-if="kindLabel(e)"> · {{ kindLabel(e) }} <Src :kind="kindSrc(e)" /></template>
                   </td>
                   <td v-for="axis in [0, 1, 2]" :key="axis" class="num">
                     <span v-if="!editing" class="mono">{{ e.position ? e.position[axis].toFixed(2) : '—' }}</span>
@@ -2049,6 +2089,54 @@ function exportTTL() {
               <button type="button" class="link" @click="editLimit += EDIT_LIMIT">더 보기</button>
             </p>
             <p v-if="counts.equipment === 0" class="empty">이 BIM 에는 설비가 없습니다.</p>
+          </Fold>
+
+          <!-- 사전 밖 기기의 종류. 묶음으로 고르고 기기별로 저장한다. 보기 모드에서는 목록만. -->
+          <Fold
+            v-if="kindGroupList.length"
+            :title="editing ? '사전 밖 기기의 종류 정하기' : '사전 밖 기기'"
+            :meta="`종류 모름 ${unknownKindCount}대 · 묶음 ${kindGroupList.length}`"
+            :default-open="false"
+            class="kind-assign"
+          >
+            <p class="hint">
+              이름 사전이 모르는 기기를 Revit 패밀리:타입으로 묶었습니다. 종류를 고르면 그 묶음의 기기마다 붙고 Brick 클래스가
+              바뀝니다. 출처는 <Src kind="edit" /> 입니다. 다시 온 BIM 의 새 기기에는 저절로 붙지 않습니다.
+            </p>
+            <table>
+              <thead>
+                <tr>
+                  <th>패밀리:타입</th>
+                  <th class="num">대수</th>
+                  <th>IFC</th>
+                  <th>종류</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="g in kindGroupList" :key="g.family">
+                  <td>
+                    <button type="button" class="link" @click="select(g.ids[0])">{{ g.family }}</button>
+                  </td>
+                  <td class="num mono">{{ g.ids.length }}</td>
+                  <td class="muted">{{ g.ifcClass }}</td>
+                  <td>
+                    <select
+                      v-if="editing"
+                      :value="g.assigned ?? ''"
+                      :aria-label="`${g.family} 종류`"
+                      @change="assignGroupKind(g, ($event.target as HTMLSelectElement).value)"
+                    >
+                      <option value="">모름</option>
+                      <option v-for="k in EQUIPMENT_KINDS" :key="k.kind" :value="k.kind">{{ k.label }}</option>
+                    </select>
+                    <template v-else>
+                      <template v-if="g.assigned">{{ equipmentKind(g.assigned)?.label }} <Src kind="edit" /></template>
+                      <span v-else class="muted">모름</span>
+                    </template>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </Fold>
 
           <template v-if="editing || changeCount > 0">

@@ -86,6 +86,69 @@ export function setFlowDirection(connection: Connection, from: string | null): b
   return true
 }
 
+/**
+ * 사전이 모르는 설비의 종류를 사람이 정한다. 기기(GUID) 하나에만 붙는다 — 같은 패밀리의 새 기기에
+ * 저절로 붙이지 않는다(사람이 보지 않은 기기에 사람 판단처럼 보이는 값이 붙는다).
+ *
+ * 종류는 Brick 클래스와 흐름 규칙(원천·말단)을 바꾸지만 좌표는 그대로라 소속 재판정은 필요 없다.
+ * 규칙 방향은 종류에 달려 있으니 호출부가 `inferFlowByRules` 를 다시 돌린다(확정한 계통은 지킨다).
+ * `kind` 가 null 이면 사람이 정한 것을 지우고 `base`(사전이 준 값)로 돌아간다.
+ */
+export function assignKind(
+  model: Model,
+  equipmentId: string,
+  kind: string | null,
+  base: string | null,
+): { before: string | null; after: string | null } | null {
+  const equipment = findEquipment(model, equipmentId)
+  if (!equipment) return null
+  const before = equipment.kind ?? null
+  if (kind === null) {
+    equipment.kind = base
+    delete equipment.kindSource
+  } else {
+    equipment.kind = kind
+    equipment.kindSource = 'edit'
+  }
+  return { before, after: kind }
+}
+
+/** Revit 이름 `패밀리:타입:요소ID` 에서 패밀리:타입. 요소마다 다른 끝자리를 떼야 같은 것끼리 묶인다. */
+export function familyOf(e: Equipment): string {
+  const parts = e.name.split(':')
+  if (parts.length >= 3) return parts.slice(0, 2).join(':')
+  return e.name || e.ifcClass
+}
+
+export type KindGroup = {
+  family: string
+  ids: string[]
+  ifcClass: string
+  /** 묶음 전체에 사람이 정한 종류. 기기마다 다르면 null 이다. */
+  assigned: string | null
+}
+
+/**
+ * 종류를 사람이 정해야 할 기기를 패밀리로 묶는다. 사전이 모르는 기기와, 이미 사람이 정한 기기(바꾸거나
+ * 되돌릴 수 있게)가 들어간다. 덕트·배관은 종류를 묻지 않는다. 대수가 많은 묶음부터.
+ */
+export function kindGroups(model: Model): KindGroup[] {
+  const groups = new Map<string, KindGroup>()
+  for (const storey of model.storeys) {
+    for (const e of storey.equipment) {
+      if (e.role === 'segment' || e.role === 'fitting') continue
+      if (e.kind && e.kindSource !== 'edit') continue
+      const family = familyOf(e)
+      const g = groups.get(family) ?? { family, ids: [], ifcClass: e.ifcClass, assigned: undefined as unknown as string | null }
+      const mine = e.kindSource === 'edit' ? (e.kind ?? null) : null
+      g.assigned = g.ids.length === 0 ? mine : g.assigned === mine ? mine : null
+      g.ids.push(e.id)
+      groups.set(family, g)
+    }
+  }
+  return [...groups.values()].sort((a, b) => b.ids.length - a.ids.length || a.family.localeCompare(b.family))
+}
+
 /** 사람이 방향을 정한 연결. 규칙 방향이 있었으면 그것과 같은지 반대인지도 적는다. */
 export type FlowEdit = {
   from: string

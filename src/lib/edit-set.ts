@@ -13,7 +13,7 @@
 //
 // id 는 IfcGlobalId 그대로다. 층은 파일마다 GUID 가 달라서 층을 대상으로 하는 편집은 두지 않는다.
 
-import { confirmSystemFlow } from './flow-rules'
+import { confirmSystemFlow, inferFlowByRules } from './flow-rules'
 import { moveEquipment, renameSpace, replaceSpaceFootprint, setFlowDirection, type BoundaryChange, type Change } from './edit'
 import type { Connection, Model, Vec2, Vec3 } from './model'
 
@@ -142,6 +142,7 @@ export function applyEditSet(model: Model, set: EditSet, only?: { kind: EditKind
   const out: ApplyResult = { applied: 0, review: [], changes: [], areaChanges: [], confirmations: [] }
   const want = (kind: EditKind, key: string) => !only || (only.kind === kind && only.key === key)
   const force = !!only
+  let kindsApplied = 0
   const review = (kind: EditKind, key: string, label: string, reason: ReviewReason, detail: string) =>
     out.review.push({ kind, key, label, reason, detail })
 
@@ -190,6 +191,25 @@ export function applyEditSet(model: Model, set: EditSet, only?: { kind: EditKind
     }
   }
 
+  for (const [id, e] of Object.entries(set.kinds)) {
+    if (!want('kinds', id)) continue
+    const eq = idx.equipment.get(id)
+    const label = eq ? eq.name || eq.ifcClass : id
+    if (!eq) review('kinds', id, label, 'missing', '이 설비가 새 BIM 에 없습니다')
+    else if (!force && (eq.kind ?? null) !== e.base && eq.kind !== e.value)
+      review('kinds', id, label, 'superseded-by-bim', '사전이나 BIM 이 이제 다른 종류를 말합니다')
+    else {
+      eq.kind = e.value
+      eq.kindSource = 'edit'
+      kindsApplied++
+      out.applied++
+    }
+  }
+
+  // 종류는 흐름 규칙의 원천·말단을 바꾼다. 확정을 붙이기 전에 규칙 방향을 새 종류로 다시 정한다
+  // (확정해 둔 계통은 inferFlowByRules 가 지킨다).
+  if (kindsApplied > 0) inferFlowByRules(model)
+
   for (const [key, e] of Object.entries(set.flows)) {
     if (!want('flows', key)) continue
     const c = idx.connections.get(key)
@@ -216,20 +236,6 @@ export function applyEditSet(model: Model, set: EditSet, only?: { kind: EditKind
     const n = confirmSystemFlow(model, id)
     if (n > 0) out.confirmations.push({ systemName: system.name || e.name, count: n })
     out.applied++
-  }
-
-  for (const [id, e] of Object.entries(set.kinds)) {
-    if (!want('kinds', id)) continue
-    const eq = idx.equipment.get(id)
-    const label = eq ? eq.name || eq.ifcClass : id
-    if (!eq) review('kinds', id, label, 'missing', '이 설비가 새 BIM 에 없습니다')
-    else if (!force && (eq.kind ?? null) !== e.base && eq.kind !== e.value)
-      review('kinds', id, label, 'superseded-by-bim', '사전이나 BIM 이 이제 다른 종류를 말합니다')
-    else {
-      eq.kind = e.value
-      eq.kindSource = 'edit'
-      out.applied++
-    }
   }
 
   return out
