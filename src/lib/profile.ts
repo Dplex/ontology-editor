@@ -8,6 +8,7 @@
 import { countOf, isConduit, type Model } from './model'
 import { deviceFlows } from './topology'
 import { withInferred } from './flow-rules'
+import { matchStorey } from './merge'
 
 /** 한 등급이 얼마나 찼나. 분수로 들고 다니고, 화면이 채움·일부·없음으로 칠한다. */
 export type Tier = {
@@ -42,6 +43,8 @@ export type Profile = {
    * 본다 — 다른 건물을 합쳐도 오류 없이 합쳐진다(merge.ts). 잴 것이 없으면 null.
    */
   extent?: [number, number, number, number] | null
+  /** 층 이름과 높이. 합칠 때처럼(merge.ts 의 matchStorey) 층이 짝지어지는지를 짝 파일 권하기에서 본다. */
+  levels?: { name: string; elevation: number }[]
 }
 
 function figure(have: number, of: number): string {
@@ -164,6 +167,7 @@ export function profileOf(model: Model): Profile {
     needsArchitecture: c.spaces === 0 && devices.length > 0,
     needsEquipment: drawn > 0 && all.length === 0,
     extent: extentOf(model),
+    levels: model.storeys.map((s) => ({ name: s.name, elevation: s.elevation })),
   }
 }
 
@@ -200,6 +204,16 @@ export function extentOverlap(a: readonly number[], b: readonly number[]): numbe
 export const PARTNER_OVERLAP = 0.5
 
 /**
+ * 층 수가 적은 쪽의 층 중 합칠 때 짝이 지어지는 몫(이름, 아니면 하나뿐인 높이). 범위만 보면 C20 연구소와 ifc4Mep
+ * (다른 건물)이 0.5 넘게 겹쳐 짝으로 권했는데, 합쳐 보니 ifc4Mep 층 다섯 중 넷이 새 층으로 들어갔다. 모르면 1 로 본다.
+ */
+export function levelFit(a: Profile['levels'], b: Profile['levels']): number {
+  if (!a?.length || !b?.length) return 1
+  const [few, many] = a.length <= b.length ? [a, b] : [b, a]
+  return few.filter((s) => matchStorey(s, many)).length / few.length
+}
+
+/**
  * 짝 파일(건축 ↔ 설비). 방이 없는 설비 파일이면 같은 폴더에서 방이 있는 파일, 방이 있는 파일이면 같은 폴더에서 방이 없는
  * 설비 파일이다. 건축 파일에도 조명·소화기 같은 기기가 섞여 있어서 "설비가 없다" 로 가르지 않는다. **후보가 하나뿐일 때만** 돌려준다 — Duplex 폴더처럼 판본이 여럿이면 어느 것과 합칠지 우리가 모른다.
  */
@@ -210,7 +224,8 @@ export function partnerOf(path: string, files: readonly { path: string; profile:
   const fits = (p: Profile) =>
     me.needsArchitecture ? p.spaces > 0 && !p.needsArchitecture : me.spaces > 0 ? p.needsArchitecture : false
   // 같은 자리에 있어야 한다. data/ 바로 아래처럼 서로 다른 샘플을 모아 둔 폴더에서 다른 건물을 권했다.
-  const near = (p: Profile) => !!me.extent && !!p.extent && extentOverlap(me.extent, p.extent) >= PARTNER_OVERLAP
+  const near = (p: Profile) =>
+    !!me.extent && !!p.extent && extentOverlap(me.extent, p.extent) >= PARTNER_OVERLAP && levelFit(me.levels, p.levels) >= PARTNER_OVERLAP
   const found = files.filter((f) => f.path !== path && dir(f.path) === dir(path) && f.profile && fits(f.profile) && near(f.profile))
   return found.length === 1 ? found[0].path : null
 }

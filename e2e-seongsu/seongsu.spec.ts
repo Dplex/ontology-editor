@@ -48,7 +48,7 @@ async function timed(fn: () => Promise<unknown>) {
 }
 const changeCount = async () => Number((await page.locator('.edit-bar .state').innerText()).match(/바뀐 것 (\d+)건/)![1])
 const note = () => page.locator('.key-note')
-const search = () => page.getByPlaceholder(/물리존·설비 이름이나 종류/)
+const search = () => page.getByPlaceholder(/물리존·설비 이름이나 종류|설비 이름·종류나 소속 방/)
 async function openFold(title: string | RegExp) {
   const head = page.locator('.fold-head', { hasText: title }).first()
   if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()

@@ -101,6 +101,21 @@ describe('partnerOf — 건축·설비 짝 파일 권하기', () => {
     expect(partnerOf('b.ifc', [{ path: 'a.ifc', profile: { ...arch(), extent: undefined } }, { path: 'b.ifc', profile: mech() }])).toBe(null)
   })
 
+  it('범위가 겹쳐도 층이 짝지어지지 않으면 권하지 않는다 — C20 연구소와 ifc4Mep', () => {
+    // 실측 층. 합쳐 보면 ifc4Mep 층 다섯 중 넷이 C20 에 없는 새 층으로 들어갔다.
+    const c20 = [['Keller', -3], ['Erdgeschoss', 0], ['1. Obergeschoss', 3], ['2. Obergeschoss', 6], ['Dachgeschoss', 9]] as const
+    const mep = [['-01. Fundering', -0.8], ['00. Begane grond', 0], ['01. verdieping', 3.5], ['02. verdieping', 7], ['03. Dak', 10.5]] as const
+    const lv = (x: readonly (readonly [string, number])[]) => x.map(([name, elevation]) => ({ name, elevation }))
+    const files = [
+      { path: 'C20.ifc', profile: { ...arch(), levels: lv(c20) } },
+      { path: 'ifc4Mep.ifc', profile: { ...mech(), levels: lv(mep) } },
+    ]
+    expect(partnerOf('C20.ifc', files)).toBe(null)
+    // 같은 건물이면 이름이 맞는다.
+    files[1].profile.levels = lv(c20)
+    expect(partnerOf('C20.ifc', files)).toBe('ifc4Mep.ifc')
+  })
+
   it('판본이 여럿인 폴더에서는 권하지 않는다 — 어느 판본과 합칠지 모른다', () => {
     const files = [
       { path: 'Duplex/Arch.ifc', profile: arch() },

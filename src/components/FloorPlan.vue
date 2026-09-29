@@ -15,19 +15,21 @@ import { labelPoint } from '../lib/polygon'
 const props = defineProps<{
   storey: Storey
   selectedId: string | null
+  /** 고른 물리존. 3D 에서 고른 것과 같은 값이라, 여기서 누르면 부모가 오른쪽 패널에 그 방을 띄운다. */
+  selectedSpaceId: string | null
   editing: boolean
 }>()
 const emit = defineEmits<{
   select: [id: string]
+  pickSpace: [id: string | null]
   moveVertex: [spaceId: string, index: number, to: Vec2]
 }>()
 
 const svg = ref<SVGSVGElement | null>(null)
-const spaceId = ref<string | null>(null)
+const spaceId = computed(() => props.selectedSpaceId)
 watch(
   () => props.storey.id,
   () => {
-    spaceId.value = null
     view.value = null
   },
 )
@@ -170,7 +172,7 @@ const previewRing = computed(() => {
 
 function pickSpace(id: string) {
   if (moved) return
-  spaceId.value = spaceId.value === id ? null : id
+  emit('pickSpace', spaceId.value === id ? null : id)
 }
 </script>
 

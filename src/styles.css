@@ -1339,6 +1339,33 @@ th {
   gap: 0.3rem;
 }
 
+/* 방에 든 기기. 사무실 하나에 300대가 넘어서, 패널을 늘이지 않고 제 안에서 스크롤한다. */
+.picked .space-members {
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.space-kinds {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+}
+
+/* 방에 든 덕트·배관. 접어 두고, 펴도 패널을 길게 늘이지 않게 제 안에서 스크롤한다. */
+.space-conduits {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.space-conduits summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.space-conduits .space-members {
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
 .rule-toggle {
   display: inline-flex;
   align-items: center;

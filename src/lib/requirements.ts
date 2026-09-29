@@ -9,7 +9,7 @@
 // 필수·권장과 제목은 정본의 표를 옮긴 것이다. requirements-ids.test.ts 가 정본과 같은지 본다.
 
 import * as WebIFC from 'web-ifc'
-import { isStandardCapacity } from './capacity'
+import { CAPACITY_KINDS, isStandardCapacity } from './capacity'
 import { equipmentKind, equipmentKindOfIfc, IFC_REJECTED } from './kinds'
 import { isPlaceholder, type MergeReport } from './merge'
 import { isConduit, type Equipment, type Model } from './model'
@@ -65,16 +65,6 @@ export const REQUIREMENTS: { id: string; level: RequirementLevel; title: string 
   { id: 'R22', level: '권장', title: '용량' },
   { id: 'R23', level: '권장', title: '벽의 내력 여부' },
 ]
-
-/**
- * 용량을 요구하는 종류. requirements.ids 의 R22 가 요구하는 클래스(공조기·FCU 류, 팬, 펌프, 냉동기, 냉각탑,
- * 방열기, VAV, 에어 터미널)와 같다. 보일러는 IFC4 표준 Pset 에 출력 자리가 없어 빠진다.
- */
-const CAPACITY_KINDS = new Set([
-  'ahu', 'fcu', 'indoor_unit', 'heat_pump', 'ground_source_heat_pump',
-  'fan', 'exhaust_fan', 'pump', 'chiller', 'cooling_tower', 'radiator',
-  'vav', 'air_diffuser', 'air_grille', 'outdoor_louver',
-])
 
 /**
  * `클래스.값` 의 값이 IFC 표준 열거값인가(IFC2x3·IFC4·IFC4X3 중 하나에라도 있으면). USERDEFINED 로 적은 유형 이름

@@ -17,9 +17,11 @@ test('평면도 탭은 고른 층을 위에서 그리고, 편집 모드에서 �
   const rooms = plan.locator('.spaces polygon')
   expect(await rooms.count()).toBeGreaterThan(0)
 
-  // 보기 모드에서는 방을 골라도 손잡이가 없다.
+  // 보기 모드에서는 방을 골라도 손잡이가 없다. 대신 오른쪽 패널에 그 방이 뜬다(고치는 칸과 안내는 없다).
   await rooms.first().click()
   await expect(plan.locator('.handle')).toHaveCount(0)
+  await expect(page.locator('.space-picked')).toBeVisible()
+  await expect(page.locator('.space-picked .hint')).toHaveCount(0)
 
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await expect(plan.locator('.handle').first()).toBeVisible()
@@ -61,4 +63,22 @@ test('평면도를 보는 동안 한 편집이 바로 그려지고, 층을 옮�
   await page.keyboard.press('PageUp')
   await expect(page.getByRole('combobox', { name: '보일 층' }).locator('option:checked')).toHaveText('2F만')
   await expect(page.getByRole('img', { name: '2F 평면도' }).locator('circle.chosen')).toHaveCount(1)
+})
+
+test('설비를 고른 채 평면도의 방을 누르면 패널이 그 방으로 바뀐다', async ({ page }) => {
+  // 평면도가 고른 방을 제 안에만 들고 있어서, 방에 테두리만 뜨고 패널은 앞서 고른 설비 그대로였다(성수에서 찾았다).
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(['src/lib/ifc/fixtures/mep.ifc', FIXTURE])
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await expect(page.locator('.picked h3')).toHaveText('AHU-1')
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '평면도' }).click()
+  const room = page.getByRole('img', { name: '1F 평면도' }).locator('.spaces polygon').first()
+  await room.click({ force: true })
+  await expect(page.locator('.space-picked')).toBeVisible()
+  await expect(page.locator('svg.floor-plan circle.chosen')).toHaveCount(0)
+  // 3D 로 돌아가도 같은 방이 골라져 있다.
+  await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '3D' }).click()
+  await expect(page.locator('.space-picked')).toBeVisible()
 })

@@ -29,8 +29,8 @@ import { assignEquipmentToSpaces } from '../mapping'
 import { dropDuplicateSpaces } from '../merge'
 import { lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
-import { equipmentKindOf, FLUID_KINDS, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
-import { capacityRank } from '../capacity'
+import { equipmentKind, equipmentKindOf, FLUID_KINDS, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
+import { CAPACITY_KINDS, capacityRank } from '../capacity'
 import { inferFlowByRules } from '../flow-rules'
 import { footprintRings, openingPlacement, spacesBesideOpening } from './element-geometry'
 
@@ -1419,9 +1419,9 @@ function read(
     if (unplaced > 0) {
       warnings.push(`설비 ${unplaced}대에 좌표가 없습니다. 편집 모드에서 좌표를 넣어야 합니다.`)
     }
-    const noCapacity = allEquipment.filter((e) => e.capacity === null).length
+    const noCapacity = allEquipment.filter((e) => e.capacity === null && CAPACITY_KINDS.has(e.kind ?? '')).length
     if (noCapacity > 0) {
-      warnings.push(`설비 ${noCapacity}대에 용량 파라미터가 없습니다. 공조존 용량 검증에서 빠집니다.`)
+      warnings.push(`용량을 적어야 하는 기기(공조기·팬·펌프·말단 등) ${noCapacity}대에 용량 파라미터가 없습니다. 공조존 용량 검증에서 빠집니다.`)
     }
     if (allEquipment.length > 0 && systems.length === 0) {
       warnings.push('설비는 있지만 계통(IfcSystem)이 없습니다. 어느 공조기가 어느 토출구를 맡는지 알 수 없습니다.')
@@ -1455,7 +1455,14 @@ function read(
       // **대수와 연결 개수를 섞어 세지 말 것.** 고립된 둘이 서로를 지목하면 연결 하나가
       // 두 대를 살린다. 대수는 결손 종류로 세고, 연결 개수는 따로 적는다.
       const joined = gaps.filter((g) => g.kind === 'derived').length
-      const stranded = gaps.length - joined
+      // 흐름이 없는 종류(거울·수건함·감지기·CCTV)는 덕트·배관에 이어질 것이 아니라 "모델을 고쳐야 한다" 에서 뺀다.
+      // 치과 파일의 비치품 98대가 전부 여기 걸려 고칠 것이 없는 파일에 고치라고 했다.
+      const kindOf = new Map(allEquipment.map((e) => [e.id, e.kind]))
+      const flows = (id: string) => {
+        const info = equipmentKind(kindOf.get(id))
+        return !info || Object.keys(info.flow ?? {}).length > 0
+      }
+      const stranded = gaps.filter((g) => g.kind !== 'derived' && flows(g.id)).length
       if (joined > 0) {
         const far = Math.max(...rescued.map((c) => c.tolerance ?? 0))
         warnings.push(

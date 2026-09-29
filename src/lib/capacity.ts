@@ -54,3 +54,15 @@ export const CAPACITY_PREDICATE: Record<CapacityQuantity, string> = {
   power: 'ex:nominalCapacity',
   flow: 'ex:nominalFlowRate',
 }
+
+/**
+ * 용량을 요구하는 종류. requirements.ids 의 R22 가 요구하는 클래스(공조기·FCU 류, 팬, 펌프, 냉동기, 냉각탑,
+ * 방열기, VAV, 에어 터미널)와 같다. 보일러는 IFC4 표준 Pset 에 출력 자리가 없어 빠진다.
+ * 요구사항 보고서(R22)와 임포트 경고가 같은 것을 센다 — 경고가 덕트·배관과 거울까지 세서 ifc4Mep 기기 308대에
+ * "2130대에 용량이 없다" 고 했다.
+ */
+export const CAPACITY_KINDS = new Set([
+  'ahu', 'fcu', 'indoor_unit', 'heat_pump', 'ground_source_heat_pump',
+  'fan', 'exhaust_fan', 'pump', 'chiller', 'cooling_tower', 'radiator',
+  'vav', 'air_diffuser', 'air_grille', 'outdoor_louver',
+])

@@ -79,7 +79,7 @@ const normalize = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase
  * 관례이고, DT 쪽 층 표기와 맞추는 요구사항도 이미 있다(`docs/bim-to-dt-ontology.md` 4장).
  * 이름이 안 맞으면 높이로 찾되 **하나만 맞을 때만** 짝짓는다. 둘 이상이면 고를 근거가 없다.
  */
-function matchStorey(storey: Storey, base: Storey[]): { target: Storey; by: 'name' | 'elevation' } | null {
+export function matchStorey<T extends Pick<Storey, 'name' | 'elevation'>>(storey: Pick<Storey, 'name' | 'elevation'>, base: readonly T[]): { target: T; by: 'name' | 'elevation' } | null {
   const byName = base.filter((b) => normalize(b.name) === normalize(storey.name) && storey.name.trim() !== '')
   if (byName.length === 1) return { target: byName[0], by: 'name' }
 

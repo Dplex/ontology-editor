@@ -386,8 +386,9 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     const joined = model.warnings.find((w) => w.includes('연결망에 붙였습니다'))
     expect(joined).toContain('설비 224대 중 121대')
     expect(joined).toContain('연결 95개')
+    // 못 이은 103대 중 81대는 조명처럼 흐름이 없는 종류라 "모델을 고쳐야 한다" 에서 뺀다(덕트·배관에 이을 것이 아니다).
     const stranded = model.warnings.find((w) => w.includes('접합 부재 누락'))
-    expect(stranded).toContain('설비 103대')
+    expect(stranded).toContain('설비 22대')
   }, 300_000)
 })
 

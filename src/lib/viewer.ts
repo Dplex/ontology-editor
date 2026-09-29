@@ -46,11 +46,14 @@ import { distanceToRing, pointInPolygon } from './mapping'
 /**
  * 층을 구분하는 색. 층 수만큼 순환한다.
  *
- * 파랑에서 시작해 색상환을 도는 중채도 계열이다. 흙빛 계열을 써 봤더니 밝은 배경 위에서
+ * 색상환을 도는 중채도 계열이다. 흙빛 계열을 써 봤더니 밝은 배경 위에서
  * 낡아 보였고, 형광색은 반대로 튀기만 한다. 채도는 중간, 명도는 비슷하게 맞춰서 어느
- * 층이 위인지가 색이 아니라 높이로 읽히게 한다.
+ * 층이 위인지가 색이 아니라 높이로 읽히게 한다. 이웃한 층끼리는 색상환에서 멀리 둔다.
+ *
+ * **파랑은 쓰지 않는다.** 고른 방의 테두리·손잡이가 액센트 파랑이라, 첫 층이 파랑이던 때 AC20 1층에서
+ * 고른 방이 판과 같은 색이라 보이지 않았다(다크의 액센트는 판 색과 같은 값이었다).
  */
-const STOREY_COLORS = [0x6f9bf5, 0x4fc3a1, 0xb08ef0, 0xf0a94e, 0xef7d7d]
+const STOREY_COLORS = [0x4fc3a1, 0xe88bc9, 0xf0a94e, 0xb08ef0, 0xef7d7d]
 
 /**
  * 계통을 구분하는 색. 계통 수만큼 순환한다.
@@ -241,7 +244,7 @@ export type Viewer = {
   shiftEquipment(id: string, delta: Vec3): boolean
   /** 편집 모드에서 고른 설비를 끌어 놓으면 부른다. 옮긴 거리를 IFC 좌표(미터)로 넘긴다. 높이는 그대로다. */
   onEquipmentMove(handler: (id: string, delta: Vec3) => void): void
-  /** 편집 모드에서 설비가 아닌 바닥(물리존 판)을 누르면 부른다. */
+  /** 설비가 아닌 바닥(물리존 판)을 누르면 부른다. 편집 모드면 손잡이가, 보기 모드면 테두리만 뜬다. */
   onPickSpace(handler: (spaceId: string | null) => void): void
   /** 고른 물리존의 꼭짓점 손잡이. null 이면 지운다. */
   setSpaceHandles(space: SpaceHandles | null): void
@@ -489,13 +492,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (outline) disposeObject(outline)
     outline = null
     dirty = true
-    if (!editMode || !handleSpace || handleSpace.ring.length < 3) return
+    // 보기 모드에서는 고른 방의 테두리만 긋고 손잡이는 달지 않는다.
+    if (!handleSpace || handleSpace.ring.length < 3) return
     // 판 윗면(바닥 + 0.1) 바로 위에 띄운다. 같은 높이면 판과 겹쳐 깜빡인다. 판에 가려지지 않게 깊이는 안 본다.
     const y = handleSpace.elevation + 0.12
     const points = handleSpace.ring.map(([x, z]) => new Vector3(...toScene([x, z, 0])).setY(y))
     outline = new LineLoop(new BufferGeometry().setFromPoints(points), new LineBasicMaterial({ color: handleColor(dark), depthTest: false }))
     outline.renderOrder = 10
     overlay.add(outline)
+    if (!editMode) return
     points.forEach((p, i) => {
       const active = i === handleSpace!.active
       const color = active ? (dark ? 0xffffff : 0x1a1d21) : handleColor(dark)
@@ -830,8 +835,18 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
     const ray = rayAt(e.clientX, e.clientY)
     const id = pick(ray)
-    if (id || !editMode) {
+    if (id) {
       pickHandler(id)
+      return
+    }
+    // 보기 모드에서도 바닥을 누르면 그 물리존을 보인다(이름·넓이·든 설비). 고치는 칸은 편집 모드에만 뜬다.
+    if (!editMode) {
+      const space = pickSpace(ray)
+      if (space) spacePickHandler(space)
+      else {
+        pickHandler(null)
+        spacePickHandler(null)
+      }
       return
     }
     // 벽·문·창 편집 층이 켜져 있으면 벽·문·창이 물리존보다 먼저다.
@@ -921,7 +936,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const id = pick(ray)
     if (editMode && grabbable(ray)) canvas.style.cursor = 'grab'
     else if (id) canvas.style.cursor = 'pointer'
-    const space = !id && editMode ? pickSpace(ray) : null
+    const space = !id ? pickSpace(ray) : null
     if (!id && !(editMode && grabbable(ray))) canvas.style.cursor = space ? 'pointer' : ''
     hoverHandler(id ? { kind: 'equipment', id } : space ? { kind: 'space', id: space } : null, hoverAt)
   }

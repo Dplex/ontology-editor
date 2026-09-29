@@ -41,6 +41,17 @@ function profiler(root: string, libDir: string) {
   } catch {
     // 없거나 깨졌으면 새로 잰다.
   }
+  // 코드 지문이 다른 판은 다시 쓸 일이 없다. 안 지우면 임포터를 고칠 때마다 한 벌씩 쌓였다(개발 PC 에서 다섯 벌).
+  const stale = Object.keys(cache).filter((key) => !key.endsWith(`|${stamp}`))
+  for (const key of stale) delete cache[key]
+  // 다 캐시에 있으면 새로 쓸 일이 없어서, 지운 것을 여기서 적어 둔다.
+  if (stale.length) {
+    try {
+      writeFileSync(cachePath, JSON.stringify(cache))
+    } catch {
+      // 못 써도 다음에 새로 잴 때 같이 적힌다.
+    }
+  }
   let api: Promise<WebIFC.IfcAPI> | null = null
   let queue: Promise<unknown> = Promise.resolve()
 

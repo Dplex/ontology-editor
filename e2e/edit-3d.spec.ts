@@ -123,7 +123,7 @@ test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓�
   const panel = page.locator('.space-picked')
   await expect(panel).toContainText('사무실')
   await expect(panel).toContainText('80.0')
-  await expect(panel.locator('.space-members')).toContainText('AT-101-02')
+  await expect(panel.locator('.space-members').first()).toContainText('AT-101-02')
   expect(await viewer<unknown[]>(page, 'handles')).toHaveLength(4)
 
   // 엇갈리는 자리에는 놓지 않는다. (0,0) 을 (20,4) 로 끌면 두 변이 교차한다.

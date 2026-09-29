@@ -122,6 +122,16 @@ function toggleTheme() {
 const fileName = ref('')
 const busy = ref(false)
 const error = ref('')
+/**
+ * 오류 문구는 목록 아래에 뜬다. data/ 목록 가운데서 [열기] 를 누른 사람에게는 화면 밖이라, 열 수 없는 파일을 눌러도
+ * 아무 일이 없는 것처럼 보였다. 뜨면 보이는 자리까지 끌어온다.
+ */
+const errorEl = ref<HTMLElement | null>(null)
+watch(error, async (e) => {
+  if (!e) return
+  await nextTick()
+  errorEl.value?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+})
 const dragging = ref(false)
 const model = shallowRef<Model | null>(null)
 
@@ -415,10 +425,14 @@ function hoverText(t: HoverTarget): { title: string; lines: string[] } | null {
     for (const storey of m.storeys) {
       const sp = storey.spaces.find((x) => x.id === t.id)
       if (!sp) continue
-      const members = storey.equipment.filter((e) => e.spaceId === sp.id).length
+      // 패널과 같은 말로 센다(기기만, 덕트·배관은 빼고).
+      const devices = storey.equipment.filter((e) => e.spaceId === sp.id && !isConduit(e.role)).length
       return {
         title: sp.longName || sp.name,
-        lines: [`물리존 ${sp.name} · ${storey.name} · ${sp.areaM2.toFixed(1)}㎡ · 설비 ${members}대`, '클릭하면 꼭짓점을 고칠 수 있습니다'],
+        lines: [
+          `물리존 ${sp.name} · ${storey.name} · ${sp.areaM2.toFixed(1)}㎡ · 기기 ${devices}대`,
+          editing.value ? '클릭하면 꼭짓점을 고칠 수 있습니다' : '클릭하면 이 방에 든 기기를 봅니다',
+        ],
       }
     }
     return null
@@ -1185,6 +1199,8 @@ watch(fileName, () => {
   editQuery.value = ''
 })
 
+/** 층이나 이름으로 좁혔나. 표 머리의 수를 "찾은 것 N / 전체" 로 바꾼다 — 전체 수만 두었더니 좁혀 0건인 표가 비어 보였다. */
+const narrowed = computed(() => !!editStorey.value || !!editQuery.value.trim())
 const matches = (text: string) => {
   const q = editQuery.value.trim().toLowerCase()
   return !q || text.toLowerCase().includes(q)
@@ -1197,8 +1213,12 @@ const editSpaces = computed(() =>
     .flatMap((storey) => storey.spaces.map((space) => ({ storey, space })))
     .filter(({ space }) => matches(`${space.name} ${space.longName ?? ''}`)),
 )
+// 설비는 소속 방 이름으로도 찾는다. 보기 모드에는 물리존 표가 없어서, "S.T"·"OFFICE" 를 치면 아무것도 안 나왔다.
 const editEquipment = computed(() =>
-  editStoreys.value.flatMap((s) => s.equipment).filter((e) => matches(`${e.name} ${e.ifcClass} ${kindLabel(e)}`)),
+  editStoreys.value.flatMap((s) => {
+    const room = new Map(s.spaces.map((sp) => [sp.id, `${sp.name} ${sp.longName ?? ''}`]))
+    return s.equipment.filter((e) => matches(`${e.name} ${e.ifcClass} ${kindLabel(e)} ${e.spaceId ? room.get(e.spaceId) ?? '' : ''}`))
+  }),
 )
 
 /**
@@ -1245,13 +1265,7 @@ watch([model, canvas], ([m, el]) => {
     })
     viewer.onHover(onHover)
     viewer.onPlace((at) => placeAt(at))
-    viewer.onPickSpace((id) => {
-      selectedSpaceId.value = id
-      if (id) {
-        selectedId.value = null
-        selectedSystemId.value = null
-      }
-    })
+    viewer.onPickSpace(pickSpace)
     viewer.onEquipmentMove(dropEquipment)
     viewer.onPickElement((id) => (selectedElementId.value = id))
     viewer.onVertexMove(dropVertex)
@@ -1276,14 +1290,31 @@ watch([model, canvas], ([m, el]) => {
 watch(editing, (on) => {
   viewer?.setEditMode(on)
   editNotice.value = ''
-  // 물리존 고르기는 편집 모드에만 있다(보기 모드에서 바닥을 누르면 선택 해제다).
-  if (!on) selectedSpaceId.value = null
 })
 
 // --- 3D 에서 고른 물리존 (E2) ------------------------------------------------------
 //
-// 편집 모드에서 바닥을 누르면 그 물리존이 골라지고, 꼭짓점에 손잡이가 뜬다. 설비 선택과 배타다.
+// 바닥을 누르면 그 물리존이 골라진다. 편집 모드면 꼭짓점에 손잡이가 뜬다. 설비 선택과 배타다.
 const selectedSpaceId = ref<string | null>(null)
+const spaceDevices = computed(() => selectedSpace.value?.equipment.filter((e) => !isConduit(e.role)) ?? [])
+/** 기기가 많은 방(성수 사무실 318대)은 목록 위에 종류별 수를 한 줄로 둔다. */
+const spaceKinds = computed(() => {
+  const n = new Map<string, number>()
+  for (const e of spaceDevices.value) {
+    const k = whatIs(e)?.label ?? '모름'
+    n.set(k, (n.get(k) ?? 0) + 1)
+  }
+  return [...n].sort((a, b) => b[1] - a[1]).map(([k, c]) => `${k} ${c}`).join(' · ')
+})
+const spaceConduits = computed(() => selectedSpace.value?.equipment.filter((e) => isConduit(e.role)) ?? [])
+/** 3D 바닥이나 평면도의 방을 눌렀을 때. 평면도가 제 안에만 들고 있었더니 방에 테두리만 뜨고 패널은 앞서 고른 설비였다. */
+function pickSpace(id: string | null) {
+  selectedSpaceId.value = id
+  if (id) {
+    selectedId.value = null
+    selectedSystemId.value = null
+  }
+}
 const selectedSpace = computed(() => {
   const m = model.value
   const id = selectedSpaceId.value
@@ -1316,7 +1347,7 @@ watch([selectedSpace, editing, sceneVersion, drawing], () => {
     viewer.setSpaceHandles({ id: d.spaceId ?? 'new', ring: d.points, elevation: d.elevation, active: d.points.length ? d.points.length - 1 : null })
     return
   }
-  if (!picked || !editing.value) {
+  if (!picked) {
     viewer.setSpaceHandles(null)
     return
   }
@@ -3570,6 +3601,11 @@ const pairHint = computed(() => {
   if (c.devices === 0 && c.spaces > 0) {
     return { text: '설비가 없는 건축 파일입니다. 설비 IFC를 덧붙이면 설비·계통·연결이 이 방들에 얹힙니다.', button: '설비 IFC 덧붙이기', partner }
   }
+  // 건축 파일에도 감지기·조명·CCTV 가 들어 있다(성수 건축 1,439대). 기기만 보고 가르면 덕트·배관이 하나도 없는 건축 파일에
+  // 덧붙이라는 말이 안 떴다 — 목록은 같은 파일에 짝을 권하는데.
+  if (c.conduits === 0 && c.spaces > 0) {
+    return { text: '덕트·배관이 없는 건축 파일입니다. 설비 IFC를 덧붙이면 계통과 연결이 이 방들에 얹힙니다.', button: '설비 IFC 덧붙이기', partner }
+  }
   return null
 })
 
@@ -3890,7 +3926,7 @@ function exportTTL() {
       </Fold>
     </section>
 
-    <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <p v-if="error" ref="errorEl" class="error" role="alert">{{ error }}</p>
 
     <template v-if="model && counts">
       <!-- 파일을 연 뒤의 도구막대. 스크롤과 상관없이 위에 붙는다. 파일·모드·내보내기가 여기 모이고, 편집 중에는 한 줄이
@@ -4009,8 +4045,10 @@ function exportTTL() {
               v-if="activeTab === 'plan' && planStorey"
               :storey="planStorey"
               :selected-id="selectedId"
+              :selected-space-id="selectedSpaceId"
               :editing="editing"
               @select="select"
+              @pick-space="pickSpace"
               @move-vertex="dropVertex"
             />
             <p v-else-if="activeTab === 'plan'" class="plan-empty">
@@ -4523,7 +4561,7 @@ function exportTTL() {
 
         </section>
 
-        <!-- 3D 에서 고른 물리존(E2). 편집 모드에서 바닥을 누르면 뜬다. -->
+        <!-- 3D·평면도에서 고른 물리존(E2). 바닥을 누르면 뜬다. 고치는 칸은 편집 모드에만. -->
         <!-- 3D 에서 고른 벽·문·창(E4). [벽·문·창] 을 켰을 때만 골라진다. -->
         <section v-else-if="selectedElement" class="picked element-picked">
           <div class="picked-head">
@@ -4599,7 +4637,8 @@ function exportTTL() {
               <p class="stats">
                 물리존 {{ selectedSpace.space.name }} <Src kind="bim" /> · {{ selectedSpace.storey.name }} <Src kind="bim" /> ·
                 <b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡
-                <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /> · 소속 설비 {{ selectedSpace.equipment.length }}대
+                <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /> · 소속 기기 {{ spaceDevices.length }}대<template v-if="spaceConduits.length">
+                · 덕트·배관 {{ spaceConduits.length }}개</template>
                 <Src kind="calc" />
                 <template v-if="zoneOfSpace.get(selectedSpace.space.id)">
                   · 공조존 {{ zoneOfSpace.get(selectedSpace.space.id)!.name }} <Src kind="idf" />
@@ -4620,7 +4659,7 @@ function exportTTL() {
               @change="applyRename(selectedSpace.space.id, ($event.target as HTMLInputElement).value)"
             />
           </label>
-          <p class="hint">
+          <p v-if="editing" class="hint">
             파란 손잡이를 끌어 경계를 고칩니다. 넓이와 설비 소속은 다시 계산됩니다. 경계선이 서로 교차하는 곳으로는
             옮길 수 없습니다. <kbd>[ ]</kbd>로 꼭짓점을 고르면 넣거나 지울 수 있습니다.
           </p>
@@ -4647,13 +4686,24 @@ function exportTTL() {
             <button type="button" class="ghost" title="다음 꼭짓점과의 가운데에 넣습니다 (Insert)" @click="editVertex('insert')">꼭짓점 넣기</button>
             <button type="button" class="ghost" :disabled="vertexCount <= 3" title="Delete" @click="editVertex('delete')">꼭짓점 지우기</button>
           </p>
-          <ul v-if="selectedSpace.equipment.length" class="plain space-members">
-            <li v-for="e in selectedSpace.equipment" :key="e.id">
+          <!-- 기기를 먼저 둔다. 성수 기계실은 107대 중 88개가 덕트·이음쇠라 공조기가 그 사이에 묻혔다. -->
+          <p v-if="spaceDevices.length > 12" class="space-kinds muted">{{ spaceKinds }}</p>
+          <ul v-if="spaceDevices.length" class="plain space-members">
+            <li v-for="e in spaceDevices" :key="e.id">
               <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
               <span class="muted">{{ whatIs(e)?.label }}</span>
             </li>
           </ul>
-          <p v-else class="empty">이 물리존에 속한 설비가 없습니다.</p>
+          <details v-if="spaceConduits.length" class="space-conduits">
+            <summary>덕트·배관 {{ spaceConduits.length }}개</summary>
+            <ul class="plain space-members">
+              <li v-for="e in spaceConduits" :key="e.id">
+                <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
+                <span class="muted">{{ whatIs(e)?.label }}</span>
+              </li>
+            </ul>
+          </details>
+          <p v-if="!selectedSpace.equipment.length" class="empty">이 물리존에 속한 설비가 없습니다.</p>
         </section>
         <!-- 아무것도 고르지 않았을 때. 이 파일이 어디까지 찼는지와, 무엇을 누르면 여기 무엇이 뜨는지. -->
         <section v-else class="overview">
@@ -5317,14 +5367,14 @@ function exportTTL() {
             </label>
             <label class="grow">
               이름
-              <input ref="searchInput" v-model="editQuery" type="search" placeholder="물리존·설비 이름이나 종류  ( / )" />
+              <input ref="searchInput" v-model="editQuery" type="search" :placeholder="editing ? '물리존·설비 이름이나 종류  ( / )' : '설비 이름·종류나 소속 방 이름  ( / )'" />
             </label>
             <span class="muted">{{ editing ? '아래 두 표에 함께 적용됩니다.' : '설비 목록에 적용됩니다.' }}</span>
           </div>
 
           <!-- 물리존 하나를 한 줄에서 고친다. 이름(E1)과 경계(E2)를 두 목록으로 나눴더니 같은 방을 두 번 찾아야 했다.
                긴 표는 제 상자 안에서 스크롤하고 머리줄은 붙어 있다 — 페이지가 표만큼 길어지면 3D 로 돌아가기가 멀다. -->
-          <Fold v-if="editing" title="물리존 이름·경계 (E1 · E2)" :meta="`${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
+          <Fold v-if="editing" title="물리존 이름·경계 (E1 · E2)" :meta="`${narrowed ? `찾은 것 ${editSpaces.length} / ` : ''}${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
             <p class="hint">
               3D에서 바닥을 클릭하면 오른쪽 패널에서도 고칠 수 있습니다. 꼭짓점을 고치면 넓이와 설비 소속이 다시 계산됩니다.
             </p>
@@ -5392,7 +5442,7 @@ function exportTTL() {
 
           <Fold
             :title="editing ? '설비 위치와 소속 (E5 · E6)' : '설비 목록'"
-            :meta="`기기 ${counts.devices} · 덕트·배관 ${counts.conduits}`"
+            :meta="`${narrowed ? `찾은 것 ${editEquipment.length} / ` : ''}기기 ${counts.devices} · 덕트·배관 ${counts.conduits}`"
             :default-open="counts.equipment <= SMALL"
           >
             <div class="table-box">
@@ -5447,6 +5497,9 @@ function exportTTL() {
               <button type="button" class="link" @click="editLimit += EDIT_LIMIT">더 보기</button>
             </p>
             <p v-if="counts.equipment === 0" class="empty">이 BIM에는 설비가 없습니다.</p>
+            <p v-else-if="editEquipment.length === 0" class="empty">
+              {{ editQuery.trim() ? `"${editQuery.trim()}"에 맞는 설비가 없습니다(이름·종류·소속 방 이름으로 찾습니다).` : '이 층에는 설비가 없습니다.' }}
+            </p>
           </Fold>
 
           <template v-if="editing || changeCount > 0">
