@@ -527,3 +527,62 @@ test('평면도 탭은 고른 층을 위에서 그리고, 편집 모드에서 �
   await page.getByRole('button', { name: '3D' }).click()
   await expect(page.getByRole('combobox', { name: '보이는 층' })).toHaveValue(/1F/)
 })
+
+test('편집 모드에서 고른 설비를 3D 에서 끌어 옮기면 편집으로 남고 되돌릴 수 있다. 보기 모드에서는 안 끌린다', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
+
+  const canvas = page.locator('.viewport canvas')
+  const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
+  /** 연결망에 맞춘 뒤 누를 수 있는 설비 자리(커서가 손가락이 되는 곳)를 찾아 그 설비를 고른다. */
+  const pickSomething = async () => {
+    await page.getByRole('button', { name: '연결망에 맞추기' }).click()
+    await canvas.evaluate((el) => el.scrollIntoView({ block: 'center' }))
+    await settle()
+    const box = (await canvas.boundingBox())!
+    for (let j = 2; j < 14; j++) {
+      for (let i = 2; i < 22; i++) {
+        const x = box.x + (box.width * i) / 24
+        const y = box.y + (box.height * j) / 16
+        await page.mouse.move(x, y)
+        await settle()
+        if ((await canvas.evaluate((el) => el.style.cursor)) === 'pointer') {
+          await page.mouse.click(x, y)
+          await settle()
+          return { x, y }
+        }
+      }
+    }
+    throw new Error('누를 수 있는 설비를 찾지 못했다')
+  }
+  const dragFrom = async (at: { x: number; y: number }) => {
+    await page.mouse.move(at.x, at.y)
+    await page.mouse.down()
+    await page.mouse.move(at.x + 60, at.y + 20, { steps: 6 })
+    await page.mouse.up()
+    await settle()
+  }
+
+  // 보기 모드: 끌면 시점만 돈다. 편집이 생기지 않는다.
+  await dragFrom(await pickSomething())
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await expect(page.locator('.edit-bar')).toContainText('편집 0건')
+
+  // 편집 모드: 3D 높이가 바뀌므로 자리를 다시 찾고 고른 뒤 끈다.
+  const at = await pickSomething()
+  await dragFrom(at)
+  await expect(page.locator('.edit-bar')).toContainText('편집 1건')
+  // 다시 그린 뒤에도 놓은 자리에 그려져 있다(형상을 이동량만큼 밀어 그린다). 그 자리가 누를 수 있는 곳이다.
+  await page.mouse.move(at.x + 60, at.y + 20)
+  await settle()
+  await expect.poll(() => canvas.evaluate((el) => el.style.cursor)).toBe('pointer')
+  await expect(page.locator('.report')).toBeVisible()
+  const undo = page.locator('.edit-bar').getByRole('button', { name: '옮기기 되돌리기' })
+  await expect(undo).toBeVisible()
+
+  await undo.click()
+  await expect(page.locator('.edit-bar')).toContainText('편집 0건')
+})

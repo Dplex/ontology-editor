@@ -119,6 +119,18 @@ watch(mode, (m) => {
 const editing = computed(() => mode.value === 'edit')
 /** 3D 와 평면도는 탭으로 갈아 끼운다. 한 번에 하나만 그린다. 고른 층·설비는 둘이 같이 쓴다. */
 const activeTab = ref<'3d' | 'plan'>('3d')
+// 3D 끌기는 편집 모드에서만. 보기 모드에서 끌리면 시점을 돌리려다 설비를 옮긴다.
+watch(editing, (on) => viewer?.setDragEnabled(on))
+// 편집 모드에서 Ctrl+Z 로 마지막 옮기기를 되돌린다. 입력칸 안에서는 브라우저의 되돌리기를 그대로 둔다.
+function onKey(event: KeyboardEvent) {
+  if (!editing.value || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'z' || event.shiftKey) return
+  const t = event.target as HTMLElement | null
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
+  event.preventDefault()
+  undoMove()
+}
+window.addEventListener('keydown', onKey)
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 const planStorey = computed(() => model.value?.storeys.find((s) => s.id === editStorey.value) ?? null)
 
 // 문·창 형상도 읽을까. 온톨로지에는 필요 없고 로봇 경로(문 자리·문이 잇는 방)용이라 기본은 끈다.
@@ -182,6 +194,10 @@ const reviewItems = ref<ReviewItem[]>([])
 /** 열린 IFC 들. 합친 모델이면 둘이다. 자동 저장 열쇠와 편집 파일의 출처가 여기서 나온다. */
 const sources = ref<SourceFile[]>([])
 const editNotice = ref('')
+const movedCount = computed(() => {
+  void editVersion.value
+  return Object.keys(editSet.value.positions).length
+})
 const editCount = computed(() => {
   void editVersion.value
   return countEdits(editSet.value)
@@ -217,7 +233,7 @@ function refreshAfterEdits() {
   ruleReport.value = inferFlowByRules(model.value)
   triggerRef(model)
   flowVersion.value++
-  viewer?.setModel(model.value, meshes)
+  redraw()
 }
 
 /** 파일을 연 뒤 이 IFC 들로 자동 저장해 둔 편집이 있으면 다시 붙인다. */
@@ -380,14 +396,60 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
   const base: [number, number, number] = current ? [current[0], current[1], current[2]] : [0, 0, 0]
   base[axis] = value
 
-  const before = current ? ([current[0], current[1], current[2]] as const) : null
-  const change = moveEquipment(model.value, equipmentId, base)
+  applyMoveTo(equipmentId, base)
+}
+
+/**
+ * 설비를 한 자리로 옮긴다. 표의 숫자 입력과 3D 끌기가 같은 길을 탄다 — 소속 재판정(lib/edit.ts), 편집 세트
+ * 기록, 되돌리기 이력, 다시 그리기까지 한 번에 한다.
+ */
+function applyMoveTo(equipmentId: string, to: [number, number, number], undoable = true) {
+  if (!model.value) return
+  const e = equipmentById.value.get(equipmentId)
+  const before = e?.position ? ([e.position[0], e.position[1], e.position[2]] as [number, number, number]) : null
+  const change = moveEquipment(model.value, equipmentId, to)
   if (!change) return
-  recordPosition(editSet.value, equipmentId, before, base)
+  recordPosition(editSet.value, equipmentId, before, to)
+  if (undoable) moveUndo.value = [...moveUndo.value, { id: equipmentId, name: change.equipmentName, before }]
   touchEdits()
   changes.value = [...changes.value, change]
   triggerRef(model)
-  viewer?.setModel(model.value, meshes)
+  redraw()
+}
+
+// 옮기기 되돌리기. 3D 끌기는 손이 미끄러지기 쉬워서 바로 되돌릴 길이 있어야 한다. 미배치였던 설비를 놓은
+// 것(E6)은 "좌표 없음" 으로 되돌릴 수 없어서 이력에 넣지 않는다.
+const moveUndo = ref<{ id: string; name: string; before: [number, number, number] | null }[]>([])
+const lastUndo = computed(() => [...moveUndo.value].reverse().find((u) => u.before) ?? null)
+function undoMove() {
+  const last = lastUndo.value
+  if (!last || !last.before) return
+  moveUndo.value = moveUndo.value.filter((u) => u !== last)
+  applyMoveTo(last.id, last.before, false)
+}
+
+/** 3D 에서 끌어 놓은 이동량을 좌표로. 높이는 그대로 두고, 1mm 로 자른다. */
+function moveByDrag(id: string, delta: readonly [number, number, number]) {
+  const e = equipmentById.value.get(id)
+  if (!e?.position) return redraw()
+  const r = (v: number) => Math.round(v * 1000) / 1000
+  applyMoveTo(id, [r(e.position[0] + delta[0]), r(e.position[1] + delta[1]), e.position[2]])
+}
+
+/**
+ * 사람이 옮긴 설비의 이동량. 형상(메시)은 BIM 자리에 있으니 3D 가 이만큼 밀어 그린다. 편집 세트의 base(BIM
+ * 좌표)와 value(사람 좌표)의 차이다.
+ */
+function moveOffsets(): Map<string, [number, number, number]> {
+  const out = new Map<string, [number, number, number]>()
+  for (const [id, e] of Object.entries(editSet.value.positions)) {
+    if (!e.base || !meshes.has(id)) continue
+    out.set(id, [e.value[0] - e.base[0], e.value[1] - e.base[1], e.value[2] - e.base[2]])
+  }
+  return out
+}
+function redraw() {
+  if (model.value) viewer?.setModel(model.value, meshes, moveOffsets())
 }
 
 // 경계 편집은 넓이와 설비 소속을 동시에 흔든다. 두 변화를 같은 자리에서 보여 준다.
@@ -415,7 +477,7 @@ function applyVertexPoint(spaceId: string, index: number, point: readonly [numbe
   areaChanges.value = [...areaChanges.value, change]
   changes.value = [...changes.value, ...change.equipment]
   triggerRef(model)
-  viewer?.setModel(model.value, meshes)
+  redraw()
 }
 
 // --- 편집 목록을 좁히기 ----------------------------------------------------------
@@ -473,8 +535,10 @@ watch([model, canvas], ([m, el]) => {
     })
     viewer.setWallsVisible(showWalls.value)
     viewer.setStorey(editStorey.value || null)
+    viewer.setDragEnabled(editing.value)
+    viewer.onDragEnd(moveByDrag)
   }
-  viewer.setModel(m, meshes)
+  viewer.setModel(m, meshes, moveOffsets())
   viewer.setHighlight(null)
 })
 
@@ -1099,6 +1163,7 @@ async function load(name: string, read: () => Promise<ArrayBuffer>) {
     editSet.value = emptyEditSet()
     reviewItems.value = []
     editNotice.value = ''
+    moveUndo.value = []
     sources.value = [source]
     restoreAutosave()
     await nextTick()
@@ -1357,6 +1422,9 @@ function exportTTL() {
         <a href="#changes" class="link">목록 보기</a>
         <a v-if="reviewItems.length" href="#review" class="link warn-link">다시 볼 것 {{ reviewItems.length }}건</a>
         <span class="grow"></span>
+        <button v-if="lastUndo" type="button" class="ghost" :title="`${lastUndo.name} 옮기기를 되돌립니다 (Ctrl+Z)`" @click="undoMove">
+          옮기기 되돌리기
+        </button>
         <span class="muted saved">편집 {{ editCount }}건 · 자동 저장</span>
         <button type="button" class="ghost" :disabled="editCount === 0 && !reviewItems.length" @click="exportEdits">편집 파일 내보내기</button>
         <label class="ghost file-button">
@@ -2169,7 +2237,9 @@ function exportTTL() {
 
           <template v-if="editing || changeCount > 0">
           <h3 id="changes">바뀌는 것 (PRD #21)</h3>
-          <ul v-if="report.length || areaChanges.length || confirmations.length || flowEditLines.length" class="report">
+          <ul v-if="report.length || areaChanges.length || confirmations.length || flowEditLines.length || movedCount" class="report">
+            <!-- 소속이 그대로여도 좌표를 옮긴 것은 편집이다. 몇 대인지 한 줄로 남긴다(무엇이 옮겨졌는지는 편집 파일에). -->
+            <li v-if="movedCount">설비 {{ movedCount }}대의 좌표를 사람이 옮겼습니다 <Src kind="edit" /></li>
             <li v-for="c in report" :key="c.equipmentId">
               {{ c.equipmentName }}:
               <b>{{ spaceNameOf(c.fromSpaceId) }}</b> → <b>{{ spaceNameOf(c.toSpaceId) }}</b>

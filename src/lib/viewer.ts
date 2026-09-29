@@ -23,6 +23,7 @@ import {
   MeshBasicMaterial,
   MeshLambertMaterial,
   PerspectiveCamera,
+  Plane,
   Raycaster,
   Scene,
   Shape,
@@ -153,7 +154,11 @@ export function equipmentMarker(position: readonly [number, number, number], col
 }
 
 export type Viewer = {
-  setModel(model: Model, meshes?: MeshMap): void
+  /**
+   * `offsets` 는 사람이 옮긴 설비의 이동량(IFC 좌표, 미터)이다. 형상(메시)은 BIM 자리에 있으니 그만큼 밀어서
+   * 그린다. 안 주면 옮긴 설비가 3D 에서 제자리에 남아 편집이 안 보인다.
+   */
+  setModel(model: Model, meshes?: MeshMap, offsets?: ReadonlyMap<string, readonly [number, number, number]>): void
   /** 선택과 상류·하류를 색으로 칠한다. null 이면 전부 원래 색으로 되돌린다. */
   setHighlight(highlight: Highlight | null): void
   /** 3D 에서 설비를 고르면 부른다. 빈 곳을 누르면 null 이다. */
@@ -169,6 +174,10 @@ export type Viewer = {
    * 맞춘다. 모델을 바꿔도 고른 층은 남는다(그 층이 새 모델에 없으면 전체로 돌아간다).
    */
   setStorey(storeyId: string | null): void
+  /** 편집 모드에서만 켠다. 켜 두면 고른 설비를 끌어 지금 높이의 수평면 위로 옮길 수 있다. */
+  setDragEnabled(on: boolean): void
+  /** 끌기를 놓았을 때 부른다. 이동량은 IFC 좌표(미터)이고 높이는 0 이다. */
+  onDragEnd(handler: (id: string, delta: readonly [number, number, number]) => void): void
   dispose(): void
 }
 
@@ -259,6 +268,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let wallsVisible = false
   const slabs = new Map<string, Mesh>()
   let storeyFilter: string | null = null
+  let lastModel: Model | null = null
   /** 층별 보기로 가린 설비. 흐리게 칠한 것(fadedIds)과 따로 든다 — 가린 것은 아예 그리지 않는다. */
   let hiddenIds = new Set<string>()
   let pickHandler: (id: string | null) => void = () => {}
@@ -274,6 +284,76 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const raycaster = new Raycaster()
   const pointer = new Vector2()
   let pressedAt: { x: number; y: number } | null = null
+
+  // --- 끌어 옮기기(편집 모드) -------------------------------------------------------------
+  //
+  // 고른 설비만 끈다. 아무 설비나 끌리면 시점을 돌리려다 설비를 옮기게 된다. 끄는 동안은 합친 형상의 그
+  // 설비 꼭짓점만 밀어 미리 보이고, 놓을 때 한 번만 알린다 — 소속 재판정은 놓은 뒤 lib/edit.ts 가 한다.
+  // 캡처 단계에서 받아 OrbitControls 보다 먼저 가로챈다(같은 대상에서는 캡처 리스너가 먼저 돈다).
+  let dragEnabled = false
+  let selectedPart: string | null = null
+  let dragEndHandler: (id: string, delta: readonly [number, number, number]) => void = () => {}
+  let dragging: { part: Part; plane: Plane; start: Vector3; last: Vector3; startX: number; startY: number } | null = null
+  const dragHit = new Vector3()
+  const rayAt = (e: PointerEvent) => {
+    const rect = canvas.getBoundingClientRect()
+    pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1
+    pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1
+    raycaster.setFromCamera(pointer, camera)
+    return raycaster.ray
+  }
+  /** 합친 형상에서 설비 하나의 꼭짓점을 밀고 상자도 같이 옮긴다. */
+  function shiftPart(part: Part, dx: number, dz: number) {
+    const pos = solid?.geometry.getAttribute('position') as BufferAttribute | undefined
+    if (!pos) return
+    for (let v = part.vStart; v < part.vStart + part.vCount; v++) {
+      pos.setX(v, pos.getX(v) + dx)
+      pos.setZ(v, pos.getZ(v) + dz)
+    }
+    pos.needsUpdate = true
+    part.box.translate(new Vector3(dx, 0, dz))
+    dirty = true
+  }
+  canvas.addEventListener(
+    'pointerdown',
+    (e) => {
+      if (!dragEnabled || e.button !== 0 || !selectedPart) return
+      const ray = rayAt(e)
+      if (pick(ray) !== selectedPart) return
+      const part = partById.get(selectedPart)
+      if (!part) return
+      const center = part.box.getCenter(new Vector3())
+      const plane = new Plane(new Vector3(0, 1, 0), -center.y)
+      if (!ray.intersectPlane(plane, dragHit)) return
+      e.stopImmediatePropagation()
+      controls.enabled = false
+      canvas.setPointerCapture(e.pointerId)
+      dragging = { part, plane, start: dragHit.clone(), last: dragHit.clone(), startX: e.clientX, startY: e.clientY }
+    },
+    { capture: true },
+  )
+  canvas.addEventListener('pointermove', (e) => {
+    if (!dragging) return
+    if (!rayAt(e).intersectPlane(dragging.plane, dragHit)) return
+    shiftPart(dragging.part, dragHit.x - dragging.last.x, dragHit.z - dragging.last.z)
+    dragging.last.copy(dragHit)
+  })
+  const endDrag = (e: PointerEvent) => {
+    if (!dragging) return
+    const d = dragging
+    dragging = null
+    controls.enabled = true
+    canvas.releasePointerCapture?.(e.pointerId)
+    // 거의 안 움직였으면 옮긴 게 아니다. 미리 민 것을 되돌린다.
+    if (Math.hypot(e.clientX - d.startX, e.clientY - d.startY) <= 4) {
+      shiftPart(d.part, d.start.x - d.last.x, d.start.z - d.last.z)
+      return
+    }
+    // three.js 좌표(x, 높이, -y) → IFC 평면(x, y).
+    dragEndHandler(d.part.id, [d.last.x - d.start.x, -(d.last.z - d.start.z), 0])
+  }
+  canvas.addEventListener('pointerup', endDrag)
+  canvas.addEventListener('pointercancel', endDrag)
 
   canvas.addEventListener('pointerdown', (e) => {
     pressedAt = { x: e.clientX, y: e.clientY }
@@ -479,7 +559,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   return {
-    setModel(model, meshes) {
+    setModel(model, meshes, offsets) {
+      // 같은 모델을 다시 그리는 것(편집 뒤)이면 카메라를 그대로 둔다. 편집할 때마다 시점이 튀면 방금 옮긴
+      // 설비를 놓친다. 다른 파일을 열었을 때만 건물 전체에 맞춘다.
+      const sameModel = model === lastModel
+      lastModel = model
       // 이전 모델의 지오메트리를 놓아 준다. 파일을 여러 번 열면 GPU 메모리가 쌓인다.
       disposeContent()
       content = new Group()
@@ -526,7 +610,17 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         for (const equipment of storey.equipment) {
           const color = equipment.systemId ? (colorOf.get(equipment.systemId) ?? NO_SYSTEM) : NO_SYSTEM
           const data = meshes?.get(equipment.id)
-          if (data) {
+          const off = offsets?.get(equipment.id)
+          if (data && off) {
+            // 사람이 옮긴 설비. 형상은 BIM 자리에 있으니 이동량만큼 민 사본을 그린다(IFC → three.js 좌표).
+            const p = Float32Array.from(data.positions)
+            for (let k = 0; k < p.length; k += 3) {
+              p[k] += off[0]
+              p[k + 1] += off[2]
+              p[k + 2] -= off[1]
+            }
+            pieces.push({ id: equipment.id, storeyId: storey.id, color, p, n: data.normals, i: data.indices })
+          } else if (data) {
             pieces.push({ id: equipment.id, storeyId: storey.id, color, p: data.positions, n: data.normals, i: data.indices })
           } else if (equipment.position) {
             const box = new BoxGeometry(0.4, 0.4, 0.4)
@@ -612,6 +706,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
       // 건물이 화면에 꽉 차게 카메라를 놓는다. 원점 근처에 고정해 두면 실제 좌표가 먼
       // 모델이 화면 밖으로 나가서, 임포트가 잘 됐는데도 빈 화면처럼 보인다.
+      if (sameModel) return
       // 층 하나를 보고 있었으면 그 층에 맞춘다.
       if (storeyFilter !== null) return fitVisible()
       const box = new Box3().setFromObject(content)
@@ -620,6 +715,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     setHighlight(highlight) {
+      selectedPart = highlight?.selected ?? null
       const nextFaded = new Set<string>()
       for (const part of parts) {
         const id = part.id
@@ -648,6 +744,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setWallsVisible(on) {
       wallsVisible = on
       applyStoreyFilter()
+    },
+
+    setDragEnabled(on) {
+      dragEnabled = on
+    },
+
+    onDragEnd(handler) {
+      dragEndHandler = handler
     },
 
     setStorey(storeyId) {
