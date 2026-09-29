@@ -339,7 +339,7 @@ function sameRoomLabel(a: string, b: string): boolean {
  * 두었는데(425쌍) 그 이름이 전부 기본값 "공간" 이고 번호도 따로 매겨져서(`742 TPS` · `836 공간`) 이름으로는 같은 방인 줄
  * 몰랐다. 기본 이름은 아무 방도 가리키지 않으므로, 외곽선이 같으면 같은 방으로 본다.
  */
-const PLACEHOLDER_NAMES = new Set(['공간', '방', 'space', 'room'])
+export const PLACEHOLDER_NAMES = new Set(['공간', '방', 'space', 'room'])
 /** 이름이 Revit 기본 이름("공간" 등)인 방. 아무 방도 가리키지 않는 이름이다. */
 export const isPlaceholder = (s: Pick<Space, 'longName'>) => PLACEHOLDER_NAMES.has(normalize(s.longName ?? ''))
 

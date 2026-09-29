@@ -3,9 +3,9 @@
 <ids xmlns="http://standards.buildingsmart.org/IDS" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://standards.buildingsmart.org/IDS http://standards.buildingsmart.org/IDS/1.0/ids.xsd">
   <info>
     <title>DT 온톨로지용 BIM 요구사항</title>
-    <version>0.4 (초안)</version>
+    <version>0.5 (초안)</version>
     <description>BIM(IFC4)에서 DT 공간 온톨로지(Brick TTL + GeoJSON)를 만들기 위해 고객사 BIM 에 요구하는 것. 이름의 [필수]·[권장] 과 R 번호는 docs/bim-to-dt-ontology.md 4장을 따른다. IFC2x3 파일에도 걸린다(지도 변환과 계통 종류는 IFC4 부터 있는 자리라 IFC4 에만). 기하로만 확인하는 요구(R2 외곽선, R7 스캔 정합, R8, R11 배치점 위치, R12, R16)와 IDS 가 담지 못하는 요구(R0 구문, R5 공간 경계, R10 스키마, R13 GUID 유지, R19, R21)는 이 파일에 없다.</description>
-    <date>2026-09-25</date>
+    <date>2026-09-29</date>
     <purpose>고객사 BIM 납품 전 자가 검사</purpose>
   </info>
   <specifications>
@@ -17,7 +17,7 @@
         <attribute instructions="DT 의 층 표기와 같게, 건축·설비 파일끼리도 같게 적는다. 층은 이름으로 맞춘다(GlobalId 는 분야별 파일마다 달라서 쓸 수 없다)."><name><simpleValue>Name</simpleValue></name></attribute>
       </requirements>
     </specification>
-    <specification name="[필수] R2 공간이 층에 속함" ifcVersion="IFC2X3 IFC4 IFC4X3_ADD2" identifier="R2" description="공간(IfcSpace)이 있고 층에 묶여 있어야 한다. 바닥 외곽선(FootPrint 또는 Body/SweptSolid)은 IDS 로 확인할 수 없어 따로 연다.">
+    <specification name="[필수] R2 공간이 층에 속함" ifcVersion="IFC2X3 IFC4 IFC4X3_ADD2" identifier="R2" description="공간(IfcSpace)이 있고 층에 묶여 있어야 한다. 바닥 외곽선(FootPrint 또는 Body/SweptSolid)은 IDS 로 확인할 수 없어 따로 연다. 건축·설비를 파일로 나눠 내면 공간이 든 파일(보통 건축)에서 본다. 공간이 없는 설비 파일은 이 명세에서 떨어진다.">
       <applicability minOccurs="1" maxOccurs="unbounded">
         <entity><name><simpleValue>IFCSPACE</simpleValue></name></entity>
       </applicability>
@@ -33,6 +33,12 @@
         <attribute instructions="방 번호. 건축·설비 파일끼리 같게 적는다."><name><simpleValue>Name</simpleValue></name></attribute>
         <attribute instructions="방 이름(예: 회의실)."><name><simpleValue>LongName</simpleValue></name></attribute>
       </requirements>
+    </specification>
+    <specification name="[필수] R3 방 이름에 기본값을 두지 않음" ifcVersion="IFC2X3 IFC4 IFC4X3_ADD2" identifier="R3" description="저작 도구가 채운 기본 이름(Revit 의 공간·Space·Room)은 어느 방도 가리키지 않는다. 이름이 이것뿐인 공간이 있으면 떨어진다. Revit 의 공간(MEP Space)은 방(Room) 이름을 받아 오게 하거나 지운다.">
+      <applicability minOccurs="0" maxOccurs="0">
+        <entity><name><simpleValue>IFCSPACE</simpleValue></name></entity>
+        <attribute><name><simpleValue>LongName</simpleValue></name><value><xs:restriction base="xs:string"><xs:enumeration value="공간"/><xs:enumeration value="방"/><xs:enumeration value="Space"/><xs:enumeration value="SPACE"/><xs:enumeration value="space"/><xs:enumeration value="Room"/><xs:enumeration value="ROOM"/><xs:enumeration value="room"/></xs:restriction></value></attribute>
+      </applicability>
     </specification>
     <specification name="[필수] R4 문·창이 벽 개구부에 끼워짐" ifcVersion="IFC2X3 IFC4 IFC4X3_ADD2" identifier="R4" description="문·창이 개구부를 거쳐 벽에 걸려 있어야 한다. 로봇 통과 여부(F15)와 방-문-방 연결에 쓴다.">
       <applicability minOccurs="0" maxOccurs="unbounded">
@@ -122,13 +128,19 @@
         <attribute instructions="SOURCE 또는 SINK 를 준다. 연결마다 한쪽만 SOURCE/SINK 여도 된다. NOTDEFINED 는 두지 않는다."><name><simpleValue>FlowDirection</simpleValue></name><value><xs:restriction base="xs:string"><xs:enumeration value="SOURCE"/><xs:enumeration value="SINK"/><xs:enumeration value="SOURCEANDSINK"/></xs:restriction></value></attribute>
       </requirements>
     </specification>
-    <specification name="[권장] R20 공조존" ifcVersion="IFC2X3 IFC4 IFC4X3_ADD2" identifier="R20" description="IFC 에 공조존 자리는 있다. 실측 파일은 비워 두었다. 없으면 IDF 에서 받거나 사람이 만든다(PRD #11).">
+    <specification name="[권장] R20 공조존" ifcVersion="IFC2X3 IFC4 IFC4X3_ADD2" identifier="R20" description="IFC 에 공조존 자리는 있다. 없으면 IDF 에서 받거나 사람이 만든다(PRD #11).">
       <applicability minOccurs="0" maxOccurs="unbounded">
         <entity><name><simpleValue>IFCSPACE</simpleValue></name></entity>
       </applicability>
       <requirements>
         <partOf relation="IFCRELASSIGNSTOGROUP" instructions="공간을 공조존(IfcZone)에 묶는다. 템플릿 기본값이 아니라 실제 존으로."><entity><name><simpleValue>IFCZONE</simpleValue></name></entity></partOf>
       </requirements>
+    </specification>
+    <specification name="[권장] R20 기본 존을 쓰지 않음" ifcVersion="IFC2X3 IFC4 IFC4X3_ADD2" identifier="R20" description="Revit 은 존을 정하지 않은 공간을 기본 존(기본값·Default)에 넣어 내보낸다. 이 존은 공조 구역이 아니다. 있으면 떨어진다.">
+      <applicability minOccurs="0" maxOccurs="0">
+        <entity><name><simpleValue>IFCZONE</simpleValue></name></entity>
+        <attribute><name><simpleValue>Name</simpleValue></name><value><xs:restriction base="xs:string"><xs:pattern value="(기본값|Default)(:.*)?"/></xs:restriction></value></attribute>
+      </applicability>
     </specification>
     <specification name="[권장] R22 용량 — IFCUNITARYEQUIPMENT" ifcVersion="IFC2X3 IFC4 IFC4X3_ADD2" identifier="R22" description="표준 Pset 이름으로 용량을 준다. Revit 은 기본 설정에서 PSet_Revit_* 로 내보내므로 내보내기 설정의 속성 매핑을 바꿔야 한다. 공조기·FCU·실내기는 IFC4 표준 Pset 에 용량 자리가 없다. DT_Capacity 에 설계 풍량을 적는다(이름은 팬·VAV 의 표준 속성과 같다).">
       <applicability minOccurs="0" maxOccurs="unbounded">

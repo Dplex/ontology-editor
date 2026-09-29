@@ -152,7 +152,7 @@ export function requirementsReport(
 
   {
     // 이름이 Revit 기본 이름("공간" 등)이면 없는 것으로 센다. 성수 건축은 508개 중 42개가 번호만 다르고 이름이 "공간" 이라
-    // 탐색기에 같은 이름이 줄지어 나왔다. IDS 는 값이 있는지만 볼 수 있어서 이것은 우리가 잰다.
+    // 탐색기에 같은 이름이 줄지어 나왔다. IDS 는 같은 이름들을 금지 명세("R3 방 이름에 기본값을 두지 않음")로 본다.
     const named = spaces.filter((s) => s.name.trim() && s.longName.trim())
     const both = named.filter((s) => !isPlaceholder(s)).length
     const placeholders = named.length - both

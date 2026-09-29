@@ -4,6 +4,7 @@ import * as WebIFC from 'web-ifc'
 import { describe, expect, it } from 'vitest'
 import { CAPACITY_PROPERTIES } from './capacity'
 import { EQUIPMENT_KINDS, IFC_REJECTED, omniclassCode, ROOM_KINDS, SYSTEM_IFC } from './kinds'
+import { isPlaceholder, PLACEHOLDER_NAMES } from './merge'
 import { REQUIREMENTS } from './requirements'
 
 // docs/requirements.ids 는 정본(docs/bim-to-dt-ontology.md 4장)과 이름 사전(kinds.ts)·용량 표(capacity.ts)를 고객사가
@@ -125,6 +126,16 @@ describe('requirements.ids', () => {
         expect(omniclassCode(v)).toBe(c)
       }
     }
+  })
+
+  it('R3 이 막는 기본 이름은 merge.ts 의 PLACEHOLDER_NAMES 와 같다', () => {
+    // 한쪽에만 더하면 IDS 를 지킨 파일이 우리 보고서에서 R3 을 떨어뜨리거나, 그 반대가 된다.
+    const [spec] = specs('R3 방 이름에 기본값')
+    expect(spec.applicability).toContain('maxOccurs="0"')
+    const names = enumerations(spec.applicability)
+    for (const n of names) expect([n, isPlaceholder({ longName: n })]).toEqual([n, true])
+    const lower = new Set(names.map((n) => n.toLowerCase()))
+    for (const n of PLACEHOLDER_NAMES) expect([n, lower.has(n)]).toEqual([n, true])
   })
 
   it('R22 의 용량 속성은 capacity.ts 가 읽는 이름이다', () => {
