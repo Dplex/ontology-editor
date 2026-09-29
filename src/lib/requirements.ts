@@ -11,7 +11,7 @@
 import * as WebIFC from 'web-ifc'
 import { isStandardCapacity } from './capacity'
 import { equipmentKind, equipmentKindOfIfc, IFC_REJECTED } from './kinds'
-import type { MergeReport } from './merge'
+import { isPlaceholder, type MergeReport } from './merge'
 import { isConduit, type Equipment, type Model } from './model'
 
 export type RequirementLevel = '필수' | '권장'
@@ -151,8 +151,17 @@ export function requirementsReport(
   }
 
   {
-    const both = spaces.filter((s) => s.name.trim() && s.longName.trim()).length
-    set('R3', { ...counted(both, 0, spaces.length), note: spaces.length ? '방 번호(Name)와 이름(LongName)이 모두 있는 공간입니다.' : '공간이 없습니다.' })
+    // 이름이 Revit 기본 이름("공간" 등)이면 없는 것으로 센다. 성수 건축은 508개 중 42개가 번호만 다르고 이름이 "공간" 이라
+    // 탐색기에 같은 이름이 줄지어 나왔다. IDS 는 값이 있는지만 볼 수 있어서 이것은 우리가 잰다.
+    const named = spaces.filter((s) => s.name.trim() && s.longName.trim())
+    const both = named.filter((s) => !isPlaceholder(s)).length
+    const placeholders = named.length - both
+    set('R3', {
+      ...counted(both, 0, spaces.length),
+      note: !spaces.length
+        ? '공간이 없습니다.'
+        : `방 번호(Name)와 이름(LongName)이 모두 있는 공간입니다.${placeholders ? ` 이름이 기본값("공간" 등)인 ${placeholders}개는 이름이 없는 것으로 셉니다.` : ''}`,
+    })
   }
 
   // 임포트 때 읽지 않기로 한 피처는 "없음" 이 아니라 잴 수 없음이다(Model.skipped).

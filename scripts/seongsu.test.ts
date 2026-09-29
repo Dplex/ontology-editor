@@ -375,17 +375,20 @@ describe.skipIf(!have || !existsSync(TTL_GO) || !hasGo)('성수 TTL 을 ieum-pip
     const got = new Set(ents.flatMap((e) => (e.Feeds ?? []).map((t) => `${unescapeKey(e.Key)}>${unescapeKey(t)}`)))
     const lost = [...want].filter((p) => !got.has(p))
     const wrongRoom = devicesOf(pristine).filter((e) => e.spaceId && !byKey.get(e.id)?.Locations?.map(unescapeKey).includes(e.spaceId))
-    const dollar = ents.filter((e) => e.Key.includes('\\$')).length
-    // 이름에 큰따옴표가 든 기기(성수 `Water_meter-…DN50:3/4":…` 같은 인치 표기). TTL 에는 \" 로 바르게 적히지만
-    // ttl.go 의 라벨 정규식이 이스케이프를 몰라 따옴표 앞에서 자른다. 엔티티·위치·흐름은 그대로다.
+    const dollar = ents.filter((e) => e.Key.includes('\\')).length
+    // 이름에 큰따옴표가 든 기기(성수 `Water_meter-…DN50:3/4":…` 같은 인치 표기). TTL 에는 \" 로 적힌다. ttl.go 가
+    // 이스케이프를 풀지 않던 때는 따옴표 앞에서 잘렸다(2026-09-29 고쳤다).
     const quoted = devicesOf(pristine).filter((e) => (e.name ?? '').includes('"'))
     const cut = quoted.filter((e) => byKey.get(e.id)?.Label !== e.name)
     section('ttl.go (건축+기계)', [
       `- 엔티티 ${ents.length} · 기기→기기 흐름 ${want.size} 중 못 닿은 것 ${lost.length}`,
       `- 소속 방을 위치로 못 읽은 기기 ${wrongRoom.length}`,
-      `- 키에 \\$ 가 남은 엔티티 ${dollar} (ttl.go 가 이스케이프를 풀지 않아 GeoJSON id 와 안 이어진다 — 알고 둔 어긋남)`,
-      `- 이름에 큰따옴표가 든 기기 ${quoted.length} 중 ttl.go 가 라벨을 잘라 읽은 것 ${cut.length} (예: ${quoted[0]?.name ?? '-'} → ${byKey.get(quoted[0]?.id ?? '')?.Label ?? '-'}) — 알고 둔 어긋남`,
+      `- 키에 역슬래시가 남은 엔티티 ${dollar}`,
+      `- 이름에 큰따옴표가 든 기기 ${quoted.length} 중 ttl.go 가 라벨을 다르게 읽은 것 ${cut.length}`,
     ])
+    // 받는 쪽이 이스케이프를 푼다. 키와 라벨이 우리 것과 같아야 한다.
+    expect(dollar).toBe(0)
+    expect(cut.map((e) => e.name)).toEqual([])
     expect(lost.slice(0, 5)).toEqual([])
     expect(wrongRoom.length).toBe(0)
   }, 900_000)

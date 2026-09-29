@@ -277,7 +277,7 @@ test('N 은 완전성 검사에서 어긴 것을 하나씩 고르고, 펼친 규
   expect(errors).toEqual([])
 })
 
-test('N 으로 소속 없는 설비에 가서 패널에서 좌표를 넣으면 검사가 통과하고, 남은 것이 없다고 한다', async ({ page }) => {
+test('N 으로 소속 없는 설비에 가서 패널에서 좌표를 넣으면 그 규칙이 통과하고, N 은 다음 규칙으로 간다', async ({ page }) => {
   const errors = await open(page)
   await page.keyboard.press('e')
   await page.keyboard.press('n')
@@ -299,7 +299,10 @@ test('N 으로 소속 없는 설비에 가서 패널에서 좌표를 넣으면 �
   await page.keyboard.press('Escape')
   await expect(inputs.nth(2)).not.toBeFocused()
   await expect(page.locator('.picked h3')).toHaveText('TEMP-101-01')
+  // 소속 규칙은 이제 통과다. N 은 어긴 것이 남은 다음 규칙으로 간다(픽스처에는 열원이 없어 공조기가 물 계통 규칙을 어긴다).
+  await expect(page.locator('.checks tbody tr', { hasText: '소속 방이 있다' }).locator('button')).toHaveCount(0)
   await page.keyboard.press('n')
-  await expect(page.locator('.key-note')).toContainText('위반이 없습니다')
+  await expect(page.locator('.key-note')).toContainText('열원과 이어져 있다')
+  await expect(page.locator('.key-note')).toContainText('위반 1/1: AHU-1')
   expect(errors).toEqual([])
 })

@@ -897,7 +897,7 @@ describe.skipIf(!existsSync(TTL_GO) || !hasGo)('ieum-pipeline 의 ttl.go 가 읽
     expect(equipment.filter((e) => isConduit(e.role) && keys.has(escapeLocalName(e.id)))).toHaveLength(0)
   }, 300_000)
 
-  it('우리가 짓는 id 는 GeoJSON 과 같은 문자열로 읽히고, GUID 의 $ 는 아직 어긋난다', async () => {
+  it('우리가 짓는 id 와 GUID($ 가 든 것까지)가 GeoJSON 과 같은 문자열로 읽힌다', async () => {
     if (!existsSync(DUPLEX_MEP)) return
     const api = new WebIFC.IfcAPI()
     await api.Init()
@@ -909,15 +909,11 @@ describe.skipIf(!existsSync(TTL_GO) || !hasGo)('ieum-pipeline 의 ttl.go 가 읽
     // 와 ttl.go 의 키가 같은 문자열이다.
     for (const s of mep.systems) expect(keys.has(s.id)).toBe(true)
 
-    // **GUID 에 든 $ 는 Turtle 규칙상 \$ 로 써야 하는데, ttl.go 가 이스케이프를 풀지 않는다.**
-    // 그래서 받는 쪽 키에 역슬래시가 남고 GeoJSON 의 id 와 이어지지 않는다. 우리 쪽에서는 못
-    // 피한다($ 를 그대로 쓰면 Turtle 이 깨진다). ttl.go 가 키의 `\X` 를 `X` 로 풀면 이 값이 0 이
-    // 되고, 그때 이 검사를 "전부 같다" 로 바꾼다.
+    // **GUID 에 든 $ 는 Turtle 규칙상 \$ 로 쓴다.** 받는 쪽 ttl.go 가 이스케이프를 풀지 않던 때는 키에 역슬래시가
+    // 남아 GeoJSON id 와 이어지지 않았다(2026-09-29 ttl.go 에서 풀게 고쳤다). $ 가 든 id 가 있어야 이 검사가 뜻이 있다.
     const ids = [...mep.storeys.flatMap((s) => [...s.spaces.map((x) => x.id), ...s.equipment.filter((e) => !isConduit(e.role)).map((e) => e.id)])]
-    const withDollar = ids.filter((id) => id.includes('$'))
-    const unmatched = ids.filter((id) => !keys.has(id))
-    expect(unmatched).toEqual(withDollar)
-    expect(withDollar.length).toBeGreaterThan(0)
+    expect(ids.filter((id) => id.includes('$')).length).toBeGreaterThan(0)
+    expect(ids.filter((id) => !keys.has(id))).toEqual([])
   }, 300_000)
 })
 
