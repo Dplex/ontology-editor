@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="594" viewBox="0 0 1240 594">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>
+    <style>
+      text{font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;fill:#1f2937;font-size:14px}
+      .m{font-family:'D2CodingLigature Nerd Font','Noto Sans Mono CJK KR',monospace;font-size:12.5px}
+      .mut{fill:#6b7280}.acc{fill:#2563eb}.b{font-weight:700}.s{font-size:12.5px}.xs{font-size:11.5px}.t{font-size:18px;font-weight:700}
+      .track{fill:#f0f1f3}.bar{fill:#2563eb}.bar2{fill:#9db7f5}.gray{fill:#c9ced6}.warn{fill:#d97706}
+      .card{fill:#f5f6f8;stroke:#e1e4e8}.node{fill:#fff;stroke:#c9ced6;stroke-width:1.5}.nodeA{fill:#e8efff;stroke:#2563eb;stroke-width:1.5}
+      .ln{stroke:#6b7280;stroke-width:1.5;fill:none}
+    </style>
+  </defs>
+  <rect width="1240" height="594" fill="#fff"/>
+  <text x="24" y="36" class="t">성수 건축+기계에서 걸린 시간: 고치기 전과 뒤</text>
+  <text x="24" y="60" class="s mut">설비 형상 정점 1,016만 개, 부품 2만 775개. GPU(RTX 2080 Ti) 헤드리스 크롬, 2026-09-29</text>
+  <text x="24" y="114" class="b s">열 때 화면이 멈춘 가장 긴 시간</text>
+  <rect x="330" y="100" width="541.6" height="16" rx="3" class="gray"/>
+  <text x="879.6" y="113" class="s mut">1.64초</text>
+  <rect x="330" y="120" width="164.7" height="16" rx="3" class="bar"/>
+  <text x="502.7" y="133" class="s b acc">0.50초</text>
+  <text x="330" y="156" class="xs mut">형상을 한 번에 GPU 로 올리던 것(403MB)을 43덩어리로 나눠 프레임마다 올린다. 뒤는 0.4~0.7초</text>
+  <text x="24" y="200" class="b s">방향키 한 번(FCU 10cm)</text>
+  <rect x="330" y="186" width="494.1" height="16" rx="3" class="gray"/>
+  <text x="832.1" y="199" class="s mut">1.50초</text>
+  <rect x="330" y="206" width="62.6" height="16" rx="3" class="bar"/>
+  <text x="400.6" y="219" class="s b acc">0.19초</text>
+  <text x="330" y="242" class="xs mut">담당 공간 요약이 원천 268대마다 설비 색인을 새로 만들던 것을 한 번으로</text>
+  <text x="24" y="286" class="b s">3D 에서 끌어 놓기</text>
+  <rect x="330" y="272" width="240.8" height="16" rx="3" class="gray"/>
+  <text x="578.8" y="285" class="s mut">0.73초</text>
+  <rect x="330" y="292" width="64.6" height="16" rx="3" class="bar"/>
+  <text x="402.6" y="305" class="s b acc">0.20초</text>
+  <text x="330" y="328" class="xs mut">옮긴 설비가 든 덩어리(약 8MB)만 다시 올린다. 전에는 형상 전체(122MB)</text>
+  <text x="24" y="372" class="b s">쌓인 방향키 반복 30번</text>
+  <text x="330" y="371" class="s mut">(전에는 30 × 1.5초가 줄을 섰다)</text>
+  <rect x="330" y="378" width="59.3" height="16" rx="3" class="bar"/>
+  <text x="397.3" y="391" class="s b acc">0.18초</text>
+  <text x="330" y="414" class="xs mut">한 프레임에 모아 한 번에 옮긴다. 전에는 한 번에 1.5초씩 줄을 섰다</text>
+  <g class="s" transform="translate(960,100)"><rect width="16" height="12" class="gray"/><text x="22" y="11">고치기 전</text><rect y="22" width="16" height="12" class="bar"/><text x="22" y="33">고친 뒤</text></g>
+  <rect x="24" y="450" width="1192" height="126" rx="10" class="card"/>
+  <text x="44" y="478" class="b">그대로 두어도 되는 것</text>
+  <text x="44" y="508" class="s">두 파일 열기(합치기 포함) 16초 · 워커에서 읽어서 화면은 움직인다</text>
+  <text x="634" y="508" class="s">Ctrl+Z 한 번 0.03~0.4초 · 설비 지우기 되돌리기 0.65초</text>
+  <text x="44" y="536" class="s">TTL 내보내기 0.6초(6.2MB) · GeoJSON 19개 0.2초</text>
+  <text x="634" y="536" class="s">회전·확대 프레임 간격 17ms(60fps) · 설명 풍선 0.05초</text>
+</svg>

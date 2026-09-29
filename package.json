@@ -13,6 +13,8 @@
     "test": "vitest run",
     "pree2e": "npm run sync:wasm",
     "e2e": "playwright test",
+    "pree2e:seongsu": "npm run sync:wasm",
+    "e2e:seongsu": "playwright test -c playwright.seongsu.config.ts",
     "check:sample": "vitest run --config vitest.sample.config.ts",
     "check:seongsu": "vitest run --config vitest.sample.config.ts -t 성수",
     "preview": "vite preview",

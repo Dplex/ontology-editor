@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="560" viewBox="0 0 1240 560">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>
+    <style>
+      text{font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;fill:#1f2937;font-size:14px}
+      .m{font-family:'D2CodingLigature Nerd Font','Noto Sans Mono CJK KR',monospace;font-size:12.5px}
+      .mut{fill:#6b7280}.acc{fill:#2563eb}.b{font-weight:700}.s{font-size:12.5px}.xs{font-size:11.5px}.t{font-size:18px;font-weight:700}
+      .track{fill:#f0f1f3}.bar{fill:#2563eb}.bar2{fill:#9db7f5}.gray{fill:#c9ced6}.warn{fill:#d97706}
+      .card{fill:#f5f6f8;stroke:#e1e4e8}.node{fill:#fff;stroke:#c9ced6;stroke-width:1.5}.nodeA{fill:#e8efff;stroke:#2563eb;stroke-width:1.5}
+      .ln{stroke:#6b7280;stroke-width:1.5;fill:none}
+    </style>
+  </defs>
+  <rect width="1240" height="560" fill="#fff"/>
+  <text x="24" y="36" class="t">규칙 방향이 포트 방향과 얼마나 맞나: 성수 기계 파일</text>
+  <text x="24" y="60" class="s mut">포트가 방향을 말한 연결 9,219개에 규칙이 준 방향을 대 본 값이다. 규칙 방향은 사람이 계통 단위로 확정해야 brick:feeds 로 나간다</text>
+  <line x1="502.0" y1="92" x2="502.0" y2="390" stroke="#1f2937" stroke-dasharray="4 4"/>
+  <text x="24" y="117" class="b">전체</text>
+  <rect x="150" y="100" width="420" height="24" rx="4" class="track"/>
+  <rect x="150" y="100" width="352.0" height="24" rx="4" class="bar"/>
+  <text x="510.0" y="117" class="b">83.8%</text>
+  <text x="150" y="142" class="xs mut">7,728/9,219 · 기준선 83.8%</text>
+  <text x="24" y="181" class="b">급기</text>
+  <rect x="150" y="164" width="420" height="24" rx="4" class="track"/>
+  <rect x="150" y="164" width="352.8" height="24" rx="4" class="bar2"/>
+  <text x="510.8" y="181" class="b">84.0%</text>
+  <text x="150" y="206" class="xs mut">6,109/7,275 · 계통 728</text>
+  <text x="24" y="245" class="b">환기</text>
+  <rect x="150" y="228" width="420" height="24" rx="4" class="track"/>
+  <rect x="150" y="228" width="380.1" height="24" rx="4" class="bar2"/>
+  <text x="538.1" y="245" class="b">90.5%</text>
+  <text x="150" y="270" class="xs mut">937/1,035 · 계통 94</text>
+  <text x="24" y="309" class="b">배기</text>
+  <rect x="150" y="292" width="420" height="24" rx="4" class="track"/>
+  <rect x="150" y="292" width="315.0" height="24" rx="4" class="bar2"/>
+  <text x="473.0" y="309" class="b">75.0%</text>
+  <text x="150" y="334" class="xs mut">682/909 · 계통 96</text>
+  <text x="24" y="373" class="b">병원 HVAC(참고)</text>
+  <rect x="150" y="356" width="420" height="24" rx="4" class="track"/>
+  <rect x="150" y="356" width="417.5" height="24" rx="4" class="gray"/>
+  <text x="575.5" y="373" class="b">99.4%</text>
+  <text x="150" y="398" class="xs mut">포트가 완전한 다른 건물</text>
+  <rect x="700" y="88" width="516" height="400" rx="10" class="card"/>
+  <text x="720" y="118" class="b">가장 많이 어긋난 계통과 그 안의 원천</text>
+  <text x="720" y="150" class="xs mut">계통</text><text x="900" y="150" class="xs mut">종류</text><text x="960" y="150" class="xs mut">일치/대 봄</text><text x="1050" y="150" class="xs mut">원천 패밀리</text>
+  <text x="720" y="176" class="s">기계 급기 26</text><text x="900" y="176" class="s">급기</text>
+  <rect x="960" y="165" width="70" height="12" rx="2" class="track"/><rect x="960" y="165" width="2.7" height="12" rx="2" class="warn"/>
+  <text x="1036" y="176" class="xs mut">2/51</text><text x="1080" y="176" class="s">전열교환기</text>
+  <text x="720" y="206" class="s">기계 공기 배출 16</text><text x="900" y="206" class="s">배기</text>
+  <rect x="960" y="195" width="70" height="12" rx="2" class="track"/><rect x="960" y="195" width="6.8" height="12" rx="2" class="warn"/>
+  <text x="1036" y="206" class="xs mut">6/62</text><text x="1080" y="206" class="s">전열교환기</text>
+  <text x="720" y="236" class="s">기계 공기 배출 32</text><text x="900" y="236" class="s">배기</text>
+  <rect x="960" y="225" width="70" height="12" rx="2" class="track"/><rect x="960" y="225" width="11.4" height="12" rx="2" class="warn"/>
+  <text x="1036" y="236" class="xs mut">7/43</text><text x="1080" y="236" class="s">전열교환기</text>
+  <text x="720" y="266" class="s">기계 급기 51</text><text x="900" y="266" class="s">급기</text>
+  <rect x="960" y="255" width="70" height="12" rx="2" class="track"/><rect x="960" y="255" width="10.9" height="12" rx="2" class="warn"/>
+  <text x="1036" y="266" class="xs mut">5/32</text><text x="1080" y="266" class="s">전열교환기</text>
+  <text x="720" y="296" class="s">기계 공기 배출 19</text><text x="900" y="296" class="s">배기</text>
+  <rect x="960" y="285" width="70" height="12" rx="2" class="track"/><rect x="960" y="285" width="17.2" height="12" rx="2" class="warn"/>
+  <text x="1036" y="296" class="xs mut">15/61</text><text x="1080" y="296" class="s">전열교환기</text>
+  <text x="720" y="326" class="s">기계 공기 배출 3</text><text x="900" y="326" class="s">배기</text>
+  <rect x="960" y="315" width="70" height="12" rx="2" class="track"/><rect x="960" y="315" width="12.2" height="12" rx="2" class="warn"/>
+  <text x="1036" y="326" class="xs mut">4/23</text><text x="1080" y="326" class="s">전열교환기</text>
+  <text x="720" y="370" class="s">여섯 계통 모두 원천이 전열교환기(CAD Compact Advanced)다.</text>
+  <text x="720" y="392" class="s">전열교환기는 급기와 배기 양쪽에 들어 있다. 배기 계통에서는</text>
+  <text x="720" y="414" class="s">실내 공기를 받아들이는 쪽인데, 규칙은 원천에서 흘러</text>
+  <text x="720" y="436" class="s">나가는 것으로 본다. 그래서 방향이 거꾸로 선다.</text>
+  <text x="720" y="464" class="xs mut">병원의 흡입구 일체형 천장 배기팬과 모양은 같지만 기기가 다르다.</text>
+  <text x="24" y="540" class="s mut">어긋나는 계통은 확정 표에서 일치율로 먼저 보인다. 사람이 확정하지 않은 규칙 방향은 온톨로지에 나가지 않는다</text>
+</svg>

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="580" viewBox="0 0 1240 580">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>
+    <style>
+      text{font-family:'Noto Sans CJK KR','Noto Sans KR',sans-serif;fill:#1f2937;font-size:14px}
+      .m{font-family:'D2CodingLigature Nerd Font','Noto Sans Mono CJK KR',monospace;font-size:12.5px}
+      .mut{fill:#6b7280}.acc{fill:#2563eb}.b{font-weight:700}.s{font-size:12.5px}.xs{font-size:11.5px}.t{font-size:18px;font-weight:700}
+      .track{fill:#f0f1f3}.bar{fill:#2563eb}.bar2{fill:#9db7f5}.gray{fill:#c9ced6}.warn{fill:#d97706}
+      .card{fill:#f5f6f8;stroke:#e1e4e8}.node{fill:#fff;stroke:#c9ced6;stroke-width:1.5}.nodeA{fill:#e8efff;stroke:#2563eb;stroke-width:1.5}
+      .ln{stroke:#6b7280;stroke-width:1.5;fill:none}
+    </style>
+  </defs>
+  <rect width="1240" height="580" fill="#fff"/>
+  <text x="24" y="36" class="t">편집은 값이 아니라 관계를 고친다: 한 번의 편집이 지나는 길</text>
+  <rect x="24" y="70" width="250" height="150" rx="10" class="node"/>
+  <text x="40" y="96" class="b">사람이 고친다</text>
+  <text x="40" y="120" class="s">표의 칸, 3D 끌기·바닥 누르기</text>
+  <text x="40" y="140" class="s">방향키·PageUp·D·K·N</text>
+  <text x="40" y="160" class="s">완전성 검사의 [고치기]</text>
+  <rect x="330" y="70" width="330" height="150" rx="10" class="nodeA"/>
+  <text x="346" y="96" class="b">편집 함수 (lib/edit.ts)</text>
+  <text x="346" y="120" class="s">값을 바꾸고 소속 방을 다시 판정한다</text>
+  <text x="346" y="140" class="s">종류·연결·계통이 바뀌면 규칙 방향을</text>
+  <text x="346" y="160" class="s">다시 돌린다. 재판정을 호출부에 두지 않는다</text>
+  <rect x="716" y="70" width="500" height="150" rx="10" class="node"/>
+  <text x="732" y="96" class="b">바뀐 것 (Change · 연 때와 견주기)</text>
+  <text x="732" y="120" class="s">소속: brick:hasLocation 한 줄</text>
+  <text x="732" y="140" class="s">이름·층·방 안 좌표: rdfs:label · hasPart · GeoJSON</text>
+  <text x="732" y="160" class="s">같은 설비를 여러 번 옮기면 마지막 것만, 제자리면 뺀다</text>
+  <path d="M274,145 H330" class="ln" marker-end="url(#a)"/><path d="M660,145 H716" class="ln" marker-end="url(#a)"/>
+  <rect x="24" y="280" width="280" height="120" rx="10" class="node"/>
+  <text x="40" y="306" class="b">리포트</text>
+  <text x="40" y="330" class="s">화면 위 "바뀐 것 N건"</text>
+  <text x="40" y="350" class="s">PRD #21 편집 전후 차이</text>
+  <rect x="330" y="280" width="280" height="120" rx="10" class="node"/>
+  <text x="346" y="306" class="b">되돌리기 이력</text>
+  <text x="346" y="330" class="s">Ctrl+Z · Ctrl+Shift+Z</text>
+  <text x="346" y="350" class="s">탭 안의 이력(PRD #19 판 되돌리기와 다르다)</text>
+  <rect x="636" y="280" width="580" height="120" rx="10" class="node"/>
+  <text x="652" y="306" class="b">편집 파일(JSON)과 브라우저 자동 저장</text>
+  <text x="652" y="330" class="s">연 때와 달라진 값만, IfcGlobalId 와 지문을 같이 적는다</text>
+  <text x="652" y="350" class="s">지문: GUID → Revit 요소 ID → 이름 → 위치 (한 열쇠에 둘 이상이면 짝짓지 않는다)</text>
+  <path d="M966,220 V250 H164 V280" class="ln" marker-end="url(#a)"/><path d="M470,250 V280" class="ln" marker-end="url(#a)"/><path d="M926,250 V280" class="ln" marker-end="url(#a)"/>
+  <rect x="636" y="450" width="580" height="100" rx="10" class="node"/>
+  <text x="652" y="476" class="b">불러오기·덧붙이기 뒤 다시 얹기</text>
+  <text x="652" y="500" class="s">값을 덮지 않고 편집 함수에 다시 넣는다(덮으면 재판정을 건너뛴다)</text>
+  <text x="652" y="520" class="s">확정한 규칙 방향은 연결마다 적어 둔 방향으로 얼린다</text>
+  <path d="M926,400 V450" class="ln" marker-end="url(#a)"/><path d="M636,500 H623 V220" class="ln" marker-end="url(#a)"/>
+  <rect x="24" y="450" width="470" height="100" rx="10" class="node"/>
+  <text x="40" y="476" class="b">내보내기</text>
+  <text x="40" y="500" class="s">GeoJSON(기하)과 Brick TTL(의미), id 하나로만 잇는다</text>
+  <text x="40" y="520" class="s">편집 파일을 거친 모델의 두 파일은 편집한 모델과 같다</text>
+</svg>
