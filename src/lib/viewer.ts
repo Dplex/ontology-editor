@@ -32,7 +32,7 @@ import {
 } from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
-import type { Model, Vec2 } from './model'
+import type { Model, Vec2, Wall } from './model'
 import type { MeshMap } from './ifc/import'
 
 /**
@@ -164,12 +164,19 @@ export type Viewer = {
   frame(ids: Iterable<string>): void
   /** 내력벽(과 내력 여부를 모르는 벽)을 켜고 끈다. 모델을 바꿔도 켜 둔 상태는 남는다. */
   setWallsVisible(on: boolean): void
+  /**
+   * 층 하나만 보인다. null 이면 전체 층이다. 다른 층의 설비·판·벽은 그리지도 고르지도 않고, 카메라를 그 층에
+   * 맞춘다. 모델을 바꿔도 고른 층은 남는다(그 층이 새 모델에 없으면 전체로 돌아간다).
+   */
+  setStorey(storeyId: string | null): void
   dispose(): void
 }
 
 /** 합친 형상 안에서 설비 하나가 차지하는 자리. 강조·선택·시점 맞추기가 이 표로 설비를 찾는다. */
 type Part = {
   id: string
+  /** 이 설비가 든 층. 층별 보기가 이걸로 가린다. */
+  storeyId: string
   color: number
   /** 꼭짓점 범위(색을 바꿀 때)와 삼각형 인덱스 범위(보이기·고르기). */
   vStart: number
@@ -180,15 +187,13 @@ type Part = {
 }
 
 /** 내력벽과 내력 여부를 모르는 벽을 한 덩어리로 합친다. 형상을 못 얻은 벽은 건너뛴다. */
-function wallMesh(model: Model, meshes?: MeshMap): Mesh | null {
+function wallMesh(walls: readonly Wall[], meshes?: MeshMap): Mesh | null {
   const pieces: { color: Color; mesh: { positions: Float32Array; normals: Float32Array; indices: Uint32Array } }[] = []
-  for (const storey of model.storeys) {
-    for (const wall of storey.walls) {
-      if (wall.loadBearing === false) continue
-      const mesh = meshes?.get(wall.id)
-      if (!mesh) continue
-      pieces.push({ color: new Color(wall.loadBearing ? WALL_COLORS.loadBearing : WALL_COLORS.unknown), mesh })
-    }
+  for (const wall of walls) {
+    if (wall.loadBearing === false) continue
+    const mesh = meshes?.get(wall.id)
+    if (!mesh) continue
+    pieces.push({ color: new Color(wall.loadBearing ? WALL_COLORS.loadBearing : WALL_COLORS.unknown), mesh })
   }
   if (pieces.length === 0) return null
   let vTotal = 0
@@ -249,8 +254,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let solid: Mesh | null = null
   let faded: Mesh | null = null
   // 내력벽. 고르기 대상이 아니다(pick 은 설비만 본다). 벽 너머의 설비를 누를 수 있어야 해서다.
-  let walls: Mesh | null = null
+  // 층마다 한 덩어리. 층별 보기에서 층 단위로 켜고 끈다.
+  let walls = new Map<string, Mesh>()
   let wallsVisible = false
+  const slabs = new Map<string, Mesh>()
+  let storeyFilter: string | null = null
+  /** 층별 보기로 가린 설비. 흐리게 칠한 것(fadedIds)과 따로 든다 — 가린 것은 아예 그리지 않는다. */
+  let hiddenIds = new Set<string>()
   let pickHandler: (id: string | null) => void = () => {}
 
   // **움직일 때만 다시 그린다.** 가만히 있을 때도 매 프레임 1만 8천 개를 다시 그리면 화면 전체(스크롤,
@@ -323,7 +333,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const pos = geometry.getAttribute('position') as BufferAttribute
     const candidates: { part: Part; d: number }[] = []
     for (const part of parts) {
-      if (fadedIds.has(part.id)) continue
+      if (fadedIds.has(part.id) || hiddenIds.has(part.id)) continue
       if (ray.intersectBox(part.box, hitPoint)) candidates.push({ part, d: hitPoint.distanceToSquared(ray.origin) })
     }
     candidates.sort((x, y) => x.d - y.d)
@@ -414,6 +424,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     let solidCount = 0
     let fadedCount = 0
     for (const part of parts) {
+      if (hiddenIds.has(part.id)) continue
       if (fadedIds.has(part.id)) fadedCount += part.iCount
       else solidCount += part.iCount
     }
@@ -422,6 +433,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     let si = 0
     let fi = 0
     for (const part of parts) {
+      if (hiddenIds.has(part.id)) continue
       const slice = fullIndex.subarray(part.iStart, part.iStart + part.iCount)
       if (fadedIds.has(part.id)) {
         fadedIdx.set(slice, fi)
@@ -434,6 +446,26 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     solid.geometry.setIndex(new BufferAttribute(solidIdx, 1))
     faded.geometry.setIndex(new BufferAttribute(fadedIdx, 1))
     faded.visible = fadedCount > 0
+  }
+
+  /**
+   * 고른 층만 남긴다. 설비는 인덱스에서 빼고(그리기 호출 수는 그대로 둘), 판과 벽은 층 덩어리째 끈다.
+   * 층이 없는 설비(층 정보가 없는 파일)는 없다 — 임포트가 설비를 늘 어느 층에 넣는다.
+   */
+  function applyStoreyFilter() {
+    hiddenIds = storeyFilter === null ? new Set() : new Set(parts.filter((p) => p.storeyId !== storeyFilter).map((p) => p.id))
+    for (const [id, mesh] of slabs) mesh.visible = storeyFilter === null || id === storeyFilter
+    for (const [id, mesh] of walls) mesh.visible = wallsVisible && (storeyFilter === null || id === storeyFilter)
+    splitIndex()
+    dirty = true
+  }
+
+  /** 보이는 것 전체가 화면에 들어오게 카메라를 맞춘다. */
+  function fitVisible() {
+    const box = new Box3()
+    for (const part of parts) if (!hiddenIds.has(part.id) && !part.box.isEmpty()) box.union(part.box)
+    for (const [, mesh] of slabs) if (mesh.visible) box.union(new Box3().setFromObject(mesh))
+    if (!box.isEmpty()) fit(box)
   }
 
   function disposeContent() {
@@ -454,6 +486,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       parts = []
       partById = new Map()
       fadedIds = new Set()
+      hiddenIds = new Set()
+      slabs.clear()
+      walls = new Map()
+      // 고른 층이 새 모델에 없으면(다른 파일을 열었다) 전체로 돌아간다.
+      if (storeyFilter !== null && !model.storeys.some((s) => s.id === storeyFilter)) storeyFilter = null
 
       const colorOf = systemColors(model)
       // 배관이 방 안을 지나므로 판을 옅게 깐다. 진하면 배관이 판에 묻힌다. 메시에는 벽도 들어 있으니
@@ -464,36 +501,39 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       // 공간 판도 층마다 하나로 합친다. 성수는 방이 934개다.
       model.storeys.forEach((storey, i) => {
         const color = STOREY_COLORS[i % STOREY_COLORS.length]
-        const slabs: BufferGeometry[] = []
+        const plates: BufferGeometry[] = []
         for (const space of storey.spaces) {
           const mesh = spaceMesh(space.footprint, color, slabOpacity)
           if (!mesh) continue
           mesh.geometry.translate(0, storey.elevation, 0)
-          slabs.push(mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry)
+          plates.push(mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry)
           ;(mesh.material as { dispose(): void }).dispose()
         }
-        if (slabs.length === 0) return
-        const merged = mergeGeometries(slabs)
-        for (const g of slabs) g.dispose()
+        if (plates.length === 0) return
+        const merged = mergeGeometries(plates)
+        for (const g of plates) g.dispose()
         if (merged) {
-          content.add(new Mesh(merged, new MeshLambertMaterial({ color, transparent: true, opacity: slabOpacity, side: DoubleSide })))
+          const slab = new Mesh(merged, new MeshLambertMaterial({ color, transparent: true, opacity: slabOpacity, side: DoubleSide }))
+          slabs.set(storey.id, slab)
+          content.add(slab)
         }
       })
 
       // 설비: 형상이 있으면 그 형상, 없고 좌표만 있으면 작은 상자. 좌표도 없으면 찍지 않는다 —
       // 원점에 찍으면 거기 있는 것처럼 보인다.
-      const pieces: { id: string; color: number; p: ArrayLike<number>; n: ArrayLike<number>; i: ArrayLike<number> }[] = []
+      const pieces: { id: string; storeyId: string; color: number; p: ArrayLike<number>; n: ArrayLike<number>; i: ArrayLike<number> }[] = []
       for (const storey of model.storeys) {
         for (const equipment of storey.equipment) {
           const color = equipment.systemId ? (colorOf.get(equipment.systemId) ?? NO_SYSTEM) : NO_SYSTEM
           const data = meshes?.get(equipment.id)
           if (data) {
-            pieces.push({ id: equipment.id, color, p: data.positions, n: data.normals, i: data.indices })
+            pieces.push({ id: equipment.id, storeyId: storey.id, color, p: data.positions, n: data.normals, i: data.indices })
           } else if (equipment.position) {
             const box = new BoxGeometry(0.4, 0.4, 0.4)
             box.translate(...toScene(equipment.position))
             pieces.push({
               id: equipment.id,
+              storeyId: storey.id,
               color,
               p: box.getAttribute('position').array,
               n: box.getAttribute('normal').array,
@@ -524,7 +564,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         for (let v = 0; v < vCount; v++) {
           box.expandByPoint(hitPoint.set(piece.p[v * 3], piece.p[v * 3 + 1], piece.p[v * 3 + 2]))
         }
-        const part: Part = { id: piece.id, color: piece.color, vStart: vo, vCount, iStart: io, iCount: piece.i.length, box }
+        const part: Part = { id: piece.id, storeyId: piece.storeyId, color: piece.color, vStart: vo, vCount, iStart: io, iCount: piece.i.length, box }
         parts.push(part)
         partById.set(part.id, part)
         vo += vCount
@@ -559,17 +599,21 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         solid.frustumCulled = false
         faded.frustumCulled = false
       }
-      walls = wallMesh(model, meshes)
-      if (walls) {
-        walls.visible = wallsVisible
-        content.add(walls)
+      for (const storey of model.storeys) {
+        const mesh = wallMesh(storey.walls, meshes)
+        if (!mesh) continue
+        walls.set(storey.id, mesh)
+        content.add(mesh)
       }
+      applyStoreyFilter()
 
       scene.add(content)
       dirty = true
 
       // 건물이 화면에 꽉 차게 카메라를 놓는다. 원점 근처에 고정해 두면 실제 좌표가 먼
       // 모델이 화면 밖으로 나가서, 임포트가 잘 됐는데도 빈 화면처럼 보인다.
+      // 층 하나를 보고 있었으면 그 층에 맞춘다.
+      if (storeyFilter !== null) return fitVisible()
       const box = new Box3().setFromObject(content)
       if (box.isEmpty()) return
       fit(box)
@@ -603,8 +647,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     setWallsVisible(on) {
       wallsVisible = on
-      if (walls) walls.visible = on
-      dirty = true
+      applyStoreyFilter()
+    },
+
+    setStorey(storeyId) {
+      if (storeyId === storeyFilter) return
+      storeyFilter = storeyId
+      applyStoreyFilter()
+      fitVisible()
     },
 
     onPick(handler) {

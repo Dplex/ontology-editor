@@ -673,6 +673,16 @@ th {
   font-size: 0.8rem;
 }
 
+.view-tools .storey-select {
+  padding: 0.3rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.8rem;
+}
+
 .view-tools .ghost.on {
   border-color: var(--accent);
   color: var(--accent);

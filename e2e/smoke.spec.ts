@@ -438,3 +438,24 @@ test('대상이 없는 편집은 다시 볼 것에 사라짐으로 남고, 깨�
   await input.setInputFiles({ name: 'broken.json', mimeType: 'application/json', buffer: Buffer.from('{ nope') })
   await expect(page.locator('.edit-notice')).toContainText('편집 파일을 읽지 못했습니다: JSON 이 아닙니다')
 })
+
+test('층을 고르면 3D 와 편집 표가 그 층으로 같이 좁혀진다', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles(FIXTURE)
+  await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+
+  const storey = page.getByRole('combobox', { name: '보이는 층' })
+  await expect(storey).toHaveValue('')
+  const names = page.locator('.editor .rows li')
+  const all = await names.count()
+  expect(all).toBeGreaterThan(1)
+
+  // 2층만 고르면 물리존 이름 표도 2층 것만 남는다. 3D 와 같은 상태를 쓴다.
+  await storey.selectOption({ label: '2F' })
+  await expect(names).not.toHaveCount(all)
+  for (const tag of await names.locator('.tag').allTextContents()) expect(tag).toBe('2F')
+
+  await storey.selectOption({ label: '전체 층' })
+  await expect(names).toHaveCount(all)
+})

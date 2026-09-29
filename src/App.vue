@@ -387,6 +387,8 @@ watch(fileName, () => {
   editStorey.value = ''
   editQuery.value = ''
 })
+// 고른 층은 하나의 상태다. 3D·편집 표·(다음 판의) 평면도가 같이 쓴다. 빈 값이 전체 층이다.
+watch(editStorey, (id) => viewer?.setStorey(id || null))
 
 const matches = (text: string) => {
   const q = editQuery.value.trim().toLowerCase()
@@ -422,6 +424,7 @@ watch([model, canvas], ([m, el]) => {
       selectedId.value = id
     })
     viewer.setWallsVisible(showWalls.value)
+    viewer.setStorey(editStorey.value || null)
   }
   viewer.setModel(m, meshes)
   viewer.setHighlight(null)
@@ -872,6 +875,11 @@ function frameNetwork() {
 /** 목록에서 고른 것도 3D 에서 고른 것과 같게 다룬다. 3D 는 그 자리로 시점을 옮긴다. */
 function select(id: string | null) {
   selectedId.value = id
+  // 다른 층의 설비를 목록에서 고르면 그 층으로 넘어간다. 가려진 채로 고르면 3D 에 아무것도 안 보인다.
+  if (id && editStorey.value && model.value) {
+    const storey = model.value.storeys.find((s) => s.equipment.some((e) => e.id === id))
+    if (storey && storey.id !== editStorey.value) editStorey.value = storey.id
+  }
   if (id) {
     selectedSystemId.value = null
     viewer?.focus(id)
@@ -1404,6 +1412,16 @@ function exportTTL() {
           <div class="canvas-wrap">
             <canvas ref="canvas"></canvas>
             <div class="view-tools">
+              <!-- 층별 보기. 편집 표의 층 선택과 같은 상태다. -->
+              <select
+                v-if="model.storeys.length > 1"
+                v-model="editStorey"
+                class="storey-select"
+                aria-label="보이는 층"
+              >
+                <option value="">전체 층</option>
+                <option v-for="s in model.storeys" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
               <button
                 v-if="drawnWalls"
                 type="button"
