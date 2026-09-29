@@ -967,13 +967,25 @@ export function systemIdOf(name: string, taken: Set<string>): string {
 
 /** STEP 구문이 깨져 web-ifc 가 파일을 열지 못했다. 저작 도구 쪽 문제라 우리가 고칠 수 없다. */
 export class UnreadableIfcError extends Error {
-  constructor() {
-    super(
-      'STEP 구문 오류로 열 수 없습니다. 문자열 안의 작은따옴표가 \'\'로 이스케이프되지 않았을 수 있습니다' +
-        '(예: 6\'8" 같은 피트·인치 표기). 저작 도구에서 다시 내보내야 합니다.',
-    )
+  constructor(
+    message = 'STEP 구문 오류로 열 수 없습니다. 문자열 안의 작은따옴표가 \'\'로 이스케이프되지 않았을 수 있습니다' +
+      '(예: 6\'8" 같은 피트·인치 표기). 저작 도구에서 다시 내보내야 합니다.',
+  ) {
+    super(message)
     this.name = 'UnreadableIfcError'
   }
+}
+
+/**
+ * 열기 전에 IFC(STEP) 파일인지 본다. 빈 파일에 "작은따옴표 이스케이프" 를 탓하거나, 머리말만 흉내 낸 파일에서
+ * web-ifc 안쪽의 "Cannot read properties of undefined" 가 그대로 화면에 나가던 것을 막는다.
+ */
+function checkStep(bytes: Uint8Array) {
+  if (bytes.length === 0) throw new UnreadableIfcError('빈 파일입니다(0바이트).')
+  const head = new TextDecoder().decode(bytes.subarray(0, 4096)).replace(/^\uFEFF/, '').trimStart()
+  if (!head.startsWith('ISO-10303-21')) throw new UnreadableIfcError('IFC(STEP) 파일이 아닙니다. 첫 줄이 ISO-10303-21 로 시작하지 않습니다.')
+  if (!/FILE_SCHEMA\s*\(/i.test(head) || !/\bDATA\s*;/i.test(new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, 1 << 20)))))
+    throw new UnreadableIfcError('IFC 파일의 머리말(FILE_SCHEMA)이나 DATA 절이 없습니다. 저작 도구에서 다시 내보내야 합니다.')
 }
 
 /** IFC 바이트를 읽어 중간 모델을 만든다. 호출부가 api 를 넘겨 초기화를 통제한다. */
@@ -1026,6 +1038,7 @@ function read(
   const stage = (step: number, done?: number, total?: number) =>
     onProgress?.({ stage: IMPORT_STAGES[step], step: step + 1, steps: IMPORT_STAGES.length, done, total })
   stage(0)
+  checkStep(bytes)
   const model = api.OpenModel(bytes)
   // **web-ifc 는 구문이 깨진 파일에 예외 대신 -1 을 준다.** 확인하지 않고 진행하면 한참 뒤
   // 엉뚱한 곳에서 "Cannot read properties of undefined" 로 죽어서 무엇이 잘못됐는지 모른다.

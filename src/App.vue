@@ -526,16 +526,51 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
 // 좌표가 없는 설비(E6)에 표로 넣은 축. 셋이 다 차야 옮긴다(completePosition). 새 파일을 열면 비운다.
 const positionDrafts = ref(new Map<string, (number | null)[]>())
 
-function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: readonly number[] | null) {
+/** 건물 범위: 물리존 외곽선 전체의 평면 범위와 층 높이 범위. 좌표 칸의 오타를 알아보는 데 쓴다. */
+const buildingBox = computed(() => {
+  const m = model.value
+  if (!m) return null
+  const pts = m.storeys.flatMap((s) => s.spaces.flatMap((sp) => sp.footprint))
+  if (!pts.length) return null
+  const zs = m.storeys.map((s) => s.elevation)
+  return {
+    x0: Math.min(...pts.map((p) => p[0])),
+    x1: Math.max(...pts.map((p) => p[0])),
+    y0: Math.min(...pts.map((p) => p[1])),
+    y1: Math.max(...pts.map((p) => p[1])),
+    z0: Math.min(...zs),
+    z1: Math.max(...zs),
+  }
+})
+/** 건물에서 이만큼 벗어나면 알린다(평면 m). 마당의 실외기처럼 조금 밖에 두는 것은 흔하다. */
+const FAR_OUTSIDE = 30
+/**
+ * 칸에 친 좌표가 건물에서 멀면 알린다. 막지는 않는다(밖에 두는 설비가 있다). 성수에서 x 32.26 을 3226 으로 치자 설비가
+ * 3km 밖으로 가고, 전체 보기에서 건물이 점 하나로 줄었는데 리포트에는 "소속 없음" 한 줄뿐이었다.
+ */
+function warnIfFar(to: Vec3) {
+  const b = buildingBox.value
+  if (!b) return
+  const plan = Math.hypot(Math.max(b.x0 - to[0], 0, to[0] - b.x1), Math.max(b.y0 - to[1], 0, to[1] - b.y1))
+  const height = Math.max(b.z0 - 10 - to[2], 0, to[2] - (b.z1 + 20))
+  if (plan > FAR_OUTSIDE) editNotice.value = `건물 범위에서 평면으로 ${Math.round(plan).toLocaleString()}m 벗어난 자리입니다. 오타라면 Ctrl+Z 로 되돌리세요.`
+  else if (height > 0) editNotice.value = `층 높이 범위에서 ${Math.round(height).toLocaleString()}m 벗어난 높이입니다. 오타라면 Ctrl+Z 로 되돌리세요.`
+}
+
+function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: readonly number[] | null, input?: HTMLInputElement) {
   if (!model.value) return
   const value = raw.trim() === '' ? null : Number(raw)
   if (value !== null && !Number.isFinite(value)) return
 
   if (current) {
-    if (value === null) return
+    // 좌표가 있는 설비의 칸을 비우면 옮기지 않는다. 칸도 지금 값으로 되돌린다(빈 칸으로 두면 좌표가 없어진 것처럼 보였다).
+    if (value === null) {
+      if (input) input.value = String(current[axis])
+      return
+    }
     const base: [number, number, number] = [current[0], current[1], current[2]]
     base[axis] = value
-    relocate(equipmentId, base)
+    if (relocate(equipmentId, base)) warnIfFar(base)
     return
   }
 
@@ -547,7 +582,7 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
   if (to) drafts.delete(equipmentId)
   else drafts.set(equipmentId, draft)
   positionDrafts.value = drafts
-  if (to) relocate(equipmentId, to)
+  if (to && relocate(equipmentId, to)) warnIfFar(to)
 }
 
 /** 3D 에서 고른 설비를 끌어 놓았다. 3D 는 이미 놓은 자리에 그려져 있어 다시 만들지 않는다. */
@@ -571,6 +606,8 @@ function moveToStorey(equipmentId: string, storeyId: string) {
   changes.value = [...changes.value, change]
   storeyMoved.value = new Set([...storeyMoved.value, equipmentId])
   triggerRef(model)
+  // 한 층만 보고 있으면 옮긴 층으로 따라간다. 안 따라가면 고른 설비가 화면에서 사라진 것처럼 보였다.
+  if (viewStorey.value && viewStorey.value !== storeyId) viewStorey.value = storeyId
 }
 /** 사람이 층을 바꾼 설비. 층 칸의 출처를 BIM 에서 편집으로 바꾼다. */
 const storeyMoved = ref(new Set<string>())
@@ -2504,7 +2541,12 @@ watch(viewStorey, () => viewer?.frameAll())
 // 3D 와 같은 상태(viewStorey, selectedId)를 쓴다. 꼭짓점 끌기는 3D 에서 놓는 것과 같은 길(dropVertex — 자기 교차
 // 막기, cm 로 자르기, 되돌리기 이력)을 탄다.
 const activeTab = ref<'3d' | 'plan'>('3d')
-const planStorey = computed(() => model.value?.storeys.find((s) => s.id === viewStorey.value) ?? null)
+// 편집은 모델을 그 자리에서 고치고 triggerRef 로 알린다. 같은 층 객체를 넘기면 평면도가 다시 그릴 이유를 몰라서, 방향키로
+// 옮긴 설비의 점과 끌어 놓은 방 외곽선이 예전 자리에 남았다. 알릴 때마다 얕은 사본을 넘긴다(층 하나라 싸다).
+const planStorey = computed(() => {
+  const storey = model.value?.storeys.find((s) => s.id === viewStorey.value)
+  return storey ? { ...storey } : null
+})
 // 고른 설비·물리존이 다른 층이면 그 층으로.
 watch([selectedId, selectedSpaceId], ([eq, sp]) => {
   if (!viewStorey.value || !model.value) return
@@ -3341,7 +3383,13 @@ ${name} 파일을 열까요?`,
     meshes = new Map()
     fileName.value = ''
     mergeReport.value = null
-    error.value = `${isIdf(name) ? 'IDF' : 'IFC'}를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`
+    const detail = e instanceof Error ? e.message : String(e)
+    // 워커 안쪽의 자바스크립트 오류 문구("Cannot read properties of undefined")는 사람에게 뜻이 없다. 무엇이 일어났는지
+    // 먼저 말하고 원문은 괄호에 남긴다(버그 보고에 쓴다).
+    const internal = /Cannot read properties|is not a function|is not iterable|undefined|null/.test(detail)
+    error.value = internal
+      ? `${isIdf(name) ? 'IDF' : 'IFC'}를 읽다가 멈췄습니다. 파일 구조가 깨졌거나 에디터가 모르는 형태입니다(원문: ${detail}).`
+      : `${isIdf(name) ? 'IDF' : 'IFC'}를 읽지 못했습니다: ${detail}`
   } finally {
     busy.value = false
     endProgress()
@@ -4177,7 +4225,7 @@ function exportTTL() {
                 v-keep-typing
                 :value="selected.position ? selected.position[axis] : (positionDrafts.get(selected.id)?.[axis] ?? '')"
                 placeholder="—"
-                @change="applyMove(selected.id, axis, ($event.target as HTMLInputElement).value, selected.position)"
+                @change="applyMove(selected.id, axis, ($event.target as HTMLInputElement).value, selected.position, $event.target as HTMLInputElement)"
               />
             </label>
             <Src v-if="selected.position" :kind="positionSrc(selected)" />
@@ -5306,7 +5354,7 @@ function exportTTL() {
                       v-keep-typing
                       :value="e.position ? e.position[axis] : (positionDrafts.get(e.id)?.[axis] ?? '')"
                       placeholder="—"
-                      @change="applyMove(e.id, axis as 0 | 1 | 2, ($event.target as HTMLInputElement).value, e.position)"
+                      @change="applyMove(e.id, axis as 0 | 1 | 2, ($event.target as HTMLInputElement).value, e.position, $event.target as HTMLInputElement)"
                     />
                   </td>
                   <!-- 좌표 출처. 배치점이 형상에서 떨어져 형상 중심을 쓴 것(계산)과 사람이 옮긴 것(편집)을 가른다. -->

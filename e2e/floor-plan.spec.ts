@@ -39,3 +39,26 @@ test('평면도 탭은 고른 층을 위에서 그리고, 편집 모드에서 �
   await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '3D' }).click()
   await expect(page.getByRole('combobox', { name: '보일 층' })).not.toHaveValue('')
 })
+
+test('평면도를 보는 동안 한 편집이 바로 그려지고, 층을 옮긴 설비를 따라 층이 바뀐다', async ({ page }) => {
+  // 편집은 모델을 그 자리에서 고친다. 같은 층 객체를 넘기면 평면도가 다시 그리지 않아, 방향키로 옮긴 설비의 점이
+  // 예전 자리에 남았고(성수에서 찾았다), PageUp 으로 위층에 옮긴 설비는 화면에서 사라졌다.
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(['src/lib/ifc/fixtures/mep.ifc', FIXTURE])
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '평면도' }).click()
+  const dot = page.locator('svg.floor-plan circle.chosen')
+  const cx = async () => Number(await dot.getAttribute('cx'))
+  const cy = async () => Number(await dot.getAttribute('cy'))
+  const [x0, y0] = [await cx(), await cy()]
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect.poll(async () => Math.hypot((await cx()) - x0, (await cy()) - y0)).toBeCloseTo(1, 1)
+
+  await page.keyboard.press('PageUp')
+  await expect(page.getByRole('combobox', { name: '보일 층' }).locator('option:checked')).toHaveText('2F만')
+  await expect(page.getByRole('img', { name: '2F 평면도' }).locator('circle.chosen')).toHaveCount(1)
+})

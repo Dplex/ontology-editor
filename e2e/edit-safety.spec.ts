@@ -109,3 +109,21 @@ test('방 이름만 고쳐도 덧붙이기는 열려 있다', async ({ page }) =
   await expect(page.locator('label.append:not(.disabled)')).toHaveCount(1)
   await expect(page.locator('label.append')).toHaveAttribute('title', /다시 얹습니다/)
 })
+
+test('좌표 칸에 건물에서 먼 값을 치면 옮기되 오타일 수 있다고 알리고, 칸을 비우면 원래 값으로 돌아온다', async ({ page }) => {
+  // 소수점을 빠뜨린 오타(32.26 → 3226)에 설비가 3km 밖으로 가고, 전체 보기에서 건물이 점 하나로 줄었는데 알림이 없었다.
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(['src/lib/ifc/fixtures/mep.ifc', 'src/lib/ifc/fixtures/two-rooms.ifc'])
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
+  const x = page.locator('.picked .position-edit .coord').first()
+  const x0 = await x.inputValue()
+  await x.fill('')
+  await x.press('Enter')
+  await expect(x).toHaveValue(x0)
+  await x.fill('5000')
+  await x.press('Enter')
+  await expect(page.locator('.edit-notice')).toContainText('건물 범위에서 평면으로')
+  await expect(page.locator('.edit-notice')).toContainText('Ctrl+Z')
+})

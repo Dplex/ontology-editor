@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { polygonArea, type Vec2 } from './model'
-import { overlapArea, splitRing, triangulate, unionRings } from './polygon'
+import { distanceToRing, pointInPolygon } from './mapping'
+import { labelPoint, overlapArea, splitRing, triangulate, unionRings } from './polygon'
 
 const rect = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [
   [x0, y0],
@@ -126,5 +127,21 @@ describe('겹친 넓이', () => {
     const bow: Vec2[] = [[0, 0], [4, 4], [4, 0], [0, 4], [0, 0]]
     expect(triangulate(bow)).toBeNull()
     expect(overlapArea(bow, sq(0, 0, 4, 4))).toBeNull()
+  })
+})
+
+describe('labelPoint — 평면도 이름표 자리', () => {
+  it('ㄷ자 방에서도 방 안, 변에서 먼 곳에 둔다(꼭짓점 평균은 방 밖이다)', () => {
+    // 가로 10 × 세로 6 에서 가운데 위를 6 × 4 로 판 ㄷ자. 꼭짓점 평균(5, 2.9…)은 파낸 자리 가까이다.
+    const u: Vec2[] = [[0, 0], [10, 0], [10, 6], [8, 6], [8, 2], [2, 2], [2, 6], [0, 6], [0, 0]]
+    const p = labelPoint(u)!
+    expect(pointInPolygon(p, u)).toBe(true)
+    // 아래 띠(높이 2)의 가운데 근처거나 두 팔(폭 2) 중 하나다. 어느 쪽이든 변에서 0.9m 넘게 떨어진다.
+    expect(distanceToRing(p, u)).toBeGreaterThan(0.9)
+  })
+
+  it('네모 방은 가운데다', () => {
+    const r: Vec2[] = [[0, 0], [4, 0], [4, 2], [0, 2], [0, 0]]
+    expect(labelPoint(r)).toEqual([2, 1])
   })
 })

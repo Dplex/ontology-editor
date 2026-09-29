@@ -334,3 +334,40 @@ export function overlapArea(ringA: readonly Vec2[], ringB: readonly Vec2[]): num
   }
   return sum
 }
+
+/**
+ * 이름표를 둘 점: 방 안에서 변까지 가장 먼 점(에 가까운 것). 꼭짓점 평균은 ㄷ자·ㄱ자 방이면 방 밖에 떨어져서, 평면도에서
+ * 성수 3층 OFFICE 의 이름표가 코어의 P.S 방 안에 찍혔다(3층 26개 중 3개). 방 범위를 격자로 한 번 훑고, 가장 좋은 칸
+ * 둘레를 한 번 더 촘촘히 훑는다. 안에 드는 점이 없으면(너무 가는 방) 방 안의 한 점(interiorPoint)을 쓴다.
+ */
+export function labelPoint(ring: readonly Vec2[], steps = 16): Vec2 | null {
+  const pts = openPoints(ring)
+  if (pts.length < 3) return null
+  const xs = pts.map((p) => p[0])
+  const ys = pts.map((p) => p[1])
+  let [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+  let best: Vec2 | null = null
+  let far = -1
+  // 거리가 같으면(긴 네모의 가운데 줄) 범위 가운데에 가까운 점을 고른다.
+  const [cx, cy] = [(x0 + x1) / 2, (y0 + y1) / 2]
+  const off = (p: Vec2) => Math.hypot(p[0] - cx, p[1] - cy)
+  for (let round = 0; round < 2; round++) {
+    const dx = (x1 - x0) / steps
+    const dy = (y1 - y0) / steps
+    for (let i = 0; i <= steps; i++) {
+      for (let j = 0; j <= steps; j++) {
+        const p: Vec2 = [x0 + dx * i, y0 + dy * j]
+        if (!pointInPolygon(p, ring)) continue
+        const d = distanceToRing(p, ring)
+        if (d > far + 1e-9 || (Math.abs(d - far) <= 1e-9 && best && off(p) < off(best))) {
+          far = d
+          best = p
+        }
+      }
+    }
+    if (!best) break
+    // 가장 좋은 점 둘레 두 칸 안을 다시 훑는다.
+    ;[x0, x1, y0, y1] = [best[0] - dx, best[0] + dx, best[1] - dy, best[1] + dy]
+  }
+  return best ?? interiorPoint(ring)
+}

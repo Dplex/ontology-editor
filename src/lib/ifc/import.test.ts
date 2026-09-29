@@ -425,6 +425,16 @@ describe('구문이 깨진 파일', () => {
     expect(() => importIfc(api, bytes)).toThrow(UnreadableIfcError)
     expect(() => importIfc(api, bytes)).toThrow(/작은따옴표/)
   })
+
+  it('빈 파일과 STEP 이 아닌 파일은 여는 순간 이유를 말한다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const enc = (t: string) => new TextEncoder().encode(t)
+    expect(() => importIfc(api, new Uint8Array())).toThrow(/빈 파일/)
+    expect(() => importIfc(api, enc('hello, not a model'))).toThrow(/IFC\(STEP\) 파일이 아닙니다/)
+    // 머리말 첫 줄만 흉내 낸 파일. 예전에는 web-ifc 안쪽에서 "Cannot read properties of undefined" 로 죽었다.
+    expect(() => importIfc(api, enc('ISO-10303-21;\nHEADER;\nthis is not ifc\n'))).toThrow(/FILE_SCHEMA/)
+  })
 })
 
 // 입력은 fixtures/proxy.ifc 다. Revit 이 공조기·FCU 를 IfcBuildingElementProxy 로 내보낸 경우를 줄였다.

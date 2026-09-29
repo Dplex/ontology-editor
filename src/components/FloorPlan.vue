@@ -10,6 +10,7 @@
 // 동안은 여기서 미리보기만 그리고, 놓을 때 한 번만 알린다 — 끄는 내내 소속을 재판정하면 성수에서 느리다.
 import { computed, ref, watch } from 'vue'
 import { isConduit, type Storey, type Vec2 } from '../lib/model'
+import { labelPoint } from '../lib/polygon'
 
 const props = defineProps<{
   storey: Storey
@@ -132,13 +133,27 @@ function startVertex(event: PointerEvent, index: number) {
 
 // --- 그릴 것 -------------------------------------------------------------------------
 const spaces = computed(() => props.storey.spaces.filter((s) => s.footprint.length >= 4))
-const labelAt = (ring: readonly Vec2[]) => {
-  // 꼭짓점 평균. 오목한 방에서 밖으로 나갈 수 있지만 이름표 자리로는 충분하다.
-  const pts = ring.slice(0, -1)
-  const x = pts.reduce((n, p) => n + p[0], 0) / pts.length
-  const y = pts.reduce((n, p) => n + p[1], 0) / pts.length
-  return { x: sx(x), y: sy(y) }
-}
+// 이름표 자리. 꼭짓점 평균은 ㄷ자 방이면 방 밖(옆 방)에 떨어져서 방 안에서 변까지 가장 먼 점을 쓴다(labelPoint).
+// 외곽선이 바뀔 때만 다시 잰다.
+const labels = computed(() =>
+  spaces.value.map((s) => {
+    const [x, y] = labelPoint(s.footprint) ?? s.footprint[0]
+    const xs = s.footprint.map((p) => p[0])
+    const ys = s.footprint.map((p) => p[1])
+    const text = s.longName || s.name
+    // 글자 폭(글자 크기 단위). 한글은 한 글자가 1, 라틴·숫자는 0.6 쯤이다.
+    const em = [...text].reduce((n, c) => n + (/[\u3131-\uD79D]/.test(c) ? 1 : 0.6), 0)
+    return { id: s.id, text, x: sx(x), y: sy(y), em, w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) }
+  }),
+)
+/**
+ * 지금 확대에서 방에 들어가는 이름표만 그린다. 전체를 보면 작은 방(S.T, P.S)의 이름이 서로 겹쳐 읽을 수 없었다
+ * (성수 19개 층에 67쌍). 확대하면 들어가는 만큼 나타난다. 고른 방의 이름은 늘 보인다.
+ */
+const fontSize = computed(() => unit.value * 11)
+const shownLabels = computed(() =>
+  labels.value.filter((l) => l.id === spaceId.value || (l.em * fontSize.value <= l.w * 0.95 && fontSize.value * 1.2 <= l.h)),
+)
 const devices = computed(() => props.storey.equipment.filter((e) => e.position && !isConduit(e.role)))
 const selectedSpace = computed(() => spaces.value.find((s) => s.id === spaceId.value) ?? null)
 /** 끄는 중이면 미리보기 고리. 닫는 점(첫 점과 같은 끝 점)도 같이 옮긴다. */
@@ -194,9 +209,9 @@ function pickSpace(id: string) {
         />
       </template>
     </g>
-    <g class="labels" :font-size="unit * 11">
-      <text v-for="s in spaces" :key="s.id" :x="labelAt(s.footprint).x" :y="labelAt(s.footprint).y" text-anchor="middle">
-        {{ s.longName || s.name }}
+    <g class="labels" :font-size="fontSize">
+      <text v-for="l in shownLabels" :key="l.id" :x="l.x" :y="l.y" text-anchor="middle" dominant-baseline="middle">
+        {{ l.text }}
       </text>
     </g>
     <g class="devices">
