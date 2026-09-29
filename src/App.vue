@@ -3541,7 +3541,8 @@ watch([model, flowVersion, versionStat], () => {
   }
   if (m !== tieredModel) {
     tieredModel = m
-    measure()
+    // 새 모델도 한 태스크 뒤로 미룬다. 여는 태스크에 합치기·3D 준비가 몰려 있어서 여기까지 붙이면 화면이 1초 넘게 멈췄다.
+    tiersTimer = window.setTimeout(measure, 0)
   } else {
     tiersTimer = window.setTimeout(measure, TIERS_DELAY)
   }

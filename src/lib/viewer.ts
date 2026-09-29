@@ -285,11 +285,33 @@ export type Viewer = {
   dispose(): void
 }
 
+/**
+ * 합친 형상의 한 덩어리. 설비 형상을 한 벌로 합치면 첫 그리기에 GPU 로 한 번에 올라가서 성수(정점 1천만 개,
+ * 403MB)에서 화면이 3초 멈췄다. 덩어리로 나눠 한 프레임에 하나씩 켜면 올리는 일도 프레임마다 나뉜다.
+ * 옮기거나 칠할 때도 그 덩어리만 다시 올린다(전부 올리면 방향키 한 번에 122MB 가 다시 갔다).
+ */
+type Chunk = {
+  position: BufferAttribute
+  colors: BufferAttribute
+  /** 덩어리 안의 삼각형 인덱스 전부. 흐리게·숨기기를 바꿀 때 여기서 두 메시의 인덱스를 다시 짠다. */
+  index: Uint32Array
+  solid: Mesh
+  faded: Mesh
+  parts: Part[]
+  /** 한 프레임에 한 덩어리씩 켠다. 켜기 전에는 그리지 않는다(고르기는 JS 배열로 하니 된다). */
+  shown: boolean
+  solidCount: number
+  fadedCount: number
+}
+/** 덩어리 하나의 꼭짓점 수. 한 프레임에 올리는 양이 약 8MB 가 된다. */
+const CHUNK_VERTICES = 250_000
+
 /** 합친 형상 안에서 설비 하나가 차지하는 자리. 강조·선택·시점 맞추기가 이 표로 설비를 찾는다. */
 type Part = {
   id: string
   color: number
-  /** 꼭짓점 범위(색을 바꿀 때)와 삼각형 인덱스 범위(보이기·고르기). */
+  chunk: Chunk
+  /** 덩어리 안의 꼭짓점 범위(색을 바꿀 때)와 삼각형 인덱스 범위(보이기·고르기). */
   vStart: number
   vCount: number
   iStart: number
@@ -362,10 +384,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 그리기 호출이 설비 수와 상관없이 두 번이다.
   let parts: Part[] = []
   let partById = new Map<string, Part>()
-  let fullIndex = new Uint32Array(0)
-  let colors: BufferAttribute | null = null
-  let solid: Mesh | null = null
-  let faded: Mesh | null = null
+  let chunks: Chunk[] = []
   // 내력벽. 고르기 대상이 아니다(pick 은 설비만 본다). 벽 너머의 설비를 누를 수 있어야 해서다.
   let walls: Group | null = null
   let wallsVisible = false
@@ -705,8 +724,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   function placePart(d: Extract<Drag, { kind: 'equipment' }>, delta: Vector3) {
-    const position = solid?.geometry.getAttribute('position') as BufferAttribute | undefined
-    if (!position) return
+    const position = d.part.chunk.position
     const arr = position.array as Float32Array
     for (let v = 0; v < d.part.vCount; v++) {
       const k = (d.part.vStart + v) * 3
@@ -764,8 +782,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         // 가려도 잡힌다 — 덕트 사이의 VAV 처럼 가운데가 늘 가려진 설비가 있다. 끌지 않고 떼면 맨 앞의 것을
         // 고른다(pointerup).
         const part = grabbable(ray)
-        const position = solid?.geometry.getAttribute('position') as BufferAttribute | undefined
-        if (!part || !position) return
+        if (!part) return
+        const position = part.chunk.position
         const plane = new Plane(new Vector3(0, 1, 0), -part.box.getCenter(new Vector3()).y)
         if (!ray.intersectPlane(plane, start)) return
         const original = (position.array as Float32Array).slice(part.vStart * 3, (part.vStart + part.vCount) * 3)
@@ -917,9 +935,6 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const c = new Vector3()
   const hitPoint = new Vector3()
   function pick(ray: Ray): string | null {
-    const geometry = solid?.geometry
-    if (!geometry) return null
-    const pos = geometry.getAttribute('position') as BufferAttribute
     const candidates: { part: Part; d: number }[] = []
     for (const part of parts) {
       if (fadedIds.has(part.id) || hiddenIds.has(part.id)) continue
@@ -929,10 +944,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     let best: { id: string; d: number } | null = null
     for (const { part, d } of candidates) {
       if (best && d > best.d) break
+      const { position: pos, index } = part.chunk
       for (let k = part.iStart; k < part.iStart + part.iCount; k += 3) {
-        a.fromBufferAttribute(pos, fullIndex[k])
-        b.fromBufferAttribute(pos, fullIndex[k + 1])
-        c.fromBufferAttribute(pos, fullIndex[k + 2])
+        a.fromBufferAttribute(pos, index[k])
+        b.fromBufferAttribute(pos, index[k + 1])
+        c.fromBufferAttribute(pos, index[k + 2])
         if (!ray.intersectTriangle(a, b, c, false, hitPoint)) continue
         const dist = hitPoint.distanceToSquared(ray.origin)
         if (!best || dist < best.d) best = { id: part.id, d: dist }
@@ -943,13 +959,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
   /** 광선이 이 설비를 지나가는가. 앞에 다른 것이 있어도 참이다(pick 은 맨 앞의 것만 본다). */
   function hitsPart(ray: Ray, part: Part): boolean {
-    const geometry = solid?.geometry
-    if (!geometry || !ray.intersectBox(part.box, hitPoint)) return false
-    const pos = geometry.getAttribute('position') as BufferAttribute
+    if (!ray.intersectBox(part.box, hitPoint)) return false
+    const { position: pos, index } = part.chunk
     for (let k = part.iStart; k < part.iStart + part.iCount; k += 3) {
-      a.fromBufferAttribute(pos, fullIndex[k])
-      b.fromBufferAttribute(pos, fullIndex[k + 1])
-      c.fromBufferAttribute(pos, fullIndex[k + 2])
+      a.fromBufferAttribute(pos, index[k])
+      b.fromBufferAttribute(pos, index[k + 1])
+      c.fromBufferAttribute(pos, index[k + 2])
       if (ray.intersectTriangle(a, b, c, false, hitPoint)) return true
     }
     return false
@@ -980,6 +995,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     resize()
     // 관성(damping)으로 도는 동안에는 update 가 참을 돌려준다. 그동안만 계속 그린다.
     if (controls.update()) dirty = true
+    // 새로 연 모델은 덩어리를 한 프레임에 하나씩 켠다. 켜는 프레임에 그 덩어리만 GPU 로 올라간다.
+    const next = chunks.find((c) => !c.shown)
+    if (next) {
+      showChunk(next)
+      dirty = true
+    }
     if (dirty) {
       if (handles.length) scaleHandles()
       renderer.render(scene, camera)
@@ -1037,44 +1058,66 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   /** 설비 하나의 색을 꼭짓점 색에 칠한다. */
   const tint = new Color()
   function paintPart(part: Part, hex: number) {
-    if (!colors) return
     tint.setHex(hex)
-    const arr = colors.array as Float32Array
+    const r = Math.round(tint.r * 255)
+    const g = Math.round(tint.g * 255)
+    const b = Math.round(tint.b * 255)
+    const attr = part.chunk.colors
+    const arr = attr.array as Uint8Array
+    const k0 = part.vStart * 3
+    // 설비 하나는 한 색이다. 이미 그 색이면 덩어리를 다시 올리지 않는다.
+    if (part.vCount && arr[k0] === r && arr[k0 + 1] === g && arr[k0 + 2] === b) return
     for (let v = part.vStart; v < part.vStart + part.vCount; v++) {
-      arr[v * 3] = tint.r
-      arr[v * 3 + 1] = tint.g
-      arr[v * 3 + 2] = tint.b
+      arr[v * 3] = r
+      arr[v * 3 + 1] = g
+      arr[v * 3 + 2] = b
     }
+    attr.needsUpdate = true
   }
 
-  /** 보이는(진한) 설비와 흐린 설비의 삼각형 목록을 다시 짠다. 형상은 둘이 같이 쓴다. */
-  function splitIndex() {
-    if (!solid || !faded) return
-    let solidCount = 0
-    let fadedCount = 0
-    for (const part of parts) {
-      if (hiddenIds.has(part.id)) continue
-      if (fadedIds.has(part.id)) fadedCount += part.iCount
-      else solidCount += part.iCount
-    }
-    const solidIdx = new Uint32Array(solidCount)
-    const fadedIdx = new Uint32Array(fadedCount)
-    let si = 0
-    let fi = 0
-    for (const part of parts) {
-      if (hiddenIds.has(part.id)) continue
-      const slice = fullIndex.subarray(part.iStart, part.iStart + part.iCount)
-      if (fadedIds.has(part.id)) {
-        fadedIdx.set(slice, fi)
-        fi += slice.length
-      } else {
-        solidIdx.set(slice, si)
-        si += slice.length
+  /** 켠 덩어리만 그린다. 비어 있는 쪽(흐린 설비가 없는 덩어리 등)은 그리기 호출을 아낀다. */
+  function showChunk(chunk: Chunk) {
+    chunk.shown = true
+    chunk.solid.visible = chunk.solidCount > 0
+    chunk.faded.visible = chunk.fadedCount > 0
+  }
+
+  /**
+   * 보이는(진한) 설비와 흐린 설비의 삼각형 목록을 다시 짠다. 형상은 둘이 같이 쓴다. `only` 를 주면 그 덩어리만
+   * 짠다 — 계통 하나를 고를 때 바뀌는 덩어리는 몇 개뿐이다.
+   */
+  function splitIndex(only?: ReadonlySet<Chunk>) {
+    for (const chunk of chunks) {
+      if (only && !only.has(chunk)) continue
+      let solidCount = 0
+      let fadedCount = 0
+      for (const part of chunk.parts) {
+        if (hiddenIds.has(part.id)) continue
+        if (fadedIds.has(part.id)) fadedCount += part.iCount
+        else solidCount += part.iCount
       }
+      const solidIdx = new Uint32Array(solidCount)
+      const fadedIdx = new Uint32Array(fadedCount)
+      let si = 0
+      let fi = 0
+      for (const part of chunk.parts) {
+        if (hiddenIds.has(part.id)) continue
+        const slice = chunk.index.subarray(part.iStart, part.iStart + part.iCount)
+        if (fadedIds.has(part.id)) {
+          fadedIdx.set(slice, fi)
+          fi += slice.length
+        } else {
+          solidIdx.set(slice, si)
+          si += slice.length
+        }
+      }
+      chunk.solid.geometry.setIndex(new BufferAttribute(solidIdx, 1))
+      chunk.faded.geometry.setIndex(new BufferAttribute(fadedIdx, 1))
+      chunk.solidCount = solidCount
+      chunk.fadedCount = fadedCount
+      chunk.solid.visible = chunk.shown && solidCount > 0
+      chunk.faded.visible = chunk.shown && fadedCount > 0
     }
-    solid.geometry.setIndex(new BufferAttribute(solidIdx, 1))
-    faded.geometry.setIndex(new BufferAttribute(fadedIdx, 1))
-    faded.visible = fadedCount > 0
   }
 
   function disposeContent() {
@@ -1154,6 +1197,19 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const ray = rayAt(x, y)
         return { equipment: pick(ray), element: archTargets.length ? pickElement(ray) : null, space: pickSpace(ray) }
       },
+      /** 합친 설비 형상의 크기와 켠 덩어리 수. 첫 그리기에 GPU 로 올리는 양을 잰다. */
+      stats: () => {
+        let bytes = 0
+        let vertices = 0
+        let indices = 0
+        for (const c of chunks) {
+          const g = c.solid.geometry
+          bytes += ['position', 'normal', 'color'].reduce((n, k) => n + (g.getAttribute(k)?.array.byteLength ?? 0), 0) + c.index.byteLength
+          vertices += c.position.count
+          indices += c.index.length
+        }
+        return { parts: parts.length, chunks: chunks.length, shown: chunks.filter((c) => c.shown).length, vertices, indices, mb: Math.round(bytes / 1048576) }
+      },
       /** 보이는 판의 층 id. 층별로 보기를 잰다. */
       visibleStoreys: () => slabs.children.filter((o) => o.visible).map((o) => o.userData.storeyId as string),
       /**
@@ -1217,61 +1273,97 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         }
       }
 
-      let vTotal = 0
-      let iTotal = 0
-      for (const piece of pieces) {
-        vTotal += piece.p.length / 3
-        iTotal += piece.i.length
-      }
-      const positions = new Float32Array(vTotal * 3)
-      const normals = new Float32Array(vTotal * 3)
-      fullIndex = new Uint32Array(iTotal)
-      let vo = 0
-      let io = 0
+      // 덩어리로 나눈다. 설비 하나는 한 덩어리 안에만 든다(끌기·칠하기가 설비 단위다).
+      const groups: (typeof pieces)[] = []
+      let group: typeof pieces = []
+      let groupVertices = 0
       for (const piece of pieces) {
         const vCount = piece.p.length / 3
-        positions.set(piece.p, vo * 3)
-        normals.set(piece.n, vo * 3)
-        for (let k = 0; k < piece.i.length; k++) fullIndex[io + k] = piece.i[k] + vo
-        const box = new Box3()
-        for (let v = 0; v < vCount; v++) {
-          box.expandByPoint(hitPoint.set(piece.p[v * 3], piece.p[v * 3 + 1], piece.p[v * 3 + 2]))
+        if (group.length && groupVertices + vCount > CHUNK_VERTICES) {
+          groups.push(group)
+          group = []
+          groupVertices = 0
         }
-        const part: Part = { id: piece.id, color: piece.color, vStart: vo, vCount, iStart: io, iCount: piece.i.length, box }
-        parts.push(part)
-        partById.set(part.id, part)
-        vo += vCount
-        io += piece.i.length
+        group.push(piece)
+        groupVertices += vCount
       }
+      if (group.length) groups.push(group)
 
-      solid = null
-      faded = null
-      colors = null
-      if (parts.length > 0) {
-        const positionAttr = new BufferAttribute(positions, 3)
-        const normalAttr = new BufferAttribute(normals, 3)
-        colors = new BufferAttribute(new Float32Array(vTotal * 3), 3)
-        for (const part of parts) paintPart(part, part.color)
-
+      chunks = []
+      const solidMaterial = new MeshLambertMaterial({ vertexColors: true, side: DoubleSide })
+      // 아주 옅게 남긴다. 아예 지우면 연결망이 건물 어디쯤인지 알 수 없고, 진하면 가는 배관 한 줄이 묻힌다.
+      const fadedMaterial = new MeshLambertMaterial({ vertexColors: true, side: DoubleSide, transparent: true, opacity: 0.08, depthWrite: false })
+      for (const members of groups) {
+        let vTotal = 0
+        let iTotal = 0
+        for (const piece of members) {
+          vTotal += piece.p.length / 3
+          iTotal += piece.i.length
+        }
+        const positions = new Float32Array(vTotal * 3)
+        const normals = new Float32Array(vTotal * 3)
+        const index = new Uint32Array(iTotal)
         const solidGeometry = new BufferGeometry()
         const fadedGeometry = new BufferGeometry()
-        for (const g of [solidGeometry, fadedGeometry]) {
-          g.setAttribute('position', positionAttr)
-          g.setAttribute('normal', normalAttr)
-          g.setAttribute('color', colors)
+        const chunk: Chunk = {
+          position: new BufferAttribute(positions, 3),
+          // 색은 바이트로 둔다. 부동소수로 두면 꼭짓점마다 12바이트라 올리는 양의 4분의 1이 색이었다.
+          colors: new BufferAttribute(new Uint8Array(vTotal * 3), 3, true),
+          index,
+          solid: new Mesh(solidGeometry, solidMaterial),
+          faded: new Mesh(fadedGeometry, fadedMaterial),
+          parts: [],
+          shown: false,
+          solidCount: 0,
+          fadedCount: 0,
         }
-        solid = new Mesh(solidGeometry, new MeshLambertMaterial({ vertexColors: true, side: DoubleSide }))
-        // 아주 옅게 남긴다. 아예 지우면 연결망이 건물 어디쯤인지 알 수 없고, 진하면 가는 배관 한 줄이 묻힌다.
-        faded = new Mesh(
-          fadedGeometry,
-          new MeshLambertMaterial({ vertexColors: true, side: DoubleSide, transparent: true, opacity: 0.08, depthWrite: false }),
-        )
-        content.add(solid, faded)
-        splitIndex()
-        // 합친 형상은 경계가 모델 전체라, 화면 밖 판정을 꺼도 잃는 것이 없다(늘 화면 안에 있다).
-        solid.frustumCulled = false
-        faded.frustumCulled = false
+        let vo = 0
+        let io = 0
+        for (const piece of members) {
+          const vCount = piece.p.length / 3
+          const p = piece.p
+          positions.set(p, vo * 3)
+          normals.set(piece.n, vo * 3)
+          for (let k = 0; k < piece.i.length; k++) index[io + k] = piece.i[k] + vo
+          // 상자는 맨 루프로 잰다. 성수는 꼭짓점이 1천만 개라 Vector3 를 거치면 여기서 0.1초가 나갔다.
+          let x0 = Infinity
+          let y0 = Infinity
+          let z0 = Infinity
+          let x1 = -Infinity
+          let y1 = -Infinity
+          let z1 = -Infinity
+          for (let k = 0; k < p.length; k += 3) {
+            if (p[k] < x0) x0 = p[k]
+            if (p[k] > x1) x1 = p[k]
+            if (p[k + 1] < y0) y0 = p[k + 1]
+            if (p[k + 1] > y1) y1 = p[k + 1]
+            if (p[k + 2] < z0) z0 = p[k + 2]
+            if (p[k + 2] > z1) z1 = p[k + 2]
+          }
+          const box = vCount ? new Box3(new Vector3(x0, y0, z0), new Vector3(x1, y1, z1)) : new Box3()
+          const part: Part = { id: piece.id, color: piece.color, chunk, vStart: vo, vCount, iStart: io, iCount: piece.i.length, box }
+          chunk.parts.push(part)
+          parts.push(part)
+          partById.set(part.id, part)
+          vo += vCount
+          io += piece.i.length
+        }
+        const normalAttr = new BufferAttribute(normals, 3)
+        for (const g of [solidGeometry, fadedGeometry]) {
+          g.setAttribute('position', chunk.position)
+          g.setAttribute('normal', normalAttr)
+          g.setAttribute('color', chunk.colors)
+        }
+        for (const part of chunk.parts) paintPart(part, part.color)
+        // 합친 형상은 경계가 크고 켜 둔 채 시점을 돌린다. 화면 밖 판정은 꺼 둔다.
+        chunk.solid.frustumCulled = false
+        chunk.faded.frustumCulled = false
+        content.add(chunk.solid, chunk.faded)
+        chunks.push(chunk)
       }
+      splitIndex()
+      // 같은 모델을 다시 그리는 것(편집 뒤)은 한꺼번에 켠다. 나눠 켜면 편집할 때마다 건물이 사라졌다 다시 찬다.
+      if (options?.keepView) for (const chunk of chunks) showChunk(chunk)
       // 층마다 따로 만든다. 층별로 보기가 층 단위로 켜고 끈다.
       walls = new Group()
       for (const storey of model.storeys) {
@@ -1293,7 +1385,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
       // 건물이 화면에 꽉 차게 카메라를 놓는다. 원점 근처에 고정해 두면 실제 좌표가 먼
       // 모델이 화면 밖으로 나가서, 임포트가 잘 됐는데도 빈 화면처럼 보인다.
-      const box = new Box3().setFromObject(content)
+      // 설비 형상은 이미 잰 설비별 상자로 합친다. setFromObject 는 덩어리마다 꼭짓점을 다시 훑었다.
+      const box = new Box3()
+      for (const part of parts) box.union(part.box)
+      const own = new Set(chunks.flatMap((c) => [c.solid, c.faded]))
+      for (const child of content.children) if (!own.has(child as Mesh)) box.expandByObject(child)
       if (box.isEmpty()) return
       fit(box)
     },
@@ -1318,10 +1414,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         }
         paintPart(part, next)
       }
-      if (colors) colors.needsUpdate = true
-      const changed = nextFaded.size !== fadedIds.size || [...nextFaded].some((id) => !fadedIds.has(id))
+      // 흐리게 하기가 바뀐 설비가 든 덩어리만 인덱스를 다시 짠다.
+      const touched = new Set<Chunk>()
+      for (const id of nextFaded) if (!fadedIds.has(id)) touched.add(partById.get(id)!.chunk)
+      for (const id of fadedIds) {
+        const part = partById.get(id)
+        if (part && !nextFaded.has(id)) touched.add(part.chunk)
+      }
+      const changed = touched.size > 0
       fadedIds = nextFaded
-      if (changed) splitIndex()
+      if (changed) splitIndex(touched)
       dirty = true
       // 흐리게 칠한 것은 고를 수 없으니, 계통을 바꾸면 마우스 아래가 고를 수 있는지도 바뀐다.
       if (changed && hoverAt) hoverPending = true
@@ -1377,8 +1479,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     shiftEquipment(id, delta) {
       const part = partById.get(id)
-      const position = solid?.geometry.getAttribute('position') as BufferAttribute | undefined
-      if (!part || !position) return false
+      if (!part) return false
+      const position = part.chunk.position
       const [dx, dy, dz] = toScene(delta)
       const arr = position.array as Float32Array
       for (let v = part.vStart; v < part.vStart + part.vCount; v++) {
