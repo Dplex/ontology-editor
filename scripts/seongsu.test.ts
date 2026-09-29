@@ -505,7 +505,7 @@ describe.skipIf(!have)('성수 측정', () => {
         if (storey.spaces.filter((s) => pointInPolygon(pt, s.footprint)).length > 1) overlapped++
       }
     }
-    const checks = completenessChecks(merged, airServices(merged, withInferred(merged.connections)))
+    const checks = completenessChecks(merged, airServices(merged, withInferred(merged.connections)), withInferred(merged.connections))
     const reqs = requirementsReport(merged, mergeReport)
     const profile = profileOf(merged)
     section('소속', table(['', '수'], [

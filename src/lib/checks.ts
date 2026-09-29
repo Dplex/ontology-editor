@@ -1,15 +1,19 @@
 // 완전성 검사. 온톨로지가 DT 에서 쓰일 만큼 이어져 있는지를 규칙 몇 줄로 잰다.
 //
-// 선행 연구(Wang 2026 Table 2, docs/research.md ④)는 이것을 SHACL 기수 규칙으로 적었다. "디퓨저는 정확히
+// 선행 연구(Wang 2026 Table 2, 정본 부록 E)는 이것을 SHACL 기수 규칙으로 적었다. "디퓨저는 정확히
 // 한 방에 공급한다", "공조기는 말단 하나 이상에 공급한다" 같은 것이다. NREL BuildingMOTIF 도 같은 방식으로
 // Brick 모델을 검증한다. 여기서는 SHACL 엔진을 들이지 않고 같은 규칙을 코드로 센다. 규칙마다 "비면 DT 에서
 // 무엇이 안 되는가" 를 같이 적는다. 숫자만 보이면 무엇부터 고칠지 정할 수 없다.
 //
 // 규칙이 보는 방향은 호출부가 정한다(화면과 같은 방향). 원천·말단은 이름 사전(kinds.ts)으로 가르고,
 // 소속 방은 좌표로 판정한 것이라 전부 추정이 섞인 검사다.
+//
+// 덕트·배관의 양 끝 규칙과 물 계통 규칙은 UCL 그룹의 두 논문에서 왔다(Mavrokapnidis 2023 Table 2 "구간·이음쇠는 둘
+// 이상에 이어진다", Wang 2026 Table 2 의 수배관 루프). 공기 규칙만 있을 때는 연결망이 **어디서** 끊겼는지를 말하지
+// 못했고(고립된 기기만 셌다), 열원과 공조기·FCU 사이는 아예 보지 않았다.
 
 import { josa } from './josa'
-import { equipmentKind } from './kinds'
+import { equipmentKind, systemKind } from './kinds'
 import { distanceToRing, interiorPoint, pointInPolygon } from './mapping'
 import { isConduit, type Connection, type Model, type Vec2, type Vec3 } from './model'
 import { isAirSource, isAirTerminal, type AirService } from './served'
@@ -29,7 +33,63 @@ export type CheckResult = {
   skipped?: string
 }
 
-export function completenessChecks(model: Model, services: readonly AirService[]): CheckResult[] {
+/** 열원. 순환수를 데우거나 식혀 내보내는 기기다. 펌프는 급수·배수에도 있어 뺀다(원천이 모델에 없는 망이 흔하다). */
+const HEAT_SOURCES: readonly string[] = ['boiler', 'chiller', 'heat_pump', 'ground_source_heat_pump']
+/** 냉온수를 받는 기기. 위생기구·스프링클러도 물을 받지만 원천(상수도·소화 수조)이 모델에 없는 것이 보통이라 뺀다. */
+const HYDRONIC_USERS: readonly string[] = ['ahu', 'fcu', 'radiator']
+
+/**
+ * 순환수 연결. 열원과 냉온수를 받는 기기가 방향을 아는 연결로 이어지는가. 공기 쪽(`airServices`)처럼 한 방향으로만 따라간다 —
+ * 공급은 열원에서 하류로, 환수는 열원으로 거슬러 올라간다. **공기 계통의 덕트는 건너지 않는다.** FCU 에서 덕트를 타고
+ * 공조기로 넘어가 그 공조기의 냉수관에서 냉동기를 만나면, FCU 가 이어진 것으로 잘못 센다.
+ */
+function hydronicLinks(model: Model, connections: readonly Connection[]): { sources: Map<string, boolean>; users: Map<string, boolean> } {
+  const equipment = model.storeys.flatMap((s) => s.equipment)
+  const byId = new Map(equipment.map((e) => [e.id, e]))
+  const mediumOf = new Map(model.systems.map((s) => [s.id, systemKind(s.kind)?.medium ?? null]))
+  const airOnly = (id: string) => {
+    const e = byId.get(id)
+    return !!e && isConduit(e.role) && !!e.systemId && mediumOf.get(e.systemId) === 'air'
+  }
+  const forward = new Map<string, string[]>()
+  const backward = new Map<string, string[]>()
+  const push = (map: Map<string, string[]>, a: string, b: string) => map.set(a, [...(map.get(a) ?? []), b])
+  for (const c of connections) {
+    if (!c.directed) continue
+    push(forward, c.from, c.to)
+    push(backward, c.to, c.from)
+  }
+  const kindOf = (id: string) => byId.get(id)?.kind ?? ''
+  const reaches = (start: string, goal: readonly string[]) => {
+    for (const adj of [forward, backward]) {
+      const seen = new Set([start])
+      const queue = [start]
+      while (queue.length) {
+        const at = queue.shift()!
+        for (const next of adj.get(at) ?? []) {
+          if (seen.has(next) || airOnly(next)) continue
+          if (goal.includes(kindOf(next))) return true
+          seen.add(next)
+          queue.push(next)
+        }
+      }
+    }
+    return false
+  }
+  const sources = new Map<string, boolean>()
+  const users = new Map<string, boolean>()
+  for (const e of equipment) {
+    if (HEAT_SOURCES.includes(e.kind ?? '')) sources.set(e.id, reaches(e.id, HYDRONIC_USERS))
+    else if (HYDRONIC_USERS.includes(e.kind ?? '')) users.set(e.id, reaches(e.id, HEAT_SOURCES))
+  }
+  return { sources, users }
+}
+
+/**
+ * `connections` 는 화면과 같은 방향의 연결이다(규칙 방향을 켰으면 `withInferred` 로 펼친 것). 도관의 양 끝은 방향과
+ * 상관없이 이어졌는지만 본다.
+ */
+export function completenessChecks(model: Model, services: readonly AirService[], connections: readonly Connection[] = model.connections): CheckResult[] {
   const equipment = model.storeys.flatMap((s) => s.equipment)
   const devices = equipment.filter((e) => !isConduit(e.role))
   const terminals = equipment.filter(isAirTerminal)
@@ -50,6 +110,15 @@ export function completenessChecks(model: Model, services: readonly AirService[]
     const flow = equipmentKind(e.kind)?.flow
     return !!flow && Object.keys(flow).length > 0
   })
+  // 도관마다 이어진 상대의 수. 같은 상대와 두 번 이어진 것(포트 둘)은 하나로 센다.
+  const neighbors = new Map<string, Set<string>>()
+  for (const c of model.connections) {
+    if (c.from === c.to) continue
+    neighbors.set(c.from, (neighbors.get(c.from) ?? new Set()).add(c.to))
+    neighbors.set(c.to, (neighbors.get(c.to) ?? new Set()).add(c.from))
+  }
+  const conduits = equipment.filter((e) => isConduit(e.role))
+  const hydronic = hydronicLinks(model, connections)
 
   return [
     {
@@ -87,6 +156,27 @@ export function completenessChecks(model: Model, services: readonly AirService[]
       why: '상류·하류를 따라갈 수 없습니다. 포트가 없거나 형상이 맞닿지 않은 경우입니다.',
       total: flowing.length,
       failed: flowing.filter((e) => !connected.has(e.id)).map((e) => e.id),
+    },
+    {
+      key: 'conduit-ends',
+      rule: '덕트·배관 구간과 이음쇠가 양쪽 모두 이어져 있다',
+      why: '연결망이 이 자리에서 끊깁니다. 흐름이 여기서 멈춰 담당 설비·공간을 따라갈 수 없습니다. 끝막이(캡)라면 정상입니다.',
+      total: conduits.length,
+      failed: conduits.filter((e) => (neighbors.get(e.id)?.size ?? 0) < 2).map((e) => e.id),
+    },
+    {
+      key: 'heat-source-user',
+      rule: '열원(보일러·냉동기·히트펌프)이 냉온수를 받는 기기(공조기·FCU·방열기)와 이어져 있다',
+      why: '열원이 어느 기기에 냉온수를 보내는지 알 수 없어, 열원 고장이 어디까지 번지는지 계통도에 나오지 않습니다.',
+      total: hydronic.sources.size,
+      failed: [...hydronic.sources].filter(([, ok]) => !ok).map(([id]) => id),
+    },
+    {
+      key: 'hydronic-user-source',
+      rule: '냉온수를 받는 기기(공조기·FCU·방열기)가 열원과 이어져 있다',
+      why: '이 기기의 냉온수를 어느 열원이 대는지 알 수 없습니다. 열원이 모델에 없으면(다른 파일·다른 건물) 그 파일을 덧붙여야 합니다.',
+      total: hydronic.users.size,
+      failed: [...hydronic.users].filter(([, ok]) => !ok).map(([id]) => id),
     },
   ]
 }
@@ -196,21 +286,36 @@ export function diagnoseFailure(key: string, id: string, ctx: ExplainContext): {
     return say(text, inside ? { kind: 'move-into', spaceName: best!.name, to: [cm(inside[0]), cm(inside[1]), e.position[2]] } : undefined)
   }
 
-  if (key === 'device-connected') {
+  if (key === 'heat-source-user' || key === 'hydronic-user-source') {
+    if (!touches) return say('연결이 하나도 없습니다.')
+    const t = trace(connections, id, conduit)
+    const along = new Set([...t.upstream, ...t.downstream])
+    const target = key === 'heat-source-user' ? '공조기·FCU·방열기' : '보일러·냉동기·히트펌프 같은 열원'
+    if (along.size === 0) return say(`방향을 모르는 연결에서 끊깁니다(이어진 것 ${t.linked.size}개). 방향을 정하면 따라갈 수 있습니다.`)
+    return say(`흐름을 따라 ${along.size}개까지 가지만 ${target}${josa(target, '이/가')} 없습니다. 공기 덕트는 건너지 않습니다.`)
+  }
+
+  if (key === 'device-connected' || key === 'conduit-ends') {
+    // 도관의 한쪽 끝만 이어졌으면 이미 이어진 상대는 후보에서 뺀다 — 열린 끝에 붙을 것을 찾는다.
+    const linked = new Set(ctx.model.connections.flatMap((c) => (c.from === id ? [c.to] : c.to === id ? [c.from] : [])))
+    if (key === 'conduit-ends' && linked.size === 1) {
+      if (!ctx.boxes?.get(id)) return say('한쪽 끝만 이어져 있습니다. 형상이 없어 반대쪽 이웃을 잴 수 없습니다.')
+    }
     const box = ctx.boxes?.get(id)
     if (!box) return say('포트도, 맞닿은 형상도 없습니다.')
     let best: { id: string; d: number } | null = null
     for (const other of equipment) {
-      if (other.id === id) continue
+      if (other.id === id || linked.has(other.id)) continue
       if (e?.systemId && other.systemId && other.systemId !== e.systemId) continue
       const b = ctx.boxes!.get(other.id)
       if (!b) continue
       const d = gapBetween(box, b)
       if (!best || d < best.d) best = { id: other.id, d }
     }
-    if (!best || best.d > 1) return say('1m 안에 이어질 덕트·배관·설비가 없습니다. 접합 부재가 빠졌을 수 있습니다.')
+    const head = key === 'conduit-ends' ? (linked.size === 0 ? '어디에도 이어져 있지 않습니다. ' : '한쪽 끝만 이어져 있습니다. ') : ''
+    if (!best || best.d > 1) return say(head + '1m 안에 이어질 덕트·배관·설비가 없습니다. 접합 부재가 빠졌을 수 있습니다.')
     return say(
-      `가장 가까운 것: ${ctx.label(best.id)}, ${Math.round(best.d * 1000)}mm 떨어져 있습니다. ${Math.round(TOLERANCE * 1000)}mm 안이어야 연결로 봅니다.`,
+      `${head}가장 가까운 것: ${ctx.label(best.id)}, ${Math.round(best.d * 1000)}mm 떨어져 있습니다. ${Math.round(TOLERANCE * 1000)}mm 안이어야 연결로 봅니다.`,
       { kind: 'connect', other: best.id },
     )
   }

@@ -16,6 +16,8 @@ import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topo
 import { inferFlowByRules, newlyDisagreeing, withInferred } from '../src/lib/flow-rules'
 import { airServices } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
+import { evaluateSuggestions } from '../src/lib/kind-suggest'
+import { verticalLinks } from '../src/lib/vertical'
 import { roomKind } from '../src/lib/kinds'
 import { requirementsReport } from '../src/lib/requirements'
 import { compareVersions } from '../src/lib/versions'
@@ -572,6 +574,8 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsS
     // 벽면 설비가 외곽선 위에 떨어져 말단 105대 중 41대의 소속을 잃었다.
     expect(report.declaredRemapped).toEqual({ total: 167, remapped: 167 })
     expect(model.storeys.flatMap((s) => s.equipment).filter((e) => e.spaceSource === 'bim')).toHaveLength(167)
+    // 종류 후보(kind-suggest.ts): 종류를 아는 Revit 패밀리 16개 중 11개가 닮은 패밀리 세 후보 안에 든다(2026-09-29).
+    expect(evaluateSuggestions(model).top3).toBeGreaterThanOrEqual(11)
     // 방을 절반으로 줄여도 소속을 잃은 설비가 없다.
     expect(report.unlocated).toEqual({ before: 270, after: 270 })
   }, 300_000)
@@ -947,7 +951,7 @@ function overlapScore(model: Model): { total: number; smallest: number; first: n
 /** 규칙 방향까지 넣은 완전성 검사. 화면(App.vue)과 같은 입력이다. */
 function checksOf(model: Model) {
   const out: Record<string, string> = {}
-  for (const c of completenessChecks(model, airServices(model, withInferred(model.connections)))) {
+  for (const c of completenessChecks(model, airServices(model, withInferred(model.connections)), withInferred(model.connections))) {
     out[c.key] = c.skipped ? 'skip' : `${c.total - c.failed.length}/${c.total}`
   }
   return out
@@ -993,7 +997,18 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
       'device-space': '665/668',
       // 욕실 부속·소화기함 101대는 이름으로 흐름 없는 종류가 되어 빠진다(병원 건축이 SanitaryTerminal 로 냈다). 전에는 569/667.
       'device-connected': '565/566',
+      // 한쪽 끝만 이어진 덕트·배관(Mavrokapnidis 2023 의 규칙). 포트가 있는 파일이라 끊긴 자리가 1% 남짓이다.
+      'conduit-ends': '3103/3138',
+      'heat-source-user': '1/1',
+      'hydronic-user-source': '2/2',
     })
+
+    // 종류 후보(kind-suggest.ts). 종류를 아는 Revit 패밀리를 하나씩 가리고 닮은 패밀리로 맞혀 본다(2026-09-29 실측).
+    const guess = evaluateSuggestions(model)
+    expect(guess.families).toBe(14)
+    expect(guess.top3).toBeGreaterThanOrEqual(10)
+    // 층 사이 연결. 계단실·승강로 7개 중 6개가 위·아래층과 이어진다(vertical.ts).
+    expect(verticalLinks(model).size).toBe(6)
   }, 300_000)
 
   // 요구사항 보고서(정본 4장). Revit IFC2x3 의 전형이다 — 필수는 거의 다 차 있고, 권장이 떨어지는 것은 값이 없어서가 아니라
@@ -1091,7 +1106,14 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
       'terminal-single-source': '21/21',
       'device-space': '3337/3469',
       'device-connected': '850/884',
+      // 포트 없이 형상으로 이은 연결망은 끊긴 자리가 많다(14%). 열원 하나와 냉온수 기기 둘이 배관으로 닿지 않는다.
+      'conduit-ends': '10923/12645',
+      'heat-source-user': '0/1',
+      'hydronic-user-source': '0/2',
     })
+    const guess = evaluateSuggestions(model)
+    expect(guess.families).toBe(32)
+    expect(guess.top3).toBeGreaterThanOrEqual(26)
   }, 600_000)
 })
 
@@ -1176,7 +1198,9 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
     const checks = checksOf(model)
     const [pass, total] = checks['terminal-single-source'].split('/')
     expect.soft(pass).toBe(total)
-    expect.soft({ ...checks, 'terminal-single-source': undefined }).toEqual({
+    // 도관 끝·물 계통 규칙(2026-09-29 추가)은 성수가 없는 PC 에서 더해 아직 재지 못했다. 처음 돌 때 값을 정본에 적는다.
+    const { 'conduit-ends': _ends, 'heat-source-user': _heat, 'hydronic-user-source': _user, ...measured } = checks
+    expect.soft({ ...measured, 'terminal-single-source': undefined }).toEqual({
       // 분모가 22 늘었다: 타입 객체에서 종류를 읽게 되면서(603d144) 8AG 그릴 22개를 말단으로 알아본다.
       'terminal-source': '1386/2400',
       'source-terminal': '156/268',

@@ -57,6 +57,12 @@ export type EquipmentKindInfo = {
    * 사전 식을 넓히면 가진 BIM 전부의 숫자가 움직여서(CLAUDE.md 의 과적합 규칙) 이름으로는 읽지 않는다.
    */
   manual?: true
+  /**
+   * 종류 후보를 제안할 때만 쓰는 낱말(kind-suggest.ts). 이름 사전(`test`)과 달리 종류를 **정하지 않는다** — 사람이 고를 때
+   * 후보를 앞에 둘 뿐이다. 이름으로 읽지 않는 종류(`manual`)의 영어 이름이 여기 있다. `test` 를 넓히지 않으므로
+   * check:sample 숫자가 움직이지 않는다.
+   */
+  hint?: string
 }
 
 /** 아무 이름에도 맞지 않는 식. 사람만 고르는 종류의 `test` 다. */
@@ -111,16 +117,16 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // --- 사람만 고르는 종류 ---------------------------------------------------------
   // 병원 MEP 에서 종류를 모르는 기기 1,765대 중 1,376대가 콘센트·스프링클러였는데 고를 종류가 없었다. Brick 1.4 에
   // 맞는 이름을 확인하지 못해 전부 `ex:` 로 나간다.
-  { kind: 'receptacle', label: '콘센트', test: NEVER, brick: null, role: 'terminal', ifc: ['Outlet.POWEROUTLET'], flow: {}, manual: true },
-  { kind: 'sprinkler', label: '스프링클러 헤드', test: NEVER, brick: null, role: 'terminal', ifc: ['FireSuppressionTerminal.SPRINKLER'], flow: { water: 'sink' }, manual: true },
-  { kind: 'plumbing_fixture', label: '위생기구(세면기·싱크·샤워)', test: NEVER, brick: null, role: 'terminal', ifc: ['SanitaryTerminal'], flow: { water: 'sink' }, manual: true },
-  { kind: 'water_heater', label: '급탕기', test: NEVER, brick: null, role: 'conversion', flow: { water: 'source' }, manual: true },
-  { kind: 'transformer', label: '변압기', test: NEVER, brick: null, role: 'conversion', ifc: ['Transformer'], flow: {}, manual: true },
+  { kind: 'receptacle', label: '콘센트', hint: 'receptacle outlet socket', test: NEVER, brick: null, role: 'terminal', ifc: ['Outlet.POWEROUTLET'], flow: {}, manual: true },
+  { kind: 'sprinkler', label: '스프링클러 헤드', hint: 'sprinkler', test: NEVER, brick: null, role: 'terminal', ifc: ['FireSuppressionTerminal.SPRINKLER'], flow: { water: 'sink' }, manual: true },
+  { kind: 'plumbing_fixture', label: '위생기구(세면기·싱크·샤워)', hint: 'lavatory sink shower toilet closet urinal 세면기 변기 소변기 샤워', test: NEVER, brick: null, role: 'terminal', ifc: ['SanitaryTerminal'], flow: { water: 'sink' }, manual: true },
+  { kind: 'water_heater', label: '급탕기', hint: 'water heater 온수기 전기온수기', test: NEVER, brick: null, role: 'conversion', flow: { water: 'source' }, manual: true },
+  { kind: 'transformer', label: '변압기', hint: 'transformer', test: NEVER, brick: null, role: 'conversion', ifc: ['Transformer'], flow: {}, manual: true },
   // 시스템에어컨 실외기. IFC4 에 없어 USERDEFINED 로 적게 했다. Brick 1.4 에는 없지만 받는 쪽(ttl.go equipClass)이
   // Outdoor_Unit 을 ODU 로 읽는다 — Indoor_Unit 과 같은 선례다. 냉매 계통이라 공기·물 흐름 규칙에는 들지 않는다.
-  { kind: 'outdoor_unit', label: '시스템에어컨 실외기', test: NEVER, brick: 'brick:Outdoor_Unit', role: 'conversion', ifc: ['UnitaryEquipment.OUTDOORUNIT'], flow: {}, manual: true },
+  { kind: 'outdoor_unit', label: '시스템에어컨 실외기', hint: 'outdoor unit condensing ODU', test: NEVER, brick: 'brick:Outdoor_Unit', role: 'conversion', ifc: ['UnitaryEquipment.OUTDOORUNIT'], flow: {}, manual: true },
   // 방열기. ifc4Mep 의 IfcSpaceHeater RADIATOR 30대. 순환수를 받는 말단이다.
-  { kind: 'radiator', label: '방열기', test: NEVER, brick: 'brick:Radiator', role: 'terminal', ifc: ['SpaceHeater.RADIATOR'], flow: { water: 'sink' }, manual: true },
+  { kind: 'radiator', label: '방열기', hint: 'radiator convector 라디에이터', test: NEVER, brick: 'brick:Radiator', role: 'terminal', ifc: ['SpaceHeater.RADIATOR'], flow: { water: 'sink' }, manual: true },
 ]
 
 const EQUIPMENT_BY_KIND = new Map(EQUIPMENT_KINDS.map((k) => [k.kind, k]))

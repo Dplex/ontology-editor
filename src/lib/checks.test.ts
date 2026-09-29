@@ -58,6 +58,41 @@ describe('완전성 검사', () => {
     })
   })
 
+  it('한쪽 끝만 이어진 덕트·배관을 찾는다 — 연결망이 끊긴 자리다', () => {
+    const m = model(
+      [eq('ahu', 'ahu', 'conversion'), eq('d1', null, 'segment', null), eq('d2', null, 'segment', null), eq('elbow', null, 'fitting', null), eq('diff', 'air_diffuser', 'terminal')],
+      // 공조기 → d1 → 엘보 → d2 … 끝(디퓨저와 떨어짐). 같은 쌍의 포트 연결이 둘이어도 상대 하나로 센다.
+      [d('ahu', 'd1'), d('ahu', 'd1'), d('d1', 'elbow'), d('elbow', 'd2')],
+    )
+    expect(failed(m)['conduit-ends']).toEqual(['d2'])
+    const boxes = new Map<string, Box>([
+      ['d2', [0, 0, 0, 1, 1, 1]],
+      ['elbow', [-1, 0, 0, 0, 1, 1]],
+      ['diff', [1.02, 0, 0, 2, 1, 1]],
+    ])
+    const ctx = { model: m, connections: m.connections, services: airServices(m, m.connections), boxes, label: (id: string) => id }
+    // 이미 이어진 엘보(0mm)가 아니라 열린 끝 쪽의 디퓨저를 권한다.
+    expect(diagnoseFailure('conduit-ends', 'd2', ctx)).toEqual({
+      text: '한쪽 끝만 이어져 있습니다. 가장 가까운 것: diff, 20mm 떨어져 있습니다. 5mm 안이어야 연결로 봅니다.',
+      fix: { kind: 'connect', other: 'diff' },
+    })
+  })
+
+  it('열원과 냉온수 기기가 배관으로 이어졌는지 보되, 공기 덕트를 건너 이어진 것으로 세지 않는다', () => {
+    const sys = (id: string, kind: string) => ({ id, name: id, memberIds: [], source: 'ifc' as const, kind })
+    const pipe = (id: string) => ({ ...eq(id, null, 'segment', null), systemId: 'chw' })
+    const duct = (id: string) => ({ ...eq(id, null, 'segment', null), systemId: 'sa' })
+    const m = {
+      ...model(
+        [eq('chiller', 'chiller', 'conversion'), pipe('p1'), eq('ahu', 'ahu', 'conversion'), duct('a1'), eq('fcu', 'fcu', 'conversion'), eq('boiler', 'boiler', 'conversion')],
+        // 냉동기 → 배관 → 공조기 → 덕트 → FCU. FCU 는 덕트로만 이어져 냉동기와 이어진 것이 아니다. 보일러는 아무 데도 안 붙었다.
+        [d('chiller', 'p1'), d('p1', 'ahu'), d('ahu', 'a1'), d('a1', 'fcu')],
+      ),
+      systems: [sys('chw', 'hydronic_supply'), sys('sa', 'supply_air')],
+    }
+    expect(failed(m)).toMatchObject({ 'heat-source-user': ['boiler'], 'hydronic-user-source': ['fcu'] })
+  })
+
   it('방이 없는 파일에서는 소속 검사를 건너뛰고 이유를 말한다', () => {
     const m = model([eq('fcu', 'fcu', 'conversion', null)], [], [])
     expect(failed(m)['device-space']).toBe('방이 없는 파일입니다. 건축 파일을 덧붙이면 검사할 수 있습니다.')

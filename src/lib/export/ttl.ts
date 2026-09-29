@@ -13,6 +13,7 @@ import { deviceFlows } from '../topology'
 import { equipmentKind, roomKind, systemBrickClass, systemKind } from '../kinds'
 import { CAPACITY_PREDICATE, capacityQuantity } from '../capacity'
 import { withInferred } from '../flow-rules'
+import { airServices } from '../served'
 
 const PREFIXES = [
   '@prefix brick: <https://brickschema.org/schema/Brick#> .',
@@ -131,6 +132,16 @@ export function modelToTTL(model: Model): string {
   }
   for (const [from, targets] of flows.directed) {
     feeds.set(from, [...new Set([...(feeds.get(from) ?? []), ...targets])])
+  }
+  // **공기 원천이 급기를 보내는 방.** 위에서 적은 방향(포트·사람이 정한 것·확정한 규칙)만 따라 원천에서 급기 말단까지
+  // 가고, 그 말단이 든 방을 원천의 feeds 에 더한다(served.ts). 선행 연구(Mavrokapnidis 2023 Listing 2)의 "설비가 흐름으로
+  // 이어진 말단이 방에 있으면 설비 feeds 그 방" 과 같은 규칙이다. 확정 전의 규칙 방향은 여기 들지 않으므로, 방향에 관한 한
+  // BIM 이나 사람이 말한 것만 이어 붙인 결과다. 방은 좌표로 판정한 소속이라 hasLocation 과 같은 근거다. 환기·배기는
+  // 공기가 방에서 원천으로 들어오므로 feeds 로 적지 않는다(방향이 반대가 된다).
+  const byId = new Map(all.map((e) => [e.id, e]))
+  for (const service of airServices(model, connections)) {
+    const rooms = new Set(service.supply.map((id) => byId.get(id)?.spaceId).filter((id): id is string => !!id))
+    if (rooms.size) feeds.set(service.sourceId, [...new Set([...(feeds.get(service.sourceId) ?? []), ...rooms])])
   }
   // IDF 가 말한 담당 관계(공조기 → 말단 → 공조존). BIM 설비와 이름이 맞은 IDF 설비는 BIM 설비의 블록에 적는다 — 받는 쪽은
   // 주어 자신의 블록만 읽는다(위 주석). IDF 가 말한 것이라 규칙 방향과 달리 확정 없이 나간다.

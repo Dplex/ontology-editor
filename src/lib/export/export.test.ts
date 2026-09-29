@@ -219,7 +219,9 @@ describe('설비 내보내기', () => {
 
     // 공조기 블록에는 덕트를 건너뛴 토출구도 적힌다. 덕트는 fso: 라 ttl.go 가 버리므로,
     // 이게 없으면 받는 쪽에서 공조기가 토출구에 닿지 못한다.
-    expect(block('AHU-1')).toContain(`brick:feeds ${eq('DUCT-01')}, ${eq('AT-101-01')} ;`)
+    // 그 토출구가 든 방도 적힌다 — 공조기가 급기를 보내는 방(담당 공간). 포트가 방향을 말한 길로만 닿은 방이다.
+    const office = `ex:${escapeLocalName(mep.storeys.flatMap((s) => s.spaces).find((s) => s.longName === '사무실' || s.name === '사무실')!.id)}`
+    expect(block('AHU-1')).toContain(`brick:feeds ${eq('DUCT-01')}, ${eq('AT-101-01')}, ${office} ;`)
 
     // 방향을 모르는 연결(SOURCEANDSINK 포트)은 한 줄도 나가지 않는다. 방향을 찍으면
     // 읽는 쪽이 BIM 이 말한 것과 우리가 찍은 것을 구별할 수 없다.

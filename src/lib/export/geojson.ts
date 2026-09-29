@@ -7,6 +7,7 @@
 
 import { capacityQuantity } from '../capacity'
 import type { Equipment, HvacZone, Model, Opening, Space, Storey, Wall } from '../model'
+import { verticalLinks } from '../vertical'
 
 export type Geometry =
   | { type: 'Polygon'; coordinates: number[][][] }
@@ -26,7 +27,7 @@ export type FeatureCollection = {
   features: Feature[]
 }
 
-function spaceFeature(space: Space, storey: Storey): Feature {
+function spaceFeature(space: Space, storey: Storey, vertical?: readonly string[]): Feature {
   // 외곽선을 못 만든 공간도 빼지 않는다. geometry 를 null 로 둔 Feature 는 GeoJSON 에서
   // 적법하고, 빼 버리면 "온톨로지에는 있는데 지도에는 없는" 공간이 조용히 생긴다.
   const ring = space.footprint
@@ -46,6 +47,9 @@ function spaceFeature(space: Space, storey: Storey): Feature {
       storeyId: storey.id,
       elevation: storey.elevation,
       areaM2: Number(space.areaM2.toFixed(4)),
+      // 계단실·승강로가 아래·위층에서 이어진 방(vertical.ts). 방-문-방 연결이 층 안에서만 서므로, 로봇 경로가 층을
+      // 옮길 자리다. 다른 층 파일의 물리존 id 를 가리킨다.
+      ...(vertical?.length ? { verticalConnects: vertical } : {}),
     },
   }
 }
@@ -142,11 +146,15 @@ function hvacZoneFeature(zone: HvacZone, storey: Storey): Feature {
 }
 
 /** 층 하나를 FeatureCollection 으로. 물리존·설비·벽·문·창(과 IDF 공조존)이 같은 파일에 들어간다. */
-export function storeyToGeoJSON(storey: Storey, zones: readonly HvacZone[] = []): FeatureCollection {
+export function storeyToGeoJSON(
+  storey: Storey,
+  zones: readonly HvacZone[] = [],
+  vertical: ReadonlyMap<string, string[]> = new Map(),
+): FeatureCollection {
   return {
     type: 'FeatureCollection',
     features: [
-      ...storey.spaces.map((s) => spaceFeature(s, storey)),
+      ...storey.spaces.map((s) => spaceFeature(s, storey, vertical.get(s.id))),
       ...storey.equipment.map((e) => equipmentFeature(e, storey)),
       ...storey.walls.map((w) => wallFeature(w, storey)),
       ...storey.openings.map((o) => openingFeature(o, storey)),
@@ -164,12 +172,13 @@ export function storeyToGeoJSON(storey: Storey, zones: readonly HvacZone[] = [])
  */
 export function modelToGeoJSON(model: Model): { fileName: string; collection: FeatureCollection }[] {
   const taken = new Set<string>()
+  const vertical = verticalLinks(model)
   return model.storeys.map((storey) => {
     // 층 이름에는 공백이나 슬래시가 들어올 수 있다. 파일 이름으로 쓰기 전에 걸러 낸다.
     const stem = `floor-${storey.name.replace(/[^\w가-힣-]+/g, '_') || storey.id}`
     let fileName = `${stem}.geojson`
     for (let n = 2; taken.has(fileName.toLowerCase()); n++) fileName = `${stem}-${n}.geojson`
     taken.add(fileName.toLowerCase())
-    return { fileName, collection: storeyToGeoJSON(storey, model.hvac?.zones ?? []) }
+    return { fileName, collection: storeyToGeoJSON(storey, model.hvac?.zones ?? [], vertical) }
   })
 }

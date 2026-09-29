@@ -2552,6 +2552,15 @@ main.has-model .catalog {
   display: block;
 }
 
+/* 종류 후보. 단서 아래 한 줄에 누를 수 있게 둔다. 이유는 마우스를 올리면 보인다. */
+.unknown-types td.clues .suggest {
+  color: var(--text);
+}
+
+.unknown-types td.clues .suggest button {
+  margin-left: 0.35rem;
+}
+
 /* 자동 저장된 편집을 이어서 할지 묻는 줄. 도구막대의 둘째 줄로 붙는다(편집 막대와 같은 자리). */
 .draft-bar {
   display: flex;

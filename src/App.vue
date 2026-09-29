@@ -19,6 +19,7 @@ import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from '
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
+import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
@@ -1709,7 +1710,11 @@ const SERVICE_LIMIT = 200
 //
 // 규칙마다 통과 수와 어긴 요소(checks.ts). 규칙을 펼치면 어긴 것을 목록으로 보이고 3D 에 칠한다.
 // 설비나 계통을 고르면 그쪽이 3D 색을 가져간다.
-const checks = computed(() => (model.value ? completenessChecks(model.value, airServiceList.value) : []))
+const checks = computed(() => {
+  const m = model.value
+  if (!m) return []
+  return completenessChecks(m, airServiceList.value, showRules.value && hasRules.value ? withInferred(m.connections) : m.connections)
+})
 const openCheckKey = ref<string | null>(null)
 const openCheck = computed(() => checks.value.find((c) => c.key === openCheckKey.value) ?? null)
 const CHECK_LIMIT = 100
@@ -1747,7 +1752,7 @@ const failReasons = computed(() => {
     model: m,
     connections: showRules.value && hasRules.value ? withInferred(m.connections) : m.connections,
     services: airServiceList.value,
-    boxes: c.key === 'device-connected' ? meshBoxes() : undefined,
+    boxes: c.key === 'device-connected' || c.key === 'conduit-ends' ? meshBoxes() : undefined,
     label: (id: string) => {
       const e = equipmentById.value.get(id)
       const what = whatIs(e)?.label
@@ -1909,6 +1914,18 @@ const unknownTypes = computed(() => {
   return [...rows.values()].sort((a, b) => b.count - a.count)
 })
 const TYPE_LIMIT = 50
+
+/**
+ * 종류를 모르는 패밀리마다 종류 후보(kind-suggest.ts). 이름의 낱말이 맞은 종류와, 같은 건물에서 계통·이웃·높이가 닮은
+ * 패밀리의 종류다. 정하지 않는다 — 누르면 여느 종류 지정과 같이 패밀리 전체에 붙고(출처 "편집") 되돌리기에 쌓인다.
+ */
+const kindSuggestions = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  return m && editing.value && unknownTypes.value.length ? suggestKinds(m) : new Map<string, KindSuggestion[]>()
+})
+const suggestionWhy = (s: KindSuggestion) =>
+  'name' in s.why ? `이름의 '${s.why.name}'` : `닮은 패밀리: ${s.why.like} (${Math.round(s.score * 100)}%)`
 
 /**
  * 종류를 모르는 패밀리마다 고를 단서. 이름이 암호 같아도(`M_Exhaust Unit…:47-84 LPS`) 어느 계통에 있고, 무엇에
@@ -3655,7 +3672,7 @@ const REQUIREMENT_STATE: Record<RequirementState, string> = {
   unmeasured: '잴 수 없음',
 }
 // 접힌 칸의 제목 옆에 붙는 한 줄. 고객사에 할 말이 셋으로 갈린다 — 할 말 없음, 설정을 바꿔 달라, 값을 넣어 달라.
-// 파일 하나로 잴 수 없는 것(R8·R12·R13)을 분모에 넣으면 필수가 반쯤 빠진 것처럼 읽힌다. 잰 것만 센다.
+// 파일 하나로 잴 수 없는 것(R12·R13)을 분모에 넣으면 필수가 반쯤 빠진 것처럼 읽힌다. 잰 것만 센다.
 const requirementGroups = computed(() =>
   (['필수', '권장'] as const).map((level) => ({ level, rows: currentRequirements.value.filter((r) => r.level === level) })),
 )
@@ -5140,6 +5157,18 @@ function exportTTL() {
                       <span>이웃: {{ familyClues.get(t.key)!.neighbors }}</span>
                       <span>위치: {{ familyClues.get(t.key)!.place }}</span>
                     </template>
+                    <span v-if="kindSuggestions.get(t.key)?.length" class="suggest">
+                      후보:
+                      <button
+                        v-for="s in kindSuggestions.get(t.key)"
+                        :key="s.kind"
+                        type="button"
+                        class="link"
+                        :title="suggestionWhy(s)"
+                        @click="setKind(t.key, s.kind, t.label)"
+                      >{{ equipmentKind(s.kind)?.label }}</button>
+                      <Src kind="dict" />
+                    </span>
                   </td>
                   <td>
                     <select :aria-label="`${t.label} 의 종류`" @change="pickTypeKind($event, t.key, t.label)">
