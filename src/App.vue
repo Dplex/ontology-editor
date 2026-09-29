@@ -3904,7 +3904,8 @@ function exportTTL() {
               <td class="chips">
                 <span v-if="!profiles[f.path]" class="muted">재는 중…</span>
                 <span v-else-if="errorAt(f.path)" class="unreadable" :title="errorAt(f.path)">열 수 없음</span>
-                <template v-else>
+                <!-- 모양이 다른 응답(옛 서버 등)이 오면 칩 없이 둔다. `!` 로 밀어붙였더니 목록 렌더가 멈춰 그 뒤 화면 갱신이 꼬였다. -->
+                <template v-else-if="profileAt(f.path)">
                   <TierChips :tiers="profileAt(f.path)!.tiers" />
                   <span v-if="roleHint(profileAt(f.path)!)" class="muted role">{{ roleHint(profileAt(f.path)!) }}</span>
                   <button
