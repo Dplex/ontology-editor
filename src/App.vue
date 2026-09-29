@@ -10,6 +10,7 @@ import Fold from './components/Fold.vue'
 import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import HoverTip from './components/HoverTip.vue'
+import FloorPlan from './components/FloorPlan.vue'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { narrowOptions } from './lib/options'
 import { applyEdits, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
@@ -2448,6 +2449,14 @@ function applyStoreyFilter() {
 }
 watch([viewStorey, model, sceneVersion], applyStoreyFilter)
 watch(viewStorey, () => viewer?.frameAll())
+
+// --- 3D / 평면도 ---------------------------------------------------------------------
+//
+// 평면도는 3D 와 탭으로 갈아 끼운다(한 번에 하나만 그린다). 층 하나를 골랐을 때만 그리고, 고른 층·고른 설비는
+// 3D 와 같은 상태(viewStorey, selectedId)를 쓴다. 꼭짓점 끌기는 3D 에서 놓는 것과 같은 길(dropVertex — 자기 교차
+// 막기, cm 로 자르기, 되돌리기 이력)을 탄다.
+const activeTab = ref<'3d' | 'plan'>('3d')
+const planStorey = computed(() => model.value?.storeys.find((s) => s.id === viewStorey.value) ?? null)
 // 고른 설비·물리존이 다른 층이면 그 층으로.
 watch([selectedId, selectedSpaceId], ([eq, sp]) => {
   if (!viewStorey.value || !model.value) return
@@ -3847,7 +3856,19 @@ function exportTTL() {
         <HoverTip ref="hoverTip" />
         <section class="viewport">
           <div class="canvas-wrap">
-            <canvas ref="canvas"></canvas>
+            <canvas v-show="activeTab === '3d'" ref="canvas"></canvas>
+            <!-- 평면도. 3D 와 탭으로 갈아 끼우고, 층 하나를 골랐을 때만 그린다. -->
+            <FloorPlan
+              v-if="activeTab === 'plan' && planStorey"
+              :storey="planStorey"
+              :selected-id="selectedId"
+              :editing="editing"
+              @select="select"
+              @move-vertex="dropVertex"
+            />
+            <p v-else-if="activeTab === 'plan'" class="plan-empty">
+              평면도는 층 하나를 그립니다. 오른쪽 위에서 층을 고르세요.
+            </p>
             <!-- 외곽선 그리기 중. 찍은 점 수와 마침·한 점 지우기·취소. -->
             <div v-if="drawing" class="draw-bar" role="status">
               <template v-if="drawing.purpose === 'split'">
@@ -3923,6 +3944,10 @@ function exportTTL() {
               >
                 공조존
               </button>
+              <div class="tabs" role="group" aria-label="보기">
+                <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
+                <button type="button" :aria-pressed="activeTab === 'plan'" @click="activeTab = 'plan'">평면도</button>
+              </div>
               <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
               <select v-if="model.storeys.length > 1" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
                 <option :value="null">모든 층</option>
@@ -3943,7 +3968,7 @@ function exportTTL() {
           </div>
 
           <!-- 3D 색이 무엇을 뜻하는지. 진한 색은 BIM 포트가 말한 흐름, 옅은 색은 규칙으로 정한 흐름이다. -->
-          <ul v-if="selected" class="color-key">
+          <ul v-if="selected && activeTab === '3d'" class="color-key">
             <li><i :style="{ background: hex(PICK_COLORS.upstream) }"></i>상류 <Src kind="bim" /></li>
             <li><i :style="{ background: hex(PICK_COLORS.downstream) }"></i>하류 <Src kind="bim" /></li>
             <template v-if="showRules && tracedRules">

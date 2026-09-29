@@ -1111,7 +1111,8 @@ describe.skipIf(!existsSync(SEONGSU_ARCH))('성수 건축', () => {
     const c = countOf(model)
     expect.soft(model.schema).toBe('IFC2X3')
     expect.soft(c.storeys).toBe(19)
-    expect.soft(c.spaces).toBe(934)
+    // 파일에는 934개인데 같은 자리에 겹쳐 둔 방 하나를 걸러 933개다(중복 방 제거, ef71acc).
+    expect.soft(c.spaces).toBe(933)
     const walls = model.storeys.flatMap((s) => s.walls)
     expect.soft({
       walls: walls.length,
@@ -1175,11 +1176,12 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
     const [pass, total] = checks['terminal-single-source'].split('/')
     expect.soft(pass).toBe(total)
     expect.soft({ ...checks, 'terminal-single-source': undefined }).toEqual({
-      'terminal-source': '1386/2378',
+      // 분모가 22 늘었다: 타입 객체에서 종류를 읽게 되면서(603d144) 8AG 그릴 22개를 말단으로 알아본다.
+      'terminal-source': '1386/2400',
       'source-terminal': '156/268',
       'terminal-single-source': undefined,
       'device-space': '4137/4911',
-      'device-connected': '2991/3610',
+      'device-connected': '2991/3632',
     })
   }, 900_000)
 })
