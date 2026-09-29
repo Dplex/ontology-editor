@@ -88,9 +88,15 @@ export type ServedSpace = {
   extract: number
 }
 
-/** 원천 하나가 담당하는 방. 방마다 급기·환기 말단이 몇 개인지 센다. */
-export function servedSpaces(model: Model, service: AirService): ServedSpace[] {
-  const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
+/**
+ * 원천 하나가 담당하는 방. 방마다 급기·환기 말단이 몇 개인지 센다. 원천 여럿을 잇달아 물을 때는 설비 색인(`byId`)을
+ * 넘긴다 — 부를 때마다 새로 만들면 성수(원천 268대, 설비 2만 개)에서 편집 한 번에 0.3초가 여기서 나갔다.
+ */
+export function servedSpaces(
+  model: Model,
+  service: AirService,
+  byId: ReadonlyMap<string, Equipment> = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e])),
+): ServedSpace[] {
   const rows = new Map<string | null, ServedSpace>()
   const add = (terminalId: string, key: 'supply' | 'extract') => {
     const spaceId = byId.get(terminalId)?.spaceId ?? null

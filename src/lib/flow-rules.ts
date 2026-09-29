@@ -36,7 +36,7 @@ export type RuleReport = {
    * 계통별로 같은 것을 센 표. 화면이 "확정" 전에 이 계통에서 규칙이 포트와 얼마나 맞았는지를 보여 준다.
    * 원천을 못 찾은 계통은 들어 있지 않다.
    */
-  bySystem: Record<string, { oriented: number; agree: number; disagree: number }>
+  bySystem: Record<string, { oriented: number; agree: number; disagree: number; conflicts: number }>
 }
 
 /**
@@ -157,7 +157,7 @@ export function inferFlowByRules(model: Model): RuleReport {
       continue
     }
 
-    const tally = (report.bySystem[system.id] = { oriented: 0, agree: 0, disagree: 0 })
+    const tally = (report.bySystem[system.id] = { oriented: 0, agree: 0, disagree: 0, conflicts: 0 })
     const done = new Set<Connection>()
     for (const id of system.memberIds) {
       for (const { other, c } of adjacent.get(id) ?? []) {
@@ -173,6 +173,7 @@ export function inferFlowByRules(model: Model): RuleReport {
         const hint = hintOf(to) ?? hintOf(from)
         if (hint && hint.medium === info.medium && hint.sense !== info.sense && !outdoor.get(branch.get(to) ?? '')) {
           report.conflicts++
+          tally.conflicts++
           continue
         }
         const sense = outdoor.get(branch.get(to) ?? '') ?? info.sense

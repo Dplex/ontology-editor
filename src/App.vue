@@ -950,10 +950,29 @@ function nudge(code: string, step: number): boolean {
   const { right, up } = viewer.planeAxes()
   const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
   const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
-  const to: Vec3 = [cm(e.position[0] + sign * ax * step), cm(e.position[1] + sign * ay * step), e.position[2]]
+  const dx = sign * ax * step
+  const dy = sign * ay * step
+  if (pendingNudge?.id === e.id) {
+    pendingNudge.dx += dx
+    pendingNudge.dy += dy
+    return true
+  }
+  pendingNudge = { id: e.id, dx, dy }
+  requestAnimationFrame(flushNudge)
+  return true
+}
+
+// 방향키는 한 프레임에 모아 한 번에 옮긴다. 성수에서 한 번 옮기는 데 0.2초가 들어서, 꾹 누른 키(초당 수십 번)를
+// 하나씩 옮기면 키가 줄을 서서 손을 뗀 뒤에도 몇 초씩 따라 움직였다.
+let pendingNudge: { id: string; dx: number; dy: number } | null = null
+function flushNudge() {
+  const p = pendingNudge
+  pendingNudge = null
+  const e = p ? equipmentById.value.get(p.id) : undefined
+  if (!p || !e?.position) return
+  const to: Vec3 = [cm(e.position[0] + p.dx), cm(e.position[1] + p.dy), e.position[2]]
   relocate(e.id, to, undefined, `nudge:${e.id}`)
   note(`${shortName(e.name)} → x ${to[0].toFixed(2)} · y ${to[1].toFixed(2)} · ${spaceNameOf(equipmentById.value.get(e.id)?.spaceId ?? null)}`)
-  return true
 }
 
 /** 짚은 꼭짓점을 방향키로. 끌어 놓을 때처럼 경계가 엇갈리는 자리에는 놓지 않는다. */
@@ -1557,7 +1576,7 @@ const selectedService = computed(() => {
   const id = selectedId.value
   const service = id ? airServiceList.value.find((s) => s.sourceId === id) : null
   if (!m || !service) return null
-  return { ...service, rooms: servedSpaces(m, service) }
+  return { ...service, rooms: servedSpaces(m, service, equipmentById.value) }
 })
 /** 패널에 보일 담당 공간. 말단이 많은 방부터 SERVED_LIMIT 줄만, 층으로 묶는다(층 순서는 모델 순서). */
 const SERVED_LIMIT = 12
@@ -1585,7 +1604,7 @@ const serviceSummary = computed(() => {
   if (!m) return null
   const rows = airServiceList.value
     .map((s) => {
-      const rooms = servedSpaces(m, s).filter((r) => r.spaceId !== null)
+      const rooms = servedSpaces(m, s, equipmentById.value).filter((r) => r.spaceId !== null)
       const e = equipmentById.value.get(s.sourceId)
       return {
         id: s.sourceId,
@@ -2032,10 +2051,20 @@ function setSystemKindTo(systemId: string, kind: string | null, fluid: Fluid | n
   if (!m || !system) return
   const snapshot = snapshotSystems(m, [systemId])
   const at = mark()
+  const was = ruleReport.value?.bySystem[systemId]?.oriented ?? 0
   const rules = setSystemKind(m, systemId, kind, fluid)
   if (!rules) return
   remember(`계통 ${system.name || systemId} 종류 → ${systemKindText(kind, fluid)}`, snapshot, at)
   ruleReport.value = rules
+  // 종류를 바꾸면 덕트·배관 유형 이름(SA_급기 …)과 방향이 엇갈려 규칙 방향이 통째로 빠질 수 있다. 계통이 확정 표에서
+  // 조용히 사라지면 왜인지 알 수 없어서 수를 말한다.
+  const now = rules.bySystem[systemId]
+  if (now && (was || now.oriented)) {
+    note(
+      `계통 ${system.name || systemId}: 규칙 방향 ${was} → ${now.oriented}개` +
+        (now.conflicts ? `. 덕트·배관 유형 이름이 다른 방향을 말하는 연결 ${now.conflicts}개는 정하지 않았습니다` : ''),
+    )
+  }
   triggerRef(model)
   flowVersion.value++
 }
@@ -3632,7 +3661,11 @@ async function exportGeoJSON() {
       if ((e as DOMException)?.name === 'AbortError') return
     }
   }
-  for (const f of files) download(f.name, f.text, 'application/geo+json')
+  // 크롬은 잇달아 누른 내려받기를 10개에서 끊는다(성수 19개 층 중 9개가 조용히 빠졌다). 하나씩 틈을 둔다.
+  for (const [i, f] of files.entries()) {
+    if (i) await new Promise((r) => window.setTimeout(r, 250))
+    download(f.name, f.text, 'application/geo+json')
+  }
 }
 
 function exportTTL() {
