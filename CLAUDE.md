@@ -353,8 +353,9 @@ e2e 는 따로 5175 에 `--mode e2e` 로 띄운다(`playwright.config.ts`). 그 
 
 빌드한 번들을 `scripts/serve.mjs`(의존성 없는 node 정적 서버)가 `0.0.0.0:8084` 로 내준다.
 주소는 `http://10.251.35.55:8084/`. 기동은 다른 repo 와 같은 인터페이스인 `scripts/run.sh`,
-배포는 `scripts/deploy55.sh` 이고, 밤 자동 배포(`ieum-apm/scripts/autodeploy55.sh`)의 목록에
-들어 있다. 손으로 배포하지 않는 규칙도 다른 repo 와 같다.
+배포는 `scripts/deploy55.sh` 이고, **밤 자동 배포(`ieum-apm/scripts/autodeploy55.sh`)에는 넣지 않는다.**
+PoC 라 원할 때 손으로 배포한다: `ssh 55 'cd /home/dt/git/dt/ontology-editor && scripts/deploy55.sh'`.
+API 가 없어 재시작해도 다른 서비스가 끊기지 않으니 창(23:35)을 기다릴 이유가 없다.
 
 **정문(8000)을 거치지 않는다.** 이 앱은 브라우저 안에서만 돌고 API 가 없어서, 정문의 유일한
 일인 토큰 검증이 지킬 것이 없다. 포털 `:80` 은 한 장짜리 `.html` 만 내주므로 여러 파일로 된
