@@ -7,9 +7,8 @@
  * 좌표는 3D 화면과 같은 three 좌표다(y 가 위, 미터). glTF 가 y 위를 표준으로 둬서 그대로 맞는다.
  * IFC 좌표로 되돌리려면 (x, y, z) → (x, -z, y) 다(`toScene` 의 반대).
  */
-import { BoxGeometry, BufferAttribute, BufferGeometry, DoubleSide, ExtrudeGeometry, Group, Mesh, MeshLambertMaterial, Shape } from 'three'
+import { BoxGeometry, BufferAttribute, BufferGeometry, DoubleSide, ExtrudeGeometry, Group, Mesh, MeshStandardMaterial, Matrix4, Shape } from 'three'
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js'
-import { OBJExporter } from 'three/addons/exporters/OBJExporter.js'
 import type { ElementMesh, MeshMap } from '../ifc/import'
 import type { Model, Vec2, Vec3 } from '../model'
 import { ARCH_COLORS, spaceMesh, systemColors, toScene, WALL_COLORS } from '../viewer'
@@ -39,9 +38,33 @@ function fromElementMesh(data: ElementMesh, shift?: readonly [number, number, nu
     }
   }
   g.setAttribute('position', new BufferAttribute(positions, 3))
-  g.setAttribute('normal', new BufferAttribute(data.normals, 3))
+  // 법선은 고쳐 쓰므로(unitNormals) 사본을 둔다. 원본은 3D 화면이 같이 쓴다.
+  g.setAttribute('normal', new BufferAttribute(new Float32Array(data.normals), 3))
   g.setIndex(new BufferAttribute(data.indices, 1))
   return g
+}
+
+/**
+ * 법선을 단위 길이로 맞춘다(제자리). glTF 는 단위 법선만 받아서, 아니면 GLTFExporter 가 메시마다 사본을 만들어
+ * 고치고 경고를 찍는다 — 성수에서 2만 2천 번. web-ifc 법선은 배치 행렬을 곱해 길이가 1 이 아닐 수 있고,
+ * 넓이 0 인 삼각형(외곽선에 겹친 점이 있는 방 판 등)은 법선이 0 이거나 NaN 이다. 방향이 없으니 위를 준다.
+ */
+function unitNormals(g: BufferGeometry) {
+  const attr = g.getAttribute('normal')
+  if (!attr) return
+  const n = attr.array as Float32Array
+  for (let i = 0; i < n.length; i += 3) {
+    const len = Math.hypot(n[i], n[i + 1], n[i + 2])
+    if (!(len > 0) || !Number.isFinite(len)) {
+      n[i] = 0
+      n[i + 1] = 1
+      n[i + 2] = 0
+    } else if (Math.abs(len - 1) > 1e-6) {
+      n[i] /= len
+      n[i + 1] /= len
+      n[i + 2] /= len
+    }
+  }
 }
 
 function extrudeRings(rings: Vec2[][], y: number, height: number): BufferGeometry[] {
@@ -73,13 +96,13 @@ export function modelToScene(model: Model, meshes: MeshMap, options: Mesh3dOptio
   root.userData = { id: model.buildingId, kind: 'building', schema: model.schema }
 
   const colorOf = systemColors(model)
-  const materials = new Map<number, MeshLambertMaterial>()
+  const materials = new Map<number, MeshStandardMaterial>()
   const material = (color: number) => {
     let m = materials.get(color)
-    if (!m) materials.set(color, (m = new MeshLambertMaterial({ color, side: DoubleSide })))
+    if (!m) materials.set(color, (m = new MeshStandardMaterial({ color, side: DoubleSide })))
     return m
   }
-  const spaceMaterial = new MeshLambertMaterial({ color: SPACE_COLOR, transparent: true, opacity: 0.5, side: DoubleSide })
+  const spaceMaterial = new MeshStandardMaterial({ color: SPACE_COLOR, transparent: true, opacity: 0.5, side: DoubleSide })
 
   const before = new Map<string, { footprint?: Vec2[][]; position?: Vec3 | null }>()
   for (const s of options.pristine?.storeys ?? []) {
@@ -93,7 +116,8 @@ export function modelToScene(model: Model, meshes: MeshMap, options: Mesh3dOptio
     return next !== undefined ? next - elevation : FALLBACK_STOREY_HEIGHT
   }
 
-  const put = (parent: Group, geometry: BufferGeometry, mat: MeshLambertMaterial, id: string, extras: Record<string, unknown>) => {
+  const put = (parent: Group, geometry: BufferGeometry, mat: MeshStandardMaterial, id: string, extras: Record<string, unknown>) => {
+    unitNormals(geometry)
     const mesh = new Mesh(geometry, mat)
     mesh.name = id
     mesh.userData = { id, ...extras }
@@ -154,8 +178,74 @@ export function modelToScene(model: Model, meshes: MeshMap, options: Mesh3dOptio
   return root
 }
 
-export function sceneToOBJ(scene: Group): string {
-  return new OBJExporter().parse(scene)
+/** OBJ 조각 하나의 크기(글자). 조각을 Blob 에 이어 붙인다. */
+const OBJ_CHUNK = 8_000_000
+const mm = (v: number) => String(Math.round(v * 1000) / 1000)
+const IDENTITY = new Matrix4()
+
+/**
+ * OBJ 를 문자열 조각으로 낸다. **한 문자열로 만들면 성수에서 V8 문자열 한도(약 5억 글자)를 넘는다** — three 의
+ * `OBJExporter` 가 `RangeError: Invalid string length` 로 멈췄다. 조각을 `new Blob(parts)` 로 이으면 한도에 닿지 않는다.
+ * 좌표는 mm 까지만 적는다(미터 단위라 그 아래는 BIM 도 뜻이 없고, 파일만 커진다).
+ *
+ * 성수는 16초 걸린다(GLB 는 3초). 화면이 그동안 멈추지 않게 50ms 마다 한 번 비켜 주고 `onProgress`(0~1)를 부른다.
+ */
+export function sceneToOBJ(scene: Group, onProgress?: (done: number) => void): Promise<string[]>
+/** `toPart` 는 조각이 찰 때마다 바로 부른다(워커가 바이트로 바꿔 글자 조각을 곧바로 버린다). */
+export function sceneToOBJ<T>(scene: Group, onProgress: ((done: number) => void) | undefined, toPart: (chunk: string) => T): Promise<T[]>
+export async function sceneToOBJ<T>(scene: Group, onProgress?: (done: number) => void, toPart?: (chunk: string) => T): Promise<(T | string)[]> {
+  const parts: (T | string)[] = []
+  let buf = '# ontology-editor 3D export. object name = IFC GlobalId, y up, metres\n'
+  const emit = () => {
+    parts.push(toPart ? toPart(buf) : buf)
+    buf = ''
+  }
+  const flush = () => {
+    if (buf.length >= OBJ_CHUNK) emit()
+  }
+  let base = 1
+  scene.updateMatrixWorld(true)
+  const list: Mesh[] = []
+  scene.traverse((o) => void (o instanceof Mesh && list.push(o)))
+  const total = list.reduce((s, o) => s + (o.geometry as BufferGeometry).getAttribute('position').count, 0) || 1
+  let last = performance.now()
+  for (const o of list) {
+    if (performance.now() - last > 50) {
+      onProgress?.((base - 1) / total)
+      await new Promise((r) => setTimeout(r, 0))
+      last = performance.now()
+    }
+    // 형상은 세계 좌표로 구워 두어 행렬이 늘 단위 행렬이다. 아닐 때만 사본에 곱한다(성수는 꼭짓점이 1천만 개다).
+    const identity = o.matrixWorld.equals(IDENTITY)
+    const g = identity ? (o.geometry as BufferGeometry) : (o.geometry as BufferGeometry).clone().applyMatrix4(o.matrixWorld)
+    const p = g.getAttribute('position').array
+    const n = g.getAttribute('normal')?.array
+    const count = p.length / 3
+    buf += `o ${o.name}\n`
+    for (let i = 0; i < p.length; i += 3) {
+      buf += `v ${mm(p[i])} ${mm(p[i + 1])} ${mm(p[i + 2])}\n`
+      if ((i & 0xfff) === 0) flush()
+    }
+    if (n) for (let i = 0; i < n.length; i += 3) {
+      buf += `vn ${mm(n[i])} ${mm(n[i + 1])} ${mm(n[i + 2])}\n`
+      if ((i & 0xfff) === 0) flush()
+    }
+    const index = g.index?.array
+    const faces = index ? index.length / 3 : count / 3
+    for (let f = 0; f < faces; f++) {
+      const a = (index ? index[f * 3] : f * 3) + base
+      const b = (index ? index[f * 3 + 1] : f * 3 + 1) + base
+      const c = (index ? index[f * 3 + 2] : f * 3 + 2) + base
+      buf += n ? `f ${a}//${a} ${b}//${b} ${c}//${c}\n` : `f ${a} ${b} ${c}\n`
+      if ((f & 0x3ff) === 0) flush()
+    }
+    base += count
+    if (!identity) g.dispose()
+    flush()
+  }
+  emit()
+  onProgress?.(1)
+  return parts
 }
 
 export async function sceneToGLB(scene: Group): Promise<ArrayBuffer> {

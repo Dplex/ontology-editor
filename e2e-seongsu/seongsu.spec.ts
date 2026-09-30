@@ -1,5 +1,5 @@
 import { execSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 
@@ -286,6 +286,56 @@ test('B 열기: 두 파일을 같이 고르면 합쳐 열리고, 3D 를 그리�
   for (const s of map.spaces) map.elevation.set(s.storey, s.elevation)
   // 외곽선이 있는 물리존(성수 508개 중 453개).
   expect(map.spaces.length).toBeGreaterThan(400)
+})
+
+test('L 3D 내보내기: GLB·OBJ 가 한 파일로 내려받아지고, 만드는 동안 화면이 오래 멈추지 않는다', async () => {
+  const gapsDuring = async (action: () => Promise<{ path: string; name: string; ms: number }>) => {
+    await page.evaluate(() => {
+      const w = window as any
+      w.__gaps = []
+      let last = performance.now()
+      const tick = () => {
+        const now = performance.now()
+        w.__gaps.push(now - last)
+        last = now
+        w.__raf = requestAnimationFrame(tick)
+      }
+      tick()
+    })
+    const out = await action()
+    const gap = await page.evaluate(() => {
+      const w = window as any
+      cancelAnimationFrame(w.__raf)
+      return Math.round(Math.max(...w.__gaps))
+    })
+    return { ...out, gap }
+  }
+  const take = (label: RegExp) => async () => {
+    const t = performance.now()
+    const [d] = await Promise.all([page.waitForEvent('download', { timeout: 300_000 }), page.getByRole('button', { name: label }).click()])
+    const path = (await d.path())!
+    return { path, name: d.suggestedFilename(), ms: Math.round(performance.now() - t) }
+  }
+  const glb = await gapsDuring(take(/3D 형상 내보내기 \(GLB\)/))
+  const glbHead = readFileSync(glb.path).subarray(0, 4).toString()
+  expect(glbHead).toBe('glTF')
+  const glbMb = Math.round(statSync(glb.path).size / 1e6)
+  record('L-8', `${(glb.ms / 1000).toFixed(1)}초 · ${glbMb}MB`, `GLB ${glb.name}. 가장 긴 멈춤 ${glb.gap}ms`)
+
+  const obj = await gapsDuring(take(/3D 형상 내보내기 \(OBJ\)/))
+  const objMb = Math.round(statSync(obj.path).size / 1e6)
+  const fd = openSync(obj.path, 'r')
+  const head = Buffer.alloc(4096)
+  readSync(fd, head, 0, 4096, 0)
+  closeSync(fd)
+  expect(head.toString()).toMatch(/^o \S+$/m)
+  record('L-9', `${(obj.ms / 1000).toFixed(1)}초 · ${objMb}MB`, `OBJ ${obj.name}. 가장 긴 멈춤 ${obj.gap}ms`)
+  // 화면 스레드에서 만들 때는 GLB 3.2초, OBJ 4.0초(조각을 Blob 으로 이을 때)가 한 번에 멈췄다. 워커로 옮긴 뒤로는
+  // 형상을 넘기는 복사만 남는다.
+  expect(glb.gap).toBeLessThan(1_000)
+  expect(obj.gap).toBeLessThan(1_000)
+  expect(glb.name).toBe('Factorial_건축+Factorial_기계.glb')
+  await expect(page.getByRole('button', { name: /3D 형상 내보내기 \(OBJ\)/ })).toHaveText('OBJ')
 })
 
 test('C 3D 보기: 층 고르기, 전체 보기, 고른 연결망, 설명 풍선, 회전, 전체 화면, 테마', async () => {

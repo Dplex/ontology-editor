@@ -23,7 +23,7 @@ import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
-import { disposeScene, modelToScene, sceneToGLB, sceneToOBJ } from './lib/export/mesh3d'
+import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
 import { modelToTTL } from './lib/export/ttl'
 import {
   arrowColors,
@@ -3777,8 +3777,9 @@ function onAppendDrop(event: DragEvent) {
 }
 const appendOver = ref(false)
 
-function download(name: string, data: string | ArrayBuffer, mime: string) {
-  const url = URL.createObjectURL(new Blob([data], { type: mime }))
+/** `data` 가 배열이면 조각을 이어 붙인다 — 한 덩어리로 만들면 한도를 넘는 큰 파일(성수 OBJ 683MB)용이다. */
+function download(name: string, data: string | ArrayBuffer | ArrayBuffer[], mime: string) {
+  const url = URL.createObjectURL(new Blob(Array.isArray(data) ? data : [data], { type: mime }))
   const a = document.createElement('a')
   a.href = url
   a.download = name
@@ -3828,20 +3829,36 @@ function exportTTL() {
 }
 
 /** 3D 형상(GLB·OBJ). 보여 주기용 파일이라 GeoJSON·TTL 과 따로 낸다. 큰 파일은 몇 초 걸려 누르는 동안 버튼을 막는다. */
-const exporting3d = ref(false)
+const exporting3d = ref<'glb' | 'obj' | null>(null)
+const objProgress = ref(0)
 async function export3D(format: 'glb' | 'obj') {
   if (!model.value || exporting3d.value) return
-  exporting3d.value = true
-  const stem = fileName.value.replace(/\.[^.]+$/, '') || 'model'
-  const scene = modelToScene(model.value, meshes, { pristine })
+  exporting3d.value = format
+  objProgress.value = 0
+  // 합쳐 연 파일은 이름이 "건축.ifc + 기계.ifc" 다. 확장자를 떼고 + 로 잇는다.
+  const stem = fileName.value.split(' + ').map((n) => n.replace(/\.[^.]+$/, '')).join('+') || 'model'
+  // 워커에서 만든다(lib/export/mesh3d.worker.ts). 화면 스레드로 만들면 성수에서 3~4초씩 멈췄다.
+  // 한 번 쓰고 닫는다 — 워커가 든 장면(수백 MB)이 남지 않게.
+  const worker = new Worker(new URL('./lib/export/mesh3d.worker.ts', import.meta.url), { type: 'module' })
   try {
-    if (format === 'glb') download(`${stem}.glb`, await sceneToGLB(scene), 'model/gltf-binary')
-    else download(`${stem}.obj`, sceneToOBJ(scene), 'model/obj')
+    const parts = await new Promise<ArrayBuffer[]>((resolve, reject) => {
+      worker.onmessage = (e: MessageEvent<Mesh3dReply>) => {
+        const d = e.data
+        if (d.type === 'progress') objProgress.value = d.done
+        else if (d.type === 'done') resolve(d.parts)
+        else reject(new Error(d.message))
+      }
+      worker.onerror = (e) => reject(new Error(e.message || '워커가 멈췄습니다'))
+      const request: Mesh3dRequest = { format, model: model.value!, pristine, meshes: [...meshes] }
+      worker.postMessage(request)
+    })
+    if (format === 'glb') download(`${stem}.glb`, parts, 'model/gltf-binary')
+    else download(`${stem}.obj`, parts, 'model/obj')
   } catch (e) {
-    note(`3D 내보내기에 실패했습니다: ${(e as Error).message}${format === 'obj' ? ' — 큰 파일은 GLB 를 쓰세요.' : ''}`)
+    note(`3D 내보내기에 실패했습니다: ${(e as Error).message}`)
   } finally {
-    disposeScene(scene)
-    exporting3d.value = false
+    worker.terminate()
+    exporting3d.value = null
   }
 }
 </script>
@@ -4011,8 +4028,8 @@ async function export3D(format: 'glb' | 'obj') {
             <span class="bar-sep" aria-hidden="true"></span>
             <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" @click="exportGeoJSON">GeoJSON</button>
             <button type="button" class="ghost" aria-label="의미 내보내기 (Brick TTL)" title="관계 내보내기 (Brick TTL 파일 하나)" @click="exportTTL">TTL</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="exporting3d" @click="export3D('glb')">GLB</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="exporting3d" @click="export3D('obj')">OBJ</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="!!exporting3d" @click="export3D('glb')">{{ exporting3d === 'glb' ? '만드는 중…' : 'GLB' }}</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="!!exporting3d" @click="export3D('obj')">{{ exporting3d === 'obj' ? `만드는 중 ${Math.round(objProgress * 100)}%` : 'OBJ' }}</button>
             <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
             <button type="button" class="ghost theme" :aria-pressed="dark" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
           </div>
@@ -5635,7 +5652,7 @@ async function export3D(format: 'glb' | 'obj') {
           벽·문·창은 '읽을 것'에서 켠 것만 들어가고, 문·창 위치는 '문·창 자리'를 켜고 연 파일에서만 나갑니다.
           TTL의 설비·방 클래스는 <Src kind="dict" /> 기준이고, 규칙 방향은 확정한 계통만 들어갑니다.
           GLB · OBJ는 보여 주기용 3D 형상입니다. 요소 이름이 같은 id(GlobalId)이고, 좌표는 y가 위인 미터입니다.
-          고친 벽은 지금 외곽선을 층 높이로 세우고, 방은 얇은 판입니다. 큰 파일은 OBJ가 너무 커지니 GLB를 쓰세요.
+          고친 벽은 지금 외곽선을 층 높이로 세우고, 방은 얇은 판입니다. 큰 파일은 OBJ가 GLB보다 몇 배 크니 GLB를 권합니다.
         </p>
       </section>
     </template>

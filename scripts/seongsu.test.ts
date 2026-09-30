@@ -4,12 +4,13 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import * as WebIFC from 'web-ifc'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { importIfcWithMeshes } from '../src/lib/ifc/import'
+import { importIfcWithMeshes, type MeshMap } from '../src/lib/ifc/import'
 import { isConduit, type Equipment, type Model, type Vec2 } from '../src/lib/model'
 import { interiorPoint, locate, pointInPolygon } from '../src/lib/mapping'
 import { ALIGNMENT_MIN_RATIO, mergeModels, type MergeReport } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
+import { disposeScene, modelToScene, sceneToGLB, sceneToOBJ } from '../src/lib/export/mesh3d'
 import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from '../src/lib/flow-rules'
 import { airServices } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
@@ -86,13 +87,18 @@ let mergeReport: MergeReport
 let mechTTL = ''
 let mechDeviceIds: string[] = []
 let openRules: RuleReport
+/** 두 파일의 형상. 앱처럼 합친다(App.vue 덧붙이기). 3D 내보내기 검사가 쓴다. */
+let meshes: MeshMap = new Map()
 
 beforeAll(async () => {
   if (!have) return
   const api = new WebIFC.IfcAPI()
   await api.Init()
-  const arch = timed('건축 열기(형상 포함)', () => importIfcWithMeshes(api, new Uint8Array(readFileSync(ARCH))).model)
-  const mech = timed('기계 열기(형상 포함)', () => importIfcWithMeshes(api, new Uint8Array(readFileSync(MECH))).model)
+  const archOpened = timed('건축 열기(형상 포함)', () => importIfcWithMeshes(api, new Uint8Array(readFileSync(ARCH))))
+  const mechOpened = timed('기계 열기(형상 포함)', () => importIfcWithMeshes(api, new Uint8Array(readFileSync(MECH))))
+  const arch = archOpened.model
+  const mech = mechOpened.model
+  meshes = new Map([...archOpened.meshes, ...mechOpened.meshes])
   mechTTL = timed('기계만 TTL', () => modelToTTL(mech))
   mechDeviceIds = devicesOf(mech).map((e) => e.id)
   const done = timed('건축 + 기계 합치기', () => mergeModels(arch, mech, { base: basename(ARCH), overlay: basename(MECH) }))
@@ -391,6 +397,78 @@ describe.skipIf(!have || !existsSync(TTL_GO) || !hasGo)('성수 TTL 을 ieum-pip
     expect(cut.map((e) => e.name)).toEqual([])
     expect(lost.slice(0, 5)).toEqual([])
     expect(wrongRoom.length).toBe(0)
+  }, 900_000)
+})
+
+// --- 3D 내보내기(GLB·OBJ): 보여 주기용 파일이 성수 규모에서도 나오고, 요소 이름이 GeoJSON·TTL 과 같은 id 인가 ---------
+describe.skipIf(!have)('성수 3D 내보내기', () => {
+  beforeAll(() => {
+    // GLTFExporter 는 Blob 을 FileReader 로 읽는다. node 에는 없어 여기서만 채운다.
+    if (!('FileReader' in globalThis)) {
+      ;(globalThis as Record<string, unknown>).FileReader = class {
+        result: ArrayBuffer | null = null
+        onloadend: (() => void) | null = null
+        readAsArrayBuffer(blob: Blob) {
+          void blob.arrayBuffer().then((b) => {
+            this.result = b
+            this.onloadend?.()
+          })
+        }
+      }
+    }
+  })
+
+  it('형상이나 좌표가 있는 설비·외곽선이 있는 방은 전부 GlobalId 이름으로 들어가고, 좌표에 NaN 이 없다', () => {
+    const scene = timed('3D 장면 만들기', () => modelToScene(merged, meshes, { pristine }))
+    const names = new Set<string>()
+    let bad = 0
+    let vertices = 0
+    scene.traverse((o) => {
+      names.add(o.name)
+      const g = (o as { geometry?: { getAttribute(n: string): { array: ArrayLike<number> } } }).geometry
+      if (!g) return
+      const p = g.getAttribute('position').array
+      vertices += p.length / 3
+      for (let i = 0; i < p.length; i++) if (!Number.isFinite(p[i])) bad++
+    })
+    disposeScene(scene)
+    const missing = [
+      ...allEquipment(merged).filter((e) => (e.position || meshes.has(e.id)) && !names.has(e.id)).map((e) => e.name),
+      ...merged.storeys.flatMap((s) => s.spaces).filter((s) => s.footprint.length >= 3 && !names.has(s.id)).map((s) => s.name),
+    ]
+    expect(missing.slice(0, 20)).toEqual([])
+    expect(bad).toBe(0)
+    section('3D 장면', [`꼭짓점 ${vertices.toLocaleString()}개 · 이름 ${names.size.toLocaleString()}개`])
+  }, 600_000)
+
+  it('GLB 가 나오고 노드마다 이름이 있다', async () => {
+    const scene = modelToScene(merged, meshes, { pristine })
+    const t = performance.now()
+    const glb = await sceneToGLB(scene)
+    timings.push(['GLB 내보내기', (performance.now() - t) / 1000])
+    disposeScene(scene)
+    const view = new DataView(glb)
+    expect(new TextDecoder().decode(new Uint8Array(glb, 0, 4))).toBe('glTF')
+    expect(view.getUint32(8, true)).toBe(glb.byteLength)
+    const json = JSON.parse(new TextDecoder().decode(new Uint8Array(glb, 20, view.getUint32(12, true)))) as { nodes: { name?: string; mesh?: number }[] }
+    const meshNodes = json.nodes.filter((n) => n.mesh !== undefined)
+    expect(meshNodes.filter((n) => !n.name)).toHaveLength(0)
+    section('GLB', [`${(glb.byteLength / 1e6).toFixed(0)} MB · 메시 노드 ${meshNodes.length.toLocaleString()}개`])
+  }, 900_000)
+
+  it('OBJ 가 나온다', async () => {
+    const scene = modelToScene(merged, meshes, { pristine })
+    // 한 문자열로 만들면 V8 문자열 한도를 넘어 `RangeError: Invalid string length` 로 멈췄다.
+    const t = performance.now()
+    const parts = await sceneToOBJ(scene)
+    timings.push(['OBJ 내보내기', (performance.now() - t) / 1000])
+    disposeScene(scene)
+    const chars = parts.reduce((n, p) => n + p.length, 0)
+    expect(chars).toBeGreaterThan(0)
+    // 이어 붙이면 다시 한도를 넘는다. 조각마다 센다.
+    const objects = parts.reduce((n, p) => n + (p.match(/^o /gm)?.length ?? 0), 0)
+    expect(objects).toBeGreaterThan(0)
+    section('OBJ', [`${(chars / 1e6).toFixed(0)} MB · 객체 ${objects.toLocaleString()}개 · 조각 ${parts.length}개`])
   }, 900_000)
 })
 
