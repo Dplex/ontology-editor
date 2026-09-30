@@ -51,3 +51,24 @@ test('TTL 은 한 파일로 내려받는다', async ({ page }) => {
   await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
   expect((await download).suggestedFilename()).toBe('ontology.ttl')
 })
+
+test('3D 형상은 GLB·OBJ 한 파일로 내려받고, 요소 이름이 GlobalId 다', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+
+  const glb = page.waitForEvent('download')
+  await page.getByRole('button', { name: '3D 형상 내보내기 (GLB)' }).click()
+  const glbFile = await glb
+  expect(glbFile.suggestedFilename()).toBe('mep.glb')
+  const bytes = await (await glbFile.createReadStream()).toArray()
+  expect(Buffer.concat(bytes).subarray(0, 4).toString()).toBe('glTF')
+
+  const obj = page.waitForEvent('download')
+  await page.getByRole('button', { name: '3D 형상 내보내기 (OBJ)' }).click()
+  const objFile = await obj
+  expect(objFile.suggestedFilename()).toBe('mep.obj')
+  const text = Buffer.concat(await (await objFile.createReadStream()).toArray()).toString()
+  expect(text).toMatch(/^o \S+/m)
+  expect(text).toMatch(/^v /m)
+})

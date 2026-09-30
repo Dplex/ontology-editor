@@ -23,6 +23,7 @@ import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
+import { disposeScene, modelToScene, sceneToGLB, sceneToOBJ } from './lib/export/mesh3d'
 import { modelToTTL } from './lib/export/ttl'
 import {
   arrowColors,
@@ -3776,8 +3777,8 @@ function onAppendDrop(event: DragEvent) {
 }
 const appendOver = ref(false)
 
-function download(name: string, text: string, mime: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: mime }))
+function download(name: string, data: string | ArrayBuffer, mime: string) {
+  const url = URL.createObjectURL(new Blob([data], { type: mime }))
   const a = document.createElement('a')
   a.href = url
   a.download = name
@@ -3824,6 +3825,24 @@ async function exportGeoJSON() {
 function exportTTL() {
   if (!model.value) return
   download('ontology.ttl', modelToTTL(model.value), 'text/turtle')
+}
+
+/** 3D 형상(GLB·OBJ). 보여 주기용 파일이라 GeoJSON·TTL 과 따로 낸다. 큰 파일은 몇 초 걸려 누르는 동안 버튼을 막는다. */
+const exporting3d = ref(false)
+async function export3D(format: 'glb' | 'obj') {
+  if (!model.value || exporting3d.value) return
+  exporting3d.value = true
+  const stem = fileName.value.replace(/\.[^.]+$/, '') || 'model'
+  const scene = modelToScene(model.value, meshes, { pristine })
+  try {
+    if (format === 'glb') download(`${stem}.glb`, await sceneToGLB(scene), 'model/gltf-binary')
+    else download(`${stem}.obj`, sceneToOBJ(scene), 'model/obj')
+  } catch (e) {
+    note(`3D 내보내기에 실패했습니다: ${(e as Error).message}${format === 'obj' ? ' — 큰 파일은 GLB 를 쓰세요.' : ''}`)
+  } finally {
+    disposeScene(scene)
+    exporting3d.value = false
+  }
 }
 </script>
 
@@ -3992,6 +4011,8 @@ function exportTTL() {
             <span class="bar-sep" aria-hidden="true"></span>
             <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" @click="exportGeoJSON">GeoJSON</button>
             <button type="button" class="ghost" aria-label="의미 내보내기 (Brick TTL)" title="관계 내보내기 (Brick TTL 파일 하나)" @click="exportTTL">TTL</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="exporting3d" @click="export3D('glb')">GLB</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="exporting3d" @click="export3D('obj')">OBJ</button>
             <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
             <button type="button" class="ghost theme" :aria-pressed="dark" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
           </div>
@@ -5608,11 +5629,13 @@ function exportTTL() {
       <!-- 내보내기 버튼은 위 도구막대에 있다. 여기는 두 파일이 무엇을 나눠 갖는지만 적는다. -->
       <section class="actions">
         <p class="note">
-          <b>내보내기</b>(도구막대의 GeoJSON · TTL).
+          <b>내보내기</b>(도구막대의 GeoJSON · TTL · GLB · OBJ).
           두 파일은 같은 id로 연결됩니다. 형상은 GeoJSON, 설비와 계통의 관계는 TTL에 들어갑니다.
           벽·문·창과 문이 잇는 방은 GeoJSON에만 있습니다(Brick에 건축 부재 클래스가 없음).
           벽·문·창은 '읽을 것'에서 켠 것만 들어가고, 문·창 위치는 '문·창 자리'를 켜고 연 파일에서만 나갑니다.
           TTL의 설비·방 클래스는 <Src kind="dict" /> 기준이고, 규칙 방향은 확정한 계통만 들어갑니다.
+          GLB · OBJ는 보여 주기용 3D 형상입니다. 요소 이름이 같은 id(GlobalId)이고, 좌표는 y가 위인 미터입니다.
+          고친 벽은 지금 외곽선을 층 높이로 세우고, 방은 얇은 판입니다. 큰 파일은 OBJ가 너무 커지니 GLB를 쓰세요.
         </p>
       </section>
     </template>
