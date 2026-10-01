@@ -11,6 +11,9 @@ import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import HoverTip from './components/HoverTip.vue'
 import FloorPlan from './components/FloorPlan.vue'
+import Roll from './components/Roll.vue'
+import Meter from './components/Meter.vue'
+import { vFlash } from './lib/motion'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
@@ -5059,14 +5062,14 @@ async function export3D(format: 'glb' | 'obj') {
 
         <!-- PRD #6 의 임포트 결과 검토 항목이다. 무엇이 만들어졌는지 숫자로 먼저 본다. -->
         <ul class="tiles">
-          <li><b>{{ counts.storeys }}</b><span>층</span><Src kind="bim" /></li>
-          <li><b>{{ counts.spaces }}</b><span>물리존</span><Src kind="bim" /></li>
+          <li v-flash="counts.storeys"><b><Roll :value="counts.storeys" /></b><span>층</span><Src kind="bim" /></li>
+          <li v-flash="counts.spaces"><b><Roll :value="counts.spaces" /></b><span>물리존</span><Src kind="bim" /></li>
           <!-- 읽지 않기로 한 피처는 0 이 아니라 "읽지 않음" 이다. 0 이면 BIM 에 없다는 말이 된다. -->
           <li v-if="skipped.has('walls')" class="skipped"><b>–</b><span>벽</span><small>읽지 않음</small></li>
-          <li v-else><b>{{ counts.walls }}</b><span>벽</span><Src kind="bim" /></li>
+          <li v-else v-flash="counts.walls"><b><Roll :value="counts.walls" /></b><span>벽</span><Src kind="bim" /></li>
           <li v-if="skipped.has('doors')" class="skipped"><b>–</b><span>문</span><small>읽지 않음</small></li>
-          <li v-else :class="{ wide: doorLinks.total > 0 }">
-            <b>{{ counts.doors }}</b><span>문</span><Src kind="bim" />
+          <li v-else v-flash="counts.doors" :class="{ wide: doorLinks.total > 0 }">
+            <b><Roll :value="counts.doors" /></b><span>문</span><Src kind="bim" />
             <!-- 방-문-방. BIM 의 공간 경계가 말하면 BIM, 없으면 문 양쪽을 좌표로 짚은 계산이다. -->
             <small v-if="doorLinks.total > 0">
               방과 방을 잇는 문 {{ doorLinks.two }}
@@ -5075,10 +5078,10 @@ async function export3D(format: 'glb' | 'obj') {
             </small>
           </li>
           <li v-if="skipped.has('windows')" class="skipped"><b>–</b><span>창문</span><small>읽지 않음</small></li>
-          <li v-else><b>{{ counts.windows }}</b><span>창문</span><Src kind="bim" /></li>
-          <li v-if="!skipped.has('walls')"><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span><Src kind="bim" /></li>
-          <li v-if="model.hvac" class="wide">
-            <b>{{ model.hvac.zones.length }}</b><span>공조존</span><Src kind="idf" />
+          <li v-else v-flash="counts.windows"><b><Roll :value="counts.windows" /></b><span>창문</span><Src kind="bim" /></li>
+          <li v-if="!skipped.has('walls')" v-flash="counts.loadBearingWalls"><b><Roll :value="counts.loadBearingWalls" /></b><span>내력벽</span><Src kind="bim" /></li>
+          <li v-if="model.hvac" class="wide" v-flash="model.hvac.zones.length">
+            <b><Roll :value="model.hvac.zones.length" /></b><span>공조존</span><Src kind="idf" />
             <small v-if="idfReport">
               방이 든 존 {{ idfReport.zonesWithSpaces }} · 존에 든 방 {{ idfReport.spacesInZones }}/{{ idfReport.spaces }} <Src kind="calc" />
               <template v-if="idfReport.straddling"> · 두 존에 걸친 방 {{ idfReport.straddling }}</template>
@@ -5087,25 +5090,25 @@ async function export3D(format: 'glb' | 'obj') {
           </li>
           <!-- 설비를 하나로 세면 대수가 부푼다. 실측에서 85%가 덕트·배관이었다.
                Proxy 는 IFC 가 설비라고 말하지 않은 것을 사전이 설비로 받은 것이라 따로 센다. -->
-          <li :class="{ wide: proxyDevices.ported + proxyDevices.named > 0 }">
-            <b>{{ counts.devices }}</b><span>기기</span><Src kind="bim" />
+          <li :class="{ wide: proxyDevices.ported + proxyDevices.named > 0 }" v-flash="counts.devices">
+            <b><Roll :value="counts.devices" /></b><span>기기</span><Src kind="bim" />
             <small v-if="proxyDevices.ported + proxyDevices.named > 0">
               그중 Proxy
               <template v-if="proxyDevices.ported">포트 {{ proxyDevices.ported }} <Src kind="calc" /></template>
               <template v-if="proxyDevices.named">이름 {{ proxyDevices.named }} <Src kind="dict" /></template>
             </small>
           </li>
-          <li><b>{{ counts.conduits }}</b><span>덕트·배관</span><Src kind="bim" /></li>
-          <li><b>{{ counts.systems }}</b><span>계통</span><Src kind="bim" /></li>
-          <li :class="{ wide: connectionSources.geometry > 0 && connectionSources.port > 0 }">
-            <b>{{ counts.connections }}</b><span>연결</span>
+          <li v-flash="counts.conduits"><b><Roll :value="counts.conduits" /></b><span>덕트·배관</span><Src kind="bim" /></li>
+          <li v-flash="counts.systems"><b><Roll :value="counts.systems" /></b><span>계통</span><Src kind="bim" /></li>
+          <li :class="{ wide: connectionSources.geometry > 0 && connectionSources.port > 0 }" v-flash="counts.connections">
+            <b><Roll :value="counts.connections" /></b><span>연결</span>
             <template v-if="connectionSources.geometry === 0"><Src kind="bim" /></template>
             <template v-else-if="connectionSources.port === 0"><Src kind="calc" /></template>
             <small v-else>포트 {{ connectionSources.port }} <Src kind="bim" /> · 형상 {{ connectionSources.geometry }} <Src kind="calc" /></small>
           </li>
-          <li><b>{{ counts.directedConnections }}</b><span>흐름 방향</span><Src kind="bim" /></li>
-          <li v-if="ruleReport && ruleReport.oriented > 0">
-            <b>{{ ruleReport.oriented }}</b><span>규칙 방향</span><Src kind="dict" />
+          <li v-flash="counts.directedConnections"><b><Roll :value="counts.directedConnections" /></b><span>흐름 방향</span><Src kind="bim" /></li>
+          <li v-if="ruleReport && ruleReport.oriented > 0" v-flash="ruleReport.oriented">
+            <b><Roll :value="ruleReport.oriented" /></b><span>규칙 방향</span><Src kind="dict" />
           </li>
         </ul>
 
@@ -5128,12 +5131,21 @@ async function export3D(format: 'glb' | 'obj') {
               <tr class="req-group">
                 <th colspan="5">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 대신 채울 방법이 없음' : ' — 없으면 계산·사전·수작업으로 채움' }}</th>
               </tr>
-              <tr v-for="r in g.rows" :key="r.id">
+              <tr v-for="r in g.rows" :key="r.id" v-flash="`${r.state}:${r.counts?.standard}:${r.counts?.elsewhere}`">
                 <td class="mono">{{ r.id }}</td>
                 <td>{{ r.title }}</td>
                 <td><span :class="['req-state', r.state]">{{ REQUIREMENT_STATE[r.state] }}</span></td>
                 <td class="num mono">
-                  <template v-if="r.counts && r.counts.of">{{ r.counts.standard }}<template v-if="r.counts.elsewhere"> · {{ r.counts.elsewhere }}</template> / {{ r.counts.of }}</template>
+                  <template v-if="r.counts && r.counts.of">
+                    <Roll :value="r.counts.standard" /><template v-if="r.counts.elsewhere"> · <Roll :value="r.counts.elsewhere" /></template> / {{ r.counts.of }}
+                    <Meter
+                      :parts="[
+                        { value: r.counts.standard / r.counts.of, tone: 'accent' },
+                        { value: r.counts.elsewhere / r.counts.of, tone: 'soft' },
+                      ]"
+                      :label="`표준 자리 ${r.counts.standard}, 다른 자리 ${r.counts.elsewhere} / ${r.counts.of}`"
+                    />
+                  </template>
                 </td>
                 <td class="muted">{{ r.note }}</td>
               </tr>
@@ -5256,6 +5268,7 @@ async function export3D(format: 'glb' | 'obj') {
               <tr
                 v-for="c in checks"
                 :key="c.key"
+                v-flash="c.failed.length"
                 :class="{ chosen: openCheckKey === c.key, skipped: !!c.skipped }"
                 @click="!c.skipped && c.failed.length && toggleCheck(c.key)"
               >
@@ -5267,7 +5280,13 @@ async function export3D(format: 'glb' | 'obj') {
                   <small class="muted">{{ c.skipped ?? (c.total === 0 ? '이 파일에는 검사할 대상이 없습니다.' : `영향: ${c.why}`) }}</small>
                 </td>
                 <td class="num mono">
-                  <template v-if="!c.skipped && c.total">{{ c.total - c.failed.length }} / {{ c.total }}</template>
+                  <template v-if="!c.skipped && c.total">
+                    <Roll :value="c.total - c.failed.length" /> / {{ c.total }}
+                    <Meter
+                      :parts="[{ value: (c.total - c.failed.length) / c.total, tone: c.failed.length ? 'warn' : 'ok' }]"
+                      :label="`통과 ${c.total - c.failed.length} / ${c.total}`"
+                    />
+                  </template>
                   <span v-else class="muted">—</span>
                 </td>
                 <td class="num">
@@ -5277,7 +5296,7 @@ async function export3D(format: 'glb' | 'obj') {
                     class="link mono"
                     :aria-pressed="openCheckKey === c.key"
                   >
-                    {{ c.failed.length }}
+                    <Roll :value="c.failed.length" :count-up="false" />
                   </button>
                   <span v-else class="muted">·</span>
                 </td>
@@ -5346,7 +5365,7 @@ async function export3D(format: 'glb' | 'obj') {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in ruleSystems" :key="r.id" :class="{ chosen: selectedSystemId === r.id }">
+              <tr v-for="r in ruleSystems" :key="r.id" v-flash="`${r.confirmed}:${r.pct}:${r.count}`" :class="{ chosen: selectedSystemId === r.id }">
                 <td class="sys">
                   <i :style="{ background: r.color ?? 'transparent' }"></i>
                   <button type="button" class="link" :aria-pressed="selectedSystemId === r.id" @click="toggleSystem(r.id)">
@@ -5354,10 +5373,11 @@ async function export3D(format: 'glb' | 'obj') {
                   </button>
                 </td>
                 <td :class="{ muted: !r.kind }">{{ r.kind || '모름' }}</td>
-                <td class="num mono">{{ r.count }}</td>
+                <td class="num mono"><Roll :value="r.count" /></td>
                 <td class="num mono">
                   <template v-if="r.pct !== null">
-                    <b :class="{ low: r.pct < 80 }">{{ r.pct }}%</b> <span class="muted">{{ r.agree }}/{{ r.checked }}</span>
+                    <b :class="{ low: r.pct < 80 }"><Roll :value="r.pct" />%</b> <span class="muted">{{ r.agree }}/{{ r.checked }}</span>
+                    <Meter :parts="[{ value: r.pct / 100, tone: r.pct < 80 ? 'warn' : 'accent' }]" :label="`포트와 일치 ${r.pct}%`" />
                   </template>
                   <span v-else class="muted">—</span>
                 </td>
