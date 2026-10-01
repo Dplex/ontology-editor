@@ -7,7 +7,7 @@ prd: "#11"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "blocked"
+status: "prd-review"
 status_note: "D13"
 blocked_by: ["D13"]
 depends: ["D13"]

@@ -7,7 +7,7 @@ prd: "#23"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "poc-todo"
 blocked_by: []
 depends: ["OE-EQP-15"]
 jira: ""

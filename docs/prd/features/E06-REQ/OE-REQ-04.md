@@ -7,7 +7,7 @@ prd: "#6 요구사항, 1.8"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "blocked"
+status: "prd-review"
 blocked_by: ["D1","D12"]
 depends: ["D1","D12"]
 jira: ""

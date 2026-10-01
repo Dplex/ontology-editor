@@ -15,12 +15,12 @@ PRD #14 · 티켓 18건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능
 | [OE-PIP-07](OE-PIP-07.md) | 14-A 규칙 재계산 | R1 | P1 | poc-done |  |
 | [OE-PIP-08](OE-PIP-08.md) | 14-A 위반 한 번에 고치기 | R1 | P1 | poc-done |  |
 | [OE-PIP-09](OE-PIP-09.md) | 계통 이름 규칙 | R1 | P2 | poc-done |  |
-| [OE-PIP-10](OE-PIP-10.md) | 14-B 배관 형상 수정 | R1 | P1 | blocked |  |
-| [OE-PIP-11](OE-PIP-11.md) | 14-B 수동 배관 그리기 | R1 | P1 | blocked |  |
-| [OE-PIP-12](OE-PIP-12.md) | 14-B 배관 끝점 추종 | R1 | P1 | blocked |  |
+| [OE-PIP-10](OE-PIP-10.md) | 14-B 배관 형상 수정 | R1 | P1 | prd-review |  |
+| [OE-PIP-11](OE-PIP-11.md) | 14-B 수동 배관 그리기 | R1 | P1 | prd-review |  |
+| [OE-PIP-12](OE-PIP-12.md) | 14-B 배관 끝점 추종 | R1 | P1 | prd-review |  |
 | [OE-PIP-13](OE-PIP-13.md) | 14-B 좌표 조건 | R1 | P1 | poc-partial |  |
-| [OE-PIP-14](OE-PIP-14.md) | 14-B 자동 배관 그리기(초기 모드) | R1 | P2 | blocked |  |
-| [OE-PIP-15](OE-PIP-15.md) | 14-C 층간 위임 | R1 | P1 | todo |  |
-| [OE-PIP-16](OE-PIP-16.md) | 규칙 방향 알려진 오류 보정 | R2 | P2 | todo |  |
-| [OE-PIP-17](OE-PIP-17.md) | 환수·급탕 원천 규칙 | R2 | P3 | todo |  |
+| [OE-PIP-14](OE-PIP-14.md) | 14-B 자동 배관 그리기(초기 모드) | R1 | P2 | prd-review |  |
+| [OE-PIP-15](OE-PIP-15.md) | 14-C 층간 위임 | R1 | P1 | poc-todo |  |
+| [OE-PIP-16](OE-PIP-16.md) | 규칙 방향 알려진 오류 보정 | R2 | P2 | poc-todo |  |
+| [OE-PIP-17](OE-PIP-17.md) | 환수·급탕 원천 규칙 | R2 | P3 | poc-todo |  |
 | [OE-PIP-18](OE-PIP-18.md) | 흐름 없는 기기 연결 추정 제외 | R1 | P2 | poc-partial |  |

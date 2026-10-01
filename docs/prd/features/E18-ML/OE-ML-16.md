@@ -7,7 +7,7 @@ prd: "#24 #25"
 release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "todo"
+status: "poc-todo"
 status_note: "평면 내는 ✔"
 blocked_by: []
 depends: []

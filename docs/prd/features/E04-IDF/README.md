@@ -14,10 +14,10 @@ PRD #5 · 티켓 15건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | [OE-IDF-06](OE-IDF-06.md) | N:M 허용 | R2 | P1 | poc-done |  |
 | [OE-IDF-07](OE-IDF-07.md) | 존 바닥 조각 합침 | R2 | P1 | poc-done |  |
 | [OE-IDF-08](OE-IDF-08.md) | IDF 설비 ↔ BIM 설비 연결 | R2 | P1 | poc-done |  |
-| [OE-IDF-09](OE-IDF-09.md) | BIM 無 참조선 | R2 | P2 | todo |  |
-| [OE-IDF-10](OE-IDF-10.md) | 벽 두께 적용 순서 | R2 | P2 | todo |  |
+| [OE-IDF-09](OE-IDF-09.md) | BIM 無 참조선 | R2 | P2 | poc-todo |  |
+| [OE-IDF-10](OE-IDF-10.md) | 벽 두께 적용 순서 | R2 | P2 | poc-todo |  |
 | [OE-IDF-11](OE-IDF-11.md) | IDF 검토 화면 | R2 | P1 | poc-partial |  |
 | [OE-IDF-12](OE-IDF-12.md) | 임시 저장본 저장 | R2 | P1 | poc-partial |  |
 | [OE-IDF-13](OE-IDF-13.md) | 출처 구분·재임포트 | R2 | P1 | poc-done |  |
-| [OE-IDF-14](OE-IDF-14.md) | 플랜트 사슬 | R2 | P3 | todo |  |
-| [OE-IDF-15](OE-IDF-15.md) | gbXML 임포트 | R2 | P3 | todo |  |
+| [OE-IDF-14](OE-IDF-14.md) | 플랜트 사슬 | R2 | P3 | poc-todo |  |
+| [OE-IDF-15](OE-IDF-15.md) | gbXML 임포트 | R2 | P3 | poc-todo |  |

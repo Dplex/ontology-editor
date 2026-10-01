@@ -25,8 +25,8 @@ PRD #6 · 티켓 25건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | [OE-BIM-17](OE-BIM-17.md) | 검토 화면 — 요구사항 보고서 | R1 | P1 | poc-done |  |
 | [OE-BIM-18](OE-BIM-18.md) | 검토 화면 — 완전성 검사 | R1 | P1 | poc-done |  |
 | [OE-BIM-19](OE-BIM-19.md) | 검토 화면 — 판본 비교 | R1 | P1 | poc-done |  |
-| [OE-BIM-20](OE-BIM-20.md) | 누락 분류 코드 | R1 | P1 | todo |  |
-| [OE-BIM-21](OE-BIM-21.md) | 수용 기준선 판정 | R1 | P1 | blocked |  |
+| [OE-BIM-20](OE-BIM-20.md) | 누락 분류 코드 | R1 | P1 | poc-todo |  |
+| [OE-BIM-21](OE-BIM-21.md) | 수용 기준선 판정 | R1 | P1 | prd-review |  |
 | [OE-BIM-22](OE-BIM-22.md) | 좌표 정합 경고 | R1 | P1 | poc-partial |  |
 | [OE-BIM-23](OE-BIM-23.md) | 임시 저장본 저장 | R1 | P1 | poc-partial |  |
 | [OE-BIM-24](OE-BIM-24.md) | 출처 구분·재임포트 | R1 | P1 | poc-done |  |
