@@ -9,6 +9,7 @@ import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
 import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
+import ExitEditDialog from './components/ExitEditDialog.vue'
 import HoverTip from './components/HoverTip.vue'
 import FloorPlan from './components/FloorPlan.vue'
 import Roll from './components/Roll.vue'
@@ -945,8 +946,12 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       helpOpen.value = !helpOpen.value
       return true
     case 'mode':
-      mode.value = editing.value ? 'view' : 'edit'
-      note(editing.value ? '편집 모드' : '보기 모드')
+      if (editing.value) {
+        if (leaveEdit()) note('보기 모드')
+      } else {
+        mode.value = 'edit'
+        note('편집 모드')
+      }
       return true
     case 'search':
       if (!searchInput.value) return false
@@ -2631,6 +2636,7 @@ function saveEdits() {
   const file = exportEdits(m, baseline.value, fileName.value)
   const stem = fileName.value.replace(/\.ifc/gi, '').replace(/[^\w가-힣.+-]+/g, '_') || 'model'
   download(`${stem}.edits.json`, JSON.stringify(file, null, 2), 'application/json')
+  savedSig = editSig(file)
   note(`편집을 저장했습니다: ${stem}.edits.json`)
   markDone('save')
 }
@@ -2647,6 +2653,8 @@ async function onEditFilePick(event: Event) {
     return
   }
   applyEditFile(file, picked.name)
+  // 파일에서 불러온 편집은 그 파일에 이미 있다. 불러온 뒤 더 고친 것만 저장하지 않은 편집이다.
+  markSaved()
 }
 
 /** 편집 파일을 지금 모델에 얹는다. 파일에서 불러올 때와 자동 저장을 되살릴 때가 같이 쓴다. */
@@ -3409,6 +3417,99 @@ function discardDraft() {
     // 못 지워도 다음 편집이 덮는다.
   }
 }
+// --- 편집 종료 (OE-COM-08) ---------------------------------------------------------------
+//
+// 편집을 끝낼 때 마지막으로 저장한 뒤 바뀐 것이 있으면 묻는다 — 임시 저장 / 저장 안 함 / 취소. 저장은 [편집 저장](편집
+// 파일)이나 [구축하기](온톨로지 두 파일)다. 바뀐 것은 편집 파일 내용(저장 시각을 뺀)으로 견준다 — 되돌리기로 저장한 때와
+// 같아졌으면 묻지 않는다. 끝내는 길(편집 종료·보기·E·전체 화면의 편집 체크)은 전부 leaveEdit 을 거친다.
+let savedSig: string | null = null
+watch(baseline, () => (savedSig = null))
+function editSig(file?: EditFile): string | null {
+  const m = model.value
+  if (!m || !baseline.value) return null
+  const f = file ?? exportEdits(m, baseline.value, fileName.value)
+  return editCount(f) > 0 ? JSON.stringify({ ...f, savedAt: '' }) : null
+}
+function markSaved() {
+  savedSig = editSig()
+}
+const exitAsk = shallowRef<{ count: number } | null>(null)
+
+/** 편집을 끝낸다. 저장하지 않은 편집이 있으면 묻고 false 를 돌려준다(끝내지 않았다). */
+function leaveEdit(): boolean {
+  if (!editing.value) return true
+  const m = model.value
+  const file = m && baseline.value ? exportEdits(m, baseline.value, fileName.value) : null
+  const sig = file ? editSig(file) : null
+  if (!file || !sig || sig === savedSig) {
+    mode.value = 'view'
+    return true
+  }
+  // 대화상자는 전체 화면 요소 밖에 있어서 전체 화면에서는 안 보인다. 먼저 나온다.
+  if (document.fullscreenElement) void document.exitFullscreen()
+  exitAsk.value = { count: editCount(file) }
+  return false
+}
+function onEditToggle(box: HTMLInputElement) {
+  if (box.checked) mode.value = 'edit'
+  else if (!leaveEdit()) box.checked = true
+}
+/**
+ * 임시 저장은 이 브라우저에 남긴다(자동 저장과 같은 자리). PRD 의 임시 저장은 "반영하지 않고 보관" 이고, 파일로 내려받으면
+ * 보기로 바꿀 때마다 다운로드가 생긴다. 파일은 [편집 저장] 몫이다. 저장소가 막혀 있으면 파일로 내려받는다.
+ */
+function exitSaving() {
+  exitAsk.value = null
+  const m = model.value
+  if (!m || !baseline.value) return
+  const file = exportEdits(m, baseline.value, fileName.value)
+  try {
+    localStorage.setItem(draftKey(), JSON.stringify(file))
+    savedSig = editSig(file)
+    note(`편집 ${editCount(file)}건을 이 브라우저에 임시 저장했습니다. 같은 IFC 를 다시 열면 이어서 고칠지 묻습니다`)
+  } catch {
+    saveEdits()
+  }
+  mode.value = 'view'
+}
+function exitDiscarding() {
+  exitAsk.value = null
+  const n = discardEdits()
+  mode.value = 'view'
+  note(`편집 ${n}건을 버리고 연 때로 되돌렸습니다. 위 줄의 [이어서 하기]로 되살립니다`)
+}
+
+/**
+ * 편집을 버리고 연 때(마지막으로 덧붙인 때)의 모델로 되돌린다. 버린 편집은 자동 저장 줄(draft)에 올려 한 번 되살릴 수
+ * 있게 둔다 — [저장 안 함]을 잘못 누르면 한 시간 고친 것이 사라진다. 버린 수를 돌려준다.
+ */
+function discardEdits(): number {
+  const m = model.value
+  if (!m || !pristine || !baseline.value) return 0
+  const file = exportEdits(m, baseline.value, fileName.value)
+  meshesToOpened()
+  const opened = structuredClone(pristine)
+  ruleReport.value = inferFlowByRules(opened)
+  model.value = opened
+  changes.value = []
+  areaChanges.value = []
+  confirmations.value = []
+  storeyMoved.value = new Set()
+  positionDrafts.value = new Map()
+  history.value = []
+  future.value = []
+  selectedId.value = null
+  selectedSpaceId.value = null
+  selectedElementId.value = null
+  autosaveArmed = false
+  savedSig = null
+  flowVersion.value++
+  redraw()
+  const n = editCount(file)
+  if (n > 0) draft.value = { file, count: n, savedAt: file.savedAt }
+  return n
+}
+
 const draftTime = computed(() => {
   const d = draft.value
   if (!d) return ''
@@ -3515,7 +3616,8 @@ function showSpace(id: string) {
 const hasEdits = computed(() => changeCount.value > 0 || history.value.length > 0)
 watch(fileName, () => (editFileNote.value = ''))
 function onBeforeUnload(e: BeforeUnloadEvent) {
-  if (!hasEdits.value) return
+  // 임시 저장·편집 저장·구축하기 뒤로 바뀐 것이 없으면 묻지 않는다(OE-COM-08). 남길 것이 이미 남아 있다.
+  if (!hasEdits.value || editSig() === savedSig) return
   e.preventDefault()
   // 옛 브라우저는 returnValue 가 있어야 묻는다. 문구는 브라우저가 정한 것으로 바뀐다.
   e.returnValue = ''
@@ -3611,6 +3713,22 @@ const canAppend = computed(() => !!model.value)
 /** 연 때(또는 마지막으로 합친 때)의 모델. 편집한 뒤 덧붙일 때 이것을 합치고 편집을 다시 얹는다. */
 let pristine: Model | null = null
 
+/** 3D 형상을 연 때(pristine) 자리로 되돌린다. 덧붙이기 전과 편집 버리기가 쓴다. */
+function meshesToOpened() {
+  if (!pristine || !model.value) return
+  const opened = new Map(pristine.storeys.flatMap((st) => st.equipment).map((e) => [e.id, e.position]))
+  for (const e of model.value.storeys.flatMap((st) => st.equipment)) {
+    // 늘인 구간은 늘이기 전 형상으로 되돌리고 거기서 연 때 자리로 옮긴다.
+    const base = meshBase.get(e.id)
+    const mesh = meshes.get(e.id)
+    if (base && mesh) {
+      meshes.set(e.id, { ...mesh, positions: base.positions })
+      shiftMesh(e.id, base.at, opened.get(e.id) ?? null)
+    } else shiftMesh(e.id, e.position, opened.get(e.id) ?? null)
+  }
+  meshBase = new Map()
+}
+
 async function append(name: string, read: () => Promise<ArrayBuffer>) {
   if (!model.value) return
   busy.value = true
@@ -3620,18 +3738,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
   const edits = hasEdits.value && baseline.value && pristine ? exportEdits(model.value, baseline.value, fileName.value) : null
   const unedited = () => (edits ? structuredClone(pristine!) : model.value!)
   const restoreMeshes = () => {
-    if (!edits) return
-    const opened = new Map(pristine!.storeys.flatMap((st) => st.equipment).map((e) => [e.id, e.position]))
-    for (const e of model.value!.storeys.flatMap((st) => st.equipment)) {
-      // 늘인 구간은 늘이기 전 형상으로 되돌리고 거기서 연 때 자리로 옮긴다.
-      const base = meshBase.get(e.id)
-      const mesh = meshes.get(e.id)
-      if (base && mesh) {
-        meshes.set(e.id, { ...mesh, positions: base.positions })
-        shiftMesh(e.id, base.at, opened.get(e.id) ?? null)
-      } else shiftMesh(e.id, e.position, opened.get(e.id) ?? null)
-    }
-    meshBase = new Map()
+    if (edits) meshesToOpened()
   }
   const replay = () => {
     if (!edits) return
@@ -3985,7 +4092,11 @@ function previewChanges() {
 /** 초기 구축의 마지막 단계. 기하와 의미를 따로 내는 전제는 그대로다 — 한 번 눌러 두 파일을 다 받을 뿐이다. */
 async function build() {
   exportTTL()
-  if (await exportGeoJSON()) markDone('build')
+  if (await exportGeoJSON()) {
+    // 구축하기가 PoC 의 "저장"이다(PRD 의 저장 = 반영, D10). 온톨로지로 낸 편집은 끝낼 때 다시 묻지 않는다.
+    markSaved()
+    markDone('build')
+  }
 }
 
 function exportTTL() {
@@ -4199,7 +4310,7 @@ async function export3D(format: 'glb' | 'obj') {
             <a v-if="warnings.length" href="#warnings" class="warn-count" title="읽으면서 건너뛴 것. 목록은 아래 요약에 있습니다.">경고 {{ warnings.length }}</a>
             <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
             <div class="mode-switch" role="group" aria-label="화면 모드">
-              <button type="button" :aria-pressed="mode === 'view'" @click="mode = 'view'">보기</button>
+              <button type="button" :aria-pressed="mode === 'view'" @click="leaveEdit()">보기</button>
               <button type="button" :aria-pressed="mode === 'edit'" :disabled="busy" @click="mode = 'edit'">편집</button>
             </div>
             <span class="bar-sep" aria-hidden="true"></span>
@@ -4254,7 +4365,7 @@ async function export3D(format: 'glb' | 'obj') {
           <!-- PRD #9 의 액션바. 초기 구축 모드라 "반영하기" 대신 "구축하기"(두 파일 내보내기)다 — 운영 DT 에 반영하는 길은 D10 이 열려 있다. -->
           <button type="button" class="ghost" title="반영 전에 바뀐 내용(소속·경계·이름·방향)을 봅니다" @click="previewChanges">미리보기</button>
           <button type="button" class="ghost primary-action" :class="{ done: justDone === 'build' }" :disabled="busy" title="온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)" @click="build">구축하기</button>
-          <button type="button" class="ghost" title="보기 모드로 돌아갑니다. 편집한 것은 그대로 남습니다" @click="mode = 'view'">편집 종료</button>
+          <button type="button" class="ghost" title="보기 모드로 돌아갑니다. 저장하지 않은 편집이 있으면 먼저 묻습니다" @click="leaveEdit()">편집 종료</button>
         </div>
       </div>
 
@@ -4331,7 +4442,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <input
                   type="checkbox"
                   :checked="editing"
-                  @change="mode = ($event.target as HTMLInputElement).checked ? 'edit' : 'view'"
+                  @change="onEditToggle($event.target as HTMLInputElement)"
                 />
                 편집
               </label>
@@ -5904,6 +6015,7 @@ async function export3D(format: 'glb' | 'obj') {
       </section>
     </template>
     <ShortcutHelp :open="helpOpen" :editing="editing" @close="helpOpen = false" />
+    <ExitEditDialog :open="!!exitAsk" :count="exitAsk?.count ?? 0" @save="exitSaving" @discard="exitDiscarding" @cancel="exitAsk = null" />
     <!-- 진행 표시. 스크롤 위치와 상관없이 보이도록 화면 아래에 띄운다. -->
     <div v-if="progress" class="progress-toast" role="status" aria-live="polite">
       <div v-if="progressFile" class="muted progress-file">{{ progressFile }}</div>

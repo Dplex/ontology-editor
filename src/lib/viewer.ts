@@ -1395,6 +1395,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const c = part.box.getCenter(new Vector3())
         return [c.x, -c.z, c.y]
       },
+      /** 설비 형상 전부의 중심(IFC 좌표, mm 로 반올림). 편집을 버린 뒤 3D 가 연 때로 돌아왔는지 견준다. */
+      centers: () => {
+        const out: Record<string, number[]> = {}
+        for (const [id, part] of partById) {
+          const c = part.box.getCenter(new Vector3())
+          out[id] = [c.x, -c.z, c.y].map((v) => Math.round(v * 1000))
+        }
+        return out
+      },
       handles: () => handles.map((h) => toScreen(h.position)),
       arrows: () =>
         arrowSegs.map((seg) => {
