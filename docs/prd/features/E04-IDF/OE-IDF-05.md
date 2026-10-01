@@ -7,7 +7,7 @@ prd: "#5"
 release: "R2"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "매칭 ✔, 확인 플로우 ✗"
 blocked_by: []
 depends: ["D13"]

@@ -7,7 +7,7 @@ prd: "#4"
 release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "unknown"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

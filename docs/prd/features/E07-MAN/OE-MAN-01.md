@@ -7,7 +7,7 @@ prd: "#7"
 release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "\"빈 층 시작\" 미확인"
 blocked_by: []
 depends: ["OE-SPC"]

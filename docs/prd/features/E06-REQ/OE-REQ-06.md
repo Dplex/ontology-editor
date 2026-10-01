@@ -7,7 +7,7 @@ prd: "#6 요구사항, 1.8"
 release: "R1"
 priority: "P2"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-17"]
 jira: ""

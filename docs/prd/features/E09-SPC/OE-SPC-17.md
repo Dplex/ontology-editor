@@ -7,7 +7,7 @@ prd: "#9 #10"
 release: "R1"
 priority: "P2"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 blocked_by: []
 depends: ["R14"]
 jira: ""

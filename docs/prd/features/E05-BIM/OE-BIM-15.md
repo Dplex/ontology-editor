@@ -7,7 +7,7 @@ prd: "#6"
 release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "Case 2 ✗"
 blocked_by: []
 depends: ["OE-IDF","OE-ZON-01"]

@@ -7,7 +7,7 @@ prd: "#5"
 release: "R2"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "편집 파일로 대체"
 blocked_by: []
 depends: ["OE-WF-06"]

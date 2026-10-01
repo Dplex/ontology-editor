@@ -69,7 +69,7 @@ const sIds = firstCells(prd, /^\| (S\d+) \|/gm)
 const issueIds = firstCells(questions, /^\| ((?:D|Q|U|P)[-A-Za-z0-9]*) \|/gm)
 const CHAPTERS = new Set(['1.8', '부록 A', '부록 B', '부록 C'])
 
-const STATUS = ['poc-done', 'poc-partial', 'poc-todo', 'prd-review', 'unknown', 'dropped']
+const STATUS = ['prd-done', 'prd-review']
 const OWNER = ['ontology-editor', 'srcn', 'tbd']
 const RELEASE = ['R1', 'R2']
 const PRIORITY = ['P1', 'P2', 'P3']
@@ -96,7 +96,6 @@ describe('티켓 파일', () => {
       expect(RELEASE, `${t.file} release`).toContain(fm.release)
       expect(PRIORITY, `${t.file} priority`).toContain(fm.priority)
       expect(Array.isArray(fm.blocked_by) && Array.isArray(fm.depends), `${t.file} 목록 필드`).toBe(true)
-      if (fm.status === 'dropped') expect(fm.status_note, `${t.file} 폐기 이유`).toBeTruthy()
     }
   })
 

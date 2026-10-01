@@ -7,7 +7,7 @@ prd: "#15 #16 #17 #18 #19"
 release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "편집 파일·자동 저장으로 대체"
 blocked_by: []
 depends: ["OE-INT-01"]

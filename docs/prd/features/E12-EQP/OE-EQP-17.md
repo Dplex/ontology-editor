@@ -7,7 +7,7 @@ prd: "#13"
 release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 status_note: "(문·창·벽) / ◐"
 blocked_by: []
 depends: ["OE-OBJ-07","OE-ML-04"]

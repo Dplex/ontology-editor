@@ -7,7 +7,7 @@ prd: "#6"
 release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "BIM 간 ✔, 스캔 대조 ✗"
 blocked_by: []
 depends: ["R7","P4"]
