@@ -99,6 +99,8 @@ import {
   deleteOpening,
   setWallLoadBearing,
   snapshotStoreyElements,
+  wallLocked,
+  WALL_LOCKED,
   type Baseline,
   type BoundaryChange,
   type Change,
@@ -3103,10 +3105,11 @@ const selectedElement = computed(() => {
   const id = selectedElementId.value
   if (!m || !id) return null
   for (const storey of m.storeys) {
+    // 내력벽과 거기 뚫린 문·창은 잠긴다(OE-OBJ-06). 고르고 볼 수는 있고, 옮기기·지우기만 막는다.
     const wall = storey.walls.find((w) => w.id === id)
-    if (wall) return { kind: 'wall' as const, storey, wall, opening: null }
+    if (wall) return { kind: 'wall' as const, storey, wall, opening: null, locked: wallLocked(wall) }
     const opening = storey.openings.find((o) => o.id === id)
-    if (opening) return { kind: opening.kind, storey, wall: null, opening }
+    if (opening) return { kind: opening.kind, storey, wall: null, opening, locked: wallLocked(storey.walls.find((w) => w.id === opening.wallId)) }
   }
   return null
 })
@@ -3188,6 +3191,7 @@ function setBearing(wall: Wall, raw: string) {
 function removeElement() {
   const picked = selectedElement.value
   if (!picked) return
+  if (picked.locked) return note(WALL_LOCKED)
   const what = elementLabel(picked.kind)
   const name = picked.wall?.name || picked.opening?.name || what
   let openings = 0
@@ -3226,6 +3230,10 @@ function nudgeElement(code: string, step: number): boolean {
   const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
   const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
   const delta: Vec2 = [cm(sign * ax * step), cm(sign * ay * step)]
+  if (picked.locked) {
+    note(WALL_LOCKED)
+    return true
+  }
   if (picked.wall) {
     if (!picked.wall.footprint?.length) {
       note('외곽선이 없는 벽은 옮길 수 없습니다')
@@ -3251,6 +3259,7 @@ function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string) {
   const value = Number(raw)
   const storey = selectedElement.value?.storey
   if (!o.position || !storey || raw.trim() === '' || !Number.isFinite(value)) return
+  if (selectedElement.value?.locked) return note(WALL_LOCKED)
   const to: [number, number] = [o.position[0], o.position[1]]
   to[axis] = value
   changeElements(storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, to))
@@ -4822,7 +4831,7 @@ async function export3D(format: 'glb' | 'obj') {
             <div>
               <h3>{{ selectedElement.wall?.name || selectedElement.opening?.name || elementLabel(selectedElement.kind) }}</h3>
               <p class="stats">
-                {{ elementLabel(selectedElement.kind) }}
+                {{ selectedElement.wall?.loadBearing ? '내력벽' : elementLabel(selectedElement.kind) }}
                 <Src :kind="(selectedElement.wall ?? selectedElement.opening)?.added ? 'edit' : 'bim'" /> ·
                 {{ selectedElement.storey.name }}
                 <template v-if="selectedElement.wall">
@@ -4835,7 +4844,11 @@ async function export3D(format: 'glb' | 'obj') {
               <button type="button" class="ghost" @click="selectedElementId = null">선택 해제</button>
             </div>
           </div>
-          <p v-if="selectedElement.wall" class="storey-move carry-rooms">
+          <p v-if="selectedElement.locked" class="lock-note" data-testid="wall-locked">
+            {{ selectedElement.wall ? '내력벽이라' : '내력벽에 뚫린 것이라' }} 옮기거나 지울 수 없습니다.
+            <template v-if="selectedElement.wall">아래 내력 여부를 바꾸면 풀립니다.</template>
+          </p>
+          <p v-if="selectedElement.wall && !selectedElement.locked" class="storey-move carry-rooms">
             <label title="벽 면에서 0.6m 안의 방 변이 벽이 움직인 만큼 따라옵니다. 끄면 방 경계는 그대로입니다(방은 IfcSpace 가 따로 그린 것)">
               <input v-model="carryRooms" type="checkbox" /> 옮길 때 방 경계도 같이
             </label>
@@ -4853,7 +4866,7 @@ async function export3D(format: 'glb' | 'obj') {
               </select>
             </label>
             <Src :kind="selectedElement.wall.added ? 'edit' : 'bim'" />
-            <span class="muted">모름은 아니오가 아닙니다.</span>
+            <span class="muted">{{ selectedElement.wall.loadBearing === null ? '모름은 아니오가 아닙니다. 내벽처럼 고칠 수 있습니다.' : '모름은 아니오가 아닙니다.' }}</span>
           </p>
           <p v-if="selectedElement.opening?.position" class="position-edit">
             자리
@@ -4864,6 +4877,7 @@ async function export3D(format: 'glb' | 'obj') {
                 type="number"
                 step="0.1"
                 v-keep-typing
+                :disabled="selectedElement.locked"
                 :value="mmOf(selectedElement.opening.position[axis])"
                 @change="applyOpeningPosition(selectedElement.opening!, axis, ($event.target as HTMLInputElement).value)"
               />
@@ -4874,7 +4888,7 @@ async function export3D(format: 'glb' | 'obj') {
             {{ selectedElement.opening.connects?.length ? selectedElement.opening.connects.map(nameOfSpace).join(' · ') : '(없음)' }}
             <Src v-if="selectedElement.opening.connectsSource" :kind="selectedElement.opening.connectsSource === 'bim' ? 'bim' : 'calc'" />
           </p>
-          <p class="danger-zone">
+          <p v-if="!selectedElement.locked" class="danger-zone">
             <button type="button" class="ghost danger" @click="removeElement">
               {{ elementLabel(selectedElement.kind) }} 지우기
             </button>

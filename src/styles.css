@@ -2828,6 +2828,17 @@ main.has-model .catalog {
   color: var(--error);
 }
 
+/* 잠긴 벽·문·창(내력벽, OE-OBJ-06). 왜 안 움직이는지 패널에서 바로 보이게 한다. */
+.lock-note {
+  margin: 0.6rem 0 0;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--warn-line);
+  border-radius: 6px;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.8rem;
+}
+
 /* 고른 것의 패널 맨 아래 지우기 줄. 이름 칸·나누기 옆에 있어 고치려다 누르기 쉬웠다. 선으로 고치는 칸과 가른다. */
 .danger-zone {
   display: flex;

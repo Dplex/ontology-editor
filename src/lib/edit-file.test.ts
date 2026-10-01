@@ -173,6 +173,21 @@ describe('편집 저장·불러오기', () => {
     expect(strip(b)).toEqual(exports(a))
   })
 
+  // OE-OBJ-06. 지운 벽의 내력 여부는 편집 파일에 남지 않는다. 되살릴 때 잠금을 보면 BIM 이 내력이라 한 벽을 풀고 지운 편집이 빠진다.
+  it('내력벽을 풀고 지운 편집을 되살리면, BIM 이 내력이라 해도 지워진다', () => {
+    const a = read('two-rooms.ifc')
+    const base = baselineOf(a)
+    const bearing = a.storeys.flatMap((st) => st.walls).find((w) => w.name === 'W-1F-01')!
+    expect(bearing.loadBearing).toBe(true)
+    expect(deleteWall(a, bearing.id)).toBeNull()
+    setWallLoadBearing(a, bearing.id, false)
+    expect(deleteWall(a, bearing.id)).not.toBeNull()
+    const b = read('two-rooms.ifc')
+    const result = applyEdits(b, parseEditFile(JSON.stringify(exportEdits(a, base, 'two-rooms.ifc'))) as EditFile)
+    expect(result.missing.elements).toBe(0)
+    expect(b.storeys.flatMap((st) => st.walls).some((w) => w.id === bearing.id)).toBe(false)
+  })
+
   it('GUID 가 바뀐 판본에서도 고친 벽·문·창을 이름으로 찾는다. 에디터가 더한 벽은 지문으로 찾지 않는다', () => {
     const a = read('two-rooms.ifc')
     const base = baselineOf(a)
