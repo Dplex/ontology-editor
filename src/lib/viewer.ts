@@ -242,6 +242,8 @@ export type Viewer = {
    * 부르는 쪽이 setModel 로 다시 만든다.
    */
   shiftEquipment(id: string, delta: Vec3): boolean
+  /** 설비 하나의 꼭짓점을 통째로 바꾼다(화면 좌표, 꼭짓점 수가 같아야 한다). 설비를 따라 늘인 배관에 쓴다. 없으면 false. */
+  setEquipmentPositions(id: string, positions: Float32Array): boolean
   /** 편집 모드에서 고른 설비를 끌어 놓으면 부른다. 옮긴 거리를 IFC 좌표(미터)로 넘긴다. 높이는 그대로다. */
   onEquipmentMove(handler: (id: string, delta: Vec3) => void): void
   /** 설비가 아닌 바닥(물리존 판)을 누르면 부른다. 편집 모드면 손잡이가, 보기 모드면 테두리만 뜬다. */
@@ -1505,6 +1507,18 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       }
       position.needsUpdate = true
       part.box.translate(new Vector3(dx, dy, dz))
+      drawArrows()
+      dirty = true
+      return true
+    },
+
+    setEquipmentPositions(id, positions) {
+      const part = partById.get(id)
+      if (!part || positions.length !== part.vCount * 3) return false
+      const position = part.chunk.position
+      ;(position.array as Float32Array).set(positions, part.vStart * 3)
+      position.needsUpdate = true
+      part.box.setFromArray(positions)
       drawArrows()
       dirty = true
       return true

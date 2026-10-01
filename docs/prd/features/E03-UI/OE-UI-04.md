@@ -8,7 +8,7 @@ release: "R1"
 priority: "P1"
 owner: "ontology-editor"
 status: "poc-partial"
-status_note: "3D·패널 ✔, 액션바 ✗"
+status_note: "3D·패널·도구 팔레트·액션바 ✔, 레이어 탭 ✗. 반영하기는 초기 구축의 구축하기(두 파일 내보내기)로 둔다"
 blocked_by: []
 depends: []
 jira: ""
@@ -26,7 +26,7 @@ jira: ""
 
 ## 검증 (이 repo)
 
-—
+- 편집 모드에서 왼쪽 아래 도구 팔레트(공간·설비·벽·문·창)가 뜨고, 액션바의 편집 종료가 보기 모드로 돌린다 — `e2e/conduit-follow.spec.ts`
 
 ## 메모
 

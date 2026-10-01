@@ -3041,3 +3041,154 @@ main.has-model .catalog {
 .rule-systems .bulk-confirm select {
   margin: 0 0.25rem;
 }
+
+/* 편집 도구 팔레트(PRD #9 의 왼쪽 도구). 왼쪽 위는 색 안내 자리라 왼쪽 아래에 세로로 둔다. */
+.tool-palette {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  width: 8.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+}
+
+.tool-palette .ghost {
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+.tool-palette .ghost.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tool-palette .palette-head {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.tool-palette .palette-head:first-child {
+  margin-top: 0;
+}
+
+.tool-palette .palette-check {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+}
+
+.edit-bar .primary-action {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 팔레트가 왼쪽 아래를 쓰는 동안 그 자리의 안내·경고는 팔레트 오른쪽으로 비킨다. */
+.viewport:has(.tool-palette) .pick-hint,
+.viewport:has(.tool-palette) .edit-notice {
+  left: 10rem;
+  max-width: calc(100% - 10.75rem);
+}
+
+/* ---------- 움직임 (lib/motion.ts · Roll · Meter) ----------
+   전부 "무엇이 바뀌었나" 를 가리키는 데만 쓴다. 색은 액센트와 이미 쓰던 통과·위반 색만이다. */
+.roll {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 굴러간 숫자에 붙는 작은 튐. 눈이 딴 데 있었어도 돌아왔을 때 "여기가 움직였다" 가 남는다. */
+.num-bump {
+  animation: num-bump 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes num-bump {
+  30% {
+    transform: translateY(-2px) scale(1.06);
+  }
+}
+
+/* 값이 바뀐 줄·칸. 한 번만 번쩍이고 끝난다. 표의 줄은 box-shadow 가 안 먹어서 배경으로 한다. */
+.flash {
+  animation: flash 1.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes flash {
+  0%,
+  20% {
+    background-color: var(--accent-soft);
+  }
+}
+.tiles li.flash {
+  animation-name: tile-flash;
+}
+@keyframes tile-flash {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  25% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.meter {
+  display: flex;
+  overflow: hidden;
+  width: 100%;
+  min-width: 3rem;
+  height: 4px;
+  margin-top: 0.3rem;
+  border-radius: 2px;
+  background: var(--line-soft);
+}
+.meter i {
+  display: block;
+  height: 100%;
+  transition: width 0.9s cubic-bezier(0.33, 0, 0.2, 1);
+}
+.meter i.ok {
+  background: #1f9d7a;
+}
+.meter i.warn {
+  background: #d9a531;
+}
+.meter i.accent {
+  background: var(--accent);
+}
+.meter i.soft {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* 막 확정한 계통의 "확정함". 버튼이 있던 자리에 떠오른다. */
+.rule-state .confirmed {
+  display: inline-block;
+  animation: settle-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes settle-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .num-bump,
+  .flash,
+  .tiles li.flash,
+  .rule-state .confirmed {
+    animation: none;
+  }
+  .meter i {
+    transition: none;
+  }
+}

@@ -24,6 +24,9 @@ export default defineConfig({
     launchOptions: { args: [`--use-angle=${angle}`, '--ignore-gpu-blocklist', '--enable-gpu'] },
     // 트레이스는 끈다. 켜면 동작마다 화면을 떠서 메인 스레드를 잡고, 멈춤·프레임 간격을 재는 항목이 두세 배로 재진다.
     trace: 'off',
+    // 숫자가 굴러 올라가는 동안(components/Roll.vue) 읽으면 값이 아니라 중간값을 읽는다. 값을 재는 시험이라 움직임을 끈다.
+    // 움직임 자체는 e2e/motion.spec.ts 가 켜고 본다.
+    contextOptions: { reducedMotion: 'reduce' },
     screenshot: 'only-on-failure',
   },
   webServer: {

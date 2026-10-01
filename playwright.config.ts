@@ -14,6 +14,9 @@ export default defineConfig({
     // 실패하면 trace 를 남긴다. 실패 원인을 눈이 아니라 기록으로 좇을 수 있어야 한다.
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // 숫자가 굴러 올라가는 동안(components/Roll.vue) 읽으면 값이 아니라 중간값을 읽는다. 값을 재는 시험이라 움직임을 끈다.
+    // 움직임 자체는 e2e/motion.spec.ts 가 켜고 본다.
+    contextOptions: { reducedMotion: 'reduce' },
   },
 
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
