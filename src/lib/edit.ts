@@ -1307,7 +1307,7 @@ const ID_CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 
 /**
  * 사람이 만든 것의 id. IfcGlobalId 처럼 22자이고, `$` 를 뺀 글자만 쓴다 — `$` 는 Turtle 에서 이스케이프해야 하고
- * 받는 쪽(ttl.go)이 키에 `\$` 를 남긴다(CLAUDE.md). 첫 두 글자 `U_` 로 BIM 에서 온 것과 가른다.
+ * 받는 쪽(ttl.go)이 키에 `\$` 를 남긴다(intent.md). 첫 두 글자 `U_` 로 BIM 에서 온 것과 가른다.
  */
 export function newId(): string {
   const bytes = new Uint8Array(20)

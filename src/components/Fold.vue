@@ -2,7 +2,7 @@
 // 제목을 누르면 접히고 펼쳐지는 칸. 접힌 동안에는 내용을 **그리지 않는다**(v-if).
 // 성수처럼 설비가 1만 대를 넘는 모델에서 표를 CSS 로만 숨기면, 보이지도 않는 행 수만 개를
 // 브라우저가 여전히 만들고 갱신한다.
-import { ref, watch } from 'vue'
+import { nextTick, ref, watch } from 'vue'
 
 const props = withDefaults(defineProps<{ title: string; meta?: string; defaultOpen?: boolean; reveal?: boolean }>(), {
   meta: '',
@@ -10,6 +10,15 @@ const props = withDefaults(defineProps<{ title: string; meta?: string; defaultOp
   reveal: false,
 })
 const open = ref(props.defaultOpen)
+const root = ref<HTMLElement | null>(null)
+// 붙어 따라오던 제목 줄에서 접으면 내용이 빠지면서 칸이 화면 위로 사라진다. 칸 머리로 데려와 접은 자리가 보이게 한다.
+function toggle() {
+  const el = root.value
+  const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--appbar-h')) || 0
+  const stuck = open.value && el && el.getBoundingClientRect().top < top
+  open.value = !open.value
+  if (stuck) nextTick(() => window.scrollBy({ top: el!.getBoundingClientRect().top - top }))
+}
 // 바깥에서 "보여야 할 것이 생겼다" 고 알리면 펼친다(이름 찾기에 걸린 행). 닫지는 않는다 — 사람이 연 것을 뺏지 않는다.
 // 성수에서 / 로 FCU 를 찾으면 "찾은 것 128" 만 뜨고 표는 접힌 채라 한 번 더 눌러야 했다.
 watch(
@@ -21,8 +30,8 @@ watch(
 </script>
 
 <template>
-  <section class="fold" :class="{ open }">
-    <button type="button" class="fold-head" :aria-expanded="open" @click="open = !open">
+  <section ref="root" class="fold" :class="{ open }">
+    <button type="button" class="fold-head" :aria-expanded="open" @click="toggle">
       <span class="chev" aria-hidden="true">▸</span>
       <span class="fold-title">{{ title }}</span>
       <span v-if="meta" class="fold-meta">{{ meta }}</span>

@@ -1064,6 +1064,16 @@ th {
   font-weight: 400;
 }
 
+.fold.open > .fold-head {
+  /* 펼친 칸은 제목 줄이 도구막대 바로 아래 붙어 따라온다. 긴 표 끝에서도 한참 올리지 않고 접는다. */
+  position: sticky;
+  top: var(--appbar-h, 0px);
+  z-index: 5;
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--line-soft);
+}
+
 .fold-body {
   padding: 0.25rem 0 0.75rem;
 }
@@ -2599,6 +2609,31 @@ main.has-model .catalog {
   pointer-events: none;
 }
 
+/* 무엇 위에 있는지. 설비는 3D 의 상자 테두리와 같은 액센트, 방은 점선과 같은 회색. */
+.hover-tip .tip-kind {
+  margin-right: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.hover-tip .tip-kind.equipment {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.hover-tip .tip-kind.space {
+  border: 1px dashed var(--muted);
+  color: var(--muted);
+}
+
+.hover-tip .tip-kind.arrow {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .hover-tip span {
   color: var(--muted);
 }
@@ -3181,14 +3216,65 @@ main.has-model .catalog {
   }
 }
 
+/* 오른쪽 패널: 고른 것이 바뀌면 빠르게 빠지고 살짝 올라오며 들어온다. 빠지는 쪽을 짧게 둬 누른 뒤 기다리는 느낌이 없게. */
+.swap-leave-active {
+  transition: opacity 0.08s ease;
+}
+.swap-enter-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.swap-leave-to,
+.swap-enter-from {
+  opacity: 0;
+}
+.swap-enter-from {
+  transform: translateY(4px);
+}
+
+/* 패널의 값 칸이 번쩍일 때 글자에 붙지 않게 조금 띄운다. */
+.facts dd.flash {
+  margin-inline: -0.25rem;
+  padding-inline: 0.25rem;
+  border-radius: var(--radius-sm);
+}
+
+/* 내보내기·저장이 끝난 단추. ✓ 가 떠올랐다 사라진다. */
+button.done::after {
+  content: '✓';
+  display: inline-block;
+  margin-left: 0.3rem;
+  color: #1f9d7a;
+  font-weight: 700;
+  animation: done-check 1.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes done-check {
+  0% {
+    opacity: 0;
+    transform: translateY(3px) scale(0.6);
+  }
+  15%,
+  75% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .num-bump,
+  button.done::after,
   .flash,
   .tiles li.flash,
   .rule-state .confirmed {
     animation: none;
   }
-  .meter i {
+  .meter i,
+  .swap-enter-active,
+  .swap-leave-active {
     transition: none;
   }
 }

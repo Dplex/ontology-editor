@@ -35,3 +35,50 @@ test('숫자는 굴러 올라오고 막대는 차오르며, 편집으로 바뀐 
   await expect(fold.locator('tbody tr.flash')).toHaveCount(1)
   expect(errors).toEqual([])
 })
+
+// 3D·패널·도구막대의 움직임. 고르면 카메라가 날아가고, 소속이 바뀐 방이 번쩍이며, 되돌리면 설비가 미끄러져 돌아간다.
+test('카메라는 날아가고, 되돌리면 설비가 미끄러지며 돌아간 방이 번쩍이고, 저장한 단추에 ✓ 가 뜬다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  const motion = () => page.evaluate(() => (window as any).__viewer.motion()) as Promise<{ flying: boolean; gliding: number; pulsing: number; started: { flights: number; glides: number; pulses: number } }>
+  const AHU = '0MEP$Equip$AHU1$0000'
+
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const row = page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last()
+  const flights = (await motion()).started.flights
+  await row.getByRole('button', { name: 'AHU-1', exact: true }).click()
+  expect((await motion()).started.flights).toBeGreaterThan(flights)
+  await expect.poll(async () => (await motion()).flying).toBe(false)
+  await expect(page.locator('.picked h3')).toHaveText('AHU-1')
+
+  // 사무실 밖으로 끌어 놓는다(edit-3d.spec.ts 와 같은 자리).
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  const center = await page.evaluate((id) => (window as any).__viewer.center(id), AHU)
+  const from = await page.evaluate((id) => (window as any).__viewer.part(id), AHU)
+  const to = await page.evaluate((p) => (window as any).__viewer.point(p), [center[0] - 8, center[1], center[2]])
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(to.x, to.y, { steps: 12 })
+  await page.mouse.up()
+  await expect(page.locator('.picked dd', { hasText: '소속 없음' })).toBeVisible()
+
+  // 되돌리면 형상이 미끄러져 돌아가고, 돌아간 방(사무실)이 번쩍이며, 패널의 소속 칸이 번쩍인다.
+  const before = (await motion()).started
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await motion()).started.glides).toBeGreaterThan(before.glides)
+  await expect.poll(async () => (await motion()).started.pulses).toBeGreaterThan(before.pulses)
+  await expect(page.locator('.picked .facts dd.flash', { hasText: '사무실' })).toBeVisible()
+  await expect.poll(async () => (await motion()).gliding).toBe(0)
+  await expect.poll(async () => (await motion()).pulsing).toBe(0)
+
+  // 다시 하고 편집 저장: 단추에 ✓ 가 떴다 사라진다.
+  await page.keyboard.press('Control+Shift+z')
+  await expect(page.locator('.picked dd', { hasText: '소속 없음' })).toBeVisible()
+  await page.locator('.edit-bar .save-edits').click()
+  await expect(page.locator('.edit-bar .save-edits')).toHaveClass(/done/)
+  await expect(page.locator('.edit-bar .save-edits')).not.toHaveClass(/done/, { timeout: 3000 })
+  expect(errors).toEqual([])
+})
