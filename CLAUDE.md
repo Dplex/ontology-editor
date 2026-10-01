@@ -12,6 +12,16 @@ BIM(IFC4)으로 공간 온톨로지를 만들고 고치는 PoC. 부모 `~/git/dt
 
 기억으로 답하지 말고 그 파일을 연다. 티켓의 "검증 (이 repo)" 절이 그 기능을 재는 테스트를 가리키니, 기능을 고치면 거기도 고친다.
 
+## 이슈·칸반은 사내 GitHub 안에서 한다
+
+이 repo 의 이슈와 칸반은 **사내 GitHub 하나로 관리한다.** "Jira", "칸반", "이슈 등록" 이라고 하면 Atlassian Jira 가 아니라
+여기를 말한다(PRD 티켓 파일의 `jira:` 칸도 이 이슈 번호다).
+
+- 이슈: `github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology` (`gh issue …`, 라벨 `prd-011`·`phase-1`, 제목 끝에 티켓 `(OE-XXX-nn)`)
+- 칸반: <https://github.sec.samsung.net/orgs/IoT-Solution/projects/1> (Projects v2, `gh project … --owner IoT-Solution`)
+- `gh api` 는 기본 호스트가 github.com 이다. **`GH_HOST=github.sec.samsung.net`** 을 붙인다(안 붙이면 404·rate limit 이 난다).
+- 끝낸 일은 이슈를 닫고 칸반 상태를 Done 으로 옮긴다. 화면 기능이면 스샷을 붙인다.
+
 ## 지금 어디까지 왔나
 
 **임포트·내보내기와 편집 E1~E8, 건축+설비 파일 합치기, 이름 사전과 규칙 방향 확정까지.** 진행률을 후하게 매기지 말 것.
