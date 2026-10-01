@@ -781,7 +781,7 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
   }, 300_000)
 })
 
-// **이 과제의 산출물이 받는 쪽에서 실제로 읽히는지.** CLAUDE.md 는 "ieum-pipeline 의 ttl.go 가
+// **이 과제의 산출물이 받는 쪽에서 실제로 읽히는지.** intent.md 는 "ieum-pipeline 의 ttl.go 가
 // 읽을 수 있어야 한다" 를 계약으로 적었는데, 한동안 TTL 문자열의 모양만 테스트했다. 그러는 동안
 // brick:feeds 를 독립 문장으로 써서 ttl.go 가 **흐름 연결을 전부 버리고** 있었다(ifc4Mep 1,995 → 0).
 //
@@ -1117,7 +1117,7 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
 // 성수(고객사 실측). 받을 곳이 없고 성수를 가진 PC 와 55 의 data/성수/ 에만 있다(정본 부록).
 // 기준값은 정본(docs/bim-to-dt-ontology.md)에 적힌 실측이다. **이 기준을 넣은 PC 에는 성수가 없어서 다시 재지
 // 못했다.** 어긋난 것을 한 번에 다 보려고 expect.soft 로 둔다. 어긋나면 코드와 문서 중 어느 쪽이 맞는지 가려
-// 둘 다 고친다. 규칙 일치율 83.8% 만은 soft 가 아니다 — CLAUDE.md 가 규칙을 재는 기준으로 쓰는 값이다.
+// 둘 다 고친다. 규칙 일치율 83.8% 만은 soft 가 아니다 — intent.md 가 규칙을 재는 기준으로 쓰는 값이다.
 const SEONGSU_ARCH = 'data/성수/Factorial_건축.ifc'
 const SEONGSU_MECH = 'data/성수/Factorial_기계.ifc'
 
@@ -1160,7 +1160,7 @@ describe.skipIf(!existsSync(SEONGSU_MECH))('성수 기계', () => {
     // Proxy 로 들어온 기기 1,652대(포트가 있어서 1,578 · 이름이 사전에 있어서 74). 사전을 바꾸면 이름 쪽이 움직인다.
     expect.soft(devices.filter((e) => e.ifcClass === 'BuildingElementProxy')).toHaveLength(1652)
 
-    // 규칙 방향(정본 3.7). 이 83.8% 가 CLAUDE.md 가 말하는 "규칙이 맞는지" 의 기준이다.
+    // 규칙 방향(정본 3.7). 이 83.8% 가 intent.md 가 말하는 "규칙이 맞는지" 의 기준이다.
     const rules = inferFlowByRules(model)
     expect.soft(rules.oriented).toBe(5457)
     expect.soft(rules.conflicts).toBe(227)
