@@ -6,7 +6,7 @@ title: "권한 카탈로그 연동"
 prd: "#1 #2"
 release: "R2"
 priority: "P1"
-owner: "srcn"
+owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-XPRD-04"]

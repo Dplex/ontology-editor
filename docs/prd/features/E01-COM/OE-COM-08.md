@@ -6,7 +6,7 @@ title: "상시 버튼·미저장 확인"
 prd: "#1 #2"
 release: "R1"
 priority: "P1"
-owner: "srcn"
+owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-WF-01"]

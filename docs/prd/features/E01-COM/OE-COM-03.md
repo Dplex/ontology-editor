@@ -4,9 +4,9 @@ epic: "E01"
 epic_title: "공통 · 권한 · 편집 잠금"
 title: "임시 저장본 공동 접근"
 prd: "#1 #2"
-release: "R1"
+release: "R2"
 priority: "P1"
-owner: "srcn"
+owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-WF-01"]
