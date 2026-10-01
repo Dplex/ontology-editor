@@ -71,7 +71,7 @@ const CHAPTERS = new Set(['1.8', '부록 A', '부록 B', '부록 C'])
 
 const STATUS = ['poc-done', 'poc-partial', 'todo', 'blocked', 'srcn-unknown', 'unknown', 'dropped']
 const OWNER = ['ontology-editor', 'srcn', 'tbd']
-const RELEASE = ['R1', 'R1.5', 'R2']
+const RELEASE = ['R1', 'R2']
 const PRIORITY = ['P1', 'P2', 'P3']
 
 describe('티켓 파일', () => {

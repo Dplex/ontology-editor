@@ -8,7 +8,7 @@ PRD #13 · 티켓 17건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능
 |---|---|---|---|---|---|
 | [OE-EQP-01](OE-EQP-01.md) | 설비 마스터에서 배치 | R1 | P1 | poc-partial |  |
 | [OE-EQP-02](OE-EQP-02.md) | 미배치 설비 배치 (E6) | R1 | P1 | poc-done |  |
-| [OE-EQP-03](OE-EQP-03.md) | 설치면 자동 판정 | R1.5 | P1 | todo |  |
+| [OE-EQP-03](OE-EQP-03.md) | 설치면 자동 판정 | R1 | P1 | todo |  |
 | [OE-EQP-04](OE-EQP-04.md) | 천장 설비 표시 | R1 | P1 | todo |  |
 | [OE-EQP-05](OE-EQP-05.md) | 설치면 편집 필터 | R1 | P1 | todo |  |
 | [OE-EQP-06](OE-EQP-06.md) | 배관 없는 설비 디테일 | R1 | P1 | poc-done |  |
@@ -19,7 +19,7 @@ PRD #13 · 티켓 17건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능
 | [OE-EQP-11](OE-EQP-11.md) | 스프링클러 디테일 | R1 | P1 | todo |  |
 | [OE-EQP-12](OE-EQP-12.md) | 이동 후 소속 자동 판정 | R1 | P1 | poc-done |  |
 | [OE-EQP-13](OE-EQP-13.md) | 설비 추가·삭제·이름 수정 (E7) | R1 | P1 | poc-done |  |
-| [OE-EQP-14](OE-EQP-14.md) | 종류 지정 | R1.5 | P1 | poc-done |  |
+| [OE-EQP-14](OE-EQP-14.md) | 종류 지정 | R1 | P1 | poc-done |  |
 | [OE-EQP-15](OE-EQP-15.md) | 외벽 부착 설비 | R1 | P1 | todo |  |
 | [OE-EQP-16](OE-EQP-16.md) | 로봇 통과·연결 데이터 | R1 | P1 | poc-done |  |
 | [OE-EQP-17](OE-EQP-17.md) | 로봇 통과 속성 정의 | R1 | P1 | poc-done |  |
