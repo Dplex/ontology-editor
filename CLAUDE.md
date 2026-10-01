@@ -23,7 +23,15 @@ BIM(IFC4)으로 공간 온톨로지를 만들고 고치는 PoC. 부모 `~/git/dt
 - 이슈: `github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology` (`gh issue …`, 라벨 `prd-011`·`phase-1`, 제목 끝에 티켓 `(OE-XXX-nn)`)
 - 칸반: <https://github.sec.samsung.net/orgs/IoT-Solution/projects/1> (Projects v2, `gh project … --owner IoT-Solution`)
 - `gh api` 는 기본 호스트가 github.com 이다. **`GH_HOST=github.sec.samsung.net`** 을 붙인다(안 붙이면 404·rate limit 이 난다).
-- 끝낸 일은 이슈를 닫고 칸반 상태를 Done 으로 옮긴다. 화면 기능이면 스샷을 붙인다.
+- **상태는 Todo → In Progress → In Review → Done 이다.** 손대기 시작하면 In Progress 로 옮긴다. 구현이 끝나면 티켓마다
+  브랜치(`obj-06-bearing-lock` 처럼)로 push 하고, 이슈에 검토 코멘트를 단 뒤 **In Review** 로 옮긴다. 이슈는 열어 둔다.
+  사람이 코멘트대로 확인하고 main 에 합치면 이슈를 닫고 Done 이다. **Done 은 사람이 확인한 뒤에만 옮긴다.**
+- 검토 코멘트는 #32 의 모양을 따른다: 구현한 것 · 화면(스샷) · **확인 방법**(어느 파일을 열고 무엇을 누르면 무엇이 보이나,
+  번호 매긴 단계) · 테스트(파일과 `npm test`·`check:sample`·e2e 결과 숫자) · 남은 것. 스샷은 Playwright 로 실제 BIM 을 열어
+  찍고 `docs/figures/` 에 커밋해 브랜치 경로 `?raw=true` 로 링크한다. 3D 의 벽·설비 자리는 e2e 모드(`vite --mode e2e`)의
+  `window.__viewer`(`element`·`part`·`point`)로 짚는다.
+- Status 선택지는 **웹 UI 에서만 고친다.** API(`updateProjectV2Field`)는 선택지를 통째로 갈아끼워 모든 카드의 상태 값을
+  지운다(2026-10-02 임시 프로젝트로 실측).
 
 ## 이 repo 에서 일하는 방식 (지난 세션에서 본 것)
 
