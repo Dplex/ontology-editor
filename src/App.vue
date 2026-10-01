@@ -36,7 +36,11 @@ import {
   type Viewer,
   type HoverTarget,
 } from './lib/viewer'
+import { rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import {
+  applyFollow,
+  planFollow,
+  type SegmentAxis,
   flowEdits,
   moveEquipment,
   moveEquipmentToStorey,
@@ -143,6 +147,11 @@ let viewer: Viewer | null = null
 // 삼각형이 섞이면 TTL 로 기하가 새는 길이 생긴다. 반응형으로 감쌀 이유도 없다(화면이
 // 값을 읽지 않고 3D 에만 넘긴다). 926개짜리 Map 을 반응형으로 만들면 그만큼 느려진다.
 let meshes: MeshMap = new Map()
+/**
+ * 설비를 따라 늘인 구간의 늘이기 전 형상과 그때 좌표·축. 처음 늘일 때(또는 불러오기 직전에) 뜬다. 늘인 형상은 늘 이것에서 다시
+ * 만든다 — 늘인 형상을 또 늘이면 꼭짓점의 축 위 비율이 바뀌어 되돌려도 제자리가 아니다.
+ */
+let meshBase = new Map<string, { positions: Float32Array; at: Vec3; axis: SegmentAxis }>()
 
 const counts = computed(() => (model.value ? countOf(model.value) : null))
 /** 임포트 때 읽지 않기로 한 피처(벽·문·창). 숫자 칸이 0 대신 "읽지 않음" 을 보인다. */
@@ -497,6 +506,38 @@ function shiftMesh(id: string, from: Vec3 | null, to: Vec3 | null) {
   meshes.set(id, { ...mesh, positions })
 }
 
+/** 구간의 연 때 축. 처음 물을 때 형상을 떠 둔다(그때는 아직 늘이기 전이다). 형상이 없거나 구간이 아니면 null. */
+function segmentAxis(id: string): SegmentAxis | null {
+  const known = meshBase.get(id)
+  if (known) return known.axis
+  const e = equipmentById.value.get(id)
+  const mesh = meshes.get(id)
+  if (e?.role !== 'segment' || !e.position || !mesh) return null
+  return captureBase(id, e.position)?.axis ?? null
+}
+
+function captureBase(id: string, at: Vec3) {
+  const mesh = meshes.get(id)
+  const axis = mesh && segmentAxisOf(mesh.positions)
+  if (!mesh || !axis) return null
+  const base = { positions: mesh.positions.slice(), at: [at[0], at[1], at[2]] as Vec3, axis }
+  meshBase.set(id, base)
+  return base
+}
+
+/** 늘인 구간의 형상을 지금 모델 값(`endShift`·`position`)으로 다시 만들어 3D 에 올린다. */
+function placeStretched(id: string) {
+  const base = meshBase.get(id)
+  const e = equipmentById.value.get(id)
+  const mesh = meshes.get(id)
+  if (!base || !mesh || !e?.position) return
+  const shift = e.endShift ?? [[0, 0, 0], [0, 0, 0]]
+  const positions = stretchPositions(base.positions, base.axis, shift, rigidPart(base.axis, base.at, e.position, shift))
+  meshes.set(id, { ...mesh, positions })
+  if (viewer?.setEquipmentPositions(id, positions)) sceneVersion.value++
+  else redraw()
+}
+
 /**
  * 알림·되돌리기 이름에 쓰는 짧은 이름. Revit 은 "패밀리:유형:유형:요소ID" 를 이름으로 내보내서(`M_Return Register:
  * RR-600 x 600 Face 300 x 300 Connection:…:607161`) 한 줄 알림이 이름만으로 넘쳤다. 패밀리와 요소 ID 만 남긴다.
@@ -516,6 +557,10 @@ const cm = (v: number) => Math.round(v * 100) / 100
  * 형상 하나만 옮긴다. 3D 에 없던 설비(좌표가 없다가 생긴 것)와 사라질 설비만 다시 그린다.
  */
 function moveInScene(id: string, from: Vec3 | null, to: Vec3 | null) {
+  if (meshBase.has(id)) {
+    placeStretched(id)
+    return
+  }
   shiftMesh(id, from, to)
   if (from && to && viewer?.shiftEquipment(id, [to[0] - from[0], to[1] - from[1], to[2] - from[2]])) sceneVersion.value++
   else redraw()
@@ -528,13 +573,23 @@ function moveInScene(id: string, from: Vec3 | null, to: Vec3 | null) {
 function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: string): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
-  const snapshot = snapshotEquipment(model.value, equipmentId)
+  // 붙은 배관(PRD #13). 옮기기 전에 정한다 — 옮긴 뒤에는 구간의 어느 끝이 가까웠는지 모른다.
+  const plan = carryConduits.value && before ? planFollow(model.value, equipmentId, segmentAxis) : null
+  const followers = plan ? [...plan.rigid, ...new Set(plan.stretch.map((x) => x.id))] : []
+  const own = snapshotEquipment(model.value, equipmentId)
+  const snapshot: Snapshot | null =
+    own && followers.length ? { kind: 'many', parts: [own, ...followers.flatMap((id) => snapshotEquipment(model.value!, id) ?? [])] } : own
   const at = mark()
   const change = moveEquipment(model.value, equipmentId, to)
   if (!change) return false
-  remember(`${shortName(change.equipmentName)} 옮김`, snapshot, at, coalesce)
+  remember(`${shortName(change.equipmentName)} 옮김${followers.length ? ` (배관 ${followers.length}개 따라옴)` : ''}`, snapshot, at, coalesce)
   if (drawnAt) shiftMesh(equipmentId, before, drawnAt)
   moveInScene(equipmentId, drawnAt ?? before, to)
+  if (plan && before && followers.length) {
+    const was = new Map(followers.map((id) => [id, equipmentById.value.get(id)?.position ?? null]))
+    changes.value = [...changes.value, ...applyFollow(model.value, plan, [to[0] - before[0], to[1] - before[1], to[2] - before[2]], segmentAxis)]
+    for (const id of followers) moveInScene(id, was.get(id) ?? null, equipmentById.value.get(id)?.position ?? null)
+  }
   changes.value = [...changes.value, change]
   triggerRef(model)
   return true
@@ -756,8 +811,14 @@ function applySnapshot(s: Snapshot) {
   const m = model.value
   if (!m) return
   const drawnAt = s.kind === 'equipment' ? (equipmentById.value.get(s.id)?.position ?? null) : null
+  // 배관을 데리고 옮긴 설비. 형상은 설비마다 옮긴다.
+  const carried = s.kind === 'many' && s.parts.every((p) => p.kind === 'equipment') ? (s.parts as Extract<Snapshot, { kind: 'equipment' }>[]) : null
+  const drawn = new Map(carried?.map((p) => [p.id, equipmentById.value.get(p.id)?.position ?? null]))
   const rules = restore(m, s)
-  if (s.kind === 'equipment') {
+  if (carried) {
+    triggerRef(model)
+    for (const p of carried) moveInScene(p.id, drawn.get(p.id) ?? null, p.position)
+  } else if (s.kind === 'equipment') {
     triggerRef(model)
     // 형상도 되돌린다. 안 하면 다시 그릴 때 옮긴 자리에 남는다.
     moveInScene(s.id, drawnAt, s.position)
@@ -2580,7 +2641,9 @@ function applyEditFile(file: EditFile, from: string) {
   const result = applyEdits(m, file)
   for (const e of m.storeys.flatMap((s) => s.equipment)) {
     const was = before.get(e.id) ?? null
-    if (was !== e.position) shiftMesh(e.id, was, e.position)
+    // 늘인 구간은 얹기 전 형상을 떠 두고 다시 만든다. 통째로 옮기면 붙은 끝이 떨어진다.
+    if (e.endShift && was && (meshBase.has(e.id) || captureBase(e.id, was))) placeStretched(e.id)
+    else if (was !== e.position) shiftMesh(e.id, was, e.position)
   }
   changes.value = [...changes.value, ...result.changes]
   areaChanges.value = [...areaChanges.value, ...result.areaChanges]
@@ -3131,6 +3194,11 @@ function removeElement() {
  * 다시 쓴다(되돌아오면 제자리).
  */
 const carryRooms = ref(false)
+/**
+ * 설비를 옮길 때 붙은 배관도 따라오게 하나(edit.ts 의 planFollow). 기본은 켬 — 끄면 설비만 옮겨져 3D·GeoJSON 에서 배관이
+ * 떨어져 보인다. 도관을 직접 옮길 때는 무엇도 따라오지 않는다.
+ */
+const carryConduits = ref(true)
 let carryPlan: WallCarryPlan | null = null
 watch(selectedElementId, () => (carryPlan = null))
 
@@ -3467,6 +3535,7 @@ ${name} 파일을 열까요?`,
     progress.value = { label: '3D 그리는 중' }
     await paint()
     meshes = result.meshes
+    meshBase = new Map()
     // 임포터가 이미 한 번 돌렸다. 계통별 채점표를 화면이 쓰려고 다시 받는다(같은 입력이면 같은 결과다).
     ruleReport.value = inferFlowByRules(result.model)
     confirmations.value = []
@@ -3492,6 +3561,7 @@ ${name} 파일을 열까요?`,
     model.value = null
     baseline.value = null
     meshes = new Map()
+    meshBase = new Map()
     fileName.value = ''
     mergeReport.value = null
     const detail = e instanceof Error ? e.message : String(e)
@@ -3535,7 +3605,16 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
   const restoreMeshes = () => {
     if (!edits) return
     const opened = new Map(pristine!.storeys.flatMap((st) => st.equipment).map((e) => [e.id, e.position]))
-    for (const e of model.value!.storeys.flatMap((st) => st.equipment)) shiftMesh(e.id, e.position, opened.get(e.id) ?? null)
+    for (const e of model.value!.storeys.flatMap((st) => st.equipment)) {
+      // 늘인 구간은 늘이기 전 형상으로 되돌리고 거기서 연 때 자리로 옮긴다.
+      const base = meshBase.get(e.id)
+      const mesh = meshes.get(e.id)
+      if (base && mesh) {
+        meshes.set(e.id, { ...mesh, positions: base.positions })
+        shiftMesh(e.id, base.at, opened.get(e.id) ?? null)
+      } else shiftMesh(e.id, e.position, opened.get(e.id) ?? null)
+    }
+    meshBase = new Map()
   }
   const replay = () => {
     if (!edits) return
@@ -3865,6 +3944,17 @@ async function exportGeoJSON() {
   }
 }
 
+/** 바뀐 내용 목록으로 내려간다. 작업 화면 아래에 있어 도구막대에서 바로 가는 길을 둔다. */
+function previewChanges() {
+  document.getElementById('changes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+/** 초기 구축의 마지막 단계. 기하와 의미를 따로 내는 전제는 그대로다 — 한 번 눌러 두 파일을 다 받을 뿐이다. */
+async function build() {
+  exportTTL()
+  await exportGeoJSON()
+}
+
 function exportTTL() {
   if (!model.value) return
   download('ontology.ttl', modelToTTL(model.value), 'text/turtle')
@@ -4122,6 +4212,10 @@ async function export3D(format: 'glb' | 'obj') {
           >
             편집 저장
           </button>
+          <!-- PRD #9 의 액션바. 초기 구축 모드라 "반영하기" 대신 "구축하기"(두 파일 내보내기)다 — 운영 DT 에 반영하는 길은 D10 이 열려 있다. -->
+          <button type="button" class="ghost" title="반영 전에 바뀐 내용(소속·경계·이름·방향)을 봅니다" @click="previewChanges">미리보기</button>
+          <button type="button" class="ghost primary-action" :disabled="busy" title="온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)" @click="build">구축하기</button>
+          <button type="button" class="ghost" title="보기 모드로 돌아갑니다. 편집한 것은 그대로 남습니다" @click="mode = 'view'">편집 종료</button>
         </div>
       </div>
 
@@ -4162,6 +4256,35 @@ async function export3D(format: 'glb' | 'obj') {
               <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
               <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
             </div>
+            <!-- 편집 도구 팔레트(PRD #9 화면 레이아웃의 왼쪽). 편집 모드에서만, 무엇을 만드는지로 묶는다. 넣을 층은 층 하나만
+                 보는 중이면 그 층이다(targetStorey). 왼쪽 위는 색 안내 자리라 아래쪽에 둔다. -->
+            <nav v-if="editing && !drawing && activeTab === '3d'" class="tool-palette" aria-label="편집 도구">
+              <span class="palette-head">공간</span>
+              <button type="button" class="ghost" title="바닥에 꼭짓점을 찍어 새 물리존을 그립니다" @click="startCreateSpace">물리존 그리기</button>
+              <span class="palette-head">설비</span>
+              <button
+                type="button"
+                :class="['ghost', { on: adding?.what === 'equipment' }]"
+                :aria-pressed="adding?.what === 'equipment'"
+                title="바닥을 눌러 새 설비를 놓습니다"
+                @click="adding?.what === 'equipment' ? stopAdd() : startAddEquipment()"
+              >
+                {{ adding?.what === 'equipment' ? '더하기 취소' : '설비 더하기' }}
+              </button>
+              <label class="palette-check" title="설비를 옮기면 붙은 이음쇠는 같이 옮기고, 그 너머 덕트·배관은 먼 끝을 두고 늘입니다">
+                <input v-model="carryConduits" type="checkbox" /> 배관도 같이
+              </label>
+              <span class="palette-head">벽·문·창</span>
+              <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). -->
+              <button type="button" :class="['ghost', { on: archMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="archMode = !archMode">
+                벽·문·창
+              </button>
+              <template v-if="archMode">
+                <button type="button" class="ghost" title="바닥에 두 점을 찍어 벽을 긋습니다" @click="startWall">벽 긋기</button>
+                <button type="button" :class="['ghost', { on: adding?.what === 'door' }]" title="벽 가까이 눌러 문을 놓습니다" @click="adding?.what === 'door' ? stopAdd() : startOpening('door')">문 놓기</button>
+                <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
+              </template>
+            </nav>
             <div class="view-tools">
               <!-- 보기 ↔ 편집, 단축키 안내. 위 도구막대와 같은 일이라 전체 화면(도구막대가 안 보인다)에서만 둔다.
                    평소에도 두었더니 같은 스위치가 한 화면에 둘이었다. -->
@@ -4182,34 +4305,6 @@ async function export3D(format: 'glb' | 'obj') {
               >
                 내력벽
               </button>
-              <!-- 새 물리존·설비(E3·E7). 넣을 층은 층 하나만 보는 중이면 그 층이다(targetStorey). -->
-              <template v-if="editing && !drawing">
-                <button type="button" class="ghost" title="바닥에 꼭짓점을 찍어 새 물리존을 그립니다" @click="startCreateSpace">물리존 그리기</button>
-                <button
-                  type="button"
-                  :class="['ghost', { on: adding?.what === 'equipment' }]"
-                  :aria-pressed="adding?.what === 'equipment'"
-                  title="바닥을 눌러 새 설비를 놓습니다"
-                  @click="adding?.what === 'equipment' ? stopAdd() : startAddEquipment()"
-                >
-                  {{ adding?.what === 'equipment' ? '더하기 취소' : '설비 더하기' }}
-                </button>
-                <!-- 벽·문·창(E4). 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다. -->
-                <button
-                  type="button"
-                  :class="['ghost', { on: archMode }]"
-                  :aria-pressed="archMode"
-                  title="벽·문·창을 3D에 세우고 고쳐 봅니다"
-                  @click="archMode = !archMode"
-                >
-                  벽·문·창
-                </button>
-                <template v-if="archMode">
-                  <button type="button" class="ghost" title="바닥에 두 점을 찍어 벽을 긋습니다" @click="startWall">벽 긋기</button>
-                  <button type="button" :class="['ghost', { on: adding?.what === 'door' }]" title="벽 가까이 눌러 문을 놓습니다" @click="adding?.what === 'door' ? stopAdd() : startOpening('door')">문 놓기</button>
-                  <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
-                </template>
-              </template>
               <!-- 공조존(IDF) 외곽선. IDF 를 열거나 덧붙였을 때만. -->
               <button
                 v-if="model.hvac?.zones.length"

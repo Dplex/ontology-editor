@@ -44,6 +44,7 @@ export const FUZZ_OPS = [
   'createSystem',
   'deleteSystem',
   'moveWallWithSpaces',
+  'moveFollow',
 ] as const
 export type FuzzOp = (typeof FUZZ_OPS)[number]
 
@@ -86,6 +87,11 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
 
   const m = structuredClone(pristine)
   const base = E.baselineOf(m)
+  const openedAt = new Map(pristine.storeys.flatMap((st) => st.equipment).map((e) => [e.id, e.position]))
+  const axisOf = (id: string): E.SegmentAxis | null => {
+    const p = openedAt.get(id)
+    return p ? [[p[0] - 1, p[1], p[2]], [p[0] + 1, p[1], p[2]]] : null
+  }
   const undo: E.Snapshot[] = []
   let detail = ''
   const log: string[] = []
@@ -105,6 +111,17 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
         E.moveEquipment(m, e.id, [p[0], p[1], p[2]])
       }
       log.push(`${op} ${e.name}`)
+    } else if (op === 'moveFollow') {
+      // 붙은 배관을 데리고 옮긴다. 형상이 없는 입력이라 구간 축은 연 때 좌표 양옆 1m 로 둔다(같은 씨앗이면 같은 축).
+      const e = pick(devices.filter((x) => x.position))
+      if (!e) continue
+      const p = e.position!
+      const plan = E.planFollow(m, e.id, axisOf)
+      const ids = [e.id, ...plan.rigid, ...new Set(plan.stretch.map((x) => x.id))]
+      undo.push({ kind: 'many', parts: ids.map((id) => E.snapshotEquipment(m, id)!) })
+      E.moveEquipment(m, e.id, [p[0] + 0.4, p[1] + 0.2, p[2]])
+      E.applyFollow(m, plan, [0.4, 0.2, 0], axisOf)
+      log.push(`moveFollow ${e.name} (+${ids.length - 1})`)
     } else if (op === 'storey') {
       const e = pick(devices)
       const home = m.storeys.find((s) => s.equipment.includes(e!))

@@ -73,6 +73,11 @@ export function moveEquipment(model: Model, equipmentId: string, to: Vec3): Chan
   if (!equipment) return null
 
   const fromSpaceId = equipment.spaceId
+  // 늘인 구간을 통째로 옮기면 두 끝이 같이 간다. 안 그러면 형상(끝 기준)과 좌표가 어긋난다.
+  if (equipment.endShift && equipment.position) {
+    const d = sub(to, equipment.position)
+    equipment.endShift = [add(equipment.endShift[0], d), add(equipment.endShift[1], d)]
+  }
   equipment.position = to
   equipment.positionSource = 'edited'
   // BIM 이 말한 소속은 BIM 이 말한 자리에 대한 것이다. 사람이 옮긴 뒤에도 남겨 두면 방 밖으로 끌어낸
@@ -91,6 +96,127 @@ export function moveEquipment(model: Model, equipmentId: string, to: Vec3): Chan
         ? `${equipment.name}: 위치만 바뀌었고 소속은 ${spaceLabel(model, toSpaceId)} 그대로입니다.`
         : `${equipment.name}: 소속이 ${spaceLabel(model, fromSpaceId)} 에서 ${spaceLabel(model, toSpaceId)} 로 바뀝니다.`,
   }
+}
+
+// --- 배관이 설비를 따라온다 (PRD #13 "이동(연결 배관 함께)") ---------------------------------
+//
+// 설비만 옮기면 붙은 덕트·배관이 제자리에 남아 3D 와 GeoJSON 에서 끊겨 보인다. 연결 관계는 그대로라 TTL 은 같다.
+// 그래서 바로 붙은 이음쇠(엘보·티)는 설비와 같이 옮기고, 그 너머의 곧은 구간은 **먼 끝은 두고 가까운 끝만** 늘인다.
+// 배관망 전체를 따라 끌면 다른 설비에 붙은 끝까지 떨어지므로 첫 구간에서 멈춘다.
+
+/** 덕트·배관 구간의 축 두 끝(세계 좌표). 연 때 형상에서 잰다. */
+export type SegmentAxis = [Vec3, Vec3]
+
+const sub = (a: readonly number[], b: readonly number[]): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+const add = (a: readonly number[], b: readonly number[]): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+const scale = (a: readonly number[], k: number): Vec3 => [a[0] * k, a[1] * k, a[2] * k]
+const dist2 = (a: readonly number[], b: readonly number[]) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2
+
+/** 축 위 비율(0 = 첫 끝, 1 = 둘째 끝). 축 밖의 점은 축에 내린 자리로 잰다. */
+export function axisParam(axis: readonly [Vec3, Vec3], p: readonly number[]): number {
+  const d = sub(axis[1], axis[0])
+  const len2 = d[0] ** 2 + d[1] ** 2 + d[2] ** 2
+  if (len2 === 0) return 0.5
+  const t = ((p[0] - axis[0][0]) * d[0] + (p[1] - axis[0][1]) * d[1] + (p[2] - axis[0][2]) * d[2]) / len2
+  return Math.min(1, Math.max(0, t))
+}
+
+/** 두 끝이 옮겨진 만큼 축 위 비율 t 의 점이 옮겨지는 양. 형상의 꼭짓점과 `position` 이 같은 식을 쓴다. */
+export function shiftAt(shift: readonly [Vec3, Vec3], t: number): Vec3 {
+  return add(scale(shift[0], 1 - t), scale(shift[1], t))
+}
+
+/** 지금 끝 자리 = 연 때 축 + 옮겨진 양. */
+function currentAxis(e: Equipment, axis: SegmentAxis): SegmentAxis {
+  const s = e.endShift
+  return s ? [add(axis[0], s[0]), add(axis[1], s[1])] : axis
+}
+
+export type FollowPlan = {
+  /** 설비와 같이 통째로 옮길 이음쇠. */
+  rigid: string[]
+  /** 한 끝만 늘일 구간과 그 끝(0·1). */
+  stretch: { id: string; end: 0 | 1 }[]
+}
+
+/** 이음쇠가 이음쇠에 물린 사슬을 이만큼만 탄다. 이음쇠끼리 길게 이어진 BIM 에서 배관망 전체가 끌려오지 않게 한다. */
+const FITTING_DEPTH = 3
+
+/**
+ * 설비를 옮기기 **전에** 무엇이 따라올지 정한다. 옮긴 뒤에는 어느 끝이 가까웠는지 알 수 없어서 따로 둔다.
+ * `axisOf` 는 구간의 연 때 축이다. 축을 모르는 구간(형상이 없다)은 늘일 수 없으니 따라오지 않는다.
+ */
+export function planFollow(model: Model, equipmentId: string, axisOf: (id: string) => SegmentAxis | null): FollowPlan {
+  const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
+  const root = byId.get(equipmentId)
+  const plan: FollowPlan = { rigid: [], stretch: [] }
+  if (!root?.position || isConduitRole(root.role)) return plan
+  const neighbors = new Map<string, string[]>()
+  for (const c of model.connections) {
+    neighbors.set(c.from, [...(neighbors.get(c.from) ?? []), c.to])
+    neighbors.set(c.to, [...(neighbors.get(c.to) ?? []), c.from])
+  }
+  const seen = new Set([equipmentId])
+  let frontier: Equipment[] = [root]
+  for (let depth = 0; depth <= FITTING_DEPTH && frontier.length; depth++) {
+    const next: Equipment[] = []
+    for (const mover of frontier) {
+      for (const id of neighbors.get(mover.id) ?? []) {
+        const e = byId.get(id)
+        if (!e?.position || seen.has(id)) continue
+        if (e.role === 'fitting' && depth < FITTING_DEPTH) {
+          seen.add(id)
+          plan.rigid.push(id)
+          next.push(e)
+        } else if (e.role === 'segment') {
+          const axis = axisOf(id)
+          if (!axis) continue
+          const now = currentAxis(e, axis)
+          const end: 0 | 1 = dist2(now[0], mover.position!) <= dist2(now[1], mover.position!) ? 0 : 1
+          // 양 끝이 다 옮겨지는 구간(두 이음쇠 사이)은 끝을 둘 다 적는다.
+          const already = plan.stretch.find((s) => s.id === id)
+          if (already) {
+            if (already.end !== end) plan.stretch.push({ id, end })
+            seen.add(id)
+          } else plan.stretch.push({ id, end })
+        }
+      }
+    }
+    frontier = next
+  }
+  return plan
+}
+
+const isConduitRole = (role: Equipment['role']) => role === 'segment' || role === 'fitting'
+
+/**
+ * 설비가 `delta` 만큼 옮겨진 뒤 계획대로 배관을 따라오게 한다. 좌표는 `moveEquipment` 로 바꿔 소속도 다시 판정한다.
+ * 늘인 구간의 `position` 은 축 위 같은 비율 자리로 간다 — 형상의 꼭짓점과 같은 식이라 3D 와 GeoJSON 이 어긋나지 않는다.
+ */
+export function applyFollow(model: Model, plan: FollowPlan, delta: Vec3, axisOf: (id: string) => SegmentAxis | null): Change[] {
+  const changes: Change[] = []
+  for (const id of plan.rigid) {
+    const e = findEquipment(model, id)
+    if (!e?.position) continue
+    const change = moveEquipment(model, id, add(e.position, delta))
+    if (change) changes.push(change)
+  }
+  const byId = new Map<string, (0 | 1)[]>()
+  for (const s of plan.stretch) byId.set(s.id, [...(byId.get(s.id) ?? []), s.end])
+  for (const [id, ends] of byId) {
+    const e = findEquipment(model, id)
+    const axis = axisOf(id)
+    if (!e?.position || !axis) continue
+    const t = axisParam(currentAxis(e, axis), e.position)
+    const before = e.endShift ?? [[0, 0, 0], [0, 0, 0]]
+    const after: [Vec3, Vec3] = [ends.includes(0) ? add(before[0], delta) : [...before[0]], ends.includes(1) ? add(before[1], delta) : [...before[1]]]
+    const to = add(e.position, sub(shiftAt(after, t), shiftAt(before, t)))
+    // moveEquipment 는 늘인 구간을 통째로 옮긴 것으로 보고 끝을 같이 민다. 끝은 여기서 정하므로 뒤에 덮는다.
+    const change = moveEquipment(model, id, to)
+    e.endShift = after
+    if (change) changes.push(change)
+  }
+  return changes
 }
 
 /**
@@ -394,6 +520,7 @@ export type Snapshot =
       spaceSource: Equipment['spaceSource']
       name: string
       nameEdited: Equipment['nameEdited']
+      endShift: Equipment['endShift']
     }
   | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; longName: string; roomKind: Space['kind']; roomKindSource: Space['kindSource'] }
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
@@ -480,10 +607,13 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
       spaceSource: e.spaceSource,
       name: e.name,
       nameEdited: e.nameEdited ? { ...e.nameEdited } : undefined,
+      endShift: e.endShift ? copyShift(e.endShift) : undefined,
     }
   }
   return null
 }
+
+const copyShift = (s: readonly [Vec3, Vec3]): [Vec3, Vec3] => [[...s[0]], [...s[1]]]
 
 /** 경계와 이름. 소속은 담지 않는다 — 경계를 되돌리면 재판정이 같은 소속을 다시 낸다. */
 export function snapshotSpace(model: Model, spaceId: string): Snapshot | null {
@@ -598,6 +728,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       equipment.name = snapshot.name
       if (snapshot.nameEdited) equipment.nameEdited = { ...snapshot.nameEdited }
       else delete equipment.nameEdited
+      if (snapshot.endShift) equipment.endShift = copyShift(snapshot.endShift)
+      else delete equipment.endShift
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
       equipment.spaceSource = snapshot.spaceSource
       equipment.spaceId = snapshot.spaceId

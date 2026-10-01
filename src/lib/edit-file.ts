@@ -63,7 +63,7 @@ export type EditFile = {
    * `released` 는 BIM 이 말한 소속을 버렸다는 뜻이다. 옮겼다가 제자리로 돌려놓았거나 다른 층에 갔다 온 설비는 좌표·층이
    * 연 때와 같아도 소속을 좌표로 다시 잰 상태다(edit.ts 의 releaseDeclaredSpace).
    */
-  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null }[]
+  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3] }[]
   /** 종류·유체를 고친 계통(E8). 설비의 계통은 위 `equipment` 의 `system` 에 적는다(`null` 은 계통에서 뺀 것). */
   systems?: { id: string; kind: string | null; fluid: Fluid | null }[]
   /** 사람이 만든 계통(끝 이름·종류)과 지운 계통. 구성원은 설비 쪽 `system` 으로 적는다. */
@@ -166,8 +166,10 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
         row.position = [e.position[0], e.position[1], e.position[2]]
       }
       if (was.spaceSource === 'bim' && e.spaceSource !== 'bim') row.released = true
+      // 설비를 따라 늘인 구간. 좌표만 적으면 어느 끝이 움직였는지 몰라 형상을 되살릴 수 없다.
+      if (e.endShift && e.endShift.some((v) => v.some((x) => x !== 0))) row.ends = [[...e.endShift[0]], [...e.endShift[1]]]
       if (was.systemId !== undefined && was.systemId !== e.systemId) row.system = e.systemId
-      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined) equipment.push(row)
+      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends) equipment.push(row)
     }
   }
   const confirmed = new Set<string>()
@@ -479,6 +481,11 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
         result.applied++
         result.changes.push(change)
       }
+    }
+    // 좌표를 옮긴 뒤에 덮는다. moveEquipment 는 늘인 구간의 끝을 같이 밀기 때문이다.
+    if (e.ends) {
+      const target = model.storeys.flatMap((st) => st.equipment).find((x) => x.id === e.id)
+      if (target) target.endShift = [[...e.ends[0]], [...e.ends[1]]]
     }
     if (e.released && releaseDeclaredSpace(model, e.id)) result.applied++
     if (e.system !== undefined) {
