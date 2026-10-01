@@ -6,9 +6,8 @@ title: "내력벽"
 prd: "#3"
 release: "R1"
 priority: "P2"
-owner: "ontology-editor"
-status: "poc-done"
-status_note: "읽기 · 편집 제한 ?"
+owner: "tbd"
+status: "prd-done"
 blocked_by: []
 depends: ["R22"]
 jira: ""
@@ -18,11 +17,15 @@ jira: ""
 
 ## 요구사항
 
-loadBearing=true면 내벽이라도 수정 불가. 값 없으면 내벽 규칙 적용, "모름" 표시. 데이터 확보 시 반영 (R22 권장)
+내력벽은 물리존에서 수정이 불가하다. 
+내력벽은 별도 속성으로 '내벽'과 구분하여 '내력벽'이라고 표시한다. 
+'내력벽' 정보가 없을 경우 '내벽'이라고 표시한다. 
+<!--(확인필요) loadBearing=true인 경우 내력벽이라고 가정한다.-->
+
 
 ## 수용 기준
 
-Structural 속성 있는 벽 편집 차단. 기본값(모두 false)으로 의심되면 그대로 믿지 않음
+내력벽 편집 차단. 
 
 ## 검증 (이 repo)
 
