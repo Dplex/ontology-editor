@@ -7,7 +7,7 @@ prd: "#1 #2"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "poc-todo"
+status: "prd-done"
 status_note: "저장 위치 미정"
 blocked_by: []
 depends: ["OE-INT-01"]
