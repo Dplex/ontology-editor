@@ -42,11 +42,11 @@ prd: "#6"                    # Epic 이 대응하는 PRD 기능 번호(옛 Confl
 release: "R1"                # R1 | R2. R1.5 는 2026-10-01 에 R1 으로 합쳤다
 priority: "P1"               # P1 필수(릴리즈 게이트) | P2 권장 | P3 선택
 owner: "ontology-editor"     # ontology-editor | srcn | tbd
-status: "poc-done"           # 아래 범례
+status: "prd-done"           # 아래 범례
 status_note: "성수 277대 보정 표시"   # 있을 때만
 blocked_by: []               # 이 결정·이슈가 나야 진행 — questions.md 의 번호
 depends: ["R11"]             # 참고하는 티켓·요구사항·규칙·장
-jira: ""                     # 발행 뒤 키
+github ticket key: ""                     # 발행 뒤 키
 ---
 
 # OE-BIM-12 배치점 보정
@@ -62,13 +62,10 @@ jira: ""                     # 발행 뒤 키
 **상태 범례** — 원문 기호를 Jira 라벨 이름으로 바꿨다(부록 F).
 
 
-| status         | 원문    | 뜻                                          |
-| -------------- | ----- | ------------------------------------------ |
-| `poc-done`     | ✔     | PoC(이 repo)가 구현했다. 구현 완료하여 작업이 끝난 상태.      |
-| `poc-partial`  | ◐     | 일부 구현. 무엇이 빠졌는지 `status_note`              |
-| `poc-todo`     | ✗     | 미구현하여 검토중인 상태.                             |
-| `prd-review`   | ⏸     | 결정 대기. 요구사항 구체화가 필요한 상태. `blocked_by` 에 번호 |
-| `unknown`      | ?     | 상태 미확인                                     |
+| status       | 원문  | 뜻                                |
+| ------------ | --- | -------------------------------- |
+| `prd-done`   | ✔   | prd 작성 완료되어, 개발 구현 시작해도 되는 상태.   |
+| `prd-review` | ⏸   | prd 작성 중임, 개발 구현 시작 전 검토 필요한 상태. |
 
 
 **주체(owner)** 는 이관 때 상태에서 추정한 **초기값**이다 — ✔·◐ 는 `ontology-editor`, SRCN? 는 `srcn`, 섞였거나 미구현이면 `tbd`.
@@ -76,6 +73,10 @@ jira: ""                     # 발행 뒤 키
 
 **Epic 폴더의 `README.md`** 는 티켓 머리 필드(ID · 기능 · Rel · P · 상태 · Jira)를 베낀 색인이다. GitHub 에서 폴더를 열면
 바로 보이게 둔 것이고, 파생 정보라 티켓을 고치면 같이 고친다. 어긋나면 `prd.test.ts` 가 실패한다.
+
+**`PRD_011.md` 3장의 "Epic 별 티켓 목록"** 도 같은 표를 한 번 더 베낀다 — 폴더를 열지 않아도 `OE-XXX-nn` 가 무엇을
+정의하는지 PRD 안에서 한눈에 보려는 것이다. 요구사항·수용 기준 본문은 옮기지 않는다(옮기면 두 벌이 된다). 티켓을 고치면
+Epic `README.md` 와 `PRD_011.md` 표를 같이 고친다 — `prd.test.ts` 가 셋의 일치를 확인한다.
 
 ## 고치는 법
 
@@ -97,6 +98,6 @@ jira: ""                     # 발행 뒤 키
 - 티켓 파일 수 = `PRD_011.md` 3장 색인의 기능 수 합. `id` = 파일 이름, 중복 없음, Epic 폴더와 ID 머리가 맞음.
 - 머리 필드가 있고 값이 범례 안이다. 본문에 네 절이 다 있다.
 - `depends` · `blocked_by` 가 가리키는 OE 티켓 · Epic 머리(`OE-ZON`) · R(개발 정본 4장) · K · S(`PRD_011.md` 부록) · D · Q · U · P(`questions.md`) 가 존재한다.
-- Epic `README.md` 의 행이 폴더의 티켓과 같다(ID · 기능 · Rel · P · 상태 · Jira).
+- Epic `README.md` 의 행이 폴더의 티켓과 같다(ID · 기능 · Rel · P · 상태 · Jira). `PRD_011.md` 3장의 티켓 목록도 같다.
 - `questions.md` 의 "영향 티켓" 이 실제 파일이다.
 - `features/` 에 `[v1.4]` 가 남아 있지 않다.

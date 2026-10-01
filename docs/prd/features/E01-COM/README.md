@@ -6,7 +6,7 @@ PRD #1 #2 · 티켓 8건 · [Epic 색인](../../PRD_011.md#3-요구사항--기�
 
 | ID | 기능 | Rel | P | 상태 | Jira |
 |---|---|---|---|---|---|
-| [OE-COM-01](OE-COM-01.md) | 권한 카탈로그 연동 | R1 | P1 | unknown |  |
+| [OE-COM-01](OE-COM-01.md) | 권한 카탈로그 연동 | R2 | P1 | unknown |  |
 | [OE-COM-02](OE-COM-02.md) | 반영 권한 | R1 | P1 | unknown |  |
 | [OE-COM-03](OE-COM-03.md) | 임시 저장본 공동 접근 | R1 | P1 | unknown |  |
 | [OE-COM-04](OE-COM-04.md) | 시스템 로그 | R1 | P1 | unknown |  |

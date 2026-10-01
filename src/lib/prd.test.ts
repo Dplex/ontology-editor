@@ -161,6 +161,22 @@ describe('색인', () => {
     }
   })
 
+  it('PRD_011.md 3장의 Epic 별 티켓 목록이 폴더의 티켓과 같다', () => {
+    for (const folder of new Set(all.map((t) => t.folder))) {
+      const rows = new Map(
+        [...prd.matchAll(/^\| \[(OE-[A-Z0-9]+-\d+)\]\(features\/([A-Z0-9-]+)\/\1\.md\) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \|$/gm)]
+          .filter((m) => m[2] === folder)
+          .map((m) => [m[1], m.slice(3)]),
+      )
+      const mine = all.filter((t) => t.folder === folder)
+      expect([...rows.keys()].sort(), folder).toEqual(mine.map((t) => t.fm.id as string).sort())
+      for (const t of mine) {
+        const [title, rel, pri, status, jira] = rows.get(t.fm.id as string)!
+        expect([title, rel, pri, status, jira], `PRD_011.md ${t.fm.id}`).toEqual([t.fm.title, t.fm.release, t.fm.priority, t.fm.status, t.fm.jira])
+      }
+    }
+  })
+
   it('PRD_011.md 3장의 Epic 색인이 폴더·기능 수와 같다', () => {
     const rows = [...prd.matchAll(/^\| (E\d\d) \| (.*?) \| (.*?) \| (\d+) \| \[features\/(E\d\d-[A-Z0-9]+)\/\]\(features\/\5\/README\.md\) \|$/gm)]
     const folders = new Set(all.map((t) => t.folder))
