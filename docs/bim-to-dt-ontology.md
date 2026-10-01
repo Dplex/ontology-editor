@@ -1,7 +1,7 @@
 # BIM으로 DT 온톨로지를 어디까지 만들 수 있나
 
-기준일: 2026-09-29 · 관련 문서: `[DT2.0] PRD_011(온톨로지 구축 자동화 플랫폼)`(이 문서의 PRD 기능 번호 #1~#24는 여기를
-가리킨다) · PM 공유용 요약: `docs/pm-brief.md`
+기준일: 2026-09-29 · 관련 문서: PRD_011 정본 [`docs/prd/PRD_011.md`](prd/PRD_011.md)(이 문서의 PRD 기능 번호 #1~#26은 그
+3장 Epic 색인을, 티켓은 `prd/features/` 를 가리킨다) · PM 공유용 요약: `docs/pm-brief.md`
 
 이 문서는 세 가지 질문에 답한다.
 
@@ -49,7 +49,7 @@
 
 ### 1.1 용어
 
-BIM, Revit, IFC, MEP, Level, 공유 좌표, LOD는 PRD_011의 "2. 용어 정의"와 "5. Revit 스터디"를 따른다.
+BIM, Revit, IFC, MEP, Level, 공유 좌표, LOD는 PRD_011의 용어집([`prd/glossary.md`](prd/glossary.md))과 기획 문서 「고객사 대상 BIM 요구사항 정의」 3장을 따른다.
 
 | 용어 | 이 문서에서의 뜻 |
 |---|---|
