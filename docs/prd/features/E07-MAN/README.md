@@ -6,9 +6,9 @@ PRD #7 · 티켓 6건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-�
 
 | ID | 기능 | Rel | P | 상태 | Jira |
 |---|---|---|---|---|---|
-| [OE-MAN-01](OE-MAN-01.md) | 배경 위 수동 작성 | R1.5 | P1 | poc-partial |  |
-| [OE-MAN-02](OE-MAN-02.md) | 평면도 배경 이미지 | R1.5 | P2 | todo |  |
-| [OE-MAN-03](OE-MAN-03.md) | 외곽선 없는 방 그리기 | R1.5 | P1 | poc-done |  |
-| [OE-MAN-04](OE-MAN-04.md) | 설비 수동 배치 | R1.5 | P1 | poc-done |  |
-| [OE-MAN-05](OE-MAN-05.md) | 공조존 수동 | R1.5 | P1 | todo |  |
-| [OE-MAN-06](OE-MAN-06.md) | 층 단위 진행 | R1.5 | P1 | poc-done |  |
+| [OE-MAN-01](OE-MAN-01.md) | 배경 위 수동 작성 | R1 | P1 | poc-partial |  |
+| [OE-MAN-02](OE-MAN-02.md) | 평면도 배경 이미지 | R1 | P2 | todo |  |
+| [OE-MAN-03](OE-MAN-03.md) | 외곽선 없는 방 그리기 | R1 | P1 | poc-done |  |
+| [OE-MAN-04](OE-MAN-04.md) | 설비 수동 배치 | R1 | P1 | poc-done |  |
+| [OE-MAN-05](OE-MAN-05.md) | 공조존 수동 | R1 | P1 | todo |  |
+| [OE-MAN-06](OE-MAN-06.md) | 층 단위 진행 | R1 | P1 | poc-done |  |

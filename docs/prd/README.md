@@ -35,7 +35,7 @@ epic: "E05"
 epic_title: "초기 구축 — BIM 임포트 · 검토 화면"
 title: "배치점 보정"
 prd: "#6"                    # Epic 이 대응하는 PRD 기능 번호(옛 Confluence 표의 행 번호)
-release: "R1.5"              # R1 | R1.5 | R2. 둘이면 앞 것을 쓰고 release_note 에 원문
+release: "R1"                # R1 | R2. R1.5 는 2026-10-01 에 R1 으로 합쳤고, 아직 못 정한 티켓(OE-EQP-03·14)만 R1.5 로 남아 있다
 priority: "P1"               # P1 필수(릴리즈 게이트) | P2 권장 | P3 선택
 owner: "ontology-editor"     # ontology-editor | srcn | tbd
 status: "poc-done"           # 아래 범례

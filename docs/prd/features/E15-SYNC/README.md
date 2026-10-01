@@ -9,6 +9,6 @@ PRD #20 #21 · 티켓 6건 · [Epic 색인](../../PRD_011.md#3-요구사항--기
 | [OE-SYNC-01](OE-SYNC-01.md) | 공간 정보 자동 반영 | R1 | P1 | poc-partial |  |
 | [OE-SYNC-02](OE-SYNC-02.md) | 부분 반영 금지 | R1 | P1 | todo |  |
 | [OE-SYNC-03](OE-SYNC-03.md) | 공간 계층 갱신 | R1 | P1 | poc-partial |  |
-| [OE-SYNC-04](OE-SYNC-04.md) | 반영 결과 리포트 (#21) | R2 | P2 | poc-partial |  |
-| [OE-SYNC-05](OE-SYNC-05.md) | 리포트에서 되돌리기 | R2 | P2 | todo |  |
-| [OE-SYNC-06](OE-SYNC-06.md) | 편집 리포트 규칙 | R1.5 | P1 | poc-done |  |
+| [OE-SYNC-04](OE-SYNC-04.md) | 반영 결과 리포트 (#21) | R1 | P2 | poc-partial |  |
+| [OE-SYNC-05](OE-SYNC-05.md) | 리포트에서 되돌리기 | R1 | P2 | todo |  |
+| [OE-SYNC-06](OE-SYNC-06.md) | 편집 리포트 규칙 | R1 | P1 | poc-done |  |

@@ -22,4 +22,4 @@ PRD #9 #10 · 티켓 17건 · [Epic 색인](../../PRD_011.md#3-요구사항--기
 | [OE-SPC-14](OE-SPC-14.md) | 추가 오브젝트 배치 | R1 | P2 | srcn-unknown |  |
 | [OE-SPC-15](OE-SPC-15.md) | 겹침 차단 UX | R1 | P1 | srcn-unknown |  |
 | [OE-SPC-16](OE-SPC-16.md) | 오브젝트 라이브러리 정의 | R1 | P2 | todo |  |
-| [OE-SPC-17](OE-SPC-17.md) | 방 종류 사전·일괄 수정 | R1.5 | P2 | poc-partial |  |
+| [OE-SPC-17](OE-SPC-17.md) | 방 종류 사전·일괄 수정 | R1 | P2 | poc-partial |  |
