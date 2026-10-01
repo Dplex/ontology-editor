@@ -9,8 +9,9 @@ import type { Model } from '../model'
 import { disposeScene, modelToScene, sceneToGLB, sceneToOBJ } from './mesh3d'
 
 export type Mesh3dRequest = { format: 'glb' | 'obj'; model: Model; pristine: Model | null; meshes: [string, ElementMesh][] }
+/** 진행은 단계(장면 → 파일)로 알린다. 얼마나 했는지는 OBJ 만 안다(꼭짓점 수). GLB 는 three 의 GLTFExporter 가 알려 주지 않는다. */
 export type Mesh3dReply =
-  | { type: 'progress'; done: number }
+  | { type: 'progress'; stage: string; step: number; steps: number; done?: number; total?: number }
   | { type: 'done'; parts: ArrayBuffer[] }
   | { type: 'error'; message: string }
 
@@ -18,15 +19,19 @@ const post = (m: Mesh3dReply, transfer: Transferable[] = []) => self.postMessage
 
 self.onmessage = async (event: MessageEvent<Mesh3dRequest>) => {
   const { format, model, pristine, meshes } = event.data
+  post({ type: 'progress', stage: '장면 만드는 중', step: 1, steps: 2 })
   const scene = modelToScene(model, new Map(meshes), { pristine })
   try {
     let parts: ArrayBuffer[]
     if (format === 'glb') {
+      post({ type: 'progress', stage: 'GLB 쓰는 중', step: 2, steps: 2 })
       parts = [await sceneToGLB(scene)]
     } else {
       // 조각마다 바로 바이트로 바꿔 둔다. 글자로 모아 두면 돌려줄 때 683MB 를 또 복사한다.
       const encoder = new TextEncoder()
-      parts = await sceneToOBJ(scene, (done) => post({ type: 'progress', done }), (s) => encoder.encode(s).buffer as ArrayBuffer)
+      const progress = (done: number, total: number) => post({ type: 'progress', stage: 'OBJ 쓰는 중(꼭짓점)', step: 2, steps: 2, done, total })
+      post({ type: 'progress', stage: 'OBJ 쓰는 중(꼭짓점)', step: 2, steps: 2 })
+      parts = await sceneToOBJ(scene, progress, (s) => encoder.encode(s).buffer as ArrayBuffer)
     }
     post({ type: 'done', parts }, parts)
   } catch (e) {

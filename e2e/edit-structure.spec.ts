@@ -99,7 +99,7 @@ test('물리존을 그리면 안의 설비가 새 방으로 가고, 나누고 �
   // 새 물리존을 지운다.
   await clickFloor(page, 3, 4)
   await expect(room).toContainText('새 물리존 1')
-  await room.getByRole('button', { name: '지우기', exact: true }).click()
+  await room.getByRole('button', { name: '물리존 지우기', exact: true }).click()
   await expect(room).toHaveCount(0)
   // 만들고 나누고 합치고 지웠으니 연 때와 같다. 바뀐 것이 없으면 리포트가 비어 목록이 뜨지 않는다.
   await expect(page.locator('.report')).toHaveCount(0)

@@ -188,12 +188,12 @@ const IDENTITY = new Matrix4()
  * `OBJExporter` 가 `RangeError: Invalid string length` 로 멈췄다. 조각을 `new Blob(parts)` 로 이으면 한도에 닿지 않는다.
  * 좌표는 mm 까지만 적는다(미터 단위라 그 아래는 BIM 도 뜻이 없고, 파일만 커진다).
  *
- * 성수는 16초 걸린다(GLB 는 3초). 화면이 그동안 멈추지 않게 50ms 마다 한 번 비켜 주고 `onProgress`(0~1)를 부른다.
+ * 성수는 16초 걸린다(GLB 는 3초). 화면이 그동안 멈추지 않게 50ms 마다 한 번 비켜 주고 `onProgress`(적은 꼭짓점, 전체 꼭짓점)를 부른다.
  */
-export function sceneToOBJ(scene: Group, onProgress?: (done: number) => void): Promise<string[]>
+export function sceneToOBJ(scene: Group, onProgress?: (done: number, total: number) => void): Promise<string[]>
 /** `toPart` 는 조각이 찰 때마다 바로 부른다(워커가 바이트로 바꿔 글자 조각을 곧바로 버린다). */
-export function sceneToOBJ<T>(scene: Group, onProgress: ((done: number) => void) | undefined, toPart: (chunk: string) => T): Promise<T[]>
-export async function sceneToOBJ<T>(scene: Group, onProgress?: (done: number) => void, toPart?: (chunk: string) => T): Promise<(T | string)[]> {
+export function sceneToOBJ<T>(scene: Group, onProgress: ((done: number, total: number) => void) | undefined, toPart: (chunk: string) => T): Promise<T[]>
+export async function sceneToOBJ<T>(scene: Group, onProgress?: (done: number, total: number) => void, toPart?: (chunk: string) => T): Promise<(T | string)[]> {
   const parts: (T | string)[] = []
   let buf = '# ontology-editor 3D export. object name = IFC GlobalId, y up, metres\n'
   const emit = () => {
@@ -211,7 +211,7 @@ export async function sceneToOBJ<T>(scene: Group, onProgress?: (done: number) =>
   let last = performance.now()
   for (const o of list) {
     if (performance.now() - last > 50) {
-      onProgress?.((base - 1) / total)
+      onProgress?.(base - 1, total)
       await new Promise((r) => setTimeout(r, 0))
       last = performance.now()
     }
@@ -244,7 +244,7 @@ export async function sceneToOBJ<T>(scene: Group, onProgress?: (done: number) =>
     flush()
   }
   emit()
-  onProgress?.(1)
+  onProgress?.(total, total)
   return parts
 }
 

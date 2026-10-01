@@ -156,6 +156,12 @@ h2 {
   display: none;
 }
 
+/* 고르기 칸은 label 이라 input 을 막아도 누를 수 있어 보였다(여는 중의 [파일 선택]). */
+.pick:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .error {
   margin-top: 1rem;
   padding: 0.75rem 1rem;
@@ -740,12 +746,17 @@ th {
 }
 
 /* 범례가 3D 오른쪽에 붙어 있으니, 버튼은 3D 칸 안의 오른쪽 위에 둔다. */
+/* 왼쪽 위는 색 안내(.color-key·.wall-key) 자리다. 편집 도구에 벽·문·창·층 목록까지 펼치면 줄이 거기까지 뻗어 안내가
+   [내력벽] 을 덮었다. 넘치면 오른쪽 맞춤으로 두 줄이 된다. */
 .view-tools {
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 0.4rem;
+  max-width: calc(100% - 13rem);
 }
 
 .view-tools .ghost {
@@ -921,9 +932,19 @@ th {
   max-width: 22rem;
 }
 
+/* 끝 글자가 잘려 끌어 옮긴 -1.08 이 "-1.0E" 로 읽혔다. 크롬의 숫자 칸 위아래 단추가 오른쪽 맞춤 글자 위에 얹힌다.
+   단추를 숨긴다 — 0.1 씩 올리고 내리는 것은 칸 안의 ↑↓ 키로 그대로 된다. */
 .coord {
   width: 5.5rem;
+  padding: 0.15rem 0.3rem;
   text-align: right;
+  appearance: textfield;
+}
+
+.coord::-webkit-inner-spin-button,
+.coord::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
 }
 
 .equipment {
@@ -1337,6 +1358,19 @@ th {
 .space-members li {
   display: inline-flex;
   gap: 0.3rem;
+  max-width: 100%;
+}
+
+/* Revit 이름은 "패밀리-유형:ID" 가 60자를 넘는다(성수 CCTV). 한 줄로 자르고 전체는 title 로. 종류(CCTV)는 늘 보인다. */
+.space-members li .link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.space-members li .muted {
+  flex: none;
 }
 
 /* 방에 든 기기. 사무실 하나에 300대가 넘어서, 패널을 늘이지 않고 제 안에서 스크롤한다. */
@@ -1485,6 +1519,15 @@ th {
 .progress-detail {
   margin-top: 0.4rem;
   font-size: 0.8rem;
+}
+
+/* 여러 파일을 이어 열 때 몇 번째 파일인지. 파일마다 단계가 1 부터 다시 돈다. */
+.progress-file {
+  margin-bottom: 0.25rem;
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---- 보기 / 편집 ------------------------------------------------------------ */
@@ -2750,6 +2793,49 @@ main.has-model .catalog {
   color: var(--error);
 }
 
+/* 고른 것의 패널 맨 아래 지우기 줄. 이름 칸·나누기 옆에 있어 고치려다 누르기 쉬웠다. 선으로 고치는 칸과 가른다. */
+.danger-zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
+  margin: 1rem 0 0;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.8rem;
+}
+
+.danger-zone .ghost {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.78rem;
+}
+
+/* 고른 것의 사실 줄. 무엇에 대한 값인지(종류·계통·소속)를 앞에 두고 한 줄씩. 출처 칩이 어느 값에 붙었는지 보인다. */
+.facts {
+  display: grid;
+  gap: 0.15rem;
+  margin: 0.35rem 0 0;
+}
+
+.facts > div {
+  display: grid;
+  grid-template-columns: 3.2rem 1fr;
+  gap: 0.5rem;
+  align-items: baseline;
+}
+
+.facts dt {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.facts dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+
 /* 계통 상자. 성수는 계통이 1,037개라 이름이 길다. 패널 폭(25rem)을 넘지 않게 줄인다. */
 .system-edit select {
   max-width: 18rem;
@@ -2813,9 +2899,16 @@ main.has-model .catalog {
   cursor: pointer;
 }
 
-.appbar .append.disabled {
+.appbar .append.disabled,
+.appbar label:has(> input:disabled),
+.appbar button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+}
+
+/* 받는 중인 버튼은 "만드는 중…" 이 읽혀야 한다. 흐리게 두지 않는다. */
+.appbar button:disabled[aria-busy='true'] {
+  opacity: 1;
 }
 
 .appbar .append.over {

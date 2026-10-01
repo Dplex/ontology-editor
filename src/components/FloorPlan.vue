@@ -35,6 +35,9 @@ watch(
 )
 
 // --- 범위와 좌표 변환 ---------------------------------------------------------------
+// 건물(방·벽)에 맞추고, 설비는 건물 가까이 있는 것만 넣는다. 설비를 다 넣었더니 방 밖 40m 에 놓인 조명 하나 때문에
+// 10m 방이 한 구석에 작게 그려졌다. 멀리 있는 설비도 그려지고, 끌어 옮기거나 줄이면 보인다. 방·벽이 없는 층(설비
+// 파일만 연 것)은 설비로 맞춘다.
 const bounds = computed(() => {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
   const take = (x: number, y: number) => {
@@ -45,10 +48,23 @@ const bounds = computed(() => {
   }
   for (const s of props.storey.spaces) for (const [x, y] of s.footprint) take(x, y)
   for (const w of props.storey.walls) for (const r of w.footprint ?? []) for (const [x, y] of r) take(x, y)
-  for (const e of props.storey.equipment) if (e.position && !isConduit(e.role)) take(e.position[0], e.position[1])
+  const placed = props.storey.equipment.filter((e) => e.position && !isConduit(e.role))
+  if (Number.isFinite(minX)) {
+    const reach = Math.max(maxX - minX, maxY - minY) * 0.1 + 2
+    const [x0, y0, x1, y1] = [minX - reach, minY - reach, maxX + reach, maxY + reach]
+    for (const e of placed) {
+      const [x, y] = e.position!
+      if (x >= x0 && x <= x1 && y >= y0 && y <= y1) take(x, y)
+    }
+  } else {
+    for (const e of placed) take(e.position![0], e.position![1])
+  }
   if (!Number.isFinite(minX)) return { minX: 0, minY: 0, maxX: 10, maxY: 10 }
   const pad = Math.max(maxX - minX, maxY - minY) * 0.03 + 0.5
-  return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad }
+  // 위에는 3D·평면도 단추 줄이, 아래에는 안내 줄이 떠 있다. 높이에 맞춰 그려지는 층은 위아래 끝이 그 밑에 깔려
+  // 모서리 손잡이를 못 잡았다. 위아래만 높이의 10% 를 더 둔다.
+  const padY = pad + (maxY - minY) * 0.1
+  return { minX: minX - pad, minY: minY - padY, maxX: maxX + pad, maxY: maxY + padY }
 })
 /** IFC 평면 → SVG. y 를 뒤집는다. */
 const sx = (x: number) => x - bounds.value.minX

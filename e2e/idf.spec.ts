@@ -31,7 +31,7 @@ test('IFC 에 IDF 를 덧붙이면 공조존이 얹히고, 방을 누르면 그 
   await page.waitForTimeout(200)
   const floor = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))
   await page.mouse.click(floor.x, floor.y)
-  await expect(page.locator('.space-picked')).toContainText('공조존 1F:OFFICE')
+  await expect(page.locator('.space-picked .facts')).toContainText(/공조존\s*1F:OFFICE/)
   expect(errors).toEqual([])
 })
 

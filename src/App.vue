@@ -582,7 +582,7 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
   if (current) {
     // 좌표가 있는 설비의 칸을 비우면 옮기지 않는다. 칸도 지금 값으로 되돌린다(빈 칸으로 두면 좌표가 없어진 것처럼 보였다).
     if (value === null) {
-      if (input) input.value = String(current[axis])
+      if (input) input.value = String(mmOf(current[axis]))
       return
     }
     const base: [number, number, number] = [current[0], current[1], current[2]]
@@ -601,6 +601,12 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
   positionDrafts.value = drafts
   if (to && relocate(equipmentId, to)) warnIfFar(to)
 }
+
+/**
+ * 좌표 칸에 보일 값. BIM 좌표는 19.594049… 처럼 길어서 칸에서 잘렸다. 보이는 것만 mm 로 줄이고 모델 값은 그대로 둔다
+ * (칸을 고치지 않으면 옮기지 않는다).
+ */
+const mmOf = (v: number) => Math.round(v * 1000) / 1000
 
 /** 3D 에서 고른 설비를 끌어 놓았다. 3D 는 이미 놓은 자리에 그려져 있어 다시 만들지 않는다. */
 function dropEquipment(equipmentId: string, delta: Vec3) {
@@ -2324,6 +2330,9 @@ function select(id: string | null) {
   selectedId.value = id
   if (id) {
     selectedSystemId.value = null
+    // 방 안의 설비를 고르면 방 선택을 남긴다(방 목록에서 들어갔다 Esc 로 돌아온다). 다른 곳의 설비면 푼다 — 남겨 두었더니
+    // U 로 다른 층 설비로 건너뛴 뒤에도 앞서 고른 방의 꼭짓점 손잡이가 3D 에 남아 끌 수 있었다.
+    if (selectedSpaceId.value && equipmentById.value.get(id)?.spaceId !== selectedSpaceId.value) selectedSpaceId.value = null
     viewer?.focus(id)
   }
 }
@@ -2452,10 +2461,15 @@ const progress = ref<Progress | null>(null)
 const startedAt = ref(0)
 const now = ref(0)
 let ticker: number | undefined
+/**
+ * 여러 파일을 이어 열 때 지금 몇 번째 파일인지. 파일마다 단계(1/6…)가 처음부터 다시 돌아서, 이것 없이는 성수 두 파일을
+ * 여는 동안 막대가 끝났다가 다시 시작하고 초도 0 으로 돌아가 얼마나 남았는지 알 수 없었다. 초는 첫 파일부터 이어 센다.
+ */
+const batch = ref<{ index: number; total: number; name: string } | null>(null)
 
 function beginProgress(label: string) {
-  startedAt.value = Date.now()
-  now.value = startedAt.value
+  if (!batch.value || batch.value.index === 1) startedAt.value = Date.now()
+  now.value = Date.now()
   progress.value = { label }
   window.clearInterval(ticker)
   ticker = window.setInterval(() => (now.value = Date.now()), 250)
@@ -2472,6 +2486,10 @@ const progressPct = computed(() => {
 const progressTitle = computed(() => {
   const p = progress.value
   return p ? (p.step ? `${p.step}/${p.steps} · ${p.label}` : p.label) : ''
+})
+const progressFile = computed(() => {
+  const b = batch.value
+  return b ? `파일 ${b.index}/${b.total} · ${b.name}` : ''
 })
 const progressDetail = computed(() => {
   const p = progress.value
@@ -2621,10 +2639,19 @@ watch(viewStorey, () => viewer?.frameAll())
 const activeTab = ref<'3d' | 'plan'>('3d')
 // 편집은 모델을 그 자리에서 고치고 triggerRef 로 알린다. 같은 층 객체를 넘기면 평면도가 다시 그릴 이유를 몰라서, 방향키로
 // 옮긴 설비의 점과 끌어 놓은 방 외곽선이 예전 자리에 남았다. 알릴 때마다 얕은 사본을 넘긴다(층 하나라 싸다).
+// 층이 하나면 층 목록이 없으니 그 층을 그린다 — "층을 고르세요" 만 뜨고 고를 곳이 없었다.
 const planStorey = computed(() => {
-  const storey = model.value?.storeys.find((s) => s.id === viewStorey.value)
+  const m = model.value
+  const storey = m?.storeys.find((s) => s.id === viewStorey.value) ?? (m?.storeys.length === 1 ? m.storeys[0] : undefined)
   return storey ? { ...storey } : null
 })
+/** 평면도로 갈 때 층이 안 골라져 있으면 고른 방·설비의 층으로 연다. 고른 것이 없으면 층 목록에서 고르게 둔다. */
+function showPlan() {
+  activeTab.value = 'plan'
+  if (planStorey.value) return
+  const st = selectedSpace.value?.storey ?? (selected.value ? storeyOf(selected.value.id) : null)
+  if (st) viewStorey.value = st.id
+}
 // 고른 설비·물리존이 다른 층이면 그 층으로.
 watch([selectedId, selectedSpaceId], ([eq, sp]) => {
   if (!viewStorey.value || !model.value) return
@@ -2840,9 +2867,15 @@ function targetStorey() {
   )
 }
 
+/** 층을 몰라 도구를 못 여는 경우. 말만 하면 층 목록을 찾아 헤매서, 목록에 커서를 옮겨 바로 고르게 한다. */
+function askStorey(what: string) {
+  note(`${what} 층을 먼저 고르세요(3D 오른쪽 위의 층 목록)`)
+  document.querySelector<HTMLSelectElement>('.storey-view')?.focus()
+}
+
 function startCreateSpace() {
   const storey = targetStorey()
-  if (!storey) return note('물리존을 그릴 층을 먼저 고르세요(3D 오른쪽 위의 층 목록)')
+  if (!storey) return askStorey('물리존을 그릴')
   stopPlace()
   stopAdd()
   connectFrom.value = null
@@ -2914,7 +2947,7 @@ function mergeInto(otherId: string) {
 const adding = ref<{ storeyId: string; elevation: number; what: 'equipment' | 'door' | 'window' } | null>(null)
 function startAddEquipment() {
   const storey = targetStorey()
-  if (!storey) return note('설비를 더할 층을 먼저 고르세요(3D 오른쪽 위의 층 목록)')
+  if (!storey) return askStorey('설비를 더할')
   stopPlace()
   stopDraw()
   connectFrom.value = null
@@ -3140,7 +3173,7 @@ function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string) {
 
 function startWall() {
   const storey = targetStorey()
-  if (!storey) return note('벽을 그을 층을 먼저 고르세요(3D 오른쪽 위의 층 목록)')
+  if (!storey) return askStorey('벽을 그을')
   stopPlace()
   stopAdd()
   if (model.value!.storeys.length > 1) viewStorey.value = storey.id
@@ -3150,7 +3183,7 @@ function startWall() {
 
 function startOpening(kind: 'door' | 'window') {
   const storey = targetStorey() ?? selectedElement.value?.storey ?? null
-  if (!storey) return note('문·창을 놓을 층을 먼저 고르세요(3D 오른쪽 위의 층 목록)')
+  if (!storey) return askStorey('문·창을 놓을')
   stopPlace()
   stopDraw()
   if (model.value!.storeys.length > 1) viewStorey.value = storey.id
@@ -3738,18 +3771,27 @@ async function openMany(files: readonly FileSource[], into: 'open' | 'append') {
   const ordered = [...files.filter((f) => !isIdf(f.name)), ...files.filter((f) => isIdf(f.name))]
   if (!ordered.length) return
   let rest = ordered
-  if (into === 'open' || !model.value) {
-    await load(ordered[0].name, ordered[0].read)
-    // 편집이 남아 열기를 물리쳤거나 읽지 못했으면 멈춘다.
-    if (!model.value || fileName.value !== ordered[0].name || error.value) return
-    rest = ordered.slice(1)
-    // 작업 화면은 맨 위(3D)부터 보인다. data/ 목록 아래쪽의 [열기] 를 누르면 그 스크롤 자리 그대로 열려, 3D 가 화면 위로
-    // 밀려나고 요약·검사 표부터 보였다.
-    window.scrollTo({ top: 0 })
+  const mark = (f: FileSource) => {
+    if (ordered.length > 1) batch.value = { index: ordered.indexOf(f) + 1, total: ordered.length, name: f.name }
   }
-  for (const f of rest) {
-    await append(f.name, f.read)
-    if (error.value) return
+  try {
+    if (into === 'open' || !model.value) {
+      mark(ordered[0])
+      await load(ordered[0].name, ordered[0].read)
+      // 편집이 남아 열기를 물리쳤거나 읽지 못했으면 멈춘다.
+      if (!model.value || fileName.value !== ordered[0].name || error.value) return
+      rest = ordered.slice(1)
+      // 작업 화면은 맨 위(3D)부터 보인다. data/ 목록 아래쪽의 [열기] 를 누르면 그 스크롤 자리 그대로 열려, 3D 가 화면 위로
+      // 밀려나고 요약·검사 표부터 보였다.
+      window.scrollTo({ top: 0 })
+    }
+    for (const f of rest) {
+      mark(f)
+      await append(f.name, f.read)
+      if (error.value) return
+    }
+  } finally {
+    batch.value = null
   }
 }
 const sourcesOf = (list: FileList | null | undefined): FileSource[] =>
@@ -3828,13 +3870,17 @@ function exportTTL() {
   download('ontology.ttl', modelToTTL(model.value), 'text/turtle')
 }
 
-/** 3D 형상(GLB·OBJ). 보여 주기용 파일이라 GeoJSON·TTL 과 따로 낸다. 큰 파일은 몇 초 걸려 누르는 동안 버튼을 막는다. */
+/**
+ * 3D 형상(GLB·OBJ). 보여 주기용 파일이라 GeoJSON·TTL 과 따로 낸다. 큰 파일은 몇 초(성수 OBJ 16초) 걸려 누르는 동안
+ * 버튼을 막고, 여는 때와 같은 진행 막대에 단계를 보인다. OBJ 는 꼭짓점 수로 막대가 차고, GLB 는 흐르기만 한다.
+ */
 const exporting3d = ref<'glb' | 'obj' | null>(null)
-const objProgress = ref(0)
 async function export3D(format: 'glb' | 'obj') {
-  if (!model.value || exporting3d.value) return
+  if (!model.value || exporting3d.value || progress.value) return
   exporting3d.value = format
-  objProgress.value = 0
+  beginProgress('형상 넘기는 중')
+  // 형상을 워커로 복사하는 동안 화면이 잠깐 멈춘다. 막대가 먼저 보이게 한 번 그린다.
+  await paint()
   // 합쳐 연 파일은 이름이 "건축.ifc + 기계.ifc" 다. 확장자를 떼고 + 로 잇는다.
   const stem = fileName.value.split(' + ').map((n) => n.replace(/\.[^.]+$/, '')).join('+') || 'model'
   // 워커에서 만든다(lib/export/mesh3d.worker.ts). 화면 스레드로 만들면 성수에서 3~4초씩 멈췄다.
@@ -3844,7 +3890,7 @@ async function export3D(format: 'glb' | 'obj') {
     const parts = await new Promise<ArrayBuffer[]>((resolve, reject) => {
       worker.onmessage = (e: MessageEvent<Mesh3dReply>) => {
         const d = e.data
-        if (d.type === 'progress') objProgress.value = d.done
+        if (d.type === 'progress') progress.value = { label: d.stage, step: d.step, steps: d.steps, done: d.done, total: d.total, unit: 'items' }
         else if (d.type === 'done') resolve(d.parts)
         else reject(new Error(d.message))
       }
@@ -3852,13 +3898,16 @@ async function export3D(format: 'glb' | 'obj') {
       const request: Mesh3dRequest = { format, model: model.value!, pristine, meshes: [...meshes] }
       worker.postMessage(request)
     })
-    if (format === 'glb') download(`${stem}.glb`, parts, 'model/gltf-binary')
-    else download(`${stem}.obj`, parts, 'model/obj')
+    const name = `${stem}.${format}`
+    download(name, parts, format === 'glb' ? 'model/gltf-binary' : 'model/obj')
+    // 막대가 닫히면 끝났는지 알 길이 브라우저 받기 표시뿐이다. 이름과 크기를 남긴다(성수 OBJ 는 683MB 다).
+    note(`${name} (${mb(parts.reduce((s, p) => s + p.byteLength, 0))}) 내려받기를 시작했습니다`)
   } catch (e) {
     note(`3D 내보내기에 실패했습니다: ${(e as Error).message}`)
   } finally {
     worker.terminate()
     exporting3d.value = null
+    endProgress()
   }
 }
 </script>
@@ -4023,13 +4072,14 @@ async function export3D(format: 'glb' | 'obj') {
             <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
             <div class="mode-switch" role="group" aria-label="화면 모드">
               <button type="button" :aria-pressed="mode === 'view'" @click="mode = 'view'">보기</button>
-              <button type="button" :aria-pressed="mode === 'edit'" @click="mode = 'edit'">편집</button>
+              <button type="button" :aria-pressed="mode === 'edit'" :disabled="busy" @click="mode = 'edit'">편집</button>
             </div>
             <span class="bar-sep" aria-hidden="true"></span>
-            <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" @click="exportGeoJSON">GeoJSON</button>
-            <button type="button" class="ghost" aria-label="의미 내보내기 (Brick TTL)" title="관계 내보내기 (Brick TTL 파일 하나)" @click="exportTTL">TTL</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="!!exporting3d" @click="export3D('glb')">{{ exporting3d === 'glb' ? '만드는 중…' : 'GLB' }}</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="!!exporting3d" @click="export3D('obj')">{{ exporting3d === 'obj' ? `만드는 중 ${Math.round(objProgress * 100)}%` : 'OBJ' }}</button>
+            <!-- 여는·합치는 중(busy)에는 막는다. 건축·설비를 같이 열 때 설비를 읽는 동안 누르면 건축만 든 파일이 나갔다. -->
+            <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" :disabled="busy" @click="exportGeoJSON">GeoJSON</button>
+            <button type="button" class="ghost" aria-label="의미 내보내기 (Brick TTL)" title="관계 내보내기 (Brick TTL 파일 하나)" :disabled="busy" @click="exportTTL">TTL</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'glb'" @click="export3D('glb')">{{ exporting3d === 'glb' ? '만드는 중…' : 'GLB' }}</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" @click="export3D('obj')">{{ exporting3d === 'obj' ? '만드는 중…' : 'OBJ' }}</button>
             <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
             <button type="button" class="ghost theme" :aria-pressed="dark" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
           </div>
@@ -4173,7 +4223,7 @@ async function export3D(format: 'glb' | 'obj') {
               </button>
               <div class="tabs" role="group" aria-label="보기">
                 <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
-                <button type="button" :aria-pressed="activeTab === 'plan'" @click="activeTab = 'plan'">평면도</button>
+                <button type="button" :aria-pressed="activeTab === 'plan'" @click="showPlan">평면도</button>
               </div>
               <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
               <select v-if="model.storeys.length > 1" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
@@ -4246,16 +4296,36 @@ async function export3D(format: 'glb' | 'obj') {
           <div class="picked-head">
             <div>
               <h3>{{ selected.name || '(이름 없음)' }}</h3>
-              <p class="stats">
-                <template v-if="whatIs(selected)">{{ whatIs(selected)!.label }} <Src :kind="whatIs(selected)!.src" /> · </template>
-                <template v-if="selected.added">에디터에서 더한 설비 <Src kind="edit" /></template>
-                <template v-else>{{ selected.declaredType ?? selected.ifcClass }} <Src kind="bim" /></template>
-                <template v-if="roleLabel(selected.role)"> · {{ roleLabel(selected.role) }} <Src :kind="roleSrc(selected)" /></template> ·
-                {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
-                <Src v-if="selected.systemEdited" kind="edit" /><Src v-else-if="selected.systemId" kind="bim" /> ·
-                {{ spaceNameOf(selected.spaceId) }}
-                <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
-              </p>
+              <!-- 한 줄에 "공조기 사전 · UnitaryEquipment.AIRHANDLER BIM · 에너지 변환 BIM · …" 로 이었더니 출처 칩이 어느 값에
+                   붙은 것인지 읽기 어려웠다. 무엇에 대한 값인지를 앞에 두고 줄을 나눈다. -->
+              <dl class="stats facts">
+                <div>
+                  <dt>종류</dt>
+                  <dd>
+                    <template v-if="whatIs(selected)">{{ whatIs(selected)!.label }} <Src :kind="whatIs(selected)!.src" /> · </template>
+                    <template v-if="selected.added">에디터에서 더한 설비 <Src kind="edit" /></template>
+                    <span v-else class="muted">{{ selected.declaredType ?? selected.ifcClass }} <Src kind="bim" /></span>
+                  </dd>
+                </div>
+                <div v-if="roleLabel(selected.role)">
+                  <dt>역할</dt>
+                  <dd>{{ roleLabel(selected.role) }} <Src :kind="roleSrc(selected)" /></dd>
+                </div>
+                <div>
+                  <dt>계통</dt>
+                  <dd>
+                    {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
+                    <Src v-if="selected.systemEdited" kind="edit" /><Src v-else-if="selected.systemId" kind="bim" />
+                  </dd>
+                </div>
+                <div>
+                  <dt>소속</dt>
+                  <dd>
+                    {{ spaceNameOf(selected.spaceId) }}
+                    <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
+                  </dd>
+                </div>
+              </dl>
             </div>
             <div class="picked-actions">
               <button type="button" class="ghost" @click="frameNetwork">연결망 보기</button>
@@ -4263,7 +4333,7 @@ async function export3D(format: 'glb' | 'obj') {
             </div>
           </div>
 
-          <!-- 이름(태그) 고치기와 지우기(E7). 지우면 붙은 연결·계통 자리도 빠지고 Ctrl+Z 로 돌아온다. -->
+          <!-- 이름(태그) 고치기(E7). 지우기는 패널 맨 아래에 둔다 — 이름 칸 바로 옆에 있어 고치려다 누르기 쉬웠다. -->
           <p v-if="editing" class="equipment-name-edit">
             <label>
               이름
@@ -4275,9 +4345,6 @@ async function export3D(format: 'glb' | 'obj') {
                 @change="renameEquipmentTo(selected.id, ($event.target as HTMLInputElement).value)"
               />
             </label>
-            <button type="button" class="ghost danger" title="이 설비와 붙은 연결을 지웁니다 (Ctrl+Z 로 되돌림)" @click="removeEquipment(selected.id)">
-              설비 지우기
-            </button>
           </p>
 
           <!-- 종류 지정. 사전이 모르거나 잘못 읽은 종류를 같은 패밀리 전부에 한 번에 정한다. -->
@@ -4351,7 +4418,7 @@ async function export3D(format: 'glb' | 'obj') {
                 type="number"
                 step="0.1"
                 v-keep-typing
-                :value="selected.position ? selected.position[axis] : (positionDrafts.get(selected.id)?.[axis] ?? '')"
+                :value="selected.position ? mmOf(selected.position[axis]) : (positionDrafts.get(selected.id)?.[axis] ?? '')"
                 placeholder="—"
                 @change="applyMove(selected.id, axis, ($event.target as HTMLInputElement).value, selected.position, $event.target as HTMLInputElement)"
               />
@@ -4603,6 +4670,13 @@ async function export3D(format: 'glb' | 'obj') {
             </p>
           </div>
 
+          <!-- 지우기(E7). 지우면 붙은 연결·계통 자리도 빠지고 Ctrl+Z 로 돌아온다. 고치는 칸과 떨어뜨려 맨 아래에 둔다. -->
+          <p v-if="editing" class="danger-zone">
+            <button type="button" class="ghost danger" title="이 설비와 붙은 연결을 지웁니다 (Ctrl+Z 로 되돌림)" @click="removeEquipment(selected.id)">
+              설비 지우기
+            </button>
+            <span class="muted">붙은 연결·계통 자리도 같이 빠집니다. Ctrl+Z 로 되돌립니다.</span>
+          </p>
         </section>
 
         <!-- 3D·평면도에서 고른 물리존(E2). 바닥을 누르면 뜬다. 고치는 칸은 편집 모드에만. -->
@@ -4654,7 +4728,7 @@ async function export3D(format: 'glb' | 'obj') {
                 type="number"
                 step="0.1"
                 v-keep-typing
-                :value="selectedElement.opening.position[axis]"
+                :value="mmOf(selectedElement.opening.position[axis])"
                 @change="applyOpeningPosition(selectedElement.opening!, axis, ($event.target as HTMLInputElement).value)"
               />
             </label>
@@ -4664,7 +4738,7 @@ async function export3D(format: 'glb' | 'obj') {
             {{ selectedElement.opening.connects?.length ? selectedElement.opening.connects.map(nameOfSpace).join(' · ') : '(없음)' }}
             <Src v-if="selectedElement.opening.connectsSource" :kind="selectedElement.opening.connectsSource === 'bim' ? 'bim' : 'calc'" />
           </p>
-          <p class="space-tools">
+          <p class="danger-zone">
             <button type="button" class="ghost danger" @click="removeElement">
               {{ elementLabel(selectedElement.kind) }} 지우기
             </button>
@@ -4678,24 +4752,37 @@ async function export3D(format: 'glb' | 'obj') {
           <div class="picked-head">
             <div>
               <h3>{{ selectedSpace.space.longName || selectedSpace.space.name }}</h3>
-              <p class="stats">
-                물리존 {{ selectedSpace.space.name }} <Src kind="bim" /> · {{ selectedSpace.storey.name }} <Src kind="bim" /> ·
+              <dl class="stats facts">
+                <div>
+                  <dt>물리존</dt>
+                  <dd>{{ selectedSpace.space.name }} <Src kind="bim" /> · {{ selectedSpace.storey.name }} <Src kind="bim" /></dd>
+                </div>
                 <!-- 방 종류(TTL 의 Brick 클래스). 이름을 고치면 따라 바뀌므로, 고친 사람이 무엇이 됐는지 여기서 본다. -->
-                <span class="space-kind">
-                  <template v-if="roomKind(selectedSpace.space.kind)">
-                    {{ roomKind(selectedSpace.space.kind)!.label }} <Src :kind="selectedSpace.space.kindSource === 'bim' ? 'bim' : 'dict'" />
-                  </template>
-                  <span v-else class="muted">종류 모름</span>
-                </span>
-                ·
-                <b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡
-                <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /> · 소속 기기 {{ spaceDevices.length }}대<template v-if="spaceConduits.length">
-                · 덕트·배관 {{ spaceConduits.length }}개</template>
-                <Src kind="calc" />
-                <template v-if="zoneOfSpace.get(selectedSpace.space.id)">
-                  · 공조존 {{ zoneOfSpace.get(selectedSpace.space.id)!.name }} <Src kind="idf" />
-                </template>
-              </p>
+                <div>
+                  <dt>종류</dt>
+                  <dd class="space-kind">
+                    <template v-if="roomKind(selectedSpace.space.kind)">
+                      {{ roomKind(selectedSpace.space.kind)!.label }} <Src :kind="selectedSpace.space.kindSource === 'bim' ? 'bim' : 'dict'" />
+                    </template>
+                    <span v-else class="muted">모름</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>넓이</dt>
+                  <dd><b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡ <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /></dd>
+                </div>
+                <div>
+                  <dt>소속</dt>
+                  <dd>
+                    기기 {{ spaceDevices.length }}대<template v-if="spaceConduits.length"> · 덕트·배관 {{ spaceConduits.length }}개</template>
+                    <Src kind="calc" />
+                  </dd>
+                </div>
+                <div v-if="zoneOfSpace.get(selectedSpace.space.id)">
+                  <dt>공조존</dt>
+                  <dd>{{ zoneOfSpace.get(selectedSpace.space.id)!.name }} <Src kind="idf" /></dd>
+                </div>
+              </dl>
             </div>
             <div class="picked-actions">
               <button type="button" class="ghost" @click="selectedSpaceId = null">선택 해제</button>
@@ -4711,12 +4798,13 @@ async function export3D(format: 'glb' | 'obj') {
               @change="applyRename(selectedSpace.space.id, ($event.target as HTMLInputElement).value)"
             />
           </label>
+          <!-- 다섯 줄 설명이 이름 칸과 나누기·합치기 사이에 있어 도구를 아래로 밀었다. 손잡이·꼭짓점 조작은 3D 아래 안내줄과
+               ? 안내에 이미 있어 여기서는 이 패널에서만 알 수 있는 것(이름 → 종류)만 둔다. -->
           <p v-if="editing" class="hint">
-            방 종류는 이름으로 정합니다. 이름을 고치면 종류도 새 이름으로 다시 읽습니다(사전이 모르는 이름이면 BIM 의 방 분류를 씁니다).
-            파란 손잡이를 끌어 경계를 고칩니다. 넓이와 설비 소속은 다시 계산됩니다. 경계선이 서로 교차하는 곳으로는
-            옮길 수 없습니다. <kbd>[ ]</kbd>로 꼭짓점을 고르면 넣거나 지울 수 있습니다.
+            이름을 고치면 종류도 새 이름으로 다시 읽습니다(사전이 모르면 BIM 방 분류). 경계는 3D·평면도의 파란 손잡이로 고치고,
+            넓이·설비 소속은 다시 계산됩니다.
           </p>
-          <!-- 나누기·합치기·지우기(E3). 합칠 방은 벽 두께 안의 같은 층 방만 가까운 순으로 보인다. -->
+          <!-- 나누기·합치기(E3). 합칠 방은 벽 두께 안의 같은 층 방만 가까운 순으로 보인다. 지우기는 맨 아래. -->
           <p v-if="editing" class="space-tools">
             <button type="button" class="ghost" :disabled="selectedSpace.space.footprint.length < 4" title="바닥에 선의 두 점을 찍어 둘로 나눕니다" @click="startSplit">
               나누기
@@ -4730,9 +4818,6 @@ async function export3D(format: 'glb' | 'obj') {
               </select>
             </label>
             <span v-else class="muted">맞닿은 방이 없어 합칠 수 없습니다</span>
-            <button type="button" class="ghost danger" :disabled="selectedSpace.storey.spaces.length <= 1" title="이 물리존을 지웁니다. 안의 설비는 좌표로 다시 소속을 찾습니다" @click="removeSpace">
-              지우기
-            </button>
           </p>
           <p v-if="editing && activeVertex !== null" class="vertex-tools">
             <span>꼭짓점 {{ activeVertex + 1 }}/{{ vertexCount }}</span>
@@ -4743,7 +4828,7 @@ async function export3D(format: 'glb' | 'obj') {
           <p v-if="spaceDevices.length > 12" class="space-kinds muted">{{ spaceKinds }}</p>
           <ul v-if="spaceDevices.length" class="plain space-members">
             <li v-for="e in spaceDevices" :key="e.id">
-              <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
+              <button type="button" class="link" :title="e.name || e.ifcClass" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
               <span class="muted">{{ whatIs(e)?.label }}</span>
             </li>
           </ul>
@@ -4751,18 +4836,25 @@ async function export3D(format: 'glb' | 'obj') {
             <summary>덕트·배관 {{ spaceConduits.length }}개</summary>
             <ul class="plain space-members">
               <li v-for="e in spaceConduits" :key="e.id">
-                <button type="button" class="link" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
+                <button type="button" class="link" :title="e.name || e.ifcClass" @click="select(e.id)">{{ e.name || e.ifcClass }}</button>
                 <span class="muted">{{ whatIs(e)?.label }}</span>
               </li>
             </ul>
           </details>
           <p v-if="!selectedSpace.equipment.length" class="empty">이 물리존에 속한 설비가 없습니다.</p>
+          <p v-if="editing" class="danger-zone">
+            <button type="button" class="ghost danger" :disabled="selectedSpace.storey.spaces.length <= 1" title="이 물리존을 지웁니다. 안의 설비는 좌표로 다시 소속을 찾습니다" @click="removeSpace">
+              물리존 지우기
+            </button>
+            <span class="muted">안의 설비는 좌표로 다시 소속을 찾습니다. Ctrl+Z 로 되돌립니다.</span>
+          </p>
         </section>
         <!-- 아무것도 고르지 않았을 때. 이 파일이 어디까지 찼는지와, 무엇을 누르면 여기 무엇이 뜨는지. -->
         <section v-else class="overview">
           <h3>이 파일</h3>
           <TierChips :tiers="currentTiers" />
-          <div v-if="pairHint && canAppend" class="pair-hint">
+          <!-- 여는 중에는 숨긴다. 건축·설비를 같이 열면 설비를 읽는 동안 건축만 보여 "설비를 덧붙이라" 가 떴다. -->
+          <div v-if="pairHint && canAppend && !busy" class="pair-hint">
             <p>{{ pairHint.text }}</p>
             <button v-if="pairHint.partner" type="button" class="pick" :disabled="busy" @click="appendData(pairHint.partner!)">
               {{ baseName(pairHint.partner) }} 덧붙이기
@@ -5427,7 +5519,7 @@ async function export3D(format: 'glb' | 'obj') {
 
           <!-- 물리존 하나를 한 줄에서 고친다. 이름(E1)과 경계(E2)를 두 목록으로 나눴더니 같은 방을 두 번 찾아야 했다.
                긴 표는 제 상자 안에서 스크롤하고 머리줄은 붙어 있다 — 페이지가 표만큼 길어지면 3D 로 돌아가기가 멀다. -->
-          <Fold v-if="editing" title="물리존 이름·경계 (E1 · E2)" :meta="`${narrowed ? `찾은 것 ${editSpaces.length} / ` : ''}${counts.spaces}개`" :default-open="counts.spaces <= SMALL">
+          <Fold v-if="editing" title="물리존 이름·경계 (E1 · E2)" :meta="`${narrowed ? `찾은 것 ${editSpaces.length} / ` : ''}${counts.spaces}개`" :default-open="counts.spaces <= SMALL" :reveal="!!editQuery.trim() && editSpaces.length > 0">
             <p class="hint">
               3D에서 바닥을 클릭하면 오른쪽 패널에서도 고칠 수 있습니다. 꼭짓점을 고치면 넓이와 설비 소속이 다시 계산됩니다.
             </p>
@@ -5503,6 +5595,7 @@ async function export3D(format: 'glb' | 'obj') {
             :title="editing ? '설비 위치와 소속 (E5 · E6)' : '설비 목록'"
             :meta="`${narrowed ? `찾은 것 ${editEquipment.length} / ` : ''}기기 ${counts.devices} · 덕트·배관 ${counts.conduits}`"
             :default-open="counts.equipment <= SMALL"
+            :reveal="!!editQuery.trim() && editEquipment.length > 0"
           >
             <div class="table-box">
             <table class="equipment">
@@ -5535,7 +5628,7 @@ async function export3D(format: 'glb' | 'obj') {
                       type="number"
                       step="0.1"
                       v-keep-typing
-                      :value="e.position ? e.position[axis] : (positionDrafts.get(e.id)?.[axis] ?? '')"
+                      :value="e.position ? mmOf(e.position[axis]) : (positionDrafts.get(e.id)?.[axis] ?? '')"
                       placeholder="—"
                       @change="applyMove(e.id, axis as 0 | 1 | 2, ($event.target as HTMLInputElement).value, e.position, $event.target as HTMLInputElement)"
                     />
@@ -5659,6 +5752,7 @@ async function export3D(format: 'glb' | 'obj') {
     <ShortcutHelp :open="helpOpen" :editing="editing" @close="helpOpen = false" />
     <!-- 진행 표시. 스크롤 위치와 상관없이 보이도록 화면 아래에 띄운다. -->
     <div v-if="progress" class="progress-toast" role="status" aria-live="polite">
+      <div v-if="progressFile" class="muted progress-file">{{ progressFile }}</div>
       <div class="progress-head">
         <span>{{ progressTitle }}</span>
         <span class="muted mono">{{ elapsed }}초</span>

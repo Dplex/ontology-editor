@@ -708,7 +708,7 @@ test('F 물리존: 바닥 고르기·꼭짓점 끌기·짚고 옮기기·넣고 
   await expect(page.locator('.report')).toContainText(/물리존 새 물리존 \d+을 만들었습니다/)
   record('F-10', `${f10}ms`, '4.0㎡ 물리존을 그리고 Enter')
   // F-15 그린 물리존을 지운다.
-  const f15 = await timed(() => panel.getByRole('button', { name: '지우기', exact: true }).click())
+  const f15 = await timed(() => panel.getByRole('button', { name: '물리존 지우기', exact: true }).click())
   await expect(panel).toHaveCount(0)
   record('F-15', `${f15}ms`)
 
