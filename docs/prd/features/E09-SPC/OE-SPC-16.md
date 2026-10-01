@@ -5,10 +5,9 @@ epic_title: "공간 편집"
 title: "오브젝트 라이브러리 정의"
 prd: "#9 #10"
 release: "R1"
-release_note: "R1 / R2"
 priority: "P2"
 owner: "tbd"
-status: "todo"
+status: "poc-todo"
 blocked_by: []
 depends: []
 jira: ""
@@ -18,7 +17,7 @@ jira: ""
 
 ## 요구사항
 
-책상 여러 종류·의자·소파·책장 등 라이브러리 별도 정의. 신규 사무용품 3D 모델링은 R2
+책상 여러 종류·의자·소파·책장 등 라이브러리 별도 정의. 신규 사무용품은 임의의 3D 모델을 바로 넣는다(OE-P3-08)
 
 ## 수용 기준
 

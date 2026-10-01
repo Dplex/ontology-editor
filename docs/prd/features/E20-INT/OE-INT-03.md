@@ -4,10 +4,10 @@ epic: "E20"
 epic_title: "DT 연동 · 저장 · ID"
 title: "DT 3D 형상 출력"
 prd: "1.7"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "blocked"
+status: "prd-review"
 status_note: "D11"
 blocked_by: ["D11"]
 depends: ["D11"]

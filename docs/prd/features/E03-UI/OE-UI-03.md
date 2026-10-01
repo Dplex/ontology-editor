@@ -4,10 +4,10 @@ epic: "E03"
 epic_title: "진입점 · 화면 구성 · 편집 도구"
 title: "모드 전환 버튼 규칙"
 prd: "#4"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "poc-todo"
 blocked_by: []
 depends: ["OE-UI-02"]
 jira: ""

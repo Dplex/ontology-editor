@@ -4,10 +4,10 @@ epic: "E14"
 epic_title: "편집 워크플로우"
 title: "반영 전 변경 요약"
 prd: "#15 #16 #17 #18 #19"
-release: "R2"
+release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "todo"
+status: "poc-todo"
 blocked_by: []
 depends: ["OE-WF-08"]
 jira: ""

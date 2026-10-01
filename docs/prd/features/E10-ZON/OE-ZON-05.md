@@ -4,10 +4,10 @@ epic: "E10"
 epic_title: "공조 조닝"
 title: "검증 Z-01~Z-06"
 prd: "#11"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "poc-todo"
 blocked_by: []
 depends: ["OE-IDF-03"]
 jira: ""

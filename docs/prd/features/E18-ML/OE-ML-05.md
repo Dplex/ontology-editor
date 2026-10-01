@@ -4,10 +4,10 @@ epic: "E18"
 epic_title: "다중층 에디터 · 수직 관통 오브젝트"
 title: "층 편집 화면 읽기 전용"
 prd: "#24 #25"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "poc-todo"
 blocked_by: []
 depends: []
 jira: ""

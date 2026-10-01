@@ -7,7 +7,7 @@ prd: "#3"
 release: "R1"
 priority: "P1"
 owner: "srcn"
-status: "srcn-unknown"
+status: "unknown"
 blocked_by: []
 depends: ["OE-SPC-06","OE-SPC-07","OE-SPC-08","OE-SPC-09","OE-SPC-10"]
 jira: ""

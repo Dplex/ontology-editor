@@ -4,10 +4,10 @@ epic: "E10"
 epic_title: "공조 조닝"
 title: "경계 다각형 직접 그리기"
 prd: "#11"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "poc-todo"
 blocked_by: []
 depends: []
 jira: ""

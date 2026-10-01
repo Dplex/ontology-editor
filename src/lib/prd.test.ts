@@ -11,7 +11,9 @@ import { describe, expect, it } from 'vitest'
 
 const dir = (rel: string) => fileURLToPath(new URL(rel, import.meta.url))
 const PRD = dir('../../docs/prd/')
-const read = (rel: string) => readFileSync(PRD + rel, 'utf8')
+// Windows 의 autocrlf 가 작업 사본을 CRLF 로 바꿔 두므로 줄바꿈을 LF 로 맞춰 읽는다.
+const lf = (s: string) => s.replace(/\r\n/g, '\n')
+const read = (rel: string) => lf(readFileSync(PRD + rel, 'utf8'))
 
 type Ticket = { file: string; folder: string; fm: Record<string, unknown>; body: string }
 
@@ -58,7 +60,7 @@ const ids = new Set(all.map((t) => t.fm.id as string))
 const prefixes = new Set(all.map((t) => (t.fm.id as string).split('-')[1]))
 const prd = read('PRD_011.md')
 const questions = read('questions.md')
-const canon = readFileSync(dir('../../docs/bim-to-dt-ontology.md'), 'utf8')
+const canon = lf(readFileSync(dir('../../docs/bim-to-dt-ontology.md'), 'utf8'))
 
 const firstCells = (text: string, re: RegExp) => new Set([...text.matchAll(re)].map((m) => m[1]))
 const rIds = new Set([...firstCells(canon, /^\| (R\d+) \|/gm), ...firstCells(prd, /^\| (R\d+) \|/gm)])
@@ -67,9 +69,9 @@ const sIds = firstCells(prd, /^\| (S\d+) \|/gm)
 const issueIds = firstCells(questions, /^\| ((?:D|Q|U|P)[-A-Za-z0-9]*) \|/gm)
 const CHAPTERS = new Set(['1.8', '부록 A', '부록 B', '부록 C'])
 
-const STATUS = ['poc-done', 'poc-partial', 'todo', 'blocked', 'srcn-unknown', 'unknown', 'dropped']
+const STATUS = ['poc-done', 'poc-partial', 'poc-todo', 'prd-review', 'unknown', 'dropped']
 const OWNER = ['ontology-editor', 'srcn', 'tbd']
-const RELEASE = ['R1', 'R1.5', 'R2']
+const RELEASE = ['R1', 'R2']
 const PRIORITY = ['P1', 'P2', 'P3']
 
 describe('티켓 파일', () => {

@@ -5,10 +5,9 @@ epic_title: "편집 오브젝트 정의 및 분류"
 title: "추가 공간 오브젝트"
 prd: "#3"
 release: "R1"
-release_note: "R1 기존 / R2 신규"
 priority: "P2"
 owner: "srcn"
-status: "srcn-unknown"
+status: "unknown"
 blocked_by: []
 depends: ["OE-SPC-14","OE-SPC-15","OE-SPC-16"]
 jira: ""

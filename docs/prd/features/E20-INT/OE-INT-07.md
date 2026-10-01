@@ -4,10 +4,10 @@ epic: "E20"
 epic_title: "DT 연동 · 저장 · ID"
 title: "출처 술어 (S4)"
 prd: "1.7"
-release: "R1.5"
+release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "blocked"
+status: "prd-review"
 blocked_by: ["U4"]
 depends: ["U4"]
 jira: ""

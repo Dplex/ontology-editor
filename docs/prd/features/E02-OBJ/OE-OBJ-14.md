@@ -4,10 +4,10 @@ epic: "E02"
 epic_title: "편집 오브젝트 정의 및 분류"
 title: "수직 관통 오브젝트"
 prd: "#3"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "poc-todo"
 blocked_by: []
 depends: ["OE-ML-02"]
 jira: ""

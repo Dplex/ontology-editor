@@ -4,10 +4,10 @@ epic: "E18"
 epic_title: "다중층 에디터 · 수직 관통 오브젝트"
 title: "에스컬레이터 방향"
 prd: "#24 #25"
-release: "R2"
+release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "todo"
+status: "poc-todo"
 blocked_by: []
 depends: []
 jira: ""

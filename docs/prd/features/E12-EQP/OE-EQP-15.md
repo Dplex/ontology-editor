@@ -4,10 +4,10 @@ epic: "E12"
 epic_title: "설비 배치 · 편집"
 title: "외벽 부착 설비"
 prd: "#13"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "poc-todo"
 blocked_by: []
 depends: ["OE-EXT-01"]
 jira: ""

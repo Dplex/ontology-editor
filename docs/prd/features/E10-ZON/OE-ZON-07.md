@@ -4,10 +4,10 @@ epic: "E10"
 epic_title: "공조 조닝"
 title: "존↔방 매칭 확인 플로우"
 prd: "#11"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "blocked"
+status: "prd-review"
 status_note: "D13"
 blocked_by: ["D13"]
 depends: ["D13"]
