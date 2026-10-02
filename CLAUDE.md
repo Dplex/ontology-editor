@@ -35,7 +35,8 @@ BIM(IFC4)으로 공간 온톨로지를 만들고 고치는 PoC. 부모 `~/git/dt
 - 티켓 md(`docs/prd/features`)를 고치면 이슈 본문이 어긋난다 — `npm run board`(점검), `-- --apply`(반영). 사람이 로컬 `gh` 로 수동 실행하고
   Status 는 건드리지 않는다. 자세히는 `docs/prd/README.md` "보드 동기화".
 - **라벨은 왜 멈췄나·무엇이 바뀌었나만 말한다**(상태를 라벨로 다시 적지 않는다). 정책은 위키 [라벨 정책](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/wiki/라벨-정책),
-  걸러 보는 화면은 프로젝트의 [🏷️ 라벨 보드](https://github.sec.samsung.net/orgs/IoT-Solution/projects/1/views/5)(왼쪽 라벨 목록을 누른다).
+  걸러 보는 화면은 프로젝트의 [🏷️ 라벨 보드](https://github.sec.samsung.net/orgs/IoT-Solution/projects/1/views/5)다. 열은 `🏷️ 라벨` 칸인데 라벨의
+  사본이라 손으로 고치지 않는다. 라벨을 바꾼 뒤 `npm run board -- --apply` 를 돌리면 따라온다.
   - `needs-pm`: PM 결정 대기. 질문을 이슈 코멘트에 번호 선택지로 적고 붙인다. 답이 오면 뗀다
   - `needs-dev`: 일부만 구현. 남은 것을 코멘트·티켓 메모에 적고 붙인다
   - `rejected`: 검토 반려. In Review → In Progress 로 돌릴 때 이유와 함께. 다시 In Review 로 올릴 때 뗀다
