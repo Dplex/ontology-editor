@@ -1,12 +1,14 @@
 import { execFileSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { importIfc, importIfcWithMeshes, readMeshes, UnreadableIfcError } from '../src/lib/ifc/import'
+import { importIfc, importIfcWithMeshes, readMeshes, UnreadableIfcError, type ImportOptions } from '../src/lib/ifc/import'
+import { createDataCatalog } from '../src/server/data-catalog'
 import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-geometry'
-import { profileOf } from '../src/lib/profile'
+import { profileOf, type Profile } from '../src/lib/profile'
 import { countOf, isConduit, polygonArea, unplacedOf, type Vec2 } from '../src/lib/model'
 import { assignEquipment, assignEquipmentToSpaces, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
@@ -769,6 +771,49 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
     // COBie 판본은 형상이 없다. 좌표도 외곽선도 0 인데 소속은 BIM 이 전부 말해 준다.
     expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 | 설비 0/133 | 소속 133 | 연결망 0 | 방향 —')
   }, 300_000)
+
+  // OE-BIM-16 "목록 숫자 = 열람 숫자". 목록은 서버(data-catalog.ts)가 기본 옵션으로 재고, 열람은 워커가 화면의
+  // [읽을 것](벽·문·창·문 형상) 옵션으로 읽은 모델을 postMessage 로 받아(구조화 복제) 규칙 방향을 한 번 더 돌린 뒤 잰다
+  // (App.vue load). 길이 둘이라 옵션이나 열 때의 손질이 칩에 닿으면 어긋난다. 서버 핸들러를 그대로 불러 그 응답과 견준다.
+  it('목록의 칩과 파일을 연 뒤의 칩이 같다 — 읽을 것 옵션을 바꿔도', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const catalog = createDataCatalog('data')
+    const listed = (path: string) =>
+      new Promise<Profile['tiers']>((done, fail) => {
+        const res = {
+          statusCode: 200,
+          setHeader() {},
+          end(body?: string) {
+            if (this.statusCode !== 200 || !body) return fail(new Error(`${path}: ${this.statusCode}`))
+            const r = JSON.parse(body)
+            if (!r.profile) return fail(new Error(`${path}: ${r.error}`))
+            done(r.profile.tiers)
+          },
+        }
+        catalog({ url: `/${encodeURI(path.replace(/^data\//, ''))}?profile` } as IncomingMessage, res as unknown as ServerResponse)
+      })
+    const opened = (path: string, options: ImportOptions) => {
+      const model = structuredClone(importIfcWithMeshes(api, new Uint8Array(readFileSync(path)), undefined, options).model)
+      inferFlowByRules(model)
+      return profileOf(model).tiers
+    }
+    // 화면 기본(벽·문·창 읽기, 문 형상 끔), 문 형상 켬, 셋 다 끔.
+    const options: ImportOptions[] = [
+      { openings: false, walls: true, doors: true, windows: true },
+      { openings: true, walls: true, doors: true, windows: true },
+      { openings: false, walls: false, doors: false, windows: false },
+    ]
+    const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_COBIE, DUPLEX_MEP_1, CLINIC_HVAC].filter((f) => existsSync(f))
+    expect(files.length).toBeGreaterThanOrEqual(6)
+    for (const path of files) {
+      const list = await listed(path)
+      expect(list.map((t) => t.key)).toEqual(['space', 'equipment', 'location', 'network', 'direction'])
+      // 칩 숫자뿐 아니라 마우스를 올리면 보이는 설명(note)까지 같아야 한다.
+      for (const o of options) expect(opened(path, o), `${path} ${JSON.stringify(o)}`).toEqual(list)
+    }
+  }, 900_000)
 
   it('구문이 깨진 COBie 판본 셋은 이유를 말하며 멈춘다', async () => {
     const api = new WebIFC.IfcAPI()
