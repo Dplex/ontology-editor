@@ -841,6 +841,20 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(addOpening(model, storey().id, 'window', [5, 4])).toEqual({ refused: expect.stringContaining('벽에서') })
   })
 
+  // OE-OBJ-07 수용 기준: 외벽 개구부 = 창, 내벽 개구부 = 문으로 나누지 않는다(#288). 실제 BIM 도 외벽에 현관문을 둔다.
+  it.each([
+    ['외벽', true],
+    ['내벽', false],
+    ['외벽 여부 모름', null],
+  ] as const)('%s 에도 문과 창을 둘 다 놓는다', (_, external) => {
+    const { wall } = setup()
+    wall.external = external
+    const door = addOpening(model, storey().id, 'door', [10.1, 2]) as Opening
+    const window = addOpening(model, storey().id, 'window', [10.1, 6]) as Opening
+    expect([door.kind, door.wallId]).toEqual(['door', wall.id])
+    expect([window.kind, window.wallId]).toEqual(['window', wall.id])
+  })
+
   it('벽을 옮기면 뚫린 문도 같이 가고, 잇는 방을 다시 짚는다', () => {
     const { wall } = setup()
     const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening

@@ -74,7 +74,7 @@ export type Wall = {
   loadBearing: boolean | null
   /**
    * 외벽 여부(Pset_WallCommon.IsExternal). `null`·없음은 "모름" 이다 — 내력과 같은 까닭으로 false 와 섞지 않는다.
-   * 외벽의 개구부는 창, 내벽의 개구부는 문으로 가른다(OE-OBJ-07). 에디터가 그은 벽은 모름으로 시작한다.
+   * 보여 주고 내보내기만 한다 — 문·창은 외벽·내벽 어디에나 놓인다(OE-OBJ-07). 에디터가 그은 벽은 모름으로 시작한다.
    */
   external?: boolean | null
   /**
