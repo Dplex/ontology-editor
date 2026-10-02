@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 //
 // 1. 색인이 티켓과 어긋나는 것 — Epic README 와 PRD_011.md 3장은 티켓 머리 필드를 베낀 파생 정보다.
 // 2. 유령 참조 — 의존 열이 가리키는 티켓·결정·요구사항이 없는 것. 원문에서 #25 를 가리키는데 행이 없던 일이 있다.
-// 3. 어휘가 범례 밖으로 새는 것 — 상태·주체·릴리즈는 Jira 라벨과 같은 말을 써야 집계가 된다.
+// 3. 어휘가 범례 밖으로 새는 것 — 상태·주체·릴리즈는 보드 이슈 라벨과 같은 말을 써야 집계가 된다.
 // 4. 판본 표시가 다시 들어오는 것 — `[v1.4]` 는 git 이력이 대신한다.
 
 const dir = (rel: string) => fileURLToPath(new URL(rel, import.meta.url))

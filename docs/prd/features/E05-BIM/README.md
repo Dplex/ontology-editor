@@ -4,7 +4,7 @@ PRD #6 · 티켓 25건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 
 이 표는 티켓 파일의 머리 필드를 베낀 색인이다. 티켓을 고치면 여기도 고친다(`prd.test.ts` 가 일치를 확인한다).
 
-| ID | 기능 | Rel | P | 상태 | Jira |
+| ID | 기능 | Rel | P | 상태 | 이슈 |
 |---|---|---|---|---|---|
 | [OE-BIM-01](OE-BIM-01.md) | IFC 파싱 | R1 | P1 | prd-review |  |
 | [OE-BIM-02](OE-BIM-02.md) | 층 생성 | R1 | P1 | prd-review |  |

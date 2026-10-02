@@ -4,7 +4,7 @@ PRD #5 · 티켓 15건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 
 이 표는 티켓 파일의 머리 필드를 베낀 색인이다. 티켓을 고치면 여기도 고친다(`prd.test.ts` 가 일치를 확인한다).
 
-| ID | 기능 | Rel | P | 상태 | Jira |
+| ID | 기능 | Rel | P | 상태 | 이슈 |
 |---|---|---|---|---|---|
 | [OE-IDF-01](OE-IDF-01.md) | Zone → 공조존 | R2 | P1 | prd-review |  |
 | [OE-IDF-02](OE-IDF-02.md) | HVAC 객체 → 설비·담당 | R2 | P1 | prd-review |  |
