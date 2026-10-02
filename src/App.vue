@@ -106,6 +106,7 @@ import {
   type Snapshot,
 } from './lib/edit'
 import { MERGE_GAP } from './lib/polygon'
+import { meshBox, overlapAt, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
 import { distanceToRing } from './lib/mapping'
@@ -495,6 +496,21 @@ function redraw() {
  * 옮긴 설비의 형상을 같이 옮긴다. 형상은 임포트 때의 자리를 들고 있어서, 안 옮기면 다시 그릴 때
  * 예전 자리로 튄다. 형상이 없는 설비(상자로 찍는 것)는 좌표에서 바로 그리므로 할 일이 없다.
  */
+/**
+ * 설비 형상을 감싸는 상자(IFC 좌표). 겹침 판정(lib/overlap.ts)이 쓴다. 형상을 옮기면 shiftMesh 가 좌표 배열을 새로 만들어서
+ * 배열마다 한 번만 잰다(성수 배관 없는 설비 1,152대를 방향키마다 다시 재지 않는다).
+ */
+const ifcBoxes = new WeakMap<Float32Array, Box3>()
+function currentBox(id: string): Box3 | null {
+  const mesh = meshes.get(id)
+  if (!mesh) return null
+  const had = ifcBoxes.get(mesh.positions)
+  if (had) return had
+  const box = meshBox(mesh)
+  if (box) ifcBoxes.set(mesh.positions, box)
+  return box
+}
+
 function shiftMesh(id: string, from: Vec3 | null, to: Vec3 | null) {
   const mesh = meshes.get(id)
   if (!mesh || !from || !to) return
@@ -576,6 +592,16 @@ function moveInScene(id: string, from: Vec3 | null, to: Vec3 | null, glide = fal
 function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: string): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
+  // 배관 없는 설비끼리는 겹쳐 놓지 못한다(OE-OBJ-10·16). 끌어 놓은 것이면 3D 가 이미 그 자리에 그렸으니 되돌려 보낸다.
+  const blocked = overlapAt(model.value, equipmentId, to, currentBox)
+  if (blocked) {
+    if (drawnAt && before) viewer?.shiftEquipment(equipmentId, [before[0] - drawnAt[0], before[1] - drawnAt[1], before[2] - drawnAt[2]], true)
+    const name = shortName(blocked.name)
+    // 문구는 OE-SPC-15 가 정한 것이다. 무엇과 겹쳤는지를 뒤에 붙인다(3D 에는 붉은 상자로 짚는다).
+    editNotice.value = `이미 오브젝트가 있는 위치입니다(${name}${josa(name, '과/와')} 겹칩니다). 배관 없는 설비는 서로 겹쳐 놓을 수 없습니다.`
+    viewer?.markConflict(blocked.id)
+    return false
+  }
   // 붙은 배관(PRD #13). 옮기기 전에 정한다 — 옮긴 뒤에는 구간의 어느 끝이 가까웠는지 모른다.
   const plan = carryConduits.value && before ? planFollow(model.value, equipmentId, segmentAxis) : null
   const followers = plan ? [...plan.rigid, ...new Set(plan.stretch.map((x) => x.id))] : []
@@ -646,6 +672,8 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
     const base: [number, number, number] = [current[0], current[1], current[2]]
     base[axis] = value
     if (relocate(equipmentId, base)) warnIfFar(base)
+    // 막혔으면(겹침) 칸도 지금 값으로 되돌린다. 친 값이 남으면 옮겨진 것처럼 보인다.
+    else if (input) input.value = String(mmOf(current[axis]))
     return
   }
 
