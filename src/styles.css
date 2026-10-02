@@ -3174,6 +3174,18 @@ main.has-model .catalog {
   margin-top: 0;
 }
 
+.tool-palette .palette-row {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.tool-palette .palette-row .ghost {
+  flex: 1 1 auto;
+  padding-inline: 0.35rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .tool-palette .palette-check {
   display: flex;
   align-items: center;

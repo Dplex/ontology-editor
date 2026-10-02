@@ -6,9 +6,10 @@
 // 지도 위에 얹을 일이 생기면 그때 사이트 원점의 위경도와 방위를 받아 한 번에 변환한다.
 
 import { capacityQuantity } from '../capacity'
-import type { Equipment, HvacZone, Model, Opening, Space, Storey, Wall } from '../model'
+import type { CustomZone, Equipment, HvacZone, Model, Opening, Space, Storey, Wall } from '../model'
 import { verticalLinks } from '../vertical'
 import { judgeExternal, type ExternalJudgement } from '../exterior'
+import { zoneEquipment, zoneSpaces } from '../custom-zone'
 
 export type Geometry =
   | { type: 'Polygon'; coordinates: number[][][] }
@@ -156,6 +157,26 @@ function hvacZoneFeature(zone: HvacZone, storey: Storey): Feature {
   }
 }
 
+/**
+ * 커스텀존(OE-OBJ-01). 다각형은 여기에만 있고 TTL 에는 같은 id 의 brick:Zone 이 있다. 품는 방(TTL hasPart 와 같다)과
+ * 안에 든 설비를 같이 적어, 지도에서 존을 누르면 무엇이 드는지 TTL 을 다시 읽지 않고 보인다.
+ */
+function customZoneFeature(zone: CustomZone, storey: Storey): Feature {
+  return {
+    type: 'Feature',
+    id: zone.id,
+    geometry: { type: 'Polygon', coordinates: [zone.footprint.map((p) => [p[0], p[1]])] },
+    properties: {
+      kind: 'customZone',
+      name: zone.name,
+      storeyId: storey.id,
+      elevation: storey.elevation,
+      spaceIds: zoneSpaces(storey, zone),
+      equipmentIds: zoneEquipment(storey, zone),
+    },
+  }
+}
+
 /** 층 하나를 FeatureCollection 으로. 물리존·설비·벽·문·창(과 IDF 공조존)이 같은 파일에 들어간다. */
 export function storeyToGeoJSON(
   storey: Storey,
@@ -171,6 +192,7 @@ export function storeyToGeoJSON(
       ...storey.walls.map((w) => wallFeature(w, storey, external.get(w.id))),
       ...storey.openings.map((o) => openingFeature(o, storey)),
       ...zones.filter((z) => z.storeyId === storey.id).map((z) => hvacZoneFeature(z, storey)),
+      ...(storey.customZones ?? []).map((z) => customZoneFeature(z, storey)),
     ],
   }
 }

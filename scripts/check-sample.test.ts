@@ -27,6 +27,7 @@ import { readIdf } from '../src/lib/idf/read'
 import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
 import { overlapArea } from '../src/lib/polygon'
 import { computeExternal } from '../src/lib/exterior'
+import { createCustomZone } from '../src/lib/custom-zone'
 import { baselineOf, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, type WallCarryPlan } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
@@ -854,6 +855,26 @@ describe.skipIf(!existsSync(TTL_GO) || !hasGo)('ieum-pipeline 의 ttl.go 가 읽
     new Set(ents.flatMap((e) => (e.Feeds ?? []).map((t) => `${unescapeKey(e.Key)}>${unescapeKey(t)}`)))
   /** ttl.go 가 남긴 Turtle 이스케이프(`\$`)를 푼다. 저쪽이 풀어 주기 전까지 우리 id 와 견주는 데만 쓴다. */
   const unescapeKey = (key: string) => key.replace(/\\(.)/g, '$1')
+
+  // 커스텀존(OE-OBJ-01, ADR-0004). 존 블록(brick:Zone)을 더해도 다른 엔티티를 잃지 않고, 존 안 기기의 hasLocation 에 방과 존이 같이 읽힌다.
+  it.skipIf(!existsSync(MEP))('커스텀존을 그려도 ttl.go 가 기기의 위치에 존을 같이 읽는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfc(api, new Uint8Array(readFileSync(MEP)))
+    const before = parse(modelToTTL(model))
+    // ifc4Mep 에는 방이 없어 기기의 첫 위치는 층이다(방을 못 찾은 설비의 규칙).
+    const storey = model.storeys.find((st) => st.equipment.some((e) => !isConduit(e.role ?? null) && e.position))!
+    const e = storey.equipment.find((x) => !isConduit(x.role ?? null) && x.position)!
+    const [x, y] = e.position!
+    const zone = createCustomZone(model, storey.id, { name: '시험 존', footprint: [[x - 1, y - 1], [x + 1, y - 1], [x + 1, y + 1], [x - 1, y + 1]], id: 'U_ttlgo_zone' })
+    expect(zone && 'id' in zone).toBe(true)
+    const after = parse(modelToTTL(model))
+    // 받는 쪽은 공간(방·층·Zone)도 관계 목적어로 쓰려고 타입 없는 논리 설비로 저장한다(ttl.go 의 equipClass 주석). 존 하나만큼 는다.
+    expect(after.length).toBe(before.length + 1)
+    expect(after.find((p) => p.Key === 'U_ttlgo_zone')).toMatchObject({ BrickClass: 'Zone' })
+    const got = after.find((p) => unescapeKey(p.Key) === e.id)!
+    expect(got.Locations).toEqual([escapeLocalName(e.spaceId ?? storey.id), 'U_ttlgo_zone'])
+  })
 
   it('기기에서 기기로 가는 흐름이 받는 쪽에 전부 닿는다', async () => {
     const api = new WebIFC.IfcAPI()

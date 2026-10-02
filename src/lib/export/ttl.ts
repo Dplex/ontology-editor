@@ -14,6 +14,7 @@ import { equipmentKind, roomKind, systemBrickClass, systemKind } from '../kinds'
 import { CAPACITY_PREDICATE, capacityQuantity } from '../capacity'
 import { withInferred } from '../flow-rules'
 import { airServices } from '../served'
+import { customZonesOfEquipment, zoneSpaces } from '../custom-zone'
 
 const PREFIXES = [
   '@prefix brick: <https://brickschema.org/schema/Brick#> .',
@@ -159,11 +160,15 @@ export function modelToTTL(model: Model): string {
   lines.push(`    rdfs:label ${label(model.buildingName)} .`)
   lines.push('')
 
+  // 커스텀존(OE-OBJ-01)에 든 설비. 방과 별도로 hasLocation 을 하나 더 건다(custom-zone.ts).
+  const inCustomZones = customZonesOfEquipment(model)
   for (const storey of model.storeys) {
     lines.push(`${ref(storey.id)} a brick:Floor ;`)
     lines.push(`    rdfs:label ${label(storey.name)} ;`)
-    if (storey.spaces.length > 0) {
-      lines.push(`    brick:hasPart ${storey.spaces.map((s) => ref(s.id)).join(', ')} ;`)
+    // 층의 부분: 물리존과 커스텀존. 커스텀존은 물리존 위에 겹쳐 정한 것이라 같은 층의 부분으로 둔다.
+    const parts = [...storey.spaces.map((s) => s.id), ...(storey.customZones ?? []).map((z) => z.id)]
+    if (parts.length > 0) {
+      lines.push(`    brick:hasPart ${parts.map(ref).join(', ')} ;`)
     }
     lines.push(`    ex:elevation ${storey.elevation} .`)
     lines.push('')
@@ -179,6 +184,17 @@ export function modelToTTL(model: Model): string {
       lines.push('')
     }
 
+    // 커스텀존(OE-OBJ-01). Brick 의 일반 Zone 이고 이름이 별명이다. 방 바닥의 절반 넘게 덮는 방을 hasPart 로 잇는다
+    // (공조존과 같은 기준). 다각형은 GeoJSON 에만 있다.
+    for (const zone of storey.customZones ?? []) {
+      const rooms = zoneSpaces(storey, zone)
+      lines.push(`${ref(zone.id)} a brick:Zone ;`)
+      if (rooms.length) lines.push(`    brick:hasPart ${rooms.map(ref).join(', ')} ;`)
+      lines.push(`    rdfs:label ${label(zone.name)} ;`)
+      lines.push(`    ex:zoneKind "custom" .`)
+      lines.push('')
+    }
+
     for (const equipment of storey.equipment) {
       lines.push(`${ref(equipment.id)} a ${classOf(equipment)} ;`)
       lines.push(`    rdfs:label ${label(equipment.name)} ;`)
@@ -187,7 +203,9 @@ export function modelToTTL(model: Model): string {
       // 이름으로 맞춘 것) 지어낸 값이 아니고, 방과는 목적어의 클래스(brick:Floor)로 갈린다. 받는 쪽도 같은 관례다 —
       // ieum-pipeline 의 공간 장면 도구가 방을 모르는 설비에 `hasLocation ex:SLAB_{층}` 을 적는다. 층까지 비우면
       // 설비가 계층 어디에도 걸리지 않아 이상 알림에 위치가 아예 없다.
-      lines.push(`    brick:hasLocation ${ref(equipment.spaceId ?? storey.id)} ;`)
+      // 커스텀존에 들면 그 존도 위치다(기기만 — zoneEquipment). 겹친 존이면 여럿이다.
+      const zones = inCustomZones.get(equipment.id) ?? []
+      lines.push(`    brick:hasLocation ${[equipment.spaceId ?? storey.id, ...zones].map(ref).join(', ')} ;`)
       const targets = feeds.get(equipment.id)
       if (targets) lines.push(`    brick:feeds ${targets.map(ref).join(', ')} ;`)
       // 양의 종류마다 술어가 다르다(capacity.ts). 풍량과 출력을 한 술어로 내면 받는 쪽이 둘을 섞는다.

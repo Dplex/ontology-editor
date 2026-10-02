@@ -11,7 +11,7 @@ import { assignEquipment, centroid, isSelfIntersecting } from './mapping'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
-import type { Connection, Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall } from './model'
+import type { Connection, CustomZone, Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall } from './model'
 import { spacesBesideOpening } from './ifc/element-geometry'
 import { overlapArea, splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
@@ -584,6 +584,8 @@ export type Snapshot =
     }
   /** 한 번의 편집이 여러 대상을 바꿀 때(벽과 함께 방 경계 옮기기). 되돌릴 때는 거꾸로 되돌린다. */
   | { kind: 'many'; parts: Snapshot[] }
+  /** 한 층의 커스텀존 목록(OE-OBJ-01). 소속을 담지 않으니(쓸 때 계산한다) 목록만 사본으로 떠 둔다. */
+  | { kind: 'custom-zones'; storeyId: string; zones: CustomZone[] | undefined }
   /** 한 층의 벽·문·창(E4). 객체를 그대로 들고 있어 되돌려도 같은 객체다. */
   | {
       kind: 'storey-elements'
@@ -618,6 +620,15 @@ export type Snapshot =
       }[]
       boundedBy: { space: Space; boundedBy: string[] }[]
     }
+
+const copyZones = (zones: readonly CustomZone[]): CustomZone[] => zones.map((z) => ({ id: z.id, name: z.name, footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) }))
+
+/** 한 층의 커스텀존 목록을 떠 둔다(OE-OBJ-01). 만들기·지우기·나누기·합치기·이름 고치기 전에 뜬다. */
+export function snapshotCustomZones(model: Model, storeyId: string): Snapshot | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  return { kind: 'custom-zones', storeyId, zones: storey.customZones ? copyZones(storey.customZones) : undefined }
+}
 
 export function snapshotEquipment(model: Model, equipmentId: string): Snapshot | null {
   for (const storey of model.storeys) {
@@ -712,6 +723,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotStoreySpaces(model, snapshot.storeyId)
     case 'storey-elements':
       return snapshotStoreyElements(model, snapshot.storeyId)
+    case 'custom-zones':
+      return snapshotCustomZones(model, snapshot.storeyId)
     case 'many': {
       const parts = snapshot.parts.map((p) => snapshotOf(model, p))
       return parts.every((p): p is Snapshot => !!p) ? { kind: 'many', parts } : null
@@ -886,6 +899,13 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       for (const b of snapshot.boundedBy) b.space.boundedBy = [...b.boundedBy]
       return null
     }
+    case 'custom-zones': {
+      const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!storey) return null
+      if (snapshot.zones) storey.customZones = copyZones(snapshot.zones)
+      else delete storey.customZones
+      return null
+    }
     case 'many': {
       let rules: RuleReport | null = null
       for (const part of [...snapshot.parts].reverse()) rules = restore(model, part) ?? rules
@@ -1054,6 +1074,8 @@ export type Baseline = {
     }
   >
   openings?: Map<string, { storeyId: string; name: string; kind: Opening['kind']; position: Vec3 | null | undefined; wallId: string | null; width?: number | null; height?: number | null }>
+  /** 층마다 커스텀존(OE-OBJ-01) 목록의 사본. 이 칸이 생기기 전의 baseline 에는 없다(그때는 빈 것으로 본다). */
+  customZones?: Map<string, CustomZone[]>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
@@ -1110,6 +1132,7 @@ export function baselineOf(model: Model): Baseline {
     equipment,
     connections: new Set(model.connections.map((c) => pairKey(c.from, c.to))),
     keys: fingerprints(model),
+    customZones: new Map(model.storeys.map((s) => [s.id, copyZones(s.customZones ?? [])])),
     walls,
     openings,
   }
@@ -1152,6 +1175,8 @@ export type BaselineDiff = {
   openingsRemoved: { id: string; name: string; kind: Opening['kind'] }[]
   /** 옮기거나(`moved`) 크기를 바꾼(`resized`, OE-OBJ-07) 문·창. */
   openingsMoved: { id: string; name: string; kind: Opening['kind']; moved: boolean; resized: boolean }[]
+  /** 커스텀존(OE-OBJ-01). 만든 것·지운 것·고친 것(이름이나 다각형). 나누면 새 조각이 만든 것, 합치면 없어진 쪽이 지운 것이다. */
+  customZones: { id: string; name: string; change: 'added' | 'removed' | 'changed' }[]
   /** 계통을 바꾼 설비(E8). 계통 id 다. */
   systemMoved: { id: string; name: string; from: string | null; to: string | null }[]
   /** 사람이 만든 계통과 없어진 계통(E8). */
@@ -1254,6 +1279,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     equipmentRenamed,
     equipmentMounted,
     ...e4,
+    customZones: diffCustomZones(model, baseline),
     systemMoved,
     systemKinds,
     systemsAdded,
@@ -1264,6 +1290,23 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
 const sameRings = (a: readonly (readonly Vec2[])[] | undefined, b: readonly (readonly Vec2[])[] | undefined) =>
   (a?.length ?? 0) === (b?.length ?? 0) &&
   (a ?? []).every((r, i) => r.length === b![i].length && r.every((p, j) => Math.abs(p[0] - b![i][j][0]) < 1e-9 && Math.abs(p[1] - b![i][j][1]) < 1e-9))
+
+function diffCustomZones(model: Model, baseline: Baseline): BaselineDiff['customZones'] {
+  const was = new Map<string, CustomZone>()
+  for (const zones of baseline.customZones?.values() ?? []) for (const z of zones) was.set(z.id, z)
+  const out: BaselineDiff['customZones'] = []
+  const now = new Set<string>()
+  for (const storey of model.storeys) {
+    for (const z of storey.customZones ?? []) {
+      now.add(z.id)
+      const before = was.get(z.id)
+      if (!before) out.push({ id: z.id, name: z.name, change: 'added' })
+      else if (before.name !== z.name || !sameRings([before.footprint], [z.footprint])) out.push({ id: z.id, name: z.name, change: 'changed' })
+    }
+  }
+  for (const [id, z] of was) if (!now.has(id)) out.push({ id, name: z.name, change: 'removed' })
+  return out
+}
 
 function diffElements(model: Model, baseline: Baseline) {
   const out: Pick<BaselineDiff, 'wallsAdded' | 'wallsRemoved' | 'wallsChanged' | 'openingsAdded' | 'openingsRemoved' | 'openingsMoved'> = {

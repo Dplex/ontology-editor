@@ -372,6 +372,18 @@ export type Storey = {
   walls: Wall[]
   openings: Opening[]
   equipment: Equipment[]
+  /** 운영자가 정한 커스텀존(OE-OBJ-01, custom-zone.ts). BIM 에는 없어 연 직후에는 없다. */
+  customZones?: CustomZone[]
+}
+
+/** 커스텀존(F14). 물리존 위에 운영 편의로 정하는 다각형. 겹쳐도 된다(custom-zone.ts). */
+export type CustomZone = {
+  /** 에디터가 지은 id(`U_…`). TTL 주어와 GeoJSON feature id 가 이것이다. */
+  id: string
+  /** 별명. 사람이 부르는 이름(임원석·식당). 하나다(OE-OBJ-01). */
+  name: string
+  /** 닫힌 고리(첫 점 = 끝 점). 세계 좌표. */
+  footprint: Vec2[]
 }
 
 export type Model = {

@@ -111,6 +111,11 @@ export type EditFile = {
     height?: number | null
   }[]
   openingsRemoved?: string[]
+  /**
+   * 커스텀존(OE-OBJ-01). 바뀐 층마다 그 층의 **끝 목록 전체**를 적는다 — 존은 전부 사람이 만든 것이라 BIM 과 짝지을 것이
+   * 없고, 나누기·합치기를 순서대로 다시 하지 않고 끝 모양을 얹는다(물리존 합치기의 `into` 와 같은 까닭).
+   */
+  customZones?: { storeyId: string; zones: { id: string; name: string; footprint: Vec2[] }[] }[]
   kinds: { typeKey: string; kind: string | null }[]
   flows: { from: string; to: string }[]
   /** 확정한 계통. 아래 `confirmedFlows` 가 없던 때의 파일은 이것으로 불러온다. */
@@ -251,6 +256,14 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   const systemsRemoved = since.systemsRemoved.map((r) => r.id)
   const wallsRemoved = since.wallsRemoved.map((r) => r.id)
   const openingsRemoved = since.openingsRemoved.map((r) => r.id)
+  // 커스텀존: 존이 하나라도 바뀐 층은 그 층 목록 전체를 적는다.
+  const zoneStorey = new Map<string, string>()
+  for (const [storeyId, zones] of baseline.customZones ?? []) for (const z of zones) zoneStorey.set(z.id, storeyId)
+  for (const storey of model.storeys) for (const z of storey.customZones ?? []) zoneStorey.set(z.id, storey.id)
+  const touched = new Set(since.customZones.map((c) => zoneStorey.get(c.id)).filter((x): x is string => !!x))
+  const customZones = model.storeys
+    .filter((s) => touched.has(s.id))
+    .map((s) => ({ storeyId: s.id, zones: (s.customZones ?? []).map((z) => ({ id: z.id, name: z.name, footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) })) }))
 
   // 적은 id 의 지문. 층을 옮긴 설비는 예전 층도 적는다(새 판본에서 층 GUID 가 바뀌어도 이름으로 찾는다).
   // 지운 것은 지금 모델에 없으니 연 때 떠 둔 지문을 쓴다.
@@ -278,6 +291,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const row of [...walls, ...openings]) keep(row.id)
   for (const id of [...wallsRemoved, ...openingsRemoved]) keep(id)
   for (const row of openingsAdded) if (row.wallId) keep(row.wallId)
+  for (const row of customZones) keep(row.storeyId)
   for (const f of flows) {
     keep(f.from)
     keep(f.to)
@@ -317,6 +331,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(openings.length ? { openings } : {}),
     ...(openingsAdded.length ? { openingsAdded } : {}),
     ...(openingsRemoved.length ? { openingsRemoved } : {}),
+    ...(customZones.length ? { customZones } : {}),
     keys,
   }
 }
@@ -414,6 +429,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     if (row.into) ref(row.into)
   }
   for (const row of [...(file.wallsAdded ?? []), ...(file.openingsAdded ?? [])]) ref(row.storeyId)
+  for (const row of file.customZones ?? []) ref(row.storeyId)
   for (const row of [...(file.walls ?? []), ...(file.openings ?? [])]) ref(row.id)
   for (const id of [...(file.wallsRemoved ?? []), ...(file.openingsRemoved ?? [])]) ref(id)
   for (const row of file.openingsAdded ?? []) if (row.wallId) ref(row.wallId)
@@ -619,6 +635,17 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     if (wallId && model.storeys.some((s) => s.walls.some((w) => w.id === wallId))) target.wallId = wallId
     else if (wallId) result.missing.elements++
     else delete target.wallId
+  }
+
+  // 커스텀존(OE-OBJ-01). 층의 끝 목록을 그대로 얹는다. 소속은 쓸 때 계산하니 따로 다시 잴 것이 없다.
+  for (const row of file.customZones ?? []) {
+    const storey = model.storeys.find((s) => s.id === resolve(row.storeyId))
+    if (!storey) {
+      result.missing.spaces++
+      continue
+    }
+    storey.customZones = row.zones.map((z) => ({ id: z.id, name: z.name, footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) }))
+    result.applied++
   }
 
   // 지운 설비. 붙은 연결도 같이 빠지므로 연결 편집보다 먼저다.
