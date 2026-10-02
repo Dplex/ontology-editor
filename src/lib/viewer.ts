@@ -19,12 +19,14 @@ import {
   OctahedronGeometry,
   DirectionalLight,
   DoubleSide,
+  EdgesGeometry,
   ExtrudeGeometry,
   Group,
   Line,
   LineBasicMaterial,
   LineDashedMaterial,
   LineLoop,
+  LineSegments,
   Mesh,
   MeshBasicMaterial,
   MeshLambertMaterial,
@@ -33,6 +35,7 @@ import {
   Raycaster,
   Scene,
   Shape,
+  ShapeGeometry,
   Vector2,
   Vector3,
   WebGLRenderer,
@@ -42,6 +45,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { polygonArea, type Model, type Vec2, type Vec3 } from './model'
 import type { MeshMap } from './ifc/import'
 import { distanceToRing, pointInPolygon } from './mapping'
+import { easeOut, still } from './motion'
 
 /**
  * 층을 구분하는 색. 층 수만큼 순환한다.
@@ -90,6 +94,9 @@ export const PICK_COLORS = {
   ruleDownstream: 0x9fd8c6,
   dimmed: 0xc8cdd3,
 }
+
+/** 마우스 아래 표시. 설비는 액센트 상자, 방은 회색 점선 — 색만이 아니라 모양으로도 갈린다. */
+const HOVER_COLORS = { equipment: 0x2f6fed, space: 0x5b6470, spaceDark: 0xc0c6cd }
 
 /**
  * 내력벽 색. 내력벽 여부를 BIM 이 말하지 않은 벽은 "모름" 으로 따로 칠한다 — 비내력으로 숨기면
@@ -241,9 +248,11 @@ export type Viewer = {
    * 모델 전체를 다시 만들면 성수 크기에서 2초가 걸린다. 그 설비가 3D 에 없으면 false 를 돌려주고, 그때는
    * 부르는 쪽이 setModel 로 다시 만든다.
    */
-  shiftEquipment(id: string, delta: Vec3): boolean
+  shiftEquipment(id: string, delta: Vec3, glide?: boolean): boolean
   /** 설비 하나의 꼭짓점을 통째로 바꾼다(화면 좌표, 꼭짓점 수가 같아야 한다). 설비를 따라 늘인 배관에 쓴다. 없으면 false. */
-  setEquipmentPositions(id: string, positions: Float32Array): boolean
+  setEquipmentPositions(id: string, positions: Float32Array, glide?: boolean): boolean
+  /** 소속이 바뀐 방 바닥을 한 번 번쩍인다. 움직임을 끈 사람에게는 아무것도 하지 않는다. */
+  pulseSpaces(ids: Iterable<string>): void
   /** 편집 모드에서 고른 설비를 끌어 놓으면 부른다. 옮긴 거리를 IFC 좌표(미터)로 넘긴다. 높이는 그대로다. */
   onEquipmentMove(handler: (id: string, delta: Vec3) => void): void
   /** 설비가 아닌 바닥(물리존 판)을 누르면 부른다. 편집 모드면 손잡이가, 보기 모드면 테두리만 뜬다. */
@@ -405,7 +414,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     dirty = true
   }
   let pickHandler: (id: string | null) => void = () => {}
-  let hoverHandler: (target: HoverTarget | null, at: { x: number; y: number } | null) => void = () => {}
+  let hoverCb: (target: HoverTarget | null, at: { x: number; y: number } | null) => void = () => {}
+  const hoverHandler = (target: HoverTarget | null, at: { x: number; y: number } | null) => {
+    markHover(target)
+    hoverCb(target, at)
+  }
   let placeElevation: number | null = null
   let placeHandler: (at: Vec2) => void = () => {}
 
@@ -468,6 +481,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let handleSpace: SpaceHandles | null = null
   let handles: Mesh[] = []
   let outline: LineLoop | null = null
+  // 마우스 아래 있는 것의 표시. 설비는 상자 테두리(액센트), 방은 바닥 외곽선(점선)이라 무엇 위에 있는지 모양으로 갈린다.
+  let hoverMark: Line | null = null
+  let hoverMarkKey = ''
   let arrowSpecs: readonly Arrow[] = []
   let arrowObjects: (Line | Mesh)[] = []
   let arrowSegs: { key: string; a: Vector3; b: Vector3 }[] = []
@@ -514,6 +530,35 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       handles.push(h)
     })
     scaleHandles()
+  }
+
+  function markHover(target: HoverTarget | null) {
+    const key = target ? (target.kind === 'arrow' ? '' : `${target.kind}:${target.id}`) : ''
+    if (key === hoverMarkKey) return
+    hoverMarkKey = key
+    if (hoverMark) disposeObject(hoverMark)
+    hoverMark = null
+    dirty = true
+    if (!target || target.kind === 'arrow') return
+    if (target.kind === 'equipment') {
+      const part = partById.get(target.id)
+      if (!part || part.box.isEmpty()) return
+      const size = part.box.getSize(new Vector3()).max(new Vector3(0.05, 0.05, 0.05))
+      const geometry = new EdgesGeometry(new BoxGeometry(size.x, size.y, size.z))
+      hoverMark = new LineSegments(geometry, new LineBasicMaterial({ color: HOVER_COLORS.equipment, depthTest: false }))
+      part.box.getCenter(hoverMark.position)
+    } else {
+      const t = spaceTargets.find((x) => x.id === target.id)
+      if (!t || t.ring.length < 3) return
+      const points = t.ring.map(([x, z]) => new Vector3(...toScene([x, z, 0])).setY(t.y + 0.1))
+      hoverMark = new LineLoop(
+        new BufferGeometry().setFromPoints(points),
+        new LineDashedMaterial({ color: dark ? HOVER_COLORS.spaceDark : HOVER_COLORS.space, dashSize: 0.4, gapSize: 0.25, depthTest: false }),
+      )
+      hoverMark.computeLineDistances()
+    }
+    hoverMark.renderOrder = 9
+    overlay.add(hoverMark)
   }
 
   function moveHandle(index: number, at: Vector3) {
@@ -790,6 +835,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         // 고른다(pointerup).
         const part = grabbable(ray)
         if (!part) return
+        finishGlide(part.id) // 미끄러지는 중이면 끝 자리에서 잡는다.
         const position = part.chunk.position
         const plane = new Plane(new Vector3(0, 1, 0), -part.box.getCenter(new Vector3()).y)
         if (!ray.intersectPlane(plane, start)) return
@@ -1007,9 +1053,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   let running = true
-  function tick() {
+  function tick(now = performance.now()) {
     if (!running) return
     resize()
+    stepFlight(now)
+    stepGlides(now)
+    stepPulses(now)
     // 관성(damping)으로 도는 동안에는 update 가 참을 돌려준다. 그동안만 계속 그린다.
     if (controls.update()) dirty = true
     // 새로 연 모델은 덩어리를 한 프레임에 하나씩 켠다. 켜는 프레임에 그 덩어리만 GPU 로 올라간다.
@@ -1026,7 +1075,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (hoverPending) updateHover()
     requestAnimationFrame(tick)
   }
-  tick()
+  // 첫 틱도 다음 프레임에 — 아래에 선언한 비행·미끄러짐 상태를 읽기 때문이다.
+  requestAnimationFrame(tick)
 
   /**
    * 상자가 화면에 꽉 차도록 카메라를 놓는다.
@@ -1038,7 +1088,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
    * 가장 가까운 거리를 잡는다.
    */
   const FILL = 0.88
-  function fit(box: Box3) {
+  function fit(box: Box3, animate = true) {
     const sphere = box.getBoundingSphere(new Sphere())
     if (sphere.radius <= 0) return
 
@@ -1061,12 +1111,153 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     // 점 하나(좌표만 있는 설비)여도 붙어 서지 않게.
     distance = Math.max(distance, 2)
 
-    controls.target.copy(center)
-    camera.position.copy(center).addScaledVector(back, distance)
-    camera.near = Math.max(distance / 1000, 0.01)
-    camera.far = (distance + sphere.radius) * 10
+    const near = Math.max(distance / 1000, 0.01)
+    const far = (distance + sphere.radius) * 10
+    fly(center.clone(), center.clone().addScaledVector(back, distance), animate ? { near, far } : null)
+    if (!animate) {
+      camera.near = near
+      camera.far = far
+      camera.updateProjectionMatrix()
+    }
+  }
+
+  // --- 카메라 비행 ---
+  // 표·검사에서 고르거나 전체 보기를 누르면 시점이 순간이동해서 어디서 어디로 왔는지 잃었다. 짧게 날아간다.
+  // 움직임을 끈 사람에게는 그대로 순간이동이다. 사람이 시점을 잡으면(controls 'start') 그 자리에서 멈춘다.
+  const FLY_MS = 380
+  /** 시작한 움직임 수(e2e 가 짧은 움직임을 놓치지 않게 센다). */
+  const started = { flights: 0, glides: 0, pulses: 0 }
+  let flight: { t0: number | null; fromT: Vector3; fromP: Vector3; toT: Vector3; toP: Vector3; near: number; far: number } | null = null
+  function fly(target: Vector3, position: Vector3, clip: { near: number; far: number } | null) {
+    flight = null
+    if (!clip || still()) {
+      controls.target.copy(target)
+      camera.position.copy(position)
+      if (clip) {
+        camera.near = clip.near
+        camera.far = clip.far
+        camera.updateProjectionMatrix()
+      }
+      controls.update()
+      dirty = true
+      return
+    }
+    // 날아가는 동안 잘리지 않게 앞뒤 자르는 면을 두 시점 중 넓은 쪽으로 둔다. 도착하면 새 값으로 좁힌다.
+    camera.near = Math.min(camera.near, clip.near)
+    camera.far = Math.max(camera.far, clip.far)
     camera.updateProjectionMatrix()
+    started.flights++
+    flight = { t0: null, fromT: controls.target.clone(), fromP: camera.position.clone(), toT: target, toP: position, ...clip }
+  }
+  function stepFlight(now: number) {
+    if (!flight) return
+    if (flight.t0 === null) flight.t0 = now
+    const k = Math.min(1, (now - flight.t0) / FLY_MS)
+    const e = easeOut(k)
+    controls.target.lerpVectors(flight.fromT, flight.toT, e)
+    camera.position.lerpVectors(flight.fromP, flight.toP, e)
+    if (k === 1) {
+      camera.near = flight.near
+      camera.far = flight.far
+      camera.updateProjectionMatrix()
+      flight = null
+    }
     controls.update()
+    dirty = true
+  }
+  controls.addEventListener('start', () => {
+    if (!flight) return
+    camera.near = Math.min(camera.near, flight.near)
+    flight = null
+  })
+
+  // --- 되돌리기의 미끄러짐 ---
+  // 되돌린 설비(와 따라온 배관)가 순간이동하지 않고 원래 자리로 미끄러진다. 꼭짓점을 두 배열 사이에서 섞는다.
+  const GLIDE_MS = 240
+  const glides = new Map<string, { part: Part; from: Float32Array; to: Float32Array; t0: number | null }>()
+  function writePart(part: Part, positions: Float32Array) {
+    const position = part.chunk.position
+    ;(position.array as Float32Array).set(positions, part.vStart * 3)
+    position.needsUpdate = true
+  }
+  function finishGlide(id: string) {
+    const g = glides.get(id)
+    if (!g) return
+    glides.delete(id)
+    writePart(g.part, g.to)
+  }
+  function stepGlides(now: number) {
+    if (!glides.size) return
+    for (const [id, g] of glides) {
+      if (g.t0 === null) g.t0 = now
+      const k = Math.min(1, (now - g.t0) / GLIDE_MS)
+      if (k === 1) {
+        finishGlide(id)
+        continue
+      }
+      const e = easeOut(k)
+      const mix = new Float32Array(g.to.length)
+      for (let i = 0; i < mix.length; i++) mix[i] = g.from[i] + (g.to[i] - g.from[i]) * e
+      writePart(g.part, mix)
+    }
+    dirty = true
+  }
+  /** 형상을 positions 로 바꾼다. glide 면 지금 자리에서 미끄러져 간다. 상자·화살표는 바로 도착한 자리로 둔다(고르기·판정은 끝 자리). */
+  function setPartPositions(part: Part, positions: Float32Array, glide: boolean) {
+    finishGlide(part.id)
+    const arr = part.chunk.position.array as Float32Array
+    const from = arr.slice(part.vStart * 3, (part.vStart + part.vCount) * 3)
+    part.box.setFromArray(positions)
+    if (glide && !still()) {
+      glides.set(part.id, { part, from, to: positions, t0: null })
+      started.glides++
+    }
+    else writePart(part, positions)
+    if (hoverMarkKey === `equipment:${part.id}`) markHover(null)
+    drawArrows()
+    dirty = true
+  }
+
+  // --- 소속이 바뀐 방의 번쩍임 ---
+  // 편집이 실제로 고치는 것은 hasLocation 한 줄이다. 설비가 새 방에 들어가면 그 방 바닥이 한 번 차올랐다 빠진다.
+  const PULSE_MS = 1100
+  const pulses: { mesh: Mesh; t0: number | null }[] = []
+  function pulseSpaces(ids: Iterable<string>) {
+    if (still()) return
+    for (const id of ids) {
+      const t = spaceTargets.find((x) => x.id === id)
+      if (!t || t.ring.length < 3) continue
+      if (visibleStoreys && !visibleStoreys.has(t.storeyId)) continue
+      const shape = new Shape(t.ring.map(([x, y]) => new Vector2(x, y)))
+      const geometry = new ShapeGeometry(shape)
+      // Shape 는 IFC 평면(x, y)이라 바닥(x, -z)으로 눕힌다.
+      geometry.rotateX(-Math.PI / 2)
+      const mesh = new Mesh(
+        geometry,
+        new MeshBasicMaterial({ color: HOVER_COLORS.equipment, transparent: true, opacity: 0, depthTest: false, side: DoubleSide }),
+      )
+      mesh.position.y = t.y + 0.11
+      mesh.renderOrder = 8
+      overlay.add(mesh)
+      pulses.push({ mesh, t0: null })
+      started.pulses++
+    }
+    dirty = true
+  }
+  function stepPulses(now: number) {
+    if (!pulses.length) return
+    for (let i = pulses.length - 1; i >= 0; i--) {
+      const p = pulses[i]
+      if (p.t0 === null) p.t0 = now
+      const k = (now - p.t0) / PULSE_MS
+      if (k >= 1) {
+        disposeObject(p.mesh)
+        pulses.splice(i, 1)
+        continue
+      }
+      // 빨리 차오르고(15%) 천천히 빠진다.
+      ;(p.mesh.material as MeshBasicMaterial).opacity = 0.35 * (k < 0.15 ? k / 0.15 : 1 - easeOut((k - 0.15) / 0.85))
+    }
     dirty = true
   }
 
@@ -1189,6 +1380,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // e2e 모드에서만 연다. 3D 는 DOM 이 아니라서 테스트가 어디를 눌러야 하는지 알 길이 이것뿐이다.
   if (import.meta.env.MODE === 'e2e') {
     ;(window as unknown as { __viewer?: unknown }).__viewer = {
+      /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */
+      hoverMark: () => (hoverMark ? hoverMarkKey : ''),
+      /** 지금 도는 움직임(카메라 비행·미끄러지는 설비 수·번쩍이는 방 수). */
+      motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, started }),
       part: (id: string) => {
         const part = partById.get(id)
         return part ? toScreen(part.box.getCenter(new Vector3())) : null
@@ -1408,7 +1603,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const own = new Set(chunks.flatMap((c) => [c.solid, c.faded]))
       for (const child of content.children) if (!own.has(child as Mesh)) box.expandByObject(child)
       if (box.isEmpty()) return
-      fit(box)
+      fit(box, false)
     },
 
     setHighlight(highlight) {
@@ -1457,7 +1652,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     onHover(handler) {
-      hoverHandler = handler
+      hoverCb = handler
     },
 
     focus(id) {
@@ -1465,11 +1660,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (!part || part.box.isEmpty()) return
       const center = part.box.getCenter(new Vector3())
       // 거리는 그대로 두고 바라보는 곳만 옮긴다. 확대까지 하면 어디를 보고 있었는지 잃는다.
-      const offset = camera.position.clone().sub(controls.target)
-      controls.target.copy(center)
-      camera.position.copy(center).add(offset)
-      controls.update()
-      dirty = true
+      const offset = (flight ? flight.toP.clone().sub(flight.toT) : camera.position.clone().sub(controls.target))
+      fly(center, center.clone().add(offset), { near: camera.near, far: camera.far })
     },
 
     frame(ids) {
@@ -1494,34 +1686,31 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       return drag !== null
     },
 
-    shiftEquipment(id, delta) {
+    shiftEquipment(id, delta, glide = false) {
       const part = partById.get(id)
       if (!part) return false
-      const position = part.chunk.position
+      finishGlide(id)
       const [dx, dy, dz] = toScene(delta)
-      const arr = position.array as Float32Array
-      for (let v = part.vStart; v < part.vStart + part.vCount; v++) {
-        arr[v * 3] += dx
-        arr[v * 3 + 1] += dy
-        arr[v * 3 + 2] += dz
+      const arr = part.chunk.position.array as Float32Array
+      const next = arr.slice(part.vStart * 3, (part.vStart + part.vCount) * 3)
+      for (let i = 0; i < next.length; i += 3) {
+        next[i] += dx
+        next[i + 1] += dy
+        next[i + 2] += dz
       }
-      position.needsUpdate = true
-      part.box.translate(new Vector3(dx, dy, dz))
-      drawArrows()
-      dirty = true
+      setPartPositions(part, next, glide)
       return true
     },
 
-    setEquipmentPositions(id, positions) {
+    setEquipmentPositions(id, positions, glide = false) {
       const part = partById.get(id)
       if (!part || positions.length !== part.vCount * 3) return false
-      const position = part.chunk.position
-      ;(position.array as Float32Array).set(positions, part.vStart * 3)
-      position.needsUpdate = true
-      part.box.setFromArray(positions)
-      drawArrows()
-      dirty = true
+      setPartPositions(part, positions, glide)
       return true
+    },
+
+    pulseSpaces(ids) {
+      pulseSpaces(ids)
     },
 
     onEquipmentMove(handler) {

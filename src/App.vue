@@ -475,7 +475,7 @@ function onHover(t: HoverTarget | null, at: { x: number; y: number } | null) {
   if (key === hoverKey) return tip.move(at)
   hoverKey = key
   const text = hoverText(t)
-  if (text) tip.show(text.title, text.lines, at)
+  if (text) tip.show(t.kind, text.title, text.lines, at)
   else tip.hide()
 }
 
@@ -529,7 +529,7 @@ function captureBase(id: string, at: Vec3) {
 }
 
 /** 늘인 구간의 형상을 지금 모델 값(`endShift`·`position`)으로 다시 만들어 3D 에 올린다. */
-function placeStretched(id: string) {
+function placeStretched(id: string, glide = false) {
   const base = meshBase.get(id)
   const e = equipmentById.value.get(id)
   const mesh = meshes.get(id)
@@ -537,7 +537,7 @@ function placeStretched(id: string) {
   const shift = e.endShift ?? [[0, 0, 0], [0, 0, 0]]
   const positions = stretchPositions(base.positions, base.axis, shift, rigidPart(base.axis, base.at, e.position, shift))
   meshes.set(id, { ...mesh, positions })
-  if (viewer?.setEquipmentPositions(id, positions)) sceneVersion.value++
+  if (viewer?.setEquipmentPositions(id, positions, glide)) sceneVersion.value++
   else redraw()
 }
 
@@ -559,13 +559,13 @@ const cm = (v: number) => Math.round(v * 100) / 100
  * 설비 하나의 3D 형상을 좌표가 바뀐 만큼 옮긴다. 모델 전체를 다시 만들면 성수 크기에서 2초가 걸려서,
  * 형상 하나만 옮긴다. 3D 에 없던 설비(좌표가 없다가 생긴 것)와 사라질 설비만 다시 그린다.
  */
-function moveInScene(id: string, from: Vec3 | null, to: Vec3 | null) {
+function moveInScene(id: string, from: Vec3 | null, to: Vec3 | null, glide = false) {
   if (meshBase.has(id)) {
-    placeStretched(id)
+    placeStretched(id, glide)
     return
   }
   shiftMesh(id, from, to)
-  if (from && to && viewer?.shiftEquipment(id, [to[0] - from[0], to[1] - from[1], to[2] - from[2]])) sceneVersion.value++
+  if (from && to && viewer?.shiftEquipment(id, [to[0] - from[0], to[1] - from[1], to[2] - from[2]], glide)) sceneVersion.value++
   else redraw()
 }
 
@@ -759,6 +759,19 @@ function settleLater() {
   }, 0)
 }
 
+// 소속이 바뀐 방을 3D 에서 한 번 번쩍인다. 편집이 붙인 Change 는 들어간 방을, 되돌리기가 잘라 낸 Change 는 돌아간 방을.
+// 어느 길로 고쳤든(끌기·표·방향키·경계·되돌리기) changes 하나로 모이므로 여기서 한 번만 본다. 한꺼번에 수백 개가 바뀌는
+// 편집(경계·합치기)은 화면 전체가 번쩍여 아무것도 가리키지 않으니 몇 개까지만.
+const PULSE_LIMIT = 12
+watch(changes, (now, before) => {
+  const added = now.length > before.length && now.slice(0, before.length).every((c, i) => c === before[i])
+  const removed = now.length < before.length && before.slice(0, now.length).every((c, i) => c === now[i])
+  const spaces = new Set<string>()
+  if (added) for (const c of now.slice(before.length)) if (c.toSpaceId && c.toSpaceId !== c.fromSpaceId) spaces.add(c.toSpaceId)
+  if (removed) for (const c of before.slice(now.length)) if (c.fromSpaceId && c.fromSpaceId !== c.toSpaceId) spaces.add(c.fromSpaceId)
+  if (spaces.size && spaces.size <= PULSE_LIMIT) viewer?.pulseSpaces(spaces)
+})
+
 function undo() {
   flushNudge()
   const m = model.value
@@ -820,11 +833,11 @@ function applySnapshot(s: Snapshot) {
   const rules = restore(m, s)
   if (carried) {
     triggerRef(model)
-    for (const p of carried) moveInScene(p.id, drawn.get(p.id) ?? null, p.position)
+    for (const p of carried) moveInScene(p.id, drawn.get(p.id) ?? null, p.position, true)
   } else if (s.kind === 'equipment') {
     triggerRef(model)
     // 형상도 되돌린다. 안 하면 다시 그릴 때 옮긴 자리에 남는다.
-    moveInScene(s.id, drawnAt, s.position)
+    moveInScene(s.id, drawnAt, s.position, true)
   } else if (s.kind === 'space') {
     triggerRef(model)
     viewer?.updateSpaces(m)
@@ -2619,6 +2632,7 @@ function saveEdits() {
   const stem = fileName.value.replace(/\.ifc/gi, '').replace(/[^\w가-힣.+-]+/g, '_') || 'model'
   download(`${stem}.edits.json`, JSON.stringify(file, null, 2), 'application/json')
   note(`편집을 저장했습니다: ${stem}.edits.json`)
+  markDone('save')
 }
 
 async function onEditFilePick(event: Event) {
@@ -3921,8 +3935,20 @@ type DirectoryPicker = (options: { mode: 'readwrite' }) => Promise<{
  * GeoJSON 은 층마다 한 파일이다(성수 19개). 연달아 내려받으면 크롬이 "여러 파일 다운로드"를 묻고, 거절하거나 창을
  * 놓치면 둘째 파일부터 **조용히** 빠진다. 폴더를 고를 수 있으면 한 폴더에 한꺼번에 쓰고, 못 하면 내려받는다.
  */
-async function exportGeoJSON() {
-  if (!model.value) return
+// 내보내기·저장이 끝나면 누른 단추에 잠깐 ✓ 를 띄운다. 받기 표시는 브라우저 구석에 떠서, 눌렀는데 된 건지 단추에서는 알 수 없었다.
+const justDone = ref('')
+let doneTimer = 0
+function markDone(key: string) {
+  justDone.value = ''
+  window.clearTimeout(doneTimer)
+  // 같은 단추를 잇달아 누르면 한 번 비웠다가 다시 붙여 애니메이션을 처음부터 튼다.
+  void nextTick(() => (justDone.value = key))
+  doneTimer = window.setTimeout(() => (justDone.value = ''), 1800)
+}
+
+/** 다 냈으면 true. 사람이 폴더 고르기를 닫았으면 false. */
+async function exportGeoJSON(): Promise<boolean> {
+  if (!model.value) return false
   const files = modelToGeoJSON(model.value).map((f) => ({ name: f.fileName, text: JSON.stringify(f.collection, null, 2) }))
   const picker = (window as unknown as { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker
   if (files.length > 1 && picker) {
@@ -3934,10 +3960,10 @@ async function exportGeoJSON() {
         await writable.close()
       }
       note(`GeoJSON ${files.length}개(층마다 하나)를 저장했습니다.`)
-      return
+      return true
     } catch (e) {
       // 사람이 폴더 고르기를 닫은 것이면 아무것도 하지 않는다. 권한이 막힌 것이면 내려받기로 넘어간다.
-      if ((e as DOMException)?.name === 'AbortError') return
+      if ((e as DOMException)?.name === 'AbortError') return false
     }
   }
   // 크롬은 잇달아 누른 내려받기를 10개에서 끊는다(성수 19개 층 중 9개가 조용히 빠졌다). 하나씩 틈을 둔다.
@@ -3945,6 +3971,10 @@ async function exportGeoJSON() {
     if (i) await new Promise((r) => window.setTimeout(r, 250))
     download(f.name, f.text, 'application/geo+json')
   }
+  return true
+}
+async function exportGeoJSONDone() {
+  if (await exportGeoJSON()) markDone('geojson')
 }
 
 /** 바뀐 내용 목록으로 내려간다. 작업 화면 아래에 있어 도구막대에서 바로 가는 길을 둔다. */
@@ -3955,12 +3985,16 @@ function previewChanges() {
 /** 초기 구축의 마지막 단계. 기하와 의미를 따로 내는 전제는 그대로다 — 한 번 눌러 두 파일을 다 받을 뿐이다. */
 async function build() {
   exportTTL()
-  await exportGeoJSON()
+  if (await exportGeoJSON()) markDone('build')
 }
 
 function exportTTL() {
   if (!model.value) return
   download('ontology.ttl', modelToTTL(model.value), 'text/turtle')
+}
+function exportTTLDone() {
+  exportTTL()
+  markDone('ttl')
 }
 
 /**
@@ -3995,6 +4029,7 @@ async function export3D(format: 'glb' | 'obj') {
     download(name, parts, format === 'glb' ? 'model/gltf-binary' : 'model/obj')
     // 막대가 닫히면 끝났는지 알 길이 브라우저 받기 표시뿐이다. 이름과 크기를 남긴다(성수 OBJ 는 683MB 다).
     note(`${name} (${mb(parts.reduce((s, p) => s + p.byteLength, 0))}) 내려받기를 시작했습니다`)
+    markDone(format)
   } catch (e) {
     note(`3D 내보내기에 실패했습니다: ${(e as Error).message}`)
   } finally {
@@ -4169,10 +4204,10 @@ async function export3D(format: 'glb' | 'obj') {
             </div>
             <span class="bar-sep" aria-hidden="true"></span>
             <!-- 여는·합치는 중(busy)에는 막는다. 건축·설비를 같이 열 때 설비를 읽는 동안 누르면 건축만 든 파일이 나갔다. -->
-            <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" :disabled="busy" @click="exportGeoJSON">GeoJSON</button>
-            <button type="button" class="ghost" aria-label="의미 내보내기 (Brick TTL)" title="관계 내보내기 (Brick TTL 파일 하나)" :disabled="busy" @click="exportTTL">TTL</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'glb'" @click="export3D('glb')">{{ exporting3d === 'glb' ? '만드는 중…' : 'GLB' }}</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" @click="export3D('obj')">{{ exporting3d === 'obj' ? '만드는 중…' : 'OBJ' }}</button>
+            <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" :disabled="busy" :class="{ done: justDone === 'geojson' }" @click="exportGeoJSONDone">GeoJSON</button>
+            <button type="button" class="ghost" aria-label="의미 내보내기 (Brick TTL)" title="관계 내보내기 (Brick TTL 파일 하나)" :disabled="busy" :class="{ done: justDone === 'ttl' }" @click="exportTTLDone">TTL</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'glb'" :class="{ done: justDone === 'glb' }" @click="export3D('glb')">{{ exporting3d === 'glb' ? '만드는 중…' : 'GLB' }}</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" :class="{ done: justDone === 'obj' }" @click="export3D('obj')">{{ exporting3d === 'obj' ? '만드는 중…' : 'OBJ' }}</button>
             <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
             <button type="button" class="ghost theme" :aria-pressed="dark" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
           </div>
@@ -4187,7 +4222,7 @@ async function export3D(format: 'glb' | 'obj') {
           <button type="button" class="ghost" @click="discardDraft">버리기</button>
         </div>
         <div v-if="editing" class="edit-bar" role="status">
-          <span class="state"><b>편집 중</b> · <a href="#changes" class="link">바뀐 것 {{ changeCount }}건</a></span>
+          <span class="state"><b>편집 중</b> · <a href="#changes" class="link">바뀐 것 <Roll :value="changeCount" :count-up="false" />건</a></span>
           <button
             type="button"
             class="ghost undo"
@@ -4210,6 +4245,7 @@ async function export3D(format: 'glb' | 'obj') {
           <button
             type="button"
             class="ghost save-edits"
+            :class="{ done: justDone === 'save' }"
             title="편집 저장 (Ctrl+S). 바뀐 내용을 JSON으로 내려받습니다. 같은 IFC를 다시 열고 불러오면 이어서 편집할 수 있습니다."
             @click="saveEdits"
           >
@@ -4217,7 +4253,7 @@ async function export3D(format: 'glb' | 'obj') {
           </button>
           <!-- PRD #9 의 액션바. 초기 구축 모드라 "반영하기" 대신 "구축하기"(두 파일 내보내기)다 — 운영 DT 에 반영하는 길은 D10 이 열려 있다. -->
           <button type="button" class="ghost" title="반영 전에 바뀐 내용(소속·경계·이름·방향)을 봅니다" @click="previewChanges">미리보기</button>
-          <button type="button" class="ghost primary-action" :disabled="busy" title="온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)" @click="build">구축하기</button>
+          <button type="button" class="ghost primary-action" :class="{ done: justDone === 'build' }" :disabled="busy" title="온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)" @click="build">구축하기</button>
           <button type="button" class="ghost" title="보기 모드로 돌아갑니다. 편집한 것은 그대로 남습니다" @click="mode = 'view'">편집 종료</button>
         </div>
       </div>
@@ -4390,7 +4426,9 @@ async function export3D(format: 'glb' | 'obj') {
 
         <aside class="side">
         <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
-        <section v-if="selected" class="picked">
+        <!-- 고른 것이 바뀌면 패널을 살짝 갈아 끼운다. 같은 것을 고친 것은 key 가 같아 가만히 있고, 바뀐 값만 v-flash 가 번쩍인다. -->
+        <Transition name="swap" mode="out-in">
+        <section v-if="selected" :key="`e:${selected.id}`" class="picked">
           <div class="picked-head">
             <div>
               <h3>{{ selected.name || '(이름 없음)' }}</h3>
@@ -4399,7 +4437,7 @@ async function export3D(format: 'glb' | 'obj') {
               <dl class="stats facts">
                 <div>
                   <dt>종류</dt>
-                  <dd>
+                  <dd v-flash="whatIs(selected)?.label">
                     <template v-if="whatIs(selected)">{{ whatIs(selected)!.label }} <Src :kind="whatIs(selected)!.src" /> · </template>
                     <template v-if="selected.added">에디터에서 더한 설비 <Src kind="edit" /></template>
                     <span v-else class="muted">{{ selected.declaredType ?? selected.ifcClass }} <Src kind="bim" /></span>
@@ -4411,14 +4449,14 @@ async function export3D(format: 'glb' | 'obj') {
                 </div>
                 <div>
                   <dt>계통</dt>
-                  <dd>
+                  <dd v-flash="selected.systemId">
                     {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
                     <Src v-if="selected.systemEdited" kind="edit" /><Src v-else-if="selected.systemId" kind="bim" />
                   </dd>
                 </div>
                 <div>
                   <dt>소속</dt>
-                  <dd>
+                  <dd v-flash="selected.spaceId">
                     {{ spaceNameOf(selected.spaceId) }}
                     <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
                   </dd>
@@ -4779,7 +4817,7 @@ async function export3D(format: 'glb' | 'obj') {
 
         <!-- 3D·평면도에서 고른 물리존(E2). 바닥을 누르면 뜬다. 고치는 칸은 편집 모드에만. -->
         <!-- 3D 에서 고른 벽·문·창(E4). [벽·문·창] 을 켰을 때만 골라진다. -->
-        <section v-else-if="selectedElement" class="picked element-picked">
+        <section v-else-if="selectedElement" :key="`w:${selectedElementId}`" class="picked element-picked">
           <div class="picked-head">
             <div>
               <h3>{{ selectedElement.wall?.name || selectedElement.opening?.name || elementLabel(selectedElement.kind) }}</h3>
@@ -4846,7 +4884,7 @@ async function export3D(format: 'glb' | 'obj') {
             </span>
           </p>
         </section>
-        <section v-else-if="selectedSpace" class="picked space-picked">
+        <section v-else-if="selectedSpace" :key="`s:${selectedSpace.space.id}`" class="picked space-picked">
           <div class="picked-head">
             <div>
               <h3>{{ selectedSpace.space.longName || selectedSpace.space.name }}</h3>
@@ -4858,7 +4896,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <!-- 방 종류(TTL 의 Brick 클래스). 이름을 고치면 따라 바뀌므로, 고친 사람이 무엇이 됐는지 여기서 본다. -->
                 <div>
                   <dt>종류</dt>
-                  <dd class="space-kind">
+                  <dd v-flash="selectedSpace.space.kind" class="space-kind">
                     <template v-if="roomKind(selectedSpace.space.kind)">
                       {{ roomKind(selectedSpace.space.kind)!.label }} <Src :kind="selectedSpace.space.kindSource === 'bim' ? 'bim' : 'dict'" />
                     </template>
@@ -4867,11 +4905,11 @@ async function export3D(format: 'glb' | 'obj') {
                 </div>
                 <div>
                   <dt>넓이</dt>
-                  <dd><b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡ <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /></dd>
+                  <dd v-flash="selectedSpace.space.areaM2.toFixed(1)"><b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡ <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /></dd>
                 </div>
                 <div>
                   <dt>소속</dt>
-                  <dd>
+                  <dd v-flash="`${spaceDevices.length}/${spaceConduits.length}`">
                     기기 {{ spaceDevices.length }}대<template v-if="spaceConduits.length"> · 덕트·배관 {{ spaceConduits.length }}개</template>
                     <Src kind="calc" />
                   </dd>
@@ -4948,7 +4986,7 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
         </section>
         <!-- 아무것도 고르지 않았을 때. 이 파일이 어디까지 찼는지와, 무엇을 누르면 여기 무엇이 뜨는지. -->
-        <section v-else class="overview">
+        <section v-else key="overview" class="overview">
           <h3>이 파일</h3>
           <TierChips :tiers="currentTiers" />
           <!-- 여는 중에는 숨긴다. 건축·설비를 같이 열면 설비를 읽는 동안 건축만 보여 "설비를 덧붙이라" 가 떴다. -->
@@ -4982,6 +5020,7 @@ async function export3D(format: 'glb' | 'obj') {
             <Src kind="dict" /> 이름 사전·흐름 규칙으로 추정
           </p>
         </section>
+        </Transition>
 
             <!-- 범례에서 고른 계통. 종류·유체는 규칙 방향과 TTL 계통 클래스를 정한다. 편집 모드에서 고친다(E8). -->
             <section v-if="selectedSystem" class="picked system-picked">

@@ -1,5 +1,7 @@
 # ontology-editor
 
+**▶ [에디터 열기 (55 서버, 사내망)](http://10.251.35.55:8084/)** · [칸반](https://github.sec.samsung.net/orgs/IoT-Solution/projects/1)
+
 BIM(IFC4)으로 DT 용 온톨로지를 어디까지 만들 수 있는지를 확인하는 PoC 입니다.
 [DT2.0] PRD_011 의 R1.5 "초기 구축 모드"(#5~#8)에 해당합니다.
 

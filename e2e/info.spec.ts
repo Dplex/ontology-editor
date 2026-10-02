@@ -24,9 +24,17 @@ test('3D 에서 마우스를 올리면 무엇인지 보인다', async ({ page })
   await expect(tip).toContainText('공조기')
   await expect(tip).toContainText('AHU-1 급기 계통')
   await expect(tip).toContainText('소속 사무실')
+  await expect(tip.locator('.tip-kind')).toHaveText('설비')
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.hoverMark())).toBe(`equipment:${AHU}`)
+  // 빈 바닥 위에서는 물리존이다(설비와 다른 표시).
+  const floor = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))
+  await page.mouse.move(floor.x, floor.y)
+  await expect(tip.locator('.tip-kind')).toHaveText('물리존')
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.hoverMark())).toMatch(/^space:/)
   // 캔버스를 벗어나면 숨는다.
   await page.mouse.move(5, 5)
   await expect(tip).toBeHidden()
+  expect(await page.evaluate(() => (window as any).__viewer.hoverMark())).toBe('')
   expect(errors).toEqual([])
 })
 
@@ -133,5 +141,25 @@ test('물리존 꼭짓점을 넣고 지운다(Insert·Delete)', async ({ page })
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
   await expect.poll(handles).toBe(5)
+  expect(errors).toEqual([])
+})
+
+test('펼친 칸의 제목 줄은 스크롤을 따라와서 끝에서 바로 접는다', async ({ page }) => {
+  const errors = await open(page)
+  const head = page.getByRole('button', { name: /층별 요약/ })
+  if ((await head.getAttribute('aria-expanded')) === 'false') await head.click()
+  const fold = page.locator('section.fold', { has: head })
+  // 칸 머리가 도구막대 밑으로 들어가게 내린다. 제목 줄은 도구막대 바로 아래 붙어 있어야 한다.
+  await fold.evaluate((el) => {
+    const bar = document.querySelector('.appbar')!.getBoundingClientRect().height
+    window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - bar + 60)
+  })
+  const bar = await page.locator('.appbar').boundingBox()
+  const box = await head.boundingBox()
+  expect(Math.abs(box!.y - (bar!.y + bar!.height))).toBeLessThan(2)
+  // 접으면 칸 머리가 화면 안에 남는다.
+  await head.click()
+  await expect(head).toHaveAttribute('aria-expanded', 'false')
+  await expect(head).toBeInViewport()
   expect(errors).toEqual([])
 })
