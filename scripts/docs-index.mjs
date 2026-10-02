@@ -15,6 +15,7 @@ const SOURCES = [
   { dir: 'docs/adr', kind: 'adr', deep: false },
   { dir: 'docs/prd/features', kind: 'ticket', deep: true },
   { dir: 'docs/prd', kind: 'prd', deep: false },
+  { dir: 'docs/dev', kind: 'doc', deep: false },
   { dir: 'docs', kind: 'doc', deep: false },
 ]
 const SINGLE = [

@@ -19,7 +19,7 @@ const INSTRUCTIONS = `ontology-editor(BIM → DT 공간 온톨로지 PoC) repo �
 - 처음이면 docs_map 으로 무엇이 있는지 본다.
 - 질문은 docs_search 로 찾고, 걸린 절을 docs_read(path, section) 로 읽어 근거를 확인한 뒤 답한다. 검색 snippet 만으로 답하지 않는다.
 - OE-XXX-nn(티켓), ADR-nnnn, D10·Q3(PRD 결정·오픈 이슈)는 docs_ticket·docs_links 로 정의와 언급처를 같이 본다.
-- 문서 종류: adr(왜 그렇게 만들었나), ticket(기능 요구·수용 기준·검증), prd(PRD_011 본문·열린 결정 questions.md·용어집), intent(바꾸면 안 되는 설계 의도), doc(작업 규칙 CLAUDE.md 등).`
+- 문서 종류: adr(왜 그렇게 만들었나), ticket(기능 요구·수용 기준·검증), prd(PRD_011 본문·열린 결정 questions.md·용어집), intent(바꾸면 안 되는 설계 의도), doc(작업 규칙 CLAUDE.md·docs/dev/ — IFC 함정, 테스트, 배포, 칸반).`
 
 let index = null
 const idx = () => (index = freshIndex(ROOT, index))

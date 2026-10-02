@@ -1,6 +1,6 @@
 # 의도와 스펙
 
-ontology-editor 를 왜 이렇게 만드는지와, 바꾸면 안 되는 결정이다. 작업 규칙(배포·테스트·IFC 함정·이슈)은 `CLAUDE.md` 에 있다.
+ontology-editor 를 왜 이렇게 만드는지와, 바꾸면 안 되는 결정이다. 작업 규칙은 `CLAUDE.md`(항상 지킬 것)와 `docs/dev/`(배포·테스트·IFC 함정·이슈)에 있다.
 요구사항·등급의 정본은 `docs/bim-to-dt-ontology.md`, 기능 티켓의 정본은 `docs/prd/` 다.
 
 ## 이 과제의 산출물은 도구가 아니라 답이다
