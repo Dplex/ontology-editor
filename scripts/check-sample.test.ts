@@ -1585,3 +1585,20 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH) || !existsSync(C
     expect(walls(CLINIC_ARCH)).toEqual({ walls: 1080, features: 1080, withShape: 1080, withThickness: 1080 })
   }, 300_000)
 })
+
+// 문·창 생성(OE-BIM-05). 어느 벽에 뚫렸는지(IfcRelVoidsElement·IfcRelFillsElement)를 모르는 문·창은 R4 에서 빼지 않고 모수에 넣어
+// "일부" 로 센다. 병원 건축은 307개 중 5개가 호스트 벽을 모른다(2026-10-03).
+describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('호스트 벽을 모르는 문·창은 R4 일부로 센다', () => {
+  it('가진 건축 BIM 의 R4', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const r4 = (path: string) => {
+      const { model } = importIfcWithMeshes(api, new Uint8Array(readFileSync(path)))
+      const row = requirementsReport(model).find((r) => r.id === 'R4')!
+      return { state: row.state, counts: row.counts }
+    }
+    expect(r4(SAMPLE)).toEqual({ state: 'standard', counts: { standard: 16, elsewhere: 0, of: 16 } })
+    expect(r4(DUPLEX_ARCH)).toEqual({ state: 'standard', counts: { standard: 38, elsewhere: 0, of: 38 } })
+    expect(r4(CLINIC_ARCH)).toEqual({ state: 'partial', counts: { standard: 302, elsewhere: 0, of: 307 } })
+  }, 300_000)
+})
