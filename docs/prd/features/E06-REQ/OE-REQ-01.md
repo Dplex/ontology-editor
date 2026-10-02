@@ -4,10 +4,10 @@ epic: "E06"
 epic_title: "고객사 BIM 요구사항 · 검증"
 title: "요구사항 R0~R24 표"
 prd: "#6 요구사항, 1.8"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 status_note: "정본 / PRD ✔ v1.4"
 blocked_by: []
 depends: ["부록 A"]

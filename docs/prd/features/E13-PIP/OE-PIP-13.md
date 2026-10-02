@@ -4,10 +4,10 @@ epic: "E13"
 epic_title: "배관 · 계통 에디터"
 title: "14-B 좌표 조건"
 prd: "#14"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "IFC 세그먼트 ✔"
 blocked_by: []
 depends: []

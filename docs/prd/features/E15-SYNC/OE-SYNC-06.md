@@ -4,10 +4,10 @@ epic: "E15"
 epic_title: "온톨로지 Sync · 반영 결과 리포트"
 title: "편집 리포트 규칙"
 prd: "#20 #21"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-HIST"]
 jira: ""

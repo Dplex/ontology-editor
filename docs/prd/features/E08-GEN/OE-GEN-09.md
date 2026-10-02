@@ -4,10 +4,10 @@ epic: "E08"
 epic_title: "온톨로지 생성 · 내보내기 · 리포트"
 title: "리포트 저장·연계"
 prd: "#8"
-release: "R1.5"
+release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-WF-18"]
 jira: ""

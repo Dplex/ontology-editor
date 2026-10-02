@@ -4,10 +4,10 @@ epic: "E13"
 epic_title: "배관 · 계통 에디터"
 title: "14-B 수동 배관 그리기"
 prd: "#14"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "blocked"
+status: "prd-review"
 status_note: "D10"
 blocked_by: ["D10"]
 depends: ["D10"]

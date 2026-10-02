@@ -4,10 +4,10 @@ epic: "E06"
 epic_title: "고객사 BIM 요구사항 · 검증"
 title: "IDS 검사 파일"
 prd: "#6 요구사항, 1.8"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 status_note: "명세 36"
 blocked_by: []
 depends: []

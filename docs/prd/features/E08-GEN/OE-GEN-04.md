@@ -4,10 +4,10 @@ epic: "E08"
 epic_title: "온톨로지 생성 · 내보내기 · 리포트"
 title: "미확정 규칙 방향 제외"
 prd: "#8"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP-05"]
 jira: ""

@@ -5,10 +5,9 @@ epic_title: "온톨로지 Sync · 반영 결과 리포트"
 title: "공간 정보 자동 반영"
 prd: "#20 #21"
 release: "R1"
-release_note: "R1 운영 / R1.5 초기 구축"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "초기 구축 ✔"
 blocked_by: []
 depends: ["OE-WF-10"]

@@ -32,6 +32,8 @@ BIM(IFC4)으로 공간 온톨로지를 만들고 고치는 PoC. 부모 `~/git/dt
   `window.__viewer`(`element`·`part`·`point`)로 짚는다.
 - Status 선택지는 **웹 UI 에서만 고친다.** API(`updateProjectV2Field`)는 선택지를 통째로 갈아끼워 모든 카드의 상태 값을
   지운다(2026-10-02 임시 프로젝트로 실측).
+- 티켓 md(`docs/prd/features`)를 고치면 이슈 본문이 어긋난다 — `npm run board`(점검), `-- --apply`(반영). 사람이 로컬 `gh` 로 수동 실행하고
+  Status 는 건드리지 않는다. 자세히는 `docs/prd/README.md` "보드 동기화".
 
 ## 이 repo 에서 일하는 방식 (지난 세션에서 본 것)
 

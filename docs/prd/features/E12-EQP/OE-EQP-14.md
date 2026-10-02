@@ -4,10 +4,10 @@ epic: "E12"
 epic_title: "설비 배치 · 편집"
 title: "종류 지정"
 prd: "#13"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-14"]
 jira: ""

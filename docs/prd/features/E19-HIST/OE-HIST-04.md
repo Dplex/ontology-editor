@@ -4,10 +4,10 @@ epic: "E19"
 epic_title: "편집 이력 · 편집 파일"
 title: "브라우저 자동 저장"
 prd: "#26"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

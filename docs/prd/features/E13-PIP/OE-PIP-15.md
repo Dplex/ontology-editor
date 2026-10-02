@@ -4,10 +4,10 @@ epic: "E13"
 epic_title: "배관 · 계통 에디터"
 title: "14-C 층간 위임"
 prd: "#14"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-ML-12","OE-ML-13","OE-ML-14","OE-ML-15","OE-ML-16","OE-ML-17","OE-ML-18"]
 jira: ""

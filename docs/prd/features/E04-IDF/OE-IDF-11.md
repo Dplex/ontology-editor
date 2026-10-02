@@ -4,10 +4,10 @@ epic: "E04"
 epic_title: "초기 구축 — IDF 임포트"
 title: "IDF 검토 화면"
 prd: "#5"
-release: "R1.5"
+release: "R2"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-IDF-05"]
 jira: ""

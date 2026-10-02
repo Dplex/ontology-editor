@@ -4,10 +4,10 @@ epic: "E07"
 epic_title: "초기 구축 — 수동 구축"
 title: "층 단위 진행"
 prd: "#7"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-GEN-01"]
 jira: ""

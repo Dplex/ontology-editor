@@ -4,10 +4,10 @@ epic: "E05"
 epic_title: "초기 구축 — BIM 임포트 · 검토 화면"
 title: "계통·포트 읽기"
 prd: "#6"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: ["R16","R17"]
 jira: ""

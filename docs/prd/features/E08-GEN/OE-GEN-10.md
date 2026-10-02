@@ -4,10 +4,10 @@ epic: "E08"
 epic_title: "온톨로지 생성 · 내보내기 · 리포트"
 title: "DT 파서 호환"
 prd: "#8"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-INT-08"]
 jira: ""

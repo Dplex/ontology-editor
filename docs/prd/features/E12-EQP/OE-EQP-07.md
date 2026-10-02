@@ -4,10 +4,10 @@ epic: "E12"
 epic_title: "설비 배치 · 편집"
 title: "EL·ES 위임"
 prd: "#13"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-ML"]
 jira: ""

@@ -4,10 +4,10 @@ epic: "E04"
 epic_title: "초기 구축 — IDF 임포트"
 title: "존 바닥 조각 합침"
 prd: "#5"
-release: "R1.5"
+release: "R2"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

@@ -4,10 +4,10 @@ epic: "E05"
 epic_title: "초기 구축 — BIM 임포트 · 검토 화면"
 title: "임시 저장본 저장"
 prd: "#6"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "편집 파일"
 blocked_by: []
 depends: ["OE-WF-06"]

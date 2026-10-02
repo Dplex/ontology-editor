@@ -4,10 +4,10 @@ epic: "E01"
 epic_title: "공통 · 권한 · 편집 잠금"
 title: "층 단위 편집 잠금"
 prd: "#1 #2"
-release: "R1"
+release: "R2"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "prd-done"
 status_note: "저장 위치 미정"
 blocked_by: []
 depends: ["OE-INT-01"]

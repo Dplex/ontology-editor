@@ -4,10 +4,10 @@ epic: "E07"
 epic_title: "초기 구축 — 수동 구축"
 title: "외곽선 없는 방 그리기"
 prd: "#7"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-SPC-03"]
 jira: ""

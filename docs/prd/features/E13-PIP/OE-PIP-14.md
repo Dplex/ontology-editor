@@ -4,10 +4,10 @@ epic: "E13"
 epic_title: "배관 · 계통 에디터"
 title: "14-B 자동 배관 그리기(초기 모드)"
 prd: "#14"
-release: "R1.5"
+release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "blocked"
+status: "prd-review"
 blocked_by: ["D10"]
 depends: ["D10"]
 jira: ""

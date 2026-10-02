@@ -4,10 +4,10 @@ epic: "E13"
 epic_title: "배관 · 계통 에디터"
 title: "계통 이름 규칙"
 prd: "#14"
-release: "R1.5"
+release: "R1"
 priority: "P2"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

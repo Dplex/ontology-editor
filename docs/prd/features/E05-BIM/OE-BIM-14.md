@@ -4,10 +4,10 @@ epic: "E05"
 epic_title: "초기 구축 — BIM 임포트 · 검토 화면"
 title: "이름 사전 종류 판정"
 prd: "#6"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: ["R24","R14"]
 jira: ""

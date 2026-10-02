@@ -4,10 +4,10 @@ epic: "E17"
 epic_title: "외벽"
 title: "외벽 판정"
 prd: "#23"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

@@ -4,10 +4,10 @@ epic: "E10"
 epic_title: "공조 조닝"
 title: "자동 생성분 보정"
 prd: "#11"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-IDF-13"]
 jira: ""

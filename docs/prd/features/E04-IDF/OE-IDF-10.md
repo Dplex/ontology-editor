@@ -4,10 +4,10 @@ epic: "E04"
 epic_title: "초기 구축 — IDF 임포트"
 title: "벽 두께 적용 순서"
 prd: "#5"
-release: "R1.5"
+release: "R2"
 priority: "P2"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

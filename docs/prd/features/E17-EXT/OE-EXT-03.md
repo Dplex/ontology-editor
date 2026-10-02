@@ -4,10 +4,10 @@ epic: "E17"
 epic_title: "외벽"
 title: "외벽 에디터 연동"
 prd: "#23"
-release: "R2"
+release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

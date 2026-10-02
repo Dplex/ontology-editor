@@ -4,10 +4,10 @@ epic: "E18"
 epic_title: "다중층 에디터 · 수직 관통 오브젝트"
 title: "좌표 조건"
 prd: "#24 #25"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP-13"]
 jira: ""

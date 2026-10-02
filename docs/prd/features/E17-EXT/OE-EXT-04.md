@@ -4,10 +4,10 @@ epic: "E17"
 epic_title: "외벽"
 title: "외벽 부착 설비"
 prd: "#23"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-EQP-15"]
 jira: ""

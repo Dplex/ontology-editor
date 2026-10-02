@@ -4,10 +4,10 @@ epic: "E11"
 epic_title: "설비-물리존 재매핑 · 공조존 매핑"
 title: "개발 검토 메모"
 prd: "#12"
-release: "R1.5"
+release: "R1"
 priority: "P3"
 owner: "tbd"
-status: "blocked"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

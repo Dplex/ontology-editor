@@ -4,10 +4,10 @@ epic: "E01"
 epic_title: "공통 · 권한 · 편집 잠금"
 title: "잠금 해제 — 정상 종료"
 prd: "#1 #2"
-release: "R1"
+release: "R2"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "prd-done"
 blocked_by: []
 depends: ["OE-COM-05"]
 jira: ""

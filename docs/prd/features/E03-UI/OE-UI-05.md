@@ -7,7 +7,7 @@ prd: "#4"
 release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 status_note: "undo ✔ redo ✔"
 blocked_by: []
 depends: ["OE-HIST-01","OE-HIST-02"]

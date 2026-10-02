@@ -4,10 +4,10 @@ epic: "E10"
 epic_title: "공조 조닝"
 title: "용량 계산 계수 설정"
 prd: "#11"
-release: "R1.5"
+release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

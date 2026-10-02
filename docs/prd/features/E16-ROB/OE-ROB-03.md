@@ -7,7 +7,7 @@ prd: "#22"
 release: "R2"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 status_note: "데이터"
 blocked_by: []
 depends: ["OE-EQP-17"]

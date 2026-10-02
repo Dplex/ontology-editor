@@ -4,10 +4,10 @@ epic: "E05"
 epic_title: "초기 구축 — BIM 임포트 · 검토 화면"
 title: "공조존 생성 경로"
 prd: "#6"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "Case 2 ✗"
 blocked_by: []
 depends: ["OE-IDF","OE-ZON-01"]

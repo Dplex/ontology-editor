@@ -4,10 +4,10 @@ epic: "E08"
 epic_title: "온톨로지 생성 · 내보내기 · 리포트"
 title: "DT 3D Map 생성"
 prd: "#8"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "blocked"
+status: "prd-review"
 status_note: "D11"
 blocked_by: ["D11"]
 depends: ["OE-INT-01","D11"]

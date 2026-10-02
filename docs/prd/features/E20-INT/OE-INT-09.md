@@ -4,10 +4,10 @@ epic: "E20"
 epic_title: "DT 연동 · 저장 · ID"
 title: "요구조건 S1~S8"
 prd: "1.7"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

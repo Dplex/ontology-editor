@@ -4,10 +4,10 @@ epic: "E08"
 epic_title: "온톨로지 생성 · 내보내기 · 리포트"
 title: "생성 게이트"
 prd: "#8"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "blocked"
+status: "prd-review"
 status_note: "D1"
 blocked_by: ["D1"]
 depends: ["D1","OE-BIM-21"]

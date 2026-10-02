@@ -4,10 +4,10 @@ epic: "E07"
 epic_title: "초기 구축 — 수동 구축"
 title: "공조존 수동"
 prd: "#7"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-ZON-01"]
 jira: ""

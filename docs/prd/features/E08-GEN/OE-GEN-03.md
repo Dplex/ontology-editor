@@ -4,10 +4,10 @@ epic: "E08"
 epic_title: "온톨로지 생성 · 내보내기 · 리포트"
 title: "생성 전 검증"
 prd: "#8"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "Z 통합 ✗"
 blocked_by: []
 depends: ["OE-ZON-05","OE-BIM-18"]

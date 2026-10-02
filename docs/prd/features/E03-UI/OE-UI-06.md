@@ -4,10 +4,10 @@ epic: "E03"
 epic_title: "진입점 · 화면 구성 · 편집 도구"
 title: "스냅"
 prd: "#4"
-release: "R1.5"
+release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "unknown"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

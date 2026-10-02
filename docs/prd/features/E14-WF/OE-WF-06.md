@@ -4,10 +4,10 @@ epic: "E14"
 epic_title: "편집 워크플로우"
 title: "임포트 결과 = 임시 저장본"
 prd: "#15 #16 #17 #18 #19"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 blocked_by: []
 depends: []
 jira: ""

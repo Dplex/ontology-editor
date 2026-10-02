@@ -4,10 +4,10 @@ epic: "E05"
 epic_title: "초기 구축 — BIM 임포트 · 검토 화면"
 title: "좌표 정합 경고"
 prd: "#6"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 status_note: "BIM 간 ✔, 스캔 대조 ✗"
 blocked_by: []
 depends: ["R7","P4"]

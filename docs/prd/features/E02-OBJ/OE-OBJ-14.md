@@ -4,10 +4,10 @@ epic: "E02"
 epic_title: "편집 오브젝트 정의 및 분류"
 title: "수직 관통 오브젝트"
 prd: "#3"
-release: "R1.5"
-priority: "P1"
+release: "R1"
+priority: "P2"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-ML-02"]
 jira: ""
@@ -17,7 +17,9 @@ jira: ""
 
 ## 요구사항
 
-EL·ES·계단·샤프트를 물리존이 아닌 별도 분류로. 전 층 공통 평면 위치, 관통 구간, 슬래브 개구부, 로봇 통과 여부
+수직 관통 오브젝트 = EL·ES·계단·샤프트 
+수직 관통 오브젝트는 1층에서의 편집이 아니라 해당 오브젝트가 속한 모든 층을 표시하고 편집 진행할 수 있어야 한다. 
+
 
 ## 수용 기준
 

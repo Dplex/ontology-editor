@@ -6,12 +6,14 @@ import { describe, expect, it } from 'vitest'
 //
 // 1. 색인이 티켓과 어긋나는 것 — Epic README 와 PRD_011.md 3장은 티켓 머리 필드를 베낀 파생 정보다.
 // 2. 유령 참조 — 의존 열이 가리키는 티켓·결정·요구사항이 없는 것. 원문에서 #25 를 가리키는데 행이 없던 일이 있다.
-// 3. 어휘가 범례 밖으로 새는 것 — 상태·주체·릴리즈는 Jira 라벨과 같은 말을 써야 집계가 된다.
+// 3. 어휘가 범례 밖으로 새는 것 — 상태·주체·릴리즈는 보드 이슈 라벨과 같은 말을 써야 집계가 된다.
 // 4. 판본 표시가 다시 들어오는 것 — `[v1.4]` 는 git 이력이 대신한다.
 
 const dir = (rel: string) => fileURLToPath(new URL(rel, import.meta.url))
 const PRD = dir('../../docs/prd/')
-const read = (rel: string) => readFileSync(PRD + rel, 'utf8')
+// Windows 의 autocrlf 가 작업 사본을 CRLF 로 바꿔 두므로 줄바꿈을 LF 로 맞춰 읽는다.
+const lf = (s: string) => s.replace(/\r\n/g, '\n')
+const read = (rel: string) => lf(readFileSync(PRD + rel, 'utf8'))
 
 type Ticket = { file: string; folder: string; fm: Record<string, unknown>; body: string }
 
@@ -58,7 +60,7 @@ const ids = new Set(all.map((t) => t.fm.id as string))
 const prefixes = new Set(all.map((t) => (t.fm.id as string).split('-')[1]))
 const prd = read('PRD_011.md')
 const questions = read('questions.md')
-const canon = readFileSync(dir('../../docs/bim-to-dt-ontology.md'), 'utf8')
+const canon = lf(readFileSync(dir('../../docs/bim-to-dt-ontology.md'), 'utf8'))
 
 const firstCells = (text: string, re: RegExp) => new Set([...text.matchAll(re)].map((m) => m[1]))
 const rIds = new Set([...firstCells(canon, /^\| (R\d+) \|/gm), ...firstCells(prd, /^\| (R\d+) \|/gm)])
@@ -67,9 +69,9 @@ const sIds = firstCells(prd, /^\| (S\d+) \|/gm)
 const issueIds = firstCells(questions, /^\| ((?:D|Q|U|P)[-A-Za-z0-9]*) \|/gm)
 const CHAPTERS = new Set(['1.8', '부록 A', '부록 B', '부록 C'])
 
-const STATUS = ['poc-done', 'poc-partial', 'todo', 'blocked', 'srcn-unknown', 'unknown', 'dropped']
+const STATUS = ['prd-done', 'prd-review']
 const OWNER = ['ontology-editor', 'srcn', 'tbd']
-const RELEASE = ['R1', 'R1.5', 'R2']
+const RELEASE = ['R1', 'R2']
 const PRIORITY = ['P1', 'P2', 'P3']
 
 describe('티켓 파일', () => {
@@ -94,7 +96,6 @@ describe('티켓 파일', () => {
       expect(RELEASE, `${t.file} release`).toContain(fm.release)
       expect(PRIORITY, `${t.file} priority`).toContain(fm.priority)
       expect(Array.isArray(fm.blocked_by) && Array.isArray(fm.depends), `${t.file} 목록 필드`).toBe(true)
-      if (fm.status === 'dropped') expect(fm.status_note, `${t.file} 폐기 이유`).toBeTruthy()
     }
   })
 
@@ -156,6 +157,22 @@ describe('색인', () => {
         expect([title, rel, pri, status, jira], `${folder}/README.md ${t.fm.id}`).toEqual([t.fm.title, t.fm.release, t.fm.priority, t.fm.status, t.fm.jira])
       }
       expect(readme, `${folder}/README.md 제목`).toContain(`# ${folder.split('-')[0]} ${mine[0].fm.epic_title}`)
+    }
+  })
+
+  it('PRD_011.md 3장의 Epic 별 티켓 목록이 폴더의 티켓과 같다', () => {
+    for (const folder of new Set(all.map((t) => t.folder))) {
+      const rows = new Map(
+        [...prd.matchAll(/^\| \[(OE-[A-Z0-9]+-\d+)\]\(features\/([A-Z0-9-]+)\/\1\.md\) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \|$/gm)]
+          .filter((m) => m[2] === folder)
+          .map((m) => [m[1], m.slice(3)]),
+      )
+      const mine = all.filter((t) => t.folder === folder)
+      expect([...rows.keys()].sort(), folder).toEqual(mine.map((t) => t.fm.id as string).sort())
+      for (const t of mine) {
+        const [title, rel, pri, status, jira] = rows.get(t.fm.id as string)!
+        expect([title, rel, pri, status, jira], `PRD_011.md ${t.fm.id}`).toEqual([t.fm.title, t.fm.release, t.fm.priority, t.fm.status, t.fm.jira])
+      }
     }
   })
 

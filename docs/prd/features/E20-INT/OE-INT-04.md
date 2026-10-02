@@ -4,10 +4,10 @@ epic: "E20"
 epic_title: "DT 연동 · 저장 · ID"
 title: "좌표계·단위"
 prd: "1.7"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "ontology-editor"
-status: "poc-done"
+status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-11","OE-BIM-22"]
 jira: ""

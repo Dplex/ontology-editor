@@ -4,10 +4,10 @@ epic: "E09"
 epic_title: "공간 편집"
 title: "방 종류 사전·일괄 수정"
 prd: "#9 #10"
-release: "R1.5"
+release: "R1"
 priority: "P2"
 owner: "ontology-editor"
-status: "poc-partial"
+status: "prd-review"
 blocked_by: []
 depends: ["R14"]
 jira: ""

@@ -4,10 +4,10 @@ epic: "E18"
 epic_title: "다중층 에디터 · 수직 관통 오브젝트"
 title: "경로 추적"
 prd: "#24 #25"
-release: "R1.5"
+release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 status_note: "평면 내는 ✔"
 blocked_by: []
 depends: []

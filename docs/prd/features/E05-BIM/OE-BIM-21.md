@@ -4,10 +4,10 @@ epic: "E05"
 epic_title: "초기 구축 — BIM 임포트 · 검토 화면"
 title: "수용 기준선 판정"
 prd: "#6"
-release: "R1.5"
+release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "blocked"
+status: "prd-review"
 status_note: "D1"
 blocked_by: ["D1"]
 depends: ["D1","D12","OE-GEN-02"]

@@ -4,10 +4,10 @@ epic: "E07"
 epic_title: "초기 구축 — 수동 구축"
 title: "평면도 배경 이미지"
 prd: "#7"
-release: "R1.5"
+release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "todo"
+status: "prd-review"
 status_note: "검토 필요"
 blocked_by: []
 depends: []
