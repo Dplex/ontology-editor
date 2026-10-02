@@ -114,6 +114,7 @@ import {
   type Snapshot,
 } from './lib/edit'
 import { MERGE_GAP } from './lib/polygon'
+import { judgeExternal } from './lib/exterior'
 import { allowedSurfaces, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
@@ -3234,6 +3235,16 @@ watch(selectedElementId, (id) => {
   selectedId.value = null
   selectedSpaceId.value = null
 })
+/**
+ * 고른 벽·문·창이 있는 층의 외벽 판정(OE-EXT-01). BIM 이 말한 것은 그대로, 안 말한 벽은 건물 바깥에 닿는지로 계산한다.
+ * 벽을 옮기면 다시 센다(sceneVersion) — 모델에 저장하지 않는 값이다.
+ */
+const selectedExternal = computed(() => {
+  void sceneVersion.value
+  const storey = selectedElement.value?.storey
+  return storey ? judgeExternal(storey) : null
+})
+const externalOf = (wallId: string | null | undefined) => (wallId ? selectedExternal.value?.get(wallId) ?? null : null)
 const elementLabel = (kind: 'wall' | 'door' | 'window') => (kind === 'wall' ? '벽' : kind === 'door' ? '문' : '창')
 const nameOfSpace = (id: string) => spaceNameOf(id)
 
@@ -3364,11 +3375,6 @@ function applyWallLength(wall: Wall, raw: string) {
   const storey = selectedElement.value?.storey
   if (!storey || raw.trim() === '' || !Number.isFinite(value)) return
   changeElements(storey.id, `${wall.name || '벽'} 길이 ${value.toFixed(2)}m`, (m) => setWallLength(m, wall.id, value))
-}
-
-/** 문·창이 뚫린 벽. */
-function hostWallOf(o: Opening): Wall | null {
-  return selectedElement.value?.storey.walls.find((w) => w.id === o.wallId) ?? null
 }
 
 /** 문·창 가로·세로(OE-OBJ-07). */
@@ -5299,13 +5305,16 @@ async function export3D(format: 'glb' | 'obj') {
                 {{ selectedElement.storey.name }}
                 <template v-if="selectedElement.wall">
                   · 두께 {{ selectedElement.wall.thickness !== null ? `${selectedElement.wall.thickness.toFixed(2)}m` : '모름' }}
-                  <!-- 외벽·내벽(IsExternal). 모르면 적지 않는다 — 내벽으로 보이면 아니오처럼 읽힌다. -->
-                  <template v-if="selectedElement.wall.external != null">
-                    · {{ selectedElement.wall.external ? '외벽' : '내벽' }} <Src kind="bim" />
+                  <!-- 외벽·내벽(OE-EXT-01). BIM(IsExternal)이 말하지 않으면 건물 바깥에 닿는지로 계산하고 출처를 가른다.
+                       외곽선이 없어 계산도 못 하면 적지 않는다 — 내벽으로 보이면 아니오처럼 읽힌다. -->
+                  <template v-if="externalOf(selectedElement.wall.id)">
+                    · <span data-testid="wall-external">{{ externalOf(selectedElement.wall.id)!.external ? '외벽' : '내벽' }}</span>
+                    <Src :kind="externalOf(selectedElement.wall.id)!.source" />
                   </template>
                 </template>
-                <template v-if="selectedElement.opening && hostWallOf(selectedElement.opening)?.external != null">
-                  · {{ hostWallOf(selectedElement.opening)!.external ? '외벽' : '내벽' }}에 뚫림 <Src kind="bim" />
+                <template v-if="selectedElement.opening && externalOf(selectedElement.opening.wallId)">
+                  · {{ externalOf(selectedElement.opening.wallId)!.external ? '외벽' : '내벽' }}에 뚫림
+                  <Src :kind="externalOf(selectedElement.opening.wallId)!.source" />
                 </template>
               </p>
             </div>

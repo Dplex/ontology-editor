@@ -51,7 +51,8 @@ describe('GeoJSON', () => {
     const features = storeyToGeoJSON(storey).features
     const wall = features.find((f) => f.id === 'w1')!
     expect(wall.geometry?.type).toBe('Polygon')
-    expect(wall.properties).toMatchObject({ kind: 'wall', loadBearing: null, external: null, thickness: 0.2, passable: false })
+    // IsExternal 이 없어 건물 바깥에 닿는지로 계산한다(OE-EXT-01). 방 둘의 아래 변을 따라 놓인 벽이라 외벽이다.
+    expect(wall.properties).toMatchObject({ kind: 'wall', loadBearing: null, external: true, externalSource: 'calc', thickness: 0.2, passable: false })
     const door = features.find((f) => f.id === 'd1')!
     expect(door.geometry).toEqual({ type: 'Point', coordinates: [2, 0.1, 0] })
     expect(door.properties).toMatchObject({ kind: 'door', connects: [a.id, b.id], connectsSource: 'calc', passable: true })

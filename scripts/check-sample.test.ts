@@ -26,6 +26,7 @@ import type { Model } from '../src/lib/model'
 import { readIdf } from '../src/lib/idf/read'
 import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
 import { overlapArea } from '../src/lib/polygon'
+import { computeExternal } from '../src/lib/exterior'
 import { baselineOf, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, type WallCarryPlan } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
@@ -1493,5 +1494,37 @@ describe.skipIf(!existsSync(SAMSUNG_IDF))('IDF 공조존 (삼성, DesignBuilder)
     expect(again.report).toMatchObject({ spaces: 180, spacesInZones: 180, straddling: 0, partial: 0, byPoint: 0 })
     const shares = again.model.hvac!.zones.flatMap((z) => Object.values(z.spaceShares ?? {}))
     expect(Math.min(...shares)).toBeGreaterThan(0.999)
+  })
+})
+
+// 외벽 판정(OE-EXT-01). IsExternal 이 없는 벽은 건물 바깥에 닿는지로 계산한다. Revit 은 벽마다 IsExternal 을 적으니
+// 그것을 가리고 계산만으로 맞혀 본다(computeExternal). ArchiCAD(AC20)는 값이 없어 이름(Wand-Ext·Wand-Int)이 정답이다.
+// 2026-10-03 실측: AC20 13/13, Duplex 건축 50/57, 병원 건축 1,020/1,080. 틀린 것은 대부분 원본 쪽 사정이다 —
+// Duplex 는 세대 경계벽(Party Wall)을 외벽으로 적었고 기초벽 셋을 외벽으로 적었다. 병원은 커튼월(IfcCurtainWall 31)을 우리가
+// 벽으로 읽지 않아 그 안쪽 칸막이가 바깥에 드러나고, 지붕층·2층에 건물 밖으로 그려진 공간이 바깥을 막는다.
+describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('외벽 판정을 BIM 의 IsExternal 에 대 본다', () => {
+  it('계산만으로 맞힌 비율이 기준값 아래로 떨어지지 않는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const score = (path: string, truth: (w: Model['storeys'][number]['walls'][number]) => boolean | null | undefined) => {
+      const { model } = importIfcWithMeshes(api, new Uint8Array(readFileSync(path)))
+      let agreed = 0, total = 0
+      for (const storey of model.storeys) {
+        const calc = computeExternal(storey)
+        for (const wall of storey.walls) {
+          const t = truth(wall)
+          const c = calc.get(wall.id)
+          if (t == null || c == null) continue
+          total++
+          if (t === c) agreed++
+        }
+      }
+      return { agreed, total }
+    }
+    expect(score(SAMPLE, (w) => (/Ext/.test(w.name) ? true : /Int/.test(w.name) ? false : null))).toEqual({ agreed: 13, total: 13 })
+    expect(score(DUPLEX_ARCH, (w) => w.external)).toEqual({ agreed: 50, total: 57 })
+    const clinic = score(CLINIC_ARCH, (w) => w.external)
+    expect(clinic.total).toBe(1080)
+    expect(clinic.agreed).toBeGreaterThanOrEqual(1020)
   })
 })

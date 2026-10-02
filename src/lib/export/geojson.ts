@@ -8,6 +8,7 @@
 import { capacityQuantity } from '../capacity'
 import type { Equipment, HvacZone, Model, Opening, Space, Storey, Wall } from '../model'
 import { verticalLinks } from '../vertical'
+import { judgeExternal, type ExternalJudgement } from '../exterior'
 
 export type Geometry =
   | { type: 'Polygon'; coordinates: number[][][] }
@@ -81,7 +82,7 @@ function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
 // 3D Map 과 로봇 경로가 쓰는 기하 층이다. 문의 `connects` 는 TTL 주어인 물리존 id 를 가리키므로, 방-문-방
 // 그래프는 두 파일을 id 로 잇는 원칙 안에서 선다.
 
-function wallFeature(wall: Wall, storey: Storey): Feature {
+function wallFeature(wall: Wall, storey: Storey, external: ExternalJudgement | undefined): Feature {
   const rings = (wall.footprint ?? []).map((r) => r.map((p) => [p[0], p[1]]))
   return {
     type: 'Feature',
@@ -101,8 +102,10 @@ function wallFeature(wall: Wall, storey: Storey): Feature {
       thickness: wall.thickness,
       // null 은 "모름" 이다. false 와 섞지 않는다.
       loadBearing: wall.loadBearing,
-      // 외벽 여부(Pset_WallCommon.IsExternal). null 은 모름이다(OE-OBJ-07).
-      external: wall.external ?? null,
+      // 외벽 여부(OE-EXT-01). BIM(Pset_WallCommon.IsExternal)이 말하지 않으면 건물 바깥에 닿는지로 계산하고,
+      // 어느 쪽인지 externalSource 에 적는다('bim'·'calc'). 외곽선이 없어 계산도 못 하면 둘 다 null(모름)이다.
+      external: external?.external ?? null,
+      externalSource: external?.source ?? null,
       // 로봇이 지나갈 수 없다(OE-OBJ-05). 문·창의 passable 과 같은 열쇠로 둬서 읽는 쪽이 한 열쇠로 막힌 곳을 고른다.
       passable: false,
     },
@@ -155,12 +158,13 @@ export function storeyToGeoJSON(
   zones: readonly HvacZone[] = [],
   vertical: ReadonlyMap<string, string[]> = new Map(),
 ): FeatureCollection {
+  const external = judgeExternal(storey)
   return {
     type: 'FeatureCollection',
     features: [
       ...storey.spaces.map((s) => spaceFeature(s, storey, vertical.get(s.id))),
       ...storey.equipment.map((e) => equipmentFeature(e, storey)),
-      ...storey.walls.map((w) => wallFeature(w, storey)),
+      ...storey.walls.map((w) => wallFeature(w, storey, external.get(w.id))),
       ...storey.openings.map((o) => openingFeature(o, storey)),
       ...zones.filter((z) => z.storeyId === storey.id).map((z) => hvacZoneFeature(z, storey)),
     ],
