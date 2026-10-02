@@ -1562,3 +1562,26 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH) || !existsSync(C
     expect(footing.every((h) => h !== null && h !== undefined && h > 1 && h <= 1.25)).toBe(true)
   }, 300_000)
 })
+
+// 벽 생성(OE-BIM-04). IfcWall 이 위치(평면 외곽선)와 두께를 가진 GeoJSON 벽 feature 로 나간다. 외곽선은 형상의 맨 아래 면,
+// 두께는 재료층 합이다(element-geometry.ts, import.ts). 슬래브는 읽지 않는다 — 3D Map 은 물리존 판 + 벽이다.
+describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽이 위치·두께를 가진 GeoJSON 으로 나간다', () => {
+  it('가진 건축 BIM 의 벽이 전부 외곽선과 두께를 갖는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const walls = (path: string) => {
+      const { model } = importIfcWithMeshes(api, new Uint8Array(readFileSync(path)))
+      const features = modelToGeoJSON(model).flatMap((f) => f.collection.features).filter((f) => f.properties.kind === 'wall')
+      return {
+        walls: countOf(model).walls,
+        features: features.length,
+        withShape: features.filter((f) => f.geometry && ['Polygon', 'MultiPolygon'].includes(f.geometry.type)).length,
+        withThickness: features.filter((f) => typeof f.properties.thickness === 'number' && f.properties.thickness > 0).length,
+      }
+    }
+    // 2026-10-03 실측. 하나라도 빠지면 형상·재료층을 못 읽게 된 것이다.
+    expect(walls(SAMPLE)).toEqual({ walls: 13, features: 13, withShape: 13, withThickness: 13 })
+    expect(walls(DUPLEX_ARCH)).toEqual({ walls: 57, features: 57, withShape: 57, withThickness: 57 })
+    expect(walls(CLINIC_ARCH)).toEqual({ walls: 1080, features: 1080, withShape: 1080, withThickness: 1080 })
+  }, 300_000)
+})
