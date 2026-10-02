@@ -33,7 +33,9 @@ jobs:
 
       - name: 보드 점검 (쓰지 않음)
         env:
-          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          # 55 의 gh(2.46)는 엔터프라이즈 호스트에서 GH_TOKEN 을 안 보고 GH_ENTERPRISE_TOKEN 만 본다. 안 주면 55 에 저장된
+          # 사람 로그인으로 돈다(project 범위가 없어 보드를 못 읽는다).
+          GH_ENTERPRISE_TOKEN: ${{ secrets.PROJECT_TOKEN }}
           GH_HOST: github.sec.samsung.net
         run: |
           export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"
