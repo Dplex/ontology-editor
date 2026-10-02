@@ -21,6 +21,8 @@ BIM(IFC4)으로 공간 온톨로지를 만들고 고치는 PoC. 부모 `~/git/dt
 - 칸반: <https://github.sec.samsung.net/orgs/IoT-Solution/projects/1> (Projects v2, `gh project … --owner IoT-Solution`)
 - `gh api` 는 기본 호스트가 github.com 이다. **`GH_HOST=github.sec.samsung.net`** 을 붙인다(안 붙이면 404·rate limit 이 난다).
 - 끝낸 일은 이슈를 닫고 칸반 상태를 Done 으로 옮긴다. 화면 기능이면 스샷을 붙인다.
+- 티켓 md(`docs/prd/features`)를 고치면 이슈 본문이 어긋난다 — `npm run board`(점검), `-- --apply`(반영). 사람이 로컬 `gh` 로 수동 실행하고
+  Status 는 건드리지 않는다. 자세히는 `docs/prd/README.md` "보드 동기화".
 
 ## 지금 어디까지 왔나
 
