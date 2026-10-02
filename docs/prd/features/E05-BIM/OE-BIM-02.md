@@ -18,6 +18,7 @@ jira: ""
 ## 요구사항
 
 IfcBuildingStorey → 층. 이름·높이
+층고는 Elevation 의 차이로 계산하고, 층 높이 속성(GrossHeight·NetHeight, COBie Storey Height)이 있으면 함께 읽는다. 값이 없으면 지어내지 않는다.
 
 ## 수용 기준
 
