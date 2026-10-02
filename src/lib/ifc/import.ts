@@ -850,11 +850,19 @@ class Reader {
    * null 로 남기고, 호출부가 "모름" 으로 다룬다.
    */
   loadBearingByElement(): Map<number, boolean> {
+    return this.flagByElement('LoadBearing')
+  }
+
+  /**
+   * 참·거짓 속성(IfcBoolean) 하나를 요소마다 모은다. 없는 요소는 Map 에 없다 — 호출부가 "모름" 으로 둔다.
+   * 벽의 LoadBearing(내력)·IsExternal(외벽)이 같은 모양이다(Pset_WallCommon).
+   */
+  flagByElement(name: string): Map<number, boolean> {
     const out = new Map<number, boolean>()
     for (const { objects, psetID } of this.propertyRels()) {
       if (psetID === null) continue
       for (const prop of this.psetProps(psetID)) {
-        if (prop.name !== 'LoadBearing') continue
+        if (prop.name !== name) continue
         const v = prop.nominal
         // IFCBOOLEAN 은 참일 때 true 또는 'T' 로 온다. 내보낸 도구마다 다르다.
         const flag = v === true || v === 'T' || v === '.T.'
@@ -1065,6 +1073,7 @@ function read(
     ]
     stage(1)
     const loadBearing = r.loadBearingByElement()
+    const external = r.flagByElement('IsExternal')
     const capacity = r.capacityByElement()
     const declaredTypeOf = r.declaredType(api)
     const omniclass = r.omniclassBySpace()
@@ -1264,6 +1273,7 @@ function read(
               id,
               name,
               loadBearing: loadBearing.get(elementID) ?? null,
+              external: external.get(elementID) ?? null,
               thickness: thickness.get(elementID) ?? null,
             })
             break

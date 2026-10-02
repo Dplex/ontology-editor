@@ -588,7 +588,14 @@ export type Snapshot =
       walls: Wall[]
       wallFields: { wall: Wall; footprint: Vec2[][] | undefined; loadBearing: boolean | null }[]
       openings: Opening[]
-      openingFields: { opening: Opening; position: Vec3 | null | undefined; connects: string[] | undefined; connectsSource: Opening['connectsSource'] }[]
+      openingFields: {
+        opening: Opening
+        position: Vec3 | null | undefined
+        connects: string[] | undefined
+        connectsSource: Opening['connectsSource']
+        width: number | null
+        height: number | null
+      }[]
       boundedBy: { space: Space; boundedBy: string[] }[]
     }
 
@@ -833,6 +840,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
         else delete f.opening.connects
         if (f.connectsSource) f.opening.connectsSource = f.connectsSource
         else delete f.opening.connectsSource
+        f.opening.width = f.width
+        f.opening.height = f.height
       }
       for (const b of snapshot.boundedBy) b.space.boundedBy = [...b.boundedBy]
       return null
@@ -991,7 +1000,7 @@ export type Baseline = {
   keys?: Map<string, Fingerprint>
   /** 벽·문·창(E4). 옮기고·지우고·더한 것을 이것과 견준다. */
   walls?: Map<string, { storeyId: string; name: string; footprint: Vec2[][] | undefined; loadBearing: boolean | null }>
-  openings?: Map<string, { storeyId: string; name: string; kind: Opening['kind']; position: Vec3 | null | undefined; wallId: string | null }>
+  openings?: Map<string, { storeyId: string; name: string; kind: Opening['kind']; position: Vec3 | null | undefined; wallId: string | null; width?: number | null; height?: number | null }>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
@@ -1016,6 +1025,8 @@ export function baselineOf(model: Model): Baseline {
         kind: o.kind,
         position: o.position ? [o.position[0], o.position[1], o.position[2]] : o.position,
         wallId: o.wallId,
+        width: o.width,
+        height: o.height,
       })
     }
     for (const e of storey.equipment) {
@@ -1063,7 +1074,8 @@ export type BaselineDiff = {
   wallsChanged: { id: string; name: string; moved: boolean; loadBearing: { from: boolean | null; to: boolean | null } | null }[]
   openingsAdded: { id: string; name: string; kind: Opening['kind'] }[]
   openingsRemoved: { id: string; name: string; kind: Opening['kind'] }[]
-  openingsMoved: { id: string; name: string; kind: Opening['kind'] }[]
+  /** 옮기거나(`moved`) 크기를 바꾼(`resized`, OE-OBJ-07) 문·창. */
+  openingsMoved: { id: string; name: string; kind: Opening['kind']; moved: boolean; resized: boolean }[]
   /** 계통을 바꾼 설비(E8). 계통 id 다. */
   systemMoved: { id: string; name: string; from: string | null; to: string | null }[]
   /** 사람이 만든 계통과 없어진 계통(E8). */
@@ -1204,9 +1216,10 @@ function diffElements(model: Model, baseline: Baseline) {
       }
       const a = was.position
       const b = o.position
-      if ((a == null) !== (b == null) || (a && b && (Math.abs(a[0] - b[0]) > 1e-9 || Math.abs(a[1] - b[1]) > 1e-9))) {
-        out.openingsMoved.push({ id: o.id, name: o.name, kind: o.kind })
-      }
+      const moved = (a == null) !== (b == null) || (!!a && !!b && (Math.abs(a[0] - b[0]) > 1e-9 || Math.abs(a[1] - b[1]) > 1e-9))
+      const differs = (x: number | null | undefined, y: number | null | undefined) => (x ?? null) !== (y ?? null) && !(x != null && y != null && Math.abs(x - y) < 1e-9)
+      const resized = differs(was.width, o.width) || differs(was.height, o.height)
+      if (moved || resized) out.openingsMoved.push({ id: o.id, name: o.name, kind: o.kind, moved, resized })
     }
   }
   for (const [id, was] of baseline.walls) if (!wallsNow.has(id)) out.wallsRemoved.push({ id, name: was.name })
@@ -1893,6 +1906,41 @@ export function deleteOpening(model: Model, openingId: string, opts: LockOptions
   return true
 }
 
+/** 문·창 크기로 받는 범위(미터). 이 밖은 오타로 본다. */
+export const OPENING_SIZE = { min: 0.1, max: 10 } as const
+
+/**
+ * 문·창 가로·세로를 바꾼다(OE-OBJ-07). 자리(가운데)는 그대로다. 값이 없는 쪽은 건드리지 않는다. 직사각형 벽에 뚫린 것이면 넓힌
+ * 가로가 벽 끝을 넘지 않아야 한다. 내력벽에 뚫린 것은 잠겨 있다(OE-OBJ-06).
+ */
+export function setOpeningSize(
+  model: Model,
+  openingId: string,
+  size: { width?: number; height?: number },
+  opts: LockOptions = {},
+): boolean | { refused: string } {
+  const found = findOpening(model, openingId)
+  if (!found) return false
+  const { storey, opening: o } = found
+  if (!opts.ignoreLock && openingLocked(storey, o)) return { refused: WALL_LOCKED }
+  const bad = [size.width, size.height].some((v) => v !== undefined && !(v >= OPENING_SIZE.min && v <= OPENING_SIZE.max))
+  if (bad) return { refused: `문·창 크기는 ${OPENING_SIZE.min}m ~ ${OPENING_SIZE.max}m 로 넣습니다.` }
+  const width = size.width ?? o.width
+  const height = size.height ?? o.height
+  if (width === o.width && height === o.height) return false
+  const wall = storey.walls.find((w) => w.id === o.wallId)
+  const len = wall && wallLength(wall)
+  if (!opts.ignoreLock && wall && len != null && width != null && o.position) {
+    const axis = wallAxis(wall.footprint!)!
+    const u: Vec2 = [(axis.b[0] - axis.a[0]) / len, (axis.b[1] - axis.a[1]) / len]
+    const t = (o.position[0] - axis.a[0]) * u[0] + (o.position[1] - axis.a[1]) * u[1]
+    if (t - width / 2 < -1e-6 || t + width / 2 > len + 1e-6) return { refused: `가로 ${width.toFixed(2)}m 는 벽 끝을 넘습니다(벽 ${len.toFixed(2)}m).` }
+  }
+  o.width = width
+  o.height = height
+  return true
+}
+
 /** 문·창을 벽에 붙일 수 있는 거리(미터). 벽 외곽선에서 이만큼 안이어야 그 벽의 문·창이다. */
 export const OPENING_SNAP = 0.6
 
@@ -1982,6 +2030,9 @@ export function snapshotStoreyElements(model: Model, storeyId: string): Snapshot
       position: opening.position ? [opening.position[0], opening.position[1], opening.position[2]] : opening.position,
       connects: opening.connects ? [...opening.connects] : undefined,
       connectsSource: opening.connectsSource,
+      // 크기(OE-OBJ-07)는 제자리에서 고친다. 떠 두지 않으면 되돌려도 고친 크기가 남는다(성수 퍼징이 잡았다).
+      width: opening.width,
+      height: opening.height,
     })),
     boundedBy: storey.spaces.map((space) => ({ space, boundedBy: [...space.boundedBy] })),
   }

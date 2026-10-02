@@ -1298,6 +1298,7 @@ th {
 .kind-edit,
 .system-edit,
 .position-edit,
+.opening-size,
 .storey-move {
   display: flex;
   flex-wrap: wrap;
@@ -2139,13 +2140,15 @@ kbd {
   margin-left: 0;
 }
 
-.position-edit label {
+.position-edit label,
+.opening-size label {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
 }
 
-.position-edit .coord {
+.position-edit .coord,
+.opening-size .coord {
   width: 6rem;
 }
 
@@ -2404,7 +2407,8 @@ main.has-model .catalog {
   flex-wrap: wrap;
 }
 
-.side .position-edit .coord {
+.side .position-edit .coord,
+.side .opening-size .coord {
   width: 5.75rem;
 }
 

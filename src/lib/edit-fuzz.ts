@@ -39,6 +39,7 @@ export const FUZZ_OPS = [
   'addOpening',
   'moveOpening',
   'deleteOpening',
+  'resizeOpening',
   'equipmentSystem',
   'systemKind',
   'createSystem',
@@ -290,6 +291,15 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       if (!done || 'refused' in done) continue
       undo.push(snapshot)
       log.push(`addOpening ${done.kind} on ${wall.name}`)
+    } else if (op === 'resizeOpening') {
+      const storey = pick(m.storeys.filter((s) => s.openings.length))
+      const o = storey && pick(storey.openings)
+      if (!storey || !o) continue
+      const snapshot = E.snapshotStoreyElements(m, storey.id)!
+      const done = E.setOpeningSize(m, o.id, r() < 0.5 ? { width: 0.6 + Math.round(r() * 10) / 10 } : { height: 1 + Math.round(r() * 10) / 10 })
+      if (done !== true) continue
+      undo.push(snapshot)
+      log.push(`resizeOpening ${o.name}`)
     } else if (op === 'moveOpening' || op === 'deleteOpening') {
       const storey = pick(m.storeys.filter((s) => s.openings.length))
       const o = storey && pick(op === 'moveOpening' ? storey.openings.filter((x) => x.position) : storey.openings)

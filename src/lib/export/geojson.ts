@@ -101,6 +101,8 @@ function wallFeature(wall: Wall, storey: Storey): Feature {
       thickness: wall.thickness,
       // null 은 "모름" 이다. false 와 섞지 않는다.
       loadBearing: wall.loadBearing,
+      // 외벽 여부(Pset_WallCommon.IsExternal). null 은 모름이다(OE-OBJ-07).
+      external: wall.external ?? null,
       // 로봇이 지나갈 수 없다(OE-OBJ-05). 문·창의 passable 과 같은 열쇠로 둬서 읽는 쪽이 한 열쇠로 막힌 곳을 고른다.
       passable: false,
     },

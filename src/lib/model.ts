@@ -73,6 +73,11 @@ export type Wall = {
    */
   loadBearing: boolean | null
   /**
+   * 외벽 여부(Pset_WallCommon.IsExternal). `null`·없음은 "모름" 이다 — 내력과 같은 까닭으로 false 와 섞지 않는다.
+   * 외벽의 개구부는 창, 내벽의 개구부는 문으로 가른다(OE-OBJ-07). 에디터가 그은 벽은 모름으로 시작한다.
+   */
+  external?: boolean | null
+  /**
    * 평면 외곽선(고리 여럿일 수 있다). 형상의 맨 아래 면에서 읽는다(`element-geometry.ts`). 형상을 읽지 않는
    * 임포트(`importIfc`)나 아래 면이 없는 벽이면 비어 있다. GeoJSON 에만 나가고 TTL 에는 들어가지 않는다.
    */
