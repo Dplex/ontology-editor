@@ -67,6 +67,10 @@ BIM(IFC4)으로 공간 온톨로지를 만들고 고치는 PoC. 부모 `~/git/dt
     Done 이슈에 붙은 것은 손으로 떼지 않는다 — 후속 이슈가 생기고, 그 PR 이 merge 될 때 kanban.yml 이 뗀다.
     후속 이슈는 템플릿(원 이슈 수정 이력의 이전 문구 + 지금 요구사항·수용 기준)이고 제목 끝에 `(OE-XXX-nn)` 를 붙이지 않는다
     (sync-board 가 제목 끝 ID 로 짝지어서 둘이 되면 엉뚱한 이슈를 고친다). 그래서 `npm run board` 의 "제목 끝에 티켓 ID 가 없는 항목" 에 뜬다
+- **최근에 무엇이 바뀌었나는 [🔔 최근 변화](https://github.sec.samsung.net/orgs/IoT-Solution/projects/1/views/7) 뷰에서 본다.**
+  `.github/workflows/activity.yml` 이 라벨 붙임·뗌·댓글·제목/본문 수정·생성을 카드의 `🔔 최근 변화` 텍스트 칸에
+  `2026-10-02 14:03 +needs-pm (누구)` 로 적고, 뷰가 그 칸을 내림차순으로 정렬한다(Projects 에는 수정 시각 필드가 없다).
+  카드 상태 이동은 안 잡힌다. 이 칸도 손으로 고치지 않는다.
 
 ## 이 repo 에서 일하는 방식 (지난 세션에서 본 것)
 

@@ -1,0 +1,80 @@
+name: Activity
+
+# 이슈에 무엇이 바뀌었는지를 칸반 카드의 `🔔 최근 변화` 텍스트 칸에 적는다. 프로젝트 뷰 "🔔 최근 변화" 가 이 칸을 내림차순으로
+# 정렬해서 위에서부터 최근에 바뀐 이슈가 보인다(Projects 에는 수정 시각으로 정렬하는 필드가 없다).
+#   라벨 붙음·뗌     → "2026-10-02 14:03 +needs-pm (heerok)" · "… −rejected (heerok)"
+#   댓글            → "… 💬 댓글 (heerok)"
+#   제목·본문 고침   → "… ✏️ 본문 (heerok)"
+#   이슈 생성        → "… 🆕 생성 (heerok)"
+# 값이 시각(KST)으로 시작해서 글자 순 정렬이 곧 시간 순이다. 2분 안에 이어진 변화는 한 칸에 이어 붙인다 — 보드 동기화
+# (`npm run board -- --apply`)가 본문을 고치고 modified 를 붙이면 "✏️ 본문 · +modified" 처럼 한 줄이 된다.
+# 카드 상태(Status) 이동은 여기 안 잡힌다 — 프로젝트 이벤트는 Actions 를 깨우지 않는다.
+# 처음 붙일 때 비어 있던 칸은 이슈 타임라인으로 한 번 채웠다.
+on:
+  issues:
+    types: [opened, edited, labeled, unlabeled]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: activity-${{ github.event.issue.number }}
+
+jobs:
+  note:
+    if: ${{ !github.event.issue.pull_request }}
+    runs-on: [self-hosted, dt-dev]
+    timeout-minutes: 3
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const ORG = 'IoT-Solution'
+            const PROJECT_NUMBER = 1
+            const FIELD = '🔔 최근 변화'
+            const MERGE_MS = 2 * 60 * 1000
+            const ev = context.payload
+            const who = ev.sender?.login ?? '?'
+
+            let what
+            if (context.eventName === 'issue_comment') what = '💬 댓글'
+            else if (ev.action === 'opened') what = '🆕 생성'
+            else if (ev.action === 'labeled') what = `+${ev.label?.name}`
+            else if (ev.action === 'unlabeled') what = `−${ev.label?.name}`
+            else what = ev.changes?.title && !ev.changes?.body ? '✏️ 제목' : '✏️ 본문'
+
+            const now = new Date()
+            // "2026-10-02 14:03" (KST)
+            const stamp = d => new Date(d.getTime() + 9 * 3600e3).toISOString().slice(0, 16).replace('T', ' ')
+
+            const project = (await github.graphql(`
+              query($org: String!, $n: Int!) { organization(login: $org) { projectV2(number: $n) {
+                id field(name: "${FIELD}") { ... on ProjectV2Field { id } } } } }`,
+              { org: ORG, n: PROJECT_NUMBER })).organization.projectV2
+            if (!project.field) return core.warning(`프로젝트에 ${FIELD} 칸이 없다`)
+
+            const { owner, repo } = context.repo
+            const issue = (await github.graphql(`
+              query($owner: String!, $repo: String!, $n: Int!) { repository(owner: $owner, name: $repo) { issue(number: $n) {
+                projectItems(first: 20) { nodes { id project { id }
+                  note: fieldValueByName(name: "${FIELD}") { ... on ProjectV2ItemFieldTextValue { text } } } } } } }`,
+              { owner, repo, n: ev.issue.number })).repository.issue
+            const item = issue?.projectItems.nodes.find(i => i.project.id === project.id)
+            if (!item) return core.info(`#${ev.issue.number} 은 프로젝트에 없다`)
+
+            // 앞선 값이 2분 안이면 이어 붙인다. 같은 사람이 아니면 사람을 따로 적는다.
+            const prev = /^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}) (.*?) \(([^)]+)\)$/.exec(item.note?.text ?? '')
+            const prevAt = prev && new Date(`${prev[1].replace(' ', 'T')}:00+09:00`)
+            let body = `${what} (${who})`
+            if (prev && now - prevAt < MERGE_MS && !prev[2].split(' · ').includes(what)) {
+              body = prev[3] === who ? `${prev[2]} · ${what} (${who})` : `${prev[2]} (${prev[3]}) · ${what} (${who})`
+            }
+            const text = `${stamp(now)} ${body}`.slice(0, 200)
+
+            await github.graphql(`mutation($p: ID!, $i: ID!, $f: ID!, $t: String!) { updateProjectV2ItemFieldValue(input:
+              {projectId: $p, itemId: $i, fieldId: $f, value: {text: $t}}) { clientMutationId } }`,
+              { p: project.id, i: item.id, f: project.field.id, t: text })
+            core.info(`#${ev.issue.number} ${text}`)
