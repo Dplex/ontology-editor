@@ -301,6 +301,14 @@ th {
   cursor: help;
 }
 
+/* 8084 에 저장된 편집이 있는 파일(OE-COM-08). 열면 얹어서 보인다. */
+.catalog .saved-chip {
+  margin-right: 0.5rem;
+  color: var(--accent);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
 /* 등급 칩. 색은 액센트 하나와 경고색만 쓴다 — 다 참(액센트), 일부(경고), 없음(회색). */
 .tiers {
   display: flex;
