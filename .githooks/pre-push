@@ -1,0 +1,25 @@
+#!/bin/sh
+# push 하려는 커밋이 PRD 문서를 건드렸으면 prd.test.ts 를 먼저 돌리고, 어긋나면 push 를 막는다.
+# .github/workflows/prd-check.yml 과 같은 검사다 — runner 없이도 로컬에서 자동으로 돈다.
+# 켜는 법(한 번만): git config core.hooksPath .githooks   /   급하게 건너뛰기: git push --no-verify
+ZERO=0000000000000000000000000000000000000000
+WATCH='^(docs/prd/|docs/bim-to-dt-ontology\.md$|src/lib/prd\.test\.ts$)'
+
+touched=""
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ "$local_sha" = "$ZERO" ] && continue
+  if [ "$remote_sha" = "$ZERO" ]; then base=$(git merge-base "$local_sha" origin/main 2>/dev/null); else base=$remote_sha; fi
+  if [ -n "$base" ] && git cat-file -e "$base" 2>/dev/null; then
+    git diff --name-only "$base" "$local_sha" | grep -qE "$WATCH" && touched=1
+  else
+    touched=1
+  fi
+done
+
+[ -z "$touched" ] && exit 0
+
+echo "[pre-push] docs/prd 변경이 있어 prd.test.ts 를 돌린다"
+if ! npx vitest run src/lib/prd.test.ts; then
+  echo "[pre-push] prd.test.ts 실패 — 티켓 머리 필드·Epic README·PRD_011.md 표가 어긋났다. 고친 뒤 다시 push 한다."
+  exit 1
+fi
