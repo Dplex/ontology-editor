@@ -1,0 +1,123 @@
+name: Kanban
+
+# PR·라벨이 움직이면 칸반 카드(이슈)를 따라 옮긴다. Todo → In Progress 는 사람이 옮긴다.
+#   PR 열림(draft 아님)·다시 열림·Ready for review → In Review, rejected 라벨을 뗀다
+#   PR merge                                       → Done (이슈는 본문의 Closes #n 으로 GitHub 가 닫는다)
+#   PR 을 merge 없이 Close                          → 이슈에 rejected 를 붙이고 In Progress
+#   누가 이슈에 rejected 를 붙임                      → In Progress
+# 카드는 이슈다. PR 과 이슈는 PR 본문의 closes/fixes/resolves #n 으로 잇는다.
+# 코드를 체크아웃하지 않는다 — API 만 부른다.
+#
+# 조직 프로젝트는 기본 GITHUB_TOKEN 으로 못 고친다. `project`·`repo` 범위 토큰을 시크릿 PROJECT_TOKEN 으로 둔다.
+# 그 토큰으로 붙인 라벨은 issues:labeled 를 다시 깨우지만, 그 실행도 In Progress 로 옮길 뿐이라 결과가 같다.
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, closed]
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kanban-${{ github.event.pull_request.number || github.event.issue.number }}
+
+jobs:
+  move:
+    if: github.event_name == 'pull_request' || github.event.label.name == 'rejected'
+    runs-on: [self-hosted, dt-dev]
+    timeout-minutes: 5
+    steps:
+      - name: runner
+        run: echo "$(hostname) $(whoami) $RUNNER_NAME"
+
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const ORG = 'IoT-Solution'
+            const PROJECT_NUMBER = 1
+            const STATUS = { inProgress: '🚧 In Progress', inReview: '👀 In Review', done: '✅ Done' }
+            // CLAUDE.md "라벨은 왜 멈췄나": 라벨이 여럿이면 이 순서로 하나만 🏷️ 라벨 칸에 들어간다
+            const LABEL_ORDER = ['rejected', 'modified', 'needs-pm', 'blocked', 'needs-dev', 'enhancement']
+            const { owner, repo } = context.repo
+            const ev = context.payload
+
+            const project = (await github.graphql(`
+              query($org: String!, $n: Int!) { organization(login: $org) { projectV2(number: $n) {
+                id fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } } } } } }`,
+              { org: ORG, n: PROJECT_NUMBER })).organization.projectV2
+            const field = name => project.fields.nodes.find(f => f.name === name)
+            const statusField = field('Status')
+            const labelField = field('🏷️ 라벨')
+
+            async function itemFor(number) {
+              const issue = (await github.graphql(`
+                query($owner: String!, $repo: String!, $n: Int!) { repository(owner: $owner, name: $repo) { issue(number: $n) {
+                  id labels(first: 50) { nodes { name } } projectItems(first: 20) { nodes { id project { id } } } } } }`,
+                { owner, repo, n: number })).repository.issue
+              if (!issue) return null
+              let item = issue.projectItems.nodes.find(i => i.project.id === project.id)
+              if (!item) {
+                item = (await github.graphql(`mutation($p: ID!, $c: ID!) { addProjectV2ItemById(input: {projectId: $p, contentId: $c}) { item { id } } }`,
+                  { p: project.id, c: issue.id })).addProjectV2ItemById.item
+                core.info(`#${number} 을 프로젝트에 넣었다`)
+              }
+              return item
+            }
+
+            async function setSelect(itemId, f, optionName) {
+              if (!f) return
+              const opt = optionName && f.options.find(o => o.name === optionName)
+              if (opt) {
+                await github.graphql(`mutation($p: ID!, $i: ID!, $f: ID!, $o: String!) { updateProjectV2ItemFieldValue(input:
+                  {projectId: $p, itemId: $i, fieldId: $f, value: {singleSelectOptionId: $o}}) { clientMutationId } }`,
+                  { p: project.id, i: itemId, f: f.id, o: opt.id })
+              } else {
+                await github.graphql(`mutation($p: ID!, $i: ID!, $f: ID!) { clearProjectV2ItemFieldValue(input:
+                  {projectId: $p, itemId: $i, fieldId: $f}) { clientMutationId } }`,
+                  { p: project.id, i: itemId, f: f.id })
+              }
+            }
+
+            // 라벨을 바꾼 뒤 🏷️ 라벨 칸을 지금 라벨에 맞춘다
+            async function syncLabelField(number, itemId) {
+              const { data } = await github.rest.issues.listLabelsOnIssue({ owner, repo, issue_number: number })
+              const names = data.map(l => l.name)
+              await setSelect(itemId, labelField, LABEL_ORDER.find(l => names.includes(l)) ?? null)
+            }
+
+            async function move(number, status, label) {
+              const item = await itemFor(number)
+              if (!item) return core.warning(`#${number} 이슈가 아니다(PR 이거나 없다)`)
+              if (label === 'add') {
+                await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: ['rejected'] })
+              } else if (label === 'remove') {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: 'rejected' }).catch(e => {
+                  if (e.status !== 404) throw e
+                })
+              }
+              await setSelect(item.id, statusField, status)
+              await syncLabelField(number, item.id)
+              core.info(`#${number} → ${status}${label ? ` (rejected ${label})` : ''}`)
+            }
+
+            if (context.eventName === 'issues') {
+              if (ev.issue.pull_request) return
+              return move(ev.issue.number, STATUS.inProgress)
+            }
+
+            const pr = ev.pull_request
+            const refs = /(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)/gi
+            const issues = [...new Set([...(pr.body ?? '').matchAll(refs)].map(m => Number(m[1])))]
+            if (!issues.length) return core.notice(`PR #${pr.number} 본문에 Closes #n 이 없어 옮길 카드가 없다`)
+
+            let status, label
+            if (ev.action === 'closed') {
+              ;[status, label] = pr.merged ? [STATUS.done] : [STATUS.inProgress, 'add']
+            } else if (pr.draft) {
+              return core.info(`PR #${pr.number} 은 draft 라 옮기지 않는다`)
+            } else {
+              ;[status, label] = [STATUS.inReview, 'remove']
+            }
+            for (const n of issues) await move(n, status, label)
