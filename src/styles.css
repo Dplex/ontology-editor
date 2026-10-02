@@ -359,6 +359,30 @@ th {
   margin-top: 1.25rem;
 }
 
+/* 미배치 목록(OE-BIM-07). 한 줄에 이름 · 층·종류 · [3D에서 놓기]. */
+.review .unplaced {
+  margin-top: 1.25rem;
+}
+
+.unplaced-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9rem;
+}
+
+.unplaced-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.25rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.unplaced-list .ghost {
+  margin-left: auto;
+}
+
 .req-table td {
   vertical-align: top;
 }

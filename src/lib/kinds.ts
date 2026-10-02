@@ -240,6 +240,8 @@ const IFC_CLASS_LABEL: Record<string, string> = {
   Lamp: '조명',
   Outlet: '콘센트',
   SwitchingDevice: '스위치',
+  // 분전반 안의 차단기·퓨즈. ifc4Mep 의 F1~F13 이 배치점 없이 들어온다(미배치 목록, OE-BIM-07).
+  ProtectiveDevice: '보호기(차단기·퓨즈)',
   ElectricAppliance: '전기 기기',
   SanitaryTerminal: '위생기구',
   WasteTerminal: '배수구',

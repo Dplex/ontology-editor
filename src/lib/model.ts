@@ -437,6 +437,14 @@ export function polygonArea(ring: readonly Vec2[]): number {
   return Math.abs(sum) / 2
 }
 
+/**
+ * 미배치 목록(OE-BIM-07). BIM 에 좌표가 없어 3D·평면에 그려지지 않는 설비와 그 층. 층은 BIM 이 말한 것이라 놓을 바닥을
+ * 정할 수 있다. 사람이 놓으면(E6) 좌표가 생겨 빠지고, 좌표 없이 더한 설비는 들어온다. 개수는 `countOf().unplacedEquipment` 와 같다.
+ */
+export function unplacedOf(model: Model): { equipment: Equipment; storey: Storey }[] {
+  return model.storeys.flatMap((storey) => storey.equipment.filter((e) => e.position === null).map((equipment) => ({ equipment, storey })))
+}
+
 /** 층·공간·벽 개수를 한 번에 센다. 검토 화면과 테스트가 같은 값을 본다. */
 export function countOf(model: Model) {
   const sum = (f: (s: Storey) => number) => model.storeys.reduce((n, s) => n + f(s), 0)

@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc, importIfcWithMeshes, readMeshes, UnreadableIfcError } from '../src/lib/ifc/import'
 import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-geometry'
 import { profileOf } from '../src/lib/profile'
-import { countOf, isConduit, polygonArea, type Vec2 } from '../src/lib/model'
+import { countOf, isConduit, polygonArea, unplacedOf, type Vec2 } from '../src/lib/model'
 import { assignEquipment, assignEquipmentToSpaces, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
@@ -1600,5 +1600,33 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH) || !existsSync(C
     expect(r4(SAMPLE)).toEqual({ state: 'standard', counts: { standard: 16, elsewhere: 0, of: 16 } })
     expect(r4(DUPLEX_ARCH)).toEqual({ state: 'standard', counts: { standard: 38, elsewhere: 0, of: 38 } })
     expect(r4(CLINIC_ARCH)).toEqual({ state: 'partial', counts: { standard: 302, elsewhere: 0, of: 307 } })
+  }, 300_000)
+})
+
+describe.skipIf(!existsSync(MEP))('좌표 없는 설비는 미배치 목록 (ifc4Mep)', () => {
+  it('28대가 층과 함께 목록에 들고, TTL 에는 층까지만·GeoJSON 에는 형상 없이 나간다', async () => {
+    // OE-BIM-07. 방이 없는 설비 파일이라 완전성 검사 "기기마다 소속 방" 은 건너뛴다 — 미배치는 이 목록만 말한다.
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfc(api, new Uint8Array(readFileSync(MEP)))
+    const list = unplacedOf(model)
+    expect(list).toHaveLength(28)
+    expect(list).toHaveLength(countOf(model).unplacedEquipment)
+    // 분전반 안의 보호기(퓨즈 F1~F13, 두 층에 11개씩)와 이름 없는 배관 토막 6개. 보호기는 회로(IfcDistributionCircuit)에 들어
+    // 있지만 배치점이 없다 — 반 안의 부품이라 따로 놓지 않은 것이다.
+    const byClass = new Map<string, number>()
+    for (const u of list) byClass.set(u.equipment.ifcClass, (byClass.get(u.equipment.ifcClass) ?? 0) + 1)
+    expect(Object.fromEntries(byClass)).toEqual({ ProtectiveDevice: 22, FlowSegment: 6 })
+    expect(new Set(list.map((u) => u.storey.name))).toEqual(new Set(['00. Begane grond', '01. verdieping']))
+
+    const ttl = modelToTTL(model)
+    const features = new Map(modelToGeoJSON(model).flatMap((f) => f.collection.features).map((f) => [f.id, f]))
+    for (const { equipment, storey } of list) {
+      const head = `ex:${escapeLocalName(equipment.id)} a `
+      const at = ttl.indexOf(head)
+      expect(at).toBeGreaterThan(-1)
+      expect(ttl.slice(at, ttl.indexOf(' .\n', at))).toContain(`brick:hasLocation ex:${escapeLocalName(storey.id)} ;`)
+      expect(features.get(equipment.id)?.geometry).toBe(null)
+    }
   }, 300_000)
 })

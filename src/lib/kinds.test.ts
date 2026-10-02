@@ -298,6 +298,7 @@ describe('IFC 클래스의 우리말', () => {
     // IFC2x3 의 추상 클래스와 PredefinedType 이 붙은 값도 받는다.
     expect(ifcClassLabel('FlowSegment')).toBe('덕트·배관')
     expect(ifcClassLabel('AirTerminal.DIFFUSER')).toBe('공기 말단')
+    expect(ifcClassLabel('ProtectiveDevice')).toBe('보호기(차단기·퓨즈)')
     // 모르는 클래스는 지어 부르지 않는다.
     expect(ifcClassLabel('SomethingElse')).toBeNull()
     expect(ifcClassLabel(null)).toBeNull()

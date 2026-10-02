@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch, type Directive } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
-import { countOf, isConduit, polygonArea, type Connection, type Equipment, type Model, type Opening, type Vec2, type Vec3, type Wall } from './lib/model'
+import { countOf, isConduit, polygonArea, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Vec2, type Vec3, type Wall } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile'
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
@@ -4492,6 +4492,20 @@ watch([model, flowVersion, versionStat], () => {
 
 const warnings = computed(() => [...(model.value?.warnings ?? []), ...(unlocatedLine.value ? [unlocatedLine.value] : [])])
 
+// 미배치 목록(OE-BIM-07). BIM 에 좌표가 없어 3D·평면에 그려지지 않는 설비. 임포트 경고는 연 때의 수만 말하고, 이 목록은
+// 놓을 때마다 줄어든다. 설비 표의 빈 좌표 칸으로는 수천 행 사이에서 찾을 수 없었고, 완전성 검사는 방이 없는 파일에서
+// 건너뛴다(ifc4Mep 28대). 많으면 앞의 UNPLACED_SHOWN 대만 그린다.
+const unplaced = computed(() => (model.value ? unplacedOf(model.value) : []))
+const UNPLACED_SHOWN = 200
+/** 목록에서 바로 놓는다. 편집 모드로 들어가 고르고, 다른 층만 보고 있었다면 설비의 층으로 바꾼 뒤 바닥을 누르게 한다. */
+function placeFromList(id: string) {
+  if (!editing.value) mode.value = 'edit'
+  selectAndShow(id)
+  const home = storeyOf(id)
+  if (home && viewStorey.value && viewStorey.value !== home.id) viewStorey.value = home.id
+  startPlace(id)
+}
+
 const REQUIREMENT_STATE: Record<RequirementState, string> = {
   standard: '표준 자리',
   elsewhere: '다른 자리',
@@ -6072,6 +6086,20 @@ async function export3D(format: 'glb' | 'obj') {
         <ul v-if="warnings.length" id="warnings" class="warnings">
           <li v-for="w in warnings" :key="w">{{ w }}</li>
         </ul>
+
+        <!-- 미배치 목록(OE-BIM-07). 좌표가 없어 3D 에 없는 설비. 층은 BIM 이 말한 것이고, TTL 에는 그 층까지만 나간다. -->
+        <Fold v-if="unplaced.length" title="미배치 설비" :meta="`${unplaced.length.toLocaleString()}대 — 좌표가 없어 3D에 없습니다`" :default-open="unplaced.length <= 30" class="unplaced">
+          <ul class="unplaced-list">
+            <li v-for="u in unplaced.slice(0, UNPLACED_SHOWN)" :key="u.equipment.id">
+              <button type="button" class="link" @click="selectAndShow(u.equipment.id)">{{ u.equipment.name ? shortName(u.equipment.name) : '(이름 없음)' }}</button>
+              <span class="muted">{{ u.storey.name }} · {{ whatIs(u.equipment)?.label ?? ifcClassLabel(u.equipment.ifcClass) ?? u.equipment.ifcClass }}</span>
+              <button type="button" :class="['ghost', 'place', { on: placing === u.equipment.id }]" @click="placing === u.equipment.id ? stopPlace() : placeFromList(u.equipment.id)">
+                {{ placing === u.equipment.id ? '놓기 취소' : '3D에서 놓기' }}
+              </button>
+            </li>
+          </ul>
+          <p v-if="unplaced.length > UNPLACED_SHOWN" class="muted">외 {{ (unplaced.length - UNPLACED_SHOWN).toLocaleString() }}대 — 설비 표에서 좌표 칸이 빈 것입니다</p>
+        </Fold>
 
         <!-- 고객사 BIM 요구사항(정본 4장)에 대 본 것. IDS 와 달리 "다른 자리에 있다(우리는 읽는다)"를 따로 센다. -->
         <Fold v-if="currentRequirements.length" title="요구사항" :meta="requirementsMeta" :default-open="false" class="requirements">
