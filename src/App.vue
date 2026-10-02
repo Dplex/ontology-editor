@@ -4732,7 +4732,7 @@ async function export3D(format: 'glb' | 'obj') {
       <div class="title">
         <div>
           <h1>ontology-editor</h1>
-          <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다.</p>
+          <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다. 내보낸 TTL·GeoJSON 은 <a href="./viewer.html">내보낸 파일 보기</a>에서 다시 열어 봅니다.</p>
         </div>
         <button type="button" class="theme" :aria-pressed="dark" @click="toggleTheme">
           {{ dark ? '라이트' : '다크' }}

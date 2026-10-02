@@ -37,7 +37,12 @@ export default defineConfig(({ mode }) => ({
   // 절대 경로(`/assets/...`)로 빌드하면 그때 자산이 전부 404 가 되어 화면이 흰 채로 뜬다.
   base: './',
 
-  build: { outDir: 'dist', emptyOutDir: true },
+  // 페이지가 둘이다. 에디터(index.html)와 내보낸 파일 뷰어(viewer.html — 에디터가 낸 TTL·GeoJSON 을 받는 쪽 규칙으로 다시 읽는다).
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    rollupOptions: { input: { main: resolve('index.html'), viewer: resolve('viewer.html') } },
+  },
 
   // vitest 는 src 의 순수 로직만 본다. e2e/ 는 Playwright 것이라 여기서 걸러내지 않으면
   // vitest 가 브라우저 API 를 못 찾고 깨진다. scripts/ 에서는 문서 챗봇(ADR-0001)만 — 나머지(seongsu 등)는
