@@ -133,6 +133,14 @@ jobs:
               gh pr comment "$n" -R "$GITHUB_REPOSITORY" --body "$body" >/dev/null
             fi
           done
+          # 판에서 빠진 PR(draft·충돌·앱 파일 안 고침)에 남은 옛 주소 코멘트는 지운다 — 들어간 것처럼 보이지 않게
+          for n in $(gh pr list -R "$GITHUB_REPOSITORY" --state open --author "$REVIEW_AUTHOR" --json number --jq '.[].number'); do
+            [[ " ${{ steps.merge.outputs.included }} " == *" $n "* ]] && continue
+            for id in $(gh api "repos/$GITHUB_REPOSITORY/issues/$n/comments" --paginate \
+                --jq '.[] | select(.body | startswith("<!-- review55 -->")) | .id'); do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$id"
+            done
+          done
 
       - name: 실패 알림
         if: failure() && github.event_name == 'pull_request' && github.event.pull_request.user.login == env.REVIEW_AUTHOR
