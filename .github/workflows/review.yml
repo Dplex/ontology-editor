@@ -1,0 +1,150 @@
+name: Review
+
+# 검토 판을 55 의 8087 에 띄운다. 8084(main 판)는 그대로다.
+# `review` 브랜치를 main + (앱을 고친 열린 PR)로 매번 새로 만든다 → 테스트 → 8087 재시작 → 강제 push → PR 에 주소 코멘트.
+#
+# - 넣는 PR: draft 가 아니고, 포크가 아니고, 번들에 들어가는 파일(APP_PATHS)을 하나라도 고친 것. 문서만 고친 PR(기획 PRD 수정 등)은 뺀다.
+# - 코멘트는 REVIEW_AUTHOR 가 연 PR 에만 단다(검토 주소, 충돌 알림 둘 다).
+# - `review` 는 버리는 브랜치다. 그 커밋을 main 으로 옮기지 않는다. main 에 들어가는 단위는 PR 이다.
+# - 다른 PR 과 부딪히는 PR 은 빼고 나머지로 만든다(main 에서도 부딪힌다는 뜻).
+# - 들어간 PR·브랜치·이슈는 8087 화면에서 Alt+Shift+R 로 본다. 앱 코드가 아니라 배포 때 dist/ 에 끼워 넣는 것이라
+#   main 판(8084)에는 없다(scripts/review-info.js).
+# - 넣을 PR·main 이 지난번과 같으면 다시 띄우지 않는다. 문서 PR 이 움직일 때마다 8087 이 재시작되지 않게.
+# - 칸반 카드는 kanban.yml 이 옮긴다.
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, converted_to_draft, synchronize, closed]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# 한 번에 하나만. 도는 중에 새 일이 오면 끝난 뒤 한 번 더 돈다(매번 열린 PR 목록을 새로 읽으니 하나면 된다).
+concurrency:
+  group: review
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  REVIEW_URL: http://10.251.35.55:8087/
+  REVIEW_AUTHOR: heerok-jung
+  APP_PATHS: '^(src/|public/|index\.html$|package(-lock)?\.json$|vite\.config\.ts$|tsconfig)'
+
+jobs:
+  review:
+    # 포크 PR 이벤트는 받지 않는다. 포크가 이 파일을 고쳐 오면 이 조건도 바뀌니, 막는 것은 저장소의 "포크 PR 승인 후 실행" 설정이다.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, dt-dev]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: review 브랜치 만들기
+        id: merge
+        run: |
+          export GH_HOST="${GITHUB_SERVER_URL#https://}"
+          git config user.name 'review-bot'
+          git config user.email 'review-bot@users.noreply.github.sec.samsung.net'
+          git checkout -q -B review origin/main
+
+          # closes/fixes/resolves #n 으로 잇는 이슈를 같이 뽑는다(kanban.yml 과 같은 규칙)
+          gh pr list -R "$GITHUB_REPOSITORY" --base main --state open --limit 100 \
+            --json number,title,isDraft,isCrossRepository,headRefName,headRefOid,author,body,files \
+            | jq --arg re "$APP_PATHS" '[.[]
+                | select(.isDraft | not) | select(.isCrossRepository | not)
+                | select(any(.files[].path; test($re)))
+                | {number, title, branch: .headRefName, head: .headRefOid, author: .author.login,
+                   issues: [(.body // "") | scan("(?i)(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]+#([0-9]+)")[0] | tonumber] | unique}]
+              | sort_by(.number)' > "$RUNNER_TEMP/prs.json"
+
+          comment() {  # 번호 본문 — REVIEW_AUTHOR 의 PR 에만 단다
+            [[ "$(jq -r --argjson n "$1" '.[] | select(.number == $n) | .author' "$RUNNER_TEMP/prs.json")" == "$REVIEW_AUTHOR" ]] || return 0
+            gh pr comment "$1" -R "$GITHUB_REPOSITORY" --body "$2" >/dev/null
+          }
+
+          included=()
+          for n in $(jq -r '.[].number' "$RUNNER_TEMP/prs.json"); do
+            branch=$(jq -r --argjson n "$n" '.[] | select(.number == $n) | .branch' "$RUNNER_TEMP/prs.json")
+            git fetch -q origin "pull/$n/head"
+            if git merge -q --no-ff --no-edit -m "review: #$n $branch" FETCH_HEAD; then
+              included+=("$n")
+            else
+              files=$(git diff --name-only --diff-filter=U | sed 's/^/`/; s/$/`/' | paste -sd ' ')
+              git merge --abort
+              with=main; for i in "${included[@]}"; do with+=" + #$i"; done
+              comment "$n" "⚠️ 검토 판(\`review\`)에 못 넣었다 — $with 위에 합치다 충돌: $files. 이 PR 을 main 에 맞춰 고치거나 앞 PR 이 main 에 들어간 뒤 다시 올린다."
+            fi
+          done
+
+          sha=$(git rev-parse HEAD)
+          inc=$(printf '%s\n' "${included[@]}" | jq -R 'select(length > 0) | tonumber' | jq -s .)
+          # 8087 에서 Alt+Shift+R 로 보는 정보
+          jq --argjson inc "$inc" --arg sha "$sha" --arg main "$(git rev-parse origin/main)" \
+             --arg built "$(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')" --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+             '{review: $sha, main: $main, built: $built, run: $run,
+               prs: [.[] | select(.number as $n | $inc | index($n)) | del(.head)],
+               skipped: [.[] | select(.number as $n | $inc | index($n) | not) | .number]}' \
+             "$RUNNER_TEMP/prs.json" > "$RUNNER_TEMP/review-info.json"
+          # 지난번과 같은 판인지 가리는 열쇠: main + 넣은 PR 의 head
+          key=$(jq -r --argjson inc "$inc" '[.[] | select(.number as $n | $inc | index($n)) | "\(.number):\(.head)"] | join(",")' "$RUNNER_TEMP/prs.json")
+          echo "key=$(git rev-parse origin/main) $key" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "included=${included[*]}" >> "$GITHUB_OUTPUT"
+          echo "### review = main + ${included[*]:-(없음)}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 55 검토 트리에 받아 테스트하고 8087 재시작
+        id: deploy
+        env:
+          # 러너는 잡이 끝나면 잡이 띄운 프로세스를 죽인다. 서버는 살아 있어야 하니 추적에서 뺀다.
+          RUNNER_TRACKING_ID: ''
+          REVIEW_KEY: ${{ steps.merge.outputs.key }}
+          REVIEW_INFO: ${{ runner.temp }}/review-info.json
+        run: bash scripts/review55.sh "$GITHUB_WORKSPACE" review
+
+      - name: review 강제 push
+        if: steps.deploy.outputs.skipped != '1'
+        run: git push -q --force origin review
+
+      - name: PR 에 검토 주소 코멘트
+        if: steps.deploy.outputs.skipped != '1'
+        run: |
+          export GH_HOST="${GITHUB_SERVER_URL#https://}"
+          sha='${{ steps.merge.outputs.sha }}'
+          list=$(for n in ${{ steps.merge.outputs.included }}; do printf '#%s ' "$n"; done)
+          for n in ${{ steps.merge.outputs.included }}; do
+            [[ "$(jq -r --argjson n "$n" '.[] | select(.number == $n) | .author' "$RUNNER_TEMP/prs.json")" == "$REVIEW_AUTHOR" ]] || continue
+            body="<!-- review55 -->
+          🔎 **검토 판이 떴다:** $REVIEW_URL
+
+          - \`review\` = main + ${list}(\`${sha:0:7}\`, $(TZ=Asia/Seoul date '+%m-%d %H:%M'))
+          - 8087 하나에 위 PR 이 같이 들어가 있다. 무엇이 들어갔는지는 화면에서 **Alt+Shift+R**
+          - [실행 로그]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
+            id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$n/comments" --paginate \
+              --jq '[.[] | select(.body | startswith("<!-- review55 -->"))][0].id // empty')
+            if [[ -n "$id" ]]; then
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -f body="$body" >/dev/null
+            else
+              gh pr comment "$n" -R "$GITHUB_REPOSITORY" --body "$body" >/dev/null
+            fi
+          done
+          # 판에서 빠진 PR(draft·충돌·앱 파일 안 고침)에 남은 옛 주소 코멘트는 지운다 — 들어간 것처럼 보이지 않게
+          for n in $(gh pr list -R "$GITHUB_REPOSITORY" --state open --author "$REVIEW_AUTHOR" --json number --jq '.[].number'); do
+            [[ " ${{ steps.merge.outputs.included }} " == *" $n "* ]] && continue
+            for id in $(gh api "repos/$GITHUB_REPOSITORY/issues/$n/comments" --paginate \
+                --jq '.[] | select(.body | startswith("<!-- review55 -->")) | .id'); do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$id"
+            done
+          done
+
+      - name: 실패 알림
+        if: failure() && github.event_name == 'pull_request' && github.event.pull_request.user.login == env.REVIEW_AUTHOR
+        run: |
+          export GH_HOST="${GITHUB_SERVER_URL#https://}"
+          gh pr comment ${{ github.event.pull_request.number }} -R "$GITHUB_REPOSITORY" --body \
+            "❌ 검토 판을 못 띄웠다(테스트나 빌드 실패). 8087 은 이전 판 그대로이고 \`review\` 브랜치도 그대로다. [실행 로그]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)"
