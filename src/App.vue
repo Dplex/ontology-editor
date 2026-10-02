@@ -101,6 +101,10 @@ import {
   snapshotStoreyElements,
   wallLocked,
   WALL_LOCKED,
+  newCrossing,
+  crossingMessage,
+  wallLength,
+  setWallLength,
   type Baseline,
   type BoundaryChange,
   type Change,
@@ -2868,8 +2872,13 @@ function finishDraw(): boolean {
     stopDraw()
     const [a, b] = d.points
     let made: Wall | null = null
-    if (changeElements(d.storeyId, '벽 긋기', (m) => (made = addWall(m, d.storeyId, a, b)))) {
-      selectedElementId.value = made!.id
+    const draw = (m: Model) => {
+      const done = addWall(m, d.storeyId, a, b)
+      if (done && !('refused' in done)) made = done
+      return done
+    }
+    if (changeElements(d.storeyId, '벽 긋기', draw) && made) {
+      selectedElementId.value = (made as Wall).id
       note('벽을 그었습니다. 내력 여부는 오른쪽 패널에서 정합니다')
     }
     return true
@@ -3239,6 +3248,12 @@ function nudgeElement(code: string, step: number): boolean {
       note('외곽선이 없는 벽은 옮길 수 없습니다')
       return true
     }
+    // 다른 벽을 새로 가로지르게 되면 옮기지 않는다(OE-OBJ-05). 이유를 말해야 방향키가 고장 난 것처럼 보이지 않는다.
+    const crossed = newCrossing(model.value!, picked.wall.id, picked.wall.footprint.map((r) => r.map((p) => [p[0] + delta[0], p[1] + delta[1]] as Vec2)))
+    if (crossed) {
+      note(crossingMessage(crossed))
+      return true
+    }
     if (carryRooms.value) {
       moveWallCarrying(picked.storey.id, picked.wall, delta)
       return true
@@ -3253,6 +3268,14 @@ function nudgeElement(code: string, step: number): boolean {
   }
   changeElements(picked.storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, [cm(o.position![0] + delta[0]), cm(o.position![1] + delta[1])]), `el:${o.id}`)
   return true
+}
+
+/** 벽 길이(OE-OBJ-05). 가운데를 두고 양 끝을 같이 늘이거나 줄인다. 직사각형 벽만이다. */
+function applyWallLength(wall: Wall, raw: string) {
+  const value = Number(raw)
+  const storey = selectedElement.value?.storey
+  if (!storey || raw.trim() === '' || !Number.isFinite(value)) return
+  changeElements(storey.id, `${wall.name || '벽'} 길이 ${value.toFixed(2)}m`, (m) => setWallLength(m, wall.id, value))
 }
 
 function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string) {
@@ -4847,6 +4870,22 @@ async function export3D(format: 'glb' | 'obj') {
           <p v-if="selectedElement.locked" class="lock-note" data-testid="wall-locked">
             {{ selectedElement.wall ? '내력벽이라' : '내력벽에 뚫린 것이라' }} 옮기거나 지울 수 없습니다.
             <template v-if="selectedElement.wall">아래 내력 여부를 바꾸면 풀립니다.</template>
+          </p>
+          <p v-if="selectedElement.wall && !selectedElement.locked && wallLength(selectedElement.wall) !== null" class="position-edit wall-length">
+            <label>
+              길이
+              <input
+                class="coord mono"
+                type="number"
+                step="0.1"
+                min="0.1"
+                v-keep-typing
+                :value="wallLength(selectedElement.wall)!.toFixed(2)"
+                @change="applyWallLength(selectedElement.wall!, ($event.target as HTMLInputElement).value)"
+              />
+              m
+            </label>
+            <span class="muted">가운데를 두고 양 끝이 같이 늘거나 줄어듭니다.</span>
           </p>
           <p v-if="selectedElement.wall && !selectedElement.locked" class="storey-move carry-rooms">
             <label title="벽 면에서 0.6m 안의 방 변이 벽이 움직인 만큼 따라옵니다. 끄면 방 경계는 그대로입니다(방은 IfcSpace 가 따로 그린 것)">
