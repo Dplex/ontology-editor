@@ -74,11 +74,16 @@ const STANDALONE_CLASSES = new Set([
 /**
  * 겹침 규칙을 따르는 설비: 덕트·배관이 아니고, 배관 없는 설비다 — 종류를 알면 그 종류에 공기·물 흐름이 없고, 모르면 IFC
  * 클래스가 흐름 없는 클래스다(손으로 쓴 mep.ifc 의 온도센서처럼 이름 사전에 없는 센서).
+ *
+ * 에디터가 더한 설비는 종류를 정하기 전까지 배관 없는 설비로 본다. 붙은 배관이 하나도 없고, 안 그러면 클래스가
+ * `DistributionElement` 라 규칙 밖이 되어 "추가로 겹침이 생기는 시도"(OE-OBJ-16 수용 기준)를 못 막는다. 흐름이 있는 종류를
+ * 정하면 그때부터 규칙 밖이다.
  */
 export function standalone(e: Equipment): boolean {
   if (isConduit(e.role)) return false
   const flow = equipmentKind(e.kind)?.flow
   if (flow) return Object.keys(flow).length === 0
+  if (e.added && !e.kind) return true
   return STANDALONE_CLASSES.has(e.ifcClass)
 }
 
@@ -113,6 +118,22 @@ export function overlapAt(
     if (!box || !boxesOverlap(next, box)) continue
     if (now && me.position && boxesOverlap(now, box)) continue
     return other
+  }
+  return null
+}
+
+/**
+ * 그 층의 `at` 에 설비를 새로 더하면 겹치게 되는 배관 없는 설비. 없으면 null. 더할 설비는 아직 형상이 없어서 3D 가 그리는
+ * 좌표 상자(`MARKER_SIZE`)로 잰다. 종류를 모르는 새 설비는 배관 없는 설비로 본다(`standalone`).
+ */
+export function overlapForNew(model: Model, storeyId: string, at: Vec3, boxOf: (id: string) => Box3 | null): Equipment | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  const next = markerBox(at)
+  for (const other of storey.equipment) {
+    if (!standalone(other)) continue
+    const box = equipmentBox(other, boxOf)
+    if (box && boxesOverlap(next, box)) return other
   }
   return null
 }

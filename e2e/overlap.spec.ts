@@ -41,3 +41,24 @@ test('배관 없는 설비를 다른 배관 없는 설비 자리에 놓으면 �
   await expect(sensor.nth(0)).not.toHaveValue(light[0])
   expect(errors).toEqual([])
 })
+
+test('새 설비를 다른 새 설비 자리에 더하면 막히고, 비켜 더하면 된다 (OE-OBJ-16 추가)', async ({ page }) => {
+  const errors = await open(page)
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  const clickFloor = async (x: number, y: number) => {
+    const at = (await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])) as { x: number; y: number }
+    await page.mouse.click(at.x, at.y)
+  }
+  // 종류를 정하기 전의 새 설비는 배관 없는 설비로 본다(lib/overlap.ts standalone)
+  await page.getByRole('button', { name: '설비 더하기' }).click()
+  await clickFloor(3, 3)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await page.getByRole('button', { name: '설비 더하기' }).click()
+  await clickFloor(3.1, 3)
+  await expect(page.locator('.edit-notice')).toContainText('이미 오브젝트가 있는 위치입니다')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await page.getByRole('button', { name: '설비 더하기' }).click()
+  await clickFloor(4.5, 3)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  expect(errors).toEqual([])
+})

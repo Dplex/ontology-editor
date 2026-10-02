@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { boxesOverlap, markerBox, meshBox, overlapAt, overlappingPairs, standalone, type Box3 } from './overlap'
+import { boxesOverlap, markerBox, meshBox, overlapAt, overlapForNew, overlappingPairs, standalone, type Box3 } from './overlap'
 import type { Equipment, Model, Vec3 } from './model'
 import type { ElementMesh } from './ifc/import'
 
@@ -49,6 +49,36 @@ describe('설비 겹침', () => {
     boxes.B = markerBox([0.1, 0, 3])
     expect(overlapAt(m, 'A', [0.2, 0, 3], boxOf)).toBeNull()
     expect(overlappingPairs(m, boxOf).map(([a, b]) => [a.id, b.id])).toEqual([['A', 'B']])
+  })
+
+  it('다른 층으로 옮길 때는 그 층의 배관 없는 설비와 견준다', () => {
+    // 1F(0m)의 조명 A 를 2F(3m)로 옮기면 x·y 는 그대로, z 는 +3m 다. 2F 같은 자리에 감지기 B 가 있다.
+    const a = device('A', 'lighting', [0, 0, 2.8])
+    const b = device('B', 'smoke_detector', [0, 0, 5.8])
+    const m = {
+      storeys: [
+        { id: 'S1', name: '1F', elevation: 0, spaces: [], walls: [], openings: [], equipment: [a] },
+        { id: 'S2', name: '2F', elevation: 3, spaces: [], walls: [], openings: [], equipment: [b] },
+      ],
+    } as unknown as Model
+    expect(overlapAt(m, 'A', [0, 0, 5.8], () => null, 'S2')?.id).toBe('B')
+    // 층을 안 주면 지금 층(1F)에서 견주니 막히지 않는다 — 층 이동은 반드시 옮겨 갈 층을 준다
+    expect(overlapAt(m, 'A', [0, 0, 5.8], () => null)).toBeNull()
+    b.position = [3, 0, 5.8]
+    expect(overlapAt(m, 'A', [0, 0, 5.8], () => null, 'S2')).toBeNull()
+  })
+
+  it('새로 더하는 설비는 좌표 상자로 재고, 종류를 정하기 전에는 배관 없는 설비다', () => {
+    const m = modelOf([device('L', 'lighting', [2, 0, 0]), device('F', 'fcu', [5, 0, 0])])
+    expect(overlapForNew(m, 'S', [2.1, 0, 0], () => null)?.id).toBe('L')
+    expect(overlapForNew(m, 'S', [3, 0, 0], () => null)).toBeNull()
+    // FCU 는 규칙 밖이라 그 자리에 더해도 된다
+    expect(overlapForNew(m, 'S', [5, 0, 0], () => null)).toBeNull()
+    // 에디터가 더한 설비: 종류를 모르면 배관 없는 설비, 흐름이 있는 종류를 정하면 규칙 밖
+    const added = { ...device('N', null, [8, 0, 0]), ifcClass: 'DistributionElement', role: null, added: true } as Equipment
+    expect(standalone(added)).toBe(true)
+    expect(standalone({ ...added, kind: 'fcu' })).toBe(false)
+    expect(overlapForNew(modelOf([added]), 'S', [8.1, 0, 0], () => null)?.id).toBe('N')
   })
 
   it('좌표가 없던 설비(미배치)를 놓을 때는 좌표 상자로 잰다', () => {
