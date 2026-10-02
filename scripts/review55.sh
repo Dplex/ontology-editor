@@ -27,6 +27,16 @@ export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$*"; }
 
+# REVIEW_KEY: 판을 가리는 열쇠(main + 넣은 PR 의 head). 지난번에 띄운 것과 같으면 아무것도 안 한다.
+# REVIEW_INFO: 화면에서 Alt+Shift+R 로 볼 정보(JSON). 있으면 빌드한 dist/ 에 끼워 넣는다.
+KEYFILE="$DIR/run/review-key"
+if [[ -n "${REVIEW_KEY:-}" && -f "$KEYFILE" && "$(cat "$KEYFILE")" == "$REVIEW_KEY" ]] && \
+   ONTOLOGY_EDITOR_ADDR="$ONTOLOGY_EDITOR_ADDR" "$DIR/scripts/run.sh" status | grep -q running; then
+  say "지난번과 같은 판이 떠 있다. 건너뛴다"
+  [[ -n "${GITHUB_OUTPUT:-}" ]] && echo "skipped=1" >> "$GITHUB_OUTPUT"
+  exit 0
+fi
+
 if [[ ! -d "$DIR/.git" ]]; then
   say "트리를 처음 만든다: $DIR"
   mkdir -p "$(dirname "$DIR")"
@@ -65,5 +75,16 @@ npm test
 # 빌드를 먼저 끝내고 재시작한다. 빌드가 깨지면 떠 있던 8087 을 내리지 않는다.
 say "빌드"
 scripts/run.sh build
+
+# 검토 판에만 붙는 정보 창. 앱 코드(src)가 아니라 빌드 결과에 끼워 넣어서 main 판(8084)에는 없다.
+if [[ -n "${REVIEW_INFO:-}" && -f "$REVIEW_INFO" ]]; then
+  say "정보 창 끼워 넣기 (Alt+Shift+R)"
+  { printf 'window.__REVIEW__ = %s;\n' "$(cat "$REVIEW_INFO")"; cat scripts/review-info.js; } > dist/review-info.js
+  sed -i 's#</body>#<script src="/review-info.js"></script></body>#' dist/index.html
+  grep -q review-info.js dist/index.html
+fi
+
 say "재시작 ($ONTOLOGY_EDITOR_ADDR)"
 NO_BUILD=1 scripts/run.sh restart
+mkdir -p run
+[[ -z "${REVIEW_KEY:-}" ]] || echo "$REVIEW_KEY" > "$KEYFILE"
