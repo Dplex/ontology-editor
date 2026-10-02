@@ -106,7 +106,10 @@ Epic `README.md` 와 `PRD_011.md` 표를 같이 고친다 — `prd.test.ts` 가 
 ## MD 티켓과 보드 내 티켓 동기화 — `npm run board`
 
 - **목적** : docs/prd/features/** 내의 티켓 MD와 "온톨로지 자동화 구축" project 보드 내의 티켓의 내용이 서로 동기화 되는지 검사한다. 
-- 티켓 md 가 정본이고 칸반 이슈는 파생이다. `scripts/sync-board.mjs` 가 md 를 이슈에 맞춘다. **`prd.test.ts` 와 달리 네트워크·사내 GitHub 인증(`gh`)이 필요하고 보드를 바꾸므로 테스트에 넣지 않고, 사람이 로컬에서 수동으로 돌린다**(자동 실행은 runner·토큰이 정해지면).
+- 티켓 md 가 정본이고 칸반 이슈는 파생이다. `scripts/sync-board.mjs` 가 md 를 이슈에 맞춘다. **`prd.test.ts` 와 달리 네트워크·사내 GitHub 인증(`gh`)이 필요하고 보드를 바꾸므로 테스트에 넣지 않고, 반영(`--apply`)은 사람이 로컬에서 수동으로 돌린다.** 점검은 Actions `Board check`(`.github/workflows/board-check.yml`, 55 러너)가
+  티켓 md 를 고친 PR 과 main push 때 돌려 실행 요약에 남긴다 — PR 에서는 "merge 하면 어느 이슈의 본문·라벨이 바뀌나" 를 미리 보이고,
+  main 에서는 반영 안 된 어긋남을 보인다. 반영을 자동으로 하지 않는 까닭: 문구만 다듬어도 개발이 손댄 이슈에 `modified` 가 붙어
+  칸반이 In Progress 로 돌아가니, 무엇이 바뀌는지 보고 돌린다.
 
 | 명령 | 하는 일 |
 |---|---|

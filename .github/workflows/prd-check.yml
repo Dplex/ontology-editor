@@ -3,12 +3,6 @@ name: PRD check
 # docs/prd 의 티켓 파일·Epic README·PRD_011.md 가 서로 어긋나지 않는지 본다(src/lib/prd.test.ts).
 # 파일만 읽는 검사라 data/·네트워크·보드 인증이 필요 없다. 보드(이슈·칸반) 동기화는 여기에 넣지 않는다.
 on:
-  push:
-    paths:
-      - 'docs/prd/**'
-      - 'docs/bim-to-dt-ontology.md'
-      - 'src/lib/prd.test.ts'
-      - '.github/workflows/prd-check.yml'
   pull_request:
     paths:
       - 'docs/prd/**'

@@ -11,7 +11,7 @@ PRD #4 · 티켓 14건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | [OE-UI-03](OE-UI-03.md) | 모드 전환 버튼 규칙 | R1 | P1 | prd-review |  |
 | [OE-UI-04](OE-UI-04.md) | 화면 레이아웃 | R1 | P1 | prd-review |  |
 | [OE-UI-05](OE-UI-05.md) | 되돌리기 / 다시 실행 | R1 | P1 | prd-review |  |
-| [OE-UI-06](OE-UI-06.md) | 스냅 | R1 | P2 | prd-review |  |
+| [OE-UI-06](OE-UI-06.md) | 스냅 | R2 | P2 | prd-review |  |
 | [OE-UI-07](OE-UI-07.md) | 그리드 정렬 | R1 | P2 | prd-review |  |
 | [OE-UI-08](OE-UI-08.md) | 치수 표시 | R1 | P2 | prd-review |  |
 | [OE-UI-09](OE-UI-09.md) | 오브젝트 조작 | R1 | P1 | prd-review |  |

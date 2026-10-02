@@ -9,7 +9,7 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-UI-10"]
+depends: ["OE-UI-10","OE-EQP-03"]
 jira: ""
 ---
 
@@ -17,7 +17,7 @@ jira: ""
 
 ## 요구사항
 
-천장/바닥/벽 어디에 있는지 구분·필터
+천장/바닥/벽 어디에 있는지 구분·필터. 기준은 판정 설치면(OE-EQP-03)이며, 플레넘 설비는 천장으로 센다. 판정이 "미정"인 설비는 별도 항목으로 묶는다.
 
 ## 수용 기준
 

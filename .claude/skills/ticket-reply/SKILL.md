@@ -15,7 +15,9 @@ description: 보드 티켓(GitHub 이슈)에 달린 정희록님의 검토 코�
 - 대상: 칸반 Status 가 `👀 In Review` 인 이슈. 목록은
   `gh project item-list 1 --owner IoT-Solution --limit 300 --format json` 에서 status 로 거른다.
 - **Status 는 바꾸지 않는다.** 이동은 희록님이 판단한다.
-- 브랜치는 `prd_edit` 에 바로 push 한다. main 직접 push 금지, PR 은 사용자가 요청할 때만 만든다.
+- **티켓 하나에 브랜치 하나**다(희록님 안내, 2026-10-02). `main` 최신에서 `OE-XXX-nn` 브랜치를 따서 거기에 커밋·push 하고,
+  끝나면 PR → main merge → 브랜치 삭제다. `prd_edit` 같이 오래 사는 브랜치에 쌓지 않는다(PR 이 커지고 CLAUDE.md 가 충돌했다).
+  main 직접 push 금지, PR 은 사용자가 요청할 때만 만든다. merge 는 희록님이 한다.
 
 ## 절차
 
@@ -25,7 +27,11 @@ description: 보드 티켓(GitHub 이슈)에 달린 정희록님의 검토 코�
    모호하면 묻고, 열린 결정이면 `docs/prd/questions.md` 번호로 가리킨다.
 3. **초안 보이기 — 올리기 전에 반드시.** 코멘트 글과 md diff 를 같이 보여 주고 승인을 받는다.
    이슈 코멘트는 올리면 팀 전체에 보이고 지워도 남을 수 있다.
-4. **md 반영 → 커밋 → push** (승인 뒤, **티켓마다 커밋 하나**).
+4. **브랜치 따기 → md 반영 → 커밋 → push** (승인 뒤). 티켓마다 `git fetch origin main` 뒤
+   `git switch -c OE-XXX-nn origin/main` 으로 새 브랜치를 따서 **티켓마다 커밋 하나**를 만든다.
+   여러 티켓을 한 번에 처리해도 브랜치는 티켓마다 따로다. 같은 티켓에 코멘트가 또 오면 그 브랜치에 커밋을 더한다
+   (이미 merge·삭제됐으면 main 에서 새로 딴다). 작업 중인 변경이 있으면 브랜치를 옮기기 전에 사용자에게 알린다.
+   **push 가 성공한 것을 확인한 뒤에만** 코멘트를 올린다. 거부되면(원격에 새 커밋) 리베이스하지 말고 `git pull --no-rebase` 로 병합한다 — 해시가 바뀌면 코멘트의 커밋 번호가 틀린다.
 5. **코멘트 게시.** 커밋 해시를 넣어 올린다. 본문은 UTF-8 파일로 쓰고 `gh issue comment N --repo … --body-file <파일>` 로 올린다
    (Windows 에서 `--body` 에 한글을 직접 넘기지 않는다). 파일은 scratchpad 에 둔다.
 6. 올린 코멘트 URL 을 사용자에게 알린다.
@@ -35,7 +41,7 @@ description: 보드 티켓(GitHub 이슈)에 달린 정희록님의 검토 코�
 **첫 줄은 항상 기획 수정 여부다.** 희록님이 pull 전에 판단하는 근거라서 빠뜨리지 않는다.
 
 ```
-기획 수정: 있음 — `docs/prd/features/E02-OBJ/OE-OBJ-05.md` (커밋 abc1234, 브랜치 prd_edit)
+기획 수정: 있음 — `docs/prd/features/E02-OBJ/OE-OBJ-05.md` (커밋 abc1234, 브랜치 OE-OBJ-05)
 ```
 ```
 기획 수정: 없음
@@ -64,7 +70,7 @@ description: 보드 티켓(GitHub 이슈)에 달린 정희록님의 검토 코�
 - 메시지: 한국어, 첫 줄 `OE-XXX-nn <무엇을 고쳤나> (희록님 검토 코멘트 반영)`, 본문에 이슈 번호.
   `Co-Authored-By` 줄은 세션 지침의 것을 쓴다.
 - md 는 CRLF 로 바뀔 수 있다(autocrlf). 커밋 diff 에 줄 끝 변경만 잔뜩 뜨면 원본 줄 끝에 맞춘다.
-- 여러 티켓을 한 번에 처리해도 커밋은 티켓마다 따로 만든다. push 는 마지막에 한 번 해도 된다.
+- 여러 티켓을 한 번에 처리해도 커밋은 티켓마다, 브랜치도 티켓마다 따로 만든다. push 는 브랜치별로 한다.
 
 ## 보드 동기화 (`npm run board`)
 

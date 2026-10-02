@@ -54,8 +54,9 @@ BIM(IFC4)으로 공간 온톨로지를 만들고 고치는 PoC. 부모 `~/git/dt
   `window.__viewer`(`element`·`part`·`point`)로 짚는다.
 - Status 선택지는 **웹 UI 에서만 고친다.** API(`updateProjectV2Field`)는 선택지를 통째로 갈아끼워 모든 카드의 상태 값을
   지운다(2026-10-02 임시 프로젝트로 실측).
-- 티켓 md(`docs/prd/features`)를 고치면 이슈 본문이 어긋난다 — `npm run board`(점검), `-- --apply`(반영). 사람이 로컬 `gh` 로 수동 실행하고
-  Status 는 건드리지 않는다. 자세히는 `docs/prd/README.md` "보드 동기화".
+- 티켓 md(`docs/prd/features`)를 고치면 이슈 본문이 어긋난다 — `npm run board`(점검), `-- --apply`(반영). 반영은 사람이 로컬 `gh` 로 수동 실행하고
+  Status 는 건드리지 않는다. 점검은 Actions `Board check` 가 PR·main push 때 돌려 실행 요약에 남긴다(반영은 안 한다 — 문구만 바뀌어도
+  `modified` 가 붙어 카드가 돌아가니 보고 나서 돌린다). 자세히는 `docs/prd/README.md` "보드 동기화".
 - **라벨은 왜 멈췄나·무엇이 바뀌었나만 말한다**(상태를 라벨로 다시 적지 않는다). 정책은 위키 [라벨 정책](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/wiki/라벨-정책),
   걸러 보는 화면은 프로젝트의 [🏷️ 라벨 보드](https://github.sec.samsung.net/orgs/IoT-Solution/projects/1/views/5)다. 열은 `🏷️ 라벨` 칸인데 라벨의
   사본이라 손으로 고치지 않는다. 라벨을 바꾼 뒤 `npm run board -- --apply` 를 돌리면 따라온다.

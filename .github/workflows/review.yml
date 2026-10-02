@@ -21,6 +21,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  issues: write
 
 # 한 번에 하나만. 도는 중에 새 일이 오면 끝난 뒤 한 번 더 돈다(매번 열린 PR 목록을 새로 읽으니 하나면 된다).
 concurrency:
@@ -28,7 +29,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # 55 의 gh(2.46)는 엔터프라이즈 호스트에서 GH_TOKEN 을 안 보고 GH_ENTERPRISE_TOKEN 만 본다. 안 주면 55 에 저장된 사람 로그인으로 돈다.
   GH_TOKEN: ${{ github.token }}
+  GH_ENTERPRISE_TOKEN: ${{ github.token }}
   REVIEW_URL: http://10.251.35.55:8087/
   REVIEW_AUTHOR: heerok-jung
   APP_PATHS: '^(src/|public/|index\.html$|package(-lock)?\.json$|vite\.config\.ts$|tsconfig)'
