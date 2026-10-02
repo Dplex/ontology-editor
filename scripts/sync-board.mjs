@@ -6,7 +6,8 @@
 //   node scripts/sync-board.mjs --apply         어긋난 이슈의 제목·본문·라벨과 Phase 칸을 고친다
 //   --only=OE-COM-01,OE-COM-02   그 티켓만      --date=2026-10-02   수정 이력의 날짜(기본: 오늘)
 //
-// 맞추는 것: 제목, 본문(md 사본 + 수정 이력), 라벨 phase-1/2, Phase 칸. 이 스크립트가 하지 않는 것: Status 이동(개발이 판단),
+// 맞추는 것: 제목, 본문(md 사본 + 수정 이력), 라벨 phase-1/2, Phase 칸. 개발이 손댄 이슈(In Progress·In Review·Done)의 요구사항·
+// 수용 기준이 바뀌면 라벨 `modified` 를 붙인다(뗄 때는 개발이 구현을 다시 본 뒤 손으로). 이 스크립트가 하지 않는 것: Status 이동(개발이 판단),
 // 코멘트, 이슈 닫기·만들기. `planned` 라벨이 없는 이슈(구현 완료 보고로 대체된 것)는 건드리지 않는다.
 // 로컬 `gh` 로 수동 실행한다 — 의존성 없이 node 만 있으면 된다.
 import { execFileSync } from 'node:child_process'
@@ -28,6 +29,11 @@ const HIST_OPEN = '<!-- board-sync:history -->'
 const HIST_CLOSE = '<!-- /board-sync:history -->'
 const PHASE = { R1: { label: 'phase-1', option: 'P1 · 1차 릴리즈' }, R2: { label: 'phase-2', option: 'P2 · 후속' } }
 const PHASE_LABELS = Object.values(PHASE).map((p) => p.label)
+/** 요구사항이 바뀌면 개발이 다시 봐야 하는 절. 검증·메모는 개발이 쓰는 절이라 바뀌어도 `modified` 를 붙이지 않는다. */
+const SPEC_SECTIONS = ['요구사항', '수용 기준']
+/** 개발이 이미 손댄 상태. Todo·PRD in progress 는 다시 볼 구현이 없어 `modified` 를 붙이지 않는다. */
+const DEV_STATUS = /In Progress|In Review|Done/
+const MODIFIED = 'modified'
 
 const args = process.argv.slice(2)
 const flag = (name) => args.includes(`--${name}`)
@@ -100,6 +106,19 @@ function splitBody(body) {
   return { base: h ? b.replace(h[0], '') : b, history: h ? h[1] : '' }
 }
 
+/** 이슈 본문(md 사본 부분)에서 `# OE-…` 부터의 md. */
+function mdOf(base) {
+  const at = base.search(/^# OE-/m)
+  return at < 0 ? '' : base.slice(at).trim()
+}
+
+/** 요구사항·수용 기준이 바뀌었나. */
+function specChanged(oldBase, t) {
+  const before = sections(mdOf(oldBase))
+  const after = sections(t.md)
+  return SPEC_SECTIONS.some((k) => (before[k] ?? '') !== (after[k] ?? ''))
+}
+
 const quote = (s) => s.split('\n').map((l) => (l ? `  > ${l}` : '  >')).join('\n')
 
 /** 이슈 본문의 옛 md 사본과 새 md 를 견줘 무엇이 바뀌었는지 수정 이력 줄로 만든다. */
@@ -110,8 +129,7 @@ function describeChanges(oldBase, t) {
   if (rp && rp[1] !== t.fm.release) add(`release ${rp[1]} → ${t.fm.release}`)
   if (rp && rp[2] !== t.fm.priority) add(`priority ${rp[2]} → ${t.fm.priority}`)
 
-  const at = oldBase.search(/^# OE-/m)
-  const oldMd = at < 0 ? '' : oldBase.slice(at).trim()
+  const oldMd = mdOf(oldBase)
   const oldTitle = /^# OE-\S+ (.*)$/m.exec(oldMd)?.[1]
   if (oldTitle !== undefined && oldTitle !== t.fm.title) add(`제목 "${oldTitle}" → "${t.fm.title}"`)
 
@@ -143,6 +161,8 @@ function compare(item, t) {
   const want = PHASE[t.fm.release]
   const labels = item.labels ?? []
   const wantLabels = [...labels.filter((l) => !PHASE_LABELS.includes(l)), want.label]
+  // 개발이 손댄 이슈의 요구사항이 바뀌면 다시 보라고 표시한다. 떼는 것은 개발 몫이라 여기서는 붙이기만 한다.
+  if (base !== expectedBase(t) && DEV_STATUS.test(item.status ?? '') && specChanged(base, t) && !wantLabels.includes(MODIFIED)) wantLabels.push(MODIFIED)
   if (labels.length !== wantLabels.length || wantLabels.some((l) => !labels.includes(l))) diffs.push('라벨')
   if (item.phase !== want.option) diffs.push('Phase')
   return { diffs, wantLabels }
