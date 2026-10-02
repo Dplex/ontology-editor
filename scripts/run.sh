@@ -68,7 +68,9 @@ start() {
     echo "이미 떠 있다 (pid $(pid))"
     return 0
   fi
-  build
+  # NO_BUILD=1 이면 이미 빌드한 dist/ 를 그대로 띄운다. 빌드가 실패해도 떠 있던 서버를 내리지 않으려고
+  # 먼저 build 하고 NO_BUILD=1 restart 하는 쪽(review55.sh)이 쓴다.
+  [[ "${NO_BUILD:-}" == 1 ]] || build
   # setsid 로 세션에서 떼어낸다. 부른 ssh 가 닫혀도 안 죽는다.
   setsid node scripts/serve.mjs >>"$LOGFILE" 2>&1 < /dev/null &
   echo $! >"$PIDFILE"
