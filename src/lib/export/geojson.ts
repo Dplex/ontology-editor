@@ -74,6 +74,8 @@ function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
       capacity: equipment.capacity,
       // 용량이 무엇의 양인지(풍량·물 유량·출력·모름). 숫자만 두면 풍량과 출력이 섞인다(capacity.ts).
       capacityQuantity: equipment.capacity === null ? null : capacityQuantity(equipment.capacityProperty),
+      // 사람이 벽 면에 붙인 설비의 벽 id(OE-OBJ-04, 외벽 루버·외기 센서). 벽 feature 의 id 다. 붙이지 않았으면 키가 없다.
+      ...(equipment.wallId ? { wallId: equipment.wallId } : {}),
     },
   }
 }
@@ -100,6 +102,8 @@ function wallFeature(wall: Wall, storey: Storey, external: ExternalJudgement | u
       storeyId: storey.id,
       elevation: storey.elevation,
       thickness: wall.thickness,
+      // 높이(미터). 형상의 위아래 폭으로 쟀거나 사람이 고친 값이다(OE-OBJ-04). null 은 모름 — 층고로 채우지 않는다.
+      height: wall.height ?? null,
       // null 은 "모름" 이다. false 와 섞지 않는다.
       loadBearing: wall.loadBearing,
       // 외벽 여부(OE-EXT-01). BIM(Pset_WallCommon.IsExternal)이 말하지 않으면 건물 바깥에 닿는지로 계산하고,

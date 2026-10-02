@@ -46,6 +46,9 @@ export const FUZZ_OPS = [
   'deleteSystem',
   'moveWallWithSpaces',
   'moveFollow',
+  'wallSize',
+  'wallExternal',
+  'mountOnWall',
 ] as const
 export type FuzzOp = (typeof FUZZ_OPS)[number]
 
@@ -337,6 +340,34 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       E.setEquipmentSystem(m, e.id, system.id)
       undo.push(snapshot)
       log.push(`createSystem ${system.name} ← ${e.name}`)
+    } else if (op === 'wallSize' || op === 'wallExternal') {
+      // 외벽 여부·두께·높이(OE-OBJ-04). 두께는 꼭짓점 넷인 벽만 바뀐다.
+      const storey = pick(m.storeys.filter((s) => s.walls.length))
+      const wall = storey && pick(storey.walls)
+      if (!storey || !wall) continue
+      const snapshot = E.snapshotStoreyElements(m, storey.id)!
+      const done =
+        op === 'wallExternal'
+          ? E.setWallExternal(m, wall.id, r() < 0.3 ? null : r() < 0.5)
+          : r() < 0.5
+            ? E.setWallThickness(m, wall.id, 0.1 + Math.round(r() * 3) / 10)
+            : E.setWallHeight(m, wall.id, r() < 0.2 ? null : 2 + Math.round(r() * 20) / 10)
+      if (done !== true) continue
+      undo.push(snapshot)
+      log.push(`${op} ${wall.name}`)
+    } else if (op === 'mountOnWall') {
+      // 설비를 벽 면에 붙인다. 뒤에 벽을 옮기거나 지우면 따라가거나 떨어진다.
+      const storey = pick(m.storeys.filter((s) => s.equipment.length && s.walls.some((w) => w.footprint?.length)))
+      const wall = storey && pick(storey.walls.filter((w) => w.footprint?.length))
+      const e = storey && pick(storey.equipment.filter((x) => !x.added || x.position))
+      if (!storey || !wall || !e) continue
+      const ring = wall.footprint![0]
+      const at: Vec2 = [ring[0][0] + (r() - 0.5) * 0.4, ring[0][1] + (r() - 0.5) * 0.4]
+      const snapshot = E.snapshotEquipment(m, e.id)!
+      const done = E.mountOnWall(m, e.id, at)
+      if (!done || 'refused' in done) continue
+      undo.push(snapshot)
+      log.push(`mountOnWall ${e.name} → ${wall.name}`)
     } else if (op === 'moveWallWithSpaces') {
       // 방향키로 벽을 몇 걸음 옮기는 것과 같다. 걸음마다 되돌리기 한 칸이고, 계획은 이어 쓴다.
       const storey = pick(m.storeys.filter((s) => s.walls.some((w) => w.footprint?.length)))

@@ -35,9 +35,9 @@ test('벽을 긋고 문을 놓으면 양쪽 방을 잇고, 벽을 지우면 문�
   await clickFloor(page, 10.1, 8)
   const panel = page.locator('.element-picked')
   await expect(panel.locator('h3')).toHaveText('새 벽')
-  await expect(panel.locator('select')).toHaveValue('null')
-  await panel.locator('select').selectOption('true')
-  await expect(panel.locator('select')).toHaveValue('true')
+  await expect(panel.getByTestId('wall-bearing')).toHaveValue('null')
+  await panel.getByTestId('wall-bearing').selectOption('true')
+  await expect(panel.getByTestId('wall-bearing')).toHaveValue('true')
   // 내력벽은 잠긴다(OE-OBJ-06): 지우기 버튼이 없고, 방향키도 안 먹고, 문도 못 뚫는다.
   await expect(panel.getByTestId('wall-locked')).toBeVisible()
   await expect(panel.getByRole('button', { name: '벽 지우기' })).toHaveCount(0)
@@ -48,7 +48,7 @@ test('벽을 긋고 문을 놓으면 양쪽 방을 잇고, 벽을 지우면 문�
   await expect(page.locator('.key-note')).toContainText('내력벽이라 문·창을 뚫지 않습니다')
   await expect(panel.locator('h3')).toHaveText('새 벽')
   // 내력 여부를 바꾸면 풀린다.
-  await panel.locator('select').selectOption('false')
+  await panel.getByTestId('wall-bearing').selectOption('false')
   await expect(panel.getByTestId('wall-locked')).toHaveCount(0)
 
   await page.getByRole('button', { name: '문 놓기' }).click()
@@ -148,7 +148,7 @@ test('다른 벽을 가로지르는 벽은 긋지 못하고, 맞댄 벽은 길�
   await clickFloor(page, 10, 4)
   await expect(panel.locator('h3')).toHaveText('새 벽')
   expect(await page.evaluate(() => (window as any).__viewer.elements().length)).toBe(2)
-  const length = panel.locator('.wall-length input')
+  const length = panel.getByTestId('wall-length')
   await expect(length).toHaveValue('5.00')
   await length.fill('3')
   await length.press('Enter')

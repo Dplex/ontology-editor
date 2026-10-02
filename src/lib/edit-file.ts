@@ -22,6 +22,7 @@ import {
   moveOpening,
   setWallFootprint,
   setWallLoadBearing,
+  setWallExternal,
   deleteEquipment,
   deleteSpace,
   absorbSpace,
@@ -48,7 +49,7 @@ import {
 } from './edit'
 import type { RuleReport } from './flow-rules'
 import type { Fluid } from './kinds'
-import type { Model, Vec2, Vec3 } from './model'
+import type { Model, Vec2, Vec3, Wall } from './model'
 import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
 
 export const EDIT_FORMAT = 'ontology-editor/edits'
@@ -63,7 +64,8 @@ export type EditFile = {
    * `released` 는 BIM 이 말한 소속을 버렸다는 뜻이다. 옮겼다가 제자리로 돌려놓았거나 다른 층에 갔다 온 설비는 좌표·층이
    * 연 때와 같아도 소속을 좌표로 다시 잰 상태다(edit.ts 의 releaseDeclaredSpace).
    */
-  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3] }[]
+  /** `wall` 은 설비를 붙인 벽(OE-OBJ-04). `null` 은 벽에서 뗀 것이다. */
+  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3]; wall?: string | null }[]
   /** 종류·유체를 고친 계통(E8). 설비의 계통은 위 `equipment` 의 `system` 에 적는다(`null` 은 계통에서 뺀 것). */
   systems?: { id: string; kind: string | null; fluid: Fluid | null }[]
   /** 사람이 만든 계통(끝 이름·종류)과 지운 계통. 구성원은 설비 쪽 `system` 으로 적는다. */
@@ -71,15 +73,27 @@ export type EditFile = {
   systemsRemoved?: string[]
   spaces: { id: string; longName?: string; footprint?: Vec2[] }[]
   /** 사람이 더한 설비(E7). id 는 에디터가 지은 것(`U_…`)이라 다시 열어도 같은 id 로 만든다. */
-  equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string }[]
+  equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string; wall?: string }[]
   equipmentRemoved?: string[]
   /** 사람이 만든 물리존(E3 생성·분할). 나눈 방의 남는 조각은 `spaces` 의 외곽선으로 적힌다. */
   spacesAdded?: { id: string; storeyId: string; name: string; longName: string; footprint: Vec2[] }[]
   /** 없어진 물리존. `into` 가 있으면 그 방에 합친 것이고(문이 그 방을 가리키게 된다), 없으면 지운 것이다. */
   spacesRemoved?: { id: string; into?: string }[]
-  /** 벽(E4). 옮긴 벽은 끝 외곽선을, 내력 여부를 고친 벽은 그 값을 적는다(`null` 은 모름). */
-  walls?: { id: string; footprint?: Vec2[][]; loadBearing?: boolean | null }[]
-  wallsAdded?: { id: string; storeyId: string; name: string; thickness: number | null; loadBearing: boolean | null; footprint: Vec2[][] }[]
+  /**
+   * 벽(E4). 옮긴 벽은 끝 외곽선을, 내력 여부를 고친 벽은 그 값을 적는다(`null` 은 모름). 두께·높이를 고친 벽은 끝 값을,
+   * 외벽 여부를 사람이 정한 벽은 `external` 을 적는다(OE-OBJ-04. `null` 은 "모름" 으로 정한 것).
+   */
+  walls?: { id: string; footprint?: Vec2[][]; loadBearing?: boolean | null; thickness?: number | null; height?: number | null; external?: boolean | null }[]
+  wallsAdded?: {
+    id: string
+    storeyId: string
+    name: string
+    thickness: number | null
+    loadBearing: boolean | null
+    footprint: Vec2[][]
+    height?: number | null
+    external?: boolean | null
+  }[]
   /** 지운 벽. 그 벽의 문·창은 따로 적지 않는다(벽과 같이 빠진다). */
   wallsRemoved?: string[]
   /** 옮긴 문·창의 끝 자리, 크기를 바꾼 문·창의 끝 크기(OE-OBJ-07). 바뀐 쪽만 적는다. */
@@ -155,6 +169,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           kind: e.kind ?? null,
           ...(e.position ? { position: [e.position[0], e.position[1], e.position[2]] as Vec3 } : {}),
           ...(e.systemId ? { system: e.systemId } : {}),
+          ...(e.wallId ? { wall: e.wallId } : {}),
         })
         continue
       }
@@ -171,7 +186,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       // 설비를 따라 늘인 구간. 좌표만 적으면 어느 끝이 움직였는지 몰라 형상을 되살릴 수 없다.
       if (e.endShift && e.endShift.some((v) => v.some((x) => x !== 0))) row.ends = [[...e.endShift[0]], [...e.endShift[1]]]
       if (was.systemId !== undefined && was.systemId !== e.systemId) row.system = e.systemId
-      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends) equipment.push(row)
+      if (was.wallId !== undefined && (was.wallId ?? null) !== (e.wallId ?? null)) row.wall = e.wallId ?? null
+      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined) equipment.push(row)
     }
   }
   const confirmed = new Set<string>()
@@ -194,6 +210,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       id: c.id,
       ...(c.moved ? { footprint: (w.footprint ?? []).map((r) => r.map((p) => [p[0], p[1]] as Vec2)) } : {}),
       ...(c.loadBearing ? { loadBearing: w.loadBearing } : {}),
+      ...(c.resized ? { thickness: w.thickness, height: w.height ?? null } : {}),
+      ...(c.external ? { external: w.external ?? null } : {}),
     }
   })
   const wallsAdded = since.wallsAdded.map((a) => {
@@ -205,6 +223,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       thickness: wall.thickness,
       loadBearing: wall.loadBearing,
       footprint: (wall.footprint ?? []).map((r) => r.map((p) => [p[0], p[1]] as Vec2)),
+      ...(wall.height != null ? { height: wall.height } : {}),
+      ...(wall.externalEdited ? { external: wall.external ?? null } : {}),
     }
   })
   const openings = since.openingsMoved.flatMap((m) => {
@@ -249,6 +269,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   }
   for (const row of [...equipmentAdded, ...spacesAdded]) keep(row.storeyId)
   for (const row of equipmentAdded) if (row.system) keep(row.system)
+  for (const row of [...equipment, ...equipmentAdded]) if (row.wall) keep(row.wall)
   for (const row of systems) keep(row.id)
   for (const id of systemsRemoved) keep(id)
   for (const id of equipmentRemoved) keep(id)
@@ -528,7 +549,10 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   // 벽·문·창(E4). 설비처럼 GUID → Revit 요소 ID → 이름 → 위치로 찾는다. 더한 것 → 벽 모양·내력 → 지운 벽(뚫린 문·창도
   // 같이) → 문·창 자리 → 지운 문·창 순이다. 방 경계는 위에서 이미 얹었으므로 문이 잇는 방은 끝 상태로 짚는다.
   for (const row of file.wallsAdded ?? []) {
-    if (insertWall(model, resolve(row.storeyId), { id: row.id, name: row.name, thickness: row.thickness, loadBearing: row.loadBearing ?? null, footprint: row.footprint.map((r) => r.map((p) => [p[0], p[1]] as Vec2)), added: true })) result.applied++
+    const wall: Wall = { id: row.id, name: row.name, thickness: row.thickness, loadBearing: row.loadBearing ?? null, footprint: row.footprint.map((r) => r.map((p) => [p[0], p[1]] as Vec2)), added: true }
+    if (row.height != null) wall.height = row.height
+    if (row.external !== undefined) Object.assign(wall, { external: row.external, externalEdited: true })
+    if (insertWall(model, resolve(row.storeyId), wall)) result.applied++
     else result.missing.elements++
   }
   for (const row of file.openingsAdded ?? []) {
@@ -554,7 +578,12 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     let hit = false
     if (row.footprint) hit = setWallFootprint(model, row.id, row.footprint) || hit
     if (row.loadBearing !== undefined) hit = setWallLoadBearing(model, row.id, row.loadBearing) || hit
-    if (hit || model.storeys.some((s) => s.walls.some((w) => w.id === row.id))) result.applied++
+    // 두께·높이는 끝 값을 그대로 얹는다. 외곽선은 위에서 끝 모양을 얹었으니 setWallThickness 로 다시 펴지 않는다(잠금도 보지 않는다).
+    const target = model.storeys.flatMap((s) => s.walls).find((w) => w.id === row.id)
+    if (target && row.thickness !== undefined) target.thickness = row.thickness
+    if (target && row.height !== undefined) target.height = row.height
+    if (row.external !== undefined) hit = setWallExternal(model, row.id, row.external) || hit
+    if (hit || target) result.applied++
     else result.missing.elements++
   }
   for (const id of file.wallsRemoved ?? []) {
@@ -580,6 +609,16 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   for (const id of file.openingsRemoved ?? []) {
     if (deleteOpening(model, resolve(id), { ignoreLock: true })) result.applied++
     else result.missing.elements++
+  }
+  // 벽 면에 붙인 설비(OE-OBJ-04). 좌표는 위에서 끝 값을 얹었고(moveEquipment 는 벽에서 떼므로) 벽이 다 선 뒤에 붙인다.
+  for (const row of [...file.equipment, ...(file.equipmentAdded ?? [])]) {
+    if (row.wall === undefined) continue
+    const target = model.storeys.flatMap((s) => s.equipment).find((x) => x.id === resolve(row.id))
+    if (!target) continue
+    const wallId = row.wall && resolve(row.wall)
+    if (wallId && model.storeys.some((s) => s.walls.some((w) => w.id === wallId))) target.wallId = wallId
+    else if (wallId) result.missing.elements++
+    else delete target.wallId
   }
 
   // 지운 설비. 붙은 연결도 같이 빠지므로 연결 편집보다 먼저다.

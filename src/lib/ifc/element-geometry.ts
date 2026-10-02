@@ -13,6 +13,17 @@ import type { ElementMesh } from './import'
 /** 바닥면으로 볼 높이 여유(미터). 바닥이 조금 기운 형상도 받는다. */
 const BOTTOM_TOLERANCE = 0.01
 
+/** 형상의 위아래 폭(미터). 벽 높이로 쓴다. 메시는 three.js 좌표라 높이가 y 다. 점이 없으면 null. */
+export function meshHeight(mesh: ElementMesh): number | null {
+  const p = mesh.positions
+  let lo = Infinity, hi = -Infinity
+  for (let i = 1; i < p.length; i += 3) {
+    if (p[i] < lo) lo = p[i]
+    if (p[i] > hi) hi = p[i]
+  }
+  return Number.isFinite(lo) && hi > lo ? Math.round((hi - lo) * 1000) / 1000 : null
+}
+
 /**
  * 벽의 평면 외곽선. **맨 아래 면들의 테두리**를 이어 고리로 만든다.
  *

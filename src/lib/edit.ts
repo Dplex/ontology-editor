@@ -81,6 +81,8 @@ export function moveEquipment(model: Model, equipmentId: string, to: Vec3): Chan
   }
   equipment.position = to
   equipment.positionSource = 'edited'
+  // 벽 면에 붙인 설비(OE-OBJ-04)를 따로 옮기면 벽에서 떨어진다. 벽을 따라 갈 때는 이 함수를 거치지 않는다(followWall).
+  delete equipment.wallId
   // BIM 이 말한 소속은 BIM 이 말한 자리에 대한 것이다. 사람이 옮긴 뒤에도 남겨 두면 방 밖으로 끌어낸
   // 설비가 예전 방에 그대로 속한다. 옮긴 설비는 좌표로 다시 판정한다.
   if (equipment.spaceSource === 'bim') equipment.spaceSource = null
@@ -522,6 +524,7 @@ export type Snapshot =
       name: string
       nameEdited: Equipment['nameEdited']
       endShift: Equipment['endShift']
+      wallId: string | undefined
     }
   | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; longName: string; roomKind: Space['kind']; roomKindSource: Space['kindSource'] }
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
@@ -586,7 +589,24 @@ export type Snapshot =
       kind: 'storey-elements'
       storeyId: string
       walls: Wall[]
-      wallFields: { wall: Wall; footprint: Vec2[][] | undefined; loadBearing: boolean | null }[]
+      wallFields: {
+        wall: Wall
+        footprint: Vec2[][] | undefined
+        loadBearing: boolean | null
+        thickness: number | null
+        height: number | null | undefined
+        external: boolean | null | undefined
+        externalEdited: true | undefined
+      }[]
+      /** 벽 면에 붙인 설비(OE-OBJ-04). 벽을 옮기면 같이 가고 벽을 지우면 떨어지니 자리와 붙은 벽을 같이 떠 둔다. */
+      mounted: {
+        equipment: Equipment
+        position: Vec3 | null
+        positionSource: Equipment['positionSource']
+        wallId: string | undefined
+        spaceId: string | null
+        spaceSource: Equipment['spaceSource']
+      }[]
       openings: Opening[]
       openingFields: {
         opening: Opening
@@ -616,6 +636,7 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
       name: e.name,
       nameEdited: e.nameEdited ? { ...e.nameEdited } : undefined,
       endShift: e.endShift ? copyShift(e.endShift) : undefined,
+      wallId: e.wallId,
     }
   }
   return null
@@ -738,6 +759,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete equipment.nameEdited
       if (snapshot.endShift) equipment.endShift = copyShift(snapshot.endShift)
       else delete equipment.endShift
+      if (snapshot.wallId) equipment.wallId = snapshot.wallId
+      else delete equipment.wallId
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
       equipment.spaceSource = snapshot.spaceSource
       equipment.spaceId = snapshot.spaceId
@@ -831,6 +854,23 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
         if (f.footprint) f.wall.footprint = f.footprint.map((r) => r.map((p) => [p[0], p[1]] as Vec2))
         else delete f.wall.footprint
         f.wall.loadBearing = f.loadBearing
+        f.wall.thickness = f.thickness
+        if (f.height === undefined) delete f.wall.height
+        else f.wall.height = f.height
+        if (f.external === undefined) delete f.wall.external
+        else f.wall.external = f.external
+        if (f.externalEdited) f.wall.externalEdited = true
+        else delete f.wall.externalEdited
+      }
+      for (const m of snapshot.mounted) {
+        m.equipment.position = m.position ? [m.position[0], m.position[1], m.position[2]] : null
+        if (m.positionSource) m.equipment.positionSource = m.positionSource
+        else delete m.equipment.positionSource
+        if (m.wallId) m.equipment.wallId = m.wallId
+        else delete m.equipment.wallId
+        m.equipment.spaceId = m.spaceId
+        m.equipment.spaceSource = m.spaceSource
+        assignEquipment(m.equipment, storey.spaces)
       }
       storey.openings = [...snapshot.openings]
       for (const f of snapshot.openingFields) {
@@ -988,7 +1028,7 @@ export type Baseline = {
   names: Map<string, string>
   /** 물리존 외곽선. 편집 저장(edit-file.ts)이 바뀐 경계만 골라 담는다. */
   footprints: Map<string, Vec2[]>
-  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource']; name?: string; systemId?: string | null }>
+  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource']; name?: string; systemId?: string | null; wallId?: string | null }>
   /** 계통의 종류·유체(E8). 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
   systems?: Map<string, { name: string; kind: string | null; fluid: Fluid | null }>
   /** 연 때 있던 연결(순서 없는 짝). 이은 것·끊은 것을 이것과 견준다. 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
@@ -999,7 +1039,20 @@ export type Baseline = {
    */
   keys?: Map<string, Fingerprint>
   /** 벽·문·창(E4). 옮기고·지우고·더한 것을 이것과 견준다. */
-  walls?: Map<string, { storeyId: string; name: string; footprint: Vec2[][] | undefined; loadBearing: boolean | null }>
+  walls?: Map<
+    string,
+    {
+      storeyId: string
+      name: string
+      footprint: Vec2[][] | undefined
+      loadBearing: boolean | null
+      /** 외벽 여부와 크기(OE-OBJ-04). 이 칸이 생기기 전의 baseline 에는 없다. */
+      thickness?: number | null
+      height?: number | null
+      external?: boolean | null
+      externalEdited?: boolean
+    }
+  >
   openings?: Map<string, { storeyId: string; name: string; kind: Opening['kind']; position: Vec3 | null | undefined; wallId: string | null; width?: number | null; height?: number | null }>
 }
 
@@ -1016,7 +1069,16 @@ export function baselineOf(model: Model): Baseline {
       footprints.set(space.id, space.footprint.map((p) => [p[0], p[1]] as Vec2))
     }
     for (const w of storey.walls) {
-      walls.set(w.id, { storeyId: storey.id, name: w.name, footprint: w.footprint?.map((r) => r.map((p) => [p[0], p[1]] as Vec2)), loadBearing: w.loadBearing })
+      walls.set(w.id, {
+        storeyId: storey.id,
+        name: w.name,
+        footprint: w.footprint?.map((r) => r.map((p) => [p[0], p[1]] as Vec2)),
+        loadBearing: w.loadBearing,
+        thickness: w.thickness,
+        height: w.height ?? null,
+        external: w.external ?? null,
+        externalEdited: !!w.externalEdited,
+      })
     }
     for (const o of storey.openings) {
       openings.set(o.id, {
@@ -1037,6 +1099,7 @@ export function baselineOf(model: Model): Baseline {
         spaceSource: e.spaceSource,
         name: e.name,
         systemId: e.systemId,
+        wallId: e.wallId ?? null,
       })
     }
   }
@@ -1068,10 +1131,23 @@ export type BaselineDiff = {
   equipmentRemoved: { id: string; name: string }[]
   /** 이름(태그)을 고친 설비. */
   equipmentRenamed: { id: string; from: string; to: string }[]
+  /** 벽 면에 붙이거나(`wall` 은 벽 이름) 벽에서 뗀(`null`) 설비(OE-OBJ-04). 연 때 있던 설비만 — 더한 설비는 equipmentAdded 에 든다. */
+  equipmentMounted: { id: string; name: string; wall: string | null }[]
   /** 벽·문·창(E4). 지운 벽에 뚫려 같이 빠진 문·창은 openingsRemoved 에 세지 않는다. */
   wallsAdded: { id: string; name: string }[]
   wallsRemoved: { id: string; name: string }[]
-  wallsChanged: { id: string; name: string; moved: boolean; loadBearing: { from: boolean | null; to: boolean | null } | null }[]
+  /**
+   * 고친 벽. `resized` 는 두께·높이(OE-OBJ-04 크기 y·z), `external` 은 사람이 정한 외벽 여부(전·후. 연 때는 BIM 값 또는 null)다.
+   * 길이·두께는 외곽선도 바꾸므로 `moved` 가 같이 선다.
+   */
+  wallsChanged: {
+    id: string
+    name: string
+    moved: boolean
+    loadBearing: { from: boolean | null; to: boolean | null } | null
+    resized: boolean
+    external: { from: boolean | null; to: boolean | null } | null
+  }[]
   openingsAdded: { id: string; name: string; kind: Opening['kind'] }[]
   openingsRemoved: { id: string; name: string; kind: Opening['kind'] }[]
   /** 옮기거나(`moved`) 크기를 바꾼(`resized`, OE-OBJ-07) 문·창. */
@@ -1095,6 +1171,8 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const spacesAdded: BaselineDiff['spacesAdded'] = []
   const equipmentAdded: BaselineDiff['equipmentAdded'] = []
   const equipmentRenamed: BaselineDiff['equipmentRenamed'] = []
+  const equipmentMounted: BaselineDiff['equipmentMounted'] = []
+  const wallName = new Map(model.storeys.flatMap((s) => s.walls.map((w) => [w.id, w.name || '벽'] as const)))
   const systemMoved: BaselineDiff['systemMoved'] = []
   const storeyName = new Map(model.storeys.map((s) => [s.id, s.name]))
   const spacesNow = new Set<string>()
@@ -1114,6 +1192,9 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
         continue
       }
       if (was.name !== undefined && was.name !== e.name) equipmentRenamed.push({ id: e.id, from: was.name, to: e.name })
+      if (was.wallId !== undefined && (was.wallId ?? null) !== (e.wallId ?? null)) {
+        equipmentMounted.push({ id: e.id, name: e.name || e.ifcClass, wall: e.wallId ? (wallName.get(e.wallId) ?? e.wallId) : null })
+      }
       const name = e.name || e.ifcClass
       if (was.systemId !== undefined && was.systemId !== e.systemId) systemMoved.push({ id: e.id, name, from: was.systemId, to: e.systemId })
       if (was.storeyId !== storey.id) {
@@ -1171,6 +1252,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     equipmentAdded,
     equipmentRemoved,
     equipmentRenamed,
+    equipmentMounted,
     ...e4,
     systemMoved,
     systemKinds,
@@ -1205,7 +1287,13 @@ function diffElements(model: Model, baseline: Baseline) {
       }
       const moved = !sameRings(was.footprint, w.footprint)
       const lb = was.loadBearing !== w.loadBearing ? { from: was.loadBearing, to: w.loadBearing } : null
-      if (moved || lb) out.wallsChanged.push({ id: w.id, name: w.name, moved, loadBearing: lb })
+      const near = (x: number | null | undefined, y: number | null | undefined) => (x ?? null) === (y ?? null) || (x != null && y != null && Math.abs(x - y) < 1e-9)
+      const resized = (was.thickness !== undefined && !near(was.thickness, w.thickness)) || (was.height !== undefined && !near(was.height, w.height))
+      const ext =
+        was.external !== undefined && (!!was.externalEdited !== !!w.externalEdited || (was.external ?? null) !== (w.external ?? null))
+          ? { from: was.external ?? null, to: w.external ?? null }
+          : null
+      if (moved || lb || resized || ext) out.wallsChanged.push({ id: w.id, name: w.name, moved, loadBearing: lb, resized, external: ext })
     }
     for (const o of storey.openings) {
       openingsNow.add(o.id)
@@ -1769,6 +1857,7 @@ export function moveWall(model: Model, wallId: string, delta: Vec2, opts: LockOp
     o.position = [o.position[0] + delta[0], o.position[1] + delta[1], o.position[2]]
     if (o.kind === 'door' && o.connectsSource === 'bim' && o.through) o.connectsSource = 'calc'
   }
+  followWall(found.storey, wallId, delta)
   relinkDoors(found.storey)
   return true
 }
@@ -1795,6 +1884,8 @@ export function deleteWall(model: Model, wallId: string, opts: LockOptions = {})
   const gone = new Set([wallId, ...storey.openings.filter((o) => o.wallId === wallId).map((o) => o.id)])
   storey.walls = storey.walls.filter((w) => w.id !== wallId)
   storey.openings = storey.openings.filter((o) => !gone.has(o.id))
+  // 벽 면에 붙인 설비는 자리에 남고 벽에서만 떨어진다.
+  for (const e of storey.equipment) if (e.wallId === wallId) delete e.wallId
   forgetBoundary(storey, gone)
   return { openings: gone.size - 1 }
 }
@@ -1835,24 +1926,28 @@ export function addWall(
   return wall
 }
 
-/** 벽 길이를 바꿀 수 있나. 외곽선이 직사각형 하나인 벽만이다(문·창으로 조각난 벽, 꺾인 벽은 아니다). */
+/**
+ * 벽 길이를 바꿀 수 있나. 외곽선이 꼭짓점 넷인 고리 하나이고, 긴 두 변이 중심선과 나란히 양쪽 면에 있는 벽만이다 — 직사각형과
+ * 모서리를 비스듬히 맞댄 사다리꼴(AC20 외벽 8장 전부, OE-OBJ-04)이다. 문·창으로 조각난 벽, 꺾인 벽은 아니다.
+ */
 export function wallLength(wall: Wall): number | null {
   const ring = wall.footprint?.length === 1 ? openRing(wall.footprint[0]) : null
   if (!ring || ring.length !== 4) return null
   const axis = wallAxis([ring])
-  if (!axis) return null
-  // 직사각형인지: 네 꼭짓점이 전부 중심선 양 끝 ± 반 두께 자리에 있다.
+  if (!axis || axis.half <= 0) return null
   const len = Math.hypot(axis.b[0] - axis.a[0], axis.b[1] - axis.a[1])
   const u: Vec2 = [(axis.b[0] - axis.a[0]) / len, (axis.b[1] - axis.a[1]) / len]
-  const ok = ring.every((p) => {
-    const t = (p[0] - axis.a[0]) * u[0] + (p[1] - axis.a[1]) * u[1]
-    return Math.abs(t) < 1e-3 || Math.abs(t - len) < 1e-3
-  })
-  return ok ? len : null
+  // 네 꼭짓점이 전부 한쪽 면(중심선 ± 반 두께) 위에 있고, 면마다 둘씩이다. 그러면 두 면이 나란하고 끝 변 둘이 면을 잇는다.
+  const side = ring.map((p) => ((p[0] - axis.a[0]) * -u[1] + (p[1] - axis.a[1]) * u[0]) / axis.half)
+  if (!side.every((k) => Math.abs(Math.abs(k) - 1) < 1e-3)) return null
+  if (side.filter((k) => k > 0).length !== 2) return null
+  // 같은 면의 두 점은 서로 이웃해야 한다(나비 모양이 아니다).
+  for (let i = 0; i < 4; i++) if (Math.sign(side[i]) === Math.sign(side[(i + 2) % 4])) return null
+  return len
 }
 
 /**
- * 벽 길이를 바꾼다(OE-OBJ-05 의 크기 조절). 가운데를 두고 양 끝을 같이 늘이거나 줄인다. 직사각형 벽만 되고, 내력벽은
+ * 벽 길이를 바꾼다(OE-OBJ-05 의 크기 조절). 가운데를 두고 양 끝을 같이 늘이거나 줄인다. 꼭짓점 넷인 벽만 되고(wallLength), 내력벽은
  * 잠겨 있다. 뚫린 문·창이 벽 밖으로 나가거나 다른 벽을 새로 가로지르게 되면 이유를 돌려준다.
  */
 export function setWallLength(model: Model, wallId: string, length: number): boolean | { refused: string } {
@@ -1861,7 +1956,7 @@ export function setWallLength(model: Model, wallId: string, length: number): boo
   const { wall, storey } = found
   if (wallLocked(wall)) return { refused: WALL_LOCKED }
   const now = wallLength(wall)
-  if (now === null) return { refused: '직사각형 벽만 길이를 바꿉니다(문·창으로 조각났거나 꺾인 벽은 옮기기만 됩니다).' }
+  if (now === null) return { refused: '꼭짓점 넷인 벽만 길이를 바꿉니다(문·창으로 조각났거나 꺾인 벽은 옮기기만 됩니다).' }
   if (Math.abs(now - length) < 1e-9) return false
   const axis = wallAxis(wall.footprint!)!
   const u: Vec2 = [(axis.b[0] - axis.a[0]) / now, (axis.b[1] - axis.a[1]) / now]
@@ -1881,7 +1976,135 @@ export function setWallLength(model: Model, wallId: string, length: number): boo
   const crossed = newCrossing(model, wallId, next)
   if (crossed) return { refused: crossingMessage(crossed) }
   wall.footprint = next
+  followWall(storey, wallId)
   return true
+}
+
+// --- 외벽(OE-OBJ-04) ----------------------------------------------------------------------
+//
+// 외벽 여부·두께·높이를 고치고, 설비를 벽 면에 붙인다. 외벽 판정은 exterior.ts 가 쓸 때마다 하므로 여기서는 값만 고친다.
+
+/**
+ * 외벽 여부를 사람이 정한다. 계산이 틀린 벽(병원 커튼월 안쪽 칸막이 등)을 바로잡는 자리다. `null` 은 "모름" 으로 정한 것이다.
+ * 정한 값은 출처가 "편집" 이 되고 계산이 덮지 않는다.
+ */
+export function setWallExternal(model: Model, wallId: string, value: boolean | null): boolean {
+  const found = findWall(model, wallId)
+  if (!found) return false
+  const { wall } = found
+  if (wall.externalEdited && (wall.external ?? null) === value) return false
+  wall.external = value
+  wall.externalEdited = true
+  return true
+}
+
+/**
+ * 벽 두께를 바꾼다(크기 y). 중심선을 두고 양쪽으로 같이 편다. 꼭짓점 넷인 벽만 되고(길이와 같다) 내력벽은 잠겨 있다. 뚫린 문·창의
+ * 깊이도 따라가고, 벽 면에 붙인 설비는 새 면으로 다시 붙는다. 다른 벽을 새로 가로지르게 되면 이유를 돌려준다.
+ */
+export function setWallThickness(model: Model, wallId: string, thickness: number): boolean | { refused: string } {
+  const found = findWall(model, wallId)
+  if (!found || !(thickness >= 0.01)) return false
+  const { wall, storey } = found
+  if (wallLocked(wall)) return { refused: WALL_LOCKED }
+  const len = wallLength(wall)
+  if (len === null) return { refused: '꼭짓점 넷인 벽만 두께를 바꿉니다(문·창으로 조각났거나 꺾인 벽은 옮기기만 됩니다).' }
+  const axis = wallAxis(wall.footprint!)!
+  if (Math.abs(axis.half * 2 - thickness) < 1e-9 && wall.thickness === thickness) return false
+  // 중심선에서 수직 거리를 비율로 늘인다. 비스듬히 맞댄 끝도 꼭짓점의 길이 방향 자리를 두어 모양이 남는다.
+  const u: Vec2 = [(axis.b[0] - axis.a[0]) / len, (axis.b[1] - axis.a[1]) / len]
+  const n: Vec2 = [-u[1], u[0]]
+  const k = thickness / (axis.half * 2)
+  const ring = withClosing(
+    openRing(wall.footprint![0]).map((p) => {
+      const d = (p[0] - axis.a[0]) * n[0] + (p[1] - axis.a[1]) * n[1]
+      return [p[0] + n[0] * d * (k - 1), p[1] + n[1] * d * (k - 1)] as Vec2
+    }),
+    true,
+  )
+  const crossed = newCrossing(model, wallId, [ring])
+  if (crossed) return { refused: crossingMessage(crossed) }
+  wall.footprint = [ring]
+  wall.thickness = thickness
+  for (const o of storey.openings) if (o.wallId === wallId) o.depth = thickness
+  followWall(storey, wallId)
+  relinkDoors(storey)
+  return true
+}
+
+/** 벽 높이(크기 z, 미터). `null` 은 모름이다. 평면이 안 바뀌므로 소속·문은 그대로다. 내력벽은 잠겨 있다. */
+export function setWallHeight(model: Model, wallId: string, height: number | null): boolean | { refused: string } {
+  const found = findWall(model, wallId)
+  if (!found || (height !== null && !(height > 0))) return false
+  if (wallLocked(found.wall)) return { refused: WALL_LOCKED }
+  if ((found.wall.height ?? null) === height) return false
+  found.wall.height = height
+  return true
+}
+
+/** 벽 면에 붙일 수 있는 거리(미터). 문·창과 같다 — 벽 외곽선에서 이만큼 안을 눌러야 그 벽에 붙는다. */
+export const MOUNT_SNAP = 0.6
+
+/** 벽 외곽선 테두리에서 at 에 가장 가까운 점. 벽 면 위의 자리다. */
+function nearestOnWall(wall: Wall, at: Vec2): { point: Vec2; distance: number } | null {
+  let best: { point: Vec2; distance: number } | null = null
+  for (const ring of wall.footprint ?? []) {
+    for (let i = 0; i + 1 < ring.length; i++) {
+      const a = ring[i]
+      const b = ring[i + 1]
+      const dx = b[0] - a[0]
+      const dy = b[1] - a[1]
+      const l2 = dx * dx + dy * dy
+      if (l2 < 1e-12) continue
+      const t = Math.max(0, Math.min(1, ((at[0] - a[0]) * dx + (at[1] - a[1]) * dy) / l2))
+      const point: Vec2 = [a[0] + t * dx, a[1] + t * dy]
+      const distance = Math.hypot(at[0] - point[0], at[1] - point[1])
+      if (!best || distance < best.distance) best = { point, distance }
+    }
+  }
+  return best
+}
+
+/**
+ * 설비를 벽 면에 붙인다(OE-OBJ-04 외벽 전용 설비). 누른 자리에서 가장 가까운 벽(MOUNT_SNAP 안)의 **누른 쪽 면** 위에 놓는다 —
+ * 바깥 면을 누르면 건물 밖이라 방 소속이 없고(층으로 나간다), 안쪽 면을 누르면 그 방에 속한다. 외벽·내벽을 가리지 않는다
+ * (어느 종류가 외벽 전용인지는 기획이 정하지 않았다). 높이는 설비의 지금 높이를 두고, 좌표가 없던 설비는 층 바닥이다.
+ * 소속은 이 안에서 다시 판정한다.
+ */
+export function mountOnWall(model: Model, equipmentId: string, at: Vec2): { wall: Wall; change: Change } | { refused: string } | null {
+  const equipment = findEquipment(model, equipmentId)
+  if (!equipment) return null
+  const storey = model.storeys.find((s) => s.equipment.includes(equipment))!
+  let best: { wall: Wall; point: Vec2; distance: number } | null = null
+  for (const wall of storey.walls) {
+    const near = nearestOnWall(wall, at)
+    if (near && (!best || near.distance < best.distance)) best = { wall, ...near }
+  }
+  if (!best || best.distance > MOUNT_SNAP) {
+    return { refused: storey.walls.some((w) => w.footprint?.length) ? `벽에서 ${MOUNT_SNAP}m 안을 누르세요.` : '이 층에 외곽선이 있는 벽이 없습니다.' }
+  }
+  const z = equipment.position ? equipment.position[2] : storey.elevation
+  const change = moveEquipment(model, equipmentId, [best.point[0], best.point[1], z])
+  if (!change) return null
+  equipment.wallId = best.wall.id
+  return { wall: best.wall, change }
+}
+
+/**
+ * 벽이 바뀐 뒤 그 벽 면에 붙은 설비를 따라 보낸다. `delta` 가 있으면(벽 옮기기) 그만큼 같이 옮기고, 없으면(길이·두께) 새 면의
+ * 가장 가까운 자리로 다시 붙인다. 소속은 다시 판정한다 — 재판정을 호출부에 맡기지 않는다.
+ */
+function followWall(storey: Storey, wallId: string, delta?: Vec2) {
+  const wall = storey.walls.find((w) => w.id === wallId)
+  for (const e of storey.equipment) {
+    if (e.wallId !== wallId || !e.position) continue
+    let to: Vec2 = delta ? [e.position[0] + delta[0], e.position[1] + delta[1]] : [e.position[0], e.position[1]]
+    if (!delta && wall) to = nearestOnWall(wall, to)?.point ?? to
+    e.position = [to[0], to[1], e.position[2]]
+    e.positionSource = 'edited'
+    if (e.spaceSource === 'bim') e.spaceSource = null
+    assignEquipment(e, storey.spaces)
+  }
 }
 
 /** 문·창을 옮긴다(평면). 높이는 그대로다. 문이면 잇는 방을 좌표로 다시 짚는다. */
@@ -2023,7 +2246,21 @@ export function snapshotStoreyElements(model: Model, storeyId: string): Snapshot
       wall,
       footprint: wall.footprint?.map((r) => r.map((p) => [p[0], p[1]] as Vec2)),
       loadBearing: wall.loadBearing,
+      thickness: wall.thickness,
+      height: wall.height,
+      external: wall.external,
+      externalEdited: wall.externalEdited,
     })),
+    mounted: storey.equipment
+      .filter((e) => e.wallId)
+      .map((e) => ({
+        equipment: e,
+        position: e.position ? ([e.position[0], e.position[1], e.position[2]] as Vec3) : null,
+        positionSource: e.positionSource,
+        wallId: e.wallId,
+        spaceId: e.spaceId,
+        spaceSource: e.spaceSource,
+      })),
     openings: [...storey.openings],
     openingFields: storey.openings.map((opening) => ({
       opening,

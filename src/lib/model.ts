@@ -77,6 +77,13 @@ export type Wall = {
    * 보여 주고 내보내기만 한다 — 문·창은 외벽·내벽 어디에나 놓인다(OE-OBJ-07). 에디터가 그은 벽은 모름으로 시작한다.
    */
   external?: boolean | null
+  /** 사람이 외벽 여부를 고쳤다(OE-OBJ-04). 출처가 "편집" 이 되고 계산이 덮지 않는다. `external` 이 null 이면 "모름" 으로 정한 것이다. */
+  externalEdited?: true
+  /**
+   * 벽 높이(미터). 형상(메시)의 위아래 폭으로 잰 값이라 출처는 계산이다. 형상을 읽지 않았거나 에디터가 그은 벽은 `null`·없음(모름) —
+   * 층고로 채우지 않는다. 사람이 고치면 그 값이다(OE-OBJ-04 크기 z).
+   */
+  height?: number | null
   /**
    * 평면 외곽선(고리 여럿일 수 있다). 형상의 맨 아래 면에서 읽는다(`element-geometry.ts`). 형상을 읽지 않는
    * 임포트(`importIfc`)나 아래 면이 없는 벽이면 비어 있다. GeoJSON 에만 나가고 TTL 에는 들어가지 않는다.
@@ -236,6 +243,11 @@ export type Equipment = {
   added?: true
   /** 사람이 이름(태그)을 고쳤으면 BIM 이 준 이름. 타입·패밀리 묶음은 이 이름으로 잡는다(edit.ts 의 bimName). */
   nameEdited?: { from: string }
+  /**
+   * 사람이 벽 면에 붙인 설비의 벽 id(OE-OBJ-04, 외벽 루버·외기 센서). 벽을 옮기면 같이 가고, 길이·두께를 바꾸면 벽 면으로
+   * 다시 붙고, 벽을 지우거나 설비를 따로 옮기면 떨어진다(edit.ts 의 mountOnWall). BIM 에서 온 설비에는 없다.
+   */
+  wallId?: string
   /**
    * 덕트·배관 구간의 두 끝이 연 때 자리에서 얼마나 옮겨졌나(세계 좌표, m). 끝 순서는 연 때 형상의 축(`SegmentAxis`)을 따른다.
    * 붙은 설비를 옮겨 구간이 늘어난 것이다(`followConduits`). 3D 형상은 이 값으로 늘이고, `position` 은 축 위 같은 비율 자리로 간다.

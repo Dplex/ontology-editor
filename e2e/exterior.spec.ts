@@ -34,7 +34,7 @@ test('그은 벽은 방 사이면 내벽, 건물 밖이면 외벽으로 계산�
   await clickFloor(page, 10.1, 7.5)
   await expect(panel.locator('h3')).toHaveText('새 벽')
   await expect(panel.getByTestId('wall-external')).toHaveText('내벽')
-  await expect(panel.locator('.src.calc')).toBeVisible()
+  await expect(panel.locator('.stats .src.calc')).toBeVisible()
 
   // 건물 밖에 홀로 선 담 — 양쪽이 다 바깥이다.
   await page.getByRole('button', { name: '벽 긋기' }).click()
@@ -42,6 +42,6 @@ test('그은 벽은 방 사이면 내벽, 건물 밖이면 외벽으로 계산�
   await clickFloor(page, 20, 6)
   await expect(panel.locator('h3')).toHaveText('새 벽')
   await expect(panel.getByTestId('wall-external')).toHaveText('외벽')
-  await expect(panel.locator('.src.calc')).toBeVisible()
+  await expect(panel.locator('.stats .src.calc')).toBeVisible()
   expect(errors).toEqual([])
 })

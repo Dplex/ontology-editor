@@ -29,15 +29,20 @@ const MIN_SHARE = 0.3
  */
 const END_MARGIN = 0.3
 
-export type ExternalSource = 'bim' | 'calc'
+export type ExternalSource = 'bim' | 'calc' | 'edit'
 export type ExternalJudgement = { external: boolean; source: ExternalSource }
 
-/** 한 층의 벽 id → 외벽 여부. BIM 이 말한 벽은 그대로, 안 말한 벽은 계산한다. 바닥 외곽선이 없는 벽은 계산하지 못해 빠진다. */
+/**
+ * 한 층의 벽 id → 외벽 여부. 사람이 정한 벽(OE-OBJ-04)은 그 값, BIM 이 말한 벽은 그대로, 안 말한 벽은 계산한다.
+ * 사람이 "모름" 으로 정한 벽과 바닥 외곽선이 없는 벽은 빠진다.
+ */
 export function judgeExternal(storey: Storey): Map<string, ExternalJudgement> {
   const out = new Map<string, ExternalJudgement>()
   const unknown: Wall[] = []
   for (const wall of storey.walls) {
-    if (wall.external != null) out.set(wall.id, { external: wall.external, source: 'bim' })
+    if (wall.externalEdited) {
+      if (wall.external != null) out.set(wall.id, { external: wall.external, source: 'edit' })
+    } else if (wall.external != null) out.set(wall.id, { external: wall.external, source: 'bim' })
     else if (wall.footprint?.some((r) => r.length >= 3)) unknown.push(wall)
   }
   if (unknown.length) for (const [id, external] of touchesOutside(storey, unknown)) out.set(id, { external, source: 'calc' })

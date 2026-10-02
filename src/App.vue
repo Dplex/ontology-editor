@@ -107,6 +107,10 @@ import {
   wallLength,
   setWallLength,
   setOpeningSize,
+  mountOnWall,
+  setWallExternal,
+  setWallHeight,
+  setWallThickness,
   type Baseline,
   type BoundaryChange,
   type Change,
@@ -269,6 +273,7 @@ const changeCount = computed(
     sinceOpen.value.equipmentAdded.length +
     sinceOpen.value.equipmentRemoved.length +
     sinceOpen.value.equipmentRenamed.length +
+    sinceOpen.value.equipmentMounted.length +
     sinceOpen.value.wallsAdded.length +
     sinceOpen.value.wallsRemoved.length +
     sinceOpen.value.wallsChanged.length +
@@ -299,6 +304,7 @@ const sinceOpen = computed(() => {
         equipmentAdded: [],
         equipmentRemoved: [],
         equipmentRenamed: [],
+        equipmentMounted: [],
         wallsAdded: [],
         wallsRemoved: [],
         wallsChanged: [],
@@ -2836,17 +2842,54 @@ watch([selectedId, selectedSpaceId], ([eq, sp]) => {
 // 누르면 그 자리에 놓는다. 높이는 같은 패밀리 설비의 바닥에서 높이(중앙값)를 따르고, 없으면 바닥에 두고 알린다 —
 // 높이를 지어내지 않는다. 놓으면 여느 이동처럼 소속을 다시 판정하고 되돌리기에 쌓인다.
 const placing = ref<string | null>(null)
-function startPlace(id: string) {
+/** 놓는 방식. `wall` 이면 누른 자리에서 가장 가까운 벽 면에 붙인다(OE-OBJ-04 외벽 전용 설비). */
+const placingOn = ref<'floor' | 'wall'>('floor')
+function startPlace(id: string, on: 'floor' | 'wall' = 'floor') {
   const home = storeyOf(id)
   if (!home) return
   connectFrom.value = null
   placing.value = id
+  placingOn.value = on
   viewer?.setPlaceMode(home.elevation)
-  note(`${nameOfId(id)}${josa(nameOfId(id), '을/를')} 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
+  note(
+    on === 'wall'
+      ? `${nameOfId(id)}${josa(nameOfId(id), '을/를')} 붙일 벽 면 가까이를 3D에서 클릭하세요. 바깥 면을 누르면 바깥에 붙습니다 (Esc 취소)`
+      : `${nameOfId(id)}${josa(nameOfId(id), '을/를')} 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`,
+  )
 }
 function stopPlace() {
   placing.value = null
+  placingOn.value = 'floor'
   viewer?.setPlaceMode(null)
+}
+
+/** 설비를 벽 면에 붙인다(OE-OBJ-04). 여느 이동처럼 소속을 다시 재고 되돌리기에 쌓인다. 겹침 금지(OE-OBJ-16)도 같다. */
+function mountAt(id: string, at: Vec2) {
+  const m = model.value
+  if (!m) return
+  const before = equipmentById.value.get(id)?.position ?? null
+  const snapshot = snapshotEquipment(m, id)
+  const trial = structuredClone(m)
+  const probe = mountOnWall(trial, id, [cm(at[0]), cm(at[1])])
+  if (!probe) return
+  if ('refused' in probe) return note(probe.refused)
+  const target = trial.storeys.flatMap((st) => st.equipment).find((e) => e.id === id)!
+  const blocked = overlapAt(m, id, target.position!, currentBox)
+  if (blocked) {
+    const name = shortName(blocked.name)
+    editNotice.value = `이미 오브젝트가 있는 위치입니다(${name}${josa(name, '과/와')} 겹칩니다). 배관 없는 설비는 서로 겹쳐 놓을 수 없습니다.`
+    viewer?.markConflict(blocked.id)
+    return
+  }
+  const at0 = mark()
+  const done = mountOnWall(m, id, [cm(at[0]), cm(at[1])])
+  if (!done || 'refused' in done) return
+  const wallName = done.wall.name || '벽'
+  remember(`${shortName(done.change.equipmentName)} ${wallName}에 붙임`, snapshot, at0)
+  moveInScene(id, before, equipmentById.value.get(id)?.position ?? null)
+  changes.value = [...changes.value, done.change]
+  triggerRef(model)
+  note(`${wallName}에 붙였습니다. 벽을 옮기면 같이 갑니다`)
 }
 watch([selectedId, editing, viewStorey], () => {
   if (placing.value && (selectedId.value !== placing.value || !editing.value)) stopPlace()
@@ -2865,7 +2908,9 @@ function placeAt(at: Vec2) {
   }
   const id = placing.value
   const m = model.value
+  const on = placingOn.value
   stopPlace()
+  if (id && on === 'wall') return mountAt(id, at)
   const home = id ? storeyOf(id) : null
   const target = id ? equipmentById.value.get(id) : null
   if (!m || !id || !home || !target) return
@@ -3245,6 +3290,8 @@ const selectedExternal = computed(() => {
   return storey ? judgeExternal(storey) : null
 })
 const externalOf = (wallId: string | null | undefined) => (wallId ? selectedExternal.value?.get(wallId) ?? null : null)
+/** 설비를 붙인 벽의 이름(OE-OBJ-04). */
+const wallNameOf = (wallId: string) => model.value?.storeys.flatMap((st) => st.walls).find((w) => w.id === wallId)?.name || '벽'
 const elementLabel = (kind: 'wall' | 'door' | 'window') => (kind === 'wall' ? '벽' : kind === 'door' ? '문' : '창')
 const nameOfSpace = (id: string) => spaceNameOf(id)
 
@@ -3369,12 +3416,34 @@ function nudgeElement(code: string, step: number): boolean {
   return true
 }
 
-/** 벽 길이(OE-OBJ-05). 가운데를 두고 양 끝을 같이 늘이거나 줄인다. 직사각형 벽만이다. */
+/** 벽 길이(OE-OBJ-05). 가운데를 두고 양 끝을 같이 늘이거나 줄인다. 꼭짓점 넷인 벽만이다(직사각형·비스듬히 맞댄 사다리꼴). */
 function applyWallLength(wall: Wall, raw: string) {
   const value = Number(raw)
   const storey = selectedElement.value?.storey
   if (!storey || raw.trim() === '' || !Number.isFinite(value)) return
   changeElements(storey.id, `${wall.name || '벽'} 길이 ${value.toFixed(2)}m`, (m) => setWallLength(m, wall.id, value))
+}
+
+/** 벽 두께·높이(OE-OBJ-04 크기 y·z). 두께는 중심선을 두고 펴고, 높이는 빈칸이면 모름이다. */
+function applyWallSize(wall: Wall, key: 'thickness' | 'height', raw: string) {
+  const storey = selectedElement.value?.storey
+  if (!storey) return
+  if (key === 'height' && raw.trim() === '') {
+    changeElements(storey.id, `${wall.name || '벽'} 높이 모름`, (m) => setWallHeight(m, wall.id, null))
+    return
+  }
+  const value = Number(raw)
+  if (raw.trim() === '' || !Number.isFinite(value)) return
+  const label = `${wall.name || '벽'} ${key === 'thickness' ? '두께' : '높이'} ${value.toFixed(2)}m`
+  changeElements(storey.id, label, (m) => (key === 'thickness' ? setWallThickness(m, wall.id, value) : setWallHeight(m, wall.id, value)))
+}
+
+/** 외벽 여부를 사람이 정한다(OE-OBJ-04). 계산이 틀린 벽을 바로잡는 자리다. */
+function setExternal(wall: Wall, raw: string) {
+  const value = raw === 'true' ? true : raw === 'false' ? false : null
+  const storey = selectedElement.value?.storey
+  if (!storey) return
+  changeElements(storey.id, `${wall.name || '벽'} ${value === null ? '외벽 여부 모름' : value ? '외벽' : '내벽'}`, (m) => setWallExternal(m, wall.id, value))
 }
 
 /** 문·창 가로·세로(OE-OBJ-07). */
@@ -5047,10 +5116,20 @@ async function export3D(format: 'glb' | 'obj') {
             >
               {{ placing === selected.id ? '놓기 취소' : '3D에서 놓기' }}
             </button>
+            <!-- 외벽 전용 설비(OE-OBJ-04). 누른 자리에서 가장 가까운 벽 면에 붙이고, 벽을 옮기면 같이 간다. -->
+            <button
+              v-if="editing"
+              type="button"
+              :class="['ghost', 'place', 'mount', { on: placing === selected.id && placingOn === 'wall' }]"
+              :aria-pressed="placing === selected.id && placingOn === 'wall'"
+              @click="placing === selected.id && placingOn === 'wall' ? stopPlace() : startPlace(selected.id, 'wall')"
+            >
+              {{ placing === selected.id && placingOn === 'wall' ? '붙이기 취소' : '벽에 붙이기' }}
+            </button>
             <span class="muted">
               {{
                 selected.position
-                  ? `${selected.spaceId ? `소속 ${spaceNameOf(selected.spaceId)}` : '소속 방 없음'} · 방향키로도 옮길 수 있습니다`
+                  ? `${selected.wallId ? `${wallNameOf(selected.wallId)}에 붙음 · ` : ''}${selected.spaceId ? `소속 ${spaceNameOf(selected.spaceId)}` : '소속 방 없음'} · 방향키로도 옮길 수 있습니다`
                   : positionDrafts.has(selected.id)
                     ? 'x·y·z를 모두 넣어야 옮겨집니다'
                     : '좌표가 없습니다. x·y·z를 넣으면 소속 방을 찾습니다'
@@ -5326,21 +5405,77 @@ async function export3D(format: 'glb' | 'obj') {
             {{ selectedElement.wall ? '내력벽이라' : '내력벽에 뚫린 것이라' }} 옮기거나 지울 수 없습니다.
             <template v-if="selectedElement.wall">아래 내력 여부를 바꾸면 풀립니다.</template>
           </p>
-          <p v-if="selectedElement.wall && !selectedElement.locked && wallLength(selectedElement.wall) !== null" class="position-edit wall-length">
-            <label>
+          <!-- 크기(OE-OBJ-04 x·y·z). 길이·두께는 꼭짓점 넷인 벽만(문·창으로 조각난 벽은 옮기기만), 높이는 어느 벽이나. -->
+          <p v-if="selectedElement.wall && !selectedElement.locked" class="position-edit wall-length wall-size">
+            <label v-if="wallLength(selectedElement.wall) !== null">
               길이
               <input
                 class="coord mono"
                 type="number"
                 step="0.1"
                 min="0.1"
+                data-testid="wall-length"
                 v-keep-typing
                 :value="wallLength(selectedElement.wall)!.toFixed(2)"
                 @change="applyWallLength(selectedElement.wall!, ($event.target as HTMLInputElement).value)"
               />
-              m
             </label>
-            <span class="muted">가운데를 두고 양 끝이 같이 늘거나 줄어듭니다.</span>
+            <label v-if="wallLength(selectedElement.wall) !== null">
+              두께
+              <input
+                class="coord mono"
+                type="number"
+                step="0.05"
+                min="0.05"
+                data-testid="wall-thickness"
+                v-keep-typing
+                :value="selectedElement.wall.thickness?.toFixed(2) ?? ''"
+                placeholder="모름"
+                @change="applyWallSize(selectedElement.wall!, 'thickness', ($event.target as HTMLInputElement).value)"
+              />
+            </label>
+            <label>
+              높이
+              <input
+                class="coord mono"
+                type="number"
+                step="0.1"
+                min="0.1"
+                data-testid="wall-height"
+                v-keep-typing
+                :value="selectedElement.wall.height?.toFixed(2) ?? ''"
+                placeholder="모름"
+                @change="applyWallSize(selectedElement.wall!, 'height', ($event.target as HTMLInputElement).value)"
+              />
+              m
+              <!-- 높이는 형상의 위아래 폭으로 잰 값(계산)이다. 연 뒤에 고쳤으면 편집. 모르면 칩을 달지 않는다. -->
+              <Src
+                v-if="selectedElement.wall.height != null"
+                :kind="selectedElement.wall.added || sinceOpen.wallsChanged.some((c) => c.id === selectedElement!.wall!.id && c.resized) ? 'edit' : 'calc'"
+              />
+            </label>
+            <span class="muted">{{
+              wallLength(selectedElement.wall) !== null
+                ? '길이·두께는 가운데를 두고 같이 늘거나 줄어듭니다. 높이 빈칸은 모름입니다.'
+                : '문·창으로 조각났거나 꺾인 벽은 길이·두께를 바꾸지 않고 옮기기만 됩니다. 높이 빈칸은 모름입니다.'
+            }}</span>
+          </p>
+          <!-- 외벽 여부(OE-OBJ-04). 지금 판정(BIM·계산·편집)을 보이고, 고르면 사람이 정한 값이 된다. -->
+          <p v-if="selectedElement.wall" class="storey-move">
+            <label>
+              외벽
+              <select
+                data-testid="wall-external-select"
+                :value="String(externalOf(selectedElement.wall.id)?.external ?? null)"
+                @change="setExternal(selectedElement.wall!, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="true">외벽</option>
+                <option value="false">내벽</option>
+                <option value="null">모름</option>
+              </select>
+            </label>
+            <Src v-if="externalOf(selectedElement.wall.id)" :kind="externalOf(selectedElement.wall.id)!.source" />
+            <span class="muted">{{ externalOf(selectedElement.wall.id)?.source === 'calc' ? '건물 바깥에 닿는지로 계산했습니다. 틀리면 고르세요.' : '' }}</span>
           </p>
           <p v-if="selectedElement.wall && !selectedElement.locked" class="storey-move carry-rooms">
             <label title="벽 면에서 0.6m 안의 방 변이 벽이 움직인 만큼 따라옵니다. 끄면 방 경계는 그대로입니다(방은 IfcSpace 가 따로 그린 것)">
@@ -5351,6 +5486,7 @@ async function export3D(format: 'glb' | 'obj') {
             <label>
               내력
               <select
+                data-testid="wall-bearing"
                 :value="String(selectedElement.wall.loadBearing)"
                 @change="setBearing(selectedElement.wall!, ($event.target as HTMLSelectElement).value)"
               >
@@ -6394,12 +6530,17 @@ async function export3D(format: 'glb' | 'obj') {
             <li v-for="r in sinceOpen.equipmentRenamed" :key="`eq-name-${r.id}`">
               설비 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)
             </li>
+            <li v-for="r in sinceOpen.equipmentMounted" :key="`eq-wall-${r.id}`">
+              설비 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.wall ? `벽 ${r.wall}에 붙였습니다` : '벽에서 뗐습니다' }} (GeoJSON wallId)
+            </li>
             <li v-for="r in sinceOpen.wallsAdded" :key="`wall-add-${r.id}`">벽 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 그었습니다 (GeoJSON)</li>
             <li v-for="r in sinceOpen.wallsRemoved" :key="`wall-rm-${r.id}`">벽 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다(뚫린 문·창도 같이, GeoJSON)</li>
             <li v-for="r in sinceOpen.wallsChanged" :key="`wall-ch-${r.id}`">
               벽 <b>{{ r.name }}</b>:
               <template v-if="r.moved">옮김</template><template v-if="r.moved && r.loadBearing"> · </template>
               <template v-if="r.loadBearing">내력 {{ r.loadBearing.from === null ? '모름' : r.loadBearing.from ? '내력' : '비내력' }} → <b>{{ r.loadBearing.to === null ? '모름' : r.loadBearing.to ? '내력' : '비내력' }}</b></template>
+              <template v-if="r.resized"><template v-if="r.moved || r.loadBearing"> · </template>두께·높이</template>
+              <template v-if="r.external"><template v-if="r.moved || r.loadBearing || r.resized"> · </template>외벽 여부 → <b>{{ r.external.to === null ? '모름' : r.external.to ? '외벽' : '내벽' }}</b></template>
               (GeoJSON)
             </li>
             <li v-for="r in sinceOpen.openingsAdded" :key="`op-add-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 놓았습니다 (GeoJSON)</li>

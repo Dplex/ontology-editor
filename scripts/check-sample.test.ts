@@ -1527,4 +1527,17 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH) || !existsSync(C
     expect(clinic.total).toBe(1080)
     expect(clinic.agreed).toBeGreaterThanOrEqual(1020)
   })
+
+  // OE-OBJ-04 크기 z. 벽 높이는 BIM 형상의 위아래 폭이다(출처 계산). 층고로 채우지 않는다 — 다락·기초 벽은 층고와 다르다.
+  it('벽 높이를 형상에서 읽는다 — AC20 1층 2.5·2.7m, Duplex 기초 벽 1.25m', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const heights = (path: string, storey: string) =>
+      importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model.storeys.find((s) => s.name === storey)!.walls.map((w) => w.height)
+    expect([...new Set(heights(SAMPLE, 'Erdgeschoss'))].sort()).toEqual([2.5, 2.7])
+    const footing = heights(DUPLEX_ARCH, 'T/FDN')
+    expect(footing).toHaveLength(7)
+    expect(footing).toContain(1.25)
+    expect(footing.every((h) => h !== null && h !== undefined && h > 1 && h <= 1.25)).toBe(true)
+  }, 300_000)
 })
