@@ -1162,6 +1162,75 @@ describe.skipIf(!hasRdflib)('rdflib·GeoJSON 검사 (OE-GEN-01)', () => {
   }, 900_000)
 })
 
+// OE-REQ-02 IDS 검사 파일. 고객사가 하듯 ifctester 로 docs/requirements.ids 를 가진 BIM 에 돌린다(scripts/ids-check.py).
+// 값은 정본 4장 "가진 파일로 확인한 결과" 표와 같다 — 명세나 표를 고치면 둘을 같이 고친다. ifctester 가 없으면 건너뛴다.
+const hasIfctester = (() => {
+  try {
+    execFileSync(PYTHON, ['-c', 'import ifctester'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+})()
+
+describe.skipIf(!hasIfctester)('IDS 를 ifctester 로 (OE-REQ-02)', () => {
+  type Row = { name: string; inSchema: boolean; applicable: number; pass: number; checks: number; status: boolean }
+  // 스키마에 맞는 명세 중 대상이 있거나, 대상이 없어서 떨어진 것(있어야 하는 것이 없다 — R7·R9). `n개` 는 대상만 세는 명세
+  // (R9 설비 포함 · 금지 명세 R3 기본 이름·R23 Proxy)의 대상 수다.
+  const cells = (rows: Row[]) =>
+    rows
+      .filter((r) => r.inSchema && (r.applicable > 0 || !r.status))
+      .map((r) => `${r.name.replace(/^\[(필수|권장)\] /, '')} ${r.applicable === 0 ? '없음' : r.checks ? `${r.pass}/${r.checks}` : `${r.applicable}개`}`)
+
+  it('IDS 1.0 스키마에 맞고, 가진 BIM 에서 정본 표의 값이 나온다', () => {
+    const CLINIC_ARCH_ = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc'
+    const CLINIC_HVAC_ = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-HVAC.ifc'
+    const want: Record<string, string[]> = {
+      [SAMPLE]: [
+        'R1 층 이름 2/2', 'R2 공간이 층에 속함 7/7', 'R3 공간 이름과 방 번호 14/14', 'R4 문·창이 벽 개구부에 끼워짐 16/16',
+        'R6 길이 단위 선언 1/1', 'R7 지도 좌표 변환 없음', 'R9 설비 포함 없음', 'R14 방 분류 0/7', 'R19 공조존 0/7', 'R22 벽의 내력 여부 0/13',
+      ],
+      // 설비 전용이라 공간(R2·R3)이 없다. 디퓨저·방열기 용량은 표준 자리에 있고 공조기 둘은 없다.
+      [MEP]: [
+        'R1 층 이름 5/5', 'R2 공간이 층에 속함 없음', 'R3 공간 이름과 방 번호 없음', 'R6 길이 단위 선언 1/1', 'R7 지도 좌표 변환 없음',
+        'R9 설비 포함 307개', 'R11 설비마다 배치 285/307', 'R16 설비·도관이 계통에 묶임 1714/2202', 'R16 계통 종류 9/15',
+        'R16 공기 계통의 공급·환수 0/5', 'R16 물 계통의 공급·환수 0/2', 'R17 포트의 흐름 방향 4202/4232',
+        'R21 용량 — IFCUNITARYEQUIPMENT 0/2', 'R21 용량 — IFCSPACEHEATER 30/30', 'R21 용량 — IFCAIRTERMINAL 43/43', 'R23 Proxy 를 쓰지 않음 49개',
+        'R24 설비 종류 — IFCUNITARYEQUIPMENT 2/2', 'R24 설비 종류 — IFCAIRTERMINAL 43/43', 'R24 설비 종류 — IFCSPACEHEATER 30/30',
+        'R24 설비 종류 — IFCELECTRICDISTRIBUTIONBOARD 3/3', 'R24 설비 종류 — IFCSENSOR 7/7', 'R24 설비 종류 — IFCOUTLET 48/48',
+      ],
+      // B105 `Room` 하나가 기본 이름 명세에 걸린다. IFC2x3 이라 R7(IFC4 부터)은 검사하지 않는다.
+      [DUPLEX_ARCH]: [
+        'R1 층 이름 4/4', 'R2 공간이 층에 속함 21/21', 'R3 공간 이름과 방 번호 42/42', 'R3 방 이름에 기본값을 두지 않음 1개',
+        'R4 문·창이 벽 개구부에 끼워짐 38/38', 'R6 길이 단위 선언 1/1', 'R9 설비 포함 없음', 'R14 방 분류 0/21', 'R19 공조존 0/21', 'R22 벽의 내력 여부 57/57',
+      ],
+      [DUPLEX_HVAC]: [
+        'R1 층 이름 3/3', 'R2 공간이 층에 속함 1/1', 'R3 공간 이름과 방 번호 2/2', 'R6 길이 단위 선언 1/1', 'R9 설비 포함 40개',
+        'R11 설비마다 배치 40/40', 'R14 방 분류 0/1', 'R16 설비·도관이 계통에 묶임 0/498', 'R17 포트의 흐름 방향 970/970', 'R19 공조존 0/1',
+        'R21 용량 — IFCPUMP 0/2',
+      ],
+      // 필수 중 유일하게 떨어지는 것이 이 파일의 문 10개(개구부에 끼워지지 않음)다.
+      [CLINIC_ARCH_]: [
+        'R1 층 이름 4/4', 'R2 공간이 층에 속함 269/269', 'R3 공간 이름과 방 번호 538/538', 'R4 문·창이 벽 개구부에 끼워짐 302/312',
+        'R6 길이 단위 선언 1/1', 'R9 설비 포함 102개', 'R11 설비마다 배치 102/102', 'R14 방 분류 0/269', 'R16 설비·도관이 계통에 묶임 0/102',
+        'R19 공조존 0/269', 'R22 벽의 내력 여부 1080/1080',
+      ],
+      [CLINIC_HVAC_]: [
+        'R1 층 이름 4/4', 'R2 공간이 층에 속함 263/263', 'R3 공간 이름과 방 번호 526/526', 'R6 길이 단위 선언 1/1', 'R9 설비 포함 566개',
+        'R11 설비마다 배치 566/566', 'R14 방 분류 0/263', 'R16 설비·도관이 계통에 묶임 0/3704', 'R17 포트의 흐름 방향 7390/7390', 'R19 공조존 0/263',
+        'R21 용량 — IFCUNITARYEQUIPMENT 0/2', 'R21 용량 — IFCFAN 0/8', 'R21 용량 — IFCCHILLER 0/1', 'R21 용량 — IFCAIRTERMINALBOX 0/115',
+        'R21 용량 — IFCAIRTERMINAL 0/440', 'R24 설비 종류 — IFCUNITARYEQUIPMENT 0/2', 'R24 설비 종류 — IFCAIRTERMINAL 437/440',
+        'R24 설비 종류 — IFCAIRTERMINALBOX 115/115',
+      ],
+    }
+    const files = Object.keys(want).filter((f) => existsSync(f))
+    expect(files.length).toBeGreaterThanOrEqual(2)
+    const out = JSON.parse(execFileSync(PYTHON, ['scripts/ids-check.py', 'docs/requirements.ids', ...files], { maxBuffer: 1 << 26 }).toString())
+    expect(out.specifications).toBe(38)
+    for (const f of files) expect(cells(out.files[f]), f).toEqual(want[f])
+  }, 600_000)
+})
+
 // --- 여러 BIM 에 같이 대 보기 ---------------------------------------------------------
 //
 // **한 파일에 맞춘 조정은 다른 파일에서 떨어진다.** 이름 사전·흐름 규칙·임포터의 숫자(벽면 여유 SNAP, 배치점
