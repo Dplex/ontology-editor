@@ -4,7 +4,7 @@ BIM(IFC4)으로 공간 온톨로지를 만들고 고치는 PoC. 부모 `~/git/dt
 공통 규칙을 정하니 여기엔 이 repo 안에서만 참인 것만 적는다.
 
 **의도와 스펙(왜 이렇게 만드나, 바꾸면 안 되는 결정)은 `intent.md` 에 있다.** 설계를 바꾸거나 온톨로지에 무엇을 낼지 정할 때는
-그 파일을 먼저 연다. 이 파일은 작업 규칙만 둔다.
+그 파일을 먼저 연다. 이 파일은 작업 규칙만 둔다. 새 설계 결정은 `docs/adr/NNNN-제목.md` 로 하나씩 남긴다(틀은 `docs/adr/README.md`).
 
 ## 이 repo 는 PRD_011 의 R1.5 다
 
@@ -199,6 +199,17 @@ API 가 없어 재시작해도 다른 서비스가 끊기지 않으니 창(23:35
 **정문(8000)을 거치지 않는다.** 이 앱은 브라우저 안에서만 돌고 API 가 없어서, 정문의 유일한
 일인 토큰 검증이 지킬 것이 없다. 포털 `:80` 은 한 장짜리 `.html` 만 내주므로 여러 파일로 된
 번들을 올릴 자리가 아니었다.
+
+**예외가 하나 있다 — 문서 챗봇 `/__chat`(Alt+Shift+K, ADR-0001).** 앱의 API 가 아니라 55 의 gemini 가 이 repo 의
+PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지키는 것은 토큰이 아니라 도구 제한이다:
+`scripts/docs-chat.policy.toml`(admin 정책)이 문서 읽는 MCP 서버(`scripts/docs-mcp.mjs`) 밖의 도구를 전부 막는다.
+이 정책을 느슨하게 하면 사내망 누구나 질문 한 줄로 55 에서 명령을 돌린다. 2026-10-02 에 셸·파일 쓰기·인증 파일 읽기를
+시켜 보고 막히는 것을 확인했다(gemini 는 docs 도구 5개만 본다).
+- 창은 앱 코드가 아니라 `run.sh build` 가 `dist/` 에 끼워 넣는 `scripts/docs-chat.js` 라서 개발 서버(5174)에는 없다.
+- 55 의 gemini 는 사내 계정이라 `GOOGLE_CLOUD_PROJECT` 가 없으면 바로 죽는다. `run.sh` 가 `~/.bashrc` 에서 옮겨 온다.
+- 한 번 묻는 데 10~30초다(gemini 기동만 10초). 도구를 많이 부를수록 길어지니, 답하는 법(`scripts/docs-chat.md`)을 고칠 때
+  도구 수를 같이 본다. 서버 로그(`log/ontology-editor.log` 의 `"msg":"chat"`)에 도구·시간이 남고 질문 내용은 안 남는다.
+- 검색을 고치면 `scripts/docs-mcp.test.ts`(실제 문서로 1위를 박아 둔 것)를 같이 본다.
 
 **`data/` 샘플 목록과 등급 칩은 dev 서버와 55 가 같은 코드로 낸다.** `src/server/data-catalog.ts`
 하나를 vite 플러그인이 쓰고, `npm run build:server` 로 묶은 판을 `serve.mjs` 가 `/__data` 에 붙인다.
