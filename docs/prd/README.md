@@ -93,8 +93,9 @@ Epic `README.md` 와 `PRD_011.md` 표를 같이 고친다 — `prd.test.ts` 가 
  이슈와 갈리면 파일을 따른다. 제목 · 라벨 · 칸 규칙은 `PRD_011.md` 부록 F.
 7. **새 티켓**은 Epic 폴더에 다음 번호로 만들고, Epic `README.md` 와 `PRD_011.md` 3장의 기능 수를 같이 고친다.
 
-## 검사 — `npm test` 의 `prd.test.ts`
+## PRD 정합성 검사 — `npm test` 의 `prd.test.ts`
 
+- **목적** : docs/prd/features/** 하위에 작성한 Epic별  `(OE-XXX-nn).md`의 내용이 Epic별  `'README.md`와  `docs/prd/README.md`, `PRD_011.md`,  `glossary.md`가 **서로 모순되는 지점 없이 내용 정합성을 충족하는지** 검사한다. 
 - 티켓 파일 수 = `PRD_011.md` 3장 색인의 기능 수 합. `id` = 파일 이름, 중복 없음, Epic 폴더와 ID 머리가 맞음.
 - 머리 필드가 있고 값이 범례 안이다. 본문에 네 절이 다 있다.
 - `depends` · `blocked_by` 가 가리키는 OE 티켓 · Epic 머리(`OE-ZON`) · R(개발 정본 4장) · K · S(`PRD_011.md` 부록) · D · Q · U · P(`questions.md`) 가 존재한다.
@@ -102,10 +103,10 @@ Epic `README.md` 와 `PRD_011.md` 표를 같이 고친다 — `prd.test.ts` 가 
 - `questions.md` 의 "영향 티켓" 이 실제 파일이다.
 - `features/` 에 `[v1.4]` 가 남아 있지 않다.
 
-## 보드 동기화 — `npm run board`
+## MD 티켓과 보드 내 티켓 동기화 — `npm run board`
 
-티켓 md 가 정본이고 칸반 이슈는 파생이다. `scripts/sync-board.mjs` 가 md 를 이슈에 맞춘다. **`prd.test.ts` 와 달리 네트워크·사내 GitHub
-인증(`gh`)이 필요하고 보드를 바꾸므로 테스트에 넣지 않고, 사람이 로컬에서 수동으로 돌린다**(자동 실행은 runner·토큰이 정해지면).
+- **목적** : docs/prd/featrues/** 내의 티켓 MD와 "온톨로지 자동화 구축" project 보드 내의 티켓의 내용이 서로 동기화 되는지 검사한다. 
+- 티켓 md 가 정본이고 칸반 이슈는 파생이다. `scripts/sync-board.mjs` 가 md 를 이슈에 맞춘다. **`prd.test.ts` 와 달리 네트워크·사내 GitHub 인증(`gh`)이 필요하고 보드를 바꾸므로 테스트에 넣지 않고, 사람이 로컬에서 수동으로 돌린다**(자동 실행은 runner·토큰이 정해지면).
 
 | 명령 | 하는 일 |
 |---|---|
@@ -119,4 +120,4 @@ Epic `README.md` 와 `PRD_011.md` 표를 같이 고친다 — `prd.test.ts` 가 
 - **본문이 바뀌면** 본문 위 `수정 이력` 칸에 `(2026-10-02) 요구사항 수정 — 이전 문구: …` 줄을 덧붙인다. 이력은 이슈 본문에만 있고 md 에는 쓰지 않는다.
 - **하지 않는 것**: Status 이동(개발이 판단 — `prd-done` 인데 `PRD in progress` 인 것은 "넘길 후보"로 알리기만), 코멘트, 이슈 닫기·만들기.
   `planned` 라벨이 없는 이슈(구현 완료 보고로 대체된 것)는 건드리지 않는다.
-- `👀 In Review` 이슈도 본문을 고친다. 수정 이력이 무엇이 바뀌었는지 남긴다.
+- `--only=OE-COM-01,OE-COM-02`: `👀 In Review` 이슈도 본문을 고친다. 수정 이력이 무엇이 바뀌었는지 남긴다.
