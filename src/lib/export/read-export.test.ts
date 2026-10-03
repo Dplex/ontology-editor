@@ -213,6 +213,20 @@ describe('read3D·check3D — 3D 형상(GLB·OBJ)이 GeoJSON 과 같은 id·같�
     expect(c.unknown).toEqual(['nowhere'])
   })
 
+  it('문·창도 3D 객체가 있어야 한다 — 형상 없는 문이 빠지면 잡는다', async () => {
+    // BIM 형상이 없는 문(에디터가 뚫은 것)은 상자로 그린다(OE-INT-09). 그 상자가 빠진 파일을 잡는지 본다.
+    const m = structuredClone(model)
+    const st = m.storeys[0]
+    addWall(m, st.id, [0, -3], [4, -3], 0.2)
+    const door = addOpening(m, st.id, 'door', [2, -3]) as Opening
+    const scene = modelToScene(m, meshes)
+    const ttl = readOntologyTTL(modelToTTL(m))
+    expect(check3D((await both(scene))[0].parts, floorsOf(m), ttl).missing).toEqual([])
+    const gone = scene.getObjectByName(door.id)!
+    gone.parent!.remove(gone)
+    expect(check3D((await both(scene))[0].parts, floorsOf(m), ttl).missing.map((x) => x.id)).toEqual([door.id])
+  })
+
   it('설비 허용치는 임포터의 배치점 보정 기준과 같다', () => {
     expect(EQUIPMENT_TOLERANCE).toBe(ANCHOR_MARGIN)
   })

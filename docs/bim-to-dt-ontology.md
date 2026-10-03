@@ -1045,6 +1045,13 @@ grep -oE '\b(brick|rdfs):[a-z][A-Za-z_]*' $F | sort -u
 GeoJSON에, 관계는 TTL에 두고 id 하나로만 잇는다. TTL에 좌표가 들어가면 `export.test.ts`가 실패한다. 벽·문·창은 Brick에
 해당 클래스가 없어서 GeoJSON에만 있고, 문의 `connects` 속성이 물리존 id를 가리킨다.
 
+**계산한 관계의 출처(PRD 부록 C S4).** TTL의 관계에는 출처가 없다(새 술어는 받는 쪽과 합의할 일, OE-INT-07). 그래서 BIM이 말한 것과
+우리가 계산한 것이 섞이는 관계는 GeoJSON 속성에 `bim`·`calc`로 적는다 — 설비 소속 `spaceSource`, 문이 잇는 방 `connectsSource`,
+벽의 외벽 여부 `externalSource`. 출처가 늘 하나인 관계는 적지 않고 여기 둔다: 공조존·커스텀존이 품는 방(`hasPart`)은 겹친 넓이로
+계산한 것, IDF 설비의 `feeds`는 IDF(외부), 사람이 만든 것은 id가 `U_`, IDF 출신은 `Z_`·`I_`로 시작한다. 설비끼리의 `feeds`는
+BIM 포트·사람이 정한 방향·사람이 확정한 규칙만 나가고 확정 전 추정은 나가지 않는다(K14). 셋을 가르는 표시는 없다. 공기 원천이
+급기를 보내는 방(`feeds 방`)은 그 방향을 따라가 말단의 소속으로 계산한 것이다(ADR-0008).
+
 **DT 쪽 파서(`ttl.go`)가 실제로 읽는 범위.** Turtle 문법에 맞더라도 이 파서가 지원하는 범위를 벗어나면 조용히 버려진다.
 이 규칙을 이 저장소의 `src/lib/export/read-ttl.ts`로 옮겨 적었고, `check:sample`·`check:seongsu`와 내보낸 파일 뷰어(`viewer.html`)가
 그것으로 우리 출력을 다시 읽는다. 예전에는 옆 저장소의 `ttl.go`를 빌드해 읽혔는데, 그 체크아웃 상태에 결과가 매여서 바꿨다(2026-10-03).

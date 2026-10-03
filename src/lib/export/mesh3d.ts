@@ -10,13 +10,17 @@
 import { BoxGeometry, BufferAttribute, BufferGeometry, DoubleSide, ExtrudeGeometry, Group, Mesh, MeshStandardMaterial, Matrix4, Shape } from 'three'
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js'
 import type { ElementMesh, MeshMap } from '../ifc/import'
-import type { Model, Vec2, Vec3 } from '../model'
+import type { Model, Opening, Vec2, Vec3 } from '../model'
 import { ARCH_COLORS, spaceMesh, systemColors, toScene, WALL_COLORS } from '../viewer'
 
 const SPACE_COLOR = 0x8fb3e8
 const NO_SYSTEM = 0x98a1ab
 /** 층 높이를 모를 때(맨 위층, 층이 하나) 벽 외곽선을 세우는 높이. */
 const FALLBACK_STOREY_HEIGHT = 3
+/** BIM 에 크기가 없는 문·창의 상자(너비, 높이, 미터). 표시용 자리 표시이고 extras 에 placeholder 를 단다. */
+const FALLBACK_OPENING: Record<'door' | 'window', [number, number]> = { door: [0.9, 2.1], window: [1.0, 1.0] }
+/** 두께를 모를 때(사람이 더한 문·창) 상자의 두께. */
+const FALLBACK_OPENING_DEPTH = 0.2
 
 export type Mesh3dOptions = {
   /**
@@ -152,14 +156,20 @@ export function modelToScene(model: Model, meshes: MeshMap, options: Mesh3dOptio
       pieces.forEach((g, i) => put(group, g, material(color), pieces.length > 1 ? `${wall.id}#${i}` : wall.id, extras))
     }
 
+    // 문·창. 임포터는 문·창 형상을 자리만 재고 버려서(import.ts 의 placeWallsAndOpenings) 보통 형상이 없다. 그때는 자리·크기·
+    // 벽을 뚫는 방향으로 상자를 세운다 — 요구조건 S7(DT 가 문·창을 그릴 형상, ADR-0009). 자리를 모르면 넣지 않는다(설비와 같다).
     for (const o of storey.openings) {
-      const data = meshes.get(o.id)
-      if (!data) continue
-      const was = before.get(o.id)?.position
-      const now = o.position
-      const shift = was && now ? toScene([now[0] - was[0], now[1] - was[1], now[2] - was[2]]) : undefined
       const color = o.kind === 'door' ? ARCH_COLORS.door : ARCH_COLORS.window
-      put(group, fromElementMesh(data, shift), material(color), o.id, { kind: o.kind, name: o.name, wallId: o.wallId })
+      const extras = { kind: o.kind, name: o.name, wallId: o.wallId }
+      const data = meshes.get(o.id)
+      if (data) {
+        const was = before.get(o.id)?.position
+        const now = o.position
+        const shift = was && now ? toScene([now[0] - was[0], now[1] - was[1], now[2] - was[2]]) : undefined
+        put(group, fromElementMesh(data, shift), material(color), o.id, extras)
+      } else if (o.position) {
+        put(group, openingBox(o), material(color), o.id, o.width && o.height ? extras : { ...extras, placeholder: true })
+      }
     }
 
     for (const e of storey.equipment) {
@@ -176,6 +186,20 @@ export function modelToScene(model: Model, meshes: MeshMap, options: Mesh3dOptio
     }
   }
   return root
+}
+
+/**
+ * 문·창의 상자. 가로는 벽을 따라, 두께는 벽을 뚫는 방향(`through`)으로, 바닥은 자리의 높이(형상의 바닥)다. three 좌표에서
+ * 상자의 +z 를 through 쪽으로 돌린다 — IFC 평면 (tx, ty) 는 three 의 (tx, 0, -ty) 다(`toScene`).
+ */
+function openingBox(o: Opening): BoxGeometry {
+  const [w, h] = o.width && o.height ? [o.width, o.height] : FALLBACK_OPENING[o.kind]
+  const box = new BoxGeometry(w, h, o.depth && o.depth > 0 ? o.depth : FALLBACK_OPENING_DEPTH)
+  const [tx, ty] = o.through ?? [0, 1]
+  box.rotateY(Math.atan2(tx, -ty))
+  const p = o.position!
+  box.translate(...toScene([p[0], p[1], p[2] + h / 2]))
+  return box
 }
 
 /** OBJ 조각 하나의 크기(글자). 조각을 Blob 에 이어 붙인다. */

@@ -110,6 +110,34 @@ describe('3D 내보내기', () => {
     }
   })
 
+  // 요구조건 S7(OE-INT-09): DT 가 문·창도 그린다. 임포터는 문·창 형상을 버리므로 자리·크기·벽을 뚫는 방향으로 상자를 세운다.
+  it('형상 없는 문·창은 자리·크기로 세운 상자로 나가고, 두께는 벽을 뚫는 방향이다', () => {
+    const m = structuredClone(model)
+    const s = m.storeys[0]
+    // y 방향으로 놓인 벽(뚫는 방향 +x)의 문, x 방향 벽(뚫는 방향 +y)의 크기 모르는 창, 자리 모르는 문.
+    s.openings = [
+      { id: 'D1', kind: 'door', name: 'D1', width: 1, height: 2, wallId: null, passable: true, position: [5, 2, 0], through: [1, 0], depth: 0.2 },
+      { id: 'W1', kind: 'window', name: 'W1', width: null, height: null, wallId: null, passable: false, position: [3, 8, 1], through: [0, 1], depth: 0.3 },
+      { id: 'D2', kind: 'door', name: 'D2', width: 1, height: 2, wallId: null, passable: true, position: null },
+    ]
+    const found = new Map<string, Mesh>()
+    modelToScene(m, meshes).traverse((o) => {
+      if (['D1', 'W1', 'D2'].includes(o.name)) found.set(o.name, o as Mesh)
+    })
+    expect([...found.keys()].sort()).toEqual(['D1', 'W1'])
+    // three 의 경계 상자를 IFC 평면으로 되돌린다: three (x, y, z) = IFC (x, z, -y).
+    const ifcBox = (mesh: Mesh) => {
+      mesh.geometry.computeBoundingBox()
+      const { min, max } = mesh.geometry.boundingBox!
+      return { x: [+min.x.toFixed(6), +max.x.toFixed(6)], y: [+(-max.z).toFixed(6), +(-min.z).toFixed(6)], z: [+min.y.toFixed(6), +max.y.toFixed(6)] }
+    }
+    expect(ifcBox(found.get('D1')!)).toEqual({ x: [4.9, 5.1], y: [1.5, 2.5], z: [0, 2] })
+    // 크기를 모르면 창 1×1m 자리 표시이고 placeholder 를 단다. 두께는 BIM 형상에서 잰 0.3m.
+    expect(ifcBox(found.get('W1')!)).toEqual({ x: [2.5, 3.5], y: [7.85, 8.15], z: [1, 2] })
+    expect(found.get('W1')!.userData).toMatchObject({ kind: 'window', placeholder: true })
+    expect(found.get('D1')!.userData.placeholder).toBeUndefined()
+  })
+
   it('좌표가 없는 설비는 넣지 않는다', () => {
     // 원점에 상자를 두면 거기 있는 것처럼 읽힌다.
     const lost = model.storeys.flatMap((s) => s.equipment).filter((e) => !e.position && !meshes.has(e.id))

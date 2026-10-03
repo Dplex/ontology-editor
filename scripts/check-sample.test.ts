@@ -11,7 +11,7 @@ import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-ge
 import { profileOf, type Profile } from '../src/lib/profile'
 import { CAPACITY_PREDICATE } from '../src/lib/capacity'
 import { countOf, isConduit, polygonArea, unplacedOf, type Vec2 } from '../src/lib/model'
-import { assignEquipment, assignEquipmentToSpaces, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
+import { assignEquipment, assignEquipmentToSpaces, interiorPoint, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
@@ -37,7 +37,7 @@ import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
 import { overlapArea } from '../src/lib/polygon'
 import { computeExternal } from '../src/lib/exterior'
 import { createCustomZone } from '../src/lib/custom-zone'
-import { baselineOf, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, type WallCarryPlan } from '../src/lib/edit'
+import { addEquipment, baselineOf, moveEquipment, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, type WallCarryPlan } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -1885,6 +1885,105 @@ describe.skipIf(![DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_FULL, DUPLEX_
     expect(archR6.state).toBe('standard')
     expect(archR6.note).toContain('이전 판본(COBie-Design.ifc)은 같은 이름 층의 높이가 이 파일의 1/1000로')
   }, 300_000)
+})
+
+// PRD 부록 C 요구조건 S1~S8(OE-INT-09)을 실제 BIM 으로. 픽스처로 재는 묶음은 src/lib/requirements-s.test.ts 다. 여기서는
+// 픽스처에 없는 것 — 실제로 GUID 가 바뀐 판본(S1), 22자 IfcGlobalId(S2), BIM 이 말한 소속(S4), 벽·문·창의 3D(S7) — 을 잰다.
+describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every((f) => existsSync(f)))('요구조건 S (OE-INT-09, Duplex)', () => {
+  it('S1: 같은 Revit 으로 다시 낸 MEP-2(GUID 가 바뀐 설비 217대)에 MEP 에서 한 편집이 다시 얹힌다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const load = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+    const v1 = load(DUPLEX_MEP_FULL)
+    const v2 = load(DUPLEX_MEP_2)
+    const diff = compareVersions(v1, v2)
+    const edited = structuredClone(v1)
+    const base = baselineOf(edited)
+    // GUID 가 바뀐 설비 다섯을 옮기고, GUID 가 바뀐 방 하나의 이름을 고치고, 설비 하나를 더한다.
+    const prevEq = new Map(v1.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
+    const movedEq = diff.equipment.rekeyed.filter((r) => prevEq.get(r.prevId)?.position).slice(0, 5)
+    for (const r of movedEq) {
+      const p = prevEq.get(r.prevId)!.position!
+      moveEquipment(edited, r.prevId, [p[0] + 0.5, p[1], p[2]])
+    }
+    const room = diff.spaces.rekeyed[0]
+    renameSpace(edited, room.prevId, 'S1 고친 이름')
+    const storey = edited.storeys.find((s) => s.spaces.some((sp) => sp.id === room.prevId))!
+    const sp = storey.spaces.find((x) => x.id === room.prevId)!
+    const at = interiorPoint(sp.footprint)!
+    const added = addEquipment(edited, storey.id, { name: 'S1 감지기', kind: 'smoke_detector', position: [at[0], at[1], storey.elevation + 2.5] })!
+    const file = parseEditFile(JSON.stringify(exportEdits(edited, base, 'MEP.ifc')))
+    if (typeof file === 'string') throw new Error(file)
+
+    const target = structuredClone(v2)
+    const result = applyEdits(target, file)
+    // 설비 다섯은 이름 끝의 Revit 요소 ID 로, 방은 이름으로 찾는다. 못 찾은 것은 없다.
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 })
+    expect(movedEq.map((r) => r.by)).toEqual(Array(5).fill('revitId'))
+    expect(result.rematched).toEqual({ revitId: 5, name: 1, position: 0 })
+    const x = modelToTTL(target)
+    const ttl = readOntologyTTL(x)
+    const floors = modelToGeoJSON(target).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
+    const feats = new Map(floors.flatMap((f) => f.features).map((f) => [f.id, f]))
+    for (const r of movedEq) {
+      const p = prevEq.get(r.prevId)!.position!
+      expect((feats.get(r.id)!.geometry!.coordinates as number[])[0], r.name).toBeCloseTo(p[0] + 0.5, 6)
+    }
+    expect(ttl.entities.find((e) => e.key === room.id)!.label).toBe('S1 고친 이름')
+    expect(ttl.entities.find((e) => e.key === added.id)!.cls).toBe('Smoke_Detector')
+  }, 600_000)
+
+  it('S2·S4·S7: 건축+MEP 합친 모델 — id 는 22자 IfcGlobalId, BIM 이 말한 소속 167건이 GeoJSON 에 bim 으로, 벽·문·창이 3D 에', async () => {
+    if (!('FileReader' in globalThis)) {
+      ;(globalThis as Record<string, unknown>).FileReader = class {
+        result: ArrayBuffer | null = null
+        onloadend: (() => void) | null = null
+        readAsArrayBuffer(blob: Blob) {
+          void blob.arrayBuffer().then((b) => {
+            this.result = b
+            this.onloadend?.()
+          })
+        }
+      }
+    }
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const open = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path)), undefined, { openings: true })
+    const a = open(DUPLEX_ARCH)
+    const b = open(DUPLEX_MEP)
+    const { model, report } = mergeModels(a.model, b.model)
+    const meshes = new Map([...a.meshes, ...b.meshes])
+    const floors = modelToGeoJSON(model).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
+    const features = floors.flatMap((f) => f.features)
+    const ttl = readOntologyTTL(modelToTTL(model))
+
+    // S2: BIM 에서 온 것은 전부 22자 IfcGlobalId 이고, 물리존·설비는 TTL 주어 키와 GeoJSON id 가 같은 문자열이다.
+    const keys = new Set([...ttl.entities.map((e) => e.key), ...ttl.unread.map((u) => u.key)])
+    const kinds = new Map<string, number>()
+    for (const f of features) {
+      const kind = String(f.properties.kind)
+      kinds.set(kind, (kinds.get(kind) ?? 0) + 1)
+      expect(f.id, kind).toMatch(/^[0-9A-Za-z_$]{22}$/)
+      if (kind === 'space' || kind === 'equipment') expect(keys.has(f.id), f.id).toBe(true)
+    }
+    expect(Object.fromEntries(kinds)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14 })
+
+    // S4: 소속의 출처. BIM 이 말한 소속(합칠 때 같은 자리의 방으로 옮겨 적은 것)은 bim, 나머지는 calc.
+    const src = features.filter((f) => f.properties.kind === 'equipment' && f.properties.spaceId).map((f) => f.properties.spaceSource)
+    expect(report.declaredRemapped).toEqual({ total: 167, remapped: 167 })
+    expect({ bim: src.filter((s) => s === 'bim').length, calc: src.filter((s) => s === 'calc').length }).toEqual({ bim: 167, calc: src.length - 167 })
+    expect(src.length).toBe(656)
+
+    // S7: 3D 에 물리존 판·벽·문·창·설비가 같은 id 로 들어간다.
+    const scene = modelToScene(model, meshes)
+    const glb = await read3D('a.glb', await sceneToGLB(scene))
+    const kindOf = new Map(features.map((f) => [f.id, String(f.properties.kind)]))
+    const in3d = new Map<string, number>()
+    for (const id of new Set(glb.parts.map((p) => p.id))) in3d.set(kindOf.get(id) ?? '?', (in3d.get(kindOf.get(id) ?? '?') ?? 0) + 1)
+    // 문·창은 임포터가 형상을 버려 자리·크기로 세운 상자다(mesh3d.ts openingBox, ADR-0009). 전부 GeoJSON 과 같은 id 다.
+    expect(Object.fromEntries(in3d)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14 })
+    expect(check3D(glb.parts, floors, ttl)).toEqual({ unknown: [], missing: [], misplaced: [] })
+  }, 900_000)
 })
 
 // 공조존(F12)을 IDF 에서 읽는다. 삼성 IDF(DesignBuilder 출력, EnergyPlus 22.2)는 저장소 밖(rl-pipeline/data)에서 data/idf 로
