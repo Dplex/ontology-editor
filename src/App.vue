@@ -24,6 +24,7 @@ import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
 import { storeyHeights, type StoreyHeight } from './lib/storey-height'
+import { storeyFiles } from './lib/export/storey-export'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
@@ -4728,6 +4729,23 @@ async function build() {
   }
 }
 
+/**
+ * 층 하나만 구축한다(OE-GEN-11). 그 층의 TTL·GeoJSON 한 쌍을 받는다(storey-export.ts). 층 파일을 다 모으면 건물 전체와 같은
+ * 트리플이다(ADR-0011). 건물 전체 [구축하기] 와 달리 저장으로 치지 않는다 — 다른 층의 편집은 아직 안 나갔다.
+ */
+async function buildStorey(storeyId: string) {
+  const m = model.value
+  const files = m ? storeyFiles(m, storeyId) : null
+  if (!m || !files) return
+  download(files.ttlName, files.ttl, 'text/turtle')
+  // 잇달아 받으면 크롬이 둘째를 막을 수 있다(exportGeoJSON 주석). 틈을 둔다.
+  await new Promise((r) => window.setTimeout(r, 250))
+  download(files.geojsonName, files.geojson, 'application/geo+json')
+  const name = m.storeys.find((s) => s.id === storeyId)?.name ?? ''
+  note(`${name} 층을 구축했습니다: ${files.ttlName} · ${files.geojsonName}. 다른 층을 가리키는 줄은 id 로 남습니다.`)
+  markDone(`build:${storeyId}`)
+}
+
 function exportTTL() {
   if (!model.value) return
   download('ontology.ttl', modelToTTL(model.value), 'text/turtle')
@@ -6492,6 +6510,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <th class="num">넓이 합</th>
                 <th class="num">벽</th>
                 <th class="num">설비</th>
+                <th aria-label="층 단위 구축"></th>
               </tr>
             </thead>
             <tbody>
@@ -6526,7 +6545,20 @@ async function export3D(format: 'glb' | 'obj') {
                     <span class="muted"> · {{ wallThicknessLabel(s) }}</span>
                   </template>
                 </td>
-                <td class="num mono">{{ s.equipment.length }}</td>
+                <td class="num mono storey-equipment">{{ s.equipment.length }}</td>
+                <td class="storey-build">
+                  <button
+                    type="button"
+                    class="ghost"
+                    :aria-label="`${s.name} 구축`"
+                    title="이 층만 온톨로지로 받습니다(TTL·GeoJSON 한 쌍). 다른 층을 가리키는 줄은 id 로 남습니다."
+                    :disabled="busy"
+                    :class="{ done: justDone === `build:${s.id}` }"
+                    @click="buildStorey(s.id)"
+                  >
+                    구축
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>

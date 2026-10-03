@@ -25,6 +25,27 @@ export function numericPredicates(ttl: string): Set<string> {
 /** 숫자를 담아도 되는 술어. 좌표가 아니라 값이다 — 방·존 넓이, 층 바닥 높이, 설비 용량(capacity.ts). */
 export const NUMERIC_OK: ReadonlySet<string> = new Set(['ex:areaM2', 'ex:elevation', ...Object.values(CAPACITY_PREDICATE)])
 
+/**
+ * ttl.ts 가 쓰는 모양(블록 = `주어 a 클래스 ;` + `    술어 목적어, 목적어 ;` … `.`)을 `주어 술어 목적어` 문자열 집합으로 편다.
+ * 층 파일을 모으면 건물 전체와 같은지(OE-GEN-11) 견줄 때 쓴다. 일반 Turtle 파서가 아니다 — 우리가 쓴 모양만 읽는다.
+ */
+export function ttlTriples(ttl: string): Set<string> {
+  const out = new Set<string>()
+  for (const block of ttl.split(/\n\s*\n/)) {
+    const lines = block.split('\n').filter((l) => l.trim() && !l.startsWith('@'))
+    if (!lines.length) continue
+    const [subject, , cls] = lines[0].trim().replace(/\s*[;.]$/, '').split(/\s+/)
+    out.add(`${subject} a ${cls}`)
+    for (const line of lines.slice(1)) {
+      const body = line.trim().replace(/\s*[;.]$/, '')
+      const predicate = body.split(/\s+/)[0]
+      const objects = body.slice(predicate.length).match(/"(?:[^"\\]|\\.)*"|[^\s,]+/g) ?? []
+      for (const o of objects) out.add(`${subject} ${predicate} ${o}`)
+    }
+  }
+  return out
+}
+
 export type ReadFeature = {
   type: 'Feature'
   id: string

@@ -15,8 +15,9 @@ import { assignEquipment, assignEquipmentToSpaces, interiorPoint, locate, pointI
 import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
-import { readOntologyTTL, type OntologyEntity } from '../src/lib/export/read-ttl'
-import { crossCheck, geojsonProblems, NUMERIC_OK, numericPredicates, readGeoJSON } from '../src/lib/export/read-export'
+import { mergeReadings, readOntologyTTL, type OntologyEntity } from '../src/lib/export/read-ttl'
+import { crossCheck, geojsonProblems, NUMERIC_OK, numericPredicates, readGeoJSON, ttlTriples } from '../src/lib/export/read-export'
+import { storeyFiles } from '../src/lib/export/storey-export'
 import { check3D, read3D } from '../src/lib/export/read-3d'
 import { modelToScene, sceneToGLB, sceneToOBJ } from '../src/lib/export/mesh3d'
 import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topology'
@@ -2496,4 +2497,56 @@ describe.skipIf(![SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_COBIE, CLINIC_ARCH, CLINIC_HV
     // ifc4Mep 의 0m 층에 붙어 BIM 2.7 을 가져오고, AC20 다락(2.7m)은 새 층이 되어 윗층(3.5m)과의 차 0.8 이 생겨 BIM 2.0 과 어긋난다.
     expect(table(mergeModels(open(MEP), ac20).model).filter((r) => r.includes('bim'))).toEqual(['00. Begane grond 2.7 bim 순2.7', 'Dachgeschoss 2 bim 순2 어긋남'])
   }, 300_000)
+})
+
+// 층 단위 생성(OE-GEN-11). 층 파일(TTL·GeoJSON 한 쌍)을 다 모으면 건물 전체 TTL 과 같은 트리플이고(ADR-0011), 층 파일 하나만 봐도
+// GeoJSON 의 그 층 feature 가 TTL 주어로 다 있다. 끝이 빈 줄은 다른 층 주어를 가리키는 것뿐이다 — 다른 층 파일이 들어오면 이어진다.
+describe('층 단위 생성 (OE-GEN-11)', () => {
+  it('가진 BIM 의 층 파일을 모으면 건물 전체와 같고, 층마다 GeoJSON 과 TTL 이 id 로 이어진다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const open = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+    const cases: [string, () => Model][] = []
+    if (existsSync(SAMPLE)) cases.push(['fzk', () => open(SAMPLE)])
+    if (existsSync(MEP)) cases.push(['ifc4mep', () => open(MEP)])
+    if (existsSync(DUPLEX_ARCH) && existsSync(DUPLEX_HVAC)) cases.push(['duplex 건축+hvac', () => mergeModels(open(DUPLEX_ARCH), open(DUPLEX_HVAC)).model])
+    if (existsSync(DUPLEX_MEP_FULL)) cases.push(['duplex mep', () => open(DUPLEX_MEP_FULL)])
+    if (existsSync(CLINIC_ARCH) && existsSync(CLINIC_HVAC)) cases.push(['병원 건축+hvac', () => mergeModels(open(CLINIC_ARCH), open(CLINIC_HVAC)).model])
+    if (existsSync(SAMSUNG_IDF)) cases.push(['idf', () => modelFromIdf(readIdf(readFileSync(SAMSUNG_IDF, 'utf8')), 'samsung').model])
+    expect(cases.length).toBeGreaterThanOrEqual(2)
+    const crossing: Record<string, number> = {}
+    for (const [name, make] of cases) {
+      const model = make()
+      const whole = ttlTriples(modelToTTL(model))
+      const merged = new Set<string>()
+      const subjects = new Set<string>()
+      const objects: string[] = []
+      const readings: ReturnType<typeof readOntologyTTL>[] = []
+      const floors: ReturnType<typeof readGeoJSON>[] = []
+      for (const storey of model.storeys) {
+        const files = storeyFiles(model, storey.id)!
+        for (const t of ttlTriples(files.ttl)) merged.add(t)
+        const reading = readOntologyTTL(files.ttl)
+        const floor = readGeoJSON(files.geojsonName, files.geojson)
+        readings.push(reading)
+        floors.push(floor)
+        expect(floor.problems, `${name} ${storey.name}`).toEqual([])
+        const check = crossCheck(reading, [floor])
+        expect({ notInTtl: check.notInTtl, locationMismatch: check.locationMismatch, doorLinks: check.doorLinks }, `${name} ${storey.name}`).toEqual({ notInTtl: [], locationMismatch: [], doorLinks: [] })
+        for (const e of [...reading.entities, ...reading.unread]) subjects.add(e.key)
+        objects.push(...check.dangling.map((d) => d.to))
+      }
+      expect([...merged].filter((t) => !whole.has(t)), name).toEqual([])
+      expect([...whole].filter((t) => !merged.has(t)), name).toEqual([])
+      // 층 파일 하나에서 끝이 빈 줄은 전부 다른 층 파일의 주어다.
+      expect(objects.filter((id) => !subjects.has(id)), name).toEqual([])
+      // 뷰어처럼 층 파일을 쌓아 읽으면(mergeReadings) 끊긴 참조가 없다 — 건물 전체 TTL 을 읽은 것과 같다.
+      const stacked = crossCheck(mergeReadings(readings), floors)
+      expect({ ...stacked, toUnread: 0 }, name).toEqual({ notInTtl: [], dangling: [], toUnread: 0, locationMismatch: [], doorLinks: [] })
+      crossing[name] = objects.length
+    }
+    // 다른 층을 가리키는 줄 수. 층을 넘는 흐름(feeds)·계통 구성원·공조존의 방이다. 이 수가 0 이 아니어도 위에서 다 이어짐을 봤다.
+    expect(crossing).toEqual({ fzk: 0, ifc4mep: 20, 'duplex 건축+hvac': 0, 'duplex mep': 0, '병원 건축+hvac': 311, idf: 225 })
+  }, 900_000)
 })

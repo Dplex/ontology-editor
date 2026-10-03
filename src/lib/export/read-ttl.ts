@@ -101,3 +101,28 @@ export function readOntologyTTL(text: string): TtlReading {
   flush()
   return { entities, unread }
 }
+
+/**
+ * 층 파일 여럿(OE-GEN-11)을 한 번에 읽은 것처럼 합친다. 같은 주어가 여러 파일에 있으면(건물·여러 층에 걸친 계통) 관계 목록을 합치고
+ * 원문은 이어 붙인다. 층 파일을 다 합치면 건물 전체 TTL 을 읽은 것과 같은 관계가 된다(ADR-0011).
+ */
+export function mergeReadings(readings: readonly TtlReading[]): TtlReading {
+  const byKey = new Map<string, OntologyEntity>()
+  for (const e of readings.flatMap((r) => r.entities)) {
+    const had = byKey.get(e.key)
+    if (!had) {
+      byKey.set(e.key, { ...e, points: [...e.points], feeds: [...e.feeds], locations: [...e.locations], parts: [...e.parts] })
+      continue
+    }
+    const add = (a: string[], b: readonly string[]) => a.push(...b.filter((x) => !a.includes(x)))
+    add(had.points, e.points)
+    add(had.feeds, e.feeds)
+    add(had.locations, e.locations)
+    add(had.parts, e.parts)
+    if (!had.source.includes(e.source)) had.source = `${had.source}\n\n${e.source}`
+  }
+  const unread = new Map<string, TtlReading['unread'][number]>()
+  for (const u of readings.flatMap((r) => r.unread)) if (!unread.has(u.key)) unread.set(u.key, u)
+  return { entities: [...byKey.values()], unread: [...unread.values()] }
+}
+

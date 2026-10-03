@@ -72,3 +72,21 @@ test('3D 형상은 GLB·OBJ 한 파일로 내려받고, 요소 이름이 GlobalI
   expect(text).toMatch(/^o \S+/m)
   expect(text).toMatch(/^v /m)
 })
+
+test('층별 요약의 [구축] 은 그 층의 TTL·GeoJSON 한 쌍만 받는다 (OE-GEN-11)', async ({ page }) => {
+  // 두 층 fixture 에 설비 파일을 합쳤다. 1F 를 구축하면 1F 의 방·설비만 TTL 주어로 들고, 2F 방은 없다.
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(['src/lib/ifc/fixtures/mep.ifc', FIXTURE])
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+  const files = new Map<string, string>()
+  page.on('download', async (d) => files.set(d.suggestedFilename(), Buffer.concat(await (await d.createReadStream()).toArray()).toString()))
+  await page.locator('.storeys tbody tr', { hasText: '1F' }).getByRole('button', { name: '1F 구축' }).click()
+  await expect.poll(() => [...files.keys()].sort()).toEqual(['floor-1F.geojson', 'floor-1F.ttl'])
+  const ttl = files.get('floor-1F.ttl')!
+  expect(ttl).toContain('a brick:Floor')
+  expect(ttl.match(/a brick:Floor/g)).toHaveLength(1)
+  expect(ttl).toContain('"AHU-1"')
+  const geo = JSON.parse(files.get('floor-1F.geojson')!)
+  expect(geo.features.every((f: { properties: { storeyId?: string } }) => !f.properties.storeyId || f.properties.storeyId === geo.features[0].properties.storeyId)).toBe(true)
+  await expect(page.locator('.storeys tbody tr', { hasText: '1F' }).getByRole('button', { name: '1F 구축' })).toHaveClass(/done/)
+})

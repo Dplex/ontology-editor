@@ -6,13 +6,15 @@
 // RFC 7946 모양으로, 3D 는 three 의 로더로 읽고, 셋이 id 로 이어지는지(read-export.ts·read-3d.ts)를 같이 보인다.
 // 고른 것은 파일에 적힌 원문(TTL 블록·GeoJSON feature)까지 보인다. 파일은 브라우저 안에서만 읽는다.
 import { computed, ref, shallowRef } from 'vue'
-import { readOntologyTTL, type OntologyEntity, type TtlReading } from '../lib/export/read-ttl'
+import { mergeReadings, readOntologyTTL, type OntologyEntity, type TtlReading } from '../lib/export/read-ttl'
 import { crossCheck, readGeoJSON, type ExportFloor, type ReadFeature } from '../lib/export/read-export'
 import { check3D, read3D, type Reading3D } from '../lib/export/read-3d'
 import Scene3D from './Scene3D.vue'
 
 const ttl = shallowRef<TtlReading | null>(null)
 const ttlName = ref('')
+/** 놓은 TTL 파일들. 층 파일(OE-GEN-11)을 여럿 놓으면 합쳐 읽는다 — 다른 층을 가리키던 줄이 이어진다. */
+const ttlFiles = new Map<string, TtlReading>()
 const floors = shallowRef<ExportFloor[]>([])
 const models3d = shallowRef<Reading3D[]>([])
 const model3dIndex = ref(0)
@@ -51,8 +53,12 @@ async function load(files: FileList | File[]) {
   for (const file of Array.from(files)) {
     const name = file.name
     if (/\.ttl$/i.test(name)) {
-      ttl.value = readOntologyTTL(await file.text())
-      ttlName.value = name
+      // 건물 전체 TTL(ontology.ttl)을 놓으면 앞서 놓은 것을 바꾼다. 층 파일은 쌓는다.
+      if (!/^floor-/i.test(name)) ttlFiles.clear()
+      else for (const key of ttlFiles.keys()) if (!/^floor-/i.test(key)) ttlFiles.delete(key)
+      ttlFiles.set(name, readOntologyTTL(await file.text()))
+      ttl.value = ttlFiles.size === 1 ? [...ttlFiles.values()][0] : mergeReadings([...ttlFiles.values()])
+      ttlName.value = ttlFiles.size === 1 ? name : `층 파일 ${ttlFiles.size}개 합침`
     } else if (/\.(geo)?json$/i.test(name)) {
       next.set(name, readGeoJSON(name, await file.text()))
     } else if (/\.(glb|obj)$/i.test(name)) {
@@ -85,6 +91,7 @@ function onDrop(event: DragEvent) {
 function clear() {
   ttl.value = null
   ttlName.value = ''
+  ttlFiles.clear()
   floors.value = []
   models3d.value = []
   view.value = 'plan'
