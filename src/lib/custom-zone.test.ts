@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { createCustomZone, deleteCustomZone, mergeCustomZones, renameCustomZone, splitCustomZone, zoneEquipment, zoneSpaces } from './custom-zone'
+import { createCustomZone, deleteCustomZone, mergeCustomZones, renameCustomZone, setCustomZoneAliases, splitCustomZone, zoneNamesOfEquipment, zoneEquipment, zoneSpaces } from './custom-zone'
 import { addEquipment, baselineOf, diffBaseline, moveEquipment, replaceSpaceFootprint, restore, snapshotCustomZones, snapshotOf } from './edit'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { modelToGeoJSON } from './export/geojson'
@@ -171,5 +171,75 @@ describe('되돌리기·편집 파일·GeoJSON', () => {
     deleteCustomZone(model, 'U_exec')
     const base2 = baselineOf(fresh)
     expect(diffBaseline(model, base2).customZones).toEqual([{ id: 'U_exec', name: '임원석', change: 'removed' }])
+  })
+})
+
+describe('별명 여러 개 (2026-10-03 사용자 결정, ADR-0012)', () => {
+  it('더 붙인 별명은 공백을 떼고, 빈 것·이름과 같은 것·겹친 것을 뺀다', () => {
+    make('임원석', rect(0, 6, 5, 10), 'U_exec')
+    expect(setCustomZoneAliases(model, 'U_exec', [' 임원 구역 ', '', '임원석', '경영진석', '임원 구역'])).toBe(true)
+    expect(storey().customZones![0].aliases).toEqual(['임원 구역', '경영진석'])
+    expect(setCustomZoneAliases(model, 'U_exec', ['임원 구역', '경영진석'])).toBe(false)
+    expect(setCustomZoneAliases(model, 'U_exec', [])).toBe(true)
+    expect('aliases' in storey().customZones![0]).toBe(false)
+  })
+
+  it('TTL 은 첫 이름이 rdfs:label, 나머지는 ex:alias 다. GeoJSON 은 aliases. 별명이 없으면 둘 다 그 줄·칸이 없다', () => {
+    make('임원석', rect(0, 6, 5, 10), 'U_exec')
+    make('개발팀', rect(10, 0, 26, 10), 'U_team')
+    setCustomZoneAliases(model, 'U_exec', ['임원 구역', '경영진 "A"석'])
+    const blocks = modelToTTL(model).split('\n\n')
+    const exec = blocks.find((b) => b.startsWith('ex:U_exec '))!
+    expect(exec).toContain('rdfs:label "임원석" ;')
+    expect(exec).toContain('ex:alias "임원 구역", "경영진 \\"A\\"석" ;')
+    expect(blocks.find((b) => b.startsWith('ex:U_team '))!).not.toContain('ex:alias')
+    const features = modelToGeoJSON(model)[0].collection.features
+    expect(features.find((f) => f.id === 'U_exec')!.properties.aliases).toEqual(['임원 구역', '경영진 "A"석'])
+    expect('aliases' in features.find((f) => f.id === 'U_team')!.properties).toBe(false)
+  })
+
+  it('합치면 없어지는 존의 이름·별명이 합친 존의 별명으로 남는다', () => {
+    make('A석', rect(0, 0, 5, 5), 'U_a')
+    make('B석', rect(5, 0, 10, 5), 'U_b')
+    setCustomZoneAliases(model, 'U_b', ['창가'])
+    mergeCustomZones(model, 'U_a', 'U_b')
+    expect(storey().customZones!.map((z) => [z.name, z.aliases])).toEqual([['A석', ['B석', '창가']]])
+  })
+
+  it('별명만 고쳐도 리포트에 오르고, 저장·불러오면 같고, 되돌리면 돌아온다', () => {
+    make('임원석', rect(0, 6, 5, 10), 'U_exec')
+    const pristine = structuredClone(model)
+    const base = baselineOf(model)
+    const before = snapshotCustomZones(model, 's1')!
+    setCustomZoneAliases(model, 'U_exec', ['임원 구역'])
+    expect(diffBaseline(model, base).customZones).toEqual([{ id: 'U_exec', name: '임원석', change: 'changed' }])
+    const parsed = parseEditFile(JSON.stringify(exportEdits(model, base, 'x.ifc')))
+    if (typeof parsed === 'string') throw new Error(parsed)
+    const fresh = structuredClone(pristine)
+    applyEdits(fresh, parsed)
+    expect(modelToTTL(fresh)).toBe(modelToTTL(model))
+    restore(model, before)
+    expect('aliases' in storey().customZones![0]).toBe(false)
+  })
+
+  it('별명이 있는 존을 고친 뒤 되돌려도 별명이 남는다 — 되돌리기 사본이 별명까지 뜬다', () => {
+    make('임원석', rect(0, 6, 5, 10), 'U_exec')
+    setCustomZoneAliases(model, 'U_exec', ['임원 구역', '경영진석'])
+    const before = snapshotCustomZones(model, 's1')!
+    renameCustomZone(model, 'U_exec', '임원실')
+    splitCustomZone(model, 'U_exec', [2.5, 5], [2.5, 11])
+    restore(model, before)
+    expect(storey().customZones!.map((z) => [z.name, z.aliases])).toEqual([['임원석', ['임원 구역', '경영진석']]])
+  })
+})
+
+describe('설비 검색 — 든 커스텀존의 이름·별명으로 (ADR-0012)', () => {
+  it('설비마다 든 존의 이름·별명 전부. 존 밖 설비는 없다', () => {
+    make('임원석', rect(10, 0, 26, 10), 'U_exec')
+    setCustomZoneAliases(model, 'U_exec', ['경영진석'])
+    const names = zoneNamesOfEquipment(model)
+    expect(names.get('fcu2')).toEqual(['임원석', '경영진석'])
+    expect(names.get('fcu3')).toEqual(['임원석', '경영진석'])
+    expect(names.has('fcu1')).toBe(false)
   })
 })

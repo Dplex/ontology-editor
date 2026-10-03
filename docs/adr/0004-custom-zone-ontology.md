@@ -6,7 +6,7 @@ date: "2026-10-03"
 prd: ["Q4"]
 tickets: ["OE-OBJ-01", "OE-SPC-06", "OE-SPC-07", "OE-SPC-08", "OE-SPC-09", "OE-SPC-10"]
 supersedes: []
-superseded_by: ""
+superseded_by: "ADR-0012 (별명 한 줄만)"
 ---
 
 # ADR-0004 커스텀존은 brick:Zone 으로 export 하고, 포함하는 방은 hasPart, 안의 설비는 hasLocation 을 하나 더 연결한다
@@ -37,7 +37,7 @@ superseded_by: ""
 - 매핑은 **저장하지 않고 export 할 때 계산한다**(`custom-zone.ts`, `vertical.ts`·`exterior.ts` 와 같다). 방을 나누거나 설비를 옮기면
   다음 export 에 바로 반영된다 — OE-SPC-09 "수정 시 매핑 갱신" 을 따로 구현할 필요가 없고, 재판정을 호출하는 쪽에 맡길 필요도 없다.
 - 다각형과 포함하는 방·포함된 설비 목록은 GeoJSON `kind: 'customZone'` feature 에 있다(id 는 TTL subject 와 같다).
-- 별명은 하나다. OE-OBJ-01(prd-done)은 "커스텀 존 당 1개", 용어집·OE-SPC-06(prd-review)은 "별명 복수" 라 어긋나서 prd-done 을 따랐다.
+- 별명은 하나다. OE-OBJ-01(prd-done)은 "커스텀 존 당 1개", 용어집·OE-SPC-06(prd-review)은 "별명 복수" 라 서로 달라서 prd-done 을 따랐다. → **ADR-0012 가 이 줄을 대체했다**(별명은 여러 개). 이 ADR 의 나머지는 그대로다.
 - 합치기는 변이 맞닿았거나(벽 두께 `MERGE_GAP` 안) 한쪽이 다른 쪽을 포함할 때만 된다. 일부만 겹친 둘은 합친 모양이 하나의 ring 으로
   닫히지 않는 경우가 있어 막는다(물리존 합치기와 같은 `unionRings`).
 

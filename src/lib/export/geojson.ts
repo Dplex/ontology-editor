@@ -179,6 +179,7 @@ function customZoneFeature(zone: CustomZone, storey: Storey): Feature {
     properties: {
       kind: 'customZone',
       name: zone.name,
+      ...(zone.aliases?.length ? { aliases: [...zone.aliases] } : {}),
       storeyId: storey.id,
       elevation: storey.elevation,
       spaceIds: zoneSpaces(storey, zone),

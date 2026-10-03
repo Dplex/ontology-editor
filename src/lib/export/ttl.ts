@@ -222,6 +222,8 @@ export function modelToTTL(model: Model, only?: { storeyId: string }): string {
       lines.push(`${ref(zone.id)} a brick:Zone ;`)
       if (rooms.length) lines.push(`    brick:hasPart ${rooms.map(ref).join(', ')} ;`)
       lines.push(`    rdfs:label ${label(zone.name)} ;`)
+      // 더 붙인 별명(ADR-0012). 사람이 부르는 다른 이름이다. rdfs:label 을 여럿 두면 받는 쪽이 어느 것을 이름으로 볼지 모른다.
+      if (zone.aliases?.length) lines.push(`    ex:alias ${zone.aliases.map(label).join(', ')} ;`)
       lines.push(`    ex:zoneKind "custom" .`)
       lines.push('')
     }

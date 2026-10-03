@@ -119,7 +119,7 @@ export type EditFile = {
    * 커스텀존(OE-OBJ-01). 바뀐 층마다 그 층의 **끝 목록 전체**를 적는다 — 존은 전부 사람이 만든 것이라 BIM 과 짝지을 것이
    * 없고, 나누기·합치기를 순서대로 다시 하지 않고 끝 모양을 얹는다(물리존 합치기의 `into` 와 같은 까닭).
    */
-  customZones?: { storeyId: string; zones: { id: string; name: string; footprint: Vec2[] }[] }[]
+  customZones?: { storeyId: string; zones: { id: string; name: string; aliases?: string[]; footprint: Vec2[] }[] }[]
   kinds: { typeKey: string; kind: string | null }[]
   flows: { from: string; to: string }[]
   /** 확정한 계통. 아래 `confirmedFlows` 가 없던 때의 파일은 이것으로 불러온다. */
@@ -273,7 +273,10 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   const touched = new Set(since.customZones.map((c) => zoneStorey.get(c.id)).filter((x): x is string => !!x))
   const customZones = model.storeys
     .filter((s) => touched.has(s.id))
-    .map((s) => ({ storeyId: s.id, zones: (s.customZones ?? []).map((z) => ({ id: z.id, name: z.name, footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) })) }))
+    .map((s) => ({
+      storeyId: s.id,
+      zones: (s.customZones ?? []).map((z) => ({ id: z.id, name: z.name, ...(z.aliases?.length ? { aliases: [...z.aliases] } : {}), footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) })),
+    }))
 
   // 적은 id 의 지문. 층을 옮긴 설비는 예전 층도 적는다(새 판본에서 층 GUID 가 바뀌어도 이름으로 찾는다).
   // 지운 것은 지금 모델에 없으니 연 때 떠 둔 지문을 쓴다.
@@ -669,7 +672,12 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       result.missing.spaces++
       continue
     }
-    storey.customZones = row.zones.map((z) => ({ id: z.id, name: z.name, footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) }))
+    storey.customZones = row.zones.map((z) => ({
+      id: z.id,
+      name: z.name,
+      ...(z.aliases?.length ? { aliases: [...z.aliases] } : {}),
+      footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2),
+    }))
     result.applied++
   }
 

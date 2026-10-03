@@ -631,7 +631,8 @@ export type Snapshot =
       boundedBy: { space: Space; boundedBy: string[] }[]
     }
 
-const copyZones = (zones: readonly CustomZone[]): CustomZone[] => zones.map((z) => ({ id: z.id, name: z.name, footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) }))
+const copyZones = (zones: readonly CustomZone[]): CustomZone[] =>
+  zones.map((z) => ({ id: z.id, name: z.name, ...(z.aliases?.length ? { aliases: [...z.aliases] } : {}), footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) }))
 
 /** 한 층의 커스텀존 목록을 떠 둔다(OE-OBJ-01). 만들기·지우기·나누기·합치기·이름 고치기 전에 뜬다. */
 export function snapshotCustomZones(model: Model, storeyId: string): Snapshot | null {
@@ -1320,7 +1321,8 @@ function diffCustomZones(model: Model, baseline: Baseline): BaselineDiff['custom
       now.add(z.id)
       const before = was.get(z.id)
       if (!before) out.push({ id: z.id, name: z.name, change: 'added' })
-      else if (before.name !== z.name || !sameRings([before.footprint], [z.footprint])) out.push({ id: z.id, name: z.name, change: 'changed' })
+      else if (before.name !== z.name || (before.aliases ?? []).join(' ') !== (z.aliases ?? []).join(' ') || !sameRings([before.footprint], [z.footprint]))
+        out.push({ id: z.id, name: z.name, change: 'changed' })
     }
   }
   for (const [id, z] of was) if (!now.has(id)) out.push({ id, name: z.name, change: 'removed' })

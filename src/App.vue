@@ -134,6 +134,8 @@ import {
   findCustomZone,
   mergeCustomZones,
   renameCustomZone,
+  setCustomZoneAliases,
+  zoneNamesOfEquipment,
   splitCustomZone,
   zoneEquipment,
   zoneSpaces,
@@ -1444,12 +1446,17 @@ const editSpaces = computed(() =>
     .filter(({ space }) => matches(`${space.name} ${space.longName ?? ''}`)),
 )
 // 설비는 소속 방 이름으로도 찾는다. 보기 모드에는 물리존 표가 없어서, "S.T"·"OFFICE" 를 치면 아무것도 안 나왔다.
-const editEquipment = computed(() =>
-  editStoreys.value.flatMap((s) => {
+// 든 커스텀존의 이름·별명으로도 찾는다(ADR-0012) — "임원석" 을 치면 그 존 안의 설비가 나온다.
+const editEquipment = computed(() => {
+  const zoneText = new Map<string, string>()
+  if (editQuery.value.trim() && model.value) for (const [id, names] of zoneNamesOfEquipment(model.value)) zoneText.set(id, names.join(' '))
+  return editStoreys.value.flatMap((s) => {
     const room = new Map(s.spaces.map((sp) => [sp.id, `${sp.name} ${sp.longName ?? ''}`]))
-    return s.equipment.filter((e) => surfaceMatches(e) && matches(`${e.name} ${e.ifcClass} ${kindLabel(e)} ${e.spaceId ? room.get(e.spaceId) ?? '' : ''}`))
-  }),
-)
+    return s.equipment.filter(
+      (e) => surfaceMatches(e) && matches(`${e.name} ${e.ifcClass} ${kindLabel(e)} ${e.spaceId ? room.get(e.spaceId) ?? '' : ''} ${zoneText.get(e.id) ?? ''}`),
+    )
+  })
+})
 
 /**
  * 치는 중인 칸을 모델 값으로 덮지 않는다(`v-keep-typing`).
@@ -3350,6 +3357,14 @@ function renameZone(raw: string) {
   const name = raw.trim()
   if (!name) return note('커스텀존 이름은 비울 수 없습니다')
   changeCustomZones(picked.storey.id, `커스텀존 이름 ${name}`, (m) => renameCustomZone(m, picked.zone.id, name))
+}
+
+/** 더 붙인 별명(ADR-0012). 쉼표·줄바꿈으로 가른다. */
+function setZoneAliases(raw: string) {
+  const picked = selectedCustomZone.value
+  if (!picked) return
+  const aliases = raw.split(/[,，\n]/)
+  changeCustomZones(picked.storey.id, `커스텀존 ${picked.zone.name} 별명`, (m) => setCustomZoneAliases(m, picked.zone.id, aliases))
 }
 
 function mergeZone(otherId: string) {
@@ -5940,6 +5955,10 @@ async function export3D(format: 'glb' | 'obj') {
             <div>
               <h3>{{ selectedCustomZone.zone.name }}</h3>
               <dl class="stats facts">
+                <div v-if="selectedCustomZone.zone.aliases?.length">
+                  <dt>다른 별명</dt>
+                  <dd data-testid="zone-aliases">{{ selectedCustomZone.zone.aliases.join(', ') }} <Src kind="edit" /></dd>
+                </div>
                 <div>
                   <dt>커스텀존</dt>
                   <dd>{{ selectedCustomZone.storey.name }} <Src kind="edit" /></dd>
@@ -5970,6 +5989,18 @@ async function export3D(format: 'glb' | 'obj') {
           <label v-if="editing" class="space-name">
             이름
             <input type="text" data-testid="zone-name" v-keep-typing :value="selectedCustomZone.zone.name" @change="renameZone(($event.target as HTMLInputElement).value)" />
+          </label>
+          <!-- 별명은 여러 개(ADR-0012). 첫 이름이 TTL rdfs:label, 여기 적은 것은 ex:alias 다. 쉼표로 가른다. -->
+          <label v-if="editing" class="space-name">
+            다른 별명
+            <input
+              type="text"
+              data-testid="zone-aliases-input"
+              v-keep-typing
+              placeholder="쉼표로 여러 개 (예: 임원 구역, 경영진석)"
+              :value="(selectedCustomZone.zone.aliases ?? []).join(', ')"
+              @change="setZoneAliases(($event.target as HTMLInputElement).value)"
+            />
           </label>
           <p v-if="editing" class="space-tools">
             <button type="button" class="ghost" title="바닥에 선의 두 점을 찍어 둘로 나눕니다" @click="startCustomSplit">나누기</button>

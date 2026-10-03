@@ -29,6 +29,12 @@ PRD: prd-done (의존하는 OE-SPC-06~10 은 prd-review — 요구사항이 바�
 Duplex 건축+HVAC Level 1 — 주방·욕실을 덮는 커스텀존. 포함하는 방 3, 포함된 기기 13
 ![Duplex Level 1 커스텀존](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-OBJ-01-custom-zone/docs/figures/oe-obj-01-custom-zone.png?raw=true)
 
+별명 여러 개(추가 작업) — 쉼표(반각·전각)로 구분한 별명 3개가 "다른 별명" 줄에 나온다.
+![커스텀존 별명](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-OBJ-01-custom-zone/docs/figures/oe-obj-01-aliases.png?raw=true)
+
+Duplex MEP 에서 커스텀존에 별명 "경영진석" 을 달고 검색 칸에 그 별명을 입력한 화면 — 존 안의 설비 3개가 나온다.
+![별명으로 찾기](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-OBJ-01-custom-zone/docs/figures/oe-obj-01-alias-search.png?raw=true)
+
 ## 확인 방법
 1. 8087 검토 서버(또는 `npm run dev`)에서 `data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc` 와 `NBU_Duplex-Apt_Eng-HVAC.ifc` 를 같이 선택한다(합쳐 열린다)
 2. [편집] → 3D 위 층 선택 `Level 1만`
@@ -48,9 +54,14 @@ Duplex 건축+HVAC Level 1 — 주방·욕실을 덮는 커스텀존. 포함하�
   - 새로 넣은 것: "커스텀존을 그려도 ttl.go 가 기기의 위치에 존을 같이 읽는다" — **실제 `ttl.go`** 로 읽어 보면 존이 `BrickClass: Zone` 엔티티로 하나 늘고(방·층처럼 타입 없는 논리 엔티티), 존 안 기기의 Locations 가 `[층, 존]` 이다
   - 실패 2개는 #232·#46 과 같은 것으로 이 변경 전부터 실패한다("ttl.go 가 GUID 를…", "벽마다 다섯 걸음…")
 - e2e — `npx playwright test` 98 passed. 새로 넣은 것: `e2e/custom-zone.spec.ts`(그리기 → 이름 → 나누기 → 합치기 → 지우기 → Ctrl+Z → 목록에서 다시 선택)
+- mutation test(처음 커밋(커스텀존) 기준) — 이 커밋이 넣은 규칙을 하나씩 꺼 보고 테스트가 깨지는지 확인했다. 14곳 중 11곳을 잡았고, 나머지를 잡으려고 추가한 것: `custom-zone.test.ts` 3개 — 덕트·배관은 존 안 설비로 세지 않기, 다른 층 존끼리 합치기 막기, 편집 파일의 층을 못 찾으면 못 찾은 것으로 집계
+- mutation test — 이 커밋이 넣은 규칙을 하나씩 꺼 보고 테스트가 깨지는지 확인했다. 11곳 중 8곳을 잡았고, 나머지를 잡으려고 추가한 것: `custom-zone.test.ts` "별명이 있는 존을 고친 뒤 되돌려도 별명이 남는다", e2e `custom-zone.spec.ts` 전각 쉼표(，)로 구분하기와 "Duplex MEP: 커스텀존의 별명으로 검색하면 그 존 안의 설비가 나온다"(검색 칸은 큰 파일에만 있다)
 
 ## 남은 것
-- **별명 수가 문서끼리 어긋난다** — OE-OBJ-01 은 "커스텀 존 당 1개", 용어집·OE-SPC-06 은 "별명 복수". prd-done 인 OE-OBJ-01 을 따라 하나로 했다 → `needs-pm`
+- (해결 — ADR-0012) **별명은 여러 개다.** 첫 이름이 TTL `rdfs:label`, 더 붙인 별명은 `ex:alias`, GeoJSON
+  `aliases`, 편집 파일 `customZones[].zones[].aliases`. 패널(편집 모드)에 "다른 별명" 칸(쉼표로 여러 개), 보기에 "다른 별명" 줄. 합치면 없어지는
+  존의 이름·별명이 합친 존의 별명으로 남는다. 설비 검색은 설비가 속한 존의 이름·별명으로도 찾는다. 테스트: `custom-zone.test.ts` "별명 여러 개" 4 ·
+  "설비 검색 …" 1, e2e `custom-zone.spec.ts` "커스텀존에 별명을 여럿 달면 …". ADR-0004 의 "별명은 하나" 한 줄을 ADR-0012 가 대체했다
 - **겹침 정책** — OE-SPC-07 은 Q4 결정을 기다리는데 OE-OBJ-01 은 "겹쳐서 설정할 수 있다" 로 정했다. OE-OBJ-01 을 따랐다 → Q4 가 결정됐는지 `needs-pm`
 - Agent 질의(OE-SPC-10)는 온톨로지 쪽(brick:Zone·hasLocation)까지만 했다. Agent 연동은 그 티켓 담당
 - 3D 에서 커스텀존을 클릭해 선택할 수는 없다(점선이라 물리존 바닥과 겹친다). 패널 목록·그린 직후·나눈 뒤에 선택된다
