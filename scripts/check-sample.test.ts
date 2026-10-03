@@ -1231,6 +1231,36 @@ describe.skipIf(!hasIfctester)('IDS 를 ifctester 로 (OE-REQ-02)', () => {
   }, 600_000)
 })
 
+// OE-BIM-13 Proxy 리포트. 파일의 Proxy 를 전부 세고, 설비로 읽은 것(포트·이름)과 읽지 않은 것을 가른다. 읽지 않은 것이 정말
+// 건축 부재인지는 이름 예로 사람이 본다 — ifc4Mep 의 48개는 태양광 거치대 40개(`SolarMountingSystems`, 설명 "Mounting rack")와
+// 이름·형상 없는 8개, 병원 전기의 1개는 유압 엘리베이터다(2026-10-03 ifcopenshell 로 열어 확인).
+describe('Proxy 리포트 (OE-BIM-13)', () => {
+  it('가진 BIM 의 Proxy 를 전부 세고 읽지 않은 것을 이름과 함께 적는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const want: Record<string, unknown> = {
+      [SAMPLE]: undefined,
+      [MEP]: { total: 49, ported: 1, named: 0, skipped: ['(이름 없음)', 'SolarMountingSystems'] },
+      [DUPLEX_HVAC]: undefined,
+      [CLINIC_ARCH]: undefined,
+      [CLINIC_HVAC]: undefined,
+      'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc': { total: 29, ported: 0, named: 28, skipped: ['M_Elevator-Hydraulic:2000 lbs:2000 lbs'] },
+    }
+    let measured = 0
+    for (const [path, proxies] of Object.entries(want)) {
+      if (!existsSync(path)) continue
+      measured++
+      const model = importIfc(api, new Uint8Array(readFileSync(path)))
+      expect(model.facts?.proxies, path).toEqual(proxies)
+      const r23 = requirementsReport(model).find((r) => r.id === 'R23')!
+      const p = model.facts?.proxies
+      if (p && p.total > p.ported + p.named) expect(r23.note, path).toContain(`파일의 Proxy ${p.total}개 중 ${p.total - p.ported - p.named}개는`)
+    }
+    expect(measured).toBeGreaterThanOrEqual(2)
+  }, 600_000)
+})
+
 // OE-BIM-17 요구사항 보고서. 가진 BIM 에서 "다른 자리" 가 나온 줄은 전부 "내보내기 설정을 바꿔 달라" 와 무엇을 바꿀지를
 // 요청으로 낸다. 다른 자리를 세는 R 이 EXPORT_SETTING 밖에서 생기면(설정으로 고칠 수 없는 것을 다른 자리로 세면) 여기서 걸린다.
 describe('요구사항 보고서의 요청 (OE-BIM-17)', () => {
@@ -1498,6 +1528,7 @@ describe.skipIf(!existsSync(SEONGSU_MECH))('성수 기계', () => {
     const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
     // Proxy 로 들어온 기기 1,652대(포트가 있어서 1,578 · 이름이 사전에 있어서 74). 사전을 바꾸면 이름 쪽이 움직인다.
     expect.soft(devices.filter((e) => e.ifcClass === 'BuildingElementProxy')).toHaveLength(1652)
+    expect.soft(model.facts?.proxies).toMatchObject({ ported: 1578, named: 74 })
 
     // 규칙 방향(정본 3.7). 이 83.8% 가 intent.md 가 말하는 "규칙이 맞는지" 의 기준이다.
     const rules = inferFlowByRules(model)

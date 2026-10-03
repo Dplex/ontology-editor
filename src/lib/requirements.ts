@@ -298,11 +298,16 @@ export function requirementsReport(
 
   {
     const proxies = devices.filter((e) => e.ifcClass === 'BuildingElementProxy').length
+    // 파일의 Proxy 중 설비로 읽지 않은 것(OE-BIM-13). 설비로 읽은 것만 세면 빠뜨린 것이 보이지 않는다.
+    const p = facts?.proxies
+    const left = p ? p.total - p.ported - p.named : 0
     set('R23', {
       ...counted(devices.length - proxies, proxies, devices.length),
-      note: proxies > 0
-        ? `${proxies}대가 IfcBuildingElementProxy입니다. 포트가 있거나 이름이 사전에 있어 설비로 읽었습니다.`
-        : 'Proxy로 들어온 설비가 없습니다.',
+      note:
+        (proxies > 0
+          ? `${proxies}대가 IfcBuildingElementProxy입니다. 포트가 있거나 이름이 사전에 있어 설비로 읽었습니다.`
+          : 'Proxy로 들어온 설비가 없습니다.') +
+        (left > 0 ? ` 파일의 Proxy ${p!.total}개 중 ${left}개는 포트도 이름도 없어 건축 부재로 보고 읽지 않았습니다(예: ${p!.skipped.join(', ')}).` : ''),
     })
   }
 

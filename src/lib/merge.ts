@@ -288,6 +288,16 @@ export function mergeModels(
             lengthUnit: a.facts.lengthUnit && b.facts.lengthUnit,
             mapConversion: a.facts.mapConversion && b.facts.mapConversion,
             siteLatLong: a.facts.siteLatLong || b.facts.siteLatLong,
+            ...(a.facts.proxies || b.facts.proxies
+              ? {
+                  proxies: {
+                    total: (a.facts.proxies?.total ?? 0) + (b.facts.proxies?.total ?? 0),
+                    ported: (a.facts.proxies?.ported ?? 0) + (b.facts.proxies?.ported ?? 0),
+                    named: (a.facts.proxies?.named ?? 0) + (b.facts.proxies?.named ?? 0),
+                    skipped: [...new Set([...(a.facts.proxies?.skipped ?? []), ...(b.facts.proxies?.skipped ?? [])])].slice(0, 5),
+                  },
+                }
+              : {}),
           },
         }
       : {}),
