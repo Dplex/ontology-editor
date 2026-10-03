@@ -24,7 +24,12 @@ PRD: prd-review — 요구사항이 바뀌면 다시 본다
 테스트가 실제로 걸러내는지 확인했다(mutation test): 설비 선택의 숨김 조건, 물리존 선택의 층 조건, 벽 선택의 층 조건(바닥 평면 쪽), 화살표 조건을 하나씩
 빼면 해당 줄이 깨진다. 벽 선택의 형상 쪽 조건은 빼도 깨지지 않는다 — raycast 가 보이는 형상만 대상으로 하고 높이로도 거르기 때문에 이중 조건이다.
 
-저장 위치: 화면에만 있다. 선택한 층(`viewStorey`)은 저장하지 않고, 파일을 새로 열면 모든 층으로 돌아간다.
+**처음 열 때 한 층**. PRD 는 "3D는 한 층만, 전체 빌딩 뷰는 미리보기 Phase 2" 다. 파일을 열면 **방이 있는 가장 낮은
+층**만 보인다 — 기초 층(Duplex T/FDN · 병원 TOF Footing)은 방이 없어 건너뛴다. 방이 없는 파일은 설비가 있는 가장 낮은 층을 연다(ifc4Mep
+`00. Begane grond`, 기초 `-01. Fundering` 을 건너뛴다). "모든 층" 은 남겼다 — 층을 넘는 덕트·배관(병원 MEP 연결의 29%)을 한눈에 볼 수 있는 곳이
+여기뿐이다. e2e `single-storey.spec.ts` "파일을 열면 방이 있는 가장 낮은 층만 …" 이 세 파일로 확인한다.
+
+저장 위치: 화면에만 있다. 선택한 층(`viewStorey`)은 저장하지 않고, 파일을 새로 열면 다시 첫 층으로 열린다.
 
 ## 화면
 병원 건축+HVAC 를 1층만 본 화면. 2층 바닥판·덕트가 없다.
@@ -36,6 +41,9 @@ PRD: prd-review — 요구사항이 바뀌면 다시 본다
 Duplex MEP, Level 2만 보며 라디에이터를 선택한 화면. 연결 2개 중 Level 1 배관 줄에 "다른 층" 이 붙고 3D 에는 화살표가 하나다.
 ![다른 층 연결](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-UI-12-single-storey/docs/figures/oe-ui-12-other-floor.png?raw=true)
 
+처음 연 화면(추가 작업) — Duplex 건축을 열자마자 층 칸이 "Level 1만" 이다. 기초 층 T/FDN 은 방이 없어 건너뛴다.
+![처음 열면 Level 1만](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-UI-12-single-storey/docs/figures/oe-ui-12-lowest.png?raw=true)
+
 ## 확인 방법
 1. 8087 검토 서버(또는 `npm run dev`)에서 `data/NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc` 와 `…_Eng-HVAC.ifc` 를 같이 연다
 2. 3D 위 층 칸에서 "First Floor만" → 2층 바닥판·덕트가 사라지고, 2층 덕트가 있던 위치를 눌러도 1층 것만 선택된다
@@ -45,11 +53,10 @@ Duplex MEP, Level 2만 보며 라디에이터를 선택한 화면. 연결 2개 �
 ## 테스트
 - `npm test` — 40 files · 647 passed
 - `npx vue-tsc --noEmit` 통과
-- e2e — 108 passed(새로 넣은 것: `single-storey.spec.ts` 2. 파일이 없으면 건너뛴다)
+- e2e — 110 passed(새로 넣은 것: `single-storey.spec.ts` 3. 파일이 없으면 건너뛴다. 처음 층이 바뀌어 `floor-plan.spec.ts` 첫 테스트를 고쳤다)
 
 ## 남은 것
-- PRD 는 "3D는 한 층만 표시, 전체 빌딩 뷰는 미리보기 Phase 2" 인데, 지금은 처음 열 때 **모든 층**을 보이고 층 칸에 "모든 층" 이 있다.
-  모든 층 보기를 없앨지(또는 처음을 한 층으로 할지) PM 에게 묻는다 — 없애면 층을 넘는 덕트·배관을 한눈에 볼 곳이 미리보기뿐이다
+- "모든 층" 을 남긴 것은 PRD("전체 빌딩 뷰는 미리보기 Phase 2")와 다르다. PM 확인 필요
 - 층 소속은 IFC 에 적힌 대로다. 위층 소속 배관이 아래층 천장에 매달린 BIM 이면 아래층만 볼 때 그 배관이 보이지 않는다. 병원 MEP 의
   층을 넘는 연결 3992개가 그런 경우인지(배관 높이 대 층 높이)는 확인하지 않았다
 - 성수는 이 PC 에 없어 측정하지 못했다

@@ -2865,7 +2865,18 @@ function applyEditFile(file: EditFile, from: string) {
 // 층이 여럿이면 3D 에 전부 겹쳐 그려져, 아래층 설비는 위층 판과 배관에 가려 누르기도 끌기도 어려웠다. 한 층만 남긴다.
 // 다른 층의 것을 표·목록에서 고르면 그 층으로 따라간다 — 고른 것이 안 보이면 고른 줄 모른다.
 const viewStorey = ref<string | null>(null)
-watch(baseline, () => (viewStorey.value = null))
+/**
+ * 파일을 열면 처음 볼 층(OE-UI-12). PRD 는 "3D는 한 층만, 전체 빌딩 뷰는 미리보기 Phase 2" 다. "모든 층" 은 남겨 두되(층을 넘는
+ * 덕트·배관을 한눈에 볼 곳이 여기뿐이다) 처음에는 **방이 있는 가장 낮은 층**을 연다 — 기초(T/FDN·TOF Footing)는 방이 없다.
+ * 방이 없는 파일(설비만)은 설비가 놓인 가장 낮은 층, 그것도 없으면 맨 아래 층. 층이 하나면 고를 것이 없다.
+ */
+function firstStorey(m: Model | null): string | null {
+  if (!m || m.storeys.length <= 1) return null
+  const st =
+    m.storeys.find((s) => s.spaces.length > 0) ?? m.storeys.find((s) => s.equipment.some((e) => e.position && !isConduit(e.role))) ?? m.storeys[0]
+  return st.id
+}
+watch(baseline, () => (viewStorey.value = firstStorey(model.value)))
 function applyStoreyFilter() {
   const m = model.value
   if (!viewer || !m) return

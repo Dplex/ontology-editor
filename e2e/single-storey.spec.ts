@@ -112,7 +112,8 @@ test('Duplex MEP: 한 층만 보면 다른 층 끝으로 가는 화살표는 그
   const rows = page.locator('.picked table.neighbors tr')
   await expect(rows).toHaveCount(2)
 
-  // 모든 층: 화살표 둘, "다른 층" 없음.
+  // 모든 층: 화살표 둘, "다른 층" 없음. 파일을 열면 한 층만 보이므로(OE-UI-12) 모든 층으로 바꾼다.
+  await storeyBox(page).selectOption({ label: '모든 층' })
   await expect.poll(arrows).toBe(2)
   await expect(page.locator('.picked .other-floor')).toHaveCount(0)
   // Level 2 만: Level 1 배관으로 가는 화살표는 없고, 그 줄에 다른 층이라고 적는다. 방향 단추는 그대로 있다.
@@ -127,4 +128,25 @@ test('Duplex MEP: 한 층만 보면 다른 층 끝으로 가는 화살표는 그
   await expect.poll(arrows).toBe(2)
   await expect(page.locator('.picked .other-floor')).toHaveCount(0)
   expect(errors).toEqual([])
+})
+
+test('파일을 열면 방이 있는 가장 낮은 층만 보이고, 방이 없으면 설비가 놓인 가장 낮은 층이다', async ({ page }) => {
+  // 기초 층(T/FDN · TOF Footing)은 방도 설비도 없다. 처음부터 그 층을 열면 빈 화면이다.
+  const cases: [string, string][] = [
+    ['data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc', 'Level 1만'],
+    ['data/NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc', 'First Floor만'],
+    // ifc4Mep 은 방이 없다. 설비가 놓인 가장 낮은 층이다(기초 -01. Fundering 을 건너뛴다).
+    ['data/ifc4Mep_IFC4.ifc', '00. Begane grond만'],
+  ]
+  test.skip(!cases.every(([f]) => existsSync(f)), '샘플 BIM 이 없다(npm run fetch:sample)')
+  test.setTimeout(180_000)
+  for (const [file, label] of cases) {
+    await page.goto('/')
+    await page.locator('.drop input[type=file]').setInputFiles(file)
+    await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 120_000 })
+    const checked = storeyBox(page).locator('option:checked')
+    await expect(checked).toHaveText(label)
+    await expect.poll(() => page.evaluate(() => ((window as any).__viewer.visibleStoreys() as string[]).length)).toBeLessThanOrEqual(1)
+    if (process.env.SHOT && label === 'Level 1만') await page.screenshot({ path: process.env.SHOT })
+  }
 })

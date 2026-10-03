@@ -9,11 +9,15 @@ test('평면도 탭은 고른 층을 위에서 그리고, 편집 모드에서 �
   await page.locator('input[type=file]').first().setInputFiles(FIXTURE)
   await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible({ timeout: 30_000 })
 
+  // 파일을 열면 방이 있는 가장 낮은 층(1F)만 보인다(OE-UI-12). 평면도도 바로 그 층을 그린다.
+  await expect(page.getByRole('combobox', { name: '보일 층' }).locator('option:checked')).toHaveText('1F만')
   await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '평면도' }).click()
-  // 층을 고르기 전에는 그리지 않는다.
+  const plan = page.getByRole('img', { name: '1F 평면도' })
+  await expect(plan).toBeVisible()
+  // "모든 층" 이면 평면도는 그리지 않고 층을 고르라고 한다.
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '모든 층' })
   await expect(page.locator('.plan-empty')).toBeVisible()
   await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-  const plan = page.getByRole('img', { name: '1F 평면도' })
   await expect(plan).toBeVisible()
   const rooms = plan.locator('.spaces polygon')
   expect(await rooms.count()).toBeGreaterThan(0)
