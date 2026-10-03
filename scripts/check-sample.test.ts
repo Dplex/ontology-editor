@@ -16,7 +16,7 @@ import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
 import { readOntologyTTL, type OntologyEntity } from '../src/lib/export/read-ttl'
-import { crossCheck, geojsonProblems, readGeoJSON } from '../src/lib/export/read-export'
+import { crossCheck, geojsonProblems, NUMERIC_OK, numericPredicates, readGeoJSON } from '../src/lib/export/read-export'
 import { check3D, read3D } from '../src/lib/export/read-3d'
 import { modelToScene, sceneToGLB, sceneToOBJ } from '../src/lib/export/mesh3d'
 import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topology'
@@ -1076,8 +1076,11 @@ describe('받는 쪽 규칙으로 다시 읽는가 (read-ttl)', () => {
       const model = make()
       const floors = modelToGeoJSON(model).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
       expect(floors.flatMap((f) => f.problems), name).toEqual([])
-      const check = crossCheck(readOntologyTTL(modelToTTL(model)), floors)
+      const ttl = modelToTTL(model)
+      const check = crossCheck(readOntologyTTL(ttl), floors)
       expect({ ...check, toUnread: 0 }, name).toEqual({ notInTtl: [], dangling: [], toUnread: 0, locationMismatch: [], doorLinks: [] })
+      // OE-INT-02 TTL 에 좌표가 없다. 숫자가 붙는 술어는 넓이·층 바닥 높이·용량뿐이다(read-export.ts 의 NUMERIC_OK).
+      expect([...numericPredicates(ttl)].filter((p) => !NUMERIC_OK.has(p)), name).toEqual([])
     }
   }, 900_000)
 

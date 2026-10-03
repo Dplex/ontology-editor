@@ -6,6 +6,7 @@ import { importIfc } from '../ifc/import'
 import type { Model } from '../model'
 import { modelToGeoJSON, storeyToGeoJSON } from './geojson'
 import { escapeLocalName, modelToTTL } from './ttl'
+import { NUMERIC_OK, numericPredicates } from './read-export'
 
 let model: Model
 let mep: Model
@@ -232,6 +233,18 @@ describe('설비 내보내기', () => {
 
   it('기하는 여전히 TTL 로 새지 않는다', () => {
     expect(modelToTTL(mep)).not.toMatch(/POLYGON|coordinates|wkt/i)
+  })
+
+  it('숫자를 담는 술어는 넓이·바닥 높이·용량뿐이다 — 좌표가 새 술어로 새어도 잡는다 (OE-INT-02)', () => {
+    // 낱말(POLYGON·coordinates)만 막으면 `ex:x 12.3` 같은 숫자 술어로 새는 것을 못 잡는다. 숫자 값이 붙는 술어를 허용 목록으로 본다.
+    const outside = (ttl: string) => [...numericPredicates(ttl)].filter((p) => !NUMERIC_OK.has(p))
+    expect(outside(modelToTTL(mep))).toEqual([])
+    expect(outside(modelToTTL(model))).toEqual([])
+    // 숫자는 실제로 나간다 — 검사가 빈 손으로 통과하는 것이 아니다.
+    expect([...numericPredicates(modelToTTL(model))]).toContain('ex:areaM2')
+    // 좌표 줄을 끼워 넣으면 걸린다. 따옴표 안의 숫자(이름 "01.0001.00")는 값이 아니라 글자라 세지 않는다.
+    const leaked = modelToTTL(mep).replace('a brick:Floor ;', ['a brick:Floor ;', '    ex:x 12.5 ;', '    rdfs:label "01.0001.00" ;'].join('\n'))
+    expect(outside(leaked)).toEqual(['ex:x'])
   })
 })
 
