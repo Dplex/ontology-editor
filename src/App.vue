@@ -1762,6 +1762,12 @@ const selectedNeighbors = computed((): NeighborRow[] => {
     }
   })
 })
+/** 한 층만 보는 중에 다른 층에 있는 설비면 그 층 이름. 모든 층을 보면 null. */
+function otherFloor(id: string): string | null {
+  if (!viewStorey.value) return null
+  const home = storeyOf(id)
+  return home && home.id !== viewStorey.value ? home.name : null
+}
 const REL_LABEL = { upstream: '상류', downstream: '하류', linked: '연결' } as const
 function relLabel(n: NeighborRow) {
   if (n.edited) return REL_LABEL[n.edited]
@@ -5488,6 +5494,8 @@ async function export3D(format: 'glb' | 'obj') {
                     <span v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></span>
                     <span v-if="n.edited">직접 정한 방향 <Src kind="edit" /></span>
                     <span v-else-if="n.rule">{{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
+                    <!-- 한 층만 보는 중이면 다른 층 것은 3D 에 없고 화살표도 안 그린다(OE-UI-12). 왜 안 보이는지 적는다. -->
+                    <span v-if="otherFloor(n.id)" class="other-floor">다른 층({{ otherFloor(n.id) }}) — 3D에 안 보임</span>
                   </div>
                   <!-- 방향 버튼은 이름 아래 줄에 둔다. 좁은 패널에서 네 번째 칸으로 두었더니 이름이 한 글자씩 꺾이고 버튼이 잘렸다.
                        포트가 방향을 말한 연결은 고칠 수 없다. BIM 이 말한 것을 덮어쓰지 않는다. -->
