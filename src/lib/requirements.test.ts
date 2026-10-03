@@ -6,6 +6,7 @@ import { importIfc } from './ifc/import'
 import { mergeModels } from './merge'
 import type { Model } from './model'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport, type RequirementRow } from './requirements'
+import { compareVersions } from './versions'
 
 let mep: Model
 let rooms: Model
@@ -153,5 +154,77 @@ describe('요구사항 보고서', () => {
     const m = structuredClone(rooms)
     delete m.facts
     expect(row(requirementsReport(m), 'R6').state).toBe('unmeasured')
+  })
+})
+
+// OE-BIM-11 "같은 건물 판본 간 층 높이로 교차 확인". 단위 환산은 파일이 선언한 단위를 믿으니, 선언이 틀리면 오류 없이 그 배수로
+// 틀린다. millimetre.ifc 의 `.MILLI.` 를 `$` 로 바꾸면 밀리미터 값을 미터로 선언한 판본이 된다(2F 가 3000m 로 들어온다).
+describe('단위 선언 교차 확인 (OE-BIM-11)', () => {
+  let api: WebIFC.IfcAPI
+  const bytes = (name: string) => readFileSync(fileURLToPath(new URL(`./ifc/fixtures/${name}`, import.meta.url)))
+  beforeAll(async () => {
+    api = new WebIFC.IfcAPI()
+    await api.Init()
+  })
+  const wrong = () => {
+    const text = bytes('millimetre.ifc').toString('latin1')
+    expect(text).toContain('IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.)')
+    return importIfc(api, new Uint8Array(Buffer.from(text.replace('IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.)', 'IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)'), 'latin1')))
+  }
+  const read = (name: string) => importIfc(api, new Uint8Array(bytes(name)))
+
+  it('선언만 틀린 판본은 혼자서는 R6 이 표준이다 — 파일 하나로는 알 수 없다', () => {
+    const w = wrong()
+    expect(w.storeys.map((s) => s.elevation)).toEqual([0, 3000])
+    expect(row(requirementsReport(w), 'R6').state).toBe('standard')
+  })
+
+  it('합치면 이름이 같은 층의 높이 비(1000배)로 잡아 경고하고 R6 을 일부로 내린다', () => {
+    const { model, report } = mergeModels(rooms, wrong(), { base: 'two-rooms.ifc', overlay: 'wrong.ifc' })
+    // 층간 높이가 3000m 인 덧붙인 파일이 틀린 쪽이다.
+    expect(report.unitScale).toMatchObject({ ratio: 1000, what: '밀리미터 ↔ 미터', storeys: [['2F', 3, 3000]], suspect: 'second' })
+    const unit = model.warnings.filter((w) => w.includes('길이 단위 선언') || w.includes('높이가 다른'))
+    // 같은 층을 "높이 기준점이 다를 수 있다" 로 한 번 더 말하지 않는다 — 단위 경고 하나뿐이다.
+    expect(unit).toEqual([
+      '이름이 같은 층의 높이가 wrong.ifc에서 two-rooms.ifc의 1000배입니다(2F 3m → 3000m). 층간 높이로 보면 wrong.ifc의 길이 단위 선언이 실제 값과 다른 것 같습니다(밀리미터 ↔ 미터). 치수·좌표가 모두 그 배수로 틀립니다(요구사항 R6).',
+    ])
+    const r6 = row(requirementsReport(model, report), 'R6')
+    expect(r6.state).toBe('partial')
+    expect(r6.note).toContain('층간 높이로 보면 덧붙인 파일의 선언이 실제 값과 다릅니다')
+    // 기준과 덧붙인 쪽을 바꿔도 합친 모델에는 틀린 파일이 들어 있으니 일부다. 틀린 쪽은 기준 파일이다.
+    const swapped = mergeModels(wrong(), rooms)
+    expect(swapped.report.unitScale!.suspect).toBe('first')
+    expect(row(requirementsReport(swapped.model, swapped.report), 'R6')).toMatchObject({ state: 'partial', note: expect.stringContaining('기준 파일의 선언') })
+    expect(r6.ask).toContain('길이 단위 선언을 좌표·높이에 실제로 쓴 단위에 맞춰 달라')
+  })
+
+  it('제대로 선언한 밀리미터·피트 파일은 합쳐도 조용하다', () => {
+    for (const name of ['millimetre.ifc', 'foot.ifc']) {
+      const { model, report } = mergeModels(rooms, read(name))
+      expect(report.unitScale, name).toBeNull()
+      expect(model.warnings.some((w) => w.includes('길이 단위 선언')), name).toBe(false)
+      expect(row(requirementsReport(model, report), 'R6').state, name).toBe('standard')
+    }
+  })
+
+  it('판본 비교도 같은 쌍을 잡아 R6 으로 넘긴다', () => {
+    const w = wrong()
+    const d = compareVersions(rooms, w)
+    expect(d.storeyScale).toMatchObject({ ratio: 1000, storeys: [['2F', 3, 3000]] })
+    expect(compareVersions(rooms, read('millimetre.ifc')).storeyScale).toBeNull()
+    expect(compareVersions(rooms, read('foot.ifc')).storeyScale).toBeNull()
+    const r6 = row(requirementsReport(w, null, { name: 'two-rooms.ifc', kept: 0, rematched: 0, storeyScale: d.storeyScale }), 'R6')
+    expect(r6.state).toBe('partial')
+    expect(r6.note).toContain('이전 판본(two-rooms.ifc)')
+    expect(r6.note).toContain('1000배')
+    expect(r6.note).toContain('층간 높이로 보면 이 파일의 선언이 실제 값과 다릅니다')
+  })
+
+  it('지금 파일이 맞고 이전 판본이 틀렸으면 R6 은 표준으로 두고 이전 판본을 짚는다', () => {
+    const d = compareVersions(wrong(), rooms)
+    expect(d.storeyScale).toMatchObject({ ratio: 1 / 1000, suspect: 'first' })
+    const r6 = row(requirementsReport(rooms, null, { name: 'wrong.ifc', kept: 0, rematched: 0, storeyScale: d.storeyScale }), 'R6')
+    expect(r6.state).toBe('standard')
+    expect(r6.note).toBe('길이 단위가 선언되어 있습니다. 이전 판본(wrong.ifc)은 같은 이름 층의 높이가 이 파일의 1000배로, 층간 높이로 보면 그 판본의 선언이 실제 값과 다릅니다(밀리미터 ↔ 미터).')
   })
 })

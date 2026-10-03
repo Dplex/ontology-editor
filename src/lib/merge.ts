@@ -13,6 +13,7 @@
 // 파싱도 합치기도 성공하고 숫자만 "미소속 N대" 로 조용히 늘어난다. 그래서 합치기 전에 두
 // 모델이 같은 자리를 차지하는지부터 재고, 결과를 보고서로 돌려준다.
 
+import { ratioLabel, storeyScaleMismatch, type ScaleMismatch } from './unit-check'
 import { assignEquipmentToSpaces, distanceToRing, interiorPoint, pointInPolygon } from './mapping'
 import { inferFlowByRules } from './flow-rules'
 import type { Connection, Model, Space, Storey, System, Vec2 } from './model'
@@ -68,6 +69,11 @@ export type MergeReport = {
   duplicateIds: number
   /** 덧붙인 모델 설비의 미소속 대수. 합치기 전(그 파일 혼자)과 후. */
   unlocated: { before: number; after: number }
+  /**
+   * 이름이 같은 층의 높이가 단위 배수(1000·1/1000·3.28 …)만큼 다르다 — 한쪽의 길이 단위 선언이 실제 값과 다르다(OE-BIM-11,
+   * unit-check.ts). 비는 덧붙인 모델 / 기준 모델. 없으면 null.
+   */
+  unitScale?: ScaleMismatch | null
 }
 
 const normalize = (name: string) => name.trim().replace(/\s+/g, ' ').toLowerCase()
@@ -315,6 +321,7 @@ export function mergeModels(
     declaredRemapped: remapped + orphaned === 0 ? { total: 0, remapped: 0 } : { total: remapped + orphaned, remapped },
     duplicateIds,
     unlocated: { before: unlocatedBefore, after: 0 },
+    unitScale: storeyScaleMismatch(base.storeys, overlay.storeys),
   }
 
   // 덧붙인 모델에서 온 설비만 센다. 기준 모델의 설비까지 세면 before 와 견줄 수 없다.
@@ -448,7 +455,18 @@ function mergeWarnings(report: MergeReport, labels: { base: string; overlay: str
     )
   }
 
-  const shifted = report.storeys.filter(
+  // 높이가 단위 배수로 다르면 "기준점이 다를 수 있다" 가 아니라 단위가 틀린 것이다. 그 층들은 아래 경고에서 뺀다.
+  const scale = report.unitScale
+  if (scale) {
+    out.push(
+      `이름이 같은 층의 높이가 ${labels.overlay}에서 ${labels.base}의 ${ratioLabel(scale.ratio)}입니다(${scale.storeys
+        .slice(0, 3)
+        .map(([name, x, y]) => `${name} ${+x.toPrecision(4)}m → ${+y.toPrecision(4)}m`)
+        .join(', ')}). ${scale.suspect ? `층간 높이로 보면 ${scale.suspect === 'second' ? labels.overlay : labels.base}` : '한쪽'}의 길이 단위 선언이 실제 값과 다른 것 같습니다(${scale.what}). 치수·좌표가 모두 그 배수로 틀립니다(요구사항 R6).`,
+    )
+  }
+  const scaled = new Set(scale?.storeys.map(([name]) => name) ?? [])
+  const shifted = report.storeys.filter((s) => !scaled.has(s.name)).filter(
     (s) => s.elevationDelta !== null && Math.abs(s.elevationDelta) > ELEVATION_TOLERANCE,
   )
   if (shifted.length > 0) {

@@ -20,6 +20,7 @@ import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
+import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
@@ -4120,7 +4121,7 @@ const versionStat = computed(() => {
   const sum = (by: Record<MatchKey, number>) => ({ kept: by.guid, rematched: by.revitId + by.name + by.position })
   const a = sum(v.diff.spaces.by)
   const b = sum(v.diff.equipment.by)
-  return { name: v.name, kept: a.kept + b.kept, rematched: a.rematched + b.rematched }
+  return { name: v.name, kept: a.kept + b.kept, rematched: a.rematched + b.rematched, storeyScale: v.diff.storeyScale }
 })
 
 type VersionRow = { id: string; name: string; detail: string; target: 'equipment' | 'space' | null }
@@ -6163,6 +6164,11 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
           <p v-if="versionError" class="edit-notice inline" role="alert">{{ versionError }}</p>
           <template v-if="versionDiff">
+            <p v-if="versionDiff.diff.storeyScale" class="edit-notice inline" role="alert">
+              이름이 같은 층의 높이가 이전 판본의 {{ ratioLabel(versionDiff.diff.storeyScale.ratio) }}입니다({{
+                versionDiff.diff.storeyScale.storeys.slice(0, 3).map(([n, x, y]) => `${n} ${+x.toPrecision(4)}m → ${+y.toPrecision(4)}m`).join(', ')
+              }}). {{ { first: '층간 높이로 보면 이전 판본', second: '층간 높이로 보면 지금 파일', none: '한 판본' }[versionDiff.diff.storeyScale.suspect ?? 'none'] }}의 길이 단위 선언이 실제 값과 다른 것 같습니다({{ versionDiff.diff.storeyScale.what }}, 요구사항 R6).
+            </p>
             <table class="version-sum">
               <thead>
                 <tr>

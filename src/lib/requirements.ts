@@ -13,6 +13,7 @@ import { CAPACITY_KINDS, isStandardCapacity } from './capacity'
 import { equipmentKind, equipmentKindOfIfc, IFC_REJECTED } from './kinds'
 import { isPlaceholder, type MergeReport } from './merge'
 import { isConduit, type Equipment, type Model } from './model'
+import { ratioLabel, type ScaleMismatch } from './unit-check'
 
 export type RequirementLevel = '필수' | '권장'
 
@@ -65,6 +66,7 @@ export const EXPORT_SETTING: Readonly<Record<string, string>> = {
 
 /** 없음·일부에서 "값을 넣어 달라" 보다 구체적으로 할 말이 있는 것. */
 const FIX: Readonly<Record<string, string>> = {
+  R6: '길이 단위 선언을 좌표·높이에 실제로 쓴 단위에 맞춰 달라',
   R7: 'IfcMapConversion을 넣어 달라(또는 기준점을 협의)',
   R11: '좌표 없는 설비에 배치를, 배치점이 형상에서 떨어진 설비는 삽입점을 형상 위로 고쳐 달라',
 }
@@ -142,7 +144,7 @@ function counted(standard: number, elsewhere: number, of: number) {
 export function requirementsReport(
   model: Model,
   merge: MergeReport | null = null,
-  versions: { name: string; kept: number; rematched: number } | null = null,
+  versions: { name: string; kept: number; rematched: number; storeyScale?: ScaleMismatch | null } | null = null,
 ): RequirementRow[] {
   const spaces = model.storeys.flatMap((s) => s.spaces)
   const all = model.storeys.flatMap((s) => s.equipment)
@@ -205,10 +207,22 @@ export function requirementsReport(
     set('R4', { ...counted(hung, 0, openings.length), note: openings.length ? '어느 벽에 있는지 아는 문·창입니다.' : '문·창이 없습니다. 설비 파일이면 건축 파일을 덧붙이세요.' })
   }
 
+  // 선언이 있어도 실제 값과 다를 수 있다. 덧붙인 파일·이전 판본과 같은 이름 층의 높이가 단위 배수로 다르면 일부다(OE-BIM-11, unit-check.ts).
+  // 합친 모델은 어느 쪽이 틀렸든 일부다 — 틀린 파일이 들어 있다. 판본 비교는 이 파일이 맞고 이전 판본이 틀렸으면(층간 높이로 판단) 표준이다.
+  const scale = merge?.unitScale ?? versions?.storeyScale ?? null
+  const scaleNote = (other: string, otherWrong: string, thisWrong: string) =>
+    `${other}과 같은 이름 층의 높이가 ${ratioLabel(scale!.ratio)}로 다릅니다(${scale!.what}). ` +
+    (scale!.suspect === 'first' ? `층간 높이로 보면 ${otherWrong}의 선언이 실제 값과 다릅니다.` : scale!.suspect === 'second' ? `층간 높이로 보면 ${thisWrong}의 선언이 실제 값과 다릅니다.` : '한쪽 선언이 실제 값과 다릅니다.')
   if (!facts) set('R6', unmeasured('파일에서 읽은 모델이 아닙니다.'))
-  else set('R6', facts.lengthUnit
-    ? { state: 'standard', counts: null, note: '길이 단위가 선언되어 있습니다.' }
-    : { state: 'missing', counts: null, note: '선언이 없어 미터로 가정했습니다. 치수가 모두 틀릴 수 있습니다.' })
+  else if (!facts.lengthUnit) set('R6', { state: 'missing', counts: null, note: '선언이 없어 미터로 가정했습니다. 치수가 모두 틀릴 수 있습니다.' + (scale ? ` ${scaleNote(merge?.unitScale ? '덧붙인 파일' : `이전 판본(${versions!.name})`, merge?.unitScale ? '기준 파일' : '이전 판본', merge?.unitScale ? '덧붙인 파일' : '이 파일')}` : '') })
+  else if (scale && merge?.unitScale) set('R6', { state: 'partial', counts: null, note: `길이 단위는 선언되어 있지만, ${scaleNote('덧붙인 파일', '기준 파일', '덧붙인 파일')}` })
+  else if (scale?.suspect === 'first') set('R6', {
+    state: 'standard',
+    counts: null,
+    note: `길이 단위가 선언되어 있습니다. 이전 판본(${versions!.name})은 같은 이름 층의 높이가 이 파일의 ${ratioLabel(1 / scale.ratio)}로, 층간 높이로 보면 그 판본의 선언이 실제 값과 다릅니다(${scale.what}).`,
+  })
+  else if (scale) set('R6', { state: 'partial', counts: null, note: `길이 단위는 선언되어 있지만, ${scaleNote(`이전 판본(${versions!.name})`, '이전 판본', '이 파일')}` })
+  else set('R6', { state: 'standard', counts: null, note: '길이 단위가 선언되어 있습니다.' })
 
   if (!facts) set('R7', unmeasured('파일에서 읽은 모델이 아닙니다.'))
   else if (facts.mapConversion) set('R7', { state: 'standard', counts: null, note: 'IfcMapConversion이 있습니다. 스캔과 맞는지는 3D에서 확인하세요.' })

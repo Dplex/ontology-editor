@@ -9,6 +9,7 @@
 // 짝은 편집을 엉뚱한 방·설비에 얹고, 그건 못 찾은 것보다 나쁘다(못 찾은 것은 센다).
 
 import { centroid } from './mapping'
+import { storeyScaleMismatch, type ScaleMismatch } from './unit-check'
 import type { Model } from './model'
 import type { Baseline } from './edit'
 
@@ -233,6 +234,8 @@ export function matchFingerprints(prev: ReadonlyMap<string, Partial<Fingerprint>
 }
 
 export type VersionDiff = {
+  /** 이름이 같은 층의 높이가 단위 배수로 다르다(OE-BIM-11). 비는 지금 판본 / 이전 판본. 한 판본의 길이 단위 선언이 실제 값과 다르다. */
+  storeyScale: ScaleMismatch | null
   spaces: KindDiff & {
     renamed: { id: string; from: string; to: string }[]
     /** 넓이가 1% 넘게 바뀐 물리존. */
@@ -276,6 +279,7 @@ export function compareVersions(prev: Model, next: Model): VersionDiff {
   const spaceName = (id: string | null, map: typeof ns) => (id && map.get(id) ? spaceLabel(map.get(id)!) : null)
 
   const diff: VersionDiff = {
+    storeyScale: storeyScaleMismatch(prev.storeys, next.storeys),
     spaces: { prevCount: ps.size, nextCount: ns.size, by: emptyBy(), rekeyed: [], added: [], removed: [], renamed: [], reshaped: [] },
     equipment: { prevCount: pe.size, nextCount: ne.size, by: emptyBy(), rekeyed: [], added: [], removed: [], moved: [], relocated: [] },
   }

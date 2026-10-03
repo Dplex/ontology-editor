@@ -28,6 +28,8 @@ import { verticalLinks } from '../src/lib/vertical'
 import { roomKind } from '../src/lib/kinds'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
 import { compareVersions, revitElementId } from '../src/lib/versions'
+import { storeyScaleMismatch } from '../src/lib/unit-check'
+import { lengthScale } from '../src/lib/ifc/units'
 import { fuzzEdits } from '../src/lib/edit-fuzz'
 import type { Model } from '../src/lib/model'
 import { readIdf } from '../src/lib/idf/read'
@@ -1823,6 +1825,65 @@ describe.skipIf(!existsSync(DUPLEX_MEP_FULL) || !existsSync(DUPLEX_MEP_2) || !ex
     // 다른 도구로 반년 뒤 낸 COBie 판본은 방 GUID 를 전부 지켰다. 도구가 GUID 를 지키느냐의 문제이지, 불가능한 일이 아니다.
     const cobie = compareVersions(load(DUPLEX_ARCH), load(DUPLEX_COBIE))
     expect(cobie.spaces.by).toEqual({ guid: 21, revitId: 0, name: 0, position: 0 })
+  }, 300_000)
+})
+
+// OE-BIM-11 "mm·ft 파일이 m 로 들어옴" 을 실제 파일로, 그리고 "같은 건물 판본 간 층 높이로 교차 확인". Duplex 는 같은 건물을
+// 미터(건축)·밀리미터(HVAC)·피트(MEP-1) 로 낸 파일이 다 있다. 환산 뒤 층 높이가 같아야 하고, COBie(Design) 판본은 길이 단위를
+// 밀리미터로 선언하고 미터 값을 적어서 1/1000 로 들어온다 — 교차 확인이 잡아야 할 실제 사례다(2026-10-03 실측).
+describe.skipIf(![DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_FULL, DUPLEX_MEP_1, DUPLEX_MEP_2, DUPLEX_COBIE].every((f) => existsSync(f)))('단위 교차 확인 (OE-BIM-11, Duplex)', () => {
+  it('mm·ft 로 낸 판본도 m 로 들어와 건축과 층 높이가 같고, 단위를 잘못 선언한 COBie 판본만 1/1000 로 잡는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const scaleOf = (path: string) => {
+      const m = api.OpenModel(new Uint8Array(readFileSync(path)))
+      try {
+        return +lengthScale(api, m).scale.toFixed(4)
+      } finally {
+        api.CloseModel(m)
+      }
+    }
+    const load = (path: string) => importIfc(api, new Uint8Array(readFileSync(path)))
+    const height = (m: Model) => Object.fromEntries(m.storeys.map((s) => [s.name, +s.elevation.toFixed(3)]))
+    const arch = load(DUPLEX_ARCH)
+    expect(scaleOf(DUPLEX_ARCH)).toBe(1)
+    // 건축에만 기초(T/FDN)가 있다. 나머지 셋은 모든 판본에 있다.
+    expect(height(arch)).toEqual({ 'T/FDN': -1.25, 'Level 1': 0, 'Level 2': 3.1, Roof: 6 })
+
+    for (const [path, scale] of [[DUPLEX_HVAC, 0.001], [DUPLEX_MEP, 1], [DUPLEX_MEP_FULL, 1], [DUPLEX_MEP_1, 0.3048], [DUPLEX_MEP_2, 1]] as const) {
+      const m = load(path)
+      expect(scaleOf(path), path).toBe(scale)
+      expect(height(m), path).toEqual({ 'Level 1': 0, 'Level 2': 3.1, Roof: 6 })
+      expect(storeyScaleMismatch(arch.storeys, m.storeys), path).toBeNull()
+      expect(compareVersions(arch, m).storeyScale, path).toBeNull()
+    }
+
+    const cobie = load(DUPLEX_COBIE)
+    expect(scaleOf(DUPLEX_COBIE)).toBe(0.001)
+    // 선언은 밀리미터인데 값은 미터다(Level 2 = 3.0999…). 파일 하나만 보면 3.1mm 짜리 층이 오류 없이 들어온다.
+    expect(height(cobie)).toEqual({ 'T/FDN': -0.001, 'Level 1': 0, 'Level 2': 0.003, Roof: 0.006 })
+    expect(requirementsReport(cobie).find((r) => r.id === 'R6')!.state).toBe('standard')
+    const d = compareVersions(arch, cobie)
+    expect(d.storeyScale).toMatchObject({ ratio: 1 / 1000, what: '밀리미터 ↔ 미터' })
+    // 1층(0)만 빼고 기초까지 셋이 모두 1/1000 이다.
+    expect(d.storeyScale!.storeys.map(([n]) => n)).toEqual(['T/FDN', 'Level 2', 'Roof'])
+
+    const { model, report } = mergeModels(arch, cobie, { base: 'Arch.ifc', overlay: 'COBie-Design.ifc' })
+    expect(report.unitScale!.ratio).toBe(1 / 1000)
+    expect(model.warnings.filter((w) => w.includes('길이 단위 선언') || w.includes('높이가 다른'))).toEqual([
+      '이름이 같은 층의 높이가 COBie-Design.ifc에서 Arch.ifc의 1/1000입니다(T/FDN -1.25m → -0.00125m, Level 2 3.1m → 0.0031m, Roof 6m → 0.006m). 층간 높이로 보면 COBie-Design.ifc의 길이 단위 선언이 실제 값과 다른 것 같습니다(밀리미터 ↔ 미터). 치수·좌표가 모두 그 배수로 틀립니다(요구사항 R6).',
+    ])
+    expect(requirementsReport(model, report).find((r) => r.id === 'R6')!.state).toBe('partial')
+    // 판본 비교로 COBie 를 지금 파일로 열면(건축이 이전 판본) 지금 파일이 틀렸다 — 층간 높이 3.1mm.
+    expect(d.storeyScale!.suspect).toBe('second')
+    const r6 = requirementsReport(cobie, null, { name: 'Arch.ifc', kept: 0, rematched: 0, storeyScale: d.storeyScale }).find((r) => r.id === 'R6')!
+    expect(r6.state).toBe('partial')
+    // 거꾸로 건축을 열고 COBie 를 이전 판본으로 견주면 건축의 R6 은 표준이고, 이전 판본(COBie)을 짚는다.
+    const back = compareVersions(cobie, arch).storeyScale!
+    expect(back).toMatchObject({ ratio: 1000, suspect: 'first' })
+    const archR6 = requirementsReport(arch, null, { name: 'COBie-Design.ifc', kept: 0, rematched: 0, storeyScale: back }).find((r) => r.id === 'R6')!
+    expect(archR6.state).toBe('standard')
+    expect(archR6.note).toContain('이전 판본(COBie-Design.ifc)은 같은 이름 층의 높이가 이 파일의 1/1000로')
   }, 300_000)
 })
 
