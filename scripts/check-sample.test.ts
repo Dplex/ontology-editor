@@ -452,6 +452,45 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
   }, 300_000)
 })
 
+// OE-REQ-06 요구사항 상태 집계. 필수 11 을 표준·다른 자리·없음·일부로 세고, 표준이 아닌 줄마다 고객사에 할 요청을 낸다. 요청은 셋 중 하나로
+// 갈린다 — 다른 자리면 "내보내기 설정을 바꿔 달라 — 무엇을"(ASK_SETTING, OE-BIM-17), 값이 없으면 "값을 넣어 달라", 고칠 것이 정해져 있으면
+// 그 말(R7 IfcMapConversion · R11 배치점). 가진 파일의 필수에는 다른 자리가 없다 — 다른 자리는 권장(R10·R14·R16·R21·R23·R24)에서 나온다.
+describe('요구사항 상태 집계 — 필수 11 (OE-REQ-06)', () => {
+  it('가진 BIM 넷의 필수 11 을 화면과 같이 세고, 표준이 아닌 줄은 빠짐없이 가를 수 있는 요청을 낸다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const open = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+    // 합친 것은 화면처럼 합치기 결과를 같이 넘긴다 — 그래야 R1(두 파일의 층 이름)·R12(건축·설비 좌표계)를 잰다.
+    const merged = (a: string, b: string) => { const m = mergeModels(open(a), open(b)); return requirementsReport(m.model, m.report) }
+    const cases: [string, string[], () => ReturnType<typeof requirementsReport>, Record<string, string[]>][] = [
+      ['AC20', [SAMPLE], () => requirementsReport(open(SAMPLE)), { standard: ['R0', 'R1', 'R2', 'R3', 'R4', 'R6'], missing: ['R7', 'R9'], none: ['R11'], unmeasured: ['R12', 'R13'] }],
+      ['ifc4Mep', [MEP], () => requirementsReport(open(MEP)), { partial: ['R11'], missing: ['R7'], none: ['R2', 'R3', 'R4'], unmeasured: ['R12', 'R13'] }],
+      ['Duplex 건축+MEP', [DUPLEX_ARCH, DUPLEX_MEP], () => merged(DUPLEX_ARCH, DUPLEX_MEP), { partial: ['R3'], missing: ['R7'], unmeasured: ['R13'] }],
+      // 화면의 "필수 11개: 표준 5 · 없음·일부 5" 와 같다.
+      ['병원 건축+HVAC', [CLINIC_ARCH, CLINIC_HVAC], () => merged(CLINIC_ARCH, CLINIC_HVAC), { standard: ['R0', 'R3', 'R6', 'R9', 'R12'], partial: ['R1', 'R2', 'R4', 'R11'], missing: ['R7'], unmeasured: ['R13'] }],
+    ]
+    let ran = 0
+    for (const [name, files, make, want] of cases) {
+      if (!files.every(existsSync)) continue
+      ran++
+      const must = make().filter((r) => r.level === '필수')
+      expect(must, name).toHaveLength(11)
+      const ids = (state: string) => must.filter((r) => r.state === state).map((r) => r.id)
+      for (const [state, list] of Object.entries(want)) expect(ids(state), `${name} ${state}`).toEqual(list)
+      // 파일 하나로 잴 수 없는 것(R12 건축·설비 좌표계 · R13 GUID 유지)은 잴 수 없음이다 — 분모에 넣지 않는다. R12 는 합치면 잰다.
+      for (const r of must) {
+        const kind = r.ask.startsWith(ASK_SETTING) ? 'setting' : r.ask.startsWith('값을 넣어 달라') ? 'value' : r.ask ? 'fix' : 'none'
+        if (r.state === 'standard' || r.state === 'none' || r.state === 'unmeasured') expect(kind, `${name} ${r.id}`).toBe('none')
+        else if (r.state === 'elsewhere') expect(kind, `${name} ${r.id}`).toBe('setting')
+        // 없음·일부는 값을 넣거나 정해진 것을 고쳐 달라는 요청이다. 설정 요청이 나오면 고객사가 엉뚱한 곳을 본다.
+        else expect(['value', 'fix'], `${name} ${r.id} ${r.ask}`).toContain(kind)
+      }
+    }
+    expect(ran).toBeGreaterThanOrEqual(2)
+  }, 900_000)
+})
+
 // OE-BIM-25 임포트 피처 선택. 벽·문·창은 GeoJSON 에만 나가고 TTL 에는 없어서, 설비만 볼 때 끄고 연다. 끈 것은 0 이 아니라 "읽지 않음"
 // 이어야 한다 — 0 이면 "BIM 에 없다" 는 말이 되고 요구사항 보고서가 고객사에 엉뚱한 요청을 한다. 큰 건축 파일로 잰다.
 describe('임포트 피처 선택 — 끈 것은 읽지 않음 (OE-BIM-25)', () => {
