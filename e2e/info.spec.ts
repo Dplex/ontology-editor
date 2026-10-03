@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 
 // 고치기 전에 판단할 정보가 화면에 있는가. 이름만 있으면 무엇인지·왜 어겼는지·무슨 종류인지 알 수 없었다.
@@ -184,5 +185,43 @@ test('펼친 칸의 제목 줄은 스크롤을 따라와서 끝에서 바로 접
   await head.click()
   await expect(head).toHaveAttribute('aria-expanded', 'false')
   await expect(head).toBeInViewport()
+  expect(errors).toEqual([])
+})
+
+test('층별 요약에 층고를 출처와 같이 보이고, 모르면 모름이라 적는다 (OE-BIM-02)', async ({ page }) => {
+  // fixture 는 BIM 이 층 높이를 안 적었다. 1F 는 윗층(2F, 3m)과의 차로 계산하고, 맨 위 2F 는 모른다.
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('input[type=file]').first().setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  const height = (i: number) => page.locator('.storeys tbody tr').nth(i).locator('td.storey-height')
+  await expect(height(0)).toHaveText(/3\.00 m\s*계산/)
+  await expect(height(1)).toHaveText('모름')
+
+  // AC20 은 ArchiCAD 가 기준 물량(GrossHeight)을 적었다. 맨 위 다락(2.0m)도 BIM 값으로 안다.
+  const AC20 = 'data/AC20-FZK-Haus.ifc'
+  if (existsSync(AC20)) {
+    await page.locator('input[type=file]').first().setInputFiles(AC20)
+    await expect(page.locator('.appbar h2')).toHaveText('AC20-FZK-Haus.ifc', { timeout: 60_000 })
+    await expect(height(0)).toHaveText(/2\.70 m\s*BIM/)
+    await expect(height(1)).toHaveText(/2\.00 m\s*BIM/)
+    await expect(height(0).locator('span[title]').first()).toHaveAttribute('title', /BaseQuantities\.GrossHeight[\s\S]*순 높이\(BIM, 윗층 바닥판 아래까지\) 2\.70 m/)
+    if (process.env.SHOT) await page.locator('.storeys').screenshot({ path: process.env.SHOT })
+  }
+
+  // BIM 값(3.2m)과 계산 값(3.0m)이 1cm 넘게 다르면 계산 값을 옆에 붙인다. 밀리미터 파일이라 미터로 바꿔 읽는다.
+  await page.locator('input[type=file]').first().setInputFiles('src/lib/ifc/fixtures/storey-height.ifc')
+  await expect(page.locator('.appbar h2')).toHaveText('storey-height.ifc', { timeout: 30_000 })
+  await expect(height(0)).toHaveText(/3\.20 m\s*BIM\s*계산 3\.00 m/)
+  await expect(height(0).locator('.height-mismatch')).toHaveText(/계산 3\.00 m/)
+
+  // 단위를 mm 로 잘못 선언한 Duplex COBie 는 층고가 몇 mm 다. 0.00 으로 뭉개지 않고 유효 숫자로 보인다.
+  const COBIE = 'data/NBU_Duplex/NBU_Duplex-Apt-COBie_Arch-Design.ifc'
+  if (existsSync(COBIE)) {
+    await page.locator('input[type=file]').first().setInputFiles(COBIE)
+    await expect(page.locator('.appbar h2')).toHaveText(/COBie_Arch-Design/, { timeout: 60_000 })
+    await expect(page.locator('.storeys tbody td.storey-height').filter({ hasText: '0.0031 m' })).toHaveCount(1)
+  }
   expect(errors).toEqual([])
 })

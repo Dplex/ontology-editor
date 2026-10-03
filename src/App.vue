@@ -23,6 +23,7 @@ import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from '
 import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
+import { storeyHeights, type StoreyHeight } from './lib/storey-height'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
@@ -427,6 +428,19 @@ const wallThicknessOf = (storey: { walls: { thickness: number | null }[] }) => {
   const values = [...new Set(storey.walls.map((w) => w.thickness).filter((t): t is number => t !== null))]
   return values.sort((a, b) => a - b).map((t) => `${(t * 1000).toFixed(0)}mm`).join('/')
 }
+
+// 층고(OE-BIM-02). BIM 이 적었으면 그 값, 아니면 윗층 바닥과의 차. 맨 위층이고 BIM 이 안 적었으면 모름이다.
+const storeyHeightOf = computed(() => (model.value ? storeyHeights(model.value.storeys) : new Map<string, StoreyHeight | null>()))
+/** 미터. 단위 선언이 틀린 파일(Duplex COBie 는 층고가 3.1mm 로 들어온다)이 0.00 으로 뭉개지지 않게 작은 값은 유효 숫자로 보인다. */
+const meters = (v: number) => `${Math.abs(v) >= 0.1 ? v.toFixed(2) : v.toPrecision(2)} m`
+const storeyHeightTitle = (h: StoreyHeight) =>
+  [
+    h.source === 'bim' ? `BIM ${h.property}` : '윗층 바닥 높이와의 차',
+    h.source === 'bim' ? (h.calc !== null ? `계산(윗층 바닥과의 차) ${meters(h.calc)}` : '윗층이 없어 계산할 수 없음') : null,
+    h.net !== null ? `순 높이(BIM, 윗층 바닥판 아래까지) ${meters(h.net)}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
 
 const wallThicknessLabel = (storey: { walls: { thickness: number | null }[] }) => {
   const kinds = wallThicknessOf(storey).split('/').filter(Boolean)
@@ -6462,6 +6476,7 @@ async function export3D(format: 'glb' | 'obj') {
               <tr>
                 <th>층</th>
                 <th class="num">높이</th>
+                <th class="num">층고</th>
                 <th>물리존</th>
                 <th class="num">넓이 합</th>
                 <th class="num">벽</th>
@@ -6472,6 +6487,17 @@ async function export3D(format: 'glb' | 'obj') {
               <tr v-for="s in model.storeys" :key="s.id">
                 <td>{{ s.name }}</td>
                 <td class="num mono">{{ (Math.abs(s.elevation) < 0.005 ? 0 : s.elevation).toFixed(2) }} m</td>
+                <!-- 층고(OE-BIM-02). 출처 BIM 이면 그 값, 계산이면 윗층 바닥과의 차. 둘이 다르면 계산한 값도 옆에 보인다. -->
+                <td class="num mono storey-height">
+                  <template v-if="storeyHeightOf.get(s.id)">
+                    <span :title="storeyHeightTitle(storeyHeightOf.get(s.id)!)">{{ meters(storeyHeightOf.get(s.id)!.value) }}</span>
+                    <Src :kind="storeyHeightOf.get(s.id)!.source" />
+                    <span v-if="storeyHeightOf.get(s.id)!.mismatch" class="height-mismatch" :title="storeyHeightTitle(storeyHeightOf.get(s.id)!)">
+                      계산 {{ meters(storeyHeightOf.get(s.id)!.calc!) }}
+                    </span>
+                  </template>
+                  <span v-else class="muted" title="맨 위층이고 BIM 이 층 높이를 적지 않았습니다. 지어내지 않습니다.">모름</span>
+                </td>
                 <!-- 한 층에 방이 수십 개면 이름이 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로. -->
                 <td class="names" :title="s.spaces.map((x) => x.longName || x.name).join(', ')">
                   <template v-if="s.spaces.length">

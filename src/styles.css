@@ -1168,6 +1168,12 @@ th {
   white-space: nowrap;
 }
 
+/* 층고의 BIM 값과 계산한 값(윗층 바닥과의 차)이 다를 때 옆에 붙는 계산 값. */
+.storeys .height-mismatch {
+  margin-left: 0.25rem;
+  color: var(--warn-fg);
+}
+
 /* 한 층의 방 이름이 수십 개면 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로 본다. */
 .storeys td.names {
   max-width: 32rem;
