@@ -1040,6 +1040,19 @@ describe('받는 쪽 규칙으로 다시 읽는가 (read-ttl)', () => {
     expect(reading.unread).toHaveLength(equipment.filter((e) => isConduit(e.role)).length)
   }, 300_000)
 
+  // OE-INT-08 따옴표 이스케이프. 병원 건축의 샤워 의자 3대는 Revit 패밀리 이름에 인치 표시(")가 든다 —
+  // `M_ADA shower Seat:17" Depth x 18 1/2" Width:…`. 손 픽스처가 아닌 실제 이름이 받는 쪽 규칙으로 그대로 돌아와야 한다.
+  it('이름에 따옴표가 든 실제 설비가 받는 쪽에 같은 이름으로 읽힌다 (병원 건축)', async () => {
+    if (!existsSync(CLINIC_ARCH)) return
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_ARCH))).model
+    const quoted = model.storeys.flatMap((s) => s.equipment).filter((e) => e.name.includes('"'))
+    expect(quoted).toHaveLength(3)
+    const labels = new Map(readOntologyTTL(modelToTTL(model)).entities.map((e) => [e.key, e.label]))
+    expect(quoted.map((e) => labels.get(e.id))).toEqual(quoted.map((e) => e.name))
+  }, 300_000)
+
   it('우리가 짓는 id 와 GUID($ 가 든 것까지)가 GeoJSON 과 같은 문자열로 읽힌다', async () => {
     if (!existsSync(DUPLEX_MEP)) return
     const api = new WebIFC.IfcAPI()
