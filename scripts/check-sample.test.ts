@@ -451,6 +451,61 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
   }, 300_000)
 })
 
+// OE-BIM-08 토출구·배관 초안. Air Terminal 은 토출구(디퓨저·그릴)로, Duct·Pipe 는 형상이 있는 배관 초안(구간·이음쇠)으로 읽고,
+// 배관은 fso: 로 내보내 받는 쪽이 설비로 세지 않는다. IFC4(ifc4Mep)는 구체 클래스, Revit IFC2x3(병원)은 IfcFlowTerminal +
+// IfcAirTerminalType 으로 들어온다 — 둘 다 같은 자리에 닿아야 한다.
+describe('토출구·배관 초안 (OE-BIM-08)', () => {
+  const read = async (path: string) => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const bytes = new Uint8Array(readFileSync(path))
+    const id = api.OpenModel(bytes)
+    const n = (t: number) => (api.GetLineIDsWithType(id, t, true) as unknown as { size(): number }).size()
+    const ifc = { segments: n(WebIFC.IFCFLOWSEGMENT), fittings: n(WebIFC.IFCFLOWFITTING) }
+    api.CloseModel(id)
+    const { model, meshes } = importIfcWithMeshes(api, bytes)
+    const all = model.storeys.flatMap((s) => s.equipment)
+    const airTerminals = all.filter((e) => e.ifcClass === 'AirTerminal' || (e.declaredType ?? '').startsWith('AirTerminal'))
+    const tally = (xs: typeof all, f: (e: (typeof all)[number]) => string) => xs.reduce((o: Record<string, number>, e) => ((o[f(e)] = (o[f(e)] ?? 0) + 1), o), {})
+    const conduits = all.filter((e) => isConduit(e.role))
+    const reading = readOntologyTTL(modelToTTL(model))
+    const conduitIds = new Set(conduits.map((e) => e.id))
+    return {
+      ifc,
+      terminals: tally(airTerminals, (e) => `${e.kind}/${e.role}`),
+      conduits: tally(conduits, (e) => e.role!),
+      shaped: conduits.filter((e) => (meshes.get(e.id)?.positions.length ?? 0) > 0).length,
+      fso: tally(reading.unread.map((u) => ({ role: u.cls }) as unknown as (typeof all)[number]), (e) => e.role!),
+      readAsEntity: reading.entities.filter((e) => conduitIds.has(e.key)).length,
+    }
+  }
+
+  it('IFC4 — 구체 클래스(IfcAirTerminal·IfcDuctSegment …)', async () => {
+    if (!existsSync(MEP)) return
+    const r = await read(MEP)
+    expect(r.terminals).toEqual({ 'air_diffuser/terminal': 30, 'air_grille/terminal': 13 })
+    // IFC 의 구간·이음쇠가 하나도 빠지지 않고 배관 초안이 된다.
+    expect(r.conduits).toEqual({ segment: r.ifc.segments, fitting: r.ifc.fittings })
+    expect(r.ifc).toEqual({ segments: 1075, fittings: 820 })
+    // 형상이 없는 27개: 10개는 IFC 에 형상이 없고(Representation $), 17개는 IfcSweptDiskSolidPolygonal(IFC4 Add2 의 관)이라
+    // web-ifc 0.0.78 이 메시를 못 만든다("unexpected mesh type"). 좌표가 있는 것은 3D 에 점으로 남는다.
+    expect(r.shaped).toBe(1895 - 27)
+    expect(r.fso).toEqual({ 'fso:Segment': 1075, 'fso:Fitting': 820 })
+    expect(r.readAsEntity).toBe(0)
+  }, 300_000)
+
+  it('Revit IFC2x3 — IfcFlowTerminal + IfcAirTerminalType (병원 HVAC)', async () => {
+    if (!existsSync(CLINIC_HVAC)) return
+    const r = await read(CLINIC_HVAC)
+    // AirTerminal 타입 555개. VAV 115 는 Revit 이 AirTerminal 타입으로 냈지만 이름 사전이 VAV(조절)로 가른다 — 토출구가 아니다.
+    expect(r.terminals).toEqual({ 'air_diffuser/terminal': 234, 'air_grille/terminal': 206, 'vav/control': 115 })
+    expect(r.conduits).toEqual({ segment: r.ifc.segments, fitting: r.ifc.fittings })
+    expect(r.shaped).toBe(3138)
+    expect(r.fso).toEqual({ 'fso:Segment': 1548, 'fso:Fitting': 1590 })
+    expect(r.readAsEntity).toBe(0)
+  }, 300_000)
+})
+
 describe.skipIf(!existsSync(MEP))('포트 연결 (ifc4Mep, IFC4)', () => {
   it('IfcRelNests 로 포트를 찾고 SOURCE→SINK 를 방향으로 읽는다', async () => {
     const api = new WebIFC.IfcAPI()
