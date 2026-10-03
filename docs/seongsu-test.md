@@ -35,6 +35,36 @@ ls -la data/성수/             # Factorial_건축.ifc (84MB), Factorial_기계.
 
 ---
 
+### 0-5 성수가 없는 PC — 합성 고층 BIM 으로 돌리기
+
+성수가 없는 PC 에서는 병원을 20층으로 쌓고 성수에서 본 버릇(설비 Proxy, 같은 외곽선의 "공간" 사본, 방향 없는 포트, 계통 없는 말단 …)을
+심은 합성 BIM 으로 같은 시험을 돈다. 성수 숫자(층 19 · 물리존 508 …)를 재는 것이 아니라 **같은 동작이 이만한 크기에서 되는지**를 본다.
+
+```bash
+node --max-old-space-size=12288 scripts/synth-tower.mjs          # data/합성-성수/ 에 건축·기계와 판본 여섯(40초)
+npm run check:sample -- -t "TC 가 대응하는 상황"                  # 상황 84개 커버리지 → data/합성-성수/커버리지.md
+SEONGSU_ARCH=data/합성-성수/건축.ifc SEONGSU_MECH=data/합성-성수/기계.ifc npx vitest run --config vitest.sample.config.ts scripts/seongsu.test.ts
+```
+
+화면 시험(B~O)은 성수 이름 대신 쓸 것을 환경변수로 준다(기본값은 성수 것이라 성수 PC 에서는 안 준다):
+
+```bash
+export SEONGSU_ARCH=data/합성-성수/건축.ifc SEONGSU_MECH=data/합성-성수/기계.ifc
+export SEONGSU_STOREY='[5] First Floor' SEONGSU_OTHER_STOREY='[4] Second Floor'   # [5] 묶음은 포트 방향이 없다
+export SEONGSU_TERMINAL='Supply Diffuser' SEONGSU_AHU='Air Handling Unit' SEONGSU_HYDRONIC='Hydronic Supply'
+export SEONGSU_SUPPLY_DUCT='덕트' SEONGSU_OUTSIDE_X=-500 SEONGSU_FIND='디퓨저=디퓨저,Rectangular Duct=덕트'
+export SEONGSU_COUNTS=record SEONGSU_LINKED=record SEONGSU_AIR_SOURCES=record   # 성수 숫자 대신 재서 적기만
+export SEONGSU_DEVICE_A='M_Exhaust Grill:ER-600 x 600 Face 300 x 300 Connection:ER-600 x 600 Face 300 x 300 Connection:40722430'   # 방향·계통 없는 연결
+export SEONGSU_DEVICE_B='M_Supply Diffuser:SD-600 x 600 Face 300 x 300 Connection:SD-600 x 600 Face 300 x 300 Connection:40608419'
+export SEONGSU_LINKED_DEVICE='M_Supply Diffuser:SD-600 x 600 Face 300 x 300 Connection:SD-600 x 600 Face 300 x 300 Connection:40608427'
+export SEONGSU_SUPPLY_DEVICE="$SEONGSU_LINKED_DEVICE"
+npm run e2e:seongsu                                               # 잰 값은 data/합성-성수/화면-결과.md
+```
+
+2026-10-04 이 PC(Intel Arc 140V): 화면 시험 12/12, 성수 불변식 20/20, 상황 커버리지 84/84(합성만으로 73).
+
+---
+
 ## A. 자동 검사 (한 번에)
 
 ```bash

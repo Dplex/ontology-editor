@@ -352,7 +352,12 @@ function seedMech(t) {
   ed.each(4, 'IFCDISTRIBUTIONPORT', (e) => {
     e.args[7] = '.SOURCEANDSINK.'
   })
-  done.push('복사본 5: 포트 방향 없음')
+  // 같은 복사본에서 배기 계통 하나는 계통 속성도 없다 — 방향도 계통도 없어 규칙도 못 정하는 연결(성수 FCU 의 "연결").
+  ed.each(4, 'IFCPROPERTYSINGLEVALUE', (e) => {
+    if (unstr(e.args[0]) !== 'System Name' || !/'Mechanical Exhaust Air 1'/.test(e.args[2])) return false
+    e.args[0] = str('System Name_없앰')
+  })
+  done.push('복사본 5: 포트 방향 없음 · 배기 계통 하나는 계통도 없음')
   // 복사본 1: 이름으로만 아는 기기를 Proxy 로 더한다(포트 없음) — 분전반·외기 센서·엘리베이터·FCU, 좌표 없는 것, 종류 모르는 것.
   const storeyOf = new Map()
   for (const l of t.lines) {
