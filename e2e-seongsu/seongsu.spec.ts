@@ -1,6 +1,6 @@
 import { execSync } from 'node:child_process'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 
 // docs/seongsu-test.md 의 화면 항목(B~O)을 성수 건축+기계로 돈다. 두 파일을 한 번 열고 한 페이지에서 차례로 간다 —
@@ -12,7 +12,15 @@ import { expect, test, type Page } from '@playwright/test'
 // 성수의 방·벽·설비 이름을 이 파일에 박아 두면 판본이 바뀔 때마다 깨진다.
 const ARCH = process.env.SEONGSU_ARCH ?? 'data/성수/Factorial_건축.ifc'
 const MECH = process.env.SEONGSU_MECH ?? 'data/성수/Factorial_기계.ifc'
-const REPORT = 'data/성수/화면-결과.md'
+// 성수가 없는 PC 에서는 합성 고층 BIM(scripts/synth-tower.mjs)으로 돈다. 층 이름·설비 이름이 다르니 환경변수로 준다 —
+// 기본값은 성수 것이다.
+const REPORT = join(dirname(ARCH), '화면-결과.md')
+const STOREY = process.env.SEONGSU_STOREY ?? '3F'
+const OTHER_STOREY = process.env.SEONGSU_OTHER_STOREY ?? '5F'
+const TERMINAL = new RegExp(process.env.SEONGSU_TERMINAL ?? 'FCU')
+const AHU = new RegExp(process.env.SEONGSU_AHU ?? 'AHU', 'i')
+const stem = (p: string) => basename(p).replace(/\.ifc$/i, '')
+const escape = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const have = existsSync(ARCH) && existsSync(MECH)
 
 test.describe.configure({ mode: 'serial' })
@@ -225,7 +233,7 @@ test('B 열기: 두 파일을 같이 고르면 합쳐 열리고, 3D 를 그리�
   })
   const t = performance.now()
   await page.locator('.drop input[type=file]').setInputFiles([MECH, ARCH])
-  await expect(page.locator('.appbar h2')).toHaveText(/Factorial_건축\.ifc \+ Factorial_기계\.ifc/, { timeout: 600_000 })
+  await expect(page.locator('.appbar h2')).toHaveText(new RegExp(`${escape(basename(ARCH))} \\+ ${escape(basename(MECH))}`), { timeout: 600_000 })
   await expect(page.locator('.progress-toast')).toHaveCount(0, { timeout: 600_000 })
   const openMs = Math.round(performance.now() - t)
   await expect.poll(async () => (await viewer<{ shown: number; chunks: number }>('stats')).shown === (await viewer<{ chunks: number }>('stats')).chunks, { timeout: 60_000 }).toBe(true)
@@ -334,16 +342,16 @@ test('L 3D 내보내기: GLB·OBJ 가 한 파일로 내려받아지고, 만드�
   // 형상을 넘기는 복사만 남는다.
   expect(glb.gap).toBeLessThan(1_000)
   expect(obj.gap).toBeLessThan(1_000)
-  expect(glb.name).toBe('Factorial_건축+Factorial_기계.glb')
+  expect(glb.name).toBe(`${stem(ARCH)}+${stem(MECH)}.glb`)
   await expect(page.getByRole('button', { name: /3D 형상 내보내기 \(OBJ\)/ })).toHaveText('OBJ')
 })
 
 test('C 3D 보기: 층 고르기, 전체 보기, 고른 연결망, 설명 풍선, 회전, 전체 화면, 테마', async () => {
   // C-2 층 하나만 그린다.
-  await showStorey('3F')
+  await showStorey(STOREY)
   expect(await viewer<string[]>('visibleStoreys')).toHaveLength(1)
   // C-3 다른 층 설비를 목록에서 고르면 3D 가 그 층으로 따라간다.
-  const other = map.devices.find((d) => d.storey === '5F' && /FCU/.test(d.name))!
+  const other = map.devices.find((d) => d.storey === OTHER_STOREY && TERMINAL.test(d.name))!
   await pickDevice(other.name)
   await expect(page.getByRole('combobox', { name: '보일 층' })).toHaveValue(/.+/)
   expect(await page.getByRole('combobox', { name: '보일 층' }).locator('option:checked').innerText()).toBe('5F만')
@@ -445,7 +453,7 @@ test('D 패널: 무엇인지와 출처, 계통별 표, 담당 공간, 검색, �
     record('D-2', '통과', `${name}: ${what}, 출처 표시`)
   }
   // D-3 공조기: 계통별 표가 패널 폭 안에 있고, 담당 공간은 몇 줄만 보인다.
-  const ahu = map.devices.find((d) => /AHU/i.test(d.name))!
+  const ahu = map.devices.find((d) => AHU.test(d.name))!
   await pickDevice(ahu.name)
   const overflow = await page.locator('.picked').evaluate((el) => el.scrollWidth - el.clientWidth)
   expect(overflow, '패널이 가로로 넘친다').toBeLessThanOrEqual(1)
@@ -573,8 +581,8 @@ test('E 설비 편집: 끌기·Esc·방향키·층 옮기기·방 밖·더하기
   expect(ttlBlock(ttl2.text, map.devices.find((d) => d.name === 'FCU3:FCU3:958283')!.id)).toContain('rdfs:label "FCU-3F-테스트"')
 
   // E-11·E-12 설비를 바닥에 더하고 이름을 고친다. 종류는 모름으로 둔다.
-  await showStorey('3F')
-  const target = await roomToEdit('3F')
+  await showStorey(STOREY)
+  const target = await roomToEdit(STOREY)
   expect(target, '3F 에서 누를 방을 못 찾았다').not.toBeNull()
   await page.getByRole('button', { name: '설비 더하기' }).click()
   await clickFloor(target!.cx, target!.cy, target!.space.elevation)
@@ -651,8 +659,8 @@ const panelArea = async () => Number(await page.locator('.space-picked .stats b.
 
 test('F 물리존: 바닥 고르기·꼭짓점 끌기·짚고 옮기기·넣고 지우기·교차·만들기·나누기·합치기·지우기와 되돌리기', async () => {
   await editMode(true)
-  await showStorey('3F')
-  const target = await roomToEdit('3F')
+  await showStorey(STOREY)
+  const target = await roomToEdit(STOREY)
   expect(target, '3F 에서 누를 방을 못 찾았다').not.toBeNull()
   const { space, cx, cy } = target!
   const z = space.elevation
@@ -905,7 +913,7 @@ test('J 완전성 검사에서 한 번에 고치기', async () => {
 
 test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 놓기·지우기와 방 경계 같이', async () => {
   await editMode(true)
-  await showStorey('3F')
+  await showStorey(STOREY)
   const layer = page.getByRole('button', { name: '벽·문·창' })
   const n1 = await timed(() => layer.click())
   expect((await viewer<string[]>('elements')).length).toBeGreaterThan(50)
@@ -914,7 +922,7 @@ test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 
 
   // N-2·N-3 내력 모름인 벽을 골라 방향키로 옮기고 내력으로 바꾼다.
   const unknown = await wallToPick((w) => w.loadBearing === null)
-  const any = unknown ?? (await wallToPick((w) => w.storey === '3F'))
+  const any = unknown ?? (await wallToPick((w) => w.storey === STOREY))
   expect(any, '3F 에서 누를 벽을 못 찾았다').not.toBeNull()
   await showStorey(any!.wall.storey)
   await page.mouse.click(any!.at.x, any!.at.y)
@@ -952,8 +960,8 @@ test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 
   await undoAll()
 
   // N-8a·N-8b 칸막이 벽을 방 경계와 같이 옮긴다. 벽의 양옆(두께 밖 0.3m)이 서로 다른 방인 벽을 GeoJSON 에서 고른다.
-  await showStorey('3F')
-  const partitions = partitionWalls('3F')
+  await showStorey(STOREY)
+  const partitions = partitionWalls(STOREY)
   let carried = false
   const why: string[] = []
   for (const { wall: w } of partitions.slice(0, 30)) {
@@ -1093,8 +1101,8 @@ test('K·L 저장과 불러오기, 자동 저장, 내보내기가 같다', async
   await pickDevice('FCU3:FCU3:958291')
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('PageUp')
-  await showStorey('3F')
-  const target = (await roomToEdit('3F'))!
+  await showStorey(STOREY)
+  const target = (await roomToEdit(STOREY))!
   await clickFloor(target.cx, target.cy, target.space.elevation + 0.05)
   const rename = page.locator('.space-picked .space-name input')
   await rename.fill('회의실 가')
@@ -1129,7 +1137,7 @@ test('K·L 저장과 불러오기, 자동 저장, 내보내기가 같다', async
   // K-3 새로 열어 건축만 열면 묻지 않는다. K-4 기계를 덧붙이면 묻고, 이어서 하면 돌아온다.
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(ARCH)
-  await expect(page.locator('.appbar h2')).toHaveText('Factorial_건축.ifc', { timeout: 600_000 })
+  await expect(page.locator('.appbar h2')).toHaveText(basename(ARCH), { timeout: 600_000 })
   await expect(page.locator('.progress-toast')).toHaveCount(0, { timeout: 600_000 })
   await expect(page.locator('.draft-bar')).toHaveCount(0)
   await page.locator('.appbar label', { hasText: '덧붙이기' }).locator('input[type=file]').setInputFiles(MECH)
