@@ -452,6 +452,44 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
   }, 300_000)
 })
 
+// OE-BIM-25 임포트 피처 선택. 벽·문·창은 GeoJSON 에만 나가고 TTL 에는 없어서, 설비만 볼 때 끄고 연다. 끈 것은 0 이 아니라 "읽지 않음"
+// 이어야 한다 — 0 이면 "BIM 에 없다" 는 말이 되고 요구사항 보고서가 고객사에 엉뚱한 요청을 한다. 큰 건축 파일로 잰다.
+describe('임포트 피처 선택 — 끈 것은 읽지 않음 (OE-BIM-25)', () => {
+  it('병원 건축에서 벽·문·창을 끄면 0 이 아니라 읽지 않음이고, 합쳐도 남고, TTL 은 그대로다', async () => {
+    if (!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC)) return
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const bytes = new Uint8Array(readFileSync(CLINIC_ARCH))
+    // 처음 여는 것은 wasm·JIT 를 데우느라 느리다. 한 번 열어 데우고 잰다.
+    importIfcWithMeshes(api, bytes)
+    let t = performance.now()
+    const full = importIfcWithMeshes(api, bytes).model
+    const fullMs = performance.now() - t
+    t = performance.now()
+    const off = importIfcWithMeshes(api, bytes, undefined, { walls: false, doors: false, windows: false }).model
+    const offMs = performance.now() - t
+
+    const c = (m: Model) => { const n = countOf(m); return { walls: n.walls, openings: m.storeys.flatMap((s) => s.openings).length, spaces: n.spaces, devices: n.devices } }
+    expect(c(full)).toMatchObject({ walls: 1080, openings: 307 })
+    expect(off.skipped).toEqual(['walls', 'doors', 'windows'])
+    // 물리존·설비는 늘 읽는다 — 끄는 것은 벽·문·창뿐이다.
+    expect(c(off)).toEqual({ ...c(full), walls: 0, openings: 0 })
+    // 요구사항 보고서: 벽에 기대는 R4(문·창의 개구부)·R22 는 "없음" 이 아니라 잴 수 없음이다.
+    const state = (m: Model, id: string) => requirementsReport(m).find((r) => r.id === id)!.state
+    expect([state(full, 'R4'), state(full, 'R22')]).not.toContain('unmeasured')
+    expect([state(off, 'R4'), state(off, 'R22')]).toEqual(['unmeasured', 'unmeasured'])
+    // 설비 파일을 덧붙여도 "읽지 않음" 이 남는다(한쪽이라도 안 읽었으면 안 읽은 것이다).
+    const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_HVAC))).model
+    expect(mergeModels(off, hvac).model.skipped).toEqual(['walls', 'doors', 'windows'])
+    // 온톨로지(TTL)는 그대로다 — 벽·문·창은 TTL 에 없다.
+    expect(modelToTTL(off)).toBe(modelToTTL(full))
+    // 형상을 읽지 않는 만큼 빨라진다(2026-10-03 이 PC 에서 데운 뒤 770ms → 560~630ms, 두 번 잼).
+    expect(offMs).toBeLessThan(fullMs)
+    console.log(`병원 건축 열기 ${Math.round(fullMs)}ms → 벽·문·창 끄면 ${Math.round(offMs)}ms`)
+  }, 300_000)
+})
+
 // OE-PIP-18 흐름 없는 기기(조명·감지기·비치품·분전반 — kinds.ts 의 flow: {})는 형상이 맞닿아도 잇지 않는다. 포트가 없는 파일에서만
 // 형상으로 잇는다(import.ts). 병원 전기 파일은 포트가 없고, 나란히 붙은 조명기구 16쌍이 서로 "연결" 로 잡혔었다.
 // 포트가 있는 파일(병원 HVAC·Duplex HVAC·ifc4Mep)을 정답지로 형상 추정을 재 보면 흐름 없는 기기를 빼도 재현율·정밀도가 그대로다
