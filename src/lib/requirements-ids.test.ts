@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
 import { describe, expect, it } from 'vitest'
-import { CAPACITY_PROPERTIES } from './capacity'
+import { CAPACITY_KINDS, CAPACITY_PROPERTIES } from './capacity'
 import { EQUIPMENT_KINDS, IFC_REJECTED, omniclassCode, ROOM_KINDS, SYSTEM_IFC } from './kinds'
 import { isPlaceholder, PLACEHOLDER_NAMES } from './merge'
 import { REQUIREMENTS } from './requirements'
@@ -136,6 +136,64 @@ describe('requirements.ids', () => {
     for (const n of names) expect([n, isPlaceholder({ longName: n })]).toEqual([n, true])
     const lower = new Set(names.map((n) => n.toLowerCase()))
     for (const n of PLACEHOLDER_NAMES) expect([n, lower.has(n)]).toEqual([n, true])
+  })
+
+  // OE-REQ-03 어휘 표. 원본은 코드(kinds.ts·capacity.ts)이고 IDS 와 정본 4장 표가 사본이다. 위 시험들은 IDS → 코드 쪽을 주로
+  // 본다. 아래는 빠져 있던 방향 — 코드 → IDS, 그리고 셋째 사본인 정본 표.
+  it('R21 이 요구하는 용량 이름은 capacity.ts 의 표준 이름과 같다 — 양쪽으로', () => {
+    const names = new Set(
+      specs('R21').flatMap((s) => {
+        const base = /<baseName>([\s\S]*?)<\/baseName>/.exec(s.requirements)?.[1] ?? ''
+        return [...simpleValues(base), ...enumerations(base)]
+      }),
+    )
+    // 표준 이름을 코드에 더하고 IDS 에 안 적으면, 고객사는 그 자리에 값을 넣어 달라는 요청을 받지 못한다.
+    // 저작 도구 이름(Revit 의 Flow 등)을 IDS 에 적으면 표준이 아닌 자리를 요구하게 된다.
+    expect(names).toEqual(new Set(CAPACITY_PROPERTIES.filter((p) => p.standard).map((p) => p.name)))
+  })
+
+  it('R21 이 용량을 요구하는 클래스는 capacity.ts 의 CAPACITY_KINDS 와 같다', () => {
+    const idsClasses = new Set(specs('R21').map((s) => simpleValues(s.applicability)[0]))
+    // 종류 → IFC 클래스는 kinds.ts 의 ifc 표가 정한다(`UnitaryEquipment.AIRHANDLER` → IFCUNITARYEQUIPMENT).
+    const ours = new Set(
+      EQUIPMENT_KINDS.filter((k) => CAPACITY_KINDS.has(k.kind)).flatMap((k) => (k.ifc ?? []).map((t) => `IFC${t.split('.')[0].toUpperCase()}`)),
+    )
+    expect(idsClasses).toEqual(ours)
+  })
+
+  it('정본 4장의 어휘 표(종류·계통·방 분류)가 kinds.ts 와 같다', () => {
+    const doc = read('../../docs/bim-to-dt-ontology.md')
+    const tableAfter = (head: string) => {
+      const at = doc.indexOf(head)
+      expect(at, head).toBeGreaterThan(0)
+      const lines = doc.slice(at).split('\n')
+      const end = lines.findIndex((l) => !l.startsWith('|'))
+      return lines.slice(2, end)
+    }
+    const ticks = (s: string) => [...s.matchAll(/`([^`]+)`/g)].map((m) => m[1])
+
+    // 종류: `IfcClass` 다음에 오는 대문자 값이 그 클래스의 값이다. 클래스만으로 정해지는 줄(`IfcBoiler` …)은 값이 없다.
+    const docKinds = new Set<string>()
+    for (const row of tableAfter('| 종류 | IFC4에 적는 방법 |')) {
+      let cls = ''
+      for (const t of ticks(row.split('|')[2])) {
+        if (t.startsWith('Ifc')) cls = t.slice(3)
+        else if (/^[A-Z]+$/.test(t) && cls) docKinds.add(`${cls}.${t}`)
+      }
+    }
+    const codeKinds = new Set(EQUIPMENT_KINDS.flatMap((k) => (k.ifc ?? []).filter((t) => t.includes('.'))))
+    expect([...docKinds].sort()).toEqual([...codeKinds].sort())
+
+    // 계통: PredefinedType 칸과 ObjectType 약어 칸.
+    const systemRows = tableAfter('| 계통 | `PredefinedType` | `ObjectType` |')
+    const predefined = new Set(systemRows.flatMap((r) => ticks(r.split('|')[2])))
+    const codes = new Set(systemRows.flatMap((r) => ticks(r.split('|')[3])))
+    expect(predefined).toEqual(new Set([...SYSTEM_IFC.air.predefined, ...SYSTEM_IFC.water.predefined, ...Object.keys(SYSTEM_IFC.alone)]))
+    expect(codes).toEqual(new Set([...Object.keys(SYSTEM_IFC.air.codes), ...Object.keys(SYSTEM_IFC.water.codes)]))
+
+    // 방 분류: OmniClass Table 13 코드.
+    const omni = new Set(tableAfter('| 방 종류 | OmniClass Table 13 |').flatMap((r) => ticks(r.split('|')[2])))
+    expect(omni).toEqual(new Set(ROOM_KINDS.flatMap((k) => k.omniclass ?? [])))
   })
 
   it('R21 의 용량 속성은 capacity.ts 가 읽는 이름이다', () => {
