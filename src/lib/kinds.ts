@@ -101,7 +101,13 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // Flush Valve` 3대를 IFC 가 SanitaryTerminal(WCSEAT·URINAL)이라고 말했는데 이름이 먼저라 밸브가 됐다.
   { kind: 'valve', label: '밸브', test: /(?<!flush[-_\s]*)valve|(?<!세정\s*)밸브/i, brick: 'brick:Valve', role: 'control', ifc: ['Valve'], flow: { water: 'through' } },
   // --- 전기·조명 ------------------------------------------------------------------
-  { kind: 'panel', label: '분전반', test: /분전반|\bPNL\b|breaker\s*panel/i, brick: 'brick:Breaker_Panel', role: null, ifc: ['ElectricDistributionBoard.DISTRIBUTIONBOARD'], flow: {} },
+  // 엘리베이터(2026-10-03 사용자 결정). 흐름이 없는 기기라 연결 추정에서 빠진다(ADR-0010). 로봇이 층을 옮길 때 탈 장치라 설비
+  // 목록·TTL 에 둔다. 병원은 건축에 IfcFlowTerminal, 전기에 Proxy(`M_Elevator-Hydraulic`)로 들어 있다. 승강로(방)는 ROOM_KINDS 다.
+  // 이름으로만 안다 — `ifc` 를 두면 고객사에 요구하는 어휘(R24)가 늘어서 넣지 않았다. IfcTransportElement 는 임포터가 아직 읽지 않는다.
+  { kind: 'elevator', label: '엘리베이터', test: /elevator|엘리베이터|승강기/i, brick: 'brick:Elevator', role: null, flow: {} },
+  // Revit 의 "Lighting and Appliance Panelboard" 는 분전반이다. 이 줄이 조명보다 앞이라 "Lighting" 에 먼저 걸리지 않는다
+  // (병원 건축·전기의 분전반이 조명 brick:Luminaire 로 나갔다, 2026-10-03).
+  { kind: 'panel', label: '분전반', test: /분전반|\bPNL\b|breaker\s*panel|panel\s*board/i, brick: 'brick:Breaker_Panel', role: null, ifc: ['ElectricDistributionBoard.DISTRIBUTIONBOARD'], flow: {} },
   { kind: 'lighting', label: '조명', test: /조명|가로등|luminaire|lighting|pendant|[_\s-]light\b|^light\b/i, brick: 'brick:Luminaire', role: 'terminal', ifc: ['LightFixture'], flow: {} },
   // --- 관제점 후보(F13) ------------------------------------------------------------
   { kind: 'smoke_detector', label: '연기감지기', test: /연기\s*감지|smoke\s*detect/i, brick: 'brick:Smoke_Detector', role: 'sensing', ifc: ['Sensor.SMOKESENSOR'], flow: {}, point: true },

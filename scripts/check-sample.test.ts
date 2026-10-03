@@ -812,8 +812,10 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsS
     // 벽면 설비가 외곽선 위에 떨어져 말단 105대 중 41대의 소속을 잃었다.
     expect(report.declaredRemapped).toEqual({ total: 167, remapped: 167 })
     expect(model.storeys.flatMap((s) => s.equipment).filter((e) => e.spaceSource === 'bim')).toHaveLength(167)
-    // 종류 후보(kind-suggest.ts): 종류를 아는 Revit 패밀리 16개 중 11개가 닮은 패밀리 세 후보 안에 든다(2026-09-29).
-    expect(evaluateSuggestions(model).top3).toBeGreaterThanOrEqual(11)
+    // 종류 후보(kind-suggest.ts): 종류를 아는 Revit 패밀리 16개 중 10개가 닮은 패밀리 세 후보 안에 든다. 11 이었는데, 분전반
+    // (`Lighting and Appliance Panelboard`)이 이름의 "Lighting" 때문에 조명으로 잡히던 것을 고쳐(2026-10-03) 정답이 분전반이 됐다.
+    // 분전반 패밀리는 하나뿐이라 닮은 것으로 맞힐 수 없다 — 후보가 나빠진 것이 아니라 정답이 바로잡힌 것이다.
+    expect(evaluateSuggestions(model).top3).toBeGreaterThanOrEqual(10)
     // 방을 절반으로 줄여도 소속을 잃은 설비가 없다.
     expect(report.unlocated).toEqual({ before: 270, after: 270 })
   }, 300_000)
@@ -1477,7 +1479,7 @@ describe.skipIf(!hasIfctester)('IDS 를 ifctester 로 (OE-REQ-02)', () => {
 
 // OE-BIM-13 Proxy 리포트. 파일의 Proxy 를 전부 세고, 설비로 읽은 것(포트·이름)과 읽지 않은 것을 가른다. 읽지 않은 것이 정말
 // 건축 부재인지는 이름 예로 사람이 본다 — ifc4Mep 의 48개는 태양광 거치대 40개(`SolarMountingSystems`, 설명 "Mounting rack")와
-// 이름·형상 없는 8개, 병원 전기의 1개는 유압 엘리베이터다(2026-10-03 ifcopenshell 로 열어 확인).
+// 이름·형상 없는 8개다. 병원 전기의 유압 엘리베이터 1대는 읽지 않다가 이름 사전에 "엘리베이터" 를 더해 설비로 읽는다(2026-10-03 사용자 결정).
 describe('Proxy 리포트 (OE-BIM-13)', () => {
   it('가진 BIM 의 Proxy 를 전부 세고 읽지 않은 것을 이름과 함께 적는다', async () => {
     const api = new WebIFC.IfcAPI()
@@ -1489,7 +1491,7 @@ describe('Proxy 리포트 (OE-BIM-13)', () => {
       [DUPLEX_HVAC]: undefined,
       [CLINIC_ARCH]: undefined,
       [CLINIC_HVAC]: undefined,
-      'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc': { total: 29, ported: 0, named: 28, skipped: ['M_Elevator-Hydraulic:2000 lbs:2000 lbs'] },
+      'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc': { total: 29, ported: 0, named: 29, skipped: [] },
     }
     let measured = 0
     for (const [path, proxies] of Object.entries(want)) {
@@ -1615,7 +1617,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
 
     // 종류 후보(kind-suggest.ts). 종류를 아는 Revit 패밀리를 하나씩 가리고 닮은 패밀리로 맞혀 본다(2026-09-29 실측).
     const guess = evaluateSuggestions(model)
-    expect(guess.families).toBe(14)
+    // 엘리베이터(이름 사전, 2026-10-03)가 종류를 아는 패밀리로 더해져 14 → 15.
+    expect(guess.families).toBe(15)
     expect(guess.top3).toBeGreaterThanOrEqual(10)
     // 층 사이 연결. 계단실·승강로 7개 중 6개가 위·아래층과 이어진다(vertical.ts).
     expect(verticalLinks(model).size).toBe(6)
@@ -1651,7 +1654,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     expect(brief('R16')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 3701, of: 3806 } })
     expect(brief('R21')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 563, of: 566 } })
     // SPLITSYSTEM 2대는 표준 값이지만 받지 않는다(kinds.ts 의 IFC_REJECTED). 이름 사전이 종류를 알아서 다른 자리로 간다.
-    expect(brief('R24')).toEqual({ state: 'partial', counts: { standard: 662, elsewhere: 5, of: 668 } })
+    // 건축의 유압 엘리베이터(IfcFlowTerminal)도 이름 사전으로 알게 되어(2026-10-03) 모르는 것이 0 — 다른 자리다.
+    expect(brief('R24')).toEqual({ state: 'elsewhere', counts: { standard: 662, elsewhere: 6, of: 668 } })
     expect(rows.get('R22')!.note).toContain('기본값')
   }, 300_000)
 
@@ -1681,7 +1685,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
     // 병원 건축의 욕실 부속·소화기함 101대는 BIM 이 SanitaryTerminal 이라 했지만 이름이 먼저다(전에는 428).
     expect(devices.filter((e) => e.kindSource === 'bim')).toHaveLength(327)
-    expect(devices.filter((e) => !e.kind)).toHaveLength(1)
+    // 종류를 모르던 1대는 건축의 유압 엘리베이터였다. 이름 사전에 더해 0 이다(2026-10-03).
+    expect(devices.filter((e) => !e.kind)).toHaveLength(0)
 
     // 타입을 안 읽던 때와 같은 모델.
     const unread = structuredClone(model)
@@ -1737,8 +1742,10 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
       'hydronic-user-source': '0/2',
     })
     const guess = evaluateSuggestions(model)
-    expect(guess.families).toBe(32)
-    expect(guess.top3).toBeGreaterThanOrEqual(26)
+    // 33 = 엘리베이터 패밀리가 더해짐(2026-10-03). 맞힌 수 26 → 25 는 분전반이 조명에서 분전반으로 바로잡혀(위 Duplex 와 같은 까닭)
+    // 하나뿐인 분전반 패밀리를 닮은 것으로 맞힐 수 없게 된 것이다. 엘리베이터도 하나뿐이라 맞히지 못한다.
+    expect(guess.families).toBe(33)
+    expect(guess.top3).toBeGreaterThanOrEqual(25)
   }, 600_000)
 })
 
