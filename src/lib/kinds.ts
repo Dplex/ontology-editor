@@ -63,6 +63,11 @@ export type EquipmentKindInfo = {
    * check:sample 숫자가 움직이지 않는다.
    */
   hint?: string
+  /**
+   * 놓을 수 있는 자리. `exterior` 는 **외벽 바깥 면에만** 놓는다(OE-OBJ-04 외벽 전용 설비, 2026-10-03 사용자 결정) — 방 안에 들지 않고
+   * 외벽에서 벽 붙이기 거리 안이어야 한다(edit.ts 의 onExteriorFace). 없으면 어디든.
+   */
+  mount?: 'exterior'
 }
 
 /** 아무 이름에도 맞지 않는 식. 사람만 고르는 종류의 `test` 다. */
@@ -92,6 +97,10 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // --- 말단·조절 ----------------------------------------------------------------
   { kind: 'air_diffuser', label: '디퓨저', test: /디퓨[저져]|diffuser/i, brick: 'brick:Air_Diffuser', role: 'terminal', ifc: ['AirTerminal.DIFFUSER'], flow: { air: 'sink' } },
   // 건물 밖과 통하는 루버·벤트캡. 실내 그릴과 흐름이 반대다(flow-rules.ts 의 바깥 가지).
+  // 외기 센서(OE-OBJ-04 외벽 전용 설비, 2026-10-03 사용자 결정). 루버(이름의 OA)보다 앞이어야 "외기 온습도 센서 OA-1" 이 루버가 안 된다. 바깥 공기를 재므로 외벽 바깥 면에만 놓는다(mount). 이름으로만 안다 —
+  // IFC 어휘(R24)는 늘리지 않았다. "외기 온습도 센서" 처럼 둘 다 말하면 온도 줄이 먼저다(Brick 에 온·습도를 같이 재는 클래스가 없다).
+  { kind: 'outdoor_temperature_sensor', label: '외기 온도 센서', test: /외기\s*온(도|\s*[·.]?\s*습도|습도)|(outdoor|outside)\s*air\s*temp/i, brick: 'brick:Outside_Air_Temperature_Sensor', role: 'sensing', flow: {}, point: true, mount: 'exterior' },
+  { kind: 'outdoor_humidity_sensor', label: '외기 습도 센서', test: /외기\s*습도|(outdoor|outside)\s*air\s*humid/i, brick: 'brick:Outside_Air_Humidity_Sensor', role: 'sensing', flow: {}, point: true, mount: 'exterior' },
   { kind: 'outdoor_louver', label: '외부 루버', test: /루버|louver|vent[-_\s]*cap|[_\s-](OA|EA)\b/i, brick: null, role: 'terminal', ifc: ['AirTerminal.LOUVRE'], flow: { air: 'sink' } },
   { kind: 'air_grille', label: '그릴', test: /그릴|grille/i, brick: null, role: 'terminal', ifc: ['AirTerminal.GRILLE', 'AirTerminal.REGISTER'], flow: { air: 'sink' } },
   { kind: 'damper', label: '댐퍼', test: /댐퍼|damper/i, brick: 'brick:Damper', role: 'control', ifc: ['Damper'], flow: { air: 'through' } },

@@ -76,3 +76,95 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await expect(picked).not.toContainText('붙음')
   expect(errors).toEqual([])
 })
+
+test('외기 센서는 외벽 바깥 면에만 — 방 안으로 옮기기·안쪽 면 붙이기는 막고, 바깥 면을 따라 옮기기는 된다 (2026-10-03 사용자 결정)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.waitForTimeout(200)
+  // 사무실 동쪽 바로 바깥에 외벽을 긋는다(위 시험과 같다).
+  await page.getByRole('button', { name: '벽·문·창' }).click()
+  await page.getByRole('button', { name: '벽 긋기' }).click()
+  await clickFloor(page, 10.1, 0.5)
+  await clickFloor(page, 10.1, 7.5)
+  await expect(page.locator('.element-picked').getByTestId('wall-external')).toHaveText('외벽')
+  await page.getByRole('button', { name: '벽·문·창' }).click()
+
+  // 사무실 안의 온도 센서를 외기 온도 센서로 바꾸면 자리가 틀렸다고 알린다.
+  await row(page, 'TEMP-101-01').getByRole('button', { name: 'TEMP-101-01', exact: true }).click()
+  const picked = page.locator('.picked').first()
+  await picked.locator('.kind-edit select').selectOption({ label: '외기 온도 센서' })
+  await expect(picked.locator('.exterior-misplaced')).toBeVisible()
+
+  // 안쪽 면을 누르면 붙이지 않는다.
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await picked.getByRole('button', { name: '벽에 붙이기' }).click()
+  await clickFloor(page, 9.8, 3)
+  await expect(page.locator('.key-note').first()).toContainText('외벽의 바깥쪽(방이 없는 쪽)을 누르세요')
+  // 바깥쪽을 누르면 붙고 경고가 사라진다.
+  await picked.getByRole('button', { name: '벽에 붙이기' }).click()
+  await clickFloor(page, 10.6, 3)
+  await expect(page.locator('.key-note').first()).toContainText('새 벽에 붙였습니다')
+  await expect(picked.locator('.exterior-misplaced')).toHaveCount(0)
+  await expect(picked).toContainText('소속 방 없음')
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT })
+
+  // 좌표 칸으로 옮긴다(방향키는 카메라 방향을 따라 축이 바뀐다). 여느 이동과 같은 길이다.
+  const coord = (i: number) => row(page, 'TEMP-101-01').locator('.coord').nth(i)
+  const [x0, y0] = [Number(await coord(0).inputValue()), Number(await coord(1).inputValue())]
+  // 바깥 면을 따라(북쪽으로 1m)는 된다.
+  await coord(1).fill(String(y0 + 1))
+  await coord(1).press('Enter')
+  await expect.poll(async () => Number(await coord(1).inputValue())).toBeCloseTo(y0 + 1, 2)
+  // 방 안쪽으로 1m 는 막는다 — 자리가 그대로다.
+  await coord(0).fill(String(x0 - 1))
+  await coord(0).press('Enter')
+  await expect(page.locator('.edit-notice').first()).toContainText('외기 센서는 외벽 바깥 면에만 놓습니다')
+  await expect.poll(async () => Number(await coord(0).inputValue())).toBeCloseTo(x0, 2)
+  expect(errors).toEqual([])
+})
+
+// 층 옮기기(PageUp)도 같다 — 윗층의 같은 자리가 외벽 바깥 면이 아니면 막는다. 위 시험들은 층이 하나인 파일이라 이 길을 안 지났다.
+// two-rooms.ifc: 1층 회의실(2..6 × 1..4)과 복도(10..12 × 2..8) 사이는 방이 없어 바깥이다. 2층에는 형상 있는 벽이 없다.
+test('외기 센서를 윗층으로 옮기려 해도 그 층의 같은 자리가 외벽 바깥 면이 아니면 막는다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.waitForTimeout(200)
+  // 회의실 동쪽 바로 바깥에 외벽을 긋는다.
+  await page.getByRole('button', { name: '벽·문·창' }).click()
+  await page.getByRole('button', { name: '벽 긋기' }).click()
+  await clickFloor(page, 6.1, 1.5)
+  await clickFloor(page, 6.1, 3.5)
+  await expect(page.locator('.element-picked').getByTestId('wall-external')).toHaveText('외벽')
+  await page.getByRole('button', { name: '벽·문·창' }).click()
+
+  // 회의실에 설비를 더해 외기 온도 센서로 바꾸고 그 벽 바깥 면에 붙인다.
+  await page.getByRole('button', { name: '설비 더하기' }).click()
+  await clickFloor(page, 4, 2.5)
+  const picked = page.locator('.picked').first()
+  await expect(picked.locator('h3')).toHaveText('새 설비 1')
+  await picked.locator('.kind-edit select').selectOption({ label: '외기 온도 센서' })
+  await picked.getByRole('button', { name: '벽에 붙이기' }).click()
+  await clickFloor(page, 6.4, 2.5)
+  await expect(page.locator('.key-note').first()).toContainText('새 벽에 붙였습니다')
+  await expect(picked.locator('.exterior-misplaced')).toHaveCount(0)
+
+  // 윗층으로(PageUp) — 2층의 같은 자리는 외벽 바깥 면이 아니다.
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('PageUp')
+  await expect(page.locator('.edit-notice').first()).toContainText('그 층의 같은 자리는 외벽 바깥 면이 아닙니다')
+  // 1층에 그대로다 — 옮겼다면 고른 설비를 따라 보이는 층이 2층으로 바뀐다.
+  await expect(page.getByRole('combobox', { name: '보일 층' }).locator('option:checked')).toHaveText('1F만')
+  await expect(picked.locator('.exterior-misplaced')).toHaveCount(0)
+  await expect(page.locator('.edit-bar')).not.toContainText('→ 2F')
+  expect(errors).toEqual([])
+})

@@ -8,6 +8,8 @@ import {
   moveEquipment,
   moveWall,
   mountOnWall,
+  exteriorOnly,
+  onExteriorFace,
   restore,
   setWallExternal,
   setWallHeight,
@@ -19,6 +21,7 @@ import {
 } from './edit'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { judgeExternal } from './exterior'
+import { equipmentKindOf } from './kinds'
 import { modelToGeoJSON } from './export/geojson'
 import type { Equipment, Model, Space, Vec2, Wall } from './model'
 
@@ -214,5 +217,58 @@ describe('외벽 여부·크기 고치기(OE-OBJ-04)', () => {
     expect(geo.find((f) => f.id === louver.id)!.properties).toMatchObject({ wallId: 'south', spaceId: null })
     expect(geo.find((f) => f.id === 'west')!.properties).toMatchObject({ height: 2.4 })
     expect(geo.find((f) => f.id === 'north')!.properties).toMatchObject({ external: false, externalSource: 'edit' })
+  })
+})
+
+describe('외벽 전용 설비 — 외기 센서는 외벽 바깥 면에만 (OE-OBJ-04, 2026-10-03 사용자 결정)', () => {
+  let sensor: Equipment
+  beforeEach(() => {
+    // 방 가운데를 세로로 가르는 칸막이(내벽). 외벽인지는 건물 바깥에 닿는지로 잰다(exterior.ts).
+    storey().walls.push(wall('inner', [3, 0.1], [3, 3.9]))
+    sensor = addEquipment(model, 's1', { name: '외기 온도 센서', kind: 'outdoor_temperature_sensor', position: [3, 2, 2] })!
+  })
+
+  it('이름 사전이 외기 온도·습도 센서를 안다. 온·습도를 같이 말하면 온도다', () => {
+    const kind = (name: string) => equipmentKindOf(name, '')?.kind ?? null
+    expect(kind('외기 온도 센서')).toBe('outdoor_temperature_sensor')
+    expect(kind('외기 온습도 센서 OA-1')).toBe('outdoor_temperature_sensor')
+    expect(kind('외기 습도 센서')).toBe('outdoor_humidity_sensor')
+    expect(kind('Outside Air Temperature Sensor')).toBe('outdoor_temperature_sensor')
+    expect(kind('Outdoor Air Humidity Sensor')).toBe('outdoor_humidity_sensor')
+    expect(exteriorOnly(sensor)).toBe(true)
+    expect(exteriorOnly(louver)).toBe(false)
+  })
+
+  it('외벽 바깥쪽을 누르면 붙고 방 소속이 없다', () => {
+    const done = mountOnWall(model, sensor.id, [4, -0.4])
+    expect(done && 'wall' in done && done.wall.id).toBe('south')
+    expect(sensor.position![1]).toBeCloseTo(-0.1)
+    expect(sensor.spaceId).toBe(null)
+  })
+
+  it('외벽 안쪽을 누르면 붙이지 않고, 내벽은 붙일 벽 후보가 아니다', () => {
+    expect(mountOnWall(model, sensor.id, [1, 0.3])).toEqual({ refused: '외기 센서는 외벽 바깥 면에만 놓습니다. 외벽의 바깥쪽(방이 없는 쪽)을 누르세요.' })
+    // 칸막이 바로 옆. 가장 가까운 외벽(남·북)은 0.6m 밖이다.
+    expect(mountOnWall(model, sensor.id, [3.3, 2])).toEqual({ refused: '외기 센서는 외벽 바깥 면에만 놓습니다. 외벽에서 0.6m 안의 바깥쪽을 누르세요.' })
+    expect(sensor.position).toEqual([3, 2, 2])
+    expect(sensor.wallId).toBeUndefined()
+    // 보통 설비(루버)는 그대로 안쪽 면·내벽에도 붙는다.
+    const inner = mountOnWall(model, louver.id, [3.3, 2])
+    expect(inner && 'wall' in inner && inner.wall.id).toBe('inner')
+  })
+
+  it('외벽 바깥 면 판정 — 바깥 면을 따라가는 자리는 되고, 벽에서 멀거나 방 안이면 아니다', () => {
+    expect(onExteriorFace(storey(), [4, -0.1])).toBe(true)
+    expect(onExteriorFace(storey(), [6.1, 2])).toBe(true)
+    expect(onExteriorFace(storey(), [4, -1])).toBe(false)
+    expect(onExteriorFace(storey(), [3, 2])).toBe(false)
+    expect(onExteriorFace(storey(), [1, 0.3])).toBe(false)
+  })
+
+  it('내벽으로 정한 벽의 바깥쪽은 외벽 바깥 면이 아니다 — 방 밖이고 벽 곁이어도', () => {
+    expect(onExteriorFace(storey(), [4, -0.1])).toBe(true)
+    setWallExternal(model, 'south', false)
+    expect(onExteriorFace(storey(), [4, -0.1])).toBe(false)
+    expect(onExteriorFace(storey(), [6.1, 2])).toBe(true)
   })
 })

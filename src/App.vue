@@ -56,6 +56,9 @@ import {
   completePosition,
   renameSpace,
   renameSystem,
+  exteriorOnly,
+  onExteriorFace,
+  EXTERIOR_ONLY,
   restore,
   insertSpaceVertex,
   deleteSpaceVertex,
@@ -648,6 +651,14 @@ function refuseOverlap(blocked: Equipment) {
 function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: string): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
+  // 외벽 전용 설비(외기 센서, OE-OBJ-04)는 외벽 바깥 면으로만 옮긴다. 바깥 면을 따라 옮기는 것은 되고, 벽에서 떼는 것은 막는다.
+  const moving = equipmentById.value.get(equipmentId)
+  const home = storeyOf(equipmentId)
+  if (moving && home && exteriorOnly(moving) && !onExteriorFace(home, [to[0], to[1]])) {
+    if (drawnAt && before) viewer?.shiftEquipment(equipmentId, [before[0] - drawnAt[0], before[1] - drawnAt[1], before[2] - drawnAt[2]], true)
+    editNotice.value = `${EXTERIOR_ONLY} 그 자리는 외벽 바깥 면이 아닙니다. 다른 외벽으로는 [벽에 붙이기]로 옮기세요.`
+    return false
+  }
   // 배관 없는 설비끼리는 겹쳐 놓지 못한다(OE-OBJ-10·16). 끌어 놓은 것이면 3D 가 이미 그 자리에 그렸으니 되돌려 보낸다.
   const blocked = overlapAt(model.value, equipmentId, to, currentBox)
   if (blocked) {
@@ -760,9 +771,14 @@ function dropEquipment(equipmentId: string, delta: Vec3) {
 function moveToStorey(equipmentId: string, storeyId: string): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
+  const moving = equipmentById.value.get(equipmentId)
+  const target = model.value.storeys.find((s) => s.id === storeyId)
+  if (moving && target && exteriorOnly(moving) && !(before && onExteriorFace(target, [before[0], before[1]]))) {
+    editNotice.value = `${EXTERIOR_ONLY} 그 층의 같은 자리는 외벽 바깥 면이 아닙니다. 층을 옮긴 뒤 [벽에 붙이기]로 붙이세요.`
+    return false
+  }
   // 층을 옮기면 x·y 는 그대로이고 z 가 층 높이 차만큼 바뀐다(moveEquipmentToStorey). 그 자리로 미리 잰다.
   const from = storeyOf(equipmentId)
-  const target = model.value.storeys.find((s) => s.id === storeyId)
   if (before && from && target && from !== target) {
     const to: Vec3 = [before[0], before[1], before[2] + target.elevation - from.elevation]
     const blocked = overlapAt(model.value, equipmentId, to, currentBox, storeyId)
@@ -2966,6 +2982,12 @@ function stopPlace() {
   viewer?.setPlaceMode(null)
 }
 
+/** 외벽 전용 설비(OE-OBJ-04)가 외벽 바깥 면에 있지 않은가. 패널 경고에 쓴다. */
+function exteriorMisplaced(e: Equipment): boolean {
+  if (!exteriorOnly(e)) return false
+  const home = storeyOf(e.id)
+  return !e.position || !home || !onExteriorFace(home, [e.position[0], e.position[1]])
+}
 /** 설비를 벽 면에 붙인다(OE-OBJ-04). 여느 이동처럼 소속을 다시 재고 되돌리기에 쌓인다. 겹침 금지(OE-OBJ-16)도 같다. */
 function mountAt(id: string, at: Vec2) {
   const m = model.value
@@ -5409,6 +5431,11 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
 
           <p v-if="editing && kindWarning" class="edit-notice inline" role="alert">{{ kindWarning }}</p>
+          <!-- 외벽 전용 설비(OE-OBJ-04)가 외벽 바깥 면에 있지 않다. 종류를 바꾸거나 BIM 이 방 안에 둔 외기 센서다. -->
+          <p v-if="exteriorMisplaced(selected)" class="edit-notice inline exterior-misplaced" role="alert">
+            {{ EXTERIOR_ONLY }} 지금 자리는 {{ selected.position ? '외벽 바깥 면이 아닙니다' : '없습니다' }}.
+            {{ editing ? '[벽에 붙이기]로 외벽 바깥쪽을 누르세요.' : '편집 모드에서 [벽에 붙이기]로 옮기세요.' }}
+          </p>
           <!-- 계통 없는 VAV·토출구(OE-EQP-10). 보기 모드에서도 띄운다 — 내보내면 어느 계통의 구성원으로도 나가지 않는다. -->
           <p v-if="needsSystem(selected) && !selected.systemId" class="edit-notice inline system-missing" role="alert">
             {{ whatIs(selected)?.label ?? 'VAV·토출구' }}에 계통이 없습니다. 내보내면 어느 계통의 구성원(brick:hasPart)으로도 나가지 않아,
