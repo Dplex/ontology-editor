@@ -1921,6 +1921,8 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 �
     await api.Init()
     const failed: string[] = []
     let carried = 0
+    let steps = 0
+    let stuck = 0
     for (const path of [DUPLEX_ARCH, CLINIC_ARCH]) {
       const pristine = importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
       const shape = (m: Model) => m.storeys.flatMap((st) => st.spaces.map((sp) => sp.footprint))
@@ -1941,13 +1943,37 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 �
             if (l > best) [best, n, u] = [l, [-dy / l, dx / l], [dx / l, dy / l]]
           }
         }
+        // 벽은 다른 벽을 새로 가로지르게 옮길 수 없다(OE-OBJ-05). 병원 벽 300개 중 71개는 옆구리에 T 로 맞닿은 벽 쪽으로
+        // 0.2m 가면 그 벽 끝이 건너편으로 뚫고 나와 막힌다. 막히면 거기까지 간 걸음만큼 돌아온다. 첫 걸음부터 막히면 반대쪽으로 간다.
         let plan: WallCarryPlan | null = null
-        for (let k = 0; k < 5; k++) {
-          const r: NonNullable<ReturnType<typeof moveWallWithSpaces>> = moveWallWithSpaces(m, w.id, [n[0] * 0.1, n[1] * 0.1], plan)!
-          if (k === 0) carried += r.changes.length
+        let out = 0
+        for (const s of [1, -1]) {
+          for (let k = 0; k < 5; k++) {
+            const before = JSON.stringify(m)
+            const r = moveWallWithSpaces(m, w.id, [s * n[0] * 0.1, s * n[1] * 0.1], plan)
+            if (!r) {
+              if (JSON.stringify(m) !== before) failed.push(`${path} ${w.name} 막힌 걸음이 모델을 바꿈`)
+              break
+            }
+            if (k === 0) carried += r.changes.length
+            plan = r.plan
+            out++
+          }
+          if (out) {
+            n = [s * n[0], s * n[1]]
+            break
+          }
+        }
+        if (out) steps += out
+        else stuck++
+        for (let k = 0; k < out; k++) {
+          const r = moveWallWithSpaces(m, w.id, [-n[0] * 0.1, -n[1] * 0.1], plan)
+          if (!r) {
+            failed.push(`${path} ${w.name} 돌아오는 걸음이 막힘`)
+            break
+          }
           plan = r.plan
         }
-        for (let k = 0; k < 5; k++) plan = moveWallWithSpaces(m, w.id, [-n[0] * 0.1, -n[1] * 0.1], plan)!.plan
         if (!same(shape(m), opened)) failed.push(`${path} ${w.name} 되돌아오지 않음`)
         // 벽 길이 방향. 형상에서 읽은 벽 면은 완전히 나란하지 않아(1° 안팎) 방이 몇 mm 움직일 수 있다. 1cm 넘으면 틀린 것이다.
         moveWallWithSpaces(m, w.id, [u[0] * 0.5, u[1] * 0.5])
@@ -1956,6 +1982,9 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 �
     }
     // 벽 357개(Duplex 57 + 병원 300)가 첫 걸음에 방 600개 남짓을 끌고 간다. 0 이면 붙일 방을 못 찾는 것이다.
     expect(carried).toBeGreaterThan(500)
+    // 막혀서 덜 가도 대부분은 간다 — 1750 걸음 중 1453. 양쪽 다 첫 걸음부터 막힌 벽은 없다.
+    expect(steps).toBeGreaterThan(1400)
+    expect(stuck).toBe(0)
     expect(failed.slice(0, 5)).toEqual([])
   }, 900_000)
 })
