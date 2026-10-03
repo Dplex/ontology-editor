@@ -50,7 +50,7 @@ import {
 } from './edit'
 import type { RuleReport } from './flow-rules'
 import type { Fluid } from './kinds'
-import type { Model, Vec2, Vec3, Wall } from './model'
+import type { Connection, Model, Vec2, Vec3, Wall } from './model'
 import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
 import { markStoreyDone, storeyProgress } from './storey-progress'
 
@@ -690,9 +690,14 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     } else result.missing.equipment++
   }
 
+  // 같은 두 설비 사이에 연결이 둘일 수 있다(병원 HVAC 2쌍 — 포트가 둘씩 맞물린 곳). 그때는 이 편집이 닿을 수 있는 쪽을 고른다 —
+  // 끊기는 포트가 아닌 연결, 확정·방향은 방향 없는 연결. 첫 것만 보면 포트(방향 있음) 쪽에 걸려 "못 찾음" 이 된다(합성 고층 BIM 이 찾았다).
+  const between = (a: string, b: string, ok: (c: Connection) => boolean) =>
+    model.connections.find((c) => ((c.from === a && c.to === b) || (c.from === b && c.to === a)) && ok(c)) ?? null
+
   // 연결은 확정·방향보다 먼저 — 사람이 정한 방향이 사람이 이은 연결에 붙어 있을 수 있다.
   for (const row of file.connections?.remove ?? []) {
-    const c = connectionBetween(model, resolve(row.from), resolve(row.to))
+    const c = between(resolve(row.from), resolve(row.to), (x) => x.source !== 'port')
     const rules = c ? removeConnection(model, c) : null
     if (rules) {
       result.applied++
@@ -715,8 +720,8 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       const from = resolve(row.from)
       const to = resolve(row.to)
       const systemId = resolve(row.systemId)
-      const c = connectionBetween(model, from, to)
-      if (!c || c.directed) {
+      const c = between(from, to, (x) => !x.directed)
+      if (!c) {
         result.missing.flows++
         continue
       }

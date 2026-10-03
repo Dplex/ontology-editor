@@ -387,3 +387,28 @@ describe('계통 이름 (OE-PIP-09)', () => {
     expect(fresh.systems[0].name).toBe('1층 급기')
   })
 })
+
+// 같은 두 설비 사이에 연결이 둘(포트가 둘씩 맞물린 곳 — 병원 HVAC 2쌍)이어도 편집 파일의 확정한 방향이 다시 얹힌다.
+// 첫 연결만 보면 포트(방향 있음) 쪽에 걸려 "못 찾음" 이 되고 확정이 빠졌다(합성 고층 BIM 의 성수 불변식이 찾았다).
+describe('같은 두 설비 사이의 연결 둘', () => {
+  it('방향 있는 포트 연결 옆의 방향 없는 연결에 확정한 방향이 다시 얹힌다', () => {
+    const withTwin = () => {
+      const m = read('mep.ifc')
+      const port = m.connections.find((c) => c.source === 'port' && c.directed)!
+      m.connections.push({ from: port.to, to: port.from, source: 'port', directed: false, tolerance: null })
+      return m
+    }
+    const a = withTwin()
+    const base = baselineOf(a)
+    const twin = a.connections[a.connections.length - 1]
+    twin.inferred = { from: twin.from, to: twin.to, systemId: a.systems[0].id, confirmed: true }
+    const file = parseEditFile(JSON.stringify(exportEdits(a, base, 'mep.ifc')))
+    if (typeof file === 'string') throw new Error(file)
+    expect(file.confirmedFlows).toHaveLength(1)
+    const b = withTwin()
+    const result = applyEdits(b, file)
+    expect(result.missing.flows).toBe(0)
+    expect(b.connections[b.connections.length - 1].inferred).toMatchObject({ from: twin.from, to: twin.to, confirmed: true })
+  })
+})
+
