@@ -25,7 +25,7 @@ import { airBasis, airServices, needsSystem, systemlessAir } from '../src/lib/se
 import { completenessChecks } from '../src/lib/checks'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
 import { verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
-import { roomKind } from '../src/lib/kinds'
+import { equipmentKind, roomKind } from '../src/lib/kinds'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
 import { compareVersions, revitElementId } from '../src/lib/versions'
 import { storeyScaleMismatch } from '../src/lib/unit-check'
@@ -416,12 +416,12 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     expect(counts.directedConnections).toBe(0)
     expect(model.connections.every((c) => c.source === 'geometry')).toBe(true)
 
-    // 기본 판정 5mm 로 690개, 고립된 요소 주변만 넓혀 95개를 더 이었다.
+    // 기본 판정 5mm 로 690개, 고립된 요소 주변만 넓혀 93개를 더 이었다. 조명이 위생기구에 붙던 2개는 흐름 없는 기기라 잇지 않는다(OE-PIP-18).
     const base = model.connections.filter((c) => c.tolerance === TOLERANCE)
     const stretched = model.connections.filter((c) => (c.tolerance ?? 0) > TOLERANCE)
     expect(base).toHaveLength(690)
-    expect(stretched).toHaveLength(95)
-    expect(counts.connections).toBe(785)
+    expect(stretched).toHaveLength(93)
+    expect(counts.connections).toBe(783)
     // 넓힌 것도 REACH 안이다. 이 경계를 넘으면 오차가 아니라 없는 부재를 지어낸 것이다.
     expect(Math.max(...stretched.map((c) => c.tolerance!))).toBeLessThanOrEqual(REACH)
 
@@ -440,14 +440,36 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     // 못 이은 것을 이유별로 가른다. **절반 이상이 되살릴 수 있는 쪽이었다** — 이 비율이
     // 고객사에 "판정 기준을 조정하겠다" 와 "모델을 다시 그려 달라" 중 무엇을 말할지 정한다.
     //
-    // 대수(121)와 연결 개수(95)가 다른 것에 주의한다. 고립된 둘이 서로를 가장 가깝다고
+    // 대수(119)와 연결 개수(93)가 다른 것에 주의한다. 고립된 둘이 서로를 가장 가깝다고
     // 지목하면 연결 하나가 두 대를 살린다.
     const joined = model.warnings.find((w) => w.includes('연결망에 붙였습니다'))
-    expect(joined).toContain('설비 224대 중 121대')
-    expect(joined).toContain('연결 95개')
-    // 못 이은 103대 중 81대는 조명처럼 흐름이 없는 종류라 "모델을 고쳐야 한다" 에서 뺀다(덕트·배관에 이을 것이 아니다).
+    expect(joined).toContain('설비 141대 중 119대')
+    expect(joined).toContain('연결 93개')
+    // 못 이은 22대가 전부 "모델을 고쳐야 한다" 쪽이다. 흐름이 없는 종류 83대(콘센트 47 · 조명 30 · 연기감지기 6)는 처음부터 형상으로 잇지 않아 여기 없다(OE-PIP-18).
+    // 그 전에는 224대 중 121대를 이었고, 못 이은 103대 중 81대가 흐름 없는 기기였다.
     const stranded = model.warnings.find((w) => w.includes('접합 부재 누락'))
     expect(stranded).toContain('설비 22대')
+  }, 300_000)
+})
+
+// OE-PIP-18 흐름 없는 기기(조명·감지기·비치품·분전반 — kinds.ts 의 flow: {})는 형상이 맞닿아도 잇지 않는다. 포트가 없는 파일에서만
+// 형상으로 잇는다(import.ts). 병원 전기 파일은 포트가 없고, 나란히 붙은 조명기구 16쌍이 서로 "연결" 로 잡혔었다.
+// 포트가 있는 파일(병원 HVAC·Duplex HVAC·ifc4Mep)을 정답지로 형상 추정을 재 보면 흐름 없는 기기를 빼도 재현율·정밀도가 그대로다
+// (87.8%·99.9% / 70.9%·95.3% / 75.0%·79.5%, 2026-10-03) — 포트가 흐름 없는 기기를 잇는 일이 없어서다.
+describe('흐름 없는 기기는 형상으로 잇지 않는다 (OE-PIP-18)', () => {
+  it('병원 전기 — 조명끼리 잡히던 연결이 없다', async () => {
+    const ELE = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc'
+    if (!existsSync(ELE)) return
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfcWithMeshes(api, new Uint8Array(readFileSync(ELE))).model
+    const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
+    const flowless = (id: string) => {
+      const info = equipmentKind(byId.get(id)?.kind)
+      return !!info && Object.keys(info.flow).length === 0
+    }
+    expect(model.storeys.flatMap((s) => s.equipment).filter((e) => e.kind === 'lighting').length).toBeGreaterThan(30)
+    expect(model.connections.filter((c) => flowless(c.from) || flowless(c.to))).toEqual([])
   }, 300_000)
 })
 
@@ -898,7 +920,7 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
     // 연결 단위로는 39%(190/485)가 방향을 아는데, 기기에서 출발한 방향 사슬은 전부 중간의
     // SOURCEANDSINK 에서 끊긴다. 기기끼리 닿는 흐름은 0 이다.
     expect(chips(DUPLEX_HVAC)).toBe('공간 1 | 설비 40 | 소속 0/40 | 연결망 485 | 방향 0/26')
-    expect(chips(DUPLEX_MEP)).toBe('공간 22 | 설비 141 | 소속 141 | 연결망 785 | 방향 0/31')
+    expect(chips(DUPLEX_MEP)).toBe('공간 22 | 설비 141 | 소속 141 | 연결망 783 | 방향 0/27')
     // COBie 판본은 형상이 없다. 좌표도 외곽선도 0 인데 소속은 BIM 이 전부 말해 준다.
     expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 | 설비 0/133 | 소속 133 | 연결망 0 | 방향 —')
   }, 300_000)
@@ -1482,7 +1504,7 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
 
     const c = countOf(model)
     expect({ storeys: c.storeys, devices: c.devices, conduits: c.conduits, systems: c.systems, connections: c.connections, directed: c.directedConnections })
-      .toEqual({ storeys: 4, devices: 668, conduits: 3138, systems: 15, connections: 3697, directed: 3695 })
+      .toEqual({ storeys: 4, devices: 668, conduits: 3138, systems: 15, connections: 3695, directed: 3695 })
 
     // F11. BIM 이 소속을 말한 설비 2,216대를 정답지로(2026-09-24 실측 97.4%).
     const score = scoreAgainstDeclared(model)
@@ -1606,7 +1628,7 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
 
     const c = countOf(model)
     expect({ devices: c.devices, conduits: c.conduits, systems: c.systems, connections: c.connections, directed: c.directedConnections })
-      .toEqual({ devices: 3469, conduits: 12645, systems: 16, connections: 13890, directed: 0 })
+      .toEqual({ devices: 3469, conduits: 12645, systems: 16, connections: 13608, directed: 0 })
 
     // F11(2026-09-24 실측 97.2%).
     const score = scoreAgainstDeclared(model)
@@ -1614,8 +1636,10 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
     expect(score.agreed / score.total).toBeGreaterThanOrEqual(0.971)
     expect(overlapScore(model)).toEqual({ total: 637, smallest: 584, first: 563 })
 
-    // **포트가 없으면 규칙이 퍼질 길이 끊겨 있다.** 연결 13,890개 중 규칙이 방향을 준 것이 1,345개이고(타입의 종류를
-    // 읽기 전에는 12개), 공기 말단 454개 중 원천에 닿는 것이 21개뿐이다. 설비 1,806대가 어디에도 이어지지 않는다(임포트 경고). R-요구사항의 근거다.
+    // **포트가 없으면 규칙이 퍼질 길이 끊겨 있다.** 연결 13,608개 중 규칙이 방향을 준 것이 1,345개이고(타입의 종류를
+    // 읽기 전에는 12개), 공기 말단 454개 중 원천에 닿는 것이 21개뿐이다. 흐름이 있는 설비 52대가 어디에도 이어지지 않는다(임포트 경고
+    // "접합 부재 누락"). R-요구사항의 근거다. 조명·콘센트처럼 흐름 없는 기기는 형상으로 잇지 않는다(OE-PIP-18) — 그 전에는 그것까지
+    // 세어 1,806대였고, 연결은 13,890개였다.
     // 이 숫자가 오르면 좋은 일이지만, 다른 BIM 이 같이 떨어지지 않았는지 먼저 본다.
     const rules = inferFlowByRules(model)
     expect(rules.oriented).toBeGreaterThanOrEqual(1345)
@@ -1624,7 +1648,9 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
       'source-terminal': '16/136',
       'terminal-single-source': '21/21',
       'device-space': '3337/3469',
-      'device-connected': '850/884',
+      // 흐름 없는 기기(조명)와 형상으로 잇지 않으면서(OE-PIP-18) 850 에서 하나 줄었다 — 조명에만 붙어 있던 말단이다. 디퓨저 수백 개도
+      // 유일한 상대가 옆 조명이었다. 덕트에 닿은 적이 없는데 "이어졌다" 로 보이던 것이다.
+      'device-connected': '849/884',
       // 포트 없이 형상으로 이은 연결망은 끊긴 자리가 많다(14%). 열원 하나와 냉온수 기기 둘이 배관으로 닿지 않는다.
       'conduit-ends': '10923/12645',
       'heat-source-user': '0/1',
