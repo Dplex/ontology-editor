@@ -17,6 +17,7 @@
 // 만든 파일은 data/(git 밖)에 둔다.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`)
@@ -92,9 +93,21 @@ const line = (id, type, args) => `#${id}=${type}(${args.join(',')});`
 const str = (s) => `'${s.replace(/'/g, "''")}'`
 const unstr = (a) => (a.startsWith("'") ? a.slice(1, -1).replace(/''/g, "'") : null)
 
+/**
+ * 복사본·새 엔터티의 GUID. 원래 GUID·앞서 만든 GUID 와 **절대 겹치지 않게** 만든다 — Revit GUID 는 앞 20자가 같은 것이 많아서
+ * 끝 두 글자만 바꾸면 다른 요소의 GUID 와 겹쳤고(소속 방이 엉뚱한 방을 가리켰다), 겹치면 IFC 가 아니다. 같은 입력이면 같은 GUID 다.
+ */
+const USED = new Set()
 function guid(g, k, salt = 0) {
-  const n = k * 7 + salt
-  return g.slice(0, 20) + GUID_CHARS[(GUID_CHARS.indexOf(g[20]) + 1 + (n % 63)) % 64] + GUID_CHARS[(GUID_CHARS.indexOf(g[21]) + 1 + Math.floor(n / 63)) % 64]
+  for (let n = 0; ; n++) {
+    const bytes = createHash('sha1').update(`${g}|${k}|${salt}|${n}`).digest()
+    let out = GUID_CHARS[bytes[0] % 4] // GUID 첫 글자는 0~3 이다(128비트를 22자로)
+    for (let i = 1; i < 22; i++) out += GUID_CHARS[bytes[i % bytes.length] % 64]
+    if (!USED.has(out)) {
+      USED.add(out)
+      return out
+    }
+  }
 }
 
 function read(path) {
@@ -104,6 +117,10 @@ function read(path) {
   const body = text.slice(head.length, text.length - tail.length).split(/\r?\n/).filter(Boolean)
   const ents = body.map(parse)
   if (ents.some((e) => !e)) throw new Error(`${path}: 한 줄에 한 엔터티가 아닌 곳이 있다`)
+  for (const e of ents) {
+    const g = unstr(e.args[0] ?? '')
+    if (g && g.length === 22) USED.add(g)
+  }
   const mm = /IFCSIUNIT\(\*,\.LENGTHUNIT\.,\.MILLI\.,\.METRE\.\)/.test(text)
   return { head, tail, ents, unit: mm ? 1000 : 1 }
 }
