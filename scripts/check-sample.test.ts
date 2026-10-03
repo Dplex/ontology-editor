@@ -451,6 +451,27 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
   }, 300_000)
 })
 
+// OE-PIP-09 계통 이름 규칙. BIM 계통 이름은 분야별 파일을 합칠 때 맞추는 열쇠다 — Revit `System Name` 이 곧 id 라 같은 이름이면 한 계통의
+// 두 조각이다(merge.ts). 에디터에는 계통 이름을 고치는 길이 없고(edit-fuzz 의 계통 이름 시험), 사람이 만든 계통만 만들 때 이름을 준다.
+describe('계통 이름으로 맞춰 합친다 (OE-PIP-09)', () => {
+  it('Duplex HVAC + MEP — 같은 이름 15개가 한 계통이 되고 이름이 겹치는 계통이 없다', async () => {
+    if (!existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP)) return
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_HVAC))).model
+    const mep = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_MEP))).model
+    const shared = hvac.systems.filter((s) => mep.systems.some((x) => x.name === s.name))
+    const merged = mergeModels(hvac, mep).model
+    expect({ hvac: hvac.systems.length, mep: mep.systems.length, shared: shared.length, merged: merged.systems.length }).toEqual({ hvac: 34, mep: 20, shared: 15, merged: 39 })
+    expect(new Set(merged.systems.map((s) => s.name)).size).toBe(merged.systems.length)
+    // 합친 계통은 두 파일의 구성원을 다 갖는다(같은 요소가 두 파일에 다 있으면 한 번).
+    const big = merged.systems.find((s) => s.name === 'Unit A Hydronic Supply In')!
+    expect(big.memberIds).toHaveLength(182)
+    // 이름은 BIM 그대로다.
+    expect(merged.systems.every((s) => hvac.systems.some((x) => x.name === s.name) || mep.systems.some((x) => x.name === s.name))).toBe(true)
+  }, 300_000)
+})
+
 // OE-BIM-08 토출구·배관 초안. Air Terminal 은 토출구(디퓨저·그릴)로, Duct·Pipe 는 형상이 있는 배관 초안(구간·이음쇠)으로 읽고,
 // 배관은 fso: 로 내보내 받는 쪽이 설비로 세지 않는다. IFC4(ifc4Mep)는 구체 클래스, Revit IFC2x3(병원)은 IfcFlowTerminal +
 // IfcAirTerminalType 으로 들어온다 — 둘 다 같은 자리에 닿아야 한다.

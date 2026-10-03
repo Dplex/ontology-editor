@@ -37,3 +37,28 @@ describe('편집을 무작위로 섞어도', () => {
     expect(failed.slice(0, 3)).toEqual([])
   }, 120_000)
 })
+
+describe('계통 이름 규칙 (OE-PIP-09)', () => {
+  it('어떤 편집을 섞어도 BIM 계통 이름은 그대로이고, 사람이 만든 계통만 사람이 준 이름이다 (씨앗 200개)', () => {
+    // BIM 계통 이름은 분야별 파일을 합칠 때 맞추는 열쇠다(Revit System Name 이 곧 id, merge.ts). 고치는 길이 하나라도 생기면
+    // 나중에 덧붙인 파일의 같은 계통이 따로 놀게 된다. 편집 파일로 저장·불러온 뒤에도 같아야 한다.
+    const model = read('mep.ifc')
+    const bimNames = new Map(model.systems.map((s) => [s.id, s.name]))
+    let created = 0
+    for (let seed = 1; seed <= 200; seed++) {
+      const r = fuzzEdits(model, seed, 25)
+      for (const m of [r.edited, r.reloaded]) {
+        for (const s of m.systems) {
+          if (s.source === 'edit') {
+            expect(bimNames.has(s.id), `seed ${seed} ${s.id}`).toBe(false)
+            expect(s.name).toMatch(/^새 계통 \d+$/)
+            created++
+          } else expect(s.name, `seed ${seed} ${s.id}`).toBe(bimNames.get(s.id))
+        }
+      }
+    }
+    // 계통 만들기가 실제로 섞였다 — 검사가 빈손으로 통과한 것이 아니다.
+    expect(created).toBeGreaterThan(20)
+  }, 120_000)
+})
+
