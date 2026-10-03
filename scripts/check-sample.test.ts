@@ -21,7 +21,7 @@ import { check3D, read3D } from '../src/lib/export/read-3d'
 import { modelToScene, sceneToGLB, sceneToOBJ } from '../src/lib/export/mesh3d'
 import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topology'
 import { inferFlowByRules, newlyDisagreeing, withInferred } from '../src/lib/flow-rules'
-import { airServices } from '../src/lib/served'
+import { airBasis, airServices, needsSystem, systemlessAir } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
 import { verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
@@ -129,6 +129,14 @@ it.skipIf(existsSync(SAMPLE))('샘플이 없으면 건너뛴다', () => {
 // 손으로 쓴 픽스처가 통과해도 여기서 깨진 적이 있다. 계통을 정확히 일치하는 타입으로만
 // 고르다가 IfcDistributionCircuit 22개를 놓쳤다.
 describe.skipIf(!existsSync(MEP))('실제 MEP BIM (ifc4Mep, IFC4)', () => {
+  // OE-EQP-10. BIM 에서 연 그대로 계통 없는 토출구가 있는 유일한 파일이다 — 그릴 5개. 검토 화면의 "계통 없는 VAV·토출구" 에 뜬다.
+  it('계통 없는 VAV·토출구를 고른다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfc(api, new Uint8Array(readFileSync(MEP)))
+    expect(systemlessAir(model).map((x) => x.equipment.kind)).toEqual(Array(5).fill('air_grille'))
+  })
+
   it('설비와 계통을 기준값대로 읽는다', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
@@ -1417,6 +1425,17 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     expect(guess.top3).toBeGreaterThanOrEqual(10)
     // 층 사이 연결. 계단실·승강로 7개 중 6개가 위·아래층과 이어진다(vertical.ts).
     expect(verticalLinks(model).size).toBe(6)
+
+    // OE-EQP-10 VAV·토출구. 계통 없는 것이 없고(BIM 이 System Name 으로 다 말한다), 담당 근거가 흐름을 따라 공조기에 닿는다 —
+    // 말단 440 중 439, VAV 115 전부. VAV 는 전부 아래로 나눠 주는 말단을 안다.
+    const need = model.storeys.flatMap((st) => st.equipment).filter(needsSystem)
+    const vav = need.filter((e) => e.kind === 'vav')
+    expect({ vav: vav.length, terminals: need.length - vav.length, systemless: systemlessAir(model).length }).toEqual({ vav: 115, terminals: 440, systemless: 0 })
+    const basis = need.map((e) => ({ e, b: airBasis(model, model.connections, e.id) }))
+    const reached = (xs: typeof basis) => xs.filter((x) => x.b.supplyFrom.length + x.b.extractTo.length > 0).length
+    expect(reached(basis.filter((x) => x.e.kind !== 'vav'))).toBe(439)
+    expect(reached(basis.filter((x) => x.e.kind === 'vav'))).toBe(115)
+    expect(basis.filter((x) => x.e.kind === 'vav' && x.b.terminals.length > 0)).toHaveLength(115)
   }, 300_000)
 
   // 요구사항 보고서(정본 4장). Revit IFC2x3 의 전형이다 — 필수는 거의 다 차 있고, 권장이 떨어지는 것은 값이 없어서가 아니라

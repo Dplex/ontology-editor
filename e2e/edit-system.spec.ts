@@ -76,3 +76,32 @@ test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비�
   await expect(report).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('계통 없는 토출구는 패널과 검토 화면에 경고하고, 담당 공조기를 흐름으로 보인다 (OE-EQP-10)', async ({ page }) => {
+  const errors = await open(page)
+  const row = page.locator('.equipment tbody tr', { hasText: 'AT-101-01' })
+  await row.getByRole('button', { name: 'AT-101-01', exact: true }).click()
+  const picked = page.locator('.picked')
+  // BIM 에서 연 그대로는 계통이 있어 경고가 없다. 담당은 흐름을 거슬러 닿는 공조기다.
+  await expect(picked.locator('.stats')).toContainText('AHU-1 급기 계통')
+  await expect(picked.locator('.system-missing')).toHaveCount(0)
+  await expect(page.locator('.systemless')).toHaveCount(0)
+  await expect(picked.locator('.basis')).toContainText('급기 ← AHU-1')
+
+  // 계통을 비우면 패널에 경고, 검토 화면에 목록이 뜬다. 목록에서 누르면 그 토출구로 간다.
+  await picked.locator('.system-edit select').selectOption('')
+  await expect(picked.locator('.system-missing')).toContainText('디퓨저에 계통이 없습니다')
+  const list = page.locator('.systemless')
+  await expect(list).toContainText('1대')
+  await expect(list).toContainText('AT-101-01')
+  await page.getByRole('button', { name: '선택 해제' }).click()
+  await list.getByRole('button', { name: 'AT-101-01' }).click()
+  await expect(picked.locator('h3')).toHaveText('AT-101-01')
+
+  // 되돌리면 계통이 돌아오고 경고가 사라진다.
+  await undo(page)
+  await expect(picked.locator('.stats')).toContainText('AHU-1 급기 계통')
+  await expect(picked.locator('.system-missing')).toHaveCount(0)
+  await expect(page.locator('.systemless')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
