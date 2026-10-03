@@ -587,6 +587,7 @@ export type Snapshot =
         fluid: System['fluid']
         fluidSource: System['fluidSource']
         kindEdited: System['kindEdited']
+        name: string
       }[]
       equipment: { equipment: Equipment; systemId: string | null; systemEdited: Equipment['systemEdited'] }[]
     }
@@ -932,6 +933,7 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
         set(x.system, 'fluid', x.fluid)
         set(x.system, 'fluidSource', x.fluidSource)
         set(x.system, 'kindEdited', x.kindEdited ? { ...x.kindEdited } : undefined)
+        x.system.name = x.name
       }
       for (const x of snapshot.equipment) {
         x.equipment.systemId = x.systemId
@@ -1192,6 +1194,8 @@ export type BaselineDiff = {
   systemsRemoved: { id: string; name: string }[]
   /** 종류·유체를 고친 계통(E8). */
   systemKinds: { id: string; name: string; from: { kind: string | null; fluid: Fluid | null }; to: { kind: string | null; fluid: Fluid | null } }[]
+  /** 이름을 고친 계통(OE-PIP-09). 연 때 있던 계통만 — 사람이 만든 계통의 이름은 `systemsAdded` 가 끝 이름을 든다. */
+  systemNames: { id: string; from: string; to: string }[]
 }
 
 /** 좌표를 같다고 보는 차. 표와 3D 가 센티미터로 자르므로 그보다 작은 차는 같은 자리다. */
@@ -1271,6 +1275,11 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     // 사람이 고친 것만 센다. 원천 기기로 짐작한 유체(flow-rules.ts 의 inferFluids)는 종류·연결을 고치면 따라 바뀌는 값이다.
     if (was && system.kindEdited && (was.kind !== to.kind || was.fluid !== to.fluid)) systemKinds.push({ id: system.id, name: system.name, from: { kind: was.kind, fluid: was.fluid }, to })
   }
+  const systemNames: BaselineDiff['systemNames'] = []
+  for (const system of model.systems) {
+    const was = baseline.systems?.get(system.id)
+    if (was && was.name !== system.name) systemNames.push({ id: system.id, from: was.name, to: system.name })
+  }
   const systemsAdded = baseline.systems ? model.systems.filter((s) => !baseline.systems!.has(s.id)).map((s) => ({ id: s.id, name: s.name })) : []
   const systemIds = new Set(model.systems.map((s) => s.id))
   const systemsRemoved = baseline.systems ? [...baseline.systems].filter(([id]) => !systemIds.has(id)).map(([id, was]) => ({ id, name: was.name })) : []
@@ -1290,6 +1299,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     customZones: diffCustomZones(model, baseline),
     systemMoved,
     systemKinds,
+    systemNames,
     systemsAdded,
     systemsRemoved,
   }
@@ -2413,6 +2423,7 @@ export function snapshotSystems(
             fluid: system.fluid,
             fluidSource: system.fluidSource,
             kindEdited: system.kindEdited ? { ...system.kindEdited } : undefined,
+            name: system.name,
           },
         ]
       : []
@@ -2446,6 +2457,19 @@ export function createSystem(model: Model, spec: NewSystem): System | null {
   }
   model.systems.push(system)
   return system
+}
+
+/**
+ * 계통 이름을 바꾼다(OE-PIP-09 "이름 자유"). **BIM 이 준 계통도 바꾼다**(2026-10-03 사용자 결정). 앞뒤 공백은 떼고, 비었거나 같은
+ * 이름이면 바꾸지 않는다. 이름이 같은 다른 계통이 있어도 막지 않는다 — id 가 달라 온톨로지에서는 다른 계통이다. 다만 다음 판본과
+ * 합칠 때(merge.ts 는 이름이 같은 계통을 하나로 본다) 바꾼 이름으로 맞춰지니, 이름을 바꾼 편집은 합친 뒤에 다시 얹힌다(append).
+ */
+export function renameSystem(model: Model, systemId: string, name: string): boolean {
+  const system = findSystem(model, systemId)
+  const next = name.trim()
+  if (!system || !next || next === system.name) return false
+  system.name = next
+  return true
 }
 
 /**

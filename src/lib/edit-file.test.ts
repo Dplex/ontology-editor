@@ -25,6 +25,8 @@ import {
   setOpeningSize,
   setEquipmentSystem,
   setSystemKind,
+  renameSystem,
+  snapshotSystems,
   typeKeyOf,
 } from './edit'
 import { applyEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
@@ -349,5 +351,39 @@ describe('편집 저장·불러오기', () => {
     expect(parseEditFile('not json')).toBe('JSON 이 아닙니다.')
     expect(parseEditFile('{"format":"x"}')).toBe('ontology-editor 편집 파일이 아닙니다.')
     expect(parseEditFile('{"format":"ontology-editor/edits","version":9}')).toContain('version 9')
+  })
+})
+
+// OE-PIP-09 계통 이름 고치기(2026-10-03 사용자 결정 — BIM 계통도 바꾼다). e2e 는 화면에서 한 번 바꾸는 것만 잰다.
+describe('계통 이름 (OE-PIP-09)', () => {
+  it('앞뒤 공백은 떼고, 빈 이름·같은 이름은 바꾸지 않으며, 되돌리면 BIM 이름이다', () => {
+    const a = read('mep.ifc')
+    const system = a.systems[0]
+    const bim = system.name
+    const snap = snapshotSystems(a, [system.id])
+    expect(renameSystem(a, system.id, '   ')).toBe(false)
+    expect(renameSystem(a, system.id, ` ${bim} `)).toBe(false)
+    expect(renameSystem(a, system.id, '  1층 급기  ')).toBe(true)
+    expect(system.name).toBe('1층 급기')
+    restore(a, snap!)
+    expect(system.name).toBe(bim)
+  })
+
+  it('이름만 고친 계통도 GUID 가 전부 바뀐 재내보내기에 다시 얹힌다 — 계통을 이름·구성원으로 찾는다', () => {
+    const a = read('mep.ifc')
+    const base = baselineOf(a)
+    // 계통에 다른 편집은 없다. 이름 편집이 스스로 지문을 남겨야 다시 찾는다.
+    renameSystem(a, a.systems[0].id, '1층 급기')
+    const file = parseEditFile(JSON.stringify(exportEdits(a, base, 'mep.ifc')))
+    if (typeof file === 'string') throw new Error(file)
+    expect(file.systemNames).toEqual([{ id: a.systems[0].id, name: '1층 급기' }])
+    const b = read('mep.ifc')
+    let json = JSON.stringify(b)
+    for (const id of [...b.systems.map((x) => x.id), ...b.storeys.flatMap((st) => st.equipment.map((e) => e.id))])
+      json = json.split(JSON.stringify(id)).join(JSON.stringify(`${id}Qv2`))
+    const fresh: Model = JSON.parse(json)
+    const result = applyEdits(fresh, file)
+    expect(result.missing.systems).toBe(0)
+    expect(fresh.systems[0].name).toBe('1층 급기')
   })
 })

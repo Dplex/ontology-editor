@@ -44,6 +44,7 @@ export const FUZZ_OPS = [
   'equipmentSystem',
   'systemKind',
   'createSystem',
+  'renameSystem',
   'deleteSystem',
   'moveWallWithSpaces',
   'moveFollow',
@@ -334,6 +335,15 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       if (!E.setSystemKind(m, system.id, kind, fluid)) continue
       undo.push(snapshot)
       log.push(`systemKind ${system.name} → ${kind}/${fluid}`)
+    } else if (op === 'renameSystem') {
+      // 계통 이름(OE-PIP-09). BIM 계통도 고친다(2026-10-03 사용자 결정).
+      const system = pick(m.systems)
+      if (!system) continue
+      const snapshot = E.snapshotSystems(m, [system.id])
+      const was = system.name
+      if (!E.renameSystem(m, system.id, `고친 계통 ${step}`)) continue
+      undo.push(snapshot)
+      log.push(`renameSystem ${was} → ${system.name}`)
     } else if (op === 'createSystem') {
       // 만들고 설비 하나를 바로 넣는다(화면의 [만들어 넣기] 와 같다).
       const e = pick(devices)

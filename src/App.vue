@@ -55,6 +55,7 @@ import {
   moveSpaceVertex,
   completePosition,
   renameSpace,
+  renameSystem,
   restore,
   insertSpaceVertex,
   deleteSpaceVertex,
@@ -298,6 +299,7 @@ const changeCount = computed(
     sinceOpen.value.customZones.length +
     sinceOpen.value.systemMoved.length +
     sinceOpen.value.systemKinds.length +
+    sinceOpen.value.systemNames.length +
     sinceOpen.value.systemsAdded.length +
     sinceOpen.value.systemsRemoved.length,
 )
@@ -330,6 +332,7 @@ const sinceOpen = computed(() => {
         customZones: [],
         systemMoved: [],
         systemKinds: [],
+        systemNames: [],
         systemsAdded: [],
         systemsRemoved: [],
       }
@@ -2440,6 +2443,21 @@ function setSystemKindTo(systemId: string, kind: string | null, fluid: Fluid | n
   triggerRef(model)
   flowVersion.value++
 }
+/** 계통 이름을 바꾼다(OE-PIP-09). BIM 이 준 계통도 바꾼다(2026-10-03 사용자 결정). TTL 계통 블록의 rdfs:label 이 된다. */
+function renameSystemTo(systemId: string, name: string) {
+  const m = model.value
+  const system = systemById.value.get(systemId)
+  if (!m || !system) return
+  const was = system.name
+  const snapshot = snapshotSystems(m, [systemId])
+  const at = mark()
+  if (!renameSystem(m, systemId, name)) return
+  remember(`계통 이름 ${was || systemId} → ${system.name}`, snapshot, at)
+  triggerRef(model)
+  flowVersion.value++
+}
+/** 연 때의 계통 이름. 고친 계통이면 패널에 BIM 이름을 같이 보인다. 사람이 만든 계통은 없다. */
+const systemNameAtOpen = (id: string) => baseline.value?.systems?.get(id)?.name ?? null
 // 새 계통 만들기·지우기(E8). 만들면 고른 설비를 바로 넣는다 — 빈 계통은 온톨로지에 아무것도 더하지 않는다.
 const newSystemOpen = ref(false)
 const newSystemName = ref('')
@@ -6101,6 +6119,9 @@ async function export3D(format: 'glb' | 'obj') {
             <!-- 범례에서 고른 계통. 종류·유체는 규칙 방향과 TTL 계통 클래스를 정한다. 편집 모드에서 고친다(E8). -->
             <section v-if="selectedSystem" class="picked system-picked">
               <h3>{{ selectedSystem.name || '(이름 없는 계통)' }}</h3>
+              <p v-if="systemNameAtOpen(selectedSystem.id) !== null && systemNameAtOpen(selectedSystem.id) !== selectedSystem.name" class="stats system-renamed">
+                BIM 이름 {{ systemNameAtOpen(selectedSystem.id) || '(없음)' }} <Src kind="bim" /> → 고친 이름 <Src kind="edit" />
+              </p>
               <p class="stats">
                 구성 {{ selectedSystem.memberIds.length }}개 <Src :kind="selectedSystem.added ? 'edit' : 'bim'" /> ·
                 {{ systemKindText(selectedSystem.kind, selectedSystem.fluid) }}
@@ -6111,6 +6132,18 @@ async function export3D(format: 'glb' | 'obj') {
                 <template v-else-if="!selectedSystem.kindEdited && selectedSystem.fluid && selectedSystem.fluidSource !== selectedSystem.kindSource">
                   (유체 <Src :kind="selectedSystem.fluidSource === 'bim' ? 'bim' : 'dict'" />)
                 </template>
+              </p>
+              <p v-if="editing" class="system-edit system-name-edit">
+                <label>
+                  이름
+                  <input
+                    type="text"
+                    v-keep-typing
+                    :value="selectedSystem.name"
+                    aria-label="계통 이름"
+                    @change="renameSystemTo(selectedSystem.id, ($event.target as HTMLInputElement).value)"
+                  />
+                </label>
               </p>
               <p v-if="editing" class="system-edit system-kind-edit">
                 <label>
@@ -7056,6 +7089,9 @@ async function export3D(format: 'glb' | 'obj') {
             </li>
             <li v-for="r in sinceOpen.systemsAdded" :key="`sys-add-${r.id}`">계통 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 만들었습니다 (brick:hasPart)</li>
             <li v-for="r in sinceOpen.systemsRemoved" :key="`sys-rm-${r.id}`">계통 <b>{{ r.name || r.id }}</b>{{ josa(r.name || r.id, '을/를') }} 지웠습니다</li>
+            <li v-for="r in sinceOpen.systemNames" :key="`sys-name-${r.id}`">
+              계통 이름 <b>{{ r.from }}</b> → <b>{{ r.to }}</b> (rdfs:label)
+            </li>
             <li v-for="r in sinceOpen.systemKinds" :key="`sys-kind-${r.id}`">
               계통 <b>{{ r.name || r.id }}</b>: 종류 {{ systemKindText(r.from.kind, r.from.fluid) }} → <b>{{ systemKindText(r.to.kind, r.to.fluid) }}</b> (계통 클래스)
             </li>

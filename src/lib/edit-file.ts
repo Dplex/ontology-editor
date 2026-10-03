@@ -35,6 +35,7 @@ import {
   moveEquipmentToStorey,
   releaseDeclaredSpace,
   renameSpace,
+  renameSystem,
   replaceSpaceFootprint,
   setFlowDirection,
   setTypeKind,
@@ -72,6 +73,8 @@ export type EditFile = {
   /** 사람이 만든 계통(끝 이름·종류)과 지운 계통. 구성원은 설비 쪽 `system` 으로 적는다. */
   systemsAdded?: { id: string; name: string; kind: string | null; fluid: Fluid | null }[]
   systemsRemoved?: string[]
+  /** 이름을 고친 계통(OE-PIP-09). 연 때 있던 계통만 — 사람이 만든 계통은 `systemsAdded` 에 끝 이름이 있다. */
+  systemNames?: { id: string; name: string }[]
   spaces: { id: string; longName?: string; footprint?: Vec2[] }[]
   /** 사람이 더한 설비(E7). id 는 에디터가 지은 것(`U_…`)이라 다시 열어도 같은 id 로 만든다. */
   equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string; wall?: string }[]
@@ -260,6 +263,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     return { id: s.id, name: s.name, kind: s.kind ?? null, fluid: s.fluid ?? null }
   })
   const systemsRemoved = since.systemsRemoved.map((r) => r.id)
+  const systemNames = since.systemNames.map((r) => ({ id: r.id, name: r.to }))
   const wallsRemoved = since.wallsRemoved.map((r) => r.id)
   const openingsRemoved = since.openingsRemoved.map((r) => r.id)
   // 커스텀존: 존이 하나라도 바뀐 층은 그 층 목록 전체를 적는다.
@@ -290,6 +294,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const row of equipmentAdded) if (row.system) keep(row.system)
   for (const row of [...equipment, ...equipmentAdded]) if (row.wall) keep(row.wall)
   for (const row of systems) keep(row.id)
+  for (const row of systemNames) keep(row.id)
   for (const id of systemsRemoved) keep(id)
   for (const id of equipmentRemoved) keep(id)
   for (const row of spacesRemoved) keep(row.id)
@@ -330,6 +335,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(systems.length ? { systems } : {}),
     ...(systemsAdded.length ? { systemsAdded } : {}),
     ...(systemsRemoved.length ? { systemsRemoved } : {}),
+    ...(systemNames.length ? { systemNames } : {}),
     ...(connections.add.length || connections.remove.length ? { connections } : {}),
     ...(equipmentAdded.length ? { equipmentAdded } : {}),
     ...(equipmentRemoved.length ? { equipmentRemoved } : {}),
@@ -419,6 +425,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     if (e.system) ref(e.system)
   }
   for (const row of file.systems ?? []) ref(row.id)
+  for (const row of file.systemNames ?? []) ref(row.id)
   for (const id of file.systemsRemoved ?? []) ref(id)
   for (const row of file.equipmentAdded ?? []) if (row.system) ref(row.system)
   for (const f of file.flows) {
@@ -483,6 +490,11 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   }
 
   // 계통 종류·유체(E8). 규칙 방향의 재료라 종류와 같이 앞에 둔다. 확정·방향은 뒤에서 얹는다.
+  for (const row of file.systemNames ?? []) {
+    const id = resolve(row.id)
+    if (renameSystem(model, id, row.name)) result.applied++
+    else if (!model.systems.some((x) => x.id === id)) result.missing.systems++
+  }
   for (const row of file.systems ?? []) {
     const id = resolve(row.id)
     const rules = setSystemKind(model, id, row.kind, row.fluid)

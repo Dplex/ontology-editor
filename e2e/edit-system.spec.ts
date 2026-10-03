@@ -105,3 +105,44 @@ test('계통 없는 토출구는 패널과 검토 화면에 경고하고, 담당
   await expect(page.locator('.systemless')).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('BIM 계통의 이름을 고치면 TTL 이름이 바뀌고, 편집 파일로 저장·불러오면 그대로이며, 되돌리면 앞 이름이다 (OE-PIP-09)', async ({ page }, info) => {
+  // 2026-10-03 사용자 결정: BIM 이 준 계통도 이름을 고친다.
+  const errors = await open(page)
+  await page.locator('.legend button', { hasText: 'AHU-1 급기 계통' }).click()
+  const system = page.locator('.system-picked')
+  const name = system.getByLabel('계통 이름')
+  await name.fill('1층 급기')
+  await name.press('Enter')
+  await expect(system.locator('h3')).toHaveText('1층 급기')
+  await expect(system.locator('.system-renamed')).toContainText('BIM 이름 AHU-1 급기 계통')
+  await expect(page.locator('.legend')).toContainText('1층 급기')
+  await expect(page.locator('.report')).toContainText('계통 이름 AHU-1 급기 계통 → 1층 급기')
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT })
+
+  const ttl = page.waitForEvent('download')
+  await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
+  const text = Buffer.concat(await (await (await ttl).createReadStream()).toArray()).toString()
+  expect(text).toContain('rdfs:label "1층 급기"')
+  expect(text).not.toContain('"AHU-1 급기 계통"')
+
+  // 편집 저장 → 다시 열기 → 불러오기.
+  const saved = page.waitForEvent('download')
+  await name.press('Control+s')
+  const file = await saved
+  const path = info.outputPath(file.suggestedFilename())
+  await file.saveAs(path)
+  page.on('dialog', (d) => void d.accept())
+  await open(page)
+  await page.locator('.load-edits input').setInputFiles(path)
+  await expect(page.locator('.legend')).toContainText('1층 급기')
+
+  // 되돌리기는 불러온 편집을 취소하지 않으므로, 새로 고친 것을 되돌려 본다.
+  await page.locator('.legend button', { hasText: '1층 급기' }).click()
+  await system.getByLabel('계통 이름').fill('잠깐 이름')
+  await system.getByLabel('계통 이름').press('Enter')
+  await expect(system.locator('h3')).toHaveText('잠깐 이름')
+  await undo(page)
+  await expect(system.locator('h3')).toHaveText('1층 급기')
+  expect(errors).toEqual([])
+})
