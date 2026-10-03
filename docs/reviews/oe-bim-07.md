@@ -27,6 +27,9 @@ PRD: prd-review — 요구사항이 바뀌면 다시 본다
 ifc4Mep — 요약 아래 [미배치 설비 28대], F1 의 [3D에서 놓기] 를 눌러 바닥 클릭을 기다리는 중
 ![ifc4Mep 미배치 목록](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-BIM-07-unplaced-list/docs/figures/oe-bim-07-unplaced-list.png?raw=true)
 
+분전반 부품(추가 작업) — ifc4Mep 에서 `F1` 을 검색한 화면. 00층 퓨즈는 그 층에 하나뿐인 분전반 위치에 배치되어 좌표 출처가 [계산], 01층 퓨즈는 분전반이 두 개라 좌표가 없다.
+![분전반 부품](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-BIM-07-unplaced-list/docs/figures/oe-bim-07-panel-parts.png?raw=true)
+
 ## 확인 방법
 1. 8087 검토 서버(또는 `npm run dev`)에서 `data/ifc4Mep_IFC4.ifc` 를 연다
 2. 요약의 경고 아래 **[미배치 설비 28대 — 좌표가 없어 3D에 없습니다]** — (이름 없음) 덕트·배관 6, F1~F13 보호기 22, 층은 `00. Begane grond`·`01. verdieping`
@@ -38,8 +41,16 @@ ifc4Mep — 요약 아래 [미배치 설비 28대], F1 의 [3D에서 놓기] 를
 - `npx vue-tsc --noEmit` 통과
 - `npm run check:sample` — 48 passed · 2 failed(작업 시작 시점에도 실패하던 것: ttl.go id 90개 어긋남, `moveWallWithSpaces` null). 새로 넣은 "미배치 목록 (ifc4Mep)" 통과
 - e2e — `npx playwright test e2e/info.spec.ts e2e/smoke.spec.ts` 27 passed(새로 넣은 것 1)
+- mutation test(처음 커밋(미배치 목록) 기준) — 이 커밋이 넣은 규칙을 하나씩 꺼 보고 테스트가 깨지는지 확인했다. 3곳 중 2곳을 잡았고, 나머지를 잡으려고 추가한 것: e2e `unplaced.spec.ts`(ifc4Mep) — 01층 설비를 선택한 채 00층만 보다가 [3D에서 놓기] 를 누르면 01층으로 바뀐다. (선택한 설비를 따라 층을 바꾸는 코드가 따로 있어서, 이미 선택된 설비일 때만 이 코드가 동작한다)
+- mutation test — 이 커밋이 넣은 규칙을 하나씩 꺼 보고 테스트가 깨지는지 확인했다. 7곳 중 3곳을 잡았고, 나머지를 잡으려고 추가한 것: `panel-parts.test.ts` 3개(좌표 없는 분전반은 세지 않기·이름으로 분전반인 것·두 개면 배치하지 않기 — 테스트하려고 `placeInPanels` 를 export 했다), `coverage.test.ts`(피처 채움 F9 에서 계산), `check:sample` R11 의 수, e2e `panel-parts.spec.ts`(좌표 출처 칩이 계산)
 
 ## 남은 것
-- ifc4Mep 의 보호기 22대는 분전반 안의 부품이라 배치점이 없는 것으로 보인다. 이런 것까지 사람이 3D 에 놓아야 하는지, 분전반 자리를 따르게 할지는 PM 에게 묻는다(`needs-pm`)
+- (해결) **분전반 안 부품은 같은 층에 하나뿐인 분전반 위치를 따른다.** ifc4Mep 의 퓨즈 22대는 IFC 어디에도 어느
+  분전반에 속하는지 정보가 없었다(포트 연결 0 · 묶음·중첩 없음 · 분전반이 회로에 없음). 그래서 근거는 IFC 연결이 아니라 "같은 층에 좌표 있는 분전반이
+  하나뿐" 이다(`import.ts` 의 `placeInPanels`, 대상 클래스 IfcProtectiveDevice·TrippingUnit). 00층은 MB01 하나라 11대를 그 위치에 배치하고 출처를
+  `panel`(화면·R11·커버리지에서 계산)로 둔다. 01층은 분전반이 두 개(Data board 1·SB 02)라 추정하지 않고 미배치로 남긴다. 미배치 28 → 17,
+  경고에 "분전반 안 부품(보호기) 11대를 … 층으로 짐작한 것" 을 적고, R11 은 이 11대를 표준에서 뺀다. `check:sample` "좌표 없는 설비는 미배치
+  목록 (ifc4Mep)" 이 확인한다
+- 분전반 위치에 배치한 부품은 분전반을 옮겨도 따라가지 않는다(부착 관계를 저장하지 않았다)
 - 설비 표를 "좌표 없음" 으로 필터링하는 기능은 하지 않았다 — 같은 부분을 draft #303(설치면 필터)이 고친다
 - 성수는 이 PC 에 없어 측정하지 못했다

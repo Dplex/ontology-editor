@@ -210,8 +210,9 @@ export type Equipment = {
    * 좌표를 BIM 배치점 말고 다른 데서 얻었으면 그 출처. 없으면 배치점 그대로다.
    * `'geometry'` 는 배치점이 형상에서 멀리 떨어져 형상 중심을 쓴 것(`anchorToGeometry`),
    * `'edited'` 는 사람이 옮긴 것이다. 화면이 이 값으로 "BIM 이 말한 좌표" 와 구별해 보인다.
+   * `'panel'` 은 좌표가 없는 분전반 안 부품(보호기)을 같은 층에 하나뿐인 분전반 자리에 놓은 것이다(OE-BIM-07, import.ts 의 placeInPanels).
    */
-  positionSource?: 'geometry' | 'edited'
+  positionSource?: 'geometry' | 'edited' | 'panel'
   /**
    * 설계 풍량 등 용량 파라미터. `null` 이면 BIM 에 안 적혀 있다.
    * PRD #6 의 "용량 파라미터 누락 설비" 이고, 공조존 용량 검증(Z-03)이 이 값에 걸린다.
