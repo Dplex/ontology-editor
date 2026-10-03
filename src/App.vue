@@ -5019,9 +5019,12 @@ async function export3D(format: 'glb' | 'obj') {
               :storey="planStorey"
               :selected-id="selectedId"
               :selected-space-id="selectedSpaceId"
+              :selected-element-id="selectedElementId"
               :editing="editing"
+              :pick-walls="editing && archMode"
               @select="select"
               @pick-space="pickSpace"
+              @pick-element="selectedElementId = $event"
               @move-vertex="dropVertex"
             />
             <p v-else-if="activeTab === 'plan'" class="plan-empty">
@@ -5158,6 +5161,13 @@ async function export3D(format: 'glb' | 'obj') {
             <template v-else-if="selected">
               끌기 또는 <kbd>←↑→↓</kbd>: 옮기기 · <kbd>PageUp/Down</kbd>: 층 바꾸기 · 화살표 클릭 또는 <kbd>[ ]</kbd>: 연결 고르기 ·
               <kbd>D</kbd>: 방향 바꾸기 · <kbd>K</kbd>: 종류 고르기
+            </template>
+            <template v-else-if="selectedElement">
+              <kbd>←↑→↓</kbd>: 옮기기(<kbd>Shift</kbd> 1m) · 다른 {{ activeTab === 'plan' ? '벽' : '벽·문·창' }} 클릭: 바꿔 고르기
+            </template>
+            <template v-else-if="archMode">
+              {{ activeTab === 'plan' ? '벽' : '벽·문·창' }} 클릭: 고르기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
+              <kbd>U</kbd>: 종류 모르는 설비로
             </template>
             <template v-else>
               설비 클릭: 고르기 · 고른 설비 끌기: 옮기기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
