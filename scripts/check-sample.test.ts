@@ -2322,4 +2322,38 @@ describe.skipIf(!existsSync(MEP))('좌표 없는 설비는 미배치 목록 (ifc
       expect(features.get(equipment.id)?.geometry).toBe(null)
     }
   }, 300_000)
+
+  // OE-MAN-04 설비 수동 배치. 좌표가 있는 설비는 BIM 자리에 저절로 놓이고(손대지 않는다), 나머지는 사람이 놓는다. 28대를 전부 놓으면
+  // 목록이 비고, 그 편집이 편집 파일로 저장·불러와도 그대로 남고, GeoJSON 에 점으로 나간다. 놓는 길은 [3D에서 놓기]·목록의 [3D에서 놓기]와
+  // 같은 moveEquipment 다(높이는 화면이 같은 패밀리에서 고른다 — 여기서는 층 바닥 + 1m).
+  it('미배치 28대를 사람이 전부 놓으면 목록이 비고, 저장·불러와도 같고, GeoJSON 에 점으로 나간다 (OE-MAN-04)', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const pristine = importIfc(api, new Uint8Array(readFileSync(MEP)))
+    const model = structuredClone(pristine)
+    const base = baselineOf(model)
+    const placedByBim = model.storeys.flatMap((s) => s.equipment).filter((e) => e.position).map((e) => [e.id, e.position] as const)
+    const list = unplacedOf(model)
+    expect(list).toHaveLength(28)
+    list.forEach(({ equipment, storey }, i) => expect(moveEquipment(model, equipment.id, [i * 0.5, 1, storey.elevation + 1])).not.toBeNull())
+
+    expect(unplacedOf(model)).toHaveLength(0)
+    expect(list.every(({ equipment }) => equipment.positionSource === 'edited')).toBe(true)
+    // BIM 이 좌표를 준 설비는 그대로다 — 자동으로 놓인 것을 사람이 놓은 것이 건드리지 않는다.
+    const now = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.position]))
+    expect(placedByBim.filter(([id, p]) => JSON.stringify(now.get(id)) !== JSON.stringify(p))).toEqual([])
+
+    // 편집 파일로 저장해 새로 연 모델에 얹어도 28대가 같은 자리다.
+    const file = parseEditFile(JSON.stringify(exportEdits(model, base, 'ifc4Mep')))
+    if (typeof file === 'string') throw new Error(file)
+    const reopened = structuredClone(pristine)
+    applyEdits(reopened, file)
+    expect(unplacedOf(reopened)).toHaveLength(0)
+    const again = new Map(reopened.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.position]))
+    expect(list.filter(({ equipment }) => JSON.stringify(again.get(equipment.id)) !== JSON.stringify(equipment.position))).toEqual([])
+
+    // GeoJSON 에 점으로 나간다(놓기 전에는 geometry null).
+    const features = new Map(modelToGeoJSON(reopened).flatMap((f) => f.collection.features).map((f) => [f.id, f]))
+    expect(list.filter(({ equipment }) => features.get(equipment.id)?.geometry?.type !== 'Point')).toEqual([])
+  }, 300_000)
 })
