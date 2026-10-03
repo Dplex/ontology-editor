@@ -24,7 +24,7 @@ import { inferFlowByRules, newlyDisagreeing, withInferred } from '../src/lib/flo
 import { airServices } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
-import { verticalLinks } from '../src/lib/vertical'
+import { verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
 import { roomKind } from '../src/lib/kinds'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
 import { compareVersions, revitElementId } from '../src/lib/versions'
@@ -297,7 +297,47 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH))('문이 잇는 
     expect(agreement(SAMPLE)).toBe('5/5')
     // 하나 남는 것은 폭 1.25m 문이다. 좌표로는 한쪽 방도 못 짚었다.
     expect(agreement(DUPLEX_ARCH)).toBe('13/14')
+    // 병원 건축은 성수와 같은 Revit IFC2x3 이고 정답지가 가장 크다(OE-EQP-16). 방이 겹친 자리에서 가장 작은 방을 고른다 — 첫 방이면
+    // 210 이었다. 남은 22개 중 20개는 한쪽 방만 짚은 것이다. 짚는 거리를 0.3 → 0.5m 로 늘리면 220 이 되지만 엉뚱한 방이
+    // 1 → 3 으로 는다(틀린 연결이 빠진 연결보다 나쁘다).
+    if (existsSync(CLINIC_ARCH)) expect(agreement(CLINIC_ARCH)).toBe('214/236')
   })
+
+  // OE-EQP-16 로봇 통과·연결 데이터. 로봇 팀이 받는 것은 GeoJSON 이라 내보낸 피처로 잰다. 수용 기준은 "병원 계단실·승강로 7개 중
+  // 6개 연결" 이다. 남는 하나는 1층 승강로 E1 이다 — 2층에 승강로 공간이 BIM 에 없어서 이을 상대가 없다.
+  it('로봇 데이터: 통과 속성 · 방-문-방 · 층 사이 연결이 GeoJSON 에 있다 (병원 건축)', async () => {
+    if (!existsSync(CLINIC_ARCH)) return
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const bytes = new Uint8Array(readFileSync(CLINIC_ARCH))
+    const props = (m: Model) => modelToGeoJSON(m).flatMap((x) => x.collection.features.map((f) => f.properties as Record<string, unknown>))
+    const tally = (xs: Record<string, unknown>[], key: string) =>
+      xs.reduce((o: Record<string, number>, x) => ((o[String(x[key])] = (o[String(x[key])] ?? 0) + 1), o), {})
+
+    // 문·창 형상을 읽지 않으면(화면 기본) 공간 경계가 없는 문 13개는 잇는 방이 비어 있다.
+    const plain = props(importIfcWithMeshes(api, bytes).model)
+    expect(tally(plain.filter((p) => p.kind === 'door'), 'connectsSource')).toEqual({ bim: 236, null: 13 })
+
+    const model = importIfcWithMeshes(api, bytes, undefined, { openings: true }).model
+    const all = props(model)
+    const doors = all.filter((p) => p.kind === 'door')
+    // 통과: 문은 지나가고 창·벽은 못 지나간다.
+    expect(tally(doors, 'passable')).toEqual({ true: 249 })
+    expect(tally(all.filter((p) => p.kind === 'window'), 'passable')).toEqual({ false: 58 })
+    expect(tally(all.filter((p) => p.kind === 'wall'), 'passable')).toEqual({ false: 1080 })
+    // 방-문-방: 공간 경계가 말한 236개는 bim, 나머지 13개는 문 자리로 짚는다(calc).
+    expect(tally(doors, 'connectsSource')).toEqual({ bim: 236, calc: 13 })
+    const calc = doors.filter((d) => d.connectsSource === 'calc').map((d) => ({ rooms: (d.connects as string[]).length }))
+    // 13개 중 11개는 방 하나다 — 커튼월 문 3개는 바깥문이고, 화장실 칸막이 문 8개는 양쪽이 같은 화장실이다. 2개는 방을 못 짚는다.
+    expect(tally(calc, 'rooms')).toEqual({ 0: 2, 1: 11 })
+
+    // 층 사이: 계단실 6 + 승강로 1 = 7개 중 6개.
+    const vertical = model.storeys.flatMap((st) => st.spaces.filter((sp) => VERTICAL_KINDS.includes(sp.kind ?? '')).map((sp) => `${st.name}/${sp.name}`))
+    expect(vertical).toHaveLength(7)
+    const linked = all.filter((p) => p.kind === 'space' && Array.isArray(p.verticalConnects))
+    expect(linked).toHaveLength(6)
+    expect(vertical.filter((v) => !linked.some((p) => v.endsWith(`/${p.name}`)))).toEqual(['First Floor/E1'])
+  }, 300_000)
 
   it('벽의 평면 외곽선과 문·창의 자리를 형상에서 읽는다', async () => {
     const api = new WebIFC.IfcAPI()
