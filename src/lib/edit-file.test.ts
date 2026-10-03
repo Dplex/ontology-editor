@@ -80,7 +80,7 @@ describe('편집 저장·불러오기', () => {
     const b = read('mep.ifc')
     addUpperStorey(b)
     const result = applyEdits(b, parsed)
-    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 })
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0, storeys: 0 })
     expect(result.storeyMoved).toEqual([equip(b, 'AT-101-01').id])
     expect(exports(b)).toEqual(exports(a))
     // 사람이 고친 출처도 같다(좌표 출처가 편집, 종류는 사람이 정한 것).
@@ -162,7 +162,7 @@ describe('편집 저장·불러오기', () => {
     const b = reexport(read('mep.ifc'))
     addUpperStorey(b)
     const result = applyEdits(b, parsed)
-    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 })
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0, storeys: 0 })
     expect(result.rematched.name + result.rematched.position).toBeGreaterThan(0)
     expect(equip(b, 'DUCT-01').systemId).toBe(null)
     expect(b.systems[0].kind).toBe('return_air')

@@ -1168,6 +1168,26 @@ th {
   white-space: nowrap;
 }
 
+/* 층 단위 진행(OE-MAN-06). 완료는 강조색, 완료 뒤 고침은 경고색(.height-mismatch 와 같다). */
+.storeys .storey-progress {
+  margin: 0 0 0.25rem;
+  /* 표 칸(th·td)과 왼쪽을 맞춘다. */
+  padding: 0 0.85rem;
+}
+
+.storeys .storey-done {
+  white-space: nowrap;
+}
+
+.storeys .done-mark {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.storeys .storey-done .link {
+  margin-left: 0.4rem;
+}
+
 /* 층고의 BIM 값과 계산한 값(윗층 바닥과의 차)이 다를 때 옆에 붙는 계산 값. */
 .storeys .height-mismatch {
   margin-left: 0.25rem;

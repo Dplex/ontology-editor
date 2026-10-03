@@ -68,7 +68,7 @@ describe('S1 — 재임포트 후 에디터 편집분 유지 (GUID 유지 전제
     // mep-v2 는 사무실과 공조기의 GUID 가 바뀌었다. GUID 로는 못 찾는다.
     expect(v2.storeys[0].spaces.map((s) => s.id)).not.toContain(OFFICE)
     const result = applyEdits(v2, file)
-    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 })
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0, storeys: 0 })
     expect(result.rematched).toEqual({ revitId: 0, name: 2, position: 0 })
 
     const x = exportOf(v2)
