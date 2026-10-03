@@ -189,3 +189,34 @@ describe('색인', () => {
     expect(total && +total[1]).toBe(all.length)
   })
 })
+
+// OE-REQ-01 "부록 A 와 정본 4장 일치". 부록 A 는 R0~R24 를 베끼지 않고 정본 4장(docs/bim-to-dt-ontology.md)을 가리키며, 정본에 아직
+// 없는 **제안**(R25 등)만 표로 둔다(부록 A 머리말). 두 곳에 두었다가 같은 R 이 한쪽은 필수, 다른 쪽은 권장이 된 일이 있어서다.
+// 여기서 그 약속을 잰다 — PRD 는 읽기만 한다.
+describe('부록 A 와 정본 4장 (OE-REQ-01)', () => {
+  const appendix = prd.slice(prd.indexOf('## 부록 A.'), prd.indexOf('## 부록 B.'))
+  const section = (from: string, to: string) => canon.slice(canon.indexOf(from), canon.indexOf(to))
+  const must = [...section('### 4.1 필수', '### 4.2 권장').matchAll(/^\| (R\d+) \|/gm)].map((m) => m[1])
+  const should = [...section('### 4.2 권장', '### 4.3').matchAll(/^\| (R\d+) \|/gm)].map((m) => m[1])
+
+  it('정본 4장이 R0~R24 를 필수 11 · 권장 14 로 한 번씩 담는다 — 제목·용어집의 개수와 같다', () => {
+    expect(must).toHaveLength(11)
+    expect(should).toHaveLength(14)
+    const byNumber = (a: string, b: string) => +a.slice(1) - +b.slice(1)
+    expect([...must, ...should].sort(byNumber)).toEqual(Array.from({ length: 25 }, (_, i) => `R${i}`))
+    expect(canon).toContain('### 4.1 필수 (11개)')
+    expect(canon).toContain('### 4.2 권장 (14개)')
+    expect(read('glossary.md')).toMatch(/요구사항 R0~R24\*\* \| [^|]*필수 11 · 권장 14/)
+  })
+
+  it('부록 A 는 정본을 가리키고, 표에는 정본에 없는 제안만 둔다', () => {
+    // 링크가 실제 파일을 가리킨다(docs/prd/ 기준 상대 경로).
+    const links = [...appendix.matchAll(/\]\((\.\.\/[^)]+)\)/g)].map((m) => m[1])
+    expect(links).toEqual(expect.arrayContaining(['../bim-to-dt-ontology.md', '../requirements.ids']))
+    for (const l of links) expect(() => statSync(PRD + l), l).not.toThrow()
+    // 표의 R 은 정본 4장에 없다. 채택되면 정본·IDS·보고서로 옮기고 여기서 뺀다.
+    const proposed = [...appendix.matchAll(/^\| (R\d+) \|/gm)].map((m) => m[1])
+    for (const r of proposed) expect([r, must.includes(r) || should.includes(r)]).toEqual([r, false])
+    expect(proposed.every((r) => +r.slice(1) > 24)).toBe(true)
+  })
+})
