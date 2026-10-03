@@ -3183,6 +3183,14 @@ main.has-model .catalog {
   fill: var(--accent);
 }
 
+/* Shift+끌기 고르기 상자(OE-UI-09). */
+.floor-plan .box-select {
+  fill: var(--accent-soft);
+  fill-opacity: 0.5;
+  stroke: var(--accent);
+  pointer-events: none;
+}
+
 .floor-plan .edit-ring polygon {
   fill: none;
   stroke: var(--accent);
@@ -3419,4 +3427,14 @@ button.done::after {
   .swap-leave-active {
     transition: none;
   }
+}
+
+/* 여러 개 고른 설비 패널(OE-UI-09). 이름 옆의 종류는 띄워 쓴다. */
+.group-picked .group-list {
+  margin: 0.5rem 0;
+  padding-left: 1.1rem;
+}
+
+.group-picked .group-list .muted {
+  margin-left: 0.4rem;
 }

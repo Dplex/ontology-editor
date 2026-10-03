@@ -764,8 +764,143 @@ const mmOf = (v: number) => Math.round(v * 1000) / 1000
 function dropEquipment(equipmentId: string, delta: Vec3) {
   const position = equipmentById.value.get(equipmentId)?.position
   if (!position) return
+  // 여러 개 고른 것 중 하나를 끌었으면 전부 같은 거리만큼(OE-UI-09).
+  if (group.value.includes(equipmentId)) {
+    moveGroup(delta[0], delta[1], { id: equipmentId, drawnAt: [position[0] + delta[0], position[1] + delta[1], position[2]] })
+    return
+  }
   const drawnAt: Vec3 = [position[0] + delta[0], position[1] + delta[1], position[2]]
   relocate(equipmentId, [cm(drawnAt[0]), cm(drawnAt[1]), position[2]], drawnAt)
+}
+
+// --- 여러 개 고르기 (OE-UI-09) -------------------------------------------------------------
+//
+// 설비만 여러 개 고른다(2026-10-03 사용자 결정). 편집 모드에서 Shift+클릭(3D·평면도·설비 목록)으로 넣고 빼고, Shift+끌기로 상자 안의
+// 설비를 더한다. 덕트·배관은 넣지 않는다(상자에 수백 개가 딸려 온다). 둘 이상이면 고른 설비 패널 대신 묶음 패널이 뜨고, 방향키·끌기로
+// 같이 옮기고 Delete 로 같이 지운다 — 되돌리기 한 번에 전부. 하나만 남으면 보통 고르기로 돌아간다.
+const group = ref<string[]>([])
+/** 여러 개 고르기에 넣을 수 있는가. 좌표가 있는 기기(덕트·배관이 아닌 것)만. */
+const groupable = (id: string) => {
+  const e = equipmentById.value.get(id)
+  return !!e && !isConduit(e.role)
+}
+function setGroup(ids: readonly string[]) {
+  const next = [...new Set(ids)].filter(groupable)
+  if (next.length >= 2) {
+    group.value = next
+    selectedId.value = null
+    selectedSpaceId.value = null
+    selectedSystemId.value = null
+    selectedElementId.value = null
+    selectedCustomZoneId.value = null
+  } else {
+    group.value = []
+    selectedId.value = next[0] ?? null
+  }
+}
+/** Shift+클릭. 고른 하나가 있으면 그것부터 묶음에 넣는다. */
+function toggleGroup(id: string) {
+  if (!groupable(id)) {
+    note('덕트·배관은 여러 개 고르기에 넣지 않습니다')
+    return
+  }
+  const base = group.value.length ? group.value : selectedId.value ? [selectedId.value] : []
+  setGroup(base.includes(id) ? base.filter((x) => x !== id) : [...base, id])
+}
+/** Shift+끌기 상자. 덕트·배관을 빼고 지금 묶음에 더한다. */
+function addBoxToGroup(ids: readonly string[]) {
+  const devices = ids.filter(groupable)
+  if (!devices.length) return note('상자 안에 고를 설비가 없습니다(덕트·배관은 빼고 셉니다)')
+  const base = group.value.length ? group.value : selectedId.value ? [selectedId.value] : []
+  setGroup([...base, ...devices])
+  if (group.value.length) note(`설비 ${group.value.length}대를 골랐습니다. 방향키·끌기로 같이 옮기고 Delete 로 같이 지웁니다`)
+}
+const groupItems = computed(() => group.value.map((id) => equipmentById.value.get(id)).filter((e): e is Equipment => !!e))
+
+/**
+ * 묶음을 평면으로 같이 옮긴다. 하나라도 막히면(겹침 OE-OBJ-16 · 외벽 전용 OE-OBJ-04) 아무것도 옮기지 않는다 — 일부만 옮기면 묶음의
+ * 모양이 깨진다. 묶음끼리는 같은 거리를 가니 서로의 옛 자리와 견주지 않는다. 붙은 배관은 따라오지 않는다. `dragged` 는 3D 에서 끌어
+ * 이미 그려 둔 하나다.
+ */
+function moveGroup(dx: number, dy: number, dragged?: { id: string; drawnAt: Vec3 }, coalesce?: string): boolean {
+  const m = model.value
+  const items = groupItems.value
+  if (!m || items.length < 2) return false
+  const revert = () => {
+    const was = dragged ? equipmentById.value.get(dragged.id)?.position : null
+    if (dragged && was) viewer?.shiftEquipment(dragged.id, [was[0] - dragged.drawnAt[0], was[1] - dragged.drawnAt[1], was[2] - dragged.drawnAt[2]], true)
+  }
+  if (items.some((e) => !e.position)) {
+    revert()
+    editNotice.value = '좌표가 없는 설비가 묶음에 있어 같이 옮기지 않습니다. 먼저 그 설비를 놓으세요.'
+    return false
+  }
+  const members = new Set(items.map((e) => e.id))
+  const targets = items.map((e) => ({ e, from: e.position!, to: [cm(e.position![0] + dx), cm(e.position![1] + dy), e.position![2]] as Vec3 }))
+  for (const { e, to } of targets) {
+    const home = storeyOf(e.id)
+    if (home && exteriorOnly(e) && !onExteriorFace(home, [to[0], to[1]])) {
+      revert()
+      editNotice.value = `${shortName(e.name)}: ${EXTERIOR_ONLY} 묶음을 옮기지 않았습니다.`
+      return false
+    }
+    const blocked = overlapAt(m, e.id, to, currentBox, undefined, members)
+    if (blocked) {
+      revert()
+      const name = shortName(blocked.name)
+      editNotice.value = `이미 오브젝트가 있는 위치입니다(${shortName(e.name)}${josa(shortName(e.name), '이/가')} ${name}${josa(name, '과/와')} 겹칩니다). 묶음을 옮기지 않았습니다.`
+      viewer?.markConflict(blocked.id)
+      return false
+    }
+  }
+  const snapshot: Snapshot = { kind: 'many', parts: targets.flatMap(({ e }) => snapshotEquipment(m, e.id) ?? []) }
+  const at = mark()
+  const done: Change[] = []
+  for (const { e, to } of targets) {
+    const change = moveEquipment(m, e.id, to)
+    if (change) done.push(change)
+  }
+  remember(`설비 ${items.length}대 옮김`, snapshot, at, coalesce)
+  for (const { e, from, to } of targets) {
+    if (dragged?.id === e.id) shiftMesh(e.id, from, dragged.drawnAt)
+    moveInScene(e.id, dragged?.id === e.id ? dragged.drawnAt : from, to)
+  }
+  changes.value = [...changes.value, ...done]
+  triggerRef(model)
+  return true
+}
+/** 방향키로 묶음을 옮긴다. 화면의 오른쪽·위쪽에 가장 가까운 평면 축으로(한 대 옮기기와 같다). 꾹 누르면 되돌리기 한 단계로 묶인다. */
+function nudgeGroup(code: string, step: number): boolean {
+  if (!viewer) return false
+  const { right, up } = viewer.planeAxes()
+  const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
+  const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
+  if (moveGroup(sign * ax * step, sign * ay * step, undefined, 'group-nudge')) note(`설비 ${group.value.length}대를 같이 옮겼습니다`)
+  return true
+}
+/** 묶음을 같이 지운다. 붙은 연결도 같이 빠지고, 되돌리기 한 번에 전부 돌아온다. */
+function deleteGroup(): boolean {
+  const m = model.value
+  const items = groupItems.value
+  if (!m || items.length < 2) return false
+  const parts = items.flatMap((e) => snapshotEquipmentSet(m, e.id) ?? [])
+  const at = mark()
+  let connections = 0
+  let rules: RuleReport | null = null
+  for (const e of items) {
+    const done = deleteEquipment(m, e.id)
+    if (!done) continue
+    connections += done.connections
+    rules = done.rules
+  }
+  remember(`설비 ${items.length}대 지우기`, { kind: 'many', parts }, at)
+  if (rules) ruleReport.value = rules
+  group.value = []
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+  note(`설비 ${items.length}대를 지웠습니다${connections ? `(연결 ${connections}개도 같이)` : ''}. Ctrl+Z 로 되돌립니다`)
+  return true
 }
 
 /** 설비를 다른 층으로(E6). 높이도 두 층 바닥의 차만큼 옮기므로 3D 를 다시 그린다. */
@@ -1144,6 +1279,8 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
     case 'vertexInsert':
       return editVertex('insert')
     case 'vertexDelete':
+      // 여러 개 고른 설비가 있으면 같이 지운다(OE-UI-09). 없으면 짚은 꼭짓점 지우기.
+      if (group.value.length >= 2) return deleteGroup()
       return editVertex('delete')
     case 'drawFinish':
       return finishDraw()
@@ -1189,6 +1326,8 @@ function clearSelection(): boolean {
     const what = adding.value.what
     stopAdd()
     note(what === 'equipment' ? '설비 더하기를 취소했습니다' : what === 'door' ? '문 놓기를 취소했습니다' : '창 놓기를 취소했습니다')
+  } else if (group.value.length) {
+    group.value = []
   } else if (selectedElementId.value) {
     selectedElementId.value = null
   } else if (selectedCustomZoneId.value) {
@@ -1221,6 +1360,7 @@ function frameSelection(): boolean {
 
 /** 방향키. 화면의 오른쪽·위쪽에 가장 가까운 평면 축으로 옮긴다(snapAxis). */
 function nudge(code: string, step: number): boolean {
+  if (group.value.length >= 2) return nudgeGroup(code, step)
   if (!selected.value && selectedElement.value && viewer) return nudgeElement(code, step)
   if (!selected.value && selectedSpace.value && viewer) return nudgeVertex(code, step)
   const e = selected.value
@@ -1496,10 +1636,13 @@ watch([model, canvas], ([m, el]) => {
   if (!m || !el) return
   if (!viewer) {
     viewer = createViewer(el)
-    viewer.onPick((id) => {
+    viewer.onPick((id, additive) => {
       if (connectFrom.value && id) return connectTo(id)
+      if (additive && id) return toggleGroup(id)
+      group.value = []
       selectedId.value = id
     })
+    viewer.onBoxSelect(addBoxToGroup)
     viewer.onHover(onHover)
     viewer.onPlace((at) => placeAt(at))
     viewer.onPickSpace(pickSpace)
@@ -2529,8 +2672,14 @@ function toggleSystem(id: string) {
   if (selectedSystemId.value) selectedId.value = null
 }
 
-watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRow, openCheck, selectedSpace, sceneVersion], () => {
+watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRow, openCheck, selectedSpace, sceneVersion, group], () => {
   if (!viewer) return
+
+  // 여러 개 고른 설비(OE-UI-09). 고른 색으로 칠하고 나머지는 흐리게 하지 않는다(흐린 것은 Shift+클릭으로 더할 수 없다).
+  if (group.value.length >= 2) {
+    viewer.setHighlight({ selected: null, upstream: new Set(), downstream: new Set(), linked: new Set(), group: new Set(group.value) })
+    return
+  }
 
   const t = traced.value
   if (selectedId.value && t) {
@@ -3510,6 +3659,16 @@ watch(editing, (on) => {
 // 이 층을 켠 동안에는 숨기고 끌 때 다시 그린다.
 const archMode = ref(false)
 const selectedElementId = ref<string | null>(null)
+// 여러 개 고르기(OE-UI-09): 다른 것을 고르거나 편집을 끝내면 묶음을 푼다. 지운 설비는 묶음에서 빠진다. 고른 것들이 다 선언된 뒤라 여기 둔다.
+watch([selectedId, selectedSpaceId, selectedSystemId, selectedElementId, selectedCustomZoneId], (now) => {
+  if (now.some(Boolean) && group.value.length) group.value = []
+})
+watch(editing, (on) => {
+  if (!on) group.value = []
+})
+watch(model, () => {
+  if (group.value.length && group.value.some((id) => !equipmentById.value.has(id))) setGroup(group.value.filter((id) => equipmentById.value.has(id)))
+})
 // 커스텀존을 고르면 다른 고른 것을 풀고, 다른 것을 고르면 커스텀존을 푼다(패널은 하나만 뜬다).
 watch([selectedId, selectedSpaceId, selectedElementId], ([a, b, c]) => {
   if (a || b || c) selectedCustomZoneId.value = null
@@ -5172,7 +5331,9 @@ async function export3D(format: 'glb' | 'obj') {
               :selected-element-id="selectedElementId"
               :editing="editing"
               :pick-walls="editing && archMode"
-              @select="select"
+              :group="group"
+              @select="(id, additive) => (editing && additive ? toggleGroup(id) : select(id))"
+              @select-box="addBoxToGroup"
               @pick-space="pickSpace"
               @pick-element="selectedElementId = $event"
               @move-vertex="dropVertex"
@@ -5305,7 +5466,10 @@ async function export3D(format: 'glb' | 'obj') {
           <p v-if="editNotice" class="edit-notice" role="alert">{{ editNotice }}</p>
           <p v-else-if="keyNote" class="hint pick-hint key-note" role="status">{{ keyNote }}</p>
           <p v-else-if="editing" class="hint pick-hint">
-            <template v-if="selectedSpace">
+            <template v-if="groupItems.length >= 2">
+              설비 {{ groupItems.length }}대 · <kbd>←↑→↓</kbd>·끌기: 같이 옮기기 · <kbd>Delete</kbd>: 같이 지우기 · <kbd>Shift</kbd>+클릭: 넣고 빼기 · <kbd>Esc</kbd>: 풀기
+            </template>
+            <template v-else-if="selectedSpace">
               파란 손잡이 끌기 또는 <kbd>[ ]</kbd> 후 <kbd>←↑→↓</kbd>: 꼭짓점 옮기기 · <kbd>F</kbd>: 이 물리존 보기
             </template>
             <template v-else-if="selected">
@@ -5320,7 +5484,7 @@ async function export3D(format: 'glb' | 'obj') {
               <kbd>U</kbd>: 종류 모르는 설비로
             </template>
             <template v-else>
-              설비 클릭: 고르기 · 고른 설비 끌기: 옮기기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
+              설비 클릭: 고르기 · <kbd>Shift</kbd>+클릭·끌기: 여러 개 · 고른 설비 끌기: 옮기기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
               <kbd>U</kbd>: 종류 모르는 설비로
             </template>
             · <button type="button" class="link" @click="helpOpen = true">단축키 전체 <kbd>?</kbd></button>
@@ -5340,7 +5504,33 @@ async function export3D(format: 'glb' | 'obj') {
         <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
         <!-- 고른 것이 바뀌면 패널을 살짝 갈아 끼운다. 같은 것을 고친 것은 key 가 같아 가만히 있고, 바뀐 값만 v-flash 가 번쩍인다. -->
         <Transition name="swap" mode="out-in">
-        <section v-if="selected" :key="`e:${selected.id}`" class="picked">
+        <!-- 여러 개 고른 설비(OE-UI-09). 방향키·끌기로 같이 옮기고 Delete 로 같이 지운다. 되돌리기 한 번에 전부. -->
+        <section v-if="groupItems.length >= 2" key="group" class="picked group-picked">
+          <div class="picked-head">
+            <div>
+              <h3>설비 {{ groupItems.length }}대 고름</h3>
+              <p class="stats">{{ [...new Set(groupItems.map((e) => storeyOf(e.id)?.name ?? ''))].filter(Boolean).join(' · ') }}</p>
+            </div>
+            <div class="picked-actions">
+              <button type="button" class="ghost" @click="group = []">선택 해제</button>
+            </div>
+          </div>
+          <ul class="group-list">
+            <li v-for="e in groupItems.slice(0, 12)" :key="e.id">
+              <button type="button" class="link" :title="'이 설비만 고르기'" @click="select(e.id)">{{ shortName(e.name) }}</button>
+              <span v-if="whatIs(e)" class="muted"> {{ whatIs(e)!.label }}</span>
+            </li>
+            <li v-if="groupItems.length > 12" class="muted">외 {{ groupItems.length - 12 }}대</li>
+          </ul>
+          <p class="hint">
+            <kbd>←↑→↓</kbd>·끌기: 같이 옮기기(<kbd>Shift</kbd> 1m) · <kbd>Shift</kbd>+클릭: 넣고 빼기 · <kbd>Shift</kbd>+끌기: 상자로 더하기 ·
+            <kbd>Esc</kbd>: 풀기. 붙은 배관은 따라오지 않습니다.
+          </p>
+          <p class="picked-actions">
+            <button type="button" class="ghost danger" @click="deleteGroup()">설비 {{ groupItems.length }}대 지우기 <kbd>Delete</kbd></button>
+          </p>
+        </section>
+        <section v-else-if="selected" :key="`e:${selected.id}`" class="picked">
           <div class="picked-head">
             <div>
               <h3>{{ selected.name || '(이름 없음)' }}</h3>
@@ -7026,11 +7216,11 @@ async function export3D(format: 'glb' | 'obj') {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="e in editEquipment.slice(0, editLimit)" :key="e.id" :class="{ chosen: e.id === selectedId }">
+                <tr v-for="e in editEquipment.slice(0, editLimit)" :key="e.id" :class="{ chosen: e.id === selectedId || group.includes(e.id) }">
                   <td>
                     <!-- 표에서 고른 것과 3D 에서 고른 것이 같은 선택이다. 두 화면이 따로 놀면
                          설비 목록에서 찾은 것을 3D 에서 다시 찾아야 한다. -->
-                    <button type="button" class="link" @click="selectAndShow(e.id)">{{ e.name || e.ifcClass }}</button>
+                    <button type="button" class="link" @click="editing && $event.shiftKey ? toggleGroup(e.id) : selectAndShow(e.id)">{{ e.name || e.ifcClass }}</button>
                   </td>
                   <td class="muted">
                     {{ e.ifcClass }}<template v-if="whatIs(e)"> · {{ whatIs(e)!.label }} <Src :kind="whatIs(e)!.src" /></template>

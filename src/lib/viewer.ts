@@ -139,6 +139,11 @@ export type Highlight = {
    * 3D 의 색이 달라지면, 켠 계통이 범례에서 짚은 그 계통인지 알 수 없다.
    */
   keepColor?: boolean
+  /**
+   * 여러 개 고른 설비(OE-UI-09). 고른 색으로 칠하고, 나머지는 흐리게 하지 않는다 — 흐리게 칠한 것은 고를 수 없어 Shift+클릭으로
+   * 더 넣지 못한다. 끌기는 이 중 어느 것을 잡아도 된다(놓으면 화면이 전부 같은 거리만큼 옮긴다).
+   */
+  group?: ReadonlySet<string>
 }
 
 /**
@@ -236,8 +241,10 @@ export type Viewer = {
   setModel(model: Model, meshes?: MeshMap, options?: { keepView?: boolean }): void
   /** 선택과 상류·하류를 색으로 칠한다. null 이면 전부 원래 색으로 되돌린다. */
   setHighlight(highlight: Highlight | null): void
-  /** 3D 에서 설비를 고르면 부른다. 빈 곳을 누르면 null 이다. */
-  onPick(handler: (id: string | null) => void): void
+  /** 3D 에서 설비를 고르면 부른다. 빈 곳을 누르면 null 이다. 편집 모드에서 Shift 를 누른 채면 `additive`(여러 개 고르기, OE-UI-09). */
+  onPick(handler: (id: string | null, additive?: boolean) => void): void
+  /** 편집 모드에서 Shift 를 누른 채 끌어 그린 상자 안의 설비(OE-UI-09). 화면에 보이는(숨기지 않은) 것만, 형상 중심이 상자 안이면. */
+  onBoxSelect(handler: (ids: string[]) => void): void
   /**
    * 마우스가 움직일 때마다(한 프레임에 한 번) 그 아래에 무엇이 있는지 알린다. 캔버스를 벗어나거나 끄는 중이면 null.
    * at 은 화면(클라이언트) 좌표다. 누르지 않고도 무엇인지 알 수 있게 하는 설명 풍선이 쓴다.
@@ -428,7 +435,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const o of customZones.children) o.visible = storeyShown(o)
     dirty = true
   }
-  let pickHandler: (id: string | null) => void = () => {}
+  let pickHandler: (id: string | null, additive?: boolean) => void = () => {}
+  let boxHandler: (ids: string[]) => void = () => {}
+  /** Shift+끌기로 그리는 고르기 상자(OE-UI-09). 화면 좌표의 시작점과 그리는 DOM 상자. */
+  let box: { x: number; y: number; el: HTMLDivElement } | null = null
   let hoverCb: (target: HoverTarget | null, at: { x: number; y: number } | null) => void = () => {}
   const hoverHandler = (target: HoverTarget | null, at: { x: number; y: number } | null) => {
     markHover(target)
@@ -474,6 +484,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let editMode = false
   let dark = false
   let selectedPart: string | null = null
+  /** 끌 수 있는 설비. 고른 것 하나, 여러 개 골랐으면 그 전부(OE-UI-09). */
+  let grabIds: ReadonlySet<string> = new Set()
   /** 좌표가 있는 설비. 좌표가 없는 것은 끌지 않는다 — 끌면 원점 근처 어딘가에서 시작한 것이 된다. */
   let movable = new Set<string>()
   /** 물리존 판의 윗면. 편집 모드에서 바닥을 눌러 물리존을 고를 때 쓴다. */
@@ -864,6 +876,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       // 화살표 위에서 누른 것은 떼면서 방향을 바꾸는 누르기다. 끌기를 시작하지 않는다.
       if (hitArrow(e.clientX, e.clientY)) return
       const ray = rayAt(e.clientX, e.clientY)
+      // Shift+끌기는 고르기 상자다(OE-UI-09). 고른 설비 위에서 시작하면 그 설비들을 끄는 것이고, 손잡이·놓기 모드는 그쪽이 먼저다.
+      // 시점의 Shift+끌기(이동)는 오른쪽 버튼 끌기로 한다.
+      if (e.shiftKey && placeElevation === null && hitHandle(e.clientX, e.clientY) === null && !grabbable(ray)) {
+        const el = document.createElement('div')
+        el.className = 'box-select'
+        Object.assign(el.style, { position: 'absolute', pointerEvents: 'none', border: '1px dashed currentColor', background: 'rgba(47, 111, 237, 0.08)', zIndex: '5' })
+        canvas.parentElement?.appendChild(el)
+        box = { x: e.clientX, y: e.clientY, el }
+        drawBox(e.clientX, e.clientY)
+        controls.enabled = false
+        canvas.setPointerCapture(e.pointerId)
+        e.stopImmediatePropagation()
+        return
+      }
       const start = new Vector3()
       let next: Drag | null = null
       const index = hitHandle(e.clientX, e.clientY)
@@ -894,6 +920,18 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     { capture: true },
   )
   canvas.addEventListener('pointerup', (e) => {
+    if (box) {
+      const b = box
+      box = null
+      b.el.remove()
+      controls.enabled = true
+      // 거의 안 끌었으면 Shift+클릭이다 — 아래로 내려가 그 자리의 설비를 하나 더한다.
+      if (Math.hypot(e.clientX - b.x, e.clientY - b.y) > 4) {
+        pressedAt = null
+        boxHandler(partsInBox(b.x, b.y, e.clientX, e.clientY))
+        return
+      }
+    }
     if (drag) {
       const moved = drag.moved
       const kind = drag.kind
@@ -925,11 +963,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       }
     }
     const ray = rayAt(e.clientX, e.clientY)
-    const id = pick(ray)
+    const additive = editMode && e.shiftKey
+    const id = pick(ray, additive)
     if (id) {
-      pickHandler(id)
+      pickHandler(id, additive)
       return
     }
+    // Shift 를 누른 채 빈 곳을 누른 것은 고른 것을 버리는 누르기가 아니다.
+    if (additive) return
     // 보기 모드에서도 바닥을 누르면 그 물리존을 보인다(이름·넓이·든 설비). 고치는 칸은 편집 모드에만 뜬다.
     if (!editMode) {
       const space = pickSpace(ray)
@@ -965,6 +1006,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let hoverAt: { x: number; y: number } | null = null
   let hoverPending = false
   canvas.addEventListener('pointermove', (e) => {
+    if (box) {
+      drawBox(e.clientX, e.clientY)
+      return
+    }
     // 끌거나 시점을 돌리는 동안에는 설명 풍선을 숨긴다. 그대로 두면 옛 자리에 떠 있다.
     if (drag || e.buttons !== 0) hoverHandler(null, null)
     if (drag) {
@@ -1040,10 +1085,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const b = new Vector3()
   const c = new Vector3()
   const hitPoint = new Vector3()
-  function pick(ray: Ray): string | null {
+  /** `faded` 면 흐리게 칠한 것도 고른다 — 하나를 고르면 상관없는 것이 흐려지는데, Shift+클릭으로 그것을 더하려면 잡혀야 한다(OE-UI-09). */
+  function pick(ray: Ray, faded = false): string | null {
     const candidates: { part: Part; d: number }[] = []
     for (const part of parts) {
-      if (fadedIds.has(part.id) || hiddenIds.has(part.id)) continue
+      if ((!faded && fadedIds.has(part.id)) || hiddenIds.has(part.id)) continue
       if (ray.intersectBox(part.box, hitPoint)) candidates.push({ part, d: hitPoint.distanceToSquared(ray.origin) })
     }
     candidates.sort((x, y) => x.d - y.d)
@@ -1076,11 +1122,33 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     return false
   }
 
-  /** 끌 수 있는 것: 고른 설비이고 좌표가 있고 흐리게 칠해지지 않았다. */
+  /** 끌 수 있는 것: 고른 설비(여러 개면 그 중 하나)이고 좌표가 있고 흐리게 칠해지지 않았다. */
   function grabbable(ray: Ray): Part | null {
-    const part =
-      selectedPart && movable.has(selectedPart) && !fadedIds.has(selectedPart) && !hiddenIds.has(selectedPart) ? partById.get(selectedPart) : undefined
-    return part && hitsPart(ray, part) ? part : null
+    for (const id of grabIds) {
+      const part = movable.has(id) && !fadedIds.has(id) && !hiddenIds.has(id) ? partById.get(id) : undefined
+      if (part && hitsPart(ray, part)) return part
+    }
+    return null
+  }
+
+  /** 상자 안(화면 좌표)에 형상 중심이 드는 설비. 숨긴 층은 뺀다. 흐리게 칠한 것은 넣는다(하나를 고르면 나머지가 흐려진다). */
+  function partsInBox(x0: number, y0: number, x1: number, y1: number): string[] {
+    const [l, r, t, b] = [Math.min(x0, x1), Math.max(x0, x1), Math.min(y0, y1), Math.max(y0, y1)]
+    const out: string[] = []
+    const center = new Vector3()
+    for (const part of parts) {
+      if (hiddenIds.has(part.id) || part.box.isEmpty()) continue
+      const at = toScreen(part.box.getCenter(center))
+      if (at && at.x >= l && at.x <= r && at.y >= t && at.y <= b) out.push(part.id)
+    }
+    return out
+  }
+  function drawBox(x: number, y: number) {
+    if (!box?.el.parentElement) return
+    // 상자는 캔버스의 부모(.canvas-wrap, position: relative) 안에 그린다.
+    const parent = box.el.parentElement.getBoundingClientRect()
+    const [l, t] = [Math.min(box.x, x) - parent.left, Math.min(box.y, y) - parent.top]
+    Object.assign(box.el.style, { left: `${l}px`, top: `${t}px`, width: `${Math.abs(x - box.x)}px`, height: `${Math.abs(y - box.y)}px` })
   }
 
   function resize() {
@@ -1668,20 +1736,22 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setHighlight(highlight) {
       // 끌 수 있는 것은 고른 설비 하나다(pointerdown 참조).
       selectedPart = highlight?.selected ?? null
+      grabIds = highlight?.group ? new Set(highlight.group) : selectedPart ? new Set([selectedPart]) : new Set()
       if (hoverAt) hoverPending = true
       const nextFaded = new Set<string>()
       for (const part of parts) {
         const id = part.id
         let next = part.color
         if (highlight) {
-          if (id === highlight.selected) next = PICK_COLORS.selected
+          if (id === highlight.selected || highlight.group?.has(id)) next = PICK_COLORS.selected
           else if (highlight.upstream.has(id)) next = PICK_COLORS.upstream
           else if (highlight.downstream.has(id)) next = PICK_COLORS.downstream
           else if (highlight.ruleUpstream?.has(id)) next = PICK_COLORS.ruleUpstream
           else if (highlight.ruleDownstream?.has(id)) next = PICK_COLORS.ruleDownstream
           else if (highlight.linked.has(id)) next = highlight.keepColor ? part.color : PICK_COLORS.linked
-          // 고른 것과 상관없는 설비는 흐리게 한다. 지우지 않으면 연결망이 숲에 묻힌다.
-          else nextFaded.add(id)
+          // 고른 것과 상관없는 설비는 흐리게 한다. 지우지 않으면 연결망이 숲에 묻힌다. 여러 개 고르는 중에는 흐리게 하지 않는다 —
+          // 흐린 것은 고를 수 없다.
+          else if (!highlight.group) nextFaded.add(id)
         }
         paintPart(part, next)
       }
@@ -1704,6 +1774,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       wallsVisible = on
       if (walls) walls.visible = on
       dirty = true
+    },
+
+    onBoxSelect(handler) {
+      boxHandler = handler
     },
 
     onPick(handler) {
