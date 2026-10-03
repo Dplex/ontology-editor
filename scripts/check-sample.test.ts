@@ -526,6 +526,15 @@ describe('임포트 피처 선택 — 끈 것은 읽지 않음 (OE-BIM-25)', () 
     expect(mergeModels(off, hvac).model.skipped).toEqual(['walls', 'doors', 'windows'])
     // 온톨로지(TTL)는 그대로다 — 벽·문·창은 TTL 에 없다.
     expect(modelToTTL(off)).toBe(modelToTTL(full))
+    // GeoJSON 층 파일 머리에 "읽지 않음" 을 적는다 — 받는 쪽이 벽 0 을 "없음" 과 가른다(2026-10-03 사용자 결정). 합쳐도, 층 하나만
+    // 구축해도(OE-GEN-11) 적힌다. 다 읽은 파일에는 칸이 없다.
+    const merged = mergeModels(off, hvac).model
+    for (const f of modelToGeoJSON(merged)) {
+      const read = readGeoJSON(f.fileName, JSON.stringify(f.collection))
+      expect({ skipped: read.skipped, problems: read.problems }, f.fileName).toEqual({ skipped: ['walls', 'doors', 'windows'], problems: [] })
+    }
+    expect(readGeoJSON('x', storeyFiles(merged, merged.storeys[1].id)!.geojson).skipped).toEqual(['walls', 'doors', 'windows'])
+    expect(modelToGeoJSON(full).filter((f) => 'skipped' in f.collection)).toEqual([])
     // 형상을 읽지 않는 만큼 빨라진다(2026-10-03 이 PC 에서 데운 뒤 770ms → 560~630ms, 두 번 잼).
     expect(offMs).toBeLessThan(fullMs)
     console.log(`병원 건축 열기 ${Math.round(fullMs)}ms → 벽·문·창 끄면 ${Math.round(offMs)}ms`)
