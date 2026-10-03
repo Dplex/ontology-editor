@@ -6105,11 +6105,11 @@ async function export3D(format: 'glb' | 'obj') {
         <Fold v-if="currentRequirements.length" title="요구사항" :meta="requirementsMeta" :default-open="false" class="requirements">
           <table class="req-table">
             <thead>
-              <tr><th>#</th><th>요구</th><th>상태</th><th class="num" title="표준 자리 · 다른 자리 / 전체">개수</th><th>설명</th></tr>
+              <tr><th>#</th><th>요구</th><th>상태</th><th class="num" title="표준 자리 · 다른 자리 / 전체">개수</th><th>설명</th><th>고객사에 할 요청</th></tr>
             </thead>
             <tbody v-for="g in requirementGroups" :key="g.level">
               <tr class="req-group">
-                <th colspan="5">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 대신 채울 방법이 없음' : ' — 없으면 계산·사전·수작업으로 채움' }}</th>
+                <th colspan="6">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 대신 채울 방법이 없음' : ' — 없으면 계산·사전·수작업으로 채움' }}</th>
               </tr>
               <tr v-for="r in g.rows" :key="r.id" v-flash="`${r.state}:${r.counts?.standard}:${r.counts?.elsewhere}`">
                 <td class="mono">{{ r.id }}</td>
@@ -6128,12 +6128,13 @@ async function export3D(format: 'glb' | 'obj') {
                   </template>
                 </td>
                 <td class="muted">{{ r.note }}</td>
+                <td class="req-ask" :class="{ setting: r.state === 'elsewhere' || (r.counts?.elsewhere ?? 0) > 0 }">{{ r.ask || '—' }}</td>
               </tr>
             </tbody>
           </table>
           <p class="hint">
-            표준 자리는 IDS(<span class="mono">docs/requirements.ids</span>) 검사도 통과합니다. 다른 자리는 값이 있어 읽을 수 있지만,
-            내보내기 설정을 바꾸면 표준 자리로 옮길 수 있습니다. 기준은 정본 4장을 보세요.
+            표준 자리는 IDS(<span class="mono">docs/requirements.ids</span>) 검사도 통과합니다. 다른 자리는 값이 있어 읽을 수 있지만
+            표준 자리가 아니라서, 고객사에 내보내기 설정을 바꿔 달라고 합니다(요청 칸에 무엇을 바꿀지). 기준은 정본 4장을 보세요.
           </p>
         </Fold>
 

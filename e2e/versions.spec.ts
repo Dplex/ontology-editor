@@ -22,8 +22,9 @@ test('이전 판본을 열면 바뀐 것을 보이고, R13 을 잰다', async ({
   // 진행 표시가 남지 않는다(열기와 같은 워커·진행 표시를 쓴다).
   await expect(page.locator('.progress-toast')).toHaveCount(0)
 
-  // 비교하면 R13 이 실측이 된다. GUID 가 남은 4개 · 다른 열쇠로 찾은 2개 / 6개.
+  // 비교하면 R13 이 실측이 된다. GUID 가 남은 4개 · 다른 열쇠로 찾은 2개 / 6개. 요청은 GUID 를 저장하는 내보내기 설정이다.
   await expect(r13).toContainText('4 · 2 / 6')
+  await expect(r13).toContainText('내보내기 설정을 바꿔 달라 — IFC GUID를 요소 매개변수에 저장')
 
   // 목록에서 고르면 3D 와 오른쪽 패널에 뜬다.
   await page.getByRole('tab', { name: /옮겨진 설비/ }).click()

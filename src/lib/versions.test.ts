@@ -207,6 +207,8 @@ describe('판본 비교 (mep.ifc → mep-v2.ifc)', () => {
     const r13 = requirementsReport(next, null, { name: 'mep.ifc', kept, rematched }).find((r) => r.id === 'R13')!
     expect(r13.state).toBe('elsewhere')
     expect(r13.counts).toEqual({ standard: 4, elsewhere: 2, of: 6 })
+    // GUID 가 바뀐 것은 내보내기 설정으로 고쳐진다(정본 4.1 "GUID 유지 설정", OE-BIM-17).
+    expect(r13.ask).toContain('내보내기 설정을 바꿔 달라 — IFC GUID를 요소 매개변수에 저장')
     expect(requirementsReport(next).find((r) => r.id === 'R13')!.state).toBe('unmeasured')
   })
 

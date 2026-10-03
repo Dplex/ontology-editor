@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import { mergeModels } from './merge'
 import type { Model } from './model'
-import { requirementsReport, type RequirementRow } from './requirements'
+import { ASK_SETTING, EXPORT_SETTING, requirementsReport, type RequirementRow } from './requirements'
 
 let mep: Model
 let rooms: Model
@@ -77,6 +77,50 @@ describe('요구사항 보고서', () => {
     for (const e of n.storeys.flatMap((x) => x.equipment)) if (e.capacity !== null) e.capacityProperty = 'Flow'
     expect(row(requirementsReport(n), 'R21')).toMatchObject({ state: 'partial', counts: { standard: 0, elsewhere: 2, of: 3 } })
     expect(row(requirementsReport(n), 'R21').note).toContain('Flow')
+  })
+
+  // OE-BIM-17 "다른 위치는 '설정을 바꿔 달라' 문구". 다른 자리가 나올 수 있는 R 을 하나씩 다른 자리로 만들어, 요청이 설정을
+  // 바꿔 달라는 말과 무엇을 바꿀지로 나오는지 본다. 한쪽만 다른 자리(일부)여도 그 몫은 설정 요청이다.
+  it('다른 자리면 요청이 늘 "내보내기 설정을 바꿔 달라" 와 무엇을 바꿀지다', () => {
+    const elsewhere: [string, Model][] = []
+    const a = structuredClone(rooms)
+    for (const s of a.storeys.flatMap((x) => x.spaces)) Object.assign(s, { omniclass: '13-15 11 34 11', omniclassSource: 'property' })
+    elsewhere.push(['R14', a])
+    const b = structuredClone(mep)
+    b.schema = 'IFC2X3'
+    elsewhere.push(['R10', b])
+    const c = structuredClone(mep)
+    for (const s of c.systems) s.source = 'property'
+    elsewhere.push(['R16', c])
+    const d = structuredClone(mep)
+    for (const e of d.storeys.flatMap((x) => x.equipment)) if (e.capacity !== null) e.capacityProperty = 'Flow'
+    elsewhere.push(['R21', d])
+    const e = structuredClone(mep)
+    const device = e.storeys.flatMap((x) => x.equipment).find((x) => x.kind && x.role !== 'segment' && x.role !== 'fitting')!
+    device.ifcClass = 'BuildingElementProxy'
+    device.declaredType = null
+    elsewhere.push(['R23', e], ['R24', e])
+    // R13 은 판본 비교를 했을 때만 잰다. GUID 가 바뀌어 다른 열쇠로 찾은 것이 다른 자리다.
+    const versions = { name: 'mep.ifc', kept: 4, rematched: 2 }
+    elsewhere.push(['R13', mep])
+    for (const [id, m] of elsewhere) {
+      const r = row(requirementsReport(m, null, id === 'R13' ? versions : null), id)
+      expect([id, r.state === 'elsewhere' || (r.counts?.elsewhere ?? 0) > 0]).toEqual([id, true])
+      expect(r.ask, id).toContain(`${ASK_SETTING} — ${EXPORT_SETTING[id]}`)
+      expect(r.ask.startsWith(ASK_SETTING), id).toBe(true)
+    }
+    // 정할 설정이 있는 R 은 위에서 다 다른 자리로 만들어 봤다.
+    expect(new Set(elsewhere.map(([id]) => id))).toEqual(new Set(Object.keys(EXPORT_SETTING)))
+  })
+
+  it('다른 자리가 아닌 상태는 설정 요청을 하지 않는다 — 표준은 요청 없음, 없음·일부는 값을 넣어 달라', () => {
+    const rows = requirementsReport(mep)
+    for (const r of rows) {
+      if (r.state === 'standard' || r.state === 'none' || r.state === 'unmeasured') expect([r.id, r.ask]).toEqual([r.id, ''])
+      if ((r.state === 'missing' || r.state === 'partial') && !(r.counts?.elsewhere ?? 0)) expect(r.ask, r.id).not.toContain(ASK_SETTING)
+    }
+    // 좌표 없는 센서: 배치를 넣어 달라. 설정으로는 안 고쳐진다(형상 중심으로 옮긴 것도 일부다 — 삽입점을 고쳐야 한다).
+    expect(row(rows, 'R11').ask).toContain('배치')
   })
 
   it('R24: 이름으로만 안 것은 다른 자리, USERDEFINED 에 유형 이름만 있으면 없음이다', () => {

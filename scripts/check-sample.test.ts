@@ -26,7 +26,7 @@ import { completenessChecks } from '../src/lib/checks'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
 import { verticalLinks } from '../src/lib/vertical'
 import { roomKind } from '../src/lib/kinds'
-import { requirementsReport } from '../src/lib/requirements'
+import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
 import { compareVersions } from '../src/lib/versions'
 import { fuzzEdits } from '../src/lib/edit-fuzz'
 import type { Model } from '../src/lib/model'
@@ -1228,6 +1228,32 @@ describe.skipIf(!hasIfctester)('IDS 를 ifctester 로 (OE-REQ-02)', () => {
     const out = JSON.parse(execFileSync(PYTHON, ['scripts/ids-check.py', 'docs/requirements.ids', ...files], { maxBuffer: 1 << 26 }).toString())
     expect(out.specifications).toBe(38)
     for (const f of files) expect(cells(out.files[f]), f).toEqual(want[f])
+  }, 600_000)
+})
+
+// OE-BIM-17 요구사항 보고서. 가진 BIM 에서 "다른 자리" 가 나온 줄은 전부 "내보내기 설정을 바꿔 달라" 와 무엇을 바꿀지를
+// 요청으로 낸다. 다른 자리를 세는 R 이 EXPORT_SETTING 밖에서 생기면(설정으로 고칠 수 없는 것을 다른 자리로 세면) 여기서 걸린다.
+describe('요구사항 보고서의 요청 (OE-BIM-17)', () => {
+  it('가진 BIM 에서 다른 자리인 줄은 모두 설정 요청이다', () => {
+    const api = new WebIFC.IfcAPI()
+    return api.Init().then(() => {
+      api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+      const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_1, CLINIC_ARCH, CLINIC_HVAC].filter((f) => existsSync(f))
+      expect(files.length).toBeGreaterThanOrEqual(2)
+      const seen = new Map<string, string[]>()
+      for (const f of files) {
+        for (const r of requirementsReport(importIfc(api, new Uint8Array(readFileSync(f))))) {
+          if (r.state !== 'elsewhere' && !(r.counts?.elsewhere ?? 0)) continue
+          expect([f, r.id, r.id in EXPORT_SETTING]).toEqual([f, r.id, true])
+          expect(r.ask.startsWith(`${ASK_SETTING} — ${EXPORT_SETTING[r.id]}`), `${f} ${r.id}`).toBe(true)
+          seen.set(r.id, [...(seen.get(r.id) ?? []), f.split('/').pop()!])
+        }
+      }
+      // 파일 하나로 재는 설정 표의 여섯이 다 실제로 나온다(2026-10-03): Revit IFC2x3 이라 R10(6개 파일), Category Code 방 분류 R14(5),
+      // System Name 계통 R16(4), 패밀리 이름으로 정한 종류 R24(3), PSet_Revit 용량 R21(3), ifc4Mep 의 Proxy 49대 R23(1).
+      // R13 은 판본 비교를 할 때만 잰다(versions.test.ts·e2e/versions.spec.ts).
+      expect([...seen.keys()].sort()).toEqual(Object.keys(EXPORT_SETTING).filter((id) => id !== 'R13').sort())
+    })
   }, 600_000)
 })
 

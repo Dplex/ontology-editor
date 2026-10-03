@@ -18,7 +18,8 @@ export type RequirementLevel = '필수' | '권장'
 
 /**
  * - `standard` 표준 자리에 있다. IDS 도 통과한다.
- * - `elsewhere` 다른 자리에 있다. 우리는 읽는다. 내보내기 설정을 바꾸면 표준 자리로 간다.
+ * - `elsewhere` 다른 자리에 있다. 우리는 읽는다. **내보내기 설정을 바꾸면** 표준 자리로 간다(EXPORT_SETTING). 모델을 고쳐야
+ *   하는 것(배치점이 형상에서 떨어짐)은 다른 자리가 아니라 일부다 — 고객사에 할 말이 다르다.
  * - `partial` 일부만 있다.
  * - `missing` 없다.
  * - `none` 이 파일에는 해당하는 것이 없다(건축 파일의 설비처럼).
@@ -35,6 +36,47 @@ export type RequirementRow = {
   counts: { standard: number; elsewhere: number; of: number } | null
   /** 무엇을 셌는지, 다른 자리면 어디인지, 없으면 우리가 무엇으로 메우는지. */
   note: string
+  /**
+   * 고객사에 할 요청(정본 4장 "상태" 표의 셋째 칸). 표준·해당 없음이면 빈 문자열. 다른 자리면 늘 ASK_SETTING 으로 시작하고
+   * 무엇을 바꿀지(EXPORT_SETTING)를 붙인다(OE-BIM-17).
+   */
+  ask: string
+}
+
+/** 다른 자리일 때 고객사에 하는 요청의 첫머리. 정본 4장 "상태" 표와 같은 말이다. */
+export const ASK_SETTING = '내보내기 설정을 바꿔 달라'
+
+/**
+ * 다른 자리를 표준 자리로 옮기는 내보내기 설정. **다른 자리를 셀 수 있는 R 은 여기 다 있어야 한다** — "다른 자리" 라고 하면서
+ * 무엇을 바꿔 달라는지 말하지 못하면 고객사에 할 말이 없다. requirements.test.ts 가 다른 자리가 나온 줄마다 이 표를 본다.
+ * IfcExportAs·IfcExportType 은 Revit 의 IFC 내보내기 매개변수 이름이다.
+ */
+export const EXPORT_SETTING: Readonly<Record<string, string>> = {
+  R10: 'IFC 버전을 IFC4로',
+  // 정본 4.1 의 R13 은 "GUID 유지 설정" 이다. 같은 Revit 으로 다시 낸 Duplex MEP 에서 설비 63% 의 GUID 가 바뀌었다 — 모델이 아니라
+  // 내보내기가 GUID 를 새로 지은 것이다. Revit IFC 내보내기의 "내보낸 뒤 IFC GUID 를 요소 매개변수에 저장" 을 켜면 다음 판본이 같은 GUID 로 나간다.
+  R13: 'IFC GUID를 요소 매개변수에 저장해 다음 내보내기에도 같은 GUID로',
+  R14: '방 분류를 분류 관계(IfcClassificationReference)로 — 지금은 Category Code 속성에만 있다',
+  R16: '계통을 IfcSystem으로 — 지금은 System Name 속성에만 있다',
+  R21: '용량 속성을 표준 Pset 이름으로 매핑(속성 매핑 파일)',
+  R23: '설비를 Proxy 대신 알맞은 IFC 클래스로(IfcExportAs)',
+  R24: '설비 종류를 PredefinedType으로(IfcExportType)',
+}
+
+/** 없음·일부에서 "값을 넣어 달라" 보다 구체적으로 할 말이 있는 것. */
+const FIX: Readonly<Record<string, string>> = {
+  R7: 'IfcMapConversion을 넣어 달라(또는 기준점을 협의)',
+  R11: '좌표 없는 설비에 배치를, 배치점이 형상에서 떨어진 설비는 삽입점을 형상 위로 고쳐 달라',
+}
+
+function askOf(id: string, level: RequirementLevel, state: RequirementState, counts: RequirementRow['counts']): string {
+  if (state === 'standard' || state === 'none' || state === 'unmeasured') return ''
+  const fill = FIX[id] ?? (level === '필수' ? '값을 넣어 달라' : '값을 넣어 달라, 또는 우리가 보완한 값을 확인해 달라')
+  if (state === 'elsewhere' || (counts?.elsewhere ?? 0) > 0) {
+    const setting = `${ASK_SETTING} — ${EXPORT_SETTING[id] ?? '(정할 설정이 없다)'}`
+    return state === 'elsewhere' ? setting : `${setting}. 나머지는 ${fill}`
+  }
+  return fill
 }
 
 /** 정본 4.1·4.2 의 R 번호와 등급. */
@@ -112,8 +154,8 @@ export function requirementsReport(
   // 두 파일을 합치면 `IFC2X3 + IFC4` 처럼 적힌다. 둘 다 IFC4 여야 IFC4 다.
   const ifc4 = model.schema.split(' + ').every((x) => x.toUpperCase().startsWith('IFC4'))
 
-  const rows = new Map<string, Omit<RequirementRow, 'id' | 'level' | 'title'>>()
-  const set = (id: string, row: Omit<RequirementRow, 'id' | 'level' | 'title'>) => rows.set(id, row)
+  const rows = new Map<string, Omit<RequirementRow, 'id' | 'level' | 'title' | 'ask'>>()
+  const set = (id: string, row: Omit<RequirementRow, 'id' | 'level' | 'title' | 'ask'>) => rows.set(id, row)
   const unmeasured = (note: string) => ({ state: 'unmeasured' as const, counts: null, note })
 
   set('R0', { state: 'standard', counts: null, note: '문제없이 열립니다.' })
@@ -186,10 +228,11 @@ export function requirementsReport(
   {
     const placed = devices.filter((e) => e.position !== null)
     const moved = placed.filter((e) => e.positionSource === 'geometry').length
+    // 형상 중심으로 옮긴 설비는 "다른 자리" 가 아니다 — 설정을 바꿔서는 고쳐지지 않고 모델의 삽입점을 고쳐야 한다(OE-BIM-17).
     set('R11', {
-      ...counted(placed.length - moved, moved, devices.length),
+      ...counted(placed.length - moved, 0, devices.length),
       note: moved > 0
-        ? `배치점이 형상과 떨어져 있어 형상 중심을 쓴 설비가 ${moved}대입니다(다른 자리). 위치가 없는 설비는 미배치 목록으로 갑니다.`
+        ? `배치점이 형상과 떨어져 있어 형상 중심을 쓴 설비가 ${moved}대입니다(계산, 표준에서 뺌). 위치가 없는 설비는 미배치 목록으로 갑니다.`
         : '위치가 있는 설비입니다. 위치가 없는 설비는 미배치 목록으로 갑니다.',
     })
   }
@@ -202,6 +245,7 @@ export function requirementsReport(
 
   if (!versions) set('R13', unmeasured('판본 비교에서 이전 판본을 열면 잴 수 있습니다.'))
   else set('R13', {
+    // 다른 열쇠로 찾은 것은 다른 자리다 — 내보내기가 GUID 를 새로 지은 것이라 설정으로 고쳐진다(EXPORT_SETTING.R13).
     ...counted(versions.kept, versions.rematched, versions.kept + versions.rematched),
     note: `이전 판본(${versions.name})과 비교. 양쪽에 있는 물리존·설비 중 GUID가 그대로인 것입니다` +
       (versions.rematched ? `. 다른 자리 ${versions.rematched}개는 GUID가 바뀌어 Revit 요소 ID·이름·위치로 찾았습니다. 편집은 적용되지만 DT 쪽 id는 바뀝니다.` : '.'),
@@ -335,5 +379,8 @@ export function requirementsReport(
     })
   }
 
-  return REQUIREMENTS.map((r) => ({ ...r, ...rows.get(r.id)! }))
+  return REQUIREMENTS.map((r) => {
+    const row = rows.get(r.id)!
+    return { ...r, ...row, ask: askOf(r.id, r.level, row.state, row.counts) }
+  })
 }

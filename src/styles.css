@@ -423,6 +423,16 @@ th {
   color: var(--error);
 }
 
+/* 고객사에 할 요청(OE-BIM-17). 설정만 바꾸면 되는 것을 값 넣기와 갈라 보이게 굵게. */
+.req-ask {
+  font-size: 0.85rem;
+  min-width: 12rem;
+}
+.req-ask.setting {
+  color: var(--warn-fg);
+  font-weight: 560;
+}
+
 /* 파일 덧붙이기. 주 동작(파일 열기)보다 한 단 낮은 버튼이다. */
 .append {
   display: flex;
