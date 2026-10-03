@@ -26,6 +26,14 @@ test('이전 판본을 열면 바뀐 것을 보이고, R13 을 잰다', async ({
   await expect(r13).toContainText('4 · 2 / 6')
   await expect(r13).toContainText('내보내기 설정을 바꿔 달라 — IFC GUID를 요소 매개변수에 저장')
 
+  // R13 판정 근거: GUID 유지율과, GUID 가 바뀐 것(지금 이름 · 무엇으로 찾았나 · 이전 GUID). 비교하면 이 목록이 먼저 열린다.
+  await expect(sum.locator('tr', { hasText: '설비' })).toContainText('80%')
+  await expect(sum.locator('tr', { hasText: '물리존' })).toContainText('0%')
+  const rekeyedTab = page.getByRole('tab', { name: /GUID가 바뀐 것/ })
+  await expect(rekeyedTab).toHaveAttribute('aria-selected', 'true')
+  await expect(rekeyedTab).toContainText('2')
+  await expect(page.locator('.version-rows tr', { hasText: 'AHU-1' })).toContainText('이름으로 찾음 · 이전 GUID')
+
   // 목록에서 고르면 3D 와 오른쪽 패널에 뜬다.
   await page.getByRole('tab', { name: /옮겨진 설비/ }).click()
   const moved = page.locator('.version-rows tr', { hasText: 'AT-101-02' })

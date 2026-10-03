@@ -251,6 +251,11 @@ type KindDiff = {
   nextCount: number
   /** 무엇으로 짝지었나. guid 가 아닌 것이 "GUID 가 바뀐 같은 것" 이다. */
   by: Record<MatchKey, number>
+  /**
+   * GUID 가 바뀐 같은 것 하나하나(R13 판정 근거, OE-BIM-19). 지금 판본의 id·이름, 이전 판본의 GUID, 무엇으로 찾았나. 숫자(by)만으로는
+   * 어느 요소의 DT id 가 바뀌는지 고객사에 보여 줄 수 없다.
+   */
+  rekeyed: { id: string; name: string; prevId: string; by: Exclude<MatchKey, 'guid'> }[]
   added: { id: string; name: string }[]
   removed: { id: string; name: string }[]
 }
@@ -271,8 +276,8 @@ export function compareVersions(prev: Model, next: Model): VersionDiff {
   const spaceName = (id: string | null, map: typeof ns) => (id && map.get(id) ? spaceLabel(map.get(id)!) : null)
 
   const diff: VersionDiff = {
-    spaces: { prevCount: ps.size, nextCount: ns.size, by: emptyBy(), added: [], removed: [], renamed: [], reshaped: [] },
-    equipment: { prevCount: pe.size, nextCount: ne.size, by: emptyBy(), added: [], removed: [], moved: [], relocated: [] },
+    spaces: { prevCount: ps.size, nextCount: ns.size, by: emptyBy(), rekeyed: [], added: [], removed: [], renamed: [], reshaped: [] },
+    equipment: { prevCount: pe.size, nextCount: ne.size, by: emptyBy(), rekeyed: [], added: [], removed: [], moved: [], relocated: [] },
   }
   for (const [id, x] of ps) {
     const pair = m.pairs.get(id)
@@ -282,6 +287,7 @@ export function compareVersions(prev: Model, next: Model): VersionDiff {
     }
     diff.spaces.by[pair.by]++
     const y = ns.get(pair.id)!
+    if (pair.by !== 'guid') diff.spaces.rekeyed.push({ id: pair.id, name: spaceLabel(y), prevId: id, by: pair.by })
     if (x.sp.longName !== y.sp.longName) diff.spaces.renamed.push({ id: pair.id, from: x.sp.longName, to: y.sp.longName })
     if (Math.abs(x.sp.areaM2 - y.sp.areaM2) > Math.max(x.sp.areaM2, y.sp.areaM2) * 0.01)
       diff.spaces.reshaped.push({ id: pair.id, name: spaceLabel(y), from: x.sp.areaM2, to: y.sp.areaM2 })
@@ -296,6 +302,7 @@ export function compareVersions(prev: Model, next: Model): VersionDiff {
     }
     diff.equipment.by[pair.by]++
     const y = ne.get(pair.id)!
+    if (pair.by !== 'guid') diff.equipment.rekeyed.push({ id: pair.id, name: y.name || y.ifcClass, prevId: id, by: pair.by })
     if (x.position && y.position) {
       const d = Math.hypot(x.position[0] - y.position[0], x.position[1] - y.position[1], x.position[2] - y.position[2])
       if (d > POSITION_TOLERANCE.equipment) diff.equipment.moved.push({ id: pair.id, name: y.name || y.ifcClass, distance: d })

@@ -27,7 +27,7 @@ import { evaluateSuggestions } from '../src/lib/kind-suggest'
 import { verticalLinks } from '../src/lib/vertical'
 import { roomKind } from '../src/lib/kinds'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
-import { compareVersions } from '../src/lib/versions'
+import { compareVersions, revitElementId } from '../src/lib/versions'
 import { fuzzEdits } from '../src/lib/edit-fuzz'
 import type { Model } from '../src/lib/model'
 import { readIdf } from '../src/lib/idf/read'
@@ -1808,6 +1808,14 @@ describe.skipIf(!existsSync(DUPLEX_MEP_FULL) || !existsSync(DUPLEX_MEP_2) || !ex
     const v2 = compareVersions(mep, load(DUPLEX_MEP_2))
     expect(v2.equipment.by).toEqual({ guid: 127, revitId: 217, name: 0, position: 0 })
     expect(v2.spaces.by).toEqual({ guid: 0, revitId: 0, name: 14, position: 1 })
+    // R13 판정 근거(OE-BIM-19): GUID 가 바뀐 것을 하나하나 든다. 설비 217대는 이전 GUID 와 다르고, 이름 끝의 Revit 요소 ID 가 같다.
+    expect(v2.equipment.rekeyed).toHaveLength(217)
+    const prevName = new Map(mep.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.name]))
+    for (const r of v2.equipment.rekeyed) {
+      expect(r.prevId).not.toBe(r.id)
+      expect(revitElementId(r.name), r.name).toBe(revitElementId(prevName.get(r.prevId)!))
+    }
+    expect(v2.spaces.rekeyed.map((r) => r.by).sort()).toEqual([...Array(14).fill('name'), 'position'])
 
     // Revit 2013 으로 올려 전기만 떼어 낸 판본(2012-12). 전기 설비 99대 중 16대의 GUID 가 바뀌었다.
     expect(compareVersions(mep, load(DUPLEX_MEP_1)).equipment.by).toEqual({ guid: 83, revitId: 16, name: 0, position: 0 })

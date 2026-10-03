@@ -4131,7 +4131,15 @@ const versionLists = computed((): { key: string; label: string; rows: VersionRow
   const sp = (r: { id: string; name: string }, detail = ''): VersionRow => ({ ...r, detail, target: 'space' })
   const gone = (r: { id: string; name: string }): VersionRow => ({ ...r, detail: '', target: null })
   const spaceName = (id: string) => spaceNameOf(id)
+  // GUID 가 바뀐 것(R13 판정 근거). 지금 판본에서 고르고, 이전 GUID 와 무엇으로 찾았는지를 같이 보인다.
+  const rekeyed = (r: VersionDiff['spaces']['rekeyed'][number], target: 'equipment' | 'space'): VersionRow => ({
+    id: r.id,
+    name: r.name,
+    detail: `${MATCH_KEY_BY[r.by]} 찾음 · 이전 GUID ${r.prevId}`,
+    target,
+  })
   return [
+    { key: 'rekeyed', label: 'GUID가 바뀐 것', rows: [...d.spaces.rekeyed.map((r) => rekeyed(r, 'space')), ...d.equipment.rekeyed.map((r) => rekeyed(r, 'equipment'))] },
     { key: 'equipment-moved', label: '옮겨진 설비', rows: d.equipment.moved.map((r) => eq(r, `${r.distance.toFixed(2)} m`)) },
     {
       key: 'equipment-relocated',
@@ -6161,6 +6169,7 @@ async function export3D(format: 'glb' | 'obj') {
                   <th></th>
                   <th class="num">이전 → 지금</th>
                   <th class="num">양쪽에 있는 것</th>
+                  <th class="num" title="양쪽에 있는 것 중 GUID가 그대로인 비율(요구사항 R13)">GUID 유지</th>
                   <th>그중 GUID가 바뀐 것 <Src kind="calc" /></th>
                 </tr>
               </thead>
@@ -6169,6 +6178,9 @@ async function export3D(format: 'glb' | 'obj') {
                   <th>{{ label }}</th>
                   <td class="num mono">{{ k.prevCount }} → {{ k.nextCount }}</td>
                   <td class="num mono">{{ k.by.guid + k.by.revitId + k.by.name + k.by.position }}</td>
+                  <td class="num mono">
+                    {{ k.by.guid + k.by.revitId + k.by.name + k.by.position ? `${Math.round((k.by.guid / (k.by.guid + k.by.revitId + k.by.name + k.by.position)) * 100)}%` : '—' }}
+                  </td>
                   <td>
                     <template v-if="k.by.revitId + k.by.name + k.by.position">
                       <b class="mono">{{ k.by.revitId + k.by.name + k.by.position }}</b>
@@ -6182,7 +6194,8 @@ async function export3D(format: 'glb' | 'obj') {
               </tbody>
             </table>
             <p class="hint">
-              GUID가 바뀌어도 편집 파일은 Revit 요소 ID·이름·위치로 찾아 적용합니다. 다만 DT 쪽에서는 다른 id가 됩니다(요구사항 R13).
+              GUID가 바뀌어도 편집 파일은 Revit 요소 ID·이름·위치로 찾아 적용합니다. 다만 DT 쪽에서는 다른 id가 됩니다(요구사항 R13 — 어느 것인지는
+              [GUID가 바뀐 것] 목록, 고객사에 할 요청은 요구사항 칸의 R13).
               기준 하나에 여러 개가 걸리면 짝짓지 않고 새것·없어진 것으로 셉니다.
             </p>
             <div class="version-tabs" role="tablist">
