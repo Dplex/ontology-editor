@@ -1221,3 +1221,55 @@ describe('계통 만들기·지우기 (E8)', () => {
     expect(createSystem(model, { name: 'x', kind: 'no_such' })).toBe(null)
   })
 })
+
+describe('경계를 고친 뒤의 소속 — 바뀔 수 있는 설비만 다시 재도 층 전부를 다시 잰 것과 같다', () => {
+  // 방 하나를 고치면 그 방 소속이던 설비와 새 경계 근처의 설비만 다시 판정한다(reassignStoreyWith). 빠뜨리면 경계 밖으로 나간
+  // 설비가 예전 방에 남거나, 새로 들어온 설비가 소속 없음으로 남는다. 편집마다 층 전부를 다시 잰 답과 대 본다.
+  let seed = 11
+  const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648)
+  const rect = (x: number, y: number, w: number, h: number): Vec2[] => [[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]]
+
+  it('꼭짓점 옮기기·경계 갈아 끼우기·되돌리기 150번', () => {
+    const spaces = []
+    for (let i = 0; i < 12; i++) {
+      const fp = rect((i % 4) * 4.24, Math.floor(i / 4) * 4.24, 4, 4)
+      spaces.push({ id: `r${i}`, name: `r${i}`, longName: '', footprint: fp, areaM2: polygonArea(fp), boundedBy: [] })
+    }
+    // 큰 방 하나가 여럿을 품는다(병원 대기실처럼 겹친다).
+    const hall = rect(2, 2, 9, 6)
+    spaces.push({ id: 'hall', name: 'hall', longName: '', footprint: hall, areaM2: polygonArea(hall), boundedBy: [] })
+    const equipment = Array.from({ length: 600 }, (_, i) => {
+      // 셋 중 하나는 벽면(외곽선 위·SNAP 근처)에 둔다. 판정이 갈리는 자리다.
+      const onWall = i % 3 === 0
+      const x = onWall ? Math.round(rand() * 4) * 4.24 + (rand() - 0.5) * 0.12 : rand() * 17
+      const y = rand() * 13
+      return { id: `e${i}`, name: `e${i}`, ifcClass: 'IfcFlowTerminal', role: null, position: [x, y, 0.5] as const, capacity: null, capacityProperty: null, systemId: null, spaceId: null, spaceSource: null }
+    })
+    const m = {
+      schema: 'IFC4', siteName: '', buildingId: 'b', buildingName: 'b', systems: [], connections: [], warnings: [],
+      storeys: [{ id: 's', name: '1F', elevation: 0, spaces, walls: [], openings: [], equipment }],
+    } as unknown as Model
+    assignEquipmentToSpaces(m)
+    const membership = (x: Model) => x.storeys[0].equipment.map((e) => `${e.id}:${e.spaceId}`)
+    let moved = 0
+    for (let step = 0; step < 150; step++) {
+      const sp = m.storeys[0].spaces[Math.floor(rand() * m.storeys[0].spaces.length)]
+      const op = step % 3
+      const undo = snapshotSpace(m, sp.id)!
+      if (op === 0) {
+        const [x, y] = sp.footprint[1]
+        moveSpaceVertex(m, sp.id, 1, [x + (rand() - 0.5) * 6, y + (rand() - 0.5) * 6])
+      } else if (op === 1) {
+        replaceSpaceFootprint(m, sp.id, rect(rand() * 14, rand() * 10, 1 + rand() * 6, 1 + rand() * 6))
+      } else {
+        moveSpaceVertex(m, sp.id, 2, [rand() * 17, rand() * 13])
+        restore(m, undo)
+      }
+      const full = structuredClone(m)
+      assignEquipmentToSpaces(full)
+      expect(membership(m)).toEqual(membership(full))
+      moved++
+    }
+    expect(moved).toBe(150)
+  })
+})

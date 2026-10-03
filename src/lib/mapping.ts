@@ -102,6 +102,41 @@ export function distanceToRing(point: Vec2, ring: readonly Vec2[]): number {
 }
 
 /**
+ * 외곽선의 외곽 상자 [minX, minY, maxX, maxY]. 설비 하나를 판정할 때 층의 방 전부를 훑는데, 대부분은 멀리 있는 방이라
+ * 상자만 보고 건너뛴다. 병원 건축+MEP 에서 방 꼭짓점·설비 옮기기 40번이 5.1초에서 0.44초가 됐고, 소속은 바이트 단위로 같다.
+ *
+ * 외곽선 배열을 키로 기억한다. **편집은 외곽선을 제자리에서 고치지 않고 새 배열로 갈아 끼운다**(edit.ts 의
+ * `ringWithVertex`, 되돌리기의 `[...snapshot.footprint]`) — 그래서 바뀐 외곽선은 새 키가 되어 다시 잰다.
+ * 배열을 제자리에서 고치는 코드를 넣으면 여기 상자가 낡는다.
+ */
+const boxes = new WeakMap<readonly Vec2[], readonly [number, number, number, number]>()
+function boundsOf(ring: readonly Vec2[]): readonly [number, number, number, number] {
+  let box = boxes.get(ring)
+  if (!box) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const [px, py] of ring) {
+      if (px < minX) minX = px
+      if (px > maxX) maxX = px
+      if (py < minY) minY = py
+      if (py > maxY) maxY = py
+    }
+    box = [minX, minY, maxX, maxY]
+    boxes.set(ring, box)
+  }
+  return box
+}
+
+/**
+ * 이 점의 판정에 이 외곽선이 끼어들 수 있나 — 외곽 상자에서 snap 안인가. 아니면 그 방은 안에 드는 방도, snap 안의 가까운
+ * 방도 될 수 없다(`locate` 가 같은 상자로 건너뛴다).
+ */
+export function nearRing(point: Vec2, ring: readonly Vec2[], snap = SNAP): boolean {
+  const [minX, minY, maxX, maxY] = boundsOf(ring)
+  const reach = snap + 1e-9
+  return point[0] >= minX - reach && point[0] <= maxX + reach && point[1] >= minY - reach && point[1] <= maxY + reach
+}
+
+/**
  * 외곽선 밖이어도 이 거리 안이면 가장 가까운 물리존에 붙인다(미터).
  *
  * **벽에 붙은 설비는 좌표가 정확히 벽면에 있다.** 콘센트·스위치·벽부 조명의 삽입점이 방 외곽선
@@ -122,19 +157,27 @@ export const SNAP = 0.05
  * 어디에도 없으면 null 이다.
  */
 export function locate(point: Vec2, spaces: readonly Space[], snap = SNAP): string | null {
+  const [x, y] = point
   // 방이 겹친 자리면 가장 작은 방이다. 실제 BIM 도 같은 층 방끼리 겹친다(병원 건축 52쌍 — 큰 대기실이 접수대를 품는다).
   // 목록의 첫 방을 고르던 때와 견주면, BIM 이 말한 소속에 맞는 수가 가진 파일 전부에서 늘었다(병원 건축+HVAC 156 →
   // 169/180, 건축+MEP 563 → 584/637, Duplex 111 → 114/118, 건축+MEP 11 → 13/13). 좁은 방이 더 구체적인 자리다.
   let inside: Space | null = null
   for (const space of spaces) {
+    const [minX, minY, maxX, maxY] = boundsOf(space.footprint)
+    // 외곽 상자 밖이면 다각형 안일 수 없다. 결과는 상자 없이 잰 것과 같고, 멀리 있는 방의 변을 다 훑지 않는다.
+    if (x < minX || x > maxX || y < minY || y > maxY) continue
     if (pointInPolygon(point, space.footprint) && (!inside || space.areaM2 < inside.areaM2)) inside = space
   }
   if (inside) return inside.id
 
   let best: string | null = null
   let bestDistance = snap
+  // 상자에서 snap 보다 멀면 변까지도 snap 보다 멀다. 부동소수점 끝자리로 경계가 흔들리지 않게 조금 더 둔다.
+  const reach = snap + 1e-9
   for (const space of spaces) {
     if (space.footprint.length < 3) continue
+    const [minX, minY, maxX, maxY] = boundsOf(space.footprint)
+    if (x < minX - reach || x > maxX + reach || y < minY - reach || y > maxY + reach) continue
     const d = distanceToRing(point, space.footprint)
     if (d <= bestDistance) {
       bestDistance = d
