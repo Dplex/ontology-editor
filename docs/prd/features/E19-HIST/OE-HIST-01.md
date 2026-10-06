@@ -6,21 +6,21 @@ title: "탭 내 되돌리기"
 prd: "#26"
 release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-UI-05"]
 ---
 
 # OE-HIST-01 탭 내 되돌리기
 
 ## 요구사항
 
-Ctrl+Z로 한 단계씩. 편집 종류가 늘면 되돌리기 대상에 포함(퍼징 포함). #19 "이전 판으로 되돌리기"와 다름
+OE-UI-05 를 따른다. (탭 안 되돌리기)
 
 ## 수용 기준
 
-—
+OE-UI-05 의 수용 기준을 따른다.
 
 ## 검증 (이 repo)
 
