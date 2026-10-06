@@ -2,25 +2,25 @@
 id: "OE-PIP-08"
 epic: "E13"
 epic_title: "배관 · 계통 에디터"
-title: "14-A 위반 한 번에 고치기"
+title: "위반 한 번에 고치기"
 prd: "#14"
 release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-18"]
 ---
 
-# OE-PIP-08 14-A 위반 한 번에 고치기
+# OE-PIP-08 위반 한 번에 고치기
 
 ## 요구사항
 
-완전성 검사 위반에 [방 안으로 옮기기]·[가장 가까운 설비와 잇기] — 다른 편집과 같은 경로, 되돌리기 이력 포함
+(PRD #14-A) 완전성 검사(OE-BIM-18) 위반마다 [방 안으로 옮기기]·[가장 가까운 설비와 잇기] 를 둔다. 이 동작은 다른 편집과 같은 경로를 지나므로 되돌리기 이력에 들고 소속·규칙 방향이 다시 계산된다(OE-MAP-06).
 
 ## 수용 기준
 
-—
+[방 안으로 옮기기] 뒤 Ctrl+Z 로 설비가 원래 자리로 돌아온다.
 
 ## 검증 (이 repo)
 
