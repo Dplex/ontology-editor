@@ -20,6 +20,7 @@ import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
+import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
@@ -4146,7 +4147,7 @@ const versionStat = computed(() => {
   const sum = (by: Record<MatchKey, number>) => ({ kept: by.guid, rematched: by.revitId + by.name + by.position })
   const a = sum(v.diff.spaces.by)
   const b = sum(v.diff.equipment.by)
-  return { name: v.name, kept: a.kept + b.kept, rematched: a.rematched + b.rematched }
+  return { name: v.name, kept: a.kept + b.kept, rematched: a.rematched + b.rematched, storeyScale: v.diff.storeyScale }
 })
 
 type VersionRow = { id: string; name: string; detail: string; target: 'equipment' | 'space' | null }
@@ -4157,7 +4158,15 @@ const versionLists = computed((): { key: string; label: string; rows: VersionRow
   const sp = (r: { id: string; name: string }, detail = ''): VersionRow => ({ ...r, detail, target: 'space' })
   const gone = (r: { id: string; name: string }): VersionRow => ({ ...r, detail: '', target: null })
   const spaceName = (id: string) => spaceNameOf(id)
+  // GUID 가 바뀐 것(R13 판정 근거). 지금 판본에서 고르고, 이전 GUID 와 무엇으로 찾았는지를 같이 보인다.
+  const rekeyed = (r: VersionDiff['spaces']['rekeyed'][number], target: 'equipment' | 'space'): VersionRow => ({
+    id: r.id,
+    name: r.name,
+    detail: `${MATCH_KEY_BY[r.by]} 찾음 · 이전 GUID ${r.prevId}`,
+    target,
+  })
   return [
+    { key: 'rekeyed', label: 'GUID가 바뀐 것', rows: [...d.spaces.rekeyed.map((r) => rekeyed(r, 'space')), ...d.equipment.rekeyed.map((r) => rekeyed(r, 'equipment'))] },
     { key: 'equipment-moved', label: '옮겨진 설비', rows: d.equipment.moved.map((r) => eq(r, `${r.distance.toFixed(2)} m`)) },
     {
       key: 'equipment-relocated',
@@ -4758,7 +4767,7 @@ async function export3D(format: 'glb' | 'obj') {
       <div class="title">
         <div>
           <h1>ontology-editor</h1>
-          <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다.</p>
+          <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다. 내보낸 TTL·GeoJSON 은 <a href="./viewer.html">내보낸 파일 보기</a>에서 다시 열어 봅니다.</p>
         </div>
         <button type="button" class="theme" :aria-pressed="dark" @click="toggleTheme">
           {{ dark ? '라이트' : '다크' }}
@@ -6131,11 +6140,11 @@ async function export3D(format: 'glb' | 'obj') {
         <Fold v-if="currentRequirements.length" title="요구사항" :meta="requirementsMeta" :default-open="false" class="requirements">
           <table class="req-table">
             <thead>
-              <tr><th>#</th><th>요구</th><th>상태</th><th class="num" title="표준 자리 · 다른 자리 / 전체">개수</th><th>설명</th></tr>
+              <tr><th>#</th><th>요구</th><th>상태</th><th class="num" title="표준 자리 · 다른 자리 / 전체">개수</th><th>설명</th><th>고객사에 할 요청</th></tr>
             </thead>
             <tbody v-for="g in requirementGroups" :key="g.level">
               <tr class="req-group">
-                <th colspan="5">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 대신 채울 방법이 없음' : ' — 없으면 계산·사전·수작업으로 채움' }}</th>
+                <th colspan="6">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 대신 채울 방법이 없음' : ' — 없으면 계산·사전·수작업으로 채움' }}</th>
               </tr>
               <tr v-for="r in g.rows" :key="r.id" v-flash="`${r.state}:${r.counts?.standard}:${r.counts?.elsewhere}`">
                 <td class="mono">{{ r.id }}</td>
@@ -6154,12 +6163,13 @@ async function export3D(format: 'glb' | 'obj') {
                   </template>
                 </td>
                 <td class="muted">{{ r.note }}</td>
+                <td class="req-ask" :class="{ setting: r.state === 'elsewhere' || (r.counts?.elsewhere ?? 0) > 0 }">{{ r.ask || '—' }}</td>
               </tr>
             </tbody>
           </table>
           <p class="hint">
-            표준 자리는 IDS(<span class="mono">docs/requirements.ids</span>) 검사도 통과합니다. 다른 자리는 값이 있어 읽을 수 있지만,
-            내보내기 설정을 바꾸면 표준 자리로 옮길 수 있습니다. 기준은 정본 4장을 보세요.
+            표준 자리는 IDS(<span class="mono">docs/requirements.ids</span>) 검사도 통과합니다. 다른 자리는 값이 있어 읽을 수 있지만
+            표준 자리가 아니라서, 고객사에 내보내기 설정을 바꿔 달라고 합니다(요청 칸에 무엇을 바꿀지). 기준은 정본 4장을 보세요.
           </p>
         </Fold>
 
@@ -6180,12 +6190,18 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
           <p v-if="versionError" class="edit-notice inline" role="alert">{{ versionError }}</p>
           <template v-if="versionDiff">
+            <p v-if="versionDiff.diff.storeyScale" class="edit-notice inline" role="alert">
+              이름이 같은 층의 높이가 이전 판본의 {{ ratioLabel(versionDiff.diff.storeyScale.ratio) }}입니다({{
+                versionDiff.diff.storeyScale.storeys.slice(0, 3).map(([n, x, y]) => `${n} ${+x.toPrecision(4)}m → ${+y.toPrecision(4)}m`).join(', ')
+              }}). {{ { first: '층간 높이로 보면 이전 판본', second: '층간 높이로 보면 지금 파일', none: '한 판본' }[versionDiff.diff.storeyScale.suspect ?? 'none'] }}의 길이 단위 선언이 실제 값과 다른 것 같습니다({{ versionDiff.diff.storeyScale.what }}, 요구사항 R6).
+            </p>
             <table class="version-sum">
               <thead>
                 <tr>
                   <th></th>
                   <th class="num">이전 → 지금</th>
                   <th class="num">양쪽에 있는 것</th>
+                  <th class="num" title="양쪽에 있는 것 중 GUID가 그대로인 비율(요구사항 R13)">GUID 유지</th>
                   <th>그중 GUID가 바뀐 것 <Src kind="calc" /></th>
                 </tr>
               </thead>
@@ -6194,6 +6210,9 @@ async function export3D(format: 'glb' | 'obj') {
                   <th>{{ label }}</th>
                   <td class="num mono">{{ k.prevCount }} → {{ k.nextCount }}</td>
                   <td class="num mono">{{ k.by.guid + k.by.revitId + k.by.name + k.by.position }}</td>
+                  <td class="num mono">
+                    {{ k.by.guid + k.by.revitId + k.by.name + k.by.position ? `${Math.round((k.by.guid / (k.by.guid + k.by.revitId + k.by.name + k.by.position)) * 100)}%` : '—' }}
+                  </td>
                   <td>
                     <template v-if="k.by.revitId + k.by.name + k.by.position">
                       <b class="mono">{{ k.by.revitId + k.by.name + k.by.position }}</b>
@@ -6207,7 +6226,8 @@ async function export3D(format: 'glb' | 'obj') {
               </tbody>
             </table>
             <p class="hint">
-              GUID가 바뀌어도 편집 파일은 Revit 요소 ID·이름·위치로 찾아 적용합니다. 다만 DT 쪽에서는 다른 id가 됩니다(요구사항 R13).
+              GUID가 바뀌어도 편집 파일은 Revit 요소 ID·이름·위치로 찾아 적용합니다. 다만 DT 쪽에서는 다른 id가 됩니다(요구사항 R13 — 어느 것인지는
+              [GUID가 바뀐 것] 목록, 고객사에 할 요청은 요구사항 칸의 R13).
               기준 하나에 여러 개가 걸리면 짝짓지 않고 새것·없어진 것으로 셉니다.
             </p>
             <div class="version-tabs" role="tablist">

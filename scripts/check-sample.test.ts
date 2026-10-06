@@ -1,17 +1,24 @@
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as WebIFC from 'web-ifc'
-import { beforeAll, describe, expect, it } from 'vitest'
-import { importIfc, importIfcWithMeshes, readMeshes, UnreadableIfcError } from '../src/lib/ifc/import'
+import { describe, expect, it } from 'vitest'
+import { importIfc, importIfcWithMeshes, readMeshes, UnreadableIfcError, type ImportOptions } from '../src/lib/ifc/import'
+import { createDataCatalog } from '../src/server/data-catalog'
 import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-geometry'
-import { profileOf } from '../src/lib/profile'
+import { profileOf, type Profile } from '../src/lib/profile'
+import { CAPACITY_PREDICATE } from '../src/lib/capacity'
 import { countOf, isConduit, polygonArea, unplacedOf, type Vec2 } from '../src/lib/model'
 import { assignEquipment, assignEquipmentToSpaces, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
+import { readOntologyTTL, type OntologyEntity } from '../src/lib/export/read-ttl'
+import { crossCheck, geojsonProblems, readGeoJSON } from '../src/lib/export/read-export'
+import { check3D, read3D } from '../src/lib/export/read-3d'
+import { modelToScene, sceneToGLB, sceneToOBJ } from '../src/lib/export/mesh3d'
 import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topology'
 import { inferFlowByRules, newlyDisagreeing, withInferred } from '../src/lib/flow-rules'
 import { airServices } from '../src/lib/served'
@@ -19,8 +26,10 @@ import { completenessChecks } from '../src/lib/checks'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
 import { verticalLinks } from '../src/lib/vertical'
 import { roomKind } from '../src/lib/kinds'
-import { requirementsReport } from '../src/lib/requirements'
-import { compareVersions } from '../src/lib/versions'
+import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
+import { compareVersions, revitElementId } from '../src/lib/versions'
+import { storeyScaleMismatch } from '../src/lib/unit-check'
+import { lengthScale } from '../src/lib/ifc/units'
 import { fuzzEdits } from '../src/lib/edit-fuzz'
 import type { Model } from '../src/lib/model'
 import { readIdf } from '../src/lib/idf/read'
@@ -770,6 +779,49 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
     expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 | 설비 0/133 | 소속 133 | 연결망 0 | 방향 —')
   }, 300_000)
 
+  // OE-BIM-16 "목록 숫자 = 열람 숫자". 목록은 서버(data-catalog.ts)가 기본 옵션으로 재고, 열람은 워커가 화면의
+  // [읽을 것](벽·문·창·문 형상) 옵션으로 읽은 모델을 postMessage 로 받아(구조화 복제) 규칙 방향을 한 번 더 돌린 뒤 잰다
+  // (App.vue load). 길이 둘이라 옵션이나 열 때의 손질이 칩에 닿으면 어긋난다. 서버 핸들러를 그대로 불러 그 응답과 견준다.
+  it('목록의 칩과 파일을 연 뒤의 칩이 같다 — 읽을 것 옵션을 바꿔도', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const catalog = createDataCatalog('data')
+    const listed = (path: string) =>
+      new Promise<Profile['tiers']>((done, fail) => {
+        const res = {
+          statusCode: 200,
+          setHeader() {},
+          end(body?: string) {
+            if (this.statusCode !== 200 || !body) return fail(new Error(`${path}: ${this.statusCode}`))
+            const r = JSON.parse(body)
+            if (!r.profile) return fail(new Error(`${path}: ${r.error}`))
+            done(r.profile.tiers)
+          },
+        }
+        catalog({ url: `/${encodeURI(path.replace(/^data\//, ''))}?profile` } as IncomingMessage, res as unknown as ServerResponse)
+      })
+    const opened = (path: string, options: ImportOptions) => {
+      const model = structuredClone(importIfcWithMeshes(api, new Uint8Array(readFileSync(path)), undefined, options).model)
+      inferFlowByRules(model)
+      return profileOf(model).tiers
+    }
+    // 화면 기본(벽·문·창 읽기, 문 형상 끔), 문 형상 켬, 셋 다 끔.
+    const options: ImportOptions[] = [
+      { openings: false, walls: true, doors: true, windows: true },
+      { openings: true, walls: true, doors: true, windows: true },
+      { openings: false, walls: false, doors: false, windows: false },
+    ]
+    const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_COBIE, DUPLEX_MEP_1, CLINIC_HVAC].filter((f) => existsSync(f))
+    expect(files.length).toBeGreaterThanOrEqual(6)
+    for (const path of files) {
+      const list = await listed(path)
+      expect(list.map((t) => t.key)).toEqual(['space', 'equipment', 'location', 'network', 'direction'])
+      // 칩 숫자뿐 아니라 마우스를 올리면 보이는 설명(note)까지 같아야 한다.
+      for (const o of options) expect(opened(path, o), `${path} ${JSON.stringify(o)}`).toEqual(list)
+    }
+  }, 900_000)
+
   it('구문이 깨진 COBie 판본 셋은 이유를 말하며 멈춘다', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
@@ -783,52 +835,20 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
   }, 300_000)
 })
 
-// **이 과제의 산출물이 받는 쪽에서 실제로 읽히는지.** intent.md 는 "ieum-pipeline 의 ttl.go 가
-// 읽을 수 있어야 한다" 를 계약으로 적었는데, 한동안 TTL 문자열의 모양만 테스트했다. 그러는 동안
-// brick:feeds 를 독립 문장으로 써서 ttl.go 가 **흐름 연결을 전부 버리고** 있었다(ifc4Mep 1,995 → 0).
+// **이 과제의 산출물이 받는 쪽에서 실제로 읽히는지.** intent.md 는 "ieum-pipeline 의 ttl.go 가 읽을 수 있어야 한다" 를
+// 계약으로 적었는데, 한동안 TTL 문자열의 모양만 테스트했다. 그러는 동안 brick:feeds 를 독립 문장으로 써서 받는 쪽이
+// **흐름 연결을 전부 버리고** 있었다(ifc4Mep 1,995 → 0).
 //
-// 그래서 진짜 ttl.go 로 읽는다. 저장소에 복사본을 두지 않고 돌 때마다 옆 저장소에서 복사해
-// 빌드한다 — 복사본은 언젠가 원본과 어긋난다. 옆 저장소나 Go 가 없으면 건너뛴다.
-const TTL_GO = '../ieum-pipeline/internal/ontology/ttl.go'
-const hasGo = (() => {
-  try {
-    execFileSync('go', ['version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-})()
-
-describe.skipIf(!existsSync(TTL_GO) || !hasGo)('ieum-pipeline 의 ttl.go 가 읽는가', () => {
-  type Parsed = { Key: string; BrickClass: string; Feeds: string[] | null; Locations: string[] | null; Parts: string[] | null }
-  let bin = ''
-  beforeAll(() => {
-    const dir = mkdtempSync(join(tmpdir(), 'ttlgo-'))
-    mkdirSync(join(dir, 'ontology'))
-    copyFileSync(TTL_GO, join(dir, 'ontology', 'ttl.go'))
-    writeFileSync(join(dir, 'go.mod'), 'module ttlcheck\n\ngo 1.22\n')
-    writeFileSync(
-      join(dir, 'main.go'),
-      [
-        'package main',
-        'import ("encoding/json"; "os"; "ttlcheck/ontology")',
-        'func main() {',
-        '  ents, err := ontology.Parse(os.Stdin)',
-        '  if err != nil { panic(err) }',
-        '  json.NewEncoder(os.Stdout).Encode(ents)',
-        '}',
-      ].join('\n'),
-    )
-    bin = join(dir, process.platform === 'win32' ? 'ttlcheck.exe' : 'ttlcheck')
-    execFileSync('go', ['build', '-o', bin, '.'], { cwd: dir })
-  }, 300_000)
-
-  const parse = (ttl: string): Parsed[] => JSON.parse(execFileSync(bin, { input: ttl, maxBuffer: 1 << 28 }).toString())
-  const count = (ents: Parsed[], f: (e: Parsed) => string[] | null) => ents.reduce((n, e) => n + (f(e)?.length ?? 0), 0)
+// 그래서 받는 쪽 규칙으로 다시 읽는다(src/lib/export/read-ttl.ts — ttl.go 의 규칙을 옮겨 적은 것). 예전에는 옆 저장소의
+// ttl.go 를 복사해 go 로 빌드했는데, 다른 저장소의 체크아웃 상태에 결과가 매였다(로컬이 한 커밋 뒤라 `\$` 를 못 풀어 90개가
+// 떨어졌다). 이제 이 repo 안에서 끝난다. 두 파일(GeoJSON·TTL)이 id 로 이어지는지도 같이 본다(read-export.ts).
+describe('받는 쪽 규칙으로 다시 읽는가 (read-ttl)', () => {
+  const parse = (ttl: string) => readOntologyTTL(ttl).entities
+  const count = (ents: OntologyEntity[], f: (e: OntologyEntity) => string[]) => ents.reduce((n, e) => n + f(e).length, 0)
 
   /**
    * 모델에서 "기기 → 기기" 흐름 쌍을 센다. 덕트·배관은 지나가기만 하고, 방향을 아는 변만 탄다.
-   * 받는 쪽(ttl.go)은 덕트를 엔티티로 읽지 않으므로, 기기끼리 닿는지가 곧 계약이다.
+   * 받는 쪽은 덕트를 엔티티로 읽지 않으므로, 기기끼리 닿는지가 곧 계약이다.
    */
   const devicePairs = (model: ReturnType<typeof importIfc>) => {
     const role = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.role]))
@@ -850,14 +870,10 @@ describe.skipIf(!existsSync(TTL_GO) || !hasGo)('ieum-pipeline 의 ttl.go 가 읽
     }
     return pairs
   }
-  /** ttl.go 가 읽은 엔티티에서 feeds 쌍. 키의 역슬래시는 풀어서 모델 id 와 견준다. */
-  const parsedPairs = (ents: Parsed[]) =>
-    new Set(ents.flatMap((e) => (e.Feeds ?? []).map((t) => `${unescapeKey(e.Key)}>${unescapeKey(t)}`)))
-  /** ttl.go 가 남긴 Turtle 이스케이프(`\$`)를 푼다. 저쪽이 풀어 주기 전까지 우리 id 와 견주는 데만 쓴다. */
-  const unescapeKey = (key: string) => key.replace(/\\(.)/g, '$1')
+  const parsedPairs = (ents: OntologyEntity[]) => new Set(ents.flatMap((e) => e.feeds.map((t) => `${e.key}>${t}`)))
 
   // 커스텀존(OE-OBJ-01, ADR-0004). 존 블록(brick:Zone)을 더해도 다른 엔티티를 잃지 않고, 존 안 기기의 hasLocation 에 방과 존이 같이 읽힌다.
-  it.skipIf(!existsSync(MEP))('커스텀존을 그려도 ttl.go 가 기기의 위치에 존을 같이 읽는다', async () => {
+  it.skipIf(!existsSync(MEP))('커스텀존을 그려도 기기의 위치에 존을 같이 읽는다', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const model = importIfc(api, new Uint8Array(readFileSync(MEP)))
@@ -871,9 +887,8 @@ describe.skipIf(!existsSync(TTL_GO) || !hasGo)('ieum-pipeline 의 ttl.go 가 읽
     const after = parse(modelToTTL(model))
     // 받는 쪽은 공간(방·층·Zone)도 관계 목적어로 쓰려고 타입 없는 논리 설비로 저장한다(ttl.go 의 equipClass 주석). 존 하나만큼 는다.
     expect(after.length).toBe(before.length + 1)
-    expect(after.find((p) => p.Key === 'U_ttlgo_zone')).toMatchObject({ BrickClass: 'Zone' })
-    const got = after.find((p) => unescapeKey(p.Key) === e.id)!
-    expect(got.Locations).toEqual([escapeLocalName(e.spaceId ?? storey.id), 'U_ttlgo_zone'])
+    expect(after.find((p) => p.key === 'U_ttlgo_zone')).toMatchObject({ cls: 'Zone' })
+    expect(after.find((p) => p.key === e.id)!.locations).toEqual([e.spaceId ?? storey.id, 'U_ttlgo_zone'])
   })
 
   it('기기에서 기기로 가는 흐름이 받는 쪽에 전부 닿는다', async () => {
@@ -903,21 +918,23 @@ describe.skipIf(!existsSync(TTL_GO) || !hasGo)('ieum-pipeline 의 ttl.go 가 읽
     const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_ARCH))).model
     const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_HVAC))).model
     const { model } = mergeModels(arch, hvac)
-    const ents = parse(modelToTTL(model))
+    const reading = readOntologyTTL(modelToTTL(model))
+    const ents = reading.entities
     const equipment = model.storeys.flatMap((s) => s.equipment)
 
     // 기기 40대의 소속이 전부 받는 쪽에 닿는다. 이상 알림의 발생 위치가 이것이다.
     expect(equipment.filter((e) => !isConduit(e.role) && e.spaceId)).toHaveLength(40)
-    expect(count(ents.filter((e) => e.BrickClass !== 'Room'), (e) => e.Locations)).toBe(40)
+    expect(count(ents.filter((e) => e.cls !== 'Room'), (e) => e.locations)).toBe(40)
     // 기기 → 기기 흐름도 전부 닿는다(덕트를 건너뛰어 적은 것 포함).
     const want = devicePairs(model)
     expect([...want].filter((p) => !parsedPairs(ents).has(p))).toEqual([])
 
-    // 덕트·배관은 fso: 클래스라 ttl.go 가 엔티티로 읽지 않는다(brick:·ex: 만 읽는다). **일부러다.**
+    // 덕트·배관은 fso: 클래스라 받는 쪽이 엔티티로 읽지 않는다(brick:·ex: 만 읽는다). **일부러다.**
     // ex: 로 넣으면 ieum 쪽 설비 목록이 여섯 배로 부푼다. 그 대가로 계통의 hasPart 가 가리키는
     // 덕트·배관은 ieum 에서 "유령" 노드로 남는다.
-    const keys = new Set(ents.map((e) => e.Key))
-    expect(equipment.filter((e) => isConduit(e.role) && keys.has(escapeLocalName(e.id)))).toHaveLength(0)
+    const keys = new Set(ents.map((e) => e.key))
+    expect(equipment.filter((e) => isConduit(e.role) && keys.has(e.id))).toHaveLength(0)
+    expect(reading.unread).toHaveLength(equipment.filter((e) => isConduit(e.role)).length)
   }, 300_000)
 
   it('우리가 짓는 id 와 GUID($ 가 든 것까지)가 GeoJSON 과 같은 문자열로 읽힌다', async () => {
@@ -925,19 +942,351 @@ describe.skipIf(!existsSync(TTL_GO) || !hasGo)('ieum-pipeline 의 ttl.go 가 읽
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const mep = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_MEP))).model
-    const ents = parse(modelToTTL(mep))
-    const keys = new Set(ents.map((e) => e.Key))
+    const keys = new Set(parse(modelToTTL(mep)).map((e) => e.key))
 
-    // Revit System Name 에서 세운 계통 id 는 이스케이프가 필요 없게 지었다. GeoJSON 의 systemId
-    // 와 ttl.go 의 키가 같은 문자열이다.
+    // Revit System Name 에서 세운 계통 id 는 이스케이프가 필요 없게 지었다. GeoJSON 의 systemId 와 받는 쪽 키가 같은 문자열이다.
     for (const s of mep.systems) expect(keys.has(s.id)).toBe(true)
 
-    // **GUID 에 든 $ 는 Turtle 규칙상 \$ 로 쓴다.** 받는 쪽 ttl.go 가 이스케이프를 풀지 않던 때는 키에 역슬래시가
-    // 남아 GeoJSON id 와 이어지지 않았다(2026-09-29 ttl.go 에서 풀게 고쳤다). $ 가 든 id 가 있어야 이 검사가 뜻이 있다.
+    // **GUID 에 든 $ 는 Turtle 규칙상 \$ 로 쓴다.** 받는 쪽이 이스케이프를 풀지 않던 때는 키에 역슬래시가 남아 GeoJSON id 와
+    // 이어지지 않았다(2026-09-29 ttl.go 에서 풀게 고쳤다). $ 가 든 id 가 있어야 이 검사가 뜻이 있다.
     const ids = [...mep.storeys.flatMap((s) => [...s.spaces.map((x) => x.id), ...s.equipment.filter((e) => !isConduit(e.role)).map((e) => e.id)])]
     expect(ids.filter((id) => id.includes('$')).length).toBeGreaterThan(0)
     expect(ids.filter((id) => !keys.has(id))).toEqual([])
   }, 300_000)
+
+  // 내보낸 두 파일을 뷰어(viewer.html)와 같은 코드로 다시 읽어 잇는다. 한쪽에만 있는 id, 끊긴 참조, 지도와 온톨로지가 다른
+  // 소속, 문이 가리키는 없는 방이 하나도 없어야 한다.
+  it('가진 BIM 의 GeoJSON 과 TTL 이 id 로 빠짐없이 이어진다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const open = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+    const cases: [string, () => Model][] = []
+    if (existsSync(SAMPLE)) cases.push(['fzk', () => open(SAMPLE)])
+    if (existsSync(MEP)) cases.push(['ifc4mep', () => open(MEP)])
+    if (existsSync(DUPLEX_ARCH) && existsSync(DUPLEX_HVAC)) cases.push(['duplex 건축+hvac', () => mergeModels(open(DUPLEX_ARCH), open(DUPLEX_HVAC)).model])
+    if (existsSync(DUPLEX_MEP)) cases.push(['duplex mep', () => open(DUPLEX_MEP)])
+    if (existsSync(CLINIC_ARCH) && existsSync(CLINIC_HVAC)) cases.push(['병원 건축+hvac', () => mergeModels(open(CLINIC_ARCH), open(CLINIC_HVAC)).model])
+    if (existsSync(SAMSUNG_IDF)) cases.push(['idf', () => modelFromIdf(readIdf(readFileSync(SAMSUNG_IDF, 'utf8')), 'samsung').model])
+    expect(cases.length).toBeGreaterThanOrEqual(2)
+    for (const [name, make] of cases) {
+      const model = make()
+      const floors = modelToGeoJSON(model).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
+      expect(floors.flatMap((f) => f.problems), name).toEqual([])
+      const check = crossCheck(readOntologyTTL(modelToTTL(model)), floors)
+      expect({ ...check, toUnread: 0 }, name).toEqual({ notInTtl: [], dangling: [], toUnread: 0, locationMismatch: [], doorLinks: [] })
+    }
+  }, 900_000)
+
+  // 셋째 파일(3D, GLB·OBJ)도 뷰어와 같은 코드로 다시 읽어 GeoJSON 과 잇는다. 객체 이름이 GlobalId 라 같은 id 여야 하고, 방 판은
+  // 외곽선과 1cm 안, 설비는 GeoJSON 점이 형상 범위에서 0.5m 안이다(배치점 보정 기준, read-3d.ts). ifc4Mep 의 플랜지·센서 39대는
+  // 배치점이 형상에서 0.3m 떨어져 있어 허용치 안이다 — BIM 그대로다.
+  it('가진 BIM 의 GLB·OBJ 가 GeoJSON 과 같은 id·같은 자리다', async () => {
+    if (!('FileReader' in globalThis)) {
+      ;(globalThis as Record<string, unknown>).FileReader = class {
+        result: ArrayBuffer | null = null
+        onloadend: (() => void) | null = null
+        readAsArrayBuffer(blob: Blob) {
+          void blob.arrayBuffer().then((b) => {
+            this.result = b
+            this.onloadend?.()
+          })
+        }
+      }
+    }
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const open = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path)))
+    const pair = (a: string, b: string) => {
+      const x = open(a)
+      const y = open(b)
+      return { model: mergeModels(x.model, y.model).model, meshes: new Map([...x.meshes, ...y.meshes]) }
+    }
+    const cases: [string, () => ReturnType<typeof open>][] = []
+    if (existsSync(SAMPLE)) cases.push(['fzk', () => open(SAMPLE)])
+    if (existsSync(MEP)) cases.push(['ifc4mep', () => open(MEP)])
+    if (existsSync(DUPLEX_ARCH) && existsSync(DUPLEX_HVAC)) cases.push(['duplex 건축+hvac', () => pair(DUPLEX_ARCH, DUPLEX_HVAC)])
+    if (existsSync(CLINIC_ARCH) && existsSync(CLINIC_HVAC)) cases.push(['병원 건축+hvac', () => pair(CLINIC_ARCH, CLINIC_HVAC)])
+    expect(cases.length).toBeGreaterThanOrEqual(2)
+    for (const [name, make] of cases) {
+      const { model, meshes } = make()
+      const floors = modelToGeoJSON(model).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
+      const ttl = readOntologyTTL(modelToTTL(model))
+      const scene = modelToScene(model, meshes)
+      const glb = await read3D('a.glb', await sceneToGLB(scene))
+      const obj = await read3D('a.obj', new TextEncoder().encode((await sceneToOBJ(scene)).join('')).buffer as ArrayBuffer)
+      for (const r of [glb, obj]) expect(check3D(r.parts, floors, ttl), `${name} ${r.format}`).toEqual({ unknown: [], missing: [], misplaced: [] })
+      expect(obj.parts.length, name).toBe(glb.parts.length)
+    }
+  }, 1_800_000)
+})
+
+// OE-GEN-01 "rdflib·GeoJSON 검사 통과". 받는 쪽 파서(ttl.go)는 자기가 쓰는 줄만 골라 읽어서 문법이 틀린 줄도 조용히 건너뛴다.
+// 그래서 표준 Turtle 파서(rdflib)로도 읽는다 — 한 줄이라도 틀리면 파일째 떨어진다. 2026-09-25 에 손으로 한 번 돌려 본 것을
+// 시험으로 둔다. rdflib 가 없으면 건너뛴다(`pip install rdflib`, shapely 는 있으면 다각형 꼬임까지 본다).
+const PYTHON = process.platform === 'win32' ? 'python' : 'python3'
+const hasRdflib = (() => {
+  try {
+    execFileSync(PYTHON, ['-c', 'import rdflib'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+})()
+const RDF_CHECK = String.raw`
+import json, sys
+from collections import Counter
+from rdflib import Graph, Literal, URIRef, RDF, RDFS
+try:
+    from shapely.geometry import shape
+    from shapely.validation import explain_validity
+except ImportError:
+    shape = None
+out = {}
+for path in sys.argv[1:]:
+    if path.endswith('.ttl'):
+        g = Graph()
+        g.parse(path, format='turtle')
+        typed = set(g.subjects(RDF.type, None))
+        rel = Counter(); lit = Counter(); dangling = set()
+        for s, p, o in g:
+            if p == RDF.type: continue
+            if isinstance(o, Literal): lit[str(p)] += 1
+            else:
+                rel[str(p)] += 1
+                if o not in typed: dangling.add(str(o))
+        out[path] = {'triples': len(g), 'typed': len(typed), 'relations': rel, 'literals': lit, 'dangling': sorted(dangling)[:5],
+                     'labels': [str(o) for o in g.objects(None, RDFS.label)]}
+    else:
+        bad = []
+        if shape:
+            for f in json.load(open(path, encoding='utf-8'))['features']:
+                gm = f.get('geometry')
+                if gm and gm['type'] in ('Polygon', 'MultiPolygon') and not shape(gm).is_valid:
+                    bad.append([f['id'], f['properties'].get('kind'), explain_validity(shape(gm))])
+        out[path] = {'invalid': bad, 'checked': shape is not None}
+json.dump(out, sys.stdout, ensure_ascii=False)
+`
+
+describe.skipIf(!hasRdflib)('rdflib·GeoJSON 검사 (OE-GEN-01)', () => {
+  // 관계(목적어가 개체인 것)는 술어 4종만 쓴다. 나머지는 값(문자열·숫자)이고 ex: 로 둔다 — 용량은 양마다 술어가 다르다(4.6).
+  const BRICK = 'https://brickschema.org/schema/Brick#'
+  const EX = 'http://example.org/building#'
+  const RELATIONS = ['hasPart', 'hasLocation', 'feeds', 'hasPoint'].map((p) => BRICK + p)
+  const VALUES = [
+    'http://www.w3.org/2000/01/rdf-schema#label',
+    ...['elevation', 'roomNumber', 'areaM2', 'ifcClass', 'idfClass', 'systemKind', 'zoneKind'].map((p) => EX + p),
+    ...Object.values(CAPACITY_PREDICATE).map((p) => EX + p.replace(/^ex:/, '')),
+  ]
+  type Ttl = { triples: number; typed: number; relations: Record<string, number>; literals: Record<string, number>; dangling: string[]; labels: string[] }
+  type Geo = { invalid: [string, string, string][]; checked: boolean }
+
+  it('가진 BIM(합친 것·편집한 것·IDF 포함)의 TTL 을 rdflib 가 읽고, GeoJSON 이 RFC 7946 모양이다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const open = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+    const cases: [string, () => Model][] = []
+    if (existsSync(SAMPLE)) cases.push(['fzk', () => open(SAMPLE)])
+    if (existsSync(MEP))
+      cases.push([
+        'ifc4mep+존',
+        () => {
+          const m = open(MEP)
+          const storey = m.storeys.find((st) => st.equipment.some((e) => !isConduit(e.role) && e.position))!
+          const [x, y] = storey.equipment.find((e) => !isConduit(e.role) && e.position)!.position!
+          const zone = createCustomZone(m, storey.id, { name: '시험 존', footprint: [[x - 2, y - 2], [x + 2, y - 2], [x + 2, y + 2], [x - 2, y + 2]] })
+          expect(zone && 'id' in zone).toBe(true)
+          return m
+        },
+      ])
+    if (existsSync(DUPLEX_ARCH) && existsSync(DUPLEX_HVAC))
+      cases.push([
+        'duplex 건축+hvac 편집',
+        () => {
+          const m = mergeModels(open(DUPLEX_ARCH), open(DUPLEX_HVAC)).model
+          // 사람이 고친 이름에 Turtle 이 꺼리는 글자(따옴표·역슬래시·줄바꿈)가 들어와도 파일이 깨지지 않고, 그대로 읽힌다.
+          renameSpace(m, m.storeys.find((s) => s.spaces.length)!.spaces[0].id, '회의실 "A"\\B\r\n2층')
+          return m
+        },
+      ])
+    if (existsSync(DUPLEX_MEP)) cases.push(['duplex mep($ 든 GUID)', () => open(DUPLEX_MEP)])
+    if (existsSync(CLINIC_ARCH) && existsSync(CLINIC_HVAC)) cases.push(['병원 건축+hvac', () => mergeModels(open(CLINIC_ARCH), open(CLINIC_HVAC)).model])
+    if (existsSync(SAMSUNG_IDF)) cases.push(['idf 공조존', () => modelFromIdf(readIdf(readFileSync(SAMSUNG_IDF, 'utf8')), 'samsung').model])
+    expect(cases.length).toBeGreaterThanOrEqual(4)
+
+    const dir = mkdtempSync(join(tmpdir(), 'rdfcheck-'))
+    const files: { name: string; ttl: string; geo: string[]; model: Model }[] = []
+    cases.forEach(([name, make], i) => {
+      const model = make()
+      const ttl = join(dir, `${i}.ttl`)
+      writeFileSync(ttl, modelToTTL(model))
+      const geo = modelToGeoJSON(model).map(({ collection }, j) => {
+        expect(geojsonProblems(collection), `${name} 층 ${j}`).toEqual([])
+        const path = join(dir, `${i}-${j}.geojson`)
+        writeFileSync(path, JSON.stringify(collection))
+        return path
+      })
+      files.push({ name, ttl, geo, model })
+    })
+    writeFileSync(join(dir, 'check.py'), RDF_CHECK)
+    const result: Record<string, Ttl | Geo> = JSON.parse(
+      execFileSync(PYTHON, [join(dir, 'check.py'), ...files.flatMap((f) => [f.ttl, ...f.geo])], { maxBuffer: 1 << 28 }).toString(),
+    )
+
+    for (const f of files) {
+      const r = result[f.ttl] as Ttl
+      // 관계 술어는 4종 안이고, 값 술어는 정해 둔 것뿐이다. 좌표·WKT 같은 기하 술어가 새면 여기서 걸린다.
+      expect(Object.keys(r.relations).filter((p) => !RELATIONS.includes(p)), f.name).toEqual([])
+      expect(Object.keys(r.literals).filter((p) => !VALUES.includes(p)), f.name).toEqual([])
+      // 관계가 가리키는 개체는 전부 같은 파일에 `a 클래스` 로 있다. 비면 받는 쪽에서 이름 없는 노드가 된다.
+      expect(r.dangling, f.name).toEqual([])
+      // 주어 수 = 건물 + 층 + 방 + 커스텀존 + 설비 + 계통 + 공조존 + IDF 설비.
+      const m = f.model
+      const subjects =
+        1 +
+        m.storeys.reduce((n, s) => n + 1 + s.spaces.length + (s.customZones?.length ?? 0) + s.equipment.length, 0) +
+        m.systems.length +
+        (m.hvac?.zones.length ?? 0) +
+        (m.hvac?.equipment.filter((e) => !e.bimId).length ?? 0)
+      expect(r.typed, f.name).toBe(subjects)
+      if (f.name.includes('편집')) expect(r.labels).toContain('회의실 "A"\\B\r\n2층')
+
+      // 다각형 꼬임(OGC 단순 도형 규칙, shapely). IFC 에서 온 물리존·벽·커스텀존은 하나도 없다. IDF 공조존은 DesignBuilder 가
+      // 잘라 낸 바닥 조각을 다 합치지 못한 것이 남아, MultiPolygon 의 조각끼리 변을 맞댄다(T자로 닿아 꼭짓점이 어긋남 — 겹친
+      // 넓이는 존마다 0.0013㎡ 이하). 링 하나하나는 멀쩡하다. 2026-10-03 에 8개 — 늘면 합치기가 나빠진 것이다.
+      if (!f.geo.every((g) => (result[g] as Geo).checked)) continue
+      const invalid = f.geo.flatMap((g) => (result[g] as Geo).invalid)
+      expect(invalid.filter(([, kind]) => kind !== 'hvacZone'), f.name).toEqual([])
+      expect(invalid.length, f.name).toBeLessThanOrEqual(f.name.startsWith('idf') ? 8 : 0)
+    }
+  }, 900_000)
+})
+
+// OE-REQ-02 IDS 검사 파일. 고객사가 하듯 ifctester 로 docs/requirements.ids 를 가진 BIM 에 돌린다(scripts/ids-check.py).
+// 값은 정본 4장 "가진 파일로 확인한 결과" 표와 같다 — 명세나 표를 고치면 둘을 같이 고친다. ifctester 가 없으면 건너뛴다.
+const hasIfctester = (() => {
+  try {
+    execFileSync(PYTHON, ['-c', 'import ifctester'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+})()
+
+describe.skipIf(!hasIfctester)('IDS 를 ifctester 로 (OE-REQ-02)', () => {
+  type Row = { name: string; inSchema: boolean; applicable: number; pass: number; checks: number; status: boolean }
+  // 스키마에 맞는 명세 중 대상이 있거나, 대상이 없어서 떨어진 것(있어야 하는 것이 없다 — R7·R9). `n개` 는 대상만 세는 명세
+  // (R9 설비 포함 · 금지 명세 R3 기본 이름·R23 Proxy)의 대상 수다.
+  const cells = (rows: Row[]) =>
+    rows
+      .filter((r) => r.inSchema && (r.applicable > 0 || !r.status))
+      .map((r) => `${r.name.replace(/^\[(필수|권장)\] /, '')} ${r.applicable === 0 ? '없음' : r.checks ? `${r.pass}/${r.checks}` : `${r.applicable}개`}`)
+
+  it('IDS 1.0 스키마에 맞고, 가진 BIM 에서 정본 표의 값이 나온다', () => {
+    const CLINIC_ARCH_ = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc'
+    const CLINIC_HVAC_ = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-HVAC.ifc'
+    const want: Record<string, string[]> = {
+      [SAMPLE]: [
+        'R1 층 이름 2/2', 'R2 공간이 층에 속함 7/7', 'R3 공간 이름과 방 번호 14/14', 'R4 문·창이 벽 개구부에 끼워짐 16/16',
+        'R6 길이 단위 선언 1/1', 'R7 지도 좌표 변환 없음', 'R9 설비 포함 없음', 'R14 방 분류 0/7', 'R19 공조존 0/7', 'R22 벽의 내력 여부 0/13',
+      ],
+      // 설비 전용이라 공간(R2·R3)이 없다. 디퓨저·방열기 용량은 표준 자리에 있고 공조기 둘은 없다.
+      [MEP]: [
+        'R1 층 이름 5/5', 'R2 공간이 층에 속함 없음', 'R3 공간 이름과 방 번호 없음', 'R6 길이 단위 선언 1/1', 'R7 지도 좌표 변환 없음',
+        'R9 설비 포함 307개', 'R11 설비마다 배치 285/307', 'R16 설비·도관이 계통에 묶임 1714/2202', 'R16 계통 종류 9/15',
+        'R16 공기 계통의 공급·환수 0/5', 'R16 물 계통의 공급·환수 0/2', 'R17 포트의 흐름 방향 4202/4232',
+        'R21 용량 — IFCUNITARYEQUIPMENT 0/2', 'R21 용량 — IFCSPACEHEATER 30/30', 'R21 용량 — IFCAIRTERMINAL 43/43', 'R23 Proxy 를 쓰지 않음 49개',
+        'R24 설비 종류 — IFCUNITARYEQUIPMENT 2/2', 'R24 설비 종류 — IFCAIRTERMINAL 43/43', 'R24 설비 종류 — IFCSPACEHEATER 30/30',
+        'R24 설비 종류 — IFCELECTRICDISTRIBUTIONBOARD 3/3', 'R24 설비 종류 — IFCSENSOR 7/7', 'R24 설비 종류 — IFCOUTLET 48/48',
+      ],
+      // B105 `Room` 하나가 기본 이름 명세에 걸린다. IFC2x3 이라 R7(IFC4 부터)은 검사하지 않는다.
+      [DUPLEX_ARCH]: [
+        'R1 층 이름 4/4', 'R2 공간이 층에 속함 21/21', 'R3 공간 이름과 방 번호 42/42', 'R3 방 이름에 기본값을 두지 않음 1개',
+        'R4 문·창이 벽 개구부에 끼워짐 38/38', 'R6 길이 단위 선언 1/1', 'R9 설비 포함 없음', 'R14 방 분류 0/21', 'R19 공조존 0/21', 'R22 벽의 내력 여부 57/57',
+      ],
+      [DUPLEX_HVAC]: [
+        'R1 층 이름 3/3', 'R2 공간이 층에 속함 1/1', 'R3 공간 이름과 방 번호 2/2', 'R6 길이 단위 선언 1/1', 'R9 설비 포함 40개',
+        'R11 설비마다 배치 40/40', 'R14 방 분류 0/1', 'R16 설비·도관이 계통에 묶임 0/498', 'R17 포트의 흐름 방향 970/970', 'R19 공조존 0/1',
+        'R21 용량 — IFCPUMP 0/2',
+      ],
+      // 필수 중 유일하게 떨어지는 것이 이 파일의 문 10개(개구부에 끼워지지 않음)다.
+      [CLINIC_ARCH_]: [
+        'R1 층 이름 4/4', 'R2 공간이 층에 속함 269/269', 'R3 공간 이름과 방 번호 538/538', 'R4 문·창이 벽 개구부에 끼워짐 302/312',
+        'R6 길이 단위 선언 1/1', 'R9 설비 포함 102개', 'R11 설비마다 배치 102/102', 'R14 방 분류 0/269', 'R16 설비·도관이 계통에 묶임 0/102',
+        'R19 공조존 0/269', 'R22 벽의 내력 여부 1080/1080',
+      ],
+      [CLINIC_HVAC_]: [
+        'R1 층 이름 4/4', 'R2 공간이 층에 속함 263/263', 'R3 공간 이름과 방 번호 526/526', 'R6 길이 단위 선언 1/1', 'R9 설비 포함 566개',
+        'R11 설비마다 배치 566/566', 'R14 방 분류 0/263', 'R16 설비·도관이 계통에 묶임 0/3704', 'R17 포트의 흐름 방향 7390/7390', 'R19 공조존 0/263',
+        'R21 용량 — IFCUNITARYEQUIPMENT 0/2', 'R21 용량 — IFCFAN 0/8', 'R21 용량 — IFCCHILLER 0/1', 'R21 용량 — IFCAIRTERMINALBOX 0/115',
+        'R21 용량 — IFCAIRTERMINAL 0/440', 'R24 설비 종류 — IFCUNITARYEQUIPMENT 0/2', 'R24 설비 종류 — IFCAIRTERMINAL 437/440',
+        'R24 설비 종류 — IFCAIRTERMINALBOX 115/115',
+      ],
+    }
+    const files = Object.keys(want).filter((f) => existsSync(f))
+    expect(files.length).toBeGreaterThanOrEqual(2)
+    const out = JSON.parse(execFileSync(PYTHON, ['scripts/ids-check.py', 'docs/requirements.ids', ...files], { maxBuffer: 1 << 26 }).toString())
+    expect(out.specifications).toBe(38)
+    for (const f of files) expect(cells(out.files[f]), f).toEqual(want[f])
+  }, 600_000)
+})
+
+// OE-BIM-13 Proxy 리포트. 파일의 Proxy 를 전부 세고, 설비로 읽은 것(포트·이름)과 읽지 않은 것을 가른다. 읽지 않은 것이 정말
+// 건축 부재인지는 이름 예로 사람이 본다 — ifc4Mep 의 48개는 태양광 거치대 40개(`SolarMountingSystems`, 설명 "Mounting rack")와
+// 이름·형상 없는 8개, 병원 전기의 1개는 유압 엘리베이터다(2026-10-03 ifcopenshell 로 열어 확인).
+describe('Proxy 리포트 (OE-BIM-13)', () => {
+  it('가진 BIM 의 Proxy 를 전부 세고 읽지 않은 것을 이름과 함께 적는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const want: Record<string, unknown> = {
+      [SAMPLE]: undefined,
+      [MEP]: { total: 49, ported: 1, named: 0, skipped: ['(이름 없음)', 'SolarMountingSystems'] },
+      [DUPLEX_HVAC]: undefined,
+      [CLINIC_ARCH]: undefined,
+      [CLINIC_HVAC]: undefined,
+      'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc': { total: 29, ported: 0, named: 28, skipped: ['M_Elevator-Hydraulic:2000 lbs:2000 lbs'] },
+    }
+    let measured = 0
+    for (const [path, proxies] of Object.entries(want)) {
+      if (!existsSync(path)) continue
+      measured++
+      const model = importIfc(api, new Uint8Array(readFileSync(path)))
+      expect(model.facts?.proxies, path).toEqual(proxies)
+      const r23 = requirementsReport(model).find((r) => r.id === 'R23')!
+      const p = model.facts?.proxies
+      if (p && p.total > p.ported + p.named) expect(r23.note, path).toContain(`파일의 Proxy ${p.total}개 중 ${p.total - p.ported - p.named}개는`)
+    }
+    expect(measured).toBeGreaterThanOrEqual(2)
+  }, 600_000)
+})
+
+// OE-BIM-17 요구사항 보고서. 가진 BIM 에서 "다른 자리" 가 나온 줄은 전부 "내보내기 설정을 바꿔 달라" 와 무엇을 바꿀지를
+// 요청으로 낸다. 다른 자리를 세는 R 이 EXPORT_SETTING 밖에서 생기면(설정으로 고칠 수 없는 것을 다른 자리로 세면) 여기서 걸린다.
+describe('요구사항 보고서의 요청 (OE-BIM-17)', () => {
+  it('가진 BIM 에서 다른 자리인 줄은 모두 설정 요청이다', () => {
+    const api = new WebIFC.IfcAPI()
+    return api.Init().then(() => {
+      api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+      const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_1, CLINIC_ARCH, CLINIC_HVAC].filter((f) => existsSync(f))
+      expect(files.length).toBeGreaterThanOrEqual(2)
+      const seen = new Map<string, string[]>()
+      for (const f of files) {
+        for (const r of requirementsReport(importIfc(api, new Uint8Array(readFileSync(f))))) {
+          if (r.state !== 'elsewhere' && !(r.counts?.elsewhere ?? 0)) continue
+          expect([f, r.id, r.id in EXPORT_SETTING]).toEqual([f, r.id, true])
+          expect(r.ask.startsWith(`${ASK_SETTING} — ${EXPORT_SETTING[r.id]}`), `${f} ${r.id}`).toBe(true)
+          seen.set(r.id, [...(seen.get(r.id) ?? []), f.split('/').pop()!])
+        }
+      }
+      // 파일 하나로 재는 설정 표의 여섯이 다 실제로 나온다(2026-10-03): Revit IFC2x3 이라 R10(6개 파일), Category Code 방 분류 R14(5),
+      // System Name 계통 R16(4), 패밀리 이름으로 정한 종류 R24(3), PSet_Revit 용량 R21(3), ifc4Mep 의 Proxy 49대 R23(1).
+      // R13 은 판본 비교를 할 때만 잰다(versions.test.ts·e2e/versions.spec.ts).
+      expect([...seen.keys()].sort()).toEqual(Object.keys(EXPORT_SETTING).filter((id) => id !== 'R13').sort())
+    })
+  }, 600_000)
 })
 
 // --- 여러 BIM 에 같이 대 보기 ---------------------------------------------------------
@@ -1181,6 +1530,7 @@ describe.skipIf(!existsSync(SEONGSU_MECH))('성수 기계', () => {
     const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
     // Proxy 로 들어온 기기 1,652대(포트가 있어서 1,578 · 이름이 사전에 있어서 74). 사전을 바꾸면 이름 쪽이 움직인다.
     expect.soft(devices.filter((e) => e.ifcClass === 'BuildingElementProxy')).toHaveLength(1652)
+    expect.soft(model.facts?.proxies).toMatchObject({ ported: 1578, named: 74 })
 
     // 규칙 방향(정본 3.7). 이 83.8% 가 intent.md 가 말하는 "규칙이 맞는지" 의 기준이다.
     const rules = inferFlowByRules(model)
@@ -1460,6 +1810,14 @@ describe.skipIf(!existsSync(DUPLEX_MEP_FULL) || !existsSync(DUPLEX_MEP_2) || !ex
     const v2 = compareVersions(mep, load(DUPLEX_MEP_2))
     expect(v2.equipment.by).toEqual({ guid: 127, revitId: 217, name: 0, position: 0 })
     expect(v2.spaces.by).toEqual({ guid: 0, revitId: 0, name: 14, position: 1 })
+    // R13 판정 근거(OE-BIM-19): GUID 가 바뀐 것을 하나하나 든다. 설비 217대는 이전 GUID 와 다르고, 이름 끝의 Revit 요소 ID 가 같다.
+    expect(v2.equipment.rekeyed).toHaveLength(217)
+    const prevName = new Map(mep.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.name]))
+    for (const r of v2.equipment.rekeyed) {
+      expect(r.prevId).not.toBe(r.id)
+      expect(revitElementId(r.name), r.name).toBe(revitElementId(prevName.get(r.prevId)!))
+    }
+    expect(v2.spaces.rekeyed.map((r) => r.by).sort()).toEqual([...Array(14).fill('name'), 'position'])
 
     // Revit 2013 으로 올려 전기만 떼어 낸 판본(2012-12). 전기 설비 99대 중 16대의 GUID 가 바뀌었다.
     expect(compareVersions(mep, load(DUPLEX_MEP_1)).equipment.by).toEqual({ guid: 83, revitId: 16, name: 0, position: 0 })
@@ -1467,6 +1825,65 @@ describe.skipIf(!existsSync(DUPLEX_MEP_FULL) || !existsSync(DUPLEX_MEP_2) || !ex
     // 다른 도구로 반년 뒤 낸 COBie 판본은 방 GUID 를 전부 지켰다. 도구가 GUID 를 지키느냐의 문제이지, 불가능한 일이 아니다.
     const cobie = compareVersions(load(DUPLEX_ARCH), load(DUPLEX_COBIE))
     expect(cobie.spaces.by).toEqual({ guid: 21, revitId: 0, name: 0, position: 0 })
+  }, 300_000)
+})
+
+// OE-BIM-11 "mm·ft 파일이 m 로 들어옴" 을 실제 파일로, 그리고 "같은 건물 판본 간 층 높이로 교차 확인". Duplex 는 같은 건물을
+// 미터(건축)·밀리미터(HVAC)·피트(MEP-1) 로 낸 파일이 다 있다. 환산 뒤 층 높이가 같아야 하고, COBie(Design) 판본은 길이 단위를
+// 밀리미터로 선언하고 미터 값을 적어서 1/1000 로 들어온다 — 교차 확인이 잡아야 할 실제 사례다(2026-10-03 실측).
+describe.skipIf(![DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_FULL, DUPLEX_MEP_1, DUPLEX_MEP_2, DUPLEX_COBIE].every((f) => existsSync(f)))('단위 교차 확인 (OE-BIM-11, Duplex)', () => {
+  it('mm·ft 로 낸 판본도 m 로 들어와 건축과 층 높이가 같고, 단위를 잘못 선언한 COBie 판본만 1/1000 로 잡는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const scaleOf = (path: string) => {
+      const m = api.OpenModel(new Uint8Array(readFileSync(path)))
+      try {
+        return +lengthScale(api, m).scale.toFixed(4)
+      } finally {
+        api.CloseModel(m)
+      }
+    }
+    const load = (path: string) => importIfc(api, new Uint8Array(readFileSync(path)))
+    const height = (m: Model) => Object.fromEntries(m.storeys.map((s) => [s.name, +s.elevation.toFixed(3)]))
+    const arch = load(DUPLEX_ARCH)
+    expect(scaleOf(DUPLEX_ARCH)).toBe(1)
+    // 건축에만 기초(T/FDN)가 있다. 나머지 셋은 모든 판본에 있다.
+    expect(height(arch)).toEqual({ 'T/FDN': -1.25, 'Level 1': 0, 'Level 2': 3.1, Roof: 6 })
+
+    for (const [path, scale] of [[DUPLEX_HVAC, 0.001], [DUPLEX_MEP, 1], [DUPLEX_MEP_FULL, 1], [DUPLEX_MEP_1, 0.3048], [DUPLEX_MEP_2, 1]] as const) {
+      const m = load(path)
+      expect(scaleOf(path), path).toBe(scale)
+      expect(height(m), path).toEqual({ 'Level 1': 0, 'Level 2': 3.1, Roof: 6 })
+      expect(storeyScaleMismatch(arch.storeys, m.storeys), path).toBeNull()
+      expect(compareVersions(arch, m).storeyScale, path).toBeNull()
+    }
+
+    const cobie = load(DUPLEX_COBIE)
+    expect(scaleOf(DUPLEX_COBIE)).toBe(0.001)
+    // 선언은 밀리미터인데 값은 미터다(Level 2 = 3.0999…). 파일 하나만 보면 3.1mm 짜리 층이 오류 없이 들어온다.
+    expect(height(cobie)).toEqual({ 'T/FDN': -0.001, 'Level 1': 0, 'Level 2': 0.003, Roof: 0.006 })
+    expect(requirementsReport(cobie).find((r) => r.id === 'R6')!.state).toBe('standard')
+    const d = compareVersions(arch, cobie)
+    expect(d.storeyScale).toMatchObject({ ratio: 1 / 1000, what: '밀리미터 ↔ 미터' })
+    // 1층(0)만 빼고 기초까지 셋이 모두 1/1000 이다.
+    expect(d.storeyScale!.storeys.map(([n]) => n)).toEqual(['T/FDN', 'Level 2', 'Roof'])
+
+    const { model, report } = mergeModels(arch, cobie, { base: 'Arch.ifc', overlay: 'COBie-Design.ifc' })
+    expect(report.unitScale!.ratio).toBe(1 / 1000)
+    expect(model.warnings.filter((w) => w.includes('길이 단위 선언') || w.includes('높이가 다른'))).toEqual([
+      '이름이 같은 층의 높이가 COBie-Design.ifc에서 Arch.ifc의 1/1000입니다(T/FDN -1.25m → -0.00125m, Level 2 3.1m → 0.0031m, Roof 6m → 0.006m). 층간 높이로 보면 COBie-Design.ifc의 길이 단위 선언이 실제 값과 다른 것 같습니다(밀리미터 ↔ 미터). 치수·좌표가 모두 그 배수로 틀립니다(요구사항 R6).',
+    ])
+    expect(requirementsReport(model, report).find((r) => r.id === 'R6')!.state).toBe('partial')
+    // 판본 비교로 COBie 를 지금 파일로 열면(건축이 이전 판본) 지금 파일이 틀렸다 — 층간 높이 3.1mm.
+    expect(d.storeyScale!.suspect).toBe('second')
+    const r6 = requirementsReport(cobie, null, { name: 'Arch.ifc', kept: 0, rematched: 0, storeyScale: d.storeyScale }).find((r) => r.id === 'R6')!
+    expect(r6.state).toBe('partial')
+    // 거꾸로 건축을 열고 COBie 를 이전 판본으로 견주면 건축의 R6 은 표준이고, 이전 판본(COBie)을 짚는다.
+    const back = compareVersions(cobie, arch).storeyScale!
+    expect(back).toMatchObject({ ratio: 1000, suspect: 'first' })
+    const archR6 = requirementsReport(arch, null, { name: 'COBie-Design.ifc', kept: 0, rematched: 0, storeyScale: back }).find((r) => r.id === 'R6')!
+    expect(archR6.state).toBe('standard')
+    expect(archR6.note).toContain('이전 판본(COBie-Design.ifc)은 같은 이름 층의 높이가 이 파일의 1/1000로')
   }, 300_000)
 })
 

@@ -199,6 +199,20 @@ describe('판본 비교 (mep.ifc → mep-v2.ifc)', () => {
     expect(d.equipment.relocated).toEqual([])
   })
 
+  // OE-BIM-19 "R13 판정 근거". 숫자만이 아니라 어느 것의 GUID 가 바뀌었는지(지금 id·이전 GUID·무엇으로 찾았나)를 든다.
+  it('GUID 가 바뀐 것을 하나하나 이전 GUID 와 찾은 열쇠로 든다', () => {
+    const prev = read('mep.ifc')
+    const next = read('mep-v2.ifc')
+    const d = compareVersions(prev, next)
+    const office = next.storeys.flatMap((s) => s.spaces)[0]
+    const ahu = named(next, 'AHU-1')
+    expect(d.spaces.rekeyed).toEqual([{ id: office.id, name: expect.stringContaining('사무실'), prevId: prev.storeys.flatMap((s) => s.spaces)[0].id, by: 'name' }])
+    expect(d.equipment.rekeyed).toEqual([{ id: ahu.id, name: 'AHU-1', prevId: named(prev, 'AHU-1').id, by: 'name' }])
+    // 개수는 by 와 같다 — 목록이 곧 R13 의 "다른 자리" 몫이다.
+    for (const k of [d.spaces, d.equipment]) expect(k.rekeyed.length).toBe(k.by.revitId + k.by.name + k.by.position)
+    for (const r of [...d.spaces.rekeyed, ...d.equipment.rekeyed]) expect(r.prevId).not.toBe(r.id)
+  })
+
   it('요구사항 R13 이 GUID 가 남은 것과 다른 열쇠로 찾은 것을 센다', () => {
     const next = read('mep-v2.ifc')
     const d = compareVersions(read('mep.ifc'), next)
@@ -207,6 +221,8 @@ describe('판본 비교 (mep.ifc → mep-v2.ifc)', () => {
     const r13 = requirementsReport(next, null, { name: 'mep.ifc', kept, rematched }).find((r) => r.id === 'R13')!
     expect(r13.state).toBe('elsewhere')
     expect(r13.counts).toEqual({ standard: 4, elsewhere: 2, of: 6 })
+    // GUID 가 바뀐 것은 내보내기 설정으로 고쳐진다(정본 4.1 "GUID 유지 설정", OE-BIM-17).
+    expect(r13.ask).toContain('내보내기 설정을 바꿔 달라 — IFC GUID를 요소 매개변수에 저장')
     expect(requirementsReport(next).find((r) => r.id === 'R13')!.state).toBe('unmeasured')
   })
 

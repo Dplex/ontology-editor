@@ -1125,13 +1125,20 @@ function read(
     // 제외 목록을 늘리는 대신 포함 근거를 IFC 구조(포트)와 좁은 사전에 둔다. 역할은 IFC 가 안 주므로
     // 사전의 것을 쓴다.
     const ported = r.portOwners()
-    const proxies = { ported: 0, named: 0 }
+    const proxies = { total: 0, ported: 0, named: 0, skipped: [] as string[] }
     for (const id of r.ids(WebIFC.IFCBUILDINGELEMENTPROXY)) {
       const el = r.line(id)
-      const info = equipmentKindOf((val(el?.Name) as string) ?? '', (val(el?.ObjectType) as string) ?? '')
+      const name = (val(el?.Name) as string) ?? ''
+      const info = equipmentKindOf(name, (val(el?.ObjectType) as string) ?? '')
+      proxies.total++
       if (ported.has(id)) proxies.ported++
       else if (info) proxies.named++
-      else continue
+      else {
+        // 읽지 않은 것의 이름 예. Revit 이름은 `패밀리:유형:요소ID` 라 요소 ID 를 떼어 같은 패밀리를 한 번만 적는다.
+        const family = name.replace(/:\d+$/, '').trim() || '(이름 없음)'
+        if (proxies.skipped.length < 5 && !proxies.skipped.includes(family)) proxies.skipped.push(family)
+        continue
+      }
       mepIDs.add(id)
       if (info?.role) roleOf.set(id, info.role)
     }
@@ -1394,6 +1401,7 @@ function read(
         // IfcMapConversion 은 IFC4 부터 있다. IFC2x3 에서는 늘 0 이다.
         mapConversion: r.ids(WebIFC.IFCMAPCONVERSION).length > 0,
         siteLatLong: r.ids(WebIFC.IFCSITE).some((id) => (r.line(id)?.RefLatitude?.length ?? 0) > 0),
+        ...(proxies.total ? { proxies } : {}),
       },
     }
 
@@ -1488,9 +1496,15 @@ function read(
       }
     }
 
-    if (proxies.ported + proxies.named > 0) {
+    // 읽은 것과 읽지 않은 것을 같이 센다(OE-BIM-13). 읽은 수만 말하면 빠뜨린 설비가 없는지 볼 길이 없다.
+    if (proxies.total > 0) {
+      const read = proxies.ported + proxies.named
+      const left = proxies.total - read
       warnings.push(
-        `Proxy(IfcBuildingElementProxy) ${proxies.ported + proxies.named}개를 설비로 읽었습니다(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 정한 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름으로 추정했습니다(요구사항 R23).`,
+        `Proxy(IfcBuildingElementProxy) ${proxies.total}개 중 ${read}개를 설비로 읽었습니다` +
+          (read ? `(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 정한 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름으로 추정했습니다` : '') +
+          (left ? `. 나머지 ${left}개는 포트도 없고 이름도 사전에 없어 건축 부재로 보고 읽지 않았습니다(예: ${proxies.skipped.join(', ')})` : '') +
+          '(요구사항 R23).',
       )
     }
 

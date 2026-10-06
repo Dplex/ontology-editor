@@ -418,6 +418,11 @@ export type Model = {
     mapConversion: boolean
     /** IfcSite 에 위경도가 있나. 지도에 대략 얹을 수는 있지만 스캔과 맞출 수는 없다. */
     siteLatLong: boolean
+    /**
+     * 파일의 IfcBuildingElementProxy(OE-BIM-13). 포트가 있거나(ported) 이름이 사전에 있어(named) 설비로 읽은 것과, 둘 다 아니라
+     * 건축 부재로 보고 읽지 않은 것의 이름 예(앞 5가지). 읽지 않은 수 = total - ported - named. 빠진 설비가 없는지 사람이 본다.
+     */
+    proxies?: { total: number; ported: number; named: number; skipped: string[] }
   }
 }
 

@@ -63,6 +63,26 @@ describe('requirements.ids', () => {
     for (const [r, level] of inIds) expect([r, doc.get(r)]).toEqual([r, level])
   })
 
+  it('옮긴 R 번호가 정본 4장의 "옮겼다·일부만 옮겼다" 와 같고, "옮기지 못했다" 는 없다 (OE-REQ-02)', () => {
+    // 정본 표의 세 줄. 명세를 더하거나 빼면서 표를 안 고치면(또는 그 반대) 고객사가 받는 IDS 와 문서가 다른 말을 한다.
+    const doc = read('../../docs/bim-to-dt-ontology.md')
+    const row = (label: string) => {
+      const line = doc.split('\n').find((l) => l.startsWith(`| ${label} | R`))
+      expect(line, label).toBeTruthy()
+      return line!.split('|')[2].trim().split(/\s+/)
+    }
+    const [moved, partial, notMoved] = [row('옮겼다'), row('일부만 옮겼다'), row('옮기지 못했다')]
+    const identifiers = new Set([...ids.matchAll(/<specification [^>]*identifier="(R\d+)"/g)].map((m) => m[1]))
+    const byNumber = (a: string, b: string) => Number(a.slice(1)) - Number(b.slice(1))
+    expect([...identifiers].sort(byNumber)).toEqual([...moved, ...partial].sort(byNumber))
+    // 이름의 R 번호와 identifier 가 같다(ifctester 보고서는 이름을, 다른 도구는 identifier 를 보인다).
+    const named = [...ids.matchAll(/<specification name="\[(?:필수|권장)\] (R\d+) [^"]*"[^>]*identifier="(R\d+)"/g)]
+    expect(named).toHaveLength([...ids.matchAll(/<specification /g)].length)
+    for (const m of named) expect(m[2]).toBe(m[1])
+    // 세 줄을 합치면 R0~R24 를 빠짐없이 한 번씩 덮는다.
+    expect([...moved, ...partial, ...notMoved].sort(byNumber)).toEqual(Array.from({ length: 25 }, (_, i) => `R${i}`))
+  })
+
   it('에디터의 요구사항 보고서(requirements.ts)도 정본과 같은 R 번호·등급이다', () => {
     const doc = levelsInDoc()
     expect(new Map(REQUIREMENTS.map((r) => [r.id, r.level]))).toEqual(doc)
