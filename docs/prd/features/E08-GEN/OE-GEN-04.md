@@ -6,7 +6,7 @@ title: "미확정 규칙 방향 제외"
 prd: "#8"
 release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP-05"]
@@ -16,11 +16,11 @@ depends: ["OE-PIP-05"]
 
 ## 요구사항
 
-사람이 확정하지 않은 규칙 방향은 `feeds`로 내보내지 않고 수를 리포트에 남김
+규칙으로 추정한 흐름 방향은 사람이 계통 단위로 확정한 것만 `feeds` 로 내보낸다(K4·K14, OE-PIP-05). 확정하지 않은 규칙 방향은 TTL 에 넣지 않고 수를 리포트에 남긴다.
 
 ## 수용 기준
 
-TTL에 미확정 feeds 없음
+TTL 에 미확정 규칙 방향에서 비롯한 `feeds` 가 없다.
 
 ## 검증 (이 repo)
 
