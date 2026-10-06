@@ -59,6 +59,7 @@ import {
   newCrossing,
   wallLength,
   setWallLength,
+  setOpeningSize,
   WALL_LOCKED,
   insertWall,
   deleteOpening,
@@ -840,6 +841,20 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(addOpening(model, storey().id, 'window', [5, 4])).toEqual({ refused: expect.stringContaining('벽에서') })
   })
 
+  // OE-OBJ-07 수용 기준: 외벽 개구부 = 창, 내벽 개구부 = 문으로 나누지 않는다(#288). 실제 BIM 도 외벽에 현관문을 둔다.
+  it.each([
+    ['외벽', true],
+    ['내벽', false],
+    ['외벽 여부 모름', null],
+  ] as const)('%s 에도 문과 창을 둘 다 놓는다', (_, external) => {
+    const { wall } = setup()
+    wall.external = external
+    const door = addOpening(model, storey().id, 'door', [10.1, 2]) as Opening
+    const window = addOpening(model, storey().id, 'window', [10.1, 6]) as Opening
+    expect([door.kind, door.wallId]).toEqual(['door', wall.id])
+    expect([window.kind, window.wallId]).toEqual(['window', wall.id])
+  })
+
   it('벽을 옮기면 뚫린 문도 같이 가고, 잇는 방을 다시 짚는다', () => {
     const { wall } = setup()
     const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening
@@ -938,6 +953,27 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(setWallLength(model, wall.id, 12)).toEqual({ refused: expect.stringContaining('가로지릅니다') })
     setWallLoadBearing(model, wall.id, true)
     expect(setWallLength(model, wall.id, 8)).toEqual({ refused: WALL_LOCKED })
+  })
+
+  // OE-OBJ-07. 자리(가운데)는 두고 가로·세로만 바꾼다.
+  it('문·창 가로·세로를 바꾸고, 벽 끝을 넘거나 범위 밖이거나 내력벽이면 바꾸지 않는다', () => {
+    const { wall } = setup()
+    const base = baselineOf(model)
+    const win = addOpening(model, storey().id, 'window', [10.1, 2]) as Opening
+    const snap = snapshotStoreyElements(model, storey().id)!
+    expect(setOpeningSize(model, win.id, { width: 1.2, height: 1.5 })).toBe(true)
+    restore(model, snap)
+    expect([win.width, win.height]).toEqual([null, null])
+    expect(setOpeningSize(model, win.id, { width: 1.2, height: 1.5 })).toBe(true)
+    expect([win.width, win.height, win.position![1]]).toEqual([1.2, 1.5, 2])
+    // 벽은 y 0..8, 창 가운데 y=2 → 가로 4 를 넘으면 벽 끝을 넘는다.
+    expect(setOpeningSize(model, win.id, { width: 4.2 })).toEqual({ refused: expect.stringContaining('벽 끝') })
+    expect(setOpeningSize(model, win.id, { height: 0 })).toEqual({ refused: expect.stringContaining('0.1m') })
+    expect(setOpeningSize(model, win.id, { width: 1.2 })).toBe(false)
+    setWallLoadBearing(model, wall.id, true)
+    expect(setOpeningSize(model, win.id, { width: 1 })).toEqual({ refused: WALL_LOCKED })
+    // 더한 창이라 "옮김·크기" 가 아니라 더한 것으로만 뜬다.
+    expect(diffBaseline(model, base).openingsAdded.map((o) => o.id)).toEqual([win.id])
   })
 
   it('연 때와 견주면 더한 벽·옮긴 문이 뜨고, 지운 벽의 문은 따로 세지 않는다', () => {

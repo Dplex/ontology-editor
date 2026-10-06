@@ -105,6 +105,7 @@ import {
   crossingMessage,
   wallLength,
   setWallLength,
+  setOpeningSize,
   type Baseline,
   type BoundaryChange,
   type Change,
@@ -3278,6 +3279,20 @@ function applyWallLength(wall: Wall, raw: string) {
   changeElements(storey.id, `${wall.name || '벽'} 길이 ${value.toFixed(2)}m`, (m) => setWallLength(m, wall.id, value))
 }
 
+/** 문·창이 뚫린 벽. */
+function hostWallOf(o: Opening): Wall | null {
+  return selectedElement.value?.storey.walls.find((w) => w.id === o.wallId) ?? null
+}
+
+/** 문·창 가로·세로(OE-OBJ-07). */
+function applyOpeningSize(o: Opening, key: 'width' | 'height', raw: string) {
+  const value = Number(raw)
+  const storey = selectedElement.value?.storey
+  if (!storey || raw.trim() === '' || !Number.isFinite(value)) return
+  const label = `${o.name || elementLabel(o.kind)} ${key === 'width' ? '가로' : '세로'} ${value.toFixed(2)}m`
+  changeElements(storey.id, label, (m) => setOpeningSize(m, o.id, { [key]: value }))
+}
+
 function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string) {
   const value = Number(raw)
   const storey = selectedElement.value?.storey
@@ -4859,8 +4874,14 @@ async function export3D(format: 'glb' | 'obj') {
                 {{ selectedElement.storey.name }}
                 <template v-if="selectedElement.wall">
                   · 두께 {{ selectedElement.wall.thickness !== null ? `${selectedElement.wall.thickness.toFixed(2)}m` : '모름' }}
+                  <!-- 외벽·내벽(IsExternal). 모르면 적지 않는다 — 내벽으로 보이면 아니오처럼 읽힌다. -->
+                  <template v-if="selectedElement.wall.external != null">
+                    · {{ selectedElement.wall.external ? '외벽' : '내벽' }} <Src kind="bim" />
+                  </template>
                 </template>
-                <template v-if="selectedElement.opening?.width">· 너비 {{ selectedElement.opening.width.toFixed(2) }}m</template>
+                <template v-if="selectedElement.opening && hostWallOf(selectedElement.opening)?.external != null">
+                  · {{ hostWallOf(selectedElement.opening)!.external ? '외벽' : '내벽' }}에 뚫림 <Src kind="bim" />
+                </template>
               </p>
             </div>
             <div class="picked-actions">
@@ -4906,6 +4927,25 @@ async function export3D(format: 'glb' | 'obj') {
             </label>
             <Src :kind="selectedElement.wall.added ? 'edit' : 'bim'" />
             <span class="muted">{{ selectedElement.wall.loadBearing === null ? '모름은 아니오가 아닙니다. 내벽처럼 고칠 수 있습니다.' : '모름은 아니오가 아닙니다.' }}</span>
+          </p>
+          <!-- 문·창 크기(OE-OBJ-07). 자리(가운데)는 두고 가로·세로만 바꾼다. 모르는 값은 빈칸이다. -->
+          <p v-if="selectedElement.opening" class="opening-size">
+            크기
+            <label v-for="key in ['width', 'height'] as const" :key="key">
+              {{ key === 'width' ? '가로' : '세로' }}
+              <input
+                class="coord mono"
+                type="number"
+                step="0.1"
+                min="0.1"
+                v-keep-typing
+                :disabled="selectedElement.locked"
+                :value="selectedElement.opening[key] != null ? selectedElement.opening[key]!.toFixed(2) : ''"
+                :placeholder="'모름'"
+                @change="applyOpeningSize(selectedElement.opening!, key, ($event.target as HTMLInputElement).value)"
+              />
+            </label>
+            m
           </p>
           <p v-if="selectedElement.opening?.position" class="position-edit">
             자리
@@ -5920,7 +5960,11 @@ async function export3D(format: 'glb' | 'obj') {
             </li>
             <li v-for="r in sinceOpen.openingsAdded" :key="`op-add-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 놓았습니다 (GeoJSON)</li>
             <li v-for="r in sinceOpen.openingsRemoved" :key="`op-rm-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다 (GeoJSON)</li>
-            <li v-for="r in sinceOpen.openingsMoved" :key="`op-mv-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 옮겼습니다 (GeoJSON 위치·잇는 방)</li>
+            <li v-for="r in sinceOpen.openingsMoved" :key="`op-mv-${r.id}`">
+              {{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }}
+              {{ r.moved && r.resized ? '옮기고 크기를 바꿨습니다' : r.moved ? '옮겼습니다' : '크기를 바꿨습니다' }}
+              ({{ r.moved ? 'GeoJSON 위치·잇는 방' : 'GeoJSON 가로·세로' }})
+            </li>
             <li v-for="r in sinceOpen.systemMoved" :key="`sys-mv-${r.id}`">
               {{ r.name }}: 계통 <b>{{ systemNameOf(r.from) }}</b> → <b>{{ systemNameOf(r.to) }}</b> (brick:hasPart)
             </li>

@@ -162,3 +162,31 @@ test('다른 벽을 가로지르는 벽은 긋지 못하고, 맞댄 벽은 길�
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
   expect(errors).toEqual([])
 })
+
+// OE-OBJ-07. 문·창은 자리(가운데)를 두고 가로·세로를 바꾼다. 벽 끝을 넘으면 막힌다.
+test('창을 놓고 가로·세로를 바꾸며, 벽 끝을 넘는 가로는 막힌다', async ({ page }) => {
+  const errors = await open(page)
+  await page.getByRole('button', { name: '벽·문·창' }).click()
+  const panel = page.locator('.element-picked')
+  await page.getByRole('button', { name: '벽 긋기' }).click()
+  await clickFloor(page, 10.1, 0)
+  await clickFloor(page, 10.1, 8)
+  await page.getByRole('button', { name: '창 놓기' }).click()
+  await clickFloor(page, 10.1, 2)
+  await expect(panel.locator('h3')).toHaveText('새 창')
+  const [width, height] = [panel.locator('.opening-size input').nth(0), panel.locator('.opening-size input').nth(1)]
+  await expect(width).toHaveValue('')
+  await width.fill('1.2')
+  await width.press('Enter')
+  await expect(page.locator('.edit-bar .last-edit')).toContainText('가로 1.20m')
+  await height.fill('1.5')
+  await height.press('Enter')
+  await expect(page.locator('.edit-bar .last-edit')).toContainText('세로 1.50m')
+  // 창 가운데가 y=2 라 가로 4.2 는 벽 아래 끝(y=0)을 넘는다.
+  await width.fill('4.2')
+  await width.press('Enter')
+  await expect(page.locator('.key-note')).toContainText('벽 끝을 넘습니다')
+  // 거부된 것은 되돌리기 이력에 쌓이지 않는다.
+  await expect(page.locator('.edit-bar .last-edit')).toContainText('세로 1.50m')
+  expect(errors).toEqual([])
+})

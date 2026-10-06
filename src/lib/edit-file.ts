@@ -82,8 +82,8 @@ export type EditFile = {
   wallsAdded?: { id: string; storeyId: string; name: string; thickness: number | null; loadBearing: boolean | null; footprint: Vec2[][] }[]
   /** 지운 벽. 그 벽의 문·창은 따로 적지 않는다(벽과 같이 빠진다). */
   wallsRemoved?: string[]
-  /** 옮긴 문·창의 끝 자리. */
-  openings?: { id: string; position: Vec3 }[]
+  /** 옮긴 문·창의 끝 자리, 크기를 바꾼 문·창의 끝 크기(OE-OBJ-07). 바뀐 쪽만 적는다. */
+  openings?: { id: string; position?: Vec3; width?: number | null; height?: number | null }[]
   openingsAdded?: {
     id: string
     storeyId: string
@@ -93,6 +93,8 @@ export type EditFile = {
     wallId: string | null
     through: Vec2
     depth: number
+    width?: number | null
+    height?: number | null
   }[]
   openingsRemoved?: string[]
   kinds: { typeKey: string; kind: string | null }[]
@@ -206,13 +208,19 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     }
   })
   const openings = since.openingsMoved.flatMap((m) => {
-    const p = openingById.get(m.id)!.opening.position
-    return p ? [{ id: m.id, position: [p[0], p[1], p[2]] as Vec3 }] : []
+    const o = openingById.get(m.id)!.opening
+    const p = m.moved ? o.position : null
+    const row = {
+      id: m.id,
+      ...(p ? { position: [p[0], p[1], p[2]] as Vec3 } : {}),
+      ...(m.resized ? { width: o.width, height: o.height } : {}),
+    }
+    return p || m.resized ? [row] : []
   })
   const openingsAdded = since.openingsAdded.flatMap((a) => {
     const { storey, opening: o } = openingById.get(a.id)!
     if (!o.position || !o.through) return []
-    return [{ id: o.id, storeyId: storey.id, kind: o.kind, name: o.name, position: [o.position[0], o.position[1], o.position[2]] as Vec3, wallId: o.wallId, through: [o.through[0], o.through[1]] as Vec2, depth: o.depth ?? 0.2 }]
+    return [{ id: o.id, storeyId: storey.id, kind: o.kind, name: o.name, position: [o.position[0], o.position[1], o.position[2]] as Vec3, wallId: o.wallId, through: [o.through[0], o.through[1]] as Vec2, depth: o.depth ?? 0.2, ...(o.width != null || o.height != null ? { width: o.width, height: o.height } : {}) }]
   })
   const systems = since.systemKinds.map((k) => ({ id: k.id, kind: k.to.kind, fluid: k.to.fluid }))
   const systemById = new Map(model.systems.map((s) => [s.id, s]))
@@ -517,8 +525,8 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       id: row.id,
       kind: row.kind,
       name: row.name,
-      width: null,
-      height: null,
+      width: row.width ?? null,
+      height: row.height ?? null,
       wallId: row.wallId && resolve(row.wallId),
       passable: row.kind === 'door',
       position: [row.position[0], row.position[1], row.position[2]],
@@ -544,7 +552,18 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   }
   for (const raw of file.openings ?? []) {
     const id = resolve(raw.id)
-    if (moveOpening(model, id, [raw.position[0], raw.position[1]], { ignoreLock: true })) result.applied++
+    let hit = false
+    if (raw.position) hit = moveOpening(model, id, [raw.position[0], raw.position[1]], { ignoreLock: true }) || hit
+    if (raw.width !== undefined || raw.height !== undefined) {
+      // 크기는 끝 값을 그대로 얹는다. null(모름)로 되돌린 것도 있어 setOpeningSize 를 거치지 않는다.
+      const o = model.storeys.flatMap((s) => s.openings).find((x) => x.id === id)
+      if (o) {
+        if (raw.width !== undefined) o.width = raw.width
+        if (raw.height !== undefined) o.height = raw.height
+        hit = true
+      }
+    }
+    if (hit) result.applied++
     else if (!model.storeys.some((s) => s.openings.some((o) => o.id === id))) result.missing.elements++
   }
   for (const id of file.openingsRemoved ?? []) {
