@@ -6,7 +6,7 @@ title: "에디터 내 외벽 불변"
 prd: "#23"
 release: "R1"
 priority: "P1"
-owner: "srcn"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-OBJ-04"]
@@ -16,11 +16,11 @@ depends: ["OE-OBJ-04"]
 
 ## 요구사항
 
-외벽 이동·삭제·크기 수정 불가
+층 편집 화면에서 외벽은 옮기거나 지우거나 크기를 바꿀 수 없다. 선택·속성 조회와 외벽 전용 설비·문·창 배치(OE-OBJ-04)는 된다. 외벽 형상 편집은 외벽 에디터(OE-EXT-03)에서 한다.
 
 ## 수용 기준
 
-—
+층 편집 화면에서 외벽의 이동·삭제·크기 핸들이 비활성이다.
 
 ## 검증 (이 repo)
 
