@@ -54,7 +54,7 @@ jobs:
             const ORG = 'IoT-Solution'
             const PROJECT_NUMBER = 1
             const STATUS = { todo: '📝 Todo', inProgress: '🚧 In Progress', inReview: '👀 In Review', done: '✅ Done' }
-            // CLAUDE.md "라벨은 왜 멈췄나": 라벨이 여럿이면 이 순서로 하나만 🏷️ 라벨 칸에 들어간다
+            // docs/dev/board.md "라벨": 라벨이 여럿이면 이 순서로 하나만 🏷️ 라벨 칸에 들어간다
             const LABEL_ORDER = ['rejected', 'modified', 'needs-pm', 'blocked', 'needs-dev', 'enhancement']
             const { owner, repo } = context.repo
             const ev = context.payload

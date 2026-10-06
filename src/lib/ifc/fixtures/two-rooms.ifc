@@ -75,12 +75,14 @@ DATA;
 #61= IFCWINDOW('0PoC$Window$1F$0000000',$,'WD-1F-01',$,$,#15,$,'N1',1.5,1.2,.WINDOW.,.NOTDEFINED.,$);
 #62= IFCWINDOW('0PoC$Window$2F$0000000',$,'WD-2F-01',$,$,#19,$,'N2',1.5,1.2,.WINDOW.,.NOTDEFINED.,$);
 
-/* Pset_WallCommon. #50 은 참, #51 은 거짓, #52 는 아예 선언이 없다. */
+/* Pset_WallCommon. #50 은 참, #51 은 거짓, #52 는 아예 선언이 없다. 외벽 여부(IsExternal)도 같다 — #50 외벽, #51 내벽, #52 모름. */
 #70= IFCPROPERTYSINGLEVALUE('LoadBearing',$,IFCBOOLEAN(.T.),$);
-#71= IFCPROPERTYSET('0PoC$Pset$Bearing$000',$,'Pset_WallCommon',$,(#70));
+#76= IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.T.),$);
+#71= IFCPROPERTYSET('0PoC$Pset$Bearing$000',$,'Pset_WallCommon',$,(#70,#76));
 #72= IFCRELDEFINESBYPROPERTIES('0PoC$Rel$Pset$Bear$000',$,$,$,(#50),#71);
 #73= IFCPROPERTYSINGLEVALUE('LoadBearing',$,IFCBOOLEAN(.F.),$);
-#74= IFCPROPERTYSET('0PoC$Pset$Partition$0',$,'Pset_WallCommon',$,(#73));
+#77= IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.F.),$);
+#74= IFCPROPERTYSET('0PoC$Pset$Partition$0',$,'Pset_WallCommon',$,(#73,#77));
 #75= IFCRELDEFINESBYPROPERTIES('0PoC$Rel$Pset$Part$000',$,$,$,(#51),#74);
 
 /* 재료 구성. IFC 는 벽 두께를 기하가 아니라 여기에 둔다.

@@ -1,0 +1,15 @@
+# 문서 챗봇(scripts/docs-chat.mjs)이 gemini 에 --admin-policy 로 넘기는 정책. ADR-0001.
+# 8084 는 사내망 누구나 열기 때문에, 문서 읽는 MCP 서버(docs) 말고는 아무 도구도 못 쓰게 한다.
+# admin 등급이라 55 계정의 ~/.gemini/policies(user 등급)가 무엇을 허용해도 이게 이긴다.
+# 전역 deny 는 도구를 모델에게 아예 보이지 않게 한다(gemini policy-engine 문서).
+
+[[rule]]
+toolName = "*"
+decision = "deny"
+priority = 100
+
+[[rule]]
+mcpName = "docs"
+toolName = "*"
+decision = "allow"
+priority = 900

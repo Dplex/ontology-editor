@@ -117,6 +117,8 @@ describe('빠진 것을 조용히 넘기지 않는다', () => {
     expect(walls.find((w) => w.name === 'W-1F-01')?.loadBearing).toBe(true)
     expect(walls.find((w) => w.name === 'W-1F-02')?.loadBearing).toBe(false)
     expect(walls.find((w) => w.name === 'W-1F-03')?.loadBearing).toBe(null)
+    // 외벽 여부(IsExternal)도 같은 모양이다. 선언이 없으면 모름이다(OE-OBJ-07).
+    expect(walls.map((w) => [w.name, w.external])).toEqual(expect.arrayContaining([['W-1F-01', true], ['W-1F-02', false], ['W-1F-03', null]]))
   })
 })
 

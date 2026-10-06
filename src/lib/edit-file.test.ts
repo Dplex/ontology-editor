@@ -22,6 +22,7 @@ import {
   deleteOpening,
   deleteWall,
   setWallLoadBearing,
+  setOpeningSize,
   setEquipmentSystem,
   setSystemKind,
   typeKeyOf,
@@ -31,7 +32,7 @@ import { exportedContent } from './edit-fuzz'
 import { confirmSystemFlow, inferFlowByRules } from './flow-rules'
 import { modelToGeoJSON } from './export/geojson'
 import { modelToTTL } from './export/ttl'
-import type { Model, Opening } from './model'
+import type { Model, Opening, Wall } from './model'
 
 let api: WebIFC.IfcAPI
 beforeAll(async () => {
@@ -173,6 +174,27 @@ describe('편집 저장·불러오기', () => {
     expect(strip(b)).toEqual(exports(a))
   })
 
+  // OE-OBJ-07. 크기를 바꾼 BIM 창과, 더하고 크기를 정한 문이 편집 파일을 거쳐 그대로 돌아온다.
+  it('문·창 크기 편집이 편집 파일로 돌아온다', () => {
+    const a = read('two-rooms.ifc')
+    const base = baselineOf(a)
+    const win = a.storeys.flatMap((st) => st.openings).find((o) => o.name === 'WD-2F-01')!
+    win.width = 2.0
+    const first = a.storeys[0]
+    const wall = addWall(a, first.id, [0, -3], [4, -3], 0.2, 'U_wallSize') as Wall
+    const door = addOpening(a, first.id, 'door', [2, -3], 'U_doorSize') as Opening
+    expect(door.wallId).toBe(wall.id)
+    expect(setOpeningSize(a, door.id, { width: 0.9, height: 2.1 })).toBe(true)
+    const file = exportEdits(a, base, 'two-rooms.ifc')
+    expect(file.openings).toEqual([{ id: win.id, width: 2.0, height: win.height }])
+    const b = read('two-rooms.ifc')
+    const result = applyEdits(b, parseEditFile(JSON.stringify(file)) as EditFile)
+    expect(result.missing.elements).toBe(0)
+    const opened = b.storeys.flatMap((st) => st.openings)
+    expect(opened.find((o) => o.id === win.id)!.width).toBe(2.0)
+    expect(opened.find((o) => o.id === door.id)).toMatchObject({ width: 0.9, height: 2.1 })
+  })
+
   // OE-OBJ-06. 지운 벽의 내력 여부는 편집 파일에 남지 않는다. 되살릴 때 잠금을 보면 BIM 이 내력이라 한 벽을 풀고 지운 편집이 빠진다.
   it('내력벽을 풀고 지운 편집을 되살리면, BIM 이 내력이라 해도 지워진다', () => {
     const a = read('two-rooms.ifc')
@@ -196,7 +218,7 @@ describe('편집 저장·불러오기', () => {
     setWallLoadBearing(a, byName(a, 'W-1F-03').id, true)
     deleteWall(a, byName(a, 'W-1F-02').id)
     deleteOpening(a, byName(a, 'WD-2F-01').id)
-    const wall = addWall(a, first.id, [0, 0], [4, 0], 0.2, 'U_wallTest')!
+    const wall = addWall(a, first.id, [0, 0], [4, 0], 0.2, 'U_wallTest') as Wall
     const door = addOpening(a, first.id, 'door', [2, 0], 'U_doorTest') as Opening
     expect(door.wallId).toBe(wall.id)
     const file = exportEdits(a, base, 'two-rooms.ifc')

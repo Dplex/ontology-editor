@@ -7,7 +7,7 @@ import { BoxGeometry, type Mesh, type Object3D } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { toScene } from '../viewer'
 import { addWall, moveOpening, moveWall, setWallLoadBearing } from '../edit'
-import type { Model } from '../model'
+import type { Model, Wall } from '../model'
 import { modelToScene, sceneToGLB, sceneToOBJ } from './mesh3d'
 
 let model: Model
@@ -94,7 +94,7 @@ describe('3D 내보내기 — 편집', () => {
   it('더한 벽은 형상이 없어도 외곽선으로 나간다', () => {
     const edited = structuredClone(rooms)
     const storey = edited.storeys[0]
-    const wall = addWall(edited, storey.id, [0, 0], [3, 0])
+    const wall = addWall(edited, storey.id, [0, 0], [3, 0]) as Wall
     expect(wall).toBeTruthy()
     expect(modelToScene(edited, roomMeshes, { pristine: rooms }).getObjectByName(wall!.id)).toBeTruthy()
   })
