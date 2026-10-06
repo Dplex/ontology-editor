@@ -60,4 +60,4 @@ Duplex COBie(Design). Storey Height 0.0 은 읽지 않으므로 계산 값이고
 - 층고를 TTL·GeoJSON 에 export 할지 PM·수신 측에 확인 필요. export 한다면 BIM 값만인지 계산 값도인지, predicate 이름(`ex:storeyHeight`?)과 출처 표시를 정해야 한다. export 하면 `read-export.ts` 의 `NUMERIC_OK` 에 추가해야 한다(OE-INT-02)
 - 층고를 사람이 입력하는 칸은 없다. 용어집은 층고·천장고·방 높이를 "BIM 에 없으면 사용자가 설정한다" 고 정했지만, 이 티켓 요구사항에는
   입력이 없고 설정 단위(사이트·층·물리존)가 Q7 로 열려 있어 넣지 않았다. 지금 사람 입력이 필요한 곳은 맨 위층(모름)뿐이다
-- 성수는 이 PC 에 없어 측정하지 못했다
+- 성수 건축(2026-10-06 성수 PC, 임시 probe): 층 19개 모두 BIM 층 높이가 없어 18개는 계산(B1F 6 · 1F·2F 5 · 3F~9F 4.3 · 10F 4.5 · RFT 5 …), 맨 위 RF 는 모름. 기계를 합쳐도 같다
