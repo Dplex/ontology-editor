@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-ML-05 층 편집 화면 읽기 전용

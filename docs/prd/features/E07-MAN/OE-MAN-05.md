@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-ZON-01"]
-jira: ""
 ---
 
 # OE-MAN-05 공조존 수동

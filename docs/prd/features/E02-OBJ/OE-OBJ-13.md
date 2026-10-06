@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-ZON"]
-jira: ""
 ---
 
 # OE-OBJ-13 공조존 오브젝트

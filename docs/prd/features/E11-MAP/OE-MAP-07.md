@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-MAP-07 개발 검토 메모

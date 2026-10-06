@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP-02"]
-jira: ""
 ---
 
 # OE-EQP-10 VAV·토출구 디테일

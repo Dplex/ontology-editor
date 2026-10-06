@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "SRCN?"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-SPC-06 커스텀존 지정·이름 (E10)

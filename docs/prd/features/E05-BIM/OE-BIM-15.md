@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "Case 2 ✗"
 blocked_by: []
 depends: ["OE-IDF","OE-ZON-01"]
-jira: ""
 ---
 
 # OE-BIM-15 공조존 생성 경로

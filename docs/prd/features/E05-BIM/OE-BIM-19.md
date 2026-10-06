@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R13"]
-jira: ""
 ---
 
 # OE-BIM-19 검토 화면 — 판본 비교

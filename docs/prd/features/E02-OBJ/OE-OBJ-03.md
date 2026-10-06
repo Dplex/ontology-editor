@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["D15"]
-jira: ""
 ---
 
 # OE-OBJ-03 룸 편집 범위

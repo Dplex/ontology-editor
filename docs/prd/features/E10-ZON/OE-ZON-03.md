@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-IDF-13"]
-jira: ""
 ---
 
 # OE-ZON-03 자동 생성분 보정

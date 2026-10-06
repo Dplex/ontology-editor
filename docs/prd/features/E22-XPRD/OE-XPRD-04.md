@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-COM-01"]
-jira: ""
 ---
 
 # OE-XPRD-04 PRD_009 권한 카탈로그

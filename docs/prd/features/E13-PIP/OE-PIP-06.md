@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-PIP-06 14-A 포트 불변 원칙

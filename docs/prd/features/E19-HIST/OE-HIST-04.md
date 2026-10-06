@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-HIST-04 브라우저 자동 저장

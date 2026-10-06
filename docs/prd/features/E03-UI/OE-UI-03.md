@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-UI-02"]
-jira: ""
 ---
 
 # OE-UI-03 모드 전환 버튼 규칙

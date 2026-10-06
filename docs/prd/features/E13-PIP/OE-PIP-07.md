@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-PIP-07 14-A 규칙 재계산

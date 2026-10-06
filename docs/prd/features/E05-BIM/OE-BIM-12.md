@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R11"]
-jira: ""
 ---
 
 # OE-BIM-12 배치점 보정

@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "임포트 ✔, 태그 ✗"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-EQP-01 설비 마스터에서 배치

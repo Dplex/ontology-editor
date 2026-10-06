@@ -11,7 +11,6 @@ status: "prd-done"
 status_note: "E1~E3"
 blocked_by: []
 depends: ["D15"]
-jira: ""
 ---
 
 # OE-OBJ-02 물리존 편집 범위

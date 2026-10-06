@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-XPRD-02"]
-jira: ""
 ---
 
 # OE-WF-16 시스템 알림(GNB)

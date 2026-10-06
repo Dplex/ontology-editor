@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-WF-01"]
-jira: ""
 ---
 
 # OE-COM-03 임시 저장본 공동 접근

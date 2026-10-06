@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "삭제 ✔"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-UI-09 오브젝트 조작

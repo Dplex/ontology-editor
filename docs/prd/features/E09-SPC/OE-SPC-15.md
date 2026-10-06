@@ -10,7 +10,6 @@ owner: "srcn"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-OBJ-16"]
-jira: ""
 ---
 
 # OE-SPC-15 겹침 차단 UX

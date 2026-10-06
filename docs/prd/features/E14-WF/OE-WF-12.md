@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-WF-08"]
-jira: ""
 ---
 
 # OE-WF-12 반영 전 변경 요약

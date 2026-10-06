@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-COM-04"]
-jira: ""
 ---
 
 # OE-XPRD-01 PRD_009 시스템 로그

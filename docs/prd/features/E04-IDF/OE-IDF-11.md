@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-IDF-05"]
-jira: ""
 ---
 
 # OE-IDF-11 IDF 검토 화면

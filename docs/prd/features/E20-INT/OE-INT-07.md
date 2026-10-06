@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: ["U4"]
 depends: ["U4"]
-jira: ""
 ---
 
 # OE-INT-07 출처 술어 (S4)

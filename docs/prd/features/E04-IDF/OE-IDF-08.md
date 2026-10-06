@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-07"]
-jira: ""
 ---
 
 # OE-IDF-08 IDF 설비 ↔ BIM 설비 연결

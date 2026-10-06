@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-INT-01"]
-jira: ""
 ---
 
 # OE-WF-18 버전 히스토리

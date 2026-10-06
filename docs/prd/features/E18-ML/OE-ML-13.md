@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP-11"]
-jira: ""
 ---
 
 # OE-ML-13 층별 분기(tee)

@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-SYNC-02","OE-INT-01"]
-jira: ""
 ---
 
 # OE-WF-10 반영하기

@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-INT-01"]
-jira: ""
 ---
 
 # OE-SYNC-02 부분 반영 금지

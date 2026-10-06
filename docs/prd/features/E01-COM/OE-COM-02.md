@@ -10,7 +10,6 @@ owner: "srcn"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-WF-10"]
-jira: ""
 ---
 
 # OE-COM-02 반영 권한

@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "BIM 간 ✔, 스캔 대조 ✗"
 blocked_by: []
 depends: ["R7","P4"]
-jira: ""
 ---
 
 # OE-BIM-22 좌표 정합 경고

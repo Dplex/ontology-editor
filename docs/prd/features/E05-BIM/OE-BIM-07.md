@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R9","R11"]
-jira: ""
 ---
 
 # OE-BIM-07 설비 생성

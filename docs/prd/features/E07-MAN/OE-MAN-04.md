@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-EQP-02"]
-jira: ""
 ---
 
 # OE-MAN-04 설비 수동 배치

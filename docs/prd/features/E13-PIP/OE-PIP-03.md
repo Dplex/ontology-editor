@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R16"]
-jira: ""
 ---
 
 # OE-PIP-03 14-A 계통 종류·유체

@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "초기 구축 ✔"
 blocked_by: []
 depends: ["OE-WF-10"]
-jira: ""
 ---
 
 # OE-SYNC-01 공간 정보 자동 반영

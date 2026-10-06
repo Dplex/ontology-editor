@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "\"빈 층 시작\" 미확인"
 blocked_by: []
 depends: ["OE-SPC"]
-jira: ""
 ---
 
 # OE-MAN-01 배경 위 수동 작성

@@ -10,7 +10,6 @@ owner: "srcn"
 status: "prd-review"
 blocked_by: []
 depends: ["D15"]
-jira: ""
 ---
 
 # OE-SPC-11 룸 추가·크기 조절

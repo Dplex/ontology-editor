@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D10"
 blocked_by: ["D10"]
 depends: ["D10"]
-jira: ""
 ---
 
 # OE-PIP-11 14-B 수동 배관 그리기

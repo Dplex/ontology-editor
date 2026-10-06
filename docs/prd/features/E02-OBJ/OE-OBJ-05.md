@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-OBJ-05 내벽

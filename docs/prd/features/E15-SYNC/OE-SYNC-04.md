@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "편집 리포트 ✔"
 blocked_by: []
 depends: ["OE-WF-18"]
-jira: ""
 ---
 
 # OE-SYNC-04 반영 결과 리포트 (#21)

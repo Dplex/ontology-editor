@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-PIP-10","OE-PIP-11","OE-PIP-12","OE-PIP-13"]
-jira: ""
 ---
 
 # OE-OBJ-12 배관 오브젝트

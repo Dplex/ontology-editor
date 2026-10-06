@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D-INT"
 blocked_by: ["D-INT"]
 depends: ["OE-INT-01"]
-jira: ""
 ---
 
 # OE-HIST-05 임시 저장과의 관계

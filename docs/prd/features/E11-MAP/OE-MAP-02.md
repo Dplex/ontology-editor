@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "IDF 겹침만"
 blocked_by: []
 depends: ["OE-ZON"]
-jira: ""
 ---
 
 # OE-MAP-02 물리존 → 공조존 판정

@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-11","OE-BIM-22"]
-jira: ""
 ---
 
 # OE-INT-04 좌표계·단위

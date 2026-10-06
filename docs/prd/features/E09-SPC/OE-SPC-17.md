@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R14"]
-jira: ""
 ---
 
 # OE-SPC-17 방 종류 사전·일괄 수정

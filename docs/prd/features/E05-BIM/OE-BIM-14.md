@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R24","R14"]
-jira: ""
 ---
 
 # OE-BIM-14 이름 사전 종류 판정

@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-XPRD-03"]
-jira: ""
 ---
 
 # OE-SYNC-03 공간 계층 갱신

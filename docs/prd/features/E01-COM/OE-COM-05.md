@@ -11,7 +11,6 @@ status: "prd-done"
 status_note: "저장 위치 미정"
 blocked_by: []
 depends: ["OE-INT-01"]
-jira: ""
 ---
 
 # OE-COM-05 층 단위 편집 잠금

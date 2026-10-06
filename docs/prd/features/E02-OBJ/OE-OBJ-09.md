@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-SPC-14","OE-SPC-15","OE-SPC-16"]
-jira: ""
 ---
 
 # OE-OBJ-09 추가 공간 오브젝트

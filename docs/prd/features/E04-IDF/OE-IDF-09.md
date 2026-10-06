@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-MAN-01"]
-jira: ""
 ---
 
 # OE-IDF-09 BIM 無 참조선

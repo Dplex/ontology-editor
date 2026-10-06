@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-18"]
-jira: ""
 ---
 
 # OE-PIP-08 14-A 위반 한 번에 고치기

@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-INT-01"]
-jira: ""
 ---
 
 # OE-UI-02 모드 자동 분기

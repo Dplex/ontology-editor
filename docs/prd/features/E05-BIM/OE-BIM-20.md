@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["1.8"]
-jira: ""
 ---
 
 # OE-BIM-20 누락 분류 코드

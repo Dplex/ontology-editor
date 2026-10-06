@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-ML"]
-jira: ""
 ---
 
 # OE-EQP-07 EL·ES 위임

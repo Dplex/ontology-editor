@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "Z 통합 ✗"
 blocked_by: []
 depends: ["OE-ZON-05","OE-BIM-18"]
-jira: ""
 ---
 
 # OE-GEN-03 생성 전 검증

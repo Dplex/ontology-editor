@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: ["D1","D12"]
 depends: ["D1","D12"]
-jira: ""
 ---
 
 # OE-REQ-04 등급 판정 산식

@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R1"]
-jira: ""
 ---
 
 # OE-BIM-02 층 생성

@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-OBJ-07"]
-jira: ""
 ---
 
 # OE-SPC-13 문·창 추가·크기 조절

@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-IDF-03"]
-jira: ""
 ---
 
 # OE-ZON-05 검증 Z-01~Z-06

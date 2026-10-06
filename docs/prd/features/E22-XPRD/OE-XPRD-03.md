@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-SYNC-03"]
-jira: ""
 ---
 
 # OE-XPRD-03 PRD_003_00x 탐색기 트리

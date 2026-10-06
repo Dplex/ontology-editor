@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "명세 36"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-REQ-02 IDS 검사 파일

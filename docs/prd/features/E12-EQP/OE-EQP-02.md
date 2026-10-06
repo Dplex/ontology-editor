@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["부록 B","OE-EQP-03"]
-jira: ""
 ---
 
 # OE-EQP-02 미배치 설비 배치 (E6)

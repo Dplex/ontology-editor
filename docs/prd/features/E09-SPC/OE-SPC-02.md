@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-MAP-01"]
-jira: ""
 ---
 
 # OE-SPC-02 물리존 생성·분할·병합·삭제 (E3)

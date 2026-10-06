@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-ML-02"]
-jira: ""
 ---
 
 # OE-ML-17 샤프트 내 배치

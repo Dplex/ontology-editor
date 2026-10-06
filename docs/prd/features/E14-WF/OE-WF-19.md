@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-WF-15","OE-WF-16"]
-jira: ""
 ---
 
 # OE-WF-19 되돌리기

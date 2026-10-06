@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-UI-12"]
-jira: ""
 ---
 
 # OE-WF-07 미리보기 3D

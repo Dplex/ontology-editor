@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R16","R17"]
-jira: ""
 ---
 
 # OE-BIM-09 계통·포트 읽기

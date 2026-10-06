@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-EQP-15"]
-jira: ""
 ---
 
 # OE-EXT-04 외벽 부착 설비

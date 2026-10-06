@@ -10,7 +10,6 @@ owner: "srcn"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-OBJ-04"]
-jira: ""
 ---
 
 # OE-EXT-02 에디터 내 외벽 불변

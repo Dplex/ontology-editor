@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R4"]
-jira: ""
 ---
 
 # OE-BIM-05 문·창 생성

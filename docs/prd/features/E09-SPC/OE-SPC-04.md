@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "귀속은 합치기 E3로"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-SPC-04 물리존 삭제 제약

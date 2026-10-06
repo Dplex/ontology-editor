@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-EQP-16"]
-jira: ""
 ---
 
 # OE-ROB-04 데이터 선행 제공

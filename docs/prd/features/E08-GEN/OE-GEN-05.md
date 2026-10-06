@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "저장 위치"
 blocked_by: []
 depends: ["OE-WF-13"]
-jira: ""
 ---
 
 # OE-GEN-05 버전 v1 기록

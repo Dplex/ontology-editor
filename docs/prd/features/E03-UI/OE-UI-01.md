@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "단독 실행 / 링크 ✗"
 blocked_by: []
 depends: ["OE-INT-01"]
-jira: ""
 ---
 
 # OE-UI-01 별도 에디터 실행

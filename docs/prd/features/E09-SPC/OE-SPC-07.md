@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "Q4"
 blocked_by: ["Q4"]
 depends: ["Q4"]
-jira: ""
 ---
 
 # OE-SPC-07 커스텀존 겹침 정책

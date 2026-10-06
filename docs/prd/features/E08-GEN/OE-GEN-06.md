@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D11"
 blocked_by: ["D11"]
 depends: ["OE-INT-01","D11"]
-jira: ""
 ---
 
 # OE-GEN-06 DT 3D Map 생성

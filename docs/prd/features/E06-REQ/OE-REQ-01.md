@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "정본 / PRD ✔ v1.4"
 blocked_by: []
 depends: ["부록 A"]
-jira: ""
 ---
 
 # OE-REQ-01 요구사항 R0~R24 표

@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-GEN-03"]
-jira: ""
 ---
 
 # OE-GEN-07 생성 리포트 (B-2)

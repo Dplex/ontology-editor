@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-14"]
-jira: ""
 ---
 
 # OE-EQP-14 종류 지정

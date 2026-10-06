@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-WF-01"]
-jira: ""
 ---
 
 # OE-WF-02 임시 저장본 자동 동기화
