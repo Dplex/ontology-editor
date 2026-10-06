@@ -480,7 +480,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 공조존(IDF) 외곽선. 고르지 않는다 — 바닥을 누르면 물리존이 골라지고, 그 방의 공조존은 패널이 말한다.
   const zoneLines = new Group()
   scene.add(zoneLines)
-  let archTargets: { id: string; storeyId: string; y: number; rings?: readonly (readonly Vec2[])[]; at?: Vec2 }[] = []
+  /** 누를 수 있는 벽·문·창. 문·창은 자리(`at`)와, 가로를 알면 벽을 따라 편 반 폭(`half`, 방향 `dir`)을 든다. */
+  let archTargets: { id: string; storeyId: string; y: number; rings?: readonly (readonly Vec2[])[]; at?: Vec2; dir?: Vec2; half?: number }[] = []
+  /** 문·창까지의 평면 거리. 가로를 알면 그 폭의 선분까지다(넓힌 창의 끝을 눌러도 창이다). */
+  const openingGap = (t: (typeof archTargets)[number], p: Vec2) => {
+    const at = t.at!
+    if (!t.dir || !t.half) return Math.hypot(p[0] - at[0], p[1] - at[1])
+    const along = Math.max(-t.half, Math.min(t.half, (p[0] - at[0]) * t.dir[0] + (p[1] - at[1]) * t.dir[1]))
+    return Math.hypot(p[0] - (at[0] + t.dir[0] * along), p[1] - (at[1] + t.dir[1] * along))
+  }
 
   const overlay = new Group()
   scene.add(overlay)
@@ -709,7 +717,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         if (visibleStoreys && !visibleStoreys.has(t.storeyId)) continue
         if (Math.abs(hit.point.y - t.y) > ARCH_WALL_HEIGHT + 0.5) continue
         const rank = t.at
-          ? Math.hypot(p[0] - t.at[0], p[1] - t.at[1])
+          ? openingGap(t, p)
           : t.rings?.some((r) => pointInPolygon(p, r) || distanceToRing(p, r) < 0.03)
             ? ELEMENT_REACH + 1
             : null
@@ -729,7 +737,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const d = at.distanceToSquared(ray.origin)
       let rank: number | null = null
       if (t.at) {
-        const gap = Math.hypot(p[0] - t.at[0], p[1] - t.at[1])
+        const gap = openingGap(t, p)
         if (gap <= ELEMENT_REACH) rank = gap
       } else if (t.rings?.some((r) => pointInPolygon(p, r))) rank = ELEMENT_REACH + 1
       if (rank === null) continue
@@ -773,10 +781,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       }
       for (const o of storey.openings) {
         if (!o.position) continue
-        archTargets.push({ id: o.id, storeyId: storey.id, y, at: [o.position[0], o.position[1]] })
+        const dir: Vec2 | undefined = o.through ? [-o.through[1], o.through[0]] : undefined
+        archTargets.push({ id: o.id, storeyId: storey.id, y, at: [o.position[0], o.position[1]], ...(dir && o.width ? { dir, half: o.width / 2 } : {}) })
         const color = o.id === selected ? ARCH_COLORS.selected : o.kind === 'door' ? ARCH_COLORS.door : ARCH_COLORS.window
         const h = o.kind === 'door' ? ARCH_WALL_HEIGHT + 0.3 : ARCH_WALL_HEIGHT + 0.15
-        const g = new BoxGeometry(0.35, h, 0.35)
+        // 가로를 아는 문·창은 그 가로만큼 벽을 따라 편다(OE-OBJ-07, 크기를 바꾸면 3D 에서 보인다). 모르면 기둥 하나다.
+        const g = new BoxGeometry(o.width && o.through ? o.width : 0.35, h, 0.35)
+        if (o.width && o.through) g.rotateY(Math.atan2(o.through[0], -o.through[1]))
         const [sx, , sz] = toScene([o.position[0], o.position[1], 0])
         g.translate(sx, y + h / 2, sz)
         add(color, g)
@@ -1413,6 +1424,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const c = part.box.getCenter(new Vector3())
         return [c.x, -c.z, c.y]
       },
+      /** 설비 형상 전부의 중심(IFC 좌표, mm 로 반올림). 편집을 버린 뒤 3D 가 연 때로 돌아왔는지 견준다. */
+      centers: () => {
+        const out: Record<string, number[]> = {}
+        for (const [id, part] of partById) {
+          const c = part.box.getCenter(new Vector3())
+          out[id] = [c.x, -c.z, c.y].map((v) => Math.round(v * 1000))
+        }
+        return out
+      },
       handles: () => handles.map((h) => toScreen(h.position)),
       arrows: () =>
         arrowSegs.map((seg) => {
@@ -1422,6 +1442,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
       /** 벽·문·창 편집 층에서 누를 수 있는 것의 id. */
       elements: () => archTargets.map((t) => t.id),
+      /** 벽·문·창을 누를 화면 자리. 벽은 첫 외곽선 꼭짓점의 평균(곧은 벽이면 외곽선 안), 문·창은 자리다. */
+      element: (id: string) => {
+        const t = archTargets.find((x) => x.id === id)
+        const ring = t?.rings?.[0]?.slice(0, -1)
+        const p = t?.at ?? (ring?.length ? ([ring.reduce((a, q) => a + q[0], 0) / ring.length, ring.reduce((a, q) => a + q[1], 0) / ring.length] as Vec2) : null)
+        return t && p ? toScreen(new Vector3(p[0], t.y, -p[1])) : null
+      },
       /** 화면의 한 점을 누르면 무엇이 골라지는가(설비·벽·문·창·물리존). */
       pickAt: (x: number, y: number) => {
         const ray = rayAt(x, y)

@@ -9,6 +9,7 @@ import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
 import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
+import ExitEditDialog from './components/ExitEditDialog.vue'
 import HoverTip from './components/HoverTip.vue'
 import FloorPlan from './components/FloorPlan.vue'
 import Roll from './components/Roll.vue'
@@ -17,7 +18,7 @@ import { vFlash } from './lib/motion'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
-import { applyEdits, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
+import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airServices, servedSpaces } from './lib/served'
@@ -99,6 +100,13 @@ import {
   deleteOpening,
   setWallLoadBearing,
   snapshotStoreyElements,
+  wallLocked,
+  WALL_LOCKED,
+  newCrossing,
+  crossingMessage,
+  wallLength,
+  setWallLength,
+  setOpeningSize,
   type Baseline,
   type BoundaryChange,
   type Change,
@@ -994,8 +1002,12 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       helpOpen.value = !helpOpen.value
       return true
     case 'mode':
-      mode.value = editing.value ? 'view' : 'edit'
-      note(editing.value ? '편집 모드' : '보기 모드')
+      if (editing.value) {
+        if (leaveEdit()) note('보기 모드')
+      } else {
+        mode.value = 'edit'
+        note('편집 모드')
+      }
       return true
     case 'search':
       if (!searchInput.value) return false
@@ -1021,7 +1033,7 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       showWalls.value = !showWalls.value
       return true
     case 'save':
-      saveEdits()
+      void saveEdits()
       return true
     case 'undo':
       if (!history.value.length) note('되돌릴 편집이 없습니다')
@@ -2539,13 +2551,13 @@ const errorAt = (path: string): string => {
 const openedDataPath = ref<string | null>(null)
 
 function openData(path: string) {
-  void openMany([{ name: baseName(path), read: () => fetchData(path) }], 'open').then(() => {
+  void openMany([{ name: baseName(path), read: () => fetchData(path), dataPath: path }], 'open').then(() => {
     openedDataPath.value = fileName.value === baseName(path) ? path : null
   })
 }
 
 function appendData(path: string) {
-  void append(baseName(path), () => fetchData(path))
+  void openMany([{ name: baseName(path), read: () => fetchData(path), dataPath: path }], 'append')
 }
 
 /** 목록에서 고른 파일. 건축·설비를 같이 골라 한 번에 연다. */
@@ -2556,7 +2568,7 @@ function toggleDataPick(path: string) {
 function openDataSet(paths: readonly string[]) {
   const list = [...paths]
   dataPicked.value = []
-  void openMany(list.map((path) => ({ name: baseName(path), read: () => fetchData(path) })), 'open').then(() => {
+  void openMany(list.map((path) => ({ name: baseName(path), read: () => fetchData(path), dataPath: path })), 'open').then(() => {
     openedDataPath.value = null
   })
 }
@@ -2670,7 +2682,11 @@ function importInWorker(bytes: ArrayBuffer): Promise<{ model: Model; meshes: Mes
 // 다시 판정한다. 불러온 것은 한 번에 되돌리지 못한다 — 되돌리기 이력을 비우고, 리포트에는 연 때와 견준 줄로 남는다.
 const editFileNote = ref('')
 
-function saveEdits() {
+/**
+ * [편집 저장]. data/ 에서 연 파일이면 8084 에 둔다 — 같은 파일을 여는 사람 누구나 이 편집을 본다(OE-COM-08). 손으로 연 파일이거나
+ * 서버에 못 닿으면 파일로 내려받는다. `toFile` 이면 data/ 의 파일이라도 내려받기만 한다.
+ */
+async function saveEdits(toFile = false) {
   const m = model.value
   if (!m || !baseline.value) return
   if (!hasEdits.value && changeCount.value === 0) {
@@ -2678,9 +2694,19 @@ function saveEdits() {
     return
   }
   const file = exportEdits(m, baseline.value, fileName.value)
+  const sig = editSig(file)
+  if (!toFile && serverKey.value && (await saveToServer(file))) {
+    savedSig = committedSig = sig
+    removeDraft()
+    note(`8084 에 저장했습니다(편집 ${editCount(file)}건). 이 파일을 여는 사람 모두 같은 편집을 봅니다`)
+    markDone('save')
+    return
+  }
   const stem = fileName.value.replace(/\.ifc/gi, '').replace(/[^\w가-힣.+-]+/g, '_') || 'model'
   download(`${stem}.edits.json`, JSON.stringify(file, null, 2), 'application/json')
-  note(`편집을 저장했습니다: ${stem}.edits.json`)
+  savedSig = committedSig = sig
+  removeDraft()
+  note(`편집을 파일로 내려받았습니다: ${stem}.edits.json`)
   markDone('save')
 }
 
@@ -2696,6 +2722,8 @@ async function onEditFilePick(event: Event) {
     return
   }
   applyEditFile(file, picked.name)
+  // 파일에서 불러온 편집은 그 파일에 이미 있다. 불러온 뒤 더 고친 것만 저장하지 않은 편집이다.
+  markSaved()
 }
 
 /** 편집 파일을 지금 모델에 얹는다. 파일에서 불러올 때와 자동 저장을 되살릴 때가 같이 쓴다. */
@@ -2915,8 +2943,13 @@ function finishDraw(): boolean {
     stopDraw()
     const [a, b] = d.points
     let made: Wall | null = null
-    if (changeElements(d.storeyId, '벽 긋기', (m) => (made = addWall(m, d.storeyId, a, b)))) {
-      selectedElementId.value = made!.id
+    const draw = (m: Model) => {
+      const done = addWall(m, d.storeyId, a, b)
+      if (done && !('refused' in done)) made = done
+      return done
+    }
+    if (changeElements(d.storeyId, '벽 긋기', draw) && made) {
+      selectedElementId.value = (made as Wall).id
       note('벽을 그었습니다. 내력 여부는 오른쪽 패널에서 정합니다')
     }
     return true
@@ -3156,10 +3189,11 @@ const selectedElement = computed(() => {
   const id = selectedElementId.value
   if (!m || !id) return null
   for (const storey of m.storeys) {
+    // 내력벽과 거기 뚫린 문·창은 잠긴다(OE-OBJ-06). 고르고 볼 수는 있고, 옮기기·지우기만 막는다.
     const wall = storey.walls.find((w) => w.id === id)
-    if (wall) return { kind: 'wall' as const, storey, wall, opening: null }
+    if (wall) return { kind: 'wall' as const, storey, wall, opening: null, locked: wallLocked(wall) }
     const opening = storey.openings.find((o) => o.id === id)
-    if (opening) return { kind: opening.kind, storey, wall: null, opening }
+    if (opening) return { kind: opening.kind, storey, wall: null, opening, locked: wallLocked(storey.walls.find((w) => w.id === opening.wallId)) }
   }
   return null
 })
@@ -3241,6 +3275,7 @@ function setBearing(wall: Wall, raw: string) {
 function removeElement() {
   const picked = selectedElement.value
   if (!picked) return
+  if (picked.locked) return note(WALL_LOCKED)
   const what = elementLabel(picked.kind)
   const name = picked.wall?.name || picked.opening?.name || what
   let openings = 0
@@ -3279,9 +3314,19 @@ function nudgeElement(code: string, step: number): boolean {
   const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
   const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
   const delta: Vec2 = [cm(sign * ax * step), cm(sign * ay * step)]
+  if (picked.locked) {
+    note(WALL_LOCKED)
+    return true
+  }
   if (picked.wall) {
     if (!picked.wall.footprint?.length) {
       note('외곽선이 없는 벽은 옮길 수 없습니다')
+      return true
+    }
+    // 다른 벽을 새로 가로지르게 되면 옮기지 않는다(OE-OBJ-05). 이유를 말해야 방향키가 고장 난 것처럼 보이지 않는다.
+    const crossed = newCrossing(model.value!, picked.wall.id, picked.wall.footprint.map((r) => r.map((p) => [p[0] + delta[0], p[1] + delta[1]] as Vec2)))
+    if (crossed) {
+      note(crossingMessage(crossed))
       return true
     }
     if (carryRooms.value) {
@@ -3300,10 +3345,33 @@ function nudgeElement(code: string, step: number): boolean {
   return true
 }
 
+/** 벽 길이(OE-OBJ-05). 가운데를 두고 양 끝을 같이 늘이거나 줄인다. 직사각형 벽만이다. */
+function applyWallLength(wall: Wall, raw: string) {
+  const value = Number(raw)
+  const storey = selectedElement.value?.storey
+  if (!storey || raw.trim() === '' || !Number.isFinite(value)) return
+  changeElements(storey.id, `${wall.name || '벽'} 길이 ${value.toFixed(2)}m`, (m) => setWallLength(m, wall.id, value))
+}
+
+/** 문·창이 뚫린 벽. */
+function hostWallOf(o: Opening): Wall | null {
+  return selectedElement.value?.storey.walls.find((w) => w.id === o.wallId) ?? null
+}
+
+/** 문·창 가로·세로(OE-OBJ-07). */
+function applyOpeningSize(o: Opening, key: 'width' | 'height', raw: string) {
+  const value = Number(raw)
+  const storey = selectedElement.value?.storey
+  if (!storey || raw.trim() === '' || !Number.isFinite(value)) return
+  const label = `${o.name || elementLabel(o.kind)} ${key === 'width' ? '가로' : '세로'} ${value.toFixed(2)}m`
+  changeElements(storey.id, label, (m) => setOpeningSize(m, o.id, { [key]: value }))
+}
+
 function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string) {
   const value = Number(raw)
   const storey = selectedElement.value?.storey
   if (!o.position || !storey || raw.trim() === '' || !Number.isFinite(value)) return
+  if (selectedElement.value?.locked) return note(WALL_LOCKED)
   const to: [number, number] = [o.position[0], o.position[1]]
   to[axis] = value
   changeElements(storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, to))
@@ -3402,12 +3470,7 @@ const draft = shallowRef<{ file: EditFile; count: number; savedAt: string } | nu
 let autosaveArmed = false
 let autosaveTimer: number | undefined
 const draftKey = () => DRAFT_PREFIX + fileName.value
-const editCount = (f: EditFile) =>
-  f.equipment.length + f.spaces.length + f.kinds.length + f.flows.length + f.confirmedSystems.length +
-  (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0) +
-  (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0) +
-  (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
-  (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0)
+const editCount = countEdits
 
 watch(baseline, (b) => {
   autosaveArmed = false
@@ -3439,8 +3502,9 @@ watch([changeCount, flowVersion, () => history.value.length], () => {
     if (!m || !baseline.value) return
     try {
       const file = exportEdits(m, baseline.value, fileName.value)
-      if (editCount(file) > 0) localStorage.setItem(draftKey(), JSON.stringify(file))
-      else localStorage.removeItem(draftKey())
+      // 마지막으로 저장(8084·파일·구축하기)한 것과 같으면 남길 것이 없다. 저장본을 얹은 직후의 사본이 임시 저장 목록에 뜨지 않게.
+      if (editCount(file) > 0 && editSig(file) !== committedSig) writeDraft(file)
+      else removeDraft()
     } catch {
       // 저장소가 차거나 막혀 있으면 이번 창에서만 산다. "편집 저장" 으로 내려받는 길은 그대로다.
     }
@@ -3452,16 +3516,290 @@ function restoreDraft() {
   if (!d) return
   draft.value = null
   mode.value = 'edit'
-  applyEditFile(d.file, '자동 저장')
+  // 임시 저장은 연 때(IFC) 기준의 편집 전부다. 8084 저장본을 이미 얹었으면 걷고 얹는다 — 안 그러면 더한 설비가 두 번 생긴다.
+  if (serverSaved.value || history.value.length) resetToOpened()
+  applyEditFile(d.file, '임시 저장')
 }
 function discardDraft() {
   draft.value = null
+  removeDraft()
+}
+
+// --- 임시 저장 목록 (OE-COM-08) -------------------------------------------------------------
+//
+// 임시 저장은 이 브라우저의 `oe-draft:<파일 이름>` 이다(자동 저장과 같은 자리). 목록에서 골라 이어 가려면 그 IFC 를 다시 열어야
+// 해서, data/ 에서 연 파일이면 경로를 `oe-draft-paths` 에 같이 적어 둔다. 손으로 연 파일은 경로가 없어 "파일 열기로 같은 IFC" 다.
+const DRAFT_PATHS = 'oe-draft-paths'
+type DraftEntry = { name: string; count: number; savedAt: string; paths: string[] | null }
+const draftList = ref<DraftEntry[]>([])
+function readDraftPaths(): Record<string, string[]> {
   try {
-    localStorage.removeItem(draftKey())
+    return JSON.parse(localStorage.getItem(DRAFT_PATHS) ?? '{}') as Record<string, string[]>
   } catch {
-    // 못 지워도 다음 편집이 덮는다.
+    return {}
   }
 }
+function refreshDraftList() {
+  const out: DraftEntry[] = []
+  try {
+    const paths = readDraftPaths()
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (!k?.startsWith(DRAFT_PREFIX)) continue
+      const file = parseEditFile(localStorage.getItem(k) ?? '')
+      if (typeof file === 'string' || editCount(file) === 0) continue
+      const name = k.slice(DRAFT_PREFIX.length)
+      out.push({ name, count: editCount(file), savedAt: file.savedAt, paths: paths[name] ?? null })
+    }
+  } catch {
+    // 저장소를 못 읽으면 목록도 없다
+  }
+  draftList.value = out.sort((a, b) => b.savedAt.localeCompare(a.savedAt))
+}
+refreshDraftList()
+function writeDraft(file: EditFile) {
+  localStorage.setItem(draftKey(), JSON.stringify(file))
+  const paths = readDraftPaths()
+  if (serverKey.value) paths[fileName.value] = openedSources.value as string[]
+  else delete paths[fileName.value]
+  localStorage.setItem(DRAFT_PATHS, JSON.stringify(paths))
+  refreshDraftList()
+}
+function removeDraft(name = fileName.value) {
+  try {
+    localStorage.removeItem(DRAFT_PREFIX + name)
+    const paths = readDraftPaths()
+    delete paths[name]
+    localStorage.setItem(DRAFT_PATHS, JSON.stringify(paths))
+  } catch {
+    // 못 지워도 다음 편집이 덮는다
+  }
+  refreshDraftList()
+}
+/** 목록에서 [이어서 하기]. data/ 의 파일이면 열고 바로 되살린다. 손으로 연 파일이면 파일 고르기를 띄운다. */
+let restoreAfterOpen: string | null = null
+function resumeDraft(d: DraftEntry) {
+  restoreAfterOpen = d.name
+  if (d.paths) {
+    if (d.paths.length === 1) openData(d.paths[0])
+    else openDataSet(d.paths)
+  } else {
+    note(`${d.name} 을(를) [열기]로 다시 고르면 이어서 할지 묻습니다`)
+    document.querySelector<HTMLInputElement>('input[type=file][accept=".ifc,.idf"]')?.click()
+  }
+}
+// 열고 나서(8084 저장본까지 얹은 뒤) 목록에서 고른 임시 저장을 되살린다
+watch(draft, (d) => {
+  if (d && restoreAfterOpen && restoreAfterOpen === fileName.value) {
+    restoreAfterOpen = null
+    restoreDraft()
+  }
+})
+
+// --- 8084 에 저장 (OE-COM-08 "저장 시 변경사항을 웹에서 바로 확인") ----------------------------------
+//
+// data/ 에서 연 파일은 [편집 저장] 이 편집 파일을 서버(src/server/saved-edits.ts)에 둔다. 같은 파일을 8084 에서 여는 사람은
+// 누구나 그 편집을 얹은 채로 본다. 손으로 연 파일은 서버에 원본이 없어서 예전처럼 파일로 내려받는다. 임시 저장은 서버에
+// 오지 않는다(이 브라우저에만, "웹에 반영되지 않는다").
+let loadingPath: string | null = null
+/** 열린 모델을 이룬 파일들의 data/ 경로(연 순서). 손으로 고른 파일은 null. */
+const openedSources = ref<(string | null)[]>([])
+const serverKey = computed(() =>
+  openedSources.value.length && openedSources.value.every((p) => p) ? openedSources.value.join('|') : null,
+)
+/** 지금 모델에 얹은 8084 저장본. 저장 안 함은 여기까지만 되돌린다. */
+const serverSaved = shallowRef<{ file: EditFile; savedAt: string } | null>(null)
+/** 마지막으로 정말 저장한(8084·파일) 편집의 서명. 자동 저장이 이것과 같으면 임시 저장으로 남기지 않는다. */
+let committedSig: string | null = null
+watch(baseline, () => {
+  serverSaved.value = null
+  committedSig = null
+})
+const savedEditsUrl = (key?: string) => `./__data/__edits${key ? `?key=${encodeURIComponent(key)}` : ''}`
+
+/** data/ 목록 옆에 보이는 8084 저장본. 열쇠(경로를 | 로 이은 것)마다 하나. */
+type SavedSet = { key: string; paths: string[]; count: number; savedAt: string }
+const savedSets = ref<SavedSet[]>([])
+function refreshSavedSets() {
+  fetch(savedEditsUrl())
+    .then((r) => (r.ok ? r.json() : []))
+    .then((list) => (savedSets.value = Array.isArray(list) ? list : []))
+    .catch(() => {})
+}
+refreshSavedSets()
+const savedFor = (path: string) => savedSets.value.find((s) => s.key === path) ?? null
+
+async function loadServerEdits() {
+  const key = serverKey.value
+  if (!key) return
+  let file: EditFile | string
+  try {
+    const r = await fetch(savedEditsUrl(key))
+    if (!r.ok) return
+    file = parseEditFile(await r.text())
+  } catch {
+    return
+  }
+  if (typeof file === 'string' || key !== serverKey.value) return
+  applyEditFile(file, `8084 저장본 · ${when(file.savedAt)}`)
+  serverSaved.value = { file, savedAt: file.savedAt }
+  markSaved()
+  committedSig = savedSig
+  // 이 브라우저의 임시 저장이 저장본과 같으면 물을 것이 없다
+  if (draft.value && editSig(draft.value.file) === savedSig) {
+    draft.value = null
+    removeDraft()
+  }
+}
+
+/** 편집 파일을 8084 에 둔다. 됐으면 true. */
+async function saveToServer(file: EditFile): Promise<boolean> {
+  const key = serverKey.value
+  if (!key) return false
+  try {
+    const r = await fetch(savedEditsUrl(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(file) })
+    if (!r.ok) {
+      const why = await r.json().then((b: { error?: string }) => b.error ?? '').catch(() => '')
+      editFileNote.value = `8084 에 저장하지 못했습니다(HTTP ${r.status}${why ? ` · ${why}` : ''}). 파일로 내려받았습니다.`
+      return false
+    }
+  } catch {
+    editFileNote.value = '8084 에 닿지 못했습니다. 파일로 내려받았습니다.'
+    return false
+  }
+  serverSaved.value = { file, savedAt: file.savedAt }
+  refreshSavedSets()
+  return true
+}
+
+/** 저장 시각을 "오늘 14:05" · "10월 2일 14:05" 로. */
+function when(iso: string): string {
+  const t = new Date(iso)
+  const hm = `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`
+  return new Date().toDateString() === t.toDateString() ? `오늘 ${hm}` : `${t.getMonth() + 1}월 ${t.getDate()}일 ${hm}`
+}
+
+// --- 편집 종료 (OE-COM-08) ---------------------------------------------------------------
+//
+// 편집을 끝낼 때 마지막으로 저장한 뒤 바뀐 것이 있으면 묻는다 — 임시 저장 / 저장 안 함 / 취소. 저장은 [편집 저장](편집
+// 파일)이나 [구축하기](온톨로지 두 파일)다. 바뀐 것은 편집 파일 내용(저장 시각을 뺀)으로 견준다 — 되돌리기로 저장한 때와
+// 같아졌으면 묻지 않는다. 끝내는 길(편집 종료·보기·E·전체 화면의 편집 체크)은 전부 leaveEdit 을 거친다.
+let savedSig: string | null = null
+watch(baseline, () => (savedSig = null))
+function editSig(file?: EditFile): string | null {
+  const m = model.value
+  if (!m || !baseline.value) return null
+  const f = file ?? exportEdits(m, baseline.value, fileName.value)
+  return editCount(f) > 0 ? JSON.stringify({ ...f, savedAt: '' }) : null
+}
+function markSaved() {
+  savedSig = editSig()
+}
+const exitAsk = shallowRef<{ count: number } | null>(null)
+
+/** 편집을 끝낸다. 저장하지 않은 편집이 있으면 묻고 false 를 돌려준다(끝내지 않았다). */
+function leaveEdit(): boolean {
+  if (!editing.value) return true
+  const m = model.value
+  const file = m && baseline.value ? exportEdits(m, baseline.value, fileName.value) : null
+  const sig = file ? editSig(file) : null
+  if (!file || !sig || sig === savedSig) {
+    mode.value = 'view'
+    return true
+  }
+  // 대화상자는 전체 화면 요소 밖에 있어서 전체 화면에서는 안 보인다. 먼저 나온다.
+  if (document.fullscreenElement) void document.exitFullscreen()
+  // 8084 저장본을 얹고 연 판이면 그 뒤로 바뀐 것만 센다(근사 — 같은 설비를 다시 고친 것은 한 건이다)
+  exitAsk.value = { count: Math.max(1, editCount(file) - (serverSaved.value ? editCount(serverSaved.value.file) : 0)) }
+  return false
+}
+function onEditToggle(box: HTMLInputElement) {
+  if (box.checked) mode.value = 'edit'
+  else if (!leaveEdit()) box.checked = true
+}
+/**
+ * 임시 저장은 이 브라우저에 남긴다(자동 저장과 같은 자리). PRD 의 임시 저장은 "반영하지 않고 보관" 이고, 파일로 내려받으면
+ * 보기로 바꿀 때마다 다운로드가 생긴다. 파일은 [편집 저장] 몫이다. 저장소가 막혀 있으면 파일로 내려받는다.
+ */
+function exitSaving() {
+  exitAsk.value = null
+  keepDraft()
+  mode.value = 'view'
+}
+// [임시 저장] 단추와 끝내기 대화상자가 같이 쓴다. 남기면 "이어 갈 편집" 목록을 펼쳐 어디에 남았는지 보인다 —
+// 파일을 연 동안 그 칸은 접혀 있어서, 임시 저장을 하고도 목록이 안 보였다(2026-10-06 검토).
+const draftShown = ref(0)
+watch(baseline, () => (draftShown.value = 0))
+function keepDraft() {
+  const m = model.value
+  if (!m || !baseline.value) return
+  const file = exportEdits(m, baseline.value, fileName.value)
+  try {
+    writeDraft(file)
+    savedSig = editSig(file)
+    note(`편집 ${editCount(file)}건을 이 브라우저에 임시 저장했습니다. 왼쪽 "이어 갈 편집" 에서 이어 갑니다`)
+    draftShown.value++
+  } catch {
+    // 임시 저장은 8084 에 올리지 않는다("웹에 반영되지 않는다"). 브라우저 저장소가 막혔으면 파일로만 내려받는다.
+    void saveEdits(true)
+  }
+}
+/** 끝내기 대화상자의 [저장]. 8084 에 두고 보기로 간다. 못 두면(서버에 못 닿음) 파일로 내려받고 끝낸다. */
+async function exitCommitting() {
+  exitAsk.value = null
+  await saveEdits()
+  mode.value = 'view'
+}
+function exitDiscarding() {
+  exitAsk.value = null
+  const n = discardEdits()
+  mode.value = 'view'
+  note(`편집 ${n}건을 버리고 연 때로 되돌렸습니다. 위 줄의 [이어서 하기]로 되살립니다`)
+}
+
+/**
+ * 편집을 버리고 연 때(마지막으로 덧붙인 때)의 모델로 되돌린다. 버린 편집은 자동 저장 줄(draft)에 올려 한 번 되살릴 수
+ * 있게 둔다 — [저장 안 함]을 잘못 누르면 한 시간 고친 것이 사라진다. 버린 수를 돌려준다.
+ */
+function discardEdits(): number {
+  const m = model.value
+  if (!m || !pristine || !baseline.value) return 0
+  const file = exportEdits(m, baseline.value, fileName.value)
+  resetToOpened()
+  // 8084 에 저장된 편집은 버리지 않는다. 저장 안 함은 "마지막 저장 뒤" 를 버리는 것이다.
+  if (serverSaved.value) {
+    applyEditFile(serverSaved.value.file, '8084 저장본')
+    autosaveArmed = false
+    markSaved()
+  }
+  const n = editCount(file) - (serverSaved.value ? editCount(serverSaved.value.file) : 0)
+  if (editCount(file) > 0 && editSig(file) !== savedSig) draft.value = { file, count: editCount(file), savedAt: file.savedAt }
+  return Math.max(n, 0)
+}
+
+/** 연 때(pristine)의 모델로 되돌린다. 저장 안 함과, 8084 저장본을 얹은 뒤 임시 저장을 되살릴 때가 쓴다. */
+function resetToOpened() {
+  if (!pristine) return
+  meshesToOpened()
+  const opened = structuredClone(pristine)
+  ruleReport.value = inferFlowByRules(opened)
+  model.value = opened
+  changes.value = []
+  areaChanges.value = []
+  confirmations.value = []
+  storeyMoved.value = new Set()
+  positionDrafts.value = new Map()
+  history.value = []
+  future.value = []
+  selectedId.value = null
+  selectedSpaceId.value = null
+  selectedElementId.value = null
+  autosaveArmed = false
+  savedSig = null
+  flowVersion.value++
+  redraw()
+}
+
 const draftTime = computed(() => {
   const d = draft.value
   if (!d) return ''
@@ -3568,7 +3906,8 @@ function showSpace(id: string) {
 const hasEdits = computed(() => changeCount.value > 0 || history.value.length > 0)
 watch(fileName, () => (editFileNote.value = ''))
 function onBeforeUnload(e: BeforeUnloadEvent) {
-  if (!hasEdits.value) return
+  // 임시 저장·편집 저장·구축하기 뒤로 바뀐 것이 없으면 묻지 않는다(OE-COM-08). 남길 것이 이미 남아 있다.
+  if (!hasEdits.value || editSig() === savedSig) return
   e.preventDefault()
   // 옛 브라우저는 returnValue 가 있어야 묻는다. 문구는 브라우저가 정한 것으로 바뀐다.
   e.returnValue = ''
@@ -3613,6 +3952,7 @@ ${name} 파일을 열까요?`,
     pristine = structuredClone(result.model)
     model.value = result.model
     fileName.value = name
+    openedSources.value = [loadingPath]
     mergeReport.value = null
     selectedId.value = null
     selectedSpaceId.value = null
@@ -3664,6 +4004,22 @@ const canAppend = computed(() => !!model.value)
 /** 연 때(또는 마지막으로 합친 때)의 모델. 편집한 뒤 덧붙일 때 이것을 합치고 편집을 다시 얹는다. */
 let pristine: Model | null = null
 
+/** 3D 형상을 연 때(pristine) 자리로 되돌린다. 덧붙이기 전과 편집 버리기가 쓴다. */
+function meshesToOpened() {
+  if (!pristine || !model.value) return
+  const opened = new Map(pristine.storeys.flatMap((st) => st.equipment).map((e) => [e.id, e.position]))
+  for (const e of model.value.storeys.flatMap((st) => st.equipment)) {
+    // 늘인 구간은 늘이기 전 형상으로 되돌리고 거기서 연 때 자리로 옮긴다.
+    const base = meshBase.get(e.id)
+    const mesh = meshes.get(e.id)
+    if (base && mesh) {
+      meshes.set(e.id, { ...mesh, positions: base.positions })
+      shiftMesh(e.id, base.at, opened.get(e.id) ?? null)
+    } else shiftMesh(e.id, e.position, opened.get(e.id) ?? null)
+  }
+  meshBase = new Map()
+}
+
 async function append(name: string, read: () => Promise<ArrayBuffer>) {
   if (!model.value) return
   busy.value = true
@@ -3673,18 +4029,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
   const edits = hasEdits.value && baseline.value && pristine ? exportEdits(model.value, baseline.value, fileName.value) : null
   const unedited = () => (edits ? structuredClone(pristine!) : model.value!)
   const restoreMeshes = () => {
-    if (!edits) return
-    const opened = new Map(pristine!.storeys.flatMap((st) => st.equipment).map((e) => [e.id, e.position]))
-    for (const e of model.value!.storeys.flatMap((st) => st.equipment)) {
-      // 늘인 구간은 늘이기 전 형상으로 되돌리고 거기서 연 때 자리로 옮긴다.
-      const base = meshBase.get(e.id)
-      const mesh = meshes.get(e.id)
-      if (base && mesh) {
-        meshes.set(e.id, { ...mesh, positions: base.positions })
-        shiftMesh(e.id, base.at, opened.get(e.id) ?? null)
-      } else shiftMesh(e.id, e.position, opened.get(e.id) ?? null)
-    }
-    meshBase = new Map()
+    if (edits) meshesToOpened()
   }
   const replay = () => {
     if (!edits) return
@@ -3708,6 +4053,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
       pristine = structuredClone(done.model)
       model.value = done.model
       fileName.value = `${fileName.value} + ${name}`
+      openedSources.value = [...openedSources.value, loadingPath]
       showZones.value = true
       history.value = []
       future.value = []
@@ -3744,6 +4090,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     model.value = merged.model
     mergeReport.value = merged.report
     fileName.value = `${base.name} + ${overlay.name}`
+    openedSources.value = [...openedSources.value, loadingPath]
     selectedId.value = null
     selectedSpaceId.value = null
     positionDrafts.value = new Map()
@@ -3915,7 +4262,8 @@ const requirementsMeta = computed(() => {
 // 둘을 같이 끌어다 놓으면 첫 파일만 열리고 나머지는 **조용히** 버려졌다. 이제 같이 고르거나 같이 놓으면 하나를 열고
 // 나머지를 덧붙인다. 어느 것을 먼저 열든 방을 더 그린 쪽이 기준이라(append) 순서는 결과를 바꾸지 않는다. IDF 는 층·방이
 // 다 선 뒤에 얹어야 방을 찾으므로 IFC 뒤로 보낸다.
-type FileSource = { name: string; read: () => Promise<ArrayBuffer> }
+/** `dataPath` 는 data/ 목록에서 연 파일의 경로다. 손으로 고른 파일은 없다 — 8084 에 저장할 수 없다(saved-edits.ts). */
+type FileSource = { name: string; read: () => Promise<ArrayBuffer>; dataPath?: string }
 async function openMany(files: readonly FileSource[], into: 'open' | 'append') {
   const ordered = [...files.filter((f) => !isIdf(f.name)), ...files.filter((f) => isIdf(f.name))]
   if (!ordered.length) return
@@ -3926,6 +4274,7 @@ async function openMany(files: readonly FileSource[], into: 'open' | 'append') {
   try {
     if (into === 'open' || !model.value) {
       mark(ordered[0])
+      loadingPath = ordered[0].dataPath ?? null
       await load(ordered[0].name, ordered[0].read)
       // 편집이 남아 열기를 물리쳤거나 읽지 못했으면 멈춘다.
       if (!model.value || fileName.value !== ordered[0].name || error.value) return
@@ -3936,9 +4285,12 @@ async function openMany(files: readonly FileSource[], into: 'open' | 'append') {
     }
     for (const f of rest) {
       mark(f)
+      loadingPath = f.dataPath ?? null
       await append(f.name, f.read)
       if (error.value) return
     }
+    // data/ 에서 열었으면 8084 에 저장된 편집을 얹는다. 덧붙이기만 했을 때는 얹지 않는다 — 이미 고친 것 위에 다른 판의 편집이 겹친다.
+    if (into === 'open' && serverKey.value) await loadServerEdits()
   } finally {
     batch.value = null
   }
@@ -4038,7 +4390,11 @@ function previewChanges() {
 /** 초기 구축의 마지막 단계. 기하와 의미를 따로 내는 전제는 그대로다 — 한 번 눌러 두 파일을 다 받을 뿐이다. */
 async function build() {
   exportTTL()
-  if (await exportGeoJSON()) markDone('build')
+  if (await exportGeoJSON()) {
+    // 구축하기가 PoC 의 "저장"이다(PRD 의 저장 = 반영, D10). 온톨로지로 낸 편집은 끝낼 때 다시 묻지 않는다.
+    markSaved()
+    markDone('build')
+  }
 }
 
 function exportTTL() {
@@ -4141,6 +4497,38 @@ async function export3D(format: 'glb' | 'obj') {
 
     </section>
 
+    <!-- 이어 갈 편집(OE-COM-08). 8084 에 저장된 것(누구나 봄)과 이 브라우저의 임시 저장(나만 봄)을 나눠 보인다. -->
+    <section v-if="draftList.length || savedSets.some((s) => s.paths.length > 1)" class="catalog resume">
+      <Fold :key="(model ? 'loaded' : 'empty') + draftShown" title="이어 갈 편집" :meta="`임시 저장 ${draftList.length}건`" :default-open="!model || draftShown > 0">
+        <table>
+          <tbody>
+            <tr v-for="d in draftList" :key="'draft:' + d.name" class="draft-row">
+              <td class="name">
+                <span>{{ d.name }}</span>
+                <span class="muted">임시 저장 · 이 브라우저에만 · 편집 {{ d.count }}건 · {{ when(d.savedAt) }}</span>
+              </td>
+              <td class="row-actions">
+                <button type="button" class="ghost" :disabled="busy" :title="d.paths ? 'data/ 에서 열고 이 편집을 되살립니다' : '파일 열기로 같은 IFC 를 고르면 이어서 할지 묻습니다'" @click="resumeDraft(d)">
+                  {{ d.paths ? '열어서 이어 하기' : '파일 열기로 이어 하기' }}
+                </button>
+                <button type="button" class="ghost danger" :disabled="busy" @click="removeDraft(d.name)">지우기</button>
+              </td>
+            </tr>
+            <!-- 한 파일의 저장본은 아래 data/ 목록의 그 줄에 보인다. 합쳐 연 판의 저장본만 여기 둔다. -->
+            <tr v-for="sv in savedSets.filter((s) => s.paths.length > 1)" :key="'saved:' + sv.key" class="saved-row">
+              <td class="name">
+                <span>{{ sv.paths.map(baseName).join(' + ') }}</span>
+                <span class="muted">8084 저장 · 편집 {{ sv.count }}건 · {{ when(sv.savedAt) }}</span>
+              </td>
+              <td class="row-actions">
+                <button type="button" class="ghost" :disabled="busy" @click="openDataSet(sv.paths)">합쳐서 열기</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </Fold>
+    </section>
+
     <!-- data/ 의 샘플. 파일마다 온톨로지를 어디까지 채우는지 먼저 보고 고른다. -->
     <section v-if="dataFiles.length" class="catalog">
       <!-- 파일을 연 뒤에는 접어 둔다. 목록이 3D 와 검토 화면을 아래로 밀어낸다. 덧붙일 때 다시 편다. -->
@@ -4187,6 +4575,9 @@ async function export3D(format: 'glb' | 'obj') {
                 </template>
               </td>
               <td class="row-actions">
+                <span v-if="savedFor(f.path)" class="saved-chip" :title="`8084 에 저장된 편집 ${savedFor(f.path)!.count}건 — 열면 얹어서 보입니다`">
+                  저장 {{ savedFor(f.path)!.count }}건 · {{ when(savedFor(f.path)!.savedAt) }}
+                </span>
                 <button type="button" class="ghost" :disabled="busy" @click="openData(f.path)">열기</button>
                 <button v-if="canAppend" type="button" class="ghost" :disabled="busy" @click="appendData(f.path)">덧붙이기</button>
               </td>
@@ -4252,7 +4643,7 @@ async function export3D(format: 'glb' | 'obj') {
             <a v-if="warnings.length" href="#warnings" class="warn-count" title="읽으면서 건너뛴 것. 목록은 아래 요약에 있습니다.">경고 {{ warnings.length }}</a>
             <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
             <div class="mode-switch" role="group" aria-label="화면 모드">
-              <button type="button" :aria-pressed="mode === 'view'" @click="mode = 'view'">보기</button>
+              <button type="button" :aria-pressed="mode === 'view'" @click="leaveEdit()">보기</button>
               <button type="button" :aria-pressed="mode === 'edit'" :disabled="busy" @click="mode = 'edit'">편집</button>
             </div>
             <span class="bar-sep" aria-hidden="true"></span>
@@ -4299,15 +4690,19 @@ async function export3D(format: 'glb' | 'obj') {
             type="button"
             class="ghost save-edits"
             :class="{ done: justDone === 'save' }"
-            title="편집 저장 (Ctrl+S). 바뀐 내용을 JSON으로 내려받습니다. 같은 IFC를 다시 열고 불러오면 이어서 편집할 수 있습니다."
-            @click="saveEdits"
+            :title="serverKey
+              ? '편집 저장 (Ctrl+S). 8084 에 둡니다 — 이 파일을 여는 사람 모두 같은 편집을 봅니다.'
+              : '편집 저장 (Ctrl+S). 손으로 연 파일이라 바뀐 내용을 JSON으로 내려받습니다. 같은 IFC를 다시 열고 불러오면 이어서 편집할 수 있습니다.'"
+            @click="saveEdits()"
           >
             편집 저장
           </button>
+          <button v-if="serverKey" type="button" class="ghost" title="8084 에 두지 않고 편집 파일(JSON)로만 내려받습니다" @click="saveEdits(true)">파일로</button>
+          <button type="button" class="ghost" :disabled="changeCount === 0" title="웹에 반영하지 않고 이 브라우저에만 남깁니다. 왼쪽 &quot;이어 갈 편집&quot; 에서 이어 갑니다" @click="keepDraft">임시 저장</button>
           <!-- PRD #9 의 액션바. 초기 구축 모드라 "반영하기" 대신 "구축하기"(두 파일 내보내기)다 — 운영 DT 에 반영하는 길은 D10 이 열려 있다. -->
           <button type="button" class="ghost" title="반영 전에 바뀐 내용(소속·경계·이름·방향)을 봅니다" @click="previewChanges">미리보기</button>
           <button type="button" class="ghost primary-action" :class="{ done: justDone === 'build' }" :disabled="busy" title="온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)" @click="build">구축하기</button>
-          <button type="button" class="ghost" title="보기 모드로 돌아갑니다. 편집한 것은 그대로 남습니다" @click="mode = 'view'">편집 종료</button>
+          <button type="button" class="ghost" title="보기 모드로 돌아갑니다. 저장하지 않은 편집이 있으면 먼저 묻습니다" @click="leaveEdit()">편집 종료</button>
         </div>
       </div>
 
@@ -4384,7 +4779,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <input
                   type="checkbox"
                   :checked="editing"
-                  @change="mode = ($event.target as HTMLInputElement).checked ? 'edit' : 'view'"
+                  @change="onEditToggle($event.target as HTMLInputElement)"
                 />
                 편집
               </label>
@@ -4875,20 +5270,46 @@ async function export3D(format: 'glb' | 'obj') {
             <div>
               <h3>{{ selectedElement.wall?.name || selectedElement.opening?.name || elementLabel(selectedElement.kind) }}</h3>
               <p class="stats">
-                {{ elementLabel(selectedElement.kind) }}
+                {{ selectedElement.wall?.loadBearing ? '내력벽' : elementLabel(selectedElement.kind) }}
                 <Src :kind="(selectedElement.wall ?? selectedElement.opening)?.added ? 'edit' : 'bim'" /> ·
                 {{ selectedElement.storey.name }}
                 <template v-if="selectedElement.wall">
                   · 두께 {{ selectedElement.wall.thickness !== null ? `${selectedElement.wall.thickness.toFixed(2)}m` : '모름' }}
+                  <!-- 외벽·내벽(IsExternal). 모르면 적지 않는다 — 내벽으로 보이면 아니오처럼 읽힌다. -->
+                  <template v-if="selectedElement.wall.external != null">
+                    · {{ selectedElement.wall.external ? '외벽' : '내벽' }} <Src kind="bim" />
+                  </template>
                 </template>
-                <template v-if="selectedElement.opening?.width">· 너비 {{ selectedElement.opening.width.toFixed(2) }}m</template>
+                <template v-if="selectedElement.opening && hostWallOf(selectedElement.opening)?.external != null">
+                  · {{ hostWallOf(selectedElement.opening)!.external ? '외벽' : '내벽' }}에 뚫림 <Src kind="bim" />
+                </template>
               </p>
             </div>
             <div class="picked-actions">
               <button type="button" class="ghost" @click="selectedElementId = null">선택 해제</button>
             </div>
           </div>
-          <p v-if="selectedElement.wall" class="storey-move carry-rooms">
+          <p v-if="selectedElement.locked" class="lock-note" data-testid="wall-locked">
+            {{ selectedElement.wall ? '내력벽이라' : '내력벽에 뚫린 것이라' }} 옮기거나 지울 수 없습니다.
+            <template v-if="selectedElement.wall">아래 내력 여부를 바꾸면 풀립니다.</template>
+          </p>
+          <p v-if="selectedElement.wall && !selectedElement.locked && wallLength(selectedElement.wall) !== null" class="position-edit wall-length">
+            <label>
+              길이
+              <input
+                class="coord mono"
+                type="number"
+                step="0.1"
+                min="0.1"
+                v-keep-typing
+                :value="wallLength(selectedElement.wall)!.toFixed(2)"
+                @change="applyWallLength(selectedElement.wall!, ($event.target as HTMLInputElement).value)"
+              />
+              m
+            </label>
+            <span class="muted">가운데를 두고 양 끝이 같이 늘거나 줄어듭니다.</span>
+          </p>
+          <p v-if="selectedElement.wall && !selectedElement.locked" class="storey-move carry-rooms">
             <label title="벽 면에서 0.6m 안의 방 변이 벽이 움직인 만큼 따라옵니다. 끄면 방 경계는 그대로입니다(방은 IfcSpace 가 따로 그린 것)">
               <input v-model="carryRooms" type="checkbox" /> 옮길 때 방 경계도 같이
             </label>
@@ -4906,7 +5327,26 @@ async function export3D(format: 'glb' | 'obj') {
               </select>
             </label>
             <Src :kind="selectedElement.wall.added ? 'edit' : 'bim'" />
-            <span class="muted">모름은 아니오가 아닙니다.</span>
+            <span class="muted">{{ selectedElement.wall.loadBearing === null ? '모름은 아니오가 아닙니다. 내벽처럼 고칠 수 있습니다.' : '모름은 아니오가 아닙니다.' }}</span>
+          </p>
+          <!-- 문·창 크기(OE-OBJ-07). 자리(가운데)는 두고 가로·세로만 바꾼다. 모르는 값은 빈칸이다. -->
+          <p v-if="selectedElement.opening" class="opening-size">
+            크기
+            <label v-for="key in ['width', 'height'] as const" :key="key">
+              {{ key === 'width' ? '가로' : '세로' }}
+              <input
+                class="coord mono"
+                type="number"
+                step="0.1"
+                min="0.1"
+                v-keep-typing
+                :disabled="selectedElement.locked"
+                :value="selectedElement.opening[key] != null ? selectedElement.opening[key]!.toFixed(2) : ''"
+                :placeholder="'모름'"
+                @change="applyOpeningSize(selectedElement.opening!, key, ($event.target as HTMLInputElement).value)"
+              />
+            </label>
+            m
           </p>
           <p v-if="selectedElement.opening?.position" class="position-edit">
             자리
@@ -4917,6 +5357,7 @@ async function export3D(format: 'glb' | 'obj') {
                 type="number"
                 step="0.1"
                 v-keep-typing
+                :disabled="selectedElement.locked"
                 :value="mmOf(selectedElement.opening.position[axis])"
                 @change="applyOpeningPosition(selectedElement.opening!, axis, ($event.target as HTMLInputElement).value)"
               />
@@ -4927,7 +5368,7 @@ async function export3D(format: 'glb' | 'obj') {
             {{ selectedElement.opening.connects?.length ? selectedElement.opening.connects.map(nameOfSpace).join(' · ') : '(없음)' }}
             <Src v-if="selectedElement.opening.connectsSource" :kind="selectedElement.opening.connectsSource === 'bim' ? 'bim' : 'calc'" />
           </p>
-          <p class="danger-zone">
+          <p v-if="!selectedElement.locked" class="danger-zone">
             <button type="button" class="ghost danger" @click="removeElement">
               {{ elementLabel(selectedElement.kind) }} 지우기
             </button>
@@ -5864,7 +6305,7 @@ async function export3D(format: 'glb' | 'obj') {
           <template v-if="editing || changeCount > 0">
           <div class="changes-head">
             <h3 id="changes">바뀐 내용</h3>
-            <button type="button" class="ghost" :disabled="changeCount === 0" @click="saveEdits">편집 저장</button>
+            <button type="button" class="ghost" :disabled="changeCount === 0" @click="saveEdits()">편집 저장</button>
             <label class="ghost load-edits">
               편집 불러오기
               <input type="file" accept=".json,application/json" @change="onEditFilePick" />
@@ -5920,7 +6361,11 @@ async function export3D(format: 'glb' | 'obj') {
             </li>
             <li v-for="r in sinceOpen.openingsAdded" :key="`op-add-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 놓았습니다 (GeoJSON)</li>
             <li v-for="r in sinceOpen.openingsRemoved" :key="`op-rm-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다 (GeoJSON)</li>
-            <li v-for="r in sinceOpen.openingsMoved" :key="`op-mv-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 옮겼습니다 (GeoJSON 위치·잇는 방)</li>
+            <li v-for="r in sinceOpen.openingsMoved" :key="`op-mv-${r.id}`">
+              {{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }}
+              {{ r.moved && r.resized ? '옮기고 크기를 바꿨습니다' : r.moved ? '옮겼습니다' : '크기를 바꿨습니다' }}
+              ({{ r.moved ? 'GeoJSON 위치·잇는 방' : 'GeoJSON 가로·세로' }})
+            </li>
             <li v-for="r in sinceOpen.systemMoved" :key="`sys-mv-${r.id}`">
               {{ r.name }}: 계통 <b>{{ systemNameOf(r.from) }}</b> → <b>{{ systemNameOf(r.to) }}</b> (brick:hasPart)
             </li>
@@ -5957,6 +6402,7 @@ async function export3D(format: 'glb' | 'obj') {
       </section>
     </template>
     <ShortcutHelp :open="helpOpen" :editing="editing" @close="helpOpen = false" />
+    <ExitEditDialog :open="!!exitAsk" :count="exitAsk?.count ?? 0" :server="!!serverKey" @commit="exitCommitting" @save="exitSaving" @discard="exitDiscarding" @cancel="exitAsk = null" />
     <!-- 진행 표시. 스크롤 위치와 상관없이 보이도록 화면 아래에 띄운다. -->
     <div v-if="progress" class="progress-toast" role="status" aria-live="polite">
       <div v-if="progressFile" class="muted progress-file">{{ progressFile }}</div>

@@ -3,9 +3,10 @@
 //   node scripts/serve.mjs            # ONTOLOGY_EDITOR_ADDR (기본 0.0.0.0:8084)
 //
 // 이 앱은 브라우저 안에서만 돈다. IFC 를 읽는 것도(web-ifc WASM) 내보내는 것도 브라우저가 한다.
-// 그래서 서버가 할 일은 셋이다. 파일을 내주고, 살아 있다고 답하고(/healthz), data/ 의 샘플 목록과
-// 등급 칩을 내준다(/__data/, dev 서버와 같은 src/server/data-catalog.ts 를 `npm run build:server` 로
-// 묶은 판). 정문(8000)은 거치지 않는다. 정문의 일은 토큰 검증인데 여기엔 지킬 API 가 없다.
+// 그래서 서버가 할 일은 넷이다. 파일을 내주고, 살아 있다고 답하고(/healthz), data/ 의 샘플 목록과
+// 등급 칩을 내주고(/__data/, dev 서버와 같은 src/server/data-catalog.ts 를 `npm run build:server` 로
+// 묶은 판), [편집 저장] 한 편집을 받아 둔다(PUT /__data/__edits, src/server/saved-edits.ts — 쓰기는 이것 하나).
+// 이 모듈은 dt 플랫폼과 따로라 정문(8000)은 거치지 않는다.
 //
 // **wasm 의 Content-Type 을 application/wasm 으로 준다.** 틀리면 브라우저가 스트리밍 컴파일을
 // 거절하고 web-ifc 가 느린 길로 돌거나 실패한다.
@@ -48,12 +49,14 @@ const server = createServer((req, res) => {
   const started = Date.now()
   const done = (status) => log({ msg: 'request', method: req.method, path: req.url, status, ms: Date.now() - started })
 
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
+  const path = decodeURIComponent((req.url || '/').split('?')[0])
+  // 쓰기는 8084 에 남기는 편집(/__data/__edits, src/server/saved-edits.ts) 하나뿐이다. 나머지는 읽기만 받는다.
+  const writable = req.method === 'PUT' && path === '/__data/__edits'
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !writable) {
     res.writeHead(405, { Allow: 'GET, HEAD' }).end()
     return done(405)
   }
 
-  const path = decodeURIComponent((req.url || '/').split('?')[0])
   if (path === '/healthz') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' }).end('ok')
     return

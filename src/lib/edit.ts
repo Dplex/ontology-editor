@@ -13,8 +13,9 @@ import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } f
 import { polygonArea } from './model'
 import type { Connection, Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall } from './model'
 import { spacesBesideOpening } from './ifc/element-geometry'
-import { splitRing, unionRings } from './polygon'
+import { overlapArea, splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
+import { josa } from './josa'
 
 /** 편집 한 번이 만든 관계 변화. 좌표가 아니라 관계를 적는다. */
 export type Change = {
@@ -587,7 +588,14 @@ export type Snapshot =
       walls: Wall[]
       wallFields: { wall: Wall; footprint: Vec2[][] | undefined; loadBearing: boolean | null }[]
       openings: Opening[]
-      openingFields: { opening: Opening; position: Vec3 | null | undefined; connects: string[] | undefined; connectsSource: Opening['connectsSource'] }[]
+      openingFields: {
+        opening: Opening
+        position: Vec3 | null | undefined
+        connects: string[] | undefined
+        connectsSource: Opening['connectsSource']
+        width: number | null
+        height: number | null
+      }[]
       boundedBy: { space: Space; boundedBy: string[] }[]
     }
 
@@ -832,6 +840,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
         else delete f.opening.connects
         if (f.connectsSource) f.opening.connectsSource = f.connectsSource
         else delete f.opening.connectsSource
+        f.opening.width = f.width
+        f.opening.height = f.height
       }
       for (const b of snapshot.boundedBy) b.space.boundedBy = [...b.boundedBy]
       return null
@@ -990,7 +1000,7 @@ export type Baseline = {
   keys?: Map<string, Fingerprint>
   /** 벽·문·창(E4). 옮기고·지우고·더한 것을 이것과 견준다. */
   walls?: Map<string, { storeyId: string; name: string; footprint: Vec2[][] | undefined; loadBearing: boolean | null }>
-  openings?: Map<string, { storeyId: string; name: string; kind: Opening['kind']; position: Vec3 | null | undefined; wallId: string | null }>
+  openings?: Map<string, { storeyId: string; name: string; kind: Opening['kind']; position: Vec3 | null | undefined; wallId: string | null; width?: number | null; height?: number | null }>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
@@ -1015,6 +1025,8 @@ export function baselineOf(model: Model): Baseline {
         kind: o.kind,
         position: o.position ? [o.position[0], o.position[1], o.position[2]] : o.position,
         wallId: o.wallId,
+        width: o.width,
+        height: o.height,
       })
     }
     for (const e of storey.equipment) {
@@ -1062,7 +1074,8 @@ export type BaselineDiff = {
   wallsChanged: { id: string; name: string; moved: boolean; loadBearing: { from: boolean | null; to: boolean | null } | null }[]
   openingsAdded: { id: string; name: string; kind: Opening['kind'] }[]
   openingsRemoved: { id: string; name: string; kind: Opening['kind'] }[]
-  openingsMoved: { id: string; name: string; kind: Opening['kind'] }[]
+  /** 옮기거나(`moved`) 크기를 바꾼(`resized`, OE-OBJ-07) 문·창. */
+  openingsMoved: { id: string; name: string; kind: Opening['kind']; moved: boolean; resized: boolean }[]
   /** 계통을 바꾼 설비(E8). 계통 id 다. */
   systemMoved: { id: string; name: string; from: string | null; to: string | null }[]
   /** 사람이 만든 계통과 없어진 계통(E8). */
@@ -1203,9 +1216,10 @@ function diffElements(model: Model, baseline: Baseline) {
       }
       const a = was.position
       const b = o.position
-      if ((a == null) !== (b == null) || (a && b && (Math.abs(a[0] - b[0]) > 1e-9 || Math.abs(a[1] - b[1]) > 1e-9))) {
-        out.openingsMoved.push({ id: o.id, name: o.name, kind: o.kind })
-      }
+      const moved = (a == null) !== (b == null) || (!!a && !!b && (Math.abs(a[0] - b[0]) > 1e-9 || Math.abs(a[1] - b[1]) > 1e-9))
+      const differs = (x: number | null | undefined, y: number | null | undefined) => (x ?? null) !== (y ?? null) && !(x != null && y != null && Math.abs(x - y) < 1e-9)
+      const resized = differs(was.width, o.width) || differs(was.height, o.height)
+      if (moved || resized) out.openingsMoved.push({ id: o.id, name: o.name, kind: o.kind, moved, resized })
     }
   }
   for (const [id, was] of baseline.walls) if (!wallsNow.has(id)) out.wallsRemoved.push({ id, name: was.name })
@@ -1624,6 +1638,22 @@ function findOpening(model: Model, openingId: string): { storey: Storey; opening
   return null
 }
 
+/**
+ * 내력벽은 고치지 않는다(OE-OBJ-06) — 옮기기·지우기, 그 벽에 문·창을 새로 뚫거나 옮기거나 메우기. 잠그는 것은 `true` 뿐이다.
+ * `null`(모름)은 내벽 규칙을 따른다 — 잠그면 내력 속성이 없는 파일(AC20 13장 전부)의 벽을 아무것도 못 고친다.
+ * 푸는 길은 내력 여부를 고치는 것이다(BIM 값이 틀렸을 때 사람이 바로잡는 자리). 편집 파일을 되살릴 때는 잠금을 보지 않는다
+ * (`ignoreLock`) — 그 편집은 사람이 풀어 둔 때에 한 것이고, 지운 벽의 내력 여부는 편집 파일에 남지 않는다.
+ */
+export function wallLocked(wall: Wall | null | undefined): boolean {
+  return wall?.loadBearing === true
+}
+export const WALL_LOCKED = '내력벽은 고칠 수 없습니다. 내력 여부를 바꾸면 풀립니다.'
+export type LockOptions = { ignoreLock?: boolean }
+
+function openingLocked(storey: Storey, opening: Opening): boolean {
+  return wallLocked(storey.walls.find((w) => w.id === opening.wallId))
+}
+
 /** 벽의 내력 여부. `null` 은 "모름" 이다 — false 와 섞지 않는다. */
 export function setWallLoadBearing(model: Model, wallId: string, value: boolean | null): boolean {
   const found = findWall(model, wallId)
@@ -1632,11 +1662,108 @@ export function setWallLoadBearing(model: Model, wallId: string, value: boolean 
   return true
 }
 
-/** 벽을 평면에서 옮긴다. 그 벽에 뚫린 문·창도 같이 간다. */
-export function moveWall(model: Model, wallId: string, delta: Vec2): boolean {
+// --- 벽 관통 (OE-OBJ-05) ---------------------------------------------------------------
+//
+// 벽은 다른 벽을 가로지를 수 없다 — 로봇 지도에서 벽 둘이 X 로 겹치면 어느 쪽이 막힌 것인지 읽을 수 없다. 끝이 다른 벽에
+// 닿는 것(L·T 자 맞닿음)은 정상이라 막지 않는다. 그래서 외곽선이 겹치는지가 아니라 **중심선이 서로의 몸통 안에서 만나는지**
+// 를 본다. 맞닿은 끝은 상대 벽 두께의 절반 + WALL_JOIN 안에 들어온다.
+// BIM 이 이미 가로지르게 그린 벽은 막지 않는다. 편집이 새로 만드는 관통만 막는다(이미 겹친 벽을 고치려고 옮기는 것은 된다).
+
+/** 맞닿은 끝으로 봐 주는 여유(미터). 벽 끝이 상대 벽의 반 두께 + 이만큼 안이면 관통이 아니라 맞닿음이다. */
+export const WALL_JOIN = 0.05
+
+/** 벽의 중심선과 반 두께. 외곽선 전부를 가장 긴 변 방향과 그 수직으로 펴서 잰다. 외곽선이 없으면 null. */
+export function wallAxis(rings: readonly (readonly Vec2[])[]): { a: Vec2; b: Vec2; half: number } | null {
+  let u: Vec2 | null = null
+  let best = 0
+  for (const ring of rings) {
+    for (let i = 0; i + 1 < ring.length; i++) {
+      const dx = ring[i + 1][0] - ring[i][0]
+      const dy = ring[i + 1][1] - ring[i][1]
+      const l = Math.hypot(dx, dy)
+      if (l > best) [best, u] = [l, [dx / l, dy / l]]
+    }
+  }
+  if (!u) return null
+  const n: Vec2 = [-u[1], u[0]]
+  let [u0, u1, n0, n1] = [Infinity, -Infinity, Infinity, -Infinity]
+  for (const ring of rings) {
+    for (const p of ring) {
+      const pu = p[0] * u[0] + p[1] * u[1]
+      const pn = p[0] * n[0] + p[1] * n[1]
+      ;[u0, u1, n0, n1] = [Math.min(u0, pu), Math.max(u1, pu), Math.min(n0, pn), Math.max(n1, pn)]
+    }
+  }
+  const mid = (n0 + n1) / 2
+  return { a: [u[0] * u0 + n[0] * mid, u[1] * u0 + n[1] * mid], b: [u[0] * u1 + n[0] * mid, u[1] * u1 + n[1] * mid], half: (n1 - n0) / 2 }
+}
+
+type Axis = NonNullable<ReturnType<typeof wallAxis>>
+
+/** 두 벽 중심선이 서로의 몸통 안에서 만나나. 끝이 상대 벽 안에 들어온 것(맞닿음)과 나란한 것은 아니다. */
+function axesCross(p: Axis, q: Axis): boolean {
+  const d1: Vec2 = [p.b[0] - p.a[0], p.b[1] - p.a[1]]
+  const d2: Vec2 = [q.b[0] - q.a[0], q.b[1] - q.a[1]]
+  const den = d1[0] * d2[1] - d1[1] * d2[0]
+  const l1 = Math.hypot(...d1)
+  const l2 = Math.hypot(...d2)
+  if (Math.abs(den) < 1e-9 * l1 * l2) return false
+  const w: Vec2 = [q.a[0] - p.a[0], q.a[1] - p.a[1]]
+  const s = (w[0] * d2[1] - w[1] * d2[0]) / den
+  const t = (w[0] * d1[1] - w[1] * d1[0]) / den
+  const inP = Math.min(s, 1 - s) * l1 > q.half + WALL_JOIN
+  const inQ = Math.min(t, 1 - t) * l2 > p.half + WALL_JOIN
+  return inP && inQ
+}
+
+/**
+ * 두 벽이 서로 관통하나. 조각(고리)마다 따로 본다 — 문·창으로 끊긴 벽을 한 중심선으로 펴면 꺾인 조각에서 선이 틀어져,
+ * 성수에서 외곽선이 전혀 안 겹치는 벽 49쌍을 관통으로 셌다. 중심선이 몸통 안에서 만나도 **외곽선이 실제로 겹친 넓이가
+ * 두 두께 곱의 절반을 넘어야** 관통이다(비스듬히 가로지르면 겹친 넓이는 두께 곱보다 크다).
+ */
+function piecesCross(a: readonly (readonly Vec2[])[], b: readonly (readonly Vec2[])[]): boolean {
+  for (const ra of a) {
+    const pa = wallAxis([ra])
+    if (!pa) continue
+    for (const rb of b) {
+      const pb = wallAxis([rb])
+      if (!pb || !axesCross(pa, pb)) continue
+      if ((overlapArea(ra, rb) ?? 0) > 0.5 * (2 * pa.half) * (2 * pb.half)) return true
+    }
+  }
+  return false
+}
+
+/** 이 외곽선의 벽이 층의 다른 벽 중 무엇을 가로지르나. `selfId` 는 빼고 센다. */
+export function wallsCrossed(storey: Storey, rings: readonly (readonly Vec2[])[], selfId?: string): Wall[] {
+  if (!rings.length) return []
+  return storey.walls.filter((w) => w.id !== selfId && !!w.footprint?.length && piecesCross(rings, w.footprint))
+}
+
+/** 벽을 이 외곽선으로 바꾸면 새로 가로지르게 되는 벽. 없으면 null. 원래 가로지르던 벽은 세지 않는다. */
+export function newCrossing(model: Model, wallId: string, rings: readonly (readonly Vec2[])[]): Wall | null {
+  const found = findWall(model, wallId)
+  if (!found) return null
+  const before = new Set(wallsCrossed(found.storey, found.wall.footprint ?? [], wallId).map((w) => w.id))
+  return wallsCrossed(found.storey, rings, wallId).find((w) => !before.has(w.id)) ?? null
+}
+
+/** 벽이 다른 벽을 가로지르게 된다는 알림. */
+export function crossingMessage(other: Wall): string {
+  const name = other.name || '다른 벽'
+  return `${name}${josa(name, '을/를')} 가로지릅니다. 벽은 다른 벽을 관통할 수 없습니다(끝을 맞대는 것은 됩니다).`
+}
+
+const shiftRings = (rings: readonly (readonly Vec2[])[], d: Vec2) => rings.map((ring) => ring.map((p) => [p[0] + d[0], p[1] + d[1]] as Vec2))
+
+/** 벽을 평면에서 옮긴다. 그 벽에 뚫린 문·창도 같이 간다. 다른 벽을 새로 가로지르게 되면 옮기지 않는다. */
+export function moveWall(model: Model, wallId: string, delta: Vec2, opts: LockOptions = {}): boolean {
   const found = findWall(model, wallId)
   if (!found || !found.wall.footprint?.length || (delta[0] === 0 && delta[1] === 0)) return false
-  found.wall.footprint = found.wall.footprint.map((ring) => ring.map((p) => [p[0] + delta[0], p[1] + delta[1]] as Vec2))
+  if (!opts.ignoreLock && wallLocked(found.wall)) return false
+  const next = shiftRings(found.wall.footprint, delta)
+  if (newCrossing(model, wallId, next)) return false
+  found.wall.footprint = next
   for (const o of found.storey.openings) {
     if (o.wallId !== wallId || !o.position) continue
     o.position = [o.position[0] + delta[0], o.position[1] + delta[1], o.position[2]]
@@ -1661,9 +1788,9 @@ function forgetBoundary(storey: Storey, ids: Set<string>) {
 }
 
 /** 벽을 지운다. 그 벽에 뚫린 문·창도 같이 지우고, 물리존의 공간 경계 목록에서도 뺀다. */
-export function deleteWall(model: Model, wallId: string): { openings: number } | null {
+export function deleteWall(model: Model, wallId: string, opts: LockOptions = {}): { openings: number } | null {
   const found = findWall(model, wallId)
-  if (!found) return null
+  if (!found || (!opts.ignoreLock && wallLocked(found.wall))) return null
   const { storey } = found
   const gone = new Set([wallId, ...storey.openings.filter((o) => o.wallId === wallId).map((o) => o.id)])
   storey.walls = storey.walls.filter((w) => w.id !== wallId)
@@ -1675,8 +1802,18 @@ export function deleteWall(model: Model, wallId: string): { openings: number } |
 /** 기본 벽 두께(미터). 사람이 두께를 정하지 않고 그은 벽이다. */
 export const NEW_WALL_THICKNESS = 0.2
 
-/** 두 점을 잇는 벽을 긋는다. 외곽선은 그 선을 가운데로 두께만큼 편 직사각형이다. 내력 여부는 모른다. */
-export function addWall(model: Model, storeyId: string, a: Vec2, b: Vec2, thickness = NEW_WALL_THICKNESS, id?: string): Wall | null {
+/**
+ * 두 점을 잇는 벽을 긋는다. 외곽선은 그 선을 가운데로 두께만큼 편 직사각형이다. 내력 여부는 모른다. 다른 벽을 가로지르면
+ * 긋지 않고 이유를 돌려준다(OE-OBJ-05).
+ */
+export function addWall(
+  model: Model,
+  storeyId: string,
+  a: Vec2,
+  b: Vec2,
+  thickness = NEW_WALL_THICKNESS,
+  id?: string,
+): Wall | { refused: string } | null {
   const storey = model.storeys.find((s) => s.id === storeyId)
   const len = Math.hypot(b[0] - a[0], b[1] - a[1])
   if (!storey || len < 0.05 || !(thickness > 0)) return null
@@ -1691,16 +1828,68 @@ export function addWall(model: Model, storeyId: string, a: Vec2, b: Vec2, thickn
     [b[0] + nx, b[1] + ny],
     [a[0] + nx, a[1] + ny],
   ]
+  const crossed = wallsCrossed(storey, [ring])[0]
+  if (crossed) return { refused: crossingMessage(crossed) }
   const wall: Wall = { id: wallId, name: '새 벽', thickness, loadBearing: null, footprint: [ring], added: true }
   storey.walls.push(wall)
   return wall
 }
 
+/** 벽 길이를 바꿀 수 있나. 외곽선이 직사각형 하나인 벽만이다(문·창으로 조각난 벽, 꺾인 벽은 아니다). */
+export function wallLength(wall: Wall): number | null {
+  const ring = wall.footprint?.length === 1 ? openRing(wall.footprint[0]) : null
+  if (!ring || ring.length !== 4) return null
+  const axis = wallAxis([ring])
+  if (!axis) return null
+  // 직사각형인지: 네 꼭짓점이 전부 중심선 양 끝 ± 반 두께 자리에 있다.
+  const len = Math.hypot(axis.b[0] - axis.a[0], axis.b[1] - axis.a[1])
+  const u: Vec2 = [(axis.b[0] - axis.a[0]) / len, (axis.b[1] - axis.a[1]) / len]
+  const ok = ring.every((p) => {
+    const t = (p[0] - axis.a[0]) * u[0] + (p[1] - axis.a[1]) * u[1]
+    return Math.abs(t) < 1e-3 || Math.abs(t - len) < 1e-3
+  })
+  return ok ? len : null
+}
+
+/**
+ * 벽 길이를 바꾼다(OE-OBJ-05 의 크기 조절). 가운데를 두고 양 끝을 같이 늘이거나 줄인다. 직사각형 벽만 되고, 내력벽은
+ * 잠겨 있다. 뚫린 문·창이 벽 밖으로 나가거나 다른 벽을 새로 가로지르게 되면 이유를 돌려준다.
+ */
+export function setWallLength(model: Model, wallId: string, length: number): boolean | { refused: string } {
+  const found = findWall(model, wallId)
+  if (!found || !(length >= 0.05)) return false
+  const { wall, storey } = found
+  if (wallLocked(wall)) return { refused: WALL_LOCKED }
+  const now = wallLength(wall)
+  if (now === null) return { refused: '직사각형 벽만 길이를 바꿉니다(문·창으로 조각났거나 꺾인 벽은 옮기기만 됩니다).' }
+  if (Math.abs(now - length) < 1e-9) return false
+  const axis = wallAxis(wall.footprint!)!
+  const u: Vec2 = [(axis.b[0] - axis.a[0]) / now, (axis.b[1] - axis.a[1]) / now]
+  const grow = (length - now) / 2
+  const ring = openRing(wall.footprint![0]).map((p) => {
+    const t = (p[0] - axis.a[0]) * u[0] + (p[1] - axis.a[1]) * u[1]
+    const k = t < now / 2 ? -grow : grow
+    return [p[0] + u[0] * k, p[1] + u[1] * k] as Vec2
+  })
+  const next = [withClosing(ring, true)]
+  const cut = storey.openings.find((o) => {
+    if (o.wallId !== wallId || !o.position) return false
+    const t = (o.position[0] - axis.a[0]) * u[0] + (o.position[1] - axis.a[1]) * u[1]
+    return t < -grow || t > now + grow
+  })
+  if (cut) return { refused: `${cut.name || (cut.kind === 'door' ? '문' : '창')}${josa(cut.name || '창', '이/가')} 벽 밖으로 나갑니다. 먼저 옮기거나 지우세요.` }
+  const crossed = newCrossing(model, wallId, next)
+  if (crossed) return { refused: crossingMessage(crossed) }
+  wall.footprint = next
+  return true
+}
+
 /** 문·창을 옮긴다(평면). 높이는 그대로다. 문이면 잇는 방을 좌표로 다시 짚는다. */
-export function moveOpening(model: Model, openingId: string, to: Vec2): boolean {
+export function moveOpening(model: Model, openingId: string, to: Vec2, opts: LockOptions = {}): boolean {
   const found = findOpening(model, openingId)
   const o = found?.opening
   if (!found || !o || !o.position) return false
+  if (!opts.ignoreLock && openingLocked(found.storey, o)) return false
   if (Math.abs(o.position[0] - to[0]) < 1e-9 && Math.abs(o.position[1] - to[1]) < 1e-9) return false
   o.position = [to[0], to[1], o.position[2]]
   if (o.kind === 'door' && o.through) o.connectsSource = 'calc'
@@ -1709,11 +1898,46 @@ export function moveOpening(model: Model, openingId: string, to: Vec2): boolean 
 }
 
 /** 문·창을 지운다. 물리존의 공간 경계 목록에서도 뺀다. */
-export function deleteOpening(model: Model, openingId: string): boolean {
+export function deleteOpening(model: Model, openingId: string, opts: LockOptions = {}): boolean {
   const found = findOpening(model, openingId)
-  if (!found) return false
+  if (!found || (!opts.ignoreLock && openingLocked(found.storey, found.opening))) return false
   found.storey.openings = found.storey.openings.filter((o) => o.id !== openingId)
   forgetBoundary(found.storey, new Set([openingId]))
+  return true
+}
+
+/** 문·창 크기로 받는 범위(미터). 이 밖은 오타로 본다. */
+export const OPENING_SIZE = { min: 0.1, max: 10 } as const
+
+/**
+ * 문·창 가로·세로를 바꾼다(OE-OBJ-07). 자리(가운데)는 그대로다. 값이 없는 쪽은 건드리지 않는다. 직사각형 벽에 뚫린 것이면 넓힌
+ * 가로가 벽 끝을 넘지 않아야 한다. 내력벽에 뚫린 것은 잠겨 있다(OE-OBJ-06).
+ */
+export function setOpeningSize(
+  model: Model,
+  openingId: string,
+  size: { width?: number; height?: number },
+  opts: LockOptions = {},
+): boolean | { refused: string } {
+  const found = findOpening(model, openingId)
+  if (!found) return false
+  const { storey, opening: o } = found
+  if (!opts.ignoreLock && openingLocked(storey, o)) return { refused: WALL_LOCKED }
+  const bad = [size.width, size.height].some((v) => v !== undefined && !(v >= OPENING_SIZE.min && v <= OPENING_SIZE.max))
+  if (bad) return { refused: `문·창 크기는 ${OPENING_SIZE.min}m ~ ${OPENING_SIZE.max}m 로 넣습니다.` }
+  const width = size.width ?? o.width
+  const height = size.height ?? o.height
+  if (width === o.width && height === o.height) return false
+  const wall = storey.walls.find((w) => w.id === o.wallId)
+  const len = wall && wallLength(wall)
+  if (!opts.ignoreLock && wall && len != null && width != null && o.position) {
+    const axis = wallAxis(wall.footprint!)!
+    const u: Vec2 = [(axis.b[0] - axis.a[0]) / len, (axis.b[1] - axis.a[1]) / len]
+    const t = (o.position[0] - axis.a[0]) * u[0] + (o.position[1] - axis.a[1]) * u[1]
+    if (t - width / 2 < -1e-6 || t + width / 2 > len + 1e-6) return { refused: `가로 ${width.toFixed(2)}m 는 벽 끝을 넘습니다(벽 ${len.toFixed(2)}m).` }
+  }
+  o.width = width
+  o.height = height
   return true
 }
 
@@ -1765,6 +1989,7 @@ export function addOpening(
   if (!near || near.distance > OPENING_SNAP) {
     return { refused: storey.walls.some((w) => w.footprint?.length) ? `벽에서 ${OPENING_SNAP}m 안에만 놓습니다.` : '이 층에 외곽선이 있는 벽이 없습니다. 벽을 읽거나 먼저 벽을 그으세요.' }
   }
+  if (wallLocked(near.wall)) return { refused: `${near.wall.name || '벽'}${josa(near.wall.name || '벽', '은/는')} 내력벽이라 문·창을 뚫지 않습니다. 내력 여부를 바꾸면 풀립니다.` }
   const openingId = id ?? newId()
   if (findOpening(model, openingId)) return null
   const opening: Opening = {
@@ -1805,6 +2030,9 @@ export function snapshotStoreyElements(model: Model, storeyId: string): Snapshot
       position: opening.position ? [opening.position[0], opening.position[1], opening.position[2]] : opening.position,
       connects: opening.connects ? [...opening.connects] : undefined,
       connectsSource: opening.connectsSource,
+      // 크기(OE-OBJ-07)는 제자리에서 고친다. 떠 두지 않으면 되돌려도 고친 크기가 남는다(성수 퍼징이 잡았다).
+      width: opening.width,
+      height: opening.height,
     })),
     boundedBy: storey.spaces.map((space) => ({ space, boundedBy: [...space.boundedBy] })),
   }
