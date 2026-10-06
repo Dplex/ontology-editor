@@ -63,7 +63,7 @@ export function parseToolTitle(title) {
 
 export function createChat({ root, log = () => {} }) {
   const gemini = process.env.DOCS_CHAT_GEMINI || 'gemini'
-  // .mjs·.js 를 주면 node 로 띄운다(테스트의 가짜 gemini). 셸은 거치지 않는다.
+  // .mjs·.js 를 주면 node 로 띄운다(gemini 대신 다른 스크립트를 붙여 볼 때). 셸은 거치지 않는다.
   const run = (args, opt) => (/\.m?js$/.test(gemini) ? [process.execPath, [gemini, ...args], opt] : [gemini, args, opt])
   const policy = join(root, 'scripts/docs-chat.policy.toml')
   const max = Number(process.env.DOCS_CHAT_MAX) || 2
