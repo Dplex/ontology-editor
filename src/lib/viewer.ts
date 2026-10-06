@@ -97,6 +97,10 @@ export const PICK_COLORS = {
 
 /** 마우스 아래 표시. 설비는 액센트 상자, 방은 회색 점선 — 색만이 아니라 모양으로도 갈린다. */
 const HOVER_COLORS = { equipment: 0x2f6fed, space: 0x5b6470, spaceDark: 0xc0c6cd }
+/** 막힌 편집의 상대(겹친 설비, OE-OBJ-16). 오류 색 하나다. */
+const CONFLICT_COLOR = 0xd1372b
+/** 겹친 상대 표시가 떠 있는 시간(ms). 알림 줄(App 의 note)과 비슷하게 둔다. */
+const CONFLICT_MS = 2600
 
 /**
  * 내력벽 색. 내력벽 여부를 BIM 이 말하지 않은 벽은 "모름" 으로 따로 칠한다 — 비내력으로 숨기면
@@ -253,6 +257,8 @@ export type Viewer = {
   setEquipmentPositions(id: string, positions: Float32Array, glide?: boolean): boolean
   /** 소속이 바뀐 방 바닥을 한 번 번쩍인다. 움직임을 끈 사람에게는 아무것도 하지 않는다. */
   pulseSpaces(ids: Iterable<string>): void
+  /** 막힌 편집의 상대 설비를 붉은 상자로 잠깐 짚는다(겹침, OE-OBJ-16). */
+  markConflict(id: string): void
   /** 편집 모드에서 고른 설비를 끌어 놓으면 부른다. 옮긴 거리를 IFC 좌표(미터)로 넘긴다. 높이는 그대로다. */
   onEquipmentMove(handler: (id: string, delta: Vec3) => void): void
   /** 설비가 아닌 바닥(물리존 판)을 누르면 부른다. 편집 모드면 손잡이가, 보기 모드면 테두리만 뜬다. */
@@ -567,6 +573,18 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
     hoverMark.renderOrder = 9
     overlay.add(hoverMark)
+  }
+
+  let conflictMark: LineSegments | null = null
+  let conflictTimer: number | undefined
+  function clearConflict() {
+    window.clearTimeout(conflictTimer)
+    if (!conflictMark) return
+    overlay.remove(conflictMark)
+    conflictMark.geometry.dispose()
+    ;(conflictMark.material as LineBasicMaterial).dispose()
+    conflictMark = null
+    dirty = true
   }
 
   function moveHandle(index: number, at: Vector3) {
@@ -1738,6 +1756,19 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     pulseSpaces(ids) {
       pulseSpaces(ids)
+    },
+
+    markConflict(id) {
+      clearConflict()
+      const part = partById.get(id)
+      if (!part || part.box.isEmpty()) return
+      const size = part.box.getSize(new Vector3()).max(new Vector3(0.05, 0.05, 0.05)).addScalar(0.06)
+      conflictMark = new LineSegments(new EdgesGeometry(new BoxGeometry(size.x, size.y, size.z)), new LineBasicMaterial({ color: CONFLICT_COLOR, depthTest: false }))
+      part.box.getCenter(conflictMark.position)
+      conflictMark.renderOrder = 10
+      overlay.add(conflictMark)
+      dirty = true
+      conflictTimer = window.setTimeout(clearConflict, CONFLICT_MS)
     },
 
     onEquipmentMove(handler) {

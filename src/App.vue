@@ -114,6 +114,7 @@ import {
   type Snapshot,
 } from './lib/edit'
 import { MERGE_GAP } from './lib/polygon'
+import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
 import { distanceToRing } from './lib/mapping'
@@ -503,6 +504,21 @@ function redraw() {
  * 옮긴 설비의 형상을 같이 옮긴다. 형상은 임포트 때의 자리를 들고 있어서, 안 옮기면 다시 그릴 때
  * 예전 자리로 튄다. 형상이 없는 설비(상자로 찍는 것)는 좌표에서 바로 그리므로 할 일이 없다.
  */
+/**
+ * 설비 형상을 감싸는 상자(IFC 좌표). 겹침 판정(lib/overlap.ts)이 쓴다. 형상을 옮기면 shiftMesh 가 좌표 배열을 새로 만들어서
+ * 배열마다 한 번만 잰다(성수 배관 없는 설비 1,152대를 방향키마다 다시 재지 않는다).
+ */
+const ifcBoxes = new WeakMap<Float32Array, Box3>()
+function currentBox(id: string): Box3 | null {
+  const mesh = meshes.get(id)
+  if (!mesh) return null
+  const had = ifcBoxes.get(mesh.positions)
+  if (had) return had
+  const box = meshBox(mesh)
+  if (box) ifcBoxes.set(mesh.positions, box)
+  return box
+}
+
 function shiftMesh(id: string, from: Vec3 | null, to: Vec3 | null) {
   const mesh = meshes.get(id)
   if (!mesh || !from || !to) return
@@ -581,9 +597,23 @@ function moveInScene(id: string, from: Vec3 | null, to: Vec3 | null, glide = fal
  * 설비를 옮기는 길은 표(숫자)와 3D(끌기) 둘이지만 하는 일은 하나다. 소속 재판정은 edit.ts 가 한다.
  * `drawnAt` 은 3D 가 이미 그려 둔 자리다(끌어 놓은 경우). 그 자리와 저장한 좌표의 차만큼만 형상을 옮긴다.
  */
+/** 겹쳐서 막았다고 알린다. 문구는 OE-SPC-15 가 정한 것이고, 무엇과 겹쳤는지를 뒤에 붙인다(3D 에는 붉은 상자로 짚는다). */
+function refuseOverlap(blocked: Equipment) {
+  const name = shortName(blocked.name)
+  editNotice.value = `이미 오브젝트가 있는 위치입니다(${name}${josa(name, '과/와')} 겹칩니다). 배관 없는 설비는 서로 겹쳐 놓을 수 없습니다.`
+  viewer?.markConflict(blocked.id)
+}
+
 function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: string): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
+  // 배관 없는 설비끼리는 겹쳐 놓지 못한다(OE-OBJ-10·16). 끌어 놓은 것이면 3D 가 이미 그 자리에 그렸으니 되돌려 보낸다.
+  const blocked = overlapAt(model.value, equipmentId, to, currentBox)
+  if (blocked) {
+    if (drawnAt && before) viewer?.shiftEquipment(equipmentId, [before[0] - drawnAt[0], before[1] - drawnAt[1], before[2] - drawnAt[2]], true)
+    refuseOverlap(blocked)
+    return false
+  }
   // 붙은 배관(PRD #13). 옮기기 전에 정한다 — 옮긴 뒤에는 구간의 어느 끝이 가까웠는지 모른다.
   const plan = carryConduits.value && before ? planFollow(model.value, equipmentId, segmentAxis) : null
   const followers = plan ? [...plan.rigid, ...new Set(plan.stretch.map((x) => x.id))] : []
@@ -654,6 +684,8 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
     const base: [number, number, number] = [current[0], current[1], current[2]]
     base[axis] = value
     if (relocate(equipmentId, base)) warnIfFar(base)
+    // 막혔으면(겹침) 칸도 지금 값으로 되돌린다. 친 값이 남으면 옮겨진 것처럼 보인다.
+    else if (input) input.value = String(mmOf(current[axis]))
     return
   }
 
@@ -683,13 +715,25 @@ function dropEquipment(equipmentId: string, delta: Vec3) {
 }
 
 /** 설비를 다른 층으로(E6). 높이도 두 층 바닥의 차만큼 옮기므로 3D 를 다시 그린다. */
-function moveToStorey(equipmentId: string, storeyId: string) {
-  if (!model.value) return
+/** 설비를 다른 층으로 옮긴다. 옮긴 층에서 배관 없는 설비와 겹치게 되면 옮기지 않고 false 다(OE-OBJ-16). */
+function moveToStorey(equipmentId: string, storeyId: string): boolean {
+  if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
+  // 층을 옮기면 x·y 는 그대로이고 z 가 층 높이 차만큼 바뀐다(moveEquipmentToStorey). 그 자리로 미리 잰다.
+  const from = storeyOf(equipmentId)
+  const target = model.value.storeys.find((s) => s.id === storeyId)
+  if (before && from && target && from !== target) {
+    const to: Vec3 = [before[0], before[1], before[2] + target.elevation - from.elevation]
+    const blocked = overlapAt(model.value, equipmentId, to, currentBox, storeyId)
+    if (blocked) {
+      refuseOverlap(blocked)
+      return false
+    }
+  }
   const snapshot = snapshotEquipment(model.value, equipmentId)
   const at = mark()
   const change = moveEquipmentToStorey(model.value, equipmentId, storeyId)
-  if (!change) return
+  if (!change) return false
   remember(`${shortName(change.equipmentName)} 층 옮김`, snapshot, at)
   moveInScene(equipmentId, before, equipmentById.value.get(equipmentId)?.position ?? null)
   changes.value = [...changes.value, change]
@@ -697,6 +741,11 @@ function moveToStorey(equipmentId: string, storeyId: string) {
   triggerRef(model)
   // 한 층만 보고 있으면 옮긴 층으로 따라간다. 안 따라가면 고른 설비가 화면에서 사라진 것처럼 보였다.
   if (viewStorey.value && viewStorey.value !== storeyId) viewStorey.value = storeyId
+  return true
+}
+/** 패널의 층 칸. 막히면 칸을 지금 층으로 되돌린다 — 고른 층이 남으면 옮겨진 것처럼 보인다. */
+function onStoreyPick(equipmentId: string, select: HTMLSelectElement) {
+  if (!moveToStorey(equipmentId, select.value)) select.value = storeyOf(equipmentId)?.id ?? ''
 }
 /** 사람이 층을 바꾼 설비. 층 칸의 출처를 BIM 에서 편집으로 바꾼다. */
 const storeyMoved = ref(new Set<string>())
@@ -1169,8 +1218,8 @@ function stepStorey(dir: 1 | -1): boolean {
     note(dir > 0 ? '맨 위층입니다' : '맨 아래층입니다')
     return true
   }
-  moveToStorey(e.id, next.id)
-  note(`${shortName(e.name)} → ${next.name}`)
+  // 막혔으면(겹침) 안내가 이미 떴으니 덮어쓰지 않는다
+  if (moveToStorey(e.id, next.id)) note(`${shortName(e.name)} → ${next.name}`)
   return true
 }
 
@@ -3080,8 +3129,12 @@ function addEquipmentAt(at: Vec2) {
   stopAdd()
   if (!m || !target) return
   const n = m.storeys.reduce((k, st) => k + st.equipment.filter((e) => e.added).length, 0) + 1
+  const position: Vec3 = [cm(at[0]), cm(at[1]), cm(target.elevation)]
+  // 새 설비는 종류를 정하기 전까지 배관 없는 설비로 본다. 다른 배관 없는 설비 자리에는 더하지 않는다(OE-OBJ-16).
+  const blocked = overlapForNew(m, target.storeyId, position, currentBox)
+  if (blocked) return refuseOverlap(blocked)
   const mk = mark()
-  const e = addEquipment(m, target.storeyId, { name: `새 설비 ${n}`, kind: null, position: [cm(at[0]), cm(at[1]), cm(target.elevation)] })
+  const e = addEquipment(m, target.storeyId, { name: `새 설비 ${n}`, kind: null, position })
   if (!e) return
   const snapshot = snapshotEquipmentSet(m, e.id)
   if (snapshot?.kind === 'equipment-set') remember(`${e.name} 더하기`, { ...snapshot, present: false }, mk)
@@ -4982,7 +5035,7 @@ async function export3D(format: 'glb' | 'obj') {
               <select
                 :value="storeyOf(selected.id)?.id ?? ''"
                 :disabled="model.storeys.length < 2"
-                @change="moveToStorey(selected.id, ($event.target as HTMLSelectElement).value)"
+                @change="onStoreyPick(selected.id, $event.target as HTMLSelectElement)"
               >
                 <option v-for="s in model.storeys" :key="s.id" :value="s.id">{{ s.name }}</option>
               </select>
