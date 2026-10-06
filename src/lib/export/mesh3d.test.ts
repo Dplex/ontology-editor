@@ -6,7 +6,7 @@ import { importIfcWithMeshes, type MeshMap } from '../ifc/import'
 import { BoxGeometry, type Mesh, type Object3D } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { toScene } from '../viewer'
-import { addWall, moveOpening, moveWall } from '../edit'
+import { addWall, moveOpening, moveWall, setWallLoadBearing } from '../edit'
 import type { Model } from '../model'
 import { modelToScene, sceneToGLB, sceneToOBJ } from './mesh3d'
 
@@ -72,7 +72,9 @@ describe('3D 내보내기 — 편집', () => {
     expect(wall).toBeTruthy()
     const pristine = structuredClone(rooms)
     const edited = structuredClone(rooms)
-    moveWall(edited, wall!.id, [2, 0])
+    // 픽스처에서 형상이 있는 벽은 내력벽뿐이다. 내력벽은 잠기므로(OE-OBJ-06) 내력 여부를 모름으로 풀고 옮긴다.
+    setWallLoadBearing(edited, wall!.id, null)
+    expect(moveWall(edited, wall!.id, [2, 0])).toBe(true)
     const before = boxOf(modelToScene(pristine, roomMeshes, { pristine }), wall!.id)!
     const after = boxOf(modelToScene(edited, roomMeshes, { pristine }), wall!.id)!
     expect(after.min.x - before.min.x).toBeCloseTo(2, 1)
@@ -80,7 +82,8 @@ describe('3D 내보내기 — 편집', () => {
     if (opening) {
       const moved = structuredClone(rooms)
       const to: [number, number] = [opening.position![0] + 1, opening.position![1]]
-      moveOpening(moved, opening.id, to)
+      if (opening.wallId) setWallLoadBearing(moved, opening.wallId, null)
+      expect(moveOpening(moved, opening.id, to)).toBe(true)
       const shift = moved.storeys.flatMap((s) => s.openings).find((o) => o.id === opening.id)!.position![0] - opening.position![0]
       const a = boxOf(modelToScene(pristine, roomMeshes, { pristine }), opening.id)!
       const b = boxOf(modelToScene(moved, roomMeshes, { pristine }), opening.id)!

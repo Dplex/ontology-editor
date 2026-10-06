@@ -15,6 +15,7 @@ import type { Connection, Equipment, Model, Opening, Space, Storey, System, Vec2
 import { spacesBesideOpening } from './ifc/element-geometry'
 import { splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
+import { josa } from './josa'
 
 /** 편집 한 번이 만든 관계 변화. 좌표가 아니라 관계를 적는다. */
 export type Change = {
@@ -1624,6 +1625,22 @@ function findOpening(model: Model, openingId: string): { storey: Storey; opening
   return null
 }
 
+/**
+ * 내력벽은 고치지 않는다(OE-OBJ-06) — 옮기기·지우기, 그 벽에 문·창을 새로 뚫거나 옮기거나 메우기. 잠그는 것은 `true` 뿐이다.
+ * `null`(모름)은 내벽 규칙을 따른다 — 잠그면 내력 속성이 없는 파일(AC20 13장 전부)의 벽을 아무것도 못 고친다.
+ * 푸는 길은 내력 여부를 고치는 것이다(BIM 값이 틀렸을 때 사람이 바로잡는 자리). 편집 파일을 되살릴 때는 잠금을 보지 않는다
+ * (`ignoreLock`) — 그 편집은 사람이 풀어 둔 때에 한 것이고, 지운 벽의 내력 여부는 편집 파일에 남지 않는다.
+ */
+export function wallLocked(wall: Wall | null | undefined): boolean {
+  return wall?.loadBearing === true
+}
+export const WALL_LOCKED = '내력벽은 고칠 수 없습니다. 내력 여부를 바꾸면 풀립니다.'
+export type LockOptions = { ignoreLock?: boolean }
+
+function openingLocked(storey: Storey, opening: Opening): boolean {
+  return wallLocked(storey.walls.find((w) => w.id === opening.wallId))
+}
+
 /** 벽의 내력 여부. `null` 은 "모름" 이다 — false 와 섞지 않는다. */
 export function setWallLoadBearing(model: Model, wallId: string, value: boolean | null): boolean {
   const found = findWall(model, wallId)
@@ -1633,9 +1650,10 @@ export function setWallLoadBearing(model: Model, wallId: string, value: boolean 
 }
 
 /** 벽을 평면에서 옮긴다. 그 벽에 뚫린 문·창도 같이 간다. */
-export function moveWall(model: Model, wallId: string, delta: Vec2): boolean {
+export function moveWall(model: Model, wallId: string, delta: Vec2, opts: LockOptions = {}): boolean {
   const found = findWall(model, wallId)
   if (!found || !found.wall.footprint?.length || (delta[0] === 0 && delta[1] === 0)) return false
+  if (!opts.ignoreLock && wallLocked(found.wall)) return false
   found.wall.footprint = found.wall.footprint.map((ring) => ring.map((p) => [p[0] + delta[0], p[1] + delta[1]] as Vec2))
   for (const o of found.storey.openings) {
     if (o.wallId !== wallId || !o.position) continue
@@ -1661,9 +1679,9 @@ function forgetBoundary(storey: Storey, ids: Set<string>) {
 }
 
 /** 벽을 지운다. 그 벽에 뚫린 문·창도 같이 지우고, 물리존의 공간 경계 목록에서도 뺀다. */
-export function deleteWall(model: Model, wallId: string): { openings: number } | null {
+export function deleteWall(model: Model, wallId: string, opts: LockOptions = {}): { openings: number } | null {
   const found = findWall(model, wallId)
-  if (!found) return null
+  if (!found || (!opts.ignoreLock && wallLocked(found.wall))) return null
   const { storey } = found
   const gone = new Set([wallId, ...storey.openings.filter((o) => o.wallId === wallId).map((o) => o.id)])
   storey.walls = storey.walls.filter((w) => w.id !== wallId)
@@ -1697,10 +1715,11 @@ export function addWall(model: Model, storeyId: string, a: Vec2, b: Vec2, thickn
 }
 
 /** 문·창을 옮긴다(평면). 높이는 그대로다. 문이면 잇는 방을 좌표로 다시 짚는다. */
-export function moveOpening(model: Model, openingId: string, to: Vec2): boolean {
+export function moveOpening(model: Model, openingId: string, to: Vec2, opts: LockOptions = {}): boolean {
   const found = findOpening(model, openingId)
   const o = found?.opening
   if (!found || !o || !o.position) return false
+  if (!opts.ignoreLock && openingLocked(found.storey, o)) return false
   if (Math.abs(o.position[0] - to[0]) < 1e-9 && Math.abs(o.position[1] - to[1]) < 1e-9) return false
   o.position = [to[0], to[1], o.position[2]]
   if (o.kind === 'door' && o.through) o.connectsSource = 'calc'
@@ -1709,9 +1728,9 @@ export function moveOpening(model: Model, openingId: string, to: Vec2): boolean 
 }
 
 /** 문·창을 지운다. 물리존의 공간 경계 목록에서도 뺀다. */
-export function deleteOpening(model: Model, openingId: string): boolean {
+export function deleteOpening(model: Model, openingId: string, opts: LockOptions = {}): boolean {
   const found = findOpening(model, openingId)
-  if (!found) return false
+  if (!found || (!opts.ignoreLock && openingLocked(found.storey, found.opening))) return false
   found.storey.openings = found.storey.openings.filter((o) => o.id !== openingId)
   forgetBoundary(found.storey, new Set([openingId]))
   return true
@@ -1765,6 +1784,7 @@ export function addOpening(
   if (!near || near.distance > OPENING_SNAP) {
     return { refused: storey.walls.some((w) => w.footprint?.length) ? `벽에서 ${OPENING_SNAP}m 안에만 놓습니다.` : '이 층에 외곽선이 있는 벽이 없습니다. 벽을 읽거나 먼저 벽을 그으세요.' }
   }
+  if (wallLocked(near.wall)) return { refused: `${near.wall.name || '벽'}${josa(near.wall.name || '벽', '은/는')} 내력벽이라 문·창을 뚫지 않습니다. 내력 여부를 바꾸면 풀립니다.` }
   const openingId = id ?? newId()
   if (findOpening(model, openingId)) return null
   const opening: Opening = {

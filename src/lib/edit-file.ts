@@ -539,16 +539,16 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     else result.missing.elements++
   }
   for (const id of file.wallsRemoved ?? []) {
-    if (deleteWall(model, resolve(id))) result.applied++
+    if (deleteWall(model, resolve(id), { ignoreLock: true })) result.applied++
     else result.missing.elements++
   }
   for (const raw of file.openings ?? []) {
     const id = resolve(raw.id)
-    if (moveOpening(model, id, [raw.position[0], raw.position[1]])) result.applied++
+    if (moveOpening(model, id, [raw.position[0], raw.position[1]], { ignoreLock: true })) result.applied++
     else if (!model.storeys.some((s) => s.openings.some((o) => o.id === id))) result.missing.elements++
   }
   for (const id of file.openingsRemoved ?? []) {
-    if (deleteOpening(model, resolve(id))) result.applied++
+    if (deleteOpening(model, resolve(id), { ignoreLock: true })) result.applied++
     else result.missing.elements++
   }
 

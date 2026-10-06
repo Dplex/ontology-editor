@@ -1404,6 +1404,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
       /** 벽·문·창 편집 층에서 누를 수 있는 것의 id. */
       elements: () => archTargets.map((t) => t.id),
+      /** 벽·문·창을 누를 화면 자리. 벽은 첫 외곽선 꼭짓점의 평균(곧은 벽이면 외곽선 안), 문·창은 자리다. */
+      element: (id: string) => {
+        const t = archTargets.find((x) => x.id === id)
+        const ring = t?.rings?.[0]?.slice(0, -1)
+        const p = t?.at ?? (ring?.length ? ([ring.reduce((a, q) => a + q[0], 0) / ring.length, ring.reduce((a, q) => a + q[1], 0) / ring.length] as Vec2) : null)
+        return t && p ? toScreen(new Vector3(p[0], t.y, -p[1])) : null
+      },
       /** 화면의 한 점을 누르면 무엇이 골라지는가(설비·벽·문·창·물리존). */
       pickAt: (x: number, y: number) => {
         const ray = rayAt(x, y)

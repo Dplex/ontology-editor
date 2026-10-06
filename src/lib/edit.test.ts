@@ -54,6 +54,8 @@ import {
   createSystem,
   deleteSystem,
   moveWallWithSpaces,
+  wallLocked,
+  deleteOpening,
   type WallCarryPlan,
   type Snapshot,
   type Change,
@@ -866,6 +868,27 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(setWallLoadBearing(model, wall.id, true)).toBe(true)
     expect(setWallLoadBearing(model, wall.id, null)).toBe(true)
     expect(wall.loadBearing).toBeNull()
+  })
+
+  // OE-OBJ-06. 잠그는 것은 true 뿐이다 — 모름(null)까지 잠그면 내력 속성이 없는 파일의 벽을 하나도 못 고친다.
+  it('내력벽은 옮기거나 지우지 못하고, 거기 뚫린 문·창도 그렇다. 모름은 잠그지 않는다', () => {
+    const { wall } = setup()
+    const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening
+    setWallLoadBearing(model, wall.id, true)
+    const before = JSON.stringify(modelToGeoJSON(model))
+    expect(wallLocked(wall)).toBe(true)
+    expect(moveWall(model, wall.id, [1, 0])).toBe(false)
+    expect(moveWallWithSpaces(model, wall.id, [1, 0])).toBeNull()
+    expect(deleteWall(model, wall.id)).toBeNull()
+    expect(moveOpening(model, door.id, [10.1, 5])).toBe(false)
+    expect(deleteOpening(model, door.id)).toBe(false)
+    expect(addOpening(model, storey().id, 'window', [10.1, 1])).toEqual({ refused: expect.stringContaining('내력벽') })
+    expect(JSON.stringify(modelToGeoJSON(model))).toBe(before)
+    // 내력 여부를 고치면 풀린다. 모름은 내벽 규칙이다.
+    setWallLoadBearing(model, wall.id, null)
+    expect(wallLocked(wall)).toBe(false)
+    expect(moveOpening(model, door.id, [10.1, 5])).toBe(true)
+    expect(moveWall(model, wall.id, [1, 0])).toBe(true)
   })
 
   it('연 때와 견주면 더한 벽·옮긴 문이 뜨고, 지운 벽의 문은 따로 세지 않는다', () => {
