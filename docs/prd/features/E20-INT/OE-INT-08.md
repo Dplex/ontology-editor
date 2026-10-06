@@ -6,7 +6,7 @@ title: "ttl.go 호환"
 prd: "1.7"
 release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: []
@@ -16,11 +16,11 @@ depends: []
 
 ## 요구사항
 
-`$`·`"` 이스케이프, 블록 구조, fso 비엔티티 처리. 매 빌드 check:sample로 실제 읽기 확인
+TTL 은 DT 파서 ttl.go 의 지원 범위를 지킨다 — `$`·`"` 이스케이프, `ex:X a 클래스` 블록 구조, fso 비엔티티는 하류 기기 직접 기술. 매 빌드마다 실제 파서로 샘플을 읽어 확인한다.
 
 ## 수용 기준
 
-—
+`check:sample` 이 매 빌드 통과한다.
 
 ## 검증 (이 repo)
 

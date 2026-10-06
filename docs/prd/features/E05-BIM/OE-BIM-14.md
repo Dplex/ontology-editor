@@ -6,7 +6,7 @@ title: "이름 사전 종류 판정"
 prd: "#6"
 release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["R24","R14"]
@@ -16,11 +16,12 @@ depends: ["R24","R14"]
 
 ## 요구사항
 
-설비·방·계통·유체 종류를 이름 사전 → IFC 표준 칸 순으로 판정. 알 수 없으면 사람이 패밀리 단위로 지정(OE-EQP-15)
+설비·방·계통·유체의 종류를 이름 사전 → IFC 표준 칸(PredefinedType 등) 순으로 판정한다(glossary "이름 사전", R24·R14). 알 수 없으면 종류 미상으로 두고 사람이 패밀리 단위로 지정한다(OE-EQP-14). 종류마다 출처(사전·BIM·사람)를 표시한다.
 
 ## 수용 기준
 
-종류마다 출처 표시
+- 설비마다 종류와 출처가 보인다.
+- 사전에도 IFC 칸에도 없는 설비는 종류 미상으로 표시된다.
 
 ## 검증 (이 repo)
 

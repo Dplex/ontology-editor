@@ -6,7 +6,7 @@ title: "내력벽 속성"
 prd: "#6"
 release: "R1"
 priority: "P2"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["R22"]
@@ -16,11 +16,11 @@ depends: ["R22"]
 
 ## 요구사항
 
-Pset_WallCommon.LoadBearing(Revit Structural) → loadBearing. 값 없으면 "모름"
+Pset_WallCommon.LoadBearing(Revit 의 Structural)을 읽어 벽의 loadBearing 으로 둔다(R22). 값이 없으면 "모름" 이다. "모름" 과 "아니오" 를 섞지 않는다. 편집 규칙은 OE-OBJ-06.
 
 ## 수용 기준
 
-—
+LoadBearing 이 없는 벽이 "모름" 으로, false 인 벽이 "아니오" 로 구분되어 표시된다.
 
 ## 검증 (이 repo)
 
