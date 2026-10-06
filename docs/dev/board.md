@@ -3,7 +3,7 @@
 CLAUDE.md 에서 옮겼다. 이슈를 만들거나, PR 을 열거나, 라벨·카드를 만질 때 연다.
 
 이 repo 의 이슈와 칸반은 **사내 GitHub 하나로 관리한다.** "Jira", "칸반", "이슈 등록" 이라고 하면 Atlassian Jira 가 아니라
-여기를 말한다(PRD 티켓 파일의 `jira:` 칸도 이 이슈 번호다).
+여기를 말한다.
 
 - 이슈: `github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology` (`gh issue …`, 라벨 `prd-011`·`phase-1`, 제목 끝에 티켓 `(OE-XXX-nn)`)
 - 칸반: <https://github.sec.samsung.net/orgs/IoT-Solution/projects/1> (Projects v2, `gh project … --owner IoT-Solution`)
