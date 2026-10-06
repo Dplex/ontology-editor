@@ -22,6 +22,7 @@ test('설비를 옮기면 붙은 배관이 따라오고, 끄면 설비만 옮겨
   await page.keyboard.press('e')
   await expect(page.locator('.tool-palette')).toBeVisible()
 
+  const opened = await page.evaluate(() => (window as any).__viewer.centers())
   await page.locator('input[type=search]').fill('536919')
   await row(page).getByRole('button', { name: RADIATOR, exact: true }).click()
   await page.keyboard.press('Shift+ArrowRight')
@@ -35,8 +36,16 @@ test('설비를 옮기면 붙은 배관이 따라오고, 끄면 설비만 옮겨
   await page.keyboard.press('Shift+ArrowRight')
   await expect(page.locator('.edit-bar .last-edit')).not.toContainText('따라옴')
 
-  // 액션바의 편집 종료는 보기 모드로 돌아가고 팔레트를 거둔다.
+  // 따라온 배관이 있는 편집을 저장하지 않고 끝내면(OE-COM-08) 설비·배관 형상이 전부 연 때 자리로 돌아온다.
+  await page.keyboard.press('Control+z')
+  await page.locator('.tool-palette').getByLabel('배관도 같이').check()
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(page.locator('.edit-bar .last-edit')).toContainText('배관 2개 따라옴')
+  expect(await page.evaluate(() => (window as any).__viewer.centers())).not.toEqual(opened)
+  // 액션바의 편집 종료는 묻고 나서 보기 모드로 돌아가고 팔레트를 거둔다.
   await page.locator('.edit-bar').getByRole('button', { name: '편집 종료' }).click()
+  await page.locator('dialog.exit-edit').getByRole('button', { name: '저장 안 함' }).click()
   await expect(page.locator('.tool-palette')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as any).__viewer.centers())).toEqual(opened)
   expect(errors).toEqual([])
 })

@@ -301,6 +301,14 @@ th {
   cursor: help;
 }
 
+/* 8084 에 저장된 편집이 있는 파일(OE-COM-08). 열면 얹어서 보인다. */
+.catalog .saved-chip {
+  margin-right: 0.5rem;
+  color: var(--accent);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
 /* 등급 칩. 색은 액센트 하나와 경고색만 쓴다 — 다 참(액센트), 일부(경고), 없음(회색). */
 .tiers {
   display: flex;
@@ -2032,6 +2040,42 @@ kbd {
 
 .shortcut-help::backdrop {
   background: rgb(15 18 24 / 0.35);
+}
+
+/* 편집 종료 확인(OE-COM-08). 단축키 안내와 같은 상자에 폭만 좁다. */
+.exit-edit {
+  width: min(32rem, calc(100% - 2rem));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+
+.exit-edit::backdrop {
+  background: rgb(15 18 24 / 0.35);
+}
+
+.exit-edit-body {
+  padding: 1.1rem 1.4rem 1.2rem;
+}
+
+.exit-edit h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.1rem;
+}
+
+.exit-edit ul {
+  margin: 0.6rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.exit-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.1rem;
 }
 
 .shortcut-help-body {

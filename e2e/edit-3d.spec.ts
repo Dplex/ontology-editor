@@ -150,8 +150,9 @@ test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓�
   await expect(panel.locator('.space-kind')).toHaveText(/회의실\s*사전/)
   await expect(page.locator('.report')).toContainText('물리존 이름 사무실 → 대회의실')
 
-  // 보기 모드로 가면 손잡이가 사라진다.
+  // 보기 모드로 가면 손잡이가 사라진다. 저장하지 않은 편집이 있어 묻는다(OE-COM-08) — 임시 저장하고 끝낸다.
   await page.getByRole('button', { name: '보기', exact: true }).click()
+  await page.locator('dialog.exit-edit').getByRole('button', { name: '임시 저장' }).click()
   expect(await viewer<unknown[]>(page, 'handles')).toHaveLength(0)
   expect(errors).toEqual([])
 })
@@ -335,8 +336,9 @@ test('글자를 치는 칸의 Ctrl+Z 와 보기 모드의 Ctrl+Z 는 편집을 �
   await expect(bar).toContainText('바뀐 것 1건')
   await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
 
-  // 보기 모드에서는 고치는 손잡이가 없으니 되돌리지도 않는다.
+  // 보기 모드에서는 고치는 손잡이가 없으니 되돌리지도 않는다. 임시 저장하고 보기로 간다(OE-COM-08).
   await page.getByRole('button', { name: '보기', exact: true }).click()
+  await page.locator('dialog.exit-edit').getByRole('button', { name: '임시 저장' }).click()
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
   await page.getByRole('button', { name: '편집', exact: true }).click()

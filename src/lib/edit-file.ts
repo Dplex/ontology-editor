@@ -317,6 +317,17 @@ export function parseEditFile(text: string): EditFile | string {
   return d as EditFile
 }
 
+/** 편집 파일에 든 편집 수. 화면(바뀐 것·임시 저장 목록)과 서버(저장본 목록)가 같이 센다. */
+export function countEdits(f: EditFile): number {
+  return (
+    f.equipment.length + f.spaces.length + f.kinds.length + f.flows.length + f.confirmedSystems.length +
+    (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0) +
+    (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0) +
+    (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
+    (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0)
+  )
+}
+
 export type ApplyResult = {
   changes: Change[]
   areaChanges: BoundaryChange[]
