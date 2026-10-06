@@ -31,6 +31,11 @@ PR 본문에 `Closes #n` 을 넣어 연다. 그다음은 `.github/workflows/kanb
 Status 선택지는 **웹 UI 에서만 고친다.** API(`updateProjectV2Field`)는 선택지를 통째로 갈아끼워 모든 카드의 상태 값을
 지운다(2026-10-02 임시 프로젝트로 실측).
 
+최근에 무엇이 바뀌었나는 [🔔 최근 변화](https://github.sec.samsung.net/orgs/IoT-Solution/projects/1/views/7) 뷰에서 본다.
+`.github/workflows/activity.yml` 이 라벨 붙임·뗌·댓글·제목/본문 수정·생성을 카드의 `🔔 최근 변화` 텍스트 칸에
+`2026-10-02 14:03 +needs-pm (누구)` 로 적고, 뷰가 그 칸을 내림차순으로 정렬한다(Projects 에는 수정 시각 필드가 없다).
+카드 상태 이동은 안 잡힌다. 이 칸도 손으로 고치지 않는다.
+
 ## 8087 검토 판
 
 **In Review 인 PR 은 55 의 8087 검토 판에서 본다**(<http://10.251.35.55:8087/>, 8084 는 main 판 그대로).

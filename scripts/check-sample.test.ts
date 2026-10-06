@@ -26,7 +26,7 @@ import type { Model } from '../src/lib/model'
 import { readIdf } from '../src/lib/idf/read'
 import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
 import { overlapArea } from '../src/lib/polygon'
-import { baselineOf, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, type WallCarryPlan } from '../src/lib/edit'
+import { baselineOf, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, type WallCarryPlan } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -1253,15 +1253,17 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH) || !existsS
       const pristine = importIfcWithMeshes(api, new Uint8Array(readFileSync(path)), undefined, { openings: true }).model
       const a = structuredClone(pristine)
       const base = baselineOf(a)
-      const walls = a.storeys.flatMap((s) => s.walls).filter((w) => w.footprint?.length)
-      const openings = a.storeys.flatMap((s) => s.openings).filter((o) => o.position)
-      // 벽 다섯은 옮기고, 다섯은 내력 여부를 정하고, 다섯은 지운다. 문·창 다섯은 옮긴다(지운 벽에 뚫린 것은 빼고).
+      // 내력벽과 거기 뚫린 문·창은 잠겨서(OE-OBJ-06) 고치는 대상에서 뺀다.
+      const walls = a.storeys.flatMap((s) => s.walls).filter((w) => w.footprint?.length && !wallLocked(w))
+      const locked = new Set(a.storeys.flatMap((s) => s.walls).filter(wallLocked).map((w) => w.id))
+      const openings = a.storeys.flatMap((s) => s.openings).filter((o) => o.position && !locked.has(o.wallId ?? ''))
+      // 벽 다섯은 옮기고, 다섯은 내력 여부를 정하고, 다섯은 지운다. 문·창 다섯은 옮긴다(손댄 벽에 뚫린 것은 빼고).
       for (const w of walls.slice(0, 5)) moveWall(a, w.id, [0.3, 0])
       for (const w of walls.slice(5, 10)) setWallLoadBearing(a, w.id, true)
       const gone = walls.slice(10, 15)
       for (const w of gone) deleteWall(a, w.id)
-      const goneIds = new Set(gone.map((w) => w.id))
-      for (const o of openings.filter((x) => !goneIds.has(x.wallId ?? '') && !walls.slice(0, 5).some((w) => w.id === x.wallId)).slice(0, 5)) {
+      const touched = new Set(walls.slice(0, 15).map((w) => w.id))
+      for (const o of openings.filter((x) => !touched.has(x.wallId ?? '')).slice(0, 5)) {
         moveOpening(a, o.id, [o.position![0] + 0.2, o.position![1]])
       }
       const file = parseEditFile(JSON.stringify(exportEdits(a, base, path)))
@@ -1298,7 +1300,7 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 �
       const shape = (m: Model) => m.storeys.flatMap((st) => st.spaces.map((sp) => sp.footprint))
       const same = (a: Vec2[][], b: Vec2[][], tol = 1e-9) => a.every((r, i) => r.length === b[i].length && r.every((p, k) => Math.abs(p[0] - b[i][k][0]) < tol && Math.abs(p[1] - b[i][k][1]) < tol))
       const opened = shape(pristine)
-      for (const w of pristine.storeys.flatMap((st) => st.walls).filter((x) => x.footprint?.length).slice(0, 300)) {
+      for (const w of pristine.storeys.flatMap((st) => st.walls).filter((x) => x.footprint?.length && !wallLocked(x)).slice(0, 300)) {
         const m = structuredClone(pristine)
         // 벽 길이 방향은 외곽선 조각 전부에서 가장 긴 변이다. 창·문으로 끊긴 벽은 조각 하나가 두께보다 짧기도 해서(병원 외벽
         // 0.04×0.27m) 첫 조각만 보면 두께 방향을 길이로 잡는다.
@@ -1346,7 +1348,7 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC))('편집한
     renameSpace(edited, spaces[0].id, '고친 이름')
     // 방을 끌고 가는 벽을 벽에 수직으로 옮긴다(벽 길이 방향이면 방이 따라오지 않는다).
     let carried = 0
-    for (const wall of edited.storeys.flatMap((st) => st.walls).filter((w) => w.footprint?.length)) {
+    for (const wall of edited.storeys.flatMap((st) => st.walls).filter((w) => w.footprint?.length && !wallLocked(w))) {
       const ring = wall.footprint![0]
       const [dx, dy] = [ring[1][0] - ring[0][0], ring[1][1] - ring[0][1]]
       const l = Math.hypot(dx, dy)

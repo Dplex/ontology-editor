@@ -61,8 +61,9 @@ if [[ -d "$MAIN_DATA" ]]; then
   say "data/ 하드링크 맞추기 ($MAIN_DATA)"
   mkdir -p data
   # 원본에서 지워진 파일은 지우고 캐시는 남긴다
-  find data -mindepth 1 \( -name .profiles.json -prune \) -o -type f -print0 | xargs -0r rm -f
-  (cd "$MAIN_DATA" && find . -type f ! -name .profiles.json -print0) | while IFS= read -r -d '' f; do
+  # 등급 캐시(.profiles.json)와 검토 판에서 저장한 편집(.edits, saved-edits.ts)은 이 판의 것이라 남기고, main 의 것은 가져오지 않는다
+  find data -mindepth 1 \( -name .profiles.json -o -name .edits \) -prune -o -type f -print0 | xargs -0r rm -f
+  (cd "$MAIN_DATA" && find . -name .edits -prune -o -type f ! -name .profiles.json -print0) | while IFS= read -r -d '' f; do
     mkdir -p "data/$(dirname "$f")"
     ln -f "$MAIN_DATA/$f" "data/$f"
   done
