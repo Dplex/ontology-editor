@@ -6,22 +6,24 @@ title: "되돌리기 / 다시 실행"
 prd: "#4"
 release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 status_note: "undo ✔ redo ✔"
 blocked_by: []
-depends: ["OE-HIST-01","OE-HIST-02"]
+depends: []
 ---
 
 # OE-UI-05 되돌리기 / 다시 실행
 
 ## 요구사항
 
-undo / redo
+편집 화면에서 되돌리기(Ctrl+Z, 한 단계씩)와 다시 하기(Ctrl+Shift+Z·버튼)를 제공한다. 어느 편집이든 되돌리기 대상이며, 편집 종류가 늘면 같이 들어간다. 탭(편집 세션) 안의 이력이고, #19 의 "이전 버전으로 되돌리기"(OE-WF-19)와 다르다.
 
 ## 수용 기준
 
-Ctrl+Z 한 단계씩, redo 지원
+- Ctrl+Z 한 번에 직전 편집 하나가 되돌아간다.
+- Ctrl+Shift+Z 또는 버튼으로 되돌린 편집을 다시 할 수 있다.
+- 글자 칸에 입력 중일 때 Ctrl+Z 는 편집 이력에 영향을 주지 않는다.
 
 ## 검증 (이 repo)
 
