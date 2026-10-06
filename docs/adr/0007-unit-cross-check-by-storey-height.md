@@ -1,8 +1,9 @@
 ---
 id: "ADR-0007"
 title: "길이 단위 교차 확인은 이름이 같은 층의 높이 비로 — 모든 쌍이 같은 단위 배수(±2%)일 때만, 틀린 쪽은 층간 높이 2~12m 로 판정한다"
-status: "제안"
+status: "채택"
 date: "2026-10-03"
+deciders: ["정희록"]
 prd: ["#6"]
 tickets: ["OE-BIM-11", "OE-BIM-19", "OE-BIM-17"]
 supersedes: []
@@ -40,6 +41,8 @@ PRD 에는 "교차 확인" 의 기준(무엇을 비교하나, 얼마나 달라�
 - Duplex 건축 ↔ HVAC·MEP·MEP-1·MEP-2: 어긋남 없음. 건축 ↔ COBie(Design): 1/1000, COBie 를 틀린 쪽으로 판정(`check:sample` "단위 교차 확인")
 - 값을 고치지는 않는다. 어긋남을 경고·R6 으로 알릴 뿐, 틀린 파일의 값을 배수로 되돌리지 않는다 — 어느 값이 맞는지는 층간 높이로
   추정한 것이고, 고객사가 다시 export 하는 것이 맞다
+- ±2% 는 넉넉한 값이다. 저작 도구가 적는 소수 오차(3.0999…)만 흡수하려면 0.1% 로도 된다. 그래도 후보 배수끼리 2% 안에서 겹치지
+  않고, 설계 변경이나 기준점 차이로 층 높이가 980~1020배가 되지는 않아서 넓혀도 오판이 늘지 않는다고 봤다(작은 배수가 우연히 맞는 경우는 다음 줄)
 - 비교할 쌍이 하나뿐이면(층이 둘인 건물) 우연히 12배·100배가 맞을 수 있다. ±2% 라 드물다고 보고 쌍 수의 하한을 두지 않았다
 - 되돌리려면: `merge.ts`(`unitScale`)·`versions.ts`(`storeyScale`)에서 `storeyScaleMismatch` 호출을 빼고, `requirements.ts` R6 의 `scale`
   분기를 지운다. 임계값은 `unit-check.ts` 의 `RATIO_TOLERANCE`·`MIN_ELEVATION`·`PLAUSIBLE_STOREY_HEIGHT`
