@@ -724,7 +724,7 @@ function moveToStorey(equipmentId: string, storeyId: string): boolean {
   const target = model.value.storeys.find((s) => s.id === storeyId)
   if (before && from && target && from !== target) {
     const to: Vec3 = [before[0], before[1], before[2] + target.elevation - from.elevation]
-    const blocked = overlapAt(model.value, equipmentId, to, currentBox)
+    const blocked = overlapAt(model.value, equipmentId, to, currentBox, storeyId)
     if (blocked) {
       refuseOverlap(blocked)
       return false
@@ -3131,7 +3131,7 @@ function addEquipmentAt(at: Vec2) {
   const n = m.storeys.reduce((k, st) => k + st.equipment.filter((e) => e.added).length, 0) + 1
   const position: Vec3 = [cm(at[0]), cm(at[1]), cm(target.elevation)]
   // 새 설비는 종류를 정하기 전까지 배관 없는 설비로 본다. 다른 배관 없는 설비 자리에는 더하지 않는다(OE-OBJ-16).
-  const blocked = overlapForNew(m, position, currentBox)
+  const blocked = overlapForNew(m, target.storeyId, position, currentBox)
   if (blocked) return refuseOverlap(blocked)
   const mk = mark()
   const e = addEquipment(m, target.storeyId, { name: `새 설비 ${n}`, kind: null, position })

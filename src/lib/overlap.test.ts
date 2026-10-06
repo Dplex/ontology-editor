@@ -77,20 +77,20 @@ describe('설비 겹침', () => {
       ],
     } as unknown as Model
     expect(overlapAt(m, 'C', [7.9, -6, 3], () => null)?.id).toBe('A')
-    expect(overlapForNew(m, [7.9, -6, 3], () => null)?.id).toBe('A')
+    expect(overlapForNew(m, 'S', [7.9, -6, 3], () => null)?.id).toBe('A')
   })
 
   it('새로 더하는 설비는 좌표 상자로 재고, 종류를 정하기 전에는 배관 없는 설비다', () => {
     const m = modelOf([device('L', 'lighting', [2, 0, 0]), device('F', 'fcu', [5, 0, 0])])
-    expect(overlapForNew(m, [2.1, 0, 0], () => null)?.id).toBe('L')
-    expect(overlapForNew(m, [3, 0, 0], () => null)).toBeNull()
+    expect(overlapForNew(m, 'S', [2.1, 0, 0], () => null)?.id).toBe('L')
+    expect(overlapForNew(m, 'S', [3, 0, 0], () => null)).toBeNull()
     // FCU 는 규칙 밖이라 그 자리에 더해도 된다
-    expect(overlapForNew(m, [5, 0, 0], () => null)).toBeNull()
+    expect(overlapForNew(m, 'S', [5, 0, 0], () => null)).toBeNull()
     // 에디터가 더한 설비: 종류를 모르면 배관 없는 설비, 흐름이 있는 종류를 정하면 규칙 밖
     const added = { ...device('N', null, [8, 0, 0]), ifcClass: 'DistributionElement', role: null, added: true } as Equipment
     expect(standalone(added)).toBe(true)
     expect(standalone({ ...added, kind: 'fcu' })).toBe(false)
-    expect(overlapForNew(modelOf([added]), [8.1, 0, 0], () => null)?.id).toBe('N')
+    expect(overlapForNew(modelOf([added]), 'S', [8.1, 0, 0], () => null)?.id).toBe('N')
   })
 
   it('좌표가 없던 설비(미배치)를 놓을 때는 좌표 상자로 잰다', () => {

@@ -103,7 +103,14 @@ export function equipmentBox(e: Equipment, boxOf: (id: string) => Box3 | null): 
  * **모든 층의 설비와 견준다.** 겹침은 자리(3차원 상자)로 정하고 층 소속은 상관없다. 처음에는 그 설비가 속한 층만 봐서,
  * 1층 콘센트와 2층 콘센트를 같은 x·y·z 로 옮겨도 막지 않았다(2026-10-06 검토, Duplex MEP).
  */
-export function overlapAt(model: Model, equipmentId: string, to: Vec3, boxOf: (id: string) => Box3 | null): Equipment | null {
+export function overlapAt(
+  model: Model,
+  equipmentId: string,
+  to: Vec3,
+  boxOf: (id: string) => Box3 | null,
+  /** 옮겨 갈 층. 견줄 설비를 고르는 데는 더 쓰지 않는다(위). 부르는 쪽 모양을 그대로 두려고 받는다. */
+  _storeyId?: string,
+): Equipment | null {
   const all = model.storeys.flatMap((s) => s.equipment)
   const me = all.find((e) => e.id === equipmentId)
   if (!me || !standalone(me)) return null
@@ -123,7 +130,7 @@ export function overlapAt(model: Model, equipmentId: string, to: Vec3, boxOf: (i
  * `at` 에 설비를 새로 더하면 겹치게 되는 배관 없는 설비. 없으면 null. 더할 설비는 아직 형상이 없어서 3D 가 그리는
  * 좌표 상자(`MARKER_SIZE`)로 잰다. 종류를 모르는 새 설비는 배관 없는 설비로 본다(`standalone`).
  */
-export function overlapForNew(model: Model, at: Vec3, boxOf: (id: string) => Box3 | null): Equipment | null {
+export function overlapForNew(model: Model, _storeyId: string, at: Vec3, boxOf: (id: string) => Box3 | null): Equipment | null {
   const next = markerBox(at)
   for (const other of model.storeys.flatMap((s) => s.equipment)) {
     if (!standalone(other)) continue
