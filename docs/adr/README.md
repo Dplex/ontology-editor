@@ -64,3 +64,6 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | [0002](0002-external-wall-flood-fill.md) | IsExternal 이 없는 벽은 층 평면을 격자로 채워 건물 바깥에 닿는지로 외벽을 판정한다 | 채택 |
 | [0003](0003-outer-wall-edit.md) | 외벽 전용 설비는 벽 면에 붙여 벽을 따라가게 하고, 벽 크기는 꼭짓점 4개인 벽까지 고치며, 높이는 형상에서 읽는다 | 채택 |
 | [0004](0004-custom-zone-ontology.md) | 커스텀존은 brick:Zone 으로 export 하고, 포함하는 방은 hasPart, 안의 설비는 hasLocation 을 하나 더 연결한다 | 채택 |
+| [0005](0005-export-reader-in-repo.md) | export 한 TTL 은 다른 저장소의 ttl.go 를 빌드하지 않고, 그 규칙을 옮긴 이 repo 의 reader 와 뷰어로 다시 읽는다 | 채택 |
+| [0006](0006-requirement-elsewhere-means-setting.md) | 요구사항 보고서의 '다른 자리'는 export 설정으로 고쳐지는 것만 — 형상 중심으로 옮긴 배치점(R11)은 '일부'로 집계한다 | 채택 |
+| [0007](0007-unit-cross-check-by-storey-height.md) | 길이 단위 교차 확인은 이름이 같은 층의 높이 비로 — 모든 쌍이 같은 단위 배수(±2%)일 때만, 틀린 쪽은 층간 높이 2~12m 로 판정한다 | 채택 |
