@@ -50,6 +50,24 @@ describe('요구사항 보고서', () => {
     expect(row(rows, 'R9').state).toBe('missing')
   })
 
+  it('호스트 벽을 모르는 문·창은 R4 를 "일부" 로 만든다 — 빼지 않고 모수에 넣는다(OE-BIM-05)', () => {
+    const m = structuredClone(rooms)
+    const openings = m.storeys.flatMap((s) => s.openings)
+    const hosted = openings.filter((o) => o.wallId !== null)
+    // 손 픽스처에는 벽에 매달리지 않은 개구부가 일부러 하나 있다.
+    expect(openings.length - hosted.length).toBe(1)
+    expect(brief(row(requirementsReport(m), 'R4'))).toEqual({ state: 'partial', counts: { standard: hosted.length, elsewhere: 0, of: openings.length } })
+    // 개구부 관계(IfcRelVoidsElement·IfcRelFillsElement)가 하나 더 끊기면 하나 더 빠지고 모수는 그대로다.
+    hosted[0].wallId = null
+    expect(brief(row(requirementsReport(m), 'R4'))).toEqual({ state: 'partial', counts: { standard: hosted.length - 1, elsewhere: 0, of: openings.length } })
+    // 전부 매달리면 표준.
+    for (const o of openings) o.wallId = m.storeys[0].walls[0]?.id ?? 'w'
+    expect(row(requirementsReport(m), 'R4').state).toBe('standard')
+    // 읽지 않기로 한 것은 "없음" 이 아니라 잴 수 없음이다.
+    m.skipped = ['walls']
+    expect(row(requirementsReport(m), 'R4').state).not.toBe('partial')
+  })
+
   it('Revit 이 다른 자리에 적은 것은 "다른 자리"로 센다', () => {
     const m = structuredClone(rooms)
     for (const s of m.storeys.flatMap((x) => x.spaces)) Object.assign(s, { omniclass: '13-15 11 34 11', omniclassSource: 'property' })

@@ -67,11 +67,11 @@ import {
   type Snapshot,
   type Change,
 } from './edit'
-import { polygonArea, type Model, type Opening, type Vec2, type Wall } from './model'
+import { countOf, polygonArea, unplacedOf, type Model, type Opening, type Vec2, type Wall } from './model'
 import { modelToGeoJSON } from './export/geojson'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred } from './flow-rules'
 import { assignEquipmentToSpaces } from './mapping'
-import { modelToTTL } from './export/ttl'
+import { escapeLocalName, modelToTTL } from './export/ttl'
 
 let api: WebIFC.IfcAPI
 let model: Model
@@ -137,6 +137,36 @@ describe('미배치 설비 배치 (E6)', () => {
     expect(change.fromSpaceId).toBe(null)
     expect(change.toSpaceId).toBe(model.storeys[0].spaces[0].id)
     expect(change.summary).toContain('(소속 없음) 에서 사무실 로 바뀝니다')
+  })
+
+  it('미배치 목록은 좌표 없는 설비와 그 층이고, 놓으면 빠지고 되돌리면 돌아온다', () => {
+    // OE-BIM-07 수용 기준 "좌표 없는 설비는 미배치 목록". 층은 BIM 이 말한 것이라 어느 바닥에 놓을지 안다.
+    const listed = () => unplacedOf(model).map((u) => `${u.equipment.name}@${u.storey.name}`)
+    expect(listed()).toEqual(['TEMP-101-01@1F'])
+    expect(unplacedOf(model)).toHaveLength(countOf(model).unplacedEquipment)
+
+    const sensor = equip('TEMP-101-01')
+    const snap = snapshotEquipment(model, sensor.id)
+    moveEquipment(model, sensor.id, [5, 4, 2.5])
+    expect(listed()).toEqual([])
+    restore(model, snap!)
+    expect(listed()).toEqual(['TEMP-101-01@1F'])
+
+    // 좌표 없이 더한 설비도 같은 목록에 든다 — 사람이 3D 에서 놓아야 하는 것은 같다.
+    addEquipment(model, model.storeys[0].id, { name: '새 센서', kind: null, position: null })
+    expect(listed()).toEqual(['TEMP-101-01@1F', '새 센서@1F'])
+  })
+
+  it('미배치 설비는 TTL 에 층까지만, GeoJSON 에 형상 없이 나간다', () => {
+    // 3D 에 없다고 온톨로지에서 빠지지 않는다. 위치는 아는 데(층)까지만 쓰고 지어내지 않는다.
+    const sensor = equip('TEMP-101-01')
+    const ttl = modelToTTL(model)
+    const head = `ex:${escapeLocalName(sensor.id)} a `
+    const block = ttl.slice(ttl.indexOf(head), ttl.indexOf(' .\n', ttl.indexOf(head)))
+    expect(block).toContain(`brick:hasLocation ex:${escapeLocalName(model.storeys[0].id)} ;`)
+    const feature = modelToGeoJSON(model).flatMap((f) => f.collection.features).find((f) => f.id === sensor.id)!
+    expect(feature.geometry).toBe(null)
+    expect(feature.properties).toMatchObject({ storeyId: model.storeys[0].id, spaceId: null })
   })
 })
 
