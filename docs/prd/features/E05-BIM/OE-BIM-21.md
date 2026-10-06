@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D1"
 blocked_by: ["D1"]
 depends: ["D1","D12","OE-GEN-02"]
-jira: ""
 ---
 
 # OE-BIM-21 수용 기준선 판정

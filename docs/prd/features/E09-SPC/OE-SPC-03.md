@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-MAP-01"]
-jira: ""
 ---
 
 # OE-SPC-03 물리존 경계 수정 (E2)

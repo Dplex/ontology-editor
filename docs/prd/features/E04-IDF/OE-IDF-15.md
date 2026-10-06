@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "범위 결정 필요"
 blocked_by: []
 depends: ["D-gbXML"]
-jira: ""
 ---
 
 # OE-IDF-15 gbXML 임포트

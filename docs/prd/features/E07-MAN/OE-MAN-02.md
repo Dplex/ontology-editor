@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "검토 필요"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-MAN-02 평면도 배경 이미지

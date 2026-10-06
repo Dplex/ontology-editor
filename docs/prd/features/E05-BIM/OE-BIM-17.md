@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["부록 A"]
-jira: ""
 ---
 
 # OE-BIM-17 검토 화면 — 요구사항 보고서

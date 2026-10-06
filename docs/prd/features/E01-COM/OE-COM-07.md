@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-COM-05","Q1"]
-jira: ""
 ---
 
 # OE-COM-07 잠금 해제 — 비정상 종료

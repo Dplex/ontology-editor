@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-EQP-17"]
-jira: ""
 ---
 
 # OE-OBJ-07 문 / 창문

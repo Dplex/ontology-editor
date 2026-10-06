@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "데이터"
 blocked_by: []
 depends: ["OE-EQP-17"]
-jira: ""
 ---
 
 # OE-ROB-03 통과 속성 제공

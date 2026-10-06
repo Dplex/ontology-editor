@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: ["D5"]
 depends: ["D5"]
-jira: ""
 ---
 
 # OE-INT-06 Revit 요소 ID 보조 식별자

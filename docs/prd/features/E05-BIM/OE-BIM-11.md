@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R6"]
-jira: ""
 ---
 
 # OE-BIM-11 단위 환산·교차 확인

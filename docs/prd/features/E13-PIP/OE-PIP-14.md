@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: ["D10"]
 depends: ["D10"]
-jira: ""
 ---
 
 # OE-PIP-14 14-B 자동 배관 그리기(초기 모드)

@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-ZON-05"]
-jira: ""
 ---
 
 # OE-IDF-03 설계 풍량·외기량

@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-02","OE-BIM-03","OE-BIM-07","OE-BIM-12","Q7","Q8","Q9"]
-jira: ""
 ---
 
 # OE-EQP-03 설치면 자동 판정

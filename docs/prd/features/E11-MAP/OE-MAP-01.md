@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["부록 B"]
-jira: ""
 ---
 
 # OE-MAP-01 설비 → 물리존 자동 판정

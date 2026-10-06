@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D11"
 blocked_by: ["D11"]
 depends: ["D11"]
-jira: ""
 ---
 
 # OE-INT-03 DT 3D 형상 출력

@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "undo ✔ redo ✔"
 blocked_by: []
 depends: ["OE-HIST-01","OE-HIST-02"]
-jira: ""
 ---
 
 # OE-UI-05 되돌리기 / 다시 실행

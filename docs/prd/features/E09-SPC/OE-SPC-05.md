@@ -10,7 +10,6 @@ owner: "srcn"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-SYNC-03"]
-jira: ""
 ---
 
 # OE-SPC-05 공간명 연동

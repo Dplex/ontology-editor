@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP"]
-jira: ""
 ---
 
 # OE-EQP-13 설비 추가·삭제·이름 수정 (E7)

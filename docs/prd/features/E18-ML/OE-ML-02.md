@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-OBJ-14"]
-jira: ""
 ---
 
 # OE-ML-02 수직 관통 오브젝트 데이터 모델 (#25)

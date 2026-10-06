@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-WF-01"]
-jira: ""
 ---
 
 # OE-COM-08 상시 버튼·미저장 확인

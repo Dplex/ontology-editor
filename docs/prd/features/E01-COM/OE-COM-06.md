@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-COM-05"]
-jira: ""
 ---
 
 # OE-COM-06 잠금 해제 — 정상 종료

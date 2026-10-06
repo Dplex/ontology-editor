@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R2","R3"]
-jira: ""
 ---
 
 # OE-BIM-03 물리존·룸 생성

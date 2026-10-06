@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: ["D16"]
 depends: ["D16"]
-jira: ""
 ---
 
 # OE-OBJ-15 인터랙션 원칙

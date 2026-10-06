@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D5"
 blocked_by: ["D5"]
 depends: ["D5"]
-jira: ""
 ---
 
 # OE-INT-05 ID 규칙

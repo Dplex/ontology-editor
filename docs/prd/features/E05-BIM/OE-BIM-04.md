@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R4"]
-jira: ""
 ---
 
 # OE-BIM-04 벽 생성

@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "예외 ✗"
 blocked_by: []
 depends: ["R23"]
-jira: ""
 ---
 
 # OE-BIM-13 Proxy 처리

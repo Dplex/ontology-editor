@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-MAP-03"]
-jira: ""
 ---
 
 # OE-IDF-06 N:M 허용

@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-OBJ-08","OE-EQP-03","Q10"]
-jira: ""
 ---
 
 # OE-EQP-04 천장 설비 표시

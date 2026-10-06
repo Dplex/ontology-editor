@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R22"]
-jira: ""
 ---
 
 # OE-BIM-06 내력벽 속성

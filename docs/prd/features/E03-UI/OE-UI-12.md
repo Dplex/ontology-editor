@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-WF-07"]
-jira: ""
 ---
 
 # OE-UI-12 3D 단일 층 표시

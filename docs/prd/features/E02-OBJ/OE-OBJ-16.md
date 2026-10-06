@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-SPC-15"]
-jira: ""
 ---
 
 # OE-OBJ-16 겹침 불가 원칙

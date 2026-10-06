@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D10"
 blocked_by: ["D10"]
 depends: ["D10"]
-jira: ""
 ---
 
 # OE-PIP-12 14-B 배관 끝점 추종

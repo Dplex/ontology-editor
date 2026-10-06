@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-SPC-06","OE-SPC-07","OE-SPC-08","OE-SPC-09","OE-SPC-10"]
-jira: ""
 ---
 
 # OE-OBJ-01 커스텀존 편집 범위

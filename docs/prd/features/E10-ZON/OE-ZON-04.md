@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D10"
 blocked_by: ["D10"]
 depends: ["D10"]
-jira: ""
 ---
 
 # OE-ZON-04 공조존 편집 (E9)

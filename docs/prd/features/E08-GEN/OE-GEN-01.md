@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-INT-02"]
-jira: ""
 ---
 
 # OE-GEN-01 온톨로지 생성·내보내기

@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D14"
 blocked_by: ["D14"]
 depends: ["D14"]
-jira: ""
 ---
 
 # OE-REQ-05 R25 BAS 매핑 키

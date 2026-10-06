@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-ROB-04"]
-jira: ""
 ---
 
 # OE-EQP-16 로봇 통과·연결 데이터

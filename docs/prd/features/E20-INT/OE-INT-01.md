@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D-INT"
 blocked_by: ["D-INT"]
 depends: []
-jira: ""
 ---
 
 # OE-INT-01 데이터 교환 방식 결정

@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-MAP-01"]
-jira: ""
 ---
 
 # OE-EQP-12 이동 후 소속 자동 판정

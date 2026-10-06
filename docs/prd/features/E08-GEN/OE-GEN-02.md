@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D1"
 blocked_by: ["D1"]
 depends: ["D1","OE-BIM-21"]
-jira: ""
 ---
 
 # OE-GEN-02 생성 게이트

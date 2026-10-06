@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "IFC 세그먼트 ✔"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-PIP-13 14-B 좌표 조건

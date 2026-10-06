@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-SYNC-04"]
-jira: ""
 ---
 
 # OE-MAP-04 Z-01 경고·리포트

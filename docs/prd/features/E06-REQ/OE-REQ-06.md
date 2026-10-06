@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-17"]
-jira: ""
 ---
 
 # OE-REQ-06 요구사항 상태 집계

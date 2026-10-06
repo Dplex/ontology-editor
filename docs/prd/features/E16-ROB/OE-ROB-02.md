@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "Q3"
 blocked_by: ["Q3"]
 depends: ["Q3"]
-jira: ""
 ---
 
 # OE-ROB-02 표시 규격 정의

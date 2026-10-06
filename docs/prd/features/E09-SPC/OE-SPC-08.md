@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "SRCN?"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-SPC-08 커스텀존 생성·분할·병합·삭제

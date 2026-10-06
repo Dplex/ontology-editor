@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-INT-08"]
-jira: ""
 ---
 
 # OE-GEN-10 DT 파서 호환

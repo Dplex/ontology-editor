@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP-03"]
-jira: ""
 ---
 
 # OE-ML-15 계통 종류 색상

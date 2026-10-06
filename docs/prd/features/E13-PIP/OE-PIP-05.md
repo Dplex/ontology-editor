@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-GEN-04"]
-jira: ""
 ---
 
 # OE-PIP-05 14-A 규칙 방향 추정·확정

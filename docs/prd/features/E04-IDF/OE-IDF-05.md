@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "매칭 ✔, 확인 플로우 ✗"
 blocked_by: []
 depends: ["D13"]
-jira: ""
 ---
 
 # OE-IDF-05 존↔물리존 매칭 초안

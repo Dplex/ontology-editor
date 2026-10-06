@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "D13"
 blocked_by: ["D13"]
 depends: ["D13"]
-jira: ""
 ---
 
 # OE-ZON-07 존↔방 매칭 확인 플로우

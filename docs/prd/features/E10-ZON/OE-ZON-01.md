@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "E9"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-ZON-01 수동 공조존 생성

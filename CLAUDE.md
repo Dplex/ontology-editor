@@ -9,7 +9,7 @@ BIM(IFC4)으로 공간 온톨로지를 만들고 고치는 PoC. 부모 `~/git/dt
 ## 이 repo 는 PRD_011 의 R1.5 다
 
 **PRD 의 정본은 이 repo 의 `docs/prd/` 다**(2026-10-01 에 Confluence 에서 옮겼다. Confluence 페이지는 그날의 스냅숏이고 더
-고치지 않는다). `PRD_011.md` 가 제품 전체, `features/E##-XXX/OE-XXX-nn.md` 가 티켓 하나씩(250개, Jira 1:1), `questions.md` 가
+고치지 않는다). `PRD_011.md` 가 제품 전체, `features/E##-XXX/OE-XXX-nn.md` 가 티켓 하나씩(250개, 이슈 1:1), `questions.md` 가
 열린 결정이다. 규칙은 `docs/prd/README.md`. 이 repo 가 맡은 것은 "초기 구축 모드"(#5~#8) + 편집 E1~E8 이다(D10) — BIM·IDF 임포트,
 수동 구축, 온톨로지 생성. 운영 편집(#9~#21)의 주체는 D10 이 열려 있다. 번호(#6 같은 것)는 PRD 기능 번호, `OE-BIM-12` 는 티켓이다.
 
@@ -18,7 +18,7 @@ BIM(IFC4)으로 공간 온톨로지를 만들고 고치는 PoC. 부모 `~/git/dt
 ## 이슈·칸반은 사내 GitHub 안에서 한다
 
 이 repo 의 이슈와 칸반은 **사내 GitHub 하나로 관리한다.** "Jira", "칸반", "이슈 등록" 이라고 하면 Atlassian Jira 가 아니라
-여기를 말한다(PRD 티켓 파일의 `jira:` 칸도 이 이슈 번호다).
+여기를 말한다.
 
 - 이슈: `github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology` (`gh issue …`, 라벨 `prd-011`·`phase-1`, 제목 끝에 티켓 `(OE-XXX-nn)`)
 - 칸반: <https://github.sec.samsung.net/orgs/IoT-Solution/projects/1> (Projects v2, `gh project … --owner IoT-Solution`)

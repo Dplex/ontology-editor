@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-UI-10","OE-EQP-03"]
-jira: ""
 ---
 
 # OE-EQP-05 설치면 편집 필터

@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "(문·창·벽) / ◐"
 blocked_by: []
 depends: ["OE-OBJ-07","OE-ML-04"]
-jira: ""
 ---
 
 # OE-EQP-17 로봇 통과 속성 정의

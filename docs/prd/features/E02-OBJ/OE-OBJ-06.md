@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["R22"]
-jira: ""
 ---
 
 # OE-OBJ-06 내력벽

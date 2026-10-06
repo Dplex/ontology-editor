@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "편집 파일"
 blocked_by: []
 depends: ["OE-WF-06"]
-jira: ""
 ---
 
 # OE-BIM-23 임시 저장본 저장

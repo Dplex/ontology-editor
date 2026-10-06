@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "편집 파일로 대체"
 blocked_by: []
 depends: ["OE-WF-06"]
-jira: ""
 ---
 
 # OE-IDF-12 임시 저장본 저장

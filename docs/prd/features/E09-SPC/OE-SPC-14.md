@@ -10,7 +10,6 @@ owner: "srcn"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-SPC-16"]
-jira: ""
 ---
 
 # OE-SPC-14 추가 오브젝트 배치

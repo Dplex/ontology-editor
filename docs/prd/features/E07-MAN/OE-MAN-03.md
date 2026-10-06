@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-SPC-03"]
-jira: ""
 ---
 
 # OE-MAN-03 외곽선 없는 방 그리기

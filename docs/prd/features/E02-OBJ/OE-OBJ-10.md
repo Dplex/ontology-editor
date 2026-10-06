@@ -11,7 +11,6 @@ status: "prd-done"
 status_note: "E5~E7"
 blocked_by: []
 depends: ["OE-EQP-06"]
-jira: ""
 ---
 
 # OE-OBJ-10 배관 없는 설비

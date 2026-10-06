@@ -10,7 +10,6 @@ owner: "srcn"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-SYNC-01"]
-jira: ""
 ---
 
 # OE-WF-21 알림 위치 = 현재 버전

@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP-13"]
-jira: ""
 ---
 
 # OE-ML-18 좌표 조건

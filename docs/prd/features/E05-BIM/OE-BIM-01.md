@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R0"]
-jira: ""
 ---
 
 # OE-BIM-01 IFC 파싱

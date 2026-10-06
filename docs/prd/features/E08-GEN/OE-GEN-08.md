@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-20","U5"]
-jira: ""
 ---
 
 # OE-GEN-08 고객사 결과 리포트 (B-1)

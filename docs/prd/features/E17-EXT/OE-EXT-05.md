@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-BIM-13"]
-jira: ""
 ---
 
 # OE-EXT-05 건축 Proxy 루버 오인 방지

@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-HIST-03"]
-jira: ""
 ---
 
 # OE-IDF-13 출처 구분·재임포트

@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-EQP-08","OE-EQP-09","OE-EQP-10","OE-EQP-11"]
-jira: ""
 ---
 
 # OE-OBJ-11 배관 있는 설비

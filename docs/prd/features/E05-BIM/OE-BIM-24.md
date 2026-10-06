@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["R13","OE-HIST-03"]
-jira: ""
 ---
 
 # OE-BIM-24 출처 구분·재임포트

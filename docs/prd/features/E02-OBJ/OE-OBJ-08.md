@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-EQP-02","OE-EQP-03","OE-EQP-04","OE-EQP-05","Q7","Q10"]
-jira: ""
 ---
 
 # OE-OBJ-08 바닥 / 천장

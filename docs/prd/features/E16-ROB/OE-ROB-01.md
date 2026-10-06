@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["Q3"]
-jira: ""
 ---
 
 # OE-ROB-01 로봇 1인칭 시점 뷰

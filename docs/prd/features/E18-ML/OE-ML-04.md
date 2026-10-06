@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-EQP-17"]
-jira: ""
 ---
 
 # OE-ML-04 로봇 통과 속성

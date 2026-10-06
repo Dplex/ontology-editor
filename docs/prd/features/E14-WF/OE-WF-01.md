@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "편집 파일·자동 저장으로 대체"
 blocked_by: []
 depends: ["OE-INT-01"]
-jira: ""
 ---
 
 # OE-WF-01 임시 저장

@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-GEN-01"]
-jira: ""
 ---
 
 # OE-MAN-06 층 단위 진행

@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP-12"]
-jira: ""
 ---
 
 # OE-EQP-08 실내기 디테일

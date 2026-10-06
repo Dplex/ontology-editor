@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-HIST"]
-jira: ""
 ---
 
 # OE-SYNC-06 편집 리포트 규칙

@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: ["D-INT"]
 depends: ["OE-INT-01"]
-jira: ""
 ---
 
 # OE-WF-22 별도 에디터에서의 반영 경로 (Q2)

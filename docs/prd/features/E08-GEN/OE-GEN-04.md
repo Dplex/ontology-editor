@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP-05"]
-jira: ""
 ---
 
 # OE-GEN-04 미확정 규칙 방향 제외

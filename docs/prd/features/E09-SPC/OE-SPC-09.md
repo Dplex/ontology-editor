@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-MAP"]
-jira: ""
 ---
 
 # OE-SPC-09 커스텀존 매핑 갱신

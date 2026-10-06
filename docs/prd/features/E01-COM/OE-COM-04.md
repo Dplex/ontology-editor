@@ -10,7 +10,6 @@ owner: "srcn"
 status: "prd-done"
 blocked_by: []
 depends: ["OE-XPRD-01"]
-jira: ""
 ---
 
 # OE-COM-04 시스템 로그

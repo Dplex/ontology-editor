@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-WF-18"]
-jira: ""
 ---
 
 # OE-GEN-09 리포트 저장·연계

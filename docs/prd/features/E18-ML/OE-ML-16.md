@@ -11,7 +11,6 @@ status: "prd-review"
 status_note: "평면 내는 ✔"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-ML-16 경로 추적

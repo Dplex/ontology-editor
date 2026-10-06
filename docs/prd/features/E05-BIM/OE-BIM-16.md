@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["1.8"]
-jira: ""
 ---
 
 # OE-BIM-16 검토 화면 — 등급 칩

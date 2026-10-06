@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-WF-16"]
-jira: ""
 ---
 
 # OE-XPRD-02 PRD_002 알림 종류

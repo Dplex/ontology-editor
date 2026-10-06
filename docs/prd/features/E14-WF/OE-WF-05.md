@@ -10,7 +10,6 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-COM-06"]
-jira: ""
 ---
 
 # OE-WF-05 임시 저장 후 잠금 해제

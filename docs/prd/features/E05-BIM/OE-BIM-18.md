@@ -10,7 +10,6 @@ owner: "ontology-editor"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP-08"]
-jira: ""
 ---
 
 # OE-BIM-18 검토 화면 — 완전성 검사
