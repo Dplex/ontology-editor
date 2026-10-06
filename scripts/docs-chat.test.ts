@@ -116,11 +116,11 @@ describe('/__chat', () => {
     expect(new Set(ps.map(x => x.s)).size).toBe(ps.length)
   })
 
-  it('작업 폴더에 docs MCP 서버만 등록하고 thinking 을 MEDIUM 으로 둔다', () => {
+  it('작업 폴더에 docs MCP 서버만 등록하고 thinking 을 LOW 로 둔다', () => {
     const s = JSON.parse(readFileSync(join(ROOT, 'run/docs-chat/.gemini/settings.json'), 'utf8'))
     expect(Object.keys(s.mcpServers)).toEqual(['docs'])
     expect(s.mcpServers.docs.args[0]).toBe(join(ROOT, 'scripts/docs-mcp.mjs'))
-    expect(s.modelConfigs.customAliases['chat-base-3'].modelConfig.generateContentConfig.thinkingConfig.thinkingLevel).toBe('MEDIUM')
+    expect(s.modelConfigs.customAliases['chat-base-3'].modelConfig.generateContentConfig.thinkingConfig.thinkingLevel).toBe('LOW')
     expect(existsSync(join(ROOT, 'run/docs-chat/GEMINI.md'))).toBe(false)
   })
 

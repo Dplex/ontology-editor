@@ -16,7 +16,8 @@
 // 언제나 cancelled 로 답한다. 정책 파일이 없으면 아예 켜지 않는다.
 //
 // 시스템 프롬프트는 GEMINI_SYSTEM_MD 로 갈아 끼운다(scripts/docs-chat.md + 아래 NOTE). gemini 기본 프롬프트는 코딩 에이전트용이라
-// 길고, 답하는 법과 섞인다. thinking 은 MEDIUM 이다 — gemini-3 기본 HIGH 는 문서 찾아 읽는 질문에 과하다(정문은 LOW).
+// 길고, 답하는 법과 섞인다. thinking 은 LOW 다 — gemini-3 기본 HIGH 는 문서 찾아 읽는 질문에 과하다. 55 실측으로 MEDIUM 11~12초,
+// LOW 6~7초였고 답은 같은 문서를 찾아 근거를 붙였다(정문도 LOW).
 //
 // 작업 폴더는 run/docs-chat/ 이다(gitignore). 거기에 .gemini/settings.json(MCP 서버 등록·thinking)과 system.md 를 기동할 때
 // 만든다 — repo 루트에서 돌리면 gemini 가 CLAUDE.md·소스까지 맥락으로 읽어 간다.
@@ -27,7 +28,7 @@
 //   GOOGLE_CLOUD_PROJECT        55 의 사내 계정은 이게 없으면 gemini 가 바로 죽는다. run.sh 가 ~/.bashrc 에서 옮겨 준다
 //   DOCS_CHAT_MAX=2             동시에 답하는 질문 수. 넘으면 429
 //   DOCS_CHAT_TIMEOUT=150       초. 질문 하나(첫 질문이면 기동 포함)가 넘으면 끊고 error
-//   DOCS_CHAT_THINKING=MEDIUM   gemini-3 thinkingLevel (LOW·MEDIUM·HIGH)
+//   DOCS_CHAT_THINKING=LOW      gemini-3 thinkingLevel (LOW·MEDIUM·HIGH)
 //   DOCS_CHAT_IDLE=1800         초. 이만큼 질문이 없으면 gemini 를 내린다
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -68,7 +69,7 @@ export function createChat({ root, log = () => {} }) {
   const max = Number(process.env.DOCS_CHAT_MAX) || 2
   const timeoutMs = (Number(process.env.DOCS_CHAT_TIMEOUT) || 150) * 1000
   const idleMs = (Number(process.env.DOCS_CHAT_IDLE) || 1800) * 1000
-  const thinking = (process.env.DOCS_CHAT_THINKING || 'MEDIUM').toUpperCase()
+  const thinking = (process.env.DOCS_CHAT_THINKING || 'LOW').toUpperCase()
 
   let reason = null
   if (process.env.DOCS_CHAT === '0') reason = 'DOCS_CHAT=0 으로 꺼 두었다'

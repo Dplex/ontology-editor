@@ -30,7 +30,7 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 - 55 의 gemini 는 사내 계정이라 `GOOGLE_CLOUD_PROJECT` 가 없으면 바로 죽는다. `run.sh` 가 `~/.bashrc` 에서 옮겨 온다.
 - **gemini 는 질문마다 띄우지 않는다.** `gemini --acp` 하나를 띄워 두고 질문마다 세션을 새로 연다(정문 `ieum-gateway` 의
   assistant.Gemini 와 같은 방식). 처음 질문만 기동 3~4초가 더 붙고, 30분 안 쓰이면 내린다(`DOCS_CHAT_IDLE`, 하나에 약 380MB).
-  thinking 은 MEDIUM 이다(`DOCS_CHAT_THINKING`).
+  thinking 은 LOW 다(`DOCS_CHAT_THINKING`). 아래 실측에서 MEDIUM 보다 절반쯤 빨랐고 답은 같은 문서를 찾았다.
 - 55 실측(2026-10-06, 같은 질문 셋, 한 번씩): 예전 `gemini -p` 12.4 · 15.0 · 16.8초 → `--acp` MEDIUM 15.4(기동 포함) · 11.9 · 11.5초,
   LOW 9.7(기동 포함) · 6.9 · 5.8초. 시간의 대부분은 모델이 생각하는 구간이라 thinking 단계가 기동보다 크게 움직인다.
 - 정책의 docs 허용 줄에 `toolName = "*"` 를 붙이지 않는다. `--acp` 에서는 그 줄이 docs 도구까지 "denied by policy" 로 막았다.
