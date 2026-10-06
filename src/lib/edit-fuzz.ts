@@ -5,6 +5,7 @@
 // 순서가 문제인지 미리 알 수 없어서 순서를 무작위로 만든다. 씨앗(seed)이 같으면 같은 편집을 한다.
 
 import * as E from './edit'
+import * as CZ from './custom-zone'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { modelToGeoJSON } from './export/geojson'
 import { modelToTTL } from './export/ttl'
@@ -46,6 +47,10 @@ export const FUZZ_OPS = [
   'deleteSystem',
   'moveWallWithSpaces',
   'moveFollow',
+  'wallSize',
+  'wallExternal',
+  'mountOnWall',
+  'customZone',
 ] as const
 export type FuzzOp = (typeof FUZZ_OPS)[number]
 
@@ -337,6 +342,72 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       E.setEquipmentSystem(m, e.id, system.id)
       undo.push(snapshot)
       log.push(`createSystem ${system.name} ← ${e.name}`)
+    } else if (op === 'wallSize' || op === 'wallExternal') {
+      // 외벽 여부·두께·높이(OE-OBJ-04). 두께는 꼭짓점 넷인 벽만 바뀐다.
+      const storey = pick(m.storeys.filter((s) => s.walls.length))
+      const wall = storey && pick(storey.walls)
+      if (!storey || !wall) continue
+      const snapshot = E.snapshotStoreyElements(m, storey.id)!
+      const done =
+        op === 'wallExternal'
+          ? E.setWallExternal(m, wall.id, r() < 0.3 ? null : r() < 0.5)
+          : r() < 0.5
+            ? E.setWallThickness(m, wall.id, 0.1 + Math.round(r() * 3) / 10)
+            : E.setWallHeight(m, wall.id, r() < 0.2 ? null : 2 + Math.round(r() * 20) / 10)
+      if (done !== true) continue
+      undo.push(snapshot)
+      log.push(`${op} ${wall.name}`)
+    } else if (op === 'mountOnWall') {
+      // 설비를 벽 면에 붙인다. 뒤에 벽을 옮기거나 지우면 따라가거나 떨어진다.
+      const storey = pick(m.storeys.filter((s) => s.equipment.length && s.walls.some((w) => w.footprint?.length)))
+      const wall = storey && pick(storey.walls.filter((w) => w.footprint?.length))
+      const e = storey && pick(storey.equipment.filter((x) => !x.added || x.position))
+      if (!storey || !wall || !e) continue
+      const ring = wall.footprint![0]
+      const at: Vec2 = [ring[0][0] + (r() - 0.5) * 0.4, ring[0][1] + (r() - 0.5) * 0.4]
+      const snapshot = E.snapshotEquipment(m, e.id)!
+      const done = E.mountOnWall(m, e.id, at)
+      if (!done || 'refused' in done) continue
+      undo.push(snapshot)
+      log.push(`mountOnWall ${e.name} → ${wall.name}`)
+    } else if (op === 'customZone') {
+      // 커스텀존(OE-OBJ-01) 만들기·이름·지우기·나누기·합치기. 방 하나의 범위 안팎에 사각형을 그린다 — 겹쳐도 된다.
+      const storey = pick(m.storeys.filter((s) => s.spaces.some((x) => x.footprint.length >= 4)))
+      if (!storey) continue
+      const zones = storey.customZones ?? []
+      const snapshot = E.snapshotCustomZones(m, storey.id)!
+      const what = zones.length === 0 ? 0 : Math.floor(r() * 5)
+      let done = false
+      if (what === 0) {
+        const room = pick(storey.spaces.filter((x) => x.footprint.length >= 4))!
+        const xs = room.footprint.map((p) => p[0])
+        const ys = room.footprint.map((p) => p[1])
+        const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+        const t = (a: number, b: number) => a + (b - a) * (0.1 + 0.8 * r())
+        const [ax, bx] = [t(x0 - 1, x1), t(x0, x1 + 1)].sort((a, b) => a - b)
+        const [ay, by] = [t(y0 - 1, y1), t(y0, y1 + 1)].sort((a, b) => a - b)
+        const made = CZ.createCustomZone(m, storey.id, { id: `U_fuzz${seed}_${step}`, footprint: [[ax, ay], [bx, ay], [bx, by], [ax, by]] })
+        done = !!made && !('refused' in made)
+      } else {
+        const zone = pick(zones)!
+        if (what === 1) done = CZ.renameCustomZone(m, zone.id, `존 ${seed}-${step}`)
+        else if (what === 2) done = CZ.deleteCustomZone(m, zone.id)
+        else if (what === 3) {
+          const xs = zone.footprint.map((p) => p[0])
+          const ys = zone.footprint.map((p) => p[1])
+          const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+          const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+          const piece = CZ.splitCustomZone(m, zone.id, [cx, cy - 100], [cx, cy + 100], `U_fuzz${seed}_${step}`)
+          done = !!piece && !('refused' in piece)
+        } else {
+          const other = pick(zones.filter((z) => z.id !== zone.id))
+          const merged = other ? CZ.mergeCustomZones(m, zone.id, other.id) : null
+          done = !!merged && !('refused' in merged)
+        }
+      }
+      if (!done) continue
+      undo.push(snapshot)
+      log.push(`customZone#${what}`)
     } else if (op === 'moveWallWithSpaces') {
       // 방향키로 벽을 몇 걸음 옮기는 것과 같다. 걸음마다 되돌리기 한 칸이고, 계획은 이어 쓴다.
       const storey = pick(m.storeys.filter((s) => s.walls.some((w) => w.footprint?.length)))

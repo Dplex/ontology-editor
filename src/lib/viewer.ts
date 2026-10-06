@@ -110,6 +110,12 @@ const CONFLICT_MS = 2600
 export const ARCH_COLORS = { wall: 0xb7bec7, door: 0x39424e, window: 0x7fa6cf, selected: 0x2f6fed }
 /** 공조존(IDF) 외곽선 색. 계통 색과 헷갈리지 않게 한 가지로만 그린다. */
 const ZONE_COLOR = 0x6b7280
+/**
+ * 커스텀존(OE-OBJ-01) 외곽선. 공조존과 같은 회색 계열이되 점선으로 가른다(색을 늘리지 않는다). 고른 존은 액센트 선과 옅은 면.
+ * 물리존 판 위에 겹쳐 그리므로 판보다 조금 높게 띄운다.
+ */
+const CUSTOM_ZONE_COLOR = 0x39424e
+const CUSTOM_ZONE_LIFT = 0.25
 /** 벽을 세우는 높이(미터). 실제 벽 높이가 아니라 평면이 보일 만큼만 세운다 — 다 세우면 방 안이 가린다. */
 const ARCH_WALL_HEIGHT = 1.2
 /** 문·창을 누를 때 자리에서 이만큼 안이면 그 문·창이다(미터). */
@@ -279,6 +285,8 @@ export type Viewer = {
   setArchitecture(model: Model | null, selected: string | null): void
   /** 공조존(IDF) 외곽선. null 이면 지운다. 층별로 보기를 따른다. */
   setHvacZones(model: Model | null, selected: string | null): void
+  /** 커스텀존(OE-OBJ-01) 외곽선과 고른 존의 면. null 이면 지운다. 층별로 보기를 따른다. */
+  setCustomZones(model: Model | null, selected: string | null): void
   onPickElement(handler: (id: string | null) => void): void
   /** 화살표·손잡이 색을 테마에 맞춘다. 바탕이 투명이라 페이지 색이 그대로 비친다. */
   setDark(on: boolean): void
@@ -417,6 +425,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const o of walls?.children ?? []) o.visible = storeyShown(o)
     for (const o of arch.children) o.visible = storeyShown(o)
     for (const o of zoneLines.children) o.visible = storeyShown(o)
+    for (const o of customZones.children) o.visible = storeyShown(o)
     dirty = true
   }
   let pickHandler: (id: string | null) => void = () => {}
@@ -480,6 +489,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 공조존(IDF) 외곽선. 고르지 않는다 — 바닥을 누르면 물리존이 골라지고, 그 방의 공조존은 패널이 말한다.
   const zoneLines = new Group()
   scene.add(zoneLines)
+  const customZones = new Group()
+  scene.add(customZones)
   /** 누를 수 있는 벽·문·창. 문·창은 자리(`at`)와, 가로를 알면 벽을 따라 편 반 폭(`half`, 방향 `dir`)을 든다. */
   let archTargets: { id: string; storeyId: string; y: number; rings?: readonly (readonly Vec2[])[]; at?: Vec2; dir?: Vec2; half?: number }[] = []
   /** 문·창까지의 평면 거리. 가로를 알면 그 폭의 선분까지다(넓힌 창의 끝을 눌러도 창이다). */
@@ -1825,6 +1836,40 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           )
           line.userData.storeyId = zone.storeyId
           zoneLines.add(line)
+        }
+      }
+      applyStoreyVisibility()
+    },
+
+    setCustomZones(model, selected) {
+      customZones.traverse((o) => {
+        if (o instanceof LineLoop || o instanceof Mesh) {
+          o.geometry.dispose()
+          ;(o.material as { dispose(): void }).dispose()
+        }
+      })
+      customZones.clear()
+      for (const storey of model?.storeys ?? []) {
+        const y = storey.elevation + CUSTOM_ZONE_LIFT
+        for (const zone of storey.customZones ?? []) {
+          const on = zone.id === selected
+          const points = zone.footprint.map((p) => new Vector3(p[0], y, -p[1]))
+          const line = new LineLoop(
+            new BufferGeometry().setFromPoints(points),
+            on ? new LineBasicMaterial({ color: ARCH_COLORS.selected }) : new LineDashedMaterial({ color: CUSTOM_ZONE_COLOR, dashSize: 0.4, gapSize: 0.25 }),
+          )
+          line.computeLineDistances()
+          line.userData.storeyId = storey.id
+          customZones.add(line)
+          if (on && zone.footprint.length >= 4) {
+            const shape = new Shape(zone.footprint.slice(0, -1).map((p) => new Vector2(p[0], p[1])))
+            const face = new Mesh(new ShapeGeometry(shape), new MeshBasicMaterial({ color: ARCH_COLORS.selected, transparent: true, opacity: 0.18, side: DoubleSide, depthWrite: false }))
+            // ShapeGeometry 는 xy 평면이다. IFC 평면(x, y)을 three 바닥(x, -z)으로 눕힌다.
+            face.rotation.x = -Math.PI / 2
+            face.position.y = y
+            face.userData.storeyId = storey.id
+            customZones.add(face)
+          }
         }
       }
       applyStoreyVisibility()

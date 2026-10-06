@@ -6,8 +6,10 @@
 // 지도 위에 얹을 일이 생기면 그때 사이트 원점의 위경도와 방위를 받아 한 번에 변환한다.
 
 import { capacityQuantity } from '../capacity'
-import type { Equipment, HvacZone, Model, Opening, Space, Storey, Wall } from '../model'
+import type { CustomZone, Equipment, HvacZone, Model, Opening, Space, Storey, Wall } from '../model'
 import { verticalLinks } from '../vertical'
+import { judgeExternal, type ExternalJudgement } from '../exterior'
+import { zoneEquipment, zoneSpaces } from '../custom-zone'
 
 export type Geometry =
   | { type: 'Polygon'; coordinates: number[][][] }
@@ -73,6 +75,8 @@ function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
       capacity: equipment.capacity,
       // 용량이 무엇의 양인지(풍량·물 유량·출력·모름). 숫자만 두면 풍량과 출력이 섞인다(capacity.ts).
       capacityQuantity: equipment.capacity === null ? null : capacityQuantity(equipment.capacityProperty),
+      // 사람이 벽 면에 붙인 설비의 벽 id(OE-OBJ-04, 외벽 루버·외기 센서). 벽 feature 의 id 다. 붙이지 않았으면 키가 없다.
+      ...(equipment.wallId ? { wallId: equipment.wallId } : {}),
     },
   }
 }
@@ -81,7 +85,7 @@ function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
 // 3D Map 과 로봇 경로가 쓰는 기하 층이다. 문의 `connects` 는 TTL 주어인 물리존 id 를 가리키므로, 방-문-방
 // 그래프는 두 파일을 id 로 잇는 원칙 안에서 선다.
 
-function wallFeature(wall: Wall, storey: Storey): Feature {
+function wallFeature(wall: Wall, storey: Storey, external: ExternalJudgement | undefined): Feature {
   const rings = (wall.footprint ?? []).map((r) => r.map((p) => [p[0], p[1]]))
   return {
     type: 'Feature',
@@ -99,10 +103,14 @@ function wallFeature(wall: Wall, storey: Storey): Feature {
       storeyId: storey.id,
       elevation: storey.elevation,
       thickness: wall.thickness,
+      // 높이(미터). 형상의 위아래 폭으로 쟀거나 사람이 고친 값이다(OE-OBJ-04). null 은 모름 — 층고로 채우지 않는다.
+      height: wall.height ?? null,
       // null 은 "모름" 이다. false 와 섞지 않는다.
       loadBearing: wall.loadBearing,
-      // 외벽 여부(Pset_WallCommon.IsExternal). null 은 모름이다(OE-OBJ-07).
-      external: wall.external ?? null,
+      // 외벽 여부(OE-EXT-01). BIM(Pset_WallCommon.IsExternal)이 말하지 않으면 건물 바깥에 닿는지로 계산하고,
+      // 어느 쪽인지 externalSource 에 적는다('bim'·'calc'). 외곽선이 없어 계산도 못 하면 둘 다 null(모름)이다.
+      external: external?.external ?? null,
+      externalSource: external?.source ?? null,
       // 로봇이 지나갈 수 없다(OE-OBJ-05). 문·창의 passable 과 같은 열쇠로 둬서 읽는 쪽이 한 열쇠로 막힌 곳을 고른다.
       passable: false,
     },
@@ -149,20 +157,42 @@ function hvacZoneFeature(zone: HvacZone, storey: Storey): Feature {
   }
 }
 
+/**
+ * 커스텀존(OE-OBJ-01). 다각형은 여기에만 있고 TTL 에는 같은 id 의 brick:Zone 이 있다. 품는 방(TTL hasPart 와 같다)과
+ * 안에 든 설비를 같이 적어, 지도에서 존을 누르면 무엇이 드는지 TTL 을 다시 읽지 않고 보인다.
+ */
+function customZoneFeature(zone: CustomZone, storey: Storey): Feature {
+  return {
+    type: 'Feature',
+    id: zone.id,
+    geometry: { type: 'Polygon', coordinates: [zone.footprint.map((p) => [p[0], p[1]])] },
+    properties: {
+      kind: 'customZone',
+      name: zone.name,
+      storeyId: storey.id,
+      elevation: storey.elevation,
+      spaceIds: zoneSpaces(storey, zone),
+      equipmentIds: zoneEquipment(storey, zone),
+    },
+  }
+}
+
 /** 층 하나를 FeatureCollection 으로. 물리존·설비·벽·문·창(과 IDF 공조존)이 같은 파일에 들어간다. */
 export function storeyToGeoJSON(
   storey: Storey,
   zones: readonly HvacZone[] = [],
   vertical: ReadonlyMap<string, string[]> = new Map(),
 ): FeatureCollection {
+  const external = judgeExternal(storey)
   return {
     type: 'FeatureCollection',
     features: [
       ...storey.spaces.map((s) => spaceFeature(s, storey, vertical.get(s.id))),
       ...storey.equipment.map((e) => equipmentFeature(e, storey)),
-      ...storey.walls.map((w) => wallFeature(w, storey)),
+      ...storey.walls.map((w) => wallFeature(w, storey, external.get(w.id))),
       ...storey.openings.map((o) => openingFeature(o, storey)),
       ...zones.filter((z) => z.storeyId === storey.id).map((z) => hvacZoneFeature(z, storey)),
+      ...(storey.customZones ?? []).map((z) => customZoneFeature(z, storey)),
     ],
   }
 }

@@ -26,6 +26,8 @@ import type { Model } from '../src/lib/model'
 import { readIdf } from '../src/lib/idf/read'
 import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
 import { overlapArea } from '../src/lib/polygon'
+import { computeExternal } from '../src/lib/exterior'
+import { createCustomZone } from '../src/lib/custom-zone'
 import { baselineOf, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, type WallCarryPlan } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
@@ -854,6 +856,26 @@ describe.skipIf(!existsSync(TTL_GO) || !hasGo)('ieum-pipeline 의 ttl.go 가 읽
   /** ttl.go 가 남긴 Turtle 이스케이프(`\$`)를 푼다. 저쪽이 풀어 주기 전까지 우리 id 와 견주는 데만 쓴다. */
   const unescapeKey = (key: string) => key.replace(/\\(.)/g, '$1')
 
+  // 커스텀존(OE-OBJ-01, ADR-0004). 존 블록(brick:Zone)을 더해도 다른 엔티티를 잃지 않고, 존 안 기기의 hasLocation 에 방과 존이 같이 읽힌다.
+  it.skipIf(!existsSync(MEP))('커스텀존을 그려도 ttl.go 가 기기의 위치에 존을 같이 읽는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfc(api, new Uint8Array(readFileSync(MEP)))
+    const before = parse(modelToTTL(model))
+    // ifc4Mep 에는 방이 없어 기기의 첫 위치는 층이다(방을 못 찾은 설비의 규칙).
+    const storey = model.storeys.find((st) => st.equipment.some((e) => !isConduit(e.role ?? null) && e.position))!
+    const e = storey.equipment.find((x) => !isConduit(x.role ?? null) && x.position)!
+    const [x, y] = e.position!
+    const zone = createCustomZone(model, storey.id, { name: '시험 존', footprint: [[x - 1, y - 1], [x + 1, y - 1], [x + 1, y + 1], [x - 1, y + 1]], id: 'U_ttlgo_zone' })
+    expect(zone && 'id' in zone).toBe(true)
+    const after = parse(modelToTTL(model))
+    // 받는 쪽은 공간(방·층·Zone)도 관계 목적어로 쓰려고 타입 없는 논리 설비로 저장한다(ttl.go 의 equipClass 주석). 존 하나만큼 는다.
+    expect(after.length).toBe(before.length + 1)
+    expect(after.find((p) => p.Key === 'U_ttlgo_zone')).toMatchObject({ BrickClass: 'Zone' })
+    const got = after.find((p) => unescapeKey(p.Key) === e.id)!
+    expect(got.Locations).toEqual([escapeLocalName(e.spaceId ?? storey.id), 'U_ttlgo_zone'])
+  })
+
   it('기기에서 기기로 가는 흐름이 받는 쪽에 전부 닿는다', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
@@ -1494,4 +1516,49 @@ describe.skipIf(!existsSync(SAMSUNG_IDF))('IDF 공조존 (삼성, DesignBuilder)
     const shares = again.model.hvac!.zones.flatMap((z) => Object.values(z.spaceShares ?? {}))
     expect(Math.min(...shares)).toBeGreaterThan(0.999)
   })
+})
+
+// 외벽 판정(OE-EXT-01). IsExternal 이 없는 벽은 건물 바깥에 닿는지로 계산한다. Revit 은 벽마다 IsExternal 을 적으니
+// 그것을 가리고 계산만으로 맞혀 본다(computeExternal). ArchiCAD(AC20)는 값이 없어 이름(Wand-Ext·Wand-Int)이 정답이다.
+// 2026-10-03 실측: AC20 13/13, Duplex 건축 50/57, 병원 건축 1,020/1,080. 틀린 것은 대부분 원본 쪽 사정이다 —
+// Duplex 는 세대 경계벽(Party Wall)을 외벽으로 적었고 기초벽 셋을 외벽으로 적었다. 병원은 커튼월(IfcCurtainWall 31)을 우리가
+// 벽으로 읽지 않아 그 안쪽 칸막이가 바깥에 드러나고, 지붕층·2층에 건물 밖으로 그려진 공간이 바깥을 막는다.
+describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('외벽 판정을 BIM 의 IsExternal 에 대 본다', () => {
+  it('계산만으로 맞힌 비율이 기준값 아래로 떨어지지 않는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const score = (path: string, truth: (w: Model['storeys'][number]['walls'][number]) => boolean | null | undefined) => {
+      const { model } = importIfcWithMeshes(api, new Uint8Array(readFileSync(path)))
+      let agreed = 0, total = 0
+      for (const storey of model.storeys) {
+        const calc = computeExternal(storey)
+        for (const wall of storey.walls) {
+          const t = truth(wall)
+          const c = calc.get(wall.id)
+          if (t == null || c == null) continue
+          total++
+          if (t === c) agreed++
+        }
+      }
+      return { agreed, total }
+    }
+    expect(score(SAMPLE, (w) => (/Ext/.test(w.name) ? true : /Int/.test(w.name) ? false : null))).toEqual({ agreed: 13, total: 13 })
+    expect(score(DUPLEX_ARCH, (w) => w.external)).toEqual({ agreed: 50, total: 57 })
+    const clinic = score(CLINIC_ARCH, (w) => w.external)
+    expect(clinic.total).toBe(1080)
+    expect(clinic.agreed).toBeGreaterThanOrEqual(1020)
+  })
+
+  // OE-OBJ-04 크기 z. 벽 높이는 BIM 형상의 위아래 폭이다(출처 계산). 층고로 채우지 않는다 — 다락·기초 벽은 층고와 다르다.
+  it('벽 높이를 형상에서 읽는다 — AC20 1층 2.5·2.7m, Duplex 기초 벽 1.25m', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const heights = (path: string, storey: string) =>
+      importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model.storeys.find((s) => s.name === storey)!.walls.map((w) => w.height)
+    expect([...new Set(heights(SAMPLE, 'Erdgeschoss'))].sort()).toEqual([2.5, 2.7])
+    const footing = heights(DUPLEX_ARCH, 'T/FDN')
+    expect(footing).toHaveLength(7)
+    expect(footing).toContain(1.25)
+    expect(footing.every((h) => h !== null && h !== undefined && h > 1 && h <= 1.25)).toBe(true)
+  }, 300_000)
 })

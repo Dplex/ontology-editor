@@ -32,7 +32,7 @@ import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
 import { equipmentKind, equipmentKindOf, FLUID_KINDS, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
 import { CAPACITY_KINDS, capacityRank } from '../capacity'
 import { inferFlowByRules } from '../flow-rules'
-import { footprintRings, openingPlacement, spacesBesideOpening } from './element-geometry'
+import { footprintRings, meshHeight, openingPlacement, spacesBesideOpening } from './element-geometry'
 
 /**
  * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
@@ -207,7 +207,9 @@ function placeWallsAndOpenings(
   for (const storey of result.storeys) {
     for (const wall of storey.walls) {
       const mesh = wallMeshes.get(wall.id)
-      if (mesh) wall.footprint = footprintRings(mesh)
+      if (!mesh) continue
+      wall.footprint = footprintRings(mesh)
+      wall.height = meshHeight(mesh)
     }
   }
 
