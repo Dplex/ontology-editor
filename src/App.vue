@@ -3623,18 +3623,26 @@ function onEditToggle(box: HTMLInputElement) {
  */
 function exitSaving() {
   exitAsk.value = null
+  keepDraft()
+  mode.value = 'view'
+}
+// [임시 저장] 단추와 끝내기 대화상자가 같이 쓴다. 남기면 "이어 갈 편집" 목록을 펼쳐 어디에 남았는지 보인다 —
+// 파일을 연 동안 그 칸은 접혀 있어서, 임시 저장을 하고도 목록이 안 보였다(2026-10-06 검토).
+const draftShown = ref(0)
+watch(baseline, () => (draftShown.value = 0))
+function keepDraft() {
   const m = model.value
   if (!m || !baseline.value) return
   const file = exportEdits(m, baseline.value, fileName.value)
   try {
     writeDraft(file)
     savedSig = editSig(file)
-    note(`편집 ${editCount(file)}건을 이 브라우저에 임시 저장했습니다. 같은 IFC 를 다시 열면 이어서 고칠지 묻습니다`)
+    note(`편집 ${editCount(file)}건을 이 브라우저에 임시 저장했습니다. 왼쪽 "이어 갈 편집" 에서 이어 갑니다`)
+    draftShown.value++
   } catch {
     // 임시 저장은 8084 에 올리지 않는다("웹에 반영되지 않는다"). 브라우저 저장소가 막혔으면 파일로만 내려받는다.
     void saveEdits(true)
   }
-  mode.value = 'view'
 }
 /** 끝내기 대화상자의 [저장]. 8084 에 두고 보기로 간다. 못 두면(서버에 못 닿음) 파일로 내려받고 끝낸다. */
 async function exitCommitting() {
@@ -4391,7 +4399,7 @@ async function export3D(format: 'glb' | 'obj') {
 
     <!-- 이어 갈 편집(OE-COM-08). 8084 에 저장된 것(누구나 봄)과 이 브라우저의 임시 저장(나만 봄)을 나눠 보인다. -->
     <section v-if="draftList.length || savedSets.some((s) => s.paths.length > 1)" class="catalog resume">
-      <Fold :key="model ? 'loaded' : 'empty'" title="이어 갈 편집" :meta="`임시 저장 ${draftList.length}건`" :default-open="!model">
+      <Fold :key="(model ? 'loaded' : 'empty') + draftShown" title="이어 갈 편집" :meta="`임시 저장 ${draftList.length}건`" :default-open="!model || draftShown > 0">
         <table>
           <tbody>
             <tr v-for="d in draftList" :key="'draft:' + d.name" class="draft-row">
@@ -4590,6 +4598,7 @@ async function export3D(format: 'glb' | 'obj') {
             편집 저장
           </button>
           <button v-if="serverKey" type="button" class="ghost" title="8084 에 두지 않고 편집 파일(JSON)로만 내려받습니다" @click="saveEdits(true)">파일로</button>
+          <button type="button" class="ghost" :disabled="changeCount === 0" title="웹에 반영하지 않고 이 브라우저에만 남깁니다. 왼쪽 &quot;이어 갈 편집&quot; 에서 이어 갑니다" @click="keepDraft">임시 저장</button>
           <!-- PRD #9 의 액션바. 초기 구축 모드라 "반영하기" 대신 "구축하기"(두 파일 내보내기)다 — 운영 DT 에 반영하는 길은 D10 이 열려 있다. -->
           <button type="button" class="ghost" title="반영 전에 바뀐 내용(소속·경계·이름·방향)을 봅니다" @click="previewChanges">미리보기</button>
           <button type="button" class="ghost primary-action" :class="{ done: justDone === 'build' }" :disabled="busy" title="온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)" @click="build">구축하기</button>

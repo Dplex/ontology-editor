@@ -92,6 +92,25 @@ test('임시 저장은 8084 에 가지 않고, 처음 화면의 목록에서 열
   expect(puts).toEqual([])
 })
 
+test('편집 중에 [임시 저장] 을 누르면 편집을 이어 가고, 접혀 있던 "이어 갈 편집" 이 펼쳐져 남은 것이 보인다', async ({ page }) => {
+  const puts: string[] = []
+  await serve(page, new Map(), puts)
+  await page.goto('/')
+  await openFromList(page)
+  const keep = page.locator('.edit-bar').getByRole('button', { name: '임시 저장', exact: true })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await expect(keep).toBeDisabled()
+  await editLight(page, '6.5')
+  await keep.click()
+  // 파일을 연 동안 그 칸은 접혀 있다 — 누르면 펼쳐져 목록이 보여야 한다(2026-10-06 검토: 임시 저장했는데 안 보였다)
+  await expect(page.locator('.catalog.resume tr', { hasText: 'mep.ifc' })).toContainText('임시 저장 · 이 브라우저에만')
+  await expect(page.locator('.edit-bar')).toBeVisible()
+  expect(puts).toEqual([])
+  // 남긴 뒤로 바뀐 것이 없으니 끝낼 때 묻지 않는다
+  await page.getByRole('button', { name: '편집 종료' }).click()
+  await expect(page.locator('dialog.exit-edit')).not.toBeVisible()
+})
+
 test('저장 안 함은 8084 저장본까지만 되돌린다', async ({ page }) => {
   const store: Store = new Map()
   const puts: string[] = []
