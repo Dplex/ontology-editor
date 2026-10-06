@@ -50,7 +50,18 @@ build() {
   npm run build
   # data/ 샘플 목록과 등급 칩을 내주는 모듈을 node 용으로 묶는다(serve.mjs 가 /__data 에 붙인다).
   npm run build:server
+  # 문서 챗봇 창(Alt+Shift+K, ADR-0001). 앱 코드가 아니라 빌드 결과에 끼워 넣는다 — 8084·8087 둘 다 여기를 지난다.
+  cp scripts/docs-chat.js dist/docs-chat.js
+  sed -i 's#</body>#<script src="./docs-chat.js"></script></body>#' dist/index.html
+  grep -q docs-chat.js dist/index.html
 }
+
+# 55 의 gemini(사내 계정)는 GOOGLE_CLOUD_PROJECT 가 없으면 바로 죽는다. 그 값은 대화형 셸의 ~/.bashrc 에만 있어서
+# ssh 로 부른 이 스크립트에는 안 들어온다. 문서 챗봇(/__chat)이 쓰게 옮겨 온다.
+if [[ -z "${GOOGLE_CLOUD_PROJECT:-}" && -f "$HOME/.bashrc" ]]; then
+  GOOGLE_CLOUD_PROJECT="$(sed -n 's/^export GOOGLE_CLOUD_PROJECT=//p' "$HOME/.bashrc" | tail -n 1 | tr -d "\"'")"
+  [[ -z "$GOOGLE_CLOUD_PROJECT" ]] || export GOOGLE_CLOUD_PROJECT
+fi
 
 wait_health() {
   local i

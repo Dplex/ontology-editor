@@ -54,7 +54,7 @@ export type EquipmentKindInfo = {
   fluid?: Fluid
   /**
    * 이름 사전이 읽지 않는 종류(`test` 가 아무것에도 맞지 않는다). BIM 이 `ifc` 로 말하면 받고, 아니면 사람이 고른다.
-   * 사전 식을 넓히면 가진 BIM 전부의 숫자가 움직여서(CLAUDE.md 의 과적합 규칙) 이름으로는 읽지 않는다.
+   * 사전 식을 넓히면 가진 BIM 전부의 숫자가 움직여서(docs/dev/testing.md 의 과적합 규칙) 이름으로는 읽지 않는다.
    */
   manual?: true
   /**

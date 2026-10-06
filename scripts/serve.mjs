@@ -8,12 +8,17 @@
 // 묶은 판), [편집 저장] 한 편집을 받아 둔다(PUT /__data/__edits, src/server/saved-edits.ts — 쓰기는 이것 하나).
 // 이 모듈은 dt 플랫폼과 따로라 정문(8000)은 거치지 않는다.
 //
+// 다섯째로 문서 챗봇(Alt+Shift+K)의 /__chat 이 있다(scripts/docs-chat.mjs, ADR-0001). 앱의 API 가 아니라 이 repo 의
+// 문서를 읽고 답하는 개발용 부속이고, gemini 가 쓸 수 있는 도구는 문서 읽기 하나뿐이다. gemini 가 없는 기계에서는
+// GET /__chat 이 enabled:false 를 주고 창이 그 이유를 보인다.
+//
 // **wasm 의 Content-Type 을 application/wasm 으로 준다.** 틀리면 브라우저가 스트리밍 컴파일을
 // 거절하고 web-ifc 가 느린 길로 돌거나 실패한다.
 import { createServer } from 'node:http'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname, join, normalize, resolve, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createChat } from './docs-chat.mjs'
 
 const ROOT = resolve(process.env.ONTOLOGY_EDITOR_DIST || 'dist')
 const [host, port] = (process.env.ONTOLOGY_EDITOR_ADDR || '0.0.0.0:8084').split(/:(?=\d+$)/)
@@ -45,11 +50,23 @@ function log(fields) {
   console.log(JSON.stringify({ time: new Date().toISOString(), ...fields }))
 }
 
+const chat = createChat({ root: fileURLToPath(new URL('..', import.meta.url)), log })
+
 const server = createServer((req, res) => {
   const started = Date.now()
   const done = (status) => log({ msg: 'request', method: req.method, path: req.url, status, ms: Date.now() - started })
 
   const path = decodeURIComponent((req.url || '/').split('?')[0])
+  if (path === '/__chat') {
+    res.on('finish', () => done(res.statusCode))
+    chat(req, res).catch(e => {
+      log({ msg: 'chat failed', error: String(e?.stack || e) })
+      if (!res.headersSent) res.writeHead(500)
+      res.end()
+    })
+    return
+  }
+
   // 쓰기는 8084 에 남기는 편집(/__data/__edits, src/server/saved-edits.ts) 하나뿐이다. 나머지는 읽기만 받는다.
   const writable = req.method === 'PUT' && path === '/__data/__edits'
   if (req.method !== 'GET' && req.method !== 'HEAD' && !writable) {
