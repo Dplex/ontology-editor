@@ -31,7 +31,7 @@ import { exportedContent } from './edit-fuzz'
 import { confirmSystemFlow, inferFlowByRules } from './flow-rules'
 import { modelToGeoJSON } from './export/geojson'
 import { modelToTTL } from './export/ttl'
-import type { Model, Opening } from './model'
+import type { Model, Opening, Wall } from './model'
 
 let api: WebIFC.IfcAPI
 beforeAll(async () => {
@@ -196,7 +196,7 @@ describe('편집 저장·불러오기', () => {
     setWallLoadBearing(a, byName(a, 'W-1F-03').id, true)
     deleteWall(a, byName(a, 'W-1F-02').id)
     deleteOpening(a, byName(a, 'WD-2F-01').id)
-    const wall = addWall(a, first.id, [0, 0], [4, 0], 0.2, 'U_wallTest')!
+    const wall = addWall(a, first.id, [0, 0], [4, 0], 0.2, 'U_wallTest') as Wall
     const door = addOpening(a, first.id, 'door', [2, 0], 'U_doorTest') as Opening
     expect(door.wallId).toBe(wall.id)
     const file = exportEdits(a, base, 'two-rooms.ifc')

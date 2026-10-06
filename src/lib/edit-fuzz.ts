@@ -262,7 +262,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       const b = next.footprint[i + 1]
       const snapshot = E.snapshotStoreyElements(m, storey.id)!
       const wall = E.addWall(m, storey.id, a, b, 0.2, `U_fuzz${seed}_${step}`)
-      if (!wall) continue
+      if (!wall || 'refused' in wall) continue
       undo.push(snapshot)
       log.push(`addWall ${next.name}#${i}`)
     } else if (op === 'moveWall' || op === 'deleteWall' || op === 'wallBearing') {

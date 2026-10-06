@@ -124,3 +124,41 @@ test('[방 경계도 같이] 를 켜고 벽을 옮기면 양쪽 방이 따라오
   await expect(report).toContainText('벽 새 벽을 그었습니다')
   expect(errors).toEqual([])
 })
+
+// OE-OBJ-05. 벽은 다른 벽을 가로지를 수 없다(끝을 맞대는 것은 된다). 직사각형 벽은 패널에서 길이를 바꾼다.
+test('다른 벽을 가로지르는 벽은 긋지 못하고, 맞댄 벽은 길이를 바꿀 수 있지만 뚫게 되면 막힌다', async ({ page }) => {
+  const errors = await open(page)
+  await page.getByRole('button', { name: '벽·문·창' }).click()
+  const panel = page.locator('.element-picked')
+  await page.getByRole('button', { name: '벽 긋기' }).click()
+  await clickFloor(page, 10.1, 0)
+  await clickFloor(page, 10.1, 8)
+  await expect(panel.locator('h3')).toHaveText('새 벽')
+
+  // 세로 벽을 가로질러 긋는다 → 거부.
+  await page.getByRole('button', { name: '벽 긋기' }).click()
+  await clickFloor(page, 5, 2)
+  await clickFloor(page, 12, 2)
+  await expect(page.locator('.key-note')).toContainText('가로지릅니다')
+  expect(await page.evaluate(() => (window as any).__viewer.elements().length)).toBe(1)
+
+  // 끝을 맞대어 긋는다(T) → 된다.
+  await page.getByRole('button', { name: '벽 긋기' }).click()
+  await clickFloor(page, 5, 4)
+  await clickFloor(page, 10, 4)
+  await expect(panel.locator('h3')).toHaveText('새 벽')
+  expect(await page.evaluate(() => (window as any).__viewer.elements().length)).toBe(2)
+  const length = panel.locator('.wall-length input')
+  await expect(length).toHaveValue('5.00')
+  await length.fill('3')
+  await length.press('Enter')
+  await expect(page.locator('.edit-bar .last-edit')).toContainText('길이 3.00m')
+  // 가운데(x=7.5)를 두고 7m 로 늘이면 x=11 까지 가서 세로 벽을 뚫는다.
+  await length.fill('7')
+  await length.press('Enter')
+  await expect(page.locator('.key-note')).toContainText('가로지릅니다')
+  await expect(page.locator('.edit-bar .last-edit')).toContainText('길이 3.00m')
+  // 바뀐 것은 그은 벽 둘뿐이다(거부된 긋기·늘이기는 쌓이지 않는다).
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  expect(errors).toEqual([])
+})

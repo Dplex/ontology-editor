@@ -55,12 +55,18 @@ import {
   deleteSystem,
   moveWallWithSpaces,
   wallLocked,
+  wallsCrossed,
+  newCrossing,
+  wallLength,
+  setWallLength,
+  WALL_LOCKED,
+  insertWall,
   deleteOpening,
   type WallCarryPlan,
   type Snapshot,
   type Change,
 } from './edit'
-import { polygonArea, type Model, type Opening, type Vec2 } from './model'
+import { polygonArea, type Model, type Opening, type Vec2, type Wall } from './model'
 import { modelToGeoJSON } from './export/geojson'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred } from './flow-rules'
 import { assignEquipmentToSpaces } from './mapping'
@@ -808,7 +814,7 @@ describe('벽·문·창 편집 (E4)', () => {
   const office = () => model.storeys[0].spaces[0]
   // 사무실(0..10 × 0..8) 오른쪽에 벽 하나(x=10, 두께 0.2)를 긋고, 그 너머에 창고를 둔다.
   const setup = () => {
-    const wall = addWall(model, storey().id, [10.1, 0], [10.1, 8], 0.2)!
+    const wall = addWall(model, storey().id, [10.1, 0], [10.1, 8], 0.2) as Wall
     const store = createSpace(model, storey().id, { name: '102', longName: '창고', footprint: [[10.2, 0], [14, 0], [14, 8], [10.2, 8]] })!.created[0]
     return { wall, store }
   }
@@ -889,6 +895,49 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(wallLocked(wall)).toBe(false)
     expect(moveOpening(model, door.id, [10.1, 5])).toBe(true)
     expect(moveWall(model, wall.id, [1, 0])).toBe(true)
+  })
+
+  // OE-OBJ-05. 끝을 맞대는 것(L·T)은 되고, 몸통을 가로지르는 것(X)은 안 된다.
+  it('벽은 다른 벽을 가로질러 긋지 못하고, 끝을 맞대거나 안으로 조금 들이는 것은 된다', () => {
+    const { wall } = setup()
+    // T: 끝이 벽 면에 닿는다 / 벽 중심선까지 들어온다 / 반 두께 + 5cm 안에서 넘는다.
+    expect(addWall(model, storey().id, [5, 4], [10, 4])).toMatchObject({ id: expect.any(String) })
+    expect(addWall(model, storey().id, [5, 6], [10.1, 6])).toMatchObject({ id: expect.any(String) })
+    expect(addWall(model, storey().id, [5, 7], [10.24, 7])).toMatchObject({ id: expect.any(String) })
+    // X: 반대쪽으로 빠져나간다.
+    expect(addWall(model, storey().id, [5, 2], [12, 2])).toEqual({ refused: expect.stringContaining('가로지릅니다') })
+    // L: 모서리에서 만난다.
+    expect(addWall(model, storey().id, [10.1, 8], [14, 8])).toMatchObject({ id: expect.any(String) })
+    expect(wallsCrossed(storey(), wall.footprint!, wall.id)).toEqual([])
+  })
+
+  it('옮겨서 새로 가로지르게 되면 옮기지 않고, 원래 가로지르던 벽은 옮길 수 있다', () => {
+    const { wall } = setup()
+    const stem = addWall(model, storey().id, [5, 4], [10, 4]) as Wall
+    // 줄기를 벽 쪽으로 30cm 밀면 벽을 뚫고 나간다.
+    expect(moveWall(model, stem.id, [0.3, 0])).toBe(false)
+    expect(newCrossing(model, stem.id, stem.footprint!.map((r) => r.map(([x, y]) => [x + 0.3, y] as Vec2)))?.id).toBe(wall.id)
+    // BIM 이 이미 가로지르게 그린 벽(여기서는 편집 파일이 얹은 것처럼 바로 둔다)은 다른 방향으로 옮길 수 있다.
+    insertWall(model, storey().id, { id: 'X', name: 'BIM 관통벽', thickness: 0.2, loadBearing: null, footprint: [[[9, 1.9], [12, 1.9], [12, 2.1], [9, 2.1], [9, 1.9]]] })
+    expect(wallsCrossed(storey(), wall.footprint!, wall.id).map((w) => w.id)).toEqual(['X'])
+    expect(moveWall(model, 'X', [0, 0.5])).toBe(true)
+  })
+
+  it('직사각형 벽은 가운데를 두고 길이를 바꾸고, 문이 밖으로 나가거나 다른 벽을 뚫게 되면 바꾸지 않는다', () => {
+    const { wall } = setup()
+    expect(wallLength(wall)).toBeCloseTo(8)
+    expect(setWallLength(model, wall.id, 6)).toBe(true)
+    expect(wallLength(wall)).toBeCloseTo(6)
+    const ys = wall.footprint![0].map((p) => p[1])
+    expect([Math.min(...ys), Math.max(...ys)].map((v) => +v.toFixed(6))).toEqual([1, 7])
+    addOpening(model, storey().id, 'door', [10.1, 6.5])
+    expect(setWallLength(model, wall.id, 4)).toEqual({ refused: expect.stringContaining('벽 밖으로') })
+    // 가로로 지나는 벽까지 늘이면 뚫는다.
+    addWall(model, storey().id, [8, 8.5], [12, 8.5])
+    expect(setWallLength(model, wall.id, 9)).toBe(true)
+    expect(setWallLength(model, wall.id, 12)).toEqual({ refused: expect.stringContaining('가로지릅니다') })
+    setWallLoadBearing(model, wall.id, true)
+    expect(setWallLength(model, wall.id, 8)).toEqual({ refused: WALL_LOCKED })
   })
 
   it('연 때와 견주면 더한 벽·옮긴 문이 뜨고, 지운 벽의 문은 따로 세지 않는다', () => {
