@@ -9,7 +9,7 @@ priority: "P3"
 owner: "tbd"
 status: "prd-review"
 status_note: "범위 결정 필요"
-blocked_by: []
+blocked_by: ["D-gbXML"]
 depends: ["D-gbXML"]
 ---
 
@@ -17,11 +17,11 @@ depends: ["D-gbXML"]
 
 ## 요구사항
 
-gbXML(Spaces 경로) Zone을 공조존 2순위 출처로 읽기
+gbXML 의 Zone(Spaces 경로)을 공조존의 2순위 출처로 읽는다. IDF 가 있으면 IDF 를 쓰고 gbXML 은 쓰지 않는다. 범위는 D-gbXML 에 따른다.
 
 ## 수용 기준
 
-—
+D-gbXML 결정 후 적는다.
 
 ## 검증 (이 repo)
 
