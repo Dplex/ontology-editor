@@ -114,6 +114,7 @@ import {
   type Snapshot,
 } from './lib/edit'
 import { MERGE_GAP } from './lib/polygon'
+import { allowedSurfaces, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
@@ -1335,8 +1336,13 @@ const SMALL = 50
 const EDIT_LIMIT = 200
 const editStorey = ref('')
 const editQuery = ref('')
+/**
+ * 설비 목록의 설치면 거르기(OE-OBJ-08 "설치면 필터"). 그 면에 놓을 수 있는 종류를 남긴다 — CCTV 는 천장·벽 둘 다에 든다.
+ * `none` 은 설치면을 정하지 않은 종류(표에 없는 종류·종류 모름)다. 덕트·배관은 거르면 빠진다.
+ */
+const surfaceFilter = ref<'' | Surface | 'none'>('')
 const editLimit = ref(EDIT_LIMIT)
-watch([editStorey, editQuery, fileName], () => {
+watch([editStorey, editQuery, fileName, () => surfaceFilter.value], () => {
   editLimit.value = EDIT_LIMIT
 })
 watch(fileName, () => {
@@ -1345,7 +1351,7 @@ watch(fileName, () => {
 })
 
 /** 층이나 이름으로 좁혔나. 표 머리의 수를 "찾은 것 N / 전체" 로 바꾼다 — 전체 수만 두었더니 좁혀 0건인 표가 비어 보였다. */
-const narrowed = computed(() => !!editStorey.value || !!editQuery.value.trim())
+const narrowed = computed(() => !!editStorey.value || !!editQuery.value.trim() || !!surfaceFilter.value)
 const matches = (text: string) => {
   const q = editQuery.value.trim().toLowerCase()
   return !q || text.toLowerCase().includes(q)
@@ -1353,6 +1359,13 @@ const matches = (text: string) => {
 const editStoreys = computed(() =>
   (model.value?.storeys ?? []).filter((s) => !editStorey.value || s.id === editStorey.value),
 )
+const surfaceMatches = (e: Equipment) => {
+  const f = surfaceFilter.value
+  if (!f) return true
+  if (isConduit(e.role)) return false
+  const allowed = allowedSurfaces(e.kind)
+  return f === 'none' ? !allowed : !!allowed?.includes(f)
+}
 const editSpaces = computed(() =>
   editStoreys.value
     .flatMap((storey) => storey.spaces.map((space) => ({ storey, space })))
@@ -1362,7 +1375,7 @@ const editSpaces = computed(() =>
 const editEquipment = computed(() =>
   editStoreys.value.flatMap((s) => {
     const room = new Map(s.spaces.map((sp) => [sp.id, `${sp.name} ${sp.longName ?? ''}`]))
-    return s.equipment.filter((e) => matches(`${e.name} ${e.ifcClass} ${kindLabel(e)} ${e.spaceId ? room.get(e.spaceId) ?? '' : ''}`))
+    return s.equipment.filter((e) => surfaceMatches(e) && matches(`${e.name} ${e.ifcClass} ${kindLabel(e)} ${e.spaceId ? room.get(e.spaceId) ?? '' : ''}`))
   }),
 )
 
@@ -4909,6 +4922,17 @@ async function export3D(format: 'glb' | 'obj') {
                     <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
                   </dd>
                 </div>
+                <!-- 설치면(OE-OBJ-08). 종류가 허용하는 면이 하나일 때만 정한다. 둘 이상이면 모름, 표에 없는 종류는 정하지 않음. -->
+                <div v-if="!isConduit(selected.role)" class="mount">
+                  <dt>설치면</dt>
+                  <dd v-flash="selected.kind">
+                    <template v-if="surfaceOf(selected)">{{ SURFACE_LABEL[surfaceOf(selected)!] }} <Src kind="dict" /></template>
+                    <template v-else-if="allowedSurfaces(selected.kind)">
+                      모름 <span class="muted">({{ allowedSurfaces(selected.kind)!.map((x) => SURFACE_LABEL[x]).join('·') }} 중 하나)</span> <Src kind="dict" />
+                    </template>
+                    <span v-else class="muted">정하지 않은 종류</span>
+                  </dd>
+                </div>
               </dl>
             </div>
             <div class="picked-actions">
@@ -6156,6 +6180,16 @@ async function export3D(format: 'glb' | 'obj') {
               <select v-model="editStorey">
                 <option value="">전체</option>
                 <option v-for="s in model.storeys" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
+            </label>
+            <label>
+              설치면
+              <select v-model="surfaceFilter" aria-label="설치면으로 거르기">
+                <option value="">전체</option>
+                <option value="ceiling">천장</option>
+                <option value="floor">바닥</option>
+                <option value="wall">벽</option>
+                <option value="none">정하지 않음</option>
               </select>
             </label>
             <label class="grow">
