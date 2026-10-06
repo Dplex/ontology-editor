@@ -16,6 +16,7 @@ import { join, relative, resolve, sep } from 'node:path'
 import * as WebIFC from 'web-ifc'
 import { importIfcWithMeshes } from '../lib/ifc/import'
 import { profileOf, type Profile } from '../lib/profile'
+import { savedEdits } from './saved-edits'
 
 type Profiled = { profile: Profile } | { error: string }
 
@@ -97,7 +98,10 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
   const root = resolve(dataDir)
   const list = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
-      d.isDirectory()
+      // .edits(8084 저장본) 같은 숨은 폴더는 샘플이 아니다
+      d.name.startsWith('.')
+        ? []
+        : d.isDirectory()
         ? list(join(dir, d.name))
         : d.name.toLowerCase().endsWith('.ifc')
           ? [relative(root, join(dir, d.name)).split(sep).join('/')]
@@ -108,10 +112,18 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
   const rank = (p: string) => (p.startsWith('성수/') ? 0 : 1)
   const ordered = (paths: string[]) => paths.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ko'))
   const profile = profiler(root, libDir)
+  const edits = savedEdits(root)
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const [rawPath, query] = (req.url ?? '/').split('?')
     const path = decodeURIComponent(rawPath).replace(/^\/+/, '')
+    // 8084 에 남긴 편집(saved-edits.ts). 쓰기(PUT)를 받는 곳은 여기뿐이다.
+    if (path === '__edits') return edits(req, res, query ?? '')
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.statusCode = 405
+      res.end()
+      return
+    }
     if (!path) {
       const files = (() => {
         try {

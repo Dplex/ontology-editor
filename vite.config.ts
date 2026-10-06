@@ -40,6 +40,7 @@ export default defineConfig(({ mode }) => ({
   build: { outDir: 'dist', emptyOutDir: true },
 
   // vitest 는 src 의 순수 로직만 본다. e2e/ 는 Playwright 것이라 여기서 걸러내지 않으면
-  // vitest 가 브라우저 API 를 못 찾고 깨진다.
-  test: { include: ['src/**/*.test.ts'] },
+  // vitest 가 브라우저 API 를 못 찾고 깨진다. scripts/ 에서는 문서 챗봇(ADR-0001)만 — 나머지(seongsu 등)는
+  // 실제 BIM 이 있어야 돌아서 check:sample 쪽 설정이 맡는다.
+  test: { include: ['src/**/*.test.ts', 'scripts/docs-*.test.ts'] },
 }))
