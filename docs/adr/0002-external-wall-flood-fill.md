@@ -1,8 +1,9 @@
 ---
 id: "ADR-0002"
 title: "IsExternal 이 없는 벽은 층 평면을 격자로 채워 건물 바깥에 닿는지로 외벽을 판정한다"
-status: "제안"
+status: "채택"
 date: "2026-10-03"
+deciders: ["정희록"]
 prd: []
 tickets: ["OE-EXT-01", "OE-OBJ-04"]
 supersedes: []

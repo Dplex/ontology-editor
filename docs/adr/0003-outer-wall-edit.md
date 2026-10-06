@@ -1,8 +1,9 @@
 ---
 id: "ADR-0003"
 title: "외벽 전용 설비는 벽 면에 붙여 벽을 따라가게 하고, 벽 크기는 꼭짓점 4개인 벽까지 고치며, 높이는 형상에서 읽는다"
-status: "제안"
+status: "채택"
 date: "2026-10-03"
+deciders: ["정희록"]
 prd: []
 tickets: ["OE-OBJ-04", "OE-OBJ-05", "OE-EQP-15"]
 supersedes: []

@@ -61,3 +61,6 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | ADR | 제목 | 상태 |
 |---|---|---|
 | [0001](0001-docs-chat-read-only-mcp.md) | 문서 챗봇은 읽기 전용 MCP 로 55 의 gemini 에 붙인다 | 채택 |
+| [0002](0002-external-wall-flood-fill.md) | IsExternal 이 없는 벽은 층 평면을 격자로 채워 건물 바깥에 닿는지로 외벽을 판정한다 | 채택 |
+| [0003](0003-outer-wall-edit.md) | 외벽 전용 설비는 벽 면에 붙여 벽을 따라가게 하고, 벽 크기는 꼭짓점 4개인 벽까지 고치며, 높이는 형상에서 읽는다 | 채택 |
+| [0004](0004-custom-zone-ontology.md) | 커스텀존은 brick:Zone 으로 export 하고, 포함하는 방은 hasPart, 안의 설비는 hasLocation 을 하나 더 연결한다 | 채택 |
