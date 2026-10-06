@@ -70,6 +70,24 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await expect(picked).toContainText('새 벽에 붙음')
   await expect(picked).toContainText('소속 방 없음')
 
+  // 벽을 고치면 붙은 설비의 3D 형상도 그 자리에서 따라온다. [벽·문·창] 을 끌 때 다시 그리면서야 따라오던 것을 막는다.
+  const AHU = '0MEP$Equip$AHU1$0000'
+  const centerX = () => page.evaluate((id) => (window as any).__viewer.center(id)?.[0] ?? null, AHU)
+  const x0 = (await centerX()) as number
+  expect(x0).not.toBeNull()
+  await page.getByRole('button', { name: '벽·문·창' }).click()
+  await clickFloor(page, 10.1, 2, 1.3)
+  await expect(panel.locator('h3')).toHaveText('새 벽')
+  await thickness.fill('0.5')
+  await thickness.press('Enter')
+  await expect.poll(centerX).toBeCloseTo(x0 + 0.1, 2)
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await expect.poll(centerX).toBeCloseTo(x0, 2)
+  await page.getByRole('button', { name: '벽·문·창' }).click()
+  await row(page, 'AHU-1').getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await expect(picked).toContainText('새 벽에 붙음')
+
   // 되돌리면 붙기 전으로 — 벽에서 떨어지고 원래 소속으로.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
