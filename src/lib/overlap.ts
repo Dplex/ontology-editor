@@ -99,20 +99,17 @@ export function equipmentBox(e: Equipment, boxOf: (id: string) => Box3 | null): 
  *
  * `to` 는 설비의 좌표(position)다. 상자는 지금 상자를 좌표 차만큼 민다. 좌표가 아직 없는 설비(미배치)는 좌표 상자다.
  * 원래 겹쳐 있던 설비는 세지 않는다 — BIM 이 겹치게 둔 것을 떼어 놓으려고 옮기는 것은 된다.
+ *
+ * **모든 층의 설비와 견준다.** 겹침은 자리(3차원 상자)로 정하고 층 소속은 상관없다. 처음에는 그 설비가 속한 층만 봐서,
+ * 1층 콘센트와 2층 콘센트를 같은 x·y·z 로 옮겨도 막지 않았다(2026-10-06 검토, Duplex MEP).
  */
-export function overlapAt(
-  model: Model,
-  equipmentId: string,
-  to: Vec3,
-  boxOf: (id: string) => Box3 | null,
-  storeyId?: string,
-): Equipment | null {
-  const storey = storeyId ? model.storeys.find((s) => s.id === storeyId) : model.storeys.find((s) => s.equipment.some((e) => e.id === equipmentId))
-  const me = model.storeys.flatMap((s) => s.equipment).find((e) => e.id === equipmentId)
-  if (!storey || !me || !standalone(me)) return null
+export function overlapAt(model: Model, equipmentId: string, to: Vec3, boxOf: (id: string) => Box3 | null): Equipment | null {
+  const all = model.storeys.flatMap((s) => s.equipment)
+  const me = all.find((e) => e.id === equipmentId)
+  if (!me || !standalone(me)) return null
   const now = equipmentBox(me, boxOf)
   const next = me.position && now ? shiftBox(now, [to[0] - me.position[0], to[1] - me.position[1], to[2] - me.position[2]]) : markerBox(to)
-  for (const other of storey.equipment) {
+  for (const other of all) {
     if (other.id === me.id || !standalone(other)) continue
     const box = equipmentBox(other, boxOf)
     if (!box || !boxesOverlap(next, box)) continue
@@ -123,14 +120,12 @@ export function overlapAt(
 }
 
 /**
- * 그 층의 `at` 에 설비를 새로 더하면 겹치게 되는 배관 없는 설비. 없으면 null. 더할 설비는 아직 형상이 없어서 3D 가 그리는
+ * `at` 에 설비를 새로 더하면 겹치게 되는 배관 없는 설비. 없으면 null. 더할 설비는 아직 형상이 없어서 3D 가 그리는
  * 좌표 상자(`MARKER_SIZE`)로 잰다. 종류를 모르는 새 설비는 배관 없는 설비로 본다(`standalone`).
  */
-export function overlapForNew(model: Model, storeyId: string, at: Vec3, boxOf: (id: string) => Box3 | null): Equipment | null {
-  const storey = model.storeys.find((s) => s.id === storeyId)
-  if (!storey) return null
+export function overlapForNew(model: Model, at: Vec3, boxOf: (id: string) => Box3 | null): Equipment | null {
   const next = markerBox(at)
-  for (const other of storey.equipment) {
+  for (const other of model.storeys.flatMap((s) => s.equipment)) {
     if (!standalone(other)) continue
     const box = equipmentBox(other, boxOf)
     if (box && boxesOverlap(next, box)) return other
