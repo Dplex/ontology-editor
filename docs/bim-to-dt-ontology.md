@@ -735,7 +735,7 @@ R24·R16·R21은 **BIM의 어떤 값을 온톨로지의 어떤 클래스·방향
 | FCU | `IfcUnitaryEquipment` · USERDEFINED `FANCOILUNIT` | 우리가 정함 | `Fan_Coil_Unit` |
 | 시스템에어컨 실내기 · 실외기 | `IfcUnitaryEquipment` · USERDEFINED `INDOORUNIT` · `OUTDOORUNIT` | 우리가 정함 | `Indoor_Unit` · `Outdoor_Unit` |
 | 히트펌프 · 지열 히트펌프 | `IfcUnitaryEquipment` · USERDEFINED `HEATPUMP` · `GROUNDSOURCEHEATPUMP` | 우리가 정함 | `Heat_Pump_Condensing_Unit` · `Heat_Pump_Ground_Source_Condensing_Unit` |
-| VAV | `IfcAirTerminalBox` · `VARIABLEFLOWPRESSUREDEPENDANT` 또는 `…INDEPENDANT` | 표준 | `Variable_Air_Volume_Box` |
+| VAV | `IfcAirTerminalBox` · `VARIABLEFLOWPRESSUREDEPENDANT` 또는 `VARIABLEFLOWPRESSUREINDEPENDANT` | 표준 | `Variable_Air_Volume_Box` |
 | 디퓨저 · 그릴 · 외부 루버 | `IfcAirTerminal` · `DIFFUSER` · `GRILLE`(`REGISTER`도 그릴) · `LOUVRE` | 표준 | `Air_Diffuser` · 없음 · 없음 |
 | 방열기 | `IfcSpaceHeater` · `RADIATOR` | 표준 | `Radiator` |
 | 지중 열교환기 | `IfcHeatExchanger` · USERDEFINED `GROUNDHEATEXCHANGER` | 우리가 정함 | `Heat_Exchanger` |
