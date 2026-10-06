@@ -27,7 +27,7 @@ PRD 정본이 `docs/prd/` 의 md 276개(760KB)로 옮겨 왔고, 설계 결정�
 
 - 8084 화면에서 Alt+Shift+K 로 채팅 창을 연다. 창은 앱 코드(src)가 아니라 `run.sh build` 가 dist 에 끼워 넣는
   `scripts/docs-chat.js` 다. 앱 상태(열어 둔 BIM, 고른 요소)는 넘기지 않는다.
-- 창은 같은 서버의 `POST /__chat` 에 묻고, `serve.mjs` 가 gemini 를 headless 로 부른다(`scripts/docs-chat.mjs`).
+- 창은 같은 서버의 `POST /__chat` 에 묻고, `serve.mjs` 가 띄워 둔 `gemini --acp` 에 묻는다(`scripts/docs-chat.mjs`). 처음에는 질문마다 headless(`-p`)로 띄웠고, 2026-10-06 에 바꿨다(`docs/dev/deploy55.md`).
 - gemini 가 쓸 수 있는 도구는 **이 repo 의 문서만 읽는 MCP 서버(`scripts/docs-mcp.mjs`) 하나**다.
   admin 정책으로 그 밖의 도구(셸·파일 읽기·쓰기·웹)는 전부 막는다.
 - MCP 서버는 의존성 없는 node 다. 검색은 wiki-mcp(AI-Agent-Wiki-Template)를 따라 문자 2-gram BM25 에 식별자 통 토큰,
