@@ -6,7 +6,7 @@ title: "층간 연결 계산"
 prd: "#24 #25"
 release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: []
@@ -16,11 +16,11 @@ depends: []
 
 ## 요구사항
 
-계단실·승강로가 바로 위층의 같은 종류 방과 바닥이 절반 넘게 겹치면 잇는다(`verticalConnects`). 모델에 저장하지 않고 GeoJSON 출력 시 계산
+계단실·승강로가 바로 위층의 같은 종류 방과 바닥이 절반 넘게 겹치면 층간 연결(`verticalConnects`)로 잇는다. 모델에 저장하지 않고 GeoJSON 출력 때 계산한다(OE-EQP-16).
 
 ## 수용 기준
 
-—
+OE-EQP-16 과 같다.
 
 ## 검증 (이 repo)
 
