@@ -9,7 +9,7 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-EQP-17","OE-ROB-04"]
+depends: ["OE-EQP-17","OE-ROB-04", "OE-ML-19"]
 ---
 
 # OE-EQP-16 로봇 통과·연결 데이터
