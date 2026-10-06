@@ -7,7 +7,7 @@ prd: "#13"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: []
 depends: ["OE-BIM-02","OE-BIM-03","OE-BIM-07","OE-BIM-12","Q7","Q8","Q9"]
 ---

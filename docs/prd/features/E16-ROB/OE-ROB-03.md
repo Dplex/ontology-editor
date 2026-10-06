@@ -7,7 +7,7 @@ prd: "#22"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "데이터"
 blocked_by: []
 depends: ["OE-EQP-17"]

@@ -7,7 +7,7 @@ prd: "#4"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "3D·패널·도구 팔레트·액션바 ✔, 레이어 탭 ✗. 반영하기는 초기 구축의 구축하기(두 파일 내보내기)로 둔다"
 blocked_by: []
 depends: []

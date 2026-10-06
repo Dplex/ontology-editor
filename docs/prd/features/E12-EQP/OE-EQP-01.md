@@ -7,7 +7,7 @@ prd: "#13"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "임포트 ✔, 태그 ✗"
 blocked_by: []
 depends: []
