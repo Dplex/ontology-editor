@@ -56,6 +56,7 @@ import {
   moveSpaceVertex,
   completePosition,
   renameSpace,
+  setSpaceNumber,
   renameSystem,
   exteriorOnly,
   onExteriorFace,
@@ -286,6 +287,7 @@ const changeCount = computed(
     flowEditLines.value.length +
     kindEditLines.value.length +
     sinceOpen.value.renamed.length +
+    (sinceOpen.value.renumbered?.length ?? 0) +
     sinceOpen.value.restoreyed.length +
     sinceOpen.value.moved.length +
     sinceOpen.value.connected.length +
@@ -1633,6 +1635,23 @@ function applyRename(spaceId: string, name: string) {
   const at = mark()
   if (!renameSpace(model.value, spaceId, name)) return
   remember(`이름 ${snapshot?.kind === 'space' ? snapshot.longName || '(없음)' : ''} → ${name}`, snapshot, at)
+  triggerRef(model)
+}
+
+/** 방번호를 고친다(OE-OBJ-02). 같은 층에 같은 번호가 있으면 막고 칸을 원래 번호로 돌린다. */
+function applySpaceNumber(spaceId: string, input: HTMLInputElement) {
+  const m = model.value
+  if (!m) return
+  const snapshot = snapshotSpace(m, spaceId)
+  const was = snapshot?.kind === 'space' ? (snapshot.name ?? '') : ''
+  const at = mark()
+  const done = setSpaceNumber(m, spaceId, input.value)
+  if (done !== true) {
+    if (done) editNotice.value = done.refused
+    input.value = was
+    return
+  }
+  remember(`방번호 ${was || '(없음)'} → ${input.value.trim() || '(없음)'}`, snapshot, at)
   triggerRef(model)
 }
 
@@ -3358,7 +3377,7 @@ function finishDraw(): boolean {
     })
     if (ok && created) {
       selectedSpaceId.value = created
-      note(`새 물리존 ${n}${josa(String(n), '을/를')} 만들었습니다. 이름은 오른쪽 패널에서 고칩니다`)
+      note(`새 물리존 ${n}${josa(String(n), '을/를')} 만들었습니다. 방번호와 공간명은 오른쪽 패널에서 넣습니다`)
     }
     return true
   }
@@ -6395,9 +6414,21 @@ async function export3D(format: 'glb' | 'obj') {
               <button type="button" class="ghost" @click="selectedSpaceId = null">선택 해제</button>
             </div>
           </div>
+          <!-- 방번호(OE-OBJ-02). IfcSpace 의 Name 이고 한 층 안에서 겹치지 않는다. 공간명(아래)은 겹쳐도 된다. -->
+          <label v-if="editing" class="space-number">
+            방번호
+            <input
+              type="text"
+              v-keep-typing
+              data-testid="space-number"
+              :value="selectedSpace.space.name"
+              :placeholder="selectedSpace.space.added ? '방번호를 넣으세요' : ''"
+              @change="applySpaceNumber(selectedSpace.space.id, $event.target as HTMLInputElement)"
+            />
+          </label>
           <!-- 3D 에서 고른 방의 이름을 그 자리에서 고친다(E1). 아래 표에서 같은 방을 다시 찾지 않게. -->
           <label v-if="editing" class="space-name">
-            이름
+            공간명
             <input
               type="text"
               v-keep-typing
@@ -7484,6 +7515,9 @@ async function export3D(format: 'glb' | 'obj') {
             </li>
             <li v-for="r in sinceOpen.renamed" :key="`name-${r.spaceId}`">
               물리존 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)
+            </li>
+            <li v-for="r in sinceOpen.renumbered ?? []" :key="`number-${r.spaceId}`">
+              물리존 방번호 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b>
             </li>
             <li v-if="sinceOpen.moved.length" class="moved-only">
               소속은 같고 좌표만 바뀐 설비 {{ sinceOpen.moved.length }}대 (GeoJSON 위치):

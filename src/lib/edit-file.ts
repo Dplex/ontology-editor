@@ -35,6 +35,7 @@ import {
   moveEquipmentToStorey,
   releaseDeclaredSpace,
   renameSpace,
+  setSpaceNumber,
   renameSystem,
   replaceSpaceFootprint,
   setFlowDirection,
@@ -75,7 +76,8 @@ export type EditFile = {
   systemsRemoved?: string[]
   /** 이름을 고친 계통(OE-PIP-09). 연 때 있던 계통만 — 사람이 만든 계통은 `systemsAdded` 에 끝 이름이 있다. */
   systemNames?: { id: string; name: string }[]
-  spaces: { id: string; longName?: string; footprint?: Vec2[] }[]
+  /** 고친 물리존. `number` 는 방번호(IfcSpace Name, OE-OBJ-02), `longName` 은 공간명이다. */
+  spaces: { id: string; number?: string; longName?: string; footprint?: Vec2[] }[]
   /** 사람이 더한 설비(E7). id 는 에디터가 지은 것(`U_…`)이라 다시 열어도 같은 id 로 만든다. */
   equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string; wall?: string }[]
   equipmentRemoved?: string[]
@@ -169,9 +171,10 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       }
       const row: EditFile['spaces'][number] = { id: space.id }
       if (baseline.names.has(space.id) && baseline.names.get(space.id) !== space.longName) row.longName = space.longName
+      if (baseline.numbers?.has(space.id) && baseline.numbers.get(space.id) !== space.name) row.number = space.name
       const ring = baseline.footprints.get(space.id)
       if (ring && !sameRing(ring, space.footprint)) row.footprint = space.footprint.map((p) => [p[0], p[1]])
-      if (row.longName !== undefined || row.footprint) spaces.push(row)
+      if (row.longName !== undefined || row.number !== undefined || row.footprint) spaces.push(row)
     }
     for (const e of storey.equipment) {
       const was = baseline.equipment.get(e.id)
@@ -521,6 +524,11 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     }
     const sp = { ...row, id }
     if (sp.longName !== undefined && renameSpace(model, sp.id, sp.longName)) result.applied++
+    if (sp.number !== undefined) {
+      const done = setSpaceNumber(model, sp.id, sp.number)
+      if (done === true) result.applied++
+      else if (done) result.missing.spaces++
+    }
     if (sp.footprint) {
       const change = replaceSpaceFootprint(model, sp.id, sp.footprint.map((p) => [p[0], p[1]] as Vec2))
       if (change) {

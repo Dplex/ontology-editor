@@ -9,6 +9,8 @@ import {
   drawSpaceFootprint,
   openRing,
   baselineOf,
+  setSpaceNumber,
+  spaceNumberTaken,
   diffBaseline,
   moveEquipment,
   moveEquipmentToStorey,
@@ -216,6 +218,41 @@ describe('층 이동', () => {
 
   it('없는 층이면 아무것도 안 한다', () => {
     expect(moveEquipmentToStorey(model, equip('AHU-1').id, '없는-층')).toBe(null)
+  })
+})
+
+describe('방번호 (OE-OBJ-02)', () => {
+  it('같은 층에서 방번호가 겹치면 막고, 공간명은 겹쳐도 된다', () => {
+    model.storeys[0].spaces.push({ id: 'b', name: '102', longName: '사무실', footprint: [], areaM2: 0, boundedBy: [] })
+    const office = model.storeys[0].spaces[0]
+    expect(setSpaceNumber(model, office.id, '102')).toEqual({ refused: expect.stringContaining('방번호 102가 이미 있습니다') })
+    expect(office.name).toBe('101')
+    expect(setSpaceNumber(model, office.id, '103')).toBe(true)
+    expect(office.name).toBe('103')
+    // 공간명은 같아도 된다
+    expect(renameSpace(model, office.id, '사무실')).toBe(true)
+    // 빈 번호는 아직 안 정한 것이라 겹쳐도 된다
+    expect(spaceNumberTaken(model, model.storeys[0].id, '')).toBeNull()
+  })
+
+  it('고친 방번호는 연 때와 견주면 뜨고, 되돌리기로 돌아온다', () => {
+    const base = baselineOf(model)
+    const office = model.storeys[0].spaces[0]
+    const snap = snapshotSpace(model, office.id)!
+    setSpaceNumber(model, office.id, '101A')
+    expect(diffBaseline(model, base).renumbered).toEqual([{ spaceId: office.id, from: '101', to: '101A' }])
+    restore(model, snap)
+    expect(office.name).toBe('101')
+    expect(diffBaseline(model, base).renumbered).toEqual([])
+  })
+
+  it('나눈 조각의 방번호는 그 층에서 겹치지 않는 다음 번호다', () => {
+    const office = model.storeys[0].spaces[0]
+    model.storeys[0].spaces.push({ id: 'c', name: `${office.name}-2`, longName: '창고', footprint: [], areaM2: 0, boundedBy: [] })
+    const done = splitSpace(model, office.id, [5, -1], [5, 9])!
+    expect('refused' in done).toBe(false)
+    const piece = model.storeys[0].spaces.find((sp) => sp.id !== office.id && sp.id !== 'c' && sp.added)!
+    expect(piece.name).toBe(`${office.name}-3`)
   })
 })
 
@@ -652,6 +689,7 @@ describe('연 때와 견주기', () => {
     moveEquipmentToStorey(model, equip('AT-101-01').id, model.storeys[0].id)
     expect(diffBaseline(model, base)).toEqual({
       renamed: [],
+      renumbered: [],
       moved: [],
       restoreyed: [],
       connected: [],
