@@ -216,6 +216,17 @@ describe('MEP 임포트', () => {
     expect(byName('TEMP-101-01').systemId).toBe(null)
   })
 
+  it('계통 그룹에 든 포트는 구성원으로 받지 않는다 (Revit, 성수)', async () => {
+    // 성수 기계는 계통 그룹에 기기와 그 기기의 포트를 같이 넣었다. 포트를 받으면 TTL 의 hasPart 가 없는 주어를 가리킨다.
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const path = fileURLToPath(new URL('./fixtures/mep.ifc', import.meta.url))
+    const text = readFileSync(path, 'utf8').replace('(#33,#43,#47,#53),$,#70)', '(#33,#43,#47,#53,#80,#82),$,#70)')
+    expect(text).toContain('#53,#80,#82')
+    const withPorts = importIfc(api, new TextEncoder().encode(text))
+    expect(withPorts.systems[0].memberIds).toEqual(mep.systems[0].memberIds)
+  })
+
   it('포트 연결을 읽고, SOURCE→SINK 를 흐름 방향으로 쓴다', () => {
     // 공조기 → 덕트 → 토출구. 이 방향이 있어야 상류·하류를 물을 수 있다(PRD #11).
     const ahu = byName('AHU-1')

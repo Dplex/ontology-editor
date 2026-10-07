@@ -16,6 +16,7 @@ import { josa } from './josa'
 import { equipmentKind, systemKind } from './kinds'
 import { distanceToRing, interiorPoint, pointInPolygon } from './mapping'
 import { isConduit, type Connection, type Model, type Vec2, type Vec3 } from './model'
+import { overlapAt, type Box3 } from './overlap'
 import { isAirSource, isAirTerminal, type AirService } from './served'
 import { trace, TOLERANCE } from './topology'
 
@@ -191,6 +192,11 @@ export type ExplainContext = {
   services: readonly AirService[]
   /** 설비 형상의 상자. 없으면 연결망 검사의 이웃 거리를 말하지 않는다. */
   boxes?: ReadonlyMap<string, Box>
+  /**
+   * 겹침 판정의 설비 상자(IFC 좌표, overlap.ts). 있으면 [방 안으로 옮기기] 가 배관 없는 설비끼리 겹치는 자리를 권하지 않는다 —
+   * 권한 자리가 겹치면 누를 때 편집이 겹침 금지(OE-OBJ-16)에 막혀 아무 일도 일어나지 않았다(성수 HV PNL).
+   */
+  boxOf?: (id: string) => Box3 | null
   /** 목록에 보일 이름(이름 · 종류). */
   label: (id: string) => string
 }
@@ -218,8 +224,11 @@ export function explainFailure(key: string, id: string, ctx: ExplainContext): st
   return diagnoseFailure(key, id, ctx).text
 }
 
-/** 경계에서 가장 가까운 점에서 벽에 수직으로 방 안쪽으로 조금 들어간 점. 오목한 모서리라 안이 아니면 방 안의 한 점. */
-function justInside(p: Vec2, ring: readonly Vec2[], margin = 0.1): Vec2 | null {
+/**
+ * 경계에서 가장 가까운 점에서 벽에 수직으로 방 안쪽으로 `margin` 만큼 들어간 점. 오목한 모서리라 안이 아니면 방 안의 한 점
+ * (`fallback` 이 거짓이면 null — 더 깊이 들어가 보는 자리가 방 반대편으로 튀지 않게).
+ */
+function justInside(p: Vec2, ring: readonly Vec2[], margin = 0.1, fallback = true): Vec2 | null {
   let best: { q: Vec2; d: number; n: Vec2 } | null = null
   for (let i = 0; i + 1 < ring.length; i++) {
     const [ax, ay] = ring[i]
@@ -238,8 +247,11 @@ function justInside(p: Vec2, ring: readonly Vec2[], margin = 0.1): Vec2 | null {
       if (pointInPolygon(step, ring)) return step
     }
   }
-  return interiorPoint(ring)
+  return fallback ? interiorPoint(ring) : null
 }
+
+/** [방 안으로 옮기기] 가 경계에서 들어가 보는 깊이(미터). 바로 안쪽이 다른 설비와 겹치면 차례로 더 들어간다. */
+const INSIDE_STEPS = [0.1, 0.3, 0.6, 1, 1.5]
 
 const cm = (v: number) => Math.round(v * 100) / 100
 
@@ -282,8 +294,20 @@ export function diagnoseFailure(key: string, id: string, ctx: ExplainContext): {
     }
     const text = `어느 방에도 들어가지 않습니다. 가장 가까운 방은 ${best!.name}(${best!.d.toFixed(2)}m)입니다.`
     // 멀리 떨어진 것(건축 파일이 모자라거나 층이 틀린 것)은 옮겨서 고칠 일이 아니다. 경계 가까이에 있을 때만 권한다.
-    const inside = best!.d <= 1 ? justInside([e.position[0], e.position[1]], best!.ring) : null
-    return say(text, inside ? { kind: 'move-into', spaceName: best!.name, to: [cm(inside[0]), cm(inside[1]), e.position[2]] } : undefined)
+    if (best!.d > 1) return say(text)
+    // 권하는 자리가 다른 배관 없는 설비와 겹치면 편집이 막힌다(OE-OBJ-16). 겹치지 않는 자리까지 더 들어가 보고, 없으면 권하지 않는다.
+    let blocked: string | null = null
+    for (const [i, margin] of INSIDE_STEPS.entries()) {
+      const inside = justInside([e.position[0], e.position[1]], best!.ring, margin, i === 0)
+      if (!inside) continue
+      const to: Vec3 = [cm(inside[0]), cm(inside[1]), e.position[2]]
+      const hit = ctx.boxOf ? overlapAt(model, id, to, ctx.boxOf) : null
+      if (!hit) return say(text, { kind: 'move-into', spaceName: best!.name, to })
+      blocked ??= hit.id
+    }
+    if (!blocked) return say(text)
+    const other = ctx.label(blocked)
+    return say(`${text} 경계 안쪽 ${INSIDE_STEPS.at(-1)}m 까지는 ${other}${josa(other, '과/와')} 겹쳐 바로 옮길 수 없습니다.`)
   }
 
   if (key === 'heat-source-user' || key === 'hydronic-user-source') {

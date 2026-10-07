@@ -8,6 +8,7 @@ import { interiorPoint, locate, pointInPolygon } from '../src/lib/mapping'
 import { ALIGNMENT_MIN_RATIO, mergeModels, type MergeReport } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { readOntologyTTL } from '../src/lib/export/read-ttl'
+import { crossCheck, readGeoJSON } from '../src/lib/export/read-export'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
 import { disposeScene, modelToScene, sceneToGLB, sceneToOBJ } from '../src/lib/export/mesh3d'
 import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from '../src/lib/flow-rules'
@@ -168,6 +169,13 @@ describe.skipIf(!have)('성수 불변식', () => {
     const conduits = new Set(allEquipment(merged).filter((e) => isConduit(e.role)).map((e) => e.id))
     const missing = ids.filter((id) => !ttl.includes(`ex:${escapeLocalName(id)} a `) && !conduits.has(id))
     expect(missing.slice(0, 20)).toEqual([])
+  }, 300_000)
+
+  it('TTL 의 관계가 가리키는 주어가 전부 있고, GeoJSON 과 소속이 같다 (뷰어의 검사)', () => {
+    // 성수는 계통 그룹에 포트까지 들어 있어서, 포트를 구성원으로 받았을 때 끊긴 hasPart 가 39,302 였다(병원·Duplex 에는 없는 버릇).
+    const floors = modelToGeoJSON(merged).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
+    const check = crossCheck(readOntologyTTL(modelToTTL(merged)), floors)
+    expect({ ...check, toUnread: 0, dangling: check.dangling.slice(0, 5) }).toEqual({ notInTtl: [], dangling: [], toUnread: 0, locationMismatch: [], doorLinks: [] })
   }, 300_000)
 
   it('합친 두 파일의 좌표계가 맞는다(기계 설비 대부분이 건축 방 범위 안)', () => {

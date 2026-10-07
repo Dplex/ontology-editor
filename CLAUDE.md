@@ -41,7 +41,7 @@ PRD_011(온톨로지 구축 자동화 플랫폼) 중 **초기 구축 모드**다
 
 ## 꼭 지킬 것
 
-- **원격은 `sec-github`**(github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology). `origin` 은 ecodesamsung 의 다른 repo 라 거기서 브랜치를 가르지
+- **원격은 `origin`**(github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology). `eco` 는 ecodesamsung 의 다른 repo 라 거기서 브랜치를 가르지
   않는다. `gh` 는 `GH_HOST=github.sec.samsung.net` 을 붙인다(안 붙이면 github.com 으로 가서 404).
 - **기능을 끝내면 이슈 + PR** — `main` 에서 `feature/OE-XXX-nn-…` 로 갈라, PR 본문에 `Closes #n`(빠지면 칸반 카드가 안 움직인다).
   작은 손질을 이슈 없이 main 에 바로 올릴지는 애매하면 묻는다. **merge 는 사람이 하라고 한 뒤에만**(곧 Done 이다).

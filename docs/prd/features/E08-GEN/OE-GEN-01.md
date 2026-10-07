@@ -26,7 +26,7 @@ depends: ["OE-INT-02"]
 
 ## 검증 (이 repo)
 
-—
+- TTL 의 관계(`hasPart`·`hasLocation`·`feeds`)가 가리키는 주어가 전부 TTL 에 있다. 계통 그룹에 든 포트(Revit 이 기기와 같이 넣는다)는 구성원으로 받지 않는다 — `import.test.ts`, `check:sample`(가진 BIM), 성수 불변식
 
 ## 메모
 
