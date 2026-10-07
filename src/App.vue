@@ -468,7 +468,7 @@ const ceilingTitle = (s: Storey) => {
   const c = ceilingOf(s)
   const guess = ceilingGuessOf.value.get(s.id)
   return [
-    c?.source === 'bim' ? `BIM ${c.property} — 방·천장재 ${c.count}개의 가운데 값` : c ? '직접 정한 값' : 'BIM 에 반자 높이가 없습니다',
+    c?.source === 'bim' ? `BIM ${c.property} — 방·천장재 ${c.count}개의 가운데 값` : c ? '직접 정한 값' : 'BIM 에 천장고가 없습니다',
     s.ceilingSet != null && s.ceiling ? `BIM 값 ${meters(s.ceiling.height)} (${s.ceiling.property})` : null,
     guess ? `후보 ${meters(guess.height)} — 반자 부착 설비 ${guess.count}대의 높이 가운데 값(계산, 값으로 치지 않음)` : null,
   ]
@@ -497,8 +497,8 @@ function saveCeiling(storeyId: string, value: number | null) {
   if (!m || !s) return
   if (value !== null) {
     const top = storeyHeightOf.value.get(storeyId)?.value ?? null
-    if (!Number.isFinite(value) || value <= FLOOR_BAND) return note(`반자 높이는 ${FLOOR_BAND}m 보다 높아야 합니다.`)
-    if (top !== null && value >= top) return note(`반자 높이는 층고(${meters(top)})보다 낮아야 합니다.`)
+    if (!Number.isFinite(value) || value <= FLOOR_BAND) return note(`천장고는 ${FLOOR_BAND}m 보다 높아야 합니다.`)
+    if (top !== null && value >= top) return note(`천장고는 층고(${meters(top)})보다 낮아야 합니다.`)
   }
   ceilingEditing.value = null
   if (!setCeiling(m, storeyId, value)) return
@@ -506,7 +506,7 @@ function saveCeiling(storeyId: string, value: number | null) {
   autosaveArmed = true
   triggerRef(model)
   const c = ceilingOf(s)
-  note(c ? `${s.name} 층의 반자 높이를 ${meters(c.height)}로 정했습니다${c.source === 'bim' ? '(BIM 값)' : ''}.` : `${s.name} 층의 반자 높이를 지웠습니다(모름).`)
+  note(c ? `${s.name} 층의 천장고를 ${meters(c.height)}로 정했습니다${c.source === 'bim' ? '(BIM 값)' : ''}.` : `${s.name} 층의 천장고를 지웠습니다(모름).`)
 }
 
 // 설치면 판정(OE-EQP-03). z(층 바닥 기준)로 판정하고, 허용 설치면 밖이면 목록에 올린다(Q9).
@@ -6057,7 +6057,7 @@ async function export3D(format: 'glb' | 'obj') {
                         <span v-if="selectedJudged.outside" class="height-mismatch"> 허용 밖</span>
                       </template>
                       <span v-else-if="selectedJudged.z !== null" class="muted">
-                        판정 미정 (z {{ selectedJudged.z.toFixed(2) }}m{{ selectedJudged.hc ? '' : ' · 이 층 반자 높이 모름' }})
+                        판정 미정 (z {{ selectedJudged.z.toFixed(2) }}m{{ selectedJudged.hc ? '' : ' · 이 층 천장고 모름' }})
                       </span>
                     </template>
                   </dd>
@@ -7323,7 +7323,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <th>층</th>
                 <th class="num">높이</th>
                 <th class="num">층고</th>
-                <th class="num" title="반자(천장 마감면) 높이 h_c, 층 바닥 기준">반자</th>
+                <th class="num" title="천장고(h_c, 천장 마감면 높이), 층 바닥 기준">천장고</th>
                 <th>물리존</th>
                 <th class="num">넓이 합</th>
                 <th class="num">벽</th>
@@ -7356,7 +7356,7 @@ async function export3D(format: 'glb' | 'obj') {
                       step="0.05"
                       min="0.3"
                       class="ceiling-input"
-                      :aria-label="`${s.name} 반자 높이(m)`"
+                      :aria-label="`${s.name} 천장고(m)`"
                       @keydown.enter.prevent="saveCeiling(s.id, Number(ceilingInput))"
                       @keydown.esc.stop="ceilingEditing = null"
                     />
@@ -7368,12 +7368,12 @@ async function export3D(format: 'glb' | 'obj') {
                     <span :title="ceilingTitle(s)">{{ meters(ceilingOf(s)!.height) }}</span>
                     <Src :kind="ceilingOf(s)!.source" />
                     <span v-if="ceilingGuessApart(s)" class="height-mismatch" :title="ceilingTitle(s)">후보 {{ meters(ceilingGuessOf.get(s.id)!.height) }}</span>
-                    <button type="button" class="link" :aria-label="`${s.name} 반자 높이 고치기`" @click="startCeiling(s.id)">고치기</button>
+                    <button type="button" class="link" :aria-label="`${s.name} 천장고 고치기`" @click="startCeiling(s.id)">고치기</button>
                     <button v-if="s.ceilingSet != null" type="button" class="link" @click="saveCeiling(s.id, null)">{{ s.ceiling ? 'BIM 값으로' : '지우기' }}</button>
                   </template>
                   <template v-else>
                     <span class="muted" :title="ceilingTitle(s)">모름</span>
-                    <button type="button" class="link" :aria-label="`${s.name} 반자 높이 입력`" @click="startCeiling(s.id)">입력</button>
+                    <button type="button" class="link" :aria-label="`${s.name} 천장고 입력`" @click="startCeiling(s.id)">입력</button>
                   </template>
                 </td>
                 <!-- 한 층에 방이 수십 개면 이름이 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로. -->
@@ -7426,7 +7426,7 @@ async function export3D(format: 'glb' | 'obj') {
             설치면 판정 <Src kind="calc" /> 천장 {{ surfaceCounts.ceiling }} · 플레넘 {{ surfaceCounts.plenum }} · 바닥 {{ surfaceCounts.floor }} · 벽 {{ surfaceCounts.wall }} ·
             미정 {{ surfaceCounts.unknown }}
             <template v-if="model.storeys.some((x) => !ceilingOf(x) && x.equipment.length)">
-              <span class="muted">(반자 높이를 모르는 층은 천장을 판정하지 않습니다)</span>
+              <span class="muted">(천장고를 모르는 층은 천장을 판정하지 않습니다)</span>
             </template>
           </p>
           <details v-if="surfaceMismatch.length" class="surface-mismatch">
