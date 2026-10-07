@@ -24,6 +24,14 @@ export function meshHeight(mesh: ElementMesh): number | null {
   return Number.isFinite(lo) && hi > lo ? Math.round((hi - lo) * 1000) / 1000 : null
 }
 
+/** 형상의 아랫면 높이(미터, 세계 z). 천장재의 아랫면이 반자다. 형상이 없으면 null. */
+export function meshBottom(mesh: ElementMesh | undefined): number | null {
+  if (!mesh) return null
+  let lo = Infinity
+  for (let i = 1; i < mesh.positions.length; i += 3) if (mesh.positions[i] < lo) lo = mesh.positions[i]
+  return Number.isFinite(lo) ? lo : null
+}
+
 /**
  * 벽의 평면 외곽선. **맨 아래 면들의 테두리**를 이어 고리로 만든다.
  *

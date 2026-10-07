@@ -1194,6 +1194,27 @@ th {
   color: var(--warn-fg);
 }
 
+/* 반자 높이(OE-EQP-03). 값 옆의 고치기·지우기와 입력창. */
+.storeys .storey-ceiling .link {
+  margin-left: 0.4rem;
+}
+
+.storeys .ceiling-input {
+  width: 4.5rem;
+}
+
+/* 설치면 판정 요약과 허용 설치면 밖 목록(OE-EQP-03). 표 칸과 왼쪽을 맞춘다. */
+.storeys .surface-summary,
+.storeys .surface-mismatch {
+  margin: 0.4rem 0 0;
+  padding: 0 0.85rem;
+}
+
+.storeys .surface-mismatch ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1.2rem;
+}
+
 /* 한 층의 방 이름이 수십 개면 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로 본다. */
 .storeys td.names {
   max-width: 32rem;

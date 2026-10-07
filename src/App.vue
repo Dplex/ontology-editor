@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch, type Directive } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
-import { countOf, isConduit, polygonArea, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Vec2, type Vec3, type Wall } from './lib/model'
+import { countOf, isConduit, polygonArea, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile'
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
@@ -141,7 +141,8 @@ import {
   zoneEquipment,
   zoneSpaces,
 } from './lib/custom-zone'
-import { allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
+import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
+import { ceilingGuess, ceilingOf, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
@@ -452,6 +453,75 @@ const storeyHeightTitle = (h: StoreyHeight) =>
   ]
     .filter(Boolean)
     .join('\n')
+
+// 반자 높이 h_c(OE-EQP-03). BIM 값이 있으면 그것, 사람이 정했으면 그 값, 둘 다 없으면 모름이다 — 0 이나 층고로 채우지 않는다.
+// 반자 부착 설비의 z 로 짐작한 후보(계산)는 입력창 기본값과 참고로만 보인다.
+const ceilingGuessOf = computed(() => {
+  const out = new Map<string, { height: number; count: number } | null>()
+  for (const s of model.value?.storeys ?? []) out.set(s.id, ceilingGuess(s, storeyHeightOf.value.get(s.id)?.value ?? null))
+  return out
+})
+const ceilingTitle = (s: Storey) => {
+  const c = ceilingOf(s)
+  const guess = ceilingGuessOf.value.get(s.id)
+  return [
+    c?.source === 'bim' ? `BIM ${c.property} — 방·천장재 ${c.count}개의 가운데 값` : c ? '직접 정한 값' : 'BIM 에 반자 높이가 없습니다',
+    s.ceilingSet != null && s.ceiling ? `BIM 값 ${meters(s.ceiling.height)} (${s.ceiling.property})` : null,
+    guess ? `후보 ${meters(guess.height)} — 반자 부착 설비 ${guess.count}대의 높이 가운데 값(계산, 값으로 치지 않음)` : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+/** BIM 값과 후보가 0.3m 넘게 다르면 보인다. 층 하나에 반자 높이 하나라 방마다 다른 층(성수 지하)에서 벌어진다. */
+const ceilingGuessApart = (s: Storey) => {
+  const c = ceilingOf(s)
+  const g = ceilingGuessOf.value.get(s.id)
+  return !!c && !!g && Math.abs(c.height - g.height) > 0.3
+}
+const ceilingEditing = ref<string | null>(null)
+const ceilingInput = ref('')
+function startCeiling(storeyId: string) {
+  const s = model.value?.storeys.find((x) => x.id === storeyId)
+  if (!s) return
+  ceilingEditing.value = storeyId
+  const v = ceilingOf(s)?.height ?? ceilingGuessOf.value.get(storeyId)?.height
+  ceilingInput.value = v === undefined ? '' : String(v)
+  void nextTick(() => document.querySelector<HTMLInputElement>('.ceiling-input')?.select())
+}
+function saveCeiling(storeyId: string, value: number | null) {
+  const m = model.value
+  const s = m?.storeys.find((x) => x.id === storeyId)
+  if (!m || !s) return
+  if (value !== null) {
+    const top = storeyHeightOf.value.get(storeyId)?.value ?? null
+    if (!Number.isFinite(value) || value <= FLOOR_BAND) return note(`반자 높이는 ${FLOOR_BAND}m 보다 높아야 합니다.`)
+    if (top !== null && value >= top) return note(`반자 높이는 층고(${meters(top)})보다 낮아야 합니다.`)
+  }
+  ceilingEditing.value = null
+  if (!setCeiling(m, storeyId, value)) return
+  progressVersion.value++
+  autosaveArmed = true
+  triggerRef(model)
+  const c = ceilingOf(s)
+  note(c ? `${s.name} 층의 반자 높이를 ${meters(c.height)}로 정했습니다${c.source === 'bim' ? '(BIM 값)' : ''}.` : `${s.name} 층의 반자 높이를 지웠습니다(모름).`)
+}
+
+// 설치면 판정(OE-EQP-03). z(층 바닥 기준)로 판정하고, 허용 설치면 밖이면 목록에 올린다(Q9).
+const JUDGED_LABEL: Record<Judged, string> = { ...SURFACE_LABEL, plenum: '천장(플레넘)' }
+const surfaceRows = computed(() => (model.value ? judgeAll(model.value, (id) => storeyHeightOf.value.get(id)?.value ?? null) : []))
+const surfaceCounts = computed(() => {
+  const c = { ceiling: 0, plenum: 0, floor: 0, wall: 0, unknown: 0 }
+  for (const r of surfaceRows.value) c[r.judged ?? 'unknown']++
+  return c
+})
+const surfaceMismatch = computed(() => surfaceRows.value.filter((r) => outsideAllowed(r.equipment.kind, r.judged)))
+const selectedJudged = computed(() => {
+  const e = selected.value
+  const st = e ? storeyOf(e.id) : null
+  if (!e || !st) return null
+  const judged = judgeSurface(e, st, storeyHeightOf.value.get(st.id)?.value ?? null)
+  return { judged, z: e.position ? e.position[2] - st.elevation : null, outside: outsideAllowed(e.kind, judged), hc: ceilingOf(st) }
+})
 
 const wallThicknessLabel = (storey: { walls: { thickness: number | null }[] }) => {
   const kinds = wallThicknessOf(storey).split('/').filter(Boolean)
@@ -5716,15 +5786,23 @@ async function export3D(format: 'glb' | 'obj') {
                     <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
                   </dd>
                 </div>
-                <!-- 설치면(OE-OBJ-08). 종류가 허용하는 면이 하나일 때만 정한다. 둘 이상이면 모름, 표에 없는 종류는 정하지 않음. -->
+                <!-- 설치면(OE-OBJ-08 · OE-EQP-03). 허용 설치면은 종류(사전, glossary 설치면 type), 판정은 z(층 바닥 기준). -->
                 <div v-if="!isConduit(selected.role)" class="mount">
                   <dt>설치면</dt>
                   <dd v-flash="selected.kind">
-                    <template v-if="surfaceOf(selected)">{{ SURFACE_LABEL[surfaceOf(selected)!] }} <Src kind="dict" /></template>
-                    <template v-else-if="allowedSurfaces(selected.kind)">
-                      모름 <span class="muted">({{ allowedSurfaces(selected.kind)!.map((x) => SURFACE_LABEL[x]).join('·') }} 중 하나)</span> <Src kind="dict" />
+                    <template v-if="allowedSurfaces(selected.kind)">허용 {{ allowedLabel(selected.kind) }} <Src kind="dict" /></template>
+                    <span v-else class="muted">허용 설치면을 정하지 않은 종류</span>
+                    <template v-if="selectedJudged && allowedSurfaces(selected.kind)?.length !== 0">
+                      <br />
+                      <template v-if="selectedJudged.judged">
+                        판정 <span :class="{ 'height-mismatch': selectedJudged.outside }">{{ JUDGED_LABEL[selectedJudged.judged] }}</span>
+                        <span class="muted">(z {{ selectedJudged.z!.toFixed(2) }}m)</span> <Src kind="calc" />
+                        <span v-if="selectedJudged.outside" class="height-mismatch"> 허용 밖</span>
+                      </template>
+                      <span v-else-if="selectedJudged.z !== null" class="muted">
+                        판정 미정 (z {{ selectedJudged.z.toFixed(2) }}m{{ selectedJudged.hc ? '' : ' · 이 층 반자 높이 모름' }})
+                      </span>
                     </template>
-                    <span v-else class="muted">정하지 않은 종류</span>
                   </dd>
                 </div>
               </dl>
@@ -6982,6 +7060,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <th>층</th>
                 <th class="num">높이</th>
                 <th class="num">층고</th>
+                <th class="num" title="반자(천장 마감면) 높이 h_c, 층 바닥 기준">반자</th>
                 <th>물리존</th>
                 <th class="num">넓이 합</th>
                 <th class="num">벽</th>
@@ -7004,6 +7083,35 @@ async function export3D(format: 'glb' | 'obj') {
                     </span>
                   </template>
                   <span v-else class="muted" title="맨 위층이고 BIM 이 층 높이를 적지 않았습니다. 지어내지 않습니다.">모름</span>
+                </td>
+                <!-- 반자 높이(OE-EQP-03). 모르면 0 이나 층고로 채우지 않고 입력을 받는다. 후보(계산)는 입력창 기본값이다. -->
+                <td class="num mono storey-ceiling">
+                  <template v-if="ceilingEditing === s.id">
+                    <input
+                      v-model="ceilingInput"
+                      type="number"
+                      step="0.05"
+                      min="0.3"
+                      class="ceiling-input"
+                      :aria-label="`${s.name} 반자 높이(m)`"
+                      @keydown.enter.prevent="saveCeiling(s.id, Number(ceilingInput))"
+                      @keydown.esc.stop="ceilingEditing = null"
+                    />
+                    m
+                    <button type="button" class="link" @click="saveCeiling(s.id, Number(ceilingInput))">확인</button>
+                    <button type="button" class="link" @click="ceilingEditing = null">취소</button>
+                  </template>
+                  <template v-else-if="ceilingOf(s)">
+                    <span :title="ceilingTitle(s)">{{ meters(ceilingOf(s)!.height) }}</span>
+                    <Src :kind="ceilingOf(s)!.source" />
+                    <span v-if="ceilingGuessApart(s)" class="height-mismatch" :title="ceilingTitle(s)">후보 {{ meters(ceilingGuessOf.get(s.id)!.height) }}</span>
+                    <button type="button" class="link" :aria-label="`${s.name} 반자 높이 고치기`" @click="startCeiling(s.id)">고치기</button>
+                    <button v-if="s.ceilingSet != null" type="button" class="link" @click="saveCeiling(s.id, null)">{{ s.ceiling ? 'BIM 값으로' : '지우기' }}</button>
+                  </template>
+                  <template v-else>
+                    <span class="muted" :title="ceilingTitle(s)">모름</span>
+                    <button type="button" class="link" :aria-label="`${s.name} 반자 높이 입력`" @click="startCeiling(s.id)">입력</button>
+                  </template>
                 </td>
                 <!-- 한 층에 방이 수십 개면 이름이 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로. -->
                 <td class="names" :title="s.spaces.map((x) => x.longName || x.name).join(', ')">
@@ -7050,6 +7158,24 @@ async function export3D(format: 'glb' | 'obj') {
               </tr>
             </tbody>
           </table>
+          <!-- 설치면 판정(OE-EQP-03). 설비 z(층 바닥 기준)로 판정한다. 허용 설치면 밖인 설비를 따로 보인다(Q9). -->
+          <p v-if="surfaceRows.length" class="surface-summary hint">
+            설치면 판정 <Src kind="calc" /> 천장 {{ surfaceCounts.ceiling }} · 플레넘 {{ surfaceCounts.plenum }} · 바닥 {{ surfaceCounts.floor }} · 벽 {{ surfaceCounts.wall }} ·
+            미정 {{ surfaceCounts.unknown }}
+            <template v-if="model.storeys.some((x) => !ceilingOf(x) && x.equipment.length)">
+              <span class="muted">(반자 높이를 모르는 층은 천장을 판정하지 않습니다)</span>
+            </template>
+          </p>
+          <details v-if="surfaceMismatch.length" class="surface-mismatch">
+            <summary><span class="height-mismatch">허용 설치면 밖 {{ surfaceMismatch.length }}대</span> — 판정한 면이 종류의 허용 설치면(사전)에 없습니다</summary>
+            <ul>
+              <li v-for="r in surfaceMismatch.slice(0, 50)" :key="r.equipment.id">
+                <button type="button" class="link" @click="select(r.equipment.id)">{{ r.equipment.name }}</button>
+                <span class="muted"> {{ r.storey.name }} · {{ equipmentKind(r.equipment.kind)?.label }} · 판정 {{ JUDGED_LABEL[r.judged!] }} (z {{ (r.equipment.position![2] - r.storey.elevation).toFixed(2) }}m) · 허용 {{ allowedLabel(r.equipment.kind) }}</span>
+              </li>
+              <li v-if="surfaceMismatch.length > 50" class="muted">외 {{ surfaceMismatch.length - 50 }}대</li>
+            </ul>
+          </details>
         </Fold>
 
         <Fold
