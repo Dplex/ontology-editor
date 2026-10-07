@@ -319,6 +319,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const row of storeysDone) keep(row.id)
   const ceilings = model.storeys.filter((st) => st.ceilingSet != null).map((st) => ({ storeyId: st.id, height: st.ceilingSet! }))
   for (const row of ceilings) keep(row.storeyId)
+  for (const k of kindEdits(model)) if (k.typeKey.startsWith('#')) keep(k.typeKey.slice(1))
   for (const f of flows) {
     keep(f.from)
     keep(f.to)
@@ -464,6 +465,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   for (const row of file.customZones ?? []) ref(row.storeyId)
   for (const row of file.storeysDone ?? []) ref(row.id)
   for (const row of file.ceilings ?? []) ref(row.storeyId)
+  for (const k of file.kinds) if (k.typeKey.startsWith('#')) ref(k.typeKey.slice(1))
   for (const row of [...(file.walls ?? []), ...(file.openings ?? [])]) ref(row.id)
   for (const id of [...(file.wallsRemoved ?? []), ...(file.openingsRemoved ?? [])]) ref(id)
   for (const row of file.openingsAdded ?? []) if (row.wallId) ref(row.wallId)
@@ -494,11 +496,13 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   }
 
   for (const k of file.kinds) {
-    const done = setTypeKind(model, k.typeKey, k.kind)
+    // 한 대 줄(`#id`)은 GUID 가 바뀐 판본에서도 같은 설비를 찾는다.
+    const typeKey = k.typeKey.startsWith('#') ? `#${resolve(k.typeKey.slice(1))}` : k.typeKey
+    const done = setTypeKind(model, typeKey, k.kind)
     if (done) {
       result.applied++
       result.rules = done.rules
-    } else if (!model.storeys.some((s) => s.equipment.some((e) => inKindGroup(e, k.typeKey)))) {
+    } else if (!model.storeys.some((s) => s.equipment.some((e) => inKindGroup(e, typeKey)))) {
       result.missing.kinds++
     }
   }

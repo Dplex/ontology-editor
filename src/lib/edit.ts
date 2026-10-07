@@ -1013,6 +1013,8 @@ export function familyKeyOf(e: Equipment): string {
 
 /** 종류를 붙이는 묶음에 드는가. 열쇠가 `family:` 로 시작하면 패밀리, 아니면 타입이다. */
 export function inKindGroup(e: Equipment, key: string): boolean {
+  // `#id` 는 설비 한 대다(OE-EQP-14 "한 대만 따로"). 타입 이름이 없는 설비의 타입 열쇠도 같은 모양이라 같은 뜻이 된다.
+  if (key.startsWith('#')) return e.id === key.slice(1)
   return key.startsWith('family:') ? familyKeyOf(e) === key : typeKeyOf(e) === key
 }
 
@@ -1044,15 +1046,25 @@ export function setTypeKind(
 }
 
 export function kindEdits(model: Model): KindEdit[] {
-  const byType = new Map<string, KindEdit>()
+  const byType = new Map<string, Equipment[]>()
   for (const e of model.storeys.flatMap((s) => s.equipment)) {
-    if (!e.kindEdited) continue
     const key = typeKeyOf(e)
-    const row = byType.get(key)
-    if (row) row.count++
-    else byType.set(key, { typeKey: key, count: 1, from: e.kindEdited.from, to: e.kind ?? null })
+    const list = byType.get(key)
+    if (list) list.push(e)
+    else byType.set(key, [e])
   }
-  return [...byType.values()]
+  const types: KindEdit[] = []
+  const singles: KindEdit[] = []
+  for (const [key, members] of byType) {
+    const edited = members.filter((e) => e.kindEdited)
+    if (!edited.length) continue
+    const kind = edited[0].kind ?? null
+    // 타입의 설비가 다 그 종류면 타입 한 줄. 아니면(한 대만 따로 정한 것, OE-EQP-14) 고친 설비마다 `#id` 한 줄 — 타입으로 적으면
+    // 다시 열 때 그 종류가 타입 전체에 번진다. 한 대 줄은 타입 줄 뒤에 둔다(얹는 순서가 곧 덮는 순서다).
+    if (members.every((e) => (e.kind ?? null) === kind)) types.push({ typeKey: key, count: edited.length, from: edited[0].kindEdited!.from, to: kind })
+    else for (const e of edited) singles.push({ typeKey: `#${e.id}`, count: 1, from: e.kindEdited!.from, to: e.kind ?? null })
+  }
+  return [...types, ...singles]
 }
 
 // --- 연 때와 견주기 ----------------------------------------------------------------
