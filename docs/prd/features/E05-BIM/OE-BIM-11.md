@@ -24,8 +24,13 @@ mm·ft 단위 파일이 m 로 들어와 같은 건물의 다른 판본과 층 �
 
 ## 검증 (이 repo)
 
-—
+- `scripts/check-sample.test.ts` "Duplex HVAC 판본 (밀리미터)": 밀리미터를 미터로 환산해서 읽는다
+- `scripts/check-sample.test.ts` "판본 사이의 GUID (Duplex)" 의 "mm·ft 로 낸 판본도 m 로 들어와 건축과 층 높이가 같고, 단위를 잘못 선언한 COBie 판본만 1/1000 로 잡는다"
+- `src/lib/requirements.test.ts` "단위 선언 교차 확인 (OE-BIM-11)": 합치면 이름이 같은 층의 높이 비로 잡아 경고하고 R6 을 일부로 내린다 · 제대로 선언한 mm·ft 파일은 조용하다
+- `src/lib/unit-check.test.ts`: 1/1000·피트·인치·센티미터 배수, 한 층만 다르면 단위가 아니라 기준점 차이
+- `e2e/versions.spec.ts` "이전 판본과 층 높이가 단위 배수로 다르면 경고하고 R6 을 일부로 내린다"
+- 픽스처: `src/lib/ifc/fixtures/millimetre.ifc`, `foot.ifc`
 
 ## 메모
 
-—
+- 교차 확인은 합칠 때와 판본 비교 때 이름이 같은 층의 높이 비로 한다. 파일 하나만 열면 선언이 틀렸는지 알 수 없어 R6 을 표준으로 둔다.

@@ -26,8 +26,14 @@ IfcSystem(또는 Revit System Name)을 계통으로 읽는다(R16). 포트는 IF
 
 ## 검증 (이 repo)
 
-—
+- `scripts/check-sample.test.ts` "포트 연결 (ifc4Mep, IFC4)": IfcRelNests 로 포트를 찾고 SOURCE→SINK 를 방향으로 읽는다
+- `scripts/check-sample.test.ts` "포트 연결 (Duplex HVAC, IFC2x3)": IfcRelConnectsPortToElement 로 읽고 SOURCEANDSINK 는 방향 없는 연결로 둔다
+- `scripts/check-sample.test.ts` "Duplex MEP 판본 (포트 없음)" · "형상 추정의 정확도": 포트가 없으면 끝점 맞닿음(5mm)으로 연결을 추정하고, ifc4Mep 포트를 정답지로 정밀도·재현율을 잰다
+- `src/lib/topology.test.ts`: 맞닿은 두 토막을 방향 없는 형상 연결로 잇는다 · 오차 밖이면 잇지 않는다 · 다른 계통끼리는 잇지 않는다
 
 ## 메모
 
-—
+- 연결의 출처는 `Connection.source` 다(`port` · `geometry` · `manual`). 설비 패널의 이웃 목록이 "포트 · BIM", "형상 추정 · 계산", "직접 이음 · 편집" 으로 가르고, 등급 칩 연결망 설명에 포트·형상 추정 수를 따로 적는다.
+- 형상 추정 허용오차는 5mm(`topology.ts` 의 `TOLERANCE`)다. 계통이 다르면 잇지 않고, **한쪽이라도 계통을 모르면 거르지 않는다**
+  (`topology.test.ts` "계통을 모르는 요소는 거르지 않는다"). 요구사항의 "계통 이름이 같으면" 보다 넓다 — 계통을 모르는 쪽을 막으면
+  계통 그룹에 들지 않은 요소가 형상으로 이어질 길이 없어진다. 좁힐지는 계통 없는 요소 비율을 재고 정할 예정이다.

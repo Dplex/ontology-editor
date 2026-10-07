@@ -144,7 +144,8 @@ export function profileOf(model: Model): Profile {
       have: fed,
       of: linked,
       level: level(fed, linked),
-      figure: figure(fed, linked),
+      // 목표선(등급 4)은 두 수치를 같이 보인다(OE-BIM-16, D12 권고안). 포트 + 확정한 규칙 방향 → 확정 전 규칙 방향까지.
+      figure: candidate !== null && candidate > fed && linked > 0 ? `${figure(fed, linked)} → ${candidate}` : figure(fed, linked),
       note:
         (linked === 0
           ? '덕트·배관으로 다른 기기와 이어진 기기가 없다'
