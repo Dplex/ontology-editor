@@ -26,7 +26,7 @@ async function open(page: Page, file = MEP) {
   return errors
 }
 
-test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장 모드에서 반자 높이를 넣은 뒤 x·y 로 옮긴다', async ({ page }) => {
+test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장 모드에서 천장고를 넣은 뒤 x·y 로 옮긴다', async ({ page }) => {
   const errors = await open(page)
   // 바닥·벽 쪽: 디퓨저는 잠겨 있다
   await pick(page, 'AT-101-01')
@@ -47,9 +47,9 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
   await page.getByRole('button', { name: '물리존 그리기' }).click()
   await expect(page.locator('.edit-notice').first()).toContainText('공간은 [바닥·벽] 쪽에서 편집')
 
-  await page.getByLabel('천장 모드 반자 높이(m)').fill('2.7')
-  await page.getByLabel('천장 모드 반자 높이(m)').press('Enter')
-  await expect(page.locator('.ceiling-now')).toContainText('반자 2.70 m')
+  await page.getByLabel('천장 모드 천장고(m)').fill('2.7')
+  await page.getByLabel('천장 모드 천장고(m)').press('Enter')
+  await expect(page.locator('.ceiling-now')).toContainText('천장고 2.70 m')
   await expect(page.getByRole('button', { name: '설비 더하기' })).toBeEnabled()
   await page.waitForTimeout(800)
   await page.screenshot({ path: 'test-results/ceiling-mode-mep.png' })
@@ -90,7 +90,7 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
   expect(errors).toEqual([])
 })
 
-test('Duplex: 천장 모드는 위에서 내려다보고 반자 높이에 천장면을 그린다 (스샷)', async ({ page }) => {
+test('Duplex: 천장 모드는 위에서 내려다보고 천장고에 천장면을 그린다 (스샷)', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors = await open(page, DUPLEX)
@@ -99,7 +99,7 @@ test('Duplex: 천장 모드는 위에서 내려다보고 반자 높이에 천장
   await page.waitForTimeout(800)
   await page.locator('.viewport').first().screenshot({ path: 'test-results/ceiling-mode-floor-side.png' })
   await keys(page, 't')
-  await expect(page.locator('.ceiling-now')).toContainText('반자 2.60 m')
+  await expect(page.locator('.ceiling-now')).toContainText('천장고 2.60 m')
   await page.locator('.viewport canvas').first().scrollIntoViewIfNeeded()
   await page.waitForTimeout(1200)
   await page.locator('.viewport').first().screenshot({ path: 'test-results/ceiling-mode-ceiling-side.png' })
