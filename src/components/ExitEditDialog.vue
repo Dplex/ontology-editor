@@ -1,11 +1,11 @@
 <script setup lang="ts">
-// 편집을 끝낼 때 저장하지 않은 편집이 있으면 묻는다(OE-COM-08). 저장(8084 에 두고 끝낸다 — data/ 에서 연 파일만),
-// 임시 저장(브라우저에 남기고 끝낸다), 저장 안 함(마지막 저장으로 되돌리고 끝낸다), 취소(편집을 이어 한다).
+// 저장하지 않은 편집이 있는데 편집을 끝내거나 다른 층으로 가려 하면 묻는다(OE-COM-08). 저장(8084 에 둔다 — data/ 에서 연 파일만),
+// 임시 저장(층마다 브라우저에 남긴다), 저장 안 함(마지막 저장으로 되돌린다), 취소(편집을 이어 한다). `floor` 가 있으면 층을 바꾸려던 것이다.
 // ShortcutHelp 와 같은 네이티브 <dialog> 라 Esc 는 취소다.
 import { ref, watch } from 'vue'
 
 /** `server`: 8084 에 저장할 수 있는가(data/ 에서 연 파일). */
-const props = defineProps<{ open: boolean; count: number; server?: boolean }>()
+const props = defineProps<{ open: boolean; count: number; server?: boolean; floor?: { from: string; to: string } | null }>()
 const emit = defineEmits<{ commit: []; save: []; discard: []; cancel: [] }>()
 
 const dialog = ref<HTMLDialogElement | null>(null)
@@ -27,13 +27,16 @@ watch(
   <dialog ref="dialog" class="exit-edit" aria-labelledby="exit-edit-title" @close="open && emit('cancel')">
     <div class="exit-edit-body">
       <h2 id="exit-edit-title">저장하지 않은 편집이 있습니다</h2>
-      <p>
+      <p v-if="floor">
+        <b>{{ floor.from }}</b>에서 마지막으로 저장한 뒤 바뀐 것이 <b>{{ count }}건</b> 있습니다. {{ floor.to }}(으)로 가기 전에 어떻게 할까요?
+      </p>
+      <p v-else>
         마지막으로 저장한 뒤 바뀐 것이 <b>{{ count }}건</b> 있습니다. 편집을 끝내기 전에 어떻게 할까요?
       </p>
       <ul class="hint">
-        <li v-if="server"><b>저장</b>: 8084 에 두고 끝냅니다. 이 파일을 여는 사람 모두 같은 편집을 봅니다.</li>
-        <li><b>임시 저장</b>: 이 브라우저에만 남기고 끝냅니다(웹에는 반영되지 않습니다). 처음 화면의 임시 저장 목록에서 이어 갑니다.</li>
-        <li><b>저장 안 함</b>: 마지막으로 저장한 때로 되돌리고 끝냅니다. 버린 편집은 위 줄의 [이어서 하기]로 한 번 되살릴 수 있습니다.</li>
+        <li v-if="server"><b>저장</b>: 8084 에 둡니다. 이 파일을 여는 사람 모두 같은 편집을 봅니다.</li>
+        <li><b>임시 저장</b>: {{ floor ? '이 층의' : '층마다' }} 편집을 이 브라우저에만 남깁니다(웹에는 반영되지 않습니다). 그 층에 다시 들어오면 이어서 편집합니다.</li>
+        <li><b>저장 안 함</b>: {{ floor ? '이 층을' : '' }} 마지막으로 저장한 때로 되돌립니다. 버린 편집은 위 줄의 [이어서 하기]로 한 번 되살릴 수 있습니다.</li>
       </ul>
       <div class="exit-edit-actions">
         <button v-if="server" type="button" class="ghost primary-action" @click="emit('commit')">저장</button>

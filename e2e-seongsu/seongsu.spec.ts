@@ -1221,14 +1221,14 @@ test('K·L 저장과 불러오기, 자동 저장, 내보내기가 같다', async
   // K-1 저장. K-7 자동 저장 크기.
   const saved = await download(() => page.keyboard.press('Control+s'))
   await page.waitForTimeout(1500)
-  const draft = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('oe-draft')).map((k) => localStorage.getItem(k)!.length))
+  const draft = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('oe-autosave')).map((k) => localStorage.getItem(k)!.length))
   record('K-1·K-7', `편집 파일 ${saved.kb}KB · 자동 저장 ${Math.round(draft[0] / 1024)}KB`, `바뀐 것 ${changes}건`)
   const ttl = (await download(() => page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click())).text
   // L-4·L-5·L-6 옮긴 설비의 소속, 고친 방 이름, 좌표가 없는 TTL.
   expect(ttl).toContain('rdfs:label "회의실 가"')
   expect(ttl).not.toMatch(/POLYGON\(|geo:asWKT|wktLiteral/)
   record('L-5·L-6', '통과', 'TTL 에 고친 방 이름, 기하 없음')
-  // 저장하면 자동 저장(임시 저장)은 지운다 — 저장한 것과 같아 되살릴 것이 없다(OE-COM-08). 이어서 하기를 보려면 저장 뒤 편집이
+  // 저장하면 자동 저장은 지운다 — 저장한 것과 같아 되살릴 것이 없다(OE-COM-08). 이어서 하기를 보려면 저장 뒤 편집이
   // 하나 더 있어야 한다.
   await pickDevice(DEVICE_A)
   await page.keyboard.press('ArrowRight')

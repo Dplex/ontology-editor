@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 
-// OE-COM-08 Phase 1. 저장은 8084 에 남아 다른 사람도 보고(웹에서 바로 확인), 임시 저장은 이 브라우저에만 남고(웹에 반영 안 됨)
-// 목록에서 이어 간다. e2e 서버는 data/ 목록을 붙이지 않아서(data-list.spec.ts 와 같은 까닭) `/__data` 와 저장본을 여기서
+// OE-COM-08. 저장은 8084 에 남아 다른 사람도 보고(웹에서 바로 확인), 임시 저장은 이 브라우저에 층마다 하나 남고(웹에 반영 안 됨)
+// 그 층에 편집 모드로 들어가면 묻지 않고 이어진다. e2e 서버는 data/ 목록을 붙이지 않아서(data-list.spec.ts 와 같은 까닭) `/__data` 와 저장본을 여기서
 // 흉내 낸다 — 저장본 자리는 src/server/saved-edits.ts 와 같은 모양이다(서버 자체는 saved-edits.test.ts 가 잰다).
 const MEP = readFileSync('src/lib/ifc/fixtures/mep.ifc')
 const PATH = '현장/mep.ifc'
@@ -73,7 +73,7 @@ test('저장하면 8084 에 남고, 다른 사람이 같은 파일을 열면 그
   await other.close()
 })
 
-test('임시 저장은 8084 에 가지 않고, 처음 화면의 목록에서 열어 이어 간다', async ({ page }) => {
+test('임시 저장은 8084 에 가지 않고, 다시 열어 편집에 들어가면 묻지 않고 이어서 편집한다 (OE-WF-01·02)', async ({ page }) => {
   const puts: string[] = []
   await serve(page, new Map(), puts)
   await page.goto('/')
@@ -84,26 +84,36 @@ test('임시 저장은 8084 에 가지 않고, 처음 화면의 목록에서 열
   expect(puts).toEqual([])
 
   await page.reload()
-  const resume = page.locator('.catalog.resume tr', { hasText: 'mep.ifc' })
-  await expect(resume).toContainText('임시 저장')
-  await resume.getByRole('button', { name: '열어서 이어 하기' }).click()
-  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+  // 임시 저장본은 목록을 두지 않는다(OE-WF-03)
+  await expect(page.locator('.catalog.resume')).toHaveCount(0)
+  await openFromList(page)
+  await expect(page.locator('.draft-bar')).toHaveCount(0)
+  await page.getByRole('button', { name: '편집', exact: true }).click()
   await expect(light(page)).toHaveValue('6.25')
+  await expect(page.locator('.key-note')).toContainText('임시 저장본을 열었습니다')
+  await expect(page.locator('.draft-bar')).toHaveCount(0)
+  // 연 임시 저장본은 저장된 상태다 — 바로 끝내도 묻지 않는다
+  await page.getByRole('button', { name: '편집 종료' }).click()
+  await expect(page.locator('dialog.exit-edit')).not.toBeVisible()
   expect(puts).toEqual([])
 })
 
-test('편집 중에 [임시 저장] 을 누르면 편집을 이어 가고, 접혀 있던 "이어 갈 편집" 이 펼쳐져 남은 것이 보인다', async ({ page }) => {
+test('[임시 저장] 은 편집을 이어 가고, 두 번 눌러도 층마다 하나를 덮어쓴다 (OE-WF-03)', async ({ page }) => {
   const puts: string[] = []
   await serve(page, new Map(), puts)
   await page.goto('/')
   await openFromList(page)
   const keep = page.locator('.edit-bar').getByRole('button', { name: '임시 저장', exact: true })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await expect(keep).toBeDisabled()
+  await expect(keep).toBeVisible()
+  const drafts = () => page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('oe-draft:mep.ifc@')).map((k) => [k, localStorage.getItem(k)!]))
   await editLight(page, '6.5')
   await keep.click()
-  // 파일을 연 동안 그 칸은 접혀 있다 — 누르면 펼쳐져 목록이 보여야 한다(2026-10-06 검토: 임시 저장했는데 안 보였다)
-  await expect(page.locator('.catalog.resume tr', { hasText: 'mep.ifc' })).toContainText('임시 저장 · 이 브라우저에만')
+  await expect.poll(async () => (await drafts()).length).toBe(1)
+  await editLight(page, '6.75')
+  await keep.click()
+  await expect.poll(async () => (await drafts()).length).toBe(1)
+  expect((await drafts())[0][1]).toContain('6.75')
   await expect(page.locator('.edit-bar')).toBeVisible()
   expect(puts).toEqual([])
   // 남긴 뒤로 바뀐 것이 없으니 끝낼 때 묻지 않는다
