@@ -17,6 +17,7 @@ import { spacesBesideOpening } from './ifc/element-geometry'
 import { overlapArea, splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
 import { josa } from './josa'
+import { allowedSurfaces, canMountOn, SURFACE_LABEL } from './mount'
 
 /** 편집 한 번이 만든 관계 변화. 좌표가 아니라 관계를 적는다. */
 export type Change = {
@@ -2140,6 +2141,8 @@ export function mountOnWall(model: Model, equipmentId: string, at: Vec2): { wall
   const equipment = findEquipment(model, equipmentId)
   if (!equipment) return null
   const storey = model.storeys.find((s) => s.equipment.includes(equipment))!
+  // 허용 설치면에 벽이 없는 종류는 붙이지 않는다(OE-OBJ-10, 설치면 표는 mount.ts). 표에 없는 종류는 막지 않는다.
+  if (!canMountOn(equipment, 'wall')) return { refused: notOnWall(equipment) }
   // 외벽 전용 설비(외기 센서)는 외벽에만, 그 바깥 면에만 붙인다(2026-10-03 사용자 결정).
   const exterior = exteriorOnly(equipment)
   const external = exterior ? judgeExternal(storey) : null
@@ -2159,6 +2162,12 @@ export function mountOnWall(model: Model, equipmentId: string, at: Vec2): { wall
   if (!change) return null
   equipment.wallId = best.wall.id
   return { wall: best.wall, change }
+}
+
+/** 벽에 붙일 수 없는 설비를 붙이려 할 때의 이유. 허용 설치면을 같이 보인다. */
+export function notOnWall(equipment: Pick<Equipment, 'kind'>): string {
+  const allowed = allowedSurfaces(equipment.kind) ?? []
+  return `벽에 설치할 수 없는 설비입니다(설치면 ${allowed.map((x) => SURFACE_LABEL[x]).join('·')}).`
 }
 
 /** 외벽 바깥 면에만 놓는 종류인가(kinds.ts 의 `mount`). 외기 온도·습도 센서. */

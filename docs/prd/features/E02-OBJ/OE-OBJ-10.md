@@ -34,6 +34,8 @@ PAC·DVM 실내기는 냉매 배관을 가질 수 있어 여기에 들지 않는
 - `src/lib/overlap.test.ts`: 상자(IFC 좌표)·맞닿음 여유 1cm·배관 없는 설비 가르기·새 겹침만 막기·미배치 놓기
 - `e2e/overlap.spec.ts`: 좌표 없는 온도센서를 조명 자리에 놓으면 막히고, 비켜 놓으면 놓이며, 다시 조명 쪽으로 옮기면 막힌다
 - `e2e/conduit-follow.spec.ts` 등 기존 화면 테스트가 그대로 통과(덕트·배관이 붙는 설비는 규칙 밖)
+- `src/lib/outer-wall.test.ts` "허용 설치면에 벽이 없는 종류는 내벽·외벽 어디에도 붙이지 않고, 벽 전용·복수 허용·표에 없는 종류는 붙인다"
+- `src/lib/mount.test.ts`: 설치면 표(허용 면 하나·둘·없음, 정하지 않은 종류는 막지 않음)
 - 화면: `docs/figures/app-overlap-refused.png` (Duplex MEP Level 1, 벽등 #575490 을 #575488 자리로)
 
 ## 메모
@@ -41,6 +43,9 @@ PAC·DVM 실내기는 냉매 배관을 가질 수 있어 여기에 들지 않는
 - "배관 없는 설비" 는 종류(kinds.ts)에 공기·물 흐름이 없는 것이다(조명·감지기·CCTV·분전반·콘센트·욕실 부속·소화기함). 종류를 모르면
   IFC 클래스로 가른다(Sensor·LightFixture·Alarm·Outlet·ElectricDistributionBoard·통신·승강기). 덕트·배관이 붙는 설비(FCU·디퓨저·VAV)는
   이음쇠와 형상이 맞물리는 것이 정상이라 규칙 밖이다.
+- PAC·DVM 실내기(`indoor_unit`)는 사전에 공기 흐름이 있어 이 규칙 밖이다. PAC 는 사전에 종류가 아직 없다.
+- 허용 설치면(glossary "설치면 type", `src/lib/mount.ts`): 벽에 붙이기는 표에 벽이 있는 종류와 표에 없는 종류만 된다. 벽 전용 종류는
+  [3D에서 놓기] 도 벽에 붙인다. 천장 전용 종류를 천장 편집 모드에서만 다루는 것은 OE-OBJ-08 2단계(천장 편집 모드)에서 할 예정이다.
 - 배치·이동·삭제·명칭 수정은 E5~E7 로 이미 있다. 겹침 막기는 설비를 옮기는 모든 길(3D 끌기·방향키·좌표 칸·미배치 놓기·검사의 "방 안으로")이
   거치는 `relocate` 한 곳에 있다.
 - 실제 BIM 에서 이미 겹쳐 있는 배관 없는 설비 쌍: ifc4Mep 0 · Duplex MEP 0 · Office_A 0 · 성수 기계 0 · dental_clinic 1(거울과

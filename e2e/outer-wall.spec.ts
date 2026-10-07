@@ -58,12 +58,16 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await panel.getByTestId('wall-external-select').selectOption('true')
   await expect(panel.getByTestId('wall-external')).toHaveText('외벽')
 
-  // 설비를 외벽 바깥 면에 붙인다. 벽·문·창 층을 끄고 표에서 AHU-1 을 고른다.
+  // 설비를 외벽 바깥 면에 붙인다. 벽·문·창 층을 끄고 표에서 고른다. AHU 는 바닥 전용이라(설치면 표, OE-OBJ-10) 붙이기 단추가 없다.
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await row(page, 'AHU-1').getByRole('button', { name: 'AHU-1', exact: true }).click()
+  const picked = page.locator('.picked').first()
+  await expect(picked.locator('h3')).toContainText('AHU-1')
+  await expect(picked.getByRole('button', { name: '벽에 붙이기' })).toHaveCount(0)
+  // 온도 센서는 설치면 표에 없는 종류라 막지 않는다.
+  await row(page, 'TEMP-101-01').getByRole('button', { name: 'TEMP-101-01', exact: true }).click()
   await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
-  const picked = page.locator('.picked').first()
   await picked.getByRole('button', { name: '벽에 붙이기' }).click()
   await clickFloor(page, 10.6, 3)
   await expect(page.locator('.key-note, .notice, .toast').first()).toContainText('새 벽에 붙였습니다')
@@ -71,8 +75,8 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await expect(picked).toContainText('소속 방 없음')
 
   // 벽을 고치면 붙은 설비의 3D 형상도 그 자리에서 따라온다. [벽·문·창] 을 끌 때 다시 그리면서야 따라오던 것을 막는다.
-  const AHU = '0MEP$Equip$AHU1$0000'
-  const centerX = () => page.evaluate((id) => (window as any).__viewer.center(id)?.[0] ?? null, AHU)
+  const SENSOR = '0MEP$Equip$SEN01$000'
+  const centerX = () => page.evaluate((id) => (window as any).__viewer.center(id)?.[0] ?? null, SENSOR)
   const x0 = (await centerX()) as number
   expect(x0).not.toBeNull()
   await page.getByRole('button', { name: '벽·문·창' }).click()
@@ -85,7 +89,7 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await page.keyboard.press('Control+z')
   await expect.poll(centerX).toBeCloseTo(x0, 2)
   await page.getByRole('button', { name: '벽·문·창' }).click()
-  await row(page, 'AHU-1').getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await row(page, 'TEMP-101-01').getByRole('button', { name: 'TEMP-101-01', exact: true }).click()
   await expect(picked).toContainText('새 벽에 붙음')
 
   // 되돌리면 붙기 전으로 — 벽에서 떨어지고 원래 소속으로.

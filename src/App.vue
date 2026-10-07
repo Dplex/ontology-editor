@@ -140,7 +140,7 @@ import {
   zoneEquipment,
   zoneSpaces,
 } from './lib/custom-zone'
-import { allowedSurfaces, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
+import { allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
@@ -3127,6 +3127,9 @@ const placingOn = ref<'floor' | 'wall'>('floor')
 function startPlace(id: string, on: 'floor' | 'wall' = 'floor') {
   const home = storeyOf(id)
   if (!home) return
+  // 벽 전용 종류(콘센트)는 바닥에 놓지 않고 벽에 붙인다(OE-OBJ-10, 설치면 표 mount.ts)
+  const target = equipmentById.value.get(id)
+  if (target && surfaceOf(target) === 'wall') on = 'wall'
   connectFrom.value = null
   placing.value = id
   placingOn.value = on
@@ -3731,6 +3734,11 @@ const selectedExternal = computed(() => {
   const storey = selectedElement.value?.storey
   return storey ? judgeExternal(storey) : null
 })
+/** 내력 여부의 출처(OE-OBJ-06). 더한 벽이거나 연 때와 값이 다르면 사람이 정한 것이다. */
+const bearingSrc = (wall: Wall): 'edit' | 'bim' => {
+  const was = baseline.value?.walls?.get(wall.id)
+  return wall.added || (was !== undefined && was.loadBearing !== wall.loadBearing) ? 'edit' : 'bim'
+}
 const externalOf = (wallId: string | null | undefined) => (wallId ? selectedExternal.value?.get(wallId) ?? null : null)
 /** 설비를 붙인 벽의 이름(OE-OBJ-04). */
 const wallNameOf = (wallId: string) => model.value?.storeys.flatMap((st) => st.walls).find((w) => w.id === wallId)?.name || '벽'
@@ -5735,7 +5743,7 @@ async function export3D(format: 'glb' | 'obj') {
             </button>
             <!-- 외벽 전용 설비(OE-OBJ-04). 누른 자리에서 가장 가까운 벽 면에 붙이고, 벽을 옮기면 같이 간다. -->
             <button
-              v-if="editing"
+              v-if="editing && canMountOn(selected, 'wall')"
               type="button"
               :class="['ghost', 'place', 'mount', { on: placing === selected.id && placingOn === 'wall' }]"
               :aria-pressed="placing === selected.id && placingOn === 'wall'"
@@ -5999,7 +6007,7 @@ async function export3D(format: 'glb' | 'obj') {
               <h3>{{ selectedElement.wall?.name || selectedElement.opening?.name || elementLabel(selectedElement.kind) }}</h3>
               <p class="stats">
                 {{ selectedElement.wall?.loadBearing ? '내력벽' : elementLabel(selectedElement.kind) }}
-                <Src :kind="(selectedElement.wall ?? selectedElement.opening)?.added ? 'edit' : 'bim'" /> ·
+                <Src :kind="selectedElement.wall ? bearingSrc(selectedElement.wall) : selectedElement.opening?.added ? 'edit' : 'bim'" /> ·
                 {{ selectedElement.storey.name }}
                 <template v-if="selectedElement.wall">
                   · 두께 {{ selectedElement.wall.thickness !== null ? `${selectedElement.wall.thickness.toFixed(2)}m` : '모름' }}
@@ -6114,7 +6122,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <option value="null">모름</option>
               </select>
             </label>
-            <Src :kind="selectedElement.wall.added ? 'edit' : 'bim'" />
+            <Src :kind="bearingSrc(selectedElement.wall)" />
             <span class="muted">{{ selectedElement.wall.loadBearing === null ? '모름은 아니오가 아닙니다. 내벽처럼 고칠 수 있습니다.' : '모름은 아니오가 아닙니다.' }}</span>
           </p>
           <!-- 문·창 크기(OE-OBJ-07). 자리(가운데)는 두고 가로·세로만 바꾼다. 모르는 값은 빈칸이다. -->

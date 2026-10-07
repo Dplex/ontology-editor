@@ -85,6 +85,20 @@ describe('외벽 면에 설비 붙이기(OE-OBJ-04 외벽 전용 설비)', () =>
     expect(louver.spaceId).toBe('room')
   })
 
+  it('허용 설치면에 벽이 없는 종류는 내벽·외벽 어디에도 붙이지 않고, 벽 전용·복수 허용·표에 없는 종류는 붙인다 (OE-OBJ-10)', () => {
+    const light = addEquipment(model, 's1', { name: '조명', kind: 'lighting', position: [3, 2, 2.7] })!
+    expect(mountOnWall(model, light.id, [3, 0.3])).toEqual({ refused: '벽에 설치할 수 없는 설비입니다(설치면 천장).' })
+    expect(light.wallId).toBeUndefined()
+    expect(light.position).toEqual([3, 2, 2.7])
+    for (const kind of ['receptacle', 'camera']) {
+      const e = addEquipment(model, 's1', { name: kind, kind, position: [2, 2, 1] })!
+      const done = mountOnWall(model, e.id, [2, 0.3])
+      expect(done && 'wall' in done && done.wall.id).toBe('south')
+    }
+    // 루버(outdoor_louver)는 설치면 표에 없다 — 정하지 않은 것을 금지로 읽지 않는다
+    expect(mountOnWall(model, louver.id, [3, 0.3])).toMatchObject({ wall: { id: 'south' } })
+  })
+
   it('벽에서 멀면 붙이지 않고 이유를 돌려준다', () => {
     expect(mountOnWall(model, louver.id, [3, 2])).toEqual({ refused: '벽에서 0.6m 안을 누르세요.' })
     expect(louver.wallId).toBeUndefined()
