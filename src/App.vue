@@ -101,6 +101,9 @@ import {
   snapshotStoreySpaces,
   addWall,
   addOpening,
+  newWallThickness,
+  OPENING_SNAP,
+  OPENING_SNAP_RANGE,
   moveWall,
   moveWallWithSpaces,
   type WallCarryPlan,
@@ -276,6 +279,46 @@ watch(
   },
   { deep: true },
 )
+// 벽·문·창 설정(OE-SPC-12 · OE-SPC-13). 사이트(이 브라우저) 하나에 하나다. 새 벽 두께는 같은 층 BIM 내벽 최빈값이 먼저이고 이 값은
+// 그 다음이다(edit.ts 의 newWallThickness). 스냅 거리는 문·창을 놓거나 옮길 때 벽에서 이만큼 안이어야 붙는 거리다.
+type ElementSettings = { wallThickness: number | null; openingSnap: number }
+const elementSettings = ref<ElementSettings>(
+  (() => {
+    const base: ElementSettings = { wallThickness: null, openingSnap: OPENING_SNAP }
+    try {
+      const saved = JSON.parse(localStorage.getItem('oe-element-settings') ?? 'null') as Partial<ElementSettings> | null
+      return saved ? { ...base, ...saved } : base
+    } catch {
+      return base
+    }
+  })(),
+)
+watch(
+  elementSettings,
+  (v) => {
+    try {
+      localStorage.setItem('oe-element-settings', JSON.stringify(v))
+    } catch {
+      // 못 써도 이번 창에서는 그대로 돈다.
+    }
+  },
+  { deep: true },
+)
+function setSiteWallThickness(raw: string) {
+  const v = Number(raw)
+  elementSettings.value = { ...elementSettings.value, wallThickness: raw.trim() && v > 0 && v <= 2 ? cm(v) : null }
+}
+function setOpeningSnap(raw: string) {
+  const v = Number(raw)
+  if (!Number.isFinite(v)) return
+  elementSettings.value = { ...elementSettings.value, openingSnap: cm(Math.min(OPENING_SNAP_RANGE.max, Math.max(OPENING_SNAP_RANGE.min, v))) }
+}
+/** 지금 층에 새 벽을 그으면 어떤 두께가 되나(설정 칸 옆 안내). */
+const wallThicknessHere = computed(() => {
+  const storey = targetStorey()
+  return storey ? { storey: storey.name, ...newWallThickness(storey, elementSettings.value.wallThickness) } : null
+})
+const WALL_FROM = { bim: '같은 층 BIM 내벽 두께의 최빈값', site: '사이트 기본값', default: '기본값' } as const
 const readOpeningShapes = computed(() => readOpenings.value && (readFeatures.value.doors || readFeatures.value.windows))
 /** 편집 막대에 보이는 바뀐 것의 수. 리포트(바뀌는 것)에 적히는 줄과 같은 단위로 센다. */
 const changeCount = computed(
@@ -3292,14 +3335,17 @@ function finishDraw(): boolean {
     stopDraw()
     const [a, b] = d.points
     let made: Wall | null = null
+    let thick: ReturnType<typeof newWallThickness> | null = null
     const draw = (m: Model) => {
-      const done = addWall(m, d.storeyId, a, b)
+      const storey = m.storeys.find((st) => st.id === d.storeyId)
+      const done = storey ? addWall(m, d.storeyId, a, b, (thick = newWallThickness(storey, elementSettings.value.wallThickness)).thickness) : null
       if (done && !('refused' in done)) made = done
       return done
     }
     if (changeElements(d.storeyId, '벽 긋기', draw) && made) {
       selectedElementId.value = (made as Wall).id
-      note('벽을 그었습니다. 내력 여부는 오른쪽 패널에서 정합니다')
+      const t = thick as ReturnType<typeof newWallThickness> | null
+      note(`벽을 그었습니다. 두께 ${t ? `${t.thickness}m(${WALL_FROM[t.from]})` : ''}는 오른쪽 패널에서 고칩니다. 내력 여부도 거기서 정합니다`)
     }
     return true
   }
@@ -3885,7 +3931,7 @@ function nudgeElement(code: string, step: number): boolean {
     note('자리를 모르는 문·창은 옮길 수 없습니다(읽을 것에서 문·창 자리를 켜고 여세요)')
     return true
   }
-  changeElements(picked.storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, [cm(o.position![0] + delta[0]), cm(o.position![1] + delta[1])]), `el:${o.id}`)
+  changeElements(picked.storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, [cm(o.position![0] + delta[0]), cm(o.position![1] + delta[1])], { snap: elementSettings.value.openingSnap }), `el:${o.id}`)
   return true
 }
 
@@ -3935,7 +3981,7 @@ function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string, input?: HTML
   if (selectedElement.value?.locked) return note(WALL_LOCKED)
   const to: [number, number] = [o.position[0], o.position[1]]
   to[axis] = value
-  changeElements(storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, to))
+  changeElements(storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, to, { snap: elementSettings.value.openingSnap }))
   // 문·창은 벽을 따라서만 가서(OE-OBJ-07) 친 값과 놓인 자리가 다를 수 있다. 칸은 치는 동안 덮이지 않으니(v-keep-typing) 놓인 자리로 되돌린다.
   if (input && o.position) input.value = String(mmOf(o.position[axis]))
 }
@@ -3968,7 +4014,7 @@ function addOpeningAt(at: Vec2) {
   const kind = target.what
   let made: Opening | null = null
   const ok = changeElements(target.storeyId, `${elementLabel(kind)} 놓기`, (m) => {
-    const done = addOpening(m, target.storeyId, kind, [cm(at[0]), cm(at[1])])
+    const done = addOpening(m, target.storeyId, kind, [cm(at[0]), cm(at[1])], undefined, elementSettings.value.openingSnap)
     if (done && !('refused' in done)) made = done
     return done
   })
@@ -6488,6 +6534,40 @@ async function export3D(format: 'glb' | 'obj') {
                 <span class="muted">{{ x.storey.name }}</span>
               </li>
             </ul>
+          </div>
+          <!-- 벽·문·창 설정(OE-SPC-12 · OE-SPC-13). [벽·문·창] 을 켰을 때만. 3D 위 팔레트에 두면 바닥을 가린다. -->
+          <div v-if="editing && archMode" class="element-settings" data-testid="element-settings">
+            <h4>벽·문·창 설정</h4>
+            <label>
+              새 벽 사이트 기본 두께
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                placeholder="없음"
+                data-testid="site-wall-thickness"
+                :value="elementSettings.wallThickness ?? ''"
+                @change="setSiteWallThickness(($event.target as HTMLInputElement).value)"
+              />
+              m
+            </label>
+            <p v-if="wallThicknessHere" class="hint" data-testid="wall-thickness-here">
+              {{ wallThicknessHere.storey }}에 새 벽을 그으면 <b class="mono">{{ wallThicknessHere.thickness }}m</b>({{ WALL_FROM[wallThicknessHere.from] }})입니다. 같은 층 BIM 내벽이 있으면 그 두께가 먼저입니다.
+            </p>
+            <label>
+              문·창 스냅 거리
+              <input
+                type="number"
+                step="0.1"
+                :min="OPENING_SNAP_RANGE.min"
+                :max="OPENING_SNAP_RANGE.max"
+                data-testid="opening-snap"
+                :value="elementSettings.openingSnap"
+                @change="setOpeningSnap(($event.target as HTMLInputElement).value); ($event.target as HTMLInputElement).value = String(elementSettings.openingSnap)"
+              />
+              m
+            </label>
+            <p class="hint">벽에서 이 거리 안을 눌러야 문·창이 가장 가까운 벽에 붙습니다. 이 브라우저에만 남습니다.</p>
           </div>
           <p class="hint">
             3D에서 설비를 클릭하면 연결과 소속이, 바닥을 클릭하면 물리존 정보가 여기에 표시됩니다.
