@@ -73,3 +73,4 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | [0011](0011-per-storey-ontology-files.md) | 층 단위 생성은 층마다 TTL·GeoJSON 두 파일로 export 하고, 층 파일을 모두 합치면 건물 전체 TTL 과 같은 triple 이 되도록 나눈다 | 채택 |
 | [0012](0012-custom-zone-aliases.md) | 커스텀존 별명은 여러 개다 — 첫 이름이 rdfs:label, 나머지는 ex:alias | 채택 |
 | [0013](0013-3d-shading-two-lights.md) | 3D 음영은 하늘빛과 카메라에 붙인 주광 두 개로만 내고, 그림자·후처리·재질 색은 쓰지 않는다 | 채택 |
+| [0014](0014-per-storey-temp-save.md) | 임시 저장본은 편집 파일을 층별 조각으로 갈라 층마다 브라우저에 두고, 층이 없는 편집은 건물 조각으로 같이 저장·적용한다 | 제안 |

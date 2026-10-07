@@ -18,7 +18,8 @@ import { vFlash } from './lib/motion'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
-import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
+import { applyEdits, countEdits, EDIT_FORMAT, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
+import { BUILDING, joinParts, partSig, splitByStorey, type HomeOf } from './lib/storey-drafts'
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
 import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
@@ -933,8 +934,9 @@ function moveToStorey(equipmentId: string, storeyId: string): boolean {
   changes.value = [...changes.value, change]
   storeyMoved.value = new Set([...storeyMoved.value, equipmentId])
   triggerRef(model)
-  // 한 층만 보고 있으면 옮긴 층으로 따라간다. 안 따라가면 고른 설비가 화면에서 사라진 것처럼 보였다.
-  if (viewStorey.value && viewStorey.value !== storeyId) viewStorey.value = storeyId
+  // 한 층만 보고 있으면 옮긴 층으로 따라간다. 안 따라가면 고른 설비가 화면에서 사라진 것처럼 보였다. 방금 한 편집을 따라가는 것이라
+  // 층 바꾸기를 묻지 않는다(goFloor) — 옮긴 편집은 원래 층의 것으로 남는다(storey-drafts.ts).
+  if (viewStorey.value && viewStorey.value !== storeyId) goFloor(storeyId)
   return true
 }
 /** 패널의 층 칸. 막히면 칸을 지금 층으로 되돌린다 — 고른 층이 남으면 옮겨진 것처럼 보인다. */
@@ -2985,16 +2987,14 @@ async function saveEdits(toFile = false) {
   const file = exportEdits(m, baseline.value, fileName.value)
   const sig = editSig(file)
   if (!toFile && serverKey.value && (await saveToServer(file))) {
-    savedSig = committedSig = sig
-    removeDraft()
+    committed()
     note(`8084 에 저장했습니다(편집 ${editCount(file)}건). 이 파일을 여는 사람 모두 같은 편집을 봅니다`)
     markDone('save')
     return
   }
   const stem = fileName.value.replace(/\.ifc/gi, '').replace(/[^\w가-힣.+-]+/g, '_') || 'model'
   download(`${stem}.edits.json`, JSON.stringify(file, null, 2), 'application/json')
-  savedSig = committedSig = sig
-  removeDraft()
+  committed()
   note(`편집을 파일로 내려받았습니다: ${stem}.edits.json`)
   markDone('save')
 }
@@ -3016,7 +3016,7 @@ async function onEditFilePick(event: Event) {
 }
 
 /** 편집 파일을 지금 모델에 얹는다. 파일에서 불러올 때와 자동 저장을 되살릴 때가 같이 쓴다. */
-function applyEditFile(file: EditFile, from: string) {
+function applyEditFile(file: EditFile, from: string, quiet = false) {
   const m = model.value
   if (!m) return
   // 옮길 설비의 형상도 같이 옮겨야 다시 그릴 때 예전 자리로 튀지 않는다. 얹기 전 좌표를 떠 둔다.
@@ -3047,6 +3047,7 @@ function applyEditFile(file: EditFile, from: string) {
   // GUID 가 바뀐 판본에서 다른 열쇠로 찾은 것. 사람이 확인할 수 있게 무엇으로 찾았는지까지 말한다.
   const rematched = (Object.entries(result.rematched) as [Exclude<MatchKey, 'guid'>, number][]).filter(([, n]) => n > 0)
   autosaveArmed = true
+  if (quiet) return
   editFileNote.value =
     `편집 ${result.applied}개를 적용했습니다(${from}).` +
     (file.source && file.source !== fileName.value ? ` 원래 파일: ${file.source}.` : '') +
@@ -4019,35 +4020,31 @@ function disconnect(c: Connection) {
   flowVersion.value++
 }
 
-// --- 자동 저장 ------------------------------------------------------------------------
+// --- 자동 저장 (OE-HIST-04) -------------------------------------------------------------------
 //
 // 편집은 탭 안에만 있어서 브라우저가 죽거나 PC 가 다시 켜지면 사라졌다(창 닫기는 묻지만 그 밖은 못 막는다). 편집할
-// 때마다 "편집 저장" 과 같은 파일(lib/edit-file.ts)을 브라우저에 적어 두고, 같은 IFC 를 다시 열면 이어서 할지 묻는다.
-// 되살리기도 편집 파일 불러오기와 같은 길이다 — 값을 덮지 않고 편집 함수에 다시 넣는다.
+// 때마다 "편집 저장" 과 같은 파일(lib/edit-file.ts)을 브라우저 `oe-autosave:<파일 이름>` 에 적어 둔다. 같은 IFC 를 다시 열었을 때
+// 임시 저장본·8084 저장본으로 돌아오는 상태와 다르면 이어서 할지 묻는다. 되살리기도 편집 파일 불러오기와 같은 길이다 — 값을
+// 덮지 않고 편집 함수에 다시 넣는다.
 //
+// 임시 저장(아래, 층마다)과 자리가 다르다. 임시 저장은 사람이 [임시 저장] 을 누른 층만, 자동 저장은 마지막 상태 전부다.
 // 열자마자 지우면 안 된다. 연 직후에는 바뀐 것이 0 이라, 그대로 저장하면 되살릴 기록을 지운다. 사람이 편집을
-// 시작하거나(되살리기를 고르지 않고 새로 고친 것이다) 되살린 뒤부터 적는다.
-const DRAFT_PREFIX = 'oe-draft:'
+// 시작하거나 되살린 뒤부터 적는다.
+const AUTOSAVE_PREFIX = 'oe-autosave:'
+/** 되살릴 수 있는 편집 — 자동 저장에 남은 것이나 [저장 안 함] 으로 버린 것. 위 줄의 [이어서 하기] 가 쓴다. */
 const draft = shallowRef<{ file: EditFile; count: number; savedAt: string } | null>(null)
 let autosaveArmed = false
 let autosaveTimer: number | undefined
-const draftKey = () => DRAFT_PREFIX + fileName.value
+const autosaveKey = () => AUTOSAVE_PREFIX + fileName.value
 /** 층 완료를 누르거나 지운 횟수(OE-MAN-06). 완료 표시는 되돌리기 이력에 들지 않아, 자동 저장·저장 안 한 편집 판정이 이것도 본다. */
 const progressVersion = ref(0)
 watch(baseline, () => (progressVersion.value = 0))
 const editCount = countEdits
+const editsIn = (part: EditFile | undefined) => (part ? editCount(part) : 0)
 
-watch(baseline, (b) => {
+watch(baseline, () => {
   autosaveArmed = false
   draft.value = null
-  if (!b) return
-  try {
-    const raw = localStorage.getItem(draftKey())
-    const file = raw ? parseEditFile(raw) : null
-    if (file && typeof file !== 'string' && editCount(file) > 0) draft.value = { file, count: editCount(file), savedAt: file.savedAt }
-  } catch {
-    // 브라우저 저장소를 못 읽으면 되살릴 것도 없다.
-  }
 })
 // 되돌리기 이력이 늘면 사람이 편집한 것이다. 남아 있던 기록은 이 편집으로 바뀐다.
 watch(
@@ -4067,9 +4064,9 @@ watch([changeCount, flowVersion, () => history.value.length, progressVersion], (
     if (!m || !baseline.value) return
     try {
       const file = exportEdits(m, baseline.value, fileName.value)
-      // 마지막으로 저장(8084·파일·구축하기)한 것과 같으면 남길 것이 없다. 저장본을 얹은 직후의 사본이 임시 저장 목록에 뜨지 않게.
-      if (editCount(file) > 0 && editSig(file) !== committedSig) writeDraft(file)
-      else removeDraft()
+      // 마지막으로 저장(8084·파일·구축하기)한 것과 같으면 남길 것이 없다.
+      if (editCount(file) > 0 && editSig(file) !== committedSig) localStorage.setItem(autosaveKey(), JSON.stringify(file))
+      else localStorage.removeItem(autosaveKey())
     } catch {
       // 저장소가 차거나 막혀 있으면 이번 창에서만 산다. "편집 저장" 으로 내려받는 길은 그대로다.
     }
@@ -4081,85 +4078,179 @@ function restoreDraft() {
   if (!d) return
   draft.value = null
   mode.value = 'edit'
-  // 임시 저장은 연 때(IFC) 기준의 편집 전부다. 8084 저장본을 이미 얹었으면 걷고 얹는다 — 안 그러면 더한 설비가 두 번 생긴다.
-  if (serverSaved.value || history.value.length) resetToOpened()
-  applyEditFile(d.file, '임시 저장')
+  // 되살릴 편집은 연 때 기준의 편집 전부다. 8084 저장본·임시 저장본을 이미 얹었으면 걷고 얹는다 — 안 그러면 더한 설비가 두 번 생긴다.
+  resetToOpened()
+  applyEditFile(d.file, '이어서 하기')
+  // 모든 층의 편집이 들어왔으니 층에 들어갈 때 임시 저장본을 다시 얹지 않는다.
+  for (const k of floorDrafts.keys()) appliedFloors.add(k)
 }
 function discardDraft() {
   draft.value = null
-  removeDraft()
-}
-
-// --- 임시 저장 목록 (OE-COM-08) -------------------------------------------------------------
-//
-// 임시 저장은 이 브라우저의 `oe-draft:<파일 이름>` 이다(자동 저장과 같은 자리). 목록에서 골라 이어 가려면 그 IFC 를 다시 열어야
-// 해서, data/ 에서 연 파일이면 경로를 `oe-draft-paths` 에 같이 적어 둔다. 손으로 연 파일은 경로가 없어 "파일 열기로 같은 IFC" 다.
-const DRAFT_PATHS = 'oe-draft-paths'
-type DraftEntry = { name: string; count: number; savedAt: string; paths: string[] | null }
-const draftList = ref<DraftEntry[]>([])
-function readDraftPaths(): Record<string, string[]> {
   try {
-    return JSON.parse(localStorage.getItem(DRAFT_PATHS) ?? '{}') as Record<string, string[]>
-  } catch {
-    return {}
-  }
-}
-function refreshDraftList() {
-  const out: DraftEntry[] = []
-  try {
-    const paths = readDraftPaths()
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i)
-      if (!k?.startsWith(DRAFT_PREFIX)) continue
-      const file = parseEditFile(localStorage.getItem(k) ?? '')
-      if (typeof file === 'string' || editCount(file) === 0) continue
-      const name = k.slice(DRAFT_PREFIX.length)
-      out.push({ name, count: editCount(file), savedAt: file.savedAt, paths: paths[name] ?? null })
-    }
-  } catch {
-    // 저장소를 못 읽으면 목록도 없다
-  }
-  draftList.value = out.sort((a, b) => b.savedAt.localeCompare(a.savedAt))
-}
-refreshDraftList()
-function writeDraft(file: EditFile) {
-  localStorage.setItem(draftKey(), JSON.stringify(file))
-  const paths = readDraftPaths()
-  if (serverKey.value) paths[fileName.value] = openedSources.value as string[]
-  else delete paths[fileName.value]
-  localStorage.setItem(DRAFT_PATHS, JSON.stringify(paths))
-  refreshDraftList()
-}
-function removeDraft(name = fileName.value) {
-  try {
-    localStorage.removeItem(DRAFT_PREFIX + name)
-    const paths = readDraftPaths()
-    delete paths[name]
-    localStorage.setItem(DRAFT_PATHS, JSON.stringify(paths))
+    localStorage.removeItem(autosaveKey())
   } catch {
     // 못 지워도 다음 편집이 덮는다
   }
-  refreshDraftList()
 }
-/** 목록에서 [이어서 하기]. data/ 의 파일이면 열고 바로 되살린다. 손으로 연 파일이면 파일 고르기를 띄운다. */
-let restoreAfterOpen: string | null = null
-function resumeDraft(d: DraftEntry) {
-  restoreAfterOpen = d.name
-  if (d.paths) {
-    if (d.paths.length === 1) openData(d.paths[0])
-    else openDataSet(d.paths)
-  } else {
-    note(`${d.name} 을(를) [열기]로 다시 고르면 이어서 할지 묻습니다`)
-    document.querySelector<HTMLInputElement>('input[type=file][accept=".ifc,.idf"]')?.click()
-  }
-}
-// 열고 나서(8084 저장본까지 얹은 뒤) 목록에서 고른 임시 저장을 되살린다
-watch(draft, (d) => {
-  if (d && restoreAfterOpen && restoreAfterOpen === fileName.value) {
-    restoreAfterOpen = null
-    restoreDraft()
+
+// --- 임시 저장 — 층마다 하나 (OE-COM-08 · OE-WF-01~03) -----------------------------------------------
+//
+// [임시 저장] 은 지금 층의 편집을 이 브라우저 `oe-draft:<파일 이름>@<층 id>` 에 남긴다. 층마다 하나고, 다시 누르면 덮는다(목록은
+// 두지 않는다). 웹(8084)에는 올리지 않는다. 임시 저장본이 있는 층에 편집 모드로 들어가면 묻지 않고 얹어 이어서 편집한다(OE-WF-02).
+// 층이 없는 편집(계통·종류·방향·잇기)은 건물 조각(`@*`)이라 어느 층에서 임시 저장해도 같이 남고, 어느 층에 들어가도 같이 얹힌다
+// (lib/storey-drafts.ts).
+//
+// 얹기는 늘 "지금 편집 전부에서 그 층 조각만 갈아 끼워 연 때부터 다시 얹기" 다. 8084 저장본을 얹은 위에 연 때 기준 편집을 또 얹으면
+// 더한 설비가 두 번 생긴다. 다시 얹으면 되돌리기 이력은 비워진다(불러온 편집과 같다).
+//
+// 저장하지 않은 편집이 있는 층에서 다른 층으로 가려 하면 묻는다 — 임시 저장 / 저장 안 함 / 취소(편집 종료와 같은 대화상자).
+const DRAFT_PREFIX = 'oe-draft:'
+const draftKey = (storeyKey: string) => `${DRAFT_PREFIX}${fileName.value}@${storeyKey}`
+/** 연 때의 층. 층 조각을 가르는 기준이다. */
+let homeOf: HomeOf = () => null
+/** 이 파일의 층별 임시 저장본(브라우저에서 읽은 것). 열쇠는 층 id 또는 BUILDING. */
+let floorDrafts = new Map<string, EditFile>()
+/** 이미 얹은 임시 저장본의 열쇠. */
+const appliedFloors = new Set<string>()
+/** 조각마다 마지막으로 저장(임시 저장·8084·파일·구축하기)한 것. 저장 안 한 편집과 [저장 안 함] 이 이것과 견준다. */
+const savedParts = shallowRef(new Map<string, EditFile>())
+/** 열기(8084 저장본 얹기까지)가 끝났는가. 그 전에 임시 저장본을 얹으면 저장본과 겹친다. */
+let openSettled = false
+// 층 바꾸기를 묻는 감시(아래)가 새 파일의 첫 층 고르기를 물음으로 잡지 않게, 파일이 바뀌는 순간 바로 내린다.
+watch(baseline, () => (openSettled = false), { flush: 'sync' })
+watch(baseline, (b) => {
+  floorDrafts = new Map()
+  appliedFloors.clear()
+  savedParts.value = new Map()
+  if (!b) return
+  const home = new Map<string, string>()
+  for (const st of (pristine ?? model.value)?.storeys ?? []) for (const x of [...st.spaces, ...st.equipment, ...st.walls, ...st.openings]) home.set(x.id, st.id)
+  homeOf = (id) => home.get(id) ?? null
+  try {
+    const prefix = draftKey('')
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (!k?.startsWith(prefix)) continue
+      const file = parseEditFile(localStorage.getItem(k) ?? '')
+      if (typeof file !== 'string') floorDrafts.set(k.slice(prefix.length), file)
+    }
+  } catch {
+    // 브라우저 저장소를 못 읽으면 얹을 임시 저장본도 없다.
   }
 })
+
+function currentParts(): Map<string, EditFile> {
+  const m = model.value
+  if (!m || !baseline.value) return new Map()
+  return splitByStorey(exportEdits(m, baseline.value, fileName.value), homeOf)
+}
+/** 마지막 저장 뒤 바뀐 조각의 열쇠(층 id 또는 BUILDING). */
+function dirtyKeys(parts = currentParts()): string[] {
+  const keys = new Set([...parts.keys(), ...savedParts.value.keys()])
+  return [...keys].filter((k) => partSig(parts.get(k)) !== partSig(savedParts.value.get(k)))
+}
+/** 저장 안 한 편집 수(근사 — 조각마다 지금 편집 수에서 저장한 편집 수를 뺀다). */
+function unsavedCount(keys: string[], parts = currentParts()): number {
+  return Math.max(1, keys.reduce((n, k) => n + Math.max(0, editsIn(parts.get(k)) - editsIn(savedParts.value.get(k))), 0))
+}
+/** 지금 편집하는 층. 한 층을 보고 있으면 그 층, "모든 층" 이거나 층이 하나면 전부다. */
+function floorsInView(): string[] {
+  const m = model.value
+  if (!m) return []
+  return viewStorey.value ? [viewStorey.value] : m.storeys.map((st) => st.id)
+}
+const floorName = (id: string | null) => (id ? (model.value?.storeys.find((st) => st.id === id)?.name ?? id) : '모든 층')
+
+/** 조각을 갈아 끼우고 연 때부터 다시 얹는다. 값이 null 이면 그 조각을 뺀다(연 때로). */
+function replaceParts(next: Map<string, EditFile | null>, from: string) {
+  if (!model.value || !baseline.value || !pristine) return
+  const parts = currentParts()
+  for (const [k, part] of next) {
+    if (part) parts.set(k, part)
+    else parts.delete(k)
+  }
+  resetToOpened()
+  if (parts.size) applyEditFile(joinParts(parts.values(), { format: EDIT_FORMAT, version: 1, source: fileName.value, savedAt: new Date().toISOString() }), from, true)
+}
+
+/** 편집 중인 층에 임시 저장본이 있으면 묻지 않고 얹는다(OE-WF-02). 건물 조각은 처음 한 번 같이 얹는다. */
+function enterFloors() {
+  if (!editing.value || !openSettled || !model.value) return
+  const keys = [...floorsInView(), BUILDING].filter((k) => floorDrafts.has(k) && !appliedFloors.has(k))
+  if (!keys.length) return
+  replaceParts(new Map(keys.map((k) => [k, floorDrafts.get(k)!])), '임시 저장본')
+  const saved = new Map(savedParts.value)
+  for (const k of keys) {
+    appliedFloors.add(k)
+    saved.set(k, floorDrafts.get(k)!)
+  }
+  savedParts.value = saved
+  const names = keys.filter((k) => k !== BUILDING).map(floorName)
+  note(`${names.length ? names.join(' · ') : '건물'}의 임시 저장본을 열었습니다. 이어서 편집합니다`)
+}
+watch([editing, viewStorey], enterFloors)
+
+/** 열기(8084 저장본 얹기까지)가 끝났다. 연 상태를 저장된 상태로 두고, 자동 저장이 돌아올 상태와 다르면 묻고, 임시 저장본을 얹는다. */
+function settleOpen() {
+  if (!model.value || !baseline.value || openSettled) return
+  openSettled = true
+  savedParts.value = currentParts()
+  try {
+    const raw = localStorage.getItem(autosaveKey())
+    const file = raw ? parseEditFile(raw) : null
+    if (file && typeof file !== 'string' && editCount(file) > 0) {
+      const expected = new Map(savedParts.value)
+      for (const [k, part] of floorDrafts) expected.set(k, part)
+      const got = splitByStorey(file, homeOf)
+      const keys = new Set([...expected.keys(), ...got.keys()])
+      if ([...keys].some((k) => partSig(expected.get(k)) !== partSig(got.get(k)))) draft.value = { file, count: editCount(file), savedAt: file.savedAt }
+      else localStorage.removeItem(autosaveKey())
+    }
+  } catch {
+    // 저장소를 못 읽으면 물을 것도 없다
+  }
+  enterFloors()
+}
+
+/** 이 파일의 임시 저장본을 전부 지운다. 저장(8084·파일·구축하기)하면 임시 저장본은 쓸모가 없다. */
+function clearDrafts() {
+  try {
+    const prefix = draftKey('')
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k?.startsWith(prefix)) keys.push(k)
+    }
+    for (const k of keys) localStorage.removeItem(k)
+  } catch {
+    // 못 지워도 다음 임시 저장이 덮는다
+  }
+  floorDrafts = new Map()
+}
+
+// 저장 안 한 편집이 있는 층에서 다른 층으로 가려 하면 묻는다. 묻는 동안은 층을 그대로 둔다. 표에서 다른 층의 것을 골라 층이
+// 따라가는 것도 같은 길이다. 대화상자를 거쳐 옮길 때(goFloor)와 "모든 층" 으로 넓힐 때는 묻지 않는다.
+let switching = false
+watch(
+  viewStorey,
+  (now, was) => {
+    // "모든 층" 으로 넓히는 것은 다른 층으로 가는 것이 아니다 — 그 층도 계속 보이고 고칠 수 있다.
+    if (switching || !openSettled || !editing.value || !was || !now || now === was) return
+    const parts = currentParts()
+    if (!dirtyKeys(parts).includes(was)) return
+    switching = true
+    viewStorey.value = was
+    switching = false
+    if (document.fullscreenElement) void document.exitFullscreen()
+    exitAsk.value = { count: unsavedCount([was], parts), floor: { from: was, to: now } }
+  },
+  { flush: 'sync' },
+)
+function goFloor(id: string | null) {
+  switching = true
+  viewStorey.value = id
+  switching = false
+}
 
 // --- 8084 에 저장 (OE-COM-08 "저장 시 변경사항을 웹에서 바로 확인") ----------------------------------
 //
@@ -4210,11 +4301,6 @@ async function loadServerEdits() {
   serverSaved.value = { file, savedAt: file.savedAt }
   markSaved()
   committedSig = savedSig
-  // 이 브라우저의 임시 저장이 저장본과 같으면 물을 것이 없다
-  if (draft.value && editSig(draft.value.file) === savedSig) {
-    draft.value = null
-    removeDraft()
-  }
 }
 
 /** 편집 파일을 8084 에 둔다. 됐으면 true. */
@@ -4259,87 +4345,114 @@ function editSig(file?: EditFile): string | null {
 }
 function markSaved() {
   savedSig = editSig()
+  savedParts.value = currentParts()
 }
-const exitAsk = shallowRef<{ count: number } | null>(null)
+/** 저장(8084·파일·구축하기)했다. 모든 층이 저장된 상태가 되고 임시 저장본은 지운다. */
+function committed() {
+  clearDrafts()
+  markSaved()
+  committedSig = savedSig
+}
+/** 묻는 중인 대화상자. `floor` 가 있으면 층을 바꾸려다 물은 것이다. */
+const exitAsk = shallowRef<{ count: number; floor?: { from: string; to: string | null } } | null>(null)
 
 /** 편집을 끝낸다. 저장하지 않은 편집이 있으면 묻고 false 를 돌려준다(끝내지 않았다). */
 function leaveEdit(): boolean {
   if (!editing.value) return true
-  const m = model.value
-  const file = m && baseline.value ? exportEdits(m, baseline.value, fileName.value) : null
-  const sig = file ? editSig(file) : null
-  if (!file || !sig || sig === savedSig) {
+  const parts = currentParts()
+  const dirty = dirtyKeys(parts)
+  if (!dirty.length) {
     mode.value = 'view'
     return true
   }
   // 대화상자는 전체 화면 요소 밖에 있어서 전체 화면에서는 안 보인다. 먼저 나온다.
   if (document.fullscreenElement) void document.exitFullscreen()
-  // 8084 저장본을 얹고 연 판이면 그 뒤로 바뀐 것만 센다(근사 — 같은 설비를 다시 고친 것은 한 건이다)
-  exitAsk.value = { count: Math.max(1, editCount(file) - (serverSaved.value ? editCount(serverSaved.value.file) : 0)) }
+  exitAsk.value = { count: unsavedCount(dirty, parts) }
   return false
 }
 function onEditToggle(box: HTMLInputElement) {
   if (box.checked) mode.value = 'edit'
   else if (!leaveEdit()) box.checked = true
 }
-/**
- * 임시 저장은 이 브라우저에 남긴다(자동 저장과 같은 자리). PRD 의 임시 저장은 "반영하지 않고 보관" 이고, 파일로 내려받으면
- * 보기로 바꿀 때마다 다운로드가 생긴다. 파일은 [편집 저장] 몫이다. 저장소가 막혀 있으면 파일로 내려받는다.
- */
+/** 대화상자의 [임시 저장]. 층을 바꾸려던 것이면 그 층만 남기고 옮기고, 편집을 끝내려던 것이면 저장 안 한 층을 전부 남기고 끝낸다. */
 function exitSaving() {
+  const ask = exitAsk.value
   exitAsk.value = null
-  keepDraft()
+  if (ask?.floor) {
+    keepDraft([ask.floor.from])
+    goFloor(ask.floor.to)
+    return
+  }
+  keepDraft(dirtyKeys())
   mode.value = 'view'
 }
-// [임시 저장] 단추와 끝내기 대화상자가 같이 쓴다. 남기면 "이어 갈 편집" 목록을 펼쳐 어디에 남았는지 보인다 —
-// 파일을 연 동안 그 칸은 접혀 있어서, 임시 저장을 하고도 목록이 안 보였다(2026-10-06 검토).
-const draftShown = ref(0)
-watch(baseline, () => (draftShown.value = 0))
-function keepDraft() {
-  const m = model.value
-  if (!m || !baseline.value) return
-  const file = exportEdits(m, baseline.value, fileName.value)
+/**
+ * [임시 저장]. 지금 층(모든 층을 보고 있으면 저장 안 한 층 전부)과 건물 조각을 이 브라우저에 남긴다. 층마다 하나라 다시 누르면 덮는다
+ * (OE-WF-03). 편집이 없는 층은 임시 저장본을 지운다. 웹(8084)에는 올리지 않는다(OE-WF-01). 저장소가 막혀 있으면 파일로 내려받는다.
+ */
+function keepDraft(keys: string[] = viewStorey.value ? [viewStorey.value] : dirtyKeys()) {
+  if (!model.value || !baseline.value) return
+  const parts = currentParts()
+  const saved = new Map(savedParts.value)
+  const all = [...new Set([...keys, BUILDING])]
   try {
-    writeDraft(file)
-    savedSig = editSig(file)
-    note(`편집 ${editCount(file)}건을 이 브라우저에 임시 저장했습니다. 왼쪽 "이어 갈 편집" 에서 이어 갑니다`)
-    draftShown.value++
+    for (const k of all) {
+      const part = parts.get(k)
+      if (part) {
+        localStorage.setItem(draftKey(k), JSON.stringify(part))
+        floorDrafts.set(k, part)
+        saved.set(k, part)
+      } else {
+        localStorage.removeItem(draftKey(k))
+        floorDrafts.delete(k)
+        saved.delete(k)
+      }
+      appliedFloors.add(k)
+    }
   } catch {
-    // 임시 저장은 8084 에 올리지 않는다("웹에 반영되지 않는다"). 브라우저 저장소가 막혔으면 파일로만 내려받는다.
+    // 브라우저 저장소가 막혔으면 파일로만 내려받는다.
     void saveEdits(true)
+    return
   }
+  savedParts.value = saved
+  const names = all.filter((k) => k !== BUILDING).map(floorName)
+  note(`${names.length ? names.join(' · ') : '건물'} 편집을 이 브라우저에 임시 저장했습니다(웹에는 반영되지 않습니다). 그 층에 다시 들어오면 이어서 편집합니다`)
 }
-/** 끝내기 대화상자의 [저장]. 8084 에 두고 보기로 간다. 못 두면(서버에 못 닿음) 파일로 내려받고 끝낸다. */
+/** 대화상자의 [저장]. 8084 에 둔다(못 두면 파일로 내려받는다). 그다음 층을 옮기거나 보기로 간다. */
 async function exitCommitting() {
+  const ask = exitAsk.value
   exitAsk.value = null
   await saveEdits()
-  mode.value = 'view'
+  if (ask?.floor) goFloor(ask.floor.to)
+  else mode.value = 'view'
 }
 function exitDiscarding() {
+  const ask = exitAsk.value
   exitAsk.value = null
-  const n = discardEdits()
+  if (ask?.floor) {
+    const n = discardFloors([ask.floor.from])
+    goFloor(ask.floor.to)
+    note(`${floorName(ask.floor.from)}의 저장 안 한 편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 위 줄의 [이어서 하기]로 되살립니다`)
+    return
+  }
+  const n = discardFloors(dirtyKeys())
   mode.value = 'view'
-  note(`편집 ${n}건을 버리고 연 때로 되돌렸습니다. 위 줄의 [이어서 하기]로 되살립니다`)
+  note(`편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 위 줄의 [이어서 하기]로 되살립니다`)
 }
 
 /**
- * 편집을 버리고 연 때(마지막으로 덧붙인 때)의 모델로 되돌린다. 버린 편집은 자동 저장 줄(draft)에 올려 한 번 되살릴 수
- * 있게 둔다 — [저장 안 함]을 잘못 누르면 한 시간 고친 것이 사라진다. 버린 수를 돌려준다.
+ * [저장 안 함]. 고른 조각을 마지막으로 저장한 때(임시 저장본, 없으면 8084·파일 저장, 없으면 연 때)로 되돌린다. 버리기 전 편집 전부를
+ * 위 줄(draft)에 올려 한 번 되살릴 수 있게 둔다 — [저장 안 함]을 잘못 누르면 한 시간 고친 것이 사라진다. 버린 수를 돌려준다.
  */
-function discardEdits(): number {
+function discardFloors(keys: string[]): number {
   const m = model.value
-  if (!m || !pristine || !baseline.value) return 0
+  if (!m || !pristine || !baseline.value || !keys.length) return 0
   const file = exportEdits(m, baseline.value, fileName.value)
-  resetToOpened()
-  // 8084 에 저장된 편집은 버리지 않는다. 저장 안 함은 "마지막 저장 뒤" 를 버리는 것이다.
-  if (serverSaved.value) {
-    applyEditFile(serverSaved.value.file, '8084 저장본')
-    autosaveArmed = false
-    markSaved()
-  }
-  const n = editCount(file) - (serverSaved.value ? editCount(serverSaved.value.file) : 0)
-  if (editCount(file) > 0 && editSig(file) !== savedSig) draft.value = { file, count: editCount(file), savedAt: file.savedAt }
-  return Math.max(n, 0)
+  const n = unsavedCount(keys, splitByStorey(file, homeOf))
+  replaceParts(new Map(keys.map((k) => [k, savedParts.value.get(k) ?? null])), '저장 안 함')
+  autosaveArmed = false
+  if (editCount(file) > 0) draft.value = { file, count: editCount(file), savedAt: file.savedAt }
+  return n
 }
 
 /** 연 때(pristine)의 모델로 되돌린다. 저장 안 함과, 8084 저장본을 얹은 뒤 임시 저장을 되살릴 때가 쓴다. */
@@ -4480,7 +4593,7 @@ const hasEdits = computed(() => changeCount.value > 0 || history.value.length > 
 watch(fileName, () => (editFileNote.value = ''))
 function onBeforeUnload(e: BeforeUnloadEvent) {
   // 임시 저장·편집 저장·구축하기 뒤로 바뀐 것이 없으면 묻지 않는다(OE-COM-08). 남길 것이 이미 남아 있다.
-  if (!hasEdits.value || editSig() === savedSig) return
+  if (!hasEdits.value || !dirtyKeys().length) return
   e.preventDefault()
   // 옛 브라우저는 returnValue 가 있어야 묻는다. 문구는 브라우저가 정한 것으로 바뀐다.
   e.returnValue = ''
@@ -4880,6 +4993,7 @@ async function openMany(files: readonly FileSource[], into: 'open' | 'append') {
     if (into === 'open' && serverKey.value) await loadServerEdits()
   } finally {
     batch.value = null
+    settleOpen()
   }
 }
 const sourcesOf = (list: FileList | null | undefined): FileSource[] =>
@@ -4978,8 +5092,8 @@ function previewChanges() {
 async function build() {
   exportTTL()
   if (await exportGeoJSON()) {
-    // 구축하기가 PoC 의 "저장"이다(PRD 의 저장 = 반영, D10). 온톨로지로 낸 편집은 끝낼 때 다시 묻지 않는다.
-    markSaved()
+    // 구축하기가 PoC 의 "저장"이다(PRD 의 저장 = 반영, D10). 온톨로지로 낸 편집은 끝낼 때 다시 묻지 않고, 임시 저장본도 지운다.
+    committed()
     markDone('build')
   }
 }
@@ -5143,24 +5257,12 @@ async function export3D(format: 'glb' | 'obj') {
 
     </section>
 
-    <!-- 이어 갈 편집(OE-COM-08). 8084 에 저장된 것(누구나 봄)과 이 브라우저의 임시 저장(나만 봄)을 나눠 보인다. -->
-    <section v-if="draftList.length || savedSets.some((s) => s.paths.length > 1)" class="catalog resume">
-      <Fold :key="(model ? 'loaded' : 'empty') + draftShown" title="이어 갈 편집" :meta="`임시 저장 ${draftList.length}건`" :default-open="!model || draftShown > 0">
+    <!-- 합쳐 연 판의 8084 저장본. 한 파일의 저장본은 아래 data/ 목록의 그 줄에 보인다. 임시 저장본은 목록을 두지 않는다 —
+         층마다 하나라 그 층에 들어가면 바로 얹힌다(OE-COM-08 · OE-WF-03). -->
+    <section v-if="savedSets.some((s) => s.paths.length > 1)" class="catalog resume">
+      <Fold :key="model ? 'loaded' : 'empty'" title="8084 에 저장한 편집" :meta="`${savedSets.filter((s) => s.paths.length > 1).length}건`" :default-open="!model">
         <table>
           <tbody>
-            <tr v-for="d in draftList" :key="'draft:' + d.name" class="draft-row">
-              <td class="name">
-                <span>{{ d.name }}</span>
-                <span class="muted">임시 저장 · 이 브라우저에만 · 편집 {{ d.count }}건 · {{ when(d.savedAt) }}</span>
-              </td>
-              <td class="row-actions">
-                <button type="button" class="ghost" :disabled="busy" :title="d.paths ? 'data/ 에서 열고 이 편집을 되살립니다' : '파일 열기로 같은 IFC 를 고르면 이어서 할지 묻습니다'" @click="resumeDraft(d)">
-                  {{ d.paths ? '열어서 이어 하기' : '파일 열기로 이어 하기' }}
-                </button>
-                <button type="button" class="ghost danger" :disabled="busy" @click="removeDraft(d.name)">지우기</button>
-              </td>
-            </tr>
-            <!-- 한 파일의 저장본은 아래 data/ 목록의 그 줄에 보인다. 합쳐 연 판의 저장본만 여기 둔다. -->
             <tr v-for="sv in savedSets.filter((s) => s.paths.length > 1)" :key="'saved:' + sv.key" class="saved-row">
               <td class="name">
                 <span>{{ sv.paths.map(baseName).join(' + ') }}</span>
@@ -5344,7 +5446,7 @@ async function export3D(format: 'glb' | 'obj') {
             편집 저장
           </button>
           <button v-if="serverKey" type="button" class="ghost" title="8084 에 두지 않고 편집 파일(JSON)로만 내려받습니다" @click="saveEdits(true)">파일로</button>
-          <button type="button" class="ghost" :disabled="changeCount === 0" title="웹에 반영하지 않고 이 브라우저에만 남깁니다. 왼쪽 &quot;이어 갈 편집&quot; 에서 이어 갑니다" @click="keepDraft">임시 저장</button>
+          <button type="button" class="ghost" title="웹에 반영하지 않고 이 층의 편집을 이 브라우저에 남깁니다. 층마다 하나이고, 이 층에 다시 들어오면 이어서 편집합니다" @click="keepDraft()">임시 저장</button>
           <!-- PRD #9 의 액션바. 초기 구축 모드라 "반영하기" 대신 "구축하기"(두 파일 내보내기)다 — 운영 DT 에 반영하는 길은 D10 이 열려 있다. -->
           <button type="button" class="ghost" title="반영 전에 바뀐 내용(소속·경계·이름·방향)을 봅니다" @click="previewChanges">미리보기</button>
           <button type="button" class="ghost primary-action" :class="{ done: justDone === 'build' }" :disabled="busy" title="온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)" @click="build">구축하기</button>
@@ -7408,7 +7510,7 @@ async function export3D(format: 'glb' | 'obj') {
       </section>
     </template>
     <ShortcutHelp :open="helpOpen" :editing="editing" @close="helpOpen = false" />
-    <ExitEditDialog :open="!!exitAsk" :count="exitAsk?.count ?? 0" :server="!!serverKey" @commit="exitCommitting" @save="exitSaving" @discard="exitDiscarding" @cancel="exitAsk = null" />
+    <ExitEditDialog :open="!!exitAsk" :count="exitAsk?.count ?? 0" :server="!!serverKey" :floor="exitAsk?.floor ? { from: floorName(exitAsk.floor.from), to: floorName(exitAsk.floor.to) } : null" @commit="exitCommitting" @save="exitSaving" @discard="exitDiscarding" @cancel="exitAsk = null" />
     <!-- 진행 표시. 스크롤 위치와 상관없이 보이도록 화면 아래에 띄운다. -->
     <div v-if="progress" class="progress-toast" role="status" aria-live="polite">
       <div v-if="progressFile" class="muted progress-file">{{ progressFile }}</div>
