@@ -98,11 +98,11 @@ export function ceilingRange(zone: CeilingZone, hc: number | null, storeyHeight:
 /** z 가 구역 안인가. 아니면 왜 아닌지 한 줄. */
 export function checkCeilingZ(zone: CeilingZone, z: number, hc: number | null, storeyHeight: number | null): true | string {
   const r = ceilingRange(zone, hc, storeyHeight)
-  if (!r) return '반자 높이(h_c)를 모릅니다. 층별 요약에서 먼저 입력하세요.'
+  if (!r) return '천장고(h_c)를 모릅니다. 층별 요약에서 먼저 입력하세요.'
   const m = (v: number) => `${v.toFixed(2)}m`
   if (zone === 'attached') {
-    if (z < r.min) return `반자 부착 설비는 반자(${m(hc!)})에서 0.3m 안쪽(${m(r.min)} 이상)에 둡니다.`
-  } else if (z <= r.min) return `플레넘 설비는 반자(${m(hc!)}) 위에 둡니다.`
+    if (z < r.min) return `반자 부착 설비는 천장고(${m(hc!)})에서 0.3m 안쪽(${m(r.min)} 이상)에 둡니다.`
+  } else if (z <= r.min) return `플레넘 설비는 천장고(${m(hc!)}) 위에 둡니다.`
   if (r.max !== null && z >= r.max) return `층고(${m(r.max)}) 아래에 둡니다.`
   return true
 }
