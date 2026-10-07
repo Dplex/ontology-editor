@@ -2196,6 +2196,7 @@ const failReasons = computed(() => {
     connections: showRules.value && hasRules.value ? withInferred(m.connections) : m.connections,
     services: airServiceList.value,
     boxes: c.key === 'device-connected' || c.key === 'conduit-ends' ? meshBoxes() : undefined,
+    boxOf: currentBox,
     label: (id: string) => {
       const e = equipmentById.value.get(id)
       const what = whatIs(e)?.label
