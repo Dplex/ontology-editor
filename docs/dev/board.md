@@ -68,7 +68,7 @@ Status 는 건드리지 않는다. 점검은 Actions `Board check` 가 PR·main 
 걸러 보는 화면은 프로젝트의 [🏷️ 라벨 보드](https://github.sec.samsung.net/orgs/IoT-Solution/projects/1/views/5)다. 열은 `🏷️ 라벨` 칸인데 라벨의
 사본이라 손으로 고치지 않는다. 라벨을 바꾼 뒤 `npm run board -- --apply` 를 돌리면 따라온다.
 
-- `needs-pm`: PM 결정 대기. 질문을 이슈 코멘트에 번호 선택지로 적고 붙인다. 답이 오면 뗀다
+- `needs-pm`: PM 결정 대기. 질문을 이슈 코멘트에 번호 선택지로 적고 붙인다. PRD(`docs/prd/`) 수정이 필요할 때도 개발이 고치지 않고 이 라벨로 PM 에게 넘긴다. 답이 오면 뗀다
 - `needs-dev`: 일부만 구현. 남은 것을 코멘트·티켓 메모에 적고 붙인다
 - `rejected`: 검토 반려. In Review → In Progress 로 돌릴 때 이유와 함께. 다시 In Review 로 올릴 때 뗀다
 - `blocked`: 기획 밖(개발 주체 D10·서버/저장 위치 PRD 1.7·다른 팀)을 기다린다. 무엇을 누가 풀지 코멘트에. 기획이 풀면 `needs-pm` 이다

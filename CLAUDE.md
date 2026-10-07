@@ -46,8 +46,11 @@ PRD_011(온톨로지 구축 자동화 플랫폼) 중 **초기 구축 모드**다
 - **기능을 끝내면 이슈 + PR** — `main` 에서 `feature/OE-XXX-nn-…` 로 갈라, PR 본문에 `Closes #n`(빠지면 칸반 카드가 안 움직인다).
   작은 손질을 이슈 없이 main 에 바로 올릴지는 애매하면 묻는다. **merge 는 사람이 하라고 한 뒤에만**(곧 Done 이다).
 - Projects 의 Status 선택지는 웹 UI 에서만 고친다. API(`updateProjectV2Field`)는 모든 카드의 상태 값을 지운다.
-- **PRD 는 기억으로 답하지 말고 연다.** 정본은 `docs/prd/`(티켓 `OE-XXX-nn`, 열린 결정 `questions.md`). 기능을 고치면 그 티켓의
-  "검증 (이 repo)" 절도 고친다.
+- **PRD 는 기억으로 답하지 말고 연다.** 정본은 `docs/prd/`(티켓 `OE-XXX-nn`, 열린 결정 `questions.md`).
+- **개발자는 PRD(`docs/prd/`)를 고치지 않는다 — 어떤 절이든, 티켓 md 의 "검증 (이 repo)"·"메모" 절도.** PRD 는 PM 이 고친다.
+  구현이 요구사항과 달라야 하거나 PRD 문구가 틀렸으면 이슈에 `needs-pm` 라벨과 코멘트(무엇이 왜 다른지 · 번호 선택지,
+  `docs/dev/writing-style.md`)를 단다. 구현 근거·시험 목록은 PR 본문이나 이슈 코멘트에 적는다(2026-10-07, PR #358~#360 이 티켓 md
+  21장을 고쳤다가 되돌렸다).
 - **설계 결정을 하면 같은 PR 에 ADR**(`docs/adr/`, 언제·어떻게는 그 README). 55 의 문서 챗봇은 문서에 적힌 것만 답한다.
 - 임포터·규칙의 숫자(SNAP, 배치점 보정)를 고치면 `npm run check:sample` 로 가진 BIM 전부에 대 본다. 하나 오르고 하나 내려가면 넣지 않는다.
 - `public/web-ifc.wasm` 은 커밋하지 않는다(`sync-wasm` 이 복사). dev 는 5174(5173 은 다른 앱), e2e 는 5175.
@@ -58,7 +61,7 @@ PRD_011(온톨로지 구축 자동화 플랫폼) 중 **초기 구축 모드**다
 | 이럴 때 | 연다 |
 |---|---|
 | 설계를 바꾸거나 온톨로지에 무엇을 낼지 정할 때 | `intent.md` (바꾸면 안 되는 의도) |
-| 기능 요구·수용 기준, 티켓 고치기 | `docs/prd/README.md` → `docs/prd/` |
+| 기능 요구·수용 기준 읽기(고치지 않는다) | `docs/prd/README.md` → `docs/prd/` |
 | 왜 이렇게 만들었나, 결정을 남길 때 | `docs/adr/` |
 | 이슈·PR·칸반·라벨·8087 검토 판·PR 본문 모양 | `docs/dev/board.md` |
 | 이슈 코멘트·PR 본문·커밋 메시지를 쓸 때(문체·용어) | `docs/dev/writing-style.md` |
