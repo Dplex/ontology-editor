@@ -7,7 +7,7 @@
 // 반영 전에 차이를 보여 주는 것이 PRD #16(미리보기)이고, 반영 뒤에 남기는 것이 #21(결과
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
-import { assignEquipment, centroid, isSelfIntersecting, locate, nearRing } from './mapping'
+import { assignEquipment, centroid, isSelfIntersecting, locate, nearRing, spaceAssignable } from './mapping'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
@@ -96,6 +96,8 @@ export function moveEquipment(model: Model, equipmentId: string, to: Vec3): Chan
   // BIM 이 말한 소속은 BIM 이 말한 자리에 대한 것이다. 사람이 옮긴 뒤에도 남겨 두면 방 밖으로 끌어낸
   // 설비가 예전 방에 그대로 속한다. 옮긴 설비는 좌표로 다시 판정한다.
   if (equipment.spaceSource === 'bim') equipment.spaceSource = null
+  // 사람이 지정한 소속도 그 자리에 대한 것이다. 옮기면 지우고 처음부터 다시 판정한다(OE-MAP-01, OE-EQP-12).
+  dropSpaceSet(equipment)
   reassignStoreyOf(model, equipment)
   const toSpaceId = equipment.spaceId
 
@@ -303,6 +305,7 @@ export function moveEquipmentToStorey(model: Model, equipmentId: string, storeyI
   }
   // 예전 층의 방을 가리키는 BIM 소속은 새 층에서 뜻이 없다.
   if (source !== target && equipment.spaceSource === 'bim') equipment.spaceSource = null
+  if (source !== target) dropSpaceSet(equipment)
 
   for (const storey of model.storeys) {
     const at = storey.equipment.findIndex((e) => e.id === equipmentId)
@@ -332,6 +335,34 @@ export function releaseDeclaredSpace(model: Model, equipmentId: string): boolean
   if (!equipment || equipment.spaceSource !== 'bim') return false
   equipment.spaceSource = null
   reassignStoreyOf(model, equipment)
+  return true
+}
+
+/** 사람 지정 소속을 지운다. 설비를 옮겼을 때다. */
+function dropSpaceSet(equipment: Equipment) {
+  delete equipment.spaceSet
+}
+
+/**
+ * 사람이 설비의 소속 물리존을 정한다(OE-MAP-01 "사람의 소속 지정", K17). 기계가 확신하는 설비(미배치·BIM 명시 소속·외곽선 안)는
+ * 정하지 않고 까닭을 돌려준다. `spaceId` 가 null 이면 지정을 지우고 기계 판정으로 돌린다. 같은 층의 물리존만 받는다.
+ */
+export function setEquipmentSpace(model: Model, equipmentId: string, spaceId: string | null): boolean | { refused: string } {
+  const storey = model.storeys.find((s) => s.equipment.some((e) => e.id === equipmentId))
+  const equipment = storey?.equipment.find((e) => e.id === equipmentId)
+  if (!storey || !equipment) return false
+  if (spaceId === null) {
+    if (equipment.spaceSet === undefined) return false
+    delete equipment.spaceSet
+    assignEquipment(equipment, storey.spaces)
+    return true
+  }
+  if (!storey.spaces.some((s) => s.id === spaceId)) return { refused: '같은 층의 물리존만 소속으로 정합니다.' }
+  const can = spaceAssignable(equipment, storey.spaces)
+  if (!can.ok) return { refused: can.reason }
+  if (equipment.spaceSet === spaceId) return false
+  equipment.spaceSet = spaceId
+  assignEquipment(equipment, storey.spaces)
   return true
 }
 
@@ -531,6 +562,8 @@ export type Snapshot =
       positionSource: Equipment['positionSource']
       spaceId: string | null
       spaceSource: Equipment['spaceSource']
+      /** 사람이 지정한 소속(K17). 옮기면 지워지므로 되돌릴 때 다시 둔다. */
+      spaceSet?: string
       name: string
       nameEdited: Equipment['nameEdited']
       endShift: Equipment['endShift']
@@ -656,6 +689,7 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
       positionSource: e.positionSource,
       spaceId: e.spaceId,
       spaceSource: e.spaceSource,
+      ...(e.spaceSet !== undefined ? { spaceSet: e.spaceSet } : {}),
       name: e.name,
       nameEdited: e.nameEdited ? { ...e.nameEdited } : undefined,
       endShift: e.endShift ? copyShift(e.endShift) : undefined,
@@ -789,6 +823,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
       equipment.spaceSource = snapshot.spaceSource
       equipment.spaceId = snapshot.spaceId
+      if (snapshot.spaceSet !== undefined) equipment.spaceSet = snapshot.spaceSet
+      else delete equipment.spaceSet
       assignEquipment(equipment, home.spaces)
       return null
     }
@@ -2199,6 +2235,7 @@ function followWall(storey: Storey, wallId: string, delta?: Vec2) {
     e.position = [to[0], to[1], e.position[2]]
     e.positionSource = 'edited'
     if (e.spaceSource === 'bim') e.spaceSource = null
+    dropSpaceSet(e)
     assignEquipment(e, storey.spaces)
   }
 }

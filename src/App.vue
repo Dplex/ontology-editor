@@ -90,6 +90,7 @@ import {
   renameEquipment,
   snapshotEquipmentSet,
   setEquipmentSystem,
+  setEquipmentSpace,
   setSystemKind,
   snapshotSystems,
   createSystem,
@@ -145,7 +146,7 @@ import { allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } f
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
-import { distanceToRing } from './lib/mapping'
+import { distanceToRing, spaceAssignable, spaceSetState } from './lib/mapping'
 
 // 테마는 라이트가 기본이고, 고른 값만 저장한다. 선행 스크립트(index.html)가 첫 페인트
 // 전에 같은 값을 읽어 깜빡임을 막는다.
@@ -303,6 +304,7 @@ const changeCount = computed(
     sinceOpen.value.openingsRemoved.length +
     sinceOpen.value.openingsMoved.length +
     sinceOpen.value.customZones.length +
+    assignLines.value.length +
     sinceOpen.value.systemMoved.length +
     sinceOpen.value.systemKinds.length +
     sinceOpen.value.systemNames.length +
@@ -2442,8 +2444,47 @@ const kindEditLines = computed(() => {
 const roleSrc = (e: Equipment) => (e.added ? 'edit' : e.ifcClass === 'BuildingElementProxy' ? 'dict' : 'bim')
 const positionSrc = (e: Equipment) =>
   e.positionSource === 'edited' ? 'edit' : e.positionSource === 'geometry' || e.positionSource === 'panel' ? 'calc' : 'bim'
-const spaceSrc = (e: Equipment) => (e.spaceSource === 'bim' ? 'bim' : 'calc')
+const spaceSrc = (e: Equipment) => (e.spaceSource === 'bim' ? 'bim' : e.spaceSource === 'edit' ? 'edit' : 'calc')
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`
+
+// --- 사람의 소속 지정 (OE-MAP-01 · K17) ------------------------------------------------------
+// 기계가 확신하지 못한 설비(소속 허용 거리로 붙었거나 소속 없음)만 사람이 소속 물리존을 정한다. 기계가 확신하게 되면 지정은 남되
+// 쓰이지 않고 "사람 지정 해제" 로 보인다. 설비를 옮기면 지정이 지워진다.
+const ASSIGN_RELEASE_REASON = { bim: 'BIM 이 적은 소속', inside: '외곽선 안', gone: '지정한 물리존이 없어짐' } as const
+const assignInfo = computed(() => {
+  const e = selected.value
+  const storey = e && model.value ? storeyOf(e.id) : null
+  if (!e || !storey) return null
+  return { storey, can: spaceAssignable(e, storey.spaces), state: spaceSetState(e, storey.spaces) }
+})
+function applyAssign(id: string, raw: string) {
+  const m = model.value
+  if (!m) return
+  const name = nameOfId(id)
+  const snapshot = snapshotEquipment(m, id)
+  const at = mark()
+  const done = setEquipmentSpace(m, id, raw || null)
+  if (!done) return
+  if (typeof done === 'object') {
+    note(done.refused)
+    return
+  }
+  remember(raw ? `${shortName(name)} 소속 지정` : `${shortName(name)} 소속 지정 지우기`, snapshot, at)
+  triggerRef(model)
+  note(raw ? `${name}의 소속을 ${spaceNameOf(raw)}(으)로 정했습니다(출처 편집). 옮기면 지정이 지워집니다` : `${name}의 소속 지정을 지웠습니다. 좌표로 다시 판정합니다`)
+}
+/** 리포트의 사람 지정 줄. BIM 에는 사람 지정이 없으니 지정이 있는 설비가 전부 편집이다. */
+const assignLines = computed(() =>
+  (model.value?.storeys ?? []).flatMap((st) =>
+    st.equipment.flatMap((e) => {
+      const state = spaceSetState(e, st.spaces)
+      if (!state) return []
+      return [state.state === 'applied'
+        ? { id: e.id, name: e.name, released: false as const, from: e.spaceSet!, to: e.spaceId, reason: '' }
+        : { id: e.id, name: e.name, released: true as const, from: state.from, to: e.spaceId, reason: ASSIGN_RELEASE_REASON[state.reason] }]
+    }),
+  ),
+)
 
 /**
  * Proxy 로 들어온 기기. IFC 가 설비라고 말하지 않은 것을 우리가 받은 것이다. 받은 근거가 둘이라 나눠 센다 —
@@ -3055,6 +3096,9 @@ function applyEditFile(file: EditFile, from: string, quiet = false) {
       ? ` GUID가 바뀐 ${rematched.reduce((n, [, k]) => n + k, 0)}개는 ${rematched.map(([k, n]) => `${MATCH_KEY_BY[k]} ${n}개`).join(', ')} 찾았습니다.`
       : '') +
     (missing.length ? ` 찾지 못함: ${missing.map(([k, n]) => `${MISSING_LABEL[k]} ${n}`).join(' · ')}.` : '') +
+    (result.assignReleased?.length
+      ? ` 사람 지정 해제 ${result.assignReleased.length}대: ${result.assignReleased.map((r) => `${r.name} ${spaceNameOf(r.from)} → ${spaceNameOf(r.to)}(${ASSIGN_RELEASE_REASON[r.reason]})`).join(', ')}.`
+      : '') +
     ' 불러온 편집은 되돌리기로 취소할 수 없습니다.'
 }
 
@@ -5714,6 +5758,26 @@ async function export3D(format: 'glb' | 'obj') {
                   <dd v-flash="selected.spaceId">
                     {{ spaceNameOf(selected.spaceId) }}
                     <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
+                    <!-- 사람 지정 해제(K17). 지정은 남아 있고, 기계가 확신해 쓰지 않는 것이다. -->
+                    <small v-if="assignInfo?.state?.state === 'released'" class="assign-released" data-testid="assign-released">
+                      사람 지정 해제: {{ spaceNameOf(assignInfo.state.from) }} → {{ spaceNameOf(selected.spaceId) }}({{ ASSIGN_RELEASE_REASON[assignInfo.state.reason] }})
+                    </small>
+                  </dd>
+                </div>
+                <!-- 사람의 소속 지정(OE-MAP-01 · K17). 기계가 확신하지 못한 설비만 열린다. 막히면 까닭을 보인다. -->
+                <div v-if="editing && assignInfo" class="assign">
+                  <dt title="사람의 소속 지정(OE-MAP-01)">지정</dt>
+                  <dd>
+                    <select
+                      data-testid="assign-space"
+                      :disabled="!assignInfo.can.ok && selected.spaceSet === undefined"
+                      :value="selected.spaceSet ?? ''"
+                      @change="applyAssign(selected.id, ($event.target as HTMLSelectElement).value)"
+                    >
+                      <option value="">지정 안 함(좌표로 판정)</option>
+                      <option v-for="sp in assignInfo.storey.spaces" :key="sp.id" :value="sp.id">{{ sp.longName || sp.name }}</option>
+                    </select>
+                    <small v-if="!assignInfo.can.ok" class="muted" data-testid="assign-blocked">{{ assignInfo.can.reason }}</small>
                   </dd>
                 </div>
                 <!-- 설치면(OE-OBJ-08). 종류가 허용하는 면이 하나일 때만 정한다. 둘 이상이면 모름, 표에 없는 종류는 정하지 않음. -->
@@ -7466,6 +7530,11 @@ async function export3D(format: 'glb' | 'obj') {
               {{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }}
               {{ r.moved && r.resized ? '옮기고 크기를 바꿨습니다' : r.moved ? '옮겼습니다' : '크기를 바꿨습니다' }}
               ({{ r.moved ? 'GeoJSON 위치·잇는 방' : 'GeoJSON 가로·세로' }})
+            </li>
+            <!-- 사람의 소속 지정(K17). 해제된 것도 조용히 바꾸지 않고 까닭과 함께 보인다. -->
+            <li v-for="r in assignLines" :key="`assign-${r.id}`">
+              <template v-if="r.released">사람 지정 해제: <b>{{ r.name }}</b> {{ spaceNameOf(r.from) }} → {{ spaceNameOf(r.to) }}({{ r.reason }})</template>
+              <template v-else>설비 <b>{{ r.name }}</b>의 소속을 {{ spaceNameOf(r.from) }}(으)로 정했습니다 (TTL hasLocation · GeoJSON spaceSource edit)</template>
             </li>
             <li v-for="r in sinceOpen.customZones" :key="`cz-${r.id}`">
               커스텀존 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.change === 'added' ? '만들었습니다' : r.change === 'removed' ? '지웠습니다' : '고쳤습니다' }}
