@@ -842,6 +842,10 @@ class Reader {
    * 방향은 `FlowDirection` 에서 온다. 한쪽이 SOURCE 고 다른 쪽이 SINK 여야 흐름을 안다.
    * SOURCEANDSINK(Revit 이 피팅·배관에 흔히 붙인다)나 빈 값이면 방향 없는 연결로 둔다.
    */
+  isPort(id: number): boolean {
+    return this.api.GetLineType(this.model, id) === WebIFC.IFCDISTRIBUTIONPORT
+  }
+
   /** 포트를 가진 요소. Proxy 중 어느 것이 배관망에 붙은 설비인지 가를 때 쓴다. */
   portOwners(): Set<number> {
     const owners = new Set<number>()
@@ -1252,7 +1256,10 @@ function read(
       const group = r.line(groupID)
 
       const id = (val(group?.GlobalId) as string) ?? `system_${groupID}`
-      const memberIDs = (rel.RelatedObjects ?? []).map((h: any) => h.value)
+      // **포트는 구성원으로 받지 않는다.** Revit 은 계통 그룹에 기기와 함께 그 기기의 포트까지 넣는다(성수 기계: 구성원
+      // 6만 중 포트 39,302). 포트는 TTL 주어가 아니라서 받으면 hasPart 가 없는 주어를 가리킨다. 포트의 주인 기기는 같은
+      // 그룹에 이미 들어 있어서(성수 39,302 전부) 빼도 잃는 구성원이 없다.
+      const memberIDs = (rel.RelatedObjects ?? []).map((h: any) => h.value).filter((m: number) => !r.isPort(m))
       for (const m of memberIDs) systemOfElement.set(m, id)
 
       systems.push({
