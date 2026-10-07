@@ -10,18 +10,17 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-PIP-13"]
-jira: ""
 ---
 
 # OE-ML-18 좌표 조건
 
 ## 요구사항
 
-x·y·z 모두 있을 때만 반영, 없으면 미반영 목록(#14와 동일)
+OE-PIP-13 을 따른다. (층간 배관)
 
 ## 수용 기준
 
-—
+OE-PIP-13 의 수용 기준을 따른다.
 
 ## 검증 (이 repo)
 

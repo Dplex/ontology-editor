@@ -6,22 +6,21 @@ title: "덧붙이기 후 재적용"
 prd: "#26"
 release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-HIST-06 덧붙이기 후 재적용
 
 ## 요구사항
 
-편집한 뒤 파일을 덧붙이면 처음 연 모델(`pristine`)을 합친 다음 편집 파일을 다시 적용. 되돌리기 이력만 끊김
+편집한 뒤 파일을 덧붙이면(건축에 MEP 를 더하는 등) 처음 연 모델(`pristine`)을 합친 다음 편집 파일을 다시 적용한다. 편집은 남고 되돌리기 이력만 끊긴다.
 
 ## 수용 기준
 
-—
+편집 뒤 [덧붙이기] 해도 리포트의 편집 항목이 그대로 있다.
 
 ## 검증 (이 repo)
 

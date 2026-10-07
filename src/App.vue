@@ -1081,6 +1081,8 @@ function applySnapshot(s: Snapshot) {
   // 배관을 데리고 옮긴 설비. 형상은 설비마다 옮긴다.
   const carried = s.kind === 'many' && s.parts.every((p) => p.kind === 'equipment') ? (s.parts as Extract<Snapshot, { kind: 'equipment' }>[]) : null
   const drawn = new Map(carried?.map((p) => [p.id, equipmentById.value.get(p.id)?.position ?? null]))
+  // 벽을 되돌리면 붙은 설비도 같이 돌아온다. 형상도 따라 옮긴다.
+  const mounted = s.kind === 'many' || s.kind === 'storey-elements' ? mountedAt(m) : null
   const rules = restore(m, s)
   if (carried) {
     triggerRef(model)
@@ -1105,6 +1107,7 @@ function applySnapshot(s: Snapshot) {
     if (selectedSpaceId.value && !m.storeys.some((st) => st.spaces.some((x) => x.id === selectedSpaceId.value))) selectedSpaceId.value = null
     archEdited = true
     triggerRef(model)
+    if (mounted) followMounted(mounted, true)
     viewer?.updateSpaces(m)
     sceneVersion.value++
   } else if (s.kind === 'storey-elements') {
@@ -1113,6 +1116,7 @@ function applySnapshot(s: Snapshot) {
     }
     archEdited = true
     triggerRef(model)
+    if (mounted) followMounted(mounted, true)
     sceneVersion.value++
   } else if (s.kind === 'storey-spaces') {
     if (selectedSpaceId.value && !m.storeys.some((st) => st.spaces.some((x) => x.id === selectedSpaceId.value))) selectedSpaceId.value = null
@@ -3732,11 +3736,30 @@ const wallNameOf = (wallId: string) => model.value?.storeys.flatMap((st) => st.w
 const elementLabel = (kind: 'wall' | 'door' | 'window') => (kind === 'wall' ? '벽' : kind === 'door' ? '문' : '창')
 const nameOfSpace = (id: string) => spaceNameOf(id)
 
+/**
+ * 벽 면에 붙은 설비의 지금 좌표(OE-OBJ-04). 벽을 옮기거나 두께·길이를 바꾸면 edit.ts 가 붙은 설비를 따라 옮기는데,
+ * 3D 형상은 [벽·문·창] 을 끌 때 다시 그리기 전까지 제자리에 남았다. 고치기 전 좌표를 들고 있다가 바뀐 것만 옮긴다.
+ */
+function mountedAt(m: Model): Map<string, Vec3 | null> {
+  const at = new Map<string, Vec3 | null>()
+  for (const st of m.storeys) for (const e of st.equipment) if (e.wallId) at.set(e.id, e.position ? [e.position[0], e.position[1], e.position[2]] : null)
+  return at
+}
+
+function followMounted(before: Map<string, Vec3 | null>, glide = false) {
+  for (const [id, from] of before) {
+    const to = equipmentById.value.get(id)?.position ?? null
+    if (from && to && from[0] === to[0] && from[1] === to[1] && from[2] === to[2]) continue
+    moveInScene(id, from, to, glide)
+  }
+}
+
 function changeElements(storeyId: string, label: string, apply: (m: Model) => unknown, coalesce?: string): boolean {
   const m = model.value
   if (!m) return false
   const snapshot = snapshotStoreyElements(m, storeyId)
   const at = mark()
+  const mounted = mountedAt(m)
   const done = apply(m)
   if (!done) return false
   if (typeof done === 'object' && 'refused' in (done as object)) {
@@ -3746,6 +3769,7 @@ function changeElements(storeyId: string, label: string, apply: (m: Model) => un
   remember(label, snapshot, at, coalesce)
   archEdited = true
   triggerRef(model)
+  followMounted(mounted)
   sceneVersion.value++
   return true
 }
@@ -3757,6 +3781,7 @@ function moveWallCarrying(storeyId: string, wall: Wall, delta: Vec2) {
   const elements = snapshotStoreyElements(m, storeyId)
   const spaces = snapshotStoreySpaces(m, storeyId)
   const at = mark()
+  const mounted = mountedAt(m)
   const done = moveWallWithSpaces(m, wall.id, delta, carryPlan)
   if (!done || !elements || !spaces) return
   carryPlan = done.plan
@@ -3765,6 +3790,7 @@ function moveWallCarrying(storeyId: string, wall: Wall, delta: Vec2) {
   changes.value = [...changes.value, ...done.changes.flatMap((c) => c.equipment)]
   archEdited = true
   triggerRef(model)
+  followMounted(mounted)
   viewer?.updateSpaces(m)
   sceneVersion.value++
   if (done.crossed.length) note(`방 경계가 자기와 겹칩니다: ${done.crossed.slice(0, 3).join(', ')}${done.crossed.length > 3 ? ` 외 ${done.crossed.length - 3}` : ''}`)

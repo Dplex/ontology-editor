@@ -9,19 +9,18 @@ priority: "P2"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
-jira: ""
+depends: ["OE-UI-05"]
 ---
 
 # OE-HIST-02 다시 하기
 
 ## 요구사항
 
-Ctrl+Shift+Z
+OE-UI-05 를 따른다. (다시 하기)
 
 ## 수용 기준
 
-—
+OE-UI-05 의 수용 기준을 따른다.
 
 ## 검증 (이 repo)
 

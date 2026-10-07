@@ -6,7 +6,8 @@ CLAUDE.md 에서 옮겼다. 테스트를 돌리거나 고칠 때, 임포터의 �
 
 - `npm test` — 입력이 `src/lib/ifc/fixtures/two-rooms.ifc` 다. 손으로 쓴 최소 IFC4 라서
   무엇이 들어가면 무엇이 나오는지 파일 하나로 보인다. 회전이 있는 방, FootPrint 가 없는 방,
-  내력벽 참/거짓/모름이 일부러 다 들어 있다. `scripts/docs-*.test.ts`(문서 챗봇)도 여기서 돈다.
+  내력벽 참/거짓/모름이 일부러 다 들어 있다. `scripts/docs-mcp.test.ts`(문서 챗봇이 문서를 찾는 MCP 서버)도 여기서 돈다.
+  gemini 를 띄우는 쪽(`/__chat`)은 테스트가 없다 — CI 러너에 gemini 가 없고, 가짜로 흉내 낸 시험은 55 에서 타이밍에 따라 떨어졌다.
 - `npm run check:sample` — 입력이 실제 BIM(`data/AC20-FZK-Haus.ifc`)이고 gitignore 다.
   없으면 실패가 아니라 이유를 찍고 건너뛴다(`npm run fetch:sample` 로 받는다).
   손으로 쓴 픽스처가 통과해도 진짜 저작 도구 출력에서 깨질 수 있어서 따로 둔다.

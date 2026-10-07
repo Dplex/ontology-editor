@@ -10,18 +10,18 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-ZON-01"]
-jira: ""
 ---
 
 # OE-MAN-05 공조존 수동
 
 ## 요구사항
 
-조닝 모드에서 설비 담당 지정으로 수동 생성(#11)
+IDF 가 없으면,공조존은 공간 편집 모드의 공조존 도구에서 설비를 고르고 담당 물리존을 지정해 수동으로 만든다(OE-ZON-01).
+IDF 가 있으면 공조존은 IDF 에서 자동으로 만들어진다(OE-BIM-15, PRD 1.6).
 
 ## 수용 기준
 
-—
+OE-ZON-01 과 같다.
 
 ## 검증 (이 repo)
 

@@ -10,18 +10,17 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-WF-16"]
-jira: ""
 ---
 
 # OE-XPRD-02 PRD_002 알림 종류
 
 ## 요구사항
 
-알림 종류 표에 '레이아웃 변경 반영' 행 추가
+PRD_002 알림 종류 표에 '레이아웃 변경 반영' 행을 더한다(OE-WF-16).
 
 ## 수용 기준
 
-PRD_002 개정
+PRD_002 가 개정되어 그 행이 있다.
 
 ## 검증 (이 repo)
 

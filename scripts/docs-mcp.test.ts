@@ -1,6 +1,7 @@
 // 문서 챗봇의 MCP 서버(ADR-0001). 입력은 이 repo 의 실제 문서다 — 문서가 바뀌면 검색 1위가 움직일 수 있으니,
 // 여기서 박아 두는 것은 "그 질문이면 그 문서가 위에 와야 한다" 가 분명한 것만이다.
 import { spawn } from 'node:child_process'
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error — 의존성 없는 node 모듈(.mjs)이라 타입이 없다
@@ -72,7 +73,13 @@ describe('읽기는 색인 안에서만', () => {
 
 describe('링크', () => {
   it('frontmatter 의 blocked_by 도 언급으로 센다', () => {
-    const l = links(idx, 'D10')
+    // 어느 결정이 막고 있는지는 기획이 바꾼다(2026-10-06 D10 이 전부 빠졌다). 지금 티켓에 걸린 것 하나로 본다.
+    const blocker = readdirSync(resolve(ROOT, 'docs/prd/features'), { recursive: true, encoding: 'utf8' })
+      .filter(f => f.endsWith('.md'))
+      .map(f => /^blocked_by: \["([^"]+)"/m.exec(readFileSync(resolve(ROOT, 'docs/prd/features', f), 'utf8'))?.[1])
+      .find(Boolean)
+    expect(blocker).toBeTruthy()
+    const l = links(idx, blocker)
     expect(l.some((x: { where: string }) => x.where.startsWith('frontmatter'))).toBe(true)
   })
   it('OE-BIM-1 은 OE-BIM-12 를 언급으로 치지 않는다', () => {

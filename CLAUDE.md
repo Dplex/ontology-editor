@@ -61,6 +61,7 @@ PRD_011(온톨로지 구축 자동화 플랫폼) 중 **초기 구축 모드**다
 | 기능 요구·수용 기준, 티켓 고치기 | `docs/prd/README.md` → `docs/prd/` |
 | 왜 이렇게 만들었나, 결정을 남길 때 | `docs/adr/` |
 | 이슈·PR·칸반·라벨·8087 검토 판·PR 본문 모양 | `docs/dev/board.md` |
+| 이슈 코멘트·PR 본문·커밋 메시지를 쓸 때(문체·용어) | `docs/dev/writing-style.md` |
 | IFC 임포터·소속 판정·합치기를 고칠 때 | `docs/dev/ifc-pitfalls.md` |
 | 테스트·`check:sample`·e2e·속도 재기 | `docs/dev/testing.md` |
 | 55 배포, `serve.mjs`·`run.sh`·`/__data`·`/__chat` | `docs/dev/deploy55.md` |

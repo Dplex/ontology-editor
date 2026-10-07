@@ -89,7 +89,7 @@ describe('티켓 파일', () => {
   it('머리 필드가 다 있고 값이 범례 안이다', () => {
     for (const t of all) {
       const { fm } = t
-      for (const key of ['id', 'epic', 'epic_title', 'title', 'prd', 'release', 'priority', 'owner', 'status', 'blocked_by', 'depends', 'jira'])
+      for (const key of ['id', 'epic', 'epic_title', 'title', 'prd', 'release', 'priority', 'owner', 'status', 'blocked_by', 'depends'])
         expect(fm, `${t.file} 에 ${key} 없음`).toHaveProperty(key)
       expect(STATUS, `${t.file} status`).toContain(fm.status)
       expect(OWNER, `${t.file} owner`).toContain(fm.owner)
@@ -148,13 +148,13 @@ describe('색인', () => {
     for (const folder of new Set(all.map((t) => t.folder))) {
       const readme = read(`features/${folder}/README.md`)
       const rows = new Map(
-        [...readme.matchAll(/^\| \[(OE-[A-Z0-9]+-\d+)\]\(\1\.md\) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \|$/gm)].map((m) => [m[1], m.slice(2)]),
+        [...readme.matchAll(/^\| \[(OE-[A-Z0-9]+-\d+)\]\(\1\.md\) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \|$/gm)].map((m) => [m[1], m.slice(2)]),
       )
       const mine = all.filter((t) => t.folder === folder)
       expect([...rows.keys()].sort(), folder).toEqual(mine.map((t) => t.fm.id as string).sort())
       for (const t of mine) {
-        const [title, rel, pri, status, jira] = rows.get(t.fm.id as string)!
-        expect([title, rel, pri, status, jira], `${folder}/README.md ${t.fm.id}`).toEqual([t.fm.title, t.fm.release, t.fm.priority, t.fm.status, t.fm.jira])
+        const [title, rel, pri, status] = rows.get(t.fm.id as string)!
+        expect([title, rel, pri, status], `${folder}/README.md ${t.fm.id}`).toEqual([t.fm.title, t.fm.release, t.fm.priority, t.fm.status])
       }
       expect(readme, `${folder}/README.md 제목`).toContain(`# ${folder.split('-')[0]} ${mine[0].fm.epic_title}`)
     }
@@ -163,15 +163,15 @@ describe('색인', () => {
   it('PRD_011.md 3장의 Epic 별 티켓 목록이 폴더의 티켓과 같다', () => {
     for (const folder of new Set(all.map((t) => t.folder))) {
       const rows = new Map(
-        [...prd.matchAll(/^\| \[(OE-[A-Z0-9]+-\d+)\]\(features\/([A-Z0-9-]+)\/\1\.md\) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \|$/gm)]
+        [...prd.matchAll(/^\| \[(OE-[A-Z0-9]+-\d+)\]\(features\/([A-Z0-9-]+)\/\1\.md\) \| (.*?) \| (.*?) \| (.*?) \| (.*?) \|$/gm)]
           .filter((m) => m[2] === folder)
           .map((m) => [m[1], m.slice(3)]),
       )
       const mine = all.filter((t) => t.folder === folder)
       expect([...rows.keys()].sort(), folder).toEqual(mine.map((t) => t.fm.id as string).sort())
       for (const t of mine) {
-        const [title, rel, pri, status, jira] = rows.get(t.fm.id as string)!
-        expect([title, rel, pri, status, jira], `PRD_011.md ${t.fm.id}`).toEqual([t.fm.title, t.fm.release, t.fm.priority, t.fm.status, t.fm.jira])
+        const [title, rel, pri, status] = rows.get(t.fm.id as string)!
+        expect([title, rel, pri, status], `PRD_011.md ${t.fm.id}`).toEqual([t.fm.title, t.fm.release, t.fm.priority, t.fm.status])
       }
     }
   })
@@ -187,5 +187,36 @@ describe('색인', () => {
     }
     const total = /^총 (\d+)건\.$/m.exec(prd)
     expect(total && +total[1]).toBe(all.length)
+  })
+})
+
+// OE-REQ-01 "부록 A 와 정본 4장 일치". 부록 A 는 R0~R24 를 베끼지 않고 정본 4장(docs/bim-to-dt-ontology.md)을 가리키며, 정본에 아직
+// 없는 **제안**(R25 등)만 표로 둔다(부록 A 머리말). 두 곳에 두었다가 같은 R 이 한쪽은 필수, 다른 쪽은 권장이 된 일이 있어서다.
+// 여기서 그 약속을 잰다 — PRD 는 읽기만 한다.
+describe('부록 A 와 정본 4장 (OE-REQ-01)', () => {
+  const appendix = prd.slice(prd.indexOf('## 부록 A.'), prd.indexOf('## 부록 B.'))
+  const section = (from: string, to: string) => canon.slice(canon.indexOf(from), canon.indexOf(to))
+  const must = [...section('### 4.1 필수', '### 4.2 권장').matchAll(/^\| (R\d+) \|/gm)].map((m) => m[1])
+  const should = [...section('### 4.2 권장', '### 4.3').matchAll(/^\| (R\d+) \|/gm)].map((m) => m[1])
+
+  it('정본 4장이 R0~R24 를 필수 11 · 권장 14 로 한 번씩 담는다 — 제목·용어집의 개수와 같다', () => {
+    expect(must).toHaveLength(11)
+    expect(should).toHaveLength(14)
+    const byNumber = (a: string, b: string) => +a.slice(1) - +b.slice(1)
+    expect([...must, ...should].sort(byNumber)).toEqual(Array.from({ length: 25 }, (_, i) => `R${i}`))
+    expect(canon).toContain('### 4.1 필수 (11개)')
+    expect(canon).toContain('### 4.2 권장 (14개)')
+    expect(read('glossary.md')).toMatch(/요구사항 R0~R24\*\* \| [^|]*필수 11 · 권장 14/)
+  })
+
+  it('부록 A 는 정본을 가리키고, 표에는 정본에 없는 제안만 둔다', () => {
+    // 링크가 실제 파일을 가리킨다(docs/prd/ 기준 상대 경로).
+    const links = [...appendix.matchAll(/\]\((\.\.\/[^)]+)\)/g)].map((m) => m[1])
+    expect(links).toEqual(expect.arrayContaining(['../bim-to-dt-ontology.md', '../requirements.ids']))
+    for (const l of links) expect(() => statSync(PRD + l), l).not.toThrow()
+    // 표의 R 은 정본 4장에 없다. 채택되면 정본·IDS·보고서로 옮기고 여기서 뺀다.
+    const proposed = [...appendix.matchAll(/^\| (R\d+) \|/gm)].map((m) => m[1])
+    for (const r of proposed) expect([r, must.includes(r) || should.includes(r)]).toEqual([r, false])
+    expect(proposed.every((r) => +r.slice(1) > 24)).toBe(true)
   })
 })

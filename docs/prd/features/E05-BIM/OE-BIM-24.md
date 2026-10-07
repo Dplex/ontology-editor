@@ -6,22 +6,21 @@ title: "출처 구분·재임포트"
 prd: "#6"
 release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["R13","OE-HIST-03"]
-jira: ""
 ---
 
 # OE-BIM-24 출처 구분·재임포트
 
 ## 요구사항
 
-BIM 생성분 / 사용자 수정분 구분. 재임포트 시 BIM 생성분만 덮어쓰고 편집분 유지 — GUID 전제, **GUID가 바뀐 판본은 식별 정보(Revit 요소 ID·이름·위치)로 재적용**
+BIM 생성분 / 사용자 수정분을 출처로 구분해 표시한다. 재임포트 시 편집분 보존은 OE-HIST-03 을 따른다.
 
 ## 수용 기준
 
-Duplex 재내보내기 판본(GUID 63% 변경)에서 편집 보존
+OE-HIST-03 의 수용 기준을 따른다.
 
 ## 검증 (이 repo)
 

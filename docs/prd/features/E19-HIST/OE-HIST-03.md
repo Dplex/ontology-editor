@@ -6,11 +6,10 @@ title: "편집 파일 저장·불러오기"
 prd: "#26"
 release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-HIST-03 편집 파일 저장·불러오기
@@ -19,9 +18,15 @@ jira: ""
 
 열었을 때와 달라진 값만 id + 식별 정보(Revit 요소 ID·이름·위치)로 JSON 저장. **불러올 때 값을 덮어쓰지 않고 편집 함수를 다시 거친다**(재판정). 에디터가 만든 `U_` id는 식별 정보로 찾지 않음
 
+**재임포트(K11)** — BIM·IDF 를 다시 가져오면 임포트 생성분만 새 파일 값으로 바꾸고, 사용자 수정분은 편집 파일로 다시 얹는다. GUID 가 유지되면 GUID 로, **GUID 가 바뀐 판본은 식별 정보(Revit 요소 ID·이름·위치)로 짝지어 재적용**한다. 한 식별 정보에 둘 이상이 걸리면 얹지 않는다.
+
 ## 수용 기준
 
 저장·불러오기 거친 TTL·GeoJSON = 원본 편집 결과
+
+Duplex 재내보내기 판본(GUID 63% 변경)에서 편집 보존
+
+IDF 재임포트 후 편집 값 보존
 
 ## 검증 (이 repo)
 

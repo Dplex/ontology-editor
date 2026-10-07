@@ -10,18 +10,17 @@ owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: ["OE-EQP-17"]
-jira: ""
 ---
 
 # OE-ML-04 로봇 통과 속성
 
 ## 요구사항
 
-EL = 가능(정차 층 한정), 샤프트·ES·계단 = 불가 (#22 연계)
+수직 관통 오브젝트(EL·ES·계단·샤프트)의 로봇 통과 속성은 OE-EQP-17 을 따른다 (#22 연계)
 
 ## 수용 기준
 
-—
+OE-EQP-17 의 수용 기준을 따른다.
 
 ## 검증 (이 repo)
 

@@ -28,8 +28,13 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 
 - 창은 앱 코드가 아니라 `run.sh build` 가 `dist/` 에 끼워 넣는 `scripts/docs-chat.js` 라서 개발 서버(5174)에는 없다.
 - 55 의 gemini 는 사내 계정이라 `GOOGLE_CLOUD_PROJECT` 가 없으면 바로 죽는다. `run.sh` 가 `~/.bashrc` 에서 옮겨 온다.
-- 한 번 묻는 데 10~30초다(gemini 기동만 10초). 도구를 많이 부를수록 길어지니, 답하는 법(`scripts/docs-chat.md`)을 고칠 때
-  도구 수를 같이 본다. 서버 로그(`log/ontology-editor.log` 의 `"msg":"chat"`)에 도구·시간이 남고 질문 내용은 안 남는다.
+- **gemini 는 질문마다 띄우지 않는다.** `gemini --acp` 하나를 띄워 두고 질문마다 세션을 새로 연다(정문 `ieum-gateway` 의
+  assistant.Gemini 와 같은 방식). 처음 질문만 기동 3~4초가 더 붙고, 30분 안 쓰이면 내린다(`DOCS_CHAT_IDLE`, 하나에 약 380MB).
+  thinking 은 LOW 다(`DOCS_CHAT_THINKING`). 아래 실측에서 MEDIUM 보다 절반쯤 빨랐고 답은 같은 문서를 찾았다.
+- 55 실측(2026-10-06, 같은 질문 셋, 한 번씩): 예전 `gemini -p` 12.4 · 15.0 · 16.8초 → `--acp` MEDIUM 15.4(기동 포함) · 11.9 · 11.5초,
+  LOW 9.7(기동 포함) · 6.9 · 5.8초. 시간의 대부분은 모델이 생각하는 구간이라 thinking 단계가 기동보다 크게 움직인다.
+- 정책의 docs 허용 줄에 `toolName = "*"` 를 붙이지 않는다. `--acp` 에서는 그 줄이 docs 도구까지 "denied by policy" 로 막았다.
+- 도구를 많이 부를수록 길어지니, 답하는 법(`scripts/docs-chat.md`)을 고칠 때 도구 수를 같이 본다. 서버 로그(`log/ontology-editor.log` 의 `"msg":"chat"`)에 도구·시간이 남고 질문 내용은 안 남는다.
 - 검색을 고치면 `scripts/docs-mcp.test.ts`(실제 문서로 1위를 박아 둔 것)를 같이 본다.
 - 색인하는 곳은 `scripts/docs-index.mjs` 의 `SOURCES` 다. 문서 폴더를 새로 만들면 거기에 더해야 챗봇이 읽는다.
 

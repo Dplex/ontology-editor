@@ -4,24 +4,24 @@ epic: "E04"
 epic_title: "초기 구축 — IDF 임포트"
 title: "층 매핑"
 prd: "#5"
-release: "R2"
+release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
 # OE-IDF-04 층 매핑
 
 ## 요구사항
 
-Zone 높이·바닥 Z좌표로 층 매핑
+존의 바닥 Z 좌표와 높이로 존을 층에 매핑한다. 매핑 결과를 검토 화면(OE-IDF-11)에 보이고 사용자가 수동으로 고칠 수 있다. 어느 층에도 맞지 않는 존은 미매핑으로 둔다.
 
 ## 수용 기준
 
-매핑 결과 화면 표시, 수동 수정 가능
+- 존별 매핑 층이 화면에 보이고 사용자가 바꿀 수 있다.
+- 미매핑 존이 목록으로 보인다.
 
 ## 검증 (이 repo)
 

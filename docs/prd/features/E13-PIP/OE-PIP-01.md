@@ -2,26 +2,27 @@
 id: "OE-PIP-01"
 epic: "E13"
 epic_title: "배관 · 계통 에디터"
-title: "14-A 연결 잇기·끊기 (E8)"
+title: "연결 잇기·끊기 (E8)"
 prd: "#14"
 release: "R1"
 priority: "P1"
-owner: "ontology-editor"
+owner: "tbd"
 status: "prd-review"
 blocked_by: []
 depends: []
-jira: ""
 ---
 
-# OE-PIP-01 14-A 연결 잇기·끊기 (E8)
+# OE-PIP-01 연결 잇기·끊기 (E8)
 
 ## 요구사항
 
-설비 간 연결 추가(`manual`, 방향 없이 시작)·삭제. **포트(BIM)가 말한 연결은 끊지 못함**
+(PRD #14-A) 설비와 설비 사이의 연결을 사람이 추가하고 지운다(E8). 사람이 이은 연결은 출처 `manual` 이고 방향 없이 시작한다 — 방향은 OE-PIP-04(연결별) 또는 OE-PIP-05(규칙)로 정한다.
+포트(BIM)가 말한 연결은 끊을 수 없다(K13, OE-PIP-06). 잇거나 끊으면 규칙 방향을 다시 계산한다(OE-PIP-07).
 
 ## 수용 기준
 
-—
+- 사람이 이은 연결은 방향이 비어 있고, 포트가 말한 연결에는 끊기 버튼이 없다.
+- 잇거나 끊은 뒤 규칙 방향 일치율이 다시 계산된다.
 
 ## 검증 (이 repo)
 

@@ -1,8 +1,9 @@
 ---
 id: "ADR-0004"
 title: "커스텀존은 brick:Zone 으로 export 하고, 포함하는 방은 hasPart, 안의 설비는 hasLocation 을 하나 더 연결한다"
-status: "제안"
+status: "채택"
 date: "2026-10-03"
+deciders: ["정희록"]
 prd: ["Q4"]
 tickets: ["OE-OBJ-01", "OE-SPC-06", "OE-SPC-07", "OE-SPC-08", "OE-SPC-09", "OE-SPC-10"]
 supersedes: []
