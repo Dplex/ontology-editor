@@ -17,6 +17,7 @@ import { spacesBesideOpening } from './ifc/element-geometry'
 import { overlapArea, splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
 import { josa } from './josa'
+import { allowedSurfaces, canMountOn, SURFACE_LABEL } from './mount'
 
 /** 편집 한 번이 만든 관계 변화. 좌표가 아니라 관계를 적는다. */
 export type Change = {
@@ -2140,6 +2141,8 @@ export function mountOnWall(model: Model, equipmentId: string, at: Vec2): { wall
   const equipment = findEquipment(model, equipmentId)
   if (!equipment) return null
   const storey = model.storeys.find((s) => s.equipment.includes(equipment))!
+  // 허용 설치면에 벽이 없는 종류는 붙이지 않는다(OE-OBJ-10, 설치면 표는 mount.ts). 표에 없는 종류는 막지 않는다.
+  if (!canMountOn(equipment, 'wall')) return { refused: notOnWall(equipment) }
   // 외벽 전용 설비(외기 센서)는 외벽에만, 그 바깥 면에만 붙인다(2026-10-03 사용자 결정).
   const exterior = exteriorOnly(equipment)
   const external = exterior ? judgeExternal(storey) : null
@@ -2159,6 +2162,12 @@ export function mountOnWall(model: Model, equipmentId: string, at: Vec2): { wall
   if (!change) return null
   equipment.wallId = best.wall.id
   return { wall: best.wall, change }
+}
+
+/** 벽에 붙일 수 없는 설비를 붙이려 할 때의 이유. 허용 설치면을 같이 보인다. */
+export function notOnWall(equipment: Pick<Equipment, 'kind'>): string {
+  const allowed = allowedSurfaces(equipment.kind) ?? []
+  return `벽에 설치할 수 없는 설비입니다(설치면 ${allowed.map((x) => SURFACE_LABEL[x]).join('·')}).`
 }
 
 /** 외벽 바깥 면에만 놓는 종류인가(kinds.ts 의 `mount`). 외기 온도·습도 센서. */
@@ -2194,17 +2203,58 @@ function followWall(storey: Storey, wallId: string, delta?: Vec2) {
   }
 }
 
-/** 문·창을 옮긴다(평면). 높이는 그대로다. 문이면 잇는 방을 좌표로 다시 짚는다. */
-export function moveOpening(model: Model, openingId: string, to: Vec2, opts: LockOptions = {}): boolean {
+/** 문·창이 벽을 따라 옮길 수 없는 쪽으로 가려 할 때의 이유. */
+export const OPENING_ALONG_WALL = '문·창은 뚫린 벽을 따라서만 옮깁니다. 다른 벽에 두려면 지우고 그 벽에 새로 놓으세요.'
+
+/**
+ * 문·창을 옮긴다(평면). 높이는 그대로다. 문이면 잇는 방을 좌표로 다시 짚는다.
+ *
+ * 문·창은 벽에만 있다(OE-OBJ-07). 그래서 **뚫린 벽을 따라서만** 옮긴다 — 직사각형 벽이면 가려는 자리를 벽 중심선에 내려 그 길이
+ * 방향만 따르고(벽과의 옆 간격은 그대로), 가로가 벽 끝을 넘지 않게 멈춘다. 꺾인 벽처럼 중심선이 없는 벽은 그 벽 외곽선 안(5cm 여유)일
+ * 때만 옮긴다. 뚫린 벽을 모르는 문·창(BIM 이 관계를 안 적은 것)은 어느 벽에서든 OPENING_SNAP 안이어야 한다. 예전에는 아무 데나
+ * 옮겨져 문이 벽 밖에 떠 있었다(2026-10-07 검토). 편집 파일을 되살릴 때(ignoreLock)는 적힌 자리 그대로 둔다.
+ */
+export function moveOpening(model: Model, openingId: string, to: Vec2, opts: LockOptions = {}): boolean | { refused: string } {
   const found = findOpening(model, openingId)
   const o = found?.opening
   if (!found || !o || !o.position) return false
   if (!opts.ignoreLock && openingLocked(found.storey, o)) return false
+  if (!opts.ignoreLock) {
+    const placed = alongWall(found.storey, o, to)
+    if ('refused' in placed) return placed
+    to = placed.at
+  }
   if (Math.abs(o.position[0] - to[0]) < 1e-9 && Math.abs(o.position[1] - to[1]) < 1e-9) return false
   o.position = [to[0], to[1], o.position[2]]
   if (o.kind === 'door' && o.through) o.connectsSource = 'calc'
   relinkDoors(found.storey)
   return true
+}
+
+/** 문·창이 갈 수 있는 자리. moveOpening 의 규칙(뚫린 벽을 따라서만)을 적용한 끝 자리나, 갈 수 없는 이유. */
+function alongWall(storey: Storey, o: Opening, to: Vec2): { at: Vec2 } | { refused: string } {
+  const from: Vec2 = [o.position![0], o.position![1]]
+  const wall = storey.walls.find((w) => w.id === o.wallId && w.footprint?.length)
+  if (!wall) {
+    const near = nearestWall(storey, to)
+    return near && near.distance <= OPENING_SNAP ? { at: to } : { refused: `벽에서 ${OPENING_SNAP}m 안에만 놓습니다.` }
+  }
+  const len = wallLength(wall)
+  if (len === null) {
+    const inside = wall.footprint!.some((r) => pointInRing(to, r)) || (nearestOnWall(wall, to)?.distance ?? Infinity) <= 0.05
+    return inside ? { at: to } : { refused: OPENING_ALONG_WALL }
+  }
+  const axis = wallAxis(wall.footprint!)!
+  const u: Vec2 = [(axis.b[0] - axis.a[0]) / len, (axis.b[1] - axis.a[1]) / len]
+  const along = (p: Vec2) => (p[0] - axis.a[0]) * u[0] + (p[1] - axis.a[1]) * u[1]
+  const half = Math.min((o.width ?? 0) / 2, len / 2)
+  const want = along(to)
+  const t = Math.max(half, Math.min(len - half, want))
+  const shift = t - along(from)
+  if (Math.abs(shift) < 1e-9) {
+    return { refused: Math.abs(want - t) > 1e-9 ? `벽 끝입니다. 문·창은 벽(${len.toFixed(2)}m) 밖으로 나가지 않습니다.` : OPENING_ALONG_WALL }
+  }
+  return { at: [Math.round((from[0] + u[0] * shift) * 1e6) / 1e6, Math.round((from[1] + u[1] * shift) * 1e6) / 1e6] }
 }
 
 /** 문·창을 지운다. 물리존의 공간 경계 목록에서도 뺀다. */

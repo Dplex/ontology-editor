@@ -637,7 +637,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   for (const raw of file.openings ?? []) {
     const id = resolve(raw.id)
     let hit = false
-    if (raw.position) hit = moveOpening(model, id, [raw.position[0], raw.position[1]], { ignoreLock: true }) || hit
+    if (raw.position) hit = moveOpening(model, id, [raw.position[0], raw.position[1]], { ignoreLock: true }) === true || hit
     if (raw.width !== undefined || raw.height !== undefined) {
       // 크기는 끝 값을 그대로 얹는다. null(모름)로 되돌린 것도 있어 setOpeningSize 를 거치지 않는다.
       const o = model.storeys.flatMap((s) => s.openings).find((x) => x.id === id)

@@ -315,7 +315,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       if (!storey || !o) continue
       const snapshot = E.snapshotStoreyElements(m, storey.id)!
       const done = op === 'moveOpening' ? E.moveOpening(m, o.id, [o.position![0] + 0.3, o.position![1] - 0.2]) : E.deleteOpening(m, o.id)
-      if (!done) continue
+      if (!done || typeof done === 'object') continue
       undo.push(snapshot)
       log.push(`${op} ${o.name}`)
     } else if (op === 'equipmentSystem') {
