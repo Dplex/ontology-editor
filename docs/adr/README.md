@@ -67,3 +67,4 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | [0005](0005-export-reader-in-repo.md) | export 한 TTL 은 다른 저장소의 ttl.go 를 빌드하지 않고, 그 규칙을 옮긴 이 repo 의 reader 와 뷰어로 다시 읽는다 | 채택 |
 | [0006](0006-requirement-elsewhere-means-setting.md) | 요구사항 보고서의 '다른 자리'는 export 설정으로 고쳐지는 것만 — 형상 중심으로 옮긴 배치점(R11)은 '일부'로 집계한다 | 채택 |
 | [0007](0007-unit-cross-check-by-storey-height.md) | 길이 단위 교차 확인은 이름이 같은 층의 높이 비로 — 모든 쌍이 같은 단위 배수(±2%)일 때만, 틀린 쪽은 층간 높이 2~12m 로 판정한다 | 채택 |
+| [0013](0013-3d-shading-two-lights.md) | 3D 음영은 하늘빛과 카메라에 붙인 주광 두 개로만 내고, 그림자·후처리·재질 색은 쓰지 않는다 | 채택 |
