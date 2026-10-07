@@ -1037,7 +1037,7 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
             done(r.profile.tiers)
           },
         }
-        catalog({ url: `/${encodeURI(path.replace(/^data\//, ''))}?profile` } as IncomingMessage, res as unknown as ServerResponse)
+        catalog({ method: 'GET', url: `/${encodeURI(path.replace(/^data\//, ''))}?profile` } as IncomingMessage, res as unknown as ServerResponse)
       })
     const opened = (path: string, options: ImportOptions) => {
       const model = structuredClone(importIfcWithMeshes(api, new Uint8Array(readFileSync(path)), undefined, options).model)
@@ -1787,7 +1787,8 @@ describe.skipIf(!existsSync(SEONGSU_ARCH))('성수 건축', () => {
     }).toEqual({ walls: 1291, loadBearing: 351, not: 913, unknown: 27 })
     const doors = model.storeys.flatMap((s) => s.openings).filter((o) => o.kind === 'door')
     expect.soft(doors).toHaveLength(528)
-    expect.soft(doors.filter((d) => (d.connects?.length ?? 0) >= 2)).toHaveLength(233)
+    // 233 에서 270 으로 올랐다. 방이 겹친 자리에서 문이 가장 작은 방을 짚게 고친 d2b242e 의 결과다(성수는 공간 경계가 0 이라 문 전부가 좌표 판정).
+    expect.soft(doors.filter((d) => (d.connects?.length ?? 0) >= 2)).toHaveLength(270)
     // 방 이름 사전(정본 4장). 넓히면 오르지만 틀리게 읽는 것도 는다 — 떨어지면 실패로만 둔다.
     expect.soft(model.storeys.flatMap((s) => s.spaces).filter((sp) => roomKind(sp.kind)).length).toBeGreaterThanOrEqual(159)
   }, 600_000)
@@ -1802,9 +1803,9 @@ describe.skipIf(!existsSync(SEONGSU_MECH))('성수 기계', () => {
     expect.soft({ devices: c.devices, conduits: c.conduits, systems: c.systems, connections: c.connections, directed: c.directedConnections })
       .toEqual({ devices: 3472, conduits: 15864, systems: 1037, connections: 19515, directed: 8702 })
     const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
-    // Proxy 로 들어온 기기 1,652대(포트가 있어서 1,578 · 이름이 사전에 있어서 74). 사전을 바꾸면 이름 쪽이 움직인다.
+    // 파일의 Proxy 1,658개 중 기기로 받은 1,652대는 전부 포트가 있다. 포트도 사전 이름도 없어 읽지 않은 6개는 MCC·비상발전기·FT1·ET2 다.
     expect.soft(devices.filter((e) => e.ifcClass === 'BuildingElementProxy')).toHaveLength(1652)
-    expect.soft(model.facts?.proxies).toMatchObject({ ported: 1578, named: 74 })
+    expect.soft(model.facts?.proxies).toMatchObject({ total: 1658, ported: 1652, named: 0 })
 
     // 규칙 방향(정본 3.7). 이 83.8% 가 intent.md 가 말하는 "규칙이 맞는지" 의 기준이다.
     const rules = inferFlowByRules(model)
@@ -2578,7 +2579,9 @@ describe('층 단위 생성 (OE-GEN-11)', () => {
       crossing[name] = objects.length
     }
     // 다른 층을 가리키는 줄 수. 층을 넘는 흐름(feeds)·계통 구성원·공조존의 방이다. 이 수가 0 이 아니어도 위에서 다 이어짐을 봤다.
-    expect(crossing).toEqual({ fzk: 0, ifc4mep: 20, 'duplex 건축+hvac': 0, 'duplex mep': 0, '병원 건축+hvac': 311, idf: 225 })
+    // 이 PC 에 있는 파일만 견준다(병원·IDF 는 없는 PC 가 있다).
+    const expected: Record<string, number> = { fzk: 0, ifc4mep: 20, 'duplex 건축+hvac': 0, 'duplex mep': 0, '병원 건축+hvac': 311, idf: 225 }
+    expect(crossing).toEqual(Object.fromEntries(Object.keys(crossing).map((k) => [k, expected[k]])))
   }, 900_000)
 })
 
