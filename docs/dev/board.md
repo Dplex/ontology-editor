@@ -53,7 +53,7 @@ Status 선택지는 **웹 UI 에서만 고친다.** API(`updateProjectV2Field`)�
 
 #32 의 모양을 따른다(PR 본문이나 이슈에): 구현한 것 · 화면(스샷) · **확인 방법**(어느 파일을 열고 무엇을 누르면 무엇이 보이나,
 번호 매긴 단계) · 테스트(파일과 `npm test`·`check:sample`·e2e 결과 숫자) · 남은 것. 스샷은 Playwright 로 실제 BIM 을 열어
-찍고 `docs/figures/` 에 커밋해 브랜치 경로 `?raw=true` 로 링크한다. 3D 의 벽·설비 자리는 e2e 모드(`vite --mode e2e`)의
+찍어 이슈·PR 에 직접 업로드한다(GitHub 첨부). 브랜치 경로로 링크하면 merge 뒤 브랜치를 지울 때 이미지가 깨진다(#340). 3D 의 벽·설비 자리는 e2e 모드(`vite --mode e2e`)의
 `window.__viewer`(`element`·`part`·`point`)로 짚는다.
 
 ## 티켓 md 와 이슈 본문 맞추기
