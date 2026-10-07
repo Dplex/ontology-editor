@@ -7,7 +7,7 @@ prd: "#22"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "데이터"
 blocked_by: []
 depends: ["OE-EQP-17"]
@@ -17,7 +17,7 @@ depends: ["OE-EQP-17"]
 
 ## 요구사항
 
-OE-EQP-17 이 정한 통과 속성을 로봇 경로 판단에 제공
+OE-EQP-17 이 정한 통과 속성을 로봇 경로 판단에 참고한다. 
 
 ## 수용 기준
 

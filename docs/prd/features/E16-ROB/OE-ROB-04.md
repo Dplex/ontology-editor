@@ -7,7 +7,7 @@ prd: "#22"
 release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: []
 depends: ["OE-EQP-16"]
 ---
@@ -16,7 +16,7 @@ depends: ["OE-EQP-16"]
 
 ## 요구사항
 
-통과 속성(OE-EQP-17)·방-문-방·층간 연결은 R1 GeoJSON에 이미 산출 → 로봇 팀에 선행 제공
+통과 속성(OE-EQP-17)·방-문-방·층간 연결은 R1 GeoJSON에 이미 산출환 것을 참고한다. 
 
 ## 수용 기준
 

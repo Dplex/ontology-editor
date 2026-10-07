@@ -7,7 +7,7 @@ prd: "#13"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "(문·창·벽) / ◐"
 blocked_by: []
 depends: []

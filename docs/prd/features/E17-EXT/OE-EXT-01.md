@@ -7,7 +7,7 @@ prd: "#23"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: []
 depends: []
 ---
@@ -16,7 +16,7 @@ depends: []
 
 ## 요구사항
 
-벽의 외벽 여부는 `Pset_WallCommon.IsExternal` 로 읽는다. 속성이 없으면(ArchiCAD 등) 건물 외곽선에 접한 벽을 외벽으로 판정하고 출처를 '계산' 으로 둔다. 둘 다 안 되면 '모름' 이다(glossary "외벽"). 이 속성이 BIM 수용 기준선(R)에 드는지는 확인이 필요하다.
+벽의 외벽 여부는 `Pset_WallCommon.IsExternal` 로 읽는다. 속성이 없으면(ArchiCAD 등) 건물 외곽선에 접한 벽을 외벽으로 판정하고 출처를 '계산' 으로 둔다. 둘 다 안 되면 '모름'으로 표시한다(glossary "외벽"). 이 속성이 BIM 수용 기준선(R)에 드는지는 확인이 필요하다.
 
 ## 수용 기준
 
