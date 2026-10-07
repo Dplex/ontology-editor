@@ -277,10 +277,12 @@ test('B 열기: 두 파일을 같이 고르면 합쳐 열리고, 3D 를 그리�
 
   // B-9 요약 수. A-1-11 과 같은 수다.
   const tile = (label: string) => page.locator('.tiles li', { hasText: label }).first().locator('b')
+  // 타일은 천 단위 쉼표를 찍는다(Roll.vue 의 toLocaleString). 쉼표를 떼고 견준다.
+  const count = (label: string) => expect.poll(async () => (await tile(label).innerText()).replace(/,/g, ''))
   if (STOREYS) {
-    await expect(tile('층')).toHaveText(STOREYS)
-    await expect(tile('물리존')).toHaveText(SPACES!)
-    await expect(tile('기기')).toHaveText(DEVICES!)
+    await count('층').toBe(STOREYS)
+    await count('물리존').toBe(SPACES!)
+    await count('기기').toBe(DEVICES!)
   }
   record('B-9', `층 ${await tile('층').innerText()} · 물리존 ${await tile('물리존').innerText()} · 기기 ${await tile('기기').innerText()}`)
   const heap = await page.evaluate(() => Math.round(((performance as any).memory?.usedJSHeapSize ?? 0) / 1048576))
