@@ -27,6 +27,7 @@ depends: []
 ## 검증 (이 repo)
 
 - 성수(건축+기계)에서 방향키 한 번이 0.5초 안이다(GPU 크롬). Ctrl+Z 시간은 아직 기준이 없고 재서 적기만 한다 — `npm run e2e:seongsu`(방향키 기준), `scripts/seongsu.test.ts`(되돌리기 시간 기록), 성수 E-3·I-1
+- 3D 음영은 빛 두 개로만 낸다(ADR-0013). 성수에서 회전·확대 중 프레임 간격이 중앙값 17ms · 95% 18ms 로 바꾸기 전과 같다 — `npm run e2e:seongsu` 의 C-11
 
 ## 메모
 

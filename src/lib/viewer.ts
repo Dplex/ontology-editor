@@ -7,7 +7,6 @@
 // 어디로 지나가는지가 사라져서, 연결을 추정한 것이 맞는지 눈으로 확인할 수가 없다.
 
 import {
-  AmbientLight,
   Box3,
   Color,
   Ray,
@@ -22,6 +21,7 @@ import {
   EdgesGeometry,
   ExtrudeGeometry,
   Group,
+  HemisphereLight,
   Line,
   LineBasicMaterial,
   LineDashedMaterial,
@@ -397,11 +397,17 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const controls = new OrbitControls(camera, canvas)
   controls.enableDamping = true
 
-  // 밝은 배경 위에서는 빛을 덜 준다. 그러지 않으면 면이 하얗게 날아가 경계가 사라진다.
-  scene.add(new AmbientLight(0xffffff, 1.25))
-  const sun = new DirectionalLight(0xffffff, 0.9)
-  sun.position.set(20, 40, 20)
-  scene.add(sun)
+  // 조명. **그림자·후처리 없이 빛 두 개로만 면을 가른다** — 그리기 호출과 셰이더가 그대로라 성수에서도 값이 들지 않는다.
+  // 예전에는 고른 주변광(1.25)이 대부분이라 어느 쪽 면이든 밝기가 같아서, 형상이 있는 설비도 계통 색 한 덩어리로 보였다.
+  // 하늘빛(HemisphereLight)은 윗면을 밝게, 아랫면을 어둡게 해 덕트·배관의 위아래를 가른다. 주광은 카메라에 붙여 화면 왼쪽
+  // 위에서 비춘다 — 세계에 고정하면 해 반대편으로 돌아갔을 때 모든 면이 그늘이라 다시 한 덩어리가 된다. 3D 는 시점이
+  // 바뀔 때만 다시 그리므로(아래 tick 의 dirty) 빛이 따라 움직여도 더 그리지 않는다.
+  scene.add(new HemisphereLight(0xffffff, 0x6f7684, 0.9))
+  const sun = new DirectionalLight(0xffffff, 1.45)
+  sun.position.set(-0.5, 1, 0.6)
+  sun.target.position.set(0, 0, -1)
+  camera.add(sun, sun.target)
+  scene.add(camera)
 
   let content = new Group()
   scene.add(content)
