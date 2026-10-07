@@ -210,8 +210,9 @@ export type Equipment = {
    * 좌표를 BIM 배치점 말고 다른 데서 얻었으면 그 출처. 없으면 배치점 그대로다.
    * `'geometry'` 는 배치점이 형상에서 멀리 떨어져 형상 중심을 쓴 것(`anchorToGeometry`),
    * `'edited'` 는 사람이 옮긴 것이다. 화면이 이 값으로 "BIM 이 말한 좌표" 와 구별해 보인다.
+   * `'panel'` 은 좌표가 없는 분전반 안 부품(보호기)을 같은 층에 하나뿐인 분전반 자리에 놓은 것이다(OE-BIM-07, import.ts 의 placeInPanels).
    */
-  positionSource?: 'geometry' | 'edited'
+  positionSource?: 'geometry' | 'edited' | 'panel'
   /**
    * 설계 풍량 등 용량 파라미터. `null` 이면 BIM 에 안 적혀 있다.
    * PRD #6 의 "용량 파라미터 누락 설비" 이고, 공조존 용량 검증(Z-03)이 이 값에 걸린다.
@@ -391,8 +392,13 @@ export type Storey = {
 export type CustomZone = {
   /** 에디터가 지은 id(`U_…`). TTL 주어와 GeoJSON feature id 가 이것이다. */
   id: string
-  /** 별명. 사람이 부르는 이름(임원석·식당). 하나다(OE-OBJ-01). */
+  /** 별명. 사람이 부르는 이름(임원석·식당). TTL rdfs:label 이다. */
   name: string
+  /**
+   * 더 붙인 별명(2026-10-03 사용자 결정 — 별명은 여러 개, ADR-0012). `name` 과 겹치지 않고 비지 않는다. 없으면 키가 없다.
+   * TTL `ex:alias`, GeoJSON `aliases`.
+   */
+  aliases?: string[]
   /** 닫힌 고리(첫 점 = 끝 점). 세계 좌표. */
   footprint: Vec2[]
 }

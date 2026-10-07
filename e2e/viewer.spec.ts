@@ -119,3 +119,24 @@ test('층별로 구축한 TTL 을 여럿 놓으면 쌓아 읽고, 건물 전체 
   await expect(heading).toContainText('ontology.ttl')
   await expect(page.locator('.checks li.bad')).toHaveCount(0)
 })
+
+test('벽을 끄고 연 파일의 GeoJSON 을 놓으면 벽 0 이 "없음" 이 아니라 "읽지 않음" 이라고 보인다 (OE-BIM-25)', async ({ page }, info) => {
+  await page.addInitScript(() => {
+    delete (window as any).showDirectoryPicker
+  })
+  await page.goto('/')
+  // 첫 화면의 "읽을 것" 에서 벽을 끄고 연다.
+  await page.locator('fieldset.read-option.features').first().getByLabel('벽').uncheck()
+  await page.locator('input[type=file]').first().setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
+  await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible({ timeout: 30_000 })
+  const saved: Promise<string>[] = []
+  page.on('download', (d) => saved.push(d.saveAs(info.outputPath(d.suggestedFilename())).then(() => info.outputPath(d.suggestedFilename()))))
+  await page.getByRole('button', { name: '기하 내보내기 (GeoJSON)' }).click()
+  await expect.poll(() => saved.length).toBe(2)
+  const files = await Promise.all(saved)
+
+  await page.goto('/viewer.html')
+  await page.getByLabel('내보낸 파일 고르기').setInputFiles(files)
+  await expect(page.locator('.skipped-note')).toContainText('읽지 않음: 벽')
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT })
+})

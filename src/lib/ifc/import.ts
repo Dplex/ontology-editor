@@ -188,6 +188,30 @@ export function anchorToGeometry(equipment: Equipment[], meshes: MeshMap): numbe
   return fixed
 }
 
+/** 분전반 안에 드는 부품의 IFC 클래스(Ifc 를 뗀 것). 차단기·퓨즈와 그 트립 장치다. */
+const PANEL_PARTS = new Set(['ProtectiveDevice', 'ProtectiveDeviceTrippingUnit'])
+
+/**
+ * 좌표가 없는 분전반 안 부품을 분전반 자리에 놓는다(OE-BIM-07, 2026-10-03 사용자 결정). ifc4Mep 의 퓨즈 22대는 배치가 없고, IFC 어디에도
+ * 어느 분전반에 드는지 적혀 있지 않았다(포트 연결·묶음·회로 다 없음). 그래서 **같은 층에 좌표 있는 분전반이 하나뿐일 때만** 그 자리를
+ * 쓴다(출처 `panel`, 화면에서는 계산). 분전반이 둘 이상이면 어느 것인지 지어내지 않고 미배치로 둔다. 놓은 수를 돌려준다.
+ */
+export function placeInPanels(storeys: readonly Storey[]): number {
+  let placed = 0
+  for (const storey of storeys) {
+    const panels = storey.equipment.filter((e) => e.position && (e.kind === 'panel' || e.ifcClass === 'ElectricDistributionBoard'))
+    if (panels.length !== 1) continue
+    const [x, y, z] = panels[0].position!
+    for (const e of storey.equipment) {
+      if (e.position || !PANEL_PARTS.has(e.ifcClass)) continue
+      e.position = [x, y, z]
+      e.positionSource = 'panel'
+      placed++
+    }
+  }
+  return placed
+}
+
 /**
  * 벽의 평면 외곽선과 문·창의 자리를 형상에서 읽고, 문이 잇는 방을 채운다(element-geometry.ts).
  *
@@ -1468,6 +1492,13 @@ function read(
     if (anchored > 0) {
       warnings.push(
         `설비 ${anchored}대는 배치점이 형상에서 ${ANCHOR_MARGIN}m 넘게 떨어져 있어(층 원점에 찍힌 것으로 보임) 형상 중심을 좌표로 썼습니다.`,
+      )
+    }
+
+    const inPanels = placeInPanels(result.storeys)
+    if (inPanels > 0) {
+      warnings.push(
+        `좌표가 없는 분전반 안 부품(보호기) ${inPanels}대를 같은 층에 하나뿐인 분전반 자리에 놓았습니다. IFC 가 어느 분전반에 드는지 말하지 않아 층으로 짐작한 것입니다(계산).`,
       )
     }
 

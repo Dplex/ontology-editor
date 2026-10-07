@@ -39,6 +39,10 @@ function toggleTheme() {
   }
 }
 
+/** 층 파일 머리에 적힌 읽지 않은 피처(OE-BIM-25). 층 파일 어느 하나라도 적었으면 보인다. */
+const floorsSkipped = computed(() => [...new Set(floors.value.flatMap((f) => f.skipped))])
+const SKIPPED_LABEL: Record<string, string> = { walls: '벽', doors: '문', windows: '창' }
+
 /** 층 파일의 높이. 물리존·벽이 적은 elevation 이고, 없으면 뒤로 보낸다. */
 function elevationOf(floor: ExportFloor): number {
   const e = floor.features.find((f) => typeof f.properties.elevation === 'number')?.properties.elevation
@@ -359,6 +363,10 @@ const PARTS_SHOWN = 40
         <div class="card">
           <h2>GeoJSON <span class="muted">층 파일 {{ floors.length }}</span></h2>
           <p class="big"><b>{{ floors.reduce((n, f) => n + f.features.length, 0).toLocaleString() }}</b> feature</p>
+          <!-- 벽·문·창을 끄고 연 파일(OE-BIM-25). 0 이 "없음" 이 아니라 "읽지 않음" 이다. -->
+          <p v-if="floorsSkipped.length" class="skipped-note">
+            읽지 않음: {{ floorsSkipped.map((k) => SKIPPED_LABEL[k] ?? k).join('·') }} — 이 층 파일의 {{ floorsSkipped.map((k) => SKIPPED_LABEL[k] ?? k).join('·') }} 0 은 BIM 에 없다는 뜻이 아닙니다
+          </p>
           <p class="muted">
             {{ kindCounts.map(([kind, n]) => `${KIND_LABEL[kind] ?? kind} ${n.toLocaleString()}`).join(' · ') }}
           </p>
@@ -560,6 +568,13 @@ const PARTS_SHOWN = 40
 .viewer {
   max-width: 90rem;
   padding-top: 2rem;
+}
+.skipped-note {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
 }
 .title {
   display: flex;

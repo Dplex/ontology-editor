@@ -670,6 +670,7 @@ describe('연 때와 견주기', () => {
       customZones: [],
       systemMoved: [],
       systemKinds: [],
+      systemNames: [],
       systemsAdded: [],
       systemsRemoved: [],
     })

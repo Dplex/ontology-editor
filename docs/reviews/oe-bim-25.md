@@ -31,6 +31,9 @@ PRD: prd-review — 요구사항이 바뀌면 다시 본다
 그렇게 연 병원 건축의 요약 칸 — 벽·문·창문이 0 이 아니라 "– 읽지 않음".
 ![요약 칸](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-BIM-25-verify/docs/figures/oe-bim-25-tiles.png?raw=true)
 
+벽을 끄고 연 파일의 GeoJSON 을 뷰어에 놓은 화면(추가 작업) — 층 파일 header 의 기록을 읽어 "읽지 않음: 벽" 을 표시한다.
+![뷰어의 읽지 않음](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-BIM-25-verify/docs/figures/oe-bim-25-viewer.png?raw=true)
+
 ## 확인 방법
 1. 8087 검토 서버(또는 `npm run dev`) 첫 화면의 [읽을 것] 에서 벽·문·창 체크를 끈다
 2. `data/NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc` 를 연다 → 요약 칸 벽·문·창문이 "– 읽지 않음", 물리존 269 · 기기 102
@@ -42,5 +45,8 @@ PRD: prd-review — 요구사항이 바뀌면 다시 본다
 - 코드를 고치지 않아 단위·e2e 는 바뀌지 않는다
 
 ## 남은 것
-- 끈 사실이 내보낸 파일에 남지 않는다. 받는 쪽이 GeoJSON 에 벽이 없는 것을 "BIM 에 벽이 없다" 로 읽을 수 있다 — 필요하면 GeoJSON 머리에 적는다(needs-pm)
-- 성수는 이 PC 에 없어 측정하지 못했다
+- (해결) 끈 사실을 GeoJSON 층 파일 header 에 `skipped: ["walls","doors","windows"]` 로 적는다. 합쳐도, 층 하나만
+  구축해도(OE-GEN-11) 적히고, 모두 읽은 파일에는 이 항목이 없다. 뷰어가 "읽지 않음: 벽·문·창 — 0 은 BIM 에 없다는 뜻이 아닙니다" 를
+  표시한다. 테스트: `export.test.ts` "벽·문·창을 읽지 않고 연 모델은 …", `check:sample` 이 테스트의 끝 블록, e2e `viewer.spec.ts` "벽을 끄고 연 파일의 …".
+  BIM→DT 문서 `docs/bim-to-dt-ontology.md` 의 "읽지 않은 피처" 문단
+- 성수 건축(2026-10-06 성수 PC, 임시 probe): 벽 1,291 · 문·창 591 → 0, 물리존 508 · 기기 1,439 그대로, R4·R22 잴 수 없음, TTL 같음, 기계를 합쳐도 `skipped` 유지. 열기 3,771ms → 3,470ms(데운 뒤 한 번)

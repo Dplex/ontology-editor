@@ -124,10 +124,10 @@ export function featureCoverage(model: Model): Coverage[] {
       unit: '기기',
       of: devices.length,
       bim: count(devices, (e) => !!e.position && !e.positionSource),
-      calc: count(devices, (e) => !!e.position && e.positionSource === 'geometry'),
+      calc: count(devices, (e) => !!e.position && (e.positionSource === 'geometry' || e.positionSource === 'panel')),
       dict: 0,
       edit: count(devices, (e) => !!e.position && e.positionSource === 'edited'),
-      note: '배치점이 형상에서 떨어지면 형상 중심(계산)',
+      note: '배치점이 형상에서 떨어지면 형상 중심, 좌표 없는 분전반 부품은 같은 층 하나뿐인 분전반 자리(계산)',
     }),
     row({
       key: 'F10',

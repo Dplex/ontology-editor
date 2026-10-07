@@ -29,16 +29,27 @@ Revit `System Name` 으로 만든 계통은 이름이 곧 id 라서, 합치기(`
 Duplex HVAC 와 MEP 를 같이 연 계통 범례. 두 파일에 같은 이름으로 있던 계통이 한 줄로 합쳐져 있다(39개, 이름은 BIM 그대로).
 ![계통 범례](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-PIP-09-system-names/docs/figures/oe-pip-09-legend.png?raw=true)
 
+BIM 계통 이름을 고친 것(추가 작업) — 패널에 "BIM 이름 AHU-1 급기 계통 → 고친 이름 [편집]", 위 바에 바뀐 것 "계통 이름 … → 1층 급기".
+![계통 이름 고치기](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-PIP-09-system-names/docs/figures/oe-pip-09-rename.png?raw=true)
+
 ## 확인 방법
 1. 8087 검토 서버(또는 `npm run dev`)에서 `data/NBU_Duplex/NBU_Duplex-Apt_Eng-HVAC.ifc` 와 `…_Eng-MEP-Optimized.ifc` 를 같이 연다
 2. 계통 범례가 39개이고 같은 이름이 두 번 나오지 않는다
-3. [편집] 에서 범례의 계통을 골라도 이름 칸은 없다(종류·유체만). 새 계통은 설비 패널의 [새 계통…] 에서 이름을 주고 만든다
+3. [편집] 에서 범례의 계통을 선택하면 패널에 이름 칸이 있다(추가 작업 전에는 종류·유체만). 이름을 바꾸고 Enter → 범례·TTL `rdfs:label` 이 바뀌고 Ctrl+Z 로 돌아온다. 새 계통은 설비 패널의 [새 계통…] 에서 이름을 정해 만든다
 
 ## 테스트
 - `npm test` — 40 files · 647 passed(새로 넣은 것: `edit-fuzz.test.ts` 1. fuzz 결과로 편집한 모델·다시 불러온 모델을 돌려주도록 `edit-fuzz.ts` 를 고쳤다 — 테스트 전용 파일)
 - `npx vue-tsc --noEmit` 통과
 - `npm run check:sample -t "OE-PIP-09"` — 1 passed(새로 넣음)
+- mutation test — 이 커밋이 넣은 규칙을 하나씩 꺼 보고 테스트가 깨지는지 확인했다. 10곳 중 6곳을 잡았고, 나머지를 잡으려고 추가한 것: `edit-file.test.ts` "계통 이름 (OE-PIP-09)" 2개(공백·빈 이름·되돌리기, GUID 가 바뀐 버전에 다시 불러오기). **두 번째 테스트가 버그를 찾았다** — 계통 지문(`versions.ts`)이 고친 이름을 써서, 이름을 고친 편집 파일을 GUID 가 바뀐 버전에 불러오면 그 계통을 찾지 못했다. 파일을 열 때의 이름으로 찾도록 고쳤다
 
 ## 남은 것
-- 사람이 만든 계통의 이름을 만든 뒤에 고치는 길은 없다. "이름 자유" 가 만든 뒤 고치기까지 뜻하면 따로 만든다(needs-pm)
+- (해결) **모든 계통의 이름을 만든 뒤에도 고친다 — BIM 이 준 계통도.** 범례에서 선택한 계통의 패널(편집 모드)에
+  이름 칸을 두었다(`edit.ts` 의 `renameSystem`). TTL 계통 블록의 `rdfs:label` 이 바뀐다. 파일을 열 때와 다른 이름은 바뀐 것 목록에 "계통 이름
+  A → B" 로 올라가고, 패널에 "BIM 이름 A → 고친 이름" 을 보여 준다. 편집 파일 `systemNames`(지문으로 다시 찾는다)에 남고, Ctrl+Z 로 돌아온다.
+  위 "BIM 계통 이름은 그대로" fuzz invariant 는 "사람이 고친 것만 바뀐다" 로 바꿨다 — fuzz 에 `renameSystem` 을 추가해 seed 200개에서 이름 고치기가
+  20번 넘게 섞이고, 저장·불러온 뒤에도 이름이 같다. e2e `edit-system.spec.ts` "BIM 계통의 이름을 고치면 …"
+- 이름을 고친 BIM 계통은 **다음 버전과 이름으로 매칭(merge.ts)할 때 고친 이름으로는 안 된다.** 덧붙이기(append)는 원본 모델끼리 합친 뒤
+  편집을 다시 적용하므로 괜찮지만, 고친 이름으로 저장한 온톨로지를 다른 분야 파일과 이름으로 매칭하려면 BIM 이름을 알아야 한다(TTL 에는 고친
+  이름만 들어간다)
 - 사람이 BIM 계통과 같은 이름으로 계통을 만들 수 있다. 이름이 같아도 id 가 달라 합치기에서 섞이지 않지만, 범례에 같은 이름이 두 개 보인다

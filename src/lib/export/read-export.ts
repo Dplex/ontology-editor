@@ -58,6 +58,8 @@ export type ExportFloor = {
   features: ReadFeature[]
   /** RFC 7946 모양 문제. 비면 맞다. */
   problems: string[]
+  /** 머리에 적힌 읽지 않은 피처(OE-BIM-25). 벽이 0 인 것이 "없음" 인지 "읽지 않음" 인지 가른다. */
+  skipped: string[]
 }
 
 /**
@@ -105,13 +107,14 @@ export function readGeoJSON(fileName: string, text: string): ExportFloor {
   try {
     parsed = JSON.parse(text)
   } catch (e) {
-    return { fileName, features: [], problems: [`JSON 이 아니다: ${e instanceof Error ? e.message : String(e)}`] }
+    return { fileName, features: [], problems: [`JSON 이 아니다: ${e instanceof Error ? e.message : String(e)}`], skipped: [] }
   }
   const problems = geojsonProblems(parsed)
   const features = Array.isArray((parsed as { features?: unknown })?.features)
     ? ((parsed as { features: ReadFeature[] }).features.map((f) => ({ ...f, id: String(f.id), properties: f.properties ?? {} })) as ReadFeature[])
     : []
-  return { fileName, features, problems }
+  const skipped = (parsed as { skipped?: unknown })?.skipped
+  return { fileName, features, problems, skipped: Array.isArray(skipped) ? skipped.map(String) : [] }
 }
 
 /** TTL 에 같은 id 의 주어가 있어야 하는 feature. 벽·문·창은 GeoJSON 에만 있다(Brick 에 건축 부재가 없다). */

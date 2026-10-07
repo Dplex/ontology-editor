@@ -6,7 +6,7 @@ import { importIfc } from '../ifc/import'
 import type { Model } from '../model'
 import { modelToGeoJSON, storeyToGeoJSON } from './geojson'
 import { escapeLocalName, modelToTTL } from './ttl'
-import { NUMERIC_OK, numericPredicates } from './read-export'
+import { NUMERIC_OK, numericPredicates, readGeoJSON } from './read-export'
 
 let model: Model
 let mep: Model
@@ -38,6 +38,18 @@ describe('GeoJSON', () => {
     const spaces = storeyToGeoJSON(model.storeys[1]).features.filter((f) => f.properties.kind === 'space')
     expect(spaces).toHaveLength(1)
     expect(spaces[0].geometry).toBe(null)
+  })
+
+  it('벽·문·창을 읽지 않고 연 모델은 층 파일 머리에 skipped 를 적고, 다 읽었으면 칸이 없다 (OE-BIM-25)', () => {
+    const off: Model = { ...structuredClone(model), skipped: ['walls', 'doors'] }
+    const files = modelToGeoJSON(off)
+    expect(files.map((f) => f.collection.skipped)).toEqual([['walls', 'doors'], ['walls', 'doors']])
+    // RFC 7946 은 모르는 멤버를 허용한다. 받는 쪽 리더가 읽는다.
+    const read = readGeoJSON(files[0].fileName, JSON.stringify(files[0].collection))
+    expect(read.problems).toEqual([])
+    expect(read.skipped).toEqual(['walls', 'doors'])
+    expect(modelToGeoJSON(model).map((f) => 'skipped' in f.collection)).toEqual([false, false])
+    expect(readGeoJSON('x', JSON.stringify(modelToGeoJSON(model)[0].collection)).skipped).toEqual([])
   })
 
   it('벽·문·창은 GeoJSON 에만 나가고, 문이 잇는 방은 TTL 주어를 가리킨다', () => {

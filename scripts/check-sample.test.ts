@@ -155,7 +155,8 @@ describe.skipIf(!existsSync(MEP))('실제 MEP BIM (ifc4Mep, IFC4)', () => {
     expect(counts.conduits).toBe(1895)
     // IfcDistributionSystem 15 + IfcDistributionCircuit 22. 상속으로 골라야 37 이 된다.
     expect(counts.systems).toBe(37)
-    expect(counts.unplacedEquipment).toBe(28)
+    // 좌표 없는 28대 중 00층 퓨즈 11대는 그 층에 하나뿐인 분전반(MB01) 자리에 놓는다(OE-BIM-07, 2026-10-03). 01층은 분전반이 둘이라 남는다.
+    expect(counts.unplacedEquipment).toBe(17)
 
     const equipment = model.storeys.flatMap((s) => s.equipment)
     expect(equipment.filter((e) => e.systemId !== null)).toHaveLength(1714)
@@ -526,6 +527,15 @@ describe('임포트 피처 선택 — 끈 것은 읽지 않음 (OE-BIM-25)', () 
     expect(mergeModels(off, hvac).model.skipped).toEqual(['walls', 'doors', 'windows'])
     // 온톨로지(TTL)는 그대로다 — 벽·문·창은 TTL 에 없다.
     expect(modelToTTL(off)).toBe(modelToTTL(full))
+    // GeoJSON 층 파일 머리에 "읽지 않음" 을 적는다 — 받는 쪽이 벽 0 을 "없음" 과 가른다(2026-10-03 사용자 결정). 합쳐도, 층 하나만
+    // 구축해도(OE-GEN-11) 적힌다. 다 읽은 파일에는 칸이 없다.
+    const merged = mergeModels(off, hvac).model
+    for (const f of modelToGeoJSON(merged)) {
+      const read = readGeoJSON(f.fileName, JSON.stringify(f.collection))
+      expect({ skipped: read.skipped, problems: read.problems }, f.fileName).toEqual({ skipped: ['walls', 'doors', 'windows'], problems: [] })
+    }
+    expect(readGeoJSON('x', storeyFiles(merged, merged.storeys[1].id)!.geojson).skipped).toEqual(['walls', 'doors', 'windows'])
+    expect(modelToGeoJSON(full).filter((f) => 'skipped' in f.collection)).toEqual([])
     // 형상을 읽지 않는 만큼 빨라진다(2026-10-03 이 PC 에서 데운 뒤 770ms → 560~630ms, 두 번 잼).
     expect(offMs).toBeLessThan(fullMs)
     console.log(`병원 건축 열기 ${Math.round(fullMs)}ms → 벽·문·창 끄면 ${Math.round(offMs)}ms`)
@@ -812,8 +822,10 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsS
     // 벽면 설비가 외곽선 위에 떨어져 말단 105대 중 41대의 소속을 잃었다.
     expect(report.declaredRemapped).toEqual({ total: 167, remapped: 167 })
     expect(model.storeys.flatMap((s) => s.equipment).filter((e) => e.spaceSource === 'bim')).toHaveLength(167)
-    // 종류 후보(kind-suggest.ts): 종류를 아는 Revit 패밀리 16개 중 11개가 닮은 패밀리 세 후보 안에 든다(2026-09-29).
-    expect(evaluateSuggestions(model).top3).toBeGreaterThanOrEqual(11)
+    // 종류 후보(kind-suggest.ts): 종류를 아는 Revit 패밀리 16개 중 10개가 닮은 패밀리 세 후보 안에 든다. 11 이었는데, 분전반
+    // (`Lighting and Appliance Panelboard`)이 이름의 "Lighting" 때문에 조명으로 잡히던 것을 고쳐(2026-10-03) 정답이 분전반이 됐다.
+    // 분전반 패밀리는 하나뿐이라 닮은 것으로 맞힐 수 없다 — 후보가 나빠진 것이 아니라 정답이 바로잡힌 것이다.
+    expect(evaluateSuggestions(model).top3).toBeGreaterThanOrEqual(10)
     // 방을 절반으로 줄여도 소속을 잃은 설비가 없다.
     expect(report.unlocated).toEqual({ before: 270, after: 270 })
   }, 300_000)
@@ -995,7 +1007,7 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
     // 37/103 이다 — 나머지 66대는 난방·오수처럼 원천 기기(보일러·펌프)가 모델에 없는 망에 형제로만
     // 매달려서 "누가 이 기기에 공급하나" 에 답이 없다. 연결 단위(100%)로 보이면 DT 가 받는 것을
     // 크게 부풀려 말하게 된다.
-    expect(chips(MEP)).toBe('공간 — | 설비 286/308 | 소속 0/308 | 연결망 1995 | 방향 37/103')
+    expect(chips(MEP)).toBe('공간 — | 설비 297/308 | 소속 0/308 | 연결망 1995 | 방향 37/103')
     // 공간 1 은 지붕뿐이다. 기기 40대가 갈 방이 없다 — 건축 파일을 덧붙이면 소속 40 이 된다.
     // 연결 단위로는 39%(190/485)가 방향을 아는데, 기기에서 출발한 방향 사슬은 전부 중간의
     // SOURCEANDSINK 에서 끊긴다. 기기끼리 닿는 흐름은 0 이다.
@@ -1477,7 +1489,7 @@ describe.skipIf(!hasIfctester)('IDS 를 ifctester 로 (OE-REQ-02)', () => {
 
 // OE-BIM-13 Proxy 리포트. 파일의 Proxy 를 전부 세고, 설비로 읽은 것(포트·이름)과 읽지 않은 것을 가른다. 읽지 않은 것이 정말
 // 건축 부재인지는 이름 예로 사람이 본다 — ifc4Mep 의 48개는 태양광 거치대 40개(`SolarMountingSystems`, 설명 "Mounting rack")와
-// 이름·형상 없는 8개, 병원 전기의 1개는 유압 엘리베이터다(2026-10-03 ifcopenshell 로 열어 확인).
+// 이름·형상 없는 8개다. 병원 전기의 유압 엘리베이터 1대는 읽지 않다가 이름 사전에 "엘리베이터" 를 더해 설비로 읽는다(2026-10-03 사용자 결정).
 describe('Proxy 리포트 (OE-BIM-13)', () => {
   it('가진 BIM 의 Proxy 를 전부 세고 읽지 않은 것을 이름과 함께 적는다', async () => {
     const api = new WebIFC.IfcAPI()
@@ -1489,7 +1501,7 @@ describe('Proxy 리포트 (OE-BIM-13)', () => {
       [DUPLEX_HVAC]: undefined,
       [CLINIC_ARCH]: undefined,
       [CLINIC_HVAC]: undefined,
-      'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc': { total: 29, ported: 0, named: 28, skipped: ['M_Elevator-Hydraulic:2000 lbs:2000 lbs'] },
+      'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc': { total: 29, ported: 0, named: 29, skipped: [] },
     }
     let measured = 0
     for (const [path, proxies] of Object.entries(want)) {
@@ -1615,7 +1627,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
 
     // 종류 후보(kind-suggest.ts). 종류를 아는 Revit 패밀리를 하나씩 가리고 닮은 패밀리로 맞혀 본다(2026-09-29 실측).
     const guess = evaluateSuggestions(model)
-    expect(guess.families).toBe(14)
+    // 엘리베이터(이름 사전, 2026-10-03)가 종류를 아는 패밀리로 더해져 14 → 15.
+    expect(guess.families).toBe(15)
     expect(guess.top3).toBeGreaterThanOrEqual(10)
     // 층 사이 연결. 계단실·승강로 7개 중 6개가 위·아래층과 이어진다(vertical.ts).
     expect(verticalLinks(model).size).toBe(6)
@@ -1651,7 +1664,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     expect(brief('R16')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 3701, of: 3806 } })
     expect(brief('R21')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 563, of: 566 } })
     // SPLITSYSTEM 2대는 표준 값이지만 받지 않는다(kinds.ts 의 IFC_REJECTED). 이름 사전이 종류를 알아서 다른 자리로 간다.
-    expect(brief('R24')).toEqual({ state: 'partial', counts: { standard: 662, elsewhere: 5, of: 668 } })
+    // 건축의 유압 엘리베이터(IfcFlowTerminal)도 이름 사전으로 알게 되어(2026-10-03) 모르는 것이 0 — 다른 자리다.
+    expect(brief('R24')).toEqual({ state: 'elsewhere', counts: { standard: 662, elsewhere: 6, of: 668 } })
     expect(rows.get('R22')!.note).toContain('기본값')
   }, 300_000)
 
@@ -1681,7 +1695,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
     // 병원 건축의 욕실 부속·소화기함 101대는 BIM 이 SanitaryTerminal 이라 했지만 이름이 먼저다(전에는 428).
     expect(devices.filter((e) => e.kindSource === 'bim')).toHaveLength(327)
-    expect(devices.filter((e) => !e.kind)).toHaveLength(1)
+    // 종류를 모르던 1대는 건축의 유압 엘리베이터였다. 이름 사전에 더해 0 이다(2026-10-03).
+    expect(devices.filter((e) => !e.kind)).toHaveLength(0)
 
     // 타입을 안 읽던 때와 같은 모델.
     const unread = structuredClone(model)
@@ -1737,8 +1752,10 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
       'hydronic-user-source': '0/2',
     })
     const guess = evaluateSuggestions(model)
-    expect(guess.families).toBe(32)
-    expect(guess.top3).toBeGreaterThanOrEqual(26)
+    // 33 = 엘리베이터 패밀리가 더해짐(2026-10-03). 맞힌 수 26 → 25 는 분전반이 조명에서 분전반으로 바로잡혀(위 Duplex 와 같은 까닭)
+    // 하나뿐인 분전반 패밀리를 닮은 것으로 맞힐 수 없게 된 것이다. 엘리베이터도 하나뿐이라 맞히지 못한다.
+    expect(guess.families).toBe(33)
+    expect(guess.top3).toBeGreaterThanOrEqual(25)
   }, 600_000)
 })
 
@@ -2406,20 +2423,33 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH) || !existsSync(C
 })
 
 describe.skipIf(!existsSync(MEP))('좌표 없는 설비는 미배치 목록 (ifc4Mep)', () => {
-  it('28대가 층과 함께 목록에 들고, TTL 에는 층까지만·GeoJSON 에는 형상 없이 나간다', async () => {
+  it('17대가 층과 함께 목록에 들고, TTL 에는 층까지만·GeoJSON 에는 형상 없이 나간다. 퓨즈 11대는 분전반 자리다', async () => {
     // OE-BIM-07. 방이 없는 설비 파일이라 완전성 검사 "기기마다 소속 방" 은 건너뛴다 — 미배치는 이 목록만 말한다.
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const model = importIfc(api, new Uint8Array(readFileSync(MEP)))
     const list = unplacedOf(model)
-    expect(list).toHaveLength(28)
+    expect(list).toHaveLength(17)
     expect(list).toHaveLength(countOf(model).unplacedEquipment)
     // 분전반 안의 보호기(퓨즈 F1~F13, 두 층에 11개씩)와 이름 없는 배관 토막 6개. 보호기는 회로(IfcDistributionCircuit)에 들어
-    // 있지만 배치점이 없다 — 반 안의 부품이라 따로 놓지 않은 것이다.
+    // 있지만 배치점이 없다 — 반 안의 부품이라 따로 놓지 않은 것이다. IFC 는 어느 분전반에 드는지 말하지 않는다(포트 연결·묶음 없음).
+    // 00층은 분전반이 MB01 하나라 그 자리에 놓고(출처 panel), 01층은 둘(Data board 1·SB 02)이라 짐작하지 않고 남긴다(2026-10-03 사용자 결정).
     const byClass = new Map<string, number>()
     for (const u of list) byClass.set(u.equipment.ifcClass, (byClass.get(u.equipment.ifcClass) ?? 0) + 1)
-    expect(Object.fromEntries(byClass)).toEqual({ ProtectiveDevice: 22, FlowSegment: 6 })
-    expect(new Set(list.map((u) => u.storey.name))).toEqual(new Set(['00. Begane grond', '01. verdieping']))
+    expect(Object.fromEntries(byClass)).toEqual({ ProtectiveDevice: 11, FlowSegment: 6 })
+    expect(new Set(list.filter((u) => u.equipment.ifcClass === 'ProtectiveDevice').map((u) => u.storey.name))).toEqual(new Set(['01. verdieping']))
+    const ground = model.storeys.find((s) => s.name === '00. Begane grond')!
+    const mb01 = ground.equipment.find((e) => e.name === 'MB01')!
+    const inPanel = ground.equipment.filter((e) => e.positionSource === 'panel')
+    expect(inPanel).toHaveLength(11)
+    expect(inPanel.every((e) => e.ifcClass === 'ProtectiveDevice' && JSON.stringify(e.position) === JSON.stringify(mb01.position))).toBe(true)
+    expect(model.warnings.some((w) => w.includes('분전반 안 부품(보호기) 11대'))).toBe(true)
+    const r11 = requirementsReport(model).find((r) => r.id === 'R11')!
+    expect(r11.note).toContain('분전반 부품 11대')
+    // 분전반 자리는 짐작이라 표준에서 뺀다 — 형상 중심으로 옮긴 것(계산)과 같이.
+    const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
+    const bimPlaced = devices.filter((e) => e.position && !e.positionSource).length
+    expect(r11.counts).toEqual({ standard: bimPlaced, elsewhere: 0, of: devices.length })
 
     const ttl = modelToTTL(model)
     const features = new Map(modelToGeoJSON(model).flatMap((f) => f.collection.features).map((f) => [f.id, f]))
@@ -2432,10 +2462,10 @@ describe.skipIf(!existsSync(MEP))('좌표 없는 설비는 미배치 목록 (ifc
     }
   }, 300_000)
 
-  // OE-MAN-04 설비 수동 배치. 좌표가 있는 설비는 BIM 자리에 저절로 놓이고(손대지 않는다), 나머지는 사람이 놓는다. 28대를 전부 놓으면
+  // OE-MAN-04 설비 수동 배치. 좌표가 있는 설비는 BIM 자리에 저절로 놓이고(손대지 않는다), 나머지는 사람이 놓는다. 17대(분전반 자리에 놓은 퓨즈 11대를 뺀 것)를 전부 놓으면
   // 목록이 비고, 그 편집이 편집 파일로 저장·불러와도 그대로 남고, GeoJSON 에 점으로 나간다. 놓는 길은 [3D에서 놓기]·목록의 [3D에서 놓기]와
   // 같은 moveEquipment 다(높이는 화면이 같은 패밀리에서 고른다 — 여기서는 층 바닥 + 1m).
-  it('미배치 28대를 사람이 전부 놓으면 목록이 비고, 저장·불러와도 같고, GeoJSON 에 점으로 나간다 (OE-MAN-04)', async () => {
+  it('미배치 17대를 사람이 전부 놓으면 목록이 비고, 저장·불러와도 같고, GeoJSON 에 점으로 나간다 (OE-MAN-04)', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const pristine = importIfc(api, new Uint8Array(readFileSync(MEP)))
@@ -2443,7 +2473,7 @@ describe.skipIf(!existsSync(MEP))('좌표 없는 설비는 미배치 목록 (ifc
     const base = baselineOf(model)
     const placedByBim = model.storeys.flatMap((s) => s.equipment).filter((e) => e.position).map((e) => [e.id, e.position] as const)
     const list = unplacedOf(model)
-    expect(list).toHaveLength(28)
+    expect(list).toHaveLength(17)
     list.forEach(({ equipment, storey }, i) => expect(moveEquipment(model, equipment.id, [i * 0.5, 1, storey.elevation + 1])).not.toBeNull())
 
     expect(unplacedOf(model)).toHaveLength(0)
@@ -2452,7 +2482,7 @@ describe.skipIf(!existsSync(MEP))('좌표 없는 설비는 미배치 목록 (ifc
     const now = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.position]))
     expect(placedByBim.filter(([id, p]) => JSON.stringify(now.get(id)) !== JSON.stringify(p))).toEqual([])
 
-    // 편집 파일로 저장해 새로 연 모델에 얹어도 28대가 같은 자리다.
+    // 편집 파일로 저장해 새로 연 모델에 얹어도 17대가 같은 자리다.
     const file = parseEditFile(JSON.stringify(exportEdits(model, base, 'ifc4Mep')))
     if (typeof file === 'string') throw new Error(file)
     const reopened = structuredClone(pristine)

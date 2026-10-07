@@ -242,11 +242,17 @@ export function requirementsReport(
   {
     const placed = devices.filter((e) => e.position !== null)
     const moved = placed.filter((e) => e.positionSource === 'geometry').length
+    const inPanel = placed.filter((e) => e.positionSource === 'panel').length
     // 형상 중심으로 옮긴 설비는 "다른 자리" 가 아니다 — 설정을 바꿔서는 고쳐지지 않고 모델의 삽입점을 고쳐야 한다(OE-BIM-17).
+    // 분전반 자리에 놓은 부품도 BIM 좌표가 아니라 짐작이라 표준에서 뺀다(OE-BIM-07).
+    const notes = [
+      moved > 0 ? `배치점이 형상과 떨어져 있어 형상 중심을 쓴 설비가 ${moved}대입니다(계산, 표준에서 뺌).` : '',
+      inPanel > 0 ? `좌표가 없는 분전반 부품 ${inPanel}대는 같은 층에 하나뿐인 분전반 자리에 놓았습니다(계산, 표준에서 뺌).` : '',
+    ].filter(Boolean)
     set('R11', {
-      ...counted(placed.length - moved, 0, devices.length),
-      note: moved > 0
-        ? `배치점이 형상과 떨어져 있어 형상 중심을 쓴 설비가 ${moved}대입니다(계산, 표준에서 뺌). 위치가 없는 설비는 미배치 목록으로 갑니다.`
+      ...counted(placed.length - moved - inPanel, 0, devices.length),
+      note: notes.length
+        ? `${notes.join(' ')} 위치가 없는 설비는 미배치 목록으로 갑니다.`
         : '위치가 있는 설비입니다. 위치가 없는 설비는 미배치 목록으로 갑니다.',
     })
   }

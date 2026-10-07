@@ -36,6 +36,9 @@ PRD: prd-done (의존하는 OE-EXT-01 은 prd-review)
 그 외벽을 선택하면 길이·두께·높이와 외벽 여부(계산)
 ![AC20 외벽의 크기와 외벽 여부](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-OBJ-04-outer-wall/docs/figures/oe-obj-04-wall-size.png?raw=true)
 
+외기 온도 센서(추가 작업) — 직접 만든 fixture 사무실의 온도 센서를 외기 온도 센서로 바꾸고 새로 그린 외벽 바깥 면에 붙인 화면. "새 벽에 붙음 · 소속 방 없음".
+![외기 온도 센서](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/blob/feature/OE-OBJ-04-outer-wall/docs/figures/oe-obj-04-outdoor-sensor.png?raw=true)
+
 ## 확인 방법
 1. 8087 검토 서버(또는 `npm run dev`)에서 `data/AC20-FZK-Haus.ifc` 를 연다 → [편집] → 3D 위 층 선택 `Erdgeschoss만`
 2. 왼쪽 팔레트 [설비 더하기] → 집 안 바닥(거실)을 누른다 → 패널 종류에서 `외부 루버`, z 에 `1.5`
@@ -56,10 +59,20 @@ PRD: prd-done (의존하는 OE-EXT-01 은 prd-review)
   - 새로 넣은 것: `e2e/outer-wall.spec.ts`(외벽 긋기 → 문 → 두께·높이·외벽 여부 → AHU-1 을 바깥 면에 붙이기 → Ctrl+Z)
   - 패널에 상자가 하나 더 생겨 `edit-elements.spec.ts` 의 내력 상자·길이 칸, `exterior.spec.ts` 의 출처 칩을 testid 로 찾도록 고쳤다
   - `shortcuts.spec.ts` "방향키는 고른 설비를 10cm…" 는 작업 시작 시점에도 가끔 실패한다(이번 전체 실행은 통과). 이 이슈 범위가 아니다
+- mutation test(처음 커밋(외벽 편집) 기준) — 이 커밋이 넣은 규칙을 하나씩 꺼 보고 테스트가 깨지는지 확인했다. 14곳 중 12곳을 잡았고, 나머지를 잡으려고 추가한 것: `check:sample` "벽 높이를 형상에서 읽는다"(AC20 1층 2.5·2.7m, Duplex 기초 1.25m — 이 규칙을 빼도 통과하던 부분). 두께를 바꿀 때의 관통 막기는 테스트하지 않았다 — 두꺼워지면 관통 기준(상대 벽 두께의 절반)도 같이 커져서 새 관통이 생길 수 없다
+- mutation test — 이 커밋이 넣은 규칙을 하나씩 꺼 보고 테스트가 깨지는지 확인했다. 9곳 중 7곳을 잡았고, 나머지를 잡으려고 추가한 것: `outer-wall.test.ts` "내벽으로 정한 벽의 바깥쪽은 외벽 바깥 면이 아니다", e2e `outer-wall.spec.ts` "외기 센서를 윗층으로 옮기려 해도 …"(two-rooms 2층 — 층 옮기기 막기는 층이 하나인 파일로는 확인되지 않았다)
 
 ## 남은 것
-- **어느 종류가 외벽 전용인가** — 용어집은 "외기 온·습도 센서" 를 예로 들지만 우리 사전에 그 종류가 없고, 설치면 표(OE-OBJ-08)에도 외벽 항목이 없다. 지금은 아무 설비나 어느 벽 면에나 붙인다. 외벽 전용 종류(외부 루버·외기 센서 등)를 외벽 바깥 면에만 놓이게 막을지 → `needs-pm`
+- (해결) **외벽 전용 = 외기 온도·습도 센서.** 사전에 `outdoor_temperature_sensor`(외기 온도 센서,
+  `brick:Outside_Air_Temperature_Sensor`)·`outdoor_humidity_sensor`(외기 습도 센서, `brick:Outside_Air_Humidity_Sensor`)를 이름 사전에 추가하고
+  (IFC 어휘 R24 는 그대로), 종류 정보에 `mount: 'exterior'` 를 두었다. 이 종류는
+  - [벽에 붙이기] 는 외벽의 바깥 면에만 붙인다 — 안쪽 면을 누르면 "외벽의 바깥쪽(방이 없는 쪽)을 누르세요", 내벽은 붙일 후보에서 빠진다
+  - 옮기기(드래그·방향키·좌표 칸·바닥에 놓기)와 층 옮기기는 **목적지가 외벽 바깥 면일 때만** 된다(`edit.ts` 의 `onExteriorFace`:
+    어느 방에도 속하지 않고 외벽에서 0.6m 안). 바깥 면을 따라 옮기는 것은 되고 방 안으로는 막는다. BIM 에서 배치된 센서는 부착 정보가 없어 위치로 확인한다
+  - 종류를 외기 센서로 바꾸는 것은 막지 않는다. 현재 위치가 외벽 바깥 면이 아니면 패널에 경고를 띄운다
+  - 외부 루버는 외벽 전용으로 두지 않았다(지붕·덕트 끝에도 놓인다). 보유 샘플 BIM 에 외기 센서가 없어 `check:sample` 숫자는 그대로다
+  - 테스트: `outer-wall.test.ts` "외벽 전용 설비 — 외기 센서는 …" 4개, e2e `outer-wall.spec.ts` "외기 센서는 외벽 바깥 면에만 …"
 - 바깥 면에 붙인 설비의 소속은 지금은 층이다. "외벽" 소속 표기는 OE-EQP-15 에서 한다
 - 문·창으로 조각났거나 꺾인 벽은 길이·두께를 바꿀 수 없다(옮기기·높이만 가능). 외벽 중 AC20 2/8 · Duplex 10/23 · 병원 15/80
 - 3D 의 벽은 편집 층에서 1.2m 높이로 그린다. 고친 높이는 GeoJSON 에만 들어가고 3D 모양에는 반영되지 않는다
-- 성수는 이 PC 에 없어 측정하지 못했다
+- 성수 건축+기계(2026-10-06 성수 PC, 임시 probe): 벽 크기·외벽 여부·벽에 붙이기만 골라 무작위 편집 30 × 씨앗 3 — 저장·불러오기·되돌리기 모두 같다. `check:seongsu` 의 무작위 편집도 통과

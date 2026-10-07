@@ -121,7 +121,11 @@ export function fingerprints(model: Model, baseline?: Baseline): Map<string, Fin
       })
     }
   }
-  for (const system of model.systems) out.set(system.id, { kind: 'system', ...(system.name ? { name: system.name } : {}) })
+  // 계통 이름은 고칠 수 있다(OE-PIP-09). 다음 판본은 BIM 이름을 들고 오니 연 때 이름으로 찾는다.
+  for (const system of model.systems) {
+    const name = baseline?.systems?.get(system.id)?.name ?? system.name
+    out.set(system.id, { kind: 'system', ...(name ? { name } : {}) })
+  }
 
   // 하나뿐인 값만 남긴다.
   for (const key of ['revitId', 'name'] as const) {

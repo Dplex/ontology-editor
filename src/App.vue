@@ -55,6 +55,10 @@ import {
   moveSpaceVertex,
   completePosition,
   renameSpace,
+  renameSystem,
+  exteriorOnly,
+  onExteriorFace,
+  EXTERIOR_ONLY,
   restore,
   insertSpaceVertex,
   deleteSpaceVertex,
@@ -130,6 +134,8 @@ import {
   findCustomZone,
   mergeCustomZones,
   renameCustomZone,
+  setCustomZoneAliases,
+  zoneNamesOfEquipment,
   splitCustomZone,
   zoneEquipment,
   zoneSpaces,
@@ -298,6 +304,7 @@ const changeCount = computed(
     sinceOpen.value.customZones.length +
     sinceOpen.value.systemMoved.length +
     sinceOpen.value.systemKinds.length +
+    sinceOpen.value.systemNames.length +
     sinceOpen.value.systemsAdded.length +
     sinceOpen.value.systemsRemoved.length,
 )
@@ -330,6 +337,7 @@ const sinceOpen = computed(() => {
         customZones: [],
         systemMoved: [],
         systemKinds: [],
+        systemNames: [],
         systemsAdded: [],
         systemsRemoved: [],
       }
@@ -645,6 +653,14 @@ function refuseOverlap(blocked: Equipment) {
 function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: string): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
+  // 외벽 전용 설비(외기 센서, OE-OBJ-04)는 외벽 바깥 면으로만 옮긴다. 바깥 면을 따라 옮기는 것은 되고, 벽에서 떼는 것은 막는다.
+  const moving = equipmentById.value.get(equipmentId)
+  const home = storeyOf(equipmentId)
+  if (moving && home && exteriorOnly(moving) && !onExteriorFace(home, [to[0], to[1]])) {
+    if (drawnAt && before) viewer?.shiftEquipment(equipmentId, [before[0] - drawnAt[0], before[1] - drawnAt[1], before[2] - drawnAt[2]], true)
+    editNotice.value = `${EXTERIOR_ONLY} 그 자리는 외벽 바깥 면이 아닙니다. 다른 외벽으로는 [벽에 붙이기]로 옮기세요.`
+    return false
+  }
   // 배관 없는 설비끼리는 겹쳐 놓지 못한다(OE-OBJ-10·16). 끌어 놓은 것이면 3D 가 이미 그 자리에 그렸으니 되돌려 보낸다.
   const blocked = overlapAt(model.value, equipmentId, to, currentBox)
   if (blocked) {
@@ -757,9 +773,14 @@ function dropEquipment(equipmentId: string, delta: Vec3) {
 function moveToStorey(equipmentId: string, storeyId: string): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
+  const moving = equipmentById.value.get(equipmentId)
+  const target = model.value.storeys.find((s) => s.id === storeyId)
+  if (moving && target && exteriorOnly(moving) && !(before && onExteriorFace(target, [before[0], before[1]]))) {
+    editNotice.value = `${EXTERIOR_ONLY} 그 층의 같은 자리는 외벽 바깥 면이 아닙니다. 층을 옮긴 뒤 [벽에 붙이기]로 붙이세요.`
+    return false
+  }
   // 층을 옮기면 x·y 는 그대로이고 z 가 층 높이 차만큼 바뀐다(moveEquipmentToStorey). 그 자리로 미리 잰다.
   const from = storeyOf(equipmentId)
-  const target = model.value.storeys.find((s) => s.id === storeyId)
   if (before && from && target && from !== target) {
     const to: Vec3 = [before[0], before[1], before[2] + target.elevation - from.elevation]
     const blocked = overlapAt(model.value, equipmentId, to, currentBox, storeyId)
@@ -1429,12 +1450,17 @@ const editSpaces = computed(() =>
     .filter(({ space }) => matches(`${space.name} ${space.longName ?? ''}`)),
 )
 // 설비는 소속 방 이름으로도 찾는다. 보기 모드에는 물리존 표가 없어서, "S.T"·"OFFICE" 를 치면 아무것도 안 나왔다.
-const editEquipment = computed(() =>
-  editStoreys.value.flatMap((s) => {
+// 든 커스텀존의 이름·별명으로도 찾는다(ADR-0012) — "임원석" 을 치면 그 존 안의 설비가 나온다.
+const editEquipment = computed(() => {
+  const zoneText = new Map<string, string>()
+  if (editQuery.value.trim() && model.value) for (const [id, names] of zoneNamesOfEquipment(model.value)) zoneText.set(id, names.join(' '))
+  return editStoreys.value.flatMap((s) => {
     const room = new Map(s.spaces.map((sp) => [sp.id, `${sp.name} ${sp.longName ?? ''}`]))
-    return s.equipment.filter((e) => surfaceMatches(e) && matches(`${e.name} ${e.ifcClass} ${kindLabel(e)} ${e.spaceId ? room.get(e.spaceId) ?? '' : ''}`))
-  }),
-)
+    return s.equipment.filter(
+      (e) => surfaceMatches(e) && matches(`${e.name} ${e.ifcClass} ${kindLabel(e)} ${e.spaceId ? room.get(e.spaceId) ?? '' : ''} ${zoneText.get(e.id) ?? ''}`),
+    )
+  })
+})
 
 /**
  * 치는 중인 칸을 모델 값으로 덮지 않는다(`v-keep-typing`).
@@ -2269,7 +2295,7 @@ const kindEditLines = computed(() => {
 // Proxy 는 IFC 가 역할을 말하지 않아서, 역할도 이름 사전의 종류에서 나온다.
 const roleSrc = (e: Equipment) => (e.added ? 'edit' : e.ifcClass === 'BuildingElementProxy' ? 'dict' : 'bim')
 const positionSrc = (e: Equipment) =>
-  e.positionSource === 'edited' ? 'edit' : e.positionSource === 'geometry' ? 'calc' : 'bim'
+  e.positionSource === 'edited' ? 'edit' : e.positionSource === 'geometry' || e.positionSource === 'panel' ? 'calc' : 'bim'
 const spaceSrc = (e: Equipment) => (e.spaceSource === 'bim' ? 'bim' : 'calc')
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`
 
@@ -2444,6 +2470,21 @@ function setSystemKindTo(systemId: string, kind: string | null, fluid: Fluid | n
   triggerRef(model)
   flowVersion.value++
 }
+/** 계통 이름을 바꾼다(OE-PIP-09). BIM 이 준 계통도 바꾼다(2026-10-03 사용자 결정). TTL 계통 블록의 rdfs:label 이 된다. */
+function renameSystemTo(systemId: string, name: string) {
+  const m = model.value
+  const system = systemById.value.get(systemId)
+  if (!m || !system) return
+  const was = system.name
+  const snapshot = snapshotSystems(m, [systemId])
+  const at = mark()
+  if (!renameSystem(m, systemId, name)) return
+  remember(`계통 이름 ${was || systemId} → ${system.name}`, snapshot, at)
+  triggerRef(model)
+  flowVersion.value++
+}
+/** 연 때의 계통 이름. 고친 계통이면 패널에 BIM 이름을 같이 보인다. 사람이 만든 계통은 없다. */
+const systemNameAtOpen = (id: string) => baseline.value?.systems?.get(id)?.name ?? null
 // 새 계통 만들기·지우기(E8). 만들면 고른 설비를 바로 넣는다 — 빈 계통은 온톨로지에 아무것도 더하지 않는다.
 const newSystemOpen = ref(false)
 const newSystemName = ref('')
@@ -2952,6 +2993,12 @@ function stopPlace() {
   viewer?.setPlaceMode(null)
 }
 
+/** 외벽 전용 설비(OE-OBJ-04)가 외벽 바깥 면에 있지 않은가. 패널 경고에 쓴다. */
+function exteriorMisplaced(e: Equipment): boolean {
+  if (!exteriorOnly(e)) return false
+  const home = storeyOf(e.id)
+  return !e.position || !home || !onExteriorFace(home, [e.position[0], e.position[1]])
+}
 /** 설비를 벽 면에 붙인다(OE-OBJ-04). 여느 이동처럼 소속을 다시 재고 되돌리기에 쌓인다. 겹침 금지(OE-OBJ-16)도 같다. */
 function mountAt(id: string, at: Vec2) {
   const m = model.value
@@ -3314,6 +3361,14 @@ function renameZone(raw: string) {
   const name = raw.trim()
   if (!name) return note('커스텀존 이름은 비울 수 없습니다')
   changeCustomZones(picked.storey.id, `커스텀존 이름 ${name}`, (m) => renameCustomZone(m, picked.zone.id, name))
+}
+
+/** 더 붙인 별명(ADR-0012). 쉼표·줄바꿈으로 가른다. */
+function setZoneAliases(raw: string) {
+  const picked = selectedCustomZone.value
+  if (!picked) return
+  const aliases = raw.split(/[,，\n]/)
+  changeCustomZones(picked.storey.id, `커스텀존 ${picked.zone.name} 별명`, (m) => setCustomZoneAliases(m, picked.zone.id, aliases))
 }
 
 function mergeZone(otherId: string) {
@@ -5417,6 +5472,11 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
 
           <p v-if="editing && kindWarning" class="edit-notice inline" role="alert">{{ kindWarning }}</p>
+          <!-- 외벽 전용 설비(OE-OBJ-04)가 외벽 바깥 면에 있지 않다. 종류를 바꾸거나 BIM 이 방 안에 둔 외기 센서다. -->
+          <p v-if="exteriorMisplaced(selected)" class="edit-notice inline exterior-misplaced" role="alert">
+            {{ EXTERIOR_ONLY }} 지금 자리는 {{ selected.position ? '외벽 바깥 면이 아닙니다' : '없습니다' }}.
+            {{ editing ? '[벽에 붙이기]로 외벽 바깥쪽을 누르세요.' : '편집 모드에서 [벽에 붙이기]로 옮기세요.' }}
+          </p>
           <!-- 계통 없는 VAV·토출구(OE-EQP-10). 보기 모드에서도 띄운다 — 내보내면 어느 계통의 구성원으로도 나가지 않는다. -->
           <p v-if="needsSystem(selected) && !selected.systemId" class="edit-notice inline system-missing" role="alert">
             {{ whatIs(selected)?.label ?? 'VAV·토출구' }}에 계통이 없습니다. 내보내면 어느 계통의 구성원(brick:hasPart)으로도 나가지 않아,
@@ -5921,6 +5981,10 @@ async function export3D(format: 'glb' | 'obj') {
             <div>
               <h3>{{ selectedCustomZone.zone.name }}</h3>
               <dl class="stats facts">
+                <div v-if="selectedCustomZone.zone.aliases?.length">
+                  <dt>다른 별명</dt>
+                  <dd data-testid="zone-aliases">{{ selectedCustomZone.zone.aliases.join(', ') }} <Src kind="edit" /></dd>
+                </div>
                 <div>
                   <dt>커스텀존</dt>
                   <dd>{{ selectedCustomZone.storey.name }} <Src kind="edit" /></dd>
@@ -5951,6 +6015,18 @@ async function export3D(format: 'glb' | 'obj') {
           <label v-if="editing" class="space-name">
             이름
             <input type="text" data-testid="zone-name" v-keep-typing :value="selectedCustomZone.zone.name" @change="renameZone(($event.target as HTMLInputElement).value)" />
+          </label>
+          <!-- 별명은 여러 개(ADR-0012). 첫 이름이 TTL rdfs:label, 여기 적은 것은 ex:alias 다. 쉼표로 가른다. -->
+          <label v-if="editing" class="space-name">
+            다른 별명
+            <input
+              type="text"
+              data-testid="zone-aliases-input"
+              v-keep-typing
+              placeholder="쉼표로 여러 개 (예: 임원 구역, 경영진석)"
+              :value="(selectedCustomZone.zone.aliases ?? []).join(', ')"
+              @change="setZoneAliases(($event.target as HTMLInputElement).value)"
+            />
           </label>
           <p v-if="editing" class="space-tools">
             <button type="button" class="ghost" title="바닥에 선의 두 점을 찍어 둘로 나눕니다" @click="startCustomSplit">나누기</button>
@@ -6127,6 +6203,9 @@ async function export3D(format: 'glb' | 'obj') {
             <!-- 범례에서 고른 계통. 종류·유체는 규칙 방향과 TTL 계통 클래스를 정한다. 편집 모드에서 고친다(E8). -->
             <section v-if="selectedSystem" class="picked system-picked">
               <h3>{{ selectedSystem.name || '(이름 없는 계통)' }}</h3>
+              <p v-if="systemNameAtOpen(selectedSystem.id) !== null && systemNameAtOpen(selectedSystem.id) !== selectedSystem.name" class="stats system-renamed">
+                BIM 이름 {{ systemNameAtOpen(selectedSystem.id) || '(없음)' }} <Src kind="bim" /> → 고친 이름 <Src kind="edit" />
+              </p>
               <p class="stats">
                 구성 {{ selectedSystem.memberIds.length }}개 <Src :kind="selectedSystem.added ? 'edit' : 'bim'" /> ·
                 {{ systemKindText(selectedSystem.kind, selectedSystem.fluid) }}
@@ -6137,6 +6216,18 @@ async function export3D(format: 'glb' | 'obj') {
                 <template v-else-if="!selectedSystem.kindEdited && selectedSystem.fluid && selectedSystem.fluidSource !== selectedSystem.kindSource">
                   (유체 <Src :kind="selectedSystem.fluidSource === 'bim' ? 'bim' : 'dict'" />)
                 </template>
+              </p>
+              <p v-if="editing" class="system-edit system-name-edit">
+                <label>
+                  이름
+                  <input
+                    type="text"
+                    v-keep-typing
+                    :value="selectedSystem.name"
+                    aria-label="계통 이름"
+                    @change="renameSystemTo(selectedSystem.id, ($event.target as HTMLInputElement).value)"
+                  />
+                </label>
               </p>
               <p v-if="editing" class="system-edit system-kind-edit">
                 <label>
@@ -7082,6 +7173,9 @@ async function export3D(format: 'glb' | 'obj') {
             </li>
             <li v-for="r in sinceOpen.systemsAdded" :key="`sys-add-${r.id}`">계통 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 만들었습니다 (brick:hasPart)</li>
             <li v-for="r in sinceOpen.systemsRemoved" :key="`sys-rm-${r.id}`">계통 <b>{{ r.name || r.id }}</b>{{ josa(r.name || r.id, '을/를') }} 지웠습니다</li>
+            <li v-for="r in sinceOpen.systemNames" :key="`sys-name-${r.id}`">
+              계통 이름 <b>{{ r.from }}</b> → <b>{{ r.to }}</b> (rdfs:label)
+            </li>
             <li v-for="r in sinceOpen.systemKinds" :key="`sys-kind-${r.id}`">
               계통 <b>{{ r.name || r.id }}</b>: 종류 {{ systemKindText(r.from.kind, r.from.fluid) }} → <b>{{ systemKindText(r.to.kind, r.to.fluid) }}</b> (계통 클래스)
             </li>

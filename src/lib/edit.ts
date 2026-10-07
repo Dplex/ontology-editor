@@ -7,7 +7,8 @@
 // 반영 전에 차이를 보여 주는 것이 PRD #16(미리보기)이고, 반영 뒤에 남기는 것이 #21(결과
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
-import { assignEquipment, centroid, isSelfIntersecting, nearRing } from './mapping'
+import { assignEquipment, centroid, isSelfIntersecting, locate, nearRing } from './mapping'
+import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
@@ -587,6 +588,7 @@ export type Snapshot =
         fluid: System['fluid']
         fluidSource: System['fluidSource']
         kindEdited: System['kindEdited']
+        name: string
       }[]
       equipment: { equipment: Equipment; systemId: string | null; systemEdited: Equipment['systemEdited'] }[]
     }
@@ -629,7 +631,8 @@ export type Snapshot =
       boundedBy: { space: Space; boundedBy: string[] }[]
     }
 
-const copyZones = (zones: readonly CustomZone[]): CustomZone[] => zones.map((z) => ({ id: z.id, name: z.name, footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) }))
+const copyZones = (zones: readonly CustomZone[]): CustomZone[] =>
+  zones.map((z) => ({ id: z.id, name: z.name, ...(z.aliases?.length ? { aliases: [...z.aliases] } : {}), footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) }))
 
 /** 한 층의 커스텀존 목록을 떠 둔다(OE-OBJ-01). 만들기·지우기·나누기·합치기·이름 고치기 전에 뜬다. */
 export function snapshotCustomZones(model: Model, storeyId: string): Snapshot | null {
@@ -932,6 +935,7 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
         set(x.system, 'fluid', x.fluid)
         set(x.system, 'fluidSource', x.fluidSource)
         set(x.system, 'kindEdited', x.kindEdited ? { ...x.kindEdited } : undefined)
+        x.system.name = x.name
       }
       for (const x of snapshot.equipment) {
         x.equipment.systemId = x.systemId
@@ -1192,6 +1196,8 @@ export type BaselineDiff = {
   systemsRemoved: { id: string; name: string }[]
   /** 종류·유체를 고친 계통(E8). */
   systemKinds: { id: string; name: string; from: { kind: string | null; fluid: Fluid | null }; to: { kind: string | null; fluid: Fluid | null } }[]
+  /** 이름을 고친 계통(OE-PIP-09). 연 때 있던 계통만 — 사람이 만든 계통의 이름은 `systemsAdded` 가 끝 이름을 든다. */
+  systemNames: { id: string; from: string; to: string }[]
 }
 
 /** 좌표를 같다고 보는 차. 표와 3D 가 센티미터로 자르므로 그보다 작은 차는 같은 자리다. */
@@ -1271,6 +1277,11 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     // 사람이 고친 것만 센다. 원천 기기로 짐작한 유체(flow-rules.ts 의 inferFluids)는 종류·연결을 고치면 따라 바뀌는 값이다.
     if (was && system.kindEdited && (was.kind !== to.kind || was.fluid !== to.fluid)) systemKinds.push({ id: system.id, name: system.name, from: { kind: was.kind, fluid: was.fluid }, to })
   }
+  const systemNames: BaselineDiff['systemNames'] = []
+  for (const system of model.systems) {
+    const was = baseline.systems?.get(system.id)
+    if (was && was.name !== system.name) systemNames.push({ id: system.id, from: was.name, to: system.name })
+  }
   const systemsAdded = baseline.systems ? model.systems.filter((s) => !baseline.systems!.has(s.id)).map((s) => ({ id: s.id, name: s.name })) : []
   const systemIds = new Set(model.systems.map((s) => s.id))
   const systemsRemoved = baseline.systems ? [...baseline.systems].filter(([id]) => !systemIds.has(id)).map(([id, was]) => ({ id, name: was.name })) : []
@@ -1290,6 +1301,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     customZones: diffCustomZones(model, baseline),
     systemMoved,
     systemKinds,
+    systemNames,
     systemsAdded,
     systemsRemoved,
   }
@@ -1309,7 +1321,8 @@ function diffCustomZones(model: Model, baseline: Baseline): BaselineDiff['custom
       now.add(z.id)
       const before = was.get(z.id)
       if (!before) out.push({ id: z.id, name: z.name, change: 'added' })
-      else if (before.name !== z.name || !sameRings([before.footprint], [z.footprint])) out.push({ id: z.id, name: z.name, change: 'changed' })
+      else if (before.name !== z.name || (before.aliases ?? []).join(' ') !== (z.aliases ?? []).join(' ') || !sameRings([before.footprint], [z.footprint]))
+        out.push({ id: z.id, name: z.name, change: 'changed' })
     }
   }
   for (const [id, z] of was) if (!now.has(id)) out.push({ id, name: z.name, change: 'removed' })
@@ -2118,27 +2131,50 @@ function nearestOnWall(wall: Wall, at: Vec2): { point: Vec2; distance: number } 
 
 /**
  * 설비를 벽 면에 붙인다(OE-OBJ-04 외벽 전용 설비). 누른 자리에서 가장 가까운 벽(MOUNT_SNAP 안)의 **누른 쪽 면** 위에 놓는다 —
- * 바깥 면을 누르면 건물 밖이라 방 소속이 없고(층으로 나간다), 안쪽 면을 누르면 그 방에 속한다. 외벽·내벽을 가리지 않는다
- * (어느 종류가 외벽 전용인지는 기획이 정하지 않았다). 높이는 설비의 지금 높이를 두고, 좌표가 없던 설비는 층 바닥이다.
+ * 바깥 면을 누르면 건물 밖이라 방 소속이 없고(층으로 나간다), 안쪽 면을 누르면 그 방에 속한다. 보통 설비는 외벽·내벽을 가리지
+ * 않는다. **외벽 전용 설비(외기 센서, kinds.ts 의 `mount`)는 외벽의 바깥 면에만** 붙인다(2026-10-03 사용자 결정). 높이는 설비의
+ * 지금 높이를 두고, 좌표가 없던 설비는 층 바닥이다.
  * 소속은 이 안에서 다시 판정한다.
  */
 export function mountOnWall(model: Model, equipmentId: string, at: Vec2): { wall: Wall; change: Change } | { refused: string } | null {
   const equipment = findEquipment(model, equipmentId)
   if (!equipment) return null
   const storey = model.storeys.find((s) => s.equipment.includes(equipment))!
+  // 외벽 전용 설비(외기 센서)는 외벽에만, 그 바깥 면에만 붙인다(2026-10-03 사용자 결정).
+  const exterior = exteriorOnly(equipment)
+  const external = exterior ? judgeExternal(storey) : null
   let best: { wall: Wall; point: Vec2; distance: number } | null = null
   for (const wall of storey.walls) {
+    if (external && external.get(wall.id)?.external !== true) continue
     const near = nearestOnWall(wall, at)
     if (near && (!best || near.distance < best.distance)) best = { wall, ...near }
   }
   if (!best || best.distance > MOUNT_SNAP) {
+    if (exterior) return { refused: `${EXTERIOR_ONLY} 외벽에서 ${MOUNT_SNAP}m 안의 바깥쪽을 누르세요.` }
     return { refused: storey.walls.some((w) => w.footprint?.length) ? `벽에서 ${MOUNT_SNAP}m 안을 누르세요.` : '이 층에 외곽선이 있는 벽이 없습니다.' }
   }
+  if (exterior && locate(best.point, storey.spaces) !== null) return { refused: `${EXTERIOR_ONLY} 외벽의 바깥쪽(방이 없는 쪽)을 누르세요.` }
   const z = equipment.position ? equipment.position[2] : storey.elevation
   const change = moveEquipment(model, equipmentId, [best.point[0], best.point[1], z])
   if (!change) return null
   equipment.wallId = best.wall.id
   return { wall: best.wall, change }
+}
+
+/** 외벽 바깥 면에만 놓는 종류인가(kinds.ts 의 `mount`). 외기 온도·습도 센서. */
+export function exteriorOnly(equipment: Pick<Equipment, 'kind'>): boolean {
+  return equipmentKind(equipment.kind)?.mount === 'exterior'
+}
+export const EXTERIOR_ONLY = '외기 센서는 외벽 바깥 면에만 놓습니다.'
+
+/**
+ * 이 자리가 외벽 바깥 면인가 — 어느 방에도 들지 않고, 외벽(판정: exterior.ts)에서 벽 붙이기 거리(MOUNT_SNAP) 안이다. 외벽 전용 설비를
+ * 옮길 때 가는 자리가 이것이어야 한다. BIM 이 놓은 센서는 벽에 붙였다는 표시(`wallId`)가 없어서 표시가 아니라 자리로 잰다.
+ */
+export function onExteriorFace(storey: Storey, at: Vec2): boolean {
+  if (locate(at, storey.spaces) !== null) return false
+  const external = judgeExternal(storey)
+  return storey.walls.some((w) => external.get(w.id)?.external === true && (nearestOnWall(w, at)?.distance ?? Infinity) <= MOUNT_SNAP)
 }
 
 /**
@@ -2413,6 +2449,7 @@ export function snapshotSystems(
             fluid: system.fluid,
             fluidSource: system.fluidSource,
             kindEdited: system.kindEdited ? { ...system.kindEdited } : undefined,
+            name: system.name,
           },
         ]
       : []
@@ -2446,6 +2483,19 @@ export function createSystem(model: Model, spec: NewSystem): System | null {
   }
   model.systems.push(system)
   return system
+}
+
+/**
+ * 계통 이름을 바꾼다(OE-PIP-09 "이름 자유"). **BIM 이 준 계통도 바꾼다**(2026-10-03 사용자 결정). 앞뒤 공백은 떼고, 비었거나 같은
+ * 이름이면 바꾸지 않는다. 이름이 같은 다른 계통이 있어도 막지 않는다 — id 가 달라 온톨로지에서는 다른 계통이다. 다만 다음 판본과
+ * 합칠 때(merge.ts 는 이름이 같은 계통을 하나로 본다) 바꾼 이름으로 맞춰지니, 이름을 바꾼 편집은 합친 뒤에 다시 얹힌다(append).
+ */
+export function renameSystem(model: Model, systemId: string, name: string): boolean {
+  const system = findSystem(model, systemId)
+  const next = name.trim()
+  if (!system || !next || next === system.name) return false
+  system.name = next
+  return true
 }
 
 /**

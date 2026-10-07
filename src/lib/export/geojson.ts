@@ -27,6 +27,12 @@ export type Feature = {
 export type FeatureCollection = {
   type: 'FeatureCollection'
   features: Feature[]
+  /**
+   * 임포트 때 읽지 않은 피처(OE-BIM-25, 2026-10-03 사용자 결정). 벽·문·창을 끄고 연 파일은 벽 feature 가 0 이어도 "벽이 없다" 가
+   * 아니라 "읽지 않았다" 다. 받는 쪽이 둘을 가르도록 층 파일 머리에 적는다. RFC 7946 은 모르는 멤버(foreign member)를 허용한다.
+   * 다 읽었으면 없다.
+   */
+  skipped?: ('walls' | 'doors' | 'windows')[]
 }
 
 function spaceFeature(space: Space, storey: Storey, vertical?: readonly string[]): Feature {
@@ -173,6 +179,7 @@ function customZoneFeature(zone: CustomZone, storey: Storey): Feature {
     properties: {
       kind: 'customZone',
       name: zone.name,
+      ...(zone.aliases?.length ? { aliases: [...zone.aliases] } : {}),
       storeyId: storey.id,
       elevation: storey.elevation,
       spaceIds: zoneSpaces(storey, zone),
@@ -217,6 +224,7 @@ export function modelToGeoJSON(model: Model): { fileName: string; collection: Fe
     let fileName = `${stem}.geojson`
     for (let n = 2; taken.has(fileName.toLowerCase()); n++) fileName = `${stem}-${n}.geojson`
     taken.add(fileName.toLowerCase())
-    return { fileName, collection: storeyToGeoJSON(storey, model.hvac?.zones ?? [], vertical) }
+    const collection = storeyToGeoJSON(storey, model.hvac?.zones ?? [], vertical)
+    return { fileName, collection: model.skipped?.length ? { ...collection, skipped: [...model.skipped] } : collection }
   })
 }

@@ -65,4 +65,19 @@ describe('featureCoverage — 피처마다 누가 채웠나', () => {
     expect(by.F12.outside).toBe('IDF')
     expect(by.F13.outside).toBe('BAS')
   })
+
+  it('분전반 자리에 놓은 부품(OE-BIM-07)은 BIM 좌표가 아니라 계산이다', () => {
+    const model: Model = {
+      schema: 'IFC4',
+      siteName: '',
+      buildingId: 'b',
+      buildingName: '',
+      storeys: [{ id: 's', name: '1F', elevation: 0, spaces: [], walls: [], openings: [], equipment: [eq('mb01'), eq('f1', { positionSource: 'panel' })] }],
+      systems: [],
+      connections: [],
+      warnings: [],
+    }
+    const f9 = featureCoverage(model).find((c) => c.key === 'F9')!
+    expect(f9).toMatchObject({ of: 2, bim: 1, calc: 1, missing: 0 })
+  })
 })
