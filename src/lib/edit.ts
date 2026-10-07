@@ -12,7 +12,7 @@ import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
-import type { Connection, CustomZone, Equipment, Model, Opening, Room, Space, Storey, System, Vec2, Vec3, Wall } from './model'
+import type { Connection, CustomZone, Equipment, Model, Opening, Room, Space, SpaceObject, Storey, System, Vec2, Vec3, Wall } from './model'
 import { spacesBesideOpening } from './ifc/element-geometry'
 import { overlapArea, splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
@@ -601,6 +601,8 @@ export type Snapshot =
   | { kind: 'custom-zones'; storeyId: string; zones: CustomZone[] | undefined }
   /** 층의 룸 전부(OE-OBJ-03). 만들기·지우기·옮기기·크기를 같은 방식으로 되돌린다. */
   | { kind: 'rooms'; storeyId: string; rooms: Room[] | undefined }
+  /** 층의 추가 공간 오브젝트 전부(OE-OBJ-09). 놓기·지우기·옮기기·크기·이름을 같은 방식으로 되돌린다. */
+  | { kind: 'space-objects'; storeyId: string; objects: SpaceObject[] | undefined }
   /** 한 층의 벽·문·창(E4). 객체를 그대로 들고 있어 되돌려도 같은 객체다. */
   | {
       kind: 'storey-elements'
@@ -646,6 +648,15 @@ export function snapshotRooms(model: Model, storeyId: string): Snapshot | null {
   return { kind: 'rooms', storeyId, rooms: storey.rooms ? copyRoomList(storey.rooms) : undefined }
 }
 const copyRoomList = (rooms: readonly Room[]): Room[] => rooms.map((r) => ({ ...r, footprint: r.footprint.map((p) => [p[0], p[1]] as Vec2) }))
+
+/** 한 층의 추가 공간 오브젝트를 떠 둔다(OE-OBJ-09). */
+export function snapshotSpaceObjects(model: Model, storeyId: string): Snapshot | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  return { kind: 'space-objects', storeyId, objects: storey.spaceObjects ? copyObjectList(storey.spaceObjects) : undefined }
+}
+const copyObjectList = (objects: readonly SpaceObject[]): SpaceObject[] =>
+  objects.map((o) => ({ ...o, at: [o.at[0], o.at[1]] as Vec2, size: [o.size[0], o.size[1], o.size[2]] as Vec3 }))
 
 export function snapshotCustomZones(model: Model, storeyId: string): Snapshot | null {
   const storey = model.storeys.find((s) => s.id === storeyId)
@@ -751,6 +762,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotCustomZones(model, snapshot.storeyId)
     case 'rooms':
       return snapshotRooms(model, snapshot.storeyId)
+    case 'space-objects':
+      return snapshotSpaceObjects(model, snapshot.storeyId)
     case 'many': {
       const parts = snapshot.parts.map((p) => snapshotOf(model, p))
       return parts.every((p): p is Snapshot => !!p) ? { kind: 'many', parts } : null
@@ -939,6 +952,13 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       if (!storey) return null
       if (snapshot.rooms) storey.rooms = copyRoomList(snapshot.rooms)
       else delete storey.rooms
+      return null
+    }
+    case 'space-objects': {
+      const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!storey) return null
+      if (snapshot.objects) storey.spaceObjects = copyObjectList(snapshot.objects)
+      else delete storey.spaceObjects
       return null
     }
     case 'many': {

@@ -2726,6 +2726,25 @@ main.has-model .catalog {
   min-width: 0;
 }
 
+/* 오브젝트 크기 칸(OE-OBJ-09). 가로·세로·높이를 한 줄에. */
+.object-size {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.object-size label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.object-size input {
+  width: 4.5rem;
+}
+
 /* 3D 아래에서 고르면 작업 화면으로 올라온다(selectAndShow). 도구막대에 윗부분이 깔리지 않게. */
 .workspace {
   scroll-margin-top: calc(var(--appbar-h, 4rem) + 0.75rem);
@@ -3409,6 +3428,25 @@ main.has-model .catalog {
   padding-inline: 0.15rem;
   text-align: center;
   white-space: nowrap;
+}
+
+/* 추가 공간 오브젝트 라이브러리(OE-SPC-14). 펴면 두 줄 격자로, 팔레트가 위로 자란다. */
+.tool-palette .object-library {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem;
+}
+
+.tool-palette .object-library .ghost {
+  padding-inline: 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-palette .object-library .object-import {
+  grid-column: 1 / -1;
+  text-align: center;
 }
 
 .tool-palette .palette-check {
