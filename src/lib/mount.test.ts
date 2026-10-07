@@ -18,6 +18,12 @@ describe('설치면', () => {
     expect(allowedSurfaces(null)).toBeNull()
   })
 
+  it('스프링클러 헤드는 천장 전용이다 (OE-EQP-11 R1)', () => {
+    expect(allowedSurfaces('sprinkler')).toEqual(['ceiling'])
+    expect(surfaceOf({ kind: 'sprinkler' })).toBe('ceiling')
+    expect(canMountOn({ kind: 'sprinkler' }, 'wall')).toBe(false)
+  })
+
   it('정하지 않은 종류는 막지 않는다', () => {
     expect(canMountOn({ kind: 'ahu' }, 'ceiling')).toBe(false)
     expect(canMountOn({ kind: 'fcu' }, 'ceiling')).toBe(true)
