@@ -118,6 +118,11 @@ const CUSTOM_ZONE_COLOR = 0x39424e
 const CUSTOM_ZONE_LIFT = 0.25
 /** 벽을 세우는 높이(미터). 실제 벽 높이가 아니라 평면이 보일 만큼만 세운다 — 다 세우면 방 안이 가린다. */
 const ARCH_WALL_HEIGHT = 1.2
+/**
+ * 실제 벽 높이를 보이는 윤곽선. 1.2m 로 깎은 벽만 보면 1.2m 에 둔 조명이 벽 윗면에 맞아 보여 높이를 잘못 읽는다(2026-10-07 검토).
+ * 면을 세우면 방 안이 가리므로 윗면 외곽선과 모서리 세로선만 옅게 그린다. 높이를 모르는 벽(null)은 그리지 않는다.
+ */
+const ARCH_WALL_TOP = { color: 0x8a94a3, opacity: 0.45 }
 /** 문·창을 누를 때 자리에서 이만큼 안이면 그 문·창이다(미터). */
 const ELEMENT_REACH = 0.35
 
@@ -741,7 +746,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
    */
   function pickElement(ray: Ray): string | null {
     raycaster.ray.copy(ray)
-    const hit = raycaster.intersectObjects(arch.children.filter((o) => o.visible), false)[0]
+    const hit = raycaster.intersectObjects(arch.children.filter((o) => o.visible && o instanceof Mesh), false)[0]
     if (hit) {
       const p: Vec2 = [hit.point.x, -hit.point.z]
       let best: { id: string; rank: number } | null = null
@@ -780,7 +785,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
   function buildArchitecture(model: Model | null, selected: string | null) {
     arch.traverse((o) => {
-      if (o instanceof Mesh) {
+      if (o instanceof Mesh || o instanceof LineSegments) {
         o.geometry.dispose()
         ;(o.material as { dispose(): void }).dispose()
       }
@@ -795,10 +800,24 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const y = storey.elevation + 0.1
       const byColor = new Map<number, BufferGeometry[]>()
       const add = (color: number, g: BufferGeometry) => byColor.set(color, [...(byColor.get(color) ?? []), g.index ? g.toNonIndexed() : g])
+      // 실제 높이 윤곽선(선분 쌍). 깎은 벽 윗면(y + ARCH_WALL_HEIGHT)에서 실제 윗면(층 바닥 + 벽 높이)까지 세로선, 실제 윗면 외곽선.
+      const tops: number[] = []
       for (const wall of storey.walls) {
         const rings = wall.footprint ?? []
         if (!rings.length) continue
         archTargets.push({ id: wall.id, storeyId: storey.id, y, rings })
+        const top = wall.height != null ? storey.elevation + wall.height : null
+        if (top !== null && top > y + ARCH_WALL_HEIGHT + 0.05) {
+          for (const ring of rings) {
+            const pts = ring.length > 1 && ring[0][0] === ring.at(-1)![0] && ring[0][1] === ring.at(-1)![1] ? ring.slice(0, -1) : ring
+            if (pts.length < 2) continue
+            pts.forEach((p, i) => {
+              const q = pts[(i + 1) % pts.length]
+              tops.push(p[0], top, -p[1], q[0], top, -q[1])
+              tops.push(p[0], y + ARCH_WALL_HEIGHT, -p[1], p[0], top, -p[1])
+            })
+          }
+        }
         const color = wall.id === selected ? ARCH_COLORS.selected : wall.loadBearing ? WALL_COLORS.loadBearing : wall.loadBearing === null ? WALL_COLORS.unknown : ARCH_COLORS.wall
         for (const ring of rings) {
           if (ring.length < 3) continue
@@ -831,6 +850,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const mesh = new Mesh(merged, new MeshLambertMaterial({ color, side: DoubleSide }))
         mesh.userData.storeyId = storey.id
         arch.add(mesh)
+      }
+      if (tops.length) {
+        const g = new BufferGeometry()
+        g.setAttribute('position', new BufferAttribute(new Float32Array(tops), 3))
+        const lines = new LineSegments(g, new LineBasicMaterial({ ...ARCH_WALL_TOP, transparent: true, depthWrite: false }))
+        lines.userData.storeyId = storey.id
+        lines.userData.wallTop = true
+        arch.add(lines)
       }
     }
     applyStoreyVisibility()
