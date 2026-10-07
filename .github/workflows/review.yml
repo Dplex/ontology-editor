@@ -23,10 +23,10 @@ permissions:
   pull-requests: write
   issues: write
 
-# 한 번에 하나만. 도는 중에 새 일이 오면 끝난 뒤 한 번 더 돈다(매번 열린 PR 목록을 새로 읽으니 하나면 된다).
-concurrency:
-  group: review
-  cancel-in-progress: false
+# 한 번에 하나만 돈다. **concurrency 로 묶지 않는다** — 묶으면 GitHub 가 기다리는 실행을 하나만 남기고 나머지를 취소해서,
+# PR 을 연달아 merge 할 때마다 "Run cancelled" 메일이 쌓였다(2026-10-07, #310~#316 merge 에 취소 7건).
+# 55 의 러너가 하나라 잡은 러너에서 줄을 서고, 8087 을 띄우는 구간은 review55.sh 가 flock 으로 한 번 더 잠근다.
+# 줄 선 실행은 매번 그때의 main·열린 PR 을 새로 읽으니, 앞 실행이 이미 같은 판을 띄웠으면 review55.sh 가 건너뛰고 몇 초 만에 끝난다.
 
 env:
   # 55 의 gh(2.46)는 엔터프라이즈 호스트에서 GH_TOKEN 을 안 보고 GH_ENTERPRISE_TOKEN 만 본다. 안 주면 55 에 저장된 사람 로그인으로 돈다.

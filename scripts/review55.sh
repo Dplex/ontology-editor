@@ -27,6 +27,12 @@ export PATH="/usr/local/bin:$HOME/.local/bin:$PATH"
 
 say() { printf '\n\033[36m==>\033[0m %s\n' "$*"; }
 
+# 한 번에 하나만. review.yml 은 concurrency 로 묶지 않아서(취소 메일) 러너가 둘이 되면 같이 돌 수 있다. 8087 을 내리고 올리는
+# 구간이 겹치지 않게 여기서 잠근다. 뒤에 온 것은 앞 것이 끝날 때까지 기다렸다가 아래 열쇠 비교로 대개 건너뛴다.
+mkdir -p "$(dirname "$DIR")"
+exec 9>"$(dirname "$DIR")/review55.lock"
+flock 9
+
 # REVIEW_KEY: 판을 가리는 열쇠(main + 넣은 PR 의 head). 지난번에 띄운 것과 같으면 아무것도 안 한다.
 # REVIEW_INFO: 화면에서 Alt+Shift+R 로 볼 정보(JSON). 있으면 빌드한 dist/ 에 끼워 넣는다.
 KEYFILE="$DIR/run/review-key"
