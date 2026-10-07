@@ -29,9 +29,13 @@ say() { printf '\n\033[36m==>\033[0m %s\n' "$*"; }
 
 # 한 번에 하나만. review.yml 은 concurrency 로 묶지 않아서(취소 메일) 러너가 둘이 되면 같이 돌 수 있다. 8087 을 내리고 올리는
 # 구간이 겹치지 않게 여기서 잠근다. 뒤에 온 것은 앞 것이 끝날 때까지 기다렸다가 아래 열쇠 비교로 대개 건너뛴다.
+# **잠금은 flock -o 로 스크립트를 다시 띄워서 건다.** `exec 9>lock; flock 9` 로 걸면 이 스크립트가 띄운 8087 서버가 fd 9 를
+# 물려받아 잠금을 놓지 않고, 다음 실행이 영영 기다린다(2026-10-07 실측). -o 는 잠금 fd 를 닫고 스크립트를 실행한다.
 mkdir -p "$(dirname "$DIR")"
-exec 9>"$(dirname "$DIR")/review55.lock"
-flock 9
+if [[ -z "${REVIEW55_LOCKED:-}" ]]; then
+  export REVIEW55_LOCKED=1
+  exec flock -o "$(dirname "$DIR")/review55.lock" bash "$0" "$@"
+fi
 
 # REVIEW_KEY: 판을 가리는 열쇠(main + 넣은 PR 의 head). 지난번에 띄운 것과 같으면 아무것도 안 한다.
 # REVIEW_INFO: 화면에서 Alt+Shift+R 로 볼 정보(JSON). 있으면 빌드한 dist/ 에 끼워 넣는다.
