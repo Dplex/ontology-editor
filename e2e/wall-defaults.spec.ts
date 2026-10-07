@@ -29,25 +29,26 @@ test('사이트 기본 두께로 새 벽을 긋고, 스냅 거리를 줄이면 �
   await expect(settings.getByTestId('wall-thickness-here')).toContainText('0.15m(사이트 기본값)')
 
   await page.getByRole('button', { name: '벽 긋기' }).click()
-  await clickFloor(page, 10.1, 0)
-  await clickFloor(page, 10.1, 8)
+  // 사무실(0..10 × 0..8) 안의 칸막이. 건물 가장자리에 그으면 외벽으로 판정돼 잠긴다(OE-EXT-02).
+  await clickFloor(page, 5, 1)
+  await clickFloor(page, 5, 7)
   const panel = page.locator('.element-picked')
   await expect(panel.locator('h3')).toHaveText('새 벽')
   await expect(panel.getByTestId('wall-thickness')).toHaveValue('0.15')
   await expect(page.locator('.key-note')).toContainText('두께 0.15m(사이트 기본값)')
 
-  // 스냅 거리 0.2m: 벽 중심에서 0.5m(면에서 0.425m) 떨어진 자리는 막히고, 0.6m 로 되돌리면 붙는다.
+  // 스냅 거리 0.2m: 벽 중심에서 0.5m(면에서 0.425m) 떨어진 자리(4.5, 4)는 막히고, 0.6m 로 되돌리면 붙는다.
   await page.keyboard.press('Escape')
   await settings.getByTestId('opening-snap').fill('0.2')
   await settings.getByTestId('opening-snap').press('Enter')
   await page.getByRole('button', { name: '문 놓기' }).click()
-  await clickFloor(page, 9.6, 4)
+  await clickFloor(page, 4.5, 4)
   await expect(page.locator('.key-note')).toContainText('벽 가까이 놓아 주세요(벽에서 0.2m 안에만 놓습니다)')
   await page.keyboard.press('Escape')
   await settings.getByTestId('opening-snap').fill('0.6')
   await settings.getByTestId('opening-snap').press('Enter')
   await page.getByRole('button', { name: '문 놓기' }).click()
-  await clickFloor(page, 9.6, 4)
+  await clickFloor(page, 4.5, 4)
   await expect(panel.locator('h3')).toHaveText('새 문')
 
   // 설정은 이 브라우저에 남는다.
