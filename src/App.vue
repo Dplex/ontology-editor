@@ -468,7 +468,7 @@ const ceilingTitle = (s: Storey) => {
   const c = ceilingOf(s)
   const guess = ceilingGuessOf.value.get(s.id)
   return [
-    c?.source === 'bim' ? `BIM ${c.property} — 방·천장재 ${c.count}개의 가운데 값` : c ? '직접 정한 값' : 'BIM 에 반자 높이가 없습니다',
+    c?.source === 'bim' ? `BIM ${c.property} — 방·천장재 ${c.count}개의 가운데 값` : c ? '직접 정한 값' : 'BIM 에 천장고가 없습니다',
     s.ceilingSet != null && s.ceiling ? `BIM 값 ${meters(s.ceiling.height)} (${s.ceiling.property})` : null,
     guess ? `후보 ${meters(guess.height)} — 반자 부착 설비 ${guess.count}대의 높이 가운데 값(계산, 값으로 치지 않음)` : null,
   ]
@@ -497,8 +497,8 @@ function saveCeiling(storeyId: string, value: number | null) {
   if (!m || !s) return
   if (value !== null) {
     const top = storeyHeightOf.value.get(storeyId)?.value ?? null
-    if (!Number.isFinite(value) || value <= FLOOR_BAND) return note(`반자 높이는 ${FLOOR_BAND}m 보다 높아야 합니다.`)
-    if (top !== null && value >= top) return note(`반자 높이는 층고(${meters(top)})보다 낮아야 합니다.`)
+    if (!Number.isFinite(value) || value <= FLOOR_BAND) return note(`천장고는 ${FLOOR_BAND}m 보다 높아야 합니다.`)
+    if (top !== null && value >= top) return note(`천장고는 층고(${meters(top)})보다 낮아야 합니다.`)
   }
   ceilingEditing.value = null
   if (!setCeiling(m, storeyId, value)) return
@@ -506,7 +506,7 @@ function saveCeiling(storeyId: string, value: number | null) {
   autosaveArmed = true
   triggerRef(model)
   const c = ceilingOf(s)
-  note(c ? `${s.name} 층의 반자 높이를 ${meters(c.height)}로 정했습니다${c.source === 'bim' ? '(BIM 값)' : ''}.` : `${s.name} 층의 반자 높이를 지웠습니다(모름).`)
+  note(c ? `${s.name} 층의 천장고를 ${meters(c.height)}로 정했습니다${c.source === 'bim' ? '(BIM 값)' : ''}.` : `${s.name} 층의 천장고를 지웠습니다(모름).`)
 }
 
 /** 설비의 설치면을 사람이 정한다(OE-EQP-05). null 이면 지워 z 판정으로 돌아간다. 되돌리기에 쌓인다. */
@@ -770,7 +770,7 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
     const judged = judgeSurface({ ...moving, position: to }, home, storeyHeightOf.value.get(home.id)?.value ?? null)
     if (judged === 'ceiling' || judged === 'plenum') {
       goBack()
-      editNotice.value = `그 높이는 천장(반자 ${meters(ceilingOf(home)!.height)} 근처)입니다. 천장으로 옮기려면 천장 편집 모드에서 하세요.`
+      editNotice.value = `그 높이는 천장(천장고 ${meters(ceilingOf(home)!.height)} 근처)입니다. 천장으로 옮기려면 천장 편집 모드에서 하세요.`
       return false
     }
   }
@@ -3277,7 +3277,7 @@ function startPlace(id: string, on: 'floor' | 'wall' = 'floor') {
   const lock = target ? ceilingLock(target) : null
   if (target && lock) return refuseLock(target, lock)
   if (ceilingMode.value && !ceilingOf(home)) {
-    editNotice.value = `${home.name}의 반자 높이를 모릅니다. 천장 설비를 놓기 전에 왼쪽 도구에서 반자 높이를 입력하세요.`
+    editNotice.value = `${home.name}의 천장고를 모릅니다. 천장 설비를 놓기 전에 왼쪽 도구에서 천장고를 입력하세요.`
     return
   }
   if (target && surfaceOf(target) === 'wall') on = 'wall'
@@ -3358,7 +3358,7 @@ function placeAt(at: Vec2) {
     const range = ceilingRange(zone, ceilingOf(home)?.height ?? null, storeyHeightOf.value.get(home.id)?.value ?? null)
     if (!range) return
     if (!relocate(id, [cm(at[0]), cm(at[1]), cm(home.elevation + range.base)])) return
-    note(`${zone === 'plenum' ? '플레넘(반자 바로 위)' : '반자 높이'}에 놓았습니다(바닥에서 ${range.base.toFixed(2)}m). 높이는 z 칸에서 고치세요`)
+    note(`${zone === 'plenum' ? '플레넘(천장고 바로 위)' : '천장고'}에 놓았습니다(바닥에서 ${range.base.toFixed(2)}m). 높이는 z 칸에서 고치세요`)
     return
   }
   // 종류를 모르면 허용 설치면을 알 수 없어 바닥에 놓는다(OE-EQP-02).
@@ -3709,7 +3709,7 @@ function setCeilingMode(on: boolean) {
   if (viewStorey.value !== st.id) viewStorey.value = st.id
   // 층을 바꾸면 위 watch 가 시점을 맞춘다. 같은 층이면 여기서 내려다본다.
   else viewer?.topView()
-  note(ceilingOf(st) ? `천장 편집 모드입니다 — ${st.name} 반자 ${meters(ceilingOf(st)!.height)}. 천장 설비만 놓고 옮깁니다(T 로 나가기)` : `천장 편집 모드입니다. ${st.name}의 반자 높이를 먼저 입력하세요`)
+  note(ceilingOf(st) ? `천장 편집 모드입니다 — ${st.name} 천장고 ${meters(ceilingOf(st)!.height)}. 천장 설비만 놓고 옮깁니다(T 로 나가기)` : `천장 편집 모드입니다. ${st.name}의 천장고를 먼저 입력하세요`)
 }
 watch(editing, (on) => {
   if (!on) ceilingMode.value = false
@@ -3901,7 +3901,7 @@ function startAddEquipment() {
   const storey = targetStorey()
   if (!storey) return askStorey('설비를 더할')
   if (ceilingMode.value && !ceilingOf(storey)) {
-    editNotice.value = `${storey.name}의 반자 높이를 모릅니다. 천장 설비를 놓기 전에 왼쪽 도구에서 반자 높이를 입력하세요.`
+    editNotice.value = `${storey.name}의 천장고를 모릅니다. 천장 설비를 놓기 전에 왼쪽 도구에서 천장고를 입력하세요.`
     return
   }
   stopPlace()
@@ -3937,7 +3937,7 @@ function addEquipmentAt(at: Vec2) {
   triggerRef(model)
   redraw()
   selectedId.value = e.id
-  note(`${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '반자 높이' : '바닥 높이'}에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`)
+  note(`${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '천장고' : '바닥 높이'}에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`)
 }
 function removeEquipment(id: string) {
   const m = model.value
@@ -5832,20 +5832,20 @@ async function export3D(format: 'glb' | 'obj') {
                 설비
                 <span class="ceiling-toggle" role="group" aria-label="설비 편집 면">
                   <button type="button" :class="{ on: !ceilingMode }" :aria-pressed="!ceilingMode" title="바닥·벽 설비와 배관을 편집합니다" @click="setCeilingMode(false)">바닥·벽</button>
-                  <button type="button" :class="{ on: ceilingMode }" :aria-pressed="ceilingMode" title="천장 설비만 편집합니다. 위에서 내려다보고 반자 높이에 천장면을 그립니다 (T)" @click="setCeilingMode(true)">천장</button>
+                  <button type="button" :class="{ on: ceilingMode }" :aria-pressed="ceilingMode" title="천장 설비만 편집합니다. 위에서 내려다보고 천장고에 천장면을 그립니다 (T)" @click="setCeilingMode(true)">천장</button>
                 </span>
               </span>
               <!-- 천장 모드에서 지금 층의 반자 높이를 모르면 입력을 받는다. 그 전에는 천장 설비를 놓지 않는다(0 이나 층고로 채우지 않는다). -->
               <form v-if="ceilingAsk" class="ceiling-ask" @submit.prevent="saveCeiling(ceilingStorey!.id, Number(ceilingAskInput))">
                 <label>
-                  {{ ceilingStorey!.name }} 반자
+                  {{ ceilingStorey!.name }} 천장고
                   <input
                     v-model="ceilingAskInput"
                     v-keep-typing
                     type="number"
                     step="0.05"
                     min="0.3"
-                    aria-label="천장 모드 반자 높이(m)"
+                    aria-label="천장 모드 천장고(m)"
                     @keydown.enter.prevent="saveCeiling(ceilingStorey!.id, Number(ceilingAskInput))"
                   />
                   m
@@ -5853,14 +5853,14 @@ async function export3D(format: 'glb' | 'obj') {
                 <button type="submit" class="ghost">정하기</button>
               </form>
               <span v-else-if="ceilingStorey && ceilingOf(ceilingStorey)" class="ceiling-now muted">
-                반자 {{ meters(ceilingOf(ceilingStorey)!.height) }} <Src :kind="ceilingOf(ceilingStorey)!.source" />
+                천장고 {{ meters(ceilingOf(ceilingStorey)!.height) }} <Src :kind="ceilingOf(ceilingStorey)!.source" />
               </span>
               <button
                 type="button"
                 :class="['ghost', { on: adding?.what === 'equipment' }]"
                 :aria-pressed="adding?.what === 'equipment'"
                 :disabled="ceilingAsk"
-                :title="ceilingMode ? '천장을 눌러 새 설비를 반자 높이에 놓습니다' : '바닥을 눌러 새 설비를 놓습니다'"
+                :title="ceilingMode ? '천장을 눌러 새 설비를 천장고에 놓습니다' : '바닥을 눌러 새 설비를 놓습니다'"
                 @click="adding?.what === 'equipment' ? stopAdd() : startAddEquipment()"
               >
                 {{ adding?.what === 'equipment' ? '더하기 취소' : '설비 더하기' }}
@@ -6108,7 +6108,7 @@ async function export3D(format: 'glb' | 'obj') {
                         <span v-if="selectedJudged.outside" class="height-mismatch"> 허용 밖</span>
                       </template>
                       <span v-else-if="selectedJudged.z !== null" class="muted">
-                        판정 미정 (z {{ selectedJudged.z.toFixed(2) }}m{{ selectedJudged.hc ? '' : ' · 이 층 반자 높이 모름' }})
+                        판정 미정 (z {{ selectedJudged.z.toFixed(2) }}m{{ selectedJudged.hc ? '' : ' · 이 층 천장고 모름' }})
                       </span>
                       <!-- 사람이 정한 설치면(OE-EQP-05). 판정하지 못한 설비에 정하고, 지우면 z 판정으로 돌아간다. -->
                       <template v-if="selected.surfaceSet">
@@ -7374,7 +7374,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <th>층</th>
                 <th class="num">높이</th>
                 <th class="num">층고</th>
-                <th class="num" title="반자(천장 마감면) 높이 h_c, 층 바닥 기준">반자</th>
+                <th class="num" title="천장고(h_c, 천장 마감면 높이), 층 바닥 기준">천장고</th>
                 <th>물리존</th>
                 <th class="num">넓이 합</th>
                 <th class="num">벽</th>
@@ -7407,7 +7407,7 @@ async function export3D(format: 'glb' | 'obj') {
                       step="0.05"
                       min="0.3"
                       class="ceiling-input"
-                      :aria-label="`${s.name} 반자 높이(m)`"
+                      :aria-label="`${s.name} 천장고(m)`"
                       @keydown.enter.prevent="saveCeiling(s.id, Number(ceilingInput))"
                       @keydown.esc.stop="ceilingEditing = null"
                     />
@@ -7419,12 +7419,12 @@ async function export3D(format: 'glb' | 'obj') {
                     <span :title="ceilingTitle(s)">{{ meters(ceilingOf(s)!.height) }}</span>
                     <Src :kind="ceilingOf(s)!.source" />
                     <span v-if="ceilingGuessApart(s)" class="height-mismatch" :title="ceilingTitle(s)">후보 {{ meters(ceilingGuessOf.get(s.id)!.height) }}</span>
-                    <button type="button" class="link" :aria-label="`${s.name} 반자 높이 고치기`" @click="startCeiling(s.id)">고치기</button>
+                    <button type="button" class="link" :aria-label="`${s.name} 천장고 고치기`" @click="startCeiling(s.id)">고치기</button>
                     <button v-if="s.ceilingSet != null" type="button" class="link" @click="saveCeiling(s.id, null)">{{ s.ceiling ? 'BIM 값으로' : '지우기' }}</button>
                   </template>
                   <template v-else>
                     <span class="muted" :title="ceilingTitle(s)">모름</span>
-                    <button type="button" class="link" :aria-label="`${s.name} 반자 높이 입력`" @click="startCeiling(s.id)">입력</button>
+                    <button type="button" class="link" :aria-label="`${s.name} 천장고 입력`" @click="startCeiling(s.id)">입력</button>
                   </template>
                 </td>
                 <!-- 한 층에 방이 수십 개면 이름이 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로. -->
@@ -7477,7 +7477,7 @@ async function export3D(format: 'glb' | 'obj') {
             설치면 판정 <Src kind="calc" /> 천장 {{ surfaceCounts.ceiling }} · 플레넘 {{ surfaceCounts.plenum }} · 바닥 {{ surfaceCounts.floor }} · 벽 {{ surfaceCounts.wall }} ·
             미정 {{ surfaceCounts.unknown }}
             <template v-if="model.storeys.some((x) => !ceilingOf(x) && x.equipment.length)">
-              <span class="muted">(반자 높이를 모르는 층은 천장을 판정하지 않습니다)</span>
+              <span class="muted">(천장고를 모르는 층은 천장을 판정하지 않습니다)</span>
             </template>
           </p>
           <details v-if="surfaceMismatch.length" class="surface-mismatch">

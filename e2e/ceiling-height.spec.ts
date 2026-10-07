@@ -18,14 +18,14 @@ async function open(page: Page, file: string) {
   if ((await head.getAttribute('aria-expanded')) === 'false') await head.click()
 }
 
-test('반자 높이를 모르는 층은 "모름" 이고, 입력하면 출처 편집으로 그 값이 된다', async ({ page }) => {
+test('천장고를 모르는 층은 "모름" 이고, 입력하면 출처 편집으로 그 값이 된다', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await open(page, FIXTURE)
   await expect(cell(page, '1F')).toContainText('모름')
 
-  await cell(page, '1F').getByRole('button', { name: '1F 반자 높이 입력' }).click()
-  const input = page.getByLabel('1F 반자 높이(m)')
+  await cell(page, '1F').getByRole('button', { name: '1F 천장고 입력' }).click()
+  const input = page.getByLabel('1F 천장고(m)')
   // 0.3m 이하는 받지 않는다
   await input.fill('0.2')
   await input.press('Enter')
@@ -41,7 +41,7 @@ test('반자 높이를 모르는 층은 "모름" 이고, 입력하면 출처 편
   expect(errors).toEqual([])
 })
 
-test('BIM 이 말한 반자 높이와 고른 설비의 판정 설치면을 보인다 (Duplex MEP)', async ({ page }) => {
+test('BIM 이 말한 천장고와 고른 설비의 판정 설치면을 보인다 (Duplex MEP)', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []
