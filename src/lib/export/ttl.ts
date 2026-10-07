@@ -95,15 +95,45 @@ function label(text: string): string {
 }
 
 /**
+ * 층 하나만 낼 때(OE-GEN-11) 어느 블록·목적어가 그 층 몫인가. **층 파일을 다 모으면 건물 전체 TTL 과 같은 트리플이 되게
+ * 나눈다**(2026-10-03 사용자 결정, ADR-0011). 층·방·커스텀존·설비 블록은 제 층 파일에만 간다. 여러 층에 걸치는 계통은
+ * 구성원이 있는 층마다 블록을 두고 `hasPart` 를 그 층 구성원으로 자른다(이름·클래스 줄은 층마다 같아 모으면 하나다). 공조존(IDF)은
+ * 제 층(`storeyId`, GeoJSON 이 그 존을 그리는 층) 파일에 통째로 간다. 건물
+ * 블록도 층마다 두고 `hasPart` 는 그 층만이다. **다른 층을 가리키는 목적어는 id 로 남긴다**(feeds·hasPart) — id 가 건물
+ * 전체와 같아 다른 층 파일이 들어오면 이어진다. 어느 층에도 안 걸리는 것(구성원 없는 계통, 층을 모르는 IDF 설비, 어느 층에도
+ * 없는 구성원)은 맨 아래 층 파일에 둔다.
+ *
+ * `storeyId` 가 없으면 전부다(건물 전체 TTL 은 이 기능 전과 바이트까지 같다).
+ */
+function storeyScope(model: Model, storeyId: string | undefined) {
+  const home = model.storeys[0]?.id ?? null
+  const equipmentStorey = new Map(model.storeys.flatMap((s) => s.equipment.map((e) => [e.id, s.id] as const)))
+  /** 이 층 몫인가. 층을 모르면(null) 맨 아래 층 몫이다. */
+  const storey = (id: string | null) => !storeyId || (id ?? home) === storeyId
+  return {
+    storey,
+    equipmentStorey,
+    /** 여러 층에 걸치는 블록의 구성원을 이 층 몫으로 자른다. 이 층에 낼 블록이 아니면 null. 구성원이 없는 블록은 맨 아래 층에 낸다. */
+    parts(ids: readonly string[], where: ReadonlyMap<string, string>): string[] | null {
+      if (!storeyId) return [...ids]
+      if (ids.length === 0) return storey(null) ? [] : null
+      const mine = ids.filter((id) => storey(where.get(id) ?? null))
+      return mine.length ? mine : null
+    },
+  }
+}
+
+/**
  * 중간 모델을 Brick TTL 문자열로.
  *
  * 계층은 사이트 > 건물 > 층 > 물리존이고, 각 단계를 brick:hasPart 로 잇는다.
  * 벽·문·창은 담지 않는다. Brick 은 설비와 공간의 의미 체계라 건축 부재를 표현할 클래스가
  * 없고, 그 정보는 기하 파일 쪽에 있다.
  */
-export function modelToTTL(model: Model): string {
+export function modelToTTL(model: Model, only?: { storeyId: string }): string {
   const lines: string[] = [...PREFIXES, '']
   const ref = (id: string) => `ex:${escapeLocalName(id)}`
+  const scope = storeyScope(model, only?.storeyId)
 
   // 흐름 방향을 아는 연결만 brick:feeds 로 적는다.
   //
@@ -156,13 +186,14 @@ export function modelToTTL(model: Model): string {
 
   // 목적어 없는 `brick:hasPart .` 는 문법 오류다(층이 없는 파일, 구성원이 없는 계통). 비면 술어째 뺀다.
   lines.push(`${ref(model.buildingId)} a brick:Building ;`)
-  if (model.storeys.length > 0) lines.push(`    brick:hasPart ${model.storeys.map((s) => ref(s.id)).join(', ')} ;`)
+  const storeys = model.storeys.filter((s) => scope.storey(s.id))
+  if (storeys.length > 0) lines.push(`    brick:hasPart ${storeys.map((s) => ref(s.id)).join(', ')} ;`)
   lines.push(`    rdfs:label ${label(model.buildingName)} .`)
   lines.push('')
 
   // 커스텀존(OE-OBJ-01)에 든 설비. 방과 별도로 hasLocation 을 하나 더 건다(custom-zone.ts).
   const inCustomZones = customZonesOfEquipment(model)
-  for (const storey of model.storeys) {
+  for (const storey of storeys) {
     lines.push(`${ref(storey.id)} a brick:Floor ;`)
     lines.push(`    rdfs:label ${label(storey.name)} ;`)
     // 층의 부분: 물리존과 커스텀존. 커스텀존은 물리존 위에 겹쳐 정한 것이라 같은 층의 부분으로 둔다.
@@ -217,7 +248,9 @@ export function modelToTTL(model: Model): string {
   }
 
   // 공조존(IDF). 든 방은 hasPart 다(Brick 의 HVAC_Zone 은 방으로 이뤄진다). 바닥 외곽선은 GeoJSON 에 있다.
+  // 층 하나만 낼 때는 존의 층(GeoJSON 이 그 존을 그리는 층) 파일에 통째로 간다.
   for (const zone of hvac?.zones ?? []) {
+    if (!scope.storey(zone.storeyId ?? null)) continue
     lines.push(`${ref(zone.id)} a brick:HVAC_Zone ;`)
     lines.push(`    rdfs:label ${label(zone.name)} ;`)
     if (zone.spaceIds.length) lines.push(`    brick:hasPart ${zone.spaceIds.map(ref).join(', ')} ;`)
@@ -226,7 +259,7 @@ export function modelToTTL(model: Model): string {
   }
   // BIM 설비와 이어지지 않은 IDF 설비. 좌표가 없어 방은 모른다. 말단은 담당하는 존의 층에 있다고 보고 층을 적는다.
   for (const e of hvac?.equipment ?? []) {
-    if (e.bimId) continue
+    if (e.bimId || !scope.storey(e.storeyId ?? null)) continue
     lines.push(`${ref(e.id)} a ${equipmentKind(e.kind)?.brick ?? `ex:${e.idfClass.replace(/[^A-Za-z0-9_]+/g, '_')}`} ;`)
     lines.push(`    rdfs:label ${label(e.name)} ;`)
     if (e.storeyId) lines.push(`    brick:hasLocation ${ref(e.storeyId)} ;`)
@@ -240,10 +273,12 @@ export function modelToTTL(model: Model): string {
   // 계통 종류(급기·순환수 …)를 알면 Brick 계통 클래스로 적고 종류를 따로 남긴다. 모르면 예전처럼 ex: 로 둔다.
   // 순환수는 유체(냉수·온수)를 알면 유체의 계통 클래스다(kinds.ts 의 FLUIDS).
   for (const system of model.systems) {
+    const members = scope.parts(system.memberIds, scope.equipmentStorey)
+    if (members === null) continue
     const kind = systemKind(system.kind)
     lines.push(`${ref(system.id)} a ${systemBrickClass(system.kind, system.fluid) ?? 'ex:Distribution_System'} ;`)
     if (kind) lines.push(`    ex:systemKind ${label(kind.kind)} ;`)
-    if (system.memberIds.length > 0) lines.push(`    brick:hasPart ${system.memberIds.map(ref).join(', ')} ;`)
+    if (members.length > 0) lines.push(`    brick:hasPart ${members.map(ref).join(', ')} ;`)
     lines.push(`    rdfs:label ${label(system.name)} .`)
     lines.push('')
   }

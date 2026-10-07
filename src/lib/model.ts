@@ -374,6 +374,11 @@ export type Storey = {
    * 모델에 두지 않는다 — storey-height.ts 가 그때 잰다.
    */
   declaredHeight?: { gross: number | null; net: number | null; property: string }
+  /**
+   * 사람이 이 층을 완료로 표시한 것(OE-MAN-06). `sig` 는 그때 층의 지문이다 — 지금 지문과 다르면 "완료 뒤 고침" 이다
+   * (storey-progress.ts). BIM 에는 없고 편집 파일에 남는다.
+   */
+  done?: { at: string; sig: string }
   spaces: Space[]
   walls: Wall[]
   openings: Opening[]

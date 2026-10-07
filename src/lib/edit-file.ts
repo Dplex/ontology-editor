@@ -51,6 +51,7 @@ import type { RuleReport } from './flow-rules'
 import type { Fluid } from './kinds'
 import type { Model, Vec2, Vec3, Wall } from './model'
 import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
+import { markStoreyDone, storeyProgress } from './storey-progress'
 
 export const EDIT_FORMAT = 'ontology-editor/edits'
 
@@ -133,6 +134,11 @@ export type EditFile = {
    * 파일도 받는다 — 그때는 GUID 로만 찾는다.
    */
   keys?: Record<string, Fingerprint>
+  /**
+   * 완료로 표시한 층(OE-MAN-06). `changed` 는 저장할 때 이미 "완료 뒤 고침" 이었다는 뜻이다 — 불러와도 그 상태다. 완료한 때의
+   * 지문은 적지 않는다(재내보내기에서 GUID 가 바뀌면 지문도 바뀐다). 불러올 때 편집을 다 얹은 뒤 지문을 새로 잰다.
+   */
+  storeysDone?: { id: string; at: string; changed?: true }[]
 }
 
 /**
@@ -292,6 +298,10 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const id of [...wallsRemoved, ...openingsRemoved]) keep(id)
   for (const row of openingsAdded) if (row.wallId) keep(row.wallId)
   for (const row of customZones) keep(row.storeyId)
+  const storeysDone = storeyProgress(model)
+    .filter((p) => p.state !== 'todo')
+    .map((p) => ({ id: p.id, at: p.at!, ...(p.state === 'changed' ? { changed: true as const } : {}) }))
+  for (const row of storeysDone) keep(row.id)
   for (const f of flows) {
     keep(f.from)
     keep(f.to)
@@ -332,6 +342,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(openingsAdded.length ? { openingsAdded } : {}),
     ...(openingsRemoved.length ? { openingsRemoved } : {}),
     ...(customZones.length ? { customZones } : {}),
+    ...(storeysDone.length ? { storeysDone } : {}),
     keys,
   }
 }
@@ -360,7 +371,8 @@ export function countEdits(f: EditFile): number {
     (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0) +
     (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0) +
     (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
-    (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0)
+    (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0) +
+    (f.storeysDone?.length ?? 0)
   )
 }
 
@@ -371,7 +383,7 @@ export type ApplyResult = {
   storeyMoved: string[]
   applied: number
   /** 이 모델에서 못 찾은 것. 재내보내기에서 지워졌거나 다른 파일이다. */
-  missing: { equipment: number; spaces: number; kinds: number; flows: number; systems: number; connections: number; elements: number }
+  missing: { equipment: number; spaces: number; kinds: number; flows: number; systems: number; connections: number; elements: number; storeys: number }
   /** GUID 로는 못 찾고 다른 열쇠로 찾은 id 수. GUID 가 바뀐 재내보내기에서 뜬다. */
   rematched: Record<Exclude<MatchKey, 'guid'>, number>
   rules: RuleReport | null
@@ -389,7 +401,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     confirmations: [],
     storeyMoved: [],
     applied: 0,
-    missing: { equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 },
+    missing: { equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0, storeys: 0 },
     rematched: { revitId: 0, name: 0, position: 0 },
     rules: null,
   }
@@ -430,6 +442,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   }
   for (const row of [...(file.wallsAdded ?? []), ...(file.openingsAdded ?? [])]) ref(row.storeyId)
   for (const row of file.customZones ?? []) ref(row.storeyId)
+  for (const row of file.storeysDone ?? []) ref(row.id)
   for (const row of [...(file.walls ?? []), ...(file.openings ?? [])]) ref(row.id)
   for (const id of [...(file.wallsRemoved ?? []), ...(file.openingsRemoved ?? [])]) ref(id)
   for (const row of file.openingsAdded ?? []) if (row.wallId) ref(row.wallId)
@@ -716,6 +729,19 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     )
     if (c && setFlowDirection(c, f.from)) result.applied++
     else result.missing.flows++
+  }
+
+  // 완료한 층(OE-MAN-06). 편집을 다 얹은 뒤라야 지문이 저장할 때 상태와 같다. 저장할 때 이미 고친 층은 지문을 비워 "완료 뒤
+  // 고침" 으로 둔다.
+  for (const row of file.storeysDone ?? []) {
+    const storey = model.storeys.find((s) => s.id === resolve(row.id))
+    if (!storey) {
+      result.missing.storeys++
+      continue
+    }
+    markStoreyDone(model, storey.id, new Date(row.at))
+    if (row.changed) storey.done!.sig = ''
+    result.applied++
   }
   return result
 }

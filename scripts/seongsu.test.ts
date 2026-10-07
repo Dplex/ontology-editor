@@ -266,7 +266,7 @@ describe.skipIf(!have)('성수 불변식', () => {
     if (typeof parsed === 'string') throw new Error(parsed)
     const fresh = structuredClone(pristine)
     const result = timed('편집 파일 불러오기', () => applyEdits(fresh, parsed))
-    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 })
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0, storeys: 0 })
     const reloaded = exportsOf(fresh)
     expect(reloaded.ttl === edited.ttl).toBe(true)
     expect(reloaded.geo === edited.geo).toBe(true)

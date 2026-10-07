@@ -15,8 +15,9 @@ import { assignEquipment, assignEquipmentToSpaces, interiorPoint, locate, pointI
 import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
-import { readOntologyTTL, type OntologyEntity } from '../src/lib/export/read-ttl'
-import { crossCheck, geojsonProblems, NUMERIC_OK, numericPredicates, readGeoJSON } from '../src/lib/export/read-export'
+import { mergeReadings, readOntologyTTL, type OntologyEntity } from '../src/lib/export/read-ttl'
+import { crossCheck, geojsonProblems, NUMERIC_OK, numericPredicates, readGeoJSON, ttlTriples } from '../src/lib/export/read-export'
+import { storeyFiles } from '../src/lib/export/storey-export'
 import { check3D, read3D } from '../src/lib/export/read-3d'
 import { modelToScene, sceneToGLB, sceneToOBJ } from '../src/lib/export/mesh3d'
 import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topology'
@@ -26,6 +27,7 @@ import { completenessChecks } from '../src/lib/checks'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
 import { verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
 import { storeyHeights } from '../src/lib/storey-height'
+import { markStoreyDone, storeyProgress } from '../src/lib/storey-progress'
 import { equipmentKind, roomKind } from '../src/lib/kinds'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
 import { compareVersions, revitElementId } from '../src/lib/versions'
@@ -2202,7 +2204,7 @@ describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every(
     const target = structuredClone(v2)
     const result = applyEdits(target, file)
     // 설비 다섯은 이름 끝의 Revit 요소 ID 로, 방은 이름으로 찾는다. 못 찾은 것은 없다.
-    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 })
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0, storeys: 0 })
     expect(movedEq.map((r) => r.by)).toEqual(Array(5).fill('revitId'))
     expect(result.rematched).toEqual({ revitId: 5, name: 1, position: 0 })
     const x = modelToTTL(target)
@@ -2495,5 +2497,92 @@ describe.skipIf(![SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_COBIE, CLINIC_ARCH, CLINIC_HV
     // 덧붙인 파일만 층 높이를 적었으면 합친 층이 그 값을 가져온다. 다른 건물끼리라 억지 짝이지만 둘 다 보인다 — AC20 1층(0m)은
     // ifc4Mep 의 0m 층에 붙어 BIM 2.7 을 가져오고, AC20 다락(2.7m)은 새 층이 되어 윗층(3.5m)과의 차 0.8 이 생겨 BIM 2.0 과 어긋난다.
     expect(table(mergeModels(open(MEP), ac20).model).filter((r) => r.includes('bim'))).toEqual(['00. Begane grond 2.7 bim 순2.7', 'Dachgeschoss 2 bim 순2 어긋남'])
+  }, 300_000)
+})
+
+// 층 단위 생성(OE-GEN-11). 층 파일(TTL·GeoJSON 한 쌍)을 다 모으면 건물 전체 TTL 과 같은 트리플이고(ADR-0011), 층 파일 하나만 봐도
+// GeoJSON 의 그 층 feature 가 TTL 주어로 다 있다. 끝이 빈 줄은 다른 층 주어를 가리키는 것뿐이다 — 다른 층 파일이 들어오면 이어진다.
+describe('층 단위 생성 (OE-GEN-11)', () => {
+  it('가진 BIM 의 층 파일을 모으면 건물 전체와 같고, 층마다 GeoJSON 과 TTL 이 id 로 이어진다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const open = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+    const cases: [string, () => Model][] = []
+    if (existsSync(SAMPLE)) cases.push(['fzk', () => open(SAMPLE)])
+    if (existsSync(MEP)) cases.push(['ifc4mep', () => open(MEP)])
+    if (existsSync(DUPLEX_ARCH) && existsSync(DUPLEX_HVAC)) cases.push(['duplex 건축+hvac', () => mergeModels(open(DUPLEX_ARCH), open(DUPLEX_HVAC)).model])
+    if (existsSync(DUPLEX_MEP_FULL)) cases.push(['duplex mep', () => open(DUPLEX_MEP_FULL)])
+    if (existsSync(CLINIC_ARCH) && existsSync(CLINIC_HVAC)) cases.push(['병원 건축+hvac', () => mergeModels(open(CLINIC_ARCH), open(CLINIC_HVAC)).model])
+    if (existsSync(SAMSUNG_IDF)) cases.push(['idf', () => modelFromIdf(readIdf(readFileSync(SAMSUNG_IDF, 'utf8')), 'samsung').model])
+    expect(cases.length).toBeGreaterThanOrEqual(2)
+    const crossing: Record<string, number> = {}
+    for (const [name, make] of cases) {
+      const model = make()
+      const whole = ttlTriples(modelToTTL(model))
+      const merged = new Set<string>()
+      const subjects = new Set<string>()
+      const objects: string[] = []
+      const readings: ReturnType<typeof readOntologyTTL>[] = []
+      const floors: ReturnType<typeof readGeoJSON>[] = []
+      for (const storey of model.storeys) {
+        const files = storeyFiles(model, storey.id)!
+        for (const t of ttlTriples(files.ttl)) merged.add(t)
+        const reading = readOntologyTTL(files.ttl)
+        const floor = readGeoJSON(files.geojsonName, files.geojson)
+        readings.push(reading)
+        floors.push(floor)
+        expect(floor.problems, `${name} ${storey.name}`).toEqual([])
+        const check = crossCheck(reading, [floor])
+        expect({ notInTtl: check.notInTtl, locationMismatch: check.locationMismatch, doorLinks: check.doorLinks }, `${name} ${storey.name}`).toEqual({ notInTtl: [], locationMismatch: [], doorLinks: [] })
+        for (const e of [...reading.entities, ...reading.unread]) subjects.add(e.key)
+        objects.push(...check.dangling.map((d) => d.to))
+      }
+      expect([...merged].filter((t) => !whole.has(t)), name).toEqual([])
+      expect([...whole].filter((t) => !merged.has(t)), name).toEqual([])
+      // 층 파일 하나에서 끝이 빈 줄은 전부 다른 층 파일의 주어다.
+      expect(objects.filter((id) => !subjects.has(id)), name).toEqual([])
+      // 뷰어처럼 층 파일을 쌓아 읽으면(mergeReadings) 끊긴 참조가 없다 — 건물 전체 TTL 을 읽은 것과 같다.
+      const stacked = crossCheck(mergeReadings(readings), floors)
+      expect({ ...stacked, toUnread: 0 }, name).toEqual({ notInTtl: [], dangling: [], toUnread: 0, locationMismatch: [], doorLinks: [] })
+      crossing[name] = objects.length
+    }
+    // 다른 층을 가리키는 줄 수. 층을 넘는 흐름(feeds)·계통 구성원·공조존의 방이다. 이 수가 0 이 아니어도 위에서 다 이어짐을 봤다.
+    expect(crossing).toEqual({ fzk: 0, ifc4mep: 20, 'duplex 건축+hvac': 0, 'duplex mep': 0, '병원 건축+hvac': 311, idf: 225 })
+  }, 900_000)
+})
+
+// 층 단위 진행(OE-MAN-06). 큰 파일에서 완료한 층을 고치면 그 층만 풀리고, 지문을 재는 값이 편집마다 돌아도 견딜 만한지, 층 GUID 가
+// 바뀐 재내보내기에도 완료한 층을 찾는지 본다.
+describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('층 단위 진행 (OE-MAN-06)', () => {
+  it('병원 건축+HVAC: 층을 다 완료하고 1층 설비 하나를 옮기면 1층만 풀리고, GUID 가 바뀐 판본에 불러와도 그대로다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const open = (path: string) => importIfc(api, new Uint8Array(readFileSync(path)))
+    const pristine = mergeModels(open(CLINIC_ARCH), open(CLINIC_HVAC)).model
+    const m = structuredClone(pristine)
+    const base = baselineOf(m)
+    for (const s of m.storeys) markStoreyDone(m, s.id, new Date('2026-10-03T10:00:00Z'))
+    const t0 = performance.now()
+    const rows = storeyProgress(m)
+    const elapsed = performance.now() - t0
+    expect(rows.map((r) => r.state)).toEqual(m.storeys.map(() => 'done'))
+    // 편집마다 완료한 층 전부의 지문을 다시 잰다. 병원 설비 3800여 대에 화면이 멈칫하지 않을 만큼이어야 한다.
+    expect(elapsed).toBeLessThan(300)
+    const first = m.storeys.find((s) => s.name === 'First Floor')!
+    const device = first.equipment.find((e) => e.position)!
+    moveEquipment(m, device.id, [device.position![0] + 0.5, device.position![1], device.position![2]])
+    expect(storeyProgress(m).map((r) => `${r.name} ${r.state}`)).toEqual(m.storeys.map((s) => `${s.name} ${s === first ? 'changed' : 'done'}`))
+
+    // 층·설비 GUID 가 전부 바뀐 판본(재내보내기)에 편집 파일을 얹어도 완료한 층을 지문으로 찾는다.
+    const file = parseEditFile(JSON.stringify(exportEdits(m, base, 'clinic')))
+    if (typeof file === 'string') throw new Error(file)
+    let json = JSON.stringify(pristine)
+    for (const id of pristine.storeys.flatMap((s) => [s.id, ...s.equipment.map((e) => e.id)])) json = json.split(JSON.stringify(id)).join(JSON.stringify(`${id}Qv2`))
+    const b: Model = JSON.parse(json)
+    const result = applyEdits(b, file)
+    expect(result.missing.storeys).toBe(0)
+    expect(storeyProgress(b).map((r) => `${r.name} ${r.state}`)).toEqual(storeyProgress(m).map((r) => `${r.name} ${r.state}`))
   }, 300_000)
 })

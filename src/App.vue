@@ -24,6 +24,8 @@ import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
 import { storeyHeights, type StoreyHeight } from './lib/storey-height'
+import { storeyFiles } from './lib/export/storey-export'
+import { clearStoreyDone, markStoreyDone, storeyProgress, type StoreyProgress } from './lib/storey-progress'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
@@ -2850,7 +2852,7 @@ function applyEditFile(file: EditFile, from: string) {
   redraw()
 
   const missing = Object.entries(result.missing).filter(([, n]) => n > 0)
-  const MISSING_LABEL: Record<string, string> = { equipment: '설비', spaces: '물리존', kinds: '타입', flows: '방향', systems: '계통', connections: '연결', elements: '벽·문·창' }
+  const MISSING_LABEL: Record<string, string> = { equipment: '설비', spaces: '물리존', kinds: '타입', flows: '방향', systems: '계통', connections: '연결', elements: '벽·문·창', storeys: '완료한 층' }
   // GUID 가 바뀐 판본에서 다른 열쇠로 찾은 것. 사람이 확인할 수 있게 무엇으로 찾았는지까지 말한다.
   const rematched = (Object.entries(result.rematched) as [Exclude<MatchKey, 'guid'>, number][]).filter(([, n]) => n > 0)
   autosaveArmed = true
@@ -3805,6 +3807,9 @@ const draft = shallowRef<{ file: EditFile; count: number; savedAt: string } | nu
 let autosaveArmed = false
 let autosaveTimer: number | undefined
 const draftKey = () => DRAFT_PREFIX + fileName.value
+/** 층 완료를 누르거나 지운 횟수(OE-MAN-06). 완료 표시는 되돌리기 이력에 들지 않아, 자동 저장·저장 안 한 편집 판정이 이것도 본다. */
+const progressVersion = ref(0)
+watch(baseline, () => (progressVersion.value = 0))
 const editCount = countEdits
 
 watch(baseline, (b) => {
@@ -3829,7 +3834,7 @@ watch(
     }
   },
 )
-watch([changeCount, flowVersion, () => history.value.length], () => {
+watch([changeCount, flowVersion, () => history.value.length, progressVersion], () => {
   if (!autosaveArmed) return
   window.clearTimeout(autosaveTimer)
   autosaveTimer = window.setTimeout(() => {
@@ -4246,7 +4251,7 @@ function showSpace(id: string) {
 //
 // 편집은 탭 안에만 있다(내보낸 파일에만 남는다). 새로 고침·탭 닫기·다른 파일 열기가 편집을 조용히 버리면, 한 시간
 // 고친 것이 경고 없이 사라진다. 편집이 남아 있으면 먼저 묻는다.
-const hasEdits = computed(() => changeCount.value > 0 || history.value.length > 0)
+const hasEdits = computed(() => changeCount.value > 0 || history.value.length > 0 || progressVersion.value > 0)
 watch(fileName, () => (editFileNote.value = ''))
 function onBeforeUnload(e: BeforeUnloadEvent) {
   // 임시 저장·편집 저장·구축하기 뒤로 바뀐 것이 없으면 묻지 않는다(OE-COM-08). 남길 것이 이미 남아 있다.
@@ -4752,6 +4757,65 @@ async function build() {
     markSaved()
     markDone('build')
   }
+}
+
+// --- 층 단위 진행 (OE-MAN-06) -------------------------------------------------------------
+//
+// 층마다 완료를 표시하고 몇 층이 끝났는지 보인다(ADR-0011). 완료는 그때 층의 지문과 지금 지문을 견줘 정한다(storey-progress.ts) —
+// 완료한 층을 고치면 "완료 뒤 고침" 으로 저절로 풀리고, Ctrl+Z 로 그 층이 완료한 때와 같아지면 다시 완료다. 표시는 편집 파일에
+// 남는다(되돌리기 이력에는 들지 않는다 — 고친 것이 아니라 진행 표시다).
+// 완료한 층의 지문을 재는 값이 병원 건축+HVAC 네 층에 45ms 다. 편집(방향키 한 번)마다 바로 재면 편집이 그만큼 느려진다.
+// 편집이 멈춘 뒤 한 번 잰다. 완료를 누르거나 지울 때는 바로 잰다.
+const storeyProgressRows = shallowRef<StoreyProgress[]>([])
+let progressTimer: number | undefined
+function refreshProgress() {
+  window.clearTimeout(progressTimer)
+  storeyProgressRows.value = model.value ? storeyProgress(model.value) : []
+}
+watch(
+  model,
+  () => {
+    window.clearTimeout(progressTimer)
+    progressTimer = window.setTimeout(refreshProgress, 200)
+  },
+  { immediate: true },
+)
+const progressById = computed(() => new Map(storeyProgressRows.value.map((p) => [p.id, p])))
+const storeysDoneCount = computed(() => storeyProgressRows.value.filter((p) => p.state === 'done').length)
+function setStoreyDone(storeyId: string, on: boolean) {
+  const m = model.value
+  if (!m) return
+  const name = m.storeys.find((s) => s.id === storeyId)?.name ?? ''
+  if (!(on ? markStoreyDone(m, storeyId) : clearStoreyDone(m, storeyId))) return
+  progressVersion.value++
+  autosaveArmed = true
+  refreshProgress()
+  triggerRef(model)
+  note(on ? `${name} 층을 완료로 표시했습니다(${storeysDoneCount.value}/${m.storeys.length}층).` : `${name} 층의 완료 표시를 지웠습니다.`)
+}
+// 완료한 층을 고치면 알린다. 표에서도 보이지만 표는 접혀 있을 수 있다.
+watch(storeyProgressRows, (now, before) => {
+  const was = new Map((before ?? []).map((p) => [p.id, p.state]))
+  const reopened = now.filter((p) => p.state === 'changed' && was.get(p.id) === 'done')
+  if (reopened.length) note(`${reopened.map((p) => p.name).join(', ')} 층을 완료한 뒤 고쳤습니다 — 완료가 풀렸습니다. 다시 구축하고 완료를 표시하세요.`)
+})
+const doneTime = (at?: string) => (at ? new Date(at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
+
+/**
+ * 층 하나만 구축한다(OE-GEN-11). 그 층의 TTL·GeoJSON 한 쌍을 받는다(storey-export.ts). 층 파일을 다 모으면 건물 전체와 같은
+ * 트리플이다(ADR-0011). 건물 전체 [구축하기] 와 달리 저장으로 치지 않는다 — 다른 층의 편집은 아직 안 나갔다.
+ */
+async function buildStorey(storeyId: string) {
+  const m = model.value
+  const files = m ? storeyFiles(m, storeyId) : null
+  if (!m || !files) return
+  download(files.ttlName, files.ttl, 'text/turtle')
+  // 잇달아 받으면 크롬이 둘째를 막을 수 있다(exportGeoJSON 주석). 틈을 둔다.
+  await new Promise((r) => window.setTimeout(r, 250))
+  download(files.geojsonName, files.geojson, 'application/geo+json')
+  const name = m.storeys.find((s) => s.id === storeyId)?.name ?? ''
+  note(`${name} 층을 구축했습니다: ${files.ttlName} · ${files.geojsonName}. 다른 층을 가리키는 줄은 id 로 남습니다.`)
+  markDone(`build:${storeyId}`)
 }
 
 function exportTTL() {
@@ -6507,7 +6571,17 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
         </Fold>
 
-        <Fold title="층별 요약" :meta="`${model.storeys.length}개 층`" class="storeys">
+        <Fold title="층별 요약" :meta="`${model.storeys.length}개 층 · 완료 ${storeysDoneCount}/${model.storeys.length}`" class="storeys">
+          <!-- 층 단위 진행(OE-MAN-06). 완료한 층·고친 층·남은 층. -->
+          <p class="storey-progress hint" role="status">
+            완료 <b>{{ storeysDoneCount }}/{{ model.storeys.length }}</b>층
+            <template v-if="storeyProgressRows.some((p) => p.state === 'changed')">
+              · <span class="height-mismatch">완료 뒤 고침 {{ storeyProgressRows.filter((p) => p.state === 'changed').map((p) => p.name).join(', ') }}</span>
+            </template>
+            <template v-if="storeyProgressRows.some((p) => p.state === 'todo')">
+              · 남은 층 {{ storeyProgressRows.filter((p) => p.state === 'todo').map((p) => p.name).join(', ') }}
+            </template>
+          </p>
           <table>
             <thead>
               <tr>
@@ -6518,6 +6592,8 @@ async function export3D(format: 'glb' | 'obj') {
                 <th class="num">넓이 합</th>
                 <th class="num">벽</th>
                 <th class="num">설비</th>
+                <th>진행</th>
+                <th aria-label="층 단위 구축"></th>
               </tr>
             </thead>
             <tbody>
@@ -6552,7 +6628,31 @@ async function export3D(format: 'glb' | 'obj') {
                     <span class="muted"> · {{ wallThicknessLabel(s) }}</span>
                   </template>
                 </td>
-                <td class="num mono">{{ s.equipment.length }}</td>
+                <td class="num mono storey-equipment">{{ s.equipment.length }}</td>
+                <td class="storey-done" :data-state="progressById.get(s.id)?.state">
+                  <template v-if="progressById.get(s.id)?.state === 'done'">
+                    <span class="done-mark" :title="`완료 표시: ${doneTime(progressById.get(s.id)?.at)}`">완료 ✓</span>
+                    <button type="button" class="link" :aria-label="`${s.name} 완료 지우기`" @click="setStoreyDone(s.id, false)">지우기</button>
+                  </template>
+                  <template v-else-if="progressById.get(s.id)?.state === 'changed'">
+                    <span class="height-mismatch" :title="`${doneTime(progressById.get(s.id)?.at)} 에 완료한 뒤 이 층을 고쳤습니다`">완료 뒤 고침</span>
+                    <button type="button" class="link" :aria-label="`${s.name} 다시 완료`" @click="setStoreyDone(s.id, true)">다시 완료</button>
+                  </template>
+                  <button v-else type="button" class="ghost" :aria-label="`${s.name} 완료 표시`" @click="setStoreyDone(s.id, true)">완료 표시</button>
+                </td>
+                <td class="storey-build">
+                  <button
+                    type="button"
+                    class="ghost"
+                    :aria-label="`${s.name} 구축`"
+                    title="이 층만 온톨로지로 받습니다(TTL·GeoJSON 한 쌍). 다른 층을 가리키는 줄은 id 로 남습니다."
+                    :disabled="busy"
+                    :class="{ done: justDone === `build:${s.id}` }"
+                    @click="buildStorey(s.id)"
+                  >
+                    구축
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>

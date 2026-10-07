@@ -86,3 +86,36 @@ test('GLB·OBJ 도 같이 열면 3D 로 보이고, GeoJSON 과 같은 id·자리
   await expect(detail).toContainText('.obj')
   await expect(detail).toContainText('삼각형')
 })
+
+test('층별로 구축한 TTL 을 여럿 놓으면 쌓아 읽고, 건물 전체 TTL 을 놓으면 바꾼다 (OE-GEN-11)', async ({ page }, info) => {
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(['src/lib/ifc/fixtures/mep.ifc', 'src/lib/ifc/fixtures/two-rooms.ifc'])
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+  const saved: Promise<string>[] = []
+  page.on('download', (d) => saved.push(d.saveAs(info.outputPath(d.suggestedFilename())).then(() => info.outputPath(d.suggestedFilename()))))
+  for (const floor of ['1F', '2F']) {
+    await page.getByRole('button', { name: `${floor} 구축` }).click()
+    await expect.poll(() => saved.length).toBe(floor === '1F' ? 2 : 4)
+  }
+  await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
+  await expect.poll(() => saved.length).toBe(5)
+  const files = await Promise.all(saved)
+  const pick = (re: RegExp) => files.filter((f) => re.test(f))
+
+  await page.goto('/viewer.html')
+  const input = page.getByLabel('내보낸 파일 고르기')
+  const heading = page.getByRole('heading', { name: /^TTL/ })
+  // 건물 전체 TTL 을 먼저 놓았어도 층 파일을 놓으면 층 파일부터 쌓는다 — 전체와 층을 섞어 합치면 같은 줄이 겹친다.
+  await input.setInputFiles(pick(/ontology\.ttl$/))
+  await expect(heading).toContainText('ontology.ttl')
+  await input.setInputFiles(pick(/floor-1F\.(ttl|geojson)$/))
+  await expect(heading).toContainText('floor-1F.ttl')
+  // 2층 파일을 더 놓으면 쌓인다. 두 층의 방이 다 TTL 주어로 이어져 검사가 전부 0 이다.
+  await input.setInputFiles(pick(/floor-2F\.(ttl|geojson)$/))
+  await expect(heading).toContainText('층 파일 2개 합침')
+  await expect(page.locator('.checks li.bad')).toHaveCount(0)
+  // 건물 전체 TTL 을 놓으면 층 파일 대신 그것이다.
+  await input.setInputFiles(pick(/ontology\.ttl$/))
+  await expect(heading).toContainText('ontology.ttl')
+  await expect(page.locator('.checks li.bad')).toHaveCount(0)
+})

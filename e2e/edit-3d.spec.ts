@@ -221,7 +221,7 @@ test('편집 모드에서 고른 설비의 층을 바꾸면 높이도 층 차만
   // two-rooms 의 2F 바닥은 3.0m 다.
   await expect.poll(async () => Number(await coord(page, 'AHU-1', 2))).toBeCloseTo(z0 + 3, 5)
   await expect(page.locator('.storey-move .src.edit')).toBeVisible()
-  await expect(page.locator('.storeys tbody tr', { hasText: '2F' }).locator('td').last()).toHaveText('1')
+  await expect(page.locator('.storeys tbody tr', { hasText: '2F' }).locator('td.storey-equipment')).toHaveText('1')
   // 2F 의 창고에는 외곽선이 없어 소속이 빠진다.
   await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
 
@@ -230,7 +230,7 @@ test('편집 모드에서 고른 설비의 층을 바꾸면 높이도 층 차만
   await expect.poll(async () => Number(await coord(page, 'AHU-1', 2))).toBeCloseTo(z0, 5)
   await expect(select.locator('option:checked')).toHaveText('1F')
   await expect(page.locator('.storey-move .src.bim')).toBeVisible()
-  await expect(page.locator('.storeys tbody tr', { hasText: '2F' }).locator('td').last()).toHaveText('0')
+  await expect(page.locator('.storeys tbody tr', { hasText: '2F' }).locator('td.storey-equipment')).toHaveText('0')
   expect(errors).toEqual([])
 })
 
