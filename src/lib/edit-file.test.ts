@@ -70,8 +70,8 @@ describe('편집 저장·불러오기', () => {
     setFlowDirection(free, free.to)
 
     const file = exportEdits(a, base, 'mep.ifc', new Date('2026-09-24T00:00:00Z'))
-    // 바뀐 것만 담는다. 손대지 않은 설비·물리존은 없다.
-    expect(file.equipment.map((e) => e.id).sort()).toEqual([equip(a, 'AHU-1').id, equip(a, 'AT-101-01').id].sort())
+    // 바뀐 것만 담는다. 손대지 않은 설비·물리존은 없다. 조명은 사무실 경계를 고쳐 BIM 소속이 좌표 판정으로 풀렸다(Q13).
+    expect(file.equipment.map((e) => e.id).sort()).toEqual([equip(a, 'AHU-1').id, equip(a, 'AT-101-01').id, equip(a, 'LIGHT-101-01').id].sort())
     expect(file.spaces).toHaveLength(1)
     expect(file.spaces[0].longName).toBe('대회의실')
 

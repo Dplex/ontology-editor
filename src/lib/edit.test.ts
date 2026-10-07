@@ -356,7 +356,7 @@ describe('물리존 경계 수정 (E2)', () => {
     expect(change.equipment.map((c) => c.equipmentName)).not.toContain('AHU-1')
   })
 
-  it('BIM 이 소속을 말한 설비는 경계를 바꿔도 그대로다', () => {
+  it('BIM 이 소속을 말한 설비도 사람이 경계를 고치면 좌표로 다시 판정한다(Q13)', () => {
     // LIGHT-101-01 은 좌표가 (50,50) 으로 밖인데 IFC 가 사무실에 담아 두었다.
     const light = equip('LIGHT-101-01')
     replaceSpaceFootprint(model, office().id, [
@@ -366,8 +366,8 @@ describe('물리존 경계 수정 (E2)', () => {
       [0, 1],
       [0, 0],
     ])
-    expect(light.spaceId).toBe(office().id)
-    expect(light.spaceSource).toBe('bim')
+    expect(light.spaceId).toBe(null)
+    expect(light.spaceSource).toBe(null)
   })
 
   it('닫힌 고리의 첫 점을 옮기면 끝 점도 따라온다', () => {

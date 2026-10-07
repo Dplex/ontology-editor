@@ -7,7 +7,7 @@
 // 반영 전에 차이를 보여 주는 것이 PRD #16(미리보기)이고, 반영 뒤에 남기는 것이 #21(결과
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
-import { assignEquipment, centroid, isSelfIntersecting, locate, nearRing } from './mapping'
+import { assignEquipment, centroid, distanceToRing, isSelfIntersecting, locate, nearRing } from './mapping'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
@@ -54,15 +54,32 @@ function reassignStoreyOf(model: Model, equipment: Equipment) {
  * 새 경계 근처인 것(들어올 수 있다). 나머지 설비는 그 방이 답이었던 적도 없고 답이 될 수도 없어서, 층 전부를 다시 도는 것과
  * 결과가 같다. 병원 건축+MEP 처럼 한 층에 설비·배관이 수천 개면 꼭짓점 하나 옮길 때마다 전부 다시 재는 데 시간이 다 갔다.
  */
-function reassignStoreyWith(model: Model, spaceId: string) {
+function reassignStoreyWith(model: Model, spaceId: string, release = false) {
   const storey = model.storeys.find((s) => s.spaces.some((sp) => sp.id === spaceId))
   if (!storey) return
   const ring = storey.spaces.find((sp) => sp.id === spaceId)!.footprint
+  // 사람이 경계를 고친 물리존은 BIM 이 거기 담아 둔 설비도 좌표로 다시 판정한다(OE-MAP-01 3단계, Q13). 설계자가 담은 방이
+  // 이제 설계 때의 방이 아니라서다.
+  if (release) releaseDeclared(storey, spaceId)
   for (const e of storey.equipment) {
     if (e.spaceId === spaceId || (e.position && nearRing([e.position[0], e.position[1]], ring))) assignEquipment(e, storey.spaces)
   }
   // 방 경계가 바뀌면 좌표로 짚은 문이 잇는 방도 바뀐다.
   relinkDoors(storey)
+}
+
+/** 이 물리존에 BIM 이 담아 둔 설비의 소속을 좌표 판정에 넘긴다(Q13). 다음 assignEquipment 가 좌표로 정한다. */
+function releaseDeclared(storey: Storey, spaceId: string) {
+  for (const e of storey.equipment) if (e.spaceSource === 'bim' && e.spaceId === spaceId) e.spaceSource = null
+}
+
+/**
+ * 경계가 실제로 바뀌었나. 변 위에 꼭짓점을 하나 넣는 것(Insert)은 모양이 같아서 바뀐 것이 아니다 — 넣기만 해도 BIM 소속이
+ * 풀리면 안 된다. 넓이가 같고 새 꼭짓점이 전부 옛 외곽선 위에 있으면 같은 모양이다.
+ */
+function shapeChanged(from: readonly Vec2[], to: readonly Vec2[]): boolean {
+  if (Math.abs(polygonArea(from) - polygonArea(to)) > 1e-9) return true
+  return to.some((p) => distanceToRing(p, from) > 1e-9)
 }
 
 function findEquipment(model: Model, equipmentId: string): Equipment | null {
@@ -504,10 +521,11 @@ export function moveSpaceVertex(
   const before = snapshotSpaces(model)
   const fromAreaM2 = space.areaM2
   const ring = ringWithVertex(space.footprint, vertexIndex, to)
+  const release = shapeChanged(space.footprint, ring)
 
   space.footprint = ring
   space.areaM2 = polygonArea(ring)
-  reassignStoreyWith(model, spaceId)
+  reassignStoreyWith(model, spaceId, release)
 
   return {
     spaceId,
@@ -530,10 +548,11 @@ export function replaceSpaceFootprint(model: Model, spaceId: string, ring: Vec2[
 
   const before = snapshotSpaces(model)
   const fromAreaM2 = space.areaM2
+  const release = shapeChanged(space.footprint, ring)
 
   space.footprint = ring
   space.areaM2 = polygonArea(ring)
-  reassignStoreyWith(model, spaceId)
+  reassignStoreyWith(model, spaceId, release)
 
   return {
     spaceId,
@@ -569,7 +588,18 @@ export type Snapshot =
       endShift: Equipment['endShift']
       wallId: string | undefined
     }
-  | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; name?: string; longName: string; roomKind: Space['kind']; roomKindSource: Space['kindSource'] }
+  | {
+      kind: 'space'
+      id: string
+      footprint: Vec2[]
+      areaM2: number
+      name?: string
+      longName: string
+      roomKind: Space['kind']
+      roomKindSource: Space['kindSource']
+      /** BIM 이 이 물리존에 담아 둔 설비. 경계를 고치면 좌표 판정으로 풀리므로(Q13) 되돌릴 때 다시 담는다. */
+      declared?: Equipment[]
+    }
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
   | { kind: 'confirm'; connections: Connection[]; confirmed: boolean }
   | { kind: 'kinds'; entries: { id: string; kind: string | null | undefined; kindEdited: Equipment['kindEdited'] }[] }
@@ -700,11 +730,16 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
 
 const copyShift = (s: readonly [Vec3, Vec3]): [Vec3, Vec3] => [[...s[0]], [...s[1]]]
 
-/** 경계와 이름. 소속은 담지 않는다 — 경계를 되돌리면 재판정이 같은 소속을 다시 낸다. */
+/**
+ * 경계와 이름. 좌표로 정한 소속은 담지 않는다 — 경계를 되돌리면 재판정이 같은 소속을 다시 낸다. BIM 이 담아 둔 소속은 경계를
+ * 고칠 때 풀리고(Q13) 재판정으로는 돌아오지 않아서 따로 담는다.
+ */
 export function snapshotSpace(model: Model, spaceId: string): Snapshot | null {
   const space = findSpace(model, spaceId)
   if (!space) return null
+  const declared = storeyOfSpace(model, spaceId)?.equipment.filter((e) => e.spaceSource === 'bim' && e.spaceId === spaceId) ?? []
   return {
+    ...(declared.length ? { declared } : {}),
     kind: 'space',
     id: space.id,
     footprint: [...space.footprint],
@@ -836,6 +871,10 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       space.kind = snapshot.roomKind
       if (snapshot.roomKindSource) space.kindSource = snapshot.roomKindSource
       else delete space.kindSource
+      for (const e of snapshot.declared ?? []) {
+        e.spaceId = space.id
+        e.spaceSource = 'bim'
+      }
       reassignStoreyWith(model, space.id)
       return null
     }
@@ -1750,12 +1789,9 @@ export function splitSpace(
   })
   const piece = storey.spaces[storey.spaces.length - 1]
   setRoomKind(piece, resolveRoomKind(piece.name, piece.longName, null))
-  // BIM 이 원래 방에 둔 설비 중 새 조각에 든 것은 BIM 소속을 버린다. 원래 방은 이제 그 자리를 품지 않는다.
-  for (const e of storey.equipment) {
-    if (e.spaceSource === 'bim' && e.spaceId === spaceId && e.position && pointInRing([e.position[0], e.position[1]], small)) {
-      e.spaceSource = null
-    }
-  }
+  // 사람이 나눈 물리존은 BIM 이 거기 담아 둔 설비도 좌표로 다시 판정한다(OE-MAP-01 3단계, Q13). 좁은 조각에 든 설비는 좁은
+  // 조각으로, 넓은 조각(원래 id)에 든 설비는 그대로, 둘 다 밖인 설비는 좌표대로 다른 방이나 층으로 간다.
+  releaseDeclared(storey, spaceId)
   return { storeyId: storey.id, created: [id], removed: [], equipment: settleStorey(model, storey, new Set(), before) }
 }
 
