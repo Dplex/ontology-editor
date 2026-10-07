@@ -1343,7 +1343,7 @@ function clearSelection(): boolean {
     note('놓기를 취소했습니다')
   } else if (connectFrom.value) {
     connectFrom.value = null
-    note('잇기를 취소했습니다')
+    note('연결하기를 취소했습니다')
   } else if (activeArrow.value !== null) activeArrow.value = null
   else if (activeVertex.value !== null) activeVertex.value = null
   else if (selectedId.value) select(null)
@@ -2216,7 +2216,7 @@ function applyFix(id: string, fix: FailureFix) {
     connectTo(fix.other)
   }
 }
-const fixLabel = (fix: FailureFix) => (fix.kind === 'move-into' ? `${fix.spaceName} 안으로 옮기기` : `잇기: ${nameOfId(fix.other)}`)
+const fixLabel = (fix: FailureFix) => (fix.kind === 'move-into' ? `${fix.spaceName} 안으로 옮기기` : `연결하기: ${nameOfId(fix.other)}`)
 function toggleCheck(key: string) {
   openCheckKey.value = openCheckKey.value === key ? null : key
   const c = openCheck.value
@@ -3988,24 +3988,24 @@ const nameOfId = (id: string) => shortName(equipmentById.value.get(id)?.name || 
 function startConnect() {
   if (!selectedId.value) return
   connectFrom.value = selectedId.value
-  note(`${nameOfId(selectedId.value)}에 이을 상대를 3D나 목록에서 고르세요 (Esc 취소)`)
+  note(`${nameOfId(selectedId.value)}${josa(nameOfId(selectedId.value), '과/와')} 연결할 설비를 3D나 목록에서 고르세요 (Esc 취소)`)
 }
 function connectTo(id: string) {
   const m = model.value
   const from = connectFrom.value
   connectFrom.value = null
   if (!m || !from) return
-  if (id === from) return note('같은 설비끼리는 이을 수 없습니다')
+  if (id === from) return note('같은 설비끼리는 연결할 수 없습니다')
   if (connectionBetween(m, from, id)) return note('이미 이어져 있습니다')
   const at = mark()
   const done = addConnection(m, from, id)
   if (!done) return
-  remember(`${nameOfId(from)}–${nameOfId(id)} 잇기`, { kind: 'connection', connection: done.connection, present: false, index: m.connections.length - 1 }, at)
+  remember(`${nameOfId(from)}–${nameOfId(id)} 연결`, { kind: 'connection', connection: done.connection, present: false, index: m.connections.length - 1 }, at)
   ruleReport.value = done.rules
   triggerRef(model)
   flowVersion.value++
   selectedId.value = from
-  note(`${nameOfId(from)}–${nameOfId(id)}${josa(nameOfId(id), '을/를')} 이었습니다. 방향은 상류로·하류로로 정합니다`)
+  note(`${nameOfId(from)}–${nameOfId(id)}${josa(nameOfId(id), '을/를')} 연결했습니다. 방향은 상류로·하류로로 정합니다`)
 }
 function disconnect(c: Connection) {
   const m = model.value
@@ -4014,7 +4014,7 @@ function disconnect(c: Connection) {
   const at = mark()
   const rules = removeConnection(m, c)
   if (!rules) return
-  remember(`${nameOfId(c.from)}–${nameOfId(c.to)} 끊기`, snapshot, at)
+  remember(`${nameOfId(c.from)}–${nameOfId(c.to)} 연결 끊기`, snapshot, at)
   ruleReport.value = rules
   triggerRef(model)
   flowVersion.value++
@@ -5951,10 +5951,10 @@ async function export3D(format: 'glb' | 'obj') {
               :aria-pressed="!!connectFrom"
               @click="connectFrom ? (connectFrom = null) : startConnect()"
             >
-              {{ connectFrom ? '잇기 취소' : '잇기' }}
+              {{ connectFrom ? '연결하기 취소' : '연결하기' }}
             </button>
           </h4>
-          <p v-if="connectFrom" class="edit-notice inline">이을 상대를 3D나 목록에서 고르세요. <kbd>Esc</kbd>로 취소합니다.</p>
+          <p v-if="connectFrom" class="edit-notice inline">연결할 설비를 3D나 목록에서 고르세요. <kbd>Esc</kbd>로 취소합니다.</p>
           <p v-if="selectedNeighbors.length === 0" class="hint">
             이 설비에 연결된 것이 없습니다.
           </p>
@@ -6006,7 +6006,7 @@ async function export3D(format: 'glb' | 'obj') {
                     >
                       지우기
                     </button>
-                    <button v-if="n.source !== 'port'" type="button" class="ghost cut" title="이 연결을 끊습니다" @click="disconnect(n.connection)">끊기</button>
+                    <button v-if="n.source !== 'port'" type="button" class="ghost cut" title="이 연결을 끊습니다" @click="disconnect(n.connection)">연결 끊기</button>
                   </div>
                 </td>
               </tr>
@@ -7427,7 +7427,7 @@ async function export3D(format: 'glb' | 'obj') {
               {{ r.name }}: 층 <b>{{ r.from }}</b> → <b>{{ r.to }}</b> (brick:hasPart)
             </li>
             <li v-for="(c, i) in sinceOpen.connected" :key="`join-${i}`">
-              <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결을 이었습니다(방향을 정하면 brick:feeds)
+              <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결했습니다(방향을 정하면 brick:feeds)
             </li>
             <li v-for="(c, i) in sinceOpen.disconnected" :key="`cut-${i}`">
               <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결을 끊었습니다
