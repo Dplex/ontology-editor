@@ -1545,6 +1545,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */
       hoverMark: () => (hoverMark ? hoverMarkKey : ''),
       /** 지금 도는 움직임(카메라 비행·미끄러지는 설비 수·번쩍이는 방 수). */
+      /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
+      camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
       motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, started }),
       part: (id: string) => {
         const part = partById.get(id)
@@ -1573,8 +1575,6 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           return { key: seg.key, a: spec?.a, b: spec?.b, from: spec?.from, source: spec?.source, active: !!spec?.active, at: toScreen(seg.a.clone().lerp(seg.b, 0.5)) }
         }),
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
-      /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
-      camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
       /** 벽·문·창 편집 층에서 누를 수 있는 것의 id. */
       elements: () => archTargets.map((t) => t.id),
       /** 벽·문·창을 누를 화면 자리. 벽은 첫 외곽선 꼭짓점의 평균(곧은 벽이면 외곽선 안), 문·창은 자리다. */
