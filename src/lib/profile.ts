@@ -77,6 +77,7 @@ export function profileOf(model: Model): Profile {
   // 등급은 내보내는 것과 같은 기준으로 잰다. 포트 방향 + 사람이 확정한 규칙 방향이다.
   const flows = deviceFlows(withInferred(model.connections, true), (id) => conduitIds.has(id), devices.map((e) => e.id))
   // 확정 전 규칙 방향까지 넣으면 얼마나 채워지는지. 칩 설명에만 쓴다.
+  const confirmedRules = model.connections.some((x) => x.inferred?.confirmed)
   const candidate = model.connections.some((x) => x.inferred && !x.inferred.confirmed)
     ? deviceFlows(withInferred(model.connections), (id) => conduitIds.has(id), devices.map((e) => e.id)).fed.size
     : null
@@ -144,7 +145,12 @@ export function profileOf(model: Model): Profile {
       have: fed,
       of: linked,
       level: level(fed, linked),
-      figure: figure(fed, linked),
+      // 목표선(등급 4)은 두 수치를 출처와 같이 보인다(OE-BIM-16, D12 권고안). 앞은 BIM 포트(+ 사람이 확정한 규칙 방향),
+      // 뒤는 확정 전 규칙 방향까지 — 규칙은 화면의 출처 "사전"(Src.vue 의 dict)이다. `0/27(BIM) → 23/27(사전)`.
+      figure:
+        candidate !== null && candidate > fed && linked > 0
+          ? `${fed}/${linked}(${confirmedRules ? 'BIM+확정' : 'BIM'}) → ${candidate}/${linked}(사전)`
+          : figure(fed, linked),
       note:
         (linked === 0
           ? '덕트·배관으로 다른 기기와 이어진 기기가 없다'

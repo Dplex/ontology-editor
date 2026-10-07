@@ -1012,7 +1012,8 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
     // 연결 단위로는 39%(190/485)가 방향을 아는데, 기기에서 출발한 방향 사슬은 전부 중간의
     // SOURCEANDSINK 에서 끊긴다. 기기끼리 닿는 흐름은 0 이다.
     expect(chips(DUPLEX_HVAC)).toBe('공간 1 | 설비 40 | 소속 0/40 | 연결망 485 | 방향 0/26')
-    expect(chips(DUPLEX_MEP)).toBe('공간 22 | 설비 141 | 소속 141 | 연결망 783 | 방향 0/27')
+    // 목표선(방향) 칩은 두 수치다(OE-BIM-16): BIM 포트로 0/27, 규칙(사전)으로 짐작한 방향까지 23/27.
+    expect(chips(DUPLEX_MEP)).toBe('공간 22 | 설비 141 | 소속 141 | 연결망 783 | 방향 0/27(BIM) → 23/27(사전)')
     // COBie 판본은 형상이 없다. 좌표도 외곽선도 0 인데 소속은 BIM 이 전부 말해 준다.
     expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 | 설비 0/133 | 소속 133 | 연결망 0 | 방향 —')
   }, 300_000)
