@@ -7,7 +7,7 @@ prd: "#9 #10"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "귀속은 합치기 E3로"
 blocked_by: []
 depends: []

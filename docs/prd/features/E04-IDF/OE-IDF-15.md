@@ -7,7 +7,7 @@ prd: "#5"
 release: "R2"
 priority: "P3"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "범위 결정 필요"
 blocked_by: ["D-gbXML"]
 depends: ["D-gbXML"]
