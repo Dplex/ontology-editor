@@ -12,3 +12,4 @@ PRD #6 요구사항, 1.8 · 티켓 6건 · [Epic 색인](../../PRD_011.md#3-요�
 | [OE-REQ-04](OE-REQ-04.md) | 등급 판정 산식 | R1 | P1 | prd-review |
 | [OE-REQ-05](OE-REQ-05.md) | R25 BAS 매핑 키 | R1 | P2 | prd-review |
 | [OE-REQ-06](OE-REQ-06.md) | 요구사항 상태 집계 | R1 | P2 | prd-review |
+| [OE-REQ-07](OE-REQ-07.md) | R26 공간 설계 풍량 | R1 | P2 | prd-review |
