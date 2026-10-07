@@ -452,6 +452,83 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
   }, 300_000)
 })
 
+// OE-REQ-06 요구사항 상태 집계. 필수 11 을 표준·다른 자리·없음·일부로 세고, 표준이 아닌 줄마다 고객사에 할 요청을 낸다. 요청은 셋 중 하나로
+// 갈린다 — 다른 자리면 "내보내기 설정을 바꿔 달라 — 무엇을"(ASK_SETTING, OE-BIM-17), 값이 없으면 "값을 넣어 달라", 고칠 것이 정해져 있으면
+// 그 말(R7 IfcMapConversion · R11 배치점). 가진 파일의 필수에는 다른 자리가 없다 — 다른 자리는 권장(R10·R14·R16·R21·R23·R24)에서 나온다.
+describe('요구사항 상태 집계 — 필수 11 (OE-REQ-06)', () => {
+  it('가진 BIM 넷의 필수 11 을 화면과 같이 세고, 표준이 아닌 줄은 빠짐없이 가를 수 있는 요청을 낸다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const open = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+    // 합친 것은 화면처럼 합치기 결과를 같이 넘긴다 — 그래야 R1(두 파일의 층 이름)·R12(건축·설비 좌표계)를 잰다.
+    const merged = (a: string, b: string) => { const m = mergeModels(open(a), open(b)); return requirementsReport(m.model, m.report) }
+    const cases: [string, string[], () => ReturnType<typeof requirementsReport>, Record<string, string[]>][] = [
+      ['AC20', [SAMPLE], () => requirementsReport(open(SAMPLE)), { standard: ['R0', 'R1', 'R2', 'R3', 'R4', 'R6'], missing: ['R7', 'R9'], none: ['R11'], unmeasured: ['R12', 'R13'] }],
+      ['ifc4Mep', [MEP], () => requirementsReport(open(MEP)), { partial: ['R11'], missing: ['R7'], none: ['R2', 'R3', 'R4'], unmeasured: ['R12', 'R13'] }],
+      ['Duplex 건축+MEP', [DUPLEX_ARCH, DUPLEX_MEP], () => merged(DUPLEX_ARCH, DUPLEX_MEP), { partial: ['R3'], missing: ['R7'], unmeasured: ['R13'] }],
+      // 화면의 "필수 11개: 표준 5 · 없음·일부 5" 와 같다.
+      ['병원 건축+HVAC', [CLINIC_ARCH, CLINIC_HVAC], () => merged(CLINIC_ARCH, CLINIC_HVAC), { standard: ['R0', 'R3', 'R6', 'R9', 'R12'], partial: ['R1', 'R2', 'R4', 'R11'], missing: ['R7'], unmeasured: ['R13'] }],
+    ]
+    let ran = 0
+    for (const [name, files, make, want] of cases) {
+      if (!files.every(existsSync)) continue
+      ran++
+      const must = make().filter((r) => r.level === '필수')
+      expect(must, name).toHaveLength(11)
+      const ids = (state: string) => must.filter((r) => r.state === state).map((r) => r.id)
+      for (const [state, list] of Object.entries(want)) expect(ids(state), `${name} ${state}`).toEqual(list)
+      // 파일 하나로 잴 수 없는 것(R12 건축·설비 좌표계 · R13 GUID 유지)은 잴 수 없음이다 — 분모에 넣지 않는다. R12 는 합치면 잰다.
+      for (const r of must) {
+        const kind = r.ask.startsWith(ASK_SETTING) ? 'setting' : r.ask.startsWith('값을 넣어 달라') ? 'value' : r.ask ? 'fix' : 'none'
+        if (r.state === 'standard' || r.state === 'none' || r.state === 'unmeasured') expect(kind, `${name} ${r.id}`).toBe('none')
+        else if (r.state === 'elsewhere') expect(kind, `${name} ${r.id}`).toBe('setting')
+        // 없음·일부는 값을 넣거나 정해진 것을 고쳐 달라는 요청이다. 설정 요청이 나오면 고객사가 엉뚱한 곳을 본다.
+        else expect(['value', 'fix'], `${name} ${r.id} ${r.ask}`).toContain(kind)
+      }
+    }
+    expect(ran).toBeGreaterThanOrEqual(2)
+  }, 900_000)
+})
+
+// OE-BIM-25 임포트 피처 선택. 벽·문·창은 GeoJSON 에만 나가고 TTL 에는 없어서, 설비만 볼 때 끄고 연다. 끈 것은 0 이 아니라 "읽지 않음"
+// 이어야 한다 — 0 이면 "BIM 에 없다" 는 말이 되고 요구사항 보고서가 고객사에 엉뚱한 요청을 한다. 큰 건축 파일로 잰다.
+describe('임포트 피처 선택 — 끈 것은 읽지 않음 (OE-BIM-25)', () => {
+  it('병원 건축에서 벽·문·창을 끄면 0 이 아니라 읽지 않음이고, 합쳐도 남고, TTL 은 그대로다', async () => {
+    if (!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC)) return
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const bytes = new Uint8Array(readFileSync(CLINIC_ARCH))
+    // 처음 여는 것은 wasm·JIT 를 데우느라 느리다. 한 번 열어 데우고 잰다.
+    importIfcWithMeshes(api, bytes)
+    let t = performance.now()
+    const full = importIfcWithMeshes(api, bytes).model
+    const fullMs = performance.now() - t
+    t = performance.now()
+    const off = importIfcWithMeshes(api, bytes, undefined, { walls: false, doors: false, windows: false }).model
+    const offMs = performance.now() - t
+
+    const c = (m: Model) => { const n = countOf(m); return { walls: n.walls, openings: m.storeys.flatMap((s) => s.openings).length, spaces: n.spaces, devices: n.devices } }
+    expect(c(full)).toMatchObject({ walls: 1080, openings: 307 })
+    expect(off.skipped).toEqual(['walls', 'doors', 'windows'])
+    // 물리존·설비는 늘 읽는다 — 끄는 것은 벽·문·창뿐이다.
+    expect(c(off)).toEqual({ ...c(full), walls: 0, openings: 0 })
+    // 요구사항 보고서: 벽에 기대는 R4(문·창의 개구부)·R22 는 "없음" 이 아니라 잴 수 없음이다.
+    const state = (m: Model, id: string) => requirementsReport(m).find((r) => r.id === id)!.state
+    expect([state(full, 'R4'), state(full, 'R22')]).not.toContain('unmeasured')
+    expect([state(off, 'R4'), state(off, 'R22')]).toEqual(['unmeasured', 'unmeasured'])
+    // 설비 파일을 덧붙여도 "읽지 않음" 이 남는다(한쪽이라도 안 읽었으면 안 읽은 것이다).
+    const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_HVAC))).model
+    expect(mergeModels(off, hvac).model.skipped).toEqual(['walls', 'doors', 'windows'])
+    // 온톨로지(TTL)는 그대로다 — 벽·문·창은 TTL 에 없다.
+    expect(modelToTTL(off)).toBe(modelToTTL(full))
+    // 형상을 읽지 않는 만큼 빨라진다(2026-10-03 이 PC 에서 데운 뒤 770ms → 560~630ms, 두 번 잼).
+    expect(offMs).toBeLessThan(fullMs)
+    console.log(`병원 건축 열기 ${Math.round(fullMs)}ms → 벽·문·창 끄면 ${Math.round(offMs)}ms`)
+  }, 300_000)
+})
+
 // OE-PIP-18 흐름 없는 기기(조명·감지기·비치품·분전반 — kinds.ts 의 flow: {})는 형상이 맞닿아도 잇지 않는다. 포트가 없는 파일에서만
 // 형상으로 잇는다(import.ts). 병원 전기 파일은 포트가 없고, 나란히 붙은 조명기구 16쌍이 서로 "연결" 로 잡혔었다.
 // 포트가 있는 파일(병원 HVAC·Duplex HVAC·ifc4Mep)을 정답지로 형상 추정을 재 보면 흐름 없는 기기를 빼도 재현율·정밀도가 그대로다
@@ -1844,6 +1921,8 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 �
     await api.Init()
     const failed: string[] = []
     let carried = 0
+    let steps = 0
+    let stuck = 0
     for (const path of [DUPLEX_ARCH, CLINIC_ARCH]) {
       const pristine = importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
       const shape = (m: Model) => m.storeys.flatMap((st) => st.spaces.map((sp) => sp.footprint))
@@ -1864,13 +1943,37 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 �
             if (l > best) [best, n, u] = [l, [-dy / l, dx / l], [dx / l, dy / l]]
           }
         }
+        // 벽은 다른 벽을 새로 가로지르게 옮길 수 없다(OE-OBJ-05). 병원 벽 300개 중 71개는 옆구리에 T 로 맞닿은 벽 쪽으로
+        // 0.2m 가면 그 벽 끝이 건너편으로 뚫고 나와 막힌다. 막히면 거기까지 간 걸음만큼 돌아온다. 첫 걸음부터 막히면 반대쪽으로 간다.
         let plan: WallCarryPlan | null = null
-        for (let k = 0; k < 5; k++) {
-          const r: NonNullable<ReturnType<typeof moveWallWithSpaces>> = moveWallWithSpaces(m, w.id, [n[0] * 0.1, n[1] * 0.1], plan)!
-          if (k === 0) carried += r.changes.length
+        let out = 0
+        for (const s of [1, -1]) {
+          for (let k = 0; k < 5; k++) {
+            const before = JSON.stringify(m)
+            const r = moveWallWithSpaces(m, w.id, [s * n[0] * 0.1, s * n[1] * 0.1], plan)
+            if (!r) {
+              if (JSON.stringify(m) !== before) failed.push(`${path} ${w.name} 막힌 걸음이 모델을 바꿈`)
+              break
+            }
+            if (k === 0) carried += r.changes.length
+            plan = r.plan
+            out++
+          }
+          if (out) {
+            n = [s * n[0], s * n[1]]
+            break
+          }
+        }
+        if (out) steps += out
+        else stuck++
+        for (let k = 0; k < out; k++) {
+          const r = moveWallWithSpaces(m, w.id, [-n[0] * 0.1, -n[1] * 0.1], plan)
+          if (!r) {
+            failed.push(`${path} ${w.name} 돌아오는 걸음이 막힘`)
+            break
+          }
           plan = r.plan
         }
-        for (let k = 0; k < 5; k++) plan = moveWallWithSpaces(m, w.id, [-n[0] * 0.1, -n[1] * 0.1], plan)!.plan
         if (!same(shape(m), opened)) failed.push(`${path} ${w.name} 되돌아오지 않음`)
         // 벽 길이 방향. 형상에서 읽은 벽 면은 완전히 나란하지 않아(1° 안팎) 방이 몇 mm 움직일 수 있다. 1cm 넘으면 틀린 것이다.
         moveWallWithSpaces(m, w.id, [u[0] * 0.5, u[1] * 0.5])
@@ -1879,6 +1982,9 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 �
     }
     // 벽 357개(Duplex 57 + 병원 300)가 첫 걸음에 방 600개 남짓을 끌고 간다. 0 이면 붙일 방을 못 찾는 것이다.
     expect(carried).toBeGreaterThan(500)
+    // 막혀서 덜 가도 대부분은 간다 — 1750 걸음 중 1453. 양쪽 다 첫 걸음부터 막힌 벽은 없다.
+    expect(steps).toBeGreaterThan(1400)
+    expect(stuck).toBe(0)
     expect(failed.slice(0, 5)).toEqual([])
   }, 900_000)
 })
@@ -2321,5 +2427,39 @@ describe.skipIf(!existsSync(MEP))('좌표 없는 설비는 미배치 목록 (ifc
       expect(ttl.slice(at, ttl.indexOf(' .\n', at))).toContain(`brick:hasLocation ex:${escapeLocalName(storey.id)} ;`)
       expect(features.get(equipment.id)?.geometry).toBe(null)
     }
+  }, 300_000)
+
+  // OE-MAN-04 설비 수동 배치. 좌표가 있는 설비는 BIM 자리에 저절로 놓이고(손대지 않는다), 나머지는 사람이 놓는다. 28대를 전부 놓으면
+  // 목록이 비고, 그 편집이 편집 파일로 저장·불러와도 그대로 남고, GeoJSON 에 점으로 나간다. 놓는 길은 [3D에서 놓기]·목록의 [3D에서 놓기]와
+  // 같은 moveEquipment 다(높이는 화면이 같은 패밀리에서 고른다 — 여기서는 층 바닥 + 1m).
+  it('미배치 28대를 사람이 전부 놓으면 목록이 비고, 저장·불러와도 같고, GeoJSON 에 점으로 나간다 (OE-MAN-04)', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const pristine = importIfc(api, new Uint8Array(readFileSync(MEP)))
+    const model = structuredClone(pristine)
+    const base = baselineOf(model)
+    const placedByBim = model.storeys.flatMap((s) => s.equipment).filter((e) => e.position).map((e) => [e.id, e.position] as const)
+    const list = unplacedOf(model)
+    expect(list).toHaveLength(28)
+    list.forEach(({ equipment, storey }, i) => expect(moveEquipment(model, equipment.id, [i * 0.5, 1, storey.elevation + 1])).not.toBeNull())
+
+    expect(unplacedOf(model)).toHaveLength(0)
+    expect(list.every(({ equipment }) => equipment.positionSource === 'edited')).toBe(true)
+    // BIM 이 좌표를 준 설비는 그대로다 — 자동으로 놓인 것을 사람이 놓은 것이 건드리지 않는다.
+    const now = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.position]))
+    expect(placedByBim.filter(([id, p]) => JSON.stringify(now.get(id)) !== JSON.stringify(p))).toEqual([])
+
+    // 편집 파일로 저장해 새로 연 모델에 얹어도 28대가 같은 자리다.
+    const file = parseEditFile(JSON.stringify(exportEdits(model, base, 'ifc4Mep')))
+    if (typeof file === 'string') throw new Error(file)
+    const reopened = structuredClone(pristine)
+    applyEdits(reopened, file)
+    expect(unplacedOf(reopened)).toHaveLength(0)
+    const again = new Map(reopened.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.position]))
+    expect(list.filter(({ equipment }) => JSON.stringify(again.get(equipment.id)) !== JSON.stringify(equipment.position))).toEqual([])
+
+    // GeoJSON 에 점으로 나간다(놓기 전에는 geometry null).
+    const features = new Map(modelToGeoJSON(reopened).flatMap((f) => f.collection.features).map((f) => [f.id, f]))
+    expect(list.filter(({ equipment }) => features.get(equipment.id)?.geometry?.type !== 'Point')).toEqual([])
   }, 300_000)
 })
