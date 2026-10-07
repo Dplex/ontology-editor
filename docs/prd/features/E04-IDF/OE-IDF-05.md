@@ -7,9 +7,9 @@ prd: "#5"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "매칭 ✔, 확인 플로우 ✗"
-blocked_by: ["D13"]
+blocked_by: []
 depends: ["D13"]
 ---
 

@@ -7,7 +7,7 @@ prd: "#5"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: []
 depends: []
 ---
@@ -16,7 +16,7 @@ depends: []
 
 ## 요구사항
 
-IDF 의 Zone 하나를 공조존 하나로 만든다(glossary "IDF"). 존 이름·소속 설비 목록·설정 온도 등 존 속성을 함께 읽어 공조존 속성으로 둔다. 만든 공조존의 id 는 `Z_` 로 시작한다(OE-INT-05). 출처는 IDF 다.
+IDF 의 Zone 하나를 공조존 하나로 만든다(glossary "IDF"). 존 이름·소속 설비 목록·설정 온도 등 존 속성을 함께 읽어 공조존 속성으로 둔다. 만든 공조존의 id 는 규칙은 [OE-INT-05]을 따른다. 공조존의 출처는 IDF 다.
 
 ## 수용 기준
 
