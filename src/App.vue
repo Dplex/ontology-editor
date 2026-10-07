@@ -3927,7 +3927,7 @@ function applyOpeningSize(o: Opening, key: 'width' | 'height', raw: string) {
   changeElements(storey.id, label, (m) => setOpeningSize(m, o.id, { [key]: value }))
 }
 
-function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string) {
+function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string, input?: HTMLInputElement) {
   const value = Number(raw)
   const storey = selectedElement.value?.storey
   if (!o.position || !storey || raw.trim() === '' || !Number.isFinite(value)) return
@@ -3935,6 +3935,8 @@ function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string) {
   const to: [number, number] = [o.position[0], o.position[1]]
   to[axis] = value
   changeElements(storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, to))
+  // 문·창은 벽을 따라서만 가서(OE-OBJ-07) 친 값과 놓인 자리가 다를 수 있다. 칸은 치는 동안 덮이지 않으니(v-keep-typing) 놓인 자리로 되돌린다.
+  if (input && o.position) input.value = String(mmOf(o.position[axis]))
 }
 
 function startWall() {
@@ -6155,7 +6157,7 @@ async function export3D(format: 'glb' | 'obj') {
                 v-keep-typing
                 :disabled="selectedElement.locked"
                 :value="mmOf(selectedElement.opening.position[axis])"
-                @change="applyOpeningPosition(selectedElement.opening!, axis, ($event.target as HTMLInputElement).value)"
+                @change="applyOpeningPosition(selectedElement.opening!, axis, ($event.target as HTMLInputElement).value, $event.target as HTMLInputElement)"
               />
             </label>
           </p>

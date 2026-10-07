@@ -46,6 +46,7 @@ import {
   moveWall,
   deleteWall,
   moveOpening,
+  OPENING_ALONG_WALL,
   setWallLoadBearing,
   snapshotStoreyElements,
   setEquipmentSystem,
@@ -867,6 +868,22 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(Math.abs(door.through![0])).toBeCloseTo(1)
     expect(new Set(door.connects)).toEqual(new Set([office().id, store]))
     expect(door.connectsSource).toBe('calc')
+  })
+
+  it('문·창은 뚫린 벽을 따라서만 옮기고, 벽 밖·벽 끝 너머로는 가지 않는다 (OE-OBJ-07)', () => {
+    const { wall } = setup()
+    const door = addOpening(model, storey().id, 'door', [10.12, 4]) as Opening
+    door.width = 1
+    // 벽(x=10.1, y 0..8) 쪽으로 비스듬히 밀면 길이 방향(y)만 따르고, 벽과의 옆 간격(x=10.12)은 그대로다.
+    expect(moveOpening(model, door.id, [11.5, 5])).toBe(true)
+    expect(door.position).toEqual([10.12, 5, 0])
+    // 벽에 수직으로만 밀면 옮기지 않고 이유를 돌려준다.
+    expect(moveOpening(model, door.id, [12, 5])).toEqual({ refused: OPENING_ALONG_WALL })
+    // 벽 끝 너머로 밀면 가로(1m)의 절반이 벽 안에 남는 자리에서 멈추고, 이미 끝이면 이유를 돌려준다.
+    expect(moveOpening(model, door.id, [10.1, 20])).toBe(true)
+    expect(door.position![1]).toBeCloseTo(7.5)
+    expect(moveOpening(model, door.id, [10.1, 9])).toEqual({ refused: expect.stringContaining('벽 끝') })
+    expect(door.wallId).toBe(wall.id)
   })
 
   it('벽에서 먼 자리에는 놓지 않는다', () => {

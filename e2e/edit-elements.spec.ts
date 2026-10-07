@@ -57,11 +57,16 @@ test('벽을 긋고 문을 놓으면 양쪽 방을 잇고, 벽을 지우면 문�
   await expect(panel).toContainText('사무실')
   await expect(panel).toContainText('새 물리존 1')
 
-  // 문을 창고 벽 끝 너머로 옮기면 창고 쪽 방이 빠진다(창고는 y 0..8).
+  // 문은 뚫린 벽을 따라서만 옮긴다(OE-OBJ-07). 벽 밖(x=12)으로는 안 가고, 벽(y 0..8) 끝 너머(y=9)로 밀면 벽 끝에서 멈춘다.
+  const x = panel.locator('.position-edit .coord').nth(0)
   const y = panel.locator('.position-edit .coord').nth(1)
+  await x.fill('12')
+  await x.press('Enter')
+  await expect(page.locator('.key-note')).toContainText('뚫린 벽을 따라서만')
+  await expect(x).toHaveValue('10.1')
   await y.fill('9')
   await y.press('Enter')
-  await expect(panel).not.toContainText('새 물리존 1')
+  await expect(y).toHaveValue('8')
 
   // 벽을 골라 지우면 뚫린 문도 같이 빠진다. 세워 그린 벽(바닥 판 위 1.2m)의 윗면을 누른다.
   await clickFloor(page, 10.1, 2, 1.3)
