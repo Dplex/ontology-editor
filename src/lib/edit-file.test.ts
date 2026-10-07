@@ -22,6 +22,7 @@ import {
   deleteOpening,
   deleteWall,
   setWallLoadBearing,
+  setWallExternal,
   setOpeningSize,
   setEquipmentSystem,
   setSystemKind,
@@ -205,6 +206,8 @@ describe('편집 저장·불러오기', () => {
     expect(bearing.loadBearing).toBe(true)
     expect(deleteWall(a, bearing.id)).toBeNull()
     setWallLoadBearing(a, bearing.id, false)
+    // 외벽도 층 편집에서 지우지 않는다(OE-EXT-02). 외벽 여부를 풀고 지운다.
+    setWallExternal(a, bearing.id, false)
     expect(deleteWall(a, bearing.id)).not.toBeNull()
     const b = read('two-rooms.ifc')
     const result = applyEdits(b, parseEditFile(JSON.stringify(exportEdits(a, base, 'two-rooms.ifc'))) as EditFile)

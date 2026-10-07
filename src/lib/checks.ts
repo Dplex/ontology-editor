@@ -19,6 +19,7 @@ import { isConduit, type Connection, type Model, type Vec2, type Vec3 } from './
 import { overlapAt, type Box3 } from './overlap'
 import { isAirSource, isAirTerminal, type AirService } from './served'
 import { trace, TOLERANCE } from './topology'
+import { exteriorDevices } from './exterior'
 
 export type CheckResult = {
   key: string
@@ -93,6 +94,8 @@ function hydronicLinks(model: Model, connections: readonly Connection[]): { sour
 export function completenessChecks(model: Model, services: readonly AirService[], connections: readonly Connection[] = model.connections): CheckResult[] {
   const equipment = model.storeys.flatMap((s) => s.equipment)
   const devices = equipment.filter((e) => !isConduit(e.role))
+  const exterior = exteriorDevices(model)
+  const indoor = devices.filter((e) => !exterior.has(e.id))
   const terminals = equipment.filter(isAirTerminal)
   const sources = equipment.filter(isAirSource)
   const hasSpaces = model.storeys.some((s) => s.spaces.length > 0)
@@ -147,8 +150,9 @@ export function completenessChecks(model: Model, services: readonly AirService[]
       key: 'device-space',
       rule: '기기마다 소속 방이 있다 (brick:hasLocation)',
       why: '이상 알림의 발생 위치가 층까지만 나가고, 탐색기 트리에서 방 아래에 보이지 않습니다.',
-      total: devices.length,
-      failed: devices.filter((e) => !e.spaceId).map((e) => e.id),
+      // 외벽 설비(루버·외기 센서·외벽에 붙인 설비)는 방 밖이 맞는 자리라 세지 않는다(OE-EQP-15).
+      total: indoor.length,
+      failed: indoor.filter((e) => !e.spaceId).map((e) => e.id),
       skipped: hasSpaces ? undefined : '방이 없는 파일입니다. 건축 파일을 덧붙이면 검사할 수 있습니다.',
     },
     {
