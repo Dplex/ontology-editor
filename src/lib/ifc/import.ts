@@ -1451,11 +1451,21 @@ function read(
       for (const system of systems) {
         for (const id of system.memberIds) systemsOf.set(id, [...(systemsOf.get(id) ?? []), system.name])
       }
-      const points = [...meshes].map(([id, mesh]) => ({
-        id,
-        points: mesh.positions,
-        systems: systemsOf.get(id) ?? null,
-      }))
+      // 흐름이 없는 종류(조명·감지기·비치품·분전반 — kinds.ts 의 `flow: {}`)는 형상이 맞닿아도 잇지 않는다(OE-PIP-18). 병원 MEP 에서
+      // 나란히 붙은 조명기구 16쌍이 서로 "연결" 로 잡혔다. 포트가 있는 세 파일(병원 HVAC·Duplex HVAC·ifc4Mep)을 정답지로 재면 빼도
+      // 재현율·정밀도가 그대로다 — 포트가 흐름 없는 기기를 잇는 일이 없다. 종류를 모르는 것은 둔다.
+      const kindOf = new Map(allEquipment.map((e) => [e.id, e.kind]))
+      const flows = (id: string) => {
+        const info = equipmentKind(kindOf.get(id))
+        return !info || Object.keys(info.flow ?? {}).length > 0
+      }
+      const points = [...meshes]
+        .filter(([id]) => flows(id))
+        .map(([id, mesh]) => ({
+          id,
+          points: mesh.positions,
+          systems: systemsOf.get(id) ?? null,
+        }))
       result.connections = inferConnections(points)
       if (result.connections.length > 0) {
         warnings.push(
@@ -1476,13 +1486,8 @@ function read(
       // 두 대를 살린다. 대수는 결손 종류로 세고, 연결 개수는 따로 적는다.
       const joined = gaps.filter((g) => g.kind === 'derived').length
       // 흐름이 없는 종류(거울·수건함·감지기·CCTV)는 덕트·배관에 이어질 것이 아니라 "모델을 고쳐야 한다" 에서 뺀다.
-      // 치과 파일의 비치품 98대가 전부 여기 걸려 고칠 것이 없는 파일에 고치라고 했다.
-      const kindOf = new Map(allEquipment.map((e) => [e.id, e.kind]))
-      const flows = (id: string) => {
-        const info = equipmentKind(kindOf.get(id))
-        return !info || Object.keys(info.flow ?? {}).length > 0
-      }
-      const stranded = gaps.filter((g) => g.kind !== 'derived' && flows(g.id)).length
+      // 치과 파일의 비치품 98대가 전부 여기 걸려 고칠 것이 없는 파일에 고치라고 했다. 위에서 형상 추정에 넣지 않아 gaps 에도 없다.
+      const stranded = gaps.filter((g) => g.kind !== 'derived').length
       if (joined > 0) {
         const far = Math.max(...rescued.map((c) => c.tolerance ?? 0))
         warnings.push(

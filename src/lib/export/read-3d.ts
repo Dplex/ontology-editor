@@ -81,13 +81,13 @@ export const EQUIPMENT_TOLERANCE = 0.5
 export type Check3D = {
   /** 3D 객체인데 GeoJSON·TTL 어디에도 그 id 가 없다. */
   unknown: string[]
-  /** 형상이 있는 물리존·설비·벽 feature 인데 3D 객체가 없다. */
+  /** 형상이 있는 물리존·설비·벽·문·창 feature 인데 3D 객체가 없다. */
   missing: { id: string; kind: string }[]
   /** 같은 id 인데 자리가 다르다 — 방은 외곽선 범위, 설비는 GeoJSON 점이 3D 범위 안에 드는지. */
   misplaced: { id: string; kind: string; by: number }[]
 }
 
-const IN_3D = new Set(['space', 'equipment', 'wall'])
+const IN_3D = new Set(['space', 'equipment', 'wall', 'door', 'window'])
 
 export function check3D(parts: readonly Part3D[], floors: readonly ExportFloor[], ttl: TtlReading | null): Check3D {
   // 같은 id 의 조각(벽 여러 조각)은 범위를 합친다.

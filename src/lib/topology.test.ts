@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { connectGaps, findGaps, inferConnections, neighbors, trace, traceBySystem, type ElementPoints } from './topology'
+import { connectGaps, deviceFlows, findGaps, inferConnections, neighbors, trace, traceBySystem, type ElementPoints } from './topology'
 import type { Connection } from './model'
 
 /** x 축을 따라 놓인 배관 한 토막. 양 끝에 꼭짓점을 둔다. */
@@ -215,3 +215,47 @@ describe('neighbors', () => {
     ])
   })
 })
+
+describe('deviceFlows', () => {
+  const conduit = (id: string) => id.startsWith('duct') || id.startsWith('pipe')
+
+  it('덕트·배관만 지나 닿은 기기로 흐르고, 가까운 기기부터 적는다', () => {
+    // ahu → duct1 → vavNear, duct1 → duct2 → duct3 → vavFar. 중간의 댐퍼(기기)에서는 멈춘다.
+    const connections = [d('ahu', 'duct1'), d('duct1', 'duct2'), d('duct2', 'duct3'), d('duct3', 'vavFar'), d('duct1', 'vavNear'), d('duct1', 'damper'), d('damper', 'duct9'), d('duct9', 'diff')]
+    const f = deviceFlows(connections, conduit, ['ahu', 'vavNear', 'vavFar', 'damper', 'diff'])
+    expect(f.directed.get('ahu')).toEqual(['vavNear', 'damper', 'vavFar'])
+    expect(f.directed.get('damper')).toEqual(['diff'])
+    expect([...f.fed].sort()).toEqual(['ahu', 'damper', 'diff', 'vavFar', 'vavNear'])
+  })
+
+  it('배관 고리를 돌아 자기에게만 돌아오는 기기는 이어진 기기가 아니다', () => {
+    // linked 는 다른 기기 하나를 찾는 대로 멈춘다. 고리를 돌다 만난 자기 자신을 "다른 기기" 로 세면 안 된다.
+    const loop = [u('pump', 'pipe1'), u('pipe1', 'pipe2'), u('pipe2', 'pump'), d('pump', 'pump')]
+    const f = deviceFlows(loop, conduit, ['pump'])
+    expect(f.linked.size).toBe(0)
+    expect(f.directed.size).toBe(0)
+    // 같은 고리에 다른 기기가 하나 매달리면 둘 다 이어진 기기다.
+    const g = deviceFlows([...loop, u('pipe2', 'valve')], conduit, ['pump', 'valve'])
+    expect([...g.linked].sort()).toEqual(['pump', 'valve'])
+  })
+
+  it('긴 배관 사슬도 기기마다 끝까지 훑지 않는다 — 덕트 2만 개에 기기 2천 대', () => {
+    // 큐를 shift() 로 빼던 때는 병원 건축+MEP 의 흐름 셋을 재는 데 0.22초가 걸렸다(0.02초가 됐다). 여기서는 시간이 아니라
+    // 결과를 본다: 한 줄로 이어진 덕트에 기기가 고루 매달려 있으면 전부 이어진 기기이고, 방향은 다음 기기까지만 간다.
+    const connections: Connection[] = []
+    const devices: string[] = []
+    for (let i = 0; i < 20_000; i++) {
+      connections.push(d(`duct${i}`, `duct${i + 1}`))
+      if (i % 10 === 0) {
+        devices.push(`vav${i}`)
+        connections.push(d(`duct${i}`, `vav${i}`))
+      }
+    }
+    connections.push(d('ahu', 'duct0'))
+    const f = deviceFlows(connections, conduit, ['ahu', ...devices])
+    expect(f.linked.size).toBe(devices.length + 1)
+    expect(f.directed.get('ahu')!.length).toBe(devices.length)
+    expect(f.directed.get('vav0')).toBeUndefined()
+  })
+})
+

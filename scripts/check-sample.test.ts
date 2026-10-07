@@ -11,21 +11,21 @@ import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-ge
 import { profileOf, type Profile } from '../src/lib/profile'
 import { CAPACITY_PREDICATE } from '../src/lib/capacity'
 import { countOf, isConduit, polygonArea, unplacedOf, type Vec2 } from '../src/lib/model'
-import { assignEquipment, assignEquipmentToSpaces, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
+import { assignEquipment, assignEquipmentToSpaces, interiorPoint, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
 import { readOntologyTTL, type OntologyEntity } from '../src/lib/export/read-ttl'
-import { crossCheck, geojsonProblems, readGeoJSON } from '../src/lib/export/read-export'
+import { crossCheck, geojsonProblems, NUMERIC_OK, numericPredicates, readGeoJSON } from '../src/lib/export/read-export'
 import { check3D, read3D } from '../src/lib/export/read-3d'
 import { modelToScene, sceneToGLB, sceneToOBJ } from '../src/lib/export/mesh3d'
 import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topology'
 import { inferFlowByRules, newlyDisagreeing, withInferred } from '../src/lib/flow-rules'
-import { airServices } from '../src/lib/served'
+import { airBasis, airServices, needsSystem, systemlessAir } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
-import { verticalLinks } from '../src/lib/vertical'
-import { roomKind } from '../src/lib/kinds'
+import { verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
+import { equipmentKind, roomKind } from '../src/lib/kinds'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
 import { compareVersions, revitElementId } from '../src/lib/versions'
 import { storeyScaleMismatch } from '../src/lib/unit-check'
@@ -37,7 +37,7 @@ import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
 import { overlapArea } from '../src/lib/polygon'
 import { computeExternal } from '../src/lib/exterior'
 import { createCustomZone } from '../src/lib/custom-zone'
-import { baselineOf, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, type WallCarryPlan } from '../src/lib/edit'
+import { addEquipment, baselineOf, moveEquipment, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, type WallCarryPlan } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -129,6 +129,14 @@ it.skipIf(existsSync(SAMPLE))('샘플이 없으면 건너뛴다', () => {
 // 손으로 쓴 픽스처가 통과해도 여기서 깨진 적이 있다. 계통을 정확히 일치하는 타입으로만
 // 고르다가 IfcDistributionCircuit 22개를 놓쳤다.
 describe.skipIf(!existsSync(MEP))('실제 MEP BIM (ifc4Mep, IFC4)', () => {
+  // OE-EQP-10. BIM 에서 연 그대로 계통 없는 토출구가 있는 유일한 파일이다 — 그릴 5개. 검토 화면의 "계통 없는 VAV·토출구" 에 뜬다.
+  it('계통 없는 VAV·토출구를 고른다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfc(api, new Uint8Array(readFileSync(MEP)))
+    expect(systemlessAir(model).map((x) => x.equipment.kind)).toEqual(Array(5).fill('air_grille'))
+  })
+
   it('설비와 계통을 기준값대로 읽는다', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
@@ -297,7 +305,47 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH))('문이 잇는 
     expect(agreement(SAMPLE)).toBe('5/5')
     // 하나 남는 것은 폭 1.25m 문이다. 좌표로는 한쪽 방도 못 짚었다.
     expect(agreement(DUPLEX_ARCH)).toBe('13/14')
+    // 병원 건축은 성수와 같은 Revit IFC2x3 이고 정답지가 가장 크다(OE-EQP-16). 방이 겹친 자리에서 가장 작은 방을 고른다 — 첫 방이면
+    // 210 이었다. 남은 22개 중 20개는 한쪽 방만 짚은 것이다. 짚는 거리를 0.3 → 0.5m 로 늘리면 220 이 되지만 엉뚱한 방이
+    // 1 → 3 으로 는다(틀린 연결이 빠진 연결보다 나쁘다).
+    if (existsSync(CLINIC_ARCH)) expect(agreement(CLINIC_ARCH)).toBe('214/236')
   })
+
+  // OE-EQP-16 로봇 통과·연결 데이터. 로봇 팀이 받는 것은 GeoJSON 이라 내보낸 피처로 잰다. 수용 기준은 "병원 계단실·승강로 7개 중
+  // 6개 연결" 이다. 남는 하나는 1층 승강로 E1 이다 — 2층에 승강로 공간이 BIM 에 없어서 이을 상대가 없다.
+  it('로봇 데이터: 통과 속성 · 방-문-방 · 층 사이 연결이 GeoJSON 에 있다 (병원 건축)', async () => {
+    if (!existsSync(CLINIC_ARCH)) return
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const bytes = new Uint8Array(readFileSync(CLINIC_ARCH))
+    const props = (m: Model) => modelToGeoJSON(m).flatMap((x) => x.collection.features.map((f) => f.properties as Record<string, unknown>))
+    const tally = (xs: Record<string, unknown>[], key: string) =>
+      xs.reduce((o: Record<string, number>, x) => ((o[String(x[key])] = (o[String(x[key])] ?? 0) + 1), o), {})
+
+    // 문·창 형상을 읽지 않으면(화면 기본) 공간 경계가 없는 문 13개는 잇는 방이 비어 있다.
+    const plain = props(importIfcWithMeshes(api, bytes).model)
+    expect(tally(plain.filter((p) => p.kind === 'door'), 'connectsSource')).toEqual({ bim: 236, null: 13 })
+
+    const model = importIfcWithMeshes(api, bytes, undefined, { openings: true }).model
+    const all = props(model)
+    const doors = all.filter((p) => p.kind === 'door')
+    // 통과: 문은 지나가고 창·벽은 못 지나간다.
+    expect(tally(doors, 'passable')).toEqual({ true: 249 })
+    expect(tally(all.filter((p) => p.kind === 'window'), 'passable')).toEqual({ false: 58 })
+    expect(tally(all.filter((p) => p.kind === 'wall'), 'passable')).toEqual({ false: 1080 })
+    // 방-문-방: 공간 경계가 말한 236개는 bim, 나머지 13개는 문 자리로 짚는다(calc).
+    expect(tally(doors, 'connectsSource')).toEqual({ bim: 236, calc: 13 })
+    const calc = doors.filter((d) => d.connectsSource === 'calc').map((d) => ({ rooms: (d.connects as string[]).length }))
+    // 13개 중 11개는 방 하나다 — 커튼월 문 3개는 바깥문이고, 화장실 칸막이 문 8개는 양쪽이 같은 화장실이다. 2개는 방을 못 짚는다.
+    expect(tally(calc, 'rooms')).toEqual({ 0: 2, 1: 11 })
+
+    // 층 사이: 계단실 6 + 승강로 1 = 7개 중 6개.
+    const vertical = model.storeys.flatMap((st) => st.spaces.filter((sp) => VERTICAL_KINDS.includes(sp.kind ?? '')).map((sp) => `${st.name}/${sp.name}`))
+    expect(vertical).toHaveLength(7)
+    const linked = all.filter((p) => p.kind === 'space' && Array.isArray(p.verticalConnects))
+    expect(linked).toHaveLength(6)
+    expect(vertical.filter((v) => !linked.some((p) => v.endsWith(`/${p.name}`)))).toEqual(['First Floor/E1'])
+  }, 300_000)
 
   it('벽의 평면 외곽선과 문·창의 자리를 형상에서 읽는다', async () => {
     const api = new WebIFC.IfcAPI()
@@ -368,12 +416,12 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     expect(counts.directedConnections).toBe(0)
     expect(model.connections.every((c) => c.source === 'geometry')).toBe(true)
 
-    // 기본 판정 5mm 로 690개, 고립된 요소 주변만 넓혀 95개를 더 이었다.
+    // 기본 판정 5mm 로 690개, 고립된 요소 주변만 넓혀 93개를 더 이었다. 조명이 위생기구에 붙던 2개는 흐름 없는 기기라 잇지 않는다(OE-PIP-18).
     const base = model.connections.filter((c) => c.tolerance === TOLERANCE)
     const stretched = model.connections.filter((c) => (c.tolerance ?? 0) > TOLERANCE)
     expect(base).toHaveLength(690)
-    expect(stretched).toHaveLength(95)
-    expect(counts.connections).toBe(785)
+    expect(stretched).toHaveLength(93)
+    expect(counts.connections).toBe(783)
     // 넓힌 것도 REACH 안이다. 이 경계를 넘으면 오차가 아니라 없는 부재를 지어낸 것이다.
     expect(Math.max(...stretched.map((c) => c.tolerance!))).toBeLessThanOrEqual(REACH)
 
@@ -392,14 +440,112 @@ describe.skipIf(!existsSync(DUPLEX_MEP))('Duplex MEP 판본 (포트 없음)', ()
     // 못 이은 것을 이유별로 가른다. **절반 이상이 되살릴 수 있는 쪽이었다** — 이 비율이
     // 고객사에 "판정 기준을 조정하겠다" 와 "모델을 다시 그려 달라" 중 무엇을 말할지 정한다.
     //
-    // 대수(121)와 연결 개수(95)가 다른 것에 주의한다. 고립된 둘이 서로를 가장 가깝다고
+    // 대수(119)와 연결 개수(93)가 다른 것에 주의한다. 고립된 둘이 서로를 가장 가깝다고
     // 지목하면 연결 하나가 두 대를 살린다.
     const joined = model.warnings.find((w) => w.includes('연결망에 붙였습니다'))
-    expect(joined).toContain('설비 224대 중 121대')
-    expect(joined).toContain('연결 95개')
-    // 못 이은 103대 중 81대는 조명처럼 흐름이 없는 종류라 "모델을 고쳐야 한다" 에서 뺀다(덕트·배관에 이을 것이 아니다).
+    expect(joined).toContain('설비 141대 중 119대')
+    expect(joined).toContain('연결 93개')
+    // 못 이은 22대가 전부 "모델을 고쳐야 한다" 쪽이다. 흐름이 없는 종류 83대(콘센트 47 · 조명 30 · 연기감지기 6)는 처음부터 형상으로 잇지 않아 여기 없다(OE-PIP-18).
+    // 그 전에는 224대 중 121대를 이었고, 못 이은 103대 중 81대가 흐름 없는 기기였다.
     const stranded = model.warnings.find((w) => w.includes('접합 부재 누락'))
     expect(stranded).toContain('설비 22대')
+  }, 300_000)
+})
+
+// OE-PIP-18 흐름 없는 기기(조명·감지기·비치품·분전반 — kinds.ts 의 flow: {})는 형상이 맞닿아도 잇지 않는다. 포트가 없는 파일에서만
+// 형상으로 잇는다(import.ts). 병원 전기 파일은 포트가 없고, 나란히 붙은 조명기구 16쌍이 서로 "연결" 로 잡혔었다.
+// 포트가 있는 파일(병원 HVAC·Duplex HVAC·ifc4Mep)을 정답지로 형상 추정을 재 보면 흐름 없는 기기를 빼도 재현율·정밀도가 그대로다
+// (87.8%·99.9% / 70.9%·95.3% / 75.0%·79.5%, 2026-10-03) — 포트가 흐름 없는 기기를 잇는 일이 없어서다.
+describe('흐름 없는 기기는 형상으로 잇지 않는다 (OE-PIP-18)', () => {
+  it('병원 전기 — 조명끼리 잡히던 연결이 없다', async () => {
+    const ELE = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc'
+    if (!existsSync(ELE)) return
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfcWithMeshes(api, new Uint8Array(readFileSync(ELE))).model
+    const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
+    const flowless = (id: string) => {
+      const info = equipmentKind(byId.get(id)?.kind)
+      return !!info && Object.keys(info.flow).length === 0
+    }
+    expect(model.storeys.flatMap((s) => s.equipment).filter((e) => e.kind === 'lighting').length).toBeGreaterThan(30)
+    expect(model.connections.filter((c) => flowless(c.from) || flowless(c.to))).toEqual([])
+  }, 300_000)
+})
+
+// OE-PIP-09 계통 이름 규칙. BIM 계통 이름은 분야별 파일을 합칠 때 맞추는 열쇠다 — Revit `System Name` 이 곧 id 라 같은 이름이면 한 계통의
+// 두 조각이다(merge.ts). 에디터에는 계통 이름을 고치는 길이 없고(edit-fuzz 의 계통 이름 시험), 사람이 만든 계통만 만들 때 이름을 준다.
+describe('계통 이름으로 맞춰 합친다 (OE-PIP-09)', () => {
+  it('Duplex HVAC + MEP — 같은 이름 15개가 한 계통이 되고 이름이 겹치는 계통이 없다', async () => {
+    if (!existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP)) return
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_HVAC))).model
+    const mep = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_MEP))).model
+    const shared = hvac.systems.filter((s) => mep.systems.some((x) => x.name === s.name))
+    const merged = mergeModels(hvac, mep).model
+    expect({ hvac: hvac.systems.length, mep: mep.systems.length, shared: shared.length, merged: merged.systems.length }).toEqual({ hvac: 34, mep: 20, shared: 15, merged: 39 })
+    expect(new Set(merged.systems.map((s) => s.name)).size).toBe(merged.systems.length)
+    // 합친 계통은 두 파일의 구성원을 다 갖는다(같은 요소가 두 파일에 다 있으면 한 번).
+    const big = merged.systems.find((s) => s.name === 'Unit A Hydronic Supply In')!
+    expect(big.memberIds).toHaveLength(182)
+    // 이름은 BIM 그대로다.
+    expect(merged.systems.every((s) => hvac.systems.some((x) => x.name === s.name) || mep.systems.some((x) => x.name === s.name))).toBe(true)
+  }, 300_000)
+})
+
+// OE-BIM-08 토출구·배관 초안. Air Terminal 은 토출구(디퓨저·그릴)로, Duct·Pipe 는 형상이 있는 배관 초안(구간·이음쇠)으로 읽고,
+// 배관은 fso: 로 내보내 받는 쪽이 설비로 세지 않는다. IFC4(ifc4Mep)는 구체 클래스, Revit IFC2x3(병원)은 IfcFlowTerminal +
+// IfcAirTerminalType 으로 들어온다 — 둘 다 같은 자리에 닿아야 한다.
+describe('토출구·배관 초안 (OE-BIM-08)', () => {
+  const read = async (path: string) => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const bytes = new Uint8Array(readFileSync(path))
+    const id = api.OpenModel(bytes)
+    const n = (t: number) => (api.GetLineIDsWithType(id, t, true) as unknown as { size(): number }).size()
+    const ifc = { segments: n(WebIFC.IFCFLOWSEGMENT), fittings: n(WebIFC.IFCFLOWFITTING) }
+    api.CloseModel(id)
+    const { model, meshes } = importIfcWithMeshes(api, bytes)
+    const all = model.storeys.flatMap((s) => s.equipment)
+    const airTerminals = all.filter((e) => e.ifcClass === 'AirTerminal' || (e.declaredType ?? '').startsWith('AirTerminal'))
+    const tally = (xs: typeof all, f: (e: (typeof all)[number]) => string) => xs.reduce((o: Record<string, number>, e) => ((o[f(e)] = (o[f(e)] ?? 0) + 1), o), {})
+    const conduits = all.filter((e) => isConduit(e.role))
+    const reading = readOntologyTTL(modelToTTL(model))
+    const conduitIds = new Set(conduits.map((e) => e.id))
+    return {
+      ifc,
+      terminals: tally(airTerminals, (e) => `${e.kind}/${e.role}`),
+      conduits: tally(conduits, (e) => e.role!),
+      shaped: conduits.filter((e) => (meshes.get(e.id)?.positions.length ?? 0) > 0).length,
+      fso: tally(reading.unread.map((u) => ({ role: u.cls }) as unknown as (typeof all)[number]), (e) => e.role!),
+      readAsEntity: reading.entities.filter((e) => conduitIds.has(e.key)).length,
+    }
+  }
+
+  it('IFC4 — 구체 클래스(IfcAirTerminal·IfcDuctSegment …)', async () => {
+    if (!existsSync(MEP)) return
+    const r = await read(MEP)
+    expect(r.terminals).toEqual({ 'air_diffuser/terminal': 30, 'air_grille/terminal': 13 })
+    // IFC 의 구간·이음쇠가 하나도 빠지지 않고 배관 초안이 된다.
+    expect(r.conduits).toEqual({ segment: r.ifc.segments, fitting: r.ifc.fittings })
+    expect(r.ifc).toEqual({ segments: 1075, fittings: 820 })
+    // 형상이 없는 27개: 10개는 IFC 에 형상이 없고(Representation $), 17개는 IfcSweptDiskSolidPolygonal(IFC4 Add2 의 관)이라
+    // web-ifc 0.0.78 이 메시를 못 만든다("unexpected mesh type"). 좌표가 있는 것은 3D 에 점으로 남는다.
+    expect(r.shaped).toBe(1895 - 27)
+    expect(r.fso).toEqual({ 'fso:Segment': 1075, 'fso:Fitting': 820 })
+    expect(r.readAsEntity).toBe(0)
+  }, 300_000)
+
+  it('Revit IFC2x3 — IfcFlowTerminal + IfcAirTerminalType (병원 HVAC)', async () => {
+    if (!existsSync(CLINIC_HVAC)) return
+    const r = await read(CLINIC_HVAC)
+    // AirTerminal 타입 555개. VAV 115 는 Revit 이 AirTerminal 타입으로 냈지만 이름 사전이 VAV(조절)로 가른다 — 토출구가 아니다.
+    expect(r.terminals).toEqual({ 'air_diffuser/terminal': 234, 'air_grille/terminal': 206, 'vav/control': 115 })
+    expect(r.conduits).toEqual({ segment: r.ifc.segments, fitting: r.ifc.fittings })
+    expect(r.shaped).toBe(3138)
+    expect(r.fso).toEqual({ 'fso:Segment': 1548, 'fso:Fitting': 1590 })
+    expect(r.readAsEntity).toBe(0)
   }, 300_000)
 })
 
@@ -774,7 +920,7 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
     // 연결 단위로는 39%(190/485)가 방향을 아는데, 기기에서 출발한 방향 사슬은 전부 중간의
     // SOURCEANDSINK 에서 끊긴다. 기기끼리 닿는 흐름은 0 이다.
     expect(chips(DUPLEX_HVAC)).toBe('공간 1 | 설비 40 | 소속 0/40 | 연결망 485 | 방향 0/26')
-    expect(chips(DUPLEX_MEP)).toBe('공간 22 | 설비 141 | 소속 141 | 연결망 785 | 방향 0/31')
+    expect(chips(DUPLEX_MEP)).toBe('공간 22 | 설비 141 | 소속 141 | 연결망 783 | 방향 0/27')
     // COBie 판본은 형상이 없다. 좌표도 외곽선도 0 인데 소속은 BIM 이 전부 말해 준다.
     expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 | 설비 0/133 | 소속 133 | 연결망 0 | 방향 —')
   }, 300_000)
@@ -937,6 +1083,19 @@ describe('받는 쪽 규칙으로 다시 읽는가 (read-ttl)', () => {
     expect(reading.unread).toHaveLength(equipment.filter((e) => isConduit(e.role)).length)
   }, 300_000)
 
+  // OE-INT-08 따옴표 이스케이프. 병원 건축의 샤워 의자 3대는 Revit 패밀리 이름에 인치 표시(")가 든다 —
+  // `M_ADA shower Seat:17" Depth x 18 1/2" Width:…`. 손 픽스처가 아닌 실제 이름이 받는 쪽 규칙으로 그대로 돌아와야 한다.
+  it('이름에 따옴표가 든 실제 설비가 받는 쪽에 같은 이름으로 읽힌다 (병원 건축)', async () => {
+    if (!existsSync(CLINIC_ARCH)) return
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_ARCH))).model
+    const quoted = model.storeys.flatMap((s) => s.equipment).filter((e) => e.name.includes('"'))
+    expect(quoted).toHaveLength(3)
+    const labels = new Map(readOntologyTTL(modelToTTL(model)).entities.map((e) => [e.key, e.label]))
+    expect(quoted.map((e) => labels.get(e.id))).toEqual(quoted.map((e) => e.name))
+  }, 300_000)
+
   it('우리가 짓는 id 와 GUID($ 가 든 것까지)가 GeoJSON 과 같은 문자열로 읽힌다', async () => {
     if (!existsSync(DUPLEX_MEP)) return
     const api = new WebIFC.IfcAPI()
@@ -973,8 +1132,11 @@ describe('받는 쪽 규칙으로 다시 읽는가 (read-ttl)', () => {
       const model = make()
       const floors = modelToGeoJSON(model).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
       expect(floors.flatMap((f) => f.problems), name).toEqual([])
-      const check = crossCheck(readOntologyTTL(modelToTTL(model)), floors)
+      const ttl = modelToTTL(model)
+      const check = crossCheck(readOntologyTTL(ttl), floors)
       expect({ ...check, toUnread: 0 }, name).toEqual({ notInTtl: [], dangling: [], toUnread: 0, locationMismatch: [], doorLinks: [] })
+      // OE-INT-02 TTL 에 좌표가 없다. 숫자가 붙는 술어는 넓이·층 바닥 높이·용량뿐이다(read-export.ts 의 NUMERIC_OK).
+      expect([...numericPredicates(ttl)].filter((p) => !NUMERIC_OK.has(p)), name).toEqual([])
     }
   }, 900_000)
 
@@ -1342,7 +1504,7 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
 
     const c = countOf(model)
     expect({ storeys: c.storeys, devices: c.devices, conduits: c.conduits, systems: c.systems, connections: c.connections, directed: c.directedConnections })
-      .toEqual({ storeys: 4, devices: 668, conduits: 3138, systems: 15, connections: 3697, directed: 3695 })
+      .toEqual({ storeys: 4, devices: 668, conduits: 3138, systems: 15, connections: 3695, directed: 3695 })
 
     // F11. BIM 이 소속을 말한 설비 2,216대를 정답지로(2026-09-24 실측 97.4%).
     const score = scoreAgainstDeclared(model)
@@ -1377,6 +1539,17 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     expect(guess.top3).toBeGreaterThanOrEqual(10)
     // 층 사이 연결. 계단실·승강로 7개 중 6개가 위·아래층과 이어진다(vertical.ts).
     expect(verticalLinks(model).size).toBe(6)
+
+    // OE-EQP-10 VAV·토출구. 계통 없는 것이 없고(BIM 이 System Name 으로 다 말한다), 담당 근거가 흐름을 따라 공조기에 닿는다 —
+    // 말단 440 중 439, VAV 115 전부. VAV 는 전부 아래로 나눠 주는 말단을 안다.
+    const need = model.storeys.flatMap((st) => st.equipment).filter(needsSystem)
+    const vav = need.filter((e) => e.kind === 'vav')
+    expect({ vav: vav.length, terminals: need.length - vav.length, systemless: systemlessAir(model).length }).toEqual({ vav: 115, terminals: 440, systemless: 0 })
+    const basis = need.map((e) => ({ e, b: airBasis(model, model.connections, e.id) }))
+    const reached = (xs: typeof basis) => xs.filter((x) => x.b.supplyFrom.length + x.b.extractTo.length > 0).length
+    expect(reached(basis.filter((x) => x.e.kind !== 'vav'))).toBe(439)
+    expect(reached(basis.filter((x) => x.e.kind === 'vav'))).toBe(115)
+    expect(basis.filter((x) => x.e.kind === 'vav' && x.b.terminals.length > 0)).toHaveLength(115)
   }, 300_000)
 
   // 요구사항 보고서(정본 4장). Revit IFC2x3 의 전형이다 — 필수는 거의 다 차 있고, 권장이 떨어지는 것은 값이 없어서가 아니라
@@ -1455,7 +1628,7 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
 
     const c = countOf(model)
     expect({ devices: c.devices, conduits: c.conduits, systems: c.systems, connections: c.connections, directed: c.directedConnections })
-      .toEqual({ devices: 3469, conduits: 12645, systems: 16, connections: 13890, directed: 0 })
+      .toEqual({ devices: 3469, conduits: 12645, systems: 16, connections: 13608, directed: 0 })
 
     // F11(2026-09-24 실측 97.2%).
     const score = scoreAgainstDeclared(model)
@@ -1463,8 +1636,10 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
     expect(score.agreed / score.total).toBeGreaterThanOrEqual(0.971)
     expect(overlapScore(model)).toEqual({ total: 637, smallest: 584, first: 563 })
 
-    // **포트가 없으면 규칙이 퍼질 길이 끊겨 있다.** 연결 13,890개 중 규칙이 방향을 준 것이 1,345개이고(타입의 종류를
-    // 읽기 전에는 12개), 공기 말단 454개 중 원천에 닿는 것이 21개뿐이다. 설비 1,806대가 어디에도 이어지지 않는다(임포트 경고). R-요구사항의 근거다.
+    // **포트가 없으면 규칙이 퍼질 길이 끊겨 있다.** 연결 13,608개 중 규칙이 방향을 준 것이 1,345개이고(타입의 종류를
+    // 읽기 전에는 12개), 공기 말단 454개 중 원천에 닿는 것이 21개뿐이다. 흐름이 있는 설비 52대가 어디에도 이어지지 않는다(임포트 경고
+    // "접합 부재 누락"). R-요구사항의 근거다. 조명·콘센트처럼 흐름 없는 기기는 형상으로 잇지 않는다(OE-PIP-18) — 그 전에는 그것까지
+    // 세어 1,806대였고, 연결은 13,890개였다.
     // 이 숫자가 오르면 좋은 일이지만, 다른 BIM 이 같이 떨어지지 않았는지 먼저 본다.
     const rules = inferFlowByRules(model)
     expect(rules.oriented).toBeGreaterThanOrEqual(1345)
@@ -1473,7 +1648,9 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
       'source-terminal': '16/136',
       'terminal-single-source': '21/21',
       'device-space': '3337/3469',
-      'device-connected': '850/884',
+      // 흐름 없는 기기(조명)와 형상으로 잇지 않으면서(OE-PIP-18) 850 에서 하나 줄었다 — 조명에만 붙어 있던 말단이다. 디퓨저 수백 개도
+      // 유일한 상대가 옆 조명이었다. 덕트에 닿은 적이 없는데 "이어졌다" 로 보이던 것이다.
+      'device-connected': '849/884',
       // 포트 없이 형상으로 이은 연결망은 끊긴 자리가 많다(14%). 열원 하나와 냉온수 기기 둘이 배관으로 닿지 않는다.
       'conduit-ends': '10923/12645',
       'heat-source-user': '0/1',
@@ -1885,6 +2062,105 @@ describe.skipIf(![DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_FULL, DUPLEX_
     expect(archR6.state).toBe('standard')
     expect(archR6.note).toContain('이전 판본(COBie-Design.ifc)은 같은 이름 층의 높이가 이 파일의 1/1000로')
   }, 300_000)
+})
+
+// PRD 부록 C 요구조건 S1~S8(OE-INT-09)을 실제 BIM 으로. 픽스처로 재는 묶음은 src/lib/requirements-s.test.ts 다. 여기서는
+// 픽스처에 없는 것 — 실제로 GUID 가 바뀐 판본(S1), 22자 IfcGlobalId(S2), BIM 이 말한 소속(S4), 벽·문·창의 3D(S7) — 을 잰다.
+describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every((f) => existsSync(f)))('요구조건 S (OE-INT-09, Duplex)', () => {
+  it('S1: 같은 Revit 으로 다시 낸 MEP-2(GUID 가 바뀐 설비 217대)에 MEP 에서 한 편집이 다시 얹힌다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const load = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+    const v1 = load(DUPLEX_MEP_FULL)
+    const v2 = load(DUPLEX_MEP_2)
+    const diff = compareVersions(v1, v2)
+    const edited = structuredClone(v1)
+    const base = baselineOf(edited)
+    // GUID 가 바뀐 설비 다섯을 옮기고, GUID 가 바뀐 방 하나의 이름을 고치고, 설비 하나를 더한다.
+    const prevEq = new Map(v1.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
+    const movedEq = diff.equipment.rekeyed.filter((r) => prevEq.get(r.prevId)?.position).slice(0, 5)
+    for (const r of movedEq) {
+      const p = prevEq.get(r.prevId)!.position!
+      moveEquipment(edited, r.prevId, [p[0] + 0.5, p[1], p[2]])
+    }
+    const room = diff.spaces.rekeyed[0]
+    renameSpace(edited, room.prevId, 'S1 고친 이름')
+    const storey = edited.storeys.find((s) => s.spaces.some((sp) => sp.id === room.prevId))!
+    const sp = storey.spaces.find((x) => x.id === room.prevId)!
+    const at = interiorPoint(sp.footprint)!
+    const added = addEquipment(edited, storey.id, { name: 'S1 감지기', kind: 'smoke_detector', position: [at[0], at[1], storey.elevation + 2.5] })!
+    const file = parseEditFile(JSON.stringify(exportEdits(edited, base, 'MEP.ifc')))
+    if (typeof file === 'string') throw new Error(file)
+
+    const target = structuredClone(v2)
+    const result = applyEdits(target, file)
+    // 설비 다섯은 이름 끝의 Revit 요소 ID 로, 방은 이름으로 찾는다. 못 찾은 것은 없다.
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 })
+    expect(movedEq.map((r) => r.by)).toEqual(Array(5).fill('revitId'))
+    expect(result.rematched).toEqual({ revitId: 5, name: 1, position: 0 })
+    const x = modelToTTL(target)
+    const ttl = readOntologyTTL(x)
+    const floors = modelToGeoJSON(target).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
+    const feats = new Map(floors.flatMap((f) => f.features).map((f) => [f.id, f]))
+    for (const r of movedEq) {
+      const p = prevEq.get(r.prevId)!.position!
+      expect((feats.get(r.id)!.geometry!.coordinates as number[])[0], r.name).toBeCloseTo(p[0] + 0.5, 6)
+    }
+    expect(ttl.entities.find((e) => e.key === room.id)!.label).toBe('S1 고친 이름')
+    expect(ttl.entities.find((e) => e.key === added.id)!.cls).toBe('Smoke_Detector')
+  }, 600_000)
+
+  it('S2·S4·S7: 건축+MEP 합친 모델 — id 는 22자 IfcGlobalId, BIM 이 말한 소속 167건이 GeoJSON 에 bim 으로, 벽·문·창이 3D 에', async () => {
+    if (!('FileReader' in globalThis)) {
+      ;(globalThis as Record<string, unknown>).FileReader = class {
+        result: ArrayBuffer | null = null
+        onloadend: (() => void) | null = null
+        readAsArrayBuffer(blob: Blob) {
+          void blob.arrayBuffer().then((b) => {
+            this.result = b
+            this.onloadend?.()
+          })
+        }
+      }
+    }
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const open = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path)), undefined, { openings: true })
+    const a = open(DUPLEX_ARCH)
+    const b = open(DUPLEX_MEP)
+    const { model, report } = mergeModels(a.model, b.model)
+    const meshes = new Map([...a.meshes, ...b.meshes])
+    const floors = modelToGeoJSON(model).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
+    const features = floors.flatMap((f) => f.features)
+    const ttl = readOntologyTTL(modelToTTL(model))
+
+    // S2: BIM 에서 온 것은 전부 22자 IfcGlobalId 이고, 물리존·설비는 TTL 주어 키와 GeoJSON id 가 같은 문자열이다.
+    const keys = new Set([...ttl.entities.map((e) => e.key), ...ttl.unread.map((u) => u.key)])
+    const kinds = new Map<string, number>()
+    for (const f of features) {
+      const kind = String(f.properties.kind)
+      kinds.set(kind, (kinds.get(kind) ?? 0) + 1)
+      expect(f.id, kind).toMatch(/^[0-9A-Za-z_$]{22}$/)
+      if (kind === 'space' || kind === 'equipment') expect(keys.has(f.id), f.id).toBe(true)
+    }
+    expect(Object.fromEntries(kinds)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14 })
+
+    // S4: 소속의 출처. BIM 이 말한 소속(합칠 때 같은 자리의 방으로 옮겨 적은 것)은 bim, 나머지는 calc.
+    const src = features.filter((f) => f.properties.kind === 'equipment' && f.properties.spaceId).map((f) => f.properties.spaceSource)
+    expect(report.declaredRemapped).toEqual({ total: 167, remapped: 167 })
+    expect({ bim: src.filter((s) => s === 'bim').length, calc: src.filter((s) => s === 'calc').length }).toEqual({ bim: 167, calc: src.length - 167 })
+    expect(src.length).toBe(656)
+
+    // S7: 3D 에 물리존 판·벽·문·창·설비가 같은 id 로 들어간다.
+    const scene = modelToScene(model, meshes)
+    const glb = await read3D('a.glb', await sceneToGLB(scene))
+    const kindOf = new Map(features.map((f) => [f.id, String(f.properties.kind)]))
+    const in3d = new Map<string, number>()
+    for (const id of new Set(glb.parts.map((p) => p.id))) in3d.set(kindOf.get(id) ?? '?', (in3d.get(kindOf.get(id) ?? '?') ?? 0) + 1)
+    // 문·창은 임포터가 형상을 버려 자리·크기로 세운 상자다(mesh3d.ts openingBox, ADR-0009). 전부 GeoJSON 과 같은 id 다.
+    expect(Object.fromEntries(in3d)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14 })
+    expect(check3D(glb.parts, floors, ttl)).toEqual({ unknown: [], missing: [], misplaced: [] })
+  }, 900_000)
 })
 
 // 공조존(F12)을 IDF 에서 읽는다. 삼성 IDF(DesignBuilder 출력, EnergyPlus 22.2)는 저장소 밖(rl-pipeline/data)에서 data/idf 로

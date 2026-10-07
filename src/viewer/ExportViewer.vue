@@ -173,7 +173,7 @@ const checks3d = computed<CheckRow[]>(() =>
         const tag = models3d.value.filter((x) => x.format === m.format).length > 1 ? m.fileName : m.format.toUpperCase()
         return [
           { label: `${tag} — 어디에도 없는 객체`, note: `${m.fileName}: 3D 객체 이름(GlobalId)이 GeoJSON·TTL 에 없다`, ids: c.unknown },
-          { label: `${tag} — 3D 에 없는 형상`, note: `${m.fileName}: 형상이 있는 물리존·설비·벽인데 3D 객체가 없다`, ids: c.missing.map((x) => x.id) },
+          { label: `${tag} — 3D 에 없는 형상`, note: `${m.fileName}: 형상이 있는 물리존·설비·벽·문·창인데 3D 객체가 없다`, ids: c.missing.map((x) => x.id) },
           {
             label: `${tag} — 자리 어긋남`,
             note: `${m.fileName}: 방은 외곽선 범위와 1cm 넘게, 설비는 GeoJSON 점이 3D 범위에서 0.5m 넘게 다르다`,

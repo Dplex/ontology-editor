@@ -7,7 +7,7 @@
 // 반영 전에 차이를 보여 주는 것이 PRD #16(미리보기)이고, 반영 뒤에 남기는 것이 #21(결과
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
-import { assignEquipment, centroid, isSelfIntersecting } from './mapping'
+import { assignEquipment, centroid, isSelfIntersecting, nearRing } from './mapping'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
@@ -47,10 +47,18 @@ function reassignStoreyOf(model: Model, equipment: Equipment) {
   if (storey) assignEquipment(equipment, storey.spaces)
 }
 
+/**
+ * 방 하나의 경계가 바뀐 뒤. 그 층에서 답이 바뀔 수 있는 설비만 다시 판정한다 — 지금 그 방 소속인 것(빠져나갈 수 있다)과
+ * 새 경계 근처인 것(들어올 수 있다). 나머지 설비는 그 방이 답이었던 적도 없고 답이 될 수도 없어서, 층 전부를 다시 도는 것과
+ * 결과가 같다. 병원 건축+MEP 처럼 한 층에 설비·배관이 수천 개면 꼭짓점 하나 옮길 때마다 전부 다시 재는 데 시간이 다 갔다.
+ */
 function reassignStoreyWith(model: Model, spaceId: string) {
   const storey = model.storeys.find((s) => s.spaces.some((sp) => sp.id === spaceId))
   if (!storey) return
-  for (const e of storey.equipment) assignEquipment(e, storey.spaces)
+  const ring = storey.spaces.find((sp) => sp.id === spaceId)!.footprint
+  for (const e of storey.equipment) {
+    if (e.spaceId === spaceId || (e.position && nearRing([e.position[0], e.position[1]], ring))) assignEquipment(e, storey.spaces)
+  }
   // 방 경계가 바뀌면 좌표로 짚은 문이 잇는 방도 바뀐다.
   relinkDoors(storey)
 }

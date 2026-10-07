@@ -22,7 +22,7 @@ import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } fro
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
 import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
-import { airServices, servedSpaces } from './lib/served'
+import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
@@ -1902,6 +1902,20 @@ const selectedService = computed(() => {
   if (!m || !service) return null
   return { ...service, rooms: servedSpaces(m, service, equipmentById.value) }
 })
+// VAV·말단의 계통과 담당 근거(OE-EQP-10). 계통이 있어야 하는 설비인데 없으면 패널과 검토 화면에서 경고한다. 담당은 흐름 방향을
+// 거슬러(급기)·따라(환기) 닿는 공기 원천이다 — 위 담당 공간을 말단 쪽에서 본 것이라 같은 방향을 쓰고, 추정이라 화면에만 보인다.
+const selectedBasis = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e || !needsSystem(e)) return null
+  const basis = airBasis(m, showRules.value && hasRules.value ? withInferred(m.connections) : m.connections, e.id, equipmentById.value)
+  const name = (id: string) => shortName(equipmentById.value.get(id)?.name || id)
+  const rooms = new Set(basis.terminals.map((t) => equipmentById.value.get(t)?.spaceId).filter((x): x is string => !!x))
+  return { supplyFrom: basis.supplyFrom.map(name), extractTo: basis.extractTo.map(name), terminals: basis.terminals.length, rooms: rooms.size }
+})
+const systemless = computed(() => (model.value ? systemlessAir(model.value) : []))
+
 /** 패널에 보일 담당 공간. 말단이 많은 방부터 SERVED_LIMIT 줄만, 층으로 묶는다(층 순서는 모델 순서). */
 const SERVED_LIMIT = 12
 const servedAll = ref(false)
@@ -5218,6 +5232,20 @@ async function export3D(format: 'glb' | 'obj') {
                     <Src v-if="selected.systemEdited" kind="edit" /><Src v-else-if="selected.systemId" kind="bim" />
                   </dd>
                 </div>
+                <!-- 담당 근거(OE-EQP-10). VAV·말단을 어느 공조기가 맡는지 흐름 방향으로 찾은 것. -->
+                <div v-if="selectedBasis" class="basis">
+                  <dt>담당</dt>
+                  <dd>
+                    <template v-if="selectedBasis.supplyFrom.length || selectedBasis.extractTo.length">
+                      <span v-if="selectedBasis.supplyFrom.length">급기 ← {{ selectedBasis.supplyFrom.join(', ') }}</span>
+                      <template v-if="selectedBasis.supplyFrom.length && selectedBasis.extractTo.length"> · </template>
+                      <span v-if="selectedBasis.extractTo.length">환기 → {{ selectedBasis.extractTo.join(', ') }}</span>
+                    </template>
+                    <span v-else class="muted">흐름 방향으로 닿는 공조기 없음</span>
+                    <template v-if="selected.kind === 'vav'"> · 말단 {{ selectedBasis.terminals }}개 · 방 {{ selectedBasis.rooms }}곳</template>
+                    <Src kind="calc" />
+                  </dd>
+                </div>
                 <div>
                   <dt>소속</dt>
                   <dd v-flash="selected.spaceId">
@@ -5284,6 +5312,11 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
 
           <p v-if="editing && kindWarning" class="edit-notice inline" role="alert">{{ kindWarning }}</p>
+          <!-- 계통 없는 VAV·토출구(OE-EQP-10). 보기 모드에서도 띄운다 — 내보내면 어느 계통의 구성원으로도 나가지 않는다. -->
+          <p v-if="needsSystem(selected) && !selected.systemId" class="edit-notice inline system-missing" role="alert">
+            {{ whatIs(selected)?.label ?? 'VAV·토출구' }}에 계통이 없습니다. 내보내면 어느 계통의 구성원(brick:hasPart)으로도 나가지 않아,
+            DT 에서 계통으로 찾을 때 빠집니다. {{ editing ? '아래 계통 칸에서 정하세요.' : '편집 모드에서 계통을 정하세요.' }}
+          </p>
 
           <!-- 계통(E8). 설비의 계통 한 자리를 바꾼다. 규칙 방향을 다시 돌리고 TTL 의 brick:hasPart 가 바뀐다. -->
           <p v-if="editing" class="system-edit">
@@ -6134,6 +6167,17 @@ async function export3D(format: 'glb' | 'obj') {
             </li>
           </ul>
           <p v-if="unplaced.length > UNPLACED_SHOWN" class="muted">외 {{ (unplaced.length - UNPLACED_SHOWN).toLocaleString() }}대 — 설비 표에서 좌표 칸이 빈 것입니다</p>
+        </Fold>
+
+        <!-- 계통 없는 VAV·토출구(OE-EQP-10). BIM 에서 연 그대로는 드물고, VAV 를 새로 놓거나 계통을 지우면 생긴다. -->
+        <Fold v-if="systemless.length" title="계통 없는 VAV·토출구" :meta="`${systemless.length.toLocaleString()}대 — 어느 계통에도 들지 않습니다`" :default-open="systemless.length <= 30" class="systemless">
+          <ul class="unplaced-list">
+            <li v-for="x in systemless.slice(0, UNPLACED_SHOWN)" :key="x.equipment.id">
+              <button type="button" class="link" @click="selectAndShow(x.equipment.id)">{{ x.equipment.name ? shortName(x.equipment.name) : '(이름 없음)' }}</button>
+              <span class="muted">{{ x.storeyName }} · {{ whatIs(x.equipment)?.label ?? x.equipment.ifcClass }}</span>
+            </li>
+          </ul>
+          <p v-if="systemless.length > UNPLACED_SHOWN" class="muted">외 {{ (systemless.length - UNPLACED_SHOWN).toLocaleString() }}대</p>
         </Fold>
 
         <!-- 고객사 BIM 요구사항(정본 4장)에 대 본 것. IDS 와 달리 "다른 자리에 있다(우리는 읽는다)"를 따로 센다. -->

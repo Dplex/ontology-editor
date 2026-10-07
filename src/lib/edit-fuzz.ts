@@ -82,6 +82,9 @@ export type FuzzResult = {
   detail?: string
   /** 불러온 것이 다를 때 두 내보내기 전체(견줄 때 쓴다). */
   texts?: { session: string; reloaded: string }
+  /** 편집을 다 한 모델과, 그 편집 파일을 새로 연 모델에 얹은 것. 불변식(OE-PIP-09 BIM 계통 이름 등)을 볼 때 쓴다. */
+  edited: Model
+  reloaded: Model
 }
 
 /** `pristine` 은 건드리지 않는다. 사본에 편집하고, 편집 파일은 또 다른 사본에 얹는다. */
@@ -436,6 +439,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
   }
 
   const session = exportedContent(m)
+  const edited = structuredClone(m)
   const text = JSON.stringify(exportEdits(m, base, 'fuzz'))
   const parsed = parseEditFile(text)
   if (typeof parsed === 'string') throw new Error(parsed)
@@ -465,5 +469,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
     missing: Object.values(applied.missing).reduce((a, b) => a + b, 0),
     undoSame,
     ...(detail ? { detail, texts: { session, reloaded } } : {}),
+    edited,
+    reloaded: fresh,
   }
 }

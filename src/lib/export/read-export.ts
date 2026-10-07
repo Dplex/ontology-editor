@@ -3,7 +3,27 @@
 // 주어, GeoJSON 의 소속과 TTL 의 hasLocation 이 다른 것을 센다. 읽는 쪽이 이 둘을 같이 쓰므로, 어긋나면 지도에서 누른
 // 방이 온톨로지에 없거나 그 반대가 된다.
 
+import { CAPACITY_PREDICATE } from '../capacity'
 import type { OntologyEntity, TtlReading } from './read-ttl'
+
+/**
+ * TTL 에서 숫자 값(따옴표 밖)이 붙은 술어. 블록 안의 줄은 술어로 시작한다(ttl.ts). 이름 같은 글자 값 안의 숫자는 세지 않는다.
+ *
+ * **TTL 에는 좌표가 없다**(OE-INT-02, 기하는 GeoJSON 몫). 낱말(POLYGON·coordinates)만 막으면 `ex:x 12.3` 같은 숫자 술어로
+ * 새는 것을 못 잡는다. 그래서 숫자가 붙는 술어를 허용 목록(`NUMERIC_OK`)으로 본다.
+ */
+export function numericPredicates(ttl: string): Set<string> {
+  const out = new Set<string>()
+  for (const line of ttl.split('\n')) {
+    const bare = line.replace(/"(?:[^"\\]|\\.)*"/g, '""').trim()
+    if (bare.startsWith('@')) continue
+    if (/(?:^|\s)-?\d+(?:\.\d+)?(?:e-?\d+)?\s*[;.,]?\s*$/i.test(bare)) out.add(bare.split(/\s+/)[0])
+  }
+  return out
+}
+
+/** 숫자를 담아도 되는 술어. 좌표가 아니라 값이다 — 방·존 넓이, 층 바닥 높이, 설비 용량(capacity.ts). */
+export const NUMERIC_OK: ReadonlySet<string> = new Set(['ex:areaM2', 'ex:elevation', ...Object.values(CAPACITY_PREDICATE)])
 
 export type ReadFeature = {
   type: 'Feature'
