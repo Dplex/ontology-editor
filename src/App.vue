@@ -5529,6 +5529,10 @@ async function export3D(format: 'glb' | 'obj') {
                 <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
               </template>
             </nav>
+            <!-- 시점 조작 안내(OE-OBJ-15). 지도처럼 왼쪽 드래그가 화면 이동이다. 편집 모드의 Shift+드래그는 여러 개 고르기다(OE-UI-09). -->
+            <p v-if="activeTab === '3d'" class="view-controls-hint" aria-label="시점 조작 안내">
+              드래그: 이동 · {{ editing ? '우클릭 드래그: 회전 · Shift+드래그: 여러 개 고르기' : 'Shift/우클릭 드래그: 회전' }} · 휠: 확대
+            </p>
             <div class="view-tools">
               <!-- 보기 ↔ 편집, 단축키 안내. 위 도구막대와 같은 일이라 전체 화면(도구막대가 안 보인다)에서만 둔다.
                    평소에도 두었더니 같은 스위치가 한 화면에 둘이었다. -->

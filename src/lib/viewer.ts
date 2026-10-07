@@ -8,6 +8,8 @@
 
 import {
   Box3,
+  MOUSE,
+  TOUCH,
   Color,
   Ray,
   Sphere,
@@ -408,6 +410,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const camera = new PerspectiveCamera(50, 1, 0.1, 5000)
   const controls = new OrbitControls(camera, canvas)
   controls.enableDamping = true
+  // 시점은 지도식이다(OE-OBJ-15, three.js MapControls 의 배치). 왼쪽 드래그는 바닥면을 따라 화면 이동, 오른쪽 드래그와 Shift+왼쪽
+  // 드래그는 회전·기울이기, 휠은 확대·축소다. 일 대부분이 층을 내려다보는 일이라 이동이 회전보다 잦다. 편집 모드의 Shift+드래그는
+  // 여러 개 고르기 상자가 먼저 가져간다(OE-UI-09, pointerdown).
+  controls.mouseButtons = { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE }
+  controls.touches = { ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_ROTATE }
+  controls.screenSpacePanning = false
 
   // 조명. **그림자·후처리 없이 빛 두 개로만 면을 가른다** — 그리기 호출과 셰이더가 그대로라 성수에서도 값이 들지 않는다.
   // 예전에는 고른 주변광(1.25)이 대부분이라 어느 쪽 면이든 밝기가 같아서, 형상이 있는 설비도 계통 색 한 덩어리로 보였다.
@@ -910,7 +918,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (hitArrow(e.clientX, e.clientY)) return
       const ray = rayAt(e.clientX, e.clientY)
       // Shift+끌기는 고르기 상자다(OE-UI-09). 고른 설비 위에서 시작하면 그 설비들을 끄는 것이고, 손잡이·놓기 모드는 그쪽이 먼저다.
-      // 시점의 Shift+끌기(이동)는 오른쪽 버튼 끌기로 한다.
+      // 편집 모드의 회전은 오른쪽 버튼 끌기로 한다(보기 모드의 Shift+끌기는 회전이다, OE-OBJ-15).
       if (e.shiftKey && placeElevation === null && hitHandle(e.clientX, e.clientY) === null && !grabbable(ray)) {
         const el = document.createElement('div')
         el.className = 'box-select'
@@ -1077,6 +1085,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (e.key === 'Escape' && drag) endDrag(false)
   }
   window.addEventListener('keydown', onKeyDown)
+  // 끄는 중 창이 포커스를 잃으면(다른 창으로 전환) 버린다(OE-OBJ-15). 버튼을 뗀 것을 못 받으니 확정하지 않는다.
+  const onBlur = () => {
+    if (drag) endDrag(false)
+    if (box) {
+      box.el.remove()
+      box = null
+      controls.enabled = true
+    }
+  }
+  window.addEventListener('blur', onBlur)
 
   function updateHover() {
     hoverPending = false
@@ -1555,6 +1573,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           return { key: seg.key, a: spec?.a, b: spec?.b, from: spec?.from, source: spec?.source, active: !!spec?.active, at: toScreen(seg.a.clone().lerp(seg.b, 0.5)) }
         }),
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
+      /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
+      camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
       /** 벽·문·창 편집 층에서 누를 수 있는 것의 id. */
       elements: () => archTargets.map((t) => t.id),
       /** 벽·문·창을 누를 화면 자리. 벽은 첫 외곽선 꼭짓점의 평균(곧은 벽이면 외곽선 안), 문·창은 자리다. */
@@ -2050,6 +2070,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     dispose() {
       running = false
       window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('blur', onBlur)
       if (import.meta.env.MODE === 'e2e') delete (window as unknown as { __viewer?: unknown }).__viewer
       controls.removeEventListener('change', invalidate)
       controls.dispose()
