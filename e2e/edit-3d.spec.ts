@@ -19,6 +19,14 @@ async function open(page: Page, file = MEP) {
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   return errors
 }
+// 디퓨저·조명은 천장 설비라 천장 편집 모드(T)에서 고친다(OE-OBJ-08).
+async function enterCeiling(page: Page) {
+  const on = page.getByRole('group', { name: '설비 편집 면' }).getByRole('button', { name: '천장' })
+  if ((await on.getAttribute('aria-pressed')) === 'true') return
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('t')
+  await expect(on).toHaveAttribute('aria-pressed', 'true')
+}
 
 /** 두 프레임을 기다린다. 3D 는 다음 프레임에 그리고, 화면 좌표는 그린 뒤의 카메라로 잰다. */
 const settle = (page: Page) =>
@@ -435,6 +443,7 @@ test('종류를 모르는 패밀리를 목록에서 한 번 고르면 그 패밀
 test('종류를 바꿔 규칙 방향이 포트와 어긋나기 시작하면 그 계통을 바로 알린다', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterCeiling(page)
   await pick(page, 'AT-101-01')
   // 포트가 덕트 → 디퓨저라고 말한 디퓨저를 팬(공기의 원천)으로 바꾼다.
   await page.locator('.kind-edit select').selectOption({ label: '팬' })

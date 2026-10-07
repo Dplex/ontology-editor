@@ -14,6 +14,15 @@ async function open(page: Page) {
   await page.getByRole('button', { name: '편집', exact: true }).click()
   return errors
 }
+// 디퓨저·조명은 천장 설비라 천장 편집 모드(T)에서 고친다(OE-OBJ-08).
+async function enterCeiling(page: Page) {
+  const on = page.getByRole('group', { name: '설비 편집 면' }).getByRole('button', { name: '천장' })
+  if ((await on.getAttribute('aria-pressed')) === 'true') return
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('t')
+  await expect(on).toHaveAttribute('aria-pressed', 'true')
+}
+
 const row = (page: Page, name: string) => page.locator('.equipment tbody tr', { hasText: name }).last()
 const coords = async (page: Page, name: string) => [0, 1].map(async (i) => Number(await row(page, name).locator('.coord').nth(i).inputValue()))
 const at = async (page: Page, name: string) => Promise.all(await coords(page, name))
@@ -24,6 +33,7 @@ const keys = async (page: Page, ...combo: string[]) => {
 
 test('목록에서 Shift+클릭으로 둘을 고르면 방향키로 같이 옮기고, Delete 로 같이 지우며, 되돌리기 한 번에 둘 다 돌아온다', async ({ page }) => {
   const errors = await open(page)
+  await enterCeiling(page)
   await row(page, 'AT-101-01').getByRole('button', { name: 'AT-101-01', exact: true }).click()
   await row(page, 'AT-101-02').getByRole('button', { name: 'AT-101-02', exact: true }).click({ modifiers: ['Shift'] })
   const panel = page.locator('.group-picked')
@@ -70,6 +80,7 @@ test('목록에서 Shift+클릭으로 둘을 고르면 방향키로 같이 옮�
 
 test('평면도에서 Shift+끌기 상자로 디퓨저 둘을 고르고, 3D 에서 Shift+클릭·Shift+끌기 상자로도 고른다', async ({ page }) => {
   const errors = await open(page)
+  await enterCeiling(page)
   // 평면도. 두 디퓨저 점을 감싸는 상자를 Shift 를 누른 채 끈다.
   await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '평면도' }).click()
   const plan = page.locator('svg.floor-plan')

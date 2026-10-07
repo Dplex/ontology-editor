@@ -1366,6 +1366,71 @@ th {
   border-radius: 0.2rem;
 }
 
+/* [바닥·벽 / 천장] 토글. 팔레트 "설비" 제목 줄 오른쪽의 작은 두 칸이다. */
+.palette-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.ceiling-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.ceiling-toggle button {
+  padding: 0.05rem 0.45rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.ceiling-toggle button.on {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* 천장 편집 모드(OE-OBJ-08). 잠긴 도구는 흐리게 — 누르면 어디서 편집하는지 알린다(disabled 면 눌리지 않아 안내를 못 한다). */
+.tool-palette button.locked {
+  opacity: 0.45;
+}
+
+/* 지금 모드에서 고칠 수 없는 설비의 안내. 경고(.edit-notice)가 아니라 어디서 고치는지 알리는 길 안내라 액센트 색이다. */
+.ceiling-lock {
+  margin: 0.6rem 0;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: 0.85rem;
+}
+
+.ceiling-lock .link {
+  margin-left: 0.4rem;
+}
+
+.ceiling-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+}
+
+.ceiling-ask input {
+  width: 4rem;
+}
+
+.ceiling-now {
+  font-size: 0.75rem;
+}
+
 /* 천장 설비 링 풀이(OE-EQP-04). 편집 팔레트 "설비" 칸 아래 한 줄이고, 3D 처럼 속이 빈 원이다. */
 .ceiling-key {
   display: flex;

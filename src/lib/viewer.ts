@@ -135,6 +135,14 @@ const CEILING_RING_LIFT = 0.13
 const CEILING_RING_MIN = 0.25
 const CEILING_RING_SIDES = 24
 
+/**
+ * 천장 편집 모드(OE-OBJ-08). 층마다 반자 높이(IFC z)에 반투명 천장면을 그리고 — 면은 그 층 물리존 외곽선들이고, 물리존이 없으면
+ * 설비가 든 평면 범위다 — `dim` 의 설비(천장 설비가 아닌 것)는 회색·투과로 칠한다. 회색 설비도 고를 수 있다(속성 조회).
+ */
+export type CeilingView = { planes: { storeyId: string; z: number; rings: readonly (readonly Vec2[])[] }[]; dim: ReadonlySet<string> }
+const CEILING_PLANE = { color: 0x9fb3cc, opacity: 0.22 }
+const DIM_COLOR = 0xb4bac4
+
 /** 천장 설비 하나의 발자국(OE-EQP-04). `at` 은 설비의 IFC 좌표, `floor` 는 그 층 바닥 높이(IFC z)다. */
 export type CeilingMark = { id: string; storeyId: string; at: Vec3; floor: number; zone: 'attached' | 'plenum' }
 
@@ -316,6 +324,12 @@ export type Viewer = {
    * 고르지 않는다 — 링을 눌러도 바닥(물리존)이 골라진다.
    */
   setCeilingMarks(marks: readonly CeilingMark[], selected: string | null): void
+  /** 천장 편집 모드의 천장면과 회색 처리. null 이면 지운다. 반자 높이가 있는 층만 면이 있다. */
+  setCeilingView(view: CeilingView | null): void
+  /** 끌어 옮기지 못하는 설비(모드 밖의 설비, OE-OBJ-08). 고르기는 된다. */
+  setFrozen(ids: ReadonlySet<string>): void
+  /** 보이는 것 전체를 위에서 내려다본다. 화면 위쪽이 IFC +y(평면도와 같은 방위)다. */
+  topView(): void
   onPickElement(handler: (id: string | null) => void): void
   /** 화살표·손잡이 색을 테마에 맞춘다. 바탕이 투명이라 페이지 색이 그대로 비친다. */
   setDark(on: boolean): void
@@ -462,6 +476,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const o of zoneLines.children) o.visible = storeyShown(o)
     for (const o of customZones.children) o.visible = storeyShown(o)
     for (const o of ceilingMarks.children) o.visible = storeyShown(o)
+    for (const o of ceilingPlanes.children) o.visible = storeyShown(o)
     dirty = true
   }
   let pickHandler: (id: string | null, additive?: boolean) => void = () => {}
@@ -534,6 +549,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   scene.add(customZones)
   const ceilingMarks = new Group()
   scene.add(ceilingMarks)
+  const ceilingPlanes = new Group()
+  scene.add(ceilingPlanes)
+  let dimIds: ReadonlySet<string> = new Set()
+  let frozenIds: ReadonlySet<string> = new Set()
+  let lastHighlight: Highlight | null = null
   /** 누를 수 있는 벽·문·창. 문·창은 자리(`at`)와, 가로를 알면 벽을 따라 편 반 폭(`half`, 방향 `dir`)을 든다. */
   let archTargets: { id: string; storeyId: string; y: number; rings?: readonly (readonly Vec2[])[]; at?: Vec2; dir?: Vec2; half?: number }[] = []
   /** 문·창까지의 평면 거리. 가로를 알면 그 폭의 선분까지다(넓힌 창의 끝을 눌러도 창이다). */
@@ -1178,7 +1198,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   /** 끌 수 있는 것: 고른 설비(여러 개면 그 중 하나)이고 좌표가 있고 흐리게 칠해지지 않았다. */
   function grabbable(ray: Ray): Part | null {
     for (const id of grabIds) {
-      const part = movable.has(id) && !fadedIds.has(id) && !hiddenIds.has(id) ? partById.get(id) : undefined
+      const part = movable.has(id) && !fadedIds.has(id) && !hiddenIds.has(id) && !frozenIds.has(id) ? partById.get(id) : undefined
       if (part && hitsPart(ray, part)) return part
     }
     return null
@@ -1252,11 +1272,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
    * 가장 가까운 거리를 잡는다.
    */
   const FILL = 0.88
-  function fit(box: Box3, animate = true) {
+  function fit(box: Box3, animate = true, from = new Vector3(1, 0.65, 1)) {
     const sphere = box.getBoundingSphere(new Sphere())
     if (sphere.radius <= 0) return
 
-    const back = new Vector3(1, 0.65, 1).normalize() // 대상에서 카메라 쪽
+    const back = from.clone().normalize() // 대상에서 카메라 쪽
     const forward = back.clone().negate()
     const right = new Vector3().crossVectors(forward, camera.up).normalize()
     const up = new Vector3().crossVectors(right, forward)
@@ -1465,7 +1485,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       let fadedCount = 0
       for (const part of chunk.parts) {
         if (hiddenIds.has(part.id)) continue
-        if (fadedIds.has(part.id)) fadedCount += part.iCount
+        if (fadedIds.has(part.id) || dimIds.has(part.id)) fadedCount += part.iCount
         else solidCount += part.iCount
       }
       const solidIdx = new Uint32Array(solidCount)
@@ -1475,7 +1495,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       for (const part of chunk.parts) {
         if (hiddenIds.has(part.id)) continue
         const slice = chunk.index.subarray(part.iStart, part.iStart + part.iCount)
-        if (fadedIds.has(part.id)) {
+        if (fadedIds.has(part.id) || dimIds.has(part.id)) {
           fadedIdx.set(slice, fi)
           fi += slice.length
         } else {
@@ -1621,7 +1641,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
   }
 
-  return {
+  const api: Viewer = {
     setModel(model, meshes, options) {
       // 끄는 중에 모델이 바뀌면 끌던 것은 버린다. 형상을 새로 만드니 되돌릴 것도 없다.
       drag = null
@@ -1792,6 +1812,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     setHighlight(highlight) {
+      lastHighlight = highlight
       // 끌 수 있는 것은 고른 설비 하나다(pointerdown 참조).
       selectedPart = highlight?.selected ?? null
       grabIds = highlight?.group ? new Set(highlight.group) : selectedPart ? new Set([selectedPart]) : new Set()
@@ -1811,6 +1832,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           // 흐린 것은 고를 수 없다.
           else if (!highlight.group) nextFaded.add(id)
         }
+        // 천장 편집 모드에서 천장 설비가 아닌 것은 회색이다(고른 것·상류·하류 색은 둔다).
+        if (next === part.color && dimIds.has(id)) next = DIM_COLOR
         paintPart(part, next)
       }
       // 흐리게 하기가 바뀐 설비가 든 덩어리만 인덱스를 다시 짠다.
@@ -2063,6 +2086,58 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       applyStoreyVisibility()
     },
 
+    setCeilingView(view) {
+      ceilingPlanes.traverse((o) => {
+        if (o instanceof Mesh) {
+          o.geometry.dispose()
+          ;(o.material as { dispose(): void }).dispose()
+        }
+      })
+      ceilingPlanes.clear()
+      for (const plane of view?.planes ?? []) {
+        for (const ring of plane.rings) {
+          const open = ring.length > 3 && ring[0][0] === ring[ring.length - 1][0] && ring[0][1] === ring[ring.length - 1][1] ? ring.slice(0, -1) : ring
+          if (open.length < 3) continue
+          const face = new Mesh(
+            new ShapeGeometry(new Shape(open.map((p) => new Vector2(p[0], p[1])))),
+            new MeshBasicMaterial({ ...CEILING_PLANE, transparent: true, side: DoubleSide, depthWrite: false }),
+          )
+          // ShapeGeometry 는 xy 평면이다. IFC 평면(x, y)을 three 바닥(x, -z)으로 눕힌다.
+          face.rotation.x = -Math.PI / 2
+          face.position.y = plane.z
+          face.userData.storeyId = plane.storeyId
+          ceilingPlanes.add(face)
+        }
+      }
+      // 물리존 판도 옅게 — 천장면 아래 바닥이 진하면 천장 설비가 묻힌다.
+      for (const o of slabs.children) {
+        const m = (o as Mesh).material as MeshLambertMaterial
+        m.opacity = view ? Math.min(slabOpacity, 0.12) : slabOpacity
+      }
+      const nextDim = view?.dim ?? new Set<string>()
+      const touched = new Set<Chunk>()
+      for (const id of nextDim) if (!dimIds.has(id)) touched.add(partById.get(id)?.chunk as Chunk)
+      for (const id of dimIds) if (!nextDim.has(id)) touched.add(partById.get(id)?.chunk as Chunk)
+      touched.delete(undefined as unknown as Chunk)
+      dimIds = nextDim
+      if (touched.size) splitIndex(touched)
+      api.setHighlight(lastHighlight)
+      applyStoreyVisibility()
+    },
+
+    setFrozen(ids) {
+      frozenIds = ids
+    },
+
+    topView() {
+      const box = new Box3()
+      for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
+      for (const o of slabs.children) if (o.visible) box.expandByObject(o)
+      if (box.isEmpty()) box.setFromObject(content)
+      // 바로 위는 OrbitControls 가 위쪽 방향을 잃는다. +z(IFC −y) 쪽으로 아주 조금 기울여 화면 위쪽이 IFC +y 가 되게 한다.
+      if (!box.isEmpty()) fit(box, true, new Vector3(0, 1, 0.02))
+    },
+
     onPickElement(handler) {
       elementHandler = handler
     },
@@ -2135,4 +2210,5 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       renderer.dispose()
     },
   }
+  return api
 }

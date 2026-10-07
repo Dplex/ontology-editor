@@ -23,6 +23,7 @@ export type ShortcutId =
   | 'arrowNext'
   | 'flow'
   | 'confirm'
+  | 'ceiling'
   | 'kind'
   | 'nextUnknown'
   | 'prevUnknown'
@@ -108,6 +109,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     edit: true,
   },
   { id: 'confirm', combos: [{ code: 'KeyC' }], keys: ['C'], label: '고른 설비 계통의 규칙 방향 확정', group: '편집 · 연결 방향', edit: true },
+  { id: 'ceiling', combos: [{ code: 'KeyT' }], keys: ['T'], label: '천장 편집 모드 들어가기·나오기', group: '편집 · 설비', edit: true },
 
   { id: 'vertexInsert', combos: [{ code: 'Insert' }], keys: ['Insert'], label: '짚은 꼭짓점과 다음 꼭짓점 사이에 꼭짓점 넣기', group: '편집 · 물리존', edit: true },
   { id: 'vertexDelete', combos: [{ code: 'Delete' }], keys: ['Delete'], label: '짚은 꼭짓점 지우기(셋은 남긴다) · 여러 개 고른 설비 같이 지우기', group: '편집 · 물리존', edit: true },
