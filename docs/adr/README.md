@@ -67,4 +67,9 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | [0005](0005-export-reader-in-repo.md) | export 한 TTL 은 다른 저장소의 ttl.go 를 빌드하지 않고, 그 규칙을 옮긴 이 repo 의 reader 와 뷰어로 다시 읽는다 | 채택 |
 | [0006](0006-requirement-elsewhere-means-setting.md) | 요구사항 보고서의 '다른 자리'는 export 설정으로 고쳐지는 것만 — 형상 중심으로 옮긴 배치점(R11)은 '일부'로 집계한다 | 채택 |
 | [0007](0007-unit-cross-check-by-storey-height.md) | 길이 단위 교차 확인은 이름이 같은 층의 높이 비로 — 모든 쌍이 같은 단위 배수(±2%)일 때만, 틀린 쪽은 층간 높이 2~12m 로 판정한다 | 채택 |
+| [0008](0008-provenance-in-geojson-properties.md) | 계산한 관계의 출처는 GeoJSON 속성의 *Source(bim·calc)로 export 한다 — TTL 출처 predicate 는 수신 측과 합의(OE-INT-07)할 때까지 export 하지 않는다 | 제안 |
+| [0009](0009-openings-as-boxes-in-3d.md) | 3D export(GLB·OBJ)의 문·창은 위치·크기·벽 방향으로 만든 박스로 export 한다 — 임포터는 문·창 형상을 계속 버린다 | 제안 |
+| [0010](0010-flowless-devices-not-geometry-linked.md) | 포트가 없는 파일에서 형상으로 연결을 추정할 때 흐름 없는 기기(조명·콘센트·감지기·비치품)는 넣지 않는다 | 제안 |
+| [0011](0011-per-storey-ontology-files.md) | 층 단위 생성은 층마다 TTL·GeoJSON 두 파일로 export 하고, 층 파일을 모두 합치면 건물 전체 TTL 과 같은 triple 이 되도록 나눈다 | 채택 |
+| [0012](0012-custom-zone-aliases.md) | 커스텀존 별명은 여러 개다 — 첫 이름이 rdfs:label, 나머지는 ex:alias | 채택 |
 | [0013](0013-3d-shading-two-lights.md) | 3D 음영은 하늘빛과 카메라에 붙인 주광 두 개로만 내고, 그림자·후처리·재질 색은 쓰지 않는다 | 채택 |
