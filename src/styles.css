@@ -1431,6 +1431,37 @@ th {
   font-size: 0.75rem;
 }
 
+/* 팔레트의 미배치 목록(OE-EQP-02). 접어 두고, 펼치면 제 상자 안에서 스크롤한다. */
+.tool-palette .unplaced-toggle {
+  align-self: flex-start;
+  font-size: 0.72rem;
+}
+
+.palette-unplaced {
+  max-height: 8rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  font-size: 0.75rem;
+}
+
+.palette-unplaced button {
+  width: 100%;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-unplaced button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* 천장 설비 링 풀이(OE-EQP-04). 편집 팔레트 "설비" 칸 아래 한 줄이고, 3D 처럼 속이 빈 원이다. */
 .ceiling-key {
   display: flex;

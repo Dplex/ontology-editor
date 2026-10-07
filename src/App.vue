@@ -3285,13 +3285,9 @@ function startPlace(id: string, on: 'floor' | 'wall' = 'floor') {
   placing.value = id
   placingOn.value = on
   viewer?.setPlaceMode(ceilingMode.value ? home.elevation + ceilingOf(home)!.height : home.elevation)
-  note(
-    ceilingMode.value
-      ? `${nameOfId(id)}${josa(nameOfId(id), '을/를')} 놓을 천장 자리를 3D에서 클릭하세요 (Esc 취소)`
-      : on === 'wall'
-      ? `${nameOfId(id)}${josa(nameOfId(id), '을/를')} 붙일 벽 면 가까이를 3D에서 클릭하세요. 바깥 면을 누르면 바깥에 붙습니다 (Esc 취소)`
-      : `${nameOfId(id)}${josa(nameOfId(id), '을/를')} 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`,
-  )
+  // 바닥·천장에 놓을 때는 따로 안내하지 않는다(OE-EQP-02) — 팔레트의 눌린 항목과 십자 커서가 놓는 중임을 말한다. 벽에 붙이기는
+  // 누를 자리(벽 면 가까이)가 달라서 알린다.
+  if (on === 'wall') note(`${nameOfId(id)}${josa(nameOfId(id), '을/를')} 붙일 벽 면 가까이를 3D에서 클릭하세요. 바깥 면을 누르면 바깥에 붙습니다 (Esc 취소)`)
 }
 function stopPlace() {
   placing.value = null
@@ -3363,6 +3359,12 @@ function placeAt(at: Vec2) {
     if (!range) return
     if (!relocate(id, [cm(at[0]), cm(at[1]), cm(home.elevation + range.base)])) return
     note(`${zone === 'plenum' ? '플레넘(반자 바로 위)' : '반자 높이'}에 놓았습니다(바닥에서 ${range.base.toFixed(2)}m). 높이는 z 칸에서 고치세요`)
+    return
+  }
+  // 종류를 모르면 허용 설치면을 알 수 없어 바닥에 놓는다(OE-EQP-02).
+  if (!target.kind) {
+    if (!relocate(id, [cm(at[0]), cm(at[1]), cm(home.elevation)])) return
+    note('종류를 모르는 설비라 바닥 높이에 놓았습니다. 종류를 정한 뒤 높이를 고치세요')
     return
   }
   const key = familyKeyOf(target)
@@ -5234,13 +5236,17 @@ const warnings = computed(() => [...(model.value?.warnings ?? []), ...(unlocated
 // 놓을 때마다 줄어든다. 설비 표의 빈 좌표 칸으로는 수천 행 사이에서 찾을 수 없었고, 완전성 검사는 방이 없는 파일에서
 // 건너뛴다(ifc4Mep 28대). 많으면 앞의 UNPLACED_SHOWN 대만 그린다.
 const unplaced = computed(() => (model.value ? unplacedOf(model.value) : []))
+/** 팔레트의 미배치 목록. 한 층만 보는 중이면 그 층 것만. */
+const unplacedHere = computed(() => unplaced.value.filter((u) => !viewStorey.value || u.storey.id === viewStorey.value))
+const unplacedOpen = ref(false)
 const UNPLACED_SHOWN = 200
 /** 목록에서 바로 놓는다. 편집 모드로 들어가 고르고, 다른 층만 보고 있었다면 설비의 층으로 바꾼 뒤 바닥을 누르게 한다. */
 function placeFromList(id: string) {
   if (!editing.value) mode.value = 'edit'
   selectAndShow(id)
   const home = storeyOf(id)
-  if (home && viewStorey.value && viewStorey.value !== home.id) viewStorey.value = home.id
+  // 놓을 층의 바닥이 보이게 그 층만 본다([설비 더하기] 와 같다). 모든 층을 보던 중이어도 바꾼다.
+  if (home && (model.value?.storeys.length ?? 0) > 1 && viewStorey.value !== home.id) viewStorey.value = home.id
   startPlace(id)
 }
 
@@ -5859,6 +5865,28 @@ async function export3D(format: 'glb' | 'obj') {
               >
                 {{ adding?.what === 'equipment' ? '더하기 취소' : '설비 더하기' }}
               </button>
+              <!-- 미배치 목록 펼치기. 작은 글자 한 줄로 둔다 — 버튼 줄을 더 쓰거나 [설비 더하기] 옆에 두면 팔레트가 커져 3D 왼쪽 아래 바닥을 가린다. -->
+              <button v-if="unplacedHere.length" type="button" class="link unplaced-toggle" :aria-expanded="unplacedOpen" @click="unplacedOpen = !unplacedOpen">
+                미배치 {{ unplacedHere.length.toLocaleString() }}대 {{ unplacedOpen ? '▾' : '▸' }}
+              </button>
+              <!-- 미배치 설비(OE-EQP-02). 누르면 바로 놓기 — 그 층 바닥(천장 모드면 천장)을 누르면 그 자리에 놓인다. 같은 설비를 다시
+                   누르거나 Esc 면 취소다. 접어 둔다 — 펼친 채면 팔레트가 3D 왼쪽 아래를 가린다. -->
+              <template v-if="unplacedHere.length && unplacedOpen">
+                <ul class="palette-unplaced" aria-label="미배치 설비">
+                  <li v-for="u in unplacedHere.slice(0, UNPLACED_SHOWN)" :key="u.equipment.id">
+                    <button
+                      type="button"
+                      :class="{ on: placing === u.equipment.id }"
+                      :aria-pressed="placing === u.equipment.id"
+                      :title="`${u.storey.name} · ${whatIs(u.equipment)?.label ?? ifcClassLabel(u.equipment.ifcClass) ?? u.equipment.ifcClass}`"
+                      @click="placing === u.equipment.id ? stopPlace() : placeFromList(u.equipment.id)"
+                    >
+                      {{ u.equipment.name ? shortName(u.equipment.name) : `(이름 없음 · ${whatIs(u.equipment)?.label ?? ifcClassLabel(u.equipment.ifcClass) ?? u.equipment.ifcClass})` }}
+                    </button>
+                  </li>
+                  <li v-if="unplacedHere.length > UNPLACED_SHOWN" class="muted">외 {{ (unplacedHere.length - UNPLACED_SHOWN).toLocaleString() }}대</li>
+                </ul>
+              </template>
               <label v-if="!ceilingMode" class="palette-check" title="설비를 옮기면 붙은 이음쇠는 같이 옮기고, 그 너머 덕트·배관은 먼 끝을 두고 늘입니다">
                 <input v-model="carryConduits" type="checkbox" /> 배관도 같이
               </label>
@@ -5867,8 +5895,8 @@ async function export3D(format: 'glb' | 'obj') {
                 <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.attached) }"></i>반자 부착
                 <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.plenum) }"></i>플레넘
               </span>
-              <span class="palette-head">벽·문·창</span>
-              <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). -->
+              <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). 제목 줄은 두지 않는다 — 버튼 이름과 같고, 줄이 늘면
+                   팔레트가 3D 왼쪽 아래를 가린다. -->
               <button type="button" :class="['ghost', { on: archMode, locked: ceilingMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="ceilingMode ? lockedTool() : (archMode = !archMode)">
                 벽·문·창
               </button>
@@ -6211,15 +6239,6 @@ async function export3D(format: 'glb' | 'obj') {
               />
             </label>
             <Src v-if="selected.position" :kind="positionSrc(selected)" />
-            <button
-              v-if="!selected.position"
-              type="button"
-              :class="['ghost', 'place', { on: placing === selected.id }]"
-              :aria-pressed="placing === selected.id"
-              @click="placing === selected.id ? stopPlace() : startPlace(selected.id)"
-            >
-              {{ placing === selected.id ? '놓기 취소' : '3D에서 놓기' }}
-            </button>
             <!-- 외벽 전용 설비(OE-OBJ-04). 누른 자리에서 가장 가까운 벽 면에 붙이고, 벽을 옮기면 같이 간다. -->
             <button
               v-if="editing && canMountOn(selected, 'wall')"
@@ -6236,7 +6255,7 @@ async function export3D(format: 'glb' | 'obj') {
                   ? `${selected.wallId ? `${wallNameOf(selected.wallId)}에 붙음 · ` : ''}${selected.spaceId ? `소속 ${spaceNameOf(selected.spaceId)}` : '소속 방 없음'} · 방향키로도 옮길 수 있습니다`
                   : positionDrafts.has(selected.id)
                     ? 'x·y·z를 모두 넣어야 옮겨집니다'
-                    : '좌표가 없습니다. x·y·z를 넣으면 소속 방을 찾습니다'
+                    : '좌표가 없습니다. x·y·z를 넣거나 왼쪽 도구의 미배치 목록에서 눌러 3D에 놓으세요'
               }}
             </span>
           </p>
@@ -7031,15 +7050,13 @@ async function export3D(format: 'glb' | 'obj') {
           <li v-for="w in warnings" :key="w">{{ w }}</li>
         </ul>
 
-        <!-- 미배치 목록(OE-BIM-07). 좌표가 없어 3D 에 없는 설비. 층은 BIM 이 말한 것이고, TTL 에는 그 층까지만 나간다. -->
+        <!-- 미배치 목록(OE-BIM-07). 좌표가 없어 3D 에 없는 설비. 층은 BIM 이 말한 것이고, TTL 에는 그 층까지만 나간다. 놓기는 편집
+             팔레트의 미배치 목록에서 한다(OE-EQP-02 — 따로 [3D에서 놓기] 버튼을 두지 않는다). -->
         <Fold v-if="unplaced.length" title="미배치 설비" :meta="`${unplaced.length.toLocaleString()}대 — 좌표가 없어 3D에 없습니다`" :default-open="unplaced.length <= 30" class="unplaced">
           <ul class="unplaced-list">
             <li v-for="u in unplaced.slice(0, UNPLACED_SHOWN)" :key="u.equipment.id">
               <button type="button" class="link" @click="selectAndShow(u.equipment.id)">{{ u.equipment.name ? shortName(u.equipment.name) : '(이름 없음)' }}</button>
               <span class="muted">{{ u.storey.name }} · {{ whatIs(u.equipment)?.label ?? ifcClassLabel(u.equipment.ifcClass) ?? u.equipment.ifcClass }}</span>
-              <button type="button" :class="['ghost', 'place', { on: placing === u.equipment.id }]" @click="placing === u.equipment.id ? stopPlace() : placeFromList(u.equipment.id)">
-                {{ placing === u.equipment.id ? '놓기 취소' : '3D에서 놓기' }}
-              </button>
             </li>
           </ul>
           <p v-if="unplaced.length > UNPLACED_SHOWN" class="muted">외 {{ (unplaced.length - UNPLACED_SHOWN).toLocaleString() }}대 — 설비 표에서 좌표 칸이 빈 것입니다</p>
