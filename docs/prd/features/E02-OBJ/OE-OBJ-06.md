@@ -30,9 +30,8 @@ loadBearing 값이 없어 내력 여부를 알 수 없는 벽은 '모름' 으로
 
 - `src/lib/edit.test.ts` "내력벽은 옮기거나 지우지 못하고, 거기 뚫린 문·창도 그렇다. 모름은 잠그지 않는다"
 - `src/lib/edit-file.test.ts` "내력벽을 풀고 지운 편집을 되살리면, BIM 이 내력이라 해도 지워진다"
-- `e2e/bearing-source.spec.ts`: Duplex 건축 Level 1 의 BIM 벽을 내력으로 바꾸면 출처가 "편집" 이 되고 잠기며, 비내력으로 되돌리면 "BIM" 으로 돌아와 풀린다
 - `e2e/edit-elements.spec.ts` 첫 항목: 내력으로 정한 벽은 지우기 버튼이 없고, 방향키·문 놓기가 막히며, 비내력으로 바꾸면 풀린다
-- 화면: `docs/figures/app-wall-locked.png`, `docs/figures/app-wall-unlocked.png` (Duplex 건축의 기초 벽), `docs/figures/app-wall-bearing-edited.png` (Level 1 벽을 내력으로 바꾼 뒤 출처 "편집")
+- 화면: `docs/figures/app-wall-locked.png`, `docs/figures/app-wall-unlocked.png` (Duplex 건축의 기초 벽)
 
 ## 메모
 
@@ -40,6 +39,5 @@ loadBearing 값이 없어 내력 여부를 알 수 없는 벽은 '모름' 으로
   내력 속성이 없는 파일(AC20 은 13장 전부)의 벽을 하나도 고칠 수 없다.
 - 잠그는 범위는 벽 옮기기·지우기, 그 벽에 문·창을 새로 뚫기, 이미 뚫린 문·창을 옮기거나 메우기다.
 - 푸는 길은 패널의 내력 여부를 바꾸는 것이다. BIM 값이 틀렸을 때 사람이 바로잡는 자리이고, 바꾼 값은 편집 파일과 리포트에 남는다.
-  패널의 출처 표시는 연 때 값과 다르면 "편집", 같으면 "BIM" 이다(더한 벽은 늘 "편집").
 - 편집 파일을 되살릴 때는 잠금을 보지 않는다. 지운 벽의 내력 여부는 편집 파일에 남지 않아서, 잠금을 보면 풀고 지운 편집이 빠진다.
 - 실측: Duplex 건축 벽 57장 중 내력 7장(기초), 비내력 50장, 모름 0장.

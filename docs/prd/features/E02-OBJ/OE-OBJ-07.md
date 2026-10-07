@@ -39,8 +39,7 @@ depends: ["OE-EQP-17"]
 
 ## 메모
 
-- 창은 벽에만 놓인다(벽에서 0.6m 안, `addOpening`). 통과 속성은 OE-EQP-17 의 값(문 통과 가능, 창 불가)을 GeoJSON 문·창 feature 의
-  `passable`(문 true, 창 false)로 낸다. 임포트(`ifc/import.ts`)·더한 문·창(`addOpening`)·편집 파일 되살리기가 같은 값을 둔다.
+- 창은 벽에만 놓인다(벽에서 0.6m 안, `addOpening`). 통과 속성은 GeoJSON 문·창 feature 의 `passable`(문 true, 창 false)이다.
 - 가로·세로는 패널에서 고친다. 자리(가운데)는 그대로이고, 직사각형 벽이면 넓힌 가로가 벽 끝을 넘지 못한다. 범위는 0.1~10m.
   3D 표시도 가로만큼 벽을 따라 펴진다. **GLB·OBJ 의 문·창 형상은 BIM 형상을 그대로 옮기는 것이라 크기를 바꿔도 따라가지 않는다.**
 - 벽의 외벽 여부를 Pset_WallCommon.IsExternal 에서 읽어 패널("외벽·내벽에 뚫림")과 GeoJSON 벽 `external` 에 낸다. 없으면 모름(null).
