@@ -652,6 +652,35 @@ function ttlBlock(ttl: string, id: string) {
 }
 
 /** 3D 에서 누를 수 있는 벽: 벽 윗면 가운데를 누르면 설비가 아니라 그 벽이 맞는 것. */
+/**
+ * 지금 시점에서 방 바닥이 맨 앞에 맞는 점을 눌러 그 방을 고른다. `roomToEdit` 가 고른 점은 처음 시점의 것이라, F 로 시점을
+ * 방에 맞추거나 패널이 열리고 닫혀 3D 크기가 바뀐 뒤에는 그 점을 천장 덕트가 가릴 수 있다(성수 F-11 이 덕트를 골랐다).
+ */
+async function pickRoom(space: Space, cx: number, cy: number) {
+  const xs = space.ring.map((p) => p[0])
+  const ys = space.ring.map((p) => p[1])
+  const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+  const points: [number, number][] = [[cx, cy]]
+  for (const fy of [0.5, 0.3, 0.7, 0.2, 0.8]) for (const fx of [0.5, 0.3, 0.7, 0.2, 0.8]) points.push([x0 + (x1 - x0) * fx, y0 + (y1 - y0) * fy])
+  // 지금 시점에서 못 찾으면(방이 화면 밖이거나 덕트가 다 가리면) Home 으로 층 전체를 보고 다시 찾는다.
+  for (const reframe of [false, true]) {
+    if (reframe) {
+      await page.keyboard.press('Home')
+      await expect.poll(() => viewer<{ flying: boolean }>('motion').then((m) => m.flying)).toBe(false)
+      await settle()
+    }
+    for (const [x, y] of points) {
+      if (!inRing(x, y, space.ring)) continue
+      const at = await floor(x, y, space.elevation + 0.05)
+      const hit = await viewer<{ equipment: string | null; space: string | null }>('pickAt', at.x, at.y)
+      if (hit.space !== space.id || hit.equipment) continue
+      await page.mouse.click(at.x, at.y)
+      await settle()
+      return
+    }
+  }
+  throw new Error(`${space.longName || space.name}: 가리지 않은 바닥이 없다`)
+}
 async function wallToPick(filter: (w: Wall) => boolean, limit = 40) {
   let tried = 0
   for (const w of map.walls.filter(filter)) {
@@ -739,7 +768,7 @@ test('F 물리존: 바닥 고르기·꼭짓점 끌기·짚고 옮기기·넣고 
   await undoAll()
 
   // F-7 선이 꼬이게 끌면 놓지 않고 알린다.
-  await clickFloor(cx, cy, z + 0.05)
+  await pickRoom(space, cx, cy)
   const before = await panelArea()
   const hs = await viewer<Pt[]>('handles')
   // 첫 꼭짓점을 둘째·셋째 꼭짓점 사이 변 너머로 — 마지막 변이 그 변을 가로지른다(네모 방에서도 꼬인다).
@@ -763,7 +792,7 @@ test('F 물리존: 바닥 고르기·꼭짓점 끌기·짚고 옮기기·넣고 
   record('F-15', `${f15}ms`)
 
   // F-11 나누기: 가운데를 지나는 가로선. F-13 조각을 다시 합친다.
-  await clickFloor(cx, cy, z + 0.05)
+  await pickRoom(space, cx, cy)
   const whole = await panelArea()
   const xs = space.ring.map((p) => p[0])
   await panel.getByRole('button', { name: '나누기' }).click()
@@ -967,7 +996,8 @@ test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 
 
   // N-2·N-3 내력 모름인 벽을 골라 방향키로 옮기고 내력으로 바꾼다.
   const unknown = await wallToPick((w) => w.loadBearing === null)
-  const any = unknown ?? (await wallToPick((w) => w.storey === stemOf(STOREY)))
+  // 내력벽은 잠겨서(OE-OBJ-06) 방향키·지우기를 볼 수 없다. 모름이 없으면 내력이 아닌 벽이다.
+  const any = unknown ?? (await wallToPick((w) => w.storey === stemOf(STOREY) && w.loadBearing !== true))
   expect(any, '3F 에서 누를 벽을 못 찾았다').not.toBeNull()
   await showStorey(any!.wall.storey)
   await page.mouse.click(any!.at.x, any!.at.y)
@@ -978,6 +1008,10 @@ test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 
     await panel.locator('select').last().selectOption('true')
     await expect(page.locator('.report')).toContainText('모름 → 내력')
     record('N-3', '통과', '내력 모름 → 내력')
+    // 내력벽은 옮기거나 지우지 못한다(OE-OBJ-06). 잠긴 것을 보고, N-7 을 보려고 아님으로 바꿔 푼다.
+    await expect(panel.getByRole('button', { name: '벽 지우기' })).toHaveCount(0)
+    await panel.locator('select').last().selectOption('false')
+    record('N-3b', '통과', '내력으로 바꾸면 잠기고, 아님으로 바꾸면 풀린다(OE-OBJ-06)')
   }
   // N-7 벽 지우기와 되돌리기.
   const before = (await viewer<string[]>('elements')).length
@@ -993,14 +1027,15 @@ test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 
   if (room) {
     const { cx, cy, space } = room
     await page.getByRole('button', { name: '벽 긋기' }).click()
-    await clickFloor(cx - 1.5, cy, space.elevation)
-    await clickFloor(cx + 1.5, cy, space.elevation)
+    // 다른 벽을 가로지르는 벽은 긋지 못한다(OE-OBJ-05). roomToEdit 가 방 안을 보장하는 ±1.2m 안에서 2m 를 긋는다.
+    await clickFloor(cx - 1, cy, space.elevation)
+    await clickFloor(cx + 1, cy, space.elevation)
     await expect(panel.locator('h3')).toHaveText('새 벽')
     await expect(panel.locator('select').last()).toHaveValue('null')
     await page.getByRole('button', { name: '문 놓기' }).click()
     await clickFloor(cx, cy + 0.1, space.elevation)
     await expect(panel.locator('h3')).toHaveText('새 문')
-    record('N-4·N-5', '통과', '3m 벽(내력 모름)과 그 벽의 문')
+    record('N-4·N-5', '통과', '2m 벽(내력 모름)과 그 벽의 문')
   }
   await undoAll()
 
@@ -1020,20 +1055,29 @@ test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 
     await page.mouse.click(at.x, at.y)
     await expect(panel.locator('h3')).toHaveText(w.name)
     await panel.locator('.carry-rooms input').check()
-    await page.keyboard.press('ArrowUp')
-    await page.keyboard.press('ArrowRight')
-    await settle()
+    // 다른 벽을 가로지르게 되는 걸음은 막힌다(OE-OBJ-05). 간 걸음만 세어 그만큼 돌아온다 — 고정 횟수로 돌아오면 막힌 걸음만큼 어긋난다.
+    const where = async () => JSON.stringify(await viewer<Pt | null>('element', w.id))
+    const went = { up: 0, right: 0 }
+    const step = async (key: 'ArrowUp' | 'ArrowRight') => {
+      const before = await where()
+      await page.keyboard.press(key)
+      await settle()
+      if ((await where()) !== before) went[key === 'ArrowUp' ? 'up' : 'right']++
+    }
+    await step('ArrowUp')
+    await step('ArrowRight')
     // 벽 하나가 옮긴 방들은 리포트 한 줄에 적힌다("TPS 9.1㎡ → 9.4㎡ · EPS 5.1㎡ → 4.8㎡"). 넓이 변화를 센다.
     const report = await page.locator('.report').innerText().catch(() => '')
     const lines = report.split('\n').filter((l) => l.includes('㎡ →'))
     if ((report.match(/㎡ →/g) ?? []).length >= 2) {
       record('N-8a', '통과', `${w.name}: ${lines.join(' / ')}`)
       // N-8b 다섯 걸음 나갔다 돌아오면 넓이가 처음과 같다.
-      for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowUp')
-      for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowDown')
-      await page.keyboard.press('ArrowLeft')
+      for (let i = 0; i < 4; i++) await step('ArrowUp')
+      for (let i = 0; i < went.up; i++) await page.keyboard.press('ArrowDown')
+      for (let i = 0; i < went.right; i++) await page.keyboard.press('ArrowLeft')
       await expect(page.locator('.report li', { hasText: '㎡ →' })).toHaveCount(0)
-      record('N-8b', '통과', '다섯 걸음 나갔다 돌아오면 방 넓이가 처음과 같다')
+      const blocked = 5 - went.up
+      record('N-8b', '통과', `위로 ${went.up}걸음 나갔다 돌아오면 방 넓이가 처음과 같다${blocked ? ` (${blocked}걸음은 다른 벽을 가로질러 막힘, OE-OBJ-05)` : ''}`)
       carried = true
       break
     }
@@ -1184,6 +1228,13 @@ test('K·L 저장과 불러오기, 자동 저장, 내보내기가 같다', async
   expect(ttl).toContain('rdfs:label "회의실 가"')
   expect(ttl).not.toMatch(/POLYGON\(|geo:asWKT|wktLiteral/)
   record('L-5·L-6', '통과', 'TTL 에 고친 방 이름, 기하 없음')
+  // 저장하면 자동 저장(임시 저장)은 지운다 — 저장한 것과 같아 되살릴 것이 없다(OE-COM-08). 이어서 하기를 보려면 저장 뒤 편집이
+  // 하나 더 있어야 한다.
+  await pickDevice(DEVICE_A)
+  await page.keyboard.press('ArrowRight')
+  await page.waitForTimeout(1500)
+  const unsaved = await changeCount()
+  const ttlUnsaved = (await download(() => page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click())).text
 
   // K-3 새로 열어 건축만 열면 묻지 않는다. K-4 기계를 덧붙이면 묻고, 이어서 하면 돌아온다.
   await page.goto('/')
@@ -1197,10 +1248,10 @@ test('K·L 저장과 불러오기, 자동 저장, 내보내기가 같다', async
   await expect(page.locator('.draft-bar')).toBeVisible()
   const restore = await timed(() => page.getByRole('button', { name: '이어서 하기' }).click())
   await editMode(true)
-  expect(await changeCount()).toBe(changes)
+  expect(await changeCount()).toBe(unsaved)
   const restored = (await download(() => page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click())).text
-  expect(restored.split('\n').sort()).toEqual(ttl.split('\n').sort())
-  record('K-3·K-4', `이어서 하기 ${restore}ms`, `바뀐 것 ${changes}건이 돌아오고 TTL 이 같다`)
+  expect(restored.split('\n').sort()).toEqual(ttlUnsaved.split('\n').sort())
+  record('K-3·K-4', `이어서 하기 ${restore}ms`, `저장 뒤 편집까지 바뀐 것 ${unsaved}건이 돌아오고 TTL 이 같다`)
 
   // K-6 열자마자 새로 고치면 기록이 남아 다시 묻는다. K-5 버리면 다음에는 안 묻는다.
   const reopen = async () => {
