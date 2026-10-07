@@ -7,7 +7,7 @@ prd: "#12"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "IDF 겹침만"
 blocked_by: []
 depends: ["OE-ZON"]

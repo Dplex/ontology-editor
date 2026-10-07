@@ -7,7 +7,7 @@ prd: "#14"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "IFC 세그먼트 ✔"
 blocked_by: []
 depends: ["R11","R15"]

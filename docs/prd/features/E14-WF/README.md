@@ -11,7 +11,7 @@ PRD #15 #16 #17 #18 #19 · 티켓 22건 · [Epic 색인](../../PRD_011.md#3-요�
 | [OE-WF-03](OE-WF-03.md) | 단일 임시 저장본 | R1 | P1 | prd-review |
 | [OE-WF-04](OE-WF-04.md) | 임시 저장본 폐기 | R1 | P1 | prd-review |
 | [OE-WF-05](OE-WF-05.md) | 임시 저장 후 잠금 해제 | R1 | P1 | prd-review |
-| [OE-WF-06](OE-WF-06.md) | 임포트 결과 = 임시 저장본 | R1 | P1 | prd-review |
+| [OE-WF-06](OE-WF-06.md) | 임포트 결과 = 임시 저장본 | R1 | P1 | prd-done |
 | [OE-WF-07](OE-WF-07.md) | 미리보기 3D | R1 | P1 | prd-review |
 | [OE-WF-08](OE-WF-08.md) | 미리보기 변경 요약 | R1 | P2 | prd-review |
 | [OE-WF-09](OE-WF-09.md) | 미리보기 영향 목록 | R1 | P2 | prd-review |
