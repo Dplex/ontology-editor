@@ -35,6 +35,17 @@ describe('설비 겹침', () => {
     expect(standalone({ ...device('S', null, [0, 0, 0], 'sensing'), ifcClass: 'Sensor' })).toBe(true)
   })
 
+  it('같이 옮기는 설비(ignore)끼리는 옛 자리와 견주지 않는다 — 묶음을 같은 거리만큼 옮기면 서로 새로 겹치지 않는다 (OE-UI-09)', () => {
+    const boxes: Record<string, Box3> = { A: markerBox([0, 0, 3]), B: markerBox([0.5, 0, 3]), C: markerBox([1.5, 0, 3]) }
+    const m = modelOf([device('A', 'lighting', [0, 0, 3]), device('B', 'lighting', [0.5, 0, 3]), device('C', 'smoke_detector', [1.5, 0, 3])])
+    const boxOf = (id: string) => boxes[id] ?? null
+    // A 를 B 의 옛 자리로 — 혼자 옮기면 막히지만, B 도 같이 가면 막지 않는다.
+    expect(overlapAt(m, 'A', [0.5, 0, 3], boxOf)?.id).toBe('B')
+    expect(overlapAt(m, 'A', [0.5, 0, 3], boxOf, undefined, new Set(['A', 'B']))).toBeNull()
+    // 묶음 밖의 설비(C)와는 여전히 막는다.
+    expect(overlapAt(m, 'B', [1.5, 0, 3], boxOf, undefined, new Set(['A', 'B']))?.id).toBe('C')
+  })
+
   it('옮겨서 새로 겹치면 상대를 돌려주고, 원래 겹쳐 있던 상대는 떼어 놓을 수 있다', () => {
     const boxes: Record<string, Box3> = { A: markerBox([0, 0, 3]), B: markerBox([2, 0, 3]) }
     const m = modelOf([device('A', 'lighting', [0, 0, 3]), device('B', 'smoke_detector', [2, 0, 3]), device('F', 'fcu', [4, 0, 3])])

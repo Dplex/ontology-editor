@@ -110,6 +110,8 @@ export function overlapAt(
   boxOf: (id: string) => Box3 | null,
   /** 옮겨 갈 층. 견줄 설비를 고르는 데는 더 쓰지 않는다(위). 부르는 쪽 모양을 그대로 두려고 받는다. */
   _storeyId?: string,
+  /** 같이 옮기는 설비(OE-UI-09). 다 같은 거리만큼 가므로 서로는 새로 겹치지 않는다 — 옛 자리와 견주지 않는다. */
+  ignore?: ReadonlySet<string>,
 ): Equipment | null {
   const all = model.storeys.flatMap((s) => s.equipment)
   const me = all.find((e) => e.id === equipmentId)
@@ -117,7 +119,7 @@ export function overlapAt(
   const now = equipmentBox(me, boxOf)
   const next = me.position && now ? shiftBox(now, [to[0] - me.position[0], to[1] - me.position[1], to[2] - me.position[2]]) : markerBox(to)
   for (const other of all) {
-    if (other.id === me.id || !standalone(other)) continue
+    if (other.id === me.id || ignore?.has(other.id) || !standalone(other)) continue
     const box = equipmentBox(other, boxOf)
     if (!box || !boxesOverlap(next, box)) continue
     if (now && me.position && boxesOverlap(now, box)) continue

@@ -25,9 +25,14 @@ const props = defineProps<{
   editing: boolean
   /** 벽을 눌러 고를 수 있나. 3D 와 같이 편집 모드에서 [벽·문·창] 을 켰을 때만이다. */
   pickWalls: boolean
+  /** 여러 개 고른 설비(OE-UI-09). 고른 색으로 그린다. */
+  group?: readonly string[]
 }>()
 const emit = defineEmits<{
-  select: [id: string]
+  /** `additive` 는 Shift 를 누른 채 누른 것(여러 개 고르기, OE-UI-09). */
+  select: [id: string, additive: boolean]
+  /** 편집 모드에서 Shift+끌기로 그린 상자 안의 설비(OE-UI-09). */
+  selectBox: [ids: string[]]
   pickSpace: [id: string | null]
   pickElement: [id: string]
   moveVertex: [spaceId: string, index: number, to: Vec2]
@@ -123,14 +128,27 @@ let pan: { x: number; y: number; vx: number; vy: number } | null = null
 /** 끌어서 옮겼으면 뒤따르는 클릭을 고르기로 치지 않는다. */
 let moved = false
 const drag = ref<{ index: number; at: Vec2 } | null>(null)
+/** Shift+끌기로 그리는 고르기 상자(OE-UI-09). IFC 평면 좌표. */
+const box = ref<{ from: Vec2; to: Vec2 } | null>(null)
 
 function onPointerDown(event: PointerEvent) {
   if (event.button !== 0) return
+  if (props.editing && event.shiftKey) {
+    const at = toModel(event)
+    box.value = { from: at, to: at }
+    moved = false
+    return
+  }
   const [x, y] = viewBox.value.split(' ').map(Number)
   pan = { x: event.clientX, y: event.clientY, vx: x, vy: y }
   moved = false
 }
 function onPointerMove(event: PointerEvent) {
+  if (box.value) {
+    box.value = { from: box.value.from, to: toModel(event) }
+    if (Math.hypot(box.value.to[0] - box.value.from[0], box.value.to[1] - box.value.from[1]) > unit.value * 4) moved = true
+    return
+  }
   if (drag.value) {
     drag.value = { index: drag.value.index, at: toModel(event) }
     return
@@ -142,6 +160,15 @@ function onPointerMove(event: PointerEvent) {
   view.value = { x: pan.vx - (event.clientX - pan.x) * unit.value, y: pan.vy - (event.clientY - pan.y) * unit.value, w, h }
 }
 function onPointerUp() {
+  if (box.value) {
+    const { from, to } = box.value
+    box.value = null
+    // 거의 안 끌었으면 Shift+클릭이다(점의 @click 이 받는다).
+    if (!moved) return
+    const [x0, x1, y0, y1] = [Math.min(from[0], to[0]), Math.max(from[0], to[0]), Math.min(from[1], to[1]), Math.max(from[1], to[1])]
+    emit('selectBox', devices.value.filter((e) => e.position![0] >= x0 && e.position![0] <= x1 && e.position![1] >= y0 && e.position![1] <= y1).map((e) => e.id))
+    return
+  }
   if (drag.value && spaceId.value) {
     const [x, y] = drag.value.at
     // 1mm 로 자른다. 끌기가 만든 소수점 끝자리가 편집 파일을 어지럽히지 않게.
@@ -248,14 +275,25 @@ function pickSpace(id: string) {
         :key="e.id"
         :cx="sx(e.position![0])"
         :cy="sy(e.position![1])"
-        :r="unit * (e.id === selectedId ? 6 : 4)"
-        :class="{ chosen: e.id === selectedId }"
+        :r="unit * (e.id === selectedId || group?.includes(e.id) ? 6 : 4)"
+        :class="{ chosen: e.id === selectedId || group?.includes(e.id) }"
         :data-equipment="e.id"
-        @click.stop="!moved && emit('select', e.id)"
+        @click.stop="!moved && emit('select', e.id, $event.shiftKey)"
       >
         <title>{{ e.name || e.ifcClass }}</title>
       </circle>
     </g>
+    <!-- Shift+끌기 고르기 상자(OE-UI-09). -->
+    <rect
+      v-if="box"
+      class="box-select"
+      :x="sx(Math.min(box.from[0], box.to[0]))"
+      :y="sy(Math.max(box.from[1], box.to[1]))"
+      :width="Math.abs(box.to[0] - box.from[0])"
+      :height="Math.abs(box.to[1] - box.from[1])"
+      :stroke-width="unit * 1.2"
+      :stroke-dasharray="`${unit * 4} ${unit * 3}`"
+    />
     <!-- 고른 방의 경계. 편집 모드면 꼭짓점 손잡이를 끌어 옮긴다. -->
     <g v-if="selectedSpace && previewRing" class="edit-ring">
       <polygon :points="points(previewRing)" :stroke-width="unit * 2" />
