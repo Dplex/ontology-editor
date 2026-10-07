@@ -126,6 +126,18 @@ const ARCH_WALL_TOP = { color: 0x8a94a3, opacity: 0.45 }
 /** 문·창을 누를 때 자리에서 이만큼 안이면 그 문·창이다(미터). */
 const ELEMENT_REACH = 0.35
 
+/**
+ * 천장 설비의 바닥 발자국 링 색(OE-EQP-04). 반자 부착과 플레넘을 색으로 가른다. 링은 바닥(층 바닥 + 이만큼)에 눕고, 크기는 설비
+ * 형상의 평면 외곽(없으면 CEILING_RING_MIN)이다. 높이는 물리존 판(층 바닥 + 0.1m) 바로 위다 — 밑에 두면 판에 가린다.
+ */
+export const CEILING_RING_COLORS = { attached: 0x1f9bb4, plenum: 0x9a5fd0 }
+const CEILING_RING_LIFT = 0.13
+const CEILING_RING_MIN = 0.25
+const CEILING_RING_SIDES = 24
+
+/** 천장 설비 하나의 발자국(OE-EQP-04). `at` 은 설비의 IFC 좌표, `floor` 는 그 층 바닥 높이(IFC z)다. */
+export type CeilingMark = { id: string; storeyId: string; at: Vec3; floor: number; zone: 'attached' | 'plenum' }
+
 export const WALL_COLORS = {
   loadBearing: 0x39424e,
   unknown: 0xd9a531,
@@ -299,6 +311,11 @@ export type Viewer = {
   setHvacZones(model: Model | null, selected: string | null): void
   /** 커스텀존(OE-OBJ-01) 외곽선과 고른 존의 면. null 이면 지운다. 층별로 보기를 따른다. */
   setCustomZones(model: Model | null, selected: string | null): void
+  /**
+   * 천장 설비의 바닥 발자국 링과, 고른 설비에서 링까지의 수직 점선(OE-EQP-04). 빈 배열이면 지운다. 층별로 보기를 따르고
+   * 고르지 않는다 — 링을 눌러도 바닥(물리존)이 골라진다.
+   */
+  setCeilingMarks(marks: readonly CeilingMark[], selected: string | null): void
   onPickElement(handler: (id: string | null) => void): void
   /** 화살표·손잡이 색을 테마에 맞춘다. 바탕이 투명이라 페이지 색이 그대로 비친다. */
   setDark(on: boolean): void
@@ -444,6 +461,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const o of arch.children) o.visible = storeyShown(o)
     for (const o of zoneLines.children) o.visible = storeyShown(o)
     for (const o of customZones.children) o.visible = storeyShown(o)
+    for (const o of ceilingMarks.children) o.visible = storeyShown(o)
     dirty = true
   }
   let pickHandler: (id: string | null, additive?: boolean) => void = () => {}
@@ -514,6 +532,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   scene.add(zoneLines)
   const customZones = new Group()
   scene.add(customZones)
+  const ceilingMarks = new Group()
+  scene.add(ceilingMarks)
   /** 누를 수 있는 벽·문·창. 문·창은 자리(`at`)와, 가로를 알면 벽을 따라 편 반 폭(`half`, 방향 `dir`)을 든다. */
   let archTargets: { id: string; storeyId: string; y: number; rings?: readonly (readonly Vec2[])[]; at?: Vec2; dir?: Vec2; half?: number }[] = []
   /** 문·창까지의 평면 거리. 가로를 알면 그 폭의 선분까지다(넓힌 창의 끝을 눌러도 창이다). */
@@ -1555,6 +1575,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           return { key: seg.key, a: spec?.a, b: spec?.b, from: spec?.from, source: spec?.source, active: !!spec?.active, at: toScreen(seg.a.clone().lerp(seg.b, 0.5)) }
         }),
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
+      /** 천장 설비 링 수(보이는 층만)와 수직 점선이 가리키는 설비(OE-EQP-04). */
+      ceilingMarks: () => ({
+        rings: ceilingMarks.children.filter((o) => o.visible && o instanceof LineSegments).reduce((n, o) => n + (o.userData.count as number), 0),
+        guide: (ceilingMarks.children.find((o) => o.visible && o.userData.guide)?.userData.guide as string | undefined) ?? null,
+      }),
       /** 벽·문·창 편집 층에서 누를 수 있는 것의 id. */
       elements: () => archTargets.map((t) => t.id),
       /** 벽·문·창을 누를 화면 자리. 벽은 첫 외곽선 꼭짓점의 평균(곧은 벽이면 외곽선 안), 문·창은 자리다. */
@@ -1981,6 +2006,59 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
             customZones.add(face)
           }
         }
+      }
+      applyStoreyVisibility()
+    },
+
+    setCeilingMarks(marks, selected) {
+      ceilingMarks.traverse((o) => {
+        if (o instanceof LineSegments || o instanceof Line) {
+          o.geometry.dispose()
+          ;(o.material as { dispose(): void }).dispose()
+        }
+      })
+      ceilingMarks.clear()
+      // 층마다 링 전부를 선분 한 덩어리로 — 성수는 천장 설비가 1천 대 가까워 링마다 객체를 두면 그리기 호출이 그만큼 는다.
+      const byStorey = new Map<string, CeilingMark[]>()
+      for (const m of marks) byStorey.set(m.storeyId, [...(byStorey.get(m.storeyId) ?? []), m])
+      const color = new Color()
+      for (const [storeyId, list] of byStorey) {
+        const positions = new Float32Array(list.length * CEILING_RING_SIDES * 6)
+        const colors = new Float32Array(positions.length)
+        let o = 0
+        for (const m of list) {
+          const box = partById.get(m.id)?.box
+          const r = box ? Math.max(CEILING_RING_MIN, Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2) : CEILING_RING_MIN
+          const [cx, , cz] = toScene(m.at)
+          const y = m.floor + CEILING_RING_LIFT
+          color.setHex(CEILING_RING_COLORS[m.zone])
+          for (let k = 0; k < CEILING_RING_SIDES; k++) {
+            const a = (k / CEILING_RING_SIDES) * Math.PI * 2
+            const b = ((k + 1) / CEILING_RING_SIDES) * Math.PI * 2
+            positions.set([cx + r * Math.cos(a), y, cz + r * Math.sin(a), cx + r * Math.cos(b), y, cz + r * Math.sin(b)], o)
+            colors.set([color.r, color.g, color.b, color.r, color.g, color.b], o)
+            o += 6
+          }
+        }
+        const g = new BufferGeometry()
+        g.setAttribute('position', new BufferAttribute(positions, 3))
+        g.setAttribute('color', new BufferAttribute(colors, 3))
+        const rings = new LineSegments(g, new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false }))
+        rings.userData.storeyId = storeyId
+        rings.userData.count = list.length
+        ceilingMarks.add(rings)
+      }
+      const picked = selected ? marks.find((m) => m.id === selected) : undefined
+      if (picked) {
+        const [x, top, z] = toScene(picked.at)
+        const line = new Line(
+          new BufferGeometry().setFromPoints([new Vector3(x, top, z), new Vector3(x, picked.floor + CEILING_RING_LIFT, z)]),
+          new LineDashedMaterial({ color: CEILING_RING_COLORS[picked.zone], dashSize: 0.15, gapSize: 0.1 }),
+        )
+        line.computeLineDistances()
+        line.userData.storeyId = picked.storeyId
+        line.userData.guide = picked.id
+        ceilingMarks.add(line)
       }
       applyStoreyVisibility()
     },

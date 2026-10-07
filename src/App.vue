@@ -36,12 +36,14 @@ import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
 import { modelToTTL } from './lib/export/ttl'
 import {
   arrowColors,
+  CEILING_RING_COLORS,
   createViewer,
   PICK_COLORS,
   systemColors,
   toScene,
   WALL_COLORS,
   type Arrow,
+  type CeilingMark,
   type Viewer,
   type HoverTarget,
 } from './lib/viewer'
@@ -142,7 +144,7 @@ import {
   zoneSpaces,
 } from './lib/custom-zone'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
-import { ceilingGuess, ceilingOf, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, type Judged } from './lib/ceiling'
+import { ceilingGuess, ceilingOf, ceilingZone, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
@@ -3529,6 +3531,22 @@ const allCustomZones = computed(() => {
   return (model.value?.storeys ?? []).flatMap((storey) => (storey.customZones ?? []).map((zone) => ({ storey, zone })))
 })
 watch([model, sceneVersion, selectedCustomZoneId], () => viewer?.setCustomZones(model.value, selectedCustomZoneId.value))
+// 천장 설비 표시(OE-EQP-04). 편집 모드에서 천장 설비마다 바닥 발자국 링을, 고른 것이면 링까지 수직 점선을 그린다. 천장 설비는
+// 판정 설치면이 천장·플레넘인 것과, 반자 높이를 모르는 층에서 종류가 천장 전용인 것이다(그 층은 천장을 판정하지 못한다). 구역(링 색)은 종류가
+// 정하고, 종류가 모르면 판정(플레넘이면 플레넘)을 따른다.
+const ceilingMarks = computed<CeilingMark[]>(() => {
+  if (!editing.value) return []
+  const out: CeilingMark[] = []
+  for (const r of surfaceRows.value) {
+    const e = r.equipment
+    if (!e.position) continue
+    const onCeiling = r.judged === 'ceiling' || r.judged === 'plenum' || (r.judged === null && !ceilingOf(r.storey) && surfaceOf(e) === 'ceiling')
+    if (!onCeiling) continue
+    out.push({ id: e.id, storeyId: r.storey.id, at: e.position, floor: r.storey.elevation, zone: ceilingZone(e.kind) ?? (r.judged === 'plenum' ? 'plenum' : 'attached') })
+  }
+  return out
+})
+watch([ceilingMarks, sceneVersion, selectedId], () => viewer?.setCeilingMarks(ceilingMarks.value, selectedId.value))
 
 /** 커스텀존이 품는 방의 표시 이름. 이름과 방 번호를 같이 둔다. */
 function zoneRoomLabel(id: string): string {
@@ -5588,6 +5606,11 @@ async function export3D(format: 'glb' | 'obj') {
               <label class="palette-check" title="설비를 옮기면 붙은 이음쇠는 같이 옮기고, 그 너머 덕트·배관은 먼 끝을 두고 늘입니다">
                 <input v-model="carryConduits" type="checkbox" /> 배관도 같이
               </label>
+              <!-- 천장 설비의 바닥 발자국 링(OE-EQP-04). 색은 구역이다. 왼쪽 위 색 안내에 넣었더니 길어져 3D 의 설비를 덮었다. -->
+              <span v-if="ceilingMarks.length" class="ceiling-key" title="천장 설비는 바닥에 링으로 보입니다. 고르면 링까지 점선이 내려옵니다(OE-EQP-04)">
+                <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.attached) }"></i>반자 부착
+                <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.plenum) }"></i>플레넘
+              </span>
               <span class="palette-head">벽·문·창</span>
               <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). -->
               <button type="button" :class="['ghost', { on: archMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="archMode = !archMode">

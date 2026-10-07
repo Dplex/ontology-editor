@@ -1366,6 +1366,24 @@ th {
   border-radius: 0.2rem;
 }
 
+/* 천장 설비 링 풀이(OE-EQP-04). 편집 팔레트 "설비" 칸 아래 한 줄이고, 3D 처럼 속이 빈 원이다. */
+.ceiling-key {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.ceiling-key i.ring {
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-left: 0.2rem;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
 /* 화살표 풀이. 네모 대신 막대로, 점선은 점선으로 그린다(3D 와 같은 모양). */
 .color-key .key-head {
   margin-top: 0.3rem;
