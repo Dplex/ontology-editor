@@ -2582,6 +2582,25 @@ main.has-model .catalog {
   min-width: 0;
 }
 
+/* 사람 지정 해제(OE-MAP-01 · K17). 지정은 남아 있고 기계 판정이 이긴 것이라 주의 색으로 한 줄. */
+.assign-released {
+  display: block;
+  color: var(--warn, #b26b00);
+  font-size: 0.8rem;
+}
+
+/* 사람의 소속 지정 칸. 고르기 상자 아래에 막힌 까닭을 한 줄로. */
+.facts .assign dd {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.facts .assign select {
+  max-width: 100%;
+}
+
 /* 3D 아래에서 고르면 작업 화면으로 올라온다(selectAndShow). 도구막대에 윗부분이 깔리지 않게. */
 .workspace {
   scroll-margin-top: calc(var(--appbar-h, 4rem) + 0.75rem);
@@ -3439,21 +3458,3 @@ button.done::after {
   margin-left: 0.4rem;
 }
 
-/* 사람 지정 해제(OE-MAP-01 · K17). 지정은 남아 있고 기계 판정이 이긴 것이라 주의 색으로 한 줄. */
-.assign-released {
-  display: block;
-  color: var(--warn, #b26b00);
-  font-size: 0.8rem;
-}
-
-/* 사람의 소속 지정 칸. 고르기 상자 아래에 막힌 까닭을 한 줄로. */
-.facts .assign dd {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.2rem;
-}
-
-.facts .assign select {
-  max-width: 100%;
-}

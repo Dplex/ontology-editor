@@ -282,6 +282,7 @@ const readOpeningShapes = computed(() => readOpenings.value && (readFeatures.val
 const changeCount = computed(
   () =>
     report.value.length +
+    assignLines.value.length +
     areaLines.value.length +
     confirmations.value.length +
     flowEditLines.value.length +
@@ -304,7 +305,6 @@ const changeCount = computed(
     sinceOpen.value.openingsRemoved.length +
     sinceOpen.value.openingsMoved.length +
     sinceOpen.value.customZones.length +
-    assignLines.value.length +
     sinceOpen.value.systemMoved.length +
     sinceOpen.value.systemKinds.length +
     sinceOpen.value.systemNames.length +
@@ -7477,6 +7477,11 @@ async function export3D(format: 'glb' | 'obj') {
               {{ c.equipmentName }}:
               <b>{{ spaceNameOf(c.fromSpaceId) }}</b> → <b>{{ spaceNameOf(c.toSpaceId) }}</b>
             </li>
+            <!-- 사람의 소속 지정(K17). 해제된 것도 조용히 바꾸지 않고 까닭과 함께 보인다. -->
+            <li v-for="r in assignLines" :key="`assign-${r.id}`">
+              <template v-if="r.released">사람 지정 해제: <b>{{ r.name }}</b> {{ spaceNameOf(r.from) }} → {{ spaceNameOf(r.to) }}({{ r.reason }})</template>
+              <template v-else>설비 <b>{{ r.name }}</b>의 소속을 {{ spaceNameOf(r.from) }}(으)로 정했습니다 (TTL hasLocation · GeoJSON spaceSource edit)</template>
+            </li>
             <li v-if="areaSummary" class="muted">{{ areaSummary }}</li>
             <li v-for="(c, i) in confirmations" :key="`rule-${i}`">
               계통 <b>{{ c.systemName }}</b>: 규칙 방향 {{ c.count }}개 확정 (brick:feeds)
@@ -7530,11 +7535,6 @@ async function export3D(format: 'glb' | 'obj') {
               {{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }}
               {{ r.moved && r.resized ? '옮기고 크기를 바꿨습니다' : r.moved ? '옮겼습니다' : '크기를 바꿨습니다' }}
               ({{ r.moved ? 'GeoJSON 위치·잇는 방' : 'GeoJSON 가로·세로' }})
-            </li>
-            <!-- 사람의 소속 지정(K17). 해제된 것도 조용히 바꾸지 않고 까닭과 함께 보인다. -->
-            <li v-for="r in assignLines" :key="`assign-${r.id}`">
-              <template v-if="r.released">사람 지정 해제: <b>{{ r.name }}</b> {{ spaceNameOf(r.from) }} → {{ spaceNameOf(r.to) }}({{ r.reason }})</template>
-              <template v-else>설비 <b>{{ r.name }}</b>의 소속을 {{ spaceNameOf(r.from) }}(으)로 정했습니다 (TTL hasLocation · GeoJSON spaceSource edit)</template>
             </li>
             <li v-for="r in sinceOpen.customZones" :key="`cz-${r.id}`">
               커스텀존 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.change === 'added' ? '만들었습니다' : r.change === 'removed' ? '지웠습니다' : '고쳤습니다' }}

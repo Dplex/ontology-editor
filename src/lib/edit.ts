@@ -7,7 +7,7 @@
 // 반영 전에 차이를 보여 주는 것이 PRD #16(미리보기)이고, 반영 뒤에 남기는 것이 #21(결과
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
-import { assignEquipment, centroid, isSelfIntersecting, locate, nearRing, spaceAssignable } from './mapping'
+import { assignEquipment, centroid, isSelfIntersecting, locate, nearRing } from './mapping'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
@@ -17,6 +17,7 @@ import { spacesBesideOpening } from './ifc/element-geometry'
 import { overlapArea, splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
 import { josa } from './josa'
+import { spaceAssignable } from './mapping'
 import { allowedSurfaces, canMountOn, SURFACE_LABEL } from './mount'
 
 /** 편집 한 번이 만든 관계 변화. 좌표가 아니라 관계를 적는다. */
