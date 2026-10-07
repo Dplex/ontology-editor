@@ -35,6 +35,36 @@ ls -la data/성수/             # Factorial_건축.ifc (84MB), Factorial_기계.
 
 ---
 
+### 0-5 성수가 없는 PC — 합성 고층 BIM 으로 돌리기
+
+성수가 없는 PC 에서는 병원을 20층으로 쌓고 성수에서 본 버릇(설비 Proxy, 같은 외곽선의 "공간" 사본, 방향 없는 포트, 계통 없는 말단 …)을
+심은 합성 BIM 으로 같은 시험을 돈다. 성수 숫자(층 19 · 물리존 508 …)를 재는 것이 아니라 **같은 동작이 이만한 크기에서 되는지**를 본다.
+
+```bash
+node --max-old-space-size=12288 scripts/synth-tower.mjs          # data/합성-성수/ 에 건축·기계와 판본 여섯(40초)
+npm run check:sample -- -t "TC 가 대응하는 상황"                  # 상황 84개 커버리지 → data/합성-성수/커버리지.md
+SEONGSU_ARCH=data/합성-성수/건축.ifc SEONGSU_MECH=data/합성-성수/기계.ifc npx vitest run --config vitest.sample.config.ts scripts/seongsu.test.ts
+```
+
+화면 시험(B~O)은 성수 이름 대신 쓸 것을 환경변수로 준다(기본값은 성수 것이라 성수 PC 에서는 안 준다):
+
+```bash
+export SEONGSU_ARCH=data/합성-성수/건축.ifc SEONGSU_MECH=data/합성-성수/기계.ifc
+export SEONGSU_STOREY='[5] First Floor' SEONGSU_OTHER_STOREY='[4] Second Floor'   # [5] 묶음은 포트 방향이 없다
+export SEONGSU_TERMINAL='Supply Diffuser' SEONGSU_AHU='Air Handling Unit' SEONGSU_HYDRONIC='Hydronic Supply'
+export SEONGSU_SUPPLY_DUCT='덕트' SEONGSU_OUTSIDE_X=-500 SEONGSU_FIND='디퓨저=디퓨저,Rectangular Duct=덕트'
+export SEONGSU_COUNTS=record SEONGSU_LINKED=record SEONGSU_AIR_SOURCES=record   # 성수 숫자 대신 재서 적기만
+export SEONGSU_DEVICE_A='M_Exhaust Grill:ER-600 x 600 Face 300 x 300 Connection:ER-600 x 600 Face 300 x 300 Connection:40722430'   # 방향·계통 없는 연결
+export SEONGSU_DEVICE_B='M_Supply Diffuser:SD-600 x 600 Face 300 x 300 Connection:SD-600 x 600 Face 300 x 300 Connection:40608419'
+export SEONGSU_LINKED_DEVICE='M_Supply Diffuser:SD-600 x 600 Face 300 x 300 Connection:SD-600 x 600 Face 300 x 300 Connection:40608427'
+export SEONGSU_SUPPLY_DEVICE="$SEONGSU_LINKED_DEVICE"
+npm run e2e:seongsu                                               # 잰 값은 data/합성-성수/화면-결과.md
+```
+
+2026-10-04 이 PC(Intel Arc 140V): 화면 시험 12/12, 성수 불변식 20/20, 상황 커버리지 84/84(합성만으로 73).
+
+---
+
 ## A. 자동 검사 (한 번에)
 
 ```bash
@@ -54,10 +84,10 @@ npm run check:seongsu 2>&1 | tee seongsu-check.log
 |---|---|---|---|
 | A-1-1 | 건축: 스키마 · 층 · 물리존 | IFC2X3 · 19 · 508 | 같은 방 걷기(`dropDuplicateSpaces`). 파일에는 934개다. 같은 자리·같은 이름의 방 하나와, 이름 붙은 방마다 같은 외곽선으로 하나씩 더 둔 기본 이름 "공간" 425개를 걸러 508개다(2026-09-29) |
 | A-1-2 | 건축: 벽(내력/비내력/모름) | 1291 (351/913/27) | 없음 |
-| A-1-3 | 건축: 문 · 방 둘을 잇는 문 | 528 · 233 | 없음 |
+| A-1-3 | 건축: 문 · 방 둘을 잇는 문 | 528 · 270 | 겹친 방에서 문이 가장 작은 방을 짚게 고친 것(d2b242e). 233 에서 올랐다(2026-10-07) |
 | A-1-4 | 건축: 종류가 붙은 방 | ≥ 159 | OmniClass 코드 읽기(f2a66cb). 오르는 게 정상이다 |
 | A-1-5 | 기계: 설비 · 덕트배관 · 계통 · 연결 · 방향 연결 | 3472 · 15864 · 1037 · 19515 · 8702 | 콘센트·스프링클러·위생기구를 사람만 고르는 종류로(0700489), 욕실 부속 거르기(0840604) |
-| A-1-6 | 기계: Proxy 로 받은 기기 | 1652 | 위와 같다 |
+| A-1-6 | 기계: Proxy 로 받은 기기 · 파일의 Proxy(포트/이름) | 1652 · 1658(1652/0) | 위와 같다. 읽지 않은 6개는 MCC·비상발전기·FT1·ET2 다(2026-10-07) |
 | A-1-7 | 기계: 규칙이 방향을 준 연결 · 충돌 · 포트와 대 본 수 | 5457 · 227 · 9219 | IFC 타입 객체의 종류 읽기(603d144) |
 | A-1-8 | **기계: 규칙 일치율** | **≥ 83.8%, 떨어지면 실패** | 위와 같다 |
 | A-1-9 | 기계: 방향 칩(포트+확정) · 규칙 포함 | 1903/2929 · ≥ 2759 | 위와 같다 |
@@ -114,7 +144,7 @@ npm run dev                   # http://localhost:5174
 | B-2 | 등급 칩이 뜰 때까지 시간 | 처음엔 "재는 중…", 한 번 잰 뒤에는 캐시(`data/.profiles.json`)로 바로 뜬다. 첫 시간을 적는다 |
 | B-3 | 칩에 마우스 | 무엇을 셌는지 설명이 뜬다. 기계 파일은 "방이 없다 → 건축과 합쳐야" 식의 안내 |
 | B-4 | 성수 건축 [열기] | 진행 막대와 단계가 보이고 **그동안 화면이 멈추지 않는다**(스크롤·버튼 반응). 걸린 시간 |
-| B-5 | 도구막대 "읽을 것" 에서 "문·창 자리(형상)" 켜고 건축 다시 열기 | 걸린 시간이 거의 같다. 문 feature 에 좌표와 잇는 방(방 둘을 잇는 문 233)이 생긴다 |
+| B-5 | 도구막대 "읽을 것" 에서 "문·창 자리(형상)" 켜고 건축 다시 열기 | 걸린 시간이 거의 같다. 문 feature 에 좌표와 잇는 방(방 둘을 잇는 문 270)이 생긴다 |
 | B-6 | 건축을 연 채로 기계 [덧붙이기] | 시간 적기. **좌표계 경고가 뜨지 않아야 한다.** 층 짝이 이름으로 맞는다 |
 | B-6a | 새로 고쳐 첫 화면에서 건축·기계를 **같이** 고르기(파일 선택 창에서 둘 다, 또는 둘을 같이 끌어다 놓기) | B-6 과 같은 결과, 같은 파일 이름("건축 + 기계") |
 | B-6c | 건축만 연 채 방 이름 하나 고치고 벽 하나 옮긴 뒤 기계 [덧붙이기] | 합쳐지고 "덧붙이기 전에 한 편집 … 다시 얹었습니다". 바뀐 것 수가 그대로, 못 찾은 것 0. 걸린 시간 |
