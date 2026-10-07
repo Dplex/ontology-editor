@@ -121,6 +121,7 @@ import {
   setOpeningSize,
   mountOnWall,
   snapshotCustomZones,
+  snapshotRooms,
   setWallExternal,
   setWallHeight,
   setWallThickness,
@@ -144,6 +145,7 @@ import {
   zoneEquipment,
   zoneSpaces,
 } from './lib/custom-zone'
+import { createRoom, deleteRoom, findRoom, moveRoom, renameRoom, resizeRoom } from './lib/room'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -307,6 +309,7 @@ const changeCount = computed(
     sinceOpen.value.openingsRemoved.length +
     sinceOpen.value.openingsMoved.length +
     sinceOpen.value.customZones.length +
+    roomLines.value.length +
     sinceOpen.value.systemMoved.length +
     sinceOpen.value.systemKinds.length +
     sinceOpen.value.systemNames.length +
@@ -1263,6 +1266,11 @@ function applySnapshot(s: Snapshot) {
     if (selectedCustomZoneId.value && !m.storeys.some((st) => st.customZones?.some((z) => z.id === selectedCustomZoneId.value))) selectedCustomZoneId.value = null
     triggerRef(model)
     sceneVersion.value++
+  } else if (s.kind === 'rooms') {
+    // 룸 목록(OE-OBJ-03). 없어진 룸을 고르고 있었으면 푼다. 외곽선은 sceneVersion 을 보고 다시 그린다.
+    if (selectedRoomId.value && !m.storeys.some((st) => st.rooms?.some((r) => r.id === selectedRoomId.value))) selectedRoomId.value = null
+    triggerRef(model)
+    sceneVersion.value++
   } else if (s.kind === 'kinds' || s.kind === 'connection') {
     // 종류·연결을 되돌리면 edit.ts 가 규칙 방향도 다시 돌렸다. 채점표도 그것으로 바꾼다.
     if (rules) ruleReport.value = rules
@@ -1462,6 +1470,8 @@ function clearSelection(): boolean {
           ? '물리존 그리기를 취소했습니다'
           : purpose === 'custom'
             ? '커스텀존 그리기를 취소했습니다'
+            : purpose === 'room'
+              ? '룸 그리기를 취소했습니다'
             : '외곽선 그리기를 취소했습니다',
     )
   } else if (adding.value) {
@@ -1472,6 +1482,8 @@ function clearSelection(): boolean {
     group.value = []
   } else if (selectedElementId.value) {
     selectedElementId.value = null
+  } else if (selectedRoomId.value) {
+    selectedRoomId.value = null
   } else if (selectedCustomZoneId.value) {
     selectedCustomZoneId.value = null
   } else if (placing.value) {
@@ -1503,6 +1515,7 @@ function frameSelection(): boolean {
 /** 방향키. 화면의 오른쪽·위쪽에 가장 가까운 평면 축으로 옮긴다(snapAxis). */
 function nudge(code: string, step: number): boolean {
   if (group.value.length >= 2) return nudgeGroup(code, step)
+  if (!selected.value && selectedRoom.value) return nudgeRoom(code, step)
   if (!selected.value && selectedElement.value && viewer) return nudgeElement(code, step)
   if (!selected.value && selectedSpace.value && viewer) return nudgeVertex(code, step)
   const e = selected.value
@@ -1673,6 +1686,11 @@ function moveVertex(spaceId: string, index: number, to: Vec2, coalesce?: string)
 function dropVertex(spaceId: string, index: number, raw: Vec2) {
   if (!model.value) return
   const to: Vec2 = [cm(raw[0]), cm(raw[1])]
+  // 룸의 꼭짓점(OE-SPC-11). 맞은편 꼭짓점을 두고 크기를 바꾼다.
+  if (findRoom(model.value, spaceId)) {
+    changeRooms(spaceId, '룸 크기', (m) => resizeRoom(m, spaceId, index, to))
+    return
+  }
   if (wouldSelfIntersect(model.value, spaceId, index, to)) {
     editNotice.value = '경계선이 교차하는 위치라 꼭짓점을 원래 자리로 되돌렸습니다.'
     // 끌던 손잡이를 원래 고리로 다시 그린다.
@@ -1836,12 +1854,100 @@ const spaceKinds = computed(() => {
 const spaceConduits = computed(() => selectedSpace.value?.equipment.filter((e) => isConduit(e.role)) ?? [])
 /** 3D 바닥이나 평면도의 방을 눌렀을 때. 평면도가 제 안에만 들고 있었더니 방에 테두리만 뜨고 패널은 앞서 고른 설비였다. */
 function pickSpace(id: string | null) {
+  // 룸(OE-OBJ-03)은 물리존과 같은 바닥 누르기로 골라진다 — 룸 아래 물리존보다 먼저다.
+  if (id && model.value && findRoom(model.value, id)) {
+    selectedRoomId.value = id
+    selectedSpaceId.value = null
+    selectedId.value = null
+    selectedSystemId.value = null
+    return
+  }
+  selectedRoomId.value = null
   selectedSpaceId.value = id
   if (id) {
     selectedId.value = null
     selectedSystemId.value = null
   }
 }
+// --- 룸 (OE-OBJ-03 · OE-SPC-11) --------------------------------------------------------------
+/** 리포트의 룸 줄. 연 때는 룸이 없으니(임포트는 만들지 않는다) 있는 룸이 전부 편집이다. */
+const roomLines = computed(() =>
+  (model.value?.storeys ?? []).flatMap((st) =>
+    (st.rooms ?? []).map((r) => {
+      const parent = st.spaces.find((sp) => sp.id === r.spaceId)
+      const [[x0, y0], , [x1, y1]] = r.footprint
+      return { id: r.id, name: r.name, storey: st.name, parent: parent?.longName || parent?.name || '물리존', size: `${(x1 - x0).toFixed(2)} × ${(y1 - y0).toFixed(2)} m` }
+    }),
+  ),
+)
+const selectedRoomId = ref<string | null>(null)
+const selectedRoom = computed(() => {
+  const m = model.value
+  const id = selectedRoomId.value
+  if (!m || !id) return null
+  const found = findRoom(m, id)
+  if (!found) return null
+  const parent = found.storey.spaces.find((sp) => sp.id === found.room.spaceId)
+  const [[x0, y0], , [x1, y1]] = found.room.footprint
+  return { ...found, parent, width: x1 - x0, depth: y1 - y0 }
+})
+/** 겹쳐서 막은 상대 룸. 잠깐 붉게 보인다(OE-SPC-15). */
+const roomConflict = ref<string | null>(null)
+let roomConflictTimer: number | undefined
+/**
+ * 룸을 고친다. 층의 룸을 통째로 떠 두고 되돌린다(snapshotRooms). 막히면 이유를 알리고, 겹친 상대가 있으면 붉게 짚는다.
+ * `storeyId` 를 모르면(고친 룸 id 로) 찾는다.
+ */
+function changeRooms(roomId: string | null, label: string, apply: (m: Model) => unknown, storeyId?: string): boolean {
+  const m = model.value
+  if (!m) return false
+  const sid = storeyId ?? (roomId ? findRoom(m, roomId)?.storey.id : undefined)
+  if (!sid) return false
+  const snapshot = snapshotRooms(m, sid)
+  const at = mark()
+  const done = apply(m) as boolean | { refused: string; blocked?: string } | null
+  if (!done) return false
+  if (typeof done === 'object' && 'refused' in done) {
+    editNotice.value = done.refused
+    if (done.blocked) {
+      roomConflict.value = done.blocked
+      window.clearTimeout(roomConflictTimer)
+      roomConflictTimer = window.setTimeout(() => (roomConflict.value = null), 1600)
+    }
+    // 끌던 손잡이를 원래 자리로 다시 그린다.
+    sceneVersion.value++
+    return false
+  }
+  editNotice.value = ''
+  remember(label, snapshot, at)
+  triggerRef(model)
+  return true
+}
+function removeRoom() {
+  const r = selectedRoom.value
+  if (!r) return
+  const name = r.room.name
+  if (changeRooms(r.room.id, `${name} 지우기`, (m) => deleteRoom(m, r.room.id))) {
+    selectedRoomId.value = null
+    note(`${name}${josa(name, '을/를')} 지웠습니다. 그 자리는 ${r.parent?.longName || r.parent?.name || '물리존'}으로 돌아갑니다. Ctrl+Z 로 되돌립니다`)
+  }
+}
+function applyRoomName(name: string) {
+  const r = selectedRoom.value
+  if (r) changeRooms(r.room.id, `룸 이름 ${name.trim()}`, (m) => renameRoom(m, r.room.id, name))
+}
+/** 방향키로 고른 룸을 옮긴다(10cm, Shift 1m). 화면 방향에 가장 가까운 평면 축이다(설비 옮기기와 같다). */
+function nudgeRoom(code: string, step: number): boolean {
+  const r = selectedRoom.value
+  if (!r || !viewer) return false
+  const { right, up } = viewer.planeAxes()
+  const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
+  const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
+  changeRooms(r.room.id, `${r.room.name} 옮김`, (m) => moveRoom(m, r.room.id, [cm(sign * ax * step), cm(sign * ay * step)]))
+  return true
+}
+watch([model, sceneVersion, selectedRoomId, roomConflict, editing], () => viewer?.setRooms(model.value, selectedRoomId.value, roomConflict.value))
+
 const selectedSpace = computed(() => {
   const m = model.value
   const id = selectedSpaceId.value
@@ -1866,7 +1972,7 @@ const selectedSpace = computed(() => {
  */
 /** `custom`·`customSplit` 은 커스텀존(OE-OBJ-01) 그리기·나누기다. `customSplit` 의 spaceId 자리에는 존 id 가 든다. */
 type Drawing = {
-  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit'
+  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room'
   spaceId: string | null
   storeyId: string
   name: string
@@ -1874,12 +1980,18 @@ type Drawing = {
   points: Vec2[]
 }
 const drawing = ref<Drawing | null>(null)
-watch([selectedSpace, editing, sceneVersion, drawing], () => {
+watch([selectedSpace, selectedRoom, editing, sceneVersion, drawing], () => {
   const picked = selectedSpace.value
   if (!viewer) return
   if (drawing.value) {
     const d = drawing.value
     viewer.setSpaceHandles({ id: d.spaceId ?? 'new', ring: d.points, elevation: d.elevation, active: d.points.length ? d.points.length - 1 : null })
+    return
+  }
+  // 고른 룸의 꼭짓점 넷(OE-SPC-11). 편집 모드에서만 끈다.
+  const room = selectedRoom.value
+  if (room) {
+    viewer.setSpaceHandles(editing.value ? { id: room.room.id, ring: room.room.footprint.slice(0, 4), elevation: room.storey.elevation, active: null } : null)
     return
   }
   if (!picked) {
@@ -3344,7 +3456,7 @@ function placeAt(at: Vec2) {
   if (drawing.value) {
     drawing.value = { ...drawing.value, points: [...drawing.value.points, [cm(at[0]), cm(at[1])]] }
     // 나눌 선은 두 점이면 끝난다.
-    if ((drawing.value.purpose === 'split' || drawing.value.purpose === 'wall' || drawing.value.purpose === 'customSplit') && drawing.value.points.length === 2) finishDraw()
+    if ((drawing.value.purpose === 'split' || drawing.value.purpose === 'wall' || drawing.value.purpose === 'customSplit' || drawing.value.purpose === 'room') && drawing.value.points.length === 2) finishDraw()
     return
   }
   if (adding.value) {
@@ -3498,6 +3610,24 @@ function finishDraw(): boolean {
     if (changeSpaces(d.storeyId, `${d.name} 나누기`, (m) => splitSpace(m, d.spaceId!, a, b))) {
       selectedSpaceId.value = d.spaceId
       note(`${d.name}${josa(d.name, '을/를')} 둘로 나눴습니다. 새 조각의 이름은 오른쪽 패널에서 고칩니다`)
+    }
+    return true
+  }
+  if (d.purpose === 'room') {
+    if (d.points.length < 2) {
+      note('룸의 대각선 두 꼭짓점을 찍어야 합니다')
+      return true
+    }
+    stopDraw()
+    let created: string | null = null
+    const ok = changeRooms(null, '룸 만들기', (m) => {
+      const done = createRoom(m, d.storeyId, d.points[0], d.points[1])
+      if (done && !('refused' in done)) created = done.id
+      return done
+    }, d.storeyId)
+    if (ok && created) {
+      selectedRoomId.value = created
+      note('룸을 만들었습니다. 꼭짓점을 끌어 크기를, 방향키로 자리를 바꿉니다')
     }
     return true
   }
@@ -3812,6 +3942,22 @@ function startCustomZone() {
   note('바닥에 꼭짓점을 찍어 커스텀존을 그립니다. 물리존과 경계가 달라도, 다른 커스텀존과 겹쳐도 됩니다 (Enter 마침, Esc 취소)')
 }
 
+/** 룸 그리기(OE-SPC-11). 물리존 안에 대각선 두 꼭짓점을 찍는다. */
+function startRoom() {
+  const storey = targetStorey()
+  if (!storey) return askStorey('룸을 그릴')
+  stopPlace()
+  stopAdd()
+  connectFrom.value = null
+  selectedId.value = null
+  selectedSpaceId.value = null
+  selectedRoomId.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  drawing.value = { purpose: 'room', spaceId: null, storeyId: storey.id, name: `${storey.name} 룸`, elevation: storey.elevation, points: [] }
+  viewer?.setPlaceMode(storey.elevation)
+  note('물리존 안에 룸의 대각선 두 꼭짓점을 찍습니다. 다른 룸과 겹치거나 물리존 밖으로 나갈 수 없습니다 (Esc 취소)')
+}
+
 function startCustomSplit() {
   const picked = selectedCustomZone.value
   if (!picked) return
@@ -3994,6 +4140,10 @@ watch(editing, (on) => {
 const archMode = ref(false)
 const selectedElementId = ref<string | null>(null)
 // 여러 개 고르기(OE-UI-09): 다른 것을 고르거나 편집을 끝내면 묶음을 푼다. 지운 설비는 묶음에서 빠진다. 고른 것들이 다 선언된 뒤라 여기 둔다.
+// 다른 것을 고르면 룸은 풀린다(패널은 하나만).
+watch([selectedId, selectedSpaceId, selectedElementId, selectedCustomZoneId, selectedSystemId], (now) => {
+  if (now.some((x) => x)) selectedRoomId.value = null
+})
 watch([selectedId, selectedSpaceId, selectedSystemId, selectedElementId, selectedCustomZoneId], (now) => {
   if (now.some(Boolean) && group.value.length) group.value = []
 })
@@ -5818,10 +5968,10 @@ async function export3D(format: 'glb' | 'obj') {
                 <b>{{ drawing.name }}</b> 긋기 · 벽의 두 끝점을 바닥에 찍습니다 · {{ drawing.points.length }}/2
               </template>
               <template v-else>
-                <b>{{ drawing.name }}</b> {{ drawing.purpose === 'create' || drawing.purpose === 'custom' ? '그리기' : '외곽선 그리기' }} · 바닥을 눌러 꼭짓점을 찍습니다 ·
+                <b>{{ drawing.name }}</b> {{ drawing.purpose === 'create' || drawing.purpose === 'custom' || drawing.purpose === 'room' ? '그리기' : '외곽선 그리기' }} · 바닥을 눌러 꼭짓점을 찍습니다 ·
                 {{ drawing.points.length }}개
               </template>
-              <button v-if="drawing.purpose !== 'split' && drawing.purpose !== 'wall' && drawing.purpose !== 'customSplit'" type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
+              <button v-if="drawing.purpose !== 'split' && drawing.purpose !== 'wall' && drawing.purpose !== 'customSplit' && drawing.purpose !== 'room'" type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
               <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
               <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
             </div>
@@ -5833,6 +5983,7 @@ async function export3D(format: 'glb' | 'obj') {
               <!-- 두 버튼을 한 줄에 둔다. 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
               <span class="palette-row">
                 <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="물리존 그리기" title="바닥에 꼭짓점을 찍어 새 물리존을 그립니다" @click="ceilingMode ? lockedTool() : startCreateSpace()">물리존</button>
+                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="룸 그리기" title="물리존 안에 대각선 두 꼭짓점을 찍어 룸을 그립니다(OE-SPC-11)" @click="ceilingMode ? lockedTool() : startRoom()">룸</button>
                 <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="커스텀존 그리기" title="물리존 위에 운영 단위(임원석·식당 등)를 다각형으로 그립니다. 겹쳐도 됩니다(OE-OBJ-01)" @click="ceilingMode ? lockedTool() : startCustomZone()">커스텀존</button>
               </span>
               <!-- [바닥·벽 / 천장] 토글(T). 제목 줄에 둔다 — 줄을 하나 더 쓰면 팔레트가 3D 왼쪽 아래 바닥을 가린다. -->
@@ -6687,6 +6838,36 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
         </section>
         <!-- 커스텀존(OE-OBJ-01). 품는 방·든 설비는 쓸 때 계산한 것이라 물리존·설비를 고치면 따라 바뀐다. -->
+        <!-- 룸(OE-OBJ-03 · OE-SPC-11). 물리존 안의 사각 편집 단위. 꼭짓점 손잡이로 크기, 방향키로 자리를 바꾼다. -->
+        <section v-else-if="selectedRoom" :key="`room:${selectedRoom.room.id}`" class="picked room-picked">
+          <div class="picked-head">
+            <div>
+              <h3>{{ selectedRoom.room.name }}</h3>
+              <dl class="stats facts">
+                <div>
+                  <dt>룸</dt>
+                  <dd>{{ selectedRoom.storey.name }} · {{ selectedRoom.parent ? selectedRoom.parent.longName || selectedRoom.parent.name : '물리존 모름' }} 안 <Src kind="edit" /></dd>
+                </div>
+                <div>
+                  <dt>크기</dt>
+                  <dd data-testid="room-size"><b class="mono">{{ selectedRoom.width.toFixed(2) }} × {{ selectedRoom.depth.toFixed(2) }}</b> m <Src kind="edit" /></dd>
+                </div>
+              </dl>
+            </div>
+            <div class="picked-actions">
+              <button type="button" class="ghost" @click="selectedRoomId = null">선택 해제</button>
+            </div>
+          </div>
+          <label v-if="editing" class="space-name">
+            이름
+            <input type="text" data-testid="room-name" v-keep-typing :value="selectedRoom.room.name" @change="applyRoomName(($event.target as HTMLInputElement).value)" />
+          </label>
+          <p v-if="editing" class="hint">꼭짓점 손잡이를 끌어 크기를, 방향키로 자리를 바꿉니다(Shift 1m). 물리존 밖으로 나가거나 다른 룸과 겹칠 수 없습니다.</p>
+          <p v-if="editing" class="danger-zone">
+            <button type="button" class="ghost danger" @click="removeRoom">룸 지우기</button>
+            <span class="muted">그 자리는 물리존으로 돌아갑니다. Ctrl+Z 로 되돌립니다.</span>
+          </p>
+        </section>
         <section v-else-if="selectedCustomZone" :key="`cz:${selectedCustomZone.zone.id}`" class="picked custom-zone-picked">
           <div class="picked-head">
             <div>
@@ -7920,6 +8101,10 @@ async function export3D(format: 'glb' | 'obj') {
               {{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }}
               {{ r.moved && r.resized ? '옮기고 크기를 바꿨습니다' : r.moved ? '옮겼습니다' : '크기를 바꿨습니다' }}
               ({{ r.moved ? 'GeoJSON 위치·잇는 방' : 'GeoJSON 가로·세로' }})
+            </li>
+            <!-- 룸(OE-OBJ-03). BIM 에는 없어서 있는 룸이 곧 사람이 그린 것이다. 온톨로지(TTL·GeoJSON)로는 아직 나가지 않는다. -->
+            <li v-for="r in roomLines" :key="`room-${r.id}`">
+              룸 <b>{{ r.name }}</b> ({{ r.storey }} · {{ r.parent }} 안, {{ r.size }}) — 편집 파일에만 남습니다
             </li>
             <li v-for="r in sinceOpen.customZones" :key="`cz-${r.id}`">
               커스텀존 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.change === 'added' ? '만들었습니다' : r.change === 'removed' ? '지웠습니다' : '고쳤습니다' }}

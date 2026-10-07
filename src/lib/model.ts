@@ -398,6 +398,19 @@ export type Storey = {
   equipment: Equipment[]
   /** 운영자가 정한 커스텀존(OE-OBJ-01, custom-zone.ts). BIM 에는 없어 연 직후에는 없다. */
   customZones?: CustomZone[]
+  /** 사람이 물리존 안에 그린 룸(OE-OBJ-03, room.ts). 임포트는 만들지 않아 연 직후에는 없다. */
+  rooms?: Room[]
+}
+
+/** 룸(OE-OBJ-03). 물리존 안의 사각 편집 단위. 다른 룸과 겹치지 않고 부모 물리존 밖으로 나가지 않는다(room.ts). */
+export type Room = {
+  /** 에디터가 지은 id(`U_…`). */
+  id: string
+  name: string
+  /** 든 물리존(부모). */
+  spaceId: string
+  /** 닫힌 사각 고리(축에 나란하다, 왼아래부터 반시계). 세계 좌표. */
+  footprint: Vec2[]
 }
 
 /** 커스텀존(F14). 물리존 위에 운영 편의로 정하는 다각형. 겹쳐도 된다(custom-zone.ts). */

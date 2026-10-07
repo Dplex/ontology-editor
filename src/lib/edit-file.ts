@@ -122,6 +122,8 @@ export type EditFile = {
    * 없고, 나누기·합치기를 순서대로 다시 하지 않고 끝 모양을 얹는다(물리존 합치기의 `into` 와 같은 까닭).
    */
   customZones?: { storeyId: string; zones: { id: string; name: string; aliases?: string[]; footprint: Vec2[] }[] }[]
+  /** 사람이 그린 룸(OE-OBJ-03). BIM 에는 없어서 룸이 있는 층의 끝 목록을 그대로 적는다. */
+  rooms?: { storeyId: string; rooms: { id: string; name: string; spaceId: string; footprint: Vec2[] }[] }[]
   kinds: { typeKey: string; kind: string | null }[]
   flows: { from: string; to: string }[]
   /** 확정한 계통. 아래 `confirmedFlows` 가 없던 때의 파일은 이것으로 불러온다. */
@@ -313,6 +315,13 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const id of [...wallsRemoved, ...openingsRemoved]) keep(id)
   for (const row of openingsAdded) if (row.wallId) keep(row.wallId)
   for (const row of customZones) keep(row.storeyId)
+  const rooms = model.storeys
+    .filter((st) => st.rooms?.length)
+    .map((st) => ({ storeyId: st.id, rooms: st.rooms!.map((r) => ({ id: r.id, name: r.name, spaceId: r.spaceId, footprint: r.footprint.map((p) => [p[0], p[1]] as Vec2) })) }))
+  for (const row of rooms) {
+    keep(row.storeyId)
+    for (const r of row.rooms) keep(r.spaceId)
+  }
   const storeysDone = storeyProgress(model)
     .filter((p) => p.state !== 'todo')
     .map((p) => ({ id: p.id, at: p.at!, ...(p.state === 'changed' ? { changed: true as const } : {}) }))
@@ -361,6 +370,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(openingsAdded.length ? { openingsAdded } : {}),
     ...(openingsRemoved.length ? { openingsRemoved } : {}),
     ...(customZones.length ? { customZones } : {}),
+    ...(rooms.length ? { rooms } : {}),
     ...(storeysDone.length ? { storeysDone } : {}),
     ...(ceilings.length ? { ceilings } : {}),
     keys,
@@ -392,7 +402,7 @@ export function countEdits(f: EditFile): number {
     (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0) +
     (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
     (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0) +
-    (f.storeysDone?.length ?? 0) + (f.ceilings?.length ?? 0)
+    (f.storeysDone?.length ?? 0) + (f.ceilings?.length ?? 0) + (f.rooms?.reduce((n, r) => n + r.rooms.length, 0) ?? 0)
   )
 }
 
@@ -463,6 +473,10 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   }
   for (const row of [...(file.wallsAdded ?? []), ...(file.openingsAdded ?? [])]) ref(row.storeyId)
   for (const row of file.customZones ?? []) ref(row.storeyId)
+  for (const row of file.rooms ?? []) {
+    ref(row.storeyId)
+    for (const r of row.rooms) ref(r.spaceId)
+  }
   for (const row of file.storeysDone ?? []) ref(row.id)
   for (const row of file.ceilings ?? []) ref(row.storeyId)
   for (const k of file.kinds) if (k.typeKey.startsWith('#')) ref(k.typeKey.slice(1))
@@ -686,6 +700,17 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     const done = setEquipmentSurface(model, resolve(row.id), row.surface)
     if (done === true) result.applied++
     else if (done !== false) result.missing.equipment++
+  }
+
+  // 룸(OE-OBJ-03). 층의 끝 목록을 그대로 얹는다. 부모 물리존은 지문으로 찾는다.
+  for (const row of file.rooms ?? []) {
+    const storey = model.storeys.find((s) => s.id === resolve(row.storeyId))
+    if (!storey) {
+      result.missing.spaces++
+      continue
+    }
+    storey.rooms = row.rooms.map((r) => ({ id: r.id, name: r.name, spaceId: resolve(r.spaceId), footprint: r.footprint.map((p) => [p[0], p[1]] as Vec2) }))
+    result.applied++
   }
 
   // 커스텀존(OE-OBJ-01). 층의 끝 목록을 그대로 얹는다. 소속은 쓸 때 계산하니 따로 다시 잴 것이 없다.
