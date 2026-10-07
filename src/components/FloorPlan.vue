@@ -8,6 +8,9 @@
 //
 // 편집 모드에서 방을 고르면 꼭짓점 손잡이가 뜨고, 끌어 놓으면 부모가 lib/edit.ts 로 경계를 고친다. 끄는
 // 동안은 여기서 미리보기만 그리고, 놓을 때 한 번만 알린다 — 끄는 내내 소속을 재판정하면 성수에서 느리다.
+//
+// 고른 것(설비·방·벽)은 부모가 들고 3D·오른쪽 패널과 같이 쓴다(OE-UI-11). 벽은 3D 처럼 편집 모드에서 [벽·문·창] 을
+// 켰을 때만 눌러 고른다 — 아니면 벽 위를 눌러도 밑의 방이 골라진다. 문·창은 평면도에 그리지 않는다.
 import { computed, ref, watch } from 'vue'
 import { isConduit, type Storey, type Vec2 } from '../lib/model'
 import { labelPoint } from '../lib/polygon'
@@ -17,11 +20,16 @@ const props = defineProps<{
   selectedId: string | null
   /** 고른 물리존. 3D 에서 고른 것과 같은 값이라, 여기서 누르면 부모가 오른쪽 패널에 그 방을 띄운다. */
   selectedSpaceId: string | null
+  /** 고른 벽. 3D 의 [벽·문·창] 에서 고른 것과 같은 값이다. */
+  selectedElementId: string | null
   editing: boolean
+  /** 벽을 눌러 고를 수 있나. 3D 와 같이 편집 모드에서 [벽·문·창] 을 켰을 때만이다. */
+  pickWalls: boolean
 }>()
 const emit = defineEmits<{
   select: [id: string]
   pickSpace: [id: string | null]
+  pickElement: [id: string]
   moveVertex: [spaceId: string, index: number, to: Vec2]
 }>()
 
@@ -223,7 +231,9 @@ function pickSpace(id: string) {
           v-for="(r, i) in w.footprint ?? []"
           :key="i"
           :points="points(r)"
-          :class="{ bearing: w.loadBearing === true }"
+          :class="{ bearing: w.loadBearing === true, chosen: w.id === selectedElementId, pickable: pickWalls }"
+          :data-wall="w.id"
+          @click.stop="pickWalls && !moved && emit('pickElement', w.id)"
         />
       </template>
     </g>

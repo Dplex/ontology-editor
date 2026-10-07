@@ -1168,6 +1168,12 @@ th {
   white-space: nowrap;
 }
 
+/* 층고의 BIM 값과 계산한 값(윗층 바닥과의 차)이 다를 때 옆에 붙는 계산 값. */
+.storeys .height-mismatch {
+  margin-left: 0.25rem;
+  color: var(--warn-fg);
+}
+
 /* 한 층의 방 이름이 수십 개면 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로 본다. */
 .storeys td.names {
   max-width: 32rem;
@@ -3126,9 +3132,20 @@ main.has-model .catalog {
   pointer-events: none;
 }
 
+/* 내력벽은 글자색으로 칠한다. 어두운 회색으로 박아 두었더니 다크 테마에서 바탕(#1c1f26)에 묻혀 보통 벽보다 흐렸다. */
 .floor-plan .walls polygon.bearing {
-  fill: #39424e;
-  opacity: 0.9;
+  fill: var(--fg);
+  opacity: 0.85;
+}
+
+.floor-plan .walls polygon.pickable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.floor-plan .walls polygon.chosen {
+  fill: var(--accent);
+  opacity: 1;
 }
 
 .floor-plan .labels text {

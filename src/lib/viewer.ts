@@ -623,6 +623,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     dirty = true
     if (!editMode) return
     for (const spec of arrowSpecs) {
+      // 한 층만 볼 때 다른 층 끝으로 가는 화살표는 그리지도 누르지도 않는다(OE-UI-12). 끝이 안 보이는 곳을 가리켰다.
+      // 그 연결은 오른쪽 패널의 연결 표에 "다른 층" 으로 남고, 방향도 거기서 바꾼다.
+      if (hiddenIds.has(spec.a) || hiddenIds.has(spec.b)) continue
       const pa = partById.get(spec.a)
       const pb = partById.get(spec.b)
       if (!pa || !pb) continue
@@ -1915,6 +1918,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       hiddenIds = hidden
       applyStoreyVisibility()
       splitIndex()
+      drawArrows()
       if (hoverAt) hoverPending = true
     },
 

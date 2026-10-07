@@ -225,6 +225,8 @@ export function mergeModels(
     })
 
     absorbSpaces(target, storey.spaces)
+    // BIM 이 적은 층 높이는 바탕 파일 것을 쓰고, 바탕에 없을 때만 덧붙인 파일 것을 쓴다(OE-BIM-02).
+    if (!target.declaredHeight && storey.declaredHeight) target.declaredHeight = { ...storey.declaredHeight }
     target.walls.push(...fresh(storey.walls))
     target.openings.push(...fresh(storey.openings))
     target.equipment.push(...fresh(storey.equipment))

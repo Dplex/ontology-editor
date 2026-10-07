@@ -417,6 +417,47 @@ class Reader {
     return out
   }
 
+  /**
+   * 층마다 BIM 이 적은 층 높이(OE-BIM-02). 기준 물량 `GrossHeight`·`NetHeight`(IfcElementQuantity, AC20 이 적는다)와 COBie 의
+   * `Storey Height` 속성(설명이 "Floor Height" 라 바닥에서 윗층 바닥까지, gross 로 읽는다). **0 이하는 비운 칸으로 보고 읽지
+   * 않는다** — Duplex COBie 판본은 네 층 모두 0.0 이다. 물량 세트는 속성 세트와 자리가 달라(`Quantities`·`LengthValue`)
+   * psetProps 를 넓히지 않고 층에만 따로 읽는다 — 넓히면 설비의 용량·LoadBearing 을 찾는 자리에 물량 이름이 섞인다.
+   */
+  storeyHeights(): Map<number, NonNullable<Storey['declaredHeight']>> {
+    const storeys = new Set(this.ids(WebIFC.IFCBUILDINGSTOREY))
+    const out = new Map<number, NonNullable<Storey['declaredHeight']>>()
+    const length = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v * this.scale : null)
+    for (const { objects, psetID } of this.propertyRels()) {
+      const targets = psetID === null ? [] : objects.filter((o) => storeys.has(o))
+      if (!targets.length) continue
+      const set = this.tryLine(psetID!)
+      const setName = (val(set?.Name) as string) ?? ''
+      const said: { gross?: [number, string]; net?: [number, string] } = {}
+      for (const h of set?.Quantities ?? []) {
+        const q = this.tryLine(h.value)
+        const name = val(q?.Name) as string | undefined
+        const v = length(val(q?.LengthValue))
+        if (v === null) continue
+        if (name === 'GrossHeight') said.gross = [v, `${setName}.${name}`]
+        if (name === 'NetHeight') said.net = [v, `${setName}.${name}`]
+      }
+      for (const p of set?.HasProperties ? this.psetProps(psetID!) : []) {
+        const v = p.name === 'Storey Height' ? length(p.nominal) : null
+        if (v !== null && !said.gross) said.gross = [v, `${setName}.${p.name}`]
+      }
+      if (!said.gross && !said.net) continue
+      for (const id of targets) {
+        const had = out.get(id)
+        out.set(id, {
+          gross: had?.gross ?? said.gross?.[0] ?? null,
+          net: had?.net ?? said.net?.[0] ?? null,
+          property: had?.property ?? (said.gross ?? said.net)![1],
+        })
+      }
+    }
+    return out
+  }
+
   /** 개체 → 타입 객체(IfcRelDefinesByType). */
   typeOf(): Map<number, number> {
     if (this.typeOfCache) return this.typeOfCache
@@ -1263,6 +1304,7 @@ function read(
       elementsByStorey.set(storeyID, list)
     }
 
+    const declaredHeights = r.storeyHeights()
     const storeys: Storey[] = r.ids(WebIFC.IFCBUILDINGSTOREY).map((storeyID) => {
       const e = r.line(storeyID)
       const walls: Wall[] = []
@@ -1326,6 +1368,7 @@ function read(
         id: (val(e?.GlobalId) as string) ?? `storey-${storeyID}`,
         name: (val(e?.Name) as string) ?? '',
         elevation: ((val(e?.Elevation) as number) ?? 0) * scale,
+        ...(declaredHeights.has(storeyID) ? { declaredHeight: declaredHeights.get(storeyID)! } : {}),
         spaces: (spacesByStorey.get(storeyID) ?? []).map((id) =>
           spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass),
         ),

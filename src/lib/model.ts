@@ -368,6 +368,12 @@ export type Storey = {
   name: string
   /** 층 바닥 높이(미터). */
   elevation: number
+  /**
+   * BIM 이 적은 층 높이(미터, OE-BIM-02). 적은 것이 없으면 키가 없다. `gross` 는 바닥에서 윗층 바닥까지(층고), `net` 은
+   * 윗층 바닥판 아래까지다. `property` 는 읽은 자리(`BaseQuantities.GrossHeight`). 층고를 계산한 값(Elevation 의 차)은
+   * 모델에 두지 않는다 — storey-height.ts 가 그때 잰다.
+   */
+  declaredHeight?: { gross: number | null; net: number | null; property: string }
   spaces: Space[]
   walls: Wall[]
   openings: Opening[]

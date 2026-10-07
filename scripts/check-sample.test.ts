@@ -25,6 +25,7 @@ import { airBasis, airServices, needsSystem, systemlessAir } from '../src/lib/se
 import { completenessChecks } from '../src/lib/checks'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
 import { verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
+import { storeyHeights } from '../src/lib/storey-height'
 import { equipmentKind, roomKind } from '../src/lib/kinds'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
 import { compareVersions, revitElementId } from '../src/lib/versions'
@@ -2461,5 +2462,38 @@ describe.skipIf(!existsSync(MEP))('좌표 없는 설비는 미배치 목록 (ifc
     // GeoJSON 에 점으로 나간다(놓기 전에는 geometry null).
     const features = new Map(modelToGeoJSON(reopened).flatMap((f) => f.collection.features).map((f) => [f.id, f]))
     expect(list.filter(({ equipment }) => features.get(equipment.id)?.geometry?.type !== 'Point')).toEqual([])
+  }, 300_000)
+})
+
+// 층고(OE-BIM-02). 이 층 바닥에서 윗층 바닥까지. BIM 이 적었으면(ArchiCAD 기준 물량 GrossHeight, COBie Storey Height) 그 값을,
+// 아니면 Elevation 의 차를 쓴다. 맨 위층은 BIM 이 안 적었으면 모름이다 — 지어내지 않는다.
+describe.skipIf(![SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_COBIE, CLINIC_ARCH, CLINIC_HVAC].every(existsSync))('층고 (OE-BIM-02)', () => {
+  it('가진 BIM 의 층고가 BIM 값·계산 값·모름으로 갈리고, 합쳐도 그대로다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const open = (p: string) => importIfc(api, new Uint8Array(readFileSync(p)))
+    const table = (m: Model) => {
+      const h = storeyHeights(m.storeys)
+      return m.storeys.map((s) => {
+        const x = h.get(s.id)
+        return x ? `${s.name} ${x.value} ${x.source}${x.net !== null ? ` 순${x.net}` : ''}${x.mismatch ? ' 어긋남' : ''}` : `${s.name} 모름`
+      })
+    }
+    // AC20 만 BIM 이 층 높이를 적었다. 1층은 계산(2.7)과 같고, 다락은 윗층이 없어 BIM 값으로만 안다.
+    const ac20 = open(SAMPLE)
+    expect(table(ac20)).toEqual(['Erdgeschoss 2.7 bim 순2.7', 'Dachgeschoss 2 bim 순2'])
+    expect(storeyHeights(ac20.storeys).get(ac20.storeys[0].id)).toMatchObject({ property: 'BaseQuantities.GrossHeight', calc: 2.7 })
+    expect(table(open(MEP))).toEqual(['-01. Fundering 0.8 calc', '00. Begane grond 3.5 calc', '01. verdieping 3.5 calc', '02. verdieping 3.5 calc', '03. Dak 모름'])
+    expect(table(open(DUPLEX_ARCH))).toEqual(['T/FDN 1.25 calc', 'Level 1 3.1 calc', 'Level 2 2.9 calc', 'Roof 모름'])
+    // COBie 의 Storey Height 는 네 층 모두 0.0 이라 비운 칸으로 읽는다. 층고 3.1mm 는 길이 단위를 mm 로 잘못 선언한 탓이다(ADR-0007).
+    const cobie = open(DUPLEX_COBIE)
+    expect(cobie.storeys.filter((s) => s.declaredHeight)).toEqual([])
+    expect(table(cobie)).toEqual(['T/FDN 0.0013 calc', 'Level 1 0.0031 calc', 'Level 2 0.0029 calc', 'Roof 모름'])
+    const clinic = ['TOF Footing 1 calc', 'First Floor 4.57 calc', 'Second Floor 4.68 calc', 'Roof - Main 모름']
+    expect(table(open(CLINIC_ARCH))).toEqual(clinic)
+    expect(table(mergeModels(open(CLINIC_ARCH), open(CLINIC_HVAC)).model)).toEqual(clinic)
+    // 덧붙인 파일만 층 높이를 적었으면 합친 층이 그 값을 가져온다. 다른 건물끼리라 억지 짝이지만 둘 다 보인다 — AC20 1층(0m)은
+    // ifc4Mep 의 0m 층에 붙어 BIM 2.7 을 가져오고, AC20 다락(2.7m)은 새 층이 되어 윗층(3.5m)과의 차 0.8 이 생겨 BIM 2.0 과 어긋난다.
+    expect(table(mergeModels(open(MEP), ac20).model).filter((r) => r.includes('bim'))).toEqual(['00. Begane grond 2.7 bim 순2.7', 'Dachgeschoss 2 bim 순2 어긋남'])
   }, 300_000)
 })
