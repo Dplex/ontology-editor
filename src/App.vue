@@ -4229,12 +4229,13 @@ function clearDrafts() {
 }
 
 // 저장 안 한 편집이 있는 층에서 다른 층으로 가려 하면 묻는다. 묻는 동안은 층을 그대로 둔다. 표에서 다른 층의 것을 골라 층이
-// 따라가는 것도 같은 길이다. 대화상자를 거쳐 옮길 때(goFloor)는 묻지 않는다.
+// 따라가는 것도 같은 길이다. 대화상자를 거쳐 옮길 때(goFloor)와 "모든 층" 으로 넓힐 때는 묻지 않는다.
 let switching = false
 watch(
   viewStorey,
   (now, was) => {
-    if (switching || !openSettled || !editing.value || !was || now === was) return
+    // "모든 층" 으로 넓히는 것은 다른 층으로 가는 것이 아니다 — 그 층도 계속 보이고 고칠 수 있다.
+    if (switching || !openSettled || !editing.value || !was || !now || now === was) return
     const parts = currentParts()
     if (!dirtyKeys(parts).includes(was)) return
     switching = true
