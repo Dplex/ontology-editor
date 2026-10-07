@@ -832,7 +832,7 @@ test('F 물리존: 바닥 고르기·꼭짓점 끌기·짚고 옮기기·넣고 
   expect(errors).toEqual([])
 })
 
-test('G 연결: 짚기·방향 바꾸기·포트 방향은 그대로·잇기·끊기', async () => {
+test('G 연결: 짚기·방향 바꾸기·포트 방향은 그대로·연결하기·연결 끊기', async () => {
   await editMode(true)
   await showStorey(null)
   await pickDevice(DEVICE_A)
@@ -869,16 +869,16 @@ test('G 연결: 짚기·방향 바꾸기·포트 방향은 그대로·잇기·�
     await page.keyboard.press('d')
     await expect(rows.nth(port).locator('.rel')).toHaveText(rel)
     // G-8 포트 연결에는 끊기가 없다.
-    await expect(rows.nth(port).getByRole('button', { name: '끊기' })).toHaveCount(0)
-    record('G-2·G-8', '통과', `포트 방향 "${rel.trim()}" 은 D 로 안 바뀌고 끊기가 없다`)
+    await expect(rows.nth(port).getByRole('button', { name: '연결 끊기' })).toHaveCount(0)
+    record('G-2·G-8', '통과', `포트 방향 "${rel.trim()}" 은 D 로 안 바뀌고 [연결 끊기] 가 없다`)
   }
   await page.keyboard.press('Escape')
 
-  // G-6 잇기, G-7 끊기.
+  // G-6 연결하기, G-7 연결 끊기.
   await pickDevice(DEVICE_A)
   const n = await rows.count()
-  await page.locator('.picked').getByRole('button', { name: '잇기', exact: true }).click()
-  await expect(page.locator('.picked')).toContainText('이을 상대를')
+  await page.locator('.picked').getByRole('button', { name: '연결하기', exact: true }).click()
+  await expect(page.locator('.picked')).toContainText('연결할 설비를')
   await search().fill(DEVICE_B)
   const joinMs = await timed(async () => {
     await page.locator('.equipment tbody tr', { hasText: DEVICE_B }).first().locator('button').first().click()
@@ -888,9 +888,9 @@ test('G 연결: 짚기·방향 바꾸기·포트 방향은 그대로·잇기·�
   await search().press('Escape')
   const joined = rows.filter({ hasText: DEVICE_B })
   await expect(joined).toContainText('직접 이음')
-  const cutMs = await timed(() => joined.getByRole('button', { name: '끊기' }).click())
+  const cutMs = await timed(() => joined.getByRole('button', { name: '연결 끊기' }).click())
   await expect(rows).toHaveCount(n)
-  record('G-6·G-7', `잇기 ${joinMs}ms · 끊기 ${cutMs}ms`, '규칙 방향을 다시 돌린다')
+  record('G-6·G-7', `연결하기 ${joinMs}ms · 연결 끊기 ${cutMs}ms`, '규칙 방향을 다시 돌린다')
   await undoAll()
   expect(errors).toEqual([])
 })
