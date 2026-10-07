@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, emptyEvidence, judgeAll, judgeSurface, outsideAllowed, pickCeiling, setCeiling } from './ceiling'
+import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, emptyEvidence, judgeAll, judgeSurface, outsideAllowed, pickCeiling, setCeiling, setEquipmentSurface } from './ceiling'
 import { importIfc } from './ifc/import'
 import { baselineOf } from './edit'
 import { applyEdits, countEdits, exportEdits } from './edit-file'
@@ -117,6 +117,26 @@ describe('설치면 판정(z)', () => {
   })
 })
 
+describe('사람이 정한 설치면 (OE-EQP-05)', () => {
+  it('미정인 설비에 정한 설치면이 판정보다 앞서고, 지우면 z 판정으로 돌아간다', () => {
+    const e = device(1.2, { kind: 'camera' })
+    const s = storey({ ceiling: { height: 2.7, property: 'p', count: 1 }, equipment: [e] })
+    const m = { storeys: [s] } as never
+    expect(judgeSurface(e, s, 4)).toBeNull()
+    expect(setEquipmentSurface(m, e.id, 'wall')).toBe(true)
+    expect(judgeSurface(e, s, 4)).toBe('wall')
+    expect(setEquipmentSurface(m, e.id, 'wall')).toBe(false)
+    expect(setEquipmentSurface(m, e.id, null)).toBe(true)
+    expect(judgeSurface(e, s, 4)).toBeNull()
+  })
+
+  it('허용 설치면 밖으로는 정하지 않는다 — CCTV 는 천장·벽, 바닥은 아니다', () => {
+    const e = device(1.2, { kind: 'camera' })
+    expect(setEquipmentSurface({ storeys: [storey({ equipment: [e] })] } as never, e.id, 'floor')).toEqual({ refused: '이 종류의 허용 설치면이 아닙니다.' })
+    expect(e.surfaceSet).toBeUndefined()
+  })
+})
+
 describe('천장 설비의 z 구역', () => {
   it('반자 부착은 h_c−0.3 이상, 플레넘은 h_c 초과 층고 미만이다', () => {
     expect(ceilingZone('lighting')).toBe('attached')
@@ -153,5 +173,17 @@ describe('편집 파일에 남는다', () => {
     const fresh = open()
     applyEdits(fresh, file)
     expect(ceilingOf(fresh.storeys[0])).toEqual({ height: 2.75, source: 'edit' })
+  })
+
+  it('정한 설치면도 편집 파일을 거쳐 새로 연 모델에 얹힌다', () => {
+    const m = open()
+    const base = baselineOf(m)
+    const e = m.storeys[0].equipment.find((x) => x.name === 'AT-101-01')!
+    expect(setEquipmentSurface(m, e.id, 'ceiling')).toBe(true)
+    const file = exportEdits(m, base, 'mep.ifc')
+    expect(file.equipment).toEqual([{ id: e.id, surface: 'ceiling' }])
+    const fresh = open()
+    applyEdits(fresh, file)
+    expect(fresh.storeys[0].equipment.find((x) => x.id === e.id)!.surfaceSet).toBe('ceiling')
   })
 })

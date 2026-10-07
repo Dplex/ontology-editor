@@ -535,6 +535,8 @@ export type Snapshot =
       nameEdited: Equipment['nameEdited']
       endShift: Equipment['endShift']
       wallId: string | undefined
+      /** 사람이 정한 설치면(OE-EQP-05). */
+      surfaceSet?: Equipment['surfaceSet']
     }
   | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; longName: string; roomKind: Space['kind']; roomKindSource: Space['kindSource'] }
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
@@ -660,6 +662,7 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
       nameEdited: e.nameEdited ? { ...e.nameEdited } : undefined,
       endShift: e.endShift ? copyShift(e.endShift) : undefined,
       wallId: e.wallId,
+      surfaceSet: e.surfaceSet,
     }
   }
   return null
@@ -786,6 +789,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete equipment.endShift
       if (snapshot.wallId) equipment.wallId = snapshot.wallId
       else delete equipment.wallId
+      if (snapshot.surfaceSet) equipment.surfaceSet = snapshot.surfaceSet
+      else delete equipment.surfaceSet
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
       equipment.spaceSource = snapshot.spaceSource
       equipment.spaceId = snapshot.spaceId

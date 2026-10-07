@@ -145,7 +145,7 @@ import {
   zoneSpaces,
 } from './lib/custom-zone'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
-import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, type Judged } from './lib/ceiling'
+import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
@@ -507,6 +507,23 @@ function saveCeiling(storeyId: string, value: number | null) {
   triggerRef(model)
   const c = ceilingOf(s)
   note(c ? `${s.name} 층의 반자 높이를 ${meters(c.height)}로 정했습니다${c.source === 'bim' ? '(BIM 값)' : ''}.` : `${s.name} 층의 반자 높이를 지웠습니다(모름).`)
+}
+
+/** 설비의 설치면을 사람이 정한다(OE-EQP-05). null 이면 지워 z 판정으로 돌아간다. 되돌리기에 쌓인다. */
+function setSurfaceOf(id: string, surface: Surface | null) {
+  const m = model.value
+  if (!m) return
+  const snapshot = snapshotEquipment(m, id)
+  const at = mark()
+  const done = setEquipmentSurface(m, id, surface)
+  if (done !== true) {
+    if (done) note(done.refused)
+    return
+  }
+  const name = shortName(nameOfId(id))
+  remember(surface ? `${name} 설치면 ${SURFACE_LABEL[surface]}` : `${name} 설치면 판정으로`, snapshot, at)
+  triggerRef(model)
+  note(surface ? `${name}의 설치면을 ${SURFACE_LABEL[surface]}으로 정했습니다` : `${name}의 설치면을 z 판정으로 되돌렸습니다`)
 }
 
 // 설치면 판정(OE-EQP-03). z(층 바닥 기준)로 판정하고, 허용 설치면 밖이면 목록에 올린다(Q9).
@@ -1698,12 +1715,17 @@ const matches = (text: string) => {
 const editStoreys = computed(() =>
   (model.value?.storeys ?? []).filter((s) => !editStorey.value || s.id === editStorey.value),
 )
+// 설치면 필터(OE-EQP-05). 기준은 판정 설치면이고 플레넘은 천장으로 센다. "미정" 은 판정하지 못한 설비다. 도관과 설치면 없는 종류
+// (배관·덕트 위 밸브·댐퍼)는 어느 면에도 들지 않는다.
+const judgedById = computed(() => new Map(surfaceRows.value.map((r) => [r.equipment.id, r.judged])))
 const surfaceMatches = (e: Equipment) => {
   const f = surfaceFilter.value
   if (!f) return true
-  if (isConduit(e.role)) return false
-  const allowed = allowedSurfaces(e.kind)
-  return f === 'none' ? !allowed : !!allowed?.includes(f)
+  if (isConduit(e.role) || !judgedById.value.has(e.id)) return false
+  const judged = judgedById.value.get(e.id) ?? null
+  if (f === 'none') return judged === null
+  if (f === 'ceiling') return judged === 'ceiling' || judged === 'plenum'
+  return judged === f
 }
 const editSpaces = computed(() =>
   editStoreys.value
@@ -6053,12 +6075,24 @@ async function export3D(format: 'glb' | 'obj') {
                       <br />
                       <template v-if="selectedJudged.judged">
                         판정 <span :class="{ 'height-mismatch': selectedJudged.outside }">{{ JUDGED_LABEL[selectedJudged.judged] }}</span>
-                        <span class="muted">(z {{ selectedJudged.z!.toFixed(2) }}m)</span> <Src kind="calc" />
+                        <span v-if="selectedJudged.z !== null" class="muted">(z {{ selectedJudged.z.toFixed(2) }}m)</span>
+                        <Src v-if="!selected.surfaceSet" kind="calc" />
                         <span v-if="selectedJudged.outside" class="height-mismatch"> 허용 밖</span>
                       </template>
                       <span v-else-if="selectedJudged.z !== null" class="muted">
                         판정 미정 (z {{ selectedJudged.z.toFixed(2) }}m{{ selectedJudged.hc ? '' : ' · 이 층 반자 높이 모름' }})
                       </span>
+                      <!-- 사람이 정한 설치면(OE-EQP-05). 판정하지 못한 설비에 정하고, 지우면 z 판정으로 돌아간다. -->
+                      <template v-if="selected.surfaceSet">
+                        <Src kind="edit" />
+                        <button v-if="editing && !selectedLock" type="button" class="link" @click="setSurfaceOf(selected.id, null)">판정으로 되돌리기</button>
+                      </template>
+                      <label v-else-if="editing && !selectedLock && !selectedJudged.judged" class="surface-set">
+                        <select aria-label="설치면 정하기" @change="setSurfaceOf(selected.id, (($event.target as HTMLSelectElement).value || null) as Surface | null)">
+                          <option value="">설치면 정하기…</option>
+                          <option v-for="x in allowedSurfaces(selected.kind) ?? (['ceiling', 'floor', 'wall'] as const)" :key="x" :value="x">{{ SURFACE_LABEL[x] }}</option>
+                        </select>
+                      </label>
                     </template>
                   </dd>
                 </div>
@@ -7640,7 +7674,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <option value="ceiling">천장</option>
                 <option value="floor">바닥</option>
                 <option value="wall">벽</option>
-                <option value="none">정하지 않음</option>
+                <option value="none">미정</option>
               </select>
             </label>
             <label class="grow">

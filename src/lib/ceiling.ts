@@ -112,13 +112,17 @@ export type Judged = Surface | 'plenum'
 
 /**
  * 설비의 설치면을 z(층 바닥 기준)로 판정한다(OE-EQP-03). 바닥 z ≤ 0.3, h_c 를 알면 z ≥ h_c−0.3 천장(h_c 초과는 플레넘),
- * 그 사이에서 벽선 0.3m 이내면 벽, 그 밖은 미정(null). 좌표가 없거나 도관·설치면 없는 종류(밸브·댐퍼)면 null.
+ * 그 사이에서 벽선 0.3m 이내면 벽, 그 밖은 미정(null). 좌표가 없거나 도관·설치면 없는 종류(밸브·댐퍼)면 null. 사람이 정한 설치면
+ * (`surfaceSet`, OE-EQP-05)이 있으면 그것이다.
  *
  * z 는 설비 좌표(배치점, 형상에서 멀면 형상 중심)다. glossary Q8 의 "형상 최저점" 은 아니다 — 모델에 설비 형상의 높이 폭을
  * 두지 않아서다. 천장 설비는 배치점이 반자 면이라 차이가 작고, 바닥 기기는 배치점이 바닥이다(실측은 PR 본문).
  */
-export function judgeSurface(e: Pick<Equipment, 'position' | 'role' | 'kind'>, storey: Pick<Storey, 'elevation' | 'walls' | 'ceiling' | 'ceilingSet'>, storeyHeight: number | null): Judged | null {
-  if (!e.position || isConduit(e.role) || allowedSurfaces(e.kind)?.length === 0) return null
+export function judgeSurface(e: Pick<Equipment, 'position' | 'role' | 'kind' | 'surfaceSet'>, storey: Pick<Storey, 'elevation' | 'walls' | 'ceiling' | 'ceilingSet'>, storeyHeight: number | null): Judged | null {
+  if (isConduit(e.role) || allowedSurfaces(e.kind)?.length === 0) return null
+  // 사람이 정한 설치면이 앞선다(OE-EQP-05).
+  if (e.surfaceSet) return e.surfaceSet
+  if (!e.position) return null
   const z = e.position[2] - storey.elevation
   if (z <= FLOOR_BAND) return 'floor'
   const hc = ceilingOf(storey)?.height ?? null
@@ -175,5 +179,20 @@ export function setCeiling(model: Model, storeyId: string, height: number | null
   if ((storey.ceilingSet ?? null) === value) return false
   if (value === null) delete storey.ceilingSet
   else storey.ceilingSet = value
+  return true
+}
+
+/**
+ * 설비의 설치면을 사람이 정한다(OE-EQP-05). null 이면 지워 z 판정으로 돌아간다. 허용 설치면을 아는 종류는 그 안에서만 정한다.
+ * 바뀌었으면 true, 허용 밖이면 그 이유.
+ */
+export function setEquipmentSurface(model: Model, id: string, surface: Surface | null): boolean | { refused: string } {
+  const e = model.storeys.flatMap((s) => s.equipment).find((x) => x.id === id)
+  if (!e) return false
+  const allowed = allowedSurfaces(e.kind)
+  if (surface && allowed && !allowed.includes(surface)) return { refused: '이 종류의 허용 설치면이 아닙니다.' }
+  if ((e.surfaceSet ?? null) === surface) return false
+  if (surface) e.surfaceSet = surface
+  else delete e.surfaceSet
   return true
 }
