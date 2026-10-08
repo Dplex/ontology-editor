@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-PIP-07"]
 ---
 
 # OE-PIP-16 규칙 방향 알려진 오류 보정
+
+## 관련 티켓
+
+- [OE-PIP-07](./OE-PIP-07.md): 확정 규칙 재검토
 
 ## 요구사항
 

@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-PIP-06", "OE-PIP-10", "OE-PIP-13"]
 ---
 
 # OE-PIP-12 배관 끝점 추종
+
+## 관련 티켓
+
+- [OE-PIP-06](./OE-PIP-06.md): 해제된 연결의 추종 제외
+- [OE-PIP-10](./OE-PIP-10.md): 배관 형상 보정
+- [OE-PIP-13](./OE-PIP-13.md): 좌표 없는 끝점의 추종 불가
 
 ## 요구사항
 

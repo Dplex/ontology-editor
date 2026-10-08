@@ -9,10 +9,15 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-BIM-10", "OE-PIP-02"]
 ---
 
 # OE-PIP-09 계통 이름 규칙
+
+## 관련 티켓
+
+- [OE-BIM-10](../E05-BIM/OE-BIM-10.md): 병합·재임포트 매칭용 원본 이름
+- [OE-PIP-02](./OE-PIP-02.md): 수동 계통 생성
 
 ## 요구사항
 

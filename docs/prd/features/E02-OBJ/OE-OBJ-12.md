@@ -16,7 +16,7 @@ depends: ["OE-PIP-10","OE-PIP-11","OE-PIP-12","OE-PIP-13"]
 
 ## 요구사항
 
-배관은 설비 사이의 냉온수·냉매·공기(덕트) 경로이며 점(x·y·z) 폴리라인이다(glossary "배관"). 배관마다 Flow Type 을 하나 가진다 — SA·RA·EA·OA·CHWS·CHWR·HWS·HWR·CWS·CWR·REF(glossary "Flow Type"). 급수·소화·급탕·스팀·지열수는 범례에 없어 추가 후 쓴다.
+배관은 설비 사이의 냉온수·냉매·공기(덕트) 경로이며 점(x·y·z) 폴리라인이다(glossary "배관"). 배관마다 Flow Type 을 하나 가진다 — SA·RA·EA·OA·CHWS·CHWR·HWS·HWR·CWS·CWR·REF, 그리고 급탕 DHWS·DHWR · 급수 DCW · 소화 FP · 스팀 STM·CR · 지열수 GWS·GWR(glossary "Flow Type").
 배관은 Flow Type 에 따라 정해진 색으로 그린다(OE-ML-15 와 같은 체계).
 배관은 점을 차례로 찍어 수동으로 그린다(OE-PIP-11). 양 끝은 설비 또는 다른 배관에 연결되어야 하며, 수정 뒤에도 끊긴 끝이 남으면 안 된다.
 연결된 설비가 움직이면 배관 끝점이 따라와 길이·높이가 바뀐다(OE-PIP-12). 좌표가 없는 배관은 반영하지 않는다(OE-PIP-13).
