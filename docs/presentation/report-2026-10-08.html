@@ -116,7 +116,7 @@
 <!-- ============ 3. 무엇을 하나 ============ -->
 <section class="slide">
   <div class="kicker">① 기능 요구사항</div>
-  <h2>무엇을 하는 도구인가 — 입력 3갈래, 출력 2파일, 소비 5곳</h2>
+  <h2>무엇을 하는 도구인가 — 입력 3갈래, 출력 4형식, 소비 5곳</h2>
   <p class="lead">Unity DT 밖의 별도 웹 에디터(Three.js). 브라우저 안에서만 돌고, 결과는 DT 가 읽는 파일로 냅니다.</p>
   <div class="flow" style="margin-top:6px">
     <div class="col" style="width:210px;gap:10px">
@@ -126,7 +126,7 @@
     </div>
     <div class="arrow">➜</div>
     <div class="node" style="width:330px;display:flex;flex-direction:column;justify-content:center;background:var(--brand2)">
-      <b style="font-size:20px">온톨로지 에디터</b>
+      <b style="font-size:20px">온톨로지 자동 구축 플랫폼</b>
       <div style="text-align:left;font-size:14px;margin-top:8px;line-height:1.7">
         ① 읽기 · <strong>등급 판정</strong>(BIM 이 얼마나 쓸만한가)<br>
         ② 자동 생성 — 층·방·벽·문·설비·계통·소속<br>
@@ -136,10 +136,11 @@
       </div>
     </div>
     <div class="arrow">➜</div>
-    <div class="col" style="width:200px;gap:10px;justify-content:center">
-      <div class="node" style="border-color:var(--done)"><b>GeoJSON</b>기하<br><span class="small muted">방 외곽선·벽·문·설비 좌표</span></div>
-      <div class="node" style="border-color:var(--done)"><b>Brick TTL</b>의미<br><span class="small muted">계층·소속·연결 (술어 4종)</span></div>
-      <div class="small muted" style="text-align:center">둘은 IfcGlobalId 하나로 이어짐</div>
+    <div class="col" style="width:200px;gap:8px;justify-content:center">
+      <div class="node" style="border-color:var(--done);padding:9px 12px"><b>GeoJSON</b>기하<br><span class="small muted">방 외곽선·벽·문·설비 좌표</span></div>
+      <div class="node" style="border-color:var(--done);padding:9px 12px"><b>Brick TTL</b>의미<br><span class="small muted">계층·소속·연결 (술어 4종)</span></div>
+      <div class="node" style="border-color:var(--review);padding:9px 12px"><b>GLB · OBJ</b>3D 형상<br><span class="small muted">DT·뷰어에 그대로 보여 주기용</span></div>
+      <div class="small muted" style="text-align:center">셋 다 IfcGlobalId 하나로 이어짐</div>
     </div>
     <div class="arrow">➜</div>
     <div class="col" style="width:180px;gap:8px;justify-content:center">
@@ -154,7 +155,7 @@
     <b>왜 필요한가</b> — 기존 SR 온톨로지(<code>Zone 4,016 · 실내기 3,028</code>)에는 <b>좌표가 하나도 없다</b>. 이 도구가 그 빠진 절반(기하)을 만들고, 리모델링 때 3D·공간 계층·설비 소속·관제 화면이 서로 어긋나지 않게 한 번에 고친다.
   </div>
   <div class="foot"><span>PRD_011 1.1 · 1.7 / intent.md</span><span class="pg"></span></div>
-  <div class="note">출력이 두 파일인 이유: 다각형을 TTL 에 넣으면 "이 방이 저 공조존과 겹치나"를 계산할 수 없다. 그래서 기하와 의미를 따로 내고 id 로 잇는다. DT 파서(ttl.go)로 실제로 읽히는지 테스트가 확인한다.</div>
+  <div class="note">GeoJSON 과 TTL 을 나눈 이유: 다각형을 TTL 에 넣으면 "이 방이 저 공조존과 겹치나"를 계산할 수 없다. 그래서 기하와 의미를 따로 내고 id 로 잇는다. DT 파서(ttl.go)로 실제로 읽히는지 테스트가 확인한다. GLB·OBJ 는 보여 주기용 셋째 출력이라 두 파일을 대신하지 않고, 객체 이름이 같은 GlobalId 다.</div>
 </section>
 
 <!-- ============ 4. 누구에게 무엇을 ============ -->
@@ -214,15 +215,12 @@
     <!-- no : BIM? -->
     <path class="l" d="M325,255 L385,255"/><text class="lb" x="338" y="246">없음</text>
     <polygon class="d" points="455,205 525,255 455,305 385,255"/><text class="t" x="455" y="250">BIM</text><text class="t" x="455" y="268">있나?</text>
-    <path class="l" d="M455,205 L455,95 L560,95"/><text class="lb" x="463" y="150">없음</text>
-    <rect class="b" x="560" y="65" width="200" height="60" rx="10"/><text class="tb" x="660" y="90">수동 구축</text><text class="t" x="660" y="110">스캔·평면도 위에 그림</text>
     <path class="l" d="M525,255 L575,255"/><text class="lb" x="532" y="246">있음</text>
     <polygon class="d" points="650,200 725,255 650,310 575,255"/><text class="t" x="650" y="250">등급 판정</text><text class="t" x="650" y="268">≥ 2 ?</text>
     <path class="l" d="M650,310 L650,350"/><text class="lb" x="658" y="335">미달</text>
     <rect class="r" x="560" y="350" width="180" height="56" rx="10"/><text class="tb" x="650" y="374">재제출 리포트</text><text class="t" x="650" y="394">[생성] 버튼 잠김</text>
     <path class="l" d="M725,255 L775,255"/><text class="lb" x="732" y="246">통과</text>
     <rect class="b" x="775" y="215" width="170" height="80" rx="10"/><text class="tb" x="860" y="243">자동 생성</text><text class="t" x="860" y="263">방·벽·설비·계통·소속</text><text class="t" x="860" y="281">+ IDF 있으면 공조존</text>
-    <path class="l" d="M760,95 L860,95 L860,215"/>
     <path class="l" d="M945,255 L985,255"/>
     <rect class="b" x="985" y="215" width="165" height="80" rx="10"/><text class="tb" x="1067" y="243">검토·보정</text><text class="t" x="1067" y="263">등급·요구사항</text><text class="t" x="1067" y="281">3D 에서 사람이 고침</text>
     <path class="l" d="M1067,295 L1067,345"/>
@@ -243,7 +241,7 @@
     <rect class="b" x="1046" y="472" width="96" height="56" rx="10"/><text class="tb" x="1094" y="498">되돌리기</text><text class="t" x="1094" y="516">1주 내 롤백</text>
     <path class="l" d="M1067,407 L1067,438" style="stroke-dasharray:4 3"/>
     <text x="10" y="40" style="font-size:15px;font-weight:700;fill:#1d2433">초기 구축 모드</text>
-    <text x="10" y="60" style="font-size:13px;fill:#5b6577">온톨로지가 없는 사이트 — BIM 유무·등급으로 갈림</text>
+    <text x="10" y="60" style="font-size:13px;fill:#5b6577">온톨로지가 없는 사이트 — BIM 등급으로 갈림</text>
   </svg>
   <div class="foot"><span>PRD_011 1.1 사용자 플로우 · 1.6 시작점 분기</span><span class="pg"></span></div>
   <div class="note">BIM 이 없거나 건축만 있으면 공간 골격만 자동이고 설비는 수동. IDF 가 없으면 공조존도 공조존 도구로 수동. 등급 2 미달이면 [생성]을 막고 재제출 리포트를 낸다.</div>
@@ -280,19 +278,19 @@
 <section class="slide">
   <div class="kicker">① 기능 요구사항 · 핵심 제약</div>
   <h2>BIM 등급 사다리 — 어디까지 자동이 되나</h2>
-  <p class="lead">등급이 오를수록 DT 에서 되는 것이 늘어납니다. <b>게이트(생성 허용)는 등급 2, 목표선은 등급 3</b> 이 권고안(C안)입니다 — D1, 그룹장 컨펌 대기.</p>
+  <p class="lead">등급이 오를수록 DT 에서 되는 것이 늘어납니다. <b>게이트(생성 허용)는 등급 3</b> — 계통·연결망까지 있어야 온톨로지를 생성합니다. D1, 그룹장 컨펌 대기.</p>
   <div class="row" style="gap:22px;align-items:flex-start">
     <svg viewBox="0 0 640 420" width="470" height="308" style="font-family:inherit;flex:none">
       <style>.s{font-size:14px;fill:#1d2433}.sb{font-size:15px;font-weight:700;fill:#fff}.sm{font-size:12px;fill:#5b6577}</style>
       <!-- steps bottom to top -->
       <rect x="0"   y="350" width="260" height="56" fill="#9fb3d6"/><text class="sb" x="12" y="374">0 공간 골격</text><text class="sb" x="12" y="394" style="font-weight:400;font-size:13px">3D 맵·탐색기 트리</text>
       <rect x="60"  y="292" width="260" height="56" fill="#7f9bcb"/><text class="sb" x="72" y="316">1 설비 목록</text><text class="sb" x="72" y="336" style="font-weight:400;font-size:13px">3D 에 설비 표시</text>
-      <rect x="120" y="234" width="260" height="56" fill="#1f8a5b"/><text class="sb" x="132" y="258">2 설비 소속 ★ 게이트</text><text class="sb" x="132" y="278" style="font-weight:400;font-size:13px">이상 알림 발생 위치</text>
-      <rect x="180" y="176" width="260" height="56" fill="#3b7ddd"/><text class="sb" x="192" y="200">3 계통·연결망 ☆ 목표</text><text class="sb" x="192" y="220" style="font-weight:400;font-size:13px">계통별 보기</text>
+      <rect x="120" y="234" width="260" height="56" fill="#5f86c4"/><text class="sb" x="132" y="258">2 설비 소속</text><text class="sb" x="132" y="278" style="font-weight:400;font-size:13px">이상 알림 발생 위치</text>
+      <rect x="180" y="176" width="260" height="56" fill="#1f8a5b"/><text class="sb" x="192" y="200">3 계통·연결망 ★ 게이트</text><text class="sb" x="192" y="220" style="font-weight:400;font-size:13px">계통별 보기</text>
       <rect x="240" y="118" width="260" height="56" fill="#5a8fe3"/><text class="sb" x="252" y="142">4 흐름 방향</text><text class="sb" x="252" y="162" style="font-weight:400;font-size:13px">공조기 → 토출구 추적</text>
       <rect x="300" y="60"  width="260" height="56" fill="#a9b4c4"/><text class="sb" x="312" y="84">5 운영</text><text class="sb" x="312" y="104" style="font-weight:400;font-size:13px">공조존·관제점 (BIM 밖: IDF·BAS)</text>
-      <line x1="0" y1="290" x2="640" y2="290" stroke="#1f8a5b" stroke-width="2" stroke-dasharray="6 4"/>
-      <text x="390" y="282" class="s" style="fill:#1f8a5b;font-weight:700">↑ 등급 2 이상이면 생성 허용</text>
+      <line x1="0" y1="233" x2="640" y2="233" stroke="#1f8a5b" stroke-width="2" stroke-dasharray="6 4"/>
+      <text x="450" y="225" class="s" style="fill:#1f8a5b;font-weight:700">↑ 등급 3 이상이면 생성 허용</text>
       <text x="0" y="40" class="sm">등급 0~2 는 BIM + 계산만으로 판정 · 3~4 는 사전·규칙 보정을 함께 표기(D12)</text>
     </svg>
     <div class="col" style="flex:1;min-width:0">
@@ -301,12 +299,12 @@
         <tr><td><b style="color:var(--brand)">0</b></td><td>층 · 방 외곽선 · 벽·문·창</td><td>3D Map · 탐색기 트리</td><td>건축 BIM, 길이 단위, 원점 (R0~R4·R6·R7)</td></tr>
         <tr><td><b style="color:var(--brand)">0+</b></td><td>방 종류, 문으로 이어진 방-방</td><td>"회의실" 검색 · 로봇 경로</td><td>방 분류 코드 · 공간 경계 (R14·R5 권장)</td></tr>
         <tr><td><b style="color:var(--brand)">1</b></td><td>설비와 좌표</td><td>3D 에 설비 표시</td><td>설비(MEP) BIM (R9·R11)</td></tr>
-        <tr style="background:#e7f5ee"><td><b style="color:var(--done)">2 ★</b></td><td><b>설비가 어느 방에 있는지</b> (계산)</td><td><b>이상 알림의 발생 위치</b> · 탐색기의 설비</td><td>건축·설비가 같은 좌표·층 이름 (R12·R1) → <b>게이트</b></td></tr>
-        <tr><td><b style="color:var(--brand)">3 ☆</b></td><td>같은 계통·배관에 이어진 설비</td><td>계통별 보기</td><td>계통 정보, 맞닿게 그린 설비 (R16·R15) → 목표선</td></tr>
+        <tr><td><b style="color:var(--brand)">2</b></td><td>설비가 어느 방에 있는지 (계산)</td><td>이상 알림의 발생 위치 · 탐색기의 설비</td><td>건축·설비가 같은 좌표·층 이름 (R12·R1)</td></tr>
+        <tr style="background:#e7f5ee"><td><b style="color:var(--done)">3 ★</b></td><td><b>같은 계통·배관에 이어진 설비</b></td><td><b>계통별 보기</b></td><td>계통 정보, 맞닿게 그린 설비 (R16·R15) → <b>게이트</b></td></tr>
         <tr><td><b style="color:var(--brand)">4·4+</b></td><td>공조기 → 토출구 흐름 방향, 담당 공간</td><td>담당 설비 추적 · 상류/하류 · 계통도 담당 공간</td><td>포트 흐름 방향 (R17) 또는 사람이 확정한 규칙 방향</td></tr>
         <tr class="muted"><td><b>5</b></td><td>공조존 · 관제점</td><td>계통도 완성 · 실시간 값</td><td>BIM 밖 — IDF · BAS</td></tr>
       </table>
-      <p class="small muted" style="margin-top:8px">권고 C안: 게이트 = 등급 2(소속 방 찾은 기기 ≥ 85%), 목표선 = 등급 3(계통 소속 ≥ 70%, 경고만). 실제 BIM 에서 잰 값은 13장</p>
+      <p class="small muted" style="margin-top:8px">게이트 = 등급 3(계통 소속 기기 ≥ 70%). 그 아래 등급 0~2(외곽선 ≥ 85% · 위치 ≥ 90% · 소속 ≥ 85%)는 함께 충족해야 함. 실제 BIM 에서 잰 값은 13장</p>
     </div>
   </div>
   <div class="foot"><span>PRD_011 1.8 · questions.md D1·D12</span><span class="pg"></span></div>
