@@ -1040,6 +1040,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       arr[k + 1] = d.original[v * 3 + 1] + delta.y
       arr[k + 2] = d.original[v * 3 + 2] + delta.z
     }
+    position.addUpdateRange(d.part.vStart * 3, d.part.vCount * 3)
     position.needsUpdate = true
     d.part.box.copy(d.box).translate(delta)
   }
@@ -1561,6 +1562,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   function writePart(part: Part, positions: Float32Array) {
     const position = part.chunk.position
     ;(position.array as Float32Array).set(positions, part.vStart * 3)
+    // 그 설비 범위만 올린다. 덩어리 전부(약 3MB)를 미끄러지는 프레임마다 올리면 성수에서 프레임이 끊겼다.
+    position.addUpdateRange(part.vStart * 3, part.vCount * 3)
     position.needsUpdate = true
   }
   function finishGlide(id: string) {
@@ -1935,6 +1938,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       arr[v * 3 + 1] = g
       arr[v * 3 + 2] = b
     }
+    attr.addUpdateRange(k0, part.vCount * 3)
     attr.needsUpdate = true
   }
 
@@ -1949,6 +1953,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
    * 보이는(진한) 설비와 흐린 설비의 삼각형 목록을 다시 짠다. 형상은 둘이 같이 쓴다. `only` 를 주면 그 덩어리만
    * 짠다 — 계통 하나를 고를 때 바뀌는 덩어리는 몇 개뿐이다.
    */
+  const sameSet = (a: ReadonlySet<string> | null, b: ReadonlySet<string> | null) =>
+    a === b || (!!a && !!b && a.size === b.size && [...a].every((x) => b.has(x)))
   function splitIndex(only?: ReadonlySet<Chunk>) {
     for (const chunk of chunks) {
       if (only && !only.has(chunk)) continue
@@ -2818,9 +2824,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     setStoreyFilter(storeys, hidden) {
+      // 화면은 모델이 바뀔 때마다(편집·되돌리기마다) 이것을 다시 부른다. 보일 층과 숨길 설비가 그대로면 삼각형 목록을 다시 짜지
+      // 않는다 — 덩어리 전부의 인덱스를 새로 올려서 성수에서 편집·되돌리기마다 화면이 0.2초씩 멈췄다. 새 형상(setModel)은
+      // 거기서 따로 짠다.
+      const same = sameSet(visibleStoreys, storeys) && sameSet(hiddenIds, hidden)
       visibleStoreys = storeys
       hiddenIds = hidden
       applyStoreyVisibility()
+      if (same) return
       splitIndex()
       drawArrows()
       if (hoverAt) hoverPending = true

@@ -332,11 +332,9 @@ header {
 .map polygon.main {
   fill: color-mix(in srgb, var(--c) 28%, transparent);
   stroke: var(--c);
-  filter: drop-shadow(0 0 3px var(--c));
 }
 .map circle.main {
   fill: var(--c);
-  filter: drop-shadow(0 0 3px var(--c));
 }
 .map .halo {
   fill: none;

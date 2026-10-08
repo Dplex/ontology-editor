@@ -280,7 +280,6 @@ const summary = computed(() => {
   align-items: stretch;
   height: 40px;
   font-weight: 900;
-  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45));
 }
 .bug > span {
   display: flex;
@@ -333,10 +332,12 @@ const summary = computed(() => {
 
 /* --- 다시 한 순간 --- */
 .impact {
+  /* 흐림 그림자(box-shadow blur)는 화면 전체를 다시 칠해 다시 하는 순간 프레임이 끊겼다. 테두리와 그라데이션만 쓴다. */
   position: absolute;
   inset: 0 var(--feed) 0 0;
   border: 4px solid var(--c);
-  box-shadow: inset 0 0 120px color-mix(in srgb, var(--c) 45%, transparent);
+  background: radial-gradient(ellipse at center, transparent 55%, color-mix(in srgb, var(--c) 22%, transparent));
+  will-change: opacity;
   animation: impact 650ms ease-out both;
 }
 
@@ -346,7 +347,6 @@ const summary = computed(() => {
   left: 18px;
   bottom: 104px;
   max-width: calc(100% - var(--feed) - 60px);
-  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.5));
 }
 .scene-kicker {
   display: flex;
