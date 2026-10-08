@@ -8,8 +8,8 @@ release: "R2"
 priority: "P3"
 owner: "tbd"
 status: "prd-done"
-status_note: "범위 결정 필요"
-blocked_by: ["D-gbXML"]
+status_note: "R2 확정 — IDF 기반 자동 구축과 함께 Phase 2 (D-gbXML, 2026-10-09)"
+blocked_by: []
 depends: ["D-gbXML"]
 ---
 
