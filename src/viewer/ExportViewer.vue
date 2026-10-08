@@ -149,6 +149,8 @@ const KIND_LABEL: Record<string, string> = {
   window: '창',
   customZone: '커스텀존',
   hvacZone: '공조존',
+  room: '룸',
+  spaceObject: '추가 공간 오브젝트',
 }
 const kindCounts = computed(() => {
   const n = new Map<string, number>()
@@ -246,7 +248,7 @@ const plan = computed(() => {
   if (!Number.isFinite(x0)) return { viewBox: '0 0 1 1', shapes: [], r: 0.1, empty: true }
   const pad = Math.max(x1 - x0, y1 - y0, 1) * 0.04
   // 넓이가 큰 것부터 그려 작은 것이 위에 온다. 점(설비·문)은 맨 위이고, 기기는 같은 자리의 덕트·배관 위에 둔다(눌러지게).
-  const order: Record<string, number> = { hvacZone: 0, customZone: 1, space: 2, wall: 3, window: 4, door: 5, equipment: 7 }
+  const order: Record<string, number> = { hvacZone: 0, customZone: 1, space: 2, room: 2.5, spaceObject: 2.7, wall: 3, window: 4, door: 5, equipment: 7 }
   const rank = (s: Shape) => (s.kind === 'equipment' && unreadByKey.value.has(s.id) ? 6 : (order[s.kind] ?? 9))
   shapes.sort((a, b) => rank(a) - rank(b))
   return {
@@ -736,6 +738,17 @@ const PARTS_SHOWN = 40
   stroke: #c2410c;
   stroke-dasharray: 4 3;
   stroke-width: 1.5;
+}
+.shape.room {
+  fill: none;
+  stroke: var(--accent);
+  stroke-dasharray: 2 2;
+  stroke-width: 1.5;
+}
+.shape.spaceObject {
+  fill: #7c3aed;
+  fill-opacity: 0.35;
+  stroke: #7c3aed;
 }
 .shape.equipment {
   fill: #0f766e;

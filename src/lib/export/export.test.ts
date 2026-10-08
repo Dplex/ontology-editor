@@ -5,6 +5,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from '../ifc/import'
 import type { Model } from '../model'
 import { modelToGeoJSON, storeyToGeoJSON } from './geojson'
+import { createRoom } from '../room'
+import { addSpaceObject } from '../space-object'
 import { escapeLocalName, modelToTTL } from './ttl'
 import { NUMERIC_OK, numericPredicates, readGeoJSON } from './read-export'
 
@@ -74,6 +76,36 @@ describe('GeoJSON', () => {
     expect(ttl).not.toContain(`ex:${escapeLocalName('w1')} a`)
     expect(ttl).not.toContain(`ex:${escapeLocalName('d1')} a`)
     for (const id of [a.id, b.id]) expect(ttl).toContain(`ex:${escapeLocalName(id)} a brick:`)
+  })
+
+  it('룸과 추가 공간 오브젝트는 3D Map 용으로 GeoJSON 에만 나가고, TTL 에는 없으며 설비 소속은 물리존 그대로다 (#45 · #51)', () => {
+    const m: Model = structuredClone(mep)
+    const storey = m.storeys[0]
+    const office = storey.spaces[0]
+    const room = createRoom(m, storey.id, [1, 1], [4, 3], { name: '회의실 A' })
+    if (!room || 'refused' in room) throw new Error('room')
+    const desk = addSpaceObject(m, storey.id, 'desk', [7, 5])
+    if (!desk || 'refused' in desk) throw new Error('desk')
+    const before = storey.equipment.map((e) => [e.id, e.spaceId])
+
+    const fc = storeyToGeoJSON(storey, [], new Map(), new Map([['desk', '책상']]))
+    const r = fc.features.find((f) => f.id === room.id)!
+    expect(r.geometry).toEqual({ type: 'Polygon', coordinates: [[[1, 1], [4, 1], [4, 3], [1, 3], [1, 1]]] })
+    expect(r.properties).toMatchObject({ kind: 'room', name: '회의실 A', storeyId: storey.id, spaceId: office.id, areaM2: 6 })
+    const o = fc.features.find((f) => f.id === desk.id)!
+    // 책상의 기본 크기는 1.2 × 0.7 × 0.72m 다. 바닥 사각형은 놓은 자리(7, 5)가 가운데다.
+    const [w, d, h] = desk.size
+    expect(o.geometry).toEqual({ type: 'Polygon', coordinates: [[[7 - w / 2, 5 - d / 2], [7 + w / 2, 5 - d / 2], [7 + w / 2, 5 + d / 2], [7 - w / 2, 5 + d / 2], [7 - w / 2, 5 - d / 2]]] })
+    expect(o.properties).toMatchObject({ kind: 'spaceObject', item: 'desk', itemName: '책상', size: [w, d, h], height: h, storeyId: storey.id })
+    // 모델 전체로 내보내면 라이브러리 이름을 붙이고, 받는 쪽 GeoJSON 검사도 통과한다.
+    const file = modelToGeoJSON(m)[0]
+    expect(file.collection.features.find((f) => f.id === desk.id)!.properties.itemName).toBe('책상')
+    expect(readGeoJSON(file.fileName, JSON.stringify(file.collection)).problems).toEqual([])
+
+    const ttl = modelToTTL(m)
+    expect(ttl).not.toContain(escapeLocalName(room.id))
+    expect(ttl).not.toContain(escapeLocalName(desk.id))
+    expect(storey.equipment.map((e) => [e.id, e.spaceId])).toEqual(before)
   })
 })
 

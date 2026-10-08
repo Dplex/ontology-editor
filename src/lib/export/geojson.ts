@@ -6,10 +6,12 @@
 // 지도 위에 얹을 일이 생기면 그때 사이트 원점의 위경도와 방위를 받아 한 번에 변환한다.
 
 import { capacityQuantity } from '../capacity'
-import type { CustomZone, Equipment, HvacZone, Model, Opening, Space, Storey, Wall } from '../model'
+import { polygonArea, type CustomZone, type Equipment, type HvacZone, type Model, type Opening, type Room, type Space, type SpaceObject, type Storey, type Wall } from '../model'
 import { verticalLinks } from '../vertical'
 import { judgeExternal, type ExternalJudgement } from '../exterior'
 import { zoneEquipment, zoneSpaces } from '../custom-zone'
+import { libraryOf } from '../space-object'
+import { rectRing } from '../room'
 
 export type Geometry =
   | { type: 'Polygon'; coordinates: number[][][] }
@@ -189,11 +191,56 @@ function customZoneFeature(zone: CustomZone, storey: Storey): Feature {
   }
 }
 
-/** 층 하나를 FeatureCollection 으로. 물리존·설비·벽·문·창(과 IDF 공조존)이 같은 파일에 들어간다. */
+/**
+ * 룸(OE-OBJ-03). 물리존 안에서 사람이 그린 편집 단위다. 3D Map 에 보이도록 GeoJSON 에만 적는다 — TTL 에는 없다. DT 탐색기에서 찾거나
+ * 설비 위치로 가리키는 대상이 아니어서다(#45 PM 답, ADR-0023). 설비 소속은 지금처럼 물리존이다. 든 물리존은 `spaceId` 다.
+ */
+function roomFeature(room: Room, storey: Storey): Feature {
+  return {
+    type: 'Feature',
+    id: room.id,
+    geometry: { type: 'Polygon', coordinates: [room.footprint.map((p) => [p[0], p[1]])] },
+    properties: {
+      kind: 'room',
+      name: room.name,
+      storeyId: storey.id,
+      elevation: storey.elevation,
+      spaceId: room.spaceId,
+      areaM2: Number(Math.abs(polygonArea(room.footprint)).toFixed(4)),
+    },
+  }
+}
+
+/**
+ * 추가 공간 오브젝트(OE-OBJ-09). 바닥에 선 축 정렬 상자라 바닥 사각형과 높이로 적는다. 룸과 같이 GeoJSON 에만 있다(#51 PM 답,
+ * ADR-0023). 모양은 라이브러리 항목(`item`, 이름은 `itemName`)이 정한다 — 받는 쪽은 상자를 세우거나 같은 항목의 모델을 상자에 맞춰 늘인다.
+ */
+function spaceObjectFeature(object: SpaceObject, storey: Storey, itemNames: ReadonlyMap<string, string>): Feature {
+  const [w, d, h] = object.size
+  const ring = rectRing([object.at[0] - w / 2, object.at[1] - d / 2], [object.at[0] + w / 2, object.at[1] + d / 2])
+  return {
+    type: 'Feature',
+    id: object.id,
+    geometry: { type: 'Polygon', coordinates: [ring.map((p) => [p[0], p[1]])] },
+    properties: {
+      kind: 'spaceObject',
+      name: object.name,
+      storeyId: storey.id,
+      elevation: storey.elevation,
+      item: object.item,
+      itemName: itemNames.get(object.item) ?? null,
+      size: [w, d, h],
+      height: h,
+    },
+  }
+}
+
+/** 층 하나를 FeatureCollection 으로. 물리존·설비·벽·문·창(과 IDF 공조존·커스텀존·룸·추가 공간 오브젝트)이 같은 파일에 들어간다. */
 export function storeyToGeoJSON(
   storey: Storey,
   zones: readonly HvacZone[] = [],
   vertical: ReadonlyMap<string, string[]> = new Map(),
+  itemNames: ReadonlyMap<string, string> = new Map(),
 ): FeatureCollection {
   const external = judgeExternal(storey)
   return {
@@ -205,6 +252,8 @@ export function storeyToGeoJSON(
       ...storey.openings.map((o) => openingFeature(o, storey)),
       ...zones.filter((z) => z.storeyId === storey.id).map((z) => hvacZoneFeature(z, storey)),
       ...(storey.customZones ?? []).map((z) => customZoneFeature(z, storey)),
+      ...(storey.rooms ?? []).map((r) => roomFeature(r, storey)),
+      ...(storey.spaceObjects ?? []).map((o) => spaceObjectFeature(o, storey, itemNames)),
     ],
   }
 }
@@ -219,13 +268,14 @@ export function storeyToGeoJSON(
 export function modelToGeoJSON(model: Model): { fileName: string; collection: FeatureCollection }[] {
   const taken = new Set<string>()
   const vertical = verticalLinks(model)
+  const itemNames = new Map(libraryOf(model).map((i) => [i.key, i.name]))
   return model.storeys.map((storey) => {
     // 층 이름에는 공백이나 슬래시가 들어올 수 있다. 파일 이름으로 쓰기 전에 걸러 낸다.
     const stem = `floor-${storey.name.replace(/[^\w가-힣-]+/g, '_') || storey.id}`
     let fileName = `${stem}.geojson`
     for (let n = 2; taken.has(fileName.toLowerCase()); n++) fileName = `${stem}-${n}.geojson`
     taken.add(fileName.toLowerCase())
-    const collection = storeyToGeoJSON(storey, model.hvac?.zones ?? [], vertical)
+    const collection = storeyToGeoJSON(storey, model.hvac?.zones ?? [], vertical, itemNames)
     return { fileName, collection: model.skipped?.length ? { ...collection, skipped: [...model.skipped] } : collection }
   })
 }
