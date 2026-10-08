@@ -57,6 +57,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | 9a2e745 | [OE-ZON-04 공조존 경계 다시 그리기](next/pr/oe-zon-04.md) | [#154](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/154) | — (ZON-05 다음) · `needs-pm` |
 | f7520a4 | [OE-MAP-02 흐름 기준 후보와 연결 경고](next/pr/oe-map-02.md) | [#159](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/159) | — (ZON-04 다음) |
 | 3a5c554 | [OE-ZON-01 설비 패널의 담당 공조존](next/pr/oe-zon-01-panel.md) | Refs [#151](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/151) | — (MAP-02 다음) |
+| 8ed03b8 | [OE-PIP-10 꺾임 이음쇠(꼭짓점) 옮기기](next/pr/oe-pip-10-vertex.md) | Refs [#191](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/191) | — (ADR 목록 줄은 MAP-02 다음) · `needs-pm` |
 
 ## 지금 상태 (2026-10-08 22:40)
 
@@ -106,7 +107,7 @@ R1 Todo 는 34장, 후속 이슈 3장([#340](https://github.sec.samsung.net/IoT-
 5. ~~`e2e:seongsu` 가 E 에서 멈춤~~ — ee01c80(12 통과)
 6. **[#184](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/184) 계통 종류** — PM 답이 사실상 1번이다. PM 확인을 받고 닫는다. "Flow Type · 계통도 17종 · 흐름 방향" 세 필드 정의는 후속 이슈 후보다.
 
-### 1. 배관 편집 (E13 · R1 P1)
+### 1. 배관 편집 (E13 · R1 P1) — 1단계 8ed03b8 (꼭짓점 = 이음쇠, 꺾임점 옮기기, ADR-0029). 다음: 꼭짓점 추가·삭제 → 구간 삭제·영향 → 끝점 연결 대상 바꾸기
 
 [OE-PIP-10](docs/prd/features/E13-PIP/OE-PIP-10.md) 형상 수정([#191](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/191)) → [OE-PIP-11](docs/prd/features/E13-PIP/OE-PIP-11.md) 수동 그리기([#192](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/192)) → [OE-PIP-12](docs/prd/features/E13-PIP/OE-PIP-12.md) 끝점 추종([#193](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/193)) → [OE-PIP-13](docs/prd/features/E13-PIP/OE-PIP-13.md) 좌표 조건([#194](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/194)).
 그다음 [OE-OBJ-12](docs/prd/features/E02-OBJ/OE-OBJ-12.md) 배관 오브젝트([#53](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/53), P2) · [OE-EQP-08](docs/prd/features/E12-EQP/OE-EQP-08.md) 실내기([#172](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/172)) · [OE-PIP-14](docs/prd/features/E13-PIP/OE-PIP-14.md) BIM 배관 가져오기([#195](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/195), P2).
