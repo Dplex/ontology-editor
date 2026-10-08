@@ -8,6 +8,8 @@
 
 import {
   Box3,
+  MOUSE,
+  TOUCH,
   Color,
   Ray,
   Sphere,
@@ -46,6 +48,7 @@ import { polygonArea, type Model, type Vec2, type Vec3 } from './model'
 import type { MeshMap } from './ifc/import'
 import { distanceToRing, pointInPolygon } from './mapping'
 import { easeOut, still } from './motion'
+import { isMultiSelect } from './shortcuts'
 
 /**
  * 층을 구분하는 색. 층 수만큼 순환한다.
@@ -145,7 +148,7 @@ export type Highlight = {
    */
   keepColor?: boolean
   /**
-   * 여러 개 고른 설비(OE-UI-09). 고른 색으로 칠하고, 나머지는 흐리게 하지 않는다 — 흐리게 칠한 것은 고를 수 없어 Shift+클릭으로
+   * 여러 개 고른 설비(OE-UI-09). 고른 색으로 칠하고, 나머지는 흐리게 하지 않는다 — 흐리게 칠한 것은 고를 수 없어 Ctrl+클릭으로
    * 더 넣지 못한다. 끌기는 이 중 어느 것을 잡아도 된다(놓으면 화면이 전부 같은 거리만큼 옮긴다).
    */
   group?: ReadonlySet<string>
@@ -246,9 +249,9 @@ export type Viewer = {
   setModel(model: Model, meshes?: MeshMap, options?: { keepView?: boolean }): void
   /** 선택과 상류·하류를 색으로 칠한다. null 이면 전부 원래 색으로 되돌린다. */
   setHighlight(highlight: Highlight | null): void
-  /** 3D 에서 설비를 고르면 부른다. 빈 곳을 누르면 null 이다. 편집 모드에서 Shift 를 누른 채면 `additive`(여러 개 고르기, OE-UI-09). */
+  /** 3D 에서 설비를 고르면 부른다. 빈 곳을 누르면 null 이다. 편집 모드에서 Ctrl(⌘)을 누른 채면 `additive`(여러 개 고르기, OE-UI-09). */
   onPick(handler: (id: string | null, additive?: boolean) => void): void
-  /** 편집 모드에서 Shift 를 누른 채 끌어 그린 상자 안의 설비(OE-UI-09). 화면에 보이는(숨기지 않은) 것만, 형상 중심이 상자 안이면. */
+  /** 편집 모드에서 Ctrl(⌘)을 누른 채 끌어 그린 상자 안의 설비(OE-UI-09). 화면에 보이는(숨기지 않은) 것만, 형상 중심이 상자 안이면. */
   onBoxSelect(handler: (ids: string[]) => void): void
   /**
    * 마우스가 움직일 때마다(한 프레임에 한 번) 그 아래에 무엇이 있는지 알린다. 캔버스를 벗어나거나 끄는 중이면 null.
@@ -408,6 +411,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const camera = new PerspectiveCamera(50, 1, 0.1, 5000)
   const controls = new OrbitControls(camera, canvas)
   controls.enableDamping = true
+  // 시점은 지도식이다(OE-OBJ-15, three.js MapControls 의 배치). 왼쪽 드래그는 바닥면을 따라 화면 이동, 오른쪽 드래그와 Shift+왼쪽
+  // 드래그는 회전·기울이기, 휠은 확대·축소다(보기·편집 모드 같다). 일 대부분이 층을 내려다보는 일이라 이동이 회전보다 잦다.
+  // OrbitControls 는 Ctrl·⌘+왼쪽 드래그도 회전으로 받지만, 편집 모드에서는 여러 개 고르기 상자가 먼저 가져간다(OE-UI-09, pointerdown).
+  controls.mouseButtons = { LEFT: MOUSE.PAN, MIDDLE: MOUSE.DOLLY, RIGHT: MOUSE.ROTATE }
+  controls.touches = { ONE: TOUCH.PAN, TWO: TOUCH.DOLLY_ROTATE }
+  controls.screenSpacePanning = false
 
   // 조명. **그림자·후처리 없이 빛 두 개로만 면을 가른다** — 그리기 호출과 셰이더가 그대로라 성수에서도 값이 들지 않는다.
   // 예전에는 고른 주변광(1.25)이 대부분이라 어느 쪽 면이든 밝기가 같아서, 형상이 있는 설비도 계통 색 한 덩어리로 보였다.
@@ -448,7 +457,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
   let pickHandler: (id: string | null, additive?: boolean) => void = () => {}
   let boxHandler: (ids: string[]) => void = () => {}
-  /** Shift+끌기로 그리는 고르기 상자(OE-UI-09). 화면 좌표의 시작점과 그리는 DOM 상자. */
+  /** Ctrl+끌기로 그리는 고르기 상자(OE-UI-09). 화면 좌표의 시작점과 그리는 DOM 상자. */
   let box: { x: number; y: number; el: HTMLDivElement } | null = null
   let hoverCb: (target: HoverTarget | null, at: { x: number; y: number } | null) => void = () => {}
   const hoverHandler = (target: HoverTarget | null, at: { x: number; y: number } | null) => {
@@ -909,9 +918,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       // 화살표 위에서 누른 것은 떼면서 방향을 바꾸는 누르기다. 끌기를 시작하지 않는다.
       if (hitArrow(e.clientX, e.clientY)) return
       const ray = rayAt(e.clientX, e.clientY)
-      // Shift+끌기는 고르기 상자다(OE-UI-09). 고른 설비 위에서 시작하면 그 설비들을 끄는 것이고, 손잡이·놓기 모드는 그쪽이 먼저다.
-      // 시점의 Shift+끌기(이동)는 오른쪽 버튼 끌기로 한다.
-      if (e.shiftKey && placeElevation === null && hitHandle(e.clientX, e.clientY) === null && !grabbable(ray)) {
+      // Ctrl+끌기는 고르기 상자다(OE-UI-09, DT 2.0 과 같은 키). 고른 설비 위에서 시작하면 그 설비들을 끄는 것이고, 손잡이·놓기
+      // 모드는 그쪽이 먼저다. Shift+끌기는 여기서 받지 않아 보기 모드처럼 회전이다(OE-OBJ-15).
+      if (isMultiSelect(e) && placeElevation === null && hitHandle(e.clientX, e.clientY) === null && !grabbable(ray)) {
         const el = document.createElement('div')
         el.className = 'box-select'
         Object.assign(el.style, { position: 'absolute', pointerEvents: 'none', border: '1px dashed currentColor', background: 'rgba(47, 111, 237, 0.08)', zIndex: '5' })
@@ -958,7 +967,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       box = null
       b.el.remove()
       controls.enabled = true
-      // 거의 안 끌었으면 Shift+클릭이다 — 아래로 내려가 그 자리의 설비를 하나 더한다.
+      // 거의 안 끌었으면 Ctrl+클릭이다 — 아래로 내려가 그 자리의 설비를 하나 더한다.
       if (Math.hypot(e.clientX - b.x, e.clientY - b.y) > 4) {
         pressedAt = null
         boxHandler(partsInBox(b.x, b.y, e.clientX, e.clientY))
@@ -996,13 +1005,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       }
     }
     const ray = rayAt(e.clientX, e.clientY)
-    const additive = editMode && e.shiftKey
+    const additive = editMode && isMultiSelect(e)
     const id = pick(ray, additive)
     if (id) {
       pickHandler(id, additive)
       return
     }
-    // Shift 를 누른 채 빈 곳을 누른 것은 고른 것을 버리는 누르기가 아니다.
+    // Ctrl 을 누른 채 빈 곳을 누른 것은 고른 것을 버리는 누르기가 아니다.
     if (additive) return
     // 보기 모드에서도 바닥을 누르면 그 물리존을 보인다(이름·넓이·든 설비). 고치는 칸은 편집 모드에만 뜬다.
     if (!editMode) {
@@ -1077,6 +1086,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (e.key === 'Escape' && drag) endDrag(false)
   }
   window.addEventListener('keydown', onKeyDown)
+  // 끄는 중 창이 포커스를 잃으면(다른 창으로 전환) 버린다(OE-OBJ-15). 버튼을 뗀 것을 못 받으니 확정하지 않는다.
+  const onBlur = () => {
+    if (drag) endDrag(false)
+    if (box) {
+      box.el.remove()
+      box = null
+      controls.enabled = true
+    }
+  }
+  window.addEventListener('blur', onBlur)
 
   function updateHover() {
     hoverPending = false
@@ -1118,7 +1137,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const b = new Vector3()
   const c = new Vector3()
   const hitPoint = new Vector3()
-  /** `faded` 면 흐리게 칠한 것도 고른다 — 하나를 고르면 상관없는 것이 흐려지는데, Shift+클릭으로 그것을 더하려면 잡혀야 한다(OE-UI-09). */
+  /** `faded` 면 흐리게 칠한 것도 고른다 — 하나를 고르면 상관없는 것이 흐려지는데, Ctrl+클릭으로 그것을 더하려면 잡혀야 한다(OE-UI-09). */
   function pick(ray: Ray, faded = false): string | null {
     const candidates: { part: Part; d: number }[] = []
     for (const part of parts) {
@@ -1527,6 +1546,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */
       hoverMark: () => (hoverMark ? hoverMarkKey : ''),
       /** 지금 도는 움직임(카메라 비행·미끄러지는 설비 수·번쩍이는 방 수). */
+      /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
+      camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
       motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, started }),
       part: (id: string) => {
         const part = partById.get(id)
@@ -2050,6 +2071,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     dispose() {
       running = false
       window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('blur', onBlur)
       if (import.meta.env.MODE === 'e2e') delete (window as unknown as { __viewer?: unknown }).__viewer
       controls.removeEventListener('change', invalidate)
       controls.dispose()

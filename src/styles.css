@@ -788,6 +788,20 @@ th {
 }
 
 /* 범례가 3D 오른쪽에 붙어 있으니, 버튼은 3D 칸 안의 오른쪽 위에 둔다. */
+/* 시점 조작 안내(OE-OBJ-15). 위쪽 가운데 작은 글자. 누르는 것이 없어 3D 조작을 막지 않는다. */
+.view-controls-hint {
+  position: absolute;
+  top: 0.9rem;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 40%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-align: center;
+  pointer-events: none;
+}
+
 /* 왼쪽 위는 색 안내(.color-key·.wall-key) 자리다. 편집 도구에 벽·문·창·층 목록까지 펼치면 줄이 거기까지 뻗어 안내가
    [내력벽] 을 덮었다. 넘치면 오른쪽 맞춤으로 두 줄이 된다. */
 .view-tools {
@@ -3187,7 +3201,7 @@ main.has-model .catalog {
   fill: var(--accent);
 }
 
-/* Shift+끌기 고르기 상자(OE-UI-09). */
+/* Ctrl+끌기 고르기 상자(OE-UI-09). */
 .floor-plan .box-select {
   fill: var(--accent-soft);
   fill-opacity: 0.5;
