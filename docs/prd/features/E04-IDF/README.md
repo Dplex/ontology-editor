@@ -20,4 +20,4 @@ PRD #5 · 티켓 15건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | [OE-IDF-12](OE-IDF-12.md) | 임시 저장본 저장 | R1 | P1 | prd-done |
 | [OE-IDF-13](OE-IDF-13.md) | 출처 구분·재임포트 | R1 | P1 | prd-done |
 | [OE-IDF-14](OE-IDF-14.md) | 플랜트 계통 | R2 | P3 | prd-done |
-| [OE-IDF-15](OE-IDF-15.md) | gbXML 임포트 | R2 | P3 | prd-done |
+| [OE-IDF-15](OE-IDF-15.md) | gbXML 임포트 | R1 | P1 | prd-done |
