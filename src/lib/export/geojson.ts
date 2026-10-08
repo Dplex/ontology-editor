@@ -6,7 +6,7 @@
 // 지도 위에 얹을 일이 생기면 그때 사이트 원점의 위경도와 방위를 받아 한 번에 변환한다.
 
 import { capacityQuantity } from '../capacity'
-import { polygonArea, type CustomZone, type Equipment, type HvacZone, type Model, type Opening, type Room, type Space, type SpaceObject, type Storey, type Wall } from '../model'
+import { polygonArea, segmentPath, SEGMENT_PATH_ISSUES, type CustomZone, type Equipment, type HvacZone, type Model, type Opening, type Room, type Space, type SpaceObject, type Storey, type Wall } from '../model'
 import { verticalLinks } from '../vertical'
 import { judgeExternal, type ExternalJudgement } from '../exterior'
 import { zoneEquipment, zoneSpaces } from '../custom-zone'
@@ -18,6 +18,7 @@ export type Geometry =
   | { type: 'Polygon'; coordinates: number[][][] }
   | { type: 'MultiPolygon'; coordinates: number[][][][] }
   | { type: 'Point'; coordinates: number[] }
+  | { type: 'LineString'; coordinates: number[][] }
 
 export type Feature = {
   type: 'Feature'
@@ -66,14 +67,21 @@ function spaceFeature(space: Space, storey: Storey, vertical?: readonly string[]
 }
 
 function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
+  // 덕트·배관 구간은 경로(두 끝)로 낸다(OE-PIP-13). 배치점 하나로 경로를 만들지 않으니, 경로를 쓸 수 없는 구간은 geometry 를
+  // 비우고 `pathIssue` 에 까닭을 적는다. 연결·계통은 형상과 따로라 TTL 에 그대로 나간다.
+  const path = segmentPath(equipment)
   return {
     type: 'Feature',
     id: equipment.id,
     // 좌표가 없는 설비도 남긴다. geometry 가 null 이면 "놓을 자리를 아직 모른다" 는 뜻이고,
     // 그 목록이 곧 사람이 3D 에서 배치해야 할 일감이다(PRD #13).
-    geometry: equipment.position
-      ? { type: 'Point', coordinates: [equipment.position[0], equipment.position[1], equipment.position[2]] }
-      : null,
+    geometry: path
+      ? 'path' in path
+        ? { type: 'LineString', coordinates: path.path.map((p) => [p[0], p[1], p[2]]) }
+        : null
+      : equipment.position
+        ? { type: 'Point', coordinates: [equipment.position[0], equipment.position[1], equipment.position[2]] }
+        : null,
     properties: {
       kind: 'equipment',
       name: equipment.name,
@@ -91,6 +99,8 @@ function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
       capacityQuantity: equipment.capacity === null ? null : capacityQuantity(equipment.capacityProperty),
       // 사람이 벽 면에 붙인 설비의 벽 id(OE-OBJ-04, 외벽 루버·외기 센서). 벽 feature 의 id 다. 붙이지 않았으면 키가 없다.
       ...(equipment.wallId ? { wallId: equipment.wallId } : {}),
+      // 경로를 쓸 수 없는 덕트·배관 구간의 까닭(좌표 없음 · 형상 없음 · 수치 오류 · 길이 0). 경로가 있거나 구간이 아니면 키가 없다.
+      ...(path && 'issue' in path ? { pathIssue: SEGMENT_PATH_ISSUES[path.issue] } : {}),
     },
   }
 }

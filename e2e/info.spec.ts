@@ -49,6 +49,16 @@ test('완전성 검사의 위반마다 이유가 붙는다', async ({ page }) =>
   expect(errors).toEqual([])
 })
 
+test('경로를 쓸 수 없는 덕트·배관 구간이 완전성 검사에 까닭과 원본 GlobalId 로 보인다 (OE-PIP-13)', async ({ page }) => {
+  const errors = await open(page)
+  const fold = page.getByRole('button', { name: /완전성 검사/ })
+  if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
+  // mep.ifc 의 DUCT-01 은 배치점은 있지만 형상이 없어 경로(두 끝)를 모른다.
+  await page.locator('.checks tbody tr', { hasText: '유효한 경로' }).click()
+  await expect(page.locator('.check-list li', { hasText: 'DUCT-01' })).toContainText('형상 없음(경로를 모름) · BIM GlobalId 0MEP$Duct$D01$00000')
+  expect(errors).toEqual([])
+})
+
 test('종류를 모르는 패밀리에 계통·이웃·위치 단서가 붙는다', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()

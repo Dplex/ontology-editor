@@ -35,6 +35,7 @@ import { inferFlowByRules } from '../flow-rules'
 import { footprintRings, meshBottom, meshHeight, openingPlacement, spacesBesideOpening } from './element-geometry'
 import { emptyEvidence, pickCeiling, type CeilingEvidence } from '../ceiling'
 import { storeyHeights } from '../storey-height'
+import { segmentAxisOf } from '../conduit-mesh'
 
 /**
  * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
@@ -1613,6 +1614,16 @@ function read(
     // 배치점을 형상에 맞춘 뒤에 소속을 판정한다. 순서를 바꾸면 층 원점에 찍힌 덕트가 원점이
     // 든 방으로 먼저 들어가 버린다.
     const anchored = anchorToGeometry(allEquipment, meshes)
+    // 덕트·배관 구간의 중심선(OE-PIP-13). GeoJSON 이 이 두 끝으로 경로(LineString)를 낸다. 배치점에서 잰 상대 좌표로 둔다(model.ts 의
+    // `axis`). 형상이나 배치점이 없는 구간은 비워 둔다 — 배치점 하나로 경로를 만들지 않는다. 0.1mm 로 반올림한다(성수 구간 7,874개).
+    for (const e of allEquipment) {
+      const mesh = e.role === 'segment' && e.position ? meshes.get(e.id) : undefined
+      const axis = mesh && segmentAxisOf(mesh.positions)
+      const at = e.position
+      const q = (v: number, k: number) => Math.round((v - at![k]) * 1e4) / 1e4
+      const r = (p: Vec3): Vec3 => [q(p[0], 0), q(p[1], 1), q(p[2], 2)]
+      if (axis) e.axis = [r(axis[0]), r(axis[1])]
+    }
     if (anchored > 0) {
       warnings.push(
         `설비 ${anchored}대는 배치점이 형상에서 ${ANCHOR_MARGIN}m 넘게 떨어져 있어(층 원점에 찍힌 것으로 보임) 형상 중심을 좌표로 썼습니다.`,

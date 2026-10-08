@@ -17,7 +17,7 @@ import { releasesOf } from './connection-release'
 import { josa } from './josa'
 import { equipmentKind, systemKind } from './kinds'
 import { distanceToRing, interiorPoint, pointInPolygon } from './mapping'
-import { isConduit, type Connection, type Model, type Vec2, type Vec3 } from './model'
+import { isConduit, segmentPath, SEGMENT_PATH_ISSUES, type Connection, type Model, type Vec2, type Vec3 } from './model'
 import { overlapAt, type Box3 } from './overlap'
 import { isAirSource, isAirTerminal, type AirService } from './served'
 import { trace, TOLERANCE } from './topology'
@@ -124,6 +124,7 @@ export function completenessChecks(model: Model, services: readonly AirService[]
     neighbors.set(c.to, (neighbors.get(c.to) ?? new Set()).add(c.from))
   }
   const conduits = equipment.filter((e) => isConduit(e.role))
+  const segments = equipment.filter((e) => e.role === 'segment')
   const hydronic = hydronicLinks(model, connections)
   const heads = devices.filter((e) => e.kind === 'sprinkler')
   const fireNeighbors = sprinklerNeighbors(model, new Set(heads.map((e) => e.id)))
@@ -172,6 +173,14 @@ export function completenessChecks(model: Model, services: readonly AirService[]
       why: '연결망이 이 자리에서 끊깁니다. 흐름이 여기서 멈춰 담당 설비·공간을 따라갈 수 없습니다. 끝막이(캡)라면 정상입니다.',
       total: conduits.length,
       failed: conduits.filter((e) => (neighbors.get(e.id)?.size ?? 0) < 2).map((e) => e.id),
+    },
+    // 덕트·배관 경로(OE-PIP-13). 경로를 쓸 수 없는 구간은 3D·GeoJSON 에 형상이 나가지 않는다 — 이 목록이 "미반영 목록" 이다.
+    {
+      key: 'conduit-path',
+      rule: '덕트·배관 구간에 유효한 경로(서로 다른 두 끝 좌표)가 있다',
+      why: '3D 와 GeoJSON 에 이 구간의 경로가 나가지 않습니다. 연결·계통·흐름 방향은 그대로 TTL 에 나갑니다.',
+      total: segments.length,
+      failed: segments.filter((e) => { const p = segmentPath(e); return !!p && 'issue' in p }).map((e) => e.id),
     },
     {
       key: 'heat-source-user',
@@ -311,6 +320,12 @@ export function diagnoseFailure(key: string, id: string, ctx: ExplainContext): {
     const target = key === 'terminal-source' ? '공조기·FCU 같은 원천' : '디퓨저·그릴 같은 말단'
     if (along.size === 0) return say(`방향을 모르는 연결에서 끊깁니다(이어진 것 ${t.linked.size}개). 방향을 정하면 따라갈 수 있습니다.`)
     return say(`흐름을 따라 ${along.size}개까지 가지만 ${target}${josa(target, '이/가')} 없습니다` + (t.linked.size ? ` (방향 모름 ${t.linked.size}개).` : '.'))
+  }
+
+  if (key === 'conduit-path') {
+    const p = e ? segmentPath(e) : null
+    const issue = p && 'issue' in p ? SEGMENT_PATH_ISSUES[p.issue] : '경로 있음'
+    return say(`${issue} · BIM GlobalId ${id}${e?.ifcClass ? ` · ${e.ifcClass}` : ''}`)
   }
 
   if (key === 'terminal-single-source') {
