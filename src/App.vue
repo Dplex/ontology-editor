@@ -57,6 +57,7 @@ import {
 import { rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import {
   applyFollow,
+  fittingMoveRefusal,
   planFollow,
   type FollowPlan,
   type SegmentAxis,
@@ -850,6 +851,13 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
   if (moving && lock) {
     goBack()
     refuseLock(moving, lock)
+    return false
+  }
+  // 설비에 바로 붙은 이음쇠는 배관의 끝점이라 옮기면 설비와 떨어진다(OE-PIP-10). 꺾임점(구간 사이 이음쇠)만 옮긴다.
+  const endpoint = model.value ? fittingMoveRefusal(model.value, equipmentId, (e) => shortName(e.name)) : null
+  if (endpoint) {
+    goBack()
+    editNotice.value = endpoint
     return false
   }
   if (moving && home && ceilingMode.value && (!before || to[2] !== before[2])) {
@@ -5021,7 +5029,7 @@ function followLeftText(plan: FollowPlan): string {
 /** 고른 설비를 옮기면 무엇이 따라오나(OE-PIP-12 "영향을 미리 표시"). 따라올 배관이 하나도 없으면 null. */
 const followPreview = computed(() => {
   const e = selected.value
-  if (!editing.value || !carryConduits.value || !e?.position || !model.value || isConduit(e.role)) return null
+  if (!editing.value || !carryConduits.value || !e?.position || !model.value || e.role === 'segment') return null
   const plan = planFollow(model.value, e.id, segmentAxis)
   const stretch = new Set(plan.stretch.map((x) => x.id)).size
   if (!plan.rigid.length && !stretch && !plan.held.length && !plan.blocked.length) return null

@@ -195,7 +195,9 @@ export function planFollow(model: Model, equipmentId: string, axisOf: (id: strin
   const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
   const root = byId.get(equipmentId)
   const plan: FollowPlan = { rigid: [], stretch: [], held: [], blocked: [] }
-  if (!root?.position || isConduitRole(root.role)) return plan
+  // 구간은 통째로 옮기지 않는다. 이음쇠는 배관의 꼭짓점이라(OE-PIP-10) 옮기면 붙은 구간의 가까운 끝이 따라 늘어난다.
+  // 설비에 바로 붙은 이음쇠(배관 끝점)는 옮기지 않으니 따라올 것도 없다.
+  if (!root?.position || root.role === 'segment' || fittingMoveRefusal(model, equipmentId)) return plan
   const neighbors = new Map<string, Set<string>>()
   for (const c of model.connections) {
     if (c.from === c.to) continue
@@ -253,6 +255,24 @@ export function planFollow(model: Model, equipmentId: string, axisOf: (id: strin
 }
 
 const isConduitRole = (role: Equipment['role']) => role === 'segment' || role === 'fitting'
+
+/**
+ * 이음쇠(배관의 꼭짓점)를 옮길 수 없으면 그 까닭(OE-PIP-10). 공조기·토출구 같은 설비에 바로 붙은 이음쇠는 배관의 끝점이라, 옮기면 설비와
+ * 떨어진다 — 끝점은 설비를 옮겨 따라오게 하거나 연결 대상을 바꿔서 고친다(OE-PIP-01). 이음쇠가 아니면 null.
+ */
+export function fittingMoveRefusal(model: Model, id: string, nameOf: (e: Equipment) => string = (e) => e.name): string | null {
+  const all = model.storeys.flatMap((s) => s.equipment)
+  const e = all.find((x) => x.id === id)
+  if (e?.role !== 'fitting') return null
+  const byId = new Map(all.map((x) => [x.id, x]))
+  const device = model.connections
+    .filter((c) => c.from === id || c.to === id)
+    .map((c) => byId.get(c.from === id ? c.to : c.from))
+    .find((x) => x && !isConduitRole(x.role))
+  if (!device) return null
+  const [a, b] = [nameOf(e), nameOf(device)]
+  return `${a}${josa(a, '은/는')} ${b}에 바로 붙은 배관 끝점입니다. 끝점은 ${b}${josa(b, '을/를')} 옮기면 따라옵니다.`
+}
 
 /**
  * 설비가 `delta` 만큼 옮겨진 뒤 계획대로 배관을 따라오게 한다. 좌표는 `moveEquipment` 로 바꿔 소속도 다시 판정한다.
