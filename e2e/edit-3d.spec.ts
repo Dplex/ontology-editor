@@ -149,13 +149,16 @@ test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓�
   await expect(page.locator('.report')).toContainText('AT-101-02')
 
   // 고른 방의 이름을 오른쪽 패널에서 그 자리에서 고친다(E1). 아래 표에서 같은 방을 다시 찾지 않는다.
-  // 방 종류는 이름을 따라간다. 패널에 안 보이면 고친 사람이 TTL 의 클래스가 바뀐 줄 모른다.
-  await expect(panel.locator('.space-kind')).toHaveText(/사무실\s*사전/)
+  // 방 종류는 이름을 따라간다. 패널에 안 보이면 고친 사람이 TTL 의 클래스가 바뀐 줄 모른다. 편집 모드에서는 종류 칸이 고르는 상자라
+  // (OE-SPC-17) [이름으로 정하기] 옆에 이름 사전이 읽은 종류가 보인다.
+  const kindPick = panel.getByTestId('space-kind').locator('option:checked')
+  await expect(kindPick).toHaveText('이름으로 정하기(사무실)')
+  await expect(panel.locator('.space-kind')).toContainText('사전')
   const name = panel.locator('.space-name input')
   await name.fill('대회의실')
   await name.press('Enter')
   await expect(panel.locator('h3')).toHaveText('대회의실')
-  await expect(panel.locator('.space-kind')).toHaveText(/회의실\s*사전/)
+  await expect(kindPick).toHaveText('이름으로 정하기(회의실)')
   await expect(page.locator('.report')).toContainText('물리존 이름 사무실 → 대회의실')
 
   // 보기 모드로 가면 손잡이가 사라진다. 저장하지 않은 편집이 있어 묻는다(OE-COM-08) — 임시 저장하고 끝낸다.

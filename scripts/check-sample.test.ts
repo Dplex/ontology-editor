@@ -1799,8 +1799,9 @@ describe.skipIf(!existsSync(SEONGSU_ARCH))('성수 건축', () => {
     expect.soft(doors).toHaveLength(528)
     // 233 에서 270 으로 올랐다. 방이 겹친 자리에서 문이 가장 작은 방을 짚게 고친 d2b242e 의 결과다(성수는 공간 경계가 0 이라 문 전부가 좌표 판정).
     expect.soft(doors.filter((d) => (d.connects?.length ?? 0) >= 2)).toHaveLength(270)
-    // 방 이름 사전(정본 4장). 넓히면 오르지만 틀리게 읽는 것도 는다 — 떨어지면 실패로만 둔다.
-    expect.soft(model.storeys.flatMap((s) => s.spaces).filter((sp) => roomKind(sp.kind)).length).toBeGreaterThanOrEqual(159)
+    // 방 이름 사전(정본 4장). 넓히면 오르지만 틀리게 읽는 것도 는다 — 떨어지면 실패로만 둔다. 159 → 169 는 영문 이름 넷(Air Handling Unit Room·
+    // MECH.·CORR.·UPS Room)을 사전에 더한 것이다(OE-SPC-17, 2026-10-09). 약어(S.T·P.S 등)는 사람이 확인한 뒤 넣는다.
+    expect.soft(model.storeys.flatMap((s) => s.spaces).filter((sp) => roomKind(sp.kind)).length).toBeGreaterThanOrEqual(169)
   }, 600_000)
 })
 

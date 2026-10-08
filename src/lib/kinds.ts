@@ -313,13 +313,14 @@ export const ROOM_KINDS: RoomKindInfo[] = [
   { kind: 'staircase', label: '계단실', test: /stair|계단/i, brick: 'brick:Staircase', omniclass: ['13-85 21 11'] },
   { kind: 'elevator_shaft', label: '승강로', test: /elev(ator)?\.?\s*shaft|승강로/i, brick: 'brick:Elevator_Shaft', omniclass: ['13-81 21 31'] },
   { kind: 'lobby', label: '로비·홀', test: /lobby|로비|elev(ator)?\.?\s*hall|\bEV\.?\s*hall|승강기\s*홀|엘리베이터\s*홀/i, brick: 'brick:Lobby' },
-  { kind: 'mechanical', label: '기계실', test: /machine\s*room|mech(anical)?\s*room|\bHVAC\b|pump\s*room|기계실|공조실|펌프실/i, brick: 'brick:Mechanical_Room', omniclass: ['13-81 21 17'] },
-  { kind: 'electrical', label: '전기실', test: /\bEPS\b|electric|전기실|변전실/i, brick: 'brick:Electrical_Room', omniclass: ['13-81 21 21'] },
+  // 성수 건축의 영문 이름(OE-SPC-17): `Air Handling Unit Room` 7개, `MECH.` 1개.
+  { kind: 'mechanical', label: '기계실', test: /machine\s*room|mech(anical)?\s*room|^\s*MECH\.?\s*$|air\s*handling\s*unit\s*room|\bAHU\s*room|\bHVAC\b|pump\s*room|기계실|공조실|펌프실/i, brick: 'brick:Mechanical_Room', omniclass: ['13-81 21 17'] },
+  { kind: 'electrical', label: '전기실', test: /\bEPS\b|electric|\bUPS\s*room|전기실|변전실/i, brick: 'brick:Electrical_Room', omniclass: ['13-81 21 21'] },
   { kind: 'telecom', label: '통신실', test: /\bTPS\b|\bMDF\b|\bIDF\b|telecom|통신실/i, brick: 'brick:Telecom_Room' },
   { kind: 'server', label: '전산실', test: /server|전산실/i, brick: 'brick:Server_Room' },
   { kind: 'storage', label: '창고', test: /storage|창고/i, brick: 'brick:Storage_Room', omniclass: ['13-75 11 11'] },
   { kind: 'janitor', label: '청소도구실', test: /\bJAN\b\.?|janitor|청소/i, brick: 'brick:Janitor_Room' },
-  { kind: 'hallway', label: '복도', test: /corridor|hallway|복도/i, brick: 'brick:Hallway', omniclass: ['13-85 11 11'] },
+  { kind: 'hallway', label: '복도', test: /corridor|\bCORR\b\.?|hallway|복도/i, brick: 'brick:Hallway', omniclass: ['13-85 11 11'] },
 ]
 
 const ROOM_BY_KIND = new Map(ROOM_KINDS.map((k) => [k.kind, k]))

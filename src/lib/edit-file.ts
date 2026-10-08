@@ -38,6 +38,7 @@ import {
   releaseDeclaredSpace,
   renameSpace,
   setSpaceNumber,
+  setSpacesKind,
   renameSystem,
   replaceSpaceFootprint,
   setFlowDirection,
@@ -88,12 +89,13 @@ export type EditFile = {
   /** 이름을 고친 계통(OE-PIP-09). 연 때 있던 계통만 — 사람이 만든 계통은 `systemsAdded` 에 끝 이름이 있다. */
   systemNames?: { id: string; name: string }[]
   /** 고친 물리존. `number` 는 방번호(IfcSpace Name, OE-OBJ-02), `longName` 은 공간명이다. */
-  spaces: { id: string; number?: string; longName?: string; footprint?: Vec2[] }[]
+  /** `kind` 는 사람이 정한 방 종류(OE-SPC-17, `null` 은 "모름" 으로 정한 것). 이름 사전이 읽는 종류면 적지 않는다. */
+  spaces: { id: string; number?: string; longName?: string; footprint?: Vec2[]; kind?: string | null }[]
   /** 사람이 더한 설비(E7). id 는 에디터가 지은 것(`U_…`)이라 다시 열어도 같은 id 로 만든다. */
   equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string; wall?: string; surface?: Surface }[]
   equipmentRemoved?: string[]
   /** 사람이 만든 물리존(E3 생성·분할). 나눈 방의 남는 조각은 `spaces` 의 외곽선으로 적힌다. */
-  spacesAdded?: { id: string; storeyId: string; name: string; longName: string; footprint: Vec2[] }[]
+  spacesAdded?: { id: string; storeyId: string; name: string; longName: string; footprint: Vec2[]; kind?: string | null }[]
   /** 없어진 물리존. `into` 가 있으면 그 방에 합친 것이고(문이 그 방을 가리키게 된다), 없으면 지운 것이다. */
   spacesRemoved?: { id: string; into?: string }[]
   /**
@@ -193,7 +195,14 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     for (const space of storey.spaces) {
       for (const gone of space.merged ?? []) mergedInto.set(gone, space.id)
       if (!baseline.names.has(space.id)) {
-        spacesAdded.push({ id: space.id, storeyId: storey.id, name: space.name, longName: space.longName, footprint: space.footprint.map((p) => [p[0], p[1]]) })
+        spacesAdded.push({
+          id: space.id,
+          storeyId: storey.id,
+          name: space.name,
+          longName: space.longName,
+          footprint: space.footprint.map((p) => [p[0], p[1]]),
+          ...(space.kindSource === 'edit' ? { kind: space.kind ?? null } : {}),
+        })
         continue
       }
       const row: EditFile['spaces'][number] = { id: space.id }
@@ -201,7 +210,9 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       if (baseline.numbers?.has(space.id) && baseline.numbers.get(space.id) !== space.name) row.number = space.name
       const ring = baseline.footprints.get(space.id)
       if (ring && !sameRing(ring, space.footprint)) row.footprint = space.footprint.map((p) => [p[0], p[1]])
-      if (row.longName !== undefined || row.number !== undefined || row.footprint) spaces.push(row)
+      // 사람이 정한 방 종류(OE-SPC-17). BIM 에는 없어서 있으면 적는다. 이름을 고친 줄보다 뒤에 얹어야 이름이 종류를 덮지 않는다(applyEdits).
+      if (space.kindSource === 'edit') row.kind = space.kind ?? null
+      if (row.longName !== undefined || row.number !== undefined || row.footprint || row.kind !== undefined) spaces.push(row)
     }
     for (const e of storey.equipment) {
       const was = baseline.equipment.get(e.id)
@@ -587,6 +598,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     if (done) {
       result.applied++
       spaceIds.add(row.id)
+      if (row.kind !== undefined) setSpacesKind(model, [row.id], row.kind)
       result.changes.push(...done.equipment)
     } else result.missing.spaces++
   }
@@ -633,6 +645,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     }
     const sp = { ...row, id }
     if (sp.longName !== undefined && renameSpace(model, sp.id, sp.longName)) result.applied++
+    if (sp.kind !== undefined && setSpacesKind(model, [sp.id], sp.kind)) result.applied++
     if (sp.number !== undefined) {
       // 겹침 검사는 아래에서 다 넣은 뒤 한 번 한다. 한 줄씩 검사하면 맞바꾼 번호가 서로를 막는다.
       const was = model.storeys.flatMap((s) => s.spaces).find((x) => x.id === sp.id)?.name ?? ''
