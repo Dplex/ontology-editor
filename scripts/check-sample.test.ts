@@ -1639,6 +1639,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
       'device-connected': '565/566',
       // 한쪽 끝만 이어진 덕트·배관(Mavrokapnidis 2023 의 규칙). 포트가 있는 파일이라 끊긴 자리가 1% 남짓이다.
       'conduit-ends': '3103/3138',
+      // 덕트·배관 구간 전부가 형상에서 읽은 경로(두 끝)를 갖는다(OE-PIP-13).
+      'conduit-path': '1548/1548',
       'heat-source-user': '1/1',
       'hydronic-user-source': '2/2',
       // 스프링클러 헤드가 없는 파일이다(HVAC 모델).
@@ -1768,6 +1770,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
       'device-connected': '849/884',
       // 포트 없이 형상으로 이은 연결망은 끊긴 자리가 많다(14%). 열원 하나와 냉온수 기기 둘이 배관으로 닿지 않는다.
       'conduit-ends': '10923/12645',
+      // 포트가 없어도 구간 형상은 있어 경로를 다 읽는다(OE-PIP-13).
+      'conduit-path': '5952/5952',
       'heat-source-user': '0/1',
       'hydronic-user-source': '0/2',
       // 스프링클러 헤드 418대(`M_Sprinkler - Pendent`)는 IfcFlowTerminal 이라 종류를 사람이 고르기 전까지 대상이 아니다(kinds.ts 의 manual).
@@ -1882,6 +1886,8 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
       'device-space': '4041/4612',
       // 건축 루버 240개가 빠져 분모가 3632 → 3392. 그중 48개는 형상으로 덕트에 닿아 "이어졌다" 로 세던 것이다.
       'device-connected': '2943/3392',
+      // 덕트·배관 구간 전부가 형상에서 읽은 경로(두 끝)를 갖는다(OE-PIP-13).
+      'conduit-path': '7874/7874',
     })
   }, 900_000)
 })
@@ -2263,9 +2269,16 @@ describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every(
     const ttl = readOntologyTTL(x)
     const floors = modelToGeoJSON(target).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
     const feats = new Map(floors.flatMap((f) => f.features).map((f) => [f.id, f]))
+    // 덕트·배관 구간은 경로(LineString)로 나간다(OE-PIP-13). 편집한 쪽의 경로와 같은 자리로 옮겨졌는지 본다.
+    const editedFeats = new Map(modelToGeoJSON(edited).flatMap((f) => f.collection.features).map((f) => [f.id, f]))
     for (const r of movedEq) {
       const p = prevEq.get(r.prevId)!.position!
-      expect((feats.get(r.id)!.geometry!.coordinates as number[])[0], r.name).toBeCloseTo(p[0] + 0.5, 6)
+      const g = feats.get(r.id)!.geometry!
+      if (g.type === 'LineString') {
+        const want = editedFeats.get(r.prevId)!.geometry!.coordinates as number[][]
+        ;(g.coordinates as number[][]).forEach((q, i) => q.forEach((v, k) => expect(v, r.name).toBeCloseTo(want[i][k], 3)))
+        expect(want[0][0] - (prevEq.get(r.prevId)!.axis![0][0] + p[0]), r.name).toBeCloseTo(0.5, 3)
+      } else expect((g.coordinates as number[])[0], r.name).toBeCloseTo(p[0] + 0.5, 6)
     }
     expect(ttl.entities.find((e) => e.key === room.id)!.label).toBe('S1 고친 이름')
     expect(ttl.entities.find((e) => e.key === added.id)!.cls).toBe('Smoke_Detector')
@@ -2526,9 +2539,13 @@ describe.skipIf(!existsSync(MEP))('좌표 없는 설비는 미배치 목록 (ifc
     const again = new Map(reopened.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.position]))
     expect(list.filter(({ equipment }) => JSON.stringify(again.get(equipment.id)) !== JSON.stringify(equipment.position))).toEqual([])
 
-    // GeoJSON 에 점으로 나간다(놓기 전에는 geometry null).
+    // 기기는 GeoJSON 에 점으로 나간다(놓기 전에는 geometry null). 덕트 구간 6개는 형상이 없어 경로(두 끝)를 모르니, 점 하나로 놓아도
+    // 경로를 만들지 않고 까닭을 적는다(OE-PIP-13 "설비의 단일 배치점만으로 배관 경로를 만들지 않는다").
     const features = new Map(modelToGeoJSON(reopened).flatMap((f) => f.collection.features).map((f) => [f.id, f]))
-    expect(list.filter(({ equipment }) => features.get(equipment.id)?.geometry?.type !== 'Point')).toEqual([])
+    const [segments, devices] = [list.filter(({ equipment }) => equipment.role === 'segment'), list.filter(({ equipment }) => equipment.role !== 'segment')]
+    expect([segments.length, devices.length]).toEqual([6, 11])
+    expect(devices.filter(({ equipment }) => features.get(equipment.id)?.geometry?.type !== 'Point')).toEqual([])
+    expect(segments.map(({ equipment }) => [features.get(equipment.id)?.geometry, features.get(equipment.id)?.properties.pathIssue])).toEqual(Array(6).fill([null, '형상 없음(경로를 모름)']))
   }, 300_000)
 })
 

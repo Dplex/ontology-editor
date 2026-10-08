@@ -303,10 +303,10 @@ test('N 으로 소속 없는 설비에 가서 패널에서 좌표를 넣으면 �
   await page.keyboard.press('Escape')
   await expect(inputs.nth(2)).not.toBeFocused()
   await expect(page.locator('.picked h3')).toHaveText('TEMP-101-01')
-  // 소속 규칙은 이제 통과다. N 은 어긴 것이 남은 다음 규칙으로 간다(픽스처에는 열원이 없어 공조기가 물 계통 규칙을 어긴다).
+  // 소속 규칙은 이제 통과다. N 은 어긴 것이 남은 다음 규칙으로 간다 — 형상이 없는 DUCT-01 의 경로(OE-PIP-13)다.
   await expect(page.locator('.checks tbody tr', { hasText: '소속 방이 있다' }).locator('button')).toHaveCount(0)
   await page.keyboard.press('n')
-  await expect(page.locator('.key-note')).toContainText('열원과 이어져 있다')
-  await expect(page.locator('.key-note')).toContainText('위반 1/1: AHU-1')
+  await expect(page.locator('.key-note')).toContainText('유효한 경로')
+  await expect(page.locator('.key-note')).toContainText('위반 1/1: DUCT-01')
   expect(errors).toEqual([])
 })

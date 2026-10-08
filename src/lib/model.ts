@@ -177,6 +177,39 @@ export function isConduit(role: EquipmentRole | null): boolean {
   return role === 'segment' || role === 'fitting'
 }
 
+/** 구간 경로를 쓸 수 없는 까닭(OE-PIP-13). 화면·GeoJSON 이 같은 말을 쓴다. */
+export const SEGMENT_PATH_ISSUES = {
+  'no-position': '좌표 없음',
+  'no-geometry': '형상 없음(경로를 모름)',
+  invalid: '좌표 수치가 유효하지 않음',
+  'zero-length': '길이 0',
+} as const
+export type SegmentPathIssue = keyof typeof SEGMENT_PATH_ISSUES
+/** 서로 다른 두 끝으로 치는 최소 길이(m). 이보다 짧으면 길이 0 이다. */
+export const MIN_SEGMENT_LENGTH = 0.001
+
+/**
+ * 덕트·배관 구간의 지금 경로(OE-PIP-13). 연 때 중심선(`axis`)을 지금 배치점에 맞춰 놓고 끝이 옮겨진 양(`endShift`)을 더한 두 점이다. 배치점 하나로 경로를
+ * 만들지 않고, 좌표·형상이 없거나 길이가 0 이면 그 까닭을 돌려준다. 원본의 (0,0,0) 은 유효한 좌표로 본다. 구간이 아니면 null.
+ */
+export function segmentPath(e: Equipment): { path: [Vec3, Vec3] } | { issue: SegmentPathIssue } | null {
+  if (e.role !== 'segment') return null
+  if (!e.position) return { issue: 'no-position' }
+  if (!e.axis) return { issue: 'no-geometry' }
+  const [a, b] = e.axis
+  const shift = e.endShift ?? [[0, 0, 0], [0, 0, 0]]
+  // 끝을 늘이면 `position` 은 축 위 같은 비율 t 자리로 간다(edit.ts 의 applyFollow). 그 몫을 빼면 연 때 배치점에 통째로 옮긴 양을 더한 자리다.
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+  const len2 = d[0] ** 2 + d[1] ** 2 + d[2] ** 2
+  const t = len2 === 0 ? 0.5 : Math.min(1, Math.max(0, -(a[0] * d[0] + a[1] * d[1] + a[2] * d[2]) / len2))
+  const origin = (k: number) => e.position![k] - (shift[0][k] * (1 - t) + shift[1][k] * t)
+  const end = (i: 0 | 1): Vec3 => [origin(0) + e.axis![i][0] + shift[i][0], origin(1) + e.axis![i][1] + shift[i][1], origin(2) + e.axis![i][2] + shift[i][2]]
+  const path: [Vec3, Vec3] = [end(0), end(1)]
+  if (!path.every((p) => p.every(Number.isFinite))) return { issue: 'invalid' }
+  if (Math.hypot(path[1][0] - path[0][0], path[1][1] - path[0][1], path[1][2] - path[0][2]) < MIN_SEGMENT_LENGTH) return { issue: 'zero-length' }
+  return { path }
+}
+
 export type Equipment = {
   id: string
   name: string
@@ -268,6 +301,12 @@ export type Equipment = {
    * 붙은 설비를 옮겨 구간이 늘어난 것이다(`followConduits`). 3D 형상은 이 값으로 늘이고, `position` 은 축 위 같은 비율 자리로 간다.
    */
   endShift?: [Vec3, Vec3]
+  /**
+   * 덕트·배관 구간의 중심선 두 끝을 **연 때 `position` 에서 잰 상대 좌표**(m). 임포트가 형상이 있는 구간에만 채운다(conduit-mesh.ts 의
+   * `segmentAxisOf`). 상대로 두는 것은 구간을 통째로 옮긴 것(`position` 만 바뀐다)과 끝을 늘인 것(`endShift`)을 함께 따라가기 위해서다.
+   * 지금 경로는 `segmentPath` 가 세우고, GeoJSON 의 LineString 이 된다(OE-PIP-13).
+   */
+  axis?: [Vec3, Vec3]
   /**
    * 사람이 정한 설치면(OE-EQP-05). z 로 판정하지 못한 설비(미정)에 정한다. 있으면 판정보다 앞선다(ceiling.ts 의 judgeSurface).
    * BIM 에는 없고 편집 파일에 남는다.
