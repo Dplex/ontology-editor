@@ -1251,15 +1251,22 @@ function read(
     // (포트 없이 놓인 CCTV 같은 장치). 둘 다 아니면 휠스톱·캐노피 같은 건축 부재라 받지 않는다.
     // 제외 목록을 늘리는 대신 포함 근거를 IFC 구조(포트)와 좁은 사전에 둔다. 역할은 IFC 가 안 주므로
     // 사전의 것을 쓴다.
+    //
+    // **포트가 없는 Proxy 는 이름이 루버여도 받지 않는다(OE-EXT-05).** 건축 파일의 알루미늄·옥상·캐노피 루버는 차양·외장 마감재다
+    // (성수 건축 Proxy 339개 중 240개). 설비 루버(외기·배기)는 덕트에 포트로 붙어 있거나 IFC 클래스(IfcAirTerminal LOUVRE)가 말하므로
+    // 여기서 빼도 그대로 들어온다. 제외 낱말을 늘리지 않고 "이름만으로 받는 종류" 에서 외부 루버를 뺀다. 뺀 수는 `louvers` 로 센다.
     const ported = r.portOwners()
-    const proxies = { total: 0, ported: 0, named: 0, skipped: [] as string[] }
+    const proxies = { total: 0, ported: 0, named: 0, louvers: 0, skipped: [] as string[] }
     for (const id of r.ids(WebIFC.IFCBUILDINGELEMENTPROXY)) {
       const el = r.line(id)
       const name = (val(el?.Name) as string) ?? ''
       const info = equipmentKindOf(name, (val(el?.ObjectType) as string) ?? '')
       proxies.total++
       if (ported.has(id)) proxies.ported++
-      else if (info) proxies.named++
+      else if (info?.kind === 'outdoor_louver') {
+        proxies.louvers++
+        continue
+      } else if (info) proxies.named++
       else {
         // 읽지 않은 것의 이름 예. Revit 이름은 `패밀리:유형:요소ID` 라 요소 ID 를 떼어 같은 패밀리를 한 번만 적는다.
         const family = name.replace(/:\d+$/, '').trim() || '(이름 없음)'
@@ -1662,7 +1669,8 @@ function read(
       warnings.push(
         `Proxy(IfcBuildingElementProxy) ${proxies.total}개 중 ${read}개를 설비로 읽었습니다` +
           (read ? `(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 정한 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름으로 추정했습니다` : '') +
-          (left ? `. 나머지 ${left}개는 포트도 없고 이름도 사전에 없어 건축 부재로 보고 읽지 않았습니다(예: ${proxies.skipped.join(', ')})` : '') +
+          (proxies.louvers ? `. 이름이 루버이지만 포트가 없는 ${proxies.louvers}개는 건축 루버(차양·외장 마감)로 보고 설비로 받지 않았습니다` : '') +
+          (left - proxies.louvers ? `. 나머지 ${left - proxies.louvers}개는 포트도 없고 이름도 사전에 없어 건축 부재로 보고 읽지 않았습니다(예: ${proxies.skipped.join(', ')})` : '') +
           '(요구사항 R23).',
       )
     }

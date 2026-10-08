@@ -550,9 +550,10 @@ export type Model = {
     siteLatLong: boolean
     /**
      * 파일의 IfcBuildingElementProxy(OE-BIM-13). 포트가 있거나(ported) 이름이 사전에 있어(named) 설비로 읽은 것과, 둘 다 아니라
-     * 건축 부재로 보고 읽지 않은 것의 이름 예(앞 5가지). 읽지 않은 수 = total - ported - named. 빠진 설비가 없는지 사람이 본다.
+     * 건축 부재로 보고 읽지 않은 것의 이름 예(앞 5가지). 읽지 않은 수 = total - ported - named(- louvers). 빠진 설비가 없는지 사람이 본다.
      */
-    proxies?: { total: number; ported: number; named: number; skipped: string[] }
+    /** `louvers` 는 이름이 외부 루버인데 포트가 없어 건축 루버로 보고 받지 않은 수다(OE-EXT-05). 예전 파일에는 없다. */
+    proxies?: { total: number; ported: number; named: number; louvers?: number; skipped: string[] }
   }
 }
 

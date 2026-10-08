@@ -495,7 +495,7 @@ describe('Proxy 로 들어온 설비', () => {
 
   // OE-BIM-13 "Proxy 수 리포트". 읽은 것만 세면 빠뜨린 설비가 보이지 않는다 — 파일의 전체와 읽지 않은 것(이름 예)까지 센다.
   it('파일의 Proxy 를 전부 세고, 읽지 않은 것을 이름과 함께 경고·요구사항 R23 에 적는다', () => {
-    expect(proxy.facts?.proxies).toEqual({ total: 3, ported: 1, named: 1, skipped: ['RThisWheelStops850:850'] })
+    expect(proxy.facts?.proxies).toEqual({ total: 3, ported: 1, named: 1, louvers: 0, skipped: ['RThisWheelStops850:850'] })
     const warning = proxy.warnings.find((w) => w.startsWith('Proxy('))!
     expect(warning).toContain('나머지 1개는 포트도 없고 이름도 사전에 없어 건축 부재로 보고 읽지 않았습니다(예: RThisWheelStops850:850)')
     const r23 = requirementsReport(proxy).find((r) => r.id === 'R23')!
