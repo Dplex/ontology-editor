@@ -104,7 +104,7 @@ export function connectCandidates(model: Model, id: string, boxes: ReadonlyMap<s
   return { candidates: found.slice(0, LIMIT), excluded, media }
 }
 
-const MEDIUM_LABEL: Record<Medium, string> = { air: '공기', water: '물' }
+const MEDIUM_LABEL: Record<Medium, string> = { air: '공기', water: '물', refrigerant: '냉매' }
 export const mediaLabel = (media: readonly Medium[]) => (media.length ? media.map((m) => MEDIUM_LABEL[m]).join('·') : '매체 모름')
 
 /** 뺀 후보를 한 줄로. 없으면 빈 글. */
