@@ -86,3 +86,41 @@ export function rigidPart(axis: SegmentAxis, at: Vec3, now: Vec3, shift: readonl
   const s = shiftAt(shift, axisParam(axis, at))
   return [now[0] - at[0] - s[0], now[1] - at[1] - s[1], now[2] - at[2] - s[2]]
 }
+
+/**
+ * 사람이 그린 배관의 형상(OE-PIP-11). BIM 형상이 없으니 두 끝 사이에 단면이 `size` 인 네모 관을 만든다. 끝점 추종이 이 형상의 축을
+ * BIM 구간과 같은 식(`segmentAxisOf`)으로 다시 잡으므로, 축은 두 끝 그대로 나온다. 좌표는 화면 좌표다.
+ */
+export function boxAlong(a: Vec3, b: Vec3, size: number): { positions: Float32Array; normals: Float32Array; indices: Uint32Array } {
+  const [p, q] = [toScene(a), toScene(b)]
+  const d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]]
+  const len = Math.hypot(d[0], d[1], d[2]) || 1
+  const u = d.map((v) => v / len)
+  // 축에 수직인 두 방향. 축이 거의 수직(화면 y)이면 x 를 기준으로 잡는다.
+  const ref = Math.abs(u[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0]
+  const cross = (x: number[], y: number[]) => [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]]
+  const norm = (x: number[]) => {
+    const l = Math.hypot(x[0], x[1], x[2]) || 1
+    return x.map((v) => v / l)
+  }
+  const v = norm(cross(u, ref))
+  const w = norm(cross(u, v))
+  const h = size / 2
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]]
+  const positions: number[] = []
+  const normals: number[] = []
+  for (const end of [p, q])
+    for (const [cv, cw] of corners) {
+      positions.push(end[0] + (v[0] * cv + w[0] * cw) * h, end[1] + (v[1] * cv + w[1] * cw) * h, end[2] + (v[2] * cv + w[2] * cw) * h)
+      const n = norm([v[0] * cv + w[0] * cw, v[1] * cv + w[1] * cw, v[2] * cv + w[2] * cw])
+      normals.push(n[0], n[1], n[2])
+    }
+  // 옆면 넷 + 두 끝 마개.
+  const indices = [0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6, 3, 0, 4, 3, 4, 7, 0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7]
+  return { positions: new Float32Array(positions), normals: new Float32Array(normals), indices: new Uint32Array(indices) }
+}
+
+/** 그린 배관의 이음쇠 형상. 꼭짓점에 놓인 정육면체다. */
+export function boxAt(at: Vec3, size: number): { positions: Float32Array; normals: Float32Array; indices: Uint32Array } {
+  return boxAlong([at[0] - size / 2, at[1], at[2]], [at[0] + size / 2, at[1], at[2]], size)
+}
