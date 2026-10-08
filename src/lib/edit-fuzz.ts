@@ -79,6 +79,8 @@ export type FuzzResult = {
   missing: number
   /** 전부 되돌리면 연 때와 **순서까지** 같은가. */
   undoSame: boolean
+  /** 전부 되돌린 뒤 전부 다시 하면(Ctrl+Shift+Z) 편집한 모델과 같은가. 다시 하기는 되돌리기 직전에 뜬 상태(snapshotOf)를 놓는다. */
+  redoSame: boolean
   /** 불러온 것이 다를 때 갈린 줄과 편집 파일 앞부분. */
   detail?: string
   /** 불러온 것이 다를 때 두 내보내기 전체(견줄 때 쓴다). */
@@ -403,7 +405,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
         done = !!made && !('refused' in made)
       } else {
         const zone = pick(zones)!
-        if (what === 1) done = CZ.renameCustomZone(m, zone.id, `존 ${seed}-${step}`)
+        if (what === 1) done = CZ.renameCustomZone(m, zone.id, `존 ${seed}-${step}`) === true
         else if (what === 2) done = CZ.deleteCustomZone(m, zone.id)
         else if (what === 3) {
           const xs = zone.footprint.map((p) => p[0])
@@ -470,14 +472,21 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
   }
 
   const opened = modelToTTL(pristine) + JSON.stringify(modelToGeoJSON(pristine))
-  for (const s of undo.reverse()) E.restore(m, s)
+  const redo: (E.Snapshot | null)[] = []
+  for (const s of undo.reverse()) {
+    redo.push(E.snapshotOf(m, s))
+    E.restore(m, s)
+  }
   const undoSame = modelToTTL(m) + JSON.stringify(modelToGeoJSON(m)) === opened
+  for (const s of redo.reverse()) if (s) E.restore(m, s)
+  const redoSame = exportedContent(m) === session
 
   return {
     log,
     reloadSame,
     missing: Object.values(applied.missing).reduce((a, b) => a + b, 0),
     undoSame,
+    redoSame,
     ...(detail ? { detail, texts: { session, reloaded } } : {}),
     edited,
     reloaded: fresh,

@@ -9,6 +9,8 @@ import {
   drawSpaceFootprint,
   openRing,
   baselineOf,
+  setSpaceNumber,
+  spaceNumberTaken,
   diffBaseline,
   moveEquipment,
   moveEquipmentToStorey,
@@ -219,6 +221,45 @@ describe('층 이동', () => {
   })
 })
 
+describe('방번호 (OE-OBJ-02)', () => {
+  it('같은 층에서 방번호가 겹치면 막고, 공간명은 겹쳐도 된다', () => {
+    model.storeys[0].spaces.push({ id: 'b', name: '102', longName: '사무실', footprint: [], areaM2: 0, boundedBy: [] })
+    const office = model.storeys[0].spaces[0]
+    expect(setSpaceNumber(model, office.id, '102')).toEqual({ refused: expect.stringContaining('방번호 102가 이미 있습니다') })
+    expect(office.name).toBe('101')
+    expect(setSpaceNumber(model, office.id, '103')).toBe(true)
+    expect(office.name).toBe('103')
+    // 공간명은 같아도 된다
+    expect(renameSpace(model, office.id, '사무실')).toBe(true)
+    // 빈 번호는 아직 안 정한 것이라 겹쳐도 된다
+    expect(spaceNumberTaken(model, model.storeys[0].id, '')).toBeNull()
+  })
+
+  it('고친 방번호는 연 때와 견주면 뜨고, 되돌리기로 돌아온다', () => {
+    const base = baselineOf(model)
+    const office = model.storeys[0].spaces[0]
+    const snap = snapshotSpace(model, office.id)!
+    setSpaceNumber(model, office.id, '101A')
+    expect(diffBaseline(model, base).renumbered).toEqual([{ spaceId: office.id, from: '101', to: '101A' }])
+    restore(model, snap)
+    expect(office.name).toBe('101')
+    expect(diffBaseline(model, base).renumbered).toEqual([])
+  })
+
+  it('나눈 조각의 방번호는 비워 두고 사람이 넣는다(OE-SPC-02)', () => {
+    const office = model.storeys[0].spaces[0]
+    const done = splitSpace(model, office.id, [5, -1], [5, 9])!
+    expect('refused' in done).toBe(false)
+    if ('refused' in done) return
+    const piece = model.storeys[0].spaces.find((sp) => sp.id === done.created[0])!
+    expect(piece.name).toBe('')
+    expect(office.name).toBe('101')
+    // 빈 번호는 아직 안 정한 것이라 겹침 검사에 걸리지 않고, 넣은 번호는 다른 방과 겹치면 막힌다.
+    expect(setSpaceNumber(model, piece.id, '101')).toEqual({ refused: expect.any(String) })
+    expect(setSpaceNumber(model, piece.id, '101A')).toBe(true)
+  })
+})
+
 describe('이름 수정 (E1)', () => {
   it('라벨만 바뀐다', () => {
     const space = model.storeys[0].spaces[0]
@@ -319,7 +360,7 @@ describe('물리존 경계 수정 (E2)', () => {
     expect(change.equipment.map((c) => c.equipmentName)).not.toContain('AHU-1')
   })
 
-  it('BIM 이 소속을 말한 설비는 경계를 바꿔도 그대로다', () => {
+  it('BIM 이 소속을 말한 설비도 사람이 경계를 고치면 좌표로 다시 판정한다(Q13)', () => {
     // LIGHT-101-01 은 좌표가 (50,50) 으로 밖인데 IFC 가 사무실에 담아 두었다.
     const light = equip('LIGHT-101-01')
     replaceSpaceFootprint(model, office().id, [
@@ -329,8 +370,8 @@ describe('물리존 경계 수정 (E2)', () => {
       [0, 1],
       [0, 0],
     ])
-    expect(light.spaceId).toBe(office().id)
-    expect(light.spaceSource).toBe('bim')
+    expect(light.spaceId).toBe(null)
+    expect(light.spaceSource).toBe(null)
   })
 
   it('닫힌 고리의 첫 점을 옮기면 끝 점도 따라온다', () => {
@@ -577,6 +618,19 @@ describe('타입 단위 종류 지정', () => {
     expect([a.kind, b.kind]).toEqual(['air_diffuser', 'air_diffuser'])
   })
 
+  it('한 대만 따로 정하면(`#id`) 그 설비만 바뀌고, 편집 파일에는 그 설비 한 줄로 적힌다 (OE-EQP-14)', () => {
+    equip('AT-101-01').objectType = 'M_Return Register:600'
+    equip('AT-101-02').objectType = 'M_Return Register:600'
+    const [a, b] = ['AT-101-01', 'AT-101-02'].map(equip)
+    expect(setTypeKind(model, `#${a.id}`, 'air_grille')!.count).toBe(1)
+    expect([a.kind, b.kind]).toEqual(['air_grille', 'air_diffuser'])
+    // 타입 줄로 적으면 다시 열 때 b 에도 번진다 — 그 설비 한 줄이다.
+    expect(kindEdits(model)).toEqual([{ typeKey: `#${a.id}`, count: 1, from: 'air_diffuser', to: 'air_grille' }])
+    // 나머지도 같은 종류로 정하면 타입이 다 같아져 다시 타입 한 줄이다.
+    setTypeKind(model, `#${b.id}`, 'air_grille')
+    expect(kindEdits(model)).toEqual([{ typeKey: typeKeyOf(a), count: 2, from: 'air_diffuser', to: 'air_grille' }])
+  })
+
   it('사전 값으로 되돌리면 편집이 아니고 리포트에서 빠진다', () => {
     const key = typeKeyOf(equip('AHU-1'))
     setTypeKind(model, key, 'fcu')
@@ -652,6 +706,7 @@ describe('연 때와 견주기', () => {
     moveEquipmentToStorey(model, equip('AT-101-01').id, model.storeys[0].id)
     expect(diffBaseline(model, base)).toEqual({
       renamed: [],
+      renumbered: [],
       moved: [],
       restoreyed: [],
       connected: [],
@@ -766,6 +821,20 @@ describe('설비 추가·삭제·이름 (E7)', () => {
     deleteEquipment(model, duct.id)
     restore(model, snapshot)
     expect(modelToTTL(model)).toBe(before)
+  })
+
+  it('이름을 고친 설비도 같은 패밀리 일괄 종류 지정에 든다 — 패밀리는 BIM 이 준 이름으로 묶는다 (OE-EQP-13)', () => {
+    const [a, b] = ['AT-101-01', 'AT-101-02'].map(equip)
+    a.name = 'M_Supply Diffuser:600 x 600:1'
+    b.name = 'M_Supply Diffuser:600 x 600:2'
+    b.ifcClass = a.ifcClass
+    const key = familyKeyOf(a)
+    expect(familyKeyOf(b)).toBe(key)
+    // 사람이 태그로 바꾼 이름은 Revit 모양이 아니다. 그래도 패밀리는 그대로다.
+    expect(renameEquipment(model, a.id, 'SD-101')).toBe(true)
+    expect(familyKeyOf(a)).toBe(key)
+    expect(setTypeKind(model, key, 'air_grille')!.count).toBe(2)
+    expect([a.kind, b.kind]).toEqual(['air_grille', 'air_grille'])
   })
 
   it('이름을 고치면 label 이 바뀌고, 연 때와 견주면 이름 줄에 뜬다', () => {

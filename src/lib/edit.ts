@@ -7,12 +7,13 @@
 // 반영 전에 차이를 보여 주는 것이 PRD #16(미리보기)이고, 반영 뒤에 남기는 것이 #21(결과
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
-import { assignEquipment, centroid, isSelfIntersecting, locate, nearRing } from './mapping'
+import { assignEquipment, centroid, distanceToRing, isSelfIntersecting, locate, nearRing } from './mapping'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
+import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapshotRulesAgain, type ReleaseSnapshot, type RuleSnapshot } from './connection-release'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
-import type { Connection, CustomZone, Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall } from './model'
+import type { Connection, CustomZone, Equipment, Model, Opening, Room, Space, SpaceObject, Storey, System, Vec2, Vec3, Wall } from './model'
 import { spacesBesideOpening } from './ifc/element-geometry'
 import { overlapArea, splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
@@ -55,15 +56,32 @@ function reassignStoreyOf(model: Model, equipment: Equipment) {
  * 새 경계 근처인 것(들어올 수 있다). 나머지 설비는 그 방이 답이었던 적도 없고 답이 될 수도 없어서, 층 전부를 다시 도는 것과
  * 결과가 같다. 병원 건축+MEP 처럼 한 층에 설비·배관이 수천 개면 꼭짓점 하나 옮길 때마다 전부 다시 재는 데 시간이 다 갔다.
  */
-function reassignStoreyWith(model: Model, spaceId: string) {
+function reassignStoreyWith(model: Model, spaceId: string, release = false) {
   const storey = model.storeys.find((s) => s.spaces.some((sp) => sp.id === spaceId))
   if (!storey) return
   const ring = storey.spaces.find((sp) => sp.id === spaceId)!.footprint
+  // 사람이 경계를 고친 물리존은 BIM 이 거기 담아 둔 설비도 좌표로 다시 판정한다(OE-MAP-01 3단계, Q13). 설계자가 담은 방이
+  // 이제 설계 때의 방이 아니라서다.
+  if (release) releaseDeclared(storey, spaceId)
   for (const e of storey.equipment) {
     if (e.spaceId === spaceId || (e.position && nearRing([e.position[0], e.position[1]], ring))) assignEquipment(e, storey.spaces)
   }
   // 방 경계가 바뀌면 좌표로 짚은 문이 잇는 방도 바뀐다.
   relinkDoors(storey)
+}
+
+/** 이 물리존에 BIM 이 담아 둔 설비의 소속을 좌표 판정에 넘긴다(Q13). 다음 assignEquipment 가 좌표로 정한다. */
+function releaseDeclared(storey: Storey, spaceId: string) {
+  for (const e of storey.equipment) if (e.spaceSource === 'bim' && e.spaceId === spaceId) e.spaceSource = null
+}
+
+/**
+ * 경계가 실제로 바뀌었나. 변 위에 꼭짓점을 하나 넣는 것(Insert)은 모양이 같아서 바뀐 것이 아니다 — 넣기만 해도 BIM 소속이
+ * 풀리면 안 된다. 넓이가 같고 새 꼭짓점이 전부 옛 외곽선 위에 있으면 같은 모양이다.
+ */
+function shapeChanged(from: readonly Vec2[], to: readonly Vec2[]): boolean {
+  if (Math.abs(polygonArea(from) - polygonArea(to)) > 1e-9) return true
+  return to.some((p) => distanceToRing(p, from) > 1e-9)
 }
 
 function findEquipment(model: Model, equipmentId: string): Equipment | null {
@@ -265,11 +283,12 @@ export function setFlowDirection(connection: Connection, from: string | null): b
   return true
 }
 
-/** 사람이 방향을 정한 연결. 규칙 방향이 있었으면 그것과 같은지 반대인지도 적는다. */
+/** 사람이 방향을 정한 연결. 규칙 방향이 있었으면 그것과 같은지 반대인지도 적는다. `reason` 은 규칙과 반대로 정할 때 받은 사유다. */
 export type FlowEdit = {
   from: string
   to: string
   rule: 'same' | 'reversed' | null
+  reason?: string
 }
 
 export function flowEdits(model: Model): FlowEdit[] {
@@ -279,6 +298,7 @@ export function flowEdits(model: Model): FlowEdit[] {
       from: c.edited!.from,
       to: c.edited!.to,
       rule: c.inferred ? (c.inferred.from === c.edited!.from ? 'same' : 'reversed') : null,
+      ...(c.edited!.reason ? { reason: c.edited!.reason } : {}),
     }))
 }
 
@@ -372,6 +392,35 @@ function setRoomKind(space: Space, found: ReturnType<typeof resolveRoomKind>) {
   space.kind = found?.info.kind ?? null
   if (found) space.kindSource = found.source
   else delete space.kindSource
+}
+
+/**
+ * 같은 층에서 이 방번호를 쓰는 다른 물리존(OE-OBJ-02 "방번호는 한 층 안에서 고유"). 빈 번호는 아직 안 정한 것이라 겹쳐도 된다.
+ * 공간명(longName)은 겹쳐도 된다.
+ */
+export function spaceNumberTaken(model: Model, storeyId: string, number: string, exceptId?: string): Space | null {
+  const n = number.trim()
+  if (!n) return null
+  return model.storeys.find((s) => s.id === storeyId)?.spaces.find((sp) => sp.id !== exceptId && sp.name.trim() === n) ?? null
+}
+
+/**
+ * 물리존의 방번호를 고친다. 같은 층에 같은 번호가 있으면 막고 이유를 돌려준다. 바뀌었으면 true.
+ * `check: false` 는 편집 파일을 다시 얹을 때만 쓴다 — 번호를 맞바꾼 편집은 한 줄씩 넣는 도중에 잠깐 겹치므로, 다 넣은 뒤
+ * 층마다 한 번 검사한다(edit-file.ts `applyEdits`).
+ */
+export function setSpaceNumber(model: Model, spaceId: string, number: string, check = true): boolean | { refused: string } {
+  const storey = model.storeys.find((s) => s.spaces.some((sp) => sp.id === spaceId))
+  const space = storey?.spaces.find((sp) => sp.id === spaceId)
+  if (!storey || !space) return false
+  const n = number.trim()
+  if (space.name === n) return false
+  const taken = check ? spaceNumberTaken(model, storey.id, n, spaceId) : null
+  if (taken) return { refused: `${storey.name}에 방번호 ${n}${josa(n, '이/가')} 이미 있습니다(${taken.longName || taken.name}). 방번호는 한 층 안에서 겹치지 않아야 합니다.` }
+  space.name = n
+  // 방 종류는 이름 사전이 방번호(Name)도 읽어서 같이 다시 읽는다(renameSpace 와 같은 순서).
+  setRoomKind(space, resolveRoomKind(space.name, space.longName, space.omniclass ?? null))
+  return true
 }
 
 export function renameSpace(model: Model, spaceId: string, longName: string): boolean {
@@ -503,10 +552,11 @@ export function moveSpaceVertex(
   const before = snapshotSpaces(model)
   const fromAreaM2 = space.areaM2
   const ring = ringWithVertex(space.footprint, vertexIndex, to)
+  const release = shapeChanged(space.footprint, ring)
 
   space.footprint = ring
   space.areaM2 = polygonArea(ring)
-  reassignStoreyWith(model, spaceId)
+  reassignStoreyWith(model, spaceId, release)
 
   return {
     spaceId,
@@ -522,17 +572,22 @@ export function moveSpaceVertex(
  * 물리존 전체 경계를 갈아 끼운다. 분할·병합이 이 위에 올라간다.
  *
  * 꼭짓점 하나를 옮기는 것과 계산이 같아서 함수를 나누지 않았다. 다른 것은 입력뿐이다.
+ *
+ * `release: false` 는 편집 파일을 얹을 때다. 외곽선 줄은 끝 모양만 적어서 그 모양이 경계 수정에서 왔는지 합치기에서 왔는지
+ * 모른다 — 합치기로 넓어진 남는 방은 BIM 소속을 그대로 두므로(OE-MAP-01 3단계) 여기서 풀면 세션과 달라진다. 세션에서 풀린
+ * 설비는 설비 줄의 `released` 가 따로 푼다.
  */
-export function replaceSpaceFootprint(model: Model, spaceId: string, ring: Vec2[]): BoundaryChange | null {
+export function replaceSpaceFootprint(model: Model, spaceId: string, ring: Vec2[], { release: mayRelease = true } = {}): BoundaryChange | null {
   const space = findSpace(model, spaceId)
   if (!space) return null
 
   const before = snapshotSpaces(model)
   const fromAreaM2 = space.areaM2
+  const release = mayRelease && shapeChanged(space.footprint, ring)
 
   space.footprint = ring
   space.areaM2 = polygonArea(ring)
-  reassignStoreyWith(model, spaceId)
+  reassignStoreyWith(model, spaceId, release)
 
   return {
     spaceId,
@@ -569,13 +624,30 @@ export type Snapshot =
       nameEdited: Equipment['nameEdited']
       endShift: Equipment['endShift']
       wallId: string | undefined
+      /** 사람이 정한 설치면(OE-EQP-05). */
+      surfaceSet?: Equipment['surfaceSet']
     }
-  | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; longName: string; roomKind: Space['kind']; roomKindSource: Space['kindSource'] }
+  | {
+      kind: 'space'
+      id: string
+      footprint: Vec2[]
+      areaM2: number
+      name?: string
+      longName: string
+      roomKind: Space['kind']
+      roomKindSource: Space['kindSource']
+      /** BIM 이 이 물리존에 담아 둔 설비. 경계를 고치면 좌표 판정으로 풀리므로(Q13) 되돌릴 때 다시 담는다. */
+      declared?: Equipment[]
+    }
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
   | { kind: 'confirm'; connections: Connection[]; confirmed: boolean }
   | { kind: 'kinds'; entries: { id: string; kind: string | null | undefined; kindEdited: Equipment['kindEdited'] }[] }
   /** 연결이 모델에 있었는가. 잇기·끊기를 되돌린다. 연결 객체를 그대로 들고 있어 방향·확정도 같이 돌아온다. */
   | { kind: 'connection'; connection: Connection; present: boolean; index: number }
+  /** BIM 포트 연결의 해제 보정·취소(OE-PIP-06, connection-release.ts). */
+  | ReleaseSnapshot
+  /** 계통 확정·재확정(OE-PIP-07). 규칙 방향을 통째로 든다. */
+  | RuleSnapshot
   /**
    * 설비가 모델에 있었는가(E7 추가·삭제). 설비와 거기 붙은 연결·계통 자리를 객체째 들고 있어, 되돌리면 방향·확정까지
    * 그대로 돌아온다.
@@ -631,6 +703,10 @@ export type Snapshot =
   | { kind: 'many'; parts: Snapshot[] }
   /** 한 층의 커스텀존 목록(OE-OBJ-01). 소속을 담지 않으니(쓸 때 계산한다) 목록만 사본으로 떠 둔다. */
   | { kind: 'custom-zones'; storeyId: string; zones: CustomZone[] | undefined }
+  /** 층의 룸 전부(OE-OBJ-03). 만들기·지우기·옮기기·크기를 같은 방식으로 되돌린다. */
+  | { kind: 'rooms'; storeyId: string; rooms: Room[] | undefined }
+  /** 층의 추가 공간 오브젝트 전부(OE-OBJ-09). 놓기·지우기·옮기기·크기·이름을 같은 방식으로 되돌린다. */
+  | { kind: 'space-objects'; storeyId: string; objects: SpaceObject[] | undefined }
   /** 한 층의 벽·문·창(E4). 객체를 그대로 들고 있어 되돌려도 같은 객체다. */
   | {
       kind: 'storey-elements'
@@ -670,6 +746,22 @@ const copyZones = (zones: readonly CustomZone[]): CustomZone[] =>
   zones.map((z) => ({ id: z.id, name: z.name, ...(z.aliases?.length ? { aliases: [...z.aliases] } : {}), footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) }))
 
 /** 한 층의 커스텀존 목록을 떠 둔다(OE-OBJ-01). 만들기·지우기·나누기·합치기·이름 고치기 전에 뜬다. */
+export function snapshotRooms(model: Model, storeyId: string): Snapshot | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  return { kind: 'rooms', storeyId, rooms: storey.rooms ? copyRoomList(storey.rooms) : undefined }
+}
+const copyRoomList = (rooms: readonly Room[]): Room[] => rooms.map((r) => ({ ...r, footprint: r.footprint.map((p) => [p[0], p[1]] as Vec2) }))
+
+/** 한 층의 추가 공간 오브젝트를 떠 둔다(OE-OBJ-09). */
+export function snapshotSpaceObjects(model: Model, storeyId: string): Snapshot | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  return { kind: 'space-objects', storeyId, objects: storey.spaceObjects ? copyObjectList(storey.spaceObjects) : undefined }
+}
+const copyObjectList = (objects: readonly SpaceObject[]): SpaceObject[] =>
+  objects.map((o) => ({ ...o, at: [o.at[0], o.at[1]] as Vec2, size: [o.size[0], o.size[1], o.size[2]] as Vec3 }))
+
 export function snapshotCustomZones(model: Model, storeyId: string): Snapshot | null {
   const storey = model.storeys.find((s) => s.id === storeyId)
   if (!storey) return null
@@ -695,6 +787,7 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
       nameEdited: e.nameEdited ? { ...e.nameEdited } : undefined,
       endShift: e.endShift ? copyShift(e.endShift) : undefined,
       wallId: e.wallId,
+      surfaceSet: e.surfaceSet,
     }
   }
   return null
@@ -702,15 +795,21 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
 
 const copyShift = (s: readonly [Vec3, Vec3]): [Vec3, Vec3] => [[...s[0]], [...s[1]]]
 
-/** 경계와 이름. 소속은 담지 않는다 — 경계를 되돌리면 재판정이 같은 소속을 다시 낸다. */
+/**
+ * 경계와 이름. 좌표로 정한 소속은 담지 않는다 — 경계를 되돌리면 재판정이 같은 소속을 다시 낸다. BIM 이 담아 둔 소속은 경계를
+ * 고칠 때 풀리고(Q13) 재판정으로는 돌아오지 않아서 따로 담는다.
+ */
 export function snapshotSpace(model: Model, spaceId: string): Snapshot | null {
   const space = findSpace(model, spaceId)
   if (!space) return null
+  const declared = storeyOfSpace(model, spaceId)?.equipment.filter((e) => e.spaceSource === 'bim' && e.spaceId === spaceId) ?? []
   return {
+    ...(declared.length ? { declared } : {}),
     kind: 'space',
     id: space.id,
     footprint: [...space.footprint],
     areaM2: space.areaM2,
+    name: space.name,
     longName: space.longName,
     roomKind: space.kind,
     roomKindSource: space.kindSource,
@@ -764,6 +863,10 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return { kind: 'confirm', connections: snapshot.connections, confirmed: !!snapshot.connections[0]?.inferred?.confirmed }
     case 'connection':
       return snapshotConnection(model, snapshot.connection)
+    case 'release':
+      return snapshotRelease(model, snapshot.connection)
+    case 'rule-state':
+      return snapshotRulesAgain(snapshot)
     case 'equipment-set':
       return snapshotEquipmentSet(model, snapshot.equipment, snapshot.storeyId)
     case 'storey-spaces':
@@ -772,6 +875,10 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotStoreyElements(model, snapshot.storeyId)
     case 'custom-zones':
       return snapshotCustomZones(model, snapshot.storeyId)
+    case 'rooms':
+      return snapshotRooms(model, snapshot.storeyId)
+    case 'space-objects':
+      return snapshotSpaceObjects(model, snapshot.storeyId)
     case 'many': {
       const parts = snapshot.parts.map((p) => snapshotOf(model, p))
       return parts.every((p): p is Snapshot => !!p) ? { kind: 'many', parts } : null
@@ -821,6 +928,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete equipment.endShift
       if (snapshot.wallId) equipment.wallId = snapshot.wallId
       else delete equipment.wallId
+      if (snapshot.surfaceSet) equipment.surfaceSet = snapshot.surfaceSet
+      else delete equipment.surfaceSet
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
       equipment.spaceSource = snapshot.spaceSource
       equipment.spaceId = snapshot.spaceId
@@ -834,10 +943,21 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       if (!space) return null
       space.footprint = [...snapshot.footprint]
       space.areaM2 = snapshot.areaM2
+      if (snapshot.name !== undefined) space.name = snapshot.name
       space.longName = snapshot.longName
       space.kind = snapshot.roomKind
       if (snapshot.roomKindSource) space.kindSource = snapshot.roomKindSource
       else delete space.kindSource
+      // 스냅숏이 담은 설비가 그때 이 방의 BIM 소속 전부다. 지금 BIM 소속인데 거기 없는 것은 그때 풀려 있었다 — 다시 하기가
+      // 경계를 고친 상태로 돌아갈 때 이것을 풀지 않으면, 되돌리기가 다시 담은 BIM 소속이 그대로 남는다.
+      const declared = new Set(snapshot.declared ?? [])
+      for (const e of storeyOfSpace(model, space.id)?.equipment ?? []) {
+        if (e.spaceSource === 'bim' && e.spaceId === space.id && !declared.has(e)) e.spaceSource = null
+      }
+      for (const e of declared) {
+        e.spaceId = space.id
+        e.spaceSource = 'bim'
+      }
       reassignStoreyWith(model, space.id)
       return null
     }
@@ -848,6 +968,10 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
     case 'confirm':
       for (const c of snapshot.connections) if (c.inferred) c.inferred.confirmed = snapshot.confirmed
       return null
+    case 'release':
+      return restoreRelease(model, snapshot)
+    case 'rule-state':
+      return restoreRules(model, snapshot)
     case 'connection': {
       const at = model.connections.indexOf(snapshot.connection)
       if (snapshot.present && at < 0) model.connections.splice(Math.min(snapshot.index, model.connections.length), 0, snapshot.connection)
@@ -955,6 +1079,20 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete storey.customZones
       return null
     }
+    case 'rooms': {
+      const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!storey) return null
+      if (snapshot.rooms) storey.rooms = copyRoomList(snapshot.rooms)
+      else delete storey.rooms
+      return null
+    }
+    case 'space-objects': {
+      const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!storey) return null
+      if (snapshot.objects) storey.spaceObjects = copyObjectList(snapshot.objects)
+      else delete storey.spaceObjects
+      return null
+    }
     case 'many': {
       let rules: RuleReport | null = null
       for (const part of [...snapshot.parts].reverse()) rules = restore(model, part) ?? rules
@@ -1045,6 +1183,8 @@ export function familyKeyOf(e: Equipment): string {
 
 /** 종류를 붙이는 묶음에 드는가. 열쇠가 `family:` 로 시작하면 패밀리, 아니면 타입이다. */
 export function inKindGroup(e: Equipment, key: string): boolean {
+  // `#id` 는 설비 한 대다(OE-EQP-14 "한 대만 따로"). 타입 이름이 없는 설비의 타입 열쇠도 같은 모양이라 같은 뜻이 된다.
+  if (key.startsWith('#')) return e.id === key.slice(1)
   return key.startsWith('family:') ? familyKeyOf(e) === key : typeKeyOf(e) === key
 }
 
@@ -1076,15 +1216,25 @@ export function setTypeKind(
 }
 
 export function kindEdits(model: Model): KindEdit[] {
-  const byType = new Map<string, KindEdit>()
+  const byType = new Map<string, Equipment[]>()
   for (const e of model.storeys.flatMap((s) => s.equipment)) {
-    if (!e.kindEdited) continue
     const key = typeKeyOf(e)
-    const row = byType.get(key)
-    if (row) row.count++
-    else byType.set(key, { typeKey: key, count: 1, from: e.kindEdited.from, to: e.kind ?? null })
+    const list = byType.get(key)
+    if (list) list.push(e)
+    else byType.set(key, [e])
   }
-  return [...byType.values()]
+  const types: KindEdit[] = []
+  const singles: KindEdit[] = []
+  for (const [key, members] of byType) {
+    const edited = members.filter((e) => e.kindEdited)
+    if (!edited.length) continue
+    const kind = edited[0].kind ?? null
+    // 타입의 설비가 다 그 종류면 타입 한 줄. 아니면(한 대만 따로 정한 것, OE-EQP-14) 고친 설비마다 `#id` 한 줄 — 타입으로 적으면
+    // 다시 열 때 그 종류가 타입 전체에 번진다. 한 대 줄은 타입 줄 뒤에 둔다(얹는 순서가 곧 덮는 순서다).
+    if (members.every((e) => (e.kind ?? null) === kind)) types.push({ typeKey: key, count: edited.length, from: edited[0].kindEdited!.from, to: kind })
+    else for (const e of edited) singles.push({ typeKey: `#${e.id}`, count: 1, from: e.kindEdited!.from, to: e.kind ?? null })
+  }
+  return [...types, ...singles]
 }
 
 // --- 연 때와 견주기 ----------------------------------------------------------------
@@ -1096,6 +1246,8 @@ export function kindEdits(model: Model): KindEdit[] {
 
 export type Baseline = {
   names: Map<string, string>
+  /** 물리존 방번호(IfcSpace Name, OE-OBJ-02). 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
+  numbers?: Map<string, string>
   /** 물리존 외곽선. 편집 저장(edit-file.ts)이 바뀐 경계만 골라 담는다. */
   footprints: Map<string, Vec2[]>
   equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource']; name?: string; systemId?: string | null; wallId?: string | null }>
@@ -1131,6 +1283,7 @@ export type Baseline = {
 /** 파일을 열거나 합친 직후에 뜬다. */
 export function baselineOf(model: Model): Baseline {
   const names = new Map<string, string>()
+  const numbers = new Map<string, string>()
   const footprints = new Map<string, Vec2[]>()
   const equipment: Baseline['equipment'] = new Map()
   const walls: NonNullable<Baseline['walls']> = new Map()
@@ -1138,6 +1291,7 @@ export function baselineOf(model: Model): Baseline {
   for (const storey of model.storeys) {
     for (const space of storey.spaces) {
       names.set(space.id, space.longName)
+      numbers.set(space.id, space.name)
       footprints.set(space.id, space.footprint.map((p) => [p[0], p[1]] as Vec2))
     }
     for (const w of storey.walls) {
@@ -1178,6 +1332,7 @@ export function baselineOf(model: Model): Baseline {
   return {
     systems: new Map(model.systems.map((s) => [s.id, { name: s.name, kind: s.kind ?? null, fluid: s.fluid ?? null }])),
     names,
+    numbers,
     footprints,
     equipment,
     connections: new Set(model.connections.map((c) => pairKey(c.from, c.to))),
@@ -1190,6 +1345,8 @@ export function baselineOf(model: Model): Baseline {
 
 export type BaselineDiff = {
   renamed: { spaceId: string; from: string; to: string }[]
+  /** 방번호(IfcSpace Name)가 바뀐 물리존(OE-OBJ-02). 옛 baseline(번호 없음)이면 비어 있다. */
+  renumbered?: { spaceId: string; from: string; to: string }[]
   /** 좌표는 바뀌었는데 소속 물리존은 그대로인 설비. 소속이 바뀐 것은 Change 가 이미 적는다. */
   moved: { id: string; name: string }[]
   restoreyed: { id: string; name: string; from: string; to: string }[]
@@ -1243,6 +1400,7 @@ const SAME_PLACE = 0.005
 
 export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const renamed: BaselineDiff['renamed'] = []
+  const renumbered: NonNullable<BaselineDiff['renumbered']> = []
   const moved: BaselineDiff['moved'] = []
   const restoreyed: BaselineDiff['restoreyed'] = []
   const spacesAdded: BaselineDiff['spacesAdded'] = []
@@ -1260,6 +1418,8 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
       const from = baseline.names.get(space.id)
       if (from === undefined) spacesAdded.push({ id: space.id, name: space.longName || space.name })
       else if (from !== space.longName) renamed.push({ spaceId: space.id, from, to: space.longName })
+      const number = baseline.numbers?.get(space.id)
+      if (number !== undefined && number !== space.name) renumbered.push({ spaceId: space.id, from: number, to: space.name })
     }
     for (const e of storey.equipment) {
       equipmentNow.add(e.id)
@@ -1298,6 +1458,8 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
       if (now.has(key)) continue
       const [from, to] = key.split('\u0000')
       // 지운 설비에 붙어 있던 연결은 설비와 같이 빠진 것이다. 끊은 연결로 따로 세지 않는다.
+      // 해제 보정한 포트 연결도 끊은 것이 아니다 — 원본을 지우지 않고 해제했고, 편집 파일에 따로 적는다(connection-release.ts).
+      if (releasedBetween(model, from, to)) continue
       if (baseline.equipment.has(from) && !equipmentNow.has(from)) continue
       if (baseline.equipment.has(to) && !equipmentNow.has(to)) continue
       disconnected.push({ from, to })
@@ -1325,6 +1487,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const systemsRemoved = baseline.systems ? [...baseline.systems].filter(([id]) => !systemIds.has(id)).map(([id, was]) => ({ id, name: was.name })) : []
   return {
     renamed,
+    renumbered,
     moved,
     restoreyed,
     connected,
@@ -1438,9 +1601,9 @@ export function connectionBetween(model: Model, a: string, b: string): Connectio
   return model.connections.find((c) => pairKey(c.from, c.to) === key) ?? null
 }
 
-/** 두 설비를 잇는다. 이미 이어져 있거나 같은 설비면 null. */
+/** 두 설비를 잇는다. 이미 이어져 있거나 같은 설비면 null. 해제 보정한 BIM 연결이 있는 두 설비도 null — 그 연결의 해제를 취소한다. */
 export function addConnection(model: Model, a: string, b: string): { connection: Connection; rules: RuleReport } | null {
-  if (a === b || !findEquipment(model, a) || !findEquipment(model, b) || connectionBetween(model, a, b)) return null
+  if (a === b || !findEquipment(model, a) || !findEquipment(model, b) || connectionBetween(model, a, b) || releasedBetween(model, a, b)) return null
   const connection: Connection = { from: a, to: b, source: 'manual', directed: false, tolerance: null }
   model.connections.push(connection)
   return { connection, rules: inferFlowByRules(model) }
@@ -1708,7 +1871,8 @@ function pointInRing(p: Vec2, ring: readonly Vec2[]): boolean {
 }
 
 /**
- * 물리존을 두 점을 지나는 선으로 둘로 나눈다. 넓은 조각이 원래 id·이름을 갖고, 다른 조각은 새 id 에 `이름-2` 다.
+ * 물리존을 두 점을 지나는 선으로 둘로 나눈다. 넓은 조각이 원래 id·이름을 갖고, 다른 조각은 새 id 에 공간명 `이름-2` 다.
+ * 새 조각의 방번호는 비워 둔다 — 사람이 넣는다(OE-SPC-02). 번호를 지어 붙이면 BIM 에 없는 번호가 그대로 TTL·GeoJSON 에 들어간다.
  * 나눌 수 없는 선이면(방을 안 지나거나 셋 이상으로 자르면) 이유를 돌려준다.
  */
 export function splitSpace(
@@ -1732,7 +1896,7 @@ export function splitSpace(
   // 새 조각은 목록 끝에 둔다. 원래 방 바로 뒤에 끼우면 편집 파일에서 되살린 층과 순서(hasPart)가 달라진다.
   storey.spaces.push({
     id,
-    name: space.name ? `${space.name}-2` : '',
+    name: '',
     longName: space.longName ? `${space.longName}-2` : '',
     footprint: small,
     areaM2: polygonArea(small),
@@ -1741,12 +1905,9 @@ export function splitSpace(
   })
   const piece = storey.spaces[storey.spaces.length - 1]
   setRoomKind(piece, resolveRoomKind(piece.name, piece.longName, null))
-  // BIM 이 원래 방에 둔 설비 중 새 조각에 든 것은 BIM 소속을 버린다. 원래 방은 이제 그 자리를 품지 않는다.
-  for (const e of storey.equipment) {
-    if (e.spaceSource === 'bim' && e.spaceId === spaceId && e.position && pointInRing([e.position[0], e.position[1]], small)) {
-      e.spaceSource = null
-    }
-  }
+  // 사람이 나눈 물리존은 BIM 이 거기 담아 둔 설비도 좌표로 다시 판정한다(OE-MAP-01 3단계, Q13). 좁은 조각에 든 설비는 좁은
+  // 조각으로, 넓은 조각(원래 id)에 든 설비는 그대로, 둘 다 밖인 설비는 좌표대로 다른 방이나 층으로 간다.
+  releaseDeclared(storey, spaceId)
   return { storeyId: storey.id, created: [id], removed: [], equipment: settleStorey(model, storey, new Set(), before) }
 }
 
@@ -1838,6 +1999,17 @@ export function wallLocked(wall: Wall | null | undefined): boolean {
   return wall?.loadBearing === true
 }
 export const WALL_LOCKED = '내력벽은 고칠 수 없습니다. 내력 여부를 바꾸면 풀립니다.'
+export const EXTERIOR_LOCKED = '외벽은 층 편집 화면에서 옮기거나 지우거나 크기를 바꾸지 않습니다. 외벽 형상은 외벽 에디터에서 고칩니다. 외벽 여부를 바꾸면 풀립니다.'
+/**
+ * 벽 형상(옮기기·지우기·길이·두께·높이)을 고칠 수 없는 이유. 내력벽(OE-OBJ-05)과 외벽(OE-EXT-02)이다. 외벽 형상은 전체 층을 한 번에
+ * 다루는 외벽 에디터의 일이다(OE-EXT-03). 외벽에 문·창을 뚫고 외벽 전용 설비를 붙이는 것은 된다(OE-OBJ-04) — 그래서 문·창 잠금
+ * (openingLocked)은 내력벽만 본다. 고칠 수 있으면 null.
+ */
+export function wallShapeLock(wall: Wall | null | undefined): string | null {
+  if (wallLocked(wall)) return WALL_LOCKED
+  if (wall?.external === true) return EXTERIOR_LOCKED
+  return null
+}
 export type LockOptions = { ignoreLock?: boolean }
 
 function openingLocked(storey: Storey, opening: Opening): boolean {
@@ -1950,7 +2122,7 @@ const shiftRings = (rings: readonly (readonly Vec2[])[], d: Vec2) => rings.map((
 export function moveWall(model: Model, wallId: string, delta: Vec2, opts: LockOptions = {}): boolean {
   const found = findWall(model, wallId)
   if (!found || !found.wall.footprint?.length || (delta[0] === 0 && delta[1] === 0)) return false
-  if (!opts.ignoreLock && wallLocked(found.wall)) return false
+  if (!opts.ignoreLock && wallShapeLock(found.wall)) return false
   const next = shiftRings(found.wall.footprint, delta)
   if (newCrossing(model, wallId, next)) return false
   found.wall.footprint = next
@@ -1981,7 +2153,7 @@ function forgetBoundary(storey: Storey, ids: Set<string>) {
 /** 벽을 지운다. 그 벽에 뚫린 문·창도 같이 지우고, 물리존의 공간 경계 목록에서도 뺀다. */
 export function deleteWall(model: Model, wallId: string, opts: LockOptions = {}): { openings: number } | null {
   const found = findWall(model, wallId)
-  if (!found || (!opts.ignoreLock && wallLocked(found.wall))) return null
+  if (!found || (!opts.ignoreLock && wallShapeLock(found.wall))) return null
   const { storey } = found
   const gone = new Set([wallId, ...storey.openings.filter((o) => o.wallId === wallId).map((o) => o.id)])
   storey.walls = storey.walls.filter((w) => w.id !== wallId)
@@ -1994,6 +2166,30 @@ export function deleteWall(model: Model, wallId: string, opts: LockOptions = {})
 
 /** 기본 벽 두께(미터). 사람이 두께를 정하지 않고 그은 벽이다. */
 export const NEW_WALL_THICKNESS = 0.2
+
+/**
+ * 새로 긋는 벽의 두께와 그 근거(OE-SPC-12). 1) 같은 층 BIM 내벽 두께의 최빈값 → 2) 사이트 기본값 → 3) 0.2m 순이다.
+ *
+ * - BIM 내벽은 에디터가 더하지 않았고(`added` 없음) 외벽이 아니며(`external` 이 true 가 아님) 두께를 아는 벽이다. 외벽은 단열층까지
+ *   들어 내벽보다 두꺼워서 섞으면 칸막이가 외벽 두께로 그어진다.
+ * - 8cm 보다 얇은 벽은 세지 않는다. 다른 벽에 덧댄 마감벽(Revit "Furring 38mm Stud", 0.05m)과 화장실 칸막이(0.03m)다. 병원 1층은
+ *   마감벽 292개가 칸막이 288개(0.12m)보다 많아서, 세면 새 칸막이가 0.05m 로 그어졌다.
+ * - 최빈값은 cm 로 반올림해 센다(BIM 두께에 0.2399 같은 끝수가 흔하다). 같은 수면 두꺼운 쪽이다.
+ */
+export const LINING_MAX = 0.08
+export function newWallThickness(storey: Storey, siteDefault?: number | null): { thickness: number; from: 'bim' | 'site' | 'default' } {
+  const counts = new Map<number, number>()
+  for (const w of storey.walls) {
+    if (w.added || w.external === true || !(w.thickness && w.thickness >= LINING_MAX)) continue
+    const t = Math.round(w.thickness * 100) / 100
+    counts.set(t, (counts.get(t) ?? 0) + 1)
+  }
+  let best: [number, number] | null = null
+  for (const [t, n] of counts) if (!best || n > best[1] || (n === best[1] && t > best[0])) best = [t, n]
+  if (best) return { thickness: best[0], from: 'bim' }
+  if (siteDefault && siteDefault > 0) return { thickness: siteDefault, from: 'site' }
+  return { thickness: NEW_WALL_THICKNESS, from: 'default' }
+}
 
 /**
  * 두 점을 잇는 벽을 긋는다. 외곽선은 그 선을 가운데로 두께만큼 편 직사각형이다. 내력 여부는 모른다. 다른 벽을 가로지르면
@@ -2056,7 +2252,8 @@ export function setWallLength(model: Model, wallId: string, length: number): boo
   const found = findWall(model, wallId)
   if (!found || !(length >= 0.05)) return false
   const { wall, storey } = found
-  if (wallLocked(wall)) return { refused: WALL_LOCKED }
+  const locked = wallShapeLock(wall)
+  if (locked) return { refused: locked }
   const now = wallLength(wall)
   if (now === null) return { refused: '꼭짓점 넷인 벽만 길이를 바꿉니다(문·창으로 조각났거나 꺾인 벽은 옮기기만 됩니다).' }
   if (Math.abs(now - length) < 1e-9) return false
@@ -2108,7 +2305,8 @@ export function setWallThickness(model: Model, wallId: string, thickness: number
   const found = findWall(model, wallId)
   if (!found || !(thickness >= 0.01)) return false
   const { wall, storey } = found
-  if (wallLocked(wall)) return { refused: WALL_LOCKED }
+  const locked = wallShapeLock(wall)
+  if (locked) return { refused: locked }
   const len = wallLength(wall)
   if (len === null) return { refused: '꼭짓점 넷인 벽만 두께를 바꿉니다(문·창으로 조각났거나 꺾인 벽은 옮기기만 됩니다).' }
   const axis = wallAxis(wall.footprint!)!
@@ -2138,7 +2336,8 @@ export function setWallThickness(model: Model, wallId: string, thickness: number
 export function setWallHeight(model: Model, wallId: string, height: number | null): boolean | { refused: string } {
   const found = findWall(model, wallId)
   if (!found || (height !== null && !(height > 0))) return false
-  if (wallLocked(found.wall)) return { refused: WALL_LOCKED }
+  const locked = wallShapeLock(found.wall)
+  if (locked) return { refused: locked }
   if ((found.wall.height ?? null) === height) return false
   found.wall.height = height
   return true
@@ -2252,13 +2451,13 @@ export const OPENING_ALONG_WALL = '문·창은 뚫린 벽을 따라서만 옮깁
  * 때만 옮긴다. 뚫린 벽을 모르는 문·창(BIM 이 관계를 안 적은 것)은 어느 벽에서든 OPENING_SNAP 안이어야 한다. 예전에는 아무 데나
  * 옮겨져 문이 벽 밖에 떠 있었다(2026-10-07 검토). 편집 파일을 되살릴 때(ignoreLock)는 적힌 자리 그대로 둔다.
  */
-export function moveOpening(model: Model, openingId: string, to: Vec2, opts: LockOptions = {}): boolean | { refused: string } {
+export function moveOpening(model: Model, openingId: string, to: Vec2, opts: LockOptions & { snap?: number } = {}): boolean | { refused: string } {
   const found = findOpening(model, openingId)
   const o = found?.opening
   if (!found || !o || !o.position) return false
   if (!opts.ignoreLock && openingLocked(found.storey, o)) return false
   if (!opts.ignoreLock) {
-    const placed = alongWall(found.storey, o, to)
+    const placed = alongWall(found.storey, o, to, opts.snap ?? OPENING_SNAP)
     if ('refused' in placed) return placed
     to = placed.at
   }
@@ -2270,12 +2469,12 @@ export function moveOpening(model: Model, openingId: string, to: Vec2, opts: Loc
 }
 
 /** 문·창이 갈 수 있는 자리. moveOpening 의 규칙(뚫린 벽을 따라서만)을 적용한 끝 자리나, 갈 수 없는 이유. */
-function alongWall(storey: Storey, o: Opening, to: Vec2): { at: Vec2 } | { refused: string } {
+function alongWall(storey: Storey, o: Opening, to: Vec2, snap = OPENING_SNAP): { at: Vec2 } | { refused: string } {
   const from: Vec2 = [o.position![0], o.position![1]]
   const wall = storey.walls.find((w) => w.id === o.wallId && w.footprint?.length)
   if (!wall) {
     const near = nearestWall(storey, to)
-    return near && near.distance <= OPENING_SNAP ? { at: to } : { refused: `벽에서 ${OPENING_SNAP}m 안에만 놓습니다.` }
+    return near && near.distance <= snap ? { at: to } : { refused: nearWallMessage(snap) }
   }
   const len = wallLength(wall)
   if (len === null) {
@@ -2341,6 +2540,9 @@ export function setOpeningSize(
 
 /** 문·창을 벽에 붙일 수 있는 거리(미터). 벽 외곽선에서 이만큼 안이어야 그 벽의 문·창이다. */
 export const OPENING_SNAP = 0.6
+/** 문·창 스냅 거리로 받는 범위(미터). 0 이면 벽 안을 눌러야만 붙고, 너무 크면 엉뚱한 벽에 붙는다. */
+export const OPENING_SNAP_RANGE = { min: 0.1, max: 3 } as const
+const nearWallMessage = (snap: number) => `벽 가까이 놓아 주세요(벽에서 ${snap}m 안에만 놓습니다).`
 
 /**
  * 가장 가까운 벽과, 그 벽의 가장 가까운 변에 수직인 방향. 문이 벽을 뚫는 방향이다.
@@ -2380,12 +2582,14 @@ export function addOpening(
   kind: 'door' | 'window',
   at: Vec2,
   id?: string,
+  /** 벽에서 이만큼 안을 눌러야 붙는다(OE-SPC-13, 사람이 고칠 수 있다). */
+  snap = OPENING_SNAP,
 ): Opening | { refused: string } | null {
   const storey = model.storeys.find((s) => s.id === storeyId)
   if (!storey) return null
   const near = nearestWall(storey, at)
-  if (!near || near.distance > OPENING_SNAP) {
-    return { refused: storey.walls.some((w) => w.footprint?.length) ? `벽에서 ${OPENING_SNAP}m 안에만 놓습니다.` : '이 층에 외곽선이 있는 벽이 없습니다. 벽을 읽거나 먼저 벽을 그으세요.' }
+  if (!near || near.distance > snap) {
+    return { refused: storey.walls.some((w) => w.footprint?.length) ? nearWallMessage(snap) : '이 층에 외곽선이 있는 벽이 없습니다. 벽을 읽거나 먼저 벽을 그으세요.' }
   }
   if (wallLocked(near.wall)) return { refused: `${near.wall.name || '벽'}${josa(near.wall.name || '벽', '은/는')} 내력벽이라 문·창을 뚫지 않습니다. 내력 여부를 바꾸면 풀립니다.` }
   const openingId = id ?? newId()

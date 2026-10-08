@@ -11,6 +11,8 @@
 // 않고 센다 — 재임포트에서 무엇이 빠졌는지가 그 숫자다.
 
 import { confirmSystemFlow, inferFlowByRules } from './flow-rules'
+import { applyReleases, exportReleases, type ReleaseRow } from './connection-release'
+import type { ConnectionLogEntry } from './model'
 import {
   addConnection,
   addEquipment,
@@ -35,6 +37,7 @@ import {
   moveEquipmentToStorey,
   releaseDeclaredSpace,
   renameSpace,
+  setSpaceNumber,
   renameSystem,
   replaceSpaceFootprint,
   setFlowDirection,
@@ -50,10 +53,13 @@ import {
 } from './edit'
 import type { RuleReport } from './flow-rules'
 import type { Fluid } from './kinds'
-import type { Connection, Model, Vec2, Vec3, Wall } from './model'
+import type { Connection, CustomObjectItem, Model, SpaceObject, Vec2, Vec3, Wall } from './model'
+import { copySpaceObjects } from './space-object'
 import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
 import { assignEquipment, spaceSetState } from './mapping'
 import { markStoreyDone, storeyProgress } from './storey-progress'
+import { setCeiling, setEquipmentSurface } from './ceiling'
+import type { Surface } from './mount'
 
 export const EDIT_FORMAT = 'ontology-editor/edits'
 
@@ -68,7 +74,7 @@ export type EditFile = {
    * 연 때와 같아도 소속을 좌표로 다시 잰 상태다(edit.ts 의 releaseDeclaredSpace).
    */
   /** `wall` 은 설비를 붙인 벽(OE-OBJ-04). `null` 은 벽에서 뗀 것이다. */
-  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3]; wall?: string | null }[]
+  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3]; wall?: string | null; surface?: Surface }[]
   /** 종류·유체를 고친 계통(E8). 설비의 계통은 위 `equipment` 의 `system` 에 적는다(`null` 은 계통에서 뺀 것). */
   systems?: { id: string; kind: string | null; fluid: Fluid | null }[]
   /** 사람이 만든 계통(끝 이름·종류)과 지운 계통. 구성원은 설비 쪽 `system` 으로 적는다. */
@@ -81,9 +87,10 @@ export type EditFile = {
   assignedSpaces?: { id: string; spaceId: string }[]
   /** 이름을 고친 계통(OE-PIP-09). 연 때 있던 계통만 — 사람이 만든 계통은 `systemsAdded` 에 끝 이름이 있다. */
   systemNames?: { id: string; name: string }[]
-  spaces: { id: string; longName?: string; footprint?: Vec2[] }[]
+  /** 고친 물리존. `number` 는 방번호(IfcSpace Name, OE-OBJ-02), `longName` 은 공간명이다. */
+  spaces: { id: string; number?: string; longName?: string; footprint?: Vec2[] }[]
   /** 사람이 더한 설비(E7). id 는 에디터가 지은 것(`U_…`)이라 다시 열어도 같은 id 로 만든다. */
-  equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string; wall?: string }[]
+  equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string; wall?: string; surface?: Surface }[]
   equipmentRemoved?: string[]
   /** 사람이 만든 물리존(E3 생성·분할). 나눈 방의 남는 조각은 `spaces` 의 외곽선으로 적힌다. */
   spacesAdded?: { id: string; storeyId: string; name: string; longName: string; footprint: Vec2[] }[]
@@ -126,8 +133,15 @@ export type EditFile = {
    * 없고, 나누기·합치기를 순서대로 다시 하지 않고 끝 모양을 얹는다(물리존 합치기의 `into` 와 같은 까닭).
    */
   customZones?: { storeyId: string; zones: { id: string; name: string; aliases?: string[]; footprint: Vec2[] }[] }[]
+  /** 사람이 그린 룸(OE-OBJ-03). BIM 에는 없어서 룸이 있는 층의 끝 목록을 그대로 적는다. */
+  rooms?: { storeyId: string; rooms: { id: string; name: string; spaceId: string; footprint: Vec2[] }[] }[]
+  /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09). BIM 에는 없어서 오브젝트가 있는 층의 끝 목록을 그대로 적는다. */
+  spaceObjects?: { storeyId: string; objects: SpaceObject[] }[]
+  /** 사람이 넣은 3D 모델 라이브러리 항목(OE-P3-08). glb 를 그대로 든다. 층에 속하지 않아 건물 조각으로 간다. */
+  objectLibrary?: CustomObjectItem[]
   kinds: { typeKey: string; kind: string | null }[]
-  flows: { from: string; to: string }[]
+  /** 사람이 정한 방향. `at`·`reason` 은 [적용] 한 시각과 보정 사유다(OE-PIP-04). 그 칸이 없던 때의 파일도 받는다. */
+  flows: { from: string; to: string; at?: string; reason?: string }[]
   /** 확정한 계통. 아래 `confirmedFlows` 가 없던 때의 파일은 이것으로 불러온다. */
   confirmedSystems: string[]
   /**
@@ -139,6 +153,13 @@ export type EditFile = {
   /** 사람이 이은 연결과 끊은 연결(순서 없는 짝). 이 칸이 없던 때의 파일도 받는다. */
   connections?: { add: { from: string; to: string }[]; remove: { from: string; to: string }[] }
   /**
+   * 해제 보정한 BIM 포트 연결(OE-PIP-06). 끊은 연결(`connections.remove`)과 다르다 — 원본은 BIM 에 그대로 있고, 불러올 때 같은 연결을
+   * 찾아 다시 해제한다. 방향이 바뀌었거나 못 찾으면 재검토로 둔다(connection-release.ts).
+   */
+  connectionsReleased?: ReleaseRow[]
+  /** 해제 보정·취소·재검토 확인의 이력. 취소해서 지금은 해제가 아닌 연결의 기록도 여기 남는다. */
+  connectionLog?: ConnectionLogEntry[]
+  /**
    * 위에 적은 id 마다 연 때의 지문(versions.ts). GUID 가 바뀐 판본에서 같은 것을 찾는 데 쓴다. 이 칸이 없던 때의
    * 파일도 받는다 — 그때는 GUID 로만 찾는다.
    */
@@ -148,6 +169,8 @@ export type EditFile = {
    * 지문은 적지 않는다(재내보내기에서 GUID 가 바뀌면 지문도 바뀐다). 불러올 때 편집을 다 얹은 뒤 지문을 새로 잰다.
    */
   storeysDone?: { id: string; at: string; changed?: true }[]
+  /** 사람이 정한 층의 반자 높이 h_c(미터, OE-EQP-03). BIM 값과 같으면 적지 않는다. */
+  ceilings?: { storeyId: string; height: number }[]
 }
 
 /**
@@ -175,9 +198,10 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       }
       const row: EditFile['spaces'][number] = { id: space.id }
       if (baseline.names.has(space.id) && baseline.names.get(space.id) !== space.longName) row.longName = space.longName
+      if (baseline.numbers?.has(space.id) && baseline.numbers.get(space.id) !== space.name) row.number = space.name
       const ring = baseline.footprints.get(space.id)
       if (ring && !sameRing(ring, space.footprint)) row.footprint = space.footprint.map((p) => [p[0], p[1]])
-      if (row.longName !== undefined || row.footprint) spaces.push(row)
+      if (row.longName !== undefined || row.number !== undefined || row.footprint) spaces.push(row)
     }
     for (const e of storey.equipment) {
       const was = baseline.equipment.get(e.id)
@@ -190,6 +214,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           ...(e.position ? { position: [e.position[0], e.position[1], e.position[2]] as Vec3 } : {}),
           ...(e.systemId ? { system: e.systemId } : {}),
           ...(e.wallId ? { wall: e.wallId } : {}),
+          ...(e.surfaceSet ? { surface: e.surfaceSet } : {}),
         })
         continue
       }
@@ -207,18 +232,21 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       if (e.endShift && e.endShift.some((v) => v.some((x) => x !== 0))) row.ends = [[...e.endShift[0]], [...e.endShift[1]]]
       if (was.systemId !== undefined && was.systemId !== e.systemId) row.system = e.systemId
       if (was.wallId !== undefined && (was.wallId ?? null) !== (e.wallId ?? null)) row.wall = e.wallId ?? null
-      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined) equipment.push(row)
+      // 사람이 정한 설치면(OE-EQP-05). BIM 에는 없어서 있으면 적는다.
+      if (e.surfaceSet) row.surface = e.surfaceSet
+      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined || row.surface) equipment.push(row)
     }
   }
   const assignedSpaces = model.storeys.flatMap((st) => st.equipment.flatMap((e) => (e.spaceSet !== undefined ? [{ id: e.id, spaceId: e.spaceSet }] : [])))
   const confirmed = new Set<string>()
   for (const c of model.connections) if (c.inferred?.confirmed) confirmed.add(c.inferred.systemId)
-  const flows = model.connections.filter((c) => !c.directed && c.edited).map((c) => ({ from: c.edited!.from, to: c.edited!.to }))
+  const flows = model.connections.filter((c) => !c.directed && c.edited).map((c) => ({ ...c.edited! }))
   const confirmedFlows = model.connections
     .filter((c) => !c.directed && c.inferred?.confirmed)
     .map((c) => ({ from: c.inferred!.from, to: c.inferred!.to, systemId: c.inferred!.systemId }))
   const since = diffBaseline(model, baseline)
   const connections = { add: since.connected, remove: since.disconnected }
+  const releases = exportReleases(model)
   const equipmentRemoved = since.equipmentRemoved.map((r) => r.id)
   const spacesRemoved = since.spacesRemoved.map((r) => (mergedInto.has(r.id) ? { id: r.id, into: mergedInto.get(r.id)! } : { id: r.id }))
 
@@ -317,10 +345,25 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const id of [...wallsRemoved, ...openingsRemoved]) keep(id)
   for (const row of openingsAdded) if (row.wallId) keep(row.wallId)
   for (const row of customZones) keep(row.storeyId)
+  const rooms = model.storeys
+    .filter((st) => st.rooms?.length)
+    .map((st) => ({ storeyId: st.id, rooms: st.rooms!.map((r) => ({ id: r.id, name: r.name, spaceId: r.spaceId, footprint: r.footprint.map((p) => [p[0], p[1]] as Vec2) })) }))
+  for (const row of rooms) {
+    keep(row.storeyId)
+    for (const r of row.rooms) keep(r.spaceId)
+  }
+  const spaceObjects = model.storeys.filter((st) => st.spaceObjects?.length).map((st) => ({ storeyId: st.id, objects: copySpaceObjects(st.spaceObjects!) }))
+  for (const row of spaceObjects) keep(row.storeyId)
+  // 놓인 오브젝트가 쓰는 항목만 남긴다. 넣고 안 쓴 모델까지 임시 저장본마다 실으면 편집 파일만 커진다.
+  const used = new Set(spaceObjects.flatMap((row) => row.objects.map((o) => o.item)))
+  const objectLibrary = (model.objectLibrary ?? []).filter((i) => used.has(i.key)).map((i) => ({ ...i, size: [i.size[0], i.size[1], i.size[2]] as Vec3 }))
   const storeysDone = storeyProgress(model)
     .filter((p) => p.state !== 'todo')
     .map((p) => ({ id: p.id, at: p.at!, ...(p.state === 'changed' ? { changed: true as const } : {}) }))
   for (const row of storeysDone) keep(row.id)
+  const ceilings = model.storeys.filter((st) => st.ceilingSet != null).map((st) => ({ storeyId: st.id, height: st.ceilingSet! }))
+  for (const row of ceilings) keep(row.storeyId)
+  for (const k of kindEdits(model)) if (k.typeKey.startsWith('#')) keep(k.typeKey.slice(1))
   for (const f of flows) {
     keep(f.from)
     keep(f.to)
@@ -330,7 +373,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     keep(f.from)
     keep(f.to)
   }
-  for (const c of [...connections.add, ...connections.remove]) {
+  for (const c of [...connections.add, ...connections.remove, ...releases.rows, ...releases.log]) {
     keep(c.from)
     keep(c.to)
   }
@@ -352,6 +395,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(systemNames.length ? { systemNames } : {}),
     ...(assignedSpaces.length ? { assignedSpaces } : {}),
     ...(connections.add.length || connections.remove.length ? { connections } : {}),
+    ...(releases.rows.length ? { connectionsReleased: releases.rows } : {}),
+    ...(releases.log.length ? { connectionLog: releases.log } : {}),
     ...(equipmentAdded.length ? { equipmentAdded } : {}),
     ...(equipmentRemoved.length ? { equipmentRemoved } : {}),
     ...(spacesAdded.length ? { spacesAdded } : {}),
@@ -363,7 +408,11 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(openingsAdded.length ? { openingsAdded } : {}),
     ...(openingsRemoved.length ? { openingsRemoved } : {}),
     ...(customZones.length ? { customZones } : {}),
+    ...(rooms.length ? { rooms } : {}),
+    ...(spaceObjects.length ? { spaceObjects } : {}),
+    ...(objectLibrary.length ? { objectLibrary } : {}),
     ...(storeysDone.length ? { storeysDone } : {}),
+    ...(ceilings.length ? { ceilings } : {}),
     keys,
   }
 }
@@ -390,11 +439,12 @@ export function countEdits(f: EditFile): number {
   return (
     (f.assignedSpaces?.length ?? 0) +
     f.equipment.length + f.spaces.length + f.kinds.length + f.flows.length + f.confirmedSystems.length +
-    (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0) +
+    (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0) + (f.connectionsReleased?.length ?? 0) +
     (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0) +
     (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
     (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0) +
-    (f.storeysDone?.length ?? 0)
+    (f.storeysDone?.length ?? 0) + (f.ceilings?.length ?? 0) + (f.rooms?.reduce((n, r) => n + r.rooms.length, 0) ?? 0) +
+    (f.spaceObjects?.reduce((n, r) => n + r.objects.length, 0) ?? 0)
   )
 }
 
@@ -406,9 +456,13 @@ export type ApplyResult = {
   applied: number
   /** 이 모델에서 못 찾은 것. 재내보내기에서 지워졌거나 다른 파일이다. */
   missing: { equipment: number; spaces: number; kinds: number; flows: number; systems: number; connections: number; elements: number; storeys: number }
+  /** 다시 해제한 BIM 연결 수와 재검토로 둔 수(OE-PIP-06). 해제 보정이 없는 파일에서는 없다. */
+  releases?: { released: number; review: number }
   /** GUID 로는 못 찾고 다른 열쇠로 찾은 id 수. GUID 가 바뀐 재내보내기에서 뜬다. */
   rematched: Record<Exclude<MatchKey, 'guid'>, number>
   rules: RuleReport | null
+  /** 편집 파일의 방번호가 이 모델의 같은 층 번호와 겹쳐 BIM 번호로 되돌린 물리존(OE-OBJ-02). 새 판본에 같은 번호가 생겼을 때 뜬다. */
+  numberConflicts: { storey: string; number: string; spaceIds: string[] }[]
   /** 사람 지정 소속 중 다시 연 모델에서 기계가 확신하게 되어 쓰지 않은 것(K17). 화면이 "사람 지정 해제" 로 알린다. */
   assignReleased?: { id: string; name: string; from: string; to: string | null; reason: 'bim' | 'inside' | 'gone' }[]
 }
@@ -418,6 +472,34 @@ export type ApplyResult = {
  * 그 뒤에 계통 확정, 사람이 정한 방향을 얹는다. 경계는 설비 소속을 바꾸므로 설비보다 먼저, 설비는 층을 옮긴
  * 다음 좌표를 덮는다(층을 옮기면 높이가 층 차만큼 바뀐다).
  */
+/**
+ * 편집 파일의 방번호를 다 넣고(지운·합친 물리존까지 빠진 뒤) 층마다 겹침을 본다. 겹치면 편집 파일이 바꾼 쪽을 BIM 번호로 되돌린다.
+ * 되돌린 번호가 다시 겹칠 수 있어 바뀌는 것이 없을 때까지 돈다 — 한 번 되돌린 물리존은 빠지므로 끝난다.
+ */
+function revertNumberConflicts(model: Model, renumbered: Map<string, string>, result: ApplyResult) {
+  for (let changed = true; changed; ) {
+    changed = false
+    for (const storey of model.storeys) {
+      const byNumber = new Map<string, string[]>()
+      for (const sp of storey.spaces) {
+        const n = sp.name.trim()
+        if (n) byNumber.set(n, [...(byNumber.get(n) ?? []), sp.id])
+      }
+      for (const [number, ids] of byNumber) {
+        const edited = ids.filter((id) => renumbered.has(id))
+        if (ids.length < 2 || !edited.length) continue
+        for (const id of edited) {
+          setSpaceNumber(model, id, renumbered.get(id)!, false)
+          renumbered.delete(id)
+          result.applied--
+        }
+        result.numberConflicts.push({ storey: storey.name, number, spaceIds: edited })
+        changed = true
+      }
+    }
+  }
+}
+
 export function applyEdits(model: Model, file: EditFile): ApplyResult {
   const result: ApplyResult = {
     changes: [],
@@ -428,6 +510,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     missing: { equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0, storeys: 0 },
     rematched: { revitId: 0, name: 0, position: 0 },
     rules: null,
+    numberConflicts: [],
   }
   const spaceIds = new Set(model.storeys.flatMap((s) => s.spaces.map((sp) => sp.id)))
   const equipmentIds = new Set(model.storeys.flatMap((s) => s.equipment.map((e) => e.id)))
@@ -459,7 +542,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     ref(f.from)
     ref(f.to)
   }
-  for (const c of [...(file.connections?.add ?? []), ...(file.connections?.remove ?? [])]) {
+  for (const c of [...(file.connections?.add ?? []), ...(file.connections?.remove ?? []), ...(file.connectionsReleased ?? []), ...(file.connectionLog ?? [])]) {
     ref(c.from)
     ref(c.to)
   }
@@ -471,7 +554,14 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   }
   for (const row of [...(file.wallsAdded ?? []), ...(file.openingsAdded ?? [])]) ref(row.storeyId)
   for (const row of file.customZones ?? []) ref(row.storeyId)
+  for (const row of file.rooms ?? []) {
+    ref(row.storeyId)
+    for (const r of row.rooms) ref(r.spaceId)
+  }
+  for (const row of file.spaceObjects ?? []) ref(row.storeyId)
   for (const row of file.storeysDone ?? []) ref(row.id)
+  for (const row of file.ceilings ?? []) ref(row.storeyId)
+  for (const k of file.kinds) if (k.typeKey.startsWith('#')) ref(k.typeKey.slice(1))
   for (const row of [...(file.walls ?? []), ...(file.openings ?? [])]) ref(row.id)
   for (const id of [...(file.wallsRemoved ?? []), ...(file.openingsRemoved ?? [])]) ref(id)
   for (const row of file.openingsAdded ?? []) if (row.wallId) ref(row.wallId)
@@ -502,11 +592,13 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   }
 
   for (const k of file.kinds) {
-    const done = setTypeKind(model, k.typeKey, k.kind)
+    // 한 대 줄(`#id`)은 GUID 가 바뀐 판본에서도 같은 설비를 찾는다.
+    const typeKey = k.typeKey.startsWith('#') ? `#${resolve(k.typeKey.slice(1))}` : k.typeKey
+    const done = setTypeKind(model, typeKey, k.kind)
     if (done) {
       result.applied++
       result.rules = done.rules
-    } else if (!model.storeys.some((s) => s.equipment.some((e) => inKindGroup(e, k.typeKey)))) {
+    } else if (!model.storeys.some((s) => s.equipment.some((e) => inKindGroup(e, typeKey)))) {
       result.missing.kinds++
     }
   }
@@ -532,6 +624,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     else result.missing.systems++
   }
 
+  const renumbered = new Map<string, string>()
   for (const row of file.spaces) {
     const id = resolve(row.id)
     if (!spaceIds.has(id)) {
@@ -540,8 +633,17 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     }
     const sp = { ...row, id }
     if (sp.longName !== undefined && renameSpace(model, sp.id, sp.longName)) result.applied++
+    if (sp.number !== undefined) {
+      // 겹침 검사는 아래에서 다 넣은 뒤 한 번 한다. 한 줄씩 검사하면 맞바꾼 번호가 서로를 막는다.
+      const was = model.storeys.flatMap((s) => s.spaces).find((x) => x.id === sp.id)?.name ?? ''
+      if (setSpaceNumber(model, sp.id, sp.number, false) === true) {
+        renumbered.set(sp.id, was)
+        result.applied++
+      }
+    }
     if (sp.footprint) {
-      const change = replaceSpaceFootprint(model, sp.id, sp.footprint.map((p) => [p[0], p[1]] as Vec2))
+      // BIM 소속은 여기서 풀지 않는다 — 세션에서 풀린 설비만 설비 줄의 released 가 푼다(replaceSpaceFootprint 주석).
+      const change = replaceSpaceFootprint(model, sp.id, sp.footprint.map((p) => [p[0], p[1]] as Vec2), { release: false })
       if (change) {
         result.applied++
         result.areaChanges.push(change)
@@ -559,6 +661,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       result.changes.push(...done.equipment)
     } else result.missing.spaces++
   }
+  revertNumberConflicts(model, renumbered, result)
 
   for (const row of file.equipment) {
     const e = { ...row, id: resolve(row.id), storeyId: row.storeyId && resolve(row.storeyId) }
@@ -684,6 +787,40 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     else delete target.wallId
   }
 
+  // 사람이 정한 설치면(OE-EQP-05). 종류를 다 얹은 뒤라 허용 설치면으로 거른다.
+  for (const row of [...file.equipment, ...(file.equipmentAdded ?? [])]) {
+    if (!row.surface) continue
+    const done = setEquipmentSurface(model, resolve(row.id), row.surface)
+    if (done === true) result.applied++
+    else if (done !== false) result.missing.equipment++
+  }
+
+  // 룸(OE-OBJ-03). 층의 끝 목록을 그대로 얹는다. 부모 물리존은 지문으로 찾는다.
+  for (const row of file.rooms ?? []) {
+    const storey = model.storeys.find((s) => s.id === resolve(row.storeyId))
+    if (!storey) {
+      result.missing.spaces++
+      continue
+    }
+    storey.rooms = row.rooms.map((r) => ({ id: r.id, name: r.name, spaceId: resolve(r.spaceId), footprint: r.footprint.map((p) => [p[0], p[1]] as Vec2) }))
+    result.applied++
+  }
+
+  // 추가 공간 오브젝트(OE-OBJ-09)와 넣은 모델(OE-P3-08). 층의 끝 목록을 그대로 얹는다. 항목은 열쇠가 같으면 이미 있는 것을 둔다.
+  if (file.objectLibrary?.length) {
+    const have = new Set((model.objectLibrary ?? []).map((i) => i.key))
+    model.objectLibrary = [...(model.objectLibrary ?? []), ...file.objectLibrary.filter((i) => !have.has(i.key)).map((i) => ({ ...i, size: [i.size[0], i.size[1], i.size[2]] as Vec3 }))]
+  }
+  for (const row of file.spaceObjects ?? []) {
+    const storey = model.storeys.find((s) => s.id === resolve(row.storeyId))
+    if (!storey) {
+      result.missing.storeys++
+      continue
+    }
+    storey.spaceObjects = copySpaceObjects(row.objects)
+    result.applied++
+  }
+
   // 커스텀존(OE-OBJ-01). 층의 끝 목록을 그대로 얹는다. 소속은 쓸 때 계산하니 따로 다시 잴 것이 없다.
   for (const row of file.customZones ?? []) {
     const storey = model.storeys.find((s) => s.id === resolve(row.storeyId))
@@ -748,6 +885,12 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       result.rules = done.rules
     } else if (!connectionBetween(model, resolve(row.from), resolve(row.to))) result.missing.connections++
   }
+  if (file.connectionsReleased?.length || file.connectionLog?.length) {
+    const done = applyReleases(model, file.connectionsReleased ?? [], file.connectionLog ?? [], resolve)
+    result.applied += done.released + done.review
+    if (done.rules) result.rules = done.rules
+    if (file.connectionsReleased?.length) result.releases = { released: done.released, review: done.review }
+  }
 
   if (file.confirmedFlows) {
     // 확정한 방향을 그대로 얹고, 확정 안 한 계통만 규칙을 다시 돌린다. 확정한 계통은 규칙이 건드리지 않으므로
@@ -789,8 +932,21 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     const c = model.connections.find(
       (x) => !x.directed && ((x.from === f.from && x.to === f.to) || (x.from === f.to && x.to === f.from)),
     )
-    if (c && setFlowDirection(c, f.from)) result.applied++
-    else result.missing.flows++
+    if (c && setFlowDirection(c, f.from)) {
+      result.applied++
+      if (row.at) c.edited!.at = row.at
+      if (row.reason) c.edited!.reason = row.reason
+    } else result.missing.flows++
+  }
+
+  // 층의 반자 높이(OE-EQP-03). 설비 편집보다 앞뒤가 상관없다 — 판정은 그때그때 잰다.
+  for (const row of file.ceilings ?? []) {
+    const storey = model.storeys.find((s) => s.id === resolve(row.storeyId))
+    if (!storey) {
+      result.missing.storeys++
+      continue
+    }
+    if (setCeiling(model, storey.id, row.height)) result.applied++
   }
 
   // 완료한 층(OE-MAN-06). 편집을 다 얹은 뒤라야 지문이 저장할 때 상태와 같다. 저장할 때 이미 고친 층은 지문을 비워 "완료 뒤

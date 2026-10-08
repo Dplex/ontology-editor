@@ -89,10 +89,16 @@ test('물리존을 그리면 안의 설비가 새 방으로 가고, 나누고 �
   await room.getByRole('button', { name: '나누기' }).click()
   await clickFloor(page, 6, 0.5)
   await clickFloor(page, 6, 7.5)
-  await expect(room).toContainText('48.0')
   await expect(page.locator('.report')).toContainText('사무실-2')
+  // 새 조각이 골라지고 방번호 칸이 비어 있다. 방번호는 사람이 넣는다(OE-SPC-02).
+  await expect(room).toContainText('32.0')
+  await expect(room.getByTestId('space-number')).toHaveValue('')
+  await expect(room.getByTestId('space-number')).toHaveAttribute('placeholder', '방번호를 넣으세요')
+  await expect(page.locator('.key-note')).toContainText('방번호를 넣으세요')
 
-  // 맞댄 조각을 다시 합치면 80㎡ 다.
+  // 원래 사무실(48㎡, x=6 왼쪽)을 골라 맞댄 조각을 다시 합치면 80㎡ 다.
+  await clickFloor(page, 1, 7)
+  await expect(room).toContainText('48.0')
   await room.locator('.space-tools select').selectOption({ label: '사무실-2' })
   await expect(room).toContainText('80.0')
 
@@ -101,7 +107,9 @@ test('물리존을 그리면 안의 설비가 새 방으로 가고, 나누고 �
   await expect(room).toContainText('새 물리존 1')
   await room.getByRole('button', { name: '물리존 지우기', exact: true }).click()
   await expect(room).toHaveCount(0)
-  // 만들고 나누고 합치고 지웠으니 연 때와 같다. 바뀐 것이 없으면 리포트가 비어 목록이 뜨지 않는다.
-  await expect(page.locator('.report')).toHaveCount(0)
+  // 만들고 나누고 합치고 지웠으니 방은 연 때와 같다. 다만 사무실을 나눌 때 BIM 이 사무실에 담아 둔 조명(좌표는 방 밖)의 소속이
+  // 좌표 판정으로 풀려(OE-MAP-01 3단계, Q13) 다시 합쳐도 돌아오지 않는다. 리포트에는 그 한 줄만 남는다.
+  await expect(page.locator('.report li')).toHaveCount(1)
+  await expect(page.locator('.report')).toContainText('LIGHT-101-01')
   expect(errors).toEqual([])
 })

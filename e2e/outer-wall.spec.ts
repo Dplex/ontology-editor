@@ -42,6 +42,8 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   // 벽을 다시 골라 두께·높이(크기 y·z)와 외벽 여부를 고친다. 세워 그린 벽(바닥 판 위 1.2m)의 윗면을 누른다.
   await clickFloor(page, 10.1, 2, 1.3)
   await expect(panel.locator('h3')).toHaveText('새 벽')
+  // 외벽은 층 편집에서 크기를 바꾸지 않는다(OE-EXT-02). 내벽으로 바꾸면 풀린다.
+  await panel.getByTestId('wall-external-select').selectOption('false')
   const thickness = panel.getByTestId('wall-thickness')
   await thickness.fill('0.3')
   await thickness.press('Enter')
@@ -52,7 +54,6 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await height.press('Enter')
   // 편집 줄에 마지막 편집 이름이 뜬다(되돌리기 단위).
   await expect(page.getByText('새 벽 높이 2.80m')).toBeVisible()
-  await panel.getByTestId('wall-external-select').selectOption('false')
   await expect(panel.getByTestId('wall-external')).toHaveText('내벽')
   await expect(panel.locator('.src.edit').first()).toBeVisible()
   await panel.getByTestId('wall-external-select').selectOption('true')
@@ -82,6 +83,7 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await clickFloor(page, 10.1, 2, 1.3)
   await expect(panel.locator('h3')).toHaveText('새 벽')
+  await panel.getByTestId('wall-external-select').selectOption('false')
   await thickness.fill('0.5')
   await thickness.press('Enter')
   await expect.poll(centerX).toBeCloseTo(x0 + 0.1, 2)
@@ -92,8 +94,9 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await row(page, 'TEMP-101-01').getByRole('button', { name: 'TEMP-101-01', exact: true }).click()
   await expect(picked).toContainText('새 벽에 붙음')
 
-  // 되돌리면 붙기 전으로 — 벽에서 떨어지고 원래 소속으로.
+  // 되돌리면 붙기 전으로 — 벽에서 떨어지고 원래 소속으로. 앞에 내벽으로 바꾼 편집이 하나 더 있어(OE-EXT-02 잠금 풀기) 두 번 되돌린다.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
   await expect(picked).not.toContainText('붙음')
   expect(errors).toEqual([])

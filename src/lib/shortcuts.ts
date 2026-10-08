@@ -23,6 +23,7 @@ export type ShortcutId =
   | 'arrowNext'
   | 'flow'
   | 'confirm'
+  | 'ceiling'
   | 'kind'
   | 'nextUnknown'
   | 'prevUnknown'
@@ -103,11 +104,12 @@ export const SHORTCUTS: readonly Shortcut[] = [
     id: 'flow',
     combos: [{ code: 'KeyD' }],
     keys: ['D'],
-    label: '고른 연결의 방향 바꾸기 (하류 → 상류 → 지우기)',
+    label: '고른 연결의 방향 미리보기 (나감 → 들어옴 → 거둠). Enter 로 적용',
     group: '편집 · 연결 방향',
     edit: true,
   },
   { id: 'confirm', combos: [{ code: 'KeyC' }], keys: ['C'], label: '고른 설비 계통의 규칙 방향 확정', group: '편집 · 연결 방향', edit: true },
+  { id: 'ceiling', combos: [{ code: 'KeyT' }], keys: ['T'], label: '천장 편집 모드 들어가기·나오기', group: '편집 · 설비', edit: true },
 
   { id: 'vertexInsert', combos: [{ code: 'Insert' }], keys: ['Insert'], label: '짚은 꼭짓점과 다음 꼭짓점 사이에 꼭짓점 넣기', group: '편집 · 물리존', edit: true },
   { id: 'vertexDelete', combos: [{ code: 'Delete' }], keys: ['Delete'], label: '짚은 꼭짓점 지우기(셋은 남긴다) · 여러 개 고른 설비 같이 지우기', group: '편집 · 물리존', edit: true },
@@ -135,6 +137,12 @@ export function matchShortcut(e: KeyLike): Shortcut | null {
 
 /** 한 글자 키(수식 키 없이)인가. 선택 상자에 포커스가 있으면 그 글자는 목록 찾기라 단축키로 받지 않는다. */
 export const isPlainKey = (e: KeyLike) => !(e.ctrlKey || e.metaKey)
+
+/**
+ * 여러 개 고르기 키(OE-UI-09). Ctrl+클릭으로 넣고 빼고 Ctrl+끌기로 상자를 그린다 — DT 2.0 과 같다(#56, 2026-10-08 PM 결정).
+ * Mac 은 Ctrl+클릭이 오른쪽 클릭이라 ⌘ 도 받는다. Shift+끌기는 시점 회전이다(OE-OBJ-15).
+ */
+export const isMultiSelect = (e: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) => e.ctrlKey || e.metaKey
 
 /**
  * 화면 방향을 평면의 축 하나로. 3D 를 비스듬히 봐도 ←↑ 은 x·y 축을 따라 옮긴다 — 화면 방향 그대로 옮기면

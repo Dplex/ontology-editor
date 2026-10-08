@@ -260,6 +260,11 @@ export type Equipment = {
    * 붙은 설비를 옮겨 구간이 늘어난 것이다(`followConduits`). 3D 형상은 이 값으로 늘이고, `position` 은 축 위 같은 비율 자리로 간다.
    */
   endShift?: [Vec3, Vec3]
+  /**
+   * 사람이 정한 설치면(OE-EQP-05). z 로 판정하지 못한 설비(미정)에 정한다. 있으면 판정보다 앞선다(ceiling.ts 의 judgeSurface).
+   * BIM 에는 없고 편집 파일에 남는다.
+   */
+  surfaceSet?: 'ceiling' | 'floor' | 'wall'
 }
 
 /** 계통. 공조기에서 덕트를 지나 토출구까지 이어지는 묶음이다. */
@@ -327,13 +332,56 @@ export type Connection = {
    * 온톨로지를 읽는 쪽이 둘을 구별할 수 없다. 사람이 에디터에서 계통 단위로 확인하면 `confirmed`
    * 가 되고, 그때부터 `brick:feeds` 로 나간다.
    */
-  inferred?: { from: string; to: string; systemId: string; confirmed: boolean }
+  inferred?: {
+    from: string
+    to: string
+    systemId: string
+    confirmed: boolean
+    /**
+     * 확정한 뒤 근거가 바뀐 규칙 방향(OE-PIP-07). 규칙을 다시 돌려 얻은 새 방향이고, 새로 정할 수 없게 됐으면 `null` 이다. 있으면
+     * 재검토 중이라 `brick:feeds` 로 내보내지 않는다. 확정한 방향(`from`·`to`)은 그대로 두고, 다시 확정하면 새 방향으로 바뀐다.
+     * 규칙을 돌릴 때마다 새로 재므로 근거가 되돌아오면 저절로 없어진다.
+     */
+    recheck?: { from: string; to: string } | null
+  }
   /**
    * 사람이 에디터에서 정한 흐름 방향. `inferred` 처럼 **포트가 방향을 말하지 않은 연결에만** 붙는다.
    * 규칙이 틀린 곳을 고치거나 규칙이 닿지 못한 곳을 채운다. 규칙 방향보다 앞서고, 사람이 정한
    * 것이라 확정 없이 `brick:feeds` 로 나간다. BIM 포트가 말한 방향은 고칠 수 없다.
+   *
+   * `at`·`reason` 은 패널에서 [적용] 한 시각과 보정 사유다(OE-PIP-04). 규칙 방향과 반대로 정할 때만 사유를 받는다. 편집 파일만
+   * 얹은 옛 파일의 방향에는 없다.
    */
-  edited?: { from: string; to: string }
+  edited?: { from: string; to: string; at?: string; reason?: string }
+}
+
+/** 해제 보정한 BIM 포트 연결(OE-PIP-06). */
+export type ReleasedConnection = {
+  /** 원본 연결. 방향(`directed`·`from`·`to`)을 고치지 않고 들고 있다가 취소하면 그대로 `connections` 로 돌아간다. */
+  connection: Connection
+  /** 해제할 때 `connections` 에서의 자리. 취소하면 이 자리로 돌아가 3D·표의 순서가 해제 전과 같다. */
+  index: number
+  /** 해제한 시각(ISO). */
+  at: string
+  reason: string
+  /**
+   * 다시 연 판본에서 원본과 맞지 않은 것. 사람이 보기 전에는 유효 연결로 돌리지 않는다(내보내지 않는다).
+   * - `direction`: 같은 두 설비 사이 포트 연결은 있으나 방향이 바뀌었다. `connection` 은 새 판본의 연결이다.
+   * - `missing`: 두 설비 사이 포트 연결을 못 찾았다. `connection` 은 파일에 적힌 것으로 만든 것이라 모델에 없다.
+   */
+  review?: 'direction' | 'missing'
+}
+
+/**
+ * 연결 편집 이력 한 줄. `keep` 은 재검토를 보고 해제를 유지한 것, `drop` 은 원본을 못 찾은 보정을 지운 것이다.
+ * `flow`·`unflow` 는 사람이 방향을 적용·해제한 것이고(OE-PIP-04) 그때 `from`·`to` 는 흐름 방향이다.
+ */
+export type ConnectionLogEntry = {
+  action: 'release' | 'restore' | 'keep' | 'drop' | 'flow' | 'unflow'
+  from: string
+  to: string
+  at: string
+  reason: string
 }
 
 /**
@@ -386,12 +434,61 @@ export type Storey = {
    * (storey-progress.ts). BIM 에는 없고 편집 파일에 남는다.
    */
   done?: { at: string; sig: string }
+  /**
+   * BIM 이 말한 반자 높이 h_c(층 바닥 기준, 미터, OE-EQP-03). 못 읽었으면 키가 없다 — 0 이나 층고로 채우지 않는다. 층 값은 그 층
+   * 방(천장재)들의 가운데 값이고, `property` 는 읽은 자리, `count` 는 값을 낸 방·천장재 수다. 고르는 순서는 ceiling.ts.
+   */
+  ceiling?: { height: number; property: string; count: number }
+  /** 사람이 정한 반자 높이(미터, OE-EQP-03 ④). 있으면 `ceiling` 보다 앞선다. BIM 에는 없고 편집 파일에 남는다. */
+  ceilingSet?: number
   spaces: Space[]
   walls: Wall[]
   openings: Opening[]
   equipment: Equipment[]
   /** 운영자가 정한 커스텀존(OE-OBJ-01, custom-zone.ts). BIM 에는 없어 연 직후에는 없다. */
   customZones?: CustomZone[]
+  /** 사람이 물리존 안에 그린 룸(OE-OBJ-03, room.ts). 임포트는 만들지 않아 연 직후에는 없다. */
+  rooms?: Room[]
+  /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09, space-object.ts). 임포트는 만들지 않아 연 직후에는 없다. */
+  spaceObjects?: SpaceObject[]
+}
+
+/**
+ * 추가 공간 오브젝트(OE-OBJ-09). 책상·의자·소파처럼 공간을 꾸미는 사물이다. 층 바닥에 서고, 서로 겹치지 않는다(space-object.ts).
+ * 모양은 라이브러리 항목(`item`)의 3D 모델을 `size` 상자에 맞춰 늘인 것이다.
+ */
+export type SpaceObject = {
+  /** 에디터가 지은 id(`U_…`). */
+  id: string
+  name: string
+  /** 라이브러리 항목 열쇠(space-object.ts 의 LIBRARY, 또는 사람이 넣은 모델의 `custom:…`). */
+  item: string
+  /** 바닥 가운데 자리(세계 평면 좌표). */
+  at: Vec2
+  /** 가로(x)·세로(y)·높이(미터). 축에 나란한 상자다. */
+  size: Vec3
+}
+
+/** 사람이 넣은 3D 모델로 만든 라이브러리 항목(OE-P3-08). 파일을 그대로 들고 있어 편집 파일에 같이 남는다. */
+export type CustomObjectItem = {
+  /** `custom:` 로 시작한다. 내장 항목과 겹치지 않는다. */
+  key: string
+  name: string
+  /** 넣을 때 모델 상자에서 잰 기본 크기(가로·세로·높이, 미터). */
+  size: Vec3
+  /** glb 파일 내용(base64). */
+  glb: string
+}
+
+/** 룸(OE-OBJ-03). 물리존 안의 사각 편집 단위. 다른 룸과 겹치지 않고 부모 물리존 밖으로 나가지 않는다(room.ts). */
+export type Room = {
+  /** 에디터가 지은 id(`U_…`). */
+  id: string
+  name: string
+  /** 든 물리존(부모). */
+  spaceId: string
+  /** 닫힌 사각 고리(축에 나란하다, 왼아래부터 반시계). 세계 좌표. */
+  footprint: Vec2[]
 }
 
 /** 커스텀존(F14). 물리존 위에 운영 편의로 정하는 다각형. 겹쳐도 된다(custom-zone.ts). */
@@ -421,6 +518,14 @@ export type Model = {
   systems: System[]
   /** 설비·배관 사이의 연결. 층을 넘나들므로 계통처럼 모델에 바로 둔다. */
   connections: Connection[]
+  /**
+   * 사람이 '연결 해제 보정' 한 BIM 포트 연결(OE-PIP-06, connection-release.ts). `connections` 에서 빼 여기 둔다 — 연결을 읽는
+   * 곳(규칙 방향·계통 추적·TTL `brick:feeds`)이 따로 거르지 않아도 해제한 연결을 보지 않는다. 원본 연결 객체와 방향은 그대로다.
+   * BIM 에는 없어 연 직후에는 없다.
+   */
+  releasedConnections?: ReleasedConnection[]
+  /** 해제 보정·취소·재검토 확인의 이력. 되돌리기로 무른 것은 남지 않는다. */
+  connectionLog?: ConnectionLogEntry[]
   /** 임포트가 그냥 넘어간 것들. 조용히 비는 대신 화면에 뜬다. */
   warnings: string[]
   /**
@@ -430,6 +535,8 @@ export type Model = {
   skipped?: ('walls' | 'doors' | 'windows')[]
   /** IDF 에서 얹은 공조존과 담당 관계(idf/attach.ts). IFC 만 연 모델에는 없다. */
   hvac?: { source: string; zones: HvacZone[]; equipment: HvacEquipment[] }
+  /** 사람이 넣은 3D 모델 라이브러리 항목(OE-P3-08). 층에 속하지 않는다. */
+  objectLibrary?: CustomObjectItem[]
   /**
    * 모델 요소로는 남지 않는 파일의 사실. 요구사항 보고서(requirements.ts)가 쓴다. 손으로 만든 모델에는 없다.
    * 두 파일을 합치면 둘 다 참일 때만 참이다(위경도는 한쪽만 있어도 참).

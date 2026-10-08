@@ -13,6 +13,14 @@ async function open(page: Page) {
   await page.getByRole('button', { name: '편집', exact: true }).click()
   return errors
 }
+// 디퓨저·조명은 천장 설비라 천장 편집 모드(T)에서 고친다(OE-OBJ-08).
+async function enterCeiling(page: Page) {
+  const on = page.getByRole('group', { name: '설비 편집 면' }).getByRole('button', { name: '천장' })
+  if ((await on.getAttribute('aria-pressed')) === 'true') return
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('t')
+  await expect(on).toHaveAttribute('aria-pressed', 'true')
+}
 
 async function undo(page: Page) {
   await page.locator('body').click({ position: { x: 5, y: 5 } })
@@ -50,6 +58,7 @@ test('설비를 계통에서 빼고, 계통 종류·유체를 고치고, 되돌�
 
 test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비가 계통 없음이 되며, 되돌리면 차례로 돌아온다', async ({ page }) => {
   const errors = await open(page)
+  await enterCeiling(page)
   await page.locator('.equipment tbody tr', { hasText: 'AT-101-01' }).getByRole('button', { name: 'AT-101-01', exact: true }).click()
   const picked = page.locator('.picked')
   await picked.getByRole('button', { name: '새 계통…' }).click()
@@ -79,6 +88,7 @@ test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비�
 
 test('계통 없는 토출구는 패널과 검토 화면에 경고하고, 담당 공조기를 흐름으로 보인다 (OE-EQP-10)', async ({ page }) => {
   const errors = await open(page)
+  await enterCeiling(page)
   const row = page.locator('.equipment tbody tr', { hasText: 'AT-101-01' })
   await row.getByRole('button', { name: 'AT-101-01', exact: true }).click()
   const picked = page.locator('.picked')

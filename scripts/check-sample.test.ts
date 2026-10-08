@@ -40,7 +40,7 @@ import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
 import { overlapArea } from '../src/lib/polygon'
 import { computeExternal } from '../src/lib/exterior'
 import { createCustomZone } from '../src/lib/custom-zone'
-import { addEquipment, baselineOf, moveEquipment, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, type WallCarryPlan } from '../src/lib/edit'
+import { addEquipment, baselineOf, moveEquipment, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, wallShapeLock, type WallCarryPlan } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -1850,7 +1850,8 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
       'terminal-source': '1386/2400',
       'source-terminal': '156/268',
       'terminal-single-source': undefined,
-      'device-space': '4137/4911',
+      // 외벽 설비(외부 루버 등 299대)는 방 밖이 맞는 자리라 세지 않는다(OE-EQP-15). 소속 없던 루버 203대가 위반에서 빠졌다(전에는 4137/4911).
+      'device-space': '4041/4612',
       'device-connected': '2991/3632',
     })
   }, 900_000)
@@ -1875,8 +1876,8 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsS
       // 씨앗 10개. 고치기 전 코드는 씨앗 1~3 에서 이미 떨어졌다. 늘리면 check:sample 이 그만큼 느려진다(20개에 36초).
       for (let seed = 1; seed <= 10; seed++) {
         const r = fuzzEdits(model, seed, 30)
-        if (!r.reloadSame || r.missing || !r.undoSame) {
-          failed.push(`${name} seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}`)
+        if (!r.reloadSame || r.missing || !r.undoSame || !r.redoSame) {
+          failed.push(`${name} seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} · 다시 하기 ${r.redoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}`)
         }
       }
     }
@@ -1902,7 +1903,8 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH) || !existsS
       const a = structuredClone(pristine)
       const base = baselineOf(a)
       // 내력벽과 거기 뚫린 문·창은 잠겨서(OE-OBJ-06) 고치는 대상에서 뺀다.
-      const walls = a.storeys.flatMap((s) => s.walls).filter((w) => w.footprint?.length && !wallLocked(w))
+      // 외벽도 층 편집에서 옮기거나 지우지 않는다(OE-EXT-02). 문·창 잠금은 내력벽만이다.
+      const walls = a.storeys.flatMap((s) => s.walls).filter((w) => w.footprint?.length && !wallShapeLock(w))
       const locked = new Set(a.storeys.flatMap((s) => s.walls).filter(wallLocked).map((w) => w.id))
       const openings = a.storeys.flatMap((s) => s.openings).filter((o) => o.position && !locked.has(o.wallId ?? ''))
       // 벽 다섯은 옮기고, 다섯은 내력 여부를 정하고, 다섯은 지운다. 문·창 다섯은 옮긴다(손댄 벽에 뚫린 것은 빼고).
@@ -1950,7 +1952,8 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 �
       const shape = (m: Model) => m.storeys.flatMap((st) => st.spaces.map((sp) => sp.footprint))
       const same = (a: Vec2[][], b: Vec2[][], tol = 1e-9) => a.every((r, i) => r.length === b[i].length && r.every((p, k) => Math.abs(p[0] - b[i][k][0]) < tol && Math.abs(p[1] - b[i][k][1]) < tol))
       const opened = shape(pristine)
-      for (const w of pristine.storeys.flatMap((st) => st.walls).filter((x) => x.footprint?.length && !wallLocked(x)).slice(0, 300)) {
+      // 내력벽(OE-OBJ-06)·외벽(OE-EXT-02)은 잠겨서 옮기지 않는다.
+      for (const w of pristine.storeys.flatMap((st) => st.walls).filter((x) => x.footprint?.length && !wallShapeLock(x)).slice(0, 300)) {
         const m = structuredClone(pristine)
         // 벽 길이 방향은 외곽선 조각 전부에서 가장 긴 변이다. 창·문으로 끊긴 벽은 조각 하나가 두께보다 짧기도 해서(병원 외벽
         // 0.04×0.27m) 첫 조각만 보면 두께 방향을 길이로 잡는다.
@@ -2004,8 +2007,9 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 �
     }
     // 벽 357개(Duplex 57 + 병원 300)가 첫 걸음에 방 600개 남짓을 끌고 간다. 0 이면 붙일 방을 못 찾는 것이다.
     expect(carried).toBeGreaterThan(500)
-    // 막혀서 덜 가도 대부분은 간다 — 1750 걸음 중 1453. 양쪽 다 첫 걸음부터 막힌 벽은 없다.
-    expect(steps).toBeGreaterThan(1400)
+    // 막혀서 덜 가도 대부분은 간다 — 1750 걸음 중 1453 이었고, 외벽을 빼고(OE-EXT-02, 2026-10-08) 다른 벽이 들어와 1371 이다.
+    // 양쪽 다 첫 걸음부터 막힌 벽은 없다.
+    expect(steps).toBeGreaterThan(1300)
     expect(stuck).toBe(0)
     expect(failed.slice(0, 5)).toEqual([])
   }, 900_000)

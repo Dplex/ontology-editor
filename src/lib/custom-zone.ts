@@ -44,7 +44,39 @@ function badRing(ring: readonly Vec2[]): string | null {
   return null
 }
 
-/** 커스텀존을 만든다. 이름이 비면 "커스텀존 n". 겹쳐도 막지 않는다. */
+// --- 이름·별명의 고유성 (OE-SPC-06) ---------------------------------------------------------------
+// 이름과 별명은 건물 안에서 모두 고유하다 — 이름끼리, 별명끼리, 이름과 별명 사이 어디서도 같은 값이 두 번 나오지 않는다. 그래서 어떤
+// 말이든 가리키는 커스텀존은 많아야 하나다(Agent 가 이름·별명으로 묻는다, OE-SPC-10). 같은 값을 쓰려 하면 막고 쓰는 존을 알린다.
+
+/** 이 값을 이름이나 별명으로 쓰는 커스텀존. `exceptId` 존은 뺀다. 없으면 null. */
+export function zoneUsing(model: Model, value: string, exceptId?: string): CustomZone | null {
+  for (const storey of model.storeys) {
+    for (const zone of storey.customZones ?? []) {
+      if (zone.id !== exceptId && zoneNames(zone).includes(value)) return zone
+    }
+  }
+  return null
+}
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/**
+ * 비어 있는 번호 붙은 이름(OE-SPC-08). `임원석` → `임원석-02`, `임원석-02` → `임원석-03`. 02 부터(이미 번호가 있으면 그 다음부터)
+ * 세어 건물 안의 이름·별명에 아직 없는 가장 작은 번호를 쓴다.
+ */
+export function nextZoneName(model: Model, name: string): string {
+  const m = /^(.*)-(\d{2,})$/.exec(name)
+  const [base, start] = m ? [m[1], Number(m[2]) + 1] : [name, 2]
+  for (let k = start; ; k++) {
+    const next = `${base}-${pad2(k)}`
+    if (!zoneUsing(model, next)) return next
+  }
+}
+
+const takenMessage = (model: Model, value: string, owner: CustomZone) =>
+  `"${value}" 은(는) 커스텀존 ${owner.name}${owner.name === value ? '의 이름' : '의 별명'}입니다. 이름·별명은 건물 안에서 겹칠 수 없습니다(예: ${nextZoneName(model, value)}).`
+
+/** 커스텀존을 만든다. 이름이 비면 "커스텀존 n"(비어 있는 가장 작은 n). 이름이 다른 존의 이름·별명이면 만들지 않는다. 겹쳐도 막지 않는다. */
 export function createCustomZone(
   model: Model,
   storeyId: string,
@@ -56,28 +88,46 @@ export function createCustomZone(
   const bad = badRing(ring)
   if (bad) return { refused: bad }
   if (spec.id && findCustomZone(model, spec.id)) return null
-  const n = model.storeys.reduce((k, s) => k + (s.customZones?.length ?? 0), 0) + 1
-  const zone: CustomZone = { id: spec.id ?? newId(), name: spec.name?.trim() || `커스텀존 ${n}`, footprint: ring }
+  let name = spec.name?.trim()
+  if (name) {
+    const owner = zoneUsing(model, name)
+    if (owner) return { refused: takenMessage(model, name, owner) }
+  } else {
+    let n = model.storeys.reduce((k, s) => k + (s.customZones?.length ?? 0), 0) + 1
+    while (zoneUsing(model, `커스텀존 ${n}`)) n++
+    name = `커스텀존 ${n}`
+  }
+  const zone: CustomZone = { id: spec.id ?? newId(), name, footprint: ring }
   ;(storey.customZones ??= []).push(zone)
   return zone
 }
 
-/** 별명을 고친다. 빈 이름은 받지 않는다(TTL rdfs:label 이 빈다). */
-export function renameCustomZone(model: Model, id: string, name: string): boolean {
+/** 이름을 고친다. 빈 이름은 받지 않는다(TTL rdfs:label 이 빈다). 다른 존의 이름·별명이나 이 존의 별명과 같으면 막는다. */
+export function renameCustomZone(model: Model, id: string, name: string): boolean | { refused: string } {
   const found = findCustomZone(model, id)
   const next = name.trim()
-  if (!found || !next || found.zone.name === next) return false
+  if (!found || found.zone.name === next) return false
+  if (!next) return { refused: '커스텀존 이름은 비울 수 없습니다.' }
+  const owner = zoneUsing(model, next)
+  if (owner) return { refused: takenMessage(model, next, owner) }
   found.zone.name = next
   return true
 }
 
 /**
- * 더 붙인 별명을 통째로 바꾼다(ADR-0012). 앞뒤 공백을 떼고, 빈 것·이름과 같은 것·겹친 것은 뺀다. 바뀌지 않았으면 false.
+ * 더 붙인 별명을 통째로 바꾼다(ADR-0012). 앞뒤 공백을 떼고 빈 것은 뺀다. 같은 별명을 두 번 쓰거나, 이 존의 이름이거나, 다른 존의
+ * 이름·별명이면 막고 쓰는 존을 알린다(OE-SPC-06). 바뀌지 않았으면 false.
  */
-export function setCustomZoneAliases(model: Model, id: string, aliases: readonly string[]): boolean {
+export function setCustomZoneAliases(model: Model, id: string, aliases: readonly string[]): boolean | { refused: string } {
   const found = findCustomZone(model, id)
   if (!found) return false
-  const next = [...new Set(aliases.map((a) => a.trim()).filter((a) => a && a !== found.zone.name))]
+  const next = aliases.map((a) => a.trim()).filter(Boolean)
+  const twice = next.find((a, i) => next.indexOf(a) !== i)
+  if (twice) return { refused: `별명 "${twice}" 을(를) 두 번 적었습니다.` }
+  for (const a of next) {
+    const owner = a === found.zone.name ? found.zone : zoneUsing(model, a, id)
+    if (owner) return { refused: takenMessage(model, a, owner) }
+  }
   const was = found.zone.aliases ?? []
   if (next.length === was.length && next.every((a, i) => a === was[i])) return false
   if (next.length) found.zone.aliases = next
@@ -104,8 +154,8 @@ export function deleteCustomZone(model: Model, id: string): boolean {
 }
 
 /**
- * 두 점을 지나는 선으로 둘로 나눈다. 넓은 쪽이 원래 존(id·이름)을 이어받고, 좁은 쪽이 새 존(`이름 2`)이 된다.
- * 선이 경계를 정확히 두 번 지나야 한다(물리존 나누기와 같은 splitRing).
+ * 두 점을 지나는 선으로 둘로 나눈다. 넓은 쪽이 원래 존(id·이름·별명)을 이어받고, 좁은 쪽이 새 존이 된다 — 이름은 비어 있는 번호를
+ * 붙인 것(`임원석-02`, nextZoneName), 별명은 없다(OE-SPC-08). 선이 경계를 정확히 두 번 지나야 한다(물리존 나누기와 같은 splitRing).
  */
 export function splitCustomZone(model: Model, id: string, a: Vec2, b: Vec2, newZoneId?: string): CustomZone | { refused: string } | null {
   const found = findCustomZone(model, id)
@@ -114,19 +164,22 @@ export function splitCustomZone(model: Model, id: string, a: Vec2, b: Vec2, newZ
   if (!cut.ok) return { refused: cut.reason }
   const [big, small] = [...cut.rings].sort((x, y) => polygonArea(y) - polygonArea(x))
   found.zone.footprint = close(big)
-  const piece: CustomZone = { id: newZoneId ?? newId(), name: `${found.zone.name} 2`, footprint: close(small) }
+  const piece: CustomZone = { id: newZoneId ?? newId(), name: nextZoneName(model, found.zone.name), footprint: close(small) }
   found.storey.customZones!.splice(found.index + 1, 0, piece)
   return piece
 }
 
 /**
- * 같은 층의 두 존을 하나로 합친다. `keepId` 가 id·이름을 이어받고 `otherId` 는 없어진다. 변을 맞대거나(벽 두께 안) 한쪽이 다른
+ * 같은 층의 두 존을 하나로 합친다. **넓은 쪽이 남는다**(넓이가 같으면 먼저 고른 `keepId`). 남는 존이 id·이름·별명을 그대로 갖고,
+ * 없어지는 존의 이름·별명은 남는 존의 별명이 된다(OE-SPC-08). 돌려주는 것은 남은 존이다. 변을 맞대거나(벽 두께 안) 한쪽이 다른
  * 쪽을 품을 때만이다 — 일부만 겹친 두 존은 합친 모양이 고리 하나로 안 닫히는 일이 있어 막는다(물리존 합치기와 같은 unionRings).
  */
-export function mergeCustomZones(model: Model, keepId: string, otherId: string): CustomZone | { refused: string } | null {
-  const keep = findCustomZone(model, keepId)
-  const other = findCustomZone(model, otherId)
-  if (!keep || !other || keepId === otherId) return null
+export function mergeCustomZones(model: Model, firstId: string, secondId: string): CustomZone | { refused: string } | null {
+  const first = findCustomZone(model, firstId)
+  const second = findCustomZone(model, secondId)
+  if (!first || !second || firstId === secondId) return null
+  const [keep, other] = polygonArea(second.zone.footprint) > polygonArea(first.zone.footprint) ? [second, first] : [first, second]
+  const otherId = other.zone.id
   if (keep.storey !== other.storey) return { refused: '같은 층의 커스텀존만 합칩니다.' }
   const u = unionRings(keep.zone.footprint, other.zone.footprint, MERGE_GAP)
   if (!u.ok) return { refused: `${u.reason} 커스텀존은 변을 맞댔거나 한쪽이 다른 쪽을 품을 때 합칩니다.` }
