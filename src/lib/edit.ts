@@ -10,7 +10,7 @@
 import { assignEquipment, centroid, isSelfIntersecting, locate, nearRing } from './mapping'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
-import { releasedBetween, restoreRelease, snapshotRelease, type ReleaseSnapshot } from './connection-release'
+import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapshotRulesAgain, type ReleaseSnapshot, type RuleSnapshot } from './connection-release'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
 import type { Connection, CustomZone, Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall } from './model'
@@ -547,6 +547,8 @@ export type Snapshot =
   | { kind: 'connection'; connection: Connection; present: boolean; index: number }
   /** BIM 포트 연결의 해제 보정·취소(OE-PIP-06, connection-release.ts). */
   | ReleaseSnapshot
+  /** 계통 확정·재확정(OE-PIP-07). 규칙 방향을 통째로 든다. */
+  | RuleSnapshot
   /**
    * 설비가 모델에 있었는가(E7 추가·삭제). 설비와 거기 붙은 연결·계통 자리를 객체째 들고 있어, 되돌리면 방향·확정까지
    * 그대로 돌아온다.
@@ -736,6 +738,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotConnection(model, snapshot.connection)
     case 'release':
       return snapshotRelease(model, snapshot.connection)
+    case 'rule-state':
+      return snapshotRulesAgain(snapshot)
     case 'equipment-set':
       return snapshotEquipmentSet(model, snapshot.equipment, snapshot.storeyId)
     case 'storey-spaces':
@@ -820,6 +824,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       return null
     case 'release':
       return restoreRelease(model, snapshot)
+    case 'rule-state':
+      return restoreRules(model, snapshot)
     case 'connection': {
       const at = model.connections.indexOf(snapshot.connection)
       if (snapshot.present && at < 0) model.connections.splice(Math.min(snapshot.index, model.connections.length), 0, snapshot.connection)
