@@ -359,14 +359,6 @@ function setRoomKind(space: Space, found: ReturnType<typeof resolveRoomKind>) {
   else delete space.kindSource
 }
 
-/** 나눈 조각의 방번호. `101-2`, 있으면 `101-3` … 한 층 안에서 겹치지 않는 첫 번호(OE-OBJ-02). */
-function nextNumber(storey: Storey, base: string): string {
-  const used = new Set(storey.spaces.map((sp) => sp.name.trim()))
-  let k = 2
-  while (used.has(`${base}-${k}`)) k++
-  return `${base}-${k}`
-}
-
 /**
  * 같은 층에서 이 방번호를 쓰는 다른 물리존(OE-OBJ-02 "방번호는 한 층 안에서 고유"). 빈 번호는 아직 안 정한 것이라 겹쳐도 된다.
  * 공간명(longName)은 겹쳐도 된다.
@@ -1766,7 +1758,8 @@ function pointInRing(p: Vec2, ring: readonly Vec2[]): boolean {
 }
 
 /**
- * 물리존을 두 점을 지나는 선으로 둘로 나눈다. 넓은 조각이 원래 id·이름을 갖고, 다른 조각은 새 id 에 `이름-2` 다.
+ * 물리존을 두 점을 지나는 선으로 둘로 나눈다. 넓은 조각이 원래 id·이름을 갖고, 다른 조각은 새 id 에 공간명 `이름-2` 다.
+ * 새 조각의 방번호는 비워 둔다 — 사람이 넣는다(OE-SPC-02). 번호를 지어 붙이면 BIM 에 없는 번호가 그대로 TTL·GeoJSON 에 들어간다.
  * 나눌 수 없는 선이면(방을 안 지나거나 셋 이상으로 자르면) 이유를 돌려준다.
  */
 export function splitSpace(
@@ -1790,7 +1783,7 @@ export function splitSpace(
   // 새 조각은 목록 끝에 둔다. 원래 방 바로 뒤에 끼우면 편집 파일에서 되살린 층과 순서(hasPart)가 달라진다.
   storey.spaces.push({
     id,
-    name: space.name ? nextNumber(storey, space.name) : '',
+    name: '',
     longName: space.longName ? `${space.longName}-2` : '',
     footprint: small,
     areaM2: polygonArea(small),

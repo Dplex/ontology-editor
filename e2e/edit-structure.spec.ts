@@ -89,10 +89,16 @@ test('물리존을 그리면 안의 설비가 새 방으로 가고, 나누고 �
   await room.getByRole('button', { name: '나누기' }).click()
   await clickFloor(page, 6, 0.5)
   await clickFloor(page, 6, 7.5)
-  await expect(room).toContainText('48.0')
   await expect(page.locator('.report')).toContainText('사무실-2')
+  // 새 조각이 골라지고 방번호 칸이 비어 있다. 방번호는 사람이 넣는다(OE-SPC-02).
+  await expect(room).toContainText('32.0')
+  await expect(room.getByTestId('space-number')).toHaveValue('')
+  await expect(room.getByTestId('space-number')).toHaveAttribute('placeholder', '방번호를 넣으세요')
+  await expect(page.locator('.key-note')).toContainText('방번호를 넣으세요')
 
-  // 맞댄 조각을 다시 합치면 80㎡ 다.
+  // 원래 사무실(48㎡, x=6 왼쪽)을 골라 맞댄 조각을 다시 합치면 80㎡ 다.
+  await clickFloor(page, 1, 7)
+  await expect(room).toContainText('48.0')
   await room.locator('.space-tools select').selectOption({ label: '사무실-2' })
   await expect(room).toContainText('80.0')
 
