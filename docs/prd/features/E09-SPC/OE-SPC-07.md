@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["Q4"]
+depends: ["OE-OBJ-16", "Q4"]
 ---
 
 # OE-SPC-07 커스텀존 겹침 정책
+
+## 관련 티켓
+
+- [OE-OBJ-16](../E02-OBJ/OE-OBJ-16.md): 커스텀존이 빠지는 겹침 불가 원칙
 
 ## 요구사항
 

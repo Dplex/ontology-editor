@@ -9,10 +9,17 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-IDF-13"]
+depends: ["OE-ZON-01", "OE-ZON-02", "OE-ZON-04", "OE-IDF-13"]
 ---
 
 # OE-ZON-03 자동 생성분 보정
+
+## 관련 티켓
+
+- [OE-ZON-01](./OE-ZON-01.md): 수동 생성 도구로 보정
+- [OE-ZON-02](./OE-ZON-02.md): 경계 다각형 보정
+- [OE-ZON-04](./OE-ZON-04.md): 공조존 편집으로 보정
+- [OE-IDF-13](../E04-IDF/OE-IDF-13.md): 출처 구분·재임포트 시 편집 유지
 
 ## 요구사항
 

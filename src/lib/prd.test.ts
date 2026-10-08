@@ -58,6 +58,12 @@ function expandIds(text: string): string[] {
 /** `## 이름` 절의 내용. 없으면 빈 문자열. */
 const section = (body: string, name: string) => (body.split(`\n## ${name}\n`)[1] ?? '').split(/\n## /)[0]
 
+/**
+ * 요구사항 절에서 R1·R2 는 요구사항 번호가 아니라 릴리즈("R2 에서 IDF …")로만 쓰이고, R25·R26 은 채택 전 제안 번호라
+ * depends 에 적지 않는다(OE-REQ-07 "정본에 R26 이 들어가기 전에는 이 티켓 번호를 적는다").
+ */
+const NOT_REFS = new Set(['R1', 'R2', 'R25', 'R26'])
+
 /** 요구사항 절이 언급한 티켓(`OE-PIP-04·05`, `OE-ML-12~14` 를 편다)과 규칙·요구사항 번호(K·R), 자기 자신은 뺀다. */
 function requirementRefs(t: Ticket): string[] {
   const out = new Set<string>()
@@ -74,14 +80,10 @@ function requirementRefs(t: Ticket): string[] {
     }
   }
   out.delete(t.fm.id as string)
-  return [...out]
+  return [...out].filter((r) => !NOT_REFS.has(r))
 }
 
-/** 관련 티켓 절을 갖춘 Epic. 다른 Epic 도 정리하면 여기에 더한다. */
-const LINKED_EPICS = ['E13-PIP']
-
 const all = tickets()
-const linked = all.filter((t) => LINKED_EPICS.includes(t.folder))
 const ids = new Set(all.map((t) => t.fm.id as string))
 const prefixes = new Set(all.map((t) => (t.fm.id as string).split('-')[1]))
 const prd = read('PRD_011.md')
@@ -153,14 +155,14 @@ describe('참조', () => {
   })
 
   it('요구사항에서 언급한 티켓·규칙은 depends 에 있다', () => {
-    for (const t of linked) {
+    for (const t of all) {
       const deps = t.fm.depends as string[]
       for (const ref of requirementRefs(t)) expect(deps, `${t.file} 요구사항 → ${ref}`).toContain(ref)
     }
   })
 
   it('관련 티켓은 depends 의 티켓과 같고 링크가 실제 파일을 가리킨다', () => {
-    for (const t of linked) {
+    for (const t of all) {
       const sec = section(t.body, '관련 티켓')
       const rows = [...sec.matchAll(/^- \[(OE-[A-Z0-9]+-\d+)\]\(([^)]+)\): (.+)$/gm)]
       expect(rows.length, `${t.file} 관련 티켓 줄 형식`).toBe(sec.split('\n').filter((l) => l.startsWith('- ')).length)

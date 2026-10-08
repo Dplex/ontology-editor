@@ -9,10 +9,19 @@ priority: "P3"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-IDF-02","OE-IDF-08","OE-IDF-11","OE-IDF-13","OE-PIP-02","OE-BIM-18"]
+depends: ["OE-IDF-02", "OE-IDF-08", "OE-IDF-13", "OE-BIM-18", "OE-IDF-11", "OE-PIP-02"]
 ---
 
 # OE-IDF-14 플랜트 계통
+
+## 관련 티켓
+
+- [OE-IDF-02](./OE-IDF-02.md): 이어 붙일 공조 계통
+- [OE-IDF-08](./OE-IDF-08.md): BIM 설비 이름 매칭·위치
+- [OE-IDF-13](./OE-IDF-13.md): 보정한 연결·계통 유지
+- [OE-BIM-18](../E05-BIM/OE-BIM-18.md): 수 계통 완전성 검사
+- [OE-IDF-11](./OE-IDF-11.md): 가져온 계통 검토 표시
+- [OE-PIP-02](../E13-PIP/OE-PIP-02.md): 가져온 계통 수정·생성
 
 ## 요구사항
 

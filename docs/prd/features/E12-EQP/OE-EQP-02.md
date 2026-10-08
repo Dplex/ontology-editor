@@ -9,10 +9,18 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-EQP-03","K6","K15","OE-OBJ-08","Q7"]
+depends: ["K6", "OE-UI-04", "OE-EQP-12", "OE-UI-05", "K15", "OE-OBJ-08", "OE-EQP-03", "Q7"]
 ---
 
 # OE-EQP-02 미배치 설비 배치 (E6)
+
+## 관련 티켓
+
+- [OE-UI-04](../E03-UI/OE-UI-04.md): 팔레트 하위 미배치 목록
+- [OE-EQP-12](./OE-EQP-12.md): 배치 후 소속 물리존 재판정
+- [OE-UI-05](../E03-UI/OE-UI-05.md): 배치 되돌리기 이력
+- [OE-OBJ-08](../E02-OBJ/OE-OBJ-08.md): 천장 전용 설비 천장 모드 배치
+- [OE-EQP-03](./OE-EQP-03.md): h_c 미상 시 입력 요청
 
 ## 요구사항
 

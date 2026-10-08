@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-OBJ-06", "K16"]
 ---
 
 # OE-SPC-12 벽 추가·크기·이동·삭제 (E4)
+
+## 관련 티켓
+
+- [OE-OBJ-06](../E02-OBJ/OE-OBJ-06.md): 내력벽 편집 제한
 
 ## 요구사항
 

@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-WF-15"]
 ---
 
 # OE-WF-14 타 사용자 적용 시점
+
+## 관련 티켓
+
+- [OE-WF-15](./OE-WF-15.md): 새 레이아웃 배너 알림
 
 ## 요구사항
 

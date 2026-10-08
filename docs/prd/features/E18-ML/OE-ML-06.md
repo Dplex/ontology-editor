@@ -9,10 +9,18 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-ML-02", "OE-ML-03", "OE-ML-10", "OE-ML-11", "OE-ML-19"]
 ---
 
 # OE-ML-06 생성
+
+## 관련 티켓
+
+- [OE-ML-02](./OE-ML-02.md): 형상·진입/종료 지점 데이터
+- [OE-ML-03](./OE-ML-03.md): 개구부 초안·면적 영향
+- [OE-ML-10](./OE-ML-10.md): EL 정차 층 지정
+- [OE-ML-11](./OE-ML-11.md): ES 운행 구간·방향 지정
+- [OE-ML-19](./OE-ML-19.md): 명시 층간 연결 기록
 
 ## 요구사항
 

@@ -9,10 +9,17 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-ML-03", "OE-ML-10", "OE-ML-11", "OE-ML-17"]
 ---
 
 # OE-ML-08 구간 변경
+
+## 관련 티켓
+
+- [OE-ML-03](./OE-ML-03.md): 구간 확대 시 개구부 처리
+- [OE-ML-10](./OE-ML-10.md): 구간 밖 정차 층 제거
+- [OE-ML-11](./OE-ML-11.md): ES 운행 구간 재지정
+- [OE-ML-17](./OE-ML-17.md): 구간 밖 배관 소속 해제
 
 ## 요구사항
 

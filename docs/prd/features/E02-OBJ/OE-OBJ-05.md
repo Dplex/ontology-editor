@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-SPC-12", "OE-EQP-17"]
 ---
 
 # OE-OBJ-05 내벽
+
+## 관련 티켓
+
+- [OE-SPC-12](../E09-SPC/OE-SPC-12.md): 내벽 생성·삭제·이동·크기 조절
+- [OE-EQP-17](../E12-EQP/OE-EQP-17.md): 로봇 통과 불가 영역
 
 ## 요구사항
 

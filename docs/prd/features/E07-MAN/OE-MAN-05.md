@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-ZON-01"]
+depends: ["OE-ZON-01", "OE-BIM-15"]
 ---
 
 # OE-MAN-05 공조존 수동
+
+## 관련 티켓
+
+- [OE-ZON-01](../E10-ZON/OE-ZON-01.md): 설비·담당 물리존 지정 수동 생성
+- [OE-BIM-15](../E05-BIM/OE-BIM-15.md): R2 IDF 공조존 자동 생성
 
 ## 요구사항
 

@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R2","R3","D15","Q7"]
+depends: ["OE-MAN-03", "R2", "R3", "D15", "Q7"]
 ---
 
 # OE-BIM-03 물리존·룸 생성
+
+## 관련 티켓
+
+- [OE-MAN-03](../E07-MAN/OE-MAN-03.md): 외곽선 없는 방 그리기
 
 ## 요구사항
 

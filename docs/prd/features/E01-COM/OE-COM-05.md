@@ -10,10 +10,14 @@ owner: "tbd"
 status: "prd-review"
 status_note: "저장 위치 미정"
 blocked_by: []
-depends: ["OE-INT-01","D-INT","S6"]
+depends: ["OE-INT-01", "D-INT", "S6"]
 ---
 
 # OE-COM-05 층 단위 편집 잠금
+
+## 관련 티켓
+
+- [OE-INT-01](../E20-INT/OE-INT-01.md): 잠금 정보 저장 위치
 
 ## 요구사항
 

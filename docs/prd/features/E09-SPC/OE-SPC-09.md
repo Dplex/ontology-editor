@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-MAP","OE-MAP-01","OE-MAP-02"]
+depends: ["OE-MAP", "OE-MAP-01", "OE-MAP-02"]
 ---
 
 # OE-SPC-09 커스텀존 매핑 갱신
+
+## 관련 티켓
+
+- [OE-MAP-01](../E11-MAP/OE-MAP-01.md): 물리존 매핑 기준
+- [OE-MAP-02](../E11-MAP/OE-MAP-02.md): 공조존 매핑 기준
 
 ## 요구사항
 

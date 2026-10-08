@@ -9,10 +9,19 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-OBJ-12"]
+depends: ["OE-PIP-11", "OE-OBJ-12", "OE-ML-14", "OE-ML-13", "OE-PIP-15", "OE-ML-18"]
 ---
 
 # OE-ML-12 라이저 생성
+
+## 관련 티켓
+
+- [OE-PIP-11](../E13-PIP/OE-PIP-11.md): 라이저 작성·완료 기준
+- [OE-OBJ-12](../E02-OBJ/OE-OBJ-12.md): Flow Type·계통 선택
+- [OE-ML-14](./OE-ML-14.md): 층간 오프셋 지정
+- [OE-ML-13](./OE-ML-13.md): 층별 분기 작성
+- [OE-PIP-15](../E13-PIP/OE-PIP-15.md): 두 화면 식별 정보·상태 공유
+- [OE-ML-18](./OE-ML-18.md): 층 상대 높이의 공통 z 변환
 
 ## 요구사항
 

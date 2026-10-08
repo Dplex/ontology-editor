@@ -9,10 +9,19 @@ priority: "P2"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-REQ-01","OE-REQ-02","OE-ZON-06","U7"]
+depends: ["OE-ZON-05", "OE-ZON-06", "OE-REQ-02", "OE-BIM-17", "OE-REQ-06", "OE-REQ-01", "U7"]
 ---
 
 # OE-REQ-07 R26 공간 설계 풍량
+
+## 관련 티켓
+
+- [OE-ZON-05](../E10-ZON/OE-ZON-05.md): 용량 검증 Z-03
+- [OE-ZON-06](../E10-ZON/OE-ZON-06.md): 설계 풍량 입력값
+- [OE-REQ-02](./OE-REQ-02.md): IDS IfcSpace 속성 facet
+- [OE-BIM-17](../E05-BIM/OE-BIM-17.md): 보고서 R26 표시
+- [OE-REQ-06](./OE-REQ-06.md): R26 고객사 요청 문구
+- [OE-REQ-01](./OE-REQ-01.md): R26 추가할 요구사항 표
 
 ## 요구사항
 

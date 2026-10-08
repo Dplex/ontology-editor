@@ -9,7 +9,7 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["D9","S8"]
+depends: ["D9", "S8"]
 ---
 
 # OE-INT-02 산출물 형식

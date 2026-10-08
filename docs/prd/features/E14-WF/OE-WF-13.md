@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-WF-18"]
+depends: ["OE-WF-18", "OE-SYNC-04", "OE-GEN-05"]
 ---
 
 # OE-WF-13 반영 시 새 버전
+
+## 관련 티켓
+
+- [OE-WF-18](./OE-WF-18.md): 새 버전 히스토리 기록
+- [OE-SYNC-04](../E15-SYNC/OE-SYNC-04.md): 버전에 붙는 결과 리포트
+- [OE-GEN-05](../E08-GEN/OE-GEN-05.md): 초기 구축 v1
 
 ## 요구사항
 

@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-EQP-17","OE-ROB-04", "OE-ML-19"]
+depends: ["OE-EQP-17", "OE-ML-19", "OE-ROB-04"]
 ---
 
 # OE-EQP-16 로봇 통과·연결 데이터
+
+## 관련 티켓
+
+- [OE-EQP-17](./OE-EQP-17.md): 내보낼 통과 속성
+- [OE-ML-19](../E18-ML/OE-ML-19.md): 층간 연결 명시 지점·구간
+- [OE-ROB-04](../E16-ROB/OE-ROB-04.md): 로봇 팀 데이터 선행 제공
 
 ## 요구사항
 

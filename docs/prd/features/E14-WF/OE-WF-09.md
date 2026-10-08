@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-MAP-01","K17"]
+depends: ["OE-MAP-01", "K17"]
 ---
 
 # OE-WF-09 미리보기 영향 목록
+
+## 관련 티켓
+
+- [OE-MAP-01](../E11-MAP/OE-MAP-01.md): 사람 지정 소속 해제 판정
 
 ## 요구사항
 

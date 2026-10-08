@@ -10,10 +10,17 @@ owner: "tbd"
 status: "prd-done"
 status_note: ""
 blocked_by: []
-depends: []
+depends: ["OE-PIP-04", "OE-PIP-05", "OE-PIP-07", "OE-PIP-06"]
 ---
 
 # OE-ML-16 경로 추적
+
+## 관련 티켓
+
+- [OE-PIP-04](../E13-PIP/OE-PIP-04.md): 연결별 방향
+- [OE-PIP-05](../E13-PIP/OE-PIP-05.md): 규칙 추정·확정 방향
+- [OE-PIP-07](../E13-PIP/OE-PIP-07.md): 재계산된 방향
+- [OE-PIP-06](../E13-PIP/OE-PIP-06.md): 해제 연결 추적 제외
 
 ## 요구사항
 

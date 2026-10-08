@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-OBJ-04"]
+depends: ["OE-EXT-03", "OE-OBJ-04"]
 ---
 
 # OE-EXT-02 에디터 내 외벽 불변
+
+## 관련 티켓
+
+- [OE-EXT-03](./OE-EXT-03.md): 외벽 형상 편집
+- [OE-OBJ-04](../E02-OBJ/OE-OBJ-04.md): 외벽 전용 설비·문·창 배치
 
 ## 요구사항
 

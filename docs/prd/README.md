@@ -61,7 +61,8 @@ depends: ["R11"]             # 참고하는 티켓·요구사항·규칙·장. �
 
 **관련 티켓** 절은 이 티켓이 다른 티켓에 무엇을 맡기는지 한 줄씩 적는다. 요구사항에서 `OE-ML-12~14` · `OE-PIP-04·05` 처럼
 묶어 쓴 것도 depends 에는 하나씩 편다. 링크는 같은 Epic 이면 `./`, 다른 Epic 이면 `../E18-ML/` 처럼 `/` 로 쓴다(이슈 본문에는
-`npm run board` 가 main 의 blob 주소로 바꿔 옮긴다). 지금은 E13-PIP 만 갖췄다(`prd.test.ts` 의 `LINKED_EPICS`).
+`npm run board` 가 main 의 blob 주소로 바꿔 옮긴다). 요구사항 밖(수용 기준·메모)에서 쓰던 depends 와 Q·D·U·S 번호는 지우지 않고 둔다.
+요구사항의 `R1`·`R2` 는 릴리즈이고 `R25`·`R26` 은 채택 전 제안 번호라 depends 에 넣지 않는다(`prd.test.ts` 의 `NOT_REFS`).
 
 **상태 범례** — 원문 기호를 보드 상태 이름으로 바꿨다(부록 F).
 
@@ -102,7 +103,7 @@ Epic `README.md` 와 `PRD_011.md` 표를 같이 고친다 — `prd.test.ts` 가 
 - **목적** : docs/prd/features/** 하위에 작성한 Epic별  `(OE-XXX-nn).md`의 내용이 Epic별  `'README.md`와  `docs/prd/README.md`, `PRD_011.md`,  `glossary.md`가 **서로 모순되는 지점 없이 내용 정합성을 충족하는지** 검사한다. 
 - 티켓 파일 수 = `PRD_011.md` 3장 색인의 기능 수 합. `id` = 파일 이름, 중복 없음, Epic 폴더와 ID 머리가 맞음.
 - 머리 필드가 있고 값이 범례 안이다. 본문에 네 절이 다 있다.
-- (`LINKED_EPICS` 의 Epic) 요구사항에서 언급한 티켓·K·R 이 `depends` 에 있고, `## 관련 티켓` 의 링크가 `depends` 의 OE 티켓과 같은 순서로 같으며 실제 파일을 가리킨다.
+- 요구사항에서 언급한 티켓·K·R 이 `depends` 에 있고, `## 관련 티켓` 의 링크가 `depends` 의 OE 티켓과 같은 순서로 같으며 실제 파일을 가리킨다.
 - `depends` · `blocked_by` 가 가리키는 OE 티켓 · Epic 머리(`OE-ZON`) · R(개발 정본 4장) · K · S(`PRD_011.md` 부록) · D · Q · U · P(`questions.md`) 가 존재한다.
 - Epic `README.md` 의 행이 폴더의 티켓과 같다(ID · 기능 · Rel · P · 상태). `PRD_011.md` 3장의 티켓 목록도 같다.
 - `questions.md` 의 "영향 티켓" 이 실제 파일이다.

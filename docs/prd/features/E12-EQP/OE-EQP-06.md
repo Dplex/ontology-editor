@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-OBJ-10", "OE-OBJ-16", "OE-OBJ-08"]
 ---
 
 # OE-EQP-06 배관 없는 설비 디테일
+
+## 관련 티켓
+
+- [OE-OBJ-10](../E02-OBJ/OE-OBJ-10.md): 배관 없는 설비 범위
+- [OE-OBJ-16](../E02-OBJ/OE-OBJ-16.md): 겹침 불가 제약
+- [OE-OBJ-08](../E02-OBJ/OE-OBJ-08.md): 천장 전용 종류 편집
 
 ## 요구사항
 

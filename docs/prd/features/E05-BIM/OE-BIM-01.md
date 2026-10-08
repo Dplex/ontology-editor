@@ -9,7 +9,7 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R0","P5"]
+depends: ["R0", "P5"]
 ---
 
 # OE-BIM-01 IFC 파싱

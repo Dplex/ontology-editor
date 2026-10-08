@@ -10,10 +10,14 @@ owner: "tbd"
 status: "prd-review"
 status_note: "undo ✔ redo ✔"
 blocked_by: []
-depends: []
+depends: ["OE-WF-19"]
 ---
 
 # OE-UI-05 되돌리기 / 다시 실행
+
+## 관련 티켓
+
+- [OE-WF-19](../E14-WF/OE-WF-19.md): 구별할 이전 버전 되돌리기
 
 ## 요구사항
 

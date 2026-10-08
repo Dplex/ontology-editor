@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-INT-05"]
 ---
 
 # OE-IDF-01 Zone → 공조존
+
+## 관련 티켓
+
+- [OE-INT-05](../E20-INT/OE-INT-05.md): 공조존 id 규칙
 
 ## 요구사항
 

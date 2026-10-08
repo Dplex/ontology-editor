@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-GEN-03"]
+depends: ["OE-GEN-03", "OE-GEN-09"]
 ---
 
 # OE-GEN-07 생성 리포트 (B-2)
+
+## 관련 티켓
+
+- [OE-GEN-03](./OE-GEN-03.md): 검증 결과 항목
+- [OE-GEN-09](./OE-GEN-09.md): 버전에 붙여 저장
 
 ## 요구사항
 

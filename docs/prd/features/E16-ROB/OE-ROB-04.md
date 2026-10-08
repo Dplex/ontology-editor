@@ -9,10 +9,15 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-EQP-16"]
+depends: ["OE-EQP-17", "OE-EQP-16"]
 ---
 
 # OE-ROB-04 데이터 선행 제공
+
+## 관련 티켓
+
+- [OE-EQP-17](../E12-EQP/OE-EQP-17.md): 선행 산출 통과 속성
+- [OE-EQP-16](../E12-EQP/OE-EQP-16.md): R1 GeoJSON 산출 데이터
 
 ## 요구사항
 

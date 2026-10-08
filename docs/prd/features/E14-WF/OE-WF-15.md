@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-WF-19"]
 ---
 
 # OE-WF-15 상단 배너
+
+## 관련 티켓
+
+- [OE-WF-19](./OE-WF-19.md): 되돌리기 시 같은 배너
 
 ## 요구사항
 

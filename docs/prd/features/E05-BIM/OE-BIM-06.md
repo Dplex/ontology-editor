@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R22"]
+depends: ["R22", "OE-OBJ-06"]
 ---
 
 # OE-BIM-06 내력벽 속성
+
+## 관련 티켓
+
+- [OE-OBJ-06](../E02-OBJ/OE-OBJ-06.md): 내력벽 편집 규칙
 
 ## 요구사항
 
