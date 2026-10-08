@@ -104,7 +104,7 @@
   <div class="card" style="margin-top:18px;display:flex;gap:24px;align-items:center">
     <span class="tag">결정 필요</span>
     <div style="font-size:15px;line-height:1.6">
-      <b>D1</b> BIM 수용 기준선(게이트 등급 2 · 목표 등급 3) 컨펌 &nbsp;·&nbsp;
+      <b>D1</b> BIM 수용 기준선(게이트 등급 3) 컨펌 &nbsp;·&nbsp;
       <b>D-INT</b> DT 와 데이터 주고받는 방식(파일 / API / 공유 DB) — 편집 반영 흐름 42건이 이것을 기다림 &nbsp;·&nbsp;
       <b>R1 일정</b> 승인(개발 10/31 · 통합 검증 11/2~13 · R2 11/14~)
     </div>
@@ -216,7 +216,7 @@
     <path class="l" d="M325,255 L385,255"/><text class="lb" x="338" y="246">없음</text>
     <polygon class="d" points="455,205 525,255 455,305 385,255"/><text class="t" x="455" y="250">BIM</text><text class="t" x="455" y="268">있나?</text>
     <path class="l" d="M525,255 L575,255"/><text class="lb" x="532" y="246">있음</text>
-    <polygon class="d" points="650,200 725,255 650,310 575,255"/><text class="t" x="650" y="250">등급 판정</text><text class="t" x="650" y="268">≥ 2 ?</text>
+    <polygon class="d" points="650,200 725,255 650,310 575,255"/><text class="t" x="650" y="250">등급 판정</text><text class="t" x="650" y="268">≥ 3 ?</text>
     <path class="l" d="M650,310 L650,350"/><text class="lb" x="658" y="335">미달</text>
     <rect class="r" x="560" y="350" width="180" height="56" rx="10"/><text class="tb" x="650" y="374">재제출 리포트</text><text class="t" x="650" y="394">[생성] 버튼 잠김</text>
     <path class="l" d="M725,255 L775,255"/><text class="lb" x="732" y="246">통과</text>
@@ -700,7 +700,7 @@
   <div class="kicker">ASK</div>
   <h2>그룹장께 요청드릴 것</h2>
   <div class="col" style="gap:14px;margin-top:20px">
-    <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">1</div><div><h3>BIM 수용 기준선 컨펌 (D1)</h3><p>C안 — 생성 게이트는 등급 2(설비 소속 ≥85%), 목표선은 등급 3(계통, 경고만). 성수가 87.9% 로 통과. 고객사 BIM 요청 문서(R0~R24)·리포트 문구가 이 결정에 묶여 있음</p></div></div>
+    <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">1</div><div><h3>BIM 수용 기준선 컨펌 (D1)</h3><p>생성 게이트 = 등급 3(계통 소속 기기 ≥ 70%, 등급 0~2 도 함께 충족). 성수는 BIM 만으로 60% 라 <b>사전 보정을 포함해야 통과</b>(97%). 계통 정보 없이 내보낸 Revit 파일은 재제출이 늘 수 있음. 고객사 BIM 요청 문서(R0~R24)·리포트 문구가 이 결정에 묶여 있음</p></div></div>
     <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">2</div><div><h3>DT 데이터 교환 방식 (D-INT) — W42 안에 결정</h3><p>파일 / 온톨로지 서버 API / 공유 DB. 편집 워크플로우 42건(잠금·반영·버전·배너)이 이것을 기다림. 10/31 마감을 지키려면 W43 착수 전에 정해져야 함</p></div></div>
     <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">3</div><div><h3>R1 일정 승인</h3><p>개발 10/31 마감(편집 워크플로우·다중층 포함) → R1 통합 검증 11/2~11/13 → R2 11/14~12월</p></div></div>
     <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">4</div><div><h3>성수 외 실제 고객사 BIM 추가 확보</h3><p>정확도 하한선을 BIM 5종으로 지키고 있음 — 한 파일에 맞춘 과적합을 막으려면 판본·저작 도구가 다른 실제 BIM 이 더 필요</p></div></div>
