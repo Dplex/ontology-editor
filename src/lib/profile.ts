@@ -9,6 +9,7 @@ import { countOf, isConduit, type Model } from './model'
 import { deviceFlows } from './topology'
 import { withInferred } from './flow-rules'
 import { matchStorey } from './merge'
+import { exteriorDevices } from './exterior'
 
 /** 한 등급이 얼마나 찼나. 분수로 들고 다니고, 화면이 채움·일부·없음으로 칠한다. */
 export type Tier = {
@@ -69,7 +70,10 @@ export function profileOf(model: Model): Profile {
   const devices = all.filter((e) => !isConduit(e.role))
   const drawn = model.storeys.reduce((n, s) => n + s.spaces.filter((sp) => sp.footprint.length >= 3).length, 0)
   const placed = devices.filter((e) => e.position !== null).length
-  const located = devices.filter((e) => e.spaceId !== null).length
+  // 소속(등급 2)은 외벽 설비를 분모에서 뺀다 — 방 밖이 맞는 자리다(OE-EQP-15).
+  const exterior = exteriorDevices(model)
+  const indoor = devices.filter((e) => !exterior.has(e.id))
+  const located = indoor.filter((e) => e.spaceId !== null).length
   const ported = model.connections.filter((x) => x.source === 'port').length
   // 방향은 연결이 아니라 **기기 쌍**으로 센다. DT 가 받는 것은 덕트·배관을 건너뛴 기기 → 기기
   // 흐름이라(deviceFlows 주석 참조), 연결 단위로 세면 받는 것보다 좋아 보인다.
@@ -77,6 +81,7 @@ export function profileOf(model: Model): Profile {
   // 등급은 내보내는 것과 같은 기준으로 잰다. 포트 방향 + 사람이 확정한 규칙 방향이다.
   const flows = deviceFlows(withInferred(model.connections, true), (id) => conduitIds.has(id), devices.map((e) => e.id))
   // 확정 전 규칙 방향까지 넣으면 얼마나 채워지는지. 칩 설명에만 쓴다.
+  const confirmedRules = model.connections.some((x) => x.inferred?.confirmed)
   const candidate = model.connections.some((x) => x.inferred && !x.inferred.confirmed)
     ? deviceFlows(withInferred(model.connections), (id) => conduitIds.has(id), devices.map((e) => e.id)).fed.size
     : null
@@ -114,15 +119,15 @@ export function profileOf(model: Model): Profile {
       key: 'location',
       label: '소속',
       have: located,
-      of: devices.length,
-      level: level(located, devices.length),
-      figure: figure(located, devices.length),
+      of: indoor.length,
+      level: level(located, indoor.length),
+      figure: figure(located, indoor.length),
       note:
         devices.length === 0
           ? '기기가 없다'
           : c.spaces === 0
             ? `기기 ${devices.length}대가 있는데 방이 없다. 건축 파일과 합쳐야 한다`
-            : `기기 ${devices.length}대 중 소속 물리존을 찾은 것 ${located}대`,
+            : `기기 ${indoor.length}대 중 소속 물리존을 찾은 것 ${located}대` + (exterior.size ? ` · 외벽 설비 ${exterior.size}대는 제외` : ''),
     },
     {
       key: 'network',
@@ -144,7 +149,12 @@ export function profileOf(model: Model): Profile {
       have: fed,
       of: linked,
       level: level(fed, linked),
-      figure: figure(fed, linked),
+      // 목표선(등급 4)은 두 수치를 출처와 같이 보인다(OE-BIM-16, D12 권고안). 앞은 BIM 포트(+ 사람이 확정한 규칙 방향),
+      // 뒤는 확정 전 규칙 방향까지 — 규칙은 화면의 출처 "사전"(Src.vue 의 dict)이다. `0/27(BIM) → 23/27(사전)`.
+      figure:
+        candidate !== null && candidate > fed && linked > 0
+          ? `${fed}/${linked}(${confirmedRules ? 'BIM+확정' : 'BIM'}) → ${candidate}/${linked}(사전)`
+          : figure(fed, linked),
       note:
         (linked === 0
           ? '덕트·배관으로 다른 기기와 이어진 기기가 없다'

@@ -12,12 +12,16 @@
 // 이상에 이어진다", Wang 2026 Table 2 의 수배관 루프). 공기 규칙만 있을 때는 연결망이 **어디서** 끊겼는지를 말하지
 // 못했고(고립된 기기만 셌다), 열원과 공조기·FCU 사이는 아예 보지 않았다.
 
+import { connectCandidates, excludedText } from './connect-candidates'
+import { releasesOf } from './connection-release'
 import { josa } from './josa'
 import { equipmentKind, systemKind } from './kinds'
 import { distanceToRing, interiorPoint, pointInPolygon } from './mapping'
 import { isConduit, type Connection, type Model, type Vec2, type Vec3 } from './model'
+import { overlapAt, type Box3 } from './overlap'
 import { isAirSource, isAirTerminal, type AirService } from './served'
 import { trace, TOLERANCE } from './topology'
+import { exteriorDevices } from './exterior'
 
 export type CheckResult = {
   key: string
@@ -92,6 +96,8 @@ function hydronicLinks(model: Model, connections: readonly Connection[]): { sour
 export function completenessChecks(model: Model, services: readonly AirService[], connections: readonly Connection[] = model.connections): CheckResult[] {
   const equipment = model.storeys.flatMap((s) => s.equipment)
   const devices = equipment.filter((e) => !isConduit(e.role))
+  const exterior = exteriorDevices(model)
+  const indoor = devices.filter((e) => !exterior.has(e.id))
   const terminals = equipment.filter(isAirTerminal)
   const sources = equipment.filter(isAirSource)
   const hasSpaces = model.storeys.some((s) => s.spaces.length > 0)
@@ -146,8 +152,9 @@ export function completenessChecks(model: Model, services: readonly AirService[]
       key: 'device-space',
       rule: '기기마다 소속 방이 있다 (brick:hasLocation)',
       why: '이상 알림의 발생 위치가 층까지만 나가고, 탐색기 트리에서 방 아래에 보이지 않습니다.',
-      total: devices.length,
-      failed: devices.filter((e) => !e.spaceId).map((e) => e.id),
+      // 외벽 설비(루버·외기 센서·외벽에 붙인 설비)는 방 밖이 맞는 자리라 세지 않는다(OE-EQP-15).
+      total: indoor.length,
+      failed: indoor.filter((e) => !e.spaceId).map((e) => e.id),
       skipped: hasSpaces ? undefined : '방이 없는 파일입니다. 건축 파일을 덧붙이면 검사할 수 있습니다.',
     },
     {
@@ -191,16 +198,14 @@ export type ExplainContext = {
   services: readonly AirService[]
   /** 설비 형상의 상자. 없으면 연결망 검사의 이웃 거리를 말하지 않는다. */
   boxes?: ReadonlyMap<string, Box>
+  /**
+   * 겹침 판정의 설비 상자(IFC 좌표, overlap.ts). 있으면 [방 안으로 옮기기] 가 배관 없는 설비끼리 겹치는 자리를 권하지 않는다 —
+   * 권한 자리가 겹치면 누를 때 편집이 겹침 금지(OE-OBJ-16)에 막혀 아무 일도 일어나지 않았다(성수 HV PNL).
+   */
+  boxOf?: (id: string) => Box3 | null
   /** 목록에 보일 이름(이름 · 종류). */
   label: (id: string) => string
 }
-
-const gapBetween = (a: Box, b: Box) =>
-  Math.hypot(
-    Math.max(0, a[0] - b[3], b[0] - a[3]),
-    Math.max(0, a[1] - b[4], b[1] - a[4]),
-    Math.max(0, a[2] - b[5], b[2] - a[5]),
-  )
 
 /**
  * 어긴 것 하나가 **왜** 어겼는지. 목록에 이름만 있으면 하나씩 3D 로 열어 봐야 알 수 있었다. 고칠 방법이 이유마다
@@ -218,8 +223,11 @@ export function explainFailure(key: string, id: string, ctx: ExplainContext): st
   return diagnoseFailure(key, id, ctx).text
 }
 
-/** 경계에서 가장 가까운 점에서 벽에 수직으로 방 안쪽으로 조금 들어간 점. 오목한 모서리라 안이 아니면 방 안의 한 점. */
-function justInside(p: Vec2, ring: readonly Vec2[], margin = 0.1): Vec2 | null {
+/**
+ * 경계에서 가장 가까운 점에서 벽에 수직으로 방 안쪽으로 `margin` 만큼 들어간 점. 오목한 모서리라 안이 아니면 방 안의 한 점
+ * (`fallback` 이 거짓이면 null — 더 깊이 들어가 보는 자리가 방 반대편으로 튀지 않게).
+ */
+function justInside(p: Vec2, ring: readonly Vec2[], margin = 0.1, fallback = true): Vec2 | null {
   let best: { q: Vec2; d: number; n: Vec2 } | null = null
   for (let i = 0; i + 1 < ring.length; i++) {
     const [ax, ay] = ring[i]
@@ -238,8 +246,11 @@ function justInside(p: Vec2, ring: readonly Vec2[], margin = 0.1): Vec2 | null {
       if (pointInPolygon(step, ring)) return step
     }
   }
-  return interiorPoint(ring)
+  return fallback ? interiorPoint(ring) : null
 }
+
+/** [방 안으로 옮기기] 가 경계에서 들어가 보는 깊이(미터). 바로 안쪽이 다른 설비와 겹치면 차례로 더 들어간다. */
+const INSIDE_STEPS = [0.1, 0.3, 0.6, 1, 1.5]
 
 const cm = (v: number) => Math.round(v * 100) / 100
 
@@ -282,8 +293,20 @@ export function diagnoseFailure(key: string, id: string, ctx: ExplainContext): {
     }
     const text = `어느 방에도 들어가지 않습니다. 가장 가까운 방은 ${best!.name}(${best!.d.toFixed(2)}m)입니다.`
     // 멀리 떨어진 것(건축 파일이 모자라거나 층이 틀린 것)은 옮겨서 고칠 일이 아니다. 경계 가까이에 있을 때만 권한다.
-    const inside = best!.d <= 1 ? justInside([e.position[0], e.position[1]], best!.ring) : null
-    return say(text, inside ? { kind: 'move-into', spaceName: best!.name, to: [cm(inside[0]), cm(inside[1]), e.position[2]] } : undefined)
+    if (best!.d > 1) return say(text)
+    // 권하는 자리가 다른 배관 없는 설비와 겹치면 편집이 막힌다(OE-OBJ-16). 겹치지 않는 자리까지 더 들어가 보고, 없으면 권하지 않는다.
+    let blocked: string | null = null
+    for (const [i, margin] of INSIDE_STEPS.entries()) {
+      const inside = justInside([e.position[0], e.position[1]], best!.ring, margin, i === 0)
+      if (!inside) continue
+      const to: Vec3 = [cm(inside[0]), cm(inside[1]), e.position[2]]
+      const hit = ctx.boxOf ? overlapAt(model, id, to, ctx.boxOf) : null
+      if (!hit) return say(text, { kind: 'move-into', spaceName: best!.name, to })
+      blocked ??= hit.id
+    }
+    if (!blocked) return say(text)
+    const other = ctx.label(blocked)
+    return say(`${text} 경계 안쪽 ${INSIDE_STEPS.at(-1)}m 까지는 ${other}${josa(other, '과/와')} 겹쳐 바로 옮길 수 없습니다.`)
   }
 
   if (key === 'heat-source-user' || key === 'hydronic-user-source') {
@@ -298,24 +321,26 @@ export function diagnoseFailure(key: string, id: string, ctx: ExplainContext): {
   if (key === 'device-connected' || key === 'conduit-ends') {
     // 도관의 한쪽 끝만 이어졌으면 이미 이어진 상대는 후보에서 뺀다 — 열린 끝에 붙을 것을 찾는다.
     const linked = new Set(ctx.model.connections.flatMap((c) => (c.from === id ? [c.to] : c.to === id ? [c.from] : [])))
+    // 사람이 해제 보정한 BIM 연결이 있으면 누락이 아니라 의도한 해제다(OE-PIP-06). 먼저 말하고, 그 상대는 후보에서 뺀다.
+    const released = releasesOf(ctx.model, id).filter((r) => r.review !== 'missing').length
+    const why = released ? `해제 보정한 BIM 연결 ${released}개가 있습니다(의도한 해제라 되살리지 않습니다). ` : ''
     if (key === 'conduit-ends' && linked.size === 1) {
-      if (!ctx.boxes?.get(id)) return say('한쪽 끝만 이어져 있습니다. 형상이 없어 반대쪽 이웃을 잴 수 없습니다.')
+      if (!ctx.boxes?.get(id)) return say(why + '한쪽 끝만 이어져 있습니다. 형상이 없어 반대쪽 이웃을 잴 수 없습니다.')
     }
     const box = ctx.boxes?.get(id)
-    if (!box) return say('포트도, 맞닿은 형상도 없습니다.')
-    let best: { id: string; d: number } | null = null
-    for (const other of equipment) {
-      if (other.id === id || linked.has(other.id)) continue
-      if (e?.systemId && other.systemId && other.systemId !== e.systemId) continue
-      const b = ctx.boxes!.get(other.id)
-      if (!b) continue
-      const d = gapBetween(box, b)
-      if (!best || d < best.d) best = { id: other.id, d }
+    // 해제한 연결이 있으면 포트가 없었던 것이 아니다. 형상이 없어 이웃을 못 잰다고만 한다.
+    if (!box) return say(why + (released ? '형상이 없어 가까운 이웃을 잴 수 없습니다.' : '포트도, 맞닿은 형상도 없습니다.'))
+    // 가까운 순 후보에서 다른 매체·흐름 없는 기기·말단끼리·다른 계통·해제한 연결을 뺀다(OE-PIP-08, connect-candidates.ts).
+    const found = connectCandidates(ctx.model, id, ctx.boxes!)
+    const best = found.candidates[0]
+    const head = why + (key === 'conduit-ends' ? (linked.size === 0 ? '어디에도 이어져 있지 않습니다. ' : '한쪽 끝만 이어져 있습니다. ') : '')
+    const skipped = excludedText(found.excluded)
+    if (!best) {
+      return say(head + '1m 안에 이어질 덕트·배관·설비가 없습니다. 접합 부재가 빠졌을 수 있습니다.' + (skipped ? ` ${skipped} 직접 확인한 뒤 설비 패널의 [연결하기]로 잇습니다.` : ''))
     }
-    const head = key === 'conduit-ends' ? (linked.size === 0 ? '어디에도 이어져 있지 않습니다. ' : '한쪽 끝만 이어져 있습니다. ') : ''
-    if (!best || best.d > 1) return say(head + '1m 안에 이어질 덕트·배관·설비가 없습니다. 접합 부재가 빠졌을 수 있습니다.')
     return say(
-      `${head}가장 가까운 것: ${ctx.label(best.id)}, ${Math.round(best.d * 1000)}mm 떨어져 있습니다. ${Math.round(TOLERANCE * 1000)}mm 안이어야 연결로 봅니다.`,
+      `${head}가장 가까운 것: ${ctx.label(best.id)}, ${Math.round(best.distance * 1000)}mm 떨어져 있습니다. ${Math.round(TOLERANCE * 1000)}mm 안이어야 연결로 봅니다.` +
+        (skipped ? ` ${skipped}` : ''),
       { kind: 'connect', other: best.id },
     )
   }

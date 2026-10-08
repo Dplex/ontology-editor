@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 
-// 첫 화면의 data/ 목록에서 시작하는 흐름. e2e 서버는 목록을 붙이지 않는다(등급 측정이 서버를 1분씩 멈춰서, CLAUDE.md
-// "dev 포트는 5174 다"). 그래서 `/__data` 를 여기서 흉내 낸다 — 보려는 것은 칩 숫자가 아니라 목록 화면이 하는 일이다.
+// 첫 화면의 data/ 목록에서 시작하는 흐름. e2e 서버는 목록을 붙이지 않는다(등급 측정이 서버를 1분씩 멈춰서, docs/dev/testing.md
+// "e2e 는 5175 에 따로 뜬다"). 그래서 `/__data` 를 여기서 흉내 낸다 — 보려는 것은 칩 숫자가 아니라 목록 화면이 하는 일이다.
 // 목록·등급·파일 바이트를 data-catalog.ts 와 같은 모양으로 준다.
 const FIXTURES = 'src/lib/ifc/fixtures'
 const ROOMS = readFileSync(`${FIXTURES}/two-rooms.ifc`)

@@ -1,0 +1,229 @@
+name: Kanban
+
+# PR·라벨이 움직이면 칸반 카드(이슈)를 따라 옮긴다. Todo → In Progress 는 사람이 옮긴다.
+#   PR 열림(draft 아님)·다시 열림·Ready for review → In Review, rejected 라벨을 뗀다
+#   PR merge                                       → Done (이슈는 본문의 Closes #n 으로 GitHub 가 닫는다)
+#   PR 을 merge 없이 Close                          → 이슈에 rejected 를 붙이고 In Progress
+#   누가 이슈에 rejected 를 붙임                      → In Progress
+#   이슈에 modified 가 붙음(보드 동기화 --apply 나 손)  → In Review 면 In Progress 로 돌리고 코멘트
+#                                                     Done 이면 그대로 두고 후속 Todo 이슈 "[후속 #n] …" 를 만든다
+#   후속 이슈를 Closes 하는 PR 이 merge                → 원 이슈의 modified 를 뗀다
+# 카드는 이슈다. PR 과 이슈는 PR 본문의 closes/fixes/resolves #n 으로 잇는다.
+# 코드를 체크아웃하지 않는다 — API 만 부른다.
+#
+# 조직 프로젝트는 기본 GITHUB_TOKEN 으로 못 고친다. `project`·`repo` 범위 토큰을 시크릿 PROJECT_TOKEN 으로 둔다.
+# 그 토큰으로 붙인 라벨은 issues:labeled 를 다시 깨우지만, 그 실행도 In Progress 로 옮길 뿐이라 결과가 같다.
+#
+# 후속 이슈는 템플릿으로 만든다(LLM 을 쓰지 않는다). 무엇이 바뀌었는지는 보드 동기화가 원 이슈 본문의 "수정 이력" 에
+# 이전 문구로 남겨 두니 그 마지막 날짜 줄들을 옮기고, 지금 요구사항·수용 기준은 본문의 md 사본에서 옮긴다.
+# 후속 이슈 제목 끝에는 (OE-XXX-nn) 을 붙이지 않는다 — sync-board 가 제목 끝 ID 로 티켓과 이슈를 짝지어서 둘이 되면 엉뚱한 쪽을
+# 고친다. planned 라벨도 붙이지 않는다(sync-board 가 손대지 않게).
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review, closed]
+  issues:
+    types: [labeled]
+  # issues 이벤트는 main 의 이 파일만 깨운다. 브랜치에서 시험하거나 놓친 것을 다시 돌릴 때 손으로 부른다:
+  #   gh workflow run Kanban --ref <브랜치> -f issue=42 -f label=modified
+  workflow_dispatch:
+    inputs:
+      issue: { description: '이슈 번호', required: true }
+      label: { description: '붙은 라벨로 친다 (rejected · modified)', required: true }
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kanban-${{ github.event.pull_request.number || github.event.issue.number || inputs.issue }}
+
+jobs:
+  move:
+    if: >-
+      github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' ||
+      github.event.label.name == 'rejected' || github.event.label.name == 'modified'
+    runs-on: [self-hosted, dt-dev]
+    timeout-minutes: 5
+    steps:
+      - name: runner
+        run: echo "$(hostname) $(whoami) $RUNNER_NAME"
+
+      - uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PROJECT_TOKEN }}
+          script: |
+            const ORG = 'IoT-Solution'
+            const PROJECT_NUMBER = 1
+            const STATUS = { todo: '📝 Todo', inProgress: '🚧 In Progress', inReview: '👀 In Review', done: '✅ Done' }
+            // docs/dev/board.md "라벨": 라벨이 여럿이면 이 순서로 하나만 🏷️ 라벨 칸에 들어간다
+            const LABEL_ORDER = ['rejected', 'modified', 'needs-pm', 'blocked', 'needs-dev', 'enhancement']
+            const { owner, repo } = context.repo
+            const ev = context.payload
+
+            const project = (await github.graphql(`
+              query($org: String!, $n: Int!) { organization(login: $org) { projectV2(number: $n) {
+                id fields(first: 50) { nodes { ... on ProjectV2SingleSelectField { id name options { id name } } } } } } }`,
+              { org: ORG, n: PROJECT_NUMBER })).organization.projectV2
+            const field = name => project.fields.nodes.find(f => f.name === name)
+            const statusField = field('Status')
+            const labelField = field('🏷️ 라벨')
+
+            async function itemFor(number) {
+              const issue = (await github.graphql(`
+                query($owner: String!, $repo: String!, $n: Int!) { repository(owner: $owner, name: $repo) { issue(number: $n) {
+                  id labels(first: 50) { nodes { name } } projectItems(first: 20) { nodes { id project { id }
+                    status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } } } } } }`,
+                { owner, repo, n: number })).repository.issue
+              if (!issue) return null
+              let item = issue.projectItems.nodes.find(i => i.project.id === project.id)
+              if (!item) {
+                item = (await github.graphql(`mutation($p: ID!, $c: ID!) { addProjectV2ItemById(input: {projectId: $p, contentId: $c}) { item { id } } }`,
+                  { p: project.id, c: issue.id })).addProjectV2ItemById.item
+                core.info(`#${number} 을 프로젝트에 넣었다`)
+              }
+              return { id: item.id, status: item.status?.name ?? null }
+            }
+
+            async function setSelect(itemId, f, optionName) {
+              if (!f) return
+              const opt = optionName && f.options.find(o => o.name === optionName)
+              if (opt) {
+                await github.graphql(`mutation($p: ID!, $i: ID!, $f: ID!, $o: String!) { updateProjectV2ItemFieldValue(input:
+                  {projectId: $p, itemId: $i, fieldId: $f, value: {singleSelectOptionId: $o}}) { clientMutationId } }`,
+                  { p: project.id, i: itemId, f: f.id, o: opt.id })
+              } else {
+                await github.graphql(`mutation($p: ID!, $i: ID!, $f: ID!) { clearProjectV2ItemFieldValue(input:
+                  {projectId: $p, itemId: $i, fieldId: $f}) { clientMutationId } }`,
+                  { p: project.id, i: itemId, f: f.id })
+              }
+            }
+
+            // 라벨을 바꾼 뒤 🏷️ 라벨 칸을 지금 라벨에 맞춘다
+            async function syncLabelField(number, itemId) {
+              const { data } = await github.rest.issues.listLabelsOnIssue({ owner, repo, issue_number: number })
+              const names = data.map(l => l.name)
+              await setSelect(itemId, labelField, LABEL_ORDER.find(l => names.includes(l)) ?? null)
+            }
+
+            async function move(number, status, label) {
+              const item = await itemFor(number)
+              if (!item) return core.warning(`#${number} 이슈가 아니다(PR 이거나 없다)`)
+              if (label === 'add') {
+                await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels: ['rejected'] })
+              } else if (label === 'remove') {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: 'rejected' }).catch(e => {
+                  if (e.status !== 404) throw e
+                })
+              }
+              await setSelect(item.id, statusField, status)
+              await syncLabelField(number, item.id)
+              core.info(`#${number} → ${status}${label ? ` (rejected ${label})` : ''}`)
+            }
+
+            const comment = (number, body) => github.rest.issues.createComment({ owner, repo, issue_number: number, body })
+            const removeLabel = (number, name) => github.rest.issues.removeLabel({ owner, repo, issue_number: number, name }).catch(e => {
+              if (e.status !== 404) throw e
+            })
+            const FOLLOW = /^\[후속 #(\d+)\]/
+
+            // 원 이슈 본문 → 후속 이슈 본문. 원 이슈 본문의 모양은 scripts/sync-board.mjs 의 newBody 가 정한다.
+            function followUpBody(orig) {
+              const body = (orig.body ?? '').replace(/\r\n/g, '\n')
+              const ticket = /티켓 (\[[^\]]+\]\([^)]+\))/.exec(body)?.[1] ?? '(티켓 링크 없음)'
+              const hist = /<!-- board-sync:history -->\n\*\*수정 이력\*\*\n([\s\S]*?)\n<!-- \/board-sync:history -->/.exec(body)?.[1] ?? ''
+              // "- (날짜) …" 로 시작하는 줄이 한 항목이고, 이어지는 "  > …" 줄은 그 항목의 이전 문구다
+              const entries = hist.split(/\n(?=- \(\d{4}-\d{2}-\d{2}\))/).filter(Boolean)
+              const last = entries.map(e => /^- \((\d{4}-\d{2}-\d{2})\)/.exec(e)?.[1]).filter(Boolean).sort().pop()
+              const changes = last ? entries.filter(e => e.startsWith(`- (${last})`)).join('\n') : '(수정 이력이 없다 — 원 이슈에서 바뀐 곳을 확인한다)'
+              const at = body.search(/^# OE-/m)
+              const md = at < 0 ? '' : body.slice(at)
+              const section = name => {
+                const lines = md.split('\n')
+                const from = lines.findIndex(l => l.trim() === `## ${name}`)
+                if (from < 0) return '(없음)'
+                const to = lines.findIndex((l, i) => i > from && l.startsWith('## '))
+                return lines.slice(from + 1, to < 0 ? undefined : to).join('\n').trim() || '(비어 있음)'
+              }
+              return [
+                `원 이슈 #${orig.number} 은 Done(구현·merge 끝)인데 요구사항이 바뀌어 \`modified\` 가 붙었다. 바뀐 만큼을 이 이슈에서 새 PR 로 한다.`,
+                '',
+                `티켓 ${ticket}`,
+                '',
+                `## 바뀐 것 (${last ?? '날짜 모름'})`,
+                changes,
+                '',
+                '## 지금 요구사항',
+                section('요구사항'),
+                '',
+                '## 지금 수용 기준',
+                section('수용 기준'),
+                '',
+                '## 할 일',
+                '- [ ] 원 이슈의 구현과 바뀐 요구사항의 차이를 확인한다',
+                '- [ ] 구현·테스트',
+                `- [ ] PR 본문에 \`Closes #이 이슈\` — merge 되면 원 이슈 #${orig.number} 의 \`modified\` 가 떼진다`,
+              ].join('\n')
+            }
+
+            async function onModified(issue) {
+              const item = await itemFor(issue.number)
+              if (!item) return
+              await syncLabelField(issue.number, item.id)
+              if (item.status === STATUS.inReview) {
+                await setSelect(item.id, statusField, STATUS.inProgress)
+                await comment(issue.number, '검토 중에 요구사항이 바뀌어(`modified`) In Progress 로 돌렸다. 바뀐 곳은 본문 위 **수정 이력**. 반영해서 다시 올리고 `modified` 를 뗀다.')
+                return core.info(`#${issue.number} In Review → In Progress (modified)`)
+              }
+              if (item.status !== STATUS.done) return core.info(`#${issue.number} 은 ${item.status ?? '상태 없음'} — 라벨 칸만 맞췄다`)
+
+              const prefix = `[후속 #${issue.number}]`
+              const open = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 })
+              const dup = open.find(i => !i.pull_request && i.title.startsWith(prefix))
+              if (dup) return core.info(`후속 이슈 #${dup.number} 이 이미 열려 있다`)
+
+              const id = /\((OE-[A-Z]+-\d+)\)\s*$/.exec(issue.title)?.[1]
+              const name = issue.title.replace(/\s*\(OE-[A-Z]+-\d+\)\s*$/, '')
+              const labels = issue.labels.map(l => l.name).filter(l => /^phase-\d$/.test(l))
+              const { data: created } = await github.rest.issues.create({ owner, repo, labels, body: followUpBody(issue),
+                title: `${prefix} ${id ? `${id} ` : ''}${name} — 요구사항 변경 반영` })
+              const newItem = await itemFor(created.number)
+              await setSelect(newItem.id, statusField, STATUS.todo)
+              await comment(issue.number, `Done 뒤에 요구사항이 바뀌어(\`modified\`) 후속 이슈 #${created.number} 을 Todo 로 만들었다. 이 이슈는 Done 그대로 두고, 후속 PR 이 merge 되면 \`modified\` 가 떼진다.`)
+              core.info(`#${issue.number} (Done) → 후속 #${created.number} Todo`)
+            }
+
+            // 후속 이슈가 merge 로 닫히면 원 이슈의 modified 를 뗀다
+            async function closeFollowUp(number) {
+              const { data: i } = await github.rest.issues.get({ owner, repo, issue_number: number })
+              const orig = Number(FOLLOW.exec(i.title)?.[1])
+              if (!orig) return
+              await removeLabel(orig, 'modified')
+              const item = await itemFor(orig)
+              if (item) await syncLabelField(orig, item.id)
+              core.info(`후속 #${number} merge → 원 이슈 #${orig} 의 modified 를 뗐다`)
+            }
+
+            if (context.eventName === 'issues' || context.eventName === 'workflow_dispatch') {
+              const issue = context.eventName === 'issues' ? ev.issue
+                : (await github.rest.issues.get({ owner, repo, issue_number: Number(ev.inputs.issue) })).data
+              const label = context.eventName === 'issues' ? ev.label.name : ev.inputs.label
+              if (issue.pull_request) return
+              if (label === 'modified') return onModified(issue)
+              if (label === 'rejected') return move(issue.number, STATUS.inProgress)
+              return core.warning(`라벨 ${label} 은 다루지 않는다`)
+            }
+
+            const pr = ev.pull_request
+            const refs = /(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)/gi
+            const issues = [...new Set([...(pr.body ?? '').matchAll(refs)].map(m => Number(m[1])))]
+            if (!issues.length) return core.notice(`PR #${pr.number} 본문에 Closes #n 이 없어 옮길 카드가 없다`)
+
+            let status, label
+            if (ev.action === 'closed') {
+              ;[status, label] = pr.merged ? [STATUS.done] : [STATUS.inProgress, 'add']
+            } else if (pr.draft) {
+              return core.info(`PR #${pr.number} 은 draft 라 옮기지 않는다`)
+            } else {
+              ;[status, label] = [STATUS.inReview, 'remove']
+            }
+            for (const n of issues) await move(n, status, label)
+            if (ev.action === 'closed' && pr.merged) for (const n of issues) await closeFollowUp(n)

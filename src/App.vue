@@ -1,23 +1,37 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch, type Directive } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRaw, triggerRef, watch, type Directive } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
-import { countOf, isConduit, type Connection, type Equipment, type Model, type Opening, type Vec2, type Vec3, type Wall } from './lib/model'
+import { countOf, isConduit, polygonArea, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile'
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
+import type { CustomZone } from './lib/model'
 import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
+import ReplayHud from './components/ReplayHud.vue'
+import { CATEGORY_COLOR, type ReplayMessage, type ReplayStart, type ReplayStep } from './lib/replay'
+import ExitEditDialog from './components/ExitEditDialog.vue'
 import HoverTip from './components/HoverTip.vue'
 import FloorPlan from './components/FloorPlan.vue'
+import Roll from './components/Roll.vue'
+import Meter from './components/Meter.vue'
+import { vFlash } from './lib/motion'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
-import { applyEdits, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
+import { connectCandidates, mediaLabel, type ConnectCandidate } from './lib/connect-candidates'
+import { againstRule, applyFlow, cancelRelease, clearFlow, dropRelease, keepRelease, releaseConnection, releasedBetween, releasesOf, snapshotRelease, snapshotRules } from './lib/connection-release'
+import { applyEdits, countEdits, EDIT_FORMAT, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
+import { BUILDING, joinParts, partSig, splitByStorey, type HomeOf } from './lib/storey-drafts'
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
+import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
-import { airServices, servedSpaces } from './lib/served'
+import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
+import { storeyHeights, type StoreyHeight } from './lib/storey-height'
+import { storeyFiles } from './lib/export/storey-export'
+import { clearStoreyDone, markStoreyDone, storeyProgress, type StoreyProgress } from './lib/storey-progress'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
@@ -27,22 +41,35 @@ import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
 import { modelToTTL } from './lib/export/ttl'
 import {
   arrowColors,
+  CEILING_RING_COLORS,
   createViewer,
+  lambertize,
   PICK_COLORS,
   systemColors,
   toScene,
   WALL_COLORS,
   type Arrow,
+  type CeilingMark,
+  type CeilingView,
   type Viewer,
   type HoverTarget,
 } from './lib/viewer'
+import { rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import {
+  applyFollow,
+  planFollow,
+  type SegmentAxis,
   flowEdits,
   moveEquipment,
   moveEquipmentToStorey,
   moveSpaceVertex,
   completePosition,
   renameSpace,
+  setSpaceNumber,
+  renameSystem,
+  exteriorOnly,
+  onExteriorFace,
+  EXTERIOR_ONLY,
   restore,
   insertSpaceVertex,
   deleteSpaceVertex,
@@ -58,14 +85,11 @@ import {
   typeNameOf,
   familyKeyOf,
   familyNameOf,
-  snapshotConfirm,
   snapshotEquipment,
-  snapshotFlow,
   snapshotSpace,
   snapshotOf,
   baselineOf,
   diffBaseline,
-  setFlowDirection,
   summarize,
   wouldSelfIntersect,
   addEquipment,
@@ -73,6 +97,7 @@ import {
   renameEquipment,
   snapshotEquipmentSet,
   setEquipmentSystem,
+  setEquipmentSpace,
   setSystemKind,
   snapshotSystems,
   createSystem,
@@ -84,6 +109,9 @@ import {
   snapshotStoreySpaces,
   addWall,
   addOpening,
+  newWallThickness,
+  OPENING_SNAP,
+  OPENING_SNAP_RANGE,
   moveWall,
   moveWallWithSpaces,
   type WallCarryPlan,
@@ -92,6 +120,22 @@ import {
   deleteOpening,
   setWallLoadBearing,
   snapshotStoreyElements,
+  wallLocked,
+  wallShapeLock,
+  WALL_LOCKED,
+  EXTERIOR_LOCKED,
+  newCrossing,
+  crossingMessage,
+  wallLength,
+  setWallLength,
+  setOpeningSize,
+  mountOnWall,
+  snapshotCustomZones,
+  snapshotRooms,
+  snapshotSpaceObjects,
+  setWallExternal,
+  setWallHeight,
+  setWallThickness,
   type Baseline,
   type BoundaryChange,
   type Change,
@@ -99,9 +143,39 @@ import {
   type Snapshot,
 } from './lib/edit'
 import { MERGE_GAP } from './lib/polygon'
+import { exteriorDevices, judgeExternal } from './lib/exterior'
+import {
+  createCustomZone,
+  deleteCustomZone,
+  findCustomZone,
+  mergeCustomZones,
+  renameCustomZone,
+  setCustomZoneAliases,
+  zoneNamesOfEquipment,
+  splitCustomZone,
+  zoneEquipment,
+  zoneSpaces,
+} from './lib/custom-zone'
+import { createRoom, deleteRoom, findRoom, moveRoom, renameRoom, resizeRoom } from './lib/room'
+import {
+  addCustomItem,
+  addSpaceObject,
+  deleteSpaceObject,
+  findSpaceObject,
+  libraryItem,
+  libraryOf,
+  MODEL_MAX_BYTES,
+  moveSpaceObject,
+  renameSpaceObject,
+  resizeSpaceObject,
+} from './lib/space-object'
+import type { Object3D } from 'three'
+import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
+import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
+import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
-import { distanceToRing } from './lib/mapping'
+import { distanceToRing, spaceAssignable, spaceSetState } from './lib/mapping'
 
 // 테마는 라이트가 기본이고, 고른 값만 저장한다. 선행 스크립트(index.html)가 첫 페인트
 // 전에 같은 값을 읽어 깜빡임을 막는다.
@@ -143,6 +217,11 @@ let viewer: Viewer | null = null
 // 삼각형이 섞이면 TTL 로 기하가 새는 길이 생긴다. 반응형으로 감쌀 이유도 없다(화면이
 // 값을 읽지 않고 3D 에만 넘긴다). 926개짜리 Map 을 반응형으로 만들면 그만큼 느려진다.
 let meshes: MeshMap = new Map()
+/**
+ * 설비를 따라 늘인 구간의 늘이기 전 형상과 그때 좌표·축. 처음 늘일 때(또는 불러오기 직전에) 뜬다. 늘인 형상은 늘 이것에서 다시
+ * 만든다 — 늘인 형상을 또 늘이면 꼭짓점의 축 위 비율이 바뀌어 되돌려도 제자리가 아니다.
+ */
+let meshBase = new Map<string, { positions: Float32Array; at: Vec3; axis: SegmentAxis }>()
 
 const counts = computed(() => (model.value ? countOf(model.value) : null))
 /** 임포트 때 읽지 않기로 한 피처(벽·문·창). 숫자 칸이 0 대신 "읽지 않음" 을 보인다. */
@@ -227,33 +306,81 @@ watch(
   },
   { deep: true },
 )
+// 벽·문·창 설정(OE-SPC-12 · OE-SPC-13). 사이트(이 브라우저) 하나에 하나다. 새 벽 두께는 같은 층 BIM 내벽 최빈값이 먼저이고 이 값은
+// 그 다음이다(edit.ts 의 newWallThickness). 스냅 거리는 문·창을 놓거나 옮길 때 벽에서 이만큼 안이어야 붙는 거리다.
+type ElementSettings = { wallThickness: number | null; openingSnap: number }
+const elementSettings = ref<ElementSettings>(
+  (() => {
+    const base: ElementSettings = { wallThickness: null, openingSnap: OPENING_SNAP }
+    try {
+      const saved = JSON.parse(localStorage.getItem('oe-element-settings') ?? 'null') as Partial<ElementSettings> | null
+      return saved ? { ...base, ...saved } : base
+    } catch {
+      return base
+    }
+  })(),
+)
+watch(
+  elementSettings,
+  (v) => {
+    try {
+      localStorage.setItem('oe-element-settings', JSON.stringify(v))
+    } catch {
+      // 못 써도 이번 창에서는 그대로 돈다.
+    }
+  },
+  { deep: true },
+)
+function setSiteWallThickness(raw: string) {
+  const v = Number(raw)
+  elementSettings.value = { ...elementSettings.value, wallThickness: raw.trim() && v > 0 && v <= 2 ? cm(v) : null }
+}
+function setOpeningSnap(raw: string) {
+  const v = Number(raw)
+  if (!Number.isFinite(v)) return
+  elementSettings.value = { ...elementSettings.value, openingSnap: cm(Math.min(OPENING_SNAP_RANGE.max, Math.max(OPENING_SNAP_RANGE.min, v))) }
+}
+/** 지금 층에 새 벽을 그으면 어떤 두께가 되나(설정 칸 옆 안내). */
+const wallThicknessHere = computed(() => {
+  const storey = targetStorey()
+  return storey ? { storey: storey.name, ...newWallThickness(storey, elementSettings.value.wallThickness) } : null
+})
+const WALL_FROM = { bim: '같은 층 BIM 내벽 두께의 최빈값', site: '사이트 기본값', default: '기본값' } as const
 const readOpeningShapes = computed(() => readOpenings.value && (readFeatures.value.doors || readFeatures.value.windows))
 /** 편집 막대에 보이는 바뀐 것의 수. 리포트(바뀌는 것)에 적히는 줄과 같은 단위로 센다. */
 const changeCount = computed(
   () =>
     report.value.length +
+    assignLines.value.length +
     areaLines.value.length +
     confirmations.value.length +
     flowEditLines.value.length +
     kindEditLines.value.length +
     sinceOpen.value.renamed.length +
+    (sinceOpen.value.renumbered?.length ?? 0) +
     sinceOpen.value.restoreyed.length +
     sinceOpen.value.moved.length +
     sinceOpen.value.connected.length +
     sinceOpen.value.disconnected.length +
+    releaseLines.value.length +
     sinceOpen.value.spacesAdded.length +
     sinceOpen.value.spacesRemoved.length +
     sinceOpen.value.equipmentAdded.length +
     sinceOpen.value.equipmentRemoved.length +
     sinceOpen.value.equipmentRenamed.length +
+    sinceOpen.value.equipmentMounted.length +
     sinceOpen.value.wallsAdded.length +
     sinceOpen.value.wallsRemoved.length +
     sinceOpen.value.wallsChanged.length +
     sinceOpen.value.openingsAdded.length +
     sinceOpen.value.openingsRemoved.length +
     sinceOpen.value.openingsMoved.length +
+    sinceOpen.value.customZones.length +
+    roomLines.value.length +
+    objectLines.value.length +
     sinceOpen.value.systemMoved.length +
     sinceOpen.value.systemKinds.length +
+    sinceOpen.value.systemNames.length +
     sinceOpen.value.systemsAdded.length +
     sinceOpen.value.systemsRemoved.length,
 )
@@ -276,14 +403,17 @@ const sinceOpen = computed(() => {
         equipmentAdded: [],
         equipmentRemoved: [],
         equipmentRenamed: [],
+        equipmentMounted: [],
         wallsAdded: [],
         wallsRemoved: [],
         wallsChanged: [],
         openingsAdded: [],
         openingsRemoved: [],
         openingsMoved: [],
+        customZones: [],
         systemMoved: [],
         systemKinds: [],
+        systemNames: [],
         systemsAdded: [],
         systemsRemoved: [],
       }
@@ -385,11 +515,113 @@ const wallThicknessOf = (storey: { walls: { thickness: number | null }[] }) => {
   return values.sort((a, b) => a - b).map((t) => `${(t * 1000).toFixed(0)}mm`).join('/')
 }
 
+// 층고(OE-BIM-02). BIM 이 적었으면 그 값, 아니면 윗층 바닥과의 차. 맨 위층이고 BIM 이 안 적었으면 모름이다.
+const storeyHeightOf = computed(() => (model.value ? storeyHeights(model.value.storeys) : new Map<string, StoreyHeight | null>()))
+/** 미터. 단위 선언이 틀린 파일(Duplex COBie 는 층고가 3.1mm 로 들어온다)이 0.00 으로 뭉개지지 않게 작은 값은 유효 숫자로 보인다. */
+const meters = (v: number) => `${Math.abs(v) >= 0.1 ? v.toFixed(2) : v.toPrecision(2)} m`
+const storeyHeightTitle = (h: StoreyHeight) =>
+  [
+    h.source === 'bim' ? `BIM ${h.property}` : '윗층 바닥 높이와의 차',
+    h.source === 'bim' ? (h.calc !== null ? `계산(윗층 바닥과의 차) ${meters(h.calc)}` : '윗층이 없어 계산할 수 없음') : null,
+    h.net !== null ? `순 높이(BIM, 윗층 바닥판 아래까지) ${meters(h.net)}` : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+// 반자 높이 h_c(OE-EQP-03). BIM 값이 있으면 그것, 사람이 정했으면 그 값, 둘 다 없으면 모름이다 — 0 이나 층고로 채우지 않는다.
+// 반자 부착 설비의 z 로 짐작한 후보(계산)는 입력창 기본값과 참고로만 보인다.
+const ceilingGuessOf = computed(() => {
+  const out = new Map<string, { height: number; count: number } | null>()
+  for (const s of model.value?.storeys ?? []) out.set(s.id, ceilingGuess(s, storeyHeightOf.value.get(s.id)?.value ?? null))
+  return out
+})
+const ceilingTitle = (s: Storey) => {
+  const c = ceilingOf(s)
+  const guess = ceilingGuessOf.value.get(s.id)
+  return [
+    c?.source === 'bim' ? `BIM ${c.property} — 방·천장재 ${c.count}개의 가운데 값` : c ? '직접 정한 값' : 'BIM 에 천장고가 없습니다',
+    s.ceilingSet != null && s.ceiling ? `BIM 값 ${meters(s.ceiling.height)} (${s.ceiling.property})` : null,
+    guess ? `후보 ${meters(guess.height)} — 반자 부착 설비 ${guess.count}대의 높이 가운데 값(계산, 값으로 치지 않음)` : null,
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+/** BIM 값과 후보가 0.3m 넘게 다르면 보인다. 층 하나에 반자 높이 하나라 방마다 다른 층(성수 지하)에서 벌어진다. */
+const ceilingGuessApart = (s: Storey) => {
+  const c = ceilingOf(s)
+  const g = ceilingGuessOf.value.get(s.id)
+  return !!c && !!g && Math.abs(c.height - g.height) > 0.3
+}
+const ceilingEditing = ref<string | null>(null)
+const ceilingInput = ref('')
+function startCeiling(storeyId: string) {
+  const s = model.value?.storeys.find((x) => x.id === storeyId)
+  if (!s) return
+  ceilingEditing.value = storeyId
+  const v = ceilingOf(s)?.height ?? ceilingGuessOf.value.get(storeyId)?.height
+  ceilingInput.value = v === undefined ? '' : String(v)
+  void nextTick(() => document.querySelector<HTMLInputElement>('.ceiling-input')?.select())
+}
+function saveCeiling(storeyId: string, value: number | null) {
+  const m = model.value
+  const s = m?.storeys.find((x) => x.id === storeyId)
+  if (!m || !s) return
+  if (value !== null) {
+    const top = storeyHeightOf.value.get(storeyId)?.value ?? null
+    if (!Number.isFinite(value) || value <= FLOOR_BAND) return note(`천장고는 ${FLOOR_BAND}m 보다 높아야 합니다.`)
+    if (top !== null && value >= top) return note(`천장고는 층고(${meters(top)})보다 낮아야 합니다.`)
+  }
+  ceilingEditing.value = null
+  if (!setCeiling(m, storeyId, value)) return
+  progressVersion.value++
+  autosaveArmed = true
+  triggerRef(model)
+  const c = ceilingOf(s)
+  note(c ? `${s.name} 층의 천장고를 ${meters(c.height)}로 정했습니다${c.source === 'bim' ? '(BIM 값)' : ''}.` : `${s.name} 층의 천장고를 지웠습니다(모름).`)
+}
+
+/** 설비의 설치면을 사람이 정한다(OE-EQP-05). null 이면 지워 z 판정으로 돌아간다. 되돌리기에 쌓인다. */
+function setSurfaceOf(id: string, surface: Surface | null) {
+  const m = model.value
+  if (!m) return
+  const snapshot = snapshotEquipment(m, id)
+  const at = mark()
+  const done = setEquipmentSurface(m, id, surface)
+  if (done !== true) {
+    if (done) note(done.refused)
+    return
+  }
+  const name = shortName(nameOfId(id))
+  remember(surface ? `${name} 설치면 ${SURFACE_LABEL[surface]}` : `${name} 설치면 판정으로`, snapshot, at)
+  triggerRef(model)
+  note(surface ? `${name}의 설치면을 ${SURFACE_LABEL[surface]}으로 정했습니다` : `${name}의 설치면을 z 판정으로 되돌렸습니다`)
+}
+
+// 설치면 판정(OE-EQP-03). z(층 바닥 기준)로 판정하고, 허용 설치면 밖이면 목록에 올린다(Q9).
+const JUDGED_LABEL: Record<Judged, string> = { ...SURFACE_LABEL, plenum: '천장(플레넘)' }
+const surfaceRows = computed(() => (model.value ? judgeAll(model.value, (id) => storeyHeightOf.value.get(id)?.value ?? null) : []))
+const surfaceCounts = computed(() => {
+  const c = { ceiling: 0, plenum: 0, floor: 0, wall: 0, unknown: 0 }
+  for (const r of surfaceRows.value) c[r.judged ?? 'unknown']++
+  return c
+})
+const surfaceMismatch = computed(() => surfaceRows.value.filter((r) => outsideAllowed(r.equipment.kind, r.judged)))
+const selectedJudged = computed(() => {
+  const e = selected.value
+  const st = e ? storeyOf(e.id) : null
+  if (!e || !st) return null
+  const judged = judgeSurface(e, st, storeyHeightOf.value.get(st.id)?.value ?? null)
+  return { judged, z: e.position ? e.position[2] - st.elevation : null, outside: outsideAllowed(e.kind, judged), hc: ceilingOf(st) }
+})
+
 const wallThicknessLabel = (storey: { walls: { thickness: number | null }[] }) => {
   const kinds = wallThicknessOf(storey).split('/').filter(Boolean)
   return kinds.length <= 2 ? kinds.join('/') : `두께 ${kinds.length}종`
 }
 
+// 외벽 설비(OE-EQP-15). 방 밖이 맞는 자리라 소속을 "외벽" 으로 보인다(TTL 은 층까지만 나간다).
+const exteriorIds = computed(() => (model.value ? exteriorDevices(model.value) : new Set<string>()))
+const locationOf = (e: Equipment) => (e.spaceId ? spaceNameOf(e.spaceId) : exteriorIds.value.has(e.id) ? '외벽 (층까지만)' : '(소속 없음)')
 const spaceNameOf = (spaceId: string | null) => {
   if (!model.value || !spaceId) return '(소속 없음)'
   for (const storey of model.value.storeys) {
@@ -419,7 +651,7 @@ function hoverText(t: HoverTarget): { title: string; lines: string[] } | null {
     const system = e.systemId ? systemById.value.get(e.systemId)?.name : null
     return {
       title: e.name || what || e.ifcClass,
-      lines: [[what, system].filter(Boolean).join(' · '), e.spaceId ? `소속 ${spaceNameOf(e.spaceId)}` : '소속 방 없음'].filter(Boolean),
+      lines: [[what, system].filter(Boolean).join(' · '), e.spaceId ? `소속 ${spaceNameOf(e.spaceId)}` : exteriorIds.value.has(e.id) ? '외벽 설비' : '소속 방 없음'].filter(Boolean),
     }
   }
   if (t.kind === 'space') {
@@ -463,7 +695,7 @@ function onHover(t: HoverTarget | null, at: { x: number; y: number } | null) {
   if (key === hoverKey) return tip.move(at)
   hoverKey = key
   const text = hoverText(t)
-  if (text) tip.show(text.title, text.lines, at)
+  if (text) tip.show(t.kind, text.title, text.lines, at)
   else tip.hide()
 }
 
@@ -483,6 +715,21 @@ function redraw() {
  * 옮긴 설비의 형상을 같이 옮긴다. 형상은 임포트 때의 자리를 들고 있어서, 안 옮기면 다시 그릴 때
  * 예전 자리로 튄다. 형상이 없는 설비(상자로 찍는 것)는 좌표에서 바로 그리므로 할 일이 없다.
  */
+/**
+ * 설비 형상을 감싸는 상자(IFC 좌표). 겹침 판정(lib/overlap.ts)이 쓴다. 형상을 옮기면 shiftMesh 가 좌표 배열을 새로 만들어서
+ * 배열마다 한 번만 잰다(성수 배관 없는 설비 1,152대를 방향키마다 다시 재지 않는다).
+ */
+const ifcBoxes = new WeakMap<Float32Array, Box3>()
+function currentBox(id: string): Box3 | null {
+  const mesh = meshes.get(id)
+  if (!mesh) return null
+  const had = ifcBoxes.get(mesh.positions)
+  if (had) return had
+  const box = meshBox(mesh)
+  if (box) ifcBoxes.set(mesh.positions, box)
+  return box
+}
+
 function shiftMesh(id: string, from: Vec3 | null, to: Vec3 | null) {
   const mesh = meshes.get(id)
   if (!mesh || !from || !to) return
@@ -495,6 +742,38 @@ function shiftMesh(id: string, from: Vec3 | null, to: Vec3 | null) {
     positions[i + 2] += dz
   }
   meshes.set(id, { ...mesh, positions })
+}
+
+/** 구간의 연 때 축. 처음 물을 때 형상을 떠 둔다(그때는 아직 늘이기 전이다). 형상이 없거나 구간이 아니면 null. */
+function segmentAxis(id: string): SegmentAxis | null {
+  const known = meshBase.get(id)
+  if (known) return known.axis
+  const e = equipmentById.value.get(id)
+  const mesh = meshes.get(id)
+  if (e?.role !== 'segment' || !e.position || !mesh) return null
+  return captureBase(id, e.position)?.axis ?? null
+}
+
+function captureBase(id: string, at: Vec3) {
+  const mesh = meshes.get(id)
+  const axis = mesh && segmentAxisOf(mesh.positions)
+  if (!mesh || !axis) return null
+  const base = { positions: mesh.positions.slice(), at: [at[0], at[1], at[2]] as Vec3, axis }
+  meshBase.set(id, base)
+  return base
+}
+
+/** 늘인 구간의 형상을 지금 모델 값(`endShift`·`position`)으로 다시 만들어 3D 에 올린다. */
+function placeStretched(id: string, glide = false) {
+  const base = meshBase.get(id)
+  const e = equipmentById.value.get(id)
+  const mesh = meshes.get(id)
+  if (!base || !mesh || !e?.position) return
+  const shift = e.endShift ?? [[0, 0, 0], [0, 0, 0]]
+  const positions = stretchPositions(base.positions, base.axis, shift, rigidPart(base.axis, base.at, e.position, shift))
+  meshes.set(id, { ...mesh, positions })
+  if (viewer?.setEquipmentPositions(id, positions, glide)) sceneVersion.value++
+  else redraw()
 }
 
 /**
@@ -515,9 +794,13 @@ const cm = (v: number) => Math.round(v * 100) / 100
  * 설비 하나의 3D 형상을 좌표가 바뀐 만큼 옮긴다. 모델 전체를 다시 만들면 성수 크기에서 2초가 걸려서,
  * 형상 하나만 옮긴다. 3D 에 없던 설비(좌표가 없다가 생긴 것)와 사라질 설비만 다시 그린다.
  */
-function moveInScene(id: string, from: Vec3 | null, to: Vec3 | null) {
+function moveInScene(id: string, from: Vec3 | null, to: Vec3 | null, glide = false) {
+  if (meshBase.has(id)) {
+    placeStretched(id, glide)
+    return
+  }
   shiftMesh(id, from, to)
-  if (from && to && viewer?.shiftEquipment(id, [to[0] - from[0], to[1] - from[1], to[2] - from[2]])) sceneVersion.value++
+  if (from && to && viewer?.shiftEquipment(id, [to[0] - from[0], to[1] - from[1], to[2] - from[2]], glide)) sceneVersion.value++
   else redraw()
 }
 
@@ -525,16 +808,75 @@ function moveInScene(id: string, from: Vec3 | null, to: Vec3 | null) {
  * 설비를 옮기는 길은 표(숫자)와 3D(끌기) 둘이지만 하는 일은 하나다. 소속 재판정은 edit.ts 가 한다.
  * `drawnAt` 은 3D 가 이미 그려 둔 자리다(끌어 놓은 경우). 그 자리와 저장한 좌표의 차만큼만 형상을 옮긴다.
  */
+/** 겹쳐서 막았다고 알린다. 문구는 OE-SPC-15 가 정한 것이고, 무엇과 겹쳤는지를 뒤에 붙인다(3D 에는 붉은 상자로 짚는다). */
+function refuseOverlap(blocked: Equipment) {
+  const name = shortName(blocked.name)
+  editNotice.value = `이미 오브젝트가 있는 위치입니다(${name}${josa(name, '과/와')} 겹칩니다). 배관 없는 설비는 서로 겹쳐 놓을 수 없습니다.`
+  viewer?.markConflict(blocked.id)
+}
+
 function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: string): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
-  const snapshot = snapshotEquipment(model.value, equipmentId)
+  // 외벽 전용 설비(외기 센서, OE-OBJ-04)는 외벽 바깥 면으로만 옮긴다. 바깥 면을 따라 옮기는 것은 되고, 벽에서 떼는 것은 막는다.
+  const moving = equipmentById.value.get(equipmentId)
+  const home = storeyOf(equipmentId)
+  const goBack = () => {
+    if (drawnAt && before) viewer?.shiftEquipment(equipmentId, [before[0] - drawnAt[0], before[1] - drawnAt[1], before[2] - drawnAt[2]], true)
+  }
+  // 천장 편집 모드(OE-OBJ-08). 모드 밖의 설비는 옮기지 않고, 천장 설비의 z 는 구역 안에서만 고친다(Q10).
+  const lock = moving ? ceilingLock(moving) : null
+  if (moving && lock) {
+    goBack()
+    refuseLock(moving, lock)
+    return false
+  }
+  if (moving && home && ceilingMode.value && (!before || to[2] !== before[2])) {
+    const ok = ceilingZCheck(moving, home, to[2])
+    if (ok !== true) {
+      goBack()
+      editNotice.value = ok
+      return false
+    }
+  }
+  // 바닥·벽 쪽에서 z 를 올려 천장으로 보내지 않는다 — 천장 설비가 되면 이 쪽에서 다시 못 고친다.
+  if (moving && home && editing.value && !ceilingMode.value && before && to[2] !== before[2]) {
+    const judged = judgeSurface({ ...moving, position: to }, home, storeyHeightOf.value.get(home.id)?.value ?? null)
+    if (judged === 'ceiling' || judged === 'plenum') {
+      goBack()
+      editNotice.value = `그 높이는 천장(천장고 ${meters(ceilingOf(home)!.height)} 근처)입니다. 천장으로 옮기려면 천장 편집 모드에서 하세요.`
+      return false
+    }
+  }
+  if (moving && home && exteriorOnly(moving) && !onExteriorFace(home, [to[0], to[1]])) {
+    if (drawnAt && before) viewer?.shiftEquipment(equipmentId, [before[0] - drawnAt[0], before[1] - drawnAt[1], before[2] - drawnAt[2]], true)
+    editNotice.value = `${EXTERIOR_ONLY} 그 자리는 외벽 바깥 면이 아닙니다. 다른 외벽으로는 [벽에 붙이기]로 옮기세요.`
+    return false
+  }
+  // 배관 없는 설비끼리는 겹쳐 놓지 못한다(OE-OBJ-10·16). 끌어 놓은 것이면 3D 가 이미 그 자리에 그렸으니 되돌려 보낸다.
+  const blocked = overlapAt(model.value, equipmentId, to, currentBox)
+  if (blocked) {
+    if (drawnAt && before) viewer?.shiftEquipment(equipmentId, [before[0] - drawnAt[0], before[1] - drawnAt[1], before[2] - drawnAt[2]], true)
+    refuseOverlap(blocked)
+    return false
+  }
+  // 붙은 배관(PRD #13). 옮기기 전에 정한다 — 옮긴 뒤에는 구간의 어느 끝이 가까웠는지 모른다.
+  const plan = carryConduits.value && before ? planFollow(model.value, equipmentId, segmentAxis) : null
+  const followers = plan ? [...plan.rigid, ...new Set(plan.stretch.map((x) => x.id))] : []
+  const own = snapshotEquipment(model.value, equipmentId)
+  const snapshot: Snapshot | null =
+    own && followers.length ? { kind: 'many', parts: [own, ...followers.flatMap((id) => snapshotEquipment(model.value!, id) ?? [])] } : own
   const at = mark()
   const change = moveEquipment(model.value, equipmentId, to)
   if (!change) return false
-  remember(`${shortName(change.equipmentName)} 옮김`, snapshot, at, coalesce)
+  remember(`${shortName(change.equipmentName)} 옮김${followers.length ? ` (배관 ${followers.length}개 따라옴)` : ''}`, snapshot, at, coalesce)
   if (drawnAt) shiftMesh(equipmentId, before, drawnAt)
   moveInScene(equipmentId, drawnAt ?? before, to)
+  if (plan && before && followers.length) {
+    const was = new Map(followers.map((id) => [id, equipmentById.value.get(id)?.position ?? null]))
+    changes.value = [...changes.value, ...applyFollow(model.value, plan, [to[0] - before[0], to[1] - before[1], to[2] - before[2]], segmentAxis)]
+    for (const id of followers) moveInScene(id, was.get(id) ?? null, equipmentById.value.get(id)?.position ?? null)
+  }
   changes.value = [...changes.value, change]
   triggerRef(model)
   return true
@@ -588,6 +930,8 @@ function applyMove(equipmentId: string, axis: 0 | 1 | 2, raw: string, current: r
     const base: [number, number, number] = [current[0], current[1], current[2]]
     base[axis] = value
     if (relocate(equipmentId, base)) warnIfFar(base)
+    // 막혔으면(겹침) 칸도 지금 값으로 되돌린다. 친 값이 남으면 옮겨진 것처럼 보인다.
+    else if (input) input.value = String(mmOf(current[axis]))
     return
   }
 
@@ -612,25 +956,199 @@ const mmOf = (v: number) => Math.round(v * 1000) / 1000
 function dropEquipment(equipmentId: string, delta: Vec3) {
   const position = equipmentById.value.get(equipmentId)?.position
   if (!position) return
+  // 여러 개 고른 것 중 하나를 끌었으면 전부 같은 거리만큼(OE-UI-09).
+  if (group.value.includes(equipmentId)) {
+    moveGroup(delta[0], delta[1], { id: equipmentId, drawnAt: [position[0] + delta[0], position[1] + delta[1], position[2]] })
+    return
+  }
   const drawnAt: Vec3 = [position[0] + delta[0], position[1] + delta[1], position[2]]
   relocate(equipmentId, [cm(drawnAt[0]), cm(drawnAt[1]), position[2]], drawnAt)
 }
 
+// --- 여러 개 고르기 (OE-UI-09) -------------------------------------------------------------
+//
+// 설비만 여러 개 고른다(2026-10-03 사용자 결정). 편집 모드에서 Shift+클릭(3D·평면도·설비 목록)으로 넣고 빼고, Shift+끌기로 상자 안의
+// 설비를 더한다. 덕트·배관은 넣지 않는다(상자에 수백 개가 딸려 온다). 둘 이상이면 고른 설비 패널 대신 묶음 패널이 뜨고, 방향키·끌기로
+// 같이 옮기고 Delete 로 같이 지운다 — 되돌리기 한 번에 전부. 하나만 남으면 보통 고르기로 돌아간다.
+const group = ref<string[]>([])
+/** 여러 개 고르기에 넣을 수 있는가. 좌표가 있는 기기(덕트·배관이 아닌 것)만. */
+const groupable = (id: string) => {
+  const e = equipmentById.value.get(id)
+  return !!e && !isConduit(e.role)
+}
+function setGroup(ids: readonly string[]) {
+  const next = [...new Set(ids)].filter(groupable)
+  if (next.length >= 2) {
+    group.value = next
+    selectedId.value = null
+    selectedSpaceId.value = null
+    selectedSystemId.value = null
+    selectedElementId.value = null
+    selectedCustomZoneId.value = null
+  } else {
+    group.value = []
+    selectedId.value = next[0] ?? null
+  }
+}
+/** Shift+클릭. 고른 하나가 있으면 그것부터 묶음에 넣는다. */
+function toggleGroup(id: string) {
+  if (!groupable(id)) {
+    note('덕트·배관은 여러 개 고르기에 넣지 않습니다')
+    return
+  }
+  const base = group.value.length ? group.value : selectedId.value ? [selectedId.value] : []
+  setGroup(base.includes(id) ? base.filter((x) => x !== id) : [...base, id])
+}
+/** Shift+끌기 상자. 덕트·배관을 빼고 지금 묶음에 더한다. */
+function addBoxToGroup(ids: readonly string[]) {
+  const devices = ids.filter(groupable)
+  if (!devices.length) return note('상자 안에 고를 설비가 없습니다(덕트·배관은 빼고 셉니다)')
+  const base = group.value.length ? group.value : selectedId.value ? [selectedId.value] : []
+  setGroup([...base, ...devices])
+  if (group.value.length) note(`설비 ${group.value.length}대를 골랐습니다. 방향키·끌기로 같이 옮기고 Delete 로 같이 지웁니다`)
+}
+const groupItems = computed(() => group.value.map((id) => equipmentById.value.get(id)).filter((e): e is Equipment => !!e))
+
+/**
+ * 묶음을 평면으로 같이 옮긴다. 하나라도 막히면(겹침 OE-OBJ-16 · 외벽 전용 OE-OBJ-04) 아무것도 옮기지 않는다 — 일부만 옮기면 묶음의
+ * 모양이 깨진다. 묶음끼리는 같은 거리를 가니 서로의 옛 자리와 견주지 않는다. 붙은 배관은 따라오지 않는다. `dragged` 는 3D 에서 끌어
+ * 이미 그려 둔 하나다.
+ */
+function moveGroup(dx: number, dy: number, dragged?: { id: string; drawnAt: Vec3 }, coalesce?: string): boolean {
+  const m = model.value
+  const items = groupItems.value
+  if (!m || items.length < 2) return false
+  const revert = () => {
+    const was = dragged ? equipmentById.value.get(dragged.id)?.position : null
+    if (dragged && was) viewer?.shiftEquipment(dragged.id, [was[0] - dragged.drawnAt[0], was[1] - dragged.drawnAt[1], was[2] - dragged.drawnAt[2]], true)
+  }
+  if (items.some((e) => !e.position)) {
+    revert()
+    editNotice.value = '좌표가 없는 설비가 묶음에 있어 같이 옮기지 않습니다. 먼저 그 설비를 놓으세요.'
+    return false
+  }
+  const locked = items.find((e) => ceilingLock(e))
+  if (locked) {
+    revert()
+    refuseLock(locked, `${ceilingLock(locked)} 묶음을 옮기지 않았습니다.`)
+    return false
+  }
+  const members = new Set(items.map((e) => e.id))
+  const targets = items.map((e) => ({ e, from: e.position!, to: [cm(e.position![0] + dx), cm(e.position![1] + dy), e.position![2]] as Vec3 }))
+  for (const { e, to } of targets) {
+    const home = storeyOf(e.id)
+    if (home && exteriorOnly(e) && !onExteriorFace(home, [to[0], to[1]])) {
+      revert()
+      editNotice.value = `${shortName(e.name)}: ${EXTERIOR_ONLY} 묶음을 옮기지 않았습니다.`
+      return false
+    }
+    const blocked = overlapAt(m, e.id, to, currentBox, undefined, members)
+    if (blocked) {
+      revert()
+      const name = shortName(blocked.name)
+      editNotice.value = `이미 오브젝트가 있는 위치입니다(${shortName(e.name)}${josa(shortName(e.name), '이/가')} ${name}${josa(name, '과/와')} 겹칩니다). 묶음을 옮기지 않았습니다.`
+      viewer?.markConflict(blocked.id)
+      return false
+    }
+  }
+  const snapshot: Snapshot = { kind: 'many', parts: targets.flatMap(({ e }) => snapshotEquipment(m, e.id) ?? []) }
+  const at = mark()
+  const done: Change[] = []
+  for (const { e, to } of targets) {
+    const change = moveEquipment(m, e.id, to)
+    if (change) done.push(change)
+  }
+  remember(`설비 ${items.length}대 옮김`, snapshot, at, coalesce)
+  for (const { e, from, to } of targets) {
+    if (dragged?.id === e.id) shiftMesh(e.id, from, dragged.drawnAt)
+    moveInScene(e.id, dragged?.id === e.id ? dragged.drawnAt : from, to)
+  }
+  changes.value = [...changes.value, ...done]
+  triggerRef(model)
+  return true
+}
+/** 방향키로 묶음을 옮긴다. 화면의 오른쪽·위쪽에 가장 가까운 평면 축으로(한 대 옮기기와 같다). 꾹 누르면 되돌리기 한 단계로 묶인다. */
+function nudgeGroup(code: string, step: number): boolean {
+  if (!viewer) return false
+  const { right, up } = viewer.planeAxes()
+  const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
+  const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
+  if (moveGroup(sign * ax * step, sign * ay * step, undefined, 'group-nudge')) note(`설비 ${group.value.length}대를 같이 옮겼습니다`)
+  return true
+}
+/** 묶음을 같이 지운다. 붙은 연결도 같이 빠지고, 되돌리기 한 번에 전부 돌아온다. */
+function deleteGroup(): boolean {
+  const m = model.value
+  const items = groupItems.value
+  if (!m || items.length < 2) return false
+  const locked = items.find((e) => ceilingLock(e))
+  if (locked) {
+    refuseLock(locked, `${ceilingLock(locked)} 묶음을 지우지 않았습니다.`)
+    return true
+  }
+  const parts = items.flatMap((e) => snapshotEquipmentSet(m, e.id) ?? [])
+  const at = mark()
+  let connections = 0
+  let rules: RuleReport | null = null
+  for (const e of items) {
+    const done = deleteEquipment(m, e.id)
+    if (!done) continue
+    connections += done.connections
+    rules = done.rules
+  }
+  remember(`설비 ${items.length}대 지우기`, { kind: 'many', parts }, at)
+  if (rules) ruleReport.value = rules
+  group.value = []
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+  note(`설비 ${items.length}대를 지웠습니다${connections ? `(연결 ${connections}개도 같이)` : ''}. Ctrl+Z 로 되돌립니다`)
+  return true
+}
+
 /** 설비를 다른 층으로(E6). 높이도 두 층 바닥의 차만큼 옮기므로 3D 를 다시 그린다. */
-function moveToStorey(equipmentId: string, storeyId: string) {
-  if (!model.value) return
+/** 설비를 다른 층으로 옮긴다. 옮긴 층에서 배관 없는 설비와 겹치게 되면 옮기지 않고 false 다(OE-OBJ-16). */
+function moveToStorey(equipmentId: string, storeyId: string): boolean {
+  if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
+  const moving = equipmentById.value.get(equipmentId)
+  const lock = moving ? ceilingLock(moving) : null
+  if (moving && lock) {
+    refuseLock(moving, lock)
+    return false
+  }
+  const target = model.value.storeys.find((s) => s.id === storeyId)
+  if (moving && target && exteriorOnly(moving) && !(before && onExteriorFace(target, [before[0], before[1]]))) {
+    editNotice.value = `${EXTERIOR_ONLY} 그 층의 같은 자리는 외벽 바깥 면이 아닙니다. 층을 옮긴 뒤 [벽에 붙이기]로 붙이세요.`
+    return false
+  }
+  // 층을 옮기면 x·y 는 그대로이고 z 가 층 높이 차만큼 바뀐다(moveEquipmentToStorey). 그 자리로 미리 잰다.
+  const from = storeyOf(equipmentId)
+  if (before && from && target && from !== target) {
+    const to: Vec3 = [before[0], before[1], before[2] + target.elevation - from.elevation]
+    const blocked = overlapAt(model.value, equipmentId, to, currentBox, storeyId)
+    if (blocked) {
+      refuseOverlap(blocked)
+      return false
+    }
+  }
   const snapshot = snapshotEquipment(model.value, equipmentId)
   const at = mark()
   const change = moveEquipmentToStorey(model.value, equipmentId, storeyId)
-  if (!change) return
+  if (!change) return false
   remember(`${shortName(change.equipmentName)} 층 옮김`, snapshot, at)
   moveInScene(equipmentId, before, equipmentById.value.get(equipmentId)?.position ?? null)
   changes.value = [...changes.value, change]
   storeyMoved.value = new Set([...storeyMoved.value, equipmentId])
   triggerRef(model)
-  // 한 층만 보고 있으면 옮긴 층으로 따라간다. 안 따라가면 고른 설비가 화면에서 사라진 것처럼 보였다.
-  if (viewStorey.value && viewStorey.value !== storeyId) viewStorey.value = storeyId
+  // 한 층만 보고 있으면 옮긴 층으로 따라간다. 안 따라가면 고른 설비가 화면에서 사라진 것처럼 보였다. 방금 한 편집을 따라가는 것이라
+  // 층 바꾸기를 묻지 않는다(goFloor) — 옮긴 편집은 원래 층의 것으로 남는다(storey-drafts.ts).
+  if (viewStorey.value && viewStorey.value !== storeyId) goFloor(storeyId)
+  return true
+}
+/** 패널의 층 칸. 막히면 칸을 지금 층으로 되돌린다 — 고른 층이 남으면 옮겨진 것처럼 보인다. */
+function onStoreyPick(equipmentId: string, select: HTMLSelectElement) {
+  if (!moveToStorey(equipmentId, select.value)) select.value = storeyOf(equipmentId)?.id ?? ''
 }
 /** 사람이 층을 바꾼 설비. 층 칸의 출처를 BIM 에서 편집으로 바꾼다. */
 const storeyMoved = ref(new Set<string>())
@@ -701,6 +1219,19 @@ function settleLater() {
   }, 0)
 }
 
+// 소속이 바뀐 방을 3D 에서 한 번 번쩍인다. 편집이 붙인 Change 는 들어간 방을, 되돌리기가 잘라 낸 Change 는 돌아간 방을.
+// 어느 길로 고쳤든(끌기·표·방향키·경계·되돌리기) changes 하나로 모이므로 여기서 한 번만 본다. 한꺼번에 수백 개가 바뀌는
+// 편집(경계·합치기)은 화면 전체가 번쩍여 아무것도 가리키지 않으니 몇 개까지만.
+const PULSE_LIMIT = 12
+watch(changes, (now, before) => {
+  const added = now.length > before.length && now.slice(0, before.length).every((c, i) => c === before[i])
+  const removed = now.length < before.length && before.slice(0, now.length).every((c, i) => c === now[i])
+  const spaces = new Set<string>()
+  if (added) for (const c of now.slice(before.length)) if (c.toSpaceId && c.toSpaceId !== c.fromSpaceId) spaces.add(c.toSpaceId)
+  if (removed) for (const c of before.slice(now.length)) if (c.fromSpaceId && c.fromSpaceId !== c.toSpaceId) spaces.add(c.fromSpaceId)
+  if (spaces.size && spaces.size <= PULSE_LIMIT) viewer?.pulseSpaces(spaces)
+})
+
 function undo() {
   flushNudge()
   const m = model.value
@@ -751,16 +1282,419 @@ function redo() {
   note(`다시 했습니다: ${next.entry.label}`)
 }
 
+// --- 편집 리플레이 (PoC) -----------------------------------------------------------
+//
+// P 로 연다. 3D 를 창 전체로 키우고(극장), 이번 세션의 편집을 되돌리기로 처음까지 되감은 뒤 다시 하기로 하나씩 다시 한다.
+// 3D 에서 설비가 미끄러져 옮겨 가고 방이 번쩍이는 것은 되돌리기·다시 하기가 원래 하는 일이라, 리플레이는 순서와 카메라만
+// 맡는다. 장면마다 그 층만 보이고 그 자리로 카메라를 보낸 뒤 다시 하고, 그 편집이 TTL·GeoJSON 의 어디를 바꿨는지를 카드로
+// 띄운다(components/ReplayHud.vue, 워커가 모델 사본으로 계산 — lib/replay.ts). 닫으면 남은 편집을 다시 해서 연 때 상태로 돌아온다.
+// 카메라 비행(1.5초) 뒤에 다시 하고, 설비가 미끄러져(1.1초) 충격파가 퍼지고 카드가 다 써질 때까지 둔다.
+const REPLAY_AIM_MS = 1800
+const REPLAY_STEP_MS = 5200
+/** 열자마자 건물 전체를 보며 제목을 띄우는 시간. */
+const REPLAY_INTRO_MS = 1300
+const replayTotal = ref(0)
+const replayPhase = ref<'rewind' | 'play' | 'done'>('play')
+const replayPlaying = ref(true)
+const replaySpeed = ref(1)
+/** 카메라가 다음 편집 자리로 가는 중이면 그 번호. */
+const replayAiming = ref<number | null>(null)
+const replayStart = shallowRef<ReplayStart | null>(null)
+const replaySteps = shallowRef<ReplayStep[]>([])
+const replayError = ref('')
+/** 벽·문·창 장면이 나온 뒤로는 그 외곽선 층을 켜 둔다(평소에는 편집 모드의 벽·문·창 모드에서만 그린다). 고른 것은 그 장면의 요소. */
+const replayArch = ref(false)
+const replayElement = ref<string | null>(null)
+/** 조작(멈춤·앞뒤·닫기)마다 바꾼다. 도는 중인 장면은 이것이 바뀌면 그 자리에서 멈춘다. */
+let replayToken = 0
+let replayWorker: Worker | null = null
+let replaySaved: { selectedId: string | null; selectedSpaceId: string | null; viewStorey: string | null; activeTab: '3d' | 'plan' } | null = null
+
+const frames = (n = 2) => new Promise<void>((r) => (n <= 1 ? requestAnimationFrame(() => r()) : requestAnimationFrame(() => void frames(n - 1).then(r))))
+/** ms 만큼(배속 반영) 기다린다. 조작으로 장면이 끊기면 false. */
+function replayWait(ms: number, token: number): Promise<boolean> {
+  const t0 = performance.now()
+  return new Promise((r) => {
+    const tick = () => {
+      if (token !== replayToken || !replayOpen.value) return r(false)
+      if (performance.now() - t0 >= ms / replaySpeed.value) return r(true)
+      window.setTimeout(tick, 30)
+    }
+    tick()
+  })
+}
+
+async function openReplay() {
+  const m = model.value
+  const n = history.value.length
+  if (!m || !viewer) return
+  if (!n) {
+    note('리플레이할 편집이 없습니다 — 이번 세션에서 한 편집(되돌리기 이력)만 틉니다')
+    return
+  }
+  flushNudge()
+  replaySaved = { selectedId: selectedId.value, selectedSpaceId: selectedSpaceId.value, viewStorey: viewStorey.value, activeTab: activeTab.value }
+  replayTotal.value = n
+  replaySteps.value = []
+  replayStart.value = null
+  replayError.value = ''
+  replayAiming.value = null
+  replayPhase.value = 'rewind'
+  replayPlaying.value = true
+  activeTab.value = '3d'
+  // 장면 카드(TTL·GeoJSON 변화)는 지금 모델과 이력의 사본으로 따로 계산한다. 되감기 전에 넘긴다 — 워커는 편집을 다 한 모델에서 시작한다.
+  replayWorker?.terminate()
+  replayWorker = new Worker(new URL('./lib/replay.worker.ts', import.meta.url), { type: 'module' })
+  replayWorker.onmessage = (e: MessageEvent<ReplayMessage>) => {
+    const msg = e.data
+    if (msg.type === 'start') replayStart.value = msg.start
+    else if (msg.type === 'step') replaySteps.value = [...replaySteps.value, msg.step]
+    else if (msg.type === 'error') replayError.value = msg.message
+    else if (msg.type === 'done') {
+      replayWorker?.terminate()
+      replayWorker = null
+    }
+  }
+  try {
+    replayWorker.postMessage({ model: toRaw(m), entries: history.value.map((h) => ({ label: h.label, time: h.time, snapshot: toRaw(h.snapshot) })) })
+  } catch (err) {
+    replayError.value = err instanceof Error ? err.message : String(err)
+  }
+  replayOpen.value = true
+  viewer.setEditMode(false)
+  viewer.setArrowsShown(true)
+  // 극장 바탕이 어두워서 라이트 테마의 진한 화살표가 묻힌다.
+  viewer.setDark(true)
+  viewer.setCinema(true)
+  selectedId.value = null
+  selectedSpaceId.value = null
+  const token = ++replayToken
+  await nextTick()
+  await frames()
+  // 첫 장면: 건물 전체를 돌며 제목.
+  viewStorey.value = null
+  await nextTick()
+  viewer.frameAll()
+  if (!(await replayWait(REPLAY_INTRO_MS, token))) return
+  if (!(await replayRewind(token))) return
+  replayPhase.value = 'play'
+  void replayRun(token)
+}
+
+/** 처음까지 되감는다. 3D 에서 거꾸로 미끄러져 돌아가는 것이 보이게 한 단계씩, 편집이 많으면 빨리. */
+async function replayRewind(token: number): Promise<boolean> {
+  replayPhase.value = 'rewind'
+  replayAiming.value = null
+  viewer?.spotlight([], [], 0)
+  const pause = Math.max(40, Math.min(260, 1800 / Math.max(1, history.value.length)))
+  while (history.value.length > 0) {
+    undo()
+    await frames()
+    if (!(await replayWait(pause * replaySpeed.value, token))) return false
+  }
+  return true
+}
+
+/** 단계 i 의 카드 자료. 워커가 아직이면 기다린다(성수 편집 5건에 0.8초). */
+async function replayStepInfo(i: number, token: number): Promise<ReplayStep | null> {
+  for (let t = 0; t < 400 && token === replayToken; t++) {
+    if (replaySteps.value[i]) return replaySteps.value[i]
+    if (replayError.value) return null
+    await new Promise((r) => window.setTimeout(r, 50))
+  }
+  return replaySteps.value[i] ?? null
+}
+
+/**
+ * 다음 편집 자리로 시점을 맞춘다: 그 층만 보이고, 바뀐 설비(없으면 물리존)에 카메라를 맞추고 고른다. 바뀐 것은 워커가 낸 평면
+ * 변화(열쇠 eq:·sp:·cn:)에서 읽는다 — 편집 종류마다 대상을 따로 셈하지 않아도 된다.
+ */
+async function replayAim(step: ReplayStep | null) {
+  const m = model.value
+  if (!m || !viewer) return
+  const storeyId = step?.storeyIds[0] ?? null
+  if (storeyId && m.storeys.length > 1 && viewStorey.value !== storeyId) viewStorey.value = storeyId
+  const equipment: string[] = []
+  const spaces: string[] = []
+  const walls: string[] = []
+  for (const c of step?.changes ?? []) {
+    if (c.key.startsWith('eq:')) equipment.push(c.key.slice(3))
+    else if (c.key.startsWith('sp:')) spaces.push(c.key.slice(3))
+    else if (c.key.startsWith('wl:')) walls.push(c.key.slice(3))
+    else if (c.key.startsWith('cn:')) equipment.push(...c.key.slice(3).replace(/#\d+$/, '').split('>'))
+  }
+  const byId = equipmentById.value
+  const devices = [...new Set(equipment)].filter((id) => byId.has(id) && !isConduit(byId.get(id)!.role))
+  const any = [...new Set(equipment)].filter((id) => byId.has(id))
+  // 층을 바꾼 watch(frameAll) 뒤에 맞춘다.
+  await nextTick()
+  const color = replayColor(step)
+  const lit = (ids: string[]) => ids.filter((id) => byId.has(id) && !isConduit(byId.get(id)!.role)).slice(0, 4).map((id) => ({ id, label: shortName(byId.get(id)!.name) }))
+  const arch = replayArchOf(step, 'before')
+  if (arch && (step?.category === '벽·문·창' || (!spaces.length && !any.length))) {
+    // 벽·문·창은 3D 형상이 아니라 외곽선 층에 그려진다. 그 층을 켜고, 바뀐 벽·문·창 자리(옮겼으면 전·후 둘 다)로 간다.
+    replayArch.value = true
+    replayElement.value = arch.id
+    selectedId.value = null
+    selectedSpaceId.value = null
+    viewer.framePoints([...arch.frame, ...(replayArchOf(step, 'after')?.frame ?? [])], 3)
+    viewer.spotlight([], [], color, { points: arch.points, rings: arch.rings })
+  } else if (spaces.length) {
+    // 물리존 편집은 물리존을 본다. 같이 바뀐 설비(소속이 풀린 것)는 결과라서, 멀리 있는 하나가 시점을 끌고 가면 안 된다.
+    viewer.frameSpace(spaces[0])
+    selectedId.value = null
+    selectedSpaceId.value = spaces[0]
+    viewer.spotlight([], spaces, color)
+  } else if (devices.length || any.length) {
+    // 첫 설비와 그 근처(12m)만 담는다. 계통 확정처럼 층 전체에 흩어진 편집도 한 자리를 크게 본다. 흐름 편집은 바뀐 연결이
+    // 짧은 덕트 마디라 바짝 다가가야 화살표가 보인다.
+    const flow = step?.category === '흐름 방향' || step?.category === '연결'
+    const list = flow ? any : devices.length ? devices : any
+    const at = byId.get(list[0])?.position
+    const near = at ? list.filter((id) => { const p = byId.get(id)?.position; return !p || Math.hypot(p[0] - at[0], p[1] - at[1]) < 12 }) : list
+    viewer.frame(near.slice(0, 80), flow ? 1 : 4)
+    selectedSpaceId.value = null
+    selectedId.value = devices[0] ?? null
+    // 흐름 장면의 주인공은 바뀐 연결의 화살표다. 빛기둥은 시작 설비 하나만.
+    viewer.spotlight(flow ? lit(near).slice(0, 1) : lit(devices.length ? devices : near), [], color)
+  } else if (walls.length) {
+    const room = m.storeys.flatMap((st) => st.spaces).find((sp) => sp.boundedBy.includes(walls[0]))
+    if (room) viewer.frameSpace(room.id)
+    else viewer.frameAll()
+    viewer.spotlight([], room ? [room.id] : [], color)
+  } else {
+    viewer.frameAll()
+    viewer.spotlight([], [], color)
+  }
+}
+
+/**
+ * 장면의 벽·문·창 변화를 비출 자리로. `side` 는 편집 전(카메라를 보낼 때)·후(다시 한 뒤). 후에는 옮긴 문·창이 옛 자리에서
+ * 미끄러져 오게 from 을 붙인다. 바뀐 벽·문·창이 없으면 null.
+ */
+function replayArchOf(step: ReplayStep | null, side: 'before' | 'after') {
+  const m = model.value
+  if (!m) return null
+  const changes = (step?.changes ?? []).filter((c) => c.key.startsWith('op:') || c.key.startsWith('wl:'))
+  if (!changes.length) return null
+  const elevation = (sid: string) => m.storeys.find((s) => s.id === sid)?.elevation ?? 0
+  const names = new Map(m.storeys.flatMap((s) => s.openings).map((o) => [o.id, o.name]))
+  const frame: Vec3[] = []
+  const points: { key: string; at: Vec3; from?: Vec3; label?: string }[] = []
+  const rings: { key: string; ring: Vec2[]; elevation: number }[] = []
+  for (const c of changes.slice(0, 6)) {
+    const it = side === 'before' ? c.before : c.after
+    const was = c.before
+    if (!it) continue
+    const z = elevation(it.storeyId)
+    if (it.t === 'opening' && it.at) {
+      const at: Vec3 = [it.at[0], it.at[1], z]
+      const from = side === 'after' && was?.t === 'opening' && was.at && (was.at[0] !== it.at[0] || was.at[1] !== it.at[1]) ? ([was.at[0], was.at[1], z] as Vec3) : undefined
+      frame.push(at)
+      points.push({ key: c.key, at, from, label: names.get(it.id) ? shortName(names.get(it.id)!) : it.kind === 'door' ? '문' : '창' })
+    } else if (it.t === 'wall') {
+      for (const ring of it.rings) {
+        frame.push(...ring.map((p): Vec3 => [p[0], p[1], z]))
+        rings.push({ key: `${c.key}:${rings.length}`, ring, elevation: z })
+      }
+    }
+  }
+  const first = (changes[0].after ?? changes[0].before)!
+  return { id: first.t === 'opening' || first.t === 'wall' ? first.id : null, frame, points, rings }
+}
+
+const replayColor = (step: ReplayStep | null) => parseInt((step ? CATEGORY_COLOR[step.category] : '#5ef2c2').slice(1), 16)
+
+/** 다시 한 뒤. 물리존은 모양이 바뀌었으니 울타리를 새 모양으로 다시 세운다(옛 것은 옅어진다). */
+function replayLand(step: ReplayStep | null) {
+  replayFlash(step)
+  void replayArrows(step)
+  const spaces = (step?.changes ?? []).filter((c) => c.key.startsWith('sp:')).map((c) => c.key.slice(3))
+  const arch = replayArch.value ? replayArchOf(step, 'after') : null
+  if (arch && (arch.points.length || arch.rings.length)) viewer?.spotlight([], [], replayColor(step), { points: arch.points, rings: arch.rings })
+  else if (spaces.length) viewer?.spotlight([], spaces, replayColor(step))
+}
+
+/** 카드·시간줄을 눌러 고른 장면 하나만 다시 튼다: 그 편집 앞까지 되돌리거나 다시 하고, 카메라를 보낸 뒤 그 편집을 다시 하고 멈춘다. */
+async function replayScene(i: number) {
+  if (replayPhase.value === 'rewind' || i < 0 || i >= replayTotal.value) return
+  const token = ++replayToken
+  replayPlaying.value = false
+  replayAiming.value = null
+  replayPhase.value = 'play'
+  while (history.value.length > i) undo()
+  while (history.value.length < i && future.value.length) redo()
+  await frames()
+  const step = await replayStepInfo(i, token)
+  if (token !== replayToken) return
+  replayAiming.value = i
+  await replayAim(step)
+  void replayArrows(step)
+  if (!(await replayWait(REPLAY_AIM_MS, token))) return
+  redo()
+  replayAiming.value = null
+  replayLand(step)
+}
+
+/** 끝: 건물 전체로 물러나 고친 자리 전부에 빛기둥을 세우고 돈다. */
+function replayFinale() {
+  const byId = equipmentById.value
+  const devices: { id: string; label: string }[] = []
+  const spaces = new Set<string>()
+  for (const s of replaySteps.value) {
+    const id = s.changes.map((c) => c.key).find((k) => k.startsWith('eq:') && byId.has(k.slice(3)) && !isConduit(byId.get(k.slice(3))!.role))?.slice(3)
+    if (id && !devices.some((d) => d.id === id)) devices.push({ id, label: `#${String(s.index + 1).padStart(2, '0')} ${shortName(byId.get(id)!.name)}` })
+    for (const c of s.changes) if (c.key.startsWith('sp:')) spaces.add(c.key.slice(3))
+  }
+  viewer?.frameAll()
+  viewer?.spotlight(devices, [...spaces], 0x5ef2c2)
+}
+
+/**
+ * 흐름이 바뀐 편집(방향·확정·잇기)은 그 연결들을 화살표로 그린다. 평소 화살표는 편집 모드에서 고른 설비의 이웃 연결뿐이라
+ * 계통 확정처럼 수백 개가 바뀐 것은 안 보인다. 연결이 안 바뀐 장면이면 평소 화살표로 돌린다.
+ */
+async function replayArrows(step: ReplayStep | null) {
+  // 고른 설비가 바뀌면 평소 화살표 watch 가 다음 틱에 다시 그린다. 그 뒤에 그린다.
+  await nextTick()
+  const m = model.value
+  if (!m || !viewer) return
+  const keys = new Set((step?.changes ?? []).filter((c) => c.key.startsWith('cn:')).map((c) => c.key.slice(3).replace(/#\d+$/, '')))
+  if (!keys.size) return void viewer.setArrows(arrowConnections.value.map((c, i) => arrowOf(c, String(i), false)))
+  const list = m.connections.filter((c) => keys.has(`${c.from}>${c.to}`)).slice(0, 150)
+  // 바뀐 연결이라 출처와 상관없이 강조색 실선으로 그린다. 방향(화살촉)은 지금 상태 그대로다.
+  viewer.setArrows(list.map((c, i) => ({ ...arrowOf(c, `replay${i}`, false), source: 'edit' as const })))
+}
+
+/** 물리존 경계·이름은 3D 에서 미끄러지지 않고 바로 바뀐다. 바뀐 방 바닥을 한 번 번쩍여 어디가 바뀌었는지 보인다. */
+function replayFlash(step: ReplayStep | null) {
+  const spaces = (step?.changes ?? []).filter((c) => c.key.startsWith('sp:')).map((c) => c.key.slice(3))
+  if (spaces.length) viewer?.pulseSpaces(spaces.slice(0, 12))
+}
+
+/** 이력 끝까지 한 장면씩 다시 한다. */
+async function replayRun(token: number) {
+  while (token === replayToken && replayPlaying.value && history.value.length < replayTotal.value) {
+    const i = history.value.length
+    const step = await replayStepInfo(i, token)
+    if (token !== replayToken) return
+    replayAiming.value = i
+    await replayAim(step)
+    void replayArrows(step)
+    if (!(await replayWait(REPLAY_AIM_MS, token)) || !replayPlaying.value) return
+    redo()
+    replayAiming.value = null
+    replayLand(step)
+    if (!(await replayWait(REPLAY_STEP_MS - REPLAY_AIM_MS, token))) return
+  }
+  if (token === replayToken && history.value.length >= replayTotal.value) {
+    replayPhase.value = 'done'
+    replayPlaying.value = false
+    selectedId.value = null
+    selectedSpaceId.value = null
+    viewStorey.value = null
+    await nextTick()
+    replayFinale()
+  }
+}
+
+function replayToggle() {
+  if (replayPhase.value === 'rewind') return
+  if (replayPlaying.value) {
+    replayPlaying.value = false
+    replayAiming.value = null
+    replayToken++
+    return
+  }
+  replayPlaying.value = true
+  if (history.value.length >= replayTotal.value) return void replayJump('restart')
+  replayPhase.value = 'play'
+  void replayRun(++replayToken)
+}
+
+/** 앞뒤로 한 편집, 또는 처음부터. 되돌리기·다시 하기 한 번이라 3D 도 그만큼 움직인다. */
+async function replayJump(to: 'prev' | 'next' | 'restart') {
+  if (replayPhase.value === 'rewind') return
+  const token = ++replayToken
+  replayAiming.value = null
+  if (to === 'restart') {
+    replayPlaying.value = true
+    if (!(await replayRewind(token))) return
+    replayPhase.value = 'play'
+    return void replayRun(token)
+  }
+  if (to === 'prev' && history.value.length > 0) {
+    undo()
+    replayPhase.value = 'play'
+  } else if (to === 'next' && history.value.length < replayTotal.value) {
+    const step = replaySteps.value[history.value.length] ?? null
+    await replayAim(step)
+    redo()
+    replayLand(step)
+  }
+  if (history.value.length >= replayTotal.value) {
+    replayPhase.value = 'done'
+    replayPlaying.value = false
+  } else if (replayPlaying.value) {
+    if (await replayWait(REPLAY_STEP_MS - REPLAY_AIM_MS, token)) void replayRun(token)
+  }
+}
+
+/** 닫는다. 아직 다시 하지 않은 편집을 마저 다시 해서 리플레이 전 상태(이력·다시 하기 목록까지)로 돌아온다. */
+function closeReplay() {
+  if (!replayOpen.value) return
+  replayToken++
+  while (history.value.length < replayTotal.value && future.value.length) redo()
+  replayWorker?.terminate()
+  replayWorker = null
+  replayAiming.value = null
+  replayOpen.value = false
+  viewer?.setEditMode(editing.value)
+  viewer?.setArrowsShown(false)
+  viewer?.setCinema(false)
+  replayArch.value = false
+  replayElement.value = null
+  viewer?.setDark(dark.value)
+  viewer?.setArrows(arrowConnections.value.map((c, i) => arrowOf(c, String(i), i === activeArrow.value)))
+  const saved = replaySaved
+  replaySaved = null
+  if (saved) {
+    activeTab.value = saved.activeTab
+    viewStorey.value = saved.viewStorey
+    selectedId.value = saved.selectedId
+    selectedSpaceId.value = saved.selectedSpaceId
+  }
+}
+
+function replayKey(e: KeyboardEvent): boolean {
+  if (e.code === 'Space') replayToggle()
+  else if (e.code === 'ArrowRight') void replayJump('next')
+  else if (e.code === 'ArrowLeft') void replayJump('prev')
+  else if (e.code === 'Home') void replayJump('restart')
+  else if (e.code === 'Escape' || e.code === 'KeyP') closeReplay()
+  else return false
+  return true
+}
+onBeforeUnmount(() => replayWorker?.terminate())
+
 /** 스냅숏을 모델에 되돌려 놓고, 바뀐 것에 맞춰 3D 와 화면을 고친다. 되돌리기와 다시 하기가 같이 쓴다. */
 function applySnapshot(s: Snapshot) {
   const m = model.value
   if (!m) return
   const drawnAt = s.kind === 'equipment' ? (equipmentById.value.get(s.id)?.position ?? null) : null
+  // 배관을 데리고 옮긴 설비. 형상은 설비마다 옮긴다.
+  const carried = s.kind === 'many' && s.parts.every((p) => p.kind === 'equipment') ? (s.parts as Extract<Snapshot, { kind: 'equipment' }>[]) : null
+  const drawn = new Map(carried?.map((p) => [p.id, equipmentById.value.get(p.id)?.position ?? null]))
+  // 벽을 되돌리면 붙은 설비도 같이 돌아온다. 형상도 따라 옮긴다.
+  const mounted = s.kind === 'many' || s.kind === 'storey-elements' ? mountedAt(m) : null
   const rules = restore(m, s)
-  if (s.kind === 'equipment') {
+  if (carried) {
+    triggerRef(model)
+    for (const p of carried) moveInScene(p.id, drawn.get(p.id) ?? null, p.position, true)
+  } else if (s.kind === 'equipment') {
     triggerRef(model)
     // 형상도 되돌린다. 안 하면 다시 그릴 때 옮긴 자리에 남는다.
-    moveInScene(s.id, drawnAt, s.position)
+    moveInScene(s.id, drawnAt, s.position, true)
   } else if (s.kind === 'space') {
     triggerRef(model)
     viewer?.updateSpaces(m)
@@ -777,6 +1711,7 @@ function applySnapshot(s: Snapshot) {
     if (selectedSpaceId.value && !m.storeys.some((st) => st.spaces.some((x) => x.id === selectedSpaceId.value))) selectedSpaceId.value = null
     archEdited = true
     triggerRef(model)
+    if (mounted) followMounted(mounted, true)
     viewer?.updateSpaces(m)
     sceneVersion.value++
   } else if (s.kind === 'storey-elements') {
@@ -785,14 +1720,35 @@ function applySnapshot(s: Snapshot) {
     }
     archEdited = true
     triggerRef(model)
+    if (mounted) followMounted(mounted, true)
     sceneVersion.value++
   } else if (s.kind === 'storey-spaces') {
     if (selectedSpaceId.value && !m.storeys.some((st) => st.spaces.some((x) => x.id === selectedSpaceId.value))) selectedSpaceId.value = null
     triggerRef(model)
     viewer?.updateSpaces(m)
     sceneVersion.value++
+  } else if (s.kind === 'custom-zones') {
+    // 커스텀존 목록(OE-OBJ-01). 없어진 존을 고르고 있었으면 푼다. 점선은 sceneVersion 을 보고 다시 그린다.
+    if (selectedCustomZoneId.value && !m.storeys.some((st) => st.customZones?.some((z) => z.id === selectedCustomZoneId.value))) selectedCustomZoneId.value = null
+    triggerRef(model)
+    sceneVersion.value++
+  } else if (s.kind === 'space-objects') {
+    // 추가 공간 오브젝트(OE-OBJ-09). 없어진 것을 고르고 있었으면 푼다.
+    if (selectedObjectId.value && !(model.value && findSpaceObject(model.value, selectedObjectId.value))) selectedObjectId.value = null
+    triggerRef(model)
+    sceneVersion.value++
+  } else if (s.kind === 'rooms') {
+    // 룸 목록(OE-OBJ-03). 없어진 룸을 고르고 있었으면 푼다. 외곽선은 sceneVersion 을 보고 다시 그린다.
+    if (selectedRoomId.value && !m.storeys.some((st) => st.rooms?.some((r) => r.id === selectedRoomId.value))) selectedRoomId.value = null
+    triggerRef(model)
+    sceneVersion.value++
   } else if (s.kind === 'kinds' || s.kind === 'connection') {
     // 종류·연결을 되돌리면 edit.ts 가 규칙 방향도 다시 돌렸다. 채점표도 그것으로 바꾼다.
+    if (rules) ruleReport.value = rules
+    triggerRef(model)
+    flowVersion.value++
+  } else if (s.kind === 'release' || s.kind === 'rule-state') {
+    // 연결 해제 보정·취소(OE-PIP-06). connection 과 같이 규칙 방향을 다시 돌렸다.
     if (rules) ruleReport.value = rules
     triggerRef(model)
     flowVersion.value++
@@ -821,10 +1777,14 @@ function isTextEntry(target: EventTarget | null) {
 // 키 표는 lib/shortcuts.ts 하나다. `?` 안내도 같은 표를 읽는다. 여기는 눌린 키를 받아 할 일로 옮기기만 한다.
 // 처리한 키만 브라우저 기본 동작을 막는다 — 고른 설비가 없을 때 ↓ 는 여전히 페이지를 내린다.
 const helpOpen = ref(false)
+/** 편집 리플레이(PoC, 아래 "편집 리플레이" 절). 열린 동안 키는 리플레이 몫이다. */
+const replayOpen = ref(false)
 /** 키로 한 일을 캔버스 아래에 잠깐 알린다. 버튼과 달리 키는 누른 결과가 눈에 안 보일 때가 많다. */
 const keyNote = ref('')
 let keyNoteTimer: number | undefined
 function note(text: string) {
+  // 리플레이가 되돌리기·다시 하기를 부르는 동안의 "되돌렸습니다" 는 알릴 것이 아니다.
+  if (replayOpen.value) return
   keyNote.value = text
   window.clearTimeout(keyNoteTimer)
   keyNoteTimer = window.setTimeout(() => (keyNote.value = ''), 2600)
@@ -832,6 +1792,10 @@ function note(text: string) {
 
 function onKey(e: KeyboardEvent) {
   if (e.isComposing || !model.value) return
+  if (replayOpen.value) {
+    if (replayKey(e)) e.preventDefault()
+    return
+  }
   // 글자 칸의 Esc 는 칸에서 나온다. 좌표를 넣은 뒤 마우스 없이 다음 단축키(N, U …)로 이어 가게 한다.
   if (e.key === 'Escape' && isTextEntry(e.target) && !helpOpen.value) {
     ;(e.target as HTMLElement).blur()
@@ -867,9 +1831,20 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
     case 'help':
       helpOpen.value = !helpOpen.value
       return true
+    case 'replay':
+      if (!history.value.length) {
+        note('리플레이할 편집이 없습니다 — 이번 세션에서 한 편집(되돌리기 이력)만 틉니다')
+        return true
+      }
+      void openReplay()
+      return true
     case 'mode':
-      mode.value = editing.value ? 'view' : 'edit'
-      note(editing.value ? '편집 모드' : '보기 모드')
+      if (editing.value) {
+        if (leaveEdit()) note('보기 모드')
+      } else {
+        mode.value = 'edit'
+        note('편집 모드')
+      }
       return true
     case 'search':
       if (!searchInput.value) return false
@@ -895,7 +1870,7 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       showWalls.value = !showWalls.value
       return true
     case 'save':
-      saveEdits()
+      void saveEdits()
       return true
     case 'undo':
       if (!history.value.length) note('되돌릴 편집이 없습니다')
@@ -915,10 +1890,13 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       return stepArrow(s.id === 'arrowNext' ? 1 : -1)
     case 'flow':
       return flowByKey()
+    case 'ceiling':
+      setCeilingMode(!ceilingMode.value)
+      return true
     case 'confirm': {
       const r = selectedRule.value
       if (!r) return false
-      if (r.confirmed) note(`이미 확정한 계통입니다: ${r.name}`)
+      if (r.confirmed && !r.recheck) note(`이미 확정한 계통입니다: ${r.name}`)
       else if (r.count === 0) note('이 계통에는 규칙 방향이 없습니다')
       else confirmRule(r.systemId, r.name)
       return true
@@ -942,6 +1920,12 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
     case 'vertexInsert':
       return editVertex('insert')
     case 'vertexDelete':
+      // 여러 개 고른 설비가 있으면 같이 지운다(OE-UI-09). 없으면 짚은 꼭짓점 지우기.
+      if (group.value.length >= 2) return deleteGroup()
+      if (selectedObject.value) {
+        removeObject()
+        return true
+      }
       return editVertex('delete')
     case 'drawFinish':
       return finishDraw()
@@ -974,19 +1958,37 @@ function clearSelection(): boolean {
   if (drawing.value) {
     const purpose = drawing.value.purpose
     stopDraw()
-    note(purpose === 'split' ? '나누기를 취소했습니다' : purpose === 'create' ? '물리존 그리기를 취소했습니다' : '외곽선 그리기를 취소했습니다')
+    note(
+      purpose === 'split' || purpose === 'customSplit'
+        ? '나누기를 취소했습니다'
+        : purpose === 'create'
+          ? '물리존 그리기를 취소했습니다'
+          : purpose === 'custom'
+            ? '커스텀존 그리기를 취소했습니다'
+            : purpose === 'room'
+              ? '룸 그리기를 취소했습니다'
+            : '외곽선 그리기를 취소했습니다',
+    )
   } else if (adding.value) {
     const what = adding.value.what
     stopAdd()
-    note(what === 'equipment' ? '설비 더하기를 취소했습니다' : what === 'door' ? '문 놓기를 취소했습니다' : '창 놓기를 취소했습니다')
+    note(what === 'equipment' ? '설비 더하기를 취소했습니다' : what === 'door' ? '문 놓기를 취소했습니다' : what === 'object' ? '오브젝트 놓기를 취소했습니다' : '창 놓기를 취소했습니다')
+  } else if (group.value.length) {
+    group.value = []
   } else if (selectedElementId.value) {
     selectedElementId.value = null
+  } else if (selectedRoomId.value) {
+    selectedRoomId.value = null
+  } else if (selectedObjectId.value) {
+    selectedObjectId.value = null
+  } else if (selectedCustomZoneId.value) {
+    selectedCustomZoneId.value = null
   } else if (placing.value) {
     stopPlace()
     note('놓기를 취소했습니다')
   } else if (connectFrom.value) {
     connectFrom.value = null
-    note('잇기를 취소했습니다')
+    note('연결하기를 취소했습니다')
   } else if (activeArrow.value !== null) activeArrow.value = null
   else if (activeVertex.value !== null) activeVertex.value = null
   else if (selectedId.value) select(null)
@@ -1000,6 +2002,7 @@ function clearSelection(): boolean {
 function frameSelection(): boolean {
   if (selectedId.value) frameNetwork()
   else if (selectedSpaceId.value) viewer?.frameSpace(selectedSpaceId.value)
+  else if (selectedCustomZone.value?.equipment.length) viewer?.frame(selectedCustomZone.value.equipment)
   else if (selectedSystemId.value) viewer?.frame(systemById.value.get(selectedSystemId.value)?.memberIds ?? [])
   else if (openCheck.value?.failed.length) viewer?.frame(openCheck.value.failed)
   else viewer?.frameAll()
@@ -1008,6 +2011,9 @@ function frameSelection(): boolean {
 
 /** 방향키. 화면의 오른쪽·위쪽에 가장 가까운 평면 축으로 옮긴다(snapAxis). */
 function nudge(code: string, step: number): boolean {
+  if (group.value.length >= 2) return nudgeGroup(code, step)
+  if (!selected.value && selectedRoom.value) return nudgeRoom(code, step)
+  if (!selected.value && selectedObject.value) return nudgeObject(code, step)
   if (!selected.value && selectedElement.value && viewer) return nudgeElement(code, step)
   if (!selected.value && selectedSpace.value && viewer) return nudgeVertex(code, step)
   const e = selected.value
@@ -1080,8 +2086,8 @@ function stepStorey(dir: 1 | -1): boolean {
     note(dir > 0 ? '맨 위층입니다' : '맨 아래층입니다')
     return true
   }
-  moveToStorey(e.id, next.id)
-  note(`${shortName(e.name)} → ${next.name}`)
+  // 막혔으면(겹침) 안내가 이미 떴으니 덮어쓰지 않는다
+  if (moveToStorey(e.id, next.id)) note(`${shortName(e.name)} → ${next.name}`)
   return true
 }
 
@@ -1105,7 +2111,7 @@ function stepArrow(dir: 1 | -1): boolean {
   const cur = activeArrow.value
   activeArrow.value = cur === null ? (dir > 0 ? 0 : n - 1) : (cur + dir + n) % n
   const row = selectedNeighbors.value[activeArrow.value]
-  if (row) note(`연결 ${activeArrow.value + 1}/${n}: ${shortName(row.name)} (${relLabel(row)}) · D로 방향을 바꿉니다`)
+  if (row) note(`연결 ${activeArrow.value + 1}/${n}: ${shortName(row.name)} (${relLabel(row)}) · D로 방향을 미리 봅니다`)
   return true
 }
 
@@ -1126,7 +2132,14 @@ function flowByKey(): boolean {
   }
   cycleFlow(String(activeArrow.value))
   const row = selectedNeighbors.value[activeArrow.value]
-  if (row && !row.connection.directed) note(`${shortName(row.name)}: ${relLabel(row)}`)
+  const draft = flowDraft.value
+  if (row && !row.connection.directed) {
+    note(draft ? `${shortName(row.name)}: 미리보기 ${flowText(draft.connection, draft.from)} · Enter 로 적용합니다` : `${shortName(row.name)}: ${relLabel(row)}`)
+  }
+  // 키보드로 미리 봤으면 [적용] 에 초점을 둔다. Enter 가 그 버튼을 누른다 — 단축키 Enter(외곽선 마치기)는 그리는 중이 아니면
+  // 아무것도 하지 않고 넘긴다. 사유 칸에 두면 D 를 다시 눌러 다음 미리보기로 갈 때 글자로 들어간다. 사유가 필요하면 [적용] 이
+  // 거절하면서 사유 칸으로 옮긴다(submitFlow).
+  if (draft) void nextTick(() => document.querySelector<HTMLElement>('[data-testid="flow-apply"]')?.focus())
   return true
 }
 
@@ -1178,6 +2191,11 @@ function moveVertex(spaceId: string, index: number, to: Vec2, coalesce?: string)
 function dropVertex(spaceId: string, index: number, raw: Vec2) {
   if (!model.value) return
   const to: Vec2 = [cm(raw[0]), cm(raw[1])]
+  // 룸의 꼭짓점(OE-SPC-11). 맞은편 꼭짓점을 두고 크기를 바꾼다.
+  if (findRoom(model.value, spaceId)) {
+    changeRooms(spaceId, '룸 크기', (m) => resizeRoom(m, spaceId, index, to))
+    return
+  }
   if (wouldSelfIntersect(model.value, spaceId, index, to)) {
     editNotice.value = '경계선이 교차하는 위치라 꼭짓점을 원래 자리로 되돌렸습니다.'
     // 끌던 손잡이를 원래 고리로 다시 그린다.
@@ -1197,8 +2215,13 @@ const SMALL = 50
 const EDIT_LIMIT = 200
 const editStorey = ref('')
 const editQuery = ref('')
+/**
+ * 설비 목록의 설치면 거르기(OE-OBJ-08 "설치면 필터"). 그 면에 놓을 수 있는 종류를 남긴다 — CCTV 는 천장·벽 둘 다에 든다.
+ * `none` 은 설치면을 정하지 않은 종류(표에 없는 종류·종류 모름)다. 덕트·배관은 거르면 빠진다.
+ */
+const surfaceFilter = ref<'' | Surface | 'none'>('')
 const editLimit = ref(EDIT_LIMIT)
-watch([editStorey, editQuery, fileName], () => {
+watch([editStorey, editQuery, fileName, () => surfaceFilter.value], () => {
   editLimit.value = EDIT_LIMIT
 })
 watch(fileName, () => {
@@ -1207,7 +2230,7 @@ watch(fileName, () => {
 })
 
 /** 층이나 이름으로 좁혔나. 표 머리의 수를 "찾은 것 N / 전체" 로 바꾼다 — 전체 수만 두었더니 좁혀 0건인 표가 비어 보였다. */
-const narrowed = computed(() => !!editStorey.value || !!editQuery.value.trim())
+const narrowed = computed(() => !!editStorey.value || !!editQuery.value.trim() || !!surfaceFilter.value)
 const matches = (text: string) => {
   const q = editQuery.value.trim().toLowerCase()
   return !q || text.toLowerCase().includes(q)
@@ -1215,18 +2238,35 @@ const matches = (text: string) => {
 const editStoreys = computed(() =>
   (model.value?.storeys ?? []).filter((s) => !editStorey.value || s.id === editStorey.value),
 )
+// 설치면 필터(OE-EQP-05). 기준은 판정 설치면이고 플레넘은 천장으로 센다. "미정" 은 판정하지 못한 설비다. 도관과 설치면 없는 종류
+// (배관·덕트 위 밸브·댐퍼)는 어느 면에도 들지 않는다.
+const judgedById = computed(() => new Map(surfaceRows.value.map((r) => [r.equipment.id, r.judged])))
+const surfaceMatches = (e: Equipment) => {
+  const f = surfaceFilter.value
+  if (!f) return true
+  if (isConduit(e.role) || !judgedById.value.has(e.id)) return false
+  const judged = judgedById.value.get(e.id) ?? null
+  if (f === 'none') return judged === null
+  if (f === 'ceiling') return judged === 'ceiling' || judged === 'plenum'
+  return judged === f
+}
 const editSpaces = computed(() =>
   editStoreys.value
     .flatMap((storey) => storey.spaces.map((space) => ({ storey, space })))
     .filter(({ space }) => matches(`${space.name} ${space.longName ?? ''}`)),
 )
 // 설비는 소속 방 이름으로도 찾는다. 보기 모드에는 물리존 표가 없어서, "S.T"·"OFFICE" 를 치면 아무것도 안 나왔다.
-const editEquipment = computed(() =>
-  editStoreys.value.flatMap((s) => {
+// 든 커스텀존의 이름·별명으로도 찾는다(ADR-0012) — "임원석" 을 치면 그 존 안의 설비가 나온다.
+const editEquipment = computed(() => {
+  const zoneText = new Map<string, string>()
+  if (editQuery.value.trim() && model.value) for (const [id, names] of zoneNamesOfEquipment(model.value)) zoneText.set(id, names.join(' '))
+  return editStoreys.value.flatMap((s) => {
     const room = new Map(s.spaces.map((sp) => [sp.id, `${sp.name} ${sp.longName ?? ''}`]))
-    return s.equipment.filter((e) => matches(`${e.name} ${e.ifcClass} ${kindLabel(e)} ${e.spaceId ? room.get(e.spaceId) ?? '' : ''}`))
-  }),
-)
+    return s.equipment.filter(
+      (e) => surfaceMatches(e) && matches(`${e.name} ${e.ifcClass} ${kindLabel(e)} ${e.spaceId ? room.get(e.spaceId) ?? '' : ''} ${zoneText.get(e.id) ?? ''}`),
+    )
+  })
+})
 
 /**
  * 치는 중인 칸을 모델 값으로 덮지 않는다(`v-keep-typing`).
@@ -1260,21 +2300,46 @@ function applyRename(spaceId: string, name: string) {
   triggerRef(model)
 }
 
+/** 방번호를 고친다(OE-OBJ-02). 같은 층에 같은 번호가 있으면 막고 칸을 원래 번호로 돌린다. */
+function applySpaceNumber(spaceId: string, input: HTMLInputElement) {
+  const m = model.value
+  if (!m) return
+  const snapshot = snapshotSpace(m, spaceId)
+  const was = snapshot?.kind === 'space' ? (snapshot.name ?? '') : ''
+  const at = mark()
+  const done = setSpaceNumber(m, spaceId, input.value)
+  if (done !== true) {
+    if (done) editNotice.value = done.refused
+    input.value = was
+    return
+  }
+  remember(`방번호 ${was || '(없음)'} → ${input.value.trim() || '(없음)'}`, snapshot, at)
+  triggerRef(model)
+}
+
 let drawn: Model | null = null
 let drawTimer: number | undefined
 watch([model, canvas], ([m, el]) => {
   if (!m || !el) return
   if (!viewer) {
     viewer = createViewer(el)
-    viewer.onPick((id) => {
+    viewer.onPick((id, additive) => {
       if (connectFrom.value && id) return connectTo(id)
+      if (additive && id) return toggleGroup(id)
+      group.value = []
       selectedId.value = id
     })
+    viewer.onBoxSelect(addBoxToGroup)
     viewer.onHover(onHover)
     viewer.onPlace((at) => placeAt(at))
     viewer.onPickSpace(pickSpace)
     viewer.onEquipmentMove(dropEquipment)
     viewer.onPickElement((id) => (selectedElementId.value = id))
+    viewer.onPickObject(selectObject)
+    viewer.onObjectMove((id, delta) => {
+      const o = model.value && findSpaceObject(model.value, id)
+      if (o) changeObjects(id, `${o.object.name} 옮김`, (m) => moveSpaceObject(m, id, [cm(delta[0]), cm(delta[1])]))
+    })
     viewer.onVertexMove(dropVertex)
     viewer.onArrowClick(cycleFlow)
     viewer.setWallsVisible(showWalls.value)
@@ -1316,12 +2381,289 @@ const spaceKinds = computed(() => {
 const spaceConduits = computed(() => selectedSpace.value?.equipment.filter((e) => isConduit(e.role)) ?? [])
 /** 3D 바닥이나 평면도의 방을 눌렀을 때. 평면도가 제 안에만 들고 있었더니 방에 테두리만 뜨고 패널은 앞서 고른 설비였다. */
 function pickSpace(id: string | null) {
+  // 룸(OE-OBJ-03)은 물리존과 같은 바닥 누르기로 골라진다 — 룸 아래 물리존보다 먼저다.
+  if (id && model.value && findRoom(model.value, id)) {
+    selectedRoomId.value = id
+    selectedSpaceId.value = null
+    selectedId.value = null
+    selectedSystemId.value = null
+    return
+  }
+  selectedRoomId.value = null
+  if (id) selectedObjectId.value = null
   selectedSpaceId.value = id
   if (id) {
     selectedId.value = null
     selectedSystemId.value = null
   }
 }
+// --- 룸 (OE-OBJ-03 · OE-SPC-11) --------------------------------------------------------------
+/** 리포트의 룸 줄. 연 때는 룸이 없으니(임포트는 만들지 않는다) 있는 룸이 전부 편집이다. */
+const roomLines = computed(() =>
+  (model.value?.storeys ?? []).flatMap((st) =>
+    (st.rooms ?? []).map((r) => {
+      const parent = st.spaces.find((sp) => sp.id === r.spaceId)
+      const [[x0, y0], , [x1, y1]] = r.footprint
+      return { id: r.id, name: r.name, storey: st.name, parent: parent?.longName || parent?.name || '물리존', size: `${(x1 - x0).toFixed(2)} × ${(y1 - y0).toFixed(2)} m` }
+    }),
+  ),
+)
+const selectedRoomId = ref<string | null>(null)
+const selectedRoom = computed(() => {
+  const m = model.value
+  const id = selectedRoomId.value
+  if (!m || !id) return null
+  const found = findRoom(m, id)
+  if (!found) return null
+  const parent = found.storey.spaces.find((sp) => sp.id === found.room.spaceId)
+  const [[x0, y0], , [x1, y1]] = found.room.footprint
+  return { ...found, parent, width: x1 - x0, depth: y1 - y0 }
+})
+/** 겹쳐서 막은 상대 룸. 잠깐 붉게 보인다(OE-SPC-15). */
+const roomConflict = ref<string | null>(null)
+let roomConflictTimer: number | undefined
+/**
+ * 룸을 고친다. 층의 룸을 통째로 떠 두고 되돌린다(snapshotRooms). 막히면 이유를 알리고, 겹친 상대가 있으면 붉게 짚는다.
+ * `storeyId` 를 모르면(고친 룸 id 로) 찾는다.
+ */
+function changeRooms(roomId: string | null, label: string, apply: (m: Model) => unknown, storeyId?: string): boolean {
+  const m = model.value
+  if (!m) return false
+  const sid = storeyId ?? (roomId ? findRoom(m, roomId)?.storey.id : undefined)
+  if (!sid) return false
+  const snapshot = snapshotRooms(m, sid)
+  const at = mark()
+  const done = apply(m) as boolean | { refused: string; blocked?: string } | null
+  if (!done) return false
+  if (typeof done === 'object' && 'refused' in done) {
+    editNotice.value = done.refused
+    if (done.blocked) {
+      roomConflict.value = done.blocked
+      window.clearTimeout(roomConflictTimer)
+      roomConflictTimer = window.setTimeout(() => (roomConflict.value = null), 1600)
+    }
+    // 끌던 손잡이를 원래 자리로 다시 그린다.
+    sceneVersion.value++
+    return false
+  }
+  editNotice.value = ''
+  remember(label, snapshot, at)
+  triggerRef(model)
+  return true
+}
+function removeRoom() {
+  const r = selectedRoom.value
+  if (!r) return
+  const name = r.room.name
+  if (changeRooms(r.room.id, `${name} 지우기`, (m) => deleteRoom(m, r.room.id))) {
+    selectedRoomId.value = null
+    note(`${name}${josa(name, '을/를')} 지웠습니다. 그 자리는 ${r.parent?.longName || r.parent?.name || '물리존'}으로 돌아갑니다. Ctrl+Z 로 되돌립니다`)
+  }
+}
+function applyRoomName(name: string) {
+  const r = selectedRoom.value
+  if (r) changeRooms(r.room.id, `룸 이름 ${name.trim()}`, (m) => renameRoom(m, r.room.id, name))
+}
+/** 방향키로 고른 룸을 옮긴다(10cm, Shift 1m). 화면 방향에 가장 가까운 평면 축이다(설비 옮기기와 같다). */
+function nudgeRoom(code: string, step: number): boolean {
+  const r = selectedRoom.value
+  if (!r || !viewer) return false
+  const { right, up } = viewer.planeAxes()
+  const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
+  const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
+  changeRooms(r.room.id, `${r.room.name} 옮김`, (m) => moveRoom(m, r.room.id, [cm(sign * ax * step), cm(sign * ay * step)]))
+  return true
+}
+watch([model, sceneVersion, selectedRoomId, roomConflict, editing], () => viewer?.setRooms(model.value, selectedRoomId.value, roomConflict.value))
+
+// --- 추가 공간 오브젝트 (OE-OBJ-09 · OE-SPC-14 · OE-SPC-16 · OE-P3-08) ---------------------------------
+/** 리포트의 오브젝트 줄. 연 때는 없으니(임포트는 만들지 않는다) 있는 것이 전부 편집이다. */
+const objectLines = computed(() =>
+  (model.value?.storeys ?? []).flatMap((st) =>
+    (st.spaceObjects ?? []).map((o) => ({
+      id: o.id,
+      name: o.name,
+      storey: st.name,
+      item: (model.value && libraryItem(model.value, o.item)?.name) ?? o.item,
+      size: o.size.map((v) => v.toFixed(2)).join(' × '),
+    })),
+  ),
+)
+const selectedObjectId = ref<string | null>(null)
+const selectedObject = computed(() => {
+  const m = model.value
+  const id = selectedObjectId.value
+  if (!m || !id) return null
+  const found = findSpaceObject(m, id)
+  return found ? { ...found, item: libraryItem(m, found.object.item) } : null
+})
+/** 겹쳐서 막은 상대 오브젝트. 잠깐 붉게 보인다(OE-SPC-15). */
+const objectConflict = ref<string | null>(null)
+let objectConflictTimer: number | undefined
+/** 넣은 모델(OE-P3-08)을 읽은 장면. 열쇠는 라이브러리 항목 열쇠다. 읽는 동안은 회색 상자로 그린다. */
+const objectModels = shallowRef(new Map<string, Object3D>())
+/** 팔레트의 라이브러리 목록을 편 상태. */
+const objectsOpen = ref(false)
+const objectLibrary = computed(() => (model.value ? libraryOf(model.value) : []))
+function selectObject(id: string | null) {
+  selectedObjectId.value = id
+  if (!id) return
+  selectedId.value = null
+  selectedSpaceId.value = null
+  selectedRoomId.value = null
+  selectedSystemId.value = null
+  selectedElementId.value = null
+  selectedCustomZoneId.value = null
+}
+/**
+ * 오브젝트를 고친다. 층의 오브젝트를 통째로 떠 두고 되돌린다(snapshotSpaceObjects). 막히면 이유를 알리고 겹친 상대를 붉게
+ * 짚는다. 끌던 것은 다시 그려 원래 자리로 돌아간다(OE-SPC-15).
+ */
+function changeObjects(objectId: string | null, label: string, apply: (m: Model) => unknown, storeyId?: string): boolean {
+  const m = model.value
+  if (!m) return false
+  const sid = storeyId ?? (objectId ? findSpaceObject(m, objectId)?.storey.id : undefined)
+  if (!sid) return false
+  const snapshot = snapshotSpaceObjects(m, sid)
+  const at = mark()
+  const done = apply(m) as boolean | { refused: string; blocked?: string } | null
+  if (!done) {
+    sceneVersion.value++
+    return false
+  }
+  if (typeof done === 'object' && 'refused' in done) {
+    editNotice.value = done.refused
+    if (done.blocked) {
+      objectConflict.value = done.blocked
+      window.clearTimeout(objectConflictTimer)
+      objectConflictTimer = window.setTimeout(() => (objectConflict.value = null), 1600)
+    }
+    sceneVersion.value++
+    return false
+  }
+  editNotice.value = ''
+  remember(label, snapshot, at)
+  triggerRef(model)
+  return true
+}
+function startAddObject(itemKey: string) {
+  const storey = targetStorey()
+  if (!storey) return askStorey('오브젝트를 놓을')
+  const item = model.value && libraryItem(model.value, itemKey)
+  if (!item) return
+  stopPlace()
+  stopDraw()
+  connectFrom.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  adding.value = { storeyId: storey.id, elevation: storey.elevation, what: 'object', item: itemKey }
+  viewer?.setPlaceMode(storey.elevation)
+  note(`${storey.name} 바닥을 눌러 ${item.name}${josa(item.name, '을/를')} 놓습니다. 다른 오브젝트와 겹치는 자리는 막힙니다 (Esc 취소)`)
+}
+function addObjectAt(at: Vec2) {
+  const target = adding.value
+  stopAdd()
+  if (!target?.item) return
+  let created: string | null = null
+  const ok = changeObjects(null, '오브젝트 놓기', (m) => {
+    const done = addSpaceObject(m, target.storeyId, target.item!, [cm(at[0]), cm(at[1])])
+    if (done && !('refused' in done)) created = done.id
+    return done
+  }, target.storeyId)
+  if (ok && created) {
+    selectObject(created)
+    note('오브젝트를 놓았습니다. 끌거나 방향키로 옮기고, 오른쪽 패널에서 크기를 바꿉니다')
+  }
+}
+function removeObject() {
+  const o = selectedObject.value
+  if (!o) return
+  const name = o.object.name
+  if (changeObjects(o.object.id, `${name} 지우기`, (m) => deleteSpaceObject(m, o.object.id))) {
+    selectedObjectId.value = null
+    note(`${name}${josa(name, '을/를')} 지웠습니다. Ctrl+Z 로 되돌립니다`)
+  }
+}
+function applyObjectName(name: string) {
+  const o = selectedObject.value
+  if (o) changeObjects(o.object.id, `오브젝트 이름 ${name.trim()}`, (m) => renameSpaceObject(m, o.object.id, name))
+}
+/** 가로·세로·높이 칸 하나를 고친다. 바닥 가운데 자리는 그대로다. 막히면 칸을 원래 값으로 되돌린다(모델 값이 그대로라 화면이 다시 안 그린다). */
+function applyObjectSize(axis: 0 | 1 | 2, input: HTMLInputElement) {
+  const o = selectedObject.value
+  if (!o) return
+  const before = o.object.size[axis]
+  const v = Number(input.value)
+  const size = [...o.object.size] as [number, number, number]
+  size[axis] = cm(v)
+  if (input.value === '' || !Number.isFinite(v) || !changeObjects(o.object.id, `${o.object.name} 크기`, (m) => resizeSpaceObject(m, o.object.id, size))) input.value = String(before)
+}
+/** 방향키로 고른 오브젝트를 옮긴다(10cm, Shift 1m). 화면 방향에 가장 가까운 평면 축이다. */
+function nudgeObject(code: string, step: number): boolean {
+  const o = selectedObject.value
+  if (!o || !viewer) return false
+  const { right, up } = viewer.planeAxes()
+  const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
+  const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
+  changeObjects(o.object.id, `${o.object.name} 옮김`, (m) => moveSpaceObject(m, o.object.id, [cm(sign * ax * step), cm(sign * ay * step)]))
+  return true
+}
+/** 넣은 모델(glb)을 읽어 장면으로 둔다. 같은 열쇠는 한 번만 읽는다. */
+async function loadObjectModel(key: string, base64: string): Promise<Object3D | null> {
+  const have = objectModels.value.get(key)
+  if (have) return have
+  const bytes = Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0))
+  const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
+  const scene = lambertize((await new GLTFLoader().parseAsync(bytes.buffer, '')).scene)
+  objectModels.value = new Map(objectModels.value).set(key, scene)
+  return scene
+}
+// 편집 파일로 들어온 넣은 모델도 읽어 둔다. 못 읽으면 회색 상자로 남는다.
+watch(
+  () => model.value?.objectLibrary?.length,
+  () => {
+    for (const item of model.value?.objectLibrary ?? []) {
+      if (!objectModels.value.has(item.key)) loadObjectModel(item.key, item.glb).catch(() => undefined)
+    }
+  },
+)
+const modelInput = ref<HTMLInputElement | null>(null)
+/** 3D 모델 넣기(OE-P3-08). 모델 상자를 재서 라이브러리 항목을 만들고, 바로 놓기를 시작한다. */
+async function importObjectModel(file: File) {
+  const m = model.value
+  if (!m) return
+  if (file.size > MODEL_MAX_BYTES) {
+    note(`모델 파일이 ${MODEL_MAX_BYTES / 1024 / 1024}MB 를 넘습니다(${(file.size / 1024 / 1024).toFixed(1)}MB)`)
+    return
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let base64 = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) base64 += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  base64 = btoa(base64)
+  let scene: Object3D
+  try {
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
+    scene = lambertize((await new GLTFLoader().parseAsync(bytes.buffer, '')).scene)
+  } catch (err) {
+    note(`3D 모델을 읽지 못했습니다: ${err instanceof Error ? err.message : String(err)} (glb, 또는 자료를 품은 glTF)`)
+    return
+  }
+  const { Box3, Vector3 } = await import('three')
+  const ext = new Box3().setFromObject(scene).getSize(new Vector3())
+  // glTF 는 y 가 위다. 가로 x · 세로 z · 높이 y.
+  const item = addCustomItem(m, file.name, [ext.x, ext.z, ext.y], base64)
+  if ('refused' in item) {
+    note(item.refused)
+    return
+  }
+  objectModels.value = new Map(objectModels.value).set(item.key, scene)
+  triggerRef(model)
+  objectsOpen.value = true
+  startAddObject(item.key)
+}
+watch([model, sceneVersion, selectedObjectId, objectConflict, objectModels], () =>
+  viewer?.setSpaceObjects(model.value, (key) => (model.value ? libraryItem(model.value, key) : null), objectModels.value, selectedObjectId.value, objectConflict.value),
+)
+
 const selectedSpace = computed(() => {
   const m = model.value
   const id = selectedSpaceId.value
@@ -1344,14 +2686,28 @@ const selectedSpace = computed(() => {
  * 3D 바닥에 점을 찍는 편집. `footprint` 는 외곽선이 없던 물리존에 외곽선을 그리는 것, `create` 는 새 물리존을 그리는
  * 것(E3), `split` 은 두 점으로 나눌 선을 긋는 것(E3)이다.
  */
-type Drawing = { purpose: 'footprint' | 'create' | 'split' | 'wall'; spaceId: string | null; storeyId: string; name: string; elevation: number; points: Vec2[] }
+/** `custom`·`customSplit` 은 커스텀존(OE-OBJ-01) 그리기·나누기다. `customSplit` 의 spaceId 자리에는 존 id 가 든다. */
+type Drawing = {
+  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room'
+  spaceId: string | null
+  storeyId: string
+  name: string
+  elevation: number
+  points: Vec2[]
+}
 const drawing = ref<Drawing | null>(null)
-watch([selectedSpace, editing, sceneVersion, drawing], () => {
+watch([selectedSpace, selectedRoom, editing, sceneVersion, drawing], () => {
   const picked = selectedSpace.value
   if (!viewer) return
   if (drawing.value) {
     const d = drawing.value
     viewer.setSpaceHandles({ id: d.spaceId ?? 'new', ring: d.points, elevation: d.elevation, active: d.points.length ? d.points.length - 1 : null })
+    return
+  }
+  // 고른 룸의 꼭짓점 넷(OE-SPC-11). 편집 모드에서만 끈다.
+  const room = selectedRoom.value
+  if (room) {
+    viewer.setSpaceHandles(editing.value ? { id: room.room.id, ring: room.room.footprint.slice(0, 4), elevation: room.storey.elevation, active: null } : null)
     return
   }
   if (!picked) {
@@ -1446,13 +2802,19 @@ const selectedRule = computed(() => {
   const tally = ruleReport.value?.bySystem[systemId]
   const own = m.connections.filter((c) => c.inferred?.systemId === systemId)
   const checked = tally ? tally.agree + tally.disagree : 0
+  const recheck = own.filter((c) => c.inferred!.recheck !== undefined).length
+  const members = new Set(system?.memberIds ?? [])
   return {
     systemId,
     name: system?.name || systemId,
     kind: systemKind(system?.kind)?.label ?? '',
     count: own.length,
-    confirmed: own.length > 0 && own.every((c) => c.inferred!.confirmed),
+    confirmed: own.length > 0 && own.every((c) => c.inferred!.confirmed) && recheck === 0,
+    recheck,
     agree: tally?.agree ?? 0,
+    disagree: tally?.disagree ?? 0,
+    // 원천을 못 찾은 계통은 규칙이 돌지 않아 채점표가 없다. 그 계통에 닿은 포트 방향 연결이 전부 추정 불가다.
+    unestimated: tally?.unestimated ?? m.connections.filter((c) => c.directed && (members.has(c.from) || members.has(c.to))).length,
     checked,
     pct: checked > 0 ? Math.round(((tally?.agree ?? 0) / checked) * 100) : null,
   }
@@ -1460,20 +2822,21 @@ const selectedRule = computed(() => {
 
 /**
  * 규칙 방향이 선 계통 전부. 확정은 고른 설비의 패널에서만 할 수 있어서, 어느 계통이 남았는지 보려면 계통마다 설비를
- * 하나씩 찾아 골라야 했다. 확정 안 한 것부터, 규칙 방향이 많은 것부터 둔다. 일치율은 그 계통에서 포트가 이미 말한
- * 연결에 같은 규칙을 대 본 값이다(확정한 계통은 규칙을 다시 돌리지 않아 비어 있다).
+ * 하나씩 찾아 골라야 했다. 재검토가 있는 것, 확정 안 한 것, 규칙 방향이 많은 것 순으로 둔다. 일치율은 그 계통에서 포트가
+ * 이미 말한 연결에 같은 규칙을 대 본 값이다(확정한 계통도 규칙을 다시 돌려 잰다, OE-PIP-07).
  */
 const ruleSystems = computed(() => {
   void flowVersion.value
   const m = model.value
   const r = ruleReport.value
   if (!m) return []
-  const bySystem = new Map<string, { count: number; confirmed: number }>()
+  const bySystem = new Map<string, { count: number; confirmed: number; recheck: number }>()
   for (const c of m.connections) {
     if (!c.inferred) continue
-    const row = bySystem.get(c.inferred.systemId) ?? { count: 0, confirmed: 0 }
+    const row = bySystem.get(c.inferred.systemId) ?? { count: 0, confirmed: 0, recheck: 0 }
     row.count++
     if (c.inferred.confirmed) row.confirmed++
+    if (c.inferred.recheck !== undefined) row.recheck++
     bySystem.set(c.inferred.systemId, row)
   }
   return [...bySystem]
@@ -1487,18 +2850,19 @@ const ruleSystems = computed(() => {
         kind: systemKind(system?.kind)?.label ?? '',
         color: systemColor.value.get(id) ?? null,
         count: n.count,
-        confirmed: n.confirmed === n.count,
+        confirmed: n.confirmed === n.count && n.recheck === 0,
+        recheck: n.recheck,
         agree: tally?.agree ?? 0,
         checked,
         pct: checked > 0 ? Math.round(((tally?.agree ?? 0) / checked) * 100) : null,
       }
     })
-    .sort((a, b) => Number(a.confirmed) - Number(b.confirmed) || b.count - a.count)
+    .sort((a, b) => b.recheck - a.recheck || Number(a.confirmed) - Number(b.confirmed) || b.count - a.count)
 })
 
 /**
  * 포트와 잘 맞는 계통을 한꺼번에 확정한다. 성수는 규칙이 방향을 준 계통이 348개라 하나씩 누르면 45초가 걸렸다.
- * 포트와 대 볼 연결이 BULK_MIN_CHECKED 개 넘게 있고 일치율이 문턱 이상인 것만 고른다 — 대 볼 것이 없는 계통은
+ * 포트와 대 볼 연결이 BULK_MIN_CHECKED 개 이상 있고 일치율이 문턱 이상인 것만 고른다 — 대 볼 것이 없는 계통은
  * 맞는지 모르므로 사람이 3D 로 흐름을 보고 하나씩 확정한다. 되돌리기는 한 번이다.
  */
 const BULK_MIN_CHECKED = 20
@@ -1510,7 +2874,7 @@ function confirmMatching() {
   const m = model.value
   const rows = bulkCandidates.value
   if (!m || !rows.length) return
-  const snapshot = snapshotConfirm(m, rows.map((r) => r.id))
+  const snapshot = snapshotRules(m, rows.map((r) => r.id))
   const at = mark()
   const done: { systemName: string; count: number }[] = []
   for (const r of rows) {
@@ -1526,10 +2890,12 @@ function confirmMatching() {
 
 function confirmRule(systemId: string, systemName: string) {
   if (!model.value) return
-  const snapshot = snapshotConfirm(model.value, systemId)
+  const snapshot = snapshotRules(model.value, systemId)
   const at = mark()
   const n = confirmSystemFlow(model.value, systemId)
   if (n === 0) return
+  // 재검토를 다시 확정하면 확정이 없어지는 연결이 있다(새로 정할 수 없게 된 것). 규칙을 다시 돌려 그 연결의 미확정 방향을 세운다.
+  ruleReport.value = inferFlowByRules(model.value)
   remember(`계통 ${systemName} 확정`, snapshot, at)
   confirmations.value = [...confirmations.value, { systemName, count: n }]
   flowVersion.value++
@@ -1544,7 +2910,7 @@ type NeighborRow = Neighbor & {
   name: string
   what: { label: string; src: SrcKind } | null
   edited: 'upstream' | 'downstream' | null
-  rule: { relation: 'upstream' | 'downstream'; confirmed: boolean } | null
+  rule: { relation: 'upstream' | 'downstream'; confirmed: boolean; recheck: boolean } | null
 }
 const selectedNeighbors = computed((): NeighborRow[] => {
   void flowVersion.value
@@ -1555,7 +2921,7 @@ const selectedNeighbors = computed((): NeighborRow[] => {
     const edited = !c.directed && c.edited ? (c.edited.from === id ? 'downstream' : 'upstream') : null
     const rule =
       !c.directed && !c.edited && c.inferred
-        ? { relation: c.inferred.from === id ? ('downstream' as const) : ('upstream' as const), confirmed: c.inferred.confirmed }
+        ? { relation: c.inferred.from === id ? ('downstream' as const) : ('upstream' as const), confirmed: c.inferred.confirmed, recheck: c.inferred.recheck !== undefined }
         : null
     return {
       ...n,
@@ -1566,10 +2932,17 @@ const selectedNeighbors = computed((): NeighborRow[] => {
     }
   })
 })
-const REL_LABEL = { upstream: '상류', downstream: '하류', linked: '연결' } as const
+/** 한 층만 보는 중에 다른 층에 있는 설비면 그 층 이름. 모든 층을 보면 null. */
+function otherFloor(id: string): string | null {
+  if (!viewStorey.value) return null
+  const home = storeyOf(id)
+  return home && home.id !== viewStorey.value ? home.name : null
+}
+// 포트·사람·규칙 누구도 방향을 말하지 않은 연결은 '방향 미지정' 이다(OE-PIP-04). '연결' 로 두면 방향이 없다는 것이 안 읽힌다.
+const REL_LABEL = { upstream: '상류', downstream: '하류', linked: '방향 미지정' } as const
 function relLabel(n: NeighborRow) {
   if (n.edited) return REL_LABEL[n.edited]
-  if (n.rule) return `${REL_LABEL[n.rule.relation]}(${n.rule.confirmed ? '확정' : '추정'})`
+  if (n.rule) return `${REL_LABEL[n.rule.relation]}(${n.rule.recheck ? '재검토' : n.rule.confirmed ? '확정' : '추정'})`
   return REL_LABEL[n.relation]
 }
 function relClass(n: NeighborRow) {
@@ -1578,25 +2951,67 @@ function relClass(n: NeighborRow) {
   return [n.relation]
 }
 
-// 포트가 방향을 말하지 않은 연결에 사람이 방향을 정한다. from 이 null 이면 정한 것을 지운다.
-// 확정과 같은 이유로 모델 전체에 갱신 신호를 보내지 않고 flowVersion 만 올린다.
-function setFlow(n: NeighborRow, from: string | null) {
-  flowTo(n.connection, from)
+// 포트가 방향을 말하지 않은 연결에 사람이 방향을 정한다(OE-PIP-04). 'A → B' 를 고르면 먼저 **미리보기**다 — 모델은 그대로라
+// TTL 에 나가지 않고, 표와 3D 화살표(점선 액센트)에만 보인다. [적용] 해야 연결에 남는다. 규칙 방향과 반대면 차이를 보이고 보정
+// 사유를 받는다(connection-release.ts 의 applyFlow). 확정과 같은 이유로 모델 전체에 갱신 신호를 보내지 않고 flowVersion 만 올린다.
+// shallowRef: ref 는 연결을 반응형 대리 객체로 감싸 모델의 연결과 === 로 견줄 수 없다.
+const flowDraft = shallowRef<{ connection: Connection; from: string } | null>(null)
+const flowReason = ref('')
+watch([selectedId, editing], () => (flowDraft.value = null))
+/** 미리보기. from 이 null 이면 미리보기를 거둔다. */
+function previewFlow(c: Connection, from: string | null) {
+  flowDraft.value = from === null ? null : { connection: c, from }
+  flowReason.value = ''
+  editNotice.value = ''
 }
-/** 연결 하나의 방향을 정한다. 표의 버튼과 3D 화살표가 같이 쓴다. */
-function flowTo(c: Connection, from: string | null) {
-  const snapshot = snapshotFlow(c)
+/** 방향 버튼의 이름. BIM 이름(NBS_S&PUKVentilation…#1144538)이 길어 버튼이 두세 줄 알약이 됐다. 앞을 자르고 끝의 번호는 남긴다. 전체는 title·미리보기에. */
+function flowLabel(id: string) {
+  const name = nameOfId(id)
+  if (name.length <= 18) return name
+  const tail = name.match(/ #\d+$/)?.[0] ?? ''
+  return `${name.slice(0, 18 - tail.length)}…${tail}`
+}
+/** 미리보기의 화살표 글. 이름은 짧게(같은 패밀리 이름이 길다). */
+function flowText(c: Connection, from: string) {
+  const to = from === c.from ? c.to : c.from
+  return `${nameOfId(from)} → ${nameOfId(to)}`
+}
+function submitFlow() {
+  const m = model.value
+  const d = flowDraft.value
+  if (!m || !d) return
+  const c = d.connection
+  const snapshot = snapshotRelease(m, c)
   const at = mark()
-  if (!setFlowDirection(c, from)) return
-  const name = (id: string) => equipmentById.value.get(id)?.name || id
-  remember(`${name(c.from)}–${name(c.to)} 방향`, snapshot, at)
+  const done = applyFlow(m, c, d.from, flowReason.value)
+  if (done !== true) {
+    editNotice.value = done.refused
+    document.querySelector<HTMLElement>('[data-testid="flow-reason"]')?.focus()
+    return
+  }
+  remember(`${flowText(c, d.from)} 방향 적용`, snapshot, at)
+  flowDraft.value = null
+  editNotice.value = ''
+  flowVersion.value++
+  note(`${flowText(c, d.from)} 방향을 적용했습니다. 규칙 방향보다 앞서고 확정 없이 brick:feeds 로 나갑니다`)
+}
+/** 수동 지정 해제. 규칙 방향이 있으면 그것으로, 없으면 방향 미지정으로 돌아간다. */
+function clearManualFlow(c: Connection) {
+  const m = model.value
+  if (!m || !c.edited) return
+  const was = flowText(c, c.edited.from)
+  const snapshot = snapshotRelease(m, c)
+  const at = mark()
+  if (!clearFlow(m, c)) return
+  remember(`${was} 수동 지정 해제`, snapshot, at)
+  flowDraft.value = null
   flowVersion.value++
 }
 // --- 3D 의 연결 화살표 ------------------------------------------------------------
 //
 // 편집 모드에서 고른 설비에 붙은 연결을 3D 에 화살표로 그린다. 색은 방향의 출처다 — 포트(BIM) 진하게,
-// 사람이 정한 것은 액센트, 규칙(사전)은 옅은 점선, 모르는 것은 촉 없는 점선. 누르면 표의 "하류로 → 상류로 →
-// 되돌리기" 를 차례로 한다. 포트가 말한 방향은 누르지 못한다.
+// 사람이 정한 것은 액센트, 규칙(사전)은 옅은 점선, 모르는 것은 촉 없는 점선. 누르면 미리보기가 "이 설비에서 나감 → 들어옴 →
+// 거둠" 으로 돈다(점선 액센트). 적용은 표의 [적용] 이다. 포트가 말한 방향은 누르지 못한다.
 const arrowConnections = computed((): Connection[] => {
   void flowVersion.value
   if (!editing.value || !model.value || !selectedId.value) return []
@@ -1605,6 +3020,7 @@ const arrowConnections = computed((): Connection[] => {
 function arrowOf(c: Connection, key: string, active: boolean): Arrow {
   const base = { key, a: c.from, b: c.to, active }
   if (c.directed) return { ...base, from: c.from, source: 'port' }
+  if (flowDraft.value?.connection === c) return { ...base, from: flowDraft.value.from, source: 'preview' }
   if (c.edited) return { ...base, from: c.edited.from, source: 'edit' }
   if (c.inferred && showRules.value) return { ...base, from: c.inferred.from, source: 'rule' }
   return { ...base, from: null, source: 'none' }
@@ -1612,7 +3028,7 @@ function arrowOf(c: Connection, key: string, active: boolean): Arrow {
 /** 키보드([ ])로 짚은 연결의 자리. 연결 표(selectedNeighbors)와 같은 순서다. 설비를 바꾸면 풀린다. */
 const activeArrow = ref<number | null>(null)
 watch([selectedId, editing], () => (activeArrow.value = null))
-watch([arrowConnections, showRules, sceneVersion, activeArrow], () => {
+watch([arrowConnections, showRules, sceneVersion, activeArrow, flowDraft], () => {
   viewer?.setArrows(arrowConnections.value.map((c, i) => arrowOf(c, String(i), i === activeArrow.value)))
 })
 const arrowPalette = computed(() => arrowColors(dark.value))
@@ -1626,8 +3042,9 @@ function cycleFlow(key: string) {
   }
   editNotice.value = ''
   const other = c.from === id ? c.to : c.from
-  const next = !c.edited ? id : c.edited.from === id ? other : null
-  flowTo(c, next)
+  // 미리보기가 없으면 적용한 방향에서 출발한다. 적용한 방향을 다시 미리 볼 일은 없어서, 그 다음은 미리보기를 거두는 것이다.
+  const now = flowDraft.value?.connection === c ? flowDraft.value.from : (c.edited?.from ?? null)
+  previewFlow(c, now === null ? id : now === id ? other : null)
 }
 const hasArrows = computed(() => arrowConnections.value.length > 0)
 
@@ -1702,6 +3119,20 @@ const selectedService = computed(() => {
   if (!m || !service) return null
   return { ...service, rooms: servedSpaces(m, service, equipmentById.value) }
 })
+// VAV·말단의 계통과 담당 근거(OE-EQP-10). 계통이 있어야 하는 설비인데 없으면 패널과 검토 화면에서 경고한다. 담당은 흐름 방향을
+// 거슬러(급기)·따라(환기) 닿는 공기 원천이다 — 위 담당 공간을 말단 쪽에서 본 것이라 같은 방향을 쓰고, 추정이라 화면에만 보인다.
+const selectedBasis = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e || !needsSystem(e)) return null
+  const basis = airBasis(m, showRules.value && hasRules.value ? withInferred(m.connections) : m.connections, e.id, equipmentById.value)
+  const name = (id: string) => shortName(equipmentById.value.get(id)?.name || id)
+  const rooms = new Set(basis.terminals.map((t) => equipmentById.value.get(t)?.spaceId).filter((x): x is string => !!x))
+  return { supplyFrom: basis.supplyFrom.map(name), extractTo: basis.extractTo.map(name), terminals: basis.terminals.length, rooms: rooms.size }
+})
+const systemless = computed(() => (model.value ? systemlessAir(model.value) : []))
+
 /** 패널에 보일 담당 공간. 말단이 많은 방부터 SERVED_LIMIT 줄만, 층으로 묶는다(층 순서는 모델 순서). */
 const SERVED_LIMIT = 12
 const servedAll = ref(false)
@@ -1791,6 +3222,7 @@ const failReasons = computed(() => {
     connections: showRules.value && hasRules.value ? withInferred(m.connections) : m.connections,
     services: airServiceList.value,
     boxes: c.key === 'device-connected' || c.key === 'conduit-ends' ? meshBoxes() : undefined,
+    boxOf: currentBox,
     label: (id: string) => {
       const e = equipmentById.value.get(id)
       const what = whatIs(e)?.label
@@ -1799,16 +3231,33 @@ const failReasons = computed(() => {
   }
   return new Map(c.failed.slice(0, CHECK_LIMIT).map((id) => [id, diagnoseFailure(c.key, id, ctx)]))
 })
-/** 위반 목록의 한 번에 고치기. 여느 편집과 같은 길(relocate·connectTo)이라 되돌리기·리포트·자동 저장에 같이 들어간다. */
+/**
+ * 위반 목록의 한 번에 고치기. 여느 편집과 같은 길(relocate·connectTo)이라 되돌리기·리포트·자동 저장에 같이 들어간다.
+ * 연결 누락은 바로 잇지 않고 후보부터 보인다(OE-PIP-08) — 대상·거리·계통·매체를 보고 사람이 하나를 고른다. 가깝다는 것만으로 이으면
+ * 엉뚱한 계통의 덕트에 붙는다.
+ */
+const fixOpen = ref<string | null>(null)
+watch(openCheckKey, () => (fixOpen.value = null))
 function applyFix(id: string, fix: FailureFix) {
-  if (!editing.value) mode.value = 'edit'
-  if (fix.kind === 'move-into') relocate(id, fix.to)
-  else {
-    connectFrom.value = id
-    connectTo(fix.other)
-  }
+  if (fix.kind === 'move-into') {
+    if (!editing.value) mode.value = 'edit'
+    relocate(id, fix.to)
+  } else fixOpen.value = fixOpen.value === id ? null : id
 }
-const fixLabel = (fix: FailureFix) => (fix.kind === 'move-into' ? `${fix.spaceName} 안으로 옮기기` : `잇기: ${nameOfId(fix.other)}`)
+/** 펼친 위반의 연결 후보. 검사 목록의 이유와 같은 거르기다(connect-candidates.ts). */
+const fixCandidates = computed((): ConnectCandidate[] => {
+  void flowVersion.value
+  const m = model.value
+  const id = fixOpen.value
+  return m && id ? connectCandidates(m, id, meshBoxes()).candidates : []
+})
+function connectCandidate(id: string, other: string) {
+  if (!editing.value) mode.value = 'edit'
+  connectFrom.value = id
+  connectTo(other)
+  fixOpen.value = null
+}
+const fixLabel = (fix: FailureFix) => (fix.kind === 'move-into' ? `${fix.spaceName} 안으로 옮기기` : '연결 후보 확인')
 function toggleCheck(key: string) {
   openCheckKey.value = openCheckKey.value === key ? null : key
   const c = openCheck.value
@@ -1826,7 +3275,9 @@ const flowEditLines = computed(() => {
   return flowEdits(model.value).map((e) => ({
     from: nameOf(e.from),
     to: nameOf(e.to),
-    note: e.rule === 'reversed' ? '규칙 방향과 반대' : e.rule === 'same' ? '규칙 방향과 같음' : '규칙으로 정할 수 없는 연결',
+    note:
+      (e.rule === 'reversed' ? '규칙 방향과 반대' : e.rule === 'same' ? '규칙 방향과 같음' : '규칙으로 정할 수 없는 연결') +
+      (e.reason ? ` · 사유: ${e.reason}` : ''),
   }))
 })
 
@@ -1925,9 +3376,13 @@ watch([history, fileName], () => {
   if (!history.value.at(-1)?.label.includes('종류 →')) kindWarning.value = ''
 })
 /** 고른 설비 패널의 종류 상자. 고른 뒤 포커스를 놓아 준다 — 상자에 남아 있으면 다음 단축키(U, K)를 상자가 먹는다. */
+/** 고른 설비 한 대에만 종류를 정한다(OE-EQP-14 "원하면 설비 한 대씩"). 끄면 같은 패밀리 전부다. 다른 설비를 고르면 끈다. */
+const kindOnlyThis = ref(false)
+watch(selectedId, () => (kindOnlyThis.value = false))
 function pickKind(event: Event, e: Equipment) {
   const el = event.target as HTMLSelectElement
-  setKind(familyKeyOf(e), el.value || null, familyLabel(e))
+  if (kindOnlyThis.value) setKind(`#${e.id}`, el.value || null, shortName(e.name))
+  else setKind(familyKeyOf(e), el.value || null, familyLabel(e))
   el.blur()
 }
 /** 종류를 모르는 패밀리 목록의 상자. 고르면 그 줄이 목록에서 빠지고, 포커스는 놓는다(다음 단축키를 상자가 먹지 않게). */
@@ -2019,11 +3474,15 @@ const kindEditLines = computed(() => {
   const name = (k: string | null) => (k ? (equipmentKind(k)?.label ?? k) : '모름')
   // 편집은 타입마다 적히지만(edit-file 도 타입 단위로 저장한다) 리포트는 패밀리 한 줄로 접는다.
   const rows = new Map<string, { key: string; label: string; count: number; types: number; from: string; to: string }>()
+  const byId = equipmentById.value
   for (const k of kindEdits(m)) {
-    const e = sample.get(k.typeKey)
-    const family = e ? familyKeyOf(e) : k.typeKey
+    // 한 대만 따로 정한 것(`#id`, OE-EQP-14)은 그 설비 이름으로 한 줄이다.
+    const single = k.typeKey.startsWith('#') ? byId.get(k.typeKey.slice(1)) : undefined
+    const e = single ?? sample.get(k.typeKey)
+    const family = single ? k.typeKey : e ? familyKeyOf(e) : k.typeKey
     const key = `${family}|${k.from}|${k.to}`
-    const row = rows.get(key) ?? { key, label: e ? familyLabel(e) : k.typeKey, count: 0, types: 0, from: name(k.from), to: name(k.to) }
+    const label = single ? `${shortName(single.name)} (한 대만)` : e ? familyLabel(e) : k.typeKey
+    const row = rows.get(key) ?? { key, label, count: 0, types: 0, from: name(k.from), to: name(k.to) }
     row.count += k.count
     row.types++
     rows.set(key, row)
@@ -2033,9 +3492,48 @@ const kindEditLines = computed(() => {
 // Proxy 는 IFC 가 역할을 말하지 않아서, 역할도 이름 사전의 종류에서 나온다.
 const roleSrc = (e: Equipment) => (e.added ? 'edit' : e.ifcClass === 'BuildingElementProxy' ? 'dict' : 'bim')
 const positionSrc = (e: Equipment) =>
-  e.positionSource === 'edited' ? 'edit' : e.positionSource === 'geometry' ? 'calc' : 'bim'
-const spaceSrc = (e: Equipment) => (e.spaceSource === 'bim' ? 'bim' : 'calc')
+  e.positionSource === 'edited' ? 'edit' : e.positionSource === 'geometry' || e.positionSource === 'panel' ? 'calc' : 'bim'
+const spaceSrc = (e: Equipment) => (e.spaceSource === 'bim' ? 'bim' : e.spaceSource === 'edit' ? 'edit' : 'calc')
 const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`
+
+// --- 사람의 소속 지정 (OE-MAP-01 · K17) ------------------------------------------------------
+// 기계가 확신하지 못한 설비(소속 허용 거리로 붙었거나 소속 없음)만 사람이 소속 물리존을 정한다. 기계가 확신하게 되면 지정은 남되
+// 쓰이지 않고 "사람 지정 해제" 로 보인다. 설비를 옮기면 지정이 지워진다.
+const ASSIGN_RELEASE_REASON = { bim: 'BIM 이 적은 소속', inside: '외곽선 안', gone: '지정한 물리존이 없어짐' } as const
+const assignInfo = computed(() => {
+  const e = selected.value
+  const storey = e && model.value ? storeyOf(e.id) : null
+  if (!e || !storey) return null
+  return { storey, can: spaceAssignable(e, storey.spaces), state: spaceSetState(e, storey.spaces) }
+})
+function applyAssign(id: string, raw: string) {
+  const m = model.value
+  if (!m) return
+  const name = nameOfId(id)
+  const snapshot = snapshotEquipment(m, id)
+  const at = mark()
+  const done = setEquipmentSpace(m, id, raw || null)
+  if (!done) return
+  if (typeof done === 'object') {
+    note(done.refused)
+    return
+  }
+  remember(raw ? `${shortName(name)} 소속 지정` : `${shortName(name)} 소속 지정 지우기`, snapshot, at)
+  triggerRef(model)
+  note(raw ? `${name}의 소속을 ${spaceNameOf(raw)}(으)로 정했습니다(출처 편집). 옮기면 지정이 지워집니다` : `${name}의 소속 지정을 지웠습니다. 좌표로 다시 판정합니다`)
+}
+/** 리포트의 사람 지정 줄. BIM 에는 사람 지정이 없으니 지정이 있는 설비가 전부 편집이다. */
+const assignLines = computed(() =>
+  (model.value?.storeys ?? []).flatMap((st) =>
+    st.equipment.flatMap((e) => {
+      const state = spaceSetState(e, st.spaces)
+      if (!state) return []
+      return [state.state === 'applied'
+        ? { id: e.id, name: e.name, released: false as const, from: e.spaceSet!, to: e.spaceId, reason: '' }
+        : { id: e.id, name: e.name, released: true as const, from: state.from, to: e.spaceId, reason: ASSIGN_RELEASE_REASON[state.reason] }]
+    }),
+  ),
+)
 
 /**
  * Proxy 로 들어온 기기. IFC 가 설비라고 말하지 않은 것을 우리가 받은 것이다. 받은 근거가 둘이라 나눠 센다 —
@@ -2208,6 +3706,21 @@ function setSystemKindTo(systemId: string, kind: string | null, fluid: Fluid | n
   triggerRef(model)
   flowVersion.value++
 }
+/** 계통 이름을 바꾼다(OE-PIP-09). BIM 이 준 계통도 바꾼다(2026-10-03 사용자 결정). TTL 계통 블록의 rdfs:label 이 된다. */
+function renameSystemTo(systemId: string, name: string) {
+  const m = model.value
+  const system = systemById.value.get(systemId)
+  if (!m || !system) return
+  const was = system.name
+  const snapshot = snapshotSystems(m, [systemId])
+  const at = mark()
+  if (!renameSystem(m, systemId, name)) return
+  remember(`계통 이름 ${was || systemId} → ${system.name}`, snapshot, at)
+  triggerRef(model)
+  flowVersion.value++
+}
+/** 연 때의 계통 이름. 고친 계통이면 패널에 BIM 이름을 같이 보인다. 사람이 만든 계통은 없다. */
+const systemNameAtOpen = (id: string) => baseline.value?.systems?.get(id)?.name ?? null
 // 새 계통 만들기·지우기(E8). 만들면 고른 설비를 바로 넣는다 — 빈 계통은 온톨로지에 아무것도 더하지 않는다.
 const newSystemOpen = ref(false)
 const newSystemName = ref('')
@@ -2256,8 +3769,14 @@ function toggleSystem(id: string) {
   if (selectedSystemId.value) selectedId.value = null
 }
 
-watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRow, openCheck, selectedSpace, sceneVersion], () => {
+watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRow, openCheck, selectedSpace, sceneVersion, group], () => {
   if (!viewer) return
+
+  // 여러 개 고른 설비(OE-UI-09). 고른 색으로 칠하고 나머지는 흐리게 하지 않는다(흐린 것은 Shift+클릭으로 더할 수 없다).
+  if (group.value.length >= 2) {
+    viewer.setHighlight({ selected: null, upstream: new Set(), downstream: new Set(), linked: new Set(), group: new Set(group.value) })
+    return
+  }
 
   const t = traced.value
   if (selectedId.value && t) {
@@ -2413,13 +3932,13 @@ const errorAt = (path: string): string => {
 const openedDataPath = ref<string | null>(null)
 
 function openData(path: string) {
-  void openMany([{ name: baseName(path), read: () => fetchData(path) }], 'open').then(() => {
+  void openMany([{ name: baseName(path), read: () => fetchData(path), dataPath: path }], 'open').then(() => {
     openedDataPath.value = fileName.value === baseName(path) ? path : null
   })
 }
 
 function appendData(path: string) {
-  void append(baseName(path), () => fetchData(path))
+  void openMany([{ name: baseName(path), read: () => fetchData(path), dataPath: path }], 'append')
 }
 
 /** 목록에서 고른 파일. 건축·설비를 같이 골라 한 번에 연다. */
@@ -2430,7 +3949,7 @@ function toggleDataPick(path: string) {
 function openDataSet(paths: readonly string[]) {
   const list = [...paths]
   dataPicked.value = []
-  void openMany(list.map((path) => ({ name: baseName(path), read: () => fetchData(path) })), 'open').then(() => {
+  void openMany(list.map((path) => ({ name: baseName(path), read: () => fetchData(path), dataPath: path })), 'open').then(() => {
     openedDataPath.value = null
   })
 }
@@ -2544,7 +4063,11 @@ function importInWorker(bytes: ArrayBuffer): Promise<{ model: Model; meshes: Mes
 // 다시 판정한다. 불러온 것은 한 번에 되돌리지 못한다 — 되돌리기 이력을 비우고, 리포트에는 연 때와 견준 줄로 남는다.
 const editFileNote = ref('')
 
-function saveEdits() {
+/**
+ * [편집 저장]. data/ 에서 연 파일이면 8084 에 둔다 — 같은 파일을 여는 사람 누구나 이 편집을 본다(OE-COM-08). 손으로 연 파일이거나
+ * 서버에 못 닿으면 파일로 내려받는다. `toFile` 이면 data/ 의 파일이라도 내려받기만 한다.
+ */
+async function saveEdits(toFile = false) {
   const m = model.value
   if (!m || !baseline.value) return
   if (!hasEdits.value && changeCount.value === 0) {
@@ -2552,9 +4075,18 @@ function saveEdits() {
     return
   }
   const file = exportEdits(m, baseline.value, fileName.value)
+  const sig = editSig(file)
+  if (!toFile && serverKey.value && (await saveToServer(file))) {
+    committed()
+    note(`8084 에 저장했습니다(편집 ${editCount(file)}건). 이 파일을 여는 사람 모두 같은 편집을 봅니다`)
+    markDone('save')
+    return
+  }
   const stem = fileName.value.replace(/\.ifc/gi, '').replace(/[^\w가-힣.+-]+/g, '_') || 'model'
   download(`${stem}.edits.json`, JSON.stringify(file, null, 2), 'application/json')
-  note(`편집을 저장했습니다: ${stem}.edits.json`)
+  committed()
+  note(`편집을 파일로 내려받았습니다: ${stem}.edits.json`)
+  markDone('save')
 }
 
 async function onEditFilePick(event: Event) {
@@ -2569,10 +4101,12 @@ async function onEditFilePick(event: Event) {
     return
   }
   applyEditFile(file, picked.name)
+  // 파일에서 불러온 편집은 그 파일에 이미 있다. 불러온 뒤 더 고친 것만 저장하지 않은 편집이다.
+  markSaved()
 }
 
 /** 편집 파일을 지금 모델에 얹는다. 파일에서 불러올 때와 자동 저장을 되살릴 때가 같이 쓴다. */
-function applyEditFile(file: EditFile, from: string) {
+function applyEditFile(file: EditFile, from: string, quiet = false) {
   const m = model.value
   if (!m) return
   // 옮길 설비의 형상도 같이 옮겨야 다시 그릴 때 예전 자리로 튀지 않는다. 얹기 전 좌표를 떠 둔다.
@@ -2580,7 +4114,9 @@ function applyEditFile(file: EditFile, from: string) {
   const result = applyEdits(m, file)
   for (const e of m.storeys.flatMap((s) => s.equipment)) {
     const was = before.get(e.id) ?? null
-    if (was !== e.position) shiftMesh(e.id, was, e.position)
+    // 늘인 구간은 얹기 전 형상을 떠 두고 다시 만든다. 통째로 옮기면 붙은 끝이 떨어진다.
+    if (e.endShift && was && (meshBase.has(e.id) || captureBase(e.id, was))) placeStretched(e.id)
+    else if (was !== e.position) shiftMesh(e.id, was, e.position)
   }
   changes.value = [...changes.value, ...result.changes]
   areaChanges.value = [...areaChanges.value, ...result.areaChanges]
@@ -2597,17 +4133,22 @@ function applyEditFile(file: EditFile, from: string) {
   redraw()
 
   const missing = Object.entries(result.missing).filter(([, n]) => n > 0)
-  const MISSING_LABEL: Record<string, string> = { equipment: '설비', spaces: '물리존', kinds: '타입', flows: '방향', systems: '계통', connections: '연결', elements: '벽·문·창' }
+  const MISSING_LABEL: Record<string, string> = { equipment: '설비', spaces: '물리존', kinds: '타입', flows: '방향', systems: '계통', connections: '연결', elements: '벽·문·창', storeys: '완료한 층' }
   // GUID 가 바뀐 판본에서 다른 열쇠로 찾은 것. 사람이 확인할 수 있게 무엇으로 찾았는지까지 말한다.
   const rematched = (Object.entries(result.rematched) as [Exclude<MatchKey, 'guid'>, number][]).filter(([, n]) => n > 0)
   autosaveArmed = true
+  if (quiet) return
   editFileNote.value =
     `편집 ${result.applied}개를 적용했습니다(${from}).` +
     (file.source && file.source !== fileName.value ? ` 원래 파일: ${file.source}.` : '') +
     (rematched.length
       ? ` GUID가 바뀐 ${rematched.reduce((n, [, k]) => n + k, 0)}개는 ${rematched.map(([k, n]) => `${MATCH_KEY_BY[k]} ${n}개`).join(', ')} 찾았습니다.`
       : '') +
+    (result.releases?.review ? ` 해제 보정한 BIM 연결 ${result.releases.review}개는 이 판본에서 원본이 달라 재검토가 필요합니다(바뀐 내용).` : '') +
     (missing.length ? ` 찾지 못함: ${missing.map(([k, n]) => `${MISSING_LABEL[k]} ${n}`).join(' · ')}.` : '') +
+    (result.assignReleased?.length
+      ? ` 사람 지정 해제 ${result.assignReleased.length}대: ${result.assignReleased.map((r) => `${r.name} ${spaceNameOf(r.from)} → ${spaceNameOf(r.to)}(${ASSIGN_RELEASE_REASON[r.reason]})`).join(', ')}.`
+      : '') +
     ' 불러온 편집은 되돌리기로 취소할 수 없습니다.'
 }
 
@@ -2616,7 +4157,18 @@ function applyEditFile(file: EditFile, from: string) {
 // 층이 여럿이면 3D 에 전부 겹쳐 그려져, 아래층 설비는 위층 판과 배관에 가려 누르기도 끌기도 어려웠다. 한 층만 남긴다.
 // 다른 층의 것을 표·목록에서 고르면 그 층으로 따라간다 — 고른 것이 안 보이면 고른 줄 모른다.
 const viewStorey = ref<string | null>(null)
-watch(baseline, () => (viewStorey.value = null))
+/**
+ * 파일을 열면 처음 볼 층(OE-UI-12). PRD 는 "3D는 한 층만, 전체 빌딩 뷰는 미리보기 Phase 2" 다. "모든 층" 은 남겨 두되(층을 넘는
+ * 덕트·배관을 한눈에 볼 곳이 여기뿐이다) 처음에는 **방이 있는 가장 낮은 층**을 연다 — 기초(T/FDN·TOF Footing)는 방이 없다.
+ * 방이 없는 파일(설비만)은 설비가 놓인 가장 낮은 층, 그것도 없으면 맨 아래 층. 층이 하나면 고를 것이 없다.
+ */
+function firstStorey(m: Model | null): string | null {
+  if (!m || m.storeys.length <= 1) return null
+  const st =
+    m.storeys.find((s) => s.spaces.length > 0) ?? m.storeys.find((s) => s.equipment.some((e) => e.position && !isConduit(e.role))) ?? m.storeys[0]
+  return st.id
+}
+watch(baseline, () => (viewStorey.value = firstStorey(model.value)))
 function applyStoreyFilter() {
   const m = model.value
   if (!viewer || !m) return
@@ -2629,7 +4181,8 @@ function applyStoreyFilter() {
   viewer.setStoreyFilter(new Set([id]), hidden)
 }
 watch([viewStorey, model, sceneVersion], applyStoreyFilter)
-watch(viewStorey, () => viewer?.frameAll())
+// 천장 모드에서 층을 바꾸면 위에서 내려다보는 시점을 지킨다(OE-OBJ-08).
+watch(viewStorey, () => (ceilingMode.value ? viewer?.topView() : viewer?.frameAll()))
 
 // --- 3D / 평면도 ---------------------------------------------------------------------
 //
@@ -2665,17 +4218,69 @@ watch([selectedId, selectedSpaceId], ([eq, sp]) => {
 // 누르면 그 자리에 놓는다. 높이는 같은 패밀리 설비의 바닥에서 높이(중앙값)를 따르고, 없으면 바닥에 두고 알린다 —
 // 높이를 지어내지 않는다. 놓으면 여느 이동처럼 소속을 다시 판정하고 되돌리기에 쌓인다.
 const placing = ref<string | null>(null)
-function startPlace(id: string) {
+/** 놓는 방식. `wall` 이면 누른 자리에서 가장 가까운 벽 면에 붙인다(OE-OBJ-04 외벽 전용 설비). */
+const placingOn = ref<'floor' | 'wall'>('floor')
+function startPlace(id: string, on: 'floor' | 'wall' = 'floor') {
   const home = storeyOf(id)
   if (!home) return
+  // 벽 전용 종류(콘센트)는 바닥에 놓지 않고 벽에 붙인다(OE-OBJ-10, 설치면 표 mount.ts)
+  const target = equipmentById.value.get(id)
+  // 천장 편집 모드(OE-OBJ-08): 천장 모드에서는 천장에, 바닥·벽 쪽에서는 바닥·벽에 놓는다. 천장 모드에는 벽에 붙이기가 없다.
+  if (target && ceilingMode.value && on === 'wall') return refuseLock(target, '천장 편집 모드에서는 벽에 붙이지 않습니다. 바닥·벽 쪽에서 붙이세요.')
+  const lock = target ? ceilingLock(target) : null
+  if (target && lock) return refuseLock(target, lock)
+  if (ceilingMode.value && !ceilingOf(home)) {
+    editNotice.value = `${home.name}의 천장고를 모릅니다. 천장 설비를 놓기 전에 왼쪽 도구에서 천장고를 입력하세요.`
+    return
+  }
+  if (target && surfaceOf(target) === 'wall') on = 'wall'
   connectFrom.value = null
   placing.value = id
-  viewer?.setPlaceMode(home.elevation)
-  note(`${nameOfId(id)}${josa(nameOfId(id), '을/를')} 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
+  placingOn.value = on
+  viewer?.setPlaceMode(ceilingMode.value ? home.elevation + ceilingOf(home)!.height : home.elevation)
+  // 바닥·천장에 놓을 때는 따로 안내하지 않는다(OE-EQP-02) — 팔레트의 눌린 항목과 십자 커서가 놓는 중임을 말한다. 벽에 붙이기는
+  // 누를 자리(벽 면 가까이)가 달라서 알린다.
+  if (on === 'wall') note(`${nameOfId(id)}${josa(nameOfId(id), '을/를')} 붙일 벽 면 가까이를 3D에서 클릭하세요. 바깥 면을 누르면 바깥에 붙습니다 (Esc 취소)`)
 }
 function stopPlace() {
   placing.value = null
+  placingOn.value = 'floor'
   viewer?.setPlaceMode(null)
+}
+
+/** 외벽 전용 설비(OE-OBJ-04)가 외벽 바깥 면에 있지 않은가. 패널 경고에 쓴다. */
+function exteriorMisplaced(e: Equipment): boolean {
+  if (!exteriorOnly(e)) return false
+  const home = storeyOf(e.id)
+  return !e.position || !home || !onExteriorFace(home, [e.position[0], e.position[1]])
+}
+/** 설비를 벽 면에 붙인다(OE-OBJ-04). 여느 이동처럼 소속을 다시 재고 되돌리기에 쌓인다. 겹침 금지(OE-OBJ-16)도 같다. */
+function mountAt(id: string, at: Vec2) {
+  const m = model.value
+  if (!m) return
+  const before = equipmentById.value.get(id)?.position ?? null
+  const snapshot = snapshotEquipment(m, id)
+  const trial = structuredClone(m)
+  const probe = mountOnWall(trial, id, [cm(at[0]), cm(at[1])])
+  if (!probe) return
+  if ('refused' in probe) return note(probe.refused)
+  const target = trial.storeys.flatMap((st) => st.equipment).find((e) => e.id === id)!
+  const blocked = overlapAt(m, id, target.position!, currentBox)
+  if (blocked) {
+    const name = shortName(blocked.name)
+    editNotice.value = `이미 오브젝트가 있는 위치입니다(${name}${josa(name, '과/와')} 겹칩니다). 배관 없는 설비는 서로 겹쳐 놓을 수 없습니다.`
+    viewer?.markConflict(blocked.id)
+    return
+  }
+  const at0 = mark()
+  const done = mountOnWall(m, id, [cm(at[0]), cm(at[1])])
+  if (!done || 'refused' in done) return
+  const wallName = done.wall.name || '벽'
+  remember(`${shortName(done.change.equipmentName)} ${wallName}에 붙임`, snapshot, at0)
+  moveInScene(id, before, equipmentById.value.get(id)?.position ?? null)
+  changes.value = [...changes.value, done.change]
+  triggerRef(model)
+  note(`${wallName}에 붙였습니다. 벽을 옮기면 같이 갑니다`)
 }
 watch([selectedId, editing, viewStorey], () => {
   if (placing.value && (selectedId.value !== placing.value || !editing.value)) stopPlace()
@@ -2684,20 +4289,38 @@ function placeAt(at: Vec2) {
   if (drawing.value) {
     drawing.value = { ...drawing.value, points: [...drawing.value.points, [cm(at[0]), cm(at[1])]] }
     // 나눌 선은 두 점이면 끝난다.
-    if ((drawing.value.purpose === 'split' || drawing.value.purpose === 'wall') && drawing.value.points.length === 2) finishDraw()
+    if ((drawing.value.purpose === 'split' || drawing.value.purpose === 'wall' || drawing.value.purpose === 'customSplit' || drawing.value.purpose === 'room') && drawing.value.points.length === 2) finishDraw()
     return
   }
   if (adding.value) {
     if (adding.value.what === 'equipment') addEquipmentAt(at)
+    else if (adding.value.what === 'object') addObjectAt(at)
     else addOpeningAt(at)
     return
   }
   const id = placing.value
   const m = model.value
+  const on = placingOn.value
   stopPlace()
+  if (id && on === 'wall') return mountAt(id, at)
   const home = id ? storeyOf(id) : null
   const target = id ? equipmentById.value.get(id) : null
   if (!m || !id || !home || !target) return
+  // 천장 모드: 구역의 기본 z 에 놓는다 — 반자 부착은 반자 높이, 플레넘은 반자 바로 위(OE-EQP-02·04).
+  if (ceilingMode.value) {
+    const zone = ceilingZone(target.kind) ?? 'attached'
+    const range = ceilingRange(zone, ceilingOf(home)?.height ?? null, storeyHeightOf.value.get(home.id)?.value ?? null)
+    if (!range) return
+    if (!relocate(id, [cm(at[0]), cm(at[1]), cm(home.elevation + range.base)])) return
+    note(`${zone === 'plenum' ? '플레넘(천장고 바로 위)' : '천장고'}에 놓았습니다(바닥에서 ${range.base.toFixed(2)}m). 높이는 z 칸에서 고치세요`)
+    return
+  }
+  // 종류를 모르면 허용 설치면을 알 수 없어 바닥에 놓는다(OE-EQP-02).
+  if (!target.kind) {
+    if (!relocate(id, [cm(at[0]), cm(at[1]), cm(home.elevation)])) return
+    note('종류를 모르는 설비라 바닥 높이에 놓았습니다. 종류를 정한 뒤 높이를 고치세요')
+    return
+  }
   const key = familyKeyOf(target)
   const heights = m.storeys
     .flatMap((st) => st.equipment.filter((e) => e.id !== id && e.position && familyKeyOf(e) === key).map((e) => e.position![2] - st.elevation))
@@ -2786,9 +4409,37 @@ function finishDraw(): boolean {
     stopDraw()
     const [a, b] = d.points
     let made: Wall | null = null
-    if (changeElements(d.storeyId, '벽 긋기', (m) => (made = addWall(m, d.storeyId, a, b)))) {
-      selectedElementId.value = made!.id
-      note('벽을 그었습니다. 내력 여부는 오른쪽 패널에서 정합니다')
+    let thick: ReturnType<typeof newWallThickness> | null = null
+    const draw = (m: Model) => {
+      const storey = m.storeys.find((st) => st.id === d.storeyId)
+      const done = storey ? addWall(m, d.storeyId, a, b, (thick = newWallThickness(storey, elementSettings.value.wallThickness)).thickness) : null
+      if (done && !('refused' in done)) made = done
+      return done
+    }
+    if (changeElements(d.storeyId, '벽 긋기', draw) && made) {
+      selectedElementId.value = (made as Wall).id
+      const t = thick as ReturnType<typeof newWallThickness> | null
+      note(`벽을 그었습니다. 두께 ${t ? `${t.thickness}m(${WALL_FROM[t.from]})` : ''}는 오른쪽 패널에서 고칩니다. 내력 여부도 거기서 정합니다`)
+    }
+    return true
+  }
+  if (d.purpose === 'customSplit') {
+    if (d.points.length < 2) {
+      note('나눌 선의 두 점을 찍어야 합니다')
+      return true
+    }
+    stopDraw()
+    const [a, b] = d.points
+    const zoneId = d.spaceId!
+    let pieceName = ''
+    const split = (m: Model) => {
+      const done = splitCustomZone(m, zoneId, a, b)
+      if (done && !('refused' in done)) pieceName = done.name
+      return done
+    }
+    if (changeCustomZones(d.storeyId, `${d.name} 나누기`, split)) {
+      selectedCustomZoneId.value = zoneId
+      note(`${d.name}${josa(d.name, '을/를')} 둘로 나눴습니다. 넓은 쪽이 ${d.name}, 좁은 쪽이 새 커스텀존 ${pieceName}입니다(별명 없음)`)
     }
     return true
   }
@@ -2805,11 +4456,42 @@ function finishDraw(): boolean {
     }
     return true
   }
+  if (d.purpose === 'room') {
+    if (d.points.length < 2) {
+      note('룸의 대각선 두 꼭짓점을 찍어야 합니다')
+      return true
+    }
+    stopDraw()
+    let created: string | null = null
+    const ok = changeRooms(null, '룸 만들기', (m) => {
+      const done = createRoom(m, d.storeyId, d.points[0], d.points[1])
+      if (done && !('refused' in done)) created = done.id
+      return done
+    }, d.storeyId)
+    if (ok && created) {
+      selectedRoomId.value = created
+      note('룸을 만들었습니다. 꼭짓점을 끌어 크기를, 방향키로 자리를 바꿉니다')
+    }
+    return true
+  }
   if (d.points.length < 3) {
     note('꼭짓점을 셋 이상 찍어야 합니다')
     return true
   }
   stopDraw()
+  if (d.purpose === 'custom') {
+    let created: string | null = null
+    const ok = changeCustomZones(d.storeyId, '커스텀존 만들기', (m) => {
+      const done = createCustomZone(m, d.storeyId, { footprint: d.points })
+      if (done && !('refused' in done)) created = done.id
+      return done
+    })
+    if (ok && created) {
+      selectedCustomZoneId.value = created
+      note('커스텀존을 만들었습니다. 이름은 오른쪽 패널에서 고칩니다')
+    }
+    return true
+  }
   if (d.purpose === 'create') {
     const n = (model.value?.storeys ?? []).reduce((k, st) => k + st.spaces.filter((x) => x.added).length, 0) + 1
     let created: string | null = null
@@ -2820,7 +4502,7 @@ function finishDraw(): boolean {
     })
     if (ok && created) {
       selectedSpaceId.value = created
-      note(`새 물리존 ${n}${josa(String(n), '을/를')} 만들었습니다. 이름은 오른쪽 패널에서 고칩니다`)
+      note(`새 물리존 ${n}${josa(String(n), '을/를')} 만들었습니다. 방번호와 공간명은 오른쪽 패널에서 넣습니다`)
     }
     return true
   }
@@ -2897,6 +4579,286 @@ function startSplit() {
   note(`${name}${josa(name, '을/를')} 나눌 선의 두 점을 바닥에 찍으세요 (Esc 취소)`)
 }
 
+// --- 커스텀존 (OE-OBJ-01) -----------------------------------------------------------------
+//
+// 물리존 위에 운영 편의로 정하는 다각형. 서로 겹쳐도 된다. 품는 방·든 설비는 저장하지 않고 쓸 때 계산하므로(custom-zone.ts)
+// 여기서는 목록만 고치고 되돌리기에 쌓는다.
+const selectedCustomZoneId = ref<string | null>(null)
+const selectedCustomZone = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  const id = selectedCustomZoneId.value
+  const found = m && id ? findCustomZone(m, id) : null
+  if (!found) return null
+  return {
+    ...found,
+    spaces: zoneSpaces(found.storey, found.zone),
+    equipment: zoneEquipment(found.storey, found.zone),
+    areaM2: polygonArea(found.zone.footprint),
+  }
+})
+/** 모든 층의 커스텀존. 개요 패널에서 골라 연다. */
+const allCustomZones = computed(() => {
+  void sceneVersion.value
+  return (model.value?.storeys ?? []).flatMap((storey) => (storey.customZones ?? []).map((zone) => ({ storey, zone })))
+})
+watch([model, sceneVersion, selectedCustomZoneId], () => viewer?.setCustomZones(model.value, selectedCustomZoneId.value))
+// 천장 설비 표시(OE-EQP-04). 편집 모드에서 천장 설비마다 바닥 발자국 링을, 고른 것이면 링까지 수직 점선을 그린다. 천장 설비는
+// 판정 설치면이 천장·플레넘인 것과, 반자 높이를 모르는 층에서 종류가 천장 전용인 것이다(그 층은 천장을 판정하지 못한다). 천장에 달 수
+// 없는 종류는 뺀다. 구역(링 색)은 종류가
+// 정하고, 종류가 모르면 판정(플레넘이면 플레넘)을 따른다.
+const ceilingMarks = computed<CeilingMark[]>(() => {
+  if (!editing.value) return []
+  const out: CeilingMark[] = []
+  for (const r of surfaceRows.value) {
+    const e = r.equipment
+    if (!e.position) continue
+    const onCeiling = r.judged === 'ceiling' || r.judged === 'plenum' || (r.judged === null && !ceilingOf(r.storey) && surfaceOf(e) === 'ceiling')
+    // 판정이 허용 설치면 밖이면 허용 설치면이 앞선다(Q9) — 반자 위에 있는 공조기는 천장 설비가 아니다.
+    if (!onCeiling || !canMountOn(e, 'ceiling')) continue
+    out.push({ id: e.id, storeyId: r.storey.id, at: e.position, floor: r.storey.elevation, zone: ceilingZone(e.kind) ?? (r.judged === 'plenum' ? 'plenum' : 'attached') })
+  }
+  return out
+})
+
+// --- 천장 편집 모드 (OE-OBJ-08) ----------------------------------------------------------------
+//
+// 설비 편집의 [바닥·벽 / 천장] 토글(T)에서 천장 쪽이다. 들어가면 선택과 하던 조작을 끝내고, 위에서 내려다보고, 층마다 반자 높이에
+// 반투명 천장면을 그린다. 천장 설비만 놓고·옮기고·지우고·이름과 종류를 고친다(옮기기는 x·y 만, z 는 패널). 나머지는 회색이고 고르기·
+// 조회만 된다. 바닥·벽 쪽(평소 편집)에서는 거꾸로 천장 설비가 고르기·조회만 된다. 모드는 화면 상태라 저장하지 않는다.
+const ceilingMode = ref(false)
+// 천장 모드에서는 위에서 내려다보니 링이 설비와 겹친다 — 그리지 않는다.
+watch([ceilingMarks, sceneVersion, selectedId, () => ceilingMode.value], () => viewer?.setCeilingMarks(ceilingMode.value ? [] : ceilingMarks.value, selectedId.value))
+/** 천장 설비 id(좌표가 있는 것). 바닥 링과 같은 판단이다. */
+const ceilingIds = computed(() => new Set(ceilingMarks.value.map((m) => m.id)))
+const IN_CEILING_MODE = '천장 설비는 천장 편집 모드에서 편집합니다([천장] 또는 T).'
+const NOT_ON_CEILING = '천장에 설치할 수 없는 설비입니다.'
+/**
+ * 지금 모드에서 이 설비를 고칠 수 없는 이유. 고칠 수 있으면 null. 좌표가 없는 설비는 놓을 면으로 가른다 — 천장 모드에서는 천장에 놓을
+ * 수 있는 종류, 바닥·벽 쪽에서는 천장 전용이 아닌 종류다(OE-EQP-02).
+ */
+function ceilingLock(e: Equipment): string | null {
+  if (!editing.value) return null
+  if (!e.position) {
+    if (ceilingMode.value) return isConduit(e.role) ? '덕트·배관은 바닥·벽 쪽에서 편집합니다.' : canMountOn(e, 'ceiling') ? null : NOT_ON_CEILING
+    return surfaceOf(e) === 'ceiling' ? '천장 전용 설비는 천장 편집 모드에서 놓습니다([천장] 또는 T).' : null
+  }
+  const on = ceilingIds.value.has(e.id)
+  if (!ceilingMode.value) return on ? IN_CEILING_MODE : null
+  if (on) return null
+  if (isConduit(e.role)) return '덕트·배관은 바닥·벽 쪽에서 편집합니다.'
+  return canMountOn(e, 'ceiling') ? '바닥·벽 설비는 바닥·벽 쪽에서 편집합니다.' : NOT_ON_CEILING
+}
+/** 막았다고 알린다. 천장에 놓을 수 없는 설비면 3D 에 붉게 짚는다. */
+function refuseLock(e: Equipment, why: string) {
+  editNotice.value = `${shortName(e.name)}: ${why}`
+  if (why === NOT_ON_CEILING) viewer?.markConflict(e.id)
+}
+/** 고른 설비를 지금 모드에서 고칠 수 없으면 그 이유. 패널의 편집 칸을 숨기고 이 말을 보인다. */
+const selectedLock = computed(() => (selected.value ? ceilingLock(selected.value) : null))
+/** 지금 보는 층(천장 모드의 기준). */
+const ceilingStorey = computed(() => (ceilingMode.value ? (model.value?.storeys.find((st) => st.id === viewStorey.value) ?? null) : null))
+/** 천장 모드인데 지금 층의 반자 높이를 모른다 — 입력을 받기 전에는 천장 설비를 놓지 않는다. */
+const ceilingAsk = computed(() => {
+  // 층 객체는 편집해도 같은 객체라 ceilingStorey 만 보면 다시 재지 않는다 — model 을 직접 읽는다(triggerRef).
+  const st = model.value?.storeys.find((x) => x.id === viewStorey.value)
+  return ceilingMode.value && !!st && !ceilingOf(st)
+})
+
+function setCeilingMode(on: boolean) {
+  if (on === ceilingMode.value) return
+  if (!on) {
+    ceilingMode.value = false
+    note('천장 편집 모드를 나왔습니다. 바닥·벽 쪽입니다')
+    return
+  }
+  if (!editing.value) return
+  const st = targetStorey()
+  if (!st) return askStorey('천장을 편집할')
+  // 들어갈 때 하던 것을 끝낸다 — 바닥에 놓던 설비를 천장 높이로 놓게 되면 헷갈린다.
+  stopPlace()
+  stopAdd()
+  if (drawing.value) stopDraw()
+  connectFrom.value = null
+  archMode.value = false
+  group.value = []
+  select(null)
+  selectedSpaceId.value = null
+  selectedElementId.value = null
+  selectedCustomZoneId.value = null
+  ceilingMode.value = true
+  if (viewStorey.value !== st.id) viewStorey.value = st.id
+  // 층을 바꾸면 위 watch 가 시점을 맞춘다. 같은 층이면 여기서 내려다본다.
+  else viewer?.topView()
+  note(ceilingOf(st) ? `천장 편집 모드입니다 — ${st.name} 천장고 ${meters(ceilingOf(st)!.height)}. 천장 설비만 놓고 옮깁니다(T 로 나가기)` : `천장 편집 모드입니다. ${st.name}의 천장고를 먼저 입력하세요`)
+}
+watch(editing, (on) => {
+  if (!on) ceilingMode.value = false
+})
+/** 천장 모드에서 잠긴 도구를 눌렀다. 어디서 편집하는지 알린다(OE-OBJ-08). */
+function lockedTool() {
+  editNotice.value = '천장 편집 모드에서는 공간을 고치지 않습니다. 공간은 [바닥·벽] 쪽에서 편집하세요(T 로 나가기).'
+}
+// 천장 모드의 반자 높이 입력 칸. 기본값은 BIM 값이 없으니 후보(계산)다.
+const ceilingAskInput = ref('')
+watch(ceilingAsk, (ask) => {
+  if (ask && ceilingStorey.value) ceilingAskInput.value = String(ceilingGuessOf.value.get(ceilingStorey.value.id)?.height ?? '')
+}, { immediate: true })
+
+/** 천장면과 회색 처리. 천장면은 반자 높이를 아는 층만, 면은 그 층 물리존 외곽선(없으면 설비가 든 평면 범위)이다. */
+const ceilingView = computed<CeilingView | null>(() => {
+  const m = model.value
+  if (!ceilingMode.value || !m) return null
+  const planes: CeilingView['planes'] = []
+  for (const st of m.storeys) {
+    const c = ceilingOf(st)
+    if (!c) continue
+    let rings: Vec2[][] = st.spaces.filter((sp) => sp.footprint.length >= 4).map((sp) => sp.footprint as Vec2[])
+    if (!rings.length) {
+      const pts = st.equipment.flatMap((e) => (e.position ? [e.position] : []))
+      if (pts.length) {
+        const [x0, x1] = [Math.min(...pts.map((p) => p[0])) - 1, Math.max(...pts.map((p) => p[0])) + 1]
+        const [y0, y1] = [Math.min(...pts.map((p) => p[1])) - 1, Math.max(...pts.map((p) => p[1])) + 1]
+        rings = [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]
+      }
+    }
+    planes.push({ storeyId: st.id, z: st.elevation + c.height, rings })
+  }
+  const dim = new Set<string>()
+  for (const st of m.storeys) for (const e of st.equipment) if (!ceilingIds.value.has(e.id)) dim.add(e.id)
+  return { planes, dim }
+})
+watch([ceilingView, sceneVersion], () => viewer?.setCeilingView(ceilingView.value))
+// 끌지 못하는 설비. 모드 밖의 설비는 3D 에서 잡히지 않는다(고르기는 된다).
+const frozenIds = computed(() => {
+  const out = new Set<string>()
+  if (!editing.value || !model.value) return out
+  for (const st of model.value.storeys) for (const e of st.equipment) if (e.position && ceilingLock(e)) out.add(e.id)
+  return out
+})
+watch([frozenIds, sceneVersion], () => viewer?.setFrozen(frozenIds.value))
+
+/** 천장 설비의 z 가 구역(반자 부착 · 플레넘) 안인가(Q10). 아니면 이유. 천장 설비가 아니면 true. */
+function ceilingZCheck(e: Equipment, storey: Storey, z: number): true | string {
+  const mark = ceilingMarks.value.find((m) => m.id === e.id)
+  const zone = mark?.zone ?? ceilingZone(e.kind)
+  if (!zone) return true
+  return checkCeilingZ(zone, z - storey.elevation, ceilingOf(storey)?.height ?? null, storeyHeightOf.value.get(storey.id)?.value ?? null)
+}
+
+/** 커스텀존이 품는 방의 표시 이름. 이름과 방 번호를 같이 둔다. */
+function zoneRoomLabel(id: string): string {
+  const sp = selectedCustomZone.value?.storey.spaces.find((x) => x.id === id)
+  if (!sp) return id
+  return sp.longName && sp.name && sp.longName !== sp.name ? `${sp.longName} ${sp.name}` : sp.longName || sp.name || id
+}
+
+function changeCustomZones(storeyId: string, label: string, apply: (m: Model) => unknown): boolean {
+  const m = model.value
+  if (!m) return false
+  const snapshot = snapshotCustomZones(m, storeyId)
+  const at = mark()
+  const done = apply(m)
+  if (!done) return false
+  if (typeof done === 'object' && 'refused' in (done as object)) {
+    note((done as { refused: string }).refused)
+    return false
+  }
+  remember(label, snapshot, at)
+  triggerRef(model)
+  sceneVersion.value++
+  return true
+}
+
+function startCustomZone() {
+  const storey = targetStorey()
+  if (!storey) return askStorey('커스텀존을 그릴')
+  stopPlace()
+  stopAdd()
+  connectFrom.value = null
+  selectedId.value = null
+  selectedSpaceId.value = null
+  selectedCustomZoneId.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  drawing.value = { purpose: 'custom', spaceId: null, storeyId: storey.id, name: `${storey.name} 커스텀존`, elevation: storey.elevation, points: [] }
+  viewer?.setPlaceMode(storey.elevation)
+  note('바닥에 꼭짓점을 찍어 커스텀존을 그립니다. 물리존과 경계가 달라도, 다른 커스텀존과 겹쳐도 됩니다 (Enter 마침, Esc 취소)')
+}
+
+/** 룸 그리기(OE-SPC-11). 물리존 안에 대각선 두 꼭짓점을 찍는다. */
+function startRoom() {
+  const storey = targetStorey()
+  if (!storey) return askStorey('룸을 그릴')
+  stopPlace()
+  stopAdd()
+  connectFrom.value = null
+  selectedId.value = null
+  selectedSpaceId.value = null
+  selectedRoomId.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  drawing.value = { purpose: 'room', spaceId: null, storeyId: storey.id, name: `${storey.name} 룸`, elevation: storey.elevation, points: [] }
+  viewer?.setPlaceMode(storey.elevation)
+  note('물리존 안에 룸의 대각선 두 꼭짓점을 찍습니다. 다른 룸과 겹치거나 물리존 밖으로 나갈 수 없습니다 (Esc 취소)')
+}
+
+function startCustomSplit() {
+  const picked = selectedCustomZone.value
+  if (!picked) return
+  stopPlace()
+  stopAdd()
+  drawing.value = { purpose: 'customSplit', spaceId: picked.zone.id, storeyId: picked.storey.id, name: picked.zone.name, elevation: picked.storey.elevation, points: [] }
+  viewer?.setPlaceMode(picked.storey.elevation)
+  note(`${picked.zone.name}${josa(picked.zone.name, '을/를')} 나눌 선의 두 점을 바닥에 찍으세요 (Esc 취소)`)
+}
+
+/** 이름을 고친다. 막히면(빈 이름, 건물 안의 다른 이름·별명과 같음, OE-SPC-06) 칸을 원래 이름으로 되돌린다. */
+function renameZone(input: HTMLInputElement) {
+  const picked = selectedCustomZone.value
+  if (!picked) return
+  const name = input.value.trim()
+  if (!changeCustomZones(picked.storey.id, `커스텀존 이름 ${name}`, (m) => renameCustomZone(m, picked.zone.id, name))) input.value = picked.zone.name
+}
+
+/** 더 붙인 별명(ADR-0012). 쉼표·줄바꿈으로 가른다. 막히면(OE-SPC-06) 칸을 원래 별명으로 되돌린다. */
+function setZoneAliases(input: HTMLInputElement) {
+  const picked = selectedCustomZone.value
+  if (!picked) return
+  const aliases = input.value.split(/[,，\n]/)
+  if (!changeCustomZones(picked.storey.id, `커스텀존 ${picked.zone.name} 별명`, (m) => setCustomZoneAliases(m, picked.zone.id, aliases))) {
+    input.value = (picked.zone.aliases ?? []).join(', ')
+  }
+}
+
+function mergeZone(otherId: string) {
+  const picked = selectedCustomZone.value
+  if (!picked || !otherId) return
+  const other = picked.storey.customZones?.find((z) => z.id === otherId)
+  const names = [picked.zone.name, other?.name ?? '']
+  let kept: CustomZone | null = null
+  const merge = (m: Model) => {
+    const done = mergeCustomZones(m, picked.zone.id, otherId)
+    if (done && !('refused' in done)) kept = done
+    return done
+  }
+  if (changeCustomZones(picked.storey.id, `${names[0]} + ${names[1]} 합치기`, merge) && kept) {
+    // 넓은 쪽이 남는다(OE-SPC-08). 고른 존이 없어졌으면 남은 존을 고른다.
+    const survivor = kept as CustomZone
+    selectedCustomZoneId.value = survivor.id
+    const gone = names.find((n) => n !== survivor.name) ?? ''
+    note(`${names[0]}·${names[1]}을 합쳤습니다. 넓은 ${survivor.name}이 남고 ${gone}은 그 별명이 됩니다`)
+  }
+}
+
+function removeZone() {
+  const picked = selectedCustomZone.value
+  if (!picked) return
+  const name = picked.zone.name
+  if (changeCustomZones(picked.storey.id, `${name} 지우기`, (m) => deleteCustomZone(m, picked.zone.id))) {
+    selectedCustomZoneId.value = null
+    note(`${name}${josa(name, '을/를')} 지웠습니다(Ctrl+Z 로 되돌립니다)`)
+  }
+}
+
 function removeSpace() {
   const picked = selectedSpace.value
   if (!picked) return
@@ -2944,17 +4906,24 @@ function mergeInto(otherId: string) {
 //
 // 더하기는 [설비 더하기] 를 누르고 바닥을 누른다. 종류는 모르는 채 바닥 높이에 놓고 고르게 한다 — 종류와 높이를
 // 지어내지 않는다. 지우면 붙은 연결·계통 자리도 같이 빠지고 Ctrl+Z 로 그대로 돌아온다(edit.ts).
-const adding = ref<{ storeyId: string; elevation: number; what: 'equipment' | 'door' | 'window' } | null>(null)
+/** `object` 는 추가 공간 오브젝트(OE-SPC-14)이고 `item` 이 라이브러리 항목이다. */
+const adding = ref<{ storeyId: string; elevation: number; what: 'equipment' | 'door' | 'window' | 'object'; item?: string } | null>(null)
 function startAddEquipment() {
   const storey = targetStorey()
   if (!storey) return askStorey('설비를 더할')
+  if (ceilingMode.value && !ceilingOf(storey)) {
+    editNotice.value = `${storey.name}의 천장고를 모릅니다. 천장 설비를 놓기 전에 왼쪽 도구에서 천장고를 입력하세요.`
+    return
+  }
   stopPlace()
   stopDraw()
   connectFrom.value = null
   if (model.value!.storeys.length > 1) viewStorey.value = storey.id
-  adding.value = { storeyId: storey.id, elevation: storey.elevation, what: 'equipment' }
-  viewer?.setPlaceMode(storey.elevation)
-  note(`${storey.name}에 설비를 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
+  // 천장 모드에서 더한 설비는 반자 높이에 놓는다(종류를 정하기 전이라 반자 부착으로 본다).
+  const z = ceilingMode.value ? storey.elevation + ceilingOf(storey)!.height : storey.elevation
+  adding.value = { storeyId: storey.id, elevation: z, what: 'equipment' }
+  viewer?.setPlaceMode(z)
+  note(ceilingMode.value ? `${storey.name} 천장에 설비를 놓을 자리를 3D에서 클릭하세요 (Esc 취소)` : `${storey.name}에 설비를 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
 }
 function stopAdd() {
   if (!adding.value) return
@@ -2967,19 +4936,26 @@ function addEquipmentAt(at: Vec2) {
   stopAdd()
   if (!m || !target) return
   const n = m.storeys.reduce((k, st) => k + st.equipment.filter((e) => e.added).length, 0) + 1
+  const position: Vec3 = [cm(at[0]), cm(at[1]), cm(target.elevation)]
+  // 새 설비는 종류를 정하기 전까지 배관 없는 설비로 본다. 다른 배관 없는 설비 자리에는 더하지 않는다(OE-OBJ-16).
+  const blocked = overlapForNew(m, target.storeyId, position, currentBox)
+  if (blocked) return refuseOverlap(blocked)
   const mk = mark()
-  const e = addEquipment(m, target.storeyId, { name: `새 설비 ${n}`, kind: null, position: [cm(at[0]), cm(at[1]), cm(target.elevation)] })
+  const e = addEquipment(m, target.storeyId, { name: `새 설비 ${n}`, kind: null, position })
   if (!e) return
   const snapshot = snapshotEquipmentSet(m, e.id)
   if (snapshot?.kind === 'equipment-set') remember(`${e.name} 더하기`, { ...snapshot, present: false }, mk)
   triggerRef(model)
   redraw()
   selectedId.value = e.id
-  note(`${e.name}${josa(e.name, '을/를')} 바닥 높이에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`)
+  note(`${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '천장고' : '바닥 높이'}에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`)
 }
 function removeEquipment(id: string) {
   const m = model.value
   if (!m) return
+  const target = equipmentById.value.get(id)
+  const lock = target ? ceilingLock(target) : null
+  if (target && lock) return refuseLock(target, lock)
   const name = nameOfId(id)
   const snapshot = snapshotEquipmentSet(m, id)
   const at = mark()
@@ -2997,6 +4973,9 @@ function renameEquipmentTo(id: string, name: string) {
   const m = model.value
   const trimmed = name.trim()
   if (!m || !trimmed) return
+  const target = equipmentById.value.get(id)
+  const lock = target ? ceilingLock(target) : null
+  if (target && lock) return refuseLock(target, lock)
   const snapshot = snapshotEquipment(m, id)
   const at = mark()
   if (!renameEquipment(m, id, trimmed)) return
@@ -3017,22 +4996,51 @@ watch(editing, (on) => {
 // 이 층을 켠 동안에는 숨기고 끌 때 다시 그린다.
 const archMode = ref(false)
 const selectedElementId = ref<string | null>(null)
+// 여러 개 고르기(OE-UI-09): 다른 것을 고르거나 편집을 끝내면 묶음을 푼다. 지운 설비는 묶음에서 빠진다. 고른 것들이 다 선언된 뒤라 여기 둔다.
+// 다른 것을 고르면 룸은 풀린다(패널은 하나만).
+watch([selectedId, selectedSpaceId, selectedElementId, selectedCustomZoneId, selectedSystemId], (now) => {
+  if (now.some((x) => x)) selectedRoomId.value = null
+  if (now.some((x) => x)) selectedObjectId.value = null
+})
+watch([selectedId, selectedSpaceId, selectedSystemId, selectedElementId, selectedCustomZoneId], (now) => {
+  if (now.some(Boolean) && group.value.length) group.value = []
+})
+watch(editing, (on) => {
+  if (!on) group.value = []
+})
+watch(model, () => {
+  if (group.value.length && group.value.some((id) => !equipmentById.value.has(id))) setGroup(group.value.filter((id) => equipmentById.value.has(id)))
+})
+// 커스텀존을 고르면 다른 고른 것을 풀고, 다른 것을 고르면 커스텀존을 푼다(패널은 하나만 뜬다).
+watch([selectedId, selectedSpaceId, selectedElementId], ([a, b, c]) => {
+  if (a || b || c) selectedCustomZoneId.value = null
+})
+watch(selectedCustomZoneId, (id) => {
+  if (!id) return
+  selectedId.value = null
+  selectedSpaceId.value = null
+  selectedElementId.value = null
+})
 let archEdited = false
 const selectedElement = computed(() => {
   const m = model.value
   const id = selectedElementId.value
   if (!m || !id) return null
   for (const storey of m.storeys) {
+    // 내력벽과 거기 뚫린 문·창은 잠긴다(OE-OBJ-06). 고르고 볼 수는 있고, 옮기기·지우기만 막는다.
     const wall = storey.walls.find((w) => w.id === id)
-    if (wall) return { kind: 'wall' as const, storey, wall, opening: null }
+    // 잠긴 이유. 벽은 내력벽(OE-OBJ-05)·외벽(OE-EXT-02), 문·창은 내력벽에 뚫린 것만 — 외벽의 문·창은 고친다(OE-OBJ-04).
+    if (wall) return { kind: 'wall' as const, storey, wall, opening: null, locked: wallShapeLock(wall) }
     const opening = storey.openings.find((o) => o.id === id)
-    if (opening) return { kind: opening.kind, storey, wall: null, opening }
+    if (opening) return { kind: opening.kind, storey, wall: null, opening, locked: wallLocked(storey.walls.find((w) => w.id === opening.wallId)) ? WALL_LOCKED : null }
   }
   return null
 })
 watch([showZones, model, sceneVersion], () => viewer?.setHvacZones(showZones.value ? model.value : null, null))
-watch([archMode, editing, model, sceneVersion, selectedElementId], () => {
-  viewer?.setArchitecture(archMode.value && editing.value ? model.value : null, selectedElementId.value)
+watch([archMode, editing, model, sceneVersion, selectedElementId, replayArch, replayElement], () => {
+  // 편집 리플레이의 벽·문·창 장면도 이 층을 켠다(replayArch).
+  const on = (archMode.value && editing.value) || replayArch.value
+  viewer?.setArchitecture(on ? model.value : null, replayArch.value ? replayElement.value : selectedElementId.value)
 })
 watch(archMode, (on) => {
   if (on) {
@@ -3054,14 +5062,60 @@ watch(selectedElementId, (id) => {
   selectedId.value = null
   selectedSpaceId.value = null
 })
+/**
+ * 고른 벽·문·창이 있는 층의 외벽 판정(OE-EXT-01). BIM 이 말한 것은 그대로, 안 말한 벽은 건물 바깥에 닿는지로 계산한다.
+ * 벽을 옮기면 다시 센다(sceneVersion) — 모델에 저장하지 않는 값이다.
+ */
+const selectedExternal = computed(() => {
+  void sceneVersion.value
+  const storey = selectedElement.value?.storey
+  return storey ? judgeExternal(storey) : null
+})
+/** 내력 여부의 출처(OE-OBJ-06). 더한 벽이거나 연 때와 값이 다르면 사람이 정한 것이다. */
+const bearingSrc = (wall: Wall): 'edit' | 'bim' => {
+  const was = baseline.value?.walls?.get(wall.id)
+  return wall.added || (was !== undefined && was.loadBearing !== wall.loadBearing) ? 'edit' : 'bim'
+}
+const externalOf = (wallId: string | null | undefined) => (wallId ? selectedExternal.value?.get(wallId) ?? null : null)
+/**
+ * 고른 벽·문·창을 고칠 수 없는 이유(내력벽 OE-OBJ-05 · 외벽 OE-EXT-02). 계산으로 외벽인 벽도 잠근다 — edit.ts 는 BIM·편집 값만 본다
+ * (계산은 층 격자를 다시 재야 해서 방향키마다 할 수 없다). 화면이 고른 층 하나를 재 둔 것을 쓴다.
+ */
+const elementLock = computed(() => {
+  const picked = selectedElement.value
+  if (!picked) return null
+  if (picked.locked) return picked.locked
+  return picked.wall && externalOf(picked.wall.id)?.external ? EXTERIOR_LOCKED : null
+})
+/** 설비를 붙인 벽의 이름(OE-OBJ-04). */
+const wallNameOf = (wallId: string) => model.value?.storeys.flatMap((st) => st.walls).find((w) => w.id === wallId)?.name || '벽'
 const elementLabel = (kind: 'wall' | 'door' | 'window') => (kind === 'wall' ? '벽' : kind === 'door' ? '문' : '창')
 const nameOfSpace = (id: string) => spaceNameOf(id)
+
+/**
+ * 벽 면에 붙은 설비의 지금 좌표(OE-OBJ-04). 벽을 옮기거나 두께·길이를 바꾸면 edit.ts 가 붙은 설비를 따라 옮기는데,
+ * 3D 형상은 [벽·문·창] 을 끌 때 다시 그리기 전까지 제자리에 남았다. 고치기 전 좌표를 들고 있다가 바뀐 것만 옮긴다.
+ */
+function mountedAt(m: Model): Map<string, Vec3 | null> {
+  const at = new Map<string, Vec3 | null>()
+  for (const st of m.storeys) for (const e of st.equipment) if (e.wallId) at.set(e.id, e.position ? [e.position[0], e.position[1], e.position[2]] : null)
+  return at
+}
+
+function followMounted(before: Map<string, Vec3 | null>, glide = false) {
+  for (const [id, from] of before) {
+    const to = equipmentById.value.get(id)?.position ?? null
+    if (from && to && from[0] === to[0] && from[1] === to[1] && from[2] === to[2]) continue
+    moveInScene(id, from, to, glide)
+  }
+}
 
 function changeElements(storeyId: string, label: string, apply: (m: Model) => unknown, coalesce?: string): boolean {
   const m = model.value
   if (!m) return false
   const snapshot = snapshotStoreyElements(m, storeyId)
   const at = mark()
+  const mounted = mountedAt(m)
   const done = apply(m)
   if (!done) return false
   if (typeof done === 'object' && 'refused' in (done as object)) {
@@ -3071,6 +5125,7 @@ function changeElements(storeyId: string, label: string, apply: (m: Model) => un
   remember(label, snapshot, at, coalesce)
   archEdited = true
   triggerRef(model)
+  followMounted(mounted)
   sceneVersion.value++
   return true
 }
@@ -3082,6 +5137,7 @@ function moveWallCarrying(storeyId: string, wall: Wall, delta: Vec2) {
   const elements = snapshotStoreyElements(m, storeyId)
   const spaces = snapshotStoreySpaces(m, storeyId)
   const at = mark()
+  const mounted = mountedAt(m)
   const done = moveWallWithSpaces(m, wall.id, delta, carryPlan)
   if (!done || !elements || !spaces) return
   carryPlan = done.plan
@@ -3090,6 +5146,7 @@ function moveWallCarrying(storeyId: string, wall: Wall, delta: Vec2) {
   changes.value = [...changes.value, ...done.changes.flatMap((c) => c.equipment)]
   archEdited = true
   triggerRef(model)
+  followMounted(mounted)
   viewer?.updateSpaces(m)
   sceneVersion.value++
   if (done.crossed.length) note(`방 경계가 자기와 겹칩니다: ${done.crossed.slice(0, 3).join(', ')}${done.crossed.length > 3 ? ` 외 ${done.crossed.length - 3}` : ''}`)
@@ -3108,6 +5165,7 @@ function setBearing(wall: Wall, raw: string) {
 function removeElement() {
   const picked = selectedElement.value
   if (!picked) return
+  if (elementLock.value) return note(elementLock.value)
   const what = elementLabel(picked.kind)
   const name = picked.wall?.name || picked.opening?.name || what
   let openings = 0
@@ -3131,6 +5189,11 @@ function removeElement() {
  * 다시 쓴다(되돌아오면 제자리).
  */
 const carryRooms = ref(false)
+/**
+ * 설비를 옮길 때 붙은 배관도 따라오게 하나(edit.ts 의 planFollow). 기본은 켬 — 끄면 설비만 옮겨져 3D·GeoJSON 에서 배관이
+ * 떨어져 보인다. 도관을 직접 옮길 때는 무엇도 따라오지 않는다.
+ */
+const carryConduits = ref(true)
 let carryPlan: WallCarryPlan | null = null
 watch(selectedElementId, () => (carryPlan = null))
 
@@ -3141,9 +5204,19 @@ function nudgeElement(code: string, step: number): boolean {
   const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
   const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
   const delta: Vec2 = [cm(sign * ax * step), cm(sign * ay * step)]
+  if (elementLock.value) {
+    note(elementLock.value)
+    return true
+  }
   if (picked.wall) {
     if (!picked.wall.footprint?.length) {
       note('외곽선이 없는 벽은 옮길 수 없습니다')
+      return true
+    }
+    // 다른 벽을 새로 가로지르게 되면 옮기지 않는다(OE-OBJ-05). 이유를 말해야 방향키가 고장 난 것처럼 보이지 않는다.
+    const crossed = newCrossing(model.value!, picked.wall.id, picked.wall.footprint.map((r) => r.map((p) => [p[0] + delta[0], p[1] + delta[1]] as Vec2)))
+    if (crossed) {
+      note(crossingMessage(crossed))
       return true
     }
     if (carryRooms.value) {
@@ -3158,17 +5231,59 @@ function nudgeElement(code: string, step: number): boolean {
     note('자리를 모르는 문·창은 옮길 수 없습니다(읽을 것에서 문·창 자리를 켜고 여세요)')
     return true
   }
-  changeElements(picked.storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, [cm(o.position![0] + delta[0]), cm(o.position![1] + delta[1])]), `el:${o.id}`)
+  changeElements(picked.storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, [cm(o.position![0] + delta[0]), cm(o.position![1] + delta[1])], { snap: elementSettings.value.openingSnap }), `el:${o.id}`)
   return true
 }
 
-function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string) {
+/** 벽 길이(OE-OBJ-05). 가운데를 두고 양 끝을 같이 늘이거나 줄인다. 꼭짓점 넷인 벽만이다(직사각형·비스듬히 맞댄 사다리꼴). */
+function applyWallLength(wall: Wall, raw: string) {
+  const value = Number(raw)
+  const storey = selectedElement.value?.storey
+  if (!storey || raw.trim() === '' || !Number.isFinite(value)) return
+  changeElements(storey.id, `${wall.name || '벽'} 길이 ${value.toFixed(2)}m`, (m) => setWallLength(m, wall.id, value))
+}
+
+/** 벽 두께·높이(OE-OBJ-04 크기 y·z). 두께는 중심선을 두고 펴고, 높이는 빈칸이면 모름이다. */
+function applyWallSize(wall: Wall, key: 'thickness' | 'height', raw: string) {
+  const storey = selectedElement.value?.storey
+  if (!storey) return
+  if (key === 'height' && raw.trim() === '') {
+    changeElements(storey.id, `${wall.name || '벽'} 높이 모름`, (m) => setWallHeight(m, wall.id, null))
+    return
+  }
+  const value = Number(raw)
+  if (raw.trim() === '' || !Number.isFinite(value)) return
+  const label = `${wall.name || '벽'} ${key === 'thickness' ? '두께' : '높이'} ${value.toFixed(2)}m`
+  changeElements(storey.id, label, (m) => (key === 'thickness' ? setWallThickness(m, wall.id, value) : setWallHeight(m, wall.id, value)))
+}
+
+/** 외벽 여부를 사람이 정한다(OE-OBJ-04). 계산이 틀린 벽을 바로잡는 자리다. */
+function setExternal(wall: Wall, raw: string) {
+  const value = raw === 'true' ? true : raw === 'false' ? false : null
+  const storey = selectedElement.value?.storey
+  if (!storey) return
+  changeElements(storey.id, `${wall.name || '벽'} ${value === null ? '외벽 여부 모름' : value ? '외벽' : '내벽'}`, (m) => setWallExternal(m, wall.id, value))
+}
+
+/** 문·창 가로·세로(OE-OBJ-07). */
+function applyOpeningSize(o: Opening, key: 'width' | 'height', raw: string) {
+  const value = Number(raw)
+  const storey = selectedElement.value?.storey
+  if (!storey || raw.trim() === '' || !Number.isFinite(value)) return
+  const label = `${o.name || elementLabel(o.kind)} ${key === 'width' ? '가로' : '세로'} ${value.toFixed(2)}m`
+  changeElements(storey.id, label, (m) => setOpeningSize(m, o.id, { [key]: value }))
+}
+
+function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string, input?: HTMLInputElement) {
   const value = Number(raw)
   const storey = selectedElement.value?.storey
   if (!o.position || !storey || raw.trim() === '' || !Number.isFinite(value)) return
+  if (elementLock.value) return note(elementLock.value)
   const to: [number, number] = [o.position[0], o.position[1]]
   to[axis] = value
-  changeElements(storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, to))
+  changeElements(storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, to, { snap: elementSettings.value.openingSnap }))
+  // 문·창은 벽을 따라서만 가서(OE-OBJ-07) 친 값과 놓인 자리가 다를 수 있다. 칸은 치는 동안 덮이지 않으니(v-keep-typing) 놓인 자리로 되돌린다.
+  if (input && o.position) input.value = String(mmOf(o.position[axis]))
 }
 
 function startWall() {
@@ -3195,11 +5310,11 @@ function startOpening(kind: 'door' | 'window') {
 function addOpeningAt(at: Vec2) {
   const target = adding.value
   stopAdd()
-  if (!target || target.what === 'equipment') return
+  if (!target || target.what === 'equipment' || target.what === 'object') return
   const kind = target.what
   let made: Opening | null = null
   const ok = changeElements(target.storeyId, `${elementLabel(kind)} 놓기`, (m) => {
-    const done = addOpening(m, target.storeyId, kind, [cm(at[0]), cm(at[1])])
+    const done = addOpening(m, target.storeyId, kind, [cm(at[0]), cm(at[1])], undefined, elementSettings.value.openingSnap)
     if (done && !('refused' in done)) made = done
     return done
   })
@@ -3219,24 +5334,25 @@ const nameOfId = (id: string) => shortName(equipmentById.value.get(id)?.name || 
 function startConnect() {
   if (!selectedId.value) return
   connectFrom.value = selectedId.value
-  note(`${nameOfId(selectedId.value)}에 이을 상대를 3D나 목록에서 고르세요 (Esc 취소)`)
+  note(`${nameOfId(selectedId.value)}${josa(nameOfId(selectedId.value), '과/와')} 연결할 설비를 3D나 목록에서 고르세요 (Esc 취소)`)
 }
 function connectTo(id: string) {
   const m = model.value
   const from = connectFrom.value
   connectFrom.value = null
   if (!m || !from) return
-  if (id === from) return note('같은 설비끼리는 이을 수 없습니다')
+  if (id === from) return note('같은 설비끼리는 연결할 수 없습니다')
   if (connectionBetween(m, from, id)) return note('이미 이어져 있습니다')
+  if (releasedBetween(m, from, id)) return note('해제 보정한 BIM 연결이 있는 두 설비입니다. 해제한 연결의 [해제 취소]로 되살립니다')
   const at = mark()
   const done = addConnection(m, from, id)
   if (!done) return
-  remember(`${nameOfId(from)}–${nameOfId(id)} 잇기`, { kind: 'connection', connection: done.connection, present: false, index: m.connections.length - 1 }, at)
+  remember(`${nameOfId(from)}–${nameOfId(id)} 연결`, { kind: 'connection', connection: done.connection, present: false, index: m.connections.length - 1 }, at)
   ruleReport.value = done.rules
   triggerRef(model)
   flowVersion.value++
   selectedId.value = from
-  note(`${nameOfId(from)}–${nameOfId(id)}${josa(nameOfId(id), '을/를')} 이었습니다. 방향은 상류로·하류로로 정합니다`)
+  note(`${nameOfId(from)}–${nameOfId(id)}${josa(nameOfId(id), '을/를')} 연결했습니다. 방향은 상류로·하류로로 정합니다`)
 }
 function disconnect(c: Connection) {
   const m = model.value
@@ -3245,43 +5361,123 @@ function disconnect(c: Connection) {
   const at = mark()
   const rules = removeConnection(m, c)
   if (!rules) return
-  remember(`${nameOfId(c.from)}–${nameOfId(c.to)} 끊기`, snapshot, at)
+  remember(`${nameOfId(c.from)}–${nameOfId(c.to)} 연결 끊기`, snapshot, at)
   ruleReport.value = rules
   triggerRef(model)
   flowVersion.value++
 }
 
-// --- 자동 저장 ------------------------------------------------------------------------
+// --- 연결 해제 보정 (OE-PIP-01·06) ----------------------------------------------------------
+//
+// BIM 포트 연결은 [연결 끊기]로 지우지 않고 해제 보정한다(connection-release.ts). 원본은 남고, 규칙 방향·계통 추적·TTL feeds 에서만
+// 빠진다. 해제와 취소는 사유를 받아 보정 이력에 남긴다. 사유 칸은 그 줄 바로 아래에 연다 — 확인 창(window.prompt)은 다른 줄을 가리고
+// 자동화 시험을 멈춘다.
+// shallowRef: ref 는 연결을 반응형 대리 객체로 감싸 모델의 연결과 === 로 견줄 수 없다.
+const releaseDraft = shallowRef<{ connection: Connection; mode: 'release' | 'restore' } | null>(null)
+const releaseReason = ref('')
+watch([selectedId, editing], () => (releaseDraft.value = null))
+/** 고른 설비에 붙은 해제 보정. 직접 연결 표 아래에 비활성으로 보인다. */
+const selectedReleases = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const id = selectedId.value
+  if (!m || !id) return []
+  return releasesOf(m, id).map((entry) => {
+    const other = entry.connection.from === id ? entry.connection.to : entry.connection.from
+    const relation = !entry.connection.directed ? null : entry.connection.from === id ? ('downstream' as const) : ('upstream' as const)
+    return { entry, id: other, name: equipmentById.value.get(other)?.name || other, relation }
+  })
+})
+/** 바뀐 내용에 올리는 해제 보정. 원본을 못 찾은 것·방향이 바뀐 것은 재검토로 적는다. */
+const releaseLines = computed(() => {
+  void flowVersion.value
+  return (model.value?.releasedConnections ?? []).map((r) => ({ from: r.connection.from, to: r.connection.to, reason: r.reason, review: r.review }))
+})
+/** 연결 보정 이력. 새 것이 위다. */
+const releaseLog = computed(() => {
+  void flowVersion.value
+  return [...(model.value?.connectionLog ?? [])].reverse()
+})
+const RELEASE_ACTION = {
+  release: '연결 해제 보정',
+  restore: '해제 보정 취소',
+  keep: '재검토: 해제 유지',
+  drop: '재검토: 보정 지우기',
+  flow: '방향 적용',
+  unflow: '수동 지정 해제',
+} as const
+/** 이력의 시각. 로컬 시간으로(저장은 UTC). */
+function logTime(at: string) {
+  const d = new Date(at)
+  const two = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())} ${two(d.getHours())}:${two(d.getMinutes())}`
+}
+function openRelease(c: Connection, mode: 'release' | 'restore') {
+  releaseDraft.value = { connection: c, mode }
+  releaseReason.value = ''
+}
+function submitRelease() {
+  const m = model.value
+  const d = releaseDraft.value
+  if (!m || !d) return
+  const c = d.connection
+  const snapshot = snapshotRelease(m, c)
+  const at = mark()
+  const done = d.mode === 'release' ? releaseConnection(m, c, releaseReason.value) : cancelRelease(m, c, releaseReason.value)
+  if ('refused' in done) {
+    editNotice.value = done.refused
+    return
+  }
+  const pair = `${nameOfId(c.from)}–${nameOfId(c.to)}`
+  remember(`${pair} ${RELEASE_ACTION[d.mode]}`, snapshot, at)
+  releaseDraft.value = null
+  editNotice.value = ''
+  ruleReport.value = done
+  triggerRef(model)
+  flowVersion.value++
+  note(
+    d.mode === 'release'
+      ? `${pair} 연결을 해제 보정했습니다. 원본은 남고, 규칙 방향·계통 추적·TTL feeds 에서 뺐습니다`
+      : `${pair} 연결의 해제 보정을 취소했습니다. 원본 방향 그대로 돌아왔습니다`,
+  )
+}
+/** 재검토 처리. 방향이 바뀐 것은 해제 유지, 원본을 못 찾은 것은 보정 지우기. */
+function settleRelease(c: Connection, how: 'keep' | 'drop') {
+  const m = model.value
+  if (!m) return
+  const snapshot = snapshotRelease(m, c)
+  const at = mark()
+  if (!(how === 'keep' ? keepRelease(m, c) : dropRelease(m, c))) return
+  remember(`${nameOfId(c.from)}–${nameOfId(c.to)} ${RELEASE_ACTION[how]}`, snapshot, at)
+  triggerRef(model)
+  flowVersion.value++
+}
+
+// --- 자동 저장 (OE-HIST-04) -------------------------------------------------------------------
 //
 // 편집은 탭 안에만 있어서 브라우저가 죽거나 PC 가 다시 켜지면 사라졌다(창 닫기는 묻지만 그 밖은 못 막는다). 편집할
-// 때마다 "편집 저장" 과 같은 파일(lib/edit-file.ts)을 브라우저에 적어 두고, 같은 IFC 를 다시 열면 이어서 할지 묻는다.
-// 되살리기도 편집 파일 불러오기와 같은 길이다 — 값을 덮지 않고 편집 함수에 다시 넣는다.
+// 때마다 "편집 저장" 과 같은 파일(lib/edit-file.ts)을 브라우저 `oe-autosave:<파일 이름>` 에 적어 둔다. 같은 IFC 를 다시 열었을 때
+// 임시 저장본·8084 저장본으로 돌아오는 상태와 다르면 이어서 할지 묻는다. 되살리기도 편집 파일 불러오기와 같은 길이다 — 값을
+// 덮지 않고 편집 함수에 다시 넣는다.
 //
+// 임시 저장(아래, 층마다)과 자리가 다르다. 임시 저장은 사람이 [임시 저장] 을 누른 층만, 자동 저장은 마지막 상태 전부다.
 // 열자마자 지우면 안 된다. 연 직후에는 바뀐 것이 0 이라, 그대로 저장하면 되살릴 기록을 지운다. 사람이 편집을
-// 시작하거나(되살리기를 고르지 않고 새로 고친 것이다) 되살린 뒤부터 적는다.
-const DRAFT_PREFIX = 'oe-draft:'
+// 시작하거나 되살린 뒤부터 적는다.
+const AUTOSAVE_PREFIX = 'oe-autosave:'
+/** 되살릴 수 있는 편집 — 자동 저장에 남은 것이나 [저장 안 함] 으로 버린 것. 위 줄의 [이어서 하기] 가 쓴다. */
 const draft = shallowRef<{ file: EditFile; count: number; savedAt: string } | null>(null)
 let autosaveArmed = false
 let autosaveTimer: number | undefined
-const draftKey = () => DRAFT_PREFIX + fileName.value
-const editCount = (f: EditFile) =>
-  f.equipment.length + f.spaces.length + f.kinds.length + f.flows.length + f.confirmedSystems.length +
-  (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0) +
-  (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0) +
-  (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
-  (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0)
+const autosaveKey = () => AUTOSAVE_PREFIX + fileName.value
+/** 층 완료를 누르거나 지운 횟수(OE-MAN-06). 완료 표시는 되돌리기 이력에 들지 않아, 자동 저장·저장 안 한 편집 판정이 이것도 본다. */
+const progressVersion = ref(0)
+watch(baseline, () => (progressVersion.value = 0))
+const editCount = countEdits
+const editsIn = (part: EditFile | undefined) => (part ? editCount(part) : 0)
 
-watch(baseline, (b) => {
+watch(baseline, () => {
   autosaveArmed = false
   draft.value = null
-  if (!b) return
-  try {
-    const raw = localStorage.getItem(draftKey())
-    const file = raw ? parseEditFile(raw) : null
-    if (file && typeof file !== 'string' && editCount(file) > 0) draft.value = { file, count: editCount(file), savedAt: file.savedAt }
-  } catch {
-    // 브라우저 저장소를 못 읽으면 되살릴 것도 없다.
-  }
 })
 // 되돌리기 이력이 늘면 사람이 편집한 것이다. 남아 있던 기록은 이 편집으로 바뀐다.
 watch(
@@ -3293,7 +5489,7 @@ watch(
     }
   },
 )
-watch([changeCount, flowVersion, () => history.value.length], () => {
+watch([changeCount, flowVersion, () => history.value.length, progressVersion], () => {
   if (!autosaveArmed) return
   window.clearTimeout(autosaveTimer)
   autosaveTimer = window.setTimeout(() => {
@@ -3301,8 +5497,9 @@ watch([changeCount, flowVersion, () => history.value.length], () => {
     if (!m || !baseline.value) return
     try {
       const file = exportEdits(m, baseline.value, fileName.value)
-      if (editCount(file) > 0) localStorage.setItem(draftKey(), JSON.stringify(file))
-      else localStorage.removeItem(draftKey())
+      // 마지막으로 저장(8084·파일·구축하기)한 것과 같으면 남길 것이 없다.
+      if (editCount(file) > 0 && editSig(file) !== committedSig) localStorage.setItem(autosaveKey(), JSON.stringify(file))
+      else localStorage.removeItem(autosaveKey())
     } catch {
       // 저장소가 차거나 막혀 있으면 이번 창에서만 산다. "편집 저장" 으로 내려받는 길은 그대로다.
     }
@@ -3314,16 +5511,406 @@ function restoreDraft() {
   if (!d) return
   draft.value = null
   mode.value = 'edit'
-  applyEditFile(d.file, '자동 저장')
+  // 되살릴 편집은 연 때 기준의 편집 전부다. 8084 저장본·임시 저장본을 이미 얹었으면 걷고 얹는다 — 안 그러면 더한 설비가 두 번 생긴다.
+  resetToOpened()
+  applyEditFile(d.file, '이어서 하기')
+  // 모든 층의 편집이 들어왔으니 층에 들어갈 때 임시 저장본을 다시 얹지 않는다.
+  for (const k of floorDrafts.keys()) appliedFloors.add(k)
 }
 function discardDraft() {
   draft.value = null
   try {
-    localStorage.removeItem(draftKey())
+    localStorage.removeItem(autosaveKey())
   } catch {
-    // 못 지워도 다음 편집이 덮는다.
+    // 못 지워도 다음 편집이 덮는다
   }
 }
+
+// --- 임시 저장 — 층마다 하나 (OE-COM-08 · OE-WF-01~03) -----------------------------------------------
+//
+// [임시 저장] 은 지금 층의 편집을 이 브라우저 `oe-draft:<파일 이름>@<층 id>` 에 남긴다. 층마다 하나고, 다시 누르면 덮는다(목록은
+// 두지 않는다). 웹(8084)에는 올리지 않는다. 임시 저장본이 있는 층에 편집 모드로 들어가면 묻지 않고 얹어 이어서 편집한다(OE-WF-02).
+// 층이 없는 편집(계통·종류·방향·잇기)은 건물 조각(`@*`)이라 어느 층에서 임시 저장해도 같이 남고, 어느 층에 들어가도 같이 얹힌다
+// (lib/storey-drafts.ts).
+//
+// 얹기는 늘 "지금 편집 전부에서 그 층 조각만 갈아 끼워 연 때부터 다시 얹기" 다. 8084 저장본을 얹은 위에 연 때 기준 편집을 또 얹으면
+// 더한 설비가 두 번 생긴다. 다시 얹으면 되돌리기 이력은 비워진다(불러온 편집과 같다).
+//
+// 저장하지 않은 편집이 있는 층에서 다른 층으로 가려 하면 묻는다 — 임시 저장 / 저장 안 함 / 취소(편집 종료와 같은 대화상자).
+const DRAFT_PREFIX = 'oe-draft:'
+const draftKey = (storeyKey: string) => `${DRAFT_PREFIX}${fileName.value}@${storeyKey}`
+/** 연 때의 층. 층 조각을 가르는 기준이다. */
+let homeOf: HomeOf = () => null
+/** 이 파일의 층별 임시 저장본(브라우저에서 읽은 것). 열쇠는 층 id 또는 BUILDING. */
+let floorDrafts = new Map<string, EditFile>()
+/** 이미 얹은 임시 저장본의 열쇠. */
+const appliedFloors = new Set<string>()
+/** 조각마다 마지막으로 저장(임시 저장·8084·파일·구축하기)한 것. 저장 안 한 편집과 [저장 안 함] 이 이것과 견준다. */
+const savedParts = shallowRef(new Map<string, EditFile>())
+/** 열기(8084 저장본 얹기까지)가 끝났는가. 그 전에 임시 저장본을 얹으면 저장본과 겹친다. */
+let openSettled = false
+// 층 바꾸기를 묻는 감시(아래)가 새 파일의 첫 층 고르기를 물음으로 잡지 않게, 파일이 바뀌는 순간 바로 내린다.
+watch(baseline, () => (openSettled = false), { flush: 'sync' })
+watch(baseline, (b) => {
+  floorDrafts = new Map()
+  appliedFloors.clear()
+  savedParts.value = new Map()
+  if (!b) return
+  const home = new Map<string, string>()
+  for (const st of (pristine ?? model.value)?.storeys ?? []) for (const x of [...st.spaces, ...st.equipment, ...st.walls, ...st.openings]) home.set(x.id, st.id)
+  homeOf = (id) => home.get(id) ?? null
+  try {
+    const prefix = draftKey('')
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (!k?.startsWith(prefix)) continue
+      const file = parseEditFile(localStorage.getItem(k) ?? '')
+      if (typeof file !== 'string') floorDrafts.set(k.slice(prefix.length), file)
+    }
+  } catch {
+    // 브라우저 저장소를 못 읽으면 얹을 임시 저장본도 없다.
+  }
+})
+
+function currentParts(): Map<string, EditFile> {
+  const m = model.value
+  if (!m || !baseline.value) return new Map()
+  return splitByStorey(exportEdits(m, baseline.value, fileName.value), homeOf)
+}
+/** 마지막 저장 뒤 바뀐 조각의 열쇠(층 id 또는 BUILDING). */
+function dirtyKeys(parts = currentParts()): string[] {
+  const keys = new Set([...parts.keys(), ...savedParts.value.keys()])
+  return [...keys].filter((k) => partSig(parts.get(k)) !== partSig(savedParts.value.get(k)))
+}
+/** 저장 안 한 편집 수(근사 — 조각마다 지금 편집 수에서 저장한 편집 수를 뺀다). */
+function unsavedCount(keys: string[], parts = currentParts()): number {
+  return Math.max(1, keys.reduce((n, k) => n + Math.max(0, editsIn(parts.get(k)) - editsIn(savedParts.value.get(k))), 0))
+}
+/** 지금 편집하는 층. 한 층을 보고 있으면 그 층, "모든 층" 이거나 층이 하나면 전부다. */
+function floorsInView(): string[] {
+  const m = model.value
+  if (!m) return []
+  return viewStorey.value ? [viewStorey.value] : m.storeys.map((st) => st.id)
+}
+const floorName = (id: string | null) => (id ? (model.value?.storeys.find((st) => st.id === id)?.name ?? id) : '모든 층')
+
+/** 조각을 갈아 끼우고 연 때부터 다시 얹는다. 값이 null 이면 그 조각을 뺀다(연 때로). */
+function replaceParts(next: Map<string, EditFile | null>, from: string) {
+  if (!model.value || !baseline.value || !pristine) return
+  const parts = currentParts()
+  for (const [k, part] of next) {
+    if (part) parts.set(k, part)
+    else parts.delete(k)
+  }
+  resetToOpened()
+  if (parts.size) applyEditFile(joinParts(parts.values(), { format: EDIT_FORMAT, version: 1, source: fileName.value, savedAt: new Date().toISOString() }), from, true)
+}
+
+/** 편집 중인 층에 임시 저장본이 있으면 묻지 않고 얹는다(OE-WF-02). 건물 조각은 처음 한 번 같이 얹는다. */
+function enterFloors() {
+  if (!editing.value || !openSettled || !model.value) return
+  const keys = [...floorsInView(), BUILDING].filter((k) => floorDrafts.has(k) && !appliedFloors.has(k))
+  if (!keys.length) return
+  replaceParts(new Map(keys.map((k) => [k, floorDrafts.get(k)!])), '임시 저장본')
+  const saved = new Map(savedParts.value)
+  for (const k of keys) {
+    appliedFloors.add(k)
+    saved.set(k, floorDrafts.get(k)!)
+  }
+  savedParts.value = saved
+  const names = keys.filter((k) => k !== BUILDING).map(floorName)
+  note(`${names.length ? names.join(' · ') : '건물'}의 임시 저장본을 열었습니다. 이어서 편집합니다`)
+}
+watch([editing, viewStorey], enterFloors)
+
+/** 열기(8084 저장본 얹기까지)가 끝났다. 연 상태를 저장된 상태로 두고, 자동 저장이 돌아올 상태와 다르면 묻고, 임시 저장본을 얹는다. */
+function settleOpen() {
+  if (!model.value || !baseline.value || openSettled) return
+  openSettled = true
+  savedParts.value = currentParts()
+  try {
+    const raw = localStorage.getItem(autosaveKey())
+    const file = raw ? parseEditFile(raw) : null
+    if (file && typeof file !== 'string' && editCount(file) > 0) {
+      const expected = new Map(savedParts.value)
+      for (const [k, part] of floorDrafts) expected.set(k, part)
+      const got = splitByStorey(file, homeOf)
+      const keys = new Set([...expected.keys(), ...got.keys()])
+      if ([...keys].some((k) => partSig(expected.get(k)) !== partSig(got.get(k)))) draft.value = { file, count: editCount(file), savedAt: file.savedAt }
+      else localStorage.removeItem(autosaveKey())
+    }
+  } catch {
+    // 저장소를 못 읽으면 물을 것도 없다
+  }
+  enterFloors()
+}
+
+/** 이 파일의 임시 저장본을 전부 지운다. 저장(8084·파일·구축하기)하면 임시 저장본은 쓸모가 없다. */
+function clearDrafts() {
+  try {
+    const prefix = draftKey('')
+    const keys: string[] = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i)
+      if (k?.startsWith(prefix)) keys.push(k)
+    }
+    for (const k of keys) localStorage.removeItem(k)
+  } catch {
+    // 못 지워도 다음 임시 저장이 덮는다
+  }
+  floorDrafts = new Map()
+}
+
+// 저장 안 한 편집이 있는 층에서 다른 층으로 가려 하면 묻는다. 묻는 동안은 층을 그대로 둔다. 표에서 다른 층의 것을 골라 층이
+// 따라가는 것도 같은 길이다. 대화상자를 거쳐 옮길 때(goFloor)와 "모든 층" 으로 넓힐 때는 묻지 않는다.
+let switching = false
+watch(
+  viewStorey,
+  (now, was) => {
+    // "모든 층" 으로 넓히는 것은 다른 층으로 가는 것이 아니다 — 그 층도 계속 보이고 고칠 수 있다.
+    if (switching || !openSettled || !editing.value || !was || !now || now === was) return
+    const parts = currentParts()
+    if (!dirtyKeys(parts).includes(was)) return
+    switching = true
+    viewStorey.value = was
+    switching = false
+    if (document.fullscreenElement) void document.exitFullscreen()
+    exitAsk.value = { count: unsavedCount([was], parts), floor: { from: was, to: now } }
+  },
+  { flush: 'sync' },
+)
+function goFloor(id: string | null) {
+  switching = true
+  viewStorey.value = id
+  switching = false
+}
+
+// --- 8084 에 저장 (OE-COM-08 "저장 시 변경사항을 웹에서 바로 확인") ----------------------------------
+//
+// data/ 에서 연 파일은 [편집 저장] 이 편집 파일을 서버(src/server/saved-edits.ts)에 둔다. 같은 파일을 8084 에서 여는 사람은
+// 누구나 그 편집을 얹은 채로 본다. 손으로 연 파일은 서버에 원본이 없어서 예전처럼 파일로 내려받는다. 임시 저장은 서버에
+// 오지 않는다(이 브라우저에만, "웹에 반영되지 않는다").
+let loadingPath: string | null = null
+/** 열린 모델을 이룬 파일들의 data/ 경로(연 순서). 손으로 고른 파일은 null. */
+const openedSources = ref<(string | null)[]>([])
+const serverKey = computed(() =>
+  openedSources.value.length && openedSources.value.every((p) => p) ? openedSources.value.join('|') : null,
+)
+/** 지금 모델에 얹은 8084 저장본. 저장 안 함은 여기까지만 되돌린다. */
+const serverSaved = shallowRef<{ file: EditFile; savedAt: string } | null>(null)
+/** 마지막으로 정말 저장한(8084·파일) 편집의 서명. 자동 저장이 이것과 같으면 임시 저장으로 남기지 않는다. */
+let committedSig: string | null = null
+watch(baseline, () => {
+  serverSaved.value = null
+  committedSig = null
+})
+const savedEditsUrl = (key?: string) => `./__data/__edits${key ? `?key=${encodeURIComponent(key)}` : ''}`
+
+/** data/ 목록 옆에 보이는 8084 저장본. 열쇠(경로를 | 로 이은 것)마다 하나. */
+type SavedSet = { key: string; paths: string[]; count: number; savedAt: string }
+const savedSets = ref<SavedSet[]>([])
+function refreshSavedSets() {
+  fetch(savedEditsUrl())
+    .then((r) => (r.ok ? r.json() : []))
+    .then((list) => (savedSets.value = Array.isArray(list) ? list : []))
+    .catch(() => {})
+}
+refreshSavedSets()
+const savedFor = (path: string) => savedSets.value.find((s) => s.key === path) ?? null
+
+async function loadServerEdits() {
+  const key = serverKey.value
+  if (!key) return
+  let file: EditFile | string
+  try {
+    const r = await fetch(savedEditsUrl(key))
+    if (!r.ok) return
+    file = parseEditFile(await r.text())
+  } catch {
+    return
+  }
+  if (typeof file === 'string' || key !== serverKey.value) return
+  applyEditFile(file, `8084 저장본 · ${when(file.savedAt)}`)
+  serverSaved.value = { file, savedAt: file.savedAt }
+  markSaved()
+  committedSig = savedSig
+}
+
+/** 편집 파일을 8084 에 둔다. 됐으면 true. */
+async function saveToServer(file: EditFile): Promise<boolean> {
+  const key = serverKey.value
+  if (!key) return false
+  try {
+    const r = await fetch(savedEditsUrl(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(file) })
+    if (!r.ok) {
+      const why = await r.json().then((b: { error?: string }) => b.error ?? '').catch(() => '')
+      editFileNote.value = `8084 에 저장하지 못했습니다(HTTP ${r.status}${why ? ` · ${why}` : ''}). 파일로 내려받았습니다.`
+      return false
+    }
+  } catch {
+    editFileNote.value = '8084 에 닿지 못했습니다. 파일로 내려받았습니다.'
+    return false
+  }
+  serverSaved.value = { file, savedAt: file.savedAt }
+  refreshSavedSets()
+  return true
+}
+
+/** 저장 시각을 "오늘 14:05" · "10월 2일 14:05" 로. */
+function when(iso: string): string {
+  const t = new Date(iso)
+  const hm = `${t.getHours()}:${String(t.getMinutes()).padStart(2, '0')}`
+  return new Date().toDateString() === t.toDateString() ? `오늘 ${hm}` : `${t.getMonth() + 1}월 ${t.getDate()}일 ${hm}`
+}
+
+// --- 편집 종료 (OE-COM-08) ---------------------------------------------------------------
+//
+// 편집을 끝낼 때 마지막으로 저장한 뒤 바뀐 것이 있으면 묻는다 — 임시 저장 / 저장 안 함 / 취소. 저장은 [편집 저장](편집
+// 파일)이나 [구축하기](온톨로지 두 파일)다. 바뀐 것은 편집 파일 내용(저장 시각을 뺀)으로 견준다 — 되돌리기로 저장한 때와
+// 같아졌으면 묻지 않는다. 끝내는 길(편집 종료·보기·E·전체 화면의 편집 체크)은 전부 leaveEdit 을 거친다.
+let savedSig: string | null = null
+watch(baseline, () => (savedSig = null))
+function editSig(file?: EditFile): string | null {
+  const m = model.value
+  if (!m || !baseline.value) return null
+  const f = file ?? exportEdits(m, baseline.value, fileName.value)
+  return editCount(f) > 0 ? JSON.stringify({ ...f, savedAt: '' }) : null
+}
+function markSaved() {
+  savedSig = editSig()
+  savedParts.value = currentParts()
+}
+/** 저장(8084·파일·구축하기)했다. 모든 층이 저장된 상태가 되고 임시 저장본은 지운다. */
+function committed() {
+  clearDrafts()
+  markSaved()
+  committedSig = savedSig
+}
+/** 묻는 중인 대화상자. `floor` 가 있으면 층을 바꾸려다 물은 것이다. */
+const exitAsk = shallowRef<{ count: number; floor?: { from: string; to: string | null } } | null>(null)
+
+/** 편집을 끝낸다. 저장하지 않은 편집이 있으면 묻고 false 를 돌려준다(끝내지 않았다). */
+function leaveEdit(): boolean {
+  if (!editing.value) return true
+  const parts = currentParts()
+  const dirty = dirtyKeys(parts)
+  if (!dirty.length) {
+    mode.value = 'view'
+    return true
+  }
+  // 대화상자는 전체 화면 요소 밖에 있어서 전체 화면에서는 안 보인다. 먼저 나온다.
+  if (document.fullscreenElement) void document.exitFullscreen()
+  exitAsk.value = { count: unsavedCount(dirty, parts) }
+  return false
+}
+function onEditToggle(box: HTMLInputElement) {
+  if (box.checked) mode.value = 'edit'
+  else if (!leaveEdit()) box.checked = true
+}
+/** 대화상자의 [임시 저장]. 층을 바꾸려던 것이면 그 층만 남기고 옮기고, 편집을 끝내려던 것이면 저장 안 한 층을 전부 남기고 끝낸다. */
+function exitSaving() {
+  const ask = exitAsk.value
+  exitAsk.value = null
+  if (ask?.floor) {
+    keepDraft([ask.floor.from])
+    goFloor(ask.floor.to)
+    return
+  }
+  keepDraft(dirtyKeys())
+  mode.value = 'view'
+}
+/**
+ * [임시 저장]. 지금 층(모든 층을 보고 있으면 저장 안 한 층 전부)과 건물 조각을 이 브라우저에 남긴다. 층마다 하나라 다시 누르면 덮는다
+ * (OE-WF-03). 편집이 없는 층은 임시 저장본을 지운다. 웹(8084)에는 올리지 않는다(OE-WF-01). 저장소가 막혀 있으면 파일로 내려받는다.
+ */
+function keepDraft(keys: string[] = viewStorey.value ? [viewStorey.value] : dirtyKeys()) {
+  if (!model.value || !baseline.value) return
+  const parts = currentParts()
+  const saved = new Map(savedParts.value)
+  const all = [...new Set([...keys, BUILDING])]
+  try {
+    for (const k of all) {
+      const part = parts.get(k)
+      if (part) {
+        localStorage.setItem(draftKey(k), JSON.stringify(part))
+        floorDrafts.set(k, part)
+        saved.set(k, part)
+      } else {
+        localStorage.removeItem(draftKey(k))
+        floorDrafts.delete(k)
+        saved.delete(k)
+      }
+      appliedFloors.add(k)
+    }
+  } catch {
+    // 브라우저 저장소가 막혔으면 파일로만 내려받는다.
+    void saveEdits(true)
+    return
+  }
+  savedParts.value = saved
+  const names = all.filter((k) => k !== BUILDING).map(floorName)
+  note(`${names.length ? names.join(' · ') : '건물'} 편집을 이 브라우저에 임시 저장했습니다(웹에는 반영되지 않습니다). 그 층에 다시 들어오면 이어서 편집합니다`)
+}
+/** 대화상자의 [저장]. 8084 에 둔다(못 두면 파일로 내려받는다). 그다음 층을 옮기거나 보기로 간다. */
+async function exitCommitting() {
+  const ask = exitAsk.value
+  exitAsk.value = null
+  await saveEdits()
+  if (ask?.floor) goFloor(ask.floor.to)
+  else mode.value = 'view'
+}
+function exitDiscarding() {
+  const ask = exitAsk.value
+  exitAsk.value = null
+  if (ask?.floor) {
+    const n = discardFloors([ask.floor.from])
+    goFloor(ask.floor.to)
+    note(`${floorName(ask.floor.from)}의 저장 안 한 편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 위 줄의 [이어서 하기]로 되살립니다`)
+    return
+  }
+  const n = discardFloors(dirtyKeys())
+  mode.value = 'view'
+  note(`편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 위 줄의 [이어서 하기]로 되살립니다`)
+}
+
+/**
+ * [저장 안 함]. 고른 조각을 마지막으로 저장한 때(임시 저장본, 없으면 8084·파일 저장, 없으면 연 때)로 되돌린다. 버리기 전 편집 전부를
+ * 위 줄(draft)에 올려 한 번 되살릴 수 있게 둔다 — [저장 안 함]을 잘못 누르면 한 시간 고친 것이 사라진다. 버린 수를 돌려준다.
+ */
+function discardFloors(keys: string[]): number {
+  const m = model.value
+  if (!m || !pristine || !baseline.value || !keys.length) return 0
+  const file = exportEdits(m, baseline.value, fileName.value)
+  const n = unsavedCount(keys, splitByStorey(file, homeOf))
+  replaceParts(new Map(keys.map((k) => [k, savedParts.value.get(k) ?? null])), '저장 안 함')
+  autosaveArmed = false
+  if (editCount(file) > 0) draft.value = { file, count: editCount(file), savedAt: file.savedAt }
+  return n
+}
+
+/** 연 때(pristine)의 모델로 되돌린다. 저장 안 함과, 8084 저장본을 얹은 뒤 임시 저장을 되살릴 때가 쓴다. */
+function resetToOpened() {
+  if (!pristine) return
+  meshesToOpened()
+  const opened = structuredClone(pristine)
+  ruleReport.value = inferFlowByRules(opened)
+  model.value = opened
+  changes.value = []
+  areaChanges.value = []
+  confirmations.value = []
+  storeyMoved.value = new Set()
+  positionDrafts.value = new Map()
+  history.value = []
+  future.value = []
+  selectedId.value = null
+  selectedSpaceId.value = null
+  selectedElementId.value = null
+  autosaveArmed = false
+  savedSig = null
+  flowVersion.value++
+  redraw()
+}
+
 const draftTime = computed(() => {
   const d = draft.value
   if (!d) return ''
@@ -3381,7 +5968,7 @@ const versionStat = computed(() => {
   const sum = (by: Record<MatchKey, number>) => ({ kept: by.guid, rematched: by.revitId + by.name + by.position })
   const a = sum(v.diff.spaces.by)
   const b = sum(v.diff.equipment.by)
-  return { name: v.name, kept: a.kept + b.kept, rematched: a.rematched + b.rematched }
+  return { name: v.name, kept: a.kept + b.kept, rematched: a.rematched + b.rematched, storeyScale: v.diff.storeyScale }
 })
 
 type VersionRow = { id: string; name: string; detail: string; target: 'equipment' | 'space' | null }
@@ -3392,7 +5979,15 @@ const versionLists = computed((): { key: string; label: string; rows: VersionRow
   const sp = (r: { id: string; name: string }, detail = ''): VersionRow => ({ ...r, detail, target: 'space' })
   const gone = (r: { id: string; name: string }): VersionRow => ({ ...r, detail: '', target: null })
   const spaceName = (id: string) => spaceNameOf(id)
+  // GUID 가 바뀐 것(R13 판정 근거). 지금 판본에서 고르고, 이전 GUID 와 무엇으로 찾았는지를 같이 보인다.
+  const rekeyed = (r: VersionDiff['spaces']['rekeyed'][number], target: 'equipment' | 'space'): VersionRow => ({
+    id: r.id,
+    name: r.name,
+    detail: `${MATCH_KEY_BY[r.by]} 찾음 · 이전 GUID ${r.prevId}`,
+    target,
+  })
   return [
+    { key: 'rekeyed', label: 'GUID가 바뀐 것', rows: [...d.spaces.rekeyed.map((r) => rekeyed(r, 'space')), ...d.equipment.rekeyed.map((r) => rekeyed(r, 'equipment'))] },
     { key: 'equipment-moved', label: '옮겨진 설비', rows: d.equipment.moved.map((r) => eq(r, `${r.distance.toFixed(2)} m`)) },
     {
       key: 'equipment-relocated',
@@ -3427,10 +6022,11 @@ function showSpace(id: string) {
 //
 // 편집은 탭 안에만 있다(내보낸 파일에만 남는다). 새로 고침·탭 닫기·다른 파일 열기가 편집을 조용히 버리면, 한 시간
 // 고친 것이 경고 없이 사라진다. 편집이 남아 있으면 먼저 묻는다.
-const hasEdits = computed(() => changeCount.value > 0 || history.value.length > 0)
+const hasEdits = computed(() => changeCount.value > 0 || history.value.length > 0 || progressVersion.value > 0)
 watch(fileName, () => (editFileNote.value = ''))
 function onBeforeUnload(e: BeforeUnloadEvent) {
-  if (!hasEdits.value) return
+  // 임시 저장·편집 저장·구축하기 뒤로 바뀐 것이 없으면 묻지 않는다(OE-COM-08). 남길 것이 이미 남아 있다.
+  if (!hasEdits.value || !dirtyKeys().length) return
   e.preventDefault()
   // 옛 브라우저는 returnValue 가 있어야 묻는다. 문구는 브라우저가 정한 것으로 바뀐다.
   e.returnValue = ''
@@ -3467,6 +6063,7 @@ ${name} 파일을 열까요?`,
     progress.value = { label: '3D 그리는 중' }
     await paint()
     meshes = result.meshes
+    meshBase = new Map()
     // 임포터가 이미 한 번 돌렸다. 계통별 채점표를 화면이 쓰려고 다시 받는다(같은 입력이면 같은 결과다).
     ruleReport.value = inferFlowByRules(result.model)
     confirmations.value = []
@@ -3474,6 +6071,7 @@ ${name} 파일을 열까요?`,
     pristine = structuredClone(result.model)
     model.value = result.model
     fileName.value = name
+    openedSources.value = [loadingPath]
     mergeReport.value = null
     selectedId.value = null
     selectedSpaceId.value = null
@@ -3492,6 +6090,7 @@ ${name} 파일을 열까요?`,
     model.value = null
     baseline.value = null
     meshes = new Map()
+    meshBase = new Map()
     fileName.value = ''
     mergeReport.value = null
     const detail = e instanceof Error ? e.message : String(e)
@@ -3524,6 +6123,22 @@ const canAppend = computed(() => !!model.value)
 /** 연 때(또는 마지막으로 합친 때)의 모델. 편집한 뒤 덧붙일 때 이것을 합치고 편집을 다시 얹는다. */
 let pristine: Model | null = null
 
+/** 3D 형상을 연 때(pristine) 자리로 되돌린다. 덧붙이기 전과 편집 버리기가 쓴다. */
+function meshesToOpened() {
+  if (!pristine || !model.value) return
+  const opened = new Map(pristine.storeys.flatMap((st) => st.equipment).map((e) => [e.id, e.position]))
+  for (const e of model.value.storeys.flatMap((st) => st.equipment)) {
+    // 늘인 구간은 늘이기 전 형상으로 되돌리고 거기서 연 때 자리로 옮긴다.
+    const base = meshBase.get(e.id)
+    const mesh = meshes.get(e.id)
+    if (base && mesh) {
+      meshes.set(e.id, { ...mesh, positions: base.positions })
+      shiftMesh(e.id, base.at, opened.get(e.id) ?? null)
+    } else shiftMesh(e.id, e.position, opened.get(e.id) ?? null)
+  }
+  meshBase = new Map()
+}
+
 async function append(name: string, read: () => Promise<ArrayBuffer>) {
   if (!model.value) return
   busy.value = true
@@ -3533,9 +6148,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
   const edits = hasEdits.value && baseline.value && pristine ? exportEdits(model.value, baseline.value, fileName.value) : null
   const unedited = () => (edits ? structuredClone(pristine!) : model.value!)
   const restoreMeshes = () => {
-    if (!edits) return
-    const opened = new Map(pristine!.storeys.flatMap((st) => st.equipment).map((e) => [e.id, e.position]))
-    for (const e of model.value!.storeys.flatMap((st) => st.equipment)) shiftMesh(e.id, e.position, opened.get(e.id) ?? null)
+    if (edits) meshesToOpened()
   }
   const replay = () => {
     if (!edits) return
@@ -3559,6 +6172,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
       pristine = structuredClone(done.model)
       model.value = done.model
       fileName.value = `${fileName.value} + ${name}`
+      openedSources.value = [...openedSources.value, loadingPath]
       showZones.value = true
       history.value = []
       future.value = []
@@ -3595,6 +6209,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     model.value = merged.model
     mergeReport.value = merged.report
     fileName.value = `${base.name} + ${overlay.name}`
+    openedSources.value = [...openedSources.value, loadingPath]
     selectedId.value = null
     selectedSpaceId.value = null
     positionDrafts.value = new Map()
@@ -3733,6 +6348,24 @@ watch([model, flowVersion, versionStat], () => {
 
 const warnings = computed(() => [...(model.value?.warnings ?? []), ...(unlocatedLine.value ? [unlocatedLine.value] : [])])
 
+// 미배치 목록(OE-BIM-07). BIM 에 좌표가 없어 3D·평면에 그려지지 않는 설비. 임포트 경고는 연 때의 수만 말하고, 이 목록은
+// 놓을 때마다 줄어든다. 설비 표의 빈 좌표 칸으로는 수천 행 사이에서 찾을 수 없었고, 완전성 검사는 방이 없는 파일에서
+// 건너뛴다(ifc4Mep 28대). 많으면 앞의 UNPLACED_SHOWN 대만 그린다.
+const unplaced = computed(() => (model.value ? unplacedOf(model.value) : []))
+/** 팔레트의 미배치 목록. 한 층만 보는 중이면 그 층 것만. */
+const unplacedHere = computed(() => unplaced.value.filter((u) => !viewStorey.value || u.storey.id === viewStorey.value))
+const unplacedOpen = ref(false)
+const UNPLACED_SHOWN = 200
+/** 목록에서 바로 놓는다. 편집 모드로 들어가 고르고, 다른 층만 보고 있었다면 설비의 층으로 바꾼 뒤 바닥을 누르게 한다. */
+function placeFromList(id: string) {
+  if (!editing.value) mode.value = 'edit'
+  selectAndShow(id)
+  const home = storeyOf(id)
+  // 놓을 층의 바닥이 보이게 그 층만 본다([설비 더하기] 와 같다). 모든 층을 보던 중이어도 바꾼다.
+  if (home && (model.value?.storeys.length ?? 0) > 1 && viewStorey.value !== home.id) viewStorey.value = home.id
+  startPlace(id)
+}
+
 const REQUIREMENT_STATE: Record<RequirementState, string> = {
   standard: '표준 자리',
   elsewhere: '다른 자리',
@@ -3766,7 +6399,8 @@ const requirementsMeta = computed(() => {
 // 둘을 같이 끌어다 놓으면 첫 파일만 열리고 나머지는 **조용히** 버려졌다. 이제 같이 고르거나 같이 놓으면 하나를 열고
 // 나머지를 덧붙인다. 어느 것을 먼저 열든 방을 더 그린 쪽이 기준이라(append) 순서는 결과를 바꾸지 않는다. IDF 는 층·방이
 // 다 선 뒤에 얹어야 방을 찾으므로 IFC 뒤로 보낸다.
-type FileSource = { name: string; read: () => Promise<ArrayBuffer> }
+/** `dataPath` 는 data/ 목록에서 연 파일의 경로다. 손으로 고른 파일은 없다 — 8084 에 저장할 수 없다(saved-edits.ts). */
+type FileSource = { name: string; read: () => Promise<ArrayBuffer>; dataPath?: string }
 async function openMany(files: readonly FileSource[], into: 'open' | 'append') {
   const ordered = [...files.filter((f) => !isIdf(f.name)), ...files.filter((f) => isIdf(f.name))]
   if (!ordered.length) return
@@ -3777,6 +6411,7 @@ async function openMany(files: readonly FileSource[], into: 'open' | 'append') {
   try {
     if (into === 'open' || !model.value) {
       mark(ordered[0])
+      loadingPath = ordered[0].dataPath ?? null
       await load(ordered[0].name, ordered[0].read)
       // 편집이 남아 열기를 물리쳤거나 읽지 못했으면 멈춘다.
       if (!model.value || fileName.value !== ordered[0].name || error.value) return
@@ -3787,11 +6422,15 @@ async function openMany(files: readonly FileSource[], into: 'open' | 'append') {
     }
     for (const f of rest) {
       mark(f)
+      loadingPath = f.dataPath ?? null
       await append(f.name, f.read)
       if (error.value) return
     }
+    // data/ 에서 열었으면 8084 에 저장된 편집을 얹는다. 덧붙이기만 했을 때는 얹지 않는다 — 이미 고친 것 위에 다른 판의 편집이 겹친다.
+    if (into === 'open' && serverKey.value) await loadServerEdits()
   } finally {
     batch.value = null
+    settleOpen()
   }
 }
 const sourcesOf = (list: FileList | null | undefined): FileSource[] =>
@@ -3839,8 +6478,20 @@ type DirectoryPicker = (options: { mode: 'readwrite' }) => Promise<{
  * GeoJSON 은 층마다 한 파일이다(성수 19개). 연달아 내려받으면 크롬이 "여러 파일 다운로드"를 묻고, 거절하거나 창을
  * 놓치면 둘째 파일부터 **조용히** 빠진다. 폴더를 고를 수 있으면 한 폴더에 한꺼번에 쓰고, 못 하면 내려받는다.
  */
-async function exportGeoJSON() {
-  if (!model.value) return
+// 내보내기·저장이 끝나면 누른 단추에 잠깐 ✓ 를 띄운다. 받기 표시는 브라우저 구석에 떠서, 눌렀는데 된 건지 단추에서는 알 수 없었다.
+const justDone = ref('')
+let doneTimer = 0
+function markDone(key: string) {
+  justDone.value = ''
+  window.clearTimeout(doneTimer)
+  // 같은 단추를 잇달아 누르면 한 번 비웠다가 다시 붙여 애니메이션을 처음부터 튼다.
+  void nextTick(() => (justDone.value = key))
+  doneTimer = window.setTimeout(() => (justDone.value = ''), 1800)
+}
+
+/** 다 냈으면 true. 사람이 폴더 고르기를 닫았으면 false. */
+async function exportGeoJSON(): Promise<boolean> {
+  if (!model.value) return false
   const files = modelToGeoJSON(model.value).map((f) => ({ name: f.fileName, text: JSON.stringify(f.collection, null, 2) }))
   const picker = (window as unknown as { showDirectoryPicker?: DirectoryPicker }).showDirectoryPicker
   if (files.length > 1 && picker) {
@@ -3852,10 +6503,10 @@ async function exportGeoJSON() {
         await writable.close()
       }
       note(`GeoJSON ${files.length}개(층마다 하나)를 저장했습니다.`)
-      return
+      return true
     } catch (e) {
       // 사람이 폴더 고르기를 닫은 것이면 아무것도 하지 않는다. 권한이 막힌 것이면 내려받기로 넘어간다.
-      if ((e as DOMException)?.name === 'AbortError') return
+      if ((e as DOMException)?.name === 'AbortError') return false
     }
   }
   // 크롬은 잇달아 누른 내려받기를 10개에서 끊는다(성수 19개 층 중 9개가 조용히 빠졌다). 하나씩 틈을 둔다.
@@ -3863,11 +6514,93 @@ async function exportGeoJSON() {
     if (i) await new Promise((r) => window.setTimeout(r, 250))
     download(f.name, f.text, 'application/geo+json')
   }
+  return true
+}
+async function exportGeoJSONDone() {
+  if (await exportGeoJSON()) markDone('geojson')
+}
+
+/** 바뀐 내용 목록으로 내려간다. 작업 화면 아래에 있어 도구막대에서 바로 가는 길을 둔다. */
+function previewChanges() {
+  document.getElementById('changes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+/** 초기 구축의 마지막 단계. 기하와 의미를 따로 내는 전제는 그대로다 — 한 번 눌러 두 파일을 다 받을 뿐이다. */
+async function build() {
+  exportTTL()
+  if (await exportGeoJSON()) {
+    // 구축하기가 PoC 의 "저장"이다(PRD 의 저장 = 반영, D10). 온톨로지로 낸 편집은 끝낼 때 다시 묻지 않고, 임시 저장본도 지운다.
+    committed()
+    markDone('build')
+  }
+}
+
+// --- 층 단위 진행 (OE-MAN-06) -------------------------------------------------------------
+//
+// 층마다 완료를 표시하고 몇 층이 끝났는지 보인다(ADR-0011). 완료는 그때 층의 지문과 지금 지문을 견줘 정한다(storey-progress.ts) —
+// 완료한 층을 고치면 "완료 뒤 고침" 으로 저절로 풀리고, Ctrl+Z 로 그 층이 완료한 때와 같아지면 다시 완료다. 표시는 편집 파일에
+// 남는다(되돌리기 이력에는 들지 않는다 — 고친 것이 아니라 진행 표시다).
+// 완료한 층의 지문을 재는 값이 병원 건축+HVAC 네 층에 45ms 다. 편집(방향키 한 번)마다 바로 재면 편집이 그만큼 느려진다.
+// 편집이 멈춘 뒤 한 번 잰다. 완료를 누르거나 지울 때는 바로 잰다.
+const storeyProgressRows = shallowRef<StoreyProgress[]>([])
+let progressTimer: number | undefined
+function refreshProgress() {
+  window.clearTimeout(progressTimer)
+  storeyProgressRows.value = model.value ? storeyProgress(model.value) : []
+}
+watch(
+  model,
+  () => {
+    window.clearTimeout(progressTimer)
+    progressTimer = window.setTimeout(refreshProgress, 200)
+  },
+  { immediate: true },
+)
+const progressById = computed(() => new Map(storeyProgressRows.value.map((p) => [p.id, p])))
+const storeysDoneCount = computed(() => storeyProgressRows.value.filter((p) => p.state === 'done').length)
+function setStoreyDone(storeyId: string, on: boolean) {
+  const m = model.value
+  if (!m) return
+  const name = m.storeys.find((s) => s.id === storeyId)?.name ?? ''
+  if (!(on ? markStoreyDone(m, storeyId) : clearStoreyDone(m, storeyId))) return
+  progressVersion.value++
+  autosaveArmed = true
+  refreshProgress()
+  triggerRef(model)
+  note(on ? `${name} 층을 완료로 표시했습니다(${storeysDoneCount.value}/${m.storeys.length}층).` : `${name} 층의 완료 표시를 지웠습니다.`)
+}
+// 완료한 층을 고치면 알린다. 표에서도 보이지만 표는 접혀 있을 수 있다.
+watch(storeyProgressRows, (now, before) => {
+  const was = new Map((before ?? []).map((p) => [p.id, p.state]))
+  const reopened = now.filter((p) => p.state === 'changed' && was.get(p.id) === 'done')
+  if (reopened.length) note(`${reopened.map((p) => p.name).join(', ')} 층을 완료한 뒤 고쳤습니다 — 완료가 풀렸습니다. 다시 구축하고 완료를 표시하세요.`)
+})
+const doneTime = (at?: string) => (at ? new Date(at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '')
+
+/**
+ * 층 하나만 구축한다(OE-GEN-11). 그 층의 TTL·GeoJSON 한 쌍을 받는다(storey-export.ts). 층 파일을 다 모으면 건물 전체와 같은
+ * 트리플이다(ADR-0011). 건물 전체 [구축하기] 와 달리 저장으로 치지 않는다 — 다른 층의 편집은 아직 안 나갔다.
+ */
+async function buildStorey(storeyId: string) {
+  const m = model.value
+  const files = m ? storeyFiles(m, storeyId) : null
+  if (!m || !files) return
+  download(files.ttlName, files.ttl, 'text/turtle')
+  // 잇달아 받으면 크롬이 둘째를 막을 수 있다(exportGeoJSON 주석). 틈을 둔다.
+  await new Promise((r) => window.setTimeout(r, 250))
+  download(files.geojsonName, files.geojson, 'application/geo+json')
+  const name = m.storeys.find((s) => s.id === storeyId)?.name ?? ''
+  note(`${name} 층을 구축했습니다: ${files.ttlName} · ${files.geojsonName}. 다른 층을 가리키는 줄은 id 로 남습니다.`)
+  markDone(`build:${storeyId}`)
 }
 
 function exportTTL() {
   if (!model.value) return
   download('ontology.ttl', modelToTTL(model.value), 'text/turtle')
+}
+function exportTTLDone() {
+  exportTTL()
+  markDone('ttl')
 }
 
 /**
@@ -3902,6 +6635,7 @@ async function export3D(format: 'glb' | 'obj') {
     download(name, parts, format === 'glb' ? 'model/gltf-binary' : 'model/obj')
     // 막대가 닫히면 끝났는지 알 길이 브라우저 받기 표시뿐이다. 이름과 크기를 남긴다(성수 OBJ 는 683MB 다).
     note(`${name} (${mb(parts.reduce((s, p) => s + p.byteLength, 0))}) 내려받기를 시작했습니다`)
+    markDone(format)
   } catch (e) {
     note(`3D 내보내기에 실패했습니다: ${(e as Error).message}`)
   } finally {
@@ -3918,7 +6652,7 @@ async function export3D(format: 'glb' | 'obj') {
       <div class="title">
         <div>
           <h1>ontology-editor</h1>
-          <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다.</p>
+          <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다. 내보낸 TTL·GeoJSON 은 <a href="./viewer.html">내보낸 파일 보기</a>에서 다시 열어 봅니다.</p>
         </div>
         <button type="button" class="theme" :aria-pressed="dark" @click="toggleTheme">
           {{ dark ? '라이트' : '다크' }}
@@ -3958,6 +6692,26 @@ async function export3D(format: 'glb' | 'obj') {
         </span>
       </fieldset>
 
+    </section>
+
+    <!-- 합쳐 연 판의 8084 저장본. 한 파일의 저장본은 아래 data/ 목록의 그 줄에 보인다. 임시 저장본은 목록을 두지 않는다 —
+         층마다 하나라 그 층에 들어가면 바로 얹힌다(OE-COM-08 · OE-WF-03). -->
+    <section v-if="savedSets.some((s) => s.paths.length > 1)" class="catalog resume">
+      <Fold :key="model ? 'loaded' : 'empty'" title="8084 에 저장한 편집" :meta="`${savedSets.filter((s) => s.paths.length > 1).length}건`" :default-open="!model">
+        <table>
+          <tbody>
+            <tr v-for="sv in savedSets.filter((s) => s.paths.length > 1)" :key="'saved:' + sv.key" class="saved-row">
+              <td class="name">
+                <span>{{ sv.paths.map(baseName).join(' + ') }}</span>
+                <span class="muted">8084 저장 · 편집 {{ sv.count }}건 · {{ when(sv.savedAt) }}</span>
+              </td>
+              <td class="row-actions">
+                <button type="button" class="ghost" :disabled="busy" @click="openDataSet(sv.paths)">합쳐서 열기</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </Fold>
     </section>
 
     <!-- data/ 의 샘플. 파일마다 온톨로지를 어디까지 채우는지 먼저 보고 고른다. -->
@@ -4006,6 +6760,9 @@ async function export3D(format: 'glb' | 'obj') {
                 </template>
               </td>
               <td class="row-actions">
+                <span v-if="savedFor(f.path)" class="saved-chip" :title="`8084 에 저장된 편집 ${savedFor(f.path)!.count}건 — 열면 얹어서 보입니다`">
+                  저장 {{ savedFor(f.path)!.count }}건 · {{ when(savedFor(f.path)!.savedAt) }}
+                </span>
                 <button type="button" class="ghost" :disabled="busy" @click="openData(f.path)">열기</button>
                 <button v-if="canAppend" type="button" class="ghost" :disabled="busy" @click="appendData(f.path)">덧붙이기</button>
               </td>
@@ -4071,15 +6828,15 @@ async function export3D(format: 'glb' | 'obj') {
             <a v-if="warnings.length" href="#warnings" class="warn-count" title="읽으면서 건너뛴 것. 목록은 아래 요약에 있습니다.">경고 {{ warnings.length }}</a>
             <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
             <div class="mode-switch" role="group" aria-label="화면 모드">
-              <button type="button" :aria-pressed="mode === 'view'" @click="mode = 'view'">보기</button>
+              <button type="button" :aria-pressed="mode === 'view'" @click="leaveEdit()">보기</button>
               <button type="button" :aria-pressed="mode === 'edit'" :disabled="busy" @click="mode = 'edit'">편집</button>
             </div>
             <span class="bar-sep" aria-hidden="true"></span>
             <!-- 여는·합치는 중(busy)에는 막는다. 건축·설비를 같이 열 때 설비를 읽는 동안 누르면 건축만 든 파일이 나갔다. -->
-            <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" :disabled="busy" @click="exportGeoJSON">GeoJSON</button>
-            <button type="button" class="ghost" aria-label="의미 내보내기 (Brick TTL)" title="관계 내보내기 (Brick TTL 파일 하나)" :disabled="busy" @click="exportTTL">TTL</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'glb'" @click="export3D('glb')">{{ exporting3d === 'glb' ? '만드는 중…' : 'GLB' }}</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" @click="export3D('obj')">{{ exporting3d === 'obj' ? '만드는 중…' : 'OBJ' }}</button>
+            <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" :disabled="busy" :class="{ done: justDone === 'geojson' }" @click="exportGeoJSONDone">GeoJSON</button>
+            <button type="button" class="ghost" aria-label="의미 내보내기 (Brick TTL)" title="관계 내보내기 (Brick TTL 파일 하나)" :disabled="busy" :class="{ done: justDone === 'ttl' }" @click="exportTTLDone">TTL</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'glb'" :class="{ done: justDone === 'glb' }" @click="export3D('glb')">{{ exporting3d === 'glb' ? '만드는 중…' : 'GLB' }}</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" :class="{ done: justDone === 'obj' }" @click="export3D('obj')">{{ exporting3d === 'obj' ? '만드는 중…' : 'OBJ' }}</button>
             <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
             <button type="button" class="ghost theme" :aria-pressed="dark" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
           </div>
@@ -4094,7 +6851,7 @@ async function export3D(format: 'glb' | 'obj') {
           <button type="button" class="ghost" @click="discardDraft">버리기</button>
         </div>
         <div v-if="editing" class="edit-bar" role="status">
-          <span class="state"><b>편집 중</b> · <a href="#changes" class="link">바뀐 것 {{ changeCount }}건</a></span>
+          <span class="state"><b>편집 중</b> · <a href="#changes" class="link">바뀐 것 <Roll :value="changeCount" :count-up="false" />건</a></span>
           <button
             type="button"
             class="ghost undo"
@@ -4117,11 +6874,20 @@ async function export3D(format: 'glb' | 'obj') {
           <button
             type="button"
             class="ghost save-edits"
-            title="편집 저장 (Ctrl+S). 바뀐 내용을 JSON으로 내려받습니다. 같은 IFC를 다시 열고 불러오면 이어서 편집할 수 있습니다."
-            @click="saveEdits"
+            :class="{ done: justDone === 'save' }"
+            :title="serverKey
+              ? '편집 저장 (Ctrl+S). 8084 에 둡니다 — 이 파일을 여는 사람 모두 같은 편집을 봅니다.'
+              : '편집 저장 (Ctrl+S). 손으로 연 파일이라 바뀐 내용을 JSON으로 내려받습니다. 같은 IFC를 다시 열고 불러오면 이어서 편집할 수 있습니다.'"
+            @click="saveEdits()"
           >
             편집 저장
           </button>
+          <button v-if="serverKey" type="button" class="ghost" title="8084 에 두지 않고 편집 파일(JSON)로만 내려받습니다" @click="saveEdits(true)">파일로</button>
+          <button type="button" class="ghost" title="웹에 반영하지 않고 이 층의 편집을 이 브라우저에 남깁니다. 층마다 하나이고, 이 층에 다시 들어오면 이어서 편집합니다" @click="keepDraft()">임시 저장</button>
+          <!-- PRD #9 의 액션바. 초기 구축 모드라 "반영하기" 대신 "구축하기"(두 파일 내보내기)다 — 운영 DT 에 반영하는 길은 D10 이 열려 있다. -->
+          <button type="button" class="ghost" title="반영 전에 바뀐 내용(소속·경계·이름·방향)을 봅니다" @click="previewChanges">미리보기</button>
+          <button type="button" class="ghost primary-action" :class="{ done: justDone === 'build' }" :disabled="busy" title="온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)" @click="build">구축하기</button>
+          <button type="button" class="ghost" title="보기 모드로 돌아갑니다. 저장하지 않은 편집이 있으면 먼저 묻습니다" @click="leaveEdit()">편집 종료</button>
         </div>
       </div>
 
@@ -4129,18 +6895,43 @@ async function export3D(format: 'glb' | 'obj') {
            전체 화면도 이 둘을 같이 띄운다. -->
       <div ref="stage" :class="['stage', 'workspace', { full: fullscreen }]">
         <HoverTip ref="hoverTip" />
-        <section class="viewport">
+        <section :class="['viewport', { theater: replayOpen }]">
           <div class="canvas-wrap">
             <canvas v-show="activeTab === '3d'" ref="canvas"></canvas>
+            <ReplayHud
+              v-if="replayOpen"
+              :title="fileName"
+              :total="replayTotal"
+              :at="history.length"
+              :phase="replayPhase"
+              :playing="replayPlaying"
+              :speed="replaySpeed"
+              :aiming="replayAiming"
+              :start="replayStart"
+              :steps="replaySteps"
+              :error="replayError"
+              @toggle="replayToggle"
+              @prev="replayJump('prev')"
+              @next="replayJump('next')"
+              @restart="replayJump('restart')"
+              @speed="replaySpeed = $event"
+              @close="closeReplay"
+              @scene="replayScene($event)"
+            />
             <!-- 평면도. 3D 와 탭으로 갈아 끼우고, 층 하나를 골랐을 때만 그린다. -->
             <FloorPlan
               v-if="activeTab === 'plan' && planStorey"
               :storey="planStorey"
               :selected-id="selectedId"
               :selected-space-id="selectedSpaceId"
+              :selected-element-id="selectedElementId"
               :editing="editing"
-              @select="select"
+              :pick-walls="editing && archMode"
+              :group="group"
+              @select="(id, additive) => (editing && additive ? toggleGroup(id) : select(id))"
+              @select-box="addBoxToGroup"
               @pick-space="pickSpace"
+              @pick-element="selectedElementId = $event"
               @move-vertex="dropVertex"
             />
             <p v-else-if="activeTab === 'plan'" class="plan-empty">
@@ -4148,20 +6939,148 @@ async function export3D(format: 'glb' | 'obj') {
             </p>
             <!-- 외곽선 그리기 중. 찍은 점 수와 마침·한 점 지우기·취소. -->
             <div v-if="drawing" class="draw-bar" role="status">
-              <template v-if="drawing.purpose === 'split'">
+              <template v-if="drawing.purpose === 'split' || drawing.purpose === 'customSplit'">
                 <b>{{ drawing.name }}</b> 나누기 · 나눌 선의 두 점을 바닥에 찍습니다 · {{ drawing.points.length }}/2
               </template>
               <template v-else-if="drawing.purpose === 'wall'">
                 <b>{{ drawing.name }}</b> 긋기 · 벽의 두 끝점을 바닥에 찍습니다 · {{ drawing.points.length }}/2
               </template>
               <template v-else>
-                <b>{{ drawing.name }}</b> {{ drawing.purpose === 'create' ? '그리기' : '외곽선 그리기' }} · 바닥을 눌러 꼭짓점을 찍습니다 ·
+                <b>{{ drawing.name }}</b> {{ drawing.purpose === 'create' || drawing.purpose === 'custom' || drawing.purpose === 'room' ? '그리기' : '외곽선 그리기' }} · 바닥을 눌러 꼭짓점을 찍습니다 ·
                 {{ drawing.points.length }}개
               </template>
-              <button v-if="drawing.purpose !== 'split' && drawing.purpose !== 'wall'" type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
+              <button v-if="drawing.purpose !== 'split' && drawing.purpose !== 'wall' && drawing.purpose !== 'customSplit' && drawing.purpose !== 'room'" type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
               <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
               <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
             </div>
+            <!-- 편집 도구 팔레트(PRD #9 화면 레이아웃의 왼쪽). 편집 모드에서만, 무엇을 만드는지로 묶는다. 넣을 층은 층 하나만
+                 보는 중이면 그 층이다(targetStorey). 왼쪽 위는 색 안내 자리라 아래쪽에 둔다. -->
+            <nav v-if="editing && !drawing && activeTab === '3d'" class="tool-palette" aria-label="편집 도구">
+              <!-- 천장 편집 모드(OE-OBJ-08). 천장 쪽에서는 공간 도구와 바닥·벽 도구가 잠기고, 누르면 어디서 편집하는지 알린다. -->
+              <span class="palette-head">공간 그리기</span>
+              <!-- 두 버튼을 한 줄에 둔다. 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
+              <span class="palette-row">
+                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="물리존 그리기" title="바닥에 꼭짓점을 찍어 새 물리존을 그립니다" @click="ceilingMode ? lockedTool() : startCreateSpace()">물리존</button>
+                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="룸 그리기" title="물리존 안에 대각선 두 꼭짓점을 찍어 룸을 그립니다(OE-SPC-11)" @click="ceilingMode ? lockedTool() : startRoom()">룸</button>
+                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="커스텀존 그리기" title="물리존 위에 운영 단위(임원석·식당 등)를 다각형으로 그립니다. 겹쳐도 됩니다(OE-OBJ-01)" @click="ceilingMode ? lockedTool() : startCustomZone()">커스텀존</button>
+              </span>
+              <!-- [바닥·벽 / 천장] 토글(T). 제목 줄에 둔다 — 줄을 하나 더 쓰면 팔레트가 3D 왼쪽 아래 바닥을 가린다. -->
+              <span class="palette-head palette-head-row">
+                설비
+                <span class="ceiling-toggle" role="group" aria-label="설비 편집 면">
+                  <button type="button" :class="{ on: !ceilingMode }" :aria-pressed="!ceilingMode" title="바닥·벽 설비와 배관을 편집합니다" @click="setCeilingMode(false)">바닥·벽</button>
+                  <button type="button" :class="{ on: ceilingMode }" :aria-pressed="ceilingMode" title="천장 설비만 편집합니다. 위에서 내려다보고 천장고에 천장면을 그립니다 (T)" @click="setCeilingMode(true)">천장</button>
+                </span>
+              </span>
+              <!-- 천장 모드에서 지금 층의 반자 높이를 모르면 입력을 받는다. 그 전에는 천장 설비를 놓지 않는다(0 이나 층고로 채우지 않는다). -->
+              <form v-if="ceilingAsk" class="ceiling-ask" @submit.prevent="saveCeiling(ceilingStorey!.id, Number(ceilingAskInput))">
+                <label>
+                  {{ ceilingStorey!.name }} 천장고
+                  <input
+                    v-model="ceilingAskInput"
+                    v-keep-typing
+                    type="number"
+                    step="0.05"
+                    min="0.3"
+                    aria-label="천장 모드 천장고(m)"
+                    @keydown.enter.prevent="saveCeiling(ceilingStorey!.id, Number(ceilingAskInput))"
+                  />
+                  m
+                </label>
+                <button type="submit" class="ghost">정하기</button>
+              </form>
+              <span v-else-if="ceilingStorey && ceilingOf(ceilingStorey)" class="ceiling-now muted">
+                천장고 {{ meters(ceilingOf(ceilingStorey)!.height) }} <Src :kind="ceilingOf(ceilingStorey)!.source" />
+              </span>
+              <button
+                type="button"
+                :class="['ghost', { on: adding?.what === 'equipment' }]"
+                :aria-pressed="adding?.what === 'equipment'"
+                :disabled="ceilingAsk"
+                :title="ceilingMode ? '천장을 눌러 새 설비를 천장고에 놓습니다' : '바닥을 눌러 새 설비를 놓습니다'"
+                @click="adding?.what === 'equipment' ? stopAdd() : startAddEquipment()"
+              >
+                {{ adding?.what === 'equipment' ? '더하기 취소' : '설비 더하기' }}
+              </button>
+              <!-- 미배치 목록 펼치기. 작은 글자 한 줄로 둔다 — 버튼 줄을 더 쓰거나 [설비 더하기] 옆에 두면 팔레트가 커져 3D 왼쪽 아래 바닥을 가린다. -->
+              <button v-if="unplacedHere.length" type="button" class="link unplaced-toggle" :aria-expanded="unplacedOpen" @click="unplacedOpen = !unplacedOpen">
+                미배치 {{ unplacedHere.length.toLocaleString() }}대 {{ unplacedOpen ? '▾' : '▸' }}
+              </button>
+              <!-- 미배치 설비(OE-EQP-02). 누르면 바로 놓기 — 그 층 바닥(천장 모드면 천장)을 누르면 그 자리에 놓인다. 같은 설비를 다시
+                   누르거나 Esc 면 취소다. 접어 둔다 — 펼친 채면 팔레트가 3D 왼쪽 아래를 가린다. -->
+              <template v-if="unplacedHere.length && unplacedOpen">
+                <ul class="palette-unplaced" aria-label="미배치 설비">
+                  <li v-for="u in unplacedHere.slice(0, UNPLACED_SHOWN)" :key="u.equipment.id">
+                    <button
+                      type="button"
+                      :class="{ on: placing === u.equipment.id }"
+                      :aria-pressed="placing === u.equipment.id"
+                      :title="`${u.storey.name} · ${whatIs(u.equipment)?.label ?? ifcClassLabel(u.equipment.ifcClass) ?? u.equipment.ifcClass}`"
+                      @click="placing === u.equipment.id ? stopPlace() : placeFromList(u.equipment.id)"
+                    >
+                      {{ u.equipment.name ? shortName(u.equipment.name) : `(이름 없음 · ${whatIs(u.equipment)?.label ?? ifcClassLabel(u.equipment.ifcClass) ?? u.equipment.ifcClass})` }}
+                    </button>
+                  </li>
+                  <li v-if="unplacedHere.length > UNPLACED_SHOWN" class="muted">외 {{ (unplacedHere.length - UNPLACED_SHOWN).toLocaleString() }}대</li>
+                </ul>
+              </template>
+              <label v-if="!ceilingMode" class="palette-check" title="설비를 옮기면 붙은 이음쇠는 같이 옮기고, 그 너머 덕트·배관은 먼 끝을 두고 늘입니다">
+                <input v-model="carryConduits" type="checkbox" /> 배관도 같이
+              </label>
+              <!-- 천장 설비의 바닥 발자국 링(OE-EQP-04). 색은 구역이다. 왼쪽 위 색 안내에 넣었더니 길어져 3D 의 설비를 덮었다. -->
+              <span v-if="ceilingMarks.length && !ceilingMode" class="ceiling-key" title="천장 설비는 바닥에 링으로 보입니다. 고르면 링까지 점선이 내려옵니다(OE-EQP-04)">
+                <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.attached) }"></i>반자 부착
+                <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.plenum) }"></i>플레넘
+              </span>
+              <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). 옆의 [오브젝트] 는 추가 공간 오브젝트 라이브러리를 편다
+                   (OE-SPC-14). 둘을 한 줄에 두고 머리말도 따로 두지 않는다 — 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
+              <span class="palette-row">
+                <button type="button" :class="['ghost', { on: archMode, locked: ceilingMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="ceilingMode ? lockedTool() : (archMode = !archMode)">
+                  벽·문·창
+                </button>
+                <button
+                  type="button"
+                  :class="['ghost', 'objects-toggle', { on: objectsOpen || adding?.what === 'object', locked: ceilingMode }]"
+                  :aria-expanded="objectsOpen"
+                  title="책상·의자 같은 추가 공간 오브젝트를 라이브러리에서 골라 놓습니다(OE-OBJ-09)"
+                  @click="ceilingMode ? lockedTool() : (objectsOpen = !objectsOpen)"
+                >
+                  오브젝트
+                </button>
+              </span>
+              <div v-if="objectsOpen && !ceilingMode" class="object-library" role="group" aria-label="오브젝트 라이브러리">
+                <button
+                  v-for="item in objectLibrary"
+                  :key="item.key"
+                  type="button"
+                  :class="['ghost', { on: adding?.what === 'object' && adding.item === item.key }]"
+                  :title="`${item.name} · ${item.size.map((v) => v.toFixed(2)).join(' × ')} m`"
+                  @click="adding?.what === 'object' && adding.item === item.key ? stopAdd() : startAddObject(item.key)"
+                >
+                  {{ item.name }}
+                </button>
+                <button type="button" class="ghost object-import" title="glb(또는 자료를 품은 glTF) 파일을 넣어 라이브러리 항목을 만듭니다(OE-P3-08)" @click="modelInput?.click()">
+                  + 3D 모델
+                </button>
+                <input
+                  ref="modelInput"
+                  type="file"
+                  accept=".glb,.gltf,model/gltf-binary,model/gltf+json"
+                  hidden
+                  data-testid="object-model-input"
+                  @change="(ev) => { const f = (ev.target as HTMLInputElement).files?.[0]; if (f) importObjectModel(f); (ev.target as HTMLInputElement).value = '' }"
+                />
+              </div>
+              <template v-if="archMode">
+                <button type="button" class="ghost" title="바닥에 두 점을 찍어 벽을 긋습니다" @click="startWall">벽 긋기</button>
+                <button type="button" :class="['ghost', { on: adding?.what === 'door' }]" title="벽 가까이 눌러 문을 놓습니다" @click="adding?.what === 'door' ? stopAdd() : startOpening('door')">문 놓기</button>
+                <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
+              </template>
+            </nav>
+            <!-- 시점 조작 안내(OE-OBJ-15). 지도처럼 왼쪽 드래그가 화면 이동이다. 편집 모드의 Shift+드래그는 여러 개 고르기다(OE-UI-09). -->
+            <p v-if="activeTab === '3d'" class="view-controls-hint" aria-label="시점 조작 안내">
+              드래그: 이동 · {{ editing ? '우클릭 드래그: 회전 · Shift+드래그: 여러 개 고르기' : 'Shift/우클릭 드래그: 회전' }} · 휠: 확대
+            </p>
             <div class="view-tools">
               <!-- 보기 ↔ 편집, 단축키 안내. 위 도구막대와 같은 일이라 전체 화면(도구막대가 안 보인다)에서만 둔다.
                    평소에도 두었더니 같은 스위치가 한 화면에 둘이었다. -->
@@ -4169,7 +7088,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <input
                   type="checkbox"
                   :checked="editing"
-                  @change="mode = ($event.target as HTMLInputElement).checked ? 'edit' : 'view'"
+                  @change="onEditToggle($event.target as HTMLInputElement)"
                 />
                 편집
               </label>
@@ -4182,34 +7101,6 @@ async function export3D(format: 'glb' | 'obj') {
               >
                 내력벽
               </button>
-              <!-- 새 물리존·설비(E3·E7). 넣을 층은 층 하나만 보는 중이면 그 층이다(targetStorey). -->
-              <template v-if="editing && !drawing">
-                <button type="button" class="ghost" title="바닥에 꼭짓점을 찍어 새 물리존을 그립니다" @click="startCreateSpace">물리존 그리기</button>
-                <button
-                  type="button"
-                  :class="['ghost', { on: adding?.what === 'equipment' }]"
-                  :aria-pressed="adding?.what === 'equipment'"
-                  title="바닥을 눌러 새 설비를 놓습니다"
-                  @click="adding?.what === 'equipment' ? stopAdd() : startAddEquipment()"
-                >
-                  {{ adding?.what === 'equipment' ? '더하기 취소' : '설비 더하기' }}
-                </button>
-                <!-- 벽·문·창(E4). 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다. -->
-                <button
-                  type="button"
-                  :class="['ghost', { on: archMode }]"
-                  :aria-pressed="archMode"
-                  title="벽·문·창을 3D에 세우고 고쳐 봅니다"
-                  @click="archMode = !archMode"
-                >
-                  벽·문·창
-                </button>
-                <template v-if="archMode">
-                  <button type="button" class="ghost" title="바닥에 두 점을 찍어 벽을 긋습니다" @click="startWall">벽 긋기</button>
-                  <button type="button" :class="['ghost', { on: adding?.what === 'door' }]" title="벽 가까이 눌러 문을 놓습니다" @click="adding?.what === 'door' ? stopAdd() : startOpening('door')">문 놓기</button>
-                  <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
-                </template>
-              </template>
               <!-- 공조존(IDF) 외곽선. IDF 를 열거나 덧붙였을 때만. -->
               <button
                 v-if="model.hvac?.zones.length"
@@ -4255,9 +7146,10 @@ async function export3D(format: 'glb' | 'obj') {
             <li><i :style="{ background: hex(PICK_COLORS.linked) }"></i>방향 모름</li>
             <!-- 편집 모드의 연결 화살표. 색은 상류·하류가 아니라 그 방향을 누가 말했는가다. -->
             <template v-if="editing && hasArrows">
-              <li class="key-head">화살표 (누르면 방향 전환)</li>
+              <li class="key-head">화살표 (누르면 방향 미리보기)</li>
               <li><i class="bar" :style="{ background: hex(arrowPalette.port) }"></i>포트 방향 (고정) <Src kind="bim" /></li>
               <li><i class="bar" :style="{ background: hex(arrowPalette.edit) }"></i>직접 정한 방향 <Src kind="edit" /></li>
+              <li v-if="flowDraft"><i class="bar dashed" :style="{ color: hex(arrowPalette.preview) }"></i>미리보기 (적용 전)</li>
               <li v-if="showRules"><i class="bar dashed" :style="{ color: hex(arrowPalette.rule) }"></i>규칙 방향 <Src kind="dict" /></li>
               <li><i class="bar dashed" :style="{ color: hex(arrowPalette.none) }"></i>방향 모름</li>
             </template>
@@ -4266,15 +7158,25 @@ async function export3D(format: 'glb' | 'obj') {
           <p v-if="editNotice" class="edit-notice" role="alert">{{ editNotice }}</p>
           <p v-else-if="keyNote" class="hint pick-hint key-note" role="status">{{ keyNote }}</p>
           <p v-else-if="editing" class="hint pick-hint">
-            <template v-if="selectedSpace">
+            <template v-if="groupItems.length >= 2">
+              설비 {{ groupItems.length }}대 · <kbd>←↑→↓</kbd>·끌기: 같이 옮기기 · <kbd>Delete</kbd>: 같이 지우기 · <kbd>Shift</kbd>+클릭: 넣고 빼기 · <kbd>Esc</kbd>: 풀기
+            </template>
+            <template v-else-if="selectedSpace">
               파란 손잡이 끌기 또는 <kbd>[ ]</kbd> 후 <kbd>←↑→↓</kbd>: 꼭짓점 옮기기 · <kbd>F</kbd>: 이 물리존 보기
             </template>
             <template v-else-if="selected">
               끌기 또는 <kbd>←↑→↓</kbd>: 옮기기 · <kbd>PageUp/Down</kbd>: 층 바꾸기 · 화살표 클릭 또는 <kbd>[ ]</kbd>: 연결 고르기 ·
-              <kbd>D</kbd>: 방향 바꾸기 · <kbd>K</kbd>: 종류 고르기
+              <kbd>D</kbd>: 방향 미리보기 · <kbd>K</kbd>: 종류 고르기
+            </template>
+            <template v-else-if="selectedElement">
+              <kbd>←↑→↓</kbd>: 옮기기(<kbd>Shift</kbd> 1m) · 다른 {{ activeTab === 'plan' ? '벽' : '벽·문·창' }} 클릭: 바꿔 고르기
+            </template>
+            <template v-else-if="archMode">
+              {{ activeTab === 'plan' ? '벽' : '벽·문·창' }} 클릭: 고르기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
+              <kbd>U</kbd>: 종류 모르는 설비로
             </template>
             <template v-else>
-              설비 클릭: 고르기 · 고른 설비 끌기: 옮기기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
+              설비 클릭: 고르기 · <kbd>Shift</kbd>+클릭·끌기: 여러 개 · 고른 설비 끌기: 옮기기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
               <kbd>U</kbd>: 종류 모르는 설비로
             </template>
             · <button type="button" class="link" @click="helpOpen = true">단축키 전체 <kbd>?</kbd></button>
@@ -4292,7 +7194,35 @@ async function export3D(format: 'glb' | 'obj') {
 
         <aside class="side">
         <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
-        <section v-if="selected" class="picked">
+        <!-- 고른 것이 바뀌면 패널을 살짝 갈아 끼운다. 같은 것을 고친 것은 key 가 같아 가만히 있고, 바뀐 값만 v-flash 가 번쩍인다. -->
+        <Transition name="swap" mode="out-in">
+        <!-- 여러 개 고른 설비(OE-UI-09). 방향키·끌기로 같이 옮기고 Delete 로 같이 지운다. 되돌리기 한 번에 전부. -->
+        <section v-if="groupItems.length >= 2" key="group" class="picked group-picked">
+          <div class="picked-head">
+            <div>
+              <h3>설비 {{ groupItems.length }}대 고름</h3>
+              <p class="stats">{{ [...new Set(groupItems.map((e) => storeyOf(e.id)?.name ?? ''))].filter(Boolean).join(' · ') }}</p>
+            </div>
+            <div class="picked-actions">
+              <button type="button" class="ghost" @click="group = []">선택 해제</button>
+            </div>
+          </div>
+          <ul class="group-list">
+            <li v-for="e in groupItems.slice(0, 12)" :key="e.id">
+              <button type="button" class="link" :title="'이 설비만 고르기'" @click="select(e.id)">{{ shortName(e.name) }}</button>
+              <span v-if="whatIs(e)" class="muted"> {{ whatIs(e)!.label }}</span>
+            </li>
+            <li v-if="groupItems.length > 12" class="muted">외 {{ groupItems.length - 12 }}대</li>
+          </ul>
+          <p class="hint">
+            <kbd>←↑→↓</kbd>·끌기: 같이 옮기기(<kbd>Shift</kbd> 1m) · <kbd>Shift</kbd>+클릭: 넣고 빼기 · <kbd>Shift</kbd>+끌기: 상자로 더하기 ·
+            <kbd>Esc</kbd>: 풀기. 붙은 배관은 따라오지 않습니다.
+          </p>
+          <p class="picked-actions">
+            <button type="button" class="ghost danger" @click="deleteGroup()">설비 {{ groupItems.length }}대 지우기 <kbd>Delete</kbd></button>
+          </p>
+        </section>
+        <section v-else-if="selected" :key="`e:${selected.id}`" class="picked">
           <div class="picked-head">
             <div>
               <h3>{{ selected.name || '(이름 없음)' }}</h3>
@@ -4301,7 +7231,7 @@ async function export3D(format: 'glb' | 'obj') {
               <dl class="stats facts">
                 <div>
                   <dt>종류</dt>
-                  <dd>
+                  <dd v-flash="whatIs(selected)?.label">
                     <template v-if="whatIs(selected)">{{ whatIs(selected)!.label }} <Src :kind="whatIs(selected)!.src" /> · </template>
                     <template v-if="selected.added">에디터에서 더한 설비 <Src kind="edit" /></template>
                     <span v-else class="muted">{{ selected.declaredType ?? selected.ifcClass }} <Src kind="bim" /></span>
@@ -4313,16 +7243,81 @@ async function export3D(format: 'glb' | 'obj') {
                 </div>
                 <div>
                   <dt>계통</dt>
-                  <dd>
+                  <dd v-flash="selected.systemId">
                     {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
                     <Src v-if="selected.systemEdited" kind="edit" /><Src v-else-if="selected.systemId" kind="bim" />
                   </dd>
                 </div>
+                <!-- 담당 근거(OE-EQP-10). VAV·말단을 어느 공조기가 맡는지 흐름 방향으로 찾은 것. -->
+                <div v-if="selectedBasis" class="basis">
+                  <dt>담당</dt>
+                  <dd>
+                    <template v-if="selectedBasis.supplyFrom.length || selectedBasis.extractTo.length">
+                      <span v-if="selectedBasis.supplyFrom.length">급기 ← {{ selectedBasis.supplyFrom.join(', ') }}</span>
+                      <template v-if="selectedBasis.supplyFrom.length && selectedBasis.extractTo.length"> · </template>
+                      <span v-if="selectedBasis.extractTo.length">환기 → {{ selectedBasis.extractTo.join(', ') }}</span>
+                    </template>
+                    <span v-else class="muted">흐름 방향으로 닿는 공조기 없음</span>
+                    <template v-if="selected.kind === 'vav'"> · 말단 {{ selectedBasis.terminals }}개 · 방 {{ selectedBasis.rooms }}곳</template>
+                    <Src kind="calc" />
+                  </dd>
+                </div>
                 <div>
                   <dt>소속</dt>
-                  <dd>
-                    {{ spaceNameOf(selected.spaceId) }}
+                  <dd v-flash="selected.spaceId">
+                    {{ locationOf(selected) }}
                     <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
+                    <!-- 사람 지정 해제(K17). 지정은 남아 있고, 기계가 확신해 쓰지 않는 것이다. -->
+                    <small v-if="assignInfo?.state?.state === 'released'" class="assign-released" data-testid="assign-released">
+                      사람 지정 해제: {{ spaceNameOf(assignInfo.state.from) }} → {{ spaceNameOf(selected.spaceId) }}({{ ASSIGN_RELEASE_REASON[assignInfo.state.reason] }})
+                    </small>
+                  </dd>
+                </div>
+                <!-- 사람의 소속 지정(OE-MAP-01 · K17). 기계가 확신하지 못한 설비만 열린다. 막히면 까닭을 보인다. -->
+                <div v-if="editing && assignInfo" class="assign">
+                  <dt title="사람의 소속 지정(OE-MAP-01)">지정</dt>
+                  <dd>
+                    <select
+                      data-testid="assign-space"
+                      :disabled="!assignInfo.can.ok && selected.spaceSet === undefined"
+                      :value="selected.spaceSet ?? ''"
+                      @change="applyAssign(selected.id, ($event.target as HTMLSelectElement).value)"
+                    >
+                      <option value="">지정 안 함(좌표로 판정)</option>
+                      <option v-for="sp in assignInfo.storey.spaces" :key="sp.id" :value="sp.id">{{ sp.longName || sp.name }}</option>
+                    </select>
+                    <small v-if="!assignInfo.can.ok" class="muted" data-testid="assign-blocked">{{ assignInfo.can.reason }}</small>
+                  </dd>
+                </div>
+                <!-- 설치면(OE-OBJ-08 · OE-EQP-03). 허용 설치면은 종류(사전, glossary 설치면 type), 판정은 z(층 바닥 기준). -->
+                <div v-if="!isConduit(selected.role)" class="mount">
+                  <dt>설치면</dt>
+                  <dd v-flash="selected.kind">
+                    <template v-if="allowedSurfaces(selected.kind)">허용 {{ allowedLabel(selected.kind) }} <Src kind="dict" /></template>
+                    <span v-else class="muted">허용 설치면을 정하지 않은 종류</span>
+                    <template v-if="selectedJudged && allowedSurfaces(selected.kind)?.length !== 0">
+                      <br />
+                      <template v-if="selectedJudged.judged">
+                        판정 <span :class="{ 'height-mismatch': selectedJudged.outside }">{{ JUDGED_LABEL[selectedJudged.judged] }}</span>
+                        <span v-if="selectedJudged.z !== null" class="muted">(z {{ selectedJudged.z.toFixed(2) }}m)</span>
+                        <Src v-if="!selected.surfaceSet" kind="calc" />
+                        <span v-if="selectedJudged.outside" class="height-mismatch"> 허용 밖</span>
+                      </template>
+                      <span v-else-if="selectedJudged.z !== null" class="muted">
+                        판정 미정 (z {{ selectedJudged.z.toFixed(2) }}m{{ selectedJudged.hc ? '' : ' · 이 층 천장고 모름' }})
+                      </span>
+                      <!-- 사람이 정한 설치면(OE-EQP-05). 판정하지 못한 설비에 정하고, 지우면 z 판정으로 돌아간다. -->
+                      <template v-if="selected.surfaceSet">
+                        <Src kind="edit" />
+                        <button v-if="editing && !selectedLock" type="button" class="link" @click="setSurfaceOf(selected.id, null)">판정으로 되돌리기</button>
+                      </template>
+                      <label v-else-if="editing && !selectedLock && !selectedJudged.judged" class="surface-set">
+                        <select aria-label="설치면 정하기" @change="setSurfaceOf(selected.id, (($event.target as HTMLSelectElement).value || null) as Surface | null)">
+                          <option value="">설치면 정하기…</option>
+                          <option v-for="x in allowedSurfaces(selected.kind) ?? (['ceiling', 'floor', 'wall'] as const)" :key="x" :value="x">{{ SURFACE_LABEL[x] }}</option>
+                        </select>
+                      </label>
+                    </template>
                   </dd>
                 </div>
               </dl>
@@ -4333,8 +7328,14 @@ async function export3D(format: 'glb' | 'obj') {
             </div>
           </div>
 
+          <!-- 천장 편집 모드(OE-OBJ-08). 지금 모드에서 고칠 수 없는 설비는 고르기·조회만 되고 편집 칸을 숨긴다. -->
+          <p v-if="editing && selectedLock" class="ceiling-lock" role="status">
+            {{ selectedLock }}
+            <button v-if="selectedLock.includes('천장 편집 모드에서')" type="button" class="link" @click="setCeilingMode(true)">천장 편집으로</button>
+            <button v-else-if="selectedLock.includes('바닥·벽')" type="button" class="link" @click="setCeilingMode(false)">바닥·벽으로</button>
+          </p>
           <!-- 이름(태그) 고치기(E7). 지우기는 패널 맨 아래에 둔다 — 이름 칸 바로 옆에 있어 고치려다 누르기 쉬웠다. -->
-          <p v-if="editing" class="equipment-name-edit">
+          <p v-if="editing && !selectedLock" class="equipment-name-edit">
             <label>
               이름
               <input
@@ -4348,7 +7349,7 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
 
           <!-- 종류 지정. 사전이 모르거나 잘못 읽은 종류를 같은 패밀리 전부에 한 번에 정한다. -->
-          <p v-if="editing" class="kind-edit">
+          <p v-if="editing && !selectedLock" class="kind-edit">
             <label>
               종류
               <select
@@ -4365,17 +7366,33 @@ async function export3D(format: 'glb' | 'obj') {
             <Src v-if="selected.kind || selected.kindEdited" :kind="kindSrc(selected)" />
             <span class="muted" :title="typeLabel(selected)">
               {{
-                typeNameOf(selected)
-                  ? `같은 패밀리 ${familyLabel(selected)}${(familyCounts.get(familyKeyOf(selected))?.types.size ?? 1) > 1 ? `(유형 ${familyCounts.get(familyKeyOf(selected))!.types.size}개)` : ''} ${familyCounts.get(familyKeyOf(selected))?.count ?? 1}대에 함께 적용됩니다`
-                  : '타입 정보가 없어 이 설비에만 적용됩니다'
+                !typeNameOf(selected)
+                  ? '타입 정보가 없어 이 설비에만 적용됩니다'
+                  : kindOnlyThis
+                    ? '이 설비에만 적용됩니다'
+                    : `같은 패밀리 ${familyLabel(selected)}${(familyCounts.get(familyKeyOf(selected))?.types.size ?? 1) > 1 ? `(유형 ${familyCounts.get(familyKeyOf(selected))!.types.size}개)` : ''} ${familyCounts.get(familyKeyOf(selected))?.count ?? 1}대에 함께 적용됩니다`
               }}
             </span>
+            <!-- 같은 패밀리가 여럿일 때만 — 한 대짜리면 고를 것이 없다. -->
+            <label v-if="typeNameOf(selected) && (familyCounts.get(familyKeyOf(selected))?.count ?? 1) > 1" class="kind-only">
+              <input v-model="kindOnlyThis" type="checkbox" /> 이 설비만
+            </label>
           </p>
 
           <p v-if="editing && kindWarning" class="edit-notice inline" role="alert">{{ kindWarning }}</p>
+          <!-- 외벽 전용 설비(OE-OBJ-04)가 외벽 바깥 면에 있지 않다. 종류를 바꾸거나 BIM 이 방 안에 둔 외기 센서다. -->
+          <p v-if="exteriorMisplaced(selected)" class="edit-notice inline exterior-misplaced" role="alert">
+            {{ EXTERIOR_ONLY }} 지금 자리는 {{ selected.position ? '외벽 바깥 면이 아닙니다' : '없습니다' }}.
+            {{ editing ? '[벽에 붙이기]로 외벽 바깥쪽을 누르세요.' : '편집 모드에서 [벽에 붙이기]로 옮기세요.' }}
+          </p>
+          <!-- 계통 없는 VAV·토출구(OE-EQP-10). 보기 모드에서도 띄운다 — 내보내면 어느 계통의 구성원으로도 나가지 않는다. -->
+          <p v-if="needsSystem(selected) && !selected.systemId" class="edit-notice inline system-missing" role="alert">
+            {{ whatIs(selected)?.label ?? 'VAV·토출구' }}에 계통이 없습니다. 내보내면 어느 계통의 구성원(brick:hasPart)으로도 나가지 않아,
+            DT 에서 계통으로 찾을 때 빠집니다. {{ editing ? '아래 계통 칸에서 정하세요.' : '편집 모드에서 계통을 정하세요.' }}
+          </p>
 
           <!-- 계통(E8). 설비의 계통 한 자리를 바꾼다. 규칙 방향을 다시 돌리고 TTL 의 brick:hasPart 가 바뀐다. -->
-          <p v-if="editing" class="system-edit">
+          <p v-if="editing && !selectedLock" class="system-edit">
             <label>
               계통
               <select :value="selected.systemId ?? ''" @change="pickSystem($event, selected.id)">
@@ -4398,7 +7415,7 @@ async function export3D(format: 'glb' | 'obj') {
             <button type="button" class="link" @click="newSystemOpen = !newSystemOpen">새 계통…</button>
           </p>
           <!-- 새 계통(E8). 사람이 더한 설비처럼 넣을 계통이 없을 때. 만들면 고른 설비를 바로 넣는다. -->
-          <form v-if="editing && newSystemOpen" class="system-edit new-system" @submit.prevent="createSystemFor(selected.id)">
+          <form v-if="editing && !selectedLock && newSystemOpen" class="system-edit new-system" @submit.prevent="createSystemFor(selected.id)">
             <input v-model="newSystemName" v-keep-typing type="text" placeholder="계통 이름" aria-label="새 계통 이름" required />
             <select v-model="newSystemKind" aria-label="새 계통 종류">
               <option value="">(종류 모름)</option>
@@ -4409,7 +7426,7 @@ async function export3D(format: 'glb' | 'obj') {
 
           <!-- 위치(E5·E6). 아래 설비 표와 같은 칸이다. N 으로 소속 없는 설비에 오면 좌표를 여기서 바로 넣는다 — 표는
                화면 아래 멀리 있다. 좌표가 없는 설비는 셋이 다 차야 옮긴다(0 으로 채우지 않는다). -->
-          <p v-if="editing" class="position-edit">
+          <p v-if="editing && !selectedLock" class="position-edit">
             위치
             <label v-for="axis in [0, 1, 2] as const" :key="axis">
               {{ 'xyz'[axis] }}
@@ -4424,34 +7441,35 @@ async function export3D(format: 'glb' | 'obj') {
               />
             </label>
             <Src v-if="selected.position" :kind="positionSrc(selected)" />
+            <!-- 외벽 전용 설비(OE-OBJ-04). 누른 자리에서 가장 가까운 벽 면에 붙이고, 벽을 옮기면 같이 간다. -->
             <button
-              v-if="!selected.position"
+              v-if="editing && canMountOn(selected, 'wall')"
               type="button"
-              :class="['ghost', 'place', { on: placing === selected.id }]"
-              :aria-pressed="placing === selected.id"
-              @click="placing === selected.id ? stopPlace() : startPlace(selected.id)"
+              :class="['ghost', 'place', 'mount', { on: placing === selected.id && placingOn === 'wall' }]"
+              :aria-pressed="placing === selected.id && placingOn === 'wall'"
+              @click="placing === selected.id && placingOn === 'wall' ? stopPlace() : startPlace(selected.id, 'wall')"
             >
-              {{ placing === selected.id ? '놓기 취소' : '3D에서 놓기' }}
+              {{ placing === selected.id && placingOn === 'wall' ? '붙이기 취소' : '벽에 붙이기' }}
             </button>
             <span class="muted">
               {{
                 selected.position
-                  ? `${selected.spaceId ? `소속 ${spaceNameOf(selected.spaceId)}` : '소속 방 없음'} · 방향키로도 옮길 수 있습니다`
+                  ? `${selected.wallId ? `${wallNameOf(selected.wallId)}에 붙음 · ` : ''}${selected.spaceId ? `소속 ${spaceNameOf(selected.spaceId)}` : exteriorIds.has(selected.id) ? '외벽 설비(소속 방 없음)' : '소속 방 없음'} · 방향키로도 옮길 수 있습니다`
                   : positionDrafts.has(selected.id)
                     ? 'x·y·z를 모두 넣어야 옮겨집니다'
-                    : '좌표가 없습니다. x·y·z를 넣으면 소속 방을 찾습니다'
+                    : '좌표가 없습니다. x·y·z를 넣거나 왼쪽 도구의 미배치 목록에서 눌러 3D에 놓으세요'
               }}
             </span>
           </p>
 
           <!-- 층 옮기기(E6). 층은 좌표로 판정하지 않고 사람이 고른다(edit.ts). -->
-          <p v-if="editing" class="storey-move">
+          <p v-if="editing && !selectedLock" class="storey-move">
             <label>
               층
               <select
                 :value="storeyOf(selected.id)?.id ?? ''"
                 :disabled="model.storeys.length < 2"
-                @change="moveToStorey(selected.id, ($event.target as HTMLSelectElement).value)"
+                @change="onStoreyPick(selected.id, $event.target as HTMLSelectElement)"
               >
                 <option v-for="s in model.storeys" :key="s.id" :value="s.id">{{ s.name }}</option>
               </select>
@@ -4498,18 +7516,23 @@ async function export3D(format: 'glb' | 'obj') {
               {{ selectedRule.count }}개.
               <template v-if="selectedRule.pct !== null">
                 포트 방향이 있는 연결 {{ selectedRule.checked }}개로 검증하면
-                <b :class="{ low: selectedRule.pct < 80 }">{{ selectedRule.pct }}%</b> 일치합니다.
+                <b :class="{ low: selectedRule.pct < 80 }">{{ selectedRule.pct }}%</b> 일치합니다(일치 {{ selectedRule.agree }} · 불일치
+                {{ selectedRule.disagree }} · 추정 불가 {{ selectedRule.unestimated }}).
               </template>
-              <template v-else> 포트 방향이 있는 연결이 없어 검증할 수 없습니다.</template>
+              <template v-else> 포트 방향과 견줄 연결이 없어 일치율은 비교 불가입니다<template v-if="selectedRule.unestimated">(추정 불가 {{ selectedRule.unestimated }})</template>.</template>
+              <span v-if="selectedRule.recheck" class="edit-notice inline recheck" data-testid="rule-recheck">
+                확정한 뒤 근거가 바뀐 규칙 방향 {{ selectedRule.recheck }}개는 재검토 중이라 brick:feeds 로 내보내지 않습니다.
+              </span>
               <span v-if="selectedRule.confirmed" class="confirmed">확정했습니다. brick:feeds로 내보냅니다.</span>
               <button
                 v-else-if="editing"
                 type="button"
                 class="ghost"
                 :disabled="selectedRule.count === 0"
+                data-testid="rule-confirm"
                 @click="confirmRule(selectedRule.systemId, selectedRule.name)"
               >
-                이 계통 방향 확정
+                {{ selectedRule.recheck ? '이 계통 방향 다시 확정' : '이 계통 방향 확정' }}
               </button>
               <span v-else class="muted"> 확정은 편집 모드에서 할 수 있습니다.</span>
             </p>
@@ -4529,10 +7552,10 @@ async function export3D(format: 'glb' | 'obj') {
               :aria-pressed="!!connectFrom"
               @click="connectFrom ? (connectFrom = null) : startConnect()"
             >
-              {{ connectFrom ? '잇기 취소' : '잇기' }}
+              {{ connectFrom ? '연결하기 취소' : '연결하기' }}
             </button>
           </h4>
-          <p v-if="connectFrom" class="edit-notice inline">이을 상대를 3D나 목록에서 고르세요. <kbd>Esc</kbd>로 취소합니다.</p>
+          <p v-if="connectFrom" class="edit-notice inline">연결할 설비를 3D나 목록에서 고르세요. <kbd>Esc</kbd>로 취소합니다.</p>
           <p v-if="selectedNeighbors.length === 0" class="hint">
             이 설비에 연결된 것이 없습니다.
           </p>
@@ -4549,45 +7572,114 @@ async function export3D(format: 'glb' | 'obj') {
                     <span v-else-if="n.source === 'manual'">직접 이음 <Src kind="edit" /></span>
                     <span v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></span>
                     <span v-if="n.edited">직접 정한 방향 <Src kind="edit" /></span>
-                    <span v-else-if="n.rule">{{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
+                    <span v-else-if="n.rule">{{ n.rule.recheck ? '규칙 방향(확정 · 재검토, 내보내지 않음)' : n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
+                    <!-- 한 층만 보는 중이면 다른 층 것은 3D 에 없고 화살표도 안 그린다(OE-UI-12). 왜 안 보이는지 적는다. -->
+                    <span v-if="otherFloor(n.id)" class="other-floor">다른 층({{ otherFloor(n.id) }}) — 3D에 안 보임</span>
                   </div>
                   <!-- 방향 버튼은 이름 아래 줄에 둔다. 좁은 패널에서 네 번째 칸으로 두었더니 이름이 한 글자씩 꺾이고 버튼이 잘렸다.
                        포트가 방향을 말한 연결은 고칠 수 없다. BIM 이 말한 것을 덮어쓰지 않는다. -->
                   <div v-if="editing && !n.connection.directed" class="flow-edit">
+                    <!-- 'A → B' 를 누르면 미리보기다(OE-PIP-04). [적용] 해야 연결에 남는다. -->
                     <button
                       type="button"
                       class="ghost"
-                      :aria-pressed="n.edited === 'upstream'"
-                      :title="`${n.name} → 이 설비`"
-                      @click="setFlow(n, n.id)"
+                      data-testid="flow-out"
+                      :aria-pressed="flowDraft?.connection === n.connection ? flowDraft.from === selectedId : n.edited === 'downstream'"
+                      :title="`이 설비 → ${n.name} (미리보기)`"
+                      @click="previewFlow(n.connection, selectedId)"
                     >
-                      상류로
+                      {{ flowLabel(selectedId ?? '') }} → {{ flowLabel(n.id) }}
                     </button>
                     <button
                       type="button"
                       class="ghost"
-                      :aria-pressed="n.edited === 'downstream'"
-                      :title="`이 설비 → ${n.name}`"
-                      @click="setFlow(n, selectedId)"
+                      data-testid="flow-in"
+                      :aria-pressed="flowDraft?.connection === n.connection ? flowDraft.from === n.id : n.edited === 'upstream'"
+                      :title="`${n.name} → 이 설비 (미리보기)`"
+                      @click="previewFlow(n.connection, n.id)"
                     >
-                      하류로
+                      {{ flowLabel(n.id) }} → {{ flowLabel(selectedId ?? '') }}
                     </button>
                     <!-- 자리는 늘 잡아 둔다. 누를 때 생기면 옆 버튼이 밀려 마우스 아래로 다른 버튼이 온다. -->
                     <button
                       type="button"
                       :class="['ghost', { hidden: !n.edited }]"
                       :disabled="!n.edited"
-                      title="정한 방향 지우기"
-                      @click="setFlow(n, null)"
+                      data-testid="flow-clear"
+                      title="직접 정한 방향을 지워 규칙 방향(있으면)이나 방향 미지정으로 돌아갑니다"
+                      @click="clearManualFlow(n.connection)"
                     >
-                      지우기
+                      수동 지정 해제
                     </button>
-                    <button v-if="n.source !== 'port'" type="button" class="ghost cut" title="이 연결을 끊습니다" @click="disconnect(n.connection)">끊기</button>
+                    <button v-if="n.source !== 'port'" type="button" class="ghost cut" title="이 연결을 끊습니다" @click="disconnect(n.connection)">연결 끊기</button>
                   </div>
+                  <form v-if="flowDraft?.connection === n.connection" class="flow-preview" data-testid="flow-preview" @submit.prevent="submitFlow">
+                    <p>미리보기 <b>{{ flowText(n.connection, flowDraft.from) }}</b> · 적용 전이라 TTL에 나가지 않습니다</p>
+                    <template v-if="n.connection.inferred && againstRule(n.connection, flowDraft.from)">
+                      <p class="edit-notice inline">
+                        규칙 방향({{ n.connection.inferred.confirmed ? '확정' : '추정' }}) {{ flowText(n.connection, n.connection.inferred.from) }}과 반대입니다. 보정 사유를 적어 주세요
+                      </p>
+                      <input v-model="flowReason" type="text" data-testid="flow-reason" placeholder="보정 사유 (예: 현장 확인 결과 반대로 흐름)" />
+                    </template>
+                    <div class="flow-edit">
+                      <button type="submit" class="ghost" data-testid="flow-apply">적용</button>
+                      <button type="button" class="ghost" @click="flowDraft = null">취소</button>
+                    </div>
+                  </form>
+                  <div v-else-if="n.connection.edited?.at" class="release-why">
+                    직접 정한 방향 · {{ logTime(n.connection.edited.at) }}<template v-if="n.connection.edited.reason"> · 사유: {{ n.connection.edited.reason }}</template>
+                  </div>
+                  <!-- BIM 포트 연결은 끊지 않고 해제 보정한다(OE-PIP-06). 원본은 남고 온톨로지의 유효 연결에서만 빠진다. -->
+                  <div v-if="editing && n.source === 'port' && releaseDraft?.connection !== n.connection" class="flow-edit">
+                    <button type="button" class="ghost cut" data-testid="release-connection" title="BIM 원본은 두고 이 연결을 규칙 방향·계통 추적·TTL feeds 에서 뺍니다" @click="openRelease(n.connection, 'release')">연결 해제 보정</button>
+                  </div>
+                  <form v-if="releaseDraft?.connection === n.connection" class="release-form" @submit.prevent="submitRelease">
+                    <input v-model="releaseReason" type="text" data-testid="release-reason" :placeholder="releaseDraft.mode === 'release' ? '해제 사유 (예: 현장에서 철거)' : '취소 사유 (예: 철거 계획 철회)'" />
+                    <button type="submit" class="ghost" data-testid="release-submit">{{ releaseDraft.mode === 'release' ? '해제' : '해제 취소' }}</button>
+                    <button type="button" class="ghost" @click="releaseDraft = null">닫기</button>
+                  </form>
                 </td>
               </tr>
             </tbody>
           </table>
+
+          <!-- 해제 보정한 BIM 연결. 원본은 남아 있어 비활성으로 보이고, 취소하면 원본 방향 그대로 위 표로 돌아간다. -->
+          <template v-if="selectedReleases.length">
+            <h4 class="picked-sub">해제한 연결 <span class="muted">{{ selectedReleases.length }}</span></h4>
+            <table class="neighbors released" data-testid="released-connections">
+              <tbody>
+                <tr v-for="(r, i) in selectedReleases" :key="`released-${r.id}-${i}`">
+                  <td class="rel released-rel">해제</td>
+                  <td class="name-cell">
+                    <button type="button" class="link" @click="select(r.id)">{{ r.name }}</button>
+                    <div class="muted src-cell">
+                      <span>포트 <Src kind="bim" /></span>
+                      <span v-if="r.relation">원본 방향 {{ r.relation === 'upstream' ? '상류' : '하류' }}</span>
+                      <span>해제 보정 <Src kind="edit" /></span>
+                    </div>
+                    <div class="release-why">{{ logTime(r.entry.at) }} · {{ r.entry.reason }}</div>
+                    <p v-if="r.entry.review" class="edit-notice inline" data-testid="release-review">
+                      {{
+                        r.entry.review === 'direction'
+                          ? '다시 연 판본에서 이 연결의 방향이 바뀌었습니다. 해제를 유지할지 취소할지 정해 주세요. 정하기 전에는 TTL에 나가지 않습니다'
+                          : '다시 연 판본에 이 연결이 없습니다. 보정을 지우면 이력만 남습니다'
+                      }}
+                    </p>
+                    <div v-if="editing && releaseDraft?.connection !== r.entry.connection" class="flow-edit">
+                      <button v-if="r.entry.review !== 'missing'" type="button" class="ghost" data-testid="release-cancel" @click="openRelease(r.entry.connection, 'restore')">해제 취소</button>
+                      <button v-if="r.entry.review === 'direction'" type="button" class="ghost" data-testid="release-keep" @click="settleRelease(r.entry.connection, 'keep')">해제 유지</button>
+                      <button v-if="r.entry.review === 'missing'" type="button" class="ghost" data-testid="release-drop" @click="settleRelease(r.entry.connection, 'drop')">보정 지우기</button>
+                    </div>
+                    <form v-if="releaseDraft?.connection === r.entry.connection" class="release-form" @submit.prevent="submitRelease">
+                      <input v-model="releaseReason" type="text" data-testid="release-reason" :placeholder="releaseDraft.mode === 'release' ? '해제 사유 (예: 현장에서 철거)' : '취소 사유 (예: 철거 계획 철회)'" />
+                      <button type="submit" class="ghost" data-testid="release-submit">{{ releaseDraft.mode === 'release' ? '해제' : '해제 취소' }}</button>
+                      <button type="button" class="ghost" @click="releaseDraft = null">닫기</button>
+                    </form>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </template>
 
           <!-- 계통별로 보기. 한 기기에 물·바람·배수가 같이 붙으므로 계통마다 나눠 센다. 패널이 좁아 표가 아니라
                줄마다 두세 줄짜리 목록이다 — 일곱 칸 표는 오른쪽 넷(방향 모름·덕트·이어진 기기)이 잘렸다. -->
@@ -4671,7 +7763,7 @@ async function export3D(format: 'glb' | 'obj') {
           </div>
 
           <!-- 지우기(E7). 지우면 붙은 연결·계통 자리도 빠지고 Ctrl+Z 로 돌아온다. 고치는 칸과 떨어뜨려 맨 아래에 둔다. -->
-          <p v-if="editing" class="danger-zone">
+          <p v-if="editing && !selectedLock" class="danger-zone">
             <button type="button" class="ghost danger" title="이 설비와 붙은 연결을 지웁니다 (Ctrl+Z 로 되돌림)" @click="removeEquipment(selected.id)">
               설비 지우기
             </button>
@@ -4681,25 +7773,116 @@ async function export3D(format: 'glb' | 'obj') {
 
         <!-- 3D·평면도에서 고른 물리존(E2). 바닥을 누르면 뜬다. 고치는 칸은 편집 모드에만. -->
         <!-- 3D 에서 고른 벽·문·창(E4). [벽·문·창] 을 켰을 때만 골라진다. -->
-        <section v-else-if="selectedElement" class="picked element-picked">
+        <section v-else-if="selectedElement" :key="`w:${selectedElementId}`" class="picked element-picked">
           <div class="picked-head">
             <div>
               <h3>{{ selectedElement.wall?.name || selectedElement.opening?.name || elementLabel(selectedElement.kind) }}</h3>
               <p class="stats">
-                {{ elementLabel(selectedElement.kind) }}
-                <Src :kind="(selectedElement.wall ?? selectedElement.opening)?.added ? 'edit' : 'bim'" /> ·
+                {{ selectedElement.wall?.loadBearing ? '내력벽' : elementLabel(selectedElement.kind) }}
+                <Src :kind="selectedElement.wall ? bearingSrc(selectedElement.wall) : selectedElement.opening?.added ? 'edit' : 'bim'" /> ·
                 {{ selectedElement.storey.name }}
                 <template v-if="selectedElement.wall">
                   · 두께 {{ selectedElement.wall.thickness !== null ? `${selectedElement.wall.thickness.toFixed(2)}m` : '모름' }}
+                  <!-- 외벽·내벽(OE-EXT-01). BIM(IsExternal)이 말하지 않으면 건물 바깥에 닿는지로 계산하고 출처를 가른다.
+                       외곽선이 없어 계산도 못 하면 적지 않는다 — 내벽으로 보이면 아니오처럼 읽힌다. -->
+                  <template v-if="externalOf(selectedElement.wall.id)">
+                    · <span data-testid="wall-external">{{ externalOf(selectedElement.wall.id)!.external ? '외벽' : '내벽' }}</span>
+                    <Src :kind="externalOf(selectedElement.wall.id)!.source" />
+                  </template>
                 </template>
-                <template v-if="selectedElement.opening?.width">· 너비 {{ selectedElement.opening.width.toFixed(2) }}m</template>
+                <template v-if="selectedElement.opening && externalOf(selectedElement.opening.wallId)">
+                  · {{ externalOf(selectedElement.opening.wallId)!.external ? '외벽' : '내벽' }}에 뚫림
+                  <Src :kind="externalOf(selectedElement.opening.wallId)!.source" />
+                </template>
               </p>
             </div>
             <div class="picked-actions">
               <button type="button" class="ghost" @click="selectedElementId = null">선택 해제</button>
             </div>
           </div>
-          <p v-if="selectedElement.wall" class="storey-move carry-rooms">
+          <p v-if="elementLock" class="lock-note" data-testid="wall-locked">
+            <template v-if="elementLock === EXTERIOR_LOCKED">
+              외벽이라 층 편집 화면에서는 옮기거나 지우거나 크기를 바꿀 수 없습니다. 외벽 형상은 외벽 에디터에서 고칩니다. 문·창과 외벽 전용
+              설비는 이 화면에서 놓습니다. 아래 외벽 여부를 바꾸면 풀립니다.
+            </template>
+            <template v-else>
+              {{ selectedElement.wall ? '내력벽이라' : '내력벽에 뚫린 것이라' }} 옮기거나 지울 수 없습니다.
+              <template v-if="selectedElement.wall">아래 내력 여부를 바꾸면 풀립니다.</template>
+            </template>
+          </p>
+          <!-- 크기(OE-OBJ-04 x·y·z). 길이·두께는 꼭짓점 넷인 벽만(문·창으로 조각난 벽은 옮기기만), 높이는 어느 벽이나. -->
+          <p v-if="selectedElement.wall && !elementLock" class="position-edit wall-length wall-size">
+            <label v-if="wallLength(selectedElement.wall) !== null">
+              길이
+              <input
+                class="coord mono"
+                type="number"
+                step="0.1"
+                min="0.1"
+                data-testid="wall-length"
+                v-keep-typing
+                :value="wallLength(selectedElement.wall)!.toFixed(2)"
+                @change="applyWallLength(selectedElement.wall!, ($event.target as HTMLInputElement).value)"
+              />
+            </label>
+            <label v-if="wallLength(selectedElement.wall) !== null">
+              두께
+              <input
+                class="coord mono"
+                type="number"
+                step="0.05"
+                min="0.05"
+                data-testid="wall-thickness"
+                v-keep-typing
+                :value="selectedElement.wall.thickness?.toFixed(2) ?? ''"
+                placeholder="모름"
+                @change="applyWallSize(selectedElement.wall!, 'thickness', ($event.target as HTMLInputElement).value)"
+              />
+            </label>
+            <label>
+              높이
+              <input
+                class="coord mono"
+                type="number"
+                step="0.1"
+                min="0.1"
+                data-testid="wall-height"
+                v-keep-typing
+                :value="selectedElement.wall.height?.toFixed(2) ?? ''"
+                placeholder="모름"
+                @change="applyWallSize(selectedElement.wall!, 'height', ($event.target as HTMLInputElement).value)"
+              />
+              m
+              <!-- 높이는 형상의 위아래 폭으로 잰 값(계산)이다. 연 뒤에 고쳤으면 편집. 모르면 칩을 달지 않는다. -->
+              <Src
+                v-if="selectedElement.wall.height != null"
+                :kind="selectedElement.wall.added || sinceOpen.wallsChanged.some((c) => c.id === selectedElement!.wall!.id && c.resized) ? 'edit' : 'calc'"
+              />
+            </label>
+            <span class="muted">{{
+              wallLength(selectedElement.wall) !== null
+                ? '길이·두께는 가운데를 두고 같이 늘거나 줄어듭니다. 높이 빈칸은 모름입니다.'
+                : '문·창으로 조각났거나 꺾인 벽은 길이·두께를 바꾸지 않고 옮기기만 됩니다. 높이 빈칸은 모름입니다.'
+            }}</span>
+          </p>
+          <!-- 외벽 여부(OE-OBJ-04). 지금 판정(BIM·계산·편집)을 보이고, 고르면 사람이 정한 값이 된다. -->
+          <p v-if="selectedElement.wall" class="storey-move">
+            <label>
+              외벽
+              <select
+                data-testid="wall-external-select"
+                :value="String(externalOf(selectedElement.wall.id)?.external ?? null)"
+                @change="setExternal(selectedElement.wall!, ($event.target as HTMLSelectElement).value)"
+              >
+                <option value="true">외벽</option>
+                <option value="false">내벽</option>
+                <option value="null">모름</option>
+              </select>
+            </label>
+            <Src v-if="externalOf(selectedElement.wall.id)" :kind="externalOf(selectedElement.wall.id)!.source" />
+            <span class="muted">{{ externalOf(selectedElement.wall.id)?.source === 'calc' ? '건물 바깥에 닿는지로 계산했습니다. 틀리면 고르세요.' : '' }}</span>
+          </p>
+          <p v-if="selectedElement.wall && !elementLock" class="storey-move carry-rooms">
             <label title="벽 면에서 0.6m 안의 방 변이 벽이 움직인 만큼 따라옵니다. 끄면 방 경계는 그대로입니다(방은 IfcSpace 가 따로 그린 것)">
               <input v-model="carryRooms" type="checkbox" /> 옮길 때 방 경계도 같이
             </label>
@@ -4708,6 +7891,7 @@ async function export3D(format: 'glb' | 'obj') {
             <label>
               내력
               <select
+                data-testid="wall-bearing"
                 :value="String(selectedElement.wall.loadBearing)"
                 @change="setBearing(selectedElement.wall!, ($event.target as HTMLSelectElement).value)"
               >
@@ -4716,8 +7900,27 @@ async function export3D(format: 'glb' | 'obj') {
                 <option value="null">모름</option>
               </select>
             </label>
-            <Src :kind="selectedElement.wall.added ? 'edit' : 'bim'" />
-            <span class="muted">모름은 아니오가 아닙니다.</span>
+            <Src :kind="bearingSrc(selectedElement.wall)" />
+            <span class="muted">{{ selectedElement.wall.loadBearing === null ? '모름은 아니오가 아닙니다. 내벽처럼 고칠 수 있습니다.' : '모름은 아니오가 아닙니다.' }}</span>
+          </p>
+          <!-- 문·창 크기(OE-OBJ-07). 자리(가운데)는 두고 가로·세로만 바꾼다. 모르는 값은 빈칸이다. -->
+          <p v-if="selectedElement.opening" class="opening-size">
+            크기
+            <label v-for="key in ['width', 'height'] as const" :key="key">
+              {{ key === 'width' ? '가로' : '세로' }}
+              <input
+                class="coord mono"
+                type="number"
+                step="0.1"
+                min="0.1"
+                v-keep-typing
+                :disabled="!!elementLock"
+                :value="selectedElement.opening[key] != null ? selectedElement.opening[key]!.toFixed(2) : ''"
+                :placeholder="'모름'"
+                @change="applyOpeningSize(selectedElement.opening!, key, ($event.target as HTMLInputElement).value)"
+              />
+            </label>
+            m
           </p>
           <p v-if="selectedElement.opening?.position" class="position-edit">
             자리
@@ -4728,8 +7931,9 @@ async function export3D(format: 'glb' | 'obj') {
                 type="number"
                 step="0.1"
                 v-keep-typing
+                :disabled="!!elementLock"
                 :value="mmOf(selectedElement.opening.position[axis])"
-                @change="applyOpeningPosition(selectedElement.opening!, axis, ($event.target as HTMLInputElement).value)"
+                @change="applyOpeningPosition(selectedElement.opening!, axis, ($event.target as HTMLInputElement).value, $event.target as HTMLInputElement)"
               />
             </label>
           </p>
@@ -4738,7 +7942,7 @@ async function export3D(format: 'glb' | 'obj') {
             {{ selectedElement.opening.connects?.length ? selectedElement.opening.connects.map(nameOfSpace).join(' · ') : '(없음)' }}
             <Src v-if="selectedElement.opening.connectsSource" :kind="selectedElement.opening.connectsSource === 'bim' ? 'bim' : 'calc'" />
           </p>
-          <p class="danger-zone">
+          <p v-if="!elementLock" class="danger-zone">
             <button type="button" class="ghost danger" @click="removeElement">
               {{ elementLabel(selectedElement.kind) }} 지우기
             </button>
@@ -4748,7 +7952,165 @@ async function export3D(format: 'glb' | 'obj') {
             </span>
           </p>
         </section>
-        <section v-else-if="selectedSpace" class="picked space-picked">
+        <!-- 커스텀존(OE-OBJ-01). 품는 방·든 설비는 쓸 때 계산한 것이라 물리존·설비를 고치면 따라 바뀐다. -->
+        <!-- 추가 공간 오브젝트(OE-OBJ-09). 끌거나 방향키로 옮기고, 칸으로 크기를 바꾼다. -->
+        <section v-else-if="selectedObject" :key="`object:${selectedObject.object.id}`" class="picked object-picked">
+          <div class="picked-head">
+            <div>
+              <h3>{{ selectedObject.object.name }}</h3>
+              <dl class="stats facts">
+                <div>
+                  <dt>오브젝트</dt>
+                  <dd>{{ selectedObject.item?.name ?? selectedObject.object.item }} · {{ selectedObject.storey.name }} <Src kind="edit" /></dd>
+                </div>
+                <div>
+                  <dt>자리</dt>
+                  <dd class="mono">{{ selectedObject.object.at[0].toFixed(2) }}, {{ selectedObject.object.at[1].toFixed(2) }}</dd>
+                </div>
+                <div v-if="!editing">
+                  <dt>크기</dt>
+                  <dd><b class="mono">{{ selectedObject.object.size.map((v) => v.toFixed(2)).join(' × ') }}</b> m</dd>
+                </div>
+              </dl>
+            </div>
+            <div class="picked-actions">
+              <button type="button" class="ghost" @click="selectedObjectId = null">선택 해제</button>
+            </div>
+          </div>
+          <template v-if="editing">
+            <label class="space-name">
+              이름
+              <input type="text" data-testid="object-name" v-keep-typing :value="selectedObject.object.name" @change="applyObjectName(($event.target as HTMLInputElement).value)" />
+            </label>
+            <div class="object-size" data-testid="object-size">
+              <label v-for="(label, axis) in ['가로', '세로', '높이']" :key="label">
+                {{ label }}
+                <input
+                  type="number"
+                  step="0.05"
+                  min="0.05"
+                  :data-testid="`object-size-${axis}`"
+                  :value="selectedObject.object.size[axis]"
+                  @change="applyObjectSize(axis as 0 | 1 | 2, $event.target as HTMLInputElement)"
+                  @keydown.enter="applyObjectSize(axis as 0 | 1 | 2, $event.target as HTMLInputElement)"
+                />
+                m
+              </label>
+            </div>
+            <p class="hint">끌거나 방향키로 옮깁니다(Shift 1m). 다른 오브젝트와 겹치는 자리로는 옮기거나 키울 수 없습니다.</p>
+            <p class="danger-zone">
+              <button type="button" class="ghost danger" @click="removeObject">오브젝트 지우기</button>
+              <span class="muted">Delete · Ctrl+Z 로 되돌립니다.</span>
+            </p>
+          </template>
+        </section>
+        <!-- 룸(OE-OBJ-03 · OE-SPC-11). 물리존 안의 사각 편집 단위. 꼭짓점 손잡이로 크기, 방향키로 자리를 바꾼다. -->
+        <section v-else-if="selectedRoom" :key="`room:${selectedRoom.room.id}`" class="picked room-picked">
+          <div class="picked-head">
+            <div>
+              <h3>{{ selectedRoom.room.name }}</h3>
+              <dl class="stats facts">
+                <div>
+                  <dt>룸</dt>
+                  <dd>{{ selectedRoom.storey.name }} · {{ selectedRoom.parent ? selectedRoom.parent.longName || selectedRoom.parent.name : '물리존 모름' }} 안 <Src kind="edit" /></dd>
+                </div>
+                <div>
+                  <dt>크기</dt>
+                  <dd data-testid="room-size"><b class="mono">{{ selectedRoom.width.toFixed(2) }} × {{ selectedRoom.depth.toFixed(2) }}</b> m <Src kind="edit" /></dd>
+                </div>
+              </dl>
+            </div>
+            <div class="picked-actions">
+              <button type="button" class="ghost" @click="selectedRoomId = null">선택 해제</button>
+            </div>
+          </div>
+          <label v-if="editing" class="space-name">
+            이름
+            <input type="text" data-testid="room-name" v-keep-typing :value="selectedRoom.room.name" @change="applyRoomName(($event.target as HTMLInputElement).value)" />
+          </label>
+          <p v-if="editing" class="hint">꼭짓점 손잡이를 끌어 크기를, 방향키로 자리를 바꿉니다(Shift 1m). 물리존 밖으로 나가거나 다른 룸과 겹칠 수 없습니다.</p>
+          <p v-if="editing" class="danger-zone">
+            <button type="button" class="ghost danger" @click="removeRoom">룸 지우기</button>
+            <span class="muted">그 자리는 물리존으로 돌아갑니다. Ctrl+Z 로 되돌립니다.</span>
+          </p>
+        </section>
+        <section v-else-if="selectedCustomZone" :key="`cz:${selectedCustomZone.zone.id}`" class="picked custom-zone-picked">
+          <div class="picked-head">
+            <div>
+              <h3>{{ selectedCustomZone.zone.name }}</h3>
+              <dl class="stats facts">
+                <div v-if="selectedCustomZone.zone.aliases?.length">
+                  <dt>다른 별명</dt>
+                  <dd data-testid="zone-aliases">{{ selectedCustomZone.zone.aliases.join(', ') }} <Src kind="edit" /></dd>
+                </div>
+                <div>
+                  <dt>커스텀존</dt>
+                  <dd>{{ selectedCustomZone.storey.name }} <Src kind="edit" /></dd>
+                </div>
+                <div>
+                  <dt>넓이</dt>
+                  <dd><b class="mono">{{ selectedCustomZone.areaM2.toFixed(1) }}</b> ㎡ <Src kind="calc" /></dd>
+                </div>
+                <div>
+                  <dt>품는 방</dt>
+                  <dd data-testid="zone-spaces">
+                    <!-- 방 번호를 같이 — 거울 대칭 세대는 이름이 같은 방이 둘이다(Duplex 의 Bathroom 1 A104·B104). -->
+                    <template v-if="selectedCustomZone.spaces.length">{{ selectedCustomZone.spaces.map(zoneRoomLabel).join(', ') }}</template>
+                    <span v-else class="muted">없음(방 바닥의 절반 넘게 덮는 방만)</span>
+                    <Src kind="calc" />
+                  </dd>
+                </div>
+                <div>
+                  <dt>든 설비</dt>
+                  <dd data-testid="zone-equipment">{{ selectedCustomZone.equipment.length }}대 <Src kind="calc" /></dd>
+                </div>
+              </dl>
+            </div>
+            <div class="picked-actions">
+              <button type="button" class="ghost" @click="selectedCustomZoneId = null">선택 해제</button>
+            </div>
+          </div>
+          <label v-if="editing" class="space-name">
+            이름
+            <input type="text" data-testid="zone-name" v-keep-typing :value="selectedCustomZone.zone.name" @change="renameZone($event.target as HTMLInputElement)" />
+          </label>
+          <!-- 별명은 여러 개(ADR-0012). 첫 이름이 TTL rdfs:label, 여기 적은 것은 ex:alias 다. 쉼표로 가른다. -->
+          <label v-if="editing" class="space-name">
+            다른 별명
+            <input
+              type="text"
+              data-testid="zone-aliases-input"
+              v-keep-typing
+              placeholder="쉼표로 여러 개 (예: 임원 구역, 경영진석)"
+              :value="(selectedCustomZone.zone.aliases ?? []).join(', ')"
+              @change="setZoneAliases($event.target as HTMLInputElement)"
+            />
+          </label>
+          <p v-if="editing" class="space-tools">
+            <button type="button" class="ghost" title="바닥에 선의 두 점을 찍어 둘로 나눕니다" @click="startCustomSplit">나누기</button>
+            <label v-if="(selectedCustomZone.storey.customZones ?? []).length > 1">
+              <select :value="''" aria-label="합칠 커스텀존" @change="mergeZone(($event.target as HTMLSelectElement).value)">
+                <option value="" disabled>합칠 커스텀존 고르기…</option>
+                <option v-for="z in selectedCustomZone.storey.customZones!.filter((x) => x.id !== selectedCustomZone!.zone.id)" :key="z.id" :value="z.id">{{ z.name }}</option>
+              </select>
+            </label>
+          </p>
+          <p class="hint">
+            TTL 에 brick:Zone 으로 나갑니다. 품는 방은 hasPart, 든 설비는 이 존을 위치(hasLocation)로 하나 더 갖습니다. 공조존과는 같은 방을
+            품는 것으로 이어집니다.
+          </p>
+          <ul v-if="selectedCustomZone.equipment.length" class="plain space-members">
+            <li v-for="id in selectedCustomZone.equipment.slice(0, 12)" :key="id">
+              <button type="button" class="link" @click="select(id)">{{ nameOfId(id) }}</button>
+              <span class="muted">{{ equipmentById.get(id) ? whatIs(equipmentById.get(id)!)?.label : '' }}</span>
+            </li>
+          </ul>
+          <p v-if="editing" class="danger-zone">
+            <button type="button" class="ghost danger" @click="removeZone">커스텀존 지우기</button>
+            <span class="muted">물리존·설비는 그대로입니다. Ctrl+Z 로 되돌립니다.</span>
+          </p>
+        </section>
+        <section v-else-if="selectedSpace" :key="`s:${selectedSpace.space.id}`" class="picked space-picked">
           <div class="picked-head">
             <div>
               <h3>{{ selectedSpace.space.longName || selectedSpace.space.name }}</h3>
@@ -4760,7 +8122,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <!-- 방 종류(TTL 의 Brick 클래스). 이름을 고치면 따라 바뀌므로, 고친 사람이 무엇이 됐는지 여기서 본다. -->
                 <div>
                   <dt>종류</dt>
-                  <dd class="space-kind">
+                  <dd v-flash="selectedSpace.space.kind" class="space-kind">
                     <template v-if="roomKind(selectedSpace.space.kind)">
                       {{ roomKind(selectedSpace.space.kind)!.label }} <Src :kind="selectedSpace.space.kindSource === 'bim' ? 'bim' : 'dict'" />
                     </template>
@@ -4769,11 +8131,11 @@ async function export3D(format: 'glb' | 'obj') {
                 </div>
                 <div>
                   <dt>넓이</dt>
-                  <dd><b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡ <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /></dd>
+                  <dd v-flash="selectedSpace.space.areaM2.toFixed(1)"><b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡ <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /></dd>
                 </div>
                 <div>
                   <dt>소속</dt>
-                  <dd>
+                  <dd v-flash="`${spaceDevices.length}/${spaceConduits.length}`">
                     기기 {{ spaceDevices.length }}대<template v-if="spaceConduits.length"> · 덕트·배관 {{ spaceConduits.length }}개</template>
                     <Src kind="calc" />
                   </dd>
@@ -4788,9 +8150,21 @@ async function export3D(format: 'glb' | 'obj') {
               <button type="button" class="ghost" @click="selectedSpaceId = null">선택 해제</button>
             </div>
           </div>
+          <!-- 방번호(OE-OBJ-02). IfcSpace 의 Name 이고 한 층 안에서 겹치지 않는다. 공간명(아래)은 겹쳐도 된다. -->
+          <label v-if="editing" class="space-number">
+            방번호
+            <input
+              type="text"
+              v-keep-typing
+              data-testid="space-number"
+              :value="selectedSpace.space.name"
+              :placeholder="selectedSpace.space.added ? '방번호를 넣으세요' : ''"
+              @change="applySpaceNumber(selectedSpace.space.id, $event.target as HTMLInputElement)"
+            />
+          </label>
           <!-- 3D 에서 고른 방의 이름을 그 자리에서 고친다(E1). 아래 표에서 같은 방을 다시 찾지 않게. -->
           <label v-if="editing" class="space-name">
-            이름
+            공간명
             <input
               type="text"
               v-keep-typing
@@ -4850,7 +8224,7 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
         </section>
         <!-- 아무것도 고르지 않았을 때. 이 파일이 어디까지 찼는지와, 무엇을 누르면 여기 무엇이 뜨는지. -->
-        <section v-else class="overview">
+        <section v-else key="overview" class="overview">
           <h3>이 파일</h3>
           <TierChips :tiers="currentTiers" />
           <!-- 여는 중에는 숨긴다. 건축·설비를 같이 열면 설비를 읽는 동안 건축만 보여 "설비를 덧붙이라" 가 떴다. -->
@@ -4872,6 +8246,52 @@ async function export3D(format: 'glb' | 'obj') {
             <li><b>{{ counts.systems }}</b> 계통</li>
             <li><b>{{ counts.connections }}</b> 연결</li>
           </ul>
+          <!-- 커스텀존(OE-OBJ-01). 3D 에서는 점선이라 누르기 어려워 여기서 고른다. -->
+          <div v-if="allCustomZones.length" class="overview-zones">
+            <h4>커스텀존 {{ allCustomZones.length }}</h4>
+            <ul class="plain">
+              <li v-for="x in allCustomZones" :key="x.zone.id">
+                <button type="button" class="link" @click="selectedCustomZoneId = x.zone.id">{{ x.zone.name }}</button>
+                <span class="muted">{{ x.storey.name }}</span>
+              </li>
+            </ul>
+          </div>
+          <!-- 벽·문·창 설정(OE-SPC-12 · OE-SPC-13). [벽·문·창] 을 켰을 때만. 3D 위 팔레트에 두면 바닥을 가린다. -->
+          <div v-if="editing && archMode" class="element-settings" data-testid="element-settings">
+            <h4>벽·문·창 설정</h4>
+            <label>
+              새 벽 사이트 기본 두께
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                placeholder="없음"
+                data-testid="site-wall-thickness"
+                v-keep-typing
+                :value="elementSettings.wallThickness ?? ''"
+                @change="setSiteWallThickness(($event.target as HTMLInputElement).value)"
+              />
+              m
+            </label>
+            <p v-if="wallThicknessHere" class="hint" data-testid="wall-thickness-here">
+              {{ wallThicknessHere.storey }}에 새 벽을 그으면 <b class="mono">{{ wallThicknessHere.thickness }}m</b>({{ WALL_FROM[wallThicknessHere.from] }})입니다. 같은 층 BIM 내벽이 있으면 그 두께가 먼저입니다.
+            </p>
+            <label>
+              문·창 스냅 거리
+              <input
+                type="number"
+                step="0.1"
+                :min="OPENING_SNAP_RANGE.min"
+                :max="OPENING_SNAP_RANGE.max"
+                data-testid="opening-snap"
+                v-keep-typing
+                :value="elementSettings.openingSnap"
+                @change="setOpeningSnap(($event.target as HTMLInputElement).value); ($event.target as HTMLInputElement).value = String(elementSettings.openingSnap)"
+              />
+              m
+            </label>
+            <p class="hint">벽에서 이 거리 안을 눌러야 문·창이 가장 가까운 벽에 붙습니다. 이 브라우저에만 남습니다.</p>
+          </div>
           <p class="hint">
             3D에서 설비를 클릭하면 연결과 소속이, 바닥을 클릭하면 물리존 정보가 여기에 표시됩니다.
             <template v-if="warnings.length"><a href="#warnings" class="link">경고 {{ warnings.length }}건</a>, </template>
@@ -4884,10 +8304,14 @@ async function export3D(format: 'glb' | 'obj') {
             <Src kind="dict" /> 이름 사전·흐름 규칙으로 추정
           </p>
         </section>
+        </Transition>
 
             <!-- 범례에서 고른 계통. 종류·유체는 규칙 방향과 TTL 계통 클래스를 정한다. 편집 모드에서 고친다(E8). -->
             <section v-if="selectedSystem" class="picked system-picked">
               <h3>{{ selectedSystem.name || '(이름 없는 계통)' }}</h3>
+              <p v-if="systemNameAtOpen(selectedSystem.id) !== null && systemNameAtOpen(selectedSystem.id) !== selectedSystem.name" class="stats system-renamed">
+                BIM 이름 {{ systemNameAtOpen(selectedSystem.id) || '(없음)' }} <Src kind="bim" /> → 고친 이름 <Src kind="edit" />
+              </p>
               <p class="stats">
                 구성 {{ selectedSystem.memberIds.length }}개 <Src :kind="selectedSystem.added ? 'edit' : 'bim'" /> ·
                 {{ systemKindText(selectedSystem.kind, selectedSystem.fluid) }}
@@ -4898,6 +8322,18 @@ async function export3D(format: 'glb' | 'obj') {
                 <template v-else-if="!selectedSystem.kindEdited && selectedSystem.fluid && selectedSystem.fluidSource !== selectedSystem.kindSource">
                   (유체 <Src :kind="selectedSystem.fluidSource === 'bim' ? 'bim' : 'dict'" />)
                 </template>
+              </p>
+              <p v-if="editing" class="system-edit system-name-edit">
+                <label>
+                  이름
+                  <input
+                    type="text"
+                    v-keep-typing
+                    :value="selectedSystem.name"
+                    aria-label="계통 이름"
+                    @change="renameSystemTo(selectedSystem.id, ($event.target as HTMLInputElement).value)"
+                  />
+                </label>
               </p>
               <p v-if="editing" class="system-edit system-kind-edit">
                 <label>
@@ -4964,14 +8400,14 @@ async function export3D(format: 'glb' | 'obj') {
 
         <!-- PRD #6 의 임포트 결과 검토 항목이다. 무엇이 만들어졌는지 숫자로 먼저 본다. -->
         <ul class="tiles">
-          <li><b>{{ counts.storeys }}</b><span>층</span><Src kind="bim" /></li>
-          <li><b>{{ counts.spaces }}</b><span>물리존</span><Src kind="bim" /></li>
+          <li v-flash="counts.storeys"><b><Roll :value="counts.storeys" /></b><span>층</span><Src kind="bim" /></li>
+          <li v-flash="counts.spaces"><b><Roll :value="counts.spaces" /></b><span>물리존</span><Src kind="bim" /></li>
           <!-- 읽지 않기로 한 피처는 0 이 아니라 "읽지 않음" 이다. 0 이면 BIM 에 없다는 말이 된다. -->
           <li v-if="skipped.has('walls')" class="skipped"><b>–</b><span>벽</span><small>읽지 않음</small></li>
-          <li v-else><b>{{ counts.walls }}</b><span>벽</span><Src kind="bim" /></li>
+          <li v-else v-flash="counts.walls"><b><Roll :value="counts.walls" /></b><span>벽</span><Src kind="bim" /></li>
           <li v-if="skipped.has('doors')" class="skipped"><b>–</b><span>문</span><small>읽지 않음</small></li>
-          <li v-else :class="{ wide: doorLinks.total > 0 }">
-            <b>{{ counts.doors }}</b><span>문</span><Src kind="bim" />
+          <li v-else v-flash="counts.doors" :class="{ wide: doorLinks.total > 0 }">
+            <b><Roll :value="counts.doors" /></b><span>문</span><Src kind="bim" />
             <!-- 방-문-방. BIM 의 공간 경계가 말하면 BIM, 없으면 문 양쪽을 좌표로 짚은 계산이다. -->
             <small v-if="doorLinks.total > 0">
               방과 방을 잇는 문 {{ doorLinks.two }}
@@ -4980,10 +8416,10 @@ async function export3D(format: 'glb' | 'obj') {
             </small>
           </li>
           <li v-if="skipped.has('windows')" class="skipped"><b>–</b><span>창문</span><small>읽지 않음</small></li>
-          <li v-else><b>{{ counts.windows }}</b><span>창문</span><Src kind="bim" /></li>
-          <li v-if="!skipped.has('walls')"><b>{{ counts.loadBearingWalls }}</b><span>내력벽</span><Src kind="bim" /></li>
-          <li v-if="model.hvac" class="wide">
-            <b>{{ model.hvac.zones.length }}</b><span>공조존</span><Src kind="idf" />
+          <li v-else v-flash="counts.windows"><b><Roll :value="counts.windows" /></b><span>창문</span><Src kind="bim" /></li>
+          <li v-if="!skipped.has('walls')" v-flash="counts.loadBearingWalls"><b><Roll :value="counts.loadBearingWalls" /></b><span>내력벽</span><Src kind="bim" /></li>
+          <li v-if="model.hvac" class="wide" v-flash="model.hvac.zones.length">
+            <b><Roll :value="model.hvac.zones.length" /></b><span>공조존</span><Src kind="idf" />
             <small v-if="idfReport">
               방이 든 존 {{ idfReport.zonesWithSpaces }} · 존에 든 방 {{ idfReport.spacesInZones }}/{{ idfReport.spaces }} <Src kind="calc" />
               <template v-if="idfReport.straddling"> · 두 존에 걸친 방 {{ idfReport.straddling }}</template>
@@ -4992,25 +8428,25 @@ async function export3D(format: 'glb' | 'obj') {
           </li>
           <!-- 설비를 하나로 세면 대수가 부푼다. 실측에서 85%가 덕트·배관이었다.
                Proxy 는 IFC 가 설비라고 말하지 않은 것을 사전이 설비로 받은 것이라 따로 센다. -->
-          <li :class="{ wide: proxyDevices.ported + proxyDevices.named > 0 }">
-            <b>{{ counts.devices }}</b><span>기기</span><Src kind="bim" />
+          <li :class="{ wide: proxyDevices.ported + proxyDevices.named > 0 }" v-flash="counts.devices">
+            <b><Roll :value="counts.devices" /></b><span>기기</span><Src kind="bim" />
             <small v-if="proxyDevices.ported + proxyDevices.named > 0">
               그중 Proxy
               <template v-if="proxyDevices.ported">포트 {{ proxyDevices.ported }} <Src kind="calc" /></template>
               <template v-if="proxyDevices.named">이름 {{ proxyDevices.named }} <Src kind="dict" /></template>
             </small>
           </li>
-          <li><b>{{ counts.conduits }}</b><span>덕트·배관</span><Src kind="bim" /></li>
-          <li><b>{{ counts.systems }}</b><span>계통</span><Src kind="bim" /></li>
-          <li :class="{ wide: connectionSources.geometry > 0 && connectionSources.port > 0 }">
-            <b>{{ counts.connections }}</b><span>연결</span>
+          <li v-flash="counts.conduits"><b><Roll :value="counts.conduits" /></b><span>덕트·배관</span><Src kind="bim" /></li>
+          <li v-flash="counts.systems"><b><Roll :value="counts.systems" /></b><span>계통</span><Src kind="bim" /></li>
+          <li :class="{ wide: connectionSources.geometry > 0 && connectionSources.port > 0 }" v-flash="counts.connections">
+            <b><Roll :value="counts.connections" /></b><span>연결</span>
             <template v-if="connectionSources.geometry === 0"><Src kind="bim" /></template>
             <template v-else-if="connectionSources.port === 0"><Src kind="calc" /></template>
             <small v-else>포트 {{ connectionSources.port }} <Src kind="bim" /> · 형상 {{ connectionSources.geometry }} <Src kind="calc" /></small>
           </li>
-          <li><b>{{ counts.directedConnections }}</b><span>흐름 방향</span><Src kind="bim" /></li>
-          <li v-if="ruleReport && ruleReport.oriented > 0">
-            <b>{{ ruleReport.oriented }}</b><span>규칙 방향</span><Src kind="dict" />
+          <li v-flash="counts.directedConnections"><b><Roll :value="counts.directedConnections" /></b><span>흐름 방향</span><Src kind="bim" /></li>
+          <li v-if="ruleReport && ruleReport.oriented > 0" v-flash="ruleReport.oriented">
+            <b><Roll :value="ruleReport.oriented" /></b><span>규칙 방향</span><Src kind="dict" />
           </li>
         </ul>
 
@@ -5023,30 +8459,63 @@ async function export3D(format: 'glb' | 'obj') {
           <li v-for="w in warnings" :key="w">{{ w }}</li>
         </ul>
 
+        <!-- 미배치 목록(OE-BIM-07). 좌표가 없어 3D 에 없는 설비. 층은 BIM 이 말한 것이고, TTL 에는 그 층까지만 나간다. 놓기는 편집
+             팔레트의 미배치 목록에서 한다(OE-EQP-02 — 따로 [3D에서 놓기] 버튼을 두지 않는다). -->
+        <Fold v-if="unplaced.length" title="미배치 설비" :meta="`${unplaced.length.toLocaleString()}대 — 좌표가 없어 3D에 없습니다`" :default-open="unplaced.length <= 30" class="unplaced">
+          <ul class="unplaced-list">
+            <li v-for="u in unplaced.slice(0, UNPLACED_SHOWN)" :key="u.equipment.id">
+              <button type="button" class="link" @click="selectAndShow(u.equipment.id)">{{ u.equipment.name ? shortName(u.equipment.name) : '(이름 없음)' }}</button>
+              <span class="muted">{{ u.storey.name }} · {{ whatIs(u.equipment)?.label ?? ifcClassLabel(u.equipment.ifcClass) ?? u.equipment.ifcClass }}</span>
+            </li>
+          </ul>
+          <p v-if="unplaced.length > UNPLACED_SHOWN" class="muted">외 {{ (unplaced.length - UNPLACED_SHOWN).toLocaleString() }}대 — 설비 표에서 좌표 칸이 빈 것입니다</p>
+        </Fold>
+
+        <!-- 계통 없는 VAV·토출구(OE-EQP-10). BIM 에서 연 그대로는 드물고, VAV 를 새로 놓거나 계통을 지우면 생긴다. -->
+        <Fold v-if="systemless.length" title="계통 없는 VAV·토출구" :meta="`${systemless.length.toLocaleString()}대 — 어느 계통에도 들지 않습니다`" :default-open="systemless.length <= 30" class="systemless">
+          <ul class="unplaced-list">
+            <li v-for="x in systemless.slice(0, UNPLACED_SHOWN)" :key="x.equipment.id">
+              <button type="button" class="link" @click="selectAndShow(x.equipment.id)">{{ x.equipment.name ? shortName(x.equipment.name) : '(이름 없음)' }}</button>
+              <span class="muted">{{ x.storeyName }} · {{ whatIs(x.equipment)?.label ?? x.equipment.ifcClass }}</span>
+            </li>
+          </ul>
+          <p v-if="systemless.length > UNPLACED_SHOWN" class="muted">외 {{ (systemless.length - UNPLACED_SHOWN).toLocaleString() }}대</p>
+        </Fold>
+
         <!-- 고객사 BIM 요구사항(정본 4장)에 대 본 것. IDS 와 달리 "다른 자리에 있다(우리는 읽는다)"를 따로 센다. -->
         <Fold v-if="currentRequirements.length" title="요구사항" :meta="requirementsMeta" :default-open="false" class="requirements">
           <table class="req-table">
             <thead>
-              <tr><th>#</th><th>요구</th><th>상태</th><th class="num" title="표준 자리 · 다른 자리 / 전체">개수</th><th>설명</th></tr>
+              <tr><th>#</th><th>요구</th><th>상태</th><th class="num" title="표준 자리 · 다른 자리 / 전체">개수</th><th>설명</th><th>고객사에 할 요청</th></tr>
             </thead>
             <tbody v-for="g in requirementGroups" :key="g.level">
               <tr class="req-group">
-                <th colspan="5">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 대신 채울 방법이 없음' : ' — 없으면 계산·사전·수작업으로 채움' }}</th>
+                <th colspan="6">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 대신 채울 방법이 없음' : ' — 없으면 계산·사전·수작업으로 채움' }}</th>
               </tr>
-              <tr v-for="r in g.rows" :key="r.id">
+              <tr v-for="r in g.rows" :key="r.id" v-flash="`${r.state}:${r.counts?.standard}:${r.counts?.elsewhere}`">
                 <td class="mono">{{ r.id }}</td>
                 <td>{{ r.title }}</td>
                 <td><span :class="['req-state', r.state]">{{ REQUIREMENT_STATE[r.state] }}</span></td>
                 <td class="num mono">
-                  <template v-if="r.counts && r.counts.of">{{ r.counts.standard }}<template v-if="r.counts.elsewhere"> · {{ r.counts.elsewhere }}</template> / {{ r.counts.of }}</template>
+                  <template v-if="r.counts && r.counts.of">
+                    <Roll :value="r.counts.standard" /><template v-if="r.counts.elsewhere"> · <Roll :value="r.counts.elsewhere" /></template> / {{ r.counts.of }}
+                    <Meter
+                      :parts="[
+                        { value: r.counts.standard / r.counts.of, tone: 'accent' },
+                        { value: r.counts.elsewhere / r.counts.of, tone: 'soft' },
+                      ]"
+                      :label="`표준 자리 ${r.counts.standard}, 다른 자리 ${r.counts.elsewhere} / ${r.counts.of}`"
+                    />
+                  </template>
                 </td>
                 <td class="muted">{{ r.note }}</td>
+                <td class="req-ask" :class="{ setting: r.state === 'elsewhere' || (r.counts?.elsewhere ?? 0) > 0 }">{{ r.ask || '—' }}</td>
               </tr>
             </tbody>
           </table>
           <p class="hint">
-            표준 자리는 IDS(<span class="mono">docs/requirements.ids</span>) 검사도 통과합니다. 다른 자리는 값이 있어 읽을 수 있지만,
-            내보내기 설정을 바꾸면 표준 자리로 옮길 수 있습니다. 기준은 정본 4장을 보세요.
+            표준 자리는 IDS(<span class="mono">docs/requirements.ids</span>) 검사도 통과합니다. 다른 자리는 값이 있어 읽을 수 있지만
+            표준 자리가 아니라서, 고객사에 내보내기 설정을 바꿔 달라고 합니다(요청 칸에 무엇을 바꿀지). 기준은 정본 4장을 보세요.
           </p>
         </Fold>
 
@@ -5067,12 +8536,18 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
           <p v-if="versionError" class="edit-notice inline" role="alert">{{ versionError }}</p>
           <template v-if="versionDiff">
+            <p v-if="versionDiff.diff.storeyScale" class="edit-notice inline" role="alert">
+              이름이 같은 층의 높이가 이전 판본의 {{ ratioLabel(versionDiff.diff.storeyScale.ratio) }}입니다({{
+                versionDiff.diff.storeyScale.storeys.slice(0, 3).map(([n, x, y]) => `${n} ${+x.toPrecision(4)}m → ${+y.toPrecision(4)}m`).join(', ')
+              }}). {{ { first: '층간 높이로 보면 이전 판본', second: '층간 높이로 보면 지금 파일', none: '한 판본' }[versionDiff.diff.storeyScale.suspect ?? 'none'] }}의 길이 단위 선언이 실제 값과 다른 것 같습니다({{ versionDiff.diff.storeyScale.what }}, 요구사항 R6).
+            </p>
             <table class="version-sum">
               <thead>
                 <tr>
                   <th></th>
                   <th class="num">이전 → 지금</th>
                   <th class="num">양쪽에 있는 것</th>
+                  <th class="num" title="양쪽에 있는 것 중 GUID가 그대로인 비율(요구사항 R13)">GUID 유지</th>
                   <th>그중 GUID가 바뀐 것 <Src kind="calc" /></th>
                 </tr>
               </thead>
@@ -5081,6 +8556,9 @@ async function export3D(format: 'glb' | 'obj') {
                   <th>{{ label }}</th>
                   <td class="num mono">{{ k.prevCount }} → {{ k.nextCount }}</td>
                   <td class="num mono">{{ k.by.guid + k.by.revitId + k.by.name + k.by.position }}</td>
+                  <td class="num mono">
+                    {{ k.by.guid + k.by.revitId + k.by.name + k.by.position ? `${Math.round((k.by.guid / (k.by.guid + k.by.revitId + k.by.name + k.by.position)) * 100)}%` : '—' }}
+                  </td>
                   <td>
                     <template v-if="k.by.revitId + k.by.name + k.by.position">
                       <b class="mono">{{ k.by.revitId + k.by.name + k.by.position }}</b>
@@ -5094,7 +8572,8 @@ async function export3D(format: 'glb' | 'obj') {
               </tbody>
             </table>
             <p class="hint">
-              GUID가 바뀌어도 편집 파일은 Revit 요소 ID·이름·위치로 찾아 적용합니다. 다만 DT 쪽에서는 다른 id가 됩니다(요구사항 R13).
+              GUID가 바뀌어도 편집 파일은 Revit 요소 ID·이름·위치로 찾아 적용합니다. 다만 DT 쪽에서는 다른 id가 됩니다(요구사항 R13 — 어느 것인지는
+              [GUID가 바뀐 것] 목록, 고객사에 할 요청은 요구사항 칸의 R13).
               기준 하나에 여러 개가 걸리면 짝짓지 않고 새것·없어진 것으로 셉니다.
             </p>
             <div class="version-tabs" role="tablist">
@@ -5161,6 +8640,7 @@ async function export3D(format: 'glb' | 'obj') {
               <tr
                 v-for="c in checks"
                 :key="c.key"
+                v-flash="c.failed.length"
                 :class="{ chosen: openCheckKey === c.key, skipped: !!c.skipped }"
                 @click="!c.skipped && c.failed.length && toggleCheck(c.key)"
               >
@@ -5172,7 +8652,13 @@ async function export3D(format: 'glb' | 'obj') {
                   <small class="muted">{{ c.skipped ?? (c.total === 0 ? '이 파일에는 검사할 대상이 없습니다.' : `영향: ${c.why}`) }}</small>
                 </td>
                 <td class="num mono">
-                  <template v-if="!c.skipped && c.total">{{ c.total - c.failed.length }} / {{ c.total }}</template>
+                  <template v-if="!c.skipped && c.total">
+                    <Roll :value="c.total - c.failed.length" /> / {{ c.total }}
+                    <Meter
+                      :parts="[{ value: (c.total - c.failed.length) / c.total, tone: c.failed.length ? 'warn' : 'ok' }]"
+                      :label="`통과 ${c.total - c.failed.length} / ${c.total}`"
+                    />
+                  </template>
                   <span v-else class="muted">—</span>
                 </td>
                 <td class="num">
@@ -5182,7 +8668,7 @@ async function export3D(format: 'glb' | 'obj') {
                     class="link mono"
                     :aria-pressed="openCheckKey === c.key"
                   >
-                    {{ c.failed.length }}
+                    <Roll :value="c.failed.length" :count-up="false" />
                   </button>
                   <span v-else class="muted">·</span>
                 </td>
@@ -5199,10 +8685,25 @@ async function export3D(format: 'glb' | 'obj') {
                 <span v-if="whatIs(equipmentById.get(id))" class="what">{{ whatIs(equipmentById.get(id))!.label }}</span>
                 <div v-if="failReasons.get(id)?.text" class="muted reason">
                   {{ failReasons.get(id)!.text }}
-                  <button v-if="failReasons.get(id)!.fix" type="button" class="ghost fix" @click="applyFix(id, failReasons.get(id)!.fix!)">
+                  <button
+                    v-if="failReasons.get(id)!.fix"
+                    type="button"
+                    class="ghost fix"
+                    :aria-expanded="failReasons.get(id)!.fix!.kind === 'connect' ? fixOpen === id : undefined"
+                    @click="applyFix(id, failReasons.get(id)!.fix!)"
+                  >
                     {{ fixLabel(failReasons.get(id)!.fix!) }}
                   </button>
                 </div>
+                <!-- 연결 후보(OE-PIP-08). 잇으면 출처는 직접 이음(manual)이고 방향은 정하지 않은 채다. -->
+                <ul v-if="fixOpen === id" class="plain fix-candidates" data-testid="fix-candidates">
+                  <li v-for="c in fixCandidates" :key="c.id">
+                    <b>{{ nameOfId(c.id) }}</b>
+                    <span class="muted"> · {{ Math.round(c.distance * 1000) }}mm · {{ c.system ?? '계통 없음' }} · {{ mediaLabel(c.media) }}</span>
+                    <button type="button" class="ghost" data-testid="fix-connect" @click="connectCandidate(id, c.id)">잇기</button>
+                  </li>
+                  <li class="muted">잇으면 출처는 직접 이음, 방향은 정하지 않은 채입니다. 규칙 방향은 확정 전까지 추정으로만 보입니다.</li>
+                </ul>
               </li>
             </ul>
             <p v-if="openCheck.failed.length > CHECK_LIMIT" class="hint">
@@ -5215,14 +8716,14 @@ async function export3D(format: 'glb' | 'obj') {
         <Fold
           v-if="ruleSystems.length"
           title="규칙 방향 확정 (계통별)"
-          :meta="`계통 ${ruleSystems.length}개 · 확정 ${ruleSystems.filter((r) => r.confirmed).length}개`"
+          :meta="`계통 ${ruleSystems.length}개 · 확정 ${ruleSystems.filter((r) => r.confirmed).length}개${ruleSystems.some((r) => r.recheck) ? ` · 재검토 ${ruleSystems.filter((r) => r.recheck).length}개` : ''}`"
           :default-open="false"
           class="rule-systems"
         >
           <p class="hint">
             <Src kind="dict" /> 계통 종류와 설비 종류로 추정한 방향입니다. 확정한 계통만 brick:feeds로 내보냅니다. 일치율은
-            포트(BIM)에 방향이 있는 연결과 비교한 값이고, 비교할 연결이 없으면 비워 둡니다. 이름을 누르면 3D에
-            그 계통만 표시합니다.
+            포트(BIM)에 방향이 있는 연결과 비교한 값이고, 비교할 연결이 없으면 비교 불가로 적습니다. 확정한 뒤 편집으로 근거가 바뀐
+            방향은 재검토로 두고 다시 확정할 때까지 내보내지 않습니다. 이름을 누르면 3D에 그 계통만 표시합니다.
           </p>
           <p v-if="editing" class="bulk-confirm">
             <label>
@@ -5238,7 +8739,7 @@ async function export3D(format: 'glb' | 'obj') {
             <button type="button" class="ghost" :disabled="!bulkCandidates.length" @click="confirmMatching">
               {{ bulkCandidates.length }}개 한꺼번에 확정
             </button>
-            <span class="muted">대 본 연결이 {{ BULK_MIN_CHECKED }}개 넘는 계통만. 비교할 것이 없는 계통은 하나씩 확정합니다.</span>
+            <span class="muted">대 본 연결이 {{ BULK_MIN_CHECKED }}개 이상인 계통만. 비교할 것이 없는 계통은 하나씩 확정합니다.</span>
           </p>
           <table>
             <thead>
@@ -5251,7 +8752,7 @@ async function export3D(format: 'glb' | 'obj') {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="r in ruleSystems" :key="r.id" :class="{ chosen: selectedSystemId === r.id }">
+              <tr v-for="r in ruleSystems" :key="r.id" v-flash="`${r.confirmed}:${r.pct}:${r.count}`" :class="{ chosen: selectedSystemId === r.id }">
                 <td class="sys">
                   <i :style="{ background: r.color ?? 'transparent' }"></i>
                   <button type="button" class="link" :aria-pressed="selectedSystemId === r.id" @click="toggleSystem(r.id)">
@@ -5259,15 +8760,20 @@ async function export3D(format: 'glb' | 'obj') {
                   </button>
                 </td>
                 <td :class="{ muted: !r.kind }">{{ r.kind || '모름' }}</td>
-                <td class="num mono">{{ r.count }}</td>
+                <td class="num mono"><Roll :value="r.count" /></td>
                 <td class="num mono">
                   <template v-if="r.pct !== null">
-                    <b :class="{ low: r.pct < 80 }">{{ r.pct }}%</b> <span class="muted">{{ r.agree }}/{{ r.checked }}</span>
+                    <b :class="{ low: r.pct < 80 }"><Roll :value="r.pct" />%</b> <span class="muted">{{ r.agree }}/{{ r.checked }}</span>
+                    <Meter :parts="[{ value: r.pct / 100, tone: r.pct < 80 ? 'warn' : 'accent' }]" :label="`포트와 일치 ${r.pct}%`" />
                   </template>
-                  <span v-else class="muted">—</span>
+                  <span v-else class="muted">비교 불가</span>
                 </td>
                 <td class="rule-state">
                   <span v-if="r.confirmed" class="confirmed">확정함</span>
+                  <template v-else-if="r.recheck">
+                    <span class="recheck">재검토 {{ r.recheck }}</span>
+                    <button v-if="editing" type="button" class="ghost" @click="confirmRule(r.id, r.name)">다시 확정</button>
+                  </template>
                   <button v-else-if="editing" type="button" class="ghost" @click="confirmRule(r.id, r.name)">확정</button>
                   <span v-else class="muted">편집 모드에서 확정</span>
                 </td>
@@ -5279,22 +8785,76 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
         </Fold>
 
-        <Fold title="층별 요약" :meta="`${model.storeys.length}개 층`" class="storeys">
+        <Fold title="층별 요약" :meta="`${model.storeys.length}개 층 · 완료 ${storeysDoneCount}/${model.storeys.length}`" class="storeys">
+          <!-- 층 단위 진행(OE-MAN-06). 완료한 층·고친 층·남은 층. -->
+          <p class="storey-progress hint" role="status">
+            완료 <b>{{ storeysDoneCount }}/{{ model.storeys.length }}</b>층
+            <template v-if="storeyProgressRows.some((p) => p.state === 'changed')">
+              · <span class="height-mismatch">완료 뒤 고침 {{ storeyProgressRows.filter((p) => p.state === 'changed').map((p) => p.name).join(', ') }}</span>
+            </template>
+            <template v-if="storeyProgressRows.some((p) => p.state === 'todo')">
+              · 남은 층 {{ storeyProgressRows.filter((p) => p.state === 'todo').map((p) => p.name).join(', ') }}
+            </template>
+          </p>
           <table>
             <thead>
               <tr>
                 <th>층</th>
                 <th class="num">높이</th>
+                <th class="num">층고</th>
+                <th class="num" title="천장고(h_c, 천장 마감면 높이), 층 바닥 기준">천장고</th>
                 <th>물리존</th>
                 <th class="num">넓이 합</th>
                 <th class="num">벽</th>
                 <th class="num">설비</th>
+                <th>진행</th>
+                <th aria-label="층 단위 구축"></th>
               </tr>
             </thead>
             <tbody>
               <tr v-for="s in model.storeys" :key="s.id">
                 <td>{{ s.name }}</td>
                 <td class="num mono">{{ (Math.abs(s.elevation) < 0.005 ? 0 : s.elevation).toFixed(2) }} m</td>
+                <!-- 층고(OE-BIM-02). 출처 BIM 이면 그 값, 계산이면 윗층 바닥과의 차. 둘이 다르면 계산한 값도 옆에 보인다. -->
+                <td class="num mono storey-height">
+                  <template v-if="storeyHeightOf.get(s.id)">
+                    <span :title="storeyHeightTitle(storeyHeightOf.get(s.id)!)">{{ meters(storeyHeightOf.get(s.id)!.value) }}</span>
+                    <Src :kind="storeyHeightOf.get(s.id)!.source" />
+                    <span v-if="storeyHeightOf.get(s.id)!.mismatch" class="height-mismatch" :title="storeyHeightTitle(storeyHeightOf.get(s.id)!)">
+                      계산 {{ meters(storeyHeightOf.get(s.id)!.calc!) }}
+                    </span>
+                  </template>
+                  <span v-else class="muted" title="맨 위층이고 BIM 이 층 높이를 적지 않았습니다. 지어내지 않습니다.">모름</span>
+                </td>
+                <!-- 반자 높이(OE-EQP-03). 모르면 0 이나 층고로 채우지 않고 입력을 받는다. 후보(계산)는 입력창 기본값이다. -->
+                <td class="num mono storey-ceiling">
+                  <template v-if="ceilingEditing === s.id">
+                    <input
+                      v-model="ceilingInput"
+                      type="number"
+                      step="0.05"
+                      min="0.3"
+                      class="ceiling-input"
+                      :aria-label="`${s.name} 천장고(m)`"
+                      @keydown.enter.prevent="saveCeiling(s.id, Number(ceilingInput))"
+                      @keydown.esc.stop="ceilingEditing = null"
+                    />
+                    m
+                    <button type="button" class="link" @click="saveCeiling(s.id, Number(ceilingInput))">확인</button>
+                    <button type="button" class="link" @click="ceilingEditing = null">취소</button>
+                  </template>
+                  <template v-else-if="ceilingOf(s)">
+                    <span :title="ceilingTitle(s)">{{ meters(ceilingOf(s)!.height) }}</span>
+                    <Src :kind="ceilingOf(s)!.source" />
+                    <span v-if="ceilingGuessApart(s)" class="height-mismatch" :title="ceilingTitle(s)">후보 {{ meters(ceilingGuessOf.get(s.id)!.height) }}</span>
+                    <button type="button" class="link" :aria-label="`${s.name} 천장고 고치기`" @click="startCeiling(s.id)">고치기</button>
+                    <button v-if="s.ceilingSet != null" type="button" class="link" @click="saveCeiling(s.id, null)">{{ s.ceiling ? 'BIM 값으로' : '지우기' }}</button>
+                  </template>
+                  <template v-else>
+                    <span class="muted" :title="ceilingTitle(s)">모름</span>
+                    <button type="button" class="link" :aria-label="`${s.name} 천장고 입력`" @click="startCeiling(s.id)">입력</button>
+                  </template>
+                </td>
                 <!-- 한 층에 방이 수십 개면 이름이 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로. -->
                 <td class="names" :title="s.spaces.map((x) => x.longName || x.name).join(', ')">
                   <template v-if="s.spaces.length">
@@ -5312,10 +8872,52 @@ async function export3D(format: 'glb' | 'obj') {
                     <span class="muted"> · {{ wallThicknessLabel(s) }}</span>
                   </template>
                 </td>
-                <td class="num mono">{{ s.equipment.length }}</td>
+                <td class="num mono storey-equipment">{{ s.equipment.length }}</td>
+                <td class="storey-done" :data-state="progressById.get(s.id)?.state">
+                  <template v-if="progressById.get(s.id)?.state === 'done'">
+                    <span class="done-mark" :title="`완료 표시: ${doneTime(progressById.get(s.id)?.at)}`">완료 ✓</span>
+                    <button type="button" class="link" :aria-label="`${s.name} 완료 지우기`" @click="setStoreyDone(s.id, false)">지우기</button>
+                  </template>
+                  <template v-else-if="progressById.get(s.id)?.state === 'changed'">
+                    <span class="height-mismatch" :title="`${doneTime(progressById.get(s.id)?.at)} 에 완료한 뒤 이 층을 고쳤습니다`">완료 뒤 고침</span>
+                    <button type="button" class="link" :aria-label="`${s.name} 다시 완료`" @click="setStoreyDone(s.id, true)">다시 완료</button>
+                  </template>
+                  <button v-else type="button" class="ghost" :aria-label="`${s.name} 완료 표시`" @click="setStoreyDone(s.id, true)">완료 표시</button>
+                </td>
+                <td class="storey-build">
+                  <button
+                    type="button"
+                    class="ghost"
+                    :aria-label="`${s.name} 구축`"
+                    title="이 층만 온톨로지로 받습니다(TTL·GeoJSON 한 쌍). 다른 층을 가리키는 줄은 id 로 남습니다."
+                    :disabled="busy"
+                    :class="{ done: justDone === `build:${s.id}` }"
+                    @click="buildStorey(s.id)"
+                  >
+                    구축
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
+          <!-- 설치면 판정(OE-EQP-03). 설비 z(층 바닥 기준)로 판정한다. 허용 설치면 밖인 설비를 따로 보인다(Q9). -->
+          <p v-if="surfaceRows.length" class="surface-summary hint">
+            설치면 판정 <Src kind="calc" /> 천장 {{ surfaceCounts.ceiling }} · 플레넘 {{ surfaceCounts.plenum }} · 바닥 {{ surfaceCounts.floor }} · 벽 {{ surfaceCounts.wall }} ·
+            미정 {{ surfaceCounts.unknown }}
+            <template v-if="model.storeys.some((x) => !ceilingOf(x) && x.equipment.length)">
+              <span class="muted">(천장고를 모르는 층은 천장을 판정하지 않습니다)</span>
+            </template>
+          </p>
+          <details v-if="surfaceMismatch.length" class="surface-mismatch">
+            <summary><span class="height-mismatch">허용 설치면 밖 {{ surfaceMismatch.length }}대</span> — 판정한 면이 종류의 허용 설치면(사전)에 없습니다</summary>
+            <ul>
+              <li v-for="r in surfaceMismatch.slice(0, 50)" :key="r.equipment.id">
+                <button type="button" class="link" @click="select(r.equipment.id)">{{ r.equipment.name }}</button>
+                <span class="muted"> {{ r.storey.name }} · {{ equipmentKind(r.equipment.kind)?.label }} · 판정 {{ JUDGED_LABEL[r.judged!] }} (z {{ (r.equipment.position![2] - r.storey.elevation).toFixed(2) }}m) · 허용 {{ allowedLabel(r.equipment.kind) }}</span>
+              </li>
+              <li v-if="surfaceMismatch.length > 50" class="muted">외 {{ surfaceMismatch.length - 50 }}대</li>
+            </ul>
+          </details>
         </Fold>
 
         <Fold
@@ -5423,7 +9025,14 @@ async function export3D(format: 'glb' | 'obj') {
               </ul>
               <p v-if="ruleReport && ruleReport.agree + ruleReport.disagree > 0" class="hint">
                 규칙으로 방향을 정한 연결 {{ ruleReport.oriented }}개. 포트 방향이 있는 연결 {{ ruleReport.agree + ruleReport.disagree }}개로 검증하면
-                {{ Math.round((ruleReport.agree / (ruleReport.agree + ruleReport.disagree)) * 100) }}% 일치합니다.
+                {{ Math.round((ruleReport.agree / (ruleReport.agree + ruleReport.disagree)) * 100) }}% 일치합니다(일치 {{ ruleReport.agree }} · 불일치
+                {{ ruleReport.disagree }} · 추정 불가 {{ ruleReport.unestimated }}).
+              </p>
+              <p v-else-if="ruleReport && ruleReport.oriented > 0" class="hint">
+                규칙으로 방향을 정한 연결 {{ ruleReport.oriented }}개. 포트 방향과 견줄 연결이 없어 일치율은 비교 불가입니다.
+              </p>
+              <p v-if="ruleReport?.recheck" class="hint recheck" data-testid="rule-recheck-total">
+                확정한 뒤 근거가 바뀐 규칙 방향 {{ ruleReport.recheck }}개가 재검토 중입니다. 다시 확정하기 전에는 brick:feeds 로 내보내지 않습니다.
               </p>
             </div>
           </div>
@@ -5508,6 +9117,16 @@ async function export3D(format: 'glb' | 'obj') {
               <select v-model="editStorey">
                 <option value="">전체</option>
                 <option v-for="s in model.storeys" :key="s.id" :value="s.id">{{ s.name }}</option>
+              </select>
+            </label>
+            <label>
+              설치면
+              <select v-model="surfaceFilter" aria-label="설치면으로 거르기">
+                <option value="">전체</option>
+                <option value="ceiling">천장</option>
+                <option value="floor">바닥</option>
+                <option value="wall">벽</option>
+                <option value="none">미정</option>
               </select>
             </label>
             <label class="grow">
@@ -5611,11 +9230,11 @@ async function export3D(format: 'glb' | 'obj') {
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="e in editEquipment.slice(0, editLimit)" :key="e.id" :class="{ chosen: e.id === selectedId }">
+                <tr v-for="e in editEquipment.slice(0, editLimit)" :key="e.id" :class="{ chosen: e.id === selectedId || group.includes(e.id) }">
                   <td>
                     <!-- 표에서 고른 것과 3D 에서 고른 것이 같은 선택이다. 두 화면이 따로 놀면
                          설비 목록에서 찾은 것을 3D 에서 다시 찾아야 한다. -->
-                    <button type="button" class="link" @click="selectAndShow(e.id)">{{ e.name || e.ifcClass }}</button>
+                    <button type="button" class="link" @click="editing && $event.shiftKey ? toggleGroup(e.id) : selectAndShow(e.id)">{{ e.name || e.ifcClass }}</button>
                   </td>
                   <td class="muted">
                     {{ e.ifcClass }}<template v-if="whatIs(e)"> · {{ whatIs(e)!.label }} <Src :kind="whatIs(e)!.src" /></template>
@@ -5636,7 +9255,7 @@ async function export3D(format: 'glb' | 'obj') {
                   <!-- 좌표 출처. 배치점이 형상에서 떨어져 형상 중심을 쓴 것(계산)과 사람이 옮긴 것(편집)을 가른다. -->
                   <td><Src v-if="e.position" :kind="positionSrc(e)" /></td>
                   <td :class="{ muted: !e.spaceId }">
-                    {{ spaceNameOf(e.spaceId) }}
+                    {{ locationOf(e) }}
                     <Src v-if="e.spaceId" :kind="spaceSrc(e)" />
                     <small v-if="editing && positionDrafts.has(e.id)" class="draft-note">x·y·z를 모두 넣어야 옮겨집니다</small>
                   </td>
@@ -5657,7 +9276,7 @@ async function export3D(format: 'glb' | 'obj') {
           <template v-if="editing || changeCount > 0">
           <div class="changes-head">
             <h3 id="changes">바뀐 내용</h3>
-            <button type="button" class="ghost" :disabled="changeCount === 0" @click="saveEdits">편집 저장</button>
+            <button type="button" class="ghost" :disabled="changeCount === 0" @click="saveEdits()">편집 저장</button>
             <label class="ghost load-edits">
               편집 불러오기
               <input type="file" accept=".json,application/json" @change="onEditFilePick" />
@@ -5668,6 +9287,11 @@ async function export3D(format: 'glb' | 'obj') {
             <li v-for="c in report" :key="c.equipmentId">
               {{ c.equipmentName }}:
               <b>{{ spaceNameOf(c.fromSpaceId) }}</b> → <b>{{ spaceNameOf(c.toSpaceId) }}</b>
+            </li>
+            <!-- 사람의 소속 지정(K17). 해제된 것도 조용히 바꾸지 않고 까닭과 함께 보인다. -->
+            <li v-for="r in assignLines" :key="`assign-${r.id}`">
+              <template v-if="r.released">사람 지정 해제: <b>{{ r.name }}</b> {{ spaceNameOf(r.from) }} → {{ spaceNameOf(r.to) }}({{ r.reason }})</template>
+              <template v-else>설비 <b>{{ r.name }}</b>의 소속을 {{ spaceNameOf(r.from) }}(으)로 정했습니다 (TTL hasLocation · GeoJSON spaceSource edit)</template>
             </li>
             <li v-if="areaSummary" class="muted">{{ areaSummary }}</li>
             <li v-for="(c, i) in confirmations" :key="`rule-${i}`">
@@ -5683,10 +9307,14 @@ async function export3D(format: 'glb' | 'obj') {
               {{ r.name }}: 층 <b>{{ r.from }}</b> → <b>{{ r.to }}</b> (brick:hasPart)
             </li>
             <li v-for="(c, i) in sinceOpen.connected" :key="`join-${i}`">
-              <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결을 이었습니다(방향을 정하면 brick:feeds)
+              <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결했습니다(방향을 정하면 brick:feeds)
             </li>
             <li v-for="(c, i) in sinceOpen.disconnected" :key="`cut-${i}`">
               <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결을 끊었습니다
+            </li>
+            <li v-for="(r, i) in releaseLines" :key="`release-${i}`">
+              <b>{{ nameOfId(r.from) }}</b> — <b>{{ nameOfId(r.to) }}</b>: 연결 해제 보정(사유: {{ r.reason }}). BIM 원본은 그대로, brick:feeds 에서 뺐습니다
+              <template v-if="r.review"> · <b class="review-tag">재검토</b> {{ r.review === 'direction' ? '다시 연 판본에서 방향이 바뀜' : '다시 연 판본에 원본 연결이 없음' }}</template>
             </li>
             <li v-for="r in sinceOpen.spacesAdded" :key="`space-add-${r.id}`">
               물리존 <b>{{ r.name || r.id }}</b>{{ josa(r.name || r.id, '을/를') }} 만들었습니다 (brick:hasPart, GeoJSON)
@@ -5703,27 +9331,54 @@ async function export3D(format: 'glb' | 'obj') {
             <li v-for="r in sinceOpen.equipmentRenamed" :key="`eq-name-${r.id}`">
               설비 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)
             </li>
+            <li v-for="r in sinceOpen.equipmentMounted" :key="`eq-wall-${r.id}`">
+              설비 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.wall ? `벽 ${r.wall}에 붙였습니다` : '벽에서 뗐습니다' }} (GeoJSON wallId)
+            </li>
             <li v-for="r in sinceOpen.wallsAdded" :key="`wall-add-${r.id}`">벽 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 그었습니다 (GeoJSON)</li>
             <li v-for="r in sinceOpen.wallsRemoved" :key="`wall-rm-${r.id}`">벽 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다(뚫린 문·창도 같이, GeoJSON)</li>
             <li v-for="r in sinceOpen.wallsChanged" :key="`wall-ch-${r.id}`">
               벽 <b>{{ r.name }}</b>:
               <template v-if="r.moved">옮김</template><template v-if="r.moved && r.loadBearing"> · </template>
               <template v-if="r.loadBearing">내력 {{ r.loadBearing.from === null ? '모름' : r.loadBearing.from ? '내력' : '비내력' }} → <b>{{ r.loadBearing.to === null ? '모름' : r.loadBearing.to ? '내력' : '비내력' }}</b></template>
+              <template v-if="r.resized"><template v-if="r.moved || r.loadBearing"> · </template>두께·높이</template>
+              <template v-if="r.external"><template v-if="r.moved || r.loadBearing || r.resized"> · </template>외벽 여부 → <b>{{ r.external.to === null ? '모름' : r.external.to ? '외벽' : '내벽' }}</b></template>
               (GeoJSON)
             </li>
             <li v-for="r in sinceOpen.openingsAdded" :key="`op-add-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 놓았습니다 (GeoJSON)</li>
             <li v-for="r in sinceOpen.openingsRemoved" :key="`op-rm-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다 (GeoJSON)</li>
-            <li v-for="r in sinceOpen.openingsMoved" :key="`op-mv-${r.id}`">{{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 옮겼습니다 (GeoJSON 위치·잇는 방)</li>
+            <li v-for="r in sinceOpen.openingsMoved" :key="`op-mv-${r.id}`">
+              {{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }}
+              {{ r.moved && r.resized ? '옮기고 크기를 바꿨습니다' : r.moved ? '옮겼습니다' : '크기를 바꿨습니다' }}
+              ({{ r.moved ? 'GeoJSON 위치·잇는 방' : 'GeoJSON 가로·세로' }})
+            </li>
+            <!-- 룸(OE-OBJ-03). BIM 에는 없어서 있는 룸이 곧 사람이 그린 것이다. 온톨로지(TTL·GeoJSON)로는 아직 나가지 않는다. -->
+            <li v-for="r in roomLines" :key="`room-${r.id}`">
+              룸 <b>{{ r.name }}</b> ({{ r.storey }} · {{ r.parent }} 안, {{ r.size }}) — 편집 파일에만 남습니다
+            </li>
+            <!-- 추가 공간 오브젝트(OE-OBJ-09). 룸처럼 편집 파일에만 남는다. -->
+            <li v-for="r in objectLines" :key="`object-${r.id}`">
+              오브젝트 <b>{{ r.name }}</b> ({{ r.storey }} · {{ r.item }}, {{ r.size }} m) — 편집 파일에만 남습니다
+            </li>
+            <li v-for="r in sinceOpen.customZones" :key="`cz-${r.id}`">
+              커스텀존 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.change === 'added' ? '만들었습니다' : r.change === 'removed' ? '지웠습니다' : '고쳤습니다' }}
+              (TTL brick:Zone · GeoJSON)
+            </li>
             <li v-for="r in sinceOpen.systemMoved" :key="`sys-mv-${r.id}`">
               {{ r.name }}: 계통 <b>{{ systemNameOf(r.from) }}</b> → <b>{{ systemNameOf(r.to) }}</b> (brick:hasPart)
             </li>
             <li v-for="r in sinceOpen.systemsAdded" :key="`sys-add-${r.id}`">계통 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 만들었습니다 (brick:hasPart)</li>
             <li v-for="r in sinceOpen.systemsRemoved" :key="`sys-rm-${r.id}`">계통 <b>{{ r.name || r.id }}</b>{{ josa(r.name || r.id, '을/를') }} 지웠습니다</li>
+            <li v-for="r in sinceOpen.systemNames" :key="`sys-name-${r.id}`">
+              계통 이름 <b>{{ r.from }}</b> → <b>{{ r.to }}</b> (rdfs:label)
+            </li>
             <li v-for="r in sinceOpen.systemKinds" :key="`sys-kind-${r.id}`">
               계통 <b>{{ r.name || r.id }}</b>: 종류 {{ systemKindText(r.from.kind, r.from.fluid) }} → <b>{{ systemKindText(r.to.kind, r.to.fluid) }}</b> (계통 클래스)
             </li>
             <li v-for="r in sinceOpen.renamed" :key="`name-${r.spaceId}`">
               물리존 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)
+            </li>
+            <li v-for="r in sinceOpen.renumbered ?? []" :key="`number-${r.spaceId}`">
+              물리존 방번호 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b>
             </li>
             <li v-if="sinceOpen.moved.length" class="moved-only">
               소속은 같고 좌표만 바뀐 설비 {{ sinceOpen.moved.length }}대 (GeoJSON 위치):
@@ -5732,6 +9387,17 @@ async function export3D(format: 'glb' | 'obj') {
             </li>
           </ul>
           <p v-else class="empty">아직 바뀐 것이 없습니다.</p>
+          <!-- 해제 보정·취소(OE-PIP-06)와 방향 적용·해제(OE-PIP-04)의 시각·사유. 취소해서 지금은 바뀐 것이 없어도 기록은 남는다.
+               수행자는 로그인(OE-COM-01) 뒤에 적는다. -->
+          <div v-if="releaseLog.length" class="release-log" data-testid="release-log">
+            <h4>연결 편집 이력</h4>
+            <ol>
+              <li v-for="(e, i) in releaseLog" :key="`log-${i}`">
+                <span class="muted">{{ logTime(e.at) }}</span> {{ RELEASE_ACTION[e.action] }}: <b>{{ nameOfId(e.from) }}</b> {{ e.action === 'flow' || e.action === 'unflow' ? '→' : '—' }} <b>{{ nameOfId(e.to) }}</b
+                ><template v-if="e.reason"> · {{ e.reason }}</template>
+              </li>
+            </ol>
+          </div>
           </template>
         </section>
       </div>
@@ -5750,6 +9416,7 @@ async function export3D(format: 'glb' | 'obj') {
       </section>
     </template>
     <ShortcutHelp :open="helpOpen" :editing="editing" @close="helpOpen = false" />
+    <ExitEditDialog :open="!!exitAsk" :count="exitAsk?.count ?? 0" :server="!!serverKey" :floor="exitAsk?.floor ? { from: floorName(exitAsk.floor.from), to: floorName(exitAsk.floor.to) } : null" @commit="exitCommitting" @save="exitSaving" @discard="exitDiscarding" @cancel="exitAsk = null" />
     <!-- 진행 표시. 스크롤 위치와 상관없이 보이도록 화면 아래에 띄운다. -->
     <div v-if="progress" class="progress-toast" role="status" aria-live="polite">
       <div v-if="progressFile" class="muted progress-file">{{ progressFile }}</div>

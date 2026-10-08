@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { interiorPoint, isSelfIntersecting, locate, pointInPolygon, SNAP } from './mapping'
+import { distanceToRing, interiorPoint, isSelfIntersecting, locate, pointInPolygon, SNAP } from './mapping'
 import { polygonArea, type Space, type Vec2 } from './model'
 
 // 4 x 3 직사각형. 왼쪽 아래가 (0,0) 이다.
@@ -137,3 +137,62 @@ describe('interiorPoint', () => {
     expect(interiorPoint([])).toBe(null)
   })
 })
+
+describe('locate — 외곽 상자로 먼 방 건너뛰기', () => {
+  // 먼 방은 외곽 상자만 보고 건너뛴다. 상자 없이 방 전부를 훑던 판정과 답이 하나라도 다르면 소속이 조용히 바뀐다.
+  // 틀리기 쉬운 자리는 상자 경계와 SNAP 경계라서, 점을 거기에 몰아 뽑는다.
+  function reference(point: Vec2, spaces: readonly Space[], snap = SNAP): string | null {
+    let inside: Space | null = null
+    for (const space of spaces) if (pointInPolygon(point, space.footprint) && (!inside || space.areaM2 < inside.areaM2)) inside = space
+    if (inside) return inside.id
+    let best: string | null = null
+    let bestDistance = snap
+    for (const space of spaces) {
+      if (space.footprint.length < 3) continue
+      const d = distanceToRing(point, space.footprint)
+      if (d <= bestDistance) {
+        bestDistance = d
+        best = space.id
+      }
+    }
+    return best
+  }
+  let seed = 7
+  const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648)
+  const room = (id: string, footprint: Vec2[]): Space => ({ id, name: id, longName: id, footprint, areaM2: polygonArea(footprint), boundedBy: [] })
+
+  it('무작위 방 40개(겹치고 오목한 것 포함)에 점 2만 개 — 상자 없이 잰 것과 전부 같다', () => {
+    const spaces: Space[] = []
+    for (let i = 0; i < 40; i++) {
+      const [x, y, w, h] = [rand() * 30, rand() * 30, 1 + rand() * 8, 1 + rand() * 8]
+      const ring: Vec2[] = i % 3 === 0
+        ? [[x, y], [x + w, y], [x + w, y + h / 2], [x + w / 2, y + h / 2], [x + w / 2, y + h], [x, y + h], [x, y]]
+        : [[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]]
+      spaces.push(room(`r${i}`, ring))
+    }
+    let checked = 0
+    for (let i = 0; i < 20_000; i++) {
+      const s = spaces[Math.floor(rand() * spaces.length)]
+      const [ax, ay] = s.footprint[Math.floor(rand() * (s.footprint.length - 1))]
+      // 꼭짓점에서 0, ±SNAP, ±SNAP±1e-12 만큼 비킨 점과 아무 점을 섞는다.
+      const offsets = [0, SNAP, -SNAP, SNAP + 1e-12, SNAP - 1e-12, (rand() - 0.5) * 0.3]
+      const p: Vec2 = i % 4 === 3
+        ? [rand() * 40, rand() * 40]
+        : [ax + offsets[Math.floor(rand() * offsets.length)], ay + offsets[Math.floor(rand() * offsets.length)]]
+      expect(locate(p, spaces)).toBe(reference(p, spaces))
+      checked++
+    }
+    expect(checked).toBe(20_000)
+  })
+
+  it('외곽선을 새 배열로 갈아 끼우면 상자도 다시 잰다', () => {
+    // 상자는 외곽선 배열마다 기억한다. 편집은 외곽선을 새 배열로 바꾼다(꼭짓점 옮기기·되돌리기).
+    const r = room('r', RECT)
+    expect(locate([6, 1], [r])).toBe(null)
+    r.footprint = [[0, 0], [8, 0], [8, 3], [0, 3], [0, 0]]
+    expect(locate([6, 1], [r])).toBe('r')
+    r.footprint = [...RECT]
+    expect(locate([6, 1], [r])).toBe(null)
+  })
+})
+

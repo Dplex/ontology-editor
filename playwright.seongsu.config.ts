@@ -4,7 +4,7 @@ import { defineConfig, devices } from '@playwright/test'
 // 찍고 건너뛴다. 동작 논리는 e2e/(픽스처)가 보고, 여기는 크기에서 달라지는 것(걸린 시간, 표를 쓸 만한지, 수)을 본다.
 // 잰 값은 data/성수/화면-결과.md 에 적는다.
 //
-// **GPU 로 그린다.** 헤드리스 크롬의 기본 WebGL 은 CPU(SwiftShader)라서 3D 가 열 배 느리게 재진다(CLAUDE.md).
+// **GPU 로 그린다.** 헤드리스 크롬의 기본 WebGL 은 CPU(SwiftShader)라서 3D 가 열 배 느리게 재진다(docs/dev/testing.md).
 // 리눅스는 gl, 윈도는 d3d11 이다. 다른 것을 쓰려면 ANGLE=... 로 준다.
 const angle = process.env.ANGLE ?? (process.platform === 'win32' ? 'd3d11' : 'gl')
 
@@ -24,6 +24,9 @@ export default defineConfig({
     launchOptions: { args: [`--use-angle=${angle}`, '--ignore-gpu-blocklist', '--enable-gpu'] },
     // 트레이스는 끈다. 켜면 동작마다 화면을 떠서 메인 스레드를 잡고, 멈춤·프레임 간격을 재는 항목이 두세 배로 재진다.
     trace: 'off',
+    // 숫자가 굴러 올라가는 동안(components/Roll.vue) 읽으면 값이 아니라 중간값을 읽는다. 값을 재는 시험이라 움직임을 끈다.
+    // 움직임 자체는 e2e/motion.spec.ts 가 켜고 본다.
+    contextOptions: { reducedMotion: 'reduce' },
     screenshot: 'only-on-failure',
   },
   webServer: {

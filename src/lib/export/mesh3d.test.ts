@@ -6,8 +6,8 @@ import { importIfcWithMeshes, type MeshMap } from '../ifc/import'
 import { BoxGeometry, type Mesh, type Object3D } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { toScene } from '../viewer'
-import { addWall, moveOpening, moveWall } from '../edit'
-import type { Model } from '../model'
+import { addWall, moveOpening, moveWall, setWallExternal, setWallLoadBearing } from '../edit'
+import type { Model, Wall } from '../model'
 import { modelToScene, sceneToGLB, sceneToOBJ } from './mesh3d'
 
 let model: Model
@@ -72,7 +72,11 @@ describe('3D 내보내기 — 편집', () => {
     expect(wall).toBeTruthy()
     const pristine = structuredClone(rooms)
     const edited = structuredClone(rooms)
-    moveWall(edited, wall!.id, [2, 0])
+    // 픽스처에서 형상이 있는 벽은 내력벽뿐이다. 내력벽은 잠기므로(OE-OBJ-06) 내력 여부를 모름으로 풀고 옮긴다.
+    setWallLoadBearing(edited, wall!.id, null)
+    // 외벽도 층 편집에서 옮기지 않는다(OE-EXT-02). 외벽 여부를 풀고 옮긴다.
+    setWallExternal(edited, wall!.id, null)
+    expect(moveWall(edited, wall!.id, [2, 0])).toBe(true)
     const before = boxOf(modelToScene(pristine, roomMeshes, { pristine }), wall!.id)!
     const after = boxOf(modelToScene(edited, roomMeshes, { pristine }), wall!.id)!
     expect(after.min.x - before.min.x).toBeCloseTo(2, 1)
@@ -80,7 +84,8 @@ describe('3D 내보내기 — 편집', () => {
     if (opening) {
       const moved = structuredClone(rooms)
       const to: [number, number] = [opening.position![0] + 1, opening.position![1]]
-      moveOpening(moved, opening.id, to)
+      if (opening.wallId) setWallLoadBearing(moved, opening.wallId, null)
+      expect(moveOpening(moved, opening.id, to)).toBe(true)
       const shift = moved.storeys.flatMap((s) => s.openings).find((o) => o.id === opening.id)!.position![0] - opening.position![0]
       const a = boxOf(modelToScene(pristine, roomMeshes, { pristine }), opening.id)!
       const b = boxOf(modelToScene(moved, roomMeshes, { pristine }), opening.id)!
@@ -91,7 +96,7 @@ describe('3D 내보내기 — 편집', () => {
   it('더한 벽은 형상이 없어도 외곽선으로 나간다', () => {
     const edited = structuredClone(rooms)
     const storey = edited.storeys[0]
-    const wall = addWall(edited, storey.id, [0, 0], [3, 0])
+    const wall = addWall(edited, storey.id, [0, 0], [3, 0]) as Wall
     expect(wall).toBeTruthy()
     expect(modelToScene(edited, roomMeshes, { pristine: rooms }).getObjectByName(wall!.id)).toBeTruthy()
   })
@@ -105,6 +110,34 @@ describe('3D 내보내기', () => {
       for (const sp of s.spaces) if (sp.footprint.length >= 3) expect(names).toContain(sp.id)
       for (const e of s.equipment) if (e.position || meshes.has(e.id)) expect(names).toContain(e.id)
     }
+  })
+
+  // 요구조건 S7(OE-INT-09): DT 가 문·창도 그린다. 임포터는 문·창 형상을 버리므로 자리·크기·벽을 뚫는 방향으로 상자를 세운다.
+  it('형상 없는 문·창은 자리·크기로 세운 상자로 나가고, 두께는 벽을 뚫는 방향이다', () => {
+    const m = structuredClone(model)
+    const s = m.storeys[0]
+    // y 방향으로 놓인 벽(뚫는 방향 +x)의 문, x 방향 벽(뚫는 방향 +y)의 크기 모르는 창, 자리 모르는 문.
+    s.openings = [
+      { id: 'D1', kind: 'door', name: 'D1', width: 1, height: 2, wallId: null, passable: true, position: [5, 2, 0], through: [1, 0], depth: 0.2 },
+      { id: 'W1', kind: 'window', name: 'W1', width: null, height: null, wallId: null, passable: false, position: [3, 8, 1], through: [0, 1], depth: 0.3 },
+      { id: 'D2', kind: 'door', name: 'D2', width: 1, height: 2, wallId: null, passable: true, position: null },
+    ]
+    const found = new Map<string, Mesh>()
+    modelToScene(m, meshes).traverse((o) => {
+      if (['D1', 'W1', 'D2'].includes(o.name)) found.set(o.name, o as Mesh)
+    })
+    expect([...found.keys()].sort()).toEqual(['D1', 'W1'])
+    // three 의 경계 상자를 IFC 평면으로 되돌린다: three (x, y, z) = IFC (x, z, -y).
+    const ifcBox = (mesh: Mesh) => {
+      mesh.geometry.computeBoundingBox()
+      const { min, max } = mesh.geometry.boundingBox!
+      return { x: [+min.x.toFixed(6), +max.x.toFixed(6)], y: [+(-max.z).toFixed(6), +(-min.z).toFixed(6)], z: [+min.y.toFixed(6), +max.y.toFixed(6)] }
+    }
+    expect(ifcBox(found.get('D1')!)).toEqual({ x: [4.9, 5.1], y: [1.5, 2.5], z: [0, 2] })
+    // 크기를 모르면 창 1×1m 자리 표시이고 placeholder 를 단다. 두께는 BIM 형상에서 잰 0.3m.
+    expect(ifcBox(found.get('W1')!)).toEqual({ x: [2.5, 3.5], y: [7.85, 8.15], z: [1, 2] })
+    expect(found.get('W1')!.userData).toMatchObject({ kind: 'window', placeholder: true })
+    expect(found.get('D1')!.userData.placeholder).toBeUndefined()
   })
 
   it('좌표가 없는 설비는 넣지 않는다', () => {

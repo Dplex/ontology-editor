@@ -13,6 +13,25 @@ import type { ElementMesh } from './import'
 /** 바닥면으로 볼 높이 여유(미터). 바닥이 조금 기운 형상도 받는다. */
 const BOTTOM_TOLERANCE = 0.01
 
+/** 형상의 위아래 폭(미터). 벽 높이로 쓴다. 메시는 three.js 좌표라 높이가 y 다. 점이 없으면 null. */
+export function meshHeight(mesh: ElementMesh): number | null {
+  const p = mesh.positions
+  let lo = Infinity, hi = -Infinity
+  for (let i = 1; i < p.length; i += 3) {
+    if (p[i] < lo) lo = p[i]
+    if (p[i] > hi) hi = p[i]
+  }
+  return Number.isFinite(lo) && hi > lo ? Math.round((hi - lo) * 1000) / 1000 : null
+}
+
+/** 형상의 아랫면 높이(미터, 세계 z). 천장재의 아랫면이 반자다. 형상이 없으면 null. */
+export function meshBottom(mesh: ElementMesh | undefined): number | null {
+  if (!mesh) return null
+  let lo = Infinity
+  for (let i = 1; i < mesh.positions.length; i += 3) if (mesh.positions[i] < lo) lo = mesh.positions[i]
+  return Number.isFinite(lo) ? lo : null
+}
+
 /**
  * 벽의 평면 외곽선. **맨 아래 면들의 테두리**를 이어 고리로 만든다.
  *
@@ -135,6 +154,10 @@ export const DOOR_REACH = 0.3
 /**
  * 좌표로 문 양쪽의 방을 찾는다. BIM 이 공간 경계(`IfcRelSpaceBoundary`)로 말해 주지 않을 때의 대비책이다.
  * 성수 건축 파일은 공간 경계가 0 이었다. 바깥으로 난 문은 방 하나만 나온다.
+ *
+ * 방이 겹친 자리면 가장 작은 방이다 — 설비 소속(mapping.ts 의 `locate`)과 같은 규칙. 목록의 첫 방을 고르던 때는 병원 건축에서
+ * 공간 경계가 말한 문 236개 중 210개가 맞고 4개가 엉뚱한 방(복도 1AC1 처럼 여럿을 품은 큰 방)을 짚었다. 가장 작은 방이면
+ * 214개가 맞고 엉뚱한 방은 1개다. AC20 5/5·Duplex 13/14 는 그대로(check:sample).
  */
 export function spacesBesideOpening(placement: OpeningPlacement, spaces: readonly Space[]): string[] {
   const [cx, cy] = placement.position
@@ -142,7 +165,8 @@ export function spacesBesideOpening(placement: OpeningPlacement, spaces: readonl
   const found: string[] = []
   for (const sign of [1, -1]) {
     const pt: Vec2 = [cx + sign * d * placement.through[0], cy + sign * d * placement.through[1]]
-    const space = spaces.find((s) => s.footprint.length >= 4 && pointInPolygon(pt, s.footprint))
+    let space: Space | null = null
+    for (const s of spaces) if (s.footprint.length >= 4 && pointInPolygon(pt, s.footprint) && (!space || s.areaM2 < space.areaM2)) space = s
     if (space && !found.includes(space.id)) found.push(space.id)
   }
   return found

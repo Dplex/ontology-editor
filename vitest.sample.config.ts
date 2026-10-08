@@ -8,7 +8,7 @@ import { defineConfig } from 'vitest/config'
 // 모자랄 수 있어 늘려 둔다.
 export default defineConfig({
   test: {
-    include: ['scripts/check-sample.test.ts', 'scripts/seongsu.test.ts', 'scripts/coverage.test.ts'],
+    include: ['scripts/check-sample.test.ts', 'scripts/seongsu.test.ts', 'scripts/coverage.test.ts', 'scripts/tc-coverage.test.ts'],
     testTimeout: 120_000,
     execArgv: ['--max-old-space-size=12288'],
   },

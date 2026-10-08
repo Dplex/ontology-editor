@@ -96,7 +96,7 @@
         <partOf relation="IFCRELASSIGNSTOGROUP" instructions="IfcDistributionSystem 에 IfcRelAssignsToGroup 으로 묶는다. 계통 이름은 건축·설비 파일끼리 같게 적는다."><entity><name><xs:restriction base="xs:string"><xs:pattern value="IFC[A-Z]+"/></xs:restriction></name></entity></partOf>
       </requirements>
     </specification>
-    <specification name="[권장] R16 계통 종류" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R16" description="계통 종류를 표준 PredefinedType 으로 준다. NOTDEFINED·USERDEFINED 로 두지 않는다. 배기는 EXHAUST, 급탕·급수는 DOMESTICHOTWATER·DOMESTICCOLDWATER 만으로 정해진다.">
+    <specification name="[권장] R16 계통 종류" ifcVersion="IFC4 IFC4X3_ADD2" identifier="R16" description="계통 종류를 표준 PredefinedType 으로 준다. NOTDEFINED·USERDEFINED 로 두지 않는다. 배기는 EXHAUST, 급탕·급수는 DOMESTICHOTWATER·DOMESTICCOLDWATER, 소화·냉매는 FIREPROTECTION·REFRIGERATION 만으로 정해진다.">
       <applicability minOccurs="0" maxOccurs="unbounded">
         <entity><name><simpleValue>IFCDISTRIBUTIONSYSTEM</simpleValue></name></entity>
       </applicability>

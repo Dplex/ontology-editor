@@ -18,7 +18,8 @@
     "check:sample": "vitest run --config vitest.sample.config.ts",
     "check:seongsu": "vitest run --config vitest.sample.config.ts -t 성수",
     "preview": "vite preview",
-    "fetch:sample": "node scripts/fetch-sample.mjs"
+    "fetch:sample": "node scripts/fetch-sample.mjs",
+    "board": "node scripts/sync-board.mjs"
   },
   "dependencies": {
     "three": "^0.186.0",

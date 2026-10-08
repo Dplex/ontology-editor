@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { EQUIPMENT_KINDS, equipmentKindOf, equipmentKindOfIfc, ifcClassLabel, omniclassCode, resolveEquipmentKind, resolveRoomKind, roomKindOf, resolveFluid, systemKindOf, FLUIDS, SYSTEM_IFC } from './kinds'
+import { EQUIPMENT_KINDS, equipmentKind, equipmentKindOf, equipmentKindOfIfc, ifcClassLabel, omniclassCode, resolveEquipmentKind, resolveRoomKind, roomKindOf, resolveFluid, systemKindOf, FLUIDS, SYSTEM_IFC } from './kinds'
 
 // 입력은 성수·Duplex·ifc4Mep 실측 파일에 실제로 나온 이름이다. 사전을 넓히면 이 표에서 무엇이 바뀌는지 보인다.
 const kind = (name: string, objectType = '', ifcClass = '') => equipmentKindOf(name, objectType, ifcClass)?.kind ?? null
@@ -54,6 +54,20 @@ describe('설비 종류 사전', () => {
   it('이름이 클래스보다 먼저다', () => {
     // IFC4 의 UnitaryEquipment 는 공조기로 보지만, 이름이 FCU 라고 하면 FCU 다.
     expect(kind('FCU-1', '', 'UnitaryEquipment')).toBe('fcu')
+  })
+
+  it('엘리베이터는 설비다(2026-10-03). 승강로는 방이라 여기 들지 않는다', () => {
+    // 병원 건축(IfcFlowTerminal)·전기(Proxy)의 유압 엘리베이터.
+    expect(kind('M_Elevator-Hydraulic:2000 lbs:2000 lbs:1186968', '2000 lbs')).toBe('elevator')
+    expect(kind('승강기 1호기')).toBe('elevator')
+    expect(equipmentKind('elevator')).toMatchObject({ brick: 'brick:Elevator', flow: {} })
+  })
+
+  it('"Lighting and Appliance Panelboard" 는 조명이 아니라 분전반이다', () => {
+    // 이름에 Lighting 이 들어 있어 조명으로 나갔다(병원 MEP·전기 28대씩, Duplex MEP 2대).
+    expect(kind('M_Lighting and Appliance Panelboard - 208V MLO:225 A:1MEC:1063416', '225 A')).toBe('panel')
+    expect(kind('M_Lighting and Appliance Panelboard - 208V MLO : F21E')).toBe('panel')
+    expect(kind('M_Pendant Light - Hemisphere')).toBe('lighting')
   })
 })
 
@@ -298,6 +312,7 @@ describe('IFC 클래스의 우리말', () => {
     // IFC2x3 의 추상 클래스와 PredefinedType 이 붙은 값도 받는다.
     expect(ifcClassLabel('FlowSegment')).toBe('덕트·배관')
     expect(ifcClassLabel('AirTerminal.DIFFUSER')).toBe('공기 말단')
+    expect(ifcClassLabel('ProtectiveDevice')).toBe('보호기(차단기·퓨즈)')
     // 모르는 클래스는 지어 부르지 않는다.
     expect(ifcClassLabel('SomethingElse')).toBeNull()
     expect(ifcClassLabel(null)).toBeNull()

@@ -32,7 +32,9 @@ import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
 import { equipmentKind, equipmentKindOf, FLUID_KINDS, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
 import { CAPACITY_KINDS, capacityRank } from '../capacity'
 import { inferFlowByRules } from '../flow-rules'
-import { footprintRings, openingPlacement, spacesBesideOpening } from './element-geometry'
+import { footprintRings, meshBottom, meshHeight, openingPlacement, spacesBesideOpening } from './element-geometry'
+import { emptyEvidence, pickCeiling, type CeilingEvidence } from '../ceiling'
+import { storeyHeights } from '../storey-height'
 
 /**
  * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
@@ -188,6 +190,30 @@ export function anchorToGeometry(equipment: Equipment[], meshes: MeshMap): numbe
   return fixed
 }
 
+/** 분전반 안에 드는 부품의 IFC 클래스(Ifc 를 뗀 것). 차단기·퓨즈와 그 트립 장치다. */
+const PANEL_PARTS = new Set(['ProtectiveDevice', 'ProtectiveDeviceTrippingUnit'])
+
+/**
+ * 좌표가 없는 분전반 안 부품을 분전반 자리에 놓는다(OE-BIM-07, 2026-10-03 사용자 결정). ifc4Mep 의 퓨즈 22대는 배치가 없고, IFC 어디에도
+ * 어느 분전반에 드는지 적혀 있지 않았다(포트 연결·묶음·회로 다 없음). 그래서 **같은 층에 좌표 있는 분전반이 하나뿐일 때만** 그 자리를
+ * 쓴다(출처 `panel`, 화면에서는 계산). 분전반이 둘 이상이면 어느 것인지 지어내지 않고 미배치로 둔다. 놓은 수를 돌려준다.
+ */
+export function placeInPanels(storeys: readonly Storey[]): number {
+  let placed = 0
+  for (const storey of storeys) {
+    const panels = storey.equipment.filter((e) => e.position && (e.kind === 'panel' || e.ifcClass === 'ElectricDistributionBoard'))
+    if (panels.length !== 1) continue
+    const [x, y, z] = panels[0].position!
+    for (const e of storey.equipment) {
+      if (e.position || !PANEL_PARTS.has(e.ifcClass)) continue
+      e.position = [x, y, z]
+      e.positionSource = 'panel'
+      placed++
+    }
+  }
+  return placed
+}
+
 /**
  * 벽의 평면 외곽선과 문·창의 자리를 형상에서 읽고, 문이 잇는 방을 채운다(element-geometry.ts).
  *
@@ -207,7 +233,9 @@ function placeWallsAndOpenings(
   for (const storey of result.storeys) {
     for (const wall of storey.walls) {
       const mesh = wallMeshes.get(wall.id)
-      if (mesh) wall.footprint = footprintRings(mesh)
+      if (!mesh) continue
+      wall.footprint = footprintRings(mesh)
+      wall.height = meshHeight(mesh)
     }
   }
 
@@ -413,6 +441,103 @@ class Reader {
     }
     this.psetPropsCache.set(psetID, out)
     return out
+  }
+
+  /**
+   * 층마다 BIM 이 적은 층 높이(OE-BIM-02). 기준 물량 `GrossHeight`·`NetHeight`(IfcElementQuantity, AC20 이 적는다)와 COBie 의
+   * `Storey Height` 속성(설명이 "Floor Height" 라 바닥에서 윗층 바닥까지, gross 로 읽는다). **0 이하는 비운 칸으로 보고 읽지
+   * 않는다** — Duplex COBie 판본은 네 층 모두 0.0 이다. 물량 세트는 속성 세트와 자리가 달라(`Quantities`·`LengthValue`)
+   * psetProps 를 넓히지 않고 층에만 따로 읽는다 — 넓히면 설비의 용량·LoadBearing 을 찾는 자리에 물량 이름이 섞인다.
+   */
+  storeyHeights(): Map<number, NonNullable<Storey['declaredHeight']>> {
+    const storeys = new Set(this.ids(WebIFC.IFCBUILDINGSTOREY))
+    const out = new Map<number, NonNullable<Storey['declaredHeight']>>()
+    const length = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v * this.scale : null)
+    for (const { objects, psetID } of this.propertyRels()) {
+      const targets = psetID === null ? [] : objects.filter((o) => storeys.has(o))
+      if (!targets.length) continue
+      const set = this.tryLine(psetID!)
+      const setName = (val(set?.Name) as string) ?? ''
+      const said: { gross?: [number, string]; net?: [number, string] } = {}
+      for (const h of set?.Quantities ?? []) {
+        const q = this.tryLine(h.value)
+        const name = val(q?.Name) as string | undefined
+        const v = length(val(q?.LengthValue))
+        if (v === null) continue
+        if (name === 'GrossHeight') said.gross = [v, `${setName}.${name}`]
+        if (name === 'NetHeight') said.net = [v, `${setName}.${name}`]
+      }
+      for (const p of set?.HasProperties ? this.psetProps(psetID!) : []) {
+        const v = p.name === 'Storey Height' ? length(p.nominal) : null
+        if (v !== null && !said.gross) said.gross = [v, `${setName}.${p.name}`]
+      }
+      if (!said.gross && !said.net) continue
+      for (const id of targets) {
+        const had = out.get(id)
+        out.set(id, {
+          gross: had?.gross ?? said.gross?.[0] ?? null,
+          net: had?.net ?? said.net?.[0] ?? null,
+          property: had?.property ?? (said.gross ?? said.net)![1],
+        })
+      }
+    }
+    return out
+  }
+
+  /**
+   * 방마다 반자 높이 근거(OE-EQP-03, ceiling.ts). ① 반자 높이를 직접 말하는 `FinishCeilingHeight`(ArchiCAD 는 기준 물량에 적는다:
+   * AC20 7/7·Institute 82/82) ② 방 높이 — Revit `Unbounded Height`(Duplex·병원·Office), ArchiCAD 기준 물량 `Height`, 둘 다
+   * 없으면 방 형상(SweptSolid)의 압출 깊이(성수 건축). 0 이하는 비운 칸으로 본다(COBie 판본의 UsableHeight 0).
+   */
+  ceilingBySpace(): Map<number, { finish?: [number, string]; room?: [number, string] }> {
+    const spaces = new Set(this.ids(WebIFC.IFCSPACE))
+    const out = new Map<number, { finish?: [number, string]; room?: [number, string] }>()
+    const length = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v * this.scale : null)
+    const offer = (id: number, key: 'finish' | 'room', v: number | null, where: string) => {
+      if (v === null) return
+      const had = out.get(id) ?? {}
+      if (!had[key]) out.set(id, { ...had, [key]: [v, where] })
+    }
+    for (const { objects, psetID } of this.propertyRels()) {
+      const targets = psetID === null ? [] : objects.filter((o) => spaces.has(o))
+      if (!targets.length) continue
+      const set = this.tryLine(psetID!)
+      const setName = (val(set?.Name) as string) ?? ''
+      for (const h of set?.Quantities ?? []) {
+        const q = this.tryLine(h.value)
+        const name = val(q?.Name) as string | undefined
+        const key = name === 'FinishCeilingHeight' ? 'finish' : name === 'Height' ? 'room' : null
+        if (key) for (const id of targets) offer(id, key, length(val(q?.LengthValue)), `${setName}.${name}`)
+      }
+      for (const p of set?.HasProperties ? this.psetProps(psetID!) : []) {
+        const key = p.name === 'FinishCeilingHeight' ? 'finish' : p.name === 'Unbounded Height' ? 'room' : null
+        if (key) for (const id of targets) offer(id, key, length(p.nominal), `${setName}.${p.name}`)
+      }
+    }
+    for (const id of spaces) {
+      if (out.get(id)?.room) continue
+      const depth = this.extrusionDepth(this.line(id))
+      if (depth !== null) offer(id, 'room', depth, '방 형상 높이(SweptSolid)')
+    }
+    return out
+  }
+
+  /** 수직으로 밀어 올린 형상(SweptSolid)의 깊이(미터). 없거나 기울었으면 null. */
+  private extrusionDepth(entity: any): number | null {
+    const reps = entity?.Representation ? this.line(entity.Representation.value)?.Representations : null
+    if (!Array.isArray(reps)) return null
+    for (const handle of reps) {
+      const rep = this.line(handle.value)
+      if (val(rep?.RepresentationType) !== 'SweptSolid') continue
+      for (const itemHandle of rep.Items ?? []) {
+        const solid = this.line(itemHandle.value)
+        const dir = solid?.ExtrudedDirection ? numbers(this.line(solid.ExtrudedDirection.value)?.DirectionRatios) : null
+        if (dir && Math.abs((dir[2] as number) ?? 0) < 0.999) continue
+        const depth = val(solid?.Depth) as number | undefined
+        if (typeof depth === 'number' && depth > 0) return depth * this.scale
+      }
+    }
+    return null
   }
 
   /** 개체 → 타입 객체(IfcRelDefinesByType). */
@@ -775,6 +900,10 @@ class Reader {
    * 방향은 `FlowDirection` 에서 온다. 한쪽이 SOURCE 고 다른 쪽이 SINK 여야 흐름을 안다.
    * SOURCEANDSINK(Revit 이 피팅·배관에 흔히 붙인다)나 빈 값이면 방향 없는 연결로 둔다.
    */
+  isPort(id: number): boolean {
+    return this.api.GetLineType(this.model, id) === WebIFC.IFCDISTRIBUTIONPORT
+  }
+
   /** 포트를 가진 요소. Proxy 중 어느 것이 배관망에 붙은 설비인지 가를 때 쓴다. */
   portOwners(): Set<number> {
     const owners = new Set<number>()
@@ -850,11 +979,19 @@ class Reader {
    * null 로 남기고, 호출부가 "모름" 으로 다룬다.
    */
   loadBearingByElement(): Map<number, boolean> {
+    return this.flagByElement('LoadBearing')
+  }
+
+  /**
+   * 참·거짓 속성(IfcBoolean) 하나를 요소마다 모은다. 없는 요소는 Map 에 없다 — 호출부가 "모름" 으로 둔다.
+   * 벽의 LoadBearing(내력)·IsExternal(외벽)이 같은 모양이다(Pset_WallCommon).
+   */
+  flagByElement(name: string): Map<number, boolean> {
     const out = new Map<number, boolean>()
     for (const { objects, psetID } of this.propertyRels()) {
       if (psetID === null) continue
       for (const prop of this.psetProps(psetID)) {
-        if (prop.name !== 'LoadBearing') continue
+        if (prop.name !== name) continue
         const v = prop.nominal
         // IFCBOOLEAN 은 참일 때 true 또는 'T' 로 온다. 내보낸 도구마다 다르다.
         const flag = v === true || v === 'T' || v === '.T.'
@@ -1065,6 +1202,7 @@ function read(
     ]
     stage(1)
     const loadBearing = r.loadBearingByElement()
+    const external = r.flagByElement('IsExternal')
     const capacity = r.capacityByElement()
     const declaredTypeOf = r.declaredType(api)
     const omniclass = r.omniclassBySpace()
@@ -1114,13 +1252,20 @@ function read(
     // 제외 목록을 늘리는 대신 포함 근거를 IFC 구조(포트)와 좁은 사전에 둔다. 역할은 IFC 가 안 주므로
     // 사전의 것을 쓴다.
     const ported = r.portOwners()
-    const proxies = { ported: 0, named: 0 }
+    const proxies = { total: 0, ported: 0, named: 0, skipped: [] as string[] }
     for (const id of r.ids(WebIFC.IFCBUILDINGELEMENTPROXY)) {
       const el = r.line(id)
-      const info = equipmentKindOf((val(el?.Name) as string) ?? '', (val(el?.ObjectType) as string) ?? '')
+      const name = (val(el?.Name) as string) ?? ''
+      const info = equipmentKindOf(name, (val(el?.ObjectType) as string) ?? '')
+      proxies.total++
       if (ported.has(id)) proxies.ported++
       else if (info) proxies.named++
-      else continue
+      else {
+        // 읽지 않은 것의 이름 예. Revit 이름은 `패밀리:유형:요소ID` 라 요소 ID 를 떼어 같은 패밀리를 한 번만 적는다.
+        const family = name.replace(/:\d+$/, '').trim() || '(이름 없음)'
+        if (proxies.skipped.length < 5 && !proxies.skipped.includes(family)) proxies.skipped.push(family)
+        continue
+      }
       mepIDs.add(id)
       if (info?.role) roleOf.set(id, info.role)
     }
@@ -1169,7 +1314,10 @@ function read(
       const group = r.line(groupID)
 
       const id = (val(group?.GlobalId) as string) ?? `system_${groupID}`
-      const memberIDs = (rel.RelatedObjects ?? []).map((h: any) => h.value)
+      // **포트는 구성원으로 받지 않는다.** Revit 은 계통 그룹에 기기와 함께 그 기기의 포트까지 넣는다(성수 기계: 구성원
+      // 6만 중 포트 39,302). 포트는 TTL 주어가 아니라서 받으면 hasPart 가 없는 주어를 가리킨다. 포트의 주인 기기는 같은
+      // 그룹에 이미 들어 있어서(성수 39,302 전부) 빼도 잃는 구성원이 없다.
+      const memberIDs = (rel.RelatedObjects ?? []).map((h: any) => h.value).filter((m: number) => !r.isPort(m))
       for (const m of memberIDs) systemOfElement.set(m, id)
 
       systems.push({
@@ -1245,8 +1393,21 @@ function read(
       elementsByStorey.set(storeyID, list)
     }
 
+    const declaredHeights = r.storeyHeights()
+    const ceilingBySpace = r.ceilingBySpace()
+    // 층마다 반자 높이 근거(ceiling.ts). 천장재는 형상을 읽은 뒤에 아랫면을 잰다.
+    const ceilingEvidence = new Map<string, CeilingEvidence>()
+    const coveringsOf = new Map<string, number[]>()
     const storeys: Storey[] = r.ids(WebIFC.IFCBUILDINGSTOREY).map((storeyID) => {
       const e = r.line(storeyID)
+      const storeyGlobalID = (val(e?.GlobalId) as string) ?? `storey-${storeyID}`
+      const evidence = emptyEvidence()
+      for (const spaceID of spacesByStorey.get(storeyID) ?? []) {
+        const said = ceilingBySpace.get(spaceID)
+        if (said?.finish) evidence.finish.push(said.finish)
+        if (said?.room) evidence.room.push(said.room)
+      }
+      ceilingEvidence.set(storeyGlobalID, evidence)
       const walls: Wall[] = []
       const openings: Opening[] = []
       const equipment: Equipment[] = []
@@ -1264,6 +1425,7 @@ function read(
               id,
               name,
               loadBearing: loadBearing.get(elementID) ?? null,
+              external: external.get(elementID) ?? null,
               thickness: thickness.get(elementID) ?? null,
             })
             break
@@ -1272,6 +1434,9 @@ function read(
             break
           case WebIFC.IFCWINDOW:
             if (readWindows) openings.push(openingOf(el, id, name, 'window', elementID, wallOfOpening, globalIdOf, scale))
+            break
+          case WebIFC.IFCCOVERING:
+            if (val(el?.PredefinedType) === 'CEILING') coveringsOf.set(storeyGlobalID, [...(coveringsOf.get(storeyGlobalID) ?? []), elementID])
             break
           default:
             if (!mepIDs.has(elementID)) break
@@ -1304,9 +1469,10 @@ function read(
       }
 
       return {
-        id: (val(e?.GlobalId) as string) ?? `storey-${storeyID}`,
+        id: storeyGlobalID,
         name: (val(e?.Name) as string) ?? '',
         elevation: ((val(e?.Elevation) as number) ?? 0) * scale,
+        ...(declaredHeights.has(storeyID) ? { declaredHeight: declaredHeights.get(storeyID)! } : {}),
         spaces: (spacesByStorey.get(storeyID) ?? []).map((id) =>
           spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass),
         ),
@@ -1382,6 +1548,7 @@ function read(
         // IfcMapConversion 은 IFC4 부터 있다. IFC2x3 에서는 늘 0 이다.
         mapConversion: r.ids(WebIFC.IFCMAPCONVERSION).length > 0,
         siteLatLong: r.ids(WebIFC.IFCSITE).some((id) => (r.line(id)?.RefLatitude?.length ?? 0) > 0),
+        ...(proxies.total ? { proxies } : {}),
       },
     }
 
@@ -1408,6 +1575,13 @@ function read(
       )
     }
 
+    const inPanels = placeInPanels(result.storeys)
+    if (inPanels > 0) {
+      warnings.push(
+        `좌표가 없는 분전반 안 부품(보호기) ${inPanels}대를 같은 층에 하나뿐인 분전반 자리에 놓았습니다. IFC 가 어느 분전반에 드는지 말하지 않아 층으로 짐작한 것입니다(계산).`,
+      )
+    }
+
     // 설비의 소속 물리존은 좌표로 판정한다. 층이 다 모인 뒤에야 돌 수 있다.
     //
     // "소속을 못 찾은 설비 N대" 는 경고로 굳히지 않는다. 경계를 고치거나(E2) 설비를 옮기거나
@@ -1431,11 +1605,21 @@ function read(
       for (const system of systems) {
         for (const id of system.memberIds) systemsOf.set(id, [...(systemsOf.get(id) ?? []), system.name])
       }
-      const points = [...meshes].map(([id, mesh]) => ({
-        id,
-        points: mesh.positions,
-        systems: systemsOf.get(id) ?? null,
-      }))
+      // 흐름이 없는 종류(조명·감지기·비치품·분전반 — kinds.ts 의 `flow: {}`)는 형상이 맞닿아도 잇지 않는다(OE-PIP-18). 병원 MEP 에서
+      // 나란히 붙은 조명기구 16쌍이 서로 "연결" 로 잡혔다. 포트가 있는 세 파일(병원 HVAC·Duplex HVAC·ifc4Mep)을 정답지로 재면 빼도
+      // 재현율·정밀도가 그대로다 — 포트가 흐름 없는 기기를 잇는 일이 없다. 종류를 모르는 것은 둔다.
+      const kindOf = new Map(allEquipment.map((e) => [e.id, e.kind]))
+      const flows = (id: string) => {
+        const info = equipmentKind(kindOf.get(id))
+        return !info || Object.keys(info.flow ?? {}).length > 0
+      }
+      const points = [...meshes]
+        .filter(([id]) => flows(id))
+        .map(([id, mesh]) => ({
+          id,
+          points: mesh.positions,
+          systems: systemsOf.get(id) ?? null,
+        }))
       result.connections = inferConnections(points)
       if (result.connections.length > 0) {
         warnings.push(
@@ -1456,13 +1640,8 @@ function read(
       // 두 대를 살린다. 대수는 결손 종류로 세고, 연결 개수는 따로 적는다.
       const joined = gaps.filter((g) => g.kind === 'derived').length
       // 흐름이 없는 종류(거울·수건함·감지기·CCTV)는 덕트·배관에 이어질 것이 아니라 "모델을 고쳐야 한다" 에서 뺀다.
-      // 치과 파일의 비치품 98대가 전부 여기 걸려 고칠 것이 없는 파일에 고치라고 했다.
-      const kindOf = new Map(allEquipment.map((e) => [e.id, e.kind]))
-      const flows = (id: string) => {
-        const info = equipmentKind(kindOf.get(id))
-        return !info || Object.keys(info.flow ?? {}).length > 0
-      }
-      const stranded = gaps.filter((g) => g.kind !== 'derived' && flows(g.id)).length
+      // 치과 파일의 비치품 98대가 전부 여기 걸려 고칠 것이 없는 파일에 고치라고 했다. 위에서 형상 추정에 넣지 않아 gaps 에도 없다.
+      const stranded = gaps.filter((g) => g.kind !== 'derived').length
       if (joined > 0) {
         const far = Math.max(...rescued.map((c) => c.tolerance ?? 0))
         warnings.push(
@@ -1476,9 +1655,15 @@ function read(
       }
     }
 
-    if (proxies.ported + proxies.named > 0) {
+    // 읽은 것과 읽지 않은 것을 같이 센다(OE-BIM-13). 읽은 수만 말하면 빠뜨린 설비가 없는지 볼 길이 없다.
+    if (proxies.total > 0) {
+      const read = proxies.ported + proxies.named
+      const left = proxies.total - read
       warnings.push(
-        `Proxy(IfcBuildingElementProxy) ${proxies.ported + proxies.named}개를 설비로 읽었습니다(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 정한 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름으로 추정했습니다(요구사항 R23).`,
+        `Proxy(IfcBuildingElementProxy) ${proxies.total}개 중 ${read}개를 설비로 읽었습니다` +
+          (read ? `(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 정한 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름으로 추정했습니다` : '') +
+          (left ? `. 나머지 ${left}개는 포트도 없고 이름도 사전에 없어 건축 부재로 보고 읽지 않았습니다(예: ${proxies.skipped.join(', ')})` : '') +
+          '(요구사항 R23).',
       )
     }
 
@@ -1495,6 +1680,23 @@ function read(
 
     placeWallsAndOpenings(api, model, result, wallMeshes, globalIdOf, (id) => r.ids(id, true), withMeshes && !!options.openings)
     for (const [id, mesh] of wallMeshes) meshes.set(id, mesh)
+
+    // 반자 높이(OE-EQP-03). 천장재는 형상의 아랫면을 잰다 — 형상을 읽는 임포트에서만이다. 형상은 재고 버린다(3D 에 그리지 않는다).
+    if (withMeshes) {
+      const coveringIDs = new Set([...coveringsOf.values()].flat())
+      const coveringMeshes = readMeshes(api, model, coveringIDs, globalIdOf)
+      for (const storey of result.storeys) {
+        for (const id of coveringsOf.get(storey.id) ?? []) {
+          const bottom = meshBottom(coveringMeshes.get(globalIdOf(id)))
+          if (bottom !== null) ceilingEvidence.get(storey.id)?.covering.push(bottom - storey.elevation)
+        }
+      }
+    }
+    const heights = storeyHeights(result.storeys)
+    for (const storey of result.storeys) {
+      const ceiling = pickCeiling(ceilingEvidence.get(storey.id) ?? emptyEvidence(), heights.get(storey.id)?.value ?? null)
+      if (ceiling) storey.ceiling = ceiling
+    }
     return { model: result, meshes }
   } finally {
     api.CloseModel(model)

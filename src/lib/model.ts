@@ -73,6 +73,18 @@ export type Wall = {
    */
   loadBearing: boolean | null
   /**
+   * 외벽 여부(Pset_WallCommon.IsExternal). `null`·없음은 "모름" 이다 — 내력과 같은 까닭으로 false 와 섞지 않는다.
+   * 보여 주고 내보내기만 한다 — 문·창은 외벽·내벽 어디에나 놓인다(OE-OBJ-07). 에디터가 그은 벽은 모름으로 시작한다.
+   */
+  external?: boolean | null
+  /** 사람이 외벽 여부를 고쳤다(OE-OBJ-04). 출처가 "편집" 이 되고 계산이 덮지 않는다. `external` 이 null 이면 "모름" 으로 정한 것이다. */
+  externalEdited?: true
+  /**
+   * 벽 높이(미터). 형상(메시)의 위아래 폭으로 잰 값이라 출처는 계산이다. 형상을 읽지 않았거나 에디터가 그은 벽은 `null`·없음(모름) —
+   * 층고로 채우지 않는다. 사람이 고치면 그 값이다(OE-OBJ-04 크기 z).
+   */
+  height?: number | null
+  /**
    * 평면 외곽선(고리 여럿일 수 있다). 형상의 맨 아래 면에서 읽는다(`element-geometry.ts`). 형상을 읽지 않는
    * 임포트(`importIfc`)나 아래 면이 없는 벽이면 비어 있다. GeoJSON 에만 나가고 TTL 에는 들어가지 않는다.
    */
@@ -198,8 +210,9 @@ export type Equipment = {
    * 좌표를 BIM 배치점 말고 다른 데서 얻었으면 그 출처. 없으면 배치점 그대로다.
    * `'geometry'` 는 배치점이 형상에서 멀리 떨어져 형상 중심을 쓴 것(`anchorToGeometry`),
    * `'edited'` 는 사람이 옮긴 것이다. 화면이 이 값으로 "BIM 이 말한 좌표" 와 구별해 보인다.
+   * `'panel'` 은 좌표가 없는 분전반 안 부품(보호기)을 같은 층에 하나뿐인 분전반 자리에 놓은 것이다(OE-BIM-07, import.ts 의 placeInPanels).
    */
-  positionSource?: 'geometry' | 'edited'
+  positionSource?: 'geometry' | 'edited' | 'panel'
   /**
    * 설계 풍량 등 용량 파라미터. `null` 이면 BIM 에 안 적혀 있다.
    * PRD #6 의 "용량 파라미터 누락 설비" 이고, 공조존 용량 검증(Z-03)이 이 값에 걸린다.
@@ -226,11 +239,32 @@ export type Equipment = {
    * 우선한다** — 설계자가 정한 소속이 좌표 판정보다 정확하고, 벽에 걸친 설비처럼 판정이
    * 애매한 경우에도 답이 하나로 정해진다.
    */
-  spaceSource: 'bim' | 'computed' | null
+  spaceSource: 'bim' | 'computed' | 'edit' | null
+  /**
+   * 사람이 지정한 소속 물리존(OE-MAP-01 "사람의 소속 지정", K17). 기계 판정과 따로 둔다 — 기계가 확신하지 못할 때(소속 허용 거리로
+   * 붙었거나 소속 없음)만 쓰고, 그때 `spaceSource` 가 `'edit'` 이다. 기계가 확신하게 되면(BIM 명시 소속·외곽선 안) 쓰지 않는다
+   * ("사람 지정 해제", mapping.ts 의 spaceSetState). 지정은 설비를 옮기거나 사람이 지울 때만 없어진다.
+   */
+  spaceSet?: string
   /** 사람이 에디터에서 더한 설비(E7). BIM 에 없던 것이라 화면의 출처가 "편집"이다. */
   added?: true
   /** 사람이 이름(태그)을 고쳤으면 BIM 이 준 이름. 타입·패밀리 묶음은 이 이름으로 잡는다(edit.ts 의 bimName). */
   nameEdited?: { from: string }
+  /**
+   * 사람이 벽 면에 붙인 설비의 벽 id(OE-OBJ-04, 외벽 루버·외기 센서). 벽을 옮기면 같이 가고, 길이·두께를 바꾸면 벽 면으로
+   * 다시 붙고, 벽을 지우거나 설비를 따로 옮기면 떨어진다(edit.ts 의 mountOnWall). BIM 에서 온 설비에는 없다.
+   */
+  wallId?: string
+  /**
+   * 덕트·배관 구간의 두 끝이 연 때 자리에서 얼마나 옮겨졌나(세계 좌표, m). 끝 순서는 연 때 형상의 축(`SegmentAxis`)을 따른다.
+   * 붙은 설비를 옮겨 구간이 늘어난 것이다(`followConduits`). 3D 형상은 이 값으로 늘이고, `position` 은 축 위 같은 비율 자리로 간다.
+   */
+  endShift?: [Vec3, Vec3]
+  /**
+   * 사람이 정한 설치면(OE-EQP-05). z 로 판정하지 못한 설비(미정)에 정한다. 있으면 판정보다 앞선다(ceiling.ts 의 judgeSurface).
+   * BIM 에는 없고 편집 파일에 남는다.
+   */
+  surfaceSet?: 'ceiling' | 'floor' | 'wall'
 }
 
 /** 계통. 공조기에서 덕트를 지나 토출구까지 이어지는 묶음이다. */
@@ -298,13 +332,56 @@ export type Connection = {
    * 온톨로지를 읽는 쪽이 둘을 구별할 수 없다. 사람이 에디터에서 계통 단위로 확인하면 `confirmed`
    * 가 되고, 그때부터 `brick:feeds` 로 나간다.
    */
-  inferred?: { from: string; to: string; systemId: string; confirmed: boolean }
+  inferred?: {
+    from: string
+    to: string
+    systemId: string
+    confirmed: boolean
+    /**
+     * 확정한 뒤 근거가 바뀐 규칙 방향(OE-PIP-07). 규칙을 다시 돌려 얻은 새 방향이고, 새로 정할 수 없게 됐으면 `null` 이다. 있으면
+     * 재검토 중이라 `brick:feeds` 로 내보내지 않는다. 확정한 방향(`from`·`to`)은 그대로 두고, 다시 확정하면 새 방향으로 바뀐다.
+     * 규칙을 돌릴 때마다 새로 재므로 근거가 되돌아오면 저절로 없어진다.
+     */
+    recheck?: { from: string; to: string } | null
+  }
   /**
    * 사람이 에디터에서 정한 흐름 방향. `inferred` 처럼 **포트가 방향을 말하지 않은 연결에만** 붙는다.
    * 규칙이 틀린 곳을 고치거나 규칙이 닿지 못한 곳을 채운다. 규칙 방향보다 앞서고, 사람이 정한
    * 것이라 확정 없이 `brick:feeds` 로 나간다. BIM 포트가 말한 방향은 고칠 수 없다.
+   *
+   * `at`·`reason` 은 패널에서 [적용] 한 시각과 보정 사유다(OE-PIP-04). 규칙 방향과 반대로 정할 때만 사유를 받는다. 편집 파일만
+   * 얹은 옛 파일의 방향에는 없다.
    */
-  edited?: { from: string; to: string }
+  edited?: { from: string; to: string; at?: string; reason?: string }
+}
+
+/** 해제 보정한 BIM 포트 연결(OE-PIP-06). */
+export type ReleasedConnection = {
+  /** 원본 연결. 방향(`directed`·`from`·`to`)을 고치지 않고 들고 있다가 취소하면 그대로 `connections` 로 돌아간다. */
+  connection: Connection
+  /** 해제할 때 `connections` 에서의 자리. 취소하면 이 자리로 돌아가 3D·표의 순서가 해제 전과 같다. */
+  index: number
+  /** 해제한 시각(ISO). */
+  at: string
+  reason: string
+  /**
+   * 다시 연 판본에서 원본과 맞지 않은 것. 사람이 보기 전에는 유효 연결로 돌리지 않는다(내보내지 않는다).
+   * - `direction`: 같은 두 설비 사이 포트 연결은 있으나 방향이 바뀌었다. `connection` 은 새 판본의 연결이다.
+   * - `missing`: 두 설비 사이 포트 연결을 못 찾았다. `connection` 은 파일에 적힌 것으로 만든 것이라 모델에 없다.
+   */
+  review?: 'direction' | 'missing'
+}
+
+/**
+ * 연결 편집 이력 한 줄. `keep` 은 재검토를 보고 해제를 유지한 것, `drop` 은 원본을 못 찾은 보정을 지운 것이다.
+ * `flow`·`unflow` 는 사람이 방향을 적용·해제한 것이고(OE-PIP-04) 그때 `from`·`to` 는 흐름 방향이다.
+ */
+export type ConnectionLogEntry = {
+  action: 'release' | 'restore' | 'keep' | 'drop' | 'flow' | 'unflow'
+  from: string
+  to: string
+  at: string
+  reason: string
 }
 
 /**
@@ -346,10 +423,87 @@ export type Storey = {
   name: string
   /** 층 바닥 높이(미터). */
   elevation: number
+  /**
+   * BIM 이 적은 층 높이(미터, OE-BIM-02). 적은 것이 없으면 키가 없다. `gross` 는 바닥에서 윗층 바닥까지(층고), `net` 은
+   * 윗층 바닥판 아래까지다. `property` 는 읽은 자리(`BaseQuantities.GrossHeight`). 층고를 계산한 값(Elevation 의 차)은
+   * 모델에 두지 않는다 — storey-height.ts 가 그때 잰다.
+   */
+  declaredHeight?: { gross: number | null; net: number | null; property: string }
+  /**
+   * 사람이 이 층을 완료로 표시한 것(OE-MAN-06). `sig` 는 그때 층의 지문이다 — 지금 지문과 다르면 "완료 뒤 고침" 이다
+   * (storey-progress.ts). BIM 에는 없고 편집 파일에 남는다.
+   */
+  done?: { at: string; sig: string }
+  /**
+   * BIM 이 말한 반자 높이 h_c(층 바닥 기준, 미터, OE-EQP-03). 못 읽었으면 키가 없다 — 0 이나 층고로 채우지 않는다. 층 값은 그 층
+   * 방(천장재)들의 가운데 값이고, `property` 는 읽은 자리, `count` 는 값을 낸 방·천장재 수다. 고르는 순서는 ceiling.ts.
+   */
+  ceiling?: { height: number; property: string; count: number }
+  /** 사람이 정한 반자 높이(미터, OE-EQP-03 ④). 있으면 `ceiling` 보다 앞선다. BIM 에는 없고 편집 파일에 남는다. */
+  ceilingSet?: number
   spaces: Space[]
   walls: Wall[]
   openings: Opening[]
   equipment: Equipment[]
+  /** 운영자가 정한 커스텀존(OE-OBJ-01, custom-zone.ts). BIM 에는 없어 연 직후에는 없다. */
+  customZones?: CustomZone[]
+  /** 사람이 물리존 안에 그린 룸(OE-OBJ-03, room.ts). 임포트는 만들지 않아 연 직후에는 없다. */
+  rooms?: Room[]
+  /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09, space-object.ts). 임포트는 만들지 않아 연 직후에는 없다. */
+  spaceObjects?: SpaceObject[]
+}
+
+/**
+ * 추가 공간 오브젝트(OE-OBJ-09). 책상·의자·소파처럼 공간을 꾸미는 사물이다. 층 바닥에 서고, 서로 겹치지 않는다(space-object.ts).
+ * 모양은 라이브러리 항목(`item`)의 3D 모델을 `size` 상자에 맞춰 늘인 것이다.
+ */
+export type SpaceObject = {
+  /** 에디터가 지은 id(`U_…`). */
+  id: string
+  name: string
+  /** 라이브러리 항목 열쇠(space-object.ts 의 LIBRARY, 또는 사람이 넣은 모델의 `custom:…`). */
+  item: string
+  /** 바닥 가운데 자리(세계 평면 좌표). */
+  at: Vec2
+  /** 가로(x)·세로(y)·높이(미터). 축에 나란한 상자다. */
+  size: Vec3
+}
+
+/** 사람이 넣은 3D 모델로 만든 라이브러리 항목(OE-P3-08). 파일을 그대로 들고 있어 편집 파일에 같이 남는다. */
+export type CustomObjectItem = {
+  /** `custom:` 로 시작한다. 내장 항목과 겹치지 않는다. */
+  key: string
+  name: string
+  /** 넣을 때 모델 상자에서 잰 기본 크기(가로·세로·높이, 미터). */
+  size: Vec3
+  /** glb 파일 내용(base64). */
+  glb: string
+}
+
+/** 룸(OE-OBJ-03). 물리존 안의 사각 편집 단위. 다른 룸과 겹치지 않고 부모 물리존 밖으로 나가지 않는다(room.ts). */
+export type Room = {
+  /** 에디터가 지은 id(`U_…`). */
+  id: string
+  name: string
+  /** 든 물리존(부모). */
+  spaceId: string
+  /** 닫힌 사각 고리(축에 나란하다, 왼아래부터 반시계). 세계 좌표. */
+  footprint: Vec2[]
+}
+
+/** 커스텀존(F14). 물리존 위에 운영 편의로 정하는 다각형. 겹쳐도 된다(custom-zone.ts). */
+export type CustomZone = {
+  /** 에디터가 지은 id(`U_…`). TTL 주어와 GeoJSON feature id 가 이것이다. */
+  id: string
+  /** 별명. 사람이 부르는 이름(임원석·식당). TTL rdfs:label 이다. */
+  name: string
+  /**
+   * 더 붙인 별명(2026-10-03 사용자 결정 — 별명은 여러 개, ADR-0012). `name` 과 겹치지 않고 비지 않는다. 없으면 키가 없다.
+   * TTL `ex:alias`, GeoJSON `aliases`.
+   */
+  aliases?: string[]
+  /** 닫힌 고리(첫 점 = 끝 점). 세계 좌표. */
+  footprint: Vec2[]
 }
 
 export type Model = {
@@ -364,6 +518,14 @@ export type Model = {
   systems: System[]
   /** 설비·배관 사이의 연결. 층을 넘나들므로 계통처럼 모델에 바로 둔다. */
   connections: Connection[]
+  /**
+   * 사람이 '연결 해제 보정' 한 BIM 포트 연결(OE-PIP-06, connection-release.ts). `connections` 에서 빼 여기 둔다 — 연결을 읽는
+   * 곳(규칙 방향·계통 추적·TTL `brick:feeds`)이 따로 거르지 않아도 해제한 연결을 보지 않는다. 원본 연결 객체와 방향은 그대로다.
+   * BIM 에는 없어 연 직후에는 없다.
+   */
+  releasedConnections?: ReleasedConnection[]
+  /** 해제 보정·취소·재검토 확인의 이력. 되돌리기로 무른 것은 남지 않는다. */
+  connectionLog?: ConnectionLogEntry[]
   /** 임포트가 그냥 넘어간 것들. 조용히 비는 대신 화면에 뜬다. */
   warnings: string[]
   /**
@@ -373,6 +535,8 @@ export type Model = {
   skipped?: ('walls' | 'doors' | 'windows')[]
   /** IDF 에서 얹은 공조존과 담당 관계(idf/attach.ts). IFC 만 연 모델에는 없다. */
   hvac?: { source: string; zones: HvacZone[]; equipment: HvacEquipment[] }
+  /** 사람이 넣은 3D 모델 라이브러리 항목(OE-P3-08). 층에 속하지 않는다. */
+  objectLibrary?: CustomObjectItem[]
   /**
    * 모델 요소로는 남지 않는 파일의 사실. 요구사항 보고서(requirements.ts)가 쓴다. 손으로 만든 모델에는 없다.
    * 두 파일을 합치면 둘 다 참일 때만 참이다(위경도는 한쪽만 있어도 참).
@@ -384,6 +548,11 @@ export type Model = {
     mapConversion: boolean
     /** IfcSite 에 위경도가 있나. 지도에 대략 얹을 수는 있지만 스캔과 맞출 수는 없다. */
     siteLatLong: boolean
+    /**
+     * 파일의 IfcBuildingElementProxy(OE-BIM-13). 포트가 있거나(ported) 이름이 사전에 있어(named) 설비로 읽은 것과, 둘 다 아니라
+     * 건축 부재로 보고 읽지 않은 것의 이름 예(앞 5가지). 읽지 않은 수 = total - ported - named. 빠진 설비가 없는지 사람이 본다.
+     */
+    proxies?: { total: number; ported: number; named: number; skipped: string[] }
   }
 }
 
@@ -401,6 +570,14 @@ export function polygonArea(ring: readonly Vec2[]): number {
     sum += last[0] * first[1] - first[0] * last[1]
   }
   return Math.abs(sum) / 2
+}
+
+/**
+ * 미배치 목록(OE-BIM-07). BIM 에 좌표가 없어 3D·평면에 그려지지 않는 설비와 그 층. 층은 BIM 이 말한 것이라 놓을 바닥을
+ * 정할 수 있다. 사람이 놓으면(E6) 좌표가 생겨 빠지고, 좌표 없이 더한 설비는 들어온다. 개수는 `countOf().unplacedEquipment` 와 같다.
+ */
+export function unplacedOf(model: Model): { equipment: Equipment; storey: Storey }[] {
+  return model.storeys.flatMap((storey) => storey.equipment.filter((e) => e.position === null).map((equipment) => ({ equipment, storey })))
 }
 
 /** 층·공간·벽 개수를 한 번에 센다. 검토 화면과 테스트가 같은 값을 본다. */

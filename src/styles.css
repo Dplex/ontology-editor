@@ -301,6 +301,14 @@ th {
   cursor: help;
 }
 
+/* 8084 에 저장된 편집이 있는 파일(OE-COM-08). 열면 얹어서 보인다. */
+.catalog .saved-chip {
+  margin-right: 0.5rem;
+  color: var(--accent);
+  font-size: 0.85em;
+  white-space: nowrap;
+}
+
 /* 등급 칩. 색은 액센트 하나와 경고색만 쓴다 — 다 참(액센트), 일부(경고), 없음(회색). */
 .tiers {
   display: flex;
@@ -351,6 +359,30 @@ th {
   margin-top: 1.25rem;
 }
 
+/* 미배치 목록(OE-BIM-07). 한 줄에 이름 · 층·종류 · [3D에서 놓기]. */
+.review .unplaced {
+  margin-top: 1.25rem;
+}
+
+.unplaced-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9rem;
+}
+
+.unplaced-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.25rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.unplaced-list .ghost {
+  margin-left: auto;
+}
+
 .req-table td {
   vertical-align: top;
 }
@@ -389,6 +421,16 @@ th {
   border-color: transparent;
   background: var(--error-soft);
   color: var(--error);
+}
+
+/* 고객사에 할 요청(OE-BIM-17). 설정만 바꾸면 되는 것을 값 넣기와 갈라 보이게 굵게. */
+.req-ask {
+  font-size: 0.85rem;
+  min-width: 12rem;
+}
+.req-ask.setting {
+  color: var(--warn-fg);
+  font-weight: 560;
 }
 
 /* 파일 덧붙이기. 주 동작(파일 열기)보다 한 단 낮은 버튼이다. */
@@ -696,6 +738,77 @@ th {
   color: var(--accent);
 }
 
+/* BIM 이름(magicirc_multi_shape_trans_001:… 처럼 띄어쓰기 없는 긴 이름)이 표를 패널보다 넓혀, 이름 아래 버튼·사유 칸이 패널 밖으로 밀렸다. */
+.neighbors .name-cell {
+  overflow-wrap: anywhere;
+}
+
+.release-why {
+  font-size: 0.8rem;
+}
+
+/* 해제 보정한 연결(OE-PIP-06). 원본은 남아 있되 유효 연결이 아니라 흐리게, 이름에 취소선을 긋지 않는다(상대 설비는 그대로다). */
+.neighbors.released .name-cell > .link,
+.neighbors.released .rel {
+  color: var(--muted);
+}
+
+.release-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+
+.release-form input {
+  flex: 1 1 10rem;
+  min-width: 0;
+  font-size: 0.8rem;
+}
+
+.release-form .ghost {
+  padding: 0.1rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+/* 방향 미리보기(OE-PIP-04). 적용 전이라 표의 다른 줄과 섞이지 않게 테두리를 둔다. */
+.flow-preview {
+  margin-top: 0.3rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.flow-preview p {
+  margin: 0 0 0.25rem;
+}
+
+.flow-preview input {
+  width: 100%;
+  font-size: 0.8rem;
+}
+
+/* 확정한 뒤 근거가 바뀐 규칙 방향(OE-PIP-07). */
+.recheck {
+  color: var(--warn-fg);
+}
+
+.review-tag {
+  color: var(--warn-fg);
+}
+
+.release-log h4 {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.85rem;
+}
+
+.release-log ol {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.8rem;
+}
+
 .chosen > td {
   background: var(--accent-soft);
 }
@@ -739,6 +852,27 @@ th {
   min-width: 0;
 }
 
+/* 편집 리플레이(PoC)의 극장. 3D 를 창 전체로 키우고 나머지 화면은 가린다 — 리플레이 동안 다른 편집이 끼면 되감은 이력이 깨진다. */
+.viewport.theater {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  height: auto;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: radial-gradient(circle at 40% 45%, #22365a, #0e1726 75%);
+  box-shadow: none;
+}
+/* 오른쪽 칼럼은 장면 카드(ReplayHud 의 .hud-feed) 자리다. 3D 를 그만큼 좁혀 카드가 건물을 가리지 않게 한다. */
+.viewport.theater .canvas-wrap canvas {
+  width: calc(100% - var(--replay-feed, 440px)) !important;
+}
+.viewport.theater > :not(.canvas-wrap),
+.viewport.theater .canvas-wrap > :not(canvas):not(.replay-hud) {
+  display: none !important;
+}
+
 .viewport canvas {
   display: block;
   width: 100%;
@@ -746,6 +880,20 @@ th {
 }
 
 /* 범례가 3D 오른쪽에 붙어 있으니, 버튼은 3D 칸 안의 오른쪽 위에 둔다. */
+/* 시점 조작 안내(OE-OBJ-15). 위쪽 가운데 작은 글자. 누르는 것이 없어 3D 조작을 막지 않는다. */
+.view-controls-hint {
+  position: absolute;
+  top: 0.9rem;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 40%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-align: center;
+  pointer-events: none;
+}
+
 /* 왼쪽 위는 색 안내(.color-key·.wall-key) 자리다. 편집 도구에 벽·문·창·층 목록까지 펼치면 줄이 거기까지 뻗어 안내가
    [내력벽] 을 덮었다. 넘치면 오른쪽 맞춤으로 두 줄이 된다. */
 .view-tools {
@@ -906,7 +1054,8 @@ th {
 }
 
 .editor input,
-.space-name input {
+.space-name input,
+.space-number input {
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -921,7 +1070,8 @@ th {
 
 /* 초점 표시를 테두리 색만으로 두지 않는다. 얇은 고리를 더해야 눈에 들어온다. */
 .editor input:focus,
-.space-name input:focus {
+.space-name input:focus,
+.space-number input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
   outline: none;
@@ -1064,6 +1214,16 @@ th {
   font-weight: 400;
 }
 
+.fold.open > .fold-head {
+  /* 펼친 칸은 제목 줄이 도구막대 바로 아래 붙어 따라온다. 긴 표 끝에서도 한참 올리지 않고 접는다. */
+  position: sticky;
+  top: var(--appbar-h, 0px);
+  z-index: 5;
+  border-radius: 0;
+  background: var(--surface);
+  box-shadow: 0 1px 0 var(--line-soft);
+}
+
 .fold-body {
   padding: 0.25rem 0 0.75rem;
 }
@@ -1114,6 +1274,53 @@ th {
 
 .storeys .num {
   white-space: nowrap;
+}
+
+/* 층 단위 진행(OE-MAN-06). 완료는 강조색, 완료 뒤 고침은 경고색(.height-mismatch 와 같다). */
+.storeys .storey-progress {
+  margin: 0 0 0.25rem;
+  /* 표 칸(th·td)과 왼쪽을 맞춘다. */
+  padding: 0 0.85rem;
+}
+
+.storeys .storey-done {
+  white-space: nowrap;
+}
+
+.storeys .done-mark {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.storeys .storey-done .link {
+  margin-left: 0.4rem;
+}
+
+/* 층고의 BIM 값과 계산한 값(윗층 바닥과의 차)이 다를 때 옆에 붙는 계산 값. */
+.storeys .height-mismatch {
+  margin-left: 0.25rem;
+  color: var(--warn-fg);
+}
+
+/* 반자 높이(OE-EQP-03). 값 옆의 고치기·지우기와 입력창. */
+.storeys .storey-ceiling .link {
+  margin-left: 0.4rem;
+}
+
+.storeys .ceiling-input {
+  width: 4.5rem;
+}
+
+/* 설치면 판정 요약과 허용 설치면 밖 목록(OE-EQP-03). 표 칸과 왼쪽을 맞춘다. */
+.storeys .surface-summary,
+.storeys .surface-mismatch {
+  margin: 0.4rem 0 0;
+  padding: 0 0.85rem;
+}
+
+.storeys .surface-mismatch ul {
+  margin: 0.25rem 0 0;
+  padding-left: 1.2rem;
 }
 
 /* 한 층의 방 이름이 수십 개면 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로 본다. */
@@ -1267,6 +1474,129 @@ th {
   border-radius: 0.2rem;
 }
 
+/* [바닥·벽 / 천장] 토글. 팔레트 "설비" 제목 줄 오른쪽의 작은 두 칸이다. */
+.palette-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.ceiling-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.ceiling-toggle button {
+  padding: 0.05rem 0.45rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.ceiling-toggle button.on {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* 천장 편집 모드(OE-OBJ-08). 잠긴 도구는 흐리게 — 누르면 어디서 편집하는지 알린다(disabled 면 눌리지 않아 안내를 못 한다). */
+.tool-palette button.locked {
+  opacity: 0.45;
+}
+
+/* 지금 모드에서 고칠 수 없는 설비의 안내. 경고(.edit-notice)가 아니라 어디서 고치는지 알리는 길 안내라 액센트 색이다. */
+.ceiling-lock {
+  margin: 0.6rem 0;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: 0.85rem;
+}
+
+.ceiling-lock .link {
+  margin-left: 0.4rem;
+}
+
+.ceiling-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+}
+
+.ceiling-ask input {
+  width: 4rem;
+}
+
+.ceiling-now {
+  font-size: 0.75rem;
+}
+
+/* 종류 칸 옆 "이 설비만"(OE-EQP-14). */
+.kind-edit .kind-only {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.4rem;
+  font-size: 0.85rem;
+}
+
+/* 팔레트의 미배치 목록(OE-EQP-02). 접어 두고, 펼치면 제 상자 안에서 스크롤한다. */
+.tool-palette .unplaced-toggle {
+  align-self: flex-start;
+  font-size: 0.72rem;
+}
+
+.palette-unplaced {
+  max-height: 8rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  font-size: 0.75rem;
+}
+
+.palette-unplaced button {
+  width: 100%;
+  padding: 0.15rem 0.35rem;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.palette-unplaced button.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 천장 설비 링 풀이(OE-EQP-04). 편집 팔레트 "설비" 칸 아래 한 줄이고, 3D 처럼 속이 빈 원이다. */
+.ceiling-key {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.ceiling-key i.ring {
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-left: 0.2rem;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
 /* 화살표 풀이. 네모 대신 막대로, 점선은 점선으로 그린다(3D 와 같은 모양). */
 .color-key .key-head {
   margin-top: 0.3rem;
@@ -1288,6 +1618,7 @@ th {
 .kind-edit,
 .system-edit,
 .position-edit,
+.opening-size,
 .storey-move {
   display: flex;
   flex-wrap: wrap;
@@ -2023,6 +2354,42 @@ kbd {
   background: rgb(15 18 24 / 0.35);
 }
 
+/* 편집 종료 확인(OE-COM-08). 단축키 안내와 같은 상자에 폭만 좁다. */
+.exit-edit {
+  width: min(32rem, calc(100% - 2rem));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+}
+
+.exit-edit::backdrop {
+  background: rgb(15 18 24 / 0.35);
+}
+
+.exit-edit-body {
+  padding: 1.1rem 1.4rem 1.2rem;
+}
+
+.exit-edit h2 {
+  margin: 0 0 0.6rem;
+  font-size: 1.1rem;
+}
+
+.exit-edit ul {
+  margin: 0.6rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.exit-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1.1rem;
+}
+
 .shortcut-help-body {
   padding: 1.1rem 1.4rem 1.2rem;
 }
@@ -2129,13 +2496,15 @@ kbd {
   margin-left: 0;
 }
 
-.position-edit label {
+.position-edit label,
+.opening-size label {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
 }
 
-.position-edit .coord {
+.position-edit .coord,
+.opening-size .coord {
   width: 6rem;
 }
 
@@ -2394,7 +2763,8 @@ main.has-model .catalog {
   flex-wrap: wrap;
 }
 
-.side .position-edit .coord {
+.side .position-edit .coord,
+.side .opening-size .coord {
   width: 5.75rem;
 }
 
@@ -2450,8 +2820,28 @@ main.has-model .catalog {
   white-space: nowrap;
 }
 
+/* 사람 지정 해제(OE-MAP-01 · K17). 지정은 남아 있고 기계 판정이 이긴 것이라 주의 색으로 한 줄. */
+.assign-released {
+  display: block;
+  color: var(--warn, #b26b00);
+  font-size: 0.8rem;
+}
+
+/* 사람의 소속 지정 칸. 고르기 상자 아래에 막힌 까닭을 한 줄로. */
+.facts .assign dd {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.facts .assign select {
+  max-width: 100%;
+}
+
 /* 오른쪽 패널의 물리존 이름칸. */
-.space-name {
+.space-name,
+.space-number {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -2459,9 +2849,29 @@ main.has-model .catalog {
   font-size: 0.9rem;
 }
 
-.space-name input {
+.space-name input,
+.space-number input {
   flex: 1;
   min-width: 0;
+}
+
+/* 오브젝트 크기 칸(OE-OBJ-09). 가로·세로·높이를 한 줄에. */
+.object-size {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}
+
+.object-size label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.object-size input {
+  width: 4.5rem;
 }
 
 /* 3D 아래에서 고르면 작업 화면으로 올라온다(selectAndShow). 도구막대에 윗부분이 깔리지 않게. */
@@ -2599,6 +3009,31 @@ main.has-model .catalog {
   pointer-events: none;
 }
 
+/* 무엇 위에 있는지. 설비는 3D 의 상자 테두리와 같은 액센트, 방은 점선과 같은 회색. */
+.hover-tip .tip-kind {
+  margin-right: 0.4rem;
+  padding: 0 0.35rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.hover-tip .tip-kind.equipment {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.hover-tip .tip-kind.space {
+  border: 1px dashed var(--muted);
+  color: var(--muted);
+}
+
+.hover-tip .tip-kind.arrow {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .hover-tip span {
   color: var(--muted);
 }
@@ -2684,6 +3119,20 @@ main.has-model .catalog {
   display: inline-block;
   margin: 0.2rem 0 0;
   padding: 0.1rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+/* 연결 후보(OE-PIP-08). 위반 줄 아래에 들여서 그 줄의 후보로 읽히게 한다. */
+.check-list .fix-candidates {
+  margin: 0.25rem 0 0.4rem 0.75rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--line-soft);
+  font-size: 0.8rem;
+}
+
+.check-list .fix-candidates .ghost {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.5rem;
   font-size: 0.75rem;
 }
 
@@ -2791,6 +3240,17 @@ main.has-model .catalog {
 /* 지우는 버튼. 액센트를 늘리지 않고 오류 색 글자로만 가른다(되돌릴 수 있는 편집이라 크게 경고하지 않는다). */
 .ghost.danger {
   color: var(--error);
+}
+
+/* 잠긴 벽·문·창(내력벽, OE-OBJ-06). 왜 안 움직이는지 패널에서 바로 보이게 한다. */
+.lock-note {
+  margin: 0.6rem 0 0;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--warn-line);
+  border-radius: 6px;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.8rem;
 }
 
 /* 고른 것의 패널 맨 아래 지우기 줄. 이름 칸·나누기 옆에 있어 고치려다 누르기 쉬웠다. 선으로 고치는 칸과 가른다. */
@@ -2998,9 +3458,20 @@ main.has-model .catalog {
   pointer-events: none;
 }
 
+/* 내력벽은 글자색으로 칠한다. 어두운 회색으로 박아 두었더니 다크 테마에서 바탕(#1c1f26)에 묻혀 보통 벽보다 흐렸다. */
 .floor-plan .walls polygon.bearing {
-  fill: #39424e;
-  opacity: 0.9;
+  fill: var(--fg);
+  opacity: 0.85;
+}
+
+.floor-plan .walls polygon.pickable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.floor-plan .walls polygon.chosen {
+  fill: var(--accent);
+  opacity: 1;
 }
 
 .floor-plan .labels text {
@@ -3016,6 +3487,14 @@ main.has-model .catalog {
 
 .floor-plan .devices circle.chosen {
   fill: var(--accent);
+}
+
+/* Shift+끌기 고르기 상자(OE-UI-09). */
+.floor-plan .box-select {
+  fill: var(--accent-soft);
+  fill-opacity: 0.5;
+  stroke: var(--accent);
+  pointer-events: none;
 }
 
 .floor-plan .edit-ring polygon {
@@ -3040,4 +3519,272 @@ main.has-model .catalog {
 }
 .rule-systems .bulk-confirm select {
   margin: 0 0.25rem;
+}
+
+/* 편집 도구 팔레트(PRD #9 의 왼쪽 도구). 왼쪽 위는 색 안내 자리라 왼쪽 아래에 세로로 둔다. */
+.tool-palette {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  /* 넓히지 않는다 — 넓히면 작은 파일에서 건물 모서리(물리존 꼭짓점 손잡이)를 가린다. 공간 그리기 한 줄의 물리존·룸·커스텀존 셋은
+     아래 .palette-row 의 좁은 여백으로 넣는다(글자 88px + 여백 25px = 113px, 들어갈 폭 118px). */
+  width: 8.5rem;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+}
+
+.tool-palette .ghost {
+  font-size: 0.78rem;
+  text-align: left;
+}
+
+.tool-palette .ghost.on {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.tool-palette .palette-head {
+  margin-top: 0.25rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.tool-palette .palette-head:first-child {
+  margin-top: 0;
+}
+
+.tool-palette .palette-row {
+  display: flex;
+  gap: 0.15rem;
+}
+
+.tool-palette .palette-row .ghost {
+  flex: 1 1 auto;
+  padding-inline: 0.15rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* 추가 공간 오브젝트 라이브러리(OE-SPC-14). 펴면 두 줄 격자로, 팔레트가 위로 자란다. */
+.tool-palette .object-library {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem;
+}
+
+.tool-palette .object-library .ghost {
+  padding-inline: 0.3rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tool-palette .object-library .object-import {
+  grid-column: 1 / -1;
+  text-align: center;
+}
+
+.tool-palette .palette-check {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+}
+
+.edit-bar .primary-action {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 팔레트가 왼쪽 아래를 쓰는 동안 그 자리의 안내·경고는 팔레트 오른쪽으로 비킨다. */
+.viewport:has(.tool-palette) .pick-hint,
+.viewport:has(.tool-palette) .edit-notice {
+  left: 10rem;
+  max-width: calc(100% - 10.75rem);
+}
+
+/* ---------- 움직임 (lib/motion.ts · Roll · Meter) ----------
+   전부 "무엇이 바뀌었나" 를 가리키는 데만 쓴다. 색은 액센트와 이미 쓰던 통과·위반 색만이다. */
+.roll {
+  display: inline-block;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 굴러간 숫자에 붙는 작은 튐. 눈이 딴 데 있었어도 돌아왔을 때 "여기가 움직였다" 가 남는다. */
+.num-bump {
+  animation: num-bump 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes num-bump {
+  30% {
+    transform: translateY(-2px) scale(1.06);
+  }
+}
+
+/* 값이 바뀐 줄·칸. 한 번만 번쩍이고 끝난다. 표의 줄은 box-shadow 가 안 먹어서 배경으로 한다. */
+.flash {
+  animation: flash 1.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes flash {
+  0%,
+  20% {
+    background-color: var(--accent-soft);
+  }
+}
+.tiles li.flash {
+  animation-name: tile-flash;
+}
+@keyframes tile-flash {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  25% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.meter {
+  display: flex;
+  overflow: hidden;
+  width: 100%;
+  min-width: 3rem;
+  height: 4px;
+  margin-top: 0.3rem;
+  border-radius: 2px;
+  background: var(--line-soft);
+}
+.meter i {
+  display: block;
+  height: 100%;
+  transition: width 0.9s cubic-bezier(0.33, 0, 0.2, 1);
+}
+.meter i.ok {
+  background: #1f9d7a;
+}
+.meter i.warn {
+  background: #d9a531;
+}
+.meter i.accent {
+  background: var(--accent);
+}
+.meter i.soft {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* 막 확정한 계통의 "확정함". 버튼이 있던 자리에 떠오른다. */
+.rule-state .confirmed {
+  display: inline-block;
+  animation: settle-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes settle-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+}
+
+/* 오른쪽 패널: 고른 것이 바뀌면 빠르게 빠지고 살짝 올라오며 들어온다. 빠지는 쪽을 짧게 둬 누른 뒤 기다리는 느낌이 없게. */
+.swap-leave-active {
+  transition: opacity 0.08s ease;
+}
+.swap-enter-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.swap-leave-to,
+.swap-enter-from {
+  opacity: 0;
+}
+.swap-enter-from {
+  transform: translateY(4px);
+}
+
+/* 패널의 값 칸이 번쩍일 때 글자에 붙지 않게 조금 띄운다. */
+.facts dd.flash {
+  margin-inline: -0.25rem;
+  padding-inline: 0.25rem;
+  border-radius: var(--radius-sm);
+}
+
+/* 내보내기·저장이 끝난 단추. ✓ 가 떠올랐다 사라진다. */
+button.done::after {
+  content: '✓';
+  display: inline-block;
+  margin-left: 0.3rem;
+  color: #1f9d7a;
+  font-weight: 700;
+  animation: done-check 1.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes done-check {
+  0% {
+    opacity: 0;
+    transform: translateY(3px) scale(0.6);
+  }
+  15%,
+  75% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .num-bump,
+  button.done::after,
+  .flash,
+  .tiles li.flash,
+  .rule-state .confirmed {
+    animation: none;
+  }
+  .meter i,
+  .swap-enter-active,
+  .swap-leave-active {
+    transition: none;
+  }
+}
+
+/* 여러 개 고른 설비 패널(OE-UI-09). 이름 옆의 종류는 띄워 쓴다. */
+.group-picked .group-list {
+  margin: 0.5rem 0;
+  padding-left: 1.1rem;
+}
+
+.group-picked .group-list .muted {
+  margin-left: 0.4rem;
+}
+
+/* 벽·문·창 설정(OE-SPC-12 · OE-SPC-13). [벽·문·창] 을 켰을 때 개요 패널에. */
+.overview .element-settings {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.overview .element-settings h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+}
+
+.overview .element-settings label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.overview .element-settings input {
+  width: 5rem;
 }

@@ -110,3 +110,65 @@ export function servedSpaces(
     (a, b) => (a.spaceId === null ? 1 : 0) - (b.spaceId === null ? 1 : 0) || b.supply + b.extract - (a.supply + a.extract),
   )
 }
+
+/**
+ * 계통이 있어야 하는 설비(OE-EQP-10) — VAV 와, 방에 바람을 내거나 거두는 말단(디퓨저·그릴). 계통이 없으면 TTL 에서 어느
+ * 계통의 구성원(`brick:hasPart`)에도 들지 않아, DT 가 "이 급기 계통의 토출구" 를 물을 때 빠진다. BIM 에서 연 그대로는 드물다
+ * (병원 VAV 115·말단 440 은 다 있고 ifc4Mep 의 그릴 5개만 없다). 대부분 편집에서 생긴다 — VAV 를 새로 놓거나, 계통을 지우거나 비울 때.
+ */
+export function needsSystem(e: Equipment | undefined): boolean {
+  return e?.kind === 'vav' || isAirTerminal(e)
+}
+
+/** 계통 없는 VAV·말단. 층 순서, 층 안에서는 모델 순서. */
+export function systemlessAir(model: Model): { equipment: Equipment; storeyName: string }[] {
+  return model.storeys.flatMap((st) => st.equipment.filter((e) => needsSystem(e) && !e.systemId).map((equipment) => ({ equipment, storeyName: st.name })))
+}
+
+export type AirBasis = {
+  /** 흐름을 거슬러 닿는 공기 원천 — 이 설비로 바람을 보내는 쪽(급기). */
+  supplyFrom: string[]
+  /** 흐름을 따라 닿는 공기 원천 — 이 설비에서 바람을 거둬 가는 쪽(환기·배기). */
+  extractTo: string[]
+  /** 흐름을 따라 닿는 말단. VAV 가 바람을 나눠 주는 디퓨저들이다. */
+  terminals: string[]
+}
+
+/**
+ * VAV·말단의 담당 근거(OE-EQP-10). 어느 원천이 이 설비를 맡는지를 흐름 방향으로 찾는다 — `airServices` 를 말단 쪽에서 본 것이다.
+ * 다른 원천과 다른 말단에서는 멈추고, 덕트·VAV·댐퍼는 지나간다. `connections` 는 방향이 정해진 것만 본다(화면과 같은 방향을 넘긴다).
+ */
+export function airBasis(
+  model: Model,
+  connections: readonly Connection[],
+  id: string,
+  byId: ReadonlyMap<string, Equipment> = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e])),
+): AirBasis {
+  const forward = new Map<string, string[]>()
+  const backward = new Map<string, string[]>()
+  for (const c of connections) {
+    if (!c.directed) continue
+    forward.set(c.from, [...(forward.get(c.from) ?? []), c.to])
+    backward.set(c.to, [...(backward.get(c.to) ?? []), c.from])
+  }
+  const walk = (adj: Map<string, string[]>) => {
+    const sources: string[] = []
+    const terminals: string[] = []
+    const seen = new Set([id])
+    const queue = [id]
+    for (let head = 0; head < queue.length; head++) {
+      for (const next of adj.get(queue[head]) ?? []) {
+        if (seen.has(next)) continue
+        seen.add(next)
+        const e = byId.get(next)
+        if (isAirSource(e)) sources.push(next)
+        else if (isAirTerminal(e)) terminals.push(next)
+        else queue.push(next)
+      }
+    }
+    return { sources, terminals }
+  }
+  const up = walk(backward)
+  const down = walk(forward)
+  return { supplyFrom: up.sources, extractTo: down.sources, terminals: down.terminals }
+}

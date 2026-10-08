@@ -531,16 +531,22 @@ export function deviceFlows(
     push(both, c.to, c.from)
   }
 
-  /** 덕트·배관만 지나서 닿는 기기들. */
-  const reach = (start: string, adj: Map<string, string[]>) => {
+  /**
+   * 덕트·배관만 지나서 닿는 기기들. `any` 면 다른 기기 하나를 찾는 대로 멈춘다(`linked` 는 있느냐만 묻는다).
+   *
+   * 큐는 앞에서 빼지 않고 읽는 자리만 옮긴다 — `shift()` 는 매번 배열을 당겨서, 배관 수천 개짜리 연결망을 기기마다
+   * 훑으면 제곱으로 늘었다. 찾는 순서는 같다.
+   */
+  const reach = (start: string, adj: Map<string, string[]>, any = false) => {
     const found = new Set<string>()
     const seen = new Set<string>([start])
     const queue = [...(adj.get(start) ?? [])]
     for (const id of queue) seen.add(id)
-    while (queue.length > 0) {
-      const at = queue.shift()!
+    for (let head = 0; head < queue.length; head++) {
+      const at = queue[head]
       if (!isConduitId(at)) {
         found.add(at)
+        if (any && at !== start) break
         continue
       }
       for (const n of adj.get(at) ?? []) {
@@ -564,7 +570,7 @@ export function deviceFlows(
       fed.add(id)
       for (const d of down) fed.add(d)
     }
-    if (reach(id, both).size > 0) linked.add(id)
+    if (reach(id, both, true).size > 0) linked.add(id)
   }
   return { directed, linked, fed }
 }

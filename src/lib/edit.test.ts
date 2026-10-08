@@ -9,6 +9,8 @@ import {
   drawSpaceFootprint,
   openRing,
   baselineOf,
+  setSpaceNumber,
+  spaceNumberTaken,
   diffBaseline,
   moveEquipment,
   moveEquipmentToStorey,
@@ -46,6 +48,7 @@ import {
   moveWall,
   deleteWall,
   moveOpening,
+  OPENING_ALONG_WALL,
   setWallLoadBearing,
   snapshotStoreyElements,
   setEquipmentSystem,
@@ -54,15 +57,24 @@ import {
   createSystem,
   deleteSystem,
   moveWallWithSpaces,
+  wallLocked,
+  wallsCrossed,
+  newCrossing,
+  wallLength,
+  setWallLength,
+  setOpeningSize,
+  WALL_LOCKED,
+  insertWall,
+  deleteOpening,
   type WallCarryPlan,
   type Snapshot,
   type Change,
 } from './edit'
-import { polygonArea, type Model, type Opening, type Vec2 } from './model'
+import { countOf, polygonArea, unplacedOf, type Model, type Opening, type Vec2, type Wall } from './model'
 import { modelToGeoJSON } from './export/geojson'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred } from './flow-rules'
 import { assignEquipmentToSpaces } from './mapping'
-import { modelToTTL } from './export/ttl'
+import { escapeLocalName, modelToTTL } from './export/ttl'
 
 let api: WebIFC.IfcAPI
 let model: Model
@@ -129,6 +141,36 @@ describe('미배치 설비 배치 (E6)', () => {
     expect(change.toSpaceId).toBe(model.storeys[0].spaces[0].id)
     expect(change.summary).toContain('(소속 없음) 에서 사무실 로 바뀝니다')
   })
+
+  it('미배치 목록은 좌표 없는 설비와 그 층이고, 놓으면 빠지고 되돌리면 돌아온다', () => {
+    // OE-BIM-07 수용 기준 "좌표 없는 설비는 미배치 목록". 층은 BIM 이 말한 것이라 어느 바닥에 놓을지 안다.
+    const listed = () => unplacedOf(model).map((u) => `${u.equipment.name}@${u.storey.name}`)
+    expect(listed()).toEqual(['TEMP-101-01@1F'])
+    expect(unplacedOf(model)).toHaveLength(countOf(model).unplacedEquipment)
+
+    const sensor = equip('TEMP-101-01')
+    const snap = snapshotEquipment(model, sensor.id)
+    moveEquipment(model, sensor.id, [5, 4, 2.5])
+    expect(listed()).toEqual([])
+    restore(model, snap!)
+    expect(listed()).toEqual(['TEMP-101-01@1F'])
+
+    // 좌표 없이 더한 설비도 같은 목록에 든다 — 사람이 3D 에서 놓아야 하는 것은 같다.
+    addEquipment(model, model.storeys[0].id, { name: '새 센서', kind: null, position: null })
+    expect(listed()).toEqual(['TEMP-101-01@1F', '새 센서@1F'])
+  })
+
+  it('미배치 설비는 TTL 에 층까지만, GeoJSON 에 형상 없이 나간다', () => {
+    // 3D 에 없다고 온톨로지에서 빠지지 않는다. 위치는 아는 데(층)까지만 쓰고 지어내지 않는다.
+    const sensor = equip('TEMP-101-01')
+    const ttl = modelToTTL(model)
+    const head = `ex:${escapeLocalName(sensor.id)} a `
+    const block = ttl.slice(ttl.indexOf(head), ttl.indexOf(' .\n', ttl.indexOf(head)))
+    expect(block).toContain(`brick:hasLocation ex:${escapeLocalName(model.storeys[0].id)} ;`)
+    const feature = modelToGeoJSON(model).flatMap((f) => f.collection.features).find((f) => f.id === sensor.id)!
+    expect(feature.geometry).toBe(null)
+    expect(feature.properties).toMatchObject({ storeyId: model.storeys[0].id, spaceId: null })
+  })
 })
 
 describe('좌표 초안', () => {
@@ -176,6 +218,41 @@ describe('층 이동', () => {
 
   it('없는 층이면 아무것도 안 한다', () => {
     expect(moveEquipmentToStorey(model, equip('AHU-1').id, '없는-층')).toBe(null)
+  })
+})
+
+describe('방번호 (OE-OBJ-02)', () => {
+  it('같은 층에서 방번호가 겹치면 막고, 공간명은 겹쳐도 된다', () => {
+    model.storeys[0].spaces.push({ id: 'b', name: '102', longName: '사무실', footprint: [], areaM2: 0, boundedBy: [] })
+    const office = model.storeys[0].spaces[0]
+    expect(setSpaceNumber(model, office.id, '102')).toEqual({ refused: expect.stringContaining('방번호 102가 이미 있습니다') })
+    expect(office.name).toBe('101')
+    expect(setSpaceNumber(model, office.id, '103')).toBe(true)
+    expect(office.name).toBe('103')
+    // 공간명은 같아도 된다
+    expect(renameSpace(model, office.id, '사무실')).toBe(true)
+    // 빈 번호는 아직 안 정한 것이라 겹쳐도 된다
+    expect(spaceNumberTaken(model, model.storeys[0].id, '')).toBeNull()
+  })
+
+  it('고친 방번호는 연 때와 견주면 뜨고, 되돌리기로 돌아온다', () => {
+    const base = baselineOf(model)
+    const office = model.storeys[0].spaces[0]
+    const snap = snapshotSpace(model, office.id)!
+    setSpaceNumber(model, office.id, '101A')
+    expect(diffBaseline(model, base).renumbered).toEqual([{ spaceId: office.id, from: '101', to: '101A' }])
+    restore(model, snap)
+    expect(office.name).toBe('101')
+    expect(diffBaseline(model, base).renumbered).toEqual([])
+  })
+
+  it('나눈 조각의 방번호는 그 층에서 겹치지 않는 다음 번호다', () => {
+    const office = model.storeys[0].spaces[0]
+    model.storeys[0].spaces.push({ id: 'c', name: `${office.name}-2`, longName: '창고', footprint: [], areaM2: 0, boundedBy: [] })
+    const done = splitSpace(model, office.id, [5, -1], [5, 9])!
+    expect('refused' in done).toBe(false)
+    const piece = model.storeys[0].spaces.find((sp) => sp.id !== office.id && sp.id !== 'c' && sp.added)!
+    expect(piece.name).toBe(`${office.name}-3`)
   })
 })
 
@@ -279,7 +356,7 @@ describe('물리존 경계 수정 (E2)', () => {
     expect(change.equipment.map((c) => c.equipmentName)).not.toContain('AHU-1')
   })
 
-  it('BIM 이 소속을 말한 설비는 경계를 바꿔도 그대로다', () => {
+  it('BIM 이 소속을 말한 설비도 사람이 경계를 고치면 좌표로 다시 판정한다(Q13)', () => {
     // LIGHT-101-01 은 좌표가 (50,50) 으로 밖인데 IFC 가 사무실에 담아 두었다.
     const light = equip('LIGHT-101-01')
     replaceSpaceFootprint(model, office().id, [
@@ -289,8 +366,8 @@ describe('물리존 경계 수정 (E2)', () => {
       [0, 1],
       [0, 0],
     ])
-    expect(light.spaceId).toBe(office().id)
-    expect(light.spaceSource).toBe('bim')
+    expect(light.spaceId).toBe(null)
+    expect(light.spaceSource).toBe(null)
   })
 
   it('닫힌 고리의 첫 점을 옮기면 끝 점도 따라온다', () => {
@@ -537,6 +614,19 @@ describe('타입 단위 종류 지정', () => {
     expect([a.kind, b.kind]).toEqual(['air_diffuser', 'air_diffuser'])
   })
 
+  it('한 대만 따로 정하면(`#id`) 그 설비만 바뀌고, 편집 파일에는 그 설비 한 줄로 적힌다 (OE-EQP-14)', () => {
+    equip('AT-101-01').objectType = 'M_Return Register:600'
+    equip('AT-101-02').objectType = 'M_Return Register:600'
+    const [a, b] = ['AT-101-01', 'AT-101-02'].map(equip)
+    expect(setTypeKind(model, `#${a.id}`, 'air_grille')!.count).toBe(1)
+    expect([a.kind, b.kind]).toEqual(['air_grille', 'air_diffuser'])
+    // 타입 줄로 적으면 다시 열 때 b 에도 번진다 — 그 설비 한 줄이다.
+    expect(kindEdits(model)).toEqual([{ typeKey: `#${a.id}`, count: 1, from: 'air_diffuser', to: 'air_grille' }])
+    // 나머지도 같은 종류로 정하면 타입이 다 같아져 다시 타입 한 줄이다.
+    setTypeKind(model, `#${b.id}`, 'air_grille')
+    expect(kindEdits(model)).toEqual([{ typeKey: typeKeyOf(a), count: 2, from: 'air_diffuser', to: 'air_grille' }])
+  })
+
   it('사전 값으로 되돌리면 편집이 아니고 리포트에서 빠진다', () => {
     const key = typeKeyOf(equip('AHU-1'))
     setTypeKind(model, key, 'fcu')
@@ -612,6 +702,7 @@ describe('연 때와 견주기', () => {
     moveEquipmentToStorey(model, equip('AT-101-01').id, model.storeys[0].id)
     expect(diffBaseline(model, base)).toEqual({
       renamed: [],
+      renumbered: [],
       moved: [],
       restoreyed: [],
       connected: [],
@@ -621,14 +712,17 @@ describe('연 때와 견주기', () => {
       equipmentAdded: [],
       equipmentRemoved: [],
       equipmentRenamed: [],
+      equipmentMounted: [],
       wallsAdded: [],
       wallsRemoved: [],
       wallsChanged: [],
       openingsAdded: [],
       openingsRemoved: [],
       openingsMoved: [],
+      customZones: [],
       systemMoved: [],
       systemKinds: [],
+      systemNames: [],
       systemsAdded: [],
       systemsRemoved: [],
     })
@@ -725,6 +819,20 @@ describe('설비 추가·삭제·이름 (E7)', () => {
     expect(modelToTTL(model)).toBe(before)
   })
 
+  it('이름을 고친 설비도 같은 패밀리 일괄 종류 지정에 든다 — 패밀리는 BIM 이 준 이름으로 묶는다 (OE-EQP-13)', () => {
+    const [a, b] = ['AT-101-01', 'AT-101-02'].map(equip)
+    a.name = 'M_Supply Diffuser:600 x 600:1'
+    b.name = 'M_Supply Diffuser:600 x 600:2'
+    b.ifcClass = a.ifcClass
+    const key = familyKeyOf(a)
+    expect(familyKeyOf(b)).toBe(key)
+    // 사람이 태그로 바꾼 이름은 Revit 모양이 아니다. 그래도 패밀리는 그대로다.
+    expect(renameEquipment(model, a.id, 'SD-101')).toBe(true)
+    expect(familyKeyOf(a)).toBe(key)
+    expect(setTypeKind(model, key, 'air_grille')!.count).toBe(2)
+    expect([a.kind, b.kind]).toEqual(['air_grille', 'air_grille'])
+  })
+
   it('이름을 고치면 label 이 바뀌고, 연 때와 견주면 이름 줄에 뜬다', () => {
     const base = baselineOf(model)
     const ahu = equip('AHU-1')
@@ -806,7 +914,7 @@ describe('벽·문·창 편집 (E4)', () => {
   const office = () => model.storeys[0].spaces[0]
   // 사무실(0..10 × 0..8) 오른쪽에 벽 하나(x=10, 두께 0.2)를 긋고, 그 너머에 창고를 둔다.
   const setup = () => {
-    const wall = addWall(model, storey().id, [10.1, 0], [10.1, 8], 0.2)!
+    const wall = addWall(model, storey().id, [10.1, 0], [10.1, 8], 0.2) as Wall
     const store = createSpace(model, storey().id, { name: '102', longName: '창고', footprint: [[10.2, 0], [14, 0], [14, 8], [10.2, 8]] })!.created[0]
     return { wall, store }
   }
@@ -827,9 +935,39 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(door.connectsSource).toBe('calc')
   })
 
+  it('문·창은 뚫린 벽을 따라서만 옮기고, 벽 밖·벽 끝 너머로는 가지 않는다 (OE-OBJ-07)', () => {
+    const { wall } = setup()
+    const door = addOpening(model, storey().id, 'door', [10.12, 4]) as Opening
+    door.width = 1
+    // 벽(x=10.1, y 0..8) 쪽으로 비스듬히 밀면 길이 방향(y)만 따르고, 벽과의 옆 간격(x=10.12)은 그대로다.
+    expect(moveOpening(model, door.id, [11.5, 5])).toBe(true)
+    expect(door.position).toEqual([10.12, 5, 0])
+    // 벽에 수직으로만 밀면 옮기지 않고 이유를 돌려준다.
+    expect(moveOpening(model, door.id, [12, 5])).toEqual({ refused: OPENING_ALONG_WALL })
+    // 벽 끝 너머로 밀면 가로(1m)의 절반이 벽 안에 남는 자리에서 멈추고, 이미 끝이면 이유를 돌려준다.
+    expect(moveOpening(model, door.id, [10.1, 20])).toBe(true)
+    expect(door.position![1]).toBeCloseTo(7.5)
+    expect(moveOpening(model, door.id, [10.1, 9])).toEqual({ refused: expect.stringContaining('벽 끝') })
+    expect(door.wallId).toBe(wall.id)
+  })
+
   it('벽에서 먼 자리에는 놓지 않는다', () => {
     setup()
     expect(addOpening(model, storey().id, 'window', [5, 4])).toEqual({ refused: expect.stringContaining('벽에서') })
+  })
+
+  // OE-OBJ-07 수용 기준: 외벽 개구부 = 창, 내벽 개구부 = 문으로 나누지 않는다(#288). 실제 BIM 도 외벽에 현관문을 둔다.
+  it.each([
+    ['외벽', true],
+    ['내벽', false],
+    ['외벽 여부 모름', null],
+  ] as const)('%s 에도 문과 창을 둘 다 놓는다', (_, external) => {
+    const { wall } = setup()
+    wall.external = external
+    const door = addOpening(model, storey().id, 'door', [10.1, 2]) as Opening
+    const window = addOpening(model, storey().id, 'window', [10.1, 6]) as Opening
+    expect([door.kind, door.wallId]).toEqual(['door', wall.id])
+    expect([window.kind, window.wallId]).toEqual(['window', wall.id])
   })
 
   it('벽을 옮기면 뚫린 문도 같이 가고, 잇는 방을 다시 짚는다', () => {
@@ -866,6 +1004,91 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(setWallLoadBearing(model, wall.id, true)).toBe(true)
     expect(setWallLoadBearing(model, wall.id, null)).toBe(true)
     expect(wall.loadBearing).toBeNull()
+  })
+
+  // OE-OBJ-06. 잠그는 것은 true 뿐이다 — 모름(null)까지 잠그면 내력 속성이 없는 파일의 벽을 하나도 못 고친다.
+  it('내력벽은 옮기거나 지우지 못하고, 거기 뚫린 문·창도 그렇다. 모름은 잠그지 않는다', () => {
+    const { wall } = setup()
+    const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening
+    setWallLoadBearing(model, wall.id, true)
+    const before = JSON.stringify(modelToGeoJSON(model))
+    expect(wallLocked(wall)).toBe(true)
+    expect(moveWall(model, wall.id, [1, 0])).toBe(false)
+    expect(moveWallWithSpaces(model, wall.id, [1, 0])).toBeNull()
+    expect(deleteWall(model, wall.id)).toBeNull()
+    expect(moveOpening(model, door.id, [10.1, 5])).toBe(false)
+    expect(deleteOpening(model, door.id)).toBe(false)
+    expect(addOpening(model, storey().id, 'window', [10.1, 1])).toEqual({ refused: expect.stringContaining('내력벽') })
+    expect(JSON.stringify(modelToGeoJSON(model))).toBe(before)
+    // 내력 여부를 고치면 풀린다. 모름은 내벽 규칙이다.
+    setWallLoadBearing(model, wall.id, null)
+    expect(wallLocked(wall)).toBe(false)
+    expect(moveOpening(model, door.id, [10.1, 5])).toBe(true)
+    expect(moveWall(model, wall.id, [1, 0])).toBe(true)
+  })
+
+  // OE-OBJ-05. 끝을 맞대는 것(L·T)은 되고, 몸통을 가로지르는 것(X)은 안 된다.
+  it('벽은 다른 벽을 가로질러 긋지 못하고, 끝을 맞대거나 안으로 조금 들이는 것은 된다', () => {
+    const { wall } = setup()
+    // T: 끝이 벽 면에 닿는다 / 벽 중심선까지 들어온다 / 반 두께 + 5cm 안에서 넘는다.
+    expect(addWall(model, storey().id, [5, 4], [10, 4])).toMatchObject({ id: expect.any(String) })
+    expect(addWall(model, storey().id, [5, 6], [10.1, 6])).toMatchObject({ id: expect.any(String) })
+    expect(addWall(model, storey().id, [5, 7], [10.24, 7])).toMatchObject({ id: expect.any(String) })
+    // X: 반대쪽으로 빠져나간다.
+    expect(addWall(model, storey().id, [5, 2], [12, 2])).toEqual({ refused: expect.stringContaining('가로지릅니다') })
+    // L: 모서리에서 만난다.
+    expect(addWall(model, storey().id, [10.1, 8], [14, 8])).toMatchObject({ id: expect.any(String) })
+    expect(wallsCrossed(storey(), wall.footprint!, wall.id)).toEqual([])
+  })
+
+  it('옮겨서 새로 가로지르게 되면 옮기지 않고, 원래 가로지르던 벽은 옮길 수 있다', () => {
+    const { wall } = setup()
+    const stem = addWall(model, storey().id, [5, 4], [10, 4]) as Wall
+    // 줄기를 벽 쪽으로 30cm 밀면 벽을 뚫고 나간다.
+    expect(moveWall(model, stem.id, [0.3, 0])).toBe(false)
+    expect(newCrossing(model, stem.id, stem.footprint!.map((r) => r.map(([x, y]) => [x + 0.3, y] as Vec2)))?.id).toBe(wall.id)
+    // BIM 이 이미 가로지르게 그린 벽(여기서는 편집 파일이 얹은 것처럼 바로 둔다)은 다른 방향으로 옮길 수 있다.
+    insertWall(model, storey().id, { id: 'X', name: 'BIM 관통벽', thickness: 0.2, loadBearing: null, footprint: [[[9, 1.9], [12, 1.9], [12, 2.1], [9, 2.1], [9, 1.9]]] })
+    expect(wallsCrossed(storey(), wall.footprint!, wall.id).map((w) => w.id)).toEqual(['X'])
+    expect(moveWall(model, 'X', [0, 0.5])).toBe(true)
+  })
+
+  it('직사각형 벽은 가운데를 두고 길이를 바꾸고, 문이 밖으로 나가거나 다른 벽을 뚫게 되면 바꾸지 않는다', () => {
+    const { wall } = setup()
+    expect(wallLength(wall)).toBeCloseTo(8)
+    expect(setWallLength(model, wall.id, 6)).toBe(true)
+    expect(wallLength(wall)).toBeCloseTo(6)
+    const ys = wall.footprint![0].map((p) => p[1])
+    expect([Math.min(...ys), Math.max(...ys)].map((v) => +v.toFixed(6))).toEqual([1, 7])
+    addOpening(model, storey().id, 'door', [10.1, 6.5])
+    expect(setWallLength(model, wall.id, 4)).toEqual({ refused: expect.stringContaining('벽 밖으로') })
+    // 가로로 지나는 벽까지 늘이면 뚫는다.
+    addWall(model, storey().id, [8, 8.5], [12, 8.5])
+    expect(setWallLength(model, wall.id, 9)).toBe(true)
+    expect(setWallLength(model, wall.id, 12)).toEqual({ refused: expect.stringContaining('가로지릅니다') })
+    setWallLoadBearing(model, wall.id, true)
+    expect(setWallLength(model, wall.id, 8)).toEqual({ refused: WALL_LOCKED })
+  })
+
+  // OE-OBJ-07. 자리(가운데)는 두고 가로·세로만 바꾼다.
+  it('문·창 가로·세로를 바꾸고, 벽 끝을 넘거나 범위 밖이거나 내력벽이면 바꾸지 않는다', () => {
+    const { wall } = setup()
+    const base = baselineOf(model)
+    const win = addOpening(model, storey().id, 'window', [10.1, 2]) as Opening
+    const snap = snapshotStoreyElements(model, storey().id)!
+    expect(setOpeningSize(model, win.id, { width: 1.2, height: 1.5 })).toBe(true)
+    restore(model, snap)
+    expect([win.width, win.height]).toEqual([null, null])
+    expect(setOpeningSize(model, win.id, { width: 1.2, height: 1.5 })).toBe(true)
+    expect([win.width, win.height, win.position![1]]).toEqual([1.2, 1.5, 2])
+    // 벽은 y 0..8, 창 가운데 y=2 → 가로 4 를 넘으면 벽 끝을 넘는다.
+    expect(setOpeningSize(model, win.id, { width: 4.2 })).toEqual({ refused: expect.stringContaining('벽 끝') })
+    expect(setOpeningSize(model, win.id, { height: 0 })).toEqual({ refused: expect.stringContaining('0.1m') })
+    expect(setOpeningSize(model, win.id, { width: 1.2 })).toBe(false)
+    setWallLoadBearing(model, wall.id, true)
+    expect(setOpeningSize(model, win.id, { width: 1 })).toEqual({ refused: WALL_LOCKED })
+    // 더한 창이라 "옮김·크기" 가 아니라 더한 것으로만 뜬다.
+    expect(diffBaseline(model, base).openingsAdded.map((o) => o.id)).toEqual([win.id])
   })
 
   it('연 때와 견주면 더한 벽·옮긴 문이 뜨고, 지운 벽의 문은 따로 세지 않는다', () => {
@@ -1079,5 +1302,57 @@ describe('계통 만들기·지우기 (E8)', () => {
     inferFlowByRules(model)
     expect(w.fluid).toBe('hot')
     expect(createSystem(model, { name: 'x', kind: 'no_such' })).toBe(null)
+  })
+})
+
+describe('경계를 고친 뒤의 소속 — 바뀔 수 있는 설비만 다시 재도 층 전부를 다시 잰 것과 같다', () => {
+  // 방 하나를 고치면 그 방 소속이던 설비와 새 경계 근처의 설비만 다시 판정한다(reassignStoreyWith). 빠뜨리면 경계 밖으로 나간
+  // 설비가 예전 방에 남거나, 새로 들어온 설비가 소속 없음으로 남는다. 편집마다 층 전부를 다시 잰 답과 대 본다.
+  let seed = 11
+  const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648)
+  const rect = (x: number, y: number, w: number, h: number): Vec2[] => [[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y]]
+
+  it('꼭짓점 옮기기·경계 갈아 끼우기·되돌리기 150번', () => {
+    const spaces = []
+    for (let i = 0; i < 12; i++) {
+      const fp = rect((i % 4) * 4.24, Math.floor(i / 4) * 4.24, 4, 4)
+      spaces.push({ id: `r${i}`, name: `r${i}`, longName: '', footprint: fp, areaM2: polygonArea(fp), boundedBy: [] })
+    }
+    // 큰 방 하나가 여럿을 품는다(병원 대기실처럼 겹친다).
+    const hall = rect(2, 2, 9, 6)
+    spaces.push({ id: 'hall', name: 'hall', longName: '', footprint: hall, areaM2: polygonArea(hall), boundedBy: [] })
+    const equipment = Array.from({ length: 600 }, (_, i) => {
+      // 셋 중 하나는 벽면(외곽선 위·SNAP 근처)에 둔다. 판정이 갈리는 자리다.
+      const onWall = i % 3 === 0
+      const x = onWall ? Math.round(rand() * 4) * 4.24 + (rand() - 0.5) * 0.12 : rand() * 17
+      const y = rand() * 13
+      return { id: `e${i}`, name: `e${i}`, ifcClass: 'IfcFlowTerminal', role: null, position: [x, y, 0.5] as const, capacity: null, capacityProperty: null, systemId: null, spaceId: null, spaceSource: null }
+    })
+    const m = {
+      schema: 'IFC4', siteName: '', buildingId: 'b', buildingName: 'b', systems: [], connections: [], warnings: [],
+      storeys: [{ id: 's', name: '1F', elevation: 0, spaces, walls: [], openings: [], equipment }],
+    } as unknown as Model
+    assignEquipmentToSpaces(m)
+    const membership = (x: Model) => x.storeys[0].equipment.map((e) => `${e.id}:${e.spaceId}`)
+    let moved = 0
+    for (let step = 0; step < 150; step++) {
+      const sp = m.storeys[0].spaces[Math.floor(rand() * m.storeys[0].spaces.length)]
+      const op = step % 3
+      const undo = snapshotSpace(m, sp.id)!
+      if (op === 0) {
+        const [x, y] = sp.footprint[1]
+        moveSpaceVertex(m, sp.id, 1, [x + (rand() - 0.5) * 6, y + (rand() - 0.5) * 6])
+      } else if (op === 1) {
+        replaceSpaceFootprint(m, sp.id, rect(rand() * 14, rand() * 10, 1 + rand() * 6, 1 + rand() * 6))
+      } else {
+        moveSpaceVertex(m, sp.id, 2, [rand() * 17, rand() * 13])
+        restore(m, undo)
+      }
+      const full = structuredClone(m)
+      assignEquipmentToSpaces(full)
+      expect(membership(m)).toEqual(membership(full))
+      moved++
+    }
+    expect(moved).toBe(150)
   })
 })

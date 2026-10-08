@@ -6,6 +6,7 @@ import { anchorToGeometry, importIfc, numbers, UnreadableIfcError, type MeshMap 
 import { countOf, type Equipment, type Model } from '../model'
 import { trace } from '../topology'
 import { requirementsReport } from '../requirements'
+import { mergeModels } from '../merge'
 
 // 픽스처는 손으로 쓴 최소 IFC4 다(fixtures/two-rooms.ifc). 무엇이 들어가면 무엇이 나오는지
 // 파일 하나만 열어 보면 다 보이도록, 바깥에서 받아 온 큰 모델 대신 이걸 기준으로 삼는다.
@@ -117,6 +118,8 @@ describe('빠진 것을 조용히 넘기지 않는다', () => {
     expect(walls.find((w) => w.name === 'W-1F-01')?.loadBearing).toBe(true)
     expect(walls.find((w) => w.name === 'W-1F-02')?.loadBearing).toBe(false)
     expect(walls.find((w) => w.name === 'W-1F-03')?.loadBearing).toBe(null)
+    // 외벽 여부(IsExternal)도 같은 모양이다. 선언이 없으면 모름이다(OE-OBJ-07).
+    expect(walls.map((w) => [w.name, w.external])).toEqual(expect.arrayContaining([['W-1F-01', true], ['W-1F-02', false], ['W-1F-03', null]]))
   })
 })
 
@@ -211,6 +214,17 @@ describe('MEP 임포트', () => {
     expect(byName('AHU-1').systemId).toBe(mep.systems[0].id)
     expect(byName('AT-101-01').systemId).toBe(mep.systems[0].id)
     expect(byName('TEMP-101-01').systemId).toBe(null)
+  })
+
+  it('계통 그룹에 든 포트는 구성원으로 받지 않는다 (Revit, 성수)', async () => {
+    // 성수 기계는 계통 그룹에 기기와 그 기기의 포트를 같이 넣었다. 포트를 받으면 TTL 의 hasPart 가 없는 주어를 가리킨다.
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const path = fileURLToPath(new URL('./fixtures/mep.ifc', import.meta.url))
+    const text = readFileSync(path, 'utf8').replace('(#33,#43,#47,#53),$,#70)', '(#33,#43,#47,#53,#80,#82),$,#70)')
+    expect(text).toContain('#53,#80,#82')
+    const withPorts = importIfc(api, new TextEncoder().encode(text))
+    expect(withPorts.systems[0].memberIds).toEqual(mep.systems[0].memberIds)
   })
 
   it('포트 연결을 읽고, SOURCE→SINK 를 흐름 방향으로 쓴다', () => {
@@ -476,7 +490,21 @@ describe('Proxy 로 들어온 설비', () => {
     const arrows = proxy.connections.map((c) => [c.inferred?.from, c.inferred?.to])
     expect(arrows).toContainEqual([fcu, duct])
     expect(arrows).toContainEqual([duct, diffuser])
-    expect(proxy.warnings.some((w) => w.includes('Proxy(IfcBuildingElementProxy) 2개'))).toBe(true)
+    expect(proxy.warnings.some((w) => w.includes('Proxy(IfcBuildingElementProxy) 3개 중 2개를 설비로 읽었습니다'))).toBe(true)
+  })
+
+  // OE-BIM-13 "Proxy 수 리포트". 읽은 것만 세면 빠뜨린 설비가 보이지 않는다 — 파일의 전체와 읽지 않은 것(이름 예)까지 센다.
+  it('파일의 Proxy 를 전부 세고, 읽지 않은 것을 이름과 함께 경고·요구사항 R23 에 적는다', () => {
+    expect(proxy.facts?.proxies).toEqual({ total: 3, ported: 1, named: 1, skipped: ['RThisWheelStops850:850'] })
+    const warning = proxy.warnings.find((w) => w.startsWith('Proxy('))!
+    expect(warning).toContain('나머지 1개는 포트도 없고 이름도 사전에 없어 건축 부재로 보고 읽지 않았습니다(예: RThisWheelStops850:850)')
+    const r23 = requirementsReport(proxy).find((r) => r.id === 'R23')!
+    // 기기 셋(덕트는 빼고) 중 Proxy 로 들어온 둘이 다른 자리다.
+    expect(r23.counts).toEqual({ standard: 1, elsewhere: 2, of: 3 })
+    expect(r23.note).toContain('파일의 Proxy 3개 중 1개는 포트도 이름도 없어 건축 부재로 보고 읽지 않았습니다')
+    // 합치면 두 파일의 Proxy 를 더한다.
+    const twice = mergeModels(proxy, structuredClone(proxy)).model
+    expect(twice.facts?.proxies).toMatchObject({ total: 6, ported: 2, named: 2, skipped: ['RThisWheelStops850:850'] })
   })
 })
 

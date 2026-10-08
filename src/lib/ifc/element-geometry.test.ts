@@ -82,4 +82,14 @@ describe('문·창의 자리', () => {
     const outer = openingPlacement(boxes({ cx: 2, cy: -0.1, w: 0.9, d: 0.2, h: 2.1 }))!
     expect(spacesBesideOpening(outer, spaces)).toEqual(['A'])
   })
+
+  it('방이 겹친 자리면 가장 작은 방을 짚는다 — 목록 순서와 상관없다', () => {
+    // 병원 건축의 복도(1AC1)처럼 큰 방이 작은 방 여럿을 품는다. 첫 방을 고르면 문이 복도로 이어져 버렸다(236 중 4개).
+    const hall = square('hall', 0, 0, 20, 20)
+    const office = square('office', 0, 0, 5, 5)
+    const lab = square('lab', 0, 5.2, 5, 10)
+    const door = openingPlacement(boxes({ cx: 2, cy: 5.1, w: 0.9, d: 0.2, h: 2.1 }))!
+    expect(spacesBesideOpening(door, [hall, office, lab]).sort()).toEqual(['lab', 'office'])
+    expect(spacesBesideOpening(door, [office, lab, hall]).sort()).toEqual(['lab', 'office'])
+  })
 })

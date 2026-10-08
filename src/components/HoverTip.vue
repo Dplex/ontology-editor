@@ -7,6 +7,8 @@ import { ref } from 'vue'
 
 const on = ref(false)
 const title = ref('')
+const kind = ref<'equipment' | 'space' | 'arrow'>('equipment')
+const KIND_LABEL = { equipment: '설비', space: '물리존', arrow: '연결' } as const
 const lines = ref<string[]>([])
 const left = ref(0)
 const top = ref(0)
@@ -22,7 +24,8 @@ function place(at: { x: number; y: number }) {
   top.value = at.y + GAP + h > window.innerHeight ? Math.max(4, at.y - GAP - h) : at.y + GAP
 }
 
-function show(t: string, detail: string[], at: { x: number; y: number }) {
+function show(k: 'equipment' | 'space' | 'arrow', t: string, detail: string[], at: { x: number; y: number }) {
+  kind.value = k
   title.value = t
   lines.value = detail
   on.value = true
@@ -42,7 +45,7 @@ defineExpose({ show, move, hide })
 
 <template>
   <div v-show="on" ref="box" class="hover-tip" role="tooltip" :style="{ left: `${left}px`, top: `${top}px` }">
-    <b>{{ title }}</b>
+    <b><em class="tip-kind" :class="kind">{{ KIND_LABEL[kind] }}</em>{{ title }}</b>
     <span v-for="l in lines" :key="l">{{ l }}</span>
   </div>
 </template>

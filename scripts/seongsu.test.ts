@@ -1,6 +1,4 @@
-import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import * as WebIFC from 'web-ifc'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -9,6 +7,8 @@ import { isConduit, type Equipment, type Model, type Vec2 } from '../src/lib/mod
 import { interiorPoint, locate, pointInPolygon } from '../src/lib/mapping'
 import { ALIGNMENT_MIN_RATIO, mergeModels, type MergeReport } from '../src/lib/merge'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
+import { readOntologyTTL } from '../src/lib/export/read-ttl'
+import { crossCheck, readGeoJSON } from '../src/lib/export/read-export'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
 import { disposeScene, modelToScene, sceneToGLB, sceneToOBJ } from '../src/lib/export/mesh3d'
 import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from '../src/lib/flow-rules'
@@ -51,7 +51,6 @@ import { fuzzEdits } from '../src/lib/edit-fuzz'
 const ARCH = process.env.SEONGSU_ARCH ?? 'data/성수/Factorial_건축.ifc'
 const MECH = process.env.SEONGSU_MECH ?? 'data/성수/Factorial_기계.ifc'
 const REPORT = join(dirname(ARCH), '측정-결과.md')
-const TTL_GO = '../ieum-pipeline/internal/ontology/ttl.go'
 
 const have = existsSync(ARCH) && existsSync(MECH)
 
@@ -172,6 +171,13 @@ describe.skipIf(!have)('성수 불변식', () => {
     expect(missing.slice(0, 20)).toEqual([])
   }, 300_000)
 
+  it('TTL 의 관계가 가리키는 주어가 전부 있고, GeoJSON 과 소속이 같다 (뷰어의 검사)', () => {
+    // 성수는 계통 그룹에 포트까지 들어 있어서, 포트를 구성원으로 받았을 때 끊긴 hasPart 가 39,302 였다(병원·Duplex 에는 없는 버릇).
+    const floors = modelToGeoJSON(merged).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
+    const check = crossCheck(readOntologyTTL(modelToTTL(merged)), floors)
+    expect({ ...check, toUnread: 0, dangling: check.dangling.slice(0, 5) }).toEqual({ notInTtl: [], dangling: [], toUnread: 0, locationMismatch: [], doorLinks: [] })
+  }, 300_000)
+
   it('합친 두 파일의 좌표계가 맞는다(기계 설비 대부분이 건축 방 범위 안)', () => {
     // 덧붙인 파일에 좌표 있는 설비가 없으면(구조 파일 등) 잴 것이 없다.
     if (!mergeReport.alignment) return
@@ -268,7 +274,7 @@ describe.skipIf(!have)('성수 불변식', () => {
     if (typeof parsed === 'string') throw new Error(parsed)
     const fresh = structuredClone(pristine)
     const result = timed('편집 파일 불러오기', () => applyEdits(fresh, parsed))
-    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0 })
+    expect(result.missing).toEqual({ equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0, storeys: 0 })
     const reloaded = exportsOf(fresh)
     expect(reloaded.ttl === edited.ttl).toBe(true)
     expect(reloaded.geo === edited.geo).toBe(true)
@@ -294,8 +300,8 @@ describe.skipIf(!have)('성수 불변식', () => {
     const t = performance.now()
     for (let seed = 1; seed <= 3; seed++) {
       const r = fuzzEdits(pristine, seed, 30)
-      if (!r.reloadSame || r.missing || !r.undoSame) {
-        failed.push(`seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}\n${r.detail ?? ''}`)
+      if (!r.reloadSame || r.missing || !r.undoSame || !r.redoSame) {
+        failed.push(`seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} · 다시 하기 ${r.redoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}\n${r.detail ?? ''}`)
       }
     }
     timings.push(['무작위 편집 30개 × 씨앗 3', (performance.now() - t) / 1000])
@@ -319,49 +325,22 @@ function dist(a: Equipment, b: Equipment): number {
   return Math.hypot(a.position![0] - b.position![0], a.position![1] - b.position![1], a.position![2] - b.position![2])
 }
 
-// --- 받는 쪽(ttl.go)에서 성수가 읽히는가 ---------------------------------------------------------------
-let hasGo = false
-try {
-  execFileSync('go', ['version'])
-  hasGo = true
-} catch {
-  // go 가 없으면 이 묶음을 건너뛴다.
-}
-
-describe.skipIf(!have || !existsSync(TTL_GO) || !hasGo)('성수 TTL 을 ieum-pipeline 의 ttl.go 가 읽는가', () => {
-  type Parsed = { Key: string; BrickClass: string; Label: string; Feeds: string[] | null; Locations: string[] | null; Parts: string[] | null }
-  let bin = ''
-  beforeAll(() => {
-    const dir = mkdtempSync(join(tmpdir(), 'ttlgo-'))
-    mkdirSync(join(dir, 'ontology'))
-    copyFileSync(TTL_GO, join(dir, 'ontology', 'ttl.go'))
-    writeFileSync(join(dir, 'go.mod'), 'module ttlcheck\n\ngo 1.22\n')
-    writeFileSync(join(dir, 'main.go'), [
-      'package main',
-      'import ("encoding/json"; "os"; "ttlcheck/ontology")',
-      'func main() {',
-      '  ents, err := ontology.Parse(os.Stdin)',
-      '  if err != nil { panic(err) }',
-      '  json.NewEncoder(os.Stdout).Encode(ents)',
-      '}',
-    ].join('\n'))
-    bin = join(dir, process.platform === 'win32' ? 'ttlcheck.exe' : 'ttlcheck')
-    execFileSync('go', ['build', '-o', bin, '.'], { cwd: dir })
-  }, 300_000)
-  const parse = (ttl: string): Parsed[] => JSON.parse(execFileSync(bin, { input: ttl, maxBuffer: 1 << 30 }).toString())
-  const unescapeKey = (key: string) => key.replace(/\\(.)/g, '$1')
+// --- 받는 쪽 규칙(read-ttl.ts — ttl.go 의 규칙을 옮긴 것)으로 성수가 읽히는가 ---------------------------------
+// 예전에는 옆 저장소의 ttl.go 를 go 로 빌드해 읽었다. 다른 저장소의 체크아웃 상태에 결과가 매여서 이 repo 안의 리더로 바꿨다.
+describe.skipIf(!have)('성수 TTL 을 받는 쪽 규칙으로 읽는가', () => {
+  const parse = (ttl: string) => readOntologyTTL(ttl).entities
 
   it('기계만 열어도 모든 기기가 위치(층)를 갖고 받는 쪽에 닿는다', () => {
     const ents = parse(mechTTL)
-    const byKey = new Map(ents.map((e) => [unescapeKey(e.Key), e]))
-    const noLocation = mechDeviceIds.filter((id) => !(byKey.get(id)?.Locations?.length))
-    section('ttl.go (기계만)', [`- 엔티티 ${ents.length} · 위치가 없는 기기 ${noLocation.length}`])
+    const byKey = new Map(ents.map((e) => [e.key, e]))
+    const noLocation = mechDeviceIds.filter((id) => !(byKey.get(id)?.locations.length))
+    section('받는 쪽 규칙 (기계만)', [`- 엔티티 ${ents.length} · 위치가 없는 기기 ${noLocation.length}`])
     expect(noLocation.length).toBe(0)
   }, 600_000)
 
   it('건축+기계: 기기→기기 흐름이 전부 닿고, 소속이 있는 기기는 그 방을 위치로 갖는다', () => {
     const ents = parse(modelToTTL(pristine))
-    const byKey = new Map(ents.map((e) => [unescapeKey(e.Key), e]))
+    const byKey = new Map(ents.map((e) => [e.key, e]))
     // 기기 → (덕트·배관) → 기기. 받는 쪽은 덕트를 엔티티로 읽지 않으니 기기끼리 닿는지가 계약이다.
     const role = new Map(allEquipment(pristine).map((e) => [e.id, e.role]))
     const out = new Map<string, string[]>()
@@ -378,19 +357,19 @@ describe.skipIf(!have || !existsSync(TTL_GO) || !hasGo)('성수 TTL 을 ieum-pip
         for (const n of out.get(cur) ?? []) if (!seen.has(n)) seen.add(n), stack.push(n)
       }
     }
-    const got = new Set(ents.flatMap((e) => (e.Feeds ?? []).map((t) => `${unescapeKey(e.Key)}>${unescapeKey(t)}`)))
+    const got = new Set(ents.flatMap((e) => e.feeds.map((t) => `${e.key}>${t}`)))
     const lost = [...want].filter((p) => !got.has(p))
-    const wrongRoom = devicesOf(pristine).filter((e) => e.spaceId && !byKey.get(e.id)?.Locations?.map(unescapeKey).includes(e.spaceId))
-    const dollar = ents.filter((e) => e.Key.includes('\\')).length
+    const wrongRoom = devicesOf(pristine).filter((e) => e.spaceId && !byKey.get(e.id)?.locations.includes(e.spaceId))
+    const dollar = ents.filter((e) => e.key.includes('\\')).length
     // 이름에 큰따옴표가 든 기기(성수 `Water_meter-…DN50:3/4":…` 같은 인치 표기). TTL 에는 \" 로 적힌다. ttl.go 가
     // 이스케이프를 풀지 않던 때는 따옴표 앞에서 잘렸다(2026-09-29 고쳤다).
     const quoted = devicesOf(pristine).filter((e) => (e.name ?? '').includes('"'))
-    const cut = quoted.filter((e) => byKey.get(e.id)?.Label !== e.name)
-    section('ttl.go (건축+기계)', [
+    const cut = quoted.filter((e) => byKey.get(e.id)?.label !== e.name)
+    section('받는 쪽 규칙 (건축+기계)', [
       `- 엔티티 ${ents.length} · 기기→기기 흐름 ${want.size} 중 못 닿은 것 ${lost.length}`,
       `- 소속 방을 위치로 못 읽은 기기 ${wrongRoom.length}`,
       `- 키에 역슬래시가 남은 엔티티 ${dollar}`,
-      `- 이름에 큰따옴표가 든 기기 ${quoted.length} 중 ttl.go 가 라벨을 다르게 읽은 것 ${cut.length}`,
+      `- 이름에 큰따옴표가 든 기기 ${quoted.length} 중 라벨을 다르게 읽은 것 ${cut.length}`,
     ])
     // 받는 쪽이 이스케이프를 푼다. 키와 라벨이 우리 것과 같아야 한다.
     expect(dollar).toBe(0)

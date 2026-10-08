@@ -5,6 +5,7 @@
 // 순서가 문제인지 미리 알 수 없어서 순서를 무작위로 만든다. 씨앗(seed)이 같으면 같은 편집을 한다.
 
 import * as E from './edit'
+import * as CZ from './custom-zone'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { modelToGeoJSON } from './export/geojson'
 import { modelToTTL } from './export/ttl'
@@ -39,11 +40,18 @@ export const FUZZ_OPS = [
   'addOpening',
   'moveOpening',
   'deleteOpening',
+  'resizeOpening',
   'equipmentSystem',
   'systemKind',
   'createSystem',
+  'renameSystem',
   'deleteSystem',
   'moveWallWithSpaces',
+  'moveFollow',
+  'wallSize',
+  'wallExternal',
+  'mountOnWall',
+  'customZone',
 ] as const
 export type FuzzOp = (typeof FUZZ_OPS)[number]
 
@@ -71,14 +79,26 @@ export type FuzzResult = {
   missing: number
   /** 전부 되돌리면 연 때와 **순서까지** 같은가. */
   undoSame: boolean
+  /** 전부 되돌린 뒤 전부 다시 하면(Ctrl+Shift+Z) 편집한 모델과 같은가. 다시 하기는 되돌리기 직전에 뜬 상태(snapshotOf)를 놓는다. */
+  redoSame: boolean
   /** 불러온 것이 다를 때 갈린 줄과 편집 파일 앞부분. */
   detail?: string
   /** 불러온 것이 다를 때 두 내보내기 전체(견줄 때 쓴다). */
   texts?: { session: string; reloaded: string }
+  /** 편집을 다 한 모델과, 그 편집 파일을 새로 연 모델에 얹은 것. 불변식(OE-PIP-09 BIM 계통 이름 등)을 볼 때 쓴다. */
+  edited: Model
+  reloaded: Model
 }
 
 /** `pristine` 은 건드리지 않는다. 사본에 편집하고, 편집 파일은 또 다른 사본에 얹는다. */
-export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: ReadonlySet<FuzzOp> = new Set()): FuzzResult {
+export function fuzzEdits(
+  pristine: Model,
+  seed: number,
+  steps = 30,
+  skip: ReadonlySet<FuzzOp> = new Set(),
+  /** 다 편집한 모델과 되돌리기 이력. 되돌리기 전에 부른다 — 이력을 다시 트는 리플레이(replay.ts)를 볼 때 쓴다. */
+  capture?: (m: Model, undo: readonly E.Snapshot[]) => void,
+): FuzzResult {
   let state = seed
   const r = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648
   const pick = <T>(xs: readonly T[]): T | undefined => xs[Math.floor(r() * xs.length)]
@@ -86,6 +106,11 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
 
   const m = structuredClone(pristine)
   const base = E.baselineOf(m)
+  const openedAt = new Map(pristine.storeys.flatMap((st) => st.equipment).map((e) => [e.id, e.position]))
+  const axisOf = (id: string): E.SegmentAxis | null => {
+    const p = openedAt.get(id)
+    return p ? [[p[0] - 1, p[1], p[2]], [p[0] + 1, p[1], p[2]]] : null
+  }
   const undo: E.Snapshot[] = []
   let detail = ''
   const log: string[] = []
@@ -105,6 +130,17 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
         E.moveEquipment(m, e.id, [p[0], p[1], p[2]])
       }
       log.push(`${op} ${e.name}`)
+    } else if (op === 'moveFollow') {
+      // 붙은 배관을 데리고 옮긴다. 형상이 없는 입력이라 구간 축은 연 때 좌표 양옆 1m 로 둔다(같은 씨앗이면 같은 축).
+      const e = pick(devices.filter((x) => x.position))
+      if (!e) continue
+      const p = e.position!
+      const plan = E.planFollow(m, e.id, axisOf)
+      const ids = [e.id, ...plan.rigid, ...new Set(plan.stretch.map((x) => x.id))]
+      undo.push({ kind: 'many', parts: ids.map((id) => E.snapshotEquipment(m, id)!) })
+      E.moveEquipment(m, e.id, [p[0] + 0.4, p[1] + 0.2, p[2]])
+      E.applyFollow(m, plan, [0.4, 0.2, 0], axisOf)
+      log.push(`moveFollow ${e.name} (+${ids.length - 1})`)
     } else if (op === 'storey') {
       const e = pick(devices)
       const home = m.storeys.find((s) => s.equipment.includes(e!))
@@ -245,7 +281,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       const b = next.footprint[i + 1]
       const snapshot = E.snapshotStoreyElements(m, storey.id)!
       const wall = E.addWall(m, storey.id, a, b, 0.2, `U_fuzz${seed}_${step}`)
-      if (!wall) continue
+      if (!wall || 'refused' in wall) continue
       undo.push(snapshot)
       log.push(`addWall ${next.name}#${i}`)
     } else if (op === 'moveWall' || op === 'deleteWall' || op === 'wallBearing') {
@@ -273,13 +309,22 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       if (!done || 'refused' in done) continue
       undo.push(snapshot)
       log.push(`addOpening ${done.kind} on ${wall.name}`)
+    } else if (op === 'resizeOpening') {
+      const storey = pick(m.storeys.filter((s) => s.openings.length))
+      const o = storey && pick(storey.openings)
+      if (!storey || !o) continue
+      const snapshot = E.snapshotStoreyElements(m, storey.id)!
+      const done = E.setOpeningSize(m, o.id, r() < 0.5 ? { width: 0.6 + Math.round(r() * 10) / 10 } : { height: 1 + Math.round(r() * 10) / 10 })
+      if (done !== true) continue
+      undo.push(snapshot)
+      log.push(`resizeOpening ${o.name}`)
     } else if (op === 'moveOpening' || op === 'deleteOpening') {
       const storey = pick(m.storeys.filter((s) => s.openings.length))
       const o = storey && pick(op === 'moveOpening' ? storey.openings.filter((x) => x.position) : storey.openings)
       if (!storey || !o) continue
       const snapshot = E.snapshotStoreyElements(m, storey.id)!
       const done = op === 'moveOpening' ? E.moveOpening(m, o.id, [o.position![0] + 0.3, o.position![1] - 0.2]) : E.deleteOpening(m, o.id)
-      if (!done) continue
+      if (!done || typeof done === 'object') continue
       undo.push(snapshot)
       log.push(`${op} ${o.name}`)
     } else if (op === 'equipmentSystem') {
@@ -299,6 +344,15 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       if (!E.setSystemKind(m, system.id, kind, fluid)) continue
       undo.push(snapshot)
       log.push(`systemKind ${system.name} → ${kind}/${fluid}`)
+    } else if (op === 'renameSystem') {
+      // 계통 이름(OE-PIP-09). BIM 계통도 고친다(2026-10-03 사용자 결정).
+      const system = pick(m.systems)
+      if (!system) continue
+      const snapshot = E.snapshotSystems(m, [system.id])
+      const was = system.name
+      if (!E.renameSystem(m, system.id, `고친 계통 ${step}`)) continue
+      undo.push(snapshot)
+      log.push(`renameSystem ${was} → ${system.name}`)
     } else if (op === 'createSystem') {
       // 만들고 설비 하나를 바로 넣는다(화면의 [만들어 넣기] 와 같다).
       const e = pick(devices)
@@ -310,6 +364,72 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       E.setEquipmentSystem(m, e.id, system.id)
       undo.push(snapshot)
       log.push(`createSystem ${system.name} ← ${e.name}`)
+    } else if (op === 'wallSize' || op === 'wallExternal') {
+      // 외벽 여부·두께·높이(OE-OBJ-04). 두께는 꼭짓점 넷인 벽만 바뀐다.
+      const storey = pick(m.storeys.filter((s) => s.walls.length))
+      const wall = storey && pick(storey.walls)
+      if (!storey || !wall) continue
+      const snapshot = E.snapshotStoreyElements(m, storey.id)!
+      const done =
+        op === 'wallExternal'
+          ? E.setWallExternal(m, wall.id, r() < 0.3 ? null : r() < 0.5)
+          : r() < 0.5
+            ? E.setWallThickness(m, wall.id, 0.1 + Math.round(r() * 3) / 10)
+            : E.setWallHeight(m, wall.id, r() < 0.2 ? null : 2 + Math.round(r() * 20) / 10)
+      if (done !== true) continue
+      undo.push(snapshot)
+      log.push(`${op} ${wall.name}`)
+    } else if (op === 'mountOnWall') {
+      // 설비를 벽 면에 붙인다. 뒤에 벽을 옮기거나 지우면 따라가거나 떨어진다.
+      const storey = pick(m.storeys.filter((s) => s.equipment.length && s.walls.some((w) => w.footprint?.length)))
+      const wall = storey && pick(storey.walls.filter((w) => w.footprint?.length))
+      const e = storey && pick(storey.equipment.filter((x) => !x.added || x.position))
+      if (!storey || !wall || !e) continue
+      const ring = wall.footprint![0]
+      const at: Vec2 = [ring[0][0] + (r() - 0.5) * 0.4, ring[0][1] + (r() - 0.5) * 0.4]
+      const snapshot = E.snapshotEquipment(m, e.id)!
+      const done = E.mountOnWall(m, e.id, at)
+      if (!done || 'refused' in done) continue
+      undo.push(snapshot)
+      log.push(`mountOnWall ${e.name} → ${wall.name}`)
+    } else if (op === 'customZone') {
+      // 커스텀존(OE-OBJ-01) 만들기·이름·지우기·나누기·합치기. 방 하나의 범위 안팎에 사각형을 그린다 — 겹쳐도 된다.
+      const storey = pick(m.storeys.filter((s) => s.spaces.some((x) => x.footprint.length >= 4)))
+      if (!storey) continue
+      const zones = storey.customZones ?? []
+      const snapshot = E.snapshotCustomZones(m, storey.id)!
+      const what = zones.length === 0 ? 0 : Math.floor(r() * 5)
+      let done = false
+      if (what === 0) {
+        const room = pick(storey.spaces.filter((x) => x.footprint.length >= 4))!
+        const xs = room.footprint.map((p) => p[0])
+        const ys = room.footprint.map((p) => p[1])
+        const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+        const t = (a: number, b: number) => a + (b - a) * (0.1 + 0.8 * r())
+        const [ax, bx] = [t(x0 - 1, x1), t(x0, x1 + 1)].sort((a, b) => a - b)
+        const [ay, by] = [t(y0 - 1, y1), t(y0, y1 + 1)].sort((a, b) => a - b)
+        const made = CZ.createCustomZone(m, storey.id, { id: `U_fuzz${seed}_${step}`, footprint: [[ax, ay], [bx, ay], [bx, by], [ax, by]] })
+        done = !!made && !('refused' in made)
+      } else {
+        const zone = pick(zones)!
+        if (what === 1) done = CZ.renameCustomZone(m, zone.id, `존 ${seed}-${step}`) === true
+        else if (what === 2) done = CZ.deleteCustomZone(m, zone.id)
+        else if (what === 3) {
+          const xs = zone.footprint.map((p) => p[0])
+          const ys = zone.footprint.map((p) => p[1])
+          const cx = (Math.min(...xs) + Math.max(...xs)) / 2
+          const cy = (Math.min(...ys) + Math.max(...ys)) / 2
+          const piece = CZ.splitCustomZone(m, zone.id, [cx, cy - 100], [cx, cy + 100], `U_fuzz${seed}_${step}`)
+          done = !!piece && !('refused' in piece)
+        } else {
+          const other = pick(zones.filter((z) => z.id !== zone.id))
+          const merged = other ? CZ.mergeCustomZones(m, zone.id, other.id) : null
+          done = !!merged && !('refused' in merged)
+        }
+      }
+      if (!done) continue
+      undo.push(snapshot)
+      log.push(`customZone#${what}`)
     } else if (op === 'moveWallWithSpaces') {
       // 방향키로 벽을 몇 걸음 옮기는 것과 같다. 걸음마다 되돌리기 한 칸이고, 계획은 이어 쓴다.
       const storey = pick(m.storeys.filter((s) => s.walls.some((w) => w.footprint?.length)))
@@ -338,6 +458,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
   }
 
   const session = exportedContent(m)
+  const edited = structuredClone(m)
   const text = JSON.stringify(exportEdits(m, base, 'fuzz'))
   const parsed = parseEditFile(text)
   if (typeof parsed === 'string') throw new Error(parsed)
@@ -358,14 +479,24 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
   }
 
   const opened = modelToTTL(pristine) + JSON.stringify(modelToGeoJSON(pristine))
-  for (const s of undo.reverse()) E.restore(m, s)
+  capture?.(m, undo)
+  const redo: (E.Snapshot | null)[] = []
+  for (const s of undo.reverse()) {
+    redo.push(E.snapshotOf(m, s))
+    E.restore(m, s)
+  }
   const undoSame = modelToTTL(m) + JSON.stringify(modelToGeoJSON(m)) === opened
+  for (const s of redo.reverse()) if (s) E.restore(m, s)
+  const redoSame = exportedContent(m) === session
 
   return {
     log,
     reloadSame,
     missing: Object.values(applied.missing).reduce((a, b) => a + b, 0),
     undoSame,
+    redoSame,
     ...(detail ? { detail, texts: { session, reloaded } } : {}),
+    edited,
+    reloaded: fresh,
   }
 }

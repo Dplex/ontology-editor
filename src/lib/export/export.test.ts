@@ -6,6 +6,7 @@ import { importIfc } from '../ifc/import'
 import type { Model } from '../model'
 import { modelToGeoJSON, storeyToGeoJSON } from './geojson'
 import { escapeLocalName, modelToTTL } from './ttl'
+import { NUMERIC_OK, numericPredicates, readGeoJSON } from './read-export'
 
 let model: Model
 let mep: Model
@@ -39,6 +40,18 @@ describe('GeoJSON', () => {
     expect(spaces[0].geometry).toBe(null)
   })
 
+  it('벽·문·창을 읽지 않고 연 모델은 층 파일 머리에 skipped 를 적고, 다 읽었으면 칸이 없다 (OE-BIM-25)', () => {
+    const off: Model = { ...structuredClone(model), skipped: ['walls', 'doors'] }
+    const files = modelToGeoJSON(off)
+    expect(files.map((f) => f.collection.skipped)).toEqual([['walls', 'doors'], ['walls', 'doors']])
+    // RFC 7946 은 모르는 멤버를 허용한다. 받는 쪽 리더가 읽는다.
+    const read = readGeoJSON(files[0].fileName, JSON.stringify(files[0].collection))
+    expect(read.problems).toEqual([])
+    expect(read.skipped).toEqual(['walls', 'doors'])
+    expect(modelToGeoJSON(model).map((f) => 'skipped' in f.collection)).toEqual([false, false])
+    expect(readGeoJSON('x', JSON.stringify(modelToGeoJSON(model)[0].collection)).skipped).toEqual([])
+  })
+
   it('벽·문·창은 GeoJSON 에만 나가고, 문이 잇는 방은 TTL 주어를 가리킨다', () => {
     // Brick 에는 건축 부재 클래스가 없다. 벽·문·창은 3D Map·로봇 경로가 쓰는 기하 층이다.
     const walled: Model = structuredClone(model)
@@ -51,7 +64,8 @@ describe('GeoJSON', () => {
     const features = storeyToGeoJSON(storey).features
     const wall = features.find((f) => f.id === 'w1')!
     expect(wall.geometry?.type).toBe('Polygon')
-    expect(wall.properties).toMatchObject({ kind: 'wall', loadBearing: null, thickness: 0.2 })
+    // IsExternal 이 없어 건물 바깥에 닿는지로 계산한다(OE-EXT-01). 방 둘의 아래 변을 따라 놓인 벽이라 외벽이다.
+    expect(wall.properties).toMatchObject({ kind: 'wall', loadBearing: null, external: true, externalSource: 'calc', thickness: 0.2, passable: false })
     const door = features.find((f) => f.id === 'd1')!
     expect(door.geometry).toEqual({ type: 'Point', coordinates: [2, 0.1, 0] })
     expect(door.properties).toMatchObject({ kind: 'door', connects: [a.id, b.id], connectsSource: 'calc', passable: true })
@@ -211,8 +225,8 @@ describe('설비 내보내기', () => {
     //
     // **주어의 블록 안에 있어야 한다.** ttl.go 는 `ex:X a 클래스` 로 시작하는 블록만 읽는다.
     // 이 테스트가 한때 `ex:A brick:feeds ex:B .` 라는 독립 문장을 정답으로 박아 두어서,
-    // 받는 쪽에서 흐름 연결이 전부 사라지는 것을 지켜 주지 못했다. 실제 파서로 읽는 검사는
-    // check:sample 의 "ieum-pipeline 이 읽는가" 에 있다.
+    // 받는 쪽에서 흐름 연결이 전부 사라지는 것을 지켜 주지 못했다. 받는 쪽 규칙으로 다시 읽는
+    // 검사는 read-export.test.ts 와 check:sample 의 "받는 쪽 규칙으로 다시 읽는가" 에 있다.
     const block = (name: string) => ttl.split('\n\n').find((b) => b.startsWith(`${eq(name)} a `))!
     expect(block('DUCT-01')).toContain(`brick:feeds ${eq('AT-101-01')} ;`)
     expect(ttl).not.toMatch(/^ex:\S+ brick:feeds/m)
@@ -231,6 +245,18 @@ describe('설비 내보내기', () => {
 
   it('기하는 여전히 TTL 로 새지 않는다', () => {
     expect(modelToTTL(mep)).not.toMatch(/POLYGON|coordinates|wkt/i)
+  })
+
+  it('숫자를 담는 술어는 넓이·바닥 높이·용량뿐이다 — 좌표가 새 술어로 새어도 잡는다 (OE-INT-02)', () => {
+    // 낱말(POLYGON·coordinates)만 막으면 `ex:x 12.3` 같은 숫자 술어로 새는 것을 못 잡는다. 숫자 값이 붙는 술어를 허용 목록으로 본다.
+    const outside = (ttl: string) => [...numericPredicates(ttl)].filter((p) => !NUMERIC_OK.has(p))
+    expect(outside(modelToTTL(mep))).toEqual([])
+    expect(outside(modelToTTL(model))).toEqual([])
+    // 숫자는 실제로 나간다 — 검사가 빈 손으로 통과하는 것이 아니다.
+    expect([...numericPredicates(modelToTTL(model))]).toContain('ex:areaM2')
+    // 좌표 줄을 끼워 넣으면 걸린다. 따옴표 안의 숫자(이름 "01.0001.00")는 값이 아니라 글자라 세지 않는다.
+    const leaked = modelToTTL(mep).replace('a brick:Floor ;', ['a brick:Floor ;', '    ex:x 12.5 ;', '    rdfs:label "01.0001.00" ;'].join('\n'))
+    expect(outside(leaked)).toEqual(['ex:x'])
   })
 })
 
@@ -268,5 +294,48 @@ describe('내보내기가 깨지지 않는다', () => {
     const props = (name: string) => features.find((f) => f.properties.name === name)!.properties
     expect(props('AHU-1')).toMatchObject({ capacity: 1.6667, capacityQuantity: 'airflow' })
     expect(props('AT-101-02')).toMatchObject({ capacity: null, capacityQuantity: null })
+  })
+})
+
+describe('로봇 통과 속성 (OE-EQP-17)', () => {
+  const sq = (x: number): [number, number][] => [[x, 0], [x + 2, 0], [x + 2, 2], [x, 2], [x, 0]]
+  const space = (id: string, kind: string | null) => ({ id, name: id, longName: id, footprint: sq(id.length * 3), areaM2: 4, boundedBy: [], kind })
+  const props = (m: Model) =>
+    Object.fromEntries(
+      modelToGeoJSON(m)
+        .flatMap((x) => x.collection.features)
+        .filter((f) => (f.properties as { kind: string }).kind === 'space')
+        .map((f) => [f.id, { passable: (f.properties as Record<string, unknown>).passable, source: (f.properties as Record<string, unknown>).passableSource }]),
+    )
+  const model = (doorToShaft: boolean): Model => ({
+    schema: 'IFC4',
+    siteName: '',
+    buildingId: 'b',
+    buildingName: '',
+    storeys: [
+      {
+        id: 's',
+        name: '1F',
+        elevation: 0,
+        spaces: [space('st', 'staircase'), space('elv', 'elevator_shaft'), space('room', 'office')],
+        walls: [],
+        openings: doorToShaft
+          ? [{ id: 'd', name: 'd', kind: 'door', position: [3, 1, 0], wallId: null, width: 1, height: 2, passable: true, connects: ['elv', 'room'], connectsSource: 'bim' }]
+          : [],
+        equipment: [],
+      },
+    ],
+    systems: [],
+    connections: [],
+    warnings: [],
+  })
+
+  it('계단실은 불가, 승강로는 그 층에 이어지는 문이 있으면 가능이고 없으면 모름이며, 일반 방에는 통과 속성이 없다', () => {
+    expect(props(model(true))).toEqual({
+      st: { passable: false, source: 'dict' },
+      elv: { passable: true, source: 'calc' },
+      room: { passable: undefined, source: undefined },
+    })
+    expect(props(model(false)).elv).toEqual({ passable: null, source: null })
   })
 })

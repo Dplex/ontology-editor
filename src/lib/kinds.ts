@@ -16,8 +16,11 @@
 
 import type { EquipmentRole } from './model'
 
-/** 계통의 매체. 공조기는 공기의 원천이면서 물의 소비처라, 매체를 알아야 역할이 정해진다. */
-export type Medium = 'air' | 'water'
+/**
+ * 계통의 매체. 공조기는 공기의 원천이면서 물의 소비처라, 매체를 알아야 역할이 정해진다. `refrigerant` 는 냉매 계통(OE-PIP-03)의
+ * 매체다 — 규칙 방향(flow-rules.ts)은 공기·물만 다뤄 냉매 계통은 방향을 정하지 않고 건너뛴다.
+ */
+export type Medium = 'air' | 'water' | 'refrigerant'
 
 /** 흐름에서 맡는 자리. `source` 는 흐름을 내보내는 쪽(원천), `sink` 는 받는 쪽, `through` 는 지나가는 쪽. */
 export type FlowPart = 'source' | 'sink' | 'through'
@@ -54,7 +57,7 @@ export type EquipmentKindInfo = {
   fluid?: Fluid
   /**
    * 이름 사전이 읽지 않는 종류(`test` 가 아무것에도 맞지 않는다). BIM 이 `ifc` 로 말하면 받고, 아니면 사람이 고른다.
-   * 사전 식을 넓히면 가진 BIM 전부의 숫자가 움직여서(CLAUDE.md 의 과적합 규칙) 이름으로는 읽지 않는다.
+   * 사전 식을 넓히면 가진 BIM 전부의 숫자가 움직여서(docs/dev/testing.md 의 과적합 규칙) 이름으로는 읽지 않는다.
    */
   manual?: true
   /**
@@ -63,6 +66,11 @@ export type EquipmentKindInfo = {
    * check:sample 숫자가 움직이지 않는다.
    */
   hint?: string
+  /**
+   * 놓을 수 있는 자리. `exterior` 는 **외벽 바깥 면에만** 놓는다(OE-OBJ-04 외벽 전용 설비, 2026-10-03 사용자 결정) — 방 안에 들지 않고
+   * 외벽에서 벽 붙이기 거리 안이어야 한다(edit.ts 의 onExteriorFace). 없으면 어디든.
+   */
+  mount?: 'exterior'
 }
 
 /** 아무 이름에도 맞지 않는 식. 사람만 고르는 종류의 `test` 다. */
@@ -92,6 +100,10 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // --- 말단·조절 ----------------------------------------------------------------
   { kind: 'air_diffuser', label: '디퓨저', test: /디퓨[저져]|diffuser/i, brick: 'brick:Air_Diffuser', role: 'terminal', ifc: ['AirTerminal.DIFFUSER'], flow: { air: 'sink' } },
   // 건물 밖과 통하는 루버·벤트캡. 실내 그릴과 흐름이 반대다(flow-rules.ts 의 바깥 가지).
+  // 외기 센서(OE-OBJ-04 외벽 전용 설비, 2026-10-03 사용자 결정). 루버(이름의 OA)보다 앞이어야 "외기 온습도 센서 OA-1" 이 루버가 안 된다. 바깥 공기를 재므로 외벽 바깥 면에만 놓는다(mount). 이름으로만 안다 —
+  // IFC 어휘(R24)는 늘리지 않았다. "외기 온습도 센서" 처럼 둘 다 말하면 온도 줄이 먼저다(Brick 에 온·습도를 같이 재는 클래스가 없다).
+  { kind: 'outdoor_temperature_sensor', label: '외기 온도 센서', test: /외기\s*온(도|\s*[·.]?\s*습도|습도)|(outdoor|outside)\s*air\s*temp/i, brick: 'brick:Outside_Air_Temperature_Sensor', role: 'sensing', flow: {}, point: true, mount: 'exterior' },
+  { kind: 'outdoor_humidity_sensor', label: '외기 습도 센서', test: /외기\s*습도|(outdoor|outside)\s*air\s*humid/i, brick: 'brick:Outside_Air_Humidity_Sensor', role: 'sensing', flow: {}, point: true, mount: 'exterior' },
   { kind: 'outdoor_louver', label: '외부 루버', test: /루버|louver|vent[-_\s]*cap|[_\s-](OA|EA)\b/i, brick: null, role: 'terminal', ifc: ['AirTerminal.LOUVRE'], flow: { air: 'sink' } },
   { kind: 'air_grille', label: '그릴', test: /그릴|grille/i, brick: null, role: 'terminal', ifc: ['AirTerminal.GRILLE', 'AirTerminal.REGISTER'], flow: { air: 'sink' } },
   { kind: 'damper', label: '댐퍼', test: /댐퍼|damper/i, brick: 'brick:Damper', role: 'control', ifc: ['Damper'], flow: { air: 'through' } },
@@ -101,7 +113,13 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // Flush Valve` 3대를 IFC 가 SanitaryTerminal(WCSEAT·URINAL)이라고 말했는데 이름이 먼저라 밸브가 됐다.
   { kind: 'valve', label: '밸브', test: /(?<!flush[-_\s]*)valve|(?<!세정\s*)밸브/i, brick: 'brick:Valve', role: 'control', ifc: ['Valve'], flow: { water: 'through' } },
   // --- 전기·조명 ------------------------------------------------------------------
-  { kind: 'panel', label: '분전반', test: /분전반|\bPNL\b|breaker\s*panel/i, brick: 'brick:Breaker_Panel', role: null, ifc: ['ElectricDistributionBoard.DISTRIBUTIONBOARD'], flow: {} },
+  // 엘리베이터(2026-10-03 사용자 결정). 흐름이 없는 기기라 연결 추정에서 빠진다(ADR-0010). 로봇이 층을 옮길 때 탈 장치라 설비
+  // 목록·TTL 에 둔다. 병원은 건축에 IfcFlowTerminal, 전기에 Proxy(`M_Elevator-Hydraulic`)로 들어 있다. 승강로(방)는 ROOM_KINDS 다.
+  // 이름으로만 안다 — `ifc` 를 두면 고객사에 요구하는 어휘(R24)가 늘어서 넣지 않았다. IfcTransportElement 는 임포터가 아직 읽지 않는다.
+  { kind: 'elevator', label: '엘리베이터', test: /elevator|엘리베이터|승강기/i, brick: 'brick:Elevator', role: null, flow: {} },
+  // Revit 의 "Lighting and Appliance Panelboard" 는 분전반이다. 이 줄이 조명보다 앞이라 "Lighting" 에 먼저 걸리지 않는다
+  // (병원 건축·전기의 분전반이 조명 brick:Luminaire 로 나갔다, 2026-10-03).
+  { kind: 'panel', label: '분전반', test: /분전반|\bPNL\b|breaker\s*panel|panel\s*board/i, brick: 'brick:Breaker_Panel', role: null, ifc: ['ElectricDistributionBoard.DISTRIBUTIONBOARD'], flow: {} },
   { kind: 'lighting', label: '조명', test: /조명|가로등|luminaire|lighting|pendant|[_\s-]light\b|^light\b/i, brick: 'brick:Luminaire', role: 'terminal', ifc: ['LightFixture'], flow: {} },
   // --- 관제점 후보(F13) ------------------------------------------------------------
   { kind: 'smoke_detector', label: '연기감지기', test: /연기\s*감지|smoke\s*detect/i, brick: 'brick:Smoke_Detector', role: 'sensing', ifc: ['Sensor.SMOKESENSOR'], flow: {}, point: true },
@@ -240,6 +258,8 @@ const IFC_CLASS_LABEL: Record<string, string> = {
   Lamp: '조명',
   Outlet: '콘센트',
   SwitchingDevice: '스위치',
+  // 분전반 안의 차단기·퓨즈. ifc4Mep 의 F1~F13 이 배치점 없이 들어온다(미배치 목록, OE-BIM-07).
+  ProtectiveDevice: '보호기(차단기·퓨즈)',
   ElectricAppliance: '전기 기기',
   SanitaryTerminal: '위생기구',
   WasteTerminal: '배수구',
@@ -400,9 +420,16 @@ export const SYSTEM_KINDS: SystemKindInfo[] = [
   { kind: 'exhaust_air', label: '배기', test: /공기\s*배출|배기|exhaust|extract\s*air/i, medium: 'air', sense: 'in', brick: 'brick:Air_System' },
   { kind: 'return_air', label: '환기', test: /순환\s*공기|환기|return\s*air/i, medium: 'air', sense: 'in', brick: 'brick:Air_System' },
   { kind: 'outside_air', label: '외기', test: /외기|outside\s*air|outdoor\s*air/i, medium: 'air', sense: 'out', brick: 'brick:Ventilation_Air_System' },
+  // 지열수·응축수는 순환수보다 먼저 본다. "Geothermal supply water" 가 순환수의 `supply water` 에 먼저 걸린다.
+  { kind: 'geothermal_supply', label: '지열수 공급', test: /지열수?\s*공급|geothermal\s*(supply|flow)|\bGWS\b/i, medium: 'water', sense: 'out', brick: 'brick:Water_System' },
+  { kind: 'geothermal_return', label: '지열수 환수', test: /지열수?\s*(환수|순환)|geothermal\s*return|\bGWR\b/i, medium: 'water', sense: 'in', brick: 'brick:Water_System' },
+  { kind: 'condensate_return', label: '응축수 환수', test: /응축수|condensate/i, medium: 'water', sense: 'in', brick: 'brick:Steam_System' },
   { kind: 'hydronic_supply', label: '순환수 공급', test: /순환수\s*공급|hydronic\s*supply|냉온수\s*공급|(heat(ing)?|cooling)\s*flow|supply\s*water/i, medium: 'water', sense: 'out', brick: 'brick:Water_System' },
   { kind: 'hydronic_return', label: '순환수 환수', test: /순환수\s*순환|순환수\s*환수|hydronic\s*return|냉온수\s*환수|(heat(ing)?|cooling)\s*return|return\s*water/i, medium: 'water', sense: 'in', brick: 'brick:Water_System' },
   { kind: 'domestic_hot_water', label: '급탕', test: /가정용\s*온수|급탕|domestic\s*hot|hot\s*water/i, medium: 'water', sense: 'out', brick: 'brick:Domestic_Hot_Water_System' },
+  { kind: 'steam', label: '증기', test: /증기|스팀|steam|\bSTM\b/i, medium: 'water', sense: 'out', brick: 'brick:Steam_System' },
+  { kind: 'fire_protection', label: '소화', test: /소화|스프링클러|sprinkler|fire\s*protection|\bFP\b/i, medium: 'water', sense: 'out', brick: 'brick:Fire_Safety_System' },
+  { kind: 'refrigerant', label: '냉매', test: /냉매|refrigerant|\bREF\b/i, medium: 'refrigerant', sense: 'out', brick: 'brick:Refrigeration_System' },
   { kind: 'domestic_cold_water', label: '급수', test: /가정용\s*냉수|급수|domestic\s*cold|cold\s*water/i, medium: 'water', sense: 'out', brick: 'brick:Water_System' },
 ]
 
@@ -420,7 +447,7 @@ const SYSTEM_BY_KIND = new Map(SYSTEM_KINDS.map((k) => [k.kind, k]))
 export const SYSTEM_IFC = {
   air: { predefined: ['AIRCONDITIONING', 'VENTILATION', 'EXHAUST'], codes: { SUP: 'supply_air', ETA: 'return_air', RCA: 'return_air', EHA: 'exhaust_air', ODA: 'outside_air' } },
   water: { predefined: ['HEATING', 'CHILLEDWATER', 'CONDENSERWATER'], codes: { FLOW: 'hydronic_supply', RETURN: 'hydronic_return' } },
-  alone: { DOMESTICHOTWATER: 'domestic_hot_water', DOMESTICCOLDWATER: 'domestic_cold_water', EXHAUST: 'exhaust_air' },
+  alone: { DOMESTICHOTWATER: 'domestic_hot_water', DOMESTICCOLDWATER: 'domestic_cold_water', EXHAUST: 'exhaust_air', FIREPROTECTION: 'fire_protection', REFRIGERATION: 'refrigerant' },
 } as const
 
 /** IFC 가 말한 계통 종류. 약어는 그 매체의 PredefinedType 과 함께일 때만 읽는다(`RETURN` 은 공기에도 물에도 있을 수 있다). */

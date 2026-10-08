@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { completenessChecks, diagnoseFailure, explainFailure, type Box } from './checks'
 import { airServices } from './served'
+import { profileOf } from './profile'
 import type { Connection, Equipment, EquipmentRole, Model, Space } from './model'
 
 const eq = (id: string, kind: string | null, role: EquipmentRole | null, spaceId: string | null = 'room'): Equipment => ({
@@ -130,5 +131,46 @@ describe('완전성 검사', () => {
     expect(diagnoseFailure('device-space', 'outside', ctx).fix).toEqual({ kind: 'move-into', spaceName: '사무실', to: [9.9, 4, 2.7] })
     expect(diagnoseFailure('device-connected', 'orphan', ctx).fix).toEqual({ kind: 'connect', other: 'duct' })
     expect(diagnoseFailure('device-space', 'nowhere', ctx).fix).toBeUndefined()
+  })
+
+  it('[방 안으로 옮기기] 는 배관 없는 설비끼리 겹치는 자리를 권하지 않는다 (OE-OBJ-16)', () => {
+    // 성수 HV PNL: 벽 밖에 걸친 분전반의 "경계 바로 안쪽" 에 이웃 분전반이 있어, 권한 자리로 옮기면 겹침 금지에 막혔다.
+    const office: Space = { id: 'room', name: '101', longName: '사무실', footprint: [[0, 0], [10, 0], [10, 8], [0, 8], [0, 0]], areaM2: 80, boundedBy: [] }
+    const panel = (id: string, at: [number, number, number], spaceId: string | null): Equipment => ({
+      ...eq(id, null, 'control', spaceId),
+      ifcClass: 'ElectricDistributionBoard',
+      position: at,
+    })
+    const ctxOf = (others: Equipment[]) => {
+      const m = model([panel('outside', [10.3, 4, 1], null), ...others], [], [office])
+      return { model: m, connections: [], services: [], label: (id: string) => `${id} · 분전반`, boxOf: () => null }
+    }
+    // 바로 안쪽(9.9)에 이웃이 있으면 더 들어가 겹치지 않는 자리(0.6m 안쪽, 9.4)를 권한다. 좌표 상자는 0.4m 다.
+    expect(diagnoseFailure('device-space', 'outside', ctxOf([panel('next', [9.8, 4, 1], 'room')])).fix).toEqual({ kind: 'move-into', spaceName: '사무실', to: [9.4, 4, 1] })
+    // 1.5m 안쪽까지 막혀 있으면 버튼 없이 이유를 말한다.
+    const wall = [9.9, 9.6, 9.3, 9.0, 8.7, 8.4].map((x, i) => panel(`p${i}`, [x, 4, 1], 'room'))
+    const blocked = diagnoseFailure('device-space', 'outside', ctxOf(wall))
+    expect(blocked.fix).toBeUndefined()
+    expect(blocked.text).toBe('어느 방에도 들어가지 않습니다. 가장 가까운 방은 사무실(0.30m)입니다. 경계 안쪽 1.5m 까지는 p0 · 분전반과 겹쳐 바로 옮길 수 없습니다.')
+  })
+})
+
+describe('외벽 설비 (OE-EQP-15)', () => {
+  it('외부 루버·외기 센서는 방이 없어도 "기기마다 소속 방" 위반이 아니고, 등급 2(소속) 분모에서 빠진다', () => {
+    const m = model(
+      [
+        eq('fcu', 'fcu', 'conversion'),
+        eq('louver', 'outdoor_louver', 'terminal', null),
+        eq('oat', 'outdoor_temperature_sensor', 'sensing', null),
+        eq('lost', 'fcu', 'conversion', null),
+      ],
+      [],
+    )
+    const check = completenessChecks(m, airServices(m, m.connections)).find((c) => c.key === 'device-space')!
+    expect(check.total).toBe(2)
+    expect(check.failed).toEqual(['lost'])
+    const tier = profileOf(m).tiers.find((t) => t.key === 'location')!
+    expect([tier.have, tier.of]).toEqual([1, 2])
+    expect(tier.note).toContain('외벽 설비 2대는 제외')
   })
 })

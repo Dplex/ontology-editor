@@ -19,6 +19,14 @@ async function open(page: Page, file = MEP) {
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   return errors
 }
+// 디퓨저·조명은 천장 설비라 천장 편집 모드(T)에서 고친다(OE-OBJ-08).
+async function enterCeiling(page: Page) {
+  const on = page.getByRole('group', { name: '설비 편집 면' }).getByRole('button', { name: '천장' })
+  if ((await on.getAttribute('aria-pressed')) === 'true') return
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('t')
+  await expect(on).toHaveAttribute('aria-pressed', 'true')
+}
 
 /** 두 프레임을 기다린다. 3D 는 다음 프레임에 그리고, 화면 좌표는 그린 뒤의 카메라로 잰다. */
 const settle = (page: Page) =>
@@ -150,13 +158,14 @@ test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓�
   await expect(panel.locator('.space-kind')).toHaveText(/회의실\s*사전/)
   await expect(page.locator('.report')).toContainText('물리존 이름 사무실 → 대회의실')
 
-  // 보기 모드로 가면 손잡이가 사라진다.
+  // 보기 모드로 가면 손잡이가 사라진다. 저장하지 않은 편집이 있어 묻는다(OE-COM-08) — 임시 저장하고 끝낸다.
   await page.getByRole('button', { name: '보기', exact: true }).click()
+  await page.locator('dialog.exit-edit').getByRole('button', { name: '임시 저장' }).click()
   expect(await viewer<unknown[]>(page, 'handles')).toHaveLength(0)
   expect(errors).toEqual([])
 })
 
-test('편집 모드에서 연결 화살표를 누르면 방향이 하류 → 상류 → 지움으로 바뀌고, 포트 방향은 못 고친다', async ({ page }) => {
+test('편집 모드에서 연결 화살표를 누르면 방향을 미리 보고 [적용] 으로 정하며, 포트 방향은 못 고친다', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await pick(page, 'DUCT-01')
@@ -174,23 +183,27 @@ test('편집 모드에서 연결 화살표를 누르면 방향이 하류 → 상
   const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
 
-  // 한 번: 이 설비에서 나간다(하류). 사람이 정한 방향이라 규칙보다 앞서고 확정 없이 feeds 로 나간다.
+  // 한 번: 이 설비에서 나간다(하류). 먼저 미리보기다(OE-PIP-04). [적용] 하면 사람이 정한 방향이라 규칙보다 앞서고 확정 없이 feeds 로 나간다.
   let at = (await toward(AT02)).at
   await page.mouse.click(at.x, at.y)
+  expect((await toward(AT02)).source).toBe('preview')
+  await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
+  await terminal.getByTestId('flow-apply').click()
   await expect(terminal.locator('.rel')).toHaveText('하류')
   await expect(terminal).toContainText('직접 정한 방향')
   expect((await toward(AT02)).source).toBe('edit')
   await expect(page.locator('.report')).toContainText('DUCT-01 → AT-101-02')
 
-  // 두 번: 뒤집는다.
+  // 두 번: 뒤집는다. 규칙과 반대라 보정 사유를 받는다.
   at = (await toward(AT02)).at
   await page.mouse.click(at.x, at.y)
+  await terminal.getByTestId('flow-reason').fill('현장 확인')
+  await terminal.getByTestId('flow-apply').click()
   await expect(terminal.locator('.rel')).toHaveText('상류')
   await expect(page.locator('.report')).toContainText('AT-101-02 → DUCT-01')
 
-  // 세 번: 지운다. 규칙 방향으로 돌아가고 리포트에서 빠진다.
-  at = (await toward(AT02)).at
-  await page.mouse.click(at.x, at.y)
+  // 수동 지정 해제. 규칙 방향으로 돌아가고 리포트에서 빠진다.
+  await terminal.getByTestId('flow-clear').click()
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
 
@@ -220,7 +233,7 @@ test('편집 모드에서 고른 설비의 층을 바꾸면 높이도 층 차만
   // two-rooms 의 2F 바닥은 3.0m 다.
   await expect.poll(async () => Number(await coord(page, 'AHU-1', 2))).toBeCloseTo(z0 + 3, 5)
   await expect(page.locator('.storey-move .src.edit')).toBeVisible()
-  await expect(page.locator('.storeys tbody tr', { hasText: '2F' }).locator('td').last()).toHaveText('1')
+  await expect(page.locator('.storeys tbody tr', { hasText: '2F' }).locator('td.storey-equipment')).toHaveText('1')
   // 2F 의 창고에는 외곽선이 없어 소속이 빠진다.
   await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
 
@@ -229,7 +242,7 @@ test('편집 모드에서 고른 설비의 층을 바꾸면 높이도 층 차만
   await expect.poll(async () => Number(await coord(page, 'AHU-1', 2))).toBeCloseTo(z0, 5)
   await expect(select.locator('option:checked')).toHaveText('1F')
   await expect(page.locator('.storey-move .src.bim')).toBeVisible()
-  await expect(page.locator('.storeys tbody tr', { hasText: '2F' }).locator('td').last()).toHaveText('0')
+  await expect(page.locator('.storeys tbody tr', { hasText: '2F' }).locator('td.storey-equipment')).toHaveText('0')
   expect(errors).toEqual([])
 })
 
@@ -296,6 +309,7 @@ test('설비 끌기 → 꼭짓점 → 연결 방향을 Ctrl+Z 세 번이면 한 
   const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
   const arrow = (await viewer<{ a: string; b: string; at: Pt }[]>(page, 'arrows')).find((x) => x.a === AT02 || x.b === AT02)!
   await page.mouse.click(arrow.at.x, arrow.at.y)
+  await terminal.getByTestId('flow-apply').click()
   await expect(terminal.locator('.rel')).toHaveText('하류')
   await expect(bar).toContainText('방향')
 
@@ -335,8 +349,9 @@ test('글자를 치는 칸의 Ctrl+Z 와 보기 모드의 Ctrl+Z 는 편집을 �
   await expect(bar).toContainText('바뀐 것 1건')
   await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
 
-  // 보기 모드에서는 고치는 손잡이가 없으니 되돌리지도 않는다.
+  // 보기 모드에서는 고치는 손잡이가 없으니 되돌리지도 않는다. 임시 저장하고 보기로 간다(OE-COM-08).
   await page.getByRole('button', { name: '보기', exact: true }).click()
+  await page.locator('dialog.exit-edit').getByRole('button', { name: '임시 저장' }).click()
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
   await page.getByRole('button', { name: '편집', exact: true }).click()
@@ -402,7 +417,7 @@ test('고른 설비의 종류를 바꾸면 규칙 방향이 다시 서고, Ctrl+
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
 
   await pick(page, 'DUCT-01')
-  await expect(terminal.locator('.rel')).toHaveText('연결')
+  await expect(terminal.locator('.rel')).toHaveText('방향 미지정')
 
   await page.keyboard.press('Control+z')
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
@@ -433,6 +448,7 @@ test('종류를 모르는 패밀리를 목록에서 한 번 고르면 그 패밀
 test('종류를 바꿔 규칙 방향이 포트와 어긋나기 시작하면 그 계통을 바로 알린다', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterCeiling(page)
   await pick(page, 'AT-101-01')
   // 포트가 덕트 → 디퓨저라고 말한 디퓨저를 팬(공기의 원천)으로 바꾼다.
   await page.locator('.kind-edit select').selectOption({ label: '팬' })

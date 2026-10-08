@@ -102,6 +102,41 @@ export function distanceToRing(point: Vec2, ring: readonly Vec2[]): number {
 }
 
 /**
+ * 외곽선의 외곽 상자 [minX, minY, maxX, maxY]. 설비 하나를 판정할 때 층의 방 전부를 훑는데, 대부분은 멀리 있는 방이라
+ * 상자만 보고 건너뛴다. 병원 건축+MEP 에서 방 꼭짓점·설비 옮기기 40번이 5.1초에서 0.44초가 됐고, 소속은 바이트 단위로 같다.
+ *
+ * 외곽선 배열을 키로 기억한다. **편집은 외곽선을 제자리에서 고치지 않고 새 배열로 갈아 끼운다**(edit.ts 의
+ * `ringWithVertex`, 되돌리기의 `[...snapshot.footprint]`) — 그래서 바뀐 외곽선은 새 키가 되어 다시 잰다.
+ * 배열을 제자리에서 고치는 코드를 넣으면 여기 상자가 낡는다.
+ */
+const boxes = new WeakMap<readonly Vec2[], readonly [number, number, number, number]>()
+function boundsOf(ring: readonly Vec2[]): readonly [number, number, number, number] {
+  let box = boxes.get(ring)
+  if (!box) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const [px, py] of ring) {
+      if (px < minX) minX = px
+      if (px > maxX) maxX = px
+      if (py < minY) minY = py
+      if (py > maxY) maxY = py
+    }
+    box = [minX, minY, maxX, maxY]
+    boxes.set(ring, box)
+  }
+  return box
+}
+
+/**
+ * 이 점의 판정에 이 외곽선이 끼어들 수 있나 — 외곽 상자에서 snap 안인가. 아니면 그 방은 안에 드는 방도, snap 안의 가까운
+ * 방도 될 수 없다(`locate` 가 같은 상자로 건너뛴다).
+ */
+export function nearRing(point: Vec2, ring: readonly Vec2[], snap = SNAP): boolean {
+  const [minX, minY, maxX, maxY] = boundsOf(ring)
+  const reach = snap + 1e-9
+  return point[0] >= minX - reach && point[0] <= maxX + reach && point[1] >= minY - reach && point[1] <= maxY + reach
+}
+
+/**
  * 외곽선 밖이어도 이 거리 안이면 가장 가까운 물리존에 붙인다(미터).
  *
  * **벽에 붙은 설비는 좌표가 정확히 벽면에 있다.** 콘센트·스위치·벽부 조명의 삽입점이 방 외곽선
@@ -122,26 +157,42 @@ export const SNAP = 0.05
  * 어디에도 없으면 null 이다.
  */
 export function locate(point: Vec2, spaces: readonly Space[], snap = SNAP): string | null {
+  return locateHow(point, spaces, snap)?.id ?? null
+}
+
+/**
+ * `locate` 와 같은 판정에, 어느 단계로 정했는지를 붙인다(OE-MAP-01). `inside` 는 외곽선 안(4단계, 기계가 확신한다), `near` 는
+ * 소속 허용 거리로 가장 가까운 방에 붙은 것(5단계, 사람이 고칠 수 있다)이다.
+ */
+export function locateHow(point: Vec2, spaces: readonly Space[], snap = SNAP): { id: string; how: 'inside' | 'near' } | null {
+  const [x, y] = point
   // 방이 겹친 자리면 가장 작은 방이다. 실제 BIM 도 같은 층 방끼리 겹친다(병원 건축 52쌍 — 큰 대기실이 접수대를 품는다).
   // 목록의 첫 방을 고르던 때와 견주면, BIM 이 말한 소속에 맞는 수가 가진 파일 전부에서 늘었다(병원 건축+HVAC 156 →
   // 169/180, 건축+MEP 563 → 584/637, Duplex 111 → 114/118, 건축+MEP 11 → 13/13). 좁은 방이 더 구체적인 자리다.
   let inside: Space | null = null
   for (const space of spaces) {
+    const [minX, minY, maxX, maxY] = boundsOf(space.footprint)
+    // 외곽 상자 밖이면 다각형 안일 수 없다. 결과는 상자 없이 잰 것과 같고, 멀리 있는 방의 변을 다 훑지 않는다.
+    if (x < minX || x > maxX || y < minY || y > maxY) continue
     if (pointInPolygon(point, space.footprint) && (!inside || space.areaM2 < inside.areaM2)) inside = space
   }
-  if (inside) return inside.id
+  if (inside) return { id: inside.id, how: 'inside' }
 
   let best: string | null = null
   let bestDistance = snap
+  // 상자에서 snap 보다 멀면 변까지도 snap 보다 멀다. 부동소수점 끝자리로 경계가 흔들리지 않게 조금 더 둔다.
+  const reach = snap + 1e-9
   for (const space of spaces) {
     if (space.footprint.length < 3) continue
+    const [minX, minY, maxX, maxY] = boundsOf(space.footprint)
+    if (x < minX - reach || x > maxX + reach || y < minY - reach || y > maxY + reach) continue
     const d = distanceToRing(point, space.footprint)
     if (d <= bestDistance) {
       bestDistance = d
       best = space.id
     }
   }
-  return best
+  return best === null ? null : { id: best, how: 'near' }
 }
 
 /**
@@ -170,11 +221,42 @@ export function assignEquipment(equipment: Equipment, spaces: readonly Space[], 
   equipment.spaceSource = null
   if (!equipment.position) return
 
-  const found = locate([equipment.position[0], equipment.position[1]], spaces, snap)
-  if (found !== null) {
-    equipment.spaceId = found
+  const found = locateHow([equipment.position[0], equipment.position[1]], spaces, snap)
+  // 사람 지정(K17)은 기계가 확신하지 못할 때만 쓴다. 외곽선 안에 들면 기계 판정이 이긴다.
+  if (found?.how !== 'inside' && equipment.spaceSet !== undefined && spaces.some((s) => s.id === equipment.spaceSet)) {
+    equipment.spaceId = equipment.spaceSet
+    equipment.spaceSource = 'edit'
+    return
+  }
+  if (found) {
+    equipment.spaceId = found.id
     equipment.spaceSource = 'computed'
   }
+}
+
+/**
+ * 사람 지정(K17)의 지금 상태. `applied` 면 지정이 소속이고, `released` 면 기계가 확신하게 되어(또는 지정한 방이 없어져) 지정을
+ * 쓰지 않는 것이다 — 화면은 "사람 지정 해제: 지정한 방 → 지금 소속(까닭)" 으로 보인다. 지정이 없으면 null.
+ */
+export function spaceSetState(
+  equipment: Equipment,
+  spaces: readonly Space[],
+): { state: 'applied' } | { state: 'released'; from: string; reason: 'bim' | 'inside' | 'gone' } | null {
+  if (equipment.spaceSet === undefined) return null
+  if (equipment.spaceSource === 'edit') return { state: 'applied' }
+  const reason = !spaces.some((s) => s.id === equipment.spaceSet) ? 'gone' : equipment.spaceSource === 'bim' ? 'bim' : 'inside'
+  return { state: 'released', from: equipment.spaceSet, reason }
+}
+
+/**
+ * 이 설비에 사람이 소속을 지정할 수 있나(OE-MAP-01, Q14). 기계가 확신하는 설비 — 좌표가 없거나(미배치), BIM 이 소속을 적었거나,
+ * 외곽선 안인 설비 — 는 지정할 수 없고 그 까닭을 돌려준다. 이미 사람이 지정한 설비는 다시 고칠 수 있다.
+ */
+export function spaceAssignable(equipment: Equipment, spaces: readonly Space[], snap = SNAP): { ok: true } | { ok: false; reason: string } {
+  if (!equipment.position) return { ok: false, reason: '좌표가 없는 설비(미배치)라 소속을 정하지 않습니다' }
+  if (equipment.spaceSource === 'bim') return { ok: false, reason: 'BIM 이 적은 소속입니다' }
+  if (locateHow([equipment.position[0], equipment.position[1]], spaces, snap)?.how === 'inside') return { ok: false, reason: '외곽선 안이라 좌표로 정한 소속입니다' }
+  return { ok: true }
 }
 
 /**

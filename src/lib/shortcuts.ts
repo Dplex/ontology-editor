@@ -23,6 +23,7 @@ export type ShortcutId =
   | 'arrowNext'
   | 'flow'
   | 'confirm'
+  | 'ceiling'
   | 'kind'
   | 'nextUnknown'
   | 'prevUnknown'
@@ -31,6 +32,7 @@ export type ShortcutId =
   | 'vertexInsert'
   | 'vertexDelete'
   | 'drawFinish'
+  | 'replay'
 
 /** 키 하나의 조합. `ctrl` 은 Ctrl 또는 ⌘ 다. `shift: 'any'` 는 Shift 를 눌렀든 말든 받는다(처리하는 쪽이 본다). */
 type Combo = ({ code: string; key?: never } | { key: string; code?: never }) & { shift?: boolean | 'any'; ctrl?: boolean }
@@ -54,6 +56,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'mode', combos: [{ code: 'KeyE' }], keys: ['E'], label: '보기 ↔ 편집', group: '어디서나' },
   { id: 'save', combos: [{ code: 'KeyS', ctrl: true }], keys: ['Ctrl+S'], label: '편집 저장(파일로 내려받기)', group: '어디서나' },
   { id: 'search', combos: [{ code: 'Slash' }], keys: ['/'], label: '이름 찾기 칸으로 이동', group: '어디서나' },
+  { id: 'replay', combos: [{ code: 'KeyP' }], keys: ['P'], label: '편집 리플레이 — 3D 에서 이번 세션의 편집을 고친 순서대로 다시 틀기(PoC)', group: '어디서나' },
   {
     id: 'nextIssue',
     combos: [{ code: 'KeyN' }],
@@ -90,7 +93,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     id: 'nudge',
     combos: ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].map((code) => ({ code, shift: 'any' as const })),
     keys: ['← ↑ → ↓'],
-    label: '고른 설비(물리존이면 고른 꼭짓점)를 10cm 옮기기 (Shift: 1m)',
+    label: '고른 설비(여러 개면 같이, 물리존이면 고른 꼭짓점)를 10cm 옮기기 (Shift: 1m)',
     group: '편집 · 설비',
     edit: true,
   },
@@ -103,14 +106,15 @@ export const SHORTCUTS: readonly Shortcut[] = [
     id: 'flow',
     combos: [{ code: 'KeyD' }],
     keys: ['D'],
-    label: '고른 연결의 방향 바꾸기 (하류 → 상류 → 지우기)',
+    label: '고른 연결의 방향 미리보기 (나감 → 들어옴 → 거둠). Enter 로 적용',
     group: '편집 · 연결 방향',
     edit: true,
   },
   { id: 'confirm', combos: [{ code: 'KeyC' }], keys: ['C'], label: '고른 설비 계통의 규칙 방향 확정', group: '편집 · 연결 방향', edit: true },
+  { id: 'ceiling', combos: [{ code: 'KeyT' }], keys: ['T'], label: '천장 편집 모드 들어가기·나오기', group: '편집 · 설비', edit: true },
 
   { id: 'vertexInsert', combos: [{ code: 'Insert' }], keys: ['Insert'], label: '짚은 꼭짓점과 다음 꼭짓점 사이에 꼭짓점 넣기', group: '편집 · 물리존', edit: true },
-  { id: 'vertexDelete', combos: [{ code: 'Delete' }], keys: ['Delete'], label: '짚은 꼭짓점 지우기(셋은 남긴다)', group: '편집 · 물리존', edit: true },
+  { id: 'vertexDelete', combos: [{ code: 'Delete' }], keys: ['Delete'], label: '짚은 꼭짓점 지우기(셋은 남긴다) · 여러 개 고른 설비 같이 지우기', group: '편집 · 물리존', edit: true },
   { id: 'drawFinish', combos: [{ code: 'Enter' }], keys: ['Enter'], label: '외곽선 그리기 마치기', group: '편집 · 물리존', edit: true },
   { id: 'kind', combos: [{ code: 'KeyK' }], keys: ['K'], label: '고른 설비의 종류 선택 (같은 패밀리 전체)', group: '편집 · 종류', edit: true },
   { id: 'nextUnknown', combos: [{ code: 'KeyU' }], keys: ['U'], label: '종류를 모르는 다음 패밀리의 설비로', group: '편집 · 종류', edit: true },
