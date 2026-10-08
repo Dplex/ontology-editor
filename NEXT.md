@@ -38,9 +38,14 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 
 ## 이 브랜치에서 한 것
 
-| 커밋 | PR 거리 | 이슈 | 상태 |
+옮길 때 이 순서대로 PR 을 연다(뒤의 것이 앞의 것과 같은 줄을 고친다).
+
+| 커밋 | PR 거리(PR md) | 이슈 | `needs-pm` |
 |---|---|---|---|
-| — | (아직 없음) | | |
+| 6655ba5 | [ADR 목록 0017~0022](next/pr/docs-adr-index.md) | 없음 | — |
+| a037c62 | [OE-EQP-11 스프링클러 소화 배관 검사](next/pr/oe-eqp-11.md) | [#409](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/409) | — |
+| cb3b92b | [OE-SPC-12 사이트 기본 내벽 두께 0.15m](next/pr/oe-spc-12.md) | [#408](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/408) | 외벽 300mm 칸을 둘지 |
+| 8de41b2 | [OE-OBJ-03·09 룸·오브젝트 GeoJSON 내보내기](next/pr/oe-obj-03-09-export.md) | 새 이슈(옮길 때 생성) | TTL 에 넣을지 · 모델 파일을 넘길지. ADR 목록 줄이 첫 PR 뒤에 붙는다 |
 
 ## 지금 상태 (2026-10-08 22:40)
 
@@ -83,11 +88,10 @@ R1 Todo 는 34장, 후속 이슈 3장([#340](https://github.sec.samsung.net/IoT-
 
 ### 0. 작은 후속 — 먼저
 
-1. **ADR 목록 줄** — `docs/adr/README.md` 에 0017~0022 줄이 없다. 0015 줄은 아직 "반자 높이" 다. 이슈 없음.
-2. **[#409](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/409) 스프링클러 헤드의 소화 배관 연결 필수([OE-EQP-11](docs/prd/features/E12-EQP/OE-EQP-11.md))** — 소화 계통 종류는 [#389](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/389) 에 있다. 생성 전 검증([OE-GEN-03](docs/prd/features/E08-GEN/OE-GEN-03.md))에서 위반으로 보인다.
-3. **[#408](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/408) 벽 사이트 기본 두께([OE-SPC-12](docs/prd/features/E09-SPC/OE-SPC-12.md))** — 내벽 0.15 / 외벽 0.3m 를 사이트 기본값으로.
-4. **룸·추가 공간 오브젝트 내보내기** — PM 이 [#45](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/45)·[#51](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/51) 에 2번(TTL·GeoJSON 으로 내보냄)을 골랐다. 3D Map 에는 보이고, 뷰어마스터 탐색기·
-   설비 위치 참조로는 쓰지 않는다. 이슈가 아직 없다(sec 으로 옮길 때 만든다).
+1. ~~ADR 목록 줄~~ — 6655ba5
+2. ~~#409 스프링클러 헤드의 소화 배관 연결 필수~~ — a037c62
+3. ~~#408 벽 사이트 기본 두께~~ — cb3b92b(외벽 300mm 는 `needs-pm`)
+4. ~~룸·추가 공간 오브젝트 내보내기~~ — 8de41b2(TTL·모델 파일은 `needs-pm`)
 5. **[#184](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/184) 계통 종류** — PM 답이 사실상 1번이다. PM 확인을 받고 닫는다. "Flow Type · 계통도 17종 · 흐름 방향" 세 필드 정의는 후속 이슈 후보다.
 
 ### 1. 배관 편집 (E13 · R1 P1)
