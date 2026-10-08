@@ -6,7 +6,7 @@ import { importIfc } from './ifc/import'
 import { baselineOf, createSpace, deleteSpace, diffBaseline, mergeSpaces, restore, snapshotHvacZones, snapshotStoreySpaces, splitSpace } from './edit'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { splitByStorey } from './storey-drafts'
-import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, findHvacZone, hvacZonesOf, setZoneServedBy, setZoneSpaces, zoneChecks } from './hvac-zone'
+import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, findHvacZone, hvacZonesOf, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './hvac-zone'
 import { escapeLocalName, modelToTTL } from './export/ttl'
 import { modelToGeoJSON } from './export/geojson'
 import { readGeoJSON } from './export/read-export'
@@ -166,6 +166,41 @@ describe('공조존 검증과 담당 물리존 고치기 (OE-ZON-05 · OE-ZON-04
     expect(setZoneSpaces(model, drawn.id, [office().id, store])).toBe(true)
     expect(drawn.areaM2).toBeCloseTo(40)
     expect(drawn.spaceShares).toEqual({ [office().id]: 0.5, [store]: 0 })
+  })
+})
+
+describe('공조존 경계 다시 그리기 (OE-ZON-04)', () => {
+  it('골라 만든 공조존도 경계를 다시 그리면 새 경계와 겹치는 물리존이 담당이 되고, 되돌리면 그 전과 같다', () => {
+    const zone = createZoneFromSpaces(model, { spaceIds: [office().id] }) as HvacZone
+    const snap = snapshotHvacZones(model, model.storeys[0].id)!
+    const before = modelToTTL(model)
+    // 사무실 오른쪽 끝(8..10)과 창고 왼쪽(10.2..12)에 걸친 경계.
+    expect(reshapeHvacZone(model, zone.id, [[8, 0], [12, 0], [12, 8], [8, 8]])).toBe(true)
+    expect(zone.drawn).toBe(true)
+    expect(zone.areaM2).toBeCloseTo(32)
+    expect(zone.spaceIds).toEqual([office().id, store])
+    expect(zone.spaceShares![office().id]).toBeCloseTo(16 / 80, 2)
+    expect(zone.spaceShares![store]).toBeCloseTo(14.4 / 30.4, 2)
+    expect(block(modelToTTL(model), zone.id)).toContain(`ex:${escapeLocalName(store)}`)
+    restore(model, snap)
+    expect(modelToTTL(model)).toBe(before)
+  })
+
+  it('겹치는 물리존이 없거나 변이 엇갈리면 막고 공조존은 그대로다. 다시 그린 경계는 편집 파일을 거쳐도 같다', () => {
+    model = read()
+    const base = baselineOf(model)
+    const zone = createZoneFromSpaces(model, { spaceIds: [office().id] }) as HvacZone
+    const footprint = JSON.stringify(zone.footprint)
+    expect(reshapeHvacZone(model, zone.id, [[20, 20], [22, 20], [22, 22], [20, 22]])).toEqual({ refused: '경계와 겹치는 물리존이 없습니다. 담당 물리존 위에 그리세요.' })
+    expect(reshapeHvacZone(model, zone.id, [[0, 0], [4, 4], [4, 0], [0, 4]])).toEqual({ refused: '변이 서로 엇갈립니다. 꼭짓점을 차례대로 찍으세요.' })
+    expect(JSON.stringify(zone.footprint)).toBe(footprint)
+    expect(reshapeHvacZone(model, zone.id, [[0, 0], [6, 0], [6, 8], [0, 8]])).toBe(true)
+    const parsed = parseEditFile(JSON.stringify(exportEdits(model, base, 'mep.ifc')))
+    if (typeof parsed === 'string') throw new Error(parsed)
+    const again = read()
+    applyEdits(again, parsed)
+    expect(modelToTTL(again)).toBe(modelToTTL(model))
+    expect(hvacZonesOf(again)[0]).toMatchObject({ drawn: true, areaM2: 48 })
   })
 })
 

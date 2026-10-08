@@ -116,6 +116,15 @@ function overlappedSpaces(storey: Storey, ring: readonly Vec2[]): { ids: string[
   return { ids, shares }
 }
 
+/** 그린 경계를 닫힌 고리로. 셋 미만·엇갈림·넓이 없음은 막는다. */
+function outlineRing(footprint: readonly Vec2[]): Vec2[] | { refused: string } {
+  const ring = close(footprint)
+  if (ring.length < 4) return { refused: '꼭짓점을 셋 이상 찍어야 합니다.' }
+  if (isSelfIntersecting(ring)) return { refused: '변이 서로 엇갈립니다. 꼭짓점을 차례대로 찍으세요.' }
+  if (polygonArea(ring) < 0.01) return { refused: '넓이가 너무 작습니다.' }
+  return ring
+}
+
 /** 경계를 그려 공조존을 만든다(OE-ZON-02). 겹치는 물리존이 담당이다. 변이 엇갈리거나 넓이가 없으면 막는다. */
 export function createZoneFromOutline(
   model: Model,
@@ -125,10 +134,8 @@ export function createZoneFromOutline(
   const storey = model.storeys.find((s) => s.id === storeyId)
   if (!storey) return null
   if (spec.id && findHvacZone(model, spec.id)) return null
-  const ring = close(spec.footprint)
-  if (ring.length < 4) return { refused: '꼭짓점을 셋 이상 찍어야 합니다.' }
-  if (isSelfIntersecting(ring)) return { refused: '변이 서로 엇갈립니다. 꼭짓점을 차례대로 찍으세요.' }
-  if (polygonArea(ring) < 0.01) return { refused: '넓이가 너무 작습니다.' }
+  const ring = outlineRing(spec.footprint)
+  if ('refused' in ring) return ring
   const { ids, shares } = overlappedSpaces(storey, ring)
   const zone: HvacZone = {
     id: spec.id ?? newId(),
@@ -145,6 +152,21 @@ export function createZoneFromOutline(
   }
   ;(storey.hvacZones ??= []).push(zone)
   return zone
+}
+
+/**
+ * 경계를 다시 그린다(OE-ZON-04). 물리존을 골라 만든 존도 이제 그린 존이 되어, 새 경계와 겹치는 물리존이 담당이다.
+ * 담당 물리존을 그대로 두면 바닥과 담당이 어긋나 Z-01·Z-02 가 틀린 답을 낸다. 겹치는 물리존이 없으면 막는다.
+ */
+export function reshapeHvacZone(model: Model, id: string, footprint: readonly Vec2[]): boolean | { refused: string } {
+  const found = findHvacZone(model, id)
+  if (!found) return false
+  const ring = outlineRing(footprint)
+  if ('refused' in ring) return ring
+  const { ids, shares } = overlappedSpaces(found.storey, ring)
+  if (!ids.length) return { refused: '경계와 겹치는 물리존이 없습니다. 담당 물리존 위에 그리세요.' }
+  Object.assign(found.zone, { footprint: [ring], areaM2: polygonArea(ring), spaceIds: ids, spaceShares: shares, drawn: true })
+  return true
 }
 
 /** 사람이 만든 공조존을 지운다. 담당하던 물리존은 다른 공조존이 없으면 담당 없음(Z-01)이 된다. */

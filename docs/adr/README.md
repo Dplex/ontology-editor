@@ -86,3 +86,4 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | [0024](0024-room-kind-edit-by-name.md) | 방 종류는 사람이 정할 수 있고(출처 편집) 같은 공간명의 방에 건물 전체로 함께 붙으며, 사람이 정한 종류는 이름을 고쳐도 남는다 | 제안 |
 | [0025](0025-space-bim-area-and-outline-warnings.md) | 방의 BIM 면적은 NetFloorArea → GrossFloorArea → GSA BIM Area → Revit 치수 Area 순으로 읽고, 외곽선을 그리면 ±20%·겹침 0.05㎡ 를 넘을 때 경고만 한다 | 제안 |
 | [0026](0026-manual-hvac-zones.md) | 수동 공조존은 층마다 두고 IDF 공조존과 같은 모양으로 읽으며, 담당 물리존은 고른 것(그린 경계면 겹침)이고 담당 설비가 존을 feeds 한다 | 제안 |
+| [0027](0027-hvac-zone-redraw-outline.md) | 공조존 경계는 꼭짓점 손잡이 대신 다시 그려서 고치고, 다시 그리면 겹치는 물리존이 담당이 된다 | 제안 |
