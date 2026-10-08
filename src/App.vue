@@ -3550,7 +3550,7 @@ function mergeZone(otherId: string) {
     const survivor = kept as CustomZone
     selectedCustomZoneId.value = survivor.id
     const gone = names.find((n) => n !== survivor.name) ?? ''
-    note(`${names[0]}·${names[1]}을 합쳤습니다. 넓은 ${survivor.name}이 남고 ${gone}은 그 별명이 됩니다`)
+    note(`${names[0]}·${names[1]}${josa(names[1], '을/를')} 합쳤습니다. 넓은 ${survivor.name}${josa(survivor.name, '이/가')} 남고 ${gone}${josa(gone, '은/는')} 그 별명이 됩니다`)
   }
 }
 
