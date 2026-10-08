@@ -823,6 +823,20 @@ describe('설비 추가·삭제·이름 (E7)', () => {
     expect(modelToTTL(model)).toBe(before)
   })
 
+  it('이름을 고친 설비도 같은 패밀리 일괄 종류 지정에 든다 — 패밀리는 BIM 이 준 이름으로 묶는다 (OE-EQP-13)', () => {
+    const [a, b] = ['AT-101-01', 'AT-101-02'].map(equip)
+    a.name = 'M_Supply Diffuser:600 x 600:1'
+    b.name = 'M_Supply Diffuser:600 x 600:2'
+    b.ifcClass = a.ifcClass
+    const key = familyKeyOf(a)
+    expect(familyKeyOf(b)).toBe(key)
+    // 사람이 태그로 바꾼 이름은 Revit 모양이 아니다. 그래도 패밀리는 그대로다.
+    expect(renameEquipment(model, a.id, 'SD-101')).toBe(true)
+    expect(familyKeyOf(a)).toBe(key)
+    expect(setTypeKind(model, key, 'air_grille')!.count).toBe(2)
+    expect([a.kind, b.kind]).toEqual(['air_grille', 'air_grille'])
+  })
+
   it('이름을 고치면 label 이 바뀌고, 연 때와 견주면 이름 줄에 뜬다', () => {
     const base = baselineOf(model)
     const ahu = equip('AHU-1')
