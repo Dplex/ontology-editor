@@ -40,7 +40,7 @@ import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
 import { overlapArea } from '../src/lib/polygon'
 import { computeExternal } from '../src/lib/exterior'
 import { createCustomZone } from '../src/lib/custom-zone'
-import { addEquipment, baselineOf, moveEquipment, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, wallShapeLock, type WallCarryPlan } from '../src/lib/edit'
+import { addEquipment, baselineOf, familyKeyOf, moveEquipment, setTypeKind, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, wallShapeLock, type WallCarryPlan } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -1624,6 +1624,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
       'conduit-ends': '3103/3138',
       'heat-source-user': '1/1',
       'hydronic-user-source': '2/2',
+      // 스프링클러 헤드가 없는 파일이다(HVAC 모델).
+      'sprinkler-fp': '0/0',
     })
 
     // 종류 후보(kind-suggest.ts). 종류를 아는 Revit 패밀리를 하나씩 가리고 닮은 패밀리로 맞혀 본다(2026-09-29 실측).
@@ -1751,12 +1753,19 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
       'conduit-ends': '10923/12645',
       'heat-source-user': '0/1',
       'hydronic-user-source': '0/2',
+      // 스프링클러 헤드 418대(`M_Sprinkler - Pendent`)는 IfcFlowTerminal 이라 종류를 사람이 고르기 전까지 대상이 아니다(kinds.ts 의 manual).
+      'sprinkler-fp': '0/0',
     })
     const guess = evaluateSuggestions(model)
     // 33 = 엘리베이터 패밀리가 더해짐(2026-10-03). 맞힌 수 26 → 25 는 분전반이 조명에서 분전반으로 바로잡혀(위 Duplex 와 같은 까닭)
     // 하나뿐인 분전반 패밀리를 닮은 것으로 맞힐 수 없게 된 것이다. 엘리베이터도 하나뿐이라 맞히지 못한다.
     expect(guess.families).toBe(33)
     expect(guess.top3).toBeGreaterThanOrEqual(25)
+
+    // 사람이 그 패밀리를 "스프링클러 헤드" 로 정하면 418대 전부가 소화(Fire Protection) 배관에 이어져 통과한다(OE-EQP-11).
+    const head = model.storeys.flatMap((st) => st.equipment).find((e) => /Sprinkler - Pendent/.test(e.name))!
+    expect(setTypeKind(model, familyKeyOf(head), 'sprinkler')?.count).toBe(418)
+    expect(checksOf(model)['sprinkler-fp']).toBe('418/418')
   }, 600_000)
 })
 
@@ -1844,7 +1853,7 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
     const [pass, total] = checks['terminal-single-source'].split('/')
     expect.soft(pass).toBe(total)
     // 도관 끝·물 계통 규칙(2026-09-29 추가)은 성수가 없는 PC 에서 더해 아직 재지 못했다. 처음 돌 때 값을 정본에 적는다.
-    const { 'conduit-ends': _ends, 'heat-source-user': _heat, 'hydronic-user-source': _user, ...measured } = checks
+    const { 'conduit-ends': _ends, 'heat-source-user': _heat, 'hydronic-user-source': _user, 'sprinkler-fp': _fp, ...measured } = checks
     expect.soft({ ...measured, 'terminal-single-source': undefined }).toEqual({
       // 분모가 22 늘었다: 타입 객체에서 종류를 읽게 되면서(603d144) 8AG 그릴 22개를 말단으로 알아본다.
       'terminal-source': '1386/2400',
