@@ -789,6 +789,11 @@ th {
   font-size: 0.8rem;
 }
 
+/* 확정한 뒤 근거가 바뀐 규칙 방향(OE-PIP-07). */
+.recheck {
+  color: var(--warn-fg);
+}
+
 .review-tag {
   color: var(--warn-fg);
 }

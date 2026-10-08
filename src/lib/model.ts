@@ -326,7 +326,18 @@ export type Connection = {
    * 온톨로지를 읽는 쪽이 둘을 구별할 수 없다. 사람이 에디터에서 계통 단위로 확인하면 `confirmed`
    * 가 되고, 그때부터 `brick:feeds` 로 나간다.
    */
-  inferred?: { from: string; to: string; systemId: string; confirmed: boolean }
+  inferred?: {
+    from: string
+    to: string
+    systemId: string
+    confirmed: boolean
+    /**
+     * 확정한 뒤 근거가 바뀐 규칙 방향(OE-PIP-07). 규칙을 다시 돌려 얻은 새 방향이고, 새로 정할 수 없게 됐으면 `null` 이다. 있으면
+     * 재검토 중이라 `brick:feeds` 로 내보내지 않는다. 확정한 방향(`from`·`to`)은 그대로 두고, 다시 확정하면 새 방향으로 바뀐다.
+     * 규칙을 돌릴 때마다 새로 재므로 근거가 되돌아오면 저절로 없어진다.
+     */
+    recheck?: { from: string; to: string } | null
+  }
   /**
    * 사람이 에디터에서 정한 흐름 방향. `inferred` 처럼 **포트가 방향을 말하지 않은 연결에만** 붙는다.
    * 규칙이 틀린 곳을 고치거나 규칙이 닿지 못한 곳을 채운다. 규칙 방향보다 앞서고, 사람이 정한

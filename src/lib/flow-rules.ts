@@ -33,10 +33,17 @@ export type RuleReport = {
   agree: number
   disagree: number
   /**
+   * 포트가 방향을 말했지만 규칙이 방향을 정하지 못해 대 보지 못한 연결 수(OE-PIP-07 의 '추정 불가'). 일치율의 분모(agree + disagree)에
+   * 들지 않는다. 계통 종류를 모르거나 계통이 없는 연결도 여기 든다.
+   */
+  unestimated: number
+  /** 확정한 뒤 근거가 바뀌어 재검토로 둔 규칙 방향 수. 다시 확정하기 전까지 내보내지 않는다. */
+  recheck: number
+  /**
    * 계통별로 같은 것을 센 표. 화면이 "확정" 전에 이 계통에서 규칙이 포트와 얼마나 맞았는지를 보여 준다.
    * 원천을 못 찾은 계통은 들어 있지 않다.
    */
-  bySystem: Record<string, { oriented: number; agree: number; disagree: number; conflicts: number }>
+  bySystem: Record<string, { oriented: number; agree: number; disagree: number; conflicts: number; unestimated: number }>
 }
 
 /**
@@ -46,15 +53,21 @@ export type RuleReport = {
  * 바꾸면 확인한 의미가 없다. 확정 안 된 것은 지우고 새로 정한다.
  */
 export function inferFlowByRules(model: Model): RuleReport {
-  const report: RuleReport = { systems: 0, noSource: 0, oriented: 0, conflicts: 0, agree: 0, disagree: 0, bySystem: {} }
+  const report: RuleReport = { systems: 0, noSource: 0, oriented: 0, conflicts: 0, agree: 0, disagree: 0, unestimated: 0, recheck: 0, bySystem: {} }
   const equipment = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
   const kindOf = (id: string) => equipmentKind(equipment.get(id)?.kind)
 
-  const confirmed = new Set<string>()
+  // 확정한 방향은 지우지 않고 새로 잰 방향과 견준다(OE-PIP-07). 예전에는 확정한 계통을 통째로 건너뛰어, 연결을 끊거나 종류를
+  // 바꿔 원천이 사라져도 확정한 방향이 그대로 나갔고, 확정한 계통에 새로 이은 연결에는 규칙 방향이 서지 않았다.
+  const confirmed: Connection[] = []
   for (const c of model.connections) {
-    if (c.inferred?.confirmed) confirmed.add(c.inferred.systemId)
-    else if (c.inferred) delete c.inferred
+    if (c.inferred?.confirmed) {
+      delete c.inferred.recheck
+      confirmed.push(c)
+    } else if (c.inferred) delete c.inferred
   }
+  /** 이번에 규칙이 방향을 잰 연결과 그 방향. 확정한 연결이 여기 없으면 새로 정할 수 없게 된 것이다. */
+  const estimate = new Map<Connection, { from: string; to: string }>()
 
   const adjacent = new Map<string, { other: string; c: Connection }[]>()
   const link = (a: string, b: string, c: Connection) => {
@@ -146,7 +159,7 @@ export function inferFlowByRules(model: Model): RuleReport {
 
   for (const system of model.systems) {
     const info = systemKind(system.kind)
-    if (!info || confirmed.has(system.id)) continue
+    if (!info) continue
     report.systems++
 
     const { dist, branch } = fields.get(info.medium)!
@@ -157,7 +170,7 @@ export function inferFlowByRules(model: Model): RuleReport {
       continue
     }
 
-    const tally = (report.bySystem[system.id] = { oriented: 0, agree: 0, disagree: 0, conflicts: 0 })
+    const tally = (report.bySystem[system.id] = { oriented: 0, agree: 0, disagree: 0, conflicts: 0, unestimated: 0 })
     const done = new Set<Connection>()
     for (const id of system.memberIds) {
       for (const { other, c } of adjacent.get(id) ?? []) {
@@ -168,16 +181,21 @@ export function inferFlowByRules(model: Model): RuleReport {
         const da = dist.get(c.from)
         const db = dist.get(c.to)
         // 거리가 같으면(고리의 가운데, 원천끼리) 어느 쪽으로도 정할 근거가 없다.
-        if (da === undefined || db === undefined || da === db) continue
+        if (da === undefined || db === undefined || da === db) {
+          if (c.directed) tally.unestimated++
+          continue
+        }
         let [from, to] = da < db ? [c.from, c.to] : [c.to, c.from]
         const hint = hintOf(to) ?? hintOf(from)
         if (hint && hint.medium === info.medium && hint.sense !== info.sense && !outdoor.get(branch.get(to) ?? '')) {
           report.conflicts++
           tally.conflicts++
+          if (c.directed) tally.unestimated++
           continue
         }
         const sense = outdoor.get(branch.get(to) ?? '') ?? info.sense
         if (sense === 'in') [from, to] = [to, from]
+        if (!estimate.has(c)) estimate.set(c, { from, to })
 
         if (c.directed) {
           if (c.from === from && c.to === to) {
@@ -189,7 +207,7 @@ export function inferFlowByRules(model: Model): RuleReport {
           }
           continue
         }
-        // 두 계통이 같은 연결을 공유하면(구성원이 겹치면) 먼저 정한 쪽을 둔다.
+        // 두 계통이 같은 연결을 공유하면(구성원이 겹치면) 먼저 정한 쪽을 둔다. 확정한 방향은 아래에서 새 방향과 견준다.
         if (c.inferred) continue
         c.inferred = { from, to, systemId: system.id, confirmed: false }
         report.oriented++
@@ -197,6 +215,15 @@ export function inferFlowByRules(model: Model): RuleReport {
       }
     }
   }
+  // 확정한 방향과 새로 잰 방향이 다르거나, 새로 정할 수 없게 됐으면 재검토다. 같으면 확정 그대로다.
+  for (const c of confirmed) {
+    const now = estimate.get(c)
+    if (now && now.from === c.inferred!.from && now.to === c.inferred!.to) continue
+    c.inferred!.recheck = now ? { ...now } : null
+    report.recheck++
+  }
+  const directed = model.connections.filter((c) => c.directed).length
+  report.unestimated = Math.max(0, directed - report.agree - report.disagree)
   inferFluids(model)
   return report
 }
@@ -266,6 +293,11 @@ export function confirmSystemFlow(model: Model, systemId: string): number {
     if (c.inferred && c.inferred.systemId === systemId && !c.inferred.confirmed) {
       c.inferred.confirmed = true
       n++
+    } else if (c.inferred?.systemId === systemId && c.inferred.recheck !== undefined) {
+      // 재검토 중인 확정을 다시 확정한다(OE-PIP-07). 새 방향이 있으면 그것으로, 새로 정할 수 없게 됐으면 확정을 거둔다.
+      if (c.inferred.recheck) c.inferred = { from: c.inferred.recheck.from, to: c.inferred.recheck.to, systemId, confirmed: true }
+      else delete c.inferred
+      n++
     }
   }
   return n
@@ -282,7 +314,8 @@ export function withInferred(connections: readonly Connection[], confirmedOnly =
   return connections.map((c) => {
     if (c.directed) return c
     if (c.edited) return { ...c, from: c.edited.from, to: c.edited.to, directed: true }
-    if (c.inferred && (!confirmedOnly || c.inferred.confirmed)) {
+    // 재검토 중인 확정(recheck)은 내보내지 않는다. 화면 추적에는 확정한 방향으로 보인다.
+    if (c.inferred && (!confirmedOnly || (c.inferred.confirmed && c.inferred.recheck === undefined))) {
       return { ...c, from: c.inferred.from, to: c.inferred.to, directed: true }
     }
     return c

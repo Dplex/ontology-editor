@@ -133,6 +133,39 @@ export function restoreRelease(model: Model, s: ReleaseSnapshot): RuleReport {
   return inferFlowByRules(model)
 }
 
+// --- 계통 확정·재확정의 되돌리기 (OE-PIP-07) ------------------------------------------------
+//
+// 재검토 중인 확정을 다시 확정하면 방향이 새 방향으로 바뀌거나 확정이 없어진다. 확정 여부만 드는 스냅숏(edit.ts 의 'confirm')으로는
+// 되돌릴 수 없어서, 그 계통의 연결마다 규칙 방향을 통째로 든다. 되돌린 뒤 규칙을 다시 돌려 재검토 표시를 새로 잰다.
+
+export type RuleSnapshot = {
+  kind: 'rule-state'
+  entries: { connection: Connection; inferred: Connection['inferred'] }[]
+}
+
+const copyInferred = (i: Connection['inferred']): Connection['inferred'] =>
+  i ? { ...i, ...(i.recheck ? { recheck: { ...i.recheck } } : {}) } : undefined
+
+/** 계통(여럿이어도 되돌리기는 한 번)의 규칙 방향 상태. */
+export function snapshotRules(model: Model, systemIds: string | readonly string[]): RuleSnapshot {
+  const ids = new Set(typeof systemIds === 'string' ? [systemIds] : systemIds)
+  const entries = model.connections.filter((c) => c.inferred && ids.has(c.inferred.systemId)).map((connection) => ({ connection, inferred: copyInferred(connection.inferred) }))
+  return { kind: 'rule-state', entries }
+}
+
+/** 같은 연결들의 지금 상태. 다시 하기가 쓴다. */
+export function snapshotRulesAgain(s: RuleSnapshot): RuleSnapshot {
+  return { kind: 'rule-state', entries: s.entries.map(({ connection }) => ({ connection, inferred: copyInferred(connection.inferred) })) }
+}
+
+export function restoreRules(model: Model, s: RuleSnapshot): RuleReport {
+  for (const { connection, inferred } of s.entries) {
+    if (inferred) connection.inferred = copyInferred(inferred)
+    else delete connection.inferred
+  }
+  return inferFlowByRules(model)
+}
+
 // --- 연결별 방향 적용 (OE-PIP-04) ------------------------------------------------------------
 //
 // 포트가 방향을 말하지 않은 연결에 사람이 방향을 [적용] 한다. 화면은 먼저 미리보기로 보여 주고(모델은 그대로라 TTL 에 안 나간다),

@@ -19,7 +19,7 @@ import { vFlash } from './lib/motion'
 import { isMultiSelect, matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
-import { againstRule, applyFlow, cancelRelease, clearFlow, dropRelease, keepRelease, releaseConnection, releasedBetween, releasesOf, snapshotRelease } from './lib/connection-release'
+import { againstRule, applyFlow, cancelRelease, clearFlow, dropRelease, keepRelease, releaseConnection, releasedBetween, releasesOf, snapshotRelease, snapshotRules } from './lib/connection-release'
 import { applyEdits, countEdits, EDIT_FORMAT, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
 import { BUILDING, joinParts, partSig, splitByStorey, type HomeOf } from './lib/storey-drafts'
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
@@ -82,7 +82,6 @@ import {
   typeNameOf,
   familyKeyOf,
   familyNameOf,
-  snapshotConfirm,
   snapshotEquipment,
   snapshotSpace,
   snapshotOf,
@@ -1343,7 +1342,7 @@ function applySnapshot(s: Snapshot) {
     if (rules) ruleReport.value = rules
     triggerRef(model)
     flowVersion.value++
-  } else if (s.kind === 'release') {
+  } else if (s.kind === 'release' || s.kind === 'rule-state') {
     // 연결 해제 보정·취소(OE-PIP-06). connection 과 같이 규칙 방향을 다시 돌렸다.
     if (rules) ruleReport.value = rules
     triggerRef(model)
@@ -1477,7 +1476,7 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
     case 'confirm': {
       const r = selectedRule.value
       if (!r) return false
-      if (r.confirmed) note(`이미 확정한 계통입니다: ${r.name}`)
+      if (r.confirmed && !r.recheck) note(`이미 확정한 계통입니다: ${r.name}`)
       else if (r.count === 0) note('이 계통에는 규칙 방향이 없습니다')
       else confirmRule(r.systemId, r.name)
       return true
@@ -2383,13 +2382,19 @@ const selectedRule = computed(() => {
   const tally = ruleReport.value?.bySystem[systemId]
   const own = m.connections.filter((c) => c.inferred?.systemId === systemId)
   const checked = tally ? tally.agree + tally.disagree : 0
+  const recheck = own.filter((c) => c.inferred!.recheck !== undefined).length
+  const members = new Set(system?.memberIds ?? [])
   return {
     systemId,
     name: system?.name || systemId,
     kind: systemKind(system?.kind)?.label ?? '',
     count: own.length,
-    confirmed: own.length > 0 && own.every((c) => c.inferred!.confirmed),
+    confirmed: own.length > 0 && own.every((c) => c.inferred!.confirmed) && recheck === 0,
+    recheck,
     agree: tally?.agree ?? 0,
+    disagree: tally?.disagree ?? 0,
+    // 원천을 못 찾은 계통은 규칙이 돌지 않아 채점표가 없다. 그 계통에 닿은 포트 방향 연결이 전부 추정 불가다.
+    unestimated: tally?.unestimated ?? m.connections.filter((c) => c.directed && (members.has(c.from) || members.has(c.to))).length,
     checked,
     pct: checked > 0 ? Math.round(((tally?.agree ?? 0) / checked) * 100) : null,
   }
@@ -2397,20 +2402,21 @@ const selectedRule = computed(() => {
 
 /**
  * 규칙 방향이 선 계통 전부. 확정은 고른 설비의 패널에서만 할 수 있어서, 어느 계통이 남았는지 보려면 계통마다 설비를
- * 하나씩 찾아 골라야 했다. 확정 안 한 것부터, 규칙 방향이 많은 것부터 둔다. 일치율은 그 계통에서 포트가 이미 말한
- * 연결에 같은 규칙을 대 본 값이다(확정한 계통은 규칙을 다시 돌리지 않아 비어 있다).
+ * 하나씩 찾아 골라야 했다. 재검토가 있는 것, 확정 안 한 것, 규칙 방향이 많은 것 순으로 둔다. 일치율은 그 계통에서 포트가
+ * 이미 말한 연결에 같은 규칙을 대 본 값이다(확정한 계통도 규칙을 다시 돌려 잰다, OE-PIP-07).
  */
 const ruleSystems = computed(() => {
   void flowVersion.value
   const m = model.value
   const r = ruleReport.value
   if (!m) return []
-  const bySystem = new Map<string, { count: number; confirmed: number }>()
+  const bySystem = new Map<string, { count: number; confirmed: number; recheck: number }>()
   for (const c of m.connections) {
     if (!c.inferred) continue
-    const row = bySystem.get(c.inferred.systemId) ?? { count: 0, confirmed: 0 }
+    const row = bySystem.get(c.inferred.systemId) ?? { count: 0, confirmed: 0, recheck: 0 }
     row.count++
     if (c.inferred.confirmed) row.confirmed++
+    if (c.inferred.recheck !== undefined) row.recheck++
     bySystem.set(c.inferred.systemId, row)
   }
   return [...bySystem]
@@ -2424,13 +2430,14 @@ const ruleSystems = computed(() => {
         kind: systemKind(system?.kind)?.label ?? '',
         color: systemColor.value.get(id) ?? null,
         count: n.count,
-        confirmed: n.confirmed === n.count,
+        confirmed: n.confirmed === n.count && n.recheck === 0,
+        recheck: n.recheck,
         agree: tally?.agree ?? 0,
         checked,
         pct: checked > 0 ? Math.round(((tally?.agree ?? 0) / checked) * 100) : null,
       }
     })
-    .sort((a, b) => Number(a.confirmed) - Number(b.confirmed) || b.count - a.count)
+    .sort((a, b) => b.recheck - a.recheck || Number(a.confirmed) - Number(b.confirmed) || b.count - a.count)
 })
 
 /**
@@ -2447,7 +2454,7 @@ function confirmMatching() {
   const m = model.value
   const rows = bulkCandidates.value
   if (!m || !rows.length) return
-  const snapshot = snapshotConfirm(m, rows.map((r) => r.id))
+  const snapshot = snapshotRules(m, rows.map((r) => r.id))
   const at = mark()
   const done: { systemName: string; count: number }[] = []
   for (const r of rows) {
@@ -2463,10 +2470,12 @@ function confirmMatching() {
 
 function confirmRule(systemId: string, systemName: string) {
   if (!model.value) return
-  const snapshot = snapshotConfirm(model.value, systemId)
+  const snapshot = snapshotRules(model.value, systemId)
   const at = mark()
   const n = confirmSystemFlow(model.value, systemId)
   if (n === 0) return
+  // 재검토를 다시 확정하면 확정이 없어지는 연결이 있다(새로 정할 수 없게 된 것). 규칙을 다시 돌려 그 연결의 미확정 방향을 세운다.
+  ruleReport.value = inferFlowByRules(model.value)
   remember(`계통 ${systemName} 확정`, snapshot, at)
   confirmations.value = [...confirmations.value, { systemName, count: n }]
   flowVersion.value++
@@ -2481,7 +2490,7 @@ type NeighborRow = Neighbor & {
   name: string
   what: { label: string; src: SrcKind } | null
   edited: 'upstream' | 'downstream' | null
-  rule: { relation: 'upstream' | 'downstream'; confirmed: boolean } | null
+  rule: { relation: 'upstream' | 'downstream'; confirmed: boolean; recheck: boolean } | null
 }
 const selectedNeighbors = computed((): NeighborRow[] => {
   void flowVersion.value
@@ -2492,7 +2501,7 @@ const selectedNeighbors = computed((): NeighborRow[] => {
     const edited = !c.directed && c.edited ? (c.edited.from === id ? 'downstream' : 'upstream') : null
     const rule =
       !c.directed && !c.edited && c.inferred
-        ? { relation: c.inferred.from === id ? ('downstream' as const) : ('upstream' as const), confirmed: c.inferred.confirmed }
+        ? { relation: c.inferred.from === id ? ('downstream' as const) : ('upstream' as const), confirmed: c.inferred.confirmed, recheck: c.inferred.recheck !== undefined }
         : null
     return {
       ...n,
@@ -2513,7 +2522,7 @@ function otherFloor(id: string): string | null {
 const REL_LABEL = { upstream: '상류', downstream: '하류', linked: '방향 미지정' } as const
 function relLabel(n: NeighborRow) {
   if (n.edited) return REL_LABEL[n.edited]
-  if (n.rule) return `${REL_LABEL[n.rule.relation]}(${n.rule.confirmed ? '확정' : '추정'})`
+  if (n.rule) return `${REL_LABEL[n.rule.relation]}(${n.rule.recheck ? '재검토' : n.rule.confirmed ? '확정' : '추정'})`
   return REL_LABEL[n.relation]
 }
 function relClass(n: NeighborRow) {
@@ -6978,18 +6987,23 @@ async function export3D(format: 'glb' | 'obj') {
               {{ selectedRule.count }}개.
               <template v-if="selectedRule.pct !== null">
                 포트 방향이 있는 연결 {{ selectedRule.checked }}개로 검증하면
-                <b :class="{ low: selectedRule.pct < 80 }">{{ selectedRule.pct }}%</b> 일치합니다.
+                <b :class="{ low: selectedRule.pct < 80 }">{{ selectedRule.pct }}%</b> 일치합니다(일치 {{ selectedRule.agree }} · 불일치
+                {{ selectedRule.disagree }} · 추정 불가 {{ selectedRule.unestimated }}).
               </template>
-              <template v-else> 포트 방향이 있는 연결이 없어 검증할 수 없습니다.</template>
+              <template v-else> 포트 방향과 견줄 연결이 없어 일치율은 비교 불가입니다<template v-if="selectedRule.unestimated">(추정 불가 {{ selectedRule.unestimated }})</template>.</template>
+              <span v-if="selectedRule.recheck" class="edit-notice inline recheck" data-testid="rule-recheck">
+                확정한 뒤 근거가 바뀐 규칙 방향 {{ selectedRule.recheck }}개는 재검토 중이라 brick:feeds 로 내보내지 않습니다.
+              </span>
               <span v-if="selectedRule.confirmed" class="confirmed">확정했습니다. brick:feeds로 내보냅니다.</span>
               <button
                 v-else-if="editing"
                 type="button"
                 class="ghost"
                 :disabled="selectedRule.count === 0"
+                data-testid="rule-confirm"
                 @click="confirmRule(selectedRule.systemId, selectedRule.name)"
               >
-                이 계통 방향 확정
+                {{ selectedRule.recheck ? '이 계통 방향 다시 확정' : '이 계통 방향 확정' }}
               </button>
               <span v-else class="muted"> 확정은 편집 모드에서 할 수 있습니다.</span>
             </p>
@@ -7029,7 +7043,7 @@ async function export3D(format: 'glb' | 'obj') {
                     <span v-else-if="n.source === 'manual'">직접 이음 <Src kind="edit" /></span>
                     <span v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></span>
                     <span v-if="n.edited">직접 정한 방향 <Src kind="edit" /></span>
-                    <span v-else-if="n.rule">{{ n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
+                    <span v-else-if="n.rule">{{ n.rule.recheck ? '규칙 방향(확정 · 재검토, 내보내지 않음)' : n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
                     <!-- 한 층만 보는 중이면 다른 층 것은 3D 에 없고 화살표도 안 그린다(OE-UI-12). 왜 안 보이는지 적는다. -->
                     <span v-if="otherFloor(n.id)" class="other-floor">다른 층({{ otherFloor(n.id) }}) — 3D에 안 보임</span>
                   </div>
@@ -8152,14 +8166,14 @@ async function export3D(format: 'glb' | 'obj') {
         <Fold
           v-if="ruleSystems.length"
           title="규칙 방향 확정 (계통별)"
-          :meta="`계통 ${ruleSystems.length}개 · 확정 ${ruleSystems.filter((r) => r.confirmed).length}개`"
+          :meta="`계통 ${ruleSystems.length}개 · 확정 ${ruleSystems.filter((r) => r.confirmed).length}개${ruleSystems.some((r) => r.recheck) ? ` · 재검토 ${ruleSystems.filter((r) => r.recheck).length}개` : ''}`"
           :default-open="false"
           class="rule-systems"
         >
           <p class="hint">
             <Src kind="dict" /> 계통 종류와 설비 종류로 추정한 방향입니다. 확정한 계통만 brick:feeds로 내보냅니다. 일치율은
-            포트(BIM)에 방향이 있는 연결과 비교한 값이고, 비교할 연결이 없으면 비워 둡니다. 이름을 누르면 3D에
-            그 계통만 표시합니다.
+            포트(BIM)에 방향이 있는 연결과 비교한 값이고, 비교할 연결이 없으면 비교 불가로 적습니다. 확정한 뒤 편집으로 근거가 바뀐
+            방향은 재검토로 두고 다시 확정할 때까지 내보내지 않습니다. 이름을 누르면 3D에 그 계통만 표시합니다.
           </p>
           <p v-if="editing" class="bulk-confirm">
             <label>
@@ -8202,10 +8216,14 @@ async function export3D(format: 'glb' | 'obj') {
                     <b :class="{ low: r.pct < 80 }"><Roll :value="r.pct" />%</b> <span class="muted">{{ r.agree }}/{{ r.checked }}</span>
                     <Meter :parts="[{ value: r.pct / 100, tone: r.pct < 80 ? 'warn' : 'accent' }]" :label="`포트와 일치 ${r.pct}%`" />
                   </template>
-                  <span v-else class="muted">—</span>
+                  <span v-else class="muted">비교 불가</span>
                 </td>
                 <td class="rule-state">
                   <span v-if="r.confirmed" class="confirmed">확정함</span>
+                  <template v-else-if="r.recheck">
+                    <span class="recheck">재검토 {{ r.recheck }}</span>
+                    <button v-if="editing" type="button" class="ghost" @click="confirmRule(r.id, r.name)">다시 확정</button>
+                  </template>
                   <button v-else-if="editing" type="button" class="ghost" @click="confirmRule(r.id, r.name)">확정</button>
                   <span v-else class="muted">편집 모드에서 확정</span>
                 </td>
@@ -8457,7 +8475,14 @@ async function export3D(format: 'glb' | 'obj') {
               </ul>
               <p v-if="ruleReport && ruleReport.agree + ruleReport.disagree > 0" class="hint">
                 규칙으로 방향을 정한 연결 {{ ruleReport.oriented }}개. 포트 방향이 있는 연결 {{ ruleReport.agree + ruleReport.disagree }}개로 검증하면
-                {{ Math.round((ruleReport.agree / (ruleReport.agree + ruleReport.disagree)) * 100) }}% 일치합니다.
+                {{ Math.round((ruleReport.agree / (ruleReport.agree + ruleReport.disagree)) * 100) }}% 일치합니다(일치 {{ ruleReport.agree }} · 불일치
+                {{ ruleReport.disagree }} · 추정 불가 {{ ruleReport.unestimated }}).
+              </p>
+              <p v-else-if="ruleReport && ruleReport.oriented > 0" class="hint">
+                규칙으로 방향을 정한 연결 {{ ruleReport.oriented }}개. 포트 방향과 견줄 연결이 없어 일치율은 비교 불가입니다.
+              </p>
+              <p v-if="ruleReport?.recheck" class="hint recheck" data-testid="rule-recheck-total">
+                확정한 뒤 근거가 바뀐 규칙 방향 {{ ruleReport.recheck }}개가 재검토 중입니다. 다시 확정하기 전에는 brick:feeds 로 내보내지 않습니다.
               </p>
             </div>
           </div>
