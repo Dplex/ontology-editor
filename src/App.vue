@@ -3074,6 +3074,9 @@ function applyEditFile(file: EditFile, from: string, quiet = false) {
       ? ` GUID가 바뀐 ${rematched.reduce((n, [, k]) => n + k, 0)}개는 ${rematched.map(([k, n]) => `${MATCH_KEY_BY[k]} ${n}개`).join(', ')} 찾았습니다.`
       : '') +
     (missing.length ? ` 찾지 못함: ${missing.map(([k, n]) => `${MISSING_LABEL[k]} ${n}`).join(' · ')}.` : '') +
+    (result.numberConflicts.length
+      ? ` 같은 층에 이미 있는 방번호라 BIM 번호로 되돌림: ${result.numberConflicts.map((c) => `${c.storey} ${c.number}`).join(', ')}.`
+      : '') +
     ' 불러온 편집은 되돌리기로 취소할 수 없습니다.'
 }
 

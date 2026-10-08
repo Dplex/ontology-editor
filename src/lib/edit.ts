@@ -342,10 +342,6 @@ function setRoomKind(space: Space, found: ReturnType<typeof resolveRoomKind>) {
   else delete space.kindSource
 }
 
-/**
- * 같은 층에서 이 방번호를 쓰는 다른 물리존(OE-OBJ-02 "방번호는 한 층 안에서 고유"). 빈 번호는 아직 안 정한 것이라 겹쳐도 된다.
- * 공간명(longName)은 겹쳐도 된다.
- */
 /** 나눈 조각의 방번호. `101-2`, 있으면 `101-3` … 한 층 안에서 겹치지 않는 첫 번호(OE-OBJ-02). */
 function nextNumber(storey: Storey, base: string): string {
   const used = new Set(storey.spaces.map((sp) => sp.name.trim()))
@@ -354,20 +350,28 @@ function nextNumber(storey: Storey, base: string): string {
   return `${base}-${k}`
 }
 
+/**
+ * 같은 층에서 이 방번호를 쓰는 다른 물리존(OE-OBJ-02 "방번호는 한 층 안에서 고유"). 빈 번호는 아직 안 정한 것이라 겹쳐도 된다.
+ * 공간명(longName)은 겹쳐도 된다.
+ */
 export function spaceNumberTaken(model: Model, storeyId: string, number: string, exceptId?: string): Space | null {
   const n = number.trim()
   if (!n) return null
   return model.storeys.find((s) => s.id === storeyId)?.spaces.find((sp) => sp.id !== exceptId && sp.name.trim() === n) ?? null
 }
 
-/** 물리존의 방번호를 고친다. 같은 층에 같은 번호가 있으면 막고 이유를 돌려준다. 바뀌었으면 true. */
-export function setSpaceNumber(model: Model, spaceId: string, number: string): boolean | { refused: string } {
+/**
+ * 물리존의 방번호를 고친다. 같은 층에 같은 번호가 있으면 막고 이유를 돌려준다. 바뀌었으면 true.
+ * `check: false` 는 편집 파일을 다시 얹을 때만 쓴다 — 번호를 맞바꾼 편집은 한 줄씩 넣는 도중에 잠깐 겹치므로, 다 넣은 뒤
+ * 층마다 한 번 검사한다(edit-file.ts `applyEdits`).
+ */
+export function setSpaceNumber(model: Model, spaceId: string, number: string, check = true): boolean | { refused: string } {
   const storey = model.storeys.find((s) => s.spaces.some((sp) => sp.id === spaceId))
   const space = storey?.spaces.find((sp) => sp.id === spaceId)
   if (!storey || !space) return false
   const n = number.trim()
   if (space.name === n) return false
-  const taken = spaceNumberTaken(model, storey.id, n, spaceId)
+  const taken = check ? spaceNumberTaken(model, storey.id, n, spaceId) : null
   if (taken) return { refused: `${storey.name}에 방번호 ${n}${josa(n, '이/가')} 이미 있습니다(${taken.longName || taken.name}). 방번호는 한 층 안에서 겹치지 않아야 합니다.` }
   space.name = n
   // 방 종류는 이름 사전이 방번호(Name)도 읽어서 같이 다시 읽는다(renameSpace 와 같은 순서).
