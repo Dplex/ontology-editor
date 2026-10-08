@@ -42,7 +42,7 @@ PRD_011 의 2장 "용어 정의" 와 부록 D "코드 체계" 를 옮긴 것이�
 | ** 요구사항 R0~R24** | 고객사 BIM 요구 항목. 필수 11 · 권장 14. 정본 = 개발 저장소. R25(BAS 매핑 키)는 제안 |
 | ** 출처 (Provenance)** | BIM · 계산 · 사전 · 사람 · 외부. 검토 화면 값마다 표시 |
 | ** 이름 사전** | 패밀리·계통·방 이름으로 종류를 정하는 규칙 모음 |
-| 포트 (Port) | 설비·덕트·배관·이음쇠에 붙은 연결 구멍(접속점). IFC 의 `IfcDistributionPort` 이고, Revit 패밀리의 커넥터(connector)가 내보내지며 포트가 된다. 누구의 포트인가(IFC4 `IfcRelNests` / IFC2x3 `IfcRelConnectsPortToElement`), 무엇과 이어졌나(`IfcRelConnectsPorts`), 흐름 방향(`FlowDirection`: SOURCE 나감 · SINK 들어옴 · SOURCEANDSINK)을 담는다. 포트를 따라가면 "AHU SOURCE → 덕트 → VAV SINK" 사슬이 나오고, 그 결과가 TTL 의 `AHU feeds VAV` 다. 에디터에서 포트는 ① **설비라는 증거**(포트가 있는 Proxy 는 설비, OE-BIM-13·OE-EXT-05) ② **방향의 유일한 BIM 근거**(원본 방향은 직접 고치지 않으며 유효 연결은 확정 없이 `feeds` 로 나간다. 연결 해제 보정은 가능하고 해제된 연결은 출력에서 제외한다, K13·OE-PIP-06)다. 포트가 없으면 형상 접촉으로 연결만 추정하고 방향은 비운다(K3·K4). 화면은 포트 방향을 진한 색, 규칙 방향을 옅은 색으로 가른다. 고객사 요구는 R17(성수 실측 62%, PRD 1.8) |
+| 포트 (Port) | 설비·덕트·배관·이음쇠에 붙은 연결 구멍(접속점). IFC 의 `IfcDistributionPort` 이고, Revit 패밀리의 커넥터(connector)가 내보내지며 포트가 된다. 누구의 포트인가(IFC4 `IfcRelNests` / IFC2x3 `IfcRelConnectsPortToElement`), 무엇과 이어졌나(`IfcRelConnectsPorts`), 흐름 방향(`FlowDirection`: SOURCE 나감 · SINK 들어옴 · SOURCEANDSINK)을 담는다. 포트를 따라가면 "AHU SOURCE → 덕트 → VAV SINK" 사슬이 나오고, 그 결과가 TTL 의 `AHU feeds VAV` 다. 에디터에서 포트는 ① **설비라는 증거**(포트가 있는 Proxy 는 설비, OE-BIM-13·OE-EXT-05) ② **방향의 유일한 BIM 근거**(원본 방향은 직접 고치지 않으며 유효 연결은 확정 없이 `feeds` 로 나간다. 연결 해제 보정은 가능하고 해제된 연결은 출력에서 제외한다, K13·OE-PIP-06)다. 포트가 없으면 형상 접촉을 연결 후보로 제안하고 확인 전 유효 연결이나 방향을 만들지 않는다(K3·K4). 화면은 포트 방향을 진한 색, 규칙 방향을 옅은 색으로 가른다. 고객사 요구는 R17(성수 실측 62%, PRD 1.8) |
 | ** 규칙 방향** | 포트 방향이 없을 때 계통·설비 종류로 추정한 흐름 방향. 사람이 계통 단위로 확정한 것만 `feeds`로 내보냄 |
 | ** 완전성 검사** | DT가 쓰려면 이어져야 하는 것을 8규칙으로 확인. 위반마다 이유와 "한 번에 고치기" |
 | ** 판본 비교** | 같은 건물의 이전·이후 BIM 비교(GUID 유지·변경 항목) |
