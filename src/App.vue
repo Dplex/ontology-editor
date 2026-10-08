@@ -1885,7 +1885,7 @@ const ruleSystems = computed(() => {
 
 /**
  * 포트와 잘 맞는 계통을 한꺼번에 확정한다. 성수는 규칙이 방향을 준 계통이 348개라 하나씩 누르면 45초가 걸렸다.
- * 포트와 대 볼 연결이 BULK_MIN_CHECKED 개 넘게 있고 일치율이 문턱 이상인 것만 고른다 — 대 볼 것이 없는 계통은
+ * 포트와 대 볼 연결이 BULK_MIN_CHECKED 개 이상 있고 일치율이 문턱 이상인 것만 고른다 — 대 볼 것이 없는 계통은
  * 맞는지 모르므로 사람이 3D 로 흐름을 보고 하나씩 확정한다. 되돌리기는 한 번이다.
  */
 const BULK_MIN_CHECKED = 20
@@ -6923,7 +6923,7 @@ async function export3D(format: 'glb' | 'obj') {
             <button type="button" class="ghost" :disabled="!bulkCandidates.length" @click="confirmMatching">
               {{ bulkCandidates.length }}개 한꺼번에 확정
             </button>
-            <span class="muted">대 본 연결이 {{ BULK_MIN_CHECKED }}개 넘는 계통만. 비교할 것이 없는 계통은 하나씩 확정합니다.</span>
+            <span class="muted">대 본 연결이 {{ BULK_MIN_CHECKED }}개 이상인 계통만. 비교할 것이 없는 계통은 하나씩 확정합니다.</span>
           </p>
           <table>
             <thead>
