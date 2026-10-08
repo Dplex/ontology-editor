@@ -7,6 +7,7 @@ import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
+import type { CustomZone } from './lib/model'
 import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import ExitEditDialog from './components/ExitEditDialog.vue'
@@ -3379,9 +3380,15 @@ function finishDraw(): boolean {
     stopDraw()
     const [a, b] = d.points
     const zoneId = d.spaceId!
-    if (changeCustomZones(d.storeyId, `${d.name} 나누기`, (m) => splitCustomZone(m, zoneId, a, b))) {
+    let pieceName = ''
+    const split = (m: Model) => {
+      const done = splitCustomZone(m, zoneId, a, b)
+      if (done && !('refused' in done)) pieceName = done.name
+      return done
+    }
+    if (changeCustomZones(d.storeyId, `${d.name} 나누기`, split)) {
       selectedCustomZoneId.value = zoneId
-      note(`${d.name}${josa(d.name, '을/를')} 둘로 나눴습니다. 좁은 쪽이 새 커스텀존입니다`)
+      note(`${d.name}${josa(d.name, '을/를')} 둘로 나눴습니다. 넓은 쪽이 ${d.name}, 좁은 쪽이 새 커스텀존 ${pieceName}입니다(별명 없음)`)
     }
     return true
   }
@@ -3577,28 +3584,41 @@ function startCustomSplit() {
   note(`${picked.zone.name}${josa(picked.zone.name, '을/를')} 나눌 선의 두 점을 바닥에 찍으세요 (Esc 취소)`)
 }
 
-function renameZone(raw: string) {
+/** 이름을 고친다. 막히면(빈 이름, 건물 안의 다른 이름·별명과 같음, OE-SPC-06) 칸을 원래 이름으로 되돌린다. */
+function renameZone(input: HTMLInputElement) {
   const picked = selectedCustomZone.value
   if (!picked) return
-  const name = raw.trim()
-  if (!name) return note('커스텀존 이름은 비울 수 없습니다')
-  changeCustomZones(picked.storey.id, `커스텀존 이름 ${name}`, (m) => renameCustomZone(m, picked.zone.id, name))
+  const name = input.value.trim()
+  if (!changeCustomZones(picked.storey.id, `커스텀존 이름 ${name}`, (m) => renameCustomZone(m, picked.zone.id, name))) input.value = picked.zone.name
 }
 
-/** 더 붙인 별명(ADR-0012). 쉼표·줄바꿈으로 가른다. */
-function setZoneAliases(raw: string) {
+/** 더 붙인 별명(ADR-0012). 쉼표·줄바꿈으로 가른다. 막히면(OE-SPC-06) 칸을 원래 별명으로 되돌린다. */
+function setZoneAliases(input: HTMLInputElement) {
   const picked = selectedCustomZone.value
   if (!picked) return
-  const aliases = raw.split(/[,，\n]/)
-  changeCustomZones(picked.storey.id, `커스텀존 ${picked.zone.name} 별명`, (m) => setCustomZoneAliases(m, picked.zone.id, aliases))
+  const aliases = input.value.split(/[,，\n]/)
+  if (!changeCustomZones(picked.storey.id, `커스텀존 ${picked.zone.name} 별명`, (m) => setCustomZoneAliases(m, picked.zone.id, aliases))) {
+    input.value = (picked.zone.aliases ?? []).join(', ')
+  }
 }
 
 function mergeZone(otherId: string) {
   const picked = selectedCustomZone.value
   if (!picked || !otherId) return
   const other = picked.storey.customZones?.find((z) => z.id === otherId)
-  if (changeCustomZones(picked.storey.id, `${picked.zone.name} + ${other?.name ?? ''} 합치기`, (m) => mergeCustomZones(m, picked.zone.id, otherId))) {
-    note(`${other?.name ?? ''}${josa(other?.name ?? '', '을/를')} ${picked.zone.name}에 합쳤습니다`)
+  const names = [picked.zone.name, other?.name ?? '']
+  let kept: CustomZone | null = null
+  const merge = (m: Model) => {
+    const done = mergeCustomZones(m, picked.zone.id, otherId)
+    if (done && !('refused' in done)) kept = done
+    return done
+  }
+  if (changeCustomZones(picked.storey.id, `${names[0]} + ${names[1]} 합치기`, merge) && kept) {
+    // 넓은 쪽이 남는다(OE-SPC-08). 고른 존이 없어졌으면 남은 존을 고른다.
+    const survivor = kept as CustomZone
+    selectedCustomZoneId.value = survivor.id
+    const gone = names.find((n) => n !== survivor.name) ?? ''
+    note(`${names[0]}·${names[1]}${josa(names[1], '을/를')} 합쳤습니다. 넓은 ${survivor.name}${josa(survivor.name, '이/가')} 남고 ${gone}${josa(gone, '은/는')} 그 별명이 됩니다`)
   }
 }
 
@@ -6389,7 +6409,7 @@ async function export3D(format: 'glb' | 'obj') {
           </div>
           <label v-if="editing" class="space-name">
             이름
-            <input type="text" data-testid="zone-name" v-keep-typing :value="selectedCustomZone.zone.name" @change="renameZone(($event.target as HTMLInputElement).value)" />
+            <input type="text" data-testid="zone-name" v-keep-typing :value="selectedCustomZone.zone.name" @change="renameZone($event.target as HTMLInputElement)" />
           </label>
           <!-- 별명은 여러 개(ADR-0012). 첫 이름이 TTL rdfs:label, 여기 적은 것은 ex:alias 다. 쉼표로 가른다. -->
           <label v-if="editing" class="space-name">
@@ -6400,7 +6420,7 @@ async function export3D(format: 'glb' | 'obj') {
               v-keep-typing
               placeholder="쉼표로 여러 개 (예: 임원 구역, 경영진석)"
               :value="(selectedCustomZone.zone.aliases ?? []).join(', ')"
-              @change="setZoneAliases(($event.target as HTMLInputElement).value)"
+              @change="setZoneAliases($event.target as HTMLInputElement)"
             />
           </label>
           <p v-if="editing" class="space-tools">
