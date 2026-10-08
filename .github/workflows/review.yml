@@ -4,7 +4,7 @@ name: Review
 # `review` 브랜치를 main + (앱을 고친 열린 PR)로 매번 새로 만든다 → 테스트 → 8087 재시작 → 강제 push → PR 에 주소 코멘트.
 #
 # - 넣는 PR: draft 가 아니고, 포크가 아니고, 번들에 들어가는 파일(APP_PATHS)을 하나라도 고친 것. 문서만 고친 PR(기획 PRD 수정 등)은 뺀다.
-# - 코멘트는 REVIEW_AUTHOR 가 연 PR 에만 단다(검토 주소, 충돌 알림 둘 다).
+# - 코멘트는 REVIEW_AUTHOR 가 연 PR 에만 단다(검토 주소, 충돌 알림 둘 다). 둘 다 PR 마다 하나만 두고 실행마다 고친다.
 # - `review` 는 버리는 브랜치다. 그 커밋을 main 으로 옮기지 않는다. main 에 들어가는 단위는 PR 이다.
 # - 다른 PR 과 부딪히는 PR 은 빼고 나머지로 만든다(main 에서도 부딪힌다는 뜻).
 # - 들어간 PR·브랜치·이슈는 8087 화면에서 Alt+Shift+R 로 본다. 앱 코드가 아니라 배포 때 dist/ 에 끼워 넣는 것이라
@@ -66,9 +66,27 @@ jobs:
                    issues: [(.body // "") | scan("(?i)(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)[[:space:]]*:?[[:space:]]+#([0-9]+)")[0] | tonumber] | unique}]
               | sort_by(.number)' > "$RUNNER_TEMP/prs.json"
 
-          comment() {  # 번호 본문 — REVIEW_AUTHOR 의 PR 에만 단다
-            [[ "$(jq -r --argjson n "$1" '.[] | select(.number == $n) | .author' "$RUNNER_TEMP/prs.json")" == "$REVIEW_AUTHOR" ]] || return 0
-            gh pr comment "$1" -R "$GITHUB_REPOSITORY" --body "$2" >/dev/null
+          mine() { [[ "$(jq -r --argjson n "$1" '.[] | select(.number == $n) | .author' "$RUNNER_TEMP/prs.json")" == "$REVIEW_AUTHOR" ]]; }
+          # 충돌 알림은 PR 마다 하나만 둔다. 실행마다 새로 달면 PR 하나를 merge 할 때마다 열린 PR 전부에 같은 알림이 쌓이고
+          # 메일이 그만큼 왔다(2026-10-08). 이미 있으면 고치기만 한다 — 고친 코멘트는 알림을 보내지 않는다.
+          # 머리말(⚠️ 검토 판)로 찾는다. 이 규칙 전에 쌓인 알림도 같은 머리말이라, 첫 실행이 하나만 남기고 지운다.
+          conflict_ids() {
+            gh api "repos/$GITHUB_REPOSITORY/issues/$1/comments" --paginate \
+              --jq '.[] | select(.body | startswith("⚠️ 검토 판")) | .id'
+          }
+          notify_conflict() {  # 번호 본문 — REVIEW_AUTHOR 의 PR 에만 단다
+            mine "$1" || return 0
+            ids=($(conflict_ids "$1"))
+            if (( ${#ids[@]} )); then
+              gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/${ids[-1]}" -f body="$2" >/dev/null
+              for id in "${ids[@]:0:${#ids[@]}-1}"; do gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$id"; done
+            else
+              gh pr comment "$1" -R "$GITHUB_REPOSITORY" --body "$2" >/dev/null
+            fi
+          }
+          clear_conflict() {  # 판에 들어갔으면 남은 충돌 알림을 지운다 — 아직 부딪히는 것처럼 보이지 않게
+            mine "$1" || return 0
+            for id in $(conflict_ids "$1"); do gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/comments/$id"; done
           }
 
           included=()
@@ -77,11 +95,12 @@ jobs:
             git fetch -q origin "pull/$n/head"
             if git merge -q --no-ff --no-edit -m "review: #$n $branch" FETCH_HEAD; then
               included+=("$n")
+              clear_conflict "$n"
             else
               files=$(git diff --name-only --diff-filter=U | sed 's/^/`/; s/$/`/' | paste -sd ' ')
               git merge --abort
               with=main; for i in "${included[@]}"; do with+=" + #$i"; done
-              comment "$n" "⚠️ 검토 판(\`review\`)에 못 넣었다 — $with 위에 합치다 충돌: $files. 이 PR 을 main 에 맞춰 고치거나 앞 PR 이 main 에 들어간 뒤 다시 올린다."
+              notify_conflict "$n" "⚠️ 검토 판(\`review\`)에 못 넣었다 — $with 위에 합치다 충돌: $files. 이 PR 을 main 에 맞춰 고치거나 앞 PR 이 main 에 들어간 뒤 다시 올린다."
             fi
           done
 
