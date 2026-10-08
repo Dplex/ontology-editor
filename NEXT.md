@@ -43,9 +43,11 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | 커밋 | PR 거리(PR md) | 이슈 | `needs-pm` |
 |---|---|---|---|
 | 6655ba5 | [ADR 목록 0017~0022](next/pr/docs-adr-index.md) | 없음 | — |
-| a037c62 | [OE-EQP-11 스프링클러 소화 배관 검사](next/pr/oe-eqp-11.md) | [#409](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/409) | — |
-| cb3b92b | [OE-SPC-12 사이트 기본 내벽 두께 0.15m](next/pr/oe-spc-12.md) | [#408](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/408) | 외벽 300mm 칸을 둘지 |
-| 8de41b2 | [OE-OBJ-03·09 룸·오브젝트 GeoJSON 내보내기](next/pr/oe-obj-03-09-export.md) | 새 이슈(옮길 때 생성) | TTL 에 넣을지 · 모델 파일을 넘길지. ADR 목록 줄이 첫 PR 뒤에 붙는다 |
+| 0c463b3 | [OE-EQP-11 스프링클러 소화 배관 검사](next/pr/oe-eqp-11.md) | [#409](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/409) | — |
+| 51bd6b5 | [OE-SPC-12 사이트 기본 내벽 두께 0.15m](next/pr/oe-spc-12.md) | [#408](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/408) | 외벽 300mm 칸을 둘지 |
+| 665d97c | [OE-OBJ-03·09 룸·오브젝트 GeoJSON 내보내기](next/pr/oe-obj-03-09-export.md) | 새 이슈(옮길 때 생성) | TTL 에 넣을지 · 모델 파일을 넘길지. ADR 목록 줄이 첫 PR 뒤에 붙는다 |
+| e45fcab | [OE-PIP-12 분기 이음쇠·추종 불가 사유·미리보기](next/pr/oe-pip-12.md) | [#193](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/193) | — |
+| 99af8d3 | [OE-EXT-05 포트 없는 건축 루버 Proxy 받지 않기](next/pr/oe-ext-05.md) | [#236](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/236) | OE-EQP-15·PRD 1.8 의 성수 루버 숫자 갱신 요청 |
 
 ## 지금 상태 (2026-10-08 22:40)
 
@@ -89,10 +91,12 @@ R1 Todo 는 34장, 후속 이슈 3장([#340](https://github.sec.samsung.net/IoT-
 ### 0. 작은 후속 — 먼저
 
 1. ~~ADR 목록 줄~~ — 6655ba5
-2. ~~#409 스프링클러 헤드의 소화 배관 연결 필수~~ — a037c62
-3. ~~#408 벽 사이트 기본 두께~~ — cb3b92b(외벽 300mm 는 `needs-pm`)
-4. ~~룸·추가 공간 오브젝트 내보내기~~ — 8de41b2(TTL·모델 파일은 `needs-pm`)
-5. **[#184](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/184) 계통 종류** — PM 답이 사실상 1번이다. PM 확인을 받고 닫는다. "Flow Type · 계통도 17종 · 흐름 방향" 세 필드 정의는 후속 이슈 후보다.
+2. ~~#409 스프링클러 헤드의 소화 배관 연결 필수~~ — 0c463b3
+3. ~~#408 벽 사이트 기본 두께~~ — 51bd6b5(외벽 300mm 는 `needs-pm`)
+4. ~~룸·추가 공간 오브젝트 내보내기~~ — 665d97c(TTL·모델 파일은 `needs-pm`)
+5. **`e2e:seongsu` 의 E(설비 편집)가 main 에서 멈춘다** — 성수 FCU 가 천장 설비라 #369(천장 편집 모드) 이후 바닥 쪽에서 위치 칸이 잠긴다.
+   E 가 멈추면 뒤의 7개(F~K·L)도 돌지 않는다. 10-08 merge 전 검증에서 `e2e:seongsu` 를 빼먹어 못 잡았다. 다음에 고친다.
+6. **[#184](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/184) 계통 종류** — PM 답이 사실상 1번이다. PM 확인을 받고 닫는다. "Flow Type · 계통도 17종 · 흐름 방향" 세 필드 정의는 후속 이슈 후보다.
 
 ### 1. 배관 편집 (E13 · R1 P1)
 
