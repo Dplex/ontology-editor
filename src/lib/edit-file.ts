@@ -134,7 +134,8 @@ export type EditFile = {
   /** 사람이 넣은 3D 모델 라이브러리 항목(OE-P3-08). glb 를 그대로 든다. 층에 속하지 않아 건물 조각으로 간다. */
   objectLibrary?: CustomObjectItem[]
   kinds: { typeKey: string; kind: string | null }[]
-  flows: { from: string; to: string }[]
+  /** 사람이 정한 방향. `at`·`reason` 은 [적용] 한 시각과 보정 사유다(OE-PIP-04). 그 칸이 없던 때의 파일도 받는다. */
+  flows: { from: string; to: string; at?: string; reason?: string }[]
   /** 확정한 계통. 아래 `confirmedFlows` 가 없던 때의 파일은 이것으로 불러온다. */
   confirmedSystems: string[]
   /**
@@ -232,7 +233,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   }
   const confirmed = new Set<string>()
   for (const c of model.connections) if (c.inferred?.confirmed) confirmed.add(c.inferred.systemId)
-  const flows = model.connections.filter((c) => !c.directed && c.edited).map((c) => ({ from: c.edited!.from, to: c.edited!.to }))
+  const flows = model.connections.filter((c) => !c.directed && c.edited).map((c) => ({ ...c.edited! }))
   const confirmedFlows = model.connections
     .filter((c) => !c.directed && c.inferred?.confirmed)
     .map((c) => ({ from: c.inferred!.from, to: c.inferred!.to, systemId: c.inferred!.systemId }))
@@ -893,8 +894,11 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     const c = model.connections.find(
       (x) => !x.directed && ((x.from === f.from && x.to === f.to) || (x.from === f.to && x.to === f.from)),
     )
-    if (c && setFlowDirection(c, f.from)) result.applied++
-    else result.missing.flows++
+    if (c && setFlowDirection(c, f.from)) {
+      result.applied++
+      if (row.at) c.edited!.at = row.at
+      if (row.reason) c.edited!.reason = row.reason
+    } else result.missing.flows++
   }
 
   // 층의 반자 높이(OE-EQP-03). 설비 편집보다 앞뒤가 상관없다 — 판정은 그때그때 잰다.
