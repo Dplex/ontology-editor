@@ -59,6 +59,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | 3a5c554 | [OE-ZON-01 설비 패널의 담당 공조존](next/pr/oe-zon-01-panel.md) | Refs [#151](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/151) | — (MAP-02 다음) |
 | 8ed03b8 | [OE-PIP-10 꺾임 이음쇠(꼭짓점) 옮기기](next/pr/oe-pip-10-vertex.md) | Refs [#191](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/191) | — (ADR 목록 줄은 MAP-02 다음) · `needs-pm` |
 | 77f59aa | [OE-PIP-13 구간 경로 LineString · 미반영 목록](next/pr/oe-pip-13.md) | [#194](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/194) | PIP-10 다음 · `needs-pm` |
+| 1225b23 | [OE-EQP-07 EL·ES 층 편집 잠금 · 에스컬레이터 사전](next/pr/oe-eqp-07.md) | [#171](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/171) | — (check-sample 성수 줄은 PIP-13 다음) |
 
 ## 지금 상태 (2026-10-08 22:40)
 
@@ -118,7 +119,7 @@ R1 Todo 는 34장, 후속 이슈 3장([#340](https://github.sec.samsung.net/IoT-
 [OE-ZON-01](docs/prd/features/E10-ZON/OE-ZON-01.md) 수동 생성([#151](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/151)) → [OE-ZON-02](docs/prd/features/E10-ZON/OE-ZON-02.md) 경계 그리기([#152](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/152)) → [OE-ZON-04](docs/prd/features/E10-ZON/OE-ZON-04.md) 편집 E9([#154](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/154)) → [OE-ZON-05](docs/prd/features/E10-ZON/OE-ZON-05.md) 검증 Z-01~06([#155](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/155)) · [OE-ZON-06](docs/prd/features/E10-ZON/OE-ZON-06.md) 용량 입력값([#156](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/156), P2).
 같이 [OE-MAN-05](docs/prd/features/E07-MAN/OE-MAN-05.md) 공조존 수동([#121](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/121)) · [OE-OBJ-13](docs/prd/features/E02-OBJ/OE-OBJ-13.md) 공조존 오브젝트([#54](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/54), P2), 그 위에 매핑 [OE-MAP-02](docs/prd/features/E11-MAP/OE-MAP-02.md)([#159](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/159)) · [OE-MAP-03](docs/prd/features/E11-MAP/OE-MAP-03.md)([#160](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/160)) · [OE-MAP-04](docs/prd/features/E11-MAP/OE-MAP-04.md)([#161](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/161)) · [OE-MAP-05](docs/prd/features/E11-MAP/OE-MAP-05.md)([#162](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/162)) · [OE-MAP-06](docs/prd/features/E11-MAP/OE-MAP-06.md)([#163](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/163)).
 
-### 3. 다중층·수직 관통 (R1)
+### 3. 다중층·수직 관통 (R1) — EQP-07 1225b23 (EL·ES 잠금). 다중층 뷰(OE-ML-01)는 에픽 전체 설계(ADR)부터
 
 [OE-OBJ-14](docs/prd/features/E02-OBJ/OE-OBJ-14.md) 수직 관통 오브젝트([#55](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/55)) · [OE-EQP-07](docs/prd/features/E12-EQP/OE-EQP-07.md) EL·ES 위임([#171](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/171)) · [OE-PIP-15](docs/prd/features/E13-PIP/OE-PIP-15.md) 층간 배관([#196](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/196)). E18 요구가 10-08 에 크게 바뀌었으니 티켓부터 다시 읽는다.
 
