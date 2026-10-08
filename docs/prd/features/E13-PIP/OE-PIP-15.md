@@ -9,7 +9,7 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-PIP-11", "OE-PIP-10", "OE-ML-12", "OE-ML-13", "OE-ML-14", "OE-ML-01", "OE-UI-04", "OE-ML-15", "OE-ML-16", "OE-ML-17", "OE-ML-18"]
+depends: ["OE-PIP-11", "OE-PIP-10", "OE-ML-12", "OE-ML-13", "OE-ML-14", "OE-ML-01", "OE-UI-04", "OE-ML-15", "OE-ML-16", "OE-ML-17", "OE-ML-18", "OE-WF-03"]
 ---
 
 # OE-PIP-15 층간 배관 작성·편집
@@ -27,6 +27,7 @@ depends: ["OE-PIP-11", "OE-PIP-10", "OE-ML-12", "OE-ML-13", "OE-ML-14", "OE-ML-0
 - [OE-ML-16](../E18-ML/OE-ML-16.md): 경로 추적
 - [OE-ML-17](../E18-ML/OE-ML-17.md): 샤프트 내 배치
 - [OE-ML-18](../E18-ML/OE-ML-18.md): 층간 좌표 조건
+- [OE-WF-03](../E14-WF/OE-WF-03.md): 층 편집 확정 후 다중층 진입
 
 ## 요구사항
 
