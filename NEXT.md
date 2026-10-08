@@ -49,6 +49,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | e45fcab | [OE-PIP-12 분기 이음쇠·추종 불가 사유·미리보기](next/pr/oe-pip-12.md) | [#193](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/193) | — |
 | 99af8d3 | [OE-EXT-05 포트 없는 건축 루버 Proxy 받지 않기](next/pr/oe-ext-05.md) | [#236](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/236) | OE-EQP-15·PRD 1.8 의 성수 루버 숫자 갱신 요청 |
 | ee01c80 | [성수 화면 시험을 10-08 merge 뒤 동작에 맞춤](next/pr/test-seongsu-e2e.md) | 없음 | — |
+| 2256682 | [OE-SPC-17 같은 공간명 방 종류 일괄 수정·사전 보강](next/pr/oe-spc-17.md) | [#150](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/150) | 약어 방 이름(S.T·P.S 등)의 뜻·방 종류 목록 |
 
 ## 지금 상태 (2026-10-08 22:40)
 
