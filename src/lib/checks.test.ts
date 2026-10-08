@@ -94,6 +94,32 @@ describe('완전성 검사', () => {
     expect(failed(m)).toMatchObject({ 'heat-source-user': ['boiler'], 'hydronic-user-source': ['fcu'] })
   })
 
+  it('스프링클러 헤드는 소화(FP) 배관에 이어져야 한다 — 다른 계통 배관에만 이어지거나, 소화 계통에 들었어도 배관이 없으면 위반이다 (OE-EQP-11)', () => {
+    const sys = (id: string, kind: string) => ({ id, name: id, memberIds: [], source: 'ifc' as const, kind })
+    const pipe = (id: string, systemId: string | null) => ({ ...eq(id, null, 'segment', null), systemId })
+    const head = (id: string, systemId: string | null = null) => ({ ...eq(id, 'sprinkler', 'terminal'), systemId })
+    const m = {
+      ...model(
+        [head('ok'), head('dcw'), head('alone', 'fp'), head('nosys'), pipe('p-fp', 'fp'), pipe('p-dcw', 'dcw'), pipe('p-none', null), eq('ahu', 'ahu', 'conversion')],
+        [d('p-fp', 'ok'), d('p-dcw', 'dcw'), d('p-none', 'nosys')],
+      ),
+      systems: [sys('fp', 'fire_protection'), sys('dcw', 'domestic_cold_water')],
+    }
+    const check = completenessChecks(m, airServices(m, m.connections)).find((c) => c.key === 'sprinkler-fp')!
+    expect(check.total).toBe(4) // 헤드만 센다. 공조기·배관은 대상이 아니다
+    expect(check.failed).toEqual(['dcw', 'alone', 'nosys'])
+    // 어느 헤드가 왜 위반인지 보인다.
+    const ctx = { model: m, connections: m.connections, services: [], label: (id: string) => id }
+    expect(explainFailure('sprinkler-fp', 'dcw', ctx)).toBe('소화가 아닌 계통(급수)의 배관에만 이어져 있습니다.')
+    expect(explainFailure('sprinkler-fp', 'alone', ctx)).toContain('이어진 배관이 없습니다')
+    expect(explainFailure('sprinkler-fp', 'nosys', ctx)).toContain('계통이 없어 소화 배관인지 알 수 없습니다')
+  })
+
+  it('스프링클러 헤드가 없는 파일에서는 소화 배관 검사의 대상이 0 이다', () => {
+    const m = model([eq('ahu', 'ahu', 'conversion')], [])
+    expect(completenessChecks(m, airServices(m, m.connections)).find((c) => c.key === 'sprinkler-fp')).toMatchObject({ total: 0, failed: [] })
+  })
+
   it('방이 없는 파일에서는 소속 검사를 건너뛰고 이유를 말한다', () => {
     const m = model([eq('fcu', 'fcu', 'conversion', null)], [], [])
     expect(failed(m)['device-space']).toBe('방이 없는 파일입니다. 건축 파일을 덧붙이면 검사할 수 있습니다.')

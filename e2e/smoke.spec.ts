@@ -394,8 +394,8 @@ test('완전성 검사는 규칙마다 통과 수를 세고, 어긴 것을 펼�
 
   const checks = page.locator('.checks')
   const rows = checks.locator('tbody tr')
-  // 공기 계통 셋, 물 계통, 도관 끝, 소속, 연결망 … 규칙이 여덟이다.
-  await expect(rows).toHaveCount(8)
+  // 공기 계통 셋, 물 계통 둘, 도관 끝, 소속, 연결망, 스프링클러 소화 배관 — 규칙이 아홉이다.
+  await expect(rows).toHaveCount(9)
   await expect(checks).toContainText('공기 말단(디퓨저·그릴)이 원천(공조기·FCU 등)과 이어져 있다')
 
   // 어긴 것이 있는 첫 규칙을 펼치고, 목록에서 하나를 고르면 설비 패널이 뜬다.
