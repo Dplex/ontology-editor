@@ -3796,6 +3796,11 @@ button.done::after {
   background: none;
   cursor: pointer;
 }
+.hvac-zones .zone-served .chip.candidate {
+  border-style: dashed;
+  border-color: var(--accent);
+  color: var(--accent);
+}
 .hvac-zones .zone-make {
   display: flex;
   flex-wrap: wrap;

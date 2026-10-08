@@ -32,7 +32,7 @@ import { storeyFiles } from './lib/export/storey-export'
 import { clearStoreyDone, markStoreyDone, storeyProgress, type StoreyProgress } from './lib/storey-progress'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { outlinelessSpaces, outlineWarnings } from './lib/outline-fill'
-import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, hvacZonesOf, renameHvacZone, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './lib/hvac-zone'
+import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, flowSpacesOfZones, hvacZonesOf, renameHvacZone, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './lib/hvac-zone'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
@@ -4558,6 +4558,12 @@ const zoneCheckList = computed(() => {
   const m = model.value
   return m ? zoneChecks(m, { space: (id) => spaceNameOf(id), equipment: (id) => nameOfId(id) }) : null
 })
+/** 연결 기준 후보(OE-MAP-02): 공조존마다 담당 설비에서 확정된 흐름으로 닿는 말단의 물리존. */
+const zoneFlow = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  return m ? flowSpacesOfZones(m) : new Map<string, string[]>()
+})
 /** 담당 설비로 고를 수 있는 것: 그 층의 공기·물이 흐르는 기기(덕트·배관 제외). */
 const zoneEquipmentChoices = computed(() =>
   (zoneStorey.value?.equipment ?? []).filter((e) => !isConduit(e.role) && !!e.position).sort((a, b) => a.name.localeCompare(b.name)),
@@ -9022,6 +9028,17 @@ async function export3D(format: 'glb' | 'obj') {
                         {{ shortName(e.name) }}{{ whatIs(e) ? ` · ${whatIs(e)!.label}` : '' }}
                       </option>
                     </select>
+                  </span>
+                  <!-- 연결 기준 후보(OE-MAP-02). 담당을 대신 정하지 않고, 빠진 방을 한 번에 더하게만 한다. -->
+                  <span v-if="zoneFlow.get(z.id)" class="zone-served zone-flow" :data-testid="`zone-flow-${z.name}`">
+                    흐름이 닿는 물리존
+                    <template v-for="id in zoneFlow.get(z.id)" :key="id">
+                      <span v-if="z.spaceIds.includes(id)" class="muted">{{ spaceNameOf(id) }} ✓</span>
+                      <button v-else type="button" class="chip candidate" :title="`${spaceNameOf(id)}을 담당 물리존에 더하기`" @click="setZoneSpaceList(z.id, zoneStorey!.id, [...z.spaceIds, id])">
+                        + {{ spaceNameOf(id) }}
+                      </button>
+                    </template>
+                    <Src kind="calc" />
                   </span>
                   <button type="button" class="ghost" @click="startHvacZoneOutline(z)">경계 다시 그리기</button>
                   <button type="button" class="ghost danger" @click="changeHvacZones(zoneStorey!.id, '공조존 지우기', (m) => deleteHvacZone(m, z.id))">지우기</button>

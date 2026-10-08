@@ -11,8 +11,9 @@
 
 import { newId } from './edit'
 import { isSelfIntersecting, pointInPolygon } from './mapping'
-import { isAirTerminal } from './served'
-import { polygonArea, type HvacZone, type Model, type Storey, type Vec2 } from './model'
+import { withInferred } from './flow-rules'
+import { isAirSource, isAirTerminal } from './served'
+import { polygonArea, type Connection, type HvacZone, type Model, type Storey, type Vec2 } from './model'
 import { overlapArea, unionRings } from './polygon'
 
 /** 그린 경계가 물리존과 이만큼 넘게 겹쳐야 그 물리존을 담당한다(㎡). 벽 두께 안에서 찍은 점이 이웃 방에 조금 들어가는 것은 세지 않는다. */
@@ -252,11 +253,75 @@ const INDOOR_KINDS = new Set(['indoor_unit', 'fcu'])
 export const ZONE_DUPLICATE_M2 = 0.5
 
 export type ZoneCheck = {
-  rule: 'Z-01' | 'Z-02' | 'Z-04' | 'Z-05' | 'Z-06'
+  /** OE-ZON-05 의 규칙 번호. `연결` 은 OE-MAP-02 의 연결 기준이다(ZON-05 의 여섯 규칙 밖). */
+  rule: 'Z-01' | 'Z-02' | 'Z-04' | 'Z-05' | 'Z-06' | '연결'
   /** 무엇을 검사하나. */
   text: string
   /** 위반한 것. 물리존·공조존·설비 id 와 보일 말. */
   items: { id: string; label: string }[]
+}
+
+/**
+ * 연결 기준(OE-MAP-02). 공조존마다, 담당 설비에서 흐름 방향을 따라 닿는 말단(디퓨저·그릴)이 놓인 그 층의 물리존이다. 바람이 실제로 오는 방이다.
+ *
+ * - 방향은 포트·사람이 정한 것·확정한 규칙만 탄다(`withInferred(…, true)`, 내보내기와 같은 방향). 확정 전 규칙 방향으로만 닿는 방은 넣지 않는다(K4·K14).
+ * - 공기 원천(공조기·FCU)은 하류(급기)와 상류(환기·배기) 말단을 다 센다. VAV 같은 기기는 하류만 센다. 다른 원천에서는 멈춘다(served.ts 와 같다).
+ * - 말단을 담당 설비로 고른 경우는 그 말단 자신이다.
+ * - 닿는 말단이 없는 설비(연결·방향 없음)는 이 기준을 쓰지 않는다. 그래서 공조존이 아예 빠질 수 있다.
+ */
+export function flowSpacesOfZones(model: Model, connections?: readonly Connection[]): Map<string, string[]> {
+  const out = new Map<string, string[]>()
+  // 담당 설비가 있는 공조존이 없으면 연결을 훑지 않는다. 편집마다 불려서, 공조존이 없는 성수에서 연결 전부를 도는 일을 막는다.
+  const zones = hvacZonesOf(model).filter((z) => z.servedBy?.length)
+  if (!zones.length) return out
+  connections ??= withInferred(model.connections, true)
+  const all = model.storeys.flatMap((s) => s.equipment)
+  const byId = new Map(all.map((e) => [e.id, e]))
+  const forward = new Map<string, string[]>()
+  const backward = new Map<string, string[]>()
+  for (const c of connections) {
+    if (!c.directed) continue
+    forward.set(c.from, [...(forward.get(c.from) ?? []), c.to])
+    backward.set(c.to, [...(backward.get(c.to) ?? []), c.from])
+  }
+  const walk = (start: string, adj: Map<string, string[]>, found: Set<string>) => {
+    const seen = new Set([start])
+    const queue = [start]
+    for (let head = 0; head < queue.length; head++)
+      for (const next of adj.get(queue[head]) ?? []) {
+        if (seen.has(next)) continue
+        seen.add(next)
+        const e = byId.get(next)
+        if (isAirTerminal(e)) found.add(next)
+        else if (!isAirSource(e)) queue.push(next)
+      }
+  }
+  const terminalsOf = new Map<string, Set<string>>()
+  const terminals = (id: string) => {
+    let found = terminalsOf.get(id)
+    if (found) return found
+    found = new Set<string>()
+    const e = byId.get(id)
+    if (isAirTerminal(e)) found.add(id)
+    else {
+      walk(id, forward, found)
+      if (isAirSource(e)) walk(id, backward, found)
+    }
+    terminalsOf.set(id, found)
+    return found
+  }
+  for (const z of zones) {
+    const storey = model.storeys.find((s) => s.id === z.storeyId)
+    if (!storey) continue
+    const here = new Set(storey.spaces.map((s) => s.id))
+    const ids = new Set<string>()
+    for (const id of z.servedBy!) for (const t of terminals(id)) {
+      const sp = byId.get(t)?.spaceId
+      if (sp && here.has(sp)) ids.add(sp)
+    }
+    if (ids.size) out.set(z.id, [...ids])
+  }
+  return out
 }
 
 /**
@@ -299,6 +364,21 @@ export function zoneChecks(model: Model, name: { space: (id: string) => string; 
       if (e && INDOOR_KINDS.has(e.kind ?? '') && e.spaceId && !z.spaceIds.includes(e.spaceId))
         z06.push({ id: `${z.id}|${id}`, label: `${name.equipment(id)} — ${name.space(e.spaceId)} 에 있고 ${z.name} 담당` })
     }
+  // 연결 기준과 다른 담당(OE-MAP-02). 같은 설비가 여러 공조존을 담당하면 그 공조존들의 담당 물리존을 함께 본다 — 공조기 하나가 두 존에
+  // 바람을 보내면, 한 존에 없는 방이 다른 존에 있는 것은 정상이다.
+  const flow = flowSpacesOfZones(model)
+  const map02: ZoneCheck['items'] = []
+  for (const z of zones) {
+    const reach = flow.get(z.id)
+    if (!reach) continue
+    if (!reach.some((id) => z.spaceIds.includes(id))) {
+      map02.push({ id: `${z.id}|none`, label: `${z.name} — 담당 물리존에 말단 없음(말단: ${reach.map(name.space).join(', ')})` })
+      continue
+    }
+    const shared = new Set(zones.filter((o) => o.storeyId === z.storeyId && o.servedBy?.some((id) => z.servedBy?.includes(id))).flatMap((o) => o.spaceIds))
+    const missing = reach.filter((id) => !shared.has(id))
+    if (missing.length) map02.push({ id: `${z.id}|missing`, label: `${z.name} — 담당에서 빠짐: ${missing.map(name.space).join(', ')}` })
+  }
   return {
     checks: [
       { rule: 'Z-01', text: '어느 공조존도 담당하지 않는 물리존', items: z01 },
@@ -306,6 +386,7 @@ export function zoneChecks(model: Model, name: { space: (id: string) => string; 
       { rule: 'Z-04', text: '담당 설비가 없는 공조존', items: z04 },
       { rule: 'Z-05', text: '토출구가 하나도 없는 공조존', items: z05 },
       { rule: 'Z-06', text: '실내기가 담당 공조존의 물리존 밖에 있음', items: z06 },
+      { rule: '연결', text: '담당 물리존과 담당 설비의 흐름이 닿는 물리존이 다름', items: map02 },
     ],
     untouched,
   }
