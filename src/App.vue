@@ -33,7 +33,7 @@ import { clearStoreyDone, markStoreyDone, storeyProgress, type StoreyProgress } 
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
-import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
+import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
 import { modelToTTL } from './lib/export/ttl'
@@ -64,6 +64,8 @@ import {
   moveSpaceVertex,
   completePosition,
   renameSpace,
+  sameNameSpaces,
+  setSpacesKind,
   setSpaceNumber,
   renameSystem,
   exteriorOnly,
@@ -360,6 +362,7 @@ const changeCount = computed(
     confirmations.value.length +
     flowEditLines.value.length +
     kindEditLines.value.length +
+    spaceKindLines.value.length +
     sinceOpen.value.renamed.length +
     (sinceOpen.value.renumbered?.length ?? 0) +
     sinceOpen.value.restoreyed.length +
@@ -1893,6 +1896,51 @@ function applyRename(spaceId: string, name: string) {
   remember(`이름 ${snapshot?.kind === 'space' ? snapshot.longName || '(없음)' : ''} → ${name}`, snapshot, at)
   triggerRef(model)
 }
+
+/**
+ * 방 종류를 사람이 정한다(OE-SPC-17). 같은 공간명의 방(모든 층)에 함께 붙이고, 되돌리기는 한 번이다. `undefined` 는 [이름으로 정하기]
+ * — 사람이 정한 것을 거두고 이름 사전으로 돌린다.
+ */
+function applySpaceKind(spaceId: string, kind: string | null | undefined) {
+  const m = model.value
+  if (!m) return
+  const group = sameNameSpaces(m, spaceId)
+  const snapshot: Snapshot = { kind: 'many', parts: group.flatMap((s) => snapshotSpace(m, s.id) ?? []) }
+  const at = mark()
+  const n = setSpacesKind(m, group.map((s) => s.id), kind)
+  if (!n) return
+  const name = group[0]?.longName.trim() || group[0]?.name || ''
+  const to = kind === undefined ? '이름으로 정하기' : kind === null ? '모름' : (roomKind(kind)?.label ?? kind)
+  remember(`방 종류 ${name}${n > 1 ? ` ${n}개` : ''} → ${to}`, snapshot, at)
+  triggerRef(model)
+}
+/** 고른 물리존과 공간명이 같은 방(모든 층). 종류를 고르면 이만큼에 함께 붙는다. */
+const sameNameGroup = computed(() => (selectedSpace.value && model.value ? sameNameSpaces(model.value, selectedSpace.value.space.id) : []))
+/** 이름 사전(→ OmniClass)이 읽는 종류. [이름으로 정하기] 옆에 보인다. */
+const dictKindOfSelected = computed(() => {
+  const s = selectedSpace.value?.space
+  const read = s ? resolveRoomKind(s.name, s.longName, s.omniclass ?? null) : null
+  return read ? read.info.label : '모름'
+})
+/** 리포트 줄: 사람이 정한 방 종류를 공간명마다 한 줄로(OE-SPC-17). */
+const spaceKindLines = computed(() => {
+  void model.value
+  const m = model.value
+  if (!m) return []
+  const rows = new Map<string, { key: string; name: string; count: number; from: string; to: string }>()
+  for (const s of m.storeys.flatMap((st) => st.spaces)) {
+    if (s.kindSource !== 'edit') continue
+    const read = resolveRoomKind(s.name, s.longName, s.omniclass ?? null)
+    const from = read ? read.info.label : '모름'
+    const to = roomKind(s.kind)?.label ?? '모름'
+    const name = s.longName.trim() || s.name || s.id
+    const key = `${name}|${from}|${to}`
+    const row = rows.get(key) ?? { key, name, count: 0, from, to }
+    row.count++
+    rows.set(key, row)
+  }
+  return [...rows.values()]
+})
 
 /** 방번호를 고친다(OE-OBJ-02). 같은 층에 같은 번호가 있으면 막고 칸을 원래 번호로 돌린다. */
 function applySpaceNumber(spaceId: string, input: HTMLInputElement) {
@@ -7734,8 +7782,30 @@ async function export3D(format: 'glb' | 'obj') {
                 <div>
                   <dt>종류</dt>
                   <dd v-flash="selectedSpace.space.kind" class="space-kind">
-                    <template v-if="roomKind(selectedSpace.space.kind)">
-                      {{ roomKind(selectedSpace.space.kind)!.label }} <Src :kind="selectedSpace.space.kindSource === 'bim' ? 'bim' : 'dict'" />
+                    <!-- 방 종류를 사람이 정한다(OE-SPC-17). 같은 공간명의 방(모든 층)에 함께 붙는다. -->
+                    <template v-if="editing">
+                      <select
+                        data-testid="space-kind"
+                        :value="selectedSpace.space.kindSource === 'edit' ? (selectedSpace.space.kind ?? '') : '__name'"
+                        @change="
+                          applySpaceKind(
+                            selectedSpace.space.id,
+                            (($event.target as HTMLSelectElement).value === '__name' ? undefined : ($event.target as HTMLSelectElement).value || null),
+                          )
+                        "
+                      >
+                        <option value="__name">이름으로 정하기({{ dictKindOfSelected }})</option>
+                        <option value="">모름</option>
+                        <option v-for="k in ROOM_KINDS" :key="k.kind" :value="k.kind">{{ k.label }}</option>
+                      </select>
+                      <Src :kind="selectedSpace.space.kindSource === 'edit' ? 'edit' : selectedSpace.space.kindSource === 'bim' ? 'bim' : 'dict'" />
+                      <small v-if="sameNameGroup.length > 1" class="muted" data-testid="space-kind-group">
+                        공간명이 같은 방 {{ sameNameGroup.length }}개(모든 층)에 함께 적용됩니다
+                      </small>
+                    </template>
+                    <template v-else-if="roomKind(selectedSpace.space.kind)">
+                      {{ roomKind(selectedSpace.space.kind)!.label }}
+                      <Src :kind="selectedSpace.space.kindSource === 'edit' ? 'edit' : selectedSpace.space.kindSource === 'bim' ? 'bim' : 'dict'" />
                     </template>
                     <span v-else class="muted">모름</span>
                   </dd>
@@ -8777,10 +8847,21 @@ async function export3D(format: 'glb' | 'obj') {
                         @change="applyRename(sp.id, ($event.target as HTMLInputElement).value)"
                       />
                     </td>
-                    <!-- 이름을 고치면 따라 바뀐다(renameSpace). 옆에 두어야 고친 자리에서 바로 보인다. -->
+                    <!-- 이름을 고치면 따라 바뀐다(renameSpace). 옆에 두어야 고친 자리에서 바로 보인다. 사람이 고르면 같은 공간명의 방에 함께
+                         붙는다(OE-SPC-17) — 성수 `S.T` 95개처럼 되풀이되는 이름을 한 번에 고친다. -->
                     <td class="space-kind">
-                      <template v-if="roomKind(sp.kind)">{{ roomKind(sp.kind)!.label }} <Src :kind="sp.kindSource === 'bim' ? 'bim' : 'dict'" /></template>
-                      <span v-else class="muted">모름</span>
+                      <select
+                        :aria-label="`${sp.name} 종류`"
+                        :value="sp.kindSource === 'edit' ? (sp.kind ?? '') : '__name'"
+                        @change="
+                          applySpaceKind(sp.id, ($event.target as HTMLSelectElement).value === '__name' ? undefined : ($event.target as HTMLSelectElement).value || null)
+                        "
+                      >
+                        <option value="__name">{{ sp.kindSource === 'edit' ? '이름으로 정하기' : (roomKind(sp.kind)?.label ?? '모름') }}</option>
+                        <option value="">모름</option>
+                        <option v-for="k in ROOM_KINDS" :key="k.kind" :value="k.kind">{{ k.label }}</option>
+                      </select>
+                      <Src :kind="sp.kindSource === 'edit' ? 'edit' : sp.kindSource === 'bim' ? 'bim' : 'dict'" />
                     </td>
                     <td class="mono muted">{{ sp.name }}</td>
                     <td class="num mono">{{ sp.areaM2.toFixed(1) }} ㎡</td>
@@ -8910,6 +8991,9 @@ async function export3D(format: 'glb' | 'obj') {
             </li>
             <li v-for="(f, i) in flowEditLines" :key="`flow-${i}`">
               <b>{{ f.from }}</b> → <b>{{ f.to }}</b>: 방향 직접 지정 ({{ f.note }}, brick:feeds)
+            </li>
+            <li v-for="k in spaceKindLines" :key="`room-kind-${k.key}`">
+              공간명 <b>{{ k.name }}</b> {{ k.count }}개: 방 종류 {{ k.from }} → <b>{{ k.to }}</b> (Brick 클래스)
             </li>
             <li v-for="k in kindEditLines" :key="`kind-${k.key}`">
               <b>{{ k.label }}</b><template v-if="k.types > 1">(유형 {{ k.types }}개)</template> {{ k.count }}대: 종류 {{ k.from }} → <b>{{ k.to }}</b> (Brick 클래스)
