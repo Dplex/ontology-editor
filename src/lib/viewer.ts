@@ -36,6 +36,7 @@ import {
   type Material,
   Object3D,
   type Texture,
+  TextureLoader,
   PerspectiveCamera,
   Plane,
   Raycaster,
@@ -376,6 +377,11 @@ export type Viewer = {
   setCeilingView(view: CeilingView | null): void
   /** 끌어 옮기지 못하는 설비(모드 밖의 설비, OE-OBJ-08). 고르기는 된다. */
   setFrozen(ids: ReadonlySet<string>): void
+  /**
+   * 평면도 배경 이미지(OE-MAN-02). 네 귀퉁이(IFC 평면, 왼쪽 위부터 시계 방향)에 이미지를 펴서 층 바닥 바로 위에 깐다. 누를 수 없고,
+   * 물리존을 그리는 바닥 클릭은 그대로 바닥에 찍힌다. null 이면 걷는다.
+   */
+  setBackground(bg: { url: string; corners: readonly [Vec2, Vec2, Vec2, Vec2]; elevation: number; opacity: number } | null): void
   /** 보이는 것 전체를 위에서 내려다본다. 화면 위쪽이 IFC +y(평면도와 같은 방위)다. */
   topView(): void
   /**
@@ -646,6 +652,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   scene.add(ceilingMarks)
   const ceilingPlanes = new Group()
   scene.add(ceilingPlanes)
+  // 평면도 배경 이미지(OE-MAN-02). 지금 깐 것의 귀퉁이를 e2e 가 읽는다.
+  const backdrop = new Group()
+  scene.add(backdrop)
+  let backdropCorners: readonly [Vec2, Vec2, Vec2, Vec2] | null = null
   let dimIds: ReadonlySet<string> = new Set()
   let frozenIds: ReadonlySet<string> = new Set()
   let lastHighlight: Highlight | null = null
@@ -1730,6 +1740,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     ;(window as unknown as { __viewer?: unknown }).__viewer = {
       /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */
       hoverMark: () => (hoverMark ? hoverMarkKey : ''),
+      /** 깐 평면도 배경의 귀퉁이(IFC 평면). 없으면 null. */
+      background: () => backdropCorners,
       /** 지금 도는 움직임(카메라 비행·미끄러지는 설비 수·번쩍이는 방 수). */
       /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
       camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
@@ -2316,6 +2328,41 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     setFrozen(ids) {
       frozenIds = ids
+    },
+
+    setBackground(bg) {
+      for (const o of backdrop.children) {
+        const mesh = o as Mesh
+        mesh.geometry.dispose()
+        const material = mesh.material as MeshBasicMaterial
+        material.map?.dispose()
+        material.dispose()
+      }
+      backdrop.clear()
+      backdropCorners = bg?.corners ?? null
+      // 화면은 바뀐 것이 있을 때만 다시 그린다.
+      dirty = true
+      if (!bg) return
+      // IFC 평면(x, y)을 three 바닥(x, -z)으로. 물리존 판(두께 0.1m, spaceMesh) 바로 위에 깐다 — 아래에 두면 판이 도면을 덮어
+      // 그 위에 물리존을 그릴 수 없다. 반투명이라 판의 색은 비친다.
+      const y = bg.elevation + 0.11
+      const positions = bg.corners.flatMap((p) => [p[0], y, -p[1]])
+      const geometry = new BufferGeometry()
+      geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
+      // 텍스처는 위가 v=1 이다. 왼쪽 위·오른쪽 위·오른쪽 아래·왼쪽 아래.
+      geometry.setAttribute('uv', new BufferAttribute(new Float32Array([0, 1, 1, 1, 1, 0, 0, 0]), 2))
+      geometry.setIndex([0, 2, 1, 0, 3, 2])
+      const material = new MeshBasicMaterial({ transparent: true, opacity: bg.opacity, side: DoubleSide, depthWrite: false })
+      new TextureLoader().load(bg.url, (texture) => {
+        material.map = texture
+        material.needsUpdate = true
+        dirty = true
+      })
+      const mesh = new Mesh(geometry, material)
+      mesh.raycast = () => {}
+      // 물리존 판도 반투명이라 먼저 그리면 판이 덮는다. 판 뒤에 그려 그 위에 비치게 한다. 설비는 깊이로 가려진다.
+      mesh.renderOrder = 1
+      backdrop.add(mesh)
     },
 
     topView() {
