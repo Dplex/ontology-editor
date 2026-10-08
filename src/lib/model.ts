@@ -254,6 +254,11 @@ export type Equipment = {
    * 붙은 설비를 옮겨 구간이 늘어난 것이다(`followConduits`). 3D 형상은 이 값으로 늘이고, `position` 은 축 위 같은 비율 자리로 간다.
    */
   endShift?: [Vec3, Vec3]
+  /**
+   * 사람이 정한 설치면(OE-EQP-05). z 로 판정하지 못한 설비(미정)에 정한다. 있으면 판정보다 앞선다(ceiling.ts 의 judgeSurface).
+   * BIM 에는 없고 편집 파일에 남는다.
+   */
+  surfaceSet?: 'ceiling' | 'floor' | 'wall'
 }
 
 /** 계통. 공조기에서 덕트를 지나 토출구까지 이어지는 묶음이다. */

@@ -54,7 +54,8 @@ import type { Fluid } from './kinds'
 import type { Connection, Model, Vec2, Vec3, Wall } from './model'
 import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
 import { markStoreyDone, storeyProgress } from './storey-progress'
-import { setCeiling } from './ceiling'
+import { setCeiling, setEquipmentSurface } from './ceiling'
+import type { Surface } from './mount'
 
 export const EDIT_FORMAT = 'ontology-editor/edits'
 
@@ -69,7 +70,7 @@ export type EditFile = {
    * 연 때와 같아도 소속을 좌표로 다시 잰 상태다(edit.ts 의 releaseDeclaredSpace).
    */
   /** `wall` 은 설비를 붙인 벽(OE-OBJ-04). `null` 은 벽에서 뗀 것이다. */
-  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3]; wall?: string | null }[]
+  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3]; wall?: string | null; surface?: Surface }[]
   /** 종류·유체를 고친 계통(E8). 설비의 계통은 위 `equipment` 의 `system` 에 적는다(`null` 은 계통에서 뺀 것). */
   systems?: { id: string; kind: string | null; fluid: Fluid | null }[]
   /** 사람이 만든 계통(끝 이름·종류)과 지운 계통. 구성원은 설비 쪽 `system` 으로 적는다. */
@@ -80,7 +81,7 @@ export type EditFile = {
   /** 고친 물리존. `number` 는 방번호(IfcSpace Name, OE-OBJ-02), `longName` 은 공간명이다. */
   spaces: { id: string; number?: string; longName?: string; footprint?: Vec2[] }[]
   /** 사람이 더한 설비(E7). id 는 에디터가 지은 것(`U_…`)이라 다시 열어도 같은 id 로 만든다. */
-  equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string; wall?: string }[]
+  equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string; wall?: string; surface?: Surface }[]
   equipmentRemoved?: string[]
   /** 사람이 만든 물리존(E3 생성·분할). 나눈 방의 남는 조각은 `spaces` 의 외곽선으로 적힌다. */
   spacesAdded?: { id: string; storeyId: string; name: string; longName: string; footprint: Vec2[] }[]
@@ -190,6 +191,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           ...(e.position ? { position: [e.position[0], e.position[1], e.position[2]] as Vec3 } : {}),
           ...(e.systemId ? { system: e.systemId } : {}),
           ...(e.wallId ? { wall: e.wallId } : {}),
+          ...(e.surfaceSet ? { surface: e.surfaceSet } : {}),
         })
         continue
       }
@@ -207,7 +209,9 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       if (e.endShift && e.endShift.some((v) => v.some((x) => x !== 0))) row.ends = [[...e.endShift[0]], [...e.endShift[1]]]
       if (was.systemId !== undefined && was.systemId !== e.systemId) row.system = e.systemId
       if (was.wallId !== undefined && (was.wallId ?? null) !== (e.wallId ?? null)) row.wall = e.wallId ?? null
-      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined) equipment.push(row)
+      // 사람이 정한 설치면(OE-EQP-05). BIM 에는 없어서 있으면 적는다.
+      if (e.surfaceSet) row.surface = e.surfaceSet
+      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined || row.surface) equipment.push(row)
     }
   }
   const confirmed = new Set<string>()
@@ -714,6 +718,14 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     if (wallId && model.storeys.some((s) => s.walls.some((w) => w.id === wallId))) target.wallId = wallId
     else if (wallId) result.missing.elements++
     else delete target.wallId
+  }
+
+  // 사람이 정한 설치면(OE-EQP-05). 종류를 다 얹은 뒤라 허용 설치면으로 거른다.
+  for (const row of [...file.equipment, ...(file.equipmentAdded ?? [])]) {
+    if (!row.surface) continue
+    const done = setEquipmentSurface(model, resolve(row.id), row.surface)
+    if (done === true) result.applied++
+    else if (done !== false) result.missing.equipment++
   }
 
   // 커스텀존(OE-OBJ-01). 층의 끝 목록을 그대로 얹는다. 소속은 쓸 때 계산하니 따로 다시 잴 것이 없다.
