@@ -99,3 +99,35 @@ test('공조존 검증이 공백·중복·설비 미지정을 보이고, 담당 
   await expect(page.locator('.key-note')).toContainText('담당 물리존을 하나 이상 남기세요')
   expect(errors).toEqual([])
 })
+
+test('공조존 경계를 다시 그리면 넓이와 담당 물리존 몫이 바뀌고, Ctrl+Z 로 돌아온다 (OE-ZON-04)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const fold = page.getByTestId('hvac-zones')
+  await fold.getByLabel('사무실').check()
+  await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
+  const zone = fold.locator('.zone-list li[data-zone]').first()
+  await expect(zone).toContainText('80.0㎡')
+
+  await zone.getByRole('button', { name: '경계 다시 그리기' }).click()
+  await expect(page.locator('.key-note')).toContainText('공조존 1의 새 경계를 바닥에 찍습니다')
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  for (const [x, y] of [[0, 0], [5, 0], [5, 8], [0, 8]]) {
+    const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
+    await page.mouse.click(at.x, at.y)
+  }
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.key-note')).toContainText('공조존 1의 경계를 다시 그렸습니다')
+  await expect(zone).toContainText('40.0㎡')
+  await expect(zone.getByRole('button', { name: '사무실 50% ×' })).toBeVisible()
+
+  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.keyboard.press('Control+z')
+  await expect(zone).toContainText('80.0㎡')
+  await expect(zone.getByRole('button', { name: '사무실 ×' })).toBeVisible()
+  expect(errors).toEqual([])
+})

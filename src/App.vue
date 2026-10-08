@@ -7,7 +7,7 @@ import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
-import type { CustomZone } from './lib/model'
+import type { CustomZone, HvacZone } from './lib/model'
 import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import ExitEditDialog from './components/ExitEditDialog.vue'
@@ -32,7 +32,7 @@ import { storeyFiles } from './lib/export/storey-export'
 import { clearStoreyDone, markStoreyDone, storeyProgress, type StoreyProgress } from './lib/storey-progress'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { outlinelessSpaces, outlineWarnings } from './lib/outline-fill'
-import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, hvacZonesOf, renameHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './lib/hvac-zone'
+import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, hvacZonesOf, renameHvacZone, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './lib/hvac-zone'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
@@ -1580,7 +1580,7 @@ function clearSelection(): boolean {
           ? '물리존 그리기를 취소했습니다'
           : purpose === 'custom'
             ? '커스텀존 그리기를 취소했습니다'
-            : purpose === 'hvacZone'
+            : purpose === 'hvacZone' || purpose === 'hvacZoneOutline'
               ? '공조존 그리기를 취소했습니다'
             : purpose === 'room'
               ? '룸 그리기를 취소했습니다'
@@ -2350,7 +2350,7 @@ const selectedSpace = computed(() => {
  */
 /** `custom`·`customSplit` 은 커스텀존(OE-OBJ-01) 그리기·나누기다. `customSplit` 의 spaceId 자리에는 존 id 가 든다. */
 type Drawing = {
-  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room' | 'hvacZone'
+  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room' | 'hvacZone' | 'hvacZoneOutline'
   spaceId: string | null
   storeyId: string
   name: string
@@ -4151,6 +4151,11 @@ function finishDraw(): boolean {
     return true
   }
   stopDraw()
+  if (d.purpose === 'hvacZoneOutline') {
+    changeHvacZones(d.storeyId, `${d.name} 경계`, (m) => reshapeHvacZone(m, d.spaceId!, d.points)) &&
+      note(`${d.name}의 경계를 다시 그렸습니다. 새 경계와 겹치는 물리존이 담당입니다`)
+    return true
+  }
   if (d.purpose === 'hvacZone') {
     changeHvacZones(d.storeyId, '공조존 그리기', (m) => createZoneFromOutline(m, d.storeyId, { footprint: d.points })) &&
       note('공조존을 그렸습니다. 겹치는 물리존이 담당입니다. 담당 설비는 아래 "공조존" 에서 고릅니다')
@@ -4521,6 +4526,21 @@ function startHvacZone() {
   viewer?.setPlaceMode(storey.elevation)
   stage.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   note('바닥에 꼭짓점을 찍어 공조존 경계를 그립니다. 겹치는 물리존이 담당이 됩니다 (Enter 마침, Esc 취소)')
+}
+/** 공조존 경계를 다시 그린다(OE-ZON-04). 담당 물리존은 새 경계와 겹치는 물리존으로 바뀐다. */
+function startHvacZoneOutline(zone: HvacZone) {
+  const storey = model.value?.storeys.find((s) => s.id === zone.storeyId)
+  if (!storey) return
+  stopPlace()
+  stopAdd()
+  connectFrom.value = null
+  selectedId.value = null
+  selectedSpaceId.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  drawing.value = { purpose: 'hvacZoneOutline', spaceId: zone.id, storeyId: storey.id, name: zone.name, elevation: storey.elevation, points: [] }
+  viewer?.setPlaceMode(storey.elevation)
+  stage.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  note(`${zone.name}의 새 경계를 바닥에 찍습니다. 겹치는 물리존이 담당이 됩니다 (Enter 마침, Esc 취소)`)
 }
 function addZoneServed(zoneId: string, storeyId: string, equipmentId: string, served: readonly string[]) {
   if (!equipmentId) return
@@ -9003,6 +9023,7 @@ async function export3D(format: 'glb' | 'obj') {
                       </option>
                     </select>
                   </span>
+                  <button type="button" class="ghost" @click="startHvacZoneOutline(z)">경계 다시 그리기</button>
                   <button type="button" class="ghost danger" @click="changeHvacZones(zoneStorey!.id, '공조존 지우기', (m) => deleteHvacZone(m, z.id))">지우기</button>
                 </li>
                 <li v-if="!zonesHere.length" class="muted">이 층에 만든 공조존이 없습니다.</li>
