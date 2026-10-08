@@ -948,7 +948,8 @@ th {
 }
 
 .editor input,
-.space-name input {
+.space-name input,
+.space-number input {
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -963,7 +964,8 @@ th {
 
 /* 초점 표시를 테두리 색만으로 두지 않는다. 얇은 고리를 더해야 눈에 들어온다. */
 .editor input:focus,
-.space-name input:focus {
+.space-name input:focus,
+.space-number input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
   outline: none;
@@ -2569,7 +2571,8 @@ main.has-model .catalog {
 }
 
 /* 오른쪽 패널의 물리존 이름칸. */
-.space-name {
+.space-name,
+.space-number {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -2577,7 +2580,8 @@ main.has-model .catalog {
   font-size: 0.9rem;
 }
 
-.space-name input {
+.space-name input,
+.space-number input {
   flex: 1;
   min-width: 0;
 }

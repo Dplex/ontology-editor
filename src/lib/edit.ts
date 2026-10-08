@@ -342,6 +342,43 @@ function setRoomKind(space: Space, found: ReturnType<typeof resolveRoomKind>) {
   else delete space.kindSource
 }
 
+/** 나눈 조각의 방번호. `101-2`, 있으면 `101-3` … 한 층 안에서 겹치지 않는 첫 번호(OE-OBJ-02). */
+function nextNumber(storey: Storey, base: string): string {
+  const used = new Set(storey.spaces.map((sp) => sp.name.trim()))
+  let k = 2
+  while (used.has(`${base}-${k}`)) k++
+  return `${base}-${k}`
+}
+
+/**
+ * 같은 층에서 이 방번호를 쓰는 다른 물리존(OE-OBJ-02 "방번호는 한 층 안에서 고유"). 빈 번호는 아직 안 정한 것이라 겹쳐도 된다.
+ * 공간명(longName)은 겹쳐도 된다.
+ */
+export function spaceNumberTaken(model: Model, storeyId: string, number: string, exceptId?: string): Space | null {
+  const n = number.trim()
+  if (!n) return null
+  return model.storeys.find((s) => s.id === storeyId)?.spaces.find((sp) => sp.id !== exceptId && sp.name.trim() === n) ?? null
+}
+
+/**
+ * 물리존의 방번호를 고친다. 같은 층에 같은 번호가 있으면 막고 이유를 돌려준다. 바뀌었으면 true.
+ * `check: false` 는 편집 파일을 다시 얹을 때만 쓴다 — 번호를 맞바꾼 편집은 한 줄씩 넣는 도중에 잠깐 겹치므로, 다 넣은 뒤
+ * 층마다 한 번 검사한다(edit-file.ts `applyEdits`).
+ */
+export function setSpaceNumber(model: Model, spaceId: string, number: string, check = true): boolean | { refused: string } {
+  const storey = model.storeys.find((s) => s.spaces.some((sp) => sp.id === spaceId))
+  const space = storey?.spaces.find((sp) => sp.id === spaceId)
+  if (!storey || !space) return false
+  const n = number.trim()
+  if (space.name === n) return false
+  const taken = check ? spaceNumberTaken(model, storey.id, n, spaceId) : null
+  if (taken) return { refused: `${storey.name}에 방번호 ${n}${josa(n, '이/가')} 이미 있습니다(${taken.longName || taken.name}). 방번호는 한 층 안에서 겹치지 않아야 합니다.` }
+  space.name = n
+  // 방 종류는 이름 사전이 방번호(Name)도 읽어서 같이 다시 읽는다(renameSpace 와 같은 순서).
+  setRoomKind(space, resolveRoomKind(space.name, space.longName, space.omniclass ?? null))
+  return true
+}
+
 export function renameSpace(model: Model, spaceId: string, longName: string): boolean {
   for (const storey of model.storeys) {
     const space = storey.spaces.find((s) => s.id === spaceId)
@@ -536,7 +573,7 @@ export type Snapshot =
       endShift: Equipment['endShift']
       wallId: string | undefined
     }
-  | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; longName: string; roomKind: Space['kind']; roomKindSource: Space['kindSource'] }
+  | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; name?: string; longName: string; roomKind: Space['kind']; roomKindSource: Space['kindSource'] }
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
   | { kind: 'confirm'; connections: Connection[]; confirmed: boolean }
   | { kind: 'kinds'; entries: { id: string; kind: string | null | undefined; kindEdited: Equipment['kindEdited'] }[] }
@@ -676,6 +713,7 @@ export function snapshotSpace(model: Model, spaceId: string): Snapshot | null {
     id: space.id,
     footprint: [...space.footprint],
     areaM2: space.areaM2,
+    name: space.name,
     longName: space.longName,
     roomKind: space.kind,
     roomKindSource: space.kindSource,
@@ -797,6 +835,7 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       if (!space) return null
       space.footprint = [...snapshot.footprint]
       space.areaM2 = snapshot.areaM2
+      if (snapshot.name !== undefined) space.name = snapshot.name
       space.longName = snapshot.longName
       space.kind = snapshot.roomKind
       if (snapshot.roomKindSource) space.kindSource = snapshot.roomKindSource
@@ -1059,6 +1098,8 @@ export function kindEdits(model: Model): KindEdit[] {
 
 export type Baseline = {
   names: Map<string, string>
+  /** 물리존 방번호(IfcSpace Name, OE-OBJ-02). 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
+  numbers?: Map<string, string>
   /** 물리존 외곽선. 편집 저장(edit-file.ts)이 바뀐 경계만 골라 담는다. */
   footprints: Map<string, Vec2[]>
   equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource']; name?: string; systemId?: string | null; wallId?: string | null }>
@@ -1094,6 +1135,7 @@ export type Baseline = {
 /** 파일을 열거나 합친 직후에 뜬다. */
 export function baselineOf(model: Model): Baseline {
   const names = new Map<string, string>()
+  const numbers = new Map<string, string>()
   const footprints = new Map<string, Vec2[]>()
   const equipment: Baseline['equipment'] = new Map()
   const walls: NonNullable<Baseline['walls']> = new Map()
@@ -1101,6 +1143,7 @@ export function baselineOf(model: Model): Baseline {
   for (const storey of model.storeys) {
     for (const space of storey.spaces) {
       names.set(space.id, space.longName)
+      numbers.set(space.id, space.name)
       footprints.set(space.id, space.footprint.map((p) => [p[0], p[1]] as Vec2))
     }
     for (const w of storey.walls) {
@@ -1141,6 +1184,7 @@ export function baselineOf(model: Model): Baseline {
   return {
     systems: new Map(model.systems.map((s) => [s.id, { name: s.name, kind: s.kind ?? null, fluid: s.fluid ?? null }])),
     names,
+    numbers,
     footprints,
     equipment,
     connections: new Set(model.connections.map((c) => pairKey(c.from, c.to))),
@@ -1153,6 +1197,8 @@ export function baselineOf(model: Model): Baseline {
 
 export type BaselineDiff = {
   renamed: { spaceId: string; from: string; to: string }[]
+  /** 방번호(IfcSpace Name)가 바뀐 물리존(OE-OBJ-02). 옛 baseline(번호 없음)이면 비어 있다. */
+  renumbered?: { spaceId: string; from: string; to: string }[]
   /** 좌표는 바뀌었는데 소속 물리존은 그대로인 설비. 소속이 바뀐 것은 Change 가 이미 적는다. */
   moved: { id: string; name: string }[]
   restoreyed: { id: string; name: string; from: string; to: string }[]
@@ -1206,6 +1252,7 @@ const SAME_PLACE = 0.005
 
 export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const renamed: BaselineDiff['renamed'] = []
+  const renumbered: NonNullable<BaselineDiff['renumbered']> = []
   const moved: BaselineDiff['moved'] = []
   const restoreyed: BaselineDiff['restoreyed'] = []
   const spacesAdded: BaselineDiff['spacesAdded'] = []
@@ -1223,6 +1270,8 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
       const from = baseline.names.get(space.id)
       if (from === undefined) spacesAdded.push({ id: space.id, name: space.longName || space.name })
       else if (from !== space.longName) renamed.push({ spaceId: space.id, from, to: space.longName })
+      const number = baseline.numbers?.get(space.id)
+      if (number !== undefined && number !== space.name) renumbered.push({ spaceId: space.id, from: number, to: space.name })
     }
     for (const e of storey.equipment) {
       equipmentNow.add(e.id)
@@ -1288,6 +1337,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const systemsRemoved = baseline.systems ? [...baseline.systems].filter(([id]) => !systemIds.has(id)).map(([id, was]) => ({ id, name: was.name })) : []
   return {
     renamed,
+    renumbered,
     moved,
     restoreyed,
     connected,
@@ -1695,7 +1745,7 @@ export function splitSpace(
   // 새 조각은 목록 끝에 둔다. 원래 방 바로 뒤에 끼우면 편집 파일에서 되살린 층과 순서(hasPart)가 달라진다.
   storey.spaces.push({
     id,
-    name: space.name ? `${space.name}-2` : '',
+    name: space.name ? nextNumber(storey, space.name) : '',
     longName: space.longName ? `${space.longName}-2` : '',
     footprint: small,
     areaM2: polygonArea(small),
