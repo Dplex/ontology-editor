@@ -63,6 +63,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | bc9eb3b | [OE-PIP-11 수동 배관 그리기](next/pr/oe-pip-11.md) | Refs [#192](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/192) | PIP-13 다음 · `needs-pm` |
 | 42adfbf | [OE-PIP-10 구간 삭제 영향](next/pr/oe-pip-10-impact.md) | Refs [#191](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/191) | PIP-10 꼭짓점 다음 |
 | aec79e2 | [OE-PIP-10 구간 끝 연결 대상 바꾸기](next/pr/oe-pip-10-retarget.md) | Refs [#191](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/191) | 구간 삭제 영향 다음 |
+| 142de1c | [docs: 로봇 경로가 읽는 GeoJSON 속성](next/pr/docs-geojson-robot.md) | Refs [#231](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/231) | — · `needs-pm` |
 
 ## 지금 상태 (2026-10-08 22:40)
 
