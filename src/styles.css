@@ -1501,6 +1501,11 @@ th {
 .ceiling-lock .link {
   margin-left: 0.4rem;
 }
+.ceiling-lock .link:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  text-decoration: none;
+}
 
 .ceiling-ask {
   display: flex;

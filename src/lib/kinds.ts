@@ -117,6 +117,8 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // 목록·TTL 에 둔다. 병원은 건축에 IfcFlowTerminal, 전기에 Proxy(`M_Elevator-Hydraulic`)로 들어 있다. 승강로(방)는 ROOM_KINDS 다.
   // 이름으로만 안다 — `ifc` 를 두면 고객사에 요구하는 어휘(R24)가 늘어서 넣지 않았다. IfcTransportElement 는 임포터가 아직 읽지 않는다.
   { kind: 'elevator', label: '엘리베이터', test: /elevator|엘리베이터|승강기/i, brick: 'brick:Elevator', role: null, flow: {} },
+  // 에스컬레이터도 엘리베이터와 같이 수직 관통 오브젝트라 층 편집 화면에서 옮기거나 지우지 않는다(OE-EQP-07). 이름으로만 안다.
+  { kind: 'escalator', label: '에스컬레이터', test: /escalator|에스컬레이터/i, brick: 'brick:Escalator', role: null, flow: {} },
   // Revit 의 "Lighting and Appliance Panelboard" 는 분전반이다. 이 줄이 조명보다 앞이라 "Lighting" 에 먼저 걸리지 않는다
   // (병원 건축·전기의 분전반이 조명 brick:Luminaire 로 나갔다, 2026-10-03).
   { kind: 'panel', label: '분전반', test: /분전반|\bPNL\b|breaker\s*panel|panel\s*board/i, brick: 'brick:Breaker_Panel', role: null, ifc: ['ElectricDistributionBoard.DISTRIBUTIONBOARD'], flow: {} },

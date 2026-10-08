@@ -847,7 +847,7 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
     if (drawnAt && before) viewer?.shiftEquipment(equipmentId, [before[0] - drawnAt[0], before[1] - drawnAt[1], before[2] - drawnAt[2]], true)
   }
   // 천장 편집 모드(OE-OBJ-08). 모드 밖의 설비는 옮기지 않고, 천장 설비의 z 는 구역 안에서만 고친다(Q10).
-  const lock = moving ? ceilingLock(moving) : null
+  const lock = moving ? editLock(moving) : null
   if (moving && lock) {
     goBack()
     refuseLock(moving, lock)
@@ -1056,10 +1056,10 @@ function moveGroup(dx: number, dy: number, dragged?: { id: string; drawnAt: Vec3
     editNotice.value = '좌표가 없는 설비가 묶음에 있어 같이 옮기지 않습니다. 먼저 그 설비를 놓으세요.'
     return false
   }
-  const locked = items.find((e) => ceilingLock(e))
+  const locked = items.find((e) => editLock(e))
   if (locked) {
     revert()
-    refuseLock(locked, `${ceilingLock(locked)} 묶음을 옮기지 않았습니다.`)
+    refuseLock(locked, `${editLock(locked)} 묶음을 옮기지 않았습니다.`)
     return false
   }
   const members = new Set(items.map((e) => e.id))
@@ -1110,9 +1110,9 @@ function deleteGroup(): boolean {
   const m = model.value
   const items = groupItems.value
   if (!m || items.length < 2) return false
-  const locked = items.find((e) => ceilingLock(e))
+  const locked = items.find((e) => editLock(e))
   if (locked) {
-    refuseLock(locked, `${ceilingLock(locked)} 묶음을 지우지 않았습니다.`)
+    refuseLock(locked, `${editLock(locked)} 묶음을 지우지 않았습니다.`)
     return true
   }
   const parts = items.flatMap((e) => snapshotEquipmentSet(m, e.id) ?? [])
@@ -1141,7 +1141,7 @@ function moveToStorey(equipmentId: string, storeyId: string): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
   const moving = equipmentById.value.get(equipmentId)
-  const lock = moving ? ceilingLock(moving) : null
+  const lock = moving ? editLock(moving) : null
   if (moving && lock) {
     refuseLock(moving, lock)
     return false
@@ -3900,7 +3900,7 @@ function startPlace(id: string, on: 'floor' | 'wall' = 'floor') {
   const target = equipmentById.value.get(id)
   // 천장 편집 모드(OE-OBJ-08): 천장 모드에서는 천장에, 바닥·벽 쪽에서는 바닥·벽에 놓는다. 천장 모드에는 벽에 붙이기가 없다.
   if (target && ceilingMode.value && on === 'wall') return refuseLock(target, '천장 편집 모드에서는 벽에 붙이지 않습니다. 바닥·벽 쪽에서 붙이세요.')
-  const lock = target ? ceilingLock(target) : null
+  const lock = target ? editLock(target) : null
   if (target && lock) return refuseLock(target, lock)
   if (ceilingMode.value && !ceilingOf(home)) {
     editNotice.value = `${home.name}의 천장고를 모릅니다. 천장 설비를 놓기 전에 왼쪽 도구에서 천장고를 입력하세요.`
@@ -4326,12 +4326,18 @@ watch([ceilingMarks, sceneVersion, selectedId, () => ceilingMode.value], () => v
 const ceilingIds = computed(() => new Set(ceilingMarks.value.map((m) => m.id)))
 const IN_CEILING_MODE = '천장 설비는 천장 편집 모드에서 편집합니다([천장] 또는 T).'
 const NOT_ON_CEILING = '천장에 설치할 수 없는 설비입니다.'
+/** 수직 관통 오브젝트인 설비 종류(OE-OBJ-14). */
+const VERTICAL_DEVICES = new Set(['elevator', 'escalator'])
+const VERTICAL_LOCKED = '엘리베이터·에스컬레이터는 수직 관통 오브젝트라 층 편집 화면에서는 옮기거나 지우지 않습니다. 다중층 뷰에서 편집합니다.'
 /**
  * 지금 모드에서 이 설비를 고칠 수 없는 이유. 고칠 수 있으면 null. 좌표가 없는 설비는 놓을 면으로 가른다 — 천장 모드에서는 천장에 놓을
  * 수 있는 종류, 바닥·벽 쪽에서는 천장 전용이 아닌 종류다(OE-EQP-02).
  */
-function ceilingLock(e: Equipment): string | null {
+function editLock(e: Equipment): string | null {
   if (!editing.value) return null
+  // 엘리베이터·에스컬레이터는 수직 관통 오브젝트라 층 편집 화면에서는 고르고 보기만 한다(OE-EQP-07·OE-ML-05). 종류는 고칠 수 있다 —
+  // 이름 사전이 잘못 읽은 것을 풀 길이 없으면 그 설비가 계속 잠긴다.
+  if (VERTICAL_DEVICES.has(e.kind ?? '')) return VERTICAL_LOCKED
   if (!e.position) {
     if (ceilingMode.value) return isConduit(e.role) ? '덕트·배관은 바닥·벽 쪽에서 편집합니다.' : canMountOn(e, 'ceiling') ? null : NOT_ON_CEILING
     return surfaceOf(e) === 'ceiling' ? '천장 전용 설비는 천장 편집 모드에서 놓습니다([천장] 또는 T).' : null
@@ -4348,7 +4354,12 @@ function refuseLock(e: Equipment, why: string) {
   if (why === NOT_ON_CEILING) viewer?.markConflict(e.id)
 }
 /** 고른 설비를 지금 모드에서 고칠 수 없으면 그 이유. 패널의 편집 칸을 숨기고 이 말을 보인다. */
-const selectedLock = computed(() => (selected.value ? ceilingLock(selected.value) : null))
+const selectedLock = computed(() => {
+  // 종류를 바꿔도 고른 설비는 같은 객체라 selected 만 보면 다시 재지 않는다(엘리베이터로 바꾼 뒤 되돌려도 잠금이 남았다). 모델을 읽는다.
+  void model.value
+  void sceneVersion.value
+  return selected.value ? editLock(selected.value) : null
+})
 /** 지금 보는 층(천장 모드의 기준). */
 const ceilingStorey = computed(() => (ceilingMode.value ? (model.value?.storeys.find((st) => st.id === viewStorey.value) ?? null) : null))
 /** 천장 모드인데 지금 층의 반자 높이를 모른다 — 입력을 받기 전에는 천장 설비를 놓지 않는다. */
@@ -4426,7 +4437,7 @@ watch([ceilingView, sceneVersion], () => viewer?.setCeilingView(ceilingView.valu
 const frozenIds = computed(() => {
   const out = new Set<string>()
   if (!editing.value || !model.value) return out
-  for (const st of model.value.storeys) for (const e of st.equipment) if (e.position && ceilingLock(e)) out.add(e.id)
+  for (const st of model.value.storeys) for (const e of st.equipment) if (e.position && editLock(e)) out.add(e.id)
   return out
 })
 watch([frozenIds, sceneVersion], () => viewer?.setFrozen(frozenIds.value))
@@ -4775,7 +4786,7 @@ function removeEquipment(id: string) {
   const m = model.value
   if (!m) return
   const target = equipmentById.value.get(id)
-  const lock = target ? ceilingLock(target) : null
+  const lock = target ? editLock(target) : null
   if (target && lock) return refuseLock(target, lock)
   const name = nameOfId(id)
   const snapshot = snapshotEquipmentSet(m, id)
@@ -4795,7 +4806,7 @@ function renameEquipmentTo(id: string, name: string) {
   const trimmed = name.trim()
   if (!m || !trimmed) return
   const target = equipmentById.value.get(id)
-  const lock = target ? ceilingLock(target) : null
+  const lock = target ? editLock(target) : null
   if (target && lock) return refuseLock(target, lock)
   const snapshot = snapshotEquipment(m, id)
   const at = mark()
@@ -7164,6 +7175,8 @@ async function export3D(format: 'glb' | 'obj') {
             {{ selectedLock }}
             <button v-if="selectedLock.includes('천장 편집 모드에서')" type="button" class="link" @click="setCeilingMode(true)">천장 편집으로</button>
             <button v-else-if="selectedLock.includes('바닥·벽')" type="button" class="link" @click="setCeilingMode(false)">바닥·벽으로</button>
+            <!-- 다중층 뷰(E18 OE-ML-01)는 아직 없다. 들어갈 자리를 보이되 누르지 못하게 둔다. -->
+            <button v-else-if="selectedLock === VERTICAL_LOCKED" type="button" class="link" disabled title="다중층 뷰(OE-ML-01)는 아직 만들지 않았습니다">다중층 뷰에서 편집</button>
           </p>
           <!-- 이름(태그) 고치기(E7). 지우기는 패널 맨 아래에 둔다 — 이름 칸 바로 옆에 있어 고치려다 누르기 쉬웠다. -->
           <p v-if="editing && !selectedLock" class="equipment-name-edit">
@@ -7180,7 +7193,7 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
 
           <!-- 종류 지정. 사전이 모르거나 잘못 읽은 종류를 같은 패밀리 전부에 한 번에 정한다. -->
-          <p v-if="editing && !selectedLock" class="kind-edit">
+          <p v-if="editing && (!selectedLock || selectedLock === VERTICAL_LOCKED)" class="kind-edit">
             <label>
               종류
               <select
