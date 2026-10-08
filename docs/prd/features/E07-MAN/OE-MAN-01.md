@@ -7,7 +7,7 @@ prd: "#7"
 release: "R2"
 priority: "P2"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "\"빈 층 시작\" 미확인"
 blocked_by: []
 depends: ["OE-SPC","OE-SPC-02","OE-SPC-03","OE-SPC-12","OE-SPC-13","OE-MAN-02"]

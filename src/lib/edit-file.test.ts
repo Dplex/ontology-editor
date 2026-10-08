@@ -15,6 +15,8 @@ import {
   moveSpaceVertex,
   releaseDeclaredSpace,
   renameSpace,
+  deleteSpace,
+  setSpaceNumber,
   setFlowDirection,
   setTypeKind,
   addOpening,
@@ -355,6 +357,53 @@ describe('편집 저장·불러오기', () => {
 })
 
 // OE-PIP-09 계통 이름 고치기(2026-10-03 사용자 결정 — BIM 계통도 바꾼다). e2e 는 화면에서 한 번 바꾸는 것만 잰다.
+describe('방번호 (OE-OBJ-02)', () => {
+  it('맞바꾼 방번호가 불러오면 그대로다 — 한 줄씩 넣는 도중에 잠깐 겹쳐도 막지 않는다', () => {
+    const a = read('two-rooms.ifc')
+    const base = baselineOf(a)
+    const [meeting, corridor] = a.storeys[0].spaces
+    expect([meeting.name, corridor.name]).toEqual(['101', '102'])
+    setSpaceNumber(a, meeting.id, '999')
+    setSpaceNumber(a, corridor.id, '101')
+    setSpaceNumber(a, meeting.id, '102')
+
+    const b = read('two-rooms.ifc')
+    const result = applyEdits(b, parseEditFile(JSON.stringify(exportEdits(a, base, 'two-rooms.ifc'))) as EditFile)
+    expect(b.storeys[0].spaces.map((sp) => sp.name)).toEqual(['102', '101'])
+    expect(result.numberConflicts).toEqual([])
+    expect(result.missing.spaces).toBe(0)
+  })
+
+  it('지운 물리존의 번호를 다른 물리존에 준 편집도 불러오면 그대로다 — 지우기까지 얹은 뒤 겹침을 본다', () => {
+    const a = read('two-rooms.ifc')
+    const base = baselineOf(a)
+    const [meeting, corridor] = a.storeys[0].spaces
+    expect(deleteSpace(a, meeting.id)).toBeTruthy()
+    setSpaceNumber(a, corridor.id, '101')
+
+    const b = read('two-rooms.ifc')
+    const result = applyEdits(b, parseEditFile(JSON.stringify(exportEdits(a, base, 'two-rooms.ifc'))) as EditFile)
+    expect(b.storeys[0].spaces.map((sp) => [sp.id, sp.name])).toEqual([[corridor.id, '101']])
+    expect(result.numberConflicts).toEqual([])
+  })
+
+  it('새 판본에 같은 번호가 생겼으면 편집한 쪽만 BIM 번호로 되돌리고 알린다', () => {
+    const a = read('two-rooms.ifc')
+    const base = baselineOf(a)
+    const [meeting] = a.storeys[0].spaces
+    setSpaceNumber(a, meeting.id, '103')
+    const file = exportEdits(a, base, 'two-rooms.ifc')
+
+    // 새 판본: 복도 번호가 103 으로 바뀌어 나왔다.
+    const b = read('two-rooms.ifc')
+    b.storeys[0].spaces[1].name = '103'
+    const result = applyEdits(b, parseEditFile(JSON.stringify(file)) as EditFile)
+    expect(b.storeys[0].spaces.map((sp) => sp.name)).toEqual(['101', '103'])
+    expect(result.numberConflicts).toEqual([{ storey: b.storeys[0].name, number: '103', spaceIds: [meeting.id] }])
+    expect(result.applied).toBe(0)
+  })
+})
+
 describe('계통 이름 (OE-PIP-09)', () => {
   it('앞뒤 공백은 떼고, 빈 이름·같은 이름은 바꾸지 않으며, 되돌리면 BIM 이름이다', () => {
     const a = read('mep.ifc')

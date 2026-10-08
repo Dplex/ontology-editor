@@ -403,7 +403,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
         done = !!made && !('refused' in made)
       } else {
         const zone = pick(zones)!
-        if (what === 1) done = CZ.renameCustomZone(m, zone.id, `존 ${seed}-${step}`)
+        if (what === 1) done = CZ.renameCustomZone(m, zone.id, `존 ${seed}-${step}`) === true
         else if (what === 2) done = CZ.deleteCustomZone(m, zone.id)
         else if (what === 3) {
           const xs = zone.footprint.map((p) => p[0])
