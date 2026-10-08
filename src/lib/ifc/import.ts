@@ -27,7 +27,7 @@ import { polygonArea } from '../model'
 import { apply, compose, foldChain, foldElevation, fromAxisPlacement, type Transform2 } from './placement'
 import { assignEquipmentToSpaces } from '../mapping'
 import { dropDuplicateSpaces } from '../merge'
-import { lengthScale } from './units'
+import { areaScale, lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
 import { equipmentKind, equipmentKindOf, FLUID_KINDS, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
 import { CAPACITY_KINDS, capacityRank } from '../capacity'
@@ -522,6 +522,40 @@ class Reader {
     return out
   }
 
+  /**
+   * 방마다 BIM 이 적은 바닥 면적(OE-MAN-03, ㎡). 외곽선 없는 물리존 목록에 보이고, 사람이 그린 외곽선의 넓이와 견준다. 순서는 ① 기준 물량
+   * `NetFloorArea`(ArchiCAD 가 적는다, AC20) ② `GrossFloorArea` ③ GSA 의 `GSA BIM Area` ④ Revit 의 `Area`(PSet_Revit_Dimensions —
+   * Duplex·병원·Office). 0 이하는 비운 칸이다. `areaScale` 은 넓이 1 이 몇 ㎡ 인지(units.ts 의 areaScale).
+   */
+  spaceAreas(areaScale: number): Map<number, { m2: number; property: string }> {
+    const spaces = new Set(this.ids(WebIFC.IFCSPACE))
+    const rank = (name: string) => ['NetFloorArea', 'GrossFloorArea', 'GSA BIM Area', 'Area'].indexOf(name)
+    const best = new Map<number, { m2: number; property: string; rank: number }>()
+    const offer = (id: number, name: string, v: unknown, where: string) => {
+      const k = rank(name)
+      if (k < 0 || typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return
+      const had = best.get(id)
+      if (!had || k < had.rank) best.set(id, { m2: v * areaScale, property: where, rank: k })
+    }
+    for (const { objects, psetID } of this.propertyRels()) {
+      const targets = psetID === null ? [] : objects.filter((o) => spaces.has(o))
+      if (!targets.length) continue
+      const set = this.tryLine(psetID!)
+      const setName = (val(set?.Name) as string) ?? ''
+      for (const h of set?.Quantities ?? []) {
+        const q = this.tryLine(h.value)
+        const name = (val(q?.Name) as string) ?? ''
+        if (name === 'NetFloorArea' || name === 'GrossFloorArea') for (const id of targets) offer(id, name, val(q?.AreaValue), `${setName}.${name}`)
+      }
+      for (const p of set?.HasProperties ? this.psetProps(psetID!) : []) {
+        // Revit 의 `Area` 는 치수 속성 세트에 있다. 다른 세트의 `Area`(마감 면적 등)를 바닥 면적으로 읽지 않게 세트 이름을 본다.
+        const ok = p.name === 'GSA BIM Area' || (p.name === 'Area' && /Revit_Dimensions|^Dimensions$/i.test(setName))
+        if (ok) for (const id of targets) offer(id, p.name!, p.nominal, `${setName}.${p.name}`)
+      }
+    }
+    return new Map([...best].map(([id, { m2, property }]) => [id, { m2, property }]))
+  }
+
   /** 수직으로 밀어 올린 형상(SweptSolid)의 깊이(미터). 없거나 기울었으면 null. */
   private extrusionDepth(entity: any): number | null {
     const reps = entity?.Representation ? this.line(entity.Representation.value)?.Representations : null
@@ -1009,6 +1043,7 @@ function spaceOf(
   boundaries: Map<number, number[]>,
   warnings: string[],
   omniclass: Map<number, { code: string; source: 'classification' | 'property' }>,
+  bimAreas: Map<number, { m2: number; property: string }> = new Map(),
 ): Space {
   const e = r.line(expressID)
   const id = (val(e?.GlobalId) as string) ?? `space-${expressID}`
@@ -1031,6 +1066,7 @@ function spaceOf(
     omniclass: omniclass.get(expressID)?.code ?? null,
     ...(omniclass.has(expressID) ? { omniclassSource: omniclass.get(expressID)!.source } : {}),
     ...roomKindFields((val(e?.Name) as string) ?? '', longName, omniclass.get(expressID)?.code ?? null),
+    ...(bimAreas.has(expressID) ? { bimArea: bimAreas.get(expressID)! } : {}),
   }
 }
 
@@ -1402,6 +1438,7 @@ function read(
 
     const declaredHeights = r.storeyHeights()
     const ceilingBySpace = r.ceilingBySpace()
+    const bimAreas = r.spaceAreas(areaScale(api, model).scale)
     // 층마다 반자 높이 근거(ceiling.ts). 천장재는 형상을 읽은 뒤에 아랫면을 잰다.
     const ceilingEvidence = new Map<string, CeilingEvidence>()
     const coveringsOf = new Map<string, number[]>()
@@ -1481,7 +1518,7 @@ function read(
         elevation: ((val(e?.Elevation) as number) ?? 0) * scale,
         ...(declaredHeights.has(storeyID) ? { declaredHeight: declaredHeights.get(storeyID)! } : {}),
         spaces: (spacesByStorey.get(storeyID) ?? []).map((id) =>
-          spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass),
+          spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass, bimAreas),
         ),
         walls,
         openings,

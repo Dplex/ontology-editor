@@ -38,6 +38,11 @@ export type Space = {
    */
   kind?: string | null
   /**
+   * BIM 이 적은 바닥 면적(㎡)과 그 속성 자리(OE-MAN-03). 외곽선 없는 물리존 목록에 보이고, 사람이 그린 외곽선의 넓이와 견준다.
+   * `areaM2` 는 외곽선으로 잰 넓이라 외곽선이 없으면 0 이다. 기준 물량·Revit 치수 속성이 없으면 칸이 없다(성수 건축은 없다).
+   */
+  bimArea?: { m2: number; property: string }
+  /**
    * `kind` 를 누가 정했나. `bim` 이면 `omniclass` 에서, `dict` 면 이름 사전에서 읽었고, `edit` 면 사람이 정했다(OE-SPC-17, edit.ts 의
    * setSpacesKind). 사람이 정한 종류는 이름을 고쳐도 그대로다.
    */
