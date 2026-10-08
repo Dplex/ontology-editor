@@ -32,7 +32,7 @@ import { storeyFiles } from './lib/export/storey-export'
 import { clearStoreyDone, markStoreyDone, storeyProgress, type StoreyProgress } from './lib/storey-progress'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { outlinelessSpaces, outlineWarnings } from './lib/outline-fill'
-import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, flowSpacesOfZones, hvacZonesOf, renameHvacZone, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './lib/hvac-zone'
+import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, flowSpacesOfEquipment, flowSpacesOfZones, hvacZonesOf, renameHvacZone, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './lib/hvac-zone'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
@@ -4564,6 +4564,35 @@ const zoneFlow = computed(() => {
   const m = model.value
   return m ? flowSpacesOfZones(m) : new Map<string, string[]>()
 })
+/**
+ * 설비 패널의 담당 공조존(OE-ZON-01 "설비를 선택하여 담당하는 공조존을 지정"). 고른 설비가 담당하는 그 층의 공조존과 더할 수 있는 공조존,
+ * 그리고 흐름이 닿는 물리존(OE-MAP-02)이다. 공조존 목록의 담당 설비 칸과 같은 값을 설비 쪽에서 고친다. 덕트와 자리 없는 설비는 뺀다.
+ */
+const selectedZones = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e || isConduit(e.role) || !e.position) return null
+  const storey = m.storeys.find((s) => s.equipment.some((x) => x.id === e.id))
+  if (!storey) return null
+  const zones = storey.hvacZones ?? []
+  // 공기가 지나는 설비(공조기·FCU·실내기·VAV·디퓨저 등)만. 조명·센서마다 이 칸이 뜨면 패널이 길어진다. 이미 담당하는 공조존이 있으면 보인다.
+  if (!equipmentKind(e.kind)?.flow.air && !zones.some((z) => z.servedBy?.includes(e.id))) return null
+  return {
+    storeyId: storey.id,
+    serving: zones.filter((z) => z.servedBy?.includes(e.id)),
+    others: zones.filter((z) => !z.servedBy?.includes(e.id)),
+    flow: editing.value ? flowSpacesOfEquipment(m, e.id) : [],
+  }
+})
+/** 고른 설비가 흐름으로 닿는 물리존을 담당으로, 그 설비를 담당 설비로 공조존을 만든다. */
+function makeZoneForSelected() {
+  const z = selectedZones.value
+  const e = selected.value
+  if (!z || !e || !z.flow.length) return
+  if (changeHvacZones(z.storeyId, '공조존 만들기', (m) => createZoneFromSpaces(m, { spaceIds: z.flow, servedBy: [e.id] })))
+    note(`공조존을 만들었습니다. 담당 물리존은 ${shortName(e.name)}의 흐름이 닿는 ${z.flow.map((id) => spaceNameOf(id)).join(', ')}입니다`)
+}
 /** 담당 설비로 고를 수 있는 것: 그 층의 공기·물이 흐르는 기기(덕트·배관 제외). */
 const zoneEquipmentChoices = computed(() =>
   (zoneStorey.value?.equipment ?? []).filter((e) => !isConduit(e.role) && !!e.position).sort((a, b) => a.name.localeCompare(b.name)),
@@ -7514,6 +7543,31 @@ async function export3D(format: 'glb' | 'obj') {
                 </button>
               </li>
             </ul>
+          </div>
+
+          <!-- 담당 공조존(OE-ZON-01). 공조존 목록의 담당 설비와 같은 값을 설비 쪽에서 고친다. 보기 모드에서는 담당하는 공조존이 있을 때만. -->
+          <div v-if="selectedZones && (editing ? !selectedLock : selectedZones.serving.length)" class="served-zones" data-testid="served-zones">
+            <h4 class="picked-sub">
+              담당 공조존 <span class="muted">{{ selectedZones.serving.length }}</span> <Src kind="edit" />
+            </h4>
+            <p class="zone-served">
+              <template v-for="z in selectedZones.serving" :key="z.id">
+                <button v-if="editing" type="button" class="chip" :title="`${z.name} 담당에서 빼기`" @click="removeZoneServed(z.id, selectedZones.storeyId, selected.id, z.servedBy ?? [])">{{ z.name }} ×</button>
+                <span v-else class="chip">{{ z.name }}</span>
+              </template>
+              <template v-if="editing">
+                <select v-if="selectedZones.others.length" :value="''" aria-label="담당할 공조존 더하기" @change="addZoneServed(($event.target as HTMLSelectElement).value, selectedZones.storeyId, selected.id, selectedZones.others.find((z) => z.id === ($event.target as HTMLSelectElement).value)?.servedBy ?? [])">
+                  <option value="">공조존 더하기…</option>
+                  <option v-for="z in selectedZones.others" :key="z.id" :value="z.id">{{ z.name }}</option>
+                </select>
+                <button v-if="selectedZones.flow.length" type="button" class="ghost" @click="makeZoneForSelected">
+                  흐름이 닿는 물리존으로 새 공조존 ({{ selectedZones.flow.map((id) => spaceNameOf(id)).join(', ') }})
+                </button>
+                <span v-else-if="!selectedZones.serving.length" class="muted">
+                  흐름이 닿는 말단이 없습니다. 담당 물리존은 아래 "공조존" 에서 골라 공조존을 만듭니다.
+                </span>
+              </template>
+            </p>
           </div>
 
           <!-- 담당 공간. 공기 원천을 골랐을 때만 뜬다. 계통도가 묻는 "이 공조기가 담당하는 방" 의 근사다.

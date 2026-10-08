@@ -274,9 +274,24 @@ export function flowSpacesOfZones(model: Model, connections?: readonly Connectio
   // 담당 설비가 있는 공조존이 없으면 연결을 훑지 않는다. 편집마다 불려서, 공조존이 없는 성수에서 연결 전부를 도는 일을 막는다.
   const zones = hvacZonesOf(model).filter((z) => z.servedBy?.length)
   if (!zones.length) return out
-  connections ??= withInferred(model.connections, true)
-  const all = model.storeys.flatMap((s) => s.equipment)
-  const byId = new Map(all.map((e) => [e.id, e]))
+  const reach = flowReach(model, connections ?? withInferred(model.connections, true))
+  for (const z of zones) {
+    const storey = model.storeys.find((s) => s.id === z.storeyId)
+    const ids = storey ? reach(z.servedBy!, storey) : []
+    if (ids.length) out.set(z.id, ids)
+  }
+  return out
+}
+
+/** 설비 하나에서 확정된 흐름으로 닿는 말단의 물리존(그 설비의 층). 설비 패널에서 공조존을 만들 때 담당 물리존으로 쓴다. */
+export function flowSpacesOfEquipment(model: Model, id: string): string[] {
+  const storey = model.storeys.find((s) => s.equipment.some((e) => e.id === id))
+  return storey ? flowReach(model, withInferred(model.connections, true))([id], storey) : []
+}
+
+/** 설비들에서 흐름으로 닿는 말단이 놓인 그 층 물리존을 재는 함수. 연결 색인을 한 번 만들고 설비마다 말단을 기억한다. */
+function flowReach(model: Model, connections: readonly Connection[]): (equipmentIds: readonly string[], storey: Storey) => string[] {
+  const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
   const forward = new Map<string, string[]>()
   const backward = new Map<string, string[]>()
   for (const c of connections) {
@@ -310,18 +325,16 @@ export function flowSpacesOfZones(model: Model, connections?: readonly Connectio
     terminalsOf.set(id, found)
     return found
   }
-  for (const z of zones) {
-    const storey = model.storeys.find((s) => s.id === z.storeyId)
-    if (!storey) continue
+  return (equipmentIds, storey) => {
     const here = new Set(storey.spaces.map((s) => s.id))
     const ids = new Set<string>()
-    for (const id of z.servedBy!) for (const t of terminals(id)) {
-      const sp = byId.get(t)?.spaceId
-      if (sp && here.has(sp)) ids.add(sp)
-    }
-    if (ids.size) out.set(z.id, [...ids])
+    for (const id of equipmentIds)
+      for (const t of terminals(id)) {
+        const sp = byId.get(t)?.spaceId
+        if (sp && here.has(sp)) ids.add(sp)
+      }
+    return [...ids]
   }
-  return out
 }
 
 /**
