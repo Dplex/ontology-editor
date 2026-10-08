@@ -45,6 +45,7 @@ import {
   WALL_COLORS,
   type Arrow,
   type CeilingMark,
+  type CeilingView,
   type Viewer,
   type HoverTarget,
 } from './lib/viewer'
@@ -149,7 +150,7 @@ import {
   zoneSpaces,
 } from './lib/custom-zone'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
-import { ceilingGuess, ceilingOf, ceilingZone, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, type Judged } from './lib/ceiling'
+import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
@@ -775,6 +776,33 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
   // 외벽 전용 설비(외기 센서, OE-OBJ-04)는 외벽 바깥 면으로만 옮긴다. 바깥 면을 따라 옮기는 것은 되고, 벽에서 떼는 것은 막는다.
   const moving = equipmentById.value.get(equipmentId)
   const home = storeyOf(equipmentId)
+  const goBack = () => {
+    if (drawnAt && before) viewer?.shiftEquipment(equipmentId, [before[0] - drawnAt[0], before[1] - drawnAt[1], before[2] - drawnAt[2]], true)
+  }
+  // 천장 편집 모드(OE-OBJ-08). 모드 밖의 설비는 옮기지 않고, 천장 설비의 z 는 구역 안에서만 고친다(Q10).
+  const lock = moving ? ceilingLock(moving) : null
+  if (moving && lock) {
+    goBack()
+    refuseLock(moving, lock)
+    return false
+  }
+  if (moving && home && ceilingMode.value && (!before || to[2] !== before[2])) {
+    const ok = ceilingZCheck(moving, home, to[2])
+    if (ok !== true) {
+      goBack()
+      editNotice.value = ok
+      return false
+    }
+  }
+  // 바닥·벽 쪽에서 z 를 올려 천장으로 보내지 않는다 — 천장 설비가 되면 이 쪽에서 다시 못 고친다.
+  if (moving && home && editing.value && !ceilingMode.value && before && to[2] !== before[2]) {
+    const judged = judgeSurface({ ...moving, position: to }, home, storeyHeightOf.value.get(home.id)?.value ?? null)
+    if (judged === 'ceiling' || judged === 'plenum') {
+      goBack()
+      editNotice.value = `그 높이는 천장(천장고 ${meters(ceilingOf(home)!.height)} 근처)입니다. 천장으로 옮기려면 천장 편집 모드에서 하세요.`
+      return false
+    }
+  }
   if (moving && home && exteriorOnly(moving) && !onExteriorFace(home, [to[0], to[1]])) {
     if (drawnAt && before) viewer?.shiftEquipment(equipmentId, [before[0] - drawnAt[0], before[1] - drawnAt[1], before[2] - drawnAt[2]], true)
     editNotice.value = `${EXTERIOR_ONLY} 그 자리는 외벽 바깥 면이 아닙니다. 다른 외벽으로는 [벽에 붙이기]로 옮기세요.`
@@ -954,6 +982,12 @@ function moveGroup(dx: number, dy: number, dragged?: { id: string; drawnAt: Vec3
     editNotice.value = '좌표가 없는 설비가 묶음에 있어 같이 옮기지 않습니다. 먼저 그 설비를 놓으세요.'
     return false
   }
+  const locked = items.find((e) => ceilingLock(e))
+  if (locked) {
+    revert()
+    refuseLock(locked, `${ceilingLock(locked)} 묶음을 옮기지 않았습니다.`)
+    return false
+  }
   const members = new Set(items.map((e) => e.id))
   const targets = items.map((e) => ({ e, from: e.position!, to: [cm(e.position![0] + dx), cm(e.position![1] + dy), e.position![2]] as Vec3 }))
   for (const { e, to } of targets) {
@@ -1002,6 +1036,11 @@ function deleteGroup(): boolean {
   const m = model.value
   const items = groupItems.value
   if (!m || items.length < 2) return false
+  const locked = items.find((e) => ceilingLock(e))
+  if (locked) {
+    refuseLock(locked, `${ceilingLock(locked)} 묶음을 지우지 않았습니다.`)
+    return true
+  }
   const parts = items.flatMap((e) => snapshotEquipmentSet(m, e.id) ?? [])
   const at = mark()
   let connections = 0
@@ -1028,6 +1067,11 @@ function moveToStorey(equipmentId: string, storeyId: string): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
   const moving = equipmentById.value.get(equipmentId)
+  const lock = moving ? ceilingLock(moving) : null
+  if (moving && lock) {
+    refuseLock(moving, lock)
+    return false
+  }
   const target = model.value.storeys.find((s) => s.id === storeyId)
   if (moving && target && exteriorOnly(moving) && !(before && onExteriorFace(target, [before[0], before[1]]))) {
     editNotice.value = `${EXTERIOR_ONLY} 그 층의 같은 자리는 외벽 바깥 면이 아닙니다. 층을 옮긴 뒤 [벽에 붙이기]로 붙이세요.`
@@ -1376,6 +1420,9 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       return stepArrow(s.id === 'arrowNext' ? 1 : -1)
     case 'flow':
       return flowByKey()
+    case 'ceiling':
+      setCeilingMode(!ceilingMode.value)
+      return true
     case 'confirm': {
       const r = selectedRule.value
       if (!r) return false
@@ -3225,7 +3272,8 @@ function applyStoreyFilter() {
   viewer.setStoreyFilter(new Set([id]), hidden)
 }
 watch([viewStorey, model, sceneVersion], applyStoreyFilter)
-watch(viewStorey, () => viewer?.frameAll())
+// 천장 모드에서 층을 바꾸면 위에서 내려다보는 시점을 지킨다(OE-OBJ-08).
+watch(viewStorey, () => (ceilingMode.value ? viewer?.topView() : viewer?.frameAll()))
 
 // --- 3D / 평면도 ---------------------------------------------------------------------
 //
@@ -3268,13 +3316,23 @@ function startPlace(id: string, on: 'floor' | 'wall' = 'floor') {
   if (!home) return
   // 벽 전용 종류(콘센트)는 바닥에 놓지 않고 벽에 붙인다(OE-OBJ-10, 설치면 표 mount.ts)
   const target = equipmentById.value.get(id)
+  // 천장 편집 모드(OE-OBJ-08): 천장 모드에서는 천장에, 바닥·벽 쪽에서는 바닥·벽에 놓는다. 천장 모드에는 벽에 붙이기가 없다.
+  if (target && ceilingMode.value && on === 'wall') return refuseLock(target, '천장 편집 모드에서는 벽에 붙이지 않습니다. 바닥·벽 쪽에서 붙이세요.')
+  const lock = target ? ceilingLock(target) : null
+  if (target && lock) return refuseLock(target, lock)
+  if (ceilingMode.value && !ceilingOf(home)) {
+    editNotice.value = `${home.name}의 천장고를 모릅니다. 천장 설비를 놓기 전에 왼쪽 도구에서 천장고를 입력하세요.`
+    return
+  }
   if (target && surfaceOf(target) === 'wall') on = 'wall'
   connectFrom.value = null
   placing.value = id
   placingOn.value = on
-  viewer?.setPlaceMode(home.elevation)
+  viewer?.setPlaceMode(ceilingMode.value ? home.elevation + ceilingOf(home)!.height : home.elevation)
   note(
-    on === 'wall'
+    ceilingMode.value
+      ? `${nameOfId(id)}${josa(nameOfId(id), '을/를')} 놓을 천장 자리를 3D에서 클릭하세요 (Esc 취소)`
+      : on === 'wall'
       ? `${nameOfId(id)}${josa(nameOfId(id), '을/를')} 붙일 벽 면 가까이를 3D에서 클릭하세요. 바깥 면을 누르면 바깥에 붙습니다 (Esc 취소)`
       : `${nameOfId(id)}${josa(nameOfId(id), '을/를')} 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`,
   )
@@ -3342,6 +3400,15 @@ function placeAt(at: Vec2) {
   const home = id ? storeyOf(id) : null
   const target = id ? equipmentById.value.get(id) : null
   if (!m || !id || !home || !target) return
+  // 천장 모드: 구역의 기본 z 에 놓는다 — 반자 부착은 반자 높이, 플레넘은 반자 바로 위(OE-EQP-02·04).
+  if (ceilingMode.value) {
+    const zone = ceilingZone(target.kind) ?? 'attached'
+    const range = ceilingRange(zone, ceilingOf(home)?.height ?? null, storeyHeightOf.value.get(home.id)?.value ?? null)
+    if (!range) return
+    if (!relocate(id, [cm(at[0]), cm(at[1]), cm(home.elevation + range.base)])) return
+    note(`${zone === 'plenum' ? '플레넘(천장고 바로 위)' : '천장고'}에 놓았습니다(바닥에서 ${range.base.toFixed(2)}m). 높이는 z 칸에서 고치세요`)
+    return
+  }
   const key = familyKeyOf(target)
   const heights = m.storeys
     .flatMap((st) => st.equipment.filter((e) => e.id !== id && e.position && familyKeyOf(e) === key).map((e) => e.position![2] - st.elevation))
@@ -3607,7 +3674,8 @@ const allCustomZones = computed(() => {
 })
 watch([model, sceneVersion, selectedCustomZoneId], () => viewer?.setCustomZones(model.value, selectedCustomZoneId.value))
 // 천장 설비 표시(OE-EQP-04). 편집 모드에서 천장 설비마다 바닥 발자국 링을, 고른 것이면 링까지 수직 점선을 그린다. 천장 설비는
-// 판정 설치면이 천장·플레넘인 것과, 반자 높이를 모르는 층에서 종류가 천장 전용인 것이다(그 층은 천장을 판정하지 못한다). 구역(링 색)은 종류가
+// 판정 설치면이 천장·플레넘인 것과, 반자 높이를 모르는 층에서 종류가 천장 전용인 것이다(그 층은 천장을 판정하지 못한다). 천장에 달 수
+// 없는 종류는 뺀다. 구역(링 색)은 종류가
 // 정하고, 종류가 모르면 판정(플레넘이면 플레넘)을 따른다.
 const ceilingMarks = computed<CeilingMark[]>(() => {
   if (!editing.value) return []
@@ -3616,12 +3684,137 @@ const ceilingMarks = computed<CeilingMark[]>(() => {
     const e = r.equipment
     if (!e.position) continue
     const onCeiling = r.judged === 'ceiling' || r.judged === 'plenum' || (r.judged === null && !ceilingOf(r.storey) && surfaceOf(e) === 'ceiling')
-    if (!onCeiling) continue
+    // 판정이 허용 설치면 밖이면 허용 설치면이 앞선다(Q9) — 반자 위에 있는 공조기는 천장 설비가 아니다.
+    if (!onCeiling || !canMountOn(e, 'ceiling')) continue
     out.push({ id: e.id, storeyId: r.storey.id, at: e.position, floor: r.storey.elevation, zone: ceilingZone(e.kind) ?? (r.judged === 'plenum' ? 'plenum' : 'attached') })
   }
   return out
 })
-watch([ceilingMarks, sceneVersion, selectedId], () => viewer?.setCeilingMarks(ceilingMarks.value, selectedId.value))
+
+// --- 천장 편집 모드 (OE-OBJ-08) ----------------------------------------------------------------
+//
+// 설비 편집의 [바닥·벽 / 천장] 토글(T)에서 천장 쪽이다. 들어가면 선택과 하던 조작을 끝내고, 위에서 내려다보고, 층마다 반자 높이에
+// 반투명 천장면을 그린다. 천장 설비만 놓고·옮기고·지우고·이름과 종류를 고친다(옮기기는 x·y 만, z 는 패널). 나머지는 회색이고 고르기·
+// 조회만 된다. 바닥·벽 쪽(평소 편집)에서는 거꾸로 천장 설비가 고르기·조회만 된다. 모드는 화면 상태라 저장하지 않는다.
+const ceilingMode = ref(false)
+// 천장 모드에서는 위에서 내려다보니 링이 설비와 겹친다 — 그리지 않는다.
+watch([ceilingMarks, sceneVersion, selectedId, () => ceilingMode.value], () => viewer?.setCeilingMarks(ceilingMode.value ? [] : ceilingMarks.value, selectedId.value))
+/** 천장 설비 id(좌표가 있는 것). 바닥 링과 같은 판단이다. */
+const ceilingIds = computed(() => new Set(ceilingMarks.value.map((m) => m.id)))
+const IN_CEILING_MODE = '천장 설비는 천장 편집 모드에서 편집합니다([천장] 또는 T).'
+const NOT_ON_CEILING = '천장에 설치할 수 없는 설비입니다.'
+/**
+ * 지금 모드에서 이 설비를 고칠 수 없는 이유. 고칠 수 있으면 null. 좌표가 없는 설비는 놓을 면으로 가른다 — 천장 모드에서는 천장에 놓을
+ * 수 있는 종류, 바닥·벽 쪽에서는 천장 전용이 아닌 종류다(OE-EQP-02).
+ */
+function ceilingLock(e: Equipment): string | null {
+  if (!editing.value) return null
+  if (!e.position) {
+    if (ceilingMode.value) return isConduit(e.role) ? '덕트·배관은 바닥·벽 쪽에서 편집합니다.' : canMountOn(e, 'ceiling') ? null : NOT_ON_CEILING
+    return surfaceOf(e) === 'ceiling' ? '천장 전용 설비는 천장 편집 모드에서 놓습니다([천장] 또는 T).' : null
+  }
+  const on = ceilingIds.value.has(e.id)
+  if (!ceilingMode.value) return on ? IN_CEILING_MODE : null
+  if (on) return null
+  if (isConduit(e.role)) return '덕트·배관은 바닥·벽 쪽에서 편집합니다.'
+  return canMountOn(e, 'ceiling') ? '바닥·벽 설비는 바닥·벽 쪽에서 편집합니다.' : NOT_ON_CEILING
+}
+/** 막았다고 알린다. 천장에 놓을 수 없는 설비면 3D 에 붉게 짚는다. */
+function refuseLock(e: Equipment, why: string) {
+  editNotice.value = `${shortName(e.name)}: ${why}`
+  if (why === NOT_ON_CEILING) viewer?.markConflict(e.id)
+}
+/** 고른 설비를 지금 모드에서 고칠 수 없으면 그 이유. 패널의 편집 칸을 숨기고 이 말을 보인다. */
+const selectedLock = computed(() => (selected.value ? ceilingLock(selected.value) : null))
+/** 지금 보는 층(천장 모드의 기준). */
+const ceilingStorey = computed(() => (ceilingMode.value ? (model.value?.storeys.find((st) => st.id === viewStorey.value) ?? null) : null))
+/** 천장 모드인데 지금 층의 반자 높이를 모른다 — 입력을 받기 전에는 천장 설비를 놓지 않는다. */
+const ceilingAsk = computed(() => {
+  // 층 객체는 편집해도 같은 객체라 ceilingStorey 만 보면 다시 재지 않는다 — model 을 직접 읽는다(triggerRef).
+  const st = model.value?.storeys.find((x) => x.id === viewStorey.value)
+  return ceilingMode.value && !!st && !ceilingOf(st)
+})
+
+function setCeilingMode(on: boolean) {
+  if (on === ceilingMode.value) return
+  if (!on) {
+    ceilingMode.value = false
+    note('천장 편집 모드를 나왔습니다. 바닥·벽 쪽입니다')
+    return
+  }
+  if (!editing.value) return
+  const st = targetStorey()
+  if (!st) return askStorey('천장을 편집할')
+  // 들어갈 때 하던 것을 끝낸다 — 바닥에 놓던 설비를 천장 높이로 놓게 되면 헷갈린다.
+  stopPlace()
+  stopAdd()
+  if (drawing.value) stopDraw()
+  connectFrom.value = null
+  archMode.value = false
+  group.value = []
+  select(null)
+  selectedSpaceId.value = null
+  selectedElementId.value = null
+  selectedCustomZoneId.value = null
+  ceilingMode.value = true
+  if (viewStorey.value !== st.id) viewStorey.value = st.id
+  // 층을 바꾸면 위 watch 가 시점을 맞춘다. 같은 층이면 여기서 내려다본다.
+  else viewer?.topView()
+  note(ceilingOf(st) ? `천장 편집 모드입니다 — ${st.name} 천장고 ${meters(ceilingOf(st)!.height)}. 천장 설비만 놓고 옮깁니다(T 로 나가기)` : `천장 편집 모드입니다. ${st.name}의 천장고를 먼저 입력하세요`)
+}
+watch(editing, (on) => {
+  if (!on) ceilingMode.value = false
+})
+/** 천장 모드에서 잠긴 도구를 눌렀다. 어디서 편집하는지 알린다(OE-OBJ-08). */
+function lockedTool() {
+  editNotice.value = '천장 편집 모드에서는 공간을 고치지 않습니다. 공간은 [바닥·벽] 쪽에서 편집하세요(T 로 나가기).'
+}
+// 천장 모드의 반자 높이 입력 칸. 기본값은 BIM 값이 없으니 후보(계산)다.
+const ceilingAskInput = ref('')
+watch(ceilingAsk, (ask) => {
+  if (ask && ceilingStorey.value) ceilingAskInput.value = String(ceilingGuessOf.value.get(ceilingStorey.value.id)?.height ?? '')
+}, { immediate: true })
+
+/** 천장면과 회색 처리. 천장면은 반자 높이를 아는 층만, 면은 그 층 물리존 외곽선(없으면 설비가 든 평면 범위)이다. */
+const ceilingView = computed<CeilingView | null>(() => {
+  const m = model.value
+  if (!ceilingMode.value || !m) return null
+  const planes: CeilingView['planes'] = []
+  for (const st of m.storeys) {
+    const c = ceilingOf(st)
+    if (!c) continue
+    let rings: Vec2[][] = st.spaces.filter((sp) => sp.footprint.length >= 4).map((sp) => sp.footprint as Vec2[])
+    if (!rings.length) {
+      const pts = st.equipment.flatMap((e) => (e.position ? [e.position] : []))
+      if (pts.length) {
+        const [x0, x1] = [Math.min(...pts.map((p) => p[0])) - 1, Math.max(...pts.map((p) => p[0])) + 1]
+        const [y0, y1] = [Math.min(...pts.map((p) => p[1])) - 1, Math.max(...pts.map((p) => p[1])) + 1]
+        rings = [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]
+      }
+    }
+    planes.push({ storeyId: st.id, z: st.elevation + c.height, rings })
+  }
+  const dim = new Set<string>()
+  for (const st of m.storeys) for (const e of st.equipment) if (!ceilingIds.value.has(e.id)) dim.add(e.id)
+  return { planes, dim }
+})
+watch([ceilingView, sceneVersion], () => viewer?.setCeilingView(ceilingView.value))
+// 끌지 못하는 설비. 모드 밖의 설비는 3D 에서 잡히지 않는다(고르기는 된다).
+const frozenIds = computed(() => {
+  const out = new Set<string>()
+  if (!editing.value || !model.value) return out
+  for (const st of model.value.storeys) for (const e of st.equipment) if (e.position && ceilingLock(e)) out.add(e.id)
+  return out
+})
+watch([frozenIds, sceneVersion], () => viewer?.setFrozen(frozenIds.value))
+
+/** 천장 설비의 z 가 구역(반자 부착 · 플레넘) 안인가(Q10). 아니면 이유. 천장 설비가 아니면 true. */
+function ceilingZCheck(e: Equipment, storey: Storey, z: number): true | string {
+  const mark = ceilingMarks.value.find((m) => m.id === e.id)
+  const zone = mark?.zone ?? ceilingZone(e.kind)
+  if (!zone) return true
+  return checkCeilingZ(zone, z - storey.elevation, ceilingOf(storey)?.height ?? null, storeyHeightOf.value.get(storey.id)?.value ?? null)
+}
 
 /** 커스텀존이 품는 방의 표시 이름. 이름과 방 번호를 같이 둔다. */
 function zoneRoomLabel(id: string): string {
@@ -3771,13 +3964,19 @@ const adding = ref<{ storeyId: string; elevation: number; what: 'equipment' | 'd
 function startAddEquipment() {
   const storey = targetStorey()
   if (!storey) return askStorey('설비를 더할')
+  if (ceilingMode.value && !ceilingOf(storey)) {
+    editNotice.value = `${storey.name}의 천장고를 모릅니다. 천장 설비를 놓기 전에 왼쪽 도구에서 천장고를 입력하세요.`
+    return
+  }
   stopPlace()
   stopDraw()
   connectFrom.value = null
   if (model.value!.storeys.length > 1) viewStorey.value = storey.id
-  adding.value = { storeyId: storey.id, elevation: storey.elevation, what: 'equipment' }
-  viewer?.setPlaceMode(storey.elevation)
-  note(`${storey.name}에 설비를 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
+  // 천장 모드에서 더한 설비는 반자 높이에 놓는다(종류를 정하기 전이라 반자 부착으로 본다).
+  const z = ceilingMode.value ? storey.elevation + ceilingOf(storey)!.height : storey.elevation
+  adding.value = { storeyId: storey.id, elevation: z, what: 'equipment' }
+  viewer?.setPlaceMode(z)
+  note(ceilingMode.value ? `${storey.name} 천장에 설비를 놓을 자리를 3D에서 클릭하세요 (Esc 취소)` : `${storey.name}에 설비를 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
 }
 function stopAdd() {
   if (!adding.value) return
@@ -3802,11 +4001,14 @@ function addEquipmentAt(at: Vec2) {
   triggerRef(model)
   redraw()
   selectedId.value = e.id
-  note(`${e.name}${josa(e.name, '을/를')} 바닥 높이에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`)
+  note(`${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '천장고' : '바닥 높이'}에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`)
 }
 function removeEquipment(id: string) {
   const m = model.value
   if (!m) return
+  const target = equipmentById.value.get(id)
+  const lock = target ? ceilingLock(target) : null
+  if (target && lock) return refuseLock(target, lock)
   const name = nameOfId(id)
   const snapshot = snapshotEquipmentSet(m, id)
   const at = mark()
@@ -3824,6 +4026,9 @@ function renameEquipmentTo(id: string, name: string) {
   const m = model.value
   const trimmed = name.trim()
   if (!m || !trimmed) return
+  const target = equipmentById.value.get(id)
+  const lock = target ? ceilingLock(target) : null
+  if (target && lock) return refuseLock(target, lock)
   const snapshot = snapshotEquipment(m, id)
   const at = mark()
   if (!renameEquipment(m, id, trimmed)) return
@@ -5675,33 +5880,62 @@ async function export3D(format: 'glb' | 'obj') {
             <!-- 편집 도구 팔레트(PRD #9 화면 레이아웃의 왼쪽). 편집 모드에서만, 무엇을 만드는지로 묶는다. 넣을 층은 층 하나만
                  보는 중이면 그 층이다(targetStorey). 왼쪽 위는 색 안내 자리라 아래쪽에 둔다. -->
             <nav v-if="editing && !drawing && activeTab === '3d'" class="tool-palette" aria-label="편집 도구">
+              <!-- 천장 편집 모드(OE-OBJ-08). 천장 쪽에서는 공간 도구와 바닥·벽 도구가 잠기고, 누르면 어디서 편집하는지 알린다. -->
               <span class="palette-head">공간 그리기</span>
               <!-- 두 버튼을 한 줄에 둔다. 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
               <span class="palette-row">
-                <button type="button" class="ghost" aria-label="물리존 그리기" title="바닥에 꼭짓점을 찍어 새 물리존을 그립니다" @click="startCreateSpace">물리존</button>
-                <button type="button" class="ghost" aria-label="커스텀존 그리기" title="물리존 위에 운영 단위(임원석·식당 등)를 다각형으로 그립니다. 겹쳐도 됩니다(OE-OBJ-01)" @click="startCustomZone">커스텀존</button>
+                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="물리존 그리기" title="바닥에 꼭짓점을 찍어 새 물리존을 그립니다" @click="ceilingMode ? lockedTool() : startCreateSpace()">물리존</button>
+                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="커스텀존 그리기" title="물리존 위에 운영 단위(임원석·식당 등)를 다각형으로 그립니다. 겹쳐도 됩니다(OE-OBJ-01)" @click="ceilingMode ? lockedTool() : startCustomZone()">커스텀존</button>
               </span>
-              <span class="palette-head">설비</span>
+              <!-- [바닥·벽 / 천장] 토글(T). 제목 줄에 둔다 — 줄을 하나 더 쓰면 팔레트가 3D 왼쪽 아래 바닥을 가린다. -->
+              <span class="palette-head palette-head-row">
+                설비
+                <span class="ceiling-toggle" role="group" aria-label="설비 편집 면">
+                  <button type="button" :class="{ on: !ceilingMode }" :aria-pressed="!ceilingMode" title="바닥·벽 설비와 배관을 편집합니다" @click="setCeilingMode(false)">바닥·벽</button>
+                  <button type="button" :class="{ on: ceilingMode }" :aria-pressed="ceilingMode" title="천장 설비만 편집합니다. 위에서 내려다보고 천장고에 천장면을 그립니다 (T)" @click="setCeilingMode(true)">천장</button>
+                </span>
+              </span>
+              <!-- 천장 모드에서 지금 층의 반자 높이를 모르면 입력을 받는다. 그 전에는 천장 설비를 놓지 않는다(0 이나 층고로 채우지 않는다). -->
+              <form v-if="ceilingAsk" class="ceiling-ask" @submit.prevent="saveCeiling(ceilingStorey!.id, Number(ceilingAskInput))">
+                <label>
+                  {{ ceilingStorey!.name }} 천장고
+                  <input
+                    v-model="ceilingAskInput"
+                    v-keep-typing
+                    type="number"
+                    step="0.05"
+                    min="0.3"
+                    aria-label="천장 모드 천장고(m)"
+                    @keydown.enter.prevent="saveCeiling(ceilingStorey!.id, Number(ceilingAskInput))"
+                  />
+                  m
+                </label>
+                <button type="submit" class="ghost">정하기</button>
+              </form>
+              <span v-else-if="ceilingStorey && ceilingOf(ceilingStorey)" class="ceiling-now muted">
+                천장고 {{ meters(ceilingOf(ceilingStorey)!.height) }} <Src :kind="ceilingOf(ceilingStorey)!.source" />
+              </span>
               <button
                 type="button"
                 :class="['ghost', { on: adding?.what === 'equipment' }]"
                 :aria-pressed="adding?.what === 'equipment'"
-                title="바닥을 눌러 새 설비를 놓습니다"
+                :disabled="ceilingAsk"
+                :title="ceilingMode ? '천장을 눌러 새 설비를 천장고에 놓습니다' : '바닥을 눌러 새 설비를 놓습니다'"
                 @click="adding?.what === 'equipment' ? stopAdd() : startAddEquipment()"
               >
                 {{ adding?.what === 'equipment' ? '더하기 취소' : '설비 더하기' }}
               </button>
-              <label class="palette-check" title="설비를 옮기면 붙은 이음쇠는 같이 옮기고, 그 너머 덕트·배관은 먼 끝을 두고 늘입니다">
+              <label v-if="!ceilingMode" class="palette-check" title="설비를 옮기면 붙은 이음쇠는 같이 옮기고, 그 너머 덕트·배관은 먼 끝을 두고 늘입니다">
                 <input v-model="carryConduits" type="checkbox" /> 배관도 같이
               </label>
               <!-- 천장 설비의 바닥 발자국 링(OE-EQP-04). 색은 구역이다. 왼쪽 위 색 안내에 넣었더니 길어져 3D 의 설비를 덮었다. -->
-              <span v-if="ceilingMarks.length" class="ceiling-key" title="천장 설비는 바닥에 링으로 보입니다. 고르면 링까지 점선이 내려옵니다(OE-EQP-04)">
+              <span v-if="ceilingMarks.length && !ceilingMode" class="ceiling-key" title="천장 설비는 바닥에 링으로 보입니다. 고르면 링까지 점선이 내려옵니다(OE-EQP-04)">
                 <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.attached) }"></i>반자 부착
                 <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.plenum) }"></i>플레넘
               </span>
               <span class="palette-head">벽·문·창</span>
               <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). -->
-              <button type="button" :class="['ghost', { on: archMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="archMode = !archMode">
+              <button type="button" :class="['ghost', { on: archMode, locked: ceilingMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="ceilingMode ? lockedTool() : (archMode = !archMode)">
                 벽·문·창
               </button>
               <template v-if="archMode">
@@ -5928,8 +6162,14 @@ async function export3D(format: 'glb' | 'obj') {
             </div>
           </div>
 
+          <!-- 천장 편집 모드(OE-OBJ-08). 지금 모드에서 고칠 수 없는 설비는 고르기·조회만 되고 편집 칸을 숨긴다. -->
+          <p v-if="editing && selectedLock" class="ceiling-lock" role="status">
+            {{ selectedLock }}
+            <button v-if="selectedLock.includes('천장 편집 모드에서')" type="button" class="link" @click="setCeilingMode(true)">천장 편집으로</button>
+            <button v-else-if="selectedLock.includes('바닥·벽')" type="button" class="link" @click="setCeilingMode(false)">바닥·벽으로</button>
+          </p>
           <!-- 이름(태그) 고치기(E7). 지우기는 패널 맨 아래에 둔다 — 이름 칸 바로 옆에 있어 고치려다 누르기 쉬웠다. -->
-          <p v-if="editing" class="equipment-name-edit">
+          <p v-if="editing && !selectedLock" class="equipment-name-edit">
             <label>
               이름
               <input
@@ -5943,7 +6183,7 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
 
           <!-- 종류 지정. 사전이 모르거나 잘못 읽은 종류를 같은 패밀리 전부에 한 번에 정한다. -->
-          <p v-if="editing" class="kind-edit">
+          <p v-if="editing && !selectedLock" class="kind-edit">
             <label>
               종류
               <select
@@ -5980,7 +6220,7 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
 
           <!-- 계통(E8). 설비의 계통 한 자리를 바꾼다. 규칙 방향을 다시 돌리고 TTL 의 brick:hasPart 가 바뀐다. -->
-          <p v-if="editing" class="system-edit">
+          <p v-if="editing && !selectedLock" class="system-edit">
             <label>
               계통
               <select :value="selected.systemId ?? ''" @change="pickSystem($event, selected.id)">
@@ -6003,7 +6243,7 @@ async function export3D(format: 'glb' | 'obj') {
             <button type="button" class="link" @click="newSystemOpen = !newSystemOpen">새 계통…</button>
           </p>
           <!-- 새 계통(E8). 사람이 더한 설비처럼 넣을 계통이 없을 때. 만들면 고른 설비를 바로 넣는다. -->
-          <form v-if="editing && newSystemOpen" class="system-edit new-system" @submit.prevent="createSystemFor(selected.id)">
+          <form v-if="editing && !selectedLock && newSystemOpen" class="system-edit new-system" @submit.prevent="createSystemFor(selected.id)">
             <input v-model="newSystemName" v-keep-typing type="text" placeholder="계통 이름" aria-label="새 계통 이름" required />
             <select v-model="newSystemKind" aria-label="새 계통 종류">
               <option value="">(종류 모름)</option>
@@ -6014,7 +6254,7 @@ async function export3D(format: 'glb' | 'obj') {
 
           <!-- 위치(E5·E6). 아래 설비 표와 같은 칸이다. N 으로 소속 없는 설비에 오면 좌표를 여기서 바로 넣는다 — 표는
                화면 아래 멀리 있다. 좌표가 없는 설비는 셋이 다 차야 옮긴다(0 으로 채우지 않는다). -->
-          <p v-if="editing" class="position-edit">
+          <p v-if="editing && !selectedLock" class="position-edit">
             위치
             <label v-for="axis in [0, 1, 2] as const" :key="axis">
               {{ 'xyz'[axis] }}
@@ -6060,7 +6300,7 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
 
           <!-- 층 옮기기(E6). 층은 좌표로 판정하지 않고 사람이 고른다(edit.ts). -->
-          <p v-if="editing" class="storey-move">
+          <p v-if="editing && !selectedLock" class="storey-move">
             <label>
               층
               <select
@@ -6288,7 +6528,7 @@ async function export3D(format: 'glb' | 'obj') {
           </div>
 
           <!-- 지우기(E7). 지우면 붙은 연결·계통 자리도 빠지고 Ctrl+Z 로 돌아온다. 고치는 칸과 떨어뜨려 맨 아래에 둔다. -->
-          <p v-if="editing" class="danger-zone">
+          <p v-if="editing && !selectedLock" class="danger-zone">
             <button type="button" class="ghost danger" title="이 설비와 붙은 연결을 지웁니다 (Ctrl+Z 로 되돌림)" @click="removeEquipment(selected.id)">
               설비 지우기
             </button>
