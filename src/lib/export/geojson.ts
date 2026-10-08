@@ -11,6 +11,7 @@ import { verticalLinks } from '../vertical'
 import { judgeExternal, type ExternalJudgement } from '../exterior'
 import { zoneEquipment, zoneSpaces } from '../custom-zone'
 import { libraryOf } from '../space-object'
+import { hvacZonesOf } from '../hvac-zone'
 import { rectRing } from '../room'
 
 export type Geometry =
@@ -150,7 +151,7 @@ function openingFeature(opening: Opening, storey: Storey): Feature {
   }
 }
 
-/** 공조존(IDF)의 바닥. 조각이 여럿이면 MultiPolygon 이다. 든 방은 TTL 주어 id 로 적는다. */
+/** 공조존(IDF·사람이 만든 것)의 바닥. 조각이 여럿이면 MultiPolygon 이다. 든 방은 TTL 주어 id 로 적는다. */
 function hvacZoneFeature(zone: HvacZone, storey: Storey): Feature {
   const rings = zone.footprint.map((r) => r.map((p) => [p[0], p[1]]))
   return {
@@ -165,7 +166,9 @@ function hvacZoneFeature(zone: HvacZone, storey: Storey): Feature {
       elevation: storey.elevation,
       areaM2: Number(zone.areaM2.toFixed(4)),
       spaceIds: zone.spaceIds,
-      source: 'IDF',
+      // 사람이 만든 공조존(OE-ZON-01·02)은 `edit` 이고 담당 설비를 적는다. IDF 공조존의 담당 설비는 TTL 의 feeds 에만 있다.
+      source: zone.source === 'edit' ? 'edit' : 'IDF',
+      ...(zone.servedBy ? { servedBy: [...zone.servedBy] } : {}),
     },
   }
 }
@@ -275,7 +278,7 @@ export function modelToGeoJSON(model: Model): { fileName: string; collection: Fe
     let fileName = `${stem}.geojson`
     for (let n = 2; taken.has(fileName.toLowerCase()); n++) fileName = `${stem}-${n}.geojson`
     taken.add(fileName.toLowerCase())
-    const collection = storeyToGeoJSON(storey, model.hvac?.zones ?? [], vertical, itemNames)
+    const collection = storeyToGeoJSON(storey, hvacZonesOf(model), vertical, itemNames)
     return { fileName, collection: model.skipped?.length ? { ...collection, skipped: [...model.skipped] } : collection }
   })
 }

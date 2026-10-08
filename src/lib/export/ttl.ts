@@ -8,6 +8,7 @@
 // 계층은 기존 온톨로지와 같은 술어만 쓴다: brick:hasPart, rdfs:label
 // (ieum-pipeline/internal/ontology/ttl.go 가 읽는 술어가 hasPoint·feeds·hasLocation·hasPart 뿐이다).
 
+import { hvacZonesOf, zonesServedBy } from '../hvac-zone'
 import { isConduit, type Equipment, type Model } from '../model'
 import { deviceFlows } from '../topology'
 import { equipmentKind, roomKind, systemBrickClass, systemKind } from '../kinds'
@@ -183,6 +184,8 @@ export function modelToTTL(model: Model, only?: { storeyId: string }): string {
     const targets = e.feeds.map((t) => subjectOf.get(t) ?? t)
     if (targets.length) feeds.set(from, [...new Set([...(feeds.get(from) ?? []), ...targets])])
   }
+  // 사람이 만든 공조존의 담당 설비(OE-ZON-01). 설비가 공조존을 feeds 한다 — 계통도의 서비스 영역이다. 사람이 정한 것이라 확정 없이 나간다.
+  for (const [from, zones] of zonesServedBy(model)) feeds.set(from, [...new Set([...(feeds.get(from) ?? []), ...zones])])
 
   // 목적어 없는 `brick:hasPart .` 는 문법 오류다(층이 없는 파일, 구성원이 없는 계통). 비면 술어째 뺀다.
   lines.push(`${ref(model.buildingId)} a brick:Building ;`)
@@ -249,9 +252,9 @@ export function modelToTTL(model: Model, only?: { storeyId: string }): string {
     }
   }
 
-  // 공조존(IDF). 든 방은 hasPart 다(Brick 의 HVAC_Zone 은 방으로 이뤄진다). 바닥 외곽선은 GeoJSON 에 있다.
+  // 공조존(IDF·사람이 만든 것). 든 방은 hasPart 다(Brick 의 HVAC_Zone 은 방으로 이뤄진다). 바닥 외곽선은 GeoJSON 에 있다.
   // 층 하나만 낼 때는 존의 층(GeoJSON 이 그 존을 그리는 층) 파일에 통째로 간다.
-  for (const zone of hvac?.zones ?? []) {
+  for (const zone of hvacZonesOf(model)) {
     if (!scope.storey(zone.storeyId ?? null)) continue
     lines.push(`${ref(zone.id)} a brick:HVAC_Zone ;`)
     lines.push(`    rdfs:label ${label(zone.name)} ;`)

@@ -32,6 +32,7 @@ import { storeyFiles } from './lib/export/storey-export'
 import { clearStoreyDone, markStoreyDone, storeyProgress, type StoreyProgress } from './lib/storey-progress'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { outlinelessSpaces, outlineWarnings } from './lib/outline-fill'
+import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, hvacZonesOf, renameHvacZone, setZoneServedBy } from './lib/hvac-zone'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
@@ -134,6 +135,7 @@ import {
   setOpeningSize,
   mountOnWall,
   snapshotCustomZones,
+  snapshotHvacZones,
   snapshotRooms,
   snapshotSpaceObjects,
   setWallExternal,
@@ -384,6 +386,7 @@ const changeCount = computed(
     sinceOpen.value.openingsRemoved.length +
     sinceOpen.value.openingsMoved.length +
     sinceOpen.value.customZones.length +
+    sinceOpen.value.hvacZones.length +
     roomLines.value.length +
     objectLines.value.length +
     sinceOpen.value.systemMoved.length +
@@ -418,6 +421,7 @@ const sinceOpen = computed(() => {
         openingsAdded: [],
         openingsRemoved: [],
         openingsMoved: [],
+        hvacZones: [],
         customZones: [],
         systemMoved: [],
         systemKinds: [],
@@ -438,7 +442,7 @@ const idfReport = shallowRef<IdfAttachReport | null>(null)
 const showZones = ref(true)
 const zoneOfSpace = computed(() => {
   const map = new Map<string, { id: string; name: string }>()
-  for (const z of model.value?.hvac?.zones ?? []) for (const id of z.spaceIds) map.set(id, z)
+  for (const z of model.value ? hvacZonesOf(model.value) : []) for (const id of z.spaceIds) map.set(id, z)
   return map
 })
 /** 공조존 표. 담당은 존을 직접 공급하는 설비(말단)와 그 위의 원천(공조기·실외기)이다. */
@@ -1354,6 +1358,10 @@ function applySnapshot(s: Snapshot) {
     if (selectedCustomZoneId.value && !m.storeys.some((st) => st.customZones?.some((z) => z.id === selectedCustomZoneId.value))) selectedCustomZoneId.value = null
     triggerRef(model)
     sceneVersion.value++
+  } else if (s.kind === 'hvac-zones') {
+    // 사람이 만든 공조존(OE-ZON-01·02). 목록과 3D 의 존 외곽선이 sceneVersion 을 보고 다시 그려진다.
+    triggerRef(model)
+    sceneVersion.value++
   } else if (s.kind === 'space-objects') {
     // 추가 공간 오브젝트(OE-OBJ-09). 없어진 것을 고르고 있었으면 푼다.
     if (selectedObjectId.value && !(model.value && findSpaceObject(model.value, selectedObjectId.value))) selectedObjectId.value = null
@@ -1572,6 +1580,8 @@ function clearSelection(): boolean {
           ? '물리존 그리기를 취소했습니다'
           : purpose === 'custom'
             ? '커스텀존 그리기를 취소했습니다'
+            : purpose === 'hvacZone'
+              ? '공조존 그리기를 취소했습니다'
             : purpose === 'room'
               ? '룸 그리기를 취소했습니다'
             : '외곽선 그리기를 취소했습니다',
@@ -2340,7 +2350,7 @@ const selectedSpace = computed(() => {
  */
 /** `custom`·`customSplit` 은 커스텀존(OE-OBJ-01) 그리기·나누기다. `customSplit` 의 spaceId 자리에는 존 id 가 든다. */
 type Drawing = {
-  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room'
+  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room' | 'hvacZone'
   spaceId: string | null
   storeyId: string
   name: string
@@ -4141,6 +4151,11 @@ function finishDraw(): boolean {
     return true
   }
   stopDraw()
+  if (d.purpose === 'hvacZone') {
+    changeHvacZones(d.storeyId, '공조존 그리기', (m) => createZoneFromOutline(m, d.storeyId, { footprint: d.points })) &&
+      note('공조존을 그렸습니다. 겹치는 물리존이 담당입니다. 담당 설비는 아래 "공조존" 에서 고릅니다')
+    return true
+  }
   if (d.purpose === 'custom') {
     let created: string | null = null
     const ok = changeCustomZones(d.storeyId, '커스텀존 만들기', (m) => {
@@ -4449,6 +4464,75 @@ function startCustomZone() {
   viewer?.setPlaceMode(storey.elevation)
   note('바닥에 꼭짓점을 찍어 커스텀존을 그립니다. 물리존과 경계가 달라도, 다른 커스텀존과 겹쳐도 됩니다 (Enter 마침, Esc 취소)')
 }
+
+// --- 수동 공조존 (OE-ZON-01·02, hvac-zone.ts) ------------------------------------------------------
+// R1 에서 공조존을 만드는 유일한 길이다. 물리존을 골라 합집합으로 만들거나(ZON-01), 한 물리존을 나눌 때 경계를 그린다(ZON-02).
+// 담당 설비는 존마다 고르고, TTL 에서 그 설비가 존을 feeds 한다(계통도의 서비스 영역).
+
+/** 층 하나의 사람이 만든 공조존 목록을 바꾼다. 되돌리기는 그 층 목록 통째다. */
+function changeHvacZones(storeyId: string, label: string, apply: (m: Model) => unknown): boolean {
+  const m = model.value
+  if (!m) return false
+  const snapshot = snapshotHvacZones(m, storeyId)
+  const at = mark()
+  const done = apply(m)
+  if (!done) return false
+  if (typeof done === 'object' && 'refused' in (done as object)) {
+    note((done as { refused: string }).refused)
+    return false
+  }
+  remember(label, snapshot, at)
+  triggerRef(model)
+  sceneVersion.value++
+  return true
+}
+/** 공조존 도구가 다루는 층. 층 하나만 보는 중이거나 고른 것의 층이다. */
+const zoneStorey = computed(() => (model.value ? targetStorey() : null))
+/** 그 층의 사람이 만든 공조존. */
+const zonesHere = computed(() => {
+  void sceneVersion.value
+  // 모델을 다시 읽고 새 배열로 돌려준다. 층 객체나 같은 배열을 붙잡으면 공조존을 더해도 목록이 다시 그려지지 않는다.
+  const m = model.value
+  const id = zoneStorey.value?.id
+  return [...(m?.storeys.find((s) => s.id === id)?.hvacZones ?? [])]
+})
+/** 물리존을 골라 만들 때 체크한 물리존 id. 층이 바뀌면 비운다. */
+const zonePick = ref<string[]>([])
+watch(zoneStorey, () => (zonePick.value = []))
+function makeZoneFromPick() {
+  const storey = zoneStorey.value
+  if (!storey) return askStorey('공조존을 만들')
+  const ids = [...zonePick.value]
+  if (changeHvacZones(storey.id, '공조존 만들기', (m) => createZoneFromSpaces(m, { spaceIds: ids }))) {
+    zonePick.value = []
+    note('공조존을 만들었습니다. 담당 설비를 고르세요')
+  }
+}
+function startHvacZone() {
+  const storey = zoneStorey.value
+  if (!storey) return askStorey('공조존을 그릴')
+  stopPlace()
+  stopAdd()
+  connectFrom.value = null
+  selectedId.value = null
+  selectedSpaceId.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  drawing.value = { purpose: 'hvacZone', spaceId: null, storeyId: storey.id, name: `${storey.name} 공조존`, elevation: storey.elevation, points: [] }
+  viewer?.setPlaceMode(storey.elevation)
+  stage.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  note('바닥에 꼭짓점을 찍어 공조존 경계를 그립니다. 겹치는 물리존이 담당이 됩니다 (Enter 마침, Esc 취소)')
+}
+function addZoneServed(zoneId: string, storeyId: string, equipmentId: string, served: readonly string[]) {
+  if (!equipmentId) return
+  changeHvacZones(storeyId, '공조존 담당 설비', (m) => setZoneServedBy(m, zoneId, [...served, equipmentId]))
+}
+function removeZoneServed(zoneId: string, storeyId: string, equipmentId: string, served: readonly string[]) {
+  changeHvacZones(storeyId, '공조존 담당 설비', (m) => setZoneServedBy(m, zoneId, served.filter((id) => id !== equipmentId)))
+}
+/** 담당 설비로 고를 수 있는 것: 그 층의 공기·물이 흐르는 기기(덕트·배관 제외). */
+const zoneEquipmentChoices = computed(() =>
+  (zoneStorey.value?.equipment ?? []).filter((e) => !isConduit(e.role) && !!e.position).sort((a, b) => a.name.localeCompare(b.name)),
+)
 
 /** 룸 그리기(OE-SPC-11). 물리존 안에 대각선 두 꼭짓점을 찍는다. */
 function startRoom() {
@@ -8864,6 +8948,55 @@ async function export3D(format: 'glb' | 'obj') {
 
           <!-- 물리존 하나를 한 줄에서 고친다. 이름(E1)과 경계(E2)를 두 목록으로 나눴더니 같은 방을 두 번 찾아야 했다.
                긴 표는 제 상자 안에서 스크롤하고 머리줄은 붙어 있다 — 페이지가 표만큼 길어지면 3D 로 돌아가기가 멀다. -->
+ <!-- 수동 공조존(OE-ZON-01·02). R1 에서 공조존을 만드는 유일한 길이다. 고른 층(층 하나만 보는 중이면 그 층)에서 만든다. -->
+          <Fold v-if="editing" title="공조존" :meta="zoneStorey ? `${zoneStorey.name} · ${zonesHere.length}개` : '층을 고르세요'" class="hvac-zones" data-testid="hvac-zones">
+            <p class="hint">
+              공조존은 설비가 담당하는 구역입니다. 담당 물리존을 골라 만들면 그 물리존들이 담당이 되고, 한 물리존을 나눌 때는 경계를 그립니다(겹치는 물리존이 담당).
+              담당 설비가 공조존을 공급하는 것으로 TTL 에 나갑니다.
+            </p>
+            <template v-if="zoneStorey">
+              <ul class="plain zone-list">
+                <li v-for="z in zonesHere" :key="z.id" :data-zone="z.id">
+                  <input
+                    type="text"
+                    v-keep-typing
+                    :value="z.name"
+                    :aria-label="`${z.name} 공조존 이름`"
+                    @change="changeHvacZones(zoneStorey!.id, '공조존 이름', (m) => renameHvacZone(m, z.id, ($event.target as HTMLInputElement).value))"
+                  />
+                  <span class="muted">
+                    담당 물리존
+                    {{ z.spaceIds.map((id) => spaceNameOf(id) + (z.drawn && z.spaceShares?.[id] !== undefined ? ` ${Math.round(z.spaceShares[id] * 100)}%` : '')).join(', ') || '없음' }}
+                    · {{ z.areaM2.toFixed(1) }}㎡ <Src kind="edit" />
+                  </span>
+                  <span class="zone-served">
+                    담당 설비
+                    <button v-for="id in z.servedBy ?? []" :key="id" type="button" class="chip" :title="`${nameOfId(id)} 빼기`" @click="removeZoneServed(z.id, zoneStorey!.id, id, z.servedBy ?? [])">
+                      {{ shortName(nameOfId(id)) }} ×
+                    </button>
+                    <select :value="''" :aria-label="`${z.name} 담당 설비 더하기`" @change="addZoneServed(z.id, zoneStorey!.id, ($event.target as HTMLSelectElement).value, z.servedBy ?? [])">
+                      <option value="">더하기…</option>
+                      <option v-for="e in zoneEquipmentChoices.filter((x) => !(z.servedBy ?? []).includes(x.id))" :key="e.id" :value="e.id">
+                        {{ shortName(e.name) }}{{ whatIs(e) ? ` · ${whatIs(e)!.label}` : '' }}
+                      </option>
+                    </select>
+                  </span>
+                  <button type="button" class="ghost danger" @click="changeHvacZones(zoneStorey!.id, '공조존 지우기', (m) => deleteHvacZone(m, z.id))">지우기</button>
+                </li>
+                <li v-if="!zonesHere.length" class="muted">이 층에 만든 공조존이 없습니다.</li>
+              </ul>
+              <div class="zone-make">
+                <span>담당 물리존을 골라 만들기</span>
+                <label v-for="sp in zoneStorey.spaces" :key="sp.id" class="zone-pick">
+                  <input v-model="zonePick" type="checkbox" :value="sp.id" />
+                  {{ sp.longName || sp.name || sp.id }}
+                </label>
+                <button type="button" :disabled="!zonePick.length" @click="makeZoneFromPick">고른 물리존으로 만들기</button>
+                <button type="button" class="ghost" @click="startHvacZone">경계를 그려 만들기</button>
+              </div>
+            </template>
+          </Fold>
+
           <Fold v-if="editing" title="물리존 이름·경계 (E1 · E2)" :meta="`${narrowed ? `찾은 것 ${editSpaces.length} / ` : ''}${counts.spaces}개`" :default-open="counts.spaces <= SMALL" :reveal="!!editQuery.trim() && editSpaces.length > 0">
             <p class="hint">
               3D에서 바닥을 클릭하면 오른쪽 패널에서도 고칠 수 있습니다. 꼭짓점을 고치면 넓이와 설비 소속이 다시 계산됩니다.
@@ -9102,6 +9235,10 @@ async function export3D(format: 'glb' | 'obj') {
             <li v-for="r in sinceOpen.customZones" :key="`cz-${r.id}`">
               커스텀존 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.change === 'added' ? '만들었습니다' : r.change === 'removed' ? '지웠습니다' : '고쳤습니다' }}
               (TTL brick:Zone · GeoJSON)
+            </li>
+            <li v-for="r in sinceOpen.hvacZones" :key="`hz-${r.id}`">
+              공조존 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.change === 'added' ? '만들었습니다' : r.change === 'removed' ? '지웠습니다' : '고쳤습니다' }}
+              (TTL brick:HVAC_Zone · 담당 설비 brick:feeds · GeoJSON)
             </li>
             <li v-for="r in sinceOpen.systemMoved" :key="`sys-mv-${r.id}`">
               {{ r.name }}: 계통 <b>{{ systemNameOf(r.from) }}</b> → <b>{{ systemNameOf(r.to) }}</b> (brick:hasPart)
