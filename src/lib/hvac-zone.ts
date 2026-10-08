@@ -10,7 +10,8 @@
 // 설계 결정은 docs/adr/0026-manual-hvac-zones.md.
 
 import { newId } from './edit'
-import { isSelfIntersecting } from './mapping'
+import { isSelfIntersecting, pointInPolygon } from './mapping'
+import { isAirTerminal } from './served'
 import { polygonArea, type HvacZone, type Model, type Storey, type Vec2 } from './model'
 import { overlapArea, unionRings } from './polygon'
 
@@ -165,6 +166,34 @@ export function setZoneServedBy(model: Model, id: string, equipmentIds: readonly
   return true
 }
 
+/**
+ * 담당 물리존을 고친다(OE-ZON-04). 같은 층의 물리존만 받는다. 물리존을 골라 만든 공조존은 바닥을 새 합집합으로 다시 만들고, 경계를 그린
+ * 공조존은 바닥은 두고 담당만 바꾼다 — 그린 경계는 물리존 경계와 무관하다(OE-ZON-02). 하나도 남지 않으면 막는다. 바뀌었으면 true.
+ */
+export function setZoneSpaces(model: Model, id: string, spaceIds: readonly string[]): boolean | { refused: string } {
+  const found = findHvacZone(model, id)
+  if (!found) return false
+  const ids = [...new Set(spaceIds)].filter((sid) => found.storey.spaces.some((sp) => sp.id === sid))
+  if (!ids.length) return { refused: '담당 물리존을 하나 이상 남기세요. 공조존을 없애려면 [지우기] 를 누릅니다.' }
+  if (ids.join(' ') === found.zone.spaceIds.join(' ')) return false
+  const z = found.zone
+  z.spaceIds = ids
+  if (z.drawn) {
+    const shares: Record<string, number> = {}
+    for (const sid of ids) {
+      const sp = found.storey.spaces.find((x) => x.id === sid)!
+      const area = z.footprint.reduce((a, r) => a + (overlapArea(r, sp.footprint) ?? 0), 0)
+      shares[sid] = sp.areaM2 > 0 ? Math.min(1, area / sp.areaM2) : 0
+    }
+    z.spaceShares = shares
+  } else {
+    z.footprint = unionPieces(ids.map((sid) => found.storey.spaces.find((x) => x.id === sid)!.footprint))
+    z.areaM2 = z.footprint.reduce((a, r) => a + polygonArea(r), 0)
+    z.spaceShares = Object.fromEntries(ids.map((sid) => [sid, 1]))
+  }
+  return true
+}
+
 /** 이름을 고친다. 빈 이름은 받지 않는다(TTL rdfs:label 이 빈다). */
 export function renameHvacZone(model: Model, id: string, name: string): boolean {
   const found = findHvacZone(model, id)
@@ -190,4 +219,98 @@ export function zonesServedBy(model: Model): Map<string, string[]> {
   const out = new Map<string, string[]>()
   for (const z of hvacZonesOf(model)) for (const id of z.servedBy ?? []) out.set(id, [...(out.get(id) ?? []), z.id])
   return out
+}
+
+// --- 공조존 검증 (OE-ZON-05) ---------------------------------------------------------------------------
+// 경고만 하고 막지 않는다. 6규칙 중 지금 데이터로 잴 수 있는 다섯이다. Z-03(용량)은 설계 풍량·설비 용량 입력값(OE-ZON-06)과 같이 둔다.
+
+/** 실내 쪽 기기. 담당 공조존의 물리존 밖에 있으면 Z-06 이다(시스템에어컨 실내기·FCU). */
+const INDOOR_KINDS = new Set(['indoor_unit', 'fcu'])
+/** 두 공조존 바닥이 이만큼 넘게 겹치면 같은 영역을 담당한 것이다(㎡). 경계를 그리다 벽 두께만큼 겹치는 것은 세지 않는다. */
+export const ZONE_DUPLICATE_M2 = 0.5
+
+export type ZoneCheck = {
+  rule: 'Z-01' | 'Z-02' | 'Z-04' | 'Z-05' | 'Z-06'
+  /** 무엇을 검사하나. */
+  text: string
+  /** 위반한 것. 물리존·공조존·설비 id 와 보일 말. */
+  items: { id: string; label: string }[]
+}
+
+/**
+ * 공조존 검증. 층 하나에 공조존이 하나도 없으면 그 층은 Z-01(공백)을 세지 않는다 — 공조존을 아직 만들지 않은 층의 물리존 전부가 공백으로
+ * 뜨면 정작 빠뜨린 방이 보이지 않는다. 그 층들은 `untouched` 로 따로 돌려준다.
+ */
+export function zoneChecks(model: Model, name: { space: (id: string) => string; equipment: (id: string) => string }): { checks: ZoneCheck[]; untouched: string[] } {
+  const zones = hvacZonesOf(model)
+  const idfServed = new Set((model.hvac?.equipment ?? []).flatMap((e) => e.feeds))
+  const byStorey = new Map<string, HvacZone[]>()
+  for (const z of zones) if (z.storeyId) byStorey.set(z.storeyId, [...(byStorey.get(z.storeyId) ?? []), z])
+  const untouched = model.storeys.filter((s) => !byStorey.has(s.id) && s.spaces.length).map((s) => s.name)
+
+  const z01: ZoneCheck['items'] = []
+  const z02: ZoneCheck['items'] = []
+  for (const storey of model.storeys) {
+    const here = byStorey.get(storey.id)
+    if (!here) continue
+    const covered = new Set(here.flatMap((z) => z.spaceIds))
+    for (const sp of storey.spaces) if (!covered.has(sp.id)) z01.push({ id: sp.id, label: `${storey.name} ${name.space(sp.id)}` })
+    for (let i = 0; i < here.length; i++)
+      for (let j = i + 1; j < here.length; j++) {
+        const area = here[i].footprint.reduce((a, ra) => a + here[j].footprint.reduce((b, rb) => b + (overlapArea(ra, rb) ?? 0), 0), 0)
+        if (area > ZONE_DUPLICATE_M2) z02.push({ id: `${here[i].id}|${here[j].id}`, label: `${here[i].name} · ${here[j].name} ${area.toFixed(1)}㎡` })
+      }
+  }
+  const all = model.storeys.flatMap((s) => s.equipment)
+  const inside = (z: HvacZone, p: Vec2) => z.footprint.some((r) => pointInPolygon(p, r))
+  const z04 = zones.filter((z) => !(z.servedBy?.length || idfServed.has(z.id))).map((z) => ({ id: z.id, label: z.name }))
+  // 토출구가 공조존 안에 있나. 경계를 그린 공조존은 바닥 안만 본다 — 물리존 일부만 덮는 존이 그 물리존 반대편 토출구로 통과하면 안 된다.
+  // 물리존을 골라 만든 공조존은 담당 물리존에 속한 토출구도 센다(좌표가 벽 두께만큼 밖이어도 소속은 그 방이다).
+  const z05 = zones
+    .filter((z) => !all.some((e) => isAirTerminal(e) && e.position && (inside(z, [e.position[0], e.position[1]]) || (!z.drawn && !!e.spaceId && z.spaceIds.includes(e.spaceId)))))
+    .map((z) => ({ id: z.id, label: z.name }))
+  const byId = new Map(all.map((e) => [e.id, e]))
+  const z06: ZoneCheck['items'] = []
+  for (const z of zones)
+    for (const id of z.servedBy ?? []) {
+      const e = byId.get(id)
+      if (e && INDOOR_KINDS.has(e.kind ?? '') && e.spaceId && !z.spaceIds.includes(e.spaceId))
+        z06.push({ id: `${z.id}|${id}`, label: `${name.equipment(id)} — ${name.space(e.spaceId)} 에 있고 ${z.name} 담당` })
+    }
+  return {
+    checks: [
+      { rule: 'Z-01', text: '어느 공조존도 담당하지 않는 물리존', items: z01 },
+      { rule: 'Z-02', text: '두 공조존이 같은 영역을 담당', items: z02 },
+      { rule: 'Z-04', text: '담당 설비가 없는 공조존', items: z04 },
+      { rule: 'Z-05', text: '토출구가 하나도 없는 공조존', items: z05 },
+      { rule: 'Z-06', text: '실내기가 담당 공조존의 물리존 밖에 있음', items: z06 },
+    ],
+    untouched,
+  }
+}
+
+/**
+ * 물리존을 나누거나 합치거나 지운 뒤 그 층 공조존의 담당 물리존을 따라 고친다(OE-MAP-02). 나누면 두 조각 모두 원래 공조존의 담당이고, 합치면
+ * 남는 방으로 바뀌고, 지우면 빠진다. 물리존을 골라 만든 공조존은 바닥을 다시 합집합으로 만든다. 경계를 그린 공조존은 바닥을 두고 몫만 다시 잰다.
+ * 그 층의 물리존 목록이 바뀐 뒤에 부른다(edit.ts 의 splitSpace·absorb·deleteSpace).
+ */
+export function remapZonesForSpaces(storey: Storey, change: { split?: [string, string]; merged?: [string, string]; removed?: string }): void {
+  for (const z of storey.hvacZones ?? []) {
+    let ids = [...z.spaceIds]
+    if (change.split && ids.includes(change.split[0]) && !ids.includes(change.split[1])) ids.push(change.split[1])
+    if (change.merged && ids.includes(change.merged[1])) ids = [...new Set(ids.map((id) => (id === change.merged![1] ? change.merged![0] : id)))]
+    if (change.removed) ids = ids.filter((id) => id !== change.removed)
+    if (ids.join(' ') === z.spaceIds.join(' ') && !change.merged) continue
+    z.spaceIds = ids
+    const spaces = ids.map((id) => storey.spaces.find((s) => s.id === id)).filter((s): s is NonNullable<typeof s> => !!s)
+    if (z.drawn) {
+      z.spaceShares = Object.fromEntries(
+        spaces.map((sp) => [sp.id, sp.areaM2 > 0 ? Math.min(1, z.footprint.reduce((a, r) => a + (overlapArea(r, sp.footprint) ?? 0), 0) / sp.areaM2) : 0]),
+      )
+    } else {
+      z.footprint = unionPieces(spaces.map((s) => s.footprint))
+      z.areaM2 = z.footprint.reduce((a, r) => a + polygonArea(r), 0)
+      z.spaceShares = Object.fromEntries(spaces.map((s) => [s.id, 1]))
+    }
+  }
 }
