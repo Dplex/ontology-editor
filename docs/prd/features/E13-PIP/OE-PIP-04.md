@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["K14", "OE-PIP-06"]
 ---
 
 # OE-PIP-04 연결별 방향 지정
+
+## 관련 티켓
+
+- [OE-PIP-06](./OE-PIP-06.md): BIM 원본 방향 보존
 
 ## 요구사항
 

@@ -9,10 +9,24 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-ML-12","OE-ML-13","OE-ML-14","OE-ML-15","OE-ML-16","OE-ML-17","OE-ML-18"]
+depends: ["OE-PIP-11", "OE-PIP-10", "OE-ML-12", "OE-ML-13", "OE-ML-14", "OE-ML-01", "OE-UI-04", "OE-ML-15", "OE-ML-16", "OE-ML-17", "OE-ML-18"]
 ---
 
 # OE-PIP-15 층간 배관 작성·편집
+
+## 관련 티켓
+
+- [OE-PIP-11](./OE-PIP-11.md): 배관 그리기 공통 동작
+- [OE-PIP-10](./OE-PIP-10.md): 배관 편집 공통 동작
+- [OE-ML-12](../E18-ML/OE-ML-12.md): 라이저 생성
+- [OE-ML-13](../E18-ML/OE-ML-13.md): 층별 분기
+- [OE-ML-14](../E18-ML/OE-ML-14.md): 층간 오프셋
+- [OE-ML-01](../E18-ML/OE-ML-01.md): 다중층 편집 진입 경로
+- [OE-UI-04](../E03-UI/OE-UI-04.md): 화면 레이아웃
+- [OE-ML-15](../E18-ML/OE-ML-15.md): 계통 종류 색상
+- [OE-ML-16](../E18-ML/OE-ML-16.md): 경로 추적
+- [OE-ML-17](../E18-ML/OE-ML-17.md): 샤프트 내 배치
+- [OE-ML-18](../E18-ML/OE-ML-18.md): 층간 좌표 조건
 
 ## 요구사항
 

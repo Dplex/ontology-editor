@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-GEN-04"]
+depends: ["K14", "OE-GEN-04"]
 ---
 
 # OE-PIP-05 규칙 방향 추정·확정
+
+## 관련 티켓
+
+- [OE-GEN-04](../E08-GEN/OE-GEN-04.md): 미확정 규칙 방향의 TTL 제외
 
 ## 요구사항
 

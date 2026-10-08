@@ -9,10 +9,21 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-OBJ-15", "OE-OBJ-12", "OE-PIP-01", "OE-PIP-06", "OE-ML-12", "OE-ML-13", "OE-ML-14", "OE-PIP-15"]
 ---
 
 # OE-PIP-10 배관 형상 수정
+
+## 관련 티켓
+
+- [OE-OBJ-15](../E02-OBJ/OE-OBJ-15.md): 끌기 인터랙션
+- [OE-OBJ-12](../E02-OBJ/OE-OBJ-12.md): 배관 기본 형식·Flow Type
+- [OE-PIP-01](./OE-PIP-01.md): 연결 대상 변경·삭제
+- [OE-PIP-06](./OE-PIP-06.md): BIM 원본 형상·연결 보존
+- [OE-ML-12](../E18-ML/OE-ML-12.md): 수직 구간(라이저)
+- [OE-ML-13](../E18-ML/OE-ML-13.md): 층별 분기
+- [OE-ML-14](../E18-ML/OE-ML-14.md): 층간 오프셋
+- [OE-PIP-15](./OE-PIP-15.md): 다중층 편집 전환·상태 유지
 
 ## 요구사항
 

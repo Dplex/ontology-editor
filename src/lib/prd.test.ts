@@ -55,7 +55,33 @@ function expandIds(text: string): string[] {
   return out
 }
 
+/** `## 이름` 절의 내용. 없으면 빈 문자열. */
+const section = (body: string, name: string) => (body.split(`\n## ${name}\n`)[1] ?? '').split(/\n## /)[0]
+
+/** 요구사항 절이 언급한 티켓(`OE-PIP-04·05`, `OE-ML-12~14` 를 편다)과 규칙·요구사항 번호(K·R), 자기 자신은 뺀다. */
+function requirementRefs(t: Ticket): string[] {
+  const out = new Set<string>()
+  const re = /(OE-[A-Z0-9]+)-(\d+)((?:\s*[~·]\s*\d+(?![\d.]))*)|(?<![A-Za-z0-9#-])([KR]\d+)(?![\d.])/g
+  for (const m of section(t.body, '요구사항').matchAll(re)) {
+    if (m[4]) { out.add(m[4]); continue }
+    const id = (n: number) => `${m[1]}-${String(n).padStart(m[2].length, '0')}`
+    let last = +m[2]
+    out.add(id(last))
+    for (const [, op, n] of m[3].matchAll(/([~·])\s*(\d+)/g)) {
+      if (op === '~') for (let i = last + 1; i <= +n; i++) out.add(id(i))
+      else out.add(id(+n))
+      last = +n
+    }
+  }
+  out.delete(t.fm.id as string)
+  return [...out]
+}
+
+/** 관련 티켓 절을 갖춘 Epic. 다른 Epic 도 정리하면 여기에 더한다. */
+const LINKED_EPICS = ['E13-PIP']
+
 const all = tickets()
+const linked = all.filter((t) => LINKED_EPICS.includes(t.folder))
 const ids = new Set(all.map((t) => t.fm.id as string))
 const prefixes = new Set(all.map((t) => (t.fm.id as string).split('-')[1]))
 const prd = read('PRD_011.md')
@@ -122,6 +148,27 @@ describe('참조', () => {
           issueIds.has(ref) ||
           CHAPTERS.has(ref)
         expect(ok, `${t.file} → ${ref}`).toBe(true)
+      }
+    }
+  })
+
+  it('요구사항에서 언급한 티켓·규칙은 depends 에 있다', () => {
+    for (const t of linked) {
+      const deps = t.fm.depends as string[]
+      for (const ref of requirementRefs(t)) expect(deps, `${t.file} 요구사항 → ${ref}`).toContain(ref)
+    }
+  })
+
+  it('관련 티켓은 depends 의 티켓과 같고 링크가 실제 파일을 가리킨다', () => {
+    for (const t of linked) {
+      const sec = section(t.body, '관련 티켓')
+      const rows = [...sec.matchAll(/^- \[(OE-[A-Z0-9]+-\d+)\]\(([^)]+)\): (.+)$/gm)]
+      expect(rows.length, `${t.file} 관련 티켓 줄 형식`).toBe(sec.split('\n').filter((l) => l.startsWith('- ')).length)
+      expect(rows.map((r) => r[1]), `${t.file} 관련 티켓 = depends`).toEqual((t.fm.depends as string[]).filter((d) => ids.has(d)))
+      for (const [, id, href] of rows) {
+        const target = fileURLToPath(new URL(href, new URL(`features/${t.folder}/`, `file:///${PRD.replace(/\\/g, '/')}`)))
+        expect(statSync(target, { throwIfNoEntry: false })?.isFile(), `${t.file} → ${href}`).toBe(true)
+        expect(href.endsWith(`/${id}.md`), `${t.file} ${id} 링크 이름`).toBe(true)
       }
     }
   })

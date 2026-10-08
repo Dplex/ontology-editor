@@ -9,10 +9,17 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-BIM-08", "OE-PIP-13", "OE-PIP-06", "OE-HIST-03"]
 ---
 
 # OE-PIP-14 BIM 배관· 계통 자동 가져오기
+
+## 관련 티켓
+
+- [OE-BIM-08](../E05-BIM/OE-BIM-08.md): 배관 초안 임포트
+- [OE-PIP-13](./OE-PIP-13.md): 배관 좌표 조건
+- [OE-PIP-06](./OE-PIP-06.md): 연결 해제 보정 유지
+- [OE-HIST-03](../E19-HIST/OE-HIST-03.md): 재임포트 보정 유지·충돌 검토
 
 ## 요구사항
 

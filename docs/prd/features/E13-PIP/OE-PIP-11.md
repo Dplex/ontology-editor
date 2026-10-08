@@ -9,10 +9,24 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-OBJ-12", "OE-ML-12", "OE-ML-13", "OE-ML-14", "OE-PIP-15", "OE-PIP-02", "OE-PIP-03", "OE-PIP-04", "OE-PIP-05", "OE-ZON-01", "OE-PIP-06"]
 ---
 
 # OE-PIP-11 수동 배관 그리기
+
+## 관련 티켓
+
+- [OE-OBJ-12](../E02-OBJ/OE-OBJ-12.md): Flow Type 선택
+- [OE-ML-12](../E18-ML/OE-ML-12.md): 수직 구간(라이저)
+- [OE-ML-13](../E18-ML/OE-ML-13.md): 층별 분기
+- [OE-ML-14](../E18-ML/OE-ML-14.md): 층간 오프셋
+- [OE-PIP-15](./OE-PIP-15.md): 다중층 편집 전환·작성 상태 유지
+- [OE-PIP-02](./OE-PIP-02.md): 기존 계통 선택·새 수동 계통
+- [OE-PIP-03](./OE-PIP-03.md): 계통 종류·유체
+- [OE-PIP-04](./OE-PIP-04.md): 연결별 확정 방향
+- [OE-PIP-05](./OE-PIP-05.md): 규칙 확정 방향
+- [OE-ZON-01](../E10-ZON/OE-ZON-01.md): 담당 관계 판정
+- [OE-PIP-06](./OE-PIP-06.md): 해제된 연결의 보정 취소
 
 ## 요구사항
 
