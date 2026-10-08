@@ -189,6 +189,23 @@ export type SegmentPathIssue = keyof typeof SEGMENT_PATH_ISSUES
 export const MIN_SEGMENT_LENGTH = 0.001
 
 /**
+ * 끝을 늘이기 전 구간의 배치점과 두 끝(`axis` 와 `position` 이 있을 때). 끝을 늘이면 `position` 은 축 위 같은 비율 t 자리로 가므로
+ * (edit.ts 의 applyFollow) 그 몫을 빼면 늘이기 전 배치점이다. 통째로 옮긴 양은 그대로 남는다. 3D 가 그린 배관의 형상을 늘이기 전
+ * 모양으로 만들 때도 쓴다.
+ */
+export function segmentRest(e: Equipment): { at: Vec3; ends: [Vec3, Vec3] } | null {
+  if (!e.position || !e.axis) return null
+  const [a, b] = e.axis
+  const shift = e.endShift ?? [[0, 0, 0], [0, 0, 0]]
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+  const len2 = d[0] ** 2 + d[1] ** 2 + d[2] ** 2
+  const t = len2 === 0 ? 0.5 : Math.min(1, Math.max(0, -(a[0] * d[0] + a[1] * d[1] + a[2] * d[2]) / len2))
+  const at: Vec3 = [0, 1, 2].map((k) => e.position![k] - (shift[0][k] * (1 - t) + shift[1][k] * t)) as unknown as Vec3
+  const end = (i: 0 | 1): Vec3 => [at[0] + e.axis![i][0], at[1] + e.axis![i][1], at[2] + e.axis![i][2]]
+  return { at, ends: [end(0), end(1)] }
+}
+
+/**
  * 덕트·배관 구간의 지금 경로(OE-PIP-13). 연 때 중심선(`axis`)을 지금 배치점에 맞춰 놓고 끝이 옮겨진 양(`endShift`)을 더한 두 점이다. 배치점 하나로 경로를
  * 만들지 않고, 좌표·형상이 없거나 길이가 0 이면 그 까닭을 돌려준다. 원본의 (0,0,0) 은 유효한 좌표로 본다. 구간이 아니면 null.
  */
@@ -196,14 +213,9 @@ export function segmentPath(e: Equipment): { path: [Vec3, Vec3] } | { issue: Seg
   if (e.role !== 'segment') return null
   if (!e.position) return { issue: 'no-position' }
   if (!e.axis) return { issue: 'no-geometry' }
-  const [a, b] = e.axis
+  const rest = segmentRest(e)!
   const shift = e.endShift ?? [[0, 0, 0], [0, 0, 0]]
-  // 끝을 늘이면 `position` 은 축 위 같은 비율 t 자리로 간다(edit.ts 의 applyFollow). 그 몫을 빼면 연 때 배치점에 통째로 옮긴 양을 더한 자리다.
-  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
-  const len2 = d[0] ** 2 + d[1] ** 2 + d[2] ** 2
-  const t = len2 === 0 ? 0.5 : Math.min(1, Math.max(0, -(a[0] * d[0] + a[1] * d[1] + a[2] * d[2]) / len2))
-  const origin = (k: number) => e.position![k] - (shift[0][k] * (1 - t) + shift[1][k] * t)
-  const end = (i: 0 | 1): Vec3 => [origin(0) + e.axis![i][0] + shift[i][0], origin(1) + e.axis![i][1] + shift[i][1], origin(2) + e.axis![i][2] + shift[i][2]]
+  const end = (i: 0 | 1): Vec3 => [rest.ends[i][0] + shift[i][0], rest.ends[i][1] + shift[i][1], rest.ends[i][2] + shift[i][2]]
   const path: [Vec3, Vec3] = [end(0), end(1)]
   if (!path.every((p) => p.every(Number.isFinite))) return { issue: 'invalid' }
   if (Math.hypot(path[1][0] - path[0][0], path[1][1] - path[0][1], path[1][2] - path[0][2]) < MIN_SEGMENT_LENGTH) return { issue: 'zero-length' }
@@ -307,6 +319,10 @@ export type Equipment = {
    * 지금 경로는 `segmentPath` 가 세우고, GeoJSON 의 LineString 이 된다(OE-PIP-13).
    */
   axis?: [Vec3, Vec3]
+  /**
+   * 사람이 그린 배관의 Flow Type(OE-OBJ-12·OE-PIP-11, flow-type.ts 의 코드). 그린 구간·이음쇠에만 있다. BIM 배관은 계통으로 가른다.
+   */
+  flowType?: string
   /**
    * 사람이 정한 설치면(OE-EQP-05). z 로 판정하지 못한 설비(미정)에 정한다. 있으면 판정보다 앞선다(ceiling.ts 의 judgeSurface).
    * BIM 에는 없고 편집 파일에 남는다.

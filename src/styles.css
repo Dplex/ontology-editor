@@ -3828,3 +3828,15 @@ button.done::after {
 .hvac-zones .zone-checks li.warn {
   color: var(--warn-fg);
 }
+
+/* 배관 그리기(OE-PIP-11). 고른 설비 패널 안의 작은 칸. */
+.pipe-draw-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  margin: 0.3rem 0;
+}
+.pipe-draw-row select {
+  max-width: 14rem;
+}

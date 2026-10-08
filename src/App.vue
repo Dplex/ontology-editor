@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch, type Directive } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
-import { countOf, isConduit, polygonArea, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
+import { countOf, isConduit, polygonArea, segmentRest, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile'
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
@@ -54,7 +54,9 @@ import {
   type Viewer,
   type HoverTarget,
 } from './lib/viewer'
-import { rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
+import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
+import { drawPipe } from './lib/manual-pipe'
+import { FLOW_TYPES, flowType } from './lib/flow-type'
 import {
   applyFollow,
   fittingMoveRefusal,
@@ -1590,6 +1592,8 @@ function clearSelection(): boolean {
             ? '커스텀존 그리기를 취소했습니다'
             : purpose === 'hvacZone' || purpose === 'hvacZoneOutline'
               ? '공조존 그리기를 취소했습니다'
+            : purpose === 'pipe'
+              ? '배관 그리기를 취소했습니다. 아무것도 남기지 않았습니다'
             : purpose === 'room'
               ? '룸 그리기를 취소했습니다'
             : '외곽선 그리기를 취소했습니다',
@@ -2358,7 +2362,7 @@ const selectedSpace = computed(() => {
  */
 /** `custom`·`customSplit` 은 커스텀존(OE-OBJ-01) 그리기·나누기다. `customSplit` 의 spaceId 자리에는 존 id 가 든다. */
 type Drawing = {
-  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room' | 'hvacZone' | 'hvacZoneOutline'
+  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room' | 'hvacZone' | 'hvacZoneOutline' | 'pipe'
   spaceId: string | null
   storeyId: string
   name: string
@@ -3788,6 +3792,8 @@ function applyEditFile(file: EditFile, from: string, quiet = false) {
     if (e.endShift && was && (meshBase.has(e.id) || captureBase(e.id, was))) placeStretched(e.id)
     else if (was !== e.position) shiftMesh(e.id, was, e.position)
   }
+  // 그린 배관(OE-PIP-11)은 BIM 형상이 없어 여기서 만든다.
+  ensureDrawnMeshes()
   changes.value = [...changes.value, ...result.changes]
   areaChanges.value = [...areaChanges.value, ...result.areaChanges]
   confirmations.value = [
@@ -4074,6 +4080,12 @@ function undoDrawPoint() {
 function finishDraw(): boolean {
   const d = drawing.value
   if (!d) return false
+  if (d.purpose === 'pipe') {
+    // 꺾임점은 시작 설비 높이의 수평면에 찍힌다. 마지막 변은 끝 대상 높이로 내려가거나 올라간다.
+    stopDraw()
+    makePipe(d.points.map((p) => [p[0], p[1], d.elevation] as Vec3), d.spaceId)
+    return true
+  }
   if (d.purpose === 'wall') {
     if (d.points.length < 2) {
       note('벽의 두 끝점을 찍어야 합니다')
@@ -4532,6 +4544,80 @@ function makeZoneFromPick() {
     note('공조존을 만들었습니다. 담당 설비를 고르세요')
   }
 }
+// --- 수동 배관 그리기 (OE-PIP-11, manual-pipe.ts) ---------------------------------------------------
+// 고른 설비에서 끝 대상(설비·배관)까지. 끝·Flow Type·계통을 패널에서 고르고 [곧게 연결하기] 또는 꺾임점을 찍어 Enter.
+
+/** 패널의 배관 그리기 칸. 고른 설비가 바뀌면 끝 대상만 비운다(Flow Type·계통은 이어서 쓴다). */
+const pipeDraft = ref<{ to: string; flowType: string; systemId: string }>({ to: '', flowType: 'SA', systemId: 'auto' })
+watch(selectedId, () => (pipeDraft.value = { ...pipeDraft.value, to: '' }))
+/** 끝으로 고를 수 있는 것: 같은 층의 좌표 있는 설비·배관, 가까운 순 40개. */
+const pipeTargets = computed(() => {
+  void sceneVersion.value
+  const e = selected.value
+  const home = e ? storeyOf(e.id) : null
+  if (!e?.position || !home) return []
+  const p = e.position
+  return home.equipment
+    .filter((x) => x.id !== e.id && !!x.position)
+    .map((x) => ({ id: x.id, name: shortName(x.name), d: Math.hypot(x.position![0] - p[0], x.position![1] - p[1], x.position![2] - p[2]) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 40)
+})
+/** 그린 배관의 굵기(m). 덕트는 굵게, 물·냉매·증기 배관은 가늘게 그린다. 보여 주기용이고 내보내지 않는다. */
+const drawnSize = (e: Equipment) => (flowType(e.flowType)?.medium === 'air' ? 0.3 : 0.08)
+/**
+ * 그린 배관의 3D 형상이 없으면 만든다. 그린 직후와 편집 파일·자동 저장을 다시 얹은 뒤에 부른다. 끝을 늘인 구간은 늘이기 전 형상을
+ * 만들어 두고 BIM 구간과 같은 길(placeStretched)로 늘인다.
+ */
+function ensureDrawnMeshes() {
+  for (const e of model.value?.storeys.flatMap((st) => st.equipment) ?? []) {
+    if (!e.flowType || meshes.has(e.id) || !e.position) continue
+    if (e.role === 'fitting') meshes.set(e.id, boxAt(e.position, drawnSize(e) * 1.4))
+    else if (e.role === 'segment') {
+      const rest = segmentRest(e)
+      if (!rest) continue
+      meshes.set(e.id, boxAlong(rest.ends[0], rest.ends[1], drawnSize(e)))
+      if (e.endShift?.some((v) => v.some((x) => x !== 0)) && captureBase(e.id, rest.at)) placeStretched(e.id)
+    }
+  }
+}
+function makePipe(via: Vec3[], fromId = selectedId.value) {
+  const m = model.value
+  const from = fromId ? (equipmentById.value.get(fromId) ?? null) : null
+  const d = pipeDraft.value
+  if (!m || !from) return
+  if (!d.to) return note('끝 대상을 먼저 고르세요')
+  const storeyId = storeyOf(from.id)?.id
+  if (!storeyId) return
+  const at = mark()
+  const done = drawPipe(m, { from: from.id, to: d.to, via, flowType: d.flowType, systemId: d.systemId === 'auto' ? undefined : d.systemId === 'none' ? null : d.systemId })
+  if ('refused' in done) return note(done.refused)
+  const made = [...done.segments, ...done.fittings]
+  // 되돌리면 새로 생긴 것이 연결·계통 자리와 함께 한 번에 빠진다.
+  const snapshot: Snapshot = { kind: 'many', parts: made.map((equipment) => ({ kind: 'equipment-set', equipment, storeyId, index: 0, present: false, connections: [], systems: [] })) }
+  remember(`${d.flowType} 배관 그리기 (구간 ${done.segments.length}개)`, snapshot, at)
+  ruleReport.value = done.rules
+  ensureDrawnMeshes()
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+  note(`${d.flowType} 배관을 그렸습니다: 구간 ${done.segments.length}개 · 이음쇠 ${done.fittings.length}개 · ${done.length.toFixed(2)}m. 흐름 방향은 아직 정하지 않았습니다`)
+}
+function startPipe() {
+  const from = selected.value
+  const home = from ? storeyOf(from.id) : null
+  if (!from?.position || !home) return
+  if (!pipeDraft.value.to) return note('끝 대상을 먼저 고르세요')
+  stopPlace()
+  stopAdd()
+  connectFrom.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = home.id
+  drawing.value = { purpose: 'pipe', spaceId: from.id, storeyId: home.id, name: `${shortName(from.name)} 배관`, elevation: from.position[2], points: [] }
+  viewer?.setPlaceMode(from.position[2])
+  stage.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  note(`배관이 꺾일 자리를 바닥에 찍습니다(높이 ${from.position[2].toFixed(2)}m). Enter 로 마치면 끝 대상까지 연결합니다 (Esc 취소)`)
+}
+
 function startHvacZone() {
   const storey = zoneStorey.value
   if (!storey) return askStorey('공조존을 그릴')
@@ -7635,6 +7721,39 @@ async function export3D(format: 'glb' | 'obj') {
             </template>
             <p v-if="selectedService.rooms.some((r) => !r.spaceId) && counts.spaces === 0" class="hint">
               이 파일에는 방이 없습니다. 건축 파일을 덧붙이면 방이 나옵니다.
+            </p>
+          </div>
+
+          <!-- 배관 그리기(OE-PIP-11). 이 설비에서 끝 대상까지 구간·이음쇠를 더하고 manual 연결로 잇는다. 방향은 정하지 않는다. -->
+          <div v-if="editing && !selectedLock && selected.position && selected.role !== 'segment'" class="pipe-draw" data-testid="pipe-draw">
+            <h4 class="picked-sub">배관 그리기 <Src kind="edit" /></h4>
+            <p class="pipe-draw-row">
+              <label>
+                끝
+                <select v-model="pipeDraft.to" aria-label="배관 끝 대상">
+                  <option value="">고르세요…</option>
+                  <option v-for="t in pipeTargets" :key="t.id" :value="t.id">{{ t.name }} · {{ t.d.toFixed(1) }}m</option>
+                </select>
+              </label>
+              <label>
+                Flow Type
+                <select v-model="pipeDraft.flowType" aria-label="배관 Flow Type">
+                  <option v-for="f in FLOW_TYPES" :key="f.code" :value="f.code">{{ f.code }} · {{ f.label }}</option>
+                </select>
+              </label>
+              <label>
+                계통
+                <select v-model="pipeDraft.systemId" aria-label="배관 계통">
+                  <option value="auto">양 끝이 같은 계통이면 그 계통</option>
+                  <option value="none">계통 없음</option>
+                  <option v-for="sys in model?.systems ?? []" :key="sys.id" :value="sys.id">{{ sys.name || sys.id }}</option>
+                </select>
+              </label>
+            </p>
+            <p class="pipe-draw-row">
+              <button type="button" class="ghost" :disabled="!pipeDraft.to" @click="makePipe([])">곧게 연결하기</button>
+              <button type="button" class="ghost" :disabled="!pipeDraft.to" @click="startPipe">꺾임점 찍기</button>
+              <span class="muted">흐름 방향은 정하지 않습니다. 확정 전 규칙 방향은 TTL feeds 에 나가지 않습니다.</span>
             </p>
           </div>
 

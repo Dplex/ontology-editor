@@ -101,6 +101,8 @@ function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
       ...(equipment.wallId ? { wallId: equipment.wallId } : {}),
       // 경로를 쓸 수 없는 덕트·배관 구간의 까닭(좌표 없음 · 형상 없음 · 수치 오류 · 길이 0). 경로가 있거나 구간이 아니면 키가 없다.
       ...(path && 'issue' in path ? { pathIssue: SEGMENT_PATH_ISSUES[path.issue] } : {}),
+      // 사람이 그린 배관의 Flow Type(OE-OBJ-12, SA·CHWS 등). BIM 배관에는 없다.
+      ...(equipment.flowType ? { flowType: equipment.flowType } : {}),
     },
   }
 }
