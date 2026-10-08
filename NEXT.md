@@ -26,7 +26,7 @@ ecode(`eco`)에만 올리는 작업 브랜치다. 2026-10-08 밤 sec `main`(39ea
 ### sec 으로 옮기기 (sec 에 닿는 PC 에서, 사람이 확인하며)
 
 ```bash
-git log --reverse --format='%h %s' --grep='^OE-\|^docs:' f26b4f3..eco/next-10-09   # PR 거리 커밋 목록
+git log --reverse --format='%h %s' --grep='^OE-\|^docs:\|^test:' f26b4f3..eco/next-10-09   # PR 거리 커밋 목록
 c=<커밋>; br=$(git log -1 --format=%B $c | sed -n 's/^Branch: //p')
 git switch -c "$br" origin/main && git cherry-pick -n $c
 git rm -rq --cached next && rm -rf next          # PR md·스샷은 sec 으로 가져가지 않는다
