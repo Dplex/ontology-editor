@@ -14,14 +14,23 @@ describe('설치면', () => {
     expect(surfaceOf({ kind: 'receptacle' })).toBe('wall')
     expect(surfaceOf({ kind: 'camera' })).toBeNull()
     expect(allowedSurfaces('camera')).toEqual(['ceiling', 'wall'])
-    expect(allowedSurfaces('chiller')).toBeNull()
+    expect(allowedSurfaces('heat_recovery')).toBeNull()
     expect(allowedSurfaces(null)).toBeNull()
   })
 
   it('정하지 않은 종류는 막지 않는다', () => {
     expect(canMountOn({ kind: 'ahu' }, 'ceiling')).toBe(false)
     expect(canMountOn({ kind: 'fcu' }, 'ceiling')).toBe(true)
-    expect(canMountOn({ kind: 'chiller' }, 'ceiling')).toBe(true)
+    expect(canMountOn({ kind: 'heat_recovery' }, 'ceiling')).toBe(true)
     expect(canMountOn({ kind: null }, 'ceiling')).toBe(true)
+  })
+
+  it('glossary 설치면 type 표를 따른다 — 분전반 바닥·벽, 감지기 천장·벽, 밸브는 설치면 없음', () => {
+    expect(allowedSurfaces('panel')).toEqual(['floor', 'wall'])
+    expect(allowedSurfaces('smoke_detector')).toEqual(['ceiling', 'wall'])
+    expect(allowedSurfaces('chiller')).toEqual(['floor'])
+    expect(allowedSurfaces('valve')).toEqual([])
+    expect(surfaceOf({ kind: 'valve' })).toBeNull()
+    for (const s of ['ceiling', 'floor', 'wall'] as const) expect(canMountOn({ kind: 'valve' }, s)).toBe(false)
   })
 })

@@ -380,6 +380,13 @@ export type Storey = {
    * (storey-progress.ts). BIM 에는 없고 편집 파일에 남는다.
    */
   done?: { at: string; sig: string }
+  /**
+   * BIM 이 말한 반자 높이 h_c(층 바닥 기준, 미터, OE-EQP-03). 못 읽었으면 키가 없다 — 0 이나 층고로 채우지 않는다. 층 값은 그 층
+   * 방(천장재)들의 가운데 값이고, `property` 는 읽은 자리, `count` 는 값을 낸 방·천장재 수다. 고르는 순서는 ceiling.ts.
+   */
+  ceiling?: { height: number; property: string; count: number }
+  /** 사람이 정한 반자 높이(미터, OE-EQP-03 ④). 있으면 `ceiling` 보다 앞선다. BIM 에는 없고 편집 파일에 남는다. */
+  ceilingSet?: number
   spaces: Space[]
   walls: Wall[]
   openings: Opening[]

@@ -32,7 +32,9 @@ import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
 import { equipmentKind, equipmentKindOf, FLUID_KINDS, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
 import { CAPACITY_KINDS, capacityRank } from '../capacity'
 import { inferFlowByRules } from '../flow-rules'
-import { footprintRings, meshHeight, openingPlacement, spacesBesideOpening } from './element-geometry'
+import { footprintRings, meshBottom, meshHeight, openingPlacement, spacesBesideOpening } from './element-geometry'
+import { emptyEvidence, pickCeiling, type CeilingEvidence } from '../ceiling'
+import { storeyHeights } from '../storey-height'
 
 /**
  * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
@@ -480,6 +482,62 @@ class Reader {
       }
     }
     return out
+  }
+
+  /**
+   * 방마다 반자 높이 근거(OE-EQP-03, ceiling.ts). ① 반자 높이를 직접 말하는 `FinishCeilingHeight`(ArchiCAD 는 기준 물량에 적는다:
+   * AC20 7/7·Institute 82/82) ② 방 높이 — Revit `Unbounded Height`(Duplex·병원·Office), ArchiCAD 기준 물량 `Height`, 둘 다
+   * 없으면 방 형상(SweptSolid)의 압출 깊이(성수 건축). 0 이하는 비운 칸으로 본다(COBie 판본의 UsableHeight 0).
+   */
+  ceilingBySpace(): Map<number, { finish?: [number, string]; room?: [number, string] }> {
+    const spaces = new Set(this.ids(WebIFC.IFCSPACE))
+    const out = new Map<number, { finish?: [number, string]; room?: [number, string] }>()
+    const length = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v * this.scale : null)
+    const offer = (id: number, key: 'finish' | 'room', v: number | null, where: string) => {
+      if (v === null) return
+      const had = out.get(id) ?? {}
+      if (!had[key]) out.set(id, { ...had, [key]: [v, where] })
+    }
+    for (const { objects, psetID } of this.propertyRels()) {
+      const targets = psetID === null ? [] : objects.filter((o) => spaces.has(o))
+      if (!targets.length) continue
+      const set = this.tryLine(psetID!)
+      const setName = (val(set?.Name) as string) ?? ''
+      for (const h of set?.Quantities ?? []) {
+        const q = this.tryLine(h.value)
+        const name = val(q?.Name) as string | undefined
+        const key = name === 'FinishCeilingHeight' ? 'finish' : name === 'Height' ? 'room' : null
+        if (key) for (const id of targets) offer(id, key, length(val(q?.LengthValue)), `${setName}.${name}`)
+      }
+      for (const p of set?.HasProperties ? this.psetProps(psetID!) : []) {
+        const key = p.name === 'FinishCeilingHeight' ? 'finish' : p.name === 'Unbounded Height' ? 'room' : null
+        if (key) for (const id of targets) offer(id, key, length(p.nominal), `${setName}.${p.name}`)
+      }
+    }
+    for (const id of spaces) {
+      if (out.get(id)?.room) continue
+      const depth = this.extrusionDepth(this.line(id))
+      if (depth !== null) offer(id, 'room', depth, '방 형상 높이(SweptSolid)')
+    }
+    return out
+  }
+
+  /** 수직으로 밀어 올린 형상(SweptSolid)의 깊이(미터). 없거나 기울었으면 null. */
+  private extrusionDepth(entity: any): number | null {
+    const reps = entity?.Representation ? this.line(entity.Representation.value)?.Representations : null
+    if (!Array.isArray(reps)) return null
+    for (const handle of reps) {
+      const rep = this.line(handle.value)
+      if (val(rep?.RepresentationType) !== 'SweptSolid') continue
+      for (const itemHandle of rep.Items ?? []) {
+        const solid = this.line(itemHandle.value)
+        const dir = solid?.ExtrudedDirection ? numbers(this.line(solid.ExtrudedDirection.value)?.DirectionRatios) : null
+        if (dir && Math.abs((dir[2] as number) ?? 0) < 0.999) continue
+        const depth = val(solid?.Depth) as number | undefined
+        if (typeof depth === 'number' && depth > 0) return depth * this.scale
+      }
+    }
+    return null
   }
 
   /** 개체 → 타입 객체(IfcRelDefinesByType). */
@@ -1336,8 +1394,20 @@ function read(
     }
 
     const declaredHeights = r.storeyHeights()
+    const ceilingBySpace = r.ceilingBySpace()
+    // 층마다 반자 높이 근거(ceiling.ts). 천장재는 형상을 읽은 뒤에 아랫면을 잰다.
+    const ceilingEvidence = new Map<string, CeilingEvidence>()
+    const coveringsOf = new Map<string, number[]>()
     const storeys: Storey[] = r.ids(WebIFC.IFCBUILDINGSTOREY).map((storeyID) => {
       const e = r.line(storeyID)
+      const storeyGlobalID = (val(e?.GlobalId) as string) ?? `storey-${storeyID}`
+      const evidence = emptyEvidence()
+      for (const spaceID of spacesByStorey.get(storeyID) ?? []) {
+        const said = ceilingBySpace.get(spaceID)
+        if (said?.finish) evidence.finish.push(said.finish)
+        if (said?.room) evidence.room.push(said.room)
+      }
+      ceilingEvidence.set(storeyGlobalID, evidence)
       const walls: Wall[] = []
       const openings: Opening[] = []
       const equipment: Equipment[] = []
@@ -1364,6 +1434,9 @@ function read(
             break
           case WebIFC.IFCWINDOW:
             if (readWindows) openings.push(openingOf(el, id, name, 'window', elementID, wallOfOpening, globalIdOf, scale))
+            break
+          case WebIFC.IFCCOVERING:
+            if (val(el?.PredefinedType) === 'CEILING') coveringsOf.set(storeyGlobalID, [...(coveringsOf.get(storeyGlobalID) ?? []), elementID])
             break
           default:
             if (!mepIDs.has(elementID)) break
@@ -1396,7 +1469,7 @@ function read(
       }
 
       return {
-        id: (val(e?.GlobalId) as string) ?? `storey-${storeyID}`,
+        id: storeyGlobalID,
         name: (val(e?.Name) as string) ?? '',
         elevation: ((val(e?.Elevation) as number) ?? 0) * scale,
         ...(declaredHeights.has(storeyID) ? { declaredHeight: declaredHeights.get(storeyID)! } : {}),
@@ -1607,6 +1680,23 @@ function read(
 
     placeWallsAndOpenings(api, model, result, wallMeshes, globalIdOf, (id) => r.ids(id, true), withMeshes && !!options.openings)
     for (const [id, mesh] of wallMeshes) meshes.set(id, mesh)
+
+    // 반자 높이(OE-EQP-03). 천장재는 형상의 아랫면을 잰다 — 형상을 읽는 임포트에서만이다. 형상은 재고 버린다(3D 에 그리지 않는다).
+    if (withMeshes) {
+      const coveringIDs = new Set([...coveringsOf.values()].flat())
+      const coveringMeshes = readMeshes(api, model, coveringIDs, globalIdOf)
+      for (const storey of result.storeys) {
+        for (const id of coveringsOf.get(storey.id) ?? []) {
+          const bottom = meshBottom(coveringMeshes.get(globalIdOf(id)))
+          if (bottom !== null) ceilingEvidence.get(storey.id)?.covering.push(bottom - storey.elevation)
+        }
+      }
+    }
+    const heights = storeyHeights(result.storeys)
+    for (const storey of result.storeys) {
+      const ceiling = pickCeiling(ceilingEvidence.get(storey.id) ?? emptyEvidence(), heights.get(storey.id)?.value ?? null)
+      if (ceiling) storey.ceiling = ceiling
+    }
     return { model: result, meshes }
   } finally {
     api.CloseModel(model)

@@ -54,6 +54,7 @@ import type { Fluid } from './kinds'
 import type { Connection, Model, Vec2, Vec3, Wall } from './model'
 import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
 import { markStoreyDone, storeyProgress } from './storey-progress'
+import { setCeiling } from './ceiling'
 
 export const EDIT_FORMAT = 'ontology-editor/edits'
 
@@ -144,6 +145,8 @@ export type EditFile = {
    * 지문은 적지 않는다(재내보내기에서 GUID 가 바뀌면 지문도 바뀐다). 불러올 때 편집을 다 얹은 뒤 지문을 새로 잰다.
    */
   storeysDone?: { id: string; at: string; changed?: true }[]
+  /** 사람이 정한 층의 반자 높이 h_c(미터, OE-EQP-03). BIM 값과 같으면 적지 않는다. */
+  ceilings?: { storeyId: string; height: number }[]
 }
 
 /**
@@ -313,6 +316,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     .filter((p) => p.state !== 'todo')
     .map((p) => ({ id: p.id, at: p.at!, ...(p.state === 'changed' ? { changed: true as const } : {}) }))
   for (const row of storeysDone) keep(row.id)
+  const ceilings = model.storeys.filter((st) => st.ceilingSet != null).map((st) => ({ storeyId: st.id, height: st.ceilingSet! }))
+  for (const row of ceilings) keep(row.storeyId)
   for (const f of flows) {
     keep(f.from)
     keep(f.to)
@@ -355,6 +360,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(openingsRemoved.length ? { openingsRemoved } : {}),
     ...(customZones.length ? { customZones } : {}),
     ...(storeysDone.length ? { storeysDone } : {}),
+    ...(ceilings.length ? { ceilings } : {}),
     keys,
   }
 }
@@ -384,7 +390,7 @@ export function countEdits(f: EditFile): number {
     (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0) +
     (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
     (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0) +
-    (f.storeysDone?.length ?? 0)
+    (f.storeysDone?.length ?? 0) + (f.ceilings?.length ?? 0)
   )
 }
 
@@ -487,6 +493,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   for (const row of [...(file.wallsAdded ?? []), ...(file.openingsAdded ?? [])]) ref(row.storeyId)
   for (const row of file.customZones ?? []) ref(row.storeyId)
   for (const row of file.storeysDone ?? []) ref(row.id)
+  for (const row of file.ceilings ?? []) ref(row.storeyId)
   for (const row of [...(file.walls ?? []), ...(file.openings ?? [])]) ref(row.id)
   for (const id of [...(file.wallsRemoved ?? []), ...(file.openingsRemoved ?? [])]) ref(id)
   for (const row of file.openingsAdded ?? []) if (row.wallId) ref(row.wallId)
@@ -798,6 +805,16 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     )
     if (c && setFlowDirection(c, f.from)) result.applied++
     else result.missing.flows++
+  }
+
+  // 층의 반자 높이(OE-EQP-03). 설비 편집보다 앞뒤가 상관없다 — 판정은 그때그때 잰다.
+  for (const row of file.ceilings ?? []) {
+    const storey = model.storeys.find((s) => s.id === resolve(row.storeyId))
+    if (!storey) {
+      result.missing.storeys++
+      continue
+    }
+    if (setCeiling(model, storey.id, row.height)) result.applied++
   }
 
   // 완료한 층(OE-MAN-06). 편집을 다 얹은 뒤라야 지문이 저장할 때 상태와 같다. 저장할 때 이미 고친 층은 지문을 비워 "완료 뒤
