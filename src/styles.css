@@ -3456,3 +3456,26 @@ button.done::after {
 .group-picked .group-list .muted {
   margin-left: 0.4rem;
 }
+
+/* 벽·문·창 설정(OE-SPC-12 · OE-SPC-13). [벽·문·창] 을 켰을 때 개요 패널에. */
+.overview .element-settings {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.overview .element-settings h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+}
+
+.overview .element-settings label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.overview .element-settings input {
+  width: 5rem;
+}
