@@ -51,6 +51,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | ee01c80 | [성수 화면 시험을 10-08 merge 뒤 동작에 맞춤](next/pr/test-seongsu-e2e.md) | 없음 | — |
 | 2256682 | [OE-SPC-17 같은 공간명 방 종류 일괄 수정·사전 보강](next/pr/oe-spc-17.md) | [#150](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/150) | 약어 방 이름(S.T·P.S 등)의 뜻·방 종류 목록 |
 | f297e7d | [OE-MAN-03 외곽선 없는 물리존 목록·BIM 면적·그린 뒤 경고](next/pr/oe-man-03.md) | [#119](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/119) | ±20% 경고 기준 |
+| 07f02c3 | [OE-WF-06 닫았다 다시 열어도 내보내기가 같다는 시험](next/pr/oe-wf-06.md) | [#205](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/205) | 파일 없이 이어서 하기(서버 보관)가 필요한지. OE-SPC-17 다음 |
 
 ## 지금 상태 (2026-10-08 22:40)
 
