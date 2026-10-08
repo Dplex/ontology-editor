@@ -60,6 +60,7 @@ export function splitByStorey(file: EditFile, homeOf: HomeOf): Map<string, EditF
   for (const row of file.storeysDone ?? []) push(part(row.id), 'storeysDone', row)
   for (const row of file.rooms ?? []) push(part(row.storeyId), 'rooms', row)
   for (const row of file.ceilings ?? []) push(part(row.storeyId), 'ceilings', row)
+  for (const row of file.spaceObjects ?? []) push(part(row.storeyId), 'spaceObjects', row)
 
   // 층이 없는 편집 — 건물 조각
   const building = () => part(null)
@@ -72,6 +73,8 @@ export function splitByStorey(file: EditFile, homeOf: HomeOf): Map<string, EditF
   if (file.systemsAdded?.length) building().systemsAdded = file.systemsAdded
   if (file.systemsRemoved?.length) building().systemsRemoved = file.systemsRemoved
   if (file.systemNames?.length) building().systemNames = file.systemNames
+  // 넣은 모델(OE-P3-08)은 여러 층의 오브젝트가 같이 쓴다.
+  if (file.objectLibrary?.length) building().objectLibrary = file.objectLibrary
 
   if (file.keys) {
     for (const p of parts.values()) {
@@ -89,7 +92,7 @@ export function joinParts(parts: Iterable<EditFile>, base: Pick<EditFile, 'forma
   const lists = [
     'equipment', 'spaces', 'kinds', 'flows', 'confirmedSystems', 'confirmedFlows', 'systems', 'systemsAdded', 'systemsRemoved',
     'systemNames', 'equipmentAdded', 'equipmentRemoved', 'spacesAdded', 'spacesRemoved', 'walls', 'wallsAdded', 'wallsRemoved',
-    'openings', 'openingsAdded', 'openingsRemoved', 'customZones', 'storeysDone', 'ceilings', 'rooms',
+    'openings', 'openingsAdded', 'openingsRemoved', 'customZones', 'storeysDone', 'ceilings', 'rooms', 'spaceObjects', 'objectLibrary',
   ] as const
   for (const p of parts) {
     for (const key of lists) {

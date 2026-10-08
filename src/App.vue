@@ -39,6 +39,7 @@ import {
   arrowColors,
   CEILING_RING_COLORS,
   createViewer,
+  lambertize,
   PICK_COLORS,
   systemColors,
   toScene,
@@ -127,6 +128,7 @@ import {
   mountOnWall,
   snapshotCustomZones,
   snapshotRooms,
+  snapshotSpaceObjects,
   setWallExternal,
   setWallHeight,
   setWallThickness,
@@ -151,6 +153,19 @@ import {
   zoneSpaces,
 } from './lib/custom-zone'
 import { createRoom, deleteRoom, findRoom, moveRoom, renameRoom, resizeRoom } from './lib/room'
+import {
+  addCustomItem,
+  addSpaceObject,
+  deleteSpaceObject,
+  findSpaceObject,
+  libraryItem,
+  libraryOf,
+  MODEL_MAX_BYTES,
+  moveSpaceObject,
+  renameSpaceObject,
+  resizeSpaceObject,
+} from './lib/space-object'
+import type { Object3D } from 'three'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -356,6 +371,7 @@ const changeCount = computed(
     sinceOpen.value.openingsMoved.length +
     sinceOpen.value.customZones.length +
     roomLines.value.length +
+    objectLines.value.length +
     sinceOpen.value.systemMoved.length +
     sinceOpen.value.systemKinds.length +
     sinceOpen.value.systemNames.length +
@@ -1312,6 +1328,11 @@ function applySnapshot(s: Snapshot) {
     if (selectedCustomZoneId.value && !m.storeys.some((st) => st.customZones?.some((z) => z.id === selectedCustomZoneId.value))) selectedCustomZoneId.value = null
     triggerRef(model)
     sceneVersion.value++
+  } else if (s.kind === 'space-objects') {
+    // 추가 공간 오브젝트(OE-OBJ-09). 없어진 것을 고르고 있었으면 푼다.
+    if (selectedObjectId.value && !(model.value && findSpaceObject(model.value, selectedObjectId.value))) selectedObjectId.value = null
+    triggerRef(model)
+    sceneVersion.value++
   } else if (s.kind === 'rooms') {
     // 룸 목록(OE-OBJ-03). 없어진 룸을 고르고 있었으면 푼다. 외곽선은 sceneVersion 을 보고 다시 그린다.
     if (selectedRoomId.value && !m.storeys.some((st) => st.rooms?.some((r) => r.id === selectedRoomId.value))) selectedRoomId.value = null
@@ -1477,6 +1498,10 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
     case 'vertexDelete':
       // 여러 개 고른 설비가 있으면 같이 지운다(OE-UI-09). 없으면 짚은 꼭짓점 지우기.
       if (group.value.length >= 2) return deleteGroup()
+      if (selectedObject.value) {
+        removeObject()
+        return true
+      }
       return editVertex('delete')
     case 'drawFinish':
       return finishDraw()
@@ -1523,13 +1548,15 @@ function clearSelection(): boolean {
   } else if (adding.value) {
     const what = adding.value.what
     stopAdd()
-    note(what === 'equipment' ? '설비 더하기를 취소했습니다' : what === 'door' ? '문 놓기를 취소했습니다' : '창 놓기를 취소했습니다')
+    note(what === 'equipment' ? '설비 더하기를 취소했습니다' : what === 'door' ? '문 놓기를 취소했습니다' : what === 'object' ? '오브젝트 놓기를 취소했습니다' : '창 놓기를 취소했습니다')
   } else if (group.value.length) {
     group.value = []
   } else if (selectedElementId.value) {
     selectedElementId.value = null
   } else if (selectedRoomId.value) {
     selectedRoomId.value = null
+  } else if (selectedObjectId.value) {
+    selectedObjectId.value = null
   } else if (selectedCustomZoneId.value) {
     selectedCustomZoneId.value = null
   } else if (placing.value) {
@@ -1562,6 +1589,7 @@ function frameSelection(): boolean {
 function nudge(code: string, step: number): boolean {
   if (group.value.length >= 2) return nudgeGroup(code, step)
   if (!selected.value && selectedRoom.value) return nudgeRoom(code, step)
+  if (!selected.value && selectedObject.value) return nudgeObject(code, step)
   if (!selected.value && selectedElement.value && viewer) return nudgeElement(code, step)
   if (!selected.value && selectedSpace.value && viewer) return nudgeVertex(code, step)
   const e = selected.value
@@ -1876,6 +1904,11 @@ watch([model, canvas], ([m, el]) => {
     viewer.onPickSpace(pickSpace)
     viewer.onEquipmentMove(dropEquipment)
     viewer.onPickElement((id) => (selectedElementId.value = id))
+    viewer.onPickObject(selectObject)
+    viewer.onObjectMove((id, delta) => {
+      const o = model.value && findSpaceObject(model.value, id)
+      if (o) changeObjects(id, `${o.object.name} 옮김`, (m) => moveSpaceObject(m, id, [cm(delta[0]), cm(delta[1])]))
+    })
     viewer.onVertexMove(dropVertex)
     viewer.onArrowClick(cycleFlow)
     viewer.setWallsVisible(showWalls.value)
@@ -1926,6 +1959,7 @@ function pickSpace(id: string | null) {
     return
   }
   selectedRoomId.value = null
+  if (id) selectedObjectId.value = null
   selectedSpaceId.value = id
   if (id) {
     selectedId.value = null
@@ -2010,6 +2044,194 @@ function nudgeRoom(code: string, step: number): boolean {
   return true
 }
 watch([model, sceneVersion, selectedRoomId, roomConflict, editing], () => viewer?.setRooms(model.value, selectedRoomId.value, roomConflict.value))
+
+// --- 추가 공간 오브젝트 (OE-OBJ-09 · OE-SPC-14 · OE-SPC-16 · OE-P3-08) ---------------------------------
+/** 리포트의 오브젝트 줄. 연 때는 없으니(임포트는 만들지 않는다) 있는 것이 전부 편집이다. */
+const objectLines = computed(() =>
+  (model.value?.storeys ?? []).flatMap((st) =>
+    (st.spaceObjects ?? []).map((o) => ({
+      id: o.id,
+      name: o.name,
+      storey: st.name,
+      item: (model.value && libraryItem(model.value, o.item)?.name) ?? o.item,
+      size: o.size.map((v) => v.toFixed(2)).join(' × '),
+    })),
+  ),
+)
+const selectedObjectId = ref<string | null>(null)
+const selectedObject = computed(() => {
+  const m = model.value
+  const id = selectedObjectId.value
+  if (!m || !id) return null
+  const found = findSpaceObject(m, id)
+  return found ? { ...found, item: libraryItem(m, found.object.item) } : null
+})
+/** 겹쳐서 막은 상대 오브젝트. 잠깐 붉게 보인다(OE-SPC-15). */
+const objectConflict = ref<string | null>(null)
+let objectConflictTimer: number | undefined
+/** 넣은 모델(OE-P3-08)을 읽은 장면. 열쇠는 라이브러리 항목 열쇠다. 읽는 동안은 회색 상자로 그린다. */
+const objectModels = shallowRef(new Map<string, Object3D>())
+/** 팔레트의 라이브러리 목록을 편 상태. */
+const objectsOpen = ref(false)
+const objectLibrary = computed(() => (model.value ? libraryOf(model.value) : []))
+function selectObject(id: string | null) {
+  selectedObjectId.value = id
+  if (!id) return
+  selectedId.value = null
+  selectedSpaceId.value = null
+  selectedRoomId.value = null
+  selectedSystemId.value = null
+  selectedElementId.value = null
+  selectedCustomZoneId.value = null
+}
+/**
+ * 오브젝트를 고친다. 층의 오브젝트를 통째로 떠 두고 되돌린다(snapshotSpaceObjects). 막히면 이유를 알리고 겹친 상대를 붉게
+ * 짚는다. 끌던 것은 다시 그려 원래 자리로 돌아간다(OE-SPC-15).
+ */
+function changeObjects(objectId: string | null, label: string, apply: (m: Model) => unknown, storeyId?: string): boolean {
+  const m = model.value
+  if (!m) return false
+  const sid = storeyId ?? (objectId ? findSpaceObject(m, objectId)?.storey.id : undefined)
+  if (!sid) return false
+  const snapshot = snapshotSpaceObjects(m, sid)
+  const at = mark()
+  const done = apply(m) as boolean | { refused: string; blocked?: string } | null
+  if (!done) {
+    sceneVersion.value++
+    return false
+  }
+  if (typeof done === 'object' && 'refused' in done) {
+    editNotice.value = done.refused
+    if (done.blocked) {
+      objectConflict.value = done.blocked
+      window.clearTimeout(objectConflictTimer)
+      objectConflictTimer = window.setTimeout(() => (objectConflict.value = null), 1600)
+    }
+    sceneVersion.value++
+    return false
+  }
+  editNotice.value = ''
+  remember(label, snapshot, at)
+  triggerRef(model)
+  return true
+}
+function startAddObject(itemKey: string) {
+  const storey = targetStorey()
+  if (!storey) return askStorey('오브젝트를 놓을')
+  const item = model.value && libraryItem(model.value, itemKey)
+  if (!item) return
+  stopPlace()
+  stopDraw()
+  connectFrom.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  adding.value = { storeyId: storey.id, elevation: storey.elevation, what: 'object', item: itemKey }
+  viewer?.setPlaceMode(storey.elevation)
+  note(`${storey.name} 바닥을 눌러 ${item.name}${josa(item.name, '을/를')} 놓습니다. 다른 오브젝트와 겹치는 자리는 막힙니다 (Esc 취소)`)
+}
+function addObjectAt(at: Vec2) {
+  const target = adding.value
+  stopAdd()
+  if (!target?.item) return
+  let created: string | null = null
+  const ok = changeObjects(null, '오브젝트 놓기', (m) => {
+    const done = addSpaceObject(m, target.storeyId, target.item!, [cm(at[0]), cm(at[1])])
+    if (done && !('refused' in done)) created = done.id
+    return done
+  }, target.storeyId)
+  if (ok && created) {
+    selectObject(created)
+    note('오브젝트를 놓았습니다. 끌거나 방향키로 옮기고, 오른쪽 패널에서 크기를 바꿉니다')
+  }
+}
+function removeObject() {
+  const o = selectedObject.value
+  if (!o) return
+  const name = o.object.name
+  if (changeObjects(o.object.id, `${name} 지우기`, (m) => deleteSpaceObject(m, o.object.id))) {
+    selectedObjectId.value = null
+    note(`${name}${josa(name, '을/를')} 지웠습니다. Ctrl+Z 로 되돌립니다`)
+  }
+}
+function applyObjectName(name: string) {
+  const o = selectedObject.value
+  if (o) changeObjects(o.object.id, `오브젝트 이름 ${name.trim()}`, (m) => renameSpaceObject(m, o.object.id, name))
+}
+/** 가로·세로·높이 칸 하나를 고친다. 바닥 가운데 자리는 그대로다. 막히면 칸을 원래 값으로 되돌린다(모델 값이 그대로라 화면이 다시 안 그린다). */
+function applyObjectSize(axis: 0 | 1 | 2, input: HTMLInputElement) {
+  const o = selectedObject.value
+  if (!o) return
+  const before = o.object.size[axis]
+  const v = Number(input.value)
+  const size = [...o.object.size] as [number, number, number]
+  size[axis] = cm(v)
+  if (input.value === '' || !Number.isFinite(v) || !changeObjects(o.object.id, `${o.object.name} 크기`, (m) => resizeSpaceObject(m, o.object.id, size))) input.value = String(before)
+}
+/** 방향키로 고른 오브젝트를 옮긴다(10cm, Shift 1m). 화면 방향에 가장 가까운 평면 축이다. */
+function nudgeObject(code: string, step: number): boolean {
+  const o = selectedObject.value
+  if (!o || !viewer) return false
+  const { right, up } = viewer.planeAxes()
+  const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
+  const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
+  changeObjects(o.object.id, `${o.object.name} 옮김`, (m) => moveSpaceObject(m, o.object.id, [cm(sign * ax * step), cm(sign * ay * step)]))
+  return true
+}
+/** 넣은 모델(glb)을 읽어 장면으로 둔다. 같은 열쇠는 한 번만 읽는다. */
+async function loadObjectModel(key: string, base64: string): Promise<Object3D | null> {
+  const have = objectModels.value.get(key)
+  if (have) return have
+  const bytes = Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0))
+  const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
+  const scene = lambertize((await new GLTFLoader().parseAsync(bytes.buffer, '')).scene)
+  objectModels.value = new Map(objectModels.value).set(key, scene)
+  return scene
+}
+// 편집 파일로 들어온 넣은 모델도 읽어 둔다. 못 읽으면 회색 상자로 남는다.
+watch(
+  () => model.value?.objectLibrary?.length,
+  () => {
+    for (const item of model.value?.objectLibrary ?? []) {
+      if (!objectModels.value.has(item.key)) loadObjectModel(item.key, item.glb).catch(() => undefined)
+    }
+  },
+)
+const modelInput = ref<HTMLInputElement | null>(null)
+/** 3D 모델 넣기(OE-P3-08). 모델 상자를 재서 라이브러리 항목을 만들고, 바로 놓기를 시작한다. */
+async function importObjectModel(file: File) {
+  const m = model.value
+  if (!m) return
+  if (file.size > MODEL_MAX_BYTES) {
+    note(`모델 파일이 ${MODEL_MAX_BYTES / 1024 / 1024}MB 를 넘습니다(${(file.size / 1024 / 1024).toFixed(1)}MB)`)
+    return
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let base64 = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) base64 += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  base64 = btoa(base64)
+  let scene: Object3D
+  try {
+    const { GLTFLoader } = await import('three/addons/loaders/GLTFLoader.js')
+    scene = lambertize((await new GLTFLoader().parseAsync(bytes.buffer, '')).scene)
+  } catch (err) {
+    note(`3D 모델을 읽지 못했습니다: ${err instanceof Error ? err.message : String(err)} (glb, 또는 자료를 품은 glTF)`)
+    return
+  }
+  const { Box3, Vector3 } = await import('three')
+  const ext = new Box3().setFromObject(scene).getSize(new Vector3())
+  // glTF 는 y 가 위다. 가로 x · 세로 z · 높이 y.
+  const item = addCustomItem(m, file.name, [ext.x, ext.z, ext.y], base64)
+  if ('refused' in item) {
+    note(item.refused)
+    return
+  }
+  objectModels.value = new Map(objectModels.value).set(item.key, scene)
+  triggerRef(model)
+  objectsOpen.value = true
+  startAddObject(item.key)
+}
+watch([model, sceneVersion, selectedObjectId, objectConflict, objectModels], () =>
+  viewer?.setSpaceObjects(model.value, (key) => (model.value ? libraryItem(model.value, key) : null), objectModels.value, selectedObjectId.value, objectConflict.value),
+)
 
 const selectedSpace = computed(() => {
   const m = model.value
@@ -3527,6 +3749,7 @@ function placeAt(at: Vec2) {
   }
   if (adding.value) {
     if (adding.value.what === 'equipment') addEquipmentAt(at)
+    else if (adding.value.what === 'object') addObjectAt(at)
     else addOpeningAt(at)
     return
   }
@@ -4138,7 +4361,8 @@ function mergeInto(otherId: string) {
 //
 // 더하기는 [설비 더하기] 를 누르고 바닥을 누른다. 종류는 모르는 채 바닥 높이에 놓고 고르게 한다 — 종류와 높이를
 // 지어내지 않는다. 지우면 붙은 연결·계통 자리도 같이 빠지고 Ctrl+Z 로 그대로 돌아온다(edit.ts).
-const adding = ref<{ storeyId: string; elevation: number; what: 'equipment' | 'door' | 'window' } | null>(null)
+/** `object` 는 추가 공간 오브젝트(OE-SPC-14)이고 `item` 이 라이브러리 항목이다. */
+const adding = ref<{ storeyId: string; elevation: number; what: 'equipment' | 'door' | 'window' | 'object'; item?: string } | null>(null)
 function startAddEquipment() {
   const storey = targetStorey()
   if (!storey) return askStorey('설비를 더할')
@@ -4231,6 +4455,7 @@ const selectedElementId = ref<string | null>(null)
 // 다른 것을 고르면 룸은 풀린다(패널은 하나만).
 watch([selectedId, selectedSpaceId, selectedElementId, selectedCustomZoneId, selectedSystemId], (now) => {
   if (now.some((x) => x)) selectedRoomId.value = null
+  if (now.some((x) => x)) selectedObjectId.value = null
 })
 watch([selectedId, selectedSpaceId, selectedSystemId, selectedElementId, selectedCustomZoneId], (now) => {
   if (now.some(Boolean) && group.value.length) group.value = []
@@ -4527,7 +4752,7 @@ function startOpening(kind: 'door' | 'window') {
 function addOpeningAt(at: Vec2) {
   const target = adding.value
   stopAdd()
-  if (!target || target.what === 'equipment') return
+  if (!target || target.what === 'equipment' || target.what === 'object') return
   const kind = target.what
   let made: Opening | null = null
   const ok = changeElements(target.storeyId, `${elementLabel(kind)} 놓기`, (m) => {
@@ -6142,11 +6367,45 @@ async function export3D(format: 'glb' | 'obj') {
                 <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.attached) }"></i>반자 부착
                 <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.plenum) }"></i>플레넘
               </span>
-              <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). 제목 줄은 두지 않는다 — 버튼 이름과 같고, 줄이 늘면
-                   팔레트가 3D 왼쪽 아래를 가린다. -->
-              <button type="button" :class="['ghost', { on: archMode, locked: ceilingMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="ceilingMode ? lockedTool() : (archMode = !archMode)">
-                벽·문·창
-              </button>
+              <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). 옆의 [오브젝트] 는 추가 공간 오브젝트 라이브러리를 편다
+                   (OE-SPC-14). 둘을 한 줄에 두고 머리말도 따로 두지 않는다 — 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
+              <span class="palette-row">
+                <button type="button" :class="['ghost', { on: archMode, locked: ceilingMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="ceilingMode ? lockedTool() : (archMode = !archMode)">
+                  벽·문·창
+                </button>
+                <button
+                  type="button"
+                  :class="['ghost', 'objects-toggle', { on: objectsOpen || adding?.what === 'object', locked: ceilingMode }]"
+                  :aria-expanded="objectsOpen"
+                  title="책상·의자 같은 추가 공간 오브젝트를 라이브러리에서 골라 놓습니다(OE-OBJ-09)"
+                  @click="ceilingMode ? lockedTool() : (objectsOpen = !objectsOpen)"
+                >
+                  오브젝트
+                </button>
+              </span>
+              <div v-if="objectsOpen && !ceilingMode" class="object-library" role="group" aria-label="오브젝트 라이브러리">
+                <button
+                  v-for="item in objectLibrary"
+                  :key="item.key"
+                  type="button"
+                  :class="['ghost', { on: adding?.what === 'object' && adding.item === item.key }]"
+                  :title="`${item.name} · ${item.size.map((v) => v.toFixed(2)).join(' × ')} m`"
+                  @click="adding?.what === 'object' && adding.item === item.key ? stopAdd() : startAddObject(item.key)"
+                >
+                  {{ item.name }}
+                </button>
+                <button type="button" class="ghost object-import" title="glb(또는 자료를 품은 glTF) 파일을 넣어 라이브러리 항목을 만듭니다(OE-P3-08)" @click="modelInput?.click()">
+                  + 3D 모델
+                </button>
+                <input
+                  ref="modelInput"
+                  type="file"
+                  accept=".glb,.gltf,model/gltf-binary,model/gltf+json"
+                  hidden
+                  data-testid="object-model-input"
+                  @change="(ev) => { const f = (ev.target as HTMLInputElement).files?.[0]; if (f) importObjectModel(f); (ev.target as HTMLInputElement).value = '' }"
+                />
+              </div>
               <template v-if="archMode">
                 <button type="button" class="ghost" title="바닥에 두 점을 찍어 벽을 긋습니다" @click="startWall">벽 긋기</button>
                 <button type="button" :class="['ghost', { on: adding?.what === 'door' }]" title="벽 가까이 눌러 문을 놓습니다" @click="adding?.what === 'door' ? stopAdd() : startOpening('door')">문 놓기</button>
@@ -6930,6 +7189,57 @@ async function export3D(format: 'glb' | 'obj') {
           </p>
         </section>
         <!-- 커스텀존(OE-OBJ-01). 품는 방·든 설비는 쓸 때 계산한 것이라 물리존·설비를 고치면 따라 바뀐다. -->
+        <!-- 추가 공간 오브젝트(OE-OBJ-09). 끌거나 방향키로 옮기고, 칸으로 크기를 바꾼다. -->
+        <section v-else-if="selectedObject" :key="`object:${selectedObject.object.id}`" class="picked object-picked">
+          <div class="picked-head">
+            <div>
+              <h3>{{ selectedObject.object.name }}</h3>
+              <dl class="stats facts">
+                <div>
+                  <dt>오브젝트</dt>
+                  <dd>{{ selectedObject.item?.name ?? selectedObject.object.item }} · {{ selectedObject.storey.name }} <Src kind="edit" /></dd>
+                </div>
+                <div>
+                  <dt>자리</dt>
+                  <dd class="mono">{{ selectedObject.object.at[0].toFixed(2) }}, {{ selectedObject.object.at[1].toFixed(2) }}</dd>
+                </div>
+                <div v-if="!editing">
+                  <dt>크기</dt>
+                  <dd><b class="mono">{{ selectedObject.object.size.map((v) => v.toFixed(2)).join(' × ') }}</b> m</dd>
+                </div>
+              </dl>
+            </div>
+            <div class="picked-actions">
+              <button type="button" class="ghost" @click="selectedObjectId = null">선택 해제</button>
+            </div>
+          </div>
+          <template v-if="editing">
+            <label class="space-name">
+              이름
+              <input type="text" data-testid="object-name" v-keep-typing :value="selectedObject.object.name" @change="applyObjectName(($event.target as HTMLInputElement).value)" />
+            </label>
+            <div class="object-size" data-testid="object-size">
+              <label v-for="(label, axis) in ['가로', '세로', '높이']" :key="label">
+                {{ label }}
+                <input
+                  type="number"
+                  step="0.05"
+                  min="0.05"
+                  :data-testid="`object-size-${axis}`"
+                  :value="selectedObject.object.size[axis]"
+                  @change="applyObjectSize(axis as 0 | 1 | 2, $event.target as HTMLInputElement)"
+                  @keydown.enter="applyObjectSize(axis as 0 | 1 | 2, $event.target as HTMLInputElement)"
+                />
+                m
+              </label>
+            </div>
+            <p class="hint">끌거나 방향키로 옮깁니다(Shift 1m). 다른 오브젝트와 겹치는 자리로는 옮기거나 키울 수 없습니다.</p>
+            <p class="danger-zone">
+              <button type="button" class="ghost danger" @click="removeObject">오브젝트 지우기</button>
+              <span class="muted">Delete · Ctrl+Z 로 되돌립니다.</span>
+            </p>
+          </template>
+        </section>
         <!-- 룸(OE-OBJ-03 · OE-SPC-11). 물리존 안의 사각 편집 단위. 꼭짓점 손잡이로 크기, 방향키로 자리를 바꾼다. -->
         <section v-else-if="selectedRoom" :key="`room:${selectedRoom.room.id}`" class="picked room-picked">
           <div class="picked-head">
@@ -8245,6 +8555,10 @@ async function export3D(format: 'glb' | 'obj') {
             <!-- 룸(OE-OBJ-03). BIM 에는 없어서 있는 룸이 곧 사람이 그린 것이다. 온톨로지(TTL·GeoJSON)로는 아직 나가지 않는다. -->
             <li v-for="r in roomLines" :key="`room-${r.id}`">
               룸 <b>{{ r.name }}</b> ({{ r.storey }} · {{ r.parent }} 안, {{ r.size }}) — 편집 파일에만 남습니다
+            </li>
+            <!-- 추가 공간 오브젝트(OE-OBJ-09). 룸처럼 편집 파일에만 남는다. -->
+            <li v-for="r in objectLines" :key="`object-${r.id}`">
+              오브젝트 <b>{{ r.name }}</b> ({{ r.storey }} · {{ r.item }}, {{ r.size }} m) — 편집 파일에만 남습니다
             </li>
             <li v-for="r in sinceOpen.customZones" :key="`cz-${r.id}`">
               커스텀존 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.change === 'added' ? '만들었습니다' : r.change === 'removed' ? '지웠습니다' : '고쳤습니다' }}

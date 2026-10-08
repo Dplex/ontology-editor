@@ -400,6 +400,35 @@ export type Storey = {
   customZones?: CustomZone[]
   /** 사람이 물리존 안에 그린 룸(OE-OBJ-03, room.ts). 임포트는 만들지 않아 연 직후에는 없다. */
   rooms?: Room[]
+  /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09, space-object.ts). 임포트는 만들지 않아 연 직후에는 없다. */
+  spaceObjects?: SpaceObject[]
+}
+
+/**
+ * 추가 공간 오브젝트(OE-OBJ-09). 책상·의자·소파처럼 공간을 꾸미는 사물이다. 층 바닥에 서고, 서로 겹치지 않는다(space-object.ts).
+ * 모양은 라이브러리 항목(`item`)의 3D 모델을 `size` 상자에 맞춰 늘인 것이다.
+ */
+export type SpaceObject = {
+  /** 에디터가 지은 id(`U_…`). */
+  id: string
+  name: string
+  /** 라이브러리 항목 열쇠(space-object.ts 의 LIBRARY, 또는 사람이 넣은 모델의 `custom:…`). */
+  item: string
+  /** 바닥 가운데 자리(세계 평면 좌표). */
+  at: Vec2
+  /** 가로(x)·세로(y)·높이(미터). 축에 나란한 상자다. */
+  size: Vec3
+}
+
+/** 사람이 넣은 3D 모델로 만든 라이브러리 항목(OE-P3-08). 파일을 그대로 들고 있어 편집 파일에 같이 남는다. */
+export type CustomObjectItem = {
+  /** `custom:` 로 시작한다. 내장 항목과 겹치지 않는다. */
+  key: string
+  name: string
+  /** 넣을 때 모델 상자에서 잰 기본 크기(가로·세로·높이, 미터). */
+  size: Vec3
+  /** glb 파일 내용(base64). */
+  glb: string
 }
 
 /** 룸(OE-OBJ-03). 물리존 안의 사각 편집 단위. 다른 룸과 겹치지 않고 부모 물리존 밖으로 나가지 않는다(room.ts). */
@@ -449,6 +478,8 @@ export type Model = {
   skipped?: ('walls' | 'doors' | 'windows')[]
   /** IDF 에서 얹은 공조존과 담당 관계(idf/attach.ts). IFC 만 연 모델에는 없다. */
   hvac?: { source: string; zones: HvacZone[]; equipment: HvacEquipment[] }
+  /** 사람이 넣은 3D 모델 라이브러리 항목(OE-P3-08). 층에 속하지 않는다. */
+  objectLibrary?: CustomObjectItem[]
   /**
    * 모델 요소로는 남지 않는 파일의 사실. 요구사항 보고서(requirements.ts)가 쓴다. 손으로 만든 모델에는 없다.
    * 두 파일을 합치면 둘 다 참일 때만 참이다(위경도는 한쪽만 있어도 참).
