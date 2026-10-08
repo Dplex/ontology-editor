@@ -166,3 +166,47 @@ test('담당 설비의 흐름이 닿는 물리존이 후보로 보이고, 담당
   await expect(checks.locator('li', { hasText: '연결' })).toContainText('없음')
   expect(errors).toEqual([])
 })
+
+test('설비 패널에서 담당 공조존을 더하고 빼며, 흐름이 닿는 물리존으로 새 공조존을 만든다 (OE-ZON-01)', async ({ page }) => {
+  const AHU = '0MEP$Equip$AHU1$0000'
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const pickAhu = async () => {
+    await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+    const at = await page.evaluate((id) => (window as any).__viewer.part(id), AHU)
+    await page.mouse.click(at.x, at.y)
+    await expect(page.locator('.picked h3')).toHaveText('AHU-1')
+  }
+  await pickAhu()
+  const panel = page.getByTestId('served-zones')
+  await expect(panel).toContainText('담당 공조존 0')
+  await panel.getByRole('button', { name: '흐름이 닿는 물리존으로 새 공조존 (사무실)' }).click()
+  await expect(page.locator('.key-note')).toContainText('담당 물리존은 AHU-1의 흐름이 닿는 사무실입니다')
+  await expect(panel.getByRole('button', { name: '공조존 1 ×' })).toBeVisible()
+  const fold = page.getByTestId('hvac-zones')
+  await expect(fold.locator('.zone-list li[data-zone]').first()).toContainText('AHU-1 ×')
+
+  // 경계를 그려 공조존 2 를 만들고, 공조기 패널에서 담당으로 더한다.
+  await fold.getByRole('button', { name: '경계를 그려 만들기' }).click()
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await expect(page.locator('.key-note')).toContainText('공조존 경계를 그립니다')
+  for (const [x, y] of [[1, 1], [4, 1], [4, 4], [1, 4]]) {
+    const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
+    await page.mouse.click(at.x, at.y)
+  }
+  await page.keyboard.press('Enter')
+  await expect(fold.locator('.zone-list li[data-zone]')).toHaveCount(2)
+  await pickAhu()
+  await panel.getByLabel('담당할 공조존 더하기').selectOption({ label: '공조존 2' })
+  await expect(panel).toContainText('담당 공조존 2')
+  await expect(fold.locator('.zone-list li[data-zone]').nth(1)).toContainText('AHU-1 ×')
+  // 공조존 1 에서 빼면 공조존 목록의 담당 설비에서도 빠진다.
+  await panel.getByRole('button', { name: '공조존 1 ×' }).click()
+  await expect(panel).toContainText('담당 공조존 1')
+  await expect(fold.locator('.zone-list li[data-zone]').first()).not.toContainText('AHU-1 ×')
+  expect(errors).toEqual([])
+})
