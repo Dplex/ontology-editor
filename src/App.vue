@@ -118,7 +118,9 @@ import {
   setWallLoadBearing,
   snapshotStoreyElements,
   wallLocked,
+  wallShapeLock,
   WALL_LOCKED,
+  EXTERIOR_LOCKED,
   newCrossing,
   crossingMessage,
   wallLength,
@@ -138,7 +140,7 @@ import {
   type Snapshot,
 } from './lib/edit'
 import { MERGE_GAP } from './lib/polygon'
-import { judgeExternal } from './lib/exterior'
+import { exteriorDevices, judgeExternal } from './lib/exterior'
 import {
   createCustomZone,
   deleteCustomZone,
@@ -613,6 +615,9 @@ const wallThicknessLabel = (storey: { walls: { thickness: number | null }[] }) =
   return kinds.length <= 2 ? kinds.join('/') : `두께 ${kinds.length}종`
 }
 
+// 외벽 설비(OE-EQP-15). 방 밖이 맞는 자리라 소속을 "외벽" 으로 보인다(TTL 은 층까지만 나간다).
+const exteriorIds = computed(() => (model.value ? exteriorDevices(model.value) : new Set<string>()))
+const locationOf = (e: Equipment) => (e.spaceId ? spaceNameOf(e.spaceId) : exteriorIds.value.has(e.id) ? '외벽 (층까지만)' : '(소속 없음)')
 const spaceNameOf = (spaceId: string | null) => {
   if (!model.value || !spaceId) return '(소속 없음)'
   for (const storey of model.value.storeys) {
@@ -642,7 +647,7 @@ function hoverText(t: HoverTarget): { title: string; lines: string[] } | null {
     const system = e.systemId ? systemById.value.get(e.systemId)?.name : null
     return {
       title: e.name || what || e.ifcClass,
-      lines: [[what, system].filter(Boolean).join(' · '), e.spaceId ? `소속 ${spaceNameOf(e.spaceId)}` : '소속 방 없음'].filter(Boolean),
+      lines: [[what, system].filter(Boolean).join(' · '), e.spaceId ? `소속 ${spaceNameOf(e.spaceId)}` : exteriorIds.value.has(e.id) ? '외벽 설비' : '소속 방 없음'].filter(Boolean),
     }
   }
   if (t.kind === 'space') {
@@ -4578,9 +4583,10 @@ const selectedElement = computed(() => {
   for (const storey of m.storeys) {
     // 내력벽과 거기 뚫린 문·창은 잠긴다(OE-OBJ-06). 고르고 볼 수는 있고, 옮기기·지우기만 막는다.
     const wall = storey.walls.find((w) => w.id === id)
-    if (wall) return { kind: 'wall' as const, storey, wall, opening: null, locked: wallLocked(wall) }
+    // 잠긴 이유. 벽은 내력벽(OE-OBJ-05)·외벽(OE-EXT-02), 문·창은 내력벽에 뚫린 것만 — 외벽의 문·창은 고친다(OE-OBJ-04).
+    if (wall) return { kind: 'wall' as const, storey, wall, opening: null, locked: wallShapeLock(wall) }
     const opening = storey.openings.find((o) => o.id === id)
-    if (opening) return { kind: opening.kind, storey, wall: null, opening, locked: wallLocked(storey.walls.find((w) => w.id === opening.wallId)) }
+    if (opening) return { kind: opening.kind, storey, wall: null, opening, locked: wallLocked(storey.walls.find((w) => w.id === opening.wallId)) ? WALL_LOCKED : null }
   }
   return null
 })
@@ -4623,6 +4629,16 @@ const bearingSrc = (wall: Wall): 'edit' | 'bim' => {
   return wall.added || (was !== undefined && was.loadBearing !== wall.loadBearing) ? 'edit' : 'bim'
 }
 const externalOf = (wallId: string | null | undefined) => (wallId ? selectedExternal.value?.get(wallId) ?? null : null)
+/**
+ * 고른 벽·문·창을 고칠 수 없는 이유(내력벽 OE-OBJ-05 · 외벽 OE-EXT-02). 계산으로 외벽인 벽도 잠근다 — edit.ts 는 BIM·편집 값만 본다
+ * (계산은 층 격자를 다시 재야 해서 방향키마다 할 수 없다). 화면이 고른 층 하나를 재 둔 것을 쓴다.
+ */
+const elementLock = computed(() => {
+  const picked = selectedElement.value
+  if (!picked) return null
+  if (picked.locked) return picked.locked
+  return picked.wall && externalOf(picked.wall.id)?.external ? EXTERIOR_LOCKED : null
+})
 /** 설비를 붙인 벽의 이름(OE-OBJ-04). */
 const wallNameOf = (wallId: string) => model.value?.storeys.flatMap((st) => st.walls).find((w) => w.id === wallId)?.name || '벽'
 const elementLabel = (kind: 'wall' | 'door' | 'window') => (kind === 'wall' ? '벽' : kind === 'door' ? '문' : '창')
@@ -4701,7 +4717,7 @@ function setBearing(wall: Wall, raw: string) {
 function removeElement() {
   const picked = selectedElement.value
   if (!picked) return
-  if (picked.locked) return note(WALL_LOCKED)
+  if (elementLock.value) return note(elementLock.value)
   const what = elementLabel(picked.kind)
   const name = picked.wall?.name || picked.opening?.name || what
   let openings = 0
@@ -4740,8 +4756,8 @@ function nudgeElement(code: string, step: number): boolean {
   const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
   const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
   const delta: Vec2 = [cm(sign * ax * step), cm(sign * ay * step)]
-  if (picked.locked) {
-    note(WALL_LOCKED)
+  if (elementLock.value) {
+    note(elementLock.value)
     return true
   }
   if (picked.wall) {
@@ -4814,7 +4830,7 @@ function applyOpeningPosition(o: Opening, axis: 0 | 1, raw: string, input?: HTML
   const value = Number(raw)
   const storey = selectedElement.value?.storey
   if (!o.position || !storey || raw.trim() === '' || !Number.isFinite(value)) return
-  if (selectedElement.value?.locked) return note(WALL_LOCKED)
+  if (elementLock.value) return note(elementLock.value)
   const to: [number, number] = [o.position[0], o.position[1]]
   to[axis] = value
   changeElements(storey.id, `${o.name || elementLabel(o.kind)} 옮김`, (m) => moveOpening(m, o.id, to, { snap: elementSettings.value.openingSnap }))
@@ -6781,7 +6797,7 @@ async function export3D(format: 'glb' | 'obj') {
                 <div>
                   <dt>소속</dt>
                   <dd v-flash="selected.spaceId">
-                    {{ spaceNameOf(selected.spaceId) }}
+                    {{ locationOf(selected) }}
                     <Src v-if="selected.spaceId" :kind="spaceSrc(selected)" />
                   </dd>
                 </div>
@@ -6950,7 +6966,7 @@ async function export3D(format: 'glb' | 'obj') {
             <span class="muted">
               {{
                 selected.position
-                  ? `${selected.wallId ? `${wallNameOf(selected.wallId)}에 붙음 · ` : ''}${selected.spaceId ? `소속 ${spaceNameOf(selected.spaceId)}` : '소속 방 없음'} · 방향키로도 옮길 수 있습니다`
+                  ? `${selected.wallId ? `${wallNameOf(selected.wallId)}에 붙음 · ` : ''}${selected.spaceId ? `소속 ${spaceNameOf(selected.spaceId)}` : exteriorIds.has(selected.id) ? '외벽 설비(소속 방 없음)' : '소속 방 없음'} · 방향키로도 옮길 수 있습니다`
                   : positionDrafts.has(selected.id)
                     ? 'x·y·z를 모두 넣어야 옮겨집니다'
                     : '좌표가 없습니다. x·y·z를 넣거나 왼쪽 도구의 미배치 목록에서 눌러 3D에 놓으세요'
@@ -7296,12 +7312,18 @@ async function export3D(format: 'glb' | 'obj') {
               <button type="button" class="ghost" @click="selectedElementId = null">선택 해제</button>
             </div>
           </div>
-          <p v-if="selectedElement.locked" class="lock-note" data-testid="wall-locked">
-            {{ selectedElement.wall ? '내력벽이라' : '내력벽에 뚫린 것이라' }} 옮기거나 지울 수 없습니다.
-            <template v-if="selectedElement.wall">아래 내력 여부를 바꾸면 풀립니다.</template>
+          <p v-if="elementLock" class="lock-note" data-testid="wall-locked">
+            <template v-if="elementLock === EXTERIOR_LOCKED">
+              외벽이라 층 편집 화면에서는 옮기거나 지우거나 크기를 바꿀 수 없습니다. 외벽 형상은 외벽 에디터에서 고칩니다. 문·창과 외벽 전용
+              설비는 이 화면에서 놓습니다. 아래 외벽 여부를 바꾸면 풀립니다.
+            </template>
+            <template v-else>
+              {{ selectedElement.wall ? '내력벽이라' : '내력벽에 뚫린 것이라' }} 옮기거나 지울 수 없습니다.
+              <template v-if="selectedElement.wall">아래 내력 여부를 바꾸면 풀립니다.</template>
+            </template>
           </p>
           <!-- 크기(OE-OBJ-04 x·y·z). 길이·두께는 꼭짓점 넷인 벽만(문·창으로 조각난 벽은 옮기기만), 높이는 어느 벽이나. -->
-          <p v-if="selectedElement.wall && !selectedElement.locked" class="position-edit wall-length wall-size">
+          <p v-if="selectedElement.wall && !elementLock" class="position-edit wall-length wall-size">
             <label v-if="wallLength(selectedElement.wall) !== null">
               길이
               <input
@@ -7372,7 +7394,7 @@ async function export3D(format: 'glb' | 'obj') {
             <Src v-if="externalOf(selectedElement.wall.id)" :kind="externalOf(selectedElement.wall.id)!.source" />
             <span class="muted">{{ externalOf(selectedElement.wall.id)?.source === 'calc' ? '건물 바깥에 닿는지로 계산했습니다. 틀리면 고르세요.' : '' }}</span>
           </p>
-          <p v-if="selectedElement.wall && !selectedElement.locked" class="storey-move carry-rooms">
+          <p v-if="selectedElement.wall && !elementLock" class="storey-move carry-rooms">
             <label title="벽 면에서 0.6m 안의 방 변이 벽이 움직인 만큼 따라옵니다. 끄면 방 경계는 그대로입니다(방은 IfcSpace 가 따로 그린 것)">
               <input v-model="carryRooms" type="checkbox" /> 옮길 때 방 경계도 같이
             </label>
@@ -7404,7 +7426,7 @@ async function export3D(format: 'glb' | 'obj') {
                 step="0.1"
                 min="0.1"
                 v-keep-typing
-                :disabled="selectedElement.locked"
+                :disabled="!!elementLock"
                 :value="selectedElement.opening[key] != null ? selectedElement.opening[key]!.toFixed(2) : ''"
                 :placeholder="'모름'"
                 @change="applyOpeningSize(selectedElement.opening!, key, ($event.target as HTMLInputElement).value)"
@@ -7421,7 +7443,7 @@ async function export3D(format: 'glb' | 'obj') {
                 type="number"
                 step="0.1"
                 v-keep-typing
-                :disabled="selectedElement.locked"
+                :disabled="!!elementLock"
                 :value="mmOf(selectedElement.opening.position[axis])"
                 @change="applyOpeningPosition(selectedElement.opening!, axis, ($event.target as HTMLInputElement).value, $event.target as HTMLInputElement)"
               />
@@ -7432,7 +7454,7 @@ async function export3D(format: 'glb' | 'obj') {
             {{ selectedElement.opening.connects?.length ? selectedElement.opening.connects.map(nameOfSpace).join(' · ') : '(없음)' }}
             <Src v-if="selectedElement.opening.connectsSource" :kind="selectedElement.opening.connectsSource === 'bim' ? 'bim' : 'calc'" />
           </p>
-          <p v-if="!selectedElement.locked" class="danger-zone">
+          <p v-if="!elementLock" class="danger-zone">
             <button type="button" class="ghost danger" @click="removeElement">
               {{ elementLabel(selectedElement.kind) }} 지우기
             </button>
@@ -8745,7 +8767,7 @@ async function export3D(format: 'glb' | 'obj') {
                   <!-- 좌표 출처. 배치점이 형상에서 떨어져 형상 중심을 쓴 것(계산)과 사람이 옮긴 것(편집)을 가른다. -->
                   <td><Src v-if="e.position" :kind="positionSrc(e)" /></td>
                   <td :class="{ muted: !e.spaceId }">
-                    {{ spaceNameOf(e.spaceId) }}
+                    {{ locationOf(e) }}
                     <Src v-if="e.spaceId" :kind="spaceSrc(e)" />
                     <small v-if="editing && positionDrafts.has(e.id)" class="draft-note">x·y·z를 모두 넣어야 옮겨집니다</small>
                   </td>

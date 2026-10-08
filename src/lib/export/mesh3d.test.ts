@@ -6,7 +6,7 @@ import { importIfcWithMeshes, type MeshMap } from '../ifc/import'
 import { BoxGeometry, type Mesh, type Object3D } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { toScene } from '../viewer'
-import { addWall, moveOpening, moveWall, setWallLoadBearing } from '../edit'
+import { addWall, moveOpening, moveWall, setWallExternal, setWallLoadBearing } from '../edit'
 import type { Model, Wall } from '../model'
 import { modelToScene, sceneToGLB, sceneToOBJ } from './mesh3d'
 
@@ -74,6 +74,8 @@ describe('3D 내보내기 — 편집', () => {
     const edited = structuredClone(rooms)
     // 픽스처에서 형상이 있는 벽은 내력벽뿐이다. 내력벽은 잠기므로(OE-OBJ-06) 내력 여부를 모름으로 풀고 옮긴다.
     setWallLoadBearing(edited, wall!.id, null)
+    // 외벽도 층 편집에서 옮기지 않는다(OE-EXT-02). 외벽 여부를 풀고 옮긴다.
+    setWallExternal(edited, wall!.id, null)
     expect(moveWall(edited, wall!.id, [2, 0])).toBe(true)
     const before = boxOf(modelToScene(pristine, roomMeshes, { pristine }), wall!.id)!
     const after = boxOf(modelToScene(edited, roomMeshes, { pristine }), wall!.id)!

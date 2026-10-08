@@ -223,7 +223,9 @@ test('Duplex 건축: 내력벽은 밝은·어두운 테마 모두 보통 벽보�
   await expect(page.locator('.element-picked')).toBeVisible()
   await expect(plan.locator('.walls polygon.chosen').first()).toHaveAttribute('data-wall', wallId)
   if (process.env.SHOT) await page.locator('.viewport').screenshot({ path: `${process.env.SHOT}-wall.png` })
-  // 고른 벽을 방향키로 옮기면 평면도의 벽이 따라 그려진다.
+  // 고른 벽을 방향키로 옮기면 평면도의 벽이 따라 그려진다. 이 벽은 외벽이라 층 편집에서 옮기지 않으므로(OE-EXT-02) 내벽으로 풀고 옮긴다.
+  const external = page.locator('.element-picked').getByTestId('wall-external-select')
+  if ((await external.inputValue()) === 'true') await external.selectOption('false')
   const drawn = plan.locator(`.walls polygon[data-wall="${wallId}"]`).first()
   const before = (await drawn.getAttribute('points'))!
   await page.locator('body').click({ position: { x: 5, y: 5 } })

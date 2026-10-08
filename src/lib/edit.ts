@@ -1962,6 +1962,17 @@ export function wallLocked(wall: Wall | null | undefined): boolean {
   return wall?.loadBearing === true
 }
 export const WALL_LOCKED = '내력벽은 고칠 수 없습니다. 내력 여부를 바꾸면 풀립니다.'
+export const EXTERIOR_LOCKED = '외벽은 층 편집 화면에서 옮기거나 지우거나 크기를 바꾸지 않습니다. 외벽 형상은 외벽 에디터에서 고칩니다. 외벽 여부를 바꾸면 풀립니다.'
+/**
+ * 벽 형상(옮기기·지우기·길이·두께·높이)을 고칠 수 없는 이유. 내력벽(OE-OBJ-05)과 외벽(OE-EXT-02)이다. 외벽 형상은 전체 층을 한 번에
+ * 다루는 외벽 에디터의 일이다(OE-EXT-03). 외벽에 문·창을 뚫고 외벽 전용 설비를 붙이는 것은 된다(OE-OBJ-04) — 그래서 문·창 잠금
+ * (openingLocked)은 내력벽만 본다. 고칠 수 있으면 null.
+ */
+export function wallShapeLock(wall: Wall | null | undefined): string | null {
+  if (wallLocked(wall)) return WALL_LOCKED
+  if (wall?.external === true) return EXTERIOR_LOCKED
+  return null
+}
 export type LockOptions = { ignoreLock?: boolean }
 
 function openingLocked(storey: Storey, opening: Opening): boolean {
@@ -2074,7 +2085,7 @@ const shiftRings = (rings: readonly (readonly Vec2[])[], d: Vec2) => rings.map((
 export function moveWall(model: Model, wallId: string, delta: Vec2, opts: LockOptions = {}): boolean {
   const found = findWall(model, wallId)
   if (!found || !found.wall.footprint?.length || (delta[0] === 0 && delta[1] === 0)) return false
-  if (!opts.ignoreLock && wallLocked(found.wall)) return false
+  if (!opts.ignoreLock && wallShapeLock(found.wall)) return false
   const next = shiftRings(found.wall.footprint, delta)
   if (newCrossing(model, wallId, next)) return false
   found.wall.footprint = next
@@ -2105,7 +2116,7 @@ function forgetBoundary(storey: Storey, ids: Set<string>) {
 /** 벽을 지운다. 그 벽에 뚫린 문·창도 같이 지우고, 물리존의 공간 경계 목록에서도 뺀다. */
 export function deleteWall(model: Model, wallId: string, opts: LockOptions = {}): { openings: number } | null {
   const found = findWall(model, wallId)
-  if (!found || (!opts.ignoreLock && wallLocked(found.wall))) return null
+  if (!found || (!opts.ignoreLock && wallShapeLock(found.wall))) return null
   const { storey } = found
   const gone = new Set([wallId, ...storey.openings.filter((o) => o.wallId === wallId).map((o) => o.id)])
   storey.walls = storey.walls.filter((w) => w.id !== wallId)
@@ -2204,7 +2215,8 @@ export function setWallLength(model: Model, wallId: string, length: number): boo
   const found = findWall(model, wallId)
   if (!found || !(length >= 0.05)) return false
   const { wall, storey } = found
-  if (wallLocked(wall)) return { refused: WALL_LOCKED }
+  const locked = wallShapeLock(wall)
+  if (locked) return { refused: locked }
   const now = wallLength(wall)
   if (now === null) return { refused: '꼭짓점 넷인 벽만 길이를 바꿉니다(문·창으로 조각났거나 꺾인 벽은 옮기기만 됩니다).' }
   if (Math.abs(now - length) < 1e-9) return false
@@ -2256,7 +2268,8 @@ export function setWallThickness(model: Model, wallId: string, thickness: number
   const found = findWall(model, wallId)
   if (!found || !(thickness >= 0.01)) return false
   const { wall, storey } = found
-  if (wallLocked(wall)) return { refused: WALL_LOCKED }
+  const locked = wallShapeLock(wall)
+  if (locked) return { refused: locked }
   const len = wallLength(wall)
   if (len === null) return { refused: '꼭짓점 넷인 벽만 두께를 바꿉니다(문·창으로 조각났거나 꺾인 벽은 옮기기만 됩니다).' }
   const axis = wallAxis(wall.footprint!)!
@@ -2286,7 +2299,8 @@ export function setWallThickness(model: Model, wallId: string, thickness: number
 export function setWallHeight(model: Model, wallId: string, height: number | null): boolean | { refused: string } {
   const found = findWall(model, wallId)
   if (!found || (height !== null && !(height > 0))) return false
-  if (wallLocked(found.wall)) return { refused: WALL_LOCKED }
+  const locked = wallShapeLock(found.wall)
+  if (locked) return { refused: locked }
   if ((found.wall.height ?? null) === height) return false
   found.wall.height = height
   return true
