@@ -2168,6 +2168,12 @@ export function deleteWall(model: Model, wallId: string, opts: LockOptions = {})
 export const NEW_WALL_THICKNESS = 0.2
 
 /**
+ * 사이트 기본 내벽 두께(미터, OE-SPC-12 "내벽 150 / 외벽 300mm"). 사이트 설정의 처음 값이고, 사람이 바꾸거나 비울 수 있다.
+ * 층 편집에서 새로 긋는 벽은 내벽이라 이 값만 쓴다. 외벽 300mm 는 쓰는 곳(OE-IDF-10, R2)이 생길 때 같이 둔다.
+ */
+export const SITE_INTERIOR_WALL = 0.15
+
+/**
  * 새로 긋는 벽의 두께와 그 근거(OE-SPC-12). 1) 같은 층 BIM 내벽 두께의 최빈값 → 2) 사이트 기본값 → 3) 0.2m 순이다.
  *
  * - BIM 내벽은 에디터가 더하지 않았고(`added` 없음) 외벽이 아니며(`external` 이 true 가 아님) 두께를 아는 벽이다. 외벽은 단열층까지
