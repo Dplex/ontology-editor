@@ -159,10 +159,12 @@ export function inferFlowByRules(model: Model): RuleReport {
 
   for (const system of model.systems) {
     const info = systemKind(system.kind)
-    if (!info) continue
+    // 냉매 계통은 이 규칙이 다루지 않는다(원천·말단의 흐름이 사전에 없다). 방향을 정하지 않고 세지도 않는다.
+    const field = info ? fields.get(info.medium) : undefined
+    if (!info || !field) continue
     report.systems++
 
-    const { dist, branch } = fields.get(info.medium)!
+    const { dist, branch } = field
     const outdoor = outdoorBranches.get(info.medium)!
     const members = new Set(system.memberIds)
     if (!system.memberIds.some((id) => dist.has(id))) {

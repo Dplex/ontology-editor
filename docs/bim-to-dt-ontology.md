@@ -445,7 +445,7 @@ IFC에 담을 자리가 있는지, 실제 파일이 채워 두었는지, 우리 
 | 방-문-방 연결 | 로봇 경로, 피난 | 문이 포함된 `IfcRelSpaceBoundary` | Duplex 건축 9/14, 성수 0 | 공간 경계가 없으면 문 양쪽의 방을 좌표로 찾는다(공간 경계와 비교해 18/19 일치). 층 사이는 계단실·승강로가 바로 위층의 같은 종류 방과 바닥이 절반 넘게 겹치면 잇는다(`vertical.ts`, 병원 계단실·승강로 7개 중 6개) | GeoJSON 문의 `connects`, 계단실·승강로의 `verticalConnects` |
 | 벽·문·창 위치 | 3D Map, 로봇 | `ObjectPlacement`와 형상 | 확인한 파일 모두 있음 | 형상에서 읽는다. 파일을 열 때 피처별로 끌 수 있다(끄면 "읽지 않음"으로 표시) | GeoJSON |
 | 설비 종류 | 이상 알림 분류, Agent | 클래스·`PredefinedType`(IFC2x3은 타입 객체) | IFC에 종류가 적힌 기기: 병원 HVAC 327/668, ifc4Mep 178/308 | 이름 사전 → IFC에 적힌 종류 순으로 정한다 | TTL 클래스 |
-| 계통 종류·유체 | 계통도(냉수·온수·급수) | `System Type`, `IfcSystem`의 `PredefinedType`·ObjectType | Duplex MEP 811/926, 성수 계통 모두 | 급기·환기·배기·외기·순환수·급탕·급수를 구분해 규칙 방향과 계통 클래스에 쓴다. 유체는 `PredefinedType` → 이름 → 원천 기기 순으로 정한다 | TTL 계통 클래스 |
+| 계통 종류·유체 | 계통도(냉수·온수·급수) | `System Type`, `IfcSystem`의 `PredefinedType`·ObjectType | Duplex MEP 811/926, 성수 계통 모두 | 급기·환기·배기·외기·순환수·급탕·급수·소화·냉매·증기·응축수·지열수를 구분해 규칙 방향과 계통 클래스에 쓴다. 냉매 계통은 규칙 방향을 정하지 않는다. 유체는 `PredefinedType` → 이름 → 원천 기기 순으로 정한다 | TTL 계통 클래스 |
 | 자산 정보 | 자산 관리 | COBie 속성(시리얼·보증·수명) | Duplex MEP 926/926 | 읽지 않는다 | 자산 대장 또는 새 술어. 정해야 한다 |
 | 담당 공간 | 계통도 | 기기와 말단을 묶은 `IfcSystem`, F11 | 조건을 갖춘 파일 0 | 흐름 방향을 따라 급기 말단까지 가서 그 방을 모은다 | 확정된 방향으로 닿은 방만 공기 원천의 `brick:feeds`(새 술어 없음). 환기·배기는 방향이 반대라 내보내지 않는다 |
 | 센서가 측정하는 설비 | `brick:hasPoint`의 주체 | `IfcRelFlowControlElements` | 관계 0 | 센서를 설비로 읽는다 | `brick:hasPoint` |
@@ -765,6 +765,7 @@ R24·R16·R21은 **BIM의 어떤 값을 온톨로지의 어떤 클래스·방향
 | 배기 | `EXHAUST` | 없어도 된다 |
 | 순환수 공급 · 환수 | `HEATING` · `CHILLEDWATER` · `CONDENSERWATER` | `FLOW` · `RETURN` |
 | 급탕 · 급수 | `DOMESTICHOTWATER` · `DOMESTICCOLDWATER` | 없어도 된다 |
+| 소화 · 냉매 | `FIREPROTECTION` · `REFRIGERATION` | 없어도 된다 |
 
 약어는 해당 매체의 `PredefinedType`과 함께 있을 때만 읽는다. 순환수의 `PredefinedType`은 유체 종류(온수·냉수·냉각수)도 알려 준다.
 
