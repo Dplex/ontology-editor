@@ -12,6 +12,8 @@
 // 이상에 이어진다", Wang 2026 Table 2 의 수배관 루프). 공기 규칙만 있을 때는 연결망이 **어디서** 끊겼는지를 말하지
 // 못했고(고립된 기기만 셌다), 열원과 공조기·FCU 사이는 아예 보지 않았다.
 
+import { connectCandidates, excludedText } from './connect-candidates'
+import { releasesOf } from './connection-release'
 import { josa } from './josa'
 import { equipmentKind, systemKind } from './kinds'
 import { distanceToRing, interiorPoint, pointInPolygon } from './mapping'
@@ -201,13 +203,6 @@ export type ExplainContext = {
   label: (id: string) => string
 }
 
-const gapBetween = (a: Box, b: Box) =>
-  Math.hypot(
-    Math.max(0, a[0] - b[3], b[0] - a[3]),
-    Math.max(0, a[1] - b[4], b[1] - a[4]),
-    Math.max(0, a[2] - b[5], b[2] - a[5]),
-  )
-
 /**
  * 어긴 것 하나가 **왜** 어겼는지. 목록에 이름만 있으면 하나씩 3D 로 열어 봐야 알 수 있었다. 고칠 방법이 이유마다
  * 다르다 — 좌표가 없는 설비는 좌표를 넣고, 방 경계에서 0.3m 벗어난 설비는 옮기고, 30m 떨어진 설비는 건축 파일이
@@ -322,24 +317,26 @@ export function diagnoseFailure(key: string, id: string, ctx: ExplainContext): {
   if (key === 'device-connected' || key === 'conduit-ends') {
     // 도관의 한쪽 끝만 이어졌으면 이미 이어진 상대는 후보에서 뺀다 — 열린 끝에 붙을 것을 찾는다.
     const linked = new Set(ctx.model.connections.flatMap((c) => (c.from === id ? [c.to] : c.to === id ? [c.from] : [])))
+    // 사람이 해제 보정한 BIM 연결이 있으면 누락이 아니라 의도한 해제다(OE-PIP-06). 먼저 말하고, 그 상대는 후보에서 뺀다.
+    const released = releasesOf(ctx.model, id).filter((r) => r.review !== 'missing').length
+    const why = released ? `해제 보정한 BIM 연결 ${released}개가 있습니다(의도한 해제라 되살리지 않습니다). ` : ''
     if (key === 'conduit-ends' && linked.size === 1) {
-      if (!ctx.boxes?.get(id)) return say('한쪽 끝만 이어져 있습니다. 형상이 없어 반대쪽 이웃을 잴 수 없습니다.')
+      if (!ctx.boxes?.get(id)) return say(why + '한쪽 끝만 이어져 있습니다. 형상이 없어 반대쪽 이웃을 잴 수 없습니다.')
     }
     const box = ctx.boxes?.get(id)
-    if (!box) return say('포트도, 맞닿은 형상도 없습니다.')
-    let best: { id: string; d: number } | null = null
-    for (const other of equipment) {
-      if (other.id === id || linked.has(other.id)) continue
-      if (e?.systemId && other.systemId && other.systemId !== e.systemId) continue
-      const b = ctx.boxes!.get(other.id)
-      if (!b) continue
-      const d = gapBetween(box, b)
-      if (!best || d < best.d) best = { id: other.id, d }
+    // 해제한 연결이 있으면 포트가 없었던 것이 아니다. 형상이 없어 이웃을 못 잰다고만 한다.
+    if (!box) return say(why + (released ? '형상이 없어 가까운 이웃을 잴 수 없습니다.' : '포트도, 맞닿은 형상도 없습니다.'))
+    // 가까운 순 후보에서 다른 매체·흐름 없는 기기·말단끼리·다른 계통·해제한 연결을 뺀다(OE-PIP-08, connect-candidates.ts).
+    const found = connectCandidates(ctx.model, id, ctx.boxes!)
+    const best = found.candidates[0]
+    const head = why + (key === 'conduit-ends' ? (linked.size === 0 ? '어디에도 이어져 있지 않습니다. ' : '한쪽 끝만 이어져 있습니다. ') : '')
+    const skipped = excludedText(found.excluded)
+    if (!best) {
+      return say(head + '1m 안에 이어질 덕트·배관·설비가 없습니다. 접합 부재가 빠졌을 수 있습니다.' + (skipped ? ` ${skipped} 직접 확인한 뒤 설비 패널의 [연결하기]로 잇습니다.` : ''))
     }
-    const head = key === 'conduit-ends' ? (linked.size === 0 ? '어디에도 이어져 있지 않습니다. ' : '한쪽 끝만 이어져 있습니다. ') : ''
-    if (!best || best.d > 1) return say(head + '1m 안에 이어질 덕트·배관·설비가 없습니다. 접합 부재가 빠졌을 수 있습니다.')
     return say(
-      `${head}가장 가까운 것: ${ctx.label(best.id)}, ${Math.round(best.d * 1000)}mm 떨어져 있습니다. ${Math.round(TOLERANCE * 1000)}mm 안이어야 연결로 봅니다.`,
+      `${head}가장 가까운 것: ${ctx.label(best.id)}, ${Math.round(best.distance * 1000)}mm 떨어져 있습니다. ${Math.round(TOLERANCE * 1000)}mm 안이어야 연결로 봅니다.` +
+        (skipped ? ` ${skipped}` : ''),
       { kind: 'connect', other: best.id },
     )
   }
