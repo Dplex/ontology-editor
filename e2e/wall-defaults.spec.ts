@@ -5,6 +5,8 @@ import { expect, test, type Page } from '@playwright/test'
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 
 async function clickFloor(page: Page, x: number, y: number) {
+  // 설정 칸을 채우면 페이지가 그쪽으로 스크롤된다. 3D 가 화면 밖에 걸친 채 좌표를 재면 바닥이 아닌 곳을 누른다.
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
   const at = (await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])) as { x: number; y: number }
   await page.mouse.click(at.x, at.y)
 }
