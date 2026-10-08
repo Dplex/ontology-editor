@@ -45,6 +45,8 @@ export function splitByStorey(file: EditFile, homeOf: HomeOf): Map<string, EditF
   }
 
   for (const row of file.equipment) push(part(homeOf(row.id) ?? row.storeyId), 'equipment', row)
+  // 사람 지정 소속(K17)은 그 설비의 층 조각이다. 더한 설비처럼 연 때 없던 설비는 건물 조각으로 간다.
+  for (const row of file.assignedSpaces ?? []) push(part(homeOf(row.id)), 'assignedSpaces', row)
   for (const row of file.spaces) push(part(homeOf(row.id)), 'spaces', row)
   for (const row of file.equipmentAdded ?? []) push(part(row.storeyId), 'equipmentAdded', row)
   for (const id of file.equipmentRemoved ?? []) push(part(homeOf(id)), 'equipmentRemoved', id)
@@ -58,6 +60,9 @@ export function splitByStorey(file: EditFile, homeOf: HomeOf): Map<string, EditF
   for (const id of file.openingsRemoved ?? []) push(part(homeOf(id)), 'openingsRemoved', id)
   for (const row of file.customZones ?? []) push(part(row.storeyId), 'customZones', row)
   for (const row of file.storeysDone ?? []) push(part(row.id), 'storeysDone', row)
+  for (const row of file.rooms ?? []) push(part(row.storeyId), 'rooms', row)
+  for (const row of file.ceilings ?? []) push(part(row.storeyId), 'ceilings', row)
+  for (const row of file.spaceObjects ?? []) push(part(row.storeyId), 'spaceObjects', row)
 
   // 층이 없는 편집 — 건물 조각
   const building = () => part(null)
@@ -66,10 +71,14 @@ export function splitByStorey(file: EditFile, homeOf: HomeOf): Map<string, EditF
   if (file.confirmedSystems.length) building().confirmedSystems = file.confirmedSystems
   if (file.confirmedFlows?.length) building().confirmedFlows = file.confirmedFlows
   if (file.connections && (file.connections.add.length || file.connections.remove.length)) building().connections = file.connections
+  if (file.connectionsReleased?.length) building().connectionsReleased = file.connectionsReleased
+  if (file.connectionLog?.length) building().connectionLog = file.connectionLog
   if (file.systems?.length) building().systems = file.systems
   if (file.systemsAdded?.length) building().systemsAdded = file.systemsAdded
   if (file.systemsRemoved?.length) building().systemsRemoved = file.systemsRemoved
   if (file.systemNames?.length) building().systemNames = file.systemNames
+  // 넣은 모델(OE-P3-08)은 여러 층의 오브젝트가 같이 쓴다.
+  if (file.objectLibrary?.length) building().objectLibrary = file.objectLibrary
 
   if (file.keys) {
     for (const p of parts.values()) {
@@ -87,7 +96,7 @@ export function joinParts(parts: Iterable<EditFile>, base: Pick<EditFile, 'forma
   const lists = [
     'equipment', 'spaces', 'kinds', 'flows', 'confirmedSystems', 'confirmedFlows', 'systems', 'systemsAdded', 'systemsRemoved',
     'systemNames', 'equipmentAdded', 'equipmentRemoved', 'spacesAdded', 'spacesRemoved', 'walls', 'wallsAdded', 'wallsRemoved',
-    'openings', 'openingsAdded', 'openingsRemoved', 'customZones', 'storeysDone',
+    'openings', 'openingsAdded', 'openingsRemoved', 'customZones', 'storeysDone', 'ceilings', 'rooms', 'spaceObjects', 'objectLibrary',
   ] as const
   for (const p of parts) {
     for (const key of lists) {
@@ -99,7 +108,11 @@ export function joinParts(parts: Iterable<EditFile>, base: Pick<EditFile, 'forma
       const c = out.connections ?? { add: [], remove: [] }
       out.connections = { add: [...c.add, ...p.connections.add], remove: [...c.remove, ...p.connections.remove] }
     }
+    if (p.assignedSpaces?.length) out.assignedSpaces = [...(out.assignedSpaces ?? []), ...p.assignedSpaces]
     if (p.keys) out.keys = { ...(out.keys ?? {}), ...p.keys }
+    // 해제 보정(OE-PIP-06). 건물 조각에만 있다.
+    if (p.connectionsReleased?.length) out.connectionsReleased = [...(out.connectionsReleased ?? []), ...p.connectionsReleased]
+    if (p.connectionLog?.length) out.connectionLog = [...(out.connectionLog ?? []), ...p.connectionLog]
   }
   return out
 }

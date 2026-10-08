@@ -42,8 +42,18 @@ async function openFromList(page: Page) {
   await listRow(page).getByRole('button', { name: '열기', exact: true }).click()
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
 }
+// 디퓨저·조명은 천장 설비라 천장 편집 모드(T)에서 고친다(OE-OBJ-08).
+async function enterCeiling(page: Page) {
+  const on = page.getByRole('group', { name: '설비 편집 면' }).getByRole('button', { name: '천장' })
+  if ((await on.getAttribute('aria-pressed')) === 'true') return
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('t')
+  await expect(on).toHaveAttribute('aria-pressed', 'true')
+}
+
 async function editLight(page: Page, x: string) {
   if (!(await page.locator('.edit-bar').isVisible())) await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterCeiling(page)
   await light(page).fill(x)
   await light(page).press('Enter')
 }

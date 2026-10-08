@@ -9,10 +9,15 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-BIM-13"]
+depends: ["OE-BIM-13", "OE-EQP-15"]
 ---
 
 # OE-EXT-05 건축 Proxy 루버 오인 방지
+
+## 관련 티켓
+
+- [OE-BIM-13](../E05-BIM/OE-BIM-13.md): Proxy 이름 사전 수용 경로
+- [OE-EQP-15](../E12-EQP/OE-EQP-15.md): 외벽 부착 루버와의 중복 확인
 
 ## 요구사항
 

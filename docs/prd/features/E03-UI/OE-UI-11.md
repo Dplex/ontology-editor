@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-SPC-03"]
 ---
 
 # OE-UI-11 평면도 뷰
+
+## 관련 티켓
+
+- [OE-SPC-03](../E09-SPC/OE-SPC-03.md): 평면도 꼭짓점 경계 편집
 
 ## 요구사항
 

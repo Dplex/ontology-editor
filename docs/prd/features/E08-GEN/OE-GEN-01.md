@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-INT-02"]
+depends: ["OE-INT-02", "OE-GEN-03", "OE-GEN-02"]
 ---
 
 # OE-GEN-01 온톨로지 생성·내보내기
+
+## 관련 티켓
+
+- [OE-INT-02](../E20-INT/OE-INT-02.md): GeoJSON·TTL 산출물 형식
+- [OE-GEN-03](./OE-GEN-03.md): 구축 전 검증
+- [OE-GEN-02](./OE-GEN-02.md): 생성 차단 게이트
 
 ## 요구사항
 

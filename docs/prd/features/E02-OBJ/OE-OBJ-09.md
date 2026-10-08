@@ -9,10 +9,17 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-SPC-14","OE-SPC-15","OE-SPC-16"]
+depends: ["OE-SPC-16", "OE-P3-08", "OE-SPC-14", "OE-SPC-15"]
 ---
 
 # OE-OBJ-09 추가 공간 오브젝트
+
+## 관련 티켓
+
+- [OE-SPC-16](../E09-SPC/OE-SPC-16.md): 오브젝트 종류 라이브러리
+- [OE-P3-08](../E21-P3/OE-P3-08.md): 사용자 3D 모델로 종류 추가
+- [OE-SPC-14](../E09-SPC/OE-SPC-14.md): 생성·삭제·이동·크기 조절
+- [OE-SPC-15](../E09-SPC/OE-SPC-15.md): 오브젝트끼리 겹침 차단
 
 ## 요구사항
 

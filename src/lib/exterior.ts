@@ -9,7 +9,8 @@
 // 모델에 저장하지 않고 쓸 때 계산한다(vertical.ts 와 같다). 벽을 옮기거나 더하고 지우면 다음 계산에 그대로 반영되어
 // 재판정을 호출부에 맡길 일이 없다. 접은 방법과 실측은 docs/adr/0002-external-wall-flood-fill.md.
 
-import type { Model, Storey, Vec2, Wall } from './model'
+import { isConduit, type Model, type Storey, type Vec2, type Wall } from './model'
+import { equipmentKind } from './kinds'
 
 /** 격자 한 칸(미터). 문 폭(0.8m~)보다 충분히 작고, 방-벽 틈(몇 cm)보다 크다. */
 const CELL = 0.1
@@ -232,4 +233,25 @@ function convexHull(points: readonly Vec2[]): Vec2[] {
     upper.push(p)
   }
   return [...lower.slice(0, -1), ...upper.slice(0, -1)]
+}
+
+/**
+ * 외벽 설비(OE-EQP-15·OE-EXT-04). 외벽 바깥 면에 붙는 종류(외기 센서 — kinds.ts 의 `mount: 'exterior'` — 와 외부 루버)와, 사람이
+ * 외벽에 붙인 설비다. 방 안에 들지 않는 것이 맞는 설비라 소속 방 없음을 허용하고, 완전성 검사 "기기마다 소속 방" 과 등급 2(소속)의
+ * 분모에서 뺀다. 외벽에 붙인 설비의 외벽 여부는 judgeExternal(BIM·편집·계산)로 본다 — 붙인 설비가 있는 층만 잰다.
+ */
+export function exteriorDevices(model: Model): Set<string> {
+  const out = new Set<string>()
+  for (const storey of model.storeys) {
+    let judged: Map<string, ExternalJudgement> | null = null
+    for (const e of storey.equipment) {
+      if (isConduit(e.role)) continue
+      if (equipmentKind(e.kind)?.mount === 'exterior' || e.kind === 'outdoor_louver') out.add(e.id)
+      else if (e.wallId) {
+        judged ??= judgeExternal(storey)
+        if (judged.get(e.wallId)?.external) out.add(e.id)
+      }
+    }
+  }
+  return out
 }

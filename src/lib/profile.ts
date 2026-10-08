@@ -9,6 +9,7 @@ import { countOf, isConduit, type Model } from './model'
 import { deviceFlows } from './topology'
 import { withInferred } from './flow-rules'
 import { matchStorey } from './merge'
+import { exteriorDevices } from './exterior'
 
 /** 한 등급이 얼마나 찼나. 분수로 들고 다니고, 화면이 채움·일부·없음으로 칠한다. */
 export type Tier = {
@@ -69,7 +70,10 @@ export function profileOf(model: Model): Profile {
   const devices = all.filter((e) => !isConduit(e.role))
   const drawn = model.storeys.reduce((n, s) => n + s.spaces.filter((sp) => sp.footprint.length >= 3).length, 0)
   const placed = devices.filter((e) => e.position !== null).length
-  const located = devices.filter((e) => e.spaceId !== null).length
+  // 소속(등급 2)은 외벽 설비를 분모에서 뺀다 — 방 밖이 맞는 자리다(OE-EQP-15).
+  const exterior = exteriorDevices(model)
+  const indoor = devices.filter((e) => !exterior.has(e.id))
+  const located = indoor.filter((e) => e.spaceId !== null).length
   const ported = model.connections.filter((x) => x.source === 'port').length
   // 방향은 연결이 아니라 **기기 쌍**으로 센다. DT 가 받는 것은 덕트·배관을 건너뛴 기기 → 기기
   // 흐름이라(deviceFlows 주석 참조), 연결 단위로 세면 받는 것보다 좋아 보인다.
@@ -115,15 +119,15 @@ export function profileOf(model: Model): Profile {
       key: 'location',
       label: '소속',
       have: located,
-      of: devices.length,
-      level: level(located, devices.length),
-      figure: figure(located, devices.length),
+      of: indoor.length,
+      level: level(located, indoor.length),
+      figure: figure(located, indoor.length),
       note:
         devices.length === 0
           ? '기기가 없다'
           : c.spaces === 0
             ? `기기 ${devices.length}대가 있는데 방이 없다. 건축 파일과 합쳐야 한다`
-            : `기기 ${devices.length}대 중 소속 물리존을 찾은 것 ${located}대`,
+            : `기기 ${indoor.length}대 중 소속 물리존을 찾은 것 ${located}대` + (exterior.size ? ` · 외벽 설비 ${exterior.size}대는 제외` : ''),
     },
     {
       key: 'network',

@@ -14,6 +14,7 @@
 import { computed, ref, watch } from 'vue'
 import { isConduit, type Storey, type Vec2 } from '../lib/model'
 import { labelPoint } from '../lib/polygon'
+import { isMultiSelect } from '../lib/shortcuts'
 
 const props = defineProps<{
   storey: Storey
@@ -29,9 +30,9 @@ const props = defineProps<{
   group?: readonly string[]
 }>()
 const emit = defineEmits<{
-  /** `additive` 는 Shift 를 누른 채 누른 것(여러 개 고르기, OE-UI-09). */
+  /** `additive` 는 Ctrl(⌘)을 누른 채 누른 것(여러 개 고르기, OE-UI-09). */
   select: [id: string, additive: boolean]
-  /** 편집 모드에서 Shift+끌기로 그린 상자 안의 설비(OE-UI-09). */
+  /** 편집 모드에서 Ctrl+끌기로 그린 상자 안의 설비(OE-UI-09). */
   selectBox: [ids: string[]]
   pickSpace: [id: string | null]
   pickElement: [id: string]
@@ -128,12 +129,12 @@ let pan: { x: number; y: number; vx: number; vy: number } | null = null
 /** 끌어서 옮겼으면 뒤따르는 클릭을 고르기로 치지 않는다. */
 let moved = false
 const drag = ref<{ index: number; at: Vec2 } | null>(null)
-/** Shift+끌기로 그리는 고르기 상자(OE-UI-09). IFC 평면 좌표. */
+/** Ctrl+끌기로 그리는 고르기 상자(OE-UI-09). IFC 평면 좌표. */
 const box = ref<{ from: Vec2; to: Vec2 } | null>(null)
 
 function onPointerDown(event: PointerEvent) {
   if (event.button !== 0) return
-  if (props.editing && event.shiftKey) {
+  if (props.editing && isMultiSelect(event)) {
     const at = toModel(event)
     box.value = { from: at, to: at }
     moved = false
@@ -163,7 +164,7 @@ function onPointerUp() {
   if (box.value) {
     const { from, to } = box.value
     box.value = null
-    // 거의 안 끌었으면 Shift+클릭이다(점의 @click 이 받는다).
+    // 거의 안 끌었으면 Ctrl+클릭이다(점의 @click 이 받는다).
     if (!moved) return
     const [x0, x1, y0, y1] = [Math.min(from[0], to[0]), Math.max(from[0], to[0]), Math.min(from[1], to[1]), Math.max(from[1], to[1])]
     emit('selectBox', devices.value.filter((e) => e.position![0] >= x0 && e.position![0] <= x1 && e.position![1] >= y0 && e.position![1] <= y1).map((e) => e.id))
@@ -278,12 +279,12 @@ function pickSpace(id: string) {
         :r="unit * (e.id === selectedId || group?.includes(e.id) ? 6 : 4)"
         :class="{ chosen: e.id === selectedId || group?.includes(e.id) }"
         :data-equipment="e.id"
-        @click.stop="!moved && emit('select', e.id, $event.shiftKey)"
+        @click.stop="!moved && emit('select', e.id, isMultiSelect($event))"
       >
         <title>{{ e.name || e.ifcClass }}</title>
       </circle>
     </g>
-    <!-- Shift+끌기 고르기 상자(OE-UI-09). -->
+    <!-- Ctrl+끌기 고르기 상자(OE-UI-09). -->
     <rect
       v-if="box"
       class="box-select"

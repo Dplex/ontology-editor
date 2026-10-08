@@ -9,10 +9,17 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-PIP-04", "OE-PIP-05", "K13", "OE-PIP-06", "OE-PIP-07"]
 ---
 
 # OE-PIP-01 연결 잇기·끊기 (E8)
+
+## 관련 티켓
+
+- [OE-PIP-04](./OE-PIP-04.md): 연결별 방향 지정
+- [OE-PIP-05](./OE-PIP-05.md): 규칙 방향 추정·확정
+- [OE-PIP-06](./OE-PIP-06.md): BIM 연결 해제 보정·재임포트 유지
+- [OE-PIP-07](./OE-PIP-07.md): 연결 변경 후 규칙 방향 재계산
 
 ## 요구사항
 

@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["R22"]
+depends: ["OE-BIM-06", "R22"]
 ---
 
 # OE-OBJ-06 내력벽
+
+## 관련 티켓
+
+- [OE-BIM-06](../E05-BIM/OE-BIM-06.md): LoadBearing 값 읽기
 
 ## 요구사항
 

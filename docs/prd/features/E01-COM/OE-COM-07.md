@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-COM-05","Q1"]
+depends: ["OE-COM-05", "Q1"]
 ---
 
 # OE-COM-07 잠금 해제 — 비정상 종료
+
+## 관련 티켓
+
+- [OE-COM-05](./OE-COM-05.md): 자동 해제할 층 편집 잠금
 
 ## 요구사항
 

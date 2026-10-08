@@ -9,10 +9,18 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-SPC-06","OE-SPC-07","OE-SPC-08","OE-SPC-09","OE-SPC-10","Q4"]
+depends: ["OE-SPC-08", "OE-SPC-09", "OE-SPC-07", "OE-SPC-10", "OE-SPC-06", "Q4"]
 ---
 
 # OE-OBJ-01 커스텀존 편집 범위
+
+## 관련 티켓
+
+- [OE-SPC-08](../E09-SPC/OE-SPC-08.md): 커스텀존 생성·분할·병합·삭제
+- [OE-SPC-09](../E09-SPC/OE-SPC-09.md): 물리존·공조존 매핑 자동 갱신
+- [OE-SPC-07](../E09-SPC/OE-SPC-07.md): 커스텀존끼리 겹침 허용
+- [OE-SPC-10](../E09-SPC/OE-SPC-10.md): 커스텀존 단위 Agent 질의
+- [OE-SPC-06](../E09-SPC/OE-SPC-06.md): 커스텀존 지정·이름
 
 ## 요구사항
 

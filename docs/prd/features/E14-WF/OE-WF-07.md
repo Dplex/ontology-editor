@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-UI-12"]
+depends: ["OE-UI-12", "OE-WF-08", "OE-WF-09"]
 ---
 
 # OE-WF-07 미리보기 3D
+
+## 관련 티켓
+
+- [OE-UI-12](../E03-UI/OE-UI-12.md): Phase별 표시 범위
+- [OE-WF-08](./OE-WF-08.md): 미리보기 변경 요약
+- [OE-WF-09](./OE-WF-09.md): 미리보기 영향 목록
 
 ## 요구사항
 

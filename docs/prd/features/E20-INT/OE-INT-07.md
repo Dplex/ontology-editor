@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-review"
 blocked_by: ["U4"]
-depends: ["U4"]
+depends: ["OE-UI-13", "U4"]
 ---
 
 # OE-INT-07 출처 술어 (S4)
+
+## 관련 티켓
+
+- [OE-UI-13](../E03-UI/OE-UI-13.md): 화면 출처 표시
 
 ## 요구사항
 

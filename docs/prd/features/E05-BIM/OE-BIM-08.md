@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-GEN-10", "OE-BIM-09", "OE-PIP-03"]
 ---
 
 # OE-BIM-08 토출구·배관 초안
+
+## 관련 티켓
+
+- [OE-GEN-10](../E08-GEN/OE-GEN-10.md): 도관 fso: 내보내기
+- [OE-BIM-09](./OE-BIM-09.md): 배관 초안 Flow Type 근거 계통
+- [OE-PIP-03](../E13-PIP/OE-PIP-03.md): 계통 종류로 Flow Type 결정
 
 ## 요구사항
 

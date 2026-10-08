@@ -4,15 +4,19 @@ epic: "E04"
 epic_title: "초기 구축 — IDF 임포트"
 title: "층 매핑"
 prd: "#5"
-release: "R1"
+release: "R2"
 priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-IDF-11"]
 ---
 
 # OE-IDF-04 층 매핑
+
+## 관련 티켓
+
+- [OE-IDF-11](./OE-IDF-11.md): 층 매핑 결과 표시·수동 수정
 
 ## 요구사항
 

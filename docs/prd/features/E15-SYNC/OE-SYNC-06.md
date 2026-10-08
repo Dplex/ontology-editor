@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-HIST"]
+depends: ["OE-WF-08", "OE-SYNC-04", "OE-HIST"]
 ---
 
 # OE-SYNC-06 편집 리포트 규칙
+
+## 관련 티켓
+
+- [OE-WF-08](../E14-WF/OE-WF-08.md): 규칙을 쓰는 미리보기 요약
+- [OE-SYNC-04](./OE-SYNC-04.md): 규칙을 쓰는 결과 리포트
 
 ## 요구사항
 

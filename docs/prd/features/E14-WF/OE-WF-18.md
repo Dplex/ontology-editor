@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-INT-01","D-INT","S6","OE-SYNC-04"]
+depends: ["OE-WF-20", "OE-SYNC-04", "OE-INT-01", "D-INT", "S6"]
 ---
 
 # OE-WF-18 버전 히스토리
+
+## 관련 티켓
+
+- [OE-WF-20](./OE-WF-20.md): 1주일 보관 범위
+- [OE-SYNC-04](../E15-SYNC/OE-SYNC-04.md): 버전별 결과 리포트 열기
+- [OE-INT-01](../E20-INT/OE-INT-01.md): 히스토리 저장 위치 결정
 
 ## 요구사항
 

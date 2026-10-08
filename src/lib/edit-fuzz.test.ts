@@ -30,8 +30,8 @@ describe('편집을 무작위로 섞어도', () => {
     const failed: string[] = []
     for (let seed = 1; seed <= 200; seed++) {
       const r = fuzzEdits(model, seed, 25)
-      if (!r.reloadSame || r.missing || !r.undoSame) {
-        failed.push(`seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}`)
+      if (!r.reloadSame || r.missing || !r.undoSame || !r.redoSame) {
+        failed.push(`seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} · 다시 하기 ${r.redoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}`)
       }
     }
     expect(failed.slice(0, 3)).toEqual([])

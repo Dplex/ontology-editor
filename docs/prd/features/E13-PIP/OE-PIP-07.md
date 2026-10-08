@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-PIP-06", "OE-PIP-04", "OE-PIP-05"]
 ---
 
 # OE-PIP-07 규칙 재계산
+
+## 관련 티켓
+
+- [OE-PIP-06](./OE-PIP-06.md): 해제된 연결의 계산 제외
+- [OE-PIP-04](./OE-PIP-04.md): 수동 확정 방향 보존·취소
+- [OE-PIP-05](./OE-PIP-05.md): 규칙 방향 재확정
 
 ## 요구사항
 

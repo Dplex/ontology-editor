@@ -9,7 +9,7 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["S1","S2","S3","S4","S5","S6","S7","S8"]
+depends: ["S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8"]
 ---
 
 # OE-INT-09 요구조건 S1~S8

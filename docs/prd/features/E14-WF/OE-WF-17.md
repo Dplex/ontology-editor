@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-WF-14"]
 ---
 
 # OE-WF-17 재진입 적용
+
+## 관련 티켓
+
+- [OE-WF-14](./OE-WF-14.md): 새로고침 시점 적용 원칙
 
 ## 요구사항
 

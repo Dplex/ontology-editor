@@ -299,14 +299,16 @@ test('규칙이 짐작한 방향은 (추정)으로 보이고, 사람이 연결 �
   // 포트가 방향을 말한 이웃은 그냥 "상류" 이고 고칠 수 없다.
   const ahu = picked.locator('.neighbors tr', { hasText: 'AHU-1' })
   await expect(ahu.locator('.rel')).toHaveText('상류')
-  await expect(ahu.getByRole('button', { name: '상류로' })).toHaveCount(0)
+  await expect(ahu.getByTestId('flow-in')).toHaveCount(0)
 
   // SOURCEANDSINK 로 붙은 토출구. 규칙이 짐작한 방향이라 (추정)이 붙는다.
   const terminal = picked.locator('.neighbors tr', { hasText: 'AT-101-02' })
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
 
-  // 규칙과 반대로 정해 본다. 편집 표시가 붙고 리포트에 남는다.
-  await terminal.getByRole('button', { name: '상류로' }).click()
+  // 규칙과 반대로 정해 본다(사유를 적고 적용). 편집 표시가 붙고 리포트에 남는다.
+  await terminal.getByTestId('flow-in').click()
+  await terminal.getByTestId('flow-reason').fill('현장 확인')
+  await terminal.getByTestId('flow-apply').click()
   await expect(terminal.locator('.rel')).toHaveText('상류')
   await expect(terminal).toContainText('직접 정한 방향 편집')
   const report = page.locator('.report')
@@ -314,7 +316,7 @@ test('규칙이 짐작한 방향은 (추정)으로 보이고, 사람이 연결 �
   await expect(report).toContainText('규칙 방향과 반대')
 
   // 되돌리면 규칙 방향으로 돌아가고 리포트에서 빠진다.
-  await terminal.getByRole('button', { name: '지우기' }).click()
+  await terminal.getByTestId('flow-clear').click()
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
   await expect(page.locator('.report')).toHaveCount(0)
 
@@ -339,7 +341,10 @@ test('보기 모드는 고치는 칸을 숨기고, 편집 모드는 막대와 �
   await expect(page.locator('.equipment input').first()).toBeVisible()
 
   // 편집한 것은 편집 막대가 센다. 보기로 돌아가도 리포트는 남는다.
-  await page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' }).getByRole('button', { name: '상류로' }).click()
+  const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
+  await terminal.getByTestId('flow-in').click()
+  await terminal.getByTestId('flow-reason').fill('현장 확인')
+  await terminal.getByTestId('flow-apply').click()
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
   await page.getByRole('button', { name: '보기', exact: true }).click()
   await expect(page.locator('.report')).toContainText('AT-101-02 → DUCT-01')

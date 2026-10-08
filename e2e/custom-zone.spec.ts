@@ -41,7 +41,7 @@ test('커스텀존을 그리면 품는 방·든 설비가 계산되고, 이름·
   await name.press('Enter')
   await expect(panel.locator('h3')).toHaveText('개발팀')
 
-  // x=5 로 나누면 넓은 쪽(1.5..5 가 3.5m, 5..9.5 가 4.5m)이 이름을 이어받고 좁은 쪽이 "개발팀 2" 다. 디퓨저가 하나씩 든다.
+  // x=5 로 나누면 넓은 쪽(1.5..5 가 3.5m, 5..9.5 가 4.5m)이 이름을 이어받고 좁은 쪽이 "개발팀-02" 다(OE-SPC-08). 디퓨저가 하나씩 든다.
   await panel.getByRole('button', { name: '나누기' }).click()
   await clickFloor(page, 5, -1)
   await clickFloor(page, 5, 9)
@@ -51,8 +51,8 @@ test('커스텀존을 그리면 품는 방·든 설비가 계산되고, 이름·
 
   // 다시 합친다.
   const zones = await panel.locator('select[aria-label="합칠 커스텀존"] option').allTextContents()
-  expect(zones).toContain('개발팀 2')
-  await panel.locator('select[aria-label="합칠 커스텀존"]').selectOption({ label: '개발팀 2' })
+  expect(zones).toContain('개발팀-02')
+  await panel.locator('select[aria-label="합칠 커스텀존"]').selectOption({ label: '개발팀-02' })
   await expect(panel.getByTestId('zone-equipment')).toContainText('2대')
 
   // 지우고 Ctrl+Z 로 되돌린다.

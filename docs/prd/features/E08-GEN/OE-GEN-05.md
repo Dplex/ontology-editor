@@ -10,10 +10,16 @@ owner: "tbd"
 status: "prd-review"
 status_note: "저장 위치"
 blocked_by: []
-depends: ["OE-WF-13","OE-WF-18","D-INT"]
+depends: ["OE-WF-18", "OE-GEN-09", "OE-WF-13", "D-INT"]
 ---
 
 # OE-GEN-05 버전 v1 기록
+
+## 관련 티켓
+
+- [OE-WF-18](../E14-WF/OE-WF-18.md): v1 기준 버전 히스토리
+- [OE-GEN-09](./OE-GEN-09.md): 버전에 붙는 리포트
+- [OE-WF-13](../E14-WF/OE-WF-13.md): 반영 때 쌓이는 이후 버전
 
 ## 요구사항
 

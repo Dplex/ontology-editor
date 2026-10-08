@@ -4,15 +4,19 @@ epic: "E04"
 epic_title: "초기 구축 — IDF 임포트"
 title: "HVAC 객체 → 설비·담당"
 prd: "#5"
-release: "R1"
+release: "R2"
 priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-IDF-08"]
 ---
 
 # OE-IDF-02 HVAC 객체 → 설비·담당
+
+## 관련 티켓
+
+- [OE-IDF-08](./OE-IDF-08.md): BIM 설비와 위치·동일성 연결
 
 ## 요구사항
 

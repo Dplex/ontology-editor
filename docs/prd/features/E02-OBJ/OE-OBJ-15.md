@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["D16"]
+depends: ["OE-PIP-10", "D16"]
 ---
 
 # OE-OBJ-15 인터랙션 원칙
+
+## 관련 티켓
+
+- [OE-PIP-10](../E13-PIP/OE-PIP-10.md): 꼭짓점·구간 끌어 배관 수정
 
 ## 요구사항
 

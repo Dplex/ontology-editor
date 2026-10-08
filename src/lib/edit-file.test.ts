@@ -15,6 +15,8 @@ import {
   moveSpaceVertex,
   releaseDeclaredSpace,
   renameSpace,
+  deleteSpace,
+  setSpaceNumber,
   setFlowDirection,
   setTypeKind,
   addOpening,
@@ -22,6 +24,7 @@ import {
   deleteOpening,
   deleteWall,
   setWallLoadBearing,
+  setWallExternal,
   setOpeningSize,
   setEquipmentSystem,
   setSystemKind,
@@ -70,8 +73,8 @@ describe('편집 저장·불러오기', () => {
     setFlowDirection(free, free.to)
 
     const file = exportEdits(a, base, 'mep.ifc', new Date('2026-09-24T00:00:00Z'))
-    // 바뀐 것만 담는다. 손대지 않은 설비·물리존은 없다.
-    expect(file.equipment.map((e) => e.id).sort()).toEqual([equip(a, 'AHU-1').id, equip(a, 'AT-101-01').id].sort())
+    // 바뀐 것만 담는다. 손대지 않은 설비·물리존은 없다. 조명은 사무실 경계를 고쳐 BIM 소속이 좌표 판정으로 풀렸다(Q13).
+    expect(file.equipment.map((e) => e.id).sort()).toEqual([equip(a, 'AHU-1').id, equip(a, 'AT-101-01').id, equip(a, 'LIGHT-101-01').id].sort())
     expect(file.spaces).toHaveLength(1)
     expect(file.spaces[0].longName).toBe('대회의실')
 
@@ -205,6 +208,8 @@ describe('편집 저장·불러오기', () => {
     expect(bearing.loadBearing).toBe(true)
     expect(deleteWall(a, bearing.id)).toBeNull()
     setWallLoadBearing(a, bearing.id, false)
+    // 외벽도 층 편집에서 지우지 않는다(OE-EXT-02). 외벽 여부를 풀고 지운다.
+    setWallExternal(a, bearing.id, false)
     expect(deleteWall(a, bearing.id)).not.toBeNull()
     const b = read('two-rooms.ifc')
     const result = applyEdits(b, parseEditFile(JSON.stringify(exportEdits(a, base, 'two-rooms.ifc'))) as EditFile)
@@ -355,6 +360,53 @@ describe('편집 저장·불러오기', () => {
 })
 
 // OE-PIP-09 계통 이름 고치기(2026-10-03 사용자 결정 — BIM 계통도 바꾼다). e2e 는 화면에서 한 번 바꾸는 것만 잰다.
+describe('방번호 (OE-OBJ-02)', () => {
+  it('맞바꾼 방번호가 불러오면 그대로다 — 한 줄씩 넣는 도중에 잠깐 겹쳐도 막지 않는다', () => {
+    const a = read('two-rooms.ifc')
+    const base = baselineOf(a)
+    const [meeting, corridor] = a.storeys[0].spaces
+    expect([meeting.name, corridor.name]).toEqual(['101', '102'])
+    setSpaceNumber(a, meeting.id, '999')
+    setSpaceNumber(a, corridor.id, '101')
+    setSpaceNumber(a, meeting.id, '102')
+
+    const b = read('two-rooms.ifc')
+    const result = applyEdits(b, parseEditFile(JSON.stringify(exportEdits(a, base, 'two-rooms.ifc'))) as EditFile)
+    expect(b.storeys[0].spaces.map((sp) => sp.name)).toEqual(['102', '101'])
+    expect(result.numberConflicts).toEqual([])
+    expect(result.missing.spaces).toBe(0)
+  })
+
+  it('지운 물리존의 번호를 다른 물리존에 준 편집도 불러오면 그대로다 — 지우기까지 얹은 뒤 겹침을 본다', () => {
+    const a = read('two-rooms.ifc')
+    const base = baselineOf(a)
+    const [meeting, corridor] = a.storeys[0].spaces
+    expect(deleteSpace(a, meeting.id)).toBeTruthy()
+    setSpaceNumber(a, corridor.id, '101')
+
+    const b = read('two-rooms.ifc')
+    const result = applyEdits(b, parseEditFile(JSON.stringify(exportEdits(a, base, 'two-rooms.ifc'))) as EditFile)
+    expect(b.storeys[0].spaces.map((sp) => [sp.id, sp.name])).toEqual([[corridor.id, '101']])
+    expect(result.numberConflicts).toEqual([])
+  })
+
+  it('새 판본에 같은 번호가 생겼으면 편집한 쪽만 BIM 번호로 되돌리고 알린다', () => {
+    const a = read('two-rooms.ifc')
+    const base = baselineOf(a)
+    const [meeting] = a.storeys[0].spaces
+    setSpaceNumber(a, meeting.id, '103')
+    const file = exportEdits(a, base, 'two-rooms.ifc')
+
+    // 새 판본: 복도 번호가 103 으로 바뀌어 나왔다.
+    const b = read('two-rooms.ifc')
+    b.storeys[0].spaces[1].name = '103'
+    const result = applyEdits(b, parseEditFile(JSON.stringify(file)) as EditFile)
+    expect(b.storeys[0].spaces.map((sp) => sp.name)).toEqual(['101', '103'])
+    expect(result.numberConflicts).toEqual([{ storey: b.storeys[0].name, number: '103', spaceIds: [meeting.id] }])
+    expect(result.applied).toBe(0)
+  })
+})
+
 describe('계통 이름 (OE-PIP-09)', () => {
   it('앞뒤 공백은 떼고, 빈 이름·같은 이름은 바꾸지 않으며, 되돌리면 BIM 이름이다', () => {
     const a = read('mep.ifc')
@@ -412,3 +464,21 @@ describe('같은 두 설비 사이의 연결 둘', () => {
   })
 })
 
+
+describe('한 대만 정한 종류 (OE-EQP-14)', () => {
+  it('같은 타입 중 한 대만 바꾼 종류는 다시 열어 얹어도 그 설비에만 붙는다', () => {
+    const prep = (m: Model) => {
+      equip(m, 'AT-101-01').objectType = 'M_Return Register:600'
+      equip(m, 'AT-101-02').objectType = 'M_Return Register:600'
+      return m
+    }
+    const m = prep(read('mep.ifc'))
+    const base = baselineOf(m)
+    setTypeKind(m, `#${equip(m, 'AT-101-01').id}`, 'air_grille')
+    const file = exportEdits(m, base, 'mep.ifc')
+    expect(file.kinds).toEqual([{ typeKey: `#${equip(m, 'AT-101-01').id}`, kind: 'air_grille' }])
+    const fresh = prep(read('mep.ifc'))
+    applyEdits(fresh, file)
+    expect([equip(fresh, 'AT-101-01').kind, equip(fresh, 'AT-101-02').kind]).toEqual(['air_grille', 'air_diffuser'])
+  })
+})

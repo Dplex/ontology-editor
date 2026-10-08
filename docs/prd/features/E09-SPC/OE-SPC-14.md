@@ -9,10 +9,17 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-SPC-16"]
+depends: ["OE-SPC-16", "OE-P3-08", "OE-OBJ-09", "OE-OBJ-16"]
 ---
 
 # OE-SPC-14 추가 오브젝트 배치
+
+## 관련 티켓
+
+- [OE-SPC-16](./OE-SPC-16.md): 오브젝트 라이브러리
+- [OE-P3-08](../E21-P3/OE-P3-08.md): 라이브러리에 없는 3D 모델 추가
+- [OE-OBJ-09](../E02-OBJ/OE-OBJ-09.md): 추가 오브젝트 편집 범위
+- [OE-OBJ-16](../E02-OBJ/OE-OBJ-16.md): 오브젝트 간 겹침 불가
 
 ## 요구사항
 

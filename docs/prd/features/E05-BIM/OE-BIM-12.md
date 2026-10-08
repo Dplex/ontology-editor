@@ -9,7 +9,7 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R11","K5","Q8"]
+depends: ["K5", "R11", "Q8"]
 ---
 
 # OE-BIM-12 배치점 보정

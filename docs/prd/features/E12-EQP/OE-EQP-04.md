@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-OBJ-08","OE-EQP-03","Q10","Q7"]
+depends: ["OE-OBJ-08", "OE-EQP-03", "Q10", "Q7"]
 ---
 
 # OE-EQP-04 천장 설비 표시
+
+## 관련 티켓
+
+- [OE-OBJ-08](../E02-OBJ/OE-OBJ-08.md): 천장 편집 모드 표시
+- [OE-EQP-03](./OE-EQP-03.md): h_c 미상 시 입력 요청
 
 ## 요구사항
 

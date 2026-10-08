@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-SYNC-03"]
+depends: ["OE-SYNC-03", "OE-WF-21"]
 ---
 
 # OE-SPC-05 공간명 연동
+
+## 관련 티켓
+
+- [OE-SYNC-03](../E15-SYNC/OE-SYNC-03.md): 탐색기 트리 이름 연동
+- [OE-WF-21](../E14-WF/OE-WF-21.md): 이상 알림 발생 위치 연동
 
 ## 요구사항
 

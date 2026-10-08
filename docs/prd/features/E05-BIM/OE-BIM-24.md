@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R13","OE-HIST-03"]
+depends: ["OE-HIST-03", "R13"]
 ---
 
 # OE-BIM-24 출처 구분·재임포트
+
+## 관련 티켓
+
+- [OE-HIST-03](../E19-HIST/OE-HIST-03.md): 재임포트 시 편집분 보존
 
 ## 요구사항
 

@@ -9,10 +9,28 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: ["U6"]
-depends: ["K1","K2","K6","OE-BIM-12","OE-EQP-15","OE-MAP-06","OE-WF-09","OE-WF-21","Q11","Q12","Q13","Q14","Q15","K17","OE-HIST-03","OE-SYNC-04"]
+depends: ["OE-MAP-05", "K6", "OE-EQP-15", "OE-ML-02", "OE-BIM-12", "K2", "OE-SPC-02", "OE-SPC-04", "OE-EQP-12", "OE-SPC-03", "K1", "OE-BIM-18", "K17", "OE-WF-09", "OE-SYNC-04", "OE-HIST-03", "OE-MAP-06", "OE-WF-10", "OE-WF-21", "Q11", "Q12", "Q13", "Q14", "Q15"]
 ---
 
 # OE-MAP-01 설비 → 물리존 자동 판정
+
+## 관련 티켓
+
+- [OE-MAP-05](./OE-MAP-05.md): 담당 공간(공조존)과의 구분
+- [OE-EQP-15](../E12-EQP/OE-EQP-15.md): 외벽 전용 설비 소속
+- [OE-ML-02](../E18-ML/OE-ML-02.md): 샤프트·승강로 안 설비
+- [OE-BIM-12](../E05-BIM/OE-BIM-12.md): 층 판정용 보정 배치점
+- [OE-SPC-02](../E09-SPC/OE-SPC-02.md): 병합·삭제·분할 시 재판정
+- [OE-SPC-04](../E09-SPC/OE-SPC-04.md): 삭제된 물리존의 명시 소속 해제
+- [OE-EQP-12](../E12-EQP/OE-EQP-12.md): 설비 이동 후 재판정
+- [OE-SPC-03](../E09-SPC/OE-SPC-03.md): 경계 수정 시 재판정
+- [OE-BIM-18](../E05-BIM/OE-BIM-18.md): 소속 없음의 완전성 위반 집계
+- [OE-WF-09](../E14-WF/OE-WF-09.md): 바뀐 소속의 미리보기 표시
+- [OE-SYNC-04](../E15-SYNC/OE-SYNC-04.md): 바뀐 소속의 반영 리포트 기록
+- [OE-HIST-03](../E19-HIST/OE-HIST-03.md): 사람 지정의 편집 파일 저장
+- [OE-MAP-06](./OE-MAP-06.md): 편집 시 재판정 시점
+- [OE-WF-10](../E14-WF/OE-WF-10.md): 반영하기 때 온톨로지 반영
+- [OE-WF-21](../E14-WF/OE-WF-21.md): 이상 알림 발생 위치
 
 ## 요구사항
 

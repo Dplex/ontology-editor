@@ -4,15 +4,21 @@ epic: "E04"
 epic_title: "초기 구축 — IDF 임포트"
 title: "존 설계 급기 풍량"
 prd: "#5"
-release: "R1"
+release: "R2"
 priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-ZON-05","OE-ZON-06","OE-IDF-11","Q16","K9","U8"]
+depends: ["OE-ZON-06", "K9", "OE-ZON-05", "OE-IDF-11", "Q16", "U8"]
 ---
 
 # OE-IDF-03 존 설계 급기 풍량
+
+## 관련 티켓
+
+- [OE-ZON-06](../E10-ZON/OE-ZON-06.md): 설계 풍량 선택·단위 환산
+- [OE-ZON-05](../E10-ZON/OE-ZON-05.md): 용량 검증 Z-03
+- [OE-IDF-11](./OE-IDF-11.md): 기준값 없는 존 표시
 
 ## 요구사항
 

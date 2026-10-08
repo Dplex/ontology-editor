@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-WF-01"]
+depends: ["OE-WF-01", "OE-COM-05"]
 ---
 
 # OE-COM-03 임시 저장본 공동 접근
+
+## 관련 티켓
+
+- [OE-WF-01](../E14-WF/OE-WF-01.md): 층 단위 임시 저장본
+- [OE-COM-05](./OE-COM-05.md): 편집 중인 층 열기 차단
 
 ## 요구사항
 

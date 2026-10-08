@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-EXT-01"]
+depends: ["OE-MAP-01", "OE-EXT-01"]
 ---
 
 # OE-EQP-15 외벽 부착 설비
+
+## 관련 티켓
+
+- [OE-MAP-01](../E11-MAP/OE-MAP-01.md): 소속 판정 1단계(외벽 설비)
+- [OE-EXT-01](../E17-EXT/OE-EXT-01.md): 외벽 판정 기준
 
 ## 요구사항
 

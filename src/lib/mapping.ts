@@ -157,6 +157,14 @@ export const SNAP = 0.05
  * 어디에도 없으면 null 이다.
  */
 export function locate(point: Vec2, spaces: readonly Space[], snap = SNAP): string | null {
+  return locateHow(point, spaces, snap)?.id ?? null
+}
+
+/**
+ * `locate` 와 같은 판정에, 어느 단계로 정했는지를 붙인다(OE-MAP-01). `inside` 는 외곽선 안(4단계, 기계가 확신한다), `near` 는
+ * 소속 허용 거리로 가장 가까운 방에 붙은 것(5단계, 사람이 고칠 수 있다)이다.
+ */
+export function locateHow(point: Vec2, spaces: readonly Space[], snap = SNAP): { id: string; how: 'inside' | 'near' } | null {
   const [x, y] = point
   // 방이 겹친 자리면 가장 작은 방이다. 실제 BIM 도 같은 층 방끼리 겹친다(병원 건축 52쌍 — 큰 대기실이 접수대를 품는다).
   // 목록의 첫 방을 고르던 때와 견주면, BIM 이 말한 소속에 맞는 수가 가진 파일 전부에서 늘었다(병원 건축+HVAC 156 →
@@ -168,7 +176,7 @@ export function locate(point: Vec2, spaces: readonly Space[], snap = SNAP): stri
     if (x < minX || x > maxX || y < minY || y > maxY) continue
     if (pointInPolygon(point, space.footprint) && (!inside || space.areaM2 < inside.areaM2)) inside = space
   }
-  if (inside) return inside.id
+  if (inside) return { id: inside.id, how: 'inside' }
 
   let best: string | null = null
   let bestDistance = snap
@@ -184,7 +192,7 @@ export function locate(point: Vec2, spaces: readonly Space[], snap = SNAP): stri
       best = space.id
     }
   }
-  return best
+  return best === null ? null : { id: best, how: 'near' }
 }
 
 /**
@@ -213,11 +221,42 @@ export function assignEquipment(equipment: Equipment, spaces: readonly Space[], 
   equipment.spaceSource = null
   if (!equipment.position) return
 
-  const found = locate([equipment.position[0], equipment.position[1]], spaces, snap)
-  if (found !== null) {
-    equipment.spaceId = found
+  const found = locateHow([equipment.position[0], equipment.position[1]], spaces, snap)
+  // 사람 지정(K17)은 기계가 확신하지 못할 때만 쓴다. 외곽선 안에 들면 기계 판정이 이긴다.
+  if (found?.how !== 'inside' && equipment.spaceSet !== undefined && spaces.some((s) => s.id === equipment.spaceSet)) {
+    equipment.spaceId = equipment.spaceSet
+    equipment.spaceSource = 'edit'
+    return
+  }
+  if (found) {
+    equipment.spaceId = found.id
     equipment.spaceSource = 'computed'
   }
+}
+
+/**
+ * 사람 지정(K17)의 지금 상태. `applied` 면 지정이 소속이고, `released` 면 기계가 확신하게 되어(또는 지정한 방이 없어져) 지정을
+ * 쓰지 않는 것이다 — 화면은 "사람 지정 해제: 지정한 방 → 지금 소속(까닭)" 으로 보인다. 지정이 없으면 null.
+ */
+export function spaceSetState(
+  equipment: Equipment,
+  spaces: readonly Space[],
+): { state: 'applied' } | { state: 'released'; from: string; reason: 'bim' | 'inside' | 'gone' } | null {
+  if (equipment.spaceSet === undefined) return null
+  if (equipment.spaceSource === 'edit') return { state: 'applied' }
+  const reason = !spaces.some((s) => s.id === equipment.spaceSet) ? 'gone' : equipment.spaceSource === 'bim' ? 'bim' : 'inside'
+  return { state: 'released', from: equipment.spaceSet, reason }
+}
+
+/**
+ * 이 설비에 사람이 소속을 지정할 수 있나(OE-MAP-01, Q14). 기계가 확신하는 설비 — 좌표가 없거나(미배치), BIM 이 소속을 적었거나,
+ * 외곽선 안인 설비 — 는 지정할 수 없고 그 까닭을 돌려준다. 이미 사람이 지정한 설비는 다시 고칠 수 있다.
+ */
+export function spaceAssignable(equipment: Equipment, spaces: readonly Space[], snap = SNAP): { ok: true } | { ok: false; reason: string } {
+  if (!equipment.position) return { ok: false, reason: '좌표가 없는 설비(미배치)라 소속을 정하지 않습니다' }
+  if (equipment.spaceSource === 'bim') return { ok: false, reason: 'BIM 이 적은 소속입니다' }
+  if (locateHow([equipment.position[0], equipment.position[1]], spaces, snap)?.how === 'inside') return { ok: false, reason: '외곽선 안이라 좌표로 정한 소속입니다' }
+  return { ok: true }
 }
 
 /**

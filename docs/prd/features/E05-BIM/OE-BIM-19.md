@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R13"]
+depends: ["R13", "OE-BIM-24"]
 ---
 
 # OE-BIM-19 검토 화면 — 판본 비교
+
+## 관련 티켓
+
+- [OE-BIM-24](./OE-BIM-24.md): 편집 파일 재적용 입력
 
 ## 요구사항
 

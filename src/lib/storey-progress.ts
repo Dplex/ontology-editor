@@ -50,7 +50,8 @@ export function storeySignature(model: Model, storey: Storey): string {
       b: c.from < c.to ? c.to : c.from,
       directed: c.directed ? c.from : null,
       edited: c.edited?.from ?? null,
-      confirmed: c.inferred?.confirmed ? c.inferred.from : null,
+      // 재검토 중인 확정(OE-PIP-07)은 내보내지 않으니 확정이 아닌 것으로 잰다.
+      confirmed: c.inferred?.confirmed && c.inferred.recheck === undefined ? c.inferred.from : null,
       source: c.source,
     }))
     .sort((x, y) => (x.a + x.b < y.a + y.b ? -1 : x.a + x.b > y.a + y.b ? 1 : 0))

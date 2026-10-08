@@ -10,10 +10,16 @@ owner: "tbd"
 status: "prd-review"
 status_note: "삭제 ✔"
 blocked_by: []
-depends: []
+depends: ["OE-INT-05", "OE-OBJ-16", "OE-UI-05"]
 ---
 
 # OE-UI-09 오브젝트 조작
+
+## 관련 티켓
+
+- [OE-INT-05](../E20-INT/OE-INT-05.md): 붙여넣기 새 id 규칙
+- [OE-OBJ-16](../E02-OBJ/OE-OBJ-16.md): 붙여넣기 겹침 불가
+- [OE-UI-05](./OE-UI-05.md): 삭제 되돌리기
 
 ## 요구사항
 

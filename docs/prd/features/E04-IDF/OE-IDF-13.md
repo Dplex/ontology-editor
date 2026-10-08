@@ -4,15 +4,19 @@ epic: "E04"
 epic_title: "초기 구축 — IDF 임포트"
 title: "출처 구분·재임포트"
 prd: "#5"
-release: "R1"
+release: "R2"
 priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-HIST-03"]
+depends: ["K17", "OE-HIST-03"]
 ---
 
 # OE-IDF-13 출처 구분·재임포트
+
+## 관련 티켓
+
+- [OE-HIST-03](../E19-HIST/OE-HIST-03.md): 재임포트 시 편집분 보존
 
 ## 요구사항
 

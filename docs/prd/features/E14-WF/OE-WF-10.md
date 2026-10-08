@@ -9,10 +9,18 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-SYNC-02","OE-INT-01","D-INT","OE-WF-13"]
+depends: ["OE-SYNC-02", "OE-WF-13", "OE-WF-15", "OE-WF-16", "OE-INT-01", "D-INT"]
 ---
 
 # OE-WF-10 반영하기
+
+## 관련 티켓
+
+- [OE-SYNC-02](../E15-SYNC/OE-SYNC-02.md): DT·온톨로지 부분 반영 금지
+- [OE-WF-13](./OE-WF-13.md): 반영 후 새 버전 생성
+- [OE-WF-15](./OE-WF-15.md): 반영 완료 배너
+- [OE-WF-16](./OE-WF-16.md): 반영 GNB 알림
+- [OE-INT-01](../E20-INT/OE-INT-01.md): 반영 경로 결정
 
 ## 요구사항
 

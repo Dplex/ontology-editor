@@ -9,10 +9,19 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-BIM-18"]
+depends: ["OE-BIM-18", "OE-PIP-18", "OE-PIP-06", "OE-PIP-01", "OE-MAP-06", "OE-PIP-07"]
 ---
 
 # OE-PIP-08 위반 한 번에 고치기
+
+## 관련 티켓
+
+- [OE-BIM-18](../E05-BIM/OE-BIM-18.md): 완전성 검사 위반 원인
+- [OE-PIP-18](./OE-PIP-18.md): 흐름 없는 기기 연결 제외
+- [OE-PIP-06](./OE-PIP-06.md): 해제된 연결의 자동 복원 금지
+- [OE-PIP-01](./OE-PIP-01.md): 수동 연결 추가 경로
+- [OE-MAP-06](../E11-MAP/OE-MAP-06.md): 위치 변경 후 소속 재계산
+- [OE-PIP-07](./OE-PIP-07.md): 보정 후 규칙 방향 재계산
 
 ## 요구사항
 

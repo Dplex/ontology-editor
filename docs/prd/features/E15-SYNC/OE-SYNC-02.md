@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-INT-01","D-INT"]
+depends: ["OE-WF-10", "OE-INT-01", "D-INT"]
 ---
 
 # OE-SYNC-02 부분 반영 금지
+
+## 관련 티켓
+
+- [OE-WF-10](../E14-WF/OE-WF-10.md): 한 번에 반영하는 반영하기
+- [OE-INT-01](../E20-INT/OE-INT-01.md): 트랜잭션 구현 방식 결정
 
 ## 요구사항
 

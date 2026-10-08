@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-ZON-05", "OE-MAP-02"]
 ---
 
 # OE-ZON-04 공조존 편집 (E9)
+
+## 관련 티켓
+
+- [OE-ZON-05](./OE-ZON-05.md): 삭제 후 Z-01 경고
+- [OE-MAP-02](../E11-MAP/OE-MAP-02.md): 편집 후 매핑 갱신
 
 ## 요구사항
 
