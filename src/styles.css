@@ -3197,7 +3197,7 @@ main.has-model .catalog {
   fill: var(--accent);
 }
 
-/* Shift+끌기 고르기 상자(OE-UI-09). */
+/* Ctrl+끌기 고르기 상자(OE-UI-09). */
 .floor-plan .box-select {
   fill: var(--accent-soft);
   fill-opacity: 0.5;

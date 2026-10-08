@@ -15,7 +15,7 @@ import FloorPlan from './components/FloorPlan.vue'
 import Roll from './components/Roll.vue'
 import Meter from './components/Meter.vue'
 import { vFlash } from './lib/motion'
-import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
+import { isMultiSelect, matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
 import { applyEdits, countEdits, EDIT_FORMAT, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
@@ -776,8 +776,8 @@ function dropEquipment(equipmentId: string, delta: Vec3) {
 
 // --- 여러 개 고르기 (OE-UI-09) -------------------------------------------------------------
 //
-// 설비만 여러 개 고른다(2026-10-03 사용자 결정). 편집 모드에서 Shift+클릭(3D·평면도·설비 목록)으로 넣고 빼고, Shift+끌기로 상자 안의
-// 설비를 더한다. 덕트·배관은 넣지 않는다(상자에 수백 개가 딸려 온다). 둘 이상이면 고른 설비 패널 대신 묶음 패널이 뜨고, 방향키·끌기로
+// 설비만 여러 개 고른다(2026-10-03 사용자 결정). 편집 모드에서 Ctrl+클릭(3D·평면도·설비 목록)으로 넣고 빼고, Ctrl+끌기로 상자 안의
+// 설비를 더한다(키는 DT 2.0 과 같다, #56). 덕트·배관은 넣지 않는다(상자에 수백 개가 딸려 온다). 둘 이상이면 고른 설비 패널 대신 묶음 패널이 뜨고, 방향키·끌기로
 // 같이 옮기고 Delete 로 같이 지운다 — 되돌리기 한 번에 전부. 하나만 남으면 보통 고르기로 돌아간다.
 const group = ref<string[]>([])
 /** 여러 개 고르기에 넣을 수 있는가. 좌표가 있는 기기(덕트·배관이 아닌 것)만. */
@@ -799,7 +799,7 @@ function setGroup(ids: readonly string[]) {
     selectedId.value = next[0] ?? null
   }
 }
-/** Shift+클릭. 고른 하나가 있으면 그것부터 묶음에 넣는다. */
+/** Ctrl+클릭. 고른 하나가 있으면 그것부터 묶음에 넣는다. */
 function toggleGroup(id: string) {
   if (!groupable(id)) {
     note('덕트·배관은 여러 개 고르기에 넣지 않습니다')
@@ -808,7 +808,7 @@ function toggleGroup(id: string) {
   const base = group.value.length ? group.value : selectedId.value ? [selectedId.value] : []
   setGroup(base.includes(id) ? base.filter((x) => x !== id) : [...base, id])
 }
-/** Shift+끌기 상자. 덕트·배관을 빼고 지금 묶음에 더한다. */
+/** Ctrl+끌기 상자. 덕트·배관을 빼고 지금 묶음에 더한다. */
 function addBoxToGroup(ids: readonly string[]) {
   const devices = ids.filter(groupable)
   if (!devices.length) return note('상자 안에 고를 설비가 없습니다(덕트·배관은 빼고 셉니다)')
@@ -2682,7 +2682,7 @@ function toggleSystem(id: string) {
 watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRow, openCheck, selectedSpace, sceneVersion, group], () => {
   if (!viewer) return
 
-  // 여러 개 고른 설비(OE-UI-09). 고른 색으로 칠하고 나머지는 흐리게 하지 않는다(흐린 것은 Shift+클릭으로 더할 수 없다).
+  // 여러 개 고른 설비(OE-UI-09). 고른 색으로 칠하고 나머지는 흐리게 하지 않는다(흐린 것은 Ctrl+클릭으로 더할 수 없다).
   if (group.value.length >= 2) {
     viewer.setHighlight({ selected: null, upstream: new Set(), downstream: new Set(), linked: new Set(), group: new Set(group.value) })
     return
@@ -5529,9 +5529,9 @@ async function export3D(format: 'glb' | 'obj') {
                 <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
               </template>
             </nav>
-            <!-- 시점 조작 안내(OE-OBJ-15). 지도처럼 왼쪽 드래그가 화면 이동이다. 편집 모드의 Shift+드래그는 여러 개 고르기다(OE-UI-09). -->
+            <!-- 시점 조작 안내(OE-OBJ-15). 지도처럼 왼쪽 드래그가 화면 이동이다. 편집 모드의 Ctrl+드래그는 여러 개 고르기다(OE-UI-09). -->
             <p v-if="activeTab === '3d'" class="view-controls-hint" aria-label="시점 조작 안내">
-              드래그: 이동 · {{ editing ? '우클릭 드래그: 회전 · Shift+드래그: 여러 개 고르기' : 'Shift/우클릭 드래그: 회전' }} · 휠: 확대
+              드래그: 이동 · Shift/우클릭 드래그: 회전 · {{ editing ? 'Ctrl+드래그: 여러 개 고르기 · ' : '' }}휠: 확대
             </p>
             <div class="view-tools">
               <!-- 보기 ↔ 편집, 단축키 안내. 위 도구막대와 같은 일이라 전체 화면(도구막대가 안 보인다)에서만 둔다.
@@ -5610,7 +5610,7 @@ async function export3D(format: 'glb' | 'obj') {
           <p v-else-if="keyNote" class="hint pick-hint key-note" role="status">{{ keyNote }}</p>
           <p v-else-if="editing" class="hint pick-hint">
             <template v-if="groupItems.length >= 2">
-              설비 {{ groupItems.length }}대 · <kbd>←↑→↓</kbd>·끌기: 같이 옮기기 · <kbd>Delete</kbd>: 같이 지우기 · <kbd>Shift</kbd>+클릭: 넣고 빼기 · <kbd>Esc</kbd>: 풀기
+              설비 {{ groupItems.length }}대 · <kbd>←↑→↓</kbd>·끌기: 같이 옮기기 · <kbd>Delete</kbd>: 같이 지우기 · <kbd>Ctrl</kbd>+클릭: 넣고 빼기 · <kbd>Esc</kbd>: 풀기
             </template>
             <template v-else-if="selectedSpace">
               파란 손잡이 끌기 또는 <kbd>[ ]</kbd> 후 <kbd>←↑→↓</kbd>: 꼭짓점 옮기기 · <kbd>F</kbd>: 이 물리존 보기
@@ -5627,7 +5627,7 @@ async function export3D(format: 'glb' | 'obj') {
               <kbd>U</kbd>: 종류 모르는 설비로
             </template>
             <template v-else>
-              설비 클릭: 고르기 · <kbd>Shift</kbd>+클릭·끌기: 여러 개 · 고른 설비 끌기: 옮기기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
+              설비 클릭: 고르기 · <kbd>Ctrl</kbd>+클릭·끌기: 여러 개 · 고른 설비 끌기: 옮기기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
               <kbd>U</kbd>: 종류 모르는 설비로
             </template>
             · <button type="button" class="link" @click="helpOpen = true">단축키 전체 <kbd>?</kbd></button>
@@ -5666,7 +5666,7 @@ async function export3D(format: 'glb' | 'obj') {
             <li v-if="groupItems.length > 12" class="muted">외 {{ groupItems.length - 12 }}대</li>
           </ul>
           <p class="hint">
-            <kbd>←↑→↓</kbd>·끌기: 같이 옮기기(<kbd>Shift</kbd> 1m) · <kbd>Shift</kbd>+클릭: 넣고 빼기 · <kbd>Shift</kbd>+끌기: 상자로 더하기 ·
+            <kbd>←↑→↓</kbd>·끌기: 같이 옮기기(<kbd>Shift</kbd> 1m) · <kbd>Ctrl</kbd>+클릭: 넣고 빼기 · <kbd>Ctrl</kbd>+끌기: 상자로 더하기 ·
             <kbd>Esc</kbd>: 풀기. 붙은 배관은 따라오지 않습니다.
           </p>
           <p class="picked-actions">
@@ -7363,7 +7363,7 @@ async function export3D(format: 'glb' | 'obj') {
                   <td>
                     <!-- 표에서 고른 것과 3D 에서 고른 것이 같은 선택이다. 두 화면이 따로 놀면
                          설비 목록에서 찾은 것을 3D 에서 다시 찾아야 한다. -->
-                    <button type="button" class="link" @click="editing && $event.shiftKey ? toggleGroup(e.id) : selectAndShow(e.id)">{{ e.name || e.ifcClass }}</button>
+                    <button type="button" class="link" @click="editing && isMultiSelect($event) ? toggleGroup(e.id) : selectAndShow(e.id)">{{ e.name || e.ifcClass }}</button>
                   </td>
                   <td class="muted">
                     {{ e.ifcClass }}<template v-if="whatIs(e)"> · {{ whatIs(e)!.label }} <Src :kind="whatIs(e)!.src" /></template>
