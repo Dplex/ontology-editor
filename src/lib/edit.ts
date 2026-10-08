@@ -359,10 +359,6 @@ function setRoomKind(space: Space, found: ReturnType<typeof resolveRoomKind>) {
   else delete space.kindSource
 }
 
-/**
- * 같은 층에서 이 방번호를 쓰는 다른 물리존(OE-OBJ-02 "방번호는 한 층 안에서 고유"). 빈 번호는 아직 안 정한 것이라 겹쳐도 된다.
- * 공간명(longName)은 겹쳐도 된다.
- */
 /** 나눈 조각의 방번호. `101-2`, 있으면 `101-3` … 한 층 안에서 겹치지 않는 첫 번호(OE-OBJ-02). */
 function nextNumber(storey: Storey, base: string): string {
   const used = new Set(storey.spaces.map((sp) => sp.name.trim()))
@@ -371,20 +367,28 @@ function nextNumber(storey: Storey, base: string): string {
   return `${base}-${k}`
 }
 
+/**
+ * 같은 층에서 이 방번호를 쓰는 다른 물리존(OE-OBJ-02 "방번호는 한 층 안에서 고유"). 빈 번호는 아직 안 정한 것이라 겹쳐도 된다.
+ * 공간명(longName)은 겹쳐도 된다.
+ */
 export function spaceNumberTaken(model: Model, storeyId: string, number: string, exceptId?: string): Space | null {
   const n = number.trim()
   if (!n) return null
   return model.storeys.find((s) => s.id === storeyId)?.spaces.find((sp) => sp.id !== exceptId && sp.name.trim() === n) ?? null
 }
 
-/** 물리존의 방번호를 고친다. 같은 층에 같은 번호가 있으면 막고 이유를 돌려준다. 바뀌었으면 true. */
-export function setSpaceNumber(model: Model, spaceId: string, number: string): boolean | { refused: string } {
+/**
+ * 물리존의 방번호를 고친다. 같은 층에 같은 번호가 있으면 막고 이유를 돌려준다. 바뀌었으면 true.
+ * `check: false` 는 편집 파일을 다시 얹을 때만 쓴다 — 번호를 맞바꾼 편집은 한 줄씩 넣는 도중에 잠깐 겹치므로, 다 넣은 뒤
+ * 층마다 한 번 검사한다(edit-file.ts `applyEdits`).
+ */
+export function setSpaceNumber(model: Model, spaceId: string, number: string, check = true): boolean | { refused: string } {
   const storey = model.storeys.find((s) => s.spaces.some((sp) => sp.id === spaceId))
   const space = storey?.spaces.find((sp) => sp.id === spaceId)
   if (!storey || !space) return false
   const n = number.trim()
   if (space.name === n) return false
-  const taken = spaceNumberTaken(model, storey.id, n, spaceId)
+  const taken = check ? spaceNumberTaken(model, storey.id, n, spaceId) : null
   if (taken) return { refused: `${storey.name}에 방번호 ${n}${josa(n, '이/가')} 이미 있습니다(${taken.longName || taken.name}). 방번호는 한 층 안에서 겹치지 않아야 합니다.` }
   space.name = n
   // 방 종류는 이름 사전이 방번호(Name)도 읽어서 같이 다시 읽는다(renameSpace 와 같은 순서).
@@ -2047,6 +2051,30 @@ export function deleteWall(model: Model, wallId: string, opts: LockOptions = {})
 export const NEW_WALL_THICKNESS = 0.2
 
 /**
+ * 새로 긋는 벽의 두께와 그 근거(OE-SPC-12). 1) 같은 층 BIM 내벽 두께의 최빈값 → 2) 사이트 기본값 → 3) 0.2m 순이다.
+ *
+ * - BIM 내벽은 에디터가 더하지 않았고(`added` 없음) 외벽이 아니며(`external` 이 true 가 아님) 두께를 아는 벽이다. 외벽은 단열층까지
+ *   들어 내벽보다 두꺼워서 섞으면 칸막이가 외벽 두께로 그어진다.
+ * - 8cm 보다 얇은 벽은 세지 않는다. 다른 벽에 덧댄 마감벽(Revit "Furring 38mm Stud", 0.05m)과 화장실 칸막이(0.03m)다. 병원 1층은
+ *   마감벽 292개가 칸막이 288개(0.12m)보다 많아서, 세면 새 칸막이가 0.05m 로 그어졌다.
+ * - 최빈값은 cm 로 반올림해 센다(BIM 두께에 0.2399 같은 끝수가 흔하다). 같은 수면 두꺼운 쪽이다.
+ */
+export const LINING_MAX = 0.08
+export function newWallThickness(storey: Storey, siteDefault?: number | null): { thickness: number; from: 'bim' | 'site' | 'default' } {
+  const counts = new Map<number, number>()
+  for (const w of storey.walls) {
+    if (w.added || w.external === true || !(w.thickness && w.thickness >= LINING_MAX)) continue
+    const t = Math.round(w.thickness * 100) / 100
+    counts.set(t, (counts.get(t) ?? 0) + 1)
+  }
+  let best: [number, number] | null = null
+  for (const [t, n] of counts) if (!best || n > best[1] || (n === best[1] && t > best[0])) best = [t, n]
+  if (best) return { thickness: best[0], from: 'bim' }
+  if (siteDefault && siteDefault > 0) return { thickness: siteDefault, from: 'site' }
+  return { thickness: NEW_WALL_THICKNESS, from: 'default' }
+}
+
+/**
  * 두 점을 잇는 벽을 긋는다. 외곽선은 그 선을 가운데로 두께만큼 편 직사각형이다. 내력 여부는 모른다. 다른 벽을 가로지르면
  * 긋지 않고 이유를 돌려준다(OE-OBJ-05).
  */
@@ -2302,13 +2330,13 @@ export const OPENING_ALONG_WALL = '문·창은 뚫린 벽을 따라서만 옮깁
  * 때만 옮긴다. 뚫린 벽을 모르는 문·창(BIM 이 관계를 안 적은 것)은 어느 벽에서든 OPENING_SNAP 안이어야 한다. 예전에는 아무 데나
  * 옮겨져 문이 벽 밖에 떠 있었다(2026-10-07 검토). 편집 파일을 되살릴 때(ignoreLock)는 적힌 자리 그대로 둔다.
  */
-export function moveOpening(model: Model, openingId: string, to: Vec2, opts: LockOptions = {}): boolean | { refused: string } {
+export function moveOpening(model: Model, openingId: string, to: Vec2, opts: LockOptions & { snap?: number } = {}): boolean | { refused: string } {
   const found = findOpening(model, openingId)
   const o = found?.opening
   if (!found || !o || !o.position) return false
   if (!opts.ignoreLock && openingLocked(found.storey, o)) return false
   if (!opts.ignoreLock) {
-    const placed = alongWall(found.storey, o, to)
+    const placed = alongWall(found.storey, o, to, opts.snap ?? OPENING_SNAP)
     if ('refused' in placed) return placed
     to = placed.at
   }
@@ -2320,12 +2348,12 @@ export function moveOpening(model: Model, openingId: string, to: Vec2, opts: Loc
 }
 
 /** 문·창이 갈 수 있는 자리. moveOpening 의 규칙(뚫린 벽을 따라서만)을 적용한 끝 자리나, 갈 수 없는 이유. */
-function alongWall(storey: Storey, o: Opening, to: Vec2): { at: Vec2 } | { refused: string } {
+function alongWall(storey: Storey, o: Opening, to: Vec2, snap = OPENING_SNAP): { at: Vec2 } | { refused: string } {
   const from: Vec2 = [o.position![0], o.position![1]]
   const wall = storey.walls.find((w) => w.id === o.wallId && w.footprint?.length)
   if (!wall) {
     const near = nearestWall(storey, to)
-    return near && near.distance <= OPENING_SNAP ? { at: to } : { refused: `벽에서 ${OPENING_SNAP}m 안에만 놓습니다.` }
+    return near && near.distance <= snap ? { at: to } : { refused: nearWallMessage(snap) }
   }
   const len = wallLength(wall)
   if (len === null) {
@@ -2391,6 +2419,9 @@ export function setOpeningSize(
 
 /** 문·창을 벽에 붙일 수 있는 거리(미터). 벽 외곽선에서 이만큼 안이어야 그 벽의 문·창이다. */
 export const OPENING_SNAP = 0.6
+/** 문·창 스냅 거리로 받는 범위(미터). 0 이면 벽 안을 눌러야만 붙고, 너무 크면 엉뚱한 벽에 붙는다. */
+export const OPENING_SNAP_RANGE = { min: 0.1, max: 3 } as const
+const nearWallMessage = (snap: number) => `벽 가까이 놓아 주세요(벽에서 ${snap}m 안에만 놓습니다).`
 
 /**
  * 가장 가까운 벽과, 그 벽의 가장 가까운 변에 수직인 방향. 문이 벽을 뚫는 방향이다.
@@ -2430,12 +2461,14 @@ export function addOpening(
   kind: 'door' | 'window',
   at: Vec2,
   id?: string,
+  /** 벽에서 이만큼 안을 눌러야 붙는다(OE-SPC-13, 사람이 고칠 수 있다). */
+  snap = OPENING_SNAP,
 ): Opening | { refused: string } | null {
   const storey = model.storeys.find((s) => s.id === storeyId)
   if (!storey) return null
   const near = nearestWall(storey, at)
-  if (!near || near.distance > OPENING_SNAP) {
-    return { refused: storey.walls.some((w) => w.footprint?.length) ? `벽에서 ${OPENING_SNAP}m 안에만 놓습니다.` : '이 층에 외곽선이 있는 벽이 없습니다. 벽을 읽거나 먼저 벽을 그으세요.' }
+  if (!near || near.distance > snap) {
+    return { refused: storey.walls.some((w) => w.footprint?.length) ? nearWallMessage(snap) : '이 층에 외곽선이 있는 벽이 없습니다. 벽을 읽거나 먼저 벽을 그으세요.' }
   }
   if (wallLocked(near.wall)) return { refused: `${near.wall.name || '벽'}${josa(near.wall.name || '벽', '은/는')} 내력벽이라 문·창을 뚫지 않습니다. 내력 여부를 바꾸면 풀립니다.` }
   const openingId = id ?? newId()

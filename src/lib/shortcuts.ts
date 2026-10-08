@@ -137,6 +137,12 @@ export function matchShortcut(e: KeyLike): Shortcut | null {
 export const isPlainKey = (e: KeyLike) => !(e.ctrlKey || e.metaKey)
 
 /**
+ * 여러 개 고르기 키(OE-UI-09). Ctrl+클릭으로 넣고 빼고 Ctrl+끌기로 상자를 그린다 — DT 2.0 과 같다(#56, 2026-10-08 PM 결정).
+ * Mac 은 Ctrl+클릭이 오른쪽 클릭이라 ⌘ 도 받는다. Shift+끌기는 시점 회전이다(OE-OBJ-15).
+ */
+export const isMultiSelect = (e: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) => e.ctrlKey || e.metaKey
+
+/**
  * 화면 방향을 평면의 축 하나로. 3D 를 비스듬히 봐도 ←↑ 은 x·y 축을 따라 옮긴다 — 화면 방향 그대로 옮기면
  * 좌표가 45° 로 비껴 12.07 같은 값이 된다. 가장 가까운 축으로 맞춘다.
  */
