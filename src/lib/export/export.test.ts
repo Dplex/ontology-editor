@@ -305,7 +305,10 @@ describe('로봇 통과 속성 (OE-EQP-17)', () => {
       modelToGeoJSON(m)
         .flatMap((x) => x.collection.features)
         .filter((f) => (f.properties as { kind: string }).kind === 'space')
-        .map((f) => [f.id, { passable: (f.properties as Record<string, unknown>).passable, source: (f.properties as Record<string, unknown>).passableSource }]),
+        .map((f) => {
+          const p = f.properties as Record<string, unknown>
+          return [f.id, { passable: p.passable, source: p.passableSource, reason: p.passableReason }]
+        }),
     )
   const model = (doorToShaft: boolean): Model => ({
     schema: 'IFC4',
@@ -330,12 +333,12 @@ describe('로봇 통과 속성 (OE-EQP-17)', () => {
     warnings: [],
   })
 
-  it('계단실은 불가, 승강로는 그 층에 이어지는 문이 있으면 가능이고 없으면 모름이며, 일반 방에는 통과 속성이 없다', () => {
+  it('계단실은 불가, 승강로는 그 층에 이어지는 문이 있으면 가능이고 없으면 정차 미확인이라 불가이며, 일반 방에는 통과 속성이 없다', () => {
     expect(props(model(true))).toEqual({
-      st: { passable: false, source: 'dict' },
-      elv: { passable: true, source: 'calc' },
-      room: { passable: undefined, source: undefined },
+      st: { passable: false, source: 'dict', reason: 'staircase' },
+      elv: { passable: true, source: 'calc', reason: 'elevator_stop' },
+      room: { passable: undefined, source: undefined, reason: undefined },
     })
-    expect(props(model(false)).elv).toEqual({ passable: null, source: null })
+    expect(props(model(false)).elv).toEqual({ passable: false, source: 'calc', reason: 'elevator_stop_unconfirmed' })
   })
 })

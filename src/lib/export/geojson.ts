@@ -36,17 +36,24 @@ export type FeatureCollection = {
 }
 
 /**
- * 수직 관통 오브젝트의 로봇 통과 여부(OE-EQP-17). 계단실은 불가, 승강로(EL)는 정차하는 층에서만 가능이다. 정차 층은 BIM 이 따로
- * 말하지 않아서 **그 층에서 승강로로 이어지는 문이 있으면** 정차 층으로 본다(출처 계산 — 승강장 문이 그 층에 있다는 뜻이다). 문이
- * 없으면 모름(null)이다.
+ * 수직 관통 오브젝트의 로봇 통과 여부(OE-EQP-17). 계단실은 불가, 승강로(EL)는 정차하는 층에서만 가능이고 정차를 확인하지 못한 층은
+ * 불가다. 정차 층은 BIM 이 따로 말하지 않아서 **그 층에서 승강로로 이어지는 문이 있으면** 정차 층으로 본다(출처 계산 — 승강장 문이
+ * 그 층에 있다는 뜻이다). 같은 false 라도 왜 불가인지 passableReason 으로 가른다 — 미확인 층은 정차 정보가 생기면 바뀔 값이다.
  * 수직 관통 오브젝트가 아닌 방은 통과 속성을 두지 않는다. ES·샤프트 종류는 사전에 아직 없다.
  */
-function verticalPassable(space: Space, storey: Storey): { passable: boolean | null; passableSource: 'dict' | 'calc' | null } | null {
-  if (space.kind === 'staircase') return { passable: false, passableSource: 'dict' }
+export type PassableReason = 'staircase' | 'elevator_stop' | 'elevator_stop_unconfirmed'
+
+function verticalPassable(
+  space: Space,
+  storey: Storey,
+): { passable: boolean; passableSource: 'dict' | 'calc'; passableReason: PassableReason } | null {
+  if (space.kind === 'staircase') return { passable: false, passableSource: 'dict', passableReason: 'staircase' }
   if (space.kind === 'elevator_shaft') {
-    // 이어지는 문이 없으면 정차하지 않는 층인지, 문을 그리지 않은 것인지 모른다 — 불가로 적지 않고 모름(null)이다.
+    // 이어지는 문이 없으면 정차하지 않는 층인지, 문을 그리지 않은 것인지 모른다. 모르는 층으로 로봇을 보내지 않도록 불가로 적는다.
     const stops = storey.openings.some((o) => o.kind === 'door' && (o.connects ?? []).includes(space.id))
-    return stops ? { passable: true, passableSource: 'calc' } : { passable: null, passableSource: null }
+    return stops
+      ? { passable: true, passableSource: 'calc', passableReason: 'elevator_stop' }
+      : { passable: false, passableSource: 'calc', passableReason: 'elevator_stop_unconfirmed' }
   }
   return null
 }
