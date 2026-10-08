@@ -18,6 +18,7 @@ import { vFlash } from './lib/motion'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
+import { connectCandidates, mediaLabel, type ConnectCandidate } from './lib/connect-candidates'
 import { againstRule, applyFlow, cancelRelease, clearFlow, dropRelease, keepRelease, releaseConnection, releasedBetween, releasesOf, snapshotRelease, snapshotRules } from './lib/connection-release'
 import { applyEdits, countEdits, EDIT_FORMAT, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
 import { BUILDING, joinParts, partSig, splitByStorey, type HomeOf } from './lib/storey-drafts'
@@ -2273,16 +2274,33 @@ const failReasons = computed(() => {
   }
   return new Map(c.failed.slice(0, CHECK_LIMIT).map((id) => [id, diagnoseFailure(c.key, id, ctx)]))
 })
-/** 위반 목록의 한 번에 고치기. 여느 편집과 같은 길(relocate·connectTo)이라 되돌리기·리포트·자동 저장에 같이 들어간다. */
+/**
+ * 위반 목록의 한 번에 고치기. 여느 편집과 같은 길(relocate·connectTo)이라 되돌리기·리포트·자동 저장에 같이 들어간다.
+ * 연결 누락은 바로 잇지 않고 후보부터 보인다(OE-PIP-08) — 대상·거리·계통·매체를 보고 사람이 하나를 고른다. 가깝다는 것만으로 이으면
+ * 엉뚱한 계통의 덕트에 붙는다.
+ */
+const fixOpen = ref<string | null>(null)
+watch(openCheckKey, () => (fixOpen.value = null))
 function applyFix(id: string, fix: FailureFix) {
-  if (!editing.value) mode.value = 'edit'
-  if (fix.kind === 'move-into') relocate(id, fix.to)
-  else {
-    connectFrom.value = id
-    connectTo(fix.other)
-  }
+  if (fix.kind === 'move-into') {
+    if (!editing.value) mode.value = 'edit'
+    relocate(id, fix.to)
+  } else fixOpen.value = fixOpen.value === id ? null : id
 }
-const fixLabel = (fix: FailureFix) => (fix.kind === 'move-into' ? `${fix.spaceName} 안으로 옮기기` : `연결하기: ${nameOfId(fix.other)}`)
+/** 펼친 위반의 연결 후보. 검사 목록의 이유와 같은 거르기다(connect-candidates.ts). */
+const fixCandidates = computed((): ConnectCandidate[] => {
+  void flowVersion.value
+  const m = model.value
+  const id = fixOpen.value
+  return m && id ? connectCandidates(m, id, meshBoxes()).candidates : []
+})
+function connectCandidate(id: string, other: string) {
+  if (!editing.value) mode.value = 'edit'
+  connectFrom.value = id
+  connectTo(other)
+  fixOpen.value = null
+}
+const fixLabel = (fix: FailureFix) => (fix.kind === 'move-into' ? `${fix.spaceName} 안으로 옮기기` : '연결 후보 확인')
 function toggleCheck(key: string) {
   openCheckKey.value = openCheckKey.value === key ? null : key
   const c = openCheck.value
@@ -7113,10 +7131,25 @@ async function export3D(format: 'glb' | 'obj') {
                 <span v-if="whatIs(equipmentById.get(id))" class="what">{{ whatIs(equipmentById.get(id))!.label }}</span>
                 <div v-if="failReasons.get(id)?.text" class="muted reason">
                   {{ failReasons.get(id)!.text }}
-                  <button v-if="failReasons.get(id)!.fix" type="button" class="ghost fix" @click="applyFix(id, failReasons.get(id)!.fix!)">
+                  <button
+                    v-if="failReasons.get(id)!.fix"
+                    type="button"
+                    class="ghost fix"
+                    :aria-expanded="failReasons.get(id)!.fix!.kind === 'connect' ? fixOpen === id : undefined"
+                    @click="applyFix(id, failReasons.get(id)!.fix!)"
+                  >
                     {{ fixLabel(failReasons.get(id)!.fix!) }}
                   </button>
                 </div>
+                <!-- 연결 후보(OE-PIP-08). 잇으면 출처는 직접 이음(manual)이고 방향은 정하지 않은 채다. -->
+                <ul v-if="fixOpen === id" class="plain fix-candidates" data-testid="fix-candidates">
+                  <li v-for="c in fixCandidates" :key="c.id">
+                    <b>{{ nameOfId(c.id) }}</b>
+                    <span class="muted"> · {{ Math.round(c.distance * 1000) }}mm · {{ c.system ?? '계통 없음' }} · {{ mediaLabel(c.media) }}</span>
+                    <button type="button" class="ghost" data-testid="fix-connect" @click="connectCandidate(id, c.id)">잇기</button>
+                  </li>
+                  <li class="muted">잇으면 출처는 직접 이음, 방향은 정하지 않은 채입니다. 규칙 방향은 확정 전까지 추정으로만 보입니다.</li>
+                </ul>
               </li>
             </ul>
             <p v-if="openCheck.failed.length > CHECK_LIMIT" class="hint">

@@ -2901,6 +2901,20 @@ main.has-model .catalog {
   font-size: 0.75rem;
 }
 
+/* 연결 후보(OE-PIP-08). 위반 줄 아래에 들여서 그 줄의 후보로 읽히게 한다. */
+.check-list .fix-candidates {
+  margin: 0.25rem 0 0.4rem 0.75rem;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--line-soft);
+  font-size: 0.8rem;
+}
+
+.check-list .fix-candidates .ghost {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.75rem;
+}
+
 /* 3D 위의 "이 층만 보기". 도구 버튼들과 같은 높이·모양. */
 .view-tools .storey-view {
   padding: 0.3rem 0.6rem;
