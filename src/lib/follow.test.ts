@@ -1,7 +1,7 @@
 // 설비를 옮기면 붙은 배관이 따라온다(PRD #13, OE-OBJ-11). 손으로 만든 한 줄 배관: 공조기 — 엘보 — 덕트 — 토출구.
 import { describe, expect, it } from 'vitest'
 import { applyEdits, exportEdits } from './edit-file'
-import { applyFollow, baselineOf, moveEquipment, planFollow, restore, snapshotEquipment, type SegmentAxis, type Snapshot } from './edit'
+import { applyFollow, baselineOf, fittingMoveRefusal, moveEquipment, planFollow, restore, snapshotEquipment, type SegmentAxis, type Snapshot } from './edit'
 import { assignEquipment } from './mapping'
 import { releaseConnection } from './connection-release'
 import type { Equipment, Model, Vec3 } from './model'
@@ -138,5 +138,64 @@ describe('배관이 설비를 따라온다', () => {
       expect(find(reloaded, id).endShift).toEqual(find(m, id).endShift)
     }
     expect(find(m, 'DUCT').endShift).toEqual([[0, 2, 0], [1, 0, 0]])
+  })
+})
+
+describe('배관 꼭짓점(꺾임 이음쇠)을 옮긴다 (OE-PIP-10)', () => {
+  // 공조기 — 덕트1 — 엘보 — 덕트2 — 토출구. 엘보가 배관의 꼭짓점이다.
+  function bent(): Model {
+    const m = build()
+    const st = m.storeys[0]
+    st.equipment = [eq('AHU', 'conversion', [1, 1, 2]), eq('D1', 'segment', [2.5, 1, 2]), eq('ELB', 'fitting', [4, 1, 2]), eq('D2', 'segment', [4, 3, 2]), eq('DIF', 'terminal', [4, 5, 2])]
+    m.connections = [
+      { from: 'AHU', to: 'D1', source: 'port', directed: true, tolerance: null },
+      { from: 'D1', to: 'ELB', source: 'port', directed: true, tolerance: null },
+      { from: 'ELB', to: 'D2', source: 'port', directed: true, tolerance: null },
+      { from: 'D2', to: 'DIF', source: 'port', directed: true, tolerance: null },
+    ] as Model['connections']
+    for (const e of st.equipment) assignEquipment(e, st.spaces)
+    return m
+  }
+  const axes: Record<string, SegmentAxis> = { D1: [[1, 1, 2], [4, 1, 2]], D2: [[4, 1, 2], [4, 5, 2]] }
+  const axis = (id: string) => axes[id] ?? null
+
+  it('엘보를 옮기면 양쪽 구간의 엘보 쪽 끝만 늘어나고, 연결 대상과 방향은 그대로다', () => {
+    const m = bent()
+    expect(fittingMoveRefusal(m, 'ELB')).toBeNull()
+    const plan = planFollow(m, 'ELB', axis)
+    expect(plan).toEqual({ rigid: [], stretch: [{ id: 'D1', end: 1 }, { id: 'D2', end: 0 }], held: [], blocked: [] })
+    const links = JSON.stringify(m.connections)
+    const snap: Snapshot = { kind: 'many', parts: ['ELB', 'D1', 'D2'].map((x) => snapshotEquipment(m, x)!) }
+    moveEquipment(m, 'ELB', [5, 2, 2])
+    applyFollow(m, plan, [1, 1, 0], axis)
+    expect(JSON.stringify(m.connections)).toBe(links)
+    expect(find(m, 'D1').endShift).toEqual([[0, 0, 0], [1, 1, 0]])
+    expect(find(m, 'D2').endShift).toEqual([[1, 1, 0], [0, 0, 0]])
+    // 공조기와 토출구는 그대로다.
+    expect(find(m, 'AHU').position).toEqual([1, 1, 2])
+    expect(find(m, 'DIF').position).toEqual([4, 5, 2])
+    restore(m, snap)
+    expect(find(m, 'D1').endShift).toBeUndefined()
+    expect(find(m, 'ELB').position).toEqual([4, 1, 2])
+  })
+
+  it('옮긴 꼭짓점은 편집 파일을 거쳐도 같다', () => {
+    const m = bent()
+    const base = baselineOf(m)
+    const plan = planFollow(m, 'ELB', axis)
+    moveEquipment(m, 'ELB', [5, 2, 2])
+    applyFollow(m, plan, [1, 1, 0], axis)
+    const again = bent()
+    applyEdits(again, exportEdits(m, base, 'x.ifc'))
+    expect(find(again, 'ELB').position).toEqual([5, 2, 2])
+    expect(find(again, 'D1').endShift).toEqual([[0, 0, 0], [1, 1, 0]])
+    expect(find(again, 'D2').endShift).toEqual([[1, 1, 0], [0, 0, 0]])
+  })
+
+  it('설비에 바로 붙은 이음쇠는 배관 끝점이라 옮기지 않는다. 구간은 통째로 옮기지 않는다', () => {
+    const m = build()
+    expect(fittingMoveRefusal(m, 'ELB')).toBe('ELB는 AHU에 바로 붙은 배관 끝점입니다. 끝점은 AHU를 옮기면 따라옵니다.')
+    expect(fittingMoveRefusal(m, 'AHU')).toBeNull()
+    expect(planFollow(m, 'DUCT', axisOf)).toEqual({ rigid: [], stretch: [], held: [], blocked: [] })
   })
 })
