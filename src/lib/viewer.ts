@@ -128,6 +128,9 @@ const ARCH_WALL_HEIGHT = 1.2
 const ARCH_WALL_TOP = { color: 0x8a94a3, opacity: 0.45 }
 /** 문·창을 누를 때 자리에서 이만큼 안이면 그 문·창이다(미터). */
 const ELEMENT_REACH = 0.35
+/** 룸(OE-OBJ-03) 외곽선 높이(층 바닥 위, 미터). 물리존 판(+0.1)과 커스텀존(+0.25) 사이다. */
+const ROOM_LIFT = 0.18
+const ROOM_COLORS = { line: 0xc0782a, conflict: 0xd93636 }
 
 /**
  * 천장 설비의 바닥 발자국 링 색(OE-EQP-04). 반자 부착과 플레넘을 색으로 가른다. 링은 바닥(층 바닥 + 이만큼)에 눕고, 크기는 설비
@@ -323,6 +326,11 @@ export type Viewer = {
   /** 커스텀존(OE-OBJ-01) 외곽선과 고른 존의 면. null 이면 지운다. 층별로 보기를 따른다. */
   setCustomZones(model: Model | null, selected: string | null): void
   /**
+   * 룸(OE-OBJ-03) 외곽선과 고른 룸의 면. `conflict` 는 겹쳐서 막은 상대 룸이라 붉게 그린다(OE-SPC-15). 바닥을 누르면 룸이 그 아래
+   * 물리존보다 먼저 골라진다(onPickSpace 로 룸 id 가 간다). null 이면 지운다.
+   */
+  setRooms(model: Model | null, selected: string | null, conflict?: string | null): void
+  /**
    * 천장 설비의 바닥 발자국 링과, 고른 설비에서 링까지의 수직 점선(OE-EQP-04). 빈 배열이면 지운다. 층별로 보기를 따르고
    * 고르지 않는다 — 링을 눌러도 바닥(물리존)이 골라진다.
    */
@@ -484,6 +492,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const o of arch.children) o.visible = storeyShown(o)
     for (const o of zoneLines.children) o.visible = storeyShown(o)
     for (const o of customZones.children) o.visible = storeyShown(o)
+    for (const o of rooms.children) o.visible = storeyShown(o)
     for (const o of ceilingMarks.children) o.visible = storeyShown(o)
     for (const o of ceilingPlanes.children) o.visible = storeyShown(o)
     dirty = true
@@ -556,6 +565,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   scene.add(zoneLines)
   const customZones = new Group()
   scene.add(customZones)
+  const rooms = new Group()
+  scene.add(rooms)
+  /** 누를 수 있는 룸. 물리존 판보다 먼저 본다(pickSpace). */
+  let roomTargets: { id: string; storeyId: string; y: number; ring: readonly Vec2[] }[] = []
   const ceilingMarks = new Group()
   scene.add(ceilingMarks)
   const ceilingPlanes = new Group()
@@ -645,7 +658,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       hoverMark = new LineSegments(geometry, new LineBasicMaterial({ color: HOVER_COLORS.equipment, depthTest: false }))
       part.box.getCenter(hoverMark.position)
     } else {
-      const t = spaceTargets.find((x) => x.id === target.id)
+      const t = roomTargets.find((x) => x.id === target.id) ?? spaceTargets.find((x) => x.id === target.id)
       if (!t || t.ring.length < 3) return
       const points = t.ring.map(([x, z]) => new Vector3(...toScene([x, z, 0])).setY(t.y + 0.1))
       hoverMark = new LineLoop(
@@ -774,7 +787,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     let best: { id: string; d: number; area: number } | null = null
     const plane = new Plane(new Vector3(0, 1, 0), 0)
     const at = new Vector3()
-    for (const target of spaceTargets) {
+    // 룸(OE-OBJ-03)이 먼저다 — 물리존 판보다 위에 그려 광선이 먼저 닿는다.
+    for (const target of [...roomTargets, ...spaceTargets]) {
       if (visibleStoreys && !visibleStoreys.has(target.storeyId)) continue
       plane.constant = -target.y
       if (!ray.intersectPlane(plane, at)) continue
@@ -1616,6 +1630,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           return { key: seg.key, a: spec?.a, b: spec?.b, from: spec?.from, source: spec?.source, active: !!spec?.active, at: toScreen(seg.a.clone().lerp(seg.b, 0.5)) }
         }),
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
+      /** 그린 룸의 id. */
+      rooms: () => roomTargets.map((t) => t.id),
+      /** 룸 바닥의 화면 자리(가운데). 룸을 눌러 고르는 데 쓴다. */
+      room: (id: string) => {
+        const t = roomTargets.find((x) => x.id === id)
+        if (!t) return null
+        const [[x0, y0], , [x1, y1]] = t.ring
+        return toScreen(new Vector3((x0 + x1) / 2, t.y, -(y0 + y1) / 2))
+      },
       /** 천장 설비 링 수(보이는 층만)와 수직 점선이 가리키는 설비(OE-EQP-04). */
       ceilingMarks: () => ({
         rings: ceilingMarks.children.filter((o) => o.visible && o instanceof LineSegments).reduce((n, o) => n + (o.userData.count as number), 0),
@@ -2157,6 +2180,37 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (box.isEmpty()) box.setFromObject(content)
       // 바로 위는 OrbitControls 가 위쪽 방향을 잃는다. +z(IFC −y) 쪽으로 아주 조금 기울여 화면 위쪽이 IFC +y 가 되게 한다.
       if (!box.isEmpty()) fit(box, true, new Vector3(0, 1, 0.02))
+    },
+
+    setRooms(model, selected, conflict = null) {
+      rooms.traverse((o) => {
+        if (o instanceof LineLoop || o instanceof Mesh) {
+          o.geometry.dispose()
+          ;(o.material as { dispose(): void }).dispose()
+        }
+      })
+      rooms.clear()
+      roomTargets = []
+      for (const storey of model?.storeys ?? []) {
+        const y = storey.elevation + ROOM_LIFT
+        for (const room of storey.rooms ?? []) {
+          const on = room.id === selected
+          const color = room.id === conflict ? ROOM_COLORS.conflict : on ? ARCH_COLORS.selected : ROOM_COLORS.line
+          const line = new LineLoop(new BufferGeometry().setFromPoints(room.footprint.map((p) => new Vector3(p[0], y, -p[1]))), new LineBasicMaterial({ color }))
+          line.userData.storeyId = storey.id
+          rooms.add(line)
+          if (on || room.id === conflict) {
+            const shape = new Shape(room.footprint.slice(0, -1).map((p) => new Vector2(p[0], p[1])))
+            const face = new Mesh(new ShapeGeometry(shape), new MeshBasicMaterial({ color, transparent: true, opacity: 0.2, side: DoubleSide, depthWrite: false }))
+            face.rotation.x = -Math.PI / 2
+            face.position.y = y
+            face.userData.storeyId = storey.id
+            rooms.add(face)
+          }
+          roomTargets.push({ id: room.id, storeyId: storey.id, y, ring: room.footprint })
+        }
+      }
+      applyStoreyVisibility()
     },
 
     onPickElement(handler) {

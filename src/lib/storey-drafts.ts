@@ -58,6 +58,7 @@ export function splitByStorey(file: EditFile, homeOf: HomeOf): Map<string, EditF
   for (const id of file.openingsRemoved ?? []) push(part(homeOf(id)), 'openingsRemoved', id)
   for (const row of file.customZones ?? []) push(part(row.storeyId), 'customZones', row)
   for (const row of file.storeysDone ?? []) push(part(row.id), 'storeysDone', row)
+  for (const row of file.rooms ?? []) push(part(row.storeyId), 'rooms', row)
   for (const row of file.ceilings ?? []) push(part(row.storeyId), 'ceilings', row)
 
   // 층이 없는 편집 — 건물 조각
@@ -88,7 +89,7 @@ export function joinParts(parts: Iterable<EditFile>, base: Pick<EditFile, 'forma
   const lists = [
     'equipment', 'spaces', 'kinds', 'flows', 'confirmedSystems', 'confirmedFlows', 'systems', 'systemsAdded', 'systemsRemoved',
     'systemNames', 'equipmentAdded', 'equipmentRemoved', 'spacesAdded', 'spacesRemoved', 'walls', 'wallsAdded', 'wallsRemoved',
-    'openings', 'openingsAdded', 'openingsRemoved', 'customZones', 'storeysDone', 'ceilings',
+    'openings', 'openingsAdded', 'openingsRemoved', 'customZones', 'storeysDone', 'ceilings', 'rooms',
   ] as const
   for (const p of parts) {
     for (const key of lists) {

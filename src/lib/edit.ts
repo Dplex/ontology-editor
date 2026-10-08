@@ -12,7 +12,7 @@ import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
-import type { Connection, CustomZone, Equipment, Model, Opening, Space, Storey, System, Vec2, Vec3, Wall } from './model'
+import type { Connection, CustomZone, Equipment, Model, Opening, Room, Space, Storey, System, Vec2, Vec3, Wall } from './model'
 import { spacesBesideOpening } from './ifc/element-geometry'
 import { overlapArea, splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
@@ -636,6 +636,8 @@ export type Snapshot =
   | { kind: 'many'; parts: Snapshot[] }
   /** 한 층의 커스텀존 목록(OE-OBJ-01). 소속을 담지 않으니(쓸 때 계산한다) 목록만 사본으로 떠 둔다. */
   | { kind: 'custom-zones'; storeyId: string; zones: CustomZone[] | undefined }
+  /** 층의 룸 전부(OE-OBJ-03). 만들기·지우기·옮기기·크기를 같은 방식으로 되돌린다. */
+  | { kind: 'rooms'; storeyId: string; rooms: Room[] | undefined }
   /** 한 층의 벽·문·창(E4). 객체를 그대로 들고 있어 되돌려도 같은 객체다. */
   | {
       kind: 'storey-elements'
@@ -675,6 +677,13 @@ const copyZones = (zones: readonly CustomZone[]): CustomZone[] =>
   zones.map((z) => ({ id: z.id, name: z.name, ...(z.aliases?.length ? { aliases: [...z.aliases] } : {}), footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2) }))
 
 /** 한 층의 커스텀존 목록을 떠 둔다(OE-OBJ-01). 만들기·지우기·나누기·합치기·이름 고치기 전에 뜬다. */
+export function snapshotRooms(model: Model, storeyId: string): Snapshot | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  return { kind: 'rooms', storeyId, rooms: storey.rooms ? copyRoomList(storey.rooms) : undefined }
+}
+const copyRoomList = (rooms: readonly Room[]): Room[] => rooms.map((r) => ({ ...r, footprint: r.footprint.map((p) => [p[0], p[1]] as Vec2) }))
+
 export function snapshotCustomZones(model: Model, storeyId: string): Snapshot | null {
   const storey = model.storeys.find((s) => s.id === storeyId)
   if (!storey) return null
@@ -778,6 +787,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotStoreyElements(model, snapshot.storeyId)
     case 'custom-zones':
       return snapshotCustomZones(model, snapshot.storeyId)
+    case 'rooms':
+      return snapshotRooms(model, snapshot.storeyId)
     case 'many': {
       const parts = snapshot.parts.map((p) => snapshotOf(model, p))
       return parts.every((p): p is Snapshot => !!p) ? { kind: 'many', parts } : null
@@ -960,6 +971,13 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       if (!storey) return null
       if (snapshot.zones) storey.customZones = copyZones(snapshot.zones)
       else delete storey.customZones
+      return null
+    }
+    case 'rooms': {
+      const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!storey) return null
+      if (snapshot.rooms) storey.rooms = copyRoomList(snapshot.rooms)
+      else delete storey.rooms
       return null
     }
     case 'many': {

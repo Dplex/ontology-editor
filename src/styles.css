@@ -3387,6 +3387,8 @@ main.has-model .catalog {
   flex-direction: column;
   align-items: stretch;
   gap: 0.3rem;
+  /* 넓히지 않는다 — 넓히면 작은 파일에서 건물 모서리(물리존 꼭짓점 손잡이)를 가린다. 공간 그리기 한 줄의 물리존·룸·커스텀존 셋은
+     아래 .palette-row 의 좁은 여백으로 넣는다(글자 88px + 여백 25px = 113px, 들어갈 폭 118px). */
   width: 8.5rem;
   padding: 0.5rem;
   border: 1px solid var(--line);
@@ -3417,12 +3419,12 @@ main.has-model .catalog {
 
 .tool-palette .palette-row {
   display: flex;
-  gap: 0.25rem;
+  gap: 0.15rem;
 }
 
 .tool-palette .palette-row .ghost {
   flex: 1 1 auto;
-  padding-inline: 0.35rem;
+  padding-inline: 0.15rem;
   text-align: center;
   white-space: nowrap;
 }
