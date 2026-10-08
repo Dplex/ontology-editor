@@ -1875,8 +1875,8 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsS
       // 씨앗 10개. 고치기 전 코드는 씨앗 1~3 에서 이미 떨어졌다. 늘리면 check:sample 이 그만큼 느려진다(20개에 36초).
       for (let seed = 1; seed <= 10; seed++) {
         const r = fuzzEdits(model, seed, 30)
-        if (!r.reloadSame || r.missing || !r.undoSame) {
-          failed.push(`${name} seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}`)
+        if (!r.reloadSame || r.missing || !r.undoSame || !r.redoSame) {
+          failed.push(`${name} seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} · 다시 하기 ${r.redoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}`)
         }
       }
     }

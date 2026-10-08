@@ -871,7 +871,13 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       space.kind = snapshot.roomKind
       if (snapshot.roomKindSource) space.kindSource = snapshot.roomKindSource
       else delete space.kindSource
-      for (const e of snapshot.declared ?? []) {
+      // 스냅숏이 담은 설비가 그때 이 방의 BIM 소속 전부다. 지금 BIM 소속인데 거기 없는 것은 그때 풀려 있었다 — 다시 하기가
+      // 경계를 고친 상태로 돌아갈 때 이것을 풀지 않으면, 되돌리기가 다시 담은 BIM 소속이 그대로 남는다.
+      const declared = new Set(snapshot.declared ?? [])
+      for (const e of storeyOfSpace(model, space.id)?.equipment ?? []) {
+        if (e.spaceSource === 'bim' && e.spaceId === space.id && !declared.has(e)) e.spaceSource = null
+      }
+      for (const e of declared) {
         e.spaceId = space.id
         e.spaceSource = 'bim'
       }

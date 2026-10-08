@@ -14,6 +14,7 @@ import {
   moveSpaceVertex,
   renameSpace,
   restore,
+  snapshotOf,
   snapshotSpace,
   snapshotStoreySpaces,
   splitSpace,
@@ -53,6 +54,18 @@ describe('BIM 명시 소속과 사람의 경계 편집 (Q13)', () => {
     expect(light).toMatchObject({ spaceId: null, spaceSource: null })
     restore(model, snap)
     expect(light).toMatchObject({ spaceId: office().id, spaceSource: 'bim' })
+  })
+
+  it('되돌렸다 다시 하면 다시 풀린다 — 다시 하기가 되돌리기 전 상태 그대로다', () => {
+    const light = equip('LIGHT-101-01')
+    const snap = snapshotSpace(model, office().id)!
+    moveSpaceVertex(model, office().id, 1, [9, 1])
+    // 다시 하기는 되돌리기 직전에 뜬 상태(snapshotOf)를 놓는다(App.vue 의 undo·redo).
+    const again = snapshotOf(model, snap)!
+    restore(model, snap)
+    expect(light).toMatchObject({ spaceId: office().id, spaceSource: 'bim' })
+    restore(model, again)
+    expect(light).toMatchObject({ spaceId: null, spaceSource: null })
   })
 
   it('변 위에 꼭짓점을 넣는 것(Insert)은 모양이 같아서 BIM 소속을 풀지 않는다. 그 꼭짓점을 옮기면 푼다', () => {
