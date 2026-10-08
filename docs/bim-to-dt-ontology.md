@@ -1047,7 +1047,9 @@ grep -oE '\b(brick|rdfs):[a-z][A-Za-z_]*' $F | sort -u
 **기하와 의미를 나눈 이유.** 다각형을 TTL에 넣으면 WKT 문자열이 되어 "이 물리존이 저 공조존과 겹치는가"를 질의할 수 없다.
 그런데 이 교집합 연산이 PRD #12 ②의 핵심이다. 반대로 IMDF에는 `feeds`·`hasPoint`를 담을 자리가 없다. 그래서 기하는
 GeoJSON에, 관계는 TTL에 두고 id 하나로만 잇는다. TTL에 좌표가 들어가면 `export.test.ts`가 실패한다. 벽·문·창은 Brick에
-해당 클래스가 없어서 GeoJSON에만 있고, 문의 `connects` 속성이 물리존 id를 가리킨다.
+해당 클래스가 없어서 GeoJSON에만 있고, 문의 `connects` 속성이 물리존 id를 가리킨다. 사람이 그린 룸(`kind: "room"`)과 놓은
+추가 공간 오브젝트(`kind: "spaceObject"`)도 GeoJSON에만 있다. 3D Map에 그리기 위한 것이고, 탐색기 트리나 설비 위치로는 쓰지
+않는다(ADR-0023). 룸은 든 물리존을 `spaceId`로, 오브젝트는 바닥 사각형과 `height`·`size`·라이브러리 항목(`item`)을 적는다.
 
 **계산한 관계의 출처(PRD 부록 C S4).** TTL의 관계에는 출처가 없다(새 술어는 받는 쪽과 합의할 일, OE-INT-07). 그래서 BIM이 말한 것과
 우리가 계산한 것이 섞이는 관계는 GeoJSON 속성에 `bim`·`calc`로 적는다 — 설비 소속 `spaceSource`, 문이 잇는 방 `connectsSource`,
