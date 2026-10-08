@@ -320,14 +320,17 @@ export function requirementsReport(
     const proxies = devices.filter((e) => e.ifcClass === 'BuildingElementProxy').length
     // 파일의 Proxy 중 설비로 읽지 않은 것(OE-BIM-13). 설비로 읽은 것만 세면 빠뜨린 것이 보이지 않는다.
     const p = facts?.proxies
-    const left = p ? p.total - p.ported - p.named : 0
+    const louvers = p?.louvers ?? 0
+    const left = p ? p.total - p.ported - p.named - louvers : 0
     set('R23', {
       ...counted(devices.length - proxies, proxies, devices.length),
       note:
         (proxies > 0
           ? `${proxies}대가 IfcBuildingElementProxy입니다. 포트가 있거나 이름이 사전에 있어 설비로 읽었습니다.`
           : 'Proxy로 들어온 설비가 없습니다.') +
-        (left > 0 ? ` 파일의 Proxy ${p!.total}개 중 ${left}개는 포트도 이름도 없어 건축 부재로 보고 읽지 않았습니다(예: ${p!.skipped.join(', ')}).` : ''),
+        (left > 0 ? ` 파일의 Proxy ${p!.total}개 중 ${left}개는 포트도 이름도 없어 건축 부재로 보고 읽지 않았습니다(예: ${p!.skipped.join(', ')}).` : '') +
+        // 이름은 루버지만 포트가 없는 것(OE-EXT-05). 차양·외장 마감이라 설비가 아니다.
+        (louvers > 0 ? ` 이름이 루버이지만 포트가 없는 ${louvers}개는 건축 루버(차양·외장 마감)로 보고 설비로 받지 않았습니다.` : ''),
     })
   }
 

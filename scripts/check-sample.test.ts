@@ -1498,11 +1498,11 @@ describe('Proxy 리포트 (OE-BIM-13)', () => {
     api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
     const want: Record<string, unknown> = {
       [SAMPLE]: undefined,
-      [MEP]: { total: 49, ported: 1, named: 0, skipped: ['(이름 없음)', 'SolarMountingSystems'] },
+      [MEP]: { total: 49, ported: 1, named: 0, louvers: 0, skipped: ['(이름 없음)', 'SolarMountingSystems'] },
       [DUPLEX_HVAC]: undefined,
       [CLINIC_ARCH]: undefined,
       [CLINIC_HVAC]: undefined,
-      'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc': { total: 29, ported: 0, named: 29, skipped: [] },
+      'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc': { total: 29, ported: 0, named: 29, louvers: 0, skipped: [] },
     }
     let measured = 0
     for (const [path, proxies] of Object.entries(want)) {
@@ -1512,7 +1512,7 @@ describe('Proxy 리포트 (OE-BIM-13)', () => {
       expect(model.facts?.proxies, path).toEqual(proxies)
       const r23 = requirementsReport(model).find((r) => r.id === 'R23')!
       const p = model.facts?.proxies
-      if (p && p.total > p.ported + p.named) expect(r23.note, path).toContain(`파일의 Proxy ${p.total}개 중 ${p.total - p.ported - p.named}개는`)
+      if (p && p.total > p.ported + p.named + (p.louvers ?? 0)) expect(r23.note, path).toContain(`파일의 Proxy ${p.total}개 중 ${p.total - p.ported - p.named - (p.louvers ?? 0)}개는`)
     }
     expect(measured).toBeGreaterThanOrEqual(2)
   }, 600_000)
@@ -1859,9 +1859,11 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
       'terminal-source': '1386/2400',
       'source-terminal': '156/268',
       'terminal-single-source': undefined,
-      // 외벽 설비(외부 루버 등 299대)는 방 밖이 맞는 자리라 세지 않는다(OE-EQP-15). 소속 없던 루버 203대가 위반에서 빠졌다(전에는 4137/4911).
+      // 외벽 설비(기계 파일의 외부 루버 59대)는 방 밖이 맞는 자리라 세지 않는다(OE-EQP-15). 건축 파일의 루버 240개는 포트가 없어 아예 설비로
+      // 받지 않는다(OE-EXT-05, 2026-10-09) — 그 전에는 외벽 설비가 299대였고 분모가 같았다(4911 - 299 = 4671 - 59).
       'device-space': '4041/4612',
-      'device-connected': '2991/3632',
+      // 건축 루버 240개가 빠져 분모가 3632 → 3392. 그중 48개는 형상으로 덕트에 닿아 "이어졌다" 로 세던 것이다.
+      'device-connected': '2943/3392',
     })
   }, 900_000)
 })

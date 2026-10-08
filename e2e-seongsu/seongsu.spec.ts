@@ -22,7 +22,7 @@ const stemOf = (name: string) => name.replace(/[^\w가-힣-]+/g, '_')
 const TERMINAL = new RegExp(process.env.SEONGSU_TERMINAL ?? 'FCU')
 const AHU = new RegExp(process.env.SEONGSU_AHU ?? 'AHU', 'i')
 // 성수의 요약 수(층 · 물리존 · 기기). 다른 파일이면 SEONGSU_COUNTS=21,1375,3826 처럼 주거나 'record' 로 재서 적기만 한다.
-const COUNTS = process.env.SEONGSU_COUNTS ?? '19,508,4911'
+const COUNTS = process.env.SEONGSU_COUNTS ?? '19,508,4671'
 // 편집·연결 시험에 쓰는 기기 둘(같은 층, 계통에 든 말단)과 C-9 의 연결망 기기 수. 'record' 면 재서 적기만 한다.
 const DEVICE_A = process.env.SEONGSU_DEVICE_A ?? 'FCU3:FCU3:958283'
 const DEVICE_B = process.env.SEONGSU_DEVICE_B ?? 'FCU3:FCU3:958291'
