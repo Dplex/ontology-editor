@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addOpening, addWall, moveOpening, newWallThickness, OPENING_SNAP } from './edit'
+import { addOpening, addWall, moveOpening, newWallThickness, OPENING_SNAP, SITE_INTERIOR_WALL } from './edit'
 import type { Model, Opening, Vec2, Wall } from './model'
 
 // 새 벽 두께(OE-SPC-12)와 문·창 스냅 거리(OE-SPC-13).
@@ -54,6 +54,11 @@ describe('새 벽 두께 (OE-SPC-12)', () => {
     expect(newWallThickness(empty.storeys[0], 0.15)).toEqual({ thickness: 0.15, from: 'site' })
     expect(newWallThickness(empty.storeys[0], null)).toEqual({ thickness: 0.2, from: 'default' })
     expect(newWallThickness(model([]).storeys[0])).toEqual({ thickness: 0.2, from: 'default' })
+  })
+
+  it('사이트 기본 내벽 두께의 처음 값은 0.15m 라, 설정을 손대지 않은 사이트에서 BIM 벽이 없는 층의 새 벽은 0.15m 다', () => {
+    expect(SITE_INTERIOR_WALL).toBe(0.15)
+    expect(newWallThickness(model([]).storeys[0], SITE_INTERIOR_WALL)).toEqual({ thickness: 0.15, from: 'site' })
   })
 
   it('같은 수면 두꺼운 쪽이고, 8cm 보다 얇은 마감벽·칸막이는 세지 않는다', () => {

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 // 새 벽 두께(OE-SPC-12)와 문·창 스냅 거리(OE-SPC-13). [벽·문·창] 을 켜면 개요 패널에 설정이 뜬다. mep.ifc 에는 벽이 없어서 새 벽
-// 두께는 사이트 기본값 → 0.2m 다. 그은 벽(두께를 아는 BIM 벽이 아니다)은 세지 않으므로 둘째 벽도 같은 두께다.
+// 두께는 사이트 기본값(처음 0.15m) → 비우면 0.2m 다. 그은 벽(두께를 아는 BIM 벽이 아니다)은 세지 않으므로 둘째 벽도 같은 두께다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 
 async function clickFloor(page: Page, x: number, y: number) {
@@ -25,6 +25,11 @@ test('사이트 기본 두께로 새 벽을 긋고, 스냅 거리를 줄이면 �
   await expect(settings).toHaveCount(0)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await expect(settings).toBeVisible()
+  // 사이트 기본 내벽 두께의 처음 값은 0.15m 다(OE-SPC-12 "내벽 150mm"). 비우면 0.2m 로 긋는다.
+  await expect(settings.getByTestId('site-wall-thickness')).toHaveValue('0.15')
+  await expect(settings.getByTestId('wall-thickness-here')).toContainText('0.15m(사이트 기본값)')
+  await settings.getByTestId('site-wall-thickness').fill('')
+  await settings.getByTestId('site-wall-thickness').press('Enter')
   await expect(settings.getByTestId('wall-thickness-here')).toContainText('0.2m(기본값)')
   await settings.getByTestId('site-wall-thickness').fill('0.15')
   await settings.getByTestId('site-wall-thickness').press('Enter')
@@ -61,4 +66,35 @@ test('사이트 기본 두께로 새 벽을 긋고, 스냅 거리를 줄이면 �
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await expect(settings.getByTestId('site-wall-thickness')).toHaveValue('0.15')
   expect(errors).toEqual([])
+})
+
+test('사이트 기본 내벽 두께를 비우면 비운 채로 남고, 처음 값이 없던 때 저장된 설정은 0.15m 로 읽는다', async ({ page }) => {
+  const open = async () => {
+    await page.locator('.drop input[type=file]').setInputFiles(MEP)
+    await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+    await page.getByRole('button', { name: '편집', exact: true }).click()
+    await page.getByRole('button', { name: '벽·문·창' }).click()
+  }
+  const settings = page.getByTestId('element-settings')
+  await page.goto('/')
+  // 예전 모양(`wallThickness: null`)으로 저장된 설정. 그때는 처음 값이 없어서 null 은 "안 정함" 이었다.
+  await page.evaluate(() => localStorage.setItem('oe-element-settings', JSON.stringify({ wallThickness: null, openingSnap: 0.8 })))
+  await page.reload()
+  await open()
+  await expect(settings.getByTestId('site-wall-thickness')).toHaveValue('0.15')
+  await expect(settings.getByTestId('opening-snap')).toHaveValue('0.8')
+
+  // 사람이 비우면 비운 것이 남는다.
+  await settings.getByTestId('site-wall-thickness').fill('')
+  await settings.getByTestId('site-wall-thickness').press('Enter')
+  await page.reload()
+  await open()
+  await expect(settings.getByTestId('site-wall-thickness')).toHaveValue('')
+  await expect(settings.getByTestId('wall-thickness-here')).toContainText('0.2m(기본값)')
+
+  // 예전 모양에 숫자가 있으면 그 숫자다.
+  await page.evaluate(() => localStorage.setItem('oe-element-settings', JSON.stringify({ wallThickness: 0.18, openingSnap: 0.6 })))
+  await page.reload()
+  await open()
+  await expect(settings.getByTestId('site-wall-thickness')).toHaveValue('0.18')
 })

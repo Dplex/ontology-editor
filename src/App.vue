@@ -108,6 +108,7 @@ import {
   addWall,
   addOpening,
   newWallThickness,
+  SITE_INTERIOR_WALL,
   OPENING_SNAP,
   OPENING_SNAP_RANGE,
   moveWall,
@@ -306,13 +307,17 @@ watch(
 )
 // 벽·문·창 설정(OE-SPC-12 · OE-SPC-13). 사이트(이 브라우저) 하나에 하나다. 새 벽 두께는 같은 층 BIM 내벽 최빈값이 먼저이고 이 값은
 // 그 다음이다(edit.ts 의 newWallThickness). 스냅 거리는 문·창을 놓거나 옮길 때 벽에서 이만큼 안이어야 붙는 거리다.
-type ElementSettings = { wallThickness: number | null; openingSnap: number }
+// 내벽 기본 두께는 처음부터 0.15m 다(SITE_INTERIOR_WALL). 사람이 비우면 null 이고, 그때는 0.2m 로 긋는다.
+type ElementSettings = { interiorWall: number | null; openingSnap: number }
 const elementSettings = ref<ElementSettings>(
   (() => {
-    const base: ElementSettings = { wallThickness: null, openingSnap: OPENING_SNAP }
+    const base: ElementSettings = { interiorWall: SITE_INTERIOR_WALL, openingSnap: OPENING_SNAP }
     try {
-      const saved = JSON.parse(localStorage.getItem('oe-element-settings') ?? 'null') as Partial<ElementSettings> | null
-      return saved ? { ...base, ...saved } : base
+      const saved = JSON.parse(localStorage.getItem('oe-element-settings') ?? 'null') as (Partial<ElementSettings> & { wallThickness?: number | null }) | null
+      if (!saved) return base
+      // 예전 칸(`wallThickness`)은 처음 값이 없어서 null 이 "비움" 이 아니라 "안 정함" 이었다. 숫자만 옮기고 null 은 처음 값으로 읽는다.
+      const interiorWall = saved.interiorWall !== undefined ? saved.interiorWall : typeof saved.wallThickness === 'number' ? saved.wallThickness : SITE_INTERIOR_WALL
+      return { openingSnap: saved.openingSnap ?? OPENING_SNAP, interiorWall }
     } catch {
       return base
     }
@@ -331,7 +336,7 @@ watch(
 )
 function setSiteWallThickness(raw: string) {
   const v = Number(raw)
-  elementSettings.value = { ...elementSettings.value, wallThickness: raw.trim() && v > 0 && v <= 2 ? cm(v) : null }
+  elementSettings.value = { ...elementSettings.value, interiorWall: raw.trim() && v > 0 && v <= 2 ? cm(v) : null }
 }
 function setOpeningSnap(raw: string) {
   const v = Number(raw)
@@ -341,7 +346,7 @@ function setOpeningSnap(raw: string) {
 /** 지금 층에 새 벽을 그으면 어떤 두께가 되나(설정 칸 옆 안내). */
 const wallThicknessHere = computed(() => {
   const storey = targetStorey()
-  return storey ? { storey: storey.name, ...newWallThickness(storey, elementSettings.value.wallThickness) } : null
+  return storey ? { storey: storey.name, ...newWallThickness(storey, elementSettings.value.interiorWall) } : null
 })
 const WALL_FROM = { bim: '같은 층 BIM 내벽 두께의 최빈값', site: '사이트 기본값', default: '기본값' } as const
 const readOpeningShapes = computed(() => readOpenings.value && (readFeatures.value.doors || readFeatures.value.windows))
@@ -4003,7 +4008,7 @@ function finishDraw(): boolean {
     let thick: ReturnType<typeof newWallThickness> | null = null
     const draw = (m: Model) => {
       const storey = m.storeys.find((st) => st.id === d.storeyId)
-      const done = storey ? addWall(m, d.storeyId, a, b, (thick = newWallThickness(storey, elementSettings.value.wallThickness)).thickness) : null
+      const done = storey ? addWall(m, d.storeyId, a, b, (thick = newWallThickness(storey, elementSettings.value.interiorWall)).thickness) : null
       if (done && !('refused' in done)) made = done
       return done
     }
@@ -7836,7 +7841,7 @@ async function export3D(format: 'glb' | 'obj') {
           <div v-if="editing && archMode" class="element-settings" data-testid="element-settings">
             <h4>벽·문·창 설정</h4>
             <label>
-              새 벽 사이트 기본 두께
+              새 벽 사이트 기본 두께(내벽)
               <input
                 type="number"
                 step="0.01"
@@ -7844,7 +7849,7 @@ async function export3D(format: 'glb' | 'obj') {
                 placeholder="없음"
                 data-testid="site-wall-thickness"
                 v-keep-typing
-                :value="elementSettings.wallThickness ?? ''"
+                :value="elementSettings.interiorWall ?? ''"
                 @change="setSiteWallThickness(($event.target as HTMLInputElement).value)"
               />
               m
