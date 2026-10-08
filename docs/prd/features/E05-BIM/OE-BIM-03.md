@@ -20,6 +20,10 @@ depends: ["OE-MAN-03", "R2", "R3", "D15", "Q7"]
 
 ## 요구사항
 
+### User story
+
+구축 담당자가 BIM을 임포트하면 IfcSpace가 물리존으로 만들어지고 방번호·공간명·면적·용도가 읽히며, 외곽선은 FootPrint나 SweptSolid에서 가져온다. Brep만 있는 방은 '외곽선 없음'으로 표시되어 나중에 직접 그릴 대상임을 안다. 반자 높이 h_c는 건축 판본의 FinishCeilingHeight·방 높이·천장 부재에서 읽고, 설비 판본의 방 높이는 층고와 같아 쓰지 않는다. 값이 없으면 '모름'으로 비워 두어 천장 설비 분류에 임의 값이 섞이지 않는다.
+
 IfcSpace(Room·Space 모두)를 물리존으로 만든다(D15). 방번호(Name)·공간명(LongName)·면적·용도를 읽고, 외곽선은 FootPrint 또는 Body/SweptSolid 표현에서 읽는다. Brep·SurfaceModel 만 있는 방은 "외곽선 없음" 으로 둔다(OE-MAN-03 으로 그린다).
 반자 높이(h_c)의 BIM 근거를 읽는다 — 반자 높이 속성(FinishCeilingHeight 등), 방 높이(Unbounded Height·방 형상의 압출 깊이), 천장 부재(IfcCovering CEILING)의 높이. 설비 판본(MEP Space)의 방 높이는 층고와 같아 반자로 쓰지 않으므로 건축 판본의 값만 둔다. 건축과 설비를 합칠 때 같은 방은 건축 판본의 값을 쓴다. 설정 단위는 층이고, 물리존에서 덮어쓸 수 있다(Q7).
 

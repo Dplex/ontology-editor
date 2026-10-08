@@ -22,6 +22,10 @@ depends: ["OE-INT-02", "OE-GEN-03", "OE-GEN-02"]
 
 ## 요구사항
 
+### User story
+
+구축 담당자가 한 층의 물리존·커스텀존·공조존·설비·배관·담당 관계 구성을 마치고 액션바의 [구축하기]를 누르면 생성 전 검증과 게이트를 거쳐 GeoJSON(기하)과 Brick TTL(의미) 두 파일이 만들어지고 DT에 등록된다. 두 파일은 같은 IfcGlobalId로 이어지고 TTL에는 좌표가 들어가지 않아 역할이 분리된다. 생성된 TTL은 rdflib와 DT 파서(ttl.go)가 읽을 수 있음이 확인되므로, 등록 후 DT 3D 맵과 AI Agent가 바로 그 층 데이터를 쓸 수 있다.
+
 초기 구축 결과(물리존·커스텀존·공조존·설비·배관·담당 관계)를 DT 온톨로지로 생성한다. 산출물은 GeoJSON(기하)과 Brick TTL(의미)이며 같은 IfcGlobalId 로 이어진다(OE-INT-02). 술어는 `hasPart`·`hasLocation`·`feeds`·`hasPoint` 넷이고 TTL 에 좌표를 넣지 않는다.
 [구축하기] 를 누르면 생성 전 검증(OE-GEN-03)과 게이트(OE-GEN-02)를 거쳐 두 파일을 만들고 DT 에 등록한다. 등록 경로는 D-INT(결정 전 파일 export).
 

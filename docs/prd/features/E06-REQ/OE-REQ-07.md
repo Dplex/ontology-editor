@@ -25,6 +25,10 @@ depends: ["OE-ZON-05", "OE-ZON-06", "OE-REQ-02", "OE-BIM-17", "OE-REQ-06", "OE-R
 
 ## 요구사항
 
+### User story
+
+구축 담당자가 공조존 용량 검증 Z-03을 쓰려면 방별 설계 급기 풍량이 필요한데, 에디터가 계산하지 않으므로 고객사 BIM의 IfcSpace에 Pset_SpaceThermalDesign의 냉방·난방 설계 풍량을 넣어 달라는 권장 요구 R26을 둔다. 계단실·샤프트 같은 비공조 공간은 해당 없음으로 처리되고, 값이 없거나 다른 Pset에 있는 파일은 요구사항 보고서에 '없음·일부'·'다른 위치'로 보인다. Revit MEP Space의 설계 풍량이 IFC로 어떻게 나가는지(U7)를 확인해 고객사 안내 문구에 넣는다.
+
 고객사 BIM 의 방(IfcSpace)에 사이트가 설계한 급기 풍량을 넣어 달라고 요구하는 R26 을 둔다(권장). 에디터는 이 값을 계산하지 않고 그대로 가져다 용량 검증 Z-03(OE-ZON-05·06)에 쓴다.
 
 - 위치 — IFC2x3·IFC4: `Pset_SpaceThermalDesign.CoolingDesignAirflow`·`HeatingDesignAirflow`. IFC4.3: `Pset_SpaceAirHandlingDimensioning.CoolingDesignAirFlow`·`HeatingDesignAirFlow`.
