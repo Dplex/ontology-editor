@@ -9,10 +9,20 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-EQP-08","OE-EQP-09","OE-EQP-10","OE-EQP-11"]
+depends: ["OE-EQP-08", "OE-EQP-09", "OE-EQP-10", "OE-EQP-11", "OE-PIP-12", "OE-EQP-13", "OE-OBJ-16"]
 ---
 
 # OE-OBJ-11 배관 있는 설비
+
+## 관련 티켓
+
+- [OE-EQP-08](../E12-EQP/OE-EQP-08.md): 실내기 배치·편집
+- [OE-EQP-09](../E12-EQP/OE-EQP-09.md): AHU·PAC 배치·편집
+- [OE-EQP-10](../E12-EQP/OE-EQP-10.md): VAV·토출구 배치·편집
+- [OE-EQP-11](../E12-EQP/OE-EQP-11.md): 스프링클러 배치·편집
+- [OE-PIP-12](../E13-PIP/OE-PIP-12.md): 이동 시 배관 끝점 추종
+- [OE-EQP-13](../E12-EQP/OE-EQP-13.md): 삭제 시 연결·계통 정보 삭제
+- [OE-OBJ-16](./OE-OBJ-16.md): 겹침 불가 원칙 예외
 
 ## 요구사항
 

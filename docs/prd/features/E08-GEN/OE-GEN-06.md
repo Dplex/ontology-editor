@@ -10,10 +10,16 @@ owner: "tbd"
 status: "prd-review"
 status_note: "D11"
 blocked_by: ["D11"]
-depends: ["OE-INT-01","D11"]
+depends: ["OE-UI-02", "OE-INT-03", "OE-INT-01", "D11"]
 ---
 
 # OE-GEN-06 DT 3D Map 생성
+
+## 관련 티켓
+
+- [OE-UI-02](../E03-UI/OE-UI-02.md): 운영 편집 모드 전환
+- [OE-INT-03](../E20-INT/OE-INT-03.md): 3D 형상 출력 형식·변환 주체
+- [OE-INT-01](../E20-INT/OE-INT-01.md): DT 등록 경로 결정
 
 ## 요구사항
 

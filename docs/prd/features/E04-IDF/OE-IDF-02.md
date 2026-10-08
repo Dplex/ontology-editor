@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-IDF-08"]
 ---
 
 # OE-IDF-02 HVAC 객체 → 설비·담당
+
+## 관련 티켓
+
+- [OE-IDF-08](./OE-IDF-08.md): BIM 설비와 위치·동일성 연결
 
 ## 요구사항
 

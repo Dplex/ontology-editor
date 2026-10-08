@@ -9,10 +9,19 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-ZON-05","OE-IDF-03","OE-BIM-07","OE-REQ-07","R9","K9","Q16","U7"]
+depends: ["OE-ZON-05", "OE-IDF-03", "OE-REQ-07", "R9", "OE-BIM-07", "OE-IDF-02", "OE-UI-13", "K9", "Q16", "U7"]
 ---
 
 # OE-ZON-06 용량 검증 입력값(설계 풍량 · 설비 용량)
+
+## 관련 티켓
+
+- [OE-ZON-05](./OE-ZON-05.md): 입력값을 쓰는 Z-03 검사
+- [OE-IDF-03](../E04-IDF/OE-IDF-03.md): R2 IDF 존별 설계 풍량
+- [OE-REQ-07](../E06-REQ/OE-REQ-07.md): BIM 공간 설계 급기 풍량
+- [OE-BIM-07](../E05-BIM/OE-BIM-07.md): 설비 정격 풍량
+- [OE-IDF-02](../E04-IDF/OE-IDF-02.md): R2 IDF 설비 용량
+- [OE-UI-13](../E03-UI/OE-UI-13.md): 값별 출처 표시
 
 ## 요구사항
 

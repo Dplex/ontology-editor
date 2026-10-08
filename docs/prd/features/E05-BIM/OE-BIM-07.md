@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R9","R11"]
+depends: ["R9", "R11", "OE-BIM-14", "OE-BIM-12", "K6", "OE-EQP-02"]
 ---
 
 # OE-BIM-07 설비 생성
+
+## 관련 티켓
+
+- [OE-BIM-14](./OE-BIM-14.md): 설비 종류 판정
+- [OE-BIM-12](./OE-BIM-12.md): 배치점 보정
+- [OE-EQP-02](../E12-EQP/OE-EQP-02.md): 좌표 없는 설비 미배치 목록
 
 ## 요구사항
 

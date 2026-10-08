@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["K12", "OE-SPC-17"]
 ---
 
 # OE-SPC-01 물리존 이름 설정·수정 (E1)
+
+## 관련 티켓
+
+- [OE-SPC-17](./OE-SPC-17.md): 이름으로 모를 때 OmniClass 판정
 
 ## 요구사항
 

@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-BIM-01"]
 ---
 
 # OE-UI-14 3D 자유 카메라
+
+## 관련 티켓
+
+- [OE-BIM-01](../E05-BIM/OE-BIM-01.md): 파일 열기 전체 시간
 
 ## 요구사항
 

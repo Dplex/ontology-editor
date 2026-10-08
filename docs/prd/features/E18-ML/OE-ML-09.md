@@ -9,10 +9,17 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-HIST-03", "OE-ML-03", "OE-ML-17", "OE-ML-19"]
 ---
 
 # OE-ML-09 삭제
+
+## 관련 티켓
+
+- [OE-HIST-03](../E19-HIST/OE-HIST-03.md): 삭제 보정의 재임포트 유지
+- [OE-ML-03](./OE-ML-03.md): 개구부 보존·면적 재계산
+- [OE-ML-17](./OE-ML-17.md): 샤프트 삭제 시 배관 소속 해제
+- [OE-ML-19](./OE-ML-19.md): 삭제 대상 연결 출력 제외
 
 ## 요구사항
 

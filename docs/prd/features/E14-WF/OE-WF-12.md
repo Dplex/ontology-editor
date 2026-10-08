@@ -9,10 +9,15 @@ priority: "P2"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-WF-08"]
+depends: ["OE-WF-11", "OE-WF-08"]
 ---
 
 # OE-WF-12 반영 전 변경 요약
+
+## 관련 티켓
+
+- [OE-WF-11](./OE-WF-11.md): 요약을 띄울 확인 팝업
+- [OE-WF-08](./OE-WF-08.md): 같은 변경 요약 값
 
 ## 요구사항
 

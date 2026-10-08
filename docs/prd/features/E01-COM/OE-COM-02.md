@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-WF-10"]
+depends: ["OE-WF-07", "OE-WF-10"]
 ---
 
 # OE-COM-02 반영 권한
+
+## 관련 티켓
+
+- [OE-WF-07](../E14-WF/OE-WF-07.md): 반영 전 미리보기 확인
+- [OE-WF-10](../E14-WF/OE-WF-10.md): 권한자가 실행하는 반영
 
 ## 요구사항
 

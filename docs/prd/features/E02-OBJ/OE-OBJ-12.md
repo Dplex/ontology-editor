@@ -9,10 +9,18 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-PIP-10","OE-PIP-11","OE-PIP-12","OE-PIP-13"]
+depends: ["OE-ML-15", "OE-PIP-11", "OE-PIP-12", "OE-PIP-13", "OE-PIP-10"]
 ---
 
 # OE-OBJ-12 배관 오브젝트
+
+## 관련 티켓
+
+- [OE-ML-15](../E18-ML/OE-ML-15.md): Flow Type 별 색 체계
+- [OE-PIP-11](../E13-PIP/OE-PIP-11.md): 점 찍어 수동 배관 그리기
+- [OE-PIP-12](../E13-PIP/OE-PIP-12.md): 설비 이동 시 끝점 추종
+- [OE-PIP-13](../E13-PIP/OE-PIP-13.md): 좌표 없는 배관 미반영
+- [OE-PIP-10](../E13-PIP/OE-PIP-10.md): 배관 형상 수정
 
 ## 요구사항
 

@@ -10,10 +10,16 @@ owner: "tbd"
 status: "prd-review"
 status_note: "정본 / PRD ✔ v1.4"
 blocked_by: []
-depends: ["OE-REQ-02","OE-REQ-05","P1","P2","P3","P6","P7"]
+depends: ["R0", "R24", "OE-REQ-02", "OE-GEN-08", "OE-REQ-05", "P1", "P2", "P3", "P6", "P7"]
 ---
 
 # OE-REQ-01 요구사항 R0~R24 표
+
+## 관련 티켓
+
+- [OE-REQ-02](./OE-REQ-02.md): 전달물 IDS 검사 파일
+- [OE-GEN-08](../E08-GEN/OE-GEN-08.md): 전달물 결과 리포트 양식
+- [OE-REQ-05](./OE-REQ-05.md): R25 BAS 매핑 키 제안
 
 ## 요구사항
 

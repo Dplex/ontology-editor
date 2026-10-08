@@ -10,10 +10,17 @@ owner: "tbd"
 status: "prd-done"
 status_note: "(문·창·벽) / ◐"
 blocked_by: []
-depends: []
+depends: ["OE-ML-04", "OE-ML-10", "OE-ML-19", "OE-EQP-16"]
 ---
 
 # OE-EQP-17 로봇 통과 속성 정의
+
+## 관련 티켓
+
+- [OE-ML-04](../E18-ML/OE-ML-04.md): 구조적 층간 연결
+- [OE-ML-10](../E18-ML/OE-ML-10.md): 확인된 정차 층
+- [OE-ML-19](../E18-ML/OE-ML-19.md): 층별 진입/종료 지점
+- [OE-EQP-16](./OE-EQP-16.md): 통과 속성 GeoJSON 내보내기
 
 ## 요구사항
 

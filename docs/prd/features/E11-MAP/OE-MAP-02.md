@@ -10,10 +10,17 @@ owner: "tbd"
 status: "prd-done"
 status_note: "IDF 겹침만"
 blocked_by: []
-depends: ["OE-ZON"]
+depends: ["OE-ZON-01", "OE-ZON-04", "OE-ZON-05", "OE-IDF-05", "K4", "K14", "OE-ZON"]
 ---
 
 # OE-MAP-02 물리존 → 공조존 판정
+
+## 관련 티켓
+
+- [OE-ZON-01](../E10-ZON/OE-ZON-01.md): 공조존 도구의 담당 지정
+- [OE-ZON-04](../E10-ZON/OE-ZON-04.md): 공조존 편집의 담당 수정
+- [OE-ZON-05](../E10-ZON/OE-ZON-05.md): 매핑 검증·불일치 경고
+- [OE-IDF-05](../E04-IDF/OE-IDF-05.md): R2 IDF 겹침 매칭
 
 ## 요구사항
 

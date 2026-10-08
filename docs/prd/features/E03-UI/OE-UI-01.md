@@ -10,10 +10,14 @@ owner: "tbd"
 status: "prd-review"
 status_note: "단독 실행 / 링크 ✗"
 blocked_by: []
-depends: ["OE-INT-01","D-INT"]
+depends: ["OE-INT-01", "D-INT"]
 ---
 
 # OE-UI-01 별도 에디터 실행
+
+## 관련 티켓
+
+- [OE-INT-01](../E20-INT/OE-INT-01.md): 사이트·층 컨텍스트 전달 경로
 
 ## 요구사항
 

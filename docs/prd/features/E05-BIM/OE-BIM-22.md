@@ -10,10 +10,14 @@ owner: "tbd"
 status: "prd-review"
 status_note: "BIM 간 ✔, 스캔 대조 ✗"
 blocked_by: []
-depends: ["R7","P4"]
+depends: ["OE-INT-04", "R7", "P4"]
 ---
 
 # OE-BIM-22 좌표 정합 경고
+
+## 관련 티켓
+
+- [OE-INT-04](../E20-INT/OE-INT-04.md): 임포트 단계 오프셋 맞춤
 
 ## 요구사항
 

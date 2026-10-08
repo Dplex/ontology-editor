@@ -10,10 +10,14 @@ owner: "tbd"
 status: "prd-done"
 status_note: "귀속은 합치기 E3로"
 blocked_by: []
-depends: []
+depends: ["OE-SPC-02"]
 ---
 
 # OE-SPC-04 물리존 삭제 제약
+
+## 관련 티켓
+
+- [OE-SPC-02](./OE-SPC-02.md): 빈자리 이웃 물리존 병합
 
 ## 요구사항
 

@@ -9,10 +9,20 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-EQP-02","OE-EQP-03","OE-EQP-04","OE-EQP-05","Q7","Q10","OE-OBJ-16","Q9"]
+depends: ["OE-UI-04", "OE-EQP-04", "OE-OBJ-16", "OE-EQP-14", "OE-EQP-03", "OE-EQP-02", "OE-EQP-05", "Q7", "Q10", "Q9"]
 ---
 
 # OE-OBJ-08 바닥 / 천장
+
+## 관련 티켓
+
+- [OE-UI-04](../E03-UI/OE-UI-04.md): 편집 모드 구성
+- [OE-EQP-04](../E12-EQP/OE-EQP-04.md): 천장 설비 발자국 링 표시
+- [OE-OBJ-16](./OE-OBJ-16.md): 천장 설비 겹침 규칙
+- [OE-EQP-14](../E12-EQP/OE-EQP-14.md): 종류 미상 설비 종류 지정
+- [OE-EQP-03](../E12-EQP/OE-EQP-03.md): 천장 높이 h_c 판정
+- [OE-EQP-02](../E12-EQP/OE-EQP-02.md): 천장 설비 배치
+- [OE-EQP-05](../E12-EQP/OE-EQP-05.md): 천장 가능 종류 필터
 
 ## 요구사항
 

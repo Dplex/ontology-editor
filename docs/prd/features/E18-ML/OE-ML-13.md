@@ -9,10 +9,19 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-PIP-11"]
+depends: ["OE-PIP-11", "OE-PIP-15", "OE-PIP-10", "OE-PIP-06", "OE-ML-18", "OE-PIP-07"]
 ---
 
 # OE-ML-13 층별 분기(tee)
+
+## 관련 티켓
+
+- [OE-PIP-11](../E13-PIP/OE-PIP-11.md): 분기 그리기·계통 적합성 검사
+- [OE-PIP-15](../E13-PIP/OE-PIP-15.md): 층 편집 화면 이어 그리기
+- [OE-PIP-10](../E13-PIP/OE-PIP-10.md): 완료된 분기 형상 수정
+- [OE-PIP-06](../E13-PIP/OE-PIP-06.md): BIM 연결 변경 시 원본 보존
+- [OE-ML-18](./OE-ML-18.md): 분기점 높이 공통 좌표 변환
+- [OE-PIP-07](../E13-PIP/OE-PIP-07.md): 분기 후 방향 재계산
 
 ## 요구사항
 

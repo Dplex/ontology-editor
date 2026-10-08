@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-IDF-05"]
+depends: ["OE-IDF-04", "OE-IDF-05"]
 ---
 
 # OE-IDF-11 IDF 검토 화면
+
+## 관련 티켓
+
+- [OE-IDF-04](./OE-IDF-04.md): 층 매핑 결과
+- [OE-IDF-05](./OE-IDF-05.md): 존↔물리존 매칭 초안
 
 ## 요구사항
 

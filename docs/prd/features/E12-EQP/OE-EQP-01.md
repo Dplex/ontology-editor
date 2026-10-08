@@ -10,10 +10,15 @@ owner: "tbd"
 status: "prd-done"
 status_note: "임포트 ✔, 태그 ✗"
 blocked_by: []
-depends: []
+depends: ["OE-OBJ-15", "OE-EQP-02"]
 ---
 
 # OE-EQP-01 설비 마스터에서 배치
+
+## 관련 티켓
+
+- [OE-OBJ-15](../E02-OBJ/OE-OBJ-15.md): 기존 배치 방식
+- [OE-EQP-02](./OE-EQP-02.md): 배치 높이 결정
 
 ## 요구사항
 

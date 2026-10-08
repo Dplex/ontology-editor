@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-MAP-01","K17"]
+depends: ["OE-MAP-01", "K17", "K11"]
 ---
 
 # OE-HIST-03 편집 파일 저장·불러오기
+
+## 관련 티켓
+
+- [OE-MAP-01](../E11-MAP/OE-MAP-01.md): 사람이 지정한 설비 소속
 
 ## 요구사항
 

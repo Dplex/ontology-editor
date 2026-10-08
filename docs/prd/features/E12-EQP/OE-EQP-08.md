@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-PIP-12"]
+depends: ["OE-OBJ-11", "OE-PIP-12", "OE-ZON-05"]
 ---
 
 # OE-EQP-08 실내기 디테일
+
+## 관련 티켓
+
+- [OE-OBJ-11](../E02-OBJ/OE-OBJ-11.md): 배관 있는 설비 규칙
+- [OE-PIP-12](../E13-PIP/OE-PIP-12.md): 이동 시 배관 끝점 추종
+- [OE-ZON-05](../E10-ZON/OE-ZON-05.md): Z-06 위치 불일치 경고
 
 ## 요구사항
 

@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-MAP-01", "OE-MAP-02", "OE-IDF-06"]
 ---
 
 # OE-MAP-03 N:M 허용
+
+## 관련 티켓
+
+- [OE-MAP-01](./OE-MAP-01.md): 설비 소속 재매핑
+- [OE-MAP-02](./OE-MAP-02.md): 공조존 재매핑
+- [OE-IDF-06](../E04-IDF/OE-IDF-06.md): R2 IDF 다중 매핑 기준
 
 ## 요구사항
 

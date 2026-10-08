@@ -9,7 +9,7 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R16","R17","K3","U1"]
+depends: ["R16", "R17", "K3", "U1"]
 ---
 
 # OE-BIM-09 계통·포트 읽기

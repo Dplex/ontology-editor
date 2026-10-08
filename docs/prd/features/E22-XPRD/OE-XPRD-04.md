@@ -14,6 +14,10 @@ depends: ["OE-COM-01"]
 
 # OE-XPRD-04 PRD_009 권한 카탈로그
 
+## 관련 티켓
+
+- [OE-COM-01](../E01-COM/OE-COM-01.md): 에디터 편집 권한 항목
+
 ## 요구사항
 
 PRD_009 기능 권한 카탈로그에 에디터 편집 권한 항목(Admin/Super Admin 가능, Viewer 불가)을 정의한다(OE-COM-01).

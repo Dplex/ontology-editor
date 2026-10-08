@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-MAP-01"]
+depends: ["OE-SPC-02", "K10", "OE-MAP-01", "OE-MAN-03"]
 ---
 
 # OE-SPC-03 물리존 경계 수정 (E2)
+
+## 관련 티켓
+
+- [OE-SPC-02](./OE-SPC-02.md): 물리존 자체 삭제
+- [OE-MAP-01](../E11-MAP/OE-MAP-01.md): 경계 수정 후 소속 재판정
+- [OE-MAN-03](../E07-MAN/OE-MAN-03.md): 외곽선 없는 방 점 찍어 그리기
 
 ## 요구사항
 

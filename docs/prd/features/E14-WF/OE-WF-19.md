@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-WF-15","OE-WF-16"]
+depends: ["OE-WF-15", "OE-WF-16", "OE-SYNC-05"]
 ---
 
 # OE-WF-19 되돌리기
+
+## 관련 티켓
+
+- [OE-WF-15](./OE-WF-15.md): 되돌리기 배너
+- [OE-WF-16](./OE-WF-16.md): 되돌리기 GNB 알림
+- [OE-SYNC-05](../E15-SYNC/OE-SYNC-05.md): 리포트에서 바로 진입
 
 ## 요구사항
 

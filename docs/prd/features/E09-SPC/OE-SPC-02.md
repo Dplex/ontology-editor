@@ -9,10 +9,17 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-MAP-01"]
+depends: ["OE-INT-05", "OE-MAP-01", "OE-MAP-02", "OE-HIST-03"]
 ---
 
 # OE-SPC-02 물리존 생성·분할·병합·삭제 (E3)
+
+## 관련 티켓
+
+- [OE-INT-05](../E20-INT/OE-INT-05.md): 만든 물리존 id 규칙
+- [OE-MAP-01](../E11-MAP/OE-MAP-01.md): 설비 소속 자동 재판정
+- [OE-MAP-02](../E11-MAP/OE-MAP-02.md): 공조존 매핑 자동 갱신
+- [OE-HIST-03](../E19-HIST/OE-HIST-03.md): 병합의 편집 파일 저장
 
 ## 요구사항
 

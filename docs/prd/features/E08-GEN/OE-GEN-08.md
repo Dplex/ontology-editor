@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-BIM-20","U5"]
+depends: ["OE-REQ-06", "OE-BIM-20", "U5"]
 ---
 
 # OE-GEN-08 고객사 결과 리포트 (B-1)
+
+## 관련 티켓
+
+- [OE-REQ-06](../E06-REQ/OE-REQ-06.md): 요구사항 판정·수정 방법 문구
+- [OE-BIM-20](../E05-BIM/OE-BIM-20.md): 재제출·보정 항목 분류 코드
 
 ## 요구사항
 

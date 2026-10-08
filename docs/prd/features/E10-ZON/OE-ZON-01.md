@@ -10,10 +10,16 @@ owner: "tbd"
 status: "prd-done"
 status_note: "E9"
 blocked_by: []
-depends: []
+depends: ["OE-UI-04", "OE-BIM-15", "OE-ZON-03"]
 ---
 
 # OE-ZON-01 수동 공조존 생성
+
+## 관련 티켓
+
+- [OE-UI-04](../E03-UI/OE-UI-04.md): 공간 편집 모드 공조존 도구
+- [OE-BIM-15](../E05-BIM/OE-BIM-15.md): R1 공조존 생성 경로
+- [OE-ZON-03](./OE-ZON-03.md): R2 IDF 공조존 보정
 
 ## 요구사항
 

@@ -9,10 +9,17 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-BIM-02","OE-BIM-03","OE-BIM-07","OE-BIM-12","Q7","Q8","Q9"]
+depends: ["OE-BIM-02", "OE-BIM-03", "OE-BIM-07", "OE-BIM-12", "Q7", "Q8", "Q9"]
 ---
 
 # OE-EQP-03 설치면 자동 판정
+
+## 관련 티켓
+
+- [OE-BIM-02](../E05-BIM/OE-BIM-02.md): Level 차로 구한 층고
+- [OE-BIM-03](../E05-BIM/OE-BIM-03.md): 판정 대상 물리존·방 높이
+- [OE-BIM-07](../E05-BIM/OE-BIM-07.md): 판정 대상 설비 좌표
+- [OE-BIM-12](../E05-BIM/OE-BIM-12.md): 보정된 설비 배치점
 
 ## 요구사항
 

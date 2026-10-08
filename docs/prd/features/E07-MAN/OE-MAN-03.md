@@ -9,12 +9,23 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-SPC-03"]
+depends: ["OE-BIM-03", "OE-SPC-02", "K8", "OE-BIM-10", "OE-MAP-01", "OE-SYNC-06", "K10", "OE-HIST-03", "K11", "OE-SPC-03"]
 ---
 
 # OE-MAN-03 외곽선 없는 방 그리기
 
+## 관련 티켓
+
+- [OE-BIM-03](../E05-BIM/OE-BIM-03.md): 외곽선 없는 방의 형상 조건
+- [OE-SPC-02](../E09-SPC/OE-SPC-02.md): 새 물리존 생성과의 구분
+- [OE-BIM-10](../E05-BIM/OE-BIM-10.md): 다른 판본에서 외곽선 빌려오기
+- [OE-MAP-01](../E11-MAP/OE-MAP-01.md): 외곽선 채운 뒤 설비 소속 재판정
+- [OE-SYNC-06](../E15-SYNC/OE-SYNC-06.md): 바뀐 소속의 편집 리포트 기록
+- [OE-HIST-03](../E19-HIST/OE-HIST-03.md): 채운 외곽선의 편집 파일 저장
+- [OE-SPC-03](../E09-SPC/OE-SPC-03.md): 그린 외곽선의 꼭짓점 편집
+
 ## 요구사항
+
 - 외곽선 없는 물리존: BIM 에서 가져온 물리존(IfcSpace)으로 id·이름·번호·면적은 있으나 바닥 다각형이 없는 것.
   FootPrint·Body/SweptSolid 가 없고 Brep·SurfaceModel 로만 있거나 형상이 아예 없는 경우(OE-BIM-03).
 - 외곽선 채우기: 이미 있는 물리존을 골라 그 물리존에 외곽선을 넣는 것. 새 물리존을 만드는 물리존 생성(OE-SPC-02)과 다르다.

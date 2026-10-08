@@ -9,10 +9,16 @@ priority: "P2"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-WF-18","OE-GEN-07","U5"]
+depends: ["OE-GEN-07", "OE-WF-18", "OE-BIM-19", "U5"]
 ---
 
 # OE-GEN-09 리포트 저장·연계
+
+## 관련 티켓
+
+- [OE-GEN-07](./OE-GEN-07.md): 저장할 생성 리포트
+- [OE-WF-18](../E14-WF/OE-WF-18.md): 버전 히스토리에서 열람
+- [OE-BIM-19](../E05-BIM/OE-BIM-19.md): 판본 비교 입력
 
 ## 요구사항
 

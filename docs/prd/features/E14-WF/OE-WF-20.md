@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-COM-04"]
 ---
 
 # OE-WF-20 1주일 보관
+
+## 관련 티켓
+
+- [OE-COM-04](../E01-COM/OE-COM-04.md): 기간과 무관한 로그 보존
 
 ## 요구사항
 

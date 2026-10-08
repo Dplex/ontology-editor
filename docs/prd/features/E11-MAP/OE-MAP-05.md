@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-ZON-01", "OE-ZON-04", "OE-SPC-05"]
 ---
 
 # OE-MAP-05 serviceSpace 기준 유지
+
+## 관련 티켓
+
+- [OE-ZON-01](../E10-ZON/OE-ZON-01.md): 담당 관계 직접 생성
+- [OE-ZON-04](../E10-ZON/OE-ZON-04.md): 담당 관계 직접 수정
+- [OE-SPC-05](../E09-SPC/OE-SPC-05.md): 물리존 편집의 간접 영향
 
 ## 요구사항
 

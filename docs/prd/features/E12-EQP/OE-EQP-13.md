@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-PIP"]
+depends: ["OE-EQP-14", "OE-PIP-01", "OE-PIP-02", "OE-PIP"]
 ---
 
 # OE-EQP-13 설비 추가·삭제·이름 수정 (E7)
+
+## 관련 티켓
+
+- [OE-EQP-14](./OE-EQP-14.md): 추가 설비 종류 지정
+- [OE-PIP-01](../E13-PIP/OE-PIP-01.md): 삭제 시 연결 정리
+- [OE-PIP-02](../E13-PIP/OE-PIP-02.md): 삭제 시 계통 정리
 
 ## 요구사항
 

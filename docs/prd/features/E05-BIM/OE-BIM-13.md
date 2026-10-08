@@ -10,10 +10,14 @@ owner: "tbd"
 status: "prd-review"
 status_note: "예외 ✗"
 blocked_by: []
-depends: ["R23"]
+depends: ["R23", "OE-EXT-05"]
 ---
 
 # OE-BIM-13 Proxy 처리
+
+## 관련 티켓
+
+- [OE-EXT-05](../E17-EXT/OE-EXT-05.md): 건축 루버 설비 오인 방지
 
 ## 요구사항
 
