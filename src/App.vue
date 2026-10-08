@@ -56,6 +56,7 @@ import {
 } from './lib/viewer'
 import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import { drawPipe } from './lib/manual-pipe'
+import { removalImpact } from './lib/removal-impact'
 import { FLOW_TYPES, flowType } from './lib/flow-type'
 import {
   applyFollow,
@@ -4603,6 +4604,25 @@ function makePipe(via: Vec3[], fromId = selectedId.value) {
   redraw()
   note(`${d.flowType} 배관을 그렸습니다: 구간 ${done.segments.length}개 · 이음쇠 ${done.fittings.length}개 · ${done.length.toFixed(2)}m. 흐름 방향은 아직 정하지 않았습니다`)
 }
+/**
+ * 고른 덕트·배관 조각을 지우면 연결망이 어떻게 갈라지나(OE-PIP-10, removal-impact.ts). 지우기 버튼 위에 실행 전에 보인다.
+ * 기기 이름은 갈래마다 셋까지.
+ */
+const selectedImpact = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e || !editing.value || !isConduit(e.role)) return null
+  const impact = removalImpact(m, e.id)
+  if (!impact) return null
+  if (impact.pieces.length === 0) return '이어진 것이 없는 조각입니다.'
+  if (impact.pieces.length === 1) return '지워도 갈라지는 기기가 없습니다(끝에 매달렸거나 다른 길로 이어져 있음).'
+  const side = (p: (typeof impact.pieces)[number]) =>
+    p.devices.length
+      ? `${p.devices.slice(0, 3).map((id) => nameOfId(id)).join(', ')}${p.devices.length > 3 ? ` 외 ${p.devices.length - 3}대` : ''} 쪽(기기 ${p.devices.length}대)`
+      : `기기 없는 배관 ${p.conduits}개`
+  return `지우면 연결망이 ${impact.pieces.length}갈래로 나뉩니다: ${impact.pieces.map(side).join(' / ')}. 다른 분기의 연결은 그대로입니다.`
+})
 function startPipe() {
   const from = selected.value
   const home = from ? storeyOf(from.id) : null
@@ -7763,6 +7783,7 @@ async function export3D(format: 'glb' | 'obj') {
               설비 지우기
             </button>
             <span class="muted">붙은 연결·계통 자리도 같이 빠집니다. Ctrl+Z 로 되돌립니다.</span>
+            <span v-if="selectedImpact" class="removal-impact" data-testid="removal-impact">{{ selectedImpact }}</span>
           </p>
         </section>
 
