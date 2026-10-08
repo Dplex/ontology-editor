@@ -96,6 +96,25 @@ describe('BIM 명시 소속과 사람의 경계 편집 (Q13)', () => {
     expect(e.spaceId).toBe(done.created[0])
     expect(e.spaceSource).toBe('computed')
   })
+  it('합치기로 넓어진 남는 방은 BIM 소속을 그대로 두고, 저장·불러오기 뒤에도 같다. 그 뒤 경계를 고쳐 풀린 것도 같다', () => {
+    const base = baselineOf(model)
+    const light = equip('LIGHT-101-01')
+    const store = createSpace(model, storey().id, { name: '102', longName: '창고', footprint: [[10.2, 0], [14, 0], [14, 8], [10.2, 8]] })!.created[0]
+    const done = mergeSpaces(model, office().id, store)
+    if (!done || 'refused' in done) throw new Error('merge')
+    expect(light).toMatchObject({ spaceId: office().id, spaceSource: 'bim' })
+    const reopen = () => {
+      const fresh = read()
+      applyEdits(fresh, exportEdits(model, base, 'mep.ifc'))
+      return fresh
+    }
+    expect(equip('LIGHT-101-01', reopen())).toMatchObject({ spaceId: office().id, spaceSource: 'bim' })
+    moveSpaceVertex(model, office().id, 0, [-1, -1])
+    expect(light.spaceSource).toBe(null)
+    const fresh = reopen()
+    expect(equip('LIGHT-101-01', fresh)).toMatchObject({ spaceId: light.spaceId, spaceSource: light.spaceSource })
+    expect(modelToTTL(fresh)).toBe(modelToTTL(model))
+  })
 })
 
 describe('물리존 편집 수용 기준 (OE-SPC-01~04)', () => {

@@ -537,14 +537,18 @@ export function moveSpaceVertex(
  * 물리존 전체 경계를 갈아 끼운다. 분할·병합이 이 위에 올라간다.
  *
  * 꼭짓점 하나를 옮기는 것과 계산이 같아서 함수를 나누지 않았다. 다른 것은 입력뿐이다.
+ *
+ * `release: false` 는 편집 파일을 얹을 때다. 외곽선 줄은 끝 모양만 적어서 그 모양이 경계 수정에서 왔는지 합치기에서 왔는지
+ * 모른다 — 합치기로 넓어진 남는 방은 BIM 소속을 그대로 두므로(OE-MAP-01 3단계) 여기서 풀면 세션과 달라진다. 세션에서 풀린
+ * 설비는 설비 줄의 `released` 가 따로 푼다.
  */
-export function replaceSpaceFootprint(model: Model, spaceId: string, ring: Vec2[]): BoundaryChange | null {
+export function replaceSpaceFootprint(model: Model, spaceId: string, ring: Vec2[], { release: mayRelease = true } = {}): BoundaryChange | null {
   const space = findSpace(model, spaceId)
   if (!space) return null
 
   const before = snapshotSpaces(model)
   const fromAreaM2 = space.areaM2
-  const release = shapeChanged(space.footprint, ring)
+  const release = mayRelease && shapeChanged(space.footprint, ring)
 
   space.footprint = ring
   space.areaM2 = polygonArea(ring)
