@@ -87,3 +87,4 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | [0025](0025-space-bim-area-and-outline-warnings.md) | 방의 BIM 면적은 NetFloorArea → GrossFloorArea → GSA BIM Area → Revit 치수 Area 순으로 읽고, 외곽선을 그리면 ±20%·겹침 0.05㎡ 를 넘을 때 경고만 한다 | 제안 |
 | [0026](0026-manual-hvac-zones.md) | 수동 공조존은 층마다 두고 IDF 공조존과 같은 모양으로 읽으며, 담당 물리존은 고른 것(그린 경계면 겹침)이고 담당 설비가 존을 feeds 한다 | 제안 |
 | [0027](0027-hvac-zone-redraw-outline.md) | 공조존 경계는 꼭짓점 손잡이 대신 다시 그려서 고치고, 다시 그리면 겹치는 물리존이 담당이 된다 | 제안 |
+| [0028](0028-zone-flow-basis.md) | 연결 기준은 공조존의 담당 설비에서 확정된 흐름으로 닿는 같은 층 말단의 물리존이고, 같은 설비가 공급하는 공조존들을 함께 보고 경고한다 | 제안 |

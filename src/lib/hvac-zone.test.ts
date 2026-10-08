@@ -6,7 +6,7 @@ import { importIfc } from './ifc/import'
 import { baselineOf, createSpace, deleteSpace, diffBaseline, mergeSpaces, restore, snapshotHvacZones, snapshotStoreySpaces, splitSpace } from './edit'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { splitByStorey } from './storey-drafts'
-import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, findHvacZone, hvacZonesOf, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './hvac-zone'
+import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, findHvacZone, flowSpacesOfZones, hvacZonesOf, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './hvac-zone'
 import { escapeLocalName, modelToTTL } from './export/ttl'
 import { modelToGeoJSON } from './export/geojson'
 import { readGeoJSON } from './export/read-export'
@@ -201,6 +201,51 @@ describe('공조존 경계 다시 그리기 (OE-ZON-04)', () => {
     applyEdits(again, parsed)
     expect(modelToTTL(again)).toBe(modelToTTL(model))
     expect(hvacZonesOf(again)[0]).toMatchObject({ drawn: true, areaM2: 48 })
+  })
+})
+
+describe('연결 기준 후보와 경고 (OE-MAP-02)', () => {
+  // mep.ifc: AHU-1 → DUCT-01 → AT-101-01 은 포트가 말한 방향이고, DUCT-01 → AT-101-02 는 확정 전 규칙 방향이다.
+  // AT-101-02 를 창고로 옮겨, 확정 전 규칙 방향으로만 닿는 방이 후보에 드는지 본다.
+  const names = { space: (id: string) => model.storeys.flatMap((s) => s.spaces).find((s) => s.id === id)?.longName ?? id, equipment: (id: string) => id }
+  const rule = () => zoneChecks(model, names).checks.find((c) => c.rule === '연결')!.items.map((x) => x.label)
+  const toStore = () => {
+    const at = equip('AT-101-02')
+    at.position = [12, 4, 2.7]
+    at.spaceId = store
+  }
+  const confirm = () => {
+    const c = model.connections.find((x) => x.inferred && x.to === equip('AT-101-02').id)!
+    c.inferred!.confirmed = true
+  }
+
+  it('담당 설비에서 확정된 흐름으로 닿는 말단의 물리존만 후보이고, 규칙 방향을 확정하면 후보가 늘며 담당에서 빠진 방이 경고다', () => {
+    toStore()
+    const a = createZoneFromSpaces(model, { spaceIds: [office().id], servedBy: [equip('AHU-1').id] }) as HvacZone
+    expect(flowSpacesOfZones(model).get(a.id)).toEqual([office().id])
+    expect(rule()).toEqual([])
+    confirm()
+    expect(flowSpacesOfZones(model).get(a.id)).toEqual([office().id, store])
+    expect(rule()).toEqual(['공조존 1 — 담당에서 빠짐: 창고'])
+    // 같은 공조기가 창고를 담당하는 공조존도 공급하면, 공조존 1 에 창고가 없는 것은 정상이다.
+    const b = createZoneFromSpaces(model, { spaceIds: [store], servedBy: [equip('AHU-1').id] }) as HvacZone
+    expect(rule()).toEqual([])
+    setZoneServedBy(model, b.id, [])
+    expect(rule()).toEqual(['공조존 1 — 담당에서 빠짐: 창고'])
+    // 후보를 담당에 더하면 경고가 사라진다.
+    setZoneSpaces(model, a.id, [office().id, store])
+    expect(rule()).toEqual([])
+  })
+
+  it('담당 물리존에 담당 설비의 말단이 하나도 없으면 경고다. 말단을 담당 설비로 고르면 그 말단의 방이고, 흐름이 없는 설비는 기준을 쓰지 않는다', () => {
+    const z = createZoneFromSpaces(model, { spaceIds: [store], servedBy: [equip('AHU-1').id] }) as HvacZone
+    expect(rule()).toEqual(['공조존 1 — 담당 물리존에 말단 없음(말단: 사무실)'])
+    setZoneServedBy(model, z.id, [equip('AT-101-01').id])
+    expect(flowSpacesOfZones(model).get(z.id)).toEqual([office().id])
+    // 조명은 공기가 흐르지 않고, 덕트에 이어진 것도 아니다.
+    setZoneServedBy(model, z.id, [equip('LIGHT-101-01').id])
+    expect(flowSpacesOfZones(model).has(z.id)).toBe(false)
+    expect(rule()).toEqual([])
   })
 })
 

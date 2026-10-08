@@ -131,3 +131,38 @@ test('공조존 경계를 다시 그리면 넓이와 담당 물리존 몫이 바
   await expect(zone.getByRole('button', { name: '사무실 ×' })).toBeVisible()
   expect(errors).toEqual([])
 })
+
+test('담당 설비의 흐름이 닿는 물리존이 후보로 보이고, 담당에 말단이 없으면 경고하며, 후보를 더하면 경고가 사라진다 (OE-MAP-02)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const floor = async (x: number, y: number) => {
+    const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
+    await page.mouse.click(at.x, at.y)
+  }
+  // 사무실을 x=2 에서 나눈다. 공조기(1,1)가 든 왼쪽 조각이 사무실-2 이고, 디퓨저 둘(x 3·7)은 사무실에 남는다.
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await floor(9.6, 7.6)
+  const room = page.locator('.space-picked')
+  await room.getByRole('button', { name: '나누기' }).click()
+  await floor(2, 0.5)
+  await floor(2, 7.5)
+  await expect(page.locator('.report')).toContainText('사무실-2')
+
+  const fold = page.getByTestId('hvac-zones')
+  await fold.getByLabel('사무실-2', { exact: true }).check()
+  await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
+  await fold.getByLabel('공조존 1 담당 설비 더하기').selectOption({ label: 'AHU-1 · 공조기' })
+  // 포트가 말한 방향으로 닿는 디퓨저는 AT-101-01(사무실)뿐이다. AT-101-02 는 확정 전 규칙 방향이라 후보가 아니지만, 같은 사무실이다.
+  const flow = fold.getByTestId('zone-flow-공조존 1')
+  await expect(flow).toContainText('흐름이 닿는 물리존')
+  const checks = fold.getByTestId('zone-checks')
+  await expect(checks.locator('li', { hasText: '연결' })).toContainText('공조존 1 — 담당 물리존에 말단 없음(말단: 사무실)')
+  await flow.getByRole('button', { name: '+ 사무실' }).click()
+  await expect(flow).toContainText('사무실 ✓')
+  await expect(checks.locator('li', { hasText: '연결' })).toContainText('없음')
+  expect(errors).toEqual([])
+})
