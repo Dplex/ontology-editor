@@ -13,6 +13,7 @@ import { CAPACITY_PREDICATE } from '../src/lib/capacity'
 import { countOf, isConduit, polygonArea, unplacedOf, type Vec2 } from '../src/lib/model'
 import { assignEquipment, assignEquipmentToSpaces, interiorPoint, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
+import { outlinelessSpaces } from '../src/lib/outline-fill'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
 import { mergeReadings, readOntologyTTL, type OntologyEntity } from '../src/lib/export/read-ttl'
@@ -1516,6 +1517,22 @@ describe('Proxy 리포트 (OE-BIM-13)', () => {
     }
     expect(measured).toBeGreaterThanOrEqual(2)
   }, 600_000)
+})
+
+// OE-MAN-03 외곽선 없는 물리존. 합치기로 다른 모델의 같은 방에서 외곽선을 빌려올 수 있는 방(K8)은 목록에 나오지 않는다 — 빌려오는 것이
+// 먼저고, 빌려올 수 없는 것만 사람이 그린다. BIM 면적은 Revit 이 PSet_Revit_Dimensions.Area 로 적는다(성수 건축은 면적 속성이 없다).
+describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_MEP))('외곽선 없는 물리존 (OE-MAN-03)', () => {
+  it('Duplex 건축의 외곽선 없는 방 둘은 MEP 와 합치면 외곽선을 빌려와 목록에서 빠진다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_ARCH))).model
+    const alone = outlinelessSpaces(arch)
+    expect(alone.map((x) => [x.space.longName, x.space.bimArea?.m2.toFixed(1)])).toEqual([['Hallway', '7.8'], ['Hallway', '7.8']])
+    const merged = mergeModels(arch, importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_MEP))).model)
+    expect(merged.report.spaces.borrowed).toBe(2)
+    expect(outlinelessSpaces(merged.model)).toEqual([])
+  }, 300_000)
 })
 
 // OE-BIM-17 요구사항 보고서. 가진 BIM 에서 "다른 자리" 가 나온 줄은 전부 "내보내기 설정을 바꿔 달라" 와 무엇을 바꿀지를

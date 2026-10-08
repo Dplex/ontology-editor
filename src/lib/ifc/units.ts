@@ -98,3 +98,49 @@ export function lengthScale(api: Api, model: number): { scale: number; found: bo
   }
   return { scale: 1, found: false }
 }
+
+/**
+ * 넓이 단위 하나를 제곱미터 배수로 바꾼다. 못 알아보면 null. 길이와 같은 모양이다 — SI 는 `SQUARE_METRE` 에 접두사(밀리면 1e-6, 제곱이라
+ * 접두사도 제곱한다), 환산 단위(제곱피트 = 0.092903 ㎡)는 안쪽 단위를 따라 푼다.
+ */
+function areaScaleOfUnit(api: Api, model: number, expressID: number, depth = 0): number | null {
+  if (depth > 8) return null
+  const unit = api.GetLine(model, expressID)
+  if (!unit) return null
+  if (unit.type === WebIFC.IFCSIUNIT) {
+    if (unwrap(unit.Name) !== 'SQUARE_METRE') return null
+    const prefix = unwrap(unit.Prefix) as string | null
+    const p = prefix ? (SI_PREFIX[prefix] ?? null) : 1
+    return p === null ? null : p * p
+  }
+  if (unit.type === WebIFC.IFCCONVERSIONBASEDUNIT || unit.type === WebIFC.IFCCONVERSIONBASEDUNITWITHOFFSET) {
+    if (!unit.ConversionFactor) return null
+    const measure = api.GetLine(model, unit.ConversionFactor.value)
+    const factor = Number(unwrap(measure?.ValueComponent))
+    if (!Number.isFinite(factor)) return null
+    const base = measure?.UnitComponent ? areaScaleOfUnit(api, model, measure.UnitComponent.value, depth + 1) : null
+    return base === null ? null : factor * base
+  }
+  return null
+}
+
+/**
+ * 이 모델의 넓이 1 이 몇 제곱미터인지(OE-MAN-03 의 BIM 면적). `IfcProject.UnitsInContext` 의 `AREAUNIT` 을 본다. 못 찾으면 길이 단위의
+ * 제곱을 쓰고 `found` 를 false 로 준다 — 넓이 단위를 따로 적지 않은 파일은 길이 단위로 적었다고 보는 것이 가장 덜 틀린다.
+ */
+export function areaScale(api: Api, model: number): { scale: number; found: boolean } {
+  const projects = api.GetLineIDsWithType(model, WebIFC.IFCPROJECT, false)
+  for (let i = 0; i < projects.size(); i++) {
+    const project = api.GetLine(model, projects.get(i))
+    if (!project?.UnitsInContext) continue
+    const assignment = api.GetLine(model, project.UnitsInContext.value)
+    for (const handle of assignment?.Units ?? []) {
+      const unit = api.GetLine(model, handle.value)
+      if (unwrap(unit?.UnitType) !== 'AREAUNIT') continue
+      const scale = areaScaleOfUnit(api, model, handle.value)
+      if (scale !== null && scale > 0) return { scale, found: true }
+    }
+  }
+  const length = lengthScale(api, model).scale
+  return { scale: length * length, found: false }
+}
