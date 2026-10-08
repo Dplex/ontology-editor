@@ -19,10 +19,7 @@ depends: ["R22", "OE-OBJ-06"]
 - [OE-OBJ-06](../E02-OBJ/OE-OBJ-06.md): 내력벽 편집 규칙
 
 ## 요구사항
-
-### User story
-
-구축 담당자가 BIM을 임포트하면 Pset_WallCommon.LoadBearing(Revit의 Structural)이 읽혀 벽마다 내력 여부가 들어온다. 값이 없는 벽은 '아니오'가 아니라 '모름'으로 구분되어, 담당자가 구조 도면을 확인해야 할 벽이 어느 것인지 안다. 이 값이 에디터에서 내력벽 이동·삭제 잠금의 기준이 되므로, 모름과 아니오를 섞지 않는 것이 실제로는 내력벽인 벽을 사용자가 옮기는 사고를 막는다.
+> User story : 구축 담당자가 BIM을 임포트하면 Pset_WallCommon.LoadBearing(Revit의 Structural)이 읽혀 벽마다 내력 여부가 들어온다. 값이 없는 벽은 '아니오'가 아니라 '모름'으로 구분되어, 담당자가 구조 도면을 확인해야 할 벽이 어느 것인지 안다. 이 값이 에디터에서 내력벽 이동·삭제 잠금의 기준이 되므로, 모름과 아니오를 섞지 않는 것이 실제로는 내력벽인 벽을 사용자가 옮기는 사고를 막는다.
 
 Pset_WallCommon.LoadBearing(Revit 의 Structural)을 읽어 벽의 loadBearing 으로 둔다(R22). 값이 없으면 "모름" 이다. "모름" 과 "아니오" 를 섞지 않는다. 편집 규칙은 OE-OBJ-06.
 

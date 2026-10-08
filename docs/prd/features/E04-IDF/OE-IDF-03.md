@@ -21,10 +21,7 @@ depends: ["OE-ZON-06", "K9", "OE-ZON-05", "OE-IDF-11", "Q16", "U8"]
 - [OE-IDF-11](./OE-IDF-11.md): 기준값 없는 존 표시
 
 ## 요구사항
-
-### User story
-
-R2에서 구축 담당자가 IDF의 Sizing:Zone에서 존별 설계 급기 풍량을 읽어 용량 검증 Z-03의 1순위 기준값으로 쓴다. Method가 Flow/Zone이라 숫자가 적힌 존만 읽고, DesignDay처럼 EnergyPlus가 시뮬레이션으로 계산하는 존은 '기준값 없음'으로 이유와 함께 검토 화면에 보여 지어낸 값으로 검증하지 않는다. 담당자는 기준값 없는 존에 BIM 값이나 직접 입력으로 보완하고, 냉방·난방 중 큰 값과 CMH 환산은 OE-ZON-06 규칙을 따른다.
+> User story : R2에서 구축 담당자가 IDF의 Sizing:Zone에서 존별 설계 급기 풍량을 읽어 용량 검증 Z-03의 1순위 기준값으로 쓴다. Method가 Flow/Zone이라 숫자가 적힌 존만 읽고, DesignDay처럼 EnergyPlus가 시뮬레이션으로 계산하는 존은 '기준값 없음'으로 이유와 함께 검토 화면에 보여 지어낸 값으로 검증하지 않는다. 담당자는 기준값 없는 존에 BIM 값이나 직접 입력으로 보완하고, 냉방·난방 중 큰 값과 CMH 환산은 OE-ZON-06 규칙을 따른다.
 
 `Sizing:Zone` 에서 존별 설계 급기 풍량을 읽어, 용량 검증 Z-03 의 IDF 입력값으로 둔다(OE-ZON-06 설계 풍량 1순위, 공조존 단위). 출처는 'IDF' 다.
 Cooling/Heating Design Air Flow Method 가 `Flow/Zone` 이라 풍량 숫자가 적힌 경우만 읽는다. `DesignDay`(기본값)·`DesignDayWithLimit` 처럼 EnergyPlus 가 설계일 시뮬레이션으로 계산하는 값은 IDF 에 숫자가 없으므로, 지어내지 않고 "기준값 없음" 으로 두며 이유("IDF 가 시뮬레이션으로 계산하는 값")를 보인다. 시뮬레이션 결과 파일(`.eio`·sizing 리포트)은 읽지 않는다. 삼성 IDF 의 Method 가 무엇인지는 U8 에서 확인한다.

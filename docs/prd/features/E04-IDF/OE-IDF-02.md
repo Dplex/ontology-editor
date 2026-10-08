@@ -19,10 +19,7 @@ depends: ["OE-IDF-08"]
 - [OE-IDF-08](./OE-IDF-08.md): BIM 설비와 위치·동일성 연결
 
 ## 요구사항
-
-### User story
-
-R2에서 구축 담당자가 상세 HVAC 객체가 담긴 IDF를 임포트하면 AirLoopHVAC는 공조기, ZoneHVAC는 존 설비, AirTerminal은 말단 장치로 읽혀 설비와 담당 공조존 관계가 자동 생성된다. 공조기→말단→담당 존, VRF 실외기→실내기→존 흐름이 노드 연결을 따라 이어지고, EquipmentList 같은 관계 객체나 IdealLoads 같은 가상 장치는 설비로 만들지 않는다. 용량이 Autosize면 지어내지 않고 상태를 보존하며, 해석 못 한 연결은 사유와 함께 검토 목록에 남아 담당자가 손볼 곳을 안다.
+> User story : R2에서 구축 담당자가 상세 HVAC 객체가 담긴 IDF를 임포트하면 AirLoopHVAC는 공조기, ZoneHVAC는 존 설비, AirTerminal은 말단 장치로 읽혀 설비와 담당 공조존 관계가 자동 생성된다. 공조기→말단→담당 존, VRF 실외기→실내기→존 흐름이 노드 연결을 따라 이어지고, EquipmentList 같은 관계 객체나 IdealLoads 같은 가상 장치는 설비로 만들지 않는다. 용량이 Autosize면 지어내지 않고 상태를 보존하며, 해석 못 한 연결은 사유와 함께 검토 목록에 남아 담당자가 손볼 곳을 안다.
 
 IDF 의 HVAC 객체를 설비와 담당 관계로 만든다. AirLoopHVAC 는 공조기, ZoneHVAC:* 는 존 설비, AirTerminal:* 는 토출구로 읽고 종류·용량·담당 공조존을 둔다.
 담당 관계는 존 설비 목록 → 말단 → 급기 분기 → 공조기 순으로, VRF 는 실외기 → 실내기 순으로 잇는다. 설비 위치는 IDF 에 없으므로 좌표 없이 만든다(OE-IDF-08 로 BIM 설비와 연결).
