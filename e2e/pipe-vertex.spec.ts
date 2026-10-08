@@ -75,3 +75,35 @@ test('실제 BIM: 배관 구간을 고르면 지우기 전에 연결망이 몇 �
   await expect(page.locator('.equipment tbody tr').filter({ hasText: '582940' })).toHaveCount(1)
   expect(errors).toEqual([])
 })
+
+test('실제 BIM: 배관 구간 끝의 연결 대상을 바꾸면 옛 BIM 포트 연결은 해제 보정으로 남고, 한 번에 되돌린다 (OE-PIP-10)', async ({ page }) => {
+  test.skip(!existsSync(DUPLEX_HVAC), `${DUPLEX_HVAC} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(120_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(DUPLEX_HVAC)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const list = page.getByRole('button', { name: /설비 위치와 소속/ })
+  if ((await list.getAttribute('aria-expanded')) === 'false') await list.click()
+
+  // 배수관 #582951 은 샤워 #582917 에 BIM 포트로 붙어 있다. 0.7m 옆의 샤워 #582914 로 바꾼다.
+  await pick(page, '582951')
+  const box = page.getByTestId('retarget')
+  await box.getByLabel('바꿀 끝').selectOption({ label: 'M_Shower Stall - Rectangular #582917 (BIM 포트)' })
+  await box.getByLabel('새 대상').selectOption({ label: 'M_Shower Stall - Rectangular #582914 · 0.7m' })
+  await expect(page.getByTestId('retarget-preview')).toContainText('기존: M_Shower Stall - Rectangular #582917 → 변경: M_Shower Stall - Rectangular #582914.')
+  await expect(page.getByTestId('retarget-preview')).toContainText('BIM 포트 연결이라 지우지 않고 해제 보정으로 남깁니다')
+  await box.getByRole('button', { name: '바꾸기' }).click()
+  await expect(page.locator('.edit-bar')).toContainText('끝 대상 M_Shower Stall - Rectangular #582917 → M_Shower Stall - Rectangular #582914')
+  await expect(page.locator('.picked-sub', { hasText: '해제한 연결' })).toContainText('1')
+  // 바꾼 뒤 바꿀 끝 목록에는 새 대상이 있다.
+  await expect(box.getByLabel('바꿀 끝').locator('option', { hasText: '#582914' })).toHaveCount(1)
+
+  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.picked-sub', { hasText: '해제한 연결' })).toHaveCount(0)
+  await expect(box.getByLabel('바꿀 끝').locator('option', { hasText: '#582917 (BIM 포트)' })).toHaveCount(1)
+  expect(errors).toEqual([])
+})

@@ -57,6 +57,7 @@ import {
 import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import { drawPipe } from './lib/manual-pipe'
 import { removalImpact } from './lib/removal-impact'
+import { retargetEnd } from './lib/retarget'
 import { FLOW_TYPES, flowType } from './lib/flow-type'
 import {
   applyFollow,
@@ -4623,6 +4624,56 @@ const selectedImpact = computed(() => {
       : `기기 없는 배관 ${p.conduits}개`
   return `지우면 연결망이 ${impact.pieces.length}갈래로 나뉩니다: ${impact.pieces.map(side).join(' / ')}. 다른 분기의 연결은 그대로입니다.`
 })
+/** 구간 끝의 연결 대상 바꾸기(OE-PIP-10, retarget.ts). 고른 구간이 바뀌면 비운다. */
+const retargetDraft = ref<{ from: string; to: string }>({ from: '', to: '' })
+watch(selectedId, () => (retargetDraft.value = { from: '', to: '' }))
+/** 고른 구간의 끝에 이어진 것(바꿀 끝). */
+const segmentEnds = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e || e.role !== 'segment') return []
+  return m.connections.flatMap((c) => (c.from === e.id ? [c] : c.to === e.id ? [c] : [])).map((c) => {
+    const other = c.from === e.id ? c.to : c.from
+    return { id: other, name: nameOfId(other), port: c.source === 'port' }
+  })
+})
+/** 새 대상 후보: 같은 층의 좌표 있는 설비·배관, 바꿀 끝의 지금 대상에서 가까운 순 30개. 이미 이어진 것과 구간 자신은 뺀다. */
+const retargetChoices = computed(() => {
+  const e = selected.value
+  const from = retargetDraft.value.from ? equipmentById.value.get(retargetDraft.value.from) : null
+  const home = e ? storeyOf(e.id) : null
+  if (!e || !from?.position || !home) return []
+  const linked = new Set(segmentEnds.value.map((x) => x.id))
+  const p = from.position
+  return home.equipment
+    .filter((x) => x.id !== e.id && !linked.has(x.id) && !!x.position)
+    .map((x) => ({ id: x.id, name: shortName(x.name), d: Math.hypot(x.position![0] - p[0], x.position![1] - p[1], x.position![2] - p[2]) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 30)
+})
+function applyRetarget() {
+  const m = model.value
+  const e = selected.value
+  const { from, to } = retargetDraft.value
+  if (!m || !e || !from || !to) return
+  const old = m.connections.find((c) => (c.from === e.id && c.to === from) || (c.to === e.id && c.from === from))
+  if (!old) return
+  // 되돌리기 한 번에: 옛 연결(해제 보정 또는 지움), 새 연결(없던 상태), 구간 형상.
+  const log = [...(m.connectionLog ?? [])]
+  const parts: Snapshot[] = [snapshotRelease(m, old), snapshotEquipment(m, e.id)!]
+  const at = mark()
+  const done = retargetEnd(m, e.id, from, to, segmentAxis)
+  if ('refused' in done) return note(done.refused)
+  const label = `${shortName(e.name)} 끝 대상 ${nameOfId(from)} → ${nameOfId(to)}`
+  remember(label, { kind: 'many', parts: [parts[0], { kind: 'release', connection: done.added, state: { where: 'absent' }, log }, parts[1]] }, at)
+  if (done.stretched) placeStretched(e.id)
+  ruleReport.value = done.rules
+  retargetDraft.value = { from: '', to: '' }
+  triggerRef(model)
+  flowVersion.value++
+  note(`${label}. ${done.released ? '옛 BIM 포트 연결은 해제 보정으로 남겼습니다' : '옛 연결은 지웠습니다'}${done.stretched ? '. 그 끝을 새 대상 자리로 늘였습니다' : ''}`)
+}
 function startPipe() {
   const from = selected.value
   const home = from ? storeyOf(from.id) : null
@@ -7774,6 +7825,33 @@ async function export3D(format: 'glb' | 'obj') {
               <button type="button" class="ghost" :disabled="!pipeDraft.to" @click="makePipe([])">곧게 연결하기</button>
               <button type="button" class="ghost" :disabled="!pipeDraft.to" @click="startPipe">꺾임점 찍기</button>
               <span class="muted">흐름 방향은 정하지 않습니다. 확정 전 규칙 방향은 TTL feeds 에 나가지 않습니다.</span>
+            </p>
+          </div>
+
+          <!-- 구간 끝의 연결 대상 바꾸기(OE-PIP-10). BIM 포트 연결은 해제 보정으로 남기고 새 대상과 manual 로 잇는다. -->
+          <div v-if="editing && !selectedLock && selected.role === 'segment' && segmentEnds.length" class="retarget" data-testid="retarget">
+            <h4 class="picked-sub">끝 대상 바꾸기</h4>
+            <p class="pipe-draw-row">
+              <label>
+                바꿀 끝
+                <select v-model="retargetDraft.from" aria-label="바꿀 끝">
+                  <option value="">고르세요…</option>
+                  <option v-for="x in segmentEnds" :key="x.id" :value="x.id">{{ x.name }}{{ x.port ? ' (BIM 포트)' : '' }}</option>
+                </select>
+              </label>
+              <label>
+                새 대상
+                <select v-model="retargetDraft.to" aria-label="새 대상" :disabled="!retargetDraft.from">
+                  <option value="">고르세요…</option>
+                  <option v-for="x in retargetChoices" :key="x.id" :value="x.id">{{ x.name }} · {{ x.d.toFixed(1) }}m</option>
+                </select>
+              </label>
+              <button type="button" class="ghost" :disabled="!retargetDraft.from || !retargetDraft.to" @click="applyRetarget">바꾸기</button>
+            </p>
+            <p v-if="retargetDraft.from && retargetDraft.to" class="hint" data-testid="retarget-preview">
+              기존: {{ nameOfId(retargetDraft.from) }} → 변경: {{ nameOfId(retargetDraft.to) }}.
+              {{ segmentEnds.find((x) => x.id === retargetDraft.from)?.port ? '옛 연결은 BIM 포트 연결이라 지우지 않고 해제 보정으로 남깁니다.' : '옛 연결은 지웁니다.' }}
+              새 연결은 방향 없이 시작합니다.
             </p>
           </div>
 
