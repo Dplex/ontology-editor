@@ -32,7 +32,7 @@ import { storeyFiles } from './lib/export/storey-export'
 import { clearStoreyDone, markStoreyDone, storeyProgress, type StoreyProgress } from './lib/storey-progress'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { outlinelessSpaces, outlineWarnings } from './lib/outline-fill'
-import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, hvacZonesOf, renameHvacZone, setZoneServedBy } from './lib/hvac-zone'
+import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, hvacZonesOf, renameHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './lib/hvac-zone'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
@@ -4529,6 +4529,15 @@ function addZoneServed(zoneId: string, storeyId: string, equipmentId: string, se
 function removeZoneServed(zoneId: string, storeyId: string, equipmentId: string, served: readonly string[]) {
   changeHvacZones(storeyId, '공조존 담당 설비', (m) => setZoneServedBy(m, zoneId, served.filter((id) => id !== equipmentId)))
 }
+function setZoneSpaceList(zoneId: string, storeyId: string, ids: readonly string[]) {
+  changeHvacZones(storeyId, '공조존 담당 물리존', (m) => setZoneSpaces(m, zoneId, ids))
+}
+/** 공조존 검증(OE-ZON-05). 경고만 하고 막지 않는다. */
+const zoneCheckList = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  return m ? zoneChecks(m, { space: (id) => spaceNameOf(id), equipment: (id) => nameOfId(id) }) : null
+})
 /** 담당 설비로 고를 수 있는 것: 그 층의 공기·물이 흐르는 기기(덕트·배관 제외). */
 const zoneEquipmentChoices = computed(() =>
   (zoneStorey.value?.equipment ?? []).filter((e) => !isConduit(e.role) && !!e.position).sort((a, b) => a.name.localeCompare(b.name)),
@@ -8964,10 +8973,23 @@ async function export3D(format: 'glb' | 'obj') {
                     :aria-label="`${z.name} 공조존 이름`"
                     @change="changeHvacZones(zoneStorey!.id, '공조존 이름', (m) => renameHvacZone(m, z.id, ($event.target as HTMLInputElement).value))"
                   />
-                  <span class="muted">
+                  <span class="zone-served">
                     담당 물리존
-                    {{ z.spaceIds.map((id) => spaceNameOf(id) + (z.drawn && z.spaceShares?.[id] !== undefined ? ` ${Math.round(z.spaceShares[id] * 100)}%` : '')).join(', ') || '없음' }}
-                    · {{ z.areaM2.toFixed(1) }}㎡ <Src kind="edit" />
+                    <button
+                      v-for="id in z.spaceIds"
+                      :key="id"
+                      type="button"
+                      class="chip"
+                      :title="`${spaceNameOf(id)} 빼기`"
+                      @click="setZoneSpaceList(z.id, zoneStorey!.id, z.spaceIds.filter((x) => x !== id))"
+                    >
+                      {{ spaceNameOf(id) }}{{ z.drawn && z.spaceShares?.[id] !== undefined ? ` ${Math.round(z.spaceShares[id] * 100)}%` : '' }} ×
+                    </button>
+                    <select :value="''" :aria-label="`${z.name} 담당 물리존 더하기`" @change="setZoneSpaceList(z.id, zoneStorey!.id, [...z.spaceIds, ($event.target as HTMLSelectElement).value])">
+                      <option value="">더하기…</option>
+                      <option v-for="sp in zoneStorey!.spaces.filter((x) => !z.spaceIds.includes(x.id))" :key="sp.id" :value="sp.id">{{ sp.longName || sp.name || sp.id }}</option>
+                    </select>
+                    <span class="muted">· {{ z.areaM2.toFixed(1) }}㎡</span> <Src kind="edit" />
                   </span>
                   <span class="zone-served">
                     담당 설비
@@ -8984,6 +9006,17 @@ async function export3D(format: 'glb' | 'obj') {
                   <button type="button" class="ghost danger" @click="changeHvacZones(zoneStorey!.id, '공조존 지우기', (m) => deleteHvacZone(m, z.id))">지우기</button>
                 </li>
                 <li v-if="!zonesHere.length" class="muted">이 층에 만든 공조존이 없습니다.</li>
+              </ul>
+              <!-- 공조존 검증(OE-ZON-05). 경고만 하고 막지 않는다. Z-03 용량은 설계 풍량 입력(OE-ZON-06)과 같이 둔다. -->
+              <ul v-if="zoneCheckList" class="plain zone-checks" data-testid="zone-checks">
+                <li v-for="c in zoneCheckList.checks" :key="c.rule" :class="{ warn: c.items.length }">
+                  <b>{{ c.rule }}</b> {{ c.text }}:
+                  <template v-if="c.items.length">
+                    {{ c.items.length }}개 — {{ c.items.slice(0, 5).map((x) => x.label).join(', ') }}<template v-if="c.items.length > 5"> 외 {{ c.items.length - 5 }}개</template>
+                  </template>
+                  <span v-else class="muted">없음</span>
+                </li>
+                <li v-if="zoneCheckList.untouched.length" class="muted">공조존이 아직 없는 층은 Z-01 을 세지 않습니다: {{ zoneCheckList.untouched.join(', ') }}</li>
               </ul>
               <div class="zone-make">
                 <span>담당 물리존을 골라 만들기</span>

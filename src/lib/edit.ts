@@ -14,7 +14,7 @@ import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapsho
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, roomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
 import type { Connection, CustomZone, Equipment, HvacZone, Model, Opening, Room, Space, SpaceObject, Storey, System, Vec2, Vec3, Wall } from './model'
-import { copyHvacZones } from './hvac-zone'
+import { copyHvacZones, remapZonesForSpaces } from './hvac-zone'
 import { spacesBesideOpening } from './ifc/element-geometry'
 import { overlapArea, splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
@@ -747,6 +747,8 @@ export type Snapshot =
       }[]
       equipment: { equipment: Equipment; spaceId: string | null; spaceSource: Equipment['spaceSource'] }[]
       openings: { id: string; connects: string[] | undefined }[]
+      /** 그 층의 사람이 만든 공조존. 물리존을 나누고 합치면 담당 물리존이 따라 바뀐다(OE-MAP-02). */
+      hvacZones?: HvacZone[]
     }
   /** 계통의 구성원·종류·유체와 설비의 계통(E8). */
   | {
@@ -1106,6 +1108,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       }
       for (const e of storey.equipment) assignEquipment(e, storey.spaces)
       relinkDoors(storey)
+      if (snapshot.hvacZones) storey.hvacZones = copyHvacZones(snapshot.hvacZones)
+      else delete storey.hvacZones
       return null
     }
     case 'storey-elements': {
@@ -1900,6 +1904,7 @@ export function snapshotStoreySpaces(model: Model, storeyId: string): Snapshot |
     })),
     equipment: storey.equipment.map((equipment) => ({ equipment, spaceId: equipment.spaceId, spaceSource: equipment.spaceSource })),
     openings: storey.openings.map((o) => ({ id: o.id, connects: o.connects ? [...o.connects] : undefined })),
+    ...(storey.hvacZones ? { hvacZones: copyHvacZones(storey.hvacZones) } : {}),
   }
 }
 
@@ -1965,6 +1970,7 @@ export function deleteSpace(model: Model, spaceId: string): SpaceSetChange | { r
   if (storey.spaces.length <= 1) return { refused: '층에 하나 남은 물리존은 지울 수 없습니다.' }
   const before = snapshotSpaces(model)
   storey.spaces = storey.spaces.filter((s) => s.id !== spaceId)
+  remapZonesForSpaces(storey, { removed: spaceId })
   return { storeyId: storey.id, created: [], removed: [spaceId], equipment: settleStorey(model, storey, new Set([spaceId]), before) }
 }
 
@@ -2016,6 +2022,8 @@ export function splitSpace(
   // 사람이 나눈 물리존은 BIM 이 거기 담아 둔 설비도 좌표로 다시 판정한다(OE-MAP-01 3단계, Q13). 좁은 조각에 든 설비는 좁은
   // 조각으로, 넓은 조각(원래 id)에 든 설비는 그대로, 둘 다 밖인 설비는 좌표대로 다른 방이나 층으로 간다.
   releaseDeclared(storey, spaceId)
+  // 나눈 물리존을 담당하던 공조존은 두 조각 모두 담당한다(OE-MAP-02).
+  remapZonesForSpaces(storey, { split: [spaceId, id] })
   return { storeyId: storey.id, created: [id], removed: [], equipment: settleStorey(model, storey, new Set(), before) }
 }
 
@@ -2046,6 +2054,7 @@ export function mergeSpaces(
 function absorb(model: Model, storey: Storey, keep: Space, other: Space, before: ReturnType<typeof snapshotSpaces>): SpaceSetChange {
   keep.merged = [...(keep.merged ?? []), other.id, ...(other.merged ?? [])]
   storey.spaces = storey.spaces.filter((s) => s !== other)
+  remapZonesForSpaces(storey, { merged: [keep.id, other.id] })
   const equipment = settleStorey(model, storey, new Set([other.id]), before, new Map([[other.id, keep.id]]))
   return { storeyId: storey.id, created: [], removed: [other.id], equipment }
 }
