@@ -326,8 +326,11 @@ export type Connection = {
    * 사람이 에디터에서 정한 흐름 방향. `inferred` 처럼 **포트가 방향을 말하지 않은 연결에만** 붙는다.
    * 규칙이 틀린 곳을 고치거나 규칙이 닿지 못한 곳을 채운다. 규칙 방향보다 앞서고, 사람이 정한
    * 것이라 확정 없이 `brick:feeds` 로 나간다. BIM 포트가 말한 방향은 고칠 수 없다.
+   *
+   * `at`·`reason` 은 패널에서 [적용] 한 시각과 보정 사유다(OE-PIP-04). 규칙 방향과 반대로 정할 때만 사유를 받는다. 편집 파일만
+   * 얹은 옛 파일의 방향에는 없다.
    */
-  edited?: { from: string; to: string }
+  edited?: { from: string; to: string; at?: string; reason?: string }
 }
 
 /** 해제 보정한 BIM 포트 연결(OE-PIP-06). */
@@ -347,9 +350,12 @@ export type ReleasedConnection = {
   review?: 'direction' | 'missing'
 }
 
-/** 연결 보정 이력 한 줄. `keep` 은 재검토를 보고 해제를 유지한 것, `drop` 은 원본을 못 찾은 보정을 지운 것이다. */
+/**
+ * 연결 편집 이력 한 줄. `keep` 은 재검토를 보고 해제를 유지한 것, `drop` 은 원본을 못 찾은 보정을 지운 것이다.
+ * `flow`·`unflow` 는 사람이 방향을 적용·해제한 것이고(OE-PIP-04) 그때 `from`·`to` 는 흐름 방향이다.
+ */
 export type ConnectionLogEntry = {
-  action: 'release' | 'restore' | 'keep' | 'drop'
+  action: 'release' | 'restore' | 'keep' | 'drop' | 'flow' | 'unflow'
   from: string
   to: string
   at: string

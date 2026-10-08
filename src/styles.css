@@ -771,6 +771,24 @@ th {
   font-size: 0.75rem;
 }
 
+/* 방향 미리보기(OE-PIP-04). 적용 전이라 표의 다른 줄과 섞이지 않게 테두리를 둔다. */
+.flow-preview {
+  margin-top: 0.3rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px dashed var(--accent);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.flow-preview p {
+  margin: 0 0 0.25rem;
+}
+
+.flow-preview input {
+  width: 100%;
+  font-size: 0.8rem;
+}
+
 .review-tag {
   color: var(--warn-fg);
 }

@@ -209,7 +209,8 @@ export type Arrow = {
   b: string
   /** 흐름이 나가는 쪽. null 이면 방향을 모른다(화살촉 없이 점선). */
   from: string | null
-  source: 'port' | 'edit' | 'rule' | 'none'
+  /** `preview` 는 사람이 고르고 아직 [적용] 하지 않은 방향이다(OE-PIP-04). 색은 편집과 같고 점선이다. */
+  source: 'port' | 'edit' | 'preview' | 'rule' | 'none'
   /** 키보드([ ])로 짚은 연결. 가운데에 표시를 달아 D 가 어느 연결을 바꿀지 보인다. */
   active?: boolean
 }
@@ -219,12 +220,12 @@ export type Arrow = {
  * 상류인가보다 그 방향을 누가 말했는가(고칠 수 있는가)다. 포트(BIM)는 진하게, 사람이 정한 것은 화면의 액센트
  * 하나로, 규칙(사전)은 옅게 둔다. 규칙과 방향 모름은 점선이다.
  */
-export const ARROW_COLORS = { port: 0x39424e, edit: 0x2f6fed, rule: 0xa3acb7, none: 0xc2c8cf }
+export const ARROW_COLORS = { port: 0x39424e, edit: 0x2f6fed, preview: 0x2f6fed, rule: 0xa3acb7, none: 0xc2c8cf }
 /**
  * 다크 테마의 화살표 색. 라이트 색을 그대로 두면 포트 방향(진한 회색)이 어두운 바탕에 묻혀, 가장 믿을 만한
  * 방향이 가장 안 보인다. 밝기 순서(포트 > 편집 > 규칙 > 모름)는 라이트와 같게 둔다.
  */
-export const ARROW_COLORS_DARK = { port: 0xd5d9e0, edit: 0x6f9bf5, rule: 0x7c8494, none: 0x596070 }
+export const ARROW_COLORS_DARK = { port: 0xd5d9e0, edit: 0x6f9bf5, preview: 0x6f9bf5, rule: 0x7c8494, none: 0x596070 }
 export const arrowColors = (dark: boolean) => (dark ? ARROW_COLORS_DARK : ARROW_COLORS)
 /** 꼭짓점 손잡이. 화면의 액센트 하나와 같은 색이다(styles.css 의 --accent). */
 const handleColor = (dark: boolean) => (dark ? 0x6f9bf5 : 0x2f6fed)
@@ -651,8 +652,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const len = ca.distanceTo(cb)
       if (len < 1e-6) continue
       const color = arrowColors(dark)[spec.source]
-      // 실선은 누군가(BIM 포트나 사람)가 말한 방향이다. 규칙이 짐작한 것과 방향 모름은 점선이다.
-      const dashed = spec.source === 'rule' || spec.source === 'none'
+      // 실선은 누군가(BIM 포트나 사람)가 말한 방향이다. 규칙이 짐작한 것, 방향 모름, 적용 전 미리보기는 점선이다.
+      const dashed = spec.source === 'rule' || spec.source === 'none' || spec.source === 'preview'
       const material = dashed
         ? new LineDashedMaterial({ color, dashSize: len / 10, gapSize: len / 20, depthTest: false })
         : new LineBasicMaterial({ color, depthTest: false })

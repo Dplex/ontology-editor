@@ -18,7 +18,7 @@ import { vFlash } from './lib/motion'
 import { matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
-import { cancelRelease, dropRelease, keepRelease, releaseConnection, releasedBetween, releasesOf, snapshotRelease } from './lib/connection-release'
+import { againstRule, applyFlow, cancelRelease, clearFlow, dropRelease, keepRelease, releaseConnection, releasedBetween, releasesOf, snapshotRelease } from './lib/connection-release'
 import { applyEdits, countEdits, EDIT_FORMAT, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
 import { BUILDING, joinParts, partSig, splitByStorey, type HomeOf } from './lib/storey-drafts'
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
@@ -78,12 +78,10 @@ import {
   familyNameOf,
   snapshotConfirm,
   snapshotEquipment,
-  snapshotFlow,
   snapshotSpace,
   snapshotOf,
   baselineOf,
   diffBaseline,
-  setFlowDirection,
   summarize,
   wouldSelfIntersect,
   addEquipment,
@@ -1471,7 +1469,7 @@ function stepArrow(dir: 1 | -1): boolean {
   const cur = activeArrow.value
   activeArrow.value = cur === null ? (dir > 0 ? 0 : n - 1) : (cur + dir + n) % n
   const row = selectedNeighbors.value[activeArrow.value]
-  if (row) note(`연결 ${activeArrow.value + 1}/${n}: ${shortName(row.name)} (${relLabel(row)}) · D로 방향을 바꿉니다`)
+  if (row) note(`연결 ${activeArrow.value + 1}/${n}: ${shortName(row.name)} (${relLabel(row)}) · D로 방향을 미리 봅니다`)
   return true
 }
 
@@ -1492,7 +1490,14 @@ function flowByKey(): boolean {
   }
   cycleFlow(String(activeArrow.value))
   const row = selectedNeighbors.value[activeArrow.value]
-  if (row && !row.connection.directed) note(`${shortName(row.name)}: ${relLabel(row)}`)
+  const draft = flowDraft.value
+  if (row && !row.connection.directed) {
+    note(draft ? `${shortName(row.name)}: 미리보기 ${flowText(draft.connection, draft.from)} · Enter 로 적용합니다` : `${shortName(row.name)}: ${relLabel(row)}`)
+  }
+  // 키보드로 미리 봤으면 [적용] 에 초점을 둔다. Enter 가 그 버튼을 누른다 — 단축키 Enter(외곽선 마치기)는 그리는 중이 아니면
+  // 아무것도 하지 않고 넘긴다. 사유 칸에 두면 D 를 다시 눌러 다음 미리보기로 갈 때 글자로 들어간다. 사유가 필요하면 [적용] 이
+  // 거절하면서 사유 칸으로 옮긴다(submitFlow).
+  if (draft) void nextTick(() => document.querySelector<HTMLElement>('[data-testid="flow-apply"]')?.focus())
   return true
 }
 
@@ -1966,7 +1971,8 @@ function otherFloor(id: string): string | null {
   const home = storeyOf(id)
   return home && home.id !== viewStorey.value ? home.name : null
 }
-const REL_LABEL = { upstream: '상류', downstream: '하류', linked: '연결' } as const
+// 포트·사람·규칙 누구도 방향을 말하지 않은 연결은 '방향 미지정' 이다(OE-PIP-04). '연결' 로 두면 방향이 없다는 것이 안 읽힌다.
+const REL_LABEL = { upstream: '상류', downstream: '하류', linked: '방향 미지정' } as const
 function relLabel(n: NeighborRow) {
   if (n.edited) return REL_LABEL[n.edited]
   if (n.rule) return `${REL_LABEL[n.rule.relation]}(${n.rule.confirmed ? '확정' : '추정'})`
@@ -1978,25 +1984,67 @@ function relClass(n: NeighborRow) {
   return [n.relation]
 }
 
-// 포트가 방향을 말하지 않은 연결에 사람이 방향을 정한다. from 이 null 이면 정한 것을 지운다.
-// 확정과 같은 이유로 모델 전체에 갱신 신호를 보내지 않고 flowVersion 만 올린다.
-function setFlow(n: NeighborRow, from: string | null) {
-  flowTo(n.connection, from)
+// 포트가 방향을 말하지 않은 연결에 사람이 방향을 정한다(OE-PIP-04). 'A → B' 를 고르면 먼저 **미리보기**다 — 모델은 그대로라
+// TTL 에 나가지 않고, 표와 3D 화살표(점선 액센트)에만 보인다. [적용] 해야 연결에 남는다. 규칙 방향과 반대면 차이를 보이고 보정
+// 사유를 받는다(connection-release.ts 의 applyFlow). 확정과 같은 이유로 모델 전체에 갱신 신호를 보내지 않고 flowVersion 만 올린다.
+// shallowRef: ref 는 연결을 반응형 대리 객체로 감싸 모델의 연결과 === 로 견줄 수 없다.
+const flowDraft = shallowRef<{ connection: Connection; from: string } | null>(null)
+const flowReason = ref('')
+watch([selectedId, editing], () => (flowDraft.value = null))
+/** 미리보기. from 이 null 이면 미리보기를 거둔다. */
+function previewFlow(c: Connection, from: string | null) {
+  flowDraft.value = from === null ? null : { connection: c, from }
+  flowReason.value = ''
+  editNotice.value = ''
 }
-/** 연결 하나의 방향을 정한다. 표의 버튼과 3D 화살표가 같이 쓴다. */
-function flowTo(c: Connection, from: string | null) {
-  const snapshot = snapshotFlow(c)
+/** 방향 버튼의 이름. BIM 이름(NBS_S&PUKVentilation…#1144538)이 길어 버튼이 두세 줄 알약이 됐다. 앞을 자르고 끝의 번호는 남긴다. 전체는 title·미리보기에. */
+function flowLabel(id: string) {
+  const name = nameOfId(id)
+  if (name.length <= 18) return name
+  const tail = name.match(/ #\d+$/)?.[0] ?? ''
+  return `${name.slice(0, 18 - tail.length)}…${tail}`
+}
+/** 미리보기의 화살표 글. 이름은 짧게(같은 패밀리 이름이 길다). */
+function flowText(c: Connection, from: string) {
+  const to = from === c.from ? c.to : c.from
+  return `${nameOfId(from)} → ${nameOfId(to)}`
+}
+function submitFlow() {
+  const m = model.value
+  const d = flowDraft.value
+  if (!m || !d) return
+  const c = d.connection
+  const snapshot = snapshotRelease(m, c)
   const at = mark()
-  if (!setFlowDirection(c, from)) return
-  const name = (id: string) => equipmentById.value.get(id)?.name || id
-  remember(`${name(c.from)}–${name(c.to)} 방향`, snapshot, at)
+  const done = applyFlow(m, c, d.from, flowReason.value)
+  if (done !== true) {
+    editNotice.value = done.refused
+    document.querySelector<HTMLElement>('[data-testid="flow-reason"]')?.focus()
+    return
+  }
+  remember(`${flowText(c, d.from)} 방향 적용`, snapshot, at)
+  flowDraft.value = null
+  editNotice.value = ''
+  flowVersion.value++
+  note(`${flowText(c, d.from)} 방향을 적용했습니다. 규칙 방향보다 앞서고 확정 없이 brick:feeds 로 나갑니다`)
+}
+/** 수동 지정 해제. 규칙 방향이 있으면 그것으로, 없으면 방향 미지정으로 돌아간다. */
+function clearManualFlow(c: Connection) {
+  const m = model.value
+  if (!m || !c.edited) return
+  const was = flowText(c, c.edited.from)
+  const snapshot = snapshotRelease(m, c)
+  const at = mark()
+  if (!clearFlow(m, c)) return
+  remember(`${was} 수동 지정 해제`, snapshot, at)
+  flowDraft.value = null
   flowVersion.value++
 }
 // --- 3D 의 연결 화살표 ------------------------------------------------------------
 //
 // 편집 모드에서 고른 설비에 붙은 연결을 3D 에 화살표로 그린다. 색은 방향의 출처다 — 포트(BIM) 진하게,
-// 사람이 정한 것은 액센트, 규칙(사전)은 옅은 점선, 모르는 것은 촉 없는 점선. 누르면 표의 "하류로 → 상류로 →
-// 되돌리기" 를 차례로 한다. 포트가 말한 방향은 누르지 못한다.
+// 사람이 정한 것은 액센트, 규칙(사전)은 옅은 점선, 모르는 것은 촉 없는 점선. 누르면 미리보기가 "이 설비에서 나감 → 들어옴 →
+// 거둠" 으로 돈다(점선 액센트). 적용은 표의 [적용] 이다. 포트가 말한 방향은 누르지 못한다.
 const arrowConnections = computed((): Connection[] => {
   void flowVersion.value
   if (!editing.value || !model.value || !selectedId.value) return []
@@ -2005,6 +2053,7 @@ const arrowConnections = computed((): Connection[] => {
 function arrowOf(c: Connection, key: string, active: boolean): Arrow {
   const base = { key, a: c.from, b: c.to, active }
   if (c.directed) return { ...base, from: c.from, source: 'port' }
+  if (flowDraft.value?.connection === c) return { ...base, from: flowDraft.value.from, source: 'preview' }
   if (c.edited) return { ...base, from: c.edited.from, source: 'edit' }
   if (c.inferred && showRules.value) return { ...base, from: c.inferred.from, source: 'rule' }
   return { ...base, from: null, source: 'none' }
@@ -2012,7 +2061,7 @@ function arrowOf(c: Connection, key: string, active: boolean): Arrow {
 /** 키보드([ ])로 짚은 연결의 자리. 연결 표(selectedNeighbors)와 같은 순서다. 설비를 바꾸면 풀린다. */
 const activeArrow = ref<number | null>(null)
 watch([selectedId, editing], () => (activeArrow.value = null))
-watch([arrowConnections, showRules, sceneVersion, activeArrow], () => {
+watch([arrowConnections, showRules, sceneVersion, activeArrow, flowDraft], () => {
   viewer?.setArrows(arrowConnections.value.map((c, i) => arrowOf(c, String(i), i === activeArrow.value)))
 })
 const arrowPalette = computed(() => arrowColors(dark.value))
@@ -2026,8 +2075,9 @@ function cycleFlow(key: string) {
   }
   editNotice.value = ''
   const other = c.from === id ? c.to : c.from
-  const next = !c.edited ? id : c.edited.from === id ? other : null
-  flowTo(c, next)
+  // 미리보기가 없으면 적용한 방향에서 출발한다. 적용한 방향을 다시 미리 볼 일은 없어서, 그 다음은 미리보기를 거두는 것이다.
+  const now = flowDraft.value?.connection === c ? flowDraft.value.from : (c.edited?.from ?? null)
+  previewFlow(c, now === null ? id : now === id ? other : null)
 }
 const hasArrows = computed(() => arrowConnections.value.length > 0)
 
@@ -2241,7 +2291,9 @@ const flowEditLines = computed(() => {
   return flowEdits(model.value).map((e) => ({
     from: nameOf(e.from),
     to: nameOf(e.to),
-    note: e.rule === 'reversed' ? '규칙 방향과 반대' : e.rule === 'same' ? '규칙 방향과 같음' : '규칙으로 정할 수 없는 연결',
+    note:
+      (e.rule === 'reversed' ? '규칙 방향과 반대' : e.rule === 'same' ? '규칙 방향과 같음' : '규칙으로 정할 수 없는 연결') +
+      (e.reason ? ` · 사유: ${e.reason}` : ''),
   }))
 })
 
@@ -4060,7 +4112,14 @@ const releaseLog = computed(() => {
   void flowVersion.value
   return [...(model.value?.connectionLog ?? [])].reverse()
 })
-const RELEASE_ACTION = { release: '연결 해제 보정', restore: '해제 보정 취소', keep: '재검토: 해제 유지', drop: '재검토: 보정 지우기' } as const
+const RELEASE_ACTION = {
+  release: '연결 해제 보정',
+  restore: '해제 보정 취소',
+  keep: '재검토: 해제 유지',
+  drop: '재검토: 보정 지우기',
+  flow: '방향 적용',
+  unflow: '수동 지정 해제',
+} as const
 /** 이력의 시각. 로컬 시간으로(저장은 UTC). */
 function logTime(at: string) {
   const d = new Date(at)
@@ -5682,9 +5741,10 @@ async function export3D(format: 'glb' | 'obj') {
             <li><i :style="{ background: hex(PICK_COLORS.linked) }"></i>방향 모름</li>
             <!-- 편집 모드의 연결 화살표. 색은 상류·하류가 아니라 그 방향을 누가 말했는가다. -->
             <template v-if="editing && hasArrows">
-              <li class="key-head">화살표 (누르면 방향 전환)</li>
+              <li class="key-head">화살표 (누르면 방향 미리보기)</li>
               <li><i class="bar" :style="{ background: hex(arrowPalette.port) }"></i>포트 방향 (고정) <Src kind="bim" /></li>
               <li><i class="bar" :style="{ background: hex(arrowPalette.edit) }"></i>직접 정한 방향 <Src kind="edit" /></li>
+              <li v-if="flowDraft"><i class="bar dashed" :style="{ color: hex(arrowPalette.preview) }"></i>미리보기 (적용 전)</li>
               <li v-if="showRules"><i class="bar dashed" :style="{ color: hex(arrowPalette.rule) }"></i>규칙 방향 <Src kind="dict" /></li>
               <li><i class="bar dashed" :style="{ color: hex(arrowPalette.none) }"></i>방향 모름</li>
             </template>
@@ -5701,7 +5761,7 @@ async function export3D(format: 'glb' | 'obj') {
             </template>
             <template v-else-if="selected">
               끌기 또는 <kbd>←↑→↓</kbd>: 옮기기 · <kbd>PageUp/Down</kbd>: 층 바꾸기 · 화살표 클릭 또는 <kbd>[ ]</kbd>: 연결 고르기 ·
-              <kbd>D</kbd>: 방향 바꾸기 · <kbd>K</kbd>: 종류 고르기
+              <kbd>D</kbd>: 방향 미리보기 · <kbd>K</kbd>: 종류 고르기
             </template>
             <template v-else-if="selectedElement">
               <kbd>←↑→↓</kbd>: 옮기기(<kbd>Shift</kbd> 1m) · 다른 {{ activeTab === 'plan' ? '벽' : '벽·문·창' }} 클릭: 바꿔 고르기
@@ -6066,35 +6126,55 @@ async function export3D(format: 'glb' | 'obj') {
                   <!-- 방향 버튼은 이름 아래 줄에 둔다. 좁은 패널에서 네 번째 칸으로 두었더니 이름이 한 글자씩 꺾이고 버튼이 잘렸다.
                        포트가 방향을 말한 연결은 고칠 수 없다. BIM 이 말한 것을 덮어쓰지 않는다. -->
                   <div v-if="editing && !n.connection.directed" class="flow-edit">
+                    <!-- 'A → B' 를 누르면 미리보기다(OE-PIP-04). [적용] 해야 연결에 남는다. -->
                     <button
                       type="button"
                       class="ghost"
-                      :aria-pressed="n.edited === 'upstream'"
-                      :title="`${n.name} → 이 설비`"
-                      @click="setFlow(n, n.id)"
+                      data-testid="flow-out"
+                      :aria-pressed="flowDraft?.connection === n.connection ? flowDraft.from === selectedId : n.edited === 'downstream'"
+                      :title="`이 설비 → ${n.name} (미리보기)`"
+                      @click="previewFlow(n.connection, selectedId)"
                     >
-                      상류로
+                      {{ flowLabel(selectedId ?? '') }} → {{ flowLabel(n.id) }}
                     </button>
                     <button
                       type="button"
                       class="ghost"
-                      :aria-pressed="n.edited === 'downstream'"
-                      :title="`이 설비 → ${n.name}`"
-                      @click="setFlow(n, selectedId)"
+                      data-testid="flow-in"
+                      :aria-pressed="flowDraft?.connection === n.connection ? flowDraft.from === n.id : n.edited === 'upstream'"
+                      :title="`${n.name} → 이 설비 (미리보기)`"
+                      @click="previewFlow(n.connection, n.id)"
                     >
-                      하류로
+                      {{ flowLabel(n.id) }} → {{ flowLabel(selectedId ?? '') }}
                     </button>
                     <!-- 자리는 늘 잡아 둔다. 누를 때 생기면 옆 버튼이 밀려 마우스 아래로 다른 버튼이 온다. -->
                     <button
                       type="button"
                       :class="['ghost', { hidden: !n.edited }]"
                       :disabled="!n.edited"
-                      title="정한 방향 지우기"
-                      @click="setFlow(n, null)"
+                      data-testid="flow-clear"
+                      title="직접 정한 방향을 지워 규칙 방향(있으면)이나 방향 미지정으로 돌아갑니다"
+                      @click="clearManualFlow(n.connection)"
                     >
-                      지우기
+                      수동 지정 해제
                     </button>
                     <button v-if="n.source !== 'port'" type="button" class="ghost cut" title="이 연결을 끊습니다" @click="disconnect(n.connection)">연결 끊기</button>
+                  </div>
+                  <form v-if="flowDraft?.connection === n.connection" class="flow-preview" data-testid="flow-preview" @submit.prevent="submitFlow">
+                    <p>미리보기 <b>{{ flowText(n.connection, flowDraft.from) }}</b> · 적용 전이라 TTL에 나가지 않습니다</p>
+                    <template v-if="n.connection.inferred && againstRule(n.connection, flowDraft.from)">
+                      <p class="edit-notice inline">
+                        규칙 방향({{ n.connection.inferred.confirmed ? '확정' : '추정' }}) {{ flowText(n.connection, n.connection.inferred.from) }}과 반대입니다. 보정 사유를 적어 주세요
+                      </p>
+                      <input v-model="flowReason" type="text" data-testid="flow-reason" placeholder="보정 사유 (예: 현장 확인 결과 반대로 흐름)" />
+                    </template>
+                    <div class="flow-edit">
+                      <button type="submit" class="ghost" data-testid="flow-apply">적용</button>
+                      <button type="button" class="ghost" @click="flowDraft = null">취소</button>
+                    </div>
+                  </form>
+                  <div v-else-if="n.connection.edited?.at" class="release-why">
+                    직접 정한 방향 · {{ logTime(n.connection.edited.at) }}<template v-if="n.connection.edited.reason"> · 사유: {{ n.connection.edited.reason }}</template>
                   </div>
                   <!-- BIM 포트 연결은 끊지 않고 해제 보정한다(OE-PIP-06). 원본은 남고 온톨로지의 유효 연결에서만 빠진다. -->
                   <div v-if="editing && n.source === 'port' && releaseDraft?.connection !== n.connection" class="flow-edit">
@@ -7631,12 +7711,13 @@ async function export3D(format: 'glb' | 'obj') {
             </li>
           </ul>
           <p v-else class="empty">아직 바뀐 것이 없습니다.</p>
-          <!-- 해제 보정·취소의 시각·사유(OE-PIP-06). 취소해서 지금은 바뀐 것이 없어도 기록은 남는다. 수행자는 로그인(OE-COM-01) 뒤에 적는다. -->
+          <!-- 해제 보정·취소(OE-PIP-06)와 방향 적용·해제(OE-PIP-04)의 시각·사유. 취소해서 지금은 바뀐 것이 없어도 기록은 남는다.
+               수행자는 로그인(OE-COM-01) 뒤에 적는다. -->
           <div v-if="releaseLog.length" class="release-log" data-testid="release-log">
-            <h4>연결 보정 이력</h4>
+            <h4>연결 편집 이력</h4>
             <ol>
               <li v-for="(e, i) in releaseLog" :key="`log-${i}`">
-                <span class="muted">{{ logTime(e.at) }}</span> {{ RELEASE_ACTION[e.action] }}: <b>{{ nameOfId(e.from) }}</b> — <b>{{ nameOfId(e.to) }}</b
+                <span class="muted">{{ logTime(e.at) }}</span> {{ RELEASE_ACTION[e.action] }}: <b>{{ nameOfId(e.from) }}</b> {{ e.action === 'flow' || e.action === 'unflow' ? '→' : '—' }} <b>{{ nameOfId(e.to) }}</b
                 ><template v-if="e.reason"> · {{ e.reason }}</template>
               </li>
             </ol>

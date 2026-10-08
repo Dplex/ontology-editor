@@ -123,7 +123,8 @@ export type EditFile = {
    */
   customZones?: { storeyId: string; zones: { id: string; name: string; aliases?: string[]; footprint: Vec2[] }[] }[]
   kinds: { typeKey: string; kind: string | null }[]
-  flows: { from: string; to: string }[]
+  /** 사람이 정한 방향. `at`·`reason` 은 [적용] 한 시각과 보정 사유다(OE-PIP-04). 그 칸이 없던 때의 파일도 받는다. */
+  flows: { from: string; to: string; at?: string; reason?: string }[]
   /** 확정한 계통. 아래 `confirmedFlows` 가 없던 때의 파일은 이것으로 불러온다. */
   confirmedSystems: string[]
   /**
@@ -215,7 +216,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   }
   const confirmed = new Set<string>()
   for (const c of model.connections) if (c.inferred?.confirmed) confirmed.add(c.inferred.systemId)
-  const flows = model.connections.filter((c) => !c.directed && c.edited).map((c) => ({ from: c.edited!.from, to: c.edited!.to }))
+  const flows = model.connections.filter((c) => !c.directed && c.edited).map((c) => ({ ...c.edited! }))
   const confirmedFlows = model.connections
     .filter((c) => !c.directed && c.inferred?.confirmed)
     .map((c) => ({ from: c.inferred!.from, to: c.inferred!.to, systemId: c.inferred!.systemId }))
@@ -772,8 +773,11 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     const c = model.connections.find(
       (x) => !x.directed && ((x.from === f.from && x.to === f.to) || (x.from === f.to && x.to === f.from)),
     )
-    if (c && setFlowDirection(c, f.from)) result.applied++
-    else result.missing.flows++
+    if (c && setFlowDirection(c, f.from)) {
+      result.applied++
+      if (row.at) c.edited!.at = row.at
+      if (row.reason) c.edited!.reason = row.reason
+    } else result.missing.flows++
   }
 
   // 완료한 층(OE-MAN-06). 편집을 다 얹은 뒤라야 지문이 저장할 때 상태와 같다. 저장할 때 이미 고친 층은 지문을 비워 "완료 뒤

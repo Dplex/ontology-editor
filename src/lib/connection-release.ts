@@ -17,6 +17,8 @@ import type { Connection, ConnectionLogEntry, Model, ReleasedConnection } from '
 export type ReleaseSnapshot = {
   kind: 'release'
   connection: Connection
+  /** 사람이 정한 방향(OE-PIP-04). 방향 적용·해제도 이 스냅숏으로 되돌린다 — 이력을 같이 되돌려야 해서다. */
+  edited?: Connection['edited']
   state: { where: 'active'; index: number } | { where: 'released'; entry: ReleasedConnection; slot: number } | { where: 'absent' }
   log: ConnectionLogEntry[]
 }
@@ -29,6 +31,8 @@ export type ReleaseRow = {
   at: string
   reason: string
   review?: ReleasedConnection['review']
+  /** 해제 전에 사람이 정해 둔 방향(OE-PIP-04). 해제 중에는 쓰이지 않고, 취소하면 다시 쓰인다. */
+  edited?: Connection['edited']
 }
 
 const touches = (c: Connection, a: string, b: string) => (c.from === a && c.to === b) || (c.from === b && c.to === a)
@@ -47,7 +51,7 @@ export function releasesOf(model: Model, id: string): ReleasedConnection[] {
   return (model.releasedConnections ?? []).filter((r) => r.connection.from === id || r.connection.to === id)
 }
 
-function log(model: Model, action: ConnectionLogEntry['action'], c: Connection, reason: string, now: Date) {
+function log(model: Model, action: ConnectionLogEntry['action'], c: { from: string; to: string }, reason: string, now: Date) {
   model.connectionLog = [...(model.connectionLog ?? []), { action, from: c.from, to: c.to, at: now.toISOString(), reason }]
 }
 
@@ -103,11 +107,12 @@ export function dropRelease(model: Model, connection: Connection, now = new Date
 
 export function snapshotRelease(model: Model, connection: Connection): ReleaseSnapshot {
   const log = [...(model.connectionLog ?? [])]
+  const edited = connection.edited ? { ...connection.edited } : undefined
   const index = model.connections.indexOf(connection)
-  if (index >= 0) return { kind: 'release', connection, state: { where: 'active', index }, log }
+  if (index >= 0) return { kind: 'release', connection, edited, state: { where: 'active', index }, log }
   const entry = releasedEntry(model, connection)
-  if (entry) return { kind: 'release', connection, state: { where: 'released', entry: { ...entry }, slot: model.releasedConnections!.indexOf(entry) }, log }
-  return { kind: 'release', connection, state: { where: 'absent' }, log }
+  if (entry) return { kind: 'release', connection, edited, state: { where: 'released', entry: { ...entry }, slot: model.releasedConnections!.indexOf(entry) }, log }
+  return { kind: 'release', connection, edited, state: { where: 'absent' }, log }
 }
 
 export function restoreRelease(model: Model, s: ReleaseSnapshot): RuleReport {
@@ -123,7 +128,42 @@ export function restoreRelease(model: Model, s: ReleaseSnapshot): RuleReport {
   }
   if (s.log.length) model.connectionLog = [...s.log]
   else delete model.connectionLog
+  if (s.edited) s.connection.edited = { ...s.edited }
+  else delete s.connection.edited
   return inferFlowByRules(model)
+}
+
+// --- 연결별 방향 적용 (OE-PIP-04) ------------------------------------------------------------
+//
+// 포트가 방향을 말하지 않은 연결에 사람이 방향을 [적용] 한다. 화면은 먼저 미리보기로 보여 주고(모델은 그대로라 TTL 에 안 나간다),
+// [적용] 할 때 이 함수가 연결에 남긴다. 규칙 방향과 반대면 사유를 받는다 — 규칙이 틀린 곳을 사람이 고친 것인지, 잘못 누른 것인지
+// 나중에 가를 근거가 사유뿐이다. 적용·해제는 이력에 남는다.
+
+/** 규칙 방향과 반대인가. 규칙 방향이 없으면 반대가 아니다. */
+export function againstRule(connection: Connection, from: string): boolean {
+  return !!connection.inferred && connection.inferred.from !== from
+}
+
+/** 사람이 정한 방향을 적용한다. 포트 방향·해제한 연결·규칙과 반대인데 사유가 없으면 거절 이유. */
+export function applyFlow(model: Model, connection: Connection, from: string, reason: string, now = new Date()): true | { refused: string } {
+  const why = reason.trim()
+  if (connection.directed) return { refused: '포트(BIM)에 적힌 방향은 고칠 수 없습니다.' }
+  if (!model.connections.includes(connection)) return { refused: '해제 보정한 연결에는 방향을 정할 수 없습니다. 먼저 해제를 취소합니다' }
+  if (from !== connection.from && from !== connection.to) return { refused: '연결의 두 끝 중 하나에서 나가야 합니다' }
+  if (againstRule(connection, from) && !why) return { refused: '규칙 방향과 반대입니다. 보정 사유를 적어 주세요' }
+  const to = from === connection.from ? connection.to : connection.from
+  connection.edited = { from, to, at: now.toISOString(), ...(why ? { reason: why } : {}) }
+  log(model, 'flow', { from, to }, why, now)
+  return true
+}
+
+/** 수동 지정 해제. 정한 방향을 지워 규칙 방향(있으면)이나 방향 미지정으로 돌아간다. */
+export function clearFlow(model: Model, connection: Connection, now = new Date()): boolean {
+  const was = connection.edited
+  if (!was || !model.connections.includes(connection)) return false
+  delete connection.edited
+  log(model, 'unflow', was, '', now)
+  return true
 }
 
 /**
@@ -141,6 +181,7 @@ export function exportReleases(model: Model): { rows: ReleaseRow[]; log: Connect
       at: r.at,
       reason: r.reason,
       ...(r.review ? { review: r.review } : {}),
+      ...(r.connection.edited ? { edited: { ...r.connection.edited } } : {}),
     }))
   return { rows, log: [...(model.connectionLog ?? [])] }
 }
@@ -168,6 +209,10 @@ export function applyReleases(
     if (reviewOf) review++
     else released++
     const connection: Connection = found ?? { from, to, source: 'port', directed: row.directed, tolerance: null }
+    if (row.edited && !connection.directed) {
+      const edited = { ...row.edited, from: resolve(row.edited.from), to: resolve(row.edited.to) }
+      if (touches(connection, edited.from, edited.to)) connection.edited = edited
+    }
     const index = found ? model.connections.indexOf(found) : model.connections.length
     if (found) model.connections.splice(index, 1)
     model.releasedConnections = [

@@ -157,7 +157,7 @@ test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓�
   expect(errors).toEqual([])
 })
 
-test('편집 모드에서 연결 화살표를 누르면 방향이 하류 → 상류 → 지움으로 바뀌고, 포트 방향은 못 고친다', async ({ page }) => {
+test('편집 모드에서 연결 화살표를 누르면 방향을 미리 보고 [적용] 으로 정하며, 포트 방향은 못 고친다', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await pick(page, 'DUCT-01')
@@ -175,23 +175,27 @@ test('편집 모드에서 연결 화살표를 누르면 방향이 하류 → 상
   const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
 
-  // 한 번: 이 설비에서 나간다(하류). 사람이 정한 방향이라 규칙보다 앞서고 확정 없이 feeds 로 나간다.
+  // 한 번: 이 설비에서 나간다(하류). 먼저 미리보기다(OE-PIP-04). [적용] 하면 사람이 정한 방향이라 규칙보다 앞서고 확정 없이 feeds 로 나간다.
   let at = (await toward(AT02)).at
   await page.mouse.click(at.x, at.y)
+  expect((await toward(AT02)).source).toBe('preview')
+  await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
+  await terminal.getByTestId('flow-apply').click()
   await expect(terminal.locator('.rel')).toHaveText('하류')
   await expect(terminal).toContainText('직접 정한 방향')
   expect((await toward(AT02)).source).toBe('edit')
   await expect(page.locator('.report')).toContainText('DUCT-01 → AT-101-02')
 
-  // 두 번: 뒤집는다.
+  // 두 번: 뒤집는다. 규칙과 반대라 보정 사유를 받는다.
   at = (await toward(AT02)).at
   await page.mouse.click(at.x, at.y)
+  await terminal.getByTestId('flow-reason').fill('현장 확인')
+  await terminal.getByTestId('flow-apply').click()
   await expect(terminal.locator('.rel')).toHaveText('상류')
   await expect(page.locator('.report')).toContainText('AT-101-02 → DUCT-01')
 
-  // 세 번: 지운다. 규칙 방향으로 돌아가고 리포트에서 빠진다.
-  at = (await toward(AT02)).at
-  await page.mouse.click(at.x, at.y)
+  // 수동 지정 해제. 규칙 방향으로 돌아가고 리포트에서 빠진다.
+  await terminal.getByTestId('flow-clear').click()
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
 
@@ -297,6 +301,7 @@ test('설비 끌기 → 꼭짓점 → 연결 방향을 Ctrl+Z 세 번이면 한 
   const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
   const arrow = (await viewer<{ a: string; b: string; at: Pt }[]>(page, 'arrows')).find((x) => x.a === AT02 || x.b === AT02)!
   await page.mouse.click(arrow.at.x, arrow.at.y)
+  await terminal.getByTestId('flow-apply').click()
   await expect(terminal.locator('.rel')).toHaveText('하류')
   await expect(bar).toContainText('방향')
 
@@ -404,7 +409,7 @@ test('고른 설비의 종류를 바꾸면 규칙 방향이 다시 서고, Ctrl+
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
 
   await pick(page, 'DUCT-01')
-  await expect(terminal.locator('.rel')).toHaveText('연결')
+  await expect(terminal.locator('.rel')).toHaveText('방향 미지정')
 
   await page.keyboard.press('Control+z')
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')

@@ -263,11 +263,12 @@ export function setFlowDirection(connection: Connection, from: string | null): b
   return true
 }
 
-/** 사람이 방향을 정한 연결. 규칙 방향이 있었으면 그것과 같은지 반대인지도 적는다. */
+/** 사람이 방향을 정한 연결. 규칙 방향이 있었으면 그것과 같은지 반대인지도 적는다. `reason` 은 규칙과 반대로 정할 때 받은 사유다. */
 export type FlowEdit = {
   from: string
   to: string
   rule: 'same' | 'reversed' | null
+  reason?: string
 }
 
 export function flowEdits(model: Model): FlowEdit[] {
@@ -277,6 +278,7 @@ export function flowEdits(model: Model): FlowEdit[] {
       from: c.edited!.from,
       to: c.edited!.to,
       rule: c.inferred ? (c.inferred.from === c.edited!.from ? 'same' : 'reversed') : null,
+      ...(c.edited!.reason ? { reason: c.edited!.reason } : {}),
     }))
 }
 

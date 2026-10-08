@@ -103,7 +103,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     id: 'flow',
     combos: [{ code: 'KeyD' }],
     keys: ['D'],
-    label: '고른 연결의 방향 바꾸기 (하류 → 상류 → 지우기)',
+    label: '고른 연결의 방향 미리보기 (나감 → 들어옴 → 거둠). Enter 로 적용',
     group: '편집 · 연결 방향',
     edit: true,
   },
