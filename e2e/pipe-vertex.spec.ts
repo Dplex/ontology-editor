@@ -50,3 +50,28 @@ test('실제 BIM: 엘보를 옮기면 양쪽 덕트·배관이 늘어나 따라�
   await expect(ex).toHaveValue(was)
   expect(errors).toEqual([])
 })
+
+test('실제 BIM: 배관 구간을 고르면 지우기 전에 연결망이 몇 갈래로 나뉘는지 보이고, 지운 뒤 되돌릴 수 있다 (OE-PIP-10)', async ({ page }) => {
+  test.skip(!existsSync(DUPLEX_HVAC), `${DUPLEX_HVAC} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(120_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(DUPLEX_HVAC)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const list = page.getByRole('button', { name: /설비 위치와 소속/ })
+  if ((await list.getAttribute('aria-expanded')) === 'false') await list.click()
+
+  // 배수관 #582940 은 위생기구 14대가 이어진 쪽과 배관 1개만 남는 쪽을 가른다.
+  await pick(page, '582940')
+  const impact = page.getByTestId('removal-impact')
+  await expect(impact).toContainText('지우면 연결망이 2갈래로 나뉩니다:')
+  await expect(impact).toContainText('외 11대 쪽(기기 14대) / 기기 없는 배관 1개. 다른 분기의 연결은 그대로입니다.')
+  await page.locator('.danger-zone').getByRole('button', { name: '설비 지우기' }).click()
+  await expect(page.locator('.equipment tbody tr').filter({ hasText: '582940' })).toHaveCount(0)
+  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.equipment tbody tr').filter({ hasText: '582940' })).toHaveCount(1)
+  expect(errors).toEqual([])
+})
