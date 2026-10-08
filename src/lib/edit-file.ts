@@ -11,6 +11,8 @@
 // 않고 센다 — 재임포트에서 무엇이 빠졌는지가 그 숫자다.
 
 import { confirmSystemFlow, inferFlowByRules } from './flow-rules'
+import { applyReleases, exportReleases, type ReleaseRow } from './connection-release'
+import type { ConnectionLogEntry } from './model'
 import {
   addConnection,
   addEquipment,
@@ -144,6 +146,13 @@ export type EditFile = {
   /** 사람이 이은 연결과 끊은 연결(순서 없는 짝). 이 칸이 없던 때의 파일도 받는다. */
   connections?: { add: { from: string; to: string }[]; remove: { from: string; to: string }[] }
   /**
+   * 해제 보정한 BIM 포트 연결(OE-PIP-06). 끊은 연결(`connections.remove`)과 다르다 — 원본은 BIM 에 그대로 있고, 불러올 때 같은 연결을
+   * 찾아 다시 해제한다. 방향이 바뀌었거나 못 찾으면 재검토로 둔다(connection-release.ts).
+   */
+  connectionsReleased?: ReleaseRow[]
+  /** 해제 보정·취소·재검토 확인의 이력. 취소해서 지금은 해제가 아닌 연결의 기록도 여기 남는다. */
+  connectionLog?: ConnectionLogEntry[]
+  /**
    * 위에 적은 id 마다 연 때의 지문(versions.ts). GUID 가 바뀐 판본에서 같은 것을 찾는 데 쓴다. 이 칸이 없던 때의
    * 파일도 받는다 — 그때는 GUID 로만 찾는다.
    */
@@ -229,6 +238,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     .map((c) => ({ from: c.inferred!.from, to: c.inferred!.to, systemId: c.inferred!.systemId }))
   const since = diffBaseline(model, baseline)
   const connections = { add: since.connected, remove: since.disconnected }
+  const releases = exportReleases(model)
   const equipmentRemoved = since.equipmentRemoved.map((r) => r.id)
   const spacesRemoved = since.spacesRemoved.map((r) => (mergedInto.has(r.id) ? { id: r.id, into: mergedInto.get(r.id)! } : { id: r.id }))
 
@@ -351,7 +361,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     keep(f.from)
     keep(f.to)
   }
-  for (const c of [...connections.add, ...connections.remove]) {
+  for (const c of [...connections.add, ...connections.remove, ...releases.rows, ...releases.log]) {
     keep(c.from)
     keep(c.to)
   }
@@ -372,6 +382,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(systemsRemoved.length ? { systemsRemoved } : {}),
     ...(systemNames.length ? { systemNames } : {}),
     ...(connections.add.length || connections.remove.length ? { connections } : {}),
+    ...(releases.rows.length ? { connectionsReleased: releases.rows } : {}),
+    ...(releases.log.length ? { connectionLog: releases.log } : {}),
     ...(equipmentAdded.length ? { equipmentAdded } : {}),
     ...(equipmentRemoved.length ? { equipmentRemoved } : {}),
     ...(spacesAdded.length ? { spacesAdded } : {}),
@@ -413,7 +425,7 @@ export function parseEditFile(text: string): EditFile | string {
 export function countEdits(f: EditFile): number {
   return (
     f.equipment.length + f.spaces.length + f.kinds.length + f.flows.length + f.confirmedSystems.length +
-    (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0) +
+    (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0) + (f.connectionsReleased?.length ?? 0) +
     (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0) +
     (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
     (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0) +
@@ -430,6 +442,8 @@ export type ApplyResult = {
   applied: number
   /** 이 모델에서 못 찾은 것. 재내보내기에서 지워졌거나 다른 파일이다. */
   missing: { equipment: number; spaces: number; kinds: number; flows: number; systems: number; connections: number; elements: number; storeys: number }
+  /** 다시 해제한 BIM 연결 수와 재검토로 둔 수(OE-PIP-06). 해제 보정이 없는 파일에서는 없다. */
+  releases?: { released: number; review: number }
   /** GUID 로는 못 찾고 다른 열쇠로 찾은 id 수. GUID 가 바뀐 재내보내기에서 뜬다. */
   rematched: Record<Exclude<MatchKey, 'guid'>, number>
   rules: RuleReport | null
@@ -508,7 +522,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     ref(f.from)
     ref(f.to)
   }
-  for (const c of [...(file.connections?.add ?? []), ...(file.connections?.remove ?? [])]) {
+  for (const c of [...(file.connections?.add ?? []), ...(file.connections?.remove ?? []), ...(file.connectionsReleased ?? []), ...(file.connectionLog ?? [])]) {
     ref(c.from)
     ref(c.to)
   }
@@ -831,6 +845,12 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       result.applied++
       result.rules = done.rules
     } else if (!connectionBetween(model, resolve(row.from), resolve(row.to))) result.missing.connections++
+  }
+  if (file.connectionsReleased?.length || file.connectionLog?.length) {
+    const done = applyReleases(model, file.connectionsReleased ?? [], file.connectionLog ?? [], resolve)
+    result.applied += done.released + done.review
+    if (done.rules) result.rules = done.rules
+    if (file.connectionsReleased?.length) result.releases = { released: done.released, review: done.review }
   }
 
   if (file.confirmedFlows) {

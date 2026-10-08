@@ -10,6 +10,7 @@
 import { assignEquipment, centroid, isSelfIntersecting, locate, nearRing } from './mapping'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
+import { releasedBetween, restoreRelease, snapshotRelease, type ReleaseSnapshot } from './connection-release'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
 import type { Connection, CustomZone, Equipment, Model, Opening, Room, Space, SpaceObject, Storey, System, Vec2, Vec3, Wall } from './model'
@@ -581,6 +582,8 @@ export type Snapshot =
   | { kind: 'kinds'; entries: { id: string; kind: string | null | undefined; kindEdited: Equipment['kindEdited'] }[] }
   /** 연결이 모델에 있었는가. 잇기·끊기를 되돌린다. 연결 객체를 그대로 들고 있어 방향·확정도 같이 돌아온다. */
   | { kind: 'connection'; connection: Connection; present: boolean; index: number }
+  /** BIM 포트 연결의 해제 보정·취소(OE-PIP-06, connection-release.ts). */
+  | ReleaseSnapshot
   /**
    * 설비가 모델에 있었는가(E7 추가·삭제). 설비와 거기 붙은 연결·계통 자리를 객체째 들고 있어, 되돌리면 방향·확정까지
    * 그대로 돌아온다.
@@ -790,6 +793,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return { kind: 'confirm', connections: snapshot.connections, confirmed: !!snapshot.connections[0]?.inferred?.confirmed }
     case 'connection':
       return snapshotConnection(model, snapshot.connection)
+    case 'release':
+      return snapshotRelease(model, snapshot.connection)
     case 'equipment-set':
       return snapshotEquipmentSet(model, snapshot.equipment, snapshot.storeyId)
     case 'storey-spaces':
@@ -879,6 +884,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
     case 'confirm':
       for (const c of snapshot.connections) if (c.inferred) c.inferred.confirmed = snapshot.confirmed
       return null
+    case 'release':
+      return restoreRelease(model, snapshot)
     case 'connection': {
       const at = model.connections.indexOf(snapshot.connection)
       if (snapshot.present && at < 0) model.connections.splice(Math.min(snapshot.index, model.connections.length), 0, snapshot.connection)
@@ -1365,6 +1372,8 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
       if (now.has(key)) continue
       const [from, to] = key.split('\u0000')
       // 지운 설비에 붙어 있던 연결은 설비와 같이 빠진 것이다. 끊은 연결로 따로 세지 않는다.
+      // 해제 보정한 포트 연결도 끊은 것이 아니다 — 원본을 지우지 않고 해제했고, 편집 파일에 따로 적는다(connection-release.ts).
+      if (releasedBetween(model, from, to)) continue
       if (baseline.equipment.has(from) && !equipmentNow.has(from)) continue
       if (baseline.equipment.has(to) && !equipmentNow.has(to)) continue
       disconnected.push({ from, to })
@@ -1506,9 +1515,9 @@ export function connectionBetween(model: Model, a: string, b: string): Connectio
   return model.connections.find((c) => pairKey(c.from, c.to) === key) ?? null
 }
 
-/** 두 설비를 잇는다. 이미 이어져 있거나 같은 설비면 null. */
+/** 두 설비를 잇는다. 이미 이어져 있거나 같은 설비면 null. 해제 보정한 BIM 연결이 있는 두 설비도 null — 그 연결의 해제를 취소한다. */
 export function addConnection(model: Model, a: string, b: string): { connection: Connection; rules: RuleReport } | null {
-  if (a === b || !findEquipment(model, a) || !findEquipment(model, b) || connectionBetween(model, a, b)) return null
+  if (a === b || !findEquipment(model, a) || !findEquipment(model, b) || connectionBetween(model, a, b) || releasedBetween(model, a, b)) return null
   const connection: Connection = { from: a, to: b, source: 'manual', directed: false, tolerance: null }
   model.connections.push(connection)
   return { connection, rules: inferFlowByRules(model) }
