@@ -7,7 +7,7 @@ prd: "#14"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: []
 depends: ["R16"]
 ---
@@ -17,8 +17,13 @@ depends: ["R16"]
 ## 요구사항
 
 (PRD #14-A) 계통 종류는 급기(SA)·리턴(RA)·배기(EA)·외기(OA)·순환수·냉매(REF)·덕트, 그리고 급탕·급수·소화다(R16). 순환수는 유체에 따라 냉수(CHWS·CHWR)·온수(HWS·HWR)·냉각수(CWS·CWR)로 나눈다(glossary "Flow Type").
-급탕·급수·소화·스팀·지열수는 Flow Type 범례에 없어 색과 TTL 클래스를 정하지 못한다 — 범례 추가 후 적용한다. FCU 2관식은 계절별로 유체가 바뀌므로 2관식·4관식 속성이 필요하다(제안 — glossary).
-유체는 PredefinedType → 이름 → 원천 기기 순으로 정한다. 사람이 고른 유체는 짐작이 덮지 않는다.
+급탕(DHWS·DHWR)·급수(DCW)·소화(FP)·스팀(STM·CR)·지열수(GWS·GWR)도 Flow Type 범례에 있다(glossary "Flow Type", 코드는 제안). FCU 2관식은 계절별로 유체가 바뀌므로 2관식·4관식 속성이 필요하다(제안 — glossary).
+순환수 계통이 냉수·온수·냉각수 중 무엇인지(유체)는 아래 순서로 정하고, 앞에서 정해지면 뒤는 보지 않는다.
+1. BIM 이 적은 값 — 계통의 IFC 속성 `PredefinedType`(CHILLEDWATER = 냉수, HEATING = 온수, CONDENSERWATER = 냉각수)
+2. 계통 이름 — "냉수 공급 1" 이면 냉수. "냉온수" 처럼 둘 다 들어 있으면 정하지 않는다
+3. 배관을 따라가 닿는 원천 기기 — 냉동기면 냉수, 보일러면 온수, 냉각탑이면 냉각수(짐작)
+
+사용자가 직접 선택하여 적용한 유체 종류는 시스템의 자동 추정 값보다 우선한다. 원천 설비 종류나 연결 관계가 변경되어 시스템이 유체를 다시 추정하더라도 사용자 선택 값을 덮어쓰지 않는다.
 
 ## 수용 기준
 

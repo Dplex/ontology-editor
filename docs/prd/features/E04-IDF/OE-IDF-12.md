@@ -7,7 +7,7 @@ prd: "#5"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "편집 파일로 대체"
 blocked_by: []
 depends: ["OE-WF-06"]

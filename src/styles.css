@@ -788,6 +788,20 @@ th {
 }
 
 /* 범례가 3D 오른쪽에 붙어 있으니, 버튼은 3D 칸 안의 오른쪽 위에 둔다. */
+/* 시점 조작 안내(OE-OBJ-15). 위쪽 가운데 작은 글자. 누르는 것이 없어 3D 조작을 막지 않는다. */
+.view-controls-hint {
+  position: absolute;
+  top: 0.9rem;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 40%;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-align: center;
+  pointer-events: none;
+}
+
 /* 왼쪽 위는 색 안내(.color-key·.wall-key) 자리다. 편집 도구에 벽·문·창·층 목록까지 펼치면 줄이 거기까지 뻗어 안내가
    [내력벽] 을 덮었다. 넘치면 오른쪽 맞춤으로 두 줄이 된다. */
 .view-tools {
@@ -948,7 +962,8 @@ th {
 }
 
 .editor input,
-.space-name input {
+.space-name input,
+.space-number input {
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -963,7 +978,8 @@ th {
 
 /* 초점 표시를 테두리 색만으로 두지 않는다. 얇은 고리를 더해야 눈에 들어온다. */
 .editor input:focus,
-.space-name input:focus {
+.space-name input:focus,
+.space-number input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
   outline: none;
@@ -2673,7 +2689,8 @@ main.has-model .catalog {
 }
 
 /* 오른쪽 패널의 물리존 이름칸. */
-.space-name {
+.space-name,
+.space-number {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -2681,7 +2698,8 @@ main.has-model .catalog {
   font-size: 0.9rem;
 }
 
-.space-name input {
+.space-name input,
+.space-number input {
   flex: 1;
   min-width: 0;
 }
@@ -3287,7 +3305,7 @@ main.has-model .catalog {
   fill: var(--accent);
 }
 
-/* Shift+끌기 고르기 상자(OE-UI-09). */
+/* Ctrl+끌기 고르기 상자(OE-UI-09). */
 .floor-plan .box-select {
   fill: var(--accent-soft);
   fill-opacity: 0.5;
@@ -3541,4 +3559,27 @@ button.done::after {
 
 .group-picked .group-list .muted {
   margin-left: 0.4rem;
+}
+
+/* 벽·문·창 설정(OE-SPC-12 · OE-SPC-13). [벽·문·창] 을 켰을 때 개요 패널에. */
+.overview .element-settings {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+}
+
+.overview .element-settings h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+}
+
+.overview .element-settings label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.overview .element-settings input {
+  width: 5rem;
 }

@@ -35,6 +35,7 @@ import {
   moveEquipmentToStorey,
   releaseDeclaredSpace,
   renameSpace,
+  setSpaceNumber,
   renameSystem,
   replaceSpaceFootprint,
   setFlowDirection,
@@ -76,7 +77,8 @@ export type EditFile = {
   systemsRemoved?: string[]
   /** 이름을 고친 계통(OE-PIP-09). 연 때 있던 계통만 — 사람이 만든 계통은 `systemsAdded` 에 끝 이름이 있다. */
   systemNames?: { id: string; name: string }[]
-  spaces: { id: string; longName?: string; footprint?: Vec2[] }[]
+  /** 고친 물리존. `number` 는 방번호(IfcSpace Name, OE-OBJ-02), `longName` 은 공간명이다. */
+  spaces: { id: string; number?: string; longName?: string; footprint?: Vec2[] }[]
   /** 사람이 더한 설비(E7). id 는 에디터가 지은 것(`U_…`)이라 다시 열어도 같은 id 로 만든다. */
   equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string; wall?: string }[]
   equipmentRemoved?: string[]
@@ -172,9 +174,10 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       }
       const row: EditFile['spaces'][number] = { id: space.id }
       if (baseline.names.has(space.id) && baseline.names.get(space.id) !== space.longName) row.longName = space.longName
+      if (baseline.numbers?.has(space.id) && baseline.numbers.get(space.id) !== space.name) row.number = space.name
       const ring = baseline.footprints.get(space.id)
       if (ring && !sameRing(ring, space.footprint)) row.footprint = space.footprint.map((p) => [p[0], p[1]])
-      if (row.longName !== undefined || row.footprint) spaces.push(row)
+      if (row.longName !== undefined || row.number !== undefined || row.footprint) spaces.push(row)
     }
     for (const e of storey.equipment) {
       const was = baseline.equipment.get(e.id)
@@ -402,6 +405,8 @@ export type ApplyResult = {
   /** GUID 로는 못 찾고 다른 열쇠로 찾은 id 수. GUID 가 바뀐 재내보내기에서 뜬다. */
   rematched: Record<Exclude<MatchKey, 'guid'>, number>
   rules: RuleReport | null
+  /** 편집 파일의 방번호가 이 모델의 같은 층 번호와 겹쳐 BIM 번호로 되돌린 물리존(OE-OBJ-02). 새 판본에 같은 번호가 생겼을 때 뜬다. */
+  numberConflicts: { storey: string; number: string; spaceIds: string[] }[]
 }
 
 /**
@@ -409,6 +414,34 @@ export type ApplyResult = {
  * 그 뒤에 계통 확정, 사람이 정한 방향을 얹는다. 경계는 설비 소속을 바꾸므로 설비보다 먼저, 설비는 층을 옮긴
  * 다음 좌표를 덮는다(층을 옮기면 높이가 층 차만큼 바뀐다).
  */
+/**
+ * 편집 파일의 방번호를 다 넣고(지운·합친 물리존까지 빠진 뒤) 층마다 겹침을 본다. 겹치면 편집 파일이 바꾼 쪽을 BIM 번호로 되돌린다.
+ * 되돌린 번호가 다시 겹칠 수 있어 바뀌는 것이 없을 때까지 돈다 — 한 번 되돌린 물리존은 빠지므로 끝난다.
+ */
+function revertNumberConflicts(model: Model, renumbered: Map<string, string>, result: ApplyResult) {
+  for (let changed = true; changed; ) {
+    changed = false
+    for (const storey of model.storeys) {
+      const byNumber = new Map<string, string[]>()
+      for (const sp of storey.spaces) {
+        const n = sp.name.trim()
+        if (n) byNumber.set(n, [...(byNumber.get(n) ?? []), sp.id])
+      }
+      for (const [number, ids] of byNumber) {
+        const edited = ids.filter((id) => renumbered.has(id))
+        if (ids.length < 2 || !edited.length) continue
+        for (const id of edited) {
+          setSpaceNumber(model, id, renumbered.get(id)!, false)
+          renumbered.delete(id)
+          result.applied--
+        }
+        result.numberConflicts.push({ storey: storey.name, number, spaceIds: edited })
+        changed = true
+      }
+    }
+  }
+}
+
 export function applyEdits(model: Model, file: EditFile): ApplyResult {
   const result: ApplyResult = {
     changes: [],
@@ -419,6 +452,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     missing: { equipment: 0, spaces: 0, kinds: 0, flows: 0, systems: 0, connections: 0, elements: 0, storeys: 0 },
     rematched: { revitId: 0, name: 0, position: 0 },
     rules: null,
+    numberConflicts: [],
   }
   const spaceIds = new Set(model.storeys.flatMap((s) => s.spaces.map((sp) => sp.id)))
   const equipmentIds = new Set(model.storeys.flatMap((s) => s.equipment.map((e) => e.id)))
@@ -520,6 +554,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     else result.missing.systems++
   }
 
+  const renumbered = new Map<string, string>()
   for (const row of file.spaces) {
     const id = resolve(row.id)
     if (!spaceIds.has(id)) {
@@ -528,6 +563,14 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     }
     const sp = { ...row, id }
     if (sp.longName !== undefined && renameSpace(model, sp.id, sp.longName)) result.applied++
+    if (sp.number !== undefined) {
+      // 겹침 검사는 아래에서 다 넣은 뒤 한 번 한다. 한 줄씩 검사하면 맞바꾼 번호가 서로를 막는다.
+      const was = model.storeys.flatMap((s) => s.spaces).find((x) => x.id === sp.id)?.name ?? ''
+      if (setSpaceNumber(model, sp.id, sp.number, false) === true) {
+        renumbered.set(sp.id, was)
+        result.applied++
+      }
+    }
     if (sp.footprint) {
       const change = replaceSpaceFootprint(model, sp.id, sp.footprint.map((p) => [p[0], p[1]] as Vec2))
       if (change) {
@@ -547,6 +590,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       result.changes.push(...done.equipment)
     } else result.missing.spaces++
   }
+  revertNumberConflicts(model, renumbered, result)
 
   for (const row of file.equipment) {
     const e = { ...row, id: resolve(row.id), storeyId: row.storeyId && resolve(row.storeyId) }
