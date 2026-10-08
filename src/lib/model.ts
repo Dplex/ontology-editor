@@ -239,7 +239,13 @@ export type Equipment = {
    * 우선한다** — 설계자가 정한 소속이 좌표 판정보다 정확하고, 벽에 걸친 설비처럼 판정이
    * 애매한 경우에도 답이 하나로 정해진다.
    */
-  spaceSource: 'bim' | 'computed' | null
+  spaceSource: 'bim' | 'computed' | 'edit' | null
+  /**
+   * 사람이 지정한 소속 물리존(OE-MAP-01 "사람의 소속 지정", K17). 기계 판정과 따로 둔다 — 기계가 확신하지 못할 때(소속 허용 거리로
+   * 붙었거나 소속 없음)만 쓰고, 그때 `spaceSource` 가 `'edit'` 이다. 기계가 확신하게 되면(BIM 명시 소속·외곽선 안) 쓰지 않는다
+   * ("사람 지정 해제", mapping.ts 의 spaceSetState). 지정은 설비를 옮기거나 사람이 지울 때만 없어진다.
+   */
+  spaceSet?: string
   /** 사람이 에디터에서 더한 설비(E7). BIM 에 없던 것이라 화면의 출처가 "편집"이다. */
   added?: true
   /** 사람이 이름(태그)을 고쳤으면 BIM 이 준 이름. 타입·패밀리 묶음은 이 이름으로 잡는다(edit.ts 의 bimName). */

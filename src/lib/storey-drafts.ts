@@ -45,6 +45,8 @@ export function splitByStorey(file: EditFile, homeOf: HomeOf): Map<string, EditF
   }
 
   for (const row of file.equipment) push(part(homeOf(row.id) ?? row.storeyId), 'equipment', row)
+  // 사람 지정 소속(K17)은 그 설비의 층 조각이다. 더한 설비처럼 연 때 없던 설비는 건물 조각으로 간다.
+  for (const row of file.assignedSpaces ?? []) push(part(homeOf(row.id)), 'assignedSpaces', row)
   for (const row of file.spaces) push(part(homeOf(row.id)), 'spaces', row)
   for (const row of file.equipmentAdded ?? []) push(part(row.storeyId), 'equipmentAdded', row)
   for (const id of file.equipmentRemoved ?? []) push(part(homeOf(id)), 'equipmentRemoved', id)
@@ -106,6 +108,7 @@ export function joinParts(parts: Iterable<EditFile>, base: Pick<EditFile, 'forma
       const c = out.connections ?? { add: [], remove: [] }
       out.connections = { add: [...c.add, ...p.connections.add], remove: [...c.remove, ...p.connections.remove] }
     }
+    if (p.assignedSpaces?.length) out.assignedSpaces = [...(out.assignedSpaces ?? []), ...p.assignedSpaces]
     if (p.keys) out.keys = { ...(out.keys ?? {}), ...p.keys }
     // 해제 보정(OE-PIP-06). 건물 조각에만 있다.
     if (p.connectionsReleased?.length) out.connectionsReleased = [...(out.connectionsReleased ?? []), ...p.connectionsReleased]

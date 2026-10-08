@@ -56,6 +56,7 @@ import type { Fluid } from './kinds'
 import type { Connection, CustomObjectItem, Model, SpaceObject, Vec2, Vec3, Wall } from './model'
 import { copySpaceObjects } from './space-object'
 import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
+import { assignEquipment, spaceSetState } from './mapping'
 import { markStoreyDone, storeyProgress } from './storey-progress'
 import { setCeiling, setEquipmentSurface } from './ceiling'
 import type { Surface } from './mount'
@@ -79,6 +80,11 @@ export type EditFile = {
   /** 사람이 만든 계통(끝 이름·종류)과 지운 계통. 구성원은 설비 쪽 `system` 으로 적는다. */
   systemsAdded?: { id: string; name: string; kind: string | null; fluid: Fluid | null }[]
   systemsRemoved?: string[]
+  /**
+   * 사람이 지정한 설비 소속(OE-MAP-01 "사람의 소속 지정", K17). 불러올 때 소속 판정을 다시 거친다 — 그 사이 기계가 확신하게 된 설비
+   * (BIM 판본이 바뀌어 명시 소속이 생겼거나 외곽선 안에 든 것)는 지정을 쓰지 않고 "사람 지정 해제" 로 알린다.
+   */
+  assignedSpaces?: { id: string; spaceId: string }[]
   /** 이름을 고친 계통(OE-PIP-09). 연 때 있던 계통만 — 사람이 만든 계통은 `systemsAdded` 에 끝 이름이 있다. */
   systemNames?: { id: string; name: string }[]
   /** 고친 물리존. `number` 는 방번호(IfcSpace Name, OE-OBJ-02), `longName` 은 공간명이다. */
@@ -231,6 +237,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined || row.surface) equipment.push(row)
     }
   }
+  const assignedSpaces = model.storeys.flatMap((st) => st.equipment.flatMap((e) => (e.spaceSet !== undefined ? [{ id: e.id, spaceId: e.spaceSet }] : [])))
   const confirmed = new Set<string>()
   for (const c of model.connections) if (c.inferred?.confirmed) confirmed.add(c.inferred.systemId)
   const flows = model.connections.filter((c) => !c.directed && c.edited).map((c) => ({ ...c.edited! }))
@@ -328,6 +335,10 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const row of systemNames) keep(row.id)
   for (const id of systemsRemoved) keep(id)
   for (const id of equipmentRemoved) keep(id)
+  for (const row of assignedSpaces) {
+    keep(row.id)
+    keep(row.spaceId)
+  }
   for (const row of spacesRemoved) keep(row.id)
   for (const row of [...wallsAdded, ...openingsAdded]) keep(row.storeyId)
   for (const row of [...walls, ...openings]) keep(row.id)
@@ -382,6 +393,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(systemsAdded.length ? { systemsAdded } : {}),
     ...(systemsRemoved.length ? { systemsRemoved } : {}),
     ...(systemNames.length ? { systemNames } : {}),
+    ...(assignedSpaces.length ? { assignedSpaces } : {}),
     ...(connections.add.length || connections.remove.length ? { connections } : {}),
     ...(releases.rows.length ? { connectionsReleased: releases.rows } : {}),
     ...(releases.log.length ? { connectionLog: releases.log } : {}),
@@ -425,6 +437,7 @@ export function parseEditFile(text: string): EditFile | string {
 /** 편집 파일에 든 편집 수. 화면(바뀐 것·임시 저장 목록)과 서버(저장본 목록)가 같이 센다. */
 export function countEdits(f: EditFile): number {
   return (
+    (f.assignedSpaces?.length ?? 0) +
     f.equipment.length + f.spaces.length + f.kinds.length + f.flows.length + f.confirmedSystems.length +
     (f.connections?.add.length ?? 0) + (f.connections?.remove.length ?? 0) + (f.connectionsReleased?.length ?? 0) +
     (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0) +
@@ -450,6 +463,8 @@ export type ApplyResult = {
   rules: RuleReport | null
   /** 편집 파일의 방번호가 이 모델의 같은 층 번호와 겹쳐 BIM 번호로 되돌린 물리존(OE-OBJ-02). 새 판본에 같은 번호가 생겼을 때 뜬다. */
   numberConflicts: { storey: string; number: string; spaceIds: string[] }[]
+  /** 사람 지정 소속 중 다시 연 모델에서 기계가 확신하게 되어 쓰지 않은 것(K17). 화면이 "사람 지정 해제" 로 알린다. */
+  assignReleased?: { id: string; name: string; from: string; to: string | null; reason: 'bim' | 'inside' | 'gone' }[]
 }
 
 /**
@@ -513,6 +528,10 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   for (const row of file.systems ?? []) ref(row.id)
   for (const row of file.systemNames ?? []) ref(row.id)
   for (const id of file.systemsRemoved ?? []) ref(id)
+  for (const row of file.assignedSpaces ?? []) {
+    ref(row.id)
+    ref(row.spaceId)
+  }
   for (const row of file.equipmentAdded ?? []) if (row.system) ref(row.system)
   for (const f of file.flows) {
     ref(f.from)
@@ -816,6 +835,24 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2),
     }))
     result.applied++
+  }
+
+  // 사람이 지정한 소속(K17). 경계·물리존·좌표를 다 얹은 뒤에 같은 판정을 거친다. 기계가 확신하게 된 설비는 지정을 남기되 쓰지 않는다.
+  for (const row of file.assignedSpaces ?? []) {
+    const id = resolve(row.id)
+    const spaceId = resolve(row.spaceId)
+    const storey = model.storeys.find((s) => s.equipment.some((e) => e.id === id))
+    const target = storey?.equipment.find((e) => e.id === id)
+    if (!storey || !target) {
+      result.missing.equipment++
+      continue
+    }
+    target.spaceSet = spaceId
+    assignEquipment(target, storey.spaces)
+    const state = spaceSetState(target, storey.spaces)
+    if (state?.state === 'released') {
+      ;(result.assignReleased ??= []).push({ id, name: target.name, from: spaceId, to: target.spaceId, reason: state.reason })
+    } else result.applied++
   }
 
   // 지운 설비. 붙은 연결도 같이 빠지므로 연결 편집보다 먼저다.
