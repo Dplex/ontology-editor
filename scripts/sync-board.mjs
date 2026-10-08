@@ -7,7 +7,8 @@
 //   --only=OE-COM-01,OE-COM-02   그 티켓만      --date=2026-10-02   수정 이력의 날짜(기본: 오늘)
 //
 // 맞추는 것: 제목, 본문(md 사본 + 수정 이력), 라벨 phase-1/2, Phase 칸. 개발이 손댄 이슈(In Progress·In Review·Done)의 요구사항·
-// 수용 기준이 바뀌면 라벨 `modified` 를 붙인다(뗄 때는 개발이 구현을 다시 본 뒤 손으로). 보드의 모든 항목에서 라벨을 `🏷️ 라벨` 칸으로
+// 수용 기준이 바뀌면 라벨 `modified` 를 붙인다(뗄 때는 개발이 구현을 다시 본 뒤 손으로). 요구사항 첫 줄의 `> User story : …` 만
+// 바뀐 것은 요구 변경으로 치지 않는다(본문은 고치되 `modified` 는 붙이지 않는다). 보드의 모든 항목에서 라벨을 `🏷️ 라벨` 칸으로
 // 옮겨 적는다(라벨 보드의 열). 이 스크립트가 하지 않는 것: Status 이동(개발이 판단),
 // 코멘트, 이슈 닫기·만들기. `planned` 라벨이 없는 이슈(구현 완료 보고로 대체된 것)는 건드리지 않는다.
 // 로컬 `gh` 로 수동 실행한다 — 의존성 없이 node 만 있으면 된다.
@@ -126,11 +127,17 @@ function mdOf(base) {
   return at < 0 ? '' : base.slice(at).trim()
 }
 
-/** 요구사항·수용 기준이 바뀌었나. */
+// 요구사항 절 첫 줄의 `> User story : …` 는 누가 왜 쓰는지를 적은 배경 서술이라 요구가 아니다. 이것만 바뀌었을 때
+// `modified` 를 붙이면 개발이 다시 볼 구현이 없는데도 카드가 되돌아간다(#410 — 스토리를 더하자 52개 이슈가 걸렸다).
+const STORY_LINE = /^> User story\s*:.*$\n?/gm
+const storyOf = (s) => /^> User story\s*:\s*(.*)$/m.exec(s ?? '')?.[1] ?? null
+const withoutStory = (s) => (s ?? '').replace(STORY_LINE, '').trim()
+
+/** 요구사항·수용 기준이 바뀌었나. User story 줄만 바뀐 것은 치지 않는다. */
 function specChanged(oldBase, t) {
   const before = sections(mdOf(oldBase))
   const after = sections(t.md)
-  return SPEC_SECTIONS.some((k) => (before[k] ?? '') !== (after[k] ?? ''))
+  return SPEC_SECTIONS.some((k) => withoutStory(before[k]) !== withoutStory(after[k]))
 }
 
 const quote = (s) => s.split('\n').map((l) => (l ? `  > ${l}` : '  >')).join('\n')
@@ -151,6 +158,11 @@ function describeChanges(oldBase, t) {
   const after = sections(t.md)
   for (const k of new Set([...Object.keys(before), ...Object.keys(after)])) {
     if (before[k] === after[k]) continue
+    if (before[k] !== undefined && after[k] !== undefined && withoutStory(before[k]) === withoutStory(after[k])) {
+      const old = storyOf(before[k])
+      add(old === null ? `**${k}** User story 추가` : storyOf(after[k]) === null ? `**${k}** User story 삭제 — 이전 문구:\n${quote(old)}` : `**${k}** User story 수정 — 이전 문구:\n${quote(old)}`)
+      continue
+    }
     if (before[k] === undefined) add(`**${k}** 절 추가`)
     else if (after[k] === undefined) add(`**${k}** 절 삭제`)
     else add(`**${k}** 수정 — 이전 문구:\n${quote(before[k] || '(비어 있음)')}`)
