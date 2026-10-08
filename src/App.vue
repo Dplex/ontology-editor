@@ -2537,9 +2537,13 @@ watch([history, fileName], () => {
   if (!history.value.at(-1)?.label.includes('종류 →')) kindWarning.value = ''
 })
 /** 고른 설비 패널의 종류 상자. 고른 뒤 포커스를 놓아 준다 — 상자에 남아 있으면 다음 단축키(U, K)를 상자가 먹는다. */
+/** 고른 설비 한 대에만 종류를 정한다(OE-EQP-14 "원하면 설비 한 대씩"). 끄면 같은 패밀리 전부다. 다른 설비를 고르면 끈다. */
+const kindOnlyThis = ref(false)
+watch(selectedId, () => (kindOnlyThis.value = false))
 function pickKind(event: Event, e: Equipment) {
   const el = event.target as HTMLSelectElement
-  setKind(familyKeyOf(e), el.value || null, familyLabel(e))
+  if (kindOnlyThis.value) setKind(`#${e.id}`, el.value || null, shortName(e.name))
+  else setKind(familyKeyOf(e), el.value || null, familyLabel(e))
   el.blur()
 }
 /** 종류를 모르는 패밀리 목록의 상자. 고르면 그 줄이 목록에서 빠지고, 포커스는 놓는다(다음 단축키를 상자가 먹지 않게). */
@@ -2631,11 +2635,15 @@ const kindEditLines = computed(() => {
   const name = (k: string | null) => (k ? (equipmentKind(k)?.label ?? k) : '모름')
   // 편집은 타입마다 적히지만(edit-file 도 타입 단위로 저장한다) 리포트는 패밀리 한 줄로 접는다.
   const rows = new Map<string, { key: string; label: string; count: number; types: number; from: string; to: string }>()
+  const byId = equipmentById.value
   for (const k of kindEdits(m)) {
-    const e = sample.get(k.typeKey)
-    const family = e ? familyKeyOf(e) : k.typeKey
+    // 한 대만 따로 정한 것(`#id`, OE-EQP-14)은 그 설비 이름으로 한 줄이다.
+    const single = k.typeKey.startsWith('#') ? byId.get(k.typeKey.slice(1)) : undefined
+    const e = single ?? sample.get(k.typeKey)
+    const family = single ? k.typeKey : e ? familyKeyOf(e) : k.typeKey
     const key = `${family}|${k.from}|${k.to}`
-    const row = rows.get(key) ?? { key, label: e ? familyLabel(e) : k.typeKey, count: 0, types: 0, from: name(k.from), to: name(k.to) }
+    const label = single ? `${shortName(single.name)} (한 대만)` : e ? familyLabel(e) : k.typeKey
+    const row = rows.get(key) ?? { key, label, count: 0, types: 0, from: name(k.from), to: name(k.to) }
     row.count += k.count
     row.types++
     rows.set(key, row)
@@ -6262,11 +6270,17 @@ async function export3D(format: 'glb' | 'obj') {
             <Src v-if="selected.kind || selected.kindEdited" :kind="kindSrc(selected)" />
             <span class="muted" :title="typeLabel(selected)">
               {{
-                typeNameOf(selected)
-                  ? `같은 패밀리 ${familyLabel(selected)}${(familyCounts.get(familyKeyOf(selected))?.types.size ?? 1) > 1 ? `(유형 ${familyCounts.get(familyKeyOf(selected))!.types.size}개)` : ''} ${familyCounts.get(familyKeyOf(selected))?.count ?? 1}대에 함께 적용됩니다`
-                  : '타입 정보가 없어 이 설비에만 적용됩니다'
+                !typeNameOf(selected)
+                  ? '타입 정보가 없어 이 설비에만 적용됩니다'
+                  : kindOnlyThis
+                    ? '이 설비에만 적용됩니다'
+                    : `같은 패밀리 ${familyLabel(selected)}${(familyCounts.get(familyKeyOf(selected))?.types.size ?? 1) > 1 ? `(유형 ${familyCounts.get(familyKeyOf(selected))!.types.size}개)` : ''} ${familyCounts.get(familyKeyOf(selected))?.count ?? 1}대에 함께 적용됩니다`
               }}
             </span>
+            <!-- 같은 패밀리가 여럿일 때만 — 한 대짜리면 고를 것이 없다. -->
+            <label v-if="typeNameOf(selected) && (familyCounts.get(familyKeyOf(selected))?.count ?? 1) > 1" class="kind-only">
+              <input v-model="kindOnlyThis" type="checkbox" /> 이 설비만
+            </label>
           </p>
 
           <p v-if="editing && kindWarning" class="edit-notice inline" role="alert">{{ kindWarning }}</p>

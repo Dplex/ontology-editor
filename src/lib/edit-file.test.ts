@@ -461,3 +461,21 @@ describe('같은 두 설비 사이의 연결 둘', () => {
   })
 })
 
+
+describe('한 대만 정한 종류 (OE-EQP-14)', () => {
+  it('같은 타입 중 한 대만 바꾼 종류는 다시 열어 얹어도 그 설비에만 붙는다', () => {
+    const prep = (m: Model) => {
+      equip(m, 'AT-101-01').objectType = 'M_Return Register:600'
+      equip(m, 'AT-101-02').objectType = 'M_Return Register:600'
+      return m
+    }
+    const m = prep(read('mep.ifc'))
+    const base = baselineOf(m)
+    setTypeKind(m, `#${equip(m, 'AT-101-01').id}`, 'air_grille')
+    const file = exportEdits(m, base, 'mep.ifc')
+    expect(file.kinds).toEqual([{ typeKey: `#${equip(m, 'AT-101-01').id}`, kind: 'air_grille' }])
+    const fresh = prep(read('mep.ifc'))
+    applyEdits(fresh, file)
+    expect([equip(fresh, 'AT-101-01').kind, equip(fresh, 'AT-101-02').kind]).toEqual(['air_grille', 'air_diffuser'])
+  })
+})

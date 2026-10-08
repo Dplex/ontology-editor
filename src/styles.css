@@ -1447,6 +1447,15 @@ th {
   font-size: 0.75rem;
 }
 
+/* 종류 칸 옆 "이 설비만"(OE-EQP-14). */
+.kind-edit .kind-only {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.4rem;
+  font-size: 0.85rem;
+}
+
 /* 팔레트의 미배치 목록(OE-EQP-02). 접어 두고, 펼치면 제 상자 안에서 스크롤한다. */
 .tool-palette .unplaced-toggle {
   align-self: flex-start;

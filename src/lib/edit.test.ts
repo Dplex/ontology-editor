@@ -614,6 +614,19 @@ describe('타입 단위 종류 지정', () => {
     expect([a.kind, b.kind]).toEqual(['air_diffuser', 'air_diffuser'])
   })
 
+  it('한 대만 따로 정하면(`#id`) 그 설비만 바뀌고, 편집 파일에는 그 설비 한 줄로 적힌다 (OE-EQP-14)', () => {
+    equip('AT-101-01').objectType = 'M_Return Register:600'
+    equip('AT-101-02').objectType = 'M_Return Register:600'
+    const [a, b] = ['AT-101-01', 'AT-101-02'].map(equip)
+    expect(setTypeKind(model, `#${a.id}`, 'air_grille')!.count).toBe(1)
+    expect([a.kind, b.kind]).toEqual(['air_grille', 'air_diffuser'])
+    // 타입 줄로 적으면 다시 열 때 b 에도 번진다 — 그 설비 한 줄이다.
+    expect(kindEdits(model)).toEqual([{ typeKey: `#${a.id}`, count: 1, from: 'air_diffuser', to: 'air_grille' }])
+    // 나머지도 같은 종류로 정하면 타입이 다 같아져 다시 타입 한 줄이다.
+    setTypeKind(model, `#${b.id}`, 'air_grille')
+    expect(kindEdits(model)).toEqual([{ typeKey: typeKeyOf(a), count: 2, from: 'air_diffuser', to: 'air_grille' }])
+  })
+
   it('사전 값으로 되돌리면 편집이 아니고 리포트에서 빠진다', () => {
     const key = typeKeyOf(equip('AHU-1'))
     setTypeKind(model, key, 'fcu')
