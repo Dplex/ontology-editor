@@ -45,11 +45,12 @@ owner: "ontology-editor"     # ontology-editor | srcn | tbd
 status: "prd-done"           # 아래 범례
 status_note: "성수 277대 보정 표시"   # 있을 때만
 blocked_by: []               # 이 결정·이슈가 나야 진행 — questions.md 의 번호
-depends: ["R11"]             # 참고하는 티켓·요구사항·규칙·장
+depends: ["R11"]             # 참고하는 티켓·요구사항·규칙·장. 요구사항 절이 언급한 것은 전부 넣는다
 ---
 
 # OE-BIM-12 배치점 보정
 
+## 관련 티켓        ← depends 의 OE 티켓마다 `- [OE-XXX-nn](./OE-XXX-nn.md): 목적(구절)`. K·R 은 depends 에만
 ## 요구사항        ← 기획 소유
 ## 수용 기준       ← 기획 소유. "—" 는 상세 기획 때 채움
 ## 검증 (이 repo)  ← 개발 소유. 이 기준을 재는 테스트·검사 항목. "—" 는 아직 안 잼
@@ -57,6 +58,10 @@ depends: ["R11"]             # 참고하는 티켓·요구사항·규칙·장
 ```
 
 머리 필드의 값은 전부 JSON 형식(따옴표 친 문자열, 대괄호 목록)이다. `prd.test.ts` 가 의존성 없이 읽기 위해서다.
+
+**관련 티켓** 절은 이 티켓이 다른 티켓에 무엇을 맡기는지 한 줄씩 적는다. 요구사항에서 `OE-ML-12~14` · `OE-PIP-04·05` 처럼
+묶어 쓴 것도 depends 에는 하나씩 편다. 링크는 같은 Epic 이면 `./`, 다른 Epic 이면 `../E18-ML/` 처럼 `/` 로 쓴다(이슈 본문에는
+`npm run board` 가 main 의 blob 주소로 바꿔 옮긴다). 지금은 E13-PIP 만 갖췄다(`prd.test.ts` 의 `LINKED_EPICS`).
 
 **상태 범례** — 원문 기호를 보드 상태 이름으로 바꿨다(부록 F).
 
@@ -97,6 +102,7 @@ Epic `README.md` 와 `PRD_011.md` 표를 같이 고친다 — `prd.test.ts` 가 
 - **목적** : docs/prd/features/** 하위에 작성한 Epic별  `(OE-XXX-nn).md`의 내용이 Epic별  `'README.md`와  `docs/prd/README.md`, `PRD_011.md`,  `glossary.md`가 **서로 모순되는 지점 없이 내용 정합성을 충족하는지** 검사한다. 
 - 티켓 파일 수 = `PRD_011.md` 3장 색인의 기능 수 합. `id` = 파일 이름, 중복 없음, Epic 폴더와 ID 머리가 맞음.
 - 머리 필드가 있고 값이 범례 안이다. 본문에 네 절이 다 있다.
+- (`LINKED_EPICS` 의 Epic) 요구사항에서 언급한 티켓·K·R 이 `depends` 에 있고, `## 관련 티켓` 의 링크가 `depends` 의 OE 티켓과 같은 순서로 같으며 실제 파일을 가리킨다.
 - `depends` · `blocked_by` 가 가리키는 OE 티켓 · Epic 머리(`OE-ZON`) · R(개발 정본 4장) · K · S(`PRD_011.md` 부록) · D · Q · U · P(`questions.md`) 가 존재한다.
 - Epic `README.md` 의 행이 폴더의 티켓과 같다(ID · 기능 · Rel · P · 상태). `PRD_011.md` 3장의 티켓 목록도 같다.
 - `questions.md` 의 "영향 티켓" 이 실제 파일이다.

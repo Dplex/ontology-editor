@@ -62,6 +62,10 @@ const gh = (a) => {
   }
 }
 
+/** 티켓 md 의 상대 링크(`./OE-PIP-04.md`, `../E18-ML/OE-ML-12.md`)는 이슈 화면에서 깨지므로 main 의 blob 주소로 바꾼다. */
+const absLinks = (md, folder) =>
+  md.replace(/\]\((\.{1,2}\/[^)\s]+)\)/g, (_, rel) => `](${new URL(rel, `${BLOB}/${folder}/`).href})`)
+
 function loadTickets() {
   const out = new Map()
   for (const folder of readdirSync(FEATURES)) {
@@ -76,7 +80,7 @@ function loadTickets() {
         if (!kv) throw new Error(`${file}: 머리 필드 줄이 "key: json" 이 아니다: ${line}`)
         fm[kv[1]] = JSON.parse(kv[2])
       }
-      out.set(fm.id, { fm, folder, md: m[2].trim() })
+      out.set(fm.id, { fm, folder, md: absLinks(m[2].trim(), folder) })
     }
   }
   return out
