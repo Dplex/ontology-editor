@@ -410,6 +410,12 @@ export type HvacZone = {
   spaceIds: string[]
   /** 든 물리존마다 이 존이 덮는 몫(0~1). 외곽선이 자기 교차해 넓이를 못 잰 방은 없다. */
   spaceShares?: Record<string, number>
+  /** 사람이 만든 공조존이면 `edit`(OE-ZON-01·02, hvac-zone.ts). IDF 로 불러온 것은 칸이 없다. */
+  source?: 'edit'
+  /** 담당 설비(BIM 설비 id). TTL 에서 그 설비가 이 존을 `brick:feeds` 한다. 사람이 만든 공조존만 갖는다(IDF 는 HvacEquipment.feeds). */
+  servedBy?: string[]
+  /** 경계를 그려 만든 공조존(OE-ZON-02). 담당 물리존이 겹침으로 정해졌다. 없으면 고른 물리존의 합집합이다. */
+  drawn?: true
 }
 
 /** IDF 가 말한 공조 설비(공조기·말단·실외기·실내기). 좌표는 IDF 에 없다. */
@@ -455,6 +461,8 @@ export type Storey = {
   equipment: Equipment[]
   /** 운영자가 정한 커스텀존(OE-OBJ-01, custom-zone.ts). BIM 에는 없어 연 직후에는 없다. */
   customZones?: CustomZone[]
+  /** 사람이 만든 공조존(OE-ZON-01·02, hvac-zone.ts). R1 에서 공조존을 만드는 유일한 길이다. 연 직후에는 없다. */
+  hvacZones?: HvacZone[]
   /** 사람이 물리존 안에 그린 룸(OE-OBJ-03, room.ts). 임포트는 만들지 않아 연 직후에는 없다. */
   rooms?: Room[]
   /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09, space-object.ts). 임포트는 만들지 않아 연 직후에는 없다. */

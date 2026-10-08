@@ -8,6 +8,7 @@
 // BIM 밖에서 오는 피처(공조존 F12·관제점 F13·커스텀존 F14)는 대상을 세되 `outside` 로 표시한다. 0 이 "BIM 이 비었다" 가
 // 아니라 "BIM 이 줄 자리가 아니다" 인 경우를 섞지 않기 위해서다.
 
+import { hvacZonesOf } from './hvac-zone'
 import { isPlaceholder } from './merge'
 import { withInferred } from './flow-rules'
 import { isConduit, type Model } from './model'
@@ -55,7 +56,7 @@ export function featureCoverage(model: Model): Coverage[] {
   const byEdit = Math.max(0, exported.fed.size - byPort)
   const byRule = Math.max(0, withRules.fed.size - exported.fed.size)
 
-  const zoned = new Set((model.hvac?.zones ?? []).flatMap((z) => z.spaceIds))
+  const zoned = new Set(hvacZonesOf(model).flatMap((z) => z.spaceIds))
   const systems = model.systems
 
   return [

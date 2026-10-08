@@ -3773,3 +3773,33 @@ button.done::after {
   display: block;
   color: var(--warn-fg);
 }
+
+/* 수동 공조존(OE-ZON-01·02). 존마다 한 줄: 이름 · 담당 물리존 · 담당 설비 · 지우기. */
+.hvac-zones .zone-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid var(--line, #e5e7eb);
+}
+.hvac-zones .zone-served {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+.hvac-zones .zone-served .chip {
+  border: 1px solid var(--line, #e5e7eb);
+  border-radius: 999px;
+  padding: 0 0.5rem;
+  background: none;
+  cursor: pointer;
+}
+.hvac-zones .zone-make {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  margin-top: 0.6rem;
+}

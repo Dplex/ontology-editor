@@ -6,6 +6,7 @@
 // 설비는 상자 점이 아니라 IFC 의 실제 형상으로 그린다. 배관·덕트는 점으로 찍으면 계통이
 // 어디로 지나가는지가 사라져서, 연결을 추정한 것이 맞는지 눈으로 확인할 수가 없다.
 
+import { hvacZonesOf } from './hvac-zone'
 import {
   Box3,
   MOUSE,
@@ -2171,7 +2172,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       })
       zoneLines.clear()
       const elevation = new Map((model?.storeys ?? []).map((s) => [s.id, s.elevation]))
-      for (const zone of model?.hvac?.zones ?? []) {
+      for (const zone of model ? hvacZonesOf(model) : []) {
         if (!zone.storeyId) continue
         const y = (elevation.get(zone.storeyId) ?? 0) + 0.2
         for (const ring of zone.footprint) {

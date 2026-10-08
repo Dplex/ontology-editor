@@ -85,3 +85,4 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | [0023](0023-rooms-objects-geojson-only.md) | 룸과 추가 공간 오브젝트는 3D Map 용으로 GeoJSON 에만 내보내고, TTL 에는 넣지 않으며 설비 소속은 물리존 그대로 둔다 | 제안 |
 | [0024](0024-room-kind-edit-by-name.md) | 방 종류는 사람이 정할 수 있고(출처 편집) 같은 공간명의 방에 건물 전체로 함께 붙으며, 사람이 정한 종류는 이름을 고쳐도 남는다 | 제안 |
 | [0025](0025-space-bim-area-and-outline-warnings.md) | 방의 BIM 면적은 NetFloorArea → GrossFloorArea → GSA BIM Area → Revit 치수 Area 순으로 읽고, 외곽선을 그리면 ±20%·겹침 0.05㎡ 를 넘을 때 경고만 한다 | 제안 |
+| [0026](0026-manual-hvac-zones.md) | 수동 공조존은 층마다 두고 IDF 공조존과 같은 모양으로 읽으며, 담당 물리존은 고른 것(그린 경계면 겹침)이고 담당 설비가 존을 feeds 한다 | 제안 |
