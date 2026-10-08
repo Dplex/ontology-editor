@@ -300,8 +300,8 @@ describe.skipIf(!have)('성수 불변식', () => {
     const t = performance.now()
     for (let seed = 1; seed <= 3; seed++) {
       const r = fuzzEdits(pristine, seed, 30)
-      if (!r.reloadSame || r.missing || !r.undoSame) {
-        failed.push(`seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}\n${r.detail ?? ''}`)
+      if (!r.reloadSame || r.missing || !r.undoSame || !r.redoSame) {
+        failed.push(`seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} · 다시 하기 ${r.redoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}\n${r.detail ?? ''}`)
       }
     }
     timings.push(['무작위 편집 30개 × 씨앗 3', (performance.now() - t) / 1000])

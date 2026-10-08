@@ -246,13 +246,17 @@ describe('방번호 (OE-OBJ-02)', () => {
     expect(diffBaseline(model, base).renumbered).toEqual([])
   })
 
-  it('나눈 조각의 방번호는 그 층에서 겹치지 않는 다음 번호다', () => {
+  it('나눈 조각의 방번호는 비워 두고 사람이 넣는다(OE-SPC-02)', () => {
     const office = model.storeys[0].spaces[0]
-    model.storeys[0].spaces.push({ id: 'c', name: `${office.name}-2`, longName: '창고', footprint: [], areaM2: 0, boundedBy: [] })
     const done = splitSpace(model, office.id, [5, -1], [5, 9])!
     expect('refused' in done).toBe(false)
-    const piece = model.storeys[0].spaces.find((sp) => sp.id !== office.id && sp.id !== 'c' && sp.added)!
-    expect(piece.name).toBe(`${office.name}-3`)
+    if ('refused' in done) return
+    const piece = model.storeys[0].spaces.find((sp) => sp.id === done.created[0])!
+    expect(piece.name).toBe('')
+    expect(office.name).toBe('101')
+    // 빈 번호는 아직 안 정한 것이라 겹침 검사에 걸리지 않고, 넣은 번호는 다른 방과 겹치면 막힌다.
+    expect(setSpaceNumber(model, piece.id, '101')).toEqual({ refused: expect.any(String) })
+    expect(setSpaceNumber(model, piece.id, '101A')).toBe(true)
   })
 })
 
@@ -356,7 +360,7 @@ describe('물리존 경계 수정 (E2)', () => {
     expect(change.equipment.map((c) => c.equipmentName)).not.toContain('AHU-1')
   })
 
-  it('BIM 이 소속을 말한 설비는 경계를 바꿔도 그대로다', () => {
+  it('BIM 이 소속을 말한 설비도 사람이 경계를 고치면 좌표로 다시 판정한다(Q13)', () => {
     // LIGHT-101-01 은 좌표가 (50,50) 으로 밖인데 IFC 가 사무실에 담아 두었다.
     const light = equip('LIGHT-101-01')
     replaceSpaceFootprint(model, office().id, [
@@ -366,8 +370,8 @@ describe('물리존 경계 수정 (E2)', () => {
       [0, 1],
       [0, 0],
     ])
-    expect(light.spaceId).toBe(office().id)
-    expect(light.spaceSource).toBe('bim')
+    expect(light.spaceId).toBe(null)
+    expect(light.spaceSource).toBe(null)
   })
 
   it('닫힌 고리의 첫 점을 옮기면 끝 점도 따라온다', () => {

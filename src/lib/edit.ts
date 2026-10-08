@@ -7,7 +7,7 @@
 // 반영 전에 차이를 보여 주는 것이 PRD #16(미리보기)이고, 반영 뒤에 남기는 것이 #21(결과
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
-import { assignEquipment, centroid, isSelfIntersecting, locate, nearRing } from './mapping'
+import { assignEquipment, centroid, distanceToRing, isSelfIntersecting, locate, nearRing } from './mapping'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapshotRulesAgain, type ReleaseSnapshot, type RuleSnapshot } from './connection-release'
@@ -55,15 +55,32 @@ function reassignStoreyOf(model: Model, equipment: Equipment) {
  * 새 경계 근처인 것(들어올 수 있다). 나머지 설비는 그 방이 답이었던 적도 없고 답이 될 수도 없어서, 층 전부를 다시 도는 것과
  * 결과가 같다. 병원 건축+MEP 처럼 한 층에 설비·배관이 수천 개면 꼭짓점 하나 옮길 때마다 전부 다시 재는 데 시간이 다 갔다.
  */
-function reassignStoreyWith(model: Model, spaceId: string) {
+function reassignStoreyWith(model: Model, spaceId: string, release = false) {
   const storey = model.storeys.find((s) => s.spaces.some((sp) => sp.id === spaceId))
   if (!storey) return
   const ring = storey.spaces.find((sp) => sp.id === spaceId)!.footprint
+  // 사람이 경계를 고친 물리존은 BIM 이 거기 담아 둔 설비도 좌표로 다시 판정한다(OE-MAP-01 3단계, Q13). 설계자가 담은 방이
+  // 이제 설계 때의 방이 아니라서다.
+  if (release) releaseDeclared(storey, spaceId)
   for (const e of storey.equipment) {
     if (e.spaceId === spaceId || (e.position && nearRing([e.position[0], e.position[1]], ring))) assignEquipment(e, storey.spaces)
   }
   // 방 경계가 바뀌면 좌표로 짚은 문이 잇는 방도 바뀐다.
   relinkDoors(storey)
+}
+
+/** 이 물리존에 BIM 이 담아 둔 설비의 소속을 좌표 판정에 넘긴다(Q13). 다음 assignEquipment 가 좌표로 정한다. */
+function releaseDeclared(storey: Storey, spaceId: string) {
+  for (const e of storey.equipment) if (e.spaceSource === 'bim' && e.spaceId === spaceId) e.spaceSource = null
+}
+
+/**
+ * 경계가 실제로 바뀌었나. 변 위에 꼭짓점을 하나 넣는 것(Insert)은 모양이 같아서 바뀐 것이 아니다 — 넣기만 해도 BIM 소속이
+ * 풀리면 안 된다. 넓이가 같고 새 꼭짓점이 전부 옛 외곽선 위에 있으면 같은 모양이다.
+ */
+function shapeChanged(from: readonly Vec2[], to: readonly Vec2[]): boolean {
+  if (Math.abs(polygonArea(from) - polygonArea(to)) > 1e-9) return true
+  return to.some((p) => distanceToRing(p, from) > 1e-9)
 }
 
 function findEquipment(model: Model, equipmentId: string): Equipment | null {
@@ -345,14 +362,6 @@ function setRoomKind(space: Space, found: ReturnType<typeof resolveRoomKind>) {
   else delete space.kindSource
 }
 
-/** 나눈 조각의 방번호. `101-2`, 있으면 `101-3` … 한 층 안에서 겹치지 않는 첫 번호(OE-OBJ-02). */
-function nextNumber(storey: Storey, base: string): string {
-  const used = new Set(storey.spaces.map((sp) => sp.name.trim()))
-  let k = 2
-  while (used.has(`${base}-${k}`)) k++
-  return `${base}-${k}`
-}
-
 /**
  * 같은 층에서 이 방번호를 쓰는 다른 물리존(OE-OBJ-02 "방번호는 한 층 안에서 고유"). 빈 번호는 아직 안 정한 것이라 겹쳐도 된다.
  * 공간명(longName)은 겹쳐도 된다.
@@ -511,10 +520,11 @@ export function moveSpaceVertex(
   const before = snapshotSpaces(model)
   const fromAreaM2 = space.areaM2
   const ring = ringWithVertex(space.footprint, vertexIndex, to)
+  const release = shapeChanged(space.footprint, ring)
 
   space.footprint = ring
   space.areaM2 = polygonArea(ring)
-  reassignStoreyWith(model, spaceId)
+  reassignStoreyWith(model, spaceId, release)
 
   return {
     spaceId,
@@ -530,17 +540,22 @@ export function moveSpaceVertex(
  * 물리존 전체 경계를 갈아 끼운다. 분할·병합이 이 위에 올라간다.
  *
  * 꼭짓점 하나를 옮기는 것과 계산이 같아서 함수를 나누지 않았다. 다른 것은 입력뿐이다.
+ *
+ * `release: false` 는 편집 파일을 얹을 때다. 외곽선 줄은 끝 모양만 적어서 그 모양이 경계 수정에서 왔는지 합치기에서 왔는지
+ * 모른다 — 합치기로 넓어진 남는 방은 BIM 소속을 그대로 두므로(OE-MAP-01 3단계) 여기서 풀면 세션과 달라진다. 세션에서 풀린
+ * 설비는 설비 줄의 `released` 가 따로 푼다.
  */
-export function replaceSpaceFootprint(model: Model, spaceId: string, ring: Vec2[]): BoundaryChange | null {
+export function replaceSpaceFootprint(model: Model, spaceId: string, ring: Vec2[], { release: mayRelease = true } = {}): BoundaryChange | null {
   const space = findSpace(model, spaceId)
   if (!space) return null
 
   const before = snapshotSpaces(model)
   const fromAreaM2 = space.areaM2
+  const release = mayRelease && shapeChanged(space.footprint, ring)
 
   space.footprint = ring
   space.areaM2 = polygonArea(ring)
-  reassignStoreyWith(model, spaceId)
+  reassignStoreyWith(model, spaceId, release)
 
   return {
     spaceId,
@@ -578,7 +593,18 @@ export type Snapshot =
       /** 사람이 정한 설치면(OE-EQP-05). */
       surfaceSet?: Equipment['surfaceSet']
     }
-  | { kind: 'space'; id: string; footprint: Vec2[]; areaM2: number; name?: string; longName: string; roomKind: Space['kind']; roomKindSource: Space['kindSource'] }
+  | {
+      kind: 'space'
+      id: string
+      footprint: Vec2[]
+      areaM2: number
+      name?: string
+      longName: string
+      roomKind: Space['kind']
+      roomKindSource: Space['kindSource']
+      /** BIM 이 이 물리존에 담아 둔 설비. 경계를 고치면 좌표 판정으로 풀리므로(Q13) 되돌릴 때 다시 담는다. */
+      declared?: Equipment[]
+    }
   | { kind: 'flow'; connection: Connection; edited: Connection['edited'] }
   | { kind: 'confirm'; connections: Connection[]; confirmed: boolean }
   | { kind: 'kinds'; entries: { id: string; kind: string | null | undefined; kindEdited: Equipment['kindEdited'] }[] }
@@ -734,11 +760,16 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
 
 const copyShift = (s: readonly [Vec3, Vec3]): [Vec3, Vec3] => [[...s[0]], [...s[1]]]
 
-/** 경계와 이름. 소속은 담지 않는다 — 경계를 되돌리면 재판정이 같은 소속을 다시 낸다. */
+/**
+ * 경계와 이름. 좌표로 정한 소속은 담지 않는다 — 경계를 되돌리면 재판정이 같은 소속을 다시 낸다. BIM 이 담아 둔 소속은 경계를
+ * 고칠 때 풀리고(Q13) 재판정으로는 돌아오지 않아서 따로 담는다.
+ */
 export function snapshotSpace(model: Model, spaceId: string): Snapshot | null {
   const space = findSpace(model, spaceId)
   if (!space) return null
+  const declared = storeyOfSpace(model, spaceId)?.equipment.filter((e) => e.spaceSource === 'bim' && e.spaceId === spaceId) ?? []
   return {
+    ...(declared.length ? { declared } : {}),
     kind: 'space',
     id: space.id,
     footprint: [...space.footprint],
@@ -880,6 +911,16 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       space.kind = snapshot.roomKind
       if (snapshot.roomKindSource) space.kindSource = snapshot.roomKindSource
       else delete space.kindSource
+      // 스냅숏이 담은 설비가 그때 이 방의 BIM 소속 전부다. 지금 BIM 소속인데 거기 없는 것은 그때 풀려 있었다 — 다시 하기가
+      // 경계를 고친 상태로 돌아갈 때 이것을 풀지 않으면, 되돌리기가 다시 담은 BIM 소속이 그대로 남는다.
+      const declared = new Set(snapshot.declared ?? [])
+      for (const e of storeyOfSpace(model, space.id)?.equipment ?? []) {
+        if (e.spaceSource === 'bim' && e.spaceId === space.id && !declared.has(e)) e.spaceSource = null
+      }
+      for (const e of declared) {
+        e.spaceId = space.id
+        e.spaceSource = 'bim'
+      }
       reassignStoreyWith(model, space.id)
       return null
     }
@@ -1793,7 +1834,8 @@ function pointInRing(p: Vec2, ring: readonly Vec2[]): boolean {
 }
 
 /**
- * 물리존을 두 점을 지나는 선으로 둘로 나눈다. 넓은 조각이 원래 id·이름을 갖고, 다른 조각은 새 id 에 `이름-2` 다.
+ * 물리존을 두 점을 지나는 선으로 둘로 나눈다. 넓은 조각이 원래 id·이름을 갖고, 다른 조각은 새 id 에 공간명 `이름-2` 다.
+ * 새 조각의 방번호는 비워 둔다 — 사람이 넣는다(OE-SPC-02). 번호를 지어 붙이면 BIM 에 없는 번호가 그대로 TTL·GeoJSON 에 들어간다.
  * 나눌 수 없는 선이면(방을 안 지나거나 셋 이상으로 자르면) 이유를 돌려준다.
  */
 export function splitSpace(
@@ -1817,7 +1859,7 @@ export function splitSpace(
   // 새 조각은 목록 끝에 둔다. 원래 방 바로 뒤에 끼우면 편집 파일에서 되살린 층과 순서(hasPart)가 달라진다.
   storey.spaces.push({
     id,
-    name: space.name ? nextNumber(storey, space.name) : '',
+    name: '',
     longName: space.longName ? `${space.longName}-2` : '',
     footprint: small,
     areaM2: polygonArea(small),
@@ -1826,12 +1868,9 @@ export function splitSpace(
   })
   const piece = storey.spaces[storey.spaces.length - 1]
   setRoomKind(piece, resolveRoomKind(piece.name, piece.longName, null))
-  // BIM 이 원래 방에 둔 설비 중 새 조각에 든 것은 BIM 소속을 버린다. 원래 방은 이제 그 자리를 품지 않는다.
-  for (const e of storey.equipment) {
-    if (e.spaceSource === 'bim' && e.spaceId === spaceId && e.position && pointInRing([e.position[0], e.position[1]], small)) {
-      e.spaceSource = null
-    }
-  }
+  // 사람이 나눈 물리존은 BIM 이 거기 담아 둔 설비도 좌표로 다시 판정한다(OE-MAP-01 3단계, Q13). 좁은 조각에 든 설비는 좁은
+  // 조각으로, 넓은 조각(원래 id)에 든 설비는 그대로, 둘 다 밖인 설비는 좌표대로 다른 방이나 층으로 간다.
+  releaseDeclared(storey, spaceId)
   return { storeyId: storey.id, created: [id], removed: [], equipment: settleStorey(model, storey, new Set(), before) }
 }
 

@@ -3992,9 +3992,16 @@ function finishDraw(): boolean {
     }
     stopDraw()
     const [a, b] = d.points
-    if (changeSpaces(d.storeyId, `${d.name} 나누기`, (m) => splitSpace(m, d.spaceId!, a, b))) {
-      selectedSpaceId.value = d.spaceId
-      note(`${d.name}${josa(d.name, '을/를')} 둘로 나눴습니다. 새 조각의 이름은 오른쪽 패널에서 고칩니다`)
+    let piece: string | null = null
+    const split = (m: Model) => {
+      const done = splitSpace(m, d.spaceId!, a, b)
+      if (done && !('refused' in done)) piece = done.created[0] ?? null
+      return done
+    }
+    if (changeSpaces(d.storeyId, `${d.name} 나누기`, split)) {
+      // 새 조각의 방번호는 사람이 넣는다(OE-SPC-02). 그 칸이 바로 보이게 새 조각을 고른다.
+      selectedSpaceId.value = piece ?? d.spaceId
+      note(`${d.name}${josa(d.name, '을/를')} 둘로 나눴습니다. 좁은 쪽이 새 물리존이고 방번호가 비어 있습니다 — 오른쪽 패널에서 방번호를 넣으세요`)
     }
     return true
   }

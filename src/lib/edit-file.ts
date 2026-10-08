@@ -623,7 +623,8 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       }
     }
     if (sp.footprint) {
-      const change = replaceSpaceFootprint(model, sp.id, sp.footprint.map((p) => [p[0], p[1]] as Vec2))
+      // BIM 소속은 여기서 풀지 않는다 — 세션에서 풀린 설비만 설비 줄의 released 가 푼다(replaceSpaceFootprint 주석).
+      const change = replaceSpaceFootprint(model, sp.id, sp.footprint.map((p) => [p[0], p[1]] as Vec2), { release: false })
       if (change) {
         result.applied++
         result.areaChanges.push(change)
