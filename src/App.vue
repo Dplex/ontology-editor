@@ -58,6 +58,7 @@ import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './l
 import { drawPipe } from './lib/manual-pipe'
 import { removalImpact } from './lib/removal-impact'
 import { retargetEnd } from './lib/retarget'
+import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, type Background } from './lib/background'
 import { FLOW_TYPES, flowType } from './lib/flow-type'
 import {
   applyFollow,
@@ -1596,6 +1597,8 @@ function clearSelection(): boolean {
               ? '공조존 그리기를 취소했습니다'
             : purpose === 'pipe'
               ? '배관 그리기를 취소했습니다. 아무것도 남기지 않았습니다'
+            : purpose === 'bgScale' || purpose === 'bgAnchor'
+              ? '배경 맞추기를 취소했습니다'
             : purpose === 'room'
               ? '룸 그리기를 취소했습니다'
             : '외곽선 그리기를 취소했습니다',
@@ -2364,7 +2367,7 @@ const selectedSpace = computed(() => {
  */
 /** `custom`·`customSplit` 은 커스텀존(OE-OBJ-01) 그리기·나누기다. `customSplit` 의 spaceId 자리에는 존 id 가 든다. */
 type Drawing = {
-  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room' | 'hvacZone' | 'hvacZoneOutline' | 'pipe'
+  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room' | 'hvacZone' | 'hvacZoneOutline' | 'pipe' | 'bgScale' | 'bgAnchor'
   spaceId: string | null
   storeyId: string
   name: string
@@ -3970,7 +3973,9 @@ function placeAt(at: Vec2) {
   if (drawing.value) {
     drawing.value = { ...drawing.value, points: [...drawing.value.points, [cm(at[0]), cm(at[1])]] }
     // 나눌 선은 두 점이면 끝난다.
-    if ((drawing.value.purpose === 'split' || drawing.value.purpose === 'wall' || drawing.value.purpose === 'customSplit' || drawing.value.purpose === 'room') && drawing.value.points.length === 2) finishDraw()
+    if ((drawing.value.purpose === 'split' || drawing.value.purpose === 'wall' || drawing.value.purpose === 'customSplit' || drawing.value.purpose === 'room' || drawing.value.purpose === 'bgScale') && drawing.value.points.length === 2) finishDraw()
+    // 배경 원점은 한 점이면 끝난다(OE-MAN-02).
+    else if (drawing.value.purpose === 'bgAnchor') finishDraw()
     return
   }
   if (adding.value) {
@@ -4082,6 +4087,12 @@ function undoDrawPoint() {
 function finishDraw(): boolean {
   const d = drawing.value
   if (!d) return false
+  if (d.purpose === 'bgScale' || d.purpose === 'bgAnchor') {
+    stopDraw()
+    bgStep.value = d.purpose === 'bgScale' ? { kind: 'scale', a: d.points[0], b: d.points[1], meters: '' } : { kind: 'anchor', at: d.points[0], x: '', y: '' }
+    note(d.purpose === 'bgScale' ? '두 점 사이의 실제 거리(m)를 넣으세요' : '찍은 점의 실제 좌표(x, y)를 넣으세요')
+    return true
+  }
   if (d.purpose === 'pipe') {
     // 꺾임점은 시작 설비 높이의 수평면에 찍힌다. 마지막 변은 끝 대상 높이로 내려가거나 올라간다.
     stopDraw()
@@ -4624,6 +4635,90 @@ const selectedImpact = computed(() => {
       : `기기 없는 배관 ${p.conduits}개`
   return `지우면 연결망이 ${impact.pieces.length}갈래로 나뉩니다: ${impact.pieces.map(side).join(' / ')}. 다른 분기의 연결은 그대로입니다.`
 })
+// --- 평면도 배경 이미지 (OE-MAN-02, background.ts) ------------------------------------------------
+// 층마다 하나. 온톨로지·편집 파일에 나가지 않고 이 브라우저 탭에만 있다(다시 열면 다시 깐다).
+
+/** 층 id → 배경. */
+const backgrounds = ref<Record<string, Background>>({})
+/** 두 점·한 점을 찍은 뒤 값을 기다리는 단계. */
+const bgStep = ref<{ kind: 'scale'; a: Vec2; b: Vec2; meters: string | number } | { kind: 'anchor'; at: Vec2; x: string | number; y: string | number } | null>(null)
+/** 배경을 다루는 층. 층 하나만 보는 중이거나 고른 것의 층이다. */
+const bgStorey = computed(() => (model.value && editing.value ? targetStorey() : null))
+const bgHere = computed(() => (bgStorey.value ? (backgrounds.value[bgStorey.value.id] ?? null) : null))
+watch([bgHere, bgStorey, viewStorey, sceneVersion], () => {
+  const bg = bgHere.value
+  const st = bgStorey.value
+  viewer?.setBackground(bg && st ? { url: bg.url, corners: backgroundCorners(bg), elevation: st.elevation, opacity: bg.opacity } : null)
+})
+function pickBackground(input: HTMLInputElement) {
+  const file = input.files?.[0]
+  input.value = ''
+  const st = bgStorey.value
+  if (!file || !st) return
+  const url = URL.createObjectURL(file)
+  const img = new Image()
+  img.onload = () => {
+    // 건물 범위: 이 층 물리존 외곽선. 없으면 1px = 1cm 로 원점에 둔다.
+    const pts = st.spaces.flatMap((sp) => sp.footprint)
+    const box = pts.length ? { x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])), y1: Math.max(...pts.map((p) => p[1])) } : null
+    const old = backgrounds.value[st.id]
+    if (old) URL.revokeObjectURL(old.url)
+    backgrounds.value = { ...backgrounds.value, [st.id]: initialBackground({ url, name: file.name, width: img.naturalWidth, height: img.naturalHeight }, box) }
+    note(`${file.name}을 ${st.name} 바닥에 깔았습니다. [스케일 맞추기] 로 두 점의 실제 거리를, [원점 맞추기] 로 한 점의 실제 좌표를 넣으세요`)
+  }
+  img.onerror = () => {
+    URL.revokeObjectURL(url)
+    note('이미지를 읽지 못했습니다. PNG·JPG 로 저장한 도면을 고르세요(PDF·DWG 는 이미지로 내보낸 뒤 고릅니다)')
+  }
+  img.src = url
+}
+function startBackgroundStep(kind: 'bgScale' | 'bgAnchor') {
+  const st = bgStorey.value
+  if (!st || !bgHere.value) return
+  stopPlace()
+  stopAdd()
+  bgStep.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = st.id
+  drawing.value = { purpose: kind, spaceId: null, storeyId: st.id, name: kind === 'bgScale' ? '배경 스케일' : '배경 원점', elevation: st.elevation, points: [] }
+  viewer?.setPlaceMode(st.elevation)
+  stage.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  note(kind === 'bgScale' ? '도면에서 길이를 아는 두 점을 찍으세요 (Esc 취소)' : '도면에서 좌표를 아는 한 점을 찍으세요 (Esc 취소)')
+}
+function applyBackgroundStep() {
+  const st = bgStorey.value
+  const bg = bgHere.value
+  const step = bgStep.value
+  if (!st || !bg || !step) return
+  if (step.kind === 'scale') {
+    const next = calibrateScale(bg, step.a, step.b, Number(step.meters))
+    if (!next) return note('거리는 0 보다 큰 숫자로 넣으세요')
+    backgrounds.value = { ...backgrounds.value, [st.id]: next }
+    note(`스케일을 맞췄습니다: 1px = ${(next.scale * 1000).toFixed(1)}mm`)
+  } else {
+    // 숫자 칸의 v-model 은 숫자를, 비운 칸은 '' 를 준다.
+    const [x, y] = [String(step.x).trim(), String(step.y).trim()]
+    const to: Vec2 = [Number(x), Number(y)]
+    if (x === '' || y === '' || !to.every((v) => Number.isFinite(v))) return note('x, y 를 숫자로 넣으세요')
+    backgrounds.value = { ...backgrounds.value, [st.id]: anchorBackground(bg, step.at, to) }
+    note(`원점을 맞췄습니다: 찍은 점이 (${to[0]}, ${to[1]}) 입니다`)
+  }
+  bgStep.value = null
+}
+function setBackgroundOpacity(v: number) {
+  const st = bgStorey.value
+  const bg = bgHere.value
+  if (st && bg) backgrounds.value = { ...backgrounds.value, [st.id]: { ...bg, opacity: v } }
+}
+function removeBackground() {
+  const st = bgStorey.value
+  const bg = bgHere.value
+  if (!st || !bg) return
+  URL.revokeObjectURL(bg.url)
+  const { [st.id]: _gone, ...rest } = backgrounds.value
+  backgrounds.value = rest
+  bgStep.value = null
+}
+
 /** 구간 끝의 연결 대상 바꾸기(OE-PIP-10, retarget.ts). 고른 구간이 바뀌면 비운다. */
 const retargetDraft = ref<{ from: string; to: string }>({ from: '', to: '' })
 watch(selectedId, () => (retargetDraft.value = { from: '', to: '' }))
@@ -9276,6 +9371,46 @@ async function export3D(format: 'glb' | 'obj') {
 
           <!-- 물리존 하나를 한 줄에서 고친다. 이름(E1)과 경계(E2)를 두 목록으로 나눴더니 같은 방을 두 번 찾아야 했다.
                긴 표는 제 상자 안에서 스크롤하고 머리줄은 붙어 있다 — 페이지가 표만큼 길어지면 3D 로 돌아가기가 멀다. -->
+          <!-- 평면도 배경 이미지(OE-MAN-02). 준공 도면을 깔고 그 위에 물리존을 그린다. 온톨로지에 나가지 않고 이 탭에만 있다. -->
+          <Fold v-if="editing" title="평면도 배경" :meta="bgStorey ? (bgHere ? `${bgStorey.name} · ${bgHere.name}` : `${bgStorey.name} · 없음`) : '층을 고르세요'" :default-open="false" class="bg-plan" data-testid="bg-plan">
+            <p class="hint">
+              준공 도면을 이미지(PNG·JPG)로 깔고 그 위에 물리존을 그립니다. PDF·DWG 는 이미지로 내보낸 뒤 고릅니다.
+              배경은 온톨로지와 편집 파일에 나가지 않고, 이 브라우저 탭에만 있습니다.
+            </p>
+            <template v-if="bgStorey">
+              <p class="pipe-draw-row">
+                <label class="file-pick">
+                  {{ bgHere ? '다른 도면 고르기' : '도면 이미지 고르기' }}
+                  <input type="file" accept="image/png,image/jpeg" aria-label="평면도 배경 이미지" @change="pickBackground($event.target as HTMLInputElement)" />
+                </label>
+                <template v-if="bgHere">
+                  <span class="muted" data-testid="bg-scale">1px = {{ (bgHere.scale * 1000).toFixed(1) }}mm · 왼쪽 위 ({{ bgHere.origin[0].toFixed(2) }}, {{ bgHere.origin[1].toFixed(2) }})</span>
+                  <label>
+                    진하기
+                    <input type="range" min="0.1" max="1" step="0.1" :value="bgHere.opacity" aria-label="배경 진하기" @input="setBackgroundOpacity(Number(($event.target as HTMLInputElement).value))" />
+                  </label>
+                </template>
+              </p>
+              <p v-if="bgHere" class="pipe-draw-row">
+                <button type="button" class="ghost" @click="startBackgroundStep('bgScale')">스케일 맞추기</button>
+                <button type="button" class="ghost" @click="startBackgroundStep('bgAnchor')">원점 맞추기</button>
+                <button type="button" class="ghost danger" @click="removeBackground">걷기</button>
+              </p>
+              <form v-if="bgStep?.kind === 'scale'" class="pipe-draw-row" @submit.prevent="applyBackgroundStep">
+                <span>찍은 두 점의 실제 거리</span>
+                <input v-model="bgStep.meters" type="number" step="0.01" min="0" aria-label="실제 거리(m)" />
+                <span>m</span>
+                <button type="submit">맞추기</button>
+              </form>
+              <form v-if="bgStep?.kind === 'anchor'" class="pipe-draw-row" @submit.prevent="applyBackgroundStep">
+                <span>찍은 점의 실제 좌표</span>
+                <input v-model="bgStep.x" type="number" step="0.01" aria-label="실제 x" />
+                <input v-model="bgStep.y" type="number" step="0.01" aria-label="실제 y" />
+                <button type="submit">맞추기</button>
+              </form>
+            </template>
+          </Fold>
+
  <!-- 수동 공조존(OE-ZON-01·02). R1 에서 공조존을 만드는 유일한 길이다. 고른 층(층 하나만 보는 중이면 그 층)에서 만든다. -->
           <Fold v-if="editing" title="공조존" :meta="zoneStorey ? `${zoneStorey.name} · ${zonesHere.length}개` : '층을 고르세요'" class="hvac-zones" data-testid="hvac-zones">
             <p class="hint">
