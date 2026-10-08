@@ -6546,6 +6546,7 @@ async function export3D(format: 'glb' | 'obj') {
                 min="0.01"
                 placeholder="없음"
                 data-testid="site-wall-thickness"
+                v-keep-typing
                 :value="elementSettings.wallThickness ?? ''"
                 @change="setSiteWallThickness(($event.target as HTMLInputElement).value)"
               />
@@ -6562,6 +6563,7 @@ async function export3D(format: 'glb' | 'obj') {
                 :min="OPENING_SNAP_RANGE.min"
                 :max="OPENING_SNAP_RANGE.max"
                 data-testid="opening-snap"
+                v-keep-typing
                 :value="elementSettings.openingSnap"
                 @change="setOpeningSnap(($event.target as HTMLInputElement).value); ($event.target as HTMLInputElement).value = String(elementSettings.openingSnap)"
               />
