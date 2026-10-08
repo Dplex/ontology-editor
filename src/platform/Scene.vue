@@ -23,7 +23,7 @@ function draw(keepView = true) {
   viewer.setHvacZones(props.model,null)
   viewer.setArchitecture(props.model,null)
   viewer.setPlaceMode(props.place ? floor?.elevation ?? 0 : null)
-  viewer.setHighlight({selected:props.selected || null,upstream:new Set(),downstream:new Set(),linked:new Set()})
+  viewer.setHighlight(props.selected ? {selected:props.selected,upstream:new Set(),downstream:new Set(),linked:new Set()} : null)
 }
 onMounted(() => {
   try {
@@ -40,4 +40,3 @@ onBeforeUnmount(() => viewer?.dispose())
 defineExpose({frame:() => viewer?.frameAll()})
 </script>
 <template><canvas ref="canvas" class="studio-canvas" aria-label="온톨로지 3D 모델. 드래그로 이동, Shift 드래그로 회전, 휠로 확대합니다." /></template>
-

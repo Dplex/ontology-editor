@@ -31,4 +31,3 @@ JSON 리포트는 U5가 결정되기 전의 임시 출력이며 범용 Turtle �
 
 `npm run build`, `npm test`, `$env:PLATFORM_BROWSER_CHANNEL='chrome'; npx playwright test -c playwright.platform.config.ts`.
 샘플 초기 화면, 초기 구축/운영 편집, 임시 저장 왕복, 버전 복원, 실제 IFC 임포트·오류, PRD 탐색을 확인한다.
-

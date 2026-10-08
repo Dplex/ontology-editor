@@ -6,4 +6,3 @@ export default defineConfig({
     launchOptions: {args:['--use-angle=d3d11','--ignore-gpu-blocklist']} },
   webServer: {command:'npm run dev -- --mode e2e --port 5186 --strictPort', url:'http://localhost:5186', reuseExistingServer:false, timeout:120000},
 })
-

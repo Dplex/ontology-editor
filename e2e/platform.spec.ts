@@ -73,4 +73,3 @@ test('platform: real IFC import and invalid file retain existing sites', async (
   await expect(page.locator('[role=alert]')).toBeVisible({timeout:60000})
   await expect(page.getByRole('combobox',{name:'사이트 선택'}).locator('option')).toHaveCount(2)
 })
-

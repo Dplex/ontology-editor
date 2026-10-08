@@ -170,5 +170,3 @@ export function restoreVersion(p: Project, floorId: string, number: number) {
   applyFloorSnapshot(p.model,v.floor)
   return applyVersion(p,floorId,'v' + number + '로 되돌리기')
 }
-
-

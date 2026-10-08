@@ -407,9 +407,3 @@ onBeforeUnmount(()=>{window.removeEventListener('keydown',keyboard);window.remov
   </section></div>
 </div>
 </template>
-
-
-
-
-
-
