@@ -10,10 +10,45 @@ owner: "tbd"
 status: "prd-done"
 status_note: "3D·패널·도구 팔레트·액션바 ✔, 레이어 탭 ✗. 반영하기는 초기 구축의 구축하기(두 파일 내보내기)로 둔다"
 blocked_by: []
-depends: []
+depends: ["OE-SPC-14", "OE-SPC-16", "OE-SPC-01", "OE-SPC-02", "OE-SPC-03", "OE-SPC-04", "OE-SPC-06", "OE-SPC-07", "OE-SPC-08", "OE-SPC-09", "OE-ZON-01", "OE-ZON-02", "OE-ZON-04", "OE-ML-01", "OE-OBJ-10", "OE-OBJ-11", "OE-EQP-02", "OE-PIP-01", "OE-PIP-02", "OE-PIP-03", "OE-PIP-04", "OE-PIP-05", "OE-PIP-10", "OE-PIP-11", "OE-PIP-12", "OE-OBJ-08", "OE-PIP-15", "OE-EQP-07", "OE-UI-05", "OE-UI-14", "OE-UI-13", "OE-GEN-01"]
 ---
 
 # OE-UI-04 화면 레이아웃
+
+## 관련 티켓
+
+- [OE-SPC-14](../E09-SPC/OE-SPC-14.md): 추가 공간 오브젝트 배치
+- [OE-SPC-16](../E09-SPC/OE-SPC-16.md): 오브젝트 라이브러리 팔레트
+- [OE-SPC-01](../E09-SPC/OE-SPC-01.md): 물리존 이름 편집 도구
+- [OE-SPC-02](../E09-SPC/OE-SPC-02.md): 물리존 분할·병합·삭제 도구
+- [OE-SPC-03](../E09-SPC/OE-SPC-03.md): 물리존 경계 편집 도구
+- [OE-SPC-04](../E09-SPC/OE-SPC-04.md): 물리존 삭제 제약
+- [OE-SPC-06](../E09-SPC/OE-SPC-06.md): 커스텀존 지정·이름 도구
+- [OE-SPC-07](../E09-SPC/OE-SPC-07.md): 커스텀존 겹침 정책
+- [OE-SPC-08](../E09-SPC/OE-SPC-08.md): 커스텀존 생성·분할·병합·삭제 도구
+- [OE-SPC-09](../E09-SPC/OE-SPC-09.md): 커스텀존 매핑 갱신
+- [OE-ZON-01](../E10-ZON/OE-ZON-01.md): 설비 골라 담당 물리존 지정
+- [OE-ZON-02](../E10-ZON/OE-ZON-02.md): 공조존 경계 그리기
+- [OE-ZON-04](../E10-ZON/OE-ZON-04.md): 공조존 편집 도구
+- [OE-ML-01](../E18-ML/OE-ML-01.md): 다중층 뷰 여는 경로
+- [OE-OBJ-10](../E02-OBJ/OE-OBJ-10.md): 배관 없는 설비 팔레트
+- [OE-OBJ-11](../E02-OBJ/OE-OBJ-11.md): 배관 있는 설비 팔레트
+- [OE-EQP-02](../E12-EQP/OE-EQP-02.md): 미배치 설비 목록에서 배치
+- [OE-PIP-01](../E13-PIP/OE-PIP-01.md): 연결 잇기·끊기 도구
+- [OE-PIP-02](../E13-PIP/OE-PIP-02.md): 계통 변경 도구
+- [OE-PIP-03](../E13-PIP/OE-PIP-03.md): 계통 종류·유체 지정
+- [OE-PIP-04](../E13-PIP/OE-PIP-04.md): 연결별 방향 지정 도구
+- [OE-PIP-05](../E13-PIP/OE-PIP-05.md): 규칙 방향 확정 도구
+- [OE-PIP-10](../E13-PIP/OE-PIP-10.md): 배관 형상 수정 도구
+- [OE-PIP-11](../E13-PIP/OE-PIP-11.md): 수동 배관 그리기 도구
+- [OE-PIP-12](../E13-PIP/OE-PIP-12.md): 배관 끝점 추종
+- [OE-OBJ-08](../E02-OBJ/OE-OBJ-08.md): 천장 편집 모드 토글
+- [OE-PIP-15](../E13-PIP/OE-PIP-15.md): 라이저 도구로 층간 배관
+- [OE-EQP-07](../E12-EQP/OE-EQP-07.md): EL·ES 다중층 뷰 편집
+- [OE-UI-05](./OE-UI-05.md): 모드 전환에도 이어지는 되돌리기
+- [OE-UI-14](./OE-UI-14.md): 가운데 3D 뷰 카메라
+- [OE-UI-13](./OE-UI-13.md): 레이어 패널 값 출처
+- [OE-GEN-01](../E08-GEN/OE-GEN-01.md): [구축하기] 온톨로지 생성·내보내기
 
 ## 요구사항
 

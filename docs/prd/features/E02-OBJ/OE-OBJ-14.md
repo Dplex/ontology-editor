@@ -9,10 +9,23 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-ML-02"]
+depends: ["OE-ML-02", "OE-ML-01", "OE-ML-03", "OE-ML-04", "OE-ML-05", "OE-ML-06", "OE-ML-07", "OE-ML-08", "OE-ML-09", "OE-UI-04"]
 ---
 
 # OE-OBJ-14 수직 관통 오브젝트
+
+## 관련 티켓
+
+- [OE-ML-02](../E18-ML/OE-ML-02.md): 데이터 모델과 층별 형상·진입/종료 지점
+- [OE-ML-01](../E18-ML/OE-ML-01.md): 다중층 뷰 진입 경로
+- [OE-ML-03](../E18-ML/OE-ML-03.md): 슬래브 개구부 자동 생성
+- [OE-ML-04](../E18-ML/OE-ML-04.md): 로봇 통과 속성
+- [OE-ML-05](../E18-ML/OE-ML-05.md): 층 편집 화면 읽기 전용
+- [OE-ML-06](../E18-ML/OE-ML-06.md): 다중층 뷰에서 생성
+- [OE-ML-07](../E18-ML/OE-ML-07.md): 전체 이동·층별 형상 수정
+- [OE-ML-08](../E18-ML/OE-ML-08.md): 관통 구간 변경
+- [OE-ML-09](../E18-ML/OE-ML-09.md): 다중층 뷰에서 삭제
+- [OE-UI-04](../E03-UI/OE-UI-04.md): 모드별 다중층 뷰 버튼 자리
 
 ## 요구사항
 

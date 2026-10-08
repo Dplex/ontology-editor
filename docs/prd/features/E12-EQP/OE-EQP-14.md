@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-BIM-14"]
+depends: ["OE-PIP-07", "OE-BIM-14"]
 ---
 
 # OE-EQP-14 종류 지정
+
+## 관련 티켓
+
+- [OE-PIP-07](../E13-PIP/OE-PIP-07.md): 종류 변경 후 규칙 방향 재계산
+- [OE-BIM-14](../E05-BIM/OE-BIM-14.md): 사전 판정 종류 기본값
 
 ## 요구사항
 

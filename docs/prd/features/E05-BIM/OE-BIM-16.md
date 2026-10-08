@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["D1","D12","OE-REQ-04"]
+depends: ["OE-REQ-04", "D1", "D12"]
 ---
 
 # OE-BIM-16 검토 화면 — 등급 칩
+
+## 관련 티켓
+
+- [OE-REQ-04](../E06-REQ/OE-REQ-04.md): 등급 산식
 
 ## 요구사항
 

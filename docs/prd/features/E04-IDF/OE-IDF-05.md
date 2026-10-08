@@ -10,10 +10,14 @@ owner: "tbd"
 status: "prd-done"
 status_note: "매칭 ✔, 확인 플로우 ✗"
 blocked_by: []
-depends: ["D13"]
+depends: ["OE-ZON-07", "D13"]
 ---
 
 # OE-IDF-05 존↔물리존 매칭 초안
+
+## 관련 티켓
+
+- [OE-ZON-07](../E10-ZON/OE-ZON-07.md): 매칭 초안 사용자 확인
 
 ## 요구사항
 

@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-BIM-07"]
+depends: ["OE-EQP-02", "OE-BIM-07"]
 ---
 
 # OE-IDF-08 IDF 설비 ↔ BIM 설비 연결
+
+## 관련 티켓
+
+- [OE-EQP-02](../E12-EQP/OE-EQP-02.md): 미연결 설비 미배치 목록
+- [OE-BIM-07](../E05-BIM/OE-BIM-07.md): 연결 대상 BIM 설비
 
 ## 요구사항
 

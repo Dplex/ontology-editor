@@ -9,10 +9,24 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-UI-04", "OE-PIP-15", "OE-PIP-10", "OE-PIP-11", "OE-PIP-06", "OE-OBJ-14", "OE-ML-17", "OE-UI-05", "OE-HIST-03", "OE-COM-05", "OE-WF-03"]
 ---
 
 # OE-ML-01 진입 경로
+
+## 관련 티켓
+
+- [OE-UI-04](../E03-UI/OE-UI-04.md): 편집 모드 구분·연결 관리 화면
+- [OE-PIP-15](../E13-PIP/OE-PIP-15.md): 배관 작성 중 다중층 전환
+- [OE-PIP-10](../E13-PIP/OE-PIP-10.md): 공통 배관 편집
+- [OE-PIP-11](../E13-PIP/OE-PIP-11.md): 공통 배관 그리기
+- [OE-PIP-06](../E13-PIP/OE-PIP-06.md): 연결 해제 보정·취소
+- [OE-OBJ-14](../E02-OBJ/OE-OBJ-14.md): 수직 관통 오브젝트 모드별 편집
+- [OE-ML-17](./OE-ML-17.md): 샤프트 이동 시 배관 연동
+- [OE-UI-05](../E03-UI/OE-UI-05.md): 여러 층 변경의 단일 되돌리기
+- [OE-HIST-03](../E19-HIST/OE-HIST-03.md): 여러 층 변경의 단일 이력 저장
+- [OE-COM-05](../E01-COM/OE-COM-05.md): 영향 층 전체 잠금 확보
+- [OE-WF-03](../E14-WF/OE-WF-03.md): 진입 전 층 편집 확정
 
 ## 요구사항
 

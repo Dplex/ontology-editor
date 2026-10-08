@@ -9,10 +9,18 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-ML-02", "OE-ML-04", "OE-ML-10", "OE-ML-11", "OE-EQP-17"]
 ---
 
 # OE-ML-19 층간 연결 계산
+
+## 관련 티켓
+
+- [OE-ML-02](./OE-ML-02.md): 층별 연결 지점·관통 구간
+- [OE-ML-04](./OE-ML-04.md): 로봇 통과와 구조 연결 분리
+- [OE-ML-10](./OE-ML-10.md): 무정차 층 로봇 연결 제외
+- [OE-ML-11](./OE-ML-11.md): ES 운행 방향 제한
+- [OE-EQP-17](../E12-EQP/OE-EQP-17.md): 로봇 이용 가능 여부 기준
 
 ## 요구사항
 

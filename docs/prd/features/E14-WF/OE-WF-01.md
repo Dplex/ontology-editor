@@ -10,10 +10,18 @@ owner: "tbd"
 status: "prd-review"
 status_note: "편집 파일·자동 저장으로 대체"
 blocked_by: []
-depends: ["OE-INT-01","D-INT","OE-HIST-05"]
+depends: ["OE-WF-03", "OE-HIST-03", "OE-HIST-04", "OE-HIST-05", "OE-INT-01", "D-INT"]
 ---
 
 # OE-WF-01 임시 저장
+
+## 관련 티켓
+
+- [OE-WF-03](./OE-WF-03.md): 층별 단일 임시 저장본
+- [OE-HIST-03](../E19-HIST/OE-HIST-03.md): 임시 저장본 대용 편집 파일
+- [OE-HIST-04](../E19-HIST/OE-HIST-04.md): 임시 저장본 대용 자동 저장
+- [OE-HIST-05](../E19-HIST/OE-HIST-05.md): 결정 전 임시 저장 대체
+- [OE-INT-01](../E20-INT/OE-INT-01.md): 저장 위치 결정
 
 ## 요구사항
 

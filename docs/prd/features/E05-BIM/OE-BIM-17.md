@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-REQ-01","OE-REQ-05","OE-REQ-06"]
+depends: ["R0", "R24", "OE-REQ-01", "OE-REQ-06", "OE-REQ-05"]
 ---
 
 # OE-BIM-17 검토 화면 — 요구사항 보고서
+
+## 관련 티켓
+
+- [OE-REQ-01](../E06-REQ/OE-REQ-01.md): 보고할 요구사항 R0~R24
+- [OE-REQ-06](../E06-REQ/OE-REQ-06.md): 상태별 고객사 요청 문구
+- [OE-REQ-05](../E06-REQ/OE-REQ-05.md): R25 추가 항목
 
 ## 요구사항
 

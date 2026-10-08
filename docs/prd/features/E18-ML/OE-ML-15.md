@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-PIP-03","OE-OBJ-12"]
+depends: ["OE-OBJ-12", "OE-PIP-03"]
 ---
 
 # OE-ML-15 계통 종류 색상
+
+## 관련 티켓
+
+- [OE-OBJ-12](../E02-OBJ/OE-OBJ-12.md): 공통 Flow Type 색상
+- [OE-PIP-03](../E13-PIP/OE-PIP-03.md): 공통 계통 분류
 
 ## 요구사항
 

@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-ML-01", "OE-PIP-15", "OE-ML-13"]
 ---
 
 # OE-ML-05 층 편집 화면 읽기 전용
+
+## 관련 티켓
+
+- [OE-ML-01](./OE-ML-01.md): 다중층 뷰 진입 경로 ②
+- [OE-PIP-15](../E13-PIP/OE-PIP-15.md): 층 화면 층간 배관 이어 그리기
+- [OE-ML-13](./OE-ML-13.md): 층별 분기 작성 예외
 
 ## 요구사항
 

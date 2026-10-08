@@ -9,10 +9,17 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-ZON"]
+depends: ["OE-ZON-01", "OE-ZON-02", "OE-ZON-04", "OE-ZON-03", "OE-ZON"]
 ---
 
 # OE-OBJ-13 공조존 오브젝트
+
+## 관련 티켓
+
+- [OE-ZON-01](../E10-ZON/OE-ZON-01.md): 설비·담당 물리존으로 공조존 생성
+- [OE-ZON-02](../E10-ZON/OE-ZON-02.md): 물리존 나누는 경계 다각형
+- [OE-ZON-04](../E10-ZON/OE-ZON-04.md): 공조존 생성·삭제·수정
+- [OE-ZON-03](../E10-ZON/OE-ZON-03.md): IDF 자동 생성분 보정 (R2)
 
 ## 요구사항
 

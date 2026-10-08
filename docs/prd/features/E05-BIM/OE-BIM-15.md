@@ -10,10 +10,15 @@ owner: "tbd"
 status: "prd-review"
 status_note: ""
 blocked_by: []
-depends: ["OE-ZON-01","OE-IDF"]
+depends: ["OE-IDF-15", "OE-ZON-01", "OE-IDF"]
 ---
 
 # OE-BIM-15 공조존 생성 경로
+
+## 관련 티켓
+
+- [OE-IDF-15](../E04-IDF/OE-IDF-15.md): gbXML 기반 공조존 초안
+- [OE-ZON-01](../E10-ZON/OE-ZON-01.md): 공조존 수동 생성
 
 ## 요구사항
 

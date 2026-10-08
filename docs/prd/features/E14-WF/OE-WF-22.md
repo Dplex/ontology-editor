@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: ["D-INT"]
-depends: ["OE-INT-01","Q2"]
+depends: ["OE-INT-01", "Q2"]
 ---
 
 # OE-WF-22 별도 에디터에서의 반영 경로 (Q2)
+
+## 관련 티켓
+
+- [OE-INT-01](../E20-INT/OE-INT-01.md): 반영 경로 결정
 
 ## 요구사항
 

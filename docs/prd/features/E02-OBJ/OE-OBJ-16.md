@@ -9,10 +9,21 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-SPC-15","OE-OBJ-03","OE-OBJ-09","OE-OBJ-10","OE-OBJ-11"]
+depends: ["OE-UI-07", "OE-OBJ-10", "OE-OBJ-11", "OE-OBJ-09", "OE-OBJ-03", "OE-OBJ-05", "OE-SPC-07", "OE-SPC-15"]
 ---
 
 # OE-OBJ-16 겹침 불가 원칙
+
+## 관련 티켓
+
+- [OE-UI-07](../E03-UI/OE-UI-07.md): 그리드와 무관한 형상 기준
+- [OE-OBJ-10](./OE-OBJ-10.md): 겹침 불가인 배관 없는 설비
+- [OE-OBJ-11](./OE-OBJ-11.md): 겹침 허용인 배관 붙는 설비
+- [OE-OBJ-09](./OE-OBJ-09.md): 겹침 불가인 추가 공간 오브젝트
+- [OE-OBJ-03](./OE-OBJ-03.md): 룸끼리 겹침 불가
+- [OE-OBJ-05](./OE-OBJ-05.md): 벽 관통 금지 규칙
+- [OE-SPC-07](../E09-SPC/OE-SPC-07.md): 커스텀존끼리 겹침 허용
+- [OE-SPC-15](../E09-SPC/OE-SPC-15.md): 겹침 차단 시 표시
 
 ## 요구사항
 

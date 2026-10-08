@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-ML-07", "OE-ML-08", "OE-ML-09"]
 ---
 
 # OE-ML-03 슬래브 개구부 자동 생성
+
+## 관련 티켓
+
+- [OE-ML-07](./OE-ML-07.md): 이동·형상 변경 시 개구부 갱신
+- [OE-ML-08](./OE-ML-08.md): 구간 변경 시 개구부 갱신
+- [OE-ML-09](./OE-ML-09.md): 삭제 시 개구부 갱신
 
 ## 요구사항
 

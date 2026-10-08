@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: ["D1","D12"]
-depends: ["D1","D12"]
+depends: ["OE-BIM-16", "OE-BIM-21", "D1", "D12"]
 ---
 
 # OE-REQ-04 등급 판정 산식
+
+## 관련 티켓
+
+- [OE-BIM-16](../E05-BIM/OE-BIM-16.md): 산출 등급 칩 표시
+- [OE-BIM-21](../E05-BIM/OE-BIM-21.md): 수용 기준선 판정
 
 ## 요구사항
 

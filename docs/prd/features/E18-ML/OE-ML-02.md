@@ -9,10 +9,23 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-OBJ-14"]
+depends: ["OE-OBJ-14", "OE-ML-19", "OE-ML-07", "OE-ML-03", "OE-ML-04", "OE-ML-10", "OE-ML-11", "OE-ML-17", "OE-HIST-03", "OE-PIP-06"]
 ---
 
 # OE-ML-02 수직 관통 오브젝트 데이터 모델 (#25)
+
+## 관련 티켓
+
+- [OE-OBJ-14](../E02-OBJ/OE-OBJ-14.md): 물리존과 수직 관통 오브젝트 구분
+- [OE-ML-19](./OE-ML-19.md): 명시 연결과 계산 후보 구분
+- [OE-ML-07](./OE-ML-07.md): 전체 이동·층별 형상 수정
+- [OE-ML-03](./OE-ML-03.md): 개구부 참조·확인 상태
+- [OE-ML-04](./OE-ML-04.md): 층별 로봇 통과 속성
+- [OE-ML-10](./OE-ML-10.md): EL 정차 층
+- [OE-ML-11](./OE-ML-11.md): ES 운행 구간·방향
+- [OE-ML-17](./OE-ML-17.md): 샤프트 배관 소속
+- [OE-HIST-03](../E19-HIST/OE-HIST-03.md): 재임포트 시 보정 유지·충돌 재검토
+- [OE-PIP-06](../E13-PIP/OE-PIP-06.md): 배관 연결 원본 보존·보정
 
 ## 요구사항
 

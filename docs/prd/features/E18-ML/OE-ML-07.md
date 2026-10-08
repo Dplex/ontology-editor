@@ -9,10 +9,19 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-ML-05", "OE-ML-03", "OE-ML-19", "OE-ML-17", "OE-ML-01", "OE-COM-05"]
 ---
 
 # OE-ML-07 이동
+
+## 관련 티켓
+
+- [OE-ML-05](./OE-ML-05.md): 층 편집 화면 이동 불가
+- [OE-ML-03](./OE-ML-03.md): 이동 후 개구부·면적 재계산
+- [OE-ML-19](./OE-ML-19.md): 이동 후 층간 연결 재계산
+- [OE-ML-17](./OE-ML-17.md): 샤프트 내부 배관 연동 이동
+- [OE-ML-01](./OE-ML-01.md): 다중층 세션 잠금
+- [OE-COM-05](../E01-COM/OE-COM-05.md): R2 다중층 잠금
 
 ## 요구사항
 

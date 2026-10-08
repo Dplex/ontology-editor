@@ -10,10 +10,17 @@ owner: "tbd"
 status: "prd-review"
 status_note: "D-INT"
 blocked_by: ["D-INT"]
-depends: []
+depends: ["OE-COM-05", "OE-WF-01", "OE-WF-10", "OE-WF-18"]
 ---
 
 # OE-INT-01 데이터 교환 방식 결정
+
+## 관련 티켓
+
+- [OE-COM-05](../E01-COM/OE-COM-05.md): 잠금 소재지
+- [OE-WF-01](../E14-WF/OE-WF-01.md): 임시 저장 소재지
+- [OE-WF-10](../E14-WF/OE-WF-10.md): 반영 소재지
+- [OE-WF-18](../E14-WF/OE-WF-18.md): 버전 소재지
 
 ## 요구사항
 

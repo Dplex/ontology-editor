@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-EQP-02"]
+depends: ["OE-EQP-02", "OE-EQP-13"]
 ---
 
 # OE-MAN-04 설비 수동 배치
+
+## 관련 티켓
+
+- [OE-EQP-02](../E12-EQP/OE-EQP-02.md): 미배치 설비 3D 직접 배치
+- [OE-EQP-13](../E12-EQP/OE-EQP-13.md): 설비 새로 추가
 
 ## 요구사항
 

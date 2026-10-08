@@ -9,10 +9,16 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-ML-02"]
+depends: ["OE-PIP-10", "OE-PIP-12", "OE-ML-02"]
 ---
 
 # OE-ML-17 샤프트 내 배치
+
+## 관련 티켓
+
+- [OE-PIP-10](../E13-PIP/OE-PIP-10.md): 외부 배관 수평 경로 수정
+- [OE-PIP-12](../E13-PIP/OE-PIP-12.md): 외부 배관 끝점 추종
+- [OE-ML-02](./OE-ML-02.md): 샤프트 관통 구간·형상 데이터
 
 ## 요구사항
 

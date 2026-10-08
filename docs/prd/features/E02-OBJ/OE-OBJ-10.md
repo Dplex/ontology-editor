@@ -10,10 +10,19 @@ owner: "tbd"
 status: "prd-done"
 status_note: "E5~E7"
 blocked_by: []
-depends: ["OE-EQP-06"]
+depends: ["OE-EQP-06", "OE-OBJ-16", "OE-UI-04", "OE-OBJ-08", "OE-OBJ-14", "OE-EQP-07"]
 ---
 
 # OE-OBJ-10 배관 없는 설비
+
+## 관련 티켓
+
+- [OE-EQP-06](../E12-EQP/OE-EQP-06.md): 배치·이동·삭제·명칭 수정
+- [OE-OBJ-16](./OE-OBJ-16.md): 설비끼리 겹침 불가
+- [OE-UI-04](../E03-UI/OE-UI-04.md): 설비 편집 모드에서 편집
+- [OE-OBJ-08](./OE-OBJ-08.md): 천장 전용 종류의 천장 편집
+- [OE-OBJ-14](./OE-OBJ-14.md): EL·ES 수직 관통 규칙
+- [OE-EQP-07](../E12-EQP/OE-EQP-07.md): EL·ES 다중층 뷰 편집
 
 ## 요구사항
 

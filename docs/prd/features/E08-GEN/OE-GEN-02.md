@@ -10,10 +10,14 @@ owner: "tbd"
 status: "prd-review"
 status_note: "D1"
 blocked_by: ["D1"]
-depends: ["D1","OE-BIM-21"]
+depends: ["OE-BIM-21", "D1"]
 ---
 
 # OE-GEN-02 생성 게이트
+
+## 관련 티켓
+
+- [OE-BIM-21](../E05-BIM/OE-BIM-21.md): 수용 기준선 미달 판정
 
 ## 요구사항
 

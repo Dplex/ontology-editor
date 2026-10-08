@@ -9,10 +9,18 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-EXT-01","OE-EXT-02","OE-EXT-03","OE-EXT-04"]
+depends: ["OE-EXT-01", "OE-EXT-03", "OE-EXT-02", "OE-EXT-04", "OE-OBJ-07"]
 ---
 
 # OE-OBJ-04 외벽
+
+## 관련 티켓
+
+- [OE-EXT-01](../E17-EXT/OE-EXT-01.md): 임포트 때 외벽 여부 판정
+- [OE-EXT-03](../E17-EXT/OE-EXT-03.md): 전 층 외벽 에디터의 형상 편집
+- [OE-EXT-02](../E17-EXT/OE-EXT-02.md): 층 편집 화면 외벽 편집 불가
+- [OE-EXT-04](../E17-EXT/OE-EXT-04.md): 외벽 전용 설비 배치
+- [OE-OBJ-07](./OE-OBJ-07.md): 외벽의 문·창 배치
 
 ## 요구사항
 

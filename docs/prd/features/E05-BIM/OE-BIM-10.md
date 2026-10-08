@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R1","R3","R12"]
+depends: ["K7", "K8", "OE-BIM-22", "R1", "R3", "R12"]
 ---
 
 # OE-BIM-10 건축+MEP 합치기
+
+## 관련 티켓
+
+- [OE-BIM-22](./OE-BIM-22.md): 좌표계 정합 판정 경고
 
 ## 요구사항
 

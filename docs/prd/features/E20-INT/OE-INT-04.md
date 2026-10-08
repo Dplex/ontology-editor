@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-BIM-11","OE-BIM-22","P4"]
+depends: ["OE-BIM-11", "OE-BIM-22", "P4"]
 ---
 
 # OE-INT-04 좌표계·단위
+
+## 관련 티켓
+
+- [OE-BIM-11](../E05-BIM/OE-BIM-11.md): 임포트 단위 환산
+- [OE-BIM-22](../E05-BIM/OE-BIM-22.md): 임포트 좌표 정합
 
 ## 요구사항
 

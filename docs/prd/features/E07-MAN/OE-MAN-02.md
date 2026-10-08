@@ -10,10 +10,14 @@ owner: "tbd"
 status: "prd-done"
 status_note: "검토 필요"
 blocked_by: []
-depends: []
+depends: ["OE-IDF-09"]
 ---
 
 # OE-MAN-02 평면도 배경 이미지
+
+## 관련 티켓
+
+- [OE-IDF-09](../E04-IDF/OE-IDF-09.md): 우선순위가 낮은 IDF 참조선
 
 ## 요구사항
 

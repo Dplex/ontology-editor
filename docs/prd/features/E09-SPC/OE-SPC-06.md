@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-SPC-10", "OE-SPC-08"]
 ---
 
 # OE-SPC-06 커스텀존 지정·이름 (E10)
+
+## 관련 티켓
+
+- [OE-SPC-10](./OE-SPC-10.md): 이름·별명으로 Agent 질의
+- [OE-SPC-08](./OE-SPC-08.md): 분할 자동 번호·병합 별명 이전
 
 ## 요구사항
 

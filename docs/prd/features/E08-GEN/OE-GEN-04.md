@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-PIP-05"]
+depends: ["K4", "K14", "OE-PIP-05"]
 ---
 
 # OE-GEN-04 미확정 규칙 방향 제외
+
+## 관련 티켓
+
+- [OE-PIP-05](../E13-PIP/OE-PIP-05.md): 계통 단위 규칙 방향 확정
 
 ## 요구사항
 

@@ -10,10 +10,17 @@ owner: "tbd"
 status: "prd-review"
 status_note: "D-INT"
 blocked_by: ["D-INT"]
-depends: ["OE-INT-01"]
+depends: ["OE-HIST-03", "OE-HIST-04", "OE-WF-01", "OE-INT-01"]
 ---
 
 # OE-HIST-05 임시 저장과의 관계
+
+## 관련 티켓
+
+- [OE-HIST-03](./OE-HIST-03.md): 임시 저장본 역할의 편집 파일
+- [OE-HIST-04](./OE-HIST-04.md): 임시 저장본 역할의 자동 저장
+- [OE-WF-01](../E14-WF/OE-WF-01.md): 서버 임시 저장 대상
+- [OE-INT-01](../E20-INT/OE-INT-01.md): 저장 위치 결정(D-INT)
 
 ## 요구사항
 
