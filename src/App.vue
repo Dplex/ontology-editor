@@ -56,6 +56,7 @@ import { rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import {
   applyFollow,
   planFollow,
+  type FollowPlan,
   type SegmentAxis,
   flowEdits,
   moveEquipment,
@@ -4795,6 +4796,28 @@ const carryRooms = ref(false)
  * 떨어져 보인다. 도관을 직접 옮길 때는 무엇도 따라오지 않는다.
  */
 const carryConduits = ref(true)
+const FOLLOW_BLOCKED = { geometry: '형상이 없음', position: '좌표가 없음' } as const
+/**
+ * 설비를 옮길 때 따라오지 않는 배관을 한 문장으로(OE-PIP-12). 없으면 빈 문자열. 고른 설비 패널에 옮기기 전부터 보인다 — 옮긴 뒤 경고 칸에도
+ * 띄웠더니 방향키를 누를 때마다 같은 경고가 남아 다른 키 안내(층 완료가 풀렸다 등)를 가렸다.
+ */
+function followLeftText(plan: FollowPlan): string {
+  const name = (id: string) => shortName(equipmentById.value.get(id)?.name || id)
+  const parts: string[] = []
+  if (plan.held.length) parts.push(`다른 분기에도 이어진 이음쇠 ${plan.held.length}개(${plan.held.slice(0, 3).map(name).join(', ')})는 옮기지 않습니다. 배관 형상을 확인하세요.`)
+  if (plan.blocked.length)
+    parts.push(`끝점 자동 추종 불가 ${plan.blocked.length}개: ${plan.blocked.slice(0, 3).map((b) => `${name(b.id)}(${FOLLOW_BLOCKED[b.reason]})`).join(', ')}.`)
+  return parts.join(' ')
+}
+/** 고른 설비를 옮기면 무엇이 따라오나(OE-PIP-12 "영향을 미리 표시"). 따라올 배관이 하나도 없으면 null. */
+const followPreview = computed(() => {
+  const e = selected.value
+  if (!editing.value || !carryConduits.value || !e?.position || !model.value || isConduit(e.role)) return null
+  const plan = planFollow(model.value, e.id, segmentAxis)
+  const stretch = new Set(plan.stretch.map((x) => x.id)).size
+  if (!plan.rigid.length && !stretch && !plan.held.length && !plan.blocked.length) return null
+  return { rigid: plan.rigid.length, stretch, left: followLeftText(plan) }
+})
 let carryPlan: WallCarryPlan | null = null
 watch(selectedElementId, () => (carryPlan = null))
 
@@ -7041,6 +7064,13 @@ async function export3D(format: 'glb' | 'obj') {
                     : '좌표가 없습니다. x·y·z를 넣거나 왼쪽 도구의 미배치 목록에서 눌러 3D에 놓으세요'
               }}
             </span>
+          </p>
+          <!-- 옮기면 따라오는 배관(OE-PIP-12). [배관도 같이] 를 켰을 때만. 분기 이음쇠·추종 불가는 옮기기 전에 보이게 한다. -->
+          <p v-if="editing && !selectedLock && followPreview" class="hint follow-preview" data-testid="follow-preview">
+            <template v-if="followPreview.rigid + followPreview.stretch">
+              옮기면 이음쇠 {{ followPreview.rigid }}개가 같이 가고 덕트·배관 {{ followPreview.stretch }}개가 늘어납니다.
+            </template>
+            <span v-if="followPreview.left" class="follow-left">{{ followPreview.left }}</span>
           </p>
 
           <!-- 층 옮기기(E6). 층은 좌표로 판정하지 않고 사람이 고른다(edit.ts). -->

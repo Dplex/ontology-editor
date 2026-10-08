@@ -3767,3 +3767,9 @@ button.done::after {
 .overview .element-settings input {
   width: 5rem;
 }
+
+/* 옮기면 따라오지 않는 배관(OE-PIP-12). 분기 이음쇠·추종 불가는 확인할 거리라 경고색으로 둔다. */
+.follow-preview .follow-left {
+  display: block;
+  color: var(--warn-fg);
+}

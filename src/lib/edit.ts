@@ -171,6 +171,16 @@ export type FollowPlan = {
   rigid: string[]
   /** 한 끝만 늘일 구간과 그 끝(0·1). */
   stretch: { id: string; end: 0 | 1 }[]
+  /**
+   * 옮기지 않고 둔 이음쇠(OE-PIP-12 "공유 분기점은 무조건 이동하지 않는다"). 다른 분기(이웃 셋 이상)나 옮기는 설비가 아닌 다른 설비에도
+   * 붙은 것이다. 사람이 영향을 보고 배관 형상을 고친다(OE-PIP-10). 그 너머는 따라가지 않는다.
+   */
+  held: string[]
+  /**
+   * 따라와야 하는데 끝점을 옮길 수 없는 도관과 그 까닭(OE-PIP-12 "끝점 자동 추종 불가"). 임의 좌표를 만들지 않고 건너뛴다.
+   * `geometry` 는 형상이 없어 구간의 축을 모르는 것, `position` 은 좌표가 없는 것이다.
+   */
+  blocked: { id: string; reason: 'geometry' | 'position' }[]
 }
 
 /** 이음쇠가 이음쇠에 물린 사슬을 이만큼만 탄다. 이음쇠끼리 길게 이어진 BIM 에서 배관망 전체가 끌려오지 않게 한다. */
@@ -183,12 +193,21 @@ const FITTING_DEPTH = 3
 export function planFollow(model: Model, equipmentId: string, axisOf: (id: string) => SegmentAxis | null): FollowPlan {
   const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
   const root = byId.get(equipmentId)
-  const plan: FollowPlan = { rigid: [], stretch: [] }
+  const plan: FollowPlan = { rigid: [], stretch: [], held: [], blocked: [] }
   if (!root?.position || isConduitRole(root.role)) return plan
-  const neighbors = new Map<string, string[]>()
+  const neighbors = new Map<string, Set<string>>()
   for (const c of model.connections) {
-    neighbors.set(c.from, [...(neighbors.get(c.from) ?? []), c.to])
-    neighbors.set(c.to, [...(neighbors.get(c.to) ?? []), c.from])
+    if (c.from === c.to) continue
+    neighbors.set(c.from, (neighbors.get(c.from) ?? new Set()).add(c.to))
+    neighbors.set(c.to, (neighbors.get(c.to) ?? new Set()).add(c.from))
+  }
+  // 분기 이음쇠: 셋 이상과 이어졌거나(티·크로스), 옮기는 설비가 아닌 다른 설비에 붙었다. 옮기면 그 분기의 배관이 끌려온다.
+  const shared = (id: string) => {
+    const around = neighbors.get(id) ?? new Set()
+    return around.size >= 3 || [...around].some((x) => x !== equipmentId && !isConduitRole(byId.get(x)?.role ?? null))
+  }
+  const block = (id: string, reason: 'geometry' | 'position') => {
+    if (!plan.blocked.some((b) => b.id === id)) plan.blocked.push({ id, reason })
   }
   const seen = new Set([equipmentId])
   let frontier: Equipment[] = [root]
@@ -197,14 +216,25 @@ export function planFollow(model: Model, equipmentId: string, axisOf: (id: strin
     for (const mover of frontier) {
       for (const id of neighbors.get(mover.id) ?? []) {
         const e = byId.get(id)
-        if (!e?.position || seen.has(id)) continue
+        if (!e || seen.has(id)) continue
+        if (!e.position) {
+          if (isConduitRole(e.role)) block(id, 'position')
+          continue
+        }
         if (e.role === 'fitting' && depth < FITTING_DEPTH) {
           seen.add(id)
+          if (shared(id)) {
+            plan.held.push(id)
+            continue
+          }
           plan.rigid.push(id)
           next.push(e)
         } else if (e.role === 'segment') {
           const axis = axisOf(id)
-          if (!axis) continue
+          if (!axis) {
+            block(id, 'geometry')
+            continue
+          }
           const now = currentAxis(e, axis)
           const end: 0 | 1 = dist2(now[0], mover.position!) <= dist2(now[1], mover.position!) ? 0 : 1
           // 양 끝이 다 옮겨지는 구간(두 이음쇠 사이)은 끝을 둘 다 적는다.
