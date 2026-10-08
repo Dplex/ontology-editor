@@ -738,6 +738,54 @@ th {
   color: var(--accent);
 }
 
+/* BIM 이름(magicirc_multi_shape_trans_001:… 처럼 띄어쓰기 없는 긴 이름)이 표를 패널보다 넓혀, 이름 아래 버튼·사유 칸이 패널 밖으로 밀렸다. */
+.neighbors .name-cell {
+  overflow-wrap: anywhere;
+}
+
+.release-why {
+  font-size: 0.8rem;
+}
+
+/* 해제 보정한 연결(OE-PIP-06). 원본은 남아 있되 유효 연결이 아니라 흐리게, 이름에 취소선을 긋지 않는다(상대 설비는 그대로다). */
+.neighbors.released .name-cell > .link,
+.neighbors.released .rel {
+  color: var(--muted);
+}
+
+.release-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.3rem;
+}
+
+.release-form input {
+  flex: 1 1 10rem;
+  min-width: 0;
+  font-size: 0.8rem;
+}
+
+.release-form .ghost {
+  padding: 0.1rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.review-tag {
+  color: var(--warn-fg);
+}
+
+.release-log h4 {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 0.85rem;
+}
+
+.release-log ol {
+  margin: 0;
+  padding-left: 1.2rem;
+  font-size: 0.8rem;
+}
+
 .chosen > td {
   background: var(--accent-soft);
 }

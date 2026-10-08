@@ -330,6 +330,32 @@ export type Connection = {
   edited?: { from: string; to: string }
 }
 
+/** 해제 보정한 BIM 포트 연결(OE-PIP-06). */
+export type ReleasedConnection = {
+  /** 원본 연결. 방향(`directed`·`from`·`to`)을 고치지 않고 들고 있다가 취소하면 그대로 `connections` 로 돌아간다. */
+  connection: Connection
+  /** 해제할 때 `connections` 에서의 자리. 취소하면 이 자리로 돌아가 3D·표의 순서가 해제 전과 같다. */
+  index: number
+  /** 해제한 시각(ISO). */
+  at: string
+  reason: string
+  /**
+   * 다시 연 판본에서 원본과 맞지 않은 것. 사람이 보기 전에는 유효 연결로 돌리지 않는다(내보내지 않는다).
+   * - `direction`: 같은 두 설비 사이 포트 연결은 있으나 방향이 바뀌었다. `connection` 은 새 판본의 연결이다.
+   * - `missing`: 두 설비 사이 포트 연결을 못 찾았다. `connection` 은 파일에 적힌 것으로 만든 것이라 모델에 없다.
+   */
+  review?: 'direction' | 'missing'
+}
+
+/** 연결 보정 이력 한 줄. `keep` 은 재검토를 보고 해제를 유지한 것, `drop` 은 원본을 못 찾은 보정을 지운 것이다. */
+export type ConnectionLogEntry = {
+  action: 'release' | 'restore' | 'keep' | 'drop'
+  from: string
+  to: string
+  at: string
+  reason: string
+}
+
 /**
  * 공조존(F12). IDF 의 Zone 이다(PRD 1.6 이 IDF 를 출처로 둔다). 바닥 외곽선은 GeoJSON 에, 담당 관계와 든 방은 TTL 에
  * 나간다(`brick:HVAC_Zone`, `brick:hasPart` 방, 설비 `brick:feeds` 존).
@@ -415,6 +441,14 @@ export type Model = {
   systems: System[]
   /** 설비·배관 사이의 연결. 층을 넘나들므로 계통처럼 모델에 바로 둔다. */
   connections: Connection[]
+  /**
+   * 사람이 '연결 해제 보정' 한 BIM 포트 연결(OE-PIP-06, connection-release.ts). `connections` 에서 빼 여기 둔다 — 연결을 읽는
+   * 곳(규칙 방향·계통 추적·TTL `brick:feeds`)이 따로 거르지 않아도 해제한 연결을 보지 않는다. 원본 연결 객체와 방향은 그대로다.
+   * BIM 에는 없어 연 직후에는 없다.
+   */
+  releasedConnections?: ReleasedConnection[]
+  /** 해제 보정·취소·재검토 확인의 이력. 되돌리기로 무른 것은 남지 않는다. */
+  connectionLog?: ConnectionLogEntry[]
   /** 임포트가 그냥 넘어간 것들. 조용히 비는 대신 화면에 뜬다. */
   warnings: string[]
   /**

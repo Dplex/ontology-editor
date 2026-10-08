@@ -66,6 +66,8 @@ export function splitByStorey(file: EditFile, homeOf: HomeOf): Map<string, EditF
   if (file.confirmedSystems.length) building().confirmedSystems = file.confirmedSystems
   if (file.confirmedFlows?.length) building().confirmedFlows = file.confirmedFlows
   if (file.connections && (file.connections.add.length || file.connections.remove.length)) building().connections = file.connections
+  if (file.connectionsReleased?.length) building().connectionsReleased = file.connectionsReleased
+  if (file.connectionLog?.length) building().connectionLog = file.connectionLog
   if (file.systems?.length) building().systems = file.systems
   if (file.systemsAdded?.length) building().systemsAdded = file.systemsAdded
   if (file.systemsRemoved?.length) building().systemsRemoved = file.systemsRemoved
@@ -100,6 +102,9 @@ export function joinParts(parts: Iterable<EditFile>, base: Pick<EditFile, 'forma
       out.connections = { add: [...c.add, ...p.connections.add], remove: [...c.remove, ...p.connections.remove] }
     }
     if (p.keys) out.keys = { ...(out.keys ?? {}), ...p.keys }
+    // 해제 보정(OE-PIP-06). 건물 조각에만 있다.
+    if (p.connectionsReleased?.length) out.connectionsReleased = [...(out.connectionsReleased ?? []), ...p.connectionsReleased]
+    if (p.connectionLog?.length) out.connectionLog = [...(out.connectionLog ?? []), ...p.connectionLog]
   }
   return out
 }
