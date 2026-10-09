@@ -374,9 +374,17 @@ export function zoneChecks(model: Model, name: { space: (id: string) => string; 
   for (const z of zones)
     for (const id of z.servedBy ?? []) {
       const e = byId.get(id)
-      if (e && INDOOR_KINDS.has(e.kind ?? '') && e.spaceId && !z.spaceIds.includes(e.spaceId))
-        z06.push({ id: `${z.id}|${id}`, label: `${name.equipment(id)} — ${name.space(e.spaceId)} 에 있고 ${z.name} 담당` })
+      // 어느 물리존에도 들지 않은 실내기(건물 밖으로 옮김 등)도 담당 공조존 밖이다.
+      if (e?.position && INDOOR_KINDS.has(e.kind ?? '') && (!e.spaceId || !z.spaceIds.includes(e.spaceId)))
+        z06.push({ id: `${z.id}|${id}`, label: `${name.equipment(id)} — ${e.spaceId ? `${name.space(e.spaceId)} 에` : '물리존 밖에'} 있고 ${z.name} 담당` })
     }
+  // 담당 공조존이 없는 실내기(OE-EQP-08 "담당 공조존이 비거나"). 공조존을 만든 층만 센다 — Z-01 과 같은 까닭이다.
+  const serving = new Set(zones.flatMap((z) => z.servedBy ?? []))
+  for (const storey of model.storeys) {
+    if (!byStorey.has(storey.id)) continue
+    for (const e of storey.equipment)
+      if (INDOOR_KINDS.has(e.kind ?? '') && e.position && !serving.has(e.id)) z06.push({ id: `${e.id}|none`, label: `${name.equipment(e.id)} — 담당 공조존 없음` })
+  }
   // 연결 기준과 다른 담당(OE-MAP-02). 같은 설비가 여러 공조존을 담당하면 그 공조존들의 담당 물리존을 함께 본다 — 공조기 하나가 두 존에
   // 바람을 보내면, 한 존에 없는 방이 다른 존에 있는 것은 정상이다.
   const flow = flowSpacesOfZones(model)
@@ -398,7 +406,7 @@ export function zoneChecks(model: Model, name: { space: (id: string) => string; 
       { rule: 'Z-02', text: '두 공조존이 같은 영역을 담당', items: z02 },
       { rule: 'Z-04', text: '담당 설비가 없는 공조존', items: z04 },
       { rule: 'Z-05', text: '토출구가 하나도 없는 공조존', items: z05 },
-      { rule: 'Z-06', text: '실내기가 담당 공조존의 물리존 밖에 있음', items: z06 },
+      { rule: 'Z-06', text: '실내기가 담당 공조존의 물리존 밖에 있거나 담당 공조존이 없음', items: z06 },
       { rule: '연결', text: '담당 물리존과 담당 설비의 흐름이 닿는 물리존이 다름', items: map02 },
     ],
     untouched,

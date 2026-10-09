@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
-import { baselineOf, createSpace, deleteSpace, diffBaseline, mergeSpaces, restore, snapshotHvacZones, snapshotStoreySpaces, splitSpace } from './edit'
+import { baselineOf, createSpace, deleteSpace, diffBaseline, mergeSpaces, moveEquipment, restore, snapshotHvacZones, snapshotStoreySpaces, splitSpace } from './edit'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { splitByStorey } from './storey-drafts'
 import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, findHvacZone, flowSpacesOfEquipment, flowSpacesOfZones, hvacZonesOf, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './hvac-zone'
@@ -166,6 +166,26 @@ describe('공조존 검증과 담당 물리존 고치기 (OE-ZON-05 · OE-ZON-04
     expect(setZoneSpaces(model, drawn.id, [office().id, store])).toBe(true)
     expect(drawn.areaM2).toBeCloseTo(40)
     expect(drawn.spaceShares).toEqual({ [office().id]: 0.5, [store]: 0 })
+  })
+})
+
+describe('실내기의 담당 공조존 (OE-EQP-08 · Z-06)', () => {
+  const names = { space: (id: string) => model.storeys.flatMap((s) => s.spaces).find((s) => s.id === id)?.longName ?? id, equipment: (id: string) => model.storeys.flatMap((s) => s.equipment).find((e) => e.id === id)?.name ?? id }
+  const z06 = () => zoneChecks(model, names).checks.find((c) => c.rule === 'Z-06')!.items.map((x) => x.label)
+
+  it('공조존이 있는 층의 실내기에 담당 공조존이 없으면 Z-06 이고, 공조존이 없는 층은 세지 않는다', () => {
+    equip('AHU-1').kind = 'indoor_unit'
+    expect(z06()).toEqual([])
+    const zone = createZoneFromSpaces(model, { spaceIds: [store] }) as HvacZone
+    expect(z06()).toEqual(['AHU-1 — 담당 공조존 없음'])
+    // 담당으로 정하면 "없음" 은 빠지고, 실내기가 그 공조존의 물리존 밖(사무실)이라 불일치가 남는다.
+    setZoneServedBy(model, zone.id, [equip('AHU-1').id])
+    expect(z06()).toEqual(['AHU-1 — 사무실 에 있고 공조존 1 담당'])
+    // 창고로 옮기면 불일치도 빠진다. 어느 물리존에도 들지 않는 자리로 옮기면 다시 불일치다.
+    moveEquipment(model, equip('AHU-1').id, [12, 4, 3.2])
+    expect(z06()).toEqual([])
+    moveEquipment(model, equip('AHU-1').id, [20, 4, 3.2])
+    expect(z06()).toEqual(['AHU-1 — 물리존 밖에 있고 공조존 1 담당'])
   })
 })
 
