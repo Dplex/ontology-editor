@@ -13,6 +13,7 @@ import ShortcutHelp from './components/ShortcutHelp.vue'
 import ExitEditDialog from './components/ExitEditDialog.vue'
 import PublishDialog from './components/PublishDialog.vue'
 import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
+import { previewSummary, summaryText } from './lib/preview'
 import { DEFAULT_LINES, GATE, gradeReport, percent, TARGET, type GradeLines, type GradeReport } from './lib/grade'
 import HoverTip from './components/HoverTip.vue'
 import FloorPlan from './components/FloorPlan.vue'
@@ -7527,9 +7528,33 @@ async function exportGeoJSONDone() {
   if (await exportGeoJSON()) markDone('geojson')
 }
 
-/** 바뀐 내용 목록으로 내려간다. 작업 화면 아래에 있어 도구막대에서 바로 가는 길을 둔다. */
+// --- 미리보기 (OE-WF-07~09) ---
+// 반영 전 결과를 보인다. 실제 반영(서버 버전)은 바뀌지 않는다. 변경 요약은 연 때 모델과 지금 모델을 견준 수(lib/preview.ts)이고, 영향 목록은 소속이 바뀔
+// 설비마다 지금 → 바뀔 물리존, 사람 지정이 풀릴 설비는 따로 이유와 함께. 목록을 누르면 3D 에서 그 설비를 고른다. 바뀐 층이 하나면 그 층을 보인다(Phase 1).
+const previewOpen = ref(false)
+const previewData = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  if (!m || !pristine) return null
+  const released = assignLines.value.filter((r) => r.released)
+  return { summary: previewSummary(pristine, m, report.value, released.length), moves: report.value.filter((c) => c.fromSpaceId !== c.toSpaceId), released }
+})
+const previewText = computed(() => (previewData.value ? summaryText(previewData.value.summary) : ''))
 function previewChanges() {
-  document.getElementById('changes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  previewOpen.value = !previewOpen.value
+  if (!previewOpen.value || !model.value) return
+  // 바뀐 층(Phase 1). 설비 소속이 바뀐 층과 저장 안 한 조각의 층.
+  const floors = new Set([...dirtyKeys(currentParts())].filter((k) => model.value!.storeys.some((st) => st.id === k)))
+  for (const c of previewData.value?.moves ?? []) {
+    const st = storeyOf(c.equipmentId)
+    if (st) floors.add(st.id)
+  }
+  if (floors.size === 1 && !multiView.value) viewStorey.value = [...floors][0]
+}
+/** 확인 창의 [미리보기](OE-WF-11): 창을 닫고 미리보기를 연다. */
+function previewFromPublish() {
+  publishAsk.value = false
+  if (!previewOpen.value) previewChanges()
 }
 
 /** 초기 구축의 마지막 단계. 기하와 의미를 따로 내는 전제는 그대로다 — 한 번 눌러 두 파일을 다 받을 뿐이다. */
@@ -8293,7 +8318,7 @@ function rollbackFromReport() {
             <button v-else type="button" class="ghost" title="이 층의 임시 저장본을 지우고 반영된 레이아웃으로 돌아갑니다" @click="discardAsk = true">임시 저장본 폐기</button>
           </template>
           <!-- PRD #9 의 액션바. data/ 에서 연 건물은 첫 반영이 [구축하기](v1), 그다음은 [반영하기] 다(서버 버전, ADR-0037). 손으로 연 파일은 두 파일 내보내기. -->
-          <button type="button" class="ghost" title="반영 전에 바뀐 내용(소속·경계·이름·방향)을 봅니다" @click="previewChanges">미리보기</button>
+          <button type="button" class="ghost" :aria-pressed="previewOpen" title="반영 전에 결과를 봅니다 — 변경 요약과 소속이 바뀔 설비(반영은 바뀌지 않습니다)" @click="previewChanges">미리보기</button>
           <button
             type="button"
             class="ghost primary-action"
@@ -8305,6 +8330,24 @@ function rollbackFromReport() {
             {{ serverKey && !firstPublish ? '반영하기' : '구축하기' }}
           </button>
           <button type="button" class="ghost" title="보기 모드로 돌아갑니다. 저장하지 않은 편집이 있으면 먼저 묻습니다" @click="leaveEdit()">편집 종료</button>
+        </div>
+        <!-- 미리보기(OE-WF-07~09). 반영 전 결과 — 변경 요약과 영향 목록. 반영(서버 버전)은 바뀌지 않는다. -->
+        <div v-if="editing && previewOpen && previewData" class="preview-panel" role="region" aria-label="미리보기" data-testid="preview">
+          <div class="preview-head">
+            <b>미리보기</b>
+            <span class="muted">반영 전 결과입니다. 반영된 레이아웃은 바뀌지 않습니다.</span>
+            <button type="button" class="ghost" @click="previewOpen = false">닫기</button>
+          </div>
+          <p class="preview-summary" data-testid="preview-summary">{{ previewText }}</p>
+          <ul v-if="previewData.moves.length || previewData.released.length" class="preview-impact" data-testid="preview-impact">
+            <li v-for="c in previewData.moves" :key="c.equipmentId">
+              <button type="button" class="link" @click="selectAndShow(c.equipmentId)">{{ c.equipmentName }}</button> · {{ reportPlace(c.fromSpaceId, c.equipmentId) }} → <b>{{ reportPlace(c.toSpaceId, c.equipmentId) }}</b>
+            </li>
+            <li v-for="r in previewData.released" :key="`rel-${r.id}`" class="released">
+              <b class="review-tag">사람 지정 해제</b> <button type="button" class="link" @click="selectAndShow(r.id)">{{ r.name }}</button> · {{ spaceNameOf(r.from) }} → {{ spaceNameOf(r.to) }} ({{ r.reason }})
+            </li>
+          </ul>
+          <p v-else class="muted">소속이 바뀔 설비가 없습니다.</p>
         </div>
       </div>
 
@@ -11533,6 +11576,8 @@ function rollbackFromReport() {
       :busy="publishing"
       :by="people ? currentUser : publisher"
       :fixed="!!people"
+      :summary="previewText"
+      @preview="previewFromPublish"
       @publish="publishLayout"
       @cancel="publishAsk = false"
     />

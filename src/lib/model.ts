@@ -64,6 +64,8 @@ export type Space = {
    * 문은 남는 방을 가리키고, 지운 방을 가리키던 문은 그 방을 놓는다.
    */
   merged?: string[]
+  /** 사람이 나눠 생긴 조각이면 원래 물리존 id(E3 분할). 미리보기·리포트가 "분할" 을 센다(OE-WF-08). 내보내지 않는다. */
+  splitFrom?: string
 }
 
 export type Wall = {

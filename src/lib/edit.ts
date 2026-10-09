@@ -2167,6 +2167,7 @@ export function splitSpace(
     areaM2: polygonArea(small),
     boundedBy: [],
     added: true,
+    splitFrom: spaceId,
   })
   const piece = storey.spaces[storey.spaces.length - 1]
   setRoomKind(piece, resolveRoomKind(piece.name, piece.longName, null))
