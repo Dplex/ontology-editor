@@ -10,7 +10,9 @@ import { createDataCatalog } from '../src/server/data-catalog'
 import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-geometry'
 import { profileOf, type Profile } from '../src/lib/profile'
 import { CAPACITY_PREDICATE } from '../src/lib/capacity'
-import { countOf, isConduit, polygonArea, unplacedOf, type Vec2 } from '../src/lib/model'
+import { countOf, isConduit, polygonArea, segmentPath, unplacedOf, type Vec2 } from '../src/lib/model'
+import { segmentAxisOf } from '../src/lib/conduit-mesh'
+import { releaseConnection } from '../src/lib/connection-release'
 import { assignEquipment, assignEquipmentToSpaces, interiorPoint, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
 import { outlinelessSpaces } from '../src/lib/outline-fill'
@@ -41,7 +43,7 @@ import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
 import { overlapArea } from '../src/lib/polygon'
 import { computeExternal } from '../src/lib/exterior'
 import { createCustomZone } from '../src/lib/custom-zone'
-import { addEquipment, baselineOf, familyKeyOf, moveEquipment, setTypeKind, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, wallShapeLock, type WallCarryPlan } from '../src/lib/edit'
+import { addEquipment, applyFollow, baselineOf, familyKeyOf, moveEquipment, planFollow, setTypeKind, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, wallShapeLock, type WallCarryPlan } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -2670,4 +2672,57 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('층 단�
     expect(result.missing.storeys).toBe(0)
     expect(storeyProgress(b).map((r) => `${r.name} ${r.state}`)).toEqual(storeyProgress(m).map((r) => `${r.name} ${r.state}`))
   }, 300_000)
+})
+
+// BIM 배관 가져오기(OE-PIP-14). 같은 BIM 을 다시 열고 편집 파일을 얹어도 구간이 늘지 않고, 사람이 한 형상 보정(꺾임점 옮기기)과
+// 연결 해제 보정이 그대로 남는다. 형상만으로 이은 연결은 방향 없이 들어와 원본(포트) 연결과 출처로 갈린다.
+describe.skipIf(!existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP_FULL) || !existsSync(DUPLEX_MEP_2))('BIM 배관 다시 열기 (OE-PIP-14)', () => {
+  it('Duplex HVAC: 꺾임점을 옮기고 포트 연결을 해제 보정한 뒤 다시 열어 얹으면, 구간 수·경로·해제 보정이 같고 새 연결이 생기지 않는다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const bytes = new Uint8Array(readFileSync(DUPLEX_HVAC))
+    const { model: edited, meshes } = importIfcWithMeshes(api, bytes)
+    const base = baselineOf(edited)
+    const all = edited.storeys.flatMap((st) => st.equipment)
+    const axisOf = (id: string) => {
+      const mesh = meshes.get(id)
+      return all.find((e) => e.id === id)?.role === 'segment' && mesh ? segmentAxisOf(mesh.positions) : null
+    }
+    // 엘보 #582938 을 0.3m 옮긴다(양쪽 구간이 늘어난다).
+    const elbow = all.find((e) => e.name.endsWith(':582938'))!
+    const plan = planFollow(edited, elbow.id, axisOf)
+    const p = elbow.position!
+    moveEquipment(edited, elbow.id, [p[0] + 0.3, p[1], p[2]])
+    applyFollow(edited, plan, [0.3, 0, 0], axisOf)
+    const stretched = [...new Set(plan.stretch.map((x) => x.id))]
+    expect(stretched).toHaveLength(2)
+    // 배수관 #582951 과 샤워 #582917 의 포트 연결을 해제 보정한다.
+    const pipe = all.find((e) => e.name.endsWith(':582951'))!
+    const shower = all.find((e) => e.name.endsWith(':582917'))!
+    const port = edited.connections.find((c) => c.source === 'port' && [c.from, c.to].includes(pipe.id) && [c.from, c.to].includes(shower.id))!
+    expect('refused' in releaseConnection(edited, port, '시험')).toBe(false)
+
+    const file = parseEditFile(JSON.stringify(exportEdits(edited, base, 'HVAC.ifc')))
+    if (typeof file === 'string') throw new Error(file)
+    const again = importIfcWithMeshes(api, bytes).model
+    const opened = { equipment: countOf(again).equipment, connections: again.connections.length }
+    applyEdits(again, file)
+    // 다시 연 모델에 얹어도 구간·설비가 늘지 않는다. 연결은 해제 보정한 하나만 빠진다.
+    expect(countOf(again).equipment).toBe(opened.equipment)
+    expect(again.connections.length).toBe(opened.connections - 1)
+    expect(again.releasedConnections?.map((r) => [r.connection.from, r.connection.to].sort())).toEqual([[pipe.id, shower.id].sort()])
+    // 늘인 두 구간의 경로가 편집한 쪽과 같다.
+    const pathOf = (m: Model, id: string) => segmentPath(m.storeys.flatMap((st) => st.equipment).find((e) => e.id === id)!)
+    for (const id of stretched) expect(pathOf(again, id)).toEqual(pathOf(edited, id))
+  }, 600_000)
+
+  it('Duplex·병원 MEP: 포트 없이 형상으로 이은 연결은 출처가 geometry 이고 방향이 없다. 다른 판본(MEP-2)에서도 같다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    for (const path of [DUPLEX_MEP_FULL, DUPLEX_MEP_2]) {
+      const m = importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+      expect(m.connections.length, path).toBeGreaterThan(0)
+      expect(m.connections.filter((c) => c.source !== 'geometry' || c.directed), path).toEqual([])
+    }
+  }, 600_000)
 })
