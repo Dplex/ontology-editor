@@ -145,6 +145,7 @@ import {
   snapshotRooms,
   snapshotSpaceObjects,
   snapshotVerticals,
+  newId,
   setWallExternal,
   setWallHeight,
   setWallThickness,
@@ -183,7 +184,8 @@ import {
 } from './lib/space-object'
 import type { Object3D } from 'three'
 import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL } from './lib/vertical-object'
-import { deleteVertical, movePart, moveVertical, planRange, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
+import type { VerticalKind } from './lib/model'
+import { COMMON_AXIS, createVertical, deleteVertical, movePart, moveVertical, planCreate, planRange, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -2436,6 +2438,62 @@ function applyRange() {
   if (model.value && !findPart(model.value, selectedVerticalId.value!)) selectVertical(partId(id, r.from))
   note(`${name}의 구간을 바꿨습니다. Ctrl+Z 로 되돌립니다`)
 }
+// --- 만들기(OE-ML-06) ---
+// 다중층 뷰(편집 모드)에서 종류·이름·시작/끝 층을 정하고, 빈 층은 구간 바꾸기와 같은 길(fillRange · rangeGiven)로 채운다. 계획·채우기는 모델을
+// 바꾸지 않는다 — [취소] 하면 남는 것이 없다. [만들기] 한 번이 되돌리기 한 번이다.
+const verticalCreate = ref<{ kind: VerticalKind; name: string; from: string; to: string } | null>(null)
+const createPlan = computed(() => {
+  const c = verticalCreate.value
+  return c && model.value ? planCreate(model.value, c.kind, c.from, c.to, rangeGiven.value) : null
+})
+function startCreateVertical() {
+  const range = multiRange.value
+  if (!range || range.length < 2) {
+    note('보기 범위를 두 층 이상으로 넓힌 뒤 만듭니다')
+    return
+  }
+  selectedVerticalId.value = null
+  selectedId.value = null
+  selectedSpaceId.value = null
+  rangeDraft.value = null
+  rangeGiven.value = new Map()
+  verticalCreate.value = { kind: 'stair', name: '새 계단', from: range[0].id, to: range[1].id }
+}
+function setCreateKind(kind: VerticalKind) {
+  const c = verticalCreate.value
+  if (!c) return
+  // 종류마다 채울 것이 다르다(층별 형상 / 공통 축). 채운 것을 비운다.
+  const wasDefault = c.name === `새 ${VERTICAL_KIND_LABEL[c.kind]}`
+  verticalCreate.value = { ...c, kind, name: wasDefault ? `새 ${VERTICAL_KIND_LABEL[kind]}` : c.name }
+  rangeGiven.value = new Map()
+}
+function cancelCreateVertical() {
+  if (drawing.value?.purpose === 'verticalFootprint' || drawing.value?.purpose === 'verticalPoint') stopDraw()
+  verticalCreate.value = null
+  rangeGiven.value = new Map()
+}
+function applyCreateVertical() {
+  const c = verticalCreate.value
+  if (!c) return
+  const id = newId()
+  let refused = ''
+  const done = changeVerticals(`${c.name.trim() || VERTICAL_KIND_LABEL[c.kind]} 만들기`, (m) => {
+    const r = createVertical(m, { id, ...c }, rangeGiven.value)
+    if ('refused' in r) refused = r.refused
+    return 'id' in r
+  })
+  if (!done) {
+    if (refused) editNotice.value = refused
+    return
+  }
+  verticalCreate.value = null
+  rangeGiven.value = new Map()
+  selectVertical(partId(id, c.from))
+  note(`${VERTICAL_KIND_LABEL[c.kind]} ${c.name.trim()}${josa(c.name.trim(), '을/를')} 만들었습니다. Ctrl+Z 로 되돌립니다`)
+}
+watch(multiView, (v) => {
+  if (!v) cancelCreateVertical()
+})
 function removeSelectedVertical() {
   const v = selectedVertical.value
   if (!v) return
@@ -2675,7 +2733,7 @@ watch([selectedSpace, selectedRoom, editing, sceneVersion, drawing, selectedVert
   if (multiView.value && !drawing.value) {
     const v = selectedVertical.value
     const ring = v?.part.footprint ?? []
-    viewer.setSpaceHandles(editing.value && v && ring.length >= 3 ? { id: selectedVerticalId.value!, ring, elevation: v.storey.elevation + 0.1, active: null } : null)
+    viewer.setSpaceHandles(editing.value && v && ring.length >= 3 && !COMMON_AXIS.has(v.part.kind) ? { id: selectedVerticalId.value!, ring, elevation: v.storey.elevation + 0.1, active: null } : null)
     return
   }
   if (drawing.value) {
@@ -4466,6 +4524,7 @@ function finishDraw(): boolean {
     const had = next.get(d.storeyId) ?? {}
     next.set(d.storeyId, d.purpose === 'verticalFootprint' ? { ...had, footprint: d.points } : { ...had, [d.which!]: d.points[0] })
     rangeGiven.value = next
+    note(`${d.name}${josa(d.name, '을/를')} 채웠습니다. 적용 전까지는 점선 미리보기입니다`)
     return true
   }
   if (d.purpose === 'bgScale' || d.purpose === 'bgAnchor') {
@@ -7450,7 +7509,8 @@ async function export3D(format: 'glb' | 'obj') {
             <p v-if="multiView && multiRange" class="multi-banner" role="status" data-testid="multi-banner">
               <b>다중층 뷰</b> · {{ multiRange[0].name }} ~ {{ multiRange.at(-1)!.name }} ({{ multiRange.length }}개 층) · 바닥 높이
               {{ elevationText(multiRange[0].elevation) }} ~ {{ elevationText(multiRange.at(-1)!.elevation) }} m <Src kind="bim" /><br />
-              <span class="muted">보기 범위만 바꿉니다. 오브젝트의 관통 구간은 그대로입니다. {{ editing ? '여기서는 수직 관통 오브젝트만 옮기고 지우고 구간을 바꿉니다(만들기는 아직 없습니다).' : '' }}</span>
+              <span class="muted">보기 범위만 바꿉니다. 오브젝트의 관통 구간은 그대로입니다. {{ editing ? '여기서는 수직 관통 오브젝트만 만들고 옮기고 지우고 구간을 바꿉니다.' : '' }}</span>
+              <button v-if="editing && !verticalCreate" type="button" class="link" @click="startCreateVertical">수직 관통 오브젝트 만들기</button>
             </p>
             <nav v-if="editing && !drawing && activeTab === '3d' && !multiView" class="tool-palette" aria-label="편집 도구">
               <!-- 천장 편집 모드(OE-OBJ-08). 천장 쪽에서는 공간 도구와 바닥·벽 도구가 잠기고, 누르면 어디서 편집하는지 알린다. -->
@@ -8561,6 +8621,52 @@ async function export3D(format: 'glb' | 'obj') {
             </span>
           </p>
         </section>
+        <!-- 수직 관통 오브젝트 만들기(OE-ML-06). 계획·채우기는 모델을 바꾸지 않고 [만들기] 때 한 번에 넣는다. -->
+        <section v-else-if="verticalCreate" key="vertical-create" class="picked vertical-create" data-testid="vertical-create">
+          <div class="picked-head">
+            <div>
+              <h3>수직 관통 오브젝트 만들기</h3>
+              <p class="hint">계단·에스컬레이터는 층마다 형상과 진입·종료 지점을, 샤프트·엘리베이터는 모든 층에 같이 쓰는 공통 축 형상 하나를 그립니다.</p>
+            </div>
+          </div>
+          <p class="vertical-move">
+            <label>종류
+              <select :value="verticalCreate.kind" aria-label="만들 종류" @change="setCreateKind(($event.target as HTMLSelectElement).value as VerticalKind)">
+                <option v-for="k in (['stair', 'escalator', 'elevator', 'shaft'] as const)" :key="k" :value="k">{{ VERTICAL_KIND_LABEL[k] }}</option>
+              </select>
+            </label>
+            <label>이름 <input v-model="verticalCreate.name" v-keep-typing type="text" aria-label="만들 이름" /></label>
+          </p>
+          <p class="vertical-move">
+            <b>구간</b>
+            <select v-model="verticalCreate.from" aria-label="만들 시작 층">
+              <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
+            </select>
+            →
+            <select v-model="verticalCreate.to" aria-label="만들 끝 층">
+              <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
+            </select>
+          </p>
+          <template v-if="createPlan">
+            <p v-if="'refused' in createPlan" class="edit-warn" data-testid="vertical-create-refused">{{ createPlan.refused }}</p>
+            <ul v-else class="vertical-range-plan" data-testid="vertical-create-plan">
+              <li>지나는 층: {{ createPlan.storeys.map((s) => s.name).join(' → ') }}</li>
+              <li v-for="n in createPlan.needs" :key="n.storey.id">
+                {{ n.storey.name }}:
+                <template v-for="w in n.what" :key="w">
+                  <button type="button" class="link" :disabled="!!drawing" @click="fillRange(n.storey.id, w)">{{ RANGE_NEED[w] }} {{ w === 'footprint' ? '그리기' : '찍기' }}</button>
+                </template>
+              </li>
+              <li v-if="!createPlan.needs.length" class="muted">다 채웠습니다</li>
+              <li v-if="createPlan.link">잇는 물리존: {{ createPlan.link.from ?? '없음' }} ↔ {{ createPlan.link.to ?? '없음' }}</li>
+              <li class="muted">개구부·EL 정차 층·ES 운행 방향은 아직 다루지 않습니다</li>
+            </ul>
+          </template>
+          <p>
+            <button type="button" class="ghost" :disabled="!createPlan || 'refused' in createPlan || !!createPlan.needs.length || !verticalCreate.name.trim()" @click="applyCreateVertical">만들기</button>
+            <button type="button" class="ghost" @click="cancelCreateVertical">취소</button>
+          </p>
+        </section>
         <!-- 수직 관통 오브젝트의 층 조각(OE-ML-05). 층 편집 화면에서는 보기만 한다. 연관 물리존은 진입·종료 지점으로 그때 짚는다. -->
         <section v-else-if="selectedVertical" :key="`vertical:${selectedVerticalId}`" class="picked vertical-picked" data-testid="vertical-picked">
           <div class="picked-head">
@@ -8635,7 +8741,8 @@ async function export3D(format: 'glb' | 'obj') {
             </form>
             <p class="hint">방향키로도 옮깁니다(10cm, Shift 1m). 모든 층 조각과 진입·종료 지점이 같이 움직이고 높이는 그대로입니다. 벽·물리존 경계와 겹치면 V-03 을 알리지만 막지는 않습니다.</p>
             <!-- 이 층 조각만(OE-ML-07 "층별 형상·크기·진입/종료 위치"). 다른 층 조각은 그대로다. 형상은 3D 의 꼭짓점 손잡이로 고친다. -->
-            <div class="vertical-part-edit" data-testid="vertical-part-edit">
+            <p v-if="COMMON_AXIS.has(selectedVertical.part.kind)" class="hint">모든 층이 같은 공통 축이라 한 층만 고치지 않습니다. 전체 이동으로 옮깁니다.</p>
+            <div v-else class="vertical-part-edit" data-testid="vertical-part-edit">
               <b>{{ selectedVertical.storey.name }} 조각만</b>
               <form class="vertical-move" @submit.prevent="applyPartShift">
                 <span>옮기기</span>
@@ -10292,7 +10399,8 @@ async function export3D(format: 'glb' | 'obj') {
             </li>
             <li v-for="r in sinceOpen.wallsAdded" :key="`wall-add-${r.id}`">벽 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 그었습니다 (GeoJSON)</li>
             <li v-for="r in sinceOpen.verticals ?? []" :key="`vertical-${r.id}`">
-              <template v-if="r.removed">계단 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다(모든 층, GeoJSON)</template>
+<template v-if="r.created">{{ VERTICAL_KIND_LABEL[r.created] }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 만들었습니다(모든 층, GeoJSON)</template>
+              <template v-else-if="r.removed">계단 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다(모든 층, GeoJSON)</template>
               <template v-else-if="r.reshaped">계단 <b>{{ r.name }}</b>의 층별 모양을 고쳤습니다({{ r.reshaped.map((id) => model?.storeys.find((st) => st.id === id)?.name ?? id).join(' · ') }}, GeoJSON)</template>
               <template v-else>계단 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.move![0].toFixed(2) }}, {{ r.move![1].toFixed(2) }} m 옮겼습니다(모든 층, GeoJSON)</template>
             </li>
