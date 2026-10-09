@@ -889,6 +889,26 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   /**
+   * 광선이 닿는 수직 관통 오브젝트 조각(고른 것은 건너뛴다)과 거리(제곱). 여러 층을 함께 보면 위층 계단 지점 너머로 아래층 설비가 보여,
+   * 설비를 늘 먼저 고르면 위층 계단을 누를 수 없었다(다중층 뷰, 병원 2층 계단 지점 너머의 1층 거울). 누르기가 둘의 거리를 견준다.
+   */
+  function pickVertical(ray: Ray): { id: string; d: number } | null {
+    let best: { id: string; d: number } | null = null
+    const plane = new Plane(new Vector3(0, 1, 0), 0)
+    const at = new Vector3()
+    for (const target of verticalTargets) {
+      if (selectedVertical.has(target.id)) continue
+      if (visibleStoreys && !visibleStoreys.has(target.storeyId)) continue
+      plane.constant = -target.y
+      if (!ray.intersectPlane(plane, at)) continue
+      if (!pointInPolygon([at.x, -at.z], target.ring)) continue
+      const d = at.distanceToSquared(ray.origin)
+      if (!best || d < best.d) best = { id: target.id, d }
+    }
+    return best
+  }
+
+  /**
    * 광선이 먼저 닿는 물리존 판. 판 윗면에서 외곽선 안에 드는지로 본다. 같은 층에서 방이 겹친 자리면 **가장 작은 방**이다 —
    * 설비 소속(mapping.ts 의 locate)과 같은 규칙이라, 누른 자리의 설비가 속한 방이 골라진다.
    */
@@ -1198,6 +1218,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const object = !additive ? pickObject(ray) : null
     if (object && (!id || object.d < pickDistance(ray, id))) {
       objectPickHandler(object.target.id)
+      return
+    }
+    // 수직 관통 오브젝트 조각이 설비보다 앞에 있으면 조각이다(바닥 누르기와 같은 길, onPickSpace 로 조각 id).
+    const vertical = id && !additive ? pickVertical(ray) : null
+    if (vertical && vertical.d < pickDistance(ray, id!)) {
+      spacePickHandler(vertical.id)
       return
     }
     if (id) {
@@ -1849,10 +1875,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const p = t?.at ?? (ring?.length ? ([ring.reduce((a, q) => a + q[0], 0) / ring.length, ring.reduce((a, q) => a + q[1], 0) / ring.length] as Vec2) : null)
         return t && p ? toScreen(new Vector3(p[0], t.y, -p[1])) : null
       },
-      /** 화면의 한 점을 누르면 무엇이 골라지는가(설비·벽·문·창·물리존). */
+      /** 화면의 한 점을 누르면 무엇이 골라지는가(설비·벽·문·창·물리존·수직 관통 오브젝트 조각). */
       pickAt: (x: number, y: number) => {
         const ray = rayAt(x, y)
-        return { equipment: pick(ray), element: archTargets.length ? pickElement(ray) : null, space: pickSpace(ray) }
+        return { equipment: pick(ray), element: archTargets.length ? pickElement(ray) : null, space: pickSpace(ray), vertical: pickVertical(ray)?.id ?? null }
       },
       /** 합친 설비 형상의 크기와 켠 덩어리 수. 첫 그리기에 GPU 로 올리는 양을 잰다. */
       stats: () => {

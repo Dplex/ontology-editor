@@ -280,6 +280,8 @@ function verticalPartFeature(part: VerticalPart, storey: Storey, vertical?: Vert
       storeyId: storey.id,
       elevation: storey.elevation,
       source: part.source,
+      // 사람이 다중층 뷰에서 옮긴 조각(OE-ML-07). source 는 처음 온 곳(bim)이고, 형상·지점은 보정 값이다(OE-ML-02 "원본과 보정 구분").
+      ...(part.edited ? { edited: true } : {}),
       entry: part.entry ? [...part.entry] : null,
       exit: part.exit ? [...part.exit] : null,
       spaceIds: partSpaces(storey, part),

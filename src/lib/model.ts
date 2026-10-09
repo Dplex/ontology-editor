@@ -549,6 +549,8 @@ export type VerticalPart = {
   entry: Vec3 | null
   /** 이 층에 다다르는 자리(위 끝, 세계 좌표). 끝 층에만 있다. 사이 층은 진입·종료 모두 없다. */
   exit: Vec3 | null
+  /** 사람이 다중층 뷰에서 고친 조각(OE-ML-07). BIM 원본 형상은 baseline 에 남는다(vertical-edit.ts). */
+  edited?: true
 }
 
 /**

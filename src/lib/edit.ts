@@ -13,7 +13,8 @@ import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapshotRulesAgain, type ReleaseSnapshot, type RuleSnapshot } from './connection-release'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, roomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
-import type { Connection, CustomZone, Equipment, HvacZone, Model, Opening, Room, Space, SpaceObject, Storey, System, Vec2, Vec3, Wall } from './model'
+import type { Connection, CustomZone, Equipment, HvacZone, Model, Opening, Room, Space, SpaceObject, Storey, System, Vec2, Vec3, VerticalPart, Wall } from './model'
+import { partRef } from './vertical-edit'
 import { copyHvacZones, remapZonesForSpaces } from './hvac-zone'
 import { spacesBesideOpening } from './ifc/element-geometry'
 import { overlapArea, splitRing, unionRings } from './polygon'
@@ -796,6 +797,8 @@ export type Snapshot =
   | { kind: 'rooms'; storeyId: string; rooms: Room[] | undefined }
   /** 층의 추가 공간 오브젝트 전부(OE-OBJ-09). 놓기·지우기·옮기기·크기·이름을 같은 방식으로 되돌린다. */
   | { kind: 'space-objects'; storeyId: string; objects: SpaceObject[] | undefined }
+  /** 모든 층의 수직 관통 오브젝트 조각(OE-ML-07·09). 여러 층에 걸친 옮기기·지우기를 한 번에 되돌린다(vertical-edit.ts). */
+  | { kind: 'verticals'; storeys: { storeyId: string; parts: VerticalPart[] | undefined }[] }
   /** 한 층의 벽·문·창(E4). 객체를 그대로 들고 있어 되돌려도 같은 객체다. */
   | {
       kind: 'storey-elements'
@@ -841,6 +844,18 @@ export function snapshotRooms(model: Model, storeyId: string): Snapshot | null {
   return { kind: 'rooms', storeyId, rooms: storey.rooms ? copyRoomList(storey.rooms) : undefined }
 }
 const copyRoomList = (rooms: readonly Room[]): Room[] => rooms.map((r) => ({ ...r, footprint: r.footprint.map((p) => [p[0], p[1]] as Vec2) }))
+
+const copyVerticalParts = (parts: readonly VerticalPart[]): VerticalPart[] =>
+  parts.map((p) => ({
+    ...p,
+    footprint: p.footprint.map((q) => [q[0], q[1]] as Vec2),
+    entry: p.entry ? [p.entry[0], p.entry[1], p.entry[2]] : null,
+    exit: p.exit ? [p.exit[0], p.exit[1], p.exit[2]] : null,
+  }))
+/** 모든 층의 수직 관통 오브젝트 조각을 떠 둔다(OE-ML-07·09). 조각은 계단마다 지나는 층 수만큼이라(병원 6개) 통째로 뜬다. */
+export function snapshotVerticals(model: Model): Snapshot {
+  return { kind: 'verticals', storeys: model.storeys.map((st) => ({ storeyId: st.id, parts: st.verticalParts ? copyVerticalParts(st.verticalParts) : undefined })) }
+}
 
 /** 한 층의 추가 공간 오브젝트를 떠 둔다(OE-OBJ-09). */
 export function snapshotSpaceObjects(model: Model, storeyId: string): Snapshot | null {
@@ -977,6 +992,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotRooms(model, snapshot.storeyId)
     case 'space-objects':
       return snapshotSpaceObjects(model, snapshot.storeyId)
+    case 'verticals':
+      return snapshotVerticals(model)
     case 'many': {
       const parts = snapshot.parts.map((p) => snapshotOf(model, p))
       return parts.every((p): p is Snapshot => !!p) ? { kind: 'many', parts } : null
@@ -1200,6 +1217,15 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete storey.spaceObjects
       return null
     }
+    case 'verticals': {
+      for (const row of snapshot.storeys) {
+        const storey = model.storeys.find((st) => st.id === row.storeyId)
+        if (!storey) continue
+        if (row.parts) storey.verticalParts = copyVerticalParts(row.parts)
+        else delete storey.verticalParts
+      }
+      return null
+    }
     case 'many': {
       let rules: RuleReport | null = null
       for (const part of [...snapshot.parts].reverse()) rules = restore(model, part) ?? rules
@@ -1400,6 +1426,11 @@ export type Baseline = {
   customZones?: Map<string, CustomZone[]>
   /** 층마다 사람이 만든 공조존(OE-ZON-01·02) 목록의 사본. 이 칸이 생기기 전의 baseline 에는 없다(빈 것으로 본다). */
   hvacZones?: Map<string, HvacZone[]>
+  /**
+   * 수직 관통 오브젝트(OE-ML-02)의 연 때 모습 — 이름, 기준점(첫 층 조각, vertical-edit.ts 의 partRef), 층별 형상. 옮긴 거리·지움과
+   * V-03 충돌(연 때보다 더 겹쳤나)을 이것과 견준다. 이 칸이 생기기 전의 baseline 에는 없다.
+   */
+  verticals?: Map<string, { name: string; ref: Vec2 | null; footprints: Map<string, Vec2[]> }>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
@@ -1463,7 +1494,22 @@ export function baselineOf(model: Model): Baseline {
     hvacZones: new Map(model.storeys.map((s) => [s.id, copyHvacZones(s.hvacZones ?? [])])),
     walls,
     openings,
+    verticals: verticalBaseline(model),
   }
+}
+
+function verticalBaseline(model: Model): NonNullable<Baseline['verticals']> {
+  const out: NonNullable<Baseline['verticals']> = new Map()
+  // 높이 순으로 돌아 첫 조각이 시작 층이다(vertical-edit.ts 의 verticalRef 와 같은 기준점).
+  for (const storey of [...model.storeys].sort((a, b) => a.elevation - b.elevation)) {
+    for (const part of storey.verticalParts ?? []) {
+      let row = out.get(part.parentId)
+      if (!row) out.set(part.parentId, (row = { name: part.name, ref: null, footprints: new Map() }))
+      row.ref ??= partRef(part)
+      row.footprints.set(storey.id, part.footprint.map((p) => [p[0], p[1]] as Vec2))
+    }
+  }
+  return out
 }
 
 export type BaselineDiff = {
@@ -1518,6 +1564,8 @@ export type BaselineDiff = {
   systemKinds: { id: string; name: string; from: { kind: string | null; fluid: Fluid | null }; to: { kind: string | null; fluid: Fluid | null } }[]
   /** 이름을 고친 계통(OE-PIP-09). 연 때 있던 계통만 — 사람이 만든 계통의 이름은 `systemsAdded` 가 끝 이름을 든다. */
   systemNames: { id: string; from: string; to: string }[]
+  /** 옮기거나(`move` 는 연 때와 견준 x·y 이동량) 지운 수직 관통 오브젝트(OE-ML-07·09). 옛 baseline 이면 없다. */
+  verticals?: { id: string; name: string; move?: Vec2; removed?: true }[]
 }
 
 /** 좌표를 같다고 보는 차. 표와 3D 가 센티미터로 자르므로 그보다 작은 차는 같은 자리다. */
@@ -1610,6 +1658,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const systemsAdded = baseline.systems ? model.systems.filter((s) => !baseline.systems!.has(s.id)).map((s) => ({ id: s.id, name: s.name })) : []
   const systemIds = new Set(model.systems.map((s) => s.id))
   const systemsRemoved = baseline.systems ? [...baseline.systems].filter(([id]) => !systemIds.has(id)).map(([id, was]) => ({ id, name: was.name })) : []
+  const verticals = diffVerticals(model, baseline)
   return {
     renamed,
     renumbered,
@@ -1631,7 +1680,29 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     systemNames,
     systemsAdded,
     systemsRemoved,
+    ...(verticals.length ? { verticals } : {}),
   }
+}
+
+/** 연 때와 견준 수직 관통 오브젝트의 이동량·지움. 1mm 안이면 안 옮긴 것이다(옮겼다 되돌린 것). */
+export function diffVerticals(model: Model, baseline: Baseline): NonNullable<BaselineDiff['verticals']> {
+  const out: NonNullable<BaselineDiff['verticals']> = []
+  if (!baseline.verticals) return out
+  const now = new Map<string, Vec2 | null>()
+  for (const storey of [...model.storeys].sort((a, b) => a.elevation - b.elevation)) {
+    for (const part of storey.verticalParts ?? []) if (!now.get(part.parentId)) now.set(part.parentId, partRef(part))
+  }
+  for (const [id, was] of baseline.verticals) {
+    if (!now.has(id)) {
+      out.push({ id, name: was.name, removed: true })
+      continue
+    }
+    const ref = now.get(id)
+    if (!ref || !was.ref) continue
+    const d: Vec2 = [Math.round((ref[0] - was.ref[0]) * 1000) / 1000, Math.round((ref[1] - was.ref[1]) * 1000) / 1000]
+    if (Math.abs(d[0]) >= 0.001 || Math.abs(d[1]) >= 0.001) out.push({ id, name: was.name, move: d })
+  }
+  return out
 }
 
 const sameRings = (a: readonly (readonly Vec2[])[] | undefined, b: readonly (readonly Vec2[])[] | undefined) =>
