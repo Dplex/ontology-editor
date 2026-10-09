@@ -6,8 +6,9 @@
 // 지도 위에 얹을 일이 생기면 그때 사이트 원점의 위경도와 방위를 받아 한 번에 변환한다.
 
 import { capacityQuantity } from '../capacity'
-import { polygonArea, segmentPath, SEGMENT_PATH_ISSUES, type CustomZone, type Equipment, type HvacZone, type Model, type Opening, type Room, type Space, type SpaceObject, type Storey, type Wall } from '../model'
-import { verticalLinks, VERTICAL_SOURCE } from '../vertical'
+import { polygonArea, segmentPath, SEGMENT_PATH_ISSUES, type CustomZone, type Equipment, type HvacZone, type Model, type Opening, type Room, type Space, type SpaceObject, type Storey, type VerticalPart, type Wall } from '../model'
+import { verticalConnections } from '../vertical'
+import { partId, partLinks, partSpaces, verticalObjects } from '../vertical-object'
 import { judgeExternal, type ExternalJudgement } from '../exterior'
 import { zoneEquipment, zoneSpaces } from '../custom-zone'
 import { libraryOf } from '../space-object'
@@ -39,7 +40,10 @@ export type FeatureCollection = {
   skipped?: ('walls' | 'doors' | 'windows')[]
 }
 
-function spaceFeature(space: Space, storey: Storey, vertical?: readonly string[]): Feature {
+/** 층 사이 연결: 가리키는 feature id 와 출처. 물리존과 수직 관통 오브젝트 조각이 같은 모양으로 받는다. */
+export type VerticalRef = { to: readonly string[]; source: string }
+
+function spaceFeature(space: Space, storey: Storey, vertical?: VerticalRef): Feature {
   // 외곽선을 못 만든 공간도 빼지 않는다. geometry 를 null 로 둔 Feature 는 GeoJSON 에서
   // 적법하고, 빼 버리면 "온톨로지에는 있는데 지도에는 없는" 공간이 조용히 생긴다.
   const ring = space.footprint
@@ -60,9 +64,9 @@ function spaceFeature(space: Space, storey: Storey, vertical?: readonly string[]
       elevation: storey.elevation,
       areaM2: Number(space.areaM2.toFixed(4)),
       // 계단실·승강로가 아래·위층에서 이어진 방(vertical.ts). 방-문-방 연결이 층 안에서만 서므로, 로봇 경로가 층을
-      // 옮길 자리다. 다른 층 파일의 물리존 id 를 가리킨다. 출처는 지금 겹침 추정뿐이다 — 사람이 정한 연결(OE-ML-02)과
-      // 가르려고 같이 낸다(ADR-0032). 모호 후보는 여기 오지 않는다.
-      ...(vertical?.length ? { verticalConnects: vertical, verticalConnectsSource: VERTICAL_SOURCE } : {}),
+      // 옮길 자리다. 다른 층 파일의 물리존 id 를 가리킨다. 출처는 계단 오브젝트가 말한 것(bim)과 겹침 추정(calc)을
+      // 가른다(ADR-0032·0033). 모호 후보는 여기 오지 않는다.
+      ...(vertical?.to.length ? { verticalConnects: [...vertical.to], verticalConnectsSource: vertical.source } : {}),
     },
   }
 }
@@ -251,11 +255,45 @@ function spaceObjectFeature(object: SpaceObject, storey: Storey, itemNames: Read
   }
 }
 
+/**
+ * 수직 관통 오브젝트의 한 층 조각(OE-ML-02, vertical-object.ts). id 는 `오브젝트 id@층 id` 다. 형상이 있으면 평면 다각형, 없으면
+ * 종료 지점(끝 층)이다. 계단은 구조로 이어져 있어도 로봇이 지나가지 못한다(OE-ML-04) — `verticalConnects` 와 `passable` 은 따로다.
+ * TTL 에는 아직 내보내지 않는다(ADR-0033).
+ */
+function verticalPartFeature(part: VerticalPart, storey: Storey, vertical?: VerticalRef): Feature {
+  const ring = part.footprint
+  const point = part.exit ?? part.entry
+  return {
+    type: 'Feature',
+    id: partId(part.parentId, storey.id),
+    geometry:
+      ring.length >= 3
+        ? { type: 'Polygon', coordinates: [[...ring, ring[0]].map((p) => [p[0], p[1]])] }
+        : point
+          ? { type: 'Point', coordinates: [...point] }
+          : null,
+    properties: {
+      kind: 'vertical',
+      verticalKind: part.kind,
+      parentId: part.parentId,
+      name: part.name,
+      storeyId: storey.id,
+      elevation: storey.elevation,
+      source: part.source,
+      entry: part.entry ? [...part.entry] : null,
+      exit: part.exit ? [...part.exit] : null,
+      spaceIds: partSpaces(storey, part),
+      passable: false,
+      ...(vertical?.to.length ? { verticalConnects: [...vertical.to], verticalConnectsSource: vertical.source } : {}),
+    },
+  }
+}
+
 /** 층 하나를 FeatureCollection 으로. 물리존·설비·벽·문·창(과 IDF 공조존·커스텀존·룸·추가 공간 오브젝트)이 같은 파일에 들어간다. */
 export function storeyToGeoJSON(
   storey: Storey,
   zones: readonly HvacZone[] = [],
-  vertical: ReadonlyMap<string, string[]> = new Map(),
+  vertical: ReadonlyMap<string, VerticalRef> = new Map(),
   itemNames: ReadonlyMap<string, string> = new Map(),
 ): FeatureCollection {
   const external = judgeExternal(storey)
@@ -270,6 +308,7 @@ export function storeyToGeoJSON(
       ...(storey.customZones ?? []).map((z) => customZoneFeature(z, storey)),
       ...(storey.rooms ?? []).map((r) => roomFeature(r, storey)),
       ...(storey.spaceObjects ?? []).map((o) => spaceObjectFeature(o, storey, itemNames)),
+      ...(storey.verticalParts ?? []).map((p) => verticalPartFeature(p, storey, vertical.get(partId(p.parentId, storey.id)))),
     ],
   }
 }
@@ -283,7 +322,7 @@ export function storeyToGeoJSON(
  */
 export function modelToGeoJSON(model: Model): { fileName: string; collection: FeatureCollection }[] {
   const taken = new Set<string>()
-  const vertical = verticalLinks(model)
+  const vertical = verticalRefs(model)
   const itemNames = new Map(libraryOf(model).map((i) => [i.key, i.name]))
   return model.storeys.map((storey) => {
     // 층 이름에는 공백이나 슬래시가 들어올 수 있다. 파일 이름으로 쓰기 전에 걸러 낸다.
@@ -294,4 +333,13 @@ export function modelToGeoJSON(model: Model): { fileName: string; collection: Fe
     const collection = storeyToGeoJSON(storey, hvacZonesOf(model), vertical, itemNames)
     return { fileName, collection: model.skipped?.length ? { ...collection, skipped: [...model.skipped] } : collection }
   })
+}
+
+/** 물리존·오브젝트 조각 feature id → 층 사이 연결. 조각끼리는 오브젝트의 출처로 잇는다. */
+function verticalRefs(model: Model): Map<string, VerticalRef> {
+  const spaces = verticalConnections(model)
+  const out = new Map<string, VerticalRef>()
+  for (const [id, to] of spaces.links) out.set(id, { to, source: spaces.sources.get(id) ?? 'calc' })
+  for (const o of verticalObjects(model)) for (const [id, to] of partLinks([o])) out.set(id, { to, source: o.source })
+  return out
 }

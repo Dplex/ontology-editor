@@ -522,6 +522,33 @@ export type Storey = {
   rooms?: Room[]
   /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09, space-object.ts). 임포트는 만들지 않아 연 직후에는 없다. */
   spaceObjects?: SpaceObject[]
+  /**
+   * 이 층을 지나는 수직 관통 오브젝트의 층별 조각(OE-ML-02, vertical-object.ts). 같은 `parentId` 의 조각들이 오브젝트 하나다.
+   * 지금은 BIM 의 계단(IfcStair)만 임포트가 만든다. 형상을 읽는 임포트에서만 생긴다.
+   */
+  verticalParts?: VerticalPart[]
+}
+
+/** 수직 관통 오브젝트의 종류(glossary: EL·ES·계단·샤프트). */
+export type VerticalKind = 'stair' | 'escalator' | 'elevator' | 'shaft'
+
+/**
+ * 수직 관통 오브젝트의 한 층 조각(OE-ML-02). 오브젝트는 따로 두지 않고 `parentId` 가 같은 조각을 모아 본다 — 층별 표현이 곧 데이터라서
+ * 층 단위 저장·합치기가 다른 층 요소와 같은 길을 탄다. 연관 물리존은 저장하지 않고 진입·종료점으로 그때 짚는다(물리존을 고쳐도 낡은 id 가
+ * 남지 않는다).
+ */
+export type VerticalPart = {
+  /** 오브젝트 id. BIM 이면 IfcStair 의 GlobalId 다. */
+  parentId: string
+  kind: VerticalKind
+  name: string
+  source: 'bim' | 'edit'
+  /** 이 층에 그리는 평면 형상(닫지 않은 고리). 오브젝트가 끝나는 층처럼 그릴 것이 없으면 빈 배열이다. */
+  footprint: Vec2[]
+  /** 이 층에서 오르기 시작하는 자리(아래 끝, 세계 좌표). 시작 층에만 있다. */
+  entry: Vec3 | null
+  /** 이 층에 다다르는 자리(위 끝, 세계 좌표). 끝 층에만 있다. 사이 층은 진입·종료 모두 없다. */
+  exit: Vec3 | null
 }
 
 /**
