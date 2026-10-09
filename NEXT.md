@@ -70,6 +70,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | 978c118 | [test: BIM 배관 다시 열기(OE-PIP-14)](next/pr/test-pip-14.md) | Refs [#195](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/195) | PIP-10·13 다음 |
 | 3731493 | [OE-PIP-08 연결 후보 [연결하기] 용어](next/pr/pip-08-wording.md) | Refs [#411](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/411) | — |
 | 533c433 | [OE-EQP-15 외벽 설비 소속 판정 제외](next/pr/eqp-15-exterior-space.md) | Refs [#179](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/179) · [#399](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/399) | — |
+| b63f3e6 | [OE-MAP-03·05·06 N:M 표시·서비스 영역·재계산 시험](next/pr/oe-map-03-05-06.md) | [#160](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/160) [#162](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/162) [#163](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/163) | 공조존 PR 들 다음 |
 
 ## 지금 상태 (2026-10-09 09:40 확인)
 
