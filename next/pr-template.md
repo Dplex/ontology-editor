@@ -19,6 +19,8 @@ Ticket: docs/prd/features/E##-XXX/OE-XXX-nn.md
 |---|---|
 | 수용 기준 문장 그대로 | **이 PR** / 이미 반영(어느 시험) / 남음(아래) |
 
+재는 시험의 제목에 `[OE-XXX-nn#k]` 태그를 단다(일부만 재면 `#k~`, `docs/dev/testing.md` "수용 기준 태그").
+
 ## 화면
 
 ![무엇이 보이는 화면](../figures/oe-xxx-nn-무엇.png)

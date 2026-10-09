@@ -26,7 +26,7 @@ const feedsOf = (ttl: string, id: string) => {
 }
 
 describe('수동 배관 그리기 (OE-PIP-11)', () => {
-  it('꼭짓점마다 이음쇠, 변마다 구간이 생기고 manual 연결로 이어지며, 양 끝이 같은 계통이면 그 계통에 든다', () => {
+  it('꼭짓점마다 이음쇠, 변마다 구간이 생기고 manual 연결로 이어지며, 양 끝이 같은 계통이면 그 계통에 든다 [OE-PIP-11#2,3]', () => {
     const m = read()
     const ahu = equip(m, 'AHU-1')
     const at = equip(m, 'AT-101-01')
@@ -56,7 +56,7 @@ describe('수동 배관 그리기 (OE-PIP-11)', () => {
     expect(completenessChecks(m, []).find((c) => c.key === 'conduit-path')!.failed).toEqual([equip(m, 'DUCT-01').id])
   })
 
-  it('방향은 정하지 않아, 그린 배관만으로는 TTL 의 feeds 가 늘지 않는다', () => {
+  it('방향은 정하지 않아, 그린 배관만으로는 TTL 의 feeds 가 늘지 않는다 [OE-PIP-11#4]', () => {
     const m = read()
     const ahu = equip(m, 'AHU-1')
     const before = feedsOf(modelToTTL(m), ahu.id)
@@ -65,7 +65,7 @@ describe('수동 배관 그리기 (OE-PIP-11)', () => {
     expect(feedsOf(modelToTTL(m), ahu.id)).toBe(before)
   })
 
-  it('범례에 없는 Flow Type · 같은 대상 · 좌표 없는 설비 · 길이 0 · 없는 계통은 막고 아무것도 남기지 않는다', () => {
+  it('범례에 없는 Flow Type · 같은 대상 · 좌표 없는 설비 · 길이 0 · 없는 계통은 막고 아무것도 남기지 않는다 [OE-PIP-11#5]', () => {
     const m = read()
     const before = JSON.stringify(m)
     const [ahu, at, temp] = ['AHU-1', 'AT-101-01', 'TEMP-101-01'].map((n) => equip(m, n))
@@ -77,7 +77,7 @@ describe('수동 배관 그리기 (OE-PIP-11)', () => {
     expect(JSON.stringify(m)).toBe(before)
   })
 
-  it('계통 없음(null)을 고르면 계통에 넣지 않고, 양 끝 계통은 그대로다', () => {
+  it('계통 없음(null)을 고르면 계통에 넣지 않고, 양 끝 계통은 그대로다 [OE-PIP-11#3]', () => {
     const m = read()
     const ahu = equip(m, 'AHU-1')
     const members = JSON.stringify(m.systems)
@@ -87,7 +87,7 @@ describe('수동 배관 그리기 (OE-PIP-11)', () => {
     expect(JSON.stringify(m.systems)).toBe(members)
   })
 
-  it('편집 파일을 거쳐도 같은 배관이고, 한 번 되돌리면 그리기 전과 같다', () => {
+  it('편집 파일을 거쳐도 같은 배관이고, 한 번 되돌리면 그리기 전과 같다 [OE-PIP-11#6~]', () => {
     const m = read()
     const base = baselineOf(m)
     const before = JSON.stringify(m)

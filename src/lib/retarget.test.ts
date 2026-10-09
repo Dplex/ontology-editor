@@ -37,7 +37,7 @@ const axisOf = (id: string) => AXES[id] ?? null
 const find = (m: Model, id: string) => m.storeys.flatMap((s) => s.equipment).find((e) => e.id === id)!
 
 describe('구간 끝의 연결 대상 바꾸기 (OE-PIP-10)', () => {
-  it('BIM 포트 연결은 해제 보정하고 새 대상과 manual 로 잇는다. 그 끝은 새 대상 자리로 늘어나고 다른 끝은 그대로다', () => {
+  it('BIM 포트 연결은 해제 보정하고 새 대상과 manual 로 잇는다. 그 끝은 새 대상 자리로 늘어나고 다른 끝은 그대로다 [OE-PIP-10#3]', () => {
     const m = build()
     const done = retargetEnd(m, 'D', 'DIF1', 'DIF2', axisOf)
     if ('refused' in done) throw new Error(done.refused)
@@ -74,7 +74,7 @@ describe('구간 끝의 연결 대상 바꾸기 (OE-PIP-10)', () => {
     expect(JSON.stringify(m)).toBe(before)
   })
 
-  it('한 번에 되돌리면 연결·해제 보정·형상이 바꾸기 전과 같고, 편집 파일을 거쳐도 같다', () => {
+  it('한 번에 되돌리면 연결·해제 보정·형상이 바꾸기 전과 같고, 편집 파일을 거쳐도 같다 [OE-PIP-10#7]', () => {
     const m = build()
     const base = baselineOf(m)
     const before = JSON.stringify(m)

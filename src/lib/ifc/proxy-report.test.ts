@@ -31,7 +31,7 @@ describe('Proxy 리포트 — 읽지 않은 이름 예', () => {
 
 // OE-EXT-05. 건축 파일의 루버(차양·외장 마감)는 Proxy 로 들어오고 포트가 없다. 이름이 루버여도 설비로 받지 않고 따로 센다.
 describe('포트 없는 건축 루버 Proxy (OE-EXT-05)', () => {
-  it('이름이 루버여도 포트가 없으면 설비로 받지 않고, 받지 않은 수를 경고와 요구사항 R23 에 적는다', async () => {
+  it('이름이 루버여도 포트가 없으면 설비로 받지 않고, 받지 않은 수를 경고와 요구사항 R23 에 적는다 [OE-EXT-05#1~,3]', async () => {
     const path = fileURLToPath(new URL('./fixtures/proxy.ifc', import.meta.url))
     const text = readFileSync(path, 'utf8')
     const extra = ['알루미늄 루버:AL-1:8001', 'Roof Louver:RL:8002']

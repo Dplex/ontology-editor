@@ -27,7 +27,7 @@ async function enterWithStair(page: Page, index = 0): Promise<string> {
   return ids[index].split('@')[0]
 }
 
-test('병원 건축: 다중층 뷰에서 계단을 통째로 옮기면 두 층이 같이 가고 V-03 을 알리며, 되돌리기·지우기 확인·취소가 맞고, 편집 파일로 다시 얹힌다', async ({ page }, info) => {
+test('병원 건축: 다중층 뷰에서 계단을 통째로 옮기면 두 층이 같이 가고 V-03 을 알리며, 되돌리기·지우기 확인·취소가 맞고, 편집 파일로 다시 얹힌다 [OE-ML-07#1,4~,5~] [OE-ML-09#1,2,5~] [OE-ML-01#9~] [OE-OBJ-14#3~]', async ({ page }, info) => {
   test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(240_000)
   const errors: string[] = []
@@ -137,7 +137,7 @@ test('병원 건축: 다중층 뷰에서 계단을 통째로 옮기면 두 층�
   expect(errors).toEqual([])
 })
 
-test('병원 건축: 다중층 뷰에서 계단의 한 층 조각만 고친다 — 꼭짓점 손잡이·이 층만 옮기기·종료 지점 좌표, 설비는 끌리지 않고, 편집 파일로 다시 얹힌다', async ({ page }, info) => {
+test('병원 건축: 다중층 뷰에서 계단의 한 층 조각만 고친다 — 꼭짓점 손잡이·이 층만 옮기기·종료 지점 좌표, 설비는 끌리지 않고, 편집 파일로 다시 얹힌다 [OE-ML-07#2~,4~,5~] [OE-OBJ-14#3~]', async ({ page }, info) => {
   test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(240_000)
   const errors: string[] = []

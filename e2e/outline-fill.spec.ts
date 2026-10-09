@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 // 하나를 누르면 그 층 3D 에서 점을 찍어 외곽선을 그리고, 같은 물리존에 외곽선이 생겨 목록에서 빠진다. 경고는 막지 않는다.
 const ARCH = 'data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc'
 
-test('검토 화면의 "외곽선 없는 물리존" 에서 골라 그리면 같은 물리존에 외곽선이 생기고 목록에서 빠지며, Ctrl+Z 로 돌아온다', async ({ page }) => {
+test('검토 화면의 "외곽선 없는 물리존" 에서 골라 그리면 같은 물리존에 외곽선이 생기고 목록에서 빠지며, Ctrl+Z 로 돌아온다 [OE-MAN-03#1]', async ({ page }) => {
   test.skip(!existsSync(ARCH), `${ARCH} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []

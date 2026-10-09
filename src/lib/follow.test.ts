@@ -57,7 +57,7 @@ function moveWithFollow(m: Model, id: string, delta: Vec3) {
 }
 
 describe('배관이 설비를 따라온다', () => {
-  it('이음쇠는 같이 옮기고 구간은 가까운 끝만 늘인다', () => {
+  it('이음쇠는 같이 옮기고 구간은 가까운 끝만 늘인다 [OE-PIP-12#1]', () => {
     const m = build()
     const plan = planFollow(m, 'AHU', axisOf)
     expect(plan).toEqual({ rigid: ['ELB'], stretch: [{ id: 'DUCT', end: 0 }], held: [], blocked: [] })
@@ -72,7 +72,7 @@ describe('배관이 설비를 따라온다', () => {
     expect(find(m, 'DIF').position).toEqual([6, 1, 2])
   })
 
-  it('다른 설비(토출구)는 끌려오지 않고, 구간 너머로 번지지 않는다', () => {
+  it('다른 설비(토출구)는 끌려오지 않고, 구간 너머로 번지지 않는다 [OE-PIP-12#2~]', () => {
     const m = build()
     const plan = planFollow(m, 'DIF', axisOf)
     expect(plan).toEqual({ rigid: [], stretch: [{ id: 'DUCT', end: 1 }], held: [], blocked: [] })
@@ -82,14 +82,14 @@ describe('배관이 설비를 따라온다', () => {
     expect(planFollow(build(), 'ELB', axisOf)).toEqual({ rigid: [], stretch: [], held: [], blocked: [] })
   })
 
-  it('되돌리면 늘인 것까지 연 때로 돌아간다', () => {
+  it('되돌리면 늘인 것까지 연 때로 돌아간다 [OE-PIP-12#6~]', () => {
     const m = build()
     const before = JSON.stringify(m)
     restore(m, moveWithFollow(m, 'AHU', [0, 2, 0]))
     expect(JSON.stringify(m)).toBe(before)
   })
 
-  it('다른 분기에도 붙은 이음쇠(티)는 옮기지 않고 그 너머도 따라가지 않으며, 그 분기의 배관은 그대로다 (OE-PIP-12)', () => {
+  it('다른 분기에도 붙은 이음쇠(티)는 옮기지 않고 그 너머도 따라가지 않으며, 그 분기의 배관은 그대로다 (OE-PIP-12) [OE-PIP-12#2~]', () => {
     const m = build()
     // 엘보에 다른 분기(BR)를 하나 더 붙여 티로 만든다. BR 너머에는 다른 토출구(DIF2)가 있다.
     m.storeys[0].equipment.push(eq('BR', 'segment', [2, 3, 2]), eq('DIF2', 'terminal', [2, 5, 2]))
@@ -107,7 +107,7 @@ describe('배관이 설비를 따라온다', () => {
     expect(planFollow(m, 'AHU', axisOf).held).toEqual(['ELB'])
   })
 
-  it('형상이 없어 축을 모르는 구간과 좌표가 없는 도관은 늘이지 않고 "자동 추종 불가" 사유로 돌려준다 (OE-PIP-12)', () => {
+  it('형상이 없어 축을 모르는 구간과 좌표가 없는 도관은 늘이지 않고 "자동 추종 불가" 사유로 돌려준다 (OE-PIP-12) [OE-PIP-12#4]', () => {
     const m = build()
     const plan = planFollow(m, 'DIF', () => null)
     expect(plan).toEqual({ rigid: [], stretch: [], held: [], blocked: [{ id: 'DUCT', reason: 'geometry' }] })
@@ -118,14 +118,14 @@ describe('배관이 설비를 따라온다', () => {
     expect(find(m, 'ELB').position).toBe(null)
   })
 
-  it('사람이 해제 보정한 BIM 연결의 배관은 따라오지 않는다 (OE-PIP-06)', () => {
+  it('사람이 해제 보정한 BIM 연결의 배관은 따라오지 않는다 (OE-PIP-06) [OE-PIP-12#3]', () => {
     const m = build()
     const elbowDuct = m.connections.find((c) => c.from === 'ELB' && c.to === 'DUCT')!
     expect(releaseConnection(m, elbowDuct, '현장에서 철거')).not.toHaveProperty('refused')
     expect(planFollow(m, 'AHU', axisOf)).toEqual({ rigid: ['ELB'], stretch: [], held: [], blocked: [] })
   })
 
-  it('편집 파일을 거쳐도 끝과 좌표가 같다', () => {
+  it('편집 파일을 거쳐도 끝과 좌표가 같다 [OE-PIP-12#6~]', () => {
     const m = build()
     const base = baselineOf(m)
     moveWithFollow(m, 'AHU', [0, 2, 0])
@@ -159,7 +159,7 @@ describe('배관 꼭짓점(꺾임 이음쇠)을 옮긴다 (OE-PIP-10)', () => {
   const axes: Record<string, SegmentAxis> = { D1: [[1, 1, 2], [4, 1, 2]], D2: [[4, 1, 2], [4, 5, 2]] }
   const axis = (id: string) => axes[id] ?? null
 
-  it('엘보를 옮기면 양쪽 구간의 엘보 쪽 끝만 늘어나고, 연결 대상과 방향은 그대로다', () => {
+  it('엘보를 옮기면 양쪽 구간의 엘보 쪽 끝만 늘어나고, 연결 대상과 방향은 그대로다 [OE-PIP-12#5~] [OE-PIP-10#2~]', () => {
     const m = bent()
     expect(fittingMoveRefusal(m, 'ELB')).toBeNull()
     const plan = planFollow(m, 'ELB', axis)
@@ -179,7 +179,7 @@ describe('배관 꼭짓점(꺾임 이음쇠)을 옮긴다 (OE-PIP-10)', () => {
     expect(find(m, 'ELB').position).toEqual([4, 1, 2])
   })
 
-  it('옮긴 꼭짓점은 편집 파일을 거쳐도 같다', () => {
+  it('옮긴 꼭짓점은 편집 파일을 거쳐도 같다 [OE-PIP-10#7~]', () => {
     const m = bent()
     const base = baselineOf(m)
     const plan = planFollow(m, 'ELB', axis)
@@ -201,7 +201,7 @@ describe('배관 꼭짓점(꺾임 이음쇠)을 옮긴다 (OE-PIP-10)', () => {
 })
 
 describe('실내기를 옮기면 배관이 따라온다 (OE-EQP-08)', () => {
-  it('시스템에어컨 실내기도 공조기처럼 붙은 이음쇠는 같이 가고 구간은 가까운 끝만 늘어난다', () => {
+  it('시스템에어컨 실내기도 공조기처럼 붙은 이음쇠는 같이 가고 구간은 가까운 끝만 늘어난다 [OE-EQP-08#1~]', () => {
     const m = build()
     find(m, 'AHU').kind = 'indoor_unit'
     expect(planFollow(m, 'AHU', axisOf)).toEqual({ rigid: ['ELB'], stretch: [{ id: 'DUCT', end: 0 }], held: [], blocked: [] })

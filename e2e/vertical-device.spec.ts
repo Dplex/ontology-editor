@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 const AHU = '0MEP$Equip$AHU1$0000'
 
-test('엘리베이터는 층 편집 화면에서 옮기거나 지우지 못하고 다중층 뷰를 안내하며, 종류를 바꾸면 다시 고칠 수 있다', async ({ page }) => {
+test('엘리베이터는 층 편집 화면에서 옮기거나 지우지 못하고 다중층 뷰를 안내하며, 종류를 바꾸면 다시 고칠 수 있다 [OE-EQP-07#1] [OE-ML-05#1~]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

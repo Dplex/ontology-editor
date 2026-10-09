@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 const PLAN = 'e2e/fixtures/plan-grid.png'
 
-test('도면 이미지를 깔면 건물 너비에 맞춰 놓이고, 두 점으로 스케일을, 한 점으로 원점을 맞추며, 걷을 수 있다', async ({ page }) => {
+test('도면 이미지를 깔면 건물 너비에 맞춰 놓이고, 두 점으로 스케일을, 한 점으로 원점을 맞추며, 걷을 수 있다 [OE-MAN-02#1]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

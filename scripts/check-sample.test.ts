@@ -358,6 +358,7 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH))('문이 잇는 
     // 13개 중 11개는 방 하나다 — 커튼월 문 3개는 바깥문이고, 화장실 칸막이 문 8개는 양쪽이 같은 화장실이다. 2개는 방을 못 짚는다.
     expect(tally(calc, 'rooms')).toEqual({ 0: 2, 1: 11 })
 
+    // [OE-EQP-16#1] [OE-ML-19#7] [OE-ML-02#4] [OE-EQP-16#2~]
     // 층 사이 고정 기준선(OE-EQP-16 "7개 중 6개 이상", OE-ML-19). 대상 id·기대 연결·출처를 박아 둔다 — 개수만 재면 엉뚱한 짝이나
     // 모호 후보를 억지로 이어도 통과한다. 계단(IfcStair) 셋이 1층 계단실에서 올라 2층 계단실에 닿아 명시 연결(bim)이 된다.
     const vertical = model.storeys.flatMap((st) => st.spaces.filter((sp) => VERTICAL_KINDS.includes(sp.kind ?? '')).map((sp) => sp.id))
@@ -1551,6 +1552,7 @@ describe('Proxy 리포트 (OE-BIM-13)', () => {
       expect(model.facts?.proxies, path).toEqual(proxies)
       const r23 = requirementsReport(model).find((r) => r.id === 'R23')!
       const p = model.facts?.proxies
+      // [OE-EXT-05#2] 포트 없는 루버만 빠지고 다른 BIM 의 설비 수는 그대로다
       if (p && p.total > p.ported + p.named + (p.louvers ?? 0)) expect(r23.note, path).toContain(`파일의 Proxy ${p.total}개 중 ${p.total - p.ported - p.named - (p.louvers ?? 0)}개는`)
     }
     expect(measured).toBeGreaterThanOrEqual(2)
@@ -1858,6 +1860,7 @@ describe.skipIf(!existsSync(SEONGSU_ARCH))('성수 건축', () => {
     expect.soft(doors).toHaveLength(528)
     // 233 에서 270 으로 올랐다. 방이 겹친 자리에서 문이 가장 작은 방을 짚게 고친 d2b242e 의 결과다(성수는 공간 경계가 0 이라 문 전부가 좌표 판정).
     expect.soft(doors.filter((d) => (d.connects?.length ?? 0) >= 2)).toHaveLength(270)
+    // [OE-SPC-17#1]
     // 방 이름 사전(정본 4장). 넓히면 오르지만 틀리게 읽는 것도 는다 — 떨어지면 실패로만 둔다. 159 → 169 는 영문 이름 넷(Air Handling Unit Room·
     // MECH.·CORR.·UPS Room)을 사전에 더한 것이다(OE-SPC-17, 2026-10-09). 약어(S.T·P.S 등)는 사람이 확인한 뒤 넣는다.
     expect.soft(model.storeys.flatMap((s) => s.spaces).filter((sp) => roomKind(sp.kind)).length).toBeGreaterThanOrEqual(169)
@@ -1919,6 +1922,7 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
       'terminal-source': '1386/2400',
       'source-terminal': '156/268',
       'terminal-single-source': undefined,
+      // [OE-EQP-15#1]
       // 외벽 설비(기계 파일의 외부 루버 59대)는 방 밖이 맞는 자리라 세지 않는다(OE-EQP-15). 건축 파일의 루버 240개는 포트가 없어 아예 설비로
       // 받지 않는다(OE-EXT-05, 2026-10-09) — 그 전에는 외벽 설비가 299대였고 분모가 같았다(4911 - 299 = 4671 - 59).
       // 건축의 에스컬레이터 6대(`Escalator_(AUS)`)가 이름 사전으로 종류를 얻어 기기로 세진다(OE-EQP-07). 6대 다 방에 든다. 그 전에는 4041/4612.
@@ -1953,6 +1957,7 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsS
         if (!r.reloadSame || r.missing || !r.undoSame || !r.redoSame) {
           failed.push(`${name} seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} · 다시 하기 ${r.redoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}`)
         }
+        // [OE-MAP-06#1]
         // 소속은 편집 함수 안에서 다시 계산된다(OE-MAP-06): 저장된 소속이 그 자리에서 다시 판정한 소속과 같다.
         for (const [which, m] of [['편집', r.edited], ['불러옴', r.reloaded]] as const)
           for (const st of m.storeys)
@@ -2727,7 +2732,7 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('층 단�
 // BIM 배관 가져오기(OE-PIP-14). 같은 BIM 을 다시 열고 편집 파일을 얹어도 구간이 늘지 않고, 사람이 한 형상 보정(꺾임점 옮기기)과
 // 연결 해제 보정이 그대로 남는다. 형상만으로 이은 연결은 방향 없이 들어와 원본(포트) 연결과 출처로 갈린다.
 describe.skipIf(!existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP_FULL) || !existsSync(DUPLEX_MEP_2))('BIM 배관 다시 열기 (OE-PIP-14)', () => {
-  it('Duplex HVAC: 꺾임점을 옮기고 포트 연결을 해제 보정한 뒤 다시 열어 얹으면, 구간 수·경로·해제 보정이 같고 새 연결이 생기지 않는다', async () => {
+  it('Duplex HVAC: 꺾임점을 옮기고 포트 연결을 해제 보정한 뒤 다시 열어 얹으면, 구간 수·경로·해제 보정이 같고 새 연결이 생기지 않는다 [OE-PIP-14#3,5] [OE-PIP-10#5~]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const bytes = new Uint8Array(readFileSync(DUPLEX_HVAC))
@@ -2766,7 +2771,7 @@ describe.skipIf(!existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP_FULL) || !exi
     for (const id of stretched) expect(pathOf(again, id)).toEqual(pathOf(edited, id))
   }, 600_000)
 
-  it('Duplex·병원 MEP: 포트 없이 형상으로 이은 연결은 출처가 geometry 이고 방향이 없다. 다른 판본(MEP-2)에서도 같다', async () => {
+  it('Duplex·병원 MEP: 포트 없이 형상으로 이은 연결은 출처가 geometry 이고 방향이 없다. 다른 판본(MEP-2)에서도 같다 [OE-PIP-14#4]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     for (const path of [DUPLEX_MEP_FULL, DUPLEX_MEP_2]) {

@@ -36,7 +36,7 @@ const office = (m = model) => m.storeys[0].spaces[0]
 const equip = (name: string, m = model) => m.storeys.flatMap((s) => s.equipment).find((e) => e.name === name)!
 
 describe('외곽선 없는 물리존 채우기 (OE-MAN-03)', () => {
-  it('외곽선 없는 물리존이 목록에 있고, 그리면 같은 id 에 외곽선이 생기며 물리존 수는 늘지 않는다. 이름·번호·종류는 그대로다', () => {
+  it('외곽선 없는 물리존이 목록에 있고, 그리면 같은 id 에 외곽선이 생기며 물리존 수는 늘지 않는다. 이름·번호·종류는 그대로다 [OE-MAN-03#1,2]', () => {
     expect(outlinelessSpaces(model).map((x) => x.space.id)).toEqual([office().id])
     const before = { count: model.storeys[0].spaces.length, id: office().id, name: office().name, longName: office().longName, kind: office().kind, src: office().kindSource }
     expect(equip('AHU-1').spaceId).toBe(null)
@@ -63,7 +63,7 @@ describe('외곽선 없는 물리존 채우기 (OE-MAN-03)', () => {
     expect(outlineWarnings(model, office().id)).toEqual(['그린 넓이 56.0㎡ 가 BIM 면적 80.0㎡ 와 30% 다릅니다.', '다른 물리존과 겹칩니다: 창고 16.0㎡.'])
   })
 
-  it('저장한 편집 파일을 다시 불러오면 같은 외곽선이 들어가고, GUID 가 바뀐 판본에도 다시 붙는다', () => {
+  it('저장한 편집 파일을 다시 불러오면 같은 외곽선이 들어가고, GUID 가 바뀐 판본에도 다시 붙는다 [OE-MAN-03#5]', () => {
     const base = baselineOf(model)
     drawSpaceFootprint(model, office().id, RING)
     const parsed = parseEditFile(JSON.stringify(exportEdits(model, base, 'mep.ifc')))

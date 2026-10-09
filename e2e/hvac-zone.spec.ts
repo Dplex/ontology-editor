@@ -11,7 +11,7 @@ async function ttlOf(page: Page, out: string): Promise<string> {
   return readFileSync(out, 'utf8')
 }
 
-test('담당 물리존을 골라 공조존을 만들고 담당 설비를 고르면 TTL 에 HVAC_Zone 과 feeds 가 나가며, 경계를 그려 나눠 만들 수 있다', async ({ page }, info) => {
+test('담당 물리존을 골라 공조존을 만들고 담당 설비를 고르면 TTL 에 HVAC_Zone 과 feeds 가 나가며, 경계를 그려 나눠 만들 수 있다 [OE-ZON-01#1] [OE-ZON-02#1]', async ({ page }, info) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.addInitScript(() => {
@@ -65,7 +65,7 @@ test('담당 물리존을 골라 공조존을 만들고 담당 설비를 고르�
   expect(errors).toEqual([])
 })
 
-test('공조존 검증이 공백·중복·설비 미지정을 보이고, 담당 물리존을 빼고 더하면 바로 다시 잰다 (OE-ZON-05 · OE-ZON-04)', async ({ page }) => {
+test('공조존 검증이 공백·중복·설비 미지정을 보이고, 담당 물리존을 빼고 더하면 바로 다시 잰다 (OE-ZON-05 · OE-ZON-04) [OE-ZON-05#1~]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -132,7 +132,7 @@ test('공조존 경계를 다시 그리면 넓이와 담당 물리존 몫이 바
   expect(errors).toEqual([])
 })
 
-test('담당 설비의 흐름이 닿는 물리존이 후보로 보이고, 담당에 말단이 없으면 경고하며, 후보를 더하면 경고가 사라진다 (OE-MAP-02)', async ({ page }) => {
+test('담당 설비의 흐름이 닿는 물리존이 후보로 보이고, 담당에 말단이 없으면 경고하며, 후보를 더하면 경고가 사라진다 (OE-MAP-02) [OE-MAP-02#2,3]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -167,7 +167,7 @@ test('담당 설비의 흐름이 닿는 물리존이 후보로 보이고, 담당
   expect(errors).toEqual([])
 })
 
-test('설비 패널에서 담당 공조존을 더하고 빼며, 흐름이 닿는 물리존으로 새 공조존을 만든다 (OE-ZON-01)', async ({ page }) => {
+test('설비 패널에서 담당 공조존을 더하고 빼며, 흐름이 닿는 물리존으로 새 공조존을 만든다 (OE-ZON-01) [OE-ZON-04#2~]', async ({ page }) => {
   const AHU = '0MEP$Equip$AHU1$0000'
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -211,7 +211,7 @@ test('설비 패널에서 담당 공조존을 더하고 빼며, 흐름이 닿는
   expect(errors).toEqual([])
 })
 
-test('실내기를 담당 공조존 밖으로 옮기면 다시 지정하라는 안내와 Z-06 이 뜬다 (OE-EQP-08)', async ({ page }) => {
+test('실내기를 담당 공조존 밖으로 옮기면 다시 지정하라는 안내와 Z-06 이 뜬다 (OE-EQP-08) [OE-EQP-08#1~]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -236,7 +236,7 @@ test('실내기를 담당 공조존 밖으로 옮기면 다시 지정하라는 �
   expect(errors).toEqual([])
 })
 
-test('물리존 하나를 공조존 둘이 담당하면 물리존 패널에 둘 다 보인다 (OE-MAP-03)', async ({ page }) => {
+test('물리존 하나를 공조존 둘이 담당하면 물리존 패널에 둘 다 보인다 (OE-MAP-03) [OE-MAP-03#1]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -259,7 +259,7 @@ test('물리존 하나를 공조존 둘이 담당하면 물리존 패널에 둘 
   expect(errors).toEqual([])
 })
 
-test('담당 없는 물리존이 생기면 바뀐 내용 리포트에 Z-01 이 실린다 (OE-MAP-04)', async ({ page }) => {
+test('담당 없는 물리존이 생기면 바뀐 내용 리포트에 Z-01 이 실린다 (OE-MAP-04) [OE-MAP-04#1] [OE-ZON-04#1] [OE-ZON-05#1~]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

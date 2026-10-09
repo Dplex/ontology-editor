@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 // two-rooms.ifc 의 1F 복도(102)와 2F 창고(201)의 공간명을 성수처럼 약어 `S.T` 로 바꿔 두 층에 같은 이름을 만든다.
 const FIXTURE = 'src/lib/ifc/fixtures/two-rooms.ifc'
 
-test('같은 공간명의 방을 표에서 한 번에 같은 종류로 바꾸고, 리포트에 남으며, Ctrl+Z 한 번에 돌아온다', async ({ page }) => {
+test('같은 공간명의 방을 표에서 한 번에 같은 종류로 바꾸고, 리포트에 남으며, Ctrl+Z 한 번에 돌아온다 [OE-SPC-17#2]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

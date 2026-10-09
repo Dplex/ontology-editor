@@ -42,7 +42,7 @@ describe('방 종류 일괄 수정 (OE-SPC-17)', () => {
     expect(sameNameSpaces(model, byNumber('101').id)).toHaveLength(1)
   })
 
-  it('같은 공간명의 방을 한 번에 같은 종류로 바꾸고, TTL 의 Brick 클래스가 바뀌며, 되돌리면 한 번에 돌아온다', () => {
+  it('같은 공간명의 방을 한 번에 같은 종류로 바꾸고, TTL 의 Brick 클래스가 바뀌며, 되돌리면 한 번에 돌아온다 [OE-SPC-17#2]', () => {
     const group = sameNameSpaces(model, byNumber('102').id)
     expect(group.map((s) => s.kind ?? null)).toEqual([null, 'storage'])
     const snap: Snapshot = { kind: 'many', parts: group.map((s) => snapshotSpace(model, s.id)!) }

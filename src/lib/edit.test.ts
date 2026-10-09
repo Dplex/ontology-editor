@@ -779,7 +779,7 @@ describe('물리존 꼭짓점 넣기·지우기, 외곽선 그리기', () => {
     expect(deleteSpaceVertex(model, office.id, 0)).toBeNull()
   })
 
-  it('외곽선이 없던 물리존에 찍은 점으로 외곽선을 주고 소속을 다시 잰다', () => {
+  it('외곽선이 없던 물리존에 찍은 점으로 외곽선을 주고 소속을 다시 잰다 [OE-MAN-03#3~]', () => {
     const office = model.storeys[0].spaces[0]
     office.footprint = []
     office.areaM2 = 0

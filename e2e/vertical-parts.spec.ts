@@ -8,7 +8,7 @@ const CLINIC = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc'
 const storeyBox = (page: Page) => page.getByRole('combobox', { name: '보일 층' })
 const tab = (page: Page, name: '3D' | '평면도') => page.getByRole('group', { name: '보기' }).getByRole('button', { name }).click()
 
-test('병원 건축: 계단 조각을 평면도·3D 에서 고르면 읽기 전용 패널이 뜨고, 옮기기·지우기는 막히며, 다시 누르면 아래 계단실이 골라진다', async ({ page }) => {
+test('병원 건축: 계단 조각을 평면도·3D 에서 고르면 읽기 전용 패널이 뜨고, 옮기기·지우기는 막히며, 다시 누르면 아래 계단실이 골라진다 [OE-ML-05#1~,2] [OE-OBJ-14#1~,2]', async ({ page }) => {
   test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)
   const errors: string[] = []

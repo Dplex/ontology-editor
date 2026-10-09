@@ -47,7 +47,7 @@ function building(): Model {
 const partsOf = (m: Model, id: string) => verticalObjects(m).find((o) => o.id === id)!.parts.map((p) => p.part)
 
 describe('수직 관통 오브젝트 전체 이동 (OE-ML-07)', () => {
-  it('모든 층 조각의 형상·진입·종료 지점에 같은 이동량을 더하고 높이는 그대로 둔다 — 층 사이 상대 위치가 같다', () => {
+  it('모든 층 조각의 형상·진입·종료 지점에 같은 이동량을 더하고 높이는 그대로 둔다 — 층 사이 상대 위치가 같다 [OE-ML-07#1] [OE-OBJ-14#3~] [OE-ML-02#5~]', () => {
     const m = building()
     const [low0, high0] = partsOf(m, 'st').map((p) => structuredClone(p))
     expect(moveVertical(m, 'st', [0.5, -0.25])).toBe(true)
@@ -66,14 +66,14 @@ describe('수직 관통 오브젝트 전체 이동 (OE-ML-07)', () => {
     expect(features.find((f) => f.id === 'st2@1F')?.properties?.edited).toBeUndefined()
   })
 
-  it('옮긴 자리의 물리존이 연관 물리존이 된다 — 저장하지 않고 짚으니 낡은 연결이 남지 않는다', () => {
+  it('옮긴 자리의 물리존이 연관 물리존이 된다 — 저장하지 않고 짚으니 낡은 연결이 남지 않는다 [OE-ML-19#6~]', () => {
     const m = building()
     expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'st')).toMatchObject({ a: 'stair1', b: 'stair2' })
     moveVertical(m, 'st', [3, 0])
     expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'st')).toMatchObject({ a: 'hall1', b: 'hall2' })
   })
 
-  it('이동량이 0 이거나 숫자가 아니면 적용하지 않는다', () => {
+  it('이동량이 0 이거나 숫자가 아니면 적용하지 않는다 [OE-ML-07#4~]', () => {
     const m = building()
     const before = structuredClone(partsOf(m, 'st'))
     expect(moveVertical(m, 'st', [0, 0])).toBe(false)
@@ -82,7 +82,7 @@ describe('수직 관통 오브젝트 전체 이동 (OE-ML-07)', () => {
     expect(partsOf(m, 'st')).toEqual(before)
   })
 
-  it('V-03: 연 때보다 벽과 더 겹치거나 물리존 경계를 넘은 층을 적고, 연 때 자리에서는 적지 않는다', () => {
+  it('V-03: 연 때보다 벽과 더 겹치거나 물리존 경계를 넘은 층을 적고, 연 때 자리에서는 적지 않는다 [OE-ML-07#4~]', () => {
     const m = building()
     const base = baselineOf(m)
     const original = base.verticals!.get('st')!.footprints
@@ -100,7 +100,7 @@ describe('수직 관통 오브젝트 전체 이동 (OE-ML-07)', () => {
 })
 
 describe('수직 관통 오브젝트 삭제 (OE-ML-09)', () => {
-  it('지우기 전 영향(층·조각·이은 물리존)을 보이고, 지우면 모든 층 조각이 빠지되 물리존은 그대로다', () => {
+  it('지우기 전 영향(층·조각·이은 물리존)을 보이고, 지우면 모든 층 조각이 빠지되 물리존은 그대로다 [OE-ML-09#1~,2]', () => {
     const m = building()
     expect(verticalImpact(m, 'st')).toEqual({ storeys: ['1F', '2F'], parts: 2, link: { from: 'stair1', to: 'stair2' } })
     expect(deleteVertical(m, 'st')).toBe(true)
@@ -109,7 +109,7 @@ describe('수직 관통 오브젝트 삭제 (OE-ML-09)', () => {
     expect(deleteVertical(m, 'st')).toBe(false)
   })
 
-  it('지운 계단을 가리키는 GeoJSON 참조가 남지 않는다 — 계단실은 겹침 추정(calc)으로 다시 이어진다', () => {
+  it('지운 계단을 가리키는 GeoJSON 참조가 남지 않는다 — 계단실은 겹침 추정(calc)으로 다시 이어진다 [OE-ML-09#2] [OE-EQP-16#3~] [OE-ML-19#6~]', () => {
     const m = building()
     deleteVertical(m, 'st')
     const features = modelToGeoJSON(m).flatMap((f) => f.collection.features)
@@ -121,7 +121,7 @@ describe('수직 관통 오브젝트 삭제 (OE-ML-09)', () => {
 })
 
 describe('되돌리기·편집 파일 (OE-ML-07·09)', () => {
-  it('여러 층의 옮기기·지우기를 스냅샷 하나로 되돌린다', () => {
+  it('여러 층의 옮기기·지우기를 스냅샷 하나로 되돌린다 [OE-ML-01#9~] [OE-ML-07#5~] [OE-ML-09#5~]', () => {
     const m = building()
     const before = structuredClone(m.storeys.map((s) => s.verticalParts))
     const snap = snapshotVerticals(m)
@@ -131,7 +131,7 @@ describe('되돌리기·편집 파일 (OE-ML-07·09)', () => {
     expect(m.storeys.map((s) => s.verticalParts)).toEqual(before)
   })
 
-  it('연 때와 견준 이동량·지움을 편집 파일에 적고, 새로 연 같은 BIM 에 얹으면 같은 모습이며 지운 계단은 되살아나지 않는다', () => {
+  it('연 때와 견준 이동량·지움을 편집 파일에 적고, 새로 연 같은 BIM 에 얹으면 같은 모습이며 지운 계단은 되살아나지 않는다 [OE-ML-09#5~] [OE-ML-07#5~]', () => {
     const a = building()
     const base = baselineOf(a)
     moveVertical(a, 'st', [0.4, 0])
@@ -174,7 +174,7 @@ describe('되돌리기·편집 파일 (OE-ML-07·09)', () => {
 })
 
 describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () => {
-  it('한 층 조각만 옮기면 그 층 형상·지점만 가고 다른 층은 그대로다', () => {
+  it('한 층 조각만 옮기면 그 층 형상·지점만 가고 다른 층은 그대로다 [OE-ML-07#2~]', () => {
     const m = building()
     const [low0, high0] = partsOf(m, 'st').map((p) => structuredClone(p))
     expect(movePart(m, 'st@1F', [0, 0.5])).toBe(true)
@@ -186,7 +186,7 @@ describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () =
     expect(movePart(m, 'st@3F', [1, 0])).toBe(false)
   })
 
-  it('꼭짓점을 옮겨 형상(크기)을 바꾸고, 변이 교차하는 자리는 이유와 함께 되돌린다', () => {
+  it('꼭짓점을 옮겨 형상(크기)을 바꾸고, 변이 교차하는 자리는 이유와 함께 되돌린다 [OE-ML-07#2~,4~]', () => {
     const m = building()
     const before = structuredClone(partsOf(m, 'st')[0].footprint)
     const far = before.reduce((a, p) => (p[1] > a[1] ? p : a))
@@ -202,7 +202,7 @@ describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () =
     expect(setPartVertex(m, 'st@1F', 99, [0, 0])).toBe(false)
   })
 
-  it('진입·종료 지점을 x·y 로 옮기고 높이는 그대로 둔다. 지점이 없는 조각이면 하지 않는다', () => {
+  it('진입·종료 지점을 x·y 로 옮기고 높이는 그대로 둔다. 지점이 없는 조각이면 하지 않는다 [OE-ML-07#2~]', () => {
     const m = building()
     const z = partsOf(m, 'st')[1].exit![2]
     expect(setPartPoint(m, 'st@2F', 'exit', [0.2, 3.1])).toBe(true)
@@ -213,7 +213,7 @@ describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () =
     expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'st')).toMatchObject({ a: 'stair1', b: 'hall2' })
   })
 
-  it('층별로 고친 것은 편집 파일에 조각을 통째로 적고(이동량 대신), 새로 연 BIM 에 얹으면 같다', () => {
+  it('층별로 고친 것은 편집 파일에 조각을 통째로 적고(이동량 대신), 새로 연 BIM 에 얹으면 같다 [OE-ML-07#5~] [OE-ML-02#5~]', () => {
     const a = building()
     const base = baselineOf(a)
     moveVertical(a, 'st', [0.3, 0])

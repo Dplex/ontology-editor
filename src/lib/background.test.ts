@@ -12,7 +12,7 @@ describe('평면도 배경 이미지 (OE-MAN-02)', () => {
     expect(initialBackground(img, null)).toMatchObject({ scale: 0.01, origin: [0, 0] })
   })
 
-  it('두 점을 찍어 실제 거리를 넣으면 첫 점을 두고 스케일이 맞는다', () => {
+  it('두 점을 찍어 실제 거리를 넣으면 첫 점을 두고 스케일이 맞는다 [OE-MAN-02#1~]', () => {
     const bg = initialBackground(img, { x0: 0, x1: 20, y0: 0, y1: 8 })
     // 이미지에서 (2,4)~(6,4) 로 4m 인 선이 실제로는 10m 다.
     const fixed = calibrateScale(bg, [2, 4], [6, 4], 10)!
@@ -25,7 +25,7 @@ describe('평면도 배경 이미지 (OE-MAN-02)', () => {
     expect(calibrateScale(bg, [2, 4], [6, 4], Number.NaN)).toBeNull()
   })
 
-  it('한 점을 찍어 실제 좌표를 넣으면 그만큼 옮긴다. 스케일은 그대로다', () => {
+  it('한 점을 찍어 실제 좌표를 넣으면 그만큼 옮긴다. 스케일은 그대로다 [OE-MAN-02#1~]', () => {
     const bg = initialBackground(img, { x0: 0, x1: 20, y0: 0, y1: 8 })
     const moved = anchorBackground(bg, [3, 5], [0, 0])
     expect(moved.origin).toEqual([-3, 3])
