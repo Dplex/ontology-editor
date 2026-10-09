@@ -73,6 +73,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | b63f3e6 | [OE-MAP-03·05·06 N:M 표시·서비스 영역·재계산 시험](next/pr/oe-map-03-05-06.md) | [#160](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/160) [#162](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/162) [#163](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/163) | 공조존 PR 들 다음 |
 | 9f137ad | [OE-MAP-04 리포트의 Z-01](next/pr/oe-map-04.md) | [#161](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/161) | ZON-05 다음 |
 | a74525a | [OE-ML-19 겹침 후보 상호 일치·출처·병원 기준선 + ADR-0032](next/pr/oe-ml-19.md) | 새 이슈(옮길 때 "[후속 #350]" 로 생성) | 로봇 GeoJSON 문서·PIP-11 다음 · `needs-pm`(#237 세션 확정) |
+| 4893c23 | [OE-ML-02 BIM 계단 → 수직 관통 오브젝트(층별 조각) · 계단이 이은 물리존 우선 + ADR-0033](next/pr/oe-ml-02.md) | Refs [#238](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/238) | ML-19 다음 |
 
 ## 지금 상태 (2026-10-09 09:40 확인)
 
@@ -154,7 +155,7 @@ PRD 는 충분히 자세하다(E18 티켓 19개 `prd-done`, 수용 기준 100여
 
 1. ~~**ADR-0032 E18 을 이 repo 에서 어디까지 하나** + **ML-19 겹침 후보 규칙**~~ — a74525a(숫자 그대로: 병원 6/7 · 성수 26/32 · Office_A 4/5 · dental 6/7, 모호 0. 세션 확정 대체는 #237 `needs-pm`) — `src/lib/vertical.ts` 를 티켓대로 고친다: 이웃 층·같은 종류·유효 면적, 겹친 면적 ÷ 작은 면적 **> 50%**(정확히 50% 는 아님), **양쪽이 서로를 최고 후보로 고를 때만** 연결, 동률·다대일은 "모호 후보" 로 두고 출력하지 않음, GeoJSON 에 추정 출처(`verticalConnectsSource` 류), 병원 고정 기준선(대상 ID·기대 연결·출처, OE-EQP-16 "7개 중 6개 이상").
    - 실측(상호 일치 규칙을 얹어 본 값): 병원 건축 수직 공간 7 · 지금 연결 6 · 아래층 쪽 후보 짝 3 · 상호 일치 3 · 동률 0 → **6 그대로**. 성수 건축 32 · 26 · 24 · 24 · 0. Office_A 5 · 4 · 2 · 2 · 0. 즉 지금 샘플에서는 숫자가 안 바뀌고, 규칙·출처·모호 처리와 기준선이 새로 생긴다.
-2. **ML-02 수직 관통 오브젝트 데이터 모델** — 부모 ID·종류·출처·관통 층·층별 형상·진입/종료 지점·연관 물리존 ID. 계단은 IfcStair 로 읽는다(샘플 7개 파일 모두 있음: Duplex 2 · 병원 3 · 성수 35 · Office_A 2 · FZK 1 · Institute 4 · dental 3). EL·ES 는 IfcTransportElement 가 샘플에 0 이라 이름 사전 설비에서 만든다. 물리존(계단실·승강로)은 그대로 두고 ID 로 잇는다.
+2. ~~**ML-02 수직 관통 오브젝트 데이터 모델**~~ — 4893c23 은 계단만(IfcStair → 층별 조각, 성수 35 중 32, 계단이 이은 짝이 겹침만의 짝을 모두 품음). **남은 2b: ES**(이름 사전 설비 + 형상 높이로 시작·끝 층), **2c: EL**(정차 층 #181 대기 — 형상만). 원래 메모: — 부모 ID·종류·출처·관통 층·층별 형상·진입/종료 지점·연관 물리존 ID. 계단은 IfcStair 로 읽는다(샘플 7개 파일 모두 있음: Duplex 2 · 병원 3 · 성수 35 · Office_A 2 · FZK 1 · Institute 4 · dental 3). EL·ES 는 IfcTransportElement 가 샘플에 0 이라 이름 사전 설비에서 만든다. 물리존(계단실·승강로)은 그대로 두고 ID 로 잇는다.
 3. **ML-05 층 편집 화면 읽기 전용** — 층별 형상·진입/종료 지점 표시, 끌기·지우기 막고 [다중층 뷰에서 편집] 안내(EQP-07 의 잠금과 같은 길).
 4. **다중층 뷰 화면(ML-01 의 보기 부분)** — 층 범위 고르기, 진입 경로 ①② (③ 배관 작성 중 전환은 PIP-15 와 같이).
 5. **ML-06~09 생성·이동·구간 변경·삭제**, ML-12~14 라이저·층별 분기·층간 오프셋, ML-18 좌표 조건.
