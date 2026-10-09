@@ -29,6 +29,8 @@ test.beforeAll(async () => {
 test.beforeEach(() => {
   rmSync(join(root, '.layouts'), { recursive: true, force: true })
   rmSync(join(root, '.log.jsonl'), { force: true })
+  rmSync(join(root, '.drafts'), { recursive: true, force: true })
+  rmSync(join(root, '.locks'), { recursive: true, force: true })
 })
 test.afterAll(() => {
   server.close()
@@ -154,27 +156,29 @@ test('보기 전용(Viewer)은 편집에 들어가지 못하고, 서버도 저�
 
 test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, [새로고침] 하면 새 레이아웃이 얹히고 배너가 사라진다. 알림에 반영이 쌓인다 [OE-WF-14#1] [OE-WF-15#1] [OE-WF-16#1~] [OE-WF-17#1~]', async ({ page, browser }) => {
   test.setTimeout(120_000)
-  const open = async (p: Page, who: string) => {
+  const open = async (p: Page, who: string, edit = true) => {
     await serve(p)
     await p.goto('/')
     await p.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
     await expect(p.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
     await p.getByLabel('사용자').selectOption(who)
-    await p.getByRole('button', { name: '편집', exact: true }).click()
+    if (edit) await p.getByRole('button', { name: '편집', exact: true }).click()
   }
-  // B 가 먼저 열어 둔다(아직 반영한 버전이 없다).
+  // B 가 먼저 보기로 열어 둔다(아직 반영한 버전이 없다). 편집에 들어가면 층을 잠가 A 가 못 고친다(ADR-0039).
   const other = await browser.newPage()
-  await open(other, '관리자')
-  const before = await light(other).inputValue()
-  expect(before).not.toBe('7.5')
-  // A 가 고쳐서 구축(v1).
+  await open(other, '관리자', false)
+  // A 가 고쳐서 구축(v1)하고 편집을 끝낸다.
   await open(page, '편집자')
+  const before = await light(page).inputValue()
+  expect(before).not.toBe('7.5')
   await editLight(page, '7.5')
   await page.locator('.edit-bar').getByRole('button', { name: '구축하기' }).click()
   await page.locator('dialog.publish-dialog').getByRole('button', { name: '구축하기' }).click()
   await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
   // 반영한 사람에게는 배너가 없다.
   await expect(page.getByTestId('layout-banner')).toHaveCount(0)
+  await page.locator('.edit-bar').getByRole('button', { name: '편집 종료' }).click()
+  await other.getByRole('button', { name: '편집', exact: true }).click()
 
   // B: 창으로 돌아오면(또는 30초마다) 서버를 보고 배너를 띄운다. 화면은 그대로다.
   await other.evaluate(() => window.dispatchEvent(new Event('focus')))
@@ -192,5 +196,49 @@ test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, 
   await expect(banner).toHaveCount(0, { timeout: 30_000 })
   await expect(light(other)).toHaveValue('7.5')
   await expect(other.getByTestId('notice-count')).toHaveCount(0)
+  await other.close()
+})
+
+test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 편집하고, 편집 중인 층은 잠기며, 폐기하면 반영된 레이아웃으로 돌아간다 [OE-WF-01#2] [OE-WF-02#1] [OE-WF-04#1~] [OE-WF-05#1] [OE-COM-03#1] [OE-COM-03#2] [OE-COM-05#1~] [OE-COM-06#1]', async ({ page, browser }) => {
+  test.setTimeout(120_000)
+  const open = async (p: Page, who: string, edit = true) => {
+    await serve(p)
+    await p.goto('/')
+    await p.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
+    await expect(p.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+    await p.getByLabel('사용자').selectOption(who)
+    if (edit) await p.getByRole('button', { name: '편집', exact: true }).click()
+  }
+  // A: 고치고 [임시 저장] → 서버에 1F 조각. 반영하지 않았으니 버전은 없다.
+  await open(page, '편집자')
+  const before = await light(page).inputValue()
+  await editLight(page, '7.5')
+  await page.locator('.edit-bar').getByRole('button', { name: '임시 저장' }).click()
+  // mep.ifc 의 1F 층 id.
+  await expect.poll(async () => Object.keys(JSON.parse(await (await fetch(`${base}/__drafts?key=${encodeURIComponent(PATH)}`)).text()))).toEqual(['0MEP$Storey$1F$00000'])
+  expect(JSON.parse(await fromServer({}))).toEqual({ current: null, versions: [] })
+
+  // B: A 가 편집 중이라 같은 층에 못 들어간다.
+  const other = await browser.newPage()
+  await open(other, '관리자')
+  await expect(other.locator('.edit-notice')).toContainText('편집자님이')
+  if (process.env.SHOT_LOCK) await other.screenshot({ path: process.env.SHOT_LOCK })
+  await expect(other.locator('.edit-bar')).toHaveCount(0)
+
+  // A 가 편집을 끝내면(임시 저장 뒤라 묻지 않는다) 잠금이 풀리고 B 가 들어가 A 의 임시 저장본을 이어 편집한다.
+  await page.locator('.edit-bar').getByRole('button', { name: '편집 종료' }).click()
+  await expect(page.locator('.edit-bar')).toHaveCount(0)
+  await other.getByRole('button', { name: '편집', exact: true }).click()
+  await expect(other.locator('.edit-bar')).toBeVisible()
+  await expect(light(other)).toHaveValue('7.5')
+  if (process.env.SHOT_DRAFT) await other.locator('.edit-bar').screenshot({ path: process.env.SHOT_DRAFT })
+
+  // B: [임시 저장본 폐기] → 한 번 더 묻고 → 반영된 레이아웃(아직 없으니 BIM)으로. 서버의 그 층 조각도 지워진다.
+  const bar = other.locator('.edit-bar')
+  await bar.getByRole('button', { name: '임시 저장본 폐기' }).click()
+  await bar.getByRole('button', { name: '폐기', exact: true }).click()
+  await expect(light(other)).toHaveValue(before)
+  await expect(bar.getByRole('button', { name: '임시 저장본 폐기' })).toHaveCount(0)
+  await expect.poll(async () => Object.keys(JSON.parse(await (await fetch(`${base}/__drafts?key=${encodeURIComponent(PATH)}`)).text())).filter((k) => k !== '*')).toEqual([])
   await other.close()
 })

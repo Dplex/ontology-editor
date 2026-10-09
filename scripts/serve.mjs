@@ -6,7 +6,8 @@
 // 그래서 서버가 할 일은 넷이다. 파일을 내주고, 살아 있다고 답하고(/healthz), data/ 의 샘플 목록과
 // 등급 칩을 내주고(/__data/, dev 서버와 같은 src/server/data-catalog.ts 를 `npm run build:server` 로
 // 묶은 판), [편집 저장] 한 편집을 받아 두고(PUT /__data/__edits, src/server/saved-edits.ts), 반영한 레이아웃을 버전으로 둔다
-// (/__data/__layouts, src/server/layouts.ts), 시스템 로그를 쌓는다(POST /__data/__log). 쓰기는 고른 사람(data/.users.json)이
+// (/__data/__layouts, src/server/layouts.ts), 시스템 로그를 쌓고(POST /__data/__log), 층마다 임시 저장본·편집 잠금을 둔다
+// (/__data/__drafts·__locks, src/server/floor-state.ts). 쓰기는 고른 사람(data/.users.json)이
 // 편집할 수 있는 역할일 때만 받는다(src/server/users.ts).
 // 이 모듈은 dt 플랫폼과 따로라 정문(8000)은 거치지 않는다.
 //
@@ -71,7 +72,8 @@ const server = createServer((req, res) => {
 
   // 쓰기는 8084 에 남기는 편집(/__data/__edits, src/server/saved-edits.ts)과 반영 버전(/__data/__layouts, src/server/layouts.ts)뿐이다.
   // 나머지는 읽기만 받는다.
-  const writable = (req.method === 'PUT' && path === '/__data/__edits') || ((req.method === 'PUT' || req.method === 'POST') && path === '/__data/__layouts') || (req.method === 'POST' && path === '/__data/__log')
+  const writable = (req.method === 'PUT' && path === '/__data/__edits') || ((req.method === 'PUT' || req.method === 'POST') && path === '/__data/__layouts') || (req.method === 'POST' && path === '/__data/__log') ||
+    ((req.method === 'PUT' || req.method === 'DELETE') && (path === '/__data/__drafts' || path === '/__data/__locks'))
   if (req.method !== 'GET' && req.method !== 'HEAD' && !writable) {
     res.writeHead(405, { Allow: 'GET, HEAD' }).end()
     return done(405)

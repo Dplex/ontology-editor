@@ -20,6 +20,7 @@ import { savedEdits } from './saved-edits'
 import { layouts } from './layouts'
 import { users as userStore } from './users'
 import { activityLog } from './activity-log'
+import { floorState } from './floor-state'
 
 type Profiled = { profile: Profile } | { error: string }
 
@@ -124,12 +125,16 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
   })
   let lastWriter = ''
   const layoutStore = layouts(root, { writer: people.writer, onVersion: (e) => log.write(e) })
+  const floors = floorState(root, people.writer)
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const [rawPath, query] = (req.url ?? '/').split('?')
     const path = decodeURIComponent(rawPath).replace(/^\/+/, '')
     // 8084 에 남긴 편집(saved-edits.ts). 쓰기(PUT)를 받는 곳은 여기뿐이다.
     if (path === '__users') return people.handle(req, res)
+    // 층마다의 임시 저장본·편집 잠금(floor-state.ts).
+    if (path === '__drafts') return floors.drafts(req, res, query ?? '')
+    if (path === '__locks') return floors.locks(req, res, query ?? '')
     if (path === '__log') return log.handle(req, res, query ?? '', () => people.writer(req, res)?.name ?? null)
     if (path === '__edits') {
       if (req.method === 'PUT') {
