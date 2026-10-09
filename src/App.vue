@@ -6620,6 +6620,49 @@ function refreshSavedSets() {
 refreshSavedSets()
 const savedFor = (path: string) => savedSets.value.find((s) => s.key === path) ?? null
 
+// --- 모드 자동 분기 (OE-UI-01·02·03, ADR-0037) ------------------------------------------------------
+// 반영한 버전(온톨로지)이 있는 건물은 운영 편집, 없으면 초기 구축이다. 사람이 모드를 고르지 않는다 — data/ 목록의 [초기 구축]·[운영 편집] 은 그 판정대로
+// 하나만 켜진다. 층마다는 반영된 버전의 공간 계층(tree.json)에 그 층이 있는지로 가른다.
+type Published = { key: string; paths: string[]; current: number; at: string; by: string }
+const publishedSets = ref<Published[]>([])
+function refreshPublished() {
+  fetch('./__data/__layouts')
+    .then((r) => (r.ok ? r.json() : []))
+    .then((list) => (publishedSets.value = Array.isArray(list) ? list : []))
+    .catch(() => {})
+}
+refreshPublished()
+const publishedFor = (path: string) => publishedSets.value.find((s) => s.key === path) ?? null
+/** 목록에서 고른 모드로 연다. 열고 나서 편집으로 들어간다(그 모드는 반영된 버전이 있는지로 이미 정해져 있다). */
+function openWithMode(path: string) {
+  void openMany([{ name: baseName(path), read: () => fetchData(path), dataPath: path }], 'open').then(() => {
+    openedDataPath.value = fileName.value === baseName(path) ? path : null
+    if (model.value) mode.value = 'edit'
+  })
+}
+/** 반영된 버전의 공간 계층에 있는 층 id. 반영 전이거나 서버가 없으면 null. */
+const ontologyFloors = shallowRef<Set<string> | null>(null)
+/** 지금 층의 모드. 한 층을 보면 그 층, 모든 층이면 한 층이라도 온톨로지가 있으면 운영 편집이다. */
+const editKind = computed<'build' | 'operate'>(() => {
+  const floors = ontologyFloors.value
+  if (!floors) return 'build'
+  return viewStorey.value ? (floors.has(viewStorey.value) ? 'operate' : 'build') : floors.size ? 'operate' : 'build'
+})
+
+// 주소로 열기(OE-UI-01): `?open=a.ifc|b.ifc&storey=<층 id>&mode=edit`. DT 의 [레이아웃 에디터] 가 보고 있던 사이트·층을 넘기는 자리다(D-INT 전에는 주소).
+{
+  const q = new URLSearchParams(location.search)
+  const paths = (q.get('open') ?? '').split('|').filter(Boolean)
+  if (paths.length)
+    void nextTick(() =>
+      openMany(paths.map((path) => ({ name: baseName(path), read: () => fetchData(path), dataPath: path })), 'open').then(() => {
+        const st = q.get('storey')
+        if (st && model.value?.storeys.some((x) => x.id === st)) viewStorey.value = st
+        if (q.get('mode') === 'edit' && model.value) mode.value = 'edit'
+      }),
+    )
+}
+
 /**
  * data/ 에서 연 건물에 서버의 편집을 얹는다. 반영된 버전(ADR-0037)이 있으면 그 레이아웃(버전의 편집 파일)이 시작점이다(OE-WF-17 "다시 들어오면 새
  * 레이아웃을 적용"). 8084 저장본이 그 버전보다 나중에 저장된 것이면 저장본을 얹는다 — 반영 뒤 이어 고친 것이다. 둘 다 BIM 을 기준으로 한 편집 파일이라
@@ -6659,7 +6702,17 @@ async function loadServerEdits() {
   let file: EditFile | null = null
   let from = ''
   publishedFile.value = null
-  if (cur) publishedFile.value = await getFile(layoutsUrl({ key, v: String(cur.version), file: 'edits.json' }))
+  ontologyFloors.value = null
+  if (cur) {
+    publishedFile.value = await getFile(layoutsUrl({ key, v: String(cur.version), file: 'edits.json' }))
+    try {
+      const r = await fetch(layoutsUrl({ key, v: String(cur.version), file: 'tree.json' }))
+      const tree = r.ok ? ((await r.json()) as { storeys?: { id: string }[] }) : null
+      ontologyFloors.value = new Set((tree?.storeys ?? []).map((st) => st.id))
+    } catch {
+      ontologyFloors.value = new Set()
+    }
+  }
   if (cur && (!saved || saved.savedAt <= cur.at)) {
     file = publishedFile.value
     from = `반영된 레이아웃 v${cur.version} · ${when(cur.at)}`
@@ -7657,7 +7710,10 @@ const ACTIVITY_LABEL: Record<string, string> = { 'edit-start': '편집 시작', 
 
 /** 이 화면이 얹은 반영 버전. 반영 전이면 null. */
 const loadedVersion = ref<number | null>(null)
-watch(baseline, () => (loadedVersion.value = null))
+watch(baseline, () => {
+  loadedVersion.value = null
+  ontologyFloors.value = null
+})
 /** 서버의 현재 버전이 이 화면보다 새것이면 그 버전. */
 const newerLayout = computed(() => {
   const st = layoutState.value
@@ -7826,6 +7882,8 @@ async function publishLayout(by: string) {
     committed()
     publishAsk.value = false
     loadedVersion.value = body.version
+    ontologyFloors.value = new Set(m.storeys.map((st) => st.id))
+    refreshPublished()
     await refreshLayouts()
     markDone('build')
     // 앞서 남은 편집 경고(천장 모드 안내 등)가 결과 줄을 가리지 않게 지운다.
@@ -7974,7 +8032,29 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
                 <span v-if="savedFor(f.path)" class="saved-chip" :title="`8084 에 저장된 편집 ${savedFor(f.path)!.count}건 — 열면 얹어서 보입니다`">
                   저장 {{ savedFor(f.path)!.count }}건 · {{ when(savedFor(f.path)!.savedAt) }}
                 </span>
+                <span v-if="!model && publishedFor(f.path)" class="saved-chip published-chip" :title="`${publishedFor(f.path)!.by} · ${when(publishedFor(f.path)!.at)}`">반영 v{{ publishedFor(f.path)!.current }}</span>
                 <button type="button" class="ghost" :disabled="busy" @click="openData(f.path)">열기</button>
+                <!-- 모드 버튼(OE-UI-03). 반영된 온톨로지가 있는지로 하나만 켜진다. -->
+                <template v-if="!model">
+                  <button
+                    type="button"
+                    class="ghost"
+                    :disabled="busy || !!publishedFor(f.path)"
+                    :title="publishedFor(f.path) ? `반영된 온톨로지(v${publishedFor(f.path)!.current})가 있어 운영 편집으로 엽니다` : '온톨로지가 없는 건물을 BIM 에서 처음 만듭니다'"
+                    @click="openWithMode(f.path)"
+                  >
+                    초기 구축
+                  </button>
+                  <button
+                    type="button"
+                    class="ghost"
+                    :disabled="busy || !publishedFor(f.path)"
+                    :title="publishedFor(f.path) ? `반영된 v${publishedFor(f.path)!.current} 에서 이어 고칩니다` : '반영된 온톨로지가 없습니다. 초기 구축으로 먼저 만듭니다'"
+                    @click="openWithMode(f.path)"
+                  >
+                    운영 편집
+                  </button>
+                </template>
                 <button v-if="canAppend" type="button" class="ghost" :disabled="busy" @click="appendData(f.path)">덧붙이기</button>
               </td>
             </tr>
@@ -8089,6 +8169,9 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
           <button type="button" class="ghost primary-action" @click="reloadLayout">새로고침</button>
         </div>
         <div v-if="editing" class="edit-bar" role="status">
+          <span class="mode-chip" :class="editKind" data-testid="edit-kind" :title="editKind === 'operate' ? '반영된 온톨로지가 있는 층을 고칩니다(OE-UI-02)' : '온톨로지가 없는 층을 처음 만듭니다(OE-UI-02)'">
+            {{ editKind === 'operate' ? `운영 편집${loadedVersion ? ` · v${loadedVersion}` : ''}` : '초기 구축' }}
+          </span>
           <span class="state"><b>편집 중</b> · <a href="#changes" class="link">바뀐 것 <Roll :value="changeCount" :count-up="false" />건</a></span>
           <button
             type="button"
