@@ -895,10 +895,24 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   // 수직 관통 오브젝트(OE-ML-07·09). 옮긴 거리를 다시 더하거나 다시 지운다 — 지운 계단은 다시 열어도 되살아나지 않는다.
   for (const row of file.verticals ?? []) {
     let done = row.removed ? deleteVertical(model, row.id) : row.move ? moveVertical(model, row.id, row.move) : false
-    // 층별로 고친 것은 층마다 끝 모양을 그대로 얹는다. 그 층이나 그 층 조각이 없으면 못 찾은 층으로 센다.
+    // 층별로 고친 것은 층마다 끝 모양을 그대로 얹는다. 구간을 바꿨으면(OE-ML-08) 없던 층의 조각을 만들고, 적힌 층 밖의 조각은 걷는다.
+    // 그 층이 없으면 못 찾은 층으로 센다.
+    const template = model.storeys.flatMap((s) => s.verticalParts ?? []).find((x) => x.parentId === row.id)
+    if (row.parts && template) {
+      const keep = new Set(row.parts.map((p) => resolve(p.storeyId)))
+      for (const s of model.storeys) {
+        if (keep.has(s.id) || !s.verticalParts?.some((x) => x.parentId === row.id)) continue
+        s.verticalParts = s.verticalParts.filter((x) => x.parentId !== row.id)
+        if (!s.verticalParts.length) delete s.verticalParts
+      }
+    }
     for (const p of row.parts ?? []) {
       const storey = model.storeys.find((s) => s.id === resolve(p.storeyId))
-      const part = storey?.verticalParts?.find((x) => x.parentId === row.id)
+      let part = storey?.verticalParts?.find((x) => x.parentId === row.id)
+      if (storey && !part && template) {
+        part = { parentId: row.id, kind: template.kind, name: template.name, source: template.source, footprint: [], entry: null, exit: null }
+        storey.verticalParts = [...(storey.verticalParts ?? []), part]
+      }
       if (!part) {
         result.missing.storeys++
         continue

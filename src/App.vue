@@ -183,7 +183,7 @@ import {
 } from './lib/space-object'
 import type { Object3D } from 'three'
 import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL } from './lib/vertical-object'
-import { deleteVertical, movePart, moveVertical, setPartPoint, setPartVertex, verticalCollisions, verticalImpact } from './lib/vertical-edit'
+import { deleteVertical, movePart, moveVertical, planRange, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -1478,7 +1478,7 @@ function onKey(e: KeyboardEvent) {
   // 다중층 뷰는 아직 보기만 한다(OE-ML-01). 편집 키는 무엇을 막았는지 알린다.
   // 고른 수직 관통 오브젝트의 방향키(전체 이동)와 Delete(지우기 확인)는 다중층 뷰의 편집이다(OE-ML-07·09).
   // 되돌리기·다시 하기는 다중층 뷰의 편집도 되돌린다.
-  const verticalKey = (!!selectedVertical.value && (shortcut.id === 'nudge' || shortcut.id === 'vertexDelete')) || shortcut.id === 'undo' || shortcut.id === 'redo'
+  const verticalKey = (!!selectedVertical.value && (shortcut.id === 'nudge' || shortcut.id === 'vertexDelete')) || shortcut.id === 'undo' || shortcut.id === 'redo' || (!!drawing.value && shortcut.id === 'drawFinish')
   if (shortcut.edit && multiView.value && !verticalKey) {
     editNotice.value = MULTI_VIEW_ONLY
     e.preventDefault()
@@ -1639,6 +1639,8 @@ function clearSelection(): boolean {
               ? '배경 맞추기를 취소했습니다'
             : purpose === 'room'
               ? '룸 그리기를 취소했습니다'
+            : purpose === 'verticalFootprint' || purpose === 'verticalPoint'
+              ? '계단 구간 채우기를 취소했습니다. 고르던 구간은 그대로입니다'
             : '외곽선 그리기를 취소했습니다',
     )
   } else if (adding.value) {
@@ -2269,7 +2271,7 @@ const verticalHighlight = computed(() => {
   if (!v) return new Set<string>()
   return multiView.value ? new Set(v.object.parts.map((p) => partId(v.object.id, p.storey.id))) : new Set([selectedVerticalId.value!])
 })
-watch([model, sceneVersion, verticalHighlight], () => viewer?.setVerticalParts(model.value, verticalHighlight.value))
+// 그리는 것은 구간 바꾸기 묶음 뒤에서 본다 — 적용 전 미리보기(rangeGiven)도 같이 그린다.
 
 // 다중층 뷰의 편집(OE-ML-07 전체 이동 · OE-ML-09 삭제, vertical-edit.ts). 모든 층의 조각을 한 번에 떠 두고 되돌린다 — 여러 층에 걸친
 // 변경이 이력 하나다. 층 편집 화면에서는 부르지 않는다(OE-ML-05).
@@ -2345,6 +2347,94 @@ function applyPartPoint(which: 'entry' | 'exit', axis: 0 | 1, input: HTMLInputEl
   }
   const at: Vec2 = axis === 0 ? [cm(value), p[1]] : [p[0], cm(value)]
   changeVerticals(`${v.part.name || v.label} ${which === 'entry' ? '진입' : '종료'} 지점`, (m) => setPartPoint(m, selectedVerticalId.value!, which, at))
+}
+// --- 구간 바꾸기(OE-ML-08) ---
+/** 고르는 중인 시작·끝 층. null 이면 지금 구간이다. */
+const rangeDraft = ref<{ from: string; to: string } | null>(null)
+/** 빈 층을 채우려고 사람이 그린 형상·찍은 지점(층 id → 것). [구간 적용] 때 한 번에 넣는다. */
+const rangeGiven = ref(new Map<string, { footprint?: Vec2[]; entry?: Vec2; exit?: Vec2 }>())
+// 구간 바꾸기에서 적용 전에 그리거나 찍은 것은 점선으로 보인다(OE-ML-08). 
+const verticalPreview = computed(() =>
+  [...rangeGiven.value].flatMap(([storeyId, g]) => {
+    const st = model.value?.storeys.find((s) => s.id === storeyId)
+    if (!st) return []
+    return [
+      ...(g.footprint ? [{ storeyId, elevation: st.elevation, footprint: g.footprint }] : []),
+      ...[g.entry, g.exit].filter((p): p is Vec2 => !!p).map((point) => ({ storeyId, elevation: st.elevation, point })),
+    ]
+  }),
+)
+watch([model, sceneVersion, verticalHighlight, verticalPreview], () => viewer?.setVerticalParts(model.value, verticalHighlight.value, verticalPreview.value))
+watch(selectedVerticalId, (now, was) => {
+  // 같은 오브젝트의 다른 층 조각으로 옮겨 가면 고르던 구간을 둔다.
+  if (now && was && now.split('@')[0] === was.split('@')[0]) return
+  rangeDraft.value = null
+  rangeGiven.value = new Map()
+})
+const verticalRange = computed(() => {
+  const v = selectedVertical.value
+  if (!v) return null
+  return rangeDraft.value ?? { from: v.object.parts[0].storey.id, to: v.object.parts.at(-1)!.storey.id }
+})
+const RANGE_NEED: Record<RangeNeed, string> = { footprint: '형상', entry: '진입 지점', exit: '종료 지점' }
+/** 고른 구간이 지금과 다르면 무엇이 더해지고 빠지고 무엇을 채워야 하나. 같으면 null. */
+const rangePlan = computed(() => {
+  const v = selectedVertical.value
+  const r = rangeDraft.value
+  if (!v || !r || !model.value) return null
+  return planRange(model.value, v.object.id, r.from, r.to, rangeGiven.value)
+})
+function setRangeEnd(which: 'from' | 'to', storeyId: string) {
+  const r = verticalRange.value
+  if (!r) return
+  rangeDraft.value = { ...r, [which]: storeyId }
+  // 새 구간이 보기 범위 밖이면 보기 범위를 넓힌다 — 채울 층이 보여야 그린다. 데이터는 [구간 적용] 전까지 그대로다.
+  const list = storeysByHeight.value
+  const v = multiView.value
+  if (!v) return
+  const at = (id: string) => list.findIndex((st) => st.id === id)
+  const lo = Math.min(at(v.from), at(v.to), at(rangeDraft.value.from), at(rangeDraft.value.to))
+  const hi = Math.max(at(v.from), at(v.to), at(rangeDraft.value.from), at(rangeDraft.value.to))
+  if (lo >= 0 && hi >= 0) multiView.value = { ...v, from: list[lo].id, to: list[hi].id }
+}
+/** 그 층의 빈 것을 채우러 바닥에 그리거나 찍는다. */
+function fillRange(storeyId: string, what: RangeNeed) {
+  const st = model.value?.storeys.find((s) => s.id === storeyId)
+  if (!st) return
+  stopPlace()
+  stopAdd()
+  const label = RANGE_NEED[what]
+  drawing.value =
+    what === 'footprint'
+      ? { purpose: 'verticalFootprint', spaceId: null, storeyId, name: `${st.name} 계단 형상`, elevation: st.elevation, points: [] }
+      : { purpose: 'verticalPoint', which: what, spaceId: null, storeyId, name: `${st.name} ${label}`, elevation: st.elevation, points: [] }
+  viewer?.setPlaceMode(st.elevation)
+  note(what === 'footprint' ? `${st.name} 바닥에 계단 형상의 꼭짓점을 찍고 Enter 로 마칩니다 (Esc 취소)` : `${st.name} 바닥에서 ${label}을 누릅니다 (Esc 취소)`)
+}
+function cancelRange() {
+  rangeDraft.value = null
+  rangeGiven.value = new Map()
+}
+function applyRange() {
+  const v = selectedVertical.value
+  const r = rangeDraft.value
+  if (!v || !r) return
+  let refused = ''
+  const name = v.part.name || v.label
+  const done = changeVerticals(`${name} 구간`, (m) => {
+    const res = setVerticalRange(m, v.object.id, r.from, r.to, rangeGiven.value)
+    if (res !== true) refused = res.refused
+    return res === true
+  })
+  if (!done) {
+    if (refused) editNotice.value = refused
+    return
+  }
+  const id = v.object.id
+  cancelRange()
+  // 고른 조각이 구간 밖이 되었으면 새 시작 층 조각을 고른다.
+  if (model.value && !findPart(model.value, selectedVerticalId.value!)) selectVertical(partId(id, r.from))
+  note(`${name}의 구간을 바꿨습니다. Ctrl+Z 로 되돌립니다`)
 }
 function removeSelectedVertical() {
   const v = selectedVertical.value
@@ -2568,7 +2658,9 @@ const selectedSpace = computed(() => {
  */
 /** `custom`·`customSplit` 은 커스텀존(OE-OBJ-01) 그리기·나누기다. `customSplit` 의 spaceId 자리에는 존 id 가 든다. */
 type Drawing = {
-  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room' | 'hvacZone' | 'hvacZoneOutline' | 'pipe' | 'bgScale' | 'bgAnchor'
+  purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room' | 'hvacZone' | 'hvacZoneOutline' | 'pipe' | 'bgScale' | 'bgAnchor' | 'verticalFootprint' | 'verticalPoint'
+  /** 수직 관통 오브젝트 구간 바꾸기(OE-ML-08)에서 찍는 지점이 진입인지 종료인지. */
+  which?: 'entry' | 'exit'
   spaceId: string | null
   storeyId: string
   name: string
@@ -2580,7 +2672,7 @@ watch([selectedSpace, selectedRoom, editing, sceneVersion, drawing, selectedVert
   const picked = selectedSpace.value
   if (!viewer) return
   // 다중층 뷰(OE-ML-07): 고른 계단 조각의 그 층 형상에만 손잡이를 단다. 물리존·룸은 층 편집에서 고친다.
-  if (multiView.value) {
+  if (multiView.value && !drawing.value) {
     const v = selectedVertical.value
     const ring = v?.part.footprint ?? []
     viewer.setSpaceHandles(editing.value && v && ring.length >= 3 ? { id: selectedVerticalId.value!, ring, elevation: v.storey.elevation + 0.1, active: null } : null)
@@ -4250,8 +4342,8 @@ function placeAt(at: Vec2) {
     drawing.value = { ...drawing.value, points: [...drawing.value.points, [cm(at[0]), cm(at[1])]] }
     // 나눌 선은 두 점이면 끝난다.
     if ((drawing.value.purpose === 'split' || drawing.value.purpose === 'wall' || drawing.value.purpose === 'customSplit' || drawing.value.purpose === 'room' || drawing.value.purpose === 'bgScale') && drawing.value.points.length === 2) finishDraw()
-    // 배경 원점은 한 점이면 끝난다(OE-MAN-02).
-    else if (drawing.value.purpose === 'bgAnchor') finishDraw()
+    // 배경 원점(OE-MAN-02)·계단 진입/종료 지점(OE-ML-08)은 한 점이면 끝난다.
+    else if (drawing.value.purpose === 'bgAnchor' || drawing.value.purpose === 'verticalPoint') finishDraw()
     return
   }
   if (adding.value) {
@@ -4363,6 +4455,19 @@ function undoDrawPoint() {
 function finishDraw(): boolean {
   const d = drawing.value
   if (!d) return false
+  // 구간 바꾸기에서 빈 층을 채운다(OE-ML-08). 모델은 [구간 적용] 때 한 번에 바꾼다 — 그리기만으로는 이력이 생기지 않는다.
+  if (d.purpose === 'verticalFootprint' || d.purpose === 'verticalPoint') {
+    if (d.purpose === 'verticalFootprint' && d.points.length < 3) {
+      note('형상은 꼭짓점 셋 이상을 찍어야 합니다')
+      return true
+    }
+    stopDraw()
+    const next = new Map(rangeGiven.value)
+    const had = next.get(d.storeyId) ?? {}
+    next.set(d.storeyId, d.purpose === 'verticalFootprint' ? { ...had, footprint: d.points } : { ...had, [d.which!]: d.points[0] })
+    rangeGiven.value = next
+    return true
+  }
   if (d.purpose === 'bgScale' || d.purpose === 'bgAnchor') {
     stopDraw()
     bgStep.value = d.purpose === 'bgScale' ? { kind: 'scale', a: d.points[0], b: d.points[1], meters: '' } : { kind: 'anchor', at: d.points[0], x: '', y: '' }
@@ -7328,11 +7433,14 @@ async function export3D(format: 'glb' | 'obj') {
               <template v-else-if="drawing.purpose === 'wall'">
                 <b>{{ drawing.name }}</b> 긋기 · 벽의 두 끝점을 바닥에 찍습니다 · {{ drawing.points.length }}/2
               </template>
+              <template v-else-if="drawing.purpose === 'verticalPoint'">
+                <b>{{ drawing.name }}</b> · 그 층 바닥을 한 번 누릅니다
+              </template>
               <template v-else>
                 <b>{{ drawing.name }}</b> {{ drawing.purpose === 'create' || drawing.purpose === 'custom' || drawing.purpose === 'room' ? '그리기' : '외곽선 그리기' }} · 바닥을 눌러 꼭짓점을 찍습니다 ·
                 {{ drawing.points.length }}개
               </template>
-              <button v-if="drawing.purpose !== 'split' && drawing.purpose !== 'wall' && drawing.purpose !== 'customSplit' && drawing.purpose !== 'room'" type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
+              <button v-if="drawing.purpose !== 'split' && drawing.purpose !== 'wall' && drawing.purpose !== 'customSplit' && drawing.purpose !== 'room' && drawing.purpose !== 'verticalPoint'" type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
               <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
               <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
             </div>
@@ -7342,7 +7450,7 @@ async function export3D(format: 'glb' | 'obj') {
             <p v-if="multiView && multiRange" class="multi-banner" role="status" data-testid="multi-banner">
               <b>다중층 뷰</b> · {{ multiRange[0].name }} ~ {{ multiRange.at(-1)!.name }} ({{ multiRange.length }}개 층) · 바닥 높이
               {{ elevationText(multiRange[0].elevation) }} ~ {{ elevationText(multiRange.at(-1)!.elevation) }} m <Src kind="bim" /><br />
-              <span class="muted">보기 범위만 바꿉니다. 오브젝트의 관통 구간은 그대로입니다. {{ editing ? '여기서는 수직 관통 오브젝트만 옮기거나 지웁니다(만들기·구간 바꾸기는 아직 없습니다).' : '' }}</span>
+              <span class="muted">보기 범위만 바꿉니다. 오브젝트의 관통 구간은 그대로입니다. {{ editing ? '여기서는 수직 관통 오브젝트만 옮기고 지우고 구간을 바꿉니다(만들기는 아직 없습니다).' : '' }}</span>
             </p>
             <nav v-if="editing && !drawing && activeTab === '3d' && !multiView" class="tool-palette" aria-label="편집 도구">
               <!-- 천장 편집 모드(OE-OBJ-08). 천장 쪽에서는 공간 도구와 바닥·벽 도구가 잠기고, 누르면 어디서 편집하는지 알린다. -->
@@ -8554,6 +8662,41 @@ async function export3D(format: 'glb' | 'obj') {
                 </p>
               </template>
               <p class="hint">{{ selectedVertical.part.footprint.length >= 3 ? '형상은 3D 의 꼭짓점 손잡이를 끌어 고칩니다. 변이 교차하면 되돌립니다.' : '이 층은 형상 없이 지점만 있습니다.' }}</p>
+            </div>
+            <!-- 구간 바꾸기(OE-ML-08). 보기 범위와 따로인 데이터다. 빈 층은 사람이 그리거나 찍어 채워야 적용된다(베껴 채우지 않는다). -->
+            <div v-if="verticalRange" class="vertical-range" data-testid="vertical-range">
+              <p class="vertical-move">
+                <b>구간</b>
+                <select :value="verticalRange.from" aria-label="구간 시작 층" @change="setRangeEnd('from', ($event.target as HTMLSelectElement).value)">
+                  <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
+                </select>
+                →
+                <select :value="verticalRange.to" aria-label="구간 끝 층" @change="setRangeEnd('to', ($event.target as HTMLSelectElement).value)">
+                  <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
+                </select>
+              </p>
+              <template v-if="rangePlan">
+                <p v-if="'refused' in rangePlan" class="edit-warn" data-testid="vertical-range-refused">{{ rangePlan.refused }}</p>
+                <template v-else>
+                  <ul class="vertical-range-plan" data-testid="vertical-range-plan">
+                    <li v-if="rangePlan.added.length">더해지는 층: {{ rangePlan.added.map((s) => s.name).join(' · ') }}</li>
+                    <li v-if="rangePlan.removed.length">빠지는 층: {{ rangePlan.removed.map((s) => s.name).join(' · ') }} — 그 층 조각을 걷습니다</li>
+                    <li v-for="n in rangePlan.needs" :key="n.storey.id">
+                      {{ n.storey.name }}:
+                      <template v-for="w in n.what" :key="w">
+                        <button type="button" class="link" :disabled="!!drawing" @click="fillRange(n.storey.id, w)">{{ RANGE_NEED[w] }} {{ w === 'footprint' ? '그리기' : '찍기' }}</button>
+                      </template>
+                      <span class="muted">(채워야 적용됩니다)</span>
+                    </li>
+                    <li v-if="rangePlan.link">적용하면 잇는 물리존: {{ rangePlan.link.from ?? '없음' }} ↔ {{ rangePlan.link.to ?? '없음' }}</li>
+                    <li class="muted">개구부·정차 층·운행 구간·샤프트 배관 소속은 아직 다루지 않습니다</li>
+                  </ul>
+                </template>
+                <p>
+                  <button type="button" class="ghost" :disabled="'refused' in rangePlan || !!rangePlan.needs.length" @click="applyRange">구간 적용</button>
+                  <button type="button" class="ghost" @click="cancelRange">취소</button>
+                </p>
+              </template>
             </div>
             <div v-if="verticalDeleteImpact" class="vertical-delete-ask" data-testid="vertical-delete-ask" role="alertdialog" aria-label="수직 관통 오브젝트 지우기 확인">
               <p>

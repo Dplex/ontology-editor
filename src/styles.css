@@ -3183,6 +3183,27 @@ main.has-model .catalog {
   margin: 0.3rem 0;
 }
 
+.vertical-range {
+  margin: 0.6rem 0;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+
+.vertical-range p {
+  margin: 0.3rem 0;
+}
+
+.vertical-range .edit-warn {
+  color: var(--warn-fg);
+}
+
+.vertical-range-plan {
+  margin: 0.3rem 0;
+  padding-left: 1.2rem;
+}
+
 .vertical-warnings {
   margin: 0.5rem 0;
   padding: 0.35rem 0.7rem 0.35rem 1.4rem;

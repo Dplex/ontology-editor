@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Model, Space, Storey, Vec2, Vec3, Wall } from './model'
 import { stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
-import { deleteVertical, movePart, moveVertical, setPartPoint, setPartVertex, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
+import { deleteVertical, movePart, moveVertical, planRange, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
 import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
 import { BUILDING, joinParts, splitByStorey } from './storey-drafts'
@@ -233,5 +233,92 @@ describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () =
     const result = applyEdits(b, file)
     expect(result.missing).toMatchObject({ elements: 0, storeys: 0 })
     expect(b.storeys.map((s) => s.verticalParts)).toEqual(a.storeys.map((s) => s.verticalParts))
+  })
+})
+
+/** building() 에 3층(계단실·복도)을 더한 것. 계단 st 는 1층 → 2층이다. */
+function tower(): Model {
+  const m = building()
+  m.storeys.push({ id: '3F', name: '3F', elevation: 9, spaces: [space('stair3', rect(-1, -1, 2, 5)), space('hall3', rect(2.2, -1, 6, 5))], walls: [], openings: [], equipment: [] })
+  return m
+}
+const shape = (m: Model, id: string) => verticalObjects(m).find((o) => o.id === id)!.parts.map((p) => [p.storey.id, p.part.footprint.length, !!p.part.entry, !!p.part.exit])
+
+describe('구간 바꾸기 (OE-ML-08)', () => {
+  it('같은 층을 양 끝으로 두거나 시작 층이 끝 층보다 위면 바꾸지 않는다', () => {
+    const m = tower()
+    expect(planRange(m, 'st', '2F', '2F')).toEqual({ refused: expect.stringContaining('같은 층') })
+    expect(setVerticalRange(m, 'st', '3F', '1F')).toEqual({ refused: expect.stringContaining('시작 층이 끝 층보다 위') })
+    expect(shape(m, 'st')).toEqual([['1F', 4, true, false], ['2F', 0, false, true]])
+  })
+
+  it('끝 층을 3층으로 늘리면 2층 형상과 3층 종료 지점을 채워야 하고, 아래층 형상을 베껴 채우지 않는다. 채우면 적용된다 [OE-ML-08#2~]', () => {
+    const m = tower()
+    const plan = planRange(m, 'st', '1F', '3F')
+    if ('refused' in plan) throw new Error(plan.refused)
+    expect(plan.added.map((s) => s.id)).toEqual(['3F'])
+    expect(plan.removed).toEqual([])
+    expect(plan.needs.map((n) => [n.storey.id, n.what])).toEqual([['2F', ['footprint']], ['3F', ['exit']]])
+    expect(setVerticalRange(m, 'st', '1F', '3F')).toEqual({ refused: expect.stringContaining('2F 형상') })
+    expect(shape(m, 'st')).toEqual([['1F', 4, true, false], ['2F', 0, false, true]])
+    // 엇갈린 형상은 채운 것으로 치지 않는다.
+    const bow: Vec2[] = [[0, 0], [1, 1], [1, 0], [0, 1]]
+    const bad = planRange(m, 'st', '1F', '3F', new Map([['2F', { footprint: bow }], ['3F', { exit: [0.5, 3] as Vec2 }]]))
+    expect('needs' in bad && bad.needs.map((n) => n.storey.id)).toEqual(['2F'])
+    const given = new Map([['2F', { footprint: [[0, 0], [1, 0], [1, 4], [0, 4]] as Vec2[] }], ['3F', { exit: [0.5, 3] as Vec2 }]])
+    const ok = planRange(m, 'st', '1F', '3F', given)
+    expect('link' in ok && ok.link).toEqual({ from: 'stair1', to: 'stair3' })
+    expect(setVerticalRange(m, 'st', '1F', '3F', given)).toBe(true)
+    // 2층은 사이 층이 되어 형상만, 3층은 종료 지점(3층 바닥 높이)만이다.
+    expect(shape(m, 'st')).toEqual([['1F', 4, true, false], ['2F', 4, false, false], ['3F', 0, false, true]])
+    expect(partsOf(m, 'st')[2].exit).toEqual([0.5, 3, 9])
+    expect(partsOf(m, 'st').map((p) => !!p.edited)).toEqual([false, true, true])
+    expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'st')).toMatchObject({ a: 'stair1', b: 'stair3' })
+  })
+
+  it('구간을 줄이면 빠진 층 조각을 걷고, 새 끝 층은 종료 지점을 다시 받는다 — 그 층의 형상은 지운다 [OE-ML-08#1~]', () => {
+    const m = tower()
+    setVerticalRange(m, 'st', '1F', '3F', new Map([['2F', { footprint: [[0, 0], [1, 0], [1, 4], [0, 4]] as Vec2[] }], ['3F', { exit: [0.5, 3] as Vec2 }]]))
+    const plan = planRange(m, 'st', '1F', '2F')
+    if ('refused' in plan) throw new Error(plan.refused)
+    expect(plan.removed.map((s) => s.id)).toEqual(['3F'])
+    expect(plan.needs.map((n) => [n.storey.id, n.what])).toEqual([['2F', ['exit']]])
+    expect(setVerticalRange(m, 'st', '1F', '2F', new Map([['2F', { exit: [0.4, 3.8] as Vec2 }]]))).toBe(true)
+    expect(shape(m, 'st')).toEqual([['1F', 4, true, false], ['2F', 0, false, true]])
+    expect(m.storeys[2].verticalParts).toBeUndefined()
+    // 다른 계단은 그대로다.
+    expect(shape(m, 'st2')).toEqual([['1F', 4, true, false], ['2F', 0, false, true]])
+  })
+
+  it('시작 층을 올리면 새 시작 층은 형상과 진입 지점을 받아야 한다', () => {
+    const m = tower()
+    setVerticalRange(m, 'st', '1F', '3F', new Map([['2F', { footprint: [[0, 0], [1, 0], [1, 4], [0, 4]] as Vec2[] }], ['3F', { exit: [0.5, 3] as Vec2 }]]))
+    const plan = planRange(m, 'st', '2F', '3F')
+    if ('refused' in plan) throw new Error(plan.refused)
+    expect(plan.needs.map((n) => [n.storey.id, n.what])).toEqual([['2F', ['entry']]])
+    expect(setVerticalRange(m, 'st', '2F', '3F', new Map([['2F', { entry: [0.5, 0.2] as Vec2 }]]))).toBe(true)
+    expect(shape(m, 'st')).toEqual([['2F', 4, true, false], ['3F', 0, false, true]])
+  })
+
+  it('바꾼 구간은 되돌리기 한 번에 돌아오고, 편집 파일로 새로 연 BIM 에 얹으면 없던 층 조각이 생기고 빠진 층 조각이 걷힌다 [OE-ML-08#5~]', () => {
+    const a = tower()
+    const base = baselineOf(a)
+    const before = structuredClone(a.storeys.map((s) => s.verticalParts))
+    const snap = snapshotVerticals(a)
+    setVerticalRange(a, 'st', '1F', '3F', new Map([['2F', { footprint: [[0, 0], [1, 0], [1, 4], [0, 4]] as Vec2[] }], ['3F', { exit: [0.5, 3] as Vec2 }]]))
+    const after = structuredClone(a.storeys.map((s) => s.verticalParts))
+    restore(a, snap)
+    expect(a.storeys.map((s) => s.verticalParts)).toEqual(before)
+    a.storeys.forEach((s, i) => (s.verticalParts = after[i]))
+    expect(diffBaseline(a, base).verticals).toEqual([{ id: 'st', name: '계단 st', reshaped: ['2F', '3F'] }])
+    const file = parseEditFile(JSON.stringify(exportEdits(a, base, 'b.ifc'))) as EditFile
+    const b = tower()
+    expect(applyEdits(b, file).missing).toMatchObject({ elements: 0, storeys: 0 })
+    expect(b.storeys.map((s) => s.verticalParts)).toEqual(a.storeys.map((s) => s.verticalParts))
+    // 다시 줄인 것도 얹힌다(3층 조각이 걷힌다).
+    setVerticalRange(a, 'st', '1F', '2F', new Map([['2F', { exit: [0.4, 3.8] as Vec2 }]]))
+    const c = tower()
+    applyEdits(c, parseEditFile(JSON.stringify(exportEdits(a, base, 'b.ifc'))) as EditFile)
+    expect(c.storeys.map((s) => s.verticalParts)).toEqual(a.storeys.map((s) => s.verticalParts))
   })
 })

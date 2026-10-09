@@ -100,7 +100,7 @@ test('병원 건축: 다중층 뷰에서 계단을 통째로 옮기면 두 층�
   for (const id of others) {
     const at = await viewer<{ x: number; y: number }>(page, 'vertical', id)
     await page.mouse.click(at.x, at.y)
-    if (await panel.isVisible()) break
+    if (await panel.waitFor({ timeout: 2000 }).then(() => true, () => false)) break
     await page.keyboard.press('Escape')
   }
   await expect(panel).toBeVisible()
@@ -225,11 +225,72 @@ test('병원 건축: 다중층 뷰에서 계단의 한 층 조각만 고친다 �
   for (const id of await viewer<string[]>(page, 'verticals')) {
     const at = await viewer<{ x: number; y: number }>(page, 'vertical', id)
     await page.mouse.click(at.x, at.y)
-    if (!(await panel.isVisible())) continue
+    // 패널은 누른 다음 그려진다. 잠깐 기다려 본다(다른 것이 골라졌으면 뜨지 않는다).
+    if (!(await panel.waitFor({ timeout: 2000 }).then(() => true, () => false))) continue
     await panel.getByTestId('vertical-storeys').getByRole('button', { name: 'Second Floor' }).click()
     if ((await coords(page, 'vertical-exit'))[0] === exit1[0]) break
     await storeyBox(page).selectOption({ label: 'First Floor만' })
   }
   expect(await coords(page, 'vertical-exit')).toEqual(exit1)
+  expect(errors).toEqual([])
+})
+
+test('병원 건축: 계단 구간을 지붕층까지 늘리면 2층 형상과 지붕 종료 지점을 사람이 채워야 적용되고, 같은 층 구간은 거절하며, 되돌리기 한 번에 돌아온다 [OE-ML-08#1~,2~,5~]', async ({ page }) => {
+  test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(240_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await openClinic(page)
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const parent = await enterWithStair(page)
+  const panel = page.getByTestId('vertical-picked')
+  const range = page.getByTestId('vertical-range')
+  const entry = await coords(page, 'vertical-entry')
+
+  // 같은 층을 양 끝으로 고르면 이유를 보이고 적용하지 못한다.
+  await range.getByLabel('구간 끝 층').selectOption({ label: 'First Floor' })
+  await expect(page.getByTestId('vertical-range-refused')).toContainText('같은 층')
+  await expect(range.getByRole('button', { name: '구간 적용' })).toBeDisabled()
+
+  // 끝 층을 지붕층으로: 더해지는 층과 채울 것. 보기 범위도 지붕층까지 넓어진다.
+  await range.getByLabel('구간 끝 층').selectOption({ label: 'Roof - Main' })
+  const plan = page.getByTestId('vertical-range-plan')
+  await expect(plan).toContainText('더해지는 층: Roof - Main')
+  await expect(plan).toContainText('Second Floor:')
+  await expect(range.getByRole('button', { name: '구간 적용' })).toBeDisabled()
+  await expect(page.getByTestId('multi-banner')).toContainText('First Floor ~ Roof - Main')
+
+  // 2층 형상: 진입 지점 둘레에 사각형을 그린다(2층 바닥 높이의 평면에 찍힌다).
+  await plan.getByRole('button', { name: '형상 그리기' }).click()
+  const z2 = 4.57
+  for (const [dx, dy] of [[-1, -1], [1, -1], [1, 2], [-1, 2]]) {
+    const at = await viewer<{ x: number; y: number }>(page, 'point', [entry[0] + dx, entry[1] + dy, z2])
+    await page.mouse.click(at.x, at.y)
+  }
+  await page.keyboard.press('Enter')
+  await expect(plan).not.toContainText('형상 그리기')
+  // 적용 전에는 모델이 그대로이고, 그린 형상이 점선 미리보기로 보인다.
+  await expect(page.locator('.edit-bar .undo')).toBeDisabled()
+  expect((await viewer<{ preview: number }>(page, 'verticalMarks')).preview).toBe(1)
+  // 지붕 종료 지점을 찍는다.
+  await plan.getByRole('button', { name: '종료 지점 찍기' }).click()
+  const roof = await viewer<{ x: number; y: number }>(page, 'point', [entry[0], entry[1] + 1.5, 9.25])
+  await page.mouse.click(roof.x, roof.y)
+  await expect(range.getByRole('button', { name: '구간 적용' })).toBeEnabled()
+  expect((await viewer<{ preview: number }>(page, 'verticalMarks')).preview).toBe(2)
+  await range.getByRole('button', { name: '구간 적용' }).click()
+  expect((await viewer<{ preview: number }>(page, 'verticalMarks')).preview).toBe(0)
+
+  // 세 층 조각이 되고, 리포트·되돌리기가 맞다.
+  await expect(panel.getByTestId('vertical-storeys')).toContainText('First Floor → Second Floor → Roof - Main')
+  expect((await viewer<string[]>(page, 'verticalSelected')).filter((id) => id.startsWith(`${parent}@`))).toHaveLength(3)
+  await expect(page.locator('.report')).toContainText('층별 모양을 고쳤습니다(Second Floor · Roof - Main, GeoJSON)')
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await expect(panel.getByTestId('vertical-storeys')).toContainText('First Floor → Second Floor')
+  await expect(panel.getByTestId('vertical-storeys')).not.toContainText('Roof')
+  await page.keyboard.press('Control+Shift+z')
+  await expect(panel.getByTestId('vertical-storeys')).toContainText('Roof - Main')
   expect(errors).toEqual([])
 })
