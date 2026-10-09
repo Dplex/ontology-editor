@@ -30,7 +30,7 @@ const props = defineProps<{
   /** 카드를 눌러 반복해 보는 장면 번호. 없으면 null. */
   loop: number | null
 }>()
-const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number] }>()
+const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number] }>()
 
 const CAT_COLOR = CATEGORY_COLOR
 
@@ -117,6 +117,52 @@ const stats = computed(() => [
   { n: props.steps.reduce((n, s) => n + s.ttlCount.added + s.ttlCount.removed, 0), label: 'TTL LINES', sub: '더하고 지운 줄' },
 ])
 const two = (n: number) => String(n).padStart(2, '0')
+
+/**
+ * 시간줄 끌기. 시간이 아니라 편집 하나가 한 칸이다(편집이 몰린 때와 뜸한 때가 같은 너비) — 끄는 자리의 칸까지 한 편집 상태로
+ * 간다(seek). 거의 안 끌고 놓으면 끌기가 아니라 눈금 누르기(그 장면 반복)로 둔다.
+ */
+const scrub = ref<{ x: number; moved: boolean; n: number } | null>(null)
+function seekAt(e: PointerEvent, el: HTMLElement) {
+  const r = el.getBoundingClientRect()
+  const n = Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * props.total)
+  if (scrub.value && n !== scrub.value.n) {
+    scrub.value.n = n
+    emit('seek', n)
+  }
+}
+function onTrackDown(e: PointerEvent) {
+  if (e.button !== 0) return
+  scrub.value = { x: e.clientX, moved: false, n: props.at }
+}
+function onTrackMove(e: PointerEvent) {
+  const s = scrub.value
+  if (!s) return
+  if (!s.moved && Math.abs(e.clientX - s.x) < 4) return
+  if (!s.moved) (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  s.moved = true
+  seekAt(e, e.currentTarget as HTMLElement)
+}
+/** 끌고 놓은 뒤 따라오는 click(눈금 위에서 놓았으면 그 장면 반복)은 버린다. */
+let swallowClick = false
+function onTrackUp() {
+  swallowClick = !!scrub.value?.moved
+  scrub.value = null
+}
+function onTick(k: number) {
+  if (swallowClick) return void (swallowClick = false)
+  emit('scene', k - 1)
+}
+
+/**
+ * 시간줄 눈금의 높이. 그 편집이 바꾼 것(평면의 열쇠 수)이 많을수록 높다 — 영상 기록 플레이어가 사건이 몰린 곳을 막대 높이로
+ * 보이듯, 계통 확정처럼 수백 곳이 바뀐 장면이 한눈에 걸린다. 로그로 눌러 한두 개짜리도 보이게 한다. 카드 계산 전이면 0.
+ */
+const weights = computed(() => {
+  const n = props.steps.map((s) => s.changes.length)
+  const max = Math.log1p(Math.max(1, ...n))
+  return n.map((x) => Math.log1p(x) / max)
+})
 
 /** 다시 한 순간의 번쩍임. at 이 늘 때마다 한 번. */
 const impact = ref(0)
@@ -288,16 +334,16 @@ const summary = computed(() => {
 
     <!-- 아래: 조작 막대와 시간줄 -->
     <div class="hud-bar">
-      <div class="track">
+      <div class="track" :class="{ scrubbing: scrub?.moved }" title="끌어서 편집 하나씩 훑기" @pointerdown="onTrackDown" @pointermove="onTrackMove" @pointerup="onTrackUp" @pointercancel="onTrackUp">
         <i class="fill" :style="{ width: `${(100 * at) / Math.max(1, total)}%` }"></i>
         <i
           v-for="k in total"
           :key="k"
           class="tick"
           :class="{ done: k <= at, looping: k - 1 === loop }"
-          :title="steps[k - 1] ? `#${two(k)} ${steps[k - 1].label} — 이 장면만 반복해서 보기` : undefined"
-          :style="{ left: `${(100 * (k - 0.5)) / total}%`, background: steps[k - 1] ? CAT_COLOR[steps[k - 1].category] : undefined }"
-          @click="emit('scene', k - 1)"
+          :title="steps[k - 1] ? `#${two(k)} ${steps[k - 1].label} · 바뀐 것 ${steps[k - 1].changes.length} — 이 장면만 반복해서 보기` : undefined"
+          :style="{ left: `${(100 * (k - 0.5)) / total}%`, background: steps[k - 1] ? CAT_COLOR[steps[k - 1].category] : undefined, '--w': weights[k - 1] ?? 0 }"
+          @click="onTick(k)"
         ></i>
       </div>
       <div class="buttons">
@@ -883,6 +929,8 @@ const summary = computed(() => {
 }
 .track {
   position: relative;
+  cursor: ew-resize;
+  touch-action: none;
   height: 6px;
   margin: 2px 0 10px;
   background: #1c2738;
@@ -893,11 +941,23 @@ const summary = computed(() => {
   background: var(--mint);
   transition: width 500ms cubic-bezier(0.2, 0.9, 0.25, 1);
 }
+/* 6px 줄은 잡기 어렵다 — 위아래로 잡는 자리를 넓힌다. */
+.track::before {
+  content: '';
+  position: absolute;
+  inset: -12px 0;
+}
+/* 끄는 동안은 채움이 손을 바로 따라온다. */
+.track.scrubbing .fill {
+  transition: none;
+}
 .track .tick {
   position: absolute;
-  top: -5px;
+  /* 아래를 시간줄 밑에 붙이고 바뀐 양(--w, 0~1)만큼 위로 키운다. */
+  bottom: -5px;
   width: 4px;
-  height: 16px;
+  height: calc(12px + 18px * var(--w, 0));
+  transform-origin: bottom;
   margin-left: -2px;
   background: #8a9ab3;
   opacity: 0.55;

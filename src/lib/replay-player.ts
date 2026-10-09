@@ -592,6 +592,36 @@ export function useReplay(host: ReplayPlayerHost) {
     }
   }
 
+  /**
+   * 시간줄을 끌어 그 편집 수의 상태로 간다(0 이면 편집 전, total 이면 다 한 뒤). 끄는 동안 계속 불려서 마지막 목표만 쫓는다 —
+   * 큰 파일은 되돌리기 한 번에 수백 ms 라, 지나간 목표를 하나씩 다 들르면 손을 놓은 뒤에도 한참 따라온다. 카메라·비추기는
+   * 하지 않는다(변경 단위로 훑어보는 것이라 장면 연출이 끼면 늦다). 멈춘 채로 둔다 — Space 로 그 다음 장면부터 이어서 튼다.
+   */
+  let seekTarget: number | null = null
+  async function replaySeek(n: number) {
+    if (replayPhase.value === 'opening') return
+    const busy = seekTarget !== null
+    seekTarget = Math.max(0, Math.min(replayTotal.value, Math.round(n)))
+    if (busy) return
+    replayEndLoop()
+    replayToken++
+    replayPlaying.value = false
+    replayAiming.value = null
+    host.viewer?.spotlight([], [], 0)
+    host.viewer?.setFlows([])
+    while (seekTarget !== null && history.value.length !== seekTarget) {
+      if (history.value.length > seekTarget) undo()
+      else if (future.value.length) redo()
+      else break
+      // 한 걸음마다 화면을 한 번 그리게 둔다 — 끄는 손을 따라 3D 가 변하는 것이 보인다.
+      await frames(1)
+    }
+    seekTarget = null
+    replaySeen.value = Math.max(replaySeen.value, history.value.length)
+    replayPhase.value = history.value.length >= replayTotal.value ? 'done' : 'play'
+    void replayArrows(replaySteps.value[history.value.length - 1] ?? null)
+  }
+
   /** 닫는다. 아직 다시 하지 않은 편집을 마저 다시 해서 리플레이 전 상태(이력·다시 하기 목록까지)로 돌아온다. */
   function closeReplay() {
     if (!replayOpen.value) return
@@ -657,6 +687,7 @@ export function useReplay(host: ReplayPlayerHost) {
     speed: (v: number) => (replaySpeed.value = v),
     close: closeReplay,
     scene: (i: number) => void replayScene(i),
+    seek: (n: number) => void replaySeek(n),
   }
 
   return { open: openReplay, close: closeReplay, key: replayKey, hud, hudOn }

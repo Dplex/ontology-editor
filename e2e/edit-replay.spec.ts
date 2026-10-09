@@ -228,3 +228,55 @@ test('끝 화면의 빛기둥을 누르면 카드를 누른 것처럼 그 장면
   await expect(hud).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('시간줄을 끌면 편집 하나씩 그 상태로 가고, 놓은 자리에서 Space 로 이어 틀며, 눈금 높이는 바뀐 양을 따른다', async ({ page }) => {
+  test.setTimeout(120_000)
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await pick(page, 'AHU-1')
+  await page.keyboard.press('Shift+ArrowRight')
+  await page.waitForTimeout(1800)
+  await page.keyboard.press('Shift+ArrowUp')
+  await page.waitForTimeout(1800)
+  // 물리존 꼭짓점 지우기 — 소속이 바뀌는 설비까지 바뀐 것이 여럿인 장면.
+  const floor = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))
+  await page.mouse.click(floor.x, floor.y)
+  await page.keyboard.press(']')
+  await page.keyboard.press('Delete')
+  await expect(page.locator('.space-picked')).toContainText('40.0')
+  const edited = await coords(page, 'AHU-1')
+
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('p')
+  const hud = page.locator('.replay-hud')
+  await expect(hud).toHaveAttribute('data-phase', 'play', { timeout: 15_000 })
+  await expect(hud).toHaveAttribute('data-ready', '3', { timeout: 15_000 })
+  // 눈금 높이: 바뀐 것이 가장 많은 장면이 가장 높다.
+  const heights = await hud.locator('.track .tick').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))
+  expect(Math.max(...heights)).toBeGreaterThan(Math.min(...heights))
+
+  const track = (await hud.locator('.track').boundingBox())!
+  const y = track.y + track.height / 2
+  // 맨 오른쪽 → 맨 왼쪽으로 끌면 편집 전(0), 놓은 뒤 멈춰 있다.
+  await page.mouse.move(track.x + track.width - 1, y)
+  await page.mouse.down()
+  await page.mouse.move(track.x + track.width * 0.6, y, { steps: 4 })
+  await page.mouse.move(track.x + 1, y, { steps: 6 })
+  await page.mouse.up()
+  await expect(hud).toHaveAttribute('data-at', '0')
+  await expect(hud.locator('.hud-bar .status')).toContainText('멈춤')
+  await expect(hud).toHaveAttribute('data-loop', '')
+  // 가운데(3칸 중 2칸째)로 끌면 2.
+  await page.mouse.move(track.x + 1, y)
+  await page.mouse.down()
+  await page.mouse.move(track.x + track.width * 0.62, y, { steps: 5 })
+  await page.mouse.up()
+  await expect(hud).toHaveAttribute('data-at', '2')
+  // Space 로 거기서 이어 틀어 끝까지.
+  await page.keyboard.press('Space')
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 30_000 })
+  await page.keyboard.press('Escape')
+  await expect(hud).toHaveCount(0)
+  expect(await coords(page, 'AHU-1')).toEqual(edited)
+  expect(errors).toEqual([])
+})
