@@ -135,6 +135,7 @@ R1 Todo 는 34장, 후속 이슈 3장([#340](https://github.sec.samsung.net/IoT-
 7. ~~[#258](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/258) OE-HIST-03 편집 파일 저장·불러오기(P1, 보드 Todo)~~ — 수용 기준 넷 모두 시험이 있다. [`next/comment/oe-hist-03.md`](next/comment/oe-hist-03.md) 를 코멘트로 달고 닫는다. 원래 메모: 코드는 거의 다 있다(편집 파일·GUID 재짝짓기 S1 시험·사람 지정 소속 ADR-0018). 닫는 PR 이 없어 Todo 로 남았다. 수용 기준 넷을 시험에 대 보고 빈 곳만 메워 닫는다(R2 IDF 재임포트는 제외).
 8. ~~[#411](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/411) 용어 맞추기~~ — 3731493([잇기]→[연결하기]) · 수동 배관 [곧게 연결하기] 는 PIP-11 커밋에 넣음. 화면의 [잇기] → [연결하기], [곧게 잇기] → [곧게 연결하기] 류. 위 "10-09 PRD 변경" 참고.
 9. ~~[#399](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/399) OE-EQP-15 외벽 설비 소속~~ — 533c433 (성수 루버 26대가 방에 붙던 것 → 0. 사람이 외벽에 붙인 다른 종류는 남음)
+10. **[#54](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/54) OE-OBJ-13 · [#53](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/53) OE-OBJ-12** — 수용 기준이 공조존·배관 PR 들로 채워진다. 그 PR 들이 merge 되면 [`next/comment/oe-obj-13.md`](next/comment/oe-obj-13.md)·[`next/comment/oe-obj-12.md`](next/comment/oe-obj-12.md) 를 달고 닫는다. #53 은 Flow Type 색 값이 glossary 에 없어 `needs-pm` 을 같이 단다.
 
 ### 1. 배관 편집 (E13 · R1 P1) — 1단계 8ed03b8 (꼭짓점 = 이음쇠, 꺾임점 옮기기, ADR-0029). 2단계 77f59aa (구간 경로 LineString·미반영 목록, ADR-0030). 3단계 18183f8 (수동 배관 그리기, ADR-0031). 4단계 6b67ca6 (구간 삭제 영향). 5단계 8f04fd0 (끝 연결 대상 바꾸기). 열린 끝 검증은 이미 있음(conduit-ends 진단, 해제 보정 사유 포함). 다음: 꼭짓점 추가·삭제는 PM 과 의미부터
 
