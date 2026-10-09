@@ -13,7 +13,7 @@
 
 import { isSelfIntersecting } from './mapping'
 import { overlapArea } from './polygon'
-import { polygonArea, type Model, type Storey, type Vec2, type Vec3, type VerticalPart } from './model'
+import { polygonArea, type Model, type Storey, type Vec2, type Vec3, type VerticalKind, type VerticalPart } from './model'
 import { partId, partSpaces, verticalObjects } from './vertical-object'
 
 const mm = (v: number) => Math.round(v * 1000) / 1000
@@ -70,7 +70,8 @@ function partOf(model: Pick<Model, 'storeys'>, key: string): VerticalPart | null
  */
 export function movePart(model: Pick<Model, 'storeys'>, key: string, d: Vec2): boolean {
   const part = partOf(model, key)
-  if (!part || !Number.isFinite(d[0]) || !Number.isFinite(d[1]) || (d[0] === 0 && d[1] === 0)) return false
+  // 공통 축(샤프트·EL)은 한 층만 옮기지 않는다 — 축이 층마다 어긋난다(OE-ML-07 "샤프트·EL 공통 축은 유지").
+  if (!part || COMMON_AXIS.has(part.kind) || !Number.isFinite(d[0]) || !Number.isFinite(d[1]) || (d[0] === 0 && d[1] === 0)) return false
   part.footprint = part.footprint.map((p) => [mm(p[0] + d[0]), mm(p[1] + d[1])] as Vec2)
   if (part.entry) part.entry = [mm(part.entry[0] + d[0]), mm(part.entry[1] + d[1]), part.entry[2]]
   if (part.exit) part.exit = [mm(part.exit[0] + d[0]), mm(part.exit[1] + d[1]), part.exit[2]]
@@ -84,6 +85,7 @@ export function movePart(model: Pick<Model, 'storeys'>, key: string, d: Vec2): b
  */
 export function setPartVertex(model: Pick<Model, 'storeys'>, key: string, index: number, to: Vec2): true | { refused: string } | false {
   const part = partOf(model, key)
+  if (part && COMMON_AXIS.has(part.kind)) return { refused: COMMON_AXIS_LOCKED }
   if (!part || index < 0 || index >= part.footprint.length || !Number.isFinite(to[0]) || !Number.isFinite(to[1])) return false
   const ring = part.footprint.map((p, i) => (i === index ? ([mm(to[0]), mm(to[1])] as Vec2) : p))
   if (isSelfIntersecting(ring)) return { refused: '변이 서로 교차하는 형상이라 꼭짓점을 원래 자리로 되돌렸습니다.' }
@@ -183,13 +185,15 @@ export function verticalCollisions(model: Pick<Model, 'storeys'>, parentId: stri
   return out
 }
 
-// --- 구간 바꾸기 (OE-ML-08) ------------------------------------------------------------------------
+// --- 구간 바꾸기 (OE-ML-08) · 만들기 (OE-ML-06) ---------------------------------------------------------
 //
-// 시작·끝 층을 바꾼다. 보기 범위(다중층 뷰)와 따로인 데이터다. 층마다 조각의 자리에 따라 있어야 할 것이 다르다(ADR-0033):
-// 시작 층은 형상과 진입 지점, 사이 층은 형상, 끝 층은 종료 지점. 구간을 바꾸면 자리가 바뀐 층(옛 끝 층이 사이 층이 되는 것)과 새 층에
-// 없는 것이 생긴다. **없는 것을 아래·위층에서 베껴 채우지 않는다**(OE-ML-08 "형상을 임의 복제하여 완료하지 않는다") — 사람이 그 층에
-// 그리거나 찍어 준 것(`given`)으로만 채우고, 다 채우기 전에는 적용하지 않는다. 구간 밖이 된 층의 조각은 걷고, 자리가 바뀌어 쓰지 않게 된
-// 것(사이 층이 된 시작 층의 진입 지점, 끝 층이 된 사이 층의 형상)도 지운다.
+// 시작·끝 층을 바꾸거나 새로 만든다. 보기 범위(다중층 뷰)와 따로인 데이터다. 종류마다 층에 있어야 할 것이 다르다(OE-ML-02).
+// - **계단·ES(층별 형상)**: 시작 층은 형상과 진입 지점, 사이 층은 형상, 끝 층은 종료 지점(ADR-0033).
+// - **샤프트·EL 승강로(공통 축)**: 모든 층이 같은 형상 하나다. 형상을 한 번 받으면 구간의 모든 층에 같이 둔다 — 베끼는 것이 아니라 축의
+//   정의다. 진입·종료 지점은 두지 않는다(EL 정차 층은 OE-ML-10 이 정해진 뒤다).
+// 빈 것을 아래·위층에서 베껴 채우지 않는다(OE-ML-08 "형상을 임의 복제하여 완료하지 않는다") — 사람이 그 층에 그리거나 찍어 준 것(`given`)
+// 으로만 채우고, 다 채우기 전에는 적용하지 않는다. 구간 밖이 된 층의 조각은 걷고, 자리가 바뀌어 쓰지 않게 된 것(사이 층이 된 시작 층의
+// 진입 지점, 끝 층이 된 사이 층의 형상)도 지운다.
 
 export type RangeGiven = ReadonlyMap<string, { footprint?: readonly Vec2[]; entry?: Vec2; exit?: Vec2 }>
 export type RangeNeed = 'footprint' | 'entry' | 'exit'
@@ -200,56 +204,73 @@ export type RangePlan = {
   removed: Storey[]
   /** 아직 채우지 않은 것. 비어 있어야 적용한다. */
   needs: { storey: Storey; what: RangeNeed[] }[]
-  /** 적용하면 이 오브젝트가 잇는 물리존 짝(이름). 지점을 다 채우기 전이면 null. */
+  /** 적용하면 이 오브젝트가 잇는 물리존 짝(이름). 지점이 없는 종류이거나 아직 채우기 전이면 null. */
   link: { from: string | null; to: string | null } | null
 }
 
-/** 구간을 이렇게 바꾸면 무엇이 더해지고 빠지고, 무엇을 채워야 하나. 바꿀 수 없는 구간이면 이유. */
-export function planRange(model: Pick<Model, 'storeys'>, parentId: string, fromId: string, toId: string, given: RangeGiven = new Map()): RangePlan | { refused: string } {
-  const o = verticalObjects(model).find((x) => x.id === parentId)
-  if (!o) return { refused: '오브젝트가 없습니다.' }
+/** 모든 층이 같은 형상 하나인 종류(공통 수직 축, OE-ML-02). */
+export const COMMON_AXIS: ReadonlySet<VerticalKind> = new Set(['elevator', 'shaft'])
+export const COMMON_AXIS_LOCKED = '샤프트·엘리베이터 승강로는 모든 층이 같은 축이라 한 층만 고치지 않습니다. 전체 이동으로 옮깁니다.'
+
+/** 구간 계획. `had` 는 이미 있는 층별 조각(새로 만들면 비어 있다). */
+function planFor(
+  model: Pick<Model, 'storeys'>,
+  kind: VerticalKind,
+  fromId: string,
+  toId: string,
+  given: RangeGiven,
+  had: ReadonlyMap<string, VerticalPart>,
+): RangePlan | { refused: string } {
   if (fromId === toId) return { refused: '같은 층을 시작·끝 층으로 둘 수 없습니다. 수직 관통 오브젝트는 두 층 이상을 지납니다.' }
+  const from = model.storeys.find((s) => s.id === fromId)
+  const to = model.storeys.find((s) => s.id === toId)
+  if (!from || !to) return { refused: '없는 층입니다.' }
+  if (!Number.isFinite(from.elevation) || !Number.isFinite(to.elevation)) {
+    return { refused: `${!Number.isFinite(from.elevation) ? from.name : to.name} 의 층 높이를 모릅니다. 층 높이가 있어야 관통 구간을 정합니다.` }
+  }
   const sorted = model.storeys.filter((s) => Number.isFinite(s.elevation)).sort((a, b) => a.elevation - b.elevation)
-  const i = sorted.findIndex((s) => s.id === fromId)
-  const j = sorted.findIndex((s) => s.id === toId)
-  if (i < 0 || j < 0) return { refused: '없는 층입니다.' }
+  const i = sorted.indexOf(from)
+  const j = sorted.indexOf(to)
   if (i > j) return { refused: '시작 층이 끝 층보다 위입니다. 시작 층은 오르기 시작하는 아래층입니다.' }
   const storeys = sorted.slice(i, j + 1)
-  const had = new Map(o.parts.map((p) => [p.storey.id, p.part]))
   const needs: RangePlan['needs'] = []
-  const pointOf = (storey: Storey, which: 'entry' | 'exit', role: boolean): Vec2 | null => {
+  const bad = (ring: readonly Vec2[] | undefined) => !ring || ring.length < 3 || isSelfIntersecting(ring)
+  const pointOf = (storey: Storey, which: 'entry' | 'exit'): Vec2 | null => {
     const g = given.get(storey.id)?.[which]
     if (g) return g
     const p = had.get(storey.id)?.[which]
-    return role && p ? [p[0], p[1]] : null
+    return p ? [p[0], p[1]] : null
   }
-  storeys.forEach((storey, k) => {
-    const g = given.get(storey.id)
-    const part = had.get(storey.id)
-    const what: RangeNeed[] = []
-    const last = k === storeys.length - 1
-    // 사람이 그린 형상이 엇갈리면 채운 것으로 치지 않는다("유효하지 않은 형상은 적용하지 않는다").
-    const drawn = g?.footprint
-    if (!last && ((drawn ?? part?.footprint ?? []).length < 3 || (drawn && isSelfIntersecting(drawn)))) what.push('footprint')
-    if (k === 0 && !pointOf(storey, 'entry', true)) what.push('entry')
-    if (last && !pointOf(storey, 'exit', true)) what.push('exit')
-    if (what.length) needs.push({ storey, what })
-  })
+  const axial = COMMON_AXIS.has(kind)
+  if (axial) {
+    // 축: 사람이 이번에 그린 것(어느 층이든), 없으면 이미 있는 축.
+    const axis = [...given.values()].find((g) => g.footprint)?.footprint ?? [...had.values()].find((p) => p.footprint.length >= 3)?.footprint
+    if (bad(axis)) needs.push({ storey: storeys[0], what: ['footprint'] })
+  } else {
+    storeys.forEach((storey, k) => {
+      const what: RangeNeed[] = []
+      const last = k === storeys.length - 1
+      // 사람이 그린 형상이 엇갈리면 채운 것으로 치지 않는다("유효하지 않은 형상은 적용하지 않는다").
+      const drawn = given.get(storey.id)?.footprint
+      if (!last && bad(drawn ?? had.get(storey.id)?.footprint)) what.push('footprint')
+      if (k === 0 && !pointOf(storey, 'entry')) what.push('entry')
+      if (last && !pointOf(storey, 'exit')) what.push('exit')
+      if (what.length) needs.push({ storey, what })
+    })
+  }
   const name = (storey: Storey, at: Vec2 | null) => {
     if (!at) return null
     const sp = storey.spaces.find((s) => s.id === partSpaceAt(storey, at))
     return sp ? sp.longName || sp.name : null
   }
-  const start = storeys[0]
-  const end = storeys.at(-1)!
-  const a = pointOf(start, 'entry', true)
-  const b = pointOf(end, 'exit', true)
+  const a = axial ? null : pointOf(storeys[0], 'entry')
+  const b = axial ? null : pointOf(storeys.at(-1)!, 'exit')
   return {
     storeys,
     added: storeys.filter((s) => !had.has(s.id)),
-    removed: o.parts.map((p) => p.storey).filter((s) => !storeys.includes(s)),
+    removed: model.storeys.filter((s) => had.has(s.id) && !storeys.includes(s)),
     needs,
-    link: a && b ? { from: name(start, a), to: name(end, b) } : null,
+    link: a && b ? { from: name(storeys[0], a), to: name(storeys.at(-1)!, b) } : null,
   }
 }
 
@@ -257,44 +278,87 @@ function partSpaceAt(storey: Storey, at: Vec2): string | null {
   return partSpaces(storey, { parentId: '', kind: 'stair', name: '', source: 'edit', footprint: [], entry: [at[0], at[1], 0], exit: null })[0] ?? null
 }
 
-/**
- * 구간을 바꾼다(OE-ML-08). planRange 가 채울 것을 남기면 적용하지 않는다. 새 층·자리가 바뀐 층의 조각은 사람이 준 것으로 채우고 `edited` 를
- * 단다. 지점의 높이는 그 층 바닥이다(BIM 계단의 지점은 계단 끝 높이지만, 사람이 찍은 지점은 층 바닥에 찍힌다).
- */
-export function setVerticalRange(model: Pick<Model, 'storeys'>, parentId: string, fromId: string, toId: string, given: RangeGiven = new Map()): true | { refused: string } {
-  const plan = planRange(model, parentId, fromId, toId, given)
-  if ('refused' in plan) return plan
-  if (plan.needs.length) {
-    const what = { footprint: '형상', entry: '진입 지점', exit: '종료 지점' }
-    return { refused: `채우지 않은 것이 있습니다: ${plan.needs.map((n) => `${n.storey.name} ${n.what.map((w) => what[w]).join('·')}`).join(', ')}` }
-  }
-  const o = verticalObjects(model).find((x) => x.id === parentId)!
-  const template = o.parts[0].part
-  const before = JSON.stringify(o.parts.map((p) => [p.storey.id, p.part]))
+const NEED_LABEL: Record<RangeNeed, string> = { footprint: '형상', entry: '진입 지점', exit: '종료 지점' }
+const needsText = (plan: RangePlan) => `채우지 않은 것이 있습니다: ${plan.needs.map((n) => `${n.storey.name} ${n.what.map((w) => NEED_LABEL[w]).join('·')}`).join(', ')}`
+
+/** 계획대로 층별 조각을 둔다. 바뀐 조각에 `edited` 를 단다. 사람이 찍은 지점의 높이는 그 층 바닥이다. */
+function writeParts(plan: RangePlan, kind: VerticalKind, template: Pick<VerticalPart, 'parentId' | 'kind' | 'name' | 'source'>, given: RangeGiven) {
   for (const storey of plan.removed) {
-    storey.verticalParts = (storey.verticalParts ?? []).filter((p) => p.parentId !== parentId)
+    storey.verticalParts = (storey.verticalParts ?? []).filter((p) => p.parentId !== template.parentId)
     if (!storey.verticalParts.length) delete storey.verticalParts
   }
+  const parts = plan.storeys.map((s) => (s.verticalParts ?? []).find((p) => p.parentId === template.parentId))
+  const axisRing = COMMON_AXIS.has(kind) ? ([...given.values()].find((g) => g.footprint)?.footprint ?? parts.find((p) => p && p.footprint.length >= 3)?.footprint) : undefined
+  const axis = axisRing ? axisRing.map((p) => [mm(p[0]), mm(p[1])] as Vec2) : null
   plan.storeys.forEach((storey, k) => {
     const first = k === 0
     const last = k === plan.storeys.length - 1
     const g = given.get(storey.id)
-    let part = (storey.verticalParts ?? []).find((p) => p.parentId === parentId)
+    let part = parts[k]
     if (!part) {
-      part = { parentId, kind: template.kind, name: template.name, source: template.source, footprint: [], entry: null, exit: null }
+      part = { ...template, footprint: [], entry: null, exit: null }
       storey.verticalParts = [...(storey.verticalParts ?? []), part]
     }
+    const was = part
     const point = (which: 'entry' | 'exit'): Vec3 | null => {
       const at = g?.[which]
       if (at) return [mm(at[0]), mm(at[1]), storey.elevation]
-      return part![which]
+      return was[which]
     }
-    const footprint = last ? [] : (g?.footprint ? g.footprint.map((p) => [mm(p[0]), mm(p[1])] as Vec2) : part.footprint)
-    const next: Pick<VerticalPart, 'footprint' | 'entry' | 'exit'> = { footprint, entry: first ? point('entry') : null, exit: last ? point('exit') : null }
+    const next: Pick<VerticalPart, 'footprint' | 'entry' | 'exit'> = axis
+      ? { footprint: axis, entry: null, exit: null }
+      : {
+          footprint: last ? [] : g?.footprint ? g.footprint.map((p) => [mm(p[0]), mm(p[1])] as Vec2) : part.footprint,
+          entry: first ? point('entry') : null,
+          exit: last ? point('exit') : null,
+        }
     if (JSON.stringify([part.footprint, part.entry, part.exit]) !== JSON.stringify([next.footprint, next.entry, next.exit])) {
       Object.assign(part, next)
       part.edited = true
     }
   })
+}
+
+/** 구간을 이렇게 바꾸면 무엇이 더해지고 빠지고, 무엇을 채워야 하나. 바꿀 수 없는 구간이면 이유. */
+export function planRange(model: Pick<Model, 'storeys'>, parentId: string, fromId: string, toId: string, given: RangeGiven = new Map()): RangePlan | { refused: string } {
+  const o = verticalObjects(model).find((x) => x.id === parentId)
+  if (!o) return { refused: '오브젝트가 없습니다.' }
+  return planFor(model, o.kind, fromId, toId, given, new Map(o.parts.map((p) => [p.storey.id, p.part])))
+}
+
+/** 구간을 바꾼다(OE-ML-08). planRange 가 채울 것을 남기면 적용하지 않는다. */
+export function setVerticalRange(model: Pick<Model, 'storeys'>, parentId: string, fromId: string, toId: string, given: RangeGiven = new Map()): true | { refused: string } {
+  const plan = planRange(model, parentId, fromId, toId, given)
+  if ('refused' in plan) return plan
+  if (plan.needs.length) return { refused: needsText(plan) }
+  const o = verticalObjects(model).find((x) => x.id === parentId)!
+  const before = JSON.stringify(o.parts.map((p) => [p.storey.id, p.part]))
+  const { kind, name, source } = o.parts[0].part
+  writeParts(plan, kind, { parentId, kind, name, source }, given)
   return before === JSON.stringify(verticalObjects(model).find((x) => x.id === parentId)!.parts.map((p) => [p.storey.id, p.part])) ? { refused: '구간이 그대로입니다.' } : true
+}
+
+/** 새로 만들 때의 계획(OE-ML-06). */
+export function planCreate(model: Pick<Model, 'storeys'>, kind: VerticalKind, fromId: string, toId: string, given: RangeGiven = new Map()): RangePlan | { refused: string } {
+  return planFor(model, kind, fromId, toId, given, new Map())
+}
+
+/**
+ * 수직 관통 오브젝트를 새로 만든다(OE-ML-06). 출처는 `edit`. 이름이 비었거나 채울 것이 남았으면 만들지 않는다. 층별 조각 id 는 `id@층 id` 다.
+ * 연관 물리존은 저장하지 않고 진입·종료 지점으로 그때 짚는다(ADR-0033). 형상이 물리존과 겹친다고 연결을 확정하지 않는다(OE-ML-19).
+ */
+export function createVertical(
+  model: Pick<Model, 'storeys'>,
+  spec: { id: string; kind: VerticalKind; name: string; from: string; to: string },
+  given: RangeGiven,
+): { id: string } | { refused: string } {
+  if (!spec.name.trim()) return { refused: '이름을 넣어야 합니다.' }
+  if (verticalObjects(model).some((o) => o.id === spec.id)) return { refused: '같은 id 의 오브젝트가 있습니다.' }
+  const plan = planCreate(model, spec.kind, spec.from, spec.to, given)
+  if ('refused' in plan) return plan
+  if (plan.needs.length) return { refused: needsText(plan) }
+  writeParts(plan, spec.kind, { parentId: spec.id, kind: spec.kind, name: spec.name.trim(), source: 'edit' }, given)
+  // 사람이 만든 것은 출처가 edit 라 원본과 보정을 가를 것이 없다. 처음 모양에는 보정 표시를 달지 않는다.
+  for (const st of plan.storeys) for (const p of st.verticalParts ?? []) if (p.parentId === spec.id) delete p.edited
+  return { id: spec.id }
 }

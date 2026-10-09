@@ -1573,7 +1573,7 @@ export type BaselineDiff = {
    * 옮기거나(`move` 는 연 때와 견준 x·y 이동량) 지운 수직 관통 오브젝트(OE-ML-07·09). 층별로 따로 고친 것(한 층 조각만 옮김·꼭짓점·진입/종료
    * 지점)은 `reshaped` 에 그 층 id 를 적는다 — 전체 이동량 하나로 다시 만들 수 없어 편집 파일이 조각을 통째로 적는다. 옛 baseline 이면 없다.
    */
-  verticals?: { id: string; name: string; move?: Vec2; removed?: true; reshaped?: string[] }[]
+  verticals?: { id: string; name: string; move?: Vec2; removed?: true; reshaped?: string[]; created?: VerticalPart['kind'] }[]
 }
 
 /** 좌표를 같다고 보는 차. 표와 3D 가 센티미터로 자르므로 그보다 작은 차는 같은 자리다. */
@@ -1727,6 +1727,12 @@ export function diffVerticals(model: Model, baseline: Baseline): NonNullable<Bas
     }
     out.push({ id, name: was.name, reshaped: pairs.filter((x) => !samePart(x.part, x.base, [0, 0])).map((x) => x.storeyId) })
   }
+  // 사람이 만든 것(OE-ML-06). 연 때 없던 오브젝트다.
+  const made = new Map<string, VerticalPart>()
+  for (const storey of [...model.storeys].sort((a, b) => a.elevation - b.elevation)) {
+    for (const part of storey.verticalParts ?? []) if (!baseline.verticals.has(part.parentId) && !made.has(part.parentId)) made.set(part.parentId, part)
+  }
+  for (const [id, part] of made) out.push({ id, name: part.name, created: part.kind })
   return out
 }
 

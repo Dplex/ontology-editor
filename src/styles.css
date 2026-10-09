@@ -3195,7 +3195,8 @@ main.has-model .catalog {
   margin: 0.3rem 0;
 }
 
-.vertical-range .edit-warn {
+.vertical-range .edit-warn,
+.vertical-create .edit-warn {
   color: var(--warn-fg);
 }
 

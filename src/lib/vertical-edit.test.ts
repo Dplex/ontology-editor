@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Model, Space, Storey, Vec2, Vec3, Wall } from './model'
 import { stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
-import { deleteVertical, movePart, moveVertical, planRange, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
+import { COMMON_AXIS_LOCKED, createVertical, deleteVertical, movePart, moveVertical, planCreate, planRange, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
 import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
 import { BUILDING, joinParts, splitByStorey } from './storey-drafts'
@@ -320,5 +320,69 @@ describe('구간 바꾸기 (OE-ML-08)', () => {
     const c = tower()
     applyEdits(c, parseEditFile(JSON.stringify(exportEdits(a, base, 'b.ifc'))) as EditFile)
     expect(c.storeys.map((s) => s.verticalParts)).toEqual(a.storeys.map((s) => s.verticalParts))
+  })
+})
+
+describe('만들기 (OE-ML-06)', () => {
+  const ring: Vec2[] = [[-0.5, 0], [0.5, 0], [0.5, 3], [-0.5, 3]]
+
+  it('계단은 층별로 채워야 만든다 — 시작 층 형상·진입, 끝 층 종료. 이름이 비거나 채울 것이 남으면 이유와 함께 만들지 않는다 [OE-ML-06#1~,3~]', () => {
+    const m = tower()
+    const before = structuredClone(m.storeys.map((s) => s.verticalParts))
+    const plan = planCreate(m, 'stair', '1F', '2F')
+    expect('needs' in plan && plan.needs.map((n) => [n.storey.id, n.what])).toEqual([['1F', ['footprint', 'entry']], ['2F', ['exit']]])
+    expect(createVertical(m, { id: 'U_new', kind: 'stair', name: '새 계단', from: '1F', to: '2F' }, new Map())).toEqual({ refused: expect.stringContaining('1F 형상·진입 지점') })
+    const given = new Map([['1F', { footprint: ring, entry: [0, 0.2] as Vec2 }], ['2F', { exit: [0, 2.8] as Vec2 }]])
+    expect(createVertical(m, { id: 'U_new', kind: 'stair', name: ' ', from: '1F', to: '2F' }, given)).toEqual({ refused: expect.stringContaining('이름') })
+    // 계획·거절은 모델을 바꾸지 않는다(취소하면 남는 것이 없다).
+    expect(m.storeys.map((s) => s.verticalParts)).toEqual(before)
+    expect(createVertical(m, { id: 'U_new', kind: 'stair', name: '새 계단', from: '1F', to: '2F' }, given)).toEqual({ id: 'U_new' })
+    expect(shape(m, 'U_new')).toEqual([['1F', 4, true, false], ['2F', 0, false, true]])
+    expect(partsOf(m, 'U_new').every((p) => p.source === 'edit' && !p.edited)).toBe(true)
+    // 진입·종료 지점이 든 물리존을 잇는다. 같은 id 로 또 만들 수는 없다.
+    expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'U_new')).toMatchObject({ a: 'stair1', b: 'stair2', source: 'edit' })
+    expect(createVertical(m, { id: 'U_new', kind: 'stair', name: '또', from: '1F', to: '2F' }, given)).toEqual({ refused: expect.stringContaining('같은 id') })
+  })
+
+  it('층 높이를 모르거나 구간이 잘못되면 만들지 않는다 [OE-ML-06#3~]', () => {
+    const m = tower()
+    expect(planCreate(m, 'stair', '2F', '1F')).toEqual({ refused: expect.stringContaining('시작 층이 끝 층보다 위') })
+    expect(planCreate(m, 'shaft', '1F', '1F')).toEqual({ refused: expect.stringContaining('같은 층') })
+    m.storeys[2].elevation = Number.NaN
+    expect(planCreate(m, 'shaft', '1F', '3F')).toEqual({ refused: expect.stringContaining('3F 의 층 높이를 모릅니다') })
+  })
+
+  it('샤프트는 형상 하나가 모든 층의 공통 축이고 지점이 없다. 한 층만 고치지 못하고 통째로 옮기면 축이 같이 간다 [OE-ML-06#1~] [OE-ML-07#2~]', () => {
+    const m = tower()
+    const plan = planCreate(m, 'shaft', '1F', '3F')
+    expect('needs' in plan && plan.needs.map((n) => [n.storey.id, n.what])).toEqual([['1F', ['footprint']]])
+    expect(createVertical(m, { id: 'U_shaft', kind: 'shaft', name: 'PS-1', from: '1F', to: '3F' }, new Map([['1F', { footprint: ring }]]))).toEqual({ id: 'U_shaft' })
+    const parts = partsOf(m, 'U_shaft')
+    expect(parts.map((p) => [p.footprint, p.entry, p.exit])).toEqual([0, 1, 2].map(() => [ring, null, null]))
+    expect(setPartVertex(m, 'U_shaft@2F', 0, [-1, 0])).toEqual({ refused: COMMON_AXIS_LOCKED })
+    expect(movePart(m, 'U_shaft@2F', [1, 0])).toBe(false)
+    moveVertical(m, 'U_shaft', [1, 0])
+    expect(new Set(partsOf(m, 'U_shaft').map((p) => JSON.stringify(p.footprint))).size).toBe(1)
+    // 샤프트는 물리존을 잇지 않는다(진입·종료 지점이 없다). GeoJSON 에는 층마다 나가고 로봇은 지나가지 못한다.
+    expect(explicitSpaceLinks(verticalObjects(m)).some((l) => l.parentId === 'U_shaft')).toBe(false)
+    const shafts = modelToGeoJSON(m).flatMap((f) => f.collection.features).filter((f) => f.properties?.parentId === 'U_shaft')
+    expect(shafts.map((f) => [f.properties?.verticalKind, f.properties?.source, f.properties?.passable])).toEqual([0, 1, 2].map(() => ['shaft', 'edit', false]))
+  })
+
+  it('만든 것은 되돌리기 한 번에 사라지고, 편집 파일로 새로 연 BIM 에 얹으면 같은 오브젝트가 생긴다 [OE-ML-06#4~]', () => {
+    const a = tower()
+    const base = baselineOf(a)
+    const snap = snapshotVerticals(a)
+    const given = new Map([['1F', { footprint: ring, entry: [0, 0.2] as Vec2 }], ['3F', { exit: [0, 2.8] as Vec2 }], ['2F', { footprint: ring }]])
+    createVertical(a, { id: 'U_new', kind: 'stair', name: '새 계단', from: '1F', to: '3F' }, given)
+    expect(diffBaseline(a, base).verticals).toEqual([{ id: 'U_new', name: '새 계단', created: 'stair' }])
+    const file = parseEditFile(JSON.stringify(exportEdits(a, base, 'b.ifc'))) as EditFile
+    expect(file.verticals?.[0]).toMatchObject({ id: 'U_new', created: { kind: 'stair', name: '새 계단' } })
+    expect(countEdits(file)).toBe(1)
+    const b = tower()
+    expect(applyEdits(b, file).missing).toMatchObject({ elements: 0, storeys: 0 })
+    expect(b.storeys.map((s) => s.verticalParts)).toEqual(a.storeys.map((s) => s.verticalParts))
+    restore(a, snap)
+    expect(verticalObjects(a).map((o) => o.id)).toEqual(['st', 'st2'])
   })
 })

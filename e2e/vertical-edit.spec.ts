@@ -294,3 +294,69 @@ test('병원 건축: 계단 구간을 지붕층까지 늘리면 2층 형상과 �
   await expect(panel.getByTestId('vertical-storeys')).toContainText('Roof - Main')
   expect(errors).toEqual([])
 })
+
+test('병원 건축: 다중층 뷰에서 샤프트를 만들면 한 번 그린 형상이 두 층의 공통 축이 되고, 취소하면 남는 것이 없으며, 되돌리기 한 번에 사라진다 [OE-ML-06#1~,3~,4~]', async ({ page }) => {
+  test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(240_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await openClinic(page)
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await storeyBox(page).selectOption({ label: 'First Floor만' })
+  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await expect(page.getByTestId('multi-banner')).toContainText('First Floor ~ Second Floor')
+  const before = await viewer<string[]>(page, 'verticals')
+  const undo = page.locator('.edit-bar .undo')
+
+  // 취소: 그려도 모델은 그대로다.
+  await page.getByTestId('multi-banner').getByRole('button', { name: '수직 관통 오브젝트 만들기' }).click()
+  const form = page.getByTestId('vertical-create')
+  await form.getByLabel('만들 종류').selectOption({ label: '샤프트' })
+  await expect(form.getByLabel('만들 이름')).toHaveValue('새 샤프트')
+  const plan = page.getByTestId('vertical-create-plan')
+  await expect(plan).toContainText('지나는 층: First Floor → Second Floor')
+  await expect(form.getByRole('button', { name: '만들기', exact: true })).toBeDisabled()
+  // 같은 층 구간은 이유를 보인다.
+  await form.getByLabel('만들 끝 층').selectOption({ label: 'First Floor' })
+  await expect(page.getByTestId('vertical-create-refused')).toContainText('같은 층')
+  await form.getByLabel('만들 끝 층').selectOption({ label: 'Second Floor' })
+  const square = async () => {
+    await plan.getByRole('button', { name: '형상 그리기' }).click()
+    for (const [x, y] of [[-30, 20], [-28, 20], [-28, 22], [-30, 22]]) {
+      const at = await viewer<{ x: number; y: number }>(page, 'point', [x, y, 0])
+      await page.mouse.click(at.x, at.y)
+    }
+    await page.keyboard.press('Enter')
+    await expect(plan).toContainText('다 채웠습니다')
+  }
+  await square()
+  expect((await viewer<{ preview: number }>(page, 'verticalMarks')).preview).toBe(1)
+  await form.getByRole('button', { name: '취소' }).click()
+  await expect(form).toHaveCount(0)
+  expect(await viewer<string[]>(page, 'verticals')).toEqual(before)
+  expect((await viewer<{ preview: number }>(page, 'verticalMarks')).preview).toBe(0)
+  await expect(undo).toBeDisabled()
+
+  // 만들기: 이름을 바꾸고 형상 하나를 그리면 1층·2층 두 조각이 같은 축이다.
+  await page.getByTestId('multi-banner').getByRole('button', { name: '수직 관통 오브젝트 만들기' }).click()
+  await form.getByLabel('만들 종류').selectOption({ label: '샤프트' })
+  await form.getByLabel('만들 이름').fill('PS-9')
+  await square()
+  await form.getByRole('button', { name: '만들기', exact: true }).click()
+  const panel = page.getByTestId('vertical-picked')
+  await expect(panel.locator('h3')).toHaveText('PS-9')
+  await expect(panel).toContainText('모든 층이 같은 공통 축이라 한 층만 고치지 않습니다')
+  await expect(panel.getByTestId('vertical-storeys')).toContainText('First Floor → Second Floor')
+  expect(await viewer<string[]>(page, 'verticals')).toHaveLength(before.length + 2)
+  await expect(page.locator('.report')).toContainText('샤프트 PS-9를 만들었습니다(모든 층, GeoJSON)')
+  // 한 층만 고치는 손잡이가 없다.
+  expect(await viewer<unknown[]>(page, 'handles')).toEqual([])
+
+  // 되돌리기 한 번에 두 조각이 함께 사라진다.
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => viewer<string[]>(page, 'verticals')).toEqual(before)
+  await expect(panel).toHaveCount(0)
+  expect(errors).toEqual([])
+})

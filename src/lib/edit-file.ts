@@ -54,7 +54,7 @@ import {
 } from './edit'
 import type { RuleReport } from './flow-rules'
 import type { Fluid } from './kinds'
-import type { Connection, CustomObjectItem, Model, SpaceObject, Vec2, Vec3, Wall } from './model'
+import type { Connection, CustomObjectItem, Model, SpaceObject, Vec2, Vec3, VerticalKind, Wall } from './model'
 import { polygonArea } from './model'
 import { copySpaceObjects } from './space-object'
 import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
@@ -200,7 +200,14 @@ export type EditFile = {
    * 층별로 따로 고친 오브젝트(한 층 조각만 옮김·꼭짓점·진입/종료 지점)는 `parts` 에 모든 층 조각의 끝 모양을 적는다 — 이동량 하나로는
    * 다시 만들 수 없다. 그때는 `move` 를 적지 않는다.
    */
-  verticals?: { id: string; move?: Vec2; removed?: true; parts?: { storeyId: string; footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null }[] }[]
+  verticals?: {
+    id: string
+    move?: Vec2
+    removed?: true
+    parts?: { storeyId: string; footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null }[]
+    /** 사람이 만든 오브젝트(OE-ML-06). 연 때 없던 것이라 종류·이름과 모든 층 조각(`parts`)을 적는다. id 는 에디터가 지은 `U_…` 다. */
+    created?: { kind: VerticalKind; name: string }
+  }[]
 }
 
 /**
@@ -298,9 +305,9 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   const connections = { add: since.connected, remove: since.disconnected }
   const releases = exportReleases(model)
   const equipmentRemoved = since.equipmentRemoved.map((r) => r.id)
-  const verticals = (since.verticals ?? []).map((v) => {
+  const verticals: NonNullable<EditFile['verticals']> = (since.verticals ?? []).map((v) => {
     if (v.removed) return { id: v.id, removed: true as const }
-    if (!v.reshaped) return { id: v.id, move: v.move! }
+    if (!v.reshaped && !v.created) return { id: v.id, move: v.move! }
     const parts = model.storeys.flatMap((st) =>
       (st.verticalParts ?? [])
         .filter((p) => p.parentId === v.id)
@@ -311,7 +318,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           exit: p.exit ? ([p.exit[0], p.exit[1], p.exit[2]] as Vec3) : null,
         })),
     )
-    return { id: v.id, parts }
+    return { id: v.id, parts, ...(v.created ? { created: { kind: v.created, name: v.name } } : {}) }
   })
   const spacesRemoved = since.spacesRemoved.map((r) => (mergedInto.has(r.id) ? { id: r.id, into: mergedInto.get(r.id)! } : { id: r.id }))
 
@@ -897,7 +904,10 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     let done = row.removed ? deleteVertical(model, row.id) : row.move ? moveVertical(model, row.id, row.move) : false
     // 층별로 고친 것은 층마다 끝 모양을 그대로 얹는다. 구간을 바꿨으면(OE-ML-08) 없던 층의 조각을 만들고, 적힌 층 밖의 조각은 걷는다.
     // 그 층이 없으면 못 찾은 층으로 센다.
-    const template = model.storeys.flatMap((s) => s.verticalParts ?? []).find((x) => x.parentId === row.id)
+    // 사람이 만든 것(OE-ML-06)은 아직 모델에 없다. 종류·이름으로 틀을 세운다.
+    const template =
+      model.storeys.flatMap((s) => s.verticalParts ?? []).find((x) => x.parentId === row.id) ??
+      (row.created ? { parentId: row.id, kind: row.created.kind, name: row.created.name, source: 'edit' as const, footprint: [], entry: null, exit: null } : undefined)
     if (row.parts && template) {
       const keep = new Set(row.parts.map((p) => resolve(p.storeyId)))
       for (const s of model.storeys) {
@@ -923,7 +933,8 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
         part.footprint = p.footprint.map((q) => [q[0], q[1]] as Vec2)
         part.entry = p.entry ? [p.entry[0], p.entry[1], p.entry[2]] : null
         part.exit = p.exit ? [p.exit[0], p.exit[1], p.exit[2]] : null
-        part.edited = true
+        // 사람이 만든 것(created)은 출처가 edit 라 보정 표시를 달지 않는다.
+        if (!row.created) part.edited = true
       }
       done = true
     }
