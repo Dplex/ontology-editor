@@ -359,6 +359,28 @@ export function useReplay(host: ReplayPlayerHost) {
 
   const replayColor = (step: ReplayStep | null) => parseInt((step ? CATEGORY_COLOR[step.category] : '#5ef2c2').slice(1), 16)
 
+  /**
+   * 다시 하기 바로 전. 이 편집이 지우는 것(설비·벽·문·창·물리존·룸)을 붉은 윤곽으로 비춰 가라앉히며 지운다 — 4D 시뮬레이션의
+   * "철거" 처럼. 다시 하면 뚝 사라져서 무엇이 지워졌는지 안 보였다. 설비 상자는 아직 3D 에 있을 때 재야 해서 다시 하기 전에 부른다.
+   */
+  function replayDemolish(step: ReplayStep | null) {
+    const m = model.value
+    if (!m || !host.viewer) return
+    const elevation = (sid: string) => m.storeys.find((s) => s.id === sid)?.elevation ?? 0
+    type Gone = Parameters<Viewer['demolish']>[0][number]
+    const items = (step?.changes ?? []).flatMap((c): Gone[] => {
+      const it = c.before
+      if (!it || c.after) return []
+      const z = elevation(it.storeyId)
+      if (it.t === 'equip') return it.conduit ? [] : [{ key: c.key, id: it.id }]
+      if (it.t === 'wall') return it.rings.map((ring, k) => ({ key: `${c.key}:${k}`, ring, elevation: z, height: 2.6 }))
+      if (it.t === 'opening' && it.at) return [{ key: c.key, at: [it.at[0], it.at[1], z] as Vec3 }]
+      if (it.t === 'space' || it.t === 'zone') return [{ key: c.key, ring: it.ring, elevation: z, height: 0.4 }]
+      return []
+    })
+    if (items.length) host.viewer.demolish(items.slice(0, 24))
+  }
+
   /** 다시 한 뒤. 물리존은 모양이 바뀌었으니 울타리를 새 모양으로 다시 세운다(옛 것은 옅어진다). */
   function replayLand(step: ReplayStep | null) {
     // 새로 생긴 것(벽·문·창·설비·공간 오브젝트)은 납작한 2D 발자국에서 3D 형체를 드러낸다. 덕트·배관은 빼고.
@@ -404,6 +426,7 @@ export function useReplay(host: ReplayPlayerHost) {
       if (round === 0) host.viewer?.setAutoRotate(false)
       void replayArrows(step)
       if (!(await replayWait(round ? REPLAY_LOOP_BEFORE_MS : REPLAY_AIM_MS, token))) return
+      replayDemolish(step)
       redo()
       replayLand(step)
       if (!(await replayWait(REPLAY_LOOP_AFTER_MS, token))) return
@@ -526,6 +549,7 @@ export function useReplay(host: ReplayPlayerHost) {
       await replayAim(step)
       void replayArrows(step)
       if (!(await replayWait(REPLAY_AIM_MS, token)) || !replayPlaying.value) return
+      replayDemolish(step)
       redo()
       replayAiming.value = null
       replayLand(step)
@@ -581,6 +605,7 @@ export function useReplay(host: ReplayPlayerHost) {
     } else if (to === 'next' && history.value.length < replayTotal.value) {
       const step = replaySteps.value[history.value.length] ?? null
       await replayAim(step)
+      replayDemolish(step)
       redo()
       replayLand(step)
     }

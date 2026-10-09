@@ -111,6 +111,11 @@ export type ReplayViewerApi = {
    * 충격파가 남는다. 부를 때마다 앞의 것은 옅어지며 사라진다. 둘 다 비면 걷기만 한다.
    */
   spotlight(equipment: readonly { id: string; label?: string }[], spaces: readonly string[], color: number, extra?: SpotlightExtra): void
+  /**
+   * 지워지는 것을 비춘다(4D 시뮬레이션의 "철거"). 붉은 상자·윤곽이 번쩍였다가 바닥으로 가라앉으며 옅어지고, 밑동에 붉은
+   * 충격파가 퍼진다. 설비는 id(지우기 전에 불러야 상자를 잰다), 벽·물리존은 외곽선과 높이, 문·창은 자리. 움직임을 끈 사람에게는 없다.
+   */
+  demolish(items: readonly { key: string; id?: string; ring?: readonly Vec2[]; elevation?: number; height?: number; at?: Vec3 }[]): void
   /** IFC 좌표의 점들(벽 외곽선·문·창 자리)이 화면에 들어오게 한다. margin(미터)만큼 둘레를 더 보인다. */
   framePoints(points: readonly Vec3[], margin?: number): void
 }
@@ -847,8 +852,10 @@ export function createReplayFx(host: ReplayHost) {
     return best?.key ?? null
   }
   const SPOT_REACH = 30
-  function fadeSpots() {
+  /** 비춘 것들을 옅게 걷는다. keep 이 있으면 그것만 남긴다(지운 설비의 빛기둥만 걷을 때). */
+  function fadeSpots(keep?: (s: Spot) => boolean) {
     for (const s of spots) {
+      if (keep?.(s)) continue
       const g = s.group
       const from = g.userData.fade as number
       fxs.push({ obj: new Object3D(), t0: null, ms: 450, step: (k) => {
@@ -856,7 +863,7 @@ export function createReplayFx(host: ReplayHost) {
         if (k >= 1) g.userData.dead = true
       } })
     }
-    spots = []
+    spots = keep ? spots.filter(keep) : []
   }
   /** 설비 하나의 빛기둥·바닥 물결 두 겹·이름표. 무리(group)는 설비 형상 중심에 있고, 미끄러지면 따라간다(trace). */
   function deviceSpot(id: string, color: number, label: string | undefined, d: number, nth: number): Spot | null {
@@ -986,6 +993,46 @@ export function createReplayFx(host: ReplayHost) {
       ;(disc.material as MeshBasicMaterial).opacity = 0.5 * (1 - e)
     } })
   }
+  // --- 철거(demolish) ---
+  const DEMOLISH_MS = 1300
+  const DEMOLISH_COLOR = 0xff4d5e
+  /** 비춘 철거 수(e2e 가 짧은 연출을 놓치지 않게 센다). */
+  let demolished = 0
+  /** 장면 상자 하나를 붉게 비춰 가라앉힌다. 상자는 장면 좌표(설비 형상 상자 또는 외곽선을 세운 상자). */
+  function demolishBox(box: Box3) {
+    // 작은 설비(말단·센서)는 빛기둥에 가려 안 보인다 — 바닥 넓이를 60cm 는 되게 키운다.
+    const c = box.getCenter(new Vector3())
+    box.expandByPoint(new Vector3(c.x - 0.3, box.min.y, c.z - 0.3)).expandByPoint(new Vector3(c.x + 0.3, box.min.y, c.z + 0.3))
+    const size = box.getSize(new Vector3())
+    size.y = Math.max(size.y, 0.05)
+    // 바닥이 원점인 상자 — 키를 줄이면 바닥으로 가라앉는다.
+    const geo = new BoxGeometry(size.x, size.y, size.z).translate(0, size.y / 2, 0)
+    const fill = new Mesh(geo, fxMaterial(DEMOLISH_COLOR, 0.35))
+    const edges = new LineSegments(new EdgesGeometry(geo), new LineBasicMaterial({ color: DEMOLISH_COLOR, transparent: true, opacity: 1, depthTest: false, depthWrite: false, blending: AdditiveBlending }))
+    const group = new Group()
+    const base = box.getCenter(new Vector3()).setY(box.min.y)
+    group.position.copy(base)
+    group.add(fill, edges)
+    fill.renderOrder = edges.renderOrder = 19
+    group.userData.baseY = base.y
+    group.position.y += explodeAt(base.y)
+    host.overlay.add(group)
+    demolished++
+    let shocked = false
+    fxs.push({ obj: group, t0: null, ms: DEMOLISH_MS, step: (k) => {
+      // 앞 25% 는 번쩍이고(두 번), 그 뒤 가라앉으며 옅어진다.
+      const flash = k < 0.25 ? 0.5 + 0.5 * Math.cos(k * Math.PI * 8) : 1
+      const sink = k < 0.25 ? 1 : 1 - easeOut((k - 0.25) / 0.75)
+      group.scale.y = Math.max(sink, 0.001)
+      ;(fill.material as MeshBasicMaterial).opacity = 0.35 * flash * (0.3 + 0.7 * sink)
+      ;(edges.material as LineBasicMaterial).opacity = flash * (0.2 + 0.8 * sink)
+      if (!shocked && k >= 0.25) {
+        shocked = true
+        shock(group.position.clone().setY(group.position.y + 0.02), DEMOLISH_COLOR, Math.max(0.4, Math.hypot(size.x, size.z) * 0.3))
+      }
+    } })
+  }
+
   /** 비춘 설비가 미끄러질 때: 떠난 자리의 빈 상자, 지나간 궤적, 따라가는 빛기둥, 도착하면 충격파. */
   function trace(id: string, fromBox: Box3, toBox: Box3) {
     const spot = spots.find((s) => s.id === id)
@@ -1186,6 +1233,28 @@ export function createReplayFx(host: ReplayHost) {
       host.invalidate()
     },
 
+    demolish(items) {
+      if (!cinema || still()) return
+      // 지우는 설비를 비추던 빛기둥·이름표는 같이 걷는다 — 남으면 빈 자리를 가리킨다.
+      const gone = new Set(items.flatMap((it) => (it.id ? [it.id] : [])))
+      if (gone.size) fadeSpots((s) => !gone.has(s.id))
+      for (const it of items) {
+        if (it.id) {
+          const part = host.partById().get(it.id)
+          if (part && !host.hiddenIds().has(it.id)) demolishBox(part.box.clone())
+        } else if (it.ring && it.ring.length >= 2) {
+          const box = new Box3()
+          for (const p of it.ring) box.expandByPoint(new Vector3(...host.toScene([p[0], p[1], it.elevation ?? 0])))
+          box.max.y += it.height ?? 1
+          demolishBox(box)
+        } else if (it.at) {
+          const [x, y, z] = host.toScene(it.at)
+          demolishBox(new Box3(new Vector3(x - 0.45, y, z - 0.45), new Vector3(x + 0.45, y + 2.1, z + 0.45)))
+        }
+      }
+      host.invalidate()
+    },
+
     framePoints(points, margin = 0) {
       const box = new Box3()
       for (const p of points) {
@@ -1251,6 +1320,6 @@ export function createReplayFx(host: ReplayHost) {
     hitSpot: (x: number, y: number): string | null => (spotClickHandler ? hitSpot(x, y) : null),
     spotClick: (key: string) => spotClickHandler?.(key),
     /** e2e 가 보는 지금의 연출 수. */
-    motion: () => ({ effects: fxs.length, spots: spots.length }),
+    motion: () => ({ effects: fxs.length, spots: spots.length, demolished }),
   }
 }

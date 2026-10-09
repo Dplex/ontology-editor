@@ -280,3 +280,25 @@ test('시간줄을 끌면 편집 하나씩 그 상태로 가고, 놓은 자리�
   expect(await coords(page, 'AHU-1')).toEqual(edited)
   expect(errors).toEqual([])
 })
+
+test('지운 설비는 다시 하는 순간 붉은 윤곽으로 가라앉으며 사라진다(철거)', async ({ page }) => {
+  test.setTimeout(120_000)
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await pick(page, 'AHU-1')
+  await page.locator('.picked').getByRole('button', { name: '설비 지우기' }).click()
+  await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' })).toHaveCount(0)
+
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('p')
+  const hud = page.locator('.replay-hud')
+  // 되감으면 AHU-1 이 돌아와 있고, 장면에서 다시 지울 때 철거 연출이 한 번 선다.
+  await expect(hud).toHaveAttribute('data-phase', 'play', { timeout: 15_000 })
+  expect(await page.evaluate(() => (window as any).__viewer.motion().demolished)).toBe(0)
+  await expect(hud).toHaveAttribute('data-at', '1', { timeout: 15_000 })
+  expect(await page.evaluate(() => (window as any).__viewer.motion().demolished)).toBe(1)
+  await page.keyboard.press('Escape')
+  await expect(hud).toHaveCount(0)
+  await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
