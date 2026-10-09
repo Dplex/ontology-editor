@@ -60,13 +60,14 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | 8ed03b8 | [OE-PIP-10 꺾임 이음쇠(꼭짓점) 옮기기](next/pr/oe-pip-10-vertex.md) | Refs [#191](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/191) | — (ADR 목록 줄은 MAP-02 다음) · `needs-pm` |
 | 77f59aa | [OE-PIP-13 구간 경로 LineString · 미반영 목록](next/pr/oe-pip-13.md) | [#194](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/194) | PIP-10 다음 · `needs-pm` |
 | 1225b23 | [OE-EQP-07 EL·ES 층 편집 잠금 · 에스컬레이터 사전](next/pr/oe-eqp-07.md) | [#171](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/171) | — (check-sample 성수 줄은 PIP-13 다음) |
-| bc9eb3b | [OE-PIP-11 수동 배관 그리기](next/pr/oe-pip-11.md) | Refs [#192](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/192) | PIP-13 다음 · `needs-pm` |
-| 42adfbf | [OE-PIP-10 구간 삭제 영향](next/pr/oe-pip-10-impact.md) | Refs [#191](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/191) | PIP-10 꼭짓점 다음 |
-| aec79e2 | [OE-PIP-10 구간 끝 연결 대상 바꾸기](next/pr/oe-pip-10-retarget.md) | Refs [#191](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/191) | 구간 삭제 영향 다음 |
-| 142de1c | [docs: 로봇 경로가 읽는 GeoJSON 속성](next/pr/docs-geojson-robot.md) | Refs [#231](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/231) | — · `needs-pm` |
-| a9d2906 | [OE-MAN-02 평면도 배경 이미지](next/pr/oe-man-02.md) | [#118](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/118) | — · `needs-pm` |
-| 637adc9 | [OE-EQP-08 실내기 Z-06](next/pr/oe-eqp-08.md) | [#172](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/172) | ZON-01 패널 다음 |
-| 818c3a1 | [test: BIM 배관 다시 열기(OE-PIP-14)](next/pr/test-pip-14.md) | Refs [#195](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/195) | PIP-10·13 다음 |
+| 18183f8 | [OE-PIP-11 수동 배관 그리기](next/pr/oe-pip-11.md) | Refs [#192](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/192) | PIP-13 다음 · `needs-pm` |
+| 6b67ca6 | [OE-PIP-10 구간 삭제 영향](next/pr/oe-pip-10-impact.md) | Refs [#191](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/191) | PIP-10 꼭짓점 다음 |
+| 8f04fd0 | [OE-PIP-10 구간 끝 연결 대상 바꾸기](next/pr/oe-pip-10-retarget.md) | Refs [#191](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/191) | 구간 삭제 영향 다음 |
+| 8c6bde3 | [docs: 로봇 경로가 읽는 GeoJSON 속성](next/pr/docs-geojson-robot.md) | Refs [#231](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/231) | — · `needs-pm` |
+| 96b9a32 | [OE-MAN-02 평면도 배경 이미지](next/pr/oe-man-02.md) | [#118](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/118) | — · `needs-pm` |
+| b17f8b7 | [OE-EQP-08 실내기 Z-06](next/pr/oe-eqp-08.md) | [#172](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/172) | ZON-01 패널 다음 |
+| 978c118 | [test: BIM 배관 다시 열기(OE-PIP-14)](next/pr/test-pip-14.md) | Refs [#195](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/195) | PIP-10·13 다음 |
+| 3731493 | [OE-PIP-08 연결 후보 [연결하기] 용어](next/pr/pip-08-wording.md) | Refs [#411](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/411) | — |
 
 ## 지금 상태 (2026-10-09 09:40 확인)
 
@@ -102,7 +103,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 
 ### 10-09 PRD 변경이 바꾼 것 (sec main 622c80a, eco/main 에도 반영)
 
-- **[#411](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/411) 연결 도구 용어가 "잇기·끊기" 에서 "연결하기·연결 끊기" 로 바뀌었다**(OE-PIP-01·06·08, UI-04, glossary). 화면에 옛 말이 둘 남았다 — 연결 누락 후보의 [잇기] 버튼(OE-PIP-08 은 "[연결 후보 확인 후 연결하기]"), 수동 배관의 [곧게 잇기](bc9eb3b). 코드 주석의 "잇기" 는 그대로 둬도 된다.
+- **[#411](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/411) 연결 도구 용어가 "잇기·끊기" 에서 "연결하기·연결 끊기" 로 바뀌었다**(OE-PIP-01·06·08, UI-04, glossary). 화면에 옛 말이 둘 남았다 — 연결 누락 후보의 [잇기] 버튼(OE-PIP-08 은 "[연결 후보 확인 후 연결하기]"), 수동 배관의 [곧게 잇기](18183f8). 코드 주석의 "잇기" 는 그대로 둬도 된다.
 - **[#399](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/399) Codex 검토가 E04 IDF-12~15·E12 EQP-14·15·BIM-18 문구를 고쳤다.** OE-EQP-15 에 "외벽 설비는 소속 판정 1단계에서 빠져, 허용 거리 안에 물리존이 있어도 붙지 않는다" 가 더해졌다 — 지금 동작과 맞는지 확인할 것. 이름 사전(glossary)이 별칭·적용 범위·확인 상태·버전을 관리하는 것으로 정의가 넓어졌다.
 
 ### 10-08 PRD 변경이 바꾼 것
@@ -128,10 +129,10 @@ R1 Todo 는 34장, 후속 이슈 3장([#340](https://github.sec.samsung.net/IoT-
 6. **[#184](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/184) 계통 종류** — PM 답이 사실상 1번이다. PM 확인을 받고 닫는다. "Flow Type · 계통도 17종 · 흐름 방향" 세 필드 정의는 후속 이슈 후보다.
 
 7. **[#258](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/258) OE-HIST-03 편집 파일 저장·불러오기(P1, 보드 Todo)** — 코드는 거의 다 있다(편집 파일·GUID 재짝짓기 S1 시험·사람 지정 소속 ADR-0018). 닫는 PR 이 없어 Todo 로 남았다. 수용 기준 넷을 시험에 대 보고 빈 곳만 메워 닫는다(R2 IDF 재임포트는 제외).
-8. **[#411](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/411) 용어 맞추기** — 화면의 [잇기] → [연결하기], [곧게 잇기] → [곧게 연결하기] 류. 위 "10-09 PRD 변경" 참고.
+8. ~~[#411](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/411) 용어 맞추기~~ — 3731493([잇기]→[연결하기]) · 수동 배관 [곧게 연결하기] 는 PIP-11 커밋에 넣음. 화면의 [잇기] → [연결하기], [곧게 잇기] → [곧게 연결하기] 류. 위 "10-09 PRD 변경" 참고.
 9. **[#399](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/399) OE-EQP-15 외벽 설비 소속** — 바뀐 문구와 지금 동작 대조.
 
-### 1. 배관 편집 (E13 · R1 P1) — 1단계 8ed03b8 (꼭짓점 = 이음쇠, 꺾임점 옮기기, ADR-0029). 2단계 77f59aa (구간 경로 LineString·미반영 목록, ADR-0030). 3단계 bc9eb3b (수동 배관 그리기, ADR-0031). 4단계 42adfbf (구간 삭제 영향). 5단계 aec79e2 (끝 연결 대상 바꾸기). 열린 끝 검증은 이미 있음(conduit-ends 진단, 해제 보정 사유 포함). 다음: 꼭짓점 추가·삭제는 PM 과 의미부터
+### 1. 배관 편집 (E13 · R1 P1) — 1단계 8ed03b8 (꼭짓점 = 이음쇠, 꺾임점 옮기기, ADR-0029). 2단계 77f59aa (구간 경로 LineString·미반영 목록, ADR-0030). 3단계 18183f8 (수동 배관 그리기, ADR-0031). 4단계 6b67ca6 (구간 삭제 영향). 5단계 8f04fd0 (끝 연결 대상 바꾸기). 열린 끝 검증은 이미 있음(conduit-ends 진단, 해제 보정 사유 포함). 다음: 꼭짓점 추가·삭제는 PM 과 의미부터
 
 [OE-PIP-10](docs/prd/features/E13-PIP/OE-PIP-10.md) 형상 수정([#191](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/191)) → [OE-PIP-11](docs/prd/features/E13-PIP/OE-PIP-11.md) 수동 그리기([#192](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/192)) → [OE-PIP-12](docs/prd/features/E13-PIP/OE-PIP-12.md) 끝점 추종([#193](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/193)) → [OE-PIP-13](docs/prd/features/E13-PIP/OE-PIP-13.md) 좌표 조건([#194](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/194)).
 그다음 [OE-OBJ-12](docs/prd/features/E02-OBJ/OE-OBJ-12.md) 배관 오브젝트([#53](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/53), P2) · [OE-EQP-08](docs/prd/features/E12-EQP/OE-EQP-08.md) 실내기([#172](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/172)) · [OE-PIP-14](docs/prd/features/E13-PIP/OE-PIP-14.md) BIM 배관 가져오기([#195](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/195), P2).
