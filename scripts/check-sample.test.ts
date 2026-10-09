@@ -28,7 +28,7 @@ import { inferFlowByRules, newlyDisagreeing, withInferred } from '../src/lib/flo
 import { airBasis, airServices, needsSystem, systemlessAir } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
-import { verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
+import { verticalConnections, verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
 import { storeyHeights } from '../src/lib/storey-height'
 import { markStoreyDone, storeyProgress } from '../src/lib/storey-progress'
 import { equipmentKind, roomKind } from '../src/lib/kinds'
@@ -279,6 +279,17 @@ describe.skipIf(!existsSync(DUPLEX_ARCH))('Revit 이 낸 공간 외곽선 (Swept
   }, 300_000)
 })
 
+// 병원 건축의 층간 연결 기준선: 계단실·승강로 id → 이어질 방 id. 1층 승강로 E1 은 2층에 승강로 공간이 BIM 에 없어 잇지 않는다.
+const HOSPITAL_VERTICAL: Record<string, string | null> = {
+  '0ztdC3L1HAzhbhMHypqdeT': '0uLn6BSvvEB8kgChiujNG3', // First Floor/1AS1 ↔ Second Floor/2AS1 (98.2%)
+  '0uLn6BSvvEB8kgChiujNG3': '0ztdC3L1HAzhbhMHypqdeT',
+  '0ztdC3L1HAzhbhMHypqcTW': '0ClPCUC7jCQRnj1dhupMQV', // 1BS2 ↔ 2BS2 (100%)
+  '0ClPCUC7jCQRnj1dhupMQV': '0ztdC3L1HAzhbhMHypqcTW',
+  '0ztdC3L1HAzhbhMHypqc0q': '0ClPCUC7jCQRnj1dhupMQK', // 1CS3 ↔ 2CS3 (99.5%)
+  '0ClPCUC7jCQRnj1dhupMQK': '0ztdC3L1HAzhbhMHypqc0q',
+  '0ztdC3L1HAzhbhMHypqdiM': null, // First Floor/E1 (ELEVATOR)
+}
+
 // 문이 잇는 방을 좌표로 짚는 것(element-geometry.ts)이 BIM 의 공간 경계와 얼마나 맞나. 성수 건축은 공간
 // 경계가 0 이라 좌표로만 잇는다. 정답지는 공간 경계가 있는 두 파일이다. 외곽선이 없는 방은 좌표로 짚을
 // 수 없으니 정답에서 뺀다(Duplex Level 2 의 Hallway 가 외곽선 0 이다). 빼지 않으면 14개 중 6개만 맞는다.
@@ -346,12 +357,17 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH))('문이 잇는 
     // 13개 중 11개는 방 하나다 — 커튼월 문 3개는 바깥문이고, 화장실 칸막이 문 8개는 양쪽이 같은 화장실이다. 2개는 방을 못 짚는다.
     expect(tally(calc, 'rooms')).toEqual({ 0: 2, 1: 11 })
 
-    // 층 사이: 계단실 6 + 승강로 1 = 7개 중 6개.
-    const vertical = model.storeys.flatMap((st) => st.spaces.filter((sp) => VERTICAL_KINDS.includes(sp.kind ?? '')).map((sp) => `${st.name}/${sp.name}`))
-    expect(vertical).toHaveLength(7)
-    const linked = all.filter((p) => p.kind === 'space' && Array.isArray(p.verticalConnects))
-    expect(linked).toHaveLength(6)
-    expect(vertical.filter((v) => !linked.some((p) => v.endsWith(`/${p.name}`)))).toEqual(['First Floor/E1'])
+    // 층 사이 고정 기준선(OE-EQP-16 "7개 중 6개 이상", OE-ML-19). 대상 id·기대 연결·출처를 박아 둔다 — 개수만 재면 엉뚱한 짝이나
+    // 모호 후보를 억지로 이어도 통과한다. 계단실 셋이 1·2층에서 서로를 최고 후보로 고른다(겹침 98~100%).
+    const vertical = model.storeys.flatMap((st) => st.spaces.filter((sp) => VERTICAL_KINDS.includes(sp.kind ?? '')).map((sp) => sp.id))
+    expect(vertical.sort()).toEqual(Object.keys(HOSPITAL_VERTICAL).sort())
+    const spaces = new Map(modelToGeoJSON(model).flatMap((x) => x.collection.features).filter((f) => f.properties.kind === 'space').map((f) => [String(f.id), f.properties]))
+    for (const [id, expected] of Object.entries(HOSPITAL_VERTICAL)) {
+      const p = spaces.get(id)!
+      if (expected) expect({ id, connects: p.verticalConnects, source: p.verticalConnectsSource }).toEqual({ id, connects: [expected], source: 'calc' })
+      else expect(p).not.toHaveProperty('verticalConnects')
+    }
+    expect(verticalConnections(model).ambiguous).toEqual([])
   }, 300_000)
 
   it('벽의 평면 외곽선과 문·창의 자리를 형상에서 읽는다', async () => {
