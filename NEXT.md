@@ -185,6 +185,41 @@ PRD 는 충분히 자세하다(E18 티켓 19개 `prd-done`, 수용 기준 100여
 
 [OE-EXT-03](docs/prd/features/E17-EXT/OE-EXT-03.md) 외벽 에디터([#234](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/234) — [#374](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/374) 이후 외벽 형상은 외벽 여부를 풀어야만 고친다) · [OE-EXT-05](docs/prd/features/E17-EXT/OE-EXT-05.md) Proxy 루버 오인 방지([#236](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/236)) · [OE-ROB-04](docs/prd/features/E16-ROB/OE-ROB-04.md) 데이터 선행 제공([#231](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/231)).
 
+### 6. 서버·플랫폼 (R1 · 일부 R2) — **2026-10-09 사용자 인터뷰: 서버도 PoC 범위, 실제 DB 대신 서버 파일로**
+
+지금까지 "플랫폼 몫" 으로 미뤘던 반영·버전·알림·임시 저장·권한·잠금·로그(대부분 `prd-review`)를 이 repo 의 서버(`scripts/serve.mjs`·dev 서버의
+`/__data`, `src/server/`)에 파일로 만든다. D-INT 는 "결정 전 ①(파일)로 진행" 이라 그대로 따른다. 다른 모듈(DT 3D 맵·뷰어마스터·PRD_002 GNB·
+PRD_009)은 붙이지 않고 서버 파일로 흉내 낸다. 설계는 첫 PR 의 ADR 에 남긴다.
+
+정한 것:
+
+| 거리 | 정한 것 | 티켓 |
+|---|---|---|
+| 반영·버전 | 버전마다 폴더(`data/.layouts/<건물 열쇠>/vN/`: TTL·GeoJSON·GLB·편집 파일·공간 계층 json·변경 요약·반영 리포트, `meta.json` 일시·반영자·대상 층) + `current.json` 포인터. 반영은 임시 폴더에 다 쓰고 rename(반만 반영 없음). 되돌리기 = 옛 버전을 새 버전으로 복사. 1주 지난 버전은 히스토리에서만 감추고 파일은 둔다. 첫 반영이 v1 | WF-10~13·18~20, GEN-05·09, SYNC-01·02 |
+| 반영 대상 | 서버의 현재 레이아웃 파일이 "DT 3D 맵·온톨로지에 반영된 것" 이다. 공간 계층(사이트>건물>층>물리존) json 이 탐색기 트리 대신. 확인은 우리 뷰어(read-ttl)와 [현재 레이아웃 열기] | SYNC-01·03, XPRD-03 |
+| 사람·역할 | 서버 `users.json` 에서 고른다. Viewer 는 편집·반영을 화면·API 양쪽에서 막는다(R2 를 미리, 사내망이라 보안은 아님) | COM-01·02, XPRD-04 |
+| 알림 | 앱이 서버 current 를 주기적으로 보고, 연 버전보다 새것이면 상단 배너 "새 레이아웃이 적용되었습니다 [새로고침]". GNB 대신 앱 안 알림 목록(층·반영자·버전). 화면을 저절로 바꾸지 않는다 | WF-14~16·21, XPRD-02 |
+| 임시 저장본 | 서버 파일, 층마다 하나(`data/.drafts/`). 층에 들어가면 묻지 않고 이어 열고, [폐기]는 확인 뒤 지우고 현재 버전으로. 누구나 이어 편집. 브라우저 자동 저장은 복구용으로 남김 | WF-01~05, COM-03 |
+| 잠금·로그 | 층 잠금(서버 파일 + 주기 갱신, 브라우저가 죽으면 몇 분 뒤 풀림, "OOO님이 편집 중입니다"). 로그 `log.jsonl` — 편집 시작·임시 저장·반영·되돌리기·편집 종료(버전 보관 기간과 무관) | COM-04~06, XPRD-01 |
+| 모드 분기 | current 버전이 있으면 [운영 편집](현재 버전의 편집 파일을 BIM 에 얹어 시작)만, 없으면 [초기 구축]만 켠다. 꺼진 버튼은 툴팁으로 이유 | UI-02·03 |
+| 등급 | D1 C안(게이트 등급 2 · 목표선 3, 등급 2 ≥ 85%)·D12 안(게이트 0~2 는 BIM+계산만, 목표선 3·4 는 두 수치 병기)대로 구현. 기준값은 설정 한 곳에, PR 에 "제안안 기준" 을 밝힘 | BIM-21, REQ-04 |
+
+순서(한 줄 = PR 하나):
+
+1. 레이아웃 저장소 + [반영하기]·v1·버전 히스토리·되돌리기·1주 + ADR — 이것이 나머지의 바탕
+2. `users.json`·역할(Viewer 막기)·로그
+3. 배너·앱 알림
+4. 서버 임시 저장본(층마다 하나)·층 잠금
+5. 모드 자동 분기
+6. 반영 결과 리포트(SYNC-04~06)·공간 계층 json
+7. 등급 D1·D12 제안안
+
+코드 없이 쓸 자료(`next/comment/`):
+- `d11-dt-question.md` — DT 쪽에 물을 질문 초안(DT 3D Map 이 읽는 형식 glTF·FBX·IMDF, 단위·축, id 잇기, 층별 파일 여부, 변환 주체 + 지금 GLB 샘플 숫자). 사용자가 보낸다
+- D5·D14·U4 회의 자료 — 가진 BIM 에서 잰 숫자(GUID·Revit ID 비율, BAS 키 후보 채움률, 출처별 값 수)와 안 두엇. 코드는 결정 뒤
+
+기다림: ML-01 진입 전 층 편집 확정·작업 ID(OE-WF-03 확정 뒤) · PM 답 #181·#165·#173 · 에스컬레이터 읽기(성수 PC).
+
 ### R2 (지금 안 한다)
 
 [OE-IDF-01](docs/prd/features/E04-IDF/OE-IDF-01.md)~15 · [OE-ZON-03](docs/prd/features/E10-ZON/OE-ZON-03.md) · [OE-ZON-07](docs/prd/features/E10-ZON/OE-ZON-07.md) · [OE-MAN-01](docs/prd/features/E07-MAN/OE-MAN-01.md)([#117](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/117)) · [OE-PIP-16](docs/prd/features/E13-PIP/OE-PIP-16.md)([#197](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/197)) · [OE-PIP-17](docs/prd/features/E13-PIP/OE-PIP-17.md)([#198](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/198)) · [OE-ROB-01](docs/prd/features/E16-ROB/OE-ROB-01.md)([#228](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/228)) · [OE-ROB-02](docs/prd/features/E16-ROB/OE-ROB-02.md)([#229](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/229), [Q3](docs/prd/questions.md) 로봇 팀 대기).
