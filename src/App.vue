@@ -1468,6 +1468,12 @@ function onKey(e: KeyboardEvent) {
   if (e.target instanceof HTMLSelectElement && !(e.ctrlKey || e.metaKey) && shortcut.id !== 'escape') return
   // 보기 모드에는 고치는 손잡이가 없다. 끄는 중에는 Esc 가 뷰어의 취소다.
   if (shortcut.edit && !editing.value) return
+  // 다중층 뷰는 아직 보기만 한다(OE-ML-01). 편집 키는 무엇을 막았는지 알린다.
+  if (shortcut.edit && multiView.value) {
+    editNotice.value = MULTI_VIEW_ONLY
+    e.preventDefault()
+    return
+  }
   if (viewer?.isDragging()) return
   if (runShortcut(shortcut, e)) e.preventDefault()
 }
@@ -2043,7 +2049,7 @@ watch([model, canvas], ([m, el]) => {
     viewer.onVertexMove(dropVertex)
     viewer.onArrowClick(cycleFlow)
     viewer.setWallsVisible(showWalls.value)
-    viewer.setEditMode(editing.value)
+    viewer.setEditMode(editing.value && !multiView.value)
     viewer.setDark(dark.value)
   }
   // 편집이 보낸 갱신(triggerRef)으로는 다시 만들지 않는다(redraw 참조). 새 모델일 때만이다.
@@ -2060,7 +2066,7 @@ watch([model, canvas], ([m, el]) => {
 })
 
 watch(editing, (on) => {
-  viewer?.setEditMode(on)
+  viewer?.setEditMode(on && !multiView.value)
   editNotice.value = ''
 })
 
@@ -2197,6 +2203,9 @@ const selectedVertical = computed(() => {
   const spaces = partSpaces(storey, part).map((sid) => ({ id: sid, name: spaceNameOf(sid) }))
   return { ...found, storey, part, spaces, label: VERTICAL_KIND_LABEL[part.kind] }
 })
+/** 다중층 뷰(OE-ML-01)의 보기 범위. 아래 "다중층 뷰" 묶음이 다룬다. 고른 계단 조각의 칠하기가 먼저 읽어 여기 둔다. */
+const multiView = ref<{ from: string; to: string; back: string | null } | null>(null)
+const MULTI_VIEW_ONLY = '다중층 뷰는 아직 보기만 합니다. 수직 관통 오브젝트 편집(OE-ML-06~09)이 생기기 전에는 [층 편집으로] 돌아가 편집합니다.'
 const VERTICAL_PART_LOCKED = '수직 관통 오브젝트라 층 편집 화면에서는 옮기거나 지우거나 형상·구간을 바꾸지 않습니다. 다중층 뷰에서 편집합니다.'
 const VERTICAL_ROLE: Record<'start' | 'through' | 'end', string> = { start: '시작 층 — 여기서 오르기 시작합니다', through: '지나는 층 — 진입·종료 지점이 없습니다', end: '끝 층 — 여기에 다다릅니다' }
 function selectVertical(id: string | null) {
@@ -2211,7 +2220,7 @@ function selectVertical(id: string | null) {
   selectedCustomZoneId.value = null
   const found = model.value && findPart(model.value, id)
   const home = found?.object.parts[found.index].storey
-  if (home && viewStorey.value && home.id !== viewStorey.value) viewStorey.value = home.id
+  if (home && !multiView.value && viewStorey.value && home.id !== viewStorey.value) viewStorey.value = home.id
 }
 /** 막았다고 알린다. 데이터는 그대로다. */
 function refuseVertical(): boolean {
@@ -2224,7 +2233,13 @@ function refuseVertical(): boolean {
 watch(model, (m) => {
   if (selectedVerticalId.value && (!m || !findPart(m, selectedVerticalId.value))) selectedVerticalId.value = null
 })
-watch([model, sceneVersion, selectedVerticalId], () => viewer?.setVerticalParts(model.value, selectedVerticalId.value))
+// 다중층 뷰에서는 고른 오브젝트의 모든 층 조각을 칠한다 — 한 오브젝트로 보인다(OE-ML-01·OE-OBJ-14).
+const verticalHighlight = computed(() => {
+  const v = selectedVertical.value
+  if (!v) return new Set<string>()
+  return multiView.value ? new Set(v.object.parts.map((p) => partId(v.object.id, p.storey.id))) : new Set([selectedVerticalId.value!])
+})
+watch([model, sceneVersion, verticalHighlight], () => viewer?.setVerticalParts(model.value, verticalHighlight.value))
 
 // --- 추가 공간 오브젝트 (OE-OBJ-09 · OE-SPC-14 · OE-SPC-16 · OE-P3-08) ---------------------------------
 /** 리포트의 오브젝트 줄. 연 때는 없으니(임포트는 만들지 않는다) 있는 것이 전부 편집이다. */
@@ -3907,6 +3922,59 @@ function applyEditFile(file: EditFile, from: string, quiet = false) {
     ' 불러온 편집은 되돌리기로 취소할 수 없습니다.'
 }
 
+// --- 다중층 뷰 (OE-ML-01 보기 부분) -----------------------------------------------------
+//
+// 여러 층을 함께 보는 화면이다. 들어가는 길은 ① 층 고르는 칸 옆 [다중층 뷰에서 편집](범위는 지금 층과 위층, 고쳐 고른다) ② 수직 관통
+// 오브젝트 패널의 [다중층 뷰에서 편집](그 오브젝트의 관통 층). ③ 배관 그리기 중 전환은 층간 배관(OE-PIP-15)과 같이 한다.
+// **보기 범위는 오브젝트의 관통 구간과 따로다** — 범위를 바꿔도 데이터는 그대로다. 수직 관통 오브젝트 편집(OE-ML-06~09)과 진입 전 층 편집
+// 확정(OE-WF-03)이 아직 없어서 지금은 보기만 한다: 3D 끌기·편집 단축키·도구 상자를 끈다. 화면 상태라 저장하지 않는다.
+const storeysByHeight = computed(() => [...(model.value?.storeys ?? [])].sort((a, b) => a.elevation - b.elevation))
+/** 보기 범위의 층(높이 순). 시작·끝을 거꾸로 골라도 그 사이다. */
+const multiRange = computed(() => {
+  const v = multiView.value
+  if (!v) return null
+  const list = storeysByHeight.value
+  let i = list.findIndex((st) => st.id === v.from)
+  let j = list.findIndex((st) => st.id === v.to)
+  if (i < 0 || j < 0) return null
+  if (i > j) [i, j] = [j, i]
+  return list.slice(i, j + 1)
+})
+/** 층 바닥 높이(cm 까지). 병원 1층은 -1e-13 이라 그대로 쓰면 "-0.00" 이 된다. */
+const elevationText = (v: number) => (Math.abs(v) < 0.005 ? 0 : v).toFixed(2)
+/** 다중층 뷰를 연다. 범위를 안 주면 지금 층과 바로 위층(맨 위층이면 아래층), 층을 안 골랐으면 전체다. */
+function openMultiView(from?: string, to?: string) {
+  const list = storeysByHeight.value
+  if (list.length < 2) return
+  if (!from || !to) {
+    const i = list.findIndex((st) => st.id === viewStorey.value)
+    if (i < 0) [from, to] = [list[0].id, list.at(-1)!.id]
+    else [from, to] = i + 1 < list.length ? [list[i].id, list[i + 1].id] : [list[i - 1].id, list[i].id]
+  }
+  multiView.value = { from, to, back: multiView.value?.back ?? viewStorey.value }
+  activeTab.value = '3d'
+  editNotice.value = ''
+  viewer?.frameAll()
+}
+/** 고른 수직 관통 오브젝트의 관통 층으로 연다(진입 경로 ②). 고른 조각은 그대로다. */
+function openMultiViewFor(objectParts: readonly { storey: { id: string } }[]) {
+  openMultiView(objectParts[0].storey.id, objectParts.at(-1)!.storey.id)
+}
+function setMultiAll() {
+  const list = storeysByHeight.value
+  if (multiView.value && list.length) multiView.value = { ...multiView.value, from: list[0].id, to: list.at(-1)!.id }
+}
+/** 층 편집으로 돌아간다. 들어오기 전에 보던 층이다. 고른 계단 조각이 그 층에 없으면 푼다. */
+function closeMultiView() {
+  const back = multiView.value?.back ?? null
+  multiView.value = null
+  viewStorey.value = back && model.value?.storeys.some((st) => st.id === back) ? back : viewStorey.value
+  if (selectedVertical.value && viewStorey.value && selectedVertical.value.storey.id !== viewStorey.value) selectedVerticalId.value = null
+}
+watch(baseline, () => (multiView.value = null))
+// 보기만 한다 — 3D 의 끌기·손잡이를 끈다.
+watch(multiView, () => viewer?.setEditMode(editing.value && !multiView.value))
+
 // --- 층별로 보기 ---------------------------------------------------------------------
 //
 // 층이 여럿이면 3D 에 전부 겹쳐 그려져, 아래층 설비는 위층 판과 배관에 가려 누르기도 끌기도 어려웠다. 한 층만 남긴다.
@@ -3927,6 +3995,13 @@ watch(baseline, () => (viewStorey.value = firstStorey(model.value)))
 function applyStoreyFilter() {
   const m = model.value
   if (!viewer || !m) return
+  // 다중층 뷰면 보기 범위의 층들이다(OE-ML-01).
+  const range = multiRange.value
+  if (range) {
+    const ids = new Set(range.map((st) => st.id))
+    viewer.setStoreyFilter(ids, new Set(m.storeys.filter((s) => !ids.has(s.id)).flatMap((s) => s.equipment.map((e) => e.id))))
+    return
+  }
   const id = viewStorey.value
   if (!id || !m.storeys.some((s) => s.id === id)) {
     viewer.setStoreyFilter(null, new Set())
@@ -3935,7 +4010,7 @@ function applyStoreyFilter() {
   const hidden = new Set(m.storeys.filter((s) => s.id !== id).flatMap((s) => s.equipment.map((e) => e.id)))
   viewer.setStoreyFilter(new Set([id]), hidden)
 }
-watch([viewStorey, model, sceneVersion], applyStoreyFilter)
+watch([viewStorey, model, sceneVersion, () => multiRange.value], applyStoreyFilter)
 // 천장 모드에서 층을 바꾸면 위에서 내려다보는 시점을 지킨다(OE-OBJ-08).
 watch(viewStorey, () => (ceilingMode.value ? viewer?.topView() : viewer?.frameAll()))
 
@@ -7131,7 +7206,13 @@ async function export3D(format: 'glb' | 'obj') {
             </div>
             <!-- 편집 도구 팔레트(PRD #9 화면 레이아웃의 왼쪽). 편집 모드에서만, 무엇을 만드는지로 묶는다. 넣을 층은 층 하나만
                  보는 중이면 그 층이다(targetStorey). 왼쪽 위는 색 안내 자리라 아래쪽에 둔다. -->
-            <nav v-if="editing && !drawing && activeTab === '3d'" class="tool-palette" aria-label="편집 도구">
+            <!-- 다중층 뷰(OE-ML-01). 도구 상자 자리에 보기 범위와 지금은 보기만 한다는 말을 둔다. -->
+            <p v-if="multiView && multiRange" class="multi-banner" role="status" data-testid="multi-banner">
+              <b>다중층 뷰</b> · {{ multiRange[0].name }} ~ {{ multiRange.at(-1)!.name }} ({{ multiRange.length }}개 층) · 바닥 높이
+              {{ elevationText(multiRange[0].elevation) }} ~ {{ elevationText(multiRange.at(-1)!.elevation) }} m <Src kind="bim" /><br />
+              <span class="muted">보기 범위만 바꿉니다. 오브젝트의 관통 구간은 그대로입니다. 수직 관통 오브젝트 편집(OE-ML-06~09)은 아직 없어 보기만 합니다.</span>
+            </p>
+            <nav v-if="editing && !drawing && activeTab === '3d' && !multiView" class="tool-palette" aria-label="편집 도구">
               <!-- 천장 편집 모드(OE-OBJ-08). 천장 쪽에서는 공간 도구와 바닥·벽 도구가 잠기고, 누르면 어디서 편집하는지 알린다. -->
               <span class="palette-head">공간 그리기</span>
               <!-- 두 버튼을 한 줄에 둔다. 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
@@ -7254,7 +7335,8 @@ async function export3D(format: 'glb' | 'obj') {
               </template>
             </nav>
             <!-- 시점 조작 안내(OE-OBJ-15). 지도처럼 왼쪽 드래그가 화면 이동이다. 편집 모드의 Ctrl+드래그는 여러 개 고르기다(OE-UI-09). -->
-            <p v-if="activeTab === '3d'" class="view-controls-hint" aria-label="시점 조작 안내">
+            <!-- 다중층 뷰에서는 위쪽에 보기 범위 칸이 길게 들어와 이 안내를 덮는다. 다중층 뷰는 보기만 하니 뺀다. -->
+            <p v-if="activeTab === '3d' && !multiView" class="view-controls-hint" aria-label="시점 조작 안내">
               드래그: 이동 · Shift/우클릭 드래그: 회전 · {{ editing ? 'Ctrl+드래그: 여러 개 고르기 · ' : '' }}휠: 확대
             </p>
             <div class="view-tools">
@@ -7290,13 +7372,28 @@ async function export3D(format: 'glb' | 'obj') {
               </button>
               <div class="tabs" role="group" aria-label="보기">
                 <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
-                <button type="button" :aria-pressed="activeTab === 'plan'" @click="showPlan">평면도</button>
+                <button type="button" :aria-pressed="activeTab === 'plan'" :disabled="!!multiView" :title="multiView ? '평면도는 층 하나를 그립니다. 다중층 뷰는 3D 입니다' : undefined" @click="showPlan">평면도</button>
               </div>
               <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
-              <select v-if="model.storeys.length > 1" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
+              <select v-if="model.storeys.length > 1 && !multiView" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
                 <option :value="null">모든 층</option>
                 <option v-for="st in model.storeys" :key="st.id" :value="st.id">{{ st.name }}만</option>
               </select>
+              <!-- 다중층 뷰(OE-ML-01 ①). 누르면 지금 층과 위층으로 열고, 범위는 시작·끝 층으로 고쳐 고른다. -->
+              <button v-if="model.storeys.length > 1 && !multiView" type="button" class="ghost multi-open" title="층 범위를 골라 여러 층을 함께 봅니다(OE-ML-01)" @click="openMultiView()">
+                다중층 뷰에서 편집
+              </button>
+              <span v-if="multiView" class="multi-range" role="group" aria-label="다중층 보기 범위">
+                <select v-model="multiView.from" aria-label="다중층 시작 층">
+                  <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
+                </select>
+                ~
+                <select v-model="multiView.to" aria-label="다중층 끝 층">
+                  <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
+                </select>
+                <button type="button" class="ghost" @click="setMultiAll">전체</button>
+                <button type="button" class="ghost" @click="closeMultiView">층 편집으로</button>
+              </span>
               <button v-if="fullscreen" type="button" class="ghost keys-help" title="단축키 안내" aria-label="단축키 안내" @click="helpOpen = true">?</button>
               <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
                 {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
@@ -7333,7 +7430,8 @@ async function export3D(format: 'glb' | 'obj') {
 
           <p v-if="editNotice" class="edit-notice" role="alert">{{ editNotice }}</p>
           <p v-else-if="keyNote" class="hint pick-hint key-note" role="status">{{ keyNote }}</p>
-          <p v-else-if="editing" class="hint pick-hint">
+          <!-- 다중층 뷰는 보기만 해서 편집 안내가 맞지 않는다. 그 자리는 다중층 안내 상자다. -->
+          <p v-else-if="editing && !multiView" class="hint pick-hint">
             <template v-if="groupItems.length >= 2">
               설비 {{ groupItems.length }}대 · <kbd>←↑→↓</kbd>·끌기: 같이 옮기기 · <kbd>Delete</kbd>: 같이 지우기 · <kbd>Ctrl</kbd>+클릭: 넣고 빼기 · <kbd>Esc</kbd>: 풀기
             </template>
@@ -7510,7 +7608,7 @@ async function export3D(format: 'glb' | 'obj') {
             <button v-if="selectedLock.includes('천장 편집 모드에서')" type="button" class="link" @click="setCeilingMode(true)">천장 편집으로</button>
             <button v-else-if="selectedLock.includes('바닥·벽')" type="button" class="link" @click="setCeilingMode(false)">바닥·벽으로</button>
             <!-- 다중층 뷰(E18 OE-ML-01)는 아직 없다. 들어갈 자리를 보이되 누르지 못하게 둔다. -->
-            <button v-else-if="selectedLock === VERTICAL_LOCKED" type="button" class="link" disabled title="다중층 뷰(OE-ML-01)는 아직 만들지 않았습니다">다중층 뷰에서 편집</button>
+            <button v-else-if="selectedLock === VERTICAL_LOCKED" type="button" class="link" disabled title="엘리베이터·에스컬레이터는 아직 수직 관통 오브젝트(OE-ML-02)로 읽지 않아 관통 층을 모릅니다">다중층 뷰에서 편집</button>
           </p>
           <!-- 이름(태그) 고치기(E7). 지우기는 패널 맨 아래에 둔다 — 이름 칸 바로 옆에 있어 고치려다 누르기 쉬웠다. -->
           <p v-if="editing && !selectedLock" class="equipment-name-edit">
@@ -8276,10 +8374,15 @@ async function export3D(format: 'glb' | 'obj') {
               <button type="button" class="ghost" @click="selectedVerticalId = null">선택 해제</button>
             </div>
           </div>
-          <p v-if="editing" class="ceiling-lock" role="status">
-            {{ selectedVertical.label }}{{ josa(selectedVertical.label, '은/는') }} {{ VERTICAL_PART_LOCKED }}
-            <!-- 다중층 뷰(E18 OE-ML-01)는 아직 없다. 들어갈 자리를 보이되 누르지 못하게 둔다. -->
-            <button type="button" class="link" disabled title="다중층 뷰(OE-ML-01)는 아직 만들지 않았습니다">다중층 뷰에서 편집</button>
+          <p v-if="multiView" class="ceiling-lock" role="status">
+            다중층 뷰입니다. 이 {{ selectedVertical.label }}의 관통 층 {{ selectedVertical.object.parts.length }}개 조각을 함께 칠했습니다.
+            <button type="button" class="link" @click="closeMultiView">층 편집으로</button>
+          </p>
+          <p v-else class="ceiling-lock" role="status">
+            <template v-if="editing">{{ selectedVertical.label }}{{ josa(selectedVertical.label, '은/는') }} {{ VERTICAL_PART_LOCKED }}</template>
+            <template v-else>관통 층을 함께 보려면</template>
+            <!-- 진입 경로 ②: 이 오브젝트의 관통 층으로 연다(OE-ML-01). -->
+            <button type="button" class="link" @click="openMultiViewFor(selectedVertical.object.parts)">다중층 뷰에서 편집</button>
           </p>
           <p class="hint">같은 자리를 한 번 더 누르면 그 아래 물리존이 골라집니다.</p>
         </section>
