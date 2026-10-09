@@ -1453,12 +1453,14 @@ th {
   border-radius: 0.2rem;
 }
 
-/* [바닥·벽 / 천장] 토글. 팔레트 "설비" 제목 줄 오른쪽의 작은 두 칸이다. */
+/* [바닥·벽 / 천장] 토글. 팔레트 "설비" 제목 줄 오른쪽의 작은 두 칸이다. 꺾지 않는다 — Windows(Segoe UI·맑은 고딕)에서는 "설비"·토글이
+   팔레트 폭(118px)보다 1px 넓어 두 줄로 꺾였고, 팔레트가 17px 높아져 3D 왼쪽 아래 바닥(작은 파일의 건물 자리)을 가렸다. */
 .palette-head-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.4rem;
+  gap: 0.3rem;
+  white-space: nowrap;
 }
 
 .ceiling-toggle {
@@ -1469,7 +1471,7 @@ th {
 }
 
 .ceiling-toggle button {
-  padding: 0.05rem 0.45rem;
+  padding: 0.05rem 0.3rem;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -3589,12 +3591,13 @@ main.has-model .catalog {
 
 .tool-palette .palette-row {
   display: flex;
-  gap: 0.15rem;
+  gap: 0.06rem;
 }
 
+/* Windows 글꼴에서 물리존·룸·커스텀존 셋이 팔레트 폭을 7px 넘었다. 여백을 0.1rem 으로 줄여 넣는다. */
 .tool-palette .palette-row .ghost {
   flex: 1 1 auto;
-  padding-inline: 0.15rem;
+  padding-inline: 0.1rem;
   text-align: center;
   white-space: nowrap;
 }
