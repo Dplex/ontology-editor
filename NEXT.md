@@ -147,7 +147,18 @@ R1 Todo 는 34장, 후속 이슈 3장([#340](https://github.sec.samsung.net/IoT-
 [OE-ZON-01](docs/prd/features/E10-ZON/OE-ZON-01.md) 수동 생성([#151](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/151)) → [OE-ZON-02](docs/prd/features/E10-ZON/OE-ZON-02.md) 경계 그리기([#152](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/152)) → [OE-ZON-04](docs/prd/features/E10-ZON/OE-ZON-04.md) 편집 E9([#154](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/154)) → [OE-ZON-05](docs/prd/features/E10-ZON/OE-ZON-05.md) 검증 Z-01~06([#155](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/155)) · [OE-ZON-06](docs/prd/features/E10-ZON/OE-ZON-06.md) 용량 입력값([#156](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/156), P2).
 같이 [OE-MAN-05](docs/prd/features/E07-MAN/OE-MAN-05.md) 공조존 수동([#121](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/121)) · [OE-OBJ-13](docs/prd/features/E02-OBJ/OE-OBJ-13.md) 공조존 오브젝트([#54](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/54), P2), 그 위에 매핑 [OE-MAP-02](docs/prd/features/E11-MAP/OE-MAP-02.md)([#159](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/159)) · [OE-MAP-03](docs/prd/features/E11-MAP/OE-MAP-03.md)([#160](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/160)) · [OE-MAP-04](docs/prd/features/E11-MAP/OE-MAP-04.md)([#161](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/161)) · [OE-MAP-05](docs/prd/features/E11-MAP/OE-MAP-05.md)([#162](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/162)) · [OE-MAP-06](docs/prd/features/E11-MAP/OE-MAP-06.md)([#163](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/163)).
 
-### 3. 다중층·수직 관통 (R1) — EQP-07 1225b23 (EL·ES 잠금). 다중층 뷰(OE-ML-01)는 에픽 전체 설계(ADR)부터
+### 3. 다중층·수직 관통 (R1) — EQP-07 1225b23 (EL·ES 잠금). **2026-10-09 사용자: 다중층 뷰는 지금 할 수 있는 것부터, 막힌 것은 후속으로**
+
+PRD 는 충분히 자세하다(E18 티켓 19개 `prd-done`, 수용 기준 100여 개, 열린 질문 없음). 진행 순서(한 조각 = PR 하나):
+
+1. **ADR-0032 E18 을 이 repo 에서 어디까지 하나** + **ML-19 겹침 후보 규칙** — `src/lib/vertical.ts` 를 티켓대로 고친다: 이웃 층·같은 종류·유효 면적, 겹친 면적 ÷ 작은 면적 **> 50%**(정확히 50% 는 아님), **양쪽이 서로를 최고 후보로 고를 때만** 연결, 동률·다대일은 "모호 후보" 로 두고 출력하지 않음, GeoJSON 에 추정 출처(`verticalConnectsSource` 류), 병원 고정 기준선(대상 ID·기대 연결·출처, OE-EQP-16 "7개 중 6개 이상").
+   - 실측(상호 일치 규칙을 얹어 본 값): 병원 건축 수직 공간 7 · 지금 연결 6 · 아래층 쪽 후보 짝 3 · 상호 일치 3 · 동률 0 → **6 그대로**. 성수 건축 32 · 26 · 24 · 24 · 0. Office_A 5 · 4 · 2 · 2 · 0. 즉 지금 샘플에서는 숫자가 안 바뀌고, 규칙·출처·모호 처리와 기준선이 새로 생긴다.
+2. **ML-02 수직 관통 오브젝트 데이터 모델** — 부모 ID·종류·출처·관통 층·층별 형상·진입/종료 지점·연관 물리존 ID. 계단은 IfcStair 로 읽는다(샘플 7개 파일 모두 있음: Duplex 2 · 병원 3 · 성수 35 · Office_A 2 · FZK 1 · Institute 4 · dental 3). EL·ES 는 IfcTransportElement 가 샘플에 0 이라 이름 사전 설비에서 만든다. 물리존(계단실·승강로)은 그대로 두고 ID 로 잇는다.
+3. **ML-05 층 편집 화면 읽기 전용** — 층별 형상·진입/종료 지점 표시, 끌기·지우기 막고 [다중층 뷰에서 편집] 안내(EQP-07 의 잠금과 같은 길).
+4. **다중층 뷰 화면(ML-01 의 보기 부분)** — 층 범위 고르기, 진입 경로 ①② (③ 배관 작성 중 전환은 PIP-15 와 같이).
+5. **ML-06~09 생성·이동·구간 변경·삭제**, ML-12~14 라이저·층별 분기·층간 오프셋, ML-18 좌표 조건.
+
+**후속(지금 막힘)**: ML-01 의 세션·확정(진입 전 층 편집 확정·작업 ID — OE-WF-03 이 `prd-review`, PoC 에 서버 확정 없음. ADR-0032 에서 로컬 편집 이력으로 대신하는 안을 적고 `needs-pm`) · ML-15 색(glossary 에 색 값 없음, #53 과 같은 질문) · ML-10 EL 정차 층([#181](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/181) PM 답 대기) · ML-03 개구부 면적(슬래브 형상 데이터부터 확인) · R2 잠금(OE-COM-05).
 
 [OE-OBJ-14](docs/prd/features/E02-OBJ/OE-OBJ-14.md) 수직 관통 오브젝트([#55](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/55)) · [OE-EQP-07](docs/prd/features/E12-EQP/OE-EQP-07.md) EL·ES 위임([#171](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/171)) · [OE-PIP-15](docs/prd/features/E13-PIP/OE-PIP-15.md) 층간 배관([#196](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/196)). E18 요구가 10-08 에 크게 바뀌었으니 티켓부터 다시 읽는다.
 
