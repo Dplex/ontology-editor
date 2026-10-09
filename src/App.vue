@@ -58,6 +58,7 @@ import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './l
 import { drawPipe } from './lib/manual-pipe'
 import { storeyAtZ, storeyElevationProblem, type PathPoint } from './lib/storey-z'
 import { branchPipe } from './lib/branch-pipe'
+import { planOffsetHeight, setOffsetHeight } from './lib/offset-edit'
 import { removalImpact } from './lib/removal-impact'
 import { retargetEnd } from './lib/retarget'
 import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, type Background } from './lib/background'
@@ -4338,9 +4339,10 @@ function showPlan() {
   const st = selectedSpace.value?.storey ?? (selected.value ? storeyOf(selected.value.id) : null)
   if (st) viewStorey.value = st.id
 }
-// 고른 설비·물리존이 다른 층이면 그 층으로.
+// 고른 설비·물리존이 다른 층이면 그 층으로. 다중층 뷰는 여러 층을 같이 보니 따라가지 않는다 — 따라가면 층 편집 화면의 "다른 층으로 가기 전에
+// 저장할까요" 를 물었다(층간 배관의 2층 구간을 고를 때, OE-ML-14).
 watch([selectedId, selectedSpaceId], ([eq, sp]) => {
-  if (!viewStorey.value || !model.value) return
+  if (!viewStorey.value || !model.value || multiView.value) return
   const home = eq ? storeyOf(eq) : sp ? model.value.storeys.find((s) => s.spaces.some((x) => x.id === sp)) : null
   if (home && home.id !== viewStorey.value) viewStorey.value = home.id
 })
@@ -5415,6 +5417,59 @@ function makeBranch(segId: string, points: PathPoint[], range: string[]): boolea
     : `분기점 ${done.tee.name}을 넣어 ${shortName(seg.name)}을 나눴습니다${done.replaced?.released ? '(옛 BIM 포트 연결은 해제 보정으로 남김)' : ''}`
   note(`${d.flowType} 분기를 그렸습니다: ${how} · 구간 ${done.segments.length}개 · ${done.length.toFixed(2)}m. 흐름 방향은 아직 정하지 않았습니다`)
   return true
+}
+
+// --- 오프셋 높이 (다중층 뷰, OE-ML-14, offset-edit.ts) ---
+// 고른 수평 구간(오프셋)과 양 끝 꺾임점을 같이 올리거나 내린다. 이어진 구간은 끝만 늘거나 준다. 바꾸기 전에 무엇이 움직이는지 보인다.
+
+/** 고른 오프셋의 새 높이(층 + 바닥에서 m). null 이면 지금 높이다. */
+const offsetDraft = ref<{ storeyId: string; height: number } | null>(null)
+watch(selectedId, () => (offsetDraft.value = null))
+/** 고른 구간이 다중층 뷰의 수평 구간이면 지금 높이. */
+const offsetNow = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e || e.role !== 'segment' || !multiView.value || !editing.value) return null
+  const path = segmentPath(e)
+  if (!path || !('path' in path)) return null
+  const [p, q] = path.path
+  const st = Math.abs(p[2] - q[2]) <= 0.01 ? storeyAtZ(m, p[2]) : null
+  return st ? { storeyId: st.id, height: cm(p[2] - st.elevation) } : null
+})
+// 구간의 높이가 바뀌면(적용·되돌리기) 고르던 값을 버린다.
+watch(offsetNow, (now, was) => {
+  if (now?.storeyId !== was?.storeyId || now?.height !== was?.height) offsetDraft.value = null
+})
+const offsetTarget = computed(() => (offsetNow.value ? (offsetDraft.value ?? offsetNow.value) : null))
+const offsetPlan = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  const e = selected.value
+  const t = offsetDraft.value
+  return m && e && t && offsetNow.value ? planOffsetHeight(m, e.id, t) : null
+})
+function applyOffsetHeight() {
+  const m = model.value
+  const e = selected.value
+  const t = offsetDraft.value
+  const plan = offsetPlan.value
+  if (!m || !e || !t || !plan || 'refused' in plan) return
+  const ids = [e.id, ...plan.fittings.map((f) => f.id), ...new Set(plan.stretch.map((x) => x.id))]
+  const was = new Map(ids.map((id) => [id, equipmentById.value.get(id)?.position ?? null]))
+  const undo: Snapshot = { kind: 'many', parts: ids.map((id) => snapshotEquipment(m, id)!) }
+  const at = mark()
+  const done = setOffsetHeight(m, e.id, t, segmentAxis)
+  if ('refused' in done) return note(done.refused)
+  remember(`${shortName(e.name)} 오프셋 높이`, undo, at)
+  changes.value = [...changes.value, ...done.changes]
+  for (const id of ids) moveInScene(id, was.get(id) ?? null, equipmentById.value.get(id)?.position ?? null)
+  offsetDraft.value = null
+  triggerRef(model)
+  flowVersion.value++
+  note(
+    `${shortName(e.name)}의 높이를 ${plan.delta[2] > 0 ? '올렸' : '내렸'}습니다(${Math.abs(plan.delta[2]).toFixed(2)}m): 꺾임점 ${plan.fittings.length}개가 같이 움직이고 구간 ${new Set(plan.stretch.map((x) => x.id)).size}개가 늘거나 줄었습니다. 연결은 그대로입니다`,
+  )
 }
 
 function startHvacZone() {
@@ -7693,7 +7748,7 @@ async function export3D(format: 'glb' | 'obj') {
                   <option v-for="st in multiRange ?? []" :key="st.id" :value="st.id">{{ st.name }}</option>
                 </select>
                 바닥에서
-                <input type="number" step="0.1" class="riser-height" :value="drawing.work.height" aria-label="층 바닥에서 높이(m)" @change="setRiserWork(drawing.work.storeyId, Number(($event.target as HTMLInputElement).value))" />
+                <input v-keep-typing type="number" step="0.1" class="riser-height" :value="drawing.work.height" aria-label="층 바닥에서 높이(m)" @change="setRiserWork(drawing.work.storeyId, Number(($event.target as HTMLInputElement).value))" />
                 m <span class="muted">(z {{ riserWorkZ?.toFixed(2) }}m)</span> ·
                 <template v-if="drawing.branchOf && !drawing.points.length">
                   첫 점은 분기 자리(구간 위)
@@ -8654,6 +8709,24 @@ async function export3D(format: 'glb' | 'obj') {
               <button v-else type="button" class="ghost" :disabled="!pipeDraft.to || !!drawing" @click="startRiser">경로 찍기</button>
               <span class="muted">흐름 방향은 정하지 않습니다.</span>
             </p>
+            <!-- 오프셋 높이(OE-ML-14). 수평 구간이면 양 끝 꺾임점과 같이 올리거나 내린다. 바꾸기 전에 움직일 것을 보인다. -->
+            <template v-if="offsetTarget">
+              <h4 class="picked-sub">오프셋 높이 <Src kind="edit" /></h4>
+              <form class="pipe-draw-row" data-testid="offset-height" @submit.prevent="applyOffsetHeight">
+                <select :value="offsetTarget.storeyId" aria-label="오프셋 층" @change="offsetDraft = { ...offsetTarget!, storeyId: ($event.target as HTMLSelectElement).value }">
+                  <option v-for="st in multiRange ?? []" :key="st.id" :value="st.id">{{ st.name }}</option>
+                </select>
+                바닥에서
+                <input v-keep-typing type="number" step="0.1" class="riser-height" :value="offsetTarget.height" aria-label="오프셋 높이(m)" @change="offsetDraft = { ...offsetTarget!, height: Number(($event.target as HTMLInputElement).value) }" />
+                m
+                <button type="submit" class="ghost" :disabled="!offsetPlan || 'refused' in offsetPlan">높이 바꾸기</button>
+              </form>
+              <p v-if="offsetPlan && 'refused' in offsetPlan" class="edit-warn" data-testid="offset-refused">{{ offsetPlan.refused }}</p>
+              <p v-else-if="offsetPlan" class="hint" data-testid="offset-impact">
+                바꾸면 꺾임점 {{ offsetPlan.fittings.map((f) => shortName(f.name)).join('·') }}{{ josa(shortName(offsetPlan.fittings.at(-1)!.name), '이/가') }} 같이 {{ offsetPlan.delta[2] > 0 ? '오르고' : '내려가고' }}({{ Math.abs(offsetPlan.delta[2]).toFixed(2) }}m), 구간
+                {{ new Set(offsetPlan.stretch.map((x) => x.id)).size }}개가 늘거나 줄어듭니다{{ offsetPlan.branches.length ? ` · 분기점 ${offsetPlan.branches.map((f) => shortName(f.name)).join('·')}도 같이 움직입니다` : '' }}. 연결은 그대로입니다.
+              </p>
+            </template>
           </div>
 
           <!-- 구간 끝의 연결 대상 바꾸기(OE-PIP-10). BIM 포트 연결은 해제 보정으로 남기고 새 대상과 manual 로 잇는다. -->
