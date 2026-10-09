@@ -14,6 +14,7 @@ import ExitEditDialog from './components/ExitEditDialog.vue'
 import PublishDialog from './components/PublishDialog.vue'
 import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
 import { previewSummary, summaryText } from './lib/preview'
+import { DEFAULT_SITE_RULES, siteWarnings, type SiteRules } from './lib/site-rules'
 import { DEFAULT_LINES, GATE, gradeReport, percent, TARGET, type GradeLines, type GradeReport } from './lib/grade'
 import HoverTip from './components/HoverTip.vue'
 import FloorPlan from './components/FloorPlan.vue'
@@ -7569,6 +7570,32 @@ const previewData = computed(() => {
   return { summary: previewSummary(pristine, m, report.value, released.length), moves: report.value.filter((c) => c.fromSpaceId !== c.toSpaceId), released }
 })
 const previewText = computed(() => (previewData.value ? summaryText(previewData.value.summary) : ''))
+/** 규칙 기반 경고의 사이트 설정(OE-P3-01~04). 이 브라우저에 남는다. */
+const siteRules = ref<SiteRules>(
+  (() => {
+    try {
+      return { ...DEFAULT_SITE_RULES, ...(JSON.parse(localStorage.getItem('oe.siteRules') ?? 'null') ?? {}) }
+    } catch {
+      return { ...DEFAULT_SITE_RULES }
+    }
+  })(),
+)
+watch(
+  siteRules,
+  (v) => {
+    try {
+      localStorage.setItem('oe.siteRules', JSON.stringify(v))
+    } catch {
+      // 못 남겨도 이번 창에서는 그대로다
+    }
+  },
+  { deep: true },
+)
+/** 미리보기의 규칙 경고. 막지 않는다. */
+const ruleWarnings = computed(() => {
+  void sceneVersion.value
+  return previewOpen.value && model.value ? siteWarnings(model.value, siteRules.value) : []
+})
 function previewChanges() {
   previewOpen.value = !previewOpen.value
   if (!previewOpen.value || !model.value) return
@@ -8377,6 +8404,19 @@ function rollbackFromReport() {
             </li>
           </ul>
           <p v-else class="muted">소속이 바뀔 설비가 없습니다.</p>
+          <!-- 규칙 기반 경고(OE-P3-01~04). 막지 않는다 — 반영은 그대로 된다. -->
+          <div class="preview-rules" data-testid="preview-rules">
+            <b>규칙 경고</b> <span class="muted">(막지 않습니다)</span>
+            <label>W-01 최소 면적 <input v-model.number="siteRules.minAreaM2" v-keep-typing type="number" min="0" step="0.5" class="riser-height" aria-label="W-01 최소 면적(㎡)" />㎡</label>
+            <label><input v-model="siteRules.emptySpace" type="checkbox" /> W-02 설비 0개</label>
+            <label><input v-model="siteRules.unmappedSpace" type="checkbox" /> W-03 공조존 미매핑</label>
+            <ul v-if="ruleWarnings.length">
+              <li v-for="w in ruleWarnings" :key="w.rule" :data-rule="w.rule">
+                <b>{{ w.rule }}</b> {{ w.text }}: {{ w.items.length }}개 — {{ w.items.slice(0, 5).map((x) => x.label).join(', ') }}<template v-if="w.items.length > 5"> 외 {{ w.items.length - 5 }}개</template>
+              </li>
+            </ul>
+            <span v-else class="muted"> 없음</span>
+          </div>
         </div>
       </div>
 
