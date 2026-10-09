@@ -202,7 +202,7 @@ test('병원 건축: 다중층 뷰에서 계단의 한 층 조각만 고친다 �
   // 다중층 뷰에서 설비는 고르고 보기만 한다 — 좌표·지우기 칸 대신 안내가 뜬다.
   await page.locator('input[type=search]').fill('Mirror')
   await page.locator('.equipment tbody tr', { hasText: 'Mirror' }).first().getByRole('button').first().click()
-  await expect(page.locator('.picked .ceiling-lock').first()).toContainText('다중층 뷰에서는 수직 관통 오브젝트만 옮기거나 지웁니다')
+  await expect(page.locator('.picked .ceiling-lock').first()).toContainText('다중층 뷰에서는 수직 관통 오브젝트와 층간 배관만 다룹니다')
   await expect(page.locator('.position-edit')).toHaveCount(0)
   await expect(page.locator('.picked .danger-zone')).toHaveCount(0)
   await page.locator('.viewport canvas').scrollIntoViewIfNeeded()

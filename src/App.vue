@@ -56,6 +56,7 @@ import {
 } from './lib/viewer'
 import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import { drawPipe } from './lib/manual-pipe'
+import { storeyElevationProblem, type PathPoint } from './lib/storey-z'
 import { removalImpact } from './lib/removal-impact'
 import { retargetEnd } from './lib/retarget'
 import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, type Background } from './lib/background'
@@ -2239,7 +2240,7 @@ const selectedVertical = computed(() => {
 })
 /** 다중층 뷰(OE-ML-01)의 보기 범위. 아래 "다중층 뷰" 묶음이 다룬다. 고른 계단 조각의 칠하기가 먼저 읽어 여기 둔다. */
 const multiView = ref<{ from: string; to: string; back: string | null } | null>(null)
-const MULTI_VIEW_ONLY = '다중층 뷰에서는 수직 관통 오브젝트만 옮기거나 지웁니다. 다른 편집은 [층 편집으로] 돌아가 합니다.'
+const MULTI_VIEW_ONLY = '다중층 뷰에서는 수직 관통 오브젝트와 층간 배관만 다룹니다. 다른 편집은 [층 편집으로] 돌아가 합니다.'
 const VERTICAL_PART_LOCKED = '수직 관통 오브젝트라 층 편집 화면에서는 옮기거나 지우거나 형상·구간을 바꾸지 않습니다. 다중층 뷰에서 편집합니다.'
 const VERTICAL_ROLE: Record<'start' | 'through' | 'end', string> = { start: '시작 층 — 여기서 오르기 시작합니다', through: '지나는 층 — 진입·종료 지점이 없습니다', end: '끝 층 — 여기에 다다릅니다' }
 function selectVertical(id: string | null) {
@@ -2366,7 +2367,6 @@ const verticalPreview = computed(() =>
     ]
   }),
 )
-watch([model, sceneVersion, verticalHighlight, verticalPreview], () => viewer?.setVerticalParts(model.value, verticalHighlight.value, verticalPreview.value))
 watch(selectedVerticalId, (now, was) => {
   // 같은 오브젝트의 다른 층 조각으로 옮겨 가면 고르던 구간을 둔다.
   if (now && was && now.split('@')[0] === was.split('@')[0]) return
@@ -2719,6 +2719,12 @@ type Drawing = {
   purpose: 'footprint' | 'create' | 'split' | 'wall' | 'custom' | 'customSplit' | 'room' | 'hvacZone' | 'hvacZoneOutline' | 'pipe' | 'bgScale' | 'bgAnchor' | 'verticalFootprint' | 'verticalPoint'
   /** 수직 관통 오브젝트 구간 바꾸기(OE-ML-08)에서 찍는 지점이 진입인지 종료인지. */
   which?: 'entry' | 'exit'
+  /**
+   * 층간 배관(다중층 뷰, OE-ML-12·14). 꺾임점마다 찍을 때의 작업 높이(층 + 그 층 바닥에서 m). 공통 z 로는 마칠 때 바꾼다(OE-ML-18).
+   * 있으면 층간 배관이다. `work` 는 지금 작업 높이 — 바닥을 누르면 이 높이에 찍힌다.
+   */
+  levels?: { storeyId: string; height: number }[]
+  work?: { storeyId: string; height: number }
   spaceId: string | null
   storeyId: string
   name: string
@@ -2726,6 +2732,18 @@ type Drawing = {
   points: Vec2[]
 }
 const drawing = ref<Drawing | null>(null)
+/** 그리는 중인 층간 배관의 경로(시작 설비 → 찍은 꺾임점). 점선 미리보기다. */
+const riserPreview = computed(() => {
+  const d = drawing.value
+  const from = d?.levels && d.spaceId ? equipmentById.value.get(d.spaceId) : null
+  if (!d?.levels || !from?.position) return []
+  const z = (l: { storeyId: string; height: number }) => (model.value?.storeys.find((st) => st.id === l.storeyId)?.elevation ?? Number.NaN) + l.height
+  const path: Vec3[] = [from.position, ...d.points.map((p, i): Vec3 => [p[0], p[1], z(d.levels![i])])]
+  return path.length > 1 && path.every((p) => Number.isFinite(p[2])) ? [{ storeyId: d.storeyId, elevation: from.position[2], path }] : []
+})
+watch([model, sceneVersion, verticalHighlight, verticalPreview, riserPreview], () =>
+  viewer?.setVerticalParts(model.value, verticalHighlight.value, [...verticalPreview.value, ...riserPreview.value]),
+)
 watch([selectedSpace, selectedRoom, editing, sceneVersion, drawing, selectedVertical, multiView], () => {
   const picked = selectedSpace.value
   if (!viewer) return
@@ -2738,6 +2756,8 @@ watch([selectedSpace, selectedRoom, editing, sceneVersion, drawing, selectedVert
   }
   if (drawing.value) {
     const d = drawing.value
+    // 층간 배관은 꺾임점마다 높이가 달라 바닥 손잡이 대신 3D 점선 미리보기(riserPreview)로 보인다.
+    if (d.levels) return viewer.setSpaceHandles(null)
     viewer.setSpaceHandles({ id: d.spaceId ?? 'new', ring: d.points, elevation: d.elevation, active: d.points.length ? d.points.length - 1 : null })
     return
   }
@@ -4397,7 +4417,8 @@ watch([selectedId, editing, viewStorey], () => {
 })
 function placeAt(at: Vec2) {
   if (drawing.value) {
-    drawing.value = { ...drawing.value, points: [...drawing.value.points, [cm(at[0]), cm(at[1])]] }
+    const d = drawing.value
+    drawing.value = { ...d, points: [...d.points, [cm(at[0]), cm(at[1])]], ...(d.levels && d.work ? { levels: [...d.levels, { ...d.work }] } : {}) }
     // 나눌 선은 두 점이면 끝난다.
     if ((drawing.value.purpose === 'split' || drawing.value.purpose === 'wall' || drawing.value.purpose === 'customSplit' || drawing.value.purpose === 'room' || drawing.value.purpose === 'bgScale') && drawing.value.points.length === 2) finishDraw()
     // 배경 원점(OE-MAN-02)·계단 진입/종료 지점(OE-ML-08)은 한 점이면 끝난다.
@@ -4508,7 +4529,8 @@ function stopDraw() {
   viewer?.setPlaceMode(null)
 }
 function undoDrawPoint() {
-  if (drawing.value) drawing.value = { ...drawing.value, points: drawing.value.points.slice(0, -1) }
+  const d = drawing.value
+  if (d) drawing.value = { ...d, points: d.points.slice(0, -1), ...(d.levels ? { levels: d.levels.slice(0, -1) } : {}) }
 }
 function finishDraw(): boolean {
   const d = drawing.value
@@ -4531,6 +4553,11 @@ function finishDraw(): boolean {
     stopDraw()
     bgStep.value = d.purpose === 'bgScale' ? { kind: 'scale', a: d.points[0], b: d.points[1], meters: '' } : { kind: 'anchor', at: d.points[0], x: '', y: '' }
     note(d.purpose === 'bgScale' ? '두 점 사이의 실제 거리(m)를 넣으세요' : '찍은 점의 실제 좌표(x, y)를 넣으세요')
+    return true
+  }
+  if (d.purpose === 'pipe' && d.levels) {
+    // 층간 배관: 꺾임점은 찍을 때의 층 + 높이다. 보기 범위 밖이거나 층 높이를 모르면 그리던 것을 둔 채 이유를 보인다 — 범위를 넓혀 이어 그린다.
+    if (makePipe(d.points.map((at, i): PathPoint => ({ at, ...d.levels![i] })), d.spaceId, multiRange.value?.map((st) => st.id) ?? [])) stopDraw()
     return true
   }
   if (d.purpose === 'pipe') {
@@ -5036,27 +5063,39 @@ function ensureDrawnMeshes() {
     }
   }
 }
-function makePipe(via: Vec3[], fromId = selectedId.value) {
+/** 배관을 그린다. 그렸으면 true. `range` 는 다중층 뷰의 보기 범위다(층간 배관, OE-ML-12). */
+function makePipe(via: PathPoint[], fromId = selectedId.value, range?: string[]): boolean {
   const m = model.value
   const from = fromId ? (equipmentById.value.get(fromId) ?? null) : null
   const d = pipeDraft.value
-  if (!m || !from) return
-  if (!d.to) return note('끝 대상을 먼저 고르세요')
-  const storeyId = storeyOf(from.id)?.id
-  if (!storeyId) return
+  if (!m || !from) return false
+  if (!d.to) {
+    note('끝 대상을 먼저 고르세요')
+    return false
+  }
   const at = mark()
-  const done = drawPipe(m, { from: from.id, to: d.to, via, flowType: d.flowType, systemId: d.systemId === 'auto' ? undefined : d.systemId === 'none' ? null : d.systemId })
-  if ('refused' in done) return note(done.refused)
+  const done = drawPipe(m, { from: from.id, to: d.to, via, flowType: d.flowType, systemId: d.systemId === 'auto' ? undefined : d.systemId === 'none' ? null : d.systemId, range })
+  if ('refused' in done) {
+    note(done.refused)
+    return false
+  }
   const made = [...done.segments, ...done.fittings]
-  // 되돌리면 새로 생긴 것이 연결·계통 자리와 함께 한 번에 빠진다.
-  const snapshot: Snapshot = { kind: 'many', parts: made.map((equipment) => ({ kind: 'equipment-set', equipment, storeyId, index: 0, present: false, connections: [], systems: [] })) }
+  // 되돌리면 새로 생긴 것이 연결·계통 자리와 함께 한 번에 빠진다. 층간 배관은 구간마다 층이 다르다.
+  const snapshot: Snapshot = {
+    kind: 'many',
+    parts: made.map((equipment) => ({ kind: 'equipment-set', equipment, storeyId: done.storeyOf.get(equipment.id)!, index: 0, present: false, connections: [], systems: [] })),
+  }
   remember(`${d.flowType} 배관 그리기 (구간 ${done.segments.length}개)`, snapshot, at)
   ruleReport.value = done.rules
   ensureDrawnMeshes()
   triggerRef(model)
   flowVersion.value++
   redraw()
-  note(`${d.flowType} 배관을 그렸습니다: 구간 ${done.segments.length}개 · 이음쇠 ${done.fittings.length}개 · ${done.length.toFixed(2)}m. 흐름 방향은 아직 정하지 않았습니다`)
+  const storeys = new Set(done.storeyOf.values()).size
+  note(
+    `${d.flowType} 배관을 그렸습니다: 구간 ${done.segments.length}개 · 이음쇠 ${done.fittings.length}개 · ${done.length.toFixed(2)}m${storeys > 1 ? ` · ${storeys}개 층` : ''}. 흐름 방향은 아직 정하지 않았습니다`,
+  )
+  return true
 }
 /**
  * 고른 덕트·배관 조각을 지우면 연결망이 어떻게 갈라지나(OE-PIP-10, removal-impact.ts). 지우기 버튼 위에 실행 전에 보인다.
@@ -5224,6 +5263,76 @@ function startPipe() {
   viewer?.setPlaceMode(from.position[2])
   stage.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   note(`배관이 꺾일 자리를 바닥에 찍습니다(높이 ${from.position[2].toFixed(2)}m). Enter 로 마치면 끝 대상까지 연결합니다 (Esc 취소)`)
+}
+
+// --- 층간 배관 (다중층 뷰, OE-ML-12·14·18 · OE-PIP-15) ---
+// 같은 배관 그리기다. 다른 점은 끝 대상을 보기 범위의 다른 층에서 고르고, 꺾임점마다 작업 높이(층 + 그 층 바닥에서 m)를 정하는 것이다.
+// 층을 지나는 구간은 수직으로만 찍는다([수직으로 찍기]). 보기 범위만 바꿔서는 그린 것이 바뀌지 않는다.
+
+/** 층간 배관의 끝 층. 비었으면 보기 범위에서 시작 설비의 층이 아닌 첫 층이다. */
+const riserStorey = ref('')
+const riserEndStorey = computed(() => {
+  const range = multiRange.value ?? []
+  const home = selected.value ? storeyOf(selected.value.id) : null
+  return range.find((st) => st.id === riserStorey.value) ?? range.find((st) => st.id !== home?.id) ?? null
+})
+/**
+ * 층간 배관의 끝 후보: 끝 층의 좌표 있는 설비·이음쇠, 수평 거리가 가까운 순 40개. 라이저는 위아래로 가니 높이 차는 재지 않는다.
+ * 구간의 중간에 잇는 것은 분기(OE-ML-13)라 구간은 뺀다.
+ */
+const riserTargets = computed(() => {
+  void sceneVersion.value
+  const e = selected.value
+  const st = riserEndStorey.value
+  if (!e?.position || !st) return []
+  const p = e.position
+  return st.equipment
+    .filter((x) => x.id !== e.id && !!x.position && x.role !== 'segment')
+    .map((x) => ({ id: x.id, name: shortName(x.name), d: Math.hypot(x.position![0] - p[0], x.position![1] - p[1]) }))
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 40)
+})
+function startRiser() {
+  const from = selected.value
+  const home = from ? storeyOf(from.id) : null
+  const m = model.value
+  if (!m || !from?.position || !home || !multiView.value) return
+  if (!pipeDraft.value.to) return note('끝 대상을 먼저 고르세요')
+  const problem = storeyElevationProblem(m, home)
+  if (problem) return note(problem)
+  stopPlace()
+  stopAdd()
+  connectFrom.value = null
+  const work = { storeyId: home.id, height: cm(from.position[2] - home.elevation) }
+  drawing.value = { purpose: 'pipe', spaceId: from.id, storeyId: home.id, name: `${shortName(from.name)} 층간 배관`, elevation: from.position[2], points: [], levels: [], work }
+  viewer?.setPlaceMode(from.position[2])
+  note('작업 높이(층 + 바닥에서 m)를 정하고 바닥을 눌러 꺾임점을 찍습니다. [수직으로 찍기] 는 마지막 점의 바로 위·아래에 찍습니다. Enter 로 마치면 끝 대상까지 잇습니다 (Esc 취소)')
+}
+/** 작업 높이를 바꾼다. 다음에 찍는 점이 이 높이다. */
+function setRiserWork(storeyId: string, height: number) {
+  const d = drawing.value
+  const st = model.value?.storeys.find((x) => x.id === storeyId)
+  if (!d?.work || !st) return
+  const problem = storeyElevationProblem(model.value!, st)
+  if (problem) return note(problem)
+  if (!Number.isFinite(height)) return note('높이는 숫자로 넣으세요')
+  drawing.value = { ...d, work: { storeyId, height }, elevation: st.elevation + height }
+  viewer?.setPlaceMode(st.elevation + height)
+}
+const riserWorkZ = computed(() => {
+  const w = drawing.value?.work
+  const st = w ? model.value?.storeys.find((x) => x.id === w.storeyId) : null
+  return w && st ? st.elevation + w.height : null
+})
+/** 마지막 점(없으면 시작 설비)의 바로 위·아래, 작업 높이에 점을 찍는다 — 라이저의 수직 구간이다. */
+function addPlumbPoint() {
+  const d = drawing.value
+  const from = d?.spaceId ? equipmentById.value.get(d.spaceId) : null
+  if (!d?.levels || !d.work || !from?.position || riserWorkZ.value === null) return
+  const last = d.points.at(-1) ?? ([from.position[0], from.position[1]] as Vec2)
+  const lastZ = d.points.length ? riserPreview.value[0]?.path.at(-1)?.[2] : from.position[2]
+  if (lastZ !== undefined && Math.abs(lastZ - riserWorkZ.value) < 0.01) return note('작업 높이가 마지막 점과 같습니다. 층이나 높이를 바꾼 뒤 누릅니다')
+  drawing.value = { ...d, points: [...d.points, [cm(last[0]), cm(last[1])]], levels: [...d.levels, { ...d.work }] }
 }
 
 function startHvacZone() {
@@ -7485,7 +7594,8 @@ async function export3D(format: 'glb' | 'obj') {
               평면도는 층 하나를 그립니다. 오른쪽 위에서 층을 고르세요.
             </p>
             <!-- 외곽선 그리기 중. 찍은 점 수와 마침·한 점 지우기·취소. -->
-            <div v-if="drawing" class="draw-bar" role="status">
+            <!-- 다중층 뷰에서는 위의 보기 범위 칸을 가리지 않게 한 줄 내린다 — 층간 배관을 그리다 범위를 넓힌다(OE-ML-12). -->
+            <div v-if="drawing" class="draw-bar" :class="{ low: !!multiView }" role="status">
               <template v-if="drawing.purpose === 'split' || drawing.purpose === 'customSplit'">
                 <b>{{ drawing.name }}</b> 나누기 · 나눌 선의 두 점을 바닥에 찍습니다 · {{ drawing.points.length }}/2
               </template>
@@ -7495,11 +7605,21 @@ async function export3D(format: 'glb' | 'obj') {
               <template v-else-if="drawing.purpose === 'verticalPoint'">
                 <b>{{ drawing.name }}</b> · 그 층 바닥을 한 번 누릅니다
               </template>
+              <template v-else-if="drawing.purpose === 'pipe' && drawing.work">
+                <b>{{ drawing.name }}</b> · 작업 높이
+                <select :value="drawing.work.storeyId" aria-label="작업 층" @change="setRiserWork(($event.target as HTMLSelectElement).value, drawing.work.height)">
+                  <option v-for="st in multiRange ?? []" :key="st.id" :value="st.id">{{ st.name }}</option>
+                </select>
+                바닥에서
+                <input type="number" step="0.1" class="riser-height" :value="drawing.work.height" aria-label="층 바닥에서 높이(m)" @change="setRiserWork(drawing.work.storeyId, Number(($event.target as HTMLInputElement).value))" />
+                m <span class="muted">(z {{ riserWorkZ?.toFixed(2) }}m)</span> · 꺾임점 {{ drawing.points.length }}개
+                <button type="button" class="ghost" data-testid="riser-plumb" @click="addPlumbPoint">수직으로 찍기</button>
+              </template>
               <template v-else>
                 <b>{{ drawing.name }}</b> {{ drawing.purpose === 'create' || drawing.purpose === 'custom' || drawing.purpose === 'room' ? '그리기' : '외곽선 그리기' }} · 바닥을 눌러 꼭짓점을 찍습니다 ·
                 {{ drawing.points.length }}개
               </template>
-              <button v-if="drawing.purpose !== 'split' && drawing.purpose !== 'wall' && drawing.purpose !== 'customSplit' && drawing.purpose !== 'room' && drawing.purpose !== 'verticalPoint'" type="button" class="ghost" :disabled="drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
+              <button v-if="drawing.purpose !== 'split' && drawing.purpose !== 'wall' && drawing.purpose !== 'customSplit' && drawing.purpose !== 'room' && drawing.purpose !== 'verticalPoint'" type="button" class="ghost" :disabled="drawing.purpose === 'pipe' ? false : drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
               <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
               <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
             </div>
@@ -7509,7 +7629,7 @@ async function export3D(format: 'glb' | 'obj') {
             <p v-if="multiView && multiRange" class="multi-banner" role="status" data-testid="multi-banner">
               <b>다중층 뷰</b> · {{ multiRange[0].name }} ~ {{ multiRange.at(-1)!.name }} ({{ multiRange.length }}개 층) · 바닥 높이
               {{ elevationText(multiRange[0].elevation) }} ~ {{ elevationText(multiRange.at(-1)!.elevation) }} m <Src kind="bim" /><br />
-              <span class="muted">보기 범위만 바꿉니다. 오브젝트의 관통 구간은 그대로입니다. {{ editing ? '여기서는 수직 관통 오브젝트만 만들고 옮기고 지우고 구간을 바꿉니다.' : '' }}</span>
+              <span class="muted">보기 범위만 바꿉니다. 오브젝트의 관통 구간은 그대로입니다. {{ editing ? '여기서는 수직 관통 오브젝트를 만들고 옮기고 지우고 구간을 바꿉니다. 설비를 고르면 다른 층 설비까지 층간 배관을 그립니다.' : '' }}</span>
               <button v-if="editing && !verticalCreate" type="button" class="link" @click="startCreateVertical">수직 관통 오브젝트 만들기</button>
             </p>
             <nav v-if="editing && !drawing && activeTab === '3d' && !multiView" class="tool-palette" aria-label="편집 도구">
@@ -8400,6 +8520,45 @@ async function export3D(format: 'glb' | 'obj') {
               <button type="button" class="ghost" :disabled="!pipeDraft.to" @click="makePipe([])">곧게 연결하기</button>
               <button type="button" class="ghost" :disabled="!pipeDraft.to" @click="startPipe">꺾임점 찍기</button>
               <span class="muted">흐름 방향은 정하지 않습니다. 확정 전 규칙 방향은 TTL feeds 에 나가지 않습니다.</span>
+            </p>
+          </div>
+
+          <!-- 층간 배관 그리기(다중층 뷰, OE-ML-12·14 · OE-PIP-15). 같은 배관 그리기에 끝 대상을 보기 범위의 다른 층에서 고르고 꺾임점마다 높이를 정한다. -->
+          <div v-if="editing && multiView && selected.position && selected.role !== 'segment'" class="pipe-draw" data-testid="riser-draw">
+            <h4 class="picked-sub">층간 배관 그리기 <Src kind="edit" /></h4>
+            <p class="hint">보기 범위의 다른 층 설비·배관까지 잇습니다. 층을 지나는 구간은 수직으로만 찍고, 옆으로 옮기는 것은 수평 구간(오프셋)으로 찍습니다. 끝 설비는 옮기지 않습니다.</p>
+            <p class="pipe-draw-row">
+              <label>
+                끝 층
+                <select :value="riserEndStorey?.id" aria-label="층간 배관 끝 층" @change="(riserStorey = ($event.target as HTMLSelectElement).value), (pipeDraft.to = '')">
+                  <option v-for="st in multiRange ?? []" :key="st.id" :value="st.id">{{ st.name }}</option>
+                </select>
+              </label>
+              <label>
+                끝
+                <select v-model="pipeDraft.to" aria-label="층간 배관 끝 대상">
+                  <option value="">고르세요…</option>
+                  <option v-for="t in riserTargets" :key="t.id" :value="t.id">{{ t.name }} · 수평 {{ t.d.toFixed(1) }}m</option>
+                </select>
+              </label>
+              <label>
+                Flow Type
+                <select v-model="pipeDraft.flowType" aria-label="층간 배관 Flow Type">
+                  <option v-for="f in FLOW_TYPES" :key="f.code" :value="f.code">{{ f.code }} · {{ f.label }}</option>
+                </select>
+              </label>
+              <label>
+                계통
+                <select v-model="pipeDraft.systemId" aria-label="층간 배관 계통">
+                  <option value="auto">양 끝이 같은 계통이면 그 계통</option>
+                  <option value="none">계통 없음</option>
+                  <option v-for="sys in model?.systems ?? []" :key="sys.id" :value="sys.id">{{ sys.name || sys.id }}</option>
+                </select>
+              </label>
+            </p>
+            <p class="pipe-draw-row">
+              <button type="button" class="ghost" :disabled="!pipeDraft.to || !!drawing" @click="startRiser">경로 찍기</button>
+              <span class="muted">흐름 방향은 정하지 않습니다.</span>
             </p>
           </div>
 
