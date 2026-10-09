@@ -206,11 +206,16 @@ export function mergeModels(
     }
   }
 
+  // 수직 관통 오브젝트 조각(OE-ML-02). 같은 오브젝트가 두 판본에 다 있으면 바탕 것만 둔다 — 층마다 섞이면 한 오브젝트가 두 모양이 된다.
+  const baseParents = new Set(a.storeys.flatMap((s) => (s.verticalParts ?? []).map((p) => p.parentId)))
+  const freshParts = (storey: Storey) => (storey.verticalParts ?? []).filter((p) => !baseParents.has(p.parentId))
+
   for (const storey of b.storeys) {
     const match = matchStorey(storey, a.storeys)
     if (!match) {
       storeyReport.push({ name: storey.name, matchedTo: null, by: null, elevationDelta: null })
-      const added: Storey = { ...storey, spaces: [], walls: fresh(storey.walls), openings: fresh(storey.openings), equipment: fresh(storey.equipment) }
+      const parts = freshParts(storey)
+      const added: Storey = { ...storey, spaces: [], walls: fresh(storey.walls), openings: fresh(storey.openings), equipment: fresh(storey.equipment), verticalParts: parts.length ? parts : undefined }
       absorbSpaces(added, storey.spaces)
       a.storeys.push(added)
       continue
@@ -232,6 +237,8 @@ export function mergeModels(
     target.walls.push(...fresh(storey.walls))
     target.openings.push(...fresh(storey.openings))
     target.equipment.push(...fresh(storey.equipment))
+    const parts = freshParts(storey)
+    if (parts.length) target.verticalParts = [...(target.verticalParts ?? []), ...parts]
   }
   a.storeys.sort((x, y) => x.elevation - y.elevation)
 

@@ -11,11 +11,14 @@
 // 방일 때다. 최고 비율이 둘 이상이면(동률) 고르지 못한다. 그 밖의 후보(동률, 한쪽만 고른 것, 큰 방 하나에 작은 방 둘이
 // 걸린 것)는 모호 후보로 두고 내보내지 않는다 — 틀린 층간 연결은 빠진 연결보다 로봇 경로에 나쁘다.
 //
-// 모델에 저장하지 않고 내보낼 때 계산한다. 방의 경계·종류가 바뀌면 다음 내보내기에 그대로 반영된다. 사람이 정한 연결
-// (OE-ML-02 의 수직 관통 오브젝트)은 아직 모델에 없다. 생기면 그 방은 겹침 후보에서 뺀다(ADR-0032).
+// **수직 관통 오브젝트가 말한 연결이 먼저다**(OE-ML-19, ADR-0033). 계단(IfcStair) 오브젝트가 시작 층 진입 지점의 물리존과 끝 층
+// 종료 지점의 물리존을 이으면 그 연결을 쓰고(출처 `bim`), 그 두 물리존은 겹침 후보에서 뺀다 — 겹침 추정이 명시 연결을 덮어쓰지 않는다.
+//
+// 모델에 저장하지 않고 내보낼 때 계산한다. 방의 경계·종류가 바뀌면 다음 내보내기에 그대로 반영된다.
 
 import { overlapArea } from './polygon'
-import { polygonArea, type Model } from './model'
+import { polygonArea, type Model, type VerticalPart } from './model'
+import { explicitSpaceLinks, verticalObjects } from './vertical-object'
 
 /** 층 사이로 이어지는 방 종류. */
 export const VERTICAL_KINDS: readonly string[] = ['staircase', 'elevator_shaft']
@@ -35,27 +38,41 @@ export type VerticalPair = { low: string; high: string; share: number }
  */
 export type AmbiguousPair = VerticalPair & { reason: 'tie' | 'not-mutual' }
 
+/** 연결의 출처. 오브젝트가 말한 것은 그 오브젝트의 출처(`bim`·`edit`), 겹침으로 추정한 것은 `calc` 다. */
+export type VerticalSource = VerticalPart['source'] | 'calc'
+
 export type VerticalConnections = {
   /** 방 id → 아래·위층에서 이어진 방 id. 이어진 것이 없는 방은 담지 않는다. */
   links: Map<string, string[]>
-  /** 이은 짝. 출처는 모두 겹침 추정(`calc`)이다. */
+  /** 방 id → 그 방 연결의 출처. 명시 연결이 있는 방은 겹침 후보에서 빠지므로 방 하나의 출처는 하나다. */
+  sources: Map<string, VerticalSource>
+  /** 수직 관통 오브젝트가 이은 물리존 짝. */
+  explicit: { a: string; b: string; parentId: string }[]
+  /** 겹침으로 이은 짝(`calc`). */
   pairs: VerticalPair[]
   /** 사람이 확인하기 전에는 내보내지 않는 후보. */
   ambiguous: AmbiguousPair[]
 }
 
-/** GeoJSON `verticalConnectsSource` 값. 지금은 겹침 추정뿐이다(ADR-0008 의 `calc`). */
-export const VERTICAL_SOURCE = 'calc'
-
 /** 층 사이 연결과 모호 후보. */
 export function verticalConnections(model: Model): VerticalConnections {
   // 높이가 없는 층은 줄 세울 수 없다. 같은 높이의 두 층은 위아래가 아니다(같은 층이 두 번 들어온 것이다).
   const storeys = model.storeys.filter((s) => Number.isFinite(s.elevation)).sort((a, b) => a.elevation - b.elevation)
-  const out: VerticalConnections = { links: new Map(), pairs: [], ambiguous: [] }
-  const link = (a: string, b: string) => out.links.set(a, [...(out.links.get(a) ?? []), b])
+  const out: VerticalConnections = { links: new Map(), sources: new Map(), explicit: [], pairs: [], ambiguous: [] }
+  const link = (a: string, b: string, source: VerticalSource) => {
+    const had = out.links.get(a) ?? []
+    if (!had.includes(b)) out.links.set(a, [...had, b])
+    out.sources.set(a, source)
+  }
+  for (const e of explicitSpaceLinks(verticalObjects(model))) {
+    out.explicit.push({ a: e.a, b: e.b, parentId: e.parentId })
+    link(e.a, e.b, e.source)
+    link(e.b, e.a, e.source)
+  }
+  const stated = new Set(out.links.keys())
   const candidates = (i: number) =>
     storeys[i].spaces
-      .filter((s) => VERTICAL_KINDS.includes(s.kind ?? '') && s.footprint.length >= 3)
+      .filter((s) => VERTICAL_KINDS.includes(s.kind ?? '') && s.footprint.length >= 3 && !stated.has(s.id))
       .map((space) => ({ space, area: polygonArea(space.footprint) }))
       .filter((c) => Number.isFinite(c.area) && c.area > EPS)
   for (let i = 0; i + 1 < storeys.length; i++) {
@@ -82,8 +99,8 @@ export function verticalConnections(model: Model): VerticalConnections {
       const fromHigh = top(p.high)
       if (fromLow === p && fromHigh === p) {
         out.pairs.push(p)
-        link(p.low, p.high)
-        link(p.high, p.low)
+        link(p.low, p.high, 'calc')
+        link(p.high, p.low, 'calc')
       } else {
         out.ambiguous.push({ ...p, reason: fromLow === null || fromHigh === null ? 'tie' : 'not-mutual' })
       }

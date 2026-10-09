@@ -10,6 +10,8 @@ import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { readOntologyTTL } from '../src/lib/export/read-ttl'
 import { crossCheck, readGeoJSON } from '../src/lib/export/read-export'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
+import { verticalConnections } from '../src/lib/vertical'
+import { verticalObjects } from '../src/lib/vertical-object'
 import { disposeScene, modelToScene, sceneToGLB, sceneToOBJ } from '../src/lib/export/mesh3d'
 import { confirmSystemFlow, inferFlowByRules, withInferred, type RuleReport } from '../src/lib/flow-rules'
 import { airServices } from '../src/lib/served'
@@ -176,6 +178,21 @@ describe.skipIf(!have)('성수 불변식', () => {
     const floors = modelToGeoJSON(merged).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
     const check = crossCheck(readOntologyTTL(modelToTTL(merged)), floors)
     expect({ ...check, toUnread: 0, dangling: check.dangling.slice(0, 5) }).toEqual({ notInTtl: [], dangling: [], toUnread: 0, locationMismatch: [], doorLinks: [] })
+  }, 300_000)
+
+  it('계단(IfcStair) 35개 중 층을 잇는 32개가 수직 관통 오브젝트가 되고, 겹침만으로 잇던 계단실 짝을 하나도 잃지 않는다 (OE-ML-02·19)', () => {
+    const objects = verticalObjects(merged)
+    expect(objects).toHaveLength(32)
+    // B5F 계단 둘은 중간층 B5'F 를 지나 B4F 에 닿는다.
+    expect(objects.filter((o) => o.parts.length === 3).map((o) => o.parts.map((p) => p.storey.name))).toEqual(Array(2).fill(['B5F', "B5'F", 'B4F']))
+    const now = verticalConnections(merged)
+    const bare = structuredClone(merged)
+    for (const st of bare.storeys) delete st.verticalParts
+    const key = (a: string, b: string) => [a, b].sort().join('|')
+    const stated = new Set([...now.explicit.map((e) => key(e.a, e.b)), ...now.pairs.map((p) => key(p.low, p.high))])
+    const overlap = verticalConnections(bare).pairs.map((p) => key(p.low, p.high))
+    // 2026-10-09: 계단이 이은 짝 26, 겹침만으로는 24. 더해진 둘은 B5F↔B4F(사이 층을 건넌다)와 B1F 로비↔1F 계단실이다.
+    expect({ stated: stated.size, overlap: overlap.length, lost: overlap.filter((k) => !stated.has(k)) }).toEqual({ stated: 26, overlap: 24, lost: [] })
   }, 300_000)
 
   it('합친 두 파일의 좌표계가 맞는다(기계 설비 대부분이 건축 방 범위 안)', () => {

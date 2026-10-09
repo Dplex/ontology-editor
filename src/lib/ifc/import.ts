@@ -36,6 +36,7 @@ import { footprintRings, meshBottom, meshHeight, openingPlacement, spacesBesideO
 import { emptyEvidence, pickCeiling, type CeilingEvidence } from '../ceiling'
 import { storeyHeights } from '../storey-height'
 import { segmentAxisOf } from '../conduit-mesh'
+import { stairParts } from '../vertical-object'
 
 /**
  * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
@@ -1443,6 +1444,8 @@ function read(
     // 층마다 반자 높이 근거(ceiling.ts). 천장재는 형상을 읽은 뒤에 아랫면을 잰다.
     const ceilingEvidence = new Map<string, CeilingEvidence>()
     const coveringsOf = new Map<string, number[]>()
+    /** 층 GlobalId → 그 층에 속한 계단(IfcStair). 형상을 읽은 뒤 수직 관통 오브젝트로 만든다(OE-ML-02). */
+    const stairsOf = new Map<string, { expressID: number; id: string; name: string }[]>()
     const storeys: Storey[] = r.ids(WebIFC.IFCBUILDINGSTOREY).map((storeyID) => {
       const e = r.line(storeyID)
       const storeyGlobalID = (val(e?.GlobalId) as string) ?? `storey-${storeyID}`
@@ -1482,6 +1485,9 @@ function read(
             break
           case WebIFC.IFCCOVERING:
             if (val(el?.PredefinedType) === 'CEILING') coveringsOf.set(storeyGlobalID, [...(coveringsOf.get(storeyGlobalID) ?? []), elementID])
+            break
+          case WebIFC.IFCSTAIR:
+            stairsOf.set(storeyGlobalID, [...(stairsOf.get(storeyGlobalID) ?? []), { expressID: elementID, id, name }])
             break
           default:
             if (!mepIDs.has(elementID)) break
@@ -1747,6 +1753,43 @@ function read(
           if (bottom !== null) ceilingEvidence.get(storey.id)?.covering.push(bottom - storey.elevation)
         }
       }
+    }
+    // 계단(OE-ML-02, vertical-object.ts). 형상을 읽는 임포트에서만 만든다 — 층을 잇는지·진입/종료 지점이 모두 형상에서 나온다.
+    if (withMeshes && stairsOf.size) {
+      const stairs = [...stairsOf.values()].flat()
+      const stairOf = new Map<number, number>()
+      const children = new Map<number, number[]>()
+      for (const relID of r.ids(WebIFC.IFCRELAGGREGATES)) {
+        const rel = r.line(relID)
+        const parent = ref(rel?.RelatingObject)
+        if (parent !== null) children.set(parent, (rel.RelatedObjects ?? []).map((c: { value: number }) => c.value))
+      }
+      for (const s of stairs) {
+        // 계단판·참만 잰다. 난간은 위 끝을 1m 쯤 올려 위층을 잘못 고르게 한다. 하위 부재가 없으면 계단 자신의 형상이다.
+        const parts = (children.get(s.expressID) ?? []).filter((c) => [WebIFC.IFCSTAIRFLIGHT, WebIFC.IFCSLAB].includes(r.line(c)?.type))
+        for (const c of parts.length ? parts : [s.expressID]) stairOf.set(c, s.expressID)
+      }
+      const stairMeshes = readMeshes(api, model, new Set(stairOf.keys()), (id) => String(id))
+      const points = new Map<number, Vec3[]>()
+      for (const [key, mesh] of stairMeshes) {
+        const owner = stairOf.get(Number(key))!
+        const list = points.get(owner) ?? []
+        // 메시는 three.js 좌표(x, 높이, -y)다.
+        for (let i = 0; i < mesh.positions.length; i += 3) list.push([mesh.positions[i], -mesh.positions[i + 2], mesh.positions[i + 1]])
+        points.set(owner, list)
+      }
+      let flat = 0
+      for (const storey of result.storeys) {
+        for (const s of stairsOf.get(storey.id) ?? []) {
+          const made = stairParts({ id: s.id, name: s.name, points: points.get(s.expressID) ?? [] }, storey, result.storeys)
+          if (!made) {
+            flat++
+            continue
+          }
+          for (const { storey: at, part } of made) at.verticalParts = [...(at.verticalParts ?? []), part]
+        }
+      }
+      if (flat) warnings.push(`계단 ${stairs.length}개 중 ${flat}개는 다른 층에 닿지 않아(한 층 안의 몇 계단이거나 형상이 없음) 수직 관통 오브젝트로 만들지 않았습니다.`)
     }
     const heights = storeyHeights(result.storeys)
     for (const storey of result.storeys) {

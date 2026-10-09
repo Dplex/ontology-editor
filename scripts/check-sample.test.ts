@@ -29,6 +29,7 @@ import { airBasis, airServices, needsSystem, systemlessAir } from '../src/lib/se
 import { completenessChecks } from '../src/lib/checks'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
 import { verticalConnections, verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
+import { verticalObjects } from '../src/lib/vertical-object'
 import { storeyHeights } from '../src/lib/storey-height'
 import { markStoreyDone, storeyProgress } from '../src/lib/storey-progress'
 import { equipmentKind, roomKind } from '../src/lib/kinds'
@@ -358,16 +359,35 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH))('문이 잇는 
     expect(tally(calc, 'rooms')).toEqual({ 0: 2, 1: 11 })
 
     // 층 사이 고정 기준선(OE-EQP-16 "7개 중 6개 이상", OE-ML-19). 대상 id·기대 연결·출처를 박아 둔다 — 개수만 재면 엉뚱한 짝이나
-    // 모호 후보를 억지로 이어도 통과한다. 계단실 셋이 1·2층에서 서로를 최고 후보로 고른다(겹침 98~100%).
+    // 모호 후보를 억지로 이어도 통과한다. 계단(IfcStair) 셋이 1층 계단실에서 올라 2층 계단실에 닿아 명시 연결(bim)이 된다.
     const vertical = model.storeys.flatMap((st) => st.spaces.filter((sp) => VERTICAL_KINDS.includes(sp.kind ?? '')).map((sp) => sp.id))
     expect(vertical.sort()).toEqual(Object.keys(HOSPITAL_VERTICAL).sort())
     const spaces = new Map(modelToGeoJSON(model).flatMap((x) => x.collection.features).filter((f) => f.properties.kind === 'space').map((f) => [String(f.id), f.properties]))
     for (const [id, expected] of Object.entries(HOSPITAL_VERTICAL)) {
       const p = spaces.get(id)!
-      if (expected) expect({ id, connects: p.verticalConnects, source: p.verticalConnectsSource }).toEqual({ id, connects: [expected], source: 'calc' })
+      if (expected) expect({ id, connects: p.verticalConnects, source: p.verticalConnectsSource }).toEqual({ id, connects: [expected], source: 'bim' })
       else expect(p).not.toHaveProperty('verticalConnects')
     }
     expect(verticalConnections(model).ambiguous).toEqual([])
+    // 계단 오브젝트를 빼고 겹침만으로 재도 같은 짝이다(겹침 98~100%, 서로를 최고 후보로 고른다). 두 근거가 맞는지 보는 대조다.
+    const bare = structuredClone(model)
+    for (const st of bare.storeys) delete st.verticalParts
+    const byOverlap = verticalConnections(bare)
+    expect(Object.fromEntries([...byOverlap.links].map(([id, to]) => [id, to[0]]))).toEqual(Object.fromEntries(Object.entries(HOSPITAL_VERTICAL).filter(([, to]) => to)))
+    expect(new Set(byOverlap.sources.values())).toEqual(new Set(['calc']))
+    // 계단 오브젝트(OE-ML-02): 1층에 형상·진입 지점, 2층에 종료 지점. 조각 feature 는 1층 3 · 2층 3 이다.
+    const objects = verticalObjects(model)
+    expect(objects.map((o) => o.parts.map((p) => `${p.storey.name}:${p.part.entry ? 'in' : ''}${p.part.exit ? 'out' : ''}`))).toEqual(
+      Array(3).fill(['First Floor:in', 'Second Floor:out']),
+    )
+    expect(all.filter((p) => p.kind === 'vertical' && p.passable === false)).toHaveLength(6)
+    // 층간 연결·연관 물리존이 가리키는 id 는 전부 실제로 내보낸 feature 다(OE-ML-02). 조각 id 가 물리존 id 와 겹치지 않는다.
+    const features = modelToGeoJSON(model).flatMap((x) => x.collection.features)
+    const ids = new Set(features.map((f) => String(f.id)))
+    expect(ids.size).toBe(features.length)
+    const refs = features.flatMap((f) => [...((f.properties.verticalConnects as string[]) ?? []), ...((f.properties.spaceIds as string[]) ?? [])])
+    expect(refs.length).toBeGreaterThan(0)
+    expect(refs.filter((id) => !ids.has(id))).toEqual([])
   }, 300_000)
 
   it('벽의 평면 외곽선과 문·창의 자리를 형상에서 읽는다', async () => {
@@ -2342,10 +2362,15 @@ describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every(
     for (const f of features) {
       const kind = String(f.properties.kind)
       kinds.set(kind, (kinds.get(kind) ?? 0) + 1)
-      expect(f.id, kind).toMatch(/^[0-9A-Za-z_$]{22}$/)
+      // 수직 관통 오브젝트의 층별 조각은 "부모 id@층 id" 다(OE-ML-02). 부모 id 가 BIM 계단의 GlobalId 다.
+      if (kind === 'vertical') {
+        expect(f.properties.parentId, kind).toMatch(/^[0-9A-Za-z_$]{22}$/)
+        expect(f.id).toBe(`${f.properties.parentId}@${f.properties.storeyId}`)
+      } else expect(f.id, kind).toMatch(/^[0-9A-Za-z_$]{22}$/)
       if (kind === 'space' || kind === 'equipment') expect(keys.has(f.id), f.id).toBe(true)
     }
-    expect(Object.fromEntries(kinds)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14 })
+    // 계단 2개가 1·2층에 조각 하나씩이다.
+    expect(Object.fromEntries(kinds)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14, vertical: 4 })
 
     // S4: 소속의 출처. BIM 이 말한 소속(합칠 때 같은 자리의 방으로 옮겨 적은 것)은 bim, 나머지는 calc.
     const src = features.filter((f) => f.properties.kind === 'equipment' && f.properties.spaceId).map((f) => f.properties.spaceSource)

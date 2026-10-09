@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { modelToGeoJSON } from './export/geojson'
-import type { Model, Space, Storey, Vec2 } from './model'
+import type { Model, Space, Storey, Vec2, VerticalPart } from './model'
 import { verticalConnections, verticalLinks } from './vertical'
 import { renameSpace, replaceSpaceFootprint } from './edit'
 
@@ -133,6 +133,54 @@ describe('층 사이 연결', () => {
         storey('nan', Number.NaN, [space('sn', 'staircase', rect(10, 0, 12, 2))]),
       ])
       expect(verticalConnections(m)).toMatchObject({ pairs: [], ambiguous: [] })
+    })
+  })
+
+  // 계단 오브젝트가 말한 연결이 겹침 추정보다 앞선다(OE-ML-19, ADR-0033).
+  describe('수직 관통 오브젝트가 명시한 연결 (OE-ML-19)', () => {
+    const stairPart = (over: Partial<VerticalPart>): VerticalPart => ({ parentId: 'st', kind: 'stair', name: '계단', source: 'bim', footprint: [], entry: null, exit: null, ...over })
+
+    it('계단이 이은 물리존은 그 연결(출처 bim)을 쓰고 겹침 후보에서 빠진다 — 겹침이 다른 짝을 골라도 덮어쓰지 않는다', () => {
+      // 겹침만 보면 s1 은 s2b(100%)와 잇는다. 계단은 s1 에서 올라 s2a 에 닿는다.
+      const m = model([
+        storey('1F', 0, [space('s1', 'staircase', rect(0, 0, 2, 2))]),
+        storey('2F', 3, [space('s2a', 'staircase', rect(2, 0, 4, 2)), space('s2b', 'staircase', rect(0, 0, 2, 2))]),
+      ])
+      m.storeys[0].verticalParts = [stairPart({ footprint: rect(0, 0, 2, 2).slice(0, 4), entry: [1, 0.5, 0] })]
+      m.storeys[1].verticalParts = [stairPart({ exit: [3, 1, 3] })]
+      const v = verticalConnections(m)
+      expect(Object.fromEntries(v.links)).toEqual({ s1: ['s2a'], s2a: ['s1'] })
+      expect(Object.fromEntries(v.sources)).toEqual({ s1: 'bim', s2a: 'bim' })
+      // s1 은 명시 정보가 있어 s2b 와의 겹침 후보를 만들지 않는다.
+      expect(v.pairs).toEqual([])
+      expect(v.ambiguous).toEqual([])
+    })
+
+    it('계단실 종류가 아닌 물리존도 계단이 이으면 잇는다 — 거실의 나선 계단(FZK)', () => {
+      const m = model([storey('EG', 0, [space('living', null, rect(0, 0, 6, 6))]), storey('DG', 2.7, [space('gallery', null, rect(0, 0, 6, 3))])])
+      m.storeys[0].verticalParts = [stairPart({ entry: [1, 1, 0] })]
+      m.storeys[1].verticalParts = [stairPart({ exit: [1, 2, 2.7] })]
+      expect(Object.fromEntries(verticalLinks(m))).toEqual({ living: ['gallery'], gallery: ['living'] })
+    })
+
+    it('GeoJSON 에 층마다 조각 feature 를 내고, 조각끼리·물리존끼리 잇는다', () => {
+      const m = model([storey('1F', 0, [space('s1', 'staircase', rect(0, 0, 2, 2))]), storey('2F', 3, [space('s2', 'staircase', rect(0, 0, 2, 2))])])
+      m.storeys[0].verticalParts = [stairPart({ footprint: rect(0, 0, 1, 2).slice(0, 4), entry: [0.5, 0.2, 0] })]
+      m.storeys[1].verticalParts = [stairPart({ exit: [0.5, 1.8, 3] })]
+      const [first, second] = modelToGeoJSON(m).map((f) => f.collection.features)
+      const low = first.find((f) => f.id === 'st@1F')!
+      const high = second.find((f) => f.id === 'st@2F')!
+      expect(low.geometry?.type).toBe('Polygon')
+      expect(low.properties).toMatchObject({
+        kind: 'vertical', verticalKind: 'stair', parentId: 'st', storeyId: '1F', source: 'bim',
+        entry: [0.5, 0.2, 0], exit: null, spaceIds: ['s1'], passable: false,
+        verticalConnects: ['st@2F'], verticalConnectsSource: 'bim',
+      })
+      // 끝 층 조각은 형상이 없어 종료 지점을 점으로 낸다.
+      expect(high.geometry).toEqual({ type: 'Point', coordinates: [0.5, 1.8, 3] })
+      expect(high.properties).toMatchObject({ spaceIds: ['s2'], verticalConnects: ['st@1F'] })
+      // 물리존의 층간 연결도 오브젝트가 말한 것이다.
+      expect(first.find((f) => f.id === 's1')!.properties).toMatchObject({ verticalConnects: ['s2'], verticalConnectsSource: 'bim' })
     })
   })
 })
