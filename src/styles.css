@@ -1238,6 +1238,45 @@ th {
   flex: 1;
 }
 
+/* 반영 결과 리포트(OE-SYNC-04). */
+.version-report {
+  margin: 0.8rem 0;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.version-report-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.version-report-head h4 {
+  flex: 1;
+  margin: 0;
+}
+
+.report-section h5 {
+  margin: 0.6rem 0 0.2rem;
+  font-size: 0.85rem;
+}
+
+.report-section ul {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+}
+
+.fresh-tag {
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 0.72rem;
+}
+
 /* 목록의 모드 버튼(OE-UI-03). 판정과 다른 쪽은 꺼져 보여야 한다. */
 .catalog .row-actions .ghost:disabled {
   opacity: 0.4;

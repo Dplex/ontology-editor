@@ -60,7 +60,7 @@ async function editLight(page: Page, x: string) {
 }
 const fromServer = async (q: Record<string, string>) => (await fetch(`${base}/__layouts?${new URLSearchParams({ key: PATH, ...q })}`)).text()
 
-test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리기는 v1 을 v3 으로 다시 반영한다. 버전마다 반영자·대상 층·파일이 남는다 [OE-GEN-05#1] [OE-WF-10#2] [OE-WF-11#1~] [OE-WF-13#1~] [OE-WF-18#1] [OE-WF-19#1] [OE-GEN-09#1]', async ({ page }) => {
+test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리기는 v1 을 v3 으로 다시 반영한다. 버전마다 반영자·대상 층·파일이 남는다 [OE-GEN-05#1] [OE-WF-10#2] [OE-WF-11#1~] [OE-WF-13#1~] [OE-WF-18#1] [OE-WF-19#1] [OE-GEN-09#1] [OE-SYNC-04#1~] [OE-SYNC-05#1] [OE-SYNC-03#1~]', async ({ page }) => {
   test.setTimeout(120_000)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -105,6 +105,16 @@ test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리�
   // 버전에서 리포트를 연다(OE-GEN-09).
   await expect(page.getByTestId('versions').getByRole('link', { name: 'report.json' })).toHaveCount(1)
   expect(JSON.parse(await fromServer({ v: '1', file: 'report.json' }))).toMatchObject({ edits: 1 })
+  // 구축하면 그 버전의 결과 리포트가 열린다(OE-SYNC-04): 여섯 항목과 그 밖. 조명은 방 밖으로 나가 "소속이 없어진 설비" 에 새로 들었다.
+  const report = page.getByTestId('version-report')
+  await expect(report).toContainText('v1 반영 결과 리포트')
+  await expect(report.locator('.report-section')).toHaveCount(7)
+  for (const label of ['소속이 바뀐 설비', '물리존 생성·삭제·분할·병합·이름', '공조존 매핑 변경·미매핑 경고', '소속이 없어진 설비', '사람 지정이 풀린 설비', '배관·연결 변경'])
+    await expect(report).toContainText(label)
+  await expect(report.locator('.report-section[data-kind="unassigned"] li')).toHaveText(/^새로 LIGHT-101-01: 사무실 → /)
+  // 공간 계층(탐색기 트리 대신).
+  await report.getByTestId('space-tree').locator('summary').click()
+  await expect(report.getByTestId('space-tree')).toContainText('1F 1개 — 사무실')
 
   // 다시 고치고 반영하면 v2.
   await editLight(page, '8')
@@ -112,13 +122,22 @@ test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리�
   await expect(dialog.getByRole('heading')).toHaveText('반영하기 — v2')
   await dialog.getByRole('button', { name: '반영하기' }).click()
   await expect(page.locator('.key-note')).toContainText('v2 으로 반영했습니다', { timeout: 30_000 })
+  // v2 리포트: 같은 줄이지만 v1 에도 있었으니 새로가 아니다.
+  await expect(report).toContainText('v2 반영 결과 리포트')
+  await expect(report.locator('.report-section[data-kind="unassigned"] li')).not.toContainText('새로')
+  if (process.env.SHOT_REPORT) {
+    await report.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+    await page.evaluate(() => window.scrollBy(0, -230))
+    await page.screenshot({ path: process.env.SHOT_REPORT, fullPage: false })
+  }
 
   // 버전 히스토리: 지금은 v2. v1 을 되돌리면 v3 이 되고 v1 의 파일과 같다.
   const versions = page.getByTestId('versions')
   await expect(versions.locator('tbody tr')).toHaveCount(2)
   await expect(versions.locator('tr.current')).toContainText('v2')
   const v1row = versions.locator('tbody tr', { hasText: 'v1' })
-  await v1row.getByRole('button', { name: '되돌리기' }).click()
+  // 리포트의 [되돌리기] 는 직전 버전(v1)을 골라 둔 되돌리기 확인으로 간다(OE-SYNC-05).
+  await report.getByRole('button', { name: '되돌리기 (v1)' }).click()
   await v1row.getByRole('button', { name: 'v1 다시 반영' }).click()
   await expect(page.locator('.key-note')).toContainText('v1 의 레이아웃을 v3 으로 다시 반영했습니다')
   await expect(versions.locator('tr.current')).toContainText('v1 되돌리기')
