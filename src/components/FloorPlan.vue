@@ -35,6 +35,8 @@ const props = defineProps<{
   pickWalls: boolean
   /** 여러 개 고른 설비(OE-UI-09). 고른 색으로 그린다. */
   group?: readonly string[]
+  /** 그리드 선(IFC x·y 값, OE-UI-07). null 이면 그리지 않는다. */
+  grid?: { x: readonly number[]; y: readonly number[] } | null
 }>()
 const emit = defineEmits<{
   /** `additive` 는 Ctrl(⌘)을 누른 채 누른 것(여러 개 고르기, OE-UI-09). */
@@ -261,6 +263,10 @@ function pickVertical(event: MouseEvent, id: string) {
     @pointerup="onPointerUp"
     @pointerleave="onPointerUp"
   >
+    <g v-if="grid" class="grid" data-testid="plan-grid">
+      <line v-for="x in grid.x" :key="`gx${x}`" :x1="sx(x)" :x2="sx(x)" :y1="0" :y2="bounds.maxY - bounds.minY" />
+      <line v-for="y in grid.y" :key="`gy${y}`" :x1="0" :x2="bounds.maxX - bounds.minX" :y1="sy(y)" :y2="sy(y)" />
+    </g>
     <g class="spaces">
       <polygon
         v-for="s in spaces"

@@ -409,6 +409,8 @@ export type Viewer = {
    * 물리존을 그리는 바닥 클릭은 그대로 바닥에 찍힌다. null 이면 걷는다.
    */
   setBackground(bg: { url: string; corners: readonly [Vec2, Vec2, Vec2, Vec2]; elevation: number; opacity: number } | null): void
+  /** 그리드(OE-UI-07). 선(IFC 평면 x·y 값)과 높이. null 이면 지운다. 고르기 대상이 아니다. */
+  setGrid(grid: { x: readonly number[]; y: readonly number[]; elevation: number; extent: { minX: number; minY: number; maxX: number; maxY: number } } | null): void
   /** 보이는 것 전체를 위에서 내려다본다. 화면 위쪽이 IFC +y(평면도와 같은 방위)다. */
   topView(): void
   /**
@@ -689,7 +691,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   scene.add(ceilingPlanes)
   // 평면도 배경 이미지(OE-MAN-02). 지금 깐 것의 귀퉁이를 e2e 가 읽는다.
   const backdrop = new Group()
+  // 그리드(OE-UI-07). 바닥판 바로 위의 가는 선.
+  const gridGroup = new Group()
+  let gridCount = 0
   scene.add(backdrop)
+  scene.add(gridGroup)
   let backdropCorners: readonly [Vec2, Vec2, Vec2, Vec2] | null = null
   let dimIds: ReadonlySet<string> = new Set()
   let frozenIds: ReadonlySet<string> = new Set()
@@ -1857,6 +1863,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const t = verticalTargets.find((x) => x.id === id)
         return t ? toScreen(new Vector3(t.at[0], t.y, -t.at[1])) : null
       },
+      /** 그린 그리드 선 수(OE-UI-07). */
+      grid: () => gridCount,
       /** 고른(파랗게 칠한) 조각 id. */
       verticalSelected: () => [...selectedVertical],
       /** 진입·종료 표시 수(보이는 층만). */
@@ -2411,6 +2419,29 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     setFrozen(ids) {
       frozenIds = ids
+    },
+
+    setGrid(grid) {
+      for (const o of gridGroup.children) {
+        const line = o as LineSegments
+        line.geometry.dispose()
+        ;(line.material as LineBasicMaterial).dispose()
+      }
+      gridGroup.clear()
+      gridCount = 0
+      dirty = true
+      if (!grid) return
+      const y = grid.elevation + 0.115
+      const pts: number[] = []
+      for (const x of grid.x) pts.push(x, y, -grid.extent.minY, x, y, -grid.extent.maxY)
+      for (const v of grid.y) pts.push(grid.extent.minX, y, -v, grid.extent.maxX, y, -v)
+      const geometry = new BufferGeometry()
+      geometry.setAttribute('position', new BufferAttribute(new Float32Array(pts), 3))
+      const lines = new LineSegments(geometry, new LineBasicMaterial({ color: 0x8a93a3, transparent: true, opacity: 0.35, depthWrite: false }))
+      lines.raycast = () => {}
+      lines.renderOrder = 2
+      gridGroup.add(lines)
+      gridCount = grid.x.length + grid.y.length
     },
 
     setBackground(bg) {
