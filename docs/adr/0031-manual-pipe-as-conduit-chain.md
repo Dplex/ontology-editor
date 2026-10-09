@@ -7,10 +7,12 @@ deciders: ["정희록"]
 prd: ["K4", "K14"]
 tickets: ["OE-PIP-11", "OE-OBJ-12", "OE-PIP-10", "OE-PIP-12", "OE-PIP-13"]
 supersedes: []
-superseded_by: ""
+superseded_by: "ADR-0035 (한 층 안에서만 그린다는 한 줄만)"
 ---
 
 # ADR-0031 수동 배관의 모양
+
+> "한 층 안에서만 그린다" 는 [ADR-0035](0035-cross-storey-pipes.md) 가 바꿨다 — 다중층 뷰에서는 보기 범위의 다른 층 설비까지 층간 배관을 그린다. 나머지 결정은 그대로다.
 
 ## 맥락
 

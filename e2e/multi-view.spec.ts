@@ -51,7 +51,7 @@ test('병원 건축: 다중층 뷰는 범위의 층을 함께 그리고, 계단�
   expect(lit.every((id) => id.startsWith(`${parent}@`))).toBe(true)
   // 수직 관통 오브젝트 말고의 편집 키(Insert: 꼭짓점 넣기)는 막고 알린다. 데이터(되돌리기 이력)는 그대로다.
   await page.keyboard.press('Insert')
-  await expect(page.locator('.edit-notice')).toContainText('다중층 뷰에서는 수직 관통 오브젝트만 옮기거나 지웁니다')
+  await expect(page.locator('.edit-notice')).toContainText('다중층 뷰에서는 수직 관통 오브젝트와 층간 배관만 다룹니다')
   await expect(page.locator('.edit-bar .undo')).toBeDisabled()
 
   // 범위를 [전체] 로 넓혀도 오브젝트는 그대로다(보기 범위와 관통 구간은 따로).
