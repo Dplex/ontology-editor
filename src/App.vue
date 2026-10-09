@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch, type Directive } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
-import { countOf, isConduit, polygonArea, segmentRest, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
+import { countOf, isConduit, polygonArea, segmentPath, segmentRest, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile'
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
@@ -56,7 +56,8 @@ import {
 } from './lib/viewer'
 import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import { drawPipe } from './lib/manual-pipe'
-import { storeyElevationProblem, type PathPoint } from './lib/storey-z'
+import { storeyAtZ, storeyElevationProblem, type PathPoint } from './lib/storey-z'
+import { branchPipe } from './lib/branch-pipe'
 import { removalImpact } from './lib/removal-impact'
 import { retargetEnd } from './lib/retarget'
 import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, type Background } from './lib/background'
@@ -2725,6 +2726,8 @@ type Drawing = {
    */
   levels?: { storeyId: string; height: number }[]
   work?: { storeyId: string; height: number }
+  /** 층별 분기(OE-ML-13)면 분기를 낼 구간 id. 첫 점이 분기 자리다. */
+  branchOf?: string
   spaceId: string | null
   storeyId: string
   name: string
@@ -2738,7 +2741,7 @@ const riserPreview = computed(() => {
   const from = d?.levels && d.spaceId ? equipmentById.value.get(d.spaceId) : null
   if (!d?.levels || !from?.position) return []
   const z = (l: { storeyId: string; height: number }) => (model.value?.storeys.find((st) => st.id === l.storeyId)?.elevation ?? Number.NaN) + l.height
-  const path: Vec3[] = [from.position, ...d.points.map((p, i): Vec3 => [p[0], p[1], z(d.levels![i])])]
+  const path: Vec3[] = [...(d.branchOf ? [] : [from.position]), ...d.points.map((p, i): Vec3 => [p[0], p[1], z(d.levels![i])])]
   return path.length > 1 && path.every((p) => Number.isFinite(p[2])) ? [{ storeyId: d.storeyId, elevation: from.position[2], path }] : []
 })
 watch([model, sceneVersion, verticalHighlight, verticalPreview, riserPreview], () =>
@@ -4557,7 +4560,9 @@ function finishDraw(): boolean {
   }
   if (d.purpose === 'pipe' && d.levels) {
     // 층간 배관: 꺾임점은 찍을 때의 층 + 높이다. 보기 범위 밖이거나 층 높이를 모르면 그리던 것을 둔 채 이유를 보인다 — 범위를 넓혀 이어 그린다.
-    if (makePipe(d.points.map((at, i): PathPoint => ({ at, ...d.levels![i] })), d.spaceId, multiRange.value?.map((st) => st.id) ?? [])) stopDraw()
+    const via = d.points.map((at, i): PathPoint => ({ at, ...d.levels![i] }))
+    const range = multiRange.value?.map((st) => st.id) ?? []
+    if (d.branchOf ? makeBranch(d.branchOf, via, range) : makePipe(via, d.spaceId, range)) stopDraw()
     return true
   }
   if (d.purpose === 'pipe') {
@@ -5277,8 +5282,9 @@ const riserEndStorey = computed(() => {
   return range.find((st) => st.id === riserStorey.value) ?? range.find((st) => st.id !== home?.id) ?? null
 })
 /**
- * 층간 배관의 끝 후보: 끝 층의 좌표 있는 설비·이음쇠, 수평 거리가 가까운 순 40개. 라이저는 위아래로 가니 높이 차는 재지 않는다.
- * 구간의 중간에 잇는 것은 분기(OE-ML-13)라 구간은 뺀다.
+ * 층간 배관의 끝 후보: 끝 층의 좌표 있는 설비, 그다음 이음쇠, 각각 수평 거리가 가까운 순으로 60개. 라이저는 위아래로 가니 높이 차는
+ * 재지 않는다. 끝은 보통 설비라 앞에 둔다(Duplex 1층은 이음쇠까지 섞으면 6m 떨어진 라디에이터가 40개 밖이었다). 구간의 중간에 잇는 것은
+ * 분기(OE-ML-13)라 구간은 뺀다.
  */
 const riserTargets = computed(() => {
   void sceneVersion.value
@@ -5288,9 +5294,9 @@ const riserTargets = computed(() => {
   const p = e.position
   return st.equipment
     .filter((x) => x.id !== e.id && !!x.position && x.role !== 'segment')
-    .map((x) => ({ id: x.id, name: shortName(x.name), d: Math.hypot(x.position![0] - p[0], x.position![1] - p[1]) }))
-    .sort((a, b) => a.d - b.d)
-    .slice(0, 40)
+    .map((x) => ({ id: x.id, name: shortName(x.name), d: Math.hypot(x.position![0] - p[0], x.position![1] - p[1]), fitting: isConduit(x.role) }))
+    .sort((a, b) => Number(a.fitting) - Number(b.fitting) || a.d - b.d)
+    .slice(0, 60)
 })
 function startRiser() {
   const from = selected.value
@@ -5329,10 +5335,86 @@ function addPlumbPoint() {
   const d = drawing.value
   const from = d?.spaceId ? equipmentById.value.get(d.spaceId) : null
   if (!d?.levels || !d.work || !from?.position || riserWorkZ.value === null) return
+  if (d.branchOf && !d.points.length) return note('분기 자리를 먼저 찍습니다')
   const last = d.points.at(-1) ?? ([from.position[0], from.position[1]] as Vec2)
   const lastZ = d.points.length ? riserPreview.value[0]?.path.at(-1)?.[2] : from.position[2]
   if (lastZ !== undefined && Math.abs(lastZ - riserWorkZ.value) < 0.01) return note('작업 높이가 마지막 점과 같습니다. 층이나 높이를 바꾼 뒤 누릅니다')
   drawing.value = { ...d, points: [...d.points, [cm(last[0]), cm(last[1])]], levels: [...d.levels, { ...d.work }] }
+}
+
+// --- 층별 분기 (다중층 뷰, OE-ML-13, branch-pipe.ts) ---
+// 고른 구간 위의 한 자리에 분기점을 넣어 구간을 나누고, 그 분기점에서 층간 배관과 같은 그리기로 잇는다. 첫 점이 분기 자리다.
+
+function startBranch() {
+  const seg = selected.value
+  const home = seg ? storeyOf(seg.id) : null
+  const m = model.value
+  if (!m || !seg || seg.role !== 'segment' || !home || !multiView.value) return
+  if (!pipeDraft.value.to) return note('끝 대상을 먼저 고르세요')
+  const path = segmentPath(seg)
+  if (!path || !('path' in path)) return note('형상(중심선)이 없는 구간에는 분기를 내지 않습니다')
+  stopPlace()
+  stopAdd()
+  connectFrom.value = null
+  // 작업 높이는 구간 가운데 높이에서 시작한다(수평 구간은 그대로 구간 위를 누르면 된다).
+  const z = (path.path[0][2] + path.path[1][2]) / 2
+  const st = storeyAtZ(m, z) ?? home
+  const work = { storeyId: st.id, height: cm(z - st.elevation) }
+  drawing.value = { purpose: 'pipe', spaceId: seg.id, storeyId: home.id, name: `${shortName(seg.name)} 분기`, elevation: st.elevation + work.height, points: [], levels: [], work, branchOf: seg.id }
+  viewer?.setPlaceMode(st.elevation + work.height)
+  note('첫 점은 분기 자리입니다. 구간 위를 누르거나, 작업 높이를 정하고 [이 높이에서 분기] 를 누릅니다. 그다음 꺾임점을 찍고 Enter 로 끝 대상까지 잇습니다 (Esc 취소)')
+}
+/** 작업 높이가 구간을 지나는 자리에 분기 자리를 찍는다(라이저처럼 높이가 변하는 구간). */
+function branchAtWork() {
+  const d = drawing.value
+  const seg = d?.branchOf ? equipmentById.value.get(d.branchOf) : null
+  const path = seg ? segmentPath(seg) : null
+  const z = riserWorkZ.value
+  if (!d?.levels || !d.work || !path || !('path' in path) || z === null || d.points.length) return
+  const [p, q] = path.path
+  if (Math.abs(q[2] - p[2]) < 0.01 || z < Math.min(p[2], q[2]) || z > Math.max(p[2], q[2]))
+    return note(`이 구간은 그 높이(${z.toFixed(2)}m)를 지나지 않습니다. 높이를 ${Math.min(p[2], q[2]).toFixed(2)} ~ ${Math.max(p[2], q[2]).toFixed(2)}m 로 두거나, 수평 구간이면 구간 위를 누릅니다`)
+  const t = (z - p[2]) / (q[2] - p[2])
+  drawing.value = { ...d, points: [[cm(p[0] + (q[0] - p[0]) * t), cm(p[1] + (q[1] - p[1]) * t)]], levels: [{ ...d.work }] }
+}
+/** 분기를 그린다. 그렸으면 true. 되돌리기 한 번에 분기점·나눈 구간·분기가 같이 빠지고 나눈 구간·옛 연결이 돌아온다. */
+function makeBranch(segId: string, points: PathPoint[], range: string[]): boolean {
+  const m = model.value
+  const d = pipeDraft.value
+  const seg = equipmentById.value.get(segId)
+  if (!m || !seg) return false
+  if (!points.length) {
+    note('분기 자리를 먼저 찍습니다')
+    return false
+  }
+  const before: Snapshot[] = [snapshotEquipment(m, segId)!, ...m.connections.filter((c) => c.from === segId || c.to === segId).map((c) => snapshotRelease(m, c))]
+  const at = mark()
+  const done = branchPipe(
+    m,
+    { segmentId: segId, at: points[0], via: points.slice(1), to: d.to, flowType: d.flowType, systemId: d.systemId === 'auto' ? undefined : d.systemId === 'none' ? null : d.systemId, range },
+    segmentAxis,
+  )
+  if ('refused' in done) {
+    note(done.refused)
+    return false
+  }
+  const made = [...(done.reused ? [] : [done.tee, done.tail!]), ...done.segments, ...done.fittings]
+  remember(
+    `${d.flowType} 분기 그리기 (${shortName(seg.name)})`,
+    { kind: 'many', parts: [...made.map((equipment): Snapshot => ({ kind: 'equipment-set', equipment, storeyId: done.storeyOf.get(equipment.id)!, index: 0, present: false, connections: [], systems: [] })), ...before] },
+    at,
+  )
+  ruleReport.value = done.rules
+  ensureDrawnMeshes()
+  if (!done.reused) placeStretched(segId)
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+  const how = done.reused
+    ? `끝의 ${shortName(done.tee.name)}을 분기점으로 다시 썼습니다`
+    : `분기점 ${done.tee.name}을 넣어 ${shortName(seg.name)}을 나눴습니다${done.replaced?.released ? '(옛 BIM 포트 연결은 해제 보정으로 남김)' : ''}`
+  note(`${d.flowType} 분기를 그렸습니다: ${how} · 구간 ${done.segments.length}개 · ${done.length.toFixed(2)}m. 흐름 방향은 아직 정하지 않았습니다`)
+  return true
 }
 
 function startHvacZone() {
@@ -7612,8 +7694,15 @@ async function export3D(format: 'glb' | 'obj') {
                 </select>
                 바닥에서
                 <input type="number" step="0.1" class="riser-height" :value="drawing.work.height" aria-label="층 바닥에서 높이(m)" @change="setRiserWork(drawing.work.storeyId, Number(($event.target as HTMLInputElement).value))" />
-                m <span class="muted">(z {{ riserWorkZ?.toFixed(2) }}m)</span> · 꺾임점 {{ drawing.points.length }}개
-                <button type="button" class="ghost" data-testid="riser-plumb" @click="addPlumbPoint">수직으로 찍기</button>
+                m <span class="muted">(z {{ riserWorkZ?.toFixed(2) }}m)</span> ·
+                <template v-if="drawing.branchOf && !drawing.points.length">
+                  첫 점은 분기 자리(구간 위)
+                  <button type="button" class="ghost" data-testid="branch-at" @click="branchAtWork">이 높이에서 분기</button>
+                </template>
+                <template v-else>
+                  {{ drawing.branchOf ? '분기 자리 + ' : '' }}꺾임점 {{ drawing.points.length - (drawing.branchOf ? 1 : 0) }}개
+                  <button type="button" class="ghost" data-testid="riser-plumb" @click="addPlumbPoint">수직으로 찍기</button>
+                </template>
               </template>
               <template v-else>
                 <b>{{ drawing.name }}</b> {{ drawing.purpose === 'create' || drawing.purpose === 'custom' || drawing.purpose === 'room' ? '그리기' : '외곽선 그리기' }} · 바닥을 눌러 꼭짓점을 찍습니다 ·
@@ -8524,9 +8613,13 @@ async function export3D(format: 'glb' | 'obj') {
           </div>
 
           <!-- 층간 배관 그리기(다중층 뷰, OE-ML-12·14 · OE-PIP-15). 같은 배관 그리기에 끝 대상을 보기 범위의 다른 층에서 고르고 꺾임점마다 높이를 정한다. -->
-          <div v-if="editing && multiView && selected.position && selected.role !== 'segment'" class="pipe-draw" data-testid="riser-draw">
-            <h4 class="picked-sub">층간 배관 그리기 <Src kind="edit" /></h4>
-            <p class="hint">보기 범위의 다른 층 설비·배관까지 잇습니다. 층을 지나는 구간은 수직으로만 찍고, 옆으로 옮기는 것은 수평 구간(오프셋)으로 찍습니다. 끝 설비는 옮기지 않습니다.</p>
+          <!-- 구간을 고르면 같은 칸이 층별 분기(OE-ML-13)가 된다: 첫 점이 구간 위의 분기 자리다. -->
+          <div v-if="editing && multiView && selected.position" class="pipe-draw" :data-testid="selected.role === 'segment' ? 'branch-draw' : 'riser-draw'">
+            <h4 class="picked-sub">{{ selected.role === 'segment' ? '분기 그리기' : '층간 배관 그리기' }} <Src kind="edit" /></h4>
+            <p v-if="selected.role === 'segment'" class="hint">
+              이 구간 위의 한 자리에 분기점(이음쇠)을 넣어 구간을 나누고, 그 층의 설비·배관까지 잇습니다. 구간 끝 5cm 안이면 끝의 이음쇠를 분기점으로 다시 씁니다(Flow Type·계통이 같을 때만). 매체·Flow Type·계통이 주 배관과 다르면 잇지 않습니다.
+            </p>
+            <p v-else class="hint">보기 범위의 다른 층 설비·배관까지 잇습니다. 층을 지나는 구간은 수직으로만 찍고, 옆으로 옮기는 것은 수평 구간(오프셋)으로 찍습니다. 끝 설비는 옮기지 않습니다.</p>
             <p class="pipe-draw-row">
               <label>
                 끝 층
@@ -8557,7 +8650,8 @@ async function export3D(format: 'glb' | 'obj') {
               </label>
             </p>
             <p class="pipe-draw-row">
-              <button type="button" class="ghost" :disabled="!pipeDraft.to || !!drawing" @click="startRiser">경로 찍기</button>
+              <button v-if="selected.role === 'segment'" type="button" class="ghost" :disabled="!pipeDraft.to || !!drawing" @click="startBranch">분기 그리기</button>
+              <button v-else type="button" class="ghost" :disabled="!pipeDraft.to || !!drawing" @click="startRiser">경로 찍기</button>
               <span class="muted">흐름 방향은 정하지 않습니다.</span>
             </p>
           </div>
