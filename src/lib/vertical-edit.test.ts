@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Model, Space, Storey, Vec2, Vec3, Wall } from './model'
 import { stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
-import { deleteVertical, moveVertical, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
+import { deleteVertical, movePart, moveVertical, setPartPoint, setPartVertex, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
 import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
 import { BUILDING, joinParts, splitByStorey } from './storey-drafts'
@@ -170,5 +170,68 @@ describe('되돌리기·편집 파일 (OE-ML-07·09)', () => {
     const result = applyEdits(b, { format: 'ontology-editor/edits', version: 1, source: 'x', savedAt: '', equipment: [], spaces: [], kinds: [], flows: [], confirmedSystems: [], verticals: [{ id: 'gone', move: [1, 0] }, { id: 'gone2', removed: true }] })
     expect(result.missing.elements).toBe(2)
     expect(verticalRef(b, 'st')).toEqual(partsOf(building(), 'st')[0].footprint[0])
+  })
+})
+
+describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () => {
+  it('한 층 조각만 옮기면 그 층 형상·지점만 가고 다른 층은 그대로다', () => {
+    const m = building()
+    const [low0, high0] = partsOf(m, 'st').map((p) => structuredClone(p))
+    expect(movePart(m, 'st@1F', [0, 0.5])).toBe(true)
+    const [low, high] = partsOf(m, 'st')
+    expect(low.footprint).toEqual(low0.footprint.map(([x, y]) => [x, y + 0.5]))
+    expect(low.entry![1]).toBeCloseTo(low0.entry![1] + 0.5, 6)
+    expect(high).toEqual(high0)
+    expect(low.edited).toBe(true)
+    expect(movePart(m, 'st@3F', [1, 0])).toBe(false)
+  })
+
+  it('꼭짓점을 옮겨 형상(크기)을 바꾸고, 변이 교차하는 자리는 이유와 함께 되돌린다', () => {
+    const m = building()
+    const before = structuredClone(partsOf(m, 'st')[0].footprint)
+    const far = before.reduce((a, p) => (p[1] > a[1] ? p : a))
+    const i = before.indexOf(far)
+    expect(setPartVertex(m, 'st@1F', i, [far[0], far[1] + 0.5])).toBe(true)
+    expect(partsOf(m, 'st')[0].footprint[i]).toEqual([far[0], far[1] + 0.5])
+    // 사각형의 꼭짓점 (1,4) 를 (1,-1) 로 끌면 그 변이 바닥 변(0,0)-(1,0)과 엇갈린다.
+    const square = building()
+    for (const st of square.storeys) for (const p of st.verticalParts ?? []) if (p.parentId === 'st' && p.footprint.length) p.footprint = [[0, 0], [1, 0], [1, 4], [0, 4]]
+    const refused = setPartVertex(square, 'st@1F', 2, [1, -1])
+    expect(refused).toEqual({ refused: expect.stringContaining('교차') })
+    expect(partsOf(square, 'st')[0].footprint).toEqual([[0, 0], [1, 0], [1, 4], [0, 4]])
+    expect(setPartVertex(m, 'st@1F', 99, [0, 0])).toBe(false)
+  })
+
+  it('진입·종료 지점을 x·y 로 옮기고 높이는 그대로 둔다. 지점이 없는 조각이면 하지 않는다', () => {
+    const m = building()
+    const z = partsOf(m, 'st')[1].exit![2]
+    expect(setPartPoint(m, 'st@2F', 'exit', [0.2, 3.1])).toBe(true)
+    expect(partsOf(m, 'st')[1].exit).toEqual([0.2, 3.1, z])
+    expect(setPartPoint(m, 'st@2F', 'entry', [0, 0])).toBe(false)
+    // 종료 지점이 2층 복도로 가면 이 계단이 잇는 짝도 바뀐다.
+    setPartPoint(m, 'st@2F', 'exit', [4, 3])
+    expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'st')).toMatchObject({ a: 'stair1', b: 'hall2' })
+  })
+
+  it('층별로 고친 것은 편집 파일에 조각을 통째로 적고(이동량 대신), 새로 연 BIM 에 얹으면 같다', () => {
+    const a = building()
+    const base = baselineOf(a)
+    moveVertical(a, 'st', [0.3, 0])
+    expect(diffBaseline(a, base).verticals).toEqual([{ id: 'st', name: '계단 st', move: [0.3, 0] }])
+    // 전체 이동 뒤 한 층을 따로 고치면 전체 이동이 아니다. 연 때와 달라진 층(둘 다)을 적는다.
+    setPartPoint(a, 'st@2F', 'exit', [0.6, 3.5])
+    expect(diffBaseline(a, base).verticals).toEqual([{ id: 'st', name: '계단 st', reshaped: ['1F', '2F'] }])
+    movePart(a, 'st@1F', [0, 0.2])
+    expect(diffBaseline(a, base).verticals?.[0].reshaped).toEqual(['1F', '2F'])
+    // 한 층만 고친 계단은 그 층만 적는다.
+    setPartPoint(a, 'st2@2F', 'exit', [3.5, 3.5])
+    expect(diffBaseline(a, base).verticals?.find((v) => v.id === 'st2')?.reshaped).toEqual(['2F'])
+    const file = parseEditFile(JSON.stringify(exportEdits(a, base, 'b.ifc'))) as EditFile
+    expect(file.verticals?.find((v) => v.id === 'st')).toMatchObject({ id: 'st', parts: [{ storeyId: '1F' }, { storeyId: '2F' }] })
+    expect(file.verticals?.[0].move).toBeUndefined()
+    const b = building()
+    const result = applyEdits(b, file)
+    expect(result.missing).toMatchObject({ elements: 0, storeys: 0 })
+    expect(b.storeys.map((s) => s.verticalParts)).toEqual(a.storeys.map((s) => s.verticalParts))
   })
 })

@@ -136,3 +136,100 @@ test('병원 건축: 다중층 뷰에서 계단을 통째로 옮기면 두 층�
   await expect(page.locator('.report')).toContainText('지웠습니다(모든 층, GeoJSON)')
   expect(errors).toEqual([])
 })
+
+test('병원 건축: 다중층 뷰에서 계단의 한 층 조각만 고친다 — 꼭짓점 손잡이·이 층만 옮기기·종료 지점 좌표, 설비는 끌리지 않고, 편집 파일로 다시 얹힌다', async ({ page }, info) => {
+  test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(240_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await openClinic(page)
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterWithStair(page)
+  const panel = page.getByTestId('vertical-picked')
+  const part = page.getByTestId('vertical-part-edit')
+  await expect(part).toContainText('First Floor 조각만')
+
+  // 1층 조각의 꼭짓점 손잡이를 끌면 그 층 형상만 바뀐다(이력 하나, 리포트에 "층별 모양").
+  const handles = await viewer<{ x: number; y: number }[]>(page, 'handles')
+  expect(handles.length).toBeGreaterThanOrEqual(3)
+  // 첫 꼭짓점을 형상 가운데에서 바깥쪽으로 15px 끈다(형상이 커진다). 화면에서 계단은 30px 남짓이라 많이 끌면 변이 엇갈려 거절된다.
+  const h = handles[0]
+  const c = { x: handles.reduce((a, p) => a + p.x, 0) / handles.length, y: handles.reduce((a, p) => a + p.y, 0) / handles.length }
+  const len = Math.hypot(h.x - c.x, h.y - c.y)
+  const to = { x: h.x + ((h.x - c.x) / len) * 15, y: h.y + ((h.y - c.y) / len) * 15 }
+  await page.mouse.move(h.x, h.y)
+  await page.mouse.down()
+  await page.mouse.move(to.x, to.y, { steps: 10 })
+  await page.mouse.up()
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.locator('.report')).toContainText('층별 모양을 고쳤습니다(First Floor, GeoJSON)')
+  const moved = await viewer<{ x: number; y: number }[]>(page, 'handles')
+  expect(Math.hypot(moved[0].x - h.x, moved[0].y - h.y)).toBeGreaterThan(10)
+  // 많이 끌어 변이 엇갈리면 되돌리고 알린다.
+  await page.mouse.move(moved[0].x, moved[0].y)
+  await page.mouse.down()
+  await page.mouse.move(c.x + (c.x - moved[0].x) * 2, c.y + (c.y - moved[0].y) * 2, { steps: 10 })
+  await page.mouse.up()
+  await expect(page.locator('.edit-notice')).toContainText('변이 서로 교차하는 형상이라')
+  expect(await viewer(page, 'handles')).toEqual(moved)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+
+  // 이 층 조각만 옮기기: 진입 지점이 같이 가고, 2층 종료 지점은 그대로다.
+  const entry0 = await coords(page, 'vertical-entry')
+  await page.getByLabel('이 층 조각 이동 y(m)').fill('0.5')
+  await part.getByRole('button', { name: '옮기기' }).click()
+  const entry1 = await coords(page, 'vertical-entry')
+  expect(+(entry1[1] - entry0[1]).toFixed(2)).toBe(0.5)
+  await panel.getByTestId('vertical-storeys').getByRole('button', { name: 'Second Floor' }).click()
+  await expect(part).toContainText('Second Floor 조각만')
+  await expect(part).toContainText('이 층은 형상 없이 지점만 있습니다')
+  const exit0 = await coords(page, 'vertical-exit')
+  // 2층 종료 지점 x 를 칸으로 바꾼다. 높이는 그대로다.
+  const exitX = page.getByLabel('종료 지점 x(m)')
+  await exitX.fill(String((exit0[0] + 0.8).toFixed(2)))
+  await exitX.press('Enter')
+  await expect.poll(async () => (await coords(page, 'vertical-exit'))[0]).toBeCloseTo(exit0[0] + 0.8, 2)
+  expect((await coords(page, 'vertical-exit'))[2]).toBe(exit0[2])
+  await expect(page.locator('.report')).toContainText('층별 모양을 고쳤습니다(First Floor · Second Floor, GeoJSON)')
+  const exit1 = await coords(page, 'vertical-exit')
+
+  // 숫자가 아닌 칸은 적용하지 않는다.
+  await exitX.fill('')
+  await exitX.press('Enter')
+  await expect(page.locator('.edit-notice')).toContainText('좌표는 숫자로 넣습니다')
+  expect(await coords(page, 'vertical-exit')).toEqual(exit1)
+  // 다중층 뷰에서 설비는 고르고 보기만 한다 — 좌표·지우기 칸 대신 안내가 뜬다.
+  await page.locator('input[type=search]').fill('Mirror')
+  await page.locator('.equipment tbody tr', { hasText: 'Mirror' }).first().getByRole('button').first().click()
+  await expect(page.locator('.picked .ceiling-lock').first()).toContainText('다중층 뷰에서는 수직 관통 오브젝트만 옮기거나 지웁니다')
+  await expect(page.locator('.position-edit')).toHaveCount(0)
+  await expect(page.locator('.picked .danger-zone')).toHaveCount(0)
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+
+  // 저장 → 다시 열기 → 불러오기: 종료 지점이 고친 자리다.
+  await page.getByRole('group', { name: '다중층 보기 범위' }).getByRole('button', { name: '층 편집으로' }).click()
+  const download = page.waitForEvent('download')
+  await page.keyboard.press('Control+s')
+  const path = info.outputPath('clinic-parts.edits.json')
+  await (await download).saveAs(path)
+  page.on('dialog', (d) => void d.accept())
+  await openClinic(page)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건', { timeout: 30_000 })
+  await page.locator('.load-edits input').setInputFiles(path)
+  await expect(page.locator('.edit-file-note')).toContainText('편집 1개를 적용했습니다')
+  await expect(page.locator('.report')).toContainText('층별 모양을 고쳤습니다(First Floor · Second Floor, GeoJSON)')
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  // 2층 종료 지점은 2층 설비에 가려질 수 있어, 1층 조각을 고르고 패널의 관통 층에서 2층으로 간다.
+  await storeyBox(page).selectOption({ label: 'First Floor만' })
+  for (const id of await viewer<string[]>(page, 'verticals')) {
+    const at = await viewer<{ x: number; y: number }>(page, 'vertical', id)
+    await page.mouse.click(at.x, at.y)
+    if (!(await panel.isVisible())) continue
+    await panel.getByTestId('vertical-storeys').getByRole('button', { name: 'Second Floor' }).click()
+    if ((await coords(page, 'vertical-exit'))[0] === exit1[0]) break
+    await storeyBox(page).selectOption({ label: 'First Floor만' })
+  }
+  expect(await coords(page, 'vertical-exit')).toEqual(exit1)
+  expect(errors).toEqual([])
+})

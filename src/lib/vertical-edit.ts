@@ -11,9 +11,10 @@
 // **연관 물리존·층간 연결은 저장하지 않으니 따로 고칠 것이 없다.** 진입·종료 지점이 드는 물리존을 그때 짚으므로(ADR-0033) 옮기면 새
 // 자리의 물리존이, 지우면 겹침 추정(ADR-0032)이 그 자리를 잇는다. 형상이 닿았다고 새 연결을 확정하지 않는다(OE-ML-19).
 
+import { isSelfIntersecting } from './mapping'
 import { overlapArea } from './polygon'
 import { polygonArea, type Model, type Storey, type Vec2, type Vec3, type VerticalPart } from './model'
-import { partSpaces, verticalObjects } from './vertical-object'
+import { partId, partSpaces, verticalObjects } from './vertical-object'
 
 const mm = (v: number) => Math.round(v * 1000) / 1000
 
@@ -52,6 +53,54 @@ export function moveVertical(model: Pick<Model, 'storeys'>, parentId: string, d:
     }
   }
   return hit
+}
+
+/** 조각 id(`부모 id@층 id`)의 조각. */
+function partOf(model: Pick<Model, 'storeys'>, key: string): VerticalPart | null {
+  for (const storey of model.storeys) {
+    const part = (storey.verticalParts ?? []).find((p) => partId(p.parentId, storey.id) === key)
+    if (part) return part
+  }
+  return null
+}
+
+/**
+ * 한 층 조각만 옮긴다(OE-ML-07 "계단·ES 는 층별 형상·크기·진입/종료 위치를 수정"). 형상과 그 층의 진입·종료 지점이 같이 간다. 다른 층
+ * 조각은 그대로라 층 사이 상대 위치가 바뀐다 — 그래서 전체 이동과 따로 둔다.
+ */
+export function movePart(model: Pick<Model, 'storeys'>, key: string, d: Vec2): boolean {
+  const part = partOf(model, key)
+  if (!part || !Number.isFinite(d[0]) || !Number.isFinite(d[1]) || (d[0] === 0 && d[1] === 0)) return false
+  part.footprint = part.footprint.map((p) => [mm(p[0] + d[0]), mm(p[1] + d[1])] as Vec2)
+  if (part.entry) part.entry = [mm(part.entry[0] + d[0]), mm(part.entry[1] + d[1]), part.entry[2]]
+  if (part.exit) part.exit = [mm(part.exit[0] + d[0]), mm(part.exit[1] + d[1]), part.exit[2]]
+  part.edited = true
+  return true
+}
+
+/**
+ * 한 층 조각 형상의 꼭짓점 하나를 옮긴다(손잡이 끌기). 변이 서로 교차하게 되면 적용하지 않고 이유를 돌려준다("유효하지 않은 형상은
+ * 적용하지 않는다").
+ */
+export function setPartVertex(model: Pick<Model, 'storeys'>, key: string, index: number, to: Vec2): true | { refused: string } | false {
+  const part = partOf(model, key)
+  if (!part || index < 0 || index >= part.footprint.length || !Number.isFinite(to[0]) || !Number.isFinite(to[1])) return false
+  const ring = part.footprint.map((p, i) => (i === index ? ([mm(to[0]), mm(to[1])] as Vec2) : p))
+  if (isSelfIntersecting(ring)) return { refused: '변이 서로 교차하는 형상이라 꼭짓점을 원래 자리로 되돌렸습니다.' }
+  part.footprint = ring
+  part.edited = true
+  return true
+}
+
+/** 한 층 조각의 진입 또는 종료 지점을 x·y 로 옮긴다. 높이는 그대로다. 그 지점이 없는 조각(사이 층)이면 false. */
+export function setPartPoint(model: Pick<Model, 'storeys'>, key: string, which: 'entry' | 'exit', at: Vec2): boolean {
+  const part = partOf(model, key)
+  const p = part?.[which]
+  if (!part || !p || !Number.isFinite(at[0]) || !Number.isFinite(at[1])) return false
+  if (p[0] === mm(at[0]) && p[1] === mm(at[1])) return false
+  part[which] = [mm(at[0]), mm(at[1]), p[2]]
+  part.edited = true
+  return true
 }
 
 /** 오브젝트를 지운다(OE-ML-09). 모든 층의 조각을 걷는다. 연관 물리존은 그대로다. 없으면 false. */
