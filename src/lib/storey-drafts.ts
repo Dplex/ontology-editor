@@ -80,6 +80,8 @@ export function splitByStorey(file: EditFile, homeOf: HomeOf): Map<string, EditF
   if (file.systemNames?.length) building().systemNames = file.systemNames
   // 넣은 모델(OE-P3-08)은 여러 층의 오브젝트가 같이 쓴다.
   if (file.objectLibrary?.length) building().objectLibrary = file.objectLibrary
+  // 수직 관통 오브젝트(OE-ML-07·09)는 여러 층에 걸친다. 다중층 작업 하나가 층 하나의 것이 아니다.
+  if (file.verticals?.length) building().verticals = file.verticals
 
   if (file.keys) {
     for (const p of parts.values()) {
@@ -98,6 +100,7 @@ export function joinParts(parts: Iterable<EditFile>, base: Pick<EditFile, 'forma
     'equipment', 'spaces', 'kinds', 'flows', 'confirmedSystems', 'confirmedFlows', 'systems', 'systemsAdded', 'systemsRemoved',
     'systemNames', 'equipmentAdded', 'equipmentRemoved', 'spacesAdded', 'spacesRemoved', 'walls', 'wallsAdded', 'wallsRemoved',
     'openings', 'openingsAdded', 'openingsRemoved', 'customZones', 'hvacZones', 'storeysDone', 'ceilings', 'rooms', 'spaceObjects', 'objectLibrary',
+    'verticals',
   ] as const
   for (const p of parts) {
     for (const key of lists) {
