@@ -91,3 +91,4 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | [0029](0029-pipe-vertex-is-fitting.md) | BIM 배관의 폴리라인은 구간·이음쇠 사슬이고 꼭짓점은 이음쇠다. 꺾임 이음쇠를 옮기면 양쪽 구간이 늘어나고, 설비에 붙은 이음쇠(끝점)는 옮기지 않는다 | 제안 |
 | [0030](0030-segment-path-linestring.md) | 덕트·배관 구간은 GeoJSON 에 LineString 으로 내고, 경로는 임포트 때 형상에서 읽은 중심선을 배치점에서 잰 상대 좌표로 둔다 | 제안 |
 | [0031](0031-manual-pipe-as-conduit-chain.md) | 사람이 그린 배관은 BIM 배관과 같은 구간·이음쇠 사슬로 더하고, Flow Type 은 그린 조각에만 두며, 방향은 정하지 않는다 | 제안 |
+| [0032](0032-multistorey-scope-and-vertical-candidates.md) | E18 다중층은 브라우저 안에서 데이터 모델·층 편집 잠금·다중층 뷰·편집까지 하고 세션 확정은 편집 이력으로 대신하며, 층간 겹침 후보는 서로를 최고 후보로 고른 짝만 calc 출처로 잇는다 | 제안 |

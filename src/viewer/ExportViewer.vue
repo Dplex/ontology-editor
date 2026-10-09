@@ -827,6 +827,8 @@ circle.shape.sel {
 }
 .detail dt {
   color: var(--muted);
+  /* verticalConnectsSource 처럼 칸보다 긴 속성 이름은 줄을 바꾼다. 안 바꾸면 옆 값 위로 겹친다. */
+  overflow-wrap: anywhere;
 }
 .detail dd {
   margin: 0;

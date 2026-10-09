@@ -7,7 +7,7 @@
 
 import { capacityQuantity } from '../capacity'
 import { polygonArea, segmentPath, SEGMENT_PATH_ISSUES, type CustomZone, type Equipment, type HvacZone, type Model, type Opening, type Room, type Space, type SpaceObject, type Storey, type Wall } from '../model'
-import { verticalLinks } from '../vertical'
+import { verticalLinks, VERTICAL_SOURCE } from '../vertical'
 import { judgeExternal, type ExternalJudgement } from '../exterior'
 import { zoneEquipment, zoneSpaces } from '../custom-zone'
 import { libraryOf } from '../space-object'
@@ -60,8 +60,9 @@ function spaceFeature(space: Space, storey: Storey, vertical?: readonly string[]
       elevation: storey.elevation,
       areaM2: Number(space.areaM2.toFixed(4)),
       // 계단실·승강로가 아래·위층에서 이어진 방(vertical.ts). 방-문-방 연결이 층 안에서만 서므로, 로봇 경로가 층을
-      // 옮길 자리다. 다른 층 파일의 물리존 id 를 가리킨다.
-      ...(vertical?.length ? { verticalConnects: vertical } : {}),
+      // 옮길 자리다. 다른 층 파일의 물리존 id 를 가리킨다. 출처는 지금 겹침 추정뿐이다 — 사람이 정한 연결(OE-ML-02)과
+      // 가르려고 같이 낸다(ADR-0032). 모호 후보는 여기 오지 않는다.
+      ...(vertical?.length ? { verticalConnects: vertical, verticalConnectsSource: VERTICAL_SOURCE } : {}),
     },
   }
 }
