@@ -17,6 +17,7 @@ import {
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  CircleGeometry,
   ConeGeometry,
   OctahedronGeometry,
   DirectionalLight,
@@ -40,6 +41,7 @@ import {
   PerspectiveCamera,
   Plane,
   Raycaster,
+  RingGeometry,
   Scene,
   Shape,
   ShapeGeometry,
@@ -55,6 +57,7 @@ import { distanceToRing, pointInPolygon } from './mapping'
 import { easeOut, still } from './motion'
 import { isMultiSelect } from './shortcuts'
 import { type LibraryItem, type ObjectMaterial } from './space-object'
+import { partId } from './vertical-object'
 
 /**
  * 층을 구분하는 색. 층 수만큼 순환한다.
@@ -137,6 +140,15 @@ const ELEMENT_REACH = 0.35
 /** 룸(OE-OBJ-03) 외곽선 높이(층 바닥 위, 미터). 물리존 판(+0.1)과 커스텀존(+0.25) 사이다. */
 const ROOM_LIFT = 0.18
 const ROOM_COLORS = { line: 0xc0782a, conflict: 0xd93636 }
+/** 수직 관통 오브젝트(OE-ML-05) 조각 높이(층 바닥 위, 미터). 룸(+0.18) 위라 바닥을 누르면 룸·물리존보다 먼저 닿는다. */
+const VERTICAL_LIFT = 0.22
+/**
+ * 계단 조각 색. 평면도·내보낸 파일 뷰어는 분홍이지만 3D 는 층 판이 층마다 색(STOREY_COLORS, 분홍도 있다)이라 어느 색이든 한 층에서는
+ * 묻힌다. 판 위에서 늘 진하게 읽히는 짙은 회색으로 둔다. 고른 것은 액센트 파랑이다.
+ */
+const VERTICAL_COLOR = 0x2a2f3a
+/** 형상 없이 지점만 있는 조각(끝 층)을 누르는 반경(미터). */
+const VERTICAL_POINT_REACH = 0.6
 /** 추가 공간 오브젝트(OE-OBJ-09) 재질 색. 설비·벽과 헷갈리지 않게 가구다운 무채색·나무색으로 둔다. */
 const OBJECT_COLORS: Record<ObjectMaterial, number> = {
   wood: 0xb08a5e,
@@ -369,6 +381,11 @@ export type Viewer = {
    */
   setRooms(model: Model | null, selected: string | null, conflict?: string | null): void
   /**
+   * 수직 관통 오브젝트의 층별 조각(OE-ML-05): 그 층의 형상, 진입 지점(채운 원)·종료 지점(빈 고리). 바닥을 누르면 룸·물리존보다 먼저
+   * 골라진다(onPickSpace 로 조각 id 가 간다). 고른 조각을 다시 누르면 그 아래 룸·물리존이 골라진다 — 계단실을 고칠 길이다. 끌어 옮기지 않는다.
+   */
+  setVerticalParts(model: Model | null, selected: string | null): void
+  /**
    * 천장 설비의 바닥 발자국 링과, 고른 설비에서 링까지의 수직 점선(OE-EQP-04). 빈 배열이면 지운다. 층별로 보기를 따르고
    * 고르지 않는다 — 링을 눌러도 바닥(물리존)이 골라진다.
    */
@@ -551,6 +568,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const o of zoneLines.children) o.visible = storeyShown(o)
     for (const o of customZones.children) o.visible = storeyShown(o)
     for (const o of rooms.children) o.visible = storeyShown(o)
+    for (const o of verticals.children) o.visible = storeyShown(o)
     for (const o of ceilingMarks.children) o.visible = storeyShown(o)
     for (const o of ceilingPlanes.children) o.visible = storeyShown(o)
     for (const o of spaceObjects.children) o.visible = storeyShown(o)
@@ -648,6 +666,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
   /** 누를 수 있는 룸. 물리존 판보다 먼저 본다(pickSpace). */
   let roomTargets: { id: string; storeyId: string; y: number; ring: readonly Vec2[] }[] = []
+  /** 누를 수 있는 수직 관통 오브젝트 조각(OE-ML-05). 룸보다 먼저 본다. 고른 조각은 건너뛰어 그 아래가 골라지게 한다. */
+  const verticals = new Group()
+  scene.add(verticals)
+  let verticalTargets: { id: string; storeyId: string; y: number; ring: readonly Vec2[]; at: Vec2 }[] = []
+  let selectedVertical: string | null = null
   const ceilingMarks = new Group()
   scene.add(ceilingMarks)
   const ceilingPlanes = new Group()
@@ -742,7 +765,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       hoverMark = new LineSegments(geometry, new LineBasicMaterial({ color: HOVER_COLORS.equipment, depthTest: false }))
       part.box.getCenter(hoverMark.position)
     } else {
-      const t = roomTargets.find((x) => x.id === target.id) ?? spaceTargets.find((x) => x.id === target.id)
+      const t = verticalTargets.find((x) => x.id === target.id) ?? roomTargets.find((x) => x.id === target.id) ?? spaceTargets.find((x) => x.id === target.id)
       if (!t || t.ring.length < 3) return
       const points = t.ring.map(([x, z]) => new Vector3(...toScene([x, z, 0])).setY(t.y + 0.1))
       hoverMark = new LineLoop(
@@ -871,8 +894,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     let best: { id: string; d: number; area: number } | null = null
     const plane = new Plane(new Vector3(0, 1, 0), 0)
     const at = new Vector3()
-    // 룸(OE-OBJ-03)이 먼저다 — 물리존 판보다 위에 그려 광선이 먼저 닿는다.
-    for (const target of [...roomTargets, ...spaceTargets]) {
+    // 수직 관통 오브젝트 조각, 룸(OE-OBJ-03) 순으로 먼저다 — 물리존 판보다 위에 그려 광선이 먼저 닿는다. 고른 조각은 건너뛴다.
+    for (const target of [...verticalTargets.filter((t) => t.id !== selectedVertical), ...roomTargets, ...spaceTargets]) {
       if (visibleStoreys && !visibleStoreys.has(target.storeyId)) continue
       plane.constant = -target.y
       if (!ray.intersectPlane(plane, at)) continue
@@ -1789,6 +1812,17 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       },
       /** 그린 룸의 id. */
       rooms: () => roomTargets.map((t) => t.id),
+      /** 그린 수직 관통 오브젝트 조각의 id(보이는 층만)와, 조각을 누를 화면 자리(형상 가운데 또는 지점). */
+      verticals: () => verticalTargets.filter((t) => !visibleStoreys || visibleStoreys.has(t.storeyId)).map((t) => t.id),
+      vertical: (id: string) => {
+        const t = verticalTargets.find((x) => x.id === id)
+        return t ? toScreen(new Vector3(t.at[0], t.y, -t.at[1])) : null
+      },
+      /** 진입·종료 표시 수(보이는 층만). */
+      verticalMarks: () => ({
+        entry: verticals.children.filter((o) => o.visible && o.userData.mark === 'entry').length,
+        exit: verticals.children.filter((o) => o.visible && o.userData.mark === 'exit').length,
+      }),
       /** 룸 바닥의 화면 자리(가운데). 룸을 눌러 고르는 데 쓴다. */
       room: (id: string) => {
         const t = roomTargets.find((x) => x.id === id)
@@ -2400,6 +2434,61 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
             rooms.add(face)
           }
           roomTargets.push({ id: room.id, storeyId: storey.id, y, ring: room.footprint })
+        }
+      }
+      applyStoreyVisibility()
+    },
+
+    setVerticalParts(model, selected) {
+      verticals.traverse((o) => {
+        if (o instanceof LineLoop || o instanceof Mesh) {
+          o.geometry.dispose()
+          ;(o.material as { dispose(): void }).dispose()
+        }
+      })
+      verticals.clear()
+      verticalTargets = []
+      selectedVertical = selected
+      for (const storey of model?.storeys ?? []) {
+        const y = storey.elevation + VERTICAL_LIFT
+        for (const part of storey.verticalParts ?? []) {
+          const id = partId(part.parentId, storey.id)
+          const on = id === selected
+          const color = on ? ARCH_COLORS.selected : VERTICAL_COLOR
+          const add = (o: Object3D, mark?: 'entry' | 'exit') => {
+            o.userData.storeyId = storey.id
+            if (mark) o.userData.mark = mark
+            verticals.add(o)
+          }
+          const ring = part.footprint
+          if (ring.length >= 3) {
+            add(new LineLoop(new BufferGeometry().setFromPoints(ring.map((p) => new Vector3(p[0], y, -p[1]))), new LineBasicMaterial({ color })))
+            const face = new Mesh(
+              new ShapeGeometry(new Shape(ring.map((p) => new Vector2(p[0], p[1])))),
+              new MeshBasicMaterial({ color, transparent: true, opacity: on ? 0.4 : 0.32, side: DoubleSide, depthWrite: false }),
+            )
+            face.rotation.x = -Math.PI / 2
+            face.position.y = y
+            add(face)
+          }
+          // 진입 지점은 채운 원, 종료 지점은 빈 고리. 층 바닥 높이에 눕힌다(지점의 z 는 패널이 말한다).
+          for (const [mark, p] of [['entry', part.entry], ['exit', part.exit]] as const) {
+            if (!p) continue
+            const geometry = mark === 'entry' ? new CircleGeometry(0.3, 24) : new RingGeometry(0.22, 0.34, 24)
+            const dot = new Mesh(geometry, new MeshBasicMaterial({ color, side: DoubleSide, depthTest: false }))
+            dot.rotation.x = -Math.PI / 2
+            dot.position.set(p[0], y + 0.01, -p[1])
+            dot.renderOrder = 3
+            add(dot, mark)
+          }
+          // 누르는 자리: 형상이 있으면 형상, 없으면(끝 층) 종료 지점 둘레의 작은 정사각형.
+          const point = part.exit ?? part.entry
+          const r = VERTICAL_POINT_REACH
+          const target: Vec2[] | null =
+            ring.length >= 3 ? ring : point ? [[point[0] - r, point[1] - r], [point[0] + r, point[1] - r], [point[0] + r, point[1] + r], [point[0] - r, point[1] + r]] : null
+          if (!target) continue
+          const at: Vec2 = ring.length >= 3 ? [ring.reduce((a, q) => a + q[0], 0) / ring.length, ring.reduce((a, q) => a + q[1], 0) / ring.length] : [point![0], point![1]]
+          verticalTargets.push({ id, storeyId: storey.id, y, ring: target, at })
         }
       }
       applyStoreyVisibility()

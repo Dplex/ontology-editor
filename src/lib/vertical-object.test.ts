@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Model, Space, Storey, Vec2, Vec3 } from './model'
-import { explicitSpaceLinks, partLinks, partSpaces, stairParts, verticalObjects } from './vertical-object'
+import { explicitSpaceLinks, findPart, partLinks, partSpaces, stairParts, verticalObjects } from './vertical-object'
 import { mergeModels } from './merge'
 
 const rect = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
@@ -84,5 +84,21 @@ describe('계단 오브젝트 (OE-ML-02)', () => {
     const b = model([{ ...storey('1F', 0), verticalParts: [part('st'), part('other')] }, { ...storey('2F', 4), verticalParts: [part('st')] }])
     const merged = mergeModels(a, b).model
     expect(merged.storeys.map((s) => (s.verticalParts ?? []).map((p) => p.parentId))).toEqual([['st', 'other'], []])
+  })
+
+  it('조각 id 로 오브젝트와 그 층의 자리(시작·사이·끝)를 찾는다 — 층 편집 화면이 고른 조각을 읽는다 (OE-ML-05)', () => {
+    const b5 = storey('B5F', -23.1)
+    const mezz = storey("B5'F", -19.8)
+    const b4 = storey('B4F', -17.1)
+    for (const { storey: at, part } of stairParts({ id: 'st', name: '계단', points: flight(-23.1, -17.1, 20) }, b5, [b5, mezz, b4])!) at.verticalParts = [part]
+    // 층 순서가 높이 순이 아니어도 높이로 센다.
+    const m = model([b4, b5, mezz])
+    expect(findPart(m, 'st@B5F')).toMatchObject({ index: 0, role: 'start' })
+    expect(findPart(m, "st@B5'F")).toMatchObject({ index: 1, role: 'through' })
+    const top = findPart(m, 'st@B4F')!
+    expect(top).toMatchObject({ index: 2, role: 'end' })
+    expect(top.object.parts.map((p) => p.storey.id)).toEqual(['B5F', "B5'F", 'B4F'])
+    expect(findPart(m, 'st@1F')).toBeNull()
+    expect(findPart(m, 'st')).toBeNull()
   })
 })

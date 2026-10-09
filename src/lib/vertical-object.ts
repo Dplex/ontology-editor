@@ -140,3 +140,24 @@ export function explicitSpaceLinks(objects: readonly VerticalObject[]): { a: str
   }
   return out
 }
+
+export const VERTICAL_KIND_LABEL: Record<VerticalKind, string> = { stair: '계단', escalator: '에스컬레이터', elevator: '엘리베이터', shaft: '샤프트' }
+
+/** 오브젝트 안에서 이 조각의 자리. 시작 층은 진입, 끝 층은 종료, 사이 층은 지나기만 한다. */
+export type PartRole = 'start' | 'through' | 'end'
+
+/**
+ * 조각 id(`부모 id@층 id`)로 그 조각과 오브젝트를 찾는다. 층 편집 화면이 고른 조각을 읽을 때 쓴다(OE-ML-05). id 를 `@` 로 쪼개지 않고
+ * 층마다 맞춰 본다 — 사람이 만든 오브젝트의 id 가 어떤 글자를 쓸지 아직 정하지 않았다(OE-ML-06).
+ */
+export function findPart(model: Pick<Model, 'storeys'>, key: string): { object: VerticalObject; index: number; role: PartRole } | null {
+  for (const storey of model.storeys) {
+    const part = (storey.verticalParts ?? []).find((p) => partId(p.parentId, storey.id) === key)
+    if (!part) continue
+    const object = verticalObjects(model).find((o) => o.id === part.parentId)!
+    const index = object.parts.findIndex((p) => p.part === part)
+    const role: PartRole = index === 0 ? 'start' : index === object.parts.length - 1 ? 'end' : 'through'
+    return { object, index, role }
+  }
+  return null
+}

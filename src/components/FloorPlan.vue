@@ -11,9 +11,14 @@
 //
 // 고른 것(설비·방·벽)은 부모가 들고 3D·오른쪽 패널과 같이 쓴다(OE-UI-11). 벽은 3D 처럼 편집 모드에서 [벽·문·창] 을
 // 켰을 때만 눌러 고른다 — 아니면 벽 위를 눌러도 밑의 방이 골라진다. 문·창은 평면도에 그리지 않는다.
+//
+// 수직 관통 오브젝트(계단)의 이 층 조각은 방 위에 분홍으로 그리고, 진입 지점은 채운 원·종료 지점은 빈 원이다(OE-ML-05). 누르면 조각이
+// 골라지고(pickSpace 로 조각 id), 고른 조각을 다시 누르면 그 자리의 방이 골라진다. 끌어 옮기지 않는다.
 import { computed, ref, watch } from 'vue'
 import { isConduit, type Storey, type Vec2 } from '../lib/model'
 import { labelPoint } from '../lib/polygon'
+import { locate } from '../lib/mapping'
+import { partId } from '../lib/vertical-object'
 import { isMultiSelect } from '../lib/shortcuts'
 
 const props = defineProps<{
@@ -21,6 +26,8 @@ const props = defineProps<{
   selectedId: string | null
   /** 고른 물리존. 3D 에서 고른 것과 같은 값이라, 여기서 누르면 부모가 오른쪽 패널에 그 방을 띄운다. */
   selectedSpaceId: string | null
+  /** 고른 수직 관통 오브젝트 조각(`부모 id@층 id`). */
+  selectedVerticalId?: string | null
   /** 고른 벽. 3D 의 [벽·문·창] 에서 고른 것과 같은 값이다. */
   selectedElementId: string | null
   editing: boolean
@@ -226,6 +233,18 @@ function pickSpace(id: string) {
   if (moved) return
   emit('pickSpace', spaceId.value === id ? null : id)
 }
+
+/** 이 층의 수직 관통 오브젝트 조각. 형상이 없는 끝 층 조각은 종료 지점만 있다. */
+const verticals = computed(() =>
+  (props.storey.verticalParts ?? []).map((part) => ({ id: partId(part.parentId, props.storey.id), part, ring: part.footprint.length >= 3 ? part.footprint : null })),
+)
+/** 조각을 누른다. 이미 고른 조각이면 그 자리의 방을 고른다 — 계단실을 고칠 길이다. */
+function pickVertical(event: MouseEvent, id: string) {
+  if (moved) return
+  if (props.selectedVerticalId !== id) return emit('pickSpace', id)
+  const under = locate(toModel(event as PointerEvent), props.storey.spaces)
+  emit('pickSpace', under)
+}
 </script>
 
 <template>
@@ -263,6 +282,34 @@ function pickSpace(id: string) {
           :data-wall="w.id"
           @click.stop="pickWalls && !moved && emit('pickElement', w.id)"
         />
+      </template>
+    </g>
+    <g class="verticals" :class="{ inert: pickWalls }">
+      <template v-for="v in verticals" :key="v.id">
+        <polygon
+          v-if="v.ring"
+          :points="points(v.ring)"
+          :class="{ chosen: v.id === selectedVerticalId }"
+          :stroke-width="unit * 1.5"
+          :data-vertical="v.id"
+          @click.stop="pickVertical($event, v.id)"
+        >
+          <title>{{ v.part.name }}</title>
+        </polygon>
+        <circle
+          v-for="[mark, p] in ([['entry', v.part.entry], ['exit', v.part.exit]] as const).filter(([, q]) => q)"
+          :key="mark"
+          :class="[mark, { chosen: v.id === selectedVerticalId }]"
+          :cx="sx(p![0])"
+          :cy="sy(p![1])"
+          :r="unit * 6"
+          :stroke-width="unit * 2"
+          :data-vertical="v.id"
+          :data-mark="mark"
+          @click.stop="pickVertical($event, v.id)"
+        >
+          <title>{{ v.part.name }} {{ mark === 'entry' ? '진입 지점' : '종료 지점' }}</title>
+        </circle>
       </template>
     </g>
     <g class="labels" :font-size="fontSize">
