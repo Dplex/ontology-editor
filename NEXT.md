@@ -80,6 +80,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | f6a7dde | [OE-ML-07·09 다중층 뷰에서 계단 전체 이동·삭제 · V-03 · 편집 파일 + ADR-0034](next/pr/oe-ml-07-09.md) | OE-ML-07·09 이슈(번호는 옮길 때) | ML-01 보기 다음 |
 | bb94f4a | [OE-ML-07 층별 형상·진입/종료 지점 고치기 · 편집 파일 `parts`](next/pr/oe-ml-07-parts.md) | OE-ML-07 이슈(번호는 옮길 때) | ML-07·09 다음 |
 | e15bc58 | [docs: ADR 대체 관계·목록·제목 바로잡기 + `adr.test.ts`](next/pr/docs-adr-check.md) | 없음 | ML-07 층별 고치기 다음 |
+| d730c0d | [test: 수용 기준 태그(`[OE-ML-07#1]`) · `ac-tags.test.ts` · `npm run ac:coverage`](next/pr/test-ac-tags.md) | 없음 | ADR 점검 다음 |
 
 ## 지금 상태 (2026-10-09 09:40 확인)
 
