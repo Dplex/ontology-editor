@@ -7,7 +7,7 @@
 // 반영 전에 차이를 보여 주는 것이 PRD #16(미리보기)이고, 반영 뒤에 남기는 것이 #21(결과
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
-import { assignEquipment, centroid, distanceToRing, isSelfIntersecting, locate, nearRing } from './mapping'
+import { assignEquipment, centroid, distanceToRing, exteriorKind, isSelfIntersecting, locate, nearRing } from './mapping'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapshotRulesAgain, type ReleaseSnapshot, type RuleSnapshot } from './connection-release'
@@ -1231,9 +1231,11 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       for (const entry of snapshot.entries) {
         const e = byId.get(entry.id)
         if (!e) continue
+        const was = exteriorKind(e)
         e.kind = entry.kind
         if (entry.kindEdited) e.kindEdited = { ...entry.kindEdited }
         else delete e.kindEdited
+        if (was !== exteriorKind(e)) reassignOnKind(model, e)
       }
       // 종류가 규칙 방향의 원천·말단을 정하므로 규칙도 다시 돌린다. 되돌리기는 거꾸로 쌓이므로 같은 결과가 나온다.
       return inferFlowByRules(model)
@@ -1315,11 +1317,22 @@ export function setTypeKind(
   const members = model.storeys.flatMap((s) => s.equipment).filter((e) => inKindGroup(e, typeKey))
   if (members.length === 0 || members.every((e) => (e.kind ?? null) === kind)) return null
   for (const e of members) {
+    const was = exteriorKind(e)
     if (!e.kindEdited) e.kindEdited = { from: e.kind ?? null }
     e.kind = kind
     if (e.kindEdited.from === kind) delete e.kindEdited
+    if (was !== exteriorKind(e)) reassignOnKind(model, e)
   }
   return { count: members.length, rules: inferFlowByRules(model) }
+}
+
+/**
+ * 종류가 외벽 전용(외부 루버·외기 센서)이 되거나 아니게 되면 소속을 다시 판정한다(OE-MAP-01 1단계). 외벽 전용이 되면 방에서 빠지고,
+ * 아니게 되면 좌표로 방을 찾는다. 다른 종류 변경은 소속에 닿지 않는다.
+ */
+function reassignOnKind(model: Model, e: Equipment) {
+  const storey = model.storeys.find((s) => s.equipment.includes(e))
+  if (storey) assignEquipment(e, storey.spaces)
 }
 
 export function kindEdits(model: Model): KindEdit[] {
