@@ -3464,6 +3464,48 @@ main.has-model .catalog {
   pointer-events: none;
 }
 
+/* 수직 관통 오브젝트(계단)의 이 층 조각(OE-ML-05). 내보낸 파일 뷰어와 같은 분홍이다. 진입 지점은 채운 원, 종료 지점은 빈 원. */
+.floor-plan .verticals {
+  --vertical: #be185d;
+}
+
+:root[data-theme='dark'] .floor-plan .verticals {
+  --vertical: #f472b6;
+}
+
+.floor-plan .verticals polygon {
+  fill: var(--vertical);
+  fill-opacity: 0.22;
+  stroke: var(--vertical);
+  cursor: pointer;
+}
+
+.floor-plan .verticals circle {
+  stroke: var(--vertical);
+  cursor: pointer;
+}
+
+.floor-plan .verticals circle.entry {
+  fill: var(--vertical);
+}
+
+.floor-plan .verticals circle.exit {
+  fill: var(--surface);
+}
+
+.floor-plan .verticals .chosen {
+  stroke: var(--accent);
+}
+
+.floor-plan .verticals polygon.chosen {
+  fill: var(--accent);
+  fill-opacity: 0.3;
+}
+
+.floor-plan .verticals.inert {
+  pointer-events: none;
+}
+
 .floor-plan .devices circle {
   fill: #98a1ab;
   cursor: pointer;

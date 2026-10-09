@@ -181,6 +181,7 @@ import {
   resizeSpaceObject,
 } from './lib/space-object'
 import type { Object3D } from 'three'
+import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL } from './lib/vertical-object'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -688,6 +689,11 @@ function hoverText(t: HoverTarget): { title: string; lines: string[] } | null {
     }
   }
   if (t.kind === 'space') {
+    const v = findPart(m, t.id)
+    if (v) {
+      const { part } = v.object.parts[v.index]
+      return { title: part.name || VERTICAL_KIND_LABEL[part.kind], lines: [`${VERTICAL_KIND_LABEL[part.kind]} · 수직 관통 오브젝트`, '층 편집 화면에서는 보기만 합니다'] }
+    }
     for (const storey of m.storeys) {
       const sp = storey.spaces.find((x) => x.id === t.id)
       if (!sp) continue
@@ -1565,6 +1571,7 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
         removeObject()
         return true
       }
+      if (selectedVertical.value) return refuseVertical()
       return editVertex('delete')
     case 'drawFinish':
       return finishDraw()
@@ -1622,6 +1629,8 @@ function clearSelection(): boolean {
     group.value = []
   } else if (selectedElementId.value) {
     selectedElementId.value = null
+  } else if (selectedVerticalId.value) {
+    selectedVerticalId.value = null
   } else if (selectedRoomId.value) {
     selectedRoomId.value = null
   } else if (selectedObjectId.value) {
@@ -1657,6 +1666,7 @@ function frameSelection(): boolean {
 /** 방향키. 화면의 오른쪽·위쪽에 가장 가까운 평면 축으로 옮긴다(snapAxis). */
 function nudge(code: string, step: number): boolean {
   if (group.value.length >= 2) return nudgeGroup(code, step)
+  if (!selected.value && selectedVertical.value) return refuseVertical()
   if (!selected.value && selectedRoom.value) return nudgeRoom(code, step)
   if (!selected.value && selectedObject.value) return nudgeObject(code, step)
   if (!selected.value && selectedElement.value && viewer) return nudgeElement(code, step)
@@ -2071,6 +2081,12 @@ const spaceKinds = computed(() => {
 const spaceConduits = computed(() => selectedSpace.value?.equipment.filter((e) => isConduit(e.role)) ?? [])
 /** 3D 바닥이나 평면도의 방을 눌렀을 때. 평면도가 제 안에만 들고 있었더니 방에 테두리만 뜨고 패널은 앞서 고른 설비였다. */
 function pickSpace(id: string | null) {
+  // 수직 관통 오브젝트 조각(OE-ML-05)도 바닥 누르기로 골라진다 — 룸·물리존보다 먼저다.
+  if (id && model.value && findPart(model.value, id)) {
+    selectVertical(id)
+    return
+  }
+  selectedVerticalId.value = null
   // 룸(OE-OBJ-03)은 물리존과 같은 바닥 누르기로 골라진다 — 룸 아래 물리존보다 먼저다.
   if (id && model.value && findRoom(model.value, id)) {
     selectedRoomId.value = id
@@ -2165,6 +2181,50 @@ function nudgeRoom(code: string, step: number): boolean {
   return true
 }
 watch([model, sceneVersion, selectedRoomId, roomConflict, editing], () => viewer?.setRooms(model.value, selectedRoomId.value, roomConflict.value))
+
+// --- 수직 관통 오브젝트 (OE-ML-05 · OE-OBJ-14) ---------------------------------------------------------
+// 층 편집 화면에서는 고르고 보기만 한다. 그 층의 형상과 진입·종료 지점을 그리고, 패널은 관통 층·연관 물리존을 말한다. 옮기기·지우기·형상·
+// 구간은 다중층 뷰(OE-ML-01, 아직 없음)에서 한다. 고른 것은 조각 id(`부모 id@층 id`)다 — 같은 계단이라도 층마다 형상·지점이 다르다.
+const selectedVerticalId = ref<string | null>(null)
+const selectedVertical = computed(() => {
+  const m = model.value
+  const id = selectedVerticalId.value
+  void sceneVersion.value
+  if (!m || !id) return null
+  const found = findPart(m, id)
+  if (!found) return null
+  const { storey, part } = found.object.parts[found.index]
+  const spaces = partSpaces(storey, part).map((sid) => ({ id: sid, name: spaceNameOf(sid) }))
+  return { ...found, storey, part, spaces, label: VERTICAL_KIND_LABEL[part.kind] }
+})
+const VERTICAL_PART_LOCKED = '수직 관통 오브젝트라 층 편집 화면에서는 옮기거나 지우거나 형상·구간을 바꾸지 않습니다. 다중층 뷰에서 편집합니다.'
+const VERTICAL_ROLE: Record<'start' | 'through' | 'end', string> = { start: '시작 층 — 여기서 오르기 시작합니다', through: '지나는 층 — 진입·종료 지점이 없습니다', end: '끝 층 — 여기에 다다릅니다' }
+function selectVertical(id: string | null) {
+  selectedVerticalId.value = id
+  if (!id) return
+  selectedId.value = null
+  selectedSpaceId.value = null
+  selectedRoomId.value = null
+  selectedObjectId.value = null
+  selectedSystemId.value = null
+  selectedElementId.value = null
+  selectedCustomZoneId.value = null
+  const found = model.value && findPart(model.value, id)
+  const home = found?.object.parts[found.index].storey
+  if (home && viewStorey.value && home.id !== viewStorey.value) viewStorey.value = home.id
+}
+/** 막았다고 알린다. 데이터는 그대로다. */
+function refuseVertical(): boolean {
+  const v = selectedVertical.value
+  if (!v || !editing.value) return false
+  editNotice.value = `${v.label} ${shortName(v.part.name)}: ${VERTICAL_PART_LOCKED}`
+  return true
+}
+// 다시 열거나 합쳐서 조각이 없어지면 푼다.
+watch(model, (m) => {
+  if (selectedVerticalId.value && (!m || !findPart(m, selectedVerticalId.value))) selectedVerticalId.value = null
+})
+watch([model, sceneVersion, selectedVerticalId], () => viewer?.setVerticalParts(model.value, selectedVerticalId.value))
 
 // --- 추가 공간 오브젝트 (OE-OBJ-09 · OE-SPC-14 · OE-SPC-16 · OE-P3-08) ---------------------------------
 /** 리포트의 오브젝트 줄. 연 때는 없으니(임포트는 만들지 않는다) 있는 것이 전부 편집이다. */
@@ -5097,6 +5157,10 @@ watch(editing, (on) => {
 // 이 층을 켠 동안에는 숨기고 끌 때 다시 그린다.
 const archMode = ref(false)
 const selectedElementId = ref<string | null>(null)
+// 수직 관통 오브젝트 조각(OE-ML-05)은 다른 것을 고르면 푼다. 고르는 곳이 여럿이라(표·목록·3D·평면도) 하나하나에 넣지 않고 여기서 본다.
+watch([selectedId, selectedSpaceId, selectedRoomId, selectedObjectId, selectedElementId, selectedCustomZoneId, selectedSystemId], (now) => {
+  if (now.some((x) => x)) selectedVerticalId.value = null
+})
 // 여러 개 고르기(OE-UI-09): 다른 것을 고르거나 편집을 끝내면 묶음을 푼다. 지운 설비는 묶음에서 빠진다. 고른 것들이 다 선언된 뒤라 여기 둔다.
 // 다른 것을 고르면 룸은 풀린다(패널은 하나만).
 watch([selectedId, selectedSpaceId, selectedElementId, selectedCustomZoneId, selectedSystemId], (now) => {
@@ -7035,6 +7099,7 @@ async function export3D(format: 'glb' | 'obj') {
               :storey="planStorey"
               :selected-id="selectedId"
               :selected-space-id="selectedSpaceId"
+              :selected-vertical-id="selectedVerticalId"
               :selected-element-id="selectedElementId"
               :editing="editing"
               :pick-walls="editing && archMode"
@@ -8157,6 +8222,66 @@ async function export3D(format: 'glb' | 'obj') {
               {{ selectedElement.wall && carryRooms ? '벽 가까운 방 변이 벽에 수직으로 따라옵니다.' : '방 경계는 따라 바뀌지 않습니다.' }}
             </span>
           </p>
+        </section>
+        <!-- 수직 관통 오브젝트의 층 조각(OE-ML-05). 층 편집 화면에서는 보기만 한다. 연관 물리존은 진입·종료 지점으로 그때 짚는다. -->
+        <section v-else-if="selectedVertical" :key="`vertical:${selectedVerticalId}`" class="picked vertical-picked" data-testid="vertical-picked">
+          <div class="picked-head">
+            <div>
+              <h3>{{ selectedVertical.part.name || selectedVertical.label }}</h3>
+              <dl class="stats facts">
+                <div>
+                  <dt>종류</dt>
+                  <dd>{{ selectedVertical.label }}(수직 관통 오브젝트) · {{ selectedVertical.storey.name }} <Src :kind="selectedVertical.part.source" /></dd>
+                </div>
+                <div>
+                  <dt>이 층</dt>
+                  <dd data-testid="vertical-role">{{ VERTICAL_ROLE[selectedVertical.role] }}</dd>
+                </div>
+                <div>
+                  <dt>관통</dt>
+                  <dd class="vertical-storeys" data-testid="vertical-storeys">
+                    <template v-for="(p, i) in selectedVertical.object.parts" :key="p.storey.id">
+                      <span v-if="i" aria-hidden="true"> → </span>
+                      <b v-if="i === selectedVertical.index">{{ p.storey.name }}</b>
+                      <button v-else type="button" class="link" @click="selectVertical(partId(selectedVertical.object.id, p.storey.id))">{{ p.storey.name }}</button>
+                    </template>
+                    <Src kind="calc" />
+                  </dd>
+                </div>
+                <div v-if="selectedVertical.part.entry">
+                  <dt>진입</dt>
+                  <dd class="mono" data-testid="vertical-entry">{{ selectedVertical.part.entry.map((v) => v.toFixed(2)).join(', ') }} <Src kind="calc" /></dd>
+                </div>
+                <div v-if="selectedVertical.part.exit">
+                  <dt>종료</dt>
+                  <dd class="mono" data-testid="vertical-exit">{{ selectedVertical.part.exit.map((v) => v.toFixed(2)).join(', ') }} <Src kind="calc" /></dd>
+                </div>
+                <div v-if="selectedVertical.part.entry || selectedVertical.part.exit">
+                  <dt>물리존</dt>
+                  <dd data-testid="vertical-spaces">
+                    <template v-if="selectedVertical.spaces.length">
+                      <button v-for="sp in selectedVertical.spaces" :key="sp.id" type="button" class="link" @click="pickSpace(sp.id)">{{ sp.name }}</button>
+                      <Src kind="calc" />
+                    </template>
+                    <span v-else class="muted">지점이 든 물리존이 없습니다</span>
+                  </dd>
+                </div>
+                <div>
+                  <dt>로봇</dt>
+                  <dd>통과 불가 — 층을 이어도 로봇은 지나가지 못합니다</dd>
+                </div>
+              </dl>
+            </div>
+            <div class="picked-actions">
+              <button type="button" class="ghost" @click="selectedVerticalId = null">선택 해제</button>
+            </div>
+          </div>
+          <p v-if="editing" class="ceiling-lock" role="status">
+            {{ selectedVertical.label }}{{ josa(selectedVertical.label, '은/는') }} {{ VERTICAL_PART_LOCKED }}
+            <!-- 다중층 뷰(E18 OE-ML-01)는 아직 없다. 들어갈 자리를 보이되 누르지 못하게 둔다. -->
+            <button type="button" class="link" disabled title="다중층 뷰(OE-ML-01)는 아직 만들지 않았습니다">다중층 뷰에서 편집</button>
+          </p>
+          <p class="hint">같은 자리를 한 번 더 누르면 그 아래 물리존이 골라집니다.</p>
         </section>
         <!-- 커스텀존(OE-OBJ-01). 품는 방·든 설비는 쓸 때 계산한 것이라 물리존·설비를 고치면 따라 바뀐다. -->
         <!-- 추가 공간 오브젝트(OE-OBJ-09). 끌거나 방향키로 옮기고, 칸으로 크기를 바꾼다. -->
