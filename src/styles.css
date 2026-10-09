@@ -3133,6 +3133,46 @@ main.has-model .catalog {
   font-size: 0.8rem;
 }
 
+/* 다중층 뷰(OE-ML-01)의 보기 범위. "이 층만 보기" 자리에 시작~끝 층 두 칸과 [전체]·[층 편집으로] 를 둔다. */
+.view-tools .multi-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.3rem 0.15rem 0.6rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.8rem;
+}
+
+.view-tools .multi-range select {
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+
+.view-tools .multi-range .ghost {
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+/* 다중층 뷰는 도구 상자 자리에 범위와 "보기만 합니다" 를 둔다. */
+.multi-banner {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 4;
+  max-width: 22rem;
+  margin: 0;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 0.8rem;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 8%);
+}
+
 /* 외곽선 그리기 중 3D 위에 뜨는 막대. 왼쪽 위 색 안내와 겹치지 않게 가운데 위에 둔다. */
 .draw-bar {
   position: absolute;
@@ -3638,6 +3678,13 @@ main.has-model .catalog {
 .viewport:has(.tool-palette) .edit-notice {
   left: 10rem;
   max-width: calc(100% - 10.75rem);
+}
+
+/* 다중층 뷰(OE-ML-01)의 안내 상자도 왼쪽 아래다. 막은 편집을 알리는 경고는 그 오른쪽에 뜬다. */
+.viewport:has(.multi-banner) .pick-hint,
+.viewport:has(.multi-banner) .edit-notice {
+  left: 23.5rem;
+  max-width: calc(100% - 24.25rem);
 }
 
 /* ---------- 움직임 (lib/motion.ts · Roll · Meter) ----------
