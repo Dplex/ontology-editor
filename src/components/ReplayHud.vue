@@ -2,7 +2,7 @@
 // 편집 리플레이(PoC)의 3D 위 표시. 움직임은 3D 가 한다(App.vue 가 되돌리기로 처음까지 돌리고 다시 하기로 하나씩 다시 한다) —
 // 여기는 지금 몇 번째인지, 그 편집이 TTL·GeoJSON 의 어디를 바꿨는지를 채팅처럼 카드로 쌓고, 조작 막대를 둔다.
 // 카드 내용은 워커가 모델 사본으로 계산한 것이다(lib/replay.ts).
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { escapeLocalName } from '../lib/export/ttl'
 import ReplayGeo from './ReplayGeo.vue'
 import ReplayRelations from './ReplayRelations.vue'
@@ -33,8 +33,10 @@ const props = defineProps<{
   comparing?: boolean
   /** 이 갈래 장면만 트는 중(나머지는 연출 없이 지나간다). */
   filter?: Category | null
+  /** 녹화 중이면 시작 시각(performance.now). */
+  recording?: number | null
 }>()
-const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null] }>()
+const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null]; record: [] }>()
 
 const CAT_COLOR = CATEGORY_COLOR
 
@@ -128,6 +130,21 @@ const stats = computed(() => [
   { n: props.steps.reduce((n, s) => n + s.ttlCount.added + s.ttlCount.removed, 0), label: 'TTL LINES', sub: '더하고 지운 줄' },
 ])
 const two = (n: number) => String(n).padStart(2, '0')
+
+/** 녹화 시간(초). 녹화 중일 때만 1초마다 센다. */
+const recSec = ref(0)
+let recTimer: number | undefined
+watch(
+  () => props.recording ?? null,
+  (since) => {
+    window.clearInterval(recTimer)
+    recSec.value = 0
+    if (since === null) return
+    recTimer = window.setInterval(() => (recSec.value = Math.floor((performance.now() - since) / 1000)), 500)
+  },
+  { immediate: true },
+)
+onBeforeUnmount(() => window.clearInterval(recTimer))
 
 /**
  * 층 레일. 층이 둘 이상이면 왼쪽에 위층부터 층을 세우고, 층마다 그 층을 고친 장면을 점으로 찍는다. 지금 보는 층은 밝게, 다시 한
@@ -424,6 +441,15 @@ const summary = computed(() => {
           <template v-else-if="comparing">편집 전 보는 중 · <kbd>B</kbd> 떼면 편집 후</template>
           <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }} · <kbd>B</kbd> 누르고 있으면 편집 전</template>
         </span>
+        <button
+          type="button"
+          :class="['rec', { on: recording != null }]"
+          :title="recording != null ? '녹화 멈추고 내려받기 (R)' : '처음부터 끝 화면까지 녹화해 webm 으로 내려받기 (R) — 브라우저가 이 탭을 공유할지 묻습니다'"
+          @click="emit('record')"
+        >
+          <template v-if="recording != null">■ {{ Math.floor(recSec / 60) }}:{{ two(recSec % 60) }}</template>
+          <template v-else>● 녹화</template>
+        </button>
         <button type="button" class="close" title="닫기 (Esc · P) — 남은 편집을 다시 해서 원래 상태로" @click="emit('close')">✕ 닫기</button>
       </div>
     </div>
@@ -1066,6 +1092,18 @@ const summary = computed(() => {
   font-size: 14px;
   font-weight: 700;
 }
+/* 녹화 버튼. 녹화 중에는 붉게 숨 쉰다. */
+.buttons .rec.on {
+  color: #ff4d5e;
+  border-color: #ff4d5e;
+  animation: rec-pulse 1.2s ease-in-out infinite;
+}
+@keyframes rec-pulse {
+  50% {
+    box-shadow: 0 0 10px rgba(255, 77, 94, 0.6);
+  }
+}
+
 /* 갈래 줄은 누를 수 있다(그 갈래만 다시 보기). */
 button.sum-row {
   width: calc(100% - 32px);

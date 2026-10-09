@@ -332,3 +332,34 @@ test('B 를 누르고 있으면 지금 장면이 편집 전으로 돌아가고, 
   expect(await coords(page, 'AHU-1')).toEqual(edited)
   expect(errors).toEqual([])
 })
+
+test('● 녹화는 처음부터 끝 화면까지 찍어 영상(mp4, 안 되면 webm)으로 내려받는다', async ({ page }) => {
+  test.setTimeout(120_000)
+  // 화면 공유는 사람이 고르는 창이라 시험에서는 3D 캔버스 스트림으로 바꿔 끼운다. 녹화·멈춤·내려받기 흐름을 본다.
+  await page.addInitScript(() => {
+    navigator.mediaDevices.getDisplayMedia = async () => (document.querySelector('.viewport canvas') as HTMLCanvasElement).captureStream(30)
+  })
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await pick(page, 'AHU-1')
+  await page.keyboard.press('Shift+ArrowRight')
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('p')
+  const hud = page.locator('.replay-hud')
+  await expect(hud).toHaveAttribute('data-phase', 'play', { timeout: 15_000 })
+  const download = page.waitForEvent('download', { timeout: 60_000 })
+  await hud.getByRole('button', { name: /녹화/ }).click()
+  await expect(hud.locator('.rec.on')).toBeVisible()
+  // 처음부터 다시 튼다.
+  await expect(hud).toHaveAttribute('data-at', '0')
+  const d = await download
+  expect(d.suggestedFilename()).toMatch(/^replay-mep\.(mp4|webm)$/)
+  const path = (await d.path())!
+  const { size } = await import('node:fs').then((fs) => fs.statSync(path))
+  expect(size).toBeGreaterThan(1000)
+  if (process.env.ZZ_SAVE) await d.saveAs(process.env.ZZ_SAVE)
+  await expect(hud.locator('.rec.on')).toHaveCount(0)
+  await expect(hud).toHaveAttribute('data-phase', 'done')
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})

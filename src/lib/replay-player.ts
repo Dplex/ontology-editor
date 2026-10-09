@@ -680,9 +680,64 @@ export function useReplay(host: ReplayPlayerHost) {
     void replayArrows(replaySteps.value[history.value.length - 1] ?? null)
   }
 
+  /**
+   * 녹화. 이 탭을 화면 공유로 잡아(브라우저가 한 번 묻는다) 처음부터 끝 화면까지 틀고 webm 으로 내려받는다 — 4D 시뮬레이션의 영상
+   * 내보내기처럼, 리플레이를 PM 보고·공유에 그대로 쓴다. 3D 캔버스만 찍으면 장면 제목·카드(HTML)가 빠져서 탭을 통째로 잡고, 되면
+   * 극장(.viewport)만 잘라 낸다(Region Capture). 끝 화면이 다 그려지면(REPLAY_RECORD_TAIL_MS) 멈추고 내려받는다. 닫거나 다시
+   * 누르면 그때까지를 내려받는다.
+   */
+  const REPLAY_RECORD_TAIL_MS = 4000
+  const replayRecording = ref<{ since: number } | null>(null)
+  let recorder: MediaRecorder | null = null
+  async function replayRecord() {
+    if (recorder) return void recorder.stop()
+    if (replayPhase.value === 'opening' || !navigator.mediaDevices?.getDisplayMedia) return
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false, preferCurrentTab: true } as DisplayMediaStreamOptions)
+    } catch {
+      // 사람이 공유를 거절했다.
+      return
+    }
+    const track = stream.getVideoTracks()[0]
+    const theater = document.querySelector('.viewport.theater')
+    const crop = (globalThis as { CropTarget?: { fromElement(e: Element): Promise<unknown> } }).CropTarget
+    if (theater && crop && 'cropTo' in track) await (track as unknown as { cropTo(t: unknown): Promise<void> }).cropTo(await crop.fromElement(theater)).catch(() => {})
+    // mp4(H.264)가 되면 그것으로 — 파워포인트·윈도우 기본 재생기에서 바로 열린다. 안 되면 webm.
+    const type = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find((x) => MediaRecorder.isTypeSupported(x)) ?? ''
+    const ext = type.startsWith('video/mp4') ? 'mp4' : 'webm'
+    const chunks: Blob[] = []
+    const rec = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 8_000_000 } : undefined)
+    recorder = rec
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data)
+    rec.onstop = () => {
+      for (const tr of stream.getTracks()) tr.stop()
+      recorder = null
+      replayRecording.value = null
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob(chunks, { type: type || 'video/webm' }))
+      a.download = `replay-${host.fileName.value.replace(/\.ifc\b/gi, '').replace(/[^\w가-힣.-]+/g, '_') || 'edit'}.${ext}`
+      a.click()
+      window.setTimeout(() => URL.revokeObjectURL(a.href), 10_000)
+    }
+    // 사용자가 브라우저의 "공유 중지" 를 누르면 거기까지.
+    track.addEventListener('ended', () => rec.state !== 'inactive' && rec.stop())
+    rec.start(1000)
+    replayRecording.value = { since: performance.now() }
+    replayFilter.value = null
+    await replayJump('restart')
+  }
+  // 끝 화면이 다 그려지면 녹화를 멈춘다.
+  watch(replayPhase, (phase) => {
+    if (phase !== 'done' || !recorder) return
+    const rec = recorder
+    window.setTimeout(() => rec.state !== 'inactive' && rec.stop(), REPLAY_RECORD_TAIL_MS)
+  })
+
   /** 닫는다. 아직 다시 하지 않은 편집을 마저 다시 해서 리플레이 전 상태(이력·다시 하기 목록까지)로 돌아온다. */
   function closeReplay() {
     if (!replayOpen.value) return
+    if (recorder?.state === 'recording') recorder.stop()
     compareEnd()
     replayToken++
     replayLoop.value = null
@@ -756,7 +811,8 @@ export function useReplay(host: ReplayPlayerHost) {
       return true
     }
     if (replayComparing.value) return true
-    if (e.code === 'Space') replayToggle()
+    if (e.code === 'KeyR') void replayRecord()
+    else if (e.code === 'Space') replayToggle()
     else if (e.code === 'ArrowRight') void replayJump('next')
     else if (e.code === 'ArrowLeft') void replayJump('prev')
     else if (e.code === 'Home') void replayJump('restart')
@@ -783,6 +839,7 @@ export function useReplay(host: ReplayPlayerHost) {
     storey: replayStorey.value,
     comparing: replayComparing.value,
     filter: replayFilter.value,
+    recording: replayRecording.value?.since ?? null,
   }))
   const hudOn = {
     toggle: replayToggle,
@@ -794,6 +851,7 @@ export function useReplay(host: ReplayPlayerHost) {
     scene: (i: number) => void replayScene(i),
     seek: (n: number) => void replaySeek(n),
     filter: (c: ReplayStep['category'] | null) => replaySetFilter(c),
+    record: () => void replayRecord(),
   }
 
   return { open: openReplay, close: closeReplay, key: replayKey, hud, hudOn }
