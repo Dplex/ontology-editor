@@ -119,6 +119,27 @@ const stats = computed(() => [
 const two = (n: number) => String(n).padStart(2, '0')
 
 /**
+ * 층 레일. 층이 둘 이상이면 왼쪽에 위층부터 층을 세우고, 층마다 그 층을 고친 장면을 점으로 찍는다. 지금 보는 층은 밝게, 다시 한
+ * 장면의 점은 채운다. 고층(성수 19층)에서 장면이 어느 층을 오가는지, 어느 층에 편집이 몰렸는지가 3D 를 돌려 보지 않아도 보인다.
+ * 층을 누르면 그 층의 첫 장면을 반복해서 튼다(카드 누르기와 같다).
+ */
+const rail = computed(() => {
+  const storeys = [...(props.start?.storeys ?? [])].sort((a, b) => b.elevation - a.elevation)
+  if (storeys.length < 2) return null
+  const scenes = new Map<string, ReplayStep[]>()
+  for (const s of props.steps) for (const id of new Set(s.storeyIds)) scenes.set(id, [...(scenes.get(id) ?? []), s])
+  const here = props.storey
+  return storeys.map((st) => ({
+    id: st.id,
+    name: st.name,
+    here: !!here && here.name === st.name && Math.abs(here.elevation - st.elevation) < 1e-6,
+    scenes: (scenes.get(st.id) ?? []).map((s) => ({ index: s.index, color: CAT_COLOR[s.category], done: s.index < props.at })),
+  }))
+})
+/** 층이 많으면 한 줄을 낮춘다(레일 전체 높이는 그대로). 이름은 줄이 넉넉할 때만. */
+const railRow = computed(() => (rail.value ? Math.max(6, Math.min(22, Math.floor(300 / rail.value.length))) : 0))
+
+/**
  * 시간줄 끌기. 시간이 아니라 편집 하나가 한 칸이다(편집이 몰린 때와 뜸한 때가 같은 너비) — 끄는 자리의 칸까지 한 편집 상태로
  * 간다(seek). 거의 안 끌고 놓으면 끌기가 아니라 눈금 누르기(그 장면 반복)로 둔다.
  */
@@ -217,6 +238,25 @@ const summary = computed(() => {
         </span>
       </transition>
     </div>
+
+    <!-- 층 레일: 위층부터, 층마다 그 층을 고친 장면의 점. 지금 보는 층이 밝다. -->
+    <nav v-if="rail && phase !== 'opening'" class="rail" :style="{ '--row': `${railRow}px` }" aria-label="층별 장면">
+      <button
+        v-for="r in rail"
+        :key="r.id"
+        type="button"
+        :class="['rail-row', { here: r.here, quiet: !r.scenes.length }]"
+        :title="`${r.name} — 장면 ${r.scenes.length}개${r.scenes.length ? ' · 누르면 이 층의 첫 장면' : ''}`"
+        :disabled="!r.scenes.length"
+        @click="emit('scene', r.scenes[0].index)"
+      >
+        <span v-if="railRow >= 14" class="rail-name">{{ r.name }}</span>
+        <span class="rail-dots">
+          <i v-for="s in r.scenes.slice(0, 12)" :key="s.index" :class="{ done: s.done }" :style="{ '--c': s.color }"></i>
+          <b v-if="r.scenes.length > 12">+{{ r.scenes.length - 12 }}</b>
+        </span>
+      </button>
+    </nav>
 
     <!-- 장면 전환: 다른 층으로 넘어가는 순간 화면이 검게 잠겼다 밝아진다(같은 층이면 카메라만 옮긴다) -->
     <div v-if="dip" :key="`sw${dip}`" class="swipe"></div>
@@ -424,6 +464,85 @@ const summary = computed(() => {
   height: 32px;
   font-weight: 600;
 }
+/* 층 레일. 왼쪽, 리플레이 표시 아래. 끝 화면의 요약판(.hud-done)보다 위에서 끝난다. */
+.rail {
+  position: absolute;
+  top: 92px;
+  left: 18px;
+  display: flex;
+  flex-direction: column;
+  max-width: 240px;
+  padding: 6px 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  /* 밝은 3D(밤 다이오라마의 방 불빛) 위에서도 읽히게 자막 판처럼 반투명 검은 판을 깐다. */
+  background: rgba(5, 6, 8, 0.62);
+  backdrop-filter: blur(4px);
+}
+.rail-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--row);
+  padding: 0 10px 0 0;
+  border: none;
+  background: none;
+  color: rgba(230, 236, 245, 0.55);
+  font: 500 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+}
+.rail-row::before {
+  content: '';
+  width: 8px;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.25);
+  flex: none;
+  transition: width 300ms, background 300ms;
+}
+.rail-row.quiet {
+  cursor: default;
+  opacity: 0.45;
+}
+.rail-row.here {
+  color: #fff;
+}
+.rail-row.here::before {
+  width: 18px;
+  height: 2px;
+  background: var(--mint);
+  box-shadow: 0 0 8px var(--mint);
+}
+.rail-row:not(.quiet):hover {
+  color: #fff;
+}
+.rail-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-dots {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.rail-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1px solid var(--c);
+  opacity: 0.6;
+}
+.rail-dots i.done {
+  background: var(--c);
+  opacity: 1;
+}
+.rail-dots b {
+  font-weight: 500;
+  font-size: 10px;
+}
+
 /* 갈래 색은 가는 테두리와 아주 옅은 빛에만 둔다. 판은 반투명 검정이라 띠 위에 얹혀도 튀지 않는다. */
 .bug > span {
   display: flex;

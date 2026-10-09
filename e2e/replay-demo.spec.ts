@@ -67,3 +67,29 @@ test('손으로 한 편집 뒤에 데모를 심으면 손 편집은 남고 리�
   await expect(page.locator('.edit-bar .undo')).toBeDisabled()
   expect(errors).toEqual([])
 })
+
+test('층이 둘 이상이면 왼쪽 층 레일에 층마다 장면 점이 찍히고, 지금 층이 밝으며, 층을 누르면 그 층의 첫 장면을 반복한다', async ({ page }) => {
+  test.setTimeout(300_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  const hud = await demo(page)
+  const total = Number(await hud.getAttribute('data-total'))
+  await expect(hud).toHaveAttribute('data-ready', String(total), { timeout: 30_000 })
+  const rows = hud.locator('.rail-row')
+  await expect(rows).toHaveCount(2)
+  // 층마다 찍힌 점의 합은 층이 있는 장면 수 이상이다(두 층을 같이 고친 장면은 두 층에 찍힌다).
+  const dots = await hud.locator('.rail-dots i').count()
+  expect(dots).toBeGreaterThanOrEqual(2)
+  // 장면이 한 층을 보이면 그 층이 밝다.
+  await expect(hud.locator('.rail-row.here')).toHaveCount(1, { timeout: 30_000 })
+  // 아래층(레일의 아래 줄)을 누르면 그 층의 첫 장면을 반복한다.
+  const lower = rows.last()
+  await lower.click()
+  await expect(hud).not.toHaveAttribute('data-loop', '')
+  await expect(hud.locator('.hud-bar .status')).toContainText('반복 중')
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})

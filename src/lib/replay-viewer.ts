@@ -687,6 +687,60 @@ export function createReplayFx(host: ReplayHost) {
       mat?.dispose()
     })
   }
+  // --- 이름표 겹침 정리(declutter) ---
+  // 끝 화면은 고친 자리마다 장면 번호 이름표를 세운다. 한 자리에서 여러 번 고쳤으면(벽 긋기 → 문 놓기 → 문 옮기기) 이름표가
+  // 한데 겹쳐 하나도 안 읽혔다. 지도 라벨의 충돌 처리처럼, 화면에서 이름표 상자를 장면 차례로 놓되 앞의 것과 겹치면 위로 한 칸씩
+  // 올리고, LEVELS 칸 안에 자리가 없으면 숨긴다(그 빛기둥은 남아 누를 수 있다). 극장 위의 판(끝 요약·통계·층 레일·장면 제목·
+  // 조작 막대)도 피한다 — 이름표가 그 위로 올라가면 둘 다 안 읽힌다. 카메라가 도는 동안 120ms 마다 다시 놓는다.
+  const DECLUTTER_MS = 120
+  const LEVELS = 6
+  const LABEL_GAP = 4
+  const AVOID = ['.hud-done', '.rp-stats', '.rail', '.scene', '.bug', '.hud-bar', '.rp-side'].map((c) => `.replay-hud ${c}`).join(', ')
+  let declutteredAt = 0
+  const tagAt = new Vector3()
+  type Rect = { left: number; right: number; top: number; bottom: number }
+  const overlaps = (a: Rect, b: Rect) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+  function declutter(now: number) {
+    if (now - declutteredAt < DECLUTTER_MS) return
+    declutteredAt = now
+    const tags: Sprite[] = []
+    for (const s of spots) for (const o of s.group.children) if (o instanceof Sprite && o.userData.spot) tags.push(o)
+    if (!tags.length) return
+    tags.sort((a, b) => ((a.userData.nth as number) ?? 0) - ((b.userData.nth as number) ?? 0))
+    const view = host.renderer.domElement.getBoundingClientRect()
+    const placed: Rect[] = [...document.querySelectorAll(AVOID)].map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height)
+    // sizeAttenuation 을 끈 스프라이트의 화면 크기: 크기 1 이 화면 높이의 P[1][1]/2 배(three.js sprite 셰이더).
+    const px = (host.camera.projectionMatrix.elements[5] * view.height) / 2
+    let changed = false
+    for (const tag of tags) {
+      const at = host.toScreen(tag.getWorldPosition(tagAt))
+      const w = tag.scale.x * px
+      const h = tag.scale.y * px
+      let level = -1
+      if (at && at.x >= view.left && at.x <= view.right) {
+        for (let l = 0; l < LEVELS; l++) {
+          const bottom = at.y - l * (h + LABEL_GAP)
+          const r = { left: at.x - w / 2, right: at.x + w / 2, top: bottom - h, bottom }
+          if (r.top < view.top) break
+          if (!placed.some((p) => overlaps(p, r))) {
+            level = l
+            placed.push(r)
+            break
+          }
+        }
+      }
+      const visible = level >= 0
+      // center.y 가 -1 이면 스프라이트가 제 높이만큼 위로 선다(아래 가운데가 기준점).
+      const cy = visible ? -level * (1 + LABEL_GAP / h) : 0
+      if (tag.visible !== visible || tag.center.y !== cy) {
+        tag.visible = visible
+        tag.center.y = cy
+        changed = true
+      }
+    }
+    if (changed) host.invalidate()
+  }
+
   function stepFx(now: number) {
     if (!fxs.length) return
     for (let i = fxs.length - 1; i >= 0; i--) {
@@ -776,7 +830,8 @@ export function createReplayFx(host: ReplayHost) {
   function hitSpot(x: number, y: number): string | null {
     if (!cinema || !spots.length) return null
     host.rayAt(x, y)
-    const parts = spots.flatMap((s) => s.group.children.filter((o) => o.userData.spot))
+    // 겹쳐서 숨긴 이름표(declutter)는 누르지 못한다 — 그 자리의 빛기둥을 누른다.
+    const parts = spots.flatMap((s) => s.group.children.filter((o) => o.userData.spot && o.visible))
     // 이름표가 빛기둥보다 먼저다 — 이름표는 늘 위에 그려지는데, 빛기둥이 더 가까우면 뒤의 빛기둥 장면이 골라졌다.
     const tags = parts.filter((o) => o instanceof Sprite)
     const hit = (host.raycaster.intersectObjects(tags, false)[0] ?? host.raycaster.intersectObjects(parts, false)[0])?.object.userData.spot as string | undefined
@@ -843,9 +898,9 @@ export function createReplayFx(host: ReplayHost) {
     // 리플레이 끝 화면에서 빛기둥·이름표를 누르면 그 장면을 다시 본다(onSpotClick).
     outer.userData.spot = id
     if (tag) tag.userData.spot = id
-    // 이름표는 여섯 단으로 높이를 엇갈린다. 끝 화면에서 한 자리에 장면이 여럿 모이면(벽 긋기 → 문 놓기 → 문 옮기기 …)
-    // 이름표가 위로 한 줄씩 쌓여 읽히고 따로 누를 수 있다.
-    if (tag) tag.position.y = size.y / 2 + d * (0.02 + 0.05 * (nth % 6))
+    // 이름표는 빛기둥 꼭대기 조금 위. 여럿이 겹치면 화면에서 위로 한 칸씩 비켜 선다(declutter).
+    if (tag) tag.position.y = size.y / 2 + d * 0.02
+    if (tag) tag.userData.nth = nth
     group.add(...(bare ? [] : [outer, core]), ...rings, ...(tag ? [tag] : []))
     for (const o of group.children) o.renderOrder = o.renderOrder || 18
     // 밤 다이오라마의 층 띄우기를 따라간다(stepDiorama).
@@ -1150,6 +1205,7 @@ export function createReplayFx(host: ReplayHost) {
     /** 매 프레임. viewer.ts 의 tick 이 비행·미끄러짐·번쩍임 다음에 부른다. */
     step(now: number) {
       stepFx(now)
+      if (cinema && spots.length) declutter(now)
       stepBuild(now)
       stepReveal(now)
       stepDiorama(now)
