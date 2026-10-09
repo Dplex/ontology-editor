@@ -771,6 +771,8 @@ export function useReplay(host: ReplayPlayerHost) {
    * 원본 보기처럼). 카메라는 그대로라 같은 자리에서 무엇이 바뀌었는지 눈으로 견준다. 재생 중이었으면 멈춘다.
    */
   const replayComparing = ref(false)
+  /** ? 를 누른 횟수. HUD 가 바뀔 때마다 단축키 안내를 켜고 끈다. */
+  const replayHelp = ref(0)
   function compareStart() {
     if (replayPhase.value === 'opening' || replayComparing.value || seekTarget !== null) return
     replayEndLoop()
@@ -811,7 +813,8 @@ export function useReplay(host: ReplayPlayerHost) {
       return true
     }
     if (replayComparing.value) return true
-    if (e.code === 'KeyR') void replayRecord()
+    if (e.key === '?') replayHelp.value++
+    else if (e.code === 'KeyR') void replayRecord()
     else if (e.code === 'Space') replayToggle()
     else if (e.code === 'ArrowRight') void replayJump('next')
     else if (e.code === 'ArrowLeft') void replayJump('prev')
@@ -840,6 +843,7 @@ export function useReplay(host: ReplayPlayerHost) {
     comparing: replayComparing.value,
     filter: replayFilter.value,
     recording: replayRecording.value?.since ?? null,
+    helpToggles: replayHelp.value,
   }))
   const hudOn = {
     toggle: replayToggle,

@@ -62,6 +62,8 @@ export type ReplayStep = {
 export type ReplayStart = {
   building: string
   storeys: { id: string; name: string; elevation: number }[]
+  /** 계통 id → 이름(연 때와 편집 뒤를 합친 것). TTL 의 계통 주어를 이름으로 읽는다. */
+  systems?: { id: string; name: string }[]
   plan: PlanItem[]
   total: number
 }
@@ -312,6 +314,8 @@ export function buildReplay(input: ReplayInput, emit: (m: ReplayMessage) => void
   const t0 = Date.now()
   const { model, entries } = input
   // 거꾸로: 단계마다 "후" 상태를 떠 두고 "전" 으로 되돌린다. 끝나면 모델은 이력의 첫 편집 전이다.
+  // 계통 이름(TTL 의 계통 주어를 읽게). 편집으로 새로 생긴 계통도 있어 편집 뒤 것을 먼저 모은다.
+  const systems = new Map(model.systems.map((s) => [s.id, s.name]))
   const after: (Snapshot | null)[] = []
   for (let i = entries.length - 1; i >= 0; i--) {
     after[i] = snapshotOf(model, entries[i].snapshot)
@@ -323,6 +327,7 @@ export function buildReplay(input: ReplayInput, emit: (m: ReplayMessage) => void
     start: {
       building: model.buildingName,
       storeys: model.storeys.map((s) => ({ id: s.id, name: s.name, elevation: s.elevation })),
+      systems: [...new Map([...systems, ...model.systems.map((s) => [s.id, s.name] as const)])].map(([id, name]) => ({ id, name })),
       plan: [...plan.values()],
       total: entries.length,
     },

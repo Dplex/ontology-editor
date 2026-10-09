@@ -3,12 +3,12 @@
 // 여기는 지금 몇 번째인지, 그 편집이 TTL·GeoJSON 의 어디를 바꿨는지를 채팅처럼 카드로 쌓고, 조작 막대를 둔다.
 // 카드 내용은 워커가 모델 사본으로 계산한 것이다(lib/replay.ts).
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { escapeLocalName } from '../lib/export/ttl'
+import { nameTable, readableTtl, replayReport } from '../lib/replay-report'
 import ReplayGeo from './ReplayGeo.vue'
 import ReplayRelations from './ReplayRelations.vue'
 import { relationsOf } from '../lib/replay-relations'
 import Roll from './Roll.vue'
-import { CATEGORIES, CATEGORY_COLOR, type Category, type PlanItem, type ReplayStart, type ReplayStep } from '../lib/replay'
+import { CATEGORIES, CATEGORY_COLOR, type Category, type ReplayStart, type ReplayStep } from '../lib/replay'
 
 const props = defineProps<{
   title: string
@@ -35,6 +35,8 @@ const props = defineProps<{
   filter?: Category | null
   /** 녹화 중이면 시작 시각(performance.now). */
   recording?: number | null
+  /** ? 를 누른 횟수. 바뀔 때마다 단축키 안내를 켜고 끈다. */
+  helpToggles?: number
 }>()
 const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null]; record: [] }>()
 
@@ -46,26 +48,9 @@ const CAT_COLOR = CATEGORY_COLOR
  */
 const shownAt = computed(() => props.at + (props.comparing ? 1 : 0))
 
-/** App.vue 의 shortName 과 같은 규칙. Revit 의 "패밀리:유형:…:요소ID" 를 "패밀리 #요소ID" 로. */
-function shortName(name: string): string {
-  const revit = /^([^:]+):.+:(\d+)$/.exec(name)
-  return revit ? `${revit[1]} #${revit[2]}` : name
-}
-
-/** TTL 의 `ex:<id>` → 이름. GUID 로는 무엇이 바뀌었는지 못 읽어서 화면에서만 바꿔 보인다. */
-const names = computed(() => {
-  const out = new Map<string, string>()
-  const learn = (it: PlanItem | null) => {
-    if (!it || it.t === 'link' || it.t === 'wall' || it.t === 'opening') return
-    out.set(escapeLocalName(it.id), it.t === 'equip' ? shortName(it.name) : it.name || it.id)
-  }
-  for (const it of props.start?.plan ?? []) learn(it)
-  for (const s of props.start?.storeys ?? []) out.set(escapeLocalName(s.id), s.name)
-  for (const s of props.steps) for (const c of s.changes) learn(c.after)
-  return out
-})
-const plain = (s: string) => s.replace(/\\(.)/g, '$1')
-const readable = (line: string) => line.replace(/ex:((?:\\.|[\w가-힣])+)/g, (m, id: string) => names.value.get(id) ?? plain(m))
+/** TTL 의 `ex:<id>` → 이름. GUID 로는 무엇이 바뀌었는지 못 읽어서 화면에서만 바꿔 보인다(변경 리포트와 같은 표). */
+const names = computed(() => nameTable(props.start, props.steps))
+const readable = (line: string) => readableTtl(line, names.value)
 
 type Row = { text: string; kind: 'subject' | 'add' | 'del' }
 function rows(s: ReplayStep): Row[] {
@@ -130,6 +115,39 @@ const stats = computed(() => [
   { n: props.steps.reduce((n, s) => n + s.ttlCount.added + s.ttlCount.removed, 0), label: 'TTL LINES', sub: '더하고 지운 줄' },
 ])
 const two = (n: number) => String(n).padStart(2, '0')
+
+/** 변경 리포트(마크다운)를 내려받는다 — 장면마다 TTL 의 어느 줄, GeoJSON 의 어느 feature 가 바뀌었나(replay-report.ts). */
+function downloadReport() {
+  const md = replayReport({ title: props.title, start: props.start, steps: props.steps })
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(new Blob([md], { type: 'text/markdown;charset=utf-8' }))
+  a.download = `replay-report-${props.title.replace(/\.ifc\b/gi, '').replace(/[^\w가-힣.-]+/g, '_') || 'edit'}.md`
+  a.click()
+  window.setTimeout(() => URL.revokeObjectURL(a.href), 60_000)
+}
+
+/** 단축키 안내(? 로 켜고 끈다). 리플레이 키는 replay-player.ts 의 replayKey 와 같다. */
+const help = ref(false)
+const KEYS: [string, string][] = [
+  ['Space', '재생 · 멈춤 (반복 중이면 다음 장면부터)'],
+  ['← →', '편집 하나 앞뒤'],
+  ['Home', '처음부터'],
+  ['B (누르고 있기)', '지금 장면의 편집 전 보기'],
+  ['R', '녹화 시작 · 멈추고 내려받기'],
+  ['?', '이 안내'],
+  ['Esc · P', '닫기 (편집한 상태로 돌아감)'],
+]
+// 키보드의 ? 는 App 이 받아 리플레이로 넘긴다(replayKey) — 누를 때마다 helpToggles 가 하나 는다.
+watch(
+  () => props.helpToggles ?? 0,
+  (n, before) => {
+    if (n !== before) help.value = !help.value
+  },
+)
+
+/** 시간줄 눈금 위에 올린 장면(미리보기 판). */
+const hoverTick = ref<{ k: number; x: number } | null>(null)
+const hovered = computed(() => (hoverTick.value ? (props.steps[hoverTick.value.k - 1] ?? null) : null))
 
 /** 녹화 시간(초). 녹화 중일 때만 1초마다 센다. */
 const recSec = ref(0)
@@ -403,11 +421,21 @@ const summary = computed(() => {
           <b>{{ b.n }}</b>
         </button>
         <p class="sum-hint">갈래를 누르면 그 갈래 장면만 처음부터</p>
+        <button type="button" class="report" title="장면마다 TTL·GeoJSON 에서 바뀐 것을 마크다운으로" @click="downloadReport">⇩ 변경 리포트 (.md)</button>
         <div class="totals">
           <span class="add">TTL +{{ summary.added }}</span>
           <span class="del">TTL −{{ summary.removed }}</span>
           <span>GeoJSON {{ summary.geo }}곳</span>
         </div>
+      </div>
+    </transition>
+
+    <!-- 단축키 안내 -->
+    <transition name="fade">
+      <div v-if="help" class="hud-help" @click="help = false">
+        <h4>리플레이 단축키</h4>
+        <div v-for="[k, what] in KEYS" :key="k" class="help-row"><kbd>{{ k }}</kbd><span>{{ what }}</span></div>
+        <p>시간줄을 끌면 편집 하나씩 훑고, 눈금·카드·빛기둥을 누르면 그 장면을 반복합니다.</p>
       </div>
     </transition>
 
@@ -425,7 +453,18 @@ const summary = computed(() => {
           :title="steps[k - 1] ? `#${two(k)} ${steps[k - 1].label} · 바뀐 것 ${steps[k - 1].changes.length} — 이 장면만 반복해서 보기` : undefined"
           :style="{ left: `${(100 * (k - 0.5)) / total}%`, background: steps[k - 1] ? CAT_COLOR[steps[k - 1].category] : undefined, '--w': weights[k - 1] ?? 0 }"
           @click="onTick(k)"
+          @pointerenter="hoverTick = { k, x: (100 * (k - 0.5)) / total }"
+          @pointerleave="hoverTick = null"
         ></i>
+        <!-- 눈금 미리보기: 그 장면의 갈래·제목·바뀐 양 -->
+        <div v-if="hovered && !scrub?.moved" class="tick-tip" :style="{ left: `${hoverTick!.x}%`, '--c': CAT_COLOR[hovered.category] }">
+          <span class="tt-cat">#{{ two(hovered.index + 1) }} {{ hovered.category }}</span>
+          <b>{{ hovered.label }}</b>
+          <span class="tt-n">
+            TTL +{{ hovered.ttlCount.added }} −{{ hovered.ttlCount.removed }}<template v-if="hovered.geojson"> · GeoJSON {{ hovered.geojson.count.changed + hovered.geojson.count.added + hovered.geojson.count.removed }}</template>
+            · 바뀐 것 {{ hovered.changes.length }}
+          </span>
+        </div>
       </div>
       <div class="buttons">
         <button type="button" title="처음부터 (Home)" @click="emit('restart')">⏮</button>
@@ -441,6 +480,7 @@ const summary = computed(() => {
           <template v-else-if="comparing">편집 전 보는 중 · <kbd>B</kbd> 떼면 편집 후</template>
           <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }} · <kbd>B</kbd> 누르고 있으면 편집 전</template>
         </span>
+        <button type="button" class="help-btn" title="단축키 (?)" @click="help = !help">?</button>
         <button
           type="button"
           :class="['rec', { on: recording != null }]"
@@ -1092,6 +1132,85 @@ const summary = computed(() => {
   font-size: 14px;
   font-weight: 700;
 }
+/* 끝 요약판의 리포트 내려받기. */
+.hud-done .report {
+  margin: 10px 16px 14px;
+  padding: 5px 12px;
+  border: 1px solid #344560;
+  background: transparent;
+  color: #e6ecf5;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.hud-done .report:hover {
+  border-color: #fff;
+}
+/* 눈금 미리보기 판. 눈금 위에 뜬다. */
+.tick-tip {
+  position: absolute;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 180px;
+  max-width: 340px;
+  padding: 8px 10px;
+  border-top: 2px solid var(--c);
+  background: rgba(5, 6, 8, 0.9);
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.tick-tip b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+.tick-tip .tt-cat {
+  color: var(--c);
+  font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.tick-tip .tt-n {
+  color: #b9bec6;
+  font: 400 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+/* 단축키 안내 판. 가운데. */
+.hud-help {
+  position: absolute;
+  top: 50%;
+  left: 36%;
+  transform: translate(-50%, -50%);
+  min-width: 360px;
+  padding: 18px 22px;
+  border: 1px solid #344560;
+  background: rgba(5, 6, 8, 0.92);
+  color: #e6ecf5;
+  font-size: 13px;
+  cursor: pointer;
+  z-index: 5;
+}
+.hud-help h4 {
+  margin: 0 0 12px;
+  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.2em;
+  color: var(--mint);
+}
+.help-row {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 10px;
+  margin: 6px 0;
+}
+.hud-help p {
+  margin: 12px 0 0;
+  color: #b9bec6;
+  font-size: 12px;
+}
+
 /* 녹화 버튼. 녹화 중에는 붉게 숨 쉰다. */
 .buttons .rec.on {
   color: #ff4d5e;
