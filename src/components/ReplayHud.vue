@@ -1230,6 +1230,10 @@ button.sum-row.on span {
   gap: 6px;
   font-size: 13px;
 }
+.buttons > button,
+.buttons .speeds {
+  flex: none;
+}
 .buttons button {
   padding: 4px 10px;
   border: 1px solid #344560;
@@ -1260,6 +1264,11 @@ button.sum-row.on span {
 }
 .status {
   margin-left: auto;
+  /* 한 줄로 둔다 — 재생 중·멈춤으로 글 길이가 바뀔 때 줄이 바뀌면 막대 높이가 들썩여 시간줄이 움직였다. 넘치면 말줄임. */
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: #c3cfe2;
   font-weight: 600;
 }
