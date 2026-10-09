@@ -1558,7 +1558,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // --- 되돌리기의 미끄러짐 ---
   // 되돌린 설비(와 따라온 배관)가 순간이동하지 않고 원래 자리로 미끄러진다. 꼭짓점을 두 배열 사이에서 섞는다.
   const GLIDE_MS = 240
-  const glides = new Map<string, { part: Part; from: Float32Array; to: Float32Array; t0: number | null }>()
+  /** lead: 리플레이에서 비춘 설비(예비 동작·지나침·안착), delay: 따라오는 배관이 늦게 출발하는 시간(follow-through). */
+  const glides = new Map<string, { part: Part; from: Float32Array; to: Float32Array; t0: number | null; lead: boolean; delay: number }>()
   function writePart(part: Part, positions: Float32Array) {
     const position = part.chunk.position
     ;(position.array as Float32Array).set(positions, part.vStart * 3)
@@ -1576,12 +1577,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (!glides.size) return
     for (const [id, g] of glides) {
       if (g.t0 === null) g.t0 = now
-      const k = Math.min(1, (now - g.t0) / (cinema ? CINEMA_GLIDE_MS : GLIDE_MS))
+      const t = now - g.t0 - g.delay
+      if (t < 0) continue
+      const k = Math.min(1, t / (cinema ? CINEMA_GLIDE_MS : GLIDE_MS))
       if (k === 1) {
         finishGlide(id)
         continue
       }
-      const e = cinema ? easeInOut(k) : easeOut(k)
+      const e = !cinema ? easeOut(k) : g.lead ? backInOut(k) : easeInOut(k)
       const mix = new Float32Array(g.to.length)
       for (let i = 0; i < mix.length; i++) mix[i] = g.from[i] + (g.to[i] - g.from[i]) * e
       writePart(g.part, mix)
@@ -1596,7 +1599,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const fromBox = part.box.clone()
     part.box.setFromArray(positions)
     if (glide && !still()) {
-      glides.set(part.id, { part, from, to: positions, t0: null })
+      const lead = cinema && spots.some((s) => s.id === part.id)
+      glides.set(part.id, { part, from, to: positions, t0: null, lead, delay: cinema && !lead ? CINEMA_FOLLOW_MS : 0 })
       started.glides++
       if (cinema) trace(part.id, fromBox, part.box)
     }
@@ -1659,6 +1663,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const CINEMA_FLY_MS = 1500
   const CINEMA_GLIDE_MS = 1100
   const easeInOut = (k: number) => (k < 0.5 ? 4 * k ** 3 : 1 - (-2 * k + 2) ** 3 / 2)
+  /**
+   * 애니메이션 원칙 셋(예비 동작·지나침·안착): 떠나기 전에 살짝 뒤로 물러났다가, 목표를 조금 지나친 뒤 돌아와 선다. 리플레이에서
+   * 비춘 설비에만 쓴다 — 무엇이 옮겨지는지가 눈에 걸린다. 따라오는 배관은 CINEMA_FOLLOW_MS 늦게 부드럽게 따라온다.
+   */
+  const backInOut = (k: number) => {
+    const c = 1.2 * 1.525
+    return k < 0.5 ? ((2 * k) ** 2 * ((c + 1) * 2 * k - c)) / 2 : ((2 * k - 2) ** 2 * ((c + 1) * (k * 2 - 2) + c) + 2) / 2
+  }
+  const CINEMA_FOLLOW_MS = 140
   /** 다음 비행이 들어갈 방향. 지금 보는 쪽에서 35° 돌리고 40° 쯤 내려다본다 — 장면마다 다른 쪽에서 들어간다. */
   function cinemaFrom(): Vector3 {
     const d = camera.position.clone().sub(controls.target)
@@ -1906,8 +1919,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const bottom = b.clone().setY(toBox.min.y + 0.02)
     let landed = false
     fxs.push({ obj: group, t0: null, ms: CINEMA_GLIDE_MS + 2400, step: (_k, t) => {
-      const e = easeInOut(Math.min(1, t / CINEMA_GLIDE_MS))
-      trail.scale.y = Math.max(length * e, 0.0001)
+      const e = backInOut(Math.min(1, t / CINEMA_GLIDE_MS))
+      trail.scale.y = Math.max(length * Math.min(1, e), 0.0001)
       if (!follow.userData.dead) follow.position.lerpVectors(a, b, e)
       const fade = t < CINEMA_GLIDE_MS ? 1 : 1 - (t - CINEMA_GLIDE_MS) / 2400
       ;(ghost.material as LineBasicMaterial).opacity = 0.9 * fade

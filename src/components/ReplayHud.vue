@@ -5,6 +5,7 @@
 import { computed, ref, watch } from 'vue'
 import { escapeLocalName } from '../lib/export/ttl'
 import ReplayGeo from './ReplayGeo.vue'
+import Roll from './Roll.vue'
 import { CATEGORIES, CATEGORY_COLOR, type Category, type PlanItem, type ReplayStart, type ReplayStep } from '../lib/replay'
 
 const props = defineProps<{
@@ -75,7 +76,50 @@ const geoApplied = computed(() => !!geoStep.value && props.at > geoStep.value.in
 
 /** 장면 제목. 카메라가 가는 중(aiming)부터 그 장면의 것이다. */
 const scene = computed(() => (props.phase === 'play' ? current.value : null))
+/** 키네틱 캡션: 장면 제목을 낱말로 나눠 차례로 튀어 오르게 한다. 숫자·# 이 든 낱말(설비 번호, 면적)은 갈래 색으로 짚는다. */
+const words = (label: string) => label.split(/\s+/).filter(Boolean).map((w) => ({ w, key: /[#\d]/.test(w) }))
+/** 오프닝: 열고 되감기 전(아직 한 단계도 되돌리지 않았다). 건물 이름과 편집 수를 크게. */
+const opening = computed(() => props.phase === 'rewind' && props.at === props.total)
+// 건물 이름이 없는 IFC(성수)는 파일 이름에서 확장자를 뗀다.
+const openingTitle = computed(() => words(props.start?.building || props.title.replace(/\.ifc\b/gi, '')))
+/** 끝의 통계 타일. 차례로 굴러 올라온다. */
+const stats = computed(() => [
+  { n: props.total, label: 'EDITS', sub: '고친 편집' },
+  { n: new Set(props.steps.flatMap((s) => s.storeyIds)).size, label: 'FLOORS', sub: '고친 층' },
+  { n: props.steps.reduce((n, s) => n + (s.geojson ? s.geojson.count.changed + s.geojson.count.added + s.geojson.count.removed : 0), 0), label: 'FEATURES', sub: 'GeoJSON 에서 바뀐 것' },
+  { n: props.steps.reduce((n, s) => n + s.ttlCount.added + s.ttlCount.removed, 0), label: 'TTL LINES', sub: '더하고 지운 줄' },
+])
 const two = (n: number) => String(n).padStart(2, '0')
+
+/**
+ * 연출 스타일. 장면 구성과 갈래 색(무엇을 고쳤나)은 같고, 판·글꼴·전환·배경만 바뀐다. 고른 것은 이 브라우저에만 남긴다
+ * (보는 사람마다의 취향이라 모델·편집 파일과 상관없다).
+ */
+const STYLES = [
+  { id: 'broadcast', label: '중계' },
+  { id: 'cinema', label: '시네마' },
+  { id: 'neon', label: '네온' },
+  { id: 'swiss', label: '스위스' },
+] as const
+type StyleId = (typeof STYLES)[number]['id']
+const STYLE_KEY = 'oe-replay-style'
+function readStyle(): StyleId {
+  try {
+    const v = localStorage.getItem(STYLE_KEY)
+    return STYLES.find((x) => x.id === v)?.id ?? 'broadcast'
+  } catch {
+    return 'broadcast'
+  }
+}
+const style = ref<StyleId>(readStyle())
+function pickStyle(id: StyleId) {
+  style.value = id
+  try {
+    localStorage.setItem(STYLE_KEY, id)
+  } catch {
+    // 저장소가 막혀 있으면 이번 리플레이에서만 쓴다.
+  }
+}
 
 /** 다시 한 순간의 번쩍임. at 이 늘 때마다 한 번. */
 const impact = ref(0)
@@ -106,7 +150,9 @@ const summary = computed(() => {
 </script>
 
 <template>
-  <div class="replay-hud" :data-phase="phase" :data-at="at" :data-total="total" :data-ready="steps.length">
+  <div class="replay-hud" :data-phase="phase" :data-at="at" :data-total="total" :data-ready="steps.length" :data-style="style">
+    <!-- 시네마: 위아래 검은 띠 -->
+    <template v-if="style === 'cinema'"><div class="lb top"></div><div class="lb bottom"></div></template>
     <!-- 다시 한 순간 -->
     <div v-if="impact" :key="impact" class="impact" :style="{ '--c': current ? CAT_COLOR[current.category] : '#5ef2c2' }"></div>
 
@@ -123,17 +169,31 @@ const summary = computed(() => {
     </div>
     <div class="bug-file">{{ title }}</div>
 
-    <!-- 장면 제목: 갈래 색 블록이 쓸고 지나가며 드러난다 -->
+    <!-- 장면 전환: 기하 도형 띠 셋이 비스듬히 화면을 쓸고 지나간다(카메라가 다음 자리로 떠나는 순간) -->
+    <div v-if="scene" :key="`sw${scene.index}`" class="swipe" :style="{ '--c': CAT_COLOR[scene.category] }"><i></i><i></i><i></i></div>
+
+    <!-- 장면 제목: 판이 펼쳐지고 낱말이 차례로 튀어 오른다(키네틱 캡션) -->
     <transition name="scene">
       <div v-if="scene" :key="scene.index" class="scene" :style="{ '--c': CAT_COLOR[scene.category] }">
         <div class="scene-kicker"><b>{{ two(scene.index + 1) }}</b><span>{{ scene.category }}</span></div>
-        <div class="scene-title"><span>{{ scene.label }}</span></div>
+        <div class="scene-title">
+          <span v-for="(t, i) in words(scene.label)" :key="i" :class="['wd', { key: t.key }]" :style="{ animationDelay: `${380 + i * 70}ms` }">{{ t.w }}</span>
+        </div>
       </div>
     </transition>
 
     <!-- 되감기 -->
     <transition name="fade">
-      <div v-if="phase === 'rewind'" class="hud-rewind">
+      <div v-if="opening" class="hud-rewind opening">
+        <div class="op-kicker">▶ EDIT REPLAY</div>
+        <div class="op-title">
+          <span v-for="(t, i) in openingTitle" :key="i" class="wd" :style="{ animationDelay: `${150 + i * 90}ms` }">{{ t.w }}</span>
+        </div>
+        <div class="op-sub">
+          <b>{{ two(total) }}</b> EDITS<template v-if="start?.building"> <i>·</i> {{ title }}</template>
+        </div>
+      </div>
+      <div v-else-if="phase === 'rewind'" class="hud-rewind">
         <div class="streaks"><i v-for="n in 7" :key="n" :style="{ top: `${8 + n * 12}%`, animationDelay: `${(n * 137) % 600}ms` }"></i></div>
         <div class="rw-title"><span class="rw-icon">◀◀</span> REWIND</div>
         <div class="rw-sub">처음 상태로 되감는 중 · {{ total - at }} / {{ total }}</div>
@@ -198,6 +258,15 @@ const summary = computed(() => {
 
     <!-- 끝: 요약 -->
     <transition name="fade">
+      <div v-if="phase === 'done'" class="rp-stats">
+        <div v-for="(st, i) in stats" :key="st.label" class="stat" :style="{ animationDelay: `${i * 160}ms` }">
+          <div class="stat-n"><Roll :value="st.n" /></div>
+          <b>{{ st.label }}</b>
+          <span>{{ st.sub }}</span>
+        </div>
+      </div>
+    </transition>
+    <transition name="fade">
       <div v-if="phase === 'done'" class="hud-done">
         <div class="done-head"><span>REPLAY COMPLETE</span><b>{{ two(total) }} EDITS</b></div>
         <h2>사람이 고친 곳</h2>
@@ -235,6 +304,9 @@ const summary = computed(() => {
         <button type="button" title="이전 편집 (←)" @click="emit('prev')">◀</button>
         <button type="button" class="play" :title="playing ? '멈춤 (Space)' : '재생 (Space)'" @click="emit('toggle')">{{ playing ? '❚❚' : '▶' }}</button>
         <button type="button" title="다음 편집 (→)" @click="emit('next')">▶▶</button>
+        <span class="styles" title="연출 스타일 — 이 브라우저에 기억한다">
+          <button v-for="st in STYLES" :key="st.id" type="button" :aria-pressed="style === st.id" :data-style-id="st.id" @click="pickStyle(st.id)">{{ st.label }}</button>
+        </span>
         <span class="speeds">
           <button v-for="s in [0.5, 1, 2]" :key="s" type="button" :aria-pressed="speed === s" @click="emit('speed', s)">{{ s }}×</button>
         </span>
@@ -380,21 +452,126 @@ const summary = computed(() => {
   background: #05080d;
   border-left: 6px solid var(--c);
 }
-.scene-title span {
-  display: block;
+.scene-title {
   padding: 8px 18px 10px 14px;
   font-size: 34px;
   font-weight: 900;
   line-height: 1.15;
   letter-spacing: -0.01em;
-  animation: reveal 800ms both;
+  transform-origin: left;
+  animation: plate 380ms cubic-bezier(0.7, 0, 0.2, 1) both;
 }
-.scene-title::after {
-  content: '';
+.wd {
+  display: inline-block;
+  margin-right: 0.28em;
+  animation: word 460ms cubic-bezier(0.2, 1.5, 0.35, 1) both;
+}
+.wd.key {
+  color: var(--c);
+}
+
+/* --- 장면 전환 띠 --- */
+.swipe {
   position: absolute;
-  inset: 0;
+  inset: 0 var(--feed) 0 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.swipe i {
+  position: absolute;
+  top: -10%;
+  bottom: -10%;
+  left: -60%;
+  width: 34%;
+  transform: skewX(-16deg);
+  will-change: left;
+  animation: swipe 720ms cubic-bezier(0.7, 0, 0.25, 1) forwards;
+}
+.swipe i:nth-child(1) {
   background: var(--c);
-  animation: wipe 800ms cubic-bezier(0.7, 0, 0.2, 1) both;
+}
+.swipe i:nth-child(2) {
+  width: 9%;
+  background: #fff;
+  animation-delay: 70ms;
+}
+.swipe i:nth-child(3) {
+  width: 20%;
+  background: #05080d;
+  animation-delay: 130ms;
+}
+
+/* --- 오프닝 --- */
+.opening {
+  justify-items: start;
+  padding-left: 8%;
+  text-align: left;
+}
+.op-kicker {
+  padding: 6px 12px;
+  background: #fff;
+  color: #05080d;
+  font-size: 16px;
+  font-style: italic;
+  font-weight: 900;
+  animation: kicker-in 400ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+.op-title {
+  margin: 14px 0 10px;
+  font-size: 68px;
+  font-weight: 900;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-shadow: 0 4px 0 #05080d;
+}
+.op-sub {
+  padding: 6px 12px;
+  border-left: 6px solid var(--mint);
+  background: #05080d;
+  font-size: 18px;
+  font-weight: 800;
+  animation: kicker-in 400ms 500ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+.op-sub b {
+  color: var(--mint);
+}
+.op-sub i {
+  margin: 0 6px;
+  font-style: normal;
+  opacity: 0.5;
+}
+
+/* --- 끝 통계 타일 --- */
+.rp-stats {
+  position: absolute;
+  top: 18px;
+  right: calc(var(--feed) + 18px);
+  display: flex;
+  gap: 8px;
+}
+.stat {
+  display: grid;
+  min-width: 112px;
+  padding: 10px 14px 12px;
+  border-top: 4px solid var(--mint);
+  background: #05080d;
+  animation: tile 520ms cubic-bezier(0.2, 1.4, 0.35, 1) both;
+}
+.stat-n {
+  font-size: 46px;
+  font-weight: 900;
+  line-height: 1;
+}
+.stat > b {
+  margin-top: 6px;
+  color: var(--mint);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+.stat > span {
+  color: #9fb0c8;
+  font-size: 11px;
 }
 .scene-leave-active {
   transition:
@@ -865,6 +1042,498 @@ const summary = computed(() => {
     transform-origin: right;
   }
 }
+/* ===== 연출 스타일 ===== 기본(중계)은 위의 규칙이다. 아래는 스타일마다 덮어쓰는 것만. */
+.styles {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 6px;
+}
+.styles button[aria-pressed='true'] {
+  border-color: #fff;
+  background: #fff;
+  color: #05080d;
+}
+
+/* --- 시네마: 위아래 띠, 가늘고 큰 자막, 검게 잠겼다 밝아지는 전환 --- */
+.lb {
+  position: absolute;
+  left: 0;
+  right: var(--feed);
+  height: 8%;
+  background: #000;
+}
+.lb.top {
+  top: 0;
+}
+.lb.bottom {
+  bottom: 0;
+}
+[data-style='cinema'] {
+  --panel: #07080a;
+  --line: #24262b;
+}
+[data-style='cinema'] .bug {
+  top: 2.2%;
+  height: 32px;
+}
+[data-style='cinema'] .bug > span,
+[data-style='cinema'] .bug-replay {
+  margin-right: 14px;
+  padding: 0 !important;
+  background: transparent !important;
+  color: #e9e9e9;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0.35em;
+  clip-path: none !important;
+}
+[data-style='cinema'] .bug-count {
+  font-size: 18px !important;
+}
+[data-style='cinema'] .bug-cat {
+  color: var(--c) !important;
+}
+[data-style='cinema'] .bug-file {
+  display: none;
+}
+[data-style='cinema'] .scene {
+  left: calc((100% - var(--feed)) / 2);
+  bottom: calc(8% + 88px);
+  max-width: calc(100% - var(--feed) - 80px);
+  text-align: center;
+  translate: -50% 0;
+}
+[data-style='cinema'] .scene-kicker {
+  justify-content: center;
+  height: auto;
+  margin-bottom: 10px;
+  font-weight: 400;
+  letter-spacing: 0.4em;
+}
+[data-style='cinema'] .scene-kicker b,
+[data-style='cinema'] .scene-kicker span {
+  padding: 0 8px;
+  background: transparent;
+  color: var(--c);
+  font-size: 14px;
+  font-weight: 700;
+  clip-path: none;
+  text-shadow:
+    0 1px 2px #000,
+    0 0 10px rgba(0, 0, 0, 0.9);
+}
+[data-style='cinema'] .scene-title {
+  border: 0;
+  background: transparent;
+  font-size: 42px;
+  font-weight: 300;
+  letter-spacing: 0.01em;
+  text-shadow: 0 2px 14px rgba(0, 0, 0, 0.9);
+  animation: none;
+}
+[data-style='cinema'] .wd {
+  animation: rise-soft 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+[data-style='cinema'] .wd.key {
+  color: #fff;
+  font-weight: 600;
+}
+[data-style='cinema'] .swipe i {
+  display: none;
+}
+[data-style='cinema'] .swipe {
+  background: #000;
+  animation: dip 900ms ease-in-out forwards;
+}
+[data-style='cinema'] .impact {
+  border: 0;
+  background: rgba(255, 255, 255, 0.12);
+}
+[data-style='cinema'] .log-head {
+  border-bottom: 1px solid #3a3d44;
+  background: transparent;
+  color: #e9e9e9;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+}
+[data-style='cinema'] .card {
+  background: #0d0e11;
+}
+[data-style='cinema'] .idx {
+  background: transparent !important;
+  color: var(--c) !important;
+  font-weight: 400;
+}
+[data-style='cinema'] .card h3 {
+  font-weight: 500;
+}
+[data-style='cinema'] .hud-bar {
+  bottom: 1.2%;
+  border-color: #24262b;
+}
+[data-style='cinema'] .rp-stats .stat {
+  border-top: 1px solid #fff;
+}
+[data-style='cinema'] .stat-n {
+  font-weight: 200;
+}
+[data-style='cinema'] .op-title {
+  font-weight: 200;
+  text-shadow: none;
+}
+
+/* --- 네온: 보라 바탕, 자홍·하늘 테두리 빛, 기운 굵은 글씨 --- */
+[data-style='neon'] {
+  --panel: #0f0522;
+  --line: #3b1d6e;
+  --mint: #22e1ff;
+  --pink: #ff3dcd;
+}
+[data-style='neon'] .bug > span {
+  margin-right: 8px;
+  border: 2px solid var(--c);
+  background: rgba(15, 5, 34, 0.85) !important;
+  color: #fff;
+  clip-path: none !important;
+  box-shadow:
+    0 0 10px var(--c),
+    inset 0 0 6px var(--c);
+  text-shadow: 0 0 8px var(--c);
+}
+[data-style='neon'] .bug-replay {
+  --c: #ff3dcd;
+}
+[data-style='neon'] .scene-kicker b {
+  border: 2px solid var(--c);
+  background: transparent;
+  color: var(--c);
+  box-shadow: 0 0 10px var(--c);
+}
+[data-style='neon'] .scene-kicker span {
+  background: #ff3dcd;
+  color: #fff;
+}
+[data-style='neon'] .scene-title {
+  border-left-color: var(--c);
+  background: rgba(15, 5, 34, 0.92);
+  font-style: italic;
+  box-shadow:
+    0 0 0 2px var(--c),
+    0 0 22px var(--c);
+}
+[data-style='neon'] .wd.key {
+  text-shadow: 0 0 12px var(--c);
+}
+[data-style='neon'] .swipe i:nth-child(1) {
+  background: linear-gradient(90deg, #ff3dcd, #22e1ff);
+}
+[data-style='neon'] .swipe i:nth-child(3) {
+  background: #0f0522;
+}
+[data-style='neon'] .log-head {
+  background: linear-gradient(90deg, #ff3dcd, #22e1ff);
+  color: #fff;
+}
+[data-style='neon'] .card {
+  border-color: #3b1d6e;
+  background: #170a33;
+}
+[data-style='neon'] .card:hover {
+  box-shadow: 0 0 12px var(--c);
+}
+[data-style='neon'] .idx {
+  box-shadow: 0 0 14px var(--c);
+}
+[data-style='neon'] .card.old {
+  background: #12072a;
+}
+[data-style='neon'] .buttons .play {
+  border-color: #ff3dcd;
+  background: #ff3dcd;
+  color: #fff;
+}
+[data-style='neon'] .rw-title {
+  text-shadow:
+    0 0 24px #ff3dcd,
+    0 6px 0 #0f0522;
+}
+[data-style='neon'] .stat {
+  border-top-color: #ff3dcd;
+  box-shadow: 0 0 16px rgba(255, 61, 205, 0.5);
+}
+[data-style='neon'] :deep(.replay-geo) {
+  border-color: #3b1d6e;
+  background: #170a33;
+}
+[data-style='neon'] :deep(.replay-geo .code),
+[data-style='neon'] :deep(.replay-geo .map) {
+  background-color: #0f0522;
+}
+
+/* --- 스위스(바우하우스): 종이색 판, 검은 글씨, 빨간 점, 원이 퍼지는 전환 --- */
+[data-style='swiss'] {
+  --panel: #f3efe6;
+  --line: #111;
+  --mint: #e63b2e;
+  --pink: #e63b2e;
+}
+[data-style='swiss'] .bug > span {
+  margin-right: 0;
+  clip-path: none !important;
+}
+[data-style='swiss'] .bug-replay {
+  background: #e63b2e !important;
+  color: #fff;
+  font-style: normal;
+}
+[data-style='swiss'] .bug-replay::before {
+  content: '';
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: #f3efe6;
+}
+[data-style='swiss'] .bug-count {
+  background: #f3efe6;
+  color: #111;
+}
+[data-style='swiss'] .bug-cat {
+  background: #111;
+  color: #f3efe6;
+}
+[data-style='swiss'] .scene-kicker b {
+  background: #111;
+  color: #f3efe6;
+}
+[data-style='swiss'] .scene-kicker span {
+  background: var(--c);
+  color: #111;
+  clip-path: none;
+}
+[data-style='swiss'] .scene-title {
+  border-left: 12px solid #e63b2e;
+  background: #f3efe6;
+  color: #111;
+  letter-spacing: -0.02em;
+}
+[data-style='swiss'] .wd.key {
+  color: #e63b2e;
+}
+[data-style='swiss'] .swipe i {
+  display: none;
+}
+[data-style='swiss'] .swipe::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  margin: -10px 0 0 -10px;
+  border-radius: 50%;
+  background: #e63b2e;
+  animation: iris 800ms cubic-bezier(0.7, 0, 0.25, 1) forwards;
+}
+[data-style='swiss'] .impact {
+  border-color: #e63b2e;
+  background: none;
+}
+[data-style='swiss'] .rp-side {
+  border-left: 4px solid #111;
+  color: #111;
+}
+[data-style='swiss'] .log-head {
+  background: #111;
+  color: #f3efe6;
+}
+[data-style='swiss'] .card {
+  border: 2px solid #111;
+  background: #fff;
+  color: #111;
+}
+/* 갈래 색 글씨는 종이 바탕에서 묻힌다(노랑·하늘). 색 칩으로 바꾼다. */
+[data-style='swiss'] .card .cat,
+[data-style='swiss'] :deep(.replay-geo .feature .kind) {
+  padding: 1px 6px;
+  background: var(--c);
+  color: #111;
+}
+[data-style='swiss'] .ttl-head .chg {
+  color: #8a5a00;
+}
+[data-style='swiss'] .card.old {
+  background: #ece7dc;
+}
+[data-style='swiss'] .card.old h3 {
+  color: #222;
+}
+[data-style='swiss'] .card.old .idx {
+  background: #111;
+  color: #f3efe6;
+}
+[data-style='swiss'] .card .time,
+[data-style='swiss'] .ttl-head,
+[data-style='swiss'] .line.subject,
+[data-style='swiss'] .line.none,
+[data-style='swiss'] .line.more {
+  color: #555;
+}
+[data-style='swiss'] .line.add,
+[data-style='swiss'] .ttl-head .add {
+  color: #1a7f37;
+}
+[data-style='swiss'] .line.del,
+[data-style='swiss'] .ttl-head .del {
+  color: #c62828;
+}
+[data-style='swiss'] .next {
+  border-color: #111;
+  color: #111;
+}
+[data-style='swiss'] .next-tag {
+  background: #111;
+  color: #fff;
+}
+[data-style='swiss'] .hud-bar {
+  border: 2px solid #111;
+  color: #111;
+}
+[data-style='swiss'] .buttons button {
+  border-color: #111;
+}
+[data-style='swiss'] .buttons .play,
+[data-style='swiss'] .styles button[aria-pressed='true'] {
+  border-color: #e63b2e;
+  background: #e63b2e;
+  color: #fff;
+}
+[data-style='swiss'] .speeds button[aria-pressed='true'] {
+  border-color: #111;
+  background: #111;
+  color: #fff;
+}
+[data-style='swiss'] .status {
+  color: #333;
+}
+[data-style='swiss'] .track {
+  background: #d6d0c4;
+}
+[data-style='swiss'] .hud-done {
+  border: 3px solid #111;
+  color: #111;
+}
+[data-style='swiss'] .done-head {
+  background: #111;
+  color: #f3efe6;
+}
+[data-style='swiss'] .stat {
+  border-top-color: #e63b2e;
+  background: #f3efe6;
+  color: #111;
+}
+[data-style='swiss'] .stat > span {
+  color: #555;
+}
+[data-style='swiss'] .rw-sub,
+[data-style='swiss'] .op-kicker {
+  background: #e63b2e;
+  color: #fff;
+}
+[data-style='swiss'] .op-sub {
+  border-left-color: #111;
+  background: #f3efe6;
+  color: #111;
+}
+[data-style='swiss'] :deep(.replay-geo) {
+  border: 2px solid #111;
+  border-top: 6px solid var(--c);
+  background: #fff;
+  color: #111;
+}
+[data-style='swiss'] :deep(.replay-geo .file),
+[data-style='swiss'] :deep(.replay-geo .feature .name) {
+  color: #111;
+}
+[data-style='swiss'] :deep(.replay-geo .code) {
+  background: #f7f4ee;
+}
+[data-style='swiss'] :deep(.replay-geo .k) {
+  color: #1f4fd1;
+}
+[data-style='swiss'] :deep(.replay-geo .s) {
+  color: #a45a00;
+}
+[data-style='swiss'] :deep(.replay-geo .n) {
+  color: #0b7a52;
+}
+[data-style='swiss'] :deep(.replay-geo .p),
+[data-style='swiss'] :deep(.replay-geo .others),
+[data-style='swiss'] :deep(.replay-geo .status) {
+  color: #555;
+}
+[data-style='swiss'] :deep(.replay-geo .n.hot) {
+  color: #111;
+  text-shadow: none;
+}
+[data-style='swiss'] :deep(.replay-geo .dv) {
+  background: #111;
+  color: #ffd166;
+}
+@keyframes rise-soft {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+@keyframes dip {
+  0% {
+    opacity: 0;
+  }
+  45% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes iris {
+  0% {
+    transform: scale(0);
+    opacity: 1;
+  }
+  55% {
+    transform: scale(140);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(140);
+    opacity: 0;
+  }
+}
+@keyframes plate {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes word {
+  from {
+    opacity: 0;
+    transform: translateY(65%) scale(0.85);
+  }
+}
+@keyframes swipe {
+  to {
+    left: 130%;
+  }
+}
+@keyframes tile {
+  from {
+    opacity: 0;
+    transform: translateY(-24px) scale(0.9);
+  }
+}
 @keyframes reveal {
   0%,
   49% {
@@ -933,15 +1602,23 @@ const summary = computed(() => {
   .rw-icon,
   .streaks i,
   .scene *,
-  .scene-title::after,
+  .scene-title,
+  .wd,
+  .op-kicker,
+  .op-sub,
+  .stat,
   .impact,
   .next-arrow,
   .hud-done {
     animation: none;
   }
   .impact,
-  .streaks {
+  .streaks,
+  .swipe {
     display: none;
+  }
+  .wd {
+    animation: none !important;
   }
 }
 </style>

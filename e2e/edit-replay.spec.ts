@@ -61,8 +61,13 @@ test('P 로 3D 위에서 되감고 하나씩 다시 하며, 앞뒤로 넘기고,
   expect([box.width, box.height]).toEqual([view.width, view.height])
   const total = Number(await hud.getAttribute('data-total'))
   expect(total).toBeGreaterThanOrEqual(3)
-  // 되감기: 이력이 0 까지 내려간다.
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/3d-0-rewind.png` })
+  // 오프닝(건물 이름·편집 수) 뒤 되감기: 이력이 0 까지 내려간다.
+  if (SHOTS) {
+    await page.waitForTimeout(700)
+    await page.screenshot({ path: `${SHOTS}/3d-0-opening.png` })
+    await expect(hud).not.toHaveAttribute('data-at', String(total), { timeout: 15_000 })
+    await page.screenshot({ path: `${SHOTS}/3d-0-rewind.png` })
+  }
   await expect(hud).toHaveAttribute('data-at', '0', { timeout: 15_000 })
   await expect(hud).toHaveAttribute('data-phase', 'play', { timeout: 15_000 })
   // 장면마다 다시 하기 한 번. 카드가 하나씩 쌓인다.
@@ -81,6 +86,24 @@ test('P 로 3D 위에서 되감고 하나씩 다시 하며, 앞뒤로 넘기고,
   // 앞뒤: 되돌리기·다시 하기 한 번씩이다.
   await page.keyboard.press('ArrowLeft')
   await expect(hud).toHaveAttribute('data-at', String(total - 1))
+  await page.keyboard.press('ArrowRight')
+  await expect(hud).toHaveAttribute('data-at', String(total))
+
+  // 연출 스타일: 고르면 화면 전체가 그 스타일로 바뀌고, 이 브라우저에 기억한다. 마지막 장면을 띄워 둔 채 스타일마다 찍는다.
+  await page.keyboard.press('ArrowLeft')
+  await expect(hud).toHaveAttribute('data-at', String(total - 1))
+  await page.waitForTimeout(1200)
+  for (const id of ['broadcast', 'cinema', 'neon', 'swiss']) {
+    await hud.locator(`.styles [data-style-id="${id}"]`).click()
+    await expect(hud).toHaveAttribute('data-style', id)
+    if (SHOTS) {
+      // 바꾸면 그 스타일의 장면 전환이 한 번 다시 돈다. 끝난 뒤를 찍는다.
+      await page.waitForTimeout(1300)
+      await page.screenshot({ path: `${SHOTS}/style-${id}.png` })
+    }
+  }
+  expect(await page.evaluate(() => localStorage.getItem('oe-replay-style'))).toBe('swiss')
+  await hud.locator('.styles [data-style-id="broadcast"]').click()
   await page.keyboard.press('ArrowRight')
   await expect(hud).toHaveAttribute('data-at', String(total))
 
