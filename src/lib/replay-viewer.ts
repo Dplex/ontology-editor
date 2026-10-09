@@ -589,7 +589,8 @@ export function createReplayFx(host: ReplayHost) {
     }
     const fade = Math.max(0, Math.min(1, (now - tagsFrom) / 400))
     for (const o of roomTags.children) {
-      o.visible = host.storeyShown(o) && fade > 0
+      // 겹쳐 숨긴 방 표시(declutter)는 숨긴 채로.
+      o.visible = host.storeyShown(o) && fade > 0 && !o.userData.cluttered
       const m = (o as Sprite).material
       if (m.opacity !== fade) {
         m.opacity = fade
@@ -717,7 +718,7 @@ export function createReplayFx(host: ReplayHost) {
     declutteredAt = now
     const tags: Sprite[] = []
     for (const s of spots) for (const o of s.group.children) if (o instanceof Sprite && o.userData.spot) tags.push(o)
-    if (!tags.length) return
+    if (!tags.length && !roomTags.children.length) return
     tags.sort((a, b) => ((a.userData.nth as number) ?? 0) - ((b.userData.nth as number) ?? 0))
     const view = host.renderer.domElement.getBoundingClientRect()
     const placed: Rect[] = [...document.querySelectorAll(AVOID)].map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height)
@@ -747,6 +748,22 @@ export function createReplayFx(host: ReplayHost) {
       if (tag.visible !== visible || tag.center.y !== cy) {
         tag.visible = visible
         tag.center.y = cy
+        changed = true
+      }
+    }
+    // 방 표시(밤 다이오라마의 이름·면적)도 겹치면 숨긴다. 장면 이름표 다음 차례이고, 바뀐 방(hot)이 먼저, 그다음은 받은 차례
+    // (넓은 방부터). 쌓아 올리지는 않는다 — 방 표시는 그 방 위에 있어야 뜻이 있다. 멀리서 건물 전체를 보면 큰 방 몇 개만 남는다.
+    const rooms = (roomTags.children as Sprite[]).filter((o) => host.storeyShown(o))
+    rooms.sort((a, b) => Number(!!b.userData.hot) - Number(!!a.userData.hot))
+    for (const tag of rooms) {
+      const at = host.toScreen(tag.getWorldPosition(tagAt))
+      const w = tag.scale.x * px
+      const h = tag.scale.y * px
+      const r = at ? { left: at.x - w / 2, right: at.x + w / 2, top: at.y - h, bottom: at.y } : null
+      const free = !!r && r.left >= view.left && r.right <= view.right && r.top >= view.top && !placed.some((p) => overlaps(p, r))
+      if (free) placed.push(r!)
+      if (!!tag.userData.cluttered === free) {
+        tag.userData.cluttered = !free
         changed = true
       }
     }
@@ -1227,6 +1244,7 @@ export function createReplayFx(host: ReplayHost) {
         sprite.position.set(x, y + 0.2, z)
         sprite.userData.baseY = y + 0.2
         sprite.userData.storeyId = t.storeyId
+        sprite.userData.hot = t.hot
         sprite.position.y += explodeAt(sprite.userData.baseY)
         roomTags.add(sprite)
       }
@@ -1358,7 +1376,7 @@ export function createReplayFx(host: ReplayHost) {
     /** 매 프레임. viewer.ts 의 tick 이 비행·미끄러짐·번쩍임 다음에 부른다. */
     step(now: number) {
       stepFx(now)
-      if (cinema && spots.length) declutter(now)
+      if (cinema && (spots.length || roomTags.children.length)) declutter(now)
       stepBuild(now)
       stepReveal(now)
       stepDiorama(now)
