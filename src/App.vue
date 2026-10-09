@@ -8938,9 +8938,9 @@ async function export3D(format: 'glb' | 'obj') {
                   <li v-for="c in fixCandidates" :key="c.id">
                     <b>{{ nameOfId(c.id) }}</b>
                     <span class="muted"> · {{ Math.round(c.distance * 1000) }}mm · {{ c.system ?? '계통 없음' }} · {{ mediaLabel(c.media) }}</span>
-                    <button type="button" class="ghost" data-testid="fix-connect" @click="connectCandidate(id, c.id)">잇기</button>
+                    <button type="button" class="ghost" data-testid="fix-connect" @click="connectCandidate(id, c.id)">연결하기</button>
                   </li>
-                  <li class="muted">잇으면 출처는 직접 이음, 방향은 정하지 않은 채입니다. 규칙 방향은 확정 전까지 추정으로만 보입니다.</li>
+                  <li class="muted">연결하면 출처는 직접 이음, 방향은 정하지 않은 채입니다. 규칙 방향은 확정 전까지 추정으로만 보입니다.</li>
                 </ul>
               </li>
             </ul>
