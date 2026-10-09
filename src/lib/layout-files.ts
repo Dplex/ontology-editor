@@ -60,12 +60,18 @@ export function newSince(now: readonly ReportSection[], before: readonly ReportS
 }
 
 /** 올릴 파일(GLB 빼고). 이름은 서버가 받는 이름이다(layouts.ts 의 validFile). `result` 는 반영 결과 리포트의 묶음이다. */
-export function layoutFiles(model: Model, edits: EditFile, result: ReportSection[] = groupReport([])): { name: string; text: string }[] {
+export function layoutFiles(
+  model: Model,
+  edits: EditFile,
+  result: ReportSection[] = groupReport([]),
+  /** 생성 리포트(B-2, OE-GEN-07·09). */
+  generation?: { no: number; title: string; lines: string[] }[],
+): { name: string; text: string }[] {
   return [
     { name: 'ontology.ttl', text: modelToTTL(model) },
     ...modelToGeoJSON(model).map((f) => ({ name: `geojson/${f.fileName.replace(/[/\\]/g, '_')}`, text: JSON.stringify(f.collection) })),
     { name: 'edits.json', text: JSON.stringify(edits) },
     { name: 'tree.json', text: JSON.stringify(spaceTree(model)) },
-    { name: 'report.json', text: JSON.stringify({ source: edits.source, savedAt: edits.savedAt, ...layoutSummary(model, edits), sections: result }) },
+    { name: 'report.json', text: JSON.stringify({ source: edits.source, savedAt: edits.savedAt, ...layoutSummary(model, edits), sections: result, ...(generation ? { generation } : {}) }) },
   ]
 }

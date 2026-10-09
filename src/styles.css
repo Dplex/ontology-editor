@@ -1298,6 +1298,32 @@ th {
   color: var(--accent);
 }
 
+/* 리포트(OE-GEN-07·08). */
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.generation {
+  font-size: 0.85rem;
+}
+
+.generation ul {
+  margin: 0.1rem 0 0.4rem;
+  padding-left: 1.1rem;
+}
+
+.req-class[data-class='A'],
+.req-class[data-class='B'] {
+  color: #b45309;
+}
+
+.req-class[data-class='C'] {
+  color: var(--accent);
+}
+
 /* 미리보기(OE-WF-07~09). 편집 막대 바로 아래. */
 .preview-panel {
   margin: 0.4rem 0;
