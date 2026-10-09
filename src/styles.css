@@ -3561,6 +3561,44 @@ main.has-model .catalog {
   top: 3.6rem;
 }
 
+/* 치수(OE-UI-08). 3D 는 칩, 평면도는 치수선. */
+.dim-chip {
+  position: absolute;
+  left: 50%;
+  bottom: 3.6rem;
+  z-index: 4;
+  margin: 0;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.8rem;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+/* 선 굵기·글자 테두리는 템플릿에서 unit(화면 1px 의 m)으로 준다. 여기서 px 로 주면 사용자 단위(m)로 읽혀 3m 짜리 테두리가 된다. */
+.floor-plan .dims {
+  pointer-events: none;
+}
+
+.floor-plan .dims .dim-line,
+.floor-plan .dims .dim-ext,
+.floor-plan .dims .dim-gap {
+  stroke: var(--accent);
+}
+
+.floor-plan .dims .dim-ext {
+  stroke-opacity: 0.6;
+}
+
+.floor-plan .dims .dim-text {
+  fill: var(--accent);
+  font-weight: 600;
+  paint-order: stroke;
+  stroke: var(--surface);
+}
+
 /* 그리드(OE-UI-07). 평면도 선은 가늘게, 그리기 막대의 켜기 칸. */
 .floor-plan .grid line {
   stroke: #8a93a3;

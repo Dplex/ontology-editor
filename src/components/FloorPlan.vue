@@ -37,6 +37,8 @@ const props = defineProps<{
   group?: readonly string[]
   /** 그리드 선(IFC x·y 값, OE-UI-07). null 이면 그리지 않는다. */
   grid?: { x: readonly number[]; y: readonly number[] } | null
+  /** 고른 벽의 치수(OE-UI-08). 중심선 치수선과 가까운 벽까지의 거리선. */
+  dimension?: { axis: { a: Vec2; b: Vec2 }; length: number; thickness: number | null; nearest: { from: Vec2; to: Vec2; distance: number } | null } | null
 }>()
 const emit = defineEmits<{
   /** `additive` 는 Ctrl(⌘)을 누른 채 누른 것(여러 개 고르기, OE-UI-09). */
@@ -214,6 +216,22 @@ const labels = computed(() =>
  * (성수 19개 층에 67쌍). 확대하면 들어가는 만큼 나타난다. 고른 방의 이름은 늘 보인다.
  */
 const fontSize = computed(() => unit.value * 11)
+
+/** 길이 치수선. 벽 위에 그리면 고른 벽 색에 묻히므로 벽 면에서 조금 띄운다 — 가까운 벽의 반대쪽으로. 양 끝은 벽 끝에서 내린 보조선. */
+const dimLine = computed(() => {
+  const d = props.dimension
+  if (!d) return null
+  const { a, b } = d.axis
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1
+  let n: Vec2 = [-(b[1] - a[1]) / len, (b[0] - a[0]) / len]
+  if (d.nearest) {
+    const toward = (d.nearest.to[0] - a[0]) * n[0] + (d.nearest.to[1] - a[1]) * n[1]
+    if (toward > 0) n = [-n[0], -n[1]]
+  }
+  const off = (d.thickness ?? 0) / 2 + unit.value * 16
+  const shift = (p: Vec2): Vec2 => [p[0] + n[0] * off, p[1] + n[1] * off]
+  return { a: shift(a), b: shift(b), mid: shift([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]), n }
+})
 const shownLabels = computed(() =>
   labels.value.filter((l) => l.id === spaceId.value || (l.em * fontSize.value <= l.w * 0.95 && fontSize.value * 1.2 <= l.h)),
 )
@@ -363,6 +381,47 @@ function pickVertical(event: MouseEvent, id: string) {
           :data-vertex="i"
           @pointerdown="startVertex($event, i)"
         />
+      </template>
+    </g>
+    <g v-if="dimension" class="dims" data-testid="plan-dims">
+      <template v-if="dimLine">
+        <line class="dim-ext" :x1="sx(dimension.axis.a[0])" :y1="sy(dimension.axis.a[1])" :x2="sx(dimLine.a[0])" :y2="sy(dimLine.a[1])" :stroke-width="unit" />
+        <line class="dim-ext" :x1="sx(dimension.axis.b[0])" :y1="sy(dimension.axis.b[1])" :x2="sx(dimLine.b[0])" :y2="sy(dimLine.b[1])" :stroke-width="unit" />
+        <line class="dim-line" :x1="sx(dimLine.a[0])" :y1="sy(dimLine.a[1])" :x2="sx(dimLine.b[0])" :y2="sy(dimLine.b[1])" :stroke-width="unit * 1.5" />
+      </template>
+      <text
+        v-if="dimLine"
+        class="dim-text"
+        :x="sx(dimLine.mid[0] + dimLine.n[0] * unit * 8)"
+        :y="sy(dimLine.mid[1] + dimLine.n[1] * unit * 8)"
+        :font-size="unit * 13"
+        :stroke-width="unit * 3"
+        :text-anchor="Math.abs(dimLine.n[0]) > 0.5 ? (dimLine.n[0] > 0 ? 'start' : 'end') : 'middle'"
+        dominant-baseline="middle"
+      >
+        {{ dimension.length.toFixed(2) }}m
+      </text>
+      <template v-if="dimension.nearest">
+        <line
+          class="dim-gap"
+          :x1="sx(dimension.nearest.from[0])"
+          :y1="sy(dimension.nearest.from[1])"
+          :x2="sx(dimension.nearest.to[0])"
+          :y2="sy(dimension.nearest.to[1])"
+          :stroke-width="unit * 1.2"
+          :stroke-dasharray="`${unit * 4} ${unit * 3}`"
+        />
+        <text
+          class="dim-text"
+          :x="sx((dimension.nearest.from[0] + dimension.nearest.to[0]) / 2)"
+          :y="sy((dimension.nearest.from[1] + dimension.nearest.to[1]) / 2)"
+          :font-size="unit * 12"
+          :stroke-width="unit * 3"
+          :dy="unit * 14"
+          text-anchor="middle"
+        >
+          {{ dimension.nearest.distance.toFixed(2) }}m
+        </text>
       </template>
     </g>
   </svg>

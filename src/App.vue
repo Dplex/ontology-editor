@@ -15,6 +15,7 @@ import PublishDialog from './components/PublishDialog.vue'
 import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
 import { previewSummary, summaryText } from './lib/preview'
 import { DEFAULT_GRID, gridLines, snapToGrid, type GridSettings } from './lib/grid'
+import { dimensionText, wallDimensions } from './lib/dimensions'
 import { customerReportHTML, generationReport, MISSING_LABEL, missingClass, sha256Hex, type ReportInput, type ReportSectionB } from './lib/build-report'
 import { ttlTriples } from './lib/export/read-export'
 import { readOntologyTTL } from './lib/export/read-ttl'
@@ -5942,6 +5943,14 @@ const selectedElement = computed(() => {
   }
   return null
 })
+// 치수 표시(OE-UI-08). 고른 벽의 길이·두께·높이와 가장 가까운 벽까지 거리. 모델에서 그때 재므로 옮기거나 길이를 바꾸면 함께 바뀐다.
+const wallDims = computed(() => {
+  void sceneVersion.value
+  const picked = selectedElement.value
+  if (!picked?.wall) return null
+  const d = wallDimensions(picked.storey, picked.wall)
+  return d ? { ...d, text: dimensionText(d), storeyId: picked.storey.id } : null
+})
 watch([showZones, model, sceneVersion], () => viewer?.setHvacZones(showZones.value ? model.value : null, null))
 watch([archMode, editing, model, sceneVersion, selectedElementId], () => {
   viewer?.setArchitecture(archMode.value && editing.value ? model.value : null, selectedElementId.value)
@@ -8526,6 +8535,7 @@ function rollbackFromReport() {
               :pick-walls="editing && archMode"
               :group="group"
               :grid="gridView && gridView.storeyId === planStorey.id ? { x: gridView.x, y: gridView.y } : null"
+              :dimension="wallDims && wallDims.storeyId === planStorey.id ? wallDims : null"
               @select="(id, additive) => (editing && additive ? toggleGroup(id) : select(id))"
               @select-box="addBoxToGroup"
               @pick-space="pickSpace"
@@ -8535,6 +8545,8 @@ function rollbackFromReport() {
             <p v-else-if="activeTab === 'plan'" class="plan-empty">
               평면도는 층 하나를 그립니다. 오른쪽 위에서 층을 고르세요.
             </p>
+            <!-- 치수(OE-UI-08). 고른 벽의 크기와 가까운 벽까지 거리. 평면도에는 치수선으로 그린다. -->
+            <p v-if="wallDims && activeTab === '3d' && !drawing" class="dim-chip" role="status" data-testid="dim-chip">{{ wallDims.text }}</p>
             <!-- 외곽선 그리기 중. 찍은 점 수와 마침·한 점 지우기·취소. -->
             <!-- 다중층 뷰에서는 위의 보기 범위 칸을 가리지 않게 한 줄 내린다 — 층간 배관을 그리다 범위를 넓힌다(OE-ML-12). -->
             <div v-if="drawing" class="draw-bar" :class="{ low: !!multiView }" role="status">
