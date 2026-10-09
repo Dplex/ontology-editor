@@ -10,7 +10,7 @@ const tab = (page: Page, name: '3D' | '평면도') => page.getByRole('group', { 
 const viewer = <T,>(page: Page, fn: string, ...args: unknown[]) =>
   page.evaluate(([f, a]) => (window as any).__viewer[f as string](...(a as unknown[])), [fn, args] as const) as Promise<T>
 
-test('병원 건축: 다중층 뷰는 범위의 층을 함께 그리고, 계단은 모든 층 조각이 한 오브젝트로 칠해지며, 다른 편집은 막고 층 편집으로 돌아간다', async ({ page }) => {
+test('병원 건축: 다중층 뷰는 범위의 층을 함께 그리고, 계단은 모든 층 조각이 한 오브젝트로 칠해지며, 다른 편집은 막고 층 편집으로 돌아간다 [OE-ML-01#1~,7~,8~]', async ({ page }) => {
   test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)
   const errors: string[] = []

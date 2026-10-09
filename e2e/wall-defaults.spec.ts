@@ -68,7 +68,7 @@ test('사이트 기본 두께로 새 벽을 긋고, 스냅 거리를 줄이면 �
   expect(errors).toEqual([])
 })
 
-test('사이트 기본 내벽 두께를 비우면 비운 채로 남고, 처음 값이 없던 때 저장된 설정은 0.15m 로 읽는다', async ({ page }) => {
+test('사이트 기본 내벽 두께를 비우면 비운 채로 남고, 처음 값이 없던 때 저장된 설정은 0.15m 로 읽는다 [OE-SPC-12#3]', async ({ page }) => {
   const open = async () => {
     await page.locator('.drop input[type=file]').setInputFiles(MEP)
     await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })

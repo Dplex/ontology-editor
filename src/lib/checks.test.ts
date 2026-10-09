@@ -94,7 +94,7 @@ describe('완전성 검사', () => {
     expect(failed(m)).toMatchObject({ 'heat-source-user': ['boiler'], 'hydronic-user-source': ['fcu'] })
   })
 
-  it('스프링클러 헤드는 소화(FP) 배관에 이어져야 한다 — 다른 계통 배관에만 이어지거나, 소화 계통에 들었어도 배관이 없으면 위반이다 (OE-EQP-11)', () => {
+  it('스프링클러 헤드는 소화(FP) 배관에 이어져야 한다 — 다른 계통 배관에만 이어지거나, 소화 계통에 들었어도 배관이 없으면 위반이다 (OE-EQP-11) [OE-EQP-11#2,3]', () => {
     const sys = (id: string, kind: string) => ({ id, name: id, memberIds: [], source: 'ifc' as const, kind })
     const pipe = (id: string, systemId: string | null) => ({ ...eq(id, null, 'segment', null), systemId })
     const head = (id: string, systemId: string | null = null) => ({ ...eq(id, 'sprinkler', 'terminal'), systemId })

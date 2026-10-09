@@ -17,7 +17,7 @@ async function drawRoom(page: Page, a: [number, number], b: [number, number]) {
   await clickAt(page, ...b)
 }
 
-test('룸을 그리고, 겹치거나 물리존 밖이면 막으며, 골라서 옮기고 크기를 바꾸고 지우면 Ctrl+Z 로 돌아온다', async ({ page }) => {
+test('룸을 그리고, 겹치거나 물리존 밖이면 막으며, 골라서 옮기고 크기를 바꾸고 지우면 Ctrl+Z 로 돌아온다 [OE-OBJ-03#1]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

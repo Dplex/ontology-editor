@@ -43,7 +43,7 @@ describe('룸', () => {
     expect(findRoom(m, r.id)!.room.footprint).toEqual(rectRing([1, 1], [4, 3]))
   })
 
-  it('다른 룸과 겹치게 만들거나 옮기면 막고 겹친 룸을 돌려주며, 변이 맞닿는 것은 된다', () => {
+  it('다른 룸과 겹치게 만들거나 옮기면 막고 겹친 룸을 돌려주며, 변이 맞닿는 것은 된다 [OE-OBJ-03#1]', () => {
     const m = model()
     const a = made(createRoom(m, 's', [1, 1], [4, 3]))
     expect(createRoom(m, 's', [3, 2], [6, 5])).toEqual({ refused: expect.stringContaining('이미 오브젝트가 있는 위치'), blocked: a.id })

@@ -22,7 +22,7 @@ const duct = (m: Model) => m.storeys[0].equipment.find((e) => e.name === 'DUCT-0
 const feature = (m: Model, id: string) => modelToGeoJSON(m).flatMap((f) => f.collection.features).find((f) => f.id === id)!
 
 describe('덕트·배관 경로 (OE-PIP-13)', () => {
-  it('형상이 없는 구간은 배치점이 있어도 경로를 만들지 않고, geometry 를 비우고 까닭을 적는다. 연결은 TTL 에 그대로다', () => {
+  it('형상이 없는 구간은 배치점이 있어도 경로를 만들지 않고, geometry 를 비우고 까닭을 적는다. 연결은 TTL 에 그대로다 [OE-PIP-13#2~,4]', () => {
     const m = read()
     const d = duct(m)
     expect(d.position).not.toBeNull()
@@ -36,7 +36,7 @@ describe('덕트·배관 경로 (OE-PIP-13)', () => {
     expect(modelToTTL(m)).toBe(ttl)
   })
 
-  it('두 끝이 있으면 LineString 이고, 통째로 옮긴 양과 끝을 옮긴 양(endShift)이 더해진다. 원본의 (0,0,0) 은 유효한 좌표다', () => {
+  it('두 끝이 있으면 LineString 이고, 통째로 옮긴 양과 끝을 옮긴 양(endShift)이 더해진다. 원본의 (0,0,0) 은 유효한 좌표다 [OE-PIP-13#1,3]', () => {
     const m = read()
     const d = duct(m)
     // 축은 배치점에서 잰 상대 좌표다. 경로가 (0,0,0)~(6,0,0) 이 되게 둔다.
@@ -59,7 +59,7 @@ describe('덕트·배관 경로 (OE-PIP-13)', () => {
     expect(readGeoJSON(out.fileName, JSON.stringify(out.collection)).problems).toEqual([])
   })
 
-  it('좌표 없음 · 수치 오류 · 길이 0 은 경로가 아니다', () => {
+  it('좌표 없음 · 수치 오류 · 길이 0 은 경로가 아니다 [OE-PIP-13#2~] [OE-PIP-10#4~]', () => {
     const seg = (x: Partial<Equipment>): Equipment => ({ id: 's', name: 's', ifcClass: 'DuctSegment', role: 'segment', position: [0, 0, 0], capacity: null, systemId: null, spaceId: null, spaceSource: null, ...x }) as Equipment
     expect(segmentPath(seg({ position: null, axis: [[0, 0, 0], [1, 0, 0]] }))).toEqual({ issue: 'no-position' })
     expect(segmentPath(seg({ axis: [[0, 0, 0], [Number.NaN, 0, 0]] }))).toEqual({ issue: 'invalid' })
@@ -68,7 +68,7 @@ describe('덕트·배관 경로 (OE-PIP-13)', () => {
     expect(segmentPath({ ...seg({}), role: 'fitting' })).toBeNull()
   })
 
-  it('경로를 쓸 수 없는 구간이 완전성 검사의 미반영 목록에 까닭과 원본 GlobalId 로 보인다', () => {
+  it('경로를 쓸 수 없는 구간이 완전성 검사의 미반영 목록에 까닭과 원본 GlobalId 로 보인다 [OE-PIP-13#2]', () => {
     const m = read()
     const check = completenessChecks(m, []).find((c) => c.key === 'conduit-path')!
     expect(check.total).toBe(1)

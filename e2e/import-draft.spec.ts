@@ -29,7 +29,7 @@ async function exportAll(page: Page, out: (name: string) => string): Promise<Rec
   return files
 }
 
-test('임포트 뒤 보정하고 탭을 닫았다가 같은 파일을 다시 열어 이어서 하면, 내보내는 TTL·GeoJSON 이 닫기 전과 같다', async ({ context }, info) => {
+test('임포트 뒤 보정하고 탭을 닫았다가 같은 파일을 다시 열어 이어서 하면, 내보내는 TTL·GeoJSON 이 닫기 전과 같다 [OE-WF-06#1]', async ({ context }, info) => {
   await context.addInitScript(() => {
     delete (window as any).showDirectoryPicker
   })

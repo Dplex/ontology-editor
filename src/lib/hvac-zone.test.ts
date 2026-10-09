@@ -38,7 +38,7 @@ const block = (ttl: string, id: string) => {
 }
 
 describe('수동 공조존 (OE-ZON-01·02)', () => {
-  it('물리존을 골라 만들면 고른 물리존이 담당이고 바닥은 합집합이며, 담당 설비가 공조존을 feeds 한다 — 계통도의 서비스 영역', () => {
+  it('물리존을 골라 만들면 고른 물리존이 담당이고 바닥은 합집합이며, 담당 설비가 공조존을 feeds 한다 — 계통도의 서비스 영역 [OE-ZON-01#1]', () => {
     const zone = createZoneFromSpaces(model, { spaceIds: [office().id, store], servedBy: [equip('AHU-1').id] })
     if (!zone || 'refused' in zone) throw new Error('zone')
     expect(zone).toMatchObject({ name: '공조존 1', storeyId: model.storeys[0].id, spaceIds: [office().id, store], source: 'edit' })
@@ -57,7 +57,7 @@ describe('수동 공조존 (OE-ZON-01·02)', () => {
     expect(readGeoJSON(floor.fileName, JSON.stringify(floor.collection)).problems).toEqual([])
   })
 
-  it('물리존 하나를 두 공조존으로 나눠 그리면 각 공조존이 그 물리존을 담당 물리존으로 가진다', () => {
+  it('물리존 하나를 두 공조존으로 나눠 그리면 각 공조존이 그 물리존을 담당 물리존으로 가진다 [OE-ZON-02#1]', () => {
     const east = createZoneFromOutline(model, model.storeys[0].id, { name: '외주', footprint: [[0, 0], [5, 0], [5, 8], [0, 8]] })
     const west = createZoneFromOutline(model, model.storeys[0].id, { name: '내주', footprint: [[5, 0], [10, 0], [10, 8], [5, 8]] })
     if (!east || 'refused' in east || !west || 'refused' in west) throw new Error('zones')
@@ -126,7 +126,7 @@ describe('공조존 검증과 담당 물리존 고치기 (OE-ZON-05 · OE-ZON-04
   const equip2 = (id: string) => model.storeys.flatMap((s) => s.equipment).find((e) => e.id === id)?.name ?? id
   const rule = (r: string) => zoneChecks(model, names).checks.find((c) => c.rule === r)!.items.map((x) => x.label)
 
-  it('공조존이 없는 층은 공백(Z-01)을 세지 않고, 만들면 담당 없는 물리존이 Z-01 이다. 공조존을 지우면 그 물리존이 Z-01 이 된다', () => {
+  it('공조존이 없는 층은 공백(Z-01)을 세지 않고, 만들면 담당 없는 물리존이 Z-01 이다. 공조존을 지우면 그 물리존이 Z-01 이 된다 [OE-ZON-04#1] [OE-ZON-05#1~]', () => {
     expect(zoneChecks(model, names).untouched).toEqual(['1F'])
     expect(rule('Z-01')).toEqual([])
     const zone = createZoneFromSpaces(model, { spaceIds: [office().id], servedBy: [equip('AHU-1').id] }) as HvacZone
@@ -138,7 +138,7 @@ describe('공조존 검증과 담당 물리존 고치기 (OE-ZON-05 · OE-ZON-04
     expect(zone.id).toBeTruthy()
   })
 
-  it('Z-02 두 공조존이 같은 영역을 담당, Z-04 담당 설비 없음, Z-05 토출구 없음, Z-06 실내기가 담당 물리존 밖', () => {
+  it('Z-02 두 공조존이 같은 영역을 담당, Z-04 담당 설비 없음, Z-05 토출구 없음, Z-06 실내기가 담당 물리존 밖 [OE-ZON-05#1~]', () => {
     const a = createZoneFromSpaces(model, { spaceIds: [office().id], name: '가', servedBy: [equip('AHU-1').id] }) as HvacZone
     createZoneFromOutline(model, model.storeys[0].id, { name: '나', footprint: [[1, 1], [4, 1], [4, 4], [1, 4]] })
     createZoneFromSpaces(model, { spaceIds: [store], name: '다' })
@@ -170,7 +170,7 @@ describe('공조존 검증과 담당 물리존 고치기 (OE-ZON-05 · OE-ZON-04
 })
 
 describe('물리존과 공조존은 N:M 이고, 서비스 영역은 공조존 기준이다 (OE-MAP-03 · OE-MAP-05)', () => {
-  it('물리존 하나를 공조존 둘이 담당하고, 공조존 하나가 물리존 여럿을 담당한다. TTL 에서 두 공조존 모두 그 물리존을 품는다', () => {
+  it('물리존 하나를 공조존 둘이 담당하고, 공조존 하나가 물리존 여럿을 담당한다. TTL 에서 두 공조존 모두 그 물리존을 품는다 [OE-MAP-03#1,2]', () => {
     const a = createZoneFromSpaces(model, { spaceIds: [office().id], name: '가' }) as HvacZone
     const b = createZoneFromSpaces(model, { spaceIds: [office().id, store], name: '나' }) as HvacZone
     expect(hvacZonesOf(model).filter((z) => z.spaceIds.includes(office().id)).map((z) => z.name)).toEqual(['가', '나'])
@@ -179,7 +179,7 @@ describe('물리존과 공조존은 N:M 이고, 서비스 영역은 공조존 �
     for (const z of [a, b]) expect(block(ttl, z.id)).toContain(`ex:${escapeLocalName(office().id)}`)
   })
 
-  it('물리존 이름을 바꿔도 담당 설비가 공급하는 공조존과 그 공조존이 품는 물리존은 그대로다', () => {
+  it('물리존 이름을 바꿔도 담당 설비가 공급하는 공조존과 그 공조존이 품는 물리존은 그대로다 [OE-MAP-05#1]', () => {
     const z = createZoneFromSpaces(model, { spaceIds: [office().id], servedBy: [equip('AHU-1').id] }) as HvacZone
     const feeds = (ttl: string) => block(ttl, equip('AHU-1').id).split('\n').filter((l) => l.includes('feeds')).join('\n')
     const before = modelToTTL(model)
@@ -195,7 +195,7 @@ describe('실내기의 담당 공조존 (OE-EQP-08 · Z-06)', () => {
   const names = { space: (id: string) => model.storeys.flatMap((s) => s.spaces).find((s) => s.id === id)?.longName ?? id, equipment: (id: string) => model.storeys.flatMap((s) => s.equipment).find((e) => e.id === id)?.name ?? id }
   const z06 = () => zoneChecks(model, names).checks.find((c) => c.rule === 'Z-06')!.items.map((x) => x.label)
 
-  it('공조존이 있는 층의 실내기에 담당 공조존이 없으면 Z-06 이고, 공조존이 없는 층은 세지 않는다', () => {
+  it('공조존이 있는 층의 실내기에 담당 공조존이 없으면 Z-06 이고, 공조존이 없는 층은 세지 않는다 [OE-ZON-05#1~] [OE-EQP-08#1~]', () => {
     equip('AHU-1').kind = 'indoor_unit'
     expect(z06()).toEqual([])
     const zone = createZoneFromSpaces(model, { spaceIds: [store] }) as HvacZone
@@ -261,7 +261,7 @@ describe('연결 기준 후보와 경고 (OE-MAP-02)', () => {
     c.inferred!.confirmed = true
   }
 
-  it('담당 설비에서 확정된 흐름으로 닿는 말단의 물리존만 후보이고, 규칙 방향을 확정하면 후보가 늘며 담당에서 빠진 방이 경고다', () => {
+  it('담당 설비에서 확정된 흐름으로 닿는 말단의 물리존만 후보이고, 규칙 방향을 확정하면 후보가 늘며 담당에서 빠진 방이 경고다 [OE-MAP-02#2,3]', () => {
     toStore()
     const a = createZoneFromSpaces(model, { spaceIds: [office().id], servedBy: [equip('AHU-1').id] }) as HvacZone
     expect(flowSpacesOfZones(model).get(a.id)).toEqual([office().id])
@@ -279,7 +279,7 @@ describe('연결 기준 후보와 경고 (OE-MAP-02)', () => {
     expect(rule()).toEqual([])
   })
 
-  it('담당 물리존에 담당 설비의 말단이 하나도 없으면 경고다. 말단을 담당 설비로 고르면 그 말단의 방이고, 흐름이 없는 설비는 기준을 쓰지 않는다', () => {
+  it('담당 물리존에 담당 설비의 말단이 하나도 없으면 경고다. 말단을 담당 설비로 고르면 그 말단의 방이고, 흐름이 없는 설비는 기준을 쓰지 않는다 [OE-MAP-02#3]', () => {
     const z = createZoneFromSpaces(model, { spaceIds: [store], servedBy: [equip('AHU-1').id] }) as HvacZone
     expect(rule()).toEqual(['공조존 1 — 담당 물리존에 말단 없음(말단: 사무실)'])
     setZoneServedBy(model, z.id, [equip('AT-101-01').id])
@@ -303,7 +303,7 @@ describe('설비에서 공조존 만들기 (OE-ZON-01)', () => {
 })
 
 describe('물리존을 나누고 합치고 지우면 공조존 담당이 따라간다 (OE-MAP-02)', () => {
-  it('물리존을 분할하면 두 조각 모두 원래 공조존의 담당 물리존이 되고, 되돌리면 돌아온다', () => {
+  it('물리존을 분할하면 두 조각 모두 원래 공조존의 담당 물리존이 되고, 되돌리면 돌아온다 [OE-MAP-02#1]', () => {
     const zone = createZoneFromSpaces(model, { spaceIds: [office().id] }) as HvacZone
     const snap = snapshotStoreySpaces(model, model.storeys[0].id)!
     const done = splitSpace(model, office().id, [5, -1], [5, 9])

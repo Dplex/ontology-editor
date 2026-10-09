@@ -17,6 +17,7 @@
     "e2e:seongsu": "playwright test -c playwright.seongsu.config.ts",
     "check:sample": "vitest run --config vitest.sample.config.ts",
     "check:seongsu": "vitest run --config vitest.sample.config.ts -t 성수",
+    "ac:coverage": "vitest run --config vitest.ac.config.ts",
     "preview": "vite preview",
     "fetch:sample": "node scripts/fetch-sample.mjs",
     "board": "node scripts/sync-board.mjs"

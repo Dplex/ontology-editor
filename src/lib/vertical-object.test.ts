@@ -20,7 +20,7 @@ function flight(z0: number, z1: number, steps = 10): Vec3[] {
 }
 
 describe('계단 오브젝트 (OE-ML-02)', () => {
-  it('시작 층에 형상·진입 지점, 끝 층에 종료 지점을 둔다 — 1층 진입과 2층 종료가 다른 자리다', () => {
+  it('시작 층에 형상·진입 지점, 끝 층에 종료 지점을 둔다 — 1층 진입과 2층 종료가 다른 자리다 [OE-ML-02#2~]', () => {
     const f1 = storey('1F', 0)
     const f2 = storey('2F', 4.5)
     // 난간을 뺀 위 끝은 위층 바닥보다 조금 낮다(병원 4.52 / 4.57).
@@ -61,7 +61,7 @@ describe('계단 오브젝트 (OE-ML-02)', () => {
     expect(made[1].part.footprint.length).toBeGreaterThanOrEqual(3)
   })
 
-  it('진입·종료 지점이 드는 물리존을 그때 짚고, 오브젝트는 두 물리존을 잇는다', () => {
+  it('진입·종료 지점이 드는 물리존을 그때 짚고, 오브젝트는 두 물리존을 잇는다 [OE-ML-02#1]', () => {
     const f1 = storey('1F', 0, [space('stair1', 'staircase', rect(-1, -1, 2, 2)), space('hall1', null, rect(-1, 2, 2, 6))])
     const f2 = storey('2F', 4.5, [space('stair2', 'staircase', rect(-1, 2, 2, 6))])
     for (const { storey: at, part } of stairParts({ id: 'st', name: '계단', points: flight(0, 4.45) }, f1, [f1, f2])!) at.verticalParts = [part]
@@ -78,7 +78,7 @@ describe('계단 오브젝트 (OE-ML-02)', () => {
     expect(explicitSpaceLinks(verticalObjects(m))).toEqual([])
   })
 
-  it('합치면 덧붙인 판본에만 있는 조각을 받고, 바탕에 있는 오브젝트는 두 번 넣지 않는다', () => {
+  it('합치면 덧붙인 판본에만 있는 조각을 받고, 바탕에 있는 오브젝트는 두 번 넣지 않는다 [OE-ML-02#5~]', () => {
     const part = (parentId: string) => ({ parentId, kind: 'stair' as const, name: parentId, source: 'bim' as const, footprint: [], entry: null, exit: null })
     const a = model([{ ...storey('1F', 0), verticalParts: [part('st')] }])
     const b = model([{ ...storey('1F', 0), verticalParts: [part('st'), part('other')] }, { ...storey('2F', 4), verticalParts: [part('st')] }])

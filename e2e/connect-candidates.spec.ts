@@ -7,7 +7,7 @@ const DUPLEX_HVAC = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-HVAC.ifc'
 const RULE = '공기·물이 흐르는 기기가 연결망에 붙어 있다'
 test.setTimeout(240_000)
 
-test('연결 후보를 확인하고 이으면 위반이 줄고 출처는 직접 이음이며, 되돌리기·다시 하기가 된다', async ({ page }) => {
+test('연결 후보를 확인하고 이으면 위반이 줄고 출처는 직접 이음이며, 되돌리기·다시 하기가 된다 [OE-PIP-08#2,4~,5]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX_HVAC), `${DUPLEX_HVAC} 이 없다(npm run fetch:sample)`)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -51,7 +51,7 @@ test('연결 후보를 확인하고 이으면 위반이 줄고 출처는 직접 
   expect(errors).toEqual([])
 })
 
-test('해제 보정한 BIM 연결로 끊긴 설비는 누락이 아니라 의도한 해제로 말하고, 그 상대를 후보로 권하지 않는다', async ({ page }) => {
+test('해제 보정한 BIM 연결로 끊긴 설비는 누락이 아니라 의도한 해제로 말하고, 그 상대를 후보로 권하지 않는다 [OE-PIP-08#3]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
