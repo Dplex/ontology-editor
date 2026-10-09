@@ -36,7 +36,8 @@ export function dataKeyPaths(root: string, key: string): string[] | null {
   return paths
 }
 
-export function savedEdits(root: string) {
+/** `onSaved` 는 저장한 뒤 부른다(시스템 로그). */
+export function savedEdits(root: string, onSaved?: (key: string) => void) {
   const dir = join(root, '.edits')
   const historyDir = join(dir, 'history')
   const idOf = (key: string) => createHash('sha1').update(key).digest('hex').slice(0, 16)
@@ -115,6 +116,7 @@ export function savedEdits(root: string) {
       try {
         const result = save(key, paths, Buffer.concat(chunks).toString('utf-8'))
         if (typeof result === 'string') return json(res, 400, { error: result })
+        onSaved?.(key)
         return json(res, 200, result)
       } catch (e) {
         return json(res, 500, { error: e instanceof Error ? e.message : String(e) })

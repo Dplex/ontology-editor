@@ -37,7 +37,7 @@ const list = async () => (await (await fetch(url({ key: KEY }))).json()) as { cu
 beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'layouts-'))
   writeFileSync(join(root, 'a.ifc'), 'ISO-10303-21;')
-  const handle = layouts(root, () => clock)
+  const handle = layouts(root, { now: () => clock })
   server = createServer((req, res) => {
     const [path, query] = (req.url ?? '').split('?')
     if (path === '/__layouts') handle(req, res, query ?? '')
