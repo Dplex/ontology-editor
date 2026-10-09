@@ -1298,6 +1298,50 @@ th {
   color: var(--accent);
 }
 
+/* 수용 기준선 판정(OE-BIM-21). 미달이면 경고색. */
+.grade-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.8rem;
+  margin: 0.5rem 0;
+  padding: 0.45rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 0.85rem;
+}
+
+.grade-banner.fail {
+  border-color: color-mix(in srgb, #d97706 55%, var(--line));
+  background: color-mix(in srgb, #d97706 8%, var(--surface));
+}
+
+.grade-table {
+  flex-basis: 100%;
+  overflow-x: auto;
+}
+
+.grade-rows {
+  margin: 0.3rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.82rem;
+}
+
+.grade-rows li {
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.grade-rows li.fail.gate > div:first-child {
+  color: #b45309;
+}
+
+.grade-line {
+  width: 3.6rem;
+}
+
 /* 새 레이아웃 배너(OE-WF-15). 새로고침 전까지 남는다. */
 .layout-banner {
   display: flex;

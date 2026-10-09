@@ -13,6 +13,7 @@ import ShortcutHelp from './components/ShortcutHelp.vue'
 import ExitEditDialog from './components/ExitEditDialog.vue'
 import PublishDialog from './components/PublishDialog.vue'
 import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
+import { DEFAULT_LINES, GATE, gradeReport, percent, TARGET, type GradeLines, type GradeReport } from './lib/grade'
 import HoverTip from './components/HoverTip.vue'
 import FloorPlan from './components/FloorPlan.vue'
 import Roll from './components/Roll.vue'
@@ -7823,6 +7824,46 @@ onBeforeUnmount(() => {
 })
 /** 첫 반영이면 [구축하기](v1), 아니면 [반영하기]. */
 const firstPublish = computed(() => !layoutState.value?.current)
+
+// --- 등급 판정·수용 기준선 (OE-REQ-04 · OE-BIM-21 · OE-GEN-02, ADR-0040) ---
+// D1·D12 제안안(lib/grade.ts). 게이트(등급 2) 미달이면 [구축하기] 를 끄고 재제출 항목을 보인다. 운영 편집의 [반영하기] 는 막지 않는다(이미 만든 온톨로지).
+// 기준값은 브라우저 설정이고 비우면 1.8 의 안이다. 편집마다 다시 재면 큰 파일에서 느려서, 편집이 멈춘 뒤 한 번 잰다.
+const gradeLines = ref<GradeLines>(
+  (() => {
+    try {
+      return { ...DEFAULT_LINES, ...(JSON.parse(localStorage.getItem('oe.gradeLines') ?? 'null') ?? {}) }
+    } catch {
+      return { ...DEFAULT_LINES }
+    }
+  })(),
+)
+watch(gradeLines, (v) => {
+  try {
+    localStorage.setItem('oe.gradeLines', JSON.stringify(v))
+  } catch {
+    // 못 남겨도 이번 창에서는 그대로다
+  }
+}, { deep: true })
+const grades = shallowRef<GradeReport | null>(null)
+let gradeTimer: number | undefined
+watch(
+  [model, changeCount, gradeLines],
+  () => {
+    window.clearTimeout(gradeTimer)
+    gradeTimer = window.setTimeout(() => (grades.value = model.value ? gradeReport(model.value, gradeLines.value) : null), grades.value ? 300 : 0)
+  },
+  { immediate: true, deep: true },
+)
+const gradesOpen = ref(false)
+/** [구축하기] 를 막는 이유(게이트 미달). 반영한 버전이 있으면(운영 편집) 막지 않는다. */
+const buildBlock = computed(() => {
+  const g = grades.value
+  if (!g || g.gate || (serverKey.value && !firstPublish.value)) return null
+  return `수용 기준선(게이트 등급 ${GATE}) 미달이라 구축하지 않습니다 — ${g.failing.map((r) => `등급 ${r.grade} ${r.label} ${percent(r.ratio)} < ${Math.round(r.line * 100)}%`).join(', ')}. 재제출 항목을 보세요`
+})
+function resetGradeLines() {
+  gradeLines.value = { ...DEFAULT_LINES }
+}
 const nextVersion = computed(() => Math.max(0, ...(layoutState.value?.versions.map((v) => v.version) ?? [])) + 1)
 const publishAsk = ref(false)
 const publishing = ref(false)
@@ -7843,6 +7884,7 @@ const publishFloors = computed(() => {
   return named.length ? named : m.storeys.map((st) => st.name)
 })
 function askPublish() {
+  if (buildBlock.value) return note(buildBlock.value)
   if (!serverKey.value) return void build()
   if (editBlock.value) return note(editBlock.value)
   publishAsk.value = true
@@ -8256,8 +8298,8 @@ function rollbackFromReport() {
             type="button"
             class="ghost primary-action"
             :class="{ done: justDone === 'build' }"
-            :disabled="busy || publishing"
-            :title="serverKey ? (firstPublish ? '처음 만든 온톨로지를 서버에 v1 로 둡니다' : '편집 내용을 DT 3D 맵과 온톨로지에 반영하고 새 버전을 만듭니다') : '온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)'"
+            :disabled="busy || publishing || !!buildBlock"
+            :title="buildBlock ?? (serverKey ? (firstPublish ? '처음 만든 온톨로지를 서버에 v1 로 둡니다' : '편집 내용을 DT 3D 맵과 온톨로지에 반영하고 새 버전을 만듭니다') : '온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)')"
             @click="askPublish"
           >
             {{ serverKey && !firstPublish ? '반영하기' : '구축하기' }}
@@ -10018,6 +10060,42 @@ function rollbackFromReport() {
         <section v-else key="overview" class="overview">
           <h3>이 파일</h3>
           <TierChips :tiers="currentTiers" />
+          <!-- 수용 기준선 판정(OE-BIM-21, D1·D12 제안안). 게이트(등급 2) 통과/미달과 목표선(등급 3). 미달이면 재제출 항목. 등급 칩 바로 아래 —
+             위쪽 막대에 두면 3D 가 밀린다. -->
+          <div v-if="grades" class="grade-banner" :class="{ fail: !grades.gate }" role="status" data-testid="grade-banner">
+            <span>
+              <b>수용 기준선</b> · 게이트(등급 {{ GATE }}) <b>{{ grades.gate ? '통과' : '미달' }}</b> · 목표선(등급 {{ TARGET }}) {{ grades.target ? '도달' : '미도달' }}
+              <span class="muted">(D1·D12 제안안)</span>
+              <template v-if="!grades.gate"> — 재제출: {{ grades.failing.map((r) => `등급 ${r.grade} ${r.label} ${percent(r.ratio)}`).join(' · ') }}</template>
+            </span>
+            <button type="button" class="link" :aria-expanded="gradesOpen" @click="gradesOpen = !gradesOpen">{{ gradesOpen ? '접기' : '등급 판정 보기' }}</button>
+            <div v-if="gradesOpen" class="grade-table" data-testid="grade-table">
+              <ul class="grade-rows">
+                <li v-for="r in grades.rows" :key="r.grade" :class="{ fail: !r.pass, gate: r.grade <= GATE }">
+                  <div>
+                    <b>{{ r.grade }} {{ r.label }}</b><span class="muted">{{ r.grade <= GATE ? ' · 게이트' : r.grade === TARGET ? ' · 목표선' : '' }}</span> —
+                    BIM {{ r.of ? `${r.have}/${r.of} · ` : '' }}{{ percent(r.ratio) }}<template v-if="r.withDictionary"> · 사전 포함 {{ percent(r.withDictionary.ratio) }}</template>
+                    · 통과선
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      class="grade-line"
+                      :value="Math.round(gradeLines[r.grade] * 100)"
+                      :aria-label="`등급 ${r.grade} 통과선(%)`"
+                      @change="gradeLines = { ...gradeLines, [r.grade]: Math.min(100, Math.max(0, Number(($event.target as HTMLInputElement).value))) / 100 }"
+                    />% · <b>{{ r.pass ? '통과' : r.grade <= GATE ? '미달' : '미달(경고)' }}</b>
+                  </div>
+                  <div class="muted">{{ r.measure }}<template v-if="!r.pass && r.grade <= GATE"> · 재제출: {{ r.resubmit }}</template></div>
+                </li>
+              </ul>
+              <p class="hint">
+                게이트(0~2)는 BIM·계산 수치로만 판정하고, 목표선(3·4)은 사전(이름 사전·흐름 규칙) 포함 수치를 같이 보입니다(D12 안). 통과선은 PRD 1.8 의 안(D1)이고 이 브라우저의
+                설정입니다. <button type="button" class="link" @click="resetGradeLines">기본값으로</button>
+              </p>
+            </div>
+          </div>
           <!-- 여는 중에는 숨긴다. 건축·설비를 같이 열면 설비를 읽는 동안 건축만 보여 "설비를 덧붙이라" 가 떴다. -->
           <div v-if="pairHint && canAppend && !busy" class="pair-hint">
             <p>{{ pairHint.text }}</p>
