@@ -25,22 +25,24 @@ const KEEP = 20
 
 type Saved = { key: string; paths: string[]; count: number; savedAt: string }
 
+/** 열쇠(연 파일의 data/ 상대 경로를 `|` 로 이은 것)가 data/ 안의 .ifc 들이면 그 경로들. 아니면 null(아무 이름이나 받아 디스크를 채우지 않게). */
+export function dataKeyPaths(root: string, key: string): string[] | null {
+  const paths = key.split('|')
+  if (!paths.length || paths.some((p) => !p || !p.toLowerCase().endsWith('.ifc'))) return null
+  for (const p of paths) {
+    const file = resolve(root, p)
+    if (!file.startsWith(root + sep) || !existsSync(file)) return null
+  }
+  return paths
+}
+
 export function savedEdits(root: string) {
   const dir = join(root, '.edits')
   const historyDir = join(dir, 'history')
   const idOf = (key: string) => createHash('sha1').update(key).digest('hex').slice(0, 16)
   const fileOf = (key: string) => join(dir, `${idOf(key)}.json`)
 
-  /** 열쇠가 data/ 안의 .ifc 들인가. 아니면 쓰지 않는다(아무 이름이나 받아 디스크를 채우지 않게). */
-  function valid(key: string): string[] | null {
-    const paths = key.split('|')
-    if (!paths.length || paths.some((p) => !p || !p.toLowerCase().endsWith('.ifc'))) return null
-    for (const p of paths) {
-      const file = resolve(root, p)
-      if (!file.startsWith(root + sep) || !existsSync(file)) return null
-    }
-    return paths
-  }
+  const valid = (key: string) => dataKeyPaths(root, key)
 
   function list(): Saved[] {
     if (!existsSync(dir)) return []

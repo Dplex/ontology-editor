@@ -5,7 +5,8 @@
 // 이 앱은 브라우저 안에서만 돈다. IFC 를 읽는 것도(web-ifc WASM) 내보내는 것도 브라우저가 한다.
 // 그래서 서버가 할 일은 넷이다. 파일을 내주고, 살아 있다고 답하고(/healthz), data/ 의 샘플 목록과
 // 등급 칩을 내주고(/__data/, dev 서버와 같은 src/server/data-catalog.ts 를 `npm run build:server` 로
-// 묶은 판), [편집 저장] 한 편집을 받아 둔다(PUT /__data/__edits, src/server/saved-edits.ts — 쓰기는 이것 하나).
+// 묶은 판), [편집 저장] 한 편집을 받아 두고(PUT /__data/__edits, src/server/saved-edits.ts), 반영한 레이아웃을 버전으로 둔다
+// (/__data/__layouts, src/server/layouts.ts — 쓰기는 이 둘).
 // 이 모듈은 dt 플랫폼과 따로라 정문(8000)은 거치지 않는다.
 //
 // 다섯째로 문서 챗봇(Alt+Shift+K)의 /__chat 이 있다(scripts/docs-chat.mjs, ADR-0001). 앱의 API 가 아니라 이 repo 의
@@ -67,8 +68,9 @@ const server = createServer((req, res) => {
     return
   }
 
-  // 쓰기는 8084 에 남기는 편집(/__data/__edits, src/server/saved-edits.ts) 하나뿐이다. 나머지는 읽기만 받는다.
-  const writable = req.method === 'PUT' && path === '/__data/__edits'
+  // 쓰기는 8084 에 남기는 편집(/__data/__edits, src/server/saved-edits.ts)과 반영 버전(/__data/__layouts, src/server/layouts.ts)뿐이다.
+  // 나머지는 읽기만 받는다.
+  const writable = (req.method === 'PUT' && path === '/__data/__edits') || ((req.method === 'PUT' || req.method === 'POST') && path === '/__data/__layouts')
   if (req.method !== 'GET' && req.method !== 'HEAD' && !writable) {
     res.writeHead(405, { Allow: 'GET, HEAD' }).end()
     return done(405)

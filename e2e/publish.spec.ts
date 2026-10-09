@@ -1,0 +1,123 @@
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { expect, test, type Page } from '@playwright/test'
+import { layouts } from '../src/server/layouts'
+
+// [구축하기]·[반영하기]·버전 히스토리·되돌리기(OE-WF-10~13·18·19, OE-GEN-05, ADR-0037). e2e 서버는 data/ 목록을 붙이지 않아서 목록·IFC 는
+// 흉내 내고, 반영 요청(/__data/__layouts)은 진짜 src/server/layouts.ts 를 임시 폴더에 띄워 넘긴다 — 화면이 올린 파일이 서버에 그대로 남는지까지 본다.
+const MEP = readFileSync('src/lib/ifc/fixtures/mep.ifc')
+const PATH = '현장/mep.ifc'
+const profile = { profile: { schema: 'IFC4', storeys: 1, spaces: 1, devices: 5, conduits: 0, systems: 0, connections: 0, tiers: [], needsArchitecture: false, needsEquipment: false } }
+
+let root: string
+let server: Server
+let base: string
+test.beforeAll(async () => {
+  root = mkdtempSync(join(tmpdir(), 'publish-e2e-'))
+  mkdirSync(join(root, '현장'))
+  writeFileSync(join(root, PATH), MEP)
+  const handle = layouts(root)
+  server = createServer((req, res) => handle(req, res, (req.url ?? '').split('?')[1] ?? ''))
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+  const addr = server.address()
+  base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
+})
+test.afterAll(() => {
+  server.close()
+  rmSync(root, { recursive: true, force: true })
+})
+
+async function serve(page: Page) {
+  await page.route('**/__data/**', async (route) => {
+    const url = new URL(route.request().url())
+    const path = decodeURIComponent(url.pathname.replace(/^\/__data\/?/, ''))
+    if (path === '__layouts') return route.fulfill({ response: await route.fetch({ url: `${base}/?${url.searchParams}` }) })
+    if (path === '__edits') return route.fulfill(url.searchParams.get('key') ? { status: 404, json: { error: '저장본이 없습니다' } } : { json: [] })
+    if (!path) return route.fulfill({ json: [{ path: PATH, size: MEP.length }] })
+    if (path !== PATH) return route.fulfill({ status: 404 })
+    if (url.search === '?profile') return route.fulfill({ json: profile })
+    return route.fulfill({ body: MEP, contentType: 'application/octet-stream' })
+  })
+}
+const light = (page: Page) => page.locator('.equipment tbody tr', { hasText: 'LIGHT-101-01' }).last().locator('.coord').first()
+async function editLight(page: Page, x: string) {
+  const on = page.getByRole('group', { name: '설비 편집 면' }).getByRole('button', { name: '천장' })
+  if ((await on.getAttribute('aria-pressed')) !== 'true') {
+    await page.locator('body').click({ position: { x: 5, y: 5 } })
+    await page.keyboard.press('t')
+  }
+  await light(page).fill(x)
+  await light(page).press('Enter')
+}
+const fromServer = async (q: Record<string, string>) => (await fetch(`${base}/?${new URLSearchParams({ key: PATH, ...q })}`)).text()
+
+test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리기는 v1 을 v3 으로 다시 반영한다. 버전마다 반영자·대상 층·파일이 남는다 [OE-GEN-05#1] [OE-WF-10#2] [OE-WF-11#1~] [OE-WF-13#1~] [OE-WF-18#1] [OE-WF-19#1] [OE-GEN-09#1]', async ({ page }) => {
+  test.setTimeout(120_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await serve(page)
+  await page.goto('/')
+  await page.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const bar = page.locator('.edit-bar')
+  // 아직 반영한 버전이 없어 [구축하기] 다.
+  await expect(bar.getByRole('button', { name: '구축하기' })).toBeVisible()
+  await editLight(page, '7.5')
+
+  // 확인 창: [취소] 하면 아무것도 반영하지 않는다.
+  await bar.getByRole('button', { name: '구축하기' }).click()
+  const dialog = page.locator('dialog.publish-dialog')
+  await dialog.getByRole('button', { name: '취소' }).click()
+  await expect(dialog).not.toBeVisible()
+  expect(JSON.parse(await fromServer({}))).toEqual({ current: null, versions: [] })
+  // 다시 열어 대상 층·바뀐 것·반영자.
+  await bar.getByRole('button', { name: '구축하기' }).click()
+  await expect(dialog.getByRole('heading')).toHaveText('구축하기 — v1')
+  await expect(dialog.getByTestId('publish-summary')).toContainText('대상 층: 1F')
+  await expect(dialog.getByTestId('publish-summary')).toContainText('편집 1건')
+  await dialog.getByLabel('반영자').fill('정희록')
+  if (process.env.SHOT_DIALOG) await page.screenshot({ path: process.env.SHOT_DIALOG })
+  await dialog.getByRole('button', { name: '구축하기' }).click()
+  await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다(1F)', { timeout: 30_000 })
+  await expect(dialog).not.toBeVisible()
+  // 이제 [반영하기] 다.
+  await expect(bar.getByRole('button', { name: '반영하기' })).toBeVisible()
+  const meta = JSON.parse(await fromServer({}))
+  expect(meta.current).toBe(1)
+  expect(meta.versions[0]).toMatchObject({ version: 1, by: '정희록', floors: ['1F'], kind: 'publish', summary: { edits: 1 } })
+  expect(meta.versions[0].files).toEqual(expect.arrayContaining(['ontology.ttl', 'edits.json', 'tree.json', 'report.json', 'model.glb']))
+  expect(meta.versions[0].files.some((f: string) => f.startsWith('geojson/'))).toBe(true)
+  const v1ttl = await fromServer({ v: '1', file: 'ontology.ttl' })
+  expect(v1ttl).toContain('brick:')
+  expect(JSON.parse(await fromServer({ v: '1', file: 'edits.json' })).equipment).toHaveLength(1)
+  // 버전에서 리포트를 연다(OE-GEN-09).
+  await expect(page.getByTestId('versions').getByRole('link', { name: 'report.json' })).toHaveCount(1)
+  expect(JSON.parse(await fromServer({ v: '1', file: 'report.json' }))).toMatchObject({ edits: 1 })
+
+  // 다시 고치고 반영하면 v2. 반영자는 기억한다.
+  await editLight(page, '8')
+  await bar.getByRole('button', { name: '반영하기' }).click()
+  await expect(dialog.getByRole('heading')).toHaveText('반영하기 — v2')
+  await expect(dialog.getByLabel('반영자')).toHaveValue('정희록')
+  await dialog.getByRole('button', { name: '반영하기' }).click()
+  await expect(page.locator('.key-note')).toContainText('v2 으로 반영했습니다', { timeout: 30_000 })
+
+  // 버전 히스토리: 지금은 v2. v1 을 되돌리면 v3 이 되고 v1 의 파일과 같다.
+  const versions = page.getByTestId('versions')
+  await expect(versions.locator('tbody tr')).toHaveCount(2)
+  await expect(versions.locator('tr.current')).toContainText('v2')
+  const v1row = versions.locator('tbody tr', { hasText: 'v1' })
+  await v1row.getByRole('button', { name: '되돌리기' }).click()
+  await v1row.getByRole('button', { name: 'v1 다시 반영' }).click()
+  await expect(page.locator('.key-note')).toContainText('v1 의 레이아웃을 v3 으로 다시 반영했습니다')
+  await expect(versions.locator('tr.current')).toContainText('v1 되돌리기')
+  expect(await fromServer({ v: '3', file: 'ontology.ttl' })).toBe(v1ttl)
+  if (process.env.SHOT) {
+    await versions.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: process.env.SHOT })
+  }
+  expect(errors).toEqual([])
+})

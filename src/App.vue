@@ -11,6 +11,8 @@ import type { CustomZone, HvacZone } from './lib/model'
 import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import ExitEditDialog from './components/ExitEditDialog.vue'
+import PublishDialog from './components/PublishDialog.vue'
+import { layoutFiles, layoutSummary } from './lib/layout-files'
 import HoverTip from './components/HoverTip.vue'
 import FloorPlan from './components/FloorPlan.vue'
 import Roll from './components/Roll.vue'
@@ -7420,19 +7422,14 @@ function exportTTLDone() {
  * 버튼을 막고, 여는 때와 같은 진행 막대에 단계를 보인다. OBJ 는 꼭짓점 수로 막대가 차고, GLB 는 흐르기만 한다.
  */
 const exporting3d = ref<'glb' | 'obj' | null>(null)
-async function export3D(format: 'glb' | 'obj') {
-  if (!model.value || exporting3d.value || progress.value) return
-  exporting3d.value = format
-  beginProgress('형상 넘기는 중')
-  // 형상을 워커로 복사하는 동안 화면이 잠깐 멈춘다. 막대가 먼저 보이게 한 번 그린다.
-  await paint()
-  // 합쳐 연 파일은 이름이 "건축.ifc + 기계.ifc" 다. 확장자를 떼고 + 로 잇는다.
-  const stem = fileName.value.split(' + ').map((n) => n.replace(/\.[^.]+$/, '')).join('+') || 'model'
-  // 워커에서 만든다(lib/export/mesh3d.worker.ts). 화면 스레드로 만들면 성수에서 3~4초씩 멈췄다.
-  // 한 번 쓰고 닫는다 — 워커가 든 장면(수백 MB)이 남지 않게.
+/**
+ * 3D 형상을 워커에서 만든다(lib/export/mesh3d.worker.ts). 화면 스레드로 만들면 성수에서 3~4초씩 멈췄다. 한 번 쓰고 닫는다 — 워커가 든
+ * 장면(수백 MB)이 남지 않게. 진행 막대는 부르는 쪽이 연다.
+ */
+async function makeMesh3D(format: 'glb' | 'obj'): Promise<ArrayBuffer[]> {
   const worker = new Worker(new URL('./lib/export/mesh3d.worker.ts', import.meta.url), { type: 'module' })
   try {
-    const parts = await new Promise<ArrayBuffer[]>((resolve, reject) => {
+    return await new Promise<ArrayBuffer[]>((resolve, reject) => {
       worker.onmessage = (e: MessageEvent<Mesh3dReply>) => {
         const d = e.data
         if (d.type === 'progress') progress.value = { label: d.stage, step: d.step, steps: d.steps, done: d.done, total: d.total, unit: 'items' }
@@ -7443,6 +7440,20 @@ async function export3D(format: 'glb' | 'obj') {
       const request: Mesh3dRequest = { format, model: model.value!, pristine, meshes: [...meshes] }
       worker.postMessage(request)
     })
+  } finally {
+    worker.terminate()
+  }
+}
+async function export3D(format: 'glb' | 'obj') {
+  if (!model.value || exporting3d.value || progress.value) return
+  exporting3d.value = format
+  beginProgress('형상 넘기는 중')
+  // 형상을 워커로 복사하는 동안 화면이 잠깐 멈춘다. 막대가 먼저 보이게 한 번 그린다.
+  await paint()
+  // 합쳐 연 파일은 이름이 "건축.ifc + 기계.ifc" 다. 확장자를 떼고 + 로 잇는다.
+  const stem = fileName.value.split(' + ').map((n) => n.replace(/\.[^.]+$/, '')).join('+') || 'model'
+  try {
+    const parts = await makeMesh3D(format)
     const name = `${stem}.${format}`
     download(name, parts, format === 'glb' ? 'model/gltf-binary' : 'model/obj')
     // 막대가 닫히면 끝났는지 알 길이 브라우저 받기 표시뿐이다. 이름과 크기를 남긴다(성수 OBJ 는 683MB 다).
@@ -7451,11 +7462,114 @@ async function export3D(format: 'glb' | 'obj') {
   } catch (e) {
     note(`3D 내보내기에 실패했습니다: ${(e as Error).message}`)
   } finally {
-    worker.terminate()
     exporting3d.value = null
     endProgress()
   }
 }
+
+// --- 반영하기·버전 (OE-WF-10~13·18~20, OE-GEN-05, ADR-0037, server/layouts.ts) ------------------------------------
+// data/ 에서 연 건물은 [구축하기](첫 반영 = v1)·[반영하기] 가 서버에 새 버전을 만든다. 반영된 것은 서버의 현재 버전 폴더다(DT·온톨로지 대신).
+// 손으로 연 파일은 서버 열쇠가 없어 예전처럼 두 파일을 내려받는다.
+
+type LayoutVersion = { version: number; at: string; by: string; floors: string[]; summary: { edits?: number }; kind: 'publish' | 'rollback'; from?: number; files: string[] }
+const layoutState = ref<{ current: number | null; versions: LayoutVersion[] } | null>(null)
+const layoutsUrl = (q: Record<string, string>) => `./__data/__layouts?${new URLSearchParams(q)}`
+async function refreshLayouts() {
+  const key = serverKey.value
+  if (!key) return void (layoutState.value = null)
+  try {
+    const r = await fetch(layoutsUrl({ key }))
+    if (key === serverKey.value) layoutState.value = r.ok ? await r.json() : null
+  } catch {
+    layoutState.value = null
+  }
+}
+watch(serverKey, () => void refreshLayouts(), { immediate: true })
+/** 첫 반영이면 [구축하기](v1), 아니면 [반영하기]. */
+const firstPublish = computed(() => !layoutState.value?.current)
+const nextVersion = computed(() => Math.max(0, ...(layoutState.value?.versions.map((v) => v.version) ?? [])) + 1)
+const publishAsk = ref(false)
+const publishing = ref(false)
+/** 반영자. 브라우저가 기억한다. */
+const publisher = ref((() => {
+  try {
+    return localStorage.getItem('oe.publisher') ?? ''
+  } catch {
+    return ''
+  }
+})())
+/** 반영 대상 층: 바뀐 것이 있는 층. 층이 없는 편집(계통 등)뿐이면 모든 층이다. */
+const publishFloors = computed(() => {
+  const m = model.value
+  if (!m) return []
+  const dirty = new Set(dirtyKeys(currentParts()))
+  const named = m.storeys.filter((st) => dirty.has(st.id)).map((st) => st.name)
+  return named.length ? named : m.storeys.map((st) => st.name)
+})
+function askPublish() {
+  if (!serverKey.value) return void build()
+  publishAsk.value = true
+}
+async function publishLayout(by: string) {
+  const m = model.value
+  const key = serverKey.value
+  if (!m || !key || !baseline.value || publishing.value) return
+  publishing.value = true
+  try {
+    localStorage.setItem('oe.publisher', by)
+  } catch {
+    // 못 남겨도 다음에 다시 친다
+  }
+  publisher.value = by
+  const label = firstPublish.value ? '구축' : '반영'
+  beginProgress(`${label}할 파일 만드는 중`)
+  await paint()
+  try {
+    const edits = exportEdits(m, baseline.value, fileName.value)
+    const stage = Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => b.toString(16).padStart(2, '0')).join('')
+    const put = async (name: string, body: BodyInit) => {
+      const r = await fetch(layoutsUrl({ key, stage, file: name }), { method: 'PUT', body })
+      if (!r.ok) throw new Error(`${name} 을 올리지 못했습니다(HTTP ${r.status})`)
+    }
+    for (const f of layoutFiles(m, edits)) await put(f.name, f.text)
+    await put('model.glb', new Blob(await makeMesh3D('glb')))
+    const r = await fetch(layoutsUrl({ key, stage, publish: '' }), {
+      method: 'POST',
+      body: JSON.stringify({ by, floors: publishFloors.value, summary: layoutSummary(m, edits) }),
+    })
+    const body = await r.json()
+    if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`)
+    // 반영이 PoC 의 저장이다. 끝낼 때 다시 묻지 않고 임시 저장본도 지운다.
+    committed()
+    publishAsk.value = false
+    await refreshLayouts()
+    markDone('build')
+    // 앞서 남은 편집 경고(천장 모드 안내 등)가 결과 줄을 가리지 않게 지운다.
+    editNotice.value = ''
+    note(`v${body.version} 으로 ${label}했습니다(${body.floors.join(' · ')}). 다른 사람은 새로고침하면 이 레이아웃을 받습니다`)
+  } catch (e) {
+    editNotice.value = ''
+    note(`${label}하지 못했습니다: ${(e as Error).message}. 지금 반영된 버전은 그대로입니다`)
+  } finally {
+    publishing.value = false
+    endProgress()
+  }
+}
+/** 되돌리기 확인 중인 버전. */
+const rollbackAsk = ref<number | null>(null)
+async function rollbackLayout(version: number) {
+  const key = serverKey.value
+  if (!key || !publisher.value.trim()) return note('반영자를 먼저 넣으세요(반영하기 창에서 한 번 넣으면 기억합니다)')
+  const r = await fetch(layoutsUrl({ key, rollback: String(version) }), { method: 'POST', body: JSON.stringify({ by: publisher.value }) })
+  const body = await r.json().catch(() => ({}))
+  rollbackAsk.value = null
+  editNotice.value = ''
+  if (!r.ok) return note(`되돌리지 못했습니다: ${body.error ?? `HTTP ${r.status}`}`)
+  await refreshLayouts()
+  note(`v${version} 의 레이아웃을 v${body.version} 으로 다시 반영했습니다. 지금 화면의 편집은 그대로입니다`)
+}
+const versionTime = (at: string) => new Date(at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.value ?? '', v: String(v), file })
 </script>
 
 <template>
@@ -7696,9 +7810,18 @@ async function export3D(format: 'glb' | 'obj') {
           </button>
           <button v-if="serverKey" type="button" class="ghost" title="8084 에 두지 않고 편집 파일(JSON)로만 내려받습니다" @click="saveEdits(true)">파일로</button>
           <button type="button" class="ghost" title="웹에 반영하지 않고 이 층의 편집을 이 브라우저에 남깁니다. 층마다 하나이고, 이 층에 다시 들어오면 이어서 편집합니다" @click="keepDraft()">임시 저장</button>
-          <!-- PRD #9 의 액션바. 초기 구축 모드라 "반영하기" 대신 "구축하기"(두 파일 내보내기)다 — 운영 DT 에 반영하는 길은 D10 이 열려 있다. -->
+          <!-- PRD #9 의 액션바. data/ 에서 연 건물은 첫 반영이 [구축하기](v1), 그다음은 [반영하기] 다(서버 버전, ADR-0037). 손으로 연 파일은 두 파일 내보내기. -->
           <button type="button" class="ghost" title="반영 전에 바뀐 내용(소속·경계·이름·방향)을 봅니다" @click="previewChanges">미리보기</button>
-          <button type="button" class="ghost primary-action" :class="{ done: justDone === 'build' }" :disabled="busy" title="온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)" @click="build">구축하기</button>
+          <button
+            type="button"
+            class="ghost primary-action"
+            :class="{ done: justDone === 'build' }"
+            :disabled="busy || publishing"
+            :title="serverKey ? (firstPublish ? '처음 만든 온톨로지를 서버에 v1 로 둡니다' : '편집 내용을 DT 3D 맵과 온톨로지에 반영하고 새 버전을 만듭니다') : '온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)'"
+            @click="askPublish"
+          >
+            {{ serverKey && !firstPublish ? '반영하기' : '구축하기' }}
+          </button>
           <button type="button" class="ghost" title="보기 모드로 돌아갑니다. 저장하지 않은 편집이 있으면 먼저 묻습니다" @click="leaveEdit()">편집 종료</button>
         </div>
       </div>
@@ -10659,6 +10782,37 @@ async function export3D(format: 'glb' | 'obj') {
             </p>
           </Fold>
 
+          <!-- 버전 히스토리(OE-WF-18~20). 최근 7일의 반영 버전과 지금 버전. 되돌리기는 옛 버전을 새 버전으로 다시 반영한다. -->
+          <Fold v-if="serverKey && layoutState?.versions.length" title="버전 히스토리" :meta="`지금 v${layoutState.current}`" class="versions" data-testid="versions">
+            <table class="versions-table">
+              <thead>
+                <tr><th>버전</th><th>반영</th><th>반영자</th><th>대상 층</th><th>바뀐 것</th><th>파일</th><th></th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="v in layoutState.versions" :key="v.version" :class="{ current: v.version === layoutState.current }">
+                  <td><b>v{{ v.version }}</b> <span v-if="v.version === layoutState.current" class="muted">지금</span></td>
+                  <td>{{ versionTime(v.at) }}{{ v.kind === 'rollback' ? ` · v${v.from} 되돌리기` : '' }}</td>
+                  <td>{{ v.by }}</td>
+                  <td>{{ v.floors.join(' · ') }}</td>
+                  <td>{{ v.summary.edits ?? 0 }}건</td>
+                  <td class="version-files">
+                    <a v-for="f in v.files" :key="f" :href="versionFileUrl(v.version, f)" :download="f.split('/').at(-1)" class="link">{{ f.replace('geojson/', '') }}</a>
+                  </td>
+                  <td>
+                    <template v-if="v.version !== layoutState.current">
+                      <template v-if="rollbackAsk === v.version">
+                        <button type="button" class="ghost danger" @click="rollbackLayout(v.version)">v{{ v.version }} 다시 반영</button>
+                        <button type="button" class="ghost" @click="rollbackAsk = null">취소</button>
+                      </template>
+                      <button v-else type="button" class="ghost" @click="rollbackAsk = v.version">되돌리기</button>
+                    </template>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="hint">최근 {{ 7 }}일의 반영만 보입니다. 지난 버전은 파일만 서버에 남습니다. 되돌리기는 그 버전을 새 버전으로 다시 반영하고, 지금 화면의 편집은 그대로 둡니다.</p>
+          </Fold>
+
           <template v-if="editing || changeCount > 0">
           <div class="changes-head">
             <h3 id="changes">바뀐 내용</h3>
@@ -10822,6 +10976,17 @@ async function export3D(format: 'glb' | 'obj') {
       </section>
     </template>
     <ShortcutHelp :open="helpOpen" :editing="editing" @close="helpOpen = false" />
+    <PublishDialog
+      :open="publishAsk"
+      :first="firstPublish"
+      :next="nextVersion"
+      :floors="publishFloors"
+      :edits="changeCount"
+      :busy="publishing"
+      :by="publisher"
+      @publish="publishLayout"
+      @cancel="publishAsk = false"
+    />
     <ExitEditDialog :open="!!exitAsk" :count="exitAsk?.count ?? 0" :server="!!serverKey" :floor="exitAsk?.floor ? { from: floorName(exitAsk.floor.from), to: floorName(exitAsk.floor.to) } : null" @commit="exitCommitting" @save="exitSaving" @discard="exitDiscarding" @cancel="exitAsk = null" />
     <!-- 진행 표시. 스크롤 위치와 상관없이 보이도록 화면 아래에 띄운다. -->
     <div v-if="progress" class="progress-toast" role="status" aria-live="polite">
