@@ -6565,19 +6565,42 @@ function refreshSavedSets() {
 refreshSavedSets()
 const savedFor = (path: string) => savedSets.value.find((s) => s.key === path) ?? null
 
+/**
+ * data/ 에서 연 건물에 서버의 편집을 얹는다. 반영된 버전(ADR-0037)이 있으면 그 레이아웃(버전의 편집 파일)이 시작점이다(OE-WF-17 "다시 들어오면 새
+ * 레이아웃을 적용"). 8084 저장본이 그 버전보다 나중에 저장된 것이면 저장본을 얹는다 — 반영 뒤 이어 고친 것이다. 둘 다 BIM 을 기준으로 한 편집 파일이라
+ * 하나만 얹는다.
+ */
 async function loadServerEdits() {
   const key = serverKey.value
   if (!key) return
-  let file: EditFile | string
-  try {
-    const r = await fetch(savedEditsUrl(key))
-    if (!r.ok) return
-    file = parseEditFile(await r.text())
-  } catch {
-    return
+  const getFile = async (url: string) => {
+    try {
+      const r = await fetch(url)
+      if (!r.ok) return null
+      const f = parseEditFile(await r.text())
+      return typeof f === 'string' ? null : f
+    } catch {
+      return null
+    }
   }
-  if (typeof file === 'string' || key !== serverKey.value) return
-  applyEditFile(file, `8084 저장본 · ${when(file.savedAt)}`)
+  await refreshLayouts()
+  const state = layoutState.value
+  const cur = state?.current ? (state.versions.find((v) => v.version === state.current) ?? null) : null
+  const saved = await getFile(savedEditsUrl(key))
+  if (key !== serverKey.value) return
+  loadedVersion.value = cur?.version ?? null
+  let file: EditFile | null = null
+  let from = ''
+  if (cur && (!saved || saved.savedAt <= cur.at)) {
+    file = await getFile(layoutsUrl({ key, v: String(cur.version), file: 'edits.json' }))
+    from = `반영된 레이아웃 v${cur.version} · ${when(cur.at)}`
+  }
+  if (!file && saved) {
+    file = saved
+    from = `8084 저장본 · ${when(saved.savedAt)}`
+  }
+  if (!file || key !== serverKey.value) return
+  applyEditFile(file, from)
   serverSaved.value = { file, savedAt: file.savedAt }
   markSaved()
   committedSig = savedSig
@@ -7555,6 +7578,70 @@ async function refreshActivity() {
 }
 watch(layoutState, () => void refreshActivity())
 const ACTIVITY_LABEL: Record<string, string> = { 'edit-start': '편집 시작', 'edit-end': '편집 종료', draft: '임시 저장', save: '편집 저장', publish: '레이아웃 반영', rollback: '레이아웃 되돌리기' }
+
+// --- 새 레이아웃 배너·알림 (OE-WF-14~17) ---
+// 다른 사람이 반영해도 이 화면은 바뀌지 않는다(WF-14). 서버의 현재 버전을 30초마다·창으로 돌아올 때 보고, 이 화면이 연 버전보다 새것이면 상단 배너를
+// 띄운다(WF-15). [새로고침] 은 같은 파일을 다시 열어 새 버전을 얹는다. GNB 알림 대신 앱 위의 [알림] 목록에 반영·되돌리기를 모은다(WF-16).
+
+/** 이 화면이 얹은 반영 버전. 반영 전이면 null. */
+const loadedVersion = ref<number | null>(null)
+watch(baseline, () => (loadedVersion.value = null))
+/** 서버의 현재 버전이 이 화면보다 새것이면 그 버전. */
+const newerLayout = computed(() => {
+  const st = layoutState.value
+  const cur = st?.current ? st.versions.find((v) => v.version === st.current) : null
+  return cur && cur.version > (loadedVersion.value ?? 0) ? cur : null
+})
+type Notice = { at: string; type: string; user: string; key: string; floors: string[]; version?: number }
+const notices = ref<Notice[]>([])
+const noticesOpen = ref(false)
+const noticesSeen = ref(
+  (() => {
+    try {
+      return localStorage.getItem('oe.noticesSeen') ?? ''
+    } catch {
+      return ''
+    }
+  })(),
+)
+const unseenNotices = computed(() => notices.value.filter((n) => n.at > noticesSeen.value).length)
+function openNotices() {
+  noticesOpen.value = !noticesOpen.value
+  const last = notices.value[0]?.at
+  if (noticesOpen.value && last) {
+    noticesSeen.value = last
+    try {
+      localStorage.setItem('oe.noticesSeen', last)
+    } catch {
+      // 못 남기면 다음에 또 새것으로 보인다
+    }
+  }
+}
+async function pollLayouts() {
+  if (serverKey.value) await refreshLayouts()
+  if (!people.value) return
+  try {
+    const r = await fetch('./__data/__log')
+    if (r.ok) notices.value = ((await r.json()) as Notice[]).filter((n) => n.type === 'publish' || n.type === 'rollback').slice(0, 20)
+  } catch {
+    // 다음에 다시 본다
+  }
+}
+const layoutPoll = window.setInterval(() => void pollLayouts(), 30_000)
+const onFocusPoll = () => void pollLayouts()
+window.addEventListener('focus', onFocusPoll)
+onBeforeUnmount(() => {
+  window.clearInterval(layoutPoll)
+  window.removeEventListener('focus', onFocusPoll)
+})
+watch(people, () => void pollLayouts())
+/** [새로고침]: 같은 파일을 다시 열어 새 버전을 얹는다. 저장하지 않은 편집이 있으면 먼저 저장하게 한다. */
+function reloadLayout() {
+  const unsaved = dirtyKeys(currentParts()).length
+  if (unsaved) return note(`저장하지 않은 편집이 ${unsaved}개 층에 있습니다. [임시 저장] 이나 [편집 저장] 을 한 뒤 새로고침하세요`)
+  const paths = openedSources.value.filter((p): p is string => !!p)
+  if (paths.length) openDataSet(paths)
+}
 /** 첫 반영이면 [구축하기](v1), 아니면 [반영하기]. */
 const firstPublish = computed(() => !layoutState.value?.current)
 const nextVersion = computed(() => Math.max(0, ...(layoutState.value?.versions.map((v) => v.version) ?? [])) + 1)
@@ -7615,6 +7702,7 @@ async function publishLayout(by: string) {
     // 반영이 PoC 의 저장이다. 끝낼 때 다시 묻지 않고 임시 저장본도 지운다.
     committed()
     publishAsk.value = false
+    loadedVersion.value = body.version
     await refreshLayouts()
     markDone('build')
     // 앞서 남은 편집 경고(천장 모드 안내 등)가 결과 줄을 가리지 않게 지운다.
@@ -7832,6 +7920,19 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
               <button type="button" :aria-pressed="mode === 'edit'" :disabled="busy || !!editBlock" :title="editBlock ?? undefined" @click="mode = 'edit'">편집</button>
             </div>
             <!-- 사람(OE-COM-01). 서버의 사람 목록에서 고른다. 보기 전용은 편집에 들어가지 않는다. -->
+            <!-- 알림(OE-WF-16, GNB 시스템 알림 대신). 레이아웃 반영·되돌리기. -->
+            <div v-if="people" class="notices">
+              <button type="button" class="ghost" :aria-expanded="noticesOpen" aria-label="알림" @click="openNotices">
+                알림<span v-if="unseenNotices" class="notice-count" data-testid="notice-count">{{ unseenNotices }}</span>
+              </button>
+              <ul v-if="noticesOpen" class="notice-list" data-testid="notice-list">
+                <li v-for="(n, i) in notices" :key="i">
+                  <span><b>{{ n.type === 'rollback' ? '레이아웃 되돌리기' : '레이아웃 변경 반영' }}</b> · v{{ n.version }} · {{ n.floors.join(' · ') }} · {{ n.user }}</span>
+                  <span class="muted">{{ versionTime(n.at) }} · {{ n.key }}</span>
+                </li>
+                <li v-if="!notices.length" class="muted">알림이 없습니다</li>
+              </ul>
+            </div>
             <label v-if="people" class="who" title="반영자·로그에 남는 사람입니다(data/.users.json)">
               <select v-model="currentUser" aria-label="사용자">
                 <option value="">사용자 고르기…</option>
@@ -7856,6 +7957,13 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
           </span>
           <button type="button" class="ghost on" @click="restoreDraft">이어서 하기</button>
           <button type="button" class="ghost" @click="discardDraft">버리기</button>
+        </div>
+        <!-- 새 레이아웃 배너(OE-WF-15). 새로고침하기 전까지 남는다. -->
+        <div v-if="newerLayout" class="layout-banner" role="status" data-testid="layout-banner">
+          <span>
+            <b>새 레이아웃이 적용되었습니다</b>(v{{ newerLayout.version }} · {{ newerLayout.by }} · {{ newerLayout.floors.join(' · ') }}{{ newerLayout.kind === 'rollback' ? ` · v${newerLayout.from} 되돌리기` : '' }}). 새로고침하면 반영됩니다.
+          </span>
+          <button type="button" class="ghost primary-action" @click="reloadLayout">새로고침</button>
         </div>
         <div v-if="editing" class="edit-bar" role="status">
           <span class="state"><b>편집 중</b> · <a href="#changes" class="link">바뀐 것 <Roll :value="changeCount" :count-up="false" />건</a></span>
