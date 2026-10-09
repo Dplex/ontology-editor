@@ -1318,6 +1318,12 @@ export function createReplayFx(host: ReplayHost) {
     setDiffMap(items) {
       clearDiff()
       if (items) {
+        // 바뀐 곳들이 화면에 들어오게 카메라를 맞춘다(아래에서 다 그린 뒤). 고층에서 건물 전체를 보면 칠한 것이 작아 안 보였다.
+        queueMicrotask(() => {
+          const box = new Box3()
+          for (const g of diffGroups) box.expandByObject(g)
+          if (!box.isEmpty()) host.fit(box.expandByScalar(2))
+        })
         for (const it of items) {
           const color = DIFF_COLOR[it.state]
           if (it.id) {

@@ -186,7 +186,8 @@ const rail = computed(() => {
   }))
 })
 /** 층이 많으면 한 줄을 낮춘다(레일 전체 높이는 그대로). 이름은 줄이 넉넉할 때만. */
-const railRow = computed(() => (rail.value ? Math.max(6, Math.min(22, Math.floor(300 / rail.value.length))) : 0))
+// 끝 화면에는 왼쪽 아래에 요약판이 서서 레일에 줄 수 있는 높이가 줄어든다(합성 20층에서 겹쳤다).
+const railRow = computed(() => (rail.value ? Math.max(6, Math.min(22, Math.floor((props.phase === 'done' ? 240 : 300) / rail.value.length))) : 0))
 
 /**
  * 시간줄 끌기. 시간이 아니라 편집 하나가 한 칸이다(편집이 몰린 때와 뜸한 때가 같은 너비) — 끄는 자리의 칸까지 한 편집 상태로
