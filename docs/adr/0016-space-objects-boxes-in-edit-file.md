@@ -7,7 +7,7 @@ deciders: ["정희록"]
 prd: ["#3"]
 tickets: ["OE-OBJ-09", "OE-SPC-14", "OE-SPC-16", "OE-P3-08", "OE-OBJ-16"]
 supersedes: []
-superseded_by: ""
+superseded_by: "ADR-0023 (내보내기 한 줄만)"
 ---
 
 # ADR-0016 추가 공간 오브젝트는 바닥에 선 축 정렬 상자로 두고, 넣은 3D 모델은 편집 파일에 담는다
