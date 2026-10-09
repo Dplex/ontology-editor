@@ -258,3 +258,37 @@ test('물리존 하나를 공조존 둘이 담당하면 물리존 패널에 둘 
   await expect(zones).toContainText('편집')
   expect(errors).toEqual([])
 })
+
+test('담당 없는 물리존이 생기면 바뀐 내용 리포트에 Z-01 이 실린다 (OE-MAP-04)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const fold = page.getByTestId('hvac-zones')
+  const report = page.getByTestId('report-zone-checks')
+  // 공조존이 없으면 싣지 않는다.
+  await expect(report).toHaveCount(0)
+  await fold.getByLabel('사무실').check()
+  await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
+  // 사무실을 나누면 새 조각도 공조존 1 의 담당이 된다(OE-MAP-02). 그 조각을 담당에서 빼면 담당 없는 물리존(Z-01)이 생긴다.
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  const floor = async (x: number, y: number) => {
+    const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
+    await page.mouse.click(at.x, at.y)
+  }
+  await floor(9.6, 7.6)
+  await page.locator('.space-picked').getByRole('button', { name: '나누기' }).click()
+  await floor(5, 0.5)
+  await floor(5, 7.5)
+  const zone = fold.locator('.zone-list li[data-zone]').first()
+  await expect(zone.getByRole('button', { name: '사무실-2 ×' })).toBeVisible()
+  // 나눈 두 조각 모두 공조존 1 담당이라 Z-01 은 없다(담당 설비가 없어 Z-04 는 실린다).
+  await expect(report).toContainText('Z-04')
+  await expect(report).not.toContainText('Z-01')
+  await zone.getByRole('button', { name: '사무실-2 ×' }).click()
+  await expect(report).toContainText('Z-01')
+  await expect(report).toContainText('1개 — 1F 사무실-2')
+  expect(errors).toEqual([])
+})

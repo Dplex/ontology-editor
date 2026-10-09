@@ -4875,6 +4875,12 @@ function makeZoneForSelected() {
   if (changeHvacZones(z.storeyId, '공조존 만들기', (m) => createZoneFromSpaces(m, { spaceIds: z.flow, servedBy: [e.id] })))
     note(`공조존을 만들었습니다. 담당 물리존은 ${shortName(e.name)}의 흐름이 닿는 ${z.flow.map((id) => spaceNameOf(id)).join(', ')}입니다`)
 }
+/** 리포트에 싣는 공조존 검증(OE-MAP-04). 경고가 있는 규칙만. 공조존이 하나도 없으면 싣지 않는다. */
+const reportZoneChecks = computed(() => {
+  const m = model.value
+  if (!m || !hvacZonesOf(m).length) return []
+  return (zoneCheckList.value?.checks ?? []).filter((c) => c.items.length)
+})
 /** 담당 설비로 고를 수 있는 것: 그 층의 공기·물이 흐르는 기기(덕트·배관 제외). */
 const zoneEquipmentChoices = computed(() =>
   (zoneStorey.value?.equipment ?? []).filter((e) => !isConduit(e.role) && !!e.position).sort((a, b) => a.name.localeCompare(b.name)),
@@ -9776,6 +9782,13 @@ async function export3D(format: 'glb' | 'obj') {
             </li>
           </ul>
           <p v-else class="empty">아직 바뀐 것이 없습니다.</p>
+          <!-- 공조존 검증 경고(OE-MAP-04 · OE-ZON-05 "결과는 반영 결과 리포트에 든다"). 반영(D10)이 없어 바뀐 내용 아래에 둔다.
+               막지 않는다. 공조존을 하나도 만들지 않았으면 보이지 않는다(Z-01 이 층마다 전부 공백이 된다). -->
+          <ul v-if="reportZoneChecks.length" class="report report-checks" data-testid="report-zone-checks">
+            <li v-for="c in reportZoneChecks" :key="c.rule" class="warn">
+              <b>{{ c.rule }}</b> {{ c.text }}: {{ c.items.length }}개 — {{ c.items.slice(0, 5).map((x) => x.label).join(', ') }}<template v-if="c.items.length > 5"> 외 {{ c.items.length - 5 }}개</template>
+            </li>
+          </ul>
           <!-- 해제 보정·취소(OE-PIP-06)와 방향 적용·해제(OE-PIP-04)의 시각·사유. 취소해서 지금은 바뀐 것이 없어도 기록은 남는다.
                수행자는 로그인(OE-COM-01) 뒤에 적는다. -->
           <div v-if="releaseLog.length" class="release-log" data-testid="release-log">

@@ -3847,3 +3847,11 @@ button.done::after {
   margin-top: 0.3rem;
   color: var(--warn-fg);
 }
+
+/* 리포트의 공조존 검증 경고(OE-MAP-04). 바뀐 것 목록과 구분한다. */
+.report.report-checks {
+  margin-top: 0.4rem;
+}
+.report.report-checks li.warn {
+  color: var(--warn-fg);
+}
