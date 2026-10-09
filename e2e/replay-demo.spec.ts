@@ -93,3 +93,32 @@ test('층이 둘 이상이면 왼쪽 층 레일에 층마다 장면 점이 찍�
   await page.keyboard.press('Escape')
   expect(errors).toEqual([])
 })
+
+test('끝 화면에서 갈래를 누르면 그 갈래 장면만 처음부터 틀고, 다른 갈래 편집은 연출 없이 지나간다', async ({ page }) => {
+  test.setTimeout(300_000)
+  const errors = await open(page)
+  const hud = await demo(page)
+  await hud.getByRole('button', { name: '4×' }).click()
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
+  const total = Number(await hud.getAttribute('data-total'))
+  // 장면 제목에 뜬 갈래를 모은다.
+  await page.evaluate(() => {
+    const w = window as any
+    w.__cats = new Set<string>()
+    w.__catTimer = setInterval(() => {
+      const t = document.querySelector('.replay-hud .scene-kicker span')?.textContent
+      if (t) w.__cats.add(t.trim())
+    }, 50)
+  })
+  await hud.locator('.hud-done .sum-row', { hasText: '계통' }).click()
+  await expect(hud.locator('.hud-bar .status')).toContainText('계통만')
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 120_000 })
+  await expect(hud).toHaveAttribute('data-at', String(total))
+  const cats = await page.evaluate(() => { const w = window as any; clearInterval(w.__catTimer); return [...w.__cats] })
+  expect(cats).toEqual(['계통'])
+  // 다시 누르면 거르기를 풀고 처음부터 모두.
+  await hud.locator('.hud-done .sum-row', { hasText: '계통' }).click()
+  await expect(hud.locator('.hud-bar .status')).not.toContainText('계통만')
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})

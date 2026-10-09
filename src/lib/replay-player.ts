@@ -171,6 +171,7 @@ export function useReplay(host: ReplayPlayerHost) {
     replayAiming.value = null
     replayLoop.value = null
     replaySeen.value = 0
+    replayFilter.value = null
     replayPhase.value = 'opening'
     replayPlaying.value = true
     activeTab.value = '3d'
@@ -540,8 +541,36 @@ export function useReplay(host: ReplayPlayerHost) {
   }
 
   /** 이력 끝까지 한 장면씩 다시 한다. */
+  /**
+   * 갈래 거르기. 끝 화면의 요약에서 갈래(계통 · 물리존 …)를 누르면 그 갈래 장면만 처음부터 튼다. 다른 갈래의 편집은 연출 없이
+   * 다시 하기만 해서 지나간다 — 상태는 차례대로 쌓여야 하므로 건너뛸 수는 없다. 긴 세션에서 "계통 편집만 다시 보기" 같은 검토용.
+   */
+  const replayFilter = ref<ReplayStep['category'] | null>(null)
+  function replaySetFilter(c: ReplayStep['category'] | null) {
+    if (replayPhase.value === 'opening') return
+    replayFilter.value = c
+    void replayJump('restart')
+  }
+  /** 거르는 중이면 다른 갈래 편집을 연출 없이 다시 해 넘긴다. 다음 장면이 거른 갈래면(또는 거르지 않으면) false. */
+  async function replaySkipOthers(token: number): Promise<boolean> {
+    const f = replayFilter.value
+    if (!f) return false
+    let skipped = false
+    while (token === replayToken && history.value.length < replayTotal.value) {
+      const step = await replayStepInfo(history.value.length, token)
+      if (token !== replayToken || !step || step.category === f) break
+      redo()
+      skipped = true
+      // 한 프레임은 그리게 둔다 — 큰 파일에서 수십 개를 한 번에 다시 하면 화면이 멈춘다.
+      await frames(1)
+    }
+    return skipped
+  }
+
   async function replayRun(token: number) {
     while (token === replayToken && replayPlaying.value && history.value.length < replayTotal.value) {
+      await replaySkipOthers(token)
+      if (token !== replayToken || history.value.length >= replayTotal.value) break
       const i = history.value.length
       const step = await replayStepInfo(i, token)
       if (token !== replayToken) return
@@ -603,11 +632,15 @@ export function useReplay(host: ReplayPlayerHost) {
       undo()
       replayPhase.value = 'play'
     } else if (to === 'next' && history.value.length < replayTotal.value) {
-      const step = replaySteps.value[history.value.length] ?? null
-      await replayAim(step)
-      replayDemolish(step)
-      redo()
-      replayLand(step)
+      await replaySkipOthers(token)
+      if (token !== replayToken) return
+      if (history.value.length < replayTotal.value) {
+        const step = replaySteps.value[history.value.length] ?? null
+        await replayAim(step)
+        replayDemolish(step)
+        redo()
+        replayLand(step)
+      }
     }
     if (history.value.length >= replayTotal.value) {
       replayPhase.value = 'done'
@@ -749,6 +782,7 @@ export function useReplay(host: ReplayPlayerHost) {
     loop: replayLoop.value,
     storey: replayStorey.value,
     comparing: replayComparing.value,
+    filter: replayFilter.value,
   }))
   const hudOn = {
     toggle: replayToggle,
@@ -759,6 +793,7 @@ export function useReplay(host: ReplayPlayerHost) {
     close: closeReplay,
     scene: (i: number) => void replayScene(i),
     seek: (n: number) => void replaySeek(n),
+    filter: (c: ReplayStep['category'] | null) => replaySetFilter(c),
   }
 
   return { open: openReplay, close: closeReplay, key: replayKey, hud, hudOn }

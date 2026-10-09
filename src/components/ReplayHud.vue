@@ -31,8 +31,10 @@ const props = defineProps<{
   loop: number | null
   /** B 를 누르고 있어 지금 장면을 편집 전으로 보이는 중. */
   comparing?: boolean
+  /** 이 갈래 장면만 트는 중(나머지는 연출 없이 지나간다). */
+  filter?: Category | null
 }>()
-const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number] }>()
+const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null] }>()
 
 const CAT_COLOR = CATEGORY_COLOR
 
@@ -96,7 +98,8 @@ const geoStep = computed(() => (props.phase === 'opening' ? null : (upcoming.val
 const geoApplied = computed(() => !!geoStep.value && !props.comparing && props.at > geoStep.value.index)
 
 /** 장면 제목. 카메라가 가는 중(aiming)부터 그 장면의 것이다. */
-const scene = computed(() => (props.phase === 'play' ? current.value : null))
+// 갈래를 거르는 중이면 그 갈래 장면만 — 연출 없이 지나가는 다른 갈래 편집의 제목이 깜빡이지 않게.
+const scene = computed(() => (props.phase === 'play' && (!props.filter || current.value?.category === props.filter) ? current.value : null))
 
 /**
  * 장면 전환(화면이 검게 잠겼다 밝아짐)은 한 층에서 다른 층으로 넘어갈 때만 한다. 같은 층 안에서 다음 장면으로 가는 것은 카메라
@@ -237,7 +240,7 @@ const summary = computed(() => {
         <i>/{{ two(total) }}</i>
       </span>
       <transition name="chip" mode="out-in">
-        <span v-if="current && phase !== 'opening'" :key="current.index" class="bug-cat">{{ current.category }}</span>
+        <span v-if="current && phase !== 'opening' && (!filter || current.category === filter)" :key="current.index" class="bug-cat">{{ current.category }}</span>
       </transition>
       <!-- 한 층만 보일 때 그 층. 장면이 다른 층으로 가면 바뀌고, 건물 전체로 물러나면 사라진다. -->
       <transition name="chip" mode="out-in">
@@ -370,11 +373,19 @@ const summary = computed(() => {
       <div v-if="phase === 'done'" class="hud-done">
         <div class="done-head"><span>REPLAY COMPLETE</span><b>{{ two(total) }} EDITS</b></div>
         <h2>사람이 고친 곳</h2>
-        <div v-for="b in summary.bars" :key="b.c" class="sum-row">
+        <button
+          v-for="b in summary.bars"
+          :key="b.c"
+          type="button"
+          :class="['sum-row', { on: filter === b.c }]"
+          :title="filter === b.c ? '모든 갈래를 처음부터' : `${b.c} 장면만 처음부터 다시 보기`"
+          @click="emit('filter', filter === b.c ? null : b.c)"
+        >
           <span>{{ b.c }}</span>
           <i :style="{ width: `${b.w}%`, background: CAT_COLOR[b.c] }"></i>
           <b>{{ b.n }}</b>
-        </div>
+        </button>
+        <p class="sum-hint">갈래를 누르면 그 갈래 장면만 처음부터</p>
         <div class="totals">
           <span class="add">TTL +{{ summary.added }}</span>
           <span class="del">TTL −{{ summary.removed }}</span>
@@ -393,7 +404,7 @@ const summary = computed(() => {
           v-for="k in total"
           :key="k"
           class="tick"
-          :class="{ done: k <= shownAt, looping: k - 1 === loop }"
+          :class="{ done: k <= shownAt, looping: k - 1 === loop, off: !!filter && !!steps[k - 1] && steps[k - 1].category !== filter }"
           :title="steps[k - 1] ? `#${two(k)} ${steps[k - 1].label} · 바뀐 것 ${steps[k - 1].changes.length} — 이 장면만 반복해서 보기` : undefined"
           :style="{ left: `${(100 * (k - 0.5)) / total}%`, background: steps[k - 1] ? CAT_COLOR[steps[k - 1].category] : undefined, '--w': weights[k - 1] ?? 0 }"
           @click="onTick(k)"
@@ -409,6 +420,7 @@ const summary = computed(() => {
         </span>
         <span class="status">
           <template v-if="loop !== null">#{{ two(loop + 1) }} 반복 중 · <kbd>Space</kbd> 다음 장면부터 이어서</template>
+          <template v-else-if="filter && phase !== 'done'"><button type="button" class="filter-chip" :style="{ '--c': CAT_COLOR[filter] }" title="거르기 풀기" @click="emit('filter', null)">{{ filter }}만 ✕</button> · 편집 {{ at }}/{{ total }}</template>
           <template v-else-if="comparing">편집 전 보는 중 · <kbd>B</kbd> 떼면 편집 후</template>
           <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }} · <kbd>B</kbd> 누르고 있으면 편집 전</template>
         </span>
@@ -1053,6 +1065,41 @@ const summary = computed(() => {
   margin: 6px 16px;
   font-size: 14px;
   font-weight: 700;
+}
+/* 갈래 줄은 누를 수 있다(그 갈래만 다시 보기). */
+button.sum-row {
+  width: calc(100% - 32px);
+  padding: 2px 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+button.sum-row:hover,
+button.sum-row.on {
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: -6px 0 0 rgba(255, 255, 255, 0.06), 6px 0 0 rgba(255, 255, 255, 0.06);
+}
+button.sum-row.on span {
+  color: var(--mint);
+}
+.sum-hint {
+  margin: 2px 16px 0;
+  font-size: 11px;
+  color: rgba(230, 236, 245, 0.5);
+}
+.track .tick.off {
+  opacity: 0.15;
+}
+.filter-chip {
+  padding: 1px 8px;
+  border: 1px solid var(--c);
+  background: none;
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
 }
 .sum-row i {
   height: 12px;
