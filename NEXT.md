@@ -22,6 +22,7 @@ ecode(`eco`)에만 올리는 작업 브랜치다. 2026-10-08 밤 sec `main`(39ea
 - **고칠 때**: 방금 커밋이면 `git commit --amend -F next/pr/….md`. 앞 커밋이면 `git commit --fixup=<커밋>` 뒤
   `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash f26b4f3`.
 - 끝날 때마다 `git push eco next-10-09`.
+- **코드 변경 없이 닫을 이슈**는 "구현 확인 결과" 코멘트를 `next/comment/<티켓 소문자>.md` 에 둔다. sec 에 닿는 PC 에서 그 이슈에 코멘트로 달고 닫는다(#343~#350 과 같은 모양).
 
 ### sec 으로 옮기기 (sec 에 닿는 PC 에서, 사람이 확인하며)
 
@@ -129,7 +130,7 @@ R1 Todo 는 34장, 후속 이슈 3장([#340](https://github.sec.samsung.net/IoT-
 5. ~~`e2e:seongsu` 가 E 에서 멈춤~~ — ee01c80(12 통과)
 6. **[#184](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/184) 계통 종류** — PM 답이 사실상 1번이다. PM 확인을 받고 닫는다. "Flow Type · 계통도 17종 · 흐름 방향" 세 필드 정의는 후속 이슈 후보다.
 
-7. **[#258](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/258) OE-HIST-03 편집 파일 저장·불러오기(P1, 보드 Todo)** — 코드는 거의 다 있다(편집 파일·GUID 재짝짓기 S1 시험·사람 지정 소속 ADR-0018). 닫는 PR 이 없어 Todo 로 남았다. 수용 기준 넷을 시험에 대 보고 빈 곳만 메워 닫는다(R2 IDF 재임포트는 제외).
+7. ~~[#258](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/258) OE-HIST-03 편집 파일 저장·불러오기(P1, 보드 Todo)~~ — 수용 기준 넷 모두 시험이 있다. [`next/comment/oe-hist-03.md`](next/comment/oe-hist-03.md) 를 코멘트로 달고 닫는다. 원래 메모: 코드는 거의 다 있다(편집 파일·GUID 재짝짓기 S1 시험·사람 지정 소속 ADR-0018). 닫는 PR 이 없어 Todo 로 남았다. 수용 기준 넷을 시험에 대 보고 빈 곳만 메워 닫는다(R2 IDF 재임포트는 제외).
 8. ~~[#411](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/411) 용어 맞추기~~ — 3731493([잇기]→[연결하기]) · 수동 배관 [곧게 연결하기] 는 PIP-11 커밋에 넣음. 화면의 [잇기] → [연결하기], [곧게 잇기] → [곧게 연결하기] 류. 위 "10-09 PRD 변경" 참고.
 9. ~~[#399](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/399) OE-EQP-15 외벽 설비 소속~~ — 533c433 (성수 루버 26대가 방에 붙던 것 → 0. 사람이 외벽에 붙인 다른 종류는 남음)
 
