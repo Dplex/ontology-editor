@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// 편집 리플레이(PoC). P 를 누르면 3D 가 창 전체로 커지고(극장), 이번 세션의 편집을 되돌리기로 되감은 뒤 다시 하기로 하나씩
+// 편집 리플레이(PoC). P 를 누르면 3D 가 창 전체로 커지고(극장), 이번 세션의 편집을 되돌리기로 한 번에 되돌린 뒤 다시 하기로 하나씩
 // 다시 한다. 진행은 표시(.replay-hud)의 data-* 로, 모양은 스크린숏(REPLAY_SHOTS 가 있으면)으로 본다. 3D 의 미끄러짐·카메라
 // 이동이 보이게 움직임을 켠다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
@@ -61,14 +61,14 @@ test('P 로 3D 위에서 되감고 하나씩 다시 하며, 앞뒤로 넘기고,
   expect([box.width, box.height]).toEqual([view.width, view.height])
   const total = Number(await hud.getAttribute('data-total'))
   expect(total).toBeGreaterThanOrEqual(3)
-  // 오프닝(건물 이름·편집 수) 뒤 되감기: 이력이 0 까지 내려간다.
+  // 열자마자 편집 전 상태로 한 번에 돌아가 있고(되감는 장면은 없다), 오프닝(건물 이름·편집 수, 건물이 솟아오름) 동안 그대로다.
+  await expect(hud).toHaveAttribute('data-phase', 'opening')
+  await expect(hud).toHaveAttribute('data-at', '0')
+  await expect(hud.locator('.opening')).toBeVisible()
   if (SHOTS) {
     await page.waitForTimeout(700)
     await page.screenshot({ path: `${SHOTS}/3d-0-opening.png` })
-    await expect(hud).not.toHaveAttribute('data-at', String(total), { timeout: 15_000 })
-    await page.screenshot({ path: `${SHOTS}/3d-0-rewind.png` })
   }
-  await expect(hud).toHaveAttribute('data-at', '0', { timeout: 15_000 })
   await expect(hud).toHaveAttribute('data-phase', 'play', { timeout: 15_000 })
   // 장면마다 다시 하기 한 번. 카드가 하나씩 쌓인다.
   for (let i = 1; i <= total; i++) {
@@ -86,24 +86,6 @@ test('P 로 3D 위에서 되감고 하나씩 다시 하며, 앞뒤로 넘기고,
   // 앞뒤: 되돌리기·다시 하기 한 번씩이다.
   await page.keyboard.press('ArrowLeft')
   await expect(hud).toHaveAttribute('data-at', String(total - 1))
-  await page.keyboard.press('ArrowRight')
-  await expect(hud).toHaveAttribute('data-at', String(total))
-
-  // 연출 스타일: 고르면 화면 전체가 그 스타일로 바뀌고, 이 브라우저에 기억한다. 마지막 장면을 띄워 둔 채 스타일마다 찍는다.
-  await page.keyboard.press('ArrowLeft')
-  await expect(hud).toHaveAttribute('data-at', String(total - 1))
-  await page.waitForTimeout(1200)
-  for (const id of ['broadcast', 'cinema', 'neon', 'swiss']) {
-    await hud.locator(`.styles [data-style-id="${id}"]`).click()
-    await expect(hud).toHaveAttribute('data-style', id)
-    if (SHOTS) {
-      // 바꾸면 그 스타일의 장면 전환이 한 번 다시 돈다. 끝난 뒤를 찍는다.
-      await page.waitForTimeout(1300)
-      await page.screenshot({ path: `${SHOTS}/style-${id}.png` })
-    }
-  }
-  expect(await page.evaluate(() => localStorage.getItem('oe-replay-style'))).toBe('swiss')
-  await hud.locator('.styles [data-style-id="broadcast"]').click()
   await page.keyboard.press('ArrowRight')
   await expect(hud).toHaveAttribute('data-at', String(total))
 
@@ -173,14 +155,75 @@ test('벽·문·창 장면은 그 자리로 카메라를 보내고 외곽선 층
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/arch-door.png` })
   await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 15_000 })
 
-  // 첫 카드(벽 긋기)를 누르면 그 편집 앞까지 되돌린 뒤 그 장면만 다시 하고 멈춘다.
+  // 첫 카드(벽 긋기)를 누르면 그 편집 앞까지 되돌리고 그 장면만 되풀이한다(되돌림 → 다시 함 → 되돌림 …). 그 뒤 장면의 카드는
+  // 남고(지금 모델에는 없으니 흐리게), 반복 중인 카드가 펼쳐진다.
+  const cards = await hud.locator('.card').count()
   await hud.locator('.card', { hasText: '#01' }).click()
+  await expect(hud).toHaveAttribute('data-loop', '0')
   await expect(hud).toHaveAttribute('data-at', '0')
+  await expect(hud.locator('.hud-bar .status')).toContainText('반복 중')
+  await expect(hud.locator('.card')).toHaveCount(cards)
+  await expect(hud.locator('.card.ahead')).toHaveCount(cards - 1)
+  await expect(hud.locator('.card.looping')).not.toHaveClass(/old/)
+  // 반복 중에는 카메라가 첫 바퀴에만 그 자리로 간다. 사람이 다가가면(휠) 그 시점이 다음 바퀴에도 그대로다 — 저절로 돌지도 않는다.
   await expect(hud).toHaveAttribute('data-at', '1', { timeout: 15_000 })
-  await expect(hud.locator('.hud-bar .status')).toContainText('멈춤')
-  await page.waitForTimeout(1300)
+  await page.waitForTimeout(800)
+  const canvas = (await page.locator('.viewport canvas').boundingBox())!
+  await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2)
+  await page.mouse.wheel(0, -400)
+  await page.waitForTimeout(600)
+  const near = await page.evaluate(() => (window as any).__viewer.camera())
+  for (const at of ['0', '1']) await expect(hud).toHaveAttribute('data-at', at, { timeout: 15_000 })
+  await page.waitForTimeout(800)
+  const later = await page.evaluate(() => (window as any).__viewer.camera())
+  for (const k of [0, 1, 2]) {
+    expect(Math.abs(later.position[k] - near.position[k])).toBeLessThan(0.01)
+    expect(Math.abs(later.target[k] - near.target[k])).toBeLessThan(0.01)
+  }
+  await page.waitForTimeout(500)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/arch-wall.png` })
-  // 닫으면 남은 편집을 다시 해서 문이 옮긴 자리에 있다.
+  // Space 는 반복을 멈추고 그 다음 장면부터 끝까지 잇는다.
+  await page.keyboard.press('Space')
+  await expect(hud).toHaveAttribute('data-loop', '')
+  await expect(hud).toHaveAttribute('data-at', '2', { timeout: 15_000 })
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 40_000 })
+  await expect(hud).toHaveAttribute('data-at', String(total))
+  // 반복 중에 닫아도 남은 편집을 다시 해서 문이 옮긴 자리에 있다.
+  await hud.locator('.card', { hasText: '#02' }).click()
+  await expect(hud).toHaveAttribute('data-loop', '1')
+  await page.keyboard.press('Escape')
+  await expect(hud).toHaveCount(0)
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  for (let i = 0; i < total; i++) await page.keyboard.press('Control+z')
+  await expect(page.locator('.edit-bar .undo')).toBeDisabled()
+  expect(errors).toEqual([])
+})
+
+test('끝 화면의 빛기둥을 누르면 카드를 누른 것처럼 그 장면을 되풀이한다', async ({ page }) => {
+  test.setTimeout(120_000)
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await pick(page, 'AHU-1')
+  await page.keyboard.press('Shift+ArrowRight')
+  await page.waitForTimeout(1800)
+  await page.keyboard.press('Shift+ArrowUp')
+  await page.waitForTimeout(1800)
+  const [x, y, z] = await coords(page, 'AHU-1')
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('p')
+  const hud = page.locator('.replay-hud')
+  await hud.getByRole('button', { name: '2×' }).click()
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 60_000 })
+  // 건물 전체로 물러나는 비행이 끝난 뒤. AHU-1 은 두 장면(#01·#02)에서 옮겼고 빛기둥은 처음 장면 번호를 단다.
+  await page.waitForTimeout(2500)
+  const at = await page.evaluate((p) => (window as any).__viewer.point(p), [x, y, z + 1])
+  await page.mouse.move(at.x, at.y)
+  await expect(page.locator('.viewport canvas')).toHaveCSS('cursor', 'pointer')
+  await page.mouse.click(at.x, at.y)
+  await expect(hud).toHaveAttribute('data-loop', '0')
+  await expect(hud).toHaveAttribute('data-phase', 'play')
+  await expect(hud.locator('.hud-bar .status')).toContainText('반복 중')
+  // 빈 바닥을 누르는 것은 아무 장면도 고르지 않는다(반복은 그대로).
   await page.keyboard.press('Escape')
   await expect(hud).toHaveCount(0)
   expect(errors).toEqual([])

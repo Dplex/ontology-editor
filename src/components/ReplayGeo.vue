@@ -169,6 +169,43 @@ const rows = computed((): Row[] => {
   }
   return out
 })
+/**
+ * 다시 한 순간: 먼저 새 내용(새로 생긴 줄·바뀐 줄의 새 값)이 위에서부터 차례로 나온다 — 연두 망점 빛 띠가 줄을 훑고 지나가고
+ * 그 뒤를 따라 글자가 커서와 함께 한 자씩 쳐진다(After Effects 의 레이어 이름 고치기 같은 느낌). 그동안은 diff 색·표시 없이 담담하게.
+ * 다 쳐지면 diff 가 들어온다: 지운 줄·옛 줄(−)이 끼어들고, 줄 색·+/− 표시가 물들고, "옛 값 → 새 값" 줄이 같은 효과로 나온다.
+ */
+const FX_START_MS = 200
+/** 줄 사이 간격. 줄이 많으면(feature 를 통째로 더함) 좁혀서 마지막 줄이 FX_LAST_MS 안에 나오게 한다 — 장면이 넘어가기 전에 diff 까지 보이게. */
+const FX_STEP_MS = 220
+const FX_LAST_MS = 1200
+/** 띠가 지나간 뒤 글자가 쳐지기 시작하기까지, 한 자의 시간, 한 줄이 쳐지는 시간의 상한(자). 아래 CSS 와 같은 값이다. */
+const TYPE_AFTER_MS = 160
+const CHAR_MS = 14
+const CHAR_CAP = 60
+const chars = (tks: Token[]) => tks.reduce((k, tk) => k + tk.text.length, 0)
+const fx = computed(() => {
+  const count = rows.value.filter((r) => r.kind === 'add' || r.kind === 'chg').length
+  const step = Math.min(FX_STEP_MS, FX_LAST_MS / Math.max(1, count - 1))
+  let n = 0
+  return rows.value.map((r) => ({
+    main: r.kind === 'add' || r.kind === 'chg' ? { '--d': `${Math.round(FX_START_MS + n++ * step)}ms`, '--n': chars(r.tokens) } : null,
+    // diff 와 함께 나온다(그 줄이 그려지는 때부터 잰다).
+    delta: r.kind === 'chg' && r.deltas?.length ? { '--d': '120ms', '--n': r.deltas.reduce((k, d) => k + d.length + 3, 0) } : null,
+  }))
+})
+/** 새 내용이 다 쳐지는 때(ms). */
+const typedAt = computed(() =>
+  fx.value.reduce((end, f) => (f.main ? Math.max(end, parseInt(f.main['--d']) + TYPE_AFTER_MS + Math.min(f.main['--n'], CHAR_CAP) * CHAR_MS) : end), 0),
+)
+/** diff 를 보이나. 다시 하기 전(지금 파일 그대로)은 늘, 다시 한 뒤에는 새 내용이 다 쳐진 다음부터. */
+const diff = ref(!props.applied)
+let diffTimer = 0
+onMounted(() => {
+  if (!props.applied) return
+  if (still()) diff.value = true
+  else diffTimer = window.setTimeout(() => (diff.value = true), typedAt.value + 150)
+})
+onBeforeUnmount(() => window.clearTimeout(diffTimer))
 const shown = (tk: Token) =>
   tk.from === undefined ? tk.text : (props.applied ? tk.from + (tk.to! - tk.from) * k.value : tk.from).toFixed(tk.digits)
 
@@ -191,7 +228,7 @@ const others = computed(() => {
 </script>
 
 <template>
-  <section class="replay-geo" :class="{ applied }" :style="{ '--c': color }">
+  <section class="replay-geo" :class="{ applied, typing: applied && !diff }" :style="{ '--c': color }">
     <header>
       <span class="geo-tag">GeoJSON</span>
       <b class="file">{{ geo?.file ?? '—' }}</b>
@@ -229,11 +266,15 @@ const others = computed(() => {
       <div ref="code" class="code">
         <template v-for="(r, i) in rows" :key="i">
           <!-- 숫자만 바뀐 줄: 다시 하기 전에는 지금 줄을 짚고, 다시 하면 옛 줄(−)·새 줄(+, 숫자가 굴러간다)·옛 값 → 새 값 을 잇달아 -->
-          <div v-if="r.kind === 'chg'" :class="['jl', applied ? 'was' : 'chg']">
+          <div v-if="r.kind === 'chg' && diff" :class="['jl', applied ? 'was' : 'chg', { 'diff-in': applied }]">
             <span class="gut">{{ applied ? '−' : '~' }}</span>
             <span class="txt"><span v-for="(tk, q) in r.old" :key="q" :class="tk.cls">{{ tk.text }}</span></span>
           </div>
-          <div v-if="r.kind !== 'chg' || applied" :class="['jl', r.kind]">
+          <div
+            v-if="(r.kind !== 'chg' || applied) && (r.kind !== 'del' || diff)"
+            :class="['jl', r.kind, { fx: applied && fx[i].main, 'diff-in': applied && r.kind === 'del' }]"
+            :style="applied ? (fx[i].main ?? undefined) : undefined"
+          >
             <span class="gut">{{ r.kind === 'add' || r.kind === 'chg' ? '+' : r.kind === 'del' ? '−' : '' }}</span>
             <span class="txt">
               <template v-if="r.kind === 'gap'"><span class="p">⋯</span></template>
@@ -242,7 +283,7 @@ const others = computed(() => {
               </template>
             </span>
           </div>
-          <div v-if="r.kind === 'chg' && applied && r.deltas?.length" class="jl delta">
+          <div v-if="r.kind === 'chg' && applied && diff && r.deltas?.length" class="jl delta fx" :style="fx[i].delta ?? undefined">
             <span class="gut">↳</span>
             <span class="txt"><span v-for="(d, q) in r.deltas" :key="q" class="dv">{{ d }}</span></span>
           </div>
@@ -432,9 +473,6 @@ header {
   text-decoration: line-through;
   text-decoration-color: rgba(255, 107, 154, 0.8);
 }
-.jl.delta {
-  animation: type-in 500ms 900ms both cubic-bezier(0.2, 0.9, 0.25, 1);
-}
 .jl.delta .gut {
   color: #ffd166;
 }
@@ -468,7 +506,6 @@ header {
 .applied .jl.add {
   background: rgba(94, 242, 194, 0.12);
   box-shadow: inset 3px 0 0 #5ef2c2;
-  animation: type-in 500ms 350ms both cubic-bezier(0.2, 0.9, 0.25, 1);
 }
 .applied .jl.add .gut {
   color: #5ef2c2;
@@ -519,6 +556,86 @@ header {
   color: #e9f1ff;
   font-size: 15px;
 }
+/* --- 쳐지는 동안은 diff 색·표시 없이. 다 쳐지면 물든다(transition) --- */
+.jl {
+  transition:
+    background-color 450ms ease,
+    box-shadow 450ms ease;
+}
+.gut {
+  transition: opacity 350ms ease;
+}
+.typing .jl {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+.typing .gut {
+  opacity: 0;
+}
+/* 다 쳐진 뒤 끼어드는 지운 줄·옛 줄(−). */
+.jl.diff-in {
+  animation: diff-in 420ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+@keyframes diff-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+/* --- 새 줄이 나오기: 연두 망점 빛 띠가 훑고, 그 뒤로 한 자씩 쳐진다 --- */
+.applied .jl.fx {
+  position: relative;
+  animation: none;
+}
+.applied .jl.fx .txt {
+  /* 커서: 2px 연두 막대를 배경으로 깔고, 드러나는 끝을 따라 옮긴다(드러내기와 같은 계단). 다 쳐지면 잠깐 뒤 사라진다. 줄 너비를
+     글자 수만큼 계단으로 열어서 글꼴의 글자 폭(ch)에 기대지 않는다. 한 자 14ms, 긴 줄(외곽선 좌표)도 0.84초 안에 다 쳐진다(ReplayGeo 스크립트의 CHAR_MS·CHAR_CAP 과 같은 값). */
+  background: linear-gradient(#d4ff3a, #d4ff3a) 0 0 / 2px 100% no-repeat;
+  animation:
+    type-reveal calc(min(var(--n), 60) * 14ms) steps(var(--n), end) calc(var(--d) + 160ms) both,
+    caret-off 200ms linear calc(var(--d) + 160ms + min(var(--n), 60) * 14ms + 350ms) both;
+}
+.applied .jl.fx::after {
+  content: '';
+  position: absolute;
+  inset: -1px 0;
+  pointer-events: none;
+  background: radial-gradient(circle, rgba(212, 255, 58, 0.95) 0.9px, transparent 1.6px) 0 0 / 4px 4px;
+  mask-image: linear-gradient(90deg, transparent 0%, #000 35%, #000 65%, transparent 100%);
+  mask-size: 45% 100%;
+  mask-repeat: no-repeat;
+  filter: drop-shadow(0 0 3px rgba(212, 255, 58, 0.8));
+  animation: halftone 900ms cubic-bezier(0.4, 0, 0.2, 1) var(--d) both;
+}
+@keyframes type-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+    background-position-x: 0%;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    background-position-x: 100%;
+  }
+}
+@keyframes caret-off {
+  to {
+    background-size: 0 100%;
+  }
+}
+@keyframes halftone {
+  0% {
+    mask-position: -100% 0;
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    mask-position: 200% 0;
+    opacity: 0;
+  }
+}
 @keyframes geo-in {
   from {
     opacity: 0;
@@ -530,20 +647,15 @@ header {
     background: rgba(255, 209, 102, 0.45);
   }
 }
-@keyframes type-in {
-  from {
-    opacity: 0;
-    clip-path: inset(0 100% 0 0);
-  }
-  to {
-    opacity: 1;
-    clip-path: inset(0 0 0 0);
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   .replay-geo,
-  .jl {
+  .jl,
+  .applied .jl.fx .txt,
+  .applied .jl.fx::after {
     animation: none !important;
+  }
+  .applied .jl.fx::after {
+    display: none;
   }
 }
 </style>

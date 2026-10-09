@@ -142,7 +142,7 @@ import {
   type SpaceSetChange,
   type Snapshot,
 } from './lib/edit'
-import { MERGE_GAP } from './lib/polygon'
+import { labelPoint, MERGE_GAP } from './lib/polygon'
 import { exteriorDevices, judgeExternal } from './lib/exterior'
 import {
   createCustomZone,
@@ -173,6 +173,9 @@ import type { Object3D } from 'three'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
+// [임시 — 리플레이 데모]
+import { DEMO_FLOW_REASON, demoScript, type DemoAction } from './lib/replay-demo'
+import ReplayDemoMenu from './components/ReplayDemoMenu.vue'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
 import { distanceToRing, spaceAssignable, spaceSetState } from './lib/mapping'
@@ -1297,17 +1300,18 @@ function redo() {
 
 // --- 편집 리플레이 (PoC) -----------------------------------------------------------
 //
-// P 로 연다. 3D 를 창 전체로 키우고(극장), 이번 세션의 편집을 되돌리기로 처음까지 되감은 뒤 다시 하기로 하나씩 다시 한다.
+// P 로 연다. 3D 를 창 전체로 키우고(극장), 이번 세션의 편집을 되돌리기로 한 번에 처음까지 돌린 뒤 다시 하기로 하나씩 다시 한다.
 // 3D 에서 설비가 미끄러져 옮겨 가고 방이 번쩍이는 것은 되돌리기·다시 하기가 원래 하는 일이라, 리플레이는 순서와 카메라만
 // 맡는다. 장면마다 그 층만 보이고 그 자리로 카메라를 보낸 뒤 다시 하고, 그 편집이 TTL·GeoJSON 의 어디를 바꿨는지를 카드로
 // 띄운다(components/ReplayHud.vue, 워커가 모델 사본으로 계산 — lib/replay.ts). 닫으면 남은 편집을 다시 해서 연 때 상태로 돌아온다.
 // 카메라 비행(1.5초) 뒤에 다시 하고, 설비가 미끄러져(1.1초) 충격파가 퍼지고 카드가 다 써질 때까지 둔다.
 const REPLAY_AIM_MS = 1800
 const REPLAY_STEP_MS = 5200
-/** 열자마자 건물 전체를 보며 제목을 띄우는 시간. */
-const REPLAY_INTRO_MS = 1300
+/** 오프닝. 건물 전체를 보며 제목을 띄우고, 그동안 층이 아래부터 쌓이며 건물이 솟아오른다(viewer.buildUp — 0.3초 납작하게 두었다가 2.7초). */
+const REPLAY_INTRO_MS = 3000
 const replayTotal = ref(0)
-const replayPhase = ref<'rewind' | 'play' | 'done'>('play')
+/** opening: 열고 첫 장면 전(편집 전 상태로 되돌려 두고 건물이 솟아오르는 동안). */
+const replayPhase = ref<'opening' | 'play' | 'done'>('play')
 const replayPlaying = ref(true)
 const replaySpeed = ref(1)
 /** 카메라가 다음 편집 자리로 가는 중이면 그 번호. */
@@ -1324,6 +1328,49 @@ const replayArch = ref(false)
 const REPLAY_FROZEN = [true]
 const replayMemo = () => (replayOpen.value ? REPLAY_FROZEN : [{}])
 const replayElement = ref<string | null>(null)
+/** 지금까지 다시 한 장면 수의 최댓값. 카드를 눌러 앞 장면으로 돌아가도 그 뒤 카드를 남기는 데 쓴다. 처음으로 돌리면 0. */
+const replaySeen = ref(0)
+/** 카드·시간줄을 눌러 반복해 보는 장면. Space 를 누르면 그 다음 장면부터 이어서 튼다. */
+const replayLoop = ref<number | null>(null)
+watch(
+  () => history.value.length,
+  (n) => {
+    if (replayOpen.value && replayPhase.value !== 'opening') replaySeen.value = Math.max(replaySeen.value, n)
+  },
+)
+/**
+ * 밤 다이오라마의 방 표시(이름 · 면적 · 종류). 한 층만 보이면 그 층의 넓은 방부터 ROOM_TAGS 개와 지금 장면에서 바뀐 방(강조).
+ * 건물 전체를 볼 때(오프닝·끝 화면)는 비운다 — 오프닝은 솟아오르는 건물이, 끝 화면은 장면 번호 이름표가 주인공이다.
+ */
+const ROOM_TAGS = 36
+const replayRoomTags = computed(() => {
+  const m = model.value
+  if (!m || !replayOpen.value || replayPhase.value === 'opening') return []
+  const stepAt = replayAiming.value ?? history.value.length - 1
+  const sceneRooms = new Set((replaySteps.value[stepAt]?.changes ?? []).filter((c) => c.key.startsWith('sp:') && c.after).map((c) => c.key.slice(3)))
+  const tag = (storey: Storey, sp: Storey['spaces'][number], hot: boolean) => {
+    const at = labelPoint(sp.footprint)
+    if (!at) return []
+    const kind = roomKind(sp.kind)?.label
+    return [{ id: sp.id, storeyId: storey.id, at: [at[0], at[1], storey.elevation] as Vec3, title: sp.longName || sp.name || '물리존', sub: `${sp.areaM2.toFixed(1)} m²${kind ? ` · ${kind}` : ''}`, hot }]
+  }
+  const storey = viewStorey.value ? m.storeys.find((st) => st.id === viewStorey.value) : m.storeys.length === 1 && replayPhase.value === 'play' ? m.storeys[0] : null
+  if (!storey) return []
+  const big = [...storey.spaces].filter((sp) => sp.footprint.length >= 3).sort((a, b) => b.areaM2 - a.areaM2).slice(0, ROOM_TAGS)
+  const list = [...new Set([...big, ...storey.spaces.filter((sp) => sceneRooms.has(sp.id))])]
+  return list.flatMap((sp) => tag(storey, sp, sceneRooms.has(sp.id)))
+})
+watch(replayRoomTags, (tags) => viewer?.setRoomTags(tags))
+/** 3D 에 한 층만 보이면 그 층(장면이 그 층만 보이게 한다 — replayAim). 층이 하나뿐인 파일도 그 층이다. */
+const replayStorey = computed(() => {
+  const m = model.value
+  const id = viewStorey.value ?? (m?.storeys.length === 1 ? m.storeys[0].id : null)
+  const st = id ? m?.storeys.find((x) => x.id === id) : null
+  return st ? { name: st.name, elevation: st.elevation } : null
+})
+/** 반복 한 바퀴: 되돌린 모습을 잠깐 보이고(앞), 다시 한 뒤 둔다(뒤). */
+const REPLAY_LOOP_BEFORE_MS = 900
+const REPLAY_LOOP_AFTER_MS = 2200
 /** 조작(멈춤·앞뒤·닫기)마다 바꾼다. 도는 중인 장면은 이것이 바뀌면 그 자리에서 멈춘다. */
 let replayToken = 0
 let replayWorker: Worker | null = null
@@ -1358,10 +1405,12 @@ async function openReplay() {
   replayStart.value = null
   replayError.value = ''
   replayAiming.value = null
-  replayPhase.value = 'rewind'
+  replayLoop.value = null
+  replaySeen.value = 0
+  replayPhase.value = 'opening'
   replayPlaying.value = true
   activeTab.value = '3d'
-  // 장면 카드(TTL·GeoJSON 변화)는 지금 모델과 이력의 사본으로 따로 계산한다. 되감기 전에 넘긴다 — 워커는 편집을 다 한 모델에서 시작한다.
+  // 장면 카드(TTL·GeoJSON 변화)는 지금 모델과 이력의 사본으로 따로 계산한다. 처음으로 돌리기 전에 넘긴다 — 워커는 편집을 다 한 모델에서 시작한다.
   replayWorker?.terminate()
   replayWorker = new Worker(new URL('./lib/replay.worker.ts', import.meta.url), { type: 'module' })
   replayWorker.onmessage = (e: MessageEvent<ReplayMessage>) => {
@@ -1385,33 +1434,34 @@ async function openReplay() {
   // 극장 바탕이 어두워서 라이트 테마의 진한 화살표가 묻힌다.
   viewer.setDark(true)
   viewer.setCinema(true)
+  viewer.setDiorama(true)
+  viewer.onSpotClick(replaySpotClick)
   selectedId.value = null
   selectedSpaceId.value = null
   const token = ++replayToken
+  // 편집 전 상태로 한 번에 되돌린다(되감는 장면은 보이지 않는다). 그 상태의 건물이 오프닝에서 솟아오른다.
+  replayRewind()
   await nextTick()
   await frames()
-  // 첫 장면: 건물 전체를 돌며 제목.
+  // 오프닝: 건물 전체를 보며 제목, 그동안 납작한 평면도에서 건물이 솟아오른다.
   viewStorey.value = null
   await nextTick()
   viewer.frameAll()
+  viewer.buildUp()
+  // 건물이 다 솟을 즈음 해가 지고 방 불이 아래층부터 켜진다(첫 장면으로 넘어가는 순간까지).
+  viewer.nightFall(REPLAY_INTRO_MS - 700)
   if (!(await replayWait(REPLAY_INTRO_MS, token))) return
-  if (!(await replayRewind(token))) return
   replayPhase.value = 'play'
   void replayRun(token)
 }
 
-/** 처음까지 되감는다. 3D 에서 거꾸로 미끄러져 돌아가는 것이 보이게 한 단계씩, 편집이 많으면 빨리. */
-async function replayRewind(token: number): Promise<boolean> {
-  replayPhase.value = 'rewind'
+/** 편집 전 상태로 한 번에 되돌린다. 되돌리기 몇 번이라 순간이다(카드 계산은 열 때 따로 시작한 워커가 한다). */
+function replayRewind() {
   replayAiming.value = null
+  replayLoop.value = null
+  replaySeen.value = 0
   viewer?.spotlight([], [], 0)
-  const pause = Math.max(40, Math.min(260, 1800 / Math.max(1, history.value.length)))
-  while (history.value.length > 0) {
-    undo()
-    await frames()
-    if (!(await replayWait(pause * replaySpeed.value, token))) return false
-  }
-  return true
+  while (history.value.length > 0) undo()
 }
 
 /** 단계 i 의 카드 자료. 워커가 아직이면 기다린다(성수 편집 5건에 0.8초). */
@@ -1425,14 +1475,24 @@ async function replayStepInfo(i: number, token: number): Promise<ReplayStep | nu
 }
 
 /**
- * 다음 편집 자리로 시점을 맞춘다: 그 층만 보이고, 바뀐 설비(없으면 물리존)에 카메라를 맞추고 고른다. 바뀐 것은 워커가 낸 평면
+ * 다음 편집 자리로 시점을 맞춘다: 그 층만 보이고, 바뀐 설비(없으면 물리존)에 카메라를 맞추고 고른다. `camera` 가 false 면
+ * 카메라·층은 두고 비추기·고르기만 한다(장면 반복의 두 번째 바퀴부터 — 사람이 다가가 보는 시점을 빼앗지 않는다). 바뀐 것은 워커가 낸 평면
  * 변화(열쇠 eq:·sp:·cn:)에서 읽는다 — 편집 종류마다 대상을 따로 셈하지 않아도 된다.
  */
-async function replayAim(step: ReplayStep | null) {
+async function replayAim(step: ReplayStep | null, camera = true) {
   const m = model.value
   if (!m || !viewer) return
   const storeyId = step?.storeyIds[0] ?? null
-  if (storeyId && m.storeys.length > 1 && viewStorey.value !== storeyId) viewStorey.value = storeyId
+  // 층을 바꾸면 watch(viewStorey) 가 건물 전체로 시점을 옮긴다. 카메라를 두는 때는 층도 그대로 둔다.
+  // 건물 전체에서 한 층으로 들어갈 때는 단면 자르기로: 자르는 면이 위에서 그 층까지 내려와 위층을 걷어낸 뒤 층을 바꾼다.
+  let cut = false
+  if (camera && storeyId && m.storeys.length > 1 && viewStorey.value !== storeyId) {
+    if (viewStorey.value === null && replayOpen.value) {
+      await viewer.sectionTo(storeyId)
+      cut = true
+    }
+    viewStorey.value = storeyId
+  }
   const equipment: string[] = []
   const spaces: string[] = []
   const walls: string[] = []
@@ -1445,8 +1505,11 @@ async function replayAim(step: ReplayStep | null) {
   const byId = equipmentById.value
   const devices = [...new Set(equipment)].filter((id) => byId.has(id) && !isConduit(byId.get(id)!.role))
   const any = [...new Set(equipment)].filter((id) => byId.has(id))
+  const newcomers = (step?.changes ?? []).flatMap((c) => (c.after?.t === 'equip' && c.after.at && !c.after.conduit && !byId.has(c.after.id) ? [c.after] : []))
   // 층을 바꾼 watch(frameAll) 뒤에 맞춘다.
   await nextTick()
+  // 다른 층이 숨은 뒤라 자르는 면을 풀어도 위층이 다시 보이지 않는다.
+  if (cut) viewer.clearSection()
   const color = replayColor(step)
   const lit = (ids: string[]) => ids.filter((id) => byId.has(id) && !isConduit(byId.get(id)!.role)).slice(0, 4).map((id) => ({ id, label: shortName(byId.get(id)!.name) }))
   const arch = replayArchOf(step, 'before')
@@ -1456,11 +1519,11 @@ async function replayAim(step: ReplayStep | null) {
     replayElement.value = arch.id
     selectedId.value = null
     selectedSpaceId.value = null
-    viewer.framePoints([...arch.frame, ...(replayArchOf(step, 'after')?.frame ?? [])], 3)
+    if (camera) viewer.framePoints([...arch.frame, ...(replayArchOf(step, 'after')?.frame ?? [])], 3)
     viewer.spotlight([], [], color, { points: arch.points, rings: arch.rings })
   } else if (spaces.length) {
     // 물리존 편집은 물리존을 본다. 같이 바뀐 설비(소속이 풀린 것)는 결과라서, 멀리 있는 하나가 시점을 끌고 가면 안 된다.
-    viewer.frameSpace(spaces[0])
+    if (camera) viewer.frameSpace(spaces[0])
     selectedId.value = null
     selectedSpaceId.value = spaces[0]
     viewer.spotlight([], spaces, color)
@@ -1471,18 +1534,26 @@ async function replayAim(step: ReplayStep | null) {
     const list = flow ? any : devices.length ? devices : any
     const at = byId.get(list[0])?.position
     const near = at ? list.filter((id) => { const p = byId.get(id)?.position; return !p || Math.hypot(p[0] - at[0], p[1] - at[1]) < 12 }) : list
-    viewer.frame(near.slice(0, 80), flow ? 1 : 4)
+    if (camera) viewer.frame(near.slice(0, 80), flow ? 1 : 4)
     selectedSpaceId.value = null
     selectedId.value = devices[0] ?? null
     // 흐름 장면의 주인공은 바뀐 연결의 화살표다. 빛기둥은 시작 설비 하나만.
     viewer.spotlight(flow ? lit(near).slice(0, 1) : lit(devices.length ? devices : near), [], color)
+  } else if (newcomers.length) {
+    // 더하기 장면: 다시 하기 전에는 설비가 아직 없어서 3D 에서 찾을 수 없다. 들어설 자리로 가서 그 자리를 비춘다.
+    const at = newcomers.map((it): Vec3 => [it.at![0], it.at![1], m.storeys.find((st) => st.id === it.storeyId)?.elevation ?? 0])
+    if (camera) viewer.framePoints(at, 3)
+    selectedId.value = null
+    selectedSpaceId.value = null
+    // 기둥은 세우지 않는다 — 그 자리에서 납작한 발자국이 솟아 형체를 드러낸다(replayLand 의 revealElements).
+    viewer.spotlight([], [], color, { points: newcomers.slice(0, 4).map((it, k) => ({ key: `eq:${it.id}`, at: at[k], label: shortName(it.name), bare: true })) })
   } else if (walls.length) {
     const room = m.storeys.flatMap((st) => st.spaces).find((sp) => sp.boundedBy.includes(walls[0]))
-    if (room) viewer.frameSpace(room.id)
-    else viewer.frameAll()
+    if (camera && room) viewer.frameSpace(room.id)
+    else if (camera) viewer.frameAll()
     viewer.spotlight([], room ? [room.id] : [], color)
   } else {
-    viewer.frameAll()
+    if (camera) viewer.frameAll()
     viewer.spotlight([], [], color)
   }
 }
@@ -1526,47 +1597,129 @@ const replayColor = (step: ReplayStep | null) => parseInt((step ? CATEGORY_COLOR
 
 /** 다시 한 뒤. 물리존은 모양이 바뀌었으니 울타리를 새 모양으로 다시 세운다(옛 것은 옅어진다). */
 function replayLand(step: ReplayStep | null) {
+  // 새로 생긴 것(벽·문·창·설비·공간 오브젝트)은 납작한 2D 발자국에서 3D 형체를 드러낸다. 덕트·배관은 빼고.
+  const born = (step?.changes ?? []).flatMap((c) => {
+    const it = c.after
+    if (c.before || !it) return []
+    if (it.t === 'wall' || it.t === 'opening' || (it.t === 'equip' && !it.conduit) || (it.t === 'zone' && it.zone === 'object')) return [it.id]
+    return []
+  })
+  viewer?.revealElements(born)
   replayFlash(step)
   void replayArrows(step)
   const spaces = (step?.changes ?? []).filter((c) => c.key.startsWith('sp:')).map((c) => c.key.slice(3))
   const arch = replayArch.value ? replayArchOf(step, 'after') : null
-  if (arch && (arch.points.length || arch.rings.length)) viewer?.spotlight([], [], replayColor(step), { points: arch.points, rings: arch.rings })
+  // 새로 생긴 문·창 자리에는 기둥을 세우지 않는다 — 기둥이 솟아오르는 문·창을 가린다.
+  const points = arch?.points.map((p) => (born.includes(p.key.slice(3)) ? { ...p, bare: true } : p))
+  if (arch && (arch.points.length || arch.rings.length)) viewer?.spotlight([], [], replayColor(step), { points, rings: arch.rings })
   else if (spaces.length) viewer?.spotlight([], spaces, replayColor(step))
 }
 
-/** 카드·시간줄을 눌러 고른 장면 하나만 다시 튼다: 그 편집 앞까지 되돌리거나 다시 하고, 카메라를 보낸 뒤 그 편집을 다시 하고 멈춘다. */
+/**
+ * 카드·시간줄을 눌러 고른 장면 하나를 반복해서 튼다: 그 편집 앞까지 되돌리거나 다시 하고, 카메라를 보낸 뒤 다시 하고, 잠깐
+ * 두었다가 되돌려 또 다시 한다. 그 뒤 장면의 카드는 남는다(replaySeen). 다른 조작을 하면 멈추고, Space 는 그 다음 장면부터
+ * 이어서 튼다(replayToggle).
+ */
 async function replayScene(i: number) {
-  if (replayPhase.value === 'rewind' || i < 0 || i >= replayTotal.value) return
+  if (replayPhase.value === 'opening' || i < 0 || i >= replayTotal.value) return
   const token = ++replayToken
   replayPlaying.value = false
-  replayAiming.value = null
   replayPhase.value = 'play'
-  while (history.value.length > i) undo()
-  while (history.value.length < i && future.value.length) redo()
-  await frames()
-  const step = await replayStepInfo(i, token)
-  if (token !== replayToken) return
+  replayLoop.value = i
+  // 장면 제목·카드가 앞 장면으로 깜빡이지 않게 되돌리기 전에 그 장면을 가리킨다(ReplayHud 의 upcoming).
   replayAiming.value = i
-  await replayAim(step)
-  void replayArrows(step)
-  if (!(await replayWait(REPLAY_AIM_MS, token))) return
-  redo()
-  replayAiming.value = null
-  replayLand(step)
+  for (let round = 0; token === replayToken; round++) {
+    while (history.value.length > i) undo()
+    while (history.value.length < i && future.value.length) redo()
+    await frames()
+    const step = await replayStepInfo(i, token)
+    if (token !== replayToken) return
+    replayAiming.value = i
+    // 카메라는 첫 바퀴에만 그 자리로 보낸다. 그 뒤는 사람이 돌리고 다가간 시점 그대로 두고, 저절로 도는 것도 멈춘다.
+    await replayAim(step, round === 0)
+    if (round === 0) viewer?.setAutoRotate(false)
+    void replayArrows(step)
+    if (!(await replayWait(round ? REPLAY_LOOP_BEFORE_MS : REPLAY_AIM_MS, token))) return
+    redo()
+    replayLand(step)
+    if (!(await replayWait(REPLAY_LOOP_AFTER_MS, token))) return
+  }
 }
 
-/** 끝: 건물 전체로 물러나 고친 자리 전부에 빛기둥을 세우고 돈다. */
+/** 반복을 끝낸다. 반복하던 장면은 다시 한 상태로 둔다 — 그 다음 장면부터 잇는다. */
+function replayEndLoop() {
+  const i = replayLoop.value
+  if (i === null) return
+  replayToken++
+  replayLoop.value = null
+  replayAiming.value = null
+  viewer?.setAutoRotate(true)
+  while (history.value.length <= i && future.value.length) redo()
+}
+
+/**
+ * 끝: 건물 전체로 물러나 고친 자리마다 장면 번호를 단 빛기둥을 세우고 돈다. 설비 장면은 그 설비에, 물리존·룸·커스텀존은 그
+ * 안쪽 점에, 벽·문·창은 그 자리에 선다. 빛기둥·이름표를 누르면 카드를 누른 것처럼 그 장면을 되풀이한다(replaySpotClick).
+ */
 function replayFinale() {
+  const m = model.value
   const byId = equipmentById.value
   const devices: { id: string; label: string }[] = []
+  const points: { key: string; at: Vec3; label: string }[] = []
   const spaces = new Set<string>()
+  replaySpotScenes.clear()
+  const elevation = (sid: string) => m?.storeys.find((st) => st.id === sid)?.elevation ?? 0
   for (const s of replaySteps.value) {
+    const tag = `#${String(s.index + 1).padStart(2, '0')}`
+    for (const c of s.changes) if (c.key.startsWith('sp:') && c.after) spaces.add(c.key.slice(3))
     const id = s.changes.map((c) => c.key).find((k) => k.startsWith('eq:') && byId.has(k.slice(3)) && !isConduit(byId.get(k.slice(3))!.role))?.slice(3)
-    if (id && !devices.some((d) => d.id === id)) devices.push({ id, label: `#${String(s.index + 1).padStart(2, '0')} ${shortName(byId.get(id)!.name)}` })
-    for (const c of s.changes) if (c.key.startsWith('sp:')) spaces.add(c.key.slice(3))
+    if (id) {
+      if (devices.some((d) => d.id === id)) continue
+      devices.push({ id, label: `${tag} ${shortName(byId.get(id)!.name)}` })
+      replaySpotScenes.set(id, s.index)
+      continue
+    }
+    // 설비가 없는 장면: 바뀐 것(지금 있는 쪽) 하나의 자리.
+    for (const c of s.changes) {
+      const it = c.after
+      if (!it || it.t === 'link' || it.t === 'equip') continue
+      const z = elevation(it.storeyId)
+      let at: Vec2 | null = null
+      let name = s.label
+      if (it.t === 'space' || it.t === 'zone') {
+        at = labelPoint(it.ring)
+        name = it.name || s.label
+      } else if (it.t === 'opening') at = it.at
+      else if (it.t === 'wall' && it.rings[0]?.length) {
+        const r = it.rings[0]
+        at = [r.reduce((n, p) => n + p[0], 0) / r.length, r.reduce((n, p) => n + p[1], 0) / r.length]
+      }
+      if (!at) continue
+      const key = `scene:${s.index}`
+      // 장면 이름 안의 Revit 이름("Basic Wall:Interior - …:189074 옮김")도 "Basic Wall #189074 옮김" 으로 줄인다.
+      const short = name.replace(/([^:\s][^:]*):[^:]+:(\d+)/, '$1 #$2')
+      points.push({ key, at: [at[0], at[1], z], label: `${tag} ${short}` })
+      replaySpotScenes.set(key, s.index)
+      break
+    }
   }
   viewer?.frameAll()
-  viewer?.spotlight(devices, [...spaces], 0x5ef2c2)
+  viewer?.spotlight(devices, [...spaces], 0x5ef2c2, { points })
+}
+
+/** 빛기둥 열쇠(설비 id 또는 scene:번호) → 장면 번호. 끝 화면에서 채운다. 장면 중의 빛기둥은 그 장면의 바뀐 것에서 찾는다. */
+const replaySpotScenes = new Map<string, number>()
+function replaySpotClick(key: string) {
+  if (!replayOpen.value || replayPhase.value === 'opening') return
+  let i = replaySpotScenes.get(key)
+  if (i === undefined) {
+    const upTo = Math.max(replayAiming.value ?? -1, history.value.length - 1)
+    i = replaySteps.value
+      .slice(0, upTo + 1)
+      .reverse()
+      .find((st) => st.changes.some((c) => c.key === `eq:${key}` || c.key === key || key.startsWith(`${c.key}:`)))?.index
+  }
+  if (i !== undefined) void replayScene(i)
 }
 
 /**
@@ -1579,10 +1732,18 @@ async function replayArrows(step: ReplayStep | null) {
   const m = model.value
   if (!m || !viewer) return
   const keys = new Set((step?.changes ?? []).filter((c) => c.key.startsWith('cn:')).map((c) => c.key.slice(3).replace(/#\d+$/, '')))
-  if (!keys.size) return void viewer.setArrows(arrowConnections.value.map((c, i) => arrowOf(c, String(i), false)))
+  if (!keys.size) {
+    viewer.setFlows([])
+    return void viewer.setArrows(arrowConnections.value.map((c, i) => arrowOf(c, String(i), false)))
+  }
   const list = m.connections.filter((c) => keys.has(`${c.from}>${c.to}`)).slice(0, 150)
   // 바뀐 연결이라 출처와 상관없이 강조색 실선으로 그린다. 방향(화살촉)은 지금 상태 그대로다.
-  viewer.setArrows(list.map((c, i) => ({ ...arrowOf(c, `replay${i}`, false), source: 'edit' as const })))
+  const arrows = list.map((c, i) => ({ ...arrowOf(c, `replay${i}`, false), source: 'edit' as const }))
+  viewer.setArrows(arrows)
+  // 연결·흐름 방향 장면에서만, 방향을 아는 연결에 빛 알갱이가 상류에서 하류로 흐른다(TTL 의 brick:feeds 가 눈에 보이게).
+  // 설비를 옮긴 장면도 붙은 연결이 바뀐 것으로 잡히는데, 거기서 흘리면 따라온 배관 마디마다 알갱이가 날뛴다.
+  const flowScene = step?.category === '연결' || step?.category === '흐름 방향'
+  viewer.setFlows(flowScene ? arrows.flatMap((a) => (a.from ? [{ a: a.a, b: a.b, from: a.from }] : [])) : [])
 }
 
 /** 물리존 경계·이름은 3D 에서 미끄러지지 않고 바로 바뀐다. 바뀐 방 바닥을 한 번 번쩍여 어디가 바뀌었는지 보인다. */
@@ -1618,7 +1779,13 @@ async function replayRun(token: number) {
 }
 
 function replayToggle() {
-  if (replayPhase.value === 'rewind') return
+  if (replayPhase.value === 'opening') return
+  if (replayLoop.value !== null) {
+    // 반복하던 장면은 다시 한 상태로 두고 그 다음 장면부터. 마지막 장면이었으면 replayRun 이 바로 끝 화면을 띄운다.
+    replayEndLoop()
+    replayPlaying.value = true
+    return void replayRun(replayToken)
+  }
   if (replayPlaying.value) {
     replayPlaying.value = false
     replayAiming.value = null
@@ -1633,13 +1800,15 @@ function replayToggle() {
 
 /** 앞뒤로 한 편집, 또는 처음부터. 되돌리기·다시 하기 한 번이라 3D 도 그만큼 움직인다. */
 async function replayJump(to: 'prev' | 'next' | 'restart') {
-  if (replayPhase.value === 'rewind') return
+  if (replayPhase.value === 'opening') return
+  replayEndLoop()
   const token = ++replayToken
   replayAiming.value = null
   if (to === 'restart') {
     replayPlaying.value = true
-    if (!(await replayRewind(token))) return
+    replayRewind()
     replayPhase.value = 'play'
+    await frames()
     return void replayRun(token)
   }
   if (to === 'prev' && history.value.length > 0) {
@@ -1663,6 +1832,7 @@ async function replayJump(to: 'prev' | 'next' | 'restart') {
 function closeReplay() {
   if (!replayOpen.value) return
   replayToken++
+  replayLoop.value = null
   while (history.value.length < replayTotal.value && future.value.length) redo()
   replayWorker?.terminate()
   replayWorker = null
@@ -1671,6 +1841,9 @@ function closeReplay() {
   viewer?.setEditMode(editing.value)
   viewer?.setArrowsShown(false)
   viewer?.setCinema(false)
+  viewer?.setDiorama(false)
+  viewer?.setRoomTags([])
+  viewer?.onSpotClick(null)
   replayArch.value = false
   replayElement.value = null
   viewer?.setDark(dark.value)
@@ -1695,6 +1868,96 @@ function replayKey(e: KeyboardEvent): boolean {
   return true
 }
 onBeforeUnmount(() => replayWorker?.terminate())
+
+// ===== [임시 — 리플레이 데모] 여기부터 ===== 정식 기능이 아니다. 뺄 때 지울 곳은 lib/replay-demo.ts 맨 위에 모아 두었다.
+// 미리 정한 편집 스무 개 남짓(공간 · 벽·문·창 · 설비 · 연결·흐름 · 종류 · 계통 · 천장, 두 층)을 심고 바로 리플레이를 연다.
+// 무엇을 어디에 할지는 lib/replay-demo.ts 가 BIM 모양을 보고 정하고, 편집은 손으로 한 것과 같은 함수로 해서 이력·리포트·3D 가
+// 같다. 앞 데모의 편집이 이력 맨 위에 그대로 있으면 되돌리고 심는다 — 다시 눌러도 데모가 겹쳐 쌓이지 않게.
+// 맨 위 이력은 스냅숏으로 알아본다 — 리플레이가 되돌렸다 다시 하면 이력 한 줄은 새 객체지만 스냅숏은 같은 것이다(redo).
+let demoSeeded: { from: number; top: Snapshot } | null = null
+function runDemoAction(a: DemoAction) {
+  if (a.t === 'move') relocate(a.equipmentId, a.to)
+  else if (a.t === 'add') placeNewEquipment(a.storeyId, a.position, a.name, a.id)
+  else if (a.t === 'connect') {
+    connectFrom.value = a.from
+    connectTo(a.to)
+  } else if (a.t === 'flow') {
+    const m = model.value
+    const c = m ? connectionBetween(m, a.a, a.b) : null
+    if (!m || !c) return
+    const snapshot = snapshotRelease(m, c)
+    const at = mark()
+    if (applyFlow(m, c, a.from, DEMO_FLOW_REASON) !== true) return
+    remember(`${flowText(c, a.from)} 방향 적용`, snapshot, at)
+    flowVersion.value++
+  } else if (a.t === 'kind') {
+    const e = equipmentById.value.get(a.equipmentId)
+    if (e) setKind(typeKeyOf(e), a.kind, typeLabel(e))
+  } else if (a.t === 'system') {
+    const m = model.value
+    const e = equipmentById.value.get(a.equipmentId)
+    if (!m || !e) return
+    const snapshot = snapshotSystems(m, [e.systemId, a.systemId], [a.equipmentId])
+    const at = mark()
+    const rules = setEquipmentSystem(m, a.equipmentId, a.systemId)
+    if (!rules) return
+    remember(`${shortName(e.name)} 계통 → ${systemNameOf(a.systemId)}`, snapshot, at)
+    ruleReport.value = rules
+    triggerRef(model)
+    flowVersion.value++
+  } else if (a.t === 'rename') applyRename(a.spaceId, a.name)
+  else if (a.t === 'footprint') changeFootprint(a.spaceId, a.label, a.apply)
+  else if (a.t === 'spaces') changeSpaces(a.storeyId, a.label, a.apply)
+  else if (a.t === 'rooms') changeRooms(null, a.label, a.apply, a.storeyId)
+  else if (a.t === 'zones') changeCustomZones(a.storeyId, a.label, a.apply)
+  else changeElements(a.storeyId, a.label, a.apply)
+}
+async function seedDemo() {
+  const m = model.value
+  if (!m || busy.value) return
+  if (replayOpen.value) closeReplay()
+  flushNudge()
+  if (demoSeeded && history.value.at(-1)?.snapshot === demoSeeded.top) while (history.value.length > demoSeeded.from) undo()
+  demoSeeded = null
+  // 편집 모드로 들어가며 도는 일(임시 저장본 얹기 등)이 끝난 뒤에 심는다.
+  if (mode.value !== 'edit') {
+    mode.value = 'edit'
+    await nextTick()
+  }
+  stopAdd()
+  if (drawing.value) stopDraw()
+  // 천장 설비는 천장 쪽에서만, 나머지는 바닥·벽 쪽에서만 옮겨진다(relocate 의 잠금). 편집마다 그 쪽으로 둔다.
+  const wasCeiling = ceilingMode.value
+  const ids = ceilingIds.value
+  // 천장고를 모르는 층은 반자 부착 설비의 z 로 짐작한 값(계산)에 더한다. 층의 천장고는 정하지 않는다.
+  const ceilingHeight = (sid: string) => {
+    const st = m.storeys.find((x) => x.id === sid)
+    return (st && ceilingOf(st)?.height) ?? ceilingGuessOf.value.get(sid)?.height ?? null
+  }
+  const from = history.value.length
+  // 큰 파일(성수)은 편집마다 다시 재는 데 시간이 들어 심는 데 몇 초 걸린다. 그동안 멈춘 것처럼 보이지 않게 먼저 알린다.
+  note('데모 편집을 심는 중입니다…')
+  busy.value = true
+  await frames(2)
+  const script = demoScript(m, { storeyId: viewStorey.value, ceilingIds: ids, ceilingHeight })
+  let r = script.next(false)
+  while (!r.done) {
+    const top = history.value.at(-1)
+    ceilingMode.value = r.value.t === 'move' && !!r.value.ceiling
+    runDemoAction(r.value)
+    r = script.next(history.value.at(-1) !== top)
+  }
+  ceilingMode.value = wasCeiling
+  busy.value = false
+  connectFrom.value = null
+  editNotice.value = ''
+  if (history.value.length === from) return note('이 파일에는 데모로 고칠 방이 없습니다')
+  demoSeeded = { from, top: history.value.at(-1)!.snapshot }
+  // 리플레이는 건물 전체에서 시작한다(오프닝 · 층 쌓기). 보던 층은 닫으면 돌아온다.
+  await nextTick()
+  await openReplay()
+}
+// ===== [임시 — 리플레이 데모] 여기까지 =====
 
 /** 스냅숏을 모델에 되돌려 놓고, 바뀐 것에 맞춰 3D 와 화면을 고친다. 되돌리기와 다시 하기가 같이 쓴다. */
 function applySnapshot(s: Snapshot) {
@@ -4955,23 +5218,33 @@ function stopAdd() {
   adding.value = null
   viewer?.setPlaceMode(null)
 }
+/** 새 설비를 더하고 이력에 쌓는다. 3D 에서 누른 것과 편집 리플레이 데모가 같이 쓴다. */
+function placeNewEquipment(storeyId: string, position: Vec3, name: string, id?: string): Equipment | null {
+  const m = model.value
+  if (!m) return null
+  // 새 설비는 종류를 정하기 전까지 배관 없는 설비로 본다. 다른 배관 없는 설비 자리에는 더하지 않는다(OE-OBJ-16).
+  const blocked = overlapForNew(m, storeyId, position, currentBox)
+  if (blocked) {
+    refuseOverlap(blocked)
+    return null
+  }
+  const mk = mark()
+  const e = addEquipment(m, storeyId, { name, kind: null, position, id })
+  if (!e) return null
+  const snapshot = snapshotEquipmentSet(m, e.id)
+  if (snapshot?.kind === 'equipment-set') remember(`${e.name} 더하기`, { ...snapshot, present: false }, mk)
+  triggerRef(model)
+  redraw()
+  return e
+}
 function addEquipmentAt(at: Vec2) {
   const m = model.value
   const target = adding.value
   stopAdd()
   if (!m || !target) return
   const n = m.storeys.reduce((k, st) => k + st.equipment.filter((e) => e.added).length, 0) + 1
-  const position: Vec3 = [cm(at[0]), cm(at[1]), cm(target.elevation)]
-  // 새 설비는 종류를 정하기 전까지 배관 없는 설비로 본다. 다른 배관 없는 설비 자리에는 더하지 않는다(OE-OBJ-16).
-  const blocked = overlapForNew(m, target.storeyId, position, currentBox)
-  if (blocked) return refuseOverlap(blocked)
-  const mk = mark()
-  const e = addEquipment(m, target.storeyId, { name: `새 설비 ${n}`, kind: null, position })
+  const e = placeNewEquipment(target.storeyId, [cm(at[0]), cm(at[1]), cm(target.elevation)], `새 설비 ${n}`)
   if (!e) return
-  const snapshot = snapshotEquipmentSet(m, e.id)
-  if (snapshot?.kind === 'equipment-set') remember(`${e.name} 더하기`, { ...snapshot, present: false }, mk)
-  triggerRef(model)
-  redraw()
   selectedId.value = e.id
   note(`${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '천장고' : '바닥 높이'}에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`)
 }
@@ -6862,6 +7135,8 @@ async function export3D(format: 'glb' | 'obj') {
               <button type="button" :aria-pressed="mode === 'view'" @click="leaveEdit()">보기</button>
               <button type="button" :aria-pressed="mode === 'edit'" :disabled="busy" @click="mode = 'edit'">편집</button>
             </div>
+            <!-- [임시 — 리플레이 데모] 뺄 때 지울 곳은 lib/replay-demo.ts 맨 위. -->
+            <ReplayDemoMenu :disabled="busy" @pick="seedDemo" />
             <span class="bar-sep" aria-hidden="true"></span>
             <!-- 여는·합치는 중(busy)에는 막는다. 건축·설비를 같이 열 때 설비를 읽는 동안 누르면 건축만 든 파일이 나갔다. -->
             <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" :disabled="busy" :class="{ done: justDone === 'geojson' }" @click="exportGeoJSONDone">GeoJSON</button>
@@ -6941,6 +7216,9 @@ async function export3D(format: 'glb' | 'obj') {
               :start="replayStart"
               :steps="replaySteps"
               :error="replayError"
+              :seen="replaySeen"
+              :loop="replayLoop"
+              :storey="replayStorey"
               @toggle="replayToggle"
               @prev="replayJump('prev')"
               @next="replayJump('next')"

@@ -1,10 +1,12 @@
 <script setup lang="ts">
-// 편집 리플레이(PoC)의 3D 위 표시. 움직임은 3D 가 한다(App.vue 가 되돌리기로 되감고 다시 하기로 하나씩 다시 한다) —
+// 편집 리플레이(PoC)의 3D 위 표시. 움직임은 3D 가 한다(App.vue 가 되돌리기로 처음까지 돌리고 다시 하기로 하나씩 다시 한다) —
 // 여기는 지금 몇 번째인지, 그 편집이 TTL·GeoJSON 의 어디를 바꿨는지를 채팅처럼 카드로 쌓고, 조작 막대를 둔다.
 // 카드 내용은 워커가 모델 사본으로 계산한 것이다(lib/replay.ts).
 import { computed, ref, watch } from 'vue'
 import { escapeLocalName } from '../lib/export/ttl'
 import ReplayGeo from './ReplayGeo.vue'
+import ReplayRelations from './ReplayRelations.vue'
+import { relationsOf } from '../lib/replay-relations'
 import Roll from './Roll.vue'
 import { CATEGORIES, CATEGORY_COLOR, type Category, type PlanItem, type ReplayStart, type ReplayStep } from '../lib/replay'
 
@@ -13,7 +15,7 @@ const props = defineProps<{
   total: number
   /** 다시 한 편집 수(= 지금 이력 길이). 카드는 이만큼 쌓인다. */
   at: number
-  phase: 'rewind' | 'play' | 'done'
+  phase: 'opening' | 'play' | 'done'
   playing: boolean
   speed: number
   /** 다음 편집으로 카메라가 가는 중이면 그 번호. 채팅의 "입력 중" 처럼 다음 카드 자리를 미리 띄운다. */
@@ -21,6 +23,12 @@ const props = defineProps<{
   start: ReplayStart | null
   steps: readonly ReplayStep[]
   error: string
+  /** 3D 에 한 층만 보일 때 그 층. 건물 전체를 볼 때는 null. */
+  storey: { name: string; elevation: number } | null
+  /** 지금까지 다시 한 장면 수의 최댓값. 앞 장면으로 돌아가도(카드를 눌러 다시 보기, ←) 그 뒤 카드는 남긴다. */
+  seen: number
+  /** 카드를 눌러 반복해 보는 장면 번호. 없으면 null. */
+  loop: number | null
 }>()
 const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number] }>()
 
@@ -61,25 +69,44 @@ const ROWS = 7
 
 /** 기록판. 최신 장면이 맨 위에 펼쳐지고, 지난 장면은 그 아래 한 줄씩. */
 const cards = computed(() => {
-  // 되감는 동안은 비운다 — 한 장씩 빠지는 것보다 처음부터 다시 쌓이는 것이 보여야 한다.
-  if (props.phase === 'rewind') return []
-  const shown = props.steps.slice(0, props.at).slice(-5).reverse()
-  return shown.map((s, i) => ({ step: s, rows: rows(s), old: i > 0 }))
+  // 오프닝 동안은 비운다 — 첫 장면부터 쌓인다.
+  if (props.phase === 'opening') return []
+  // 펼치는 카드는 지금 장면(반복 중이면 그 장면)이고 나머지는 한 줄이다. 그 장면이 다섯 장 창 밖이면 창을 그쪽으로 당긴다.
+  const end = Math.max(props.at, props.seen)
+  let start = Math.max(0, end - 5)
+  if (focus.value >= 0 && focus.value < start) start = focus.value
+  const shown = props.steps.slice(start, Math.min(end, start + 5)).reverse()
+  return shown.map((s) => ({ step: s, rows: rows(s), rels: relationsOf(s.ttl), old: s.index !== focus.value, ahead: s.index >= props.at && s.index !== props.loop }))
 })
+const focus = computed(() => props.loop ?? props.at - 1)
 const upcoming = computed(() => (props.aiming !== null && props.aiming >= props.at ? (props.steps[props.aiming] ?? null) : null))
 const current = computed(() => upcoming.value ?? props.steps[props.at - 1] ?? null)
 const counter = computed(() => String(Math.min(props.total, props.aiming !== null ? props.aiming + 1 : props.at)).padStart(2, '0'))
 
 /** GeoJSON 패널의 장면. 카메라가 가는 중이면 그 장면의 지금 파일을, 다시 했으면 바뀐 파일을 보인다. */
-const geoStep = computed(() => (props.phase === 'rewind' ? null : (upcoming.value ?? props.steps[props.at - 1] ?? null)))
+const geoStep = computed(() => (props.phase === 'opening' ? null : (upcoming.value ?? props.steps[props.at - 1] ?? null)))
 const geoApplied = computed(() => !!geoStep.value && props.at > geoStep.value.index)
 
 /** 장면 제목. 카메라가 가는 중(aiming)부터 그 장면의 것이다. */
 const scene = computed(() => (props.phase === 'play' ? current.value : null))
+
+/**
+ * 장면 전환(화면이 검게 잠겼다 밝아짐)은 한 층에서 다른 층으로 넘어갈 때만 한다. 같은 층 안에서 다음 장면으로 가는 것은 카메라
+ * 이동으로 충분하고, 건물 전체에서 첫 층으로 들어갈 때는 3D 의 단면 자르기(viewer.sectionTo)가 전환이다. 끝 화면에서 건물
+ * 전체로 물러날 때는 이미 재생이 아니라 하지 않는다. 층이 하나뿐인 파일은 층이 바뀌지 않아 하지 않는다.
+ */
+const dip = ref(0)
+watch(
+  () => props.storey?.name ?? null,
+  (now, before) => {
+    if (props.phase === 'play' && now !== null && before !== null && now !== before) dip.value++
+  },
+)
+
 /** 키네틱 캡션: 장면 제목을 낱말로 나눠 차례로 튀어 오르게 한다. 숫자·# 이 든 낱말(설비 번호, 면적)은 갈래 색으로 짚는다. */
 const words = (label: string) => label.split(/\s+/).filter(Boolean).map((w) => ({ w, key: /[#\d]/.test(w) }))
-/** 오프닝: 열고 되감기 전(아직 한 단계도 되돌리지 않았다). 건물 이름과 편집 수를 크게. */
-const opening = computed(() => props.phase === 'rewind' && props.at === props.total)
+/** 오프닝: 열고 첫 장면 전. 건물 이름과 편집 수를 크게. */
+const opening = computed(() => props.phase === 'opening')
 // 건물 이름이 없는 IFC(성수)는 파일 이름에서 확장자를 뗀다.
 const openingTitle = computed(() => words(props.start?.building || props.title.replace(/\.ifc\b/gi, '')))
 /** 끝의 통계 타일. 차례로 굴러 올라온다. */
@@ -91,42 +118,12 @@ const stats = computed(() => [
 ])
 const two = (n: number) => String(n).padStart(2, '0')
 
-/**
- * 연출 스타일. 장면 구성과 갈래 색(무엇을 고쳤나)은 같고, 판·글꼴·전환·배경만 바뀐다. 고른 것은 이 브라우저에만 남긴다
- * (보는 사람마다의 취향이라 모델·편집 파일과 상관없다).
- */
-const STYLES = [
-  { id: 'broadcast', label: '중계' },
-  { id: 'cinema', label: '시네마' },
-  { id: 'neon', label: '네온' },
-  { id: 'swiss', label: '스위스' },
-] as const
-type StyleId = (typeof STYLES)[number]['id']
-const STYLE_KEY = 'oe-replay-style'
-function readStyle(): StyleId {
-  try {
-    const v = localStorage.getItem(STYLE_KEY)
-    return STYLES.find((x) => x.id === v)?.id ?? 'broadcast'
-  } catch {
-    return 'broadcast'
-  }
-}
-const style = ref<StyleId>(readStyle())
-function pickStyle(id: StyleId) {
-  style.value = id
-  try {
-    localStorage.setItem(STYLE_KEY, id)
-  } catch {
-    // 저장소가 막혀 있으면 이번 리플레이에서만 쓴다.
-  }
-}
-
 /** 다시 한 순간의 번쩍임. at 이 늘 때마다 한 번. */
 const impact = ref(0)
 watch(
   () => props.at,
   (at, before) => {
-    if (props.phase !== 'rewind' && at > before) impact.value++
+    if (props.phase !== 'opening' && at > before) impact.value++
   },
 )
 
@@ -150,27 +147,33 @@ const summary = computed(() => {
 </script>
 
 <template>
-  <div class="replay-hud" :data-phase="phase" :data-at="at" :data-total="total" :data-ready="steps.length" :data-style="style">
-    <!-- 시네마: 위아래 검은 띠 -->
-    <template v-if="style === 'cinema'"><div class="lb top"></div><div class="lb bottom"></div></template>
+  <div class="replay-hud" :data-phase="phase" :data-at="at" :data-total="total" :data-ready="steps.length" :data-loop="loop ?? ''">
+    <!-- 위아래 검은 띠(영화 화면비) -->
+    <div class="lb top"></div>
+    <div class="lb bottom"></div>
     <!-- 다시 한 순간 -->
     <div v-if="impact" :key="impact" class="impact" :style="{ '--c': current ? CAT_COLOR[current.category] : '#5ef2c2' }"></div>
 
-    <!-- 왼쪽 위: 중계 화면의 리플레이 표시 -->
+    <!-- 왼쪽 위: 리플레이 표시(위 검은 띠 안). 가는 테두리 판 셋 — REPLAY · 몇 번째 · 갈래. -->
     <div class="bug" :style="{ '--c': current ? CAT_COLOR[current.category] : '#5ef2c2' }">
-      <span class="bug-replay">▶ REPLAY</span>
-      <span v-if="phase !== 'rewind'" class="bug-count">
+      <span class="bug-replay">REPLAY</span>
+      <span v-if="phase !== 'opening'" class="bug-count">
         <transition name="roll" mode="out-in"><b :key="counter">{{ counter }}</b></transition>
         <i>/{{ two(total) }}</i>
       </span>
       <transition name="chip" mode="out-in">
-        <span v-if="current && phase !== 'rewind'" :key="current.index" class="bug-cat">{{ current.category }}</span>
+        <span v-if="current && phase !== 'opening'" :key="current.index" class="bug-cat">{{ current.category }}</span>
+      </transition>
+      <!-- 한 층만 보일 때 그 층. 장면이 다른 층으로 가면 바뀌고, 건물 전체로 물러나면 사라진다. -->
+      <transition name="chip" mode="out-in">
+        <span v-if="storey && phase !== 'opening'" :key="storey.name" class="bug-storey">
+          {{ storey.name }}<i>{{ storey.elevation >= 0 ? '+' : '' }}{{ storey.elevation.toFixed(2) }} m</i>
+        </span>
       </transition>
     </div>
-    <div class="bug-file">{{ title }}</div>
 
-    <!-- 장면 전환: 기하 도형 띠 셋이 비스듬히 화면을 쓸고 지나간다(카메라가 다음 자리로 떠나는 순간) -->
-    <div v-if="scene" :key="`sw${scene.index}`" class="swipe" :style="{ '--c': CAT_COLOR[scene.category] }"><i></i><i></i><i></i></div>
+    <!-- 장면 전환: 다른 층으로 넘어가는 순간 화면이 검게 잠겼다 밝아진다(같은 층이면 카메라만 옮긴다) -->
+    <div v-if="dip" :key="`sw${dip}`" class="swipe"></div>
 
     <!-- 장면 제목: 판이 펼쳐지고 낱말이 차례로 튀어 오른다(키네틱 캡션) -->
     <transition name="scene">
@@ -182,7 +185,7 @@ const summary = computed(() => {
       </div>
     </transition>
 
-    <!-- 되감기 -->
+    <!-- 오프닝 -->
     <transition name="fade">
       <div v-if="opening" class="hud-rewind opening">
         <div class="op-kicker">▶ EDIT REPLAY</div>
@@ -193,11 +196,6 @@ const summary = computed(() => {
           <b>{{ two(total) }}</b> EDITS<template v-if="start?.building"> <i>·</i> {{ title }}</template>
         </div>
       </div>
-      <div v-else-if="phase === 'rewind'" class="hud-rewind">
-        <div class="streaks"><i v-for="n in 7" :key="n" :style="{ top: `${8 + n * 12}%`, animationDelay: `${(n * 137) % 600}ms` }"></i></div>
-        <div class="rw-title"><span class="rw-icon">◀◀</span> REWIND</div>
-        <div class="rw-sub">처음 상태로 되감는 중 · {{ total - at }} / {{ total }}</div>
-      </div>
     </transition>
 
     <!-- 오른쪽 기둥 -->
@@ -207,11 +205,12 @@ const summary = computed(() => {
       </div>
       <div class="log-head">
         <span>TTL 변경 기록</span>
-        <b>{{ two(at) }}<i>/{{ two(total) }}</i></b>
+        <!-- 반복 중에는 되돌릴 때마다 하나 내려갔다 오르지 않게 반복하는 장면 번호에 둔다. -->
+        <b>{{ two(loop !== null ? loop + 1 : at) }}<i>/{{ two(total) }}</i></b>
       </div>
       <div class="log">
         <transition name="next">
-          <div v-if="upcoming" :key="`up${upcoming.index}`" class="next" :style="{ '--c': CAT_COLOR[upcoming.category] }">
+          <div v-if="upcoming && loop === null" :key="`up${upcoming.index}`" class="next" :style="{ '--c': CAT_COLOR[upcoming.category] }">
             <span class="next-tag">NEXT</span>
             <span class="next-label">{{ upcoming.label }}</span>
             <span class="next-arrow">▶</span>
@@ -222,9 +221,9 @@ const summary = computed(() => {
             v-for="c in cards"
             :key="c.step.index"
             class="card"
-            :class="{ old: c.old }"
+            :class="{ old: c.old, ahead: c.ahead, looping: c.step.index === loop }"
             :style="{ '--c': CAT_COLOR[c.step.category] }"
-            title="이 장면만 다시 보기"
+            :title="c.step.index === loop ? '반복 중 — Space 로 다음 장면부터 이어서' : '이 장면만 반복해서 보기'"
             @click="emit('scene', c.step.index)"
           >
             <div class="idx">#{{ two(c.step.index + 1) }}</div>
@@ -242,11 +241,13 @@ const summary = computed(() => {
                     <b class="del">−{{ c.step.geojson.count.removed }}</b>
                   </template>
                 </div>
+                <!-- 관계가 바뀐 장면은 그 관계를 그림으로 먼저(소속 방이 바뀜 · 공급 대상이 바뀜 …). 그만큼 줄 글은 줄인다. -->
+                <ReplayRelations v-if="c.rels.length" :rels="c.rels" :name="readable" />
                 <template v-if="c.rows.length">
-                  <div v-for="(r, i) in c.rows.slice(0, ROWS)" :key="i" :class="['line', r.kind]" :style="{ animationDelay: `${250 + i * 70}ms` }">
+                  <div v-for="(r, i) in c.rows.slice(0, c.rels.length ? ROWS - 3 : ROWS)" :key="i" :class="['line', r.kind]" :style="{ animationDelay: `${250 + i * 70}ms` }">
                     {{ r.kind === 'add' ? '+ ' : r.kind === 'del' ? '− ' : '▸ ' }}{{ r.text }}
                   </div>
-                  <div v-if="c.rows.length > ROWS" class="line more">… 외 {{ c.rows.length - ROWS }}줄</div>
+                  <div v-if="c.rows.length > (c.rels.length ? ROWS - 3 : ROWS)" class="line more">… 외 {{ c.rows.length - (c.rels.length ? ROWS - 3 : ROWS) }}줄</div>
                 </template>
                 <div v-else class="line none">TTL 변화 없음<template v-if="c.step.geojson"> — 좌표·외곽선은 GeoJSON 에만 남는다</template></div>
               </template>
@@ -293,8 +294,8 @@ const summary = computed(() => {
           v-for="k in total"
           :key="k"
           class="tick"
-          :class="{ done: k <= at }"
-          :title="steps[k - 1] ? `#${two(k)} ${steps[k - 1].label} — 이 장면만 다시 보기` : undefined"
+          :class="{ done: k <= at, looping: k - 1 === loop }"
+          :title="steps[k - 1] ? `#${two(k)} ${steps[k - 1].label} — 이 장면만 반복해서 보기` : undefined"
           :style="{ left: `${(100 * (k - 0.5)) / total}%`, background: steps[k - 1] ? CAT_COLOR[steps[k - 1].category] : undefined }"
           @click="emit('scene', k - 1)"
         ></i>
@@ -302,16 +303,14 @@ const summary = computed(() => {
       <div class="buttons">
         <button type="button" title="처음부터 (Home)" @click="emit('restart')">⏮</button>
         <button type="button" title="이전 편집 (←)" @click="emit('prev')">◀</button>
-        <button type="button" class="play" :title="playing ? '멈춤 (Space)' : '재생 (Space)'" @click="emit('toggle')">{{ playing ? '❚❚' : '▶' }}</button>
+        <button type="button" class="play" :title="playing ? '멈춤 (Space)' : loop !== null ? '다음 장면부터 이어서 재생 (Space)' : '재생 (Space)'" @click="emit('toggle')">{{ playing ? '❚❚' : '▶' }}</button>
         <button type="button" title="다음 편집 (→)" @click="emit('next')">▶▶</button>
-        <span class="styles" title="연출 스타일 — 이 브라우저에 기억한다">
-          <button v-for="st in STYLES" :key="st.id" type="button" :aria-pressed="style === st.id" :data-style-id="st.id" @click="pickStyle(st.id)">{{ st.label }}</button>
-        </span>
         <span class="speeds">
           <button v-for="s in [0.5, 1, 2]" :key="s" type="button" :aria-pressed="speed === s" @click="emit('speed', s)">{{ s }}×</button>
         </span>
         <span class="status">
-          {{ phase === 'rewind' ? '되감는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }}
+          <template v-if="loop !== null">#{{ two(loop + 1) }} 반복 중 · <kbd>Space</kbd> 다음 장면부터 이어서</template>
+          <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }}</template>
         </span>
         <button type="button" class="close" title="닫기 (Esc · P) — 남은 편집을 다시 해서 원래 상태로" @click="emit('close')">✕ 닫기</button>
       </div>
@@ -346,60 +345,59 @@ const summary = computed(() => {
 /* --- 왼쪽 위 표시 --- */
 .bug {
   position: absolute;
-  top: 18px;
+  top: 1.6%;
   left: 18px;
   display: flex;
   align-items: stretch;
-  height: 40px;
-  font-weight: 900;
+  gap: 6px;
+  height: 32px;
+  font-weight: 600;
 }
+/* 갈래 색은 가는 테두리와 아주 옅은 빛에만 둔다. 판은 반투명 검정이라 띠 위에 얹혀도 튀지 않는다. */
 .bug > span {
   display: flex;
   align-items: center;
-  padding: 0 16px;
-  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
-  margin-right: -6px;
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
+  background: rgba(5, 6, 8, 0.72);
+  color: #e6e9ee;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--c) 18%, transparent);
 }
 .bug-replay {
-  padding-left: 14px !important;
-  background: #fff;
-  color: #05080d;
-  font-size: 17px;
-  font-style: italic;
-  letter-spacing: 0.04em;
-  clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%) !important;
+  --c: #ffffff;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.28em;
 }
 .bug-count {
   gap: 2px;
-  background: var(--c);
-  color: #05080d;
-  font-size: 24px;
+  font-size: 17px;
 }
 .bug-count b {
   display: inline-block;
 }
 .bug-count i {
-  font-size: 14px;
+  font-size: 12px;
   font-style: normal;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 .bug-cat {
-  background: #05080d;
   color: var(--c);
-  font-size: 14px;
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+/* 층은 갈래가 아니라 자리라서 갈래 색을 쓰지 않는다. */
+.bug-storey {
+  --c: #ffffff;
+  gap: 8px;
+  font-size: 13px;
   letter-spacing: 0.04em;
 }
-.bug-file {
-  position: absolute;
-  top: 64px;
-  left: 20px;
-  max-width: calc(100% - var(--feed) - 60px);
-  overflow: hidden;
-  color: #c9d6ea;
-  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.9);
+.bug-storey i {
+  color: #9aa0a8;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 400;
 }
 
 /* --- 다시 한 순간 --- */
@@ -470,35 +468,13 @@ const summary = computed(() => {
   color: var(--c);
 }
 
-/* --- 장면 전환 띠 --- */
+/* --- 장면 전환 --- */
 .swipe {
   position: absolute;
   inset: 0 var(--feed) 0 0;
-  overflow: hidden;
+  background: #000;
   pointer-events: none;
-}
-.swipe i {
-  position: absolute;
-  top: -10%;
-  bottom: -10%;
-  left: -60%;
-  width: 34%;
-  transform: skewX(-16deg);
-  will-change: left;
-  animation: swipe 720ms cubic-bezier(0.7, 0, 0.25, 1) forwards;
-}
-.swipe i:nth-child(1) {
-  background: var(--c);
-}
-.swipe i:nth-child(2) {
-  width: 9%;
-  background: #fff;
-  animation-delay: 70ms;
-}
-.swipe i:nth-child(3) {
-  width: 20%;
-  background: #05080d;
-  animation-delay: 130ms;
+  animation: dip 900ms ease-in-out forwards;
 }
 
 /* --- 오프닝 --- */
@@ -506,6 +482,14 @@ const summary = computed(() => {
   justify-items: start;
   padding-left: 8%;
   text-align: left;
+  /* 건물이 솟아오르는 것(viewer.buildUp)이 주인공이다. 제목은 잠깐 보이고 걷힌다. */
+  animation: op-out 700ms ease-in 1.9s forwards;
+}
+@keyframes op-out {
+  to {
+    opacity: 0;
+    transform: translateY(-12px);
+  }
 }
 .op-kicker {
   padding: 6px 12px;
@@ -583,7 +567,7 @@ const summary = computed(() => {
   transform: translateX(-40px);
 }
 
-/* --- 되감기 --- */
+/* --- 오프닝 판(제목이 뜨는 자리) --- */
 .hud-rewind {
   position: absolute;
   inset: 0 var(--feed) 0 0;
@@ -592,38 +576,6 @@ const summary = computed(() => {
   overflow: hidden;
   text-align: center;
 }
-.streaks i {
-  position: absolute;
-  right: -40%;
-  width: 40%;
-  height: 3px;
-  background: linear-gradient(90deg, transparent, var(--mint), #fff);
-  animation: streak 700ms linear infinite;
-}
-.rw-title {
-  font-size: 84px;
-  font-style: italic;
-  font-weight: 900;
-  letter-spacing: 0.02em;
-  text-shadow:
-    0 0 30px rgba(94, 242, 194, 0.6),
-    0 6px 0 #05080d;
-  animation: slam 500ms cubic-bezier(0.2, 0.9, 0.25, 1.3) both;
-}
-.rw-icon {
-  color: var(--mint);
-  animation: blink 0.6s infinite;
-}
-.rw-sub {
-  justify-self: center;
-  margin-top: 14px;
-  padding: 6px 14px;
-  background: #fff;
-  color: #05080d;
-  font-size: 16px;
-  font-weight: 800;
-}
-
 /* --- 오른쪽 기둥 --- */
 .rp-side {
   position: absolute;
@@ -776,6 +728,32 @@ const summary = computed(() => {
   font-size: 14px;
   font-weight: 700;
 }
+/* 아직 다시 하지 않은 장면(카드를 눌러 앞 장면으로 돌아갔을 때 그 뒤). 남기되 지금 모델에는 없다는 것만 보인다. */
+.card.ahead {
+  opacity: 0.55;
+}
+/* 반복 중인 장면. 테두리를 그 갈래 색으로 두고, 번호 칸에 반복 표시를 단다. */
+.card.looping {
+  border-color: var(--c);
+  box-shadow: 0 0 0 1px var(--c);
+}
+.card.looping .idx::after {
+  content: '⟲';
+  display: block;
+  font-size: 15px;
+  animation: spin 1.6s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+.status kbd {
+  padding: 0 4px;
+  border: 1px solid #344560;
+  font: inherit;
+  font-size: 11px;
+}
 .ttl-head {
   margin-bottom: 4px;
   font: 700 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -914,6 +892,11 @@ const summary = computed(() => {
 .track .tick.done {
   opacity: 1;
 }
+.track .tick.looping {
+  opacity: 1;
+  transform: scaleY(1.6);
+  box-shadow: 0 0 6px currentColor;
+}
 .buttons {
   display: flex;
   align-items: center;
@@ -1024,37 +1007,9 @@ const summary = computed(() => {
     opacity: 0;
   }
 }
-@keyframes wipe {
-  0% {
-    transform: scaleX(0);
-    transform-origin: left;
-  }
-  45% {
-    transform: scaleX(1);
-    transform-origin: left;
-  }
-  55% {
-    transform: scaleX(1);
-    transform-origin: right;
-  }
-  100% {
-    transform: scaleX(0);
-    transform-origin: right;
-  }
-}
-/* ===== 연출 스타일 ===== 기본(중계)은 위의 규칙이다. 아래는 스타일마다 덮어쓰는 것만. */
-.styles {
-  display: inline-flex;
-  gap: 2px;
-  margin-left: 6px;
-}
-.styles button[aria-pressed='true'] {
-  border-color: #fff;
-  background: #fff;
-  color: #05080d;
-}
-
-/* --- 시네마: 위아래 띠, 가늘고 큰 자막, 검게 잠겼다 밝아지는 전환 --- */
+/* ===== 화면 톤 =====
+ * 위의 판(중계 화면 모양)에 영화 화면 톤을 덮는다: 위아래 검은 띠, 가운데 가늘고 큰 자막, 검게 잠겼다 밝아지는 장면 전환,
+ * 가는 글씨의 끝 요약. 오른쪽 기둥(GeoJSON·카드)은 위의 판 그대로다. */
 .lb {
   position: absolute;
   left: 0;
@@ -1068,51 +1023,22 @@ const summary = computed(() => {
 .lb.bottom {
   bottom: 0;
 }
-[data-style='cinema'] {
-  --panel: #07080a;
-  --line: #24262b;
-}
-[data-style='cinema'] .bug {
-  top: 2.2%;
-  height: 32px;
-}
-[data-style='cinema'] .bug > span,
-[data-style='cinema'] .bug-replay {
-  margin-right: 14px;
-  padding: 0 !important;
-  background: transparent !important;
-  color: #e9e9e9;
-  font-size: 13px;
-  font-style: normal;
-  font-weight: 400;
-  letter-spacing: 0.35em;
-  clip-path: none !important;
-}
-[data-style='cinema'] .bug-count {
-  font-size: 18px !important;
-}
-[data-style='cinema'] .bug-cat {
-  color: var(--c) !important;
-}
-[data-style='cinema'] .bug-file {
-  display: none;
-}
-[data-style='cinema'] .scene {
+.replay-hud .scene {
   left: calc((100% - var(--feed)) / 2);
   bottom: calc(8% + 88px);
   max-width: calc(100% - var(--feed) - 80px);
   text-align: center;
   translate: -50% 0;
 }
-[data-style='cinema'] .scene-kicker {
+.replay-hud .scene-kicker {
   justify-content: center;
   height: auto;
   margin-bottom: 10px;
   font-weight: 400;
   letter-spacing: 0.4em;
 }
-[data-style='cinema'] .scene-kicker b,
-[data-style='cinema'] .scene-kicker span {
+.replay-hud .scene-kicker b,
+.replay-hud .scene-kicker span {
   padding: 0 8px;
   background: transparent;
   color: var(--c);
@@ -1123,7 +1049,7 @@ const summary = computed(() => {
     0 1px 2px #000,
     0 0 10px rgba(0, 0, 0, 0.9);
 }
-[data-style='cinema'] .scene-title {
+.replay-hud .scene-title {
   border: 0;
   background: transparent;
   font-size: 42px;
@@ -1132,354 +1058,66 @@ const summary = computed(() => {
   text-shadow: 0 2px 14px rgba(0, 0, 0, 0.9);
   animation: none;
 }
-[data-style='cinema'] .wd {
+.replay-hud .wd {
   animation: rise-soft 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-[data-style='cinema'] .wd.key {
+.replay-hud .wd.key {
   color: #fff;
   font-weight: 600;
 }
-[data-style='cinema'] .swipe i {
-  display: none;
-}
-[data-style='cinema'] .swipe {
-  background: #000;
-  animation: dip 900ms ease-in-out forwards;
-}
-[data-style='cinema'] .impact {
+.replay-hud .impact {
   border: 0;
   background: rgba(255, 255, 255, 0.12);
 }
-[data-style='cinema'] .log-head {
-  border-bottom: 1px solid #3a3d44;
-  background: transparent;
-  color: #e9e9e9;
-  font-weight: 500;
-  letter-spacing: 0.2em;
-}
-[data-style='cinema'] .card {
-  background: #0d0e11;
-}
-[data-style='cinema'] .idx {
-  background: transparent !important;
-  color: var(--c) !important;
-  font-weight: 400;
-}
-[data-style='cinema'] .card h3 {
-  font-weight: 500;
-}
-[data-style='cinema'] .hud-bar {
+.replay-hud .hud-bar {
   bottom: 1.2%;
   border-color: #24262b;
 }
-[data-style='cinema'] .rp-stats .stat {
+.replay-hud .rp-stats .stat {
   border-top: 1px solid #fff;
 }
-[data-style='cinema'] .stat-n {
+.replay-hud .stat-n {
   font-weight: 200;
 }
-[data-style='cinema'] .op-title {
+.replay-hud .op-title {
   font-weight: 200;
   text-shadow: none;
 }
 
-/* --- 네온: 보라 바탕, 자홍·하늘 테두리 빛, 기운 굵은 글씨 --- */
-[data-style='neon'] {
-  --panel: #0f0522;
-  --line: #3b1d6e;
-  --mint: #22e1ff;
-  --pink: #ff3dcd;
+/* 끝 통계 타일은 위 검은 띠 아래로 — 띠 안의 왼쪽 위 표시와 겹치지 않고 띠를 비워 둔다. */
+.replay-hud .rp-stats {
+  top: calc(8% + 14px);
 }
-[data-style='neon'] .bug > span {
-  margin-right: 8px;
-  border: 2px solid var(--c);
-  background: rgba(15, 5, 34, 0.85) !important;
-  color: #fff;
-  clip-path: none !important;
-  box-shadow:
-    0 0 10px var(--c),
-    inset 0 0 6px var(--c);
-  text-shadow: 0 0 8px var(--c);
+/* 끝 요약: 흰 판이 내리꽂히지 않고, 가는 선 위에 가는 글씨로 떠오른다. 갈래 색은 막대에만 둔다. */
+.replay-hud .hud-done {
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.7);
+  background: rgba(5, 6, 8, 0.82);
+  animation: rise-soft 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
-[data-style='neon'] .bug-replay {
-  --c: #ff3dcd;
-}
-[data-style='neon'] .scene-kicker b {
-  border: 2px solid var(--c);
+.replay-hud .done-head {
   background: transparent;
-  color: var(--c);
-  box-shadow: 0 0 10px var(--c);
-}
-[data-style='neon'] .scene-kicker span {
-  background: #ff3dcd;
-  color: #fff;
-}
-[data-style='neon'] .scene-title {
-  border-left-color: var(--c);
-  background: rgba(15, 5, 34, 0.92);
-  font-style: italic;
-  box-shadow:
-    0 0 0 2px var(--c),
-    0 0 22px var(--c);
-}
-[data-style='neon'] .wd.key {
-  text-shadow: 0 0 12px var(--c);
-}
-[data-style='neon'] .swipe i:nth-child(1) {
-  background: linear-gradient(90deg, #ff3dcd, #22e1ff);
-}
-[data-style='neon'] .swipe i:nth-child(3) {
-  background: #0f0522;
-}
-[data-style='neon'] .log-head {
-  background: linear-gradient(90deg, #ff3dcd, #22e1ff);
-  color: #fff;
-}
-[data-style='neon'] .card {
-  border-color: #3b1d6e;
-  background: #170a33;
-}
-[data-style='neon'] .card:hover {
-  box-shadow: 0 0 12px var(--c);
-}
-[data-style='neon'] .idx {
-  box-shadow: 0 0 14px var(--c);
-}
-[data-style='neon'] .card.old {
-  background: #12072a;
-}
-[data-style='neon'] .buttons .play {
-  border-color: #ff3dcd;
-  background: #ff3dcd;
-  color: #fff;
-}
-[data-style='neon'] .rw-title {
-  text-shadow:
-    0 0 24px #ff3dcd,
-    0 6px 0 #0f0522;
-}
-[data-style='neon'] .stat {
-  border-top-color: #ff3dcd;
-  box-shadow: 0 0 16px rgba(255, 61, 205, 0.5);
-}
-[data-style='neon'] :deep(.replay-geo) {
-  border-color: #3b1d6e;
-  background: #170a33;
-}
-[data-style='neon'] :deep(.replay-geo .code),
-[data-style='neon'] :deep(.replay-geo .map) {
-  background-color: #0f0522;
-}
-
-/* --- 스위스(바우하우스): 종이색 판, 검은 글씨, 빨간 점, 원이 퍼지는 전환 --- */
-[data-style='swiss'] {
-  --panel: #f3efe6;
-  --line: #111;
-  --mint: #e63b2e;
-  --pink: #e63b2e;
-}
-[data-style='swiss'] .bug > span {
-  margin-right: 0;
-  clip-path: none !important;
-}
-[data-style='swiss'] .bug-replay {
-  background: #e63b2e !important;
-  color: #fff;
+  color: #9aa0a8;
+  font-size: 12px;
   font-style: normal;
+  font-weight: 400;
+  letter-spacing: 0.3em;
 }
-[data-style='swiss'] .bug-replay::before {
-  content: '';
-  width: 12px;
-  height: 12px;
-  margin-right: 8px;
-  border-radius: 50%;
-  background: #f3efe6;
+.replay-hud .hud-done h2 {
+  font-size: 26px;
+  font-weight: 300;
 }
-[data-style='swiss'] .bug-count {
-  background: #f3efe6;
-  color: #111;
+.replay-hud .sum-row {
+  font-weight: 400;
+  color: #d9dce1;
 }
-[data-style='swiss'] .bug-cat {
-  background: #111;
-  color: #f3efe6;
+.replay-hud .sum-row i {
+  height: 3px;
 }
-[data-style='swiss'] .scene-kicker b {
-  background: #111;
-  color: #f3efe6;
-}
-[data-style='swiss'] .scene-kicker span {
-  background: var(--c);
-  color: #111;
-  clip-path: none;
-}
-[data-style='swiss'] .scene-title {
-  border-left: 12px solid #e63b2e;
-  background: #f3efe6;
-  color: #111;
-  letter-spacing: -0.02em;
-}
-[data-style='swiss'] .wd.key {
-  color: #e63b2e;
-}
-[data-style='swiss'] .swipe i {
-  display: none;
-}
-[data-style='swiss'] .swipe::before {
-  content: '';
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 20px;
-  height: 20px;
-  margin: -10px 0 0 -10px;
-  border-radius: 50%;
-  background: #e63b2e;
-  animation: iris 800ms cubic-bezier(0.7, 0, 0.25, 1) forwards;
-}
-[data-style='swiss'] .impact {
-  border-color: #e63b2e;
-  background: none;
-}
-[data-style='swiss'] .rp-side {
-  border-left: 4px solid #111;
-  color: #111;
-}
-[data-style='swiss'] .log-head {
-  background: #111;
-  color: #f3efe6;
-}
-[data-style='swiss'] .card {
-  border: 2px solid #111;
-  background: #fff;
-  color: #111;
-}
-/* 갈래 색 글씨는 종이 바탕에서 묻힌다(노랑·하늘). 색 칩으로 바꾼다. */
-[data-style='swiss'] .card .cat,
-[data-style='swiss'] :deep(.replay-geo .feature .kind) {
-  padding: 1px 6px;
-  background: var(--c);
-  color: #111;
-}
-[data-style='swiss'] .ttl-head .chg {
-  color: #8a5a00;
-}
-[data-style='swiss'] .card.old {
-  background: #ece7dc;
-}
-[data-style='swiss'] .card.old h3 {
-  color: #222;
-}
-[data-style='swiss'] .card.old .idx {
-  background: #111;
-  color: #f3efe6;
-}
-[data-style='swiss'] .card .time,
-[data-style='swiss'] .ttl-head,
-[data-style='swiss'] .line.subject,
-[data-style='swiss'] .line.none,
-[data-style='swiss'] .line.more {
-  color: #555;
-}
-[data-style='swiss'] .line.add,
-[data-style='swiss'] .ttl-head .add {
-  color: #1a7f37;
-}
-[data-style='swiss'] .line.del,
-[data-style='swiss'] .ttl-head .del {
-  color: #c62828;
-}
-[data-style='swiss'] .next {
-  border-color: #111;
-  color: #111;
-}
-[data-style='swiss'] .next-tag {
-  background: #111;
-  color: #fff;
-}
-[data-style='swiss'] .hud-bar {
-  border: 2px solid #111;
-  color: #111;
-}
-[data-style='swiss'] .buttons button {
-  border-color: #111;
-}
-[data-style='swiss'] .buttons .play,
-[data-style='swiss'] .styles button[aria-pressed='true'] {
-  border-color: #e63b2e;
-  background: #e63b2e;
-  color: #fff;
-}
-[data-style='swiss'] .speeds button[aria-pressed='true'] {
-  border-color: #111;
-  background: #111;
-  color: #fff;
-}
-[data-style='swiss'] .status {
-  color: #333;
-}
-[data-style='swiss'] .track {
-  background: #d6d0c4;
-}
-[data-style='swiss'] .hud-done {
-  border: 3px solid #111;
-  color: #111;
-}
-[data-style='swiss'] .done-head {
-  background: #111;
-  color: #f3efe6;
-}
-[data-style='swiss'] .stat {
-  border-top-color: #e63b2e;
-  background: #f3efe6;
-  color: #111;
-}
-[data-style='swiss'] .stat > span {
-  color: #555;
-}
-[data-style='swiss'] .rw-sub,
-[data-style='swiss'] .op-kicker {
-  background: #e63b2e;
-  color: #fff;
-}
-[data-style='swiss'] .op-sub {
-  border-left-color: #111;
-  background: #f3efe6;
-  color: #111;
-}
-[data-style='swiss'] :deep(.replay-geo) {
-  border: 2px solid #111;
-  border-top: 6px solid var(--c);
-  background: #fff;
-  color: #111;
-}
-[data-style='swiss'] :deep(.replay-geo .file),
-[data-style='swiss'] :deep(.replay-geo .feature .name) {
-  color: #111;
-}
-[data-style='swiss'] :deep(.replay-geo .code) {
-  background: #f7f4ee;
-}
-[data-style='swiss'] :deep(.replay-geo .k) {
-  color: #1f4fd1;
-}
-[data-style='swiss'] :deep(.replay-geo .s) {
-  color: #a45a00;
-}
-[data-style='swiss'] :deep(.replay-geo .n) {
-  color: #0b7a52;
-}
-[data-style='swiss'] :deep(.replay-geo .p),
-[data-style='swiss'] :deep(.replay-geo .others),
-[data-style='swiss'] :deep(.replay-geo .status) {
-  color: #555;
-}
-[data-style='swiss'] :deep(.replay-geo .n.hot) {
-  color: #111;
-  text-shadow: none;
-}
-[data-style='swiss'] :deep(.replay-geo .dv) {
-  background: #111;
-  color: #ffd166;
+.replay-hud .totals,
+.replay-hud .totals span {
+  color: #b9bec6 !important;
+  font-weight: 400;
 }
 @keyframes rise-soft {
   from {
@@ -1498,20 +1136,6 @@ const summary = computed(() => {
     opacity: 0;
   }
 }
-@keyframes iris {
-  0% {
-    transform: scale(0);
-    opacity: 1;
-  }
-  55% {
-    transform: scale(140);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(140);
-    opacity: 0;
-  }
-}
 @keyframes plate {
   from {
     transform: scaleX(0);
@@ -1523,25 +1147,10 @@ const summary = computed(() => {
     transform: translateY(65%) scale(0.85);
   }
 }
-@keyframes swipe {
-  to {
-    left: 130%;
-  }
-}
 @keyframes tile {
   from {
     opacity: 0;
     transform: translateY(-24px) scale(0.9);
-  }
-}
-@keyframes reveal {
-  0%,
-  49% {
-    opacity: 0;
-  }
-  50%,
-  100% {
-    opacity: 1;
   }
 }
 @keyframes kicker-in {
@@ -1554,14 +1163,6 @@ const summary = computed(() => {
   from {
     opacity: 0;
     transform: scale(1.25);
-  }
-}
-@keyframes streak {
-  from {
-    transform: translateX(0);
-  }
-  to {
-    transform: translateX(-380%);
   }
 }
 @keyframes nudge {
@@ -1581,15 +1182,6 @@ const summary = computed(() => {
     clip-path: inset(0 0 0 0);
   }
 }
-@keyframes blink {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
-}
 @keyframes grow {
   from {
     transform: scaleX(0);
@@ -1598,9 +1190,6 @@ const summary = computed(() => {
 @media (prefers-reduced-motion: reduce) {
   .line,
   .sum-row i,
-  .rw-title,
-  .rw-icon,
-  .streaks i,
   .scene *,
   .scene-title,
   .wd,
@@ -1613,12 +1202,17 @@ const summary = computed(() => {
     animation: none;
   }
   .impact,
-  .streaks,
   .swipe {
     display: none;
   }
   .wd {
     animation: none !important;
   }
+}
+
+/* 반복 중인 카드. 카드 판의 테두리 규칙보다 뒤에 두어 갈래 색 테두리가 이긴다. */
+.replay-hud .card.looping {
+  border-color: var(--c);
+  box-shadow: 0 0 0 2px var(--c);
 }
 </style>

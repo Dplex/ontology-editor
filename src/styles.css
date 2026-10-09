@@ -861,18 +861,9 @@ th {
   margin: 0;
   border: none;
   border-radius: 0;
-  background: radial-gradient(circle at 40% 45%, #22365a, #0e1726 75%);
-  box-shadow: none;
-}
-/* 편집 리플레이 연출 스타일별 무대 바탕(ReplayHud 의 data-style). */
-.viewport.theater:has(.replay-hud[data-style='cinema']) {
+  /* 영화 화면 톤의 거의 검은 무대(ReplayHud 의 위아래 띠와 이어진다). */
   background: #07090c;
-}
-.viewport.theater:has(.replay-hud[data-style='neon']) {
-  background: radial-gradient(circle at 40% 45%, #3a1466, #0c0420 75%);
-}
-.viewport.theater:has(.replay-hud[data-style='swiss']) {
-  background: #26262a;
+  box-shadow: none;
 }
 /* 오른쪽 칼럼은 장면 카드(ReplayHud 의 .hud-feed) 자리다. 3D 를 그만큼 좁혀 카드가 건물을 가리지 않게 한다. */
 .viewport.theater .canvas-wrap canvas {
