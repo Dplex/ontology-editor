@@ -852,28 +852,6 @@ th {
   min-width: 0;
 }
 
-/* 편집 리플레이(PoC)의 극장. 3D 를 창 전체로 키우고 나머지 화면은 가린다 — 리플레이 동안 다른 편집이 끼면 되감은 이력이 깨진다. */
-.viewport.theater {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  height: auto;
-  margin: 0;
-  border: none;
-  border-radius: 0;
-  /* 영화 화면 톤의 거의 검은 무대(ReplayHud 의 위아래 띠와 이어진다). */
-  background: #07090c;
-  box-shadow: none;
-}
-/* 오른쪽 칼럼은 장면 카드(ReplayHud 의 .hud-feed) 자리다. 3D 를 그만큼 좁혀 카드가 건물을 가리지 않게 한다. */
-.viewport.theater .canvas-wrap canvas {
-  width: calc(100% - var(--replay-feed, 440px)) !important;
-}
-.viewport.theater > :not(.canvas-wrap),
-.viewport.theater .canvas-wrap > :not(canvas):not(.replay-hud) {
-  display: none !important;
-}
-
 .viewport canvas {
   display: block;
   width: 100%;
