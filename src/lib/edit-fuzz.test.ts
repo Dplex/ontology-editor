@@ -4,6 +4,7 @@ import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import { fuzzEdits } from './edit-fuzz'
+import { assignEquipment } from './mapping'
 import type { Model } from './model'
 
 // 편집을 무작위로 섞어도 편집 파일과 되돌리기가 화면과 같은 결과를 낸다(edit-fuzz.ts). 실제 BIM 으로 도는 판은
@@ -66,4 +67,28 @@ describe('계통 이름 규칙 (OE-PIP-09)', () => {
     expect(created).toBeGreaterThan(20)
     expect(renamed).toBeGreaterThan(20)
   }, 120_000)
+})
+
+describe('소속은 편집 함수 안에서 다시 계산된다 (OE-MAP-06)', () => {
+  it('어떤 편집 뒤에도, 저장·불러온 뒤에도 저장된 소속이 그 자리에서 다시 판정한 소속과 같다 (씨앗 200개)', () => {
+    // 호출부가 따로 재계산을 부르지 않아도 맞아야 한다. 다시 판정은 판정 함수 그대로(BIM 명시 소속·사람 지정·외벽 설비 포함)다.
+    const model = read('mep.ifc')
+    const wrong: string[] = []
+    let checked = 0
+    for (let seed = 1; seed <= 200; seed++) {
+      const r = fuzzEdits(model, seed, 25)
+      for (const [which, m] of [['edited', r.edited], ['reloaded', r.reloaded]] as const) {
+        for (const st of m.storeys)
+          for (const e of st.equipment) {
+            const again = structuredClone(e)
+            assignEquipment(again, st.spaces)
+            checked++
+            if (again.spaceId !== e.spaceId || again.spaceSource !== e.spaceSource)
+              wrong.push(`seed ${seed} ${which} ${e.name}: 저장 ${e.spaceId}/${e.spaceSource} · 다시 ${again.spaceId}/${again.spaceSource} :: ${r.log.join(' | ')}`)
+          }
+      }
+    }
+    expect(wrong.slice(0, 3)).toEqual([])
+    expect(checked).toBeGreaterThan(1000)
+  }, 180_000)
 })

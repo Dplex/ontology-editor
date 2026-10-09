@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
-import { baselineOf, createSpace, deleteSpace, diffBaseline, mergeSpaces, moveEquipment, restore, snapshotHvacZones, snapshotStoreySpaces, splitSpace } from './edit'
+import { baselineOf, createSpace, deleteSpace, diffBaseline, mergeSpaces, moveEquipment, renameSpace, restore, snapshotHvacZones, snapshotStoreySpaces, splitSpace } from './edit'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { splitByStorey } from './storey-drafts'
 import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, findHvacZone, flowSpacesOfEquipment, flowSpacesOfZones, hvacZonesOf, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './hvac-zone'
@@ -166,6 +166,28 @@ describe('공조존 검증과 담당 물리존 고치기 (OE-ZON-05 · OE-ZON-04
     expect(setZoneSpaces(model, drawn.id, [office().id, store])).toBe(true)
     expect(drawn.areaM2).toBeCloseTo(40)
     expect(drawn.spaceShares).toEqual({ [office().id]: 0.5, [store]: 0 })
+  })
+})
+
+describe('물리존과 공조존은 N:M 이고, 서비스 영역은 공조존 기준이다 (OE-MAP-03 · OE-MAP-05)', () => {
+  it('물리존 하나를 공조존 둘이 담당하고, 공조존 하나가 물리존 여럿을 담당한다. TTL 에서 두 공조존 모두 그 물리존을 품는다', () => {
+    const a = createZoneFromSpaces(model, { spaceIds: [office().id], name: '가' }) as HvacZone
+    const b = createZoneFromSpaces(model, { spaceIds: [office().id, store], name: '나' }) as HvacZone
+    expect(hvacZonesOf(model).filter((z) => z.spaceIds.includes(office().id)).map((z) => z.name)).toEqual(['가', '나'])
+    expect(b.spaceIds).toEqual([office().id, store])
+    const ttl = modelToTTL(model)
+    for (const z of [a, b]) expect(block(ttl, z.id)).toContain(`ex:${escapeLocalName(office().id)}`)
+  })
+
+  it('물리존 이름을 바꿔도 담당 설비가 공급하는 공조존과 그 공조존이 품는 물리존은 그대로다', () => {
+    const z = createZoneFromSpaces(model, { spaceIds: [office().id], servedBy: [equip('AHU-1').id] }) as HvacZone
+    const feeds = (ttl: string) => block(ttl, equip('AHU-1').id).split('\n').filter((l) => l.includes('feeds')).join('\n')
+    const before = modelToTTL(model)
+    renameSpace(model, office().id, '회의실')
+    const after = modelToTTL(model)
+    expect(feeds(after)).toBe(feeds(before))
+    expect(block(after, z.id)).toBe(block(before, z.id))
+    expect(feeds(after)).toContain(`ex:${escapeLocalName(z.id)}`)
   })
 })
 
