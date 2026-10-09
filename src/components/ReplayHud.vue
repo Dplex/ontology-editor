@@ -29,10 +29,18 @@ const props = defineProps<{
   seen: number
   /** 카드를 눌러 반복해 보는 장면 번호. 없으면 null. */
   loop: number | null
+  /** B 를 누르고 있어 지금 장면을 편집 전으로 보이는 중. */
+  comparing?: boolean
 }>()
 const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number] }>()
 
 const CAT_COLOR = CATEGORY_COLOR
+
+/**
+ * 화면에 보이는 장면 수. B 로 편집 전을 보는 동안(comparing)은 편집 하나를 되돌려 at 이 하나 줄지만, 보는 것은 여전히 그 장면이라
+ * 제목·카드·번호는 그 장면에 둔다(GeoJSON 패널만 편집 전 모양으로).
+ */
+const shownAt = computed(() => props.at + (props.comparing ? 1 : 0))
 
 /** App.vue 의 shortName 과 같은 규칙. Revit 의 "패밀리:유형:…:요소ID" 를 "패밀리 #요소ID" 로. */
 function shortName(name: string): string {
@@ -72,20 +80,20 @@ const cards = computed(() => {
   // 오프닝 동안은 비운다 — 첫 장면부터 쌓인다.
   if (props.phase === 'opening') return []
   // 펼치는 카드는 지금 장면(반복 중이면 그 장면)이고 나머지는 한 줄이다. 그 장면이 다섯 장 창 밖이면 창을 그쪽으로 당긴다.
-  const end = Math.max(props.at, props.seen)
+  const end = Math.max(shownAt.value, props.seen)
   let start = Math.max(0, end - 5)
   if (focus.value >= 0 && focus.value < start) start = focus.value
   const shown = props.steps.slice(start, Math.min(end, start + 5)).reverse()
-  return shown.map((s) => ({ step: s, rows: rows(s), rels: relationsOf(s.ttl), old: s.index !== focus.value, ahead: s.index >= props.at && s.index !== props.loop }))
+  return shown.map((s) => ({ step: s, rows: rows(s), rels: relationsOf(s.ttl), old: s.index !== focus.value, ahead: s.index >= shownAt.value && s.index !== props.loop }))
 })
-const focus = computed(() => props.loop ?? props.at - 1)
-const upcoming = computed(() => (props.aiming !== null && props.aiming >= props.at ? (props.steps[props.aiming] ?? null) : null))
-const current = computed(() => upcoming.value ?? props.steps[props.at - 1] ?? null)
-const counter = computed(() => String(Math.min(props.total, props.aiming !== null ? props.aiming + 1 : props.at)).padStart(2, '0'))
+const focus = computed(() => props.loop ?? shownAt.value - 1)
+const upcoming = computed(() => (props.aiming !== null && props.aiming >= shownAt.value ? (props.steps[props.aiming] ?? null) : null))
+const current = computed(() => upcoming.value ?? props.steps[shownAt.value - 1] ?? null)
+const counter = computed(() => String(Math.min(props.total, props.aiming !== null ? props.aiming + 1 : shownAt.value)).padStart(2, '0'))
 
 /** GeoJSON 패널의 장면. 카메라가 가는 중이면 그 장면의 지금 파일을, 다시 했으면 바뀐 파일을 보인다. */
-const geoStep = computed(() => (props.phase === 'opening' ? null : (upcoming.value ?? props.steps[props.at - 1] ?? null)))
-const geoApplied = computed(() => !!geoStep.value && props.at > geoStep.value.index)
+const geoStep = computed(() => (props.phase === 'opening' ? null : (upcoming.value ?? props.steps[shownAt.value - 1] ?? null)))
+const geoApplied = computed(() => !!geoStep.value && !props.comparing && props.at > geoStep.value.index)
 
 /** 장면 제목. 카메라가 가는 중(aiming)부터 그 장면의 것이다. */
 const scene = computed(() => (props.phase === 'play' ? current.value : null))
@@ -133,7 +141,7 @@ const rail = computed(() => {
     id: st.id,
     name: st.name,
     here: !!here && here.name === st.name && Math.abs(here.elevation - st.elevation) < 1e-6,
-    scenes: (scenes.get(st.id) ?? []).map((s) => ({ index: s.index, color: CAT_COLOR[s.category], done: s.index < props.at })),
+    scenes: (scenes.get(st.id) ?? []).map((s) => ({ index: s.index, color: CAT_COLOR[s.category], done: s.index < shownAt.value })),
   }))
 })
 /** 층이 많으면 한 줄을 낮춘다(레일 전체 높이는 그대로). 이름은 줄이 넉넉할 때만. */
@@ -258,6 +266,11 @@ const summary = computed(() => {
       </button>
     </nav>
 
+    <!-- 편집 전·후 비교(B 를 누르고 있는 동안) -->
+    <div v-if="comparing" class="compare" :style="{ '--c': current ? CAT_COLOR[current.category] : '#5ef2c2' }">
+      <b>BEFORE</b><span>편집 전 — B 를 떼면 편집 후</span>
+    </div>
+
     <!-- 장면 전환: 다른 층으로 넘어가는 순간 화면이 검게 잠겼다 밝아진다(같은 층이면 카메라만 옮긴다) -->
     <div v-if="dip" :key="`sw${dip}`" class="swipe"></div>
 
@@ -292,7 +305,7 @@ const summary = computed(() => {
       <div class="log-head">
         <span>TTL 변경 기록</span>
         <!-- 반복 중에는 되돌릴 때마다 하나 내려갔다 오르지 않게 반복하는 장면 번호에 둔다. -->
-        <b>{{ two(loop !== null ? loop + 1 : at) }}<i>/{{ two(total) }}</i></b>
+        <b>{{ two(loop !== null ? loop + 1 : shownAt) }}<i>/{{ two(total) }}</i></b>
       </div>
       <div class="log">
         <transition name="next">
@@ -375,12 +388,12 @@ const summary = computed(() => {
     <!-- 아래: 조작 막대와 시간줄 -->
     <div class="hud-bar">
       <div class="track" :class="{ scrubbing: scrub?.moved }" title="끌어서 편집 하나씩 훑기" @pointerdown="onTrackDown" @pointermove="onTrackMove" @pointerup="onTrackUp" @pointercancel="onTrackUp">
-        <i class="fill" :style="{ width: `${(100 * at) / Math.max(1, total)}%` }"></i>
+        <i class="fill" :style="{ width: `${(100 * shownAt) / Math.max(1, total)}%` }"></i>
         <i
           v-for="k in total"
           :key="k"
           class="tick"
-          :class="{ done: k <= at, looping: k - 1 === loop }"
+          :class="{ done: k <= shownAt, looping: k - 1 === loop }"
           :title="steps[k - 1] ? `#${two(k)} ${steps[k - 1].label} · 바뀐 것 ${steps[k - 1].changes.length} — 이 장면만 반복해서 보기` : undefined"
           :style="{ left: `${(100 * (k - 0.5)) / total}%`, background: steps[k - 1] ? CAT_COLOR[steps[k - 1].category] : undefined, '--w': weights[k - 1] ?? 0 }"
           @click="onTick(k)"
@@ -392,11 +405,12 @@ const summary = computed(() => {
         <button type="button" class="play" :title="playing ? '멈춤 (Space)' : loop !== null ? '다음 장면부터 이어서 재생 (Space)' : '재생 (Space)'" @click="emit('toggle')">{{ playing ? '❚❚' : '▶' }}</button>
         <button type="button" title="다음 편집 (→)" @click="emit('next')">▶▶</button>
         <span class="speeds">
-          <button v-for="s in [0.5, 1, 2]" :key="s" type="button" :aria-pressed="speed === s" @click="emit('speed', s)">{{ s }}×</button>
+          <button v-for="s in [0.5, 1, 2, 4]" :key="s" type="button" :aria-pressed="speed === s" @click="emit('speed', s)">{{ s }}×</button>
         </span>
         <span class="status">
           <template v-if="loop !== null">#{{ two(loop + 1) }} 반복 중 · <kbd>Space</kbd> 다음 장면부터 이어서</template>
-          <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }}</template>
+          <template v-else-if="comparing">편집 전 보는 중 · <kbd>B</kbd> 떼면 편집 후</template>
+          <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }} · <kbd>B</kbd> 누르고 있으면 편집 전</template>
         </span>
         <button type="button" class="close" title="닫기 (Esc · P) — 남은 편집을 다시 해서 원래 상태로" @click="emit('close')">✕ 닫기</button>
       </div>
@@ -464,6 +478,30 @@ const summary = computed(() => {
   height: 32px;
   font-weight: 600;
 }
+/* 편집 전 보기 표시. 위 검은 띠 가운데(끝 화면의 통계 타일과 겹치지 않게), 갈래 색 테두리. */
+.compare {
+  position: absolute;
+  top: 1.6%;
+  height: 32px;
+  box-sizing: border-box;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border: 1px solid var(--c);
+  background: rgba(5, 6, 8, 0.72);
+  color: #fff;
+  font-size: 13px;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--c) 40%, transparent);
+}
+.compare b {
+  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.2em;
+  color: var(--c);
+}
+
 /* 층 레일. 왼쪽, 리플레이 표시 아래. 끝 화면의 요약판(.hud-done)보다 위에서 끝난다. */
 .rail {
   position: absolute;

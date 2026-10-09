@@ -650,6 +650,7 @@ export function useReplay(host: ReplayPlayerHost) {
   /** 닫는다. 아직 다시 하지 않은 편집을 마저 다시 해서 리플레이 전 상태(이력·다시 하기 목록까지)로 돌아온다. */
   function closeReplay() {
     if (!replayOpen.value) return
+    compareEnd()
     replayToken++
     replayLoop.value = null
     while (history.value.length < replayTotal.value && future.value.length) redo()
@@ -677,7 +678,51 @@ export function useReplay(host: ReplayPlayerHost) {
     }
   }
 
+  /**
+   * 편집 전·후 비교. B 를 누르고 있는 동안 지금 장면의 편집 하나를 되돌려 편집 전 모습을 보이고, 떼면 다시 한다(사진 앱의
+   * 원본 보기처럼). 카메라는 그대로라 같은 자리에서 무엇이 바뀌었는지 눈으로 견준다. 재생 중이었으면 멈춘다.
+   */
+  const replayComparing = ref(false)
+  function compareStart() {
+    if (replayPhase.value === 'opening' || replayComparing.value || seekTarget !== null) return
+    replayEndLoop()
+    replayToken++
+    replayPlaying.value = false
+    replayAiming.value = null
+    if (!history.value.length) return
+    undo()
+    replayComparing.value = true
+  }
+  function compareEnd() {
+    if (!replayComparing.value) return
+    replayComparing.value = false
+    if (future.value.length) redo()
+  }
+  const onKeyUp = (e: KeyboardEvent) => {
+    if (e.code === 'KeyB') compareEnd()
+  }
+  // 누른 채 창을 벗어나면 keyup 이 오지 않는다 — 그때도 편집 후로 돌린다.
+  const onBlur = () => compareEnd()
+  watch(replayOpen, (open) => {
+    if (open) {
+      window.addEventListener('keyup', onKeyUp)
+      window.addEventListener('blur', onBlur)
+    } else {
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  })
+  onBeforeUnmount(() => {
+    window.removeEventListener('keyup', onKeyUp)
+    window.removeEventListener('blur', onBlur)
+  })
+
   function replayKey(e: KeyboardEvent): boolean {
+    if (e.code === 'KeyB') {
+      if (!e.repeat) compareStart()
+      return true
+    }
+    if (replayComparing.value) return true
     if (e.code === 'Space') replayToggle()
     else if (e.code === 'ArrowRight') void replayJump('next')
     else if (e.code === 'ArrowLeft') void replayJump('prev')
@@ -703,6 +748,7 @@ export function useReplay(host: ReplayPlayerHost) {
     seen: replaySeen.value,
     loop: replayLoop.value,
     storey: replayStorey.value,
+    comparing: replayComparing.value,
   }))
   const hudOn = {
     toggle: replayToggle,
