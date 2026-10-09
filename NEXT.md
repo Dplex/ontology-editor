@@ -68,7 +68,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | 637adc9 | [OE-EQP-08 실내기 Z-06](next/pr/oe-eqp-08.md) | [#172](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/172) | ZON-01 패널 다음 |
 | 818c3a1 | [test: BIM 배관 다시 열기(OE-PIP-14)](next/pr/test-pip-14.md) | Refs [#195](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/195) | PIP-10·13 다음 |
 
-## 지금 상태 (2026-10-08 22:40)
+## 지금 상태 (2026-10-09 09:40 확인)
 
 ### 10-08 에 merge 된 것
 
@@ -83,7 +83,13 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 |---|---|---|
 | [#375](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/375) 로봇 통과 속성 | 보류 | [#181](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/181) 의 EL 정차 층 질문에 PM 답 대기. 수용 기준의 ES·샤프트 `passable=false` 는 이름 사전에 방 종류가 없어 아직 안 됨 |
 | [#393](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/393) 플랫폼 프로토타입 | 민주님 draft | 손대지 않는다. ADR `0015` 번호가 [#365](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/365) 의 `0015-ceiling-height-per-storey.md` 와 겹친다 — 민주님께 알릴 것 |
-| [#396](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/396) [#397](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/397) [#398](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/398) [#399](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/399) | 민주님 PRD | 손대지 않는다. merge 되면 티켓 문구가 바뀌어 `modified`·후속 이슈가 생길 수 있다 |
+| [#396](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/396) [#397](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/397) [#398](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/398) | 민주님 PRD | 손대지 않는다. merge 되면 티켓 문구가 바뀌어 `modified`·후속 이슈가 생길 수 있다([#399](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/399) 는 10-09 에 merge, 아래) |
+| [#410](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/410) 티켓 242개에 User story 보완 · [#412](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/412) 보드 동기화가 User story 줄 변경을 요구 변경으로 치지 않게 | 민주님 | 손대지 않는다. [#410](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/410) 이 merge 되면 티켓 md 242개가 바뀌므로 sec 로 옮길 PR 들과 `docs/prd` 충돌은 없지만(우리는 PRD 를 안 고친다) 보드의 `modified` 표시는 [#412](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/412) 가 먼저 들어가야 생기지 않는다 |
+
+### 보드 정리 거리 (웹 UI 에서)
+
+- In Review 칸의 [#343](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/343)~[#350](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/350) 여덟 개는 10-07 에 이미 닫혔다(구현 확인 코멘트). Status 만 남아 있다 — Status 는 웹 UI 에서만 고친다(`docs/dev/board.md`).
+- [#230](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/230) OE-ROB-03 은 열린 PR [#375](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/375) 에 걸려 In Review 다.
 
 ### PM 답 대기 (`needs-pm`)
 
@@ -93,6 +99,11 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | [#165](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/165) [OE-EQP-01](docs/prd/features/E12-EQP/OE-EQP-01.md) | 설비 마스터에서 배치 — 미배치 팔레트([#371](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/371))로 되는 범위와 안 되는 범위를 여쭘 |
 | [#173](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/173) [OE-EQP-09](docs/prd/features/E12-EQP/OE-EQP-09.md) | AHU·PAC — "이동 후 담당 공조존이 비면 Z-04 경고" 가 공조존 티켓에 걸림 |
 | [#340](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/340) [OE-BIM-16](docs/prd/features/E05-BIM/OE-BIM-16.md) 후속 | 등급 설명표 요구사항 작성 중(민주님) |
+
+### 10-09 PRD 변경이 바꾼 것 (sec main 622c80a, eco/main 에도 반영)
+
+- **[#411](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/411) 연결 도구 용어가 "잇기·끊기" 에서 "연결하기·연결 끊기" 로 바뀌었다**(OE-PIP-01·06·08, UI-04, glossary). 화면에 옛 말이 둘 남았다 — 연결 누락 후보의 [잇기] 버튼(OE-PIP-08 은 "[연결 후보 확인 후 연결하기]"), 수동 배관의 [곧게 잇기](bc9eb3b). 코드 주석의 "잇기" 는 그대로 둬도 된다.
+- **[#399](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/399) Codex 검토가 E04 IDF-12~15·E12 EQP-14·15·BIM-18 문구를 고쳤다.** OE-EQP-15 에 "외벽 설비는 소속 판정 1단계에서 빠져, 허용 거리 안에 물리존이 있어도 붙지 않는다" 가 더해졌다 — 지금 동작과 맞는지 확인할 것. 이름 사전(glossary)이 별칭·적용 범위·확인 상태·버전을 관리하는 것으로 정의가 넓어졌다.
 
 ### 10-08 PRD 변경이 바꾼 것
 
@@ -115,6 +126,10 @@ R1 Todo 는 34장, 후속 이슈 3장([#340](https://github.sec.samsung.net/IoT-
 4. ~~룸·추가 공간 오브젝트 내보내기~~ — 665d97c(TTL·모델 파일은 `needs-pm`)
 5. ~~`e2e:seongsu` 가 E 에서 멈춤~~ — ee01c80(12 통과)
 6. **[#184](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/184) 계통 종류** — PM 답이 사실상 1번이다. PM 확인을 받고 닫는다. "Flow Type · 계통도 17종 · 흐름 방향" 세 필드 정의는 후속 이슈 후보다.
+
+7. **[#258](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/258) OE-HIST-03 편집 파일 저장·불러오기(P1, 보드 Todo)** — 코드는 거의 다 있다(편집 파일·GUID 재짝짓기 S1 시험·사람 지정 소속 ADR-0018). 닫는 PR 이 없어 Todo 로 남았다. 수용 기준 넷을 시험에 대 보고 빈 곳만 메워 닫는다(R2 IDF 재임포트는 제외).
+8. **[#411](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/411) 용어 맞추기** — 화면의 [잇기] → [연결하기], [곧게 잇기] → [곧게 연결하기] 류. 위 "10-09 PRD 변경" 참고.
+9. **[#399](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/399) OE-EQP-15 외벽 설비 소속** — 바뀐 문구와 지금 동작 대조.
 
 ### 1. 배관 편집 (E13 · R1 P1) — 1단계 8ed03b8 (꼭짓점 = 이음쇠, 꺾임점 옮기기, ADR-0029). 2단계 77f59aa (구간 경로 LineString·미반영 목록, ADR-0030). 3단계 bc9eb3b (수동 배관 그리기, ADR-0031). 4단계 42adfbf (구간 삭제 영향). 5단계 aec79e2 (끝 연결 대상 바꾸기). 열린 끝 검증은 이미 있음(conduit-ends 진단, 해제 보정 사유 포함). 다음: 꼭짓점 추가·삭제는 PM 과 의미부터
 
