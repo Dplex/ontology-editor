@@ -79,6 +79,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | a33f97f | [OE-ML-01 다중층 뷰(보기) — 층 범위 · 오브젝트 전체 칠하기 · 진입→종료 점선 · 진입 경로 ①②](next/pr/oe-ml-01-view.md) | Refs [#237](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/237) | ML-05 다음 |
 | f6a7dde | [OE-ML-07·09 다중층 뷰에서 계단 전체 이동·삭제 · V-03 · 편집 파일 + ADR-0034](next/pr/oe-ml-07-09.md) | OE-ML-07·09 이슈(번호는 옮길 때) | ML-01 보기 다음 |
 | bb94f4a | [OE-ML-07 층별 형상·진입/종료 지점 고치기 · 편집 파일 `parts`](next/pr/oe-ml-07-parts.md) | OE-ML-07 이슈(번호는 옮길 때) | ML-07·09 다음 |
+| e15bc58 | [docs: ADR 대체 관계·목록·제목 바로잡기 + `adr.test.ts`](next/pr/docs-adr-check.md) | 없음 | ML-07 층별 고치기 다음 |
 
 ## 지금 상태 (2026-10-09 09:40 확인)
 
