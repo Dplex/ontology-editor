@@ -1917,6 +1917,15 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsS
         if (!r.reloadSame || r.missing || !r.undoSame || !r.redoSame) {
           failed.push(`${name} seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} · 다시 하기 ${r.redoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}`)
         }
+        // 소속은 편집 함수 안에서 다시 계산된다(OE-MAP-06): 저장된 소속이 그 자리에서 다시 판정한 소속과 같다.
+        for (const [which, m] of [['편집', r.edited], ['불러옴', r.reloaded]] as const)
+          for (const st of m.storeys)
+            for (const e of st.equipment) {
+              const again = structuredClone(e)
+              assignEquipment(again, st.spaces)
+              if (again.spaceId !== e.spaceId || again.spaceSource !== e.spaceSource)
+                failed.push(`${name} seed ${seed} ${which} ${e.name}: 소속 ${e.spaceId}/${e.spaceSource} · 다시 판정 ${again.spaceId}/${again.spaceSource}`)
+            }
       }
     }
     expect(failed.slice(0, 3)).toEqual([])

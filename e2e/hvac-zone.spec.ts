@@ -235,3 +235,26 @@ test('실내기를 담당 공조존 밖으로 옮기면 다시 지정하라는 �
   await expect(checks.locator('li', { hasText: 'Z-06' })).toContainText('1개 — AHU-1 — 물리존 밖에 있고 공조존 1 담당')
   expect(errors).toEqual([])
 })
+
+test('물리존 하나를 공조존 둘이 담당하면 물리존 패널에 둘 다 보인다 (OE-MAP-03)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const fold = page.getByTestId('hvac-zones')
+  for (let i = 0; i < 2; i++) {
+    await fold.getByLabel('사무실').check()
+    await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
+  }
+  await expect(fold.locator('.zone-list li[data-zone]')).toHaveCount(2)
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  const at = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0]))
+  await page.mouse.click(at.x, at.y)
+  const zones = page.locator('.space-picked').getByTestId('space-zones')
+  await expect(zones).toContainText('공조존 1')
+  await expect(zones).toContainText('공조존 2')
+  await expect(zones).toContainText('편집')
+  expect(errors).toEqual([])
+})

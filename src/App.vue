@@ -446,9 +446,15 @@ const isIdf = (name: string) => /\.idf$/i.test(name)
 let idfSource: { name: string; idf: IdfModel } | null = null
 const idfReport = shallowRef<IdfAttachReport | null>(null)
 const showZones = ref(true)
-const zoneOfSpace = computed(() => {
-  const map = new Map<string, { id: string; name: string }>()
-  for (const z of model.value ? hvacZonesOf(model.value) : []) for (const id of z.spaceIds) map.set(id, z)
+/**
+ * 물리존 → 담당 공조존들. 물리존과 공조존은 N:M 이라(OE-MAP-03) 한 물리존을 여러 공조존이 담당할 수 있다 — 하나만 담으면 마지막
+ * 공조존만 보였다. 출처는 공조존마다 다르다(IDF 공조존, 공조존 도구로 만든 것).
+ */
+const zonesOfSpace = computed(() => {
+  void sceneVersion.value
+  const map = new Map<string, { id: string; name: string; source: 'idf' | 'edit' }[]>()
+  for (const z of model.value ? hvacZonesOf(model.value) : [])
+    for (const id of new Set(z.spaceIds)) map.set(id, [...(map.get(id) ?? []), { id: z.id, name: z.name, source: z.source === 'edit' ? 'edit' : 'idf' }])
   return map
 })
 /** 공조존 표. 담당은 존을 직접 공급하는 설비(말단)와 그 위의 원천(공조기·실외기)이다. */
@@ -8356,9 +8362,11 @@ async function export3D(format: 'glb' | 'obj') {
                     <Src kind="calc" />
                   </dd>
                 </div>
-                <div v-if="zoneOfSpace.get(selectedSpace.space.id)">
+                <div v-if="zonesOfSpace.get(selectedSpace.space.id)">
                   <dt>공조존</dt>
-                  <dd>{{ zoneOfSpace.get(selectedSpace.space.id)!.name }} <Src kind="idf" /></dd>
+                  <dd data-testid="space-zones">
+                    <template v-for="(z, i) in zonesOfSpace.get(selectedSpace.space.id)" :key="z.id">{{ i ? ' · ' : '' }}{{ z.name }} <Src :kind="z.source" /></template>
+                  </dd>
                 </div>
               </dl>
             </div>
