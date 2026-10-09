@@ -199,3 +199,13 @@ describe('배관 꼭짓점(꺾임 이음쇠)을 옮긴다 (OE-PIP-10)', () => {
     expect(planFollow(m, 'DUCT', axisOf)).toEqual({ rigid: [], stretch: [], held: [], blocked: [] })
   })
 })
+
+describe('실내기를 옮기면 배관이 따라온다 (OE-EQP-08)', () => {
+  it('시스템에어컨 실내기도 공조기처럼 붙은 이음쇠는 같이 가고 구간은 가까운 끝만 늘어난다', () => {
+    const m = build()
+    find(m, 'AHU').kind = 'indoor_unit'
+    expect(planFollow(m, 'AHU', axisOf)).toEqual({ rigid: ['ELB'], stretch: [{ id: 'DUCT', end: 0 }], held: [], blocked: [] })
+    moveWithFollow(m, 'AHU', [0, 2, 0])
+    expect(find(m, 'DUCT').endShift).toEqual([[0, 2, 0], [0, 0, 0]])
+  })
+})

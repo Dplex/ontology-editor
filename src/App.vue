@@ -913,6 +913,11 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
   }
   changes.value = [...changes.value, change]
   triggerRef(model)
+  // 실내기를 옮기면 담당 공조존을 다시 정해야 한다(OE-EQP-08). 옮긴 자리가 담당 공조존 밖이거나 담당 공조존이 없으면 Z-06 을 알린다.
+  if (moving && (moving.kind === 'indoor_unit' || moving.kind === 'fcu')) {
+    const z06 = zoneCheckList.value?.checks.find((c) => c.rule === 'Z-06')?.items.find((x) => x.id.includes(equipmentId))
+    if (z06) editNotice.value = `실내기를 옮겼습니다. 담당 공조존을 다시 지정하세요(Z-06: ${z06.label}). 설비 패널의 "담당 공조존" 에서 고릅니다.`
+  }
   return true
 }
 

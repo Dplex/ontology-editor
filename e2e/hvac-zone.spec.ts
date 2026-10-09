@@ -210,3 +210,28 @@ test('설비 패널에서 담당 공조존을 더하고 빼며, 흐름이 닿는
   await expect(fold.locator('.zone-list li[data-zone]').first()).not.toContainText('AHU-1 ×')
   expect(errors).toEqual([])
 })
+
+test('실내기를 담당 공조존 밖으로 옮기면 다시 지정하라는 안내와 Z-06 이 뜬다 (OE-EQP-08)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const row = page.locator('.equipment tbody tr', { hasText: 'AHU-1' })
+  await row.getByRole('button', { name: 'AHU-1', exact: true }).click()
+  // 픽스처에 실내기가 없어 공조기를 시스템에어컨 실내기로 바꿔 쓴다. 덕트가 붙어 있다.
+  await page.locator('.kind-edit select').selectOption('indoor_unit')
+  const panel = page.getByTestId('served-zones')
+  await panel.getByRole('button', { name: '흐름이 닿는 물리존으로 새 공조존 (사무실)' }).click()
+  const checks = page.getByTestId('hvac-zones').getByTestId('zone-checks')
+  await expect(checks.locator('li', { hasText: 'Z-06' })).toContainText('없음')
+
+  // 사무실(0..10) 밖으로 옮긴다.
+  const x = row.locator('.coord').first()
+  await x.fill('11')
+  await x.press('Enter')
+  await expect(page.locator('.edit-notice')).toContainText('실내기를 옮겼습니다. 담당 공조존을 다시 지정하세요(Z-06: AHU-1 — 물리존 밖에 있고 공조존 1 담당)')
+  await expect(checks.locator('li', { hasText: 'Z-06' })).toContainText('1개 — AHU-1 — 물리존 밖에 있고 공조존 1 담당')
+  expect(errors).toEqual([])
+})
