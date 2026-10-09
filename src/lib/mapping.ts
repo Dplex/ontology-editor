@@ -7,6 +7,7 @@
 // 바뀌면 설비 소속이 바뀌고, 그게 이상 알림의 '발생 위치' 와 탐색기 트리에 그대로 나간다.
 
 import type { Equipment, Model, Space, Vec2, Vec3 } from './model'
+import { equipmentKind } from './kinds'
 
 /**
  * 점이 다각형 안에 있는지 본다. 광선 교차 방식이다.
@@ -212,7 +213,19 @@ export function assignEquipmentToSpaces(model: Model, snap = SNAP): void {
  * 그래서 편집은 모델 전체가 아니라 바뀐 것만 다시 판정해도 전체를 다시 도는 것과 같다. 성수처럼
  * 설비가 1만 개를 넘으면 전체를 도는 데 편집 한 번에 0.6초가 걸렸다.
  */
+/** 외벽 바깥 면에 붙는 종류(OE-EQP-15). 사전의 `mount: 'exterior'`(외기 센서)와 외부 루버다. 사람이 외벽에 붙인 다른 종류는 벽을 봐야 해서 exterior.ts 가 가른다. */
+export function exteriorKind(equipment: Pick<Equipment, 'kind'>): boolean {
+  return equipmentKind(equipment.kind)?.mount === 'exterior' || equipment.kind === 'outdoor_louver'
+}
+
 export function assignEquipment(equipment: Equipment, spaces: readonly Space[], snap = SNAP): void {
+  // 외벽 전용 설비(외부 루버·외기 센서)는 판정에서 뺀다(OE-MAP-01 1단계, OE-EQP-15). 소속은 "외벽" 이라 방이 없고, 외곽선에서
+  // 허용 거리 안이어도 그 방에 붙이지 않는다 — 붙이면 TTL 에서 바깥 루버가 그 방에 있는 것(hasLocation)으로 나간다.
+  if (exteriorKind(equipment)) {
+    equipment.spaceId = null
+    equipment.spaceSource = null
+    return
+  }
   // BIM 이 직접 말한 소속은 다시 계산하지 않는다. 설계자가 정한 값이라 좌표 판정보다
   // 정확하고, 벽에 걸친 설비처럼 판정이 애매한 경우에도 답이 하나로 정해진다.
   if (equipment.spaceSource === 'bim') return
@@ -254,6 +267,7 @@ export function spaceSetState(
  */
 export function spaceAssignable(equipment: Equipment, spaces: readonly Space[], snap = SNAP): { ok: true } | { ok: false; reason: string } {
   if (!equipment.position) return { ok: false, reason: '좌표가 없는 설비(미배치)라 소속을 정하지 않습니다' }
+  if (exteriorKind(equipment)) return { ok: false, reason: '외벽 전용 설비라 소속은 "외벽" 입니다' }
   if (equipment.spaceSource === 'bim') return { ok: false, reason: 'BIM 이 적은 소속입니다' }
   if (locateHow([equipment.position[0], equipment.position[1]], spaces, snap)?.how === 'inside') return { ok: false, reason: '외곽선 안이라 좌표로 정한 소속입니다' }
   return { ok: true }

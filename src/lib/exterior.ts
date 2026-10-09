@@ -10,7 +10,7 @@
 // 재판정을 호출부에 맡길 일이 없다. 접은 방법과 실측은 docs/adr/0002-external-wall-flood-fill.md.
 
 import { isConduit, type Model, type Storey, type Vec2, type Wall } from './model'
-import { equipmentKind } from './kinds'
+import { exteriorKind } from './mapping'
 
 /** 격자 한 칸(미터). 문 폭(0.8m~)보다 충분히 작고, 방-벽 틈(몇 cm)보다 크다. */
 const CELL = 0.1
@@ -246,7 +246,7 @@ export function exteriorDevices(model: Model): Set<string> {
     let judged: Map<string, ExternalJudgement> | null = null
     for (const e of storey.equipment) {
       if (isConduit(e.role)) continue
-      if (equipmentKind(e.kind)?.mount === 'exterior' || e.kind === 'outdoor_louver') out.add(e.id)
+      if (exteriorKind(e)) out.add(e.id)
       else if (e.wallId) {
         judged ??= judgeExternal(storey)
         if (judged.get(e.wallId)?.external) out.add(e.id)
