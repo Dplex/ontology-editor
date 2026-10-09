@@ -4,6 +4,7 @@
 
 import { escapeLocalName } from './export/ttl'
 import { CATEGORIES, type PlanItem, type ReplayStart, type ReplayStep } from './replay'
+import { impactLines, relationsOf } from './replay-relations'
 
 /** Revit 의 "패밀리:유형:…:요소ID" 를 "패밀리 #요소ID" 로(App.vue·ReplayHud 의 shortName 과 같은 규칙). */
 export function shortName(name: string): string {
@@ -84,6 +85,13 @@ export function replayReport(input: { title: string; start: ReplayStart | null; 
     const where = s.storeyIds.map((id) => storeyName.get(id) ?? id).join(', ')
     out.push(`${[clock(s.time), where].filter(Boolean).join(' · ')}${s.geojson ? ` · \`${s.geojson.file}\`` : ''}`)
     out.push('')
+    const impact = impactLines(relationsOf(s.ttl), (ref) => readableTtl(ref, names))
+    if (impact.length) {
+      out.push('DT 에 물으면:')
+      out.push('')
+      for (const l of impact) out.push(`- ${l}`)
+      out.push('')
+    }
     if (s.ttl.length) {
       out.push('TTL:')
       out.push('')

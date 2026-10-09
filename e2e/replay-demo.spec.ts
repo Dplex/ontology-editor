@@ -146,3 +146,27 @@ test('끝 화면에서 D 를 누르면 변경 지도(더함·고침·지움 수)
   await page.keyboard.press('Escape')
   expect(errors).toEqual([])
 })
+
+test('관계가 바뀐 장면의 카드에는 그 변화가 DT 질의의 답을 어떻게 바꾸는지 한 줄이 보인다', async ({ page }) => {
+  test.setTimeout(300_000)
+  const errors = await open(page)
+  const hud = await demo(page)
+  await hud.getByRole('button', { name: '4×' }).click()
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
+  const total = Number(await hud.getAttribute('data-total'))
+  const seen: string[] = []
+  for (let k = 0; k < total && seen.length < 2; k++) {
+    await hud.locator('.track .tick').nth(k).click()
+    await expect(hud).toHaveAttribute('data-loop', String(k))
+    const q = hud.locator('.card.looping .line.query')
+    if (await q.count()) {
+      await expect(q.first()).toBeVisible()
+      seen.push(await q.first().innerText())
+    }
+  }
+  // 데모는 방을 나누고(층의 구성) 설비를 잇는다(공급) — 둘 다 질의 영향이 있다.
+  expect(seen.length).toBeGreaterThanOrEqual(2)
+  expect(seen.join('\n')).toMatch(/의 구성에|공급하는 것에|안의 설비/)
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})

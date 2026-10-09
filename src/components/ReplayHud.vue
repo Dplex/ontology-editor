@@ -6,7 +6,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { nameTable, readableTtl, replayReport } from '../lib/replay-report'
 import ReplayGeo from './ReplayGeo.vue'
 import ReplayRelations from './ReplayRelations.vue'
-import { relationsOf } from '../lib/replay-relations'
+import { impactLines, relationsOf } from '../lib/replay-relations'
 import Roll from './Roll.vue'
 import { CATEGORIES, CATEGORY_COLOR, type Category, type ReplayStart, type ReplayStep } from '../lib/replay'
 
@@ -392,6 +392,8 @@ const summary = computed(() => {
                 </div>
                 <!-- 관계가 바뀐 장면은 그 관계를 그림으로 먼저(소속 방이 바뀜 · 공급 대상이 바뀜 …). 그만큼 줄 글은 줄인다. -->
                 <ReplayRelations v-if="c.rels.length" :rels="c.rels" :name="readable" />
+                <!-- 그 관계 변화가 DT 질의의 답을 어떻게 바꾸나(말로) -->
+                <div v-for="(l, i) in impactLines(c.rels, readable).slice(0, 2)" :key="`im${i}`" class="line query" :style="{ animationDelay: `${450 + i * 120}ms` }">⇢ {{ l }}</div>
                 <template v-if="c.rows.length">
                   <div v-for="(r, i) in c.rows.slice(0, c.rels.length ? ROWS - 3 : ROWS)" :key="i" :class="['line', r.kind]" :style="{ animationDelay: `${250 + i * 70}ms` }">
                     {{ r.kind === 'add' ? '+ ' : r.kind === 'del' ? '− ' : '▸ ' }}{{ r.text }}
@@ -1180,6 +1182,11 @@ const summary = computed(() => {
 }
 .sw.del {
   background: #ff4d5e;
+}
+/* 카드의 질의 영향 줄. 관계 그림 바로 아래, 줄 글보다 앞. */
+.line.query {
+  color: #ffd9a8;
+  white-space: normal;
 }
 /* 끝 요약판의 변경 지도·리포트 버튼. */
 .hud-done .report.on {

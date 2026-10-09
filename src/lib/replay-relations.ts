@@ -3,6 +3,7 @@
 // hasLocation 의 옛 방이 끊기고 새 방이 이어진다 — BIM 을 고친 것이 온톨로지의 어느 관계를 바꿨는지를 그림으로 보인다.
 
 import type { TtlChange } from './replay'
+import { josa } from './josa'
 
 export type Relation = {
   subject: string
@@ -47,6 +48,42 @@ export function relationsOf(changes: readonly TtlChange[]): Relation[] {
       const gone = [...a].filter((o) => !b.has(o))
       const came = [...b].filter((o) => !a.has(o))
       if (gone.length || came.length) out.push({ subject: c.subject, predicate: p.replace(/^[\w-]+:/, ''), gone, came })
+    }
+  }
+  return out
+}
+
+/**
+ * 관계 변화를 "DT 에 물으면 답이 어떻게 바뀌나" 로 한 줄씩. 온톨로지를 읽지 않는 사람(PM·운영)에게 이 편집의 뜻을 말로 준다.
+ * - hasLocation(설비 → 방·층): 「방 안의 설비」 질의에서 빠지고 들어간다.
+ * - feeds(상류 → 하류): 「X 가 공급하는 것」 질의의 답이 바뀐다.
+ * - hasPart(층·계통·존 → 구성): 「X 의 구성」 질의의 답이 바뀐다.
+ * 그 밖의 술어는 "X 의 <술어>" 로 적는다. name 은 TTL 이름 → 사람이 읽는 이름.
+ */
+export function impactLines(rels: readonly Relation[], name: (ref: string) => string): string[] {
+  const names = (xs: readonly string[]) => xs.map((x) => name(x))
+  /** 「A」, 「B」 + 마지막 이름에 맞춘 조사. */
+  const list = (xs: readonly string[], j: Parameters<typeof josa>[1]) => {
+    const n = names(xs)
+    return `${n.map((x) => `「${x}」`).join(', ')}${josa(n[n.length - 1] ?? '', j)}`
+  }
+  const out: string[] = []
+  for (const r of rels) {
+    const s = name(r.subject)
+    if (r.predicate === 'hasLocation') {
+      const into = names(r.came).map((x) => `「${x}」`).join(', ')
+      const from = names(r.gone).map((x) => `「${x}」`).join(', ')
+      const who = `「${s}」${josa(s, '이/가')}`
+      if (r.came.length && r.gone.length) out.push(`${into} 안의 설비에 ${who} 들어가고, ${from} 안의 설비에서는 빠진다`)
+      else if (r.came.length) out.push(`${into} 안의 설비에 ${who} 들어간다`)
+      else out.push(`${from} 안의 설비에서 ${who} 빠진다`)
+    } else if (r.predicate === 'feeds' || r.predicate === 'hasPart') {
+      const what = r.predicate === 'feeds' ? `「${s}」${josa(s, '이/가')} 공급하는 것` : `「${s}」의 구성`
+      if (r.came.length && r.gone.length) out.push(`${what}에 ${list(r.came, '이/가')} 더해지고, ${list(r.gone, '이/가')} 빠진다`)
+      else if (r.came.length) out.push(`${what}에 ${list(r.came, '이/가')} 더해진다`)
+      else out.push(`${what}에서 ${list(r.gone, '이/가')} 빠진다`)
+    } else {
+      out.push(`「${s}」의 ${r.predicate}: ${[r.came.length ? `+ ${names(r.came).join(', ')}` : '', r.gone.length ? `− ${names(r.gone).join(', ')}` : ''].filter(Boolean).join(' ')}`)
     }
   }
   return out
