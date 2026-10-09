@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-ML","OE-OBJ-14","OE-ML-05"]
+depends: ["OE-OBJ-14", "OE-OBJ-10", "OE-ML", "OE-ML-05"]
 ---
 
 # OE-EQP-07 EL·ES 위임
+
+## 관련 티켓
+
+- [OE-OBJ-14](../E02-OBJ/OE-OBJ-14.md): 수직 관통 오브젝트 편집 제한
+- [OE-OBJ-10](../E02-OBJ/OE-OBJ-10.md): 설비 겹침·명칭 규칙
+- [OE-ML-05](../E18-ML/OE-ML-05.md): 층 편집 화면 읽기 전용
 
 ## 요구사항
 

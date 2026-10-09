@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-ZON-05", "OE-SPC-17"]
 ---
 
 # OE-EQP-09 AHU·PAC 디테일
+
+## 관련 티켓
+
+- [OE-ZON-05](../E10-ZON/OE-ZON-05.md): Z-03 용량 검증 입력
+- [OE-SPC-17](../E09-SPC/OE-SPC-17.md): 기계실 방 종류 판별
 
 ## 요구사항
 

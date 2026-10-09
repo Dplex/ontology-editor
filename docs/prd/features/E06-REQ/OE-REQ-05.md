@@ -10,10 +10,14 @@ owner: "tbd"
 status: "prd-review"
 status_note: "D14"
 blocked_by: ["D14"]
-depends: ["D14"]
+depends: ["OE-BIM-17", "D14"]
 ---
 
 # OE-REQ-05 R25 BAS 매핑 키
+
+## 관련 티켓
+
+- [OE-BIM-17](../E05-BIM/OE-BIM-17.md): 채택 시 요구사항 보고서 추가
 
 ## 요구사항
 

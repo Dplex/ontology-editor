@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["K13", "OE-PIP-04", "OE-PIP-07"]
 ---
 
 # OE-PIP-06 BIM 원본 보존·연결 해제 보정
+
+## 관련 티켓
+
+- [OE-PIP-04](./OE-PIP-04.md): 방향 화살표 수정 제한
+- [OE-PIP-07](./OE-PIP-07.md): 해제·취소 후 규칙 방향 재계산
 
 ## 요구사항
 
@@ -34,7 +39,7 @@ depends: []
 
 ## 검증 (이 repo)
 
-- 기존 구현 검증: BIM 포트 연결의 끊기가 차단된다 — `e2e/connect.spec.ts`, 성수 G-8. 이는 개정 전 동작이며 새 수용 기준을 충족하지 않는다.
+- 기존 구현 검증: BIM 포트 연결의 [연결 끊기]가 차단된다 — `e2e/connect.spec.ts`, 성수 G-8. 이는 개정 전 동작이며 새 수용 기준을 충족하지 않는다.
 - 연결 해제 보정·취소·이력·저장 복원·재임포트 보정 유지 및 충돌 처리·TTL 제외는 구현과 검증이 필요하다.
 
 ## 메모

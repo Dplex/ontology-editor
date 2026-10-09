@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-WF-01"]
+depends: ["OE-WF-04", "OE-WF-01"]
 ---
 
 # OE-WF-02 임시 저장본 자동 동기화
+
+## 관련 티켓
+
+- [OE-WF-04](./OE-WF-04.md): 임시 저장본 버리고 새로 시작
+- [OE-WF-01](./OE-WF-01.md): 층별 임시 저장본
 
 ## 요구사항
 

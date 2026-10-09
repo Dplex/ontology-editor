@@ -10,10 +10,17 @@ owner: "tbd"
 status: "prd-review"
 status_note: "편집 리포트 ✔"
 blocked_by: []
-depends: ["OE-WF-18","OE-MAP-01","K17"]
+depends: ["OE-MAP-04", "OE-MAP-01", "K17", "OE-SYNC-06", "OE-WF-18"]
 ---
 
 # OE-SYNC-04 반영 결과 리포트 (#21)
+
+## 관련 티켓
+
+- [OE-MAP-04](../E11-MAP/OE-MAP-04.md): Z-01 미매핑 경고
+- [OE-MAP-01](../E11-MAP/OE-MAP-01.md): 사람 지정 해제와 이유
+- [OE-SYNC-06](./OE-SYNC-06.md): 리포트 집계 규칙
+- [OE-WF-18](../E14-WF/OE-WF-18.md): 히스토리에서 리포트 열기
 
 ## 요구사항
 

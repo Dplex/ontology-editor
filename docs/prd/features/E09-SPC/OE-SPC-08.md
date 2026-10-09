@@ -9,10 +9,17 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-OBJ-01","OE-SPC-07","OE-SPC-09"]
+depends: ["OE-OBJ-01", "OE-SPC-06", "OE-SPC-09", "OE-SPC-07"]
 ---
 
 # OE-SPC-08 커스텀존 생성·분할·병합·삭제
+
+## 관련 티켓
+
+- [OE-OBJ-01](../E02-OBJ/OE-OBJ-01.md): 커스텀존 편집 범위
+- [OE-SPC-06](./OE-SPC-06.md): 이름·별명 고유성 규칙
+- [OE-SPC-09](./OE-SPC-09.md): 물리존·공조존 매핑 갱신
+- [OE-SPC-07](./OE-SPC-07.md): 커스텀존 겹침 허용
 
 ## 요구사항
 

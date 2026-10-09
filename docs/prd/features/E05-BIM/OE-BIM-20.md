@@ -9,10 +9,16 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-REQ-04","OE-BIM-17","OE-GEN-08"]
+depends: ["R6", "OE-GEN-08", "OE-REQ-04", "OE-BIM-17"]
 ---
 
 # OE-BIM-20 누락 분류 코드
+
+## 관련 티켓
+
+- [OE-GEN-08](../E08-GEN/OE-GEN-08.md): 재제출·보정 항목 리포트
+- [OE-REQ-04](../E06-REQ/OE-REQ-04.md): 등급 판정 산식
+- [OE-BIM-17](./OE-BIM-17.md): 요구사항 위반 보고서
 
 ## 요구사항
 

@@ -9,10 +9,17 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-IDF-03","OE-ZON-06","Q16"]
+depends: ["OE-ZON-06", "OE-GEN-03", "OE-SYNC-04", "OE-IDF-03", "Q16"]
 ---
 
 # OE-ZON-05 검증 Z-01~Z-06
+
+## 관련 티켓
+
+- [OE-ZON-06](./OE-ZON-06.md): Z-03 설계 풍량 입력값
+- [OE-GEN-03](../E08-GEN/OE-GEN-03.md): 생성 전 검증에 결과 포함
+- [OE-SYNC-04](../E15-SYNC/OE-SYNC-04.md): 반영 결과 리포트에 결과 포함
+- [OE-IDF-03](../E04-IDF/OE-IDF-03.md): R2 IDF 존 설계 풍량
 
 ## 요구사항
 

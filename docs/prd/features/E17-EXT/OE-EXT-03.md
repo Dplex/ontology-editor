@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-MAP-01"]
 ---
 
 # OE-EXT-03 외벽 에디터 연동
+
+## 관련 티켓
+
+- [OE-MAP-01](../E11-MAP/OE-MAP-01.md): 경계 변경 후 재매핑
 
 ## 요구사항
 

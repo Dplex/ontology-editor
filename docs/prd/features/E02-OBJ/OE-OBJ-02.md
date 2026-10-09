@@ -10,10 +10,20 @@ owner: "tbd"
 status: "prd-done"
 status_note: "E1~E3"
 blocked_by: []
-depends: ["D15","OE-SPC-01","OE-SPC-02","OE-SPC-03","OE-SPC-04"]
+depends: ["OE-SPC-05", "OE-SPC-02", "OE-SPC-01", "OE-SPC-03", "OE-MAP-01", "OE-MAP-02", "OE-SPC-04", "D15"]
 ---
 
 # OE-OBJ-02 물리존 편집 범위
+
+## 관련 티켓
+
+- [OE-SPC-05](../E09-SPC/OE-SPC-05.md): 공간명의 알림·탐색기 연동
+- [OE-SPC-02](../E09-SPC/OE-SPC-02.md): 물리존 생성·분할·병합·삭제
+- [OE-SPC-01](../E09-SPC/OE-SPC-01.md): 공간명 수정
+- [OE-SPC-03](../E09-SPC/OE-SPC-03.md): 경계 꼭짓점 편집
+- [OE-MAP-01](../E11-MAP/OE-MAP-01.md): 설비 소속 물리존 재매핑
+- [OE-MAP-02](../E11-MAP/OE-MAP-02.md): 공조존 매핑 재판정
+- [OE-SPC-04](../E09-SPC/OE-SPC-04.md): 삭제 후 설비 소속 재판정
 
 ## 요구사항
 

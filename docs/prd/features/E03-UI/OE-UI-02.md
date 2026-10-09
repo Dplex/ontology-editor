@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-INT-01","D-INT"]
+depends: ["OE-INT-01", "D-INT"]
 ---
 
 # OE-UI-02 모드 자동 분기
+
+## 관련 티켓
+
+- [OE-INT-01](../E20-INT/OE-INT-01.md): 온톨로지 존재 여부 읽을 곳
 
 ## 요구사항
 

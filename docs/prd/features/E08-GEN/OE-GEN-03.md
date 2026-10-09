@@ -10,10 +10,18 @@ owner: "tbd"
 status: "prd-review"
 status_note: "Z 통합 ✗"
 blocked_by: []
-depends: ["OE-ZON-05","OE-BIM-18"]
+depends: ["OE-ZON-05", "OE-MAP-01", "OE-BIM-18", "OE-GEN-04", "OE-GEN-07"]
 ---
 
 # OE-GEN-03 생성 전 검증
+
+## 관련 티켓
+
+- [OE-ZON-05](../E10-ZON/OE-ZON-05.md): 공조존 공백·중복 검증
+- [OE-MAP-01](../E11-MAP/OE-MAP-01.md): 설비 소속 판정
+- [OE-BIM-18](../E05-BIM/OE-BIM-18.md): 완전성 검사 8규칙
+- [OE-GEN-04](./OE-GEN-04.md): 미확정 규칙 방향 수
+- [OE-GEN-07](./OE-GEN-07.md): 검증 결과를 담을 생성 리포트
 
 ## 요구사항
 

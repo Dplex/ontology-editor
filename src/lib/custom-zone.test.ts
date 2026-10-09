@@ -79,7 +79,7 @@ describe('커스텀존 만들기·이름·지우기(OE-OBJ-01)', () => {
     expect(createCustomZone(model, 's1', { footprint: [[0, 0], [0.05, 0], [0.05, 0.05]] })).toEqual({ refused: expect.stringContaining('작습니다') })
     const z = make('', rect(0, 0, 2, 2))
     expect(z.name).toBe('커스텀존 1')
-    expect(renameCustomZone(model, z.id, '  ')).toBe(false)
+    expect(renameCustomZone(model, z.id, '  ')).toEqual({ refused: expect.stringContaining('비울 수 없습니다') })
     expect(renameCustomZone(model, z.id, '식당')).toBe(true)
     expect(deleteCustomZone(model, z.id)).toBe(true)
     expect(storey().customZones).toEqual([])
@@ -91,7 +91,7 @@ describe('나누기·합치기', () => {
     const zone = make('사무석', rect(0, 0, 20, 10), 'U_desk')
     const piece = splitCustomZone(model, 'U_desk', [15, -1], [15, 11], 'U_piece') as CustomZone
     expect(zone.footprint.map((p) => p[0]).sort((a, b) => a - b).at(-1)).toBeCloseTo(15)
-    expect(piece).toMatchObject({ id: 'U_piece', name: '사무석 2' })
+    expect(piece).toMatchObject({ id: 'U_piece', name: '사무석-02' })
     expect(zoneEquipment(storey(), piece)).toEqual([])
     expect(zoneEquipment(storey(), zone).sort()).toEqual(['fcu1', 'fcu2'])
     const merged = mergeCustomZones(model, 'U_desk', 'U_piece') as CustomZone
@@ -175,9 +175,11 @@ describe('되돌리기·편집 파일·GeoJSON', () => {
 })
 
 describe('별명 여러 개 (2026-10-03 사용자 결정, ADR-0012)', () => {
-  it('더 붙인 별명은 공백을 떼고, 빈 것·이름과 같은 것·겹친 것을 뺀다', () => {
+  it('더 붙인 별명은 공백을 떼고 빈 것을 뺀다. 이름과 같은 것·두 번 적은 것은 막는다(OE-SPC-06)', () => {
     make('임원석', rect(0, 6, 5, 10), 'U_exec')
-    expect(setCustomZoneAliases(model, 'U_exec', [' 임원 구역 ', '', '임원석', '경영진석', '임원 구역'])).toBe(true)
+    expect(setCustomZoneAliases(model, 'U_exec', [' 임원 구역 ', '', '임원석', '경영진석'])).toEqual({ refused: expect.stringContaining('임원석') })
+    expect(setCustomZoneAliases(model, 'U_exec', [' 임원 구역 ', '', '경영진석', '임원 구역'])).toEqual({ refused: expect.stringContaining('두 번') })
+    expect(setCustomZoneAliases(model, 'U_exec', [' 임원 구역 ', '', '경영진석'])).toBe(true)
     expect(storey().customZones![0].aliases).toEqual(['임원 구역', '경영진석'])
     expect(setCustomZoneAliases(model, 'U_exec', ['임원 구역', '경영진석'])).toBe(false)
     expect(setCustomZoneAliases(model, 'U_exec', [])).toBe(true)

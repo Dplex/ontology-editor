@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["K3", "OE-PIP-08"]
 ---
 
 # OE-PIP-18 흐름 없는 기기 연결 추정 제외
+
+## 관련 티켓
+
+- [OE-PIP-08](./OE-PIP-08.md): 가까운 연결 후보 추천
 
 ## 요구사항
 

@@ -106,7 +106,9 @@ test('좌표가 없는 설비를 3D 바닥을 눌러 놓는다', async ({ page }
   await page.getByRole('button', { name: '편집', exact: true }).click()
   const row = page.locator('.equipment tbody tr', { hasText: 'TEMP-101-01' })
   await row.getByRole('button', { name: 'TEMP-101-01', exact: true }).click()
-  await page.locator('.picked').getByRole('button', { name: '3D에서 놓기' }).click()
+  // 놓기는 편집 팔레트의 미배치 목록에서 한다(OE-EQP-02).
+  await page.getByRole('button', { name: /미배치 \d+대/ }).click()
+  await page.getByRole('list', { name: '미배치 설비' }).getByRole('button', { name: 'TEMP-101-01' }).click()
   await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   const at = await page.evaluate(() => (window as any).__viewer.point([6, 5, 0]))
@@ -122,14 +124,17 @@ test('좌표가 없는 설비를 3D 바닥을 눌러 놓는다', async ({ page }
 })
 
 test('미배치 목록에서 바로 3D 바닥을 눌러 놓으면 목록에서 빠진다', async ({ page }) => {
-  // OE-BIM-07 "좌표 없는 설비는 미배치 목록". 보기 모드에서 시작한다 — 목록의 버튼이 편집 모드로 들어간다.
+  // OE-BIM-07 "좌표 없는 설비는 미배치 목록". 검토 화면의 목록을 보고, 편집 팔레트의 미배치 목록에서 놓는다.
   const errors = await open(page)
   const fold = page.locator('.unplaced')
   await expect(fold).toContainText('미배치 설비')
   await expect(fold).toContainText('1대')
   const item = fold.locator('li', { hasText: 'TEMP-101-01' })
   await expect(item).toContainText('1F')
-  await item.getByRole('button', { name: '3D에서 놓기' }).click()
+  // 놓기는 편집 팔레트의 미배치 목록에서 한다(OE-EQP-02).
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.getByRole('button', { name: /미배치 \d+대/ }).click()
+  await page.getByRole('list', { name: '미배치 설비' }).getByRole('button', { name: 'TEMP-101-01' }).click()
   await expect(page.locator('.picked')).toContainText('TEMP-101-01')
   await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)

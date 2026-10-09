@@ -9,15 +9,20 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-ZON-01"]
+depends: ["OE-ZON-01", "OE-BIM-15"]
 ---
 
 # OE-MAN-05 공조존 수동
 
+## 관련 티켓
+
+- [OE-ZON-01](../E10-ZON/OE-ZON-01.md): 설비·담당 물리존 지정 수동 생성
+- [OE-BIM-15](../E05-BIM/OE-BIM-15.md): R2 IDF 공조존 자동 생성
+
 ## 요구사항
 
-IDF 가 없으면,공조존은 공간 편집 모드의 공조존 도구에서 설비를 고르고 담당 물리존을 지정해 수동으로 만든다(OE-ZON-01).
-IDF 가 있으면 공조존은 IDF 에서 자동으로 만들어진다(OE-BIM-15, PRD 1.6).
+R1 에서 공조존은 공간 편집 모드의 공조존 도구에서 설비를 고르고 담당 물리존을 지정해 수동으로 만든다(OE-ZON-01).
+IDF 에서 공조존을 자동으로 만드는 것은 R2(Phase 2)다(OE-BIM-15, PRD 1.5).
 
 ## 수용 기준
 

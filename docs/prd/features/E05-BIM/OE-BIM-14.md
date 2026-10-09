@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R24","R14"]
+depends: ["R24", "R14", "OE-EQP-14"]
 ---
 
 # OE-BIM-14 이름 사전 종류 판정
+
+## 관련 티켓
+
+- [OE-EQP-14](../E12-EQP/OE-EQP-14.md): 종류 미상 패밀리 단위 지정
 
 ## 요구사항
 

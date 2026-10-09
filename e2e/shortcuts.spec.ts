@@ -128,13 +128,17 @@ test('[ ] 로 연결을 짚고 D 로 방향을 바꾼다. Esc 는 짚은 연결,
   await expect(target).toHaveClass(/active/)
   expect((await arrows()).find((x) => x.a === AT02 || x.b === AT02)!.active).toBe(true)
 
+  // D 는 미리보기, Enter 가 [적용] 이다(OE-PIP-04).
   await page.keyboard.press('d')
+  await expect(target.getByTestId('flow-preview')).toContainText('DUCT-01 → AT-101-02')
+  await page.keyboard.press('Enter')
   await expect(target.locator('.rel')).toHaveText('하류')
   await expect(page.locator('.report')).toContainText('DUCT-01 → AT-101-02')
   await page.keyboard.press('d')
-  await expect(target.locator('.rel')).toHaveText('상류')
+  await expect(target.getByTestId('flow-preview')).toContainText('AT-101-02 → DUCT-01')
   await page.keyboard.press('d')
-  await expect(target.locator('.rel')).toHaveText('하류(추정)')
+  await expect(target.getByTestId('flow-preview')).toHaveCount(0)
+  await expect(target.locator('.rel')).toHaveText('하류')
 
   await page.keyboard.press('Escape')
   await expect(target).not.toHaveClass(/active/)

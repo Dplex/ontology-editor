@@ -10,10 +10,16 @@ owner: "tbd"
 status: "prd-done"
 status_note: "IFC 세그먼트 ✔"
 blocked_by: []
-depends: ["R11","R15"]
+depends: ["R11", "R15", "OE-ML-12", "OE-ML-13", "OE-ML-14"]
 ---
 
 # OE-PIP-13 좌표 조건
+
+## 관련 티켓
+
+- [OE-ML-12](../E18-ML/OE-ML-12.md): 라이저 좌표
+- [OE-ML-13](../E18-ML/OE-ML-13.md): 층별 분기 좌표
+- [OE-ML-14](../E18-ML/OE-ML-14.md): 층간 오프셋 좌표
 
 ## 요구사항
 

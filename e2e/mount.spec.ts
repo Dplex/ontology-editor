@@ -22,9 +22,10 @@ test('설비 목록을 설치면으로 거르고, 고른 설비의 설치면을 
   await expect(rows.filter({ hasText: 'Receptacle' })).toHaveCount(0)
   await expect(rows.filter({ hasText: 'Pipe' })).toHaveCount(0)
 
-  await filter.selectOption('wall')
+  // 기준이 판정 설치면이다(OE-EQP-05). 이 파일은 벽이 없어 콘센트를 벽으로 판정하지 못하고 미정에 든다.
+  await filter.selectOption('none')
   await expect(rows.filter({ hasText: 'Receptacle' }).first()).toBeVisible()
-  await expect(rows.filter({ hasText: 'Pendant Light' })).toHaveCount(0)
+  await expect(rows.filter({ hasText: 'Pipe' })).toHaveCount(0)
 
   await filter.selectOption('ceiling')
   await rows.filter({ hasText: 'Pendant Light' }).first().getByRole('button').first().click()

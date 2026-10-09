@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["Q3"]
+depends: ["OE-ROB-02", "Q3"]
 ---
 
 # OE-ROB-01 로봇 1인칭 시점 뷰
+
+## 관련 티켓
+
+- [OE-ROB-02](./OE-ROB-02.md): 뷰에 보일 정보 규격
 
 ## 요구사항
 

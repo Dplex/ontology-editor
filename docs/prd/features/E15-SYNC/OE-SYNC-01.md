@@ -10,10 +10,15 @@ owner: "tbd"
 status: "prd-review"
 status_note: "초기 구축 ✔"
 blocked_by: []
-depends: ["OE-WF-10"]
+depends: ["OE-GEN-01", "OE-WF-10"]
 ---
 
 # OE-SYNC-01 공간 정보 자동 반영
+
+## 관련 티켓
+
+- [OE-GEN-01](../E08-GEN/OE-GEN-01.md): 초기 생성의 같은 산출물 규칙
+- [OE-WF-10](../E14-WF/OE-WF-10.md): 자동 반영 시점
 
 ## 요구사항
 

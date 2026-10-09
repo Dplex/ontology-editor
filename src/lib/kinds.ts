@@ -16,8 +16,11 @@
 
 import type { EquipmentRole } from './model'
 
-/** 계통의 매체. 공조기는 공기의 원천이면서 물의 소비처라, 매체를 알아야 역할이 정해진다. */
-export type Medium = 'air' | 'water'
+/**
+ * 계통의 매체. 공조기는 공기의 원천이면서 물의 소비처라, 매체를 알아야 역할이 정해진다. `refrigerant` 는 냉매 계통(OE-PIP-03)의
+ * 매체다 — 규칙 방향(flow-rules.ts)은 공기·물만 다뤄 냉매 계통은 방향을 정하지 않고 건너뛴다.
+ */
+export type Medium = 'air' | 'water' | 'refrigerant'
 
 /** 흐름에서 맡는 자리. `source` 는 흐름을 내보내는 쪽(원천), `sink` 는 받는 쪽, `through` 는 지나가는 쪽. */
 export type FlowPart = 'source' | 'sink' | 'through'
@@ -417,9 +420,16 @@ export const SYSTEM_KINDS: SystemKindInfo[] = [
   { kind: 'exhaust_air', label: '배기', test: /공기\s*배출|배기|exhaust|extract\s*air/i, medium: 'air', sense: 'in', brick: 'brick:Air_System' },
   { kind: 'return_air', label: '환기', test: /순환\s*공기|환기|return\s*air/i, medium: 'air', sense: 'in', brick: 'brick:Air_System' },
   { kind: 'outside_air', label: '외기', test: /외기|outside\s*air|outdoor\s*air/i, medium: 'air', sense: 'out', brick: 'brick:Ventilation_Air_System' },
+  // 지열수·응축수는 순환수보다 먼저 본다. "Geothermal supply water" 가 순환수의 `supply water` 에 먼저 걸린다.
+  { kind: 'geothermal_supply', label: '지열수 공급', test: /지열수?\s*공급|geothermal\s*(supply|flow)|\bGWS\b/i, medium: 'water', sense: 'out', brick: 'brick:Water_System' },
+  { kind: 'geothermal_return', label: '지열수 환수', test: /지열수?\s*(환수|순환)|geothermal\s*return|\bGWR\b/i, medium: 'water', sense: 'in', brick: 'brick:Water_System' },
+  { kind: 'condensate_return', label: '응축수 환수', test: /응축수|condensate/i, medium: 'water', sense: 'in', brick: 'brick:Steam_System' },
   { kind: 'hydronic_supply', label: '순환수 공급', test: /순환수\s*공급|hydronic\s*supply|냉온수\s*공급|(heat(ing)?|cooling)\s*flow|supply\s*water/i, medium: 'water', sense: 'out', brick: 'brick:Water_System' },
   { kind: 'hydronic_return', label: '순환수 환수', test: /순환수\s*순환|순환수\s*환수|hydronic\s*return|냉온수\s*환수|(heat(ing)?|cooling)\s*return|return\s*water/i, medium: 'water', sense: 'in', brick: 'brick:Water_System' },
   { kind: 'domestic_hot_water', label: '급탕', test: /가정용\s*온수|급탕|domestic\s*hot|hot\s*water/i, medium: 'water', sense: 'out', brick: 'brick:Domestic_Hot_Water_System' },
+  { kind: 'steam', label: '증기', test: /증기|스팀|steam|\bSTM\b/i, medium: 'water', sense: 'out', brick: 'brick:Steam_System' },
+  { kind: 'fire_protection', label: '소화', test: /소화|스프링클러|sprinkler|fire\s*protection|\bFP\b/i, medium: 'water', sense: 'out', brick: 'brick:Fire_Safety_System' },
+  { kind: 'refrigerant', label: '냉매', test: /냉매|refrigerant|\bREF\b/i, medium: 'refrigerant', sense: 'out', brick: 'brick:Refrigeration_System' },
   { kind: 'domestic_cold_water', label: '급수', test: /가정용\s*냉수|급수|domestic\s*cold|cold\s*water/i, medium: 'water', sense: 'out', brick: 'brick:Water_System' },
 ]
 
@@ -437,7 +447,7 @@ const SYSTEM_BY_KIND = new Map(SYSTEM_KINDS.map((k) => [k.kind, k]))
 export const SYSTEM_IFC = {
   air: { predefined: ['AIRCONDITIONING', 'VENTILATION', 'EXHAUST'], codes: { SUP: 'supply_air', ETA: 'return_air', RCA: 'return_air', EHA: 'exhaust_air', ODA: 'outside_air' } },
   water: { predefined: ['HEATING', 'CHILLEDWATER', 'CONDENSERWATER'], codes: { FLOW: 'hydronic_supply', RETURN: 'hydronic_return' } },
-  alone: { DOMESTICHOTWATER: 'domestic_hot_water', DOMESTICCOLDWATER: 'domestic_cold_water', EXHAUST: 'exhaust_air' },
+  alone: { DOMESTICHOTWATER: 'domestic_hot_water', DOMESTICCOLDWATER: 'domestic_cold_water', EXHAUST: 'exhaust_air', FIREPROTECTION: 'fire_protection', REFRIGERATION: 'refrigerant' },
 } as const
 
 /** IFC 가 말한 계통 종류. 약어는 그 매체의 PredefinedType 과 함께일 때만 읽는다(`RETURN` 은 공기에도 물에도 있을 수 있다). */

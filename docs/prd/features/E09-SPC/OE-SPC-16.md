@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-P3-08"]
 ---
 
 # OE-SPC-16 오브젝트 라이브러리 정의
+
+## 관련 티켓
+
+- [OE-P3-08](../E21-P3/OE-P3-08.md): 사용자 3D 모델로 항목 추가
 
 ## 요구사항
 

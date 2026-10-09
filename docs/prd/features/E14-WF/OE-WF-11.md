@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-WF-12"]
 ---
 
 # OE-WF-11 반영 확인 팝업
+
+## 관련 티켓
+
+- [OE-WF-12](./OE-WF-12.md): 팝업 내 변경 요약
 
 ## 요구사항
 

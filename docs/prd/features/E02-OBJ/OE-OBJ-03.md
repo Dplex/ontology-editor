@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["D15"]
+depends: ["OE-SPC-11", "OE-SPC-15", "D15"]
 ---
 
 # OE-OBJ-03 룸 편집 범위
+
+## 관련 티켓
+
+- [OE-SPC-11](../E09-SPC/OE-SPC-11.md): 룸 생성·삭제·이동·크기 조절
+- [OE-SPC-15](../E09-SPC/OE-SPC-15.md): 룸 겹침 차단 표시
 
 ## 요구사항
 

@@ -9,7 +9,7 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R6"]
+depends: ["K9", "R6"]
 ---
 
 # OE-BIM-11 단위 환산·교차 확인

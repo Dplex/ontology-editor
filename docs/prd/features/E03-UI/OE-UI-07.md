@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-OBJ-16"]
 ---
 
 # OE-UI-07 그리드 정렬
+
+## 관련 티켓
+
+- [OE-OBJ-16](../E02-OBJ/OE-OBJ-16.md): 형상 기준 겹침 판정
 
 ## 요구사항
 

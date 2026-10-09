@@ -6,7 +6,7 @@ PRD #14 · 티켓 18건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능
 
 | ID | 기능 | Rel | P | 상태 |
 |---|---|---|---|---|
-| [OE-PIP-01](OE-PIP-01.md) | 연결 잇기·끊기 (E8) | R1 | P1 | prd-done |
+| [OE-PIP-01](OE-PIP-01.md) | 연결하기·연결 끊기 (E8) | R1 | P1 | prd-done |
 | [OE-PIP-02](OE-PIP-02.md) | 계통 변경·생성·삭제 | R1 | P1 | prd-done |
 | [OE-PIP-03](OE-PIP-03.md) | 계통 종류·유체 | R1 | P1 | prd-done |
 | [OE-PIP-04](OE-PIP-04.md) | 연결별 방향 지정 | R1 | P1 | prd-done |

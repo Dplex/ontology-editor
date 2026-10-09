@@ -4,15 +4,19 @@ epic: "E04"
 epic_title: "초기 구축 — IDF 임포트"
 title: "Zone → 공조존"
 prd: "#5"
-release: "R1"
+release: "R2"
 priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: []
+depends: ["OE-INT-05"]
 ---
 
 # OE-IDF-01 Zone → 공조존
+
+## 관련 티켓
+
+- [OE-INT-05](../E20-INT/OE-INT-05.md): 공조존 id 규칙
 
 ## 요구사항
 

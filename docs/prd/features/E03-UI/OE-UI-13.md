@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-INT-07"]
 ---
 
 # OE-UI-13 출처 표시
+
+## 관련 티켓
+
+- [OE-INT-07](../E20-INT/OE-INT-07.md): TTL 출처 술어 여부
 
 ## 요구사항
 

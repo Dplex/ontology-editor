@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-SYNC-06"]
 ---
 
 # OE-WF-08 미리보기 변경 요약
+
+## 관련 티켓
+
+- [OE-SYNC-06](../E15-SYNC/OE-SYNC-06.md): 변경 집계 규칙
 
 ## 요구사항
 

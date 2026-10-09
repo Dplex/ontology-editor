@@ -78,9 +78,10 @@ function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
       storeyId: storey.id,
       spaceId: equipment.spaceId,
       // 소속의 출처(요구조건 S4). 'bim' 은 BIM 이 설비를 그 방에 담았다고 말한 것, 'calc' 는 좌표가 외곽선에 드는지 우리가
-      // 계산한 것(사람이 옮긴 설비도 다시 계산한다). TTL 의 hasLocation 은 같은 방이라 둘을 가를 수 없어 여기 둔다 —
-      // 문의 connectsSource·벽의 externalSource 와 같은 낱말이다(ADR-0008). 방이 없으면 null.
-      spaceSource: equipment.spaceId === null ? null : equipment.spaceSource === 'bim' ? 'bim' : 'calc',
+      // 계산한 것(사람이 옮긴 설비도 다시 계산한다), 'edit' 은 기계가 확신하지 못한 설비에 사람이 정한 것(K17)이다. TTL 의
+      // hasLocation 은 같은 방이라 셋을 가를 수 없어 여기 둔다 — 문의 connectsSource·벽의 externalSource 와 같은 낱말이다(ADR-0008).
+      // 방이 없으면 null.
+      spaceSource: equipment.spaceId === null ? null : equipment.spaceSource === 'bim' ? 'bim' : equipment.spaceSource === 'edit' ? 'edit' : 'calc',
       systemId: equipment.systemId,
       capacity: equipment.capacity,
       // 용량이 무엇의 양인지(풍량·물 유량·출력·모름). 숫자만 두면 풍량과 출력이 섞인다(capacity.ts).

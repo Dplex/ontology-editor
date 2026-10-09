@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-XPRD-03"]
+depends: ["OE-XPRD-03", "OE-SPC-05"]
 ---
 
 # OE-SYNC-03 공간 계층 갱신
+
+## 관련 티켓
+
+- [OE-XPRD-03](../E22-XPRD/OE-XPRD-03.md): 탐색기 트리 계층 표시
+- [OE-SPC-05](../E09-SPC/OE-SPC-05.md): 물리존 공간명
 
 ## 요구사항
 

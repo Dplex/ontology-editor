@@ -9,10 +9,15 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-COM-06"]
+depends: ["OE-COM-06", "OE-COM-03"]
 ---
 
 # OE-WF-05 임시 저장 후 잠금 해제
+
+## 관련 티켓
+
+- [OE-COM-06](../E01-COM/OE-COM-06.md): 종료 시 편집 잠금 해제
+- [OE-COM-03](../E01-COM/OE-COM-03.md): 다른 권한자의 이어 편집
 
 ## 요구사항
 

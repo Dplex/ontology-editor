@@ -9,10 +9,16 @@ priority: "P3"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-PIP-03","OE-PIP-05","OE-PIP-07"]
+depends: ["OE-PIP-03", "OE-PIP-05", "OE-PIP-07"]
 ---
 
 # OE-PIP-17 환수·급탕 원천 규칙
+
+## 관련 티켓
+
+- [OE-PIP-03](./OE-PIP-03.md): Flow Type·공급/환수 구분
+- [OE-PIP-05](./OE-PIP-05.md): 계통 단위 확정
+- [OE-PIP-07](./OE-PIP-07.md): 규칙 재검토·feeds 반영
 
 ## 요구사항
 

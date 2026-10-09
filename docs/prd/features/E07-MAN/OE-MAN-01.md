@@ -10,10 +10,19 @@ owner: "tbd"
 status: "prd-done"
 status_note: "\"빈 층 시작\" 미확인"
 blocked_by: []
-depends: ["OE-SPC","OE-SPC-02","OE-SPC-03","OE-SPC-12","OE-SPC-13","OE-MAN-02"]
+depends: ["OE-MAN-02", "OE-IDF-09", "OE-SPC", "OE-SPC-02", "OE-SPC-03", "OE-SPC-12", "OE-SPC-13"]
 ---
 
 # OE-MAN-01 배경 위 수동 작성
+
+## 관련 티켓
+
+- [OE-MAN-02](./OE-MAN-02.md): 평면도 이미지 배경
+- [OE-IDF-09](../E04-IDF/OE-IDF-09.md): IDF 참조선 배경
+- [OE-SPC-02](../E09-SPC/OE-SPC-02.md): 물리존 생성·분할·병합 도구
+- [OE-SPC-03](../E09-SPC/OE-SPC-03.md): 물리존 외곽선 수정 도구
+- [OE-SPC-12](../E09-SPC/OE-SPC-12.md): 벽 작성 도구
+- [OE-SPC-13](../E09-SPC/OE-SPC-13.md): 문·창 작성 도구
 
 ## 요구사항
 

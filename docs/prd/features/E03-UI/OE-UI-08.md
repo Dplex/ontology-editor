@@ -9,10 +9,14 @@ priority: "P2"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: []
+depends: ["OE-INT-04"]
 ---
 
 # OE-UI-08 치수 표시
+
+## 관련 티켓
+
+- [OE-INT-04](../E20-INT/OE-INT-04.md): 치수 단위 m
 
 ## 요구사항
 

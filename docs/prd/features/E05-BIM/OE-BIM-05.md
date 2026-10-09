@@ -9,10 +9,14 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["R4"]
+depends: ["OE-OBJ-07", "R4"]
 ---
 
 # OE-BIM-05 문·창 생성
+
+## 관련 티켓
+
+- [OE-OBJ-07](../E02-OBJ/OE-OBJ-07.md): 문·창 통과 속성
 
 ## 요구사항
 

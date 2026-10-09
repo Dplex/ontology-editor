@@ -4,7 +4,7 @@ epic: "E04"
 epic_title: "초기 구축 — IDF 임포트"
 title: "BIM 無 참조선"
 prd: "#5"
-release: "R1"
+release: "R2"
 priority: "P2"
 owner: "tbd"
 status: "prd-done"
@@ -13,6 +13,10 @@ depends: ["OE-MAN-01"]
 ---
 
 # OE-IDF-09 BIM 無 참조선
+
+## 관련 티켓
+
+- [OE-MAN-01](../E07-MAN/OE-MAN-01.md): 참조선 보며 물리존 그리기
 
 ## 요구사항
 

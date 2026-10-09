@@ -9,10 +9,21 @@ priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["OE-WF-01"]
+depends: ["OE-UI-04", "OE-WF-10", "OE-WF-01", "OE-WF-03", "OE-WF-02", "OE-COM-05", "OE-COM-03", "OE-HIST-03"]
 ---
 
 # OE-COM-08 상시 버튼·미저장 확인
+
+## 관련 티켓
+
+- [OE-UI-04](../E03-UI/OE-UI-04.md): 상단 액션바 버튼 자리
+- [OE-WF-10](../E14-WF/OE-WF-10.md): DT 3D 맵·온톨로지 반영
+- [OE-WF-01](../E14-WF/OE-WF-01.md): DT 미반영 임시 저장
+- [OE-WF-03](../E14-WF/OE-WF-03.md): 층마다 하나인 임시 저장본
+- [OE-WF-02](../E14-WF/OE-WF-02.md): 임시 저장본 자동 이어 편집
+- [OE-COM-05](./OE-COM-05.md): 편집 중인 층 편집 차단
+- [OE-COM-03](./OE-COM-03.md): 다른 권한자의 이어 편집
+- [OE-HIST-03](../E19-HIST/OE-HIST-03.md): 편집 파일 로컬 저장·불러오기
 
 ## 요구사항
 

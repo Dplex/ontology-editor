@@ -4,15 +4,19 @@ epic: "E10"
 epic_title: "공조 조닝"
 title: "존↔방 매칭 확인 플로우"
 prd: "#11"
-release: "R1"
+release: "R2"
 priority: "P1"
 owner: "tbd"
 status: "prd-done"
 blocked_by: []
-depends: ["D13"]
+depends: ["OE-IDF-05", "D13"]
 ---
 
 # OE-ZON-07 존↔방 매칭 확인 플로우
+
+## 관련 티켓
+
+- [OE-IDF-05](../E04-IDF/OE-IDF-05.md): IDF 존↔물리존 겹침 매칭
 
 ## 요구사항
 
