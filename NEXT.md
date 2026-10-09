@@ -66,6 +66,7 @@ PR 을 연 뒤 스샷을 첨부로 올려 본문 주소를 바꾸고, `needs-pm`
 | 142de1c | [docs: 로봇 경로가 읽는 GeoJSON 속성](next/pr/docs-geojson-robot.md) | Refs [#231](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/231) | — · `needs-pm` |
 | a9d2906 | [OE-MAN-02 평면도 배경 이미지](next/pr/oe-man-02.md) | [#118](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/118) | — · `needs-pm` |
 | 637adc9 | [OE-EQP-08 실내기 Z-06](next/pr/oe-eqp-08.md) | [#172](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/172) | ZON-01 패널 다음 |
+| 818c3a1 | [test: BIM 배관 다시 열기(OE-PIP-14)](next/pr/test-pip-14.md) | Refs [#195](https://github.sec.samsung.net/IoT-Solution/bim-to-dt-ontology/issues/195) | PIP-10·13 다음 |
 
 ## 지금 상태 (2026-10-08 22:40)
 
