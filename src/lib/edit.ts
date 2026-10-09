@@ -1430,7 +1430,7 @@ export type Baseline = {
    * 수직 관통 오브젝트(OE-ML-02)의 연 때 모습 — 이름, 기준점(첫 층 조각, vertical-edit.ts 의 partRef), 층별 형상. 옮긴 거리·지움과
    * V-03 충돌(연 때보다 더 겹쳤나)을 이것과 견준다. 이 칸이 생기기 전의 baseline 에는 없다.
    */
-  verticals?: Map<string, { name: string; ref: Vec2 | null; footprints: Map<string, Vec2[]> }>
+  verticals?: Map<string, { name: string; ref: Vec2 | null; footprints: Map<string, Vec2[]>; parts: Map<string, { footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null }> }>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
@@ -1504,9 +1504,14 @@ function verticalBaseline(model: Model): NonNullable<Baseline['verticals']> {
   for (const storey of [...model.storeys].sort((a, b) => a.elevation - b.elevation)) {
     for (const part of storey.verticalParts ?? []) {
       let row = out.get(part.parentId)
-      if (!row) out.set(part.parentId, (row = { name: part.name, ref: null, footprints: new Map() }))
+      if (!row) out.set(part.parentId, (row = { name: part.name, ref: null, footprints: new Map(), parts: new Map() }))
       row.ref ??= partRef(part)
       row.footprints.set(storey.id, part.footprint.map((p) => [p[0], p[1]] as Vec2))
+      row.parts.set(storey.id, {
+        footprint: part.footprint.map((p) => [p[0], p[1]] as Vec2),
+        entry: part.entry ? [part.entry[0], part.entry[1], part.entry[2]] : null,
+        exit: part.exit ? [part.exit[0], part.exit[1], part.exit[2]] : null,
+      })
     }
   }
   return out
@@ -1564,8 +1569,11 @@ export type BaselineDiff = {
   systemKinds: { id: string; name: string; from: { kind: string | null; fluid: Fluid | null }; to: { kind: string | null; fluid: Fluid | null } }[]
   /** 이름을 고친 계통(OE-PIP-09). 연 때 있던 계통만 — 사람이 만든 계통의 이름은 `systemsAdded` 가 끝 이름을 든다. */
   systemNames: { id: string; from: string; to: string }[]
-  /** 옮기거나(`move` 는 연 때와 견준 x·y 이동량) 지운 수직 관통 오브젝트(OE-ML-07·09). 옛 baseline 이면 없다. */
-  verticals?: { id: string; name: string; move?: Vec2; removed?: true }[]
+  /**
+   * 옮기거나(`move` 는 연 때와 견준 x·y 이동량) 지운 수직 관통 오브젝트(OE-ML-07·09). 층별로 따로 고친 것(한 층 조각만 옮김·꼭짓점·진입/종료
+   * 지점)은 `reshaped` 에 그 층 id 를 적는다 — 전체 이동량 하나로 다시 만들 수 없어 편집 파일이 조각을 통째로 적는다. 옛 baseline 이면 없다.
+   */
+  verticals?: { id: string; name: string; move?: Vec2; removed?: true; reshaped?: string[] }[]
 }
 
 /** 좌표를 같다고 보는 차. 표와 3D 가 센티미터로 자르므로 그보다 작은 차는 같은 자리다. */
@@ -1700,7 +1708,24 @@ export function diffVerticals(model: Model, baseline: Baseline): NonNullable<Bas
     const ref = now.get(id)
     if (!ref || !was.ref) continue
     const d: Vec2 = [Math.round((ref[0] - was.ref[0]) * 1000) / 1000, Math.round((ref[1] - was.ref[1]) * 1000) / 1000]
-    if (Math.abs(d[0]) >= 0.001 || Math.abs(d[1]) >= 0.001) out.push({ id, name: was.name, move: d })
+    // 모든 층 조각이 연 때 조각에 같은 이동량을 더한 것이면 전체 이동이다. 아니면 층별로 고친 것이고, 연 때와 달라진 층을 모두 적는다.
+    const near = (a: number, b: number) => Math.abs(a - b) < 0.0015
+    const sameXY = (p: readonly number[] | null, q: readonly number[] | null, s: Vec2) => (!p && !q) || (!!p && !!q && near(p[0], q[0] + s[0]) && near(p[1], q[1] + s[1]))
+    const samePart = (part: VerticalPart | undefined, base: { footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null } | undefined, s: Vec2) =>
+      !!part &&
+      !!base &&
+      part.footprint.length === base.footprint.length &&
+      part.footprint.every((p, i) => sameXY(p, base.footprint[i], s)) &&
+      sameXY(part.entry, base.entry, s) &&
+      sameXY(part.exit, base.exit, s)
+    const pairs = model.storeys
+      .map((st) => ({ storeyId: st.id, part: (st.verticalParts ?? []).find((p) => p.parentId === id), base: was.parts.get(st.id) }))
+      .filter((x) => x.part || x.base)
+    if (pairs.every((x) => samePart(x.part, x.base, d))) {
+      if (Math.abs(d[0]) >= 0.001 || Math.abs(d[1]) >= 0.001) out.push({ id, name: was.name, move: d })
+      continue
+    }
+    out.push({ id, name: was.name, reshaped: pairs.filter((x) => !samePart(x.part, x.base, [0, 0])).map((x) => x.storeyId) })
   }
   return out
 }

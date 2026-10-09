@@ -197,8 +197,10 @@ export type EditFile = {
   /**
    * 고친 수직 관통 오브젝트(OE-ML-07·09, ADR-0034). `move` 는 연 때와 견준 x·y 이동량, `removed` 는 지운 것이다. 층에 속하지 않아(여러 층에
    * 걸친다) 건물 조각으로 간다. id 는 BIM 계단의 GUID 라 다시 열면 같은 계단에 얹힌다. 못 찾으면 `missing.elements` 로 센다.
+   * 층별로 따로 고친 오브젝트(한 층 조각만 옮김·꼭짓점·진입/종료 지점)는 `parts` 에 모든 층 조각의 끝 모양을 적는다 — 이동량 하나로는
+   * 다시 만들 수 없다. 그때는 `move` 를 적지 않는다.
    */
-  verticals?: { id: string; move?: Vec2; removed?: true }[]
+  verticals?: { id: string; move?: Vec2; removed?: true; parts?: { storeyId: string; footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null }[] }[]
 }
 
 /**
@@ -296,7 +298,21 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   const connections = { add: since.connected, remove: since.disconnected }
   const releases = exportReleases(model)
   const equipmentRemoved = since.equipmentRemoved.map((r) => r.id)
-  const verticals = (since.verticals ?? []).map((v) => ({ id: v.id, ...(v.removed ? { removed: true as const } : { move: v.move! }) }))
+  const verticals = (since.verticals ?? []).map((v) => {
+    if (v.removed) return { id: v.id, removed: true as const }
+    if (!v.reshaped) return { id: v.id, move: v.move! }
+    const parts = model.storeys.flatMap((st) =>
+      (st.verticalParts ?? [])
+        .filter((p) => p.parentId === v.id)
+        .map((p) => ({
+          storeyId: st.id,
+          footprint: p.footprint.map((q) => [q[0], q[1]] as Vec2),
+          entry: p.entry ? ([p.entry[0], p.entry[1], p.entry[2]] as Vec3) : null,
+          exit: p.exit ? ([p.exit[0], p.exit[1], p.exit[2]] as Vec3) : null,
+        })),
+    )
+    return { id: v.id, parts }
+  })
   const spacesRemoved = since.spacesRemoved.map((r) => (mergedInto.has(r.id) ? { id: r.id, into: mergedInto.get(r.id)! } : { id: r.id }))
 
   // 벽·문·창(E4). 적을 것은 연 때와 견준 결과(diffBaseline)에서 고른다.
@@ -422,6 +438,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   }
   const spaceObjects = model.storeys.filter((st) => st.spaceObjects?.length).map((st) => ({ storeyId: st.id, objects: copySpaceObjects(st.spaceObjects!) }))
   for (const row of spaceObjects) keep(row.storeyId)
+  for (const v of verticals) for (const p of v.parts ?? []) keep(p.storeyId)
   // 놓인 오브젝트가 쓰는 항목만 남긴다. 넣고 안 쓴 모델까지 임시 저장본마다 실으면 편집 파일만 커진다.
   const used = new Set(spaceObjects.flatMap((row) => row.objects.map((o) => o.item)))
   const objectLibrary = (model.objectLibrary ?? []).filter((i) => used.has(i.key)).map((i) => ({ ...i, size: [i.size[0], i.size[1], i.size[2]] as Vec3 }))
@@ -605,6 +622,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     ref(row.spaceId)
   }
   for (const row of file.equipmentAdded ?? []) if (row.system) ref(row.system)
+  for (const row of file.verticals ?? []) for (const p of row.parts ?? []) ref(p.storeyId)
   for (const f of file.flows) {
     ref(f.from)
     ref(f.to)
@@ -876,7 +894,25 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
 
   // 수직 관통 오브젝트(OE-ML-07·09). 옮긴 거리를 다시 더하거나 다시 지운다 — 지운 계단은 다시 열어도 되살아나지 않는다.
   for (const row of file.verticals ?? []) {
-    const done = row.removed ? deleteVertical(model, row.id) : row.move ? moveVertical(model, row.id, row.move) : false
+    let done = row.removed ? deleteVertical(model, row.id) : row.move ? moveVertical(model, row.id, row.move) : false
+    // 층별로 고친 것은 층마다 끝 모양을 그대로 얹는다. 그 층이나 그 층 조각이 없으면 못 찾은 층으로 센다.
+    for (const p of row.parts ?? []) {
+      const storey = model.storeys.find((s) => s.id === resolve(p.storeyId))
+      const part = storey?.verticalParts?.find((x) => x.parentId === row.id)
+      if (!part) {
+        result.missing.storeys++
+        continue
+      }
+      // 고치지 않은 층 조각은 BIM 그대로다 — 보정 표시(edited)를 달지 않는다.
+      const same = JSON.stringify([part.footprint, part.entry, part.exit]) === JSON.stringify([p.footprint, p.entry, p.exit])
+      if (!same) {
+        part.footprint = p.footprint.map((q) => [q[0], q[1]] as Vec2)
+        part.entry = p.entry ? [p.entry[0], p.entry[1], p.entry[2]] : null
+        part.exit = p.exit ? [p.exit[0], p.exit[1], p.exit[2]] : null
+        part.edited = true
+      }
+      done = true
+    }
     if (done) result.applied++
     else result.missing.elements++
   }

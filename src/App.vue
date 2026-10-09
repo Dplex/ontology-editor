@@ -183,7 +183,7 @@ import {
 } from './lib/space-object'
 import type { Object3D } from 'three'
 import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL } from './lib/vertical-object'
-import { deleteVertical, moveVertical, verticalCollisions, verticalImpact } from './lib/vertical-edit'
+import { deleteVertical, movePart, moveVertical, setPartPoint, setPartVertex, verticalCollisions, verticalImpact } from './lib/vertical-edit'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -1866,6 +1866,21 @@ function moveVertex(spaceId: string, index: number, to: Vec2, coalesce?: string)
 function dropVertex(spaceId: string, index: number, raw: Vec2) {
   if (!model.value) return
   const to: Vec2 = [cm(raw[0]), cm(raw[1])]
+  // 수직 관통 오브젝트 조각의 꼭짓점(OE-ML-07, 다중층 뷰).
+  if (findPart(model.value, spaceId)) {
+    let refused = ''
+    const done = changeVerticals(`${selectedVertical.value?.part.name || '계단'} 형상`, (m) => {
+      const r = setPartVertex(m, spaceId, index, to)
+      if (typeof r === 'object') refused = r.refused
+      return r === true
+    })
+    if (!done) {
+      if (refused) editNotice.value = refused
+      // 끌던 손잡이를 원래 고리로 다시 그린다.
+      sceneVersion.value++
+    }
+    return
+  }
   // 룸의 꼭짓점(OE-SPC-11). 맞은편 꼭짓점을 두고 크기를 바꾼다.
   if (findRoom(model.value, spaceId)) {
     changeRooms(spaceId, '룸 크기', (m) => resizeRoom(m, spaceId, index, to))
@@ -2064,6 +2079,7 @@ watch([model, canvas], ([m, el]) => {
     viewer.onArrowClick(cycleFlow)
     viewer.setWallsVisible(showWalls.value)
     viewer.setEditMode(editing.value && !multiView.value)
+    viewer.setHandleEdit(editing.value && !!multiView.value)
     viewer.setDark(dark.value)
   }
   // 편집이 보낸 갱신(triggerRef)으로는 다시 만들지 않는다(redraw 참조). 새 모델일 때만이다.
@@ -2305,6 +2321,31 @@ const verticalWarnings = computed(() => {
 const verticalDeleteAsk = ref(false)
 watch(selectedVerticalId, () => (verticalDeleteAsk.value = false))
 const verticalDeleteImpact = computed(() => (verticalDeleteAsk.value && selectedVertical.value && model.value ? verticalImpact(model.value, selectedVertical.value.object.id) : null))
+/** 이 층 조각만 옮기는 칸(Δx·Δy)과 진입·종료 지점 칸(x·y). 고른 조각이 바뀌면 비운다. */
+const partShift = ref<[string, string]>(['', ''])
+watch(selectedVerticalId, () => (partShift.value = ['', '']))
+function applyPartShift() {
+  const v = selectedVertical.value
+  const d: Vec2 = [Number(partShift.value[0] || 0), Number(partShift.value[1] || 0)]
+  if (!v || !Number.isFinite(d[0]) || !Number.isFinite(d[1])) {
+    editNotice.value = '이동 거리는 숫자로 넣습니다(미터).'
+    return
+  }
+  if (changeVerticals(`${v.part.name || v.label} ${v.storey.name} 조각 옮김`, (m) => movePart(m, selectedVerticalId.value!, [cm(d[0]), cm(d[1])]))) partShift.value = ['', '']
+}
+function applyPartPoint(which: 'entry' | 'exit', axis: 0 | 1, input: HTMLInputElement) {
+  const v = selectedVertical.value
+  const p = v?.part[which]
+  const value = Number(input.value)
+  if (!v || !p) return
+  if (!input.value.trim() || !Number.isFinite(value)) {
+    editNotice.value = '좌표는 숫자로 넣습니다(미터).'
+    input.value = p[axis].toFixed(2)
+    return
+  }
+  const at: Vec2 = axis === 0 ? [cm(value), p[1]] : [p[0], cm(value)]
+  changeVerticals(`${v.part.name || v.label} ${which === 'entry' ? '진입' : '종료'} 지점`, (m) => setPartPoint(m, selectedVerticalId.value!, which, at))
+}
 function removeSelectedVertical() {
   const v = selectedVertical.value
   if (!v) return
@@ -2535,9 +2576,16 @@ type Drawing = {
   points: Vec2[]
 }
 const drawing = ref<Drawing | null>(null)
-watch([selectedSpace, selectedRoom, editing, sceneVersion, drawing], () => {
+watch([selectedSpace, selectedRoom, editing, sceneVersion, drawing, selectedVertical, multiView], () => {
   const picked = selectedSpace.value
   if (!viewer) return
+  // 다중층 뷰(OE-ML-07): 고른 계단 조각의 그 층 형상에만 손잡이를 단다. 물리존·룸은 층 편집에서 고친다.
+  if (multiView.value) {
+    const v = selectedVertical.value
+    const ring = v?.part.footprint ?? []
+    viewer.setSpaceHandles(editing.value && v && ring.length >= 3 ? { id: selectedVerticalId.value!, ring, elevation: v.storey.elevation + 0.1, active: null } : null)
+    return
+  }
   if (drawing.value) {
     const d = drawing.value
     viewer.setSpaceHandles({ id: d.spaceId ?? 'new', ring: d.points, elevation: d.elevation, active: d.points.length ? d.points.length - 1 : null })
@@ -4051,8 +4099,11 @@ watch(baseline, () => {
   multiView.value = null
   selectedVerticalId.value = null
 })
-// 보기만 한다 — 3D 의 끌기·손잡이를 끈다.
-watch(multiView, () => viewer?.setEditMode(editing.value && !multiView.value))
+// 다중층 뷰는 3D 의 설비 끌기·물리존 손잡이를 끄고, 수직 관통 오브젝트 조각의 손잡이만 끌게 한다(OE-ML-07).
+watch([multiView, editing], () => {
+  viewer?.setEditMode(editing.value && !multiView.value)
+  viewer?.setHandleEdit(editing.value && !!multiView.value)
+})
 
 // --- 층별로 보기 ---------------------------------------------------------------------
 //
@@ -4585,6 +4636,8 @@ const VERTICAL_LOCKED = '엘리베이터·에스컬레이터는 수직 관통 �
  */
 function editLock(e: Equipment): string | null {
   if (!editing.value) return null
+  // 다중층 뷰는 수직 관통 오브젝트만 고친다(OE-ML-01·07). 설비는 고르고 보기만 — 3D 에서 안 끌리고 패널의 좌표·지우기 칸도 없다.
+  if (multiView.value) return MULTI_VIEW_ONLY
   // 엘리베이터·에스컬레이터는 수직 관통 오브젝트라 층 편집 화면에서는 고르고 보기만 한다(OE-EQP-07·OE-ML-05). 종류는 고칠 수 있다 —
   // 이름 사전이 잘못 읽은 것을 풀 길이 없으면 그 설비가 계속 잠긴다.
   if (VERTICAL_DEVICES.has(e.kind ?? '')) return VERTICAL_LOCKED
@@ -8473,6 +8526,35 @@ async function export3D(format: 'glb' | 'obj') {
               <button type="submit" class="ghost">옮기기</button>
             </form>
             <p class="hint">방향키로도 옮깁니다(10cm, Shift 1m). 모든 층 조각과 진입·종료 지점이 같이 움직이고 높이는 그대로입니다. 벽·물리존 경계와 겹치면 V-03 을 알리지만 막지는 않습니다.</p>
+            <!-- 이 층 조각만(OE-ML-07 "층별 형상·크기·진입/종료 위치"). 다른 층 조각은 그대로다. 형상은 3D 의 꼭짓점 손잡이로 고친다. -->
+            <div class="vertical-part-edit" data-testid="vertical-part-edit">
+              <b>{{ selectedVertical.storey.name }} 조각만</b>
+              <form class="vertical-move" @submit.prevent="applyPartShift">
+                <span>옮기기</span>
+                <label>Δx <input v-model="partShift[0]" v-keep-typing type="number" step="0.1" aria-label="이 층 조각 이동 x(m)" /></label>
+                <label>Δy <input v-model="partShift[1]" v-keep-typing type="number" step="0.1" aria-label="이 층 조각 이동 y(m)" /></label>
+                m
+                <button type="submit" class="ghost">옮기기</button>
+              </form>
+              <template v-for="which in (['entry', 'exit'] as const)" :key="which">
+                <p v-if="selectedVertical.part[which]" class="vertical-move">
+                  <span>{{ which === 'entry' ? '진입 지점' : '종료 지점' }}</span>
+                  <label v-for="(axis, i) in ['x', 'y']" :key="axis">
+                    {{ axis }}
+                    <input
+                      type="number"
+                      step="0.1"
+                      :aria-label="`${which === 'entry' ? '진입' : '종료'} 지점 ${axis}(m)`"
+                      :value="selectedVertical.part[which]![i].toFixed(2)"
+                      @change="applyPartPoint(which, i as 0 | 1, $event.target as HTMLInputElement)"
+                      @keydown.enter="applyPartPoint(which, i as 0 | 1, $event.target as HTMLInputElement)"
+                    />
+                  </label>
+                  m
+                </p>
+              </template>
+              <p class="hint">{{ selectedVertical.part.footprint.length >= 3 ? '형상은 3D 의 꼭짓점 손잡이를 끌어 고칩니다. 변이 교차하면 되돌립니다.' : '이 층은 형상 없이 지점만 있습니다.' }}</p>
+            </div>
             <div v-if="verticalDeleteImpact" class="vertical-delete-ask" data-testid="vertical-delete-ask" role="alertdialog" aria-label="수직 관통 오브젝트 지우기 확인">
               <p>
                 <b>{{ selectedVertical.part.name || selectedVertical.label }}</b>{{ josa(selectedVertical.part.name || selectedVertical.label, '을/를') }} 지우면 —
@@ -10068,6 +10150,7 @@ async function export3D(format: 'glb' | 'obj') {
             <li v-for="r in sinceOpen.wallsAdded" :key="`wall-add-${r.id}`">벽 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 그었습니다 (GeoJSON)</li>
             <li v-for="r in sinceOpen.verticals ?? []" :key="`vertical-${r.id}`">
               <template v-if="r.removed">계단 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다(모든 층, GeoJSON)</template>
+              <template v-else-if="r.reshaped">계단 <b>{{ r.name }}</b>의 층별 모양을 고쳤습니다({{ r.reshaped.map((id) => model?.storeys.find((st) => st.id === id)?.name ?? id).join(' · ') }}, GeoJSON)</template>
               <template v-else>계단 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.move![0].toFixed(2) }}, {{ r.move![1].toFixed(2) }} m 옮겼습니다(모든 층, GeoJSON)</template>
             </li>
             <li v-for="r in sinceOpen.wallsRemoved" :key="`wall-rm-${r.id}`">벽 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} 지웠습니다(뚫린 문·창도 같이, GeoJSON)</li>

@@ -339,6 +339,11 @@ export type Viewer = {
   setWallsVisible(on: boolean): void
   /** 편집 모드를 켜고 끈다. 끄면 3D 는 보기 전용이고, 누르고 끄는 것은 전부 시점 조작이다. */
   setEditMode(on: boolean): void
+  /**
+   * 편집 모드가 꺼져 있어도 꼭짓점 손잡이만은 끌게 한다. 다중층 뷰(OE-ML-07)는 설비·물리존을 고치지 않고 수직 관통 오브젝트 조각의 형상만
+   * 고친다 — 편집 모드를 켜면 고른 설비도 끌린다.
+   */
+  setHandleEdit(on: boolean): void
   /** 편집 모드에서 무언가를 끄는 중인가. 그동안의 Ctrl+Z 는 받지 않는다(Esc 가 취소다). */
   isDragging(): boolean
   /**
@@ -623,6 +628,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 쪽이 edit.ts 로 한다. 손잡이·화살표는 모델과 따로(overlay) 두고, 모델을 다시 만들면 비운다 — 부르는 쪽이
   // 새 모델 기준으로 다시 넘겨야 예전 좌표의 손잡이가 남지 않는다.
   let editMode = false
+  let handleEdit = false
   let dark = false
   let selectedPart: string | null = null
   /** 끌 수 있는 설비. 고른 것 하나, 여러 개 골랐으면 그 전부(OE-UI-09). */
@@ -737,7 +743,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     outline = new LineLoop(new BufferGeometry().setFromPoints(points), new LineBasicMaterial({ color: handleColor(dark), depthTest: false }))
     outline.renderOrder = 10
     overlay.add(outline)
-    if (!editMode) return
+    if (!editMode && !handleEdit) return
     points.forEach((p, i) => {
       const active = i === handleSpace!.active
       const color = active ? (dark ? 0xffffff : 0x1a1d21) : handleColor(dark)
@@ -1106,7 +1112,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     'pointerdown',
     (e) => {
       pressedAt = { x: e.clientX, y: e.clientY }
-      if (!editMode || e.button !== 0) return
+      if (e.button !== 0) return
+      if (!editMode && !(handleEdit && hitHandle(e.clientX, e.clientY) !== null)) return
       // 화살표 위에서 누른 것은 떼면서 방향을 바꾸는 누르기다. 끌기를 시작하지 않는다.
       if (hitArrow(e.clientX, e.clientY)) return
       const ray = rayAt(e.clientX, e.clientY)
@@ -1333,7 +1340,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       return
     }
     const { x, y } = hoverAt
-    if (editMode && hitHandle(x, y) !== null) {
+    if ((editMode || handleEdit) && hitHandle(x, y) !== null) {
       canvas.style.cursor = 'grab'
       hoverHandler(null, null)
       return
@@ -2160,6 +2167,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       drawHandles()
       drawArrows()
       if (hoverAt) hoverPending = true
+    },
+
+    setHandleEdit(on) {
+      handleEdit = on
+      if (!on && drag?.kind === 'vertex') endDrag(false)
+      drawHandles()
     },
 
     isDragging() {
