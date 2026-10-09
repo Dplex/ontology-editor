@@ -734,9 +734,77 @@ export function useReplay(host: ReplayPlayerHost) {
     window.setTimeout(() => rec.state !== 'inactive' && rec.stop(), REPLAY_RECORD_TAIL_MS)
   })
 
+  /**
+   * 변경 지도. 끝 화면에서 D(요약판의 버튼도)로 켜고 끈다. 연 때 평면과 다 한 뒤 평면을 견줘 더한·고친·지운 것을 3D 에 색으로
+   * 한꺼번에 칠한다(BIM 버전 비교 도구의 색 표시처럼). 애니메이션은 순서를, 이것은 "어디가 몇 개" 를 보인다. 고친 것에는 물리존을
+   * 고쳐 소속이 바뀐 설비도 든다(TTL 의 hasLocation 이 바뀌었다). 덕트·배관과 연결은 빼고 센다 — 따라온 관 조각이 수백이다.
+   * 켜는 동안 끝 화면의 빛기둥은 걷고, 끄면 다시 세운다.
+   */
+  type DiffItem = Parameters<Viewer['setDiffMap']>[0] extends readonly (infer T)[] | null ? T : never
+  const replayDiff = ref<{ added: number; modified: number; removed: number } | null>(null)
+  function diffItems() {
+    const start = replayStart.value
+    const m = model.value
+    if (!start || !m) return null
+    const before = new Map(start.plan.map((p) => [p.key, p]))
+    const after = new Map(before)
+    const touched = new Set<string>()
+    for (const s of replaySteps.value) {
+      for (const c of s.changes) {
+        touched.add(c.key)
+        if (c.after) after.set(c.key, c.after)
+        else after.delete(c.key)
+      }
+    }
+    const elevation = (sid: string) => m.storeys.find((s) => s.id === sid)?.elevation ?? 0
+    const items: DiffItem[] = []
+    const count = { added: 0, modified: 0, removed: 0 }
+    for (const key of touched) {
+      const b = before.get(key)
+      const a = after.get(key)
+      if (!b && !a) continue
+      if (b && a && JSON.stringify(b) === JSON.stringify(a)) continue
+      const state = !b ? 'added' : !a ? 'removed' : 'modified'
+      const it = (a ?? b)!
+      if (it.t === 'link' || (it.t === 'equip' && it.conduit)) continue
+      count[state]++
+      const z = elevation(it.storeyId)
+      if (it.t === 'equip') {
+        if (state !== 'removed') items.push({ key, state, id: it.id })
+        else if (it.at) items.push({ key, state, at: [it.at[0], it.at[1], z] })
+      } else if (it.t === 'wall') for (const ring of it.rings) items.push({ key, state, ring, elevation: z, height: 2.6 })
+      else if (it.t === 'opening') {
+        if (it.at) items.push({ key, state, at: [it.at[0], it.at[1], z], size: 0.9, tall: 2.1 })
+      } else items.push({ key, state, ring: it.ring, elevation: z, height: 0.4 })
+    }
+    return { items, count }
+  }
+  function replayToggleDiff() {
+    if (replayDiff.value) {
+      replayDiff.value = null
+      host.viewer?.setDiffMap(null)
+      if (replayPhase.value === 'done') replayFinale()
+      return
+    }
+    if (replayPhase.value !== 'done') return
+    const d = diffItems()
+    if (!d) return
+    host.viewer?.spotlight([], [], 0)
+    host.viewer?.setDiffMap(d.items)
+    replayDiff.value = d.count
+  }
+  // 끝 화면을 떠나면(처음부터·앞 장면·끌기·반복) 변경 지도도 걷는다 — 지금 상태와 맞지 않는다.
+  watch(replayPhase, (phase) => {
+    if (phase !== 'done' && replayDiff.value) {
+      replayDiff.value = null
+      host.viewer?.setDiffMap(null)
+    }
+  })
+
   /** 닫는다. 아직 다시 하지 않은 편집을 마저 다시 해서 리플레이 전 상태(이력·다시 하기 목록까지)로 돌아온다. */
   function closeReplay() {
     if (!replayOpen.value) return
+    replayDiff.value = null
     if (recorder?.state === 'recording') recorder.stop()
     compareEnd()
     replayToken++
@@ -814,6 +882,7 @@ export function useReplay(host: ReplayPlayerHost) {
     }
     if (replayComparing.value) return true
     if (e.key === '?') replayHelp.value++
+    else if (e.code === 'KeyD') replayToggleDiff()
     else if (e.code === 'KeyR') void replayRecord()
     else if (e.code === 'Space') replayToggle()
     else if (e.code === 'ArrowRight') void replayJump('next')
@@ -844,6 +913,7 @@ export function useReplay(host: ReplayPlayerHost) {
     filter: replayFilter.value,
     recording: replayRecording.value?.since ?? null,
     helpToggles: replayHelp.value,
+    diff: replayDiff.value,
   }))
   const hudOn = {
     toggle: replayToggle,
@@ -856,6 +926,7 @@ export function useReplay(host: ReplayPlayerHost) {
     seek: (n: number) => void replaySeek(n),
     filter: (c: ReplayStep['category'] | null) => replaySetFilter(c),
     record: () => void replayRecord(),
+    diff: () => replayToggleDiff(),
   }
 
   return { open: openReplay, close: closeReplay, key: replayKey, hud, hudOn }

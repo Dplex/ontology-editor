@@ -116,6 +116,13 @@ export type ReplayViewerApi = {
    * 충격파가 퍼진다. 설비는 id(지우기 전에 불러야 상자를 잰다), 벽·물리존은 외곽선과 높이, 문·창은 자리. 움직임을 끈 사람에게는 없다.
    */
   demolish(items: readonly { key: string; id?: string; ring?: readonly Vec2[]; elevation?: number; height?: number; at?: Vec3 }[]): void
+  /**
+   * 변경 지도: 더한 것(파랑)·고친 것(주황)·지운 것(빨강)을 덧그린다. 설비는 id(3D 의 형상 상자), 벽·물리존은 외곽선과 높이,
+   * 지운 설비·문·창은 자리(at)와 상자 크기. null 이면 걷는다. 움직이지 않는다.
+   */
+  setDiffMap(
+    items: readonly { key: string; state: 'added' | 'modified' | 'removed'; id?: string; ring?: readonly Vec2[]; elevation?: number; height?: number; at?: Vec3; size?: number; tall?: number }[] | null,
+  ): void
   /** IFC 좌표의 점들(벽 외곽선·문·창 자리)이 화면에 들어오게 한다. margin(미터)만큼 둘레를 더 보인다. */
   framePoints(points: readonly Vec3[], margin?: number): void
 }
@@ -993,6 +1000,62 @@ export function createReplayFx(host: ReplayHost) {
       ;(disc.material as MeshBasicMaterial).opacity = 0.5 * (1 - e)
     } })
   }
+  // --- 변경 지도(setDiffMap) ---
+  // 애니메이션은 순서를 보이지만 "몇 개가, 어디가 바뀌었나" 를 세기에는 한 장의 차이 지도가 낫다(동적 그래프 시각화 연구).
+  // BIM 버전 비교 도구(Archicad·BIMvision·Navisworks Compare)처럼 이번 세션에서 더한 것·고친 것·지운 것을 색으로 한꺼번에 칠한다.
+  // 움직이지 않는 덧그림이라 움직임을 끈 사람에게도 보인다. 지운 것은 3D 에 없으니 연 때 자리에 빈 상자로 둔다.
+  const DIFF_COLOR = { added: 0x4da3ff, modified: 0xffb020, removed: 0xff4d5e } as const
+  let diffGroups: Group[] = []
+  function clearDiff() {
+    for (const g of diffGroups) disposeFx(g)
+    diffGroups = []
+  }
+  function diffBox(box: Box3, color: number) {
+    const size = box.getSize(new Vector3())
+    size.y = Math.max(size.y, 0.05)
+    const geo = new BoxGeometry(size.x, size.y, size.z).translate(0, size.y / 2, 0)
+    const fill = new Mesh(geo, fxMaterial(color, 0.22))
+    const edges = new LineSegments(new EdgesGeometry(geo), new LineBasicMaterial({ color, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false }))
+    const g = new Group()
+    const base = box.getCenter(new Vector3()).setY(box.min.y)
+    g.position.copy(base)
+    g.add(fill, edges)
+    fill.renderOrder = edges.renderOrder = 16
+    g.userData.baseY = base.y
+    g.position.y += explodeAt(base.y)
+    host.overlay.add(g)
+    diffGroups.push(g)
+  }
+  /** 외곽선 둘레의 낮은 울타리(물리존·룸 h 0.4, 벽 h 2.6)와 바닥 테두리. 움직이지 않는다. y 는 장면 높이. */
+  function diffFence(ring: readonly Vec2[], y: number, h: number, color: number) {
+    if (ring.length < 2) return
+    const pts = ring.map(([x, z]) => new Vector3(...host.toScene([x, z, 0])).setY(0))
+    const position: number[] = []
+    const uv: number[] = []
+    const index: number[] = []
+    pts.forEach((a, i) => {
+      const b = pts[(i + 1) % pts.length]
+      const v = position.length / 3
+      position.push(a.x, 0, a.z, b.x, 0, b.z, a.x, h, a.z, b.x, h, b.z)
+      uv.push(0, 0, 1, 0, 0, 1, 1, 1)
+      index.push(v, v + 1, v + 2, v + 1, v + 3, v + 2)
+    })
+    const geometry = new BufferGeometry()
+    geometry.setAttribute('position', new BufferAttribute(new Float32Array(position), 3))
+    geometry.setAttribute('uv', new BufferAttribute(new Float32Array(uv), 2))
+    geometry.setIndex(index)
+    const wall = new Mesh(geometry, fxMaterial(color, 0.45, true))
+    const edge = new LineLoop(new BufferGeometry().setFromPoints(pts.map((p) => p.clone().setY(0.05))), new LineBasicMaterial({ color, transparent: true, opacity: 1, depthTest: false, depthWrite: false }))
+    const g = new Group()
+    g.position.y = y + 0.08
+    g.add(wall, edge)
+    wall.renderOrder = edge.renderOrder = 16
+    g.userData.baseY = g.position.y
+    g.position.y += explodeAt(g.position.y)
+    host.overlay.add(g)
+    diffGroups.push(g)
+  }
+
   // --- 철거(demolish) ---
   const DEMOLISH_MS = 1300
   const DEMOLISH_COLOR = 0xff4d5e
@@ -1083,6 +1146,7 @@ export function createReplayFx(host: ReplayHost) {
         for (const f of fxs) disposeFx(f.obj)
         fxs.length = 0
         spots = []
+        clearDiff()
       }
       host.invalidate()
     },
@@ -1229,6 +1293,26 @@ export function createReplayFx(host: ReplayHost) {
       for (const r of (extra?.rings ?? []).slice(0, 6)) {
         const s = fenceSpot(r.key, r.ring, r.elevation, color)
         if (s) spots.push(s)
+      }
+      host.invalidate()
+    },
+
+    setDiffMap(items) {
+      clearDiff()
+      if (items) {
+        for (const it of items) {
+          const color = DIFF_COLOR[it.state]
+          if (it.id) {
+            const part = host.partById().get(it.id)
+            if (part && !host.hiddenIds().has(it.id)) diffBox(part.box.clone().expandByScalar(0.08), color)
+          } else if (it.ring && it.ring.length >= 2) {
+            diffFence(it.ring, host.toScene([0, 0, it.elevation ?? 0])[1], it.height ?? 0.4, color)
+          } else if (it.at) {
+            const [x, y, z] = host.toScene(it.at)
+            const s = it.size ?? 0.6
+            diffBox(new Box3(new Vector3(x - s / 2, y, z - s / 2), new Vector3(x + s / 2, y + (it.tall ?? s), z + s / 2)), color)
+          }
+        }
       }
       host.invalidate()
     },

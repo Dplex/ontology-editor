@@ -122,3 +122,27 @@ test('끝 화면에서 갈래를 누르면 그 갈래 장면만 처음부터 틀
   await page.keyboard.press('Escape')
   expect(errors).toEqual([])
 })
+
+test('끝 화면에서 D 를 누르면 변경 지도(더함·고침·지움 수)가 켜지고, 다시 누르거나 처음부터 틀면 걷힌다', async ({ page }) => {
+  test.setTimeout(300_000)
+  const errors = await open(page)
+  const hud = await demo(page)
+  await hud.getByRole('button', { name: '4×' }).click()
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
+  await page.keyboard.press('d')
+  const legend = hud.locator('.diff-legend')
+  await expect(legend).toBeVisible()
+  // 데모는 설비를 더하고(더함) 방 이름·경계를 고친다(고침).
+  const n = async (label: string) => Number(((await legend.locator('span', { hasText: label }).innerText()).match(/\d+/) ?? ['0'])[0])
+  expect(await n('더함')).toBeGreaterThanOrEqual(1)
+  expect(await n('고침')).toBeGreaterThanOrEqual(1)
+  await page.keyboard.press('d')
+  await expect(legend).toHaveCount(0)
+  // 요약판 버튼으로 켜고, 처음부터 틀면 걷힌다.
+  await hud.getByRole('button', { name: /변경 지도/ }).click()
+  await expect(legend).toBeVisible()
+  await page.keyboard.press('Home')
+  await expect(legend).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})

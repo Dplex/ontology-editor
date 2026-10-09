@@ -37,8 +37,10 @@ const props = defineProps<{
   recording?: number | null
   /** ? 를 누른 횟수. 바뀔 때마다 단축키 안내를 켜고 끈다. */
   helpToggles?: number
+  /** 변경 지도를 켰으면 더한·고친·지운 것의 수. */
+  diff?: { added: number; modified: number; removed: number } | null
 }>()
-const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null]; record: [] }>()
+const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null]; record: []; diff: [] }>()
 
 const CAT_COLOR = CATEGORY_COLOR
 
@@ -134,6 +136,7 @@ const KEYS: [string, string][] = [
   ['Home', '처음부터'],
   ['B (누르고 있기)', '지금 장면의 편집 전 보기'],
   ['R', '녹화 시작 · 멈추고 내려받기'],
+  ['D', '끝 화면에서 변경 지도(더함·고침·지움 색) 켜고 끄기'],
   ['?', '이 안내'],
   ['Esc · P', '닫기 (편집한 상태로 돌아감)'],
 ]
@@ -285,6 +288,15 @@ const summary = computed(() => {
       </transition>
     </div>
 
+    <!-- 변경 지도 범례(D 로 켜고 끈다) -->
+    <div v-if="diff" class="diff-legend">
+      <b>변경 지도</b>
+      <span><i class="sw add"></i>더함 {{ diff.added }}</span>
+      <span><i class="sw mod"></i>고침 {{ diff.modified }}</span>
+      <span><i class="sw del"></i>지움 {{ diff.removed }}</span>
+      <kbd>D</kbd>
+    </div>
+
     <!-- 층 레일: 위층부터, 층마다 그 층을 고친 장면의 점. 지금 보는 층이 밝다. -->
     <nav v-if="rail && phase !== 'opening'" class="rail" :style="{ '--row': `${railRow}px` }" aria-label="층별 장면">
       <button
@@ -421,6 +433,7 @@ const summary = computed(() => {
           <b>{{ b.n }}</b>
         </button>
         <p class="sum-hint">갈래를 누르면 그 갈래 장면만 처음부터</p>
+        <button type="button" :class="['report', { on: diff }]" title="더한·고친·지운 것을 3D 에 색으로 한꺼번에 (D)" @click="emit('diff')">▦ 변경 지도</button>
         <button type="button" class="report" title="장면마다 TTL·GeoJSON 에서 바뀐 것을 마크다운으로" @click="downloadReport">⇩ 변경 리포트 (.md)</button>
         <div class="totals">
           <span class="add">TTL +{{ summary.added }}</span>
@@ -1132,9 +1145,52 @@ const summary = computed(() => {
   font-size: 14px;
   font-weight: 700;
 }
-/* 끝 요약판의 리포트 내려받기. */
+/* 변경 지도 범례. 위 띠 가운데. 색은 replay-viewer.ts 의 DIFF_COLOR 와 같다. */
+.diff-legend {
+  position: absolute;
+  top: 1.6%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid #344560;
+  background: rgba(5, 6, 8, 0.72);
+  color: #e6ecf5;
+  font-size: 13px;
+}
+.diff-legend b {
+  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.15em;
+}
+.diff-legend .sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 6px;
+  vertical-align: -1px;
+}
+.sw.add {
+  background: #4da3ff;
+}
+.sw.mod {
+  background: #ffb020;
+}
+.sw.del {
+  background: #ff4d5e;
+}
+/* 끝 요약판의 변경 지도·리포트 버튼. */
+.hud-done .report.on {
+  border-color: #ffb020;
+  color: #ffb020;
+}
+.hud-done .report + .report {
+  margin-left: 0;
+}
 .hud-done .report {
-  margin: 10px 16px 14px;
+  margin: 10px 8px 14px 16px;
   padding: 5px 12px;
   border: 1px solid #344560;
   background: transparent;
