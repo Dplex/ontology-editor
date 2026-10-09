@@ -4309,6 +4309,14 @@ function setMultiAll() {
 }
 /** 층 편집으로 돌아간다. 들어오기 전에 보던 층이다. 고른 계단 조각이 그 층에 없으면 푼다. */
 function closeMultiView() {
+  // 그리던 배관을 들고 왔으면(진입 경로 ③) 옮기기 전의 그리기로 되돌린다.
+  const handoff = pipeHandoff
+  if (handoff && drawing.value?.purpose === 'pipe' && drawing.value.levels) {
+    pipeHandoff = null
+    drawing.value = handoff
+    viewer?.setPlaceMode(handoff.elevation)
+    note(`층 편집으로 돌아왔습니다. 그리던 배관(꺾임점 ${handoff.points.length}개)을 이어서 찍습니다`)
+  }
   const back = multiView.value?.back ?? null
   multiView.value = null
   viewStorey.value = back && model.value?.storeys.some((st) => st.id === back) ? back : viewStorey.value
@@ -4578,7 +4586,28 @@ function startDraw(spaceId: string) {
 }
 function stopDraw() {
   drawing.value = null
+  pipeHandoff = null
   viewer?.setPlaceMode(null)
+}
+
+// --- 그리던 배관을 들고 다중층 뷰로 (진입 경로 ③, OE-ML-01 · OE-PIP-15) ---
+// 층 편집 화면에서 배관을 그리다 [다중층 뷰에서 편집] 을 누르면, 지금 층과 바로 위층을 보기 범위로 다중층 뷰를 열고 그리던 꺾임점을 층간 배관 그리기로
+// 이어 간다(시작 설비·끝 대상·Flow Type 그대로, 찍은 점은 그 층 + 같은 높이). [층 편집으로] 로 돌아오면 옮기기 전의 그리기로 되돌린다(전환 취소).
+/** 옮기기 전의 그리기. 다중층 뷰에서 마치거나 그리기를 그만두면 비운다. */
+let pipeHandoff: Drawing | null = null
+function pipeToMulti() {
+  const d = drawing.value
+  const m = model.value
+  const home = m?.storeys.find((st) => st.id === d?.storeyId)
+  if (!d || d.purpose !== 'pipe' || d.levels || !home || multiView.value) return
+  const saved: Drawing = { ...d, points: [...d.points] }
+  const height = cm(d.elevation - home.elevation)
+  viewStorey.value = home.id
+  openMultiView()
+  drawing.value = { ...d, levels: d.points.map(() => ({ storeyId: home.id, height })), work: { storeyId: home.id, height } }
+  pipeHandoff = saved
+  viewer?.setPlaceMode(d.elevation)
+  note(`다중층 뷰로 옮겼습니다. 그리던 꺾임점 ${d.points.length}개를 이어서 찍습니다 — 작업 층·높이를 바꿔 다른 층까지 잇습니다. [층 편집으로] 를 누르면 옮기기 전으로 돌아갑니다`)
 }
 function undoDrawPoint() {
   const d = drawing.value
@@ -8412,6 +8441,15 @@ function rollbackFromReport() {
                 {{ drawing.points.length }}개
               </template>
               <button v-if="drawing.purpose !== 'split' && drawing.purpose !== 'wall' && drawing.purpose !== 'customSplit' && drawing.purpose !== 'room' && drawing.purpose !== 'verticalPoint'" type="button" class="ghost" :disabled="drawing.purpose === 'pipe' ? false : drawing.points.length < 3" @click="finishDraw">마침 <kbd>Enter</kbd></button>
+              <button
+                v-if="drawing.purpose === 'pipe' && !drawing.levels && !multiView && (model?.storeys.length ?? 0) > 1"
+                type="button"
+                class="ghost"
+                title="그리던 꺾임점을 들고 지금 층과 위층을 함께 보는 다중층 뷰로 갑니다(다른 층까지 잇기). [층 편집으로] 로 돌아오면 그대로입니다"
+                @click="pipeToMulti"
+              >
+                다중층 뷰에서 편집
+              </button>
               <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
               <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
             </div>
