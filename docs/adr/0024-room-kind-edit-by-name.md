@@ -6,6 +6,10 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: ["R14"]
 tickets: ["OE-SPC-17", "OE-SPC-01"]
+criteria: []
+code: ["src/lib/edit.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

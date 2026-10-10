@@ -6,6 +6,10 @@ date: "2026-10-10"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-WF-10", "OE-WF-11", "OE-WF-12", "OE-WF-13", "OE-WF-18", "OE-WF-19", "OE-WF-20", "OE-GEN-01", "OE-GEN-05", "OE-GEN-09", "OE-SYNC-01", "OE-SYNC-02", "OE-SYNC-03", "OE-INT-01"]
+criteria: []
+code: ["scripts/serve.mjs", "src/server/saved-edits.ts", "src/server/layouts.ts", "src/lib/layout-files.ts", "src/components/PublishDialog.vue", "src/App.vue"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

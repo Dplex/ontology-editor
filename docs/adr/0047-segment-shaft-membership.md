@@ -6,6 +6,10 @@ date: "2026-10-10"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-ML-09", "OE-ML-14", "OE-ML-01"]
+criteria: ["OE-ML-09#4", "OE-ML-14#5", "OE-ML-14#6"]
+code: ["src/lib/shaft.ts"]
+tests: ["src/lib/shaft.test.ts", "e2e/riser.spec.ts"]
+related: []
 supersedes: []
 superseded_by: ""
 ---

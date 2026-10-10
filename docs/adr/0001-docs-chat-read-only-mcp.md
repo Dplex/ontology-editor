@@ -6,6 +6,10 @@ date: "2026-10-02"
 deciders: ["정희록"]
 prd: []
 tickets: []
+criteria: []
+code: ["scripts/serve.mjs", "scripts/docs-chat.mjs", "scripts/docs-mcp.mjs"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

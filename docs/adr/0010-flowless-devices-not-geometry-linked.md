@@ -5,6 +5,10 @@ status: "제안"
 date: "2026-10-03"
 prd: []
 tickets: ["OE-PIP-18", "OE-BIM-09"]
+criteria: []
+code: ["src/lib/topology.ts", "src/lib/kinds.ts", "src/lib/ifc/import.ts", "src/lib/checks.ts", "src/lib/overlap.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

@@ -5,6 +5,10 @@ status: "채택"
 date: "2026-10-03"
 prd: ["Q4"]
 tickets: ["OE-OBJ-01", "OE-SPC-06"]
+criteria: []
+code: []
+tests: []
+related: []
 supersedes: ["ADR-0004 (별명 한 줄만)"]
 superseded_by: ""
 ---

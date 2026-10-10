@@ -6,6 +6,10 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-ML-06", "OE-ML-07", "OE-ML-08", "OE-ML-09", "OE-ML-01", "OE-ML-02", "OE-ML-05", "OE-HIST-03", "OE-ML-19"]
+criteria: []
+code: ["src/lib/edit.ts", "src/lib/vertical-edit.ts", "src/lib/edit-file.ts"]
+tests: ["e2e/vertical-edit.spec.ts"]
+related: ["ADR-0033", "ADR-0032", "ADR-0008"]
 supersedes: []
 superseded_by: ""
 ---

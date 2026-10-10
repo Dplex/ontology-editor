@@ -6,6 +6,10 @@ date: "2026-10-10"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-UI-04", "OE-OBJ-08", "OE-OBJ-15"]
+criteria: ["OE-UI-04#8"]
+code: ["e2e/edit-part.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

@@ -6,6 +6,10 @@ date: "2026-10-08"
 deciders: ["정희록"]
 prd: ["#12"]
 tickets: ["OE-MAP-01", "OE-HIST-03"]
+criteria: []
+code: []
+tests: []
+related: ["ADR-0008"]
 supersedes: []
 superseded_by: ""
 ---

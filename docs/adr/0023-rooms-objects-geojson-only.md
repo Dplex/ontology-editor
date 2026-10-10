@@ -6,6 +6,10 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: ["#3", "D15"]
 tickets: ["OE-OBJ-03", "OE-OBJ-09", "OE-SPC-11", "OE-SPC-14"]
+criteria: []
+code: ["src/lib/export/read-export.ts", "src/lib/export/ttl.ts"]
+tests: []
+related: []
 supersedes: ["ADR-0016 (내보내기 한 줄만)"]
 superseded_by: ""
 ---

@@ -6,6 +6,10 @@ date: "2026-10-10"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-BIM-22", "OE-INT-04"]
+criteria: []
+code: ["src/lib/merge.ts", "src/lib/align.ts"]
+tests: ["src/lib/merge.test.ts", "scripts/check-sample.test.ts"]
+related: []
 supersedes: []
 superseded_by: ""
 ---

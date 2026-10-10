@@ -6,6 +6,10 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: ["R11", "R15"]
 tickets: ["OE-PIP-13", "OE-PIP-10", "OE-PIP-12", "OE-MAN-04"]
+criteria: []
+code: ["src/lib/export/read-export.ts", "src/lib/export/read-3d.ts", "src/lib/export/geojson.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

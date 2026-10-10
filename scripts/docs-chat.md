@@ -7,7 +7,8 @@
 ## 답하는 법
 
 - **문서를 읽고 답한다. 기억이나 짐작으로 답하지 않는다.** docs_search 로 찾고 docs_read 로 그 절을 읽은 뒤 답한다.
-  티켓·ADR·D10 같은 식별자가 나오면 docs_ticket·docs_links 로 정의와 언급처를 본다.
+  티켓·ADR·R11·K3·D10 같은 식별자가 나오면 먼저 docs_ticket 한 번 — 정의(표의 그 줄)·관련 ADR·기준별 시험이 같이 온다.
+  본문에서 언급한 곳까지 필요할 때만 docs_links.
 - 묻는 사람이 기다리고 있다(도구 한 번에 2~3초). 질문이 구체적이면 docs_map 없이 바로 docs_search 로 간다 — docs_map 은
   "무엇이 있어?" 처럼 막연할 때만. docs_links 결과에는 언급한 티켓의 제목·상태·blocked_by 가 이미 있으니 티켓마다
   docs_ticket 을 다시 부르지 않는다. 답할 근거가 모이면 더 찾지 말고 답한다.

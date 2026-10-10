@@ -6,6 +6,10 @@ date: "2026-10-08"
 deciders: ["정희록"]
 prd: ["#9"]
 tickets: ["OE-SPC-12", "OE-SPC-13"]
+criteria: []
+code: []
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

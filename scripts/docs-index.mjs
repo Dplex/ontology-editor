@@ -283,7 +283,9 @@ export function read(idx, ref, section, maxChars = 6000) {
   let picked = doc.sections
   if (section) {
     const want = section.toLowerCase()
-    const at = doc.sections.findIndex(s => s.heading.toLowerCase().includes(want))
+    // 이름이 딱 맞는 절이 먼저다 — OE-BIM-21 "BIM 수용 기준선 게이트" 의 제목(#)이 "## 수용 기준" 보다 먼저 걸리지 않게
+    const exact = doc.sections.findIndex(s => s.heading.toLowerCase() === want)
+    const at = exact >= 0 ? exact : doc.sections.findIndex(s => s.heading.toLowerCase().includes(want))
     if (at < 0) return { path: doc.path, id: doc.id, title: doc.title, meta: doc.meta, outline, error: `"${section}" 이 든 절이 없다. outline 에서 고른다` }
     const lv = doc.sections[at].level
     let end = at + 1
@@ -349,4 +351,188 @@ export function map(idx) {
     prd_outline: prd ? prd.sections.filter(s => s.level === 2).map(s => s.heading) : [],
     other: idx.docs.filter(d => d.kind !== 'ticket' && d.kind !== 'adr').map(d => ({ path: d.path, kind: d.kind, title: d.title })),
   }
+}
+
+// ---------------------------------------------------------------- 정의·맥락
+//
+// 개발하는 LLM 이 티켓 하나를 따라갈 때 읽는 글을 줄이려고 둔다(ADR-0048). 2026-10-10 에 지난 세션 83개를 쟀더니 가장 많이 연 문서가
+// docs/bim-to-dt-ontology.md(113KB)였다 — 티켓 depends 의 R11 같은 번호가 어디 정의됐는지 몰라 grep 113번 · 통째 읽기 17번.
+// 번호는 늘 "첫 칸이 그 번호인 표의 줄" 에 정의되니(R·F·E 는 개발 정본, K·S 는 PRD_011, D·Q·U·P 는 questions.md) 그 줄과 표 머리만 준다.
+
+const DEF_FIRST = ['docs/prd/questions.md', 'docs/prd/PRD_011.md', 'docs/bim-to-dt-ontology.md', 'docs/prd/glossary.md']
+const cellText = c => c.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*`]/g, '').trim()
+const rawLines = (root, path) => readFileSync(join(root, path), 'utf8').replace(/\r\n/g, '\n').split('\n')
+
+/** R11 · K3 · D10 · F9 · E1 이 정의된 표의 줄(첫 칸이 그 번호). 머리 줄을 같이 줘서 칸이 무엇인지 알게 한다. */
+export function define(idx, ref, limit = 2) {
+  const r = String(ref || '').trim().toUpperCase()
+  if (!/^[A-Z]{1,2}\d+$|^D-[A-Z]+$/.test(r)) return []
+  const docs = idx.docs.filter(d => d.kind === 'prd' || d.kind === 'doc' || d.kind === 'intent')
+    .sort((a, b) => ((DEF_FIRST.indexOf(a.path) + 1) || 99) - ((DEF_FIRST.indexOf(b.path) + 1) || 99))
+  const out = []
+  for (const doc of docs) {
+    if (!doc.sections.some(s => s.text.toUpperCase().includes(r))) continue
+    const lines = rawLines(idx.root, doc.path)
+    for (let i = 0; i < lines.length && out.length < limit; i++) {
+      if (!lines[i].startsWith('|')) continue
+      const cells = lines[i].split('|').slice(1, -1)
+      if (!cells.length || cellText(cells[0]).toUpperCase() !== r) continue
+      let start = i
+      while (start > 0 && lines[start - 1].startsWith('|')) start--
+      const header = start < i && /^\|[\s:|-]+\|$/.test(lines[start + 1] || '') ? lines[start] : ''
+      const sec = [...doc.sections].reverse().find(s => s.line <= i + 1)
+      out.push({ ref: r, path: doc.path, line: i + 1, where: sec ? sec.trail.join(' > ') : '', header, row: lines[i] })
+    }
+    if (out.length >= limit) break
+  }
+  return out
+}
+
+/** 티켓 md 의 "## 이름" 절 본문. */
+function section(doc, name) {
+  return doc.sections.find(s => s.level === 2 && s.heading === name)?.text ?? ''
+}
+
+const AC_LABEL = /^\*{0,2}AC(\d+)\*{0,2}[.:)]?\s+/
+/**
+ * 수용 기준 절을 기준 목록으로 — scripts/ac-coverage.ts 의 parseCriteria 와 같은 규칙이다(같은지는 docs-mcp.test.ts 가 본다).
+ * 글머리표가 `AC3` 으로 시작하면 그 번호, 아니면 순서로 센다.
+ */
+export function parseCriteria(text) {
+  const lines = String(text).split('\n').map(l => l.trim()).filter(Boolean)
+  const bullets = lines.filter(l => l.startsWith('- '))
+  const items = (bullets.length ? bullets.map(l => l.slice(2).trim()) : lines).filter(l => l !== '—' && !/결정 후 적는다\.?$/.test(l))
+  const labeled = items.some(l => AC_LABEL.test(l))
+  return items.map((l, i) => {
+    const m = labeled ? AC_LABEL.exec(l) : null
+    const t = m ? l.slice(m[0].length) : l
+    return { index: m ? Number(m[1]) : i + 1, text: t, delegatedTo: /^(OE-[A-Z0-9]+-\d+)\s*(?:의 수용 기준을 따른다|[과와] 같다)/.exec(t)?.[1] ?? null }
+  })
+}
+
+// 코드 쪽. 55 의 챗봇 디렉터리에 src 가 없으면 빈 목록이다.
+const CODE_DIRS = ['src', 'e2e', 'e2e-seongsu', 'scripts']
+const TAG = /\[(OE-[A-Z0-9]+-\d+)#([\d,~\s]+)\]/g
+const TEST_TITLE = /\b(?:it|test)(?:\.skip|\.only|\.skipIf\([^)]*\))?\(\s*(['"`])((?:\\.|(?!\1).)*)\1/
+const isTest = p => /\.(test|spec)\.ts$/.test(p)
+
+function codeFiles(root) {
+  const out = []
+  const walk = dir => {
+    let names
+    try { names = readdirSync(join(root, dir), { withFileTypes: true }) } catch { return }
+    for (const d of names) {
+      const rel = `${dir}/${d.name}`
+      if (d.isDirectory()) { if (d.name !== 'node_modules') walk(rel) } else if (/\.(ts|vue|mjs|js)$/.test(d.name)) out.push(rel)
+    }
+  }
+  for (const d of CODE_DIRS) walk(d)
+  return out
+}
+
+/** 코드 파일과 시험의 수용 기준 태그. 파일 목록·mtime 이 같으면 지난 것을 쓴다. */
+let codeCache = null
+function code(root) {
+  const files = codeFiles(root)
+  const sig = files.map(f => `${f}:${statSync(join(root, f)).mtimeMs}`).join('|')
+  if (codeCache && codeCache.root === root && codeCache.sig === sig) return codeCache
+  const text = new Map(files.map(f => [f, readFileSync(join(root, f), 'utf8').replace(/\r\n/g, '\n')]))
+  const tags = []
+  for (const [file, t] of text) {
+    if (!isTest(file)) continue
+    let current = ''
+    t.split('\n').forEach((line, i) => {
+      const title = TEST_TITLE.exec(line)
+      if (title) current = title[2]
+      for (const m of line.matchAll(TAG)) {
+        for (const tok of m[2].split(',').map(x => x.trim()).filter(Boolean)) {
+          const n = Number(tok.replace(/~$/, ''))
+          if (Number.isFinite(n)) tags.push({ ticket: m[1], index: n, partial: tok.endsWith('~'), file, line: i + 1, test: current })
+        }
+      }
+    })
+  }
+  codeCache = { root, sig, text, tags }
+  return codeCache
+}
+
+/** 그 id 를 적은 코드 파일(시험 제외)과 횟수. */
+function codeMentions(root, id) {
+  const re = new RegExp(`(?<![A-Za-z0-9-])${id}(?![0-9])`, 'g')
+  const out = []
+  for (const [file, t] of code(root).text) {
+    if (isTest(file) || file.startsWith('scripts/docs-')) continue // 쓰는 법 예시에 든 id 는 빼고
+    const n = (t.match(re) || []).length
+    if (n) out.push({ file, count: n })
+  }
+  return out.sort((a, b) => b.count - a.count)
+}
+
+const brief = d => ({ id: d.id, title: d.title, ...(d.meta.status ? { status: d.meta.status } : {}), path: d.path })
+const metaList = v => (Array.isArray(v) ? v : v ? [v] : [])
+
+/** depends·blocked_by 의 번호 하나: 티켓·ADR 이면 제목·상태, 에픽 머리(OE-ZON)면 에픽, R·K·D 같은 번호면 정의 줄. */
+function resolveRef(idx, ref) {
+  const d = findDoc(idx, ref)
+  if (d) return brief(d)
+  const epic = idx.docs.find(x => x.kind === 'ticket' && x.id.startsWith(`${ref}-`))
+  if (epic) return { id: ref, title: `${epic.meta.epic} ${epic.meta.epic_title} (에픽 전체)`, path: epic.path.replace(/[^/]+$/, 'README.md') }
+  const def = define(idx, ref, 1)[0]
+  return def ? { id: ref, path: def.path, line: def.line, where: def.where, header: def.header, row: def.row } : { id: ref, error: '정의를 못 찾음' }
+}
+
+/** 이 번호를 머리 필드(depends·blocked_by·tickets·criteria·prd)에 적은 티켓·ADR. */
+function usedBy(idx, ref) {
+  const r = String(ref).toUpperCase()
+  return idx.docs.filter(d => (d.kind === 'ticket' || d.kind === 'adr') && d.id.toUpperCase() !== r &&
+    ['depends', 'blocked_by', 'tickets', 'criteria', 'prd'].some(k => metaList(d.meta[k]).some(v =>
+      String(v).toUpperCase().split(/[\s#]/).includes(r))))
+    .map(brief)
+}
+
+/**
+ * 티켓·ADR·번호 하나로 개발에 드는 맥락을 한 번에. 티켓이면 요구사항 · 기준별 시험 · depends 의 정의 줄 · 이 티켓을 다룬 ADR ·
+ * 코드 · 이 티켓을 depends 로 가리키는 티켓. ADR 이면 본문 · 티켓 제목 · 코드. R·K·D 같은 번호면 정의 줄과 쓰는 티켓·ADR.
+ */
+export function context(idx, ref) {
+  const doc = findDoc(idx, ref)
+  const root = idx.root
+  if (!doc) {
+    const defs = define(idx, ref)
+    return defs.length ? { kind: 'ref', id: String(ref).trim().toUpperCase(), defs, used_by: usedBy(idx, ref) } : null
+  }
+  const m = doc.meta
+  if (doc.kind === 'ticket') {
+    const tags = code(root).tags.filter(g => g.ticket === doc.id)
+    const criteria = parseCriteria(section(doc, '수용 기준')).map(c => ({
+      ...c, tests: tags.filter(g => g.index === c.index).map(({ file, line, test, partial }) => ({ file, line, test, partial })),
+    }))
+    const own = s => { const t = section(doc, s); return t && t !== '—' ? t : undefined }
+    return {
+      kind: 'ticket', id: doc.id, title: doc.title, path: doc.path,
+      status: m.status, release: m.release, priority: m.priority, prd: m.prd,
+      requirement: section(doc, '요구사항'),
+      criteria,
+      depends: metaList(m.depends).map(r => resolveRef(idx, r)),
+      blocked_by: metaList(m.blocked_by).map(r => resolveRef(idx, r)),
+      adrs: idx.docs.filter(d => d.kind === 'adr' && [...metaList(d.meta.tickets), ...metaList(d.meta.criteria)]
+        .some(v => String(v).split('#')[0] === doc.id)).map(brief),
+      code: codeMentions(root, doc.id),
+      depended_by: idx.docs.filter(d => d.kind === 'ticket' && metaList(d.meta.depends).includes(doc.id)).map(brief),
+      // 두 절은 개발이 쓰던 절인데 2026-10-07 부터 개발이 PRD 를 고치지 않아 그 뒤 시험과 맞지 않을 수 있다. 기준별 시험은 criteria 가 지금 것이다
+      frozen_since_1007: own('검증 (이 repo)') || own('메모') ? { verify: own('검증 (이 repo)'), memo: own('메모') } : undefined,
+    }
+  }
+  if (doc.kind === 'adr') {
+    return {
+      kind: 'adr', id: doc.id, title: doc.title, path: doc.path, status: m.status, date: m.date,
+      tickets: metaList(m.tickets).map(r => resolveRef(idx, r)),
+      criteria: metaList(m.criteria), code_files: metaList(m.code), test_files: metaList(m.tests),
+      related: [...metaList(m.supersedes), ...metaList(m.superseded_by), ...metaList(m.related)]
+        .map(r => resolveRef(idx, String(r).split(' ')[0])),
+      text: doc.sections.filter(s => s.level >= 2).map(s => `## ${s.heading}\n\n${s.text}`).join('\n\n'),
+      code: codeMentions(root, doc.id),
+    }
+  }
+  return null
 }

@@ -6,6 +6,10 @@ date: "2026-10-10"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-ML-05", "OE-PIP-12"]
+criteria: ["OE-ML-05#3"]
+code: ["src/lib/storey-z.ts"]
+tests: ["src/lib/cross-storey-pipe.test.ts", "e2e/riser.spec.ts"]
+related: []
 supersedes: []
 superseded_by: ""
 ---

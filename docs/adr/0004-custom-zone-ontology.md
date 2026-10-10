@@ -6,6 +6,10 @@ date: "2026-10-03"
 deciders: ["정희록"]
 prd: ["Q4"]
 tickets: ["OE-OBJ-01", "OE-SPC-06", "OE-SPC-07", "OE-SPC-08", "OE-SPC-09", "OE-SPC-10"]
+criteria: []
+code: ["src/lib/idf/attach.ts", "src/lib/custom-zone.ts", "src/lib/vertical.ts", "src/lib/exterior.ts", "src/lib/export/ttl.ts"]
+tests: ["src/lib/export/export.test.ts", "src/lib/custom-zone.test.ts"]
+related: []
 supersedes: []
 superseded_by: "ADR-0012 (별명 한 줄만)"
 ---

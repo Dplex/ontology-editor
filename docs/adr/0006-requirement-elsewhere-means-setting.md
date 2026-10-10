@@ -6,6 +6,10 @@ date: "2026-10-03"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-BIM-17", "OE-BIM-12", "OE-BIM-19"]
+criteria: []
+code: ["src/lib/requirements.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---
