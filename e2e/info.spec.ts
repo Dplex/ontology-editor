@@ -72,7 +72,7 @@ test('종류를 모르는 패밀리에 계통·이웃·위치 단서가 붙는�
   expect(errors).toEqual([])
 })
 
-test('위반 목록에서 한 번에 고친다: 방 경계 바로 밖의 설비를 방 안으로', async ({ page }) => {
+test('위반 목록에서 한 번에 고친다: 방 경계 바로 밖의 설비를 방 안으로 [OE-BIM-18#2]', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
   // 공조기를 사무실(0..10) 경계 30cm 밖으로 옮긴다.
@@ -135,12 +135,17 @@ test('좌표가 없는 설비를 3D 바닥을 눌러 놓는다', async ({ page }
   expect(errors).toEqual([])
 })
 
-test('미배치 목록에서 바로 3D 바닥을 눌러 놓으면 목록에서 빠진다', async ({ page }) => {
+test('좌표 없는 설비는 미배치 목록에 있고 3D 에 그리지 않으며, 바로 3D 바닥을 눌러 놓으면 목록에서 빠지고 그려진다 [OE-BIM-07#1]', async ({ page }) => {
   // OE-BIM-07 "좌표 없는 설비는 미배치 목록". 검토 화면의 목록을 보고, 편집 팔레트의 미배치 목록에서 놓는다.
   const errors = await open(page)
   const fold = page.locator('.unplaced')
   await expect(fold).toContainText('미배치 설비')
   await expect(fold).toContainText('1대')
+  // 원점(0,0,0)에 그리지 않는다 — 3D 에 형상이 없다. 공조기는 그려져 있다.
+  const TEMP = '0MEP$Equip$SEN01$000'
+  const drawn = (id: string) => page.evaluate((x) => (window as any).__viewer.center(x), id)
+  await expect.poll(() => drawn(AHU)).not.toBeNull()
+  expect(await drawn(TEMP)).toBeNull()
   const item = fold.locator('li', { hasText: 'TEMP-101-01' })
   await expect(item).toContainText('1F')
   // 놓기는 편집 팔레트의 미배치 목록에서 한다(OE-EQP-02).
@@ -154,6 +159,7 @@ test('미배치 목록에서 바로 3D 바닥을 눌러 놓으면 목록에서 �
   await page.mouse.click(at.x, at.y)
   await expect(fold).toBeHidden()
   await expect(page.locator('.picked')).toContainText('사무실')
+  await expect.poll(() => drawn(TEMP)).not.toBeNull()
   // 되돌리면 다시 목록에 든다.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
@@ -205,7 +211,7 @@ test('펼친 칸의 제목 줄은 스크롤을 따라와서 끝에서 바로 접
   expect(errors).toEqual([])
 })
 
-test('층별 요약에 층고를 출처와 같이 보이고, 모르면 모름이라 적는다 (OE-BIM-02)', async ({ page }) => {
+test('층별 요약에 층고를 출처와 같이 보이고, 모르면 모름이라 적는다 (OE-BIM-02) [OE-BIM-02#2]', async ({ page }) => {
   // fixture 는 BIM 이 층 높이를 안 적었다. 1F 는 윗층(2F, 3m)과의 차로 계산하고, 맨 위 2F 는 모른다.
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -239,6 +245,21 @@ test('층별 요약에 층고를 출처와 같이 보이고, 모르면 모름이
     await page.locator('input[type=file]').first().setInputFiles(COBIE)
     await expect(page.locator('.appbar h2')).toHaveText(/COBie_Arch-Design/, { timeout: 60_000 })
     await expect(page.locator('.storeys tbody td.storey-height').filter({ hasText: '0.0031 m' })).toHaveCount(1)
+  }
+  expect(errors).toEqual([])
+})
+
+test('등급 판정의 목표선 등급 3·4 는 BIM 과 사전 포함 두 수치를 같이 보이고, 게이트 등급 0~2 는 BIM 수치만이다 [OE-BIM-16#2]', async ({ page }) => {
+  const errors = await open(page)
+  const banner = page.getByTestId('grade-banner')
+  await banner.getByRole('button', { name: '등급 판정 보기' }).click()
+  const rows = page.getByTestId('grade-table').locator('.grade-rows > li')
+  await expect(rows).toHaveCount(5)
+  for (let g = 0; g < 5; g++) {
+    const text = await rows.nth(g).locator('div').first().innerText()
+    expect(text, `등급 ${g}`).toMatch(new RegExp(`^${g} `))
+    expect(text, `등급 ${g}`).toContain('BIM ')
+    expect(text.includes('사전 포함'), `등급 ${g}`).toBe(g >= 3)
   }
   expect(errors).toEqual([])
 })

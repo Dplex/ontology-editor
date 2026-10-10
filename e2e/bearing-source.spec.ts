@@ -5,7 +5,7 @@ import { toEquipment, toSpace } from './edit-part'
 // Duplex 건축 Level 1 의 벽은 전부 비내력(BIM)이다.
 const DUPLEX = 'data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc'
 
-test('BIM 벽의 내력 여부를 바꾸면 출처가 편집이 되고 잠기며, 되돌려 놓으면 BIM 으로 돌아온다 [OE-OBJ-06#3]', async ({ page }) => {
+test('BIM 벽의 내력 여부를 바꾸면 출처가 편집이 되고 잠기며, 되돌려 놓으면 BIM 으로 돌아온다 [OE-OBJ-06#3] [OE-BIM-06#1~]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

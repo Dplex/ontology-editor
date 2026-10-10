@@ -55,7 +55,17 @@ function standardValues(cls: string): Set<string> {
 }
 
 describe('requirements.ids', () => {
-  it('정본 4장의 R 번호를 같은 등급으로 옮긴다', () => {
+  it('정본 4장에 R0~R24 가 하나씩 있고, PRD 부록 A 는 채택 전 제안(R25~)만 두어 정본과 겹치는 번호가 없다 [OE-REQ-01#1~]', () => {
+    const doc = [...levelsInDoc().keys()].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
+    expect(doc).toEqual(Array.from({ length: 25 }, (_, i) => `R${i}`))
+    const prd = read('../../docs/prd/PRD_011.md')
+    const appendix = prd.slice(prd.indexOf('## 부록 A'), prd.indexOf('## 부록 B'))
+    const proposed = [...appendix.matchAll(/^[|] (R[0-9]+) [|]/gm)].map((m) => m[1])
+    expect(proposed.length).toBeGreaterThan(0)
+    expect(proposed.filter((r) => doc.includes(r))).toEqual([])
+  })
+
+  it('정본 4장의 R 번호를 같은 등급으로 옮긴다 [OE-REQ-02#2]', () => {
     const doc = levelsInDoc()
     const inIds = [...ids.matchAll(/<specification name="\[(필수|권장)\] (R\d+) /g)].map((m) => [m[2], m[1]])
     expect(doc.size).toBeGreaterThan(20)
@@ -63,7 +73,7 @@ describe('requirements.ids', () => {
     for (const [r, level] of inIds) expect([r, doc.get(r)]).toEqual([r, level])
   })
 
-  it('옮긴 R 번호가 정본 4장의 "옮겼다·일부만 옮겼다" 와 같고, "옮기지 못했다" 는 없다 (OE-REQ-02)', () => {
+  it('옮긴 R 번호가 정본 4장의 "옮겼다·일부만 옮겼다" 와 같고, "옮기지 못했다" 는 없다 (OE-REQ-02) [OE-REQ-02#1]', () => {
     // 정본 표의 세 줄. 명세를 더하거나 빼면서 표를 안 고치면(또는 그 반대) 고객사가 받는 IDS 와 문서가 다른 말을 한다.
     const doc = read('../../docs/bim-to-dt-ontology.md')
     const row = (label: string) => {
@@ -88,7 +98,7 @@ describe('requirements.ids', () => {
     expect(new Map(REQUIREMENTS.map((r) => [r.id, r.level]))).toEqual(doc)
   })
 
-  it('R24 의 설비 종류는 kinds.ts 의 ifc 표와 같은 어휘다', () => {
+  it('R24 의 설비 종류는 kinds.ts 의 ifc 표와 같은 어휘다 [OE-REQ-03#1]', () => {
     // kinds.ts 에서 `클래스.값` 꼴로 종류가 정해지는 클래스. 클래스만으로 정해지는 것(Boiler …)은 요구하지 않는다.
     const byClass = new Map<string, Set<string>>()
     for (const k of EQUIPMENT_KINDS) {
@@ -181,7 +191,7 @@ describe('requirements.ids', () => {
     expect(idsClasses).toEqual(ours)
   })
 
-  it('정본 4장의 어휘 표(종류·계통·방 분류)가 kinds.ts 와 같다', () => {
+  it('정본 4장의 어휘 표(종류·계통·방 분류)가 kinds.ts 와 같다 [OE-REQ-03#1]', () => {
     const doc = read('../../docs/bim-to-dt-ontology.md')
     const tableAfter = (head: string) => {
       const at = doc.indexOf(head)
