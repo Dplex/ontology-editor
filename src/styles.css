@@ -1532,6 +1532,16 @@ th {
   width: 4.5rem;
 }
 
+/* 층 이름(storey-name.ts). 반자 높이 칸과 같은 모양. */
+.storeys .storey-name-cell .link,
+.storeys .storey-name-cell .src {
+  margin-left: 0.4rem;
+}
+
+.storeys .storey-name-input {
+  width: 8rem;
+}
+
 /* 설치면 판정 요약과 허용 설치면 밖 목록(OE-EQP-03). 표 칸과 왼쪽을 맞춘다. */
 .storeys .surface-summary,
 .storeys .surface-mismatch {

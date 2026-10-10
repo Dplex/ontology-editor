@@ -61,6 +61,7 @@ import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from
 import { assignEquipment, spaceSetState } from './mapping'
 import { markStoreyDone, storeyProgress } from './storey-progress'
 import { setCeiling, setEquipmentSurface } from './ceiling'
+import { setStoreyName } from './storey-name'
 import type { Surface } from './mount'
 import { deleteVertical, moveVertical } from './vertical-edit'
 
@@ -194,6 +195,8 @@ export type EditFile = {
   storeysDone?: { id: string; at: string; changed?: true }[]
   /** 사람이 정한 층의 반자 높이 h_c(미터, OE-EQP-03). BIM 값과 같으면 적지 않는다. */
   ceilings?: { storeyId: string; height: number }[]
+  /** 사람이 고친 층 이름(storey-name.ts). BIM 이름이 비었거나 틀린 층. BIM 이름과 같으면 적지 않는다. */
+  storeyNames?: { storeyId: string; name: string }[]
   /**
    * 고친 수직 관통 오브젝트(OE-ML-07·09, ADR-0034). `move` 는 연 때와 견준 x·y 이동량, `removed` 는 지운 것이다. 층에 속하지 않아(여러 층에
    * 걸친다) 건물 조각으로 간다. id 는 BIM 계단의 GUID 라 다시 열면 같은 계단에 얹힌다. 못 찾으면 `missing.elements` 로 센다.
@@ -456,6 +459,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const row of storeysDone) keep(row.id)
   const ceilings = model.storeys.filter((st) => st.ceilingSet != null).map((st) => ({ storeyId: st.id, height: st.ceilingSet! }))
   for (const row of ceilings) keep(row.storeyId)
+  const storeyNames = model.storeys.filter((st) => st.bimName !== undefined).map((st) => ({ storeyId: st.id, name: st.name }))
+  for (const row of storeyNames) keep(row.storeyId)
   for (const k of kindEdits(model)) if (k.typeKey.startsWith('#')) keep(k.typeKey.slice(1))
   for (const f of flows) {
     keep(f.from)
@@ -507,6 +512,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(objectLibrary.length ? { objectLibrary } : {}),
     ...(storeysDone.length ? { storeysDone } : {}),
     ...(ceilings.length ? { ceilings } : {}),
+    ...(storeyNames.length ? { storeyNames } : {}),
     ...(verticals.length ? { verticals } : {}),
     keys,
   }
@@ -538,7 +544,7 @@ export function countEdits(f: EditFile): number {
     (f.equipmentAdded?.length ?? 0) + (f.equipmentRemoved?.length ?? 0) + (f.spacesAdded?.length ?? 0) + (f.spacesRemoved?.length ?? 0) +
     (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
     (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0) +
-    (f.storeysDone?.length ?? 0) + (f.ceilings?.length ?? 0) + (f.rooms?.reduce((n, r) => n + r.rooms.length, 0) ?? 0) +
+    (f.storeysDone?.length ?? 0) + (f.ceilings?.length ?? 0) + (f.storeyNames?.length ?? 0) + (f.rooms?.reduce((n, r) => n + r.rooms.length, 0) ?? 0) +
     (f.spaceObjects?.reduce((n, r) => n + r.objects.length, 0) ?? 0) +
     (f.hvacZones?.reduce((n, r) => n + r.zones.length, 0) ?? 0) +
     (f.verticals?.length ?? 0)
@@ -663,6 +669,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   for (const row of file.spaceObjects ?? []) ref(row.storeyId)
   for (const row of file.storeysDone ?? []) ref(row.id)
   for (const row of file.ceilings ?? []) ref(row.storeyId)
+  for (const row of file.storeyNames ?? []) ref(row.storeyId)
   for (const k of file.kinds) if (k.typeKey.startsWith('#')) ref(k.typeKey.slice(1))
   for (const row of [...(file.walls ?? []), ...(file.openings ?? [])]) ref(row.id)
   for (const id of [...(file.wallsRemoved ?? []), ...(file.openingsRemoved ?? [])]) ref(id)
@@ -1127,6 +1134,15 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       continue
     }
     if (setCeiling(model, storey.id, row.height)) result.applied++
+  }
+  // 층 이름. 같은 이름의 층이 이미 있는 판본이면(BIM 이 그 사이 이름을 넣었다) 얹지 않는다 — 고칠 까닭이 없어졌다.
+  for (const row of file.storeyNames ?? []) {
+    const storey = model.storeys.find((s) => s.id === resolve(row.storeyId))
+    if (!storey) {
+      result.missing.storeys++
+      continue
+    }
+    if (setStoreyName(model, storey.id, row.name) === true) result.applied++
   }
 
   // 완료한 층(OE-MAN-06). 편집을 다 얹은 뒤라야 지문이 저장할 때 상태와 같다. 저장할 때 이미 고친 층은 지문을 비워 "완료 뒤

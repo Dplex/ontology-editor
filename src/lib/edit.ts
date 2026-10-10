@@ -795,6 +795,8 @@ export type Snapshot =
   | { kind: 'hvac-zones'; storeyId: string; zones: HvacZone[] | undefined }
   /** 층의 룸 전부(OE-OBJ-03). 만들기·지우기·옮기기·크기를 같은 방식으로 되돌린다. */
   | { kind: 'rooms'; storeyId: string; rooms: Room[] | undefined }
+  /** 층 이름(storey-name.ts). 지금 이름과 BIM 이름(고친 적 없으면 undefined). */
+  | { kind: 'storey-name'; storeyId: string; name: string; bimName: string | undefined }
   /** 층의 추가 공간 오브젝트 전부(OE-OBJ-09). 놓기·지우기·옮기기·크기·이름을 같은 방식으로 되돌린다. */
   | { kind: 'space-objects'; storeyId: string; objects: SpaceObject[] | undefined }
   /** 모든 층의 수직 관통 오브젝트 조각(OE-ML-07·09). 여러 층에 걸친 옮기기·지우기를 한 번에 되돌린다(vertical-edit.ts). */
@@ -990,6 +992,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotHvacZones(model, snapshot.storeyId)
     case 'rooms':
       return snapshotRooms(model, snapshot.storeyId)
+    case 'storey-name':
+      return snapshotStoreyName(model, snapshot.storeyId)
     case 'space-objects':
       return snapshotSpaceObjects(model, snapshot.storeyId)
     case 'verticals':
@@ -1022,6 +1026,12 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
  * 스냅숏을 되돌려 놓고 소속을 다시 판정한다. 좌표·경계를 되돌렸는데 소속이 그대로면 리포트가 거짓이 된다.
  * 연결 방향과 확정은 소속과 상관이 없어 값만 되돌린다.
  */
+/** 층 이름 하나(storey-name.ts). */
+export function snapshotStoreyName(model: Model, storeyId: string): Snapshot | null {
+  const storey = model.storeys.find((st) => st.id === storeyId)
+  return storey ? { kind: 'storey-name', storeyId, name: storey.name, bimName: storey.bimName } : null
+}
+
 export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
   switch (snapshot.kind) {
     case 'equipment': {
@@ -1208,6 +1218,14 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       if (!storey) return null
       if (snapshot.rooms) storey.rooms = copyRoomList(snapshot.rooms)
       else delete storey.rooms
+      return null
+    }
+    case 'storey-name': {
+      const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!storey) return null
+      storey.name = snapshot.name
+      if (snapshot.bimName === undefined) delete storey.bimName
+      else storey.bimName = snapshot.bimName
       return null
     }
     case 'space-objects': {

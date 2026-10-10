@@ -38,7 +38,7 @@ test.afterAll(() => {
 })
 
 /** mep.ifc 는 기기 5대 중 소속 4대(80%)라 수용 기준선(게이트 등급 2 ≥ 85%) 미달이다. 반영을 재는 시험은 통과선을 낮춰 둔다(화면의 설정과 같은 자리). */
-async function serve(page: Page, gate = false) {
+async function serve(page: Page, gate = false, ifc: Buffer = MEP) {
   if (!gate) await page.addInitScript(() => localStorage.setItem('oe.gradeLines', JSON.stringify({ 0: 0.85, 1: 0.5, 2: 0.5, 3: 0.7, 4: 0.5 })))
   await page.route('**/__data/**', async (route) => {
     const url = new URL(route.request().url())
@@ -47,7 +47,7 @@ async function serve(page: Page, gate = false) {
     if (!path) return route.fulfill({ json: [{ path: PATH, size: MEP.length }] })
     if (path !== PATH) return route.fulfill({ status: 404 })
     if (url.search === '?profile') return route.fulfill({ json: profile })
-    return route.fulfill({ body: MEP, contentType: 'application/octet-stream' })
+    return route.fulfill({ body: ifc, contentType: 'application/octet-stream' })
   })
 }
 const light = (page: Page) => page.locator('.equipment tbody tr', { hasText: 'LIGHT-101-01' }).last().locator('.coord').first()
@@ -419,5 +419,53 @@ test('물리존 공간명을 고쳐 반영하면 그 버전의 공간 계층(탐
   expect(await fromServer({ v: '2', file: geo })).toContain('"longName":"대회의실"')
   // 앞 버전은 그때 이름 그대로다.
   expect(tree1.storeys[0].spaces.map((s) => s.longName)).toEqual(['사무실'])
+  expect(errors).toEqual([])
+})
+
+test('이름 없는 층이 있으면 등급 0 이 층 이름으로 미달이라 [구축하기] 가 막히고, 층별 요약에서 이름을 넣으면 풀린다. 이름은 되돌리기·TTL 에 남는다', async ({ page }) => {
+  test.setTimeout(120_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  // 1F 의 이름을 비운 mep.ifc. 비율로는 등급 0 이 통과(외곽선 1/1)라, 막는 이유가 층 이름이어야 한다.
+  await serve(page, false, Buffer.from(MEP.toString('latin1').replace("IFCBUILDINGSTOREY('0MEP$Storey$1F$00000',$,'1F'", "IFCBUILDINGSTOREY('0MEP$Storey$1F$00000',$,''"), 'latin1'))
+  await page.goto('/')
+  await page.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+  const banner = page.getByTestId('grade-banner')
+  await expect(banner).toContainText('재제출: 등급 0 공간 골격 층 이름 0/1(이름 없는 층 1개)')
+  await page.getByLabel('사용자').selectOption('편집자')
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const build = page.locator('.edit-bar').getByRole('button', { name: '구축하기' })
+  await expect(build).toBeDisabled()
+  await expect(build).toHaveAttribute('title', /등급 0 공간 골격 층 이름 0\/1\(이름 없는 층 1개\).*층 이름은 \[층별 요약\] 에서 넣을 수 있습니다/)
+
+  // 층별 요약에서 이름을 넣는다.
+  await page.getByRole('button', { name: '이름 없는 층 층 이름 넣기' }).click()
+  const input = page.getByLabel('이름 없는 층 층 이름')
+  if (process.env.SHOT_BEFORE) {
+    await input.fill('기초')
+    await page.locator('.storey-name-cell').first().locator('xpath=ancestor::table').screenshot({ path: process.env.SHOT_BEFORE })
+  }
+  await input.fill('1F')
+  await input.press('Enter')
+  await expect(page.locator('.storey-name-cell').first()).toContainText('1F')
+  await expect(page.getByTestId('storey-name-line')).toContainText('층 이름 (없음) → 1F')
+  await expect(banner).toContainText('게이트(등급 2) 통과')
+  await expect(build).toBeEnabled()
+
+  // 되돌리기 한 번에 이름 없는 층으로 돌아가 다시 막힌다. 다시 하면 풀린다.
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.storey-name-cell').first()).toContainText('이름 없음')
+  await expect(build).toBeDisabled()
+  await page.keyboard.press('Control+Shift+z')
+  await expect(build).toBeEnabled()
+
+  // 구축하면 TTL 의 층 이름이 넣은 이름이다.
+  await build.click()
+  await page.locator('dialog.publish-dialog').getByRole('button', { name: '구축하기' }).click()
+  await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
+  expect(await fromServer({ v: '1', file: 'ontology.ttl' })).toMatch(/rdfs:label "1F"/)
+  expect(JSON.parse(await fromServer({ v: '1', file: 'edits.json' })).storeyNames).toEqual([{ storeyId: expect.any(String), name: '1F' }])
   expect(errors).toEqual([])
 })
