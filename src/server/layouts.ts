@@ -54,6 +54,8 @@ export function validFile(name: string): boolean {
 
 export type LayoutOptions = {
   now?: () => Date
+  /** 판 폴더를 버전 폴더로 옮기기. 시험이 Windows 의 "아직 잡힌 파일" 실패를 흉내 내려고 바꾼다. */
+  rename?: (from: string, to: string) => void
   /**
    * 쓰기(올리기·반영·되돌리기)를 해도 되는 사람. 안 되면 답을 보내고 null(users.ts 의 writer). 없으면 반영자를 몸통의 `by` 로 받는다
    * — 사람 목록이 없는 시험용이다.
@@ -96,8 +98,27 @@ export function layouts(root: string, options: LayoutOptions = {}) {
       d.isDirectory() ? readdirSync(join(dir, d.name)).map((n) => `${d.name}/${n}`) : d.name === 'meta.json' ? [] : [d.name],
     )
 
+  const rename = options.rename ?? renameSync
+  const LOCKED = ['EPERM', 'EBUSY', 'EACCES']
+  /**
+   * 판 폴더를 버전 폴더로. Windows 는 하위 폴더(geojson/)에 누가 핸들을 열어 두면(파일 감시 — dev 서버의 vite 가 data/ 를 감시했다) 부모 폴더를
+   * 옮기지 못한다(EPERM). 안의 것을 하나씩 옮기는 것은 된다 — 그때는 버전 폴더를 만들고 하나씩 옮기되 meta.json 을 맨 끝에 옮긴다. 버전 목록은
+   * meta.json 이 있는 폴더만 세므로 도중에 멈춘 폴더는 버전이 아니다. 합성 성수(GLB 224MB)는 올리는 동안 감시가 붙어 반영이 늘 실패했다.
+   */
+  function moveStage(stage: string, target: string) {
+    try {
+      rename(stage, target)
+      return
+    } catch (e) {
+      if (!LOCKED.includes((e as NodeJS.ErrnoException).code ?? '')) throw e
+    }
+    mkdirSync(target)
+    const names = readdirSync(stage).sort((a, b) => Number(a === 'meta.json') - Number(b === 'meta.json'))
+    for (const n of names) rename(join(stage, n), join(target, n))
+    rmSync(stage, { recursive: true, force: true })
+  }
   /** 올린 판(또는 옛 버전을 베낀 판)을 새 버전으로 넣는다. 번호가 겹치면(동시에 둘이 반영) 다음 번호로 다시 한다. */
-  function commit(dir: string, stage: string, meta: Omit<VersionMeta, 'version' | 'files'>): VersionMeta {
+  async function commit(dir: string, stage: string, meta: Omit<VersionMeta, 'version' | 'files'>): Promise<VersionMeta> {
     for (let tries = 0; tries < 5; tries++) {
       const version = (versionsOf(dir)[0]?.version ?? 0) + 1
       const full: VersionMeta = { version, ...meta, files: filesIn(stage).sort() }
@@ -105,9 +126,10 @@ export function layouts(root: string, options: LayoutOptions = {}) {
       const target = join(dir, `v${version}`)
       if (existsSync(target)) continue
       try {
-        renameSync(stage, target)
-      } catch {
-        continue
+        moveStage(stage, target)
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'EEXIST' || existsSync(join(target, 'meta.json'))) continue
+        throw new Error(`올린 파일을 버전 폴더로 옮기지 못했습니다(${(e as NodeJS.ErrnoException).code ?? (e as Error).message})`)
       }
       writeAtomic(join(dir, 'current.json'), JSON.stringify({ version }))
       return full
@@ -188,7 +210,8 @@ export function layouts(root: string, options: LayoutOptions = {}) {
         }
       })
       req.pipe(out)
-      out.on('finish', () => {
+      // 'finish' 는 다 썼다는 뜻이지 파일을 닫았다는 뜻이 아니다. 닫기 전에 답하면 곧 이어지는 반영의 폴더 옮기기가 Windows 에서 걸린다.
+      out.on('close', () => {
         if (!res.writableEnded) json(res, 200, { file, size })
       })
       out.on('error', (e) => {
@@ -199,7 +222,7 @@ export function layouts(root: string, options: LayoutOptions = {}) {
     if (req.method !== 'POST') return json(res, 405, { error: `${req.method} 은 받지 않습니다` })
 
     readBody(req)
-      .then((text) => {
+      .then(async (text) => {
         const body = (text ? JSON.parse(text) : {}) as { by?: string; floors?: string[]; summary?: Record<string, unknown> }
         const by = (writer.name || body.by || '').trim()
         if (!by) return json(res, 400, { error: '반영자가 없습니다' })
@@ -219,7 +242,7 @@ export function layouts(root: string, options: LayoutOptions = {}) {
           const missing = REQUIRED.filter((f) => !have.includes(f))
           if (!have.some((f) => f.startsWith('geojson/'))) missing.push('geojson/*.geojson' as never)
           if (missing.length) return json(res, 400, { error: `반영하지 않았습니다 — 빠진 파일: ${missing.join(', ')}. 지금 반영된 버전은 그대로입니다.` })
-          const meta = commit(dir, at, { at: now().toISOString(), by, floors: body.floors ?? [], summary: body.summary ?? {}, kind: 'publish' })
+          const meta = await commit(dir, at, { at: now().toISOString(), by, floors: body.floors ?? [], summary: body.summary ?? {}, kind: 'publish' })
           options.onVersion?.({ type: 'publish', user: by, key, floors: meta.floors, version: meta.version })
           return json(res, 200, meta)
         }
@@ -233,7 +256,7 @@ export function layouts(root: string, options: LayoutOptions = {}) {
           const at = join(dir, `.stage-rb${randomBytes(6).toString('hex')}`)
           cpSync(join(dir, `v${from}`), at, { recursive: true })
           rmSync(join(at, 'meta.json'))
-          const meta = commit(dir, at, { at: now().toISOString(), by, floors: old.floors, summary: old.summary, kind: 'rollback', from })
+          const meta = await commit(dir, at, { at: now().toISOString(), by, floors: old.floors, summary: old.summary, kind: 'rollback', from })
           options.onVersion?.({ type: 'rollback', user: by, key, floors: meta.floors, version: meta.version })
           return json(res, 200, meta)
         }
