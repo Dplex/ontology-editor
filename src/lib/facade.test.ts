@@ -60,6 +60,9 @@ describe('외벽 에디터 (OE-EXT-03)', () => {
     // 1F·2F 방 동쪽 변이 따라갔고, 1F 벽 밖에 있던 설비가 방 안에 들었다(재매핑, OE-MAP-01).
     expect(done.changes.map((c) => [c.spaceId, +(c.toAreaM2 - c.fromAreaM2).toFixed(3)])).toEqual([['R1', 3.925], ['R2', 3.925]])
     expect(m.storeys[0].equipment[0].spaceId).toBe('R1')
+    // 벽 길이 방향(y)으로 밀면 방 변은 그대로라 바뀐 방이 없다.
+    const along = moveFacade(m, group, [0, 0.2], true)
+    expect(along).toMatchObject({ moved: 2, changes: [] })
     expect(done.changes.flatMap((c) => c.equipment).map((e) => e.equipmentId)).toEqual(['FCU'])
   })
 

@@ -52,7 +52,7 @@ test.skip(!have, `성수 파일이 없다(${ARCH}, ${MECH}). 성수가 있는 PC
 type Pt = { x: number; y: number }
 type Ring = [number, number][]
 type Space = { id: string; name: string; longName: string; ring: Ring; area: number; storey: string; elevation: number }
-type Wall = { id: string; name: string; ring: Ring; loadBearing: boolean | null; storey: string; elevation: number }
+type Wall = { id: string; name: string; ring: Ring; loadBearing: boolean | null; external: boolean | null; storey: string; elevation: number }
 type Device = { id: string; name: string; at: [number, number, number]; spaceId: string | null; storey: string }
 
 let page: Page
@@ -344,7 +344,7 @@ test('B 열기: 두 파일을 같이 고르면 합쳐 열리고, 3D 를 그리�
       if (p.kind === 'space' && f.geometry?.coordinates?.[0]?.length)
         map.spaces.push({ id: f.id, name: p.name, longName: p.longName ?? '', ring: f.geometry.coordinates[0], area: p.areaM2, storey, elevation: p.elevation })
       else if (p.kind === 'wall' && f.geometry)
-        map.walls.push({ id: f.id, name: p.name, ring: f.geometry.coordinates[0], loadBearing: p.loadBearing, storey, elevation: p.elevation })
+        map.walls.push({ id: f.id, name: p.name, ring: f.geometry.coordinates[0], loadBearing: p.loadBearing, external: p.external ?? null, storey, elevation: p.elevation })
       else if (p.kind === 'equipment' && f.geometry)
         map.devices.push({ id: f.id, name: p.name, at: f.geometry.coordinates, spaceId: p.spaceId, storey })
     }
@@ -1013,11 +1013,11 @@ test('J 완전성 검사에서 한 번에 고치기', async () => {
     const fix = page.locator('.check-list button.fix').first()
     await expect(fix).toBeVisible()
     const what = await fix.innerText()
-    // [연결 후보 확인] 은 후보 목록을 연다. 사람이 하나를 골라 [잇기] 를 눌러야 잇는다(OE-PIP-08). [방 안으로 옮기기] 는 바로 고친다.
+    // [연결 후보 확인] 은 후보 목록을 연다. 사람이 하나를 골라 [연결하기] 를 눌러야 잇는다(OE-PIP-08). [방 안으로 옮기기] 는 바로 고친다.
     const ms = await timed(async () => {
       await fix.click()
       const candidates = page.getByTestId('fix-candidates')
-      if (/연결 후보/.test(what)) await candidates.getByRole('button', { name: '잇기' }).first().click()
+      if (/연결 후보/.test(what)) await candidates.getByRole('button', { name: '연결하기' }).first().click()
     })
     await expect.poll(count).not.toBe(before)
     const after = await count()
@@ -1042,9 +1042,10 @@ test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 
   const panel = page.locator('.element-picked')
 
   // N-2·N-3 내력 모름인 벽을 골라 방향키로 옮기고 내력으로 바꾼다.
-  const unknown = await wallToPick((w) => w.loadBearing === null)
+  // 외벽은 층 편집 화면에서 잠겨(OE-EXT-02) 방향키·지우기가 없다 — 외벽 에디터(P)가 본다.
+  const unknown = await wallToPick((w) => w.loadBearing === null && w.external !== true)
   // 내력벽은 잠겨서(OE-OBJ-06) 방향키·지우기를 볼 수 없다. 모름이 없으면 내력이 아닌 벽이다.
-  const any = unknown ?? (await wallToPick((w) => w.storey === stemOf(STOREY) && w.loadBearing !== true))
+  const any = unknown ?? (await wallToPick((w) => w.storey === stemOf(STOREY) && w.loadBearing !== true && w.external !== true))
   expect(any, '3F 에서 누를 벽을 못 찾았다').not.toBeNull()
   await showStorey(any!.wall.storey)
   await page.mouse.click(any!.at.x, any!.at.y)
@@ -1133,6 +1134,78 @@ test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 
   }
   if (!carried) record('N-8a', '따라오지 않음', `양옆이 다른 방인 3F 벽 ${partitions.length}장 모두 방 둘이 같이 바뀌지 않았다: ${why.join(' / ')}`)
   await undoAll()
+  await layer.click()
+  await showStorey(null)
+  expect(errors).toEqual([])
+})
+
+test('P 외벽 에디터·치수: 켜기·같은 면 묶기·전 층 옮기기·층 바꿔도 안 묻기·되돌리기, 벽 치수', async () => {
+  await editMode(true)
+  await showStorey(null)
+  const layer = page.getByRole('button', { name: '벽·문·창' })
+  await layer.click()
+  // P-1 켜기. 모든 층으로 넓히고 전 층 외벽을 판정한다(OE-EXT-03).
+  const p1 = await timed(() => page.getByTestId('exterior-editor').click())
+  await expect(page.getByRole('combobox', { name: '보일 층' })).toHaveValue('모든 층')
+  record('P-1', `${p1}ms`, '외벽 에디터 켜기 — 모든 층으로 넓힘')
+  const panel = page.locator('.element-picked')
+  const group = panel.getByTestId('facade-group')
+  const bar = page.locator('.edit-bar')
+
+  // P-2 내력이 아닌 외벽을 눌러 다른 층의 같은 면까지 묶이는 것을 찾는다. 모든 층이 보여 위층이 가릴 수 있어 짚히는지 먼저 본다.
+  let picked: { wall: Wall; ids: string[]; ms: number; text: string } | null = null
+  let tried = 0
+  for (const w of map.walls.filter((x) => x.external === true && x.loadBearing !== true)) {
+    if (++tried > 80) break
+    const [x, y] = centroid(w.ring)
+    const at = await floor(x, y, w.elevation + 1.15)
+    const hit = await viewer<{ equipment: string | null; element: string | null }>('pickAt', at.x, at.y)
+    if (hit.element !== w.id || hit.equipment) continue
+    const ms = await timed(() => page.mouse.click(at.x, at.y))
+    if (!(await group.isVisible())) continue
+    const ids = (await group.getAttribute('data-walls'))!.split(' ').filter(Boolean)
+    if (ids.length < 2) continue
+    picked = { wall: w, ids, ms, text: (await group.locator('p').first().innerText()).replace(/\s+/g, ' ') }
+    break
+  }
+  expect(picked, `같은 면이 둘 넘는 외벽을 못 찾았다(${tried}개 시도)`).not.toBeNull()
+  record('P-2', `${picked!.ms}ms`, `${picked!.wall.name} — ${picked!.text.match(/같은 면 외벽 \d+개\([^)]*\)/)![0]} · 옮길 것 ${picked!.ids.length}`)
+  // P-6 치수 칩이 같이 뜬다(OE-UI-08).
+  await expect(page.getByTestId('dim-chip')).toContainText('길이')
+  record('P-6', '통과', (await page.getByTestId('dim-chip').innerText()).trim())
+
+  // P-3 방향키 한 번에 묶음 전체를 옮긴다. 화면 방향이 벽 길이 방향이면 모서리 벽을 가로질러 막힐 수 있어 두 방향을 본다.
+  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  let key = ''
+  let p3 = 0
+  for (const k of ['ArrowRight', 'ArrowUp']) {
+    p3 = await timed(() => page.keyboard.press(k))
+    if (/외벽 \d+개 옮김/.test(await bar.innerText())) {
+      key = k
+      break
+    }
+  }
+  expect(key, `방향키로 옮기지 못했다: ${await note().innerText().catch(() => '')}`).not.toBe('')
+  const label = (await bar.innerText()).match(/외벽 \d+개 옮김\([^)]*\)/)![0]
+  // P-4 같은 방향으로 네 번 더 — 한 번에 걸린 시간의 중앙값.
+  const times: number[] = []
+  for (let i = 0; i < 4; i++) times.push(await timed(() => page.keyboard.press(key)))
+  times.sort((a, b) => a - b)
+  record('P-3', `${p3}ms`, `${label} — 첫 걸음`)
+  record('P-4', `${times[2]}ms`, `네 걸음 더의 중앙값(${times.join('·')}ms). 바뀐 것 ${await changeCount()}건`)
+  expect(times[2]).toBeLessThan(3000)
+
+  // P-5 층을 바꿔도 "저장하지 않은 편집" 을 묻지 않는다 — 한 층만 되돌리면 같은 면이 어긋난다.
+  await showStorey(STOREY)
+  await showStorey(OTHER_STOREY)
+  await expect(page.locator('dialog.exit-edit')).not.toBeVisible()
+  record('P-5', '통과', `${STOREY} → ${OTHER_STOREY} 로 바꿔도 묻지 않는다`)
+  await showStorey(null)
+
+  // P-7 되돌리기. 걸음마다 한 번이고 다 되돌리면 0건.
+  const back = await undoAll()
+  record('P-7', `${back.slowest}ms`, `되돌리기 ${back.n}번(가장 느린 한 번)`)
+  await page.getByTestId('exterior-editor').click()
   await layer.click()
   await showStorey(null)
   expect(errors).toEqual([])

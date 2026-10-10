@@ -916,7 +916,7 @@ function refuseOverlap(blocked: Equipment) {
   viewer?.markConflict(blocked.id)
 }
 
-function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: string): boolean {
+function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: string, opts: { ignoreModeLock?: boolean } = {}): boolean {
   if (!model.value) return false
   const before = equipmentById.value.get(equipmentId)?.position ?? null
   // 외벽 전용 설비(외기 센서, OE-OBJ-04)는 외벽 바깥 면으로만 옮긴다. 바깥 면을 따라 옮기는 것은 되고, 벽에서 떼는 것은 막는다.
@@ -926,7 +926,10 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
     if (drawnAt && before) viewer?.shiftEquipment(equipmentId, [before[0] - drawnAt[0], before[1] - drawnAt[1], before[2] - drawnAt[2]], true)
   }
   // 천장 편집 모드(OE-OBJ-08). 모드 밖의 설비는 옮기지 않고, 천장 설비의 z 는 구역 안에서만 고친다(Q10).
-  const lock = moving ? editLock(moving) : null
+  // `ignoreModeLock` 은 완전성 검사의 [방 안으로 옮기기] — 높이는 그대로 x·y 만 옮기는 명시적 고치기라 천장·바닥 모드 구분은 건너뛴다.
+  // 다중층 뷰·수직 관통 잠금은 그대로다.
+  const raw = moving ? editLock(moving) : null
+  const lock = opts.ignoreModeLock && raw !== MULTI_VIEW_ONLY && raw !== VERTICAL_LOCKED ? null : raw
   if (moving && lock) {
     goBack()
     refuseLock(moving, lock)
@@ -3397,7 +3400,8 @@ watch(openCheckKey, () => (fixOpen.value = null))
 function applyFix(id: string, fix: FailureFix) {
   if (fix.kind === 'move-into') {
     if (!editing.value) mode.value = 'edit'
-    relocate(id, fix.to)
+    // 천장 설비도 바닥·벽 쪽에서 바로 고친다 — 모드가 달라 막히면 버튼이 아무 일도 하지 않았다(성수 J-1, 디퓨저 15개).
+    relocate(id, fix.to, undefined, undefined, { ignoreModeLock: true })
   } else fixOpen.value = fixOpen.value === id ? null : id
 }
 /** 펼친 위반의 연결 후보. 검사 목록의 이유와 같은 거르기다(connect-candidates.ts). */
@@ -8040,13 +8044,14 @@ watch(gradeLines, (v) => {
 }, { deep: true })
 const grades = shallowRef<GradeReport | null>(null)
 let gradeTimer: number | undefined
+// 기준값은 글로 바꿔 본다. `deep` 으로 보면 모델(shallowRef)까지 통째로 훑어 성수에서 편집마다 느려졌다.
 watch(
-  [model, changeCount, gradeLines],
+  [model, changeCount, () => JSON.stringify(gradeLines.value)],
   () => {
     window.clearTimeout(gradeTimer)
     gradeTimer = window.setTimeout(() => (grades.value = model.value ? gradeReport(model.value, gradeLines.value) : null), grades.value ? 300 : 0)
   },
-  { immediate: true, deep: true },
+  { immediate: true },
 )
 const gradesOpen = ref(false)
 /** [구축하기] 를 막는 이유(게이트 미달). 반영한 버전이 있으면(운영 편집) 막지 않는다. */
@@ -9088,8 +9093,9 @@ function rollbackFromReport() {
             </label>
           </p>
 
-          <!-- 종류 지정. 사전이 모르거나 잘못 읽은 종류를 같은 패밀리 전부에 한 번에 정한다. -->
-          <p v-if="editing && (!selectedLock || selectedLock === VERTICAL_LOCKED)" class="kind-edit">
+          <!-- 종류 지정. 사전이 모르거나 잘못 읽은 종류를 같은 패밀리 전부에 한 번에 정한다. 잠금(천장·바닥 모드, 수직 관통)은 놓기·옮기기를
+               막는 것이라 종류는 그대로 고친다 — 천장 설비가 바닥·벽 쪽에서 숨으면 [U]→[K] 가 천장 설비에서 멈췄다(성수 H-2). 다중층 뷰는 보기만 한다. -->
+          <p v-if="editing && selectedLock !== MULTI_VIEW_ONLY" class="kind-edit">
             <label>
               종류
               <select
