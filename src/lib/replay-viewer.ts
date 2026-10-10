@@ -43,6 +43,7 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
+  WebGLRenderTarget,
   type Material,
   type Ray,
   type Texture,
@@ -530,7 +531,8 @@ export function createReplayFx(host: ReplayHost) {
   const FLOW_MAX = 12
   let flows: { a: string; b: string }[] = []
   const flowPoints = new Points(
-    new BufferGeometry(),
+    // 처음부터 빈 position 을 둔다 — 없으면 셰이더 열쇠가 달라져 첫 흐름 때 새로 만든다.
+    new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array(0), 3)),
     new PointsMaterial({ size: 6, sizeAttenuation: false, color: 0x9ff3ff, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
   )
   flowPoints.renderOrder = 23
@@ -1716,14 +1718,96 @@ export function createReplayFx(host: ReplayHost) {
       pinnedPrograms.add(p)
     }
   }
+  /**
+   * 리플레이를 열 때 리플레이가 쓸 재질(빛기둥·울타리·유령·이름표·알갱이·솟아오르는 벽·빛 웅덩이)을 미리 컴파일해 둔다. 셰이더는
+   * 처음 그릴 때 컴파일되는데 윈도 크롬에서 비싸서, 그 효과가 처음 나오는 장면마다 화면이 멈췄다(사용자 PC 실측: 첫 빛기둥 장면
+   * 117ms, 첫 커스텀존 점선 217ms). compileAsync 는 GPU 가 뒤에서 컴파일하게 해 화면을 멈추지 않는다. 다 되면 붙잡아 두고 버린다.
+   */
+  let warmed = false
+  function warmUp() {
+    if (warmed) return
+    warmed = true
+    // 셰이더 묶음 열쇠에는 노멀 유무·불투명·양면·꼭짓점 색·지도 유무가 들어간다. 면은 노멀 있는 삼각형, 선·점은 없는 것으로.
+    const bare = new BufferGeometry().setFromPoints([new Vector3(), new Vector3(0.001, 0, 0), new Vector3(0, 0.001, 0)])
+    bare.setAttribute('color', new BufferAttribute(new Float32Array(9).fill(1), 3))
+    bare.setAttribute('uv', new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1]), 2))
+    const tri = bare.clone()
+    tri.computeVertexNormals()
+    const flat = { transparent: true, depthTest: false, depthWrite: false }
+    const g = new Group()
+    // 리플레이가 그리는 것.
+    const meshMats: Material[] = [
+      fxMaterial(0xffffff, 0.5),
+      fxMaterial(0xffffff, 0.5, true),
+      new MeshLambertMaterial({ color: 0xffffff, side: DoubleSide, transparent: true, emissive: 0xd4ff3a, emissiveIntensity: 0 }),
+      new MeshBasicMaterial({ map: poolMap(), color: 0xffa65a, vertexColors: true, transparent: true, opacity: 0.8, blending: AdditiveBlending, depthWrite: false, side: DoubleSide }),
+      new MeshBasicMaterial({ color: 0xffffff }),
+    ]
+    const lineMats: Material[] = [
+      new LineBasicMaterial({ color: 0xffffff }),
+      new LineBasicMaterial({ ...flat }),
+      new LineBasicMaterial({ ...flat, blending: AdditiveBlending }),
+      new LineDashedMaterial({ ...flat, dashSize: 0.1, gapSize: 0.1 }),
+      new LineDashedMaterial({ color: 0xffffff, dashSize: 0.4, gapSize: 0.25 }),
+    ]
+    // 편집이 뷰어에 새로 세우는 것(방·존 선과 면, 벽, 링). 자라기 셰이더를 입혀 둔다 — 열쇠가 그 함수 글자까지 본다.
+    const builtMeshMats: Material[] = [
+      new MeshLambertMaterial({ color: 0xffffff, side: DoubleSide }),
+      new MeshLambertMaterial({ vertexColors: true, side: DoubleSide }),
+      new MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, side: DoubleSide }),
+      new MeshLambertMaterial({ vertexColors: true, side: DoubleSide, transparent: true, opacity: 0.08, depthWrite: false }),
+      new MeshLambertMaterial({ color: 0xffffff }),
+      new MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, side: DoubleSide, depthWrite: false }),
+      new MeshBasicMaterial({ color: 0xffffff }),
+    ]
+    const builtLineMats: Material[] = [
+      new LineBasicMaterial({ color: 0xffffff }),
+      new LineBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false }),
+      new LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false }),
+      new LineDashedMaterial({ color: 0xffffff, dashSize: 0.4, gapSize: 0.25 }),
+    ]
+    for (const m of [...builtMeshMats, ...builtLineMats]) patchBuild(m)
+    // 빛기둥·띠처럼 손으로 짠 형상은 노멀이 없어 같은 재질이 다른 셰이더가 된다 — 두 형상에 다 얹는다.
+    for (const m of [...meshMats, ...builtMeshMats]) g.add(new Mesh(tri, m), new Mesh(bare, m))
+    for (const m of [...lineMats, ...builtLineMats]) g.add(new LineSegments(bare, m))
+    const spriteMats = [new SpriteMaterial({ map: dot(), ...flat, sizeAttenuation: false }), new SpriteMaterial({ ...flat, sizeAttenuation: false })]
+    for (const m of spriteMats) g.add(new Sprite(m))
+    const points = new PointsMaterial({ size: 6, sizeAttenuation: false, transparent: true, depthTest: false, depthWrite: false, blending: AdditiveBlending })
+    g.add(new Points(bare, points))
+    const r = host.renderer
+    const plain = r.compileAsync(g, host.camera, host.scene)
+    // 층 자르기(전역 자름면)가 켜지면 모든 재질이 셰이더를 새로 만든다. compile 은 마지막 render 의 자름 상태를 쓰므로,
+    // 1px 판에 빈 장면을 한 번 그려 자름면 하나인 상태를 세우고 뷰어 장면과 위 묶음을 한 번 더 만든다.
+    const rt = new WebGLRenderTarget(1, 1)
+    const keep = { target: r.getRenderTarget(), planes: r.clippingPlanes }
+    r.clippingPlanes = [sectionPlane]
+    r.setRenderTarget(rt)
+    r.render(new Scene(), host.camera)
+    // 판은 먼저 되돌린다 — 판이 걸린 채 만들면 출력 색 공간이 달라 화면용과 다른 셰이더가 된다.
+    r.setRenderTarget(keep.target)
+    const clipped = [r.compileAsync(host.scene, host.camera), r.compileAsync(g, host.camera, host.scene)]
+    r.clippingPlanes = keep.planes
+    void Promise.all([plain, ...clipped])
+      .catch(() => {})
+      .then(() => {
+        rt.dispose()
+        pinPrograms()
+        // 무늬(poolMap·dot)는 같이 쓰는 것이라 놓지 않는다.
+        for (const m of [...meshMats, ...lineMats, ...builtMeshMats, ...builtLineMats, ...spriteMats, points]) m.dispose()
+        tri.dispose()
+        bare.dispose()
+      })
+  }
   function unpinPrograms() {
     for (const p of pinnedPrograms) p.usedTimes = Math.max(0, p.usedTimes - 1)
     pinnedPrograms.clear()
+    warmed = false
   }
 
   const api: ReplayViewerApi = {
     setCinema(on) {
       cinema = on
+      if (on) warmUp()
       host.controls.autoRotate = on && !still()
       host.controls.autoRotateSpeed = 0.35
       if (!on) {
@@ -1866,6 +1950,8 @@ export function createReplayFx(host: ReplayHost) {
       }
       // 물결은 화면에서 왼쪽 앞 모서리(바닥면의 x 최소·z 최대)에서 출발한다.
       riseAttributes(groups, new Vector2(box.min.x, box.max.z), Math.max(1, Math.hypot(box.max.x - box.min.x, box.max.z - box.min.z)))
+      // 솟아오르기 셰이더(patchBuild)로 바뀐 재질을 뒤에서 컴파일한다 — 첫 프레임에 한꺼번에 컴파일하느라 오프닝이 멈췄다.
+      void host.renderer.compileAsync(host.scene, host.camera).catch(() => {})
       buildUniforms.uBuildT.value = 0
       buildUniforms.uBuild.value = 1
       build = { t0: null }
