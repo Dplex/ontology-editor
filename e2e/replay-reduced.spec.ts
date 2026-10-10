@@ -20,6 +20,7 @@ test('움직임 줄이기에서도 리플레이가 끝까지 돌고, 빛기둥 �
   await page.keyboard.press('d')
   await expect(hud.locator('.diff-legend')).toBeVisible()
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   await expect(hud).toHaveCount(0)
   expect(errors).toEqual([])
 })

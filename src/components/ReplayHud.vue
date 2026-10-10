@@ -43,8 +43,10 @@ const props = defineProps<{
   spread?: boolean | null
   /** 요약 재생 중이면 그 장면 번호들(나머지는 연출 없이 지나간다). */
   highlights?: readonly number[] | null
+  /** Esc 를 눌러 닫을지 묻는 중. */
+  askClose?: boolean
 }>()
-const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null]; record: []; diff: []; spread: []; highlights: [] }>()
+const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null]; record: []; diff: []; spread: []; highlights: []; stay: [] }>()
 
 const CAT_COLOR = CATEGORY_COLOR
 
@@ -141,13 +143,13 @@ const KEYS: [string, string][] = [
   ['Space', '재생 · 멈춤 (반복 중이면 다음 장면부터)'],
   ['← →', '편집 하나 앞뒤'],
   ['Home', '처음부터'],
-  ['B (누르고 있기)', '지금 장면의 편집 전 보기'],
+  ['B 누른 채', '지금 장면의 편집 전 보기'],
   ['R', '녹화 시작 · 멈추고 내려받기'],
   ['D', '끝 화면에서 변경 지도(더함·고침·지움 색) 켜고 끄기'],
   ['E', '끝 화면에서 층 펼치기 — 고친 층 위를 들어 올려 들여다보기'],
   ['S', '요약 재생 — 바뀐 양이 큰 장면 몇 개만(갈래마다 하나 먼저) 처음부터'],
   ['?', '이 안내'],
-  ['Esc · P', '닫기 (편집한 상태로 돌아감)'],
+  ['Esc', '닫기 — 한 번 묻는다(Enter 로 닫기). 편집한 상태로 돌아감'],
 ]
 // 키보드의 ? 는 App 이 받아 리플레이로 넘긴다(replayKey) — 누를 때마다 helpToggles 가 하나 는다.
 watch(
@@ -457,12 +459,24 @@ const summary = computed(() => {
       </div>
     </transition>
 
-    <!-- 단축키 안내 -->
-    <transition name="fade">
-      <div v-if="help" class="hud-help" @click="help = false">
-        <h4>리플레이 단축키</h4>
+    <!-- 단축키 안내: GeoJSON 패널 바로 왼쪽에 붙어 열리고 닫힌다(가운데를 덮으면 보던 장면이 가린다). 끝 화면에서는 통계 타일 아래. -->
+    <transition name="help">
+      <div v-if="help" :class="['hud-help', { below: phase === 'done' }]" title="누르면 닫기 (?)" @click="help = false">
+        <h4>리플레이 단축키<i>?</i></h4>
         <div v-for="[k, what] in KEYS" :key="k" class="help-row"><kbd>{{ k }}</kbd><span>{{ what }}</span></div>
         <p>시간줄을 끌면 편집 하나씩 훑고, 눈금·카드·빛기둥을 누르면 그 장면을 반복합니다.</p>
+      </div>
+    </transition>
+
+    <!-- Esc 로 닫기 전에 묻는다(실수로 누르면 보던 장면을 잃는다). -->
+    <transition name="fade">
+      <div v-if="askClose" class="ask-close" role="alertdialog" aria-label="리플레이 닫기">
+        <b>리플레이를 닫을까요?</b>
+        <span>남은 편집을 다시 해서 리플레이 전 상태로 돌아갑니다.</span>
+        <div class="ask-buttons">
+          <button type="button" class="ask-yes" @click="emit('close')">닫기 <kbd>Enter</kbd></button>
+          <button type="button" @click="emit('stay')">계속 보기 <kbd>Esc</kbd></button>
+        </div>
       </div>
     </transition>
 
@@ -518,7 +532,7 @@ const summary = computed(() => {
           <template v-if="recording != null">■ {{ Math.floor(recSec / 60) }}:{{ two(recSec % 60) }}</template>
           <template v-else>● 녹화</template>
         </button>
-        <button type="button" class="close" title="닫기 (Esc · P) — 남은 편집을 다시 해서 원래 상태로" @click="emit('close')">✕ 닫기</button>
+        <button type="button" class="close" title="닫기 (Esc 는 한 번 묻는다) — 남은 편집을 다시 해서 원래 상태로" @click="emit('close')">✕ 닫기</button>
       </div>
     </div>
   </div>
@@ -1273,34 +1287,120 @@ const summary = computed(() => {
 /* 단축키 안내 판. 가운데. */
 .hud-help {
   position: absolute;
-  top: 50%;
-  left: 36%;
-  transform: translate(-50%, -50%);
-  min-width: 360px;
-  padding: 18px 22px;
+  top: 86px;
+  right: calc(var(--feed) + 12px);
+  width: 330px;
+  padding: 14px 16px;
   border: 1px solid #344560;
-  background: rgba(5, 6, 8, 0.92);
+  border-right: 2px solid var(--mint);
+  background: rgba(5, 6, 8, 0.9);
   color: #e6ecf5;
-  font-size: 13px;
+  font-size: 12px;
   cursor: pointer;
   z-index: 5;
 }
+/* 끝 화면은 같은 자리에 통계 타일이 있다 — 그 아래로. */
+.hud-help.below {
+  top: 222px;
+}
 .hud-help h4 {
-  margin: 0 0 12px;
-  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 10px;
+  font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.2em;
   color: var(--mint);
 }
+.hud-help h4 i {
+  font-style: normal;
+  color: #8b939c;
+  letter-spacing: 0;
+}
 .help-row {
   display: grid;
-  grid-template-columns: 130px 1fr;
-  gap: 10px;
-  margin: 6px 0;
+  grid-template-columns: 96px 1fr;
+  gap: 8px;
+  margin: 5px 0;
+  line-height: 1.35;
+}
+.help-row kbd {
+  justify-self: start;
+  align-self: start;
+  padding: 1px 6px;
+  border: 1px solid #4a5568;
+  border-radius: 3px;
+  background: #11161f;
+  color: #e6ecf5;
+  font: 500 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .hud-help p {
-  margin: 12px 0 0;
+  margin: 10px 0 0;
+  color: #b9bec6;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.help-enter-active,
+.help-leave-active {
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+.help-enter-from,
+.help-leave-to {
+  transform: translateX(24px);
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .help-enter-active,
+  .help-leave-active {
+    transition: none;
+  }
+}
+
+/* Esc 닫기 확인. 3D 가운데 위(장면 제목과 겹치지 않게 위쪽). */
+.ask-close {
+  position: absolute;
+  top: 34%;
+  left: calc((100% - var(--feed)) / 2);
+  transform: translate(-50%, -50%);
+  display: grid;
+  gap: 8px;
+  min-width: 320px;
+  padding: 16px 20px;
+  border: 1px solid #344560;
+  border-top: 3px solid #ff6b7a;
+  background: rgba(5, 6, 8, 0.94);
+  color: #e6ecf5;
+  font-size: 13px;
+  pointer-events: auto;
+  z-index: 6;
+}
+.ask-close b {
+  font-size: 15px;
+}
+.ask-close span {
   color: #b9bec6;
   font-size: 12px;
+}
+.ask-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.ask-buttons button {
+  padding: 5px 12px;
+  border: 1px solid #344560;
+  background: transparent;
+  color: #e6ecf5;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ask-buttons .ask-yes {
+  border-color: #ff6b7a;
+  color: #ff9aa5;
+}
+.ask-buttons kbd {
+  margin-left: 4px;
+  opacity: 0.7;
 }
 
 /* 녹화 버튼. 녹화 중에는 붉게 숨 쉰다. */

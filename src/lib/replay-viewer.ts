@@ -824,7 +824,7 @@ export function createReplayFx(host: ReplayHost) {
   const DECLUTTER_MS = 120
   const LEVELS = 6
   const LABEL_GAP = 4
-  const AVOID = ['.hud-done', '.rp-stats', '.rail', '.scene', '.bug', '.hud-bar', '.rp-side'].map((c) => `.replay-hud ${c}`).join(', ')
+  const AVOID = ['.hud-done', '.rp-stats', '.rail', '.scene', '.bug', '.hud-bar', '.rp-side', '.hud-help'].map((c) => `.replay-hud ${c}`).join(', ')
   let declutteredAt = 0
   const tagAt = new Vector3()
   type Rect = { left: number; right: number; top: number; bottom: number }
@@ -1405,12 +1405,32 @@ export function createReplayFx(host: ReplayHost) {
     cardGroups = []
   }
 
+  // --- 셰이더 붙잡기 ---
+  // 장면마다 빛기둥·울타리·유령의 재질을 만들고 버리고, 편집 뒤 다시 그리기는 모델 재질을 새로 만든다. three.js 는 재질을 쓰는
+  // 셰이더 프로그램을 쓰는 재질이 0 이 되는 순간 지우고 다음에 다시 컴파일한다 — 리플레이에서는 같은 프로그램 20여 개가 장면마다
+  // 지워졌다 다시 컴파일되며 다시 하기마다 화면이 멈췄다(셰이더 컴파일은 윈도 ANGLE 에서 특히 비싸다). 리플레이 동안은 한 번
+  // 만든 프로그램을 쓰는 재질 수를 하나 더 세어 지우지 않게 붙잡고, 닫을 때 놓는다(그 뒤 쓰는 재질이 0 이 되면 원래대로 지운다).
+  type Program = { usedTimes: number }
+  const pinnedPrograms = new Set<Program>()
+  function pinPrograms() {
+    for (const p of (host.renderer.info.programs ?? []) as unknown as Program[]) {
+      if (pinnedPrograms.has(p)) continue
+      p.usedTimes++
+      pinnedPrograms.add(p)
+    }
+  }
+  function unpinPrograms() {
+    for (const p of pinnedPrograms) p.usedTimes = Math.max(0, p.usedTimes - 1)
+    pinnedPrograms.clear()
+  }
+
   const api: ReplayViewerApi = {
     setCinema(on) {
       cinema = on
       host.controls.autoRotate = on && !still()
       host.controls.autoRotateSpeed = 0.35
       if (!on) {
+        unpinPrograms()
         for (const f of fxs) disposeFx(f.obj)
         fxs.length = 0
         spots = []
@@ -1751,6 +1771,7 @@ export function createReplayFx(host: ReplayHost) {
     api,
     /** 매 프레임. viewer.ts 의 tick 이 비행·미끄러짐·번쩍임 다음에 부른다. */
     step(now: number) {
+      if (cinema) pinPrograms()
       stepFx(now)
       if (cinema && (spots.length || roomTags.children.length)) declutter(now)
       stepBuild(now)
@@ -1799,6 +1820,6 @@ export function createReplayFx(host: ReplayHost) {
     hitSpot: (x: number, y: number): string | null => (spotClickHandler ? hitSpot(x, y) : null),
     spotClick: (key: string) => spotClickHandler?.(key),
     /** e2e 가 보는 지금의 연출 수. */
-    motion: () => ({ effects: fxs.length, spots: spots.length, demolished, slid, sliding: sliding.size, ghosted, ghosts: ghostsByKey.size, carded, lift: Math.max(...buildUniforms.uLift.value), spread: !!spreadLevels }),
+    motion: () => ({ effects: fxs.length, spots: spots.length, demolished, slid, sliding: sliding.size, ghosted, ghosts: ghostsByKey.size, carded, lift: Math.max(...buildUniforms.uLift.value), spread: !!spreadLevels, programs: host.renderer.info.programs?.length ?? 0, pinned: pinnedPrograms.size }),
   }
 }

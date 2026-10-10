@@ -34,6 +34,7 @@ test('B 를 누른 채 시간줄을 끌어도, 떼면 끈 자리 그대로다', 
   await hud.getByRole('button', { name: '4×' }).click()
   await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   const edited = await ttl(page)
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('p')
@@ -45,6 +46,7 @@ test('B 를 누른 채 시간줄을 끌어도, 떼면 끈 자리 그대로다', 
   await page.waitForTimeout(800)
   await expect(hud).toHaveAttribute('data-at', '0')
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   await expect(hud).toHaveCount(0)
   expect(await ttl(page)).toBe(edited)
   expect(errors).toEqual([])
@@ -64,6 +66,7 @@ test('→ 로 넘어가는 중(층을 자르는 동안)에 시간줄을 끌면 �
   await page.waitForTimeout(2500)
   await expect(hud).toHaveAttribute('data-at', '0')
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
 
@@ -77,6 +80,7 @@ test('아직 다시 한 편집이 없을 때 B 는 재생을 멈추지 않는다
   await expect(hud.locator('.hud-bar .status')).toContainText('재생 중')
   await expect(hud).toHaveAttribute('data-at', '1', { timeout: 30_000 })
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
 
@@ -88,6 +92,7 @@ test('끌어서 끝에 닿으면 끝 화면처럼 장면 번호 빛기둥이 선
   await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 30_000 })
   await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().spots), { timeout: 10_000 }).toBeGreaterThan(0)
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
 
@@ -116,5 +121,31 @@ test('녹화를 공유 확인 중에 한 번 더 눌러도 녹화는 하나다',
   await d
   await expect(hud.locator('.rec.on')).toHaveCount(0)
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
+  expect(errors).toEqual([])
+})
+
+test('리플레이 안에서 P 는 닫지 않고, Esc 는 한 번 묻는다 — Esc 로 계속 보고 Enter 로 닫는다', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { hud, errors } = await openDemo(page, 'src/lib/ifc/fixtures/mep.ifc')
+  await expect(hud).toHaveAttribute('data-phase', 'play', { timeout: 30_000 })
+  await page.keyboard.press('p')
+  await expect(hud).toBeVisible()
+  const ask = hud.locator('.ask-close')
+  await page.keyboard.press('Escape')
+  await expect(ask).toBeVisible()
+  // 묻는 동안 다른 키(Space)는 받지 않는다.
+  await page.keyboard.press('Space')
+  await expect(ask).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(ask).toHaveCount(0)
+  await expect(hud).toBeVisible()
+  // 단추로도: 계속 보기 → 남고, 닫기 → 닫힌다.
+  await page.keyboard.press('Escape')
+  await ask.getByRole('button', { name: /계속 보기/ }).click()
+  await expect(ask).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
+  await expect(hud).toHaveCount(0)
   expect(errors).toEqual([])
 })

@@ -1086,7 +1086,19 @@ export function useReplay(host: ReplayPlayerHost) {
     window.removeEventListener('blur', onBlur)
   })
 
+  /**
+   * Esc 로 닫기 전에 묻는다. 실수로 누르면 보던 장면을 잃고 처음부터 다시 봐야 한다. 묻는 동안 Enter 는 닫고 Esc 는 계속 본다.
+   * 조작 막대의 ✕ 닫기는 바로 닫는다(눌러서 고른 것이라). P 는 리플레이를 여는 키라 리플레이 안에서는 아무것도 하지 않는다.
+   */
+  const replayAskClose = ref(false)
+  watch(replayOpen, (open) => !open && (replayAskClose.value = false))
   function replayKey(e: KeyboardEvent): boolean {
+    if (replayAskClose.value) {
+      if (e.code === 'Enter' || e.code === 'NumpadEnter') closeReplay()
+      else if (e.code === 'Escape') replayAskClose.value = false
+      // 묻는 동안 다른 키는 받지 않는다.
+      return true
+    }
     if (e.code === 'KeyB') {
       if (!e.repeat) compareStart()
       return true
@@ -1101,8 +1113,12 @@ export function useReplay(host: ReplayPlayerHost) {
     else if (e.code === 'ArrowRight') void replayJump('next')
     else if (e.code === 'ArrowLeft') void replayJump('prev')
     else if (e.code === 'Home') void replayJump('restart')
-    else if (e.code === 'Escape' || e.code === 'KeyP') closeReplay()
-    else return false
+    else if (e.code === 'Escape') {
+      compareEnd()
+      replayAskClose.value = true
+    } else if (e.code === 'KeyP') {
+      // 리플레이를 여는 키 — 안에서는 닫지 않는다.
+    } else return false
     return true
   }
   onBeforeUnmount(() => replayWorker?.terminate())
@@ -1129,6 +1145,7 @@ export function useReplay(host: ReplayPlayerHost) {
     helpToggles: replayHelp.value,
     diff: replayDiff.value,
     spread: replaySpreadable.value ? replaySpread.value : null,
+    askClose: replayAskClose.value,
   }))
   // B 로 편집 전을 보는 중에 마우스로 다른 조작을 하면 먼저 편집 후로 돌린다 — 그대로 두면 그 조작이 이력을 옮긴 뒤 B 를 뗄 때
   // 다시 하기가 한 번 더 되어 한 칸 어긋났다(키는 B 를 누르는 동안 받지 않는다).
@@ -1150,6 +1167,7 @@ export function useReplay(host: ReplayPlayerHost) {
     diff: after(replayToggleDiff),
     spread: after(replayToggleSpread),
     highlights: after(replayToggleHighlights),
+    stay: () => (replayAskClose.value = false),
   }
 
   return { open: openReplay, close: closeReplay, key: replayKey, hud, hudOn }

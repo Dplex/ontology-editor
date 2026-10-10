@@ -113,6 +113,7 @@ test('성수: 편집 다섯 번(옮기기·계통 확정)을 3D 에서 리플레
   await page.waitForTimeout(1000)
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/seongsu3d-end.png` })
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   await expect(hud).toHaveCount(0)
   await expect(page.locator('.edit-bar .state')).not.toContainText('바뀐 것 0건')
   expect(gaps.max, '리플레이 중 화면이 1초 넘게 멈췄다').toBeLessThan(1000)

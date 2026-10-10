@@ -38,12 +38,14 @@ test('데모를 누르면 편집이 심기고 리플레이가 끝까지 돌며, 
   const chips = await hud.locator('.hud-done').innerText()
   for (const c of ['물리존', '벽·문·창', '설비 배치', '연결', '설비 종류', '계통']) expect(chips, c).toContain(c)
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   await expect(hud).toHaveCount(0)
   await expect(page.locator('.edit-bar')).toBeVisible()
   // 다시 누르면 앞 데모를 되돌리고 심는다 — 장면 수가 같다.
   const again = await demo(page)
   await expect(again).toHaveAttribute('data-total', String(total))
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
 
@@ -58,10 +60,12 @@ test('손으로 한 편집 뒤에 데모를 심으면 손 편집은 남고 리�
   const hud = await demo(page)
   const total = Number(await hud.getAttribute('data-total'))
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   // 데모를 다시 눌러도 손 편집은 그대로다(데모 몫만 바뀐다).
   const again = await demo(page)
   await expect(again).toHaveAttribute('data-total', String(total))
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   for (let i = 0; i < total; i++) await page.keyboard.press('Control+z')
   await expect(page.locator('.edit-bar .undo')).toBeDisabled()
@@ -91,6 +95,7 @@ test('층이 둘 이상이면 왼쪽 층 레일에 층마다 장면 점이 찍�
   await expect(hud).not.toHaveAttribute('data-loop', '')
   await expect(hud.locator('.hud-bar .status')).toContainText('반복 중')
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
 
@@ -120,6 +125,7 @@ test('끝 화면에서 갈래를 누르면 그 갈래 장면만 처음부터 틀
   await hud.locator('.hud-done .sum-row', { hasText: '계통' }).click()
   await expect(hud.locator('.hud-bar .status')).not.toContainText('계통만')
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
 
@@ -144,6 +150,7 @@ test('끝 화면에서 D 를 누르면 변경 지도(더함·고침·지움 수)
   await page.keyboard.press('Home')
   await expect(legend).toHaveCount(0)
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
 
@@ -168,6 +175,7 @@ test('관계가 바뀐 장면의 카드에는 그 변화가 DT 질의의 답을 
   expect(seen.length).toBeGreaterThanOrEqual(2)
   expect(seen.join('\n')).toMatch(/의 구성에|공급하는 것에|안의 설비/)
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
 
@@ -190,6 +198,7 @@ test('옮긴 문·벽은 순간이동하지 않고 미끄러지며, 룸·커스�
   await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
   expect(await page.evaluate(() => (window as any).__viewer.motion().slid)).toBeGreaterThanOrEqual(1)
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
 
@@ -207,6 +216,7 @@ test('옮기는 장면은 도착 자리에 유령 상자를 먼저 띄우고 도
   // 다 도착했으니 남은 유령이 없다.
   await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().ghosts), { timeout: 10_000 }).toBe(0)
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
 
@@ -242,6 +252,7 @@ test('끝 화면에서 S 를 누르면 바뀐 양이 큰 장면 몇 개만 처�
   await expect(hud.locator('.hud-bar .status')).not.toContainText('요약')
   await expect(hud.locator('.track .tick.star')).toHaveCount(0)
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
 
@@ -270,5 +281,6 @@ test('층이 둘 이상이고 아래층을 고쳤으면 끝 화면에서 그 위
   await page.keyboard.press('Home')
   await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().spread), { timeout: 10_000 }).toBe(false)
   await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
