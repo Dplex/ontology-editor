@@ -720,6 +720,7 @@ describe('연 때와 견주기', () => {
       equipmentRemoved: [],
       equipmentRenamed: [],
       equipmentMounted: [],
+      equipmentShaft: [],
       wallsAdded: [],
       wallsRemoved: [],
       wallsChanged: [],

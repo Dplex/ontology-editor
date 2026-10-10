@@ -311,6 +311,11 @@ export type Equipment = {
    */
   wallId?: string
   /**
+   * 사람이 넣은 샤프트(수직 관통 오브젝트 kind 'shaft')의 id(OE-ML-09·14, shaft.ts). 덕트·배관 구간만 갖는다. 위치로 저절로 붙이지 않는다.
+   * 그 샤프트가 없으면(지웠다) 효력이 없다 — 읽는 쪽은 `shaftOf` 로 확인한다.
+   */
+  shaftId?: string
+  /**
    * 덕트·배관 구간의 두 끝이 연 때 자리에서 얼마나 옮겨졌나(세계 좌표, m). 끝 순서는 연 때 형상의 축(`SegmentAxis`)을 따른다.
    * 붙은 설비를 옮겨 구간이 늘어난 것이다(`followConduits`). 3D 형상은 이 값으로 늘이고, `position` 은 축 위 같은 비율 자리로 간다.
    */
