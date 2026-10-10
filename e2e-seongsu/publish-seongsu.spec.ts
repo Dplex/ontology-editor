@@ -20,12 +20,17 @@ const record = (id: string, value: string, note = '') => {
   console.log(`  ${id}: ${value}${note ? ` (${note})` : ''}`)
 }
 const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)}MB`
-function du(dir: string): number {
+/** 폴더가 실제로 쓰는 디스크. 하드 링크로 버전끼리 나눈 파일은 한 번만 센다(layouts.ts 의 dedupe). */
+function du(dir: string, seen = new Set<bigint>()): number {
   let sum = 0
   for (const name of readdirSync(dir)) {
     const at = join(dir, name)
-    const st = statSync(at)
-    sum += st.isDirectory() ? du(at) : st.size
+    const st = statSync(at, { bigint: true })
+    if (st.isDirectory()) sum += du(at, seen)
+    else if (!seen.has(st.ino)) {
+      seen.add(st.ino)
+      sum += Number(st.size)
+    }
   }
   return sum
 }
@@ -186,6 +191,30 @@ test('R 성수 크기 반영: 합쳐 열기 → 구축하기(v1) → 반영하�
   record('R-6', `${((Date.now() - t) / 1000).toFixed(1)}초`, '되돌리기 — v1 을 v3 으로 다시 반영(서버 복사)')
   const meta = await (await page.request.get(`/__data/__layouts?${new URLSearchParams({ key: paths.join('|') })}`)).json()
   expect(meta.current).toBe(3)
-  record('R-7', mb(du(dir)), `버전 셋(v1·v2·v3)이 쓴 디스크. 버전마다 GLB 를 통째로 둔다`)
+  const v3 = meta.versions.find((x: { version: number }) => x.version === 3)
+  record('R-7', mb(du(dir)), `버전 셋(v1·v2·v3)이 쓴 디스크. v3(되돌리기)는 v1 에 링크 — 공유 ${v3.shared?.length ?? 0}/${v3.files.length}개`)
+  expect(v3.shared).toEqual(v3.files)
+
+  // R-8 층 이름만 고쳐 반영. GeoJSON 은 그 층 파일 말고 나누지만, 층 이름이 GLB 의 층 노드(extras)에 들어 있어 GLB 는 새로 생긴다.
+  // 흐름 방향처럼 형상·이름과 무관한 편집은 GLB 도 나눈다(mesh3d.test.ts).
+  const before = du(dir)
+  const rename = page.getByRole('button', { name: /이름 없던 층 1 층 이름 고치기/ })
+  if (await rename.count()) {
+    await rename.click()
+    await page.getByLabel('이름 없던 층 1 층 이름').fill('기초')
+    await page.getByLabel('이름 없던 층 1 층 이름').press('Enter')
+  } else {
+    await page.locator('.fold-head', { hasText: '층별 요약' }).first().click()
+    await page.getByRole('button', { name: /층 이름 고치기/ }).first().click()
+    await page.locator('.storey-name-input').fill('기초 층')
+    await page.locator('.storey-name-input').press('Enter')
+  }
+  t = Date.now()
+  await bar.getByRole('button', { name: '반영하기' }).click()
+  await dialog.getByRole('button', { name: '반영하기' }).click()
+  await expect(page.locator('.key-note')).toContainText('v4 으로 반영했습니다', { timeout: 900_000 })
+  const meta4 = await (await page.request.get(`/__data/__layouts?${new URLSearchParams({ key: paths.join('|') })}`)).json()
+  const v4 = meta4.versions.find((x: { version: number }) => x.version === 4)
+  record('R-8', `${((Date.now() - t) / 1000).toFixed(1)}초 · +${mb(du(dir) - before)}`, `층 이름만 고쳐 반영(v4). 공유: ${(v4.shared ?? []).join(', ') || '없음'}`)
   expect(errors).toEqual([])
 })

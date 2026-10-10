@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
@@ -6,7 +7,7 @@ import { importIfcWithMeshes, type MeshMap } from '../ifc/import'
 import { BoxGeometry, type Mesh, type Object3D } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { toScene } from '../viewer'
-import { addWall, moveOpening, moveWall, setWallExternal, setWallLoadBearing } from '../edit'
+import { addWall, moveOpening, moveWall, setFlowDirection, setWallExternal, setWallLoadBearing } from '../edit'
 import type { Model, Wall } from '../model'
 import { modelToScene, sceneToGLB, sceneToOBJ } from './mesh3d'
 
@@ -174,5 +175,20 @@ describe('3D 내보내기', () => {
       return out
     }
     expect(meshesOf(back.scene)).toEqual(meshesOf(scene))
+  })
+
+  it('같은 모델이면 GLB 가 바이트까지 같고, 흐름 방향만 바꾸면 그대로다 — 반영 버전끼리 GLB 를 나눌 수 있다(layouts.ts 의 dedupe)', async () => {
+    const hash = async () => createHash('sha256').update(new Uint8Array(await sceneToGLB(modelToScene(model, meshes)))).digest('hex')
+    const first = await hash()
+    expect(await hash()).toBe(first)
+    const c = model.connections.find((x) => !x.directed)!
+    expect(setFlowDirection(c, c.to)).toBe(true)
+    expect(await hash()).toBe(first)
+    setFlowDirection(c, null)
+    // 층 이름은 GLB 의 층 노드(extras)에 들어 있어 바뀐다.
+    const name = model.storeys[0].name
+    model.storeys[0].name = `${name}-x`
+    expect(await hash()).not.toBe(first)
+    model.storeys[0].name = name
   })
 })

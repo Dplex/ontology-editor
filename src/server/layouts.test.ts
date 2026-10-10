@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -65,6 +65,12 @@ describe('반영한 레이아웃과 버전', () => {
       summary: { changes: 3 },
       kind: 'publish',
       files: ['edits.json', 'geojson/1F.geojson', 'ontology.ttl', 'tree.json'],
+      hashes: {
+        'edits.json': expect.stringMatching(/^[0-9a-f]{64}$/),
+        'geojson/1F.geojson': expect.any(String),
+        'ontology.ttl': expect.any(String),
+        'tree.json': expect.any(String),
+      },
     })
     expect(await (await fetch(url({ key: KEY, v: '1', file: 'ontology.ttl' }))).text()).toBe('# v1')
     // 건물 목록에 현재 버전이 보인다(모드 자동 분기가 이것을 읽는다).
@@ -95,6 +101,15 @@ describe('반영한 레이아웃과 버전', () => {
       [1, 'publish'],
     ])
     expect(await (await fetch(url({ key: KEY, v: '3', file: 'ontology.ttl' }))).text()).toBe('# v1')
+    // 같은 내용은 한 벌만 둔다: v2 는 TTL 만 새것이고 나머지는 v1 에 링크, v3(v1 되돌리기)은 전부 v1 에 링크다.
+    const [v3, v2] = now.versions
+    expect(v2.shared).toEqual(['edits.json', 'geojson/1F.geojson', 'tree.json'])
+    expect(v3.shared).toEqual(v3.files)
+    const dir = join(root, '.layouts', readdirSync(join(root, '.layouts'))[0])
+    const ino = (v: number, f: string) => statSync(join(dir, `v${v}`, f), { bigint: true }).ino
+    expect(ino(3, 'ontology.ttl')).toBe(ino(1, 'ontology.ttl'))
+    expect(ino(2, 'ontology.ttl')).not.toBe(ino(1, 'ontology.ttl'))
+    expect(ino(2, 'tree.json')).toBe(ino(1, 'tree.json'))
     // 지금 버전으로는 되돌리지 않는다.
     expect((await fetch(url({ key: KEY, rollback: '3' }), { method: 'POST', body: JSON.stringify({ by: '김민주' }) })).status).toBe(400)
   })

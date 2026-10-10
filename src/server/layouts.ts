@@ -7,6 +7,10 @@
 //   v1/ v2/ …           버전마다 한 폴더: meta.json + ontology.ttl · edits.json · tree.json · report.json · model.glb · geojson/*.geojson
 //   .stage-<id>/        올리는 중인 판. 다 올린 뒤 [반영] 하면 vN 으로 rename 한다 — 반만 반영된 버전이 생기지 않는다(OE-SYNC-02)
 //
+// 같은 내용의 파일은 버전끼리 한 벌만 둔다. 반영할 때 파일마다 SHA-256 을 meta 의 `hashes` 에 적고, 앞 버전에 같은 해시가 있으면 그 파일에 하드 링크한다.
+// 되돌리기는 옛 버전의 파일을 그대로 링크한다. 합성 성수는 버전 하나가 232MB(GLB 214MB)라 셋이면 696MB 였다. 버전 파일은 반영 뒤 고치지 않아 링크해도 된다.
+// 링크를 못 거는 파일시스템이면 복사로 둔다.
+//
 // 경로(`/__data` 아래 `/__layouts`):
 //   GET  ?                                건물마다 현재 버전 [{ key, paths, current, at, by }]
 //   GET  ?key=K                           { current, versions: [meta…] } — 최근 7일(OE-WF-20)과 현재 버전, 새것부터
@@ -15,7 +19,7 @@
 //   POST ?key=K&stage=S&publish           몸통 { by, floors, summary } → 새 버전(meta)
 //   POST ?key=K&rollback=N                몸통 { by } → 그 버전을 새 버전으로 다시 반영(OE-WF-19)
 import { createHash, randomBytes } from 'node:crypto'
-import { cpSync, createReadStream, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, createReadStream, createWriteStream, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
 import { dataKeyPaths } from './saved-edits'
@@ -42,6 +46,10 @@ export type VersionMeta = {
   from?: number
   /** 이 버전 폴더의 파일(상대 경로). */
   files: string[]
+  /** 파일마다 SHA-256. 이 칸이 생기기 전의 버전에는 없다. */
+  hashes?: Record<string, string>
+  /** 앞 버전과 내용이 같아 그 파일에 링크한 것(디스크를 더 쓰지 않는다). */
+  shared?: string[]
 }
 
 const STAGE = /^[a-z0-9]{8,40}$/
@@ -98,6 +106,54 @@ export function layouts(root: string, options: LayoutOptions = {}) {
       d.isDirectory() ? readdirSync(join(dir, d.name)).map((n) => `${d.name}/${n}`) : d.name === 'meta.json' ? [] : [d.name],
     )
 
+  const hashOf = (file: string) =>
+    new Promise<string>((resolve, reject) => {
+      const h = createHash('sha256')
+      createReadStream(file)
+        .on('data', (c) => h.update(c))
+        .on('end', () => resolve(h.digest('hex')))
+        .on('error', reject)
+    })
+  /** `from` 을 `to` 에 하드 링크한다. 못 걸면 복사한다. 링크했으면 true. */
+  const linkOrCopy = (from: string, to: string): boolean => {
+    mkdirSync(dirname(to), { recursive: true })
+    try {
+      linkSync(from, to)
+      return true
+    } catch {
+      copyFileSync(from, to)
+      return false
+    }
+  }
+  /** 앞 버전들에 있는 해시 → 그 파일. */
+  const knownHashes = (dir: string) => {
+    const out = new Map<string, string>()
+    for (const v of versionsOf(dir)) for (const [f, h] of Object.entries(v.hashes ?? {})) if (!out.has(h) && existsSync(join(dir, `v${v.version}`, f))) out.set(h, join(dir, `v${v.version}`, f))
+    return out
+  }
+  /** 판의 파일을 해시하고, 앞 버전에 같은 것이 있으면 그 파일의 링크로 바꾼다. */
+  async function dedupe(dir: string, stage: string): Promise<{ hashes: Record<string, string>; shared: string[] }> {
+    const known = knownHashes(dir)
+    const hashes: Record<string, string> = {}
+    const shared: string[] = []
+    for (const f of filesIn(stage).sort()) {
+      const at = join(stage, f)
+      const h = await hashOf(at)
+      hashes[f] = h
+      const same = known.get(h)
+      if (!same) continue
+      const tmp = `${at}.lnk`
+      try {
+        linkSync(same, tmp)
+        unlinkSync(at)
+        renameSync(tmp, at)
+        shared.push(f)
+      } catch {
+        if (existsSync(tmp)) unlinkSync(tmp)
+      }
+    }
+    return { hashes, shared }
+  }
   const rename = options.rename ?? renameSync
   const LOCKED = ['EPERM', 'EBUSY', 'EACCES']
   /**
@@ -118,10 +174,11 @@ export function layouts(root: string, options: LayoutOptions = {}) {
     rmSync(stage, { recursive: true, force: true })
   }
   /** 올린 판(또는 옛 버전을 베낀 판)을 새 버전으로 넣는다. 번호가 겹치면(동시에 둘이 반영) 다음 번호로 다시 한다. */
-  async function commit(dir: string, stage: string, meta: Omit<VersionMeta, 'version' | 'files'>): Promise<VersionMeta> {
+  async function commit(dir: string, stage: string, meta: Omit<VersionMeta, 'version' | 'files' | 'hashes' | 'shared'>): Promise<VersionMeta> {
+    const { hashes, shared } = await dedupe(dir, stage)
     for (let tries = 0; tries < 5; tries++) {
       const version = (versionsOf(dir)[0]?.version ?? 0) + 1
-      const full: VersionMeta = { version, ...meta, files: filesIn(stage).sort() }
+      const full: VersionMeta = { version, ...meta, files: filesIn(stage).sort(), hashes, ...(shared.length ? { shared } : {}) }
       writeFileSync(join(stage, 'meta.json'), JSON.stringify(full, null, 2))
       const target = join(dir, `v${version}`)
       if (existsSync(target)) continue
@@ -254,8 +311,8 @@ export function layouts(root: string, options: LayoutOptions = {}) {
           if (!fresh(old)) return json(res, 400, { error: `v${from} 은 ${KEEP_DAYS}일이 지나 되돌릴 수 없습니다` })
           if (old.version === current(dir)) return json(res, 400, { error: `v${from} 은 지금 반영된 버전입니다` })
           const at = join(dir, `.stage-rb${randomBytes(6).toString('hex')}`)
-          cpSync(join(dir, `v${from}`), at, { recursive: true })
-          rmSync(join(at, 'meta.json'))
+          // 옛 버전의 파일을 링크한다(복사하지 않는다). 해시가 같아 dedupe 가 shared 로 센다.
+          for (const f of old.files) linkOrCopy(join(dir, `v${from}`, f), join(at, f))
           const meta = await commit(dir, at, { at: now().toISOString(), by, floors: old.floors, summary: old.summary, kind: 'rollback', from })
           options.onVersion?.({ type: 'rollback', user: by, key, floors: meta.floors, version: meta.version })
           return json(res, 200, meta)
