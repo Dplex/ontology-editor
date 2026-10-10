@@ -452,6 +452,8 @@ export type Part = {
   iStart: number
   iCount: number
   box: Box3
+  /** 그린 형상의 출처(형상 데이터 또는 상자 자리). 편집 뒤 다시 그릴 때 바뀌었는지 가른다(patchModel). */
+  src?: unknown
 }
 
 /** 내력벽과 내력 여부를 모르는 벽을 한 덩어리로 합친다. 형상을 못 얻은 벽은 건너뛴다. */
@@ -1733,6 +1735,214 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
   }
 
+  type Piece = { id: string; color: number; p: ArrayLike<number>; n: ArrayLike<number>; i: ArrayLike<number>; src: unknown }
+  /** 설비: 형상이 있으면 그 형상, 없고 좌표만 있으면 작은 상자. 좌표도 없으면 찍지 않는다 — 원점에 찍으면 거기 있는 것처럼 보인다. */
+  function piecesOf(model: Model, meshes: MeshMap | undefined, colorOf: Map<string, number>): Piece[] {
+    const pieces: Piece[] = []
+    for (const storey of model.storeys) {
+      for (const equipment of storey.equipment) {
+        const color = equipment.systemId ? (colorOf.get(equipment.systemId) ?? NO_SYSTEM) : NO_SYSTEM
+        const data = meshes?.get(equipment.id)
+        if (data) {
+          pieces.push({ id: equipment.id, color, p: data.positions, n: data.normals, i: data.indices, src: data })
+        } else if (equipment.position) {
+          const box = new BoxGeometry(0.4, 0.4, 0.4)
+          box.translate(...toScene(equipment.position))
+          pieces.push({
+            id: equipment.id,
+            color,
+            p: box.getAttribute('position').array,
+            n: box.getAttribute('normal').array,
+            i: box.index!.array,
+            src: `box:${equipment.position.join(',')}`,
+          })
+          box.dispose()
+        }
+      }
+    }
+    return pieces
+  }
+  /** 덩어리로 나눈다. 설비 하나는 한 덩어리 안에만 든다(끌기·칠하기가 설비 단위다). */
+  function groupPieces(pieces: Piece[]): Piece[][] {
+    const groups: Piece[][] = []
+    let group: Piece[] = []
+    let groupVertices = 0
+    for (const piece of pieces) {
+      const vCount = piece.p.length / 3
+      if (group.length && groupVertices + vCount > CHUNK_VERTICES) {
+        groups.push(group)
+        group = []
+        groupVertices = 0
+      }
+      group.push(piece)
+      groupVertices += vCount
+    }
+    if (group.length) groups.push(group)
+    return groups
+  }
+  /** 설비 묶음 하나를 한 덩어리(형상 하나에 진한·흐린 메시 둘)로 합쳐 장면에 건다. */
+  function buildChunk(members: Piece[], solidMaterial: Material, fadedMaterial: Material): Chunk {
+      let vTotal = 0
+      let iTotal = 0
+      for (const piece of members) {
+        vTotal += piece.p.length / 3
+        iTotal += piece.i.length
+      }
+      const positions = new Float32Array(vTotal * 3)
+      const normals = new Float32Array(vTotal * 3)
+      const index = new Uint32Array(iTotal)
+      const solidGeometry = new BufferGeometry()
+      const fadedGeometry = new BufferGeometry()
+      const chunk: Chunk = {
+        position: new BufferAttribute(positions, 3),
+        // 색은 바이트로 둔다. 부동소수로 두면 꼭짓점마다 12바이트라 올리는 양의 4분의 1이 색이었다.
+        colors: new BufferAttribute(new Uint8Array(vTotal * 3), 3, true),
+        index,
+        solid: new Mesh(solidGeometry, solidMaterial),
+        faded: new Mesh(fadedGeometry, fadedMaterial),
+        parts: [],
+        shown: false,
+        solidCount: 0,
+        fadedCount: 0,
+      }
+      let vo = 0
+      let io = 0
+      for (const piece of members) {
+        const vCount = piece.p.length / 3
+        const p = piece.p
+        positions.set(p, vo * 3)
+        normals.set(piece.n, vo * 3)
+        for (let k = 0; k < piece.i.length; k++) index[io + k] = piece.i[k] + vo
+        // 상자는 맨 루프로 잰다. 성수는 꼭짓점이 1천만 개라 Vector3 를 거치면 여기서 0.1초가 나갔다.
+        let x0 = Infinity
+        let y0 = Infinity
+        let z0 = Infinity
+        let x1 = -Infinity
+        let y1 = -Infinity
+        let z1 = -Infinity
+        for (let k = 0; k < p.length; k += 3) {
+          if (p[k] < x0) x0 = p[k]
+          if (p[k] > x1) x1 = p[k]
+          if (p[k + 1] < y0) y0 = p[k + 1]
+          if (p[k + 1] > y1) y1 = p[k + 1]
+          if (p[k + 2] < z0) z0 = p[k + 2]
+          if (p[k + 2] > z1) z1 = p[k + 2]
+        }
+        const box = vCount ? new Box3(new Vector3(x0, y0, z0), new Vector3(x1, y1, z1)) : new Box3()
+        const part: Part = { id: piece.id, color: piece.color, chunk, vStart: vo, vCount, iStart: io, iCount: piece.i.length, box, src: piece.src }
+        chunk.parts.push(part)
+        parts.push(part)
+        partById.set(part.id, part)
+        vo += vCount
+        io += piece.i.length
+      }
+      const normalAttr = new BufferAttribute(normals, 3)
+      for (const g of [solidGeometry, fadedGeometry]) {
+        g.setAttribute('position', chunk.position)
+        g.setAttribute('normal', normalAttr)
+        g.setAttribute('color', chunk.colors)
+      }
+      for (const part of chunk.parts) paintPart(part, part.color)
+      // 합친 형상은 경계가 크고 켜 둔 채 시점을 돌린다. 화면 밖 판정은 꺼 둔다.
+      chunk.solid.frustumCulled = false
+      chunk.faded.frustumCulled = false
+      content.add(chunk.solid, chunk.faded)
+      chunks.push(chunk)
+      return chunk
+  }
+  /**
+   * 편집 뒤 다시 그리기(setModel keepView)를 고칠 것만 고쳐서 끝낸다. 설비 하나를 더하거나 계통을 바꿀 때마다 설비 형상 전부를
+   * 다시 합쳐 GPU 에 올리느라 화면이 0.3~0.4초 멈췄다(dental 실측: 설비 더하기 392ms · 계통 300ms, 옮기기는 50~83ms).
+   * 있던 덩어리는 두고 — 새 설비는 덩어리를 하나 더 붙이고, 색이 바뀐 설비는 칠만 다시 하고, 형상을 옮긴 설비는 꼭짓점만
+   * 다시 쓴다. 지워진 설비가 있거나 꼭짓점 수가 달라졌으면 false(처음부터 다시 짓는다).
+   */
+  let lastMeshes: MeshMap | undefined
+  function patchModel(model: Model, meshes: MeshMap | undefined): boolean {
+    const colorOf = systemColors(model)
+    const want = new Map(piecesOf(model, meshes, colorOf).map((p) => [p.id, p]))
+    for (const part of parts) {
+      const w = want.get(part.id)
+      if (!w || w.p.length / 3 !== part.vCount || (w.src !== part.src && glides.has(part.id))) return false
+    }
+    for (const part of parts) {
+      const w = want.get(part.id)!
+      if (w.src !== part.src) {
+        const positions = w.p instanceof Float32Array ? w.p : Float32Array.from(w.p)
+        writePart(part, positions)
+        part.box.makeEmpty()
+        for (let k = 0; k < positions.length; k += 3) part.box.expandByPoint(tmpV.set(positions[k], positions[k + 1], positions[k + 2]))
+        part.src = w.src
+      }
+      if (w.color !== part.color) {
+        part.color = w.color
+        paintPart(part, w.color)
+      }
+    }
+    const added = [...want.values()].filter((w) => !partById.has(w.id))
+    if (added.length) {
+      const made = new Set<Chunk>()
+      for (const members of groupPieces(added)) made.add(buildChunk(members, chunks[0].solid.material as Material, chunks[0].faded.material as Material))
+      splitIndex(made)
+      for (const chunk of made) showChunk(chunk)
+    }
+    movable = new Set(model.storeys.flatMap((s) => s.equipment.filter((e) => e.position).map((e) => e.id)))
+    fx.modelChanged(model)
+    drag = null
+    controls.enabled = true
+    handleSpace = null
+    arrowSpecs = []
+    drawHandles()
+    drawArrows()
+    // 공간 판은 방 외곽선이, IFC 벽 형상은 층마다의 벽 목록이 바뀌었을 때만 다시 만든다(편집 파일을 얹으면 벽도 바뀐다).
+    if (slabsKey(model) !== lastSlabsKey) buildSlabs(model)
+    if (wallsKey(model) !== lastWallsKey) {
+      if (walls) {
+        content.remove(walls)
+        walls.traverse((o) => {
+          if (o instanceof Mesh) {
+            o.geometry.dispose()
+            ;(o.material as { dispose(): void }).dispose()
+          }
+        })
+      }
+      buildWalls(model, meshes)
+    }
+    dirty = true
+    return true
+  }
+  const tmpV = new Vector3()
+  let lastWallsKey = ''
+  const wallsKey = (model: Model) => model.storeys.map((st) => `${st.id}:${st.elevation}:${st.walls.map((w) => `${w.id}/${w.loadBearing}`).join(',')}`).join('|')
+  /** 층마다 IFC 벽 형상(층별 보기가 층 단위로 켜고 끈다). */
+  function buildWalls(model: Model, meshes: MeshMap | undefined) {
+    lastWallsKey = wallsKey(model)
+    walls = new Group()
+    for (const storey of model.storeys) {
+      const w = wallMesh({ ...model, storeys: [storey] }, meshes)
+      if (!w) continue
+      w.userData.storeyId = storey.id
+      walls.add(w)
+    }
+    if (walls.children.length === 0) walls = null
+    if (walls) {
+      walls.visible = wallsVisible
+      content.add(walls)
+      applyStoreyVisibility()
+    }
+  }
+  let lastSlabsKey = ''
+  function slabsKey(model: Model): string {
+    const out: (string | number)[] = [slabOpacity]
+    for (const st of model.storeys) {
+      out.push('S', st.id, st.elevation)
+      for (const sp of st.spaces) {
+        out.push(sp.id, sp.kind ?? '')
+        for (const p of sp.footprint) out.push(p[0], p[1])
+      }
+    }
+    return out.join(',')
+  }
+
   function disposeContent() {
     content.traverse((o) => {
       if (o instanceof Mesh) {
@@ -1748,6 +1958,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
   /** 공간 판. 층마다 하나로 합친다. 성수는 방이 934개다. 편집 모드에서 바닥을 눌러 고를 자리도 같이 만든다. */
   function buildSlabs(model: Model) {
+    lastSlabsKey = slabsKey(model)
     slabs.traverse((o) => {
       if (o instanceof Mesh) {
         o.geometry.dispose()
@@ -1907,6 +2118,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const api: Viewer = {
     ...fx.api,
     setModel(model, meshes, options) {
+      // 편집 뒤 다시 그리기는 바뀐 설비만 고친다(patchModel). 안 되면 아래에서 처음부터 다시 짓는다.
+      if (options?.keepView && meshes === lastMeshes && chunks.length && patchModel(model, meshes)) return
+      lastMeshes = meshes
       // 끄는 중에 모델이 바뀌면 끌던 것은 버린다. 형상을 새로 만드니 되돌릴 것도 없다.
       drag = null
       controls.enabled = true
@@ -1931,135 +2145,18 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       slabOpacity = hasEquipmentMeshes ? 0.25 : 0.8
       buildSlabs(model)
 
-      // 설비: 형상이 있으면 그 형상, 없고 좌표만 있으면 작은 상자. 좌표도 없으면 찍지 않는다 —
-      // 원점에 찍으면 거기 있는 것처럼 보인다.
-      const pieces: { id: string; color: number; p: ArrayLike<number>; n: ArrayLike<number>; i: ArrayLike<number> }[] = []
-      for (const storey of model.storeys) {
-        for (const equipment of storey.equipment) {
-          const color = equipment.systemId ? (colorOf.get(equipment.systemId) ?? NO_SYSTEM) : NO_SYSTEM
-          const data = meshes?.get(equipment.id)
-          if (data) {
-            pieces.push({ id: equipment.id, color, p: data.positions, n: data.normals, i: data.indices })
-          } else if (equipment.position) {
-            const box = new BoxGeometry(0.4, 0.4, 0.4)
-            box.translate(...toScene(equipment.position))
-            pieces.push({
-              id: equipment.id,
-              color,
-              p: box.getAttribute('position').array,
-              n: box.getAttribute('normal').array,
-              i: box.index!.array,
-            })
-            box.dispose()
-          }
-        }
-      }
-
-      // 덩어리로 나눈다. 설비 하나는 한 덩어리 안에만 든다(끌기·칠하기가 설비 단위다).
-      const groups: (typeof pieces)[] = []
-      let group: typeof pieces = []
-      let groupVertices = 0
-      for (const piece of pieces) {
-        const vCount = piece.p.length / 3
-        if (group.length && groupVertices + vCount > CHUNK_VERTICES) {
-          groups.push(group)
-          group = []
-          groupVertices = 0
-        }
-        group.push(piece)
-        groupVertices += vCount
-      }
-      if (group.length) groups.push(group)
+      const groups = groupPieces(piecesOf(model, meshes, colorOf))
 
       chunks = []
       const solidMaterial = new MeshLambertMaterial({ vertexColors: true, side: DoubleSide })
       // 아주 옅게 남긴다. 아예 지우면 연결망이 건물 어디쯤인지 알 수 없고, 진하면 가는 배관 한 줄이 묻힌다.
       const fadedMaterial = new MeshLambertMaterial({ vertexColors: true, side: DoubleSide, transparent: true, opacity: 0.08, depthWrite: false })
-      for (const members of groups) {
-        let vTotal = 0
-        let iTotal = 0
-        for (const piece of members) {
-          vTotal += piece.p.length / 3
-          iTotal += piece.i.length
-        }
-        const positions = new Float32Array(vTotal * 3)
-        const normals = new Float32Array(vTotal * 3)
-        const index = new Uint32Array(iTotal)
-        const solidGeometry = new BufferGeometry()
-        const fadedGeometry = new BufferGeometry()
-        const chunk: Chunk = {
-          position: new BufferAttribute(positions, 3),
-          // 색은 바이트로 둔다. 부동소수로 두면 꼭짓점마다 12바이트라 올리는 양의 4분의 1이 색이었다.
-          colors: new BufferAttribute(new Uint8Array(vTotal * 3), 3, true),
-          index,
-          solid: new Mesh(solidGeometry, solidMaterial),
-          faded: new Mesh(fadedGeometry, fadedMaterial),
-          parts: [],
-          shown: false,
-          solidCount: 0,
-          fadedCount: 0,
-        }
-        let vo = 0
-        let io = 0
-        for (const piece of members) {
-          const vCount = piece.p.length / 3
-          const p = piece.p
-          positions.set(p, vo * 3)
-          normals.set(piece.n, vo * 3)
-          for (let k = 0; k < piece.i.length; k++) index[io + k] = piece.i[k] + vo
-          // 상자는 맨 루프로 잰다. 성수는 꼭짓점이 1천만 개라 Vector3 를 거치면 여기서 0.1초가 나갔다.
-          let x0 = Infinity
-          let y0 = Infinity
-          let z0 = Infinity
-          let x1 = -Infinity
-          let y1 = -Infinity
-          let z1 = -Infinity
-          for (let k = 0; k < p.length; k += 3) {
-            if (p[k] < x0) x0 = p[k]
-            if (p[k] > x1) x1 = p[k]
-            if (p[k + 1] < y0) y0 = p[k + 1]
-            if (p[k + 1] > y1) y1 = p[k + 1]
-            if (p[k + 2] < z0) z0 = p[k + 2]
-            if (p[k + 2] > z1) z1 = p[k + 2]
-          }
-          const box = vCount ? new Box3(new Vector3(x0, y0, z0), new Vector3(x1, y1, z1)) : new Box3()
-          const part: Part = { id: piece.id, color: piece.color, chunk, vStart: vo, vCount, iStart: io, iCount: piece.i.length, box }
-          chunk.parts.push(part)
-          parts.push(part)
-          partById.set(part.id, part)
-          vo += vCount
-          io += piece.i.length
-        }
-        const normalAttr = new BufferAttribute(normals, 3)
-        for (const g of [solidGeometry, fadedGeometry]) {
-          g.setAttribute('position', chunk.position)
-          g.setAttribute('normal', normalAttr)
-          g.setAttribute('color', chunk.colors)
-        }
-        for (const part of chunk.parts) paintPart(part, part.color)
-        // 합친 형상은 경계가 크고 켜 둔 채 시점을 돌린다. 화면 밖 판정은 꺼 둔다.
-        chunk.solid.frustumCulled = false
-        chunk.faded.frustumCulled = false
-        content.add(chunk.solid, chunk.faded)
-        chunks.push(chunk)
-      }
+      for (const members of groups) buildChunk(members, solidMaterial, fadedMaterial)
       splitIndex()
       // 같은 모델을 다시 그리는 것(편집 뒤)은 한꺼번에 켠다. 나눠 켜면 편집할 때마다 건물이 사라졌다 다시 찬다.
       if (options?.keepView) for (const chunk of chunks) showChunk(chunk)
       // 층마다 따로 만든다. 층별로 보기가 층 단위로 켜고 끈다.
-      walls = new Group()
-      for (const storey of model.storeys) {
-        const w = wallMesh({ ...model, storeys: [storey] }, meshes)
-        if (!w) continue
-        w.userData.storeyId = storey.id
-        walls.add(w)
-      }
-      if (walls.children.length === 0) walls = null
-      if (walls) {
-        walls.visible = wallsVisible
-        content.add(walls)
-        applyStoreyVisibility()
-      }
+      buildWalls(model, meshes)
 
       scene.add(content)
       dirty = true
