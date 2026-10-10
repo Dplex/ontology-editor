@@ -33,6 +33,7 @@ export type ShortcutId =
   | 'vertexInsert'
   | 'vertexDelete'
   | 'drawFinish'
+  | 'replay'
 
 /** 키 하나의 조합. `ctrl` 은 Ctrl 또는 ⌘ 다. `shift: 'any'` 는 Shift 를 눌렀든 말든 받는다(처리하는 쪽이 본다). */
 type Combo = ({ code: string; key?: never } | { key: string; code?: never }) & { shift?: boolean | 'any'; ctrl?: boolean }
@@ -56,6 +57,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'mode', combos: [{ code: 'KeyE' }], keys: ['E'], label: '보기 ↔ 편집', group: '어디서나' },
   { id: 'save', combos: [{ code: 'KeyS', ctrl: true }], keys: ['Ctrl+S'], label: '편집 저장(파일로 내려받기)', group: '어디서나' },
   { id: 'search', combos: [{ code: 'Slash' }], keys: ['/'], label: '이름 찾기 칸으로 이동', group: '어디서나' },
+  { id: 'replay', combos: [{ code: 'KeyP' }], keys: ['P'], label: '편집 리플레이 — 3D 에서 이번 세션의 편집을 고친 순서대로 다시 틀기(PoC)', group: '어디서나' },
   {
     id: 'nextIssue',
     combos: [{ code: 'KeyN' }],

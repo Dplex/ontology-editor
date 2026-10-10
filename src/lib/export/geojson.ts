@@ -326,19 +326,33 @@ export function storeyToGeoJSON(
  * 어느 층인지 모르게 된다.
  */
 export function modelToGeoJSON(model: Model): { fileName: string; collection: FeatureCollection }[] {
-  const taken = new Set<string>()
-  const vertical = verticalRefs(model)
-  const itemNames = new Map(libraryOf(model).map((i) => [i.key, i.name]))
-  const shafts = new Set(verticalObjects(model).filter((o) => o.kind === 'shaft').map((o) => o.id))
+  const names = geoFileNames(model)
+  const context = geoContext(model)
   return model.storeys.map((storey) => {
+    const collection = storeyToGeoJSON(storey, ...context)
+    return { fileName: names.get(storey.id)!, collection: model.skipped?.length ? { ...collection, skipped: [...model.skipped] } : collection }
+  })
+}
+
+/** 층마다 storeyToGeoJSON 에 같이 넘기는 모델 전체의 것. 내보내기와 편집 리플레이(한 층씩)가 같이 쓴다. */
+export function geoContext(model: Model) {
+  const shafts = new Set(verticalObjects(model).filter((o) => o.kind === 'shaft').map((o) => o.id))
+  return [hvacZonesOf(model), verticalRefs(model), new Map(libraryOf(model).map((i) => [i.key, i.name])), shafts] as const
+}
+
+/** 층 id → 층 파일 이름. 내보내기와 편집 리플레이가 같은 이름을 쓴다. */
+export function geoFileNames(model: Model): Map<string, string> {
+  const taken = new Set<string>()
+  const out = new Map<string, string>()
+  for (const storey of model.storeys) {
     // 층 이름에는 공백이나 슬래시가 들어올 수 있다. 파일 이름으로 쓰기 전에 걸러 낸다.
     const stem = `floor-${storey.name.replace(/[^\w가-힣-]+/g, '_') || storey.id}`
     let fileName = `${stem}.geojson`
     for (let n = 2; taken.has(fileName.toLowerCase()); n++) fileName = `${stem}-${n}.geojson`
     taken.add(fileName.toLowerCase())
-    const collection = storeyToGeoJSON(storey, hvacZonesOf(model), vertical, itemNames, shafts)
-    return { fileName, collection: model.skipped?.length ? { ...collection, skipped: [...model.skipped] } : collection }
-  })
+    out.set(storey.id, fileName)
+  }
+  return out
 }
 
 /** 물리존·오브젝트 조각 feature id → 층 사이 연결. 조각끼리는 오브젝트의 출처로 잇는다. */

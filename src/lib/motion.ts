@@ -45,9 +45,14 @@ export function replay(el: Element, cls: string) {
  * 값이 바뀐 줄을 한 번 번쩍인다(`v-flash="통과 수"`). 처음 그릴 때는 가만히 둔다 — 연 직후 전부 번쩍이면 아무것도
  * 가리키지 않는다. 값은 문자열로 견준다(배열·객체를 넘길 때는 호출부가 열쇠 문자열을 만든다).
  */
+let flashPaused = false
+/** 번쩍임을 잠시 끈다. 리플레이가 극장을 덮는 동안 — 가려진 패널의 줄마다 번쩍임을 다시 틀며 레이아웃을 강제로 다시 쟀다. */
+export function pauseFlash(on: boolean) {
+  flashPaused = on
+}
 export const vFlash: Directive<HTMLElement, unknown> = {
   updated(el, { value, oldValue }) {
-    if (String(value) === String(oldValue) || still()) return
+    if (String(value) === String(oldValue) || still() || flashPaused) return
     replay(el, 'flash')
   },
 }
