@@ -7,7 +7,7 @@ prd: "#6"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "예외 ✗"
 blocked_by: []
 depends: ["R23", "OE-EXT-05"]

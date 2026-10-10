@@ -7,7 +7,7 @@ prd: "#6 요구사항, 1.8"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: ["D1","D12"]
 depends: ["OE-BIM-16", "OE-BIM-21", "D1", "D12"]
 ---

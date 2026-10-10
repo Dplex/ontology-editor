@@ -7,7 +7,7 @@ prd: "#6 요구사항, 1.8"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: ""
 blocked_by: []
 depends: []

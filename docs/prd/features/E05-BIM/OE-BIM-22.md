@@ -7,7 +7,7 @@ prd: "#6"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "BIM 간 ✔, 스캔 대조 ✗"
 blocked_by: []
 depends: ["OE-INT-04", "R7", "P4"]

@@ -2,12 +2,12 @@
 id: "OE-REQ-03"
 epic: "E06"
 epic_title: "고객사 BIM 요구사항 · 검증"
-title: "어휘 표"
+title: "어휘 표와 이름 사전"
 prd: "#6 요구사항, 1.8"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: []
 depends: []
 ---
