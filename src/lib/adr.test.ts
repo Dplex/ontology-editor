@@ -5,12 +5,13 @@ import { readTickets } from '../../scripts/ac-coverage'
 
 // docs/adr/ 는 결정 하나가 파일 하나다(docs/adr/README.md). 55 의 문서 챗봇이 머리 필드와 목록으로 결정을 찾으니, 여기서 막는 것은
 // 기계로 가를 수 있는 어긋남이다. 결정끼리 내용이 엇갈리는지는 사람이 읽어야 한다 — 다만 한 ADR 이 다른 ADR 의 결정을 바꿨다고
-// 본문에 적으면 양쪽 머리(supersedes · superseded_by)에도 있어야 한다. 머리에 없으면 챗봇이 옛 결정을 그대로 답한다(0016 ↔ 0023).
+// 본문에 적으면 두 ADR 이 related 로 서로 이어져 있어야 한다. 바뀐 쪽 ADR 은 지금 결정으로 고쳐 두고(옛 글은 git 이력) 대체됨으로
+// 남기지 않는다(2026-10-10). 잇지 않으면 챗봇·ctx 가 한쪽만 보고 옛 결정을 답한다(0016 ↔ 0023).
 //
 // 1. 번호·id·제목 줄이 파일 이름과 맞고 겹치지 않는다
 // 2. README 목록의 제목·상태가 파일 머리와 같다 — 목록은 머리를 베낀 것이다
 // 3. tickets 가 실제 티켓이다
-// 4. 대체 관계가 양쪽에 다 적혀 있고, 본문에서 "바꿨다·바뀌었다" 로 말한 ADR 은 머리에도 있다
+// 4. 머리 칸은 정해진 것만 있고(대체 관계 칸은 없앴다), 본문에서 "바꿨다·바뀌었다" 로 말한 ADR 과는 related 로 서로 이어져 있다
 // 5. criteria 가 있는 수용 기준이고, code·tests 가 있는 파일이며, related 가 있는 ADR 이다
 
 const dir = (rel: string) => fileURLToPath(new URL(rel, import.meta.url))
@@ -44,7 +45,7 @@ for (const epic of readdirSync(FEATURES)) {
   if (!statSync(FEATURES + epic).isDirectory()) continue
   for (const f of readdirSync(FEATURES + epic)) if (/^OE-.*\.md$/.test(f)) tickets.add(f.slice(0, -3))
 }
-/** "ADR-0004 (별명 한 줄만)" 처럼 일부만 바꾼 것은 괄호로 범위를 적는다. 번호만 본다. */
+/** related 의 "ADR-0004" 에서 번호만. */
 const refNum = (s: string) => /^ADR-(\d{4})/.exec(s)?.[1] ?? null
 
 describe('ADR 파일', () => {
@@ -53,7 +54,7 @@ describe('ADR 파일', () => {
     for (const a of adrs) {
       expect(a.fm.id, a.file).toBe(`ADR-${a.num}`)
       expect(a.body, a.file).toMatch(new RegExp(`^\\n?# ADR-${a.num} `))
-      expect(['제안', '채택', '대체됨', '폐기'], a.file).toContain(a.fm.status)
+      expect(['제안', '채택'], a.file).toContain(a.fm.status)
     }
   })
 
@@ -106,43 +107,53 @@ describe('ADR 이 가리키는 기준·코드·시험', () => {
     }
   })
 
-  it('related 는 있는 다른 ADR 이고 대체 관계와 겹치지 않는다', () => {
+  it('related 는 있는 다른 ADR 이다', () => {
     for (const a of adrs) {
-      const sup = new Set([...(a.fm.supersedes as string[]).map(refNum), refNum(a.fm.superseded_by as string)])
       for (const r of a.fm.related as string[]) {
         const n = refNum(r)
         expect(n && byNum.has(n) && n !== a.num, `${a.file} 의 related ${r}`).toBe(true)
-        expect(sup.has(n), `${a.file} 의 related ${r} 는 supersedes·superseded_by 에 이미 있다`).toBe(false)
       }
     }
   })
 })
 
-describe('ADR 사이의 대체 관계', () => {
+describe('ADR 사이의 관계', () => {
   const byNum = new Map(adrs.map((a) => [a.num, a]))
+  const KEYS = ['id', 'title', 'status', 'date', 'deciders', 'prd', 'tickets', 'criteria', 'code', 'tests', 'related']
 
-  it('supersedes 와 superseded_by 가 양쪽에 다 적혀 있다', () => {
+  it('머리 칸은 정해진 것뿐이다 — 대체됨·supersedes 를 쓰지 않고 앞 ADR 을 지금 결정으로 고친다', () => {
+    for (const a of adrs) expect(Object.keys(a.fm).filter((k) => !KEYS.includes(k)), a.file).toEqual([])
+  })
+
+  it('본문에서 다른 ADR 의 결정을 바꿨다고 적으면 두 ADR 이 related 로 서로 이어져 있다', () => {
+    const linked = (a: Adr) => new Set((a.fm.related as string[]).map(refNum))
     for (const a of adrs) {
-      for (const s of a.fm.supersedes as string[]) {
-        const n = refNum(s)
-        expect(n && byNum.has(n), `${a.file} 의 supersedes ${s}`).toBe(true)
-        expect(refNum(byNum.get(n!)!.fm.superseded_by as string), `${byNum.get(n!)!.file} 의 superseded_by 가 ${a.file} 를 가리켜야 한다`).toBe(a.num)
+      for (const m of a.body.matchAll(/ADR-(\d{4})[^\n]{0,80}(바꿨다|바뀌었다)/g)) {
+        if (m[1] === a.num) continue
+        const other = byNum.get(m[1])
+        expect(other, `${a.file} 본문이 없는 ADR-${m[1]} 를 말한다`).toBeTruthy()
+        expect(linked(a).has(m[1]) && linked(other!).has(a.num), `${a.file} 본문이 ADR-${m[1]} 와의 바꿈을 말한다 — 양쪽 related 에: "${m[0]}"`).toBe(true)
       }
-      const by = a.fm.superseded_by as string
-      if (!by) continue
-      const n = refNum(by)
-      expect(n && byNum.has(n), `${a.file} 의 superseded_by ${by}`).toBe(true)
-      expect((byNum.get(n!)!.fm.supersedes as string[]).map(refNum), `${byNum.get(n!)!.file} 의 supersedes 에 ${a.file} 가 있어야 한다`).toContain(a.num)
     }
   })
 
-  it('본문에서 다른 ADR 의 결정을 바꿨다고 적으면 머리에도 그 관계가 있다', () => {
+  it('ADR 본문과 코드·문서가 가리키는 ADR 은 다 있다 — 합치거나 지운 번호를 가리키지 않는다', () => {
     for (const a of adrs) {
-      const linked = new Set([...(a.fm.supersedes as string[]).map(refNum), refNum(a.fm.superseded_by as string)])
-      for (const m of a.body.matchAll(/ADR-(\d{4})[^\n]{0,80}(바꿨다|바뀌었다)/g)) {
-        if (m[1] === a.num) continue
-        expect(linked.has(m[1]), `${a.file} 본문이 ADR-${m[1]} 와의 바꿈을 말한다: "${m[0]}"`).toBe(true)
+      for (const m of a.body.matchAll(/ADR-(\d{4})/g)) expect(byNum.has(m[1]), `${a.file} 본문의 ADR-${m[1]}`).toBe(true)
+    }
+    // PRD(docs/prd/)는 PM 이 고치고, next/·NEXT.md 는 지난 커밋의 PR 본문·작업 일지라 보지 않는다
+    const files: string[] = []
+    const walk = (rel: string) => {
+      for (const d of readdirSync(ROOT + rel, { withFileTypes: true })) {
+        const p = `${rel}/${d.name}`
+        if (d.isDirectory()) { if (!['node_modules', 'prd', 'adr'].includes(d.name)) walk(p) }
+        else if (/\.(ts|vue|mjs|md)$/.test(d.name)) files.push(p)
       }
     }
+    for (const d of ['src', 'e2e', 'scripts', 'docs']) walk(d)
+    files.push('intent.md', 'CLAUDE.md', 'docs/adr/README.md')
+    const dangling = files.flatMap((f) =>
+      [...readFileSync(ROOT + f, 'utf8').matchAll(/ADR-(\d{4})/g)].filter((m) => !byNum.has(m[1])).map((m) => `${f}: ADR-${m[1]}`))
+    expect(dangling).toEqual([])
   })
 })

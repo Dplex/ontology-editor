@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/branch-pipe.ts", "src/App.vue"]
 tests: []
 related: ["ADR-0029", "ADR-0031"]
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0036 층별 분기의 분기점

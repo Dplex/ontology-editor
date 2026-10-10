@@ -2067,7 +2067,7 @@ const editSpaces = computed(() =>
     .filter(({ space }) => matches(`${space.name} ${space.longName ?? ''}`)),
 )
 // 설비는 소속 방 이름으로도 찾는다. 보기 모드에는 물리존 표가 없어서, "S.T"·"OFFICE" 를 치면 아무것도 안 나왔다.
-// 든 커스텀존의 이름·별명으로도 찾는다(ADR-0012) — "임원석" 을 치면 그 존 안의 설비가 나온다.
+// 든 커스텀존의 이름·별명으로도 찾는다(ADR-0004) — "임원석" 을 치면 그 존 안의 설비가 나온다.
 const editEquipment = computed(() => {
   const zoneText = new Map<string, string>()
   if (editQuery.value.trim() && model.value) for (const [id, names] of zoneNamesOfEquipment(model.value)) zoneText.set(id, names.join(' '))
@@ -5958,7 +5958,7 @@ function renameZone(input: HTMLInputElement) {
   if (!changeCustomZones(picked.storey.id, `커스텀존 이름 ${name}`, (m) => renameCustomZone(m, picked.zone.id, name))) input.value = picked.zone.name
 }
 
-/** 더 붙인 별명(ADR-0012). 쉼표·줄바꿈으로 가른다. 막히면(OE-SPC-06) 칸을 원래 별명으로 되돌린다. */
+/** 더 붙인 별명(ADR-0004). 쉼표·줄바꿈으로 가른다. 막히면(OE-SPC-06) 칸을 원래 별명으로 되돌린다. */
 function setZoneAliases(input: HTMLInputElement) {
   const picked = selectedCustomZone.value
   if (!picked) return
@@ -10455,7 +10455,7 @@ function rollbackFromReport() {
             이름
             <input type="text" data-testid="zone-name" v-keep-typing :value="selectedCustomZone.zone.name" @change="renameZone($event.target as HTMLInputElement)" />
           </label>
-          <!-- 별명은 여러 개(ADR-0012). 첫 이름이 TTL rdfs:label, 여기 적은 것은 ex:alias 다. 쉼표로 가른다. -->
+          <!-- 별명은 여러 개(ADR-0004). 첫 이름이 TTL rdfs:label, 여기 적은 것은 ex:alias 다. 쉼표로 가른다. -->
           <label v-if="editing" class="space-name">
             다른 별명
             <input

@@ -10,8 +10,6 @@ criteria: []
 code: ["scripts/docs-index.mjs", "scripts/docs-ctx.mjs", "scripts/docs-mcp.mjs", "scripts/ac-coverage.ts", "scripts/prd-ac-label.mjs", "scripts/sync-board.mjs"]
 tests: ["scripts/docs-mcp.test.ts", "src/lib/adr.test.ts", "src/lib/ac-tags.test.ts"]
 related: ["ADR-0001"]
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0048 티켓 맥락 한 번에 보기 · ADR 머리 칸 · AC 번호

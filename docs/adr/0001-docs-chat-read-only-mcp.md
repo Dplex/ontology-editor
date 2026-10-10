@@ -10,8 +10,6 @@ criteria: []
 code: ["scripts/serve.mjs", "scripts/docs-chat.mjs", "scripts/docs-mcp.mjs"]
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0001 문서 챗봇은 읽기 전용 MCP 로 55 의 gemini 에 붙인다

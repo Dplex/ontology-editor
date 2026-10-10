@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/ifc/units.ts", "src/lib/outline-fill.ts"]
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0025 방의 BIM 면적과 외곽선 채우기의 경고

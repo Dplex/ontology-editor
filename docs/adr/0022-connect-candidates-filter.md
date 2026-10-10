@@ -10,8 +10,6 @@ criteria: []
 code: []
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0022 연결 누락의 후보는 거르고 보이며, 사람이 골라 잇는다

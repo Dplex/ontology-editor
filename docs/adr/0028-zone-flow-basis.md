@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/hvac-zone.ts"]
 tests: []
 related: ["ADR-0026"]
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0028 공조존 연결 기준의 범위와 경고

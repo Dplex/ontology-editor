@@ -259,7 +259,7 @@ export function equipmentMarker(position: readonly [number, number, number], col
 
 /**
  * 넣은 3D 모델(OE-P3-08)의 재질을 Lambert 로 바꾼다. glTF 는 PBR 재질(MeshStandardMaterial)로 읽히는데, 3D 는 Lambert 와 빛 두 개로만
- * 음영을 낸다(ADR-0013). 색·텍스처·투명도는 그대로 둔다.
+ * 음영을 낸다(docs/dev/ui-notes.md). 색·텍스처·투명도는 그대로 둔다.
  */
 export function lambertize(root: Object3D): Object3D {
   const convert = (m: Material): Material => {

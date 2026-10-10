@@ -10,8 +10,6 @@ criteria: []
 code: []
 tests: []
 related: ["ADR-0002"]
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0003 외벽 전용 설비는 벽 면에 붙여 벽을 따라가게 하고, 벽 크기는 꼭짓점 4개인 벽까지 고치며, 높이는 형상에서 읽는다

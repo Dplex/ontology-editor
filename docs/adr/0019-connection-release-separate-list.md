@@ -10,8 +10,6 @@ criteria: []
 code: []
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0019 BIM 포트 연결의 해제 보정은 연결을 별도 목록으로 옮겨 둔다

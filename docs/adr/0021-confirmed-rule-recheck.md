@@ -10,8 +10,6 @@ criteria: []
 code: []
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0021 확정한 규칙 방향도 규칙을 돌릴 때마다 새로 잰다

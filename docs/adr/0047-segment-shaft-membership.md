@@ -10,8 +10,6 @@ criteria: ["OE-ML-09#4", "OE-ML-14#5", "OE-ML-14#6"]
 code: ["src/lib/shaft.ts"]
 tests: ["src/lib/shaft.test.ts", "e2e/riser.spec.ts"]
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0047 덕트·배관 구간의 샤프트 소속

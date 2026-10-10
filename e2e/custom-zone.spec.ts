@@ -68,7 +68,7 @@ test('커스텀존을 그리면 품는 방·든 설비가 계산되고, 이름·
   expect(errors).toEqual([])
 })
 
-test('커스텀존에 별명을 여럿 달면 패널·TTL 에 나온다 (ADR-0012) [OE-SPC-10#1]', async ({ page }) => {
+test('커스텀존에 별명을 여럿 달면 패널·TTL 에 나온다 (ADR-0004) [OE-SPC-10#1]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -104,7 +104,7 @@ test('커스텀존에 별명을 여럿 달면 패널·TTL 에 나온다 (ADR-001
   expect(errors).toEqual([])
 })
 
-// 설비 검색은 든 커스텀존의 이름·별명으로도 찾는다(ADR-0012). 검색 칸은 물리존+설비가 50 을 넘는 파일에만 있어 Duplex MEP 로 잰다.
+// 설비 검색은 든 커스텀존의 이름·별명으로도 찾는다(ADR-0004). 검색 칸은 물리존+설비가 50 을 넘는 파일에만 있어 Duplex MEP 로 잰다.
 const DUPLEX_MEP = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc'
 test('Duplex MEP: 커스텀존의 별명으로 검색하면 그 존 안의 설비가 나온다', async ({ page }) => {
   test.skip(!existsSync(DUPLEX_MEP), `${DUPLEX_MEP} 이 없다(npm run fetch:sample)`)

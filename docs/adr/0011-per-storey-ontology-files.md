@@ -9,8 +9,6 @@ criteria: []
 code: ["src/lib/export/storey-export.ts", "src/lib/export/ttl.ts"]
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0011 층 단위 생성은 층마다 TTL·GeoJSON 두 파일로 export 하고, 층 파일을 모두 합치면 건물 전체 TTL 과 같은 triple 이 되도록 나눈다
