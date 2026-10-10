@@ -1737,6 +1737,28 @@ th {
   color: #fff;
 }
 
+/* 편집 대상 [공간 | 설비](OE-UI-04). 편집 막대의 칩 옆이라 글자는 막대와 같은 크기다. */
+.edit-part {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.edit-part button {
+  padding: 0.2rem 0.65rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.edit-part button.on {
+  background: var(--accent);
+  color: #fff;
+}
+
 /* 천장 편집 모드(OE-OBJ-08). 잠긴 도구는 흐리게 — 누르면 어디서 편집하는지 알린다(disabled 면 눌리지 않아 안내를 못 한다). */
 .tool-palette button.locked {
   opacity: 0.45;

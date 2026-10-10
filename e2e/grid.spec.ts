@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 그리드 정렬(OE-UI-07). 그리기 막대에서 켜면 3D·평면도에 선이 보이고, 찍은 점이 교점으로 간다. mep.ifc 1F 사무실(10×8), 디퓨저 AT-101-01(3,4).
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
@@ -17,6 +18,7 @@ test('그리드를 켜면 선이 보이고 찍은 점이 교점으로 가서, �
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await toSpace(page)
   await page.getByRole('button', { name: '물리존 그리기' }).click()
   const bar = page.locator('.draw-bar')
   expect(await viewer<number>(page, 'grid')).toBe(0)

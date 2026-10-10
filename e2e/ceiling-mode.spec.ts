@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 천장 편집 모드(OE-OBJ-08). 설비 편집의 [바닥·벽 / 천장] 토글(T). 바닥·벽 쪽에서 천장 설비는 고르기·조회만, 천장 쪽에서는 천장 설비만
 // 고친다. 반자 높이를 모르는 층은 천장 모드에서 입력을 받기 전에 천장 설비를 놓지 않는다. mep.ifc 에는 반자 높이가 없고, 사무실에
@@ -46,9 +47,8 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
   await expect(page.locator('.picked h3')).toHaveCount(0)
   await expect(page.locator('.ceiling-ask')).toBeVisible()
   await expect(page.getByRole('button', { name: '설비 더하기' })).toBeDisabled()
-  // 공간 도구는 잠겨 있고 누르면 알린다
-  await page.getByRole('button', { name: '물리존 그리기' }).click()
-  await expect(page.locator('.edit-notice').first()).toContainText('공간은 [바닥·벽] 쪽에서 편집')
+  // 천장은 설비 편집 모드의 한쪽이라 공간 도구가 팔레트에 없다(OE-UI-04)
+  await expect(page.getByRole('button', { name: '물리존 그리기' })).toHaveCount(0)
 
   await page.getByLabel('천장 모드 천장고(m)').fill('2.7')
   await page.getByLabel('천장 모드 천장고(m)').press('Enter')

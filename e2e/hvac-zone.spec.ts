@@ -11,7 +11,7 @@ async function ttlOf(page: Page, out: string): Promise<string> {
   return readFileSync(out, 'utf8')
 }
 
-test('담당 물리존을 골라 공조존을 만들고 담당 설비를 고르면 TTL 에 HVAC_Zone 과 feeds 가 나가며, 경계를 그려 나눠 만들 수 있다 [OE-ZON-01#1] [OE-ZON-02#1]', async ({ page }, info) => {
+test('담당 물리존을 골라 공조존을 만들고 담당 설비를 고르면 TTL 에 HVAC_Zone 과 feeds 가 나가며, 경계를 그려 나눠 만들 수 있다 [OE-ZON-01#1] [OE-ZON-02#1] [OE-UI-04#5~]', async ({ page }, info) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.addInitScript(() => {

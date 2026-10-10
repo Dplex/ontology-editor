@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 룸(OE-OBJ-03 · OE-SPC-11). 물리존 안에 대각선 두 꼭짓점으로 그리는 사각 편집 단위. 다른 룸과 겹치거나 물리존 밖으로 나가는 시도는
 // 막고 원래 상태로 둔다. 바닥을 누르면 룸이 물리존보다 먼저 골라지고, 꼭짓점 손잡이로 크기를, 방향키로 자리를 바꾼다.
@@ -12,6 +13,7 @@ async function clickAt(page: Page, x: number, y: number, z = 0) {
   await page.mouse.click(at.x, at.y)
 }
 async function drawRoom(page: Page, a: [number, number], b: [number, number]) {
+  await toSpace(page)
   await page.getByRole('button', { name: '룸 그리기' }).click()
   await clickAt(page, ...a)
   await clickAt(page, ...b)

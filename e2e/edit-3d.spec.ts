@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 3D 에서 고치는 네 가지(설비 끌기 E5, 꼭짓점 끌기 E2, 연결 방향, 층 옮기기 E6)를 실제 마우스로 재현한다.
 // 3D 는 DOM 이 아니라서 어디를 눌러야 하는지를 e2e 모드에서만 열리는 window.__viewer 로 묻는다
@@ -124,6 +125,7 @@ test('편집 모드에서 고른 설비를 3D 로 끌면 좌표와 소속이 바
 test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓점을 끌면 넓이와 소속이 바뀐다 [OE-SPC-03#1,4]', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
+  await toSpace(page)
 
   // 사무실 모서리 근처 빈 바닥. 설비가 없는 자리를 눌러야 물리존이 골라진다.
   const floor = (await viewer<Pt>(page, 'point', [9.6, 7.6, 0.1]))!
@@ -295,19 +297,21 @@ test('3D 로 끈 설비는 Ctrl+Z 로 좌표·출처·소속이 끌기 전으로
   expect(errors).toEqual([])
 })
 
-test('설비 끌기 → 꼭짓점 → 연결 방향을 Ctrl+Z 세 번이면 한 단계씩 거꾸로 되돌린다', async ({ page }) => {
+test('설비 끌기 → 꼭짓점 → 연결 방향을 Ctrl+Z 세 번이면 한 단계씩 거꾸로 되돌린다 — 모드를 바꿔 한 편집도 같은 이력이다 [OE-UI-04#8]', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
   const bar = page.locator('.edit-bar')
 
   // ① 설비 끌기
   await dragAhuOut(page)
-  // ② 꼭짓점: (10,0) 을 (4,4) 로. 넓이 36, AT-101-02 가 밖으로.
+  // ② 꼭짓점: (10,0) 을 (4,4) 로. 넓이 36, AT-101-02 가 밖으로. 공간 편집 모드로 바꿔 끈다 — 되돌리기 이력은 모드를 건너 하나다(OE-UI-04).
+  await toSpace(page)
   const floor = (await viewer<Pt>(page, 'point', [9.6, 7.6, 0.1]))!
   await page.mouse.click(floor.x, floor.y)
   await drag(page, (await viewer<Pt>(page, 'point', [10, 0, 0.12]))!, (await viewer<Pt>(page, 'point', [4, 4, 0.12]))!)
   await expect(page.locator('.space-picked')).toContainText('36.0')
   // ③ 연결 방향: DUCT-01 → AT-101-02 를 사람이 정한다.
+  await toEquipment(page)
   await pick(page, 'DUCT-01')
   const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
   const arrow = (await viewer<{ a: string; b: string; at: Pt }[]>(page, 'arrows')).find((x) => x.a === AT02 || x.b === AT02)!

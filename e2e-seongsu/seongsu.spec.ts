@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from '../e2e/edit-part'
 
 // docs/seongsu-test.md 의 화면 항목(B~O)을 성수 건축+기계로 돈다. 두 파일을 한 번 열고 한 페이지에서 차례로 간다 —
 // 여는 데만 15초가 넘고, 항목 대부분이 같은 모델 위의 편집이라서다. 그래서 편집 묶음마다 끝에 Ctrl+Z 로 연 때로
@@ -84,12 +85,15 @@ async function openFold(title: string | RegExp) {
   const head = page.locator('.fold-head', { hasText: title }).first()
   if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
 }
-async function editMode(on: boolean) {
+async function editMode(on: boolean, part: 'space' | 'equipment' = 'equipment') {
   const button = page.getByRole('button', { name: on ? '편집' : '보기', exact: true })
   if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click()
   // 시험마다 바닥·벽 쪽에서 시작한다. 앞 시험이 천장 설비를 고르느라 천장 편집 모드에 둔 채 끝날 수 있다(pickDevice). 그 모드는 한 층만
   // 보이게 바꾸므로 보이는 층도 처음처럼 모든 층으로 돌린다.
+  // 편집 대상(OE-UI-04). 천장 토글은 설비 편집 모드에만 있어 먼저 설비로 간다. 물리존·벽 시험(F·N·P)은 그다음 공간으로 간다.
+  if (on) await toEquipment(page)
   if (on && (await ceilingMode(false))) await showStorey(null)
+  if (on && part === 'space') await toSpace(page)
 }
 /**
  * 천장 편집 모드(OE-OBJ-08). 천장 설비(성수 FCU 는 천장고 위 플레넘)는 이 모드에서만 옮기고 지운다 — 바닥·벽 쪽에서는 위치 칸이 잠긴다.
@@ -755,7 +759,7 @@ function partitionWalls(storey: string) {
 const panelArea = async () => Number(await page.locator('.space-picked .stats b.mono').first().innerText())
 
 test('F 물리존: 바닥 고르기·꼭짓점 끌기·짚고 옮기기·넣고 지우기·교차·만들기·나누기·합치기·지우기와 되돌리기', async () => {
-  await editMode(true)
+  await editMode(true, 'space')
   await showStorey(STOREY)
   const target = await roomToEdit(stemOf(STOREY))
   expect(target, '3F 에서 누를 방을 못 찾았다').not.toBeNull()
@@ -1033,7 +1037,7 @@ test('J 완전성 검사에서 한 번에 고치기', async () => {
 })
 
 test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 놓기·지우기와 방 경계 같이', async () => {
-  await editMode(true)
+  await editMode(true, 'space')
   await showStorey(STOREY)
   const layer = page.getByRole('button', { name: '벽·문·창' })
   const n1 = await timed(() => layer.click())
@@ -1140,7 +1144,7 @@ test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 
 })
 
 test('P 외벽 에디터·치수: 켜기·같은 면 묶기·전 층 옮기기·층 바꿔도 안 묻기·되돌리기, 벽 치수', async () => {
-  await editMode(true)
+  await editMode(true, 'space')
   await showStorey(null)
   const layer = page.getByRole('button', { name: '벽·문·창' })
   await layer.click()

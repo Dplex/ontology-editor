@@ -1,4 +1,5 @@
 import { expect, test, type Download, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 내보낸 파일 뷰어(viewer.html). 에디터에서 내려받은 TTL·GeoJSON 을 그대로 다시 열어, 받는 쪽 규칙으로 읽은 것과 두 파일이
 // id 로 이어지는지를 본다. 파일을 고르는 길은 사람이 하는 것과 같다(내려받기 → 파일 고르기).
@@ -158,11 +159,13 @@ test('사람이 그린 룸과 놓은 추가 공간 오브젝트가 GeoJSON 에 �
   await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
   // 회의실(2..6, 1..4) 안에 룸 하나, 그 옆에 책상 하나
+  await toSpace(page)
   await page.getByRole('button', { name: '룸 그리기' }).click()
   await clickAt(2.5, 1.5)
   await clickAt(4, 3)
   await expect(page.locator('.room-picked h3')).toHaveText('룸 1')
   await page.keyboard.press('Escape')
+  await toSpace(page)
   await page.getByRole('button', { name: /^오브젝트/ }).click()
   await page.locator('.object-library').getByRole('button', { name: '책상', exact: true }).click()
   await clickAt(5, 2)

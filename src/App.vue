@@ -1650,6 +1650,9 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
     case 'ceiling':
       setCeilingMode(!ceilingMode.value)
       return true
+    case 'editPart':
+      setEditPart(editPart.value === 'space' ? 'equipment' : 'space')
+      return true
     case 'confirm': {
       const r = selectedRule.value
       if (!r) return false
@@ -1828,6 +1831,10 @@ function flushNudge() {
 
 /** 짚은 꼭짓점을 방향키로. 끌어 놓을 때처럼 경계가 엇갈리는 자리에는 놓지 않는다. */
 function nudgeVertex(code: string, step: number): boolean {
+  if (editPart.value !== 'space') {
+    editNotice.value = SPACE_IN_EQUIPMENT
+    return true
+  }
   const picked = selectedSpace.value!
   const index = activeVertex.value
   if (index === null) {
@@ -1977,6 +1984,12 @@ function dropVertex(spaceId: string, index: number, raw: Vec2) {
       // 끌던 손잡이를 원래 고리로 다시 그린다.
       sceneVersion.value++
     }
+    return
+  }
+  // 공간은 공간 편집 모드에서만 고친다(OE-UI-04). 끌던 손잡이를 원래 고리로 다시 그린다.
+  if (editPart.value !== 'space') {
+    editNotice.value = SPACE_IN_EQUIPMENT
+    sceneVersion.value++
     return
   }
   // 룸의 꼭짓점(OE-SPC-11). 맞은편 꼭짓점을 두고 크기를 바꾼다.
@@ -2198,6 +2211,11 @@ watch([model, canvas], ([m, el]) => {
     viewer.onPlace((at) => placeAt(at))
     viewer.onPickSpace(pickSpace)
     viewer.onEquipmentMove(dropEquipment)
+    viewer.onFrozenGrab((id) => {
+      const e = equipmentById.value.get(id)
+      const lock = e ? editLock(e) : null
+      if (e && lock) refuseLock(e, lock)
+    })
     viewer.onPickElement((id) => (selectedElementId.value = id))
     viewer.onPickObject(selectObject)
     viewer.onObjectMove((id, delta) => {
@@ -2339,6 +2357,10 @@ function applyRoomName(name: string) {
 function nudgeRoom(code: string, step: number): boolean {
   const r = selectedRoom.value
   if (!r || !viewer) return false
+  if (editPart.value !== 'space') {
+    editNotice.value = SPACE_IN_EQUIPMENT
+    return true
+  }
   const { right, up } = viewer.planeAxes()
   const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
   const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
@@ -5007,6 +5029,13 @@ const ceilingMarks = computed<CeilingMark[]>(() => {
 // 반투명 천장면을 그린다. 천장 설비만 놓고·옮기고·지우고·이름과 종류를 고친다(옮기기는 x·y 만, z 는 패널). 나머지는 회색이고 고르기·
 // 조회만 된다. 바닥·벽 쪽(평소 편집)에서는 거꾸로 천장 설비가 고르기·조회만 된다. 모드는 화면 상태라 저장하지 않는다.
 const ceilingMode = ref(false)
+/**
+ * 편집 대상(OE-UI-04). 공간(물리존·룸·커스텀존·벽·문·창·추가 오브젝트)과 설비(설비·배관·천장). 팔레트가 그 모드의 도구만 보이고, 다른 모드의
+ * 오브젝트는 고르고 볼 수 있지만 끌거나 방향키로 옮기면 막고 어느 모드에서 고치는지 알린다. 되돌리기 이력은 모드와 상관없이 하나다.
+ */
+const editPart = ref<'space' | 'equipment'>('equipment')
+const EQUIPMENT_IN_SPACE = '설비는 설비 편집 모드에서 편집합니다([설비] 또는 M).'
+const SPACE_IN_EQUIPMENT = '물리존·룸·벽은 공간 편집 모드에서 편집합니다([공간] 또는 M).'
 // 천장 모드에서는 위에서 내려다보니 링이 설비와 겹친다 — 그리지 않는다.
 watch([ceilingMarks, sceneVersion, selectedId, () => ceilingMode.value], () => viewer?.setCeilingMarks(ceilingMode.value ? [] : ceilingMarks.value, selectedId.value))
 /** 천장 설비 id(좌표가 있는 것). 바닥 링과 같은 판단이다. */
@@ -5027,6 +5056,7 @@ function editLock(e: Equipment): string | null {
   // 엘리베이터·에스컬레이터는 수직 관통 오브젝트라 층 편집 화면에서는 고르고 보기만 한다(OE-EQP-07·OE-ML-05). 종류는 고칠 수 있다 —
   // 이름 사전이 잘못 읽은 것을 풀 길이 없으면 그 설비가 계속 잠긴다.
   if (VERTICAL_DEVICES.has(e.kind ?? '')) return VERTICAL_LOCKED
+  if (editPart.value === 'space') return EQUIPMENT_IN_SPACE
   if (!e.position) {
     if (ceilingMode.value) return isConduit(e.role) ? '덕트·배관은 바닥·벽 쪽에서 편집합니다.' : canMountOn(e, 'ceiling') ? null : NOT_ON_CEILING
     return surfaceOf(e) === 'ceiling' ? '천장 전용 설비는 천장 편집 모드에서 놓습니다([천장] 또는 T).' : null
@@ -5058,8 +5088,31 @@ const ceilingAsk = computed(() => {
   return ceilingMode.value && !!st && !ceilingOf(st)
 })
 
+function setEditPart(part: 'space' | 'equipment') {
+  if (part === editPart.value || !editing.value) return
+  // 하던 것을 끝낸다 — 공간 모드에서 설비를 놓던 상태가 남으면 헷갈린다.
+  stopPlace()
+  stopAdd()
+  if (drawing.value) stopDraw()
+  connectFrom.value = null
+  if (part === 'space') {
+    if (ceilingMode.value) ceilingMode.value = false
+    group.value = []
+  } else {
+    archMode.value = false
+    objectsOpen.value = false
+  }
+  editPart.value = part
+  note(part === 'space' ? '공간 편집 모드입니다 — 물리존·룸·커스텀존·벽·문·창·오브젝트를 고칩니다. 설비는 고르고 보기만 합니다(M)' : '설비 편집 모드입니다 — 설비·배관·천장 설비를 고칩니다. 공간은 고르고 보기만 합니다(M)')
+}
+watch(editing, (on) => {
+  if (!on) editPart.value = 'equipment'
+})
+
 function setCeilingMode(on: boolean) {
   if (on === ceilingMode.value) return
+  // 천장은 설비 편집 모드의 한쪽이다.
+  if (on && editPart.value === 'space') setEditPart('equipment')
   if (!on) {
     ceilingMode.value = false
     note('천장 편집 모드를 나왔습니다. 바닥·벽 쪽입니다')
@@ -8550,6 +8603,11 @@ function rollbackFromReport() {
           <span class="mode-chip" :class="editKind" data-testid="edit-kind" :title="editKind === 'operate' ? '반영된 온톨로지가 있는 층을 고칩니다(OE-UI-02)' : '온톨로지가 없는 층을 처음 만듭니다(OE-UI-02)'">
             {{ editKind === 'operate' ? `운영 편집${loadedVersion ? ` · v${loadedVersion}` : ''}` : '초기 구축' }}
           </span>
+          <!-- 편집 대상(OE-UI-04). 팔레트의 도구가 바뀐다. 다른 쪽 오브젝트는 고르고 볼 수만 있다. -->
+          <span class="edit-part" role="group" aria-label="편집 대상">
+            <button type="button" :class="{ on: editPart === 'space' }" :aria-pressed="editPart === 'space'" title="물리존·룸·커스텀존·벽·문·창·오브젝트를 고칩니다 (M)" @click="setEditPart('space')">공간</button>
+            <button type="button" :class="{ on: editPart === 'equipment' }" :aria-pressed="editPart === 'equipment'" title="설비·배관·천장 설비를 고칩니다 (M)" @click="setEditPart('equipment')">설비</button>
+          </span>
           <span class="state"><b>편집 중</b> · <a href="#changes" class="link">바뀐 것 <Roll :value="changeCount" :count-up="false" />건</a></span>
           <button
             type="button"
@@ -8733,6 +8791,7 @@ function rollbackFromReport() {
             </p>
             <nav v-if="editing && !drawing && activeTab === '3d' && !multiView" class="tool-palette" aria-label="편집 도구">
               <!-- 천장 편집 모드(OE-OBJ-08). 천장 쪽에서는 공간 도구와 바닥·벽 도구가 잠기고, 누르면 어디서 편집하는지 알린다. -->
+              <template v-if="editPart === 'space'">
               <span class="palette-head">공간 그리기</span>
               <!-- 두 버튼을 한 줄에 둔다. 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
               <span class="palette-row">
@@ -8740,6 +8799,63 @@ function rollbackFromReport() {
                 <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="룸 그리기" title="물리존 안에 대각선 두 꼭짓점을 찍어 룸을 그립니다(OE-SPC-11)" @click="ceilingMode ? lockedTool() : startRoom()">룸</button>
                 <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="커스텀존 그리기" title="물리존 위에 운영 단위(임원석·식당 등)를 다각형으로 그립니다. 겹쳐도 됩니다(OE-OBJ-01)" @click="ceilingMode ? lockedTool() : startCustomZone()">커스텀존</button>
               </span>
+              <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). 옆의 [오브젝트] 는 추가 공간 오브젝트 라이브러리를 편다
+                   (OE-SPC-14). 둘을 한 줄에 두고 머리말도 따로 두지 않는다 — 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
+              <span class="palette-row">
+                <button type="button" :class="['ghost', { on: archMode, locked: ceilingMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="ceilingMode ? lockedTool() : (archMode = !archMode)">
+                  벽·문·창
+                </button>
+                <button
+                  type="button"
+                  :class="['ghost', 'objects-toggle', { on: objectsOpen || adding?.what === 'object', locked: ceilingMode }]"
+                  :aria-expanded="objectsOpen"
+                  title="책상·의자 같은 추가 공간 오브젝트를 라이브러리에서 골라 놓습니다(OE-OBJ-09)"
+                  @click="ceilingMode ? lockedTool() : (objectsOpen = !objectsOpen)"
+                >
+                  오브젝트
+                </button>
+              </span>
+              <div v-if="objectsOpen && !ceilingMode" class="object-library" role="group" aria-label="오브젝트 라이브러리">
+                <button
+                  v-for="item in objectLibrary"
+                  :key="item.key"
+                  type="button"
+                  :class="['ghost', { on: adding?.what === 'object' && adding.item === item.key }]"
+                  :title="`${item.name} · ${item.size.map((v) => v.toFixed(2)).join(' × ')} m`"
+                  @click="adding?.what === 'object' && adding.item === item.key ? stopAdd() : startAddObject(item.key)"
+                >
+                  {{ item.name }}
+                </button>
+                <button type="button" class="ghost object-import" title="glb(또는 자료를 품은 glTF) 파일을 넣어 라이브러리 항목을 만듭니다(OE-P3-08)" @click="modelInput?.click()">
+                  + 3D 모델
+                </button>
+                <input
+                  ref="modelInput"
+                  type="file"
+                  accept=".glb,.gltf,model/gltf-binary,model/gltf+json"
+                  hidden
+                  data-testid="object-model-input"
+                  @change="(ev) => { const f = (ev.target as HTMLInputElement).files?.[0]; if (f) importObjectModel(f); (ev.target as HTMLInputElement).value = '' }"
+                />
+              </div>
+              <template v-if="archMode">
+                <button type="button" class="ghost" title="바닥에 두 점을 찍어 벽을 긋습니다" @click="startWall">벽 긋기</button>
+                <button type="button" :class="['ghost', { on: adding?.what === 'door' }]" title="벽 가까이 눌러 문을 놓습니다" @click="adding?.what === 'door' ? stopAdd() : startOpening('door')">문 놓기</button>
+                <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
+                <!-- 외벽 에디터(OE-EXT-03). 외벽을 고르면 다른 층의 같은 면 외벽까지 묶어 함께 옮긴다. -->
+                <button
+                  type="button"
+                  :class="['ghost', { on: exteriorEditor }]"
+                  :aria-pressed="exteriorEditor"
+                  title="외벽을 고르면 다른 층에서 같은 면에 쌓인 외벽까지 묶어, 방향키로 전 층을 함께 옮깁니다"
+                  data-testid="exterior-editor"
+                  @click="exteriorEditor = !exteriorEditor"
+                >
+                  외벽 에디터
+                </button>
+              </template>
+              </template>
+              <template v-else>
               <!-- [바닥·벽 / 천장] 토글(T). 제목 줄에 둔다 — 줄을 하나 더 쓰면 팔레트가 3D 왼쪽 아래 바닥을 가린다. -->
               <span class="palette-head palette-head-row">
                 설비
@@ -8808,60 +8924,8 @@ function rollbackFromReport() {
                 <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.attached) }"></i>반자 부착
                 <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.plenum) }"></i>플레넘
               </span>
-              <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). 옆의 [오브젝트] 는 추가 공간 오브젝트 라이브러리를 편다
-                   (OE-SPC-14). 둘을 한 줄에 두고 머리말도 따로 두지 않는다 — 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
-              <span class="palette-row">
-                <button type="button" :class="['ghost', { on: archMode, locked: ceilingMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="ceilingMode ? lockedTool() : (archMode = !archMode)">
-                  벽·문·창
-                </button>
-                <button
-                  type="button"
-                  :class="['ghost', 'objects-toggle', { on: objectsOpen || adding?.what === 'object', locked: ceilingMode }]"
-                  :aria-expanded="objectsOpen"
-                  title="책상·의자 같은 추가 공간 오브젝트를 라이브러리에서 골라 놓습니다(OE-OBJ-09)"
-                  @click="ceilingMode ? lockedTool() : (objectsOpen = !objectsOpen)"
-                >
-                  오브젝트
-                </button>
-              </span>
-              <div v-if="objectsOpen && !ceilingMode" class="object-library" role="group" aria-label="오브젝트 라이브러리">
-                <button
-                  v-for="item in objectLibrary"
-                  :key="item.key"
-                  type="button"
-                  :class="['ghost', { on: adding?.what === 'object' && adding.item === item.key }]"
-                  :title="`${item.name} · ${item.size.map((v) => v.toFixed(2)).join(' × ')} m`"
-                  @click="adding?.what === 'object' && adding.item === item.key ? stopAdd() : startAddObject(item.key)"
-                >
-                  {{ item.name }}
-                </button>
-                <button type="button" class="ghost object-import" title="glb(또는 자료를 품은 glTF) 파일을 넣어 라이브러리 항목을 만듭니다(OE-P3-08)" @click="modelInput?.click()">
-                  + 3D 모델
-                </button>
-                <input
-                  ref="modelInput"
-                  type="file"
-                  accept=".glb,.gltf,model/gltf-binary,model/gltf+json"
-                  hidden
-                  data-testid="object-model-input"
-                  @change="(ev) => { const f = (ev.target as HTMLInputElement).files?.[0]; if (f) importObjectModel(f); (ev.target as HTMLInputElement).value = '' }"
-                />
-              </div>
-              <template v-if="archMode">
-                <button type="button" class="ghost" title="바닥에 두 점을 찍어 벽을 긋습니다" @click="startWall">벽 긋기</button>
-                <button type="button" :class="['ghost', { on: adding?.what === 'door' }]" title="벽 가까이 눌러 문을 놓습니다" @click="adding?.what === 'door' ? stopAdd() : startOpening('door')">문 놓기</button>
-                <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
-                <!-- 외벽 에디터(OE-EXT-03). 외벽을 고르면 다른 층의 같은 면 외벽까지 묶어 함께 옮긴다. -->
-                <button
-                  type="button"
-                  :class="['ghost', { on: exteriorEditor }]"
-                  :aria-pressed="exteriorEditor"
-                  title="외벽을 고르면 다른 층에서 같은 면에 쌓인 외벽까지 묶어, 방향키로 전 층을 함께 옮깁니다"
-                  data-testid="exterior-editor"
-                  @click="exteriorEditor = !exteriorEditor"
-                >
-                  외벽 에디터
-                </button>
+              <!-- 라이저(OE-UI-04 · OE-ML-12). 층간 배관은 다중층 뷰에서 그린다 — 설비를 고르면 다른 층 설비까지 잇는 칸이 뜬다. -->
+              <button v-if="model && model.storeys.length > 1" type="button" class="ghost" title="다중층 뷰를 열어 층간 배관(라이저)을 그립니다" @click="openMultiView()">라이저</button>
               </template>
             </nav>
             <!-- 시점 조작 안내(OE-OBJ-15). 지도처럼 왼쪽 드래그가 화면 이동이다. 편집 모드의 Ctrl+드래그는 여러 개 고르기다(OE-UI-09). -->

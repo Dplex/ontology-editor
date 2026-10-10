@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 평면도 탭. 층 하나를 위에서 그리고, 편집 모드에서 방 꼭짓점을 끌면 3D 에서 놓는 것과 같은 길(dropVertex)로 경계를 고친다.
 const FIXTURE = 'src/lib/ifc/fixtures/two-rooms.ifc'
@@ -29,6 +30,7 @@ test('평면도 탭은 고른 층을 위에서 그리고, 편집 모드에서 �
   await expect(page.locator('.space-picked .hint')).toHaveCount(0)
 
   await page.getByRole('button', { name: '편집', exact: true }).click()
+  await toSpace(page)
   await expect(plan.locator('.handle').first()).toBeVisible()
   const handle = plan.locator('.handle').nth(1)
   // 가운데로 스크롤한다. 위쪽에 붙으면 편집 막대(sticky)가 손잡이를 덮는다.
@@ -217,6 +219,7 @@ test('Duplex 건축: 내력벽은 밝은·어두운 테마 모두 보통 벽보�
   await wall.click({ force: true })
   await expect(page.locator('.element-picked')).toHaveCount(0)
   await tab(page, '3D')
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await tab(page, '평면도')
   await wall.click({ force: true })

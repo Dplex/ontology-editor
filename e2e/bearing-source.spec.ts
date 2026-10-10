@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 내력 여부의 출처(OE-OBJ-06). BIM 이 적은 값은 "BIM", 패널에서 바꾸면 "편집" 이고, 연 때 값으로 돌리면 다시 "BIM" 이다.
 // Duplex 건축 Level 1 의 벽은 전부 비내력(BIM)이다.
@@ -11,6 +12,7 @@ test('BIM 벽의 내력 여부를 바꾸면 출처가 편집이 되고 잠기며
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toHaveText('NBU_Duplex-Apt_Arch.ifc', { timeout: 90_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)

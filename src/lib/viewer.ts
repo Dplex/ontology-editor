@@ -405,6 +405,8 @@ export type Viewer = {
   setCeilingView(view: CeilingView | null): void
   /** 끌어 옮기지 못하는 설비(모드 밖의 설비, OE-OBJ-08). 고르기는 된다. */
   setFrozen(ids: ReadonlySet<string>): void
+  /** 얼린(지금 모드에서 고칠 수 없는) 고른 설비를 끌려 했다. 화면은 이유를 알린다(OE-UI-04 · OE-OBJ-08). 끌기는 시점 이동이 된다. */
+  onFrozenGrab(handler: (id: string) => void): void
   /**
    * 평면도 배경 이미지(OE-MAN-02). 네 귀퉁이(IFC 평면, 왼쪽 위부터 시계 방향)에 이미지를 펴서 층 바닥 바로 위에 깐다. 누를 수 없고,
    * 물리존을 그리는 바닥 클릭은 그대로 바닥에 찍힌다. null 이면 걷는다.
@@ -700,6 +702,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let backdropCorners: readonly [Vec2, Vec2, Vec2, Vec2] | null = null
   let dimIds: ReadonlySet<string> = new Set()
   let frozenIds: ReadonlySet<string> = new Set()
+  let frozenGrabHandler: (id: string) => void = () => {}
   let lastHighlight: Highlight | null = null
   /** 누를 수 있는 벽·문·창. 문·창은 자리(`at`)와, 가로를 알면 벽을 따라 편 반 폭(`half`, 방향 `dir`)을 든다. */
   let archTargets: { id: string; storeyId: string; y: number; rings?: readonly (readonly Vec2[])[]; at?: Vec2; dir?: Vec2; half?: number }[] = []
@@ -1157,6 +1160,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         // 가려도 잡힌다 — 덕트 사이의 VAV 처럼 가운데가 늘 가려진 설비가 있다. 끌지 않고 떼면 맨 앞의 것을
         // 고른다(pointerup).
         const part = grabbable(ray)
+        if (!part) {
+          // 고른 설비가 얼어 있으면 끌리지 않는다 — 왜 안 끌리는지 알리게 화면에 말한다.
+          for (const id of grabIds) {
+            const frozen = frozenIds.has(id) && !hiddenIds.has(id) ? partById.get(id) : undefined
+            if (frozen && hitsPart(ray, frozen)) {
+              frozenGrabHandler(id)
+              break
+            }
+          }
+        }
         const held = !part && selectedObject ? pickObject(ray) : null
         if (held && held.target.id === selectedObject) {
           // 잡은 높이의 수평면 위로 끈다. 바닥면으로 끌면 비스듬히 볼 때 오브젝트가 마우스보다 빨리 간다.
@@ -2424,6 +2437,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     setFrozen(ids) {
       frozenIds = ids
+    },
+
+    onFrozenGrab(handler) {
+      frozenGrabHandler = handler
     },
 
     setGrid(grid) {

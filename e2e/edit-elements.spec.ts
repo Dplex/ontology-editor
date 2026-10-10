@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 벽·문·창 편집(E4)을 실제 마우스로 한다. mep.ifc 에는 벽이 없어서 벽부터 긋는다. 바닥 자리는 e2e 모드에서만 열리는
 // window.__viewer.point 로 묻는다(viewer.ts).
@@ -24,11 +25,13 @@ async function clickFloor(page: Page, x: number, y: number, z = 0) {
 test('벽을 긋고 문을 놓으면 양쪽 방을 잇고, 벽을 지우면 문도 빠지며 Ctrl+Z 로 돌아온다', async ({ page }) => {
   const errors = await open(page)
   // 사무실(0..10) 오른쪽에 창고를 먼저 그린다.
+  await toSpace(page)
   await page.getByRole('button', { name: '물리존 그리기' }).click()
   for (const [x, y] of [[10.2, 0], [14, 0], [14, 8], [10.2, 8]]) await clickFloor(page, x, y)
   await page.keyboard.press('Enter')
   await expect(page.locator('.space-picked')).toContainText('새 물리존 1')
 
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.getByRole('button', { name: '벽 긋기' }).click()
   await clickFloor(page, 10.1, 0)
@@ -83,6 +86,7 @@ test('벽을 긋고 문을 놓으면 양쪽 방을 잇고, 벽을 지우면 문�
 
 test('벽에서 먼 자리에는 문을 놓지 않고 이유를 알린다', async ({ page }) => {
   const errors = await open(page)
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.getByRole('button', { name: '벽 긋기' }).click()
   await clickFloor(page, 10.1, 0)
@@ -96,9 +100,11 @@ test('벽에서 먼 자리에는 문을 놓지 않고 이유를 알린다', asyn
 test('[방 경계도 같이] 를 켜고 벽을 옮기면 양쪽 방이 따라오고, 한 번에 되돌린다', async ({ page }) => {
   const errors = await open(page)
   // 사무실(0..10) 오른쪽에 창고(10.2..14)를 그리고, 그 사이(10.0..10.2)에 벽을 긋는다.
+  await toSpace(page)
   await page.getByRole('button', { name: '물리존 그리기' }).click()
   for (const [x, y] of [[10.2, 0], [14, 0], [14, 8], [10.2, 8]]) await clickFloor(page, x, y)
   await page.keyboard.press('Enter')
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.getByRole('button', { name: '벽 긋기' }).click()
   await clickFloor(page, 10.1, 0)
@@ -133,6 +139,7 @@ test('[방 경계도 같이] 를 켜고 벽을 옮기면 양쪽 방이 따라오
 // OE-OBJ-05. 벽은 다른 벽을 가로지를 수 없다(끝을 맞대는 것은 된다). 직사각형 벽은 패널에서 길이를 바꾼다.
 test('다른 벽을 가로지르는 벽은 긋지 못하고, 맞댄 벽은 길이를 바꿀 수 있지만 뚫게 되면 막힌다', async ({ page }) => {
   const errors = await open(page)
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   const panel = page.locator('.element-picked')
   await page.getByRole('button', { name: '벽 긋기' }).click()
@@ -171,6 +178,7 @@ test('다른 벽을 가로지르는 벽은 긋지 못하고, 맞댄 벽은 길�
 // OE-OBJ-07. 문·창은 자리(가운데)를 두고 가로·세로를 바꾼다. 벽 끝을 넘으면 막힌다.
 test('창을 놓고 가로·세로를 바꾸며, 벽 끝을 넘는 가로는 막힌다', async ({ page }) => {
   const errors = await open(page)
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   const panel = page.locator('.element-picked')
   await page.getByRole('button', { name: '벽 긋기' }).click()

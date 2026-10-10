@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 설비 더하기·이름·지우기(E7)와 물리존 그리기·나누기·합치기·지우기(E3)를 실제 마우스로 한다. 3D 의 바닥 자리는
 // e2e 모드에서만 열리는 window.__viewer.point 로 묻는다(viewer.ts).
@@ -75,6 +76,7 @@ test('BIM 설비를 지우면 붙은 연결도 빠지고, 되돌리면 연결까
 
 test('물리존을 그리면 안의 설비가 새 방으로 가고, 나누고 합치고 지운다', async ({ page }) => {
   const errors = await open(page)
+  await toSpace(page)
   await page.getByRole('button', { name: '물리존 그리기' }).click()
   for (const [x, y] of [[2, 3], [4, 3], [4, 5], [2, 5]]) await clickFloor(page, x, y)
   await page.keyboard.press('Enter')
