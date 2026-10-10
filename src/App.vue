@@ -9729,7 +9729,7 @@ function rollbackFromReport() {
               <label>
                 계통
                 <select v-model="pipeDraft.systemId" aria-label="층간 배관 계통">
-                  <option value="auto">양 끝이 같은 계통이면 그 계통</option>
+                  <option value="auto">{{ selected.role === 'segment' ? '주 배관의 계통' : '양 끝이 같은 계통이면 그 계통' }}</option>
                   <option value="none">계통 없음</option>
                   <option v-for="sys in model?.systems ?? []" :key="sys.id" :value="sys.id">{{ sys.name || sys.id }}</option>
                 </select>

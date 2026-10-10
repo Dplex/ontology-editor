@@ -8,7 +8,8 @@ import { importIfc } from './ifc/import'
 import { completenessChecks, explainFailure } from './checks'
 import { modelToGeoJSON } from './export/geojson'
 import { readGeoJSON } from './export/read-export'
-import { modelToTTL } from './export/ttl'
+import { escapeLocalName, modelToTTL } from './export/ttl'
+import { releaseConnection } from './connection-release'
 import { moveEquipment } from './edit'
 import { segmentPath, type Equipment, type Model } from './model'
 
@@ -34,6 +35,24 @@ describe('덕트·배관 경로 (OE-PIP-13)', () => {
     const ttl = modelToTTL(m)
     d.axis = [[0, 0, 0], [6, 0, 0]]
     expect(modelToTTL(m)).toBe(ttl)
+  })
+
+  it('형상이 없어 경로를 모르는 구간도 BIM 이 말한 연결은 TTL feeds 로 나가고, 그 연결을 해제하면 유효 출력에서 빠진다 [OE-ML-18#5]', () => {
+    const m = read()
+    const d = duct(m)
+    const ahu = m.storeys[0].equipment.find((e) => e.name === 'AHU-1')!
+    expect(segmentPath(d)).toEqual({ issue: 'no-geometry' })
+    const c = m.connections.find((x) => x.source === 'port' && x.from === ahu.id && x.to === d.id)!
+    const feedsDuct = () => {
+      const ttl = modelToTTL(m)
+      const at = ttl.indexOf(`ex:${escapeLocalName(ahu.id)} a `)
+      return ttl.slice(at, ttl.indexOf('\n\n', at)).split('\n').some((l) => l.includes('brick:feeds') && l.includes(`ex:${escapeLocalName(d.id)}`))
+    }
+    expect(feedsDuct()).toBe(true)
+    expect('refused' in releaseConnection(m, c, '현장 확인 — 없는 덕트', new Date('2026-10-10T00:00:00Z'))).toBe(false)
+    expect(feedsDuct()).toBe(false)
+    // 구간 자체(형상 없음 표시)는 그대로 GeoJSON 에 남는다 — 지운 것이 아니라 관계를 끈 것이다.
+    expect(feature(m, d.id).properties.pathIssue).toBe('형상 없음(경로를 모름)')
   })
 
   it('두 끝이 있으면 LineString 이고, 통째로 옮긴 양과 끝을 옮긴 양(endShift)이 더해진다. 원본의 (0,0,0) 은 유효한 좌표다 [OE-PIP-13#1,3] [OE-PIP-14#1~]', () => {

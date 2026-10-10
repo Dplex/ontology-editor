@@ -7,7 +7,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import { drawPipe } from './manual-pipe'
 import { branchPipe, type BranchSpec } from './branch-pipe'
-import { baselineOf, restore, snapshotEquipment, type Snapshot } from './edit'
+import { baselineOf, restore, setFlowDirection, snapshotEquipment, type Snapshot } from './edit'
+import { inferFlowByRules } from './flow-rules'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { releaseConnection, snapshotRelease } from './connection-release'
 import { modelToTTL } from './export/ttl'
@@ -32,8 +33,8 @@ const tower = (): Model => {
   return m
 }
 /** 주 배관(라이저)을 그린 모델. */
-const withRiser = (m = tower()) => {
-  const done = drawPipe(m, { from: equip(m, 'AHU-1').id, to: 'AT-201', via: [[1, 1, 6.5], [5, 1, 6.5]], flowType: 'SA', range: [m.storeys[0].id, '2F'] })
+const withRiser = (m = tower(), systemId: string | null = null) => {
+  const done = drawPipe(m, { from: equip(m, 'AHU-1').id, to: 'AT-201', via: [[1, 1, 6.5], [5, 1, 6.5]], flowType: 'SA', range: [m.storeys[0].id, '2F'], systemId })
   if ('refused' in done) throw new Error(done.refused)
   return { m, riser: done.segments[0], top: done.fittings[0] }
 }
@@ -72,6 +73,33 @@ describe('층별 분기 (OE-ML-13)', () => {
     expect(done.segments.map((e) => segmentPath(e))).toEqual([{ path: [[1, 1, 5], [3, 3, 5]] }, { path: [[3, 3, 5], [3, 3, 6.7]] }])
     expect(done.connections.every((c) => c.source === 'manual' && !c.directed)).toBe(true)
     expect(m.connections.filter((c) => c.to === 'AT-202' || c.from === 'AT-202')).toHaveLength(1)
+  })
+
+  it('계통에 넣어 그린 라이저에서 분기하면 분기도 그 계통이고, 규칙을 다시 돌리면 새 분기에 원천에서 말단으로 방향이 선다. BIM 포트 방향과 사람이 정한 방향은 그대로다 [OE-ML-13#8]', () => {
+    const t = tower()
+    const { m, riser } = withRiser(t, equip(t, 'AHU-1').systemId)
+    const ahu = equip(m, 'AHU-1').id
+    const port = m.connections.filter((c) => c.source === 'port' && c.directed).map((c) => JSON.stringify(c))
+    expect(port.length).toBeGreaterThan(0)
+    // 라이저 첫 연결(공조기 ↔ 라이저)의 방향을 사람이 정해 둔다.
+    const first = m.connections.find((c) => (c.from === ahu && c.to === riser.id) || (c.from === riser.id && c.to === ahu))!
+    expect(setFlowDirection(first, ahu)).toBe(true)
+    // AT-202 는 그 계통의 디퓨저다(규칙은 계통 안의 연결만 방향을 정한다).
+    const sys = m.systems.find((s) => s.id === riser.systemId)!
+    equip(m, 'AT-202').systemId = sys.id
+    sys.memberIds.push('AT-202')
+    inferFlowByRules(m)
+    const done = branch(m, riser.id)
+    if ('refused' in done) throw new Error(done.refused)
+    inferFlowByRules(m)
+    expect([done.tee, ...done.segments].map((e) => e.systemId)).toEqual([riser.systemId, riser.systemId, riser.systemId])
+    const toTerminal = m.connections.find((c) => c.to === 'AT-202' || c.from === 'AT-202')!
+    expect(toTerminal.inferred).toMatchObject({ to: 'AT-202', confirmed: false })
+    // 분기점에서 갈라진 첫 구간도 분기점에서 나가는 쪽이다.
+    const out = m.connections.find((c) => (c.from === done.tee.id || c.to === done.tee.id) && (c.from === done.segments[0].id || c.to === done.segments[0].id))!
+    expect(out.inferred).toMatchObject({ from: done.tee.id, to: done.segments[0].id })
+    expect(m.connections.filter((c) => c.source === 'port' && c.directed).map((c) => JSON.stringify(c))).toEqual(port)
+    expect(first.edited).toMatchObject({ from: ahu, to: riser.id })
   })
 
   it('구간 끝 5cm 안이면 새 분기점 없이 끝의 이음쇠를 다시 쓴다 [OE-ML-13#2]', () => {
