@@ -170,3 +170,25 @@ test('관계가 바뀐 장면의 카드에는 그 변화가 DT 질의의 답을 
   await page.keyboard.press('Escape')
   expect(errors).toEqual([])
 })
+
+test('옮긴 문·벽은 순간이동하지 않고 미끄러지며, 룸·커스텀존 장면은 그 자리로 가 울타리를 세운다', async ({ page }) => {
+  test.setTimeout(300_000)
+  const errors = await open(page)
+  const hud = await demo(page)
+  const total = Number(await hud.getAttribute('data-total'))
+  await expect(hud).toHaveAttribute('data-ready', String(total), { timeout: 30_000 })
+  // 오프닝이 끝난 뒤(오프닝 중의 장면 누르기는 받지 않는다).
+  await expect(hud).toHaveAttribute('data-phase', 'play', { timeout: 30_000 })
+  // 룸 만들기 장면을 반복해 그 자리를 비추는지(울타리·이름표 = 빛기둥 무리) 본다.
+  const room = await hud.locator('.track .tick').evaluateAll((els) => els.findIndex((e) => /룸 만들기/.test(e.getAttribute('title') ?? '')))
+  expect(room).toBeGreaterThanOrEqual(0)
+  await hud.locator('.track .tick').nth(room).click()
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().spots), { timeout: 15_000 }).toBeGreaterThan(0)
+  // 끝까지 틀면 옮긴 문·벽이 미끄러졌다.
+  await page.keyboard.press('Space')
+  await hud.getByRole('button', { name: '4×' }).click()
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
+  expect(await page.evaluate(() => (window as any).__viewer.motion().slid)).toBeGreaterThanOrEqual(1)
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})

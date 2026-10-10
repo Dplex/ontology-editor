@@ -123,6 +123,8 @@ export type ReplayViewerApi = {
   setDiffMap(
     items: readonly { key: string; state: 'added' | 'modified' | 'removed'; id?: string; ring?: readonly Vec2[]; elevation?: number; height?: number; at?: Vec3; size?: number; tall?: number }[] | null,
   ): void
+  /** 옮긴 벽·문·창을 옛 자리에서 새 자리로 미끄러뜨린다(from·to 는 IFC 좌표, z 는 층 바닥). 움직임을 끈 사람에게는 없다. */
+  slideElements(items: readonly { id: string; from: Vec3; to: Vec3 }[]): void
   /** IFC 좌표의 점들(벽 외곽선·문·창 자리)이 화면에 들어오게 한다. margin(미터)만큼 둘레를 더 보인다. */
   framePoints(points: readonly Vec3[], margin?: number): void
 }
@@ -197,8 +199,36 @@ export function createReplayFx(host: ReplayHost) {
     const mesh = new Mesh(merged, new MeshLambertMaterial({ color, side: DoubleSide, transparent: true, emissive: 0xd4ff3a, emissiveIntensity: 0 }))
     mesh.position.copy(base)
     mesh.userData.reveal = id
-    mesh.scale.set(1, 0.02, 1)
+    // 옮긴 벽·문·창(slideElements)은 제 키 그대로 두고 자리만 미끄러뜨린다.
+    if (!sliding.has(id)) mesh.scale.set(1, 0.02, 1)
     return mesh
+  }
+
+  // --- 리플레이: 옮긴 벽·문·창이 옛 자리에서 미끄러져 온다(slideElements) ---
+  // 벽·문·창은 층마다 합쳐 그린 외곽선 층이라 다시 그리면 새 자리로 순간이동했다. 옮긴 것만 따로 그리고(솟아오르기와 같은 길),
+  // 매 프레임 옛 자리 → 새 자리로 설비와 같은 시간·감속으로 옮긴다. 다시 그려도 시작 시각으로 이어 간다.
+  const SLIDE_WAIT_MS = 1500
+  const sliding = new Map<string, { t0: number | null; asked: number; delta: Vector3 }>()
+  /** 미끄러뜨린 벽·문·창 수(e2e 가 센다). */
+  let slid = 0
+  function stepSlide(now: number) {
+    if (!sliding.size) return
+    for (const [id, s] of sliding) {
+      const mesh = host.arch.children.find((o) => o.userData.reveal === id) as Mesh | undefined
+      if (!mesh) {
+        if (now - s.asked > SLIDE_WAIT_MS) sliding.delete(id)
+        continue
+      }
+      if (s.t0 === null) s.t0 = now
+      // 다 간 자리(그린 자리)를 한 번 기억해 두고 거기서 delta 만큼 뒤에서 출발한다.
+      const base = (mesh.userData.slideBase as Vector3 | undefined) ?? (mesh.userData.slideBase = mesh.position.clone())
+      const k = Math.min(1, (now - s.t0) / CINEMA_GLIDE_MS)
+      mesh.position.copy(base).addScaledVector(s.delta, 1 - glideEase(k))
+      const m = mesh.material as MeshLambertMaterial
+      m.emissiveIntensity = k >= 1 ? 0 : 0.5 * Math.sin(Math.PI * k)
+      if (k >= 1) sliding.delete(id)
+    }
+    host.invalidate()
   }
   /** k(0..1) → 높이 비율. 앞 30% 는 납작하게, 뒤 70% 에 넘쳤다 앉으며 자란다. */
   const revealHeight = (k: number) => {
@@ -671,14 +701,10 @@ export function createReplayFx(host: ReplayHost) {
   const CINEMA_GLIDE_MS = 1100
   const easeInOut = (k: number) => (k < 0.5 ? 4 * k ** 3 : 1 - (-2 * k + 2) ** 3 / 2)
   /**
-   * 애니메이션 원칙 셋(예비 동작·지나침·안착): 떠나기 전에 살짝 뒤로 물러났다가, 목표를 조금 지나친 뒤 돌아와 선다. 리플레이에서
-   * 비춘 설비에만 쓴다 — 무엇이 옮겨지는지가 눈에 걸린다. 따라오는 배관은 CINEMA_FOLLOW_MS 늦게 부드럽게 따라온다.
+   * 옮김의 감속. 처음에는 예비 동작(살짝 물러났다 튀어 나감)·지나침을 넣고 따라오는 배관을 140ms 늦게 보냈는데, 보는 사람에게는
+   * "뚝 끊기며 옮겨지는" 것으로 보였다(2026-10-10 사용자). 설비·배관·벽·문 모두 같은 부드러운 가감속(easeInOut)으로 함께 간다.
    */
-  const backInOut = (k: number) => {
-    const c = 1.2 * 1.525
-    return k < 0.5 ? ((2 * k) ** 2 * ((c + 1) * 2 * k - c)) / 2 : ((2 * k - 2) ** 2 * ((c + 1) * (k * 2 - 2) + c) + 2) / 2
-  }
-  const CINEMA_FOLLOW_MS = 140
+  const glideEase = easeInOut
   /** 다음 비행이 들어갈 방향. 지금 보는 쪽에서 35° 돌리고 40° 쯤 내려다본다 — 장면마다 다른 쪽에서 들어간다. */
   function cinemaFrom(): Vector3 {
     const d = host.camera.position.clone().sub(host.controls.target)
@@ -1140,7 +1166,7 @@ export function createReplayFx(host: ReplayHost) {
     const bottom = b.clone().setY(toBox.min.y + 0.02)
     let landed = false
     fxs.push({ obj: group, t0: null, ms: CINEMA_GLIDE_MS + 2400, step: (_k, t) => {
-      const e = backInOut(Math.min(1, t / CINEMA_GLIDE_MS))
+      const e = glideEase(Math.min(1, t / CINEMA_GLIDE_MS))
       trail.scale.y = Math.max(length * Math.min(1, e), 0.0001)
       if (!follow.userData.dead) follow.position.lerpVectors(a, b, e)
       const fade = t < CINEMA_GLIDE_MS ? 1 : 1 - (t - CINEMA_GLIDE_MS) / 2400
@@ -1341,6 +1367,21 @@ export function createReplayFx(host: ReplayHost) {
       host.invalidate()
     },
 
+    slideElements(items) {
+      if (!cinema || still() || !items.length) return
+      const now = performance.now()
+      for (const it of items) {
+        const a = new Vector3(...host.toScene(it.from))
+        const b = new Vector3(...host.toScene(it.to))
+        if (a.distanceTo(b) < 0.01) continue
+        sliding.set(it.id, { t0: null, asked: now, delta: a.sub(b) })
+        slid++
+      }
+      // 옮긴 것만 따로 그리도록 다시 짓는다.
+      host.rebuildArchitecture()
+      host.invalidate()
+    },
+
     demolish(items) {
       if (!cinema || still()) return
       // 지우는 설비를 비추던 빛기둥·이름표는 같이 걷는다 — 남으면 빈 자리를 가리킨다.
@@ -1385,6 +1426,7 @@ export function createReplayFx(host: ReplayHost) {
       if (cinema && (spots.length || roomTags.children.length)) declutter(now)
       stepBuild(now)
       stepReveal(now)
+      stepSlide(now)
       stepDiorama(now)
       stepFlows(now)
       stepSection(now)
@@ -1392,7 +1434,7 @@ export function createReplayFx(host: ReplayHost) {
     /** 리플레이 연출 중인가. 켜져 있으면 비행·미끄러짐이 길어지고 번쩍임이 진해진다. */
     cinema: () => cinema,
     /** 이 벽·문·창이 솟아오르는 중이라 따로 그려야 하나(buildArchitecture). */
-    reveals: (id: string) => revealing.has(id),
+    reveals: (id: string) => revealing.has(id) || sliding.has(id),
     revealMesh,
     /** 새 모델. 층 쌓기가 층 높이와 설비의 층을 쓴다. */
     modelChanged(model: Model) {
@@ -1411,7 +1453,8 @@ export function createReplayFx(host: ReplayHost) {
     glide(id: string, ms: number): { ms: number; ease: (k: number) => number; delay: number } {
       if (!cinema) return { ms, ease: easeOut, delay: 0 }
       const lead = spots.some((s) => s.id === id)
-      return { ms: CINEMA_GLIDE_MS, ease: lead ? backInOut : easeInOut, delay: lead ? 0 : CINEMA_FOLLOW_MS }
+      void lead
+      return { ms: CINEMA_GLIDE_MS, ease: glideEase, delay: 0 }
     },
     /** 설비가 미끄러지기 시작했다. 비춘 설비면 떠난 자리·궤적·충격파를 남긴다. */
     glided(id: string, from: Box3, to: Box3) {
@@ -1428,6 +1471,6 @@ export function createReplayFx(host: ReplayHost) {
     hitSpot: (x: number, y: number): string | null => (spotClickHandler ? hitSpot(x, y) : null),
     spotClick: (key: string) => spotClickHandler?.(key),
     /** e2e 가 보는 지금의 연출 수. */
-    motion: () => ({ effects: fxs.length, spots: spots.length, demolished }),
+    motion: () => ({ effects: fxs.length, spots: spots.length, demolished, slid, sliding: sliding.size }),
   }
 }

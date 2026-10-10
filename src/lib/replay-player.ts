@@ -277,6 +277,8 @@ export function useReplay(host: ReplayPlayerHost) {
     const devices = [...new Set(equipment)].filter((id) => byId.has(id) && !isConduit(byId.get(id)!.role))
     const any = [...new Set(equipment)].filter((id) => byId.has(id))
     const newcomers = (step?.changes ?? []).flatMap((c) => (c.after?.t === 'equip' && c.after.at && !c.after.conduit && !byId.has(c.after.id) ? [c.after] : []))
+    // 룸·커스텀존·공간 오브젝트. 처음에는 이 장면을 비추지 않아 카메라가 건물 전체로 물러나 무엇이 생겼는지 안 보였다.
+    const zones = replayZonesOf(step, 'before')
     // 층을 바꾼 watch(frameAll) 뒤에 맞춘다.
     await nextTick()
     // 다른 층이 숨은 뒤라 자르는 면을 풀어도 위층이 다시 보이지 않는다.
@@ -292,6 +294,12 @@ export function useReplay(host: ReplayPlayerHost) {
       selectedSpaceId.value = null
       if (camera) host.viewer.framePoints([...arch.frame, ...(replayArchOf(step, 'after')?.frame ?? [])], 3)
       host.viewer.spotlight([], [], color, { points: arch.points, rings: arch.rings })
+    } else if (zones) {
+      // 룸·커스텀존: 그 외곽선이 들어오게 다가가 빛 울타리와 이름표를 세운다. 새로 만드는 것은 아직 없으니 들어설 자리를 비춘다.
+      selectedId.value = null
+      selectedSpaceId.value = null
+      if (camera) host.viewer.framePoints(zones.frame, 3)
+      host.viewer.spotlight([], [], color, { points: zones.points, rings: zones.rings })
     } else if (spaces.length) {
       // 물리존 편집은 물리존을 본다. 같이 바뀐 설비(소속이 풀린 것)는 결과라서, 멀리 있는 하나가 시점을 끌고 가면 안 된다.
       if (camera) host.viewer.frameSpace(spaces[0])
@@ -364,6 +372,32 @@ export function useReplay(host: ReplayPlayerHost) {
     return { id: first.t === 'opening' || first.t === 'wall' ? first.id : null, frame, points, rings }
   }
 
+  /**
+   * 장면의 룸·커스텀존·공간 오브젝트 변화를 비출 자리. side 'before' 는 카메라를 보낼 때(새로 만드는 것은 만든 뒤 모양으로 —
+   * 들어설 자리), 'after' 는 다시 한 뒤. 울타리(외곽선)와 이름표(외곽선 안쪽 점, 이름).
+   */
+  function replayZonesOf(step: ReplayStep | null, side: 'before' | 'after') {
+    const m = model.value
+    if (!m) return null
+    const changes = (step?.changes ?? []).filter((c) => /^(rm|cz|so):/.test(c.key))
+    if (!changes.length) return null
+    const elevation = (sid: string) => m.storeys.find((s) => s.id === sid)?.elevation ?? 0
+    const frame: Vec3[] = []
+    const points: { key: string; at: Vec3; label?: string; bare?: boolean }[] = []
+    const rings: { key: string; ring: Vec2[]; elevation: number }[] = []
+    for (const c of changes.slice(0, 6)) {
+      const it = side === 'before' ? (c.before ?? c.after) : (c.after ?? c.before)
+      if (!it || it.t !== 'zone' || it.ring.length < 3) continue
+      const z = elevation(it.storeyId)
+      frame.push(...it.ring.map((p): Vec3 => [p[0], p[1], z]))
+      rings.push({ key: `${c.key}:z`, ring: it.ring, elevation: z })
+      const at = labelPoint(it.ring)
+      // 공간 오브젝트는 솟아오르는 형체가 주인공이라 기둥 없이 이름표만.
+      if (at) points.push({ key: c.key, at: [at[0], at[1], z], label: it.name || (it.zone === 'room' ? '룸' : it.zone === 'custom' ? '커스텀존' : '오브젝트'), bare: true })
+    }
+    return frame.length ? { frame, points, rings } : null
+  }
+
   const replayColor = (step: ReplayStep | null) => parseInt((step ? CATEGORY_COLOR[step.category] : '#5ef2c2').slice(1), 16)
 
   /**
@@ -401,11 +435,43 @@ export function useReplay(host: ReplayPlayerHost) {
     replayFlash(step)
     void replayArrows(step)
     const spaces = (step?.changes ?? []).filter((c) => c.key.startsWith('sp:')).map((c) => c.key.slice(3))
+    host.viewer?.slideElements(replaySlidesOf(step))
+    const zones = replayZonesOf(step, 'after')
     const arch = replayArch.value ? replayArchOf(step, 'after') : null
     // 새로 생긴 문·창 자리에는 기둥을 세우지 않는다 — 기둥이 솟아오르는 문·창을 가린다.
     const points = arch?.points.map((p) => (born.includes(p.key.slice(3)) ? { ...p, bare: true } : p))
     if (arch && (arch.points.length || arch.rings.length)) host.viewer?.spotlight([], [], replayColor(step), { points, rings: arch.rings })
+    else if (zones) host.viewer?.spotlight([], [], replayColor(step), { points: zones.points, rings: zones.rings })
     else if (spaces.length) host.viewer?.spotlight([], spaces, replayColor(step))
+  }
+
+  /**
+   * 옮긴 벽·문·창: 옛 자리 → 새 자리. 문·창은 자리, 벽은 외곽선이 통째로 같은 만큼 옮겨졌을 때만(모양이 바뀐 벽은 미끄러뜨릴 수
+   * 없다 — 새 모양으로 바로 바뀐다).
+   */
+  function replaySlidesOf(step: ReplayStep | null): { id: string; from: Vec3; to: Vec3 }[] {
+    const m = model.value
+    if (!m) return []
+    const elevation = (sid: string) => m.storeys.find((s) => s.id === sid)?.elevation ?? 0
+    const out: { id: string; from: Vec3; to: Vec3 }[] = []
+    for (const c of step?.changes ?? []) {
+      const a = c.after
+      const b = c.before
+      if (!a || !b) continue
+      if (a.t === 'opening' && b.t === 'opening' && a.at && b.at && (a.at[0] !== b.at[0] || a.at[1] !== b.at[1])) {
+        const z = elevation(a.storeyId)
+        out.push({ id: a.id, from: [b.at[0], b.at[1], z], to: [a.at[0], a.at[1], z] })
+      } else if (a.t === 'wall' && b.t === 'wall' && a.rings.length === b.rings.length && a.rings[0]?.length && a.rings[0].length === b.rings[0]?.length) {
+        const dx = a.rings[0][0][0] - b.rings[0][0][0]
+        const dy = a.rings[0][0][1] - b.rings[0][0][1]
+        const shifted = a.rings.every((r, i) => r.length === b.rings[i].length && r.every((p, j) => Math.abs(p[0] - b.rings[i][j][0] - dx) < 1e-6 && Math.abs(p[1] - b.rings[i][j][1] - dy) < 1e-6))
+        if (shifted && (dx || dy)) {
+          const z = elevation(a.storeyId)
+          out.push({ id: a.id, from: [0, 0, z], to: [dx, dy, z] })
+        }
+      }
+    }
+    return out.slice(0, 24)
   }
 
   /**
