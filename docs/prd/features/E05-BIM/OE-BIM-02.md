@@ -19,11 +19,13 @@ depends: ["R1"]
 
 IfcBuildingStorey 를 층으로 만든다. 이름과 바닥 높이(Elevation)를 읽는다.
 층고는 Elevation 의 차로 계산하고, 층 높이 속성(GrossHeight·NetHeight, COBie Storey Height)이 있으면 함께 읽는다(glossary "천장 관련 높이"). 값이 없으면 지어내지 않는다.
+층은 건물 ID·원본 층 ID·이름·공통 기준 높이로 관리한다. Elevation 누락과 실제 0을 구분하고 마지막 층 층고나 동일 높이 층을 임의 계산하지 않는다.
 
 ## 수용 기준
 
-- 층 수와 IfcBuildingStorey 수가 같고, 층마다 Elevation 이 있다.
+- 지원 대상 층 수가 IfcBuildingStorey 수와 같고 유효한 Elevation 또는 높이 미확인 사유가 층마다 표시된다.
 - 층고가 없는 층은 '모름' 으로 표시된다.
+- 동명이층·다른 건물이 병합되지 않고 누락 높이는 미확인 사유가 표시된다. 층 상대/공통 높이가 ML-18과 일치한다.
 
 ## 검증 (이 repo)
 
