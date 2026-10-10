@@ -60,14 +60,17 @@ const key = (p: number[]) => `${p[0].toFixed(3)},${p[1].toFixed(3)}`
 function align(a: number[][], b: number[][]): [number[][], number[][]] {
   const n = a.length
   const m = b.length
+  // 열쇠는 한 번만 만든다 — 두 겹 고리 안에서 toFixed 를 n×m 번 불렀다.
+  const ka = a.map(key)
+  const kb = b.map(key)
   const dp = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1))
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = key(a[i]) === key(b[j]) ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) dp[i][j] = ka[i] === kb[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1])
   const from: number[][] = []
   const to: number[][] = []
   let i = 0
   let j = 0
   while (i < n || j < m) {
-    if (i < n && j < m && key(a[i]) === key(b[j])) {
+    if (i < n && j < m && ka[i] === kb[j]) {
       from.push(a[i++])
       to.push(b[j++])
     } else if (j >= m || (i < n && dp[i + 1][j] >= dp[i][j + 1])) {
@@ -238,9 +241,12 @@ const others = computed(() => {
     </header>
     <template v-if="geo && main">
       <svg v-if="geo.map" class="map" :viewBox="viewBox" preserveAspectRatio="xMidYMid meet">
-        <polygon v-for="(r, i) in geo.map.walls" :key="`w${i}`" class="wall" :points="poly(r)" />
-        <polygon v-for="(r, i) in geo.map.spaces" :key="`s${i}`" class="space" :points="poly(r)" :stroke-width="unit" />
-        <circle v-for="(p, i) in geo.map.points" :key="`p${i}`" class="pt" :cx="sx(p[0])" :cy="sy(p[1])" :r="unit * 1.6" />
+        <!-- 층 바탕은 장면 안에서 그대로다 — 모양이 바뀌는 매 프레임마다 벽·방 수백 개의 좌표 글자를 다시 만들지 않게 묶어 둔다. -->
+        <g v-memo="[geo.map]">
+          <polygon v-for="(r, i) in geo.map.walls" :key="`w${i}`" class="wall" :points="poly(r)" />
+          <polygon v-for="(r, i) in geo.map.spaces" :key="`s${i}`" class="space" :points="poly(r)" :stroke-width="unit" />
+          <circle v-for="(p, i) in geo.map.points" :key="`p${i}`" class="pt" :cx="sx(p[0])" :cy="sy(p[1])" :r="unit * 1.6" />
+        </g>
         <template v-for="(mv, i) in geo.map.moves" :key="`m${i}`">
           <line v-if="applied" class="trail minor" :x1="sx(mv[0][0])" :y1="sy(mv[0][1])" :x2="sx(lerp(mv[0], mv[1], k)[0])" :y2="sy(lerp(mv[0], mv[1], k)[1])" :stroke-width="unit * 0.9" />
           <circle class="follow" :cx="sx(lerp(mv[0], mv[1], t)[0])" :cy="sy(lerp(mv[0], mv[1], t)[1])" :r="unit * 2.2" />

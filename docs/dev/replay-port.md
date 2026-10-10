@@ -30,12 +30,15 @@ main 파일에 꽂는 자리는 아래 표에서 늘지 않았다.
 | | `export type Chunk` · `export type Part` | replay-viewer 가 타입만 가져간다 |
 | | `addUpdateRange` · `sameSet` · `frame(ids, margin` · `archKey` | 리플레이 때문에 넣었지만 main 에도 이득인 손질(미끄러짐·칠하기는 그 설비 범위만 GPU 로, 같은 층 필터면 인덱스를 다시 안 짠다, 시점 여백, 벽·문·창이 그대로면 외곽선 층을 다시 짓지 않는다) |
 | | `patchModel` · `piecesOf` · `buildChunk` | 편집 뒤 다시 그리기(setModel keepView)를 바뀐 설비만 고쳐서 끝낸다 — 설비 더하기·계통 바꾸기마다 설비 형상 전부를 다시 합쳐 올리느라 0.3~0.4초 멈췄다. 리플레이와 상관없이 평소 편집에도 이득 |
+| | `warmArchitecture` · `slabPiece` · `byColor` | 첫 벽 장면이 벽 전부(dental 1300개)를 한 프레임에 압출하지 않게 오프닝 동안 나눠 압출(`warmArchitecture`, replay-player 가 부른다). 방 판 조각을 외곽선으로 기억(방 하나 고칠 때 전부 다시 압출하던 것), 벽을 색으로 묶을 때 배열을 펼쳐 새로 만들지 않기(벽 수의 제곱이던 것) — 뒤의 둘은 평소 편집에도 이득 |
 | `src/App.vue` | `useReplay` | 빌려줄 것을 넘기는 한 덩어리(`activeTab` 선언 바로 뒤) |
 | | `replayOpen` | 리플레이 중이면 건너뛰는 자리: 알림·키·자동 저장·등급 재기·층 떠나기 확인·천장 표시·잠근 설비·3D 강조의 옆 패널 몫 |
 | | `pausedInReplay` · `replayMemo` | 극장에 가려진 패널의 계산·다시 그리기를 멈춘다(성수에서 장면마다 0.2초 끊기던 것) |
 | | `replayArch` · `replayElement` | 벽·문·창 장면이 외곽선 층을 켠다(`setArchitecture` watch) |
+| | `mergeCandidates` | 외접 사각형이 먼 방은 점 거리를 재지 않는다(리플레이와 상관없이 방을 고를 때 이득) |
 | | `<ReplayHud` | 템플릿 한 줄(`v-bind="replay.hud.value" v-on="replay.hudOn"`) |
 | `src/lib/shortcuts.ts` | `'replay'` | P 키 |
+| `src/lib/motion.ts` | `pauseFlash` | 리플레이 동안 가려진 패널의 번쩍임(v-flash)을 끈다 — 줄마다 레이아웃을 강제로 다시 쟀다 |
 | `src/lib/export/geojson.ts` | `geoFileNames` | 층 파일 이름을 내보내기와 같이 쓴다(동작은 그대로) |
 | `src/lib/edit-fuzz.ts` | `capture` | 무작위 편집의 이력을 리플레이 시험이 받는다 |
 

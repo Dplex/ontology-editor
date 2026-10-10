@@ -359,6 +359,8 @@ export type Viewer = {
    * 그리고, 편집 모드에서 바닥을 누르면 물리존보다 벽·문·창을 먼저 고른다.
    */
   setArchitecture(model: Model | null, selected: string | null): void
+  /** 외곽선 층의 벽 입체를 프레임마다 조금씩 미리 압출해 둔다(짓지는 않는다). 리플레이가 오프닝 동안 부른다. */
+  warmArchitecture(model: Model): void
   /** 공조존(IDF) 외곽선. null 이면 지운다. 층별로 보기를 따른다. */
   setHvacZones(model: Model | null, selected: string | null): void
   /** 커스텀존(OE-OBJ-01) 외곽선과 고른 존의 면. null 이면 지운다. 층별로 보기를 따른다. */
@@ -983,7 +985,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const storey of model.storeys) {
       const y = storey.elevation + 0.1
       const byColor = new Map<number, BufferGeometry[]>()
-      const add = (color: number, g: BufferGeometry) => byColor.set(color, [...(byColor.get(color) ?? []), g.index ? g.toNonIndexed() : g])
+      // 펼쳐 새 배열을 만들면 벽 수의 제곱이 된다(dental 리플레이 8장면에 126ms). 붙이기만 한다.
+      const add = (color: number, g: BufferGeometry) => {
+        const piece = g.index ? g.toNonIndexed() : g
+        const list = byColor.get(color)
+        if (list) list.push(piece)
+        else byColor.set(color, [piece])
+      }
       // 실제 높이 윤곽선(선분 쌍). 깎은 벽 윗면(y + ARCH_WALL_HEIGHT)에서 실제 윗면(층 바닥 + 벽 높이)까지 세로선, 실제 윗면 외곽선.
       const tops: number[] = []
       for (const wall of storey.walls) {
@@ -1974,6 +1982,26 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let slabs = new Group()
   let slabOpacity = 0.8
 
+  /**
+   * 방 하나의 판 조각(spaceMesh 와 같은 압출, 층 높이로 올림). 외곽선·높이로 기억한다 — 방 하나를 고칠 때마다 모든 방을 다시
+   * 압출했다(dental 리플레이의 방 장면마다 30~40ms, 성수는 934개).
+   */
+  const slabPieces = new Map<string, BufferGeometry | null>()
+  function slabPiece(footprint: readonly Vec2[], elevation: number): BufferGeometry | null {
+    const key = `${elevation}|${footprint.map((p) => `${p[0]},${p[1]}`).join(';')}`
+    if (slabPieces.has(key)) return slabPieces.get(key)!
+    const mesh = spaceMesh(footprint, 0)
+    let g: BufferGeometry | null = null
+    if (mesh) {
+      mesh.geometry.translate(0, elevation, 0)
+      g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry
+      ;(mesh.material as { dispose(): void }).dispose()
+    }
+    if (slabPieces.size > 20000) slabPieces.clear()
+    slabPieces.set(key, g)
+    return g
+  }
+
   /** 공간 판. 층마다 하나로 합친다. 성수는 방이 934개다. 편집 모드에서 바닥을 눌러 고를 자리도 같이 만든다. */
   function buildSlabs(model: Model) {
     lastSlabsKey = slabsKey(model)
@@ -1990,17 +2018,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const color = STOREY_COLORS[i % STOREY_COLORS.length]
       const pieces: BufferGeometry[] = []
       for (const space of storey.spaces) {
-        const mesh = spaceMesh(space.footprint, color, slabOpacity)
-        if (!mesh) continue
-        mesh.geometry.translate(0, storey.elevation, 0)
-        pieces.push(mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry)
-        ;(mesh.material as { dispose(): void }).dispose()
+        const piece = slabPiece(space.footprint, storey.elevation)
+        if (!piece) continue
+        pieces.push(piece)
         // 판 두께가 0.1 이다(spaceMesh). 윗면에서 잰다.
         spaceTargets.push({ id: space.id, storeyId: storey.id, y: storey.elevation + 0.1, ring: space.footprint })
       }
       if (pieces.length === 0) return
+      // 조각은 slabPiece 가 기억해 두고 다시 쓴다 — 합치기는 복사라 놓지 않는다.
       const merged = mergeGeometries(pieces)
-      for (const g of pieces) g.dispose()
       if (merged) {
         const slab = new Mesh(merged, new MeshLambertMaterial({ color, transparent: true, opacity: slabOpacity, side: DoubleSide }))
         slab.userData.storeyId = storey.id
@@ -2354,6 +2380,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     updateSpaces(model) {
       buildSlabs(model)
+    },
+
+    warmArchitecture(model) {
+      // 외곽선 층은 켤 때 처음 짓는다 — 리플레이의 첫 벽 장면이 벽 전부(dental 1300개)를 한 프레임에 압출했다. 오프닝 동안
+      // 프레임마다 조금씩(6ms) 압출해 extrudeRing 에 기억해 둔다. 짓지는 않는다.
+      const jobs: [readonly Vec2[], number][] = []
+      for (const st of model.storeys) for (const w of st.walls) for (const ring of w.footprint ?? []) if (ring.length >= 3) jobs.push([ring, st.elevation + 0.1])
+      let i = 0
+      const slice = () => {
+        const end = performance.now() + 6
+        while (i < jobs.length && performance.now() < end) extrudeRing(...jobs[i++])
+        if (i < jobs.length && running) requestAnimationFrame(slice)
+      }
+      requestAnimationFrame(slice)
     },
 
     setArchitecture(model, selected) {

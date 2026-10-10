@@ -12,6 +12,7 @@
 
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRaw, watch, type ComputedRef, type Ref, type ShallowRef } from 'vue'
 import { isConduit, type Connection, type Equipment, type Model, type Storey, type Vec2, type Vec3 } from './model'
+import { pauseFlash } from './motion'
 import { labelPoint } from './polygon'
 import { roomKind } from './kinds'
 import type { Snapshot } from './edit'
@@ -220,6 +221,7 @@ export function useReplay(host: ReplayPlayerHost) {
       replayError.value = err instanceof Error ? err.message : String(err)
     }
     replayOpen.value = true
+    pauseFlash(true)
     host.viewer.setEditMode(false)
     host.viewer.setArrowsShown(true)
     // 극장 바탕이 어두워서 라이트 테마의 진한 화살표가 묻힌다.
@@ -227,6 +229,8 @@ export function useReplay(host: ReplayPlayerHost) {
     host.viewer.setCinema(true)
     host.viewer.setReplayTheme(replayTheme.value)
     host.viewer.setDiorama(true)
+    // 첫 벽 장면이 외곽선 층을 켤 때 벽 전부를 한 프레임에 압출하지 않게, 오프닝 동안 나눠 압출해 둔다.
+    host.viewer.warmArchitecture(m)
     host.viewer.onSpotClick(replaySpotClick)
     selectedId.value = null
     selectedSpaceId.value = null
@@ -1082,6 +1086,7 @@ export function useReplay(host: ReplayPlayerHost) {
     host.viewer?.setEditMode(host.editing.value)
     host.viewer?.setArrowsShown(false)
     host.viewer?.setCinema(false)
+    pauseFlash(false)
     host.viewer?.setSpread(null)
     host.viewer?.setDiorama(false)
     host.viewer?.setRoomTags([])
@@ -1160,18 +1165,71 @@ export function useReplay(host: ReplayPlayerHost) {
       return false
     }
   })()
-  type PerfRow = { 장면: string; 프레임: number; '가장 긴(ms)': number; '50ms 넘음': number; '100ms 넘음': number }
+  type PerfRow = {
+    장면: string
+    프레임: number
+    '가장 긴(ms)': number
+    '50ms 넘음': number
+    '100ms 넘음': number
+    '본 스레드(ms)': number
+    '작업(ms)': number
+    'rAF(ms)': number
+    '스타일·배치(ms)': number
+    주범: string
+  }
+  /** 그 장면에서 가장 긴 '긴 애니메이션 프레임'(Chrome LoAF) — 본 스레드가 어디에 시간을 썼나. */
+  type Loaf = { duration: number; task: number; raf: number; style: number; top: string }
   let perfRows: PerfRow[] = []
   let perfGaps: number[] = []
   let perfScene = ''
+  let perfWorst: Loaf | null = null
   function perfFlush() {
     if (!perfGaps.length || !perfScene) return
-    const row: PerfRow = { 장면: perfScene, 프레임: perfGaps.length, '가장 긴(ms)': Math.round(Math.max(...perfGaps)), '50ms 넘음': perfGaps.filter((g) => g > 50).length, '100ms 넘음': perfGaps.filter((g) => g > 100).length }
+    const w = perfWorst
+    const row: PerfRow = {
+      장면: perfScene,
+      프레임: perfGaps.length,
+      '가장 긴(ms)': Math.round(Math.max(...perfGaps)),
+      '50ms 넘음': perfGaps.filter((g) => g > 50).length,
+      '100ms 넘음': perfGaps.filter((g) => g > 100).length,
+      '본 스레드(ms)': Math.round(w?.duration ?? 0),
+      '작업(ms)': Math.round(w?.task ?? 0),
+      'rAF(ms)': Math.round(w?.raf ?? 0),
+      '스타일·배치(ms)': Math.round(w?.style ?? 0),
+      주범: w?.top ?? '',
+    }
     perfRows.push(row)
-    console.info(`[replayperf] ${row.장면} · 가장 긴 프레임 ${row['가장 긴(ms)']}ms · 50ms 넘음 ${row['50ms 넘음']} · 100ms 넘음 ${row['100ms 넘음']} (프레임 ${row.프레임})`)
+    console.info(
+      `[replayperf] ${row.장면} · 가장 긴 프레임 ${row['가장 긴(ms)']}ms · 50ms 넘음 ${row['50ms 넘음']} · 100ms 넘음 ${row['100ms 넘음']} (프레임 ${row.프레임})` +
+        (w ? ` · 본 스레드 ${row['본 스레드(ms)']}ms = 작업 ${row['작업(ms)']} + rAF ${row['rAF(ms)']} + 스타일·배치 ${row['스타일·배치(ms)']} · ${row.주범}` : ''),
+    )
     perfGaps = []
+    perfWorst = null
+  }
+  type LoafScript = { duration: number; invoker: string; sourceFunctionName: string; sourceURL: string; sourceCharPosition: number }
+  type LoafEntry = PerformanceEntry & { renderStart: number; styleAndLayoutStart: number; scripts: LoafScript[] }
+  function watchLoaf() {
+    if (!PerformanceObserver.supportedEntryTypes?.includes('long-animation-frame')) return
+    const where = (x: LoafScript) => `${x.sourceFunctionName || x.invoker} ${x.sourceURL.split('/').pop()?.split('?')[0] ?? ''}:${x.sourceCharPosition} ${Math.round(x.duration)}ms`
+    new PerformanceObserver((list) => {
+      if (!replayOpen.value) return
+      for (const e of list.getEntries() as LoafEntry[]) {
+        if (perfWorst && e.duration <= perfWorst.duration) continue
+        const end = e.startTime + e.duration
+        const layout = e.styleAndLayoutStart || end
+        perfWorst = {
+          duration: e.duration,
+          // 화면 그리기 앞의 일(타이머·이벤트·약속 처리 — 다시 하기·Vue 갱신이 여기), rAF 콜백(장면 효과·three 그리기), 스타일·배치·칠하기.
+          task: (e.renderStart || layout) - e.startTime,
+          raf: e.renderStart ? layout - e.renderStart : 0,
+          style: end - layout,
+          top: [...e.scripts].sort((a, b) => b.duration - a.duration).slice(0, 3).map(where).join(' · '),
+        }
+      }
+    }).observe({ type: 'long-animation-frame' })
   }
   if (perfOn) {
+    watchLoaf()
     let last = 0
     const loop = (t: number) => {
       if (replayOpen.value) {

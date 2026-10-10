@@ -43,7 +43,6 @@ import {
   Vector2,
   Vector3,
   WebGLRenderer,
-  WebGLRenderTarget,
   type Material,
   type Ray,
   type Texture,
@@ -1777,20 +1776,17 @@ export function createReplayFx(host: ReplayHost) {
     const r = host.renderer
     const plain = r.compileAsync(g, host.camera, host.scene)
     // 층 자르기(전역 자름면)가 켜지면 모든 재질이 셰이더를 새로 만든다. compile 은 마지막 render 의 자름 상태를 쓰므로,
-    // 1px 판에 빈 장면을 한 번 그려 자름면 하나인 상태를 세우고 뷰어 장면과 위 묶음을 한 번 더 만든다.
-    const rt = new WebGLRenderTarget(1, 1)
-    const keep = { target: r.getRenderTarget(), planes: r.clippingPlanes }
+    // 지우지 않고 빈 장면을 한 번 그려(화면은 그대로) 자름면 하나인 상태를 세우고 뷰어 장면과 위 묶음을 한 번 더 만든다.
+    const keep = { planes: r.clippingPlanes, autoClear: r.autoClear }
     r.clippingPlanes = [sectionPlane]
-    r.setRenderTarget(rt)
+    r.autoClear = false
     r.render(new Scene(), host.camera)
-    // 판은 먼저 되돌린다 — 판이 걸린 채 만들면 출력 색 공간이 달라 화면용과 다른 셰이더가 된다.
-    r.setRenderTarget(keep.target)
+    r.autoClear = keep.autoClear
     const clipped = [r.compileAsync(host.scene, host.camera), r.compileAsync(g, host.camera, host.scene)]
     r.clippingPlanes = keep.planes
     void Promise.all([plain, ...clipped])
       .catch(() => {})
       .then(() => {
-        rt.dispose()
         pinPrograms()
         // 무늬(poolMap·dot)는 같이 쓰는 것이라 놓지 않는다.
         for (const m of [...meshMats, ...lineMats, ...builtMeshMats, ...builtLineMats, ...spriteMats, points]) m.dispose()

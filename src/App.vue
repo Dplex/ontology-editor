@@ -4581,8 +4581,15 @@ const mergeCandidates = computed(() => {
   const picked = selectedSpace.value
   if (!picked || picked.space.footprint.length < 3) return []
   const ring = picked.space.footprint
+  // 외접 사각형이 MERGE_GAP 보다 먼 방은 점 거리를 재지 않는다 — 층의 방 전부와 꼭짓점끼리 재서 리플레이의 방 장면마다 20ms 넘게 썼다.
+  const bounds = (r: readonly Vec2[]) => r.reduce((b, p) => [Math.min(b[0], p[0]), Math.min(b[1], p[1]), Math.max(b[2], p[0]), Math.max(b[3], p[1])], [Infinity, Infinity, -Infinity, -Infinity])
+  const [x0, y0, x1, y1] = bounds(ring)
+  const near = (r: readonly Vec2[]) => {
+    const b = bounds(r)
+    return b[0] <= x1 + MERGE_GAP && b[2] >= x0 - MERGE_GAP && b[1] <= y1 + MERGE_GAP && b[3] >= y0 - MERGE_GAP
+  }
   return picked.storey.spaces
-    .filter((x) => x !== picked.space && x.footprint.length >= 3)
+    .filter((x) => x !== picked.space && x.footprint.length >= 3 && near(x.footprint))
     .map((x) => ({
       space: x,
       gap: Math.min(...x.footprint.map((p) => distanceToRing(p, ring)), ...ring.map((p) => distanceToRing(p, x.footprint))),
