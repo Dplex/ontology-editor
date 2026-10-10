@@ -51,7 +51,7 @@ describe('구간 끝의 연결 대상 바꾸기 (OE-PIP-10)', () => {
     expect(done.stretched).toBe(true)
   })
 
-  it('사람이 이은 연결은 해제 보정 없이 지운다', () => {
+  it('사람이 이은 연결은 해제 보정 없이 지운다 [OE-PIP-01#1~]', () => {
     const m = build()
     m.connections[1] = { from: 'D', to: 'DIF1', source: 'manual', directed: false, tolerance: null }
     const done = retargetEnd(m, 'D', 'DIF1', 'DIF2', axisOf)

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 // 연결하기·연결 끊기. 형상 추정이 빠뜨린 것을 연결하고 잘못 연결한 것을 끊는다. 포트(BIM)가 말한 연결은 끊지 못한다.
-test('고른 설비에서 [연결하기] 를 누르고 상대를 고르면 연결되고, 되돌리기와 연결 끊기가 된다', async ({ page }) => {
+test('고른 설비에서 [연결하기] 를 누르고 상대를 고르면 연결되고, 되돌리기와 연결 끊기가 된다 [OE-PIP-01#1~]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

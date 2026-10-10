@@ -1156,6 +1156,21 @@ describe('계통 편집 (E8)', () => {
     expect(w.memberIds).toEqual(['0MEP$Equip$X', ahu.id])
   })
 
+  it('공기·물 계통에 다 든 공조기의 공기 계통을 다른 공기 계통으로 바꿔도 물 계통 자리는 그대로다 [OE-PIP-02#1]', () => {
+    const w = water()
+    const ahu = equip('AHU-1')
+    const air = model.systems[0]
+    w.memberIds.push(ahu.id)
+    model.systems.push({ id: 'A2', name: '급기 2', memberIds: [], source: 'ifc', kind: 'supply_air', fluid: null })
+    setEquipmentSystem(model, ahu.id, 'A2')
+    expect(ahu.systemId).toBe('A2')
+    expect(air.memberIds).not.toContain(ahu.id)
+    expect(w.memberIds).toEqual([ahu.id])
+    const ttl = modelToTTL(model)
+    const block = ttl.slice(ttl.indexOf('ex:W1 a brick:Water_System')).split('\n\n')[0]
+    expect(block).toContain(`ex:${ahu.id.replaceAll('$', '\\$')}`)
+  })
+
   it('계통을 옮긴 설비를 지웠다가 되돌리면 옮긴 계통으로 돌아오고, 한 번 더 되돌리면 원래 계통의 원래 자리다', () => {
     water()
     const ahu = equip('AHU-1')

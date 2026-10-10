@@ -36,7 +36,7 @@ const feeds = (m: Model, from: string, to: string) => {
 const AT = new Date('2026-10-08T03:00:00Z')
 
 describe('연결별 방향 적용 (OE-PIP-04)', () => {
-  it('규칙과 같은 방향은 사유 없이 적용되고, 계통 확정 없이 TTL feeds 로 나가며 규칙을 다시 돌려도 남는다', () => {
+  it('규칙과 같은 방향은 사유 없이 적용되고, 계통 확정 없이 TTL feeds 로 나가며 규칙을 다시 돌려도 남는다 [OE-PIP-04#2,4]', () => {
     const m = read()
     const c = free(m)
     expect(c.inferred).toMatchObject({ from: idOf(m, 'DUCT-01'), confirmed: false })
@@ -51,7 +51,7 @@ describe('연결별 방향 적용 (OE-PIP-04)', () => {
     expect(m.connectionLog).toEqual([{ action: 'flow', from: idOf(m, 'DUCT-01'), to: idOf(m, 'AT-101-02'), at: AT.toISOString(), reason: '' }])
   })
 
-  it('규칙과 반대 방향은 보정 사유가 있어야 적용되고, 사유가 리포트·연결에 남는다', () => {
+  it('규칙과 반대 방향은 보정 사유가 있어야 적용되고, 사유가 리포트·연결에 남는다 [OE-PIP-04#3]', () => {
     const m = read()
     const c = free(m)
     expect(applyFlow(m, c, idOf(m, 'AT-101-02'), '  ')).toEqual({ refused: '규칙 방향과 반대입니다. 보정 사유를 적어 주세요' })
@@ -63,7 +63,7 @@ describe('연결별 방향 적용 (OE-PIP-04)', () => {
     expect(feeds(m, 'DUCT-01', 'AT-101-02')).toBe(false)
   })
 
-  it('수동 지정 해제는 확정한 규칙 방향이 있으면 그것으로 내보내고, 미확정이면 내보내지 않는다', () => {
+  it('수동 지정 해제는 확정한 규칙 방향이 있으면 그것으로 내보내고, 미확정이면 내보내지 않는다 [OE-PIP-04#5]', () => {
     const m = read()
     const c = free(m)
     applyFlow(m, c, idOf(m, 'AT-101-02'), '반대', AT)
@@ -79,7 +79,7 @@ describe('연결별 방향 적용 (OE-PIP-04)', () => {
     expect(feeds(m, 'DUCT-01', 'AT-101-02')).toBe(true)
   })
 
-  it('포트가 말한 방향과 해제 보정한 연결에는 적용하지 않는다', () => {
+  it('포트가 말한 방향과 해제 보정한 연결에는 적용하지 않는다 [OE-PIP-04#6,7] [OE-PIP-06#1~]', () => {
     const m = read()
     const port = m.connections.find((c) => c.directed)!
     expect(applyFlow(m, port, port.to, '반대')).toEqual({ refused: '포트(BIM)에 적힌 방향은 고칠 수 없습니다.' })
@@ -104,7 +104,7 @@ describe('연결별 방향 적용 (OE-PIP-04)', () => {
     expect(m.connectionLog).toHaveLength(2)
   })
 
-  it('저장·불러오기 뒤 방향·시각·사유·이력이 같고, 해제한 연결에 정해 둔 방향도 취소하면 돌아온다', () => {
+  it('저장·불러오기 뒤 방향·시각·사유·이력이 같고, 해제한 연결에 정해 둔 방향도 취소하면 돌아온다 [OE-PIP-04#8]', () => {
     const m = read()
     const base = baselineOf(m)
     const c = free(m)

@@ -152,7 +152,7 @@ describe('규칙 방향', () => {
     expect(m.connections[2]).toMatchObject({ from: 't', to: 'd2', directed: true })
   })
 
-  it('확정 전에는 brick:feeds 로 내보내지 않고, 확정하면 덕트를 건너뛴 기기끼리 잇는다', () => {
+  it('확정 전에는 brick:feeds 로 내보내지 않고, 확정하면 덕트를 건너뛴 기기끼리 잇는다 [OE-PIP-05#1]', () => {
     const m = line('supply_air')
     inferFlowByRules(m)
     expect(modelToTTL(m)).not.toContain('brick:feeds')
@@ -163,7 +163,7 @@ describe('규칙 방향', () => {
     expect(modelToTTL(m)).toMatch(/ex:src a brick:Fan_Coil_Unit ;[^.]*brick:feeds [^;]*ex:t\b/)
   })
 
-  it('다시 돌려도 확정한 방향은 지키고, 확정 안 한 것은 새로 정한다', () => {
+  it('다시 돌려도 확정한 방향은 지키고, 확정 안 한 것은 새로 정한다 [OE-PIP-07#2~,3~]', () => {
     const m = line('supply_air')
     inferFlowByRules(m)
     confirmSystemFlow(m, 'sys')

@@ -211,7 +211,7 @@ describe('설비 내보내기', () => {
     expect(out).not.toContain('ex:nominalAirFlowRate')
   })
 
-  it('계통을 hasPart 로 묶고, 종류를 알면 Brick 계통 클래스로 적는다', () => {
+  it('계통을 hasPart 로 묶고, 종류를 알면 Brick 계통 클래스로 적는다 [OE-PIP-03#1]', () => {
     const ttl = modelToTTL(mep)
     // AIRCONDITIONING + SUP 는 급기다. Brick 에는 급기만의 계통 클래스가 없어 공기 계통이고, 급기는 따로 적는다.
     expect(ttl).toMatch(/a brick:Air_System ;\n {4}ex:systemKind "supply_air" ;\n {4}brick:hasPart ex:\S+/)
