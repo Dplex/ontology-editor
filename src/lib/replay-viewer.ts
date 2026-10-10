@@ -195,16 +195,10 @@ export function createReplayFx(host: ReplayHost) {
   /** 3D 위 글 판의 모양(setReplayTheme). */
   let theme: 'plan' | 'show' = 'plan'
   const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`
-  /** 중계 모양의 판: 모서리를 깎은 다각형 길(왼쪽 위·오른쪽 아래를 c 만큼). */
-  const chamfer = (g: CanvasRenderingContext2D, w: number, h: number, c: number) => {
+  /** 중계 모양의 판: 둥근 모서리(반지름 r) 길. 테두리 선이 잘리지 않게 1px 안쪽에 그린다. */
+  const chamfer = (g: CanvasRenderingContext2D, w: number, h: number, r: number) => {
     g.beginPath()
-    g.moveTo(c, 0)
-    g.lineTo(w, 0)
-    g.lineTo(w, h - c)
-    g.lineTo(w - c, h)
-    g.lineTo(0, h)
-    g.lineTo(0, c)
-    g.closePath()
+    g.roundRect(1, 1, w - 2, h - 2, r)
   }
 
   // --- 리플레이: 새로 생긴 것이 납작한 2D 발자국에서 3D 형체를 드러낸다(revealElements) ---
@@ -766,7 +760,7 @@ export function createReplayFx(host: ReplayHost) {
       const grad = g.createLinearGradient(0, 0, w, 64)
       grad.addColorStop(0, hot ? 'rgba(120, 60, 10, 0.92)' : 'rgba(14, 18, 28, 0.78)')
       grad.addColorStop(1, hot ? 'rgba(30, 14, 4, 0.92)' : 'rgba(6, 8, 12, 0.78)')
-      chamfer(g, w, 64, 10)
+      chamfer(g, w, 64, 14)
       g.fillStyle = grad
       g.fill()
       if (hot) {
@@ -990,22 +984,20 @@ export function createReplayFx(host: ReplayHost) {
     // 빛기둥 위에서도 읽히게 반투명 검은 판을 깐다(자막 판). 색 막대·테두리는 두지 않는다.
     if (theme === 'show') {
       // 중계: 깎은 모서리 판에 갈래 색 그라데이션, 같은 색 테두리. 번호는 갈래 색.
+      // 유리 알약: 갈래 색이 왼쪽에서 번지고, 갈래 색 테두리.
       const grad = g.createLinearGradient(0, 0, w, 0)
-      grad.addColorStop(0, `${hex(color)}cc`)
-      grad.addColorStop(0.35, 'rgba(10, 12, 20, 0.9)')
-      grad.addColorStop(1, 'rgba(10, 12, 20, 0.82)')
-      chamfer(g, w, 60, 12)
+      grad.addColorStop(0, `${hex(color)}b0`)
+      grad.addColorStop(0.4, 'rgba(14, 16, 28, 0.86)')
+      grad.addColorStop(1, 'rgba(14, 16, 28, 0.8)')
+      chamfer(g, w, 60, 29)
       g.fillStyle = grad
       g.fill()
-      g.strokeStyle = hex(color)
+      g.strokeStyle = `${hex(color)}d0`
       g.lineWidth = 2
       g.stroke()
       g.fillStyle = '#ffffff'
       g.beginPath()
-      g.moveTo(pad + 2, 22)
-      g.lineTo(pad + 12, 29.5)
-      g.lineTo(pad + 2, 37)
-      g.closePath()
+      g.arc(pad + 6, 29.5, 5, 0, Math.PI * 2)
       g.fill()
     } else {
       g.fillStyle = 'rgba(8, 10, 13, 0.7)'
@@ -1437,7 +1429,7 @@ export function createReplayFx(host: ReplayHost) {
       const grad = g.createLinearGradient(0, 0, w, h)
       grad.addColorStop(0, delta > 0 ? 'rgba(10, 70, 48, 0.94)' : 'rgba(80, 12, 28, 0.94)')
       grad.addColorStop(1, 'rgba(8, 10, 16, 0.94)')
-      chamfer(g, w, h, 14)
+      chamfer(g, w, h, 18)
       g.fillStyle = grad
       g.fill()
       g.strokeStyle = accent
