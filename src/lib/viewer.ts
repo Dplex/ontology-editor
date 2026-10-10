@@ -943,8 +943,31 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
     return out.join(',')
   }
+  /**
+   * 벽 외곽선 하나를 세운 입체(층 바닥 y 에서 ARCH_WALL_HEIGHT). 외곽선·높이로 기억한다 — 외곽선 층을 다시 지을 때마다 벽
+   * 수백 개를 다시 삼각분할했다(dental 의 문 하나 옮기기에 65ms). 합칠 때 복사하고 고치지 않으니 같은 것을 다시 써도 된다.
+   */
+  const extruded = new Map<string, BufferGeometry>()
+  function extrudeRing(ring: readonly Vec2[], y: number): BufferGeometry {
+    const key = `${y}|${ring.map((p) => `${p[0]},${p[1]}`).join(';')}`
+    let g = extruded.get(key)
+    if (!g) {
+      const shape = new Shape()
+      shape.moveTo(ring[0][0], ring[0][1])
+      for (const p of ring.slice(1)) shape.lineTo(p[0], p[1])
+      g = new ExtrudeGeometry(shape, { depth: ARCH_WALL_HEIGHT, bevelEnabled: false })
+      g.rotateX(-Math.PI / 2)
+      g.translate(0, y, 0)
+      if (extruded.size > 20000) extruded.clear()
+      extruded.set(key, g)
+    }
+    return g
+  }
   function buildArchitecture(model: Model | null, selected: string | null) {
     lastArch = { model, selected }
+    // 다시 지은 상태의 열쇠. 솟아오르기·미끄러짐이 먼저 다시 지었으면(rebuildArchitecture) 뒤따르는 setArchitecture 는 건너뛴다 —
+    // 문 하나 옮기는 데 외곽선 층을 두세 번 지었다.
+    lastArchKey = archKey(model, selected)
     arch.traverse((o) => {
       if (o instanceof Mesh || o instanceof LineSegments) {
         o.geometry.dispose()
@@ -983,12 +1006,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const own: BufferGeometry[] | null = fx.reveals(wall.id) ? [] : null
         for (const ring of rings) {
           if (ring.length < 3) continue
-          const shape = new Shape()
-          shape.moveTo(ring[0][0], ring[0][1])
-          for (const p of ring.slice(1)) shape.lineTo(p[0], p[1])
-          const g = new ExtrudeGeometry(shape, { depth: ARCH_WALL_HEIGHT, bevelEnabled: false })
-          g.rotateX(-Math.PI / 2)
-          g.translate(0, y, 0)
+          const g = extrudeRing(ring, y)
           if (own) own.push(g)
           else add(color, g)
         }
@@ -2341,9 +2359,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setArchitecture(model, selected) {
       // 벽·문·창과 고른 것이 그대로면 다시 짓지 않는다. 화면 갱신(sceneVersion)마다 불려서 설비만 바뀐 편집에도 벽을 전부 다시
       // 압출했다(dental 의 리플레이 다시 하기 한 번에 92ms). 솟아오르기·미끄러짐은 rebuildArchitecture 로 따로 다시 짓는다.
-      const key = archKey(model, selected)
-      if (key === lastArchKey) return
-      lastArchKey = key
+      if (archKey(model, selected) === lastArchKey) return
       buildArchitecture(model, selected)
     },
 

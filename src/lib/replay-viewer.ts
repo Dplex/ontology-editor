@@ -1800,12 +1800,20 @@ export function createReplayFx(host: ReplayHost) {
     },
 
     setRoomTags(tags) {
-      for (const o of roomTags.children) {
-        const m = (o as Sprite).material
-        m.map?.dispose()
-        m.dispose()
+      // 장면마다 불리는데, 같은 방 표시(같은 글·자리·모양)는 그대로 둔다. 다 버리고 새로 그리면 글 그림 수십 장을 한 프레임에
+      // GPU 로 다시 올려서 장면이 바뀔 때마다 끊겼다.
+      const keyOf = (t: (typeof tags)[number]) => `${t.id}|${t.title}|${t.sub}|${t.hot}|${t.at.join(',')}|${theme}`
+      const keep = new Map<string, Sprite>()
+      for (const o of [...roomTags.children] as Sprite[]) {
+        const k = o.userData.tagKey as string
+        if (!keep.has(k) && tags.some((t) => keyOf(t) === k)) {
+          keep.set(k, o)
+          continue
+        }
+        roomTags.remove(o)
+        o.material.map?.dispose()
+        o.material.dispose()
       }
-      roomTags.clear()
       const storey = tags[0]?.storeyId ?? null
       if (storey !== tagsStorey) tagsFrom = performance.now() + (cinema && !still() ? CINEMA_FLY_MS : 0)
       tagsStorey = storey
@@ -1813,6 +1821,8 @@ export function createReplayFx(host: ReplayHost) {
       const before = shownTags
       shownTags = new Set(tags.map((t) => `${t.id}|${t.title}|${t.sub}|${t.hot}`))
       for (const [k, t] of tags.entries()) {
+        const key = keyOf(t)
+        if (keep.has(key)) continue
         // 방 표시는 나타나기 시작할 때(tagsFrom)부터 바뀐 방 먼저, 그다음 넓은 방부터 조금씩 늦게 친다. 앞 장면에도 같은 글로
         // 떠 있던 것은 다시 치지 않는다 — 장면마다 수십 개가 다시 찍히면 산만하다.
         const order = t.hot ? 0 : k + 1
@@ -1823,6 +1833,7 @@ export function createReplayFx(host: ReplayHost) {
         sprite.userData.baseY = y + 0.2
         sprite.userData.storeyId = t.storeyId
         sprite.userData.hot = t.hot
+        sprite.userData.tagKey = key
         sprite.position.y += explodeAt(sprite.userData.baseY)
         roomTags.add(sprite)
       }
