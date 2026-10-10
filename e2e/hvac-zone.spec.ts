@@ -292,3 +292,41 @@ test('담당 없는 물리존이 생기면 바뀐 내용 리포트에 Z-01 이 �
   await expect(report).toContainText('1개 — 1F 사무실-2')
   expect(errors).toEqual([])
 })
+
+test('검토 화면의 "공조존 생성 방법" 에는 직접 만들기만 있고, 누르면 공간 편집 모드의 공조존 칸이 열려 바로 만들며, 먼저 한 편집은 그대로다 [OE-BIM-15#1,9] [OE-BIM-15#10~]', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  const route = page.getByTestId('zone-route')
+  await expect(route).toContainText('공조존 생성 방법')
+  await expect(route).toContainText('아직 공조존이 없습니다')
+  await expect(route.getByRole('button')).toHaveText(['공조존 직접 만들기'])
+  await expect(route).not.toContainText('IDF')
+  await expect(route).not.toContainText('gbXML')
+  if (process.env.SHOT_ROUTE) await page.locator('.overview').screenshot({ path: process.env.SHOT_ROUTE })
+
+  // 편집에서 방 이름을 하나 고친 뒤 검토 화면으로 돌아와 직접 만들기를 누른다.
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const name = page.locator('.rows input').first()
+  await name.fill('대회의실')
+  await name.press('Enter')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Escape')
+  await route.getByRole('button', { name: '공조존 직접 만들기' }).click()
+  await expect(page.getByRole('group', { name: '편집 대상' }).getByRole('button', { name: '공간', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  const fold = page.getByTestId('hvac-zones')
+  await expect(fold.locator('.fold-head')).toHaveAttribute('aria-expanded', 'true')
+  await expect(fold).toBeInViewport()
+  // 아직 아무것도 바뀌지 않았다(나중에 만들어도 된다).
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.locator('.report')).toContainText('사무실 → 대회의실')
+
+  await fold.getByLabel('대회의실').check()
+  await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
+  await expect(fold.locator('.zone-list li[data-zone]')).toHaveCount(1)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  expect(errors).toEqual([])
+})

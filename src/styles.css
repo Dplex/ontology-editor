@@ -4351,6 +4351,27 @@ button.done::after {
   font-size: 0.85rem;
 }
 
+/* 공조존 생성 방법(OE-BIM-15). 벽·문·창 설정과 같은 모양의 작은 칸이다. */
+.overview .zone-route {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.85rem;
+}
+
+.overview .zone-route h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.85rem;
+}
+
+.overview .zone-route p {
+  margin: 0.25rem 0;
+}
+
+.overview .zone-route button {
+  margin-right: 0.4rem;
+}
+
 .overview .element-settings label {
   display: flex;
   align-items: center;
