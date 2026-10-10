@@ -14,6 +14,7 @@
 // 모델이 같은 자리를 차지하는지부터 재고, 결과를 보고서로 돌려준다.
 
 import { ratioLabel, storeyScaleMismatch, type ScaleMismatch } from './unit-check'
+import { estimateOffset, offsetText, type Offset } from './align'
 import { assignEquipmentToSpaces, distanceToRing, interiorPoint, pointInPolygon } from './mapping'
 import { inferFlowByRules } from './flow-rules'
 import type { Connection, Model, Space, Storey, System, Vec2 } from './model'
@@ -50,6 +51,8 @@ export type MergeReport = {
    * 기준 모델에 공간이 없으면 잴 수 없어 null 이다.
    */
   alignment: { placed: number; inside: number; ratio: number } | null
+  /** 덧붙인 모델을 기준 모델에 맞추는 회전·이동 추정(OE-BIM-22, align.ts). 잴 것이 없으면 null. 정렬 경고에 같이 적는다. */
+  offset: Offset | null
   /**
    * 덧붙인 모델의 물리존을 어떻게 받았나.
    *
@@ -329,6 +332,7 @@ export function mergeModels(
   const report: MergeReport = {
     storeys: storeyReport,
     alignment,
+    offset: estimateOffset(base, overlay),
     spaces: spaceTally,
     declaredRemapped: remapped + orphaned === 0 ? { total: 0, remapped: 0 } : { total: remapped + orphaned, remapped },
     duplicateIds,
@@ -456,7 +460,8 @@ function mergeWarnings(report: MergeReport, labels: { base: string; overlay: str
     const pct = Math.round(report.alignment.ratio * 100)
     out.push(
       `${labels.overlay}의 설비 ${report.alignment.placed}대 중 ${pct}%만 ${labels.base}의 공간 범위 안에 있습니다. ` +
-        '두 파일의 좌표계(원점·북방향)가 다른 것 같습니다. 이대로면 설비 소속이 틀립니다.',
+        '두 파일의 좌표계(원점·북방향)가 다른 것 같습니다. 이대로면 설비 소속이 틀립니다.' +
+        (report.offset ? ` ${offsetText(report.offset)}` : ''),
     )
   }
 
