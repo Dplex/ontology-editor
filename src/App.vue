@@ -19,6 +19,7 @@ import { dimensionText, wallDimensions } from './lib/dimensions'
 import { familyHeight } from './lib/placement'
 import { facadeOf, moveFacade } from './lib/facade'
 import { customerReportHTML, generationReport, MISSING_LABEL, missingClass, sha256Hex, type ReportInput, type ReportSectionB } from './lib/build-report'
+import { checkCode, issueText, warningCode } from './lib/issue-code'
 import { ttlTriples } from './lib/export/read-export'
 import { readOntologyTTL } from './lib/export/read-ttl'
 import { DEFAULT_SITE_RULES, siteWarnings, type SiteRules } from './lib/site-rules'
@@ -10809,7 +10810,8 @@ function rollbackFromReport() {
         </ul>
 
         <ul v-if="warnings.length" id="warnings" class="warnings">
-          <li v-for="w in warnings" :key="w">{{ w }}</li>
+          <!-- 누락 분류 코드와 R 번호(OE-BIM-20). 어느 R 을 고쳐 달라고 할지가 경고마다 보인다. -->
+          <li v-for="w in warnings" :key="w"><span v-if="warningCode(w)" class="issue-code" :data-class="warningCode(w)!.cls">{{ issueText(warningCode(w)!) }}</span> {{ w }}</li>
         </ul>
 
         <!-- 미배치 목록(OE-BIM-07). 좌표가 없어 3D 에 없는 설비. 층은 BIM 이 말한 것이고, TTL 에는 그 층까지만 나간다. 놓기는 편집
@@ -11059,6 +11061,7 @@ function rollbackFromReport() {
                   <i :class="c.skipped || c.total === 0 ? 'none' : c.failed.length ? 'warn' : 'ok'"></i>
                 </td>
                 <td>
+                  <span v-if="checkCode(c.key)" class="issue-code" :data-class="checkCode(c.key)!.cls">{{ issueText(checkCode(c.key)!) }}</span>
                   {{ c.rule }}
                   <small class="muted">{{ c.skipped ?? (c.total === 0 ? '이 파일에는 검사할 대상이 없습니다.' : `영향: ${c.why}`) }}</small>
                 </td>

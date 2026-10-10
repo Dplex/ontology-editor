@@ -27,6 +27,7 @@ import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topo
 import { inferFlowByRules, newlyDisagreeing, withInferred } from '../src/lib/flow-rules'
 import { airBasis, airServices, needsSystem, systemlessAir } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
+import { warningCode } from '../src/lib/issue-code'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
 import { verticalConnections, verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
 import { verticalObjects } from '../src/lib/vertical-object'
@@ -2871,4 +2872,20 @@ describe('합칠 때 좌표계 어긋남 추정 (OE-BIM-22)', () => {
     expect([clinic.basis, clinic.pairs, clinic.rotationDeg]).toEqual(['spaces', 261, 0])
     expect(Math.hypot(clinic.dx, clinic.dy)).toBeLessThan(0.05)
   }, 300_000)
+})
+
+// 누락 분류 코드(OE-BIM-20). 가진 BIM 과 그 합치기에서 나오는 경고마다 X/A/B/C 코드와 R 번호가 붙는다.
+describe('경고마다 누락 분류 코드 (OE-BIM-20)', () => {
+  it('가진 BIM 8개와 건축+설비 합치기의 경고에 코드가 없는 것이 없다 [OE-BIM-20#1]', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP_FULL, DUPLEX_COBIE, CLINIC_ARCH, CLINIC_HVAC, CLINIC_MEP].filter((f) => existsSync(f))
+    if (!files.length) return
+    const opened = new Map(files.map((f) => [f, importIfcWithMeshes(api, new Uint8Array(readFileSync(f))).model]))
+    const warnings = new Set([...opened.values()].flatMap((m) => m.warnings))
+    for (const [a, b] of [[DUPLEX_ARCH, DUPLEX_MEP_FULL], [DUPLEX_ARCH, DUPLEX_HVAC], [CLINIC_ARCH, CLINIC_HVAC], [CLINIC_ARCH, CLINIC_MEP], [SAMPLE, MEP]])
+      if (opened.has(a) && opened.has(b)) for (const w of mergeModels(opened.get(a)!, opened.get(b)!, { base: 'A', overlay: 'B' }).model.warnings) warnings.add(w)
+    expect(warnings.size).toBeGreaterThan(15)
+    expect([...warnings].filter((w) => !warningCode(w))).toEqual([])
+  }, 600_000)
 })

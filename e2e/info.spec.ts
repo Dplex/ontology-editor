@@ -263,3 +263,20 @@ test('등급 판정의 목표선 등급 3·4 는 BIM 과 사전 포함 두 수�
   }
   expect(errors).toEqual([])
 })
+
+test('경고와 완전성 검사 규칙마다 누락 분류 코드와 R 번호가 붙는다 [OE-BIM-20#1]', async ({ page }) => {
+  const errors = await open(page)
+  const items = page.locator('#warnings > li')
+  await expect(items.first()).toBeVisible()
+  const n = await items.count()
+  for (let i = 0; i < n; i++) await expect(items.nth(i).locator('.issue-code')).toHaveText(/^[XABC]-(외부|설정|부재|보정) · R\d+$/)
+  const fold = page.getByRole('button', { name: /완전성 검사/ })
+  if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
+  const rows = page.locator('.checks tbody tr')
+  await expect(rows.first()).toBeVisible()
+  const m = await rows.count()
+  for (let i = 0; i < m; i++) await expect(rows.nth(i).locator('.issue-code')).toHaveText(/^[XABC]-(외부|설정|부재|보정) · R\d+$/)
+  await expect(rows.filter({ hasText: '소속 방이 있다' }).locator('.issue-code')).toHaveText('B-부재 · R2')
+  if (process.env.SHOT) await page.locator('#warnings').screenshot({ path: process.env.SHOT })
+  expect(errors).toEqual([])
+})

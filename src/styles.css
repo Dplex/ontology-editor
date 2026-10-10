@@ -1324,6 +1324,27 @@ th {
   color: var(--accent);
 }
 
+/* 누락 분류 코드와 R 번호(OE-BIM-20). 경고·완전성 검사 줄 앞의 작은 칩. 색은 요구사항 표의 분류 칸과 같다. */
+.issue-code {
+  display: inline-block;
+  margin-right: 0.3rem;
+  padding: 0 0.35rem;
+  border: 1px solid currentColor;
+  border-radius: 0.6rem;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.issue-code[data-class='A'],
+.issue-code[data-class='B'] {
+  color: #b45309;
+}
+
+.issue-code[data-class='C'] {
+  color: var(--accent);
+}
+
 /* 미리보기(OE-WF-07~09). 편집 막대 바로 아래. */
 .preview-panel {
   margin: 0.4rem 0;
