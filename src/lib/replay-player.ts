@@ -220,8 +220,14 @@ export function useReplay(host: ReplayPlayerHost) {
     void replayRun(token)
   }
 
+  /**
+   * 이력을 정한 자리로 옮기는 조작(처음부터·끌기·장면 반복·편집 전 보기)을 할 때마다 하나 는다. → 는 카메라를 보낸 뒤 다시 하는데,
+   * 그 사이에 이런 조작이 끼면 늦게 도착한 다시 하기가 옮긴 자리를 한 칸 민다 — 그때는 다시 하지 않는다.
+   */
+  let absEpoch = 0
   /** 편집 전 상태로 한 번에 되돌린다. 되돌리기 몇 번이라 순간이다(카드 계산은 열 때 따로 시작한 워커가 한다). */
   function replayRewind() {
+    absEpoch++
     replayAiming.value = null
     replayLoop.value = null
     replaySeen.value = 0
@@ -410,6 +416,7 @@ export function useReplay(host: ReplayPlayerHost) {
   async function replayScene(i: number) {
     if (replayPhase.value === 'opening' || i < 0 || i >= replayTotal.value) return
     const token = ++replayToken
+    absEpoch++
     replayPlaying.value = false
     replayPhase.value = 'play'
     replayLoop.value = i
@@ -424,6 +431,7 @@ export function useReplay(host: ReplayPlayerHost) {
       replayAiming.value = i
       // 카메라는 첫 바퀴에만 그 자리로 보낸다. 그 뒤는 사람이 돌리고 다가간 시점 그대로 두고, 저절로 도는 것도 멈춘다.
       await replayAim(step, round === 0)
+      if (token !== replayToken) return
       if (round === 0) host.viewer?.setAutoRotate(false)
       void replayArrows(step)
       if (!(await replayWait(round ? REPLAY_LOOP_BEFORE_MS : REPLAY_AIM_MS, token))) return
@@ -499,6 +507,7 @@ export function useReplay(host: ReplayPlayerHost) {
   const replaySpotScenes = new Map<string, number>()
   function replaySpotClick(key: string) {
     if (!replayOpen.value || replayPhase.value === 'opening') return
+    compareEnd()
     let i = replaySpotScenes.get(key)
     if (i === undefined) {
       const upTo = Math.max(replayAiming.value ?? -1, history.value.length - 1)
@@ -584,15 +593,18 @@ export function useReplay(host: ReplayPlayerHost) {
       replayLand(step)
       if (!(await replayWait(REPLAY_STEP_MS - REPLAY_AIM_MS, token))) return
     }
-    if (token === replayToken && history.value.length >= replayTotal.value) {
-      replayPhase.value = 'done'
-      replayPlaying.value = false
-      selectedId.value = null
-      selectedSpaceId.value = null
-      viewStorey.value = null
-      await nextTick()
-      replayFinale()
-    }
+    if (token === replayToken && history.value.length >= replayTotal.value) await replayToDone()
+  }
+
+  /** 끝 화면으로: 건물 전체로 물러나 고친 자리마다 장면 번호 빛기둥(replayFinale). 끝까지 틀었을 때·→·끌기로 끝에 닿았을 때. */
+  async function replayToDone() {
+    replayPhase.value = 'done'
+    replayPlaying.value = false
+    selectedId.value = null
+    selectedSpaceId.value = null
+    viewStorey.value = null
+    await nextTick()
+    replayFinale()
   }
 
   function replayToggle() {
@@ -636,15 +648,17 @@ export function useReplay(host: ReplayPlayerHost) {
       if (token !== replayToken) return
       if (history.value.length < replayTotal.value) {
         const step = replaySteps.value[history.value.length] ?? null
+        const epoch = absEpoch
         await replayAim(step)
+        if (epoch !== absEpoch) return
         replayDemolish(step)
         redo()
         replayLand(step)
       }
     }
     if (history.value.length >= replayTotal.value) {
-      replayPhase.value = 'done'
       replayPlaying.value = false
+      if (token === replayToken) await replayToDone()
     } else if (replayPlaying.value) {
       if (await replayWait(REPLAY_STEP_MS - REPLAY_AIM_MS, token)) void replayRun(token)
     }
@@ -662,12 +676,14 @@ export function useReplay(host: ReplayPlayerHost) {
     seekTarget = Math.max(0, Math.min(replayTotal.value, Math.round(n)))
     if (busy) return
     replayEndLoop()
-    replayToken++
+    const token = ++replayToken
+    absEpoch++
     replayPlaying.value = false
     replayAiming.value = null
     host.viewer?.spotlight([], [], 0)
     host.viewer?.setFlows([])
-    while (seekTarget !== null && history.value.length !== seekTarget) {
+    // 끄는 동안 다른 조작(장면 반복·처음부터)이 끼면 그쪽에 맡기고 멈춘다 — 둘이 이력을 서로 당기지 않게.
+    while (seekTarget !== null && token === replayToken && history.value.length !== seekTarget) {
       if (history.value.length > seekTarget) undo()
       else if (future.value.length) redo()
       else break
@@ -675,9 +691,12 @@ export function useReplay(host: ReplayPlayerHost) {
       await frames(1)
     }
     seekTarget = null
+    if (token !== replayToken) return
     replaySeen.value = Math.max(replaySeen.value, history.value.length)
     replayPhase.value = history.value.length >= replayTotal.value ? 'done' : 'play'
     void replayArrows(replaySteps.value[history.value.length - 1] ?? null)
+    // 끝에 닿으면 끝 화면처럼 고친 자리마다 장면 번호 빛기둥을 세운다.
+    if (replayPhase.value === 'done') await replayToDone()
   }
 
   /**
@@ -689,16 +708,23 @@ export function useReplay(host: ReplayPlayerHost) {
   const REPLAY_RECORD_TAIL_MS = 4000
   const replayRecording = ref<{ since: number } | null>(null)
   let recorder: MediaRecorder | null = null
+  /** 공유 확인 창이 떠 있는 동안. 그 사이 다시 누른 것은 버린다 — 녹화가 둘 돌고 하나는 멈출 길이 없었다. */
+  let recordAsking = false
   async function replayRecord() {
     if (recorder) return void recorder.stop()
-    if (replayPhase.value === 'opening' || !navigator.mediaDevices?.getDisplayMedia) return
+    if (recordAsking || replayPhase.value === 'opening' || !navigator.mediaDevices?.getDisplayMedia) return
     let stream: MediaStream
+    recordAsking = true
     try {
       stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false, preferCurrentTab: true } as DisplayMediaStreamOptions)
     } catch {
       // 사람이 공유를 거절했다.
       return
+    } finally {
+      recordAsking = false
     }
+    // 묻는 동안 리플레이를 닫았으면 녹화하지 않는다.
+    if (!replayOpen.value) return void stream.getTracks().forEach((tr) => tr.stop())
     const track = stream.getVideoTracks()[0]
     const theater = document.querySelector('.viewport.theater')
     const crop = (globalThis as { CropTarget?: { fromElement(e: Element): Promise<unknown> } }).CropTarget
@@ -843,11 +869,14 @@ export function useReplay(host: ReplayPlayerHost) {
   const replayHelp = ref(0)
   function compareStart() {
     if (replayPhase.value === 'opening' || replayComparing.value || seekTarget !== null) return
+    // 아직 다시 한 편집이 없으면 견줄 "편집 전" 이 없다 — 재생을 멈추지 않는다.
+    if (!history.value.length && replayLoop.value === null) return
     replayEndLoop()
     replayToken++
     replayPlaying.value = false
     replayAiming.value = null
     if (!history.value.length) return
+    absEpoch++
     undo()
     replayComparing.value = true
   }
@@ -915,18 +944,24 @@ export function useReplay(host: ReplayPlayerHost) {
     helpToggles: replayHelp.value,
     diff: replayDiff.value,
   }))
+  // B 로 편집 전을 보는 중에 마우스로 다른 조작을 하면 먼저 편집 후로 돌린다 — 그대로 두면 그 조작이 이력을 옮긴 뒤 B 를 뗄 때
+  // 다시 하기가 한 번 더 되어 한 칸 어긋났다(키는 B 를 누르는 동안 받지 않는다).
+  const after = <A extends unknown[]>(f: (...a: A) => unknown) => (...a: A) => {
+    compareEnd()
+    void f(...a)
+  }
   const hudOn = {
-    toggle: replayToggle,
-    prev: () => void replayJump('prev'),
-    next: () => void replayJump('next'),
-    restart: () => void replayJump('restart'),
+    toggle: after(replayToggle),
+    prev: after(() => replayJump('prev')),
+    next: after(() => replayJump('next')),
+    restart: after(() => replayJump('restart')),
     speed: (v: number) => (replaySpeed.value = v),
     close: closeReplay,
-    scene: (i: number) => void replayScene(i),
-    seek: (n: number) => void replaySeek(n),
-    filter: (c: ReplayStep['category'] | null) => replaySetFilter(c),
-    record: () => void replayRecord(),
-    diff: () => replayToggleDiff(),
+    scene: after((i: number) => replayScene(i)),
+    seek: after((n: number) => replaySeek(n)),
+    filter: after((c: ReplayStep['category'] | null) => replaySetFilter(c)),
+    record: after(replayRecord),
+    diff: after(replayToggleDiff),
   }
 
   return { open: openReplay, close: closeReplay, key: replayKey, hud, hudOn }
