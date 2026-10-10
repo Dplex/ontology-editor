@@ -487,6 +487,39 @@ export function useReplay(host: ReplayPlayerHost) {
     if (arch && (arch.points.length || arch.rings.length)) host.viewer?.spotlight([], [], replayColor(step), { points, rings: arch.rings })
     else if (zones) host.viewer?.spotlight([], [], replayColor(step), { points: zones.points, rings: zones.rings })
     else if (spaces.length) host.viewer?.spotlight([], spaces, replayColor(step))
+    // 치수선은 비추기 다음에 — 비추기가 앞의 것(치수선 포함)을 옅게 걷는다.
+    host.viewer?.dimensions(replayMovesOf(step), replayColor(step))
+  }
+
+  /**
+   * 옮긴 거리(치수선): 설비·문·창은 자리, 통째로 옮긴 벽은 외곽선 가운데. IFC 좌표(z 는 층 바닥). TTL 에는 좌표가 없어 이
+   * 거리는 GeoJSON 에만 남는다.
+   */
+  function replayMovesOf(step: ReplayStep | null): { key: string; from: Vec3; to: Vec3 }[] {
+    const m = model.value
+    if (!m) return []
+    const elevation = (sid: string) => m.storeys.find((s) => s.id === sid)?.elevation ?? 0
+    const centre = (ring: readonly Vec2[]): Vec2 => [ring.reduce((n, p) => n + p[0], 0) / ring.length, ring.reduce((n, p) => n + p[1], 0) / ring.length]
+    const out: { key: string; from: Vec3; to: Vec3 }[] = []
+    for (const c of step?.changes ?? []) {
+      const a = c.after
+      const b = c.before
+      if (!a || !b) continue
+      if ((a.t === 'equip' && b.t === 'equip' && !a.conduit) || (a.t === 'opening' && b.t === 'opening')) {
+        if (!a.at || !b.at || (a.at[0] === b.at[0] && a.at[1] === b.at[1])) continue
+        const z = elevation(a.storeyId)
+        out.push({ key: c.key, from: [b.at[0], b.at[1], z], to: [a.at[0], a.at[1], z] })
+      }
+    }
+    for (const sl of replaySlidesOf(step)) {
+      const c = step!.changes.find((x) => x.after?.t === 'wall' && x.after.id === sl.id)
+      if (c?.after?.t !== 'wall' || c.before?.t !== 'wall' || !c.after.rings[0]?.length) continue
+      const z = elevation(c.after.storeyId)
+      const p = centre(c.before.rings[0])
+      const q = centre(c.after.rings[0])
+      out.push({ key: c.key, from: [p[0], p[1], z], to: [q[0], q[1], z] })
+    }
+    return out
   }
 
   /**

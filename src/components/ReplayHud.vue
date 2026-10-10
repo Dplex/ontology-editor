@@ -429,10 +429,11 @@ const summary = computed(() => {
                 <!-- 관계가 바뀐 장면은 그 관계를 그림으로 먼저(소속 방이 바뀜 · 공급 대상이 바뀜 …). 그만큼 줄 글은 줄인다. -->
                 <ReplayRelations v-if="c.rels.length" :rels="c.rels" :name="readable" />
                 <!-- 그 관계 변화가 DT 질의의 답을 어떻게 바꾸나(말로) -->
-                <div v-for="(l, i) in impactLines(c.rels, readable).slice(0, 2)" :key="`im${i}`" class="line query" :style="{ animationDelay: `${450 + i * 120}ms` }">⇢ {{ l }}</div>
+                <div v-for="(l, i) in impactLines(c.rels, readable).slice(0, 2)" :key="`im${i}`" class="line query" :style="{ animationDelay: `${450 + i * 120}ms`, '--mk': `${900 + i * 120}ms` }">⇢ <span class="mk">{{ l }}</span></div>
                 <template v-if="c.rows.length">
-                  <div v-for="(r, i) in c.rows.slice(0, c.rels.length ? ROWS - 3 : ROWS)" :key="i" :class="['line', r.kind]" :style="{ animationDelay: `${250 + i * 70}ms` }">
-                    {{ r.kind === 'add' ? '+ ' : r.kind === 'del' ? '− ' : '▸ ' }}{{ r.text }}
+                  <!-- 더한 줄은 쳐진 뒤 형광펜이 왼쪽에서 오른쪽으로 그어진다(새로 들어간 값이 눈에 먼저 들어오게). -->
+                  <div v-for="(r, i) in c.rows.slice(0, c.rels.length ? ROWS - 3 : ROWS)" :key="i" :class="['line', r.kind]" :style="{ animationDelay: `${250 + i * 70}ms`, '--mk': `${700 + i * 70}ms` }">
+                    {{ r.kind === 'add' ? '+ ' : r.kind === 'del' ? '− ' : '▸ ' }}<span v-if="r.kind === 'add'" class="mk">{{ r.text }}</span><template v-else>{{ r.text }}</template>
                   </div>
                   <div v-if="c.rows.length > (c.rels.length ? ROWS - 3 : ROWS)" class="line more">… 외 {{ c.rows.length - (c.rels.length ? ROWS - 3 : ROWS) }}줄</div>
                 </template>
@@ -1250,6 +1251,20 @@ const summary = computed(() => {
 .line.del {
   text-decoration: line-through;
 }
+/* 형광펜: 글 아래쪽 절반에 옅은 색이 왼쪽에서 오른쪽으로 칠해진다. 도면에서는 옅게. */
+.mk {
+  padding: 0 2px;
+  background: linear-gradient(transparent 58%, color-mix(in srgb, var(--mint) 26%, transparent) 58%) no-repeat 0 0 / 0% 100%;
+  animation: marker 650ms cubic-bezier(0.6, 0, 0.2, 1) var(--mk, 700ms) forwards;
+}
+.line.query .mk {
+  background-image: linear-gradient(transparent 58%, rgba(229, 192, 123, 0.24) 58%);
+}
+@keyframes marker {
+  to {
+    background-size: 100% 100%;
+  }
+}
 .line.none,
 .line.more {
   color: var(--mute);
@@ -1960,6 +1975,10 @@ button.sum-row.on span {
   }
   .wd {
     animation: none !important;
+  }
+  .mk {
+    animation: none;
+    background-size: 100% 100%;
   }
 }
 
@@ -2692,6 +2711,13 @@ button.sum-row.on span {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
+}
+.replay-hud[data-theme='show'] .mk {
+  border-radius: 3px;
+  background-image: linear-gradient(90deg, rgba(52, 245, 176, 0.32), rgba(34, 211, 238, 0.32));
+}
+.replay-hud[data-theme='show'] .line.query .mk {
+  background-image: linear-gradient(90deg, rgba(255, 200, 97, 0.32), rgba(244, 114, 182, 0.3));
 }
 @media (prefers-reduced-motion: reduce) {
   .replay-hud[data-theme='show'] .card::before,

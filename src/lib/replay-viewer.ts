@@ -145,6 +145,11 @@ export type ReplayViewerApi = {
    * at 은 IFC 좌표(층 바닥 높이). 부를 때마다 앞의 카드는 걷는다.
    */
   roomCards(cards: readonly { key: string; at: Vec3; title: string; before: number; after: number }[]): void
+  /**
+   * 치수선. 옮긴 것마다 옛 자리와 새 자리 사이 바닥에 건축 도면의 치수선(양 끝 보조선, 45° 틱)을 옆으로 비켜 긋고 가운데에
+   * 거리("0.50 m")를 단다. 미끄러짐과 같은 시간에 그어지고, 다음 장면에서 빛기둥과 같이 옅어진다. from·to 는 IFC 좌표(z 는 층 바닥).
+   */
+  dimensions(items: readonly { key: string; from: Vec3; to: Vec3 }[], color: number): void
   /** 3D 위 이름표·방 표시·소속 카드의 모양. 도면(무채색 가는 선) · 중계(갈래 색 그라데이션과 빛). 다음에 그리는 것부터. */
   setReplayTheme(theme: 'plan' | 'show'): void
 }
@@ -966,11 +971,13 @@ export function createReplayFx(host: ReplayHost) {
         }
       }
       const visible = level >= 0
-      // center.y 가 -1 이면 스프라이트가 제 높이만큼 위로 선다(아래 가운데가 기준점).
+      // center.y 가 -1 이면 스프라이트가 제 높이만큼 위로 선다(아래 가운데가 기준점). 바로 옮기지 않고 목표만 정한다 — 칸이
+      // 바뀌면 이름표가 미끄러져 가고 지시선이 따라 늘고 준다(stepLeaders).
       const cy = visible ? -level * (1 + LABEL_GAP / h) : 0
-      if (tag.visible !== visible || tag.center.y !== cy) {
+      if (tag.visible !== visible || tag.userData.cyTarget !== cy) {
         tag.visible = visible
-        tag.center.y = cy
+        tag.userData.cyTarget = cy
+        if (!visible) tag.center.y = 0
         changed = true
       }
     }
@@ -1193,7 +1200,9 @@ export function createReplayFx(host: ReplayHost) {
     // 이름표는 빛기둥 꼭대기 조금 위. 여럿이 겹치면 화면에서 위로 한 칸씩 비켜 선다(declutter).
     if (tag) tag.position.y = size.y / 2 + d * 0.02
     if (tag) tag.userData.nth = nth
-    group.add(...(bare ? [] : [outer, core]), ...rings, ...(tag ? [tag] : []))
+    // 지시선(도면의 인출선): 이름표가 겹쳐 위로 비켜 서면 빛기둥 꼭대기의 점에서 이름표까지 가는 선을 잇는다.
+    const leader = tag ? leaderFor(tag, color) : []
+    group.add(...(bare ? [] : [outer, core]), ...rings, ...(tag ? [tag] : []), ...leader)
     for (const o of group.children) o.renderOrder = o.renderOrder || 18
     // 밤 다이오라마의 층 띄우기를 따라간다(stepDiorama).
     group.userData.baseY = group.position.y
@@ -1213,6 +1222,64 @@ export function createReplayFx(host: ReplayHost) {
       if (tag) (tag.material as SpriteMaterial).opacity = fade * rise
     } })
     return { id, color, group }
+  }
+  let dotTexture: CanvasTexture | null = null
+  function dot(): CanvasTexture {
+    if (dotTexture) return dotTexture
+    const c = document.createElement('canvas')
+    c.width = c.height = 32
+    const g = c.getContext('2d')!
+    g.fillStyle = '#fff'
+    g.beginPath()
+    g.arc(16, 16, 12, 0, Math.PI * 2)
+    g.fill()
+    return (dotTexture = new CanvasTexture(c))
+  }
+  /** 이름표의 지시선(가는 세로 선)과 밑동의 점. 크기·보이기는 stepLeaders 가 이름표의 칸을 따라 정한다. */
+  function leaderFor(tag: Sprite, color: number): Sprite[] {
+    const ink = theme === 'show' ? color : 0xc9ced6
+    const line = new Sprite(new SpriteMaterial({ color: ink, transparent: true, opacity: 0, depthTest: false, depthWrite: false, sizeAttenuation: false }))
+    line.center.set(0.5, 0)
+    line.position.copy(tag.position)
+    line.renderOrder = 21
+    line.visible = false
+    const end = new Sprite(new SpriteMaterial({ map: dot(), color: ink, transparent: true, opacity: 0, depthTest: false, depthWrite: false, sizeAttenuation: false }))
+    end.position.copy(tag.position)
+    end.renderOrder = 21
+    end.visible = false
+    tag.userData.leader = [line, end]
+    return [line, end]
+  }
+  /** 이름표를 목표 칸으로 미끄러뜨리고 지시선 길이를 맞춘다. 화면 크기 단위(sizeAttenuation 끔)라 매 프레임 픽셀에서 다시 잰다. */
+  function stepLeaders() {
+    if (!spots.length) return
+    const px = (host.camera.projectionMatrix.elements[5] * host.renderer.domElement.clientHeight) / 2
+    if (!px) return
+    let moving = false
+    for (const s of spots) {
+      for (const o of s.group.children) {
+        const tag = o as Sprite
+        const leader = tag.userData.leader as Sprite[] | undefined
+        const target = tag.userData.cyTarget as number | undefined
+        if (target !== undefined && tag.center.y !== target) {
+          const next = Math.abs(target - tag.center.y) < 0.01 ? target : tag.center.y + (target - tag.center.y) * 0.22
+          tag.center.y = next
+          moving = true
+        }
+        if (!leader) continue
+        const [line, end] = leader
+        // 이름표 밑변까지의 높이(스프라이트 크기 단위). 맨 아래 칸이면 선이 없다.
+        const lift = -tag.center.y * tag.scale.y
+        const on = tag.visible && lift > 4 / px
+        line.visible = end.visible = on
+        if (!on) continue
+        line.scale.set(1.5 / px, lift, 1)
+        end.scale.setScalar(7 / px)
+        line.material.opacity = 0.75 * tag.material.opacity
+        end.material.opacity = tag.material.opacity
+      }
+    }
+    if (moving) host.invalidate()
   }
   /** 물리존 둘레의 빛 울타리(아래가 밝고 위로 옅어지는 벽)와 바닥 테두리. 땅에서 솟아오른다. */
   function spaceSpot(id: string, color: number): Spot | null {
@@ -1554,6 +1621,72 @@ export function createReplayFx(host: ReplayHost) {
     cardGroups = []
   }
 
+  // --- 치수선(dimensions) ---
+  // 도면에서 옮긴 거리를 적는 방식 그대로: 대상에서 옆으로 비켜 보조선을 내고, 그 끝을 잇는 치수선의 양 끝에 45° 틱을 긋고,
+  // 가운데 위에 거리를 쓴다. TTL 에는 좌표가 없어 옮긴 거리는 GeoJSON 에만 남는다 — 그것을 3D 에 숫자로 보인다.
+  /** 그은 치수선 수(e2e 가 센다). */
+  let dimensioned = 0
+  function dimensionLine(key: string, from: Vec3, to: Vec3, color: number, nth: number): Spot | null {
+    const a = new Vector3(...host.toScene(from))
+    const b = new Vector3(...host.toScene(to))
+    const len = Math.hypot(to[0] - from[0], to[1] - from[1])
+    if (len < 0.05) return null
+    const d = viewDistance()
+    const dir = b.clone().sub(a).setY(0).normalize()
+    const n = new Vector3(-dir.z, 0, dir.x)
+    const off = Math.max(0.35, d * 0.012)
+    const ext = off * 0.25
+    const tick = Math.max(0.12, d * 0.004)
+    const lift = 0.05
+    const a2 = a.clone().addScaledVector(n, off).setY(a.y + lift)
+    const b2 = b.clone().addScaledVector(n, off).setY(a.y + lift)
+    const slash = dir.clone().add(n).normalize().multiplyScalar(tick / 2)
+    const base = a.clone().setY(a.y + lift)
+    // 보조선 둘, 시작 틱, 치수선(끝은 그어 가며 옮긴다), 끝 틱. 무리(group)의 원점을 base 에 두고 그 기준으로 적는다.
+    const pts = [
+      base, a2.clone().addScaledVector(n, ext),
+      b.clone().setY(a.y + lift), b2.clone().addScaledVector(n, ext),
+      a2.clone().sub(slash), a2.clone().add(slash),
+      a2.clone(), a2.clone(),
+      b2.clone().sub(slash), b2.clone().add(slash),
+    ].map((p) => p.clone().sub(base))
+    const geometry = new BufferGeometry().setFromPoints(pts)
+    geometry.setDrawRange(0, 8)
+    const ink = theme === 'show' ? color : 0xe8ebef
+    const lines = new LineSegments(geometry, new LineBasicMaterial({ color: ink, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false }))
+    lines.renderOrder = 19
+    const group = new Group()
+    group.position.copy(base)
+    group.userData.fade = 1
+    group.add(lines)
+    const label = labelSprite(`↔ ${len.toFixed(2)} m`, color, CINEMA_GLIDE_MS * 0.55)
+    label.position.copy(a2.clone().lerp(b2, 0.5).sub(base))
+    label.center.set(0.5, -0.25)
+    label.userData.spot = `dim:${key}`
+    label.userData.nth = 40 + nth
+    label.material.opacity = 0
+    group.add(label)
+    group.userData.baseY = group.position.y
+    group.position.y += explodeAt(group.position.y)
+    host.overlay.add(group)
+    dimensioned++
+    const pos = geometry.getAttribute('position') as BufferAttribute
+    const start = a2.clone().sub(base)
+    const end = b2.clone().sub(base)
+    const tip = new Vector3()
+    fxs.push({ obj: group, t0: null, ms: 1000, loop: true, step: (_k, t) => {
+      const fade = group.userData.fade as number
+      const k = glideEase(Math.min(1, t / CINEMA_GLIDE_MS))
+      tip.lerpVectors(start, end, k)
+      pos.setXYZ(7, tip.x, tip.y, tip.z)
+      pos.needsUpdate = true
+      geometry.setDrawRange(0, k >= 1 ? 10 : 8)
+      ;(lines.material as LineBasicMaterial).opacity = 0.95 * fade * Math.min(1, t / 200)
+      label.material.opacity = fade * Math.min(1, Math.max(0, (t - CINEMA_GLIDE_MS * 0.5) / 250))
+    } })
+    return { id: `dim:${key}`, color, group }
+  }
+
   // --- 셰이더 붙잡기 ---
   // 장면마다 빛기둥·울타리·유령의 재질을 만들고 버리고, 편집 뒤 다시 그리기는 모델 재질을 새로 만든다. three.js 는 재질을 쓰는
   // 셰이더 프로그램을 쓰는 재질이 0 이 되는 순간 지우고 다음에 다시 컴파일한다 — 리플레이에서는 같은 프로그램 20여 개가 장면마다
@@ -1808,6 +1941,15 @@ export function createReplayFx(host: ReplayHost) {
       host.invalidate()
     },
 
+    dimensions(items, color) {
+      if (!cinema || still()) return
+      for (const [i, it] of items.slice(0, 6).entries()) {
+        const s = dimensionLine(it.key, it.from, it.to, color, i)
+        if (s) spots.push(s)
+      }
+      host.invalidate()
+    },
+
     setReplayTheme(t) {
       theme = t
     },
@@ -1936,6 +2078,7 @@ export function createReplayFx(host: ReplayHost) {
       stepFx(now)
       stepTyping(now)
       if (cinema && (spots.length || roomTags.children.length)) declutter(now)
+      if (cinema) stepLeaders()
       stepBuild(now)
       stepReveal(now)
       stepSlide(now)
@@ -1982,6 +2125,6 @@ export function createReplayFx(host: ReplayHost) {
     hitSpot: (x: number, y: number): string | null => (spotClickHandler ? hitSpot(x, y) : null),
     spotClick: (key: string) => spotClickHandler?.(key),
     /** e2e 가 보는 지금의 연출 수. */
-    motion: () => ({ effects: fxs.length, spots: spots.length, demolished, slid, sliding: sliding.size, ghosted, ghosts: ghostsByKey.size, carded, typed, lift: Math.max(...buildUniforms.uLift.value), spread: !!spreadLevels, programs: host.renderer.info.programs?.length ?? 0, pinned: pinnedPrograms.size }),
+    motion: () => ({ effects: fxs.length, spots: spots.length, demolished, slid, sliding: sliding.size, ghosted, ghosts: ghostsByKey.size, carded, typed, dimensioned, leaders: spots.reduce((n, s) => n + s.group.children.filter((o) => o.visible && (o as Sprite).isSprite && !o.userData.spot && o.scale.y > 0.003 && !(o as Sprite).material.map).length, 0), lift: Math.max(...buildUniforms.uLift.value), spread: !!spreadLevels, programs: host.renderer.info.programs?.length ?? 0, pinned: pinnedPrograms.size }),
   }
 }
