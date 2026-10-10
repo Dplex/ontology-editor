@@ -48,7 +48,7 @@ beforeEach(() => {
 })
 
 describe('사람의 소속 지정 (OE-MAP-01 · K17)', () => {
-  it('소속 없음·허용 거리로 붙은 설비는 지정할 수 있고, 출처가 편집이며 TTL·GeoJSON 에 그 방으로 나간다', () => {
+  it('소속 없음·허용 거리로 붙은 설비는 지정할 수 있고, 출처가 편집이며 TTL·GeoJSON 에 그 방으로 나간다 [OE-MAP-01#14~]', () => {
     expect(loose.spaceId).toBe(null)
     expect(near.spaceId).toBe(office(model).id)
     expect(setEquipmentSpace(model, loose.id, store)).toBe(true)
@@ -60,13 +60,13 @@ describe('사람의 소속 지정 (OE-MAP-01 · K17)', () => {
     expect(feature.properties).toMatchObject({ spaceId: store, spaceSource: 'edit' })
   })
 
-  it('미배치·BIM 명시 소속·외곽선 안 설비는 지정하지 않고 까닭을 돌려준다', () => {
+  it('미배치·BIM 명시 소속·외곽선 안 설비는 지정하지 않고 까닭을 돌려준다 [OE-MAP-01#13~]', () => {
     expect(setEquipmentSpace(model, equip(model, 'TEMP-101-01').id, store)).toEqual({ refused: expect.stringContaining('미배치') })
     expect(setEquipmentSpace(model, equip(model, 'LIGHT-101-01').id, store)).toEqual({ refused: expect.stringContaining('BIM 이 적은 소속') })
     expect(setEquipmentSpace(model, equip(model, 'AHU-1').id, store)).toEqual({ refused: expect.stringContaining('외곽선 안') })
   })
 
-  it('지정한 설비 자리에 외곽선을 그리면 그 물리존에 속하고 "사람 지정 해제(외곽선 안)" 가 되며, 되돌리면 지정이 다시 쓰인다', () => {
+  it('지정한 설비 자리에 외곽선을 그리면 그 물리존에 속하고 "사람 지정 해제(외곽선 안)" 가 되며, 되돌리면 지정이 다시 쓰인다 [OE-MAP-01#15]', () => {
     setEquipmentSpace(model, loose.id, store)
     const snap = snapshotStoreySpaces(model, storey(model).id)!
     const lobby = createSpace(model, storey(model).id, { name: '103', longName: '로비', footprint: [[11, 3], [12.5, 3], [12.5, 5], [11, 5]] })!.created[0]
@@ -83,7 +83,7 @@ describe('사람의 소속 지정 (OE-MAP-01 · K17)', () => {
     expect(spaceSetState(loose, storey(model).spaces)).toEqual({ state: 'released', from: store, reason: 'gone' })
   })
 
-  it('지정한 설비를 옮기면 지정이 지워지고 좌표로 다시 판정하며, 되돌리면 지정이 돌아온다', () => {
+  it('지정한 설비를 옮기면 지정이 지워지고 좌표로 다시 판정하며, 되돌리면 지정이 돌아온다 [OE-MAP-01#16]', () => {
     setEquipmentSpace(model, loose.id, store)
     const snap = snapshotEquipment(model, loose.id)!
     moveEquipment(model, loose.id, [12, 2, 1])
@@ -102,7 +102,7 @@ describe('사람의 소속 지정 (OE-MAP-01 · K17)', () => {
 })
 
 describe('사람 지정과 편집 파일 (OE-HIST-03)', () => {
-  it('지정한 소속이 저장·불러오기(층 조각을 거쳐도) 뒤에도 유지되고 TTL·GeoJSON 이 같다', () => {
+  it('지정한 소속이 저장·불러오기(층 조각을 거쳐도) 뒤에도 유지되고 TTL·GeoJSON 이 같다 [OE-MAP-01#18]', () => {
     const base = baselineOf(model)
     // 연 때를 "창고·두 설비가 있는 모델" 로 둔다. 같은 것을 새로 연 모델에도 만든다.
     const again = () => {

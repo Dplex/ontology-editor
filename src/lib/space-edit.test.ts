@@ -47,7 +47,7 @@ const features = (m: Model) => modelToGeoJSON(m).flatMap((f) => f.collection.fea
 const space = (id: string, m = model): Space => m.storeys.flatMap((s) => s.spaces).find((s) => s.id === id)!
 
 describe('BIM 명시 소속과 사람의 경계 편집 (Q13)', () => {
-  it('꼭짓점을 옮기면 BIM 이 담아 둔 설비도 좌표로 다시 판정하고, 되돌리면 BIM 소속이 돌아온다 [OE-SPC-03#1]', () => {
+  it('꼭짓점을 옮기면 BIM 이 담아 둔 설비도 좌표로 다시 판정하고, 되돌리면 BIM 소속이 돌아온다 [OE-SPC-03#1] [OE-MAP-01#6~]', () => {
     const light = equip('LIGHT-101-01')
     const snap = snapshotSpace(model, office().id)!
     moveSpaceVertex(model, office().id, 1, [9, 1])
@@ -76,7 +76,7 @@ describe('BIM 명시 소속과 사람의 경계 편집 (Q13)', () => {
     expect(light.spaceSource).toBe(null)
   })
 
-  it('나누면 BIM 이 담아 둔 설비도 좌표로 다시 판정한다 — 두 조각 밖이면 소속 없음이 되고, 되돌리면 돌아온다 [OE-SPC-02#1]', () => {
+  it('나누면 BIM 이 담아 둔 설비도 좌표로 다시 판정한다 — 두 조각 밖이면 소속 없음이 되고, 되돌리면 돌아온다 [OE-SPC-02#1] [OE-MAP-01#6~]', () => {
     const light = equip('LIGHT-101-01')
     const snap = snapshotStoreySpaces(model, storey().id)!
     const done = splitSpace(model, office().id, [6, -1], [6, 9])
@@ -86,7 +86,7 @@ describe('BIM 명시 소속과 사람의 경계 편집 (Q13)', () => {
     expect(light).toMatchObject({ spaceId: office().id, spaceSource: 'bim' })
   })
 
-  it('BIM 이 담아 둔 물리존을 나누면 좁은 쪽 조각 안의 설비는 좁은 조각에 속한다 [OE-SPC-02#1]', () => {
+  it('BIM 이 담아 둔 물리존을 나누면 좁은 쪽 조각 안의 설비는 좁은 조각에 속한다 [OE-SPC-02#1] [OE-MAP-01#7]', () => {
     // 사무실 안 (8, 4) 에 BIM 이 사무실에 담은 설비를 하나 둔다.
     const e = addEquipment(model, storey().id, { name: 'BIM-SENSOR', kind: null, position: [8, 4, 1] })!
     e.spaceId = office().id
@@ -96,7 +96,7 @@ describe('BIM 명시 소속과 사람의 경계 편집 (Q13)', () => {
     expect(e.spaceId).toBe(done.created[0])
     expect(e.spaceSource).toBe('computed')
   })
-  it('합치기로 넓어진 남는 방은 BIM 소속을 그대로 두고, 저장·불러오기 뒤에도 같다. 그 뒤 경계를 고쳐 풀린 것도 같다', () => {
+  it('합치기로 넓어진 남는 방은 BIM 소속을 그대로 두고, 저장·불러오기 뒤에도 같다. 그 뒤 경계를 고쳐 풀린 것도 같다 [OE-MAP-01#6~]', () => {
     const base = baselineOf(model)
     const light = equip('LIGHT-101-01')
     const store = createSpace(model, storey().id, { name: '102', longName: '창고', footprint: [[10.2, 0], [14, 0], [14, 8], [10.2, 8]] })!.created[0]

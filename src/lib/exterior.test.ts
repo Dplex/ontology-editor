@@ -84,7 +84,7 @@ describe('외벽 판정(OE-EXT-01)', () => {
     expect([...got].filter(([, v]) => v).map(([k]) => k).sort()).toEqual(['a', 'b', 'c', 'd'])
   })
 
-  it('BIM 이 말한 값이 계산보다 앞선다 — 바깥에 닿아도 IsExternal=false 면 내벽, 출처 BIM', () => {
+  it('BIM 이 말한 값이 계산보다 앞선다 — 바깥에 닿아도 IsExternal=false 면 내벽, 출처 BIM [OE-EXT-01#1]', () => {
     const storey = uBuilding()
     storey.walls.find((w) => w.id === 'east')!.external = false
     storey.walls.find((w) => w.id === 'mid')!.external = true

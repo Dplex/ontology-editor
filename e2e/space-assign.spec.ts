@@ -10,7 +10,7 @@ async function clickFloor(page: Page, x: number, y: number) {
   await page.mouse.click(at.x, at.y)
 }
 
-test('소속 없는 설비에 소속을 정하고, 외곽선 안 설비는 막히며, 자리에 물리존을 그리면 사람 지정 해제가 보인다', async ({ page }) => {
+test('소속 없는 설비에 소속을 정하고, 외곽선 안 설비는 막히며, 자리에 물리존을 그리면 사람 지정 해제가 보인다 [OE-MAP-01#13~,14~,15]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

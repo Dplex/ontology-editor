@@ -96,7 +96,7 @@ describe('locate — 벽면에 붙은 설비', () => {
     expect(locate([4.24, 1.5], [left, right])).toBe('right')
   })
 
-  it('SNAP 밖은 어느 방에도 붙이지 않는다', () => {
+  it('SNAP 밖은 어느 방에도 붙이지 않는다 [OE-MAP-01#11~]', () => {
     // 벽 한가운데(두 면에서 각각 0.12m). 어느 방이라고 말할 근거가 없다.
     expect(locate([4.12, 1.5], [left, right])).toBe(null)
     expect(locate([20, 1.5], [left, right])).toBe(null)
@@ -109,7 +109,7 @@ describe('locate — 방이 겹친 자리', () => {
   const waiting = room('waiting', [[0, 0], [12, 0], [12, 12], [0, 12], [0, 0]])
   const reception = room('reception', [[2, 2], [5, 2], [5, 5], [2, 5], [2, 2]])
 
-  it('가장 작은 방에 둔다 — 목록 순서와 상관없다', () => {
+  it('가장 작은 방에 둔다 — 목록 순서와 상관없다 [OE-MAP-01#10]', () => {
     // 첫 방을 고르던 때는 앞의 대기실로 갔다. BIM 이 말한 소속에 맞는 수가 가진 파일 전부에서 늘었다(check:sample).
     expect(locate([3, 3], [waiting, reception])).toBe('reception')
     expect(locate([3, 3], [reception, waiting])).toBe('reception')

@@ -208,7 +208,7 @@ import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOO
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
-import { distanceToRing, spaceAssignable, spaceSetState } from './lib/mapping'
+import { ASSIGN_SNAP_RANGE, assignEquipmentToSpaces, assignSnapNow, distanceToRing, setAssignSnap, SNAP, spaceAssignable, spaceSetState } from './lib/mapping'
 
 // 테마는 라이트가 기본이고, 고른 값만 저장한다. 선행 스크립트(index.html)가 첫 페인트
 // 전에 같은 값을 읽어 깜빡임을 막는다.
@@ -382,6 +382,32 @@ watch(
   },
   { deep: true },
 )
+// 소속 허용 거리(OE-MAP-01 5단계). 사이트 설정 — 외곽선에서 이만큼 안의 설비를 가장 가까운 물리존에 붙인다. 바꾸면 모든 설비를 다시
+// 판정한다(BIM 이 적은 소속·사람이 정한 소속은 그대로). 임포트는 워커에서 기본값으로 판정하므로 연 직후에 이 값으로 다시 잰다.
+try {
+  const saved = Number(localStorage.getItem('oe.assignSnap'))
+  if (localStorage.getItem('oe.assignSnap') !== null) setAssignSnap(saved)
+} catch {
+  // 못 읽으면 기본값이다
+}
+const assignSnap = ref(assignSnapNow())
+function changeAssignSnap(raw: string) {
+  setAssignSnap(raw.trim() === '' ? SNAP : Number(raw))
+  assignSnap.value = assignSnapNow()
+  try {
+    localStorage.setItem('oe.assignSnap', String(assignSnap.value))
+  } catch {
+    // 못 남겨도 이번 창에서는 그대로다
+  }
+  const m = model.value
+  if (!m) return
+  const before = new Map(m.storeys.flatMap((st) => st.equipment.map((e) => [e.id, e.spaceId])))
+  assignEquipmentToSpaces(m)
+  const moved = m.storeys.flatMap((st) => st.equipment).filter((e) => before.get(e.id) !== e.spaceId).length
+  triggerRef(model)
+  sceneVersion.value++
+  note(`소속 허용 거리를 ${assignSnap.value}m 로 정했습니다. 설비 ${moved}대의 소속이 바뀌었습니다(BIM·사람이 정한 소속은 그대로)`)
+}
 // 벽·문·창 설정(OE-SPC-12 · OE-SPC-13). 사이트(이 브라우저) 하나에 하나다. 새 벽 두께는 같은 층 BIM 내벽 최빈값이 먼저이고 이 값은
 // 그 다음이다(edit.ts 의 newWallThickness). 스냅 거리는 문·창을 놓거나 옮길 때 벽에서 이만큼 안이어야 붙는 거리다.
 // 내벽 기본 두께는 처음부터 0.15m 다(SITE_INTERIOR_WALL). 사람이 비우면 null 이고, 그때는 0.2m 로 긋는다.
@@ -7242,6 +7268,8 @@ ${name} 파일을 열까요?`,
     meshes = result.meshes
     meshBase = new Map()
     // 임포터가 이미 한 번 돌렸다. 계통별 채점표를 화면이 쓰려고 다시 받는다(같은 입력이면 같은 결과다).
+    // 워커는 기본 소속 허용 거리로 판정했다. 사이트 설정이 다르면 이 값으로 다시 잰다(OE-MAP-01).
+    if (assignSnapNow() !== SNAP) assignEquipmentToSpaces(result.model)
     ruleReport.value = inferFlowByRules(result.model)
     confirmations.value = []
     baseline.value = baselineOf(result.model)
@@ -10879,6 +10907,24 @@ function rollbackFromReport() {
             DT에서 쓰려면 연결돼 있어야 하는 것을 규칙별로 검사합니다. 원천·말단 구분은 <Src kind="dict" />, 흐름과 소속에는
             <Src kind="calc" /> 추정이 섞여 있습니다<template v-if="showRules && hasRules">(규칙 방향 포함)</template>. 줄을 누르면 위반한 것이
             3D에 표시되고, <kbd>N</kbd>으로 하나씩 넘어갑니다.
+          </p>
+          <p class="hint assign-snap">
+            <label>
+              소속 허용 거리(사이트 설정)
+              <input
+                type="number"
+                step="0.01"
+                :min="ASSIGN_SNAP_RANGE.min"
+                :max="ASSIGN_SNAP_RANGE.max"
+                class="riser-height"
+                data-testid="assign-snap"
+                v-keep-typing
+                :value="assignSnap"
+                @change="changeAssignSnap(($event.target as HTMLInputElement).value); ($event.target as HTMLInputElement).value = String(assignSnap)"
+              />
+              m
+            </label>
+            — 외곽선 밖이어도 이만큼 안이면 가장 가까운 물리존에 붙입니다. 승강로 안의 설비는 붙이지 않습니다(사람이 정합니다).
           </p>
           <table>
             <thead>
