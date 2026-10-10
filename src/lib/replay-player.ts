@@ -603,6 +603,10 @@ export function useReplay(host: ReplayPlayerHost) {
     selectedId.value = null
     selectedSpaceId.value = null
     viewStorey.value = null
+    // 끌어서 끝에 닿으면 큰 파일에서는 장면 카드 계산(워커)이 아직일 수 있다 — 빛기둥·변경 지도가 다 서게 마지막 장면을 기다린다.
+    const token = replayToken
+    await replayStepInfo(replayTotal.value - 1, token)
+    if (token !== replayToken || replayPhase.value !== 'done') return
     await nextTick()
     replayFinale()
   }
