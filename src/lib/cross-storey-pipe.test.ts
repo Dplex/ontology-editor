@@ -11,7 +11,7 @@ import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { modelToTTL } from './export/ttl'
 import { modelToGeoJSON } from './export/geojson'
 import { segmentPath, type Model, type Storey, type Vec2 } from './model'
-import { storeyAtZ, toCommon } from './storey-z'
+import { storeyAtZ, storeysEntered, toCommon } from './storey-z'
 
 let api: WebIFC.IfcAPI
 beforeAll(async () => {
@@ -47,6 +47,27 @@ describe('층 상대 높이와 공통 z (OE-ML-18)', () => {
   it('공통 z 가 든 층은 바닥 ≤ z < 위층 바닥이다. 바닥에 찍은 점은 그 층이다', () => {
     const m = tower()
     expect([3.2, 4, 3.9995, 7.99, 8, 30, -1].map((z) => storeyAtZ(m, z)?.id ?? null)).toEqual([F1(m), '2F', '2F', '2F', '3F', '3F', null])
+  })
+})
+
+describe('다른 층으로 들어간 구간 (OE-ML-05)', () => {
+  it('위층 바닥을 5cm 넘으면 위층에 들어간 것이고, 자기 층 바닥 아래는 30cm 까지 그 층이다. 그린 라이저의 수직 구간은 2층에 들어갔다', () => {
+    const m = tower()
+    const ids = (home: string, z0: number, z1: number) => storeysEntered(m, home, [[0, 0, z0], [0, 0, z1]]).map((s) => s.id)
+    expect(ids(F1(m), 0.5, 3.9)).toEqual([])
+    expect(ids(F1(m), 0.5, 4.04)).toEqual([])
+    expect(ids(F1(m), 0.5, 4.1)).toEqual(['2F'])
+    expect(ids(F1(m), 0.5, 8.5)).toEqual(['2F', '3F'])
+    // 2층 배관이 바닥판 아래로 조금 내려간 것은 2층이다. 1층 천장 속까지 내려가면 1층에 들어간 것이다.
+    expect(ids('2F', 3.8, 5)).toEqual([])
+    expect(ids('2F', 3.6, 5)).toEqual([F1(m)])
+    const done = riser(m)
+    if ('refused' in done) throw new Error(done.refused)
+    const entered = done.segments.map((e) => {
+      const p = segmentPath(e)
+      return p && 'path' in p ? storeysEntered(m, homeOf(m, e.id), p.path).map((s) => s.id) : null
+    })
+    expect(entered).toEqual([['2F'], [], []])
   })
 })
 
