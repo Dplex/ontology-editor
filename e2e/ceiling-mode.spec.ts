@@ -26,7 +26,7 @@ async function open(page: Page, file = MEP) {
   return errors
 }
 
-test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장 모드에서 천장고를 넣은 뒤 x·y 로 옮긴다 [OE-EQP-02#6] [OE-EQP-04#2,3] [OE-EQP-04#1~]', async ({ page }) => {
+test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장 모드에서 천장고를 넣은 뒤 x·y 로 옮긴다 [OE-EQP-02#6] [OE-EQP-04#2,3] [OE-EQP-04#1~] [OE-OBJ-08#1,5] [OE-OBJ-08#3~,4~]', async ({ page }) => {
   const errors = await open(page)
   // 바닥·벽 쪽: 디퓨저는 잠겨 있다
   await pick(page, 'AT-101-01')
@@ -93,7 +93,7 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
   expect(errors).toEqual([])
 })
 
-test('Duplex: 천장 모드는 위에서 내려다보고 천장고에 천장면을 그린다 (스샷)', async ({ page }) => {
+test('Duplex: 천장 모드는 위에서 내려다보고 천장고에 천장면을 그린다 (스샷) [OE-OBJ-08#2~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors = await open(page, DUPLEX)

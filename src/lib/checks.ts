@@ -93,13 +93,17 @@ function hydronicLinks(model: Model, connections: readonly Connection[]): { sour
  * `connections` 는 화면과 같은 방향의 연결이다(규칙 방향을 켰으면 `withInferred` 로 펼친 것). 도관의 양 끝은 방향과
  * 상관없이 이어졌는지만 본다.
  */
+/** 냉매로 도는 기기. 배관 없이도 완전성 위반이 아니다(OE-OBJ-11). */
+const REFRIGERANT = new Set(['indoor_unit', 'outdoor_unit'])
+
 export function completenessChecks(model: Model, services: readonly AirService[], connections: readonly Connection[] = model.connections): CheckResult[] {
   const equipment = model.storeys.flatMap((s) => s.equipment)
   const devices = equipment.filter((e) => !isConduit(e.role))
   const exterior = exteriorDevices(model)
   const indoor = devices.filter((e) => !exterior.has(e.id))
   const terminals = equipment.filter(isAirTerminal)
-  const sources = equipment.filter(isAirSource)
+  const sources = equipment.filter((e) => isAirSource(e) && !REFRIGERANT.has(e.kind ?? ''))
+  const sourceIds = new Set(sources.map((e) => e.id))
   const hasSpaces = model.storeys.some((s) => s.spaces.length > 0)
 
   const supplySources = new Map<string, number>()
@@ -112,9 +116,11 @@ export function completenessChecks(model: Model, services: readonly AirService[]
     for (const id of s.extract) reached.add(id)
   }
   const connected = new Set(model.connections.flatMap((c) => [c.from, c.to]))
+  // 냉매로 도는 기기(DVM 실내기·EHP 실외기)는 냉매 배관을 BIM 에 그리지 않는 일이 흔하고, 배관 없이도 위반이 아니다(OE-OBJ-11).
+  // 연결망·공기 원천 검사에서 뺀다.
   const flowing = devices.filter((e) => {
     const flow = equipmentKind(e.kind)?.flow
-    return !!flow && Object.keys(flow).length > 0
+    return !!flow && Object.keys(flow).length > 0 && !REFRIGERANT.has(e.kind ?? '')
   })
   // 도관마다 이어진 상대의 수. 같은 상대와 두 번 이어진 것(포트 둘)은 하나로 센다.
   const neighbors = new Map<string, Set<string>>()
@@ -142,7 +148,7 @@ export function completenessChecks(model: Model, services: readonly AirService[]
       rule: '공기 원천이 말단 하나 이상과 이어져 있다',
       why: '담당 공간이 비어 계통도에 나오지 않습니다. 덕트 없는 카세트형이면 정상입니다.',
       total: sources.length,
-      failed: services.filter((s) => s.supply.length + s.extract.length === 0).map((s) => s.sourceId),
+      failed: services.filter((s) => s.supply.length + s.extract.length === 0 && sourceIds.has(s.sourceId)).map((s) => s.sourceId),
     },
     {
       key: 'terminal-single-source',

@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 // 외벽 에디터(OE-EXT-03)의 일이다. 외벽 여부를 바꾸면 풀린다. Duplex 건축(gitignore)은 벽마다 IsExternal 을 적는다.
 const DUPLEX = 'data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc'
 
-test('외벽은 크기 칸·지우기가 없고 방향키로 옮기지 않으며, 외벽 여부를 내벽으로 바꾸면 풀린다', async ({ page }) => {
+test('외벽은 크기 칸·지우기가 없고 방향키로 옮기지 않으며, 외벽 여부를 내벽으로 바꾸면 풀린다 [OE-OBJ-04#1] [OE-EXT-02#1]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []

@@ -222,7 +222,7 @@ describe('층 이동', () => {
 })
 
 describe('방번호 (OE-OBJ-02)', () => {
-  it('같은 층에서 방번호가 겹치면 막고, 공간명은 겹쳐도 된다', () => {
+  it('같은 층에서 방번호가 겹치면 막고, 공간명은 겹쳐도 된다 [OE-OBJ-02#1]', () => {
     model.storeys[0].spaces.push({ id: 'b', name: '102', longName: '사무실', footprint: [], areaM2: 0, boundedBy: [] })
     const office = model.storeys[0].spaces[0]
     expect(setSpaceNumber(model, office.id, '102')).toEqual({ refused: expect.stringContaining('방번호 102가 이미 있습니다') })
@@ -808,7 +808,7 @@ describe('설비 추가·삭제·이름 (E7)', () => {
     expect(addEquipment(model, model.storeys[0].id, { name: 'x', kind: 'nope', position: null })).toBeNull()
   })
 
-  it('지우면 붙은 연결과 계통 자리도 빠진다 — 없는 설비를 가리키는 feeds·hasPart 가 나가지 않게 [OE-EQP-13#1]', () => {
+  it('지우면 붙은 연결과 계통 자리도 빠진다 — 없는 설비를 가리키는 feeds·hasPart 가 나가지 않게 [OE-EQP-13#1] [OE-OBJ-11#2]', () => {
     const duct = equip('DUCT-01')
     expect(model.connections.some((c) => c.from === duct.id || c.to === duct.id)).toBe(true)
     const done = deleteEquipment(model, duct.id)!
@@ -861,7 +861,7 @@ describe('물리존 생성·삭제·분할·병합 (E3)', () => {
     expect(done.equipment.map((c) => c.equipmentName)).toEqual(['AT-101-01'])
   })
 
-  it('층에 하나 남은 물리존은 지우지 않는다 [OE-SPC-04#1]', () => {
+  it('층에 하나 남은 물리존은 지우지 않는다 [OE-SPC-04#1] [OE-OBJ-02#3]', () => {
     expect(deleteSpace(model, office().id)).toEqual({ refused: expect.stringContaining('하나 남은') })
   })
 
@@ -1015,7 +1015,7 @@ describe('벽·문·창 편집 (E4)', () => {
   })
 
   // OE-OBJ-06. 잠그는 것은 true 뿐이다 — 모름(null)까지 잠그면 내력 속성이 없는 파일의 벽을 하나도 못 고친다.
-  it('내력벽은 옮기거나 지우지 못하고, 거기 뚫린 문·창도 그렇다. 모름은 잠그지 않는다', () => {
+  it('내력벽은 옮기거나 지우지 못하고, 거기 뚫린 문·창도 그렇다. 모름은 잠그지 않는다 [OE-OBJ-06#1~,2~]', () => {
     const { wall } = setup()
     const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening
     setWallLoadBearing(model, wall.id, true)
@@ -1049,7 +1049,7 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(wallsCrossed(storey(), wall.footprint!, wall.id)).toEqual([])
   })
 
-  it('옮겨서 새로 가로지르게 되면 옮기지 않고, 원래 가로지르던 벽은 옮길 수 있다', () => {
+  it('옮겨서 새로 가로지르게 되면 옮기지 않고, 원래 가로지르던 벽은 옮길 수 있다 [OE-OBJ-05#1]', () => {
     const { wall } = setup()
     const stem = addWall(model, storey().id, [5, 4], [10, 4]) as Wall
     // 줄기를 벽 쪽으로 30cm 밀면 벽을 뚫고 나간다.
