@@ -123,13 +123,23 @@ export function useReplay(host: ReplayPlayerHost) {
    * 건물 전체를 볼 때(오프닝·끝 화면)는 비운다 — 오프닝은 솟아오르는 건물이, 끝 화면은 장면 번호 이름표가 주인공이다.
    */
   const ROOM_TAGS = 36
+  /** 방 표시 자리(외곽선 안쪽 점). 외곽선 좌표로 기억한다 — 장면마다 방 수십 개를 다시 세느라 다시 하기마다 30ms 넘게 들었다. */
+  const tagPoints = new Map<string, Vec2 | null>()
+  function tagPoint(ring: readonly Vec2[]): Vec2 | null {
+    const key = ring.map((p) => `${p[0]},${p[1]}`).join(';')
+    if (!tagPoints.has(key)) {
+      if (tagPoints.size > 4000) tagPoints.clear()
+      tagPoints.set(key, labelPoint(ring))
+    }
+    return tagPoints.get(key)!
+  }
   const replayRoomTags = computed(() => {
     const m = model.value
     if (!m || !replayOpen.value || replayPhase.value === 'opening') return []
     const stepAt = replayAiming.value ?? history.value.length - 1
     const sceneRooms = new Set((replaySteps.value[stepAt]?.changes ?? []).filter((c) => c.key.startsWith('sp:') && c.after).map((c) => c.key.slice(3)))
     const tag = (storey: Storey, sp: Storey['spaces'][number], hot: boolean) => {
-      const at = labelPoint(sp.footprint)
+      const at = tagPoint(sp.footprint)
       if (!at) return []
       const kind = roomKind(sp.kind)?.label
       return [{ id: sp.id, storeyId: storey.id, at: [at[0], at[1], storey.elevation] as Vec3, title: sp.longName || sp.name || '물리존', sub: `${sp.areaM2.toFixed(1)} m²${kind ? ` · ${kind}` : ''}`, hot }]
@@ -1138,6 +1148,55 @@ export function useReplay(host: ReplayPlayerHost) {
    * Esc 로 닫기 전에 묻는다. 실수로 누르면 보던 장면을 잃고 처음부터 다시 봐야 한다. 묻는 동안 Enter 는 닫고 Esc 는 계속 본다.
    * 조작 막대의 ✕ 닫기는 바로 닫는다(눌러서 고른 것이라). P 는 리플레이를 여는 키라 리플레이 안에서는 아무것도 하지 않는다.
    */
+  /**
+   * 프레임 계측(켤 때만). 주소에 ?replayperf 를 붙이면 리플레이 동안 프레임 간격을 재서 장면마다 콘솔에 한 줄 — 가장 긴 프레임,
+   * 50ms(눈에 걸리는 끊김)·100ms 를 넘은 프레임 수 — 을 찍고, 끝 화면에서 표로 모아 찍는다. 시험 환경은 GPU 가 없어 실제 끊김을
+   * 못 잰다 — 쓰는 사람 PC 에서 잰 숫자로 어디서 끊기는지 찾는다.
+   */
+  const perfOn = (() => {
+    try {
+      return new URLSearchParams(location.search).has('replayperf')
+    } catch {
+      return false
+    }
+  })()
+  type PerfRow = { 장면: string; 프레임: number; '가장 긴(ms)': number; '50ms 넘음': number; '100ms 넘음': number }
+  let perfRows: PerfRow[] = []
+  let perfGaps: number[] = []
+  let perfScene = ''
+  function perfFlush() {
+    if (!perfGaps.length || !perfScene) return
+    const row: PerfRow = { 장면: perfScene, 프레임: perfGaps.length, '가장 긴(ms)': Math.round(Math.max(...perfGaps)), '50ms 넘음': perfGaps.filter((g) => g > 50).length, '100ms 넘음': perfGaps.filter((g) => g > 100).length }
+    perfRows.push(row)
+    console.info(`[replayperf] ${row.장면} · 가장 긴 프레임 ${row['가장 긴(ms)']}ms · 50ms 넘음 ${row['50ms 넘음']} · 100ms 넘음 ${row['100ms 넘음']} (프레임 ${row.프레임})`)
+    perfGaps = []
+  }
+  if (perfOn) {
+    let last = 0
+    const loop = (t: number) => {
+      if (replayOpen.value) {
+        if (last) perfGaps.push(t - last)
+        last = t
+      } else last = 0
+      requestAnimationFrame(loop)
+    }
+    requestAnimationFrame(loop)
+    watch(
+      () => (replayOpen.value ? `${replayPhase.value}:${history.value.length}` : ''),
+      () => {
+        perfFlush()
+        const step = replaySteps.value[history.value.length - 1]
+        perfScene = !replayOpen.value ? '' : replayPhase.value === 'opening' ? '오프닝' : replayPhase.value === 'done' ? '끝 화면' : step ? `#${String(step.index + 1).padStart(2, '0')} ${step.label}` : '편집 전'
+        if (replayPhase.value === 'done' && perfRows.length) {
+          window.setTimeout(() => {
+            perfFlush()
+            console.table(perfRows)
+            perfRows = []
+          }, 3000)
+        }
+      },
+    )
+  }
   const replayTheme = ref<ReplayTheme>(savedTheme())
   function replayToggleTheme() {
     replayTheme.value = replayTheme.value === 'plan' ? 'show' : 'plan'

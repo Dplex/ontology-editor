@@ -28,7 +28,7 @@ main 파일에 꽂는 자리는 아래 표에서 늘지 않았다.
 | | `ReplayViewerApi` | `Viewer` 타입 끝의 `& ReplayViewerApi` |
 | | `arrowsShown` · `lastArch` · `hemi` | 편집 모드 밖 화살표(`setArrowsShown`), 외곽선 다시 그리기, 밤 조명이 쓰는 하늘빛 |
 | | `export type Chunk` · `export type Part` | replay-viewer 가 타입만 가져간다 |
-| | `addUpdateRange` · `sameSet` · `frame(ids, margin` | 리플레이 때문에 넣었지만 main 에도 이득인 손질(미끄러짐·칠하기는 그 설비 범위만 GPU 로, 같은 층 필터면 인덱스를 다시 안 짠다, 시점 여백) |
+| | `addUpdateRange` · `sameSet` · `frame(ids, margin` · `archKey` | 리플레이 때문에 넣었지만 main 에도 이득인 손질(미끄러짐·칠하기는 그 설비 범위만 GPU 로, 같은 층 필터면 인덱스를 다시 안 짠다, 시점 여백, 벽·문·창이 그대로면 외곽선 층을 다시 짓지 않는다) |
 | `src/App.vue` | `useReplay` | 빌려줄 것을 넘기는 한 덩어리(`activeTab` 선언 바로 뒤) |
 | | `replayOpen` | 리플레이 중이면 건너뛰는 자리: 알림·키·자동 저장·등급 재기·층 떠나기 확인·천장 표시·잠근 설비·3D 강조의 옆 패널 몫 |
 | | `pausedInReplay` · `replayMemo` | 극장에 가려진 패널의 계산·다시 그리기를 멈춘다(성수에서 장면마다 0.2초 끊기던 것) |

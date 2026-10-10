@@ -614,15 +614,30 @@ export function createReplayFx(host: ReplayHost) {
     g.fillRect(0, 0, 128, 128)
     return (poolTexture = new CanvasTexture(c))
   }
+  /**
+   * 방의 안쪽 점과 벽까지 거리. 외곽선 좌표로 기억한다 — 편집 뒤 다시 그릴 때마다(설비 하나 더해도) 방 수십 개를 처음부터
+   * 다시 세느라 다시 하기 한 번에 90ms 가 들었다(dental). 바뀐 방만 새로 센다.
+   */
+  const poolSpots = new Map<string, { c: Vec2 | null; d: number }>()
+  function poolSpot(ring: readonly Vec2[]) {
+    const key = ring.map((p) => `${p[0]},${p[1]}`).join(';')
+    let v = poolSpots.get(key)
+    if (!v) {
+      const c = labelPoint(ring)
+      v = { c, d: c ? distanceToRing(c, ring) : 0 }
+      if (poolSpots.size > 4000) poolSpots.clear()
+      poolSpots.set(key, v)
+    }
+    return v
+  }
   /** 방마다 빛 웅덩이: 방 안에서 벽과 먼 점에 그 거리만큼(방 범위 안으로) 둥근 판. 층마다 한 메시. */
   function buildPools() {
     for (const o of pools.children) (o as Mesh).geometry.dispose()
     pools.clear()
     const byStorey = new Map<string, number[]>()
     for (const t of host.spaceTargets()) {
-      const c = labelPoint(t.ring)
+      const { c, d } = poolSpot(t.ring)
       if (!c) continue
-      const d = distanceToRing(c, t.ring)
       const xs = t.ring.map((p) => p[0])
       const ys = t.ring.map((p) => p[1])
       const hw = Math.min((Math.max(...xs) - Math.min(...xs)) / 2, d * 1.9 + 0.4, 9)

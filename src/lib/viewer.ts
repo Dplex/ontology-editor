@@ -926,6 +926,21 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
   /** 마지막에 그린 외곽선 층. 리플레이가 새로 생긴 벽을 따로 그리려고 다시 그린다(rebuildArchitecture). */
   let lastArch: { model: Model | null; selected: string | null } = { model: null, selected: null }
+  let lastArchKey = ''
+  /** buildArchitecture 가 읽는 것(층 높이, 벽 외곽선·높이·내력, 문·창 자리·종류·폭·방향, 고른 것)을 이은 열쇠. */
+  function archKey(model: Model | null, selected: string | null): string {
+    if (!model) return `-|${selected}`
+    const out: (string | number | null | undefined)[] = [selected]
+    for (const st of model.storeys) {
+      out.push('S', st.id, st.elevation)
+      for (const w of st.walls) {
+        out.push('W', w.id, w.height, String(w.loadBearing))
+        for (const ring of w.footprint ?? []) for (const p of ring) out.push(p[0], p[1])
+      }
+      for (const o of st.openings) out.push('O', o.id, o.kind, o.width, o.position?.[0], o.position?.[1], o.through?.[0], o.through?.[1])
+    }
+    return out.join(',')
+  }
   function buildArchitecture(model: Model | null, selected: string | null) {
     lastArch = { model, selected }
     arch.traverse((o) => {
@@ -2227,6 +2242,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     setArchitecture(model, selected) {
+      // 벽·문·창과 고른 것이 그대로면 다시 짓지 않는다. 화면 갱신(sceneVersion)마다 불려서 설비만 바뀐 편집에도 벽을 전부 다시
+      // 압출했다(dental 의 리플레이 다시 하기 한 번에 92ms). 솟아오르기·미끄러짐은 rebuildArchitecture 로 따로 다시 짓는다.
+      const key = archKey(model, selected)
+      if (key === lastArchKey) return
+      lastArchKey = key
       buildArchitecture(model, selected)
     },
 
