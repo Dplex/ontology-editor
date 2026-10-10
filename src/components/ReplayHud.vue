@@ -126,10 +126,15 @@ const spark = (vals: number[]) => {
   const max = Math.max(1, ...vals)
   return vals.map((v) => v / max)
 }
+/** 층마다(아래층부터) 그 층을 고친 장면 수. 층이 하나면 막대 하나라 그리지 않는다. */
+const floorSpark = computed(() => {
+  const storeys = [...(props.start?.storeys ?? [])].sort((a, b) => a.elevation - b.elevation)
+  return spark(storeys.map((st) => props.steps.filter((s) => s.storeyIds.includes(st.id)).length))
+})
 const geoCount = (s: ReplayStep) => (s.geojson ? s.geojson.count.changed + s.geojson.count.added + s.geojson.count.removed : 0)
 const stats = computed(() => [
   { n: props.total, label: 'edits', sub: '고친 편집', spark: spark(props.steps.map((s) => s.changes.length)) },
-  { n: new Set(props.steps.flatMap((s) => s.storeyIds)).size, label: 'floors', sub: '고친 층', spark: null },
+  { n: new Set(props.steps.flatMap((s) => s.storeyIds)).size, label: 'floors', sub: '고친 층', spark: floorSpark.value },
   { n: props.steps.reduce((n, s) => n + geoCount(s), 0), label: 'features', sub: 'GeoJSON feature', spark: spark(props.steps.map(geoCount)) },
   { n: props.steps.reduce((n, s) => n + s.ttlCount.added + s.ttlCount.removed, 0), label: 'ttl', sub: 'TTL 줄 (더함·지움)', spark: spark(props.steps.map((s) => s.ttlCount.added + s.ttlCount.removed)) },
 ])
@@ -284,7 +289,7 @@ const summary = computed(() => {
 </script>
 
 <template>
-  <div class="replay-hud" :data-phase="phase" :data-at="at" :data-total="total" :data-ready="steps.length" :data-loop="loop ?? ''" :data-theme="theme ?? 'plan'">
+  <div class="replay-hud" :data-phase="phase" :data-at="at" :data-total="total" :data-ready="steps.length" :data-loop="loop ?? ''" :data-theme="theme ?? 'plan'" :style="{ '--scene-c': current && phase !== 'opening' ? CAT_COLOR[current.category] : '#7c5cff' }">
     <!-- 위아래 검은 띠(영화 화면비) -->
     <div class="lb top"></div>
     <div class="lb bottom"></div>
@@ -372,6 +377,12 @@ const summary = computed(() => {
     <aside class="rp-side">
       <div class="hud-geo">
         <ReplayGeo v-if="geoStep" :key="`${geoStep.index}:${geoApplied}`" :step="geoStep" :applied="geoApplied" :color="CAT_COLOR[geoStep.category]" />
+        <!-- 첫 장면 전(오프닝): 빈 칸 대신 무엇이 여기 뜰지 자리를 잡아 둔다. -->
+        <div v-else class="geo-wait" aria-hidden="true">
+          <span class="wait-tag">GeoJSON</span>
+          <i class="sk w60"></i><i class="sk w85"></i><i class="sk w40"></i><i class="sk w70"></i>
+          <p>장면마다 층 파일(floor-*.geojson)에서 바뀐 feature 가 여기 뜹니다</p>
+        </div>
       </div>
       <div class="log-head">
         <span>TTL 변경 기록</span>
@@ -386,6 +397,10 @@ const summary = computed(() => {
             <span class="next-arrow">▶</span>
           </div>
         </transition>
+        <div v-if="!cards.length && !upcoming" class="log-wait" aria-hidden="true">
+          <i class="sk w70"></i><i class="sk w50"></i>
+          <p>편집 {{ total }}건을 고친 순서대로 다시 틉니다 — 장면마다 TTL 에서 바뀐 줄이 카드로 쌓입니다</p>
+        </div>
         <transition-group name="card">
           <article
             v-for="c in cards"
@@ -905,6 +920,7 @@ const summary = computed(() => {
 }
 .stat {
   display: grid;
+  align-content: start;
   gap: 4px;
   box-sizing: border-box;
   width: 132px;
@@ -971,6 +987,53 @@ const summary = computed(() => {
   width: var(--feed);
   border-left: 1px solid var(--line-2);
   background: var(--panel);
+}
+.geo-wait,
+.log-wait {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  padding: 14px 14px;
+  border: 1px dashed var(--line-2);
+  color: var(--mute);
+  font-size: 12px;
+}
+.geo-wait {
+  box-sizing: border-box;
+  height: 100%;
+}
+.geo-wait p,
+.log-wait p {
+  margin: 6px 0 0;
+  line-height: 1.5;
+}
+.wait-tag {
+  justify-self: start;
+  padding: 2px 7px;
+  border: 1px solid var(--line-2);
+  color: var(--sub);
+  font: 500 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+/* 자리 표시 막대(뼈대). */
+.sk {
+  display: block;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+.sk.w40 {
+  width: 40%;
+}
+.sk.w50 {
+  width: 50%;
+}
+.sk.w60 {
+  width: 60%;
+}
+.sk.w70 {
+  width: 70%;
+}
+.sk.w85 {
+  width: 85%;
 }
 .hud-geo {
   flex: none;
@@ -2511,6 +2574,125 @@ button.sum-row.on span {
   background: var(--g);
   color: #07080f;
 }
+/* --- 장면 색 오라: 3D 화면 아래 가장자리가 지금 장면의 갈래 색으로 물들고, 장면이 바뀌면 색이 천천히 넘어간다 ---
+ * 움직이지 않는 덧칠이라 장면이 바뀔 때만 다시 칠한다(@property 로 색을 등록해 transition 이 먹는다). */
+@property --scene-c {
+  syntax: '<color>';
+  inherits: true;
+  initial-value: #7c5cff;
+}
+.replay-hud[data-theme='show'] {
+  transition: --scene-c 900ms ease;
+}
+.replay-hud[data-theme='show']::before {
+  content: '';
+  position: absolute;
+  inset: 0 var(--feed) 0 0;
+  background:
+    radial-gradient(120% 70% at 50% 115%, color-mix(in srgb, var(--scene-c) 26%, transparent), transparent 60%),
+    radial-gradient(60% 50% at 0% 0%, rgba(124, 92, 255, 0.1), transparent 70%);
+  pointer-events: none;
+}
+/* 새 카드는 흐림에서 또렷해지며 들어온다. */
+.replay-hud[data-theme='show'] .card-enter-from {
+  filter: blur(10px);
+}
+.replay-hud[data-theme='show'] .card-enter-active {
+  transition:
+    opacity 450ms,
+    transform 450ms cubic-bezier(0.2, 0.9, 0.25, 1.1),
+    filter 450ms ease;
+}
+
+/* --- 첫 장면 전 자리 표시: 유리 판 위로 빛이 훑는 뼈대 --- */
+.replay-hud[data-theme='show'] .geo-wait,
+.replay-hud[data-theme='show'] .log-wait {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(14, 16, 28, 0.55);
+  color: #8f96b2;
+}
+.replay-hud[data-theme='show'] .wait-tag {
+  border-color: rgba(167, 139, 250, 0.4);
+  border-radius: 999px;
+  color: #c4b5fd;
+}
+.replay-hud[data-theme='show'] .sk {
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.05) 30%, rgba(167, 139, 250, 0.28) 50%, rgba(255, 255, 255, 0.05) 70%) 0 0 / 300% 100%;
+  animation: skeleton 1.6s linear infinite;
+}
+@keyframes skeleton {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0% 0;
+  }
+}
+
+/* --- 관계 그림(자식 부품): 둥근 알약 마디, 그라데이션처럼 빛나는 새 관계 선 --- */
+.replay-hud[data-theme='show'] :deep(.rels) {
+  font-family: system-ui, sans-serif;
+}
+.replay-hud[data-theme='show'] :deep(.rels .node) {
+  rx: 9px;
+  fill: rgba(255, 255, 255, 0.05);
+  stroke: rgba(255, 255, 255, 0.18);
+}
+.replay-hud[data-theme='show'] :deep(.rels .node.subj) {
+  fill: color-mix(in srgb, var(--c) 18%, transparent);
+  stroke: color-mix(in srgb, var(--c) 60%, transparent);
+}
+.replay-hud[data-theme='show'] :deep(.rels .came .edge) {
+  stroke: #34f5b0;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 3px rgba(52, 245, 176, 0.8));
+}
+.replay-hud[data-theme='show'] :deep(.rels .came .node) {
+  fill: rgba(52, 245, 176, 0.12);
+  stroke: #34f5b0;
+}
+.replay-hud[data-theme='show'] :deep(.rels .gone .edge),
+.replay-hud[data-theme='show'] :deep(.rels .gone .node) {
+  stroke: #ff5c8a;
+}
+.replay-hud[data-theme='show'] :deep(.rels .pred) {
+  fill: #a9b0c8;
+}
+
+/* --- 층이 바뀔 때: 검게 잠기는 대신 빛 띠가 위에서 아래로 훑는다(스캔) --- */
+.replay-hud[data-theme='show'] .swipe {
+  background:
+    linear-gradient(180deg, transparent 0%, rgba(124, 92, 255, 0.18) 42%, rgba(255, 255, 255, 0.75) 50%, rgba(34, 211, 238, 0.18) 58%, transparent 100%) 0 -40% / 100% 30% no-repeat,
+    rgba(7, 8, 15, 0.35);
+  animation: scan 900ms cubic-bezier(0.5, 0, 0.3, 1) forwards;
+}
+@keyframes scan {
+  0% {
+    opacity: 0;
+    background-position: 0 -40%, 0 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    background-position: 0 140%, 0 0;
+  }
+}
+
+/* --- 끝 요약 제목 --- */
+.replay-hud[data-theme='show'] .hud-done h2 {
+  justify-self: start;
+  background: linear-gradient(180deg, #ffffff 40%, #c4b5fd);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 @media (prefers-reduced-motion: reduce) {
   .replay-hud[data-theme='show'] .card::before,
   .replay-hud[data-theme='show'] .card::after,
@@ -2520,6 +2702,8 @@ button.sum-row.on span {
   .replay-hud[data-theme='show'] .log-head > span::before,
   .replay-hud[data-theme='show'] .hud-rewind.opening::before,
   .replay-hud[data-theme='show'] .stat-n,
+  .replay-hud[data-theme='show'] .sk,
+  .replay-hud[data-theme='show'] .swipe,
   .replay-hud[data-theme='show'] .wd,
   .replay-hud[data-theme='show'] .op-title .wd {
     animation: none !important;
