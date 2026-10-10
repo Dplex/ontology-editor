@@ -213,6 +213,8 @@ test('옮기는 장면은 도착 자리에 유령 상자를 먼저 띄우고 도
   const m = await page.evaluate(() => (window as any).__viewer.motion())
   expect(m.ghosted).toBeGreaterThanOrEqual(2)
   expect(m.carded).toBeGreaterThanOrEqual(2)
+  // 3D 위 이름표·방 표시는 한 자씩 찍혀 나온다.
+  expect(m.typed).toBeGreaterThan(0)
   // 다 도착했으니 남은 유령이 없다.
   await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().ghosts), { timeout: 10_000 }).toBe(0)
   await page.keyboard.press('Escape')

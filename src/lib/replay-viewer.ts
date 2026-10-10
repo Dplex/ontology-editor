@@ -502,6 +502,8 @@ export function createReplayFx(host: ReplayHost) {
   let poolsOf: unknown = null
   /** 방 표시가 나타나기 시작하는 때. 다른 층으로 넘어가면 카메라가 닿은 뒤(CINEMA_FLY_MS)로 미룬다 — 멀리서 뜨면 한 덩어리로 뭉친다. */
   let tagsFrom = 0
+  /** 지금 떠 있는 방 표시(id·글·강조). 다음 setRoomTags 에서 그대로인 것은 다시 치지 않는다. */
+  let shownTags = new Set<string>()
   let tagsStorey: string | null = null
   /** 해 지기(nightFall). null 이면 바로 밤. 밤 정도는 0(낮)~1(밤). */
   let nightFrom: number | null = null
@@ -742,7 +744,8 @@ export function createReplayFx(host: ReplayHost) {
     }
   }
   /** 방 표시 한 장: 반투명 검은 판에 이름(흰 글씨)과 면적·종류(회색), 바뀐 방은 따뜻한 밑줄. */
-  function roomTagSprite(title: string, sub: string, hot: boolean): Sprite {
+  /** delay 가 null 이면 치지 않고 다 쓴 채로(앞 장면에도 있던 방 표시). */
+  function roomTagSprite(title: string, sub: string, hot: boolean, delay: number | null = 0): Sprite {
     const c = document.createElement('canvas')
     let g = c.getContext('2d')!
     const tf = '400 24px system-ui, sans-serif'
@@ -751,40 +754,57 @@ export function createReplayFx(host: ReplayHost) {
     const tw = g.measureText(title).width
     g.font = sf
     const sw = g.measureText(sub).width
-    const w = Math.ceil(Math.max(tw, sw) + 24)
+    const w = Math.ceil(Math.max(tw, sw) + 32)
     c.width = w
     c.height = 64
     g = c.getContext('2d')!
-    if (theme === 'show') {
-      // 중계: 깎은 모서리, 바뀐 방은 따뜻한 그라데이션과 빛나는 테두리.
-      const grad = g.createLinearGradient(0, 0, w, 64)
-      grad.addColorStop(0, hot ? 'rgba(120, 60, 10, 0.92)' : 'rgba(14, 18, 28, 0.78)')
-      grad.addColorStop(1, hot ? 'rgba(30, 14, 4, 0.92)' : 'rgba(6, 8, 12, 0.78)')
-      chamfer(g, w, 64, 14)
-      g.fillStyle = grad
-      g.fill()
-      if (hot) {
-        g.strokeStyle = '#ffb46b'
-        g.lineWidth = 2
-        g.stroke()
-      }
-    } else {
-      g.fillStyle = hot ? 'rgba(8, 10, 13, 0.86)' : 'rgba(8, 10, 13, 0.62)'
-      g.fillRect(0, 0, w, 64)
-      // 바뀐 방은 사방 가는 테두리로만 짚는다(한쪽 색 띠 없이).
-      if (hot) {
-        g.strokeStyle = 'rgba(232, 235, 239, 0.75)'
-        g.lineWidth = 2
-        g.strokeRect(1, 1, w - 2, 62)
-      }
+    const titleChars = [...title]
+    const subChars = [...sub]
+    const paint = (n: number, caret: boolean) => {
+      g.clearRect(0, 0, w, 64)
+      if (theme === 'show') {
+        // 중계: 깎은 모서리, 바뀐 방은 따뜻한 그라데이션과 빛나는 테두리.
+        const grad = g.createLinearGradient(0, 0, w, 64)
+        grad.addColorStop(0, hot ? 'rgba(120, 60, 10, 0.92)' : 'rgba(14, 18, 28, 0.78)')
+        grad.addColorStop(1, hot ? 'rgba(30, 14, 4, 0.92)' : 'rgba(6, 8, 12, 0.78)')
+        chamfer(g, w, 64, 14)
+        g.fillStyle = grad
+        g.fill()
+        if (hot) {
+          g.strokeStyle = '#ffb46b'
+          g.lineWidth = 2
+          g.stroke()
+        }
+      } else {
+        g.fillStyle = hot ? 'rgba(8, 10, 13, 0.86)' : 'rgba(8, 10, 13, 0.62)'
+        g.fillRect(0, 0, w, 64)
+        // 바뀐 방은 사방 가는 테두리로만 짚는다(한쪽 색 띠 없이).
+        if (hot) {
+          g.strokeStyle = 'rgba(232, 235, 239, 0.75)'
+          g.lineWidth = 2
+          g.strokeRect(1, 1, w - 2, 62)
+        }
     }
     g.textBaseline = 'middle'
     g.font = tf
     g.fillStyle = hot ? (theme === 'show' ? '#ffe2bd' : '#ffffff') : '#e8ebef'
-    g.fillText(title, 12, 22)
-    g.font = sf
-    g.fillStyle = theme === 'show' && hot ? '#e8b98a' : '#9aa3ae'
-    g.fillText(sub, 12, 47)
+    const t = titleChars.slice(0, n).join('')
+    g.fillText(t, 12, 22)
+    let cx = 12 + g.measureText(t).width
+    let cy = 22
+    if (n > titleChars.length) {
+      g.font = sf
+      g.fillStyle = theme === 'show' && hot ? '#e8b98a' : '#9aa3ae'
+      const u = subChars.slice(0, n - titleChars.length).join('')
+      g.fillText(u, 12, 47)
+      cx = 12 + g.measureText(u).width
+      cy = 47
+    }
+    if (caret) {
+      g.fillStyle = theme === 'show' ? '#ffb46b' : '#c9ced6'
+      g.fillRect(cx + 2, cy - 10, 2, 20)
+    }
+    }
     const map = new CanvasTexture(c)
     map.colorSpace = SRGBColorSpace
     const sprite = new Sprite(new SpriteMaterial({ map, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false }))
@@ -792,7 +812,57 @@ export function createReplayFx(host: ReplayHost) {
     sprite.scale.set((h * w) / 64, h, 1)
     sprite.center.set(0.5, 0)
     sprite.renderOrder = hot ? 21 : 20
+    if (delay === null) paint(titleChars.length + subChars.length, false)
+    else typeIn(sprite, titleChars.length + subChars.length, paint, delay)
     return sprite
+  }
+
+  // --- 글자 타이핑 ---
+  // 3D 위 글(장면 이름표·방 표시)은 커서와 함께 한 자씩 찍힌다 — 단말기에 출력되듯. 판 크기는 처음부터 다 잡아 두고 글만 늘린다
+  // (이름표 겹침 정리가 판 크기로 자리를 잡는다). 움직임을 끈 사람에게는 다 찍힌 채로 뜬다.
+  const TYPE_MS = 28
+  const CARET_HOLD_MS = 520
+  type Typing = { sprite: Sprite; t0: number; total: number; shown: number; caret: boolean; seen: boolean; paint: (n: number, caret: boolean) => void }
+  const typings = new Set<Typing>()
+  /** 글자를 쳐 넣은 이름표 수(e2e 가 센다). */
+  let typed = 0
+  function typeIn(sprite: Sprite, total: number, paint: (n: number, caret: boolean) => void, delay: number) {
+    if (still() || !total) return paint(total, false)
+    paint(0, false)
+    typings.add({ sprite, t0: performance.now() + delay, total, shown: 0, caret: false, seen: false, paint })
+    typed++
+  }
+  function stepTyping(now: number) {
+    if (!typings.size) return
+    let changed = false
+    for (const t of typings) {
+      // 걷힌 이름표(장면이 넘어감)는 그만 친다.
+      if (t.sprite.parent) t.seen = true
+      else if (t.seen) {
+        typings.delete(t)
+        continue
+      }
+      const e = now - t.t0
+      if (e < 0) continue
+      const n = Math.min(t.total, Math.floor(e / TYPE_MS) + 1)
+      const end = t.total * TYPE_MS
+      // 다 친 뒤에도 커서가 두어 번 깜빡이다 사라진다.
+      const caret = e < end || (e - end < CARET_HOLD_MS && Math.floor((e - end) / 130) % 2 === 0)
+      if (n !== t.shown || caret !== t.caret) {
+        t.paint(n, caret)
+        ;(t.sprite.material.map as CanvasTexture).needsUpdate = true
+        t.shown = n
+        t.caret = caret
+        changed = true
+      }
+      if (e - end >= CARET_HOLD_MS) {
+        t.paint(t.total, false)
+        ;(t.sprite.material.map as CanvasTexture).needsUpdate = true
+        typings.delete(t)
+        changed = true
+      }
+    }
+    if (changed) host.invalidate()
   }
 
   let build: { t0: number | null } | null = null
@@ -963,7 +1033,7 @@ export function createReplayFx(host: ReplayHost) {
    * 이름표. 화면에서 늘 같은 크기다(sizeAttenuation 끔). 반투명 검은 판에 흰 글씨, 갈래는 맨 앞의 작은 네모(CAD 레이어
    * 색처럼). 앞의 장면 번호("#03 …")는 회색 고정폭 글씨로 한 단계 낮춘다.
    */
-  function labelSprite(text: string, color: number): Sprite {
+  function labelSprite(text: string, color: number, delay = 0): Sprite {
     const m = /^#(\d+)\s+(.*)$/.exec(text)
     const [num, name] = m ? [m[1], m[2]] : ['', text]
     const font = '400 28px system-ui, sans-serif'
@@ -976,43 +1046,60 @@ export function createReplayFx(host: ReplayHost) {
     const nw = num ? g.measureText(num).width + 12 : 0
     g.font = font
     const tw = g.measureText(name).width
-    const w = Math.ceil(pad * 2 + sw + nw + tw)
+    // 커서 자리까지 판 너비를 처음부터 다 잡는다 — 타이핑하는 동안 판이 늘어나면 이름표 겹침 정리가 흔들린다.
+    const w = Math.ceil(pad * 2 + sw + nw + tw + 8)
     c.width = w
     c.height = 60
     g = c.getContext('2d')!
-    g.textBaseline = 'middle'
-    // 빛기둥 위에서도 읽히게 반투명 검은 판을 깐다(자막 판). 색 막대·테두리는 두지 않는다.
-    if (theme === 'show') {
-      // 중계: 깎은 모서리 판에 갈래 색 그라데이션, 같은 색 테두리. 번호는 갈래 색.
-      // 유리 알약: 갈래 색이 왼쪽에서 번지고, 갈래 색 테두리.
-      const grad = g.createLinearGradient(0, 0, w, 0)
-      grad.addColorStop(0, `${hex(color)}b0`)
-      grad.addColorStop(0.4, 'rgba(14, 16, 28, 0.86)')
-      grad.addColorStop(1, 'rgba(14, 16, 28, 0.8)')
-      chamfer(g, w, 60, 29)
-      g.fillStyle = grad
-      g.fill()
-      g.strokeStyle = `${hex(color)}d0`
-      g.lineWidth = 2
-      g.stroke()
-      g.fillStyle = '#ffffff'
-      g.beginPath()
-      g.arc(pad + 6, 29.5, 5, 0, Math.PI * 2)
-      g.fill()
-    } else {
-      g.fillStyle = 'rgba(8, 10, 13, 0.7)'
-      g.fillRect(0, 0, w, 60)
-      g.fillStyle = hex(color)
-      g.fillRect(pad, 24, 11, 11)
+    const numChars = [...num]
+    const nameChars = [...name]
+    const paint = (n: number, caret: boolean) => {
+      g.clearRect(0, 0, w, 60)
+      g.textBaseline = 'middle'
+      // 빛기둥 위에서도 읽히게 반투명 검은 판을 깐다(자막 판). 색 막대·테두리는 두지 않는다.
+      if (theme === 'show') {
+        // 중계: 깎은 모서리 판에 갈래 색 그라데이션, 같은 색 테두리. 번호는 갈래 색.
+        // 유리 알약: 갈래 색이 왼쪽에서 번지고, 갈래 색 테두리.
+        const grad = g.createLinearGradient(0, 0, w, 0)
+        grad.addColorStop(0, `${hex(color)}b0`)
+        grad.addColorStop(0.4, 'rgba(14, 16, 28, 0.86)')
+        grad.addColorStop(1, 'rgba(14, 16, 28, 0.8)')
+        chamfer(g, w, 60, 29)
+        g.fillStyle = grad
+        g.fill()
+        g.strokeStyle = `${hex(color)}d0`
+        g.lineWidth = 2
+        g.stroke()
+        g.fillStyle = '#ffffff'
+        g.beginPath()
+        g.arc(pad + 6, 29.5, 5, 0, Math.PI * 2)
+        g.fill()
+      } else {
+        g.fillStyle = 'rgba(8, 10, 13, 0.7)'
+        g.fillRect(0, 0, w, 60)
+        g.fillStyle = hex(color)
+        g.fillRect(pad, 24, 11, 11)
     }
+    let x = pad + sw
     if (num) {
       g.font = numFont
       g.fillStyle = theme === 'show' ? '#ffffff' : '#9aa3ae'
-      g.fillText(num, pad + sw, 29)
+      const part = numChars.slice(0, n).join('')
+      g.fillText(part, x, 29)
+      x = n >= numChars.length ? pad + sw + nw : x + g.measureText(part).width
     }
-    g.font = font
-    g.fillStyle = '#fff'
-    g.fillText(name, pad + sw + nw, 29)
+    if (n > numChars.length) {
+      g.font = font
+      g.fillStyle = '#fff'
+      const part = nameChars.slice(0, n - numChars.length).join('')
+      g.fillText(part, pad + sw + nw, 29)
+      x = pad + sw + nw + g.measureText(part).width
+    }
+    if (caret) {
+      g.fillStyle = theme === 'show' ? hex(color) : '#c9ced6'
+      g.fillRect(x + 2, 16, 3, 27)
+    }
+    }
     const map = new CanvasTexture(c)
     map.colorSpace = SRGBColorSpace
     const sprite = new Sprite(new SpriteMaterial({ map, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false }))
@@ -1021,6 +1108,7 @@ export function createReplayFx(host: ReplayHost) {
     sprite.scale.set((h * w) / 60, h, 1)
     sprite.center.set(0.5, 0)
     sprite.renderOrder = 22
+    typeIn(sprite, numChars.length + nameChars.length, paint, delay)
     return sprite
   }
 
@@ -1097,7 +1185,8 @@ export function createReplayFx(host: ReplayHost) {
       ring.position.y = base + 0.02
       return ring
     })
-    const tag = label ? labelSprite(label, color) : null
+    // 이름표 글은 빛기둥이 솟는 동안 한 자씩 찍힌다(여럿이면 차례로 조금씩 늦게).
+    const tag = label ? labelSprite(label, color, 150 + Math.min(nth, 12) * 70) : null
     // 리플레이 끝 화면에서 빛기둥·이름표를 누르면 그 장면을 다시 본다(onSpotClick).
     outer.userData.spot = id
     if (tag) tag.userData.spot = id
@@ -1496,6 +1585,7 @@ export function createReplayFx(host: ReplayHost) {
         spots = []
         ghostsByKey.clear()
         cardGroups = []
+        typings.clear()
         clearDiff()
       }
       host.invalidate()
@@ -1571,8 +1661,15 @@ export function createReplayFx(host: ReplayHost) {
       const storey = tags[0]?.storeyId ?? null
       if (storey !== tagsStorey) tagsFrom = performance.now() + (cinema && !still() ? CINEMA_FLY_MS : 0)
       tagsStorey = storey
-      for (const t of tags) {
-        const sprite = roomTagSprite(t.title, t.sub, t.hot)
+      const now = performance.now()
+      const before = shownTags
+      shownTags = new Set(tags.map((t) => `${t.id}|${t.title}|${t.sub}|${t.hot}`))
+      for (const [k, t] of tags.entries()) {
+        // 방 표시는 나타나기 시작할 때(tagsFrom)부터 바뀐 방 먼저, 그다음 넓은 방부터 조금씩 늦게 친다. 앞 장면에도 같은 글로
+        // 떠 있던 것은 다시 치지 않는다 — 장면마다 수십 개가 다시 찍히면 산만하다.
+        const order = t.hot ? 0 : k + 1
+        const again = before.has(`${t.id}|${t.title}|${t.sub}|${t.hot}`)
+        const sprite = roomTagSprite(t.title, t.sub, t.hot, again ? null : Math.max(0, tagsFrom - now) + Math.min(order, 16) * 45)
         const [x, y, z] = host.toScene(t.at)
         sprite.position.set(x, y + 0.2, z)
         sprite.userData.baseY = y + 0.2
@@ -1837,6 +1934,7 @@ export function createReplayFx(host: ReplayHost) {
     step(now: number) {
       if (cinema) pinPrograms()
       stepFx(now)
+      stepTyping(now)
       if (cinema && (spots.length || roomTags.children.length)) declutter(now)
       stepBuild(now)
       stepReveal(now)
@@ -1884,6 +1982,6 @@ export function createReplayFx(host: ReplayHost) {
     hitSpot: (x: number, y: number): string | null => (spotClickHandler ? hitSpot(x, y) : null),
     spotClick: (key: string) => spotClickHandler?.(key),
     /** e2e 가 보는 지금의 연출 수. */
-    motion: () => ({ effects: fxs.length, spots: spots.length, demolished, slid, sliding: sliding.size, ghosted, ghosts: ghostsByKey.size, carded, lift: Math.max(...buildUniforms.uLift.value), spread: !!spreadLevels, programs: host.renderer.info.programs?.length ?? 0, pinned: pinnedPrograms.size }),
+    motion: () => ({ effects: fxs.length, spots: spots.length, demolished, slid, sliding: sliding.size, ghosted, ghosts: ghostsByKey.size, carded, typed, lift: Math.max(...buildUniforms.uLift.value), spread: !!spreadLevels, programs: host.renderer.info.programs?.length ?? 0, pinned: pinnedPrograms.size }),
   }
 }

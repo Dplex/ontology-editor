@@ -17,6 +17,8 @@ test('움직임 줄이기에서도 리플레이가 끝까지 돌고, 빛기둥 �
   const motion = await page.evaluate(() => (window as any).__viewer.motion())
   expect(motion.spots).toBe(0)
   expect(motion.demolished).toBe(0)
+  // 3D 위 글은 치지 않고 다 쓴 채로 뜬다.
+  expect(motion.typed).toBe(0)
   await page.keyboard.press('d')
   await expect(hud.locator('.diff-legend')).toBeVisible()
   await page.keyboard.press('Escape')
