@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 // 사무실은 (0,0)(10,0)(10,8)(0,8) 이다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 
-test('꼭짓점이 셋이면 Delete 가 지우지 않고 알리며, 표에서 좌표를 자기교차로 고치면 값이 바뀌고 경고가 보인다', async ({ page }) => {
+test('꼭짓점이 셋이면 Delete 가 지우지 않고 알리며, 표에서 좌표를 자기교차로 고치면 값이 바뀌고 경고가 보인다 [OE-SPC-03#3,5]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

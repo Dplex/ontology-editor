@@ -2028,7 +2028,7 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH) || !existsS
 // 끌어 붙이는 방식은 옮기지 않아도 Duplex 방 37개·병원 368개를 바꿨다. 지금은 벽이 움직인 만큼만 옮긴다. 방향키로 다섯 걸음
 // 나갔다 돌아오면 방이 제자리여야 한다 — 걸음마다 끌려올 방을 새로 고르던 때는 병원 벽 300개 중 22개에서 어긋났다.
 describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 함께 방 경계 옮기기 (실제 벽)', () => {
-  it('벽마다 다섯 걸음 나갔다 돌아오면 방이 전부 제자리이고, 벽 길이 방향으로 밀면 방이 그대로다', async () => {
+  it('벽마다 다섯 걸음 나갔다 돌아오면 방이 전부 제자리이고, 벽 길이 방향으로 밀면 방이 그대로다 [OE-SPC-12#4]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const failed: string[] = []

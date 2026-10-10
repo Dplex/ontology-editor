@@ -798,6 +798,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   let conflictMark: LineSegments | null = null
+  /** 겹쳐서 막아 붉게 그린 공간 오브젝트(OE-SPC-15). e2e 가 읽는다. */
+  let objectConflictId: string | null = null
   let conflictTimer: number | undefined
   function clearConflict() {
     window.clearTimeout(conflictTimer)
@@ -1844,6 +1846,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
       /** 그린 추가 공간 오브젝트의 id. */
       objects: () => objectTargets.map((t) => t.id),
+      /** 겹쳐서 막아 붉게 그린 공간 오브젝트(OE-SPC-15). 없으면 null. */
+      objectConflict: () => objectConflictId,
       /** 오브젝트 윗면 가운데의 화면 자리. 눌러 고르고 끄는 데 쓴다. */
       object: (id: string) => {
         const t = objectTargets.find((x) => x.id === id)
@@ -2628,6 +2632,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     setSpaceObjects(model, library, models, selected, conflict = null) {
+      objectConflictId = conflict
       if (drag?.kind === 'object') return // 끄는 중에 다시 그리면 잡은 것을 잃는다. 놓으면 다시 불린다.
       spaceObjects.traverse((o) => {
         if (o instanceof Mesh || o instanceof LineSegments) {

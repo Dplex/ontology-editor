@@ -41,10 +41,12 @@ test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기�
   await expect(panel).toContainText('3.00, 2.00')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
 
-  // 책상과 겹치는 자리에는 의자를 놓지 못한다(OE-SPC-15)
+  // 책상과 겹치는 자리에는 의자를 놓지 못한다. 막은 상대(책상)가 붉게 그려지고 안내가 뜨며 놓이지 않는다 [OE-SPC-15#1]
   await place(page, '의자', 3.2, 2.1)
   await expect(page.locator('.edit-notice').first()).toContainText('이미 오브젝트가 있는 위치입니다')
   expect(await objects(page)).toHaveLength(1)
+  const [desk0] = await objects(page)
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.objectConflict())).toBe(desk0)
 
   // 비켜 놓으면 놓인다
   await place(page, '의자', 3, 3)

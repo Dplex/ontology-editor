@@ -121,7 +121,7 @@ test('편집 모드에서 고른 설비를 3D 로 끌면 좌표와 소속이 바
   expect(errors).toEqual([])
 })
 
-test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓점을 끌면 넓이와 소속이 바뀐다', async ({ page }) => {
+test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓점을 끌면 넓이와 소속이 바뀐다 [OE-SPC-03#1,4]', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
 

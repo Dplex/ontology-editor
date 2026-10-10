@@ -47,7 +47,7 @@ const features = (m: Model) => modelToGeoJSON(m).flatMap((f) => f.collection.fea
 const space = (id: string, m = model): Space => m.storeys.flatMap((s) => s.spaces).find((s) => s.id === id)!
 
 describe('BIM 명시 소속과 사람의 경계 편집 (Q13)', () => {
-  it('꼭짓점을 옮기면 BIM 이 담아 둔 설비도 좌표로 다시 판정하고, 되돌리면 BIM 소속이 돌아온다', () => {
+  it('꼭짓점을 옮기면 BIM 이 담아 둔 설비도 좌표로 다시 판정하고, 되돌리면 BIM 소속이 돌아온다 [OE-SPC-03#1]', () => {
     const light = equip('LIGHT-101-01')
     const snap = snapshotSpace(model, office().id)!
     moveSpaceVertex(model, office().id, 1, [9, 1])
@@ -76,7 +76,7 @@ describe('BIM 명시 소속과 사람의 경계 편집 (Q13)', () => {
     expect(light.spaceSource).toBe(null)
   })
 
-  it('나누면 BIM 이 담아 둔 설비도 좌표로 다시 판정한다 — 두 조각 밖이면 소속 없음이 되고, 되돌리면 돌아온다', () => {
+  it('나누면 BIM 이 담아 둔 설비도 좌표로 다시 판정한다 — 두 조각 밖이면 소속 없음이 되고, 되돌리면 돌아온다 [OE-SPC-02#1]', () => {
     const light = equip('LIGHT-101-01')
     const snap = snapshotStoreySpaces(model, storey().id)!
     const done = splitSpace(model, office().id, [6, -1], [6, 9])
@@ -86,7 +86,7 @@ describe('BIM 명시 소속과 사람의 경계 편집 (Q13)', () => {
     expect(light).toMatchObject({ spaceId: office().id, spaceSource: 'bim' })
   })
 
-  it('BIM 이 담아 둔 물리존을 나누면 좁은 쪽 조각 안의 설비는 좁은 조각에 속한다', () => {
+  it('BIM 이 담아 둔 물리존을 나누면 좁은 쪽 조각 안의 설비는 좁은 조각에 속한다 [OE-SPC-02#1]', () => {
     // 사무실 안 (8, 4) 에 BIM 이 사무실에 담은 설비를 하나 둔다.
     const e = addEquipment(model, storey().id, { name: 'BIM-SENSOR', kind: null, position: [8, 4, 1] })!
     e.spaceId = office().id
@@ -118,7 +118,7 @@ describe('BIM 명시 소속과 사람의 경계 편집 (Q13)', () => {
 })
 
 describe('물리존 편집 수용 기준 (OE-SPC-01~04)', () => {
-  it('공간명을 바꾸면 TTL label · GeoJSON 이름 · 방 종류가 함께 바뀐다 (OE-SPC-01)', () => {
+  it('공간명을 바꾸면 TTL label · GeoJSON 이름 · 방 종류가 함께 바뀐다 [OE-SPC-01#1]', () => {
     expect(office().kind).toBe('office')
     renameSpace(model, office().id, '회의실')
     const ttl = modelToTTL(model)
@@ -130,7 +130,7 @@ describe('물리존 편집 수용 기준 (OE-SPC-01~04)', () => {
     expect(office().kind).toBe('conference')
   })
 
-  it('벽 두께만큼 떨어진 두 방을 합치면 사이 벽 자리의 설비가 합친 방에 속한다 (OE-SPC-02)', () => {
+  it('벽 두께만큼 떨어진 두 방을 합치면 사이 벽 자리의 설비가 합친 방에 속한다 [OE-SPC-02#2]', () => {
     const store = createSpace(model, storey().id, { name: '102', longName: '창고', footprint: [[10.2, 0], [14, 0], [14, 8], [10.2, 8]] })!.created[0]
     // 벽 자리(x 10..10.2) 가운데의 설비는 어느 방에도 들지 않는다(두 방 외곽선에서 0.1m, 소속 허용 거리 0.05m 밖).
     const inWall = addEquipment(model, storey().id, { name: 'IN-WALL', kind: 'receptacle', position: [10.1, 4, 0.3] })!
@@ -140,7 +140,7 @@ describe('물리존 편집 수용 기준 (OE-SPC-01~04)', () => {
     expect(inWall.spaceId).toBe(office().id)
   })
 
-  it('합친 뒤 남는 방의 외곽선을 고치고 저장·불러오면, 합치기가 into 로 되살아나고 고친 외곽선과 문이 그대로다 (OE-SPC-02 · OE-HIST-03)', () => {
+  it('합친 뒤 남는 방의 외곽선을 고치고 저장·불러오면, 합치기가 into 로 되살아나고 고친 외곽선과 문이 그대로다 [OE-SPC-02#4]', () => {
     const base = baselineOf(model)
     const store = createSpace(model, storey().id, { name: '102', longName: '창고', footprint: [[10.2, 0], [14, 0], [14, 8], [10.2, 8]] })!.created[0]
     storey().openings.push({ id: 'door', kind: 'door', name: '', width: null, height: null, wallId: null, passable: true, connects: [office().id, store] })
@@ -156,12 +156,14 @@ describe('물리존 편집 수용 기준 (OE-SPC-01~04)', () => {
     expect(features(fresh).filter((f) => f.properties?.kind === 'space').map((f) => f.id)).toEqual([office().id])
   })
 
-  it('연 때 있던 두 방을 합친 뒤 외곽선을 고치고 저장·불러오면 into 로 되살아나고 문은 남는 방만 잇는다 (OE-SPC-02 · OE-HIST-03)', () => {
+  it('연 때 있던 두 방을 합친 뒤 외곽선을 고치고 저장·불러오면 into 로 되살아나고 문은 남는 방만 잇는다 [OE-SPC-02#3,4]', () => {
     // 연 때 방을 둘로 만든다(나누기 → 그 상태를 연 때로).
     const done = splitSpace(model, office().id, [6, -1], [6, 9])
     if (!done || 'refused' in done) throw new Error('split')
     const piece = done.created[0]
     storey().openings.push({ id: 'door', kind: 'door', name: '', width: null, height: null, wallId: null, passable: true, connects: [office().id, piece] })
+    // 없어질 방(piece)만 잇던 바깥문. 합친 뒤에는 남는 방을 가리킨다.
+    storey().openings.push({ id: 'door2', kind: 'door', name: '', width: null, height: null, wallId: null, passable: true, connects: [piece] })
     const opened = structuredClone(model)
     const base = baselineOf(model)
     const merged = mergeSpaces(model, office().id, piece)
@@ -174,9 +176,11 @@ describe('물리존 편집 수용 기준 (OE-SPC-01~04)', () => {
     expect(space(office().id, opened).footprint).toEqual(office().footprint)
     const door = features(opened).find((f) => f.id === 'door')!
     expect(door.properties!.connects).toEqual([office().id])
+    expect(features(opened).find((f) => f.id === 'door2')!.properties!.connects).toEqual([office().id])
+    expect(JSON.stringify(features(opened))).not.toContain(piece)
   })
 
-  it('꼭짓점이 4개인 물리존에서 하나를 지우면 삼각형이 되고 넓이가 다시 계산되며, 3개 남으면 더 지우지 않는다 (OE-SPC-03)', () => {
+  it('꼭짓점이 4개인 물리존에서 하나를 지우면 삼각형이 되고 넓이가 다시 계산되며, 3개 남으면 더 지우지 않는다 [OE-SPC-03#2]', () => {
     expect(office().footprint.length).toBe(5) // 닫힌 고리(꼭짓점 4 + 닫는 점)
     const change = deleteSpaceVertex(model, office().id, 2)!
     expect(change.toAreaM2).toBeCloseTo(40)
@@ -185,7 +189,7 @@ describe('물리존 편집 수용 기준 (OE-SPC-01~04)', () => {
     expect(office().footprint.length).toBe(4)
   })
 
-  it('방을 지우면 그 안의 설비가 그 방을 품은 이웃 방으로 간다 (OE-SPC-04)', () => {
+  it('방을 지우면 그 안의 설비가 그 방을 품은 이웃 방으로 간다 [OE-SPC-04#2]', () => {
     const small = createSpace(model, storey().id, { name: '102', longName: '접수대', footprint: [[6, 3], [8, 3], [8, 5], [6, 5]] })!.created[0]
     expect(equip('AT-101-02').spaceId).toBe(small)
     deleteSpace(model, small)

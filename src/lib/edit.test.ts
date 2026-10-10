@@ -246,7 +246,7 @@ describe('방번호 (OE-OBJ-02)', () => {
     expect(diffBaseline(model, base).renumbered).toEqual([])
   })
 
-  it('나눈 조각의 방번호는 비워 두고 사람이 넣는다(OE-SPC-02)', () => {
+  it('나눈 조각의 방번호는 비워 두고 사람이 넣는다 [OE-SPC-02#5]', () => {
     const office = model.storeys[0].spaces[0]
     const done = splitSpace(model, office.id, [5, -1], [5, 9])!
     expect('refused' in done).toBe(false)
@@ -269,7 +269,7 @@ describe('이름 수정 (E1)', () => {
     expect(equip('AHU-1').spaceId).toBe(space.id)
   })
 
-  it('이름 사전으로 정한 방 종류는 이름을 따라가고, 되돌리면 같이 돌아온다', () => {
+  it('이름 사전으로 정한 방 종류는 이름을 따라가고, TTL 라벨·GeoJSON 이름도 같이 바뀌며, 되돌리면 같이 돌아온다 [OE-SPC-01#1]', () => {
     // 계단을 "회의실" 로 고쳤는데 brick:Staircase 로 나갔다. 사람이 방 종류를 바로잡는 길이 이름 고치기뿐이다.
     const space = model.storeys[0].spaces[0]
     const before = { kind: space.kind, source: space.kindSource }
@@ -277,6 +277,9 @@ describe('이름 수정 (E1)', () => {
     renameSpace(model, space.id, '계단실 A')
     expect([space.kind, space.kindSource]).toEqual(['staircase', 'dict'])
     expect(modelToTTL(model)).toContain('brick:Staircase')
+    expect(modelToTTL(model)).toContain('rdfs:label "계단실 A"')
+    const feature = modelToGeoJSON(model).flatMap((f) => f.collection.features).find((f) => f.id === space.id)!
+    expect((feature.properties as { longName: string }).longName).toBe('계단실 A')
     renameSpace(model, space.id, 'S.T')
     expect(space.kind).toBe(null)
     restore(model, snap)
@@ -858,7 +861,7 @@ describe('물리존 생성·삭제·분할·병합 (E3)', () => {
     expect(done.equipment.map((c) => c.equipmentName)).toEqual(['AT-101-01'])
   })
 
-  it('층에 하나 남은 물리존은 지우지 않는다', () => {
+  it('층에 하나 남은 물리존은 지우지 않는다 [OE-SPC-04#1]', () => {
     expect(deleteSpace(model, office().id)).toEqual({ refused: expect.stringContaining('하나 남은') })
   })
 
@@ -873,7 +876,7 @@ describe('물리존 생성·삭제·분할·병합 (E3)', () => {
     expect(light.spaceSource).toBeNull()
   })
 
-  it('선으로 나누면 넓은 조각이 원래 id 를 갖고, 새 조각의 설비는 새 방으로 간다', () => {
+  it('선으로 나누면 넓은 조각이 원래 id 를 갖고, 새 조각의 설비는 새 방으로 간다 [OE-SPC-02#1]', () => {
     const id = office().id
     const done = splitSpace(model, id, [6, -1], [6, 9])
     expect(done && 'created' in done).toBe(true)
@@ -891,7 +894,7 @@ describe('물리존 생성·삭제·분할·병합 (E3)', () => {
     expect(splitSpace(model, office().id, [20, 0], [20, 5])).toEqual({ refused: expect.any(String) })
   })
 
-  it('나눈 것을 다시 합치면 원래 외곽선·넓이이고, 문은 남는 방을 가리킨다', () => {
+  it('나눈 것을 다시 합치면 원래 외곽선·넓이이고, 문은 남는 방을 가리킨다 [OE-SPC-02#3~]', () => {
     const id = office().id
     model.storeys[0].openings.push({ id: 'door', kind: 'door', name: '', width: null, height: null, wallId: null, passable: true, connects: [id] })
     const split = splitSpace(model, id, [6, -1], [6, 9])
@@ -984,7 +987,7 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(door.connects).toEqual([])
   })
 
-  it('방 경계를 고쳐도 좌표로 짚은 문이 잇는 방이 바뀐다', () => {
+  it('방 경계를 고쳐도 좌표로 짚은 문이 잇는 방이 바뀐다 [OE-SPC-13#3]', () => {
     const { store } = setup()
     const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening
     // 창고를 문에서 멀리 민다.
@@ -1076,7 +1079,7 @@ describe('벽·문·창 편집 (E4)', () => {
   })
 
   // OE-OBJ-07. 자리(가운데)는 두고 가로·세로만 바꾼다.
-  it('문·창 가로·세로를 바꾸고, 벽 끝을 넘거나 범위 밖이거나 내력벽이면 바꾸지 않는다', () => {
+  it('문·창 가로·세로를 바꾸고, 벽 끝을 넘거나 범위 밖이거나 내력벽이면 바꾸지 않는다 [OE-SPC-13#2]', () => {
     const { wall } = setup()
     const base = baselineOf(model)
     const win = addOpening(model, storey().id, 'window', [10.1, 2]) as Opening
