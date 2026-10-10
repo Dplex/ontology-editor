@@ -163,7 +163,7 @@ describe('층 사이 연결', () => {
       expect(Object.fromEntries(verticalLinks(m))).toEqual({ living: ['gallery'], gallery: ['living'] })
     })
 
-    it('GeoJSON 에 층마다 조각 feature 를 내고, 조각끼리·물리존끼리 잇는다 [OE-ML-02#1,4] [OE-ML-04#3~] [OE-ML-19#5~] [OE-EQP-16#2~]', () => {
+    it('GeoJSON 에 층마다 조각 feature 를 내고, 조각끼리·물리존끼리 잇는다 [OE-ML-02#1,4] [OE-ML-04#3~] [OE-ML-19#5~] [OE-EQP-16#2~] [OE-EQP-17#3]', () => {
       const m = model([storey('1F', 0, [space('s1', 'staircase', rect(0, 0, 2, 2))]), storey('2F', 3, [space('s2', 'staircase', rect(0, 0, 2, 2))])])
       m.storeys[0].verticalParts = [stairPart({ footprint: rect(0, 0, 1, 2).slice(0, 4), entry: [0.5, 0.2, 0] })]
       m.storeys[1].verticalParts = [stairPart({ exit: [0.5, 1.8, 3] })]

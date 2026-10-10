@@ -80,7 +80,7 @@ test('3D 위 편집 체크박스는 전체 화면에서만 뜨고 보기/편집 
   expect(errors).toEqual([])
 })
 
-test('편집 모드에서 고른 설비를 3D 로 끌면 좌표와 소속이 바뀌고, 끄는 중 Esc 는 취소다', async ({ page }) => {
+test('편집 모드에서 고른 설비를 3D 로 끌면 좌표와 소속이 바뀌고, 끄는 중 Esc 는 취소다 [OE-EQP-06#1] [OE-EQP-12#1]', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await pick(page, 'AHU-1')
@@ -218,7 +218,7 @@ test('편집 모드에서 연결 화살표를 누르면 방향을 미리 보고 
   expect(errors).toEqual([])
 })
 
-test('편집 모드에서 고른 설비의 층을 바꾸면 높이도 층 차만큼 옮긴다', async ({ page }) => {
+test('편집 모드에서 고른 설비의 층을 바꾸면 높이도 층 차만큼 옮긴다 [OE-EQP-12#2]', async ({ page }) => {
   const errors = await open(page)
   // 층이 둘인 모델이 필요하다. 설비 파일에 건축 파일을 덧붙인다(1F 는 이름으로 맞춰진다).
   await page.locator('.append input[type=file]').setInputFiles(ROOMS)

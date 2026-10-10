@@ -138,7 +138,7 @@ describe('공조존 검증과 담당 물리존 고치기 (OE-ZON-05 · OE-ZON-04
     expect(zone.id).toBeTruthy()
   })
 
-  it('Z-02 두 공조존이 같은 영역을 담당, Z-04 담당 설비 없음, Z-05 토출구 없음, Z-06 실내기가 담당 물리존 밖 [OE-ZON-05#1~]', () => {
+  it('Z-02 두 공조존이 같은 영역을 담당, Z-04 담당 설비 없음, Z-05 토출구 없음, Z-06 실내기가 담당 물리존 밖 [OE-ZON-05#1~] [OE-EQP-09#1~]', () => {
     const a = createZoneFromSpaces(model, { spaceIds: [office().id], name: '가', servedBy: [equip('AHU-1').id] }) as HvacZone
     createZoneFromOutline(model, model.storeys[0].id, { name: '나', footprint: [[1, 1], [4, 1], [4, 4], [1, 4]] })
     createZoneFromSpaces(model, { spaceIds: [store], name: '다' })

@@ -16,6 +16,7 @@ import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, 
 import { previewSummary, summaryText } from './lib/preview'
 import { DEFAULT_GRID, gridLines, snapToGrid, type GridSettings } from './lib/grid'
 import { dimensionText, wallDimensions } from './lib/dimensions'
+import { familyHeight } from './lib/placement'
 import { facadeOf, moveFacade } from './lib/facade'
 import { customerReportHTML, generationReport, MISSING_LABEL, missingClass, sha256Hex, type ReportInput, type ReportSectionB } from './lib/build-report'
 import { ttlTriples } from './lib/export/read-export'
@@ -4606,17 +4607,10 @@ function placeAt(at: Vec2) {
     note('종류를 모르는 설비라 바닥 높이에 놓았습니다. 종류를 정한 뒤 높이를 고치세요')
     return
   }
-  const key = familyKeyOf(target)
-  const heights = m.storeys
-    .flatMap((st) => st.equipment.filter((e) => e.id !== id && e.position && familyKeyOf(e) === key).map((e) => e.position![2] - st.elevation))
-    .sort((a, b) => a - b)
-  const h = heights.length ? heights[Math.floor(heights.length / 2)] : 0
+  const family = familyHeight(m, target)
+  const h = family ?? 0
   if (!relocate(id, [cm(at[0]), cm(at[1]), cm(home.elevation + h)])) return
-  note(
-    heights.length
-      ? `같은 패밀리의 높이(바닥에서 ${h.toFixed(2)}m)로 놓았습니다`
-      : '바닥 높이에 놓았습니다. 높이는 z 칸에서 고치세요',
-  )
+  note(family !== null ? `같은 패밀리의 높이(바닥에서 ${h.toFixed(2)}m)로 놓았습니다` : '바닥 높이에 놓았습니다. 높이는 z 칸에서 고치세요')
 }
 
 // --- 물리존 꼭짓점 넣기·지우기, 외곽선 그리기 -------------------------------------------------
