@@ -11,10 +11,12 @@ code: ["src/lib/vertical.ts", "src/lib/export/geojson.ts"]
 tests: []
 related: ["ADR-0014", "ADR-0008"]
 supersedes: []
-superseded_by: ""
+superseded_by: "ADR-0039 (잠금 미룸 한 줄만)"
 ---
 
 # ADR-0032 E18 다중층을 이 repo 에서 어디까지 하나 · 층간 겹침 후보 규칙
+
+> 범위 표의 "미룬다" 칸과 "진행 순서" 는 이 ADR 을 쓸 때(2026-10-08)의 계획이다. 층 편집 잠금(OE-COM-05)은 [ADR-0039](0039-floor-drafts-and-locks-as-server-files.md) 가 서버 파일로 바꿨다. 나머지 칸의 지금 상태는 `npm run ctx -- OE-ML-nn` 으로 본다. 층간 겹침 후보 결정은 그대로다.
 
 ## 맥락
 

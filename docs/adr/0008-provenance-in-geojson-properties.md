@@ -15,6 +15,8 @@ superseded_by: ""
 
 # ADR-0008 계산한 관계의 출처는 GeoJSON 속성의 *Source(bim·calc)로 export 한다 — TTL 출처 predicate 는 수신 측과 합의(OE-INT-07)할 때까지 export 하지 않는다
 
+> 출처 값 `edit`(사람이 정한 것)은 [ADR-0018](0018-human-space-assignment.md)(사람이 지정한 설비 소속)과 벽 외벽 여부가 더했다. 형상이 BIM 원본인지 보정인지(`edited`)는 다른 축이다([ADR-0034](0034-vertical-object-edits.md)).
+
 ## 맥락
 
 PRD 부록 C S4 는 "계산·추정 관계의 출처(BIM/계산/사전/사람/외부)를 소비 시스템이 구별 가능" 이다. 그 방법을 정하는 OE-INT-07 은

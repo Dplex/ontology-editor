@@ -9,12 +9,14 @@ tickets: ["OE-COM-01", "OE-COM-02", "OE-COM-04", "OE-XPRD-01", "OE-XPRD-04", "OE
 criteria: []
 code: ["src/server/users.ts", "src/server/activity-log.ts", "src/server/data-catalog.ts", "src/App.vue"]
 tests: []
-related: ["ADR-0037"]
-supersedes: []
+related: []
+supersedes: ["ADR-0037 (반영자 한 줄만)"]
 superseded_by: ""
 ---
 
 # ADR-0038 사람·역할·로그는 서버 파일
+
+> 맨 끝의 "(다음 PR)" 인 편집 잠금·서버 임시 저장본은 [ADR-0039](0039-floor-drafts-and-locks-as-server-files.md) 가 했다.
 
 ## 맥락
 

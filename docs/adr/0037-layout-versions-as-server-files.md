@@ -11,10 +11,12 @@ code: ["scripts/serve.mjs", "src/server/saved-edits.ts", "src/server/layouts.ts"
 tests: []
 related: []
 supersedes: []
-superseded_by: ""
+superseded_by: "ADR-0038 (반영자 한 줄만)"
 ---
 
 # ADR-0037 반영·버전은 서버 파일
+
+> "반영자를 받는다 · 브라우저가 기억한다" 는 [ADR-0038](0038-users-roles-log-as-server-files.md) 이 바꿨다 — 반영자는 화면 위 [사용자] 칸에서 고른 사람(`X-OE-User`)이고 몸통의 이름은 쓰지 않는다. 나머지 결정은 그대로다.
 
 ## 맥락
 
