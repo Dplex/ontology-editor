@@ -120,10 +120,10 @@ const opening = computed(() => props.phase === 'opening')
 const openingTitle = computed(() => words(props.start?.building || props.title.replace(/\.ifc\b/gi, '')))
 /** 끝의 통계 타일. 차례로 굴러 올라온다. */
 const stats = computed(() => [
-  { n: props.total, label: 'EDITS', sub: '고친 편집' },
-  { n: new Set(props.steps.flatMap((s) => s.storeyIds)).size, label: 'FLOORS', sub: '고친 층' },
-  { n: props.steps.reduce((n, s) => n + (s.geojson ? s.geojson.count.changed + s.geojson.count.added + s.geojson.count.removed : 0), 0), label: 'FEATURES', sub: 'GeoJSON 에서 바뀐 것' },
-  { n: props.steps.reduce((n, s) => n + s.ttlCount.added + s.ttlCount.removed, 0), label: 'TTL LINES', sub: '더하고 지운 줄' },
+  { n: props.total, label: 'edits', sub: '고친 편집' },
+  { n: new Set(props.steps.flatMap((s) => s.storeyIds)).size, label: 'floors', sub: '고친 층' },
+  { n: props.steps.reduce((n, s) => n + (s.geojson ? s.geojson.count.changed + s.geojson.count.added + s.geojson.count.removed : 0), 0), label: 'features', sub: 'GeoJSON feature' },
+  { n: props.steps.reduce((n, s) => n + s.ttlCount.added + s.ttlCount.removed, 0), label: 'ttl', sub: 'TTL 줄 (더함·지움)' },
 ])
 const two = (n: number) => String(n).padStart(2, '0')
 
@@ -284,7 +284,7 @@ const summary = computed(() => {
 
     <!-- 왼쪽 위: 리플레이 표시(위 검은 띠 안). 가는 테두리 판 셋 — REPLAY · 몇 번째 · 갈래. -->
     <div class="bug" :style="{ '--c': current ? CAT_COLOR[current.category] : '#5ef2c2' }">
-      <span class="bug-replay">REPLAY</span>
+      <span class="bug-replay">리플레이</span>
       <span v-if="phase !== 'opening'" class="bug-count">
         <transition name="roll" mode="out-in"><b :key="counter">{{ counter }}</b></transition>
         <i>/{{ two(total) }}</i>
@@ -349,12 +349,12 @@ const summary = computed(() => {
     <!-- 오프닝 -->
     <transition name="fade">
       <div v-if="opening" class="hud-rewind opening">
-        <div class="op-kicker">▶ EDIT REPLAY</div>
+        <div class="op-kicker">편집 리플레이</div>
         <div class="op-title">
           <span v-for="(t, i) in openingTitle" :key="i" class="wd" :style="{ animationDelay: `${150 + i * 90}ms` }">{{ t.w }}</span>
         </div>
         <div class="op-sub">
-          <b>{{ two(total) }}</b> EDITS<template v-if="start?.building"> <i>·</i> {{ title }}</template>
+          편집 <b>{{ total }}</b>건<template v-if="start?.building"> <i>·</i> {{ title }}</template>
         </div>
       </div>
     </transition>
@@ -372,7 +372,7 @@ const summary = computed(() => {
       <div class="log">
         <transition name="next">
           <div v-if="upcoming && loop === null" :key="`up${upcoming.index}`" class="next" :style="{ '--c': CAT_COLOR[upcoming.category] }">
-            <span class="next-tag">NEXT</span>
+            <span class="next-tag">다음</span>
             <span class="next-label">{{ upcoming.label }}</span>
             <span class="next-arrow">▶</span>
           </div>
@@ -387,7 +387,7 @@ const summary = computed(() => {
             :title="c.step.index === loop ? '반복 중 — Space 로 다음 장면부터 이어서' : '이 장면만 반복해서 보기'"
             @click="emit('scene', c.step.index)"
           >
-            <div class="idx">#{{ two(c.step.index + 1) }}</div>
+            <div class="idx">{{ two(c.step.index + 1) }}</div>
             <div class="body">
               <header>
                 <span class="cat">{{ c.step.category }}</span>
@@ -425,15 +425,14 @@ const summary = computed(() => {
       <div v-if="phase === 'done'" class="rp-stats">
         <div v-for="(st, i) in stats" :key="st.label" class="stat" :style="{ animationDelay: `${i * 160}ms` }">
           <div class="stat-n"><Roll :value="st.n" /></div>
-          <b>{{ st.label }}</b>
           <span>{{ st.sub }}</span>
         </div>
       </div>
     </transition>
     <transition name="fade">
       <div v-if="phase === 'done'" class="hud-done">
-        <div class="done-head"><span>REPLAY COMPLETE</span><b>{{ two(total) }} EDITS</b></div>
-        <h2>사람이 고친 곳</h2>
+        <div class="done-head"><span>끝까지 봤습니다</span><b>편집 {{ total }}건</b></div>
+        <h2>수정내역</h2>
         <button
           v-for="b in summary.bars"
           :key="b.c"
@@ -517,7 +516,7 @@ const summary = computed(() => {
         </span>
         <span class="status">
           <template v-if="loop !== null">#{{ two(loop + 1) }} 반복 중 · <kbd>Space</kbd> 다음 장면부터 이어서</template>
-          <template v-else-if="highlights && phase !== 'done'"><button type="button" class="filter-chip" style="--c: #ffd166" title="요약 풀기" @click="emit('highlights')">★ 요약 {{ highlights.length }}장면 ✕</button> · 편집 {{ at }}/{{ total }}</template>
+          <template v-else-if="highlights && phase !== 'done'"><button type="button" class="filter-chip" style="--c: #9aa3ae" title="요약 풀기" @click="emit('highlights')">★ 요약 {{ highlights.length }}장면 ✕</button> · 편집 {{ at }}/{{ total }}</template>
           <template v-else-if="filter && phase !== 'done'"><button type="button" class="filter-chip" :style="{ '--c': CAT_COLOR[filter] }" title="거르기 풀기" @click="emit('filter', null)">{{ filter }}만 ✕</button> · 편집 {{ at }}/{{ total }}</template>
           <template v-else-if="comparing">편집 전 보는 중 · <kbd>B</kbd> 떼면 편집 후</template>
           <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }} · <kbd>B</kbd> 누르고 있으면 편집 전</template>
@@ -572,10 +571,17 @@ const summary = computed(() => {
   color: #f2f6ff;
   font-family: system-ui, sans-serif;
   font-variant-numeric: tabular-nums;
-  --mint: #5ef2c2;
-  --pink: #ff6b9a;
-  --panel: #0b1018;
-  --line: #223047;
+  /* 도면 톤: 무채색 판과 가는 선. 색은 갈래 표시(작은 네모)와 더함·지움 글자에만 쓴다. */
+  --mint: #7bd88f;
+  --pink: #f07178;
+  --chg: #e5c07b;
+  --ink: #e8ebef;
+  --sub: #9aa3ae;
+  --mute: #6b7480;
+  --panel: #0c0f13;
+  --card: #11151b;
+  --line: #262d36;
+  --line-2: #3a424d;
   --feed: var(--replay-feed, 440px);
   /* 오른쪽 기둥의 위쪽(GeoJSON 패널) 높이. 아래는 TTL 기록판이다. */
   --geo-h: 50%;
@@ -585,6 +591,20 @@ const summary = computed(() => {
 .hud-bar,
 .rp-side {
   pointer-events: auto;
+}
+
+/* 갈래 표시: CAD 레이어 색처럼 글 앞의 작은 네모 하나. 판 테두리·배경은 갈래 색을 쓰지 않는다. */
+.bug-cat::before,
+.card .cat::before,
+.scene-kicker span::before,
+.tt-cat::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 7px;
+  background: var(--c);
+  vertical-align: 0;
 }
 
 /* --- 왼쪽 위 표시 --- */
@@ -610,16 +630,14 @@ const summary = computed(() => {
   align-items: center;
   gap: 10px;
   padding: 8px 16px;
-  border: 1px solid var(--c);
-  background: rgba(5, 6, 8, 0.72);
-  color: #fff;
+  border: 1px solid var(--line-2);
+  background: rgba(8, 10, 13, 0.86);
+  color: var(--ink);
   font-size: 13px;
-  box-shadow: 0 0 18px color-mix(in srgb, var(--c) 40%, transparent);
 }
 .compare b {
-  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 0.2em;
-  color: var(--c);
+  font-size: 12px;
+  font-weight: 600;
 }
 
 /* 층 레일. 왼쪽, 리플레이 표시 아래. 끝 화면의 요약판(.hud-done)보다 위에서 끝난다. */
@@ -631,10 +649,9 @@ const summary = computed(() => {
   flex-direction: column;
   max-width: 240px;
   padding: 6px 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.14);
-  /* 밝은 3D(밤 다이오라마의 방 불빛) 위에서도 읽히게 자막 판처럼 반투명 검은 판을 깐다. */
-  background: rgba(5, 6, 8, 0.62);
-  backdrop-filter: blur(4px);
+  border: 1px solid var(--line);
+  /* 밝은 3D(밤 다이오라마의 방 불빛) 위에서도 읽히게 반투명 검은 판을 깐다. */
+  background: rgba(8, 10, 13, 0.78);
 }
 .rail-row {
   display: flex;
@@ -667,9 +684,7 @@ const summary = computed(() => {
 }
 .rail-row.here::before {
   width: 18px;
-  height: 2px;
-  background: var(--mint);
-  box-shadow: 0 0 8px var(--mint);
+  background: var(--ink);
 }
 .rail-row:not(.quiet):hover {
   color: #fff;
@@ -701,21 +716,19 @@ const summary = computed(() => {
   font-size: 10px;
 }
 
-/* 갈래 색은 가는 테두리와 아주 옅은 빛에만 둔다. 판은 반투명 검정이라 띠 위에 얹혀도 튀지 않는다. */
+/* 가는 무채색 테두리의 칸들. 갈래는 글 앞 네모로만. */
 .bug > span {
   display: flex;
   align-items: center;
   padding: 0 12px;
-  border: 1px solid color-mix(in srgb, var(--c) 55%, transparent);
-  background: rgba(5, 6, 8, 0.72);
-  color: #e6e9ee;
-  box-shadow: 0 0 6px color-mix(in srgb, var(--c) 18%, transparent);
+  border: 1px solid var(--line-2);
+  background: rgba(8, 10, 13, 0.86);
+  color: var(--ink);
 }
 .bug-replay {
-  --c: #ffffff;
+  color: var(--sub) !important;
   font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.28em;
 }
 .bug-count {
   gap: 2px;
@@ -730,16 +743,12 @@ const summary = computed(() => {
   opacity: 0.6;
 }
 .bug-cat {
-  color: var(--c);
   font-size: 13px;
-  letter-spacing: 0.08em;
 }
 /* 층은 갈래가 아니라 자리라서 갈래 색을 쓰지 않는다. */
 .bug-storey {
-  --c: #ffffff;
   gap: 8px;
   font-size: 13px;
-  letter-spacing: 0.04em;
 }
 .bug-storey i {
   color: #9aa0a8;
@@ -796,7 +805,6 @@ const summary = computed(() => {
   display: inline-block;
   overflow: hidden;
   background: #05080d;
-  border-left: 6px solid var(--c);
 }
 .scene-title {
   padding: 8px 18px 10px 14px;
@@ -840,12 +848,9 @@ const summary = computed(() => {
   }
 }
 .op-kicker {
-  padding: 6px 12px;
-  background: #fff;
-  color: #05080d;
-  font-size: 16px;
-  font-style: italic;
-  font-weight: 900;
+  color: var(--sub);
+  font-size: 15px;
+  font-weight: 500;
   animation: kicker-in 400ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
 }
 .op-title {
@@ -857,15 +862,14 @@ const summary = computed(() => {
   text-shadow: 0 4px 0 #05080d;
 }
 .op-sub {
-  padding: 6px 12px;
-  border-left: 6px solid var(--mint);
-  background: #05080d;
-  font-size: 18px;
-  font-weight: 800;
+  color: var(--sub);
+  font-size: 17px;
+  font-weight: 400;
   animation: kicker-in 400ms 500ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
 }
 .op-sub b {
-  color: var(--mint);
+  color: var(--ink);
+  font-weight: 600;
 }
 .op-sub i {
   margin: 0 6px;
@@ -874,36 +878,33 @@ const summary = computed(() => {
 }
 
 /* --- 끝 통계 타일 --- */
+/* 도면 표제란처럼 한 틀을 가는 선으로 칸 나눈다. */
 .rp-stats {
   position: absolute;
   top: 18px;
   right: calc(var(--feed) + 18px);
   display: flex;
-  gap: 8px;
+  border: 1px solid var(--line-2);
+  background: rgba(8, 10, 13, 0.88);
 }
 .stat {
   display: grid;
-  min-width: 112px;
-  padding: 10px 14px 12px;
-  border-top: 4px solid var(--mint);
-  background: #05080d;
-  animation: tile 520ms cubic-bezier(0.2, 1.4, 0.35, 1) both;
+  gap: 4px;
+  min-width: 104px;
+  padding: 10px 16px 12px;
+  animation: tile 520ms cubic-bezier(0.2, 0.9, 0.35, 1) both;
+}
+.stat + .stat {
+  border-left: 1px solid var(--line-2);
 }
 .stat-n {
-  font-size: 46px;
-  font-weight: 900;
+  font-size: 40px;
+  font-weight: 300;
   line-height: 1;
 }
-.stat > b {
-  margin-top: 6px;
-  color: var(--mint);
-  font-size: 12px;
-  font-weight: 900;
-  letter-spacing: 0.08em;
-}
 .stat > span {
-  color: #9fb0c8;
-  font-size: 11px;
+  color: var(--sub);
+  font-size: 12px;
 }
 .scene-leave-active {
   transition:
@@ -933,7 +934,7 @@ const summary = computed(() => {
   display: flex;
   flex-direction: column;
   width: var(--feed);
-  border-left: 2px solid var(--line);
+  border-left: 1px solid var(--line-2);
   background: var(--panel);
 }
 .hud-geo {
@@ -943,18 +944,19 @@ const summary = computed(() => {
 }
 .log-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
   margin: 12px 12px 0;
-  padding: 6px 10px;
-  background: #fff;
-  color: #05080d;
+  padding: 6px 2px 8px;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--sub);
   font-size: 13px;
-  font-weight: 900;
-  letter-spacing: 0.04em;
+  font-weight: 500;
 }
 .log-head b {
+  color: var(--ink);
   font-size: 15px;
+  font-weight: 500;
 }
 .log-head i {
   font-style: normal;
@@ -974,17 +976,16 @@ const summary = computed(() => {
   align-items: stretch;
   flex: none;
   height: 34px;
-  border: 2px solid var(--c);
+  border: 1px dashed var(--line-2);
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 500;
 }
 .next-tag {
   display: flex;
   align-items: center;
   padding: 0 10px;
-  background: var(--c);
-  color: #05080d;
-  font-weight: 900;
+  color: var(--sub);
+  font-weight: 500;
 }
 .next-label {
   flex: 1;
@@ -997,27 +998,30 @@ const summary = computed(() => {
 .next-arrow {
   align-self: center;
   padding: 0 10px;
-  color: var(--c);
+  color: var(--sub);
   animation: nudge 0.7s ease-in-out infinite;
 }
+/* 기록판은 도면의 개정 이력표처럼: 번호 | 내용 | 시각. 지금 장면은 펼친 칸, 지난 장면은 한 줄짜리 행. */
 .card {
   display: grid;
-  grid-template-columns: 48px 1fr;
+  grid-template-columns: 44px 1fr;
   flex: none;
-  border: 1px solid var(--line);
-  background: #111826;
+  border: 1px solid var(--line-2);
+  background: var(--card);
   cursor: pointer;
 }
 .card:hover {
-  border-color: var(--c);
+  border-color: #6b7480;
 }
 .idx {
   display: grid;
-  place-items: center;
-  background: var(--c);
-  color: #05080d;
-  font-size: 15px;
-  font-weight: 900;
+  align-content: start;
+  justify-items: center;
+  padding-top: 10px;
+  border-right: 1px solid var(--line);
+  color: var(--sub);
+  font-size: 14px;
+  font-weight: 500;
 }
 .body {
   min-width: 0;
@@ -1030,32 +1034,48 @@ const summary = computed(() => {
   font-size: 12px;
 }
 .card .cat {
-  color: var(--c);
-  font-weight: 800;
+  color: var(--sub);
+  font-weight: 500;
 }
 .card .time {
   margin-left: auto;
-  color: #7f8fa8;
+  color: var(--mute);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .card h3 {
   margin: 4px 0 6px;
   overflow: hidden;
   font-size: 17px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1.3;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-/* 지난 장면은 한 줄. 흐리지 않는다 — 색만 한 단계 낮춘다. */
+/* 지난 장면은 표의 한 줄: 판 없이 아래 가는 선만. 갈래는 번호 앞 네모. */
 .card.old {
-  grid-template-columns: 40px 1fr;
-  background: #0d131e;
+  grid-template-columns: 44px 1fr;
+  border-color: transparent;
+  border-bottom-color: var(--line);
+  background: transparent;
+}
+.card.old:hover {
+  background: rgba(255, 255, 255, 0.03);
 }
 .card.old .idx {
-  background: color-mix(in srgb, var(--c) 30%, #0d131e);
-  color: #f2f6ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding-top: 0;
+  border-right: 0;
+  color: var(--mute);
   font-size: 13px;
+}
+.card.old .idx::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  background: var(--c);
 }
 .card.old .body {
   display: flex;
@@ -1072,18 +1092,17 @@ const summary = computed(() => {
 }
 .card.old h3 {
   margin: 0;
-  color: #c3cfe2;
+  color: #c9ced6;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 400;
 }
 /* 아직 다시 하지 않은 장면(카드를 눌러 앞 장면으로 돌아갔을 때 그 뒤). 남기되 지금 모델에는 없다는 것만 보인다. */
 .card.ahead {
   opacity: 0.55;
 }
-/* 반복 중인 장면. 테두리를 그 갈래 색으로 두고, 번호 칸에 반복 표시를 단다. */
+/* 반복 중인 장면. 테두리를 밝게 두고, 번호 칸에 반복 표시를 단다. */
 .card.looping {
-  border-color: var(--c);
-  box-shadow: 0 0 0 1px var(--c);
+  border-color: var(--ink);
 }
 .card.looping .idx::after {
   content: '⟲';
@@ -1104,8 +1123,8 @@ const summary = computed(() => {
 }
 .ttl-head {
   margin-bottom: 4px;
-  font: 700 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-  color: #8a9ab3;
+  font: 500 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--sub);
 }
 .ttl-head .add,
 .totals .add,
@@ -1118,7 +1137,7 @@ const summary = computed(() => {
   color: var(--pink);
 }
 .ttl-head .chg {
-  color: #ffd166;
+  color: var(--chg);
 }
 .line {
   overflow: hidden;
@@ -1128,14 +1147,14 @@ const summary = computed(() => {
   animation: type-in 380ms both cubic-bezier(0.2, 0.9, 0.25, 1);
 }
 .line.subject {
-  color: #9fb0c8;
+  color: var(--sub);
 }
 .line.del {
   text-decoration: line-through;
 }
 .line.none,
 .line.more {
-  color: #8a9ab3;
+  color: var(--mute);
 }
 
 /* --- 끝 --- */
@@ -1145,7 +1164,7 @@ const summary = computed(() => {
   left: 18px;
   bottom: 104px;
   width: min(420px, 45%);
-  border: 2px solid #fff;
+  border: 1px solid var(--line-2);
   background: var(--panel);
   pointer-events: auto;
   animation: slam 500ms cubic-bezier(0.2, 0.9, 0.25, 1.2) both;
@@ -1153,12 +1172,14 @@ const summary = computed(() => {
 .done-head {
   display: flex;
   justify-content: space-between;
-  padding: 7px 14px;
-  background: #fff;
-  color: #05080d;
-  font-size: 14px;
-  font-weight: 900;
-  font-style: italic;
+  padding: 9px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--sub);
+  font-size: 13px;
+}
+.done-head b {
+  color: var(--ink);
+  font-weight: 500;
 }
 .hud-done h2 {
   margin: 12px 16px 8px;
@@ -1191,8 +1212,8 @@ const summary = computed(() => {
   font-size: 13px;
 }
 .diff-legend b {
-  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 0.15em;
+  font-size: 12px;
+  font-weight: 600;
 }
 .diff-legend .sw {
   display: inline-block;
@@ -1212,13 +1233,13 @@ const summary = computed(() => {
 }
 /* 카드의 질의 영향 줄. 관계 그림 바로 아래, 줄 글보다 앞. */
 .line.query {
-  color: #ffd9a8;
+  color: #d7c4a3;
   white-space: normal;
 }
 /* 끝 요약판의 변경 지도·리포트 버튼. */
 .hud-done .report.on {
-  border-color: #ffb020;
-  color: #ffb020;
+  border-color: var(--ink);
+  background: rgba(255, 255, 255, 0.08);
 }
 .hud-done .report + .report {
   margin-left: 0;
@@ -1226,32 +1247,28 @@ const summary = computed(() => {
 .hud-done .report {
   margin: 10px 8px 14px 16px;
   padding: 5px 12px;
-  border: 1px solid #344560;
+  border: 1px solid var(--line-2);
   background: transparent;
-  color: #e6ecf5;
+  color: var(--ink);
   font-family: inherit;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 .hud-done .report:hover {
-  border-color: #fff;
+  border-color: #8b939e;
 }
 /* 요약 재생은 갈래 줄 바로 아래 한 줄을 다 쓴다(다시 보기 방법이라 갈래 거르기 곁에). */
 .hud-done .report.highlight {
   display: block;
   margin: 10px 16px 0;
-  border-color: rgba(255, 209, 102, 0.55);
-  color: #ffd166;
-}
-.hud-done .report.highlight.on {
-  background: rgba(255, 209, 102, 0.12);
 }
 .hud-done .report.highlight + .report {
   margin-left: 16px;
 }
+/* 요약 재생에 든 장면의 눈금은 조금 더 높다. */
 .track .tick.star {
-  box-shadow: 0 0 6px var(--mint, #5ef2c2);
+  height: calc(18px + 18px * var(--w, 0));
 }
 /* 눈금 미리보기 판. 눈금 위에 뜬다. */
 .tick-tip {
@@ -1264,9 +1281,9 @@ const summary = computed(() => {
   min-width: 180px;
   max-width: 340px;
   padding: 8px 10px;
-  border-top: 2px solid var(--c);
-  background: rgba(5, 6, 8, 0.9);
-  color: #fff;
+  border: 1px solid var(--line-2);
+  background: rgba(8, 10, 13, 0.94);
+  color: var(--ink);
   font-size: 12px;
   pointer-events: none;
   white-space: nowrap;
@@ -1277,23 +1294,22 @@ const summary = computed(() => {
   font-size: 13px;
 }
 .tick-tip .tt-cat {
-  color: var(--c);
-  font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--sub);
+  font-size: 11px;
 }
 .tick-tip .tt-n {
   color: #b9bec6;
   font: 400 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
-/* 단축키 안내 판. 가운데. */
+/* 단축키 안내 판. GeoJSON 패널 바로 왼쪽. */
 .hud-help {
   position: absolute;
   top: 86px;
   right: calc(var(--feed) + 12px);
   width: 330px;
   padding: 14px 16px;
-  border: 1px solid #344560;
-  border-right: 2px solid var(--mint);
-  background: rgba(5, 6, 8, 0.9);
+  border: 1px solid var(--line-2);
+  background: rgba(8, 10, 13, 0.94);
   color: #e6ecf5;
   font-size: 12px;
   cursor: pointer;
@@ -1307,9 +1323,9 @@ const summary = computed(() => {
   display: flex;
   justify-content: space-between;
   margin: 0 0 10px;
-  font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-  letter-spacing: 0.2em;
-  color: var(--mint);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
 }
 .hud-help h4 i {
   font-style: normal;
@@ -1365,9 +1381,8 @@ const summary = computed(() => {
   gap: 8px;
   min-width: 320px;
   padding: 16px 20px;
-  border: 1px solid #344560;
-  border-top: 3px solid #ff6b7a;
-  background: rgba(5, 6, 8, 0.94);
+  border: 1px solid var(--line-2);
+  background: rgba(8, 10, 13, 0.96);
   color: #e6ecf5;
   font-size: 13px;
   pointer-events: auto;
@@ -1395,8 +1410,9 @@ const summary = computed(() => {
   cursor: pointer;
 }
 .ask-buttons .ask-yes {
-  border-color: #ff6b7a;
-  color: #ff9aa5;
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #0c0f13;
 }
 .ask-buttons kbd {
   margin-left: 4px;
@@ -1491,7 +1507,7 @@ button.sum-row.on span {
 .track .fill {
   position: absolute;
   inset: 0 auto 0 0;
-  background: var(--mint);
+  background: #8b939e;
   transition: width 500ms cubic-bezier(0.2, 0.9, 0.25, 1);
 }
 /* 6px 줄은 잡기 어렵다 — 위아래로 잡는 자리를 넓힌다. */
@@ -1533,7 +1549,6 @@ button.sum-row.on span {
 .track .tick.looping {
   opacity: 1;
   transform: scaleY(1.6);
-  box-shadow: 0 0 6px currentColor;
 }
 .buttons {
   display: flex;
@@ -1569,9 +1584,9 @@ button.sum-row.on span {
   margin-left: 6px;
 }
 .speeds button[aria-pressed='true'] {
-  border-color: var(--mint);
-  background: var(--mint);
-  color: #05080d;
+  border-color: var(--ink);
+  background: var(--ink);
+  color: #0c0f13;
 }
 .status {
   margin-left: auto;
@@ -1679,16 +1694,16 @@ button.sum-row.on span {
 }
 .replay-hud .scene-kicker {
   justify-content: center;
+  align-items: center;
   height: auto;
   margin-bottom: 10px;
   font-weight: 400;
-  letter-spacing: 0.4em;
 }
 .replay-hud .scene-kicker b,
 .replay-hud .scene-kicker span {
   padding: 0 8px;
   background: transparent;
-  color: var(--c);
+  color: #d7dbe0;
   font-size: 14px;
   font-weight: 700;
   clip-path: none;
@@ -1720,9 +1735,6 @@ button.sum-row.on span {
   bottom: 1.2%;
   border-color: #24262b;
 }
-.replay-hud .rp-stats .stat {
-  border-top: 1px solid #fff;
-}
 .replay-hud .stat-n {
   font-weight: 200;
 }
@@ -1737,18 +1749,8 @@ button.sum-row.on span {
 }
 /* 끝 요약: 흰 판이 내리꽂히지 않고, 가는 선 위에 가는 글씨로 떠오른다. 갈래 색은 막대에만 둔다. */
 .replay-hud .hud-done {
-  border: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.7);
-  background: rgba(5, 6, 8, 0.82);
+  background: rgba(8, 10, 13, 0.88);
   animation: rise-soft 900ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
-}
-.replay-hud .done-head {
-  background: transparent;
-  color: #9aa0a8;
-  font-size: 12px;
-  font-style: normal;
-  font-weight: 400;
-  letter-spacing: 0.3em;
 }
 .replay-hud .hud-done h2 {
   font-size: 26px;
@@ -1857,9 +1859,8 @@ button.sum-row.on span {
   }
 }
 
-/* 반복 중인 카드. 카드 판의 테두리 규칙보다 뒤에 두어 갈래 색 테두리가 이긴다. */
+/* 반복 중인 카드. 지난 장면 행(.card.old)의 테두리 규칙보다 뒤에 두어 밝은 테두리가 이긴다. */
 .replay-hud .card.looping {
-  border-color: var(--c);
-  box-shadow: 0 0 0 2px var(--c);
+  border-color: var(--ink);
 }
 </style>

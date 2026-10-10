@@ -85,33 +85,33 @@ const height = computed(() => blocks.value.reduce((h, b) => Math.max(h, b.cy + (
 }
 /* 끊긴 관계: 그어진 채로 있다가 빨간 점선이 되며 흐려진다. */
 .gone .edge {
-  stroke: #ff6b9a;
+  stroke: #f07178;
   stroke-dasharray: 0.04 0.03;
   animation: gone 700ms ease-out calc(var(--d) + 200ms) both;
 }
 .gone .node {
-  stroke: #ff6b9a;
+  stroke: #f07178;
   animation: gone 700ms ease-out calc(var(--d) + 200ms) both;
 }
 .gone .t {
-  fill: #ff8fb0;
+  fill: #f4a3a8;
   text-decoration: line-through;
   animation: gone 700ms ease-out calc(var(--d) + 200ms) both;
 }
 /* 새 관계: 선이 주어에서 대상으로 그어지고, 그 끝에 대상이 나타난다. */
 .came .edge {
-  stroke: #5ef2c2;
+  stroke: #7bd88f;
   stroke-dasharray: 1;
   animation: draw 650ms cubic-bezier(0.4, 0, 0.2, 1) calc(var(--d) + 550ms) both;
 }
 .came .node {
-  stroke: #5ef2c2;
+  stroke: #7bd88f;
   animation: pop 380ms cubic-bezier(0.2, 1.4, 0.35, 1) calc(var(--d) + 1100ms) both;
   transform-box: fill-box;
   transform-origin: left center;
 }
 .came .t {
-  fill: #c9fff0;
+  fill: #d6f5dc;
   animation: pop 380ms cubic-bezier(0.2, 1.4, 0.35, 1) calc(var(--d) + 1100ms) both;
   transform-box: fill-box;
   transform-origin: left center;

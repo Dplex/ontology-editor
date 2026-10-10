@@ -745,19 +745,21 @@ export function createReplayFx(host: ReplayHost) {
     c.width = w
     c.height = 64
     g = c.getContext('2d')!
-    g.fillStyle = hot ? 'rgba(40, 24, 8, 0.78)' : 'rgba(5, 6, 8, 0.6)'
+    g.fillStyle = hot ? 'rgba(8, 10, 13, 0.86)' : 'rgba(8, 10, 13, 0.62)'
     g.fillRect(0, 0, w, 64)
+    // 바뀐 방은 사방 가는 테두리로만 짚는다(한쪽 색 띠 없이).
+    if (hot) {
+      g.strokeStyle = 'rgba(232, 235, 239, 0.75)'
+      g.lineWidth = 2
+      g.strokeRect(1, 1, w - 2, 62)
+    }
     g.textBaseline = 'middle'
     g.font = tf
-    g.fillStyle = hot ? '#ffd9a8' : '#f2f2f2'
+    g.fillStyle = hot ? '#ffffff' : '#e8ebef'
     g.fillText(title, 12, 22)
     g.font = sf
-    g.fillStyle = '#b9bec6'
+    g.fillStyle = '#9aa3ae'
     g.fillText(sub, 12, 47)
-    if (hot) {
-      g.fillStyle = '#ffb46b'
-      g.fillRect(0, 62, w, 2)
-    }
     const map = new CanvasTexture(c)
     map.colorSpace = SRGBColorSpace
     const sprite = new Sprite(new SpriteMaterial({ map, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false }))
@@ -933,8 +935,8 @@ export function createReplayFx(host: ReplayHost) {
     new MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false, depthTest: false, blending: AdditiveBlending, side: DoubleSide, alphaMap: faded ? glow() : null })
 
   /**
-   * 이름표. 화면에서 늘 같은 크기다(sizeAttenuation 끔). 영화 자막처럼 반투명 검은 판에 가는 흰 글씨, 밑변에만 갈래 색 가는
-   * 줄을 둔다. 앞의 장면 번호("#03 …")는 회색 고정폭 글씨로 한 단계 낮춘다.
+   * 이름표. 화면에서 늘 같은 크기다(sizeAttenuation 끔). 반투명 검은 판에 흰 글씨, 갈래는 맨 앞의 작은 네모(CAD 레이어
+   * 색처럼). 앞의 장면 번호("#03 …")는 회색 고정폭 글씨로 한 단계 낮춘다.
    */
   function labelSprite(text: string, color: number): Sprite {
     const m = /^#(\d+)\s+(.*)$/.exec(text)
@@ -944,29 +946,29 @@ export function createReplayFx(host: ReplayHost) {
     const pad = 14
     const c = document.createElement('canvas')
     let g = c.getContext('2d')!
+    const sw = 22
     g.font = numFont
     const nw = num ? g.measureText(num).width + 12 : 0
     g.font = font
     const tw = g.measureText(name).width
-    const w = Math.ceil(pad * 2 + nw + tw)
+    const w = Math.ceil(pad * 2 + sw + nw + tw)
     c.width = w
     c.height = 60
     g = c.getContext('2d')!
     g.textBaseline = 'middle'
     // 빛기둥 위에서도 읽히게 반투명 검은 판을 깐다(자막 판). 색 막대·테두리는 두지 않는다.
-    g.fillStyle = 'rgba(5, 6, 8, 0.62)'
+    g.fillStyle = 'rgba(8, 10, 13, 0.7)'
     g.fillRect(0, 0, w, 60)
+    g.fillStyle = `#${color.toString(16).padStart(6, '0')}`
+    g.fillRect(pad, 24, 11, 11)
     if (num) {
       g.font = numFont
-      g.fillStyle = '#c4c9d0'
-      g.fillText(num, pad, 29)
+      g.fillStyle = '#9aa3ae'
+      g.fillText(num, pad + sw, 29)
     }
     g.font = font
     g.fillStyle = '#fff'
-    g.fillText(name, pad + nw, 29)
-    g.globalAlpha = 0.9
-    g.fillStyle = `#${color.toString(16).padStart(6, '0')}`
-    g.fillRect(0, 58, w, 2)
+    g.fillText(name, pad + sw + nw, 29)
     const map = new CanvasTexture(c)
     map.colorSpace = SRGBColorSpace
     const sprite = new Sprite(new SpriteMaterial({ map, transparent: true, depthTest: false, depthWrite: false, sizeAttenuation: false }))
@@ -1367,7 +1369,7 @@ export function createReplayFx(host: ReplayHost) {
     const delta = after - before
     const sign = delta > 0 ? `+${delta}` : `−${-delta}`
     const parts: [string, string][] = settled
-      ? [['설비 ', '#c4c9d0'], [`${before}`, '#8b939c'], [' → ', '#8b939c'], [`${after}`, '#ffffff'], [`  ${sign}`, delta > 0 ? '#5ef2c2' : '#ff6b7a']]
+      ? [['설비 ', '#c4c9d0'], [`${before}`, '#8b939c'], [' → ', '#8b939c'], [`${after}`, '#ffffff'], [`  ${sign}`, delta > 0 ? '#7bd88f' : '#f07178']]
       : [['설비 ', '#c4c9d0'], [`${before}`, '#ffffff']]
     g.font = tf
     const tw = g.measureText(title).width
@@ -1378,10 +1380,11 @@ export function createReplayFx(host: ReplayHost) {
     c.width = w
     c.height = h
     g = c.getContext('2d')!
-    g.fillStyle = 'rgba(6, 8, 12, 0.84)'
+    g.fillStyle = 'rgba(8, 10, 13, 0.88)'
     g.fillRect(0, 0, w, h)
-    g.fillStyle = delta > 0 ? '#5ef2c2' : '#ff6b7a'
-    g.fillRect(0, 0, 4, h)
+    g.strokeStyle = 'rgba(232, 235, 239, 0.55)'
+    g.lineWidth = 2
+    g.strokeRect(1, 1, w - 2, h - 2)
     g.textBaseline = 'middle'
     g.font = tf
     g.fillStyle = '#f4f6f8'

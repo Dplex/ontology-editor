@@ -306,9 +306,8 @@ const others = computed(() => {
   height: 100%;
   min-height: 0;
   padding: 10px 12px;
-  border: 1px solid #223047;
-  border-top: 3px solid var(--c);
-  background: #111826;
+  border: 1px solid #3a424d;
+  background: #11151b;
   animation: geo-in 450ms cubic-bezier(0.2, 0.9, 0.25, 1.1) both;
 }
 header {
@@ -318,11 +317,20 @@ header {
   font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .geo-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 3px 7px;
+  border: 1px solid #3a424d;
+  color: #c9ced6;
+  font-weight: 500;
+}
+/* 갈래 표시: 작은 네모 하나(기록판·장면 제목과 같다). */
+.geo-tag::before {
+  content: '';
+  width: 7px;
+  height: 7px;
   background: var(--c);
-  color: #071018;
-  font-weight: 800;
-  letter-spacing: 0.06em;
 }
 .file {
   overflow: hidden;
@@ -338,13 +346,13 @@ header {
   font-style: normal;
 }
 .chg {
-  color: #ffd166;
+  color: #e5c07b;
 }
 .add {
-  color: #5ef2c2;
+  color: #7bd88f;
 }
 .del {
-  color: #ff6b9a;
+  color: #f07178;
 }
 .map {
   flex: none;
@@ -452,17 +460,17 @@ header {
 /* 다시 하기 전에는 곧 바뀔 줄을 살짝 짚는다. */
 .jl.chg,
 .jl.del {
-  background: rgba(255, 209, 102, 0.08);
+  background: rgba(229, 192, 123, 0.08);
 }
 .replay-geo:not(.applied) .jl.add {
   display: none;
 }
 .jl.was {
-  background: rgba(255, 107, 154, 0.1);
-  box-shadow: inset 3px 0 0 #ff6b9a;
+  background: rgba(240, 113, 120, 0.1);
+  box-shadow: none;
 }
 .jl.was .gut {
-  color: #ff6b9a;
+  color: #f07178;
 }
 .jl.was .txt {
   opacity: 0.8;
@@ -471,44 +479,44 @@ header {
   color: #ff8fb0;
   font-weight: 700;
   text-decoration: line-through;
-  text-decoration-color: rgba(255, 107, 154, 0.8);
+  text-decoration-color: rgba(240, 113, 120, 0.8);
 }
 .jl.delta .gut {
-  color: #ffd166;
+  color: #e5c07b;
 }
 .dv {
   margin-right: 10px;
   padding: 0 6px;
-  background: rgba(255, 209, 102, 0.14);
-  color: #ffd166;
+  background: rgba(229, 192, 123, 0.14);
+  color: #e5c07b;
   font-weight: 700;
 }
 .applied .jl.chg {
-  background: rgba(255, 209, 102, 0.16);
-  box-shadow: inset 3px 0 0 #ffd166;
+  background: rgba(229, 192, 123, 0.16);
+  box-shadow: none;
   animation: row-flash 1.2s ease-out both;
 }
 .applied .jl.chg .gut {
-  color: #ffd166;
+  color: #e5c07b;
 }
 .applied .jl.del {
-  background: rgba(255, 107, 154, 0.12);
-  box-shadow: inset 3px 0 0 #ff6b9a;
+  background: rgba(240, 113, 120, 0.12);
+  box-shadow: none;
 }
 .applied .jl.del .txt {
   text-decoration: line-through;
-  text-decoration-color: rgba(255, 107, 154, 0.7);
+  text-decoration-color: rgba(240, 113, 120, 0.7);
   opacity: 0.75;
 }
 .applied .jl.del .gut {
-  color: #ff6b9a;
+  color: #f07178;
 }
 .applied .jl.add {
-  background: rgba(94, 242, 194, 0.12);
-  box-shadow: inset 3px 0 0 #5ef2c2;
+  background: rgba(123, 216, 143, 0.12);
+  box-shadow: none;
 }
 .applied .jl.add .gut {
-  color: #5ef2c2;
+  color: #7bd88f;
 }
 .k {
   color: #8ab4ff;
@@ -517,7 +525,7 @@ header {
   color: #f6c48f;
 }
 .n {
-  color: #5ef2c2;
+  color: #7bd88f;
 }
 .b {
   color: #ef8fd0;
@@ -528,7 +536,7 @@ header {
 .n.hot {
   color: #fff;
   font-weight: 700;
-  text-shadow: 0 0 8px #ffd166;
+  text-shadow: 0 0 8px #e5c07b;
 }
 .others {
   margin-top: 6px;
@@ -583,15 +591,15 @@ header {
   }
 }
 
-/* --- 새 줄이 나오기: 연두 망점 빛 띠가 훑고, 그 뒤로 한 자씩 쳐진다 --- */
+/* --- 새 줄이 나오기: 옅은 망점 띠가 훑고, 그 뒤로 한 자씩 쳐진다 --- */
 .applied .jl.fx {
   position: relative;
   animation: none;
 }
 .applied .jl.fx .txt {
-  /* 커서: 2px 연두 막대를 배경으로 깔고, 드러나는 끝을 따라 옮긴다(드러내기와 같은 계단). 다 쳐지면 잠깐 뒤 사라진다. 줄 너비를
+  /* 커서: 2px 회색 막대를 배경으로 깔고, 드러나는 끝을 따라 옮긴다(드러내기와 같은 계단). 다 쳐지면 잠깐 뒤 사라진다. 줄 너비를
      글자 수만큼 계단으로 열어서 글꼴의 글자 폭(ch)에 기대지 않는다. 한 자 14ms, 긴 줄(외곽선 좌표)도 0.84초 안에 다 쳐진다(ReplayGeo 스크립트의 CHAR_MS·CHAR_CAP 과 같은 값). */
-  background: linear-gradient(#d4ff3a, #d4ff3a) 0 0 / 2px 100% no-repeat;
+  background: linear-gradient(#c9ced6, #c9ced6) 0 0 / 2px 100% no-repeat;
   animation:
     type-reveal calc(min(var(--n), 60) * 14ms) steps(var(--n), end) calc(var(--d) + 160ms) both,
     caret-off 200ms linear calc(var(--d) + 160ms + min(var(--n), 60) * 14ms + 350ms) both;
@@ -601,11 +609,10 @@ header {
   position: absolute;
   inset: -1px 0;
   pointer-events: none;
-  background: radial-gradient(circle, rgba(212, 255, 58, 0.95) 0.9px, transparent 1.6px) 0 0 / 4px 4px;
+  background: radial-gradient(circle, rgba(232, 235, 239, 0.35) 0.9px, transparent 1.6px) 0 0 / 4px 4px;
   mask-image: linear-gradient(90deg, transparent 0%, #000 35%, #000 65%, transparent 100%);
   mask-size: 45% 100%;
   mask-repeat: no-repeat;
-  filter: drop-shadow(0 0 3px rgba(212, 255, 58, 0.8));
   animation: halftone 900ms cubic-bezier(0.4, 0, 0.2, 1) var(--d) both;
 }
 @keyframes type-reveal {
@@ -644,7 +651,7 @@ header {
 }
 @keyframes row-flash {
   from {
-    background: rgba(255, 209, 102, 0.45);
+    background: rgba(229, 192, 123, 0.45);
   }
 }
 @media (prefers-reduced-motion: reduce) {

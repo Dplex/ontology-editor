@@ -78,7 +78,7 @@ test('P 로 3D 위에서 되감고 하나씩 다시 하며, 앞뒤로 넘기고,
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/3d-${i}.png` })
   }
   await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 15_000 })
-  await expect(hud.locator('.hud-done')).toContainText('사람이 고친 곳')
+  await expect(hud.locator('.hud-done')).toContainText('수정내역')
   if (SHOTS) {
     await page.waitForTimeout(900)
     await page.screenshot({ path: `${SHOTS}/3d-end.png` })
@@ -159,7 +159,7 @@ test('벽·문·창 장면은 그 자리로 카메라를 보내고 외곽선 층
   // 첫 카드(벽 긋기)를 누르면 그 편집 앞까지 되돌리고 그 장면만 되풀이한다(되돌림 → 다시 함 → 되돌림 …). 그 뒤 장면의 카드는
   // 남고(지금 모델에는 없으니 흐리게), 반복 중인 카드가 펼쳐진다.
   const cards = await hud.locator('.card').count()
-  await hud.locator('.card', { hasText: '#01' }).click()
+  await hud.locator('.card:has(.idx:text-is("01"))').click()
   await expect(hud).toHaveAttribute('data-loop', '0')
   await expect(hud).toHaveAttribute('data-at', '0')
   await expect(hud.locator('.hud-bar .status')).toContainText('반복 중')
@@ -190,7 +190,7 @@ test('벽·문·창 장면은 그 자리로 카메라를 보내고 외곽선 층
   await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 40_000 })
   await expect(hud).toHaveAttribute('data-at', String(total))
   // 반복 중에 닫아도 남은 편집을 다시 해서 문이 옮긴 자리에 있다.
-  await hud.locator('.card', { hasText: '#02' }).click()
+  await hud.locator('.card:has(.idx:text-is("02"))').click()
   await expect(hud).toHaveAttribute('data-loop', '1')
   await page.keyboard.press('Escape')
   await page.keyboard.press('Enter')
