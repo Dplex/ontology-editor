@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import { fuzzEdits } from './edit-fuzz'
 import { buildReplay, type ReplayMessage, type ReplayStart, type ReplayStep } from './replay'
-import { readableTtl, replayReport } from './replay-report'
+import { pickHighlights, readableTtl, replayReport } from './replay-report'
 import type { Snapshot } from './edit'
 import type { Model } from './model'
 
@@ -48,5 +48,21 @@ describe('리플레이 변경 리포트', () => {
   it('TTL 줄의 ex:<이름 모름> 은 이스케이프만 풀고, 아는 것은 이름으로 바꾼다', () => {
     const names = new Map([['abc', '사무실']])
     expect(readableTtl('ex:abc brick:hasPart ex:x\\$y', names)).toBe('사무실 brick:hasPart ex:x$y')
+  })
+})
+
+describe('요약 재생 장면 고르기', () => {
+  it('6장면 이하는 고르지 않고, 긴 세션은 4~6장면을 차례대로 고르며 갈래가 고루 든다', () => {
+    const { steps } = replayOf(7)
+    expect(pickHighlights(steps.slice(0, 6))).toEqual([])
+    const picked = pickHighlights(steps)
+    expect(picked.length).toBeGreaterThanOrEqual(4)
+    expect(picked.length).toBeLessThanOrEqual(6)
+    expect([...picked].sort((a, b) => a - b)).toEqual(picked)
+    const cats = new Set(steps.map((s) => s.category))
+    const pickedCats = new Set(picked.map((i) => steps[i].category))
+    expect(pickedCats.size).toBe(Math.min(cats.size, picked.length))
+    // 카드 계산이 다 오기 전(steps 가 total 보다 적다)에는 고르지 않는다.
+    expect(pickHighlights(steps.slice(0, 10), 20)).toEqual([])
   })
 })

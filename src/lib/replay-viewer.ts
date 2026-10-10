@@ -22,6 +22,7 @@ import {
   Group,
   HemisphereLight,
   LineBasicMaterial,
+  LineDashedMaterial,
   LineLoop,
   LineSegments,
   Mesh,
@@ -127,6 +128,23 @@ export type ReplayViewerApi = {
   slideElements(items: readonly { id: string; from: Vec3; to: Vec3 }[]): void
   /** IFC 좌표의 점들(벽 외곽선·문·창 자리)이 화면에 들어오게 한다. margin(미터)만큼 둘레를 더 보인다. */
   framePoints(points: readonly Vec3[], margin?: number): void
+  /**
+   * 층 펼치기. 이 층들 위의 층을 건물 폭의 절반쯤 더 띄워 이 층들을 위에서 들여다보이게 한다(여러 층이 보일 때만). null 이면
+   * 접는다. 빛기둥·이름표도 따라 오른다. 고치지 않은 층은 어둡게 누른다. 펼쳤으면 카메라를 고친 층들에 맞추고 true.
+   */
+  setSpread(storeyIds: readonly string[] | null): boolean
+  /**
+   * 도착 유령. 옮기는 장면에서 카메라가 가는 동안 도착할 자리에 반투명 상자를 먼저 띄운다(4D 시뮬레이션의 "시작 전" 모양) —
+   * 무엇이 어디로 갈지 출발 전에 읽힌다. 설비는 id 와 옮길 만큼(delta, IFC dx·dy), 문·창은 도착 자리(at), 벽은 도착 외곽선.
+   * 미끄러져 도착하면 한 번 밝아지고 사라진다. 부를 때마다 앞의 유령은 걷는다(빈 목록이면 걷기만).
+   */
+  ghosts(items: readonly { key: string; id?: string; delta?: Vec2; at?: Vec3; from?: Vec3; ring?: readonly Vec2[]; elevation?: number }[], color: number): void
+  /**
+   * 소속 카드. 설비가 방을 옮기거나 더해지고 지워져 방 안의 설비 수가 바뀌면, 그 방 위에 "설비 3 → 4" 카드를 띄운다(스마트홈
+   * 지도 앱이 방마다 기기 수·상태를 띄우듯). 설비가 도착할 즈음(미끄러짐 시간 뒤) 떠서 옛 수에서 새 수로 바뀌고, 몇 초 뒤 사라진다.
+   * at 은 IFC 좌표(층 바닥 높이). 부를 때마다 앞의 카드는 걷는다.
+   */
+  roomCards(cards: readonly { key: string; at: Vec3; title: string; before: number; after: number }[]): void
 }
 
 /**
@@ -226,7 +244,10 @@ export function createReplayFx(host: ReplayHost) {
       mesh.position.copy(base).addScaledVector(s.delta, 1 - glideEase(k))
       const m = mesh.material as MeshLambertMaterial
       m.emissiveIntensity = k >= 1 ? 0 : 0.5 * Math.sin(Math.PI * k)
-      if (k >= 1) sliding.delete(id)
+      if (k >= 1) {
+        sliding.delete(id)
+        ghostArrive(id)
+      }
     }
     host.invalidate()
   }
@@ -302,8 +323,10 @@ export function createReplayFx(host: ReplayHost) {
   const buildUniforms = {
     uBuild: { value: 0 },
     uBuildT: { value: 1 },
-    /** 밤 다이오라마의 층 띄우기(m). 층 높이(uLevels, 오름차순) 구간마다 이만큼씩 위로 민다. */
-    uExplode: { value: 0 },
+    /** 층 띄우기(m). 층 높이(uLevels, 오름차순)의 i 번째 구간을 uLift[i] 만큼 위로 민다(밤 다이오라마·층 펼치기). */
+    uLift: { value: new Array<number>(MAX_LEVELS).fill(0) },
+    /** 층마다 어둡게(0~1). 층 펼치기에서 고치지 않은 층을 어둡게 눌러 고친 층이 도드라지게 한다. */
+    uDim: { value: new Array<number>(MAX_LEVELS).fill(0) },
     uLevels: { value: new Array<number>(MAX_LEVELS).fill(1e9) },
     uLevelCount: { value: 0 },
   }
@@ -322,14 +345,23 @@ export function createReplayFx(host: ReplayHost) {
     transformed.y -= (1.0 - l * l * (3.0 - 2.0 * l)) * aRise.z;
     vRise = p;
   }`
-  /** 층 띄우기. 편집 전 높이(xBase)로 어느 층인지 가른다 — 솟아오르는 동안 낮춰진 높이로 가르면 층이 뒤바뀐다. */
+  /**
+   * 층 띄우기. 꼭짓점이 아니라 그것이 든 요소의 바닥 높이(aBase — 설비는 부분마다, 층마다 합친 벽·방 판은 그 묶음의 바닥)로
+   * 어느 층인지 가른다. 꼭짓점 높이로 가르면 층 높이만 한 벽의 윗변이 위층으로 잡혀 위층과 같이 들려서, 크게 펼치면 벽이 기둥처럼
+   * 늘어났다.
+   */
   const EXPLODE_VERT = `
-  if (uExplode > 0.001) {
-    float baseY = (modelMatrix * vec4(xBase, 1.0)).y;
+  vDim = 0.0;
+  if (uLevelCount > 1) {
+    float baseY = (modelMatrix * vec4(xBase.x, aBase, xBase.z, 1.0)).y;
     float off = 0.0;
+    vDim = uDim[0];
     for (int i = 1; i < ${MAX_LEVELS}; i++) {
       if (i >= uLevelCount) break;
-      if (baseY >= uLevels[i] - 0.3) off += uExplode;
+      if (baseY >= uLevels[i] - 0.3) {
+        off = uLift[i];
+        vDim = uDim[i];
+      }
     }
     vec4 bw = modelMatrix * vec4(transformed, 1.0);
     bw.y += off;
@@ -337,6 +369,7 @@ export function createReplayFx(host: ReplayHost) {
     gl_Position = projectionMatrix * mvPosition;
   }`
   const BUILD_FRAG = `
+  if (vDim > 0.001) gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(0.025, 0.03, 0.04), vDim);
   if (uBuild > 0.5) {
     float lum = dot(gl_FragColor.rgb, vec3(0.299, 0.587, 0.114));
     vec3 paper = vec3(0.2 + lum * 0.7);
@@ -355,12 +388,12 @@ export function createReplayFx(host: ReplayHost) {
       before.call(material, shader, r)
       Object.assign(shader.uniforms, buildUniforms)
       shader.vertexShader =
-        `uniform float uBuild;\nuniform float uBuildT;\nuniform float uExplode;\nuniform float uLevels[${MAX_LEVELS}];\nuniform int uLevelCount;\nattribute vec4 aRise;\nvarying float vRise;\nvarying float vLift;\n` +
+        `uniform float uBuild;\nuniform float uBuildT;\nuniform float uLift[${MAX_LEVELS}];\nuniform float uDim[${MAX_LEVELS}];\nuniform float uLevels[${MAX_LEVELS}];\nuniform int uLevelCount;\nattribute vec4 aRise;\nattribute float aBase;\nvarying float vRise;\nvarying float vLift;\nvarying float vDim;\n` +
         shader.vertexShader
           .replace('#include <begin_vertex>', `#include <begin_vertex>${BUILD_VERT}`)
           .replace('#include <project_vertex>', `#include <project_vertex>${EXPLODE_VERT}`)
       shader.fragmentShader =
-        'uniform float uBuild;\nvarying float vRise;\nvarying float vLift;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>${BUILD_FRAG}`)
+        'uniform float uBuild;\nvarying float vRise;\nvarying float vLift;\nvarying float vDim;\n' + shader.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>${BUILD_FRAG}`)
     }
     material.needsUpdate = true
   }
@@ -427,9 +460,31 @@ export function createReplayFx(host: ReplayHost) {
   // --- 밤 다이오라마(setDiorama) ---
   // 일러스트로 그린 집 대시보드처럼: 바깥은 어둡고 방마다 따뜻한 불빛이 바닥에 고인다. 진짜 조명·그림자는 쓰지 않는다(성수에서
   // 값이 든다, ADR-0013) — 빛을 낮추고, 방마다 둥근 빛 웅덩이 판(가산 혼합)을 층마다 한 덩어리로 깐다. 여러 층이 보이면 층 사이를
-  // 띄운다(셰이더의 uExplode). 빛기둥·방 표시처럼 따로 그린 것은 userData.baseY 로 같은 만큼 옮긴다.
+  // 띄운다(셰이더의 uLift). 빛기둥·방 표시처럼 따로 그린 것은 userData.baseY 로 같은 만큼 옮긴다.
   let diorama = false
   let explodeGap = 0
+  // --- 층 펼치기(setSpread) ---
+  // BIM 뷰어의 층 분리(xeokit·Autodesk 뷰어의 vertical explode)처럼, 끝 화면에서 고친 층 위의 층들을 크게 들어 올려 고친 층을
+  // 위에서 들여다보이게 한다. 다이오라마의 층 띄우기(몇 m)로는 비스듬히 내려다볼 때 위층 바닥판이 아래층을 가렸다 — 고친 곳이
+  // 아래층(지하·1층)이면 빛기둥만 보이고 고친 것은 안 보였다. 고친 층마다 그 위를 건물 폭의 절반만큼 더 띄운다.
+  /** 고친 층(높이 순서 번호). 그 위의 층이 spreadGap 만큼 더 뜬다. null 이면 펼치지 않는다. */
+  let spreadLevels: Set<number> | null = null
+  /** 고친 층 전부(맨 위층 포함). 나머지 층은 SPREAD_DIM 만큼 어둡게 누른다. */
+  let spreadEdited: Set<number> | null = null
+  const SPREAD_DIM = 0.72
+  let spreadGap = 0
+  /** 층마다(높이 순서) 지금 가야 할 띄우기. */
+  function liftTargets(): number[] {
+    const out = new Array<number>(MAX_LEVELS).fill(0)
+    const shown = host.visibleStoreys()
+    if (shown && shown.size <= 1) return out
+    let extra = 0
+    for (let i = 1; i < buildUniforms.uLevelCount.value; i++) {
+      if (spreadLevels?.has(i - 1)) extra += spreadGap
+      out[i] = (diorama ? i * explodeGap : 0) + extra
+    }
+    return out
+  }
   const pools = new Group()
   host.scene.add(pools)
   const roomTags = new Group()
@@ -593,17 +648,43 @@ export function createReplayFx(host: ReplayHost) {
   function explodeAt(y: number): number {
     const u = buildUniforms
     let off = 0
-    for (let i = 1; i < u.uLevelCount.value; i++) if (y >= u.uLevels.value[i] - 0.3) off += u.uExplode.value
+    for (let i = 1; i < u.uLevelCount.value; i++) if (y >= u.uLevels.value[i] - 0.3) off = u.uLift.value[i]
     return off
   }
-  function stepDiorama(now: number) {
-    if (!diorama && buildUniforms.uExplode.value === 0) return
-    for (const g of [host.content(), host.arch, host.rooms, host.customZones, host.spaceObjects, pools]) {
-      g.traverse((o) => {
+  /**
+   * 층 띄우기가 층을 가르는 바닥 높이(aBase)를 아직 없는 형상에 단다. 설비 덩어리는 부분마다 그 부분의 바닥, 나머지는 형상
+   * 하나의 바닥(벽·방 판은 층마다 합쳐져 있어 그 층의 바닥이 된다). 형상을 새로 지을 때(편집 뒤 다시 그리기)만 센다.
+   */
+  function patchGroups(groups: Object3D[]) {
+    for (const chunk of host.chunks()) {
+      const g = chunk.solid.geometry as BufferGeometry
+      if (g.getAttribute('aBase')) continue
+      const pos = chunk.position.array as Float32Array
+      const base = new Float32Array(pos.length / 3)
+      for (const part of chunk.parts) {
+        let minY = Infinity
+        for (let v = part.vStart; v < part.vStart + part.vCount; v++) minY = Math.min(minY, pos[v * 3 + 1])
+        base.fill(minY, part.vStart, part.vStart + part.vCount)
+      }
+      const attr = new BufferAttribute(base, 1)
+      for (const m of [chunk.solid, chunk.faded]) m.geometry.setAttribute('aBase', attr)
+    }
+    for (const group of groups) {
+      group.traverse((o) => {
         const m = (o as Mesh).material as Material | Material[] | undefined
         for (const x of Array.isArray(m) ? m : m ? [m] : []) patchBuild(x)
+        const geometry = (o as Mesh).geometry as BufferGeometry | undefined
+        const position = geometry?.getAttribute('position')
+        if (!geometry || !position || geometry.getAttribute('aBase')) return
+        let minY = Infinity
+        for (let v = 0; v < position.count; v++) minY = Math.min(minY, position.getY(v))
+        geometry.setAttribute('aBase', new BufferAttribute(new Float32Array(position.count).fill(minY), 1))
       })
     }
+  }
+  function stepDiorama(now: number) {
+    if (!diorama && !spreadLevels && buildUniforms.uLift.value.every((v) => v === 0)) return
+    patchGroups([host.content(), host.arch, host.rooms, host.customZones, host.spaceObjects, pools])
     if (diorama && poolsOf !== host.spaceTargets()) buildPools()
     // 해 지기: 조명이 밤으로, 방 불은 아래층부터(층 순서 rank 만큼 늦게) 켜진다.
     const night = !diorama ? 0 : nightFrom === null ? 1 : Math.max(0, Math.min(1, (now - nightFrom) / NIGHT_MS))
@@ -627,13 +708,22 @@ export function createReplayFx(host: ReplayHost) {
         host.invalidate()
       }
     }
-    // 여러 층이 보일 때만 띄운다. 부드럽게 다가간다.
-    const shown = host.visibleStoreys()
-    const target = diorama && (!shown || shown.size > 1) ? explodeGap : 0
-    const u = buildUniforms.uExplode
-    const next = Math.abs(target - u.value) < 0.01 ? target : u.value + (target - u.value) * 0.12
-    if (next !== u.value) host.invalidate()
-    u.value = next
+    // 여러 층이 보일 때만 띄운다. 부드럽게 다가간다(층 펼치기는 건물 폭만큼 오르내리니 조금 더 빨리).
+    const targets = liftTargets()
+    const lift = buildUniforms.uLift.value
+    const dim = buildUniforms.uDim.value
+    const rate = spreadLevels ? 0.16 : 0.12
+    let moved = false
+    for (let i = 0; i < MAX_LEVELS; i++) {
+      const next = Math.abs(targets[i] - lift[i]) < 0.01 ? targets[i] : lift[i] + (targets[i] - lift[i]) * rate
+      if (next !== lift[i]) moved = true
+      lift[i] = next
+      const d = spreadEdited && !spreadEdited.has(i) ? SPREAD_DIM : 0
+      const nd = Math.abs(d - dim[i]) < 0.005 ? d : dim[i] + (d - dim[i]) * rate
+      if (nd !== dim[i]) moved = true
+      dim[i] = nd
+    }
+    if (moved) host.invalidate()
     for (const g of [host.overlay, roomTags]) {
       for (const o of g.children) {
         const baseY = o.userData.baseY as number | undefined
@@ -750,6 +840,16 @@ export function createReplayFx(host: ReplayHost) {
     const placed: Rect[] = [...document.querySelectorAll(AVOID)].map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.height)
     // sizeAttenuation 을 끈 스프라이트의 화면 크기: 크기 1 이 화면 높이의 P[1][1]/2 배(three.js sprite 셰이더).
     const px = (host.camera.projectionMatrix.elements[5] * view.height) / 2
+    // 소속 카드는 제 방 표시 위에 붙어 있어야 해서 움직이지 않는다 — 장면 이름표가 비켜 간다.
+    for (const g of cardGroups) {
+      const card = g.children[0] as Sprite
+      const at = card.material.opacity > 0 ? host.toScreen(card.getWorldPosition(tagAt)) : null
+      if (!at) continue
+      const w = card.scale.x * px
+      const h = card.scale.y * px
+      const bottom = at.y + card.center.y * h
+      placed.push({ left: at.x - w / 2, right: at.x + w / 2, top: bottom - h, bottom })
+    }
     let changed = false
     for (const tag of tags) {
       const at = host.toScreen(tag.getWorldPosition(tagAt))
@@ -1180,6 +1280,131 @@ export function createReplayFx(host: ReplayHost) {
   }
 
 
+  // --- 도착 유령(ghosts) ---
+  // 4D 도구(Navisworks TimeLiner·Synchro)는 지을 것을 시작 전에 옅은 반투명으로 보이고, 지어지면 제 모습이 된다. 리플레이의 옮기기도
+  // 같다: 카메라가 가는 동안 도착 자리에 점선 상자가 숨 쉬듯 깜빡이고, 설비·문·벽이 그 안으로 미끄러져 들어오면 한 번 밝아지고 걷힌다.
+  const GHOST_IN_MS = 350
+  const GHOST_OUT_MS = 500
+  /** 도착하지 않은 유령(장면을 끊었을 때)도 이만큼 지나면 걷는다. */
+  const GHOST_MAX_MS = 9000
+  const ghostsByKey = new Map<string, { group: Group; arrived: number | null }>()
+  /** 띄운 유령 수(e2e 가 센다). */
+  let ghosted = 0
+  function clearGhosts() {
+    for (const g of ghostsByKey.values()) g.group.userData.dead = true
+    ghostsByKey.clear()
+  }
+  /** 도착했다 — delay 뒤(미끄러짐이 끝날 때) 밝아지고 걷힌다. */
+  function ghostArrive(key: string, delay = 0) {
+    const g = ghostsByKey.get(key)
+    if (g && g.arrived === null) g.arrived = performance.now() + delay
+  }
+  function ghostBox(key: string, box: Box3, color: number, from?: Vector3) {
+    // 작은 설비(말단·센서)는 상자가 몇 픽셀이라 안 보인다 — 바닥 넓이를 70cm 는 되게 키운다.
+    const c0 = box.getCenter(new Vector3())
+    box.expandByPoint(new Vector3(c0.x - 0.35, box.min.y, c0.z - 0.35)).expandByPoint(new Vector3(c0.x + 0.35, box.min.y, c0.z + 0.35))
+    const size = box.getSize(new Vector3())
+    size.y = Math.max(size.y, 0.05)
+    const geo = new BoxGeometry(size.x, size.y, size.z).translate(0, size.y / 2, 0)
+    const fill = new Mesh(geo, fxMaterial(color, 0.1))
+    const edges = new LineSegments(new EdgesGeometry(geo), new LineDashedMaterial({ color, dashSize: Math.max(0.08, Math.max(size.x, size.z) / 10), gapSize: Math.max(0.05, Math.max(size.x, size.z) / 16), transparent: true, opacity: 0.9, depthTest: false, depthWrite: false }))
+    edges.computeLineDistances()
+    const group = new Group()
+    const base = box.getCenter(new Vector3()).setY(box.min.y)
+    group.position.copy(base)
+    group.add(fill, edges)
+    fill.renderOrder = edges.renderOrder = 18
+    // 갈 길: 지금 자리에서 도착 자리까지 바닥에 점선(미끄러지면 그 위로 궤적이 그어진다).
+    let path: LineSegments | null = null
+    if (from && from.distanceTo(base) > 0.05) {
+      const a = from.clone().sub(base).setY(0.03)
+      const pg = new BufferGeometry().setFromPoints([a, new Vector3(0, 0.03, 0)])
+      path = new LineSegments(pg, new LineDashedMaterial({ color, dashSize: 0.18, gapSize: 0.12, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false }))
+      path.computeLineDistances()
+      path.renderOrder = 18
+      group.add(path)
+    }
+    group.userData.baseY = base.y
+    group.position.y += explodeAt(base.y)
+    host.overlay.add(group)
+    ghosted++
+    const entry = { group, arrived: null as number | null }
+    ghostsByKey.set(key, entry)
+    fxs.push({ obj: group, t0: null, ms: 1200, loop: true, step: (k, t) => {
+      const now = performance.now()
+      const fadeIn = Math.min(1, t / GHOST_IN_MS)
+      let a = fadeIn * (0.55 + 0.45 * Math.sin(k * Math.PI * 2))
+      let glowUp = 0
+      if (entry.arrived !== null && now >= entry.arrived) {
+        // 도착: 앞 30% 에 밝아지고 나머지에 옅어진다.
+        const q = Math.min(1, (now - entry.arrived) / GHOST_OUT_MS)
+        glowUp = q < 0.3 ? q / 0.3 : 1 - (q - 0.3) / 0.7
+        a = q < 0.3 ? 1 : 1 - (q - 0.3) / 0.7
+        if (q >= 1) group.userData.dead = true
+      }
+      if (t > GHOST_MAX_MS) group.userData.dead = true
+      ;(fill.material as MeshBasicMaterial).opacity = 0.1 * a + 0.3 * glowUp
+      ;(edges.material as LineDashedMaterial).opacity = 0.9 * a
+      if (path) (path.material as LineDashedMaterial).opacity = 0.8 * fadeIn * (entry.arrived !== null && now >= entry.arrived ? a : 1)
+      if (group.userData.dead && ghostsByKey.get(key) === entry) ghostsByKey.delete(key)
+    } })
+  }
+
+  // --- 소속 카드(roomCards) ---
+  // TTL 의 brick:hasLocation(설비 → 방)이 바뀌는 순간을 3D 위의 숫자로 보인다. 카드 글은 "방 이름 / 설비 3 → 4 +1 / hasLocation".
+  const CARD_HOLD_MS = 3600
+  const CARD_SWAP_MS = 380
+  let cardGroups: Group[] = []
+  /** 띄운 카드 수(e2e 가 센다). */
+  let carded = 0
+  /** 카드 한 장의 글. settled 전에는 옛 수만, 뒤에는 "옛 수 → 새 수 +1". */
+  function cardTexture(title: string, before: number, after: number, settled: boolean): { map: CanvasTexture; w: number; h: number } {
+    const c = document.createElement('canvas')
+    let g = c.getContext('2d')!
+    const tf = '500 26px system-ui, sans-serif'
+    const nf = '600 30px ui-monospace, SFMono-Regular, Menlo, monospace'
+    const sf = '400 16px ui-monospace, SFMono-Regular, Menlo, monospace'
+    const delta = after - before
+    const sign = delta > 0 ? `+${delta}` : `−${-delta}`
+    const parts: [string, string][] = settled
+      ? [['설비 ', '#c4c9d0'], [`${before}`, '#8b939c'], [' → ', '#8b939c'], [`${after}`, '#ffffff'], [`  ${sign}`, delta > 0 ? '#5ef2c2' : '#ff6b7a']]
+      : [['설비 ', '#c4c9d0'], [`${before}`, '#ffffff']]
+    g.font = tf
+    const tw = g.measureText(title).width
+    g.font = nf
+    const nw = parts.reduce((n, [t]) => n + g.measureText(t).width, 0)
+    const w = Math.ceil(Math.max(tw, nw, 170) + 32)
+    const h = 112
+    c.width = w
+    c.height = h
+    g = c.getContext('2d')!
+    g.fillStyle = 'rgba(6, 8, 12, 0.84)'
+    g.fillRect(0, 0, w, h)
+    g.fillStyle = delta > 0 ? '#5ef2c2' : '#ff6b7a'
+    g.fillRect(0, 0, 4, h)
+    g.textBaseline = 'middle'
+    g.font = tf
+    g.fillStyle = '#f4f6f8'
+    g.fillText(title, 16, 24)
+    g.font = nf
+    let x = 16
+    for (const [t, color] of parts) {
+      g.fillStyle = color
+      g.fillText(t, x, 62)
+      x += g.measureText(t).width
+    }
+    g.font = sf
+    g.fillStyle = '#8b939c'
+    g.fillText('brick:hasLocation', 16, 96)
+    const map = new CanvasTexture(c)
+    map.colorSpace = SRGBColorSpace
+    return { map, w, h }
+  }
+  function clearCards() {
+    for (const g of cardGroups) g.userData.dead = true
+    cardGroups = []
+  }
+
   const api: ReplayViewerApi = {
     setCinema(on) {
       cinema = on
@@ -1189,6 +1414,8 @@ export function createReplayFx(host: ReplayHost) {
         for (const f of fxs) disposeFx(f.obj)
         fxs.length = 0
         spots = []
+        ghostsByKey.clear()
+        cardGroups = []
         clearDiff()
       }
       host.invalidate()
@@ -1234,7 +1461,7 @@ export function createReplayFx(host: ReplayHost) {
         // 자를 높이: 그 층 바로 위층의 바닥(띄운 만큼 올린 자리) 조금 아래. 출발은 건물 꼭대기 위.
         const to = above + explodeAt(above) - 0.15
         const box = new Box3().setFromObject(host.content())
-        const from = (box.isEmpty() ? to + 10 : box.max.y) + explodeGap * Math.max(0, levels.length - 1) + 1
+        const from = (box.isEmpty() ? to + 10 : box.max.y) + Math.max(...liftTargets()) + 1
         if (!box.isEmpty()) showSectionSheet(box)
         section = { from, to, t0: null, done }
         host.invalidate()
@@ -1404,6 +1631,108 @@ export function createReplayFx(host: ReplayHost) {
       host.invalidate()
     },
 
+    roomCards(cards) {
+      clearCards()
+      if (!cinema || still()) return
+      for (const card of cards.slice(0, 4)) {
+        const delta = card.after - card.before
+        if (!delta) continue
+        const before = cardTexture(card.title, card.before, card.after, false)
+        const after = cardTexture(card.title, card.before, card.after, true)
+        const sprite = new Sprite(new SpriteMaterial({ map: before.map, transparent: true, opacity: 0, depthTest: false, depthWrite: false, sizeAttenuation: false }))
+        const hgt = 0.075
+        sprite.scale.set((hgt * before.w) / before.h, hgt, 1)
+        // 방 표시(바닥 위 0.2m, 밑변 가운데가 기준점) 바로 위에 붙는다 — 같은 자리를 기준점으로 두고 화면에서 한 칸 올린다.
+        // 공중 높이로 띄우면 비스듬히 볼 때 옆 방 위로 보였다.
+        sprite.center.set(0.5, -0.62)
+        sprite.renderOrder = 23
+        // 바꿔 끼울 새 수의 글. 그룹을 걷을 때 같이 버린다.
+        const swap = new Mesh(new BufferGeometry(), new MeshBasicMaterial({ map: after.map, visible: false }))
+        const group = new Group()
+        const [x, y, z] = host.toScene(card.at)
+        group.position.set(x, y + 0.2, z)
+        group.userData.baseY = y + 0.2
+        group.position.y += explodeAt(group.userData.baseY)
+        group.add(sprite, swap)
+        host.overlay.add(group)
+        cardGroups.push(group)
+        carded++
+        let swapped = false
+        // 설비가 미끄러져 도착할 즈음 뜬다.
+        fxs.push({ obj: group, t0: null, ms: 1000, loop: true, step: (_k, t) => {
+          const u = t - CINEMA_GLIDE_MS
+          if (u < 0) return
+          const pop = Math.min(1, u / 260)
+          const q = pop - 1
+          const s = 1 + 2.2 * q * q * q + 1.2 * q * q
+          const tex = swapped ? after : before
+          sprite.scale.set(((hgt * tex.w) / tex.h) * Math.max(0.01, s), hgt * Math.max(0.01, s), 1)
+          if (!swapped && u >= CARD_SWAP_MS) {
+            swapped = true
+            sprite.material.map = after.map
+            sprite.material.needsUpdate = true
+            before.map.dispose()
+          }
+          const out = Math.max(0, Math.min(1, (u - CARD_HOLD_MS) / 500))
+          sprite.material.opacity = pop * (1 - out)
+          if (out >= 1) group.userData.dead = true
+        } })
+      }
+      host.invalidate()
+    },
+
+    ghosts(items, color) {
+      clearGhosts()
+      if (!cinema || still()) return
+      for (const it of items.slice(0, 12)) {
+        if (it.id && it.delta) {
+          const part = host.partById().get(it.id)
+          if (!part || host.hiddenIds().has(it.id)) continue
+          const o = new Vector3(...host.toScene([0, 0, 0]))
+          const d = new Vector3(...host.toScene([it.delta[0], it.delta[1], 0])).sub(o)
+          ghostBox(it.key, part.box.clone().translate(d).expandByScalar(0.04), color, part.box.getCenter(new Vector3()).setY(part.box.min.y))
+        } else if (it.ring && it.ring.length >= 2) {
+          const box = new Box3()
+          for (const p of it.ring) box.expandByPoint(new Vector3(...host.toScene([p[0], p[1], it.elevation ?? 0])))
+          box.max.y += 2.6
+          ghostBox(it.key, box.expandByScalar(0.05), color)
+        } else if (it.at) {
+          const [x, y, z] = host.toScene(it.at)
+          ghostBox(it.key, new Box3(new Vector3(x - 0.5, y, z - 0.5), new Vector3(x + 0.5, y + 2.2, z + 0.5)), color, it.from ? new Vector3(...host.toScene(it.from)) : undefined)
+        }
+      }
+      host.invalidate()
+    },
+
+    setSpread(storeyIds) {
+      const levels = buildUniforms.uLevels.value.slice(0, buildUniforms.uLevelCount.value)
+      const edited = new Set((storeyIds ?? []).flatMap((id) => {
+        const e = storeyElevation.get(id)
+        const k = e === undefined ? -1 : levels.findIndex((l) => Math.abs(l - e) < 0.01)
+        return k >= 0 ? [k] : []
+      }))
+      const at = new Set([...edited].filter((k) => k < levels.length - 1))
+      spreadLevels = at.size ? at : null
+      spreadEdited = at.size ? edited : null
+      host.invalidate()
+      if (!spreadLevels || !spreadEdited) return false
+      const box = new Box3()
+      for (const g of [host.content(), host.arch, host.rooms]) if (g.visible) box.expandByObject(g)
+      const size = box.isEmpty() ? new Vector3(20, 0, 20) : box.getSize(new Vector3())
+      spreadGap = Math.min(40, Math.max(6, Math.max(size.x, size.z) * 0.5))
+      if (box.isEmpty()) return false
+      // 고친 층들(띄운 뒤 자리)이 들어오게 맞춘다. 고치지 않은 위층은 화면 위로 벗어나도 된다.
+      const lifts = liftTargets()
+      const ks = [...spreadEdited].sort((a, b) => a - b)
+      const lo = ks[0]
+      const hi = ks[ks.length - 1]
+      const storeyH = (k: number) => (k + 1 < levels.length ? levels[k + 1] - levels[k] : 3.5)
+      box.min.y = levels[lo] + lifts[lo]
+      box.max.y = levels[hi] + lifts[hi] + storeyH(hi)
+      host.fit(box)
+      return true
+    },
+
     framePoints(points, margin = 0) {
       const box = new Box3()
       for (const p of points) {
@@ -1458,19 +1787,18 @@ export function createReplayFx(host: ReplayHost) {
     },
     /** 설비가 미끄러지기 시작했다. 비춘 설비면 떠난 자리·궤적·충격파를 남긴다. */
     glided(id: string, from: Box3, to: Box3) {
-      if (cinema) trace(id, from, to)
+      if (!cinema) return
+      trace(id, from, to)
+      ghostArrive(id, CINEMA_GLIDE_MS)
     },
     /** 다음 시점 맞추기가 들어갈 방향. 리플레이가 아니면 null(뷰어의 기본 방향). */
     fitFrom: (): Vector3 | null => (cinema ? cinemaFrom() : null),
-    /** 밤 다이오라마로 층을 띄운 만큼 건물 전체 보기의 높이를 더한다. */
-    fitHeight(): number {
-      const shown = host.visibleStoreys()
-      return diorama && (!shown || shown.size > 1) ? explodeGap * Math.max(0, buildUniforms.uLevelCount.value - 1) : 0
-    },
+    /** 밤 다이오라마·층 펼치기로 층을 띄운 만큼 건물 전체 보기의 높이를 더한다. */
+    fitHeight: (): number => Math.max(...liftTargets()),
     /** 화면 점 아래의 누를 수 있는 빛기둥·이름표. 누르기를 받는 쪽이 없으면 null. */
     hitSpot: (x: number, y: number): string | null => (spotClickHandler ? hitSpot(x, y) : null),
     spotClick: (key: string) => spotClickHandler?.(key),
     /** e2e 가 보는 지금의 연출 수. */
-    motion: () => ({ effects: fxs.length, spots: spots.length, demolished, slid, sliding: sliding.size }),
+    motion: () => ({ effects: fxs.length, spots: spots.length, demolished, slid, sliding: sliding.size, ghosted, ghosts: ghostsByKey.size, carded, lift: Math.max(...buildUniforms.uLift.value), spread: !!spreadLevels }),
   }
 }

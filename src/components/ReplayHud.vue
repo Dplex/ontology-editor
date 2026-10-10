@@ -3,7 +3,7 @@
 // 여기는 지금 몇 번째인지, 그 편집이 TTL·GeoJSON 의 어디를 바꿨는지를 채팅처럼 카드로 쌓고, 조작 막대를 둔다.
 // 카드 내용은 워커가 모델 사본으로 계산한 것이다(lib/replay.ts).
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { nameTable, readableTtl, replayReport } from '../lib/replay-report'
+import { nameTable, pickHighlights, readableTtl, replayReport } from '../lib/replay-report'
 import ReplayGeo from './ReplayGeo.vue'
 import ReplayRelations from './ReplayRelations.vue'
 import { impactLines, relationsOf } from '../lib/replay-relations'
@@ -39,8 +39,12 @@ const props = defineProps<{
   helpToggles?: number
   /** 변경 지도를 켰으면 더한·고친·지운 것의 수. */
   diff?: { added: number; modified: number; removed: number } | null
+  /** 끝 화면의 층 펼치기(E). 펼칠 수 없으면(층 하나·맨 위층만 고침·끝 화면 아님) null. */
+  spread?: boolean | null
+  /** 요약 재생 중이면 그 장면 번호들(나머지는 연출 없이 지나간다). */
+  highlights?: readonly number[] | null
 }>()
-const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null]; record: []; diff: [] }>()
+const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null]; record: []; diff: []; spread: []; highlights: [] }>()
 
 const CAT_COLOR = CATEGORY_COLOR
 
@@ -88,7 +92,10 @@ const geoApplied = computed(() => !!geoStep.value && !props.comparing && props.a
 
 /** 장면 제목. 카메라가 가는 중(aiming)부터 그 장면의 것이다. */
 // 갈래를 거르는 중이면 그 갈래 장면만 — 연출 없이 지나가는 다른 갈래 편집의 제목이 깜빡이지 않게.
-const scene = computed(() => (props.phase === 'play' && (!props.filter || current.value?.category === props.filter) ? current.value : null))
+const wanted = (s: ReplayStep | null | undefined) => !!s && (!props.filter || s.category === props.filter) && (!props.highlights || props.highlights.includes(s.index))
+const scene = computed(() => (props.phase === 'play' && wanted(current.value) ? current.value : null))
+/** 요약 재생에 들 장면 수(끝 화면 버튼). 장면이 적거나 카드 계산 전이면 0 — 버튼을 숨긴다. */
+const highlightCount = computed(() => pickHighlights(props.steps, props.total).length)
 
 /**
  * 장면 전환(화면이 검게 잠겼다 밝아짐)은 한 층에서 다른 층으로 넘어갈 때만 한다. 같은 층 안에서 다음 장면으로 가는 것은 카메라
@@ -137,6 +144,8 @@ const KEYS: [string, string][] = [
   ['B (누르고 있기)', '지금 장면의 편집 전 보기'],
   ['R', '녹화 시작 · 멈추고 내려받기'],
   ['D', '끝 화면에서 변경 지도(더함·고침·지움 색) 켜고 끄기'],
+  ['E', '끝 화면에서 층 펼치기 — 고친 층 위를 들어 올려 들여다보기'],
+  ['S', '요약 재생 — 바뀐 양이 큰 장면 몇 개만(갈래마다 하나 먼저) 처음부터'],
   ['?', '이 안내'],
   ['Esc · P', '닫기 (편집한 상태로 돌아감)'],
 ]
@@ -279,7 +288,7 @@ const summary = computed(() => {
         <i>/{{ two(total) }}</i>
       </span>
       <transition name="chip" mode="out-in">
-        <span v-if="current && phase !== 'opening' && (!filter || current.category === filter)" :key="current.index" class="bug-cat">{{ current.category }}</span>
+        <span v-if="current && phase !== 'opening' && wanted(current)" :key="current.index" class="bug-cat">{{ current.category }}</span>
       </transition>
       <!-- 한 층만 보일 때 그 층. 장면이 다른 층으로 가면 바뀌고, 건물 전체로 물러나면 사라진다. -->
       <transition name="chip" mode="out-in">
@@ -436,7 +445,9 @@ const summary = computed(() => {
           <b>{{ b.n }}</b>
         </button>
         <p class="sum-hint">갈래를 누르면 그 갈래 장면만 처음부터</p>
+        <button v-if="highlightCount || highlights" type="button" :class="['report', 'highlight', { on: !!highlights }]" :title="highlights ? '요약 풀고 모든 장면을 처음부터 (S)' : '바뀐 양이 큰 장면만 골라 처음부터 — 녹화와 같이 쓰면 짧은 영상 (S)'" @click="emit('highlights')">★ 요약 재생 · {{ highlights?.length ?? highlightCount }}장면</button>
         <button type="button" :class="['report', { on: diff }]" title="더한·고친·지운 것을 3D 에 색으로 한꺼번에 (D)" @click="emit('diff')">▦ 변경 지도</button>
+        <button v-if="spread != null" type="button" :class="['report', 'spread', { on: spread }]" title="고친 층 위의 층을 들어 올려 고친 층을 들여다보기 (E)" @click="emit('spread')">☰ 층 펼치기</button>
         <button type="button" class="report" title="장면마다 TTL·GeoJSON 에서 바뀐 것을 마크다운으로" @click="downloadReport">⇩ 변경 리포트 (.md)</button>
         <div class="totals">
           <span class="add">TTL +{{ summary.added }}</span>
@@ -465,7 +476,7 @@ const summary = computed(() => {
           v-for="k in total"
           :key="k"
           class="tick"
-          :class="{ done: k <= shownAt, looping: k - 1 === loop, off: !!filter && !!steps[k - 1] && steps[k - 1].category !== filter }"
+          :class="{ done: k <= shownAt, looping: k - 1 === loop, off: (!!filter || !!highlights) && !!steps[k - 1] && !wanted(steps[k - 1]), star: !!highlights?.includes(k - 1) }"
           :title="steps[k - 1] ? `#${two(k)} ${steps[k - 1].label} · 바뀐 것 ${steps[k - 1].changes.length} — 이 장면만 반복해서 보기` : undefined"
           :style="{ left: `${(100 * (k - 0.5)) / total}%`, background: steps[k - 1] ? CAT_COLOR[steps[k - 1].category] : undefined, '--w': weights[k - 1] ?? 0 }"
           @click="onTick(k)"
@@ -492,6 +503,7 @@ const summary = computed(() => {
         </span>
         <span class="status">
           <template v-if="loop !== null">#{{ two(loop + 1) }} 반복 중 · <kbd>Space</kbd> 다음 장면부터 이어서</template>
+          <template v-else-if="highlights && phase !== 'done'"><button type="button" class="filter-chip" style="--c: #ffd166" title="요약 풀기" @click="emit('highlights')">★ 요약 {{ highlights.length }}장면 ✕</button> · 편집 {{ at }}/{{ total }}</template>
           <template v-else-if="filter && phase !== 'done'"><button type="button" class="filter-chip" :style="{ '--c': CAT_COLOR[filter] }" title="거르기 풀기" @click="emit('filter', null)">{{ filter }}만 ✕</button> · 편집 {{ at }}/{{ total }}</template>
           <template v-else-if="comparing">편집 전 보는 중 · <kbd>B</kbd> 떼면 편집 후</template>
           <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }} · <kbd>B</kbd> 누르고 있으면 편집 전</template>
@@ -1210,6 +1222,22 @@ const summary = computed(() => {
 }
 .hud-done .report:hover {
   border-color: #fff;
+}
+/* 요약 재생은 갈래 줄 바로 아래 한 줄을 다 쓴다(다시 보기 방법이라 갈래 거르기 곁에). */
+.hud-done .report.highlight {
+  display: block;
+  margin: 10px 16px 0;
+  border-color: rgba(255, 209, 102, 0.55);
+  color: #ffd166;
+}
+.hud-done .report.highlight.on {
+  background: rgba(255, 209, 102, 0.12);
+}
+.hud-done .report.highlight + .report {
+  margin-left: 16px;
+}
+.track .tick.star {
+  box-shadow: 0 0 6px var(--mint, #5ef2c2);
 }
 /* 눈금 미리보기 판. 눈금 위에 뜬다. */
 .tick-tip {

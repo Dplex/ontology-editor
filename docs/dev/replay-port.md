@@ -8,13 +8,13 @@
 | 파일 | 하는 일 |
 |---|---|
 | `src/lib/replay-player.ts` | 진행(열기·되감기·장면·반복·닫기). `useReplay(host)` 와 `replayOpen`·`pausedInReplay`·`replayMemo` |
-| `src/lib/replay-viewer.ts` | 3D 연출(카메라 호 비행, 빛기둥, 층 쌓기, 밤 다이오라마, 단면 자르기, 흐름 알갱이). `createReplayFx(host)` |
+| `src/lib/replay-viewer.ts` | 3D 연출(카메라 호 비행, 빛기둥, 층 쌓기, 밤 다이오라마, 단면 자르기, 흐름 알갱이, 끝 화면 층 펼치기, 옮기기의 도착 유령, 방의 소속 카드). `createReplayFx(host)` |
 | `src/lib/replay.ts` · `replay.worker.ts` · `replay-geo.ts` · `replay-relations.ts` | 장면 카드(TTL·GeoJSON 변화) 계산. 워커에서 돈다 |
-| `src/lib/replay-report.ts` | 변경 리포트(.md) — 장면마다 TTL 의 바뀐 줄, GeoJSON 의 바뀐 feature. 화면 카드의 이름 표(nameTable)도 여기 |
+| `src/lib/replay-report.ts` | 변경 리포트(.md) — 장면마다 TTL 의 바뀐 줄, GeoJSON 의 바뀐 feature. 화면 카드의 이름 표(nameTable)·요약 재생 장면 고르기(pickHighlights)도 여기 |
 | `src/components/ReplayHud.vue` · `ReplayGeo.vue` · `ReplayRelations.vue` | 극장 화면. 극장 CSS(`.viewport.theater`)도 ReplayHud 의 전역 `<style>` 에 있다 |
 | `src/lib/replay*.test.ts` · `e2e/edit-replay.spec.ts` · `e2e/replay-reduced.spec.ts` · `e2e-seongsu/replay.spec.ts` | 시험 |
 
-리플레이 안의 조작(시간줄 끌기·층 레일·B 편집 전 보기·갈래 거르기·녹화·변경 지도·리포트)은 전부 위 파일 안에서 끝난다 —
+리플레이 안의 조작(시간줄 끌기·층 레일·B 편집 전 보기·갈래 거르기·S 요약 재생·녹화·D 변경 지도·E 층 펼치기·리포트)은 전부 위 파일 안에서 끝난다 —
 main 파일에 꽂는 자리는 아래 표에서 늘지 않았다.
 
 `[임시 — 리플레이 데모]` 표시가 붙은 것(`replay-demo*`, `ReplayDemoMenu.vue`, App.vue 의 "여기부터 … 여기까지" 블록)은

@@ -192,3 +192,83 @@ test('옮긴 문·벽은 순간이동하지 않고 미끄러지며, 룸·커스�
   await page.keyboard.press('Escape')
   expect(errors).toEqual([])
 })
+
+test('옮기는 장면은 도착 자리에 유령 상자를 먼저 띄우고 도착하면 걷으며, 설비 수가 바뀐 방에는 소속 카드가 뜬다', async ({ page }) => {
+  test.setTimeout(300_000)
+  const errors = await open(page)
+  const hud = await demo(page)
+  await hud.getByRole('button', { name: '4×' }).click()
+  // 데모는 문·설비를 옮기고(유령), 방을 나누고 설비를 더한다(소속 카드).
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().ghosts), { timeout: 200_000 }).toBeGreaterThan(0)
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
+  const m = await page.evaluate(() => (window as any).__viewer.motion())
+  expect(m.ghosted).toBeGreaterThanOrEqual(2)
+  expect(m.carded).toBeGreaterThanOrEqual(2)
+  // 다 도착했으니 남은 유령이 없다.
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().ghosts), { timeout: 10_000 }).toBe(0)
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})
+
+test('끝 화면에서 S 를 누르면 바뀐 양이 큰 장면 몇 개만 처음부터 틀고, 다시 누르면 모두', async ({ page }) => {
+  test.setTimeout(300_000)
+  const errors = await open(page)
+  const hud = await demo(page)
+  await hud.getByRole('button', { name: '4×' }).click()
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
+  const total = Number(await hud.getAttribute('data-total'))
+  const button = hud.locator('.hud-done .report.highlight')
+  const n = Number(((await button.innerText()).match(/(\d+)장면/) ?? ['', '0'])[1])
+  expect(n).toBeGreaterThanOrEqual(4)
+  expect(n).toBeLessThanOrEqual(6)
+  // 장면 제목에 뜬 번호를 모은다.
+  await page.evaluate(() => {
+    const w = window as any
+    w.__scenes = new Set<string>()
+    w.__sceneTimer = setInterval(() => {
+      const t = document.querySelector('.replay-hud .scene-kicker b')?.textContent
+      if (t) w.__scenes.add(t.trim())
+    }, 50)
+  })
+  await page.keyboard.press('s')
+  await expect(hud.locator('.hud-bar .status')).toContainText(`요약 ${n}장면`)
+  await expect(hud.locator('.track .tick.star')).toHaveCount(n)
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 120_000 })
+  await expect(hud).toHaveAttribute('data-at', String(total))
+  const scenes = await page.evaluate(() => { const w = window as any; clearInterval(w.__sceneTimer); return [...w.__scenes] })
+  expect(scenes.length).toBe(n)
+  // 다시 누르면 요약을 풀고 처음부터 모두.
+  await hud.locator('.hud-done .report.highlight').click()
+  await expect(hud.locator('.hud-bar .status')).not.toContainText('요약')
+  await expect(hud.locator('.track .tick.star')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})
+
+test('층이 둘 이상이고 아래층을 고쳤으면 끝 화면에서 그 위층을 들어 올려 펼치고, E 로 접고 편다', async ({ page }) => {
+  test.setTimeout(300_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  const hud = await demo(page)
+  await hud.getByRole('button', { name: '4×' }).click()
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 200_000 })
+  const button = hud.locator('.hud-done .report.spread')
+  await expect(button).toHaveClass(/on/)
+  const lift = () => page.evaluate(() => (window as any).__viewer.motion().lift as number)
+  // 다이오라마의 층 띄우기(1.5~6m)보다 크게 뜬다.
+  await expect.poll(lift, { timeout: 10_000 }).toBeGreaterThan(6)
+  const spread = await lift()
+  await page.keyboard.press('e')
+  await expect(button).not.toHaveClass(/on/)
+  await expect.poll(lift, { timeout: 10_000 }).toBeLessThan(spread - 3)
+  await button.click()
+  await expect.poll(lift, { timeout: 10_000 }).toBeGreaterThan(spread - 0.5)
+  // 장면으로 돌아가면 접는다.
+  await page.keyboard.press('Home')
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().spread), { timeout: 10_000 }).toBe(false)
+  await page.keyboard.press('Escape')
+  expect(errors).toEqual([])
+})

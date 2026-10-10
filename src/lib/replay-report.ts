@@ -121,3 +121,23 @@ export function replayReport(input: { title: string; start: ReplayStart | null; 
   out.push('')
   return out.join('\n')
 }
+
+/**
+ * 요약 재생에 넣을 장면(번호, 차례대로). 공간 투어 앱의 하이라이트 릴처럼 긴 세션에서 볼 만한 장면 몇 개만 고른다 — 바뀐 양
+ * (평면의 바뀐 것·TTL 줄·GeoJSON feature, 로그로 눌러 계통 확정처럼 수백 곳이 바뀐 장면 하나가 다 먹지 않게)이 큰 것부터,
+ * 단 갈래마다 하나를 먼저 넣어 한 갈래로 쏠리지 않게. 1× 로 30초 남짓(장면 5.2초 × 6)이 되도록 6장면까지. 장면이 적으면
+ * (MIN_TOTAL 이하) 고르지 않는다 — 다 보는 것과 다르지 않다.
+ */
+export const HIGHLIGHT_MIN_TOTAL = 6
+export function pickHighlights(steps: readonly ReplayStep[], total = steps.length): number[] {
+  if (total <= HIGHLIGHT_MIN_TOTAL || steps.length < total) return []
+  const n = Math.min(6, Math.max(4, Math.ceil(total / 3)))
+  const score = (s: ReplayStep) =>
+    Math.log1p(s.changes.length) + 0.6 * Math.log1p(s.ttlCount.added + s.ttlCount.removed) + 0.4 * Math.log1p(s.geojson ? s.geojson.count.changed + s.geojson.count.added + s.geojson.count.removed : 0)
+  const ranked = [...steps].sort((a, b) => score(b) - score(a) || a.index - b.index)
+  const picked: ReplayStep[] = []
+  // 갈래마다 가장 큰 장면 하나(큰 갈래부터), 그다음 남은 자리를 큰 장면으로.
+  for (const s of ranked) if (picked.length < n && !picked.some((p) => p.category === s.category)) picked.push(s)
+  for (const s of ranked) if (picked.length < n && !picked.includes(s)) picked.push(s)
+  return picked.map((s) => s.index).sort((a, b) => a - b)
+}

@@ -17,6 +17,7 @@ import { roomKind } from './kinds'
 import type { Snapshot } from './edit'
 import type { Arrow, Viewer } from './viewer'
 import { CATEGORY_COLOR, type ReplayMessage, type ReplayStart, type ReplayStep } from './replay'
+import { pickHighlights } from './replay-report'
 
 /**
  * 리플레이가 열려 있나. App 의 여러 곳이 "리플레이 중이면 건너뛴다" 로 읽어서 모듈에 둔다(useReplay 를 부르기 전에 선언된
@@ -172,6 +173,7 @@ export function useReplay(host: ReplayPlayerHost) {
     replayLoop.value = null
     replaySeen.value = 0
     replayFilter.value = null
+    replayHighlights.value = null
     replayPhase.value = 'opening'
     replayPlaying.value = true
     activeTab.value = '3d'
@@ -232,6 +234,7 @@ export function useReplay(host: ReplayPlayerHost) {
     replayLoop.value = null
     replaySeen.value = 0
     host.viewer?.spotlight([], [], 0)
+    host.viewer?.ghosts([], 0)
     while (history.value.length > 0) undo()
   }
 
@@ -335,6 +338,31 @@ export function useReplay(host: ReplayPlayerHost) {
       if (camera) host.viewer.frameAll()
       host.viewer.spotlight([], [], color)
     }
+    host.viewer.ghosts(replayGhostsOf(step), color)
+  }
+
+  /** 옮기는 장면의 도착 자리(도착 유령): 설비는 옮길 만큼, 문·창은 도착 자리, 통째로 옮긴 벽은 도착 외곽선. */
+  type Ghost = Parameters<Viewer['ghosts']>[0][number]
+  function replayGhostsOf(step: ReplayStep | null): Ghost[] {
+    const m = model.value
+    if (!m) return []
+    const elevation = (sid: string) => m.storeys.find((s) => s.id === sid)?.elevation ?? 0
+    const byId = equipmentById.value
+    const out: Ghost[] = []
+    for (const c of step?.changes ?? []) {
+      const a = c.after
+      const b = c.before
+      if (a?.t === 'equip' && b?.t === 'equip' && !a.conduit && a.at && b.at && (a.at[0] !== b.at[0] || a.at[1] !== b.at[1]) && byId.has(a.id) && !isConduit(byId.get(a.id)!.role)) {
+        out.push({ key: a.id, id: a.id, delta: [a.at[0] - b.at[0], a.at[1] - b.at[1]] })
+      }
+    }
+    for (const sl of replaySlidesOf(step)) {
+      const c = step!.changes.find((x) => x.after && 'id' in x.after && x.after.id === sl.id)
+      const a = c?.after
+      if (a?.t === 'opening' && a.at) out.push({ key: a.id, at: sl.to, from: sl.from })
+      else if (a?.t === 'wall') for (const ring of a.rings) out.push({ key: a.id, ring, elevation: elevation(a.storeyId) })
+    }
+    return out
   }
 
   /**
@@ -432,6 +460,7 @@ export function useReplay(host: ReplayPlayerHost) {
       return []
     })
     host.viewer?.revealElements(born)
+    host.viewer?.roomCards(replayCardsOf(step))
     replayFlash(step)
     void replayArrows(step)
     const spaces = (step?.changes ?? []).filter((c) => c.key.startsWith('sp:')).map((c) => c.key.slice(3))
@@ -443,6 +472,37 @@ export function useReplay(host: ReplayPlayerHost) {
     if (arch && (arch.points.length || arch.rings.length)) host.viewer?.spotlight([], [], replayColor(step), { points, rings: arch.rings })
     else if (zones) host.viewer?.spotlight([], [], replayColor(step), { points: zones.points, rings: zones.rings })
     else if (spaces.length) host.viewer?.spotlight([], spaces, replayColor(step))
+  }
+
+  /**
+   * 소속 카드: 이 편집으로 설비 수가 바뀐 방(물리존). 설비가 방을 옮기거나 더해지고 지워지면 TTL 의 brick:hasLocation 이 바뀐다 —
+   * 그 방 위에 "설비 3 → 4" 를 띄운다. 덕트·배관은 세지 않는다. 다시 한 뒤(지금 모델)의 수에서 바뀐 만큼을 빼 편집 전 수를 얻는다.
+   */
+  function replayCardsOf(step: ReplayStep | null): Parameters<Viewer['roomCards']>[0][number][] {
+    const m = model.value
+    if (!m) return []
+    const delta = new Map<string, number>()
+    const bump = (id: string | null | undefined, d: number) => id && delta.set(id, (delta.get(id) ?? 0) + d)
+    for (const c of step?.changes ?? []) {
+      const a = c.after?.t === 'equip' && !c.after.conduit ? c.after : null
+      const b = c.before?.t === 'equip' && !c.before.conduit ? c.before : null
+      if ((a?.spaceId ?? null) === (b?.spaceId ?? null)) continue
+      bump(b?.spaceId, -1)
+      bump(a?.spaceId, +1)
+    }
+    const out: Parameters<Viewer['roomCards']>[0][number][] = []
+    for (const storey of m.storeys) {
+      for (const sp of storey.spaces) {
+        const d = delta.get(sp.id)
+        if (!d) continue
+        const at = labelPoint(sp.footprint)
+        if (!at) continue
+        const now = storey.equipment.filter((e) => e.spaceId === sp.id && !isConduit(e.role)).length
+        out.push({ key: sp.id, at: [at[0], at[1], storey.elevation], title: sp.longName || sp.name || '물리존', before: now - d, after: now })
+      }
+    }
+    // 바뀐 양이 큰 방부터.
+    return out.sort((x, y) => Math.abs(y.after - y.before) - Math.abs(x.after - x.before))
   }
 
   /**
@@ -565,9 +625,35 @@ export function useReplay(host: ReplayPlayerHost) {
         break
       }
     }
-    host.viewer?.frameAll()
+    if (!replayApplySpread()) host.viewer?.frameAll()
     host.viewer?.spotlight(devices, [...spaces], 0x5ef2c2, { points })
   }
+
+  /**
+   * 층 펼치기(E). 끝 화면에서 고친 층 위의 층들을 크게 들어 올려 고친 층을 위에서 들여다본다 — 다이오라마의 층 띄우기로는
+   * 아래층(지하·1층)을 고쳤을 때 위층 바닥판에 가려 빛기둥만 보였다. 층이 둘 이상인 파일에서 끝 화면에 켜져 있다.
+   */
+  const replaySpread = ref(true)
+  /** 지금 펼칠 수 있나(끝 화면, 층이 둘 이상, 맨 위층이 아닌 층을 고쳤다). HUD 가 버튼을 보일지 정한다. */
+  const replaySpreadable = computed(() => {
+    const m = model.value
+    if (!m || m.storeys.length < 2 || replayPhase.value !== 'done') return false
+    const top = Math.max(...m.storeys.map((s) => s.elevation))
+    const edited = new Set(replaySteps.value.flatMap((s) => s.storeyIds))
+    return m.storeys.some((s) => edited.has(s.id) && s.elevation < top - 0.01)
+  })
+  /** 펼쳤으면(카메라도 고친 층에 맞췄으면) true. */
+  function replayApplySpread(): boolean {
+    const on = replaySpread.value && replayPhase.value === 'done'
+    return host.viewer?.setSpread(on ? [...new Set(replaySteps.value.flatMap((s) => s.storeyIds))] : null) ?? false
+  }
+  function replayToggleSpread() {
+    if (!replaySpreadable.value) return
+    replaySpread.value = !replaySpread.value
+    if (!replayApplySpread()) host.viewer?.frameAll()
+  }
+  // 끝 화면을 떠나면 접는다(장면은 한 층씩 본다).
+  watch(replayPhase, (phase) => phase !== 'done' && host.viewer?.setSpread(null))
 
   /** 빛기둥 열쇠(설비 id 또는 scene:번호) → 장면 번호. 끝 화면에서 채운다. 장면 중의 빛기둥은 그 장면의 바뀐 것에서 찾는다. */
   const replaySpotScenes = new Map<string, number>()
@@ -624,16 +710,39 @@ export function useReplay(host: ReplayPlayerHost) {
   function replaySetFilter(c: ReplayStep['category'] | null) {
     if (replayPhase.value === 'opening') return
     replayFilter.value = c
+    replayHighlights.value = null
     void replayJump('restart')
   }
-  /** 거르는 중이면 다른 갈래 편집을 연출 없이 다시 해 넘긴다. 다음 장면이 거른 갈래면(또는 거르지 않으면) false. */
+  /**
+   * 요약 재생(S). 하이라이트 릴처럼 바뀐 양이 큰 장면 몇 개만(갈래마다 하나를 먼저) 처음부터 튼다 — 1× 로 30초 남짓. 나머지
+   * 편집은 갈래 거르기처럼 연출 없이 다시 하기만 해서 지나간다. 녹화와 같이 쓰면 회의용 짧은 영상이 된다. 다시 누르면 푼다.
+   */
+  const replayHighlights = ref<number[] | null>(null)
+  async function replayToggleHighlights() {
+    if (replayPhase.value === 'opening') return
+    if (replayHighlights.value) {
+      replayHighlights.value = null
+      return void replayJump('restart')
+    }
+    // 고르려면 장면 카드가 다 있어야 한다(큰 파일은 워커가 아직일 수 있다).
+    const token = replayToken
+    await replayStepInfo(replayTotal.value - 1, token)
+    if (token !== replayToken) return
+    const picked = pickHighlights(replaySteps.value, replayTotal.value)
+    if (!picked.length) return
+    replayHighlights.value = picked
+    replayFilter.value = null
+    void replayJump('restart')
+  }
+  /** 거르기(갈래·요약)에 드는 장면인가. */
+  const replayWanted = (step: ReplayStep) => (!replayFilter.value || step.category === replayFilter.value) && (!replayHighlights.value || replayHighlights.value.includes(step.index))
+  /** 거르는 중이면 거르기에 들지 않는 편집을 연출 없이 다시 해 넘긴다. 다음 장면이 거르기에 들면(또는 거르지 않으면) false. */
   async function replaySkipOthers(token: number): Promise<boolean> {
-    const f = replayFilter.value
-    if (!f) return false
+    if (!replayFilter.value && !replayHighlights.value) return false
     let skipped = false
     while (token === replayToken && history.value.length < replayTotal.value) {
       const step = await replayStepInfo(history.value.length, token)
-      if (token !== replayToken || !step || step.category === f) break
+      if (token !== replayToken || !step || replayWanted(step)) break
       redo()
       skipped = true
       // 한 프레임은 그리게 둔다 — 큰 파일에서 수십 개를 한 번에 다시 하면 화면이 멈춘다.
@@ -751,6 +860,7 @@ export function useReplay(host: ReplayPlayerHost) {
     replayPlaying.value = false
     replayAiming.value = null
     host.viewer?.spotlight([], [], 0)
+    host.viewer?.ghosts([], 0)
     host.viewer?.setFlows([])
     // 끄는 동안 다른 조작(장면 반복·처음부터)이 끼면 그쪽에 맡기고 멈춘다 — 둘이 이력을 서로 당기지 않게.
     while (seekTarget !== null && token === replayToken && history.value.length !== seekTarget) {
@@ -820,6 +930,7 @@ export function useReplay(host: ReplayPlayerHost) {
     track.addEventListener('ended', () => rec.state !== 'inactive' && rec.stop())
     rec.start(1000)
     replayRecording.value = { since: performance.now() }
+    // 갈래 거르기는 풀고, 요약 재생은 둔다 — 요약을 켜고 녹화하면 회의용 짧은 영상이 된다.
     replayFilter.value = null
     await replayJump('restart')
   }
@@ -913,6 +1024,7 @@ export function useReplay(host: ReplayPlayerHost) {
     host.viewer?.setEditMode(host.editing.value)
     host.viewer?.setArrowsShown(false)
     host.viewer?.setCinema(false)
+    host.viewer?.setSpread(null)
     host.viewer?.setDiorama(false)
     host.viewer?.setRoomTags([])
     host.viewer?.onSpotClick(null)
@@ -982,6 +1094,8 @@ export function useReplay(host: ReplayPlayerHost) {
     if (replayComparing.value) return true
     if (e.key === '?') replayHelp.value++
     else if (e.code === 'KeyD') replayToggleDiff()
+    else if (e.code === 'KeyE') replayToggleSpread()
+    else if (e.code === 'KeyS') void replayToggleHighlights()
     else if (e.code === 'KeyR') void replayRecord()
     else if (e.code === 'Space') replayToggle()
     else if (e.code === 'ArrowRight') void replayJump('next')
@@ -1010,9 +1124,11 @@ export function useReplay(host: ReplayPlayerHost) {
     storey: replayStorey.value,
     comparing: replayComparing.value,
     filter: replayFilter.value,
+    highlights: replayHighlights.value,
     recording: replayRecording.value?.since ?? null,
     helpToggles: replayHelp.value,
     diff: replayDiff.value,
+    spread: replaySpreadable.value ? replaySpread.value : null,
   }))
   // B 로 편집 전을 보는 중에 마우스로 다른 조작을 하면 먼저 편집 후로 돌린다 — 그대로 두면 그 조작이 이력을 옮긴 뒤 B 를 뗄 때
   // 다시 하기가 한 번 더 되어 한 칸 어긋났다(키는 B 를 누르는 동안 받지 않는다).
@@ -1032,6 +1148,8 @@ export function useReplay(host: ReplayPlayerHost) {
     filter: after((c: ReplayStep['category'] | null) => replaySetFilter(c)),
     record: after(replayRecord),
     diff: after(replayToggleDiff),
+    spread: after(replayToggleSpread),
+    highlights: after(replayToggleHighlights),
   }
 
   return { open: openReplay, close: closeReplay, key: replayKey, hud, hudOn }
