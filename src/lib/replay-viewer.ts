@@ -145,6 +145,8 @@ export type ReplayViewerApi = {
    * at 은 IFC 좌표(층 바닥 높이). 부를 때마다 앞의 카드는 걷는다.
    */
   roomCards(cards: readonly { key: string; at: Vec3; title: string; before: number; after: number }[]): void
+  /** 3D 위 이름표·방 표시·소속 카드의 모양. 도면(무채색 가는 선) · 중계(갈래 색 그라데이션과 빛). 다음에 그리는 것부터. */
+  setReplayTheme(theme: 'plan' | 'show'): void
 }
 
 /**
@@ -190,6 +192,20 @@ export type ReplayFx = ReturnType<typeof createReplayFx>
 
 export function createReplayFx(host: ReplayHost) {
   const tint = new Color()
+  /** 3D 위 글 판의 모양(setReplayTheme). */
+  let theme: 'plan' | 'show' = 'plan'
+  const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`
+  /** 중계 모양의 판: 모서리를 깎은 다각형 길(왼쪽 위·오른쪽 아래를 c 만큼). */
+  const chamfer = (g: CanvasRenderingContext2D, w: number, h: number, c: number) => {
+    g.beginPath()
+    g.moveTo(c, 0)
+    g.lineTo(w, 0)
+    g.lineTo(w, h - c)
+    g.lineTo(w - c, h)
+    g.lineTo(0, h)
+    g.lineTo(0, c)
+    g.closePath()
+  }
 
   // --- 리플레이: 새로 생긴 것이 납작한 2D 발자국에서 3D 형체를 드러낸다(revealElements) ---
   // 벽·문·창, 설비, 공간 오브젝트가 대상이다. 처음 30% 는 바닥에 눌린 납작한 발자국이 비쳐 들고, 나머지에 위로 자라 제 높이를
@@ -745,20 +761,35 @@ export function createReplayFx(host: ReplayHost) {
     c.width = w
     c.height = 64
     g = c.getContext('2d')!
-    g.fillStyle = hot ? 'rgba(8, 10, 13, 0.86)' : 'rgba(8, 10, 13, 0.62)'
-    g.fillRect(0, 0, w, 64)
-    // 바뀐 방은 사방 가는 테두리로만 짚는다(한쪽 색 띠 없이).
-    if (hot) {
-      g.strokeStyle = 'rgba(232, 235, 239, 0.75)'
-      g.lineWidth = 2
-      g.strokeRect(1, 1, w - 2, 62)
+    if (theme === 'show') {
+      // 중계: 깎은 모서리, 바뀐 방은 따뜻한 그라데이션과 빛나는 테두리.
+      const grad = g.createLinearGradient(0, 0, w, 64)
+      grad.addColorStop(0, hot ? 'rgba(120, 60, 10, 0.92)' : 'rgba(14, 18, 28, 0.78)')
+      grad.addColorStop(1, hot ? 'rgba(30, 14, 4, 0.92)' : 'rgba(6, 8, 12, 0.78)')
+      chamfer(g, w, 64, 10)
+      g.fillStyle = grad
+      g.fill()
+      if (hot) {
+        g.strokeStyle = '#ffb46b'
+        g.lineWidth = 2
+        g.stroke()
+      }
+    } else {
+      g.fillStyle = hot ? 'rgba(8, 10, 13, 0.86)' : 'rgba(8, 10, 13, 0.62)'
+      g.fillRect(0, 0, w, 64)
+      // 바뀐 방은 사방 가는 테두리로만 짚는다(한쪽 색 띠 없이).
+      if (hot) {
+        g.strokeStyle = 'rgba(232, 235, 239, 0.75)'
+        g.lineWidth = 2
+        g.strokeRect(1, 1, w - 2, 62)
+      }
     }
     g.textBaseline = 'middle'
     g.font = tf
-    g.fillStyle = hot ? '#ffffff' : '#e8ebef'
+    g.fillStyle = hot ? (theme === 'show' ? '#ffe2bd' : '#ffffff') : '#e8ebef'
     g.fillText(title, 12, 22)
     g.font = sf
-    g.fillStyle = '#9aa3ae'
+    g.fillStyle = theme === 'show' && hot ? '#e8b98a' : '#9aa3ae'
     g.fillText(sub, 12, 47)
     const map = new CanvasTexture(c)
     map.colorSpace = SRGBColorSpace
@@ -957,13 +988,34 @@ export function createReplayFx(host: ReplayHost) {
     g = c.getContext('2d')!
     g.textBaseline = 'middle'
     // 빛기둥 위에서도 읽히게 반투명 검은 판을 깐다(자막 판). 색 막대·테두리는 두지 않는다.
-    g.fillStyle = 'rgba(8, 10, 13, 0.7)'
-    g.fillRect(0, 0, w, 60)
-    g.fillStyle = `#${color.toString(16).padStart(6, '0')}`
-    g.fillRect(pad, 24, 11, 11)
+    if (theme === 'show') {
+      // 중계: 깎은 모서리 판에 갈래 색 그라데이션, 같은 색 테두리. 번호는 갈래 색.
+      const grad = g.createLinearGradient(0, 0, w, 0)
+      grad.addColorStop(0, `${hex(color)}cc`)
+      grad.addColorStop(0.35, 'rgba(10, 12, 20, 0.9)')
+      grad.addColorStop(1, 'rgba(10, 12, 20, 0.82)')
+      chamfer(g, w, 60, 12)
+      g.fillStyle = grad
+      g.fill()
+      g.strokeStyle = hex(color)
+      g.lineWidth = 2
+      g.stroke()
+      g.fillStyle = '#ffffff'
+      g.beginPath()
+      g.moveTo(pad + 2, 22)
+      g.lineTo(pad + 12, 29.5)
+      g.lineTo(pad + 2, 37)
+      g.closePath()
+      g.fill()
+    } else {
+      g.fillStyle = 'rgba(8, 10, 13, 0.7)'
+      g.fillRect(0, 0, w, 60)
+      g.fillStyle = hex(color)
+      g.fillRect(pad, 24, 11, 11)
+    }
     if (num) {
       g.font = numFont
-      g.fillStyle = '#9aa3ae'
+      g.fillStyle = theme === 'show' ? '#ffffff' : '#9aa3ae'
       g.fillText(num, pad + sw, 29)
     }
     g.font = font
@@ -1369,7 +1421,7 @@ export function createReplayFx(host: ReplayHost) {
     const delta = after - before
     const sign = delta > 0 ? `+${delta}` : `−${-delta}`
     const parts: [string, string][] = settled
-      ? [['설비 ', '#c4c9d0'], [`${before}`, '#8b939c'], [' → ', '#8b939c'], [`${after}`, '#ffffff'], [`  ${sign}`, delta > 0 ? '#7bd88f' : '#f07178']]
+      ? [['설비 ', '#c4c9d0'], [`${before}`, '#8b939c'], [' → ', '#8b939c'], [`${after}`, '#ffffff'], [`  ${sign}`, theme === 'show' ? (delta > 0 ? '#3ef2a0' : '#ff4d6d') : delta > 0 ? '#7bd88f' : '#f07178']]
       : [['설비 ', '#c4c9d0'], [`${before}`, '#ffffff']]
     g.font = tf
     const tw = g.measureText(title).width
@@ -1380,11 +1432,24 @@ export function createReplayFx(host: ReplayHost) {
     c.width = w
     c.height = h
     g = c.getContext('2d')!
-    g.fillStyle = 'rgba(8, 10, 13, 0.88)'
-    g.fillRect(0, 0, w, h)
-    g.strokeStyle = 'rgba(232, 235, 239, 0.55)'
-    g.lineWidth = 2
-    g.strokeRect(1, 1, w - 2, h - 2)
+    if (theme === 'show') {
+      const accent = delta > 0 ? '#3ef2a0' : '#ff4d6d'
+      const grad = g.createLinearGradient(0, 0, w, h)
+      grad.addColorStop(0, delta > 0 ? 'rgba(10, 70, 48, 0.94)' : 'rgba(80, 12, 28, 0.94)')
+      grad.addColorStop(1, 'rgba(8, 10, 16, 0.94)')
+      chamfer(g, w, h, 14)
+      g.fillStyle = grad
+      g.fill()
+      g.strokeStyle = accent
+      g.lineWidth = 3
+      g.stroke()
+    } else {
+      g.fillStyle = 'rgba(8, 10, 13, 0.88)'
+      g.fillRect(0, 0, w, h)
+      g.strokeStyle = 'rgba(232, 235, 239, 0.55)'
+      g.lineWidth = 2
+      g.strokeRect(1, 1, w - 2, h - 2)
+    }
     g.textBaseline = 'middle'
     g.font = tf
     g.fillStyle = '#f4f6f8'
@@ -1652,6 +1717,10 @@ export function createReplayFx(host: ReplayHost) {
         }
       }
       host.invalidate()
+    },
+
+    setReplayTheme(t) {
+      theme = t
     },
 
     roomCards(cards) {

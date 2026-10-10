@@ -45,8 +45,10 @@ const props = defineProps<{
   highlights?: readonly number[] | null
   /** Esc 를 눌러 닫을지 묻는 중. */
   askClose?: boolean
+  /** 판 모양: plan(도면) · show(중계). */
+  theme?: 'plan' | 'show'
 }>()
-const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null]; record: []; diff: []; spread: []; highlights: []; stay: [] }>()
+const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null]; record: []; diff: []; spread: []; highlights: []; stay: []; theme: [] }>()
 
 const CAT_COLOR = CATEGORY_COLOR
 
@@ -148,6 +150,7 @@ const KEYS: [string, string][] = [
   ['D', '끝 화면에서 변경 지도(더함·고침·지움 색) 켜고 끄기'],
   ['E', '끝 화면에서 층 펼치기 — 고친 층 위를 들어 올려 들여다보기'],
   ['S', '요약 재생 — 바뀐 양이 큰 장면 몇 개만(갈래마다 하나 먼저) 처음부터'],
+  ['T', '판 모양 바꾸기 — 도면(가는 선) · 중계(색과 빛)'],
   ['?', '이 안내'],
   ['Esc', '닫기 — 한 번 묻는다(Enter 로 닫기). 편집한 상태로 돌아감'],
 ]
@@ -275,7 +278,7 @@ const summary = computed(() => {
 </script>
 
 <template>
-  <div class="replay-hud" :data-phase="phase" :data-at="at" :data-total="total" :data-ready="steps.length" :data-loop="loop ?? ''">
+  <div class="replay-hud" :data-phase="phase" :data-at="at" :data-total="total" :data-ready="steps.length" :data-loop="loop ?? ''" :data-theme="theme ?? 'plan'">
     <!-- 위아래 검은 띠(영화 화면비) -->
     <div class="lb top"></div>
     <div class="lb bottom"></div>
@@ -520,6 +523,10 @@ const summary = computed(() => {
           <template v-else-if="filter && phase !== 'done'"><button type="button" class="filter-chip" :style="{ '--c': CAT_COLOR[filter] }" title="거르기 풀기" @click="emit('filter', null)">{{ filter }}만 ✕</button> · 편집 {{ at }}/{{ total }}</template>
           <template v-else-if="comparing">편집 전 보는 중 · <kbd>B</kbd> 떼면 편집 후</template>
           <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }} · <kbd>B</kbd> 누르고 있으면 편집 전</template>
+        </span>
+        <span class="themes" role="group" aria-label="판 모양">
+          <button type="button" :aria-pressed="(theme ?? 'plan') === 'plan'" title="도면 — 무채색 가는 선 (T)" @click="(theme ?? 'plan') !== 'plan' && emit('theme')">도면</button>
+          <button type="button" :aria-pressed="theme === 'show'" title="중계 — 갈래 색과 빛 (T)" @click="theme !== 'show' && emit('theme')">중계</button>
         </span>
         <button type="button" class="help-btn" title="단축키 (?)" @click="help = !help">?</button>
         <button
@@ -1583,6 +1590,12 @@ button.sum-row.on span {
   gap: 2px;
   margin-left: 6px;
 }
+.themes {
+  display: inline-flex;
+  flex: none;
+  gap: 2px;
+}
+.themes button[aria-pressed='true'],
 .speeds button[aria-pressed='true'] {
   border-color: var(--ink);
   background: var(--ink);
@@ -1862,5 +1875,350 @@ button.sum-row.on span {
 /* 반복 중인 카드. 지난 장면 행(.card.old)의 테두리 규칙보다 뒤에 두어 밝은 테두리가 이긴다. */
 .replay-hud .card.looping {
   border-color: var(--ink);
+}
+
+/* ===== 중계 모양(data-theme='show', T 로 바꾼다) =====
+ * 스포츠·e스포츠 중계 그래픽처럼: 모서리를 깎은 판, 갈래 색 그라데이션, 시안→보라→분홍 띠, 새 카드를 훑는 빛.
+ * 도면 모양(위)의 규칙을 덮어쓰기만 한다 — 자리·크기는 그대로라 이름표 겹침 정리(declutter)·시간줄 끌기가 같다. */
+.replay-hud[data-theme='show'] {
+  --g: linear-gradient(90deg, #22d3ee, #a78bfa 55%, #f472b6);
+  --gv: linear-gradient(180deg, #22d3ee, #a78bfa 55%, #f472b6);
+  --panel: #0a0d16;
+  --line-2: rgba(167, 139, 250, 0.45);
+  --mint: #3ef2a0;
+  --pink: #ff4d6d;
+  --chg: #ffc14d;
+  --cut: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  --cut-s: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+  --para: polygon(7px 0, 100% 0, calc(100% - 7px) 100%, 0 100%);
+}
+/* 갈래 네모 대신 갈래 색을 칠한 비스듬한 꼬리표. */
+.replay-hud[data-theme='show'] .bug-cat::before,
+.replay-hud[data-theme='show'] .card .cat::before,
+.replay-hud[data-theme='show'] .scene-kicker span::before,
+.replay-hud[data-theme='show'] .card.old .idx::before {
+  display: none;
+}
+.replay-hud[data-theme='show'] .bug > span {
+  border-color: rgba(167, 139, 250, 0.55);
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.2), rgba(10, 13, 22, 0.92) 60%);
+  clip-path: var(--cut-s);
+}
+.replay-hud[data-theme='show'] .bug .bug-cat {
+  border: 0;
+  background: var(--c);
+  color: #06080d;
+  font-weight: 800;
+  clip-path: var(--para);
+  padding: 0 16px;
+}
+.replay-hud[data-theme='show'] .bug-count b {
+  background: var(--g);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 800;
+}
+.replay-hud[data-theme='show'] .compare {
+  border-color: var(--c);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--c) 45%, transparent);
+}
+.replay-hud[data-theme='show'] .rail {
+  border-color: rgba(167, 139, 250, 0.35);
+  background: linear-gradient(180deg, rgba(34, 211, 238, 0.08), rgba(8, 10, 16, 0.85));
+}
+.replay-hud[data-theme='show'] .rail-row.here::before {
+  height: 2px;
+  background: var(--g);
+  box-shadow: 0 0 8px #a78bfa;
+}
+.replay-hud[data-theme='show'] .impact {
+  border: 4px solid var(--c);
+  background: radial-gradient(ellipse at center, transparent 55%, color-mix(in srgb, var(--c) 26%, transparent));
+}
+
+/* 장면 제목: 갈래 색 꼬리표 둘, 굵은 그라데이션 글씨. */
+.replay-hud[data-theme='show'] .scene-kicker b,
+.replay-hud[data-theme='show'] .scene-kicker span {
+  padding: 3px 14px;
+  font-weight: 800;
+  text-shadow: none;
+  clip-path: var(--para);
+}
+.replay-hud[data-theme='show'] .scene-kicker b {
+  background: var(--c);
+  color: #06080d;
+}
+.replay-hud[data-theme='show'] .scene-kicker span {
+  margin-left: -2px;
+  background: #fff;
+  color: #06080d;
+}
+.replay-hud[data-theme='show'] .scene-title {
+  font-size: 48px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  text-shadow: none;
+  filter: drop-shadow(0 0 16px color-mix(in srgb, var(--c) 45%, transparent)) drop-shadow(0 2px 2px #000);
+}
+.replay-hud[data-theme='show'] .wd {
+  background: linear-gradient(180deg, #ffffff 45%, color-mix(in srgb, var(--c, #a78bfa) 55%, #ffffff));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.replay-hud[data-theme='show'] .wd.key {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 40%, #fff), var(--c));
+  -webkit-background-clip: text;
+  background-clip: text;
+  font-weight: 900;
+}
+
+/* 오프닝 */
+.replay-hud[data-theme='show'] .op-kicker {
+  padding: 4px 16px;
+  background: var(--g);
+  color: #06080d;
+  font-weight: 800;
+  clip-path: var(--para);
+}
+.replay-hud[data-theme='show'] .op-title {
+  font-size: 76px;
+  font-weight: 800;
+  background: linear-gradient(180deg, #ffffff 30%, #c4b5fd);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 22px rgba(167, 139, 250, 0.55));
+}
+/* 오프닝 제목의 낱말은 갈래가 없다 — 판 전체의 보라 그라데이션으로. */
+.replay-hud[data-theme='show'] .op-title .wd {
+  background: linear-gradient(180deg, #ffffff 30%, #c4b5fd);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+.replay-hud[data-theme='show'] .op-sub {
+  color: #e9e3ff;
+}
+.replay-hud[data-theme='show'] .op-sub b {
+  color: #22d3ee;
+}
+
+/* 끝 통계: 따로 선 깎은 타일, 그라데이션 숫자. */
+.replay-hud[data-theme='show'] .rp-stats {
+  gap: 8px;
+  border: 0;
+  background: none;
+}
+.replay-hud[data-theme='show'] .stat {
+  border: 0;
+  background: linear-gradient(160deg, rgba(167, 139, 250, 0.32), rgba(10, 13, 22, 0.94) 62%);
+  clip-path: var(--cut);
+}
+.replay-hud[data-theme='show'] .stat-n {
+  font-size: 48px;
+  font-weight: 800;
+  background: var(--g);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.replay-hud[data-theme='show'] .stat > span {
+  color: #c4b5fd;
+}
+
+/* 오른쪽 기둥 */
+.replay-hud[data-theme='show'] .rp-side {
+  border-left: 2px solid transparent;
+  border-image: var(--gv) 1;
+  background: radial-gradient(120% 60% at 100% 0%, rgba(167, 139, 250, 0.12), transparent 60%), var(--panel);
+}
+.replay-hud[data-theme='show'] .log-head {
+  padding: 6px 12px;
+  border: 0;
+  background: var(--g);
+  color: #06080d;
+  font-weight: 800;
+  clip-path: var(--para);
+}
+.replay-hud[data-theme='show'] .log-head b {
+  color: #06080d;
+  font-weight: 800;
+}
+.replay-hud[data-theme='show'] .next {
+  border: 1px solid var(--c);
+  background: repeating-linear-gradient(-45deg, color-mix(in srgb, var(--c) 20%, transparent) 0 8px, transparent 8px 16px) 0 0 / 200% 100%;
+  animation: stripes 1.2s linear infinite;
+  clip-path: var(--cut-s);
+}
+.replay-hud[data-theme='show'] .next-tag {
+  background: var(--c);
+  color: #06080d;
+  font-weight: 800;
+}
+.replay-hud[data-theme='show'] .next-arrow {
+  color: var(--c);
+}
+@keyframes stripes {
+  to {
+    background-position: 32px 0;
+  }
+}
+/* 기록 카드: 깎은 모서리, 갈래 색 그라데이션, 새로 들어올 때 빛이 한 번 훑는다. */
+.replay-hud[data-theme='show'] .card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--c) 70%, transparent);
+  background: linear-gradient(120deg, color-mix(in srgb, var(--c) 24%, #0d111c), #0d111c 58%);
+  clip-path: var(--cut);
+}
+.replay-hud[data-theme='show'] .card:not(.old)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.22) 50%, transparent 65%);
+  transform: translateX(-110%);
+  animation: shine 1100ms 250ms cubic-bezier(0.3, 0.6, 0.2, 1) both;
+  pointer-events: none;
+}
+@keyframes shine {
+  to {
+    transform: translateX(110%);
+  }
+}
+.replay-hud[data-theme='show'] .idx {
+  border-right: 0;
+  color: var(--c);
+  font-size: 22px;
+  font-weight: 800;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--c) 60%, transparent);
+}
+.replay-hud[data-theme='show'] .card .cat {
+  padding: 1px 10px;
+  background: var(--c);
+  color: #06080d;
+  font-weight: 800;
+  clip-path: var(--para);
+}
+.replay-hud[data-theme='show'] .card h3 {
+  font-weight: 800;
+}
+.replay-hud[data-theme='show'] .card.old {
+  border: 0;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--c) 28%, transparent), transparent 75%);
+  clip-path: var(--para);
+}
+.replay-hud[data-theme='show'] .card.old .idx {
+  color: var(--c);
+  font-size: 15px;
+  text-shadow: none;
+}
+.replay-hud[data-theme='show'] .card.old h3 {
+  color: #eef0ff;
+  font-weight: 600;
+}
+.replay-hud[data-theme='show'] .card.looping {
+  border-color: #fff;
+  box-shadow: inset 0 0 0 1px #fff;
+}
+.replay-hud[data-theme='show'] .line.query {
+  color: #ffd9a8;
+}
+/* GeoJSON 판(자식 부품): 갈래 색 그라데이션 테두리와 칠한 꼬리표. */
+.replay-hud[data-theme='show'] :deep(.replay-geo) {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(#0d111c, #0d111c) padding-box,
+    linear-gradient(135deg, var(--c), rgba(167, 139, 250, 0.35) 45%, transparent 80%) border-box;
+}
+.replay-hud[data-theme='show'] :deep(.geo-tag) {
+  border: 0;
+  background: var(--c);
+  color: #06080d;
+  font-weight: 800;
+  clip-path: var(--para);
+  padding: 3px 12px;
+}
+.replay-hud[data-theme='show'] :deep(.geo-tag)::before {
+  display: none;
+}
+
+/* 끝 요약 */
+.replay-hud[data-theme='show'] .hud-done {
+  border: 0;
+  background: linear-gradient(160deg, rgba(34, 211, 238, 0.14), rgba(10, 13, 22, 0.95) 38%, rgba(10, 13, 22, 0.95) 70%, rgba(244, 114, 182, 0.14));
+  clip-path: polygon(16px 0, 100% 0, 100% calc(100% - 16px), calc(100% - 16px) 100%, 0 100%, 0 16px);
+}
+.replay-hud[data-theme='show'] .done-head {
+  border: 0;
+  background: var(--g);
+  color: #06080d;
+  font-weight: 800;
+}
+.replay-hud[data-theme='show'] .done-head b {
+  color: #06080d;
+  font-weight: 800;
+}
+.replay-hud[data-theme='show'] .hud-done h2 {
+  font-weight: 800;
+}
+.replay-hud[data-theme='show'] .sum-row i {
+  height: 8px;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 5px) 100%, 0 100%);
+}
+.replay-hud[data-theme='show'] .hud-done .report {
+  border-color: rgba(167, 139, 250, 0.6);
+  clip-path: var(--cut-s);
+}
+.replay-hud[data-theme='show'] .hud-done .report.on {
+  border-color: transparent;
+  background: var(--g);
+  color: #06080d;
+  font-weight: 800;
+}
+
+/* 조작 막대 */
+.replay-hud[data-theme='show'] .hud-bar {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--panel), var(--panel)) padding-box,
+    var(--g) border-box;
+}
+.replay-hud[data-theme='show'] .track .fill {
+  background: var(--g);
+  box-shadow: 0 0 10px rgba(167, 139, 250, 0.7);
+}
+.replay-hud[data-theme='show'] .buttons button {
+  border-color: rgba(167, 139, 250, 0.45);
+}
+.replay-hud[data-theme='show'] .buttons .play,
+.replay-hud[data-theme='show'] .speeds button[aria-pressed='true'],
+.replay-hud[data-theme='show'] .themes button[aria-pressed='true'] {
+  border-color: transparent;
+  background: var(--g);
+  color: #06080d;
+  font-weight: 800;
+}
+.replay-hud[data-theme='show'] .tick-tip,
+.replay-hud[data-theme='show'] .hud-help,
+.replay-hud[data-theme='show'] .ask-close,
+.replay-hud[data-theme='show'] .diff-legend {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(rgba(10, 13, 22, 0.96), rgba(10, 13, 22, 0.96)) padding-box,
+    var(--g) border-box;
+}
+.replay-hud[data-theme='show'] .tick-tip .tt-cat {
+  color: var(--c);
+  font-weight: 700;
+}
+.replay-hud[data-theme='show'] .tick-tip .tt-cat::before {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .replay-hud[data-theme='show'] .card::after,
+  .replay-hud[data-theme='show'] .next {
+    animation: none;
+  }
 }
 </style>

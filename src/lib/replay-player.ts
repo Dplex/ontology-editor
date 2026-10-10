@@ -50,6 +50,20 @@ export function pausedInReplay<T>(fn: () => T) {
 const REPLAY_FROZEN = [true]
 export const replayMemo = () => (replayOpen.value ? REPLAY_FROZEN : [{}])
 
+/**
+ * 리플레이 화면의 판 모양. 도면: 무채색 가는 선(도면의 개정 이력표). 중계: 스포츠 중계 그래픽처럼 깎은 모서리·갈래 색
+ * 그라데이션·빛나는 테두리. 조작 막대의 단추나 T 로 바꾸고, 이 브라우저에 기억한다.
+ */
+export type ReplayTheme = 'plan' | 'show'
+const THEME_KEY = 'oe-replay-theme'
+function savedTheme(): ReplayTheme {
+  try {
+    return localStorage.getItem(THEME_KEY) === 'show' ? 'show' : 'plan'
+  } catch {
+    return 'plan'
+  }
+}
+
 /** n 프레임 기다린다. */
 export const frames = (n = 2) => new Promise<void>((r) => (n <= 1 ? requestAnimationFrame(() => r()) : requestAnimationFrame(() => void frames(n - 1).then(r))))
 
@@ -201,6 +215,7 @@ export function useReplay(host: ReplayPlayerHost) {
     // 극장 바탕이 어두워서 라이트 테마의 진한 화살표가 묻힌다.
     host.viewer.setDark(true)
     host.viewer.setCinema(true)
+    host.viewer.setReplayTheme(replayTheme.value)
     host.viewer.setDiorama(true)
     host.viewer.onSpotClick(replaySpotClick)
     selectedId.value = null
@@ -1090,6 +1105,16 @@ export function useReplay(host: ReplayPlayerHost) {
    * Esc 로 닫기 전에 묻는다. 실수로 누르면 보던 장면을 잃고 처음부터 다시 봐야 한다. 묻는 동안 Enter 는 닫고 Esc 는 계속 본다.
    * 조작 막대의 ✕ 닫기는 바로 닫는다(눌러서 고른 것이라). P 는 리플레이를 여는 키라 리플레이 안에서는 아무것도 하지 않는다.
    */
+  const replayTheme = ref<ReplayTheme>(savedTheme())
+  function replayToggleTheme() {
+    replayTheme.value = replayTheme.value === 'plan' ? 'show' : 'plan'
+    host.viewer?.setReplayTheme(replayTheme.value)
+    try {
+      localStorage.setItem(THEME_KEY, replayTheme.value)
+    } catch {
+      // 저장이 막힌 브라우저(사생활 창)면 이번만 바뀐다.
+    }
+  }
   const replayAskClose = ref(false)
   watch(replayOpen, (open) => !open && (replayAskClose.value = false))
   function replayKey(e: KeyboardEvent): boolean {
@@ -1108,6 +1133,7 @@ export function useReplay(host: ReplayPlayerHost) {
     else if (e.code === 'KeyD') replayToggleDiff()
     else if (e.code === 'KeyE') replayToggleSpread()
     else if (e.code === 'KeyS') void replayToggleHighlights()
+    else if (e.code === 'KeyT') replayToggleTheme()
     else if (e.code === 'KeyR') void replayRecord()
     else if (e.code === 'Space') replayToggle()
     else if (e.code === 'ArrowRight') void replayJump('next')
@@ -1146,6 +1172,7 @@ export function useReplay(host: ReplayPlayerHost) {
     diff: replayDiff.value,
     spread: replaySpreadable.value ? replaySpread.value : null,
     askClose: replayAskClose.value,
+    theme: replayTheme.value,
   }))
   // B 로 편집 전을 보는 중에 마우스로 다른 조작을 하면 먼저 편집 후로 돌린다 — 그대로 두면 그 조작이 이력을 옮긴 뒤 B 를 뗄 때
   // 다시 하기가 한 번 더 되어 한 칸 어긋났다(키는 B 를 누르는 동안 받지 않는다).
@@ -1168,6 +1195,7 @@ export function useReplay(host: ReplayPlayerHost) {
     spread: after(replayToggleSpread),
     highlights: after(replayToggleHighlights),
     stay: () => (replayAskClose.value = false),
+    theme: replayToggleTheme,
   }
 
   return { open: openReplay, close: closeReplay, key: replayKey, hud, hudOn }
