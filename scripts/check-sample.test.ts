@@ -2288,7 +2288,7 @@ describe.skipIf(![DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_FULL, DUPLEX_
 // PRD 부록 C 요구조건 S1~S8(OE-INT-09)을 실제 BIM 으로. 픽스처로 재는 묶음은 src/lib/requirements-s.test.ts 다. 여기서는
 // 픽스처에 없는 것 — 실제로 GUID 가 바뀐 판본(S1), 22자 IfcGlobalId(S2), BIM 이 말한 소속(S4), 벽·문·창의 3D(S7) — 을 잰다.
 describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every((f) => existsSync(f)))('요구조건 S (OE-INT-09, Duplex)', () => {
-  it('S1: 같은 Revit 으로 다시 낸 MEP-2(GUID 가 바뀐 설비 217대)에 MEP 에서 한 편집이 다시 얹힌다', async () => {
+  it('S1: 같은 Revit 으로 다시 낸 MEP-2(GUID 가 바뀐 설비 217대)에 MEP 에서 한 편집이 다시 얹힌다 [OE-HIST-03#2]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const load = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model

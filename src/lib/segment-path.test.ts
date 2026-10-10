@@ -22,7 +22,7 @@ const duct = (m: Model) => m.storeys[0].equipment.find((e) => e.name === 'DUCT-0
 const feature = (m: Model, id: string) => modelToGeoJSON(m).flatMap((f) => f.collection.features).find((f) => f.id === id)!
 
 describe('덕트·배관 경로 (OE-PIP-13)', () => {
-  it('형상이 없는 구간은 배치점이 있어도 경로를 만들지 않고, geometry 를 비우고 까닭을 적는다. 연결은 TTL 에 그대로다 [OE-PIP-13#2~,4]', () => {
+  it('형상이 없는 구간은 배치점이 있어도 경로를 만들지 않고, geometry 를 비우고 까닭을 적는다. 연결은 TTL 에 그대로다 [OE-PIP-13#2~,4] [OE-PIP-14#2~]', () => {
     const m = read()
     const d = duct(m)
     expect(d.position).not.toBeNull()
@@ -36,7 +36,7 @@ describe('덕트·배관 경로 (OE-PIP-13)', () => {
     expect(modelToTTL(m)).toBe(ttl)
   })
 
-  it('두 끝이 있으면 LineString 이고, 통째로 옮긴 양과 끝을 옮긴 양(endShift)이 더해진다. 원본의 (0,0,0) 은 유효한 좌표다 [OE-PIP-13#1,3]', () => {
+  it('두 끝이 있으면 LineString 이고, 통째로 옮긴 양과 끝을 옮긴 양(endShift)이 더해진다. 원본의 (0,0,0) 은 유효한 좌표다 [OE-PIP-13#1,3] [OE-PIP-14#1~]', () => {
     const m = read()
     const d = duct(m)
     // 축은 배치점에서 잰 상대 좌표다. 경로가 (0,0,0)~(6,0,0) 이 되게 둔다.

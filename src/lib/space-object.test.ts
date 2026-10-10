@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import {
   addCustomItem,
@@ -39,7 +41,7 @@ const made = (r: ReturnType<typeof addSpaceObject>): SpaceObject => {
 }
 
 describe('라이브러리(OE-SPC-16)', () => {
-  it('책상 여러 종류·의자·소파·책장·파티션·칠판·화분이 있고, 항목마다 기본 크기와 상자 안에 든 3D 조각이 있다', () => {
+  it('책상 여러 종류·의자·소파·책장·파티션·칠판·화분이 있고, 항목마다 기본 크기와 상자 안에 든 3D 조각이 있다 [OE-SPC-16#1]', () => {
     const names = LIBRARY.map((i) => i.name)
     for (const want of ['책상', '2인 책상', '회의 테이블', '의자', '소파', '책장', '파티션', '칠판', '화분']) expect(names).toContain(want)
     for (const item of LIBRARY) {
@@ -51,6 +53,11 @@ describe('라이브러리(OE-SPC-16)', () => {
       }
     }
     expect(new Set(LIBRARY.map((i) => i.key)).size).toBe(LIBRARY.length)
+    // 목록 문서(ADR-0016 "내장 항목 n개(…)")가 코드의 라이브러리와 같다
+    const adr = readFileSync(fileURLToPath(new URL('../../docs/adr/0016-space-objects-boxes-in-edit-file.md', import.meta.url)), 'utf8')
+    const listed = /내장 항목 (\d+)개\(([^)]+)\)/.exec(adr)!
+    expect(Number(listed[1])).toBe(LIBRARY.length)
+    expect(listed[2].split('·')).toEqual(names)
   })
 })
 

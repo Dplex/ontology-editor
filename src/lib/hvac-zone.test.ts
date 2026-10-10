@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
-import { baselineOf, createSpace, deleteSpace, diffBaseline, mergeSpaces, moveEquipment, renameSpace, restore, snapshotHvacZones, snapshotStoreySpaces, splitSpace } from './edit'
+import { addEquipment, baselineOf, createSpace, deleteSpace, diffBaseline, mergeSpaces, moveEquipment, renameSpace, restore, snapshotHvacZones, snapshotStoreySpaces, splitSpace } from './edit'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { splitByStorey } from './storey-drafts'
 import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, findHvacZone, flowSpacesOfEquipment, flowSpacesOfZones, hvacZonesOf, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './hvac-zone'
@@ -86,6 +86,25 @@ describe('수동 공조존 (OE-ZON-01·02)', () => {
     expect(hvacZonesOf(model)).toEqual([])
     restore(model, snap)
     expect(modelToTTL(model)).toBe(before)
+  })
+
+  it('담당 설비를 바꾸면 계통도의 서비스 영역(TTL 의 feeds·GeoJSON 의 servedBy)이 새 설비로 옮겨 가고, 되돌리면 돌아온다 [OE-ZON-04#2]', () => {
+    const ahu = equip('AHU-1').id
+    const zone = createZoneFromSpaces(model, { spaceIds: [office().id], servedBy: [ahu] })
+    if (!zone || 'refused' in zone) throw new Error('zone')
+    const fcu = addEquipment(model, model.storeys[0].id, { name: 'FCU-9', kind: 'fcu', position: [2, 2, 2.7] })!.id
+    const feeds = (id: string) => new RegExp(`brick:feeds [^;]*ex:${escapeLocalName(zone.id).replace(/[$\\]/g, '\\$&')}`).test(block(modelToTTL(model), id))
+    const servedBy = () => modelToGeoJSON(model)[0].collection.features.find((x) => x.id === zone.id)!.properties.servedBy
+    expect([feeds(ahu), feeds(fcu)]).toEqual([true, false])
+    const snap = snapshotHvacZones(model, model.storeys[0].id)!
+    expect(setZoneServedBy(model, zone.id, [fcu])).toBe(true)
+    expect([feeds(ahu), feeds(fcu)]).toEqual([false, true])
+    expect(servedBy()).toEqual([fcu])
+    // 둘이 같이 담당할 수도 있다
+    expect(setZoneServedBy(model, zone.id, [ahu, fcu])).toBe(true)
+    expect([feeds(ahu), feeds(fcu)]).toEqual([true, true])
+    restore(model, snap)
+    expect([feeds(ahu), feeds(fcu)]).toEqual([true, false])
   })
 
   it('편집 파일과 층별 조각을 거쳐도, GUID 가 바뀐 판본에서도 같은 공조존이 된다', () => {

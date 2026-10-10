@@ -49,8 +49,10 @@ test('완전성 검사의 위반마다 이유가 붙는다', async ({ page }) =>
   expect(errors).toEqual([])
 })
 
-test('경로를 쓸 수 없는 덕트·배관 구간이 완전성 검사에 까닭과 원본 GlobalId 로 보인다 (OE-PIP-13)', async ({ page }) => {
+test('경로를 쓸 수 없는 덕트·배관 구간은 관으로 그리지 않고 배치점의 표시 상자뿐이며, 완전성 검사에 까닭과 원본 GlobalId 로 보인다 (OE-PIP-13) [OE-PIP-14#2]', async ({ page }) => {
   const errors = await open(page)
+  // 배치점만 있는 덕트는 이웃 설비까지 틈을 메운 관이 아니라, "형상 없음" 을 뜻하는 0.4m 표시 상자 하나다.
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.size('0MEP$Duct$D01$00000'))).toEqual([0.4, 0.4, 0.4])
   const fold = page.getByRole('button', { name: /완전성 검사/ })
   if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
   // mep.ifc 의 DUCT-01 은 배치점은 있지만 형상이 없어 경로(두 끝)를 모른다.
