@@ -15,7 +15,7 @@ depends: ["R1"]
 # OE-BIM-02 층 생성
 
 ## 요구사항
-> User story : 구축 담당자가 BIM을 임포트하면 IfcBuildingStorey가 층으로 만들어지고 이름과 바닥 높이(Elevation)가 읽힌다. 층고는 Elevation 차로 계산되고 GrossHeight·NetHeight·COBie Storey Height가 있으면 함께 읽되, 값이 없으면 지어내지 않고 '모름'으로 표시한다. 이 층고가 설치면 판정(플레넘 구간)과 층 매핑의 기준이 되므로, 담당자는 '모름' 층을 먼저 확인해 천장 설비 분류가 틀어지지 않게 한다.
+> User story : 구축 담당자가 BIM을 임포트하면 건물의 각 층이 자동으로 생성되고 층 이름과 바닥 높이가 읽힌다. 층고는 층 바닥 높이의 차로 계산되며, BIM에 층 높이 속성이 있으면 함께 읽는다. 값이 없으면 지어내지 않고 '모름'으로 표시된다. 이 층 정보는 설비 설치면 판정과 층 매핑의 기준이 되므로, 사용자는 층 수가 BIM과 같은지, 층마다 바닥 높이가 있는지 확인하고 층고를 모르는 층을 먼저 점검해 천장 설비 분류가 틀어지지 않도록 할 수 있어야 한다.
 
 IfcBuildingStorey 를 층으로 만든다. 이름과 바닥 높이(Elevation)를 읽는다.
 층고는 Elevation 의 차로 계산하고, 층 높이 속성(GrossHeight·NetHeight, COBie Storey Height)이 있으면 함께 읽는다(glossary "천장 관련 높이"). 값이 없으면 지어내지 않는다.
