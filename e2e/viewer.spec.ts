@@ -197,3 +197,25 @@ test('사람이 그린 룸과 놓은 추가 공간 오브젝트가 GeoJSON 에 �
   await expect(page.locator('.checks li.bad')).toHaveCount(0)
   await page.locator('svg:has(path.shape.room)').screenshot({ path: info.outputPath('rooms-objects-viewer.png') })
 })
+
+test('챗봇의 [3D] 링크(?key=…&v=…&select=…)로 열면 서버의 그 반영본 TTL·GeoJSON 을 읽고 그 요소를 고른다 (ADR-0050)', async ({ page }, info) => {
+  const files = await exported(page, 'mep.ifc', (n) => info.outputPath(n))
+  const { readFileSync } = await import('node:fs')
+  const byName = new Map(files.map((f) => [f.split(/[\/]/).pop()!, f]))
+  const published = [...byName.keys()].map((n) => (n.endsWith('.geojson') ? `geojson/${n}` : n))
+  const asked: string[] = []
+  await page.route('**/__data/__layouts?**', (route) => {
+    const q = new URL(route.request().url()).searchParams
+    asked.push(q.toString())
+    expect(q.get('key')).toBe('현장/mep.ifc')
+    if (!q.get('file')) return route.fulfill({ json: { current: 3, versions: [{ version: 3, files: [...published, 'model.glb', 'edits.json'] }] } })
+    const f = byName.get(q.get('file')!.split('/').pop()!)
+    return f ? route.fulfill({ body: readFileSync(f) }) : route.fulfill({ status: 404 })
+  })
+  await page.goto(`/viewer.html?key=${encodeURIComponent('현장/mep.ifc')}&v=3&select=${encodeURIComponent('0MEP$Equip$AHU1$0000')}`)
+  await expect(page.getByTestId('published')).toHaveText('서버의 반영본 v3 · 현장/mep.ifc')
+  await expect(page.getByRole('complementary', { name: '고른 것' })).toContainText('AHU-1')
+  // GLB 는 &3d=1 일 때만 받는다(크다). edits.json 처럼 뷰어가 읽지 않는 것도 받지 않는다.
+  expect(asked.some((q) => q.includes('model.glb') || q.includes('edits.json'))).toBe(false)
+  await expect(page.locator('.checks li.bad')).toHaveCount(0)
+})
