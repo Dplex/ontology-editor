@@ -10,7 +10,8 @@
 // 동안은 여기서 미리보기만 그리고, 놓을 때 한 번만 알린다 — 끄는 내내 소속을 재판정하면 성수에서 느리다.
 //
 // 고른 것(설비·방·벽)은 부모가 들고 3D·오른쪽 패널과 같이 쓴다(OE-UI-11). 벽은 3D 처럼 편집 모드에서 [벽·문·창] 을
-// 켰을 때만 눌러 고른다 — 아니면 벽 위를 눌러도 밑의 방이 골라진다. 문·창은 평면도에 그리지 않는다.
+// 켰을 때만 눌러 고른다 — 아니면 벽 위를 눌러도 밑의 방이 골라진다. 문·창은 도면 기호로 그린다 — 벽을 그 폭만큼 비우고 문은 문틀
+// 두 선과 닫힌 문짝 선, 창은 유리 선이다. 여닫는 방향(호)은 BIM 에서 읽지 않아 그리지 않는다(틀린 방향을 그리지 않는다).
 //
 // 수직 관통 오브젝트(계단)의 이 층 조각은 방 위에 분홍으로 그리고, 진입 지점은 채운 원·종료 지점은 빈 원이다(OE-ML-05). 누르면 조각이
 // 골라지고(pickSpace 로 조각 id), 고른 조각을 다시 누르면 그 자리의 방이 골라진다. 끌어 옮기지 않는다.
@@ -256,6 +257,29 @@ function pickSpace(id: string) {
   emit('pickSpace', spaceId.value === id ? null : id)
 }
 
+/**
+ * 문·창 도면 기호. 자리·뚫는 방향을 알아야 그린다. 벽 두께 쪽 폭은 붙은 벽 외곽선에서 그 자리 둘레를 재고(문·창 형상의
+ * 두께는 문틀이나 여닫는 폭이라 벽과 다르다), 벽이 없으면 형상 두께다.
+ */
+const openings = computed(() =>
+  props.storey.openings.flatMap((o) => {
+    if (!o.position || !o.through) return []
+    const c: Vec2 = [o.position[0], o.position[1]]
+    const t = o.through
+    const d: Vec2 = [-t[1], t[0]]
+    // 사람이 놓은 문·창은 가로를 정하기 전까지 비어 있다 — 3D 와 같은 기본 크기(ADR-0009)로 그린다.
+    const half = (o.width ?? (o.kind === 'door' ? 0.9 : 1.0)) / 2
+    let [lo, hi] = [-(o.depth ?? 0.2) / 2, (o.depth ?? 0.2) / 2]
+    const wall = o.wallId ? props.storey.walls.find((w) => w.id === o.wallId) : undefined
+    const near = (wall?.footprint ?? []).flat().filter((p) => Math.abs((p[0] - c[0]) * d[0] + (p[1] - c[1]) * d[1]) <= half + 1)
+    const across = near.map((p) => (p[0] - c[0]) * t[0] + (p[1] - c[1]) * t[1]).filter((v) => Math.abs(v) <= 1)
+    if (across.length >= 2) [lo, hi] = [Math.min(...across), Math.max(...across)]
+    const at = (a: number, b: number): Vec2 => [c[0] + d[0] * a + t[0] * b, c[1] + d[1] * a + t[1] * b]
+    const mid = (lo + hi) / 2
+    return [{ o, rect: [at(-half, lo), at(half, lo), at(half, hi), at(-half, hi)], jambs: [[at(-half, lo), at(-half, hi)], [at(half, lo), at(half, hi)]] as [Vec2, Vec2][], leaf: [at(-half, mid), at(half, mid)] as [Vec2, Vec2] }]
+  }),
+)
+
 /** 이 층의 수직 관통 오브젝트 조각. 형상이 없는 끝 층 조각은 종료 지점만 있다. */
 const verticals = computed(() =>
   (props.storey.verticalParts ?? []).map((part) => ({ id: partId(part.parentId, props.storey.id), part, ring: part.footprint.length >= 3 ? part.footprint : null })),
@@ -309,6 +333,20 @@ function pickVertical(event: MouseEvent, id: string) {
           @click.stop="pickWalls && !moved && emit('pickElement', w.id)"
         />
       </template>
+    </g>
+    <g class="openings" data-testid="plan-openings">
+      <g
+        v-for="x in openings"
+        :key="x.o.id"
+        :class="[x.o.kind, { chosen: x.o.id === selectedElementId, pickable: pickWalls }]"
+        :data-opening="x.o.id"
+        @click.stop="pickWalls && !moved && emit('pickElement', x.o.id)"
+      >
+        <polygon class="gap" :points="points(x.rect)" :stroke-width="unit" />
+        <line v-for="(j, i) in x.jambs" :key="i" class="jamb" :x1="sx(j[0][0])" :y1="sy(j[0][1])" :x2="sx(j[1][0])" :y2="sy(j[1][1])" :stroke-width="unit * 1.5" />
+        <line class="leaf" :x1="sx(x.leaf[0][0])" :y1="sy(x.leaf[0][1])" :x2="sx(x.leaf[1][0])" :y2="sy(x.leaf[1][1])" :stroke-width="unit * (x.o.kind === 'door' ? 3 : 1.5)" />
+        <title>{{ x.o.name }}</title>
+      </g>
     </g>
     <g class="verticals" :class="{ inert: pickWalls }">
       <template v-for="v in verticals" :key="v.id">
