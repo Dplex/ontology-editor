@@ -15,6 +15,7 @@
     "e2e": "playwright test",
     "pree2e:serial": "npm run sync:wasm",
     "e2e:serial": "playwright test -c playwright.serial.config.ts",
+    "onto:bench": "node scripts/onto-bench.mjs",
     "pree2e:seongsu": "npm run sync:wasm",
     "e2e:seongsu": "playwright test -c playwright.seongsu.config.ts",
     "e2e:seongsu:publish": "playwright test -c playwright.publish-seongsu.config.ts",
