@@ -21,6 +21,8 @@ import { dimensionText, wallDimensions } from './lib/dimensions'
 import { familyHeight } from './lib/placement'
 import { facadeOf, moveFacade } from './lib/facade'
 import { customerReportHTML, generationReport, MISSING_LABEL, missingClass, sha256Hex, type ReportInput, type ReportSectionB } from './lib/build-report'
+import { issueList, issueSummary, issuesCSV } from './lib/issue-list'
+import { issuesToBCF } from './lib/export/bcf'
 import { checkCode, issueText, warningCode } from './lib/issue-code'
 import { setSegmentShaft, shaftCandidates, shaftDeviations, shaftOf } from './lib/shaft'
 import { ttlTriples } from './lib/export/read-export'
@@ -8377,6 +8379,24 @@ async function downloadCustomerReport() {
   markDone('customer-report')
   note(`${stem}-결과리포트.html 을 내려받았습니다. 재제출 항목(A·B)에 R 번호와 수정 방법이 붙어 있습니다`)
 }
+// BIM 필수 요구를 어긴 요소 목록(ADR-0051). 결과 리포트는 R 마다 개수까지라, 설계사가 원본에서 그 요소를 찾아 고치게 요소 단위로 낸다 —
+// CSV(엑셀)와 BCF(BIMcollab Zoom 무료판에서 IFC 와 같이 열면 그 요소가 골라진다). 결과 리포트와 같은 모델·판정 — 편집한 상태다.
+const issueItems = computed(() => (model.value ? issueList(model.value, currentRequirements.value, checks.value) : []))
+const issueRows = computed(() => issueSummary(issueItems.value))
+const reportStem = () => fileName.value.split(' + ').map((n) => n.replace(/\.[^.]+$/, '')).join('+') || 'model'
+function downloadIssuesCSV() {
+  const items = issueItems.value
+  download(`${reportStem()}-누락요소.csv`, issuesCSV(items), 'text/csv')
+  markDone('issues-csv')
+  note(`누락 요소 ${items.length}개를 CSV 로 내려받았습니다. 엑셀에서 R·분류로 거르면 고칠 요소가 GlobalId·Revit 요소 ID 와 함께 나옵니다`)
+}
+function downloadIssuesBCF() {
+  const items = issueItems.value
+  const bytes = issuesToBCF(items, { files: fileName.value.split(' + '), project: model.value?.buildingName || reportStem() })
+  download(`${reportStem()}-누락요소.bcf`, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer, 'application/octet-stream')
+  markDone('issues-bcf')
+  note(`누락 요소를 BCF 로 내려받았습니다. BIMcollab Zoom(무료)에서 IFC 와 같이 열거나, 설계사는 Revit·Navisworks 의 BCF Manager 플러그인으로 엽니다`)
+}
 const nextVersion = computed(() => Math.max(0, ...(layoutState.value?.versions.map((v) => v.version) ?? [])) + 1)
 const publishAsk = ref(false)
 const publishing = ref(false)
@@ -11044,6 +11064,25 @@ function rollbackFromReport() {
             <button type="button" class="ghost" :class="{ done: justDone === 'customer-report' }" @click="downloadCustomerReport">고객사 결과 리포트(HTML)</button>
             <span class="muted">고객사 리포트는 등급·요구사항 판정과 수정 방법·재제출(A·B)·보정(C) 항목을 담은 HTML 한 파일입니다.</span>
           </p>
+          <!-- 어긴 요소 목록(ADR-0051). 설계사가 원본 BIM 에서 그 요소를 찾아 고치게 요소마다 GlobalId·Revit 요소 ID 를 붙여 낸다. -->
+          <div class="issue-export" data-testid="issue-export">
+            <p class="report-actions">
+              <button type="button" class="ghost" :disabled="!issueItems.length" :class="{ done: justDone === 'issues-csv' }" @click="downloadIssuesCSV">누락 요소 목록(CSV)</button>
+              <button type="button" class="ghost" :disabled="!issueItems.length" :class="{ done: justDone === 'issues-bcf' }" @click="downloadIssuesBCF">누락 요소 BCF</button>
+              <span class="muted">요구사항·완전성 검사를 어긴 요소 {{ issueItems.length.toLocaleString() }}개. BCF 는 BIMcollab Zoom(무료)에서 IFC 와 같이 열면 R·층마다 그 요소가 골라집니다. 편집기에서 고친 것은 빠집니다.</span>
+            </p>
+            <table v-if="issueRows.length" class="issue-summary">
+              <thead><tr><th>R</th><th>분류</th><th>규칙</th><th>요소</th></tr></thead>
+              <tbody>
+                <tr v-for="row in issueRows" :key="row.r + row.cls + row.rule">
+                  <td>{{ row.r }}</td>
+                  <td>{{ MISSING_LABEL[row.cls] }}</td>
+                  <td>{{ row.rule }}</td>
+                  <td class="num">{{ row.count.toLocaleString() }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <ol v-if="generation" class="generation" data-testid="generation">
             <li v-for="sec in generation" :key="sec.no">
               <b>{{ sec.title }}</b>

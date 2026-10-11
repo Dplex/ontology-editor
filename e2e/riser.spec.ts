@@ -120,6 +120,9 @@ test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 �
   await bar.getByLabel('층 바닥에서 높이(m)').fill('0.3')
   await bar.getByLabel('층 바닥에서 높이(m)').press('Tab')
   await bar.getByTestId('riser-plumb').click()
+  // 화면 좌표로 누르므로 3D 가 화면 안에 있어야 한다(바쁜 PC 에서는 위 입력 뒤에 페이지가 내려가 있다, docs/dev/testing.md).
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
   const at = await viewer<{ x: number; y: number }>(page, 'point', [0.42, -13.4, 3.4])
   await page.mouse.click(at.x, at.y)
   await page.keyboard.press('Enter')
@@ -190,6 +193,9 @@ async function drawRiser(page: Page) {
   await bar.getByLabel('층 바닥에서 높이(m)').fill('0.3')
   await bar.getByLabel('층 바닥에서 높이(m)').press('Tab')
   await bar.getByTestId('riser-plumb').click()
+  // 화면 좌표로 누르므로 3D 가 화면 안에 있어야 한다(바쁜 PC 에서는 위 입력 뒤에 페이지가 내려가 있다, docs/dev/testing.md).
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
   const at = await viewer<{ x: number; y: number }>(page, 'point', [0.42, -13.4, 3.4])
   await page.mouse.click(at.x, at.y)
   await page.keyboard.press('Enter')
