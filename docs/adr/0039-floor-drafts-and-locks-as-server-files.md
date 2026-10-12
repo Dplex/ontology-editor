@@ -6,6 +6,10 @@ date: "2026-10-10"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-WF-01", "OE-WF-02", "OE-WF-03", "OE-WF-04", "OE-WF-05", "OE-COM-03", "OE-COM-05", "OE-COM-06", "OE-HIST-04", "OE-HIST-05"]
+criteria: []
+code: ["src/server/floor-state.ts", "src/server/data-catalog.ts", "src/App.vue"]
+tests: []
+related: ["ADR-0037", "ADR-0014"]
 supersedes: []
 superseded_by: ""
 ---

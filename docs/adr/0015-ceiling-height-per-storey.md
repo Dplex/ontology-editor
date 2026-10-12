@@ -6,6 +6,10 @@ date: "2026-10-07"
 deciders: []
 prd: []
 tickets: ["OE-EQP-03", "OE-OBJ-08", "OE-EQP-04"]
+criteria: []
+code: ["src/lib/ceiling.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

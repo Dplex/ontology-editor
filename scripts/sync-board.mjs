@@ -142,7 +142,12 @@ const withoutStory = (s) => (s ?? '').replace(STORY_LINE, '').trim()
 function specChanged(oldBase, t) {
   const before = sections(mdOf(oldBase))
   const after = sections(t.md)
-  return SPEC_SECTIONS.some((k) => withoutStory(before[k]) !== withoutStory(after[k]))
+  return SPEC_SECTIONS.some((k) => noAc(withoutStory(before[k])) !== noAc(withoutStory(after[k])))
+}
+
+/** 수용 기준 앞의 AC 번호(`- **AC3** …`)를 뗀 글. 번호만 붙인 것은 요구사항 변경이 아니다(ADR-0048) — `modified` 를 붙이지 않는다. */
+function noAc(s) {
+  return s.replace(/^- \*{0,2}AC\d+\*{0,2}[.:)]?\s+/gm, '- ')
 }
 
 const quote = (s) => s.split('\n').map((l) => (l ? `  > ${l}` : '  >')).join('\n')
@@ -168,7 +173,8 @@ function describeChanges(oldBase, t) {
       add(old === null ? `**${k}** User story 추가` : storyOf(after[k]) === null ? `**${k}** User story 삭제 — 이전 문구:\n${quote(old)}` : `**${k}** User story 수정 — 이전 문구:\n${quote(old)}`)
       continue
     }
-    if (before[k] === undefined) add(`**${k}** 절 추가`)
+    if (before[k] !== undefined && after[k] !== undefined && noAc(withoutStory(before[k])) === noAc(withoutStory(after[k]))) add(`**${k}** 에 AC 번호 붙임(문장은 그대로)`)
+    else if (before[k] === undefined) add(`**${k}** 절 추가`)
     else if (after[k] === undefined) add(`**${k}** 절 삭제`)
     else add(`**${k}** 수정 — 이전 문구:\n${quote(before[k] || '(비어 있음)')}`)
   }

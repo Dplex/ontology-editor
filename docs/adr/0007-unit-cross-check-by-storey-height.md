@@ -6,6 +6,10 @@ date: "2026-10-03"
 deciders: ["정희록"]
 prd: ["#6"]
 tickets: ["OE-BIM-11", "OE-BIM-19", "OE-BIM-17"]
+criteria: []
+code: ["src/lib/ifc/units.ts", "src/lib/unit-check.ts", "src/lib/merge.ts", "src/lib/versions.ts", "src/lib/requirements.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

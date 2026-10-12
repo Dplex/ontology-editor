@@ -31,13 +31,21 @@ function walk(dir: string, out: string[] = []): string[] {
 /** 다른 티켓의 기준을 그대로 쓰는 줄. "OE-EQP-05 의 수용 기준을 따른다", "OE-ZON-01 과 같다"(OE-MAN-05) 두 말투가 있다. */
 const DELEGATE = /^(OE-[A-Z0-9]+-\d+)\s*(?:의 수용 기준을 따른다|[과와] 같다)/
 
+const AC_LABEL = /^\*{0,2}AC(\d+)\*{0,2}[.:)]?\s+/
+
 /** 수용 기준 절을 기준 목록으로. 글머리표가 있으면 글머리표, 없으면 문단 줄. "—"·"… 결정 후 적는다" 처럼 기준이 아닌 줄은 뺀다. */
 export function parseCriteria(body: string): Criterion[] {
   const section = (lf('\n' + body).split('\n## 수용 기준\n')[1] ?? '').split(/\n## /)[0]
   const lines = section.split('\n').map((l) => l.trim()).filter(Boolean)
   const bullets = lines.filter((l) => l.startsWith('- '))
   const items = (bullets.length ? bullets.map((l) => l.slice(2).trim()) : lines).filter((l) => l !== '—' && !/결정 후 적는다\.?$/.test(l))
-  return items.map((text, i) => ({ index: i + 1, text, delegatedTo: DELEGATE.exec(text)?.[1] ?? null }))
+  // 기준 앞에 `AC3` 을 적었으면 그 번호다. 기준을 지우거나 끼워도 다른 기준의 번호(와 시험의 태그)가 밀리지 않는다(ADR-0048)
+  const labeled = items.some((l) => AC_LABEL.test(l))
+  return items.map((l, i) => {
+    const m = labeled ? AC_LABEL.exec(l) : null
+    const text = m ? l.slice(m[0].length) : l
+    return { index: m ? Number(m[1]) : i + 1, text, delegatedTo: DELEGATE.exec(text)?.[1] ?? null }
+  })
 }
 
 export function readTickets(root: string): Ticket[] {
@@ -112,8 +120,11 @@ export function danglingTags(tickets: readonly Ticket[], tags: readonly Tag[]): 
   for (const g of tags) {
     const t = byId.get(g.ticket)
     if (!t) out.push({ ...g, why: '없는 티켓' })
-    else if (g.index < 1 || g.index > t.criteria.length) out.push({ ...g, why: `수용 기준은 ${t.criteria.length}개다` })
-    else if (t.criteria[g.index - 1].delegatedTo) out.push({ ...g, why: `위임(${t.criteria[g.index - 1].delegatedTo})이라 그 티켓에 단다` })
+    else {
+      const c = t.criteria.find((k) => k.index === g.index)
+      if (!c) out.push({ ...g, why: `수용 기준 ${g.index} 이 없다(${t.criteria.map((k) => k.index).join('·') || '없음'})` })
+      else if (c.delegatedTo) out.push({ ...g, why: `위임(${c.delegatedTo})이라 그 티켓에 단다` })
+    }
   }
   return out
 }

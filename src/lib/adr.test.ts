@@ -1,6 +1,7 @@
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { readTickets } from '../../scripts/ac-coverage'
 
 // docs/adr/ 는 결정 하나가 파일 하나다(docs/adr/README.md). 55 의 문서 챗봇이 머리 필드와 목록으로 결정을 찾으니, 여기서 막는 것은
 // 기계로 가를 수 있는 어긋남이다. 결정끼리 내용이 엇갈리는지는 사람이 읽어야 한다 — 다만 한 ADR 이 다른 ADR 의 결정을 바꿨다고
@@ -10,8 +11,10 @@ import { describe, expect, it } from 'vitest'
 // 2. README 목록의 제목·상태가 파일 머리와 같다 — 목록은 머리를 베낀 것이다
 // 3. tickets 가 실제 티켓이다
 // 4. 대체 관계가 양쪽에 다 적혀 있고, 본문에서 "바꿨다·바뀌었다" 로 말한 ADR 은 머리에도 있다
+// 5. criteria 가 있는 수용 기준이고, code·tests 가 있는 파일이며, related 가 있는 ADR 이다
 
 const dir = (rel: string) => fileURLToPath(new URL(rel, import.meta.url))
+const ROOT = dir('../../')
 const ADR = dir('../../docs/adr/')
 const FEATURES = dir('../../docs/prd/features/')
 const lf = (s: string) => s.replace(/\r\n/g, '\n')
@@ -66,6 +69,52 @@ describe('ADR 파일', () => {
 
   it('tickets 가 실제 티켓이다', () => {
     for (const a of adrs) for (const t of a.fm.tickets as string[]) expect(tickets.has(t), `${a.file} 의 ${t}`).toBe(true)
+  })
+})
+
+// 5. 개발하는 LLM 이 ADR 에서 기준·코드·시험으로 바로 가게 하는 칸(ADR-0048). 파일을 옮기거나 PM 이 기준을 지우면 여기서 걸린다.
+describe('ADR 이 가리키는 기준·코드·시험', () => {
+  const criteria = new Map(readTickets(ROOT).map((t) => [t.id, new Set(t.criteria.map((c) => c.index))]))
+  const byNum = new Set(adrs.map((a) => a.num))
+
+  it('criteria · code · tests · related 칸이 다 있다(없으면 [])', () => {
+    for (const a of adrs) for (const k of ['criteria', 'code', 'tests', 'related']) expect(Array.isArray(a.fm[k]), `${a.file} 의 ${k}`).toBe(true)
+  })
+
+  it('criteria 는 tickets 에 든 티켓의 있는 수용 기준이다', () => {
+    for (const a of adrs) {
+      for (const c of a.fm.criteria as string[]) {
+        const m = /^(OE-[A-Z0-9]+-\d+)#(\d+)$/.exec(c)
+        expect(m, `${a.file} 의 criteria "${c}" 는 "OE-XXX-nn#n" 꼴`).toBeTruthy()
+        expect(a.fm.tickets, `${a.file}: ${c} 의 티켓이 tickets 에 없다`).toContain(m![1])
+        expect(criteria.get(m![1])?.has(Number(m![2])), `${a.file}: ${c} — 그 티켓에 그 번호의 수용 기준이 없다`).toBe(true)
+      }
+    }
+  })
+
+  it('code · tests 는 있는 파일이고, tests 는 시험 파일 · code 는 시험이 아닌 파일이다', () => {
+    const isTest = (f: string) => /\.(test|spec)\.ts$/.test(f)
+    for (const a of adrs) {
+      for (const f of a.fm.code as string[]) {
+        expect(existsSync(ROOT + f), `${a.file} 의 code ${f} 가 없다`).toBe(true)
+        expect(isTest(f), `${a.file} 의 code ${f} 는 tests 로`).toBe(false)
+      }
+      for (const f of a.fm.tests as string[]) {
+        expect(existsSync(ROOT + f), `${a.file} 의 tests ${f} 가 없다`).toBe(true)
+        expect(isTest(f), `${a.file} 의 tests ${f} 는 시험 파일이 아니다`).toBe(true)
+      }
+    }
+  })
+
+  it('related 는 있는 다른 ADR 이고 대체 관계와 겹치지 않는다', () => {
+    for (const a of adrs) {
+      const sup = new Set([...(a.fm.supersedes as string[]).map(refNum), refNum(a.fm.superseded_by as string)])
+      for (const r of a.fm.related as string[]) {
+        const n = refNum(r)
+        expect(n && byNum.has(n) && n !== a.num, `${a.file} 의 related ${r}`).toBe(true)
+        expect(sup.has(n), `${a.file} 의 related ${r} 는 supersedes·superseded_by 에 이미 있다`).toBe(false)
+      }
+    }
   })
 })
 

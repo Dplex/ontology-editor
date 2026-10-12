@@ -6,6 +6,10 @@ date: "2026-10-03"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-EXT-01", "OE-OBJ-04"]
+criteria: []
+code: ["src/lib/exterior.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

@@ -6,6 +6,10 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: ["D10"]
 tickets: ["OE-ML-19", "OE-EQP-16", "OE-ML-01", "OE-ML-02", "OE-ML-03", "OE-ML-05", "OE-ML-10", "OE-ML-15", "OE-WF-03", "OE-COM-05", "OE-OBJ-14"]
+criteria: []
+code: ["src/lib/vertical.ts", "src/lib/export/geojson.ts"]
+tests: []
+related: ["ADR-0014", "ADR-0008"]
 supersedes: []
 superseded_by: ""
 ---

@@ -6,6 +6,10 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-ML-13", "OE-PIP-15", "OE-PIP-11", "OE-PIP-06", "OE-PIP-10"]
+criteria: []
+code: ["src/lib/branch-pipe.ts", "src/App.vue"]
+tests: []
+related: ["ADR-0029", "ADR-0031"]
 supersedes: []
 superseded_by: ""
 ---

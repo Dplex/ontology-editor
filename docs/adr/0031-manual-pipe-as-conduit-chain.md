@@ -6,6 +6,10 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: ["K4", "K14"]
 tickets: ["OE-PIP-11", "OE-OBJ-12", "OE-PIP-10", "OE-PIP-12", "OE-PIP-13"]
+criteria: []
+code: ["src/lib/flow-type.ts", "src/lib/manual-pipe.ts", "src/App.vue"]
+tests: []
+related: ["ADR-0029", "ADR-0030"]
 supersedes: []
 superseded_by: "ADR-0035 (한 층 안에서만 그린다는 한 줄만)"
 ---

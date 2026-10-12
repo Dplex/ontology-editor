@@ -5,6 +5,10 @@ status: "제안"
 date: "2026-10-03"
 prd: ["1.7"]
 tickets: ["OE-INT-09", "OE-INT-03"]
+criteria: []
+code: ["src/lib/export/mesh3d.ts", "src/lib/ifc/import.ts", "src/lib/export/read-3d.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

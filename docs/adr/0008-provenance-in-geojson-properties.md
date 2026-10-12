@@ -5,6 +5,10 @@ status: "제안"
 date: "2026-10-03"
 prd: []
 tickets: ["OE-INT-09", "OE-INT-07"]
+criteria: []
+code: ["src/components/Src.vue", "src/lib/export/geojson.ts"]
+tests: ["src/lib/requirements-s.test.ts"]
+related: ["ADR-0002"]
 supersedes: []
 superseded_by: ""
 ---

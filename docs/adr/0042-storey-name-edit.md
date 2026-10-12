@@ -6,6 +6,10 @@ date: "2026-10-10"
 deciders: ["정희록"]
 prd: ["D1"]
 tickets: ["OE-REQ-04", "OE-BIM-21", "OE-GEN-02"]
+criteria: []
+code: ["src/lib/storey-name.ts", "src/App.vue"]
+tests: []
+related: ["ADR-0040"]
 supersedes: []
 superseded_by: ""
 ---

@@ -6,6 +6,10 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-MAN-03"]
+criteria: []
+code: ["src/lib/ifc/units.ts", "src/lib/outline-fill.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

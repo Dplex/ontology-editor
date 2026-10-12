@@ -10,7 +10,7 @@
 import { createInterface } from 'node:readline'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { KINDS, findDoc, freshIndex, links, map, read, search } from './docs-index.mjs'
+import { KINDS, context, define, freshIndex, links, map, read, search } from './docs-index.mjs'
 
 const ROOT = resolve(process.env.DOCS_ROOT || resolve(dirname(fileURLToPath(import.meta.url)), '..'))
 const VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
@@ -18,7 +18,7 @@ const VERSIONS = ['2025-06-18', '2025-03-26', '2024-11-05']
 const INSTRUCTIONS = `ontology-editor(BIM → DT 공간 온톨로지 PoC) repo 의 문서를 읽는 도구다. 고치는 도구는 없다.
 - 처음이면 docs_map 으로 무엇이 있는지 본다.
 - 질문은 docs_search 로 찾고, 걸린 절을 docs_read(path, section) 로 읽어 근거를 확인한 뒤 답한다. 검색 snippet 만으로 답하지 않는다.
-- OE-XXX-nn(티켓), ADR-nnnn, D10·Q3(PRD 결정·오픈 이슈)는 docs_ticket·docs_links 로 정의와 언급처를 같이 본다.
+- OE-XXX-nn(티켓), ADR-nnnn, R11·K3·D10·Q3·F9·E1 같은 번호는 먼저 docs_ticket 한 번 — 정의(표의 그 줄)·관련 ADR·시험·코드가 같이 온다. 본문에서 언급한 곳까지 필요하면 docs_links.
 - 문서 종류: adr(왜 그렇게 만들었나), ticket(기능 요구·수용 기준·검증), prd(PRD_011 본문·열린 결정 questions.md·용어집), intent(바꾸면 안 되는 설계 의도), doc(작업 규칙 CLAUDE.md·docs/dev/ — IFC 함정, 테스트, 배포, 칸반).`
 
 let index = null
@@ -57,18 +57,20 @@ const TOOLS = [
       },
       required: ['path'],
     },
-    run: a => read(idx(), a.path, a.section, Math.min(20000, Math.max(500, Number(a.max_chars) || 6000))) ?? { error: `${a.path} 는 색인에 없다. docs_search 로 찾는다` },
+    run: a => {
+      const i = idx()
+      const doc = read(i, a.path, a.section, Math.min(20000, Math.max(500, Number(a.max_chars) || 6000)))
+      if (doc) return doc
+      // R11 · K3 · D10 처럼 문서가 아니라 표의 한 줄로 정의된 번호
+      const defs = define(i, a.path)
+      return defs.length ? { ref: a.path, defs } : { error: `${a.path} 는 색인에 없다. docs_search 로 찾는다` }
+    },
   },
   {
     name: 'docs_ticket',
-    description: '티켓(OE-XXX-nn)이나 ADR(ADR-nnnn) 하나를 통째로: frontmatter(상태·의존·막힘), 본문, 그리고 다른 문서에서 이것을 언급한 곳.',
+    description: '티켓(OE-XXX-nn) · ADR(ADR-nnnn) · 번호(R11·K3·D10·F9·E1) 하나의 맥락을 한 번에. 티켓이면 요구사항, 수용 기준마다 그것을 재는 시험, depends 가 가리키는 것의 제목·정의 줄, 이 티켓을 다룬 ADR, 이 ID 를 적은 코드, 이 티켓을 depends 로 가리키는 티켓. ADR 이면 본문·티켓 제목·코드. 번호면 정의된 표 줄과 쓰는 티켓·ADR.',
     inputSchema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
-    run: a => {
-      const i = idx()
-      const doc = findDoc(i, a.id)
-      if (!doc) return { error: `${a.id} 가 없다. docs_search 로 찾는다` }
-      return { ...read(i, doc.path, undefined, 12000), mentioned_in: links(i, doc.id, 40) }
-    },
+    run: a => context(idx(), String(a.id || '').trim()) ?? { error: `${a.id} 가 없다. docs_search 로 찾는다` },
   },
   {
     name: 'docs_links',

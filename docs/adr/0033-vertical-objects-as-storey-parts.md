@@ -6,6 +6,10 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-ML-02", "OE-OBJ-14", "OE-ML-19", "OE-ML-04", "OE-EQP-16"]
+criteria: []
+code: ["src/lib/ifc/import.ts", "src/lib/vertical.ts"]
+tests: []
+related: ["ADR-0034", "ADR-0032", "ADR-0008", "ADR-0014"]
 supersedes: []
 superseded_by: ""
 ---

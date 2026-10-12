@@ -36,6 +36,10 @@ date: "2026-10-02"
 deciders: ["정희록"]
 prd: ["D10"]            # 관련 PRD 결정·오픈 이슈 (D##, Q##)
 tickets: ["OE-COM-04"]  # 관련 티켓
+criteria: ["OE-COM-04#2"]   # 이 결정이 답하는 수용 기준(티켓#번호). 번호는 시험 태그와 같게 센다 — 없으면 []
+code: ["scripts/docs-mcp.mjs"]   # 이 결정을 바꾸려면 열어 볼 파일(시험 제외)
+tests: ["scripts/docs-mcp.test.ts"]   # 이 결정을 지키는 시험
+related: []             # 대체는 아니지만 같이 읽어야 하는 ADR
 supersedes: []          # 이 결정이 대체한 ADR
 superseded_by: ""       # 이 결정을 대체한 ADR
 ---
@@ -57,7 +61,11 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 
 - 결정이 바뀌면 고치지 말고 새 ADR 을 쓰고 옛 것의 `status` 를 `대체됨`, `superseded_by` 를 새 번호로 둔다.
   그때 맞던 이유가 남아야 "왜 바꿨나" 에 답할 수 있다.
-- 본문에서 티켓은 `OE-XXX-nn`, PRD 결정은 `D10`, 다른 ADR 은 `ADR-0001` 로 적는다. 챗봇의 `docs_links` 가 이 꼴로 잇는다.
+- 본문에서 티켓은 `OE-XXX-nn`, 수용 기준은 `OE-XXX-nn#3`, PRD 결정은 `D10`, 다른 ADR 은 `ADR-0001` 로 적는다. 챗봇의 `docs_links` 가 이 꼴로 잇는다.
+- **criteria · code · tests · related 는 개발하는 LLM 이 ADR 에서 바로 기준·코드·시험으로 가는 길이다(ADR-0048).** 티켓 md 는 PM 몫이라
+  "관련 ADR" 을 적지 않는다 — `npm run ctx -- OE-XXX-nn`(챗봇은 `docs_ticket`)이 ADR 의 `tickets`·`criteria` 를 거꾸로 읽어 티켓 쪽에
+  보인다. 그래서 이 칸이 빠지면 티켓에서 이 ADR 이 안 보인다. 본문에 적은 파일·기준과 같게 두고, 파일을 옮기면 같이 고친다
+  (`adr.test.ts` 가 없는 파일·없는 기준을 잡는다). 결정을 구현한 커밋에서 시험 제목에 단 태그(`[OE-XXX-nn#n]`)와 `criteria` 가 맞으면 된다.
 
 ## 목록
 
@@ -110,3 +118,4 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | [0045](0045-cross-storey-segment-lock.md) | 층 편집 화면은 다른 층으로 들어간 덕트·배관 구간(위층 바닥 5cm 초과 · 자기 층 바닥 아래 30cm 초과)을 잠그고, 그 구간을 늘이게 되는 옮기기를 막는다 | 제안 |
 | [0046](0046-merge-offset-estimate.md) | 합칠 때 좌표계 어긋남은 같은 층·같은 방 번호 쌍의 중심점으로 회전·이동을 재어 경고에 적고, 쌍이 모자라면 범위 중심 차만 적는다 | 제안 |
 | [0047](0047-segment-shaft-membership.md) | 덕트·배관 구간의 샤프트 소속은 사람이 정하고(두 끝이 축 안일 때만), 구간에 샤프트 id 만 적어 샤프트를 지우면 소속만 효력을 잃는다 | 제안 |
+| [0048](0048-ticket-context-and-adr-links.md) | 티켓에서 ADR·시험·코드·번호 정의로 가는 길은 티켓 md 에 적지 않고 ADR 머리와 시험 태그에서 거꾸로 뽑아 ctx 한 번으로 보이며, 수용 기준은 AC 번호를 쓸 수 있게 한다 | 제안 |

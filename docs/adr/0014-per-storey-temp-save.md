@@ -6,6 +6,10 @@ date: "2026-10-07"
 deciders: []
 prd: []
 tickets: ["OE-COM-08", "OE-WF-01", "OE-WF-02", "OE-WF-03", "OE-HIST-04"]
+criteria: []
+code: ["src/lib/edit-file.ts", "src/lib/storey-drafts.ts", "src/App.vue"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

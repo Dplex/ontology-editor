@@ -6,6 +6,10 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: ["K14"]
 tickets: ["OE-PIP-10", "OE-PIP-12", "OE-PIP-01", "OE-PIP-11"]
+criteria: []
+code: ["src/lib/edit.ts", "src/App.vue"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

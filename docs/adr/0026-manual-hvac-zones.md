@@ -6,6 +6,10 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: ["S3", "Q16"]
 tickets: ["OE-ZON-01", "OE-ZON-02", "OE-MAN-05", "OE-OBJ-13", "OE-MAP-02", "OE-MAP-03"]
+criteria: []
+code: ["src/lib/hvac-zone.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

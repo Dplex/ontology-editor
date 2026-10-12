@@ -6,6 +6,10 @@ date: "2026-10-07"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-UI-14"]
+criteria: []
+code: ["src/lib/viewer.ts", "src/viewer/Scene3D.vue"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---

@@ -5,6 +5,10 @@ status: "채택"
 date: "2026-10-03"
 prd: ["#7", "#8"]
 tickets: ["OE-GEN-11", "OE-MAN-06"]
+criteria: []
+code: ["src/lib/export/storey-export.ts", "src/lib/export/ttl.ts"]
+tests: []
+related: []
 supersedes: []
 superseded_by: ""
 ---
