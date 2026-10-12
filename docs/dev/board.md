@@ -21,8 +21,12 @@ PR 본문에 `Closes #n` 을 넣어 연다. 그다음은 `.github/workflows/kanb
 | PR merge | Done(이슈는 `Closes #n` 으로 닫힌다) |
 | PR 을 merge 없이 Close | 이슈에 `rejected` 붙이고 In Progress |
 | 누가 이슈에 `rejected` 를 붙임 | In Progress |
-| 이슈에 `modified` 가 붙음 | In Review 면 In Progress 로 돌리고 코멘트. **Done 이면 그대로 두고 후속 이슈 `[후속 #n] …` 를 Todo 로 만든다** |
+| 이슈에 `modified` 가 붙음 | In Review 면 In Progress 로 돌린다. **Done 이면 그대로 두고 후속 이슈 `[후속 #n] …` 를 Todo 로 만든다**. 코멘트는 달지 않는다(라벨과 카드가 알린다) |
 | 후속 이슈를 Closes 하는 PR 이 merge | 원 이슈의 `modified` 를 뗀다 |
+
+PR 을 다른 PR 브랜치 위에 쌓았으면, 아래 PR 을 merge 하기 **전에** 위 PR 의 대상을 main 으로 바꾸고 merge 한 뒤 브랜치를 지운다.
+이 GitHub 는 대상 브랜치가 지워지면 위 PR 을 main 으로 옮기지 않고 닫아 버린다(2026-10-12 #423). 닫히면 kanban.yml 이 이슈에
+`rejected` 를 붙인다.
 
 카드는 PR 본문의 `Closes`·`Fixes`·`Resolves #n` 으로만 찾는다 — 빠뜨리면 카드가 안 움직인다. 아직 검토받을 게 아니면 draft 로 연다.
 **merge 는 사람이 확인한 뒤에만 한다**(그게 곧 Done 이다). 토큰은 저장소 시크릿 `PROJECT_TOKEN`(희록님 gh 토큰 사본)이라
