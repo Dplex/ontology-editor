@@ -86,7 +86,7 @@ test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비�
   expect(errors).toEqual([])
 })
 
-test('계통 없는 토출구는 패널과 검토 화면에 경고하고, 담당 공조기를 흐름으로 보인다 (OE-EQP-10)', async ({ page }) => {
+test('계통 없는 토출구는 패널과 검토 화면에 경고하고, 담당 공조기를 흐름으로 보인다 [OE-EQP-10#1]', async ({ page }) => {
   const errors = await open(page)
   await enterCeiling(page)
   const row = page.locator('.equipment tbody tr', { hasText: 'AT-101-01' })

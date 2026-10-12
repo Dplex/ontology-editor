@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 // M_Pendant Light 패밀리는 8대다. 조명은 천장 설비라 천장 편집 모드에서 고친다(OE-OBJ-08).
 const DUPLEX = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc'
 
-test('[이 설비만] 을 켜고 종류를 고르면 그 설비만 바뀌고 같은 패밀리의 다른 설비는 그대로다', async ({ page }) => {
+test('[이 설비만] 을 켜고 종류를 고르면 그 설비만 바뀌고 같은 패밀리의 다른 설비는 그대로다 [OE-EQP-14#3]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []

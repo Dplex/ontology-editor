@@ -1700,6 +1700,7 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     const guess = evaluateSuggestions(model)
     // 엘리베이터(이름 사전, 2026-10-03)가 종류를 아는 패밀리로 더해져 14 → 15.
     expect(guess.families).toBe(15)
+    // [OE-EQP-14#1~] 병원은 15 중 10(67%). 기준은 성수에서 69~85% 이상이라 성수 PC 에서 잰다.
     expect(guess.top3).toBeGreaterThanOrEqual(10)
     // 층 사이 연결. 계단실·승강로 7개 중 6개가 위·아래층과 이어진다(vertical.ts).
     expect(verticalLinks(model).size).toBe(6)

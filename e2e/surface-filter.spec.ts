@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 // 미정 설비는 패널에서 설치면을 정한다(편집, 되돌리기에 쌓인다). Duplex MEP(gitignore, 벽 없음 · 반자 2.6m)로 본다.
 const DUPLEX = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc'
 
-test('설치면 필터는 판정 기준이고, 미정 설비에 설치면을 정하면 그 면 목록으로 옮겨 가며 되돌리면 돌아온다', async ({ page }) => {
+test('설치면 필터는 판정 기준이고, 미정 설비에 설치면을 정하면 그 면 목록으로 옮겨 가며 되돌리면 돌아온다 [OE-EQP-05#1,2]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []

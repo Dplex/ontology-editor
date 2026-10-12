@@ -26,7 +26,7 @@ async function open(page: Page, file = MEP) {
   return errors
 }
 
-test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장 모드에서 천장고를 넣은 뒤 x·y 로 옮긴다', async ({ page }) => {
+test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장 모드에서 천장고를 넣은 뒤 x·y 로 옮긴다 [OE-EQP-02#6] [OE-EQP-04#2,3] [OE-EQP-04#1~]', async ({ page }) => {
   const errors = await open(page)
   // 바닥·벽 쪽: 디퓨저는 잠겨 있다
   await pick(page, 'AT-101-01')

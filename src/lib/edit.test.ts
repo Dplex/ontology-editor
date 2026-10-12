@@ -142,7 +142,7 @@ describe('미배치 설비 배치 (E6)', () => {
     expect(change.summary).toContain('(소속 없음) 에서 사무실 로 바뀝니다')
   })
 
-  it('미배치 목록은 좌표 없는 설비와 그 층이고, 놓으면 빠지고 되돌리면 돌아온다', () => {
+  it('미배치 목록은 좌표 없는 설비와 그 층이고, 놓으면 빠지고 되돌리면 돌아온다 [OE-EQP-02#1] [OE-EQP-02#5~]', () => {
     // OE-BIM-07 수용 기준 "좌표 없는 설비는 미배치 목록". 층은 BIM 이 말한 것이라 어느 바닥에 놓을지 안다.
     const listed = () => unplacedOf(model).map((u) => `${u.equipment.name}@${u.storey.name}`)
     expect(listed()).toEqual(['TEMP-101-01@1F'])
@@ -160,7 +160,7 @@ describe('미배치 설비 배치 (E6)', () => {
     expect(listed()).toEqual(['TEMP-101-01@1F', '새 센서@1F'])
   })
 
-  it('미배치 설비는 TTL 에 층까지만, GeoJSON 에 형상 없이 나간다', () => {
+  it('미배치 설비는 TTL 에 층까지만, GeoJSON 에 형상 없이 나간다 [OE-EQP-02#1]', () => {
     // 3D 에 없다고 온톨로지에서 빠지지 않는다. 위치는 아는 데(층)까지만 쓰고 지어내지 않는다.
     const sensor = equip('TEMP-101-01')
     const ttl = modelToTTL(model)
@@ -582,7 +582,7 @@ describe('타입 단위 종류 지정', () => {
     expect(kindEdits(model)).toEqual([{ typeKey: 'AirTerminal|M_Return Register:600', count: 2, from: 'air_diffuser', to: 'air_grille' }])
   })
 
-  it('Revit 이름의 패밀리:유형으로 묶고, 유형 이름만 같은 다른 패밀리는 묶지 않는다', () => {
+  it('Revit 이름의 패밀리:유형으로 묶고, 유형 이름만 같은 다른 패밀리는 묶지 않는다 [OE-EQP-14#2]', () => {
     // Revit 2011 은 ObjectType 에 유형 이름만 적는다. ObjectType 으로만 묶으면 VAV 와 배관 부속이 한 묶음이 된다.
     const vav = { ...equip('AT-101-01'), name: 'M_VAV Unit - Single Duct:150 mm:150 mm:585441', objectType: '150 mm' }
     const vav2 = { ...vav, id: 'x', name: 'M_VAV Unit - Single Duct:150 mm:150 mm:603608' }
@@ -596,7 +596,7 @@ describe('타입 단위 종류 지정', () => {
     expect(typeKeyOf({ ...vav, name: 'AHU-1', objectType: '' })).toBe(`#${vav.id}`)
   })
 
-  it('패밀리로 고르면 크기만 다른 유형까지 한 번에 붙고, 다른 패밀리는 그대로다', () => {
+  it('패밀리로 고르면 크기만 다른 유형까지 한 번에 붙고, 다른 패밀리는 그대로다 [OE-EQP-14#2]', () => {
     // 병원 MEP 의 VAV 는 한 패밀리에 유형(150·200 mm …)이 다섯이었다.
     const [a, b, c] = ['AT-101-01', 'AT-101-02', 'AHU-1'].map(equip)
     a.name = 'M_VAV Unit - Single Duct:150 mm:150 mm:1'
@@ -808,7 +808,7 @@ describe('설비 추가·삭제·이름 (E7)', () => {
     expect(addEquipment(model, model.storeys[0].id, { name: 'x', kind: 'nope', position: null })).toBeNull()
   })
 
-  it('지우면 붙은 연결과 계통 자리도 빠진다 — 없는 설비를 가리키는 feeds·hasPart 가 나가지 않게', () => {
+  it('지우면 붙은 연결과 계통 자리도 빠진다 — 없는 설비를 가리키는 feeds·hasPart 가 나가지 않게 [OE-EQP-13#1]', () => {
     const duct = equip('DUCT-01')
     expect(model.connections.some((c) => c.from === duct.id || c.to === duct.id)).toBe(true)
     const done = deleteEquipment(model, duct.id)!
@@ -827,7 +827,7 @@ describe('설비 추가·삭제·이름 (E7)', () => {
     expect(modelToTTL(model)).toBe(before)
   })
 
-  it('이름을 고친 설비도 같은 패밀리 일괄 종류 지정에 든다 — 패밀리는 BIM 이 준 이름으로 묶는다 (OE-EQP-13)', () => {
+  it('이름을 고친 설비도 같은 패밀리 일괄 종류 지정에 든다 — 패밀리는 BIM 이 준 이름으로 묶는다 [OE-EQP-13#2]', () => {
     const [a, b] = ['AT-101-01', 'AT-101-02'].map(equip)
     a.name = 'M_Supply Diffuser:600 x 600:1'
     b.name = 'M_Supply Diffuser:600 x 600:2'

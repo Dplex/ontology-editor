@@ -48,7 +48,7 @@ describe('BIM 에서 천장고 고르기', () => {
     expect(pickCeiling({ finish: [], room, covering: [3.3] }, 5)).toEqual({ height: 3.3, property: 'IfcCovering(CEILING) 아랫면', count: 1 })
   })
 
-  it('바닥 근처(0.3m 이하) 값은 비운 칸으로 본다 — 0 으로 채우지 않는다', () => {
+  it('바닥 근처(0.3m 이하) 값은 비운 칸으로 본다 — 0 으로 채우지 않는다 [OE-EQP-03#2]', () => {
     expect(pickCeiling({ finish: [], room: [], covering: [-0.05] }, 4)).toBeUndefined()
   })
 })
@@ -101,7 +101,7 @@ describe('설치면 판정(z)', () => {
     expect(judgeSurface({ ...device(1.2), position: [5, 0.4, 11.2] }, s, 4)).toBe('wall')
   })
 
-  it('h_c 를 모르면 천장 판정은 미정이다', () => {
+  it('h_c 를 모르면 천장 판정은 미정이다 [OE-EQP-03#2]', () => {
     expect(judgeSurface(device(2.7), storey(), 4)).toBeNull()
   })
 
