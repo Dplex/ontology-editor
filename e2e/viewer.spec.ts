@@ -71,8 +71,8 @@ test('GLB·OBJ 도 같이 열면 3D 로 보이고, GeoJSON 과 같은 id·자리
   expect(files.filter((f) => /\.(glb|obj)$/.test(f))).toHaveLength(2)
   await page.goto('/viewer.html')
   await page.getByLabel('내보낸 파일 고르기').setInputFiles(files)
-  // TTL·GeoJSON 다섯 줄 + 3D 파일마다 세 줄.
-  await expect(page.locator('.checks > ul > li')).toHaveCount(11)
+  // TTL·GeoJSON 다섯 줄 + 3D 파일마다 세 줄. kind 를 싣는 GLB 는 종류 어긋남 한 줄이 더 있다.
+  await expect(page.locator('.checks > ul > li')).toHaveCount(12)
   await expect(page.locator('.checks li.bad')).toHaveCount(0)
 
   // 평면에서 기기를 고르고 3D 로 넘어가도 고른 것이 남는다. 오른쪽에 3D 객체와 TTL 원문이 나온다.
@@ -86,6 +86,31 @@ test('GLB·OBJ 도 같이 열면 3D 로 보이고, GeoJSON 과 같은 id·자리
   await page.getByRole('tab', { name: '3D · OBJ' }).click()
   await expect(detail).toContainText('.obj')
   await expect(detail).toContainText('삼각형')
+})
+
+// FBX 는 서버의 Blender 가 만든다(ADR-0052). e2e 에는 Blender 가 없어서 같은 mep.ifc 로 만들어 둔 src/lib/export/fixtures/mep.fbx 를 놓는다.
+test('FBX 를 같이 열면 3D 로 보이고, 사용자 속성으로 종류를 읽어 GeoJSON 과 견주며, 고른 것의 속성이 보인다 (OE-INT-03)', async ({ page }, info) => {
+  const files = await exported(page, 'mep.ifc', (n) => info.outputPath(n))
+  await page.goto('/viewer.html')
+  await page.getByLabel('내보낸 파일 고르기').setInputFiles([...files, 'src/lib/export/fixtures/mep.fbx'])
+  await expect(page.getByRole('tab', { name: '3D · FBX' })).toBeVisible()
+  // TTL·GeoJSON 다섯 줄 + FBX 네 줄(어디에도 없는 객체·3D 에 없는 형상·자리 어긋남·종류 어긋남).
+  await expect(page.locator('.checks > ul > li')).toHaveCount(9)
+  await expect(page.locator('.checks li.bad')).toHaveCount(0)
+  await expect(page.getByText(/mep\.fbx · 객체 \d+ · 삼각형/)).toBeVisible()
+
+  await page.getByRole('tab', { name: '3D · FBX' }).click()
+  await expect(page.getByRole('img', { name: '3D 형상' }).locator('canvas')).toBeVisible()
+  await expect(page.getByText('FBX 의 색(계통·벽 종류)은 파일에 든 그대로입니다.')).toBeVisible()
+  // 평면에서 기기를 고르고 3D 로 넘어가면 오른쪽에 그 객체의 FBX 사용자 속성이 보인다.
+  await page.getByRole('tab', { name: '평면(GeoJSON)' }).click()
+  await page.locator('circle.shape.equipment:not(.unread)').first().click()
+  await page.getByRole('tab', { name: '3D · FBX' }).click()
+  const detail = page.getByRole('complementary', { name: '고른 것' })
+  await expect(detail).toContainText('mep.fbx')
+  await expect(detail).toContainText(' · equipment')
+  await expect(detail.locator('.props3d')).toContainText('kind = equipment')
+  await expect(detail.locator('.props3d')).toContainText('systemId = ')
 })
 
 test('층별로 구축한 TTL 을 여럿 놓으면 쌓아 읽고, 건물 전체 TTL 을 놓으면 바꾼다 (OE-GEN-11)', async ({ page }, info) => {

@@ -189,7 +189,7 @@ describe('read3D·check3D — 3D 형상(GLB·OBJ)이 GeoJSON 과 같은 id·같�
 
   it('우리가 낸 GLB·OBJ 는 GeoJSON·TTL 과 어긋남이 없고, 두 형식이 같은 객체·삼각형을 담는다', async () => {
     const [glb, obj] = await both(modelToScene(model, meshes))
-    for (const r of [glb, obj]) expect(check3D(r.parts, floorsOf(model), readOntologyTTL(modelToTTL(model)))).toEqual({ unknown: [], missing: [], misplaced: [] })
+    for (const r of [glb, obj]) expect(check3D(r.parts, floorsOf(model), readOntologyTTL(modelToTTL(model)))).toEqual({ unknown: [], missing: [], misplaced: [], kindMismatch: [] })
     const shape = (r: Awaited<ReturnType<typeof read3D>>) => r.parts.map((p) => `${p.name}:${p.triangles}`).sort()
     expect(shape(obj)).toEqual(shape(glb))
     // GLB 만 extras(종류)를 싣는다. OBJ 는 이름 칸 하나뿐이다.

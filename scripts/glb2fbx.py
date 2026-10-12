@@ -56,10 +56,17 @@ def to_blender(v):
     return out
 
 
+def to_srgb(c):
+    return 12.92 * c if c <= 0.0031308 else 1.055 * c ** (1 / 2.4) - 0.055
+
+
 def build(gltf, data, bin_at):
     materials = []
     for i, m in enumerate(gltf.get('materials', [])):
-        color = m.get('pbrMetallicRoughness', {}).get('baseColorFactor', [1, 1, 1, 1])
+        linear = m.get('pbrMetallicRoughness', {}).get('baseColorFactor', [1, 1, 1, 1])
+        # glTF 색은 linear 이고 Blender 는 넣은 값을 그대로 FBX DiffuseColor 에 쓴다. FBX 를 읽는 쪽(Unity·three FBXLoader)은 그 값을
+        # sRGB 로 읽어서 linear 로 두면 화면보다 어둡게 나왔다(성수 벽이 회색에서 짙은 회색으로). sRGB 로 바꿔 넣는다. 알파는 그대로다.
+        color = [to_srgb(c) for c in linear[:3]] + [linear[3]]
         mat = bpy.data.materials.new('m%d' % i)
         mat.use_nodes = True
         bsdf = mat.node_tree.nodes['Principled BSDF']
