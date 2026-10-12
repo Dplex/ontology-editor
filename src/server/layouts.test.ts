@@ -1,7 +1,7 @@
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { layouts, type VersionMeta } from './layouts'
 
@@ -117,5 +117,51 @@ describe('반영한 레이아웃과 버전', () => {
     expect((await fetch(url({ key: KEY, stage: 'stage0001', file: '../x.ttl' }), { method: 'PUT', body: 'x' })).status).toBe(400)
     expect((await fetch(url({ key: KEY, stage: 'stage0001', file: 'geojson/../../x.geojson' }), { method: 'PUT', body: 'x' })).status).toBe(400)
     expect((await fetch(url({ key: KEY, v: '1', file: '../key.json' }))).status).toBe(404)
+  })
+})
+
+describe('Windows 에서 폴더 옮기기가 잠깐 막힐 때', () => {
+  it('판 폴더째 옮기기가 잠기면(하위 폴더를 누가 감시) 안의 것을 하나씩 옮겨 v1 이 되고, 다른 실패는 번호 탓으로 돌리지 않고 이유를 말한다', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'layouts-busy-'))
+    writeFileSync(join(dir, 'b.ifc'), 'ISO-10303-21;')
+    // geojson/ 을 dev 서버의 파일 감시가 잡고 있다 — Windows 에서는 판 폴더째 옮기기만 EPERM 이고 안의 것은 옮겨진다.
+    let fail: string | null = null
+    const moved: string[] = []
+    const handle = layouts(dir, {
+      rename: (from, to) => {
+        if (fail) throw Object.assign(new Error(fail), { code: fail })
+        if (basename(from).startsWith('.stage-')) throw Object.assign(new Error('busy'), { code: 'EPERM' })
+        moved.push(basename(from))
+        renameSync(from, to)
+      },
+    })
+    const srv = createServer((req, res) => {
+      const [path, query] = (req.url ?? '').split('?')
+      if (path === '/__layouts') handle(req, res, query ?? '')
+      else res.writeHead(404).end()
+    })
+    await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r))
+    const addr = srv.address()
+    const at = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}/__layouts`
+    const put = async (stage: string) => {
+      for (const [file, body] of Object.entries({ 'ontology.ttl': '#', 'edits.json': '{}', 'tree.json': '{}', 'geojson/1F.geojson': '{}' }))
+        expect((await fetch(`${at}?${new URLSearchParams({ key: 'b.ifc', stage, file })}`, { method: 'PUT', body })).status).toBe(200)
+      return fetch(`${at}?${new URLSearchParams({ key: 'b.ifc', stage, publish: '' })}`, { method: 'POST', body: JSON.stringify({ by: '편집자' }) })
+    }
+    try {
+      const ok = await put('stagebusy01')
+      expect(ok.status).toBe(200)
+      expect((await ok.json()).version).toBe(1)
+      // meta.json 이 맨 끝이다 — 도중에 멈추면 버전으로 세지 않는다. 판 폴더는 남지 않는다.
+      expect(moved.at(-1)).toBe('meta.json')
+      expect(readdirSync(join(dir, '.layouts', readdirSync(join(dir, '.layouts'))[0])).sort()).toEqual(['current.json', 'key.json', 'v1'])
+      fail = 'ENOSPC'
+      const bad = await put('stagebusy02')
+      expect(bad.status).toBe(500)
+      expect((await bad.json()).error).toBe('올린 파일을 버전 폴더로 옮기지 못했습니다(ENOSPC)')
+    } finally {
+      srv.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

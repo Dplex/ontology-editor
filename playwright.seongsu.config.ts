@@ -10,6 +10,8 @@ const angle = process.env.ANGLE ?? (process.platform === 'win32' ? 'd3d11' : 'gl
 
 export default defineConfig({
   testDir: './e2e-seongsu',
+  // 반영 시험은 data/ 목록이 붙은 서버가 따로 있어야 한다(playwright.publish-seongsu.config.ts).
+  testIgnore: ['publish-seongsu.spec.ts'],
   // 두 파일(287MB)을 한 번 열고 한 페이지에서 차례로 돈다. 병렬로 돌리면 메모리가 모자라고 서로의 시간을 늘린다.
   workers: 1,
   timeout: 600_000,

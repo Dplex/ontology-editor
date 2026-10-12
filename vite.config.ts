@@ -8,11 +8,11 @@ import { createDataCatalog } from './src/server/data-catalog'
 
 // data/ 에 받아 둔 샘플을 화면에서 고르게 한다. 목록·파일·등급 측정은 src/server/data-catalog.ts
 // 가 맡고, 55 의 정적 서버(scripts/serve.mjs)도 같은 모듈을 쓴다.
-function dataFiles(): Plugin {
+function dataFiles(root = 'data'): Plugin {
   return {
     name: 'data-files',
     configureServer(server) {
-      server.middlewares.use('/__data', createDataCatalog(resolve('data')))
+      server.middlewares.use('/__data', createDataCatalog(resolve(root)))
     },
   }
 }
@@ -22,10 +22,14 @@ export default defineConfig(({ mode }) => ({
   // 스레드에서 돌아서 그동안 dev 서버가 응답하지 않는다. 임포터를 고친 직후에는 캐시가 무효라 성수
   // 기계 파일(203MB) 하나에 1분 가까이 막혀 e2e 가 전부 시간 초과로 실패했다. e2e 는 픽스처만 쓰고,
   // gitignore 인 data/ 에 무엇이 있느냐에 결과가 달라져서도 안 된다.
-  plugins: mode === 'e2e' ? [vue()] : [vue(), dataFiles()],
+  // 성수 크기 반영 시험(e2e-seongsu/publish-seongsu.spec.ts)만 OE_DATA_ROOT 로 따로 만든 폴더를 붙인다 — 수백 MB 를 Playwright 의
+  // 가로채기로 넘기면 멈췄다.
+  plugins: mode === 'e2e' ? (process.env.OE_DATA_ROOT ? [vue(), dataFiles(process.env.OE_DATA_ROOT)] : [vue()]) : [vue(), dataFiles()],
 
   // 5173 은 ieum-pipeline/web 이 쓴다. 두 화면을 같이 띄우는 일이 잦아서 포트를 비켜 둔다.
-  server: { port: 5174 },
+  // data/ 는 감시하지 않는다(샘플 BIM 과 반영 버전 — 화면 코드가 아니다). 감시가 반영 버전의 하위 폴더(geojson/)를 잡고 있으면 Windows 에서
+  // 판 폴더를 버전 폴더로 옮기지 못해 반영이 실패했다(layouts.ts 의 moveStage).
+  server: { port: 5174, watch: { ignored: ['**/data/**'] } },
 
   // 임포트 워커가 web-ifc 를 쓴다. dev 서버는 워커의 의존성을 워커가 처음 뜰 때에야 발견하고, 그 자리에서
   // 최적화하느라 페이지를 새로 불러온다. 그러면 막 연 파일의 결과가 사라진다(새로 띄운 서버의 첫 e2e 가

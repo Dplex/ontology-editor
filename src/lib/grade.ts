@@ -31,6 +31,8 @@ export type GradeRow = {
   ratio: number | null
   line: number
   pass: boolean
+  /** 미달이면 왜인지("80.0% < 85%" · "층 이름 20/21"). 통과면 없다. */
+  why?: string
   /** 사전 포함 수치(D12, 목표선 3·4 만). */
   withDictionary?: { have: number; of: number; ratio: number | null }
   /** 미달이면 BIM 에 무엇을 넣어 다시 내야 하나(재제출 항목, 1.8 의 "BIM에 필요한 것"). */
@@ -71,9 +73,12 @@ export function gradeReport(model: Model, lines: GradeLines = DEFAULT_LINES): Gr
   const flows = deviceFlows(withInferred(model.connections, true), (id) => conduitIds.has(id), ids)
   const candidate = deviceFlows(withInferred(model.connections), (id) => conduitIds.has(id), ids)
 
-  const row = (r: Omit<GradeRow, 'ratio' | 'pass'>, extraPass = true): GradeRow => {
+  // 비율 말고도 걸리는 조건(등급 0 의 층 이름)은 `extra` 로 받는다. 이유를 따로 두지 않으면 막는 글이 "97.1% < 50%" 처럼 비율을 댔다(합성 성수).
+  const row = (r: Omit<GradeRow, 'ratio' | 'pass' | 'why'>, extra: { ok: boolean; why: string } = { ok: true, why: '' }): GradeRow => {
     const x = ratio(r.have, r.of)
-    return { ...r, ratio: x, pass: (x === null || x >= r.line) && extraPass }
+    const lineOk = x === null || x >= r.line
+    const why = !lineOk ? `${percent(x)} < ${Math.round(r.line * 100)}%` : !extra.ok ? extra.why : undefined
+    return { ...r, ratio: x, pass: lineOk && extra.ok, ...(why ? { why } : {}) }
   }
   const rows: GradeRow[] = [
     row(
@@ -86,7 +91,7 @@ export function gradeReport(model: Model, lines: GradeLines = DEFAULT_LINES): Gr
         line: lines[0],
         resubmit: 'R0~R4·R6·R7 — 물리존(IfcSpace) 외곽선과 층 이름',
       },
-      named === model.storeys.length,
+      { ok: named === model.storeys.length, why: `층 이름 ${named}/${model.storeys.length}(이름 없는 층 ${model.storeys.length - named}개)` },
     ),
     row({ grade: 1, label: '설비 목록', measure: '형상 위 배치점 있는 기기 / 기기', have: placed, of: devices.length, line: lines[1], resubmit: 'R9·R11 — 설비 형상과 배치점' }),
     row({ grade: 2, label: '설비 소속', measure: '소속 물리존 찾은 기기 / 기기(외벽 부착 제외)', have: located, of: indoor.length, line: lines[2], resubmit: 'R12·R1 — 설비가 든 방(IfcSpace 안 배치·포함 관계)' }),

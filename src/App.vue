@@ -8182,7 +8182,7 @@ const gradesOpen = ref(false)
 const buildBlock = computed(() => {
   const g = grades.value
   if (!g || g.gate || (serverKey.value && !firstPublish.value)) return null
-  return `수용 기준선(게이트 등급 0~${GATE}) 미달이라 구축하지 않습니다 — ${g.failing.map((r) => `등급 ${r.grade} ${r.label} ${percent(r.ratio)} < ${Math.round(r.line * 100)}%`).join(', ')}. 재제출 항목을 보세요`
+  return `수용 기준선(게이트 등급 0~${GATE}) 미달이라 구축하지 않습니다 — ${g.failing.map((r) => `등급 ${r.grade} ${r.label} ${r.why}`).join(', ')}. 재제출 항목을 보세요`
 })
 function resetGradeLines() {
   gradeLines.value = { ...DEFAULT_LINES }

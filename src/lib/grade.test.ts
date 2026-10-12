@@ -35,6 +35,14 @@ describe('등급 판정 (D1·D12 제안안)', () => {
     expect([r.rows[1].have, r.rows[1].of, r.rows[2].have, r.rows[2].of]).toEqual([tiers.get('equipment')!.have, tiers.get('equipment')!.of, tiers.get('location')!.have, tiers.get('location')!.of])
   })
 
+  it('비율은 넘었는데 이름 없는 층이 있으면 등급 0 이 미달이고, 이유는 비율이 아니라 층 이름이다', () => {
+    const m = read('mep.ifc')
+    expect(gradeReport(m).failing.map((x) => x.why)).toEqual(['80.0% < 90%', '80.0% < 85%'])
+    m.storeys[0].name = ' '
+    const zero = gradeReport(m).rows[0]
+    expect([zero.pass, zero.why]).toEqual([false, '층 이름 0/1(이름 없는 층 1개)'])
+  })
+
   it('기준값을 바꾸면 판정만 바뀐다 — 결정이 다르게 나면 숫자만 바꾼다', () => {
     const m = read('mep.ifc')
     expect(gradeReport(m, { ...DEFAULT_LINES, 1: 0.8, 2: 0.8 }).gate).toBe(true)
