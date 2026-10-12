@@ -2869,3 +2869,17 @@ describe('가져오기 기본 — 층·벽·말단·배관·연결 (OE-BIM-02·0
     expect((await open(DUPLEX_MEP_FULL)).connections.every((c) => !c.directed)).toBe(true)
   }, 600_000)
 })
+
+// 좌표 정합(OE-BIM-22). 가진 건축·설비 쌍은 좌표계가 같다 — 같은 방 번호로 잰 오프셋이 0 근처라 거짓 경고가 없다.
+describe('합칠 때 좌표계 어긋남 추정 (OE-BIM-22)', () => {
+  it.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_MEP_FULL) || !existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('Duplex·병원 건축+MEP 는 같은 방 번호 18·261쌍으로 재어 회전 0° · 이동 2cm 안이다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const open = (p: string) => importIfc(api, new Uint8Array(readFileSync(p)))
+    const duplex = mergeModels(open(DUPLEX_ARCH), open(DUPLEX_MEP_FULL)).report.offset
+    expect(duplex).toEqual({ dx: 0, dy: 0, rotationDeg: 0, basis: 'spaces', pairs: 18, residual: 0 })
+    const clinic = mergeModels(open(CLINIC_ARCH), open(CLINIC_MEP)).report.offset!
+    expect([clinic.basis, clinic.pairs, clinic.rotationDeg]).toEqual(['spaces', 261, 0])
+    expect(Math.hypot(clinic.dx, clinic.dy)).toBeLessThan(0.05)
+  }, 300_000)
+})
