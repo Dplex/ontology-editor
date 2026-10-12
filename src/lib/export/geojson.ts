@@ -96,7 +96,7 @@ function spaceFeature(space: Space, storey: Storey, vertical?: VerticalRef): Fea
   }
 }
 
-function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
+function equipmentFeature(equipment: Equipment, storey: Storey, shafts: ReadonlySet<string>): Feature {
   // 덕트·배관 구간은 경로(두 끝)로 낸다(OE-PIP-13). 배치점 하나로 경로를 만들지 않으니, 경로를 쓸 수 없는 구간은 geometry 를
   // 비우고 `pathIssue` 에 까닭을 적는다. 연결·계통은 형상과 따로라 TTL 에 그대로 나간다.
   const path = segmentPath(equipment)
@@ -129,6 +129,8 @@ function equipmentFeature(equipment: Equipment, storey: Storey): Feature {
       capacityQuantity: equipment.capacity === null ? null : capacityQuantity(equipment.capacityProperty),
       // 사람이 벽 면에 붙인 설비의 벽 id(OE-OBJ-04, 외벽 루버·외기 센서). 벽 feature 의 id 다. 붙이지 않았으면 키가 없다.
       ...(equipment.wallId ? { wallId: equipment.wallId } : {}),
+      // 사람이 넣은 샤프트의 id(OE-ML-09·14). 샤프트 조각 feature 의 parentId 다. 넣지 않았거나 그 샤프트가 없으면 키가 없다.
+      ...(equipment.shaftId && shafts.has(equipment.shaftId) ? { shaftId: equipment.shaftId } : {}),
       // 경로를 쓸 수 없는 덕트·배관 구간의 까닭(좌표 없음 · 형상 없음 · 수치 오류 · 길이 0). 경로가 있거나 구간이 아니면 키가 없다.
       ...(path && 'issue' in path ? { pathIssue: SEGMENT_PATH_ISSUES[path.issue] } : {}),
       // 사람이 그린 배관의 Flow Type(OE-OBJ-12, SA·CHWS 등). BIM 배관에는 없다.
@@ -322,13 +324,14 @@ export function storeyToGeoJSON(
   zones: readonly HvacZone[] = [],
   vertical: ReadonlyMap<string, VerticalRef> = new Map(),
   itemNames: ReadonlyMap<string, string> = new Map(),
+  shafts: ReadonlySet<string> = new Set(),
 ): FeatureCollection {
   const external = judgeExternal(storey)
   return {
     type: 'FeatureCollection',
     features: [
       ...storey.spaces.map((s) => spaceFeature(s, storey, vertical.get(s.id))),
-      ...storey.equipment.map((e) => equipmentFeature(e, storey)),
+      ...storey.equipment.map((e) => equipmentFeature(e, storey, shafts)),
       ...storey.walls.map((w) => wallFeature(w, storey, external.get(w.id))),
       ...storey.openings.map((o) => openingFeature(o, storey)),
       ...zones.filter((z) => z.storeyId === storey.id).map((z) => hvacZoneFeature(z, storey)),
@@ -351,13 +354,14 @@ export function modelToGeoJSON(model: Model): { fileName: string; collection: Fe
   const taken = new Set<string>()
   const vertical = verticalRefs(model)
   const itemNames = new Map(libraryOf(model).map((i) => [i.key, i.name]))
+  const shafts = new Set(verticalObjects(model).filter((o) => o.kind === 'shaft').map((o) => o.id))
   return model.storeys.map((storey) => {
     // 층 이름에는 공백이나 슬래시가 들어올 수 있다. 파일 이름으로 쓰기 전에 걸러 낸다.
     const stem = `floor-${storey.name.replace(/[^\w가-힣-]+/g, '_') || storey.id}`
     let fileName = `${stem}.geojson`
     for (let n = 2; taken.has(fileName.toLowerCase()); n++) fileName = `${stem}-${n}.geojson`
     taken.add(fileName.toLowerCase())
-    const collection = storeyToGeoJSON(storey, hvacZonesOf(model), vertical, itemNames)
+    const collection = storeyToGeoJSON(storey, hvacZonesOf(model), vertical, itemNames, shafts)
     return { fileName, collection: model.skipped?.length ? { ...collection, skipped: [...model.skipped] } : collection }
   })
 }

@@ -20,6 +20,7 @@ import { familyHeight } from './lib/placement'
 import { facadeOf, moveFacade } from './lib/facade'
 import { customerReportHTML, generationReport, MISSING_LABEL, missingClass, sha256Hex, type ReportInput, type ReportSectionB } from './lib/build-report'
 import { checkCode, issueText, warningCode } from './lib/issue-code'
+import { setSegmentShaft, shaftCandidates, shaftDeviations, shaftOf } from './lib/shaft'
 import { ttlTriples } from './lib/export/read-export'
 import { readOntologyTTL } from './lib/export/read-ttl'
 import { DEFAULT_SITE_RULES, siteWarnings, type SiteRules } from './lib/site-rules'
@@ -495,6 +496,7 @@ const changeCount = computed(
     sinceOpen.value.equipmentRemoved.length +
     sinceOpen.value.equipmentRenamed.length +
     sinceOpen.value.equipmentMounted.length +
+    (sinceOpen.value.equipmentShaft?.length ?? 0) +
     sinceOpen.value.wallsAdded.length +
     sinceOpen.value.wallsRemoved.length +
     (sinceOpen.value.verticals?.length ?? 0) +
@@ -5792,6 +5794,61 @@ const offsetPlan = computed(() => {
   const t = offsetDraft.value
   return m && e && t && offsetNow.value ? planOffsetHeight(m, e.id, t) : null
 })
+/**
+ * 고른 덕트·배관 구간의 샤프트 소속(OE-ML-09·14, shaft.ts). 다중층 뷰에서만 정한다. 후보는 두 끝이 축 안인 샤프트뿐이고, 저절로 붙이지 않는다.
+ * 지금 샤프트의 축을 벗어났으면(샤프트나 구간을 옮겼다) 이탈로 알린다.
+ */
+const selectedShaft = computed(() => {
+  void sceneVersion.value
+  void model.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e || e.role !== 'segment' || !multiView.value) return null
+  const current = shaftOf(m, e)
+  const candidates = shaftCandidates(m, e.id)
+  if (!current && !candidates.length) return null
+  return { current, candidates, deviated: !!current && !candidates.some((o) => o.id === current.id) }
+})
+function changeShaft(shaftId: string) {
+  const m = model.value
+  const e = selected.value
+  if (!m || !e) return
+  const undo = snapshotEquipment(m, e.id)
+  const at = mark()
+  const done = setSegmentShaft(m, e.id, shaftId || null)
+  if (done !== true) return note(done.refused)
+  const shaft = shaftOf(m, e)
+  remember(`${shortName(e.name)} 샤프트 소속`, undo, at)
+  triggerRef(model)
+  sceneVersion.value++
+  note(shaft ? `${shortName(e.name)}${josa(shortName(e.name), '을/를')} 샤프트 ${shaft.name}에 넣었습니다(GeoJSON shaftId)` : `${shortName(e.name)}의 샤프트 소속을 풀었습니다`)
+}
+/** 소속 샤프트의 축을 벗어난 구간(이탈). 샤프트·구간을 옮긴 뒤 알린다. */
+const shaftOff = computed(() => {
+  void sceneVersion.value
+  void model.value
+  return model.value ? shaftDeviations(model.value) : []
+})
+watch(
+  () => shaftOff.value.map((d) => d.segment.id).join(','),
+  (now, before) => {
+    const fresh = shaftOff.value.filter((d) => !(before ?? '').split(',').includes(d.segment.id))
+    if (fresh.length && editing.value)
+      editNotice.value = `샤프트 축을 벗어난 구간 ${fresh.length}개: ${fresh.slice(0, 3).map((d) => `${shortName(d.segment.name)}(${d.shaft.name})`).join(', ')}. 소속은 그대로입니다 — 배관을 옮기거나 소속을 풉니다.`
+  },
+)
+
+/** 오프셋을 바꾸면 늘어나는 구간 중 샤프트에 든 것(OE-ML-14#5 — 바꾸기 전에 샤프트 소속 영향을 보인다). */
+const offsetShafts = computed(() => {
+  const m = model.value
+  const plan = offsetPlan.value
+  if (!m || !plan || 'refused' in plan) return []
+  return [plan.segment.id, ...new Set(plan.stretch.map((x) => x.id))].flatMap((id) => {
+    const e = equipmentById.value.get(id)
+    const o = e ? shaftOf(m, e) : null
+    return e && o ? [{ segment: e.name, shaft: o.name }] : []
+  })
+})
 function applyOffsetHeight() {
   const m = model.value
   const e = selected.value
@@ -9945,7 +10002,20 @@ function rollbackFromReport() {
               <p v-else-if="offsetPlan" class="hint" data-testid="offset-impact">
                 바꾸면 꺾임점 {{ offsetPlan.fittings.map((f) => shortName(f.name)).join('·') }}{{ josa(shortName(offsetPlan.fittings.at(-1)!.name), '이/가') }} 같이 {{ offsetPlan.delta[2] > 0 ? '오르고' : '내려가고' }}({{ Math.abs(offsetPlan.delta[2]).toFixed(2) }}m), 구간
                 {{ new Set(offsetPlan.stretch.map((x) => x.id)).size }}개가 늘거나 줄어듭니다{{ offsetPlan.branches.length ? ` · 분기점 ${offsetPlan.branches.map((f) => shortName(f.name)).join('·')}도 같이 움직입니다` : '' }}. 연결은 그대로입니다.
+                <template v-if="offsetShafts.length"> 샤프트에 든 구간 {{ offsetShafts.map((x) => `${shortName(x.segment)}(${x.shaft})`).join('·') }}도 같이 늘어나며 소속은 그대로입니다.</template>
               </p>
+            </template>
+            <!-- 샤프트 소속(OE-ML-09·14). 두 끝이 샤프트 축 안인 구간만 넣는다. 위치만 겹쳐서는 붙이지 않는다. -->
+            <template v-if="selected.role === 'segment' && selectedShaft">
+              <h4 class="picked-sub">샤프트 <Src kind="edit" /></h4>
+              <p class="pipe-draw-row" data-testid="segment-shaft">
+                <select :value="selectedShaft.current?.id ?? ''" aria-label="샤프트 소속" @change="changeShaft(($event.target as HTMLSelectElement).value)">
+                  <option value="">넣지 않음</option>
+                  <option v-if="selectedShaft.deviated" :value="selectedShaft.current!.id">{{ selectedShaft.current!.name }}(축 밖)</option>
+                  <option v-for="o in selectedShaft.candidates" :key="o.id" :value="o.id">{{ o.name }}</option>
+                </select>
+              </p>
+              <p v-if="selectedShaft.deviated" class="edit-warn" data-testid="shaft-deviated">샤프트 {{ selectedShaft.current!.name }}의 축을 벗어났습니다(이탈). 배관을 축 안으로 옮기거나 소속을 풉니다.</p>
             </template>
           </div>
 
@@ -10367,6 +10437,7 @@ function rollbackFromReport() {
               </p>
               <ul>
                 <li>영향 층: {{ verticalDeleteImpact.storeys.join(' · ') }} ({{ verticalDeleteImpact.parts }}개 조각이 빠집니다)</li>
+                <li v-if="verticalDeleteImpact.pipes" data-testid="vertical-delete-pipes">안의 덕트·배관 {{ verticalDeleteImpact.pipes }}개와 그 연결은 남고 샤프트 소속만 풀립니다(되돌리면 돌아옵니다)</li>
                 <li v-if="verticalDeleteImpact.link">이 {{ selectedVertical.label }}{{ josa(selectedVertical.label, '이/가') }} 이은 {{ verticalDeleteImpact.link.from }} ↔ {{ verticalDeleteImpact.link.to }} 연결이 빠지고, 겹침 추정이 다시 잽니다</li>
                 <li>계단실 같은 물리존과 BIM 원본은 그대로입니다. 편집 파일에 지움으로 남아 다시 열어도 되살아나지 않습니다</li>
               </ul>
@@ -12131,6 +12202,9 @@ function rollbackFromReport() {
             </li>
             <li v-for="r in sinceOpen.equipmentRenamed" :key="`eq-name-${r.id}`">
               설비 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)
+            </li>
+            <li v-for="r in sinceOpen.equipmentShaft ?? []" :key="`eq-shaft-${r.id}`">
+              덕트·배관 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.shaft ? `샤프트 ${r.shaft}에 넣었습니다` : '샤프트에서 뺐습니다' }} (GeoJSON shaftId)
             </li>
             <li v-for="r in sinceOpen.equipmentMounted" :key="`eq-wall-${r.id}`">
               설비 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.wall ? `벽 ${r.wall}에 붙였습니다` : '벽에서 뗐습니다' }} (GeoJSON wallId)

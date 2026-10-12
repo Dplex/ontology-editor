@@ -12,6 +12,7 @@
 // 자리의 물리존이, 지우면 겹침 추정(ADR-0032)이 그 자리를 잇는다. 형상이 닿았다고 새 연결을 확정하지 않는다(OE-ML-19).
 
 import { isSelfIntersecting } from './mapping'
+import { shaftMembers } from './shaft'
 import { overlapArea } from './polygon'
 import { polygonArea, type Model, type Storey, type Vec2, type Vec3, type VerticalKind, type VerticalPart } from './model'
 import { partId, partSpaces, verticalObjects } from './vertical-object'
@@ -119,12 +120,14 @@ export function deleteVertical(model: Pick<Model, 'storeys'>, parentId: string):
   return hit
 }
 
-/** 지우기 전에 보이는 영향(OE-ML-09 "확인 화면에 영향 층·층별 표현·명시 연결"). 개구부·정차/운행·배관 소속은 아직 없는 데이터다. */
+/** 지우기 전에 보이는 영향(OE-ML-09 "확인 화면에 영향 층·층별 표현·명시 연결·배관 소속"). 개구부·정차/운행은 아직 없는 데이터다. */
 export function verticalImpact(model: Pick<Model, 'storeys'>, parentId: string): {
   storeys: string[]
   parts: number
   /** 이 오브젝트가 이은 물리존 짝(시작 층 진입 지점 ↔ 끝 층 종료 지점). 지우면 겹침 추정이 그 자리를 다시 잰다. */
   link: { from: string; to: string } | null
+  /** 샤프트에 든 덕트·배관 구간 수(shaft.ts). 지우면 배관·연결은 남고 소속만 풀린다. */
+  pipes: number
 } | null {
   const o = verticalObjects(model).find((x) => x.id === parentId)
   if (!o) return null
@@ -136,7 +139,7 @@ export function verticalImpact(model: Pick<Model, 'storeys'>, parentId: string):
   const last = o.parts.at(-1)!
   const a = name(first.storey, partSpaces(first.storey, first.part)[0])
   const b = first === last ? null : name(last.storey, partSpaces(last.storey, last.part)[0])
-  return { storeys: o.parts.map((p) => p.storey.name), parts: o.parts.length, link: a && b ? { from: a, to: b } : null }
+  return { storeys: o.parts.map((p) => p.storey.name), parts: o.parts.length, link: a && b ? { from: a, to: b } : null, pipes: o.kind === 'shaft' ? shaftMembers(model, o.id).length : 0 }
 }
 
 /** 형상이 벽과 겹친 넓이(㎡). */

@@ -8,6 +8,7 @@
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
 import { assignEquipment, centroid, distanceToRing, exteriorKind, isSelfIntersecting, locate, nearRing } from './mapping'
+import { shaftOf } from './shaft'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapshotRulesAgain, type ReleaseSnapshot, type RuleSnapshot } from './connection-release'
@@ -711,6 +712,8 @@ export type Snapshot =
       nameEdited: Equipment['nameEdited']
       endShift: Equipment['endShift']
       wallId: string | undefined
+      /** 사람이 넣은 샤프트(OE-ML-09·14). */
+      shaftId?: string
       /** 사람이 정한 설치면(OE-EQP-05). */
       surfaceSet?: Equipment['surfaceSet']
     }
@@ -900,6 +903,7 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
       nameEdited: e.nameEdited ? { ...e.nameEdited } : undefined,
       endShift: e.endShift ? copyShift(e.endShift) : undefined,
       wallId: e.wallId,
+      ...(e.shaftId ? { shaftId: e.shaftId } : {}),
       surfaceSet: e.surfaceSet,
     }
   }
@@ -1053,6 +1057,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete equipment.endShift
       if (snapshot.wallId) equipment.wallId = snapshot.wallId
       else delete equipment.wallId
+      if (snapshot.shaftId) equipment.shaftId = snapshot.shaftId
+      else delete equipment.shaftId
       if (snapshot.surfaceSet) equipment.surfaceSet = snapshot.surfaceSet
       else delete equipment.surfaceSet
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
@@ -1414,7 +1420,7 @@ export type Baseline = {
   numbers?: Map<string, string>
   /** 물리존 외곽선. 편집 저장(edit-file.ts)이 바뀐 경계만 골라 담는다. */
   footprints: Map<string, Vec2[]>
-  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource']; name?: string; systemId?: string | null; wallId?: string | null }>
+  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource']; name?: string; systemId?: string | null; wallId?: string | null; shaftId?: string | null }>
   /** 계통의 종류·유체(E8). 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
   systems?: Map<string, { name: string; kind: string | null; fluid: Fluid | null }>
   /** 연 때 있던 연결(순서 없는 짝). 이은 것·끊은 것을 이것과 견준다. 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
@@ -1497,6 +1503,7 @@ export function baselineOf(model: Model): Baseline {
         name: e.name,
         systemId: e.systemId,
         wallId: e.wallId ?? null,
+        shaftId: shaftOf(model, e)?.id ?? null,
       })
     }
   }
@@ -1555,6 +1562,8 @@ export type BaselineDiff = {
   equipmentRenamed: { id: string; from: string; to: string }[]
   /** 벽 면에 붙이거나(`wall` 은 벽 이름) 벽에서 뗀(`null`) 설비(OE-OBJ-04). 연 때 있던 설비만 — 더한 설비는 equipmentAdded 에 든다. */
   equipmentMounted: { id: string; name: string; wall: string | null }[]
+  /** 덕트·배관 구간의 샤프트 소속을 바꾼 것(OE-ML-09·14). `shaft` 는 지금 샤프트 이름, 없으면 null. */
+  equipmentShaft?: { id: string; name: string; shaft: string | null }[]
   /** 벽·문·창(E4). 지운 벽에 뚫려 같이 빠진 문·창은 openingsRemoved 에 세지 않는다. */
   wallsAdded: { id: string; name: string }[]
   wallsRemoved: { id: string; name: string }[]
@@ -1606,6 +1615,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const equipmentAdded: BaselineDiff['equipmentAdded'] = []
   const equipmentRenamed: BaselineDiff['equipmentRenamed'] = []
   const equipmentMounted: BaselineDiff['equipmentMounted'] = []
+  const equipmentShaft: NonNullable<BaselineDiff['equipmentShaft']> = []
   const wallName = new Map(model.storeys.flatMap((s) => s.walls.map((w) => [w.id, w.name || '벽'] as const)))
   const systemMoved: BaselineDiff['systemMoved'] = []
   const storeyName = new Map(model.storeys.map((s) => [s.id, s.name]))
@@ -1625,12 +1635,17 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
       const was = baseline.equipment.get(e.id)
       if (!was) {
         equipmentAdded.push({ id: e.id, name: e.name || e.ifcClass })
+        // 더한 구간(그린 배관)도 샤프트에 넣었으면 그 줄을 남긴다.
+        const into = shaftOf(model, e)
+        if (into) equipmentShaft.push({ id: e.id, name: e.name || e.ifcClass, shaft: into.name })
         continue
       }
       if (was.name !== undefined && was.name !== e.name) equipmentRenamed.push({ id: e.id, from: was.name, to: e.name })
       if (was.wallId !== undefined && (was.wallId ?? null) !== (e.wallId ?? null)) {
         equipmentMounted.push({ id: e.id, name: e.name || e.ifcClass, wall: e.wallId ? (wallName.get(e.wallId) ?? e.wallId) : null })
       }
+      const shaft = shaftOf(model, e)
+      if (was.shaftId !== undefined && (was.shaftId ?? null) !== (shaft?.id ?? null)) equipmentShaft.push({ id: e.id, name: e.name || e.ifcClass, shaft: shaft?.name ?? null })
       const name = e.name || e.ifcClass
       if (was.systemId !== undefined && was.systemId !== e.systemId) systemMoved.push({ id: e.id, name, from: was.systemId, to: e.systemId })
       if (was.storeyId !== storey.id) {
@@ -1698,6 +1713,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     equipmentRemoved,
     equipmentRenamed,
     equipmentMounted,
+    equipmentShaft,
     ...e4,
     customZones: diffCustomZones(model, baseline),
     hvacZones: diffHvacZones(model, baseline),

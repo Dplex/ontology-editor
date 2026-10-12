@@ -11,6 +11,7 @@
 // 않고 센다 — 재임포트에서 무엇이 빠졌는지가 그 숫자다.
 
 import { confirmSystemFlow, inferFlowByRules } from './flow-rules'
+import { shaftOf } from './shaft'
 import { applyReleases, exportReleases, type ReleaseRow } from './connection-release'
 import type { ConnectionLogEntry } from './model'
 import {
@@ -64,6 +65,7 @@ import { setCeiling, setEquipmentSurface } from './ceiling'
 import { setStoreyName } from './storey-name'
 import type { Surface } from './mount'
 import { deleteVertical, moveVertical } from './vertical-edit'
+import { verticalObjects } from './vertical-object'
 
 export const EDIT_FORMAT = 'ontology-editor/edits'
 
@@ -78,7 +80,7 @@ export type EditFile = {
    * 연 때와 같아도 소속을 좌표로 다시 잰 상태다(edit.ts 의 releaseDeclaredSpace).
    */
   /** `wall` 은 설비를 붙인 벽(OE-OBJ-04). `null` 은 벽에서 뗀 것이다. */
-  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3]; wall?: string | null; surface?: Surface }[]
+  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3]; wall?: string | null; shaft?: string | null; surface?: Surface }[]
   /** 종류·유체를 고친 계통(E8). 설비의 계통은 위 `equipment` 의 `system` 에 적는다(`null` 은 계통에서 뺀 것). */
   systems?: { id: string; kind: string | null; fluid: Fluid | null }[]
   /** 사람이 만든 계통(끝 이름·종류)과 지운 계통. 구성원은 설비 쪽 `system` 으로 적는다. */
@@ -103,6 +105,8 @@ export type EditFile = {
     position?: Vec3
     system?: string
     wall?: string
+    /** 사람이 넣은 샤프트(OE-ML-09·14). */
+    shaft?: string | null
     surface?: Surface
     /** 사람이 그린 배관의 구간·이음쇠(OE-PIP-11). 중심선은 배치점에서 잰 상대 좌표이고, `ends` 는 그 뒤 끝을 옮긴 양이다. */
     conduit?: { role: 'segment' | 'fitting'; ifcClass: string; flowType: string; axis?: [Vec3, Vec3]; ends?: [Vec3, Vec3] }
@@ -264,6 +268,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           ...(e.position ? { position: [e.position[0], e.position[1], e.position[2]] as Vec3 } : {}),
           ...(e.systemId ? { system: e.systemId } : {}),
           ...(e.wallId ? { wall: e.wallId } : {}),
+          ...(shaftOf(model, e) ? { shaft: e.shaftId } : {}),
           ...(e.surfaceSet ? { surface: e.surfaceSet } : {}),
           ...((e.role === 'segment' || e.role === 'fitting') && e.flowType
             ? {
@@ -293,9 +298,11 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       if (e.endShift && e.endShift.some((v) => v.some((x) => x !== 0))) row.ends = [[...e.endShift[0]], [...e.endShift[1]]]
       if (was.systemId !== undefined && was.systemId !== e.systemId) row.system = e.systemId
       if (was.wallId !== undefined && (was.wallId ?? null) !== (e.wallId ?? null)) row.wall = e.wallId ?? null
+      const shaft = shaftOf(model, e)?.id ?? null
+      if (was.shaftId !== undefined && (was.shaftId ?? null) !== shaft) row.shaft = shaft
       // 사람이 정한 설치면(OE-EQP-05). BIM 에는 없어서 있으면 적는다.
       if (e.surfaceSet) row.surface = e.surfaceSet
-      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined || row.surface) equipment.push(row)
+      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined || row.shaft !== undefined || row.surface) equipment.push(row)
     }
   }
   const assignedSpaces = model.storeys.flatMap((st) => st.equipment.flatMap((e) => (e.spaceSet !== undefined ? [{ id: e.id, spaceId: e.spaceSet }] : [])))
@@ -951,6 +958,20 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       done = true
     }
     if (done) result.applied++
+    else result.missing.elements++
+  }
+
+  // 샤프트 소속(OE-ML-09·14). 샤프트가 다 선 뒤에 넣는다. 저장할 때 사람이 정한 것이라 위치를 다시 묻지 않는다 — 축을 벗어났으면 이탈로 보인다.
+  for (const row of [...file.equipment, ...(file.equipmentAdded ?? [])]) {
+    if (row.shaft === undefined) continue
+    const target = model.storeys.flatMap((s) => s.equipment).find((x) => x.id === resolve(row.id))
+    if (!target) continue
+    if (row.shaft === null) {
+      delete target.shaftId
+      continue
+    }
+    const shaftId = resolve(row.shaft)
+    if (verticalObjects(model).some((o) => o.id === shaftId && o.kind === 'shaft')) target.shaftId = shaftId
     else result.missing.elements++
   }
 

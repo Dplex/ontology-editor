@@ -102,7 +102,7 @@ describe('수직 관통 오브젝트 전체 이동 (OE-ML-07)', () => {
 describe('수직 관통 오브젝트 삭제 (OE-ML-09)', () => {
   it('지우기 전 영향(층·조각·이은 물리존)을 보이고, 지우면 모든 층 조각이 빠지되 물리존은 그대로다 [OE-ML-09#1~,2]', () => {
     const m = building()
-    expect(verticalImpact(m, 'st')).toEqual({ storeys: ['1F', '2F'], parts: 2, link: { from: 'stair1', to: 'stair2' } })
+    expect(verticalImpact(m, 'st')).toEqual({ storeys: ['1F', '2F'], parts: 2, link: { from: 'stair1', to: 'stair2' }, pipes: 0 })
     expect(deleteVertical(m, 'st')).toBe(true)
     expect(verticalObjects(m).map((o) => o.id)).toEqual(['st2'])
     expect(m.storeys.map((s) => s.spaces.length)).toEqual([2, 2])

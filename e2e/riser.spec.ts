@@ -347,3 +347,67 @@ test('Duplex: 층 편집 화면에서 다른 층으로 이어진 구간은 잠�
   await expect(page.locator('.key-note')).toContainText('HWS 배관을 그렸습니다')
   expect(errors).toEqual([])
 })
+
+test('Duplex: 라이저 수직 구간을 둘러 샤프트를 만들고 그 구간을 넣으면, 오프셋을 바꾸기 전에 샤프트 소속이 보이고, 샤프트를 지우면 배관은 남고 소속만 풀린다 [OE-ML-09#4] [OE-ML-14#5,6]', async ({ page }) => {
+  test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(240_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await drawRiser(page)
+  const search = page.getByPlaceholder(/물리존·설비 이름/)
+  const pickRow = async (name: string) => {
+    await search.fill(name)
+    await page.locator('.equipment tbody tr', { hasText: name }).first().getByRole('button', { name, exact: true }).click()
+  }
+  const shaftBox = page.getByTestId('segment-shaft')
+  // 샤프트가 없으면 칸도 없다.
+  await pickRow('HWS 배관 1')
+  await expect(shaftBox).toHaveCount(0)
+
+  // 수직 구간(0.42, -14.79)을 둘러 샤프트 PS-1 을 만든다(Level 1 → Level 2).
+  await page.getByTestId('multi-banner').getByRole('button', { name: '수직 관통 오브젝트 만들기' }).click()
+  const form = page.getByTestId('vertical-create')
+  await form.getByLabel('만들 종류').selectOption({ label: '샤프트' })
+  await form.getByLabel('만들 이름').fill('PS-1')
+  const plan = page.getByTestId('vertical-create-plan')
+  await plan.getByRole('button', { name: '형상 그리기' }).click()
+  for (const [x, y] of [[0.0, -15.2], [0.9, -15.2], [0.9, -14.4], [0.0, -14.4]]) {
+    const at = await viewer<{ x: number; y: number }>(page, 'point', [x, y, 0])
+    await page.mouse.click(at.x, at.y)
+  }
+  await page.keyboard.press('Enter')
+  await expect(plan).toContainText('다 채웠습니다')
+  await form.getByRole('button', { name: '만들기', exact: true }).click()
+  await expect(page.getByTestId('vertical-picked').locator('h3')).toHaveText('PS-1')
+
+  // 위치가 축 안이어도 저절로 들지 않는다. 사람이 넣는다. 축 밖 구간(오프셋)에는 칸이 없다.
+  await pickRow('HWS 배관 1')
+  await expect(shaftBox.getByLabel('샤프트 소속').locator('option:checked')).toHaveText('넣지 않음')
+  await shaftBox.getByLabel('샤프트 소속').selectOption({ label: 'PS-1' })
+  await expect(page.locator('.report')).toContainText('덕트·배관 HWS 배관 1을 샤프트 PS-1에 넣었습니다 (GeoJSON shaftId)')
+  await pickRow('HWS 배관 3')
+  await expect(shaftBox).toHaveCount(0)
+
+  // 오프셋을 바꾸기 전에, 같이 늘어나는 수직 구간이 샤프트에 든 것을 보인다.
+  const offset = page.getByTestId('offset-height')
+  await offset.getByLabel('오프셋 높이(m)').fill('0.6')
+  await offset.getByLabel('오프셋 높이(m)').press('Tab')
+  await expect(page.getByTestId('offset-impact')).toContainText('샤프트에 든 구간 HWS 배관 1(PS-1)도 같이 늘어나며 소속은 그대로입니다')
+
+  // 샤프트를 지우면: 확인에 안의 배관 수 → 지워도 배관·연결은 남고 소속만 풀린다.
+  // 조각 가운데는 안의 배관이 먼저 잡혀서, 2층 조각 판(바닥 + 0.22m, viewer.ts 의 VERTICAL_LIFT)의 배관에서 떨어진 귀퉁이를 누른다.
+  const corner = await viewer<{ x: number; y: number }>(page, 'point', [0.8, -15.1, 3.1 + 0.22])
+  await page.mouse.click(corner.x, corner.y)
+  const panel = page.getByTestId('vertical-picked')
+  await expect(panel.locator('h3')).toHaveText('PS-1')
+  await panel.getByRole('button', { name: '샤프트 지우기' }).click()
+  await expect(page.getByTestId('vertical-delete-pipes')).toContainText('안의 덕트·배관 1개와 그 연결은 남고 샤프트 소속만 풀립니다')
+  await page.getByTestId('vertical-delete-ask').getByRole('button', { name: '지우기', exact: true }).click()
+  await search.fill('HWS')
+  await expect(page.locator('.equipment tbody tr', { hasText: /HWS (배관|이음) / })).toHaveCount(5)
+  await pickRow('HWS 배관 1')
+  await expect(shaftBox).toHaveCount(0)
+  await expect(page.locator('.picked .neighbors:not(.released) tbody tr')).toHaveCount(2)
+  await expect(page.locator('.report')).not.toContainText('샤프트 PS-1에 넣었습니다')
+  expect(errors).toEqual([])
+})
