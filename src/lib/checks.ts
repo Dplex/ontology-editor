@@ -125,6 +125,8 @@ export function completenessChecks(model: Model, services: readonly AirService[]
   }
   const conduits = equipment.filter((e) => isConduit(e.role))
   const hydronic = hydronicLinks(model, connections)
+  const heads = devices.filter((e) => e.kind === 'sprinkler')
+  const fireNeighbors = sprinklerNeighbors(model, new Set(heads.map((e) => e.id)))
 
   return [
     {
@@ -185,7 +187,42 @@ export function completenessChecks(model: Model, services: readonly AirService[]
       total: hydronic.users.size,
       failed: [...hydronic.users].filter(([, ok]) => !ok).map(([id]) => id),
     },
+    // 스프링클러 헤드의 소화 배관 연결(OE-EQP-11). 종류가 스프링클러 헤드인 설비만 센다 — BIM 이 FireSuppressionTerminal.SPRINKLER 로
+    // 주었거나 사람이 고른 것이다. 이름으로는 읽지 않는다(kinds.ts 의 manual).
+    {
+      key: 'sprinkler-fp',
+      rule: '스프링클러 헤드가 소화(FP) 배관에 이어져 있다',
+      why: '헤드에 물을 대는 소화 계통을 알 수 없습니다. 급수 같은 다른 계통 배관에만 이어진 헤드도 여기에 듭니다.',
+      total: heads.length,
+      failed: heads.filter((e) => !(fireNeighbors.get(e.id)!.fire > 0)).map((e) => e.id),
+    },
   ]
+}
+
+/**
+ * 스프링클러 헤드마다 직접 이어진 상대의 계통 종류. 상대(배관·이음쇠·기기) 중 하나라도 계통 종류가 소화(`fire_protection`)면
+ * 소화 배관에 이어진 것이다. 헤드 자신의 계통은 보지 않는다 — 소화 계통에 들어 있어도 배관에 이어지지 않았으면 물을 받지
+ * 못한다(OE-EQP-11 "연결 필수"). 해제 보정한 BIM 연결은 `model.connections` 에 없으니 따로 거르지 않는다(OE-PIP-06).
+ * 연결을 한 번만 훑는다 — 병원 MEP 는 헤드 418대·연결 13,608개라 헤드마다 훑으면 편집할 때마다 늦어진다.
+ */
+function sprinklerNeighbors(model: Model, heads: ReadonlySet<string>): Map<string, { fire: number; other: string[]; none: number }> {
+  const systemOf = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.systemId]))
+  const kindOf = new Map(model.systems.map((s) => [s.id, s.kind ?? null]))
+  const out = new Map([...heads].map((id) => [id, { fire: 0, other: [] as string[], none: 0 }]))
+  const note = (head: string, other: string) => {
+    const sys = systemOf.get(other)
+    const kind = sys ? kindOf.get(sys) : null
+    const n = out.get(head)!
+    if (kind === 'fire_protection') n.fire++
+    else if (kind) n.other.push(kind)
+    else n.none++
+  }
+  for (const c of model.connections) {
+    if (c.from === c.to) continue
+    if (heads.has(c.from)) note(c.from, c.to)
+    if (heads.has(c.to)) note(c.to, c.from)
+  }
+  return out
 }
 
 /** 설비 형상의 상자(최소 x·y·z, 최대 x·y·z). 연결망에서 떨어진 설비가 이웃과 얼마나 떨어졌는지 잴 때 쓴다. */
@@ -307,6 +344,14 @@ export function diagnoseFailure(key: string, id: string, ctx: ExplainContext): {
     if (!blocked) return say(text)
     const other = ctx.label(blocked)
     return say(`${text} 경계 안쪽 ${INSIDE_STEPS.at(-1)}m 까지는 ${other}${josa(other, '과/와')} 겹쳐 바로 옮길 수 없습니다.`)
+  }
+
+  if (key === 'sprinkler-fp') {
+    const n = sprinklerNeighbors(model, new Set([id])).get(id)!
+    if (n.other.length + n.none === 0) return say('이어진 배관이 없습니다. 소화 배관과 [연결하기] 로 이으면 됩니다.')
+    const labels = [...new Set(n.other)].map((k) => systemKind(k)?.label ?? k)
+    if (labels.length) return say(`소화가 아닌 계통(${labels.join('·')})의 배관에만 이어져 있습니다.`)
+    return say(`이어진 배관 ${n.none}개가 계통이 없어 소화 배관인지 알 수 없습니다. 그 배관을 소화 계통에 넣으면 됩니다.`)
   }
 
   if (key === 'heat-source-user' || key === 'hydronic-user-source') {
