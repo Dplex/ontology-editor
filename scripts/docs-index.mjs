@@ -357,7 +357,8 @@ export function map(idx) {
 //
 // 개발하는 LLM 이 티켓 하나를 따라갈 때 읽는 글을 줄이려고 둔다(ADR-0048). 2026-10-10 에 지난 세션 83개를 쟀더니 가장 많이 연 문서가
 // docs/bim-to-dt-ontology.md(113KB)였다 — 티켓 depends 의 R11 같은 번호가 어디 정의됐는지 몰라 grep 113번 · 통째 읽기 17번.
-// 번호는 늘 "첫 칸이 그 번호인 표의 줄" 에 정의되니(R·F·E 는 개발 정본, K·S 는 PRD_011, D·Q·U·P 는 questions.md) 그 줄과 표 머리만 준다.
+// 번호는 늘 "첫 칸이 그 번호인 표의 줄" 에 정의되니(R 은 PRD_011 부록 A 와 개발 정본 4장 두 곳, F·E 는 개발 정본, K·S 는 PRD_011,
+// D·Q·U·P 는 questions.md) 그 줄과 표 머리만 준다. 두 곳에 있으면 DEF_FIRST 순서로 둘 다 준다.
 
 const DEF_FIRST = ['docs/prd/questions.md', 'docs/prd/PRD_011.md', 'docs/bim-to-dt-ontology.md', 'docs/prd/glossary.md']
 const cellText = c => c.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*`]/g, '').trim()

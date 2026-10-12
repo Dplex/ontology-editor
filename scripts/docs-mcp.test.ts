@@ -94,10 +94,13 @@ describe('링크', () => {
 
 describe('정의·맥락 (ADR-0048)', () => {
   it('R·K·D·F·E 번호는 첫 칸이 그 번호인 표 줄과 그 표의 머리로 찾는다 — 정의가 있는 문서가 먼저', () => {
-    const r11 = define(idx, 'R11')[0]
-    expect(r11).toMatchObject({ path: 'docs/bim-to-dt-ontology.md', where: expect.stringContaining('4.1 필수') })
-    expect(r11.row).toMatch(/^\| R11 \|/)
-    expect(r11.header).toMatch(/^\| # \| 요구 \|/)
+    // R 은 두 곳에 줄이 있다 — PRD 부록 A(고객사 요구 전체 표, 2026-10-10~)가 먼저, 개발 문서 4장(실측·대응)이 다음.
+    const [prd, dev] = define(idx, 'R11')
+    expect(prd).toMatchObject({ path: 'docs/prd/PRD_011.md', where: expect.stringContaining('부록 A') })
+    expect(prd.row).toMatch(/^\| R11 \|/)
+    expect(prd.header).toMatch(/^\| R \| 요구 \|/)
+    expect(dev).toMatchObject({ path: 'docs/bim-to-dt-ontology.md', where: expect.stringContaining('4.1 필수') })
+    expect(dev.header).toMatch(/^\| # \| 요구 \|/)
     expect(define(idx, 'd10')[0]).toMatchObject({ path: 'docs/prd/questions.md' })
     expect(define(idx, 'K3')[0]).toMatchObject({ path: 'docs/prd/PRD_011.md' })
     expect(define(idx, 'OE-BIM-12')).toEqual([]) // 티켓은 문서다
@@ -114,7 +117,7 @@ describe('정의·맥락 (ADR-0048)', () => {
     expect(c.code.every((x: { file: string }) => !/\.(test|spec)\.ts$/.test(x.file))).toBe(true)
     expect(c.depended_by.length).toBeGreaterThan(0)
     const bim12 = context(idx, 'OE-BIM-12')
-    expect(bim12.depends.find((d: { id: string }) => d.id === 'R11')).toMatchObject({ path: 'docs/bim-to-dt-ontology.md' })
+    expect(bim12.depends.find((d: { id: string }) => d.id === 'R11')).toMatchObject({ path: 'docs/prd/PRD_011.md' })
   })
 
   it('번호 맥락은 정의와 그 번호를 머리 필드에 적은 티켓·ADR', () => {
@@ -172,7 +175,7 @@ describe('MCP 프로토콜 (stdio)', () => {
     expect(found.results[0].id).toBe('OE-BIM-12')
     expect(replies[4].result.isError).toBe(true)
     expect(replies[5].error.code).toBe(-32601)
-    expect(JSON.parse(replies[6].result.content[0].text).defs[0].path).toBe('docs/bim-to-dt-ontology.md')
+    expect(JSON.parse(replies[6].result.content[0].text).defs.map((d: { path: string }) => d.path)).toEqual(['docs/prd/PRD_011.md', 'docs/bim-to-dt-ontology.md'])
     expect(JSON.parse(replies[7].result.content[0].text).defs[0].row).toMatch(/^\| K3 \|/)
   }, 15000)
 })
