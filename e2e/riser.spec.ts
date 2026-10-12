@@ -94,3 +94,78 @@ test('Duplex: 1층 라디에이터에서 수직으로 올라 2층에서 옆으�
   await expect(drawnRows(page)).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 설비로 분기하고, 층 편집 화면에서도 같은 분기점이 보이며, 되돌리면 라이저가 하나로 돌아온다 [OE-ML-13#1~,5~] [OE-PIP-15#4~]', async ({ page }) => {
+  test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(180_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  const bar = page.locator('.draw-bar')
+
+  // 주 배관: 1층 라디에이터 → 수직으로 2층 바닥 + 0.3m → 2층 라디에이터(첫 시험과 같다).
+  await page.locator('input[type=search]').fill('536919')
+  await page.locator('.equipment tbody tr', { hasText: FROM }).last().getByRole('button', { name: FROM, exact: true }).click()
+  const riser = page.getByTestId('riser-draw')
+  const target = riser.getByLabel('층간 배관 끝 대상').locator('option', { hasText: TO })
+  await riser.getByLabel('층간 배관 끝 대상').selectOption(await target.getAttribute('value'))
+  await riser.getByLabel('층간 배관 Flow Type').selectOption('HWS')
+  await riser.getByRole('button', { name: '경로 찍기' }).click()
+  await bar.getByLabel('작업 층').selectOption({ label: 'Level 2' })
+  await bar.getByLabel('층 바닥에서 높이(m)').fill('0.3')
+  await bar.getByLabel('층 바닥에서 높이(m)').press('Tab')
+  await bar.getByTestId('riser-plumb').click()
+  const at = await viewer<{ x: number; y: number }>(page, 'point', [0.42, -13.4, 3.4])
+  await page.mouse.click(at.x, at.y)
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.key-note')).toContainText('HWS 배관을 그렸습니다: 구간 3개 · 이음쇠 2개')
+
+  // 라이저 구간(HWS 배관 1)을 고르면 같은 칸이 분기 그리기가 된다. 끝은 1층 라디에이터 557620(2.57,-8.81,0.30).
+  await page.locator('input[type=search]').fill('HWS 배관 1')
+  await page.locator('.equipment tbody tr', { hasText: 'HWS 배관 1' }).first().getByRole('button', { name: 'HWS 배관 1', exact: true }).click()
+  const branch = page.getByTestId('branch-draw')
+  await expect(branch).toBeVisible()
+  await branch.getByLabel('층간 배관 끝 층').selectOption({ label: 'Level 1' })
+  const other = branch.getByLabel('층간 배관 끝 대상').locator('option', { hasText: '557620' })
+  await branch.getByLabel('층간 배관 끝 대상').selectOption(await other.getAttribute('value'))
+  await branch.getByRole('button', { name: '분기 그리기' }).click()
+  await expect(bar).toContainText('첫 점은 분기 자리')
+  // 작업 높이 Level 1 + 1.5m 에서 라이저 위에 분기 자리를 찍는다.
+  await bar.getByLabel('작업 층').selectOption({ label: 'Level 1' })
+  await bar.getByLabel('층 바닥에서 높이(m)').fill('1.5')
+  await bar.getByLabel('층 바닥에서 높이(m)').press('Tab')
+  await bar.getByTestId('branch-at').click()
+  await expect(bar).toContainText('분기 자리 + 꺾임점 0개')
+  // 1.5m 높이에서 옆으로 두 번 꺾어 라디에이터 바로 위로 간다. 마지막은 라디에이터로 내려가는 구간이다.
+  for (const [x, y] of [[0.42, -8.81], [2.57, -8.81]]) {
+    const p = await viewer<{ x: number; y: number }>(page, 'point', [x, y, 1.5])
+    await page.mouse.click(p.x, p.y)
+  }
+  await expect(bar).toContainText('분기 자리 + 꺾임점 2개')
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.key-note')).toContainText('HWS 분기를 그렸습니다: 분기점 HWS 분기 6을 넣어 HWS 배관 1을 나눴습니다 · 구간 3개')
+  // F: 고른 라이저 구간의 연결망(라이저·분기)에 시점을 맞춘다.
+  await page.keyboard.press('f')
+  await expect.poll(() => viewer<{ flying: boolean }>(page, 'motion').then((m) => m.flying)).toBe(false)
+  await page.locator('input[type=search]').fill('HWS')
+  // 라이저 다섯 조각 + 분기점 + 나눈 뒤 구간 + 분기 구간 셋·이음쇠 둘.
+  await expect(page.locator('.equipment tbody tr', { hasText: /HWS (배관|이음|분기) / })).toHaveCount(12)
+  if (process.env.SHOT_BRANCH) await page.locator('.viewport').screenshot({ path: process.env.SHOT_BRANCH })
+
+  // 층 편집 화면(1층)에도 같은 분기점이 있다 — 1.5m 높이라 1층의 이음쇠다.
+  await page.getByRole('button', { name: '층 편집으로' }).first().click()
+  await page.locator('input[type=search]').fill('HWS 분기')
+  await expect(page.locator('.equipment tbody tr', { hasText: 'HWS 분기 6' })).toHaveCount(1)
+
+  // 되돌리기 한 번에 분기점·뒤 구간·분기가 빠진다(라이저 다섯 조각만 남는다).
+  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.keyboard.press('Control+z')
+  await page.locator('input[type=search]').fill('HWS')
+  await expect(page.locator('.equipment tbody tr', { hasText: 'HWS 분기' })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
