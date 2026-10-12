@@ -11,7 +11,7 @@ const RADIATOR = 'M_Radiator - Hosted:Readiator - 25:Readiator - 25:536919'
 const row = (page: Page) => page.locator('.equipment tbody tr', { hasText: RADIATOR }).last()
 
 
-test('설비를 옮기면 붙은 배관이 따라오고, 끄면 설비만 옮겨지며, 되돌리면 같이 돌아온다', async ({ page }) => {
+test('설비를 옮기면 붙은 배관이 따라오고, 끄면 설비만 옮겨지며, 되돌리면 같이 돌아온다 [OE-PIP-12#1,6~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []

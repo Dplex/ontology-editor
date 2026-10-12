@@ -180,7 +180,7 @@ describe.skipIf(!have)('성수 불변식', () => {
     expect({ ...check, toUnread: 0, dangling: check.dangling.slice(0, 5) }).toEqual({ notInTtl: [], dangling: [], toUnread: 0, locationMismatch: [], doorLinks: [] })
   }, 300_000)
 
-  it('계단(IfcStair) 35개 중 층을 잇는 32개가 수직 관통 오브젝트가 되고, 겹침만으로 잇던 계단실 짝을 하나도 잃지 않는다 (OE-ML-02·19)', () => {
+  it('계단(IfcStair) 35개 중 층을 잇는 32개가 수직 관통 오브젝트가 되고, 겹침만으로 잇던 계단실 짝을 하나도 잃지 않는다 (OE-ML-02·19) [OE-ML-02#1]', () => {
     const objects = verticalObjects(merged)
     expect(objects).toHaveLength(32)
     // B5F 계단 둘은 중간층 B5'F 를 지나 B4F 에 닿는다.

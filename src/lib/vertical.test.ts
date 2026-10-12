@@ -70,7 +70,7 @@ describe('층 사이 연결', () => {
 
   // OE-ML-19 겹침 후보 규칙(2026-10-08 요구사항). 실제 BIM 의 기준선은 check:sample "병원 건축 층간 연결 기준선".
   describe('겹침 후보 (OE-ML-19)', () => {
-    it('겹친 넓이가 작은 쪽의 정확히 절반이면 잇지 않고, 조금이라도 넘으면 잇는다', () => {
+    it('겹친 넓이가 작은 쪽의 정확히 절반이면 잇지 않고, 조금이라도 넘으면 잇는다 [OE-ML-19#3]', () => {
       // 아래 4㎡, 위 4㎡. x 1~3 이 겹쳐 2㎡ = 50%.
       const half = model([storey('1F', 0, [space('s1', 'staircase', rect(0, 0, 2, 2))]), storey('2F', 3, [space('s2', 'staircase', rect(1, 0, 3, 2))])])
       expect(verticalConnections(half)).toMatchObject({ pairs: [], ambiguous: [] })
@@ -78,13 +78,13 @@ describe('층 사이 연결', () => {
       expect(verticalConnections(more).pairs).toEqual([{ low: 's1', high: 's2', share: expect.closeTo(0.505, 6) }])
     })
 
-    it('분모는 두 방 중 작은 쪽의 넓이다 — 큰 계단실 안의 작은 계단실은 다 겹친다', () => {
+    it('분모는 두 방 중 작은 쪽의 넓이다 — 큰 계단실 안의 작은 계단실은 다 겹친다 [OE-ML-19#3]', () => {
       // 아래 10㎡ 안에 위 2㎡ 가 다 들어간다. 큰 쪽으로 나누면 20% 라 끊긴다.
       const m = model([storey('1F', 0, [space('big', 'staircase', rect(0, 0, 5, 2))]), storey('2F', 3, [space('small', 'staircase', rect(1, 0, 2, 2))])])
       expect(verticalConnections(m).pairs).toEqual([{ low: 'big', high: 'small', share: expect.closeTo(1, 6) }])
     })
 
-    it('양쪽이 서로를 최고 후보로 고르면 잇는다 — 위층에 후보가 둘이어도 짝이 하나로 정해진다', () => {
+    it('양쪽이 서로를 최고 후보로 고르면 잇는다 — 위층에 후보가 둘이어도 짝이 하나로 정해진다 [OE-ML-19#4]', () => {
       // a1 은 a2(100%)·b2(67%) 둘 다 걸리지만, b2 는 b1 을 더 많이 겹친다(100%). 서로 고른 짝은 a1-a2, b1-b2.
       const m = model([
         storey('1F', 0, [space('a1', 'staircase', rect(0, 0, 4, 4)), space('b1', 'staircase', rect(4, 0, 4.5, 4))]),
@@ -96,7 +96,7 @@ describe('층 사이 연결', () => {
       expect(v.ambiguous.map((p) => [p.low, p.high, p.reason])).toEqual([['a1', 'b2', 'not-mutual']])
     })
 
-    it('동률이면 어느 쪽도 잇지 않고 모호 후보로 둔다', () => {
+    it('동률이면 어느 쪽도 잇지 않고 모호 후보로 둔다 [OE-ML-19#4]', () => {
       // 위층 큰 계단실 하나에 아래층 계단실 둘이 똑같이(100%) 들어간다.
       const m = model([
         storey('1F', 0, [space('l1', 'staircase', rect(0, 0, 2, 2)), space('l2', 'staircase', rect(2, 0, 4, 2))]),
@@ -112,7 +112,7 @@ describe('층 사이 연결', () => {
       expect(features.filter((f) => 'verticalConnects' in f.properties)).toEqual([])
     })
 
-    it('다대일 — 위층 방 하나를 두 방이 고르면 더 많이 겹친 쪽만 잇고, 나머지는 모호 후보다', () => {
+    it('다대일 — 위층 방 하나를 두 방이 고르면 더 많이 겹친 쪽만 잇고, 나머지는 모호 후보다 [OE-ML-19#4]', () => {
       // h 는 l1 과 100%, l2 와 75% 겹친다. l2 의 유일한 후보는 h 지만 h 가 l1 을 골랐다.
       const m = model([
         storey('1F', 0, [space('l1', 'staircase', rect(0, 0, 2, 2)), space('l2', 'staircase', rect(2, 0, 4, 2))]),
@@ -140,7 +140,7 @@ describe('층 사이 연결', () => {
   describe('수직 관통 오브젝트가 명시한 연결 (OE-ML-19)', () => {
     const stairPart = (over: Partial<VerticalPart>): VerticalPart => ({ parentId: 'st', kind: 'stair', name: '계단', source: 'bim', footprint: [], entry: null, exit: null, ...over })
 
-    it('계단이 이은 물리존은 그 연결(출처 bim)을 쓰고 겹침 후보에서 빠진다 — 겹침이 다른 짝을 골라도 덮어쓰지 않는다', () => {
+    it('계단이 이은 물리존은 그 연결(출처 bim)을 쓰고 겹침 후보에서 빠진다 — 겹침이 다른 짝을 골라도 덮어쓰지 않는다 [OE-ML-19#2~]', () => {
       // 겹침만 보면 s1 은 s2b(100%)와 잇는다. 계단은 s1 에서 올라 s2a 에 닿는다.
       const m = model([
         storey('1F', 0, [space('s1', 'staircase', rect(0, 0, 2, 2))]),
@@ -163,7 +163,7 @@ describe('층 사이 연결', () => {
       expect(Object.fromEntries(verticalLinks(m))).toEqual({ living: ['gallery'], gallery: ['living'] })
     })
 
-    it('GeoJSON 에 층마다 조각 feature 를 내고, 조각끼리·물리존끼리 잇는다', () => {
+    it('GeoJSON 에 층마다 조각 feature 를 내고, 조각끼리·물리존끼리 잇는다 [OE-ML-02#1,4] [OE-ML-04#3~] [OE-ML-19#5~] [OE-EQP-16#2~]', () => {
       const m = model([storey('1F', 0, [space('s1', 'staircase', rect(0, 0, 2, 2))]), storey('2F', 3, [space('s2', 'staircase', rect(0, 0, 2, 2))])])
       m.storeys[0].verticalParts = [stairPart({ footprint: rect(0, 0, 1, 2).slice(0, 4), entry: [0.5, 0.2, 0] })]
       m.storeys[1].verticalParts = [stairPart({ exit: [0.5, 1.8, 3] })]

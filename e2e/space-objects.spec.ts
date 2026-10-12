@@ -19,7 +19,7 @@ async function place(page: Page, name: string, x: number, y: number) {
   await clickAt(page, x, y)
 }
 
-test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기는 막으며, 넣은 glb 도 놓이고 지우면 Ctrl+Z 로 돌아온다', async ({ page }) => {
+test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기는 막으며, 넣은 glb 도 놓이고 지우면 Ctrl+Z 로 돌아온다 [OE-OBJ-09#1,2]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

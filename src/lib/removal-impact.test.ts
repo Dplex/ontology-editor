@@ -19,7 +19,7 @@ describe('조각을 지울 때의 영향 (OE-PIP-10)', () => {
     expect(removalImpact(tee(), 'D1')).toEqual({ pieces: [{ devices: ['DIF1', 'DIF2'], conduits: 3 }, { devices: ['AHU'], conduits: 0 }] })
   })
 
-  it('한 가지의 덕트를 지우면 그 가지의 디퓨저만 떨어지고, 다른 가지는 공조기와 이어진 채다', () => {
+  it('한 가지의 덕트를 지우면 그 가지의 디퓨저만 떨어지고, 다른 가지는 공조기와 이어진 채다 [OE-PIP-10#6]', () => {
     const m = tee()
     expect(removalImpact(m, 'D3')).toEqual({ pieces: [{ devices: ['AHU', 'DIF1'], conduits: 3 }, { devices: ['DIF2'], conduits: 0 }] })
     deleteEquipment(m, 'D3')

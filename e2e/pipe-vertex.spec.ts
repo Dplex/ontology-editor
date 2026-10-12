@@ -12,7 +12,7 @@ async function pick(page: Page, tag: string) {
   return row
 }
 
-test('실제 BIM: 엘보를 옮기면 양쪽 덕트·배관이 늘어나 따라오고, 설비에 붙은 이음쇠는 끝점이라 막는다', async ({ page }) => {
+test('실제 BIM: 엘보를 옮기면 양쪽 덕트·배관이 늘어나 따라오고, 설비에 붙은 이음쇠는 끝점이라 막는다 [OE-PIP-10#2~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX_HVAC), `${DUPLEX_HVAC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []
@@ -51,7 +51,7 @@ test('실제 BIM: 엘보를 옮기면 양쪽 덕트·배관이 늘어나 따라�
   expect(errors).toEqual([])
 })
 
-test('실제 BIM: 배관 구간을 고르면 지우기 전에 연결망이 몇 갈래로 나뉘는지 보이고, 지운 뒤 되돌릴 수 있다 (OE-PIP-10)', async ({ page }) => {
+test('실제 BIM: 배관 구간을 고르면 지우기 전에 연결망이 몇 갈래로 나뉘는지 보이고, 지운 뒤 되돌릴 수 있다 (OE-PIP-10) [OE-PIP-10#6]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX_HVAC), `${DUPLEX_HVAC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []
@@ -76,7 +76,7 @@ test('실제 BIM: 배관 구간을 고르면 지우기 전에 연결망이 몇 �
   expect(errors).toEqual([])
 })
 
-test('실제 BIM: 배관 구간 끝의 연결 대상을 바꾸면 옛 BIM 포트 연결은 해제 보정으로 남고, 한 번에 되돌린다 (OE-PIP-10)', async ({ page }) => {
+test('실제 BIM: 배관 구간 끝의 연결 대상을 바꾸면 옛 BIM 포트 연결은 해제 보정으로 남고, 한 번에 되돌린다 (OE-PIP-10) [OE-PIP-10#3,7~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX_HVAC), `${DUPLEX_HVAC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []

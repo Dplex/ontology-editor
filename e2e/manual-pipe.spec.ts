@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 // mep.ifc: AHU-1(1,1,3.2), AT-101-02(7,4,2.7).
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 
-test('공조기에서 디퓨저까지 배관을 곧게 잇고 되돌리며, 꺾임점을 찍어 구간 둘과 이음쇠 하나로 그린다', async ({ page }) => {
+test('공조기에서 디퓨저까지 배관을 곧게 잇고 되돌리며, 꺾임점을 찍어 구간 둘과 이음쇠 하나로 그린다 [OE-PIP-11#2]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -51,7 +51,7 @@ test('공조기에서 디퓨저까지 배관을 곧게 잇고 되돌리며, 꺾�
   expect(errors).toEqual([])
 })
 
-test('범례의 Flow Type 만 고를 수 있고, 좌표 없는 설비와는 잇지 않는다', async ({ page }) => {
+test('범례의 Flow Type 만 고를 수 있고, 좌표 없는 설비와는 잇지 않는다 [OE-PIP-11#5~]', async ({ page }) => {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })

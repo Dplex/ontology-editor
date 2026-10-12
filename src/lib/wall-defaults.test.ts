@@ -32,7 +32,7 @@ const model = (walls: Wall[]): Model => ({
 })
 
 describe('새 벽 두께 (OE-SPC-12)', () => {
-  it('BIM 내벽 최빈 두께가 0.24m 인 층에서 새 벽을 그으면 0.24m 다. 외벽·더한 벽·두께 모르는 벽은 세지 않는다', () => {
+  it('BIM 내벽 최빈 두께가 0.24m 인 층에서 새 벽을 그으면 0.24m 다. 외벽·더한 벽·두께 모르는 벽은 세지 않는다 [OE-SPC-12#1]', () => {
     const m = model([
       wall('a', 0.2399, {}, 0),
       wall('b', 0.24, {}, 2),
@@ -49,14 +49,14 @@ describe('새 벽 두께 (OE-SPC-12)', () => {
     expect(made.thickness).toBe(0.24)
   })
 
-  it('BIM 벽이 없고 사이트 기본값이 0.15m 이면 0.15m, 둘 다 없으면 0.2m 다', () => {
+  it('BIM 벽이 없고 사이트 기본값이 0.15m 이면 0.15m, 둘 다 없으면 0.2m 다 [OE-SPC-12#2,3]', () => {
     const empty = model([wall('ext', 0.4, { external: true })])
     expect(newWallThickness(empty.storeys[0], 0.15)).toEqual({ thickness: 0.15, from: 'site' })
     expect(newWallThickness(empty.storeys[0], null)).toEqual({ thickness: 0.2, from: 'default' })
     expect(newWallThickness(model([]).storeys[0])).toEqual({ thickness: 0.2, from: 'default' })
   })
 
-  it('사이트 기본 내벽 두께의 처음 값은 0.15m 라, 설정을 손대지 않은 사이트에서 BIM 벽이 없는 층의 새 벽은 0.15m 다', () => {
+  it('사이트 기본 내벽 두께의 처음 값은 0.15m 라, 설정을 손대지 않은 사이트에서 BIM 벽이 없는 층의 새 벽은 0.15m 다 [OE-SPC-12#2]', () => {
     expect(SITE_INTERIOR_WALL).toBe(0.15)
     expect(newWallThickness(model([]).storeys[0], SITE_INTERIOR_WALL)).toEqual({ thickness: 0.15, from: 'site' })
   })

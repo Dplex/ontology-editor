@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 // 배관(형상·좌표가 없는 것)과 일부러 두는 분기 이음쇠는 사유를 보인다. 임의 좌표를 만들지 않는다.
 const DUPLEX_HVAC = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-HVAC.ifc'
 
-test('형상이 없는 덕트에 붙은 설비는 "끝점 자동 추종 불가" 를 옮기기 전부터 패널에 보이고, 옮겨도 덕트 좌표를 만들지 않는다', async ({ page }) => {
+test('형상이 없는 덕트에 붙은 설비는 "끝점 자동 추종 불가" 를 옮기기 전부터 패널에 보이고, 옮겨도 덕트 좌표를 만들지 않는다 [OE-PIP-12#4]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -36,7 +36,7 @@ test('형상이 없는 덕트에 붙은 설비는 "끝점 자동 추종 불가" 
   expect(errors).toEqual([])
 })
 
-test('실제 BIM: 배관이 붙은 설비를 고르면 따라올 덕트·배관 수가 보이고, 분기 이음쇠·추종 불가가 없으면 경고가 없다', async ({ page }) => {
+test('실제 BIM: 배관이 붙은 설비를 고르면 따라올 덕트·배관 수가 보이고, 분기 이음쇠·추종 불가가 없으면 경고가 없다 [OE-PIP-12#2]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX_HVAC), `${DUPLEX_HVAC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   await page.goto('/')

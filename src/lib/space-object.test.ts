@@ -63,7 +63,7 @@ describe('추가 공간 오브젝트 놓기·옮기기·크기(OE-SPC-14)', () =
     expect(addSpaceObject(m, 's1', 'nothing', [9, 9])).toBeNull()
   })
 
-  it('다른 오브젝트와 겹치는 자리에는 놓지도 옮기지도 키우지도 못하고 겹친 상대를 돌려주며, 오브젝트는 그대로다', () => {
+  it('다른 오브젝트와 겹치는 자리에는 놓지도 옮기지도 키우지도 못하고 겹친 상대를 돌려주며, 오브젝트는 그대로다 [OE-OBJ-09#1]', () => {
     const m = model()
     const desk = made(addSpaceObject(m, 's1', 'desk', [2, 3]))
     expect(addSpaceObject(m, 's1', 'chair', [2.3, 3.1])).toEqual({ refused: expect.stringContaining('이미 오브젝트가 있는 위치'), blocked: desk.id })
@@ -104,7 +104,7 @@ describe('추가 공간 오브젝트 놓기·옮기기·크기(OE-SPC-14)', () =
 })
 
 describe('넣은 3D 모델(OE-P3-08)', () => {
-  it('넣은 모델이 라이브러리 항목이 되고 그 종류로 놓인다', () => {
+  it('넣은 모델이 라이브러리 항목이 되고 그 종류로 놓인다 [OE-OBJ-09#2]', () => {
     const m = model()
     const item = addCustomItem(m, 'lounge-chair.glb', [0.7, 0.8, 1.05], 'Z2xURg==')
     if ('refused' in item) throw new Error(item.refused)
