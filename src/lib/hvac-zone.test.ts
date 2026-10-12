@@ -12,6 +12,7 @@ import {
   deleteHvacZone,
   deleteZoneVertex,
   findHvacZone,
+  flowSpacesOfZones,
   hvacZonesOf,
   insertZoneVertex,
   moveZoneVertex,
@@ -218,6 +219,76 @@ describe('공조존 경계 다시 그리기 (OE-ZON-04)', () => {
   })
 })
 
+describe('연결 기준 후보와 경고 (OE-MAP-02)', () => {
+  // mep.ifc: AHU-1 → DUCT-01 → AT-101-01 은 포트가 말한 방향이고, DUCT-01 → AT-101-02 는 확정 전 규칙 방향이다.
+  // AT-101-02 를 창고로 옮겨, 확정 전 규칙 방향으로만 닿는 방이 후보에 드는지 본다.
+  const names = { space: (id: string) => model.storeys.flatMap((s) => s.spaces).find((s) => s.id === id)?.longName ?? id, equipment: (id: string) => id }
+  const rule = () => zoneChecks(model, names).checks.find((c) => c.rule === '연결')!.items.map((x) => x.label)
+  const toStore = () => {
+    const at = equip('AT-101-02')
+    at.position = [12, 4, 2.7]
+    at.spaceId = store
+  }
+  const confirm = () => {
+    const c = model.connections.find((x) => x.inferred && x.to === equip('AT-101-02').id)!
+    c.inferred!.confirmed = true
+  }
+
+  it('담당 설비에서 확정된 흐름으로 닿는 말단의 물리존만 후보이고, 규칙 방향을 확정하면 후보가 늘며 담당에서 빠진 방이 경고다', () => {
+    toStore()
+    const a = createZoneFromSpaces(model, { spaceIds: [office().id], servedBy: [equip('AHU-1').id] }) as HvacZone
+    expect(flowSpacesOfZones(model).get(a.id)).toEqual([office().id])
+    expect(rule()).toEqual([])
+    confirm()
+    expect(flowSpacesOfZones(model).get(a.id)).toEqual([office().id, store])
+    expect(rule()).toEqual(['공조존 1 — 담당에서 빠짐: 창고'])
+    // 같은 공조기가 창고를 담당하는 공조존도 공급하면, 공조존 1 에 창고가 없는 것은 정상이다.
+    const b = createZoneFromSpaces(model, { spaceIds: [store], servedBy: [equip('AHU-1').id] }) as HvacZone
+    expect(rule()).toEqual([])
+    setZoneServedBy(model, b.id, [])
+    expect(rule()).toEqual(['공조존 1 — 담당에서 빠짐: 창고'])
+    // 후보를 담당에 더하면 경고가 사라진다.
+    setZoneSpaces(model, a.id, [office().id, store])
+    expect(rule()).toEqual([])
+  })
+
+  it('담당 물리존에 담당 설비의 말단이 하나도 없으면 경고다. 말단을 담당 설비로 고르면 그 말단의 방이고, 흐름이 없는 설비는 기준을 쓰지 않는다', () => {
+    const z = createZoneFromSpaces(model, { spaceIds: [store], servedBy: [equip('AHU-1').id] }) as HvacZone
+    expect(rule()).toEqual(['공조존 1 — 담당 물리존에 말단 없음(말단: 사무실)'])
+    setZoneServedBy(model, z.id, [equip('AT-101-01').id])
+    expect(flowSpacesOfZones(model).get(z.id)).toEqual([office().id])
+    // 조명은 공기가 흐르지 않고, 덕트에 이어진 것도 아니다.
+    setZoneServedBy(model, z.id, [equip('LIGHT-101-01').id])
+    expect(flowSpacesOfZones(model).has(z.id)).toBe(false)
+    expect(rule()).toEqual([])
+  })
+})
+
+describe('물리존을 나누고 합치고 지우면 공조존 담당이 따라간다 (OE-MAP-02)', () => {
+  it('물리존을 분할하면 두 조각 모두 원래 공조존의 담당 물리존이 되고, 되돌리면 돌아온다', () => {
+    const zone = createZoneFromSpaces(model, { spaceIds: [office().id] }) as HvacZone
+    const snap = snapshotStoreySpaces(model, model.storeys[0].id)!
+    const done = splitSpace(model, office().id, [5, -1], [5, 9])
+    if (!done || 'refused' in done) throw new Error('split')
+    expect(zone.spaceIds).toEqual([office().id, done.created[0]])
+    expect(zone.areaM2).toBeCloseTo(80)
+    restore(model, snap)
+    expect(hvacZonesOf(model)[0].spaceIds).toEqual([office().id])
+  })
+
+  it('합치면 없어진 방 대신 남는 방이고 바닥이 넓어지며, 지우면 담당에서 빠진다', () => {
+    const zone = createZoneFromSpaces(model, { spaceIds: [store] }) as HvacZone
+    const merged = mergeSpaces(model, office().id, store)
+    if (!merged || 'refused' in merged) throw new Error('merge')
+    expect(zone.spaceIds).toEqual([office().id])
+    expect(zone.areaM2).toBeCloseTo(80 + 30.4 + 1.6, 1)
+    const extra = createSpace(model, model.storeys[0].id, { name: '103', longName: '휴게', footprint: [[20, 0], [24, 0], [24, 4], [20, 4]] })!.created[0]
+    setZoneSpaces(model, zone.id, [office().id, extra])
+    deleteSpace(model, extra)
+    expect(zone.spaceIds).toEqual([office().id])
+  })
+})
+
 describe('공조존 꼭짓점 고치기 (OE-ZON-04)', () => {
   it('꼭짓점 하나를 옮기면 그 꼭짓점만 바뀌고 담당·몫·넓이를 새 경계로 다시 잰다. 되돌리면 그 전과 같다', () => {
     const zone = createZoneFromOutline(model, model.storeys[0].id, { footprint: [[0, 0], [8, 0], [8, 8], [0, 8]] }) as HvacZone
@@ -274,30 +345,5 @@ describe('공조존 꼭짓점 고치기 (OE-ZON-04)', () => {
     expect(split.footprint).toHaveLength(2)
     expect(zoneCorners(split)).toBeNull()
     expect(moveZoneVertex(model, split.id, 0, [0, -1])).toEqual({ refused: '떨어진 조각이 있는 공조존은 꼭짓점을 고칠 수 없습니다. [경계 다시 그리기] 를 쓰세요.' })
-  })
-})
-
-describe('물리존을 나누고 합치고 지우면 공조존 담당이 따라간다 (OE-MAP-02)', () => {
-  it('물리존을 분할하면 두 조각 모두 원래 공조존의 담당 물리존이 되고, 되돌리면 돌아온다', () => {
-    const zone = createZoneFromSpaces(model, { spaceIds: [office().id] }) as HvacZone
-    const snap = snapshotStoreySpaces(model, model.storeys[0].id)!
-    const done = splitSpace(model, office().id, [5, -1], [5, 9])
-    if (!done || 'refused' in done) throw new Error('split')
-    expect(zone.spaceIds).toEqual([office().id, done.created[0]])
-    expect(zone.areaM2).toBeCloseTo(80)
-    restore(model, snap)
-    expect(hvacZonesOf(model)[0].spaceIds).toEqual([office().id])
-  })
-
-  it('합치면 없어진 방 대신 남는 방이고 바닥이 넓어지며, 지우면 담당에서 빠진다', () => {
-    const zone = createZoneFromSpaces(model, { spaceIds: [store] }) as HvacZone
-    const merged = mergeSpaces(model, office().id, store)
-    if (!merged || 'refused' in merged) throw new Error('merge')
-    expect(zone.spaceIds).toEqual([office().id])
-    expect(zone.areaM2).toBeCloseTo(80 + 30.4 + 1.6, 1)
-    const extra = createSpace(model, model.storeys[0].id, { name: '103', longName: '휴게', footprint: [[20, 0], [24, 0], [24, 4], [20, 4]] })!.created[0]
-    setZoneSpaces(model, zone.id, [office().id, extra])
-    deleteSpace(model, extra)
-    expect(zone.spaceIds).toEqual([office().id])
   })
 })

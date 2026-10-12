@@ -38,6 +38,7 @@ import {
   deleteHvacZone,
   deleteZoneVertex,
   findHvacZone,
+  flowSpacesOfZones,
   hvacZonesOf,
   insertZoneVertex,
   moveZoneVertex,
@@ -4680,6 +4681,12 @@ const zoneCheckList = computed(() => {
   const m = model.value
   return m ? zoneChecks(m, { space: (id) => spaceNameOf(id), equipment: (id) => nameOfId(id) }) : null
 })
+/** 연결 기준 후보(OE-MAP-02): 공조존마다 담당 설비에서 확정된 흐름으로 닿는 말단의 물리존. */
+const zoneFlow = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  return m ? flowSpacesOfZones(m) : new Map<string, string[]>()
+})
 /** 담당 설비로 고를 수 있는 것: 그 층의 공기·물이 흐르는 기기(덕트·배관 제외). */
 const zoneEquipmentChoices = computed(() =>
   (zoneStorey.value?.equipment ?? []).filter((e) => !isConduit(e.role) && !!e.position).sort((a, b) => a.name.localeCompare(b.name)),
@@ -9144,6 +9151,17 @@ async function export3D(format: 'glb' | 'obj') {
                         {{ shortName(e.name) }}{{ whatIs(e) ? ` · ${whatIs(e)!.label}` : '' }}
                       </option>
                     </select>
+                  </span>
+                  <!-- 연결 기준 후보(OE-MAP-02). 담당을 대신 정하지 않고, 빠진 방을 한 번에 더하게만 한다. -->
+                  <span v-if="zoneFlow.get(z.id)" class="zone-served zone-flow" :data-testid="`zone-flow-${z.name}`">
+                    흐름이 닿는 물리존
+                    <template v-for="id in zoneFlow.get(z.id)" :key="id">
+                      <span v-if="z.spaceIds.includes(id)" class="muted">{{ spaceNameOf(id) }} ✓</span>
+                      <button v-else type="button" class="chip candidate" :title="`${spaceNameOf(id)}을 담당 물리존에 더하기`" @click="setZoneSpaceList(z.id, zoneStorey!.id, [...z.spaceIds, id])">
+                        + {{ spaceNameOf(id) }}
+                      </button>
+                    </template>
+                    <Src kind="calc" />
                   </span>
                   <button v-if="zoneVertexEdit !== z.id" type="button" class="ghost" :disabled="z.footprint.length !== 1" :title="z.footprint.length !== 1 ? '떨어진 조각이 있는 공조존은 [경계 다시 그리기] 로 고칩니다' : '3D 의 손잡이를 끌어 옮깁니다'" @click="startZoneVertices(z)">꼭짓점 고치기</button>
                   <span v-else class="vertex-tools">
