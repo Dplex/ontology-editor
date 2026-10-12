@@ -135,5 +135,6 @@ Epic `README.md` 와 `PRD_011.md` 표를 같이 고친다 — `prd.test.ts` 가 
   정본은 라벨이고 칸은 사본이라 칸을 손으로 고치지 않는다. 라벨이 둘 이상이면 `rejected` > `modified` > `needs-pm` > `blocked` >
   `needs-dev` > `enhancement` 순으로 하나만 적는다. 라벨을 붙이거나 뗀 뒤 `--apply` 를 돌려야 보드 열이 따라온다.
 - **하지 않는 것**: Status 이동(개발이 판단 — `prd-done` 인데 `PRD in progress` 인 것은 "넘길 후보"로 알리기만), 코멘트, 이슈 닫기·만들기.
+  release 가 R2 이거나 E22(다른 PRD 개정)인 티켓은 `prd-done` 이어도 `PRD in progress` 에 둔다 — "넘길 후보" 가 아니라 따로 알린다.
   `planned` 라벨이 없는 이슈(구현 완료 보고로 대체된 것)는 건드리지 않는다.
 - `👀 In Review` 이슈도 본문을 고친다. 수정 이력이 무엇이 바뀌었는지 남긴다.
