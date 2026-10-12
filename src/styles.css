@@ -1310,6 +1310,29 @@ th {
   font-size: 0.85rem;
 }
 
+/* 어긴 요소 목록(ADR-0051). R·규칙마다 몇 개인지만 — 요소 하나하나는 CSV·BCF 에 있다. */
+.issue-export {
+  margin-top: 0.6rem;
+}
+
+.issue-summary {
+  width: auto;
+  font-size: 0.82rem;
+  border-collapse: collapse;
+  margin-top: 0.3rem;
+}
+
+.issue-summary th,
+.issue-summary td {
+  padding: 0.15rem 0.6rem 0.15rem 0;
+  text-align: left;
+}
+
+.issue-summary td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .generation ul {
   margin: 0.1rem 0 0.4rem;
   padding-left: 1.1rem;

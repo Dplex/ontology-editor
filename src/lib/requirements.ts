@@ -114,7 +114,7 @@ export const REQUIREMENTS: { id: string; level: RequirementLevel; title: string 
  * `클래스.값` 의 값이 IFC 표준 열거값인가(IFC2x3·IFC4·IFC4X3 중 하나에라도 있으면). USERDEFINED 로 적은 유형 이름
  * (`Fan.200 mm`)은 아니다. requirements.ids 의 R24 가 허용하는 것과 같은 기준이다.
  */
-function isStandardPredefined(declared: string | null | undefined): boolean {
+export function isStandardPredefined(declared: string | null | undefined): boolean {
   const dot = declared?.indexOf('.') ?? -1
   if (!declared || dot < 0 || IFC_REJECTED.includes(declared)) return false
   const cls = declared.slice(0, dot)

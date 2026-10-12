@@ -116,3 +116,4 @@ related: []             # 같이 읽어야 하는 ADR(바꾸거나 바뀐 ADR �
 | [0048](0048-ticket-context-and-adr-links.md) | 티켓에서 ADR·시험·코드·번호 정의로 가는 길은 티켓 md 에 적지 않고 ADR 머리와 시험 태그에서 거꾸로 뽑아 ctx 한 번으로 보이며, 수용 기준은 AC 번호를 쓸 수 있게 한다 | 제안 |
 | [0049](0049-ontology-definition.md) | 우리 온톨로지는 새 스키마가 아니라 Brick 어휘로 적은 건물 데이터(TTL)와 그 형상(GeoJSON)을 id 로 이은 한 쌍으로 정의하고, 정의·어휘·받는 쪽이 읽는 범위는 docs/ontology.md 한 곳에 두어 코드와 시험으로 맞춘다 | 제안 |
 | [0050](0050-ontology-chat-read-only-mcp.md) | 온톨로지 질의는 반영한 TTL 을 읽기만 하는 MCP 로 55 의 gemini 에 붙이고, 답마다 쓴 질의를 보이며, 같은 질의를 받는 쪽 DT 파서가 읽는 만큼에도 돌려 질문 시험대로 잰다 | 제안 |
+| [0051](0051-issue-list-csv-bcf.md) | BIM 필수 요구를 어긴 요소는 요구사항 보고서와 같은 조건으로 요소마다 뽑아 CSV 와 BCF 2.1 로 내고, BCF 토픽은 (R · 분류 · 규칙 · 층)마다 하나로 그 요소들을 GlobalId 로 고른다 | 제안 |
