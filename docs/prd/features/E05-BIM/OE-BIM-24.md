@@ -7,7 +7,7 @@ prd: "#6"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: []
 depends: ["OE-HIST-03", "R13"]
 ---
@@ -29,7 +29,6 @@ OE-HIST-03 의 수용 기준을 따른다.
 
 ## 검증 (이 repo)
 
-- 편집 파일은 id 마다 지문(Revit 요소 ID·이름·위치)을 적어, GUID 가 바뀐 판본에도 얹는다. 한 열쇠에 둘 이상이 걸리면 짓지 않는다 — `versions.test.ts`, `check:sample`, 성수 K-9·N-9
 
 ## 메모
 

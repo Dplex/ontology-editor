@@ -390,6 +390,15 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH))('문이 잇는 
     const refs = features.flatMap((f) => [...((f.properties.verticalConnects as string[]) ?? []), ...((f.properties.spaceIds as string[]) ?? [])])
     expect(refs.length).toBeGreaterThan(0)
     expect(refs.filter((id) => !ids.has(id))).toEqual([])
+    // 수직 관통 오브젝트의 통과(OE-EQP-17). 계단실 6개는 불가(사전). 승강로는 그 층에서 이어지는 문이 없어 정차 미확인이라 불가다 —
+    // 병원 건축은 승강장 문을 IfcDoor 로 그리지 않았다.
+    const verticalPass = all
+      .filter((p) => p.kind === 'space' && p.passable !== undefined)
+      .map((p) => `${p.longName}:${p.passable}:${p.passableSource}:${p.passableReason}`)
+    expect(tally(verticalPass.map((v) => ({ v })), 'v')).toEqual({
+      'STAIR:false:dict:staircase': 6,
+      'ELEVATOR:false:calc:elevator_stop_unconfirmed': 1,
+    })
   }, 300_000)
 
   it('벽의 평면 외곽선과 문·창의 자리를 형상에서 읽는다', async () => {
@@ -1922,7 +1931,8 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
     expect.soft({ ...measured, 'terminal-single-source': undefined }).toEqual({
       // 분모가 22 늘었다: 타입 객체에서 종류를 읽게 되면서(603d144) 8AG 그릴 22개를 말단으로 알아본다.
       'terminal-source': '1386/2400',
-      'source-terminal': '156/268',
+      // 냉매로 도는 DVM 실내기 8대는 배관 없이도 위반이 아니라 이 검사와 연결망 검사에서 뺀다(OE-OBJ-11#3, #487). 그 전에는 156/268.
+      'source-terminal': '156/260',
       'terminal-single-source': undefined,
       // [OE-EQP-15#1]
       // 외벽 설비(기계 파일의 외부 루버 59대)는 방 밖이 맞는 자리라 세지 않는다(OE-EQP-15). 건축 파일의 루버 240개는 포트가 없어 아예 설비로
@@ -1930,7 +1940,8 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
       // 건축의 에스컬레이터 6대(`Escalator_(AUS)`)가 이름 사전으로 종류를 얻어 기기로 세진다(OE-EQP-07). 6대 다 방에 든다. 그 전에는 4041/4612.
       'device-space': '4047/4618',
       // 건축 루버 240개가 빠져 분모가 3632 → 3392. 그중 48개는 형상으로 덕트에 닿아 "이어졌다" 로 세던 것이다.
-      'device-connected': '2943/3392',
+      // DVM 실내기 8대를 뺐다(OE-OBJ-11#3, #487). 8대 다 이어져 있던 것이라 분자도 8 준다. 그 전에는 2943/3392.
+      'device-connected': '2935/3384',
       // 덕트·배관 구간 전부가 형상에서 읽은 경로(두 끝)를 갖는다(OE-PIP-13).
       'conduit-path': '7874/7874',
     })
