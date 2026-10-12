@@ -116,6 +116,15 @@ function overlappedSpaces(storey: Storey, ring: readonly Vec2[]): { ids: string[
   return { ids, shares }
 }
 
+/** 그린 경계를 닫힌 고리로. 셋 미만·엇갈림·넓이 없음은 막는다. */
+function outlineRing(footprint: readonly Vec2[]): Vec2[] | { refused: string } {
+  const ring = close(footprint)
+  if (ring.length < 4) return { refused: '꼭짓점을 셋 이상 찍어야 합니다.' }
+  if (isSelfIntersecting(ring)) return { refused: '변이 서로 엇갈립니다. 꼭짓점을 차례대로 찍으세요.' }
+  if (polygonArea(ring) < 0.01) return { refused: '넓이가 너무 작습니다.' }
+  return ring
+}
+
 /** 경계를 그려 공조존을 만든다(OE-ZON-02). 겹치는 물리존이 담당이다. 변이 엇갈리거나 넓이가 없으면 막는다. */
 export function createZoneFromOutline(
   model: Model,
@@ -125,10 +134,8 @@ export function createZoneFromOutline(
   const storey = model.storeys.find((s) => s.id === storeyId)
   if (!storey) return null
   if (spec.id && findHvacZone(model, spec.id)) return null
-  const ring = close(spec.footprint)
-  if (ring.length < 4) return { refused: '꼭짓점을 셋 이상 찍어야 합니다.' }
-  if (isSelfIntersecting(ring)) return { refused: '변이 서로 엇갈립니다. 꼭짓점을 차례대로 찍으세요.' }
-  if (polygonArea(ring) < 0.01) return { refused: '넓이가 너무 작습니다.' }
+  const ring = outlineRing(spec.footprint)
+  if ('refused' in ring) return ring
   const { ids, shares } = overlappedSpaces(storey, ring)
   const zone: HvacZone = {
     id: spec.id ?? newId(),
@@ -145,6 +152,81 @@ export function createZoneFromOutline(
   }
   ;(storey.hvacZones ??= []).push(zone)
   return zone
+}
+
+/**
+ * 경계를 다시 그린다(OE-ZON-04). 물리존을 골라 만든 존도 이제 그린 존이 되어, 새 경계와 겹치는 물리존이 담당이다.
+ * 담당 물리존을 그대로 두면 바닥과 담당이 어긋나 Z-01·Z-02 가 틀린 답을 낸다. 겹치는 물리존이 없으면 막는다.
+ */
+export function reshapeHvacZone(model: Model, id: string, footprint: readonly Vec2[]): boolean | { refused: string } {
+  const found = findHvacZone(model, id)
+  if (!found) return false
+  const ring = outlineRing(footprint)
+  if ('refused' in ring) return ring
+  const { ids, shares } = overlappedSpaces(found.storey, ring)
+  if (!ids.length) return { refused: '경계와 겹치는 물리존이 없습니다. 담당 물리존 위에 그리세요.' }
+  Object.assign(found.zone, { footprint: [ring], areaM2: polygonArea(ring), spaceIds: ids, spaceShares: shares, drawn: true })
+  return true
+}
+
+/**
+ * 꼭짓점 손잡이를 다는 점들(닫는 점 뺌). 바닥이 떨어진 조각 여럿이면(떨어진 물리존을 골라 만든 존) 어느 조각을 고치는지 모호해서 null 이다 —
+ * 그때는 [경계 다시 그리기] 를 쓴다.
+ */
+export function zoneCorners(zone: HvacZone): Vec2[] | null {
+  if (zone.footprint.length !== 1) return null
+  const ring = zone.footprint[0]
+  const [a, z] = [ring[0], ring[ring.length - 1]]
+  const pts = ring.length > 1 && a[0] === z[0] && a[1] === z[1] ? ring.slice(0, -1) : ring
+  return pts.map((p) => [p[0], p[1]] as Vec2)
+}
+
+/**
+ * 꼭짓점 손잡이로 경계를 고친다(OE-ZON-04). 바뀐 점들로 `reshapeHvacZone` 을 부르니 담당·몫은 다시 그린 것과 같이 다시 잰다 — 골라 만든 존도
+ * 그린 존이 된다(ADR-0027).
+ * 끌어 놓은 자리에서 변이 엇갈리면 놓지 않는다(물리존 꼭짓점 끌기와 같다).
+ */
+function editCorners(model: Model, id: string, edit: (pts: Vec2[]) => Vec2[] | { refused: string }): boolean | { refused: string } {
+  const found = findHvacZone(model, id)
+  if (!found) return false
+  const pts = zoneCorners(found.zone)
+  if (!pts) return { refused: '떨어진 조각이 있는 공조존은 꼭짓점을 고칠 수 없습니다. [경계 다시 그리기] 를 쓰세요.' }
+  const next = edit(pts)
+  if ('refused' in next) return next
+  if (isSelfIntersecting(close(next))) return { refused: '경계선이 교차하는 위치라 꼭짓점을 원래 자리로 되돌렸습니다.' }
+  return reshapeHvacZone(model, id, next)
+}
+
+/** 꼭짓점 하나를 옮긴다. */
+export function moveZoneVertex(model: Model, id: string, index: number, to: Vec2): boolean | { refused: string } {
+  const found = findHvacZone(model, id)
+  const at = found && zoneCorners(found.zone)?.[index]
+  if (at && at[0] === to[0] && at[1] === to[1]) return false
+  return editCorners(model, id, (pts) => {
+    if (!pts[index]) return { refused: '없는 꼭짓점입니다.' }
+    pts[index] = [to[0], to[1]]
+    return pts
+  })
+}
+
+/** 꼭짓점 index 와 다음 꼭짓점의 가운데에 꼭짓점을 넣는다. 넣은 것은 index + 1 번이다. */
+export function insertZoneVertex(model: Model, id: string, index: number): boolean | { refused: string } {
+  return editCorners(model, id, (pts) => {
+    const [a, b] = [pts[index], pts[(index + 1) % pts.length]]
+    if (!a) return { refused: '없는 꼭짓점입니다.' }
+    pts.splice(index + 1, 0, [Math.round(((a[0] + b[0]) / 2) * 100) / 100, Math.round(((a[1] + b[1]) / 2) * 100) / 100])
+    return pts
+  })
+}
+
+/** 꼭짓점 하나를 지운다. 셋은 남긴다. */
+export function deleteZoneVertex(model: Model, id: string, index: number): boolean | { refused: string } {
+  return editCorners(model, id, (pts) => {
+    if (pts.length <= 3) return { refused: '꼭짓점이 셋이라 더 지울 수 없습니다.' }
+    if (!pts[index]) return { refused: '없는 꼭짓점입니다.' }
+    pts.splice(index, 1)
+    return pts
+  })
 }
 
 /** 사람이 만든 공조존을 지운다. 담당하던 물리존은 다른 공조존이 없으면 담당 없음(Z-01)이 된다. */
