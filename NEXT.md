@@ -24,6 +24,7 @@ push 할 곳(sec 에 PR, 또는 eco)을 정한 뒤 올린다. 넣는 순서는 �
 | `chore/ac-coverage-close-list` | `58872c4` + 이 NEXT.md | 10-12 PRD 로 `ac-coverage.md` 를 다시 쓰고, 아래 닫기 후보·점검·PRD 차이를 적는다. 위 브랜치 위에 있다 |
 | `feature/OE-INT-03-fbx-export` | `e388f64` `baa6f88` | FBX 내보내기(서버의 Blender 4.5 가 GLB 를 바꾼다, ADR-0052) + 뷰어가 FBX 와 사용자 속성을 읽는다. 55 에 Blender 를 깔아야 한다(`docs/dev/deploy55.md`) |
 | `feature/OE-MAN-02-pdf-background` | `29d0a63` | PDF 도면 배경(pdf.js, 쪽 바꾸기, ADR-0053). `serve.mjs` 가 `.mjs` 를 JavaScript 로 준다 — 없으면 55 에서 PDF 워커가 막힌다 |
+| `feature/OE-ZON-06-capacity-check` | `e65eaab` | 용량 검증 Z-03 + 입력값(OE-ZON-06) + R26(OE-REQ-07), ADR-0054. main 에서 갈랐다. #155 를 다시 열거나 #156·#366 을 `Closes` 로 건다 |
 
 FBX 는 D11 이 열린 채 만들었다. OE-INT-03 은 "결정 전에 추가 포맷을 약속하지 않는다" 라서 PR 은 `Refs #264` 로 걸고 닫지 않는다.
 
@@ -94,7 +95,9 @@ PRD 는 고치지 않는다. 다른 것은 이슈에 `needs-pm` 과 코멘트(�
 
 **PRD 에 있는데 구현이 없다** (코드로 확인한 것)
 
-- **OE-ZON-05 Z-03(공조존 용량) #155** — #2~#6 전부. `hvac-zone.ts` 가 "Z-03 은 설계 풍량·설비 용량 입력값(OE-ZON-06)과 같이 둔다" 며 다섯 규칙만 돈다.
+- ~~**OE-ZON-05 Z-03(공조존 용량) #155** — #2~#6 전부.~~ `feature/OE-ZON-06-capacity-check` 에서 만들었다(ZON-06 #156, REQ-07 #366 함께).
+  다른 PC 는 `node scripts/synth-tower.mjs` 로 합성 `-표준` 두 파일을 다시 만들어야 `tc-coverage` 의 R26-표준이 센다.
+  옛 줄: `hvac-zone.ts` 가 "Z-03 은 설계 풍량·설비 용량 입력값(OE-ZON-06)과 같이 둔다" 며 다섯 규칙만 돈다.
   이슈는 10-12 에 닫혔다. 다시 열거나 Z-03 을 따로 이슈로 뺀다
 - **OE-PIP-18#3·#4·#5 #199** — 매체가 맞지 않는 BIM·사용자 관계를 검토 대상으로 표시, 종류를 바꾼 뒤 추정 연결 갱신, 정밀도·재현율 보고. 찾지 못했다(#1·#2 는 있다)
 - **OE-OBJ-02#2 #44** — "물리존에 속하지 않은 설비가 없다". 실제로 소속 없는 설비가 있다(성수 4047/4618). 편집 범위 티켓의 기준으로 맞는지부터 PM 에게 묻는다
