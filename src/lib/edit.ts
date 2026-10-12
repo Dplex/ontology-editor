@@ -11,6 +11,7 @@ import { assignEquipment, centroid, distanceToRing, exteriorKind, isSelfIntersec
 import { shaftOf } from './shaft'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
+import { repartitionFlowless } from './flow-review'
 import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapshotRulesAgain, type ReleaseSnapshot, type RuleSnapshot } from './connection-release'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, roomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
@@ -1311,6 +1312,7 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
         if (was !== exteriorKind(e)) reassignOnKind(model, e)
       }
       // 종류가 규칙 방향의 원천·말단을 정하므로 규칙도 다시 돌린다. 되돌리기는 거꾸로 쌓이므로 같은 결과가 나온다.
+      repartitionFlowless(model)
       return inferFlowByRules(model)
     }
   }
@@ -1385,7 +1387,7 @@ export function setTypeKind(
   model: Model,
   typeKey: string,
   kind: string | null,
-): { count: number; rules: RuleReport } | null {
+): { count: number; rules: RuleReport; flowless: { removed: number; restored: number } } | null {
   if (kind !== null && !equipmentKind(kind)) return null
   const members = model.storeys.flatMap((s) => s.equipment).filter((e) => inKindGroup(e, typeKey))
   if (members.length === 0 || members.every((e) => (e.kind ?? null) === kind)) return null
@@ -1396,7 +1398,9 @@ export function setTypeKind(
     if (e.kindEdited.from === kind) delete e.kindEdited
     if (was !== exteriorKind(e)) reassignOnKind(model, e)
   }
-  return { count: members.length, rules: inferFlowByRules(model) }
+  // 흐름 없는 종류가 되거나 아니게 되면 형상 연결을 다시 가른다(OE-PIP-18). 규칙 방향이 그 연결을 타므로 먼저 한다.
+  const flowless = repartitionFlowless(model)
+  return { count: members.length, rules: inferFlowByRules(model), flowless }
 }
 
 /**
@@ -1536,7 +1540,8 @@ export function baselineOf(model: Model): Baseline {
     numbers,
     footprints,
     equipment,
-    connections: new Set(model.connections.map((c) => pairKey(c.from, c.to))),
+    // 흐름 없는 기기에 닿아 빼 둔 형상 연결도 넣는다. 종류를 바꿔 오가는 것은 끊고 이은 것이 아니다(flow-review.ts).
+    connections: new Set([...model.connections, ...(model.flowlessGeometry ?? [])].map((c) => pairKey(c.from, c.to))),
     keys: fingerprints(model),
     customZones: new Map(model.storeys.map((s) => [s.id, copyZones(s.customZones ?? [])])),
     hvacZones: new Map(model.storeys.map((s) => [s.id, copyHvacZones(s.hvacZones ?? [])])),
@@ -1686,7 +1691,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const disconnected: BaselineDiff['disconnected'] = []
   if (baseline.connections) {
     const now = new Set<string>()
-    for (const c of model.connections) {
+    for (const c of [...model.connections, ...(model.flowlessGeometry ?? [])]) {
       const key = pairKey(c.from, c.to)
       now.add(key)
       if (!baseline.connections.has(key)) connected.push({ from: c.from, to: c.to })

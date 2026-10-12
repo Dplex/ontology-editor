@@ -657,6 +657,12 @@ export type Model = {
   releasedConnections?: ReleasedConnection[]
   /** 해제 보정·취소·재검토 확인의 이력. 되돌리기로 무른 것은 남지 않는다. */
   connectionLog?: ConnectionLogEntry[]
+  /**
+   * 형상이 맞닿았지만 한쪽이 흐름 없는 기기(조명·감지기·비치품)라 연결로 넣지 않은 것(OE-PIP-18, flow-review.ts). 버리지 않고 여기 두는
+   * 것은 종류가 바뀌면 다시 재기 위해서다 — 조명을 "모름" 이나 흐름 있는 종류로 고치면 `connections` 로 돌아오고, 흐름 없는 종류로 고치면
+   * 그 기기의 형상 연결이 여기로 온다. 포트가 없어 형상으로 이은 파일에만 있다.
+   */
+  flowlessGeometry?: Connection[]
   /** 임포트가 그냥 넘어간 것들. 조용히 비는 대신 화면에 뜬다. */
   warnings: string[]
   /**

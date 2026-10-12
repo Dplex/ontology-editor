@@ -12,6 +12,7 @@
 // 이상에 이어진다", Wang 2026 Table 2 의 수배관 루프). 공기 규칙만 있을 때는 연결망이 **어디서** 끊겼는지를 말하지
 // 못했고(고립된 기기만 셌다), 열원과 공조기·FCU 사이는 아예 보지 않았다.
 
+import { flowReviews } from './flow-review'
 import { connectCandidates, excludedText } from './connect-candidates'
 import { releasesOf } from './connection-release'
 import { josa } from './josa'
@@ -179,6 +180,14 @@ export function completenessChecks(model: Model, services: readonly AirService[]
       why: '연결망이 이 자리에서 끊깁니다. 흐름이 여기서 멈춰 담당 설비·공간을 따라갈 수 없습니다. 끝막이(캡)라면 정상입니다.',
       total: conduits.length,
       failed: conduits.filter((e) => (neighbors.get(e.id)?.size ?? 0) < 2).map((e) => e.id),
+    },
+    // 유체 흐름이 아닌 BIM·사람 연결(OE-PIP-18). 지우지 않고 검토 대상으로 두며 TTL feeds 에서만 뺀다(flow-review.ts).
+    {
+      key: 'connection-fluid',
+      rule: 'BIM 포트·사람이 이은 연결은 유체가 흐르는 기기·덕트·배관 사이다',
+      why: '조명·감지기처럼 흐름 없는 기기나 매체가 다른 덕트·배관을 이은 연결입니다. 지우지 않고 공급 관계(brick:feeds)에서만 뺍니다. 전기·신호 포트면 정상입니다.',
+      total: model.connections.filter((c) => c.source !== 'geometry').length,
+      failed: [...new Set(flowReviews(model).flatMap((r) => r.ids))],
     },
     // 덕트·배관 경로(OE-PIP-13). 경로를 쓸 수 없는 구간은 3D·GeoJSON 에 형상이 나가지 않는다 — 이 목록이 "미반영 목록" 이다.
     {

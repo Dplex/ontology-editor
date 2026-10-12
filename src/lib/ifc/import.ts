@@ -29,7 +29,7 @@ import { assignEquipmentToSpaces } from '../mapping'
 import { dropDuplicateSpaces } from '../merge'
 import { areaScale, flowScale, lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
-import { equipmentKind, equipmentKindOf, FLUID_KINDS, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
+import { equipmentKind, equipmentKindOf, FLUID_KINDS, isFlowlessKind, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
 import { CAPACITY_KINDS, capacityQuantity, capacityRank } from '../capacity'
 import { flowToCmh, REVIT_SPACE_AIRFLOW, SPACE_AIRFLOW_PROPERTIES, SPACE_AIRFLOW_PSETS } from '../airflow'
 import { inferFlowByRules } from '../flow-rules'
@@ -1718,22 +1718,20 @@ function read(
       for (const system of systems) {
         for (const id of system.memberIds) systemsOf.set(id, [...(systemsOf.get(id) ?? []), system.name])
       }
-      // 흐름이 없는 종류(조명·감지기·비치품·분전반 — kinds.ts 의 `flow: {}`)는 형상이 맞닿아도 잇지 않는다(OE-PIP-18). 병원 MEP 에서
+      // 흐름이 없는 종류(조명·감지기·비치품·분전반, kinds.ts 의 isFlowlessKind)는 형상이 맞닿아도 잇지 않는다(OE-PIP-18). 병원 MEP 에서
       // 나란히 붙은 조명기구 16쌍이 서로 "연결" 로 잡혔다. 포트가 있는 세 파일(병원 HVAC·Duplex HVAC·ifc4Mep)을 정답지로 재면 빼도
-      // 재현율·정밀도가 그대로다 — 포트가 흐름 없는 기기를 잇는 일이 없다. 종류를 모르는 것은 둔다.
+      // 재현율이 그대로다 — 포트가 흐름 없는 기기를 잇는 일이 없다(check-sample 의 OE-PIP-18#5). 종류를 모르는 것과 냉매 설비는 둔다.
       const kindOf = new Map(allEquipment.map((e) => [e.id, e.kind]))
-      const flows = (id: string) => {
-        const info = equipmentKind(kindOf.get(id))
-        return !info || Object.keys(info.flow ?? {}).length > 0
-      }
-      const points = [...meshes]
-        .filter(([id]) => flows(id))
-        .map(([id, mesh]) => ({
-          id,
-          points: mesh.positions,
-          systems: systemsOf.get(id) ?? null,
-        }))
+      const elements = [...meshes].map(([id, mesh]) => ({ id, points: mesh.positions, systems: systemsOf.get(id) ?? null }))
+      const points = elements.filter((el) => !isFlowlessKind(kindOf.get(el.id)))
       result.connections = inferConnections(points)
+      // 뺀 쪽에 닿는 쌍은 버리지 않고 따로 둔다. 사람이 종류를 고치면 연결로 돌아온다(flow-review.ts 의 repartitionFlowless).
+      // 흐름 없는 기기가 있을 때만 한 번 더 잰다 — 형상 추정은 쌍마다 따로라 결과가 같고, 위 결과의 순서는 건드리지 않는다.
+      if (points.length < elements.length) {
+        const flowless = new Set(elements.filter((el) => isFlowlessKind(kindOf.get(el.id))).map((el) => el.id))
+        const set = inferConnections(elements).filter((c) => flowless.has(c.from) || flowless.has(c.to))
+        if (set.length) result.flowlessGeometry = set
+      }
       if (result.connections.length > 0) {
         warnings.push(
           `포트(IfcDistributionPort)가 없어 형상이 맞닿은 곳을 연결로 추정했습니다(${result.connections.length}개). 흐름 방향은 알 수 없습니다.`,

@@ -70,6 +70,7 @@ import {
   zoneCorners,
 } from './lib/hvac-zone'
 import { airflowText, BASIS_LABEL, CAPACITY_CHECK_KINDS, cmhText, setRatedAirflow, setSpaceAirflow, setZoneAirflow, zoneAirflow, type ZoneAirflow } from './lib/airflow'
+import { flowReviews } from './lib/flow-review'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
@@ -3220,11 +3221,14 @@ type NeighborRow = Neighbor & {
   what: { label: string; src: SrcKind } | null
   edited: 'upstream' | 'downstream' | null
   rule: { relation: 'upstream' | 'downstream'; confirmed: boolean; recheck: boolean } | null
+  /** 유체 흐름이 아닌 BIM·사람 연결이면 그 까닭(OE-PIP-18). 지우지 않고 TTL feeds 에서만 뺀다. */
+  review: string | null
 }
 const selectedNeighbors = computed((): NeighborRow[] => {
   void flowVersion.value
   if (!model.value || !selectedId.value) return []
   const id = selectedId.value
+  const reviews = new Map(flowReviews(model.value, (x) => shortName(nameOfId(x))).map((r) => [r.connection, r.reason]))
   return neighbors(model.value.connections, id).map((n) => {
     const c = n.connection
     const edited = !c.directed && c.edited ? (c.edited.from === id ? 'downstream' : 'upstream') : null
@@ -3236,6 +3240,7 @@ const selectedNeighbors = computed((): NeighborRow[] => {
       ...n,
       edited,
       rule,
+      review: reviews.get(c) ?? null,
       name: equipmentById.value.get(n.id)?.name || equipmentById.value.get(n.id)?.ifcClass || n.id,
       what: whatIs(equipmentById.value.get(n.id)),
     }
@@ -3663,6 +3668,15 @@ function setKind(typeKey: string, kind: string | null, label: string) {
   ruleReport.value = done.rules
   triggerRef(model)
   flowVersion.value++
+  // 흐름 없는 종류가 되거나 아니게 되어 형상 연결이 빠지거나 돌아왔다(OE-PIP-18). 3D 연결선을 다시 그린다.
+  if (done.flowless.removed || done.flowless.restored) {
+    sceneVersion.value++
+    note(
+      done.flowless.removed
+        ? `흐름 없는 기기라 형상으로 이은 연결 ${done.flowless.removed}개를 뺐습니다(종류를 되돌리면 돌아옵니다)`
+        : `형상으로 이은 연결 ${done.flowless.restored}개를 되살렸습니다(흐름 없는 기기가 아니게 됨)`,
+    )
+  }
   // remember 가 알림을 지우므로 그 뒤에 건다.
   kindWarning.value = ''
   if (worse.length) {
@@ -9810,6 +9824,8 @@ function rollbackFromReport() {
                     <span v-else-if="n.rule">{{ n.rule.recheck ? '규칙 방향(확정 · 재검토, 내보내지 않음)' : n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
                     <!-- 한 층만 보는 중이면 다른 층 것은 3D 에 없고 화살표도 안 그린다(OE-UI-12). 왜 안 보이는지 적는다. -->
                     <span v-if="otherFloor(n.id)" class="other-floor">다른 층({{ otherFloor(n.id) }}) — 3D에 안 보임</span>
+                    <!-- 유체 흐름이 아닌 BIM·사람 연결(OE-PIP-18). 지우지 않고 검토 대상으로 둔다. 공급 관계(brick:feeds)로는 나가지 않는다. -->
+                    <span v-if="n.review" class="flow-review" data-testid="flow-review" :title="n.review">검토 — 흐름 아님, feeds 제외</span>
                   </div>
                   <!-- 방향 버튼은 이름 아래 줄에 둔다. 좁은 패널에서 네 번째 칸으로 두었더니 이름이 한 글자씩 꺾이고 버튼이 잘렸다.
                        포트가 방향을 말한 연결은 고칠 수 없다. BIM 이 말한 것을 덮어쓰지 않는다. -->

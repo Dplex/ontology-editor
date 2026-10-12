@@ -5,7 +5,7 @@
 // 후보에서 빼고 몇 개를 뺐는지 센다. 후보는 이름·거리·계통·매체와 함께 보이고, 사람이 하나를 골라 잇는다(출처 `manual`, 방향 없음).
 
 import { releasedBetween } from './connection-release'
-import { equipmentKind, systemKind, systemKindOf, type Medium } from './kinds'
+import { equipmentKind, isFlowlessKind, systemKind, systemKindOf, type Medium } from './kinds'
 import { isConduit, type Equipment, type Model } from './model'
 import type { Box } from './checks'
 
@@ -31,13 +31,9 @@ export type CandidateResult = {
 export const CANDIDATE_GAP = 1
 const LIMIT = 3
 
-/** 냉매 설비. 사전에 공기·물 흐름이 없지만(`flow: {}`) 흐름 없는 기기가 아니다 — 지금 규칙이 다루지 않는 매체다(OE-PIP-18). */
-const REFRIGERANT_KINDS: readonly string[] = ['outdoor_unit']
-
-/** 종류를 아는 흐름 없는 기기. 종류를 모르는 것과 냉매 설비는 흐름이 없다고 단정하지 않는다(OE-PIP-18). */
+/** 종류를 아는 흐름 없는 기기. 종류를 모르는 것과 냉매 설비는 흐름이 없다고 단정하지 않는다(OE-PIP-18, kinds.ts 의 isFlowlessKind). */
 export function isFlowless(e: Equipment): boolean {
-  const info = equipmentKind(e.kind)
-  return !!info && Object.keys(info.flow ?? {}).length === 0 && !REFRIGERANT_KINDS.includes(info.kind)
+  return isFlowlessKind(e.kind)
 }
 
 /** 설비·덕트·배관의 매체. 종류의 흐름, 계통 종류, 덕트·배관의 유형 이름, IFC 클래스(Duct·Pipe) 순으로 모은다. */
