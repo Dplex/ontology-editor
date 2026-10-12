@@ -7,9 +7,9 @@ PRD #4 · 티켓 14건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | ID | 기능 | Rel | P | 상태 |
 |---|---|---|---|---|
 | [OE-UI-01](OE-UI-01.md) | 별도 에디터 실행 | R1 | P1 | prd-review |
-| [OE-UI-02](OE-UI-02.md) | 모드 자동 분기 | R1 | P1 | prd-review |
-| [OE-UI-03](OE-UI-03.md) | 모드 전환 버튼 규칙 | R1 | P1 | prd-review |
-| [OE-UI-04](OE-UI-04.md) | 화면 레이아웃 | R1 | P1 | prd-done |
+| [OE-UI-02](OE-UI-02.md) | 프로젝트 기반 모드 분기 | R1 | P1 | prd-review |
+| [OE-UI-03](OE-UI-03.md) | 프로젝트 목록 · 층 선택 화면 | R1 | P1 | prd-review |
+| [OE-UI-04](OE-UI-04.md) | 화면 레이아웃 | R1 | P1 | prd-review |
 | [OE-UI-05](OE-UI-05.md) | 되돌리기 / 다시 실행 | R1 | P1 | prd-review |
 | [OE-UI-06](OE-UI-06.md) | 스냅 | R2 | P2 | prd-review |
 | [OE-UI-07](OE-UI-07.md) | 그리드 정렬 | R1 | P2 | prd-review |
@@ -20,3 +20,4 @@ PRD #4 · 티켓 14건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | [OE-UI-12](OE-UI-12.md) | 3D 단일 층 표시 | R1 | P2 | prd-review |
 | [OE-UI-13](OE-UI-13.md) | 출처 표시 | R1 | P1 | prd-review |
 | [OE-UI-14](OE-UI-14.md) | 3D 자유 카메라 | R1 | P1 | prd-review |
+| [OE-UI-15](OE-UI-15.md) | 초기 구축 화면 흐름 | R1 | P1 | prd-review |
