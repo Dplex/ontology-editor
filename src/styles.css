@@ -3157,7 +3157,48 @@ main.has-model .catalog {
   font-size: 0.75rem;
 }
 
-/* 다중층 뷰는 도구 상자 자리에 범위와 "보기만 합니다" 를 둔다. */
+/* 다중층 뷰의 수직 관통 오브젝트 편집(OE-ML-07·09). 이동 칸 한 줄, V-03 경고, 지우기 확인. */
+.vertical-move {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0.2rem;
+  font-size: 0.85rem;
+}
+
+.vertical-move input {
+  width: 4.5rem;
+}
+
+.vertical-warnings {
+  margin: 0.5rem 0;
+  padding: 0.35rem 0.7rem 0.35rem 1.4rem;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  font-size: 0.82rem;
+}
+
+.vertical-delete-ask {
+  margin: 0.6rem 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+}
+
+.vertical-delete-ask p {
+  margin: 0 0 0.3rem;
+}
+
+.vertical-delete-ask ul {
+  margin: 0 0 0.5rem;
+  padding-left: 1.2rem;
+}
+
+/* 다중층 뷰는 도구 상자 자리에 범위와 지금 할 수 있는 것을 둔다. */
 .multi-banner {
   position: absolute;
   left: 0.75rem;

@@ -62,6 +62,7 @@ import { assignEquipment, spaceSetState } from './mapping'
 import { markStoreyDone, storeyProgress } from './storey-progress'
 import { setCeiling, setEquipmentSurface } from './ceiling'
 import type { Surface } from './mount'
+import { deleteVertical, moveVertical } from './vertical-edit'
 
 export const EDIT_FORMAT = 'ontology-editor/edits'
 
@@ -193,6 +194,11 @@ export type EditFile = {
   storeysDone?: { id: string; at: string; changed?: true }[]
   /** 사람이 정한 층의 반자 높이 h_c(미터, OE-EQP-03). BIM 값과 같으면 적지 않는다. */
   ceilings?: { storeyId: string; height: number }[]
+  /**
+   * 고친 수직 관통 오브젝트(OE-ML-07·09, ADR-0034). `move` 는 연 때와 견준 x·y 이동량, `removed` 는 지운 것이다. 층에 속하지 않아(여러 층에
+   * 걸친다) 건물 조각으로 간다. id 는 BIM 계단의 GUID 라 다시 열면 같은 계단에 얹힌다. 못 찾으면 `missing.elements` 로 센다.
+   */
+  verticals?: { id: string; move?: Vec2; removed?: true }[]
 }
 
 /**
@@ -290,6 +296,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   const connections = { add: since.connected, remove: since.disconnected }
   const releases = exportReleases(model)
   const equipmentRemoved = since.equipmentRemoved.map((r) => r.id)
+  const verticals = (since.verticals ?? []).map((v) => ({ id: v.id, ...(v.removed ? { removed: true as const } : { move: v.move! }) }))
   const spacesRemoved = since.spacesRemoved.map((r) => (mergedInto.has(r.id) ? { id: r.id, into: mergedInto.get(r.id)! } : { id: r.id }))
 
   // 벽·문·창(E4). 적을 것은 연 때와 견준 결과(diffBaseline)에서 고른다.
@@ -475,6 +482,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(objectLibrary.length ? { objectLibrary } : {}),
     ...(storeysDone.length ? { storeysDone } : {}),
     ...(ceilings.length ? { ceilings } : {}),
+    ...(verticals.length ? { verticals } : {}),
     keys,
   }
 }
@@ -507,7 +515,8 @@ export function countEdits(f: EditFile): number {
     (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0) +
     (f.storeysDone?.length ?? 0) + (f.ceilings?.length ?? 0) + (f.rooms?.reduce((n, r) => n + r.rooms.length, 0) ?? 0) +
     (f.spaceObjects?.reduce((n, r) => n + r.objects.length, 0) ?? 0) +
-    (f.hvacZones?.reduce((n, r) => n + r.zones.length, 0) ?? 0)
+    (f.hvacZones?.reduce((n, r) => n + r.zones.length, 0) ?? 0) +
+    (f.verticals?.length ?? 0)
   )
 }
 
@@ -863,6 +872,13 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     const done = setEquipmentSurface(model, resolve(row.id), row.surface)
     if (done === true) result.applied++
     else if (done !== false) result.missing.equipment++
+  }
+
+  // 수직 관통 오브젝트(OE-ML-07·09). 옮긴 거리를 다시 더하거나 다시 지운다 — 지운 계단은 다시 열어도 되살아나지 않는다.
+  for (const row of file.verticals ?? []) {
+    const done = row.removed ? deleteVertical(model, row.id) : row.move ? moveVertical(model, row.id, row.move) : false
+    if (done) result.applied++
+    else result.missing.elements++
   }
 
   // 룸(OE-OBJ-03). 층의 끝 목록을 그대로 얹는다. 부모 물리존은 지문으로 찾는다.
