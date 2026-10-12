@@ -62,7 +62,9 @@ export function gradeReport(model: Model, lines: GradeLines = DEFAULT_LINES): Gr
   // 등급 3: 계통에 든 기기. 사전 포함은 규칙 방향이 고른 계통(확정 전)이 닿는 기기까지.
   const inSystem = new Set(devices.filter((e) => e.systemId).map((e) => e.id))
   const byRule = new Set(inSystem)
-  for (const c of model.connections) if (c.inferred) for (const id of [c.from, c.to]) if (devices.some((d) => d.id === id)) byRule.add(id)
+  // 기기 id 는 Set 으로 본다. 연결마다 기기 목록을 훑으면 성수(연결 수만 · 기기 수천)에서 편집마다 0.1초 넘게 걸렸다.
+  const deviceIds = new Set(devices.map((d) => d.id))
+  for (const c of model.connections) if (c.inferred) for (const id of [c.from, c.to]) if (deviceIds.has(id)) byRule.add(id)
   // 등급 4: 방향으로 이어진 기기 / 연결망에 든 기기(profile.ts 의 방향 칩과 같은 셈).
   const conduitIds = new Set(all.filter((e) => isConduit(e.role)).map((e) => e.id))
   const ids = devices.map((e) => e.id)

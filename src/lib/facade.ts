@@ -105,7 +105,8 @@ export function moveFacade(model: Model, wallIds: readonly string[], delta: Vec2
     if (carry) {
       const done = moveWallWithSpaces(model, id, delta, null, { exterior: true })
       if (!done) continue
-      changes.push(...done.changes)
+      // 벽 길이 방향으로 밀면 방 변은 그대로라 넓이가 같은 변경이 따라온다(성수 30개 묶음에서 92건). 바뀐 것만 남긴다.
+      changes.push(...done.changes.filter((c) => Math.abs(c.toAreaM2 - c.fromAreaM2) > 1e-6 || c.equipment.length))
       crossed.push(...done.crossed)
       moved++
     } else if (moveWall(model, id, delta, { exterior: true })) moved++
