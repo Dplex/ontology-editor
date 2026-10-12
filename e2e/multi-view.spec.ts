@@ -32,7 +32,7 @@ test('병원 건축: 다중층 뷰는 범위의 층을 함께 그리고, 계단�
   await expect(storeyBox(page)).toHaveCount(0)
   expect(await viewer<string[]>(page, 'verticals')).toHaveLength(6)
   // 진입 → 종료를 잇는 점선 3개(양 끝 층이 다 보일 때만).
-  expect(await viewer(page, 'verticalMarks')).toEqual({ entry: 3, exit: 3, rise: 3 })
+  expect(await viewer(page, 'verticalMarks')).toMatchObject({ entry: 3, exit: 3, rise: 3 })
   // 도구 상자가 없고 평면도는 층 하나라 못 고른다.
   await expect(page.locator('.tool-palette')).toHaveCount(0)
   await expect(tab(page, '평면도')).toBeDisabled()

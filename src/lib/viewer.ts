@@ -314,6 +314,9 @@ export type SpaceHandles = {
   active?: number | null
 }
 
+/** 수직 관통 오브젝트 구간 바꾸기(OE-ML-08)에서 적용 전에 사람이 그린 형상·찍은 지점. 점선으로 그린다. */
+export type VerticalPreview = { storeyId: string; elevation: number; footprint?: readonly Vec2[]; point?: Vec2 }
+
 /** 마우스 아래에 있는 것. 설비·물리존(편집 모드)·연결 화살표(편집 모드). */
 export type HoverTarget = { kind: 'equipment'; id: string } | { kind: 'space'; id: string } | { kind: 'arrow'; key: string }
 
@@ -390,7 +393,7 @@ export type Viewer = {
    * 골라진다(onPickSpace 로 조각 id 가 간다). 고른 조각을 다시 누르면 그 아래 룸·물리존이 골라진다 — 계단실을 고칠 길이다. 끌어 옮기지 않는다.
    * `selected` 는 고른 조각 id 들이다. 층 편집은 고른 조각 하나, 다중층 뷰는 고른 오브젝트의 모든 층 조각이다(OE-ML-01).
    */
-  setVerticalParts(model: Model | null, selected: ReadonlySet<string>): void
+  setVerticalParts(model: Model | null, selected: ReadonlySet<string>, preview?: readonly VerticalPreview[]): void
   /**
    * 천장 설비의 바닥 발자국 링과, 고른 설비에서 링까지의 수직 점선(OE-EQP-04). 빈 배열이면 지운다. 층별로 보기를 따르고
    * 고르지 않는다 — 링을 눌러도 바닥(물리존)이 골라진다.
@@ -1860,6 +1863,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         entry: verticals.children.filter((o) => o.visible && o.userData.mark === 'entry').length,
         exit: verticals.children.filter((o) => o.visible && o.userData.mark === 'exit').length,
         rise: verticals.children.filter((o) => o.visible && o.userData.mark === 'rise').length,
+        preview: verticals.children.filter((o) => o.visible && o.userData.mark === 'preview').length,
       }),
       /** 룸 바닥의 화면 자리(가운데). 룸을 눌러 고르는 데 쓴다. */
       room: (id: string) => {
@@ -2483,7 +2487,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       applyStoreyVisibility()
     },
 
-    setVerticalParts(model, selected) {
+    setVerticalParts(model, selected, preview = []) {
       verticals.traverse((o) => {
         if (o instanceof Line || o instanceof Mesh) {
           o.geometry.dispose()
@@ -2546,6 +2550,24 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           if (part.exit) e.exit = { p: part.exit, storey: storey.id, id }
           ends.set(part.parentId, e)
         }
+      }
+      // 적용 전 미리보기(OE-ML-08). 고르기 대상이 아니다.
+      for (const p of preview) {
+        const y = p.elevation + VERTICAL_LIFT + 0.02
+        const r = 0.35
+        const pts: readonly Vec2[] | null =
+          p.footprint && p.footprint.length >= 3
+            ? p.footprint
+            : p.point
+              ? [[p.point[0] - r, p.point[1] - r], [p.point[0] + r, p.point[1] - r], [p.point[0] + r, p.point[1] + r], [p.point[0] - r, p.point[1] + r]]
+              : null
+        if (!pts) continue
+        const line = new LineLoop(new BufferGeometry().setFromPoints(pts.map((q) => new Vector3(q[0], y, -q[1]))), new LineDashedMaterial({ color: ARCH_COLORS.selected, dashSize: 0.25, gapSize: 0.15, depthTest: false }))
+        line.computeLineDistances()
+        line.renderOrder = 4
+        line.userData.storeyId = p.storeyId
+        line.userData.mark = 'preview'
+        verticals.add(line)
       }
       for (const { entry, exit } of ends.values()) {
         if (!entry || !exit || entry.storey === exit.storey) continue

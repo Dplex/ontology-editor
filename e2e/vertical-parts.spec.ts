@@ -83,7 +83,7 @@ test('병원 건축: 계단 조각을 평면도·3D 에서 고르면 읽기 전�
   await tab(page, '3D')
   const shown: string[] = await page.evaluate(() => (window as any).__viewer.verticals())
   expect(shown).toHaveLength(3)
-  expect(await page.evaluate(() => (window as any).__viewer.verticalMarks())).toEqual({ entry: 0, exit: 3, rise: 0 })
+  expect(await page.evaluate(() => (window as any).__viewer.verticalMarks())).toMatchObject({ entry: 0, exit: 3, rise: 0 })
   const at = await page.evaluate((key) => (window as any).__viewer.vertical(key), top)
   await page.mouse.click(at.x, at.y)
   await expect(panel.getByTestId('vertical-role')).toContainText('끝 층')
