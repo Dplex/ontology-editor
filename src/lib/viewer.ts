@@ -383,8 +383,9 @@ export type Viewer = {
   /**
    * 수직 관통 오브젝트의 층별 조각(OE-ML-05): 그 층의 형상, 진입 지점(채운 원)·종료 지점(빈 고리). 바닥을 누르면 룸·물리존보다 먼저
    * 골라진다(onPickSpace 로 조각 id 가 간다). 고른 조각을 다시 누르면 그 아래 룸·물리존이 골라진다 — 계단실을 고칠 길이다. 끌어 옮기지 않는다.
+   * `selected` 는 고른 조각 id 들이다. 층 편집은 고른 조각 하나, 다중층 뷰는 고른 오브젝트의 모든 층 조각이다(OE-ML-01).
    */
-  setVerticalParts(model: Model | null, selected: string | null): void
+  setVerticalParts(model: Model | null, selected: ReadonlySet<string>): void
   /**
    * 천장 설비의 바닥 발자국 링과, 고른 설비에서 링까지의 수직 점선(OE-EQP-04). 빈 배열이면 지운다. 층별로 보기를 따르고
    * 고르지 않는다 — 링을 눌러도 바닥(물리존)이 골라진다.
@@ -568,7 +569,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const o of zoneLines.children) o.visible = storeyShown(o)
     for (const o of customZones.children) o.visible = storeyShown(o)
     for (const o of rooms.children) o.visible = storeyShown(o)
-    for (const o of verticals.children) o.visible = storeyShown(o)
+    // 층을 잇는 선(진입 → 종료)은 양 끝 층이 다 보일 때만이다. 한 층만 보면 다른 층으로 뻗은 선만 떠 있게 된다.
+    for (const o of verticals.children) o.visible = o.userData.storeys ? (o.userData.storeys as string[]).every((id) => !visibleStoreys || visibleStoreys.has(id)) : storeyShown(o)
     for (const o of ceilingMarks.children) o.visible = storeyShown(o)
     for (const o of ceilingPlanes.children) o.visible = storeyShown(o)
     for (const o of spaceObjects.children) o.visible = storeyShown(o)
@@ -670,7 +672,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const verticals = new Group()
   scene.add(verticals)
   let verticalTargets: { id: string; storeyId: string; y: number; ring: readonly Vec2[]; at: Vec2 }[] = []
-  let selectedVertical: string | null = null
+  let selectedVertical: ReadonlySet<string> = new Set()
   const ceilingMarks = new Group()
   scene.add(ceilingMarks)
   const ceilingPlanes = new Group()
@@ -895,7 +897,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const plane = new Plane(new Vector3(0, 1, 0), 0)
     const at = new Vector3()
     // 수직 관통 오브젝트 조각, 룸(OE-OBJ-03) 순으로 먼저다 — 물리존 판보다 위에 그려 광선이 먼저 닿는다. 고른 조각은 건너뛴다.
-    for (const target of [...verticalTargets.filter((t) => t.id !== selectedVertical), ...roomTargets, ...spaceTargets]) {
+    for (const target of [...verticalTargets.filter((t) => !selectedVertical.has(t.id)), ...roomTargets, ...spaceTargets]) {
       if (visibleStoreys && !visibleStoreys.has(target.storeyId)) continue
       plane.constant = -target.y
       if (!ray.intersectPlane(plane, at)) continue
@@ -1818,10 +1820,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const t = verticalTargets.find((x) => x.id === id)
         return t ? toScreen(new Vector3(t.at[0], t.y, -t.at[1])) : null
       },
+      /** 고른(파랗게 칠한) 조각 id. */
+      verticalSelected: () => [...selectedVertical],
       /** 진입·종료 표시 수(보이는 층만). */
       verticalMarks: () => ({
         entry: verticals.children.filter((o) => o.visible && o.userData.mark === 'entry').length,
         exit: verticals.children.filter((o) => o.visible && o.userData.mark === 'exit').length,
+        rise: verticals.children.filter((o) => o.visible && o.userData.mark === 'rise').length,
       }),
       /** 룸 바닥의 화면 자리(가운데). 룸을 눌러 고르는 데 쓴다. */
       room: (id: string) => {
@@ -2441,7 +2446,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     setVerticalParts(model, selected) {
       verticals.traverse((o) => {
-        if (o instanceof LineLoop || o instanceof Mesh) {
+        if (o instanceof Line || o instanceof Mesh) {
           o.geometry.dispose()
           ;(o.material as { dispose(): void }).dispose()
         }
@@ -2453,7 +2458,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const y = storey.elevation + VERTICAL_LIFT
         for (const part of storey.verticalParts ?? []) {
           const id = partId(part.parentId, storey.id)
-          const on = id === selected
+          const on = selected.has(id)
           const color = on ? ARCH_COLORS.selected : VERTICAL_COLOR
           const add = (o: Object3D, mark?: 'entry' | 'exit') => {
             o.userData.storeyId = storey.id
@@ -2490,6 +2495,31 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           const at: Vec2 = ring.length >= 3 ? [ring.reduce((a, q) => a + q[0], 0) / ring.length, ring.reduce((a, q) => a + q[1], 0) / ring.length] : [point![0], point![1]]
           verticalTargets.push({ id, storeyId: storey.id, y, ring: target, at })
         }
+      }
+      // 같은 오브젝트의 시작 층 진입 지점과 끝 층 종료 지점을 잇는 점선(실제 높이). 여러 층을 함께 볼 때 두 층의 조각이 한 오브젝트로 읽힌다
+      // (다중층 뷰, OE-ML-01). 고르기 대상은 아니다.
+      const ends = new Map<string, { entry?: { p: Vec3; storey: string; id: string }; exit?: { p: Vec3; storey: string; id: string } }>()
+      for (const storey of model?.storeys ?? []) {
+        for (const part of storey.verticalParts ?? []) {
+          const e = ends.get(part.parentId) ?? {}
+          const id = partId(part.parentId, storey.id)
+          if (part.entry) e.entry = { p: part.entry, storey: storey.id, id }
+          if (part.exit) e.exit = { p: part.exit, storey: storey.id, id }
+          ends.set(part.parentId, e)
+        }
+      }
+      for (const { entry, exit } of ends.values()) {
+        if (!entry || !exit || entry.storey === exit.storey) continue
+        const on = selected.has(entry.id) || selected.has(exit.id)
+        const line = new Line(
+          new BufferGeometry().setFromPoints([new Vector3(entry.p[0], entry.p[2], -entry.p[1]), new Vector3(exit.p[0], exit.p[2], -exit.p[1])]),
+          new LineDashedMaterial({ color: on ? ARCH_COLORS.selected : VERTICAL_COLOR, dashSize: 0.3, gapSize: 0.2, depthTest: false }),
+        )
+        line.computeLineDistances()
+        line.renderOrder = 3
+        line.userData.storeys = [entry.storey, exit.storey]
+        line.userData.mark = 'rise'
+        verticals.add(line)
       }
       applyStoreyVisibility()
     },
