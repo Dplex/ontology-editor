@@ -1,7 +1,10 @@
-// 등급 판정과 수용 기준선(OE-REQ-04 · OE-BIM-21 · OE-GEN-02, PRD 1.8, ADR-0040). D1·D12 는 열린 결정이라 **제안안**으로 둔다(2026-10-09 사용자 결정):
-// - D1 C안: 게이트 = 등급 2(미달이면 생성을 막는다), 목표선 = 등급 3(경고만). 통과선은 1.8 의 정량 기준(안) — 등급 0 ≥ 85% · 층 이름 100%,
-//   1 ≥ 90%, 2 ≥ 85%, 3 ≥ 70%, 4 ≥ 50%.
-// - D12 안: 게이트(0~2)는 BIM + 계산만(사전 채움을 넣지 않는다), 목표선(3·4)은 BIM 과 사전 포함 두 수치를 같이 보인다. 판정은 BIM 수치로 한다.
+// 등급 판정과 수용 기준선(OE-REQ-04 · OE-BIM-21 · OE-GEN-02, PRD 1.8, ADR-0040). D1·D12 는 열린 결정이라 **제안안**으로 둔다(2026-10-09 사용자 결정).
+// 제안안은 PRD 1.8 의 지금 판(2026-10-10, D 안)이다:
+// - D1 D안: 게이트 = 누적 등급 0~3(미달이면 생성을 막는다), 목표선 = 등급 4(경고만). 통과선 — 등급 0 ≥ 85% · 층 이름 100%,
+//   1 ≥ 90%, 2 ≥ 85%, 3 ≥ 60%, 4 ≥ 50%.
+// - D12 안: 게이트(0~3)는 BIM + 계산만(사전 채움을 넣지 않는다). 사전 포함 수치는 3·4 에 보조 숫자로 같이 보이고, 판정은 BIM 수치로 한다.
+// - 분모가 0 인 등급(설비 없는 건축 파일의 1~3)은 "평가 불가" 로 보이고 통과로 적지 않는다(1.8). 생성은 막지 않는다(2026-10-12 사용자 결정 —
+//   건축 파일만으로도 구축한다).
 // 기준값은 이 파일의 DEFAULT_LINES 하나이고, 화면 설정이 덮을 수 있다(결정이 다르게 나면 숫자만 바꾼다).
 
 import { exteriorDevices } from './exterior'
@@ -11,11 +14,11 @@ import { isConduit, type Model } from './model'
 
 export type GradeLines = { 0: number; 1: number; 2: number; 3: number; 4: number }
 /** 1.8 정량 기준(안). 비율(0~1). */
-export const DEFAULT_LINES: GradeLines = { 0: 0.85, 1: 0.9, 2: 0.85, 3: 0.7, 4: 0.5 }
-/** 게이트 등급(D1 C안). 이 등급까지 모두 통과해야 생성한다. */
-export const GATE = 2
-/** 목표선 등급(D1 C안). 경고만. */
-export const TARGET = 3
+export const DEFAULT_LINES: GradeLines = { 0: 0.85, 1: 0.9, 2: 0.85, 3: 0.6, 4: 0.5 }
+/** 게이트 등급(D1 D안). 이 등급까지 모두 통과해야 생성한다. */
+export const GATE = 3
+/** 목표선 등급(D1 D안). 경고만. */
+export const TARGET = 4
 
 export type GradeRow = {
   grade: 0 | 1 | 2 | 3 | 4
@@ -24,7 +27,7 @@ export type GradeRow = {
   measure: string
   have: number
   of: number
-  /** 분모가 0 이면 null(이 파일에 해당 없음 — 통과로 본다). */
+  /** 분모가 0 이면 null — 평가 불가. 통과로 적지 않지만 생성을 막지도 않는다(`pass` 는 true). */
   ratio: number | null
   line: number
   pass: boolean
@@ -38,9 +41,9 @@ export type GradeRow = {
 
 export type GradeReport = {
   rows: GradeRow[]
-  /** 게이트(0~2) 통과. */
+  /** 게이트(0~3) 통과. 평가 불가 등급은 막지 않는다. */
   gate: boolean
-  /** 목표선(3) 도달. */
+  /** 목표선(4) 도달. */
   target: boolean
   /** 게이트 미달 등급(재제출 항목). */
   failing: GradeRow[]
@@ -106,4 +109,4 @@ export function gradeReport(model: Model, lines: GradeLines = DEFAULT_LINES): Gr
 }
 
 /** 비율을 화면 글로. */
-export const percent = (x: number | null) => (x === null ? '해당 없음' : `${(x * 100).toFixed(1)}%`)
+export const percent = (x: number | null) => (x === null ? '평가 불가' : `${(x * 100).toFixed(1)}%`)
