@@ -11,10 +11,12 @@ code: ["src/lib/edit-file.ts", "src/lib/storey-drafts.ts", "src/App.vue"]
 tests: []
 related: []
 supersedes: []
-superseded_by: ""
+superseded_by: "ADR-0039 (저장 자리 한 줄만)"
 ---
 
 # ADR-0014 임시 저장본은 편집 파일을 층별 조각으로 갈라 층마다 브라우저에 두고, 층이 없는 편집은 건물 조각으로 같이 저장·적용한다
+
+> 저장 자리("브라우저 `oe-draft:…`")는 [ADR-0039](0039-floor-drafts-and-locks-as-server-files.md) 가 바꿨다 — 임시 저장본은 서버 `data/.drafts/` 에 두고 브라우저 것은 서버에 닿지 못할 때의 복구용 사본이다. 층 조각으로 가르는 결정은 그대로다.
 
 ## 맥락
 

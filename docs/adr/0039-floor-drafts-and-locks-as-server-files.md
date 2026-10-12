@@ -9,8 +9,8 @@ tickets: ["OE-WF-01", "OE-WF-02", "OE-WF-03", "OE-WF-04", "OE-WF-05", "OE-COM-03
 criteria: []
 code: ["src/server/floor-state.ts", "src/server/data-catalog.ts", "src/App.vue"]
 tests: []
-related: ["ADR-0037", "ADR-0014"]
-supersedes: []
+related: ["ADR-0037"]
+supersedes: ["ADR-0014 (저장 자리 한 줄만)", "ADR-0032 (잠금 미룸 한 줄만)"]
 superseded_by: ""
 ---
 
