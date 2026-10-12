@@ -131,3 +131,56 @@ test('공조존 경계를 다시 그리면 넓이와 담당 물리존 몫이 바
   await expect(zone.getByRole('button', { name: '사무실 ×' })).toBeVisible()
   expect(errors).toEqual([])
 })
+
+test('공조존 꼭짓점을 3D 손잡이로 끌어 옮기고, [ ]·Insert·Delete 로 넣고 지우며, Ctrl+Z 로 돌아온다 (OE-ZON-04)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const fold = page.getByTestId('hvac-zones')
+  await fold.getByLabel('사무실').check()
+  await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
+  const zone = fold.locator('.zone-list li[data-zone]').first()
+  await expect(zone).toContainText('80.0㎡')
+
+  const handles = () => page.evaluate(() => (window as any).__viewer.handles() as { x: number; y: number }[])
+  await zone.getByRole('button', { name: '꼭짓점 고치기' }).click()
+  await expect(page.locator('.key-note')).toContainText('공조존 1의 꼭짓점을 끌어 옮깁니다')
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await expect.poll(async () => (await handles()).length).toBe(4)
+
+  // 사무실 오른쪽 아래 (10, 0) 손잡이를 (12, 0) 으로 끈다 → 사다리꼴 (10 + 12) / 2 × 8 = 88㎡.
+  const corner = await page.evaluate(() => (window as any).__viewer.point([10, 0, 0.12]))
+  const hs = await handles()
+  const h = hs.reduce((a, b) => (Math.hypot(b.x - corner.x, b.y - corner.y) < Math.hypot(a.x - corner.x, a.y - corner.y) ? b : a))
+  const to = await page.evaluate(() => (window as any).__viewer.point([12, 0, 0.12]))
+  await page.mouse.move(h.x, h.y)
+  await page.mouse.down()
+  await page.mouse.move(to.x, to.y, { steps: 8 })
+  await page.mouse.up()
+  await expect(zone).toContainText('88.0㎡')
+  await expect(zone.getByRole('button', { name: '사무실 100% ×' })).toBeVisible()
+
+  // 꼭짓점 넣기·지우기. 변 위에 넣고 지우니 넓이는 그대로다.
+  await page.keyboard.press(']')
+  await expect(zone.locator('.vertex-tools')).toContainText('꼭짓점 1/4')
+  await page.keyboard.press('Insert')
+  await expect.poll(async () => (await handles()).length).toBe(5)
+  await expect(zone.locator('.vertex-tools')).toContainText('꼭짓점 2/5')
+  await page.keyboard.press('Delete')
+  await expect.poll(async () => (await handles()).length).toBe(4)
+  await expect(zone).toContainText('88.0㎡')
+
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.key-note')).toContainText('공조존 꼭짓점 고치기를 마쳤습니다')
+  await expect.poll(async () => (await handles()).length).toBe(0)
+  await expect(zone.getByRole('button', { name: '꼭짓점 고치기' })).toBeVisible()
+
+  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  for (let i = 0; i < 3; i++) await page.keyboard.press('Control+z')
+  await expect(zone).toContainText('80.0㎡')
+  await expect(zone.getByRole('button', { name: '사무실 ×' })).toBeVisible()
+  expect(errors).toEqual([])
+})
