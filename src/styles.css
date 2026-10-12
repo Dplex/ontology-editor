@@ -1238,6 +1238,27 @@ th {
   flex: 1;
 }
 
+/* 목록의 모드 버튼(OE-UI-03). 판정과 다른 쪽은 꺼져 보여야 한다. */
+.catalog .row-actions .ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* 편집 막대의 모드(OE-UI-02). 운영 편집은 반영된 온톨로지를 고친다는 표시라 색을 달리한다. */
+.mode-chip {
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.mode-chip.operate {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  color: var(--accent);
+}
+
 /* 새 레이아웃 배너(OE-WF-15). 새로고침 전까지 남는다. */
 .layout-banner {
   display: flex;
