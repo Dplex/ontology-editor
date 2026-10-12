@@ -98,7 +98,7 @@ const issueIds = firstCells(questions, /^\| ((?:D|Q|U|P)[-A-Za-z0-9]*) \|/gm)
 const CHAPTERS = new Set(['1.8', '부록 A', '부록 B', '부록 C'])
 
 const STATUS = ['prd-done', 'prd-review']
-const OWNER = ['ontology-editor', 'srcn', 'tbd']
+const OWNER = ['ontology-editor', 'srcn', 'DT FE/BE', 'tbd']
 const RELEASE = ['R1', 'R2']
 const PRIORITY = ['P1', 'P2', 'P3']
 

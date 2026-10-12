@@ -6,7 +6,22 @@ import { importIfc } from './ifc/import'
 import { baselineOf, createSpace, deleteSpace, diffBaseline, mergeSpaces, restore, snapshotHvacZones, snapshotStoreySpaces, splitSpace } from './edit'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { splitByStorey } from './storey-drafts'
-import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, findHvacZone, flowSpacesOfZones, hvacZonesOf, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './hvac-zone'
+import {
+  createZoneFromOutline,
+  createZoneFromSpaces,
+  deleteHvacZone,
+  deleteZoneVertex,
+  findHvacZone,
+  flowSpacesOfZones,
+  hvacZonesOf,
+  insertZoneVertex,
+  moveZoneVertex,
+  reshapeHvacZone,
+  setZoneServedBy,
+  setZoneSpaces,
+  zoneChecks,
+  zoneCorners,
+} from './hvac-zone'
 import { escapeLocalName, modelToTTL } from './export/ttl'
 import { modelToGeoJSON } from './export/geojson'
 import { readGeoJSON } from './export/read-export'
@@ -271,5 +286,64 @@ describe('물리존을 나누고 합치고 지우면 공조존 담당이 따라�
     setZoneSpaces(model, zone.id, [office().id, extra])
     deleteSpace(model, extra)
     expect(zone.spaceIds).toEqual([office().id])
+  })
+})
+
+describe('공조존 꼭짓점 고치기 (OE-ZON-04)', () => {
+  it('꼭짓점 하나를 옮기면 그 꼭짓점만 바뀌고 담당·몫·넓이를 새 경계로 다시 잰다. 되돌리면 그 전과 같다', () => {
+    const zone = createZoneFromOutline(model, model.storeys[0].id, { footprint: [[0, 0], [8, 0], [8, 8], [0, 8]] }) as HvacZone
+    expect(zoneCorners(zone)).toEqual([[0, 0], [8, 0], [8, 8], [0, 8]])
+    expect(zone.spaceIds).toEqual([office().id])
+    const snap = snapshotHvacZones(model, model.storeys[0].id)!
+    const before = modelToTTL(model)
+    // 오른쪽 아래 꼭짓점을 창고 안(12, 0)으로 끈다. 사다리꼴이 되어 창고 일부를 덮는다.
+    expect(moveZoneVertex(model, zone.id, 1, [12, 0])).toBe(true)
+    expect(zoneCorners(zone)).toEqual([[0, 0], [12, 0], [8, 8], [0, 8]])
+    expect(zone.areaM2).toBeCloseTo(80)
+    expect(zone.spaceIds).toEqual([office().id, store])
+    expect(zone.spaceShares![store]).toBeGreaterThan(0)
+    expect(block(modelToTTL(model), zone.id)).toContain(`ex:${escapeLocalName(store)}`)
+    // 같은 자리에 놓은 것은 바뀐 것이 아니다.
+    expect(moveZoneVertex(model, zone.id, 1, [12, 0])).toBe(false)
+    restore(model, snap)
+    expect(modelToTTL(model)).toBe(before)
+  })
+
+  it('골라 만든 공조존도 꼭짓점을 고칠 수 있고 그린 공조존이 된다. 넣은 꼭짓점은 두 꼭짓점 가운데이고, 셋은 남긴다', () => {
+    const zone = createZoneFromSpaces(model, { spaceIds: [office().id] }) as HvacZone
+    const n = zoneCorners(zone)!.length
+    expect(insertZoneVertex(model, zone.id, 0)).toBe(true)
+    expect(zone.drawn).toBe(true)
+    const corners = zoneCorners(zone)!
+    expect(corners).toHaveLength(n + 1)
+    expect(corners[1]).toEqual([(corners[0][0] + corners[2][0]) / 2, (corners[0][1] + corners[2][1]) / 2].map((v) => Math.round(v * 100) / 100))
+    // 넣은 꼭짓점을 바깥으로 끌어 ㅅ자 모서리를 낸다.
+    expect(moveZoneVertex(model, zone.id, 1, [corners[1][0], corners[1][1] - 1])).toBe(true)
+    expect(zone.areaM2).toBeGreaterThan(80)
+    expect(deleteZoneVertex(model, zone.id, 1)).toBe(true)
+    expect(zoneCorners(zone)).toHaveLength(n)
+    expect(zone.areaM2).toBeCloseTo(80, 0)
+
+    const tri = createZoneFromOutline(model, model.storeys[0].id, { footprint: [[1, 1], [4, 1], [1, 4]] }) as HvacZone
+    expect(deleteZoneVertex(model, tri.id, 0)).toEqual({ refused: '꼭짓점이 셋이라 더 지울 수 없습니다.' })
+  })
+
+  it('변이 엇갈리거나 겹치는 물리존이 없어지는 자리, 떨어진 조각이 있는 공조존은 막고 경계를 그대로 둔다', () => {
+    const zone = createZoneFromOutline(model, model.storeys[0].id, { footprint: [[0, 0], [8, 0], [8, 8], [0, 8]] }) as HvacZone
+    const footprint = JSON.stringify(zone.footprint)
+    // (8,8) 을 아래(4,-4)로 끌면 밑변과 엇갈린다.
+    expect(moveZoneVertex(model, zone.id, 2, [4, -4])).toEqual({ refused: '경계선이 교차하는 위치라 꼭짓점을 원래 자리로 되돌렸습니다.' })
+    expect(JSON.stringify(zone.footprint)).toBe(footprint)
+
+    // 건물 밖에 그린 공조존(담당 없음)은 꼭짓점을 옮겨도 겹치는 물리존이 없어 막는다.
+    const far = createZoneFromOutline(model, model.storeys[0].id, { footprint: [[30, 30], [32, 30], [32, 32], [30, 32]] }) as HvacZone
+    expect(moveZoneVertex(model, far.id, 2, [33, 33])).toEqual({ refused: '경계와 겹치는 물리존이 없습니다. 담당 물리존 위에 그리세요.' })
+
+    // 떨어진 두 물리존을 골라 만든 공조존은 바닥이 두 조각이다.
+    const away = createSpace(model, model.storeys[0].id, { name: '103', longName: '전기실', footprint: [[20, 0], [24, 0], [24, 4], [20, 4]] })!.created[0]
+    const split = createZoneFromSpaces(model, { spaceIds: [office().id, away] }) as HvacZone
+    expect(split.footprint).toHaveLength(2)
+    expect(zoneCorners(split)).toBeNull()
+    expect(moveZoneVertex(model, split.id, 0, [0, -1])).toEqual({ refused: '떨어진 조각이 있는 공조존은 꼭짓점을 고칠 수 없습니다. [경계 다시 그리기] 를 쓰세요.' })
   })
 })
