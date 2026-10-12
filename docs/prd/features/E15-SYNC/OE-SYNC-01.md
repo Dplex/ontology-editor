@@ -27,7 +27,7 @@ depends: ["OE-GEN-01", "OE-WF-10"]
 
 ## 수용 기준
 
-반영 뒤 TTL·GeoJSON 이 에디터의 편집 결과와 같다(KPI_1 불일치 0).
+- **AC1** 반영 뒤 TTL·GeoJSON 이 에디터의 편집 결과와 같다(KPI_1 불일치 0).
 
 ## 메모
 

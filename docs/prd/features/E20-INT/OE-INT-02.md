@@ -21,7 +21,7 @@ depends: ["D9", "S8"]
 
 ## 수용 기준
 
-TTL 에 좌표 리터럴이 없고, GeoJSON 과 TTL 의 id 집합이 같다.
+- **AC1** TTL 에 좌표 리터럴이 없고, GeoJSON 과 TTL 의 id 집합이 같다.
 
 ## 메모
 

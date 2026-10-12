@@ -33,9 +33,9 @@ depends: ["OE-ML-04", "OE-ML-10", "OE-ML-19", "OE-EQP-16"]
 
 ## 수용 기준
 
-- 문 `passable=true`, 창·벽·ES·계단·설비용 샤프트 `passable=false`.
-- EL의 확인된 정차 층·유효 지점만 `passable=true`이고 무정차·정차 미확인 층은 `passable=false`이며 사유가 표시된다.
-- 구조적 층간 연결은 통과 불가 속성을 덮어쓰지 않는다.
+- **AC1** 문 `passable=true`, 창·벽·ES·계단·설비용 샤프트 `passable=false`.
+- **AC2** EL의 확인된 정차 층·유효 지점만 `passable=true`이고 무정차·정차 미확인 층은 `passable=false`이며 사유가 표시된다.
+- **AC3** 구조적 층간 연결은 통과 불가 속성을 덮어쓰지 않는다.
 
 ## 메모
 

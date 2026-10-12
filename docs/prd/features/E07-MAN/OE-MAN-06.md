@@ -26,7 +26,7 @@ depends: ["OE-GEN-11", "OE-GEN-01"]
 
 ## 수용 기준
 
-OE-GEN-11 과 같다.
+- **AC1** OE-GEN-11 과 같다.
 
 ## 메모
 

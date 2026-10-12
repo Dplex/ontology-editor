@@ -40,10 +40,10 @@ HVACTemplate만 있는 입력은 전처리된 상세 IDF가 필요함을 안내�
 
 ## 수용 기준
 
-- EquipmentList·EquipmentConnections·ZoneTerminalUnitList는 설비로 생성되지 않는다. AirDistributionUnit과 그 말단 장치는 중복 생성되지 않으며, IdealLoadsAirSystem은 실제 설비에서 제외된다.
-- 냉난방 용량과 설계 풍량은 원본 또는 참조 객체의 값·단위와 일치한다. 자동 산정·누락 값은 확정 수치로 변환되지 않는다.
-- BIM과 연결되지 않은 설비에는 위치 좌표가 없고 미배치 상태가 표시된다.
-- 누락 참조·미지원 객체·해석할 수 없는 연결은 대상과 사유가 검토 결과에 표시된다. HVACTemplate만 있는 입력에는 상세 IDF 전처리 필요 안내가 표시된다.
+- **AC1** EquipmentList·EquipmentConnections·ZoneTerminalUnitList는 설비로 생성되지 않는다. AirDistributionUnit과 그 말단 장치는 중복 생성되지 않으며, IdealLoadsAirSystem은 실제 설비에서 제외된다.
+- **AC2** 냉난방 용량과 설계 풍량은 원본 또는 참조 객체의 값·단위와 일치한다. 자동 산정·누락 값은 확정 수치로 변환되지 않는다.
+- **AC3** BIM과 연결되지 않은 설비에는 위치 좌표가 없고 미배치 상태가 표시된다.
+- **AC4** 누락 참조·미지원 객체·해석할 수 없는 연결은 대상과 사유가 검토 결과에 표시된다. HVACTemplate만 있는 입력에는 상세 IDF 전처리 필요 안내가 표시된다.
 
 ## 메모
 

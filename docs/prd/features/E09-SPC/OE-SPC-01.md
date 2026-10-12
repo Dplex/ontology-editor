@@ -26,7 +26,7 @@ depends: ["K12", "OE-SPC-17"]
 
 ## 수용 기준
 
-공간명을 바꾸면 TTL label·GeoJSON 이름·방 종류가 함께 바뀐다.
+- **AC1** 공간명을 바꾸면 TTL label·GeoJSON 이름·방 종류가 함께 바뀐다.
 
 ## 메모
 
