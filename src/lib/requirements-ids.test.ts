@@ -55,14 +55,15 @@ function standardValues(cls: string): Set<string> {
 }
 
 describe('requirements.ids', () => {
-  it('정본 4장에 R0~R24 가 하나씩 있고, PRD 부록 A 는 채택 전 제안(R25~)만 두어 정본과 겹치는 번호가 없다 [OE-REQ-01#1~]', () => {
+  it('정본 4장에 R0~R24 가 하나씩 있고, PRD 부록 A 는 그 전부에 채택 전 제안(R25~)을 더한 표다', () => {
+    // 2026-10-10(D1) 부터 부록 A 는 R0~R26 전체 표다. 구분(필수·권장)이 4장과 다른 줄은 prd.test.ts 가 비고의 날짜로 본다.
     const doc = [...levelsInDoc().keys()].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
     expect(doc).toEqual(Array.from({ length: 25 }, (_, i) => `R${i}`))
     const prd = read('../../docs/prd/PRD_011.md')
     const appendix = prd.slice(prd.indexOf('## 부록 A'), prd.indexOf('## 부록 B'))
-    const proposed = [...appendix.matchAll(/^[|] (R[0-9]+) [|]/gm)].map((m) => m[1])
-    expect(proposed.length).toBeGreaterThan(0)
-    expect(proposed.filter((r) => doc.includes(r))).toEqual([])
+    const inAppendix = [...appendix.matchAll(/^[|] (R[0-9]+) [|]/gm)].map((m) => m[1])
+    expect(doc.filter((r) => !inAppendix.includes(r))).toEqual([])
+    expect(inAppendix.filter((r) => !doc.includes(r)).every((r) => Number(r.slice(1)) >= 25)).toBe(true)
   })
 
   it('정본 4장의 R 번호를 같은 등급으로 옮긴다 [OE-REQ-02#2]', () => {
