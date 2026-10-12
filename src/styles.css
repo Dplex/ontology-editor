@@ -3272,6 +3272,15 @@ main.has-model .catalog {
   font-size: 0.78rem;
 }
 
+.draw-bar.low {
+  top: 3.6rem;
+}
+
+/* 층간 배관의 작업 높이(층 바닥에서 m, OE-ML-12). */
+.draw-bar .riser-height {
+  width: 4.5rem;
+}
+
 /* 고른 물리존에서 짚은 꼭짓점을 넣거나 지우는 버튼. */
 .vertex-tools {
   display: flex;

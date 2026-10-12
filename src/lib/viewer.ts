@@ -315,7 +315,8 @@ export type SpaceHandles = {
 }
 
 /** 수직 관통 오브젝트 구간 바꾸기(OE-ML-08)에서 적용 전에 사람이 그린 형상·찍은 지점. 점선으로 그린다. */
-export type VerticalPreview = { storeyId: string; elevation: number; footprint?: readonly Vec2[]; point?: Vec2 }
+/** 적용 전 미리보기. `path` 는 그리는 중인 층간 배관의 경로(공통 좌표)다(OE-ML-12). */
+export type VerticalPreview = { storeyId: string; elevation: number; footprint?: readonly Vec2[]; point?: Vec2; path?: readonly Vec3[] }
 
 /** 마우스 아래에 있는 것. 설비·물리존(편집 모드)·연결 화살표(편집 모드). */
 export type HoverTarget = { kind: 'equipment'; id: string } | { kind: 'space'; id: string } | { kind: 'arrow'; key: string }
@@ -2553,6 +2554,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       }
       // 적용 전 미리보기(OE-ML-08). 고르기 대상이 아니다.
       for (const p of preview) {
+        if (p.path) {
+          const line = new Line(new BufferGeometry().setFromPoints(p.path.map((q) => new Vector3(q[0], q[2], -q[1]))), new LineDashedMaterial({ color: ARCH_COLORS.selected, dashSize: 0.25, gapSize: 0.15, depthTest: false }))
+          line.computeLineDistances()
+          line.renderOrder = 4
+          line.userData.storeyId = p.storeyId
+          line.userData.mark = 'preview'
+          verticals.add(line)
+          continue
+        }
         const y = p.elevation + VERTICAL_LIFT + 0.02
         const r = 0.35
         const pts: readonly Vec2[] | null =
