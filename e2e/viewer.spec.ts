@@ -121,7 +121,7 @@ test('층별로 구축한 TTL 을 여럿 놓으면 쌓아 읽고, 건물 전체 
   await expect(page.locator('.checks li.bad')).toHaveCount(0)
 })
 
-test('벽을 끄고 연 파일의 GeoJSON 을 놓으면 벽 0 이 "없음" 이 아니라 "읽지 않음" 이라고 보인다 (OE-BIM-25)', async ({ page }, info) => {
+test('벽을 끄고 연 파일의 GeoJSON 을 놓으면 벽 0 이 "없음" 이 아니라 "읽지 않음" 이라고 보인다 (OE-BIM-25) [OE-BIM-25#1~]', async ({ page }, info) => {
   await page.addInitScript(() => {
     delete (window as any).showDirectoryPicker
   })

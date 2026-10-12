@@ -256,7 +256,7 @@ const DUPLEX_ARCH = 'data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc'
 // 공간 85개가 전부 외곽선 0 이었고, 그래서 3D 에 방이 한 칸도 안 그려지고 설비 소속 판정도
 // 통째로 못 돌았다. 이 검사가 그 회귀를 지킨다.
 describe.skipIf(!existsSync(DUPLEX_ARCH))('Revit 이 낸 공간 외곽선 (SweptSolid)', () => {
-  it('FootPrint 가 없어도 SweptSolid 에서 바닥 단면을 꺼낸다', async () => {
+  it('FootPrint 가 없어도 SweptSolid 에서 바닥 단면을 꺼낸다 [OE-BIM-03#1~]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const model = importIfc(api, new Uint8Array(readFileSync(DUPLEX_ARCH)))
@@ -547,7 +547,7 @@ describe('요구사항 상태 집계 — 필수 11 (OE-REQ-06)', () => {
 // OE-BIM-25 임포트 피처 선택. 벽·문·창은 GeoJSON 에만 나가고 TTL 에는 없어서, 설비만 볼 때 끄고 연다. 끈 것은 0 이 아니라 "읽지 않음"
 // 이어야 한다 — 0 이면 "BIM 에 없다" 는 말이 되고 요구사항 보고서가 고객사에 엉뚱한 요청을 한다. 큰 건축 파일로 잰다.
 describe('임포트 피처 선택 — 끈 것은 읽지 않음 (OE-BIM-25)', () => {
-  it('병원 건축에서 벽·문·창을 끄면 0 이 아니라 읽지 않음이고, 합쳐도 남고, TTL 은 그대로다', async () => {
+  it('병원 건축에서 벽·문·창을 끄면 0 이 아니라 읽지 않음이고, 합쳐도 남고, TTL 은 그대로다 [OE-BIM-25#1]', async () => {
     if (!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC)) return
     const api = new WebIFC.IfcAPI()
     await api.Init()
@@ -824,7 +824,7 @@ describe.skipIf(!existsSync(DUPLEX_HVAC))('배치점이 층 원점에 찍힌 덕
 // **실제 프로젝트는 건축과 설비가 다른 파일이다.** 설비 파일에는 방이 없어서 혼자서는 F11 이
 // 안 나온다. 같은 건물의 두 판본을 합쳐서 되는지를 지킨다.
 describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP))('건축 + 설비 합치기 (Duplex)', () => {
-  it('층 GUID 가 달라도 이름으로 맞추고, HVAC 기기 40대 전부의 소속을 찾는다', async () => {
+  it('층 GUID 가 달라도 이름으로 맞추고, HVAC 기기 40대 전부의 소속을 찾는다 [OE-BIM-10#1]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_ARCH))).model
@@ -1541,7 +1541,7 @@ describe.skipIf(!hasIfctester)('IDS 를 ifctester 로 (OE-REQ-02)', () => {
 // 건축 부재인지는 이름 예로 사람이 본다 — ifc4Mep 의 48개는 태양광 거치대 40개(`SolarMountingSystems`, 설명 "Mounting rack")와
 // 이름·형상 없는 8개다. 병원 전기의 유압 엘리베이터 1대는 읽지 않다가 이름 사전에 "엘리베이터" 를 더해 설비로 읽는다(2026-10-03 사용자 결정).
 describe('Proxy 리포트 (OE-BIM-13)', () => {
-  it('가진 BIM 의 Proxy 를 전부 세고 읽지 않은 것을 이름과 함께 적는다', async () => {
+  it('가진 BIM 의 Proxy 를 전부 세고 읽지 않은 것을 이름과 함께 적는다 [OE-BIM-13#1]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
@@ -2791,5 +2791,81 @@ describe.skipIf(!existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP_FULL) || !exi
       expect(m.connections.length, path).toBeGreaterThan(0)
       expect(m.connections.filter((c) => c.source !== 'geometry' || c.directed), path).toEqual([])
     }
+  }, 600_000)
+})
+
+// 가져오기의 기본 약속(OE-BIM-02·04·08·09)을 가진 BIM 전부에 대 본다. 숫자는 2026-10-10 에 잰 것이다.
+describe('가져오기 기본 — 층·벽·말단·배관·연결 (OE-BIM-02·04·08·09)', () => {
+  const FILES = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP_FULL, CLINIC_ARCH, CLINIC_HVAC, CLINIC_MEP].filter((f) => existsSync(f))
+  const opened = new Map<string, ReturnType<typeof importIfcWithMeshes>['model']>()
+  const open = async (path: string) => {
+    if (!opened.has(path)) {
+      const api = new WebIFC.IfcAPI()
+      await api.Init()
+      opened.set(path, importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model)
+    }
+    return opened.get(path)!
+  }
+  const features = (m: Awaited<ReturnType<typeof open>>) => modelToGeoJSON(m).flatMap((f) => f.collection.features)
+
+  it.skipIf(!FILES.length)('층 수가 파일의 IfcBuildingStorey 수와 같고, 층마다 높이(Elevation)가 있다 [OE-BIM-02#1]', async () => {
+    for (const path of FILES) {
+      const declared = (readFileSync(path, 'latin1').match(/=\s*IFCBUILDINGSTOREY\s*\(/gi) ?? []).length
+      const m = await open(path)
+      expect(m.storeys.length, path).toBe(declared)
+      expect(m.storeys.every((s) => Number.isFinite(s.elevation)), path).toBe(true)
+    }
+  }, 600_000)
+
+  it.skipIf(!FILES.length)('벽마다 GeoJSON 벽 feature 로 위치(외곽선)와 두께가 나간다 — Duplex 57 · 병원 1,080 · AC20 13 [OE-BIM-04#1]', async () => {
+    const counts: Record<string, number> = {}
+    for (const path of FILES) {
+      const m = await open(path)
+      const walls = m.storeys.flatMap((s) => s.walls)
+      if (!walls.length) continue
+      const out = new Map(features(m).filter((f) => f.properties?.kind === 'wall').map((f) => [f.id, f]))
+      for (const w of walls) {
+        const f = out.get(w.id)
+        expect(['Polygon', 'MultiPolygon'], `${path} ${w.name}`).toContain(f?.geometry?.type)
+        expect(f?.properties?.thickness, `${path} ${w.name}`).toBeGreaterThan(0)
+      }
+      counts[path] = walls.length
+    }
+    expect(counts).toMatchObject(Object.fromEntries([[DUPLEX_ARCH, 57], [CLINIC_ARCH, 1080], [SAMPLE, 13]].filter(([p]) => existsSync(p as string))))
+  }, 600_000)
+
+  it.skipIf(!FILES.length)('토출구·말단은 좌표와 함께 설비 목록에 들고, 덕트·배관 구간은 경로가 있으면 GeoJSON 선(배관 초안)으로 나간다 [OE-BIM-08#1]', async () => {
+    for (const path of FILES) {
+      const m = await open(path)
+      const all = m.storeys.flatMap((s) => s.equipment)
+      const terminals = all.filter((e) => e.role === 'terminal')
+      expect(terminals.filter((e) => !e.position).map((e) => e.name), path).toEqual([])
+      const segments = all.filter((e) => e.role === 'segment')
+      const lines = new Set(features(m).filter((f) => f.geometry?.type === 'LineString').map((f) => f.id))
+      for (const s of segments) {
+        const p = segmentPath(s)
+        expect(lines.has(s.id), `${path} ${s.name}`).toBe(!!p && 'path' in p)
+      }
+    }
+    // 경로를 모르는 구간이 있는 파일은 IFC4 샘플 하나다(1,075 중 27 — 완전성 검사에 까닭이 뜬다).
+    if (existsSync(MEP)) {
+      const segs = (await open(MEP)).storeys.flatMap((s) => s.equipment).filter((e) => e.role === 'segment')
+      expect(segs.filter((e) => { const p = segmentPath(e); return p && 'path' in p }).length).toBe(1048)
+      expect(segs).toHaveLength(1075)
+    }
+  }, 600_000)
+
+  it.skipIf(!existsSync(DUPLEX_HVAC) || !existsSync(MEP) || !existsSync(DUPLEX_MEP_FULL))('IFC2x3·IFC4 모두 연결을 읽고, 포트에서 읽은 연결과 형상으로 추정한 연결의 출처가 갈린다 [OE-BIM-09#1,2]', async () => {
+    const sources = async (path: string) => {
+      const m = await open(path)
+      const out: Record<string, number> = {}
+      for (const c of m.connections) out[c.source] = (out[c.source] ?? 0) + 1
+      return { schema: m.schema, ...out }
+    }
+    expect(await sources(DUPLEX_HVAC)).toEqual({ schema: 'IFC2X3', port: 485 })
+    expect(await sources(MEP)).toEqual({ schema: 'IFC4', port: 1995 })
+    // 포트가 없는 판본은 형상에서 추정하고, 출처가 geometry 라 방향이 없다.
+    expect(await sources(DUPLEX_MEP_FULL)).toEqual({ schema: 'IFC2X3', geometry: 783 })
+    expect((await open(DUPLEX_MEP_FULL)).connections.every((c) => !c.directed)).toBe(true)
   }, 600_000)
 })

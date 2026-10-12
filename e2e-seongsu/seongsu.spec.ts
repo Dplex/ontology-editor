@@ -1005,7 +1005,7 @@ test('H 종류와 I 되돌리기: U·K 로 패밀리 종류 정하기, 되돌리
   expect(errors).toEqual([])
 })
 
-test('J 완전성 검사에서 한 번에 고치기', async () => {
+test('J 완전성 검사에서 한 번에 고치기 [OE-BIM-18#1~,2]', async () => {
   await editMode(true)
   await openFold('완전성 검사')
   const out: string[] = []

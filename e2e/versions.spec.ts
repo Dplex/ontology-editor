@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 
 // 판본 비교(PRD #6, 요구사항 R13). mep-v2.ifc 는 mep.ifc 를 다시 내보낸 판본이다 — 사무실·공조기 GUID 가 바뀌고,
 // 토출구 하나가 2m 옮겨지고, 센서가 빠지고, 토출구 하나가 더해졌다.
-test('이전 판본을 열면 바뀐 것을 보이고, R13 을 잰다', async ({ page }) => {
+test('이전 판본을 열면 바뀐 것을 보이고, R13 을 잰다 [OE-BIM-19#1]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

@@ -54,7 +54,7 @@ describe('GeoJSON', () => {
     expect(readGeoJSON('x', JSON.stringify(modelToGeoJSON(model)[0].collection)).skipped).toEqual([])
   })
 
-  it('벽·문·창은 GeoJSON 에만 나가고, 문이 잇는 방은 TTL 주어를 가리킨다', () => {
+  it('벽·문·창은 GeoJSON 에만 나가고, 문이 잇는 방은 TTL 주어를 가리킨다 [OE-BIM-04#1~]', () => {
     // Brick 에는 건축 부재 클래스가 없다. 벽·문·창은 3D Map·로봇 경로가 쓰는 기하 층이다.
     const walled: Model = structuredClone(model)
     const storey = walled.storeys[0]

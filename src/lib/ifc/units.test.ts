@@ -62,6 +62,15 @@ describe('단위가 달라도 같은 건물이다', () => {
     expect(meeting.footprint[0][1]).toBeCloseTo(1, 6)
   }, 60_000)
 
+  it('밀리미터·피트로 선언한 판본이 미터로 들어와 미터 판본과 층 수·층 높이가 같다 [OE-BIM-11#1]', async () => {
+    const metre = await importFixture('two-rooms.ifc')
+    for (const name of ['millimetre.ifc', 'foot.ifc']) {
+      const other = await importFixture(name)
+      expect(other.storeys.length, name).toBe(metre.storeys.length)
+      other.storeys.forEach((s, i) => expect(s.elevation, `${name} ${s.name}`).toBeCloseTo(metre.storeys[i].elevation, 4))
+    }
+  }, 60_000)
+
   it('피트 판본도 같은 값을 준다', async () => {
     const foot = await importFixture('foot.ifc')
 

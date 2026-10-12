@@ -405,7 +405,7 @@ test('고른 설비는 앞에 다른 설비가 가려도 끌 수 있고, 끌지 
 
 // --- 종류 지정 (타입 단위) -------------------------------------------------------------
 
-test('고른 설비의 종류를 바꾸면 규칙 방향이 다시 서고, Ctrl+Z 로 되돌린다', async ({ page }) => {
+test('고른 설비의 종류를 바꾸면 규칙 방향이 다시 서고, Ctrl+Z 로 되돌린다 [OE-BIM-14#1~]', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
 
@@ -432,7 +432,7 @@ test('고른 설비의 종류를 바꾸면 규칙 방향이 다시 서고, Ctrl+
   expect(errors).toEqual([])
 })
 
-test('종류를 모르는 패밀리를 목록에서 한 번 고르면 그 패밀리 설비에 붙고 출처가 편집이 된다', async ({ page }) => {
+test('종류를 모르는 패밀리를 목록에서 한 번 고르면 그 패밀리 설비에 붙고 출처가 편집이 된다 [OE-BIM-14#1~,2]', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await page.getByRole('button', { name: /종류와 관제점 후보/ }).click()

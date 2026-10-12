@@ -139,7 +139,7 @@ describe('좌표계 확인', () => {
     expect(merged.warnings.some((w) => w.includes('좌표계'))).toBe(false)
   })
 
-  it('원점이 어긋나면 경고한다 — 합치기 자체는 성공하고 숫자만 틀리는 경우다', () => {
+  it('원점이 어긋나면 경고한다 — 합치기 자체는 성공하고 숫자만 틀리는 경우다 [OE-BIM-22#1~]', () => {
     // 측량 원점과 프로젝트 원점이 다른 파일. 파싱도 합치기도 오류 없이 끝난다.
     const { model: merged, report } = mergeModels(arch(), mep([1200, -800]))
     expect(report.alignment!.ratio).toBe(0)
