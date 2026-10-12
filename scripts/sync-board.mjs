@@ -37,6 +37,11 @@ const SPEC_SECTIONS = ['요구사항', '수용 기준']
 const DEV_STATUS = /In Progress|In Review|Done/
 const MODIFIED = 'modified'
 /**
+ * `prd-done` 이어도 개발로 넘기지 않고 PRD in progress 에 두는 티켓(2026-10-12 기획). R2 는 이번 릴리스 개발 대상이 아니고,
+ * E22 는 다른 팀(DT FE/BE) PRD 의 개정이라 이 보드의 개발 Todo 가 아니다. "넘길 후보" 에서 빼고 따로 알린다.
+ */
+const holdInPrd = (fm) => fm.release === 'R2' || fm.epic === 'E22'
+/**
  * 라벨을 보드 열로 보이려고 옮겨 적는 단일 선택 칸. 보드는 라벨(여러 개)을 열로 못 쓴다. 정본은 라벨이고 이 칸은 사본이다.
  * 라벨이 둘 이상이면 앞의 것 하나만 적는다(반려가 가장 급하고, 그다음 요구사항 변경 · 기획 결정 · 외부 대기 · 개발 남음).
  */
@@ -231,14 +236,15 @@ function main() {
 
   const scope = [...tickets.values()].filter((t) => !ONLY || ONLY.includes(t.fm.id))
   if (ONLY) for (const id of ONLY) if (!tickets.has(id)) throw new Error(`--only: 티켓 ${id} 이 없다`)
-  const noIssue = [], unmanaged = [], drift = [], handOver = [], boardAhead = []
+  const noIssue = [], unmanaged = [], drift = [], handOver = [], held = [], boardAhead = []
   for (const t of scope) {
     const item = byId.get(t.fm.id)
     if (!item) { noIssue.push(t.fm.id); continue }
     if (!(item.labels ?? []).includes('planned')) { unmanaged.push(`${t.fm.id} #${item.content.number}`); continue }
     const d = compare(item, t)
     if (d.diffs.length) drift.push({ t, item, d })
-    if (t.fm.status === 'prd-done' && item.status === 'PRD in progress') handOver.push(`${t.fm.id} #${item.content.number}`)
+    if (t.fm.status === 'prd-done' && item.status === 'PRD in progress')
+      (holdInPrd(t.fm) ? held : handOver).push(`${t.fm.id} #${item.content.number}`)
     if (t.fm.status === 'prd-review' && item.status && item.status !== 'PRD in progress') boardAhead.push(`${t.fm.id} #${item.content.number} (${item.status})`)
   }
   // 라벨 칸은 계획 이슈만이 아니라 보드의 모든 항목을 맞춘다(완료 보고 이슈의 enhancement 도 보인다).
@@ -281,6 +287,7 @@ function main() {
 
   const note = (title, list) => list.length && console.log(`\n${title} (${list.length})\n  ${list.join('\n  ')}`)
   note('[참고] prd-done 인데 보드는 PRD in progress — 개발로 넘길 후보(Status 는 쓰지 않는다)', handOver)
+  note('[참고] prd-done 이지만 R2·E22 라 PRD in progress 에 둔다(넘길 후보 아님)', held)
   note('[참고] prd-review 인데 보드가 PRD in progress 보다 앞섬', boardAhead)
   note('[참고] planned 라벨이 없어 건드리지 않은 이슈', unmanaged)
   note('[주의] 이슈가 없는 티켓(이 스크립트는 이슈를 만들지 않는다)', noIssue)
