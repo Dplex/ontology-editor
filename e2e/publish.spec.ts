@@ -371,3 +371,53 @@ test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보
   await expect(dialog).not.toBeVisible()
   await expect(preview).toBeVisible()
 })
+
+test('물리존 공간명을 고쳐 반영하면 그 버전의 공간 계층(탐색기 트리 대신)·TTL·GeoJSON 의 이름이 에디터의 공간명과 같고, 앞 버전은 옛 이름 그대로다 [OE-SPC-05#1]', async ({ page }) => {
+  test.setTimeout(120_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await serve(page)
+  await page.goto('/')
+  await page.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+  await page.getByLabel('사용자').selectOption('편집자')
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const bar = page.locator('.edit-bar')
+  const dialog = page.locator('dialog.publish-dialog')
+  // v1 은 BIM 이름(사무실) 그대로.
+  await editLight(page, '7.5')
+  await bar.getByRole('button', { name: '구축하기' }).click()
+  await dialog.getByRole('button', { name: '구축하기' }).click()
+  await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
+
+  // 사무실 바닥을 골라 공간명을 고친다.
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  const at = (await page.evaluate(() => (window as any).__viewer.point([5, 4, 0.1]))) as { x: number; y: number }
+  await page.mouse.click(at.x, at.y)
+  const panel = page.locator('.space-picked')
+  await expect(panel.locator('h3')).toHaveText('사무실')
+  const name = panel.locator('.space-name input')
+  await name.fill('대회의실')
+  await name.press('Enter')
+  await expect(panel.locator('h3')).toHaveText('대회의실')
+  await bar.getByRole('button', { name: '반영하기' }).click()
+  await dialog.getByRole('button', { name: '반영하기' }).click()
+  await expect(page.locator('.key-note')).toContainText('v2 으로 반영했습니다', { timeout: 30_000 })
+
+  // 반영한 공간 계층의 이름 = 에디터의 공간명. 화면의 계층도 같다.
+  type Tree = { storeys: { spaces: { id: string; longName: string | null }[] }[] }
+  const tree1 = JSON.parse(await fromServer({ v: '1', file: 'tree.json' })) as Tree
+  const tree2 = JSON.parse(await fromServer({ v: '2', file: 'tree.json' })) as Tree
+  expect(tree2.storeys[0].spaces.map((s) => s.longName)).toEqual(['대회의실'])
+  await page.getByTestId('version-report').getByTestId('space-tree').locator('summary').click()
+  await expect(page.getByTestId('version-report').getByTestId('space-tree')).toContainText('1F 1개 — 대회의실')
+  // 같은 방(id 그대로)이라 탐색기가 이름만 바꿔 단다. 이상 알림이 읽는 TTL·GeoJSON 의 이름도 같다.
+  expect(tree2.storeys[0].spaces[0].id).toBe(tree1.storeys[0].spaces[0].id)
+  expect(await fromServer({ v: '2', file: 'ontology.ttl' })).toContain('rdfs:label "대회의실"')
+  const meta = JSON.parse(await fromServer({}))
+  const geo = meta.versions.find((x: { version: number }) => x.version === 2).files.find((f: string) => f.startsWith('geojson/'))
+  expect(await fromServer({ v: '2', file: geo })).toContain('"longName":"대회의실"')
+  // 앞 버전은 그때 이름 그대로다.
+  expect(tree1.storeys[0].spaces.map((s) => s.longName)).toEqual(['사무실'])
+  expect(errors).toEqual([])
+})
