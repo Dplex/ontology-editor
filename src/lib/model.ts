@@ -37,8 +37,11 @@ export type Space = {
    * `brick:Room` 으로 나간다. `PredefinedType` 은 방 종류를 말하지 않는다(SPACE·PARKING 같은 것뿐이고 실측 0/4 파일).
    */
   kind?: string | null
-  /** `kind` 를 누가 정했나. `bim` 이면 `omniclass` 에서, `dict` 면 이름 사전에서 읽었다. */
-  kindSource?: 'bim' | 'dict'
+  /**
+   * `kind` 를 누가 정했나. `bim` 이면 `omniclass` 에서, `dict` 면 이름 사전에서 읽었고, `edit` 면 사람이 정했다(OE-SPC-17, edit.ts 의
+   * setSpacesKind). 사람이 정한 종류는 이름을 고쳐도 그대로다.
+   */
+  kindSource?: 'bim' | 'dict' | 'edit'
   /**
    * OmniClass Table 13 코드(`13-15 11 34 11`). Revit 은 방마다 적는다(병원 건축 269/269). 표준 분류 관계가 먼저고,
    * 없으면 Revit 의 `Category Code` 속성이다. 없으면 `null`.

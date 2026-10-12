@@ -11,7 +11,7 @@ import { assignEquipment, centroid, distanceToRing, isSelfIntersecting, locate, 
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapshotRulesAgain, type ReleaseSnapshot, type RuleSnapshot } from './connection-release'
-import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
+import { equipmentKind, FLUID_KINDS, resolveRoomKind, roomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
 import type { Connection, CustomZone, Equipment, Model, Opening, Room, Space, SpaceObject, Storey, System, Vec2, Vec3, Wall } from './model'
 import { spacesBesideOpening } from './ifc/element-geometry'
@@ -425,6 +425,41 @@ function setRoomKind(space: Space, found: ReturnType<typeof resolveRoomKind>) {
 }
 
 /**
+ * 같은 공간명의 물리존(OE-SPC-17 "같은 공간명의 방은 종류를 일괄 수정"). 건물의 모든 층에서 찾는다 — 성수의 `S.T`·`P.S` 처럼 층마다
+ * 되풀이되는 이름이 일괄 수정을 바라는 경우다. 공간명이 비었으면 그 물리존 하나다. 앞뒤 빈칸은 견주지 않는다.
+ */
+export function sameNameSpaces(model: Model, spaceId: string): Space[] {
+  const all = model.storeys.flatMap((s) => s.spaces)
+  const space = all.find((s) => s.id === spaceId)
+  if (!space) return []
+  const name = space.longName.trim()
+  return name ? all.filter((s) => s.longName.trim() === name) : [space]
+}
+
+/**
+ * 방 종류를 사람이 정한다(OE-SPC-17). 출처는 `edit` 이고 이름을 고쳐도 남는다. `kind` 가 `undefined` 면 사람이 정한 것을 거두고 이름 사전 →
+ * OmniClass 로 다시 읽는다. 사전이 읽는 값과 같은 종류를 고르면 거두는 것과 같다 — 편집 파일에 같은 값의 편집이 쌓이지 않게. `null` 은
+ * "모름" 으로 정한 것이다(사전이 잘못 읽은 것을 지울 때). 바뀐 물리존 수를 돌려준다.
+ */
+export function setSpacesKind(model: Model, spaceIds: readonly string[], kind: string | null | undefined): number {
+  if (kind && !roomKind(kind)) return 0
+  const ids = new Set(spaceIds)
+  let changed = 0
+  for (const space of model.storeys.flatMap((s) => s.spaces)) {
+    if (!ids.has(space.id)) continue
+    const before = `${space.kind ?? ''}|${space.kindSource ?? ''}`
+    const read = resolveRoomKind(space.name, space.longName, space.omniclass ?? null)
+    if (kind === undefined || kind === (read?.info.kind ?? null)) setRoomKind(space, read)
+    else {
+      space.kind = kind
+      space.kindSource = 'edit'
+    }
+    if (`${space.kind ?? ''}|${space.kindSource ?? ''}` !== before) changed++
+  }
+  return changed
+}
+
+/**
  * 같은 층에서 이 방번호를 쓰는 다른 물리존(OE-OBJ-02 "방번호는 한 층 안에서 고유"). 빈 번호는 아직 안 정한 것이라 겹쳐도 된다.
  * 공간명(longName)은 겹쳐도 된다.
  */
@@ -458,9 +493,9 @@ export function renameSpace(model: Model, spaceId: string, longName: string): bo
     const space = storey.spaces.find((s) => s.id === spaceId)
     if (space) {
       space.longName = longName
-      // 이름 사전으로 정한 방 종류는 이름을 따라간다. 계단을 "회의실" 로 고쳤는데 brick:Staircase 로 나갔다 — 이름을
-      // 고치는 것이 사람이 방 종류를 바로잡는 유일한 길이라서다. 임포트와 같은 순서(이름 사전 → OmniClass)로 다시 읽는다.
-      setRoomKind(space, resolveRoomKind(space.name, longName, space.omniclass ?? null))
+      // 이름 사전으로 정한 방 종류는 이름을 따라간다. 계단을 "회의실" 로 고쳤는데 brick:Staircase 로 나갔다. 임포트와 같은 순서
+      // (이름 사전 → OmniClass)로 다시 읽는다. 사람이 정한 종류(OE-SPC-17)는 이름을 고쳐도 그대로 둔다.
+      if (space.kindSource !== 'edit') setRoomKind(space, resolveRoomKind(space.name, longName, space.omniclass ?? null))
       return true
     }
   }
