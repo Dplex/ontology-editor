@@ -98,7 +98,7 @@ describe('연결 후보 (OE-PIP-08)', () => {
     expect(out.text).toContain('직접 확인한 뒤 설비 패널의 [연결하기]로 잇습니다')
   })
 
-  it('흐름 없는 기기는 종류를 아는 것만이다. 종류를 모르는 설비와 냉매 설비(실외기)는 흐름 없다고 단정하지 않는다', () => {
+  it('흐름 없는 기기는 종류를 아는 것만이다. 종류를 모르는 설비와 냉매 설비(실외기)는 흐름 없다고 단정하지 않는다 [OE-PIP-18#2]', () => {
     expect(isFlowless(eq('a', 'lighting', 'terminal'))).toBe(true)
     expect(isFlowless(eq('b', 'smoke_detector', 'sensing'))).toBe(true)
     expect(isFlowless(eq('c', null, null))).toBe(false)

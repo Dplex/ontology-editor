@@ -40,7 +40,7 @@ const feedsDuct = (m: Model) => feeds(m, 'AHU-1', 'DUCT-01')
 const AT = new Date('2026-10-08T01:00:00Z')
 
 describe('연결 해제 보정 (OE-PIP-06)', () => {
-  it('BIM 포트 연결을 해제하면 원본·방향은 그대로 남고, 유효 연결·TTL feeds·규칙 방향에서 빠진다', () => {
+  it('BIM 포트 연결을 해제하면 원본·방향은 그대로 남고, 유효 연결·TTL feeds·규칙 방향에서 빠진다 [OE-PIP-01#2] [OE-PIP-06#1,2] [OE-PIP-07#1~,2~]', () => {
     const m = read()
     const c = ahuDuct(m)
     const at = m.connections.indexOf(c)
@@ -75,7 +75,7 @@ describe('연결 해제 보정 (OE-PIP-06)', () => {
     expect(m.connectionLog).toHaveLength(1)
   })
 
-  it('해제를 취소하면 같은 연결이 해제 전 자리·방향으로 돌아오고, 규칙 방향과 TTL 이 해제 전과 같다', () => {
+  it('해제를 취소하면 같은 연결이 해제 전 자리·방향으로 돌아오고, 규칙 방향과 TTL 이 해제 전과 같다 [OE-PIP-01#3~,4~] [OE-PIP-06#3]', () => {
     const m = read()
     const before = { ttl: modelToTTL(m), order: [...m.connections] }
     const c = ahuDuct(m)
@@ -92,7 +92,7 @@ describe('연결 해제 보정 (OE-PIP-06)', () => {
     ])
   })
 
-  it('되돌리기·다시 하기로 해제와 취소를 무른다. 무른 것은 이력에 남지 않는다', () => {
+  it('되돌리기·다시 하기로 해제와 취소를 무른다. 무른 것은 이력에 남지 않는다 [OE-PIP-07#6~]', () => {
     const m = read()
     const c = ahuDuct(m)
     const ttl = modelToTTL(m)
@@ -134,7 +134,7 @@ describe('해제 보정 저장·불러오기·재임포트', () => {
     return { m, file: parseEditFile(JSON.stringify(exportEdits(m, base, 'mep.ifc', AT))) as ReturnType<typeof exportEdits> }
   }
 
-  it('저장한 파일을 새로 연 모델에 얹으면 해제 상태·이력·TTL 이 같다. 층별 조각을 거쳐도 같다', () => {
+  it('저장한 파일을 새로 연 모델에 얹으면 해제 상태·이력·TTL 이 같다. 층별 조각을 거쳐도 같다 [OE-PIP-06#5] [OE-PIP-07#6~]', () => {
     const { m, file } = released()
     expect(file.connectionLog).toHaveLength(3)
     const b = read()
@@ -153,7 +153,7 @@ describe('해제 보정 저장·불러오기·재임포트', () => {
     expect(modelToTTL(c)).toBe(modelToTTL(m))
   })
 
-  it('GUID 가 바뀐 재내보내기 판본에서도 같은 연결을 찾아 다시 해제한다', () => {
+  it('GUID 가 바뀐 재내보내기 판본에서도 같은 연결을 찾아 다시 해제한다 [OE-PIP-06#6~]', () => {
     const { m, file } = released()
     const b = read()
     const ids = [...b.storeys.flatMap((s) => [s.id, ...s.spaces.map((sp) => sp.id), ...s.equipment.map((e) => e.id)]), ...b.systems.map((s) => s.id)]
@@ -166,7 +166,7 @@ describe('해제 보정 저장·불러오기·재임포트', () => {
     expect(modelToTTL(v2).split('Qv2').join('')).toBe(modelToTTL(m))
   })
 
-  it('다시 연 판본에서 방향이 바뀌었으면 해제한 채 재검토로 두고, 해제 유지·취소를 고른다', () => {
+  it('다시 연 판본에서 방향이 바뀌었으면 해제한 채 재검토로 두고, 해제 유지·취소를 고른다 [OE-PIP-06#6~,7]', () => {
     const { file } = released()
     const b = read()
     const c = ahuDuct(b)
@@ -193,7 +193,7 @@ describe('해제 보정 저장·불러오기·재임포트', () => {
     expect(b.connections).toContain(c)
   })
 
-  it('다시 연 판본에 원본 연결이 없으면 재검토로 두고, 되살리지 못하며 보정을 지워도 이력은 남는다', () => {
+  it('다시 연 판본에 원본 연결이 없으면 재검토로 두고, 되살리지 못하며 보정을 지워도 이력은 남는다 [OE-PIP-06#6~]', () => {
     const { file } = released()
     const b = read()
     b.connections.splice(b.connections.indexOf(ahuDuct(b)), 1)
