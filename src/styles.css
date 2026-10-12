@@ -2341,7 +2341,8 @@ kbd {
 }
 
 /* 편집 종료 확인(OE-COM-08). 단축키 안내와 같은 상자에 폭만 좁다. */
-.exit-edit {
+.exit-edit,
+.publish-dialog {
   width: min(32rem, calc(100% - 2rem));
   padding: 0;
   border: 1px solid var(--line);
@@ -2351,29 +2352,71 @@ kbd {
   box-shadow: var(--shadow);
 }
 
-.exit-edit::backdrop {
+.exit-edit::backdrop,
+.publish-dialog::backdrop {
   background: rgb(15 18 24 / 0.35);
 }
 
-.exit-edit-body {
+.exit-edit-body,
+.publish-dialog .exit-edit-body {
   padding: 1.1rem 1.4rem 1.2rem;
 }
 
-.exit-edit h2 {
+.exit-edit h2,
+.publish-dialog h2 {
   margin: 0 0 0.6rem;
   font-size: 1.1rem;
 }
 
-.exit-edit ul {
+.exit-edit ul,
+.publish-dialog ul {
   margin: 0.6rem 0 0;
   padding-left: 1.1rem;
 }
 
-.exit-edit-actions {
+.exit-edit-actions,
+.publish-dialog .exit-edit-actions {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
   margin-top: 1.1rem;
+}
+
+/* 반영하기 확인 창의 반영자 칸(OE-WF-11). */
+.publish-by {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.publish-by input {
+  flex: 1;
+}
+
+/* 버전 히스토리(OE-WF-18). 지금 버전 줄을 칠한다. */
+.versions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.versions-table th,
+.versions-table td {
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.versions-table tr.current td {
+  background: var(--accent-soft);
+}
+
+.version-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
 }
 
 .shortcut-help-body {
