@@ -31,13 +31,6 @@ loadBearing 값이 없어 내력 여부를 알 수 없는 벽은 '모름' 으로
 - 내력 여부가 없는 벽은 '모름' 으로 표시되고 편집할 수 있다.
 - 속성 패널에서 내력 여부를 바꾸면 그에 맞게 잠금이 걸리거나 풀린다.
 
-## 검증 (이 repo)
-
-- `src/lib/edit.test.ts` "내력벽은 옮기거나 지우지 못하고, 거기 뚫린 문·창도 그렇다. 모름은 잠그지 않는다"
-- `src/lib/edit-file.test.ts` "내력벽을 풀고 지운 편집을 되살리면, BIM 이 내력이라 해도 지워진다"
-- `e2e/edit-elements.spec.ts` 첫 항목: 내력으로 정한 벽은 지우기 버튼이 없고, 방향키·문 놓기가 막히며, 비내력으로 바꾸면 풀린다
-- 화면: `docs/figures/app-wall-locked.png`, `docs/figures/app-wall-unlocked.png` (Duplex 건축의 기초 벽)
-
 ## 메모
 
 - 잠그는 것은 `loadBearing === true` 뿐이다(`edit.ts` 의 `wallLocked`). 모름(`null`)은 내벽 규칙을 따른다. 모름까지 잠그면

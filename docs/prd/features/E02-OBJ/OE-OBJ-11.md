@@ -38,11 +38,6 @@ depends: ["OE-EQP-08", "OE-EQP-09", "OE-EQP-10", "OE-EQP-11", "OE-PIP-12", "OE-E
 - 설비를 지우면 그 설비를 가리키는 연결·`feeds`·`hasPart` 도 삭제된다.
 - PAC·DVM 실내기·EHP 실외기는 배관 없이도 완전성 검사 위반이 아니다.
 
-## 검증 (이 repo)
-
-- 설비를 옮기면 바로 붙은 이음쇠는 같이 옮기고 그 너머 구간은 먼 끝을 두고 늘인다. 되돌리기·편집 파일을 거쳐도 같다 — `src/lib/follow.test.ts`, 퍼징 `moveFollow`
-- 끄고 켜기·되돌리기·3D 형상 — `e2e/conduit-follow.spec.ts`(Duplex MEP 가 있을 때)
-
 ## 메모
 
 —

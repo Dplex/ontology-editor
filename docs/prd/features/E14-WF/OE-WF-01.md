@@ -34,10 +34,6 @@ depends: ["OE-WF-03", "OE-HIST-03", "OE-HIST-04", "OE-HIST-05", "OE-INT-01", "D-
 - [임시 저장] 뒤 DT 3D View 가 바뀌지 않는다.
 - 같은 층에 다시 들어가면 임시 저장본이 열린다(OE-WF-02).
 
-## 검증 (이 repo)
-
-—
-
 ## 메모
 
 —

@@ -24,10 +24,6 @@ gbXML 의 Zone(Spaces 경로)을 공조존의 2순위 출처로 읽는다. IDF �
 
 D-gbXML 결정 후 적는다.
 
-## 검증 (이 repo)
-
-—
-
 ## 메모
 
 —

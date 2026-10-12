@@ -23,10 +23,6 @@ depends: ["D9", "S8"]
 
 TTL 에 좌표 리터럴이 없고, GeoJSON 과 TTL 의 id 집합이 같다.
 
-## 검증 (이 repo)
-
-—
-
 ## 메모
 
 —

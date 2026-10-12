@@ -30,10 +30,6 @@ depends: ["OE-EQP-17","OE-EQP-16","OE-ROB-01","OE-ROB-02"]
 
 로봇 팀이 R1 GeoJSON 의 통과·연결 속성 포맷을 확인한다.
 
-## 검증 (이 repo)
-
-—
-
 ## 메모
 
 —

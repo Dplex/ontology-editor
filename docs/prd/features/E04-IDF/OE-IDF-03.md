@@ -34,10 +34,6 @@ Cooling/Heating Design Air Flow Method 가 `Flow/Zone` 이라 풍량 숫자가 �
 - Method 가 `DesignDay` 인 존은 IDF 검토 화면(OE-IDF-11)의 "기준값 없음" 목록에 이유와 함께 보이고, BIM·사용자 입력도 없으면 Z-03 이 "판정 불가" 다.
 - 한 존에 냉방·난방 설계 풍량이 둘 다 있으면 큰 값이 쓰인다.
 
-## 검증 (이 repo)
-
-—
-
 ## 메모
 
 —

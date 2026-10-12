@@ -32,13 +32,6 @@ depends: ["OE-SPC-12", "OE-EQP-17"]
 - 내벽의 통과 속성이 '불가' 로 GeoJSON 에 나간다.
 - 내벽에 벽 전용 설비와 문·창을 배치할 수 있다.
 
-## 검증 (이 repo)
-
-- `src/lib/edit.test.ts` E4: "벽은 다른 벽을 가로질러 긋지 못하고, 끝을 맞대거나 안으로 조금 들이는 것은 된다", "옮겨서 새로 가로지르게 되면 옮기지 않고, 원래 가로지르던 벽은 옮길 수 있다", "직사각형 벽은 가운데를 두고 길이를 바꾸고…"
-- `src/lib/export/export.test.ts`: 벽 feature 에 `passable: false`
-- `e2e/edit-elements.spec.ts` 끝 항목: 가로지르는 긋기 거부 → 맞댄 벽 긋기 → 길이 바꾸기 → 뚫게 되는 길이 거부
-- 화면: `docs/figures/app-wall-crossing-refused.png`, `docs/figures/app-wall-joined-length.png` (Duplex 건축 Level 1)
-
 ## 메모
 
 - 관통 판정(`edit.ts` 의 `wallsCrossed`): 조각(고리)마다 중심선을 펴서, 두 중심선이 서로의 몸통 안(끝에서 상대 반 두께 + 5cm 넘게)에서

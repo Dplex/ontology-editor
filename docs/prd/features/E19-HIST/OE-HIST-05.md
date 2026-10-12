@@ -31,10 +31,6 @@ depends: ["OE-HIST-03", "OE-HIST-04", "OE-WF-01", "OE-INT-01"]
 
 D-INT 결정 후 적는다.
 
-## 검증 (이 repo)
-
-—
-
 ## 메모
 
 —

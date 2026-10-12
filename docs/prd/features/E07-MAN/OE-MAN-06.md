@@ -28,10 +28,6 @@ depends: ["OE-GEN-11", "OE-GEN-01"]
 
 OE-GEN-11 과 같다.
 
-## 검증 (이 repo)
-
-—
-
 ## 메모
 
 —

@@ -28,10 +28,6 @@ depends: ["OE-EQP-02", "OE-EQP-13"]
 
 OE-EQP-02 와 같다.
 
-## 검증 (이 repo)
-
-—
-
 ## 메모
 
 —
