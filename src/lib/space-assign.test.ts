@@ -102,7 +102,7 @@ describe('사람의 소속 지정 (OE-MAP-01 · K17)', () => {
 })
 
 describe('사람 지정과 편집 파일 (OE-HIST-03)', () => {
-  it('지정한 소속이 저장·불러오기(층 조각을 거쳐도) 뒤에도 유지되고 TTL·GeoJSON 이 같다 [OE-MAP-01#18]', () => {
+  it('지정한 소속이 저장·불러오기(층 조각을 거쳐도) 뒤에도 유지되고 TTL·GeoJSON 이 같다 [OE-MAP-01#18] [OE-HIST-03#4~]', () => {
     const base = baselineOf(model)
     // 연 때를 "창고·두 설비가 있는 모델" 로 둔다. 같은 것을 새로 연 모델에도 만든다.
     const again = () => {
@@ -125,7 +125,7 @@ describe('사람 지정과 편집 파일 (OE-HIST-03)', () => {
     expect(JSON.stringify(modelToGeoJSON(fresh))).toBe(JSON.stringify(modelToGeoJSON(model)))
   })
 
-  it('다시 연 판본에서 그 설비가 외곽선 안에 들면 지정을 쓰지 않고 "사람 지정 해제" 로 알린다', () => {
+  it('다시 연 판본에서 그 설비가 외곽선 안에 들면 지정을 쓰지 않고 "사람 지정 해제" 로 알린다 [OE-HIST-03#4~]', () => {
     const base = baselineOf(model)
     setEquipmentSpace(model, loose.id, store)
     const file = exportEdits(model, base, 'mep.ifc')

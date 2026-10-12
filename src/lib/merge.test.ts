@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { dropDuplicateSpaces, mergeModels } from './merge'
+import { outlinelessSpaces } from './outline-fill'
 import { countOf, polygonArea, type Equipment, type Model, type Space, type Storey, type Vec2 } from './model'
 
 // 건축 파일과 설비 파일을 손으로 만든다. 실제 두 판본이 그렇듯 **층 GUID 가 서로 다르고**
@@ -202,7 +203,7 @@ describe('물리존이 양쪽에 있을 때', () => {
     expect(merged.storeys[0].spaces.map((s) => s.id)).toEqual(['living', 'kitchen', 'hall-mep'])
   })
 
-  it('외곽선이 없는 기준 방은 같은 방 번호의 외곽선을 빌리고 id 는 지킨다', () => {
+  it('외곽선이 없는 기준 방은 같은 방 번호의 외곽선을 빌리고 id 는 지킨다. 빌린 방은 외곽선 없는 물리존 목록에 나오지 않는다 [OE-MAN-03#4]', () => {
     const a = arch()
     a.storeys[1].spaces = [space('hall', 'A201', [])]
     const b = mep()
@@ -217,6 +218,9 @@ describe('물리존이 양쪽에 있을 때', () => {
     expect(merged.storeys[1].spaces[0]).toMatchObject({ id: 'hall', areaM2: 6 })
     expect(report.spaces).toEqual({ dropped: 1, kept: 0, borrowed: 1 })
     expect(find(merged, 'light').spaceId).toBe('hall')
+    // 합치기 전 건축 혼자일 때는 그려야 할 방이었다
+    expect(outlinelessSpaces(a).map((x) => x.space.id)).toEqual(['hall'])
+    expect(outlinelessSpaces(merged)).toEqual([])
   })
 
   it('ㄱ 자 방은 넓이 중심이 아니라 안쪽 점으로 같은 자리를 본다', () => {

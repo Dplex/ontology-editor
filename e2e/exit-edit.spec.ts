@@ -75,7 +75,7 @@ test('취소하면 편집이 이어지고, 임시 저장은 브라우저에 남�
   await expect(row(page, 'AHU-1').locator('.coord').first()).toHaveValue('2')
 })
 
-test('저장 안 한 편집이 있는 층에서 다른 층으로 가려 하면 묻고, 층마다 임시 저장본이 따로 남는다 (OE-COM-08)', async ({ page }) => {
+test('저장 안 한 편집이 있는 층에서 다른 층으로 가려 하면 묻고, 층마다 임시 저장본이 따로 남는다. 저장 안 한 편집이 있으면 탭을 닫을 때도 묻는다 [OE-COM-08#2,3~]', async ({ page }) => {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles([MEP, 'src/lib/ifc/fixtures/two-rooms.ifc'])
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
@@ -111,6 +111,14 @@ test('저장 안 한 편집이 있는 층에서 다른 층으로 가려 하면 �
   await floor.selectOption({ label: '1F만' })
   await expect(dialog(page)).not.toBeVisible()
   await expect(ahuX).toHaveValue('2')
+
+  // 다시 고친 채 탭을 닫으려 하면 브라우저가 묻는다
+  await moveAhu(page, '4')
+  const unload = page.waitForEvent('dialog')
+  void page.close({ runBeforeUnload: true })
+  const d = await unload
+  expect(d.type()).toBe('beforeunload')
+  await d.dismiss()
 })
 
 test('저장 안 함은 연 때로 되돌리고, 버린 편집은 위 줄에서 한 번 되살린다', async ({ page }) => {

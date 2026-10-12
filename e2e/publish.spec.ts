@@ -220,7 +220,7 @@ test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, 
   await other.close()
 })
 
-test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 편집하고, 편집 중인 층은 잠기며, 폐기하면 반영된 레이아웃으로 돌아간다 [OE-WF-01#2] [OE-WF-02#1] [OE-WF-04#1~] [OE-WF-05#1] [OE-COM-03#1] [OE-COM-03#2] [OE-COM-05#1~] [OE-COM-06#1]', async ({ page, browser }) => {
+test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 편집하고, 편집 중인 층은 잠기며, 폐기하면 반영된 레이아웃으로 돌아간다 [OE-WF-01#2] [OE-WF-02#1] [OE-WF-04#1~] [OE-WF-05#1] [OE-COM-03#1] [OE-COM-03#2] [OE-COM-05#1~] [OE-COM-06#1] [OE-COM-08#3]', async ({ page, browser }) => {
   test.setTimeout(120_000)
   const open = async (p: Page, who: string, edit = true) => {
     await serve(p)
@@ -284,6 +284,10 @@ test('반영된 온톨로지가 없으면 [초기 구축] 만, 있으면 [운영
   await expect(page.getByTestId('edit-kind')).toHaveText('운영 편집 · v1')
   // 운영 편집의 편집 막대: [임시 저장]·[미리보기]·[반영하기]·[편집 종료] [OE-UI-04#1]
   for (const name of ['임시 저장', '미리보기', '반영하기', '편집 종료']) await expect(page.locator('.edit-bar').getByRole('button', { name, exact: true })).toBeVisible()
+  // 페이지 끝까지 내려도 [임시 저장]·[반영하기] 가 화면 안에 있다 — 편집 막대는 위에 붙는 도구막대의 둘째 줄이다 [OE-COM-08#1]
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200)
+  for (const name of ['임시 저장', '반영하기']) await expect(page.locator('.edit-bar').getByRole('button', { name, exact: true })).toBeInViewport()
   await page.locator('.edit-bar').getByRole('button', { name: '편집 종료' }).click()
 
   // 다른 사람이 목록을 보면 이제 [운영 편집] 만 켜져 있다.

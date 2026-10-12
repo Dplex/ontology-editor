@@ -1834,6 +1834,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const part = partById.get(id)
         return part ? toScreen(part.box.getCenter(new Vector3())) : null
       },
+      /** 설비 형상 상자의 가로·세로·높이(IFC 축, mm 로 반올림). 형상 없는 설비는 표시 상자(0.4m)다. */
+      size: (id: string) => {
+        const part = partById.get(id)
+        if (!part) return null
+        const s = part.box.getSize(new Vector3())
+        return [s.x, s.z, s.y].map((v) => Math.round(v * 1000) / 1000)
+      },
       /** 설비 형상 중심의 IFC 좌표. 끌기는 이 높이의 수평면 위에서 움직인다. */
       center: (id: string) => {
         const part = partById.get(id)
