@@ -10,6 +10,8 @@ import Fold from './components/Fold.vue'
 import type { CustomZone, HvacZone } from './lib/model'
 import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
+import ReplayHud from './components/ReplayHud.vue'
+import { pausedInReplay, replayArch, replayElement, replayMemo, replayOpen, useReplay } from './lib/replay-player'
 import ExitEditDialog from './components/ExitEditDialog.vue'
 import PublishDialog from './components/PublishDialog.vue'
 import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
@@ -736,7 +738,7 @@ function setSurfaceOf(id: string, surface: Surface | null) {
 
 // 설치면 판정(OE-EQP-03). z(층 바닥 기준)로 판정하고, 허용 설치면 밖이면 목록에 올린다(Q9).
 const JUDGED_LABEL: Record<Judged, string> = { ...SURFACE_LABEL, plenum: '천장(플레넘)' }
-const surfaceRows = computed(() => (model.value ? judgeAll(model.value, (id) => storeyHeightOf.value.get(id)?.value ?? null) : []))
+const surfaceRows = pausedInReplay(() => (model.value ? judgeAll(model.value, (id) => storeyHeightOf.value.get(id)?.value ?? null) : []))
 const surfaceCounts = computed(() => {
   const c = { ceiling: 0, plenum: 0, floor: 0, wall: 0, unknown: 0 }
   for (const r of surfaceRows.value) c[r.judged ?? 'unknown']++
@@ -1571,6 +1573,8 @@ const helpOpen = ref(false)
 const keyNote = ref('')
 let keyNoteTimer: number | undefined
 function note(text: string) {
+  // 리플레이가 되돌리기·다시 하기를 부르는 동안의 "되돌렸습니다" 는 알릴 것이 아니다.
+  if (replayOpen.value) return
   keyNote.value = text
   window.clearTimeout(keyNoteTimer)
   keyNoteTimer = window.setTimeout(() => (keyNote.value = ''), 2600)
@@ -1578,6 +1582,10 @@ function note(text: string) {
 
 function onKey(e: KeyboardEvent) {
   if (e.isComposing || !model.value) return
+  if (replayOpen.value) {
+    if (replay.key(e)) e.preventDefault()
+    return
+  }
   // 글자 칸의 Esc 는 칸에서 나온다. 좌표를 넣은 뒤 마우스 없이 다음 단축키(N, U …)로 이어 가게 한다.
   if (e.key === 'Escape' && isTextEntry(e.target) && !helpOpen.value) {
     ;(e.target as HTMLElement).blur()
@@ -1621,6 +1629,9 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
   switch (s.id) {
     case 'help':
       helpOpen.value = !helpOpen.value
+      return true
+    case 'replay':
+      void replay.open()
       return true
     case 'mode':
       if (editing.value) {
@@ -3348,7 +3359,7 @@ const hasArrows = computed(() => arrowConnections.value.length > 0)
 // 숫자는 기기 대수이고 덕트·배관은 따로 센다. 수천 개여도 대부분은 관 조각이라, 기기 수가 엔지니어가 읽는
 // 숫자다. 방향은 3D 와 같은 것을 쓴다(규칙을 켜 두면 규칙 방향까지).
 const systemColor = computed(() => new Map(legend.value.map((s) => [s.id, s.color])))
-const systemRows = computed(() => {
+const systemRows = pausedInReplay(() => {
   void flowVersion.value
   const m = model.value
   const id = selectedId.value
@@ -3395,7 +3406,7 @@ const kindsText = (kinds: [string, number][]) =>
 //
 // 공기 원천(공조기·FCU·전열교환기·팬)마다 흐름 방향을 따라 닿는 말단과 그 말단이 있는 방(served.ts).
 // 방향은 3D 와 같은 것을 쓴다. 추정이라 화면에만 보이고 내보내지 않는다.
-const airServiceList = computed(() => {
+const airServiceList = pausedInReplay(() => {
   void flowVersion.value
   const m = model.value
   if (!m) return []
@@ -3406,7 +3417,7 @@ const spaceStorey = computed(() => {
   for (const storey of model.value?.storeys ?? []) for (const sp of storey.spaces) map.set(sp.id, storey.name)
   return map
 })
-const selectedService = computed(() => {
+const selectedService = pausedInReplay(() => {
   const m = model.value
   const id = selectedId.value
   const service = id ? airServiceList.value.find((s) => s.sourceId === id) : null
@@ -3473,7 +3484,7 @@ const SERVICE_LIMIT = 200
 //
 // 규칙마다 통과 수와 어긴 요소(checks.ts). 규칙을 펼치면 어긴 것을 목록으로 보이고 3D 에 칠한다.
 // 설비나 계통을 고르면 그쪽이 3D 색을 가져간다.
-const checks = computed(() => {
+const checks = pausedInReplay(() => {
   const m = model.value
   if (!m) return []
   return completenessChecks(m, airServiceList.value, showRules.value && hasRules.value ? withInferred(m.connections) : m.connections)
@@ -4064,7 +4075,11 @@ function toggleSystem(id: string) {
   if (selectedSystemId.value) selectedId.value = null
 }
 
-watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRow, openCheck, selectedSpace, sceneVersion, group], () => {
+// 계통별 표의 고른 줄·펼친 검사는 옆 패널의 것이다. 편집 리플레이 동안은 보지 않는다 — 읽기만 해도 장면마다 계통 표·완전성 검사를
+// 모델 전체로 다시 돌려 화면이 끊겼다.
+const highlightRow = () => (replayOpen.value ? null : flowSystemRow.value)
+const highlightCheck = () => (replayOpen.value ? null : openCheck.value)
+watch([selectedId, selectedSystemId, model, showRules, flowVersion, highlightRow, highlightCheck, selectedSpace, sceneVersion, group], () => {
   if (!viewer) return
 
   // 여러 개 고른 설비(OE-UI-09). 고른 색으로 칠하고 나머지는 흐리게 하지 않는다(흐린 것은 Ctrl+클릭으로 더할 수 없다).
@@ -4079,7 +4094,7 @@ watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRo
     // 3D 만 보고는 BIM 이 말한 흐름인지 우리가 정한 흐름인지 알 수 없다.
     const r = showRules.value ? tracedRules.value : null
     // 계통별 표에서 한 줄을 골랐으면 그 계통의 추적에 든 것만 남긴다.
-    const only = flowSystemRow.value?.ids
+    const only = highlightRow()?.ids
     const keep = (ids: Iterable<string>) => new Set([...ids].filter((id) => !only || only.has(id)))
     const port = new Set([...t.upstream, ...t.downstream])
     viewer.setHighlight({
@@ -4120,7 +4135,7 @@ watch([selectedId, selectedSystemId, model, showRules, flowVersion, flowSystemRo
   }
 
   // 펼친 완전성 규칙이 있으면 어긴 것을 칠한다. 어디에 몰려 있는지가 먼저 보여야 무엇부터 고칠지 정한다.
-  const check = openCheck.value
+  const check = highlightCheck()
   if (check && !check.skipped && check.failed.length) {
     viewer.setHighlight({ selected: null, upstream: new Set(), downstream: new Set(), linked: new Set(check.failed) })
     return
@@ -4566,6 +4581,14 @@ watch(viewStorey, () => (ceilingMode.value ? viewer?.topView() : viewer?.frameAl
 // 3D 와 같은 상태(viewStorey, selectedId)를 쓴다. 꼭짓점 끌기는 3D 에서 놓는 것과 같은 길(dropVertex — 자기 교차
 // 막기, cm 로 자르기, 되돌리기 이력)을 탄다.
 const activeTab = ref<'3d' | 'plan'>('3d')
+// 편집 리플레이(PoC). 진행은 lib/replay-player.ts 가 하고, 여기서는 빌려줄 것만 넘긴다. 쓰는 것이 다 선언된 뒤라 여기서 부른다.
+const replay = useReplay({
+  get viewer() {
+    return viewer
+  },
+  model, fileName, history, future, undo, redo, viewStorey, selectedId, selectedSpaceId, activeTab, editing, dark,
+  equipmentById, arrowConnections, arrowOf, activeArrow, shortName, flushNudge, note,
+})
 // 편집은 모델을 그 자리에서 고치고 triggerRef 로 알린다. 같은 층 객체를 넘기면 평면도가 다시 그릴 이유를 몰라서, 방향키로
 // 옮긴 설비의 점과 끌어 놓은 방 외곽선이 예전 자리에 남았다. 알릴 때마다 얕은 사본을 넘긴다(층 하나라 싸다).
 // 층이 하나면 층 목록이 없으니 그 층을 그린다 — "층을 고르세요" 만 뜨고 고를 곳이 없었다.
@@ -5059,7 +5082,8 @@ watch([model, sceneVersion, selectedCustomZoneId], () => viewer?.setCustomZones(
 // 없는 종류는 뺀다. 구역(링 색)은 종류가
 // 정하고, 종류가 모르면 판정(플레넘이면 플레넘)을 따른다.
 const ceilingMarks = computed<CeilingMark[]>(() => {
-  if (!editing.value) return []
+  // 편집 리플레이 동안은 그리지 않는다 — 설비 전부의 설치면을 판정하는 일이라 장면마다 화면이 끊겼다.
+  if (!editing.value || replayOpen.value) return []
   const out: CeilingMark[] = []
   for (const r of surfaceRows.value) {
     const e = r.equipment
@@ -5242,7 +5266,7 @@ watch(ceilingAsk, (ask) => {
 /** 천장면과 회색 처리. 천장면은 반자 높이를 아는 층만, 면은 그 층 물리존 외곽선(없으면 설비가 든 평면 범위)이다. */
 const ceilingView = computed<CeilingView | null>(() => {
   const m = model.value
-  if (!ceilingMode.value || !m) return null
+  if (!ceilingMode.value || !m || replayOpen.value) return null
   const planes: CeilingView['planes'] = []
   for (const st of m.storeys) {
     const c = ceilingOf(st)
@@ -5266,7 +5290,8 @@ watch([ceilingView, sceneVersion], () => viewer?.setCeilingView(ceilingView.valu
 // 끌지 못하는 설비. 모드 밖의 설비는 3D 에서 잡히지 않는다(고르기는 된다).
 const frozenIds = computed(() => {
   const out = new Set<string>()
-  if (!editing.value || !model.value) return out
+  // 리플레이 동안은 끌 수 없으니(편집 모드가 아니다) 잠근 설비도 없다.
+  if (!editing.value || !model.value || replayOpen.value) return out
   for (const st of model.value.storeys) for (const e of st.equipment) if (e.position && editLock(e)) out.add(e.id)
   return out
 })
@@ -6138,8 +6163,15 @@ const mergeCandidates = computed(() => {
   const picked = selectedSpace.value
   if (!picked || picked.space.footprint.length < 3) return []
   const ring = picked.space.footprint
+  // 외접 사각형이 MERGE_GAP 보다 먼 방은 점 거리를 재지 않는다 — 층의 방 전부와 꼭짓점끼리 재서 리플레이의 방 장면마다 20ms 넘게 썼다.
+  const bounds = (r: readonly Vec2[]) => r.reduce((b, p) => [Math.min(b[0], p[0]), Math.min(b[1], p[1]), Math.max(b[2], p[0]), Math.max(b[3], p[1])], [Infinity, Infinity, -Infinity, -Infinity])
+  const [x0, y0, x1, y1] = bounds(ring)
+  const near = (r: readonly Vec2[]) => {
+    const b = bounds(r)
+    return b[0] <= x1 + MERGE_GAP && b[2] >= x0 - MERGE_GAP && b[1] <= y1 + MERGE_GAP && b[3] >= y0 - MERGE_GAP
+  }
   return picked.storey.spaces
-    .filter((x) => x !== picked.space && x.footprint.length >= 3)
+    .filter((x) => x !== picked.space && x.footprint.length >= 3 && near(x.footprint))
     .map((x) => ({
       space: x,
       gap: Math.min(...x.footprint.map((p) => distanceToRing(p, ring)), ...ring.map((p) => distanceToRing(p, x.footprint))),
@@ -6374,8 +6406,10 @@ watch([archMode, editing], ([a, e]) => {
 watch(exteriorEditor, (on) => {
   if (on) viewStorey.value = null
 })
-watch([archMode, editing, model, sceneVersion, selectedElementId, facadeIds], () => {
-  viewer?.setArchitecture(archMode.value && editing.value ? model.value : null, selectedElementId.value, facadeIds.value)
+watch([archMode, editing, model, sceneVersion, selectedElementId, facadeIds, replayArch, replayElement], () => {
+  // 편집 리플레이의 벽·문·창 장면도 이 층을 켠다(replayArch).
+  const on = (archMode.value && editing.value) || replayArch.value
+  viewer?.setArchitecture(on ? model.value : null, replayArch.value ? replayElement.value : selectedElementId.value, facadeIds.value)
 })
 /**
  * 고른 벽·문·창을 고칠 수 없는 이유(내력벽 OE-OBJ-05 · 외벽 OE-EXT-02). 계산으로 외벽인 벽도 잠근다 — edit.ts 는 BIM·편집 값만 본다
@@ -6840,9 +6874,12 @@ watch(
     }
   },
 )
-watch([changeCount, flowVersion, () => history.value.length, progressVersion], () => {
-  if (!autosaveArmed) return
+// 리플레이 동안은 바뀐 것 수(연 때와 모델 전체 비교)도 세지 않는다 — 감시 대상만 읽어도 장면마다 계산이 돈다.
+watch([() => (replayOpen.value ? -1 : changeCount.value), flowVersion, () => history.value.length, progressVersion, replayOpen], () => {
+  // 편집 리플레이는 되돌리기·다시 하기를 잇달아 한다. 그 사이 상태는 남길 것이 아니고, 장면마다 편집 파일을 쓰면 화면이 끊긴다.
+  // 닫으면(replayOpen 이 바뀌면) 연 때 상태로 한 번 남긴다.
   window.clearTimeout(autosaveTimer)
+  if (!autosaveArmed || replayOpen.value) return
   autosaveTimer = window.setTimeout(() => {
     const m = model.value
     if (!m || !baseline.value) return
@@ -7075,7 +7112,8 @@ watch(
   (now, was) => {
     // "모든 층" 으로 넓히는 것은 다른 층으로 가는 것이 아니다 — 그 층도 계속 보이고 고칠 수 있다.
     // 외벽 에디터(OE-EXT-03)는 전 층을 한 번에 고친다. 층마다 물으면 [저장 안 함]이 한 층만 되돌려 같은 면이 어긋난다.
-    if (switching || !openSettled || !editing.value || !was || !now || now === was || exteriorEditor.value) return
+    // 편집 리플레이가 장면 따라 층을 옮기는 것은 사람이 층을 떠나는 것이 아니다.
+    if (switching || replayOpen.value || !openSettled || !editing.value || !was || !now || now === was || exteriorEditor.value) return
     const parts = currentParts()
     if (!dirtyKeys(parts).includes(was)) return
     switching = true
@@ -7827,7 +7865,7 @@ const currentRequirements = shallowRef<RequirementRow[]>([])
 const TIERS_DELAY = 400
 let tiersTimer: number | undefined
 let tieredModel: Model | null = null
-watch([model, flowVersion, versionStat], () => {
+watch([model, flowVersion, versionStat, replayOpen], () => {
   window.clearTimeout(tiersTimer)
   const m = model.value
   if (!m) {
@@ -7836,6 +7874,8 @@ watch([model, flowVersion, versionStat], () => {
     tieredModel = null
     return
   }
+  // 편집 리플레이 중에는 재지 않는다(장면마다 모델 전체를 훑어 화면이 끊긴다). 닫으면 한 번 잰다.
+  if (replayOpen.value) return
   const measure = () => {
     currentTiers.value = profileOf(m).tiers
     currentRequirements.value = requirementsReport(m, mergeReport.value, versionStat.value)
@@ -8744,7 +8784,7 @@ function rollbackFromReport() {
     <template v-if="model && counts">
       <!-- 파일을 연 뒤의 도구막대. 스크롤과 상관없이 위에 붙는다. 파일·모드·내보내기가 여기 모이고, 편집 중에는 한 줄이
            더 붙어 바뀐 것의 수와 되돌리기가 따라온다. 온종일 3D 를 보며 고치는 화면이라 큰 머리말과 파일 받는 칸은 접는다. -->
-      <div ref="appbar" class="appbar">
+      <div ref="appbar" v-memo="replayMemo()" class="appbar">
         <div class="appbar-row">
           <div class="file">
             <h2 :title="fileName">{{ fileName }}</h2>
@@ -8946,9 +8986,10 @@ function rollbackFromReport() {
            전체 화면도 이 둘을 같이 띄운다. -->
       <div ref="stage" :class="['stage', 'workspace', { full: fullscreen }]">
         <HoverTip ref="hoverTip" />
-        <section class="viewport">
+        <section :class="['viewport', { theater: replayOpen }]">
           <div class="canvas-wrap">
             <canvas v-show="activeTab === '3d'" ref="canvas"></canvas>
+            <ReplayHud v-if="replayOpen" v-bind="replay.hud.value" v-on="replay.hudOn" />
             <!-- 평면도. 3D 와 탭으로 갈아 끼우고, 층 하나를 골랐을 때만 그린다. -->
             <FloorPlan
               v-if="activeTab === 'plan' && planStorey"
@@ -9305,7 +9346,8 @@ function rollbackFromReport() {
           </p>
         </section>
 
-        <aside class="side">
+        <!-- 편집 리플레이 동안(극장이 창을 덮는다) 아래 패널은 다시 그리지 않는다(replayMemo). 닫으면 그때 상태로 한 번 그린다. -->
+        <aside v-memo="replayMemo()" class="side">
         <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
         <!-- 고른 것이 바뀌면 패널을 살짝 갈아 끼운다. 같은 것을 고친 것은 key 가 같아 가만히 있고, 바뀐 값만 v-flash 가 번쩍인다. -->
         <Transition name="swap" mode="out-in">
@@ -10971,7 +11013,7 @@ function rollbackFromReport() {
         </aside>
       </div>
 
-      <section class="review">
+      <section v-memo="replayMemo()" class="review">
         <h3 class="section-title">요약</h3>
         <p class="stats">{{ model.siteName || '(대지 이름 없음)' }} › {{ model.buildingName || '(건물 이름 없음)' }}</p>
 
@@ -11232,7 +11274,7 @@ function rollbackFromReport() {
 
       <!-- 3D 아래는 전부 접을 수 있다. 행이 많은 목록은 처음부터 접혀 있다(SMALL).
            파일이 바뀌면(key) 접힘 상태도 그 파일 기준으로 다시 정한다. -->
-      <div :key="fileName" class="folds">
+      <div :key="fileName" v-memo="replayMemo()" class="folds">
         <!-- 완전성 검사. 규칙마다 통과 수와 어긴 것. 펼치면 목록과 3D 에 어긴 것이 뜬다. -->
         <Fold
           v-if="checks.length"
@@ -12295,7 +12337,7 @@ function rollbackFromReport() {
       </div>
 
       <!-- 내보내기 버튼은 위 도구막대에 있다. 여기는 두 파일이 무엇을 나눠 갖는지만 적는다. -->
-      <section class="actions">
+      <section v-memo="replayMemo()" class="actions">
         <p class="note">
           <b>내보내기</b>(도구막대의 GeoJSON · TTL · GLB · OBJ).
           두 파일은 같은 id로 연결됩니다. 형상은 GeoJSON, 설비와 계통의 관계는 TTL에 들어갑니다.

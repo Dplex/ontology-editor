@@ -91,7 +91,14 @@ export type FuzzResult = {
 }
 
 /** `pristine` 은 건드리지 않는다. 사본에 편집하고, 편집 파일은 또 다른 사본에 얹는다. */
-export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: ReadonlySet<FuzzOp> = new Set()): FuzzResult {
+export function fuzzEdits(
+  pristine: Model,
+  seed: number,
+  steps = 30,
+  skip: ReadonlySet<FuzzOp> = new Set(),
+  /** 다 편집한 모델과 되돌리기 이력. 되돌리기 전에 부른다 — 이력을 다시 트는 리플레이(replay.ts)를 볼 때 쓴다. */
+  capture?: (m: Model, undo: readonly E.Snapshot[]) => void,
+): FuzzResult {
   let state = seed
   const r = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648
   const pick = <T>(xs: readonly T[]): T | undefined => xs[Math.floor(r() * xs.length)]
@@ -472,6 +479,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
   }
 
   const opened = modelToTTL(pristine) + JSON.stringify(modelToGeoJSON(pristine))
+  capture?.(m, undo)
   const redo: (E.Snapshot | null)[] = []
   for (const s of undo.reverse()) {
     redo.push(E.snapshotOf(m, s))
