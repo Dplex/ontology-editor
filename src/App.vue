@@ -7950,7 +7950,7 @@ onBeforeUnmount(() => {
 const firstPublish = computed(() => !layoutState.value?.current)
 
 // --- 등급 판정·수용 기준선 (OE-REQ-04 · OE-BIM-21 · OE-GEN-02, ADR-0040) ---
-// D1·D12 제안안(lib/grade.ts). 게이트(등급 2) 미달이면 [구축하기] 를 끄고 재제출 항목을 보인다. 운영 편집의 [반영하기] 는 막지 않는다(이미 만든 온톨로지).
+// D1·D12 제안안(lib/grade.ts). 게이트(등급 0~3) 미달이면 [구축하기] 를 끄고 재제출 항목을 보인다. 운영 편집의 [반영하기] 는 막지 않는다(이미 만든 온톨로지).
 // 기준값은 브라우저 설정이고 비우면 1.8 의 안이다. 편집마다 다시 재면 큰 파일에서 느려서, 편집이 멈춘 뒤 한 번 잰다.
 const gradeLines = ref<GradeLines>(
   (() => {
@@ -7983,7 +7983,7 @@ const gradesOpen = ref(false)
 const buildBlock = computed(() => {
   const g = grades.value
   if (!g || g.gate || (serverKey.value && !firstPublish.value)) return null
-  return `수용 기준선(게이트 등급 ${GATE}) 미달이라 구축하지 않습니다 — ${g.failing.map((r) => `등급 ${r.grade} ${r.label} ${percent(r.ratio)} < ${Math.round(r.line * 100)}%`).join(', ')}. 재제출 항목을 보세요`
+  return `수용 기준선(게이트 등급 0~${GATE}) 미달이라 구축하지 않습니다 — ${g.failing.map((r) => `등급 ${r.grade} ${r.label} ${percent(r.ratio)} < ${Math.round(r.line * 100)}%`).join(', ')}. 재제출 항목을 보세요`
 })
 function resetGradeLines() {
   gradeLines.value = { ...DEFAULT_LINES }
@@ -10184,12 +10184,13 @@ function rollbackFromReport() {
         <section v-else key="overview" class="overview">
           <h3>이 파일</h3>
           <TierChips :tiers="currentTiers" />
-          <!-- 수용 기준선 판정(OE-BIM-21, D1·D12 제안안). 게이트(등급 2) 통과/미달과 목표선(등급 3). 미달이면 재제출 항목. 등급 칩 바로 아래 —
+          <!-- 수용 기준선 판정(OE-BIM-21, D1·D12 제안안). 게이트(등급 0~3) 통과/미달과 목표선(등급 4). 미달이면 재제출 항목. 등급 칩 바로 아래 —
              위쪽 막대에 두면 3D 가 밀린다. -->
           <div v-if="grades" class="grade-banner" :class="{ fail: !grades.gate }" role="status" data-testid="grade-banner">
             <span>
-              <b>수용 기준선</b> · 게이트(등급 {{ GATE }}) <b>{{ grades.gate ? '통과' : '미달' }}</b> · 목표선(등급 {{ TARGET }}) {{ grades.target ? '도달' : '미도달' }}
+              <b>수용 기준선</b> · 게이트(등급 0~{{ GATE }}) <b>{{ grades.gate ? '통과' : '미달' }}</b> · 목표선(등급 {{ TARGET }}) {{ grades.target ? '도달' : '미도달' }}
               <span class="muted">(D1·D12 제안안)</span>
+              <template v-if="grades.rows.some((r) => r.ratio === null)"> · 평가 불가 등급 {{ grades.rows.filter((r) => r.ratio === null).map((r) => r.grade).join('·') }}(셀 대상 없음)</template>
               <template v-if="!grades.gate"> — 재제출: {{ grades.failing.map((r) => `등급 ${r.grade} ${r.label} ${percent(r.ratio)}`).join(' · ') }}</template>
             </span>
             <button type="button" class="link" :aria-expanded="gradesOpen" @click="gradesOpen = !gradesOpen">{{ gradesOpen ? '접기' : '등급 판정 보기' }}</button>
@@ -10209,7 +10210,7 @@ function rollbackFromReport() {
                       :value="Math.round(gradeLines[r.grade] * 100)"
                       :aria-label="`등급 ${r.grade} 통과선(%)`"
                       @change="gradeLines = { ...gradeLines, [r.grade]: Math.min(100, Math.max(0, Number(($event.target as HTMLInputElement).value))) / 100 }"
-                    />% · <b>{{ r.pass ? '통과' : r.grade <= GATE ? '미달' : '미달(경고)' }}</b>
+                    />% · <b>{{ r.ratio === null ? '평가 불가(막지 않음)' : r.pass ? '통과' : r.grade <= GATE ? '미달' : '미달(경고)' }}</b>
                   </div>
                   <div class="muted">{{ r.measure }}<template v-if="!r.pass && r.grade <= GATE"> · 재제출: {{ r.resubmit }}</template></div>
                 </li>
