@@ -14,6 +14,7 @@ import ExitEditDialog from './components/ExitEditDialog.vue'
 import PublishDialog from './components/PublishDialog.vue'
 import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
 import { previewSummary, summaryText } from './lib/preview'
+import { DEFAULT_GRID, gridLines, snapToGrid, type GridSettings } from './lib/grid'
 import { customerReportHTML, generationReport, MISSING_LABEL, missingClass, sha256Hex, type ReportInput, type ReportSectionB } from './lib/build-report'
 import { ttlTriples } from './lib/export/read-export'
 import { readOntologyTTL } from './lib/export/read-ttl'
@@ -2817,6 +2818,47 @@ type Drawing = {
   points: Vec2[]
 }
 const drawing = ref<Drawing | null>(null)
+
+// --- 그리드 (OE-UI-07, lib/grid.ts) ---
+// 켜면 편집 모드의 3D(그리는 높이, 아니면 보는 층 바닥)와 평면도에 선을 보이고, 그리기에서 찍은 점을 교점으로 옮긴다. 간격은 이 브라우저 설정.
+const grid = ref<GridSettings>(
+  (() => {
+    try {
+      return { ...DEFAULT_GRID, ...(JSON.parse(localStorage.getItem('oe.grid') ?? 'null') ?? {}) }
+    } catch {
+      return { ...DEFAULT_GRID }
+    }
+  })(),
+)
+watch(
+  grid,
+  (v) => {
+    try {
+      localStorage.setItem('oe.grid', JSON.stringify(v))
+    } catch {
+      // 못 남겨도 이번 창에서는 그대로다
+    }
+  },
+  { deep: true },
+)
+/** 그리드를 그릴 층과 범위. 그리는 중이면 그 층·높이, 아니면 보는 층. 범위는 그 층 물리존 외곽선에 2m 를 더한다. */
+const gridView = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  if (!m || !editing.value || !grid.value.on) return null
+  const st = m.storeys.find((x) => x.id === (drawing.value?.storeyId ?? viewStorey.value)) ?? (m.storeys.length === 1 ? m.storeys[0] : null)
+  if (!st) return null
+  const pts = st.spaces.flatMap((sp) => sp.footprint)
+  if (!pts.length) return null
+  const extent = {
+    minX: Math.min(...pts.map((p) => p[0])) - 2,
+    minY: Math.min(...pts.map((p) => p[1])) - 2,
+    maxX: Math.max(...pts.map((p) => p[0])) + 2,
+    maxY: Math.max(...pts.map((p) => p[1])) + 2,
+  }
+  return { storeyId: st.id, elevation: drawing.value?.elevation ?? st.elevation, extent, ...gridLines(extent, grid.value.spacing) }
+})
+watch(gridView, (g) => viewer?.setGrid(g && !multiView.value ? { x: g.x, y: g.y, elevation: g.elevation, extent: g.extent } : null))
 /** 그리는 중인 층간 배관의 경로(시작 설비 → 찍은 꺾임점). 점선 미리보기다. */
 const riserPreview = computed(() => {
   const d = drawing.value
@@ -4518,6 +4560,8 @@ watch([selectedId, editing, viewStorey], () => {
   if (placing.value && (selectedId.value !== placing.value || !editing.value)) stopPlace()
 })
 function placeAt(at: Vec2) {
+  // 그리드 정렬(OE-UI-07)을 켰으면 그리기에서 찍은 점을 교점으로 옮긴다. 설비 놓기는 그리드를 따르지 않는다.
+  if (drawing.value && grid.value.on) at = snapToGrid(at, grid.value.spacing)
   if (drawing.value) {
     const d = drawing.value
     drawing.value = { ...d, points: [...d.points, [cm(at[0]), cm(at[1])]], ...(d.levels && d.work ? { levels: [...d.levels, { ...d.work }] } : {}) }
@@ -8605,6 +8649,7 @@ function rollbackFromReport() {
               :editing="editing"
               :pick-walls="editing && archMode"
               :group="group"
+              :grid="gridView && gridView.storeyId === planStorey.id ? { x: gridView.x, y: gridView.y } : null"
               @select="(id, additive) => (editing && additive ? toggleGroup(id) : select(id))"
               @select-box="addBoxToGroup"
               @pick-space="pickSpace"
@@ -8659,6 +8704,11 @@ function rollbackFromReport() {
               </button>
               <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
               <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
+              <!-- 그리드 정렬(OE-UI-07). 그릴 때 쓰는 것이라 그리기 막대에 둔다. -->
+              <label class="grid-toggle" title="찍은 점을 그리드 교점으로 옮깁니다(겹침 판정은 형상 기준 그대로)">
+                <input v-model="grid.on" type="checkbox" aria-label="그리드 정렬" /> 그리드
+                <input v-model.number="grid.spacing" v-keep-typing type="number" min="0.05" step="0.05" class="riser-height" aria-label="그리드 간격(m)" />m
+              </label>
             </div>
             <!-- 편집 도구 팔레트(PRD #9 화면 레이아웃의 왼쪽). 편집 모드에서만, 무엇을 만드는지로 묶는다. 넣을 층은 층 하나만
                  보는 중이면 그 층이다(targetStorey). 왼쪽 위는 색 안내 자리라 아래쪽에 둔다. -->
