@@ -1238,6 +1238,61 @@ th {
   flex: 1;
 }
 
+/* 새 레이아웃 배너(OE-WF-15). 새로고침 전까지 남는다. */
+.layout-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin: 0.5rem 0;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--line));
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+  font-size: 0.88rem;
+}
+
+/* 알림(OE-WF-16, GNB 대신). */
+.notices {
+  position: relative;
+}
+
+.notice-count {
+  margin-left: 0.3rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.75rem;
+}
+
+.notice-list {
+  position: absolute;
+  top: calc(100% + 0.3rem);
+  right: 0;
+  z-index: 20;
+  width: min(26rem, 90vw);
+  max-height: 20rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0.4rem 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  list-style: none;
+  font-size: 0.82rem;
+}
+
+.notice-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.35rem 0.8rem;
+  border-bottom: 1px solid var(--line);
+}
+
 /* 사용자 고르기(OE-COM-01). 편집 단추 옆이라 같은 높이·테두리. */
 .appbar .who select {
   padding: 0.3rem 0.5rem;

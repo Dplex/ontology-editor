@@ -25,6 +25,11 @@ test.beforeAll(async () => {
   const addr = server.address()
   base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`
 })
+// 시험마다 반영 버전·로그를 비운다 — 한 작업자에서 시험이 이어 돌면 앞 시험의 v1~v3 이 남는다.
+test.beforeEach(() => {
+  rmSync(join(root, '.layouts'), { recursive: true, force: true })
+  rmSync(join(root, '.log.jsonl'), { force: true })
+})
 test.afterAll(() => {
   server.close()
   rmSync(root, { recursive: true, force: true })
@@ -145,4 +150,47 @@ test('보기 전용(Viewer)은 편집에 들어가지 못하고, 서버도 저�
   // 화면을 거치지 않고 보내도 서버가 막는다.
   const r = await fetch(`${base}/__layouts?${new URLSearchParams({ key: PATH, rollback: '1' })}`, { method: 'POST', headers: { 'X-OE-User': encodeURIComponent('보기 전용') }, body: '{}' })
   expect(r.status).toBe(403)
+})
+
+test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, [새로고침] 하면 새 레이아웃이 얹히고 배너가 사라진다. 알림에 반영이 쌓인다 [OE-WF-14#1] [OE-WF-15#1] [OE-WF-16#1~] [OE-WF-17#1~]', async ({ page, browser }) => {
+  test.setTimeout(120_000)
+  const open = async (p: Page, who: string) => {
+    await serve(p)
+    await p.goto('/')
+    await p.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
+    await expect(p.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+    await p.getByLabel('사용자').selectOption(who)
+    await p.getByRole('button', { name: '편집', exact: true }).click()
+  }
+  // B 가 먼저 열어 둔다(아직 반영한 버전이 없다).
+  const other = await browser.newPage()
+  await open(other, '관리자')
+  const before = await light(other).inputValue()
+  expect(before).not.toBe('7.5')
+  // A 가 고쳐서 구축(v1).
+  await open(page, '편집자')
+  await editLight(page, '7.5')
+  await page.locator('.edit-bar').getByRole('button', { name: '구축하기' }).click()
+  await page.locator('dialog.publish-dialog').getByRole('button', { name: '구축하기' }).click()
+  await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
+  // 반영한 사람에게는 배너가 없다.
+  await expect(page.getByTestId('layout-banner')).toHaveCount(0)
+
+  // B: 창으로 돌아오면(또는 30초마다) 서버를 보고 배너를 띄운다. 화면은 그대로다.
+  await other.evaluate(() => window.dispatchEvent(new Event('focus')))
+  const banner = other.getByTestId('layout-banner')
+  await expect(banner).toContainText('새 레이아웃이 적용되었습니다(v1 · 편집자 · 1F). 새로고침하면 반영됩니다.')
+  await expect(light(other)).toHaveValue(before)
+  await expect(other.getByTestId('notice-count')).toHaveText('1')
+  if (process.env.SHOT_BANNER) await other.locator('.appbar').screenshot({ path: process.env.SHOT_BANNER })
+  await other.getByRole('button', { name: '알림' }).click()
+  await expect(other.getByTestId('notice-list')).toContainText('레이아웃 변경 반영 · v1 · 1F · 편집자')
+  if (process.env.SHOT_NOTICE) await other.locator('.appbar').screenshot({ path: process.env.SHOT_NOTICE })
+  await other.getByRole('button', { name: '알림' }).click()
+  // [새로고침]: 다시 열어 v1 을 얹는다.
+  await banner.getByRole('button', { name: '새로고침' }).click()
+  await expect(banner).toHaveCount(0, { timeout: 30_000 })
+  await expect(light(other)).toHaveValue('7.5')
+  await expect(other.getByTestId('notice-count')).toHaveCount(0)
+  await other.close()
 })
