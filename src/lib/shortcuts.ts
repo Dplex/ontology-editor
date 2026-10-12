@@ -17,6 +17,7 @@ export type ShortcutId =
   | 'redo'
   | 'save'
   | 'nudge'
+  | 'editPart'
   | 'storeyUp'
   | 'storeyDown'
   | 'arrowPrev'
@@ -109,6 +110,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     edit: true,
   },
   { id: 'confirm', combos: [{ code: 'KeyC' }], keys: ['C'], label: '고른 설비 계통의 규칙 방향 확정', group: '편집 · 연결 방향', edit: true },
+  { id: 'editPart', combos: [{ code: 'KeyM' }], keys: ['M'], label: '공간 ↔ 설비 편집 모드 (OE-UI-04)', group: '편집 · 설비', edit: true },
   { id: 'ceiling', combos: [{ code: 'KeyT' }], keys: ['T'], label: '천장 편집 모드 들어가기·나오기', group: '편집 · 설비', edit: true },
 
   { id: 'vertexInsert', combos: [{ code: 'Insert' }], keys: ['Insert'], label: '짚은 꼭짓점과 다음 꼭짓점 사이에 꼭짓점 넣기', group: '편집 · 물리존', edit: true },

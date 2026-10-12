@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 추가 공간 오브젝트(OE-OBJ-09 · OE-SPC-14 · OE-SPC-15 · OE-SPC-16 · OE-P3-08). 팔레트의 라이브러리에서 항목을 골라 바닥을 누르면
 // 놓이고, 다른 오브젝트와 겹치는 놓기·끌기·키우기는 막혀 상대가 붉게 짚이며 오브젝트는 원래 자리에 남는다. 넣은 glb 는 라이브러리
@@ -26,6 +27,7 @@ test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기�
   await page.locator('.drop input[type=file]').setInputFiles(FIXTURE)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
+  await toSpace(page)
   await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
   await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)

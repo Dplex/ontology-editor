@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 치수 표시(OE-UI-08). mep.ifc 에는 벽이 없어 둘을 긋는다: x=10.1 과 x=13 의 세로 벽(길이 8m). 계산은 dimensions.test.ts 가 본다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
@@ -15,6 +16,7 @@ test('벽을 고르면 길이·두께·가까운 벽까지 거리가 3D 칩과 �
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   for (const x of [10.1, 13]) {
     await page.getByRole('button', { name: '벽 긋기' }).click()

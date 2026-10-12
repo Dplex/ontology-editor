@@ -282,6 +282,8 @@ test('반영된 온톨로지가 없으면 [초기 구축] 만, 있으면 [운영
   await page.locator('dialog.publish-dialog').getByRole('button', { name: '구축하기' }).click()
   await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
   await expect(page.getByTestId('edit-kind')).toHaveText('운영 편집 · v1')
+  // 운영 편집의 편집 막대: [임시 저장]·[미리보기]·[반영하기]·[편집 종료] [OE-UI-04#1]
+  for (const name of ['임시 저장', '미리보기', '반영하기', '편집 종료']) await expect(page.locator('.edit-bar').getByRole('button', { name, exact: true })).toBeVisible()
   await page.locator('.edit-bar').getByRole('button', { name: '편집 종료' }).click()
 
   // 다른 사람이 목록을 보면 이제 [운영 편집] 만 켜져 있다.

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 외벽 편집(OE-OBJ-04)을 실제 마우스로 한다 — 외벽을 긋고, 문을 뚫고, 두께·높이·외벽 여부를 고치고, 설비를 바깥 면에 붙인다.
 // mep.ifc 의 사무실은 0..10 × 0..8 이다. 그 동쪽 변 바로 바깥(x=10.1)에 벽을 그으면 동쪽이 건물 밖이라 외벽으로 계산된다.
@@ -24,6 +25,7 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await page.waitForTimeout(200)
 
   // 외벽 긋기 — IsExternal 이 없으니 건물 바깥에 닿는지로 계산된다.
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.getByRole('button', { name: '벽 긋기' }).click()
   await clickFloor(page, 10.1, 0.5)
@@ -60,7 +62,7 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await expect(panel.getByTestId('wall-external')).toHaveText('외벽')
 
   // 설비를 외벽 바깥 면에 붙인다. 벽·문·창 층을 끄고 표에서 고른다. AHU 는 바닥 전용이라(설치면 표, OE-OBJ-10) 붙이기 단추가 없다.
-  await page.getByRole('button', { name: '벽·문·창' }).click()
+  await toEquipment(page)
   await row(page, 'AHU-1').getByRole('button', { name: 'AHU-1', exact: true }).click()
   const picked = page.locator('.picked').first()
   await expect(picked.locator('h3')).toContainText('AHU-1')
@@ -80,6 +82,7 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   const centerX = () => page.evaluate((id) => (window as any).__viewer.center(id)?.[0] ?? null, SENSOR)
   const x0 = (await centerX()) as number
   expect(x0).not.toBeNull()
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await clickFloor(page, 10.1, 2, 1.3)
   await expect(panel.locator('h3')).toHaveText('새 벽')
@@ -90,7 +93,7 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
   await expect.poll(centerX).toBeCloseTo(x0, 2)
-  await page.getByRole('button', { name: '벽·문·창' }).click()
+  await toEquipment(page)
   await row(page, 'TEMP-101-01').getByRole('button', { name: 'TEMP-101-01', exact: true }).click()
   await expect(picked).toContainText('새 벽에 붙음')
 
@@ -112,12 +115,13 @@ test('외기 센서는 외벽 바깥 면에만 — 방 안으로 옮기기·안�
   await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   // 사무실 동쪽 바로 바깥에 외벽을 긋는다(위 시험과 같다).
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.getByRole('button', { name: '벽 긋기' }).click()
   await clickFloor(page, 10.1, 0.5)
   await clickFloor(page, 10.1, 7.5)
   await expect(page.locator('.element-picked').getByTestId('wall-external')).toHaveText('외벽')
-  await page.getByRole('button', { name: '벽·문·창' }).click()
+  await toEquipment(page)
 
   // 사무실 안의 온도 센서를 외기 온도 센서로 바꾸면 자리가 틀렸다고 알린다.
   await row(page, 'TEMP-101-01').getByRole('button', { name: 'TEMP-101-01', exact: true }).click()
@@ -165,12 +169,13 @@ test('외기 센서를 윗층으로 옮기려 해도 그 층의 같은 자리가
   await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   // 회의실 동쪽 바로 바깥에 외벽을 긋는다.
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.getByRole('button', { name: '벽 긋기' }).click()
   await clickFloor(page, 6.1, 1.5)
   await clickFloor(page, 6.1, 3.5)
   await expect(page.locator('.element-picked').getByTestId('wall-external')).toHaveText('외벽')
-  await page.getByRole('button', { name: '벽·문·창' }).click()
+  await toEquipment(page)
 
   // 회의실에 설비를 더해 외기 온도 센서로 바꾸고 그 벽 바깥 면에 붙인다.
   await page.getByRole('button', { name: '설비 더하기' }).click()

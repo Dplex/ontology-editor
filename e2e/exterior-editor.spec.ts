@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 외벽 에디터(OE-EXT-03). 층 편집 화면에서 잠긴 외벽(OE-EXT-02)을, 외벽 에디터를 켜면 다른 층에서 같은 면에 쌓인 외벽까지 묶어 함께 옮긴다.
 // Duplex 건축(gitignore)은 4개 층에 외벽 23개가 쌓여 있고 그중 7개가 내력벽이다.
@@ -39,6 +40,7 @@ test('외벽 에디터에서 외벽을 옮기면 같은 면에 쌓인 다른 층
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toHaveText('NBU_Duplex-Apt_Arch.ifc', { timeout: 90_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.getByTestId('exterior-editor').click()
   await expect(page.getByTestId('exterior-editor')).toHaveAttribute('aria-pressed', 'true')

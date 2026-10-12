@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 사람의 소속 지정(OE-MAP-01 · K17). 사무실(0..10 × 0..8) 밖에 더한 설비는 소속이 없어 패널에서 소속을 정할 수 있고, 외곽선 안의
 // AHU-1 은 지정 칸이 막혀 까닭이 보인다. 지정한 설비 자리에 물리존을 그리면 "사람 지정 해제" 가 바뀐 내용에 보이고, Ctrl+Z 로
@@ -37,6 +38,7 @@ test('소속 없는 설비에 소속을 정하고, 외곽선 안 설비는 막�
 
   // 지정한 설비 자리에 물리존(로비)을 그린다.
   await page.keyboard.press('Escape')
+  await toSpace(page)
   await page.getByRole('button', { name: '물리존 그리기' }).click()
   for (const [x, y] of [[11, 3], [13, 3], [13, 5], [11, 5]]) await clickFloor(page, x, y)
   await page.keyboard.press('Enter')

@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test'
 // 돌아온다. 종류를 모르는 설비는 바닥에 놓는다. ifc4Mep(gitignore)는 00층에 좌표 없는 퓨즈(종류 모름)가 있다.
 const MEP = 'data/ifc4Mep_IFC4.ifc'
 
-test('팔레트의 미배치 설비를 누르면 바로 놓고, 다시 누르거나 Esc 면 취소이며, 놓은 것은 Ctrl+Z 로 미배치로 돌아온다 [OE-EQP-02#2,3] [OE-EQP-02#4~,5~]', async ({ page }) => {
+test('팔레트의 미배치 설비를 누르면 바로 놓고, 다시 누르거나 Esc 면 취소이며, 놓은 것은 Ctrl+Z 로 미배치로 돌아온다 [OE-EQP-02#2,3] [OE-EQP-02#4~,5~] [OE-UI-04#6]', async ({ page }) => {
   test.skip(!existsSync(MEP), `${MEP} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []
