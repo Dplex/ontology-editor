@@ -34,11 +34,13 @@ describe('설비 종류 사전', () => {
     ['Security_Camera-Vivotek-.Ext_Dome-2', 'camera'],
     ['Wall_Light:1', 'lighting'],
     ['라인조명:1', 'lighting'],
+    // 수직 관통 오브젝트(OE-EQP-07). 사전에 없을 때는 모르는 이름이었다.
+    ['Escalator_(AUS)', 'escalator'],
   ])('%s → %s', (name, expected) => {
     expect(kind(name)).toBe(expected)
   })
 
-  it.each(['RThisWheelStops850', 'Escalator_(AUS)', '2층 캐노피 03', 'Rectangular Duct:Standard', 'Trench Drain', '1.6.6'])(
+  it.each(['RThisWheelStops850', '2층 캐노피 03', 'Rectangular Duct:Standard', 'Trench Drain', '1.6.6'])(
     '모르는 이름은 null 로 둔다: %s',
     (name) => {
       // 추측으로 넓히면 틀린 Brick 클래스가 온톨로지에 들어간다. 빈칸이 낫다.
