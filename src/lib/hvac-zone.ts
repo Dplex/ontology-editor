@@ -9,6 +9,7 @@
 // - 층마다 둔다(`Storey.hvacZones`, 커스텀존과 같다). IDF 공조존(`model.hvac.zones`)은 읽기만 하고 R2 에서 같은 도구로 보정한다.
 // 설계 결정은 docs/adr/0026-manual-hvac-zones.md.
 
+import { capacityChecks } from './airflow'
 import { newId } from './edit'
 import { isSelfIntersecting, pointInPolygon } from './mapping'
 import { withInferred } from './flow-rules'
@@ -294,6 +295,7 @@ export function copyHvacZones(zones: readonly HvacZone[]): HvacZone[] {
     spaceIds: [...z.spaceIds],
     ...(z.spaceShares ? { spaceShares: { ...z.spaceShares } } : {}),
     ...(z.servedBy ? { servedBy: [...z.servedBy] } : {}),
+    ...(z.designAirflow ? { designAirflow: { ...z.designAirflow } } : {}),
   }))
 }
 
@@ -305,7 +307,7 @@ export function zonesServedBy(model: Model): Map<string, string[]> {
 }
 
 // --- 공조존 검증 (OE-ZON-05) ---------------------------------------------------------------------------
-// 경고만 하고 막지 않는다. 6규칙 중 지금 데이터로 잴 수 있는 다섯이다. Z-03(용량)은 설계 풍량·설비 용량 입력값(OE-ZON-06)과 같이 둔다.
+// 경고만 하고 막지 않는다. Z-03(용량)의 입력값과 판정은 airflow.ts 에 있다(OE-ZON-06).
 
 /** 실내 쪽 기기. 담당 공조존의 물리존 밖에 있으면 Z-06 이다(시스템에어컨 실내기·FCU). */
 const INDOOR_KINDS = new Set(['indoor_unit', 'fcu'])
@@ -314,9 +316,11 @@ export const ZONE_DUPLICATE_M2 = 0.5
 
 export type ZoneCheck = {
   /** OE-ZON-05 의 규칙 번호. `연결` 은 OE-MAP-02 의 연결 기준이다(ZON-05 의 여섯 규칙 밖). */
-  rule: 'Z-01' | 'Z-02' | 'Z-04' | 'Z-05' | 'Z-06' | '연결'
+  rule: 'Z-01' | 'Z-02' | 'Z-03' | 'Z-04' | 'Z-05' | 'Z-06' | '연결'
   /** 무엇을 검사하나. */
   text: string
+  /** 경고가 아니라 값이 없어 판정하지 못한 것(Z-03 판정 불가). 화면은 경고로 칠하지 않고, 리포트는 경고와 따로 센다. */
+  undetermined?: true
   /** 위반한 것. 물리존·공조존·설비 id 와 보일 말. */
   items: { id: string; label: string }[]
 }
@@ -447,6 +451,7 @@ export function zoneChecks(model: Model, name: { space: (id: string) => string; 
   }
   // 연결 기준과 다른 담당(OE-MAP-02). 같은 설비가 여러 공조존을 담당하면 그 공조존들의 담당 물리존을 함께 본다 — 공조기 하나가 두 존에
   // 바람을 보내면, 한 존에 없는 방이 다른 존에 있는 것은 정상이다.
+  const capacity = capacityChecks(model, name)
   const flow = flowSpacesOfZones(model)
   const map02: ZoneCheck['items'] = []
   for (const z of zones) {
@@ -464,6 +469,8 @@ export function zoneChecks(model: Model, name: { space: (id: string) => string; 
     checks: [
       { rule: 'Z-01', text: '어느 공조존도 담당하지 않는 물리존', items: z01 },
       { rule: 'Z-02', text: '두 공조존이 같은 영역을 담당', items: z02 },
+      { rule: 'Z-03', text: '정격 풍량이 담당 공조존의 설계 풍량 합보다 작은 설비', items: capacity.warn },
+      { rule: 'Z-03', text: '용량 판정 불가(경고 아님, 값이 없음)', items: capacity.undetermined, undetermined: true },
       { rule: 'Z-04', text: '담당 설비가 없는 공조존', items: z04 },
       { rule: 'Z-05', text: '토출구가 하나도 없는 공조존', items: z05 },
       { rule: 'Z-06', text: '실내기가 담당 공조존의 물리존 밖에 있거나 담당 공조존이 없음', items: z06 },

@@ -1592,7 +1592,7 @@ describe('요구사항 보고서의 요청 (OE-BIM-17)', () => {
     const api = new WebIFC.IfcAPI()
     return api.Init().then(() => {
       api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
-      const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_1, CLINIC_ARCH, CLINIC_HVAC].filter((f) => existsSync(f))
+      const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_1, DUPLEX_MEP_2, CLINIC_ARCH, CLINIC_HVAC].filter((f) => existsSync(f))
       expect(files.length).toBeGreaterThanOrEqual(2)
       const seen = new Map<string, string[]>()
       for (const f of files) {
@@ -1605,6 +1605,7 @@ describe('요구사항 보고서의 요청 (OE-BIM-17)', () => {
       }
       // 파일 하나로 재는 설정 표의 여섯이 다 실제로 나온다(2026-10-03): Revit IFC2x3 이라 R10(6개 파일), Category Code 방 분류 R14(5),
       // System Name 계통 R16(4), 패밀리 이름으로 정한 종류 R24(3), PSet_Revit 용량 R21(3), ifc4Mep 의 Proxy 49대 R23(1).
+      // R26 은 Duplex MEP-2 의 방 15개가 Revit 의 Specified Supply Airflow 에 값을 적었다(2026-10-13, OE-REQ-07).
       // R13 은 판본 비교를 할 때만 잰다(versions.test.ts·e2e/versions.spec.ts).
       expect([...seen.keys()].sort()).toEqual(Object.keys(EXPORT_SETTING).filter((id) => id !== 'R13').sort())
     })

@@ -4530,3 +4530,12 @@ button.done::after {
 .report.report-checks li.warn {
   color: var(--warn-fg);
 }
+
+/* 설계 풍량·정격 풍량 입력(OE-ZON-06). CMH 는 다섯 자리까지라 칸을 좁게 둔다. */
+.airflow-input {
+  width: 6.5em;
+}
+.space-airflow label,
+.zone-airflow label {
+  white-space: nowrap;
+}

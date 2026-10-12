@@ -58,6 +58,7 @@ import type { Fluid } from './kinds'
 import type { Connection, CustomObjectItem, Model, SpaceObject, Vec2, Vec3, VerticalKind, Wall } from './model'
 import { polygonArea } from './model'
 import { copySpaceObjects } from './space-object'
+import { setRatedAirflow, setSpaceAirflow } from './airflow'
 import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
 import { assignEquipment, spaceSetState } from './mapping'
 import { markStoreyDone, storeyProgress } from './storey-progress'
@@ -159,8 +160,24 @@ export type EditFile = {
    */
   hvacZones?: {
     storeyId: string
-    zones: { id: string; name: string; footprint: Vec2[][]; spaceIds: string[]; spaceShares?: Record<string, number>; servedBy?: string[]; drawn?: true }[]
+    zones: {
+      id: string
+      name: string
+      footprint: Vec2[][]
+      spaceIds: string[]
+      spaceShares?: Record<string, number>
+      servedBy?: string[]
+      drawn?: true
+      /** 사람이 공조존 단위로 넣은 설계 풍량(OE-ZON-06, CMH). */
+      designAirflow?: { cooling: number | null; heating: number | null }
+    }[]
   }[]
+  /**
+   * 사람이 넣은 설계 풍량(물리존)과 정격 풍량(설비)(OE-ZON-06, CMH). BIM 이 비운 곳만 사람이 채우므로(airflow.ts) BIM 값은 적지 않는다.
+   * 불러온 판본에서 BIM 이 그 사이 값을 넣었으면 얹지 않는다. 공조존 단위 값은 위 `hvacZones` 의 공조존에 있다.
+   */
+  spaceAirflows?: { id: string; cooling: number | null; heating: number | null }[]
+  ratedAirflows?: { id: string; cmh: number }[]
   /** 사람이 그린 룸(OE-OBJ-03). BIM 에는 없어서 룸이 있는 층의 끝 목록을 그대로 적는다. */
   rooms?: { storeyId: string; rooms: { id: string; name: string; spaceId: string; footprint: Vec2[] }[] }[]
   /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09). BIM 에는 없어서 오브젝트가 있는 층의 끝 목록을 그대로 적는다. */
@@ -402,8 +419,13 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
         ...(z.spaceShares ? { spaceShares: { ...z.spaceShares } } : {}),
         ...(z.servedBy?.length ? { servedBy: [...z.servedBy] } : {}),
         ...(z.drawn ? { drawn: true as const } : {}),
+        ...(z.designAirflow ? { designAirflow: { cooling: z.designAirflow.cooling, heating: z.designAirflow.heating } } : {}),
       })),
     }))
+  const spaceAirflows = model.storeys.flatMap((st) =>
+    st.spaces.flatMap((sp) => (sp.designAirflow?.source === 'edit' ? [{ id: sp.id, cooling: sp.designAirflow.cooling, heating: sp.designAirflow.heating }] : [])),
+  )
+  const ratedAirflows = model.storeys.flatMap((st) => st.equipment.flatMap((e) => (e.ratedAirflow?.source === 'edit' ? [{ id: e.id, cmh: e.ratedAirflow.cmh }] : [])))
   const customZones = model.storeys
     .filter((s) => touched.has(s.id))
     .map((s) => ({
@@ -447,6 +469,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     keep(row.storeyId)
     for (const z of row.zones) for (const id of [...z.spaceIds, ...(z.servedBy ?? [])]) keep(id)
   }
+  for (const row of [...spaceAirflows, ...ratedAirflows]) keep(row.id)
   const rooms = model.storeys
     .filter((st) => st.rooms?.length)
     .map((st) => ({ storeyId: st.id, rooms: st.rooms!.map((r) => ({ id: r.id, name: r.name, spaceId: r.spaceId, footprint: r.footprint.map((p) => [p[0], p[1]] as Vec2) })) }))
@@ -514,6 +537,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(openingsRemoved.length ? { openingsRemoved } : {}),
     ...(customZones.length ? { customZones } : {}),
     ...(hvacZones.length ? { hvacZones } : {}),
+    ...(spaceAirflows.length ? { spaceAirflows } : {}),
+    ...(ratedAirflows.length ? { ratedAirflows } : {}),
     ...(rooms.length ? { rooms } : {}),
     ...(spaceObjects.length ? { spaceObjects } : {}),
     ...(objectLibrary.length ? { objectLibrary } : {}),
@@ -554,6 +579,7 @@ export function countEdits(f: EditFile): number {
     (f.storeysDone?.length ?? 0) + (f.ceilings?.length ?? 0) + (f.storeyNames?.length ?? 0) + (f.rooms?.reduce((n, r) => n + r.rooms.length, 0) ?? 0) +
     (f.spaceObjects?.reduce((n, r) => n + r.objects.length, 0) ?? 0) +
     (f.hvacZones?.reduce((n, r) => n + r.zones.length, 0) ?? 0) +
+    (f.spaceAirflows?.length ?? 0) + (f.ratedAirflows?.length ?? 0) +
     (f.verticals?.length ?? 0)
   )
 }
@@ -677,6 +703,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   for (const row of file.storeysDone ?? []) ref(row.id)
   for (const row of file.ceilings ?? []) ref(row.storeyId)
   for (const row of file.storeyNames ?? []) ref(row.storeyId)
+  for (const row of [...(file.spaceAirflows ?? []), ...(file.ratedAirflows ?? [])]) ref(row.id)
   for (const k of file.kinds) if (k.typeKey.startsWith('#')) ref(k.typeKey.slice(1))
   for (const row of [...(file.walls ?? []), ...(file.openings ?? [])]) ref(row.id)
   for (const id of [...(file.wallsRemoved ?? []), ...(file.openingsRemoved ?? [])]) ref(id)
@@ -1039,6 +1066,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
         ...(z.servedBy?.length ? { servedBy: z.servedBy.map(resolve) } : {}),
         source: 'edit' as const,
         ...(z.drawn ? { drawn: true as const } : {}),
+        ...(z.designAirflow ? { designAirflow: { cooling: z.designAirflow.cooling, heating: z.designAirflow.heating } } : {}),
       }
     })
     if (!storey.hvacZones.length) delete storey.hvacZones
@@ -1164,6 +1192,18 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       continue
     }
     if (setStoreyName(model, storey.id, row.name) === true) result.applied++
+  }
+
+  // 사람이 넣은 설계 풍량·정격 풍량(OE-ZON-06). BIM 이 그 사이 값을 넣었으면 거절되고 BIM 값이 남는다.
+  for (const row of file.spaceAirflows ?? []) {
+    const done = setSpaceAirflow(model, resolve(row.id), { cooling: row.cooling, heating: row.heating })
+    if (done === true) result.applied++
+    else if (done === false && !model.storeys.some((st) => st.spaces.some((sp) => sp.id === resolve(row.id)))) result.missing.spaces++
+  }
+  for (const row of file.ratedAirflows ?? []) {
+    const done = setRatedAirflow(model, resolve(row.id), row.cmh)
+    if (done === true) result.applied++
+    else if (done === false && !model.storeys.some((st) => st.equipment.some((e) => e.id === resolve(row.id)))) result.missing.equipment++
   }
 
   // 완료한 층(OE-MAN-06). 편집을 다 얹은 뒤라야 지문이 저장할 때 상태와 같다. 저장할 때 이미 고친 층은 지문을 비워 "완료 뒤
