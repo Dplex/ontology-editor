@@ -28,6 +28,7 @@
     "ctx": "node scripts/docs-ctx.mjs"
   },
   "dependencies": {
+    "pdfjs-dist": "^6.3.289",
     "three": "^0.186.0",
     "vue": "^3.5.13",
     "web-ifc": "^0.0.78"
