@@ -4,10 +4,10 @@ epic: "E01"
 epic_title: "공통 · 권한 · 편집 잠금"
 title: "권한 카탈로그 연동"
 prd: "#1 #2"
-release: "R1"
+release: "R2"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: []
 depends: ["OE-XPRD-04"]
 ---
