@@ -66,7 +66,7 @@ test('커스텀존을 그리면 품는 방·든 설비가 계산되고, 이름·
   expect(errors).toEqual([])
 })
 
-test('커스텀존에 별명을 여럿 달면 패널·TTL 에 나온다 (ADR-0012)', async ({ page }) => {
+test('커스텀존에 별명을 여럿 달면 패널·TTL 에 나온다 (ADR-0012) [OE-SPC-10#1]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

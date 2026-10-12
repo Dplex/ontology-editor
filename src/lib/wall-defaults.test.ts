@@ -71,7 +71,7 @@ describe('새 벽 두께 (OE-SPC-12)', () => {
 })
 
 describe('문·창 스냅 거리 (OE-SPC-13)', () => {
-  it('기본 0.6m 밖을 누르면 "벽 가까이 놓아 주세요" 로 거절하고, 스냅 거리를 늘리면 같은 자리에 붙는다', () => {
+  it('기본 0.6m 밖을 누르면 "벽 가까이 놓아 주세요" 로 거절하고, 스냅 거리를 늘리면 같은 자리에 붙는다 [OE-SPC-13#1]', () => {
     const m = model([wall('w', 0.2)])
     expect(OPENING_SNAP).toBe(0.6)
     expect(addOpening(m, 's', 'door', [3, 1])).toEqual({ refused: '벽 가까이 놓아 주세요(벽에서 0.6m 안에만 놓습니다).' })

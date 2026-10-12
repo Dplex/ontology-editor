@@ -15,7 +15,7 @@ async function drawZone(page: Page, pts: [number, number][]) {
   await page.keyboard.press('Enter')
 }
 
-test('다른 존이 쓰는 이름·별명은 막고 칸을 되돌리며, 나누면 -02, 합치면 넓은 쪽이 남는다', async ({ page }) => {
+test('다른 존이 쓰는 이름·별명은 막고 칸을 되돌리며, 나누면 -02, 합치면 넓은 쪽이 남는다 [OE-SPC-06#3~] [OE-SPC-08#2,3]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

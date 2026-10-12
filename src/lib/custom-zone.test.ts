@@ -74,7 +74,7 @@ describe('커스텀존 만들기·이름·지우기(OE-OBJ-01)', () => {
     expect(modelToTTL(model)).toContain('ex:U_team a brick:Zone ;\n    brick:hasPart ex:meeting ;')
   })
 
-  it('엇갈린 다각형·작은 다각형은 만들지 않고 이유를 돌려준다. 빈 이름은 받지 않는다', () => {
+  it('엇갈린 다각형·작은 다각형은 만들지 않고 이유를 돌려준다. 빈 이름은 받지 않는다 [OE-SPC-06#1]', () => {
     expect(createCustomZone(model, 's1', { footprint: [[0, 0], [5, 5], [5, 0], [0, 5]] })).toEqual({ refused: expect.stringContaining('엇갈립니다') })
     expect(createCustomZone(model, 's1', { footprint: [[0, 0], [0.05, 0], [0.05, 0.05]] })).toEqual({ refused: expect.stringContaining('작습니다') })
     const z = make('', rect(0, 0, 2, 2))
