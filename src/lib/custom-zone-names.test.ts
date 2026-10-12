@@ -113,14 +113,14 @@ describe('나누기·합치기의 이름 (OE-SPC-08)', () => {
 })
 
 describe('겹침과 매핑 (OE-SPC-07 · OE-SPC-09)', () => {
-  it('겹치게 그려도 막지 않고, 겹친 자리의 설비는 두 존 모두에서 나온다 [OE-SPC-07#1,2]', () => {
+  it('겹치게 그려도 막지 않고, 겹친 자리의 설비는 두 존 모두에서 나온다 [OE-SPC-07#1,2] [OE-OBJ-01#3]', () => {
     addEquipment(model, 's3', { name: 'FCU', kind: 'fcu', position: [5, 5, 2.7], id: 'fcu' })
     make('s3', '사무석', rect(0, 0, 10, 10), 'U_desk')
     expect(createCustomZone(model, 's3', { name: '창가석', footprint: rect(4, 0, 12, 10), id: 'U_window' })).toMatchObject({ id: 'U_window' })
     expect(customZonesOfEquipment(model).get('fcu')).toEqual(['U_desk', 'U_window'])
   })
 
-  it('나눠 경계가 바뀌면 TTL 의 커스텀존↔물리존 매핑이 새 경계에 맞게 바뀐다 [OE-SPC-09#1] [OE-SPC-08#1~]', () => {
+  it('나눠 경계가 바뀌면 TTL 의 커스텀존↔물리존 매핑이 새 경계에 맞게 바뀐다 [OE-SPC-09#1] [OE-SPC-08#1~] [OE-OBJ-01#1~,2~]', () => {
     make('s3', '사무석', rect(0, 0, 20, 10), 'U_desk')
     const hasPart = (id: string) => modelToTTL(model).split('\n\n').find((b) => b.startsWith(`ex:${id} `))?.includes('brick:hasPart ex:office3') ?? false
     expect(hasPart('U_desk')).toBe(true)

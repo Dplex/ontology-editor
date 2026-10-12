@@ -80,7 +80,7 @@ test('3D 위 편집 체크박스는 전체 화면에서만 뜨고 보기/편집 
   expect(errors).toEqual([])
 })
 
-test('편집 모드에서 고른 설비를 3D 로 끌면 좌표와 소속이 바뀌고, 끄는 중 Esc 는 취소다 [OE-EQP-06#1] [OE-EQP-12#1]', async ({ page }) => {
+test('편집 모드에서 고른 설비를 3D 로 끌면 좌표와 소속이 바뀌고, 끄는 중 Esc 는 취소다 [OE-EQP-06#1] [OE-EQP-12#1] [OE-OBJ-15#2~]', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await pick(page, 'AHU-1')

@@ -57,7 +57,7 @@ function moveWithFollow(m: Model, id: string, delta: Vec3) {
 }
 
 describe('배관이 설비를 따라온다', () => {
-  it('이음쇠는 같이 옮기고 구간은 가까운 끝만 늘인다 [OE-PIP-12#1]', () => {
+  it('이음쇠는 같이 옮기고 구간은 가까운 끝만 늘인다 [OE-PIP-12#1] [OE-OBJ-11#1]', () => {
     const m = build()
     const plan = planFollow(m, 'AHU', axisOf)
     expect(plan).toEqual({ rigid: ['ELB'], stretch: [{ id: 'DUCT', end: 0 }], held: [], blocked: [] })

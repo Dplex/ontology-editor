@@ -13,7 +13,7 @@ async function clickFloor(page: Page, x: number, y: number, z = 0) {
 
 const row = (page: Page, name: string) => page.locator('.equipment tbody tr', { hasText: name }).last()
 
-test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비를 바깥 면에 붙이면 방 소속이 없어지고 Ctrl+Z 로 돌아온다', async ({ page }) => {
+test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비를 바깥 면에 붙이면 방 소속이 없어지고 Ctrl+Z 로 돌아온다 [OE-OBJ-04#2] [OE-OBJ-07#1~]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

@@ -200,3 +200,12 @@ describe('외벽 설비 (OE-EQP-15)', () => {
     expect(tier.note).toContain('외벽 설비 2대는 제외')
   })
 })
+
+describe('배관 없이 도는 냉매 기기', () => {
+  it('DVM 실내기·EHP 실외기는 배관이 없어도 연결망·공기 원천 검사의 위반이 아니다 [OE-OBJ-11#3~]', () => {
+    const m = model([eq('idu', 'indoor_unit', null), eq('odu', 'outdoor_unit', null), eq('vav', 'vav', null)], [])
+    const f = failed(m)
+    expect(f['device-connected']).toEqual(['vav'])
+    expect(f['source-terminal'] ?? []).not.toContain('idu')
+  })
+})

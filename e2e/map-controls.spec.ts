@@ -24,7 +24,7 @@ async function drag(page: Page, from: { x: number; y: number }, dx: number, opts
   await page.waitForTimeout(600) // 관성(damping)이 멎을 때까지
 }
 
-test('빈 곳 왼쪽 드래그는 화면 이동, 오른쪽·Shift+왼쪽 드래그는 편집 모드에서도 회전이고, 조작 안내가 보인다', async ({ page }) => {
+test('빈 곳 왼쪽 드래그는 화면 이동, 오른쪽·Shift+왼쪽 드래그는 편집 모드에서도 회전이고, 조작 안내가 보인다 [OE-OBJ-15#3,4,5]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -67,7 +67,7 @@ test('빈 곳 왼쪽 드래그는 화면 이동, 오른쪽·Shift+왼쪽 드래�
   expect(errors).toEqual([])
 })
 
-test('편집 모드에서 고른 설비를 끄는 중 창이 포커스를 잃으면 원래 자리로 돌아간다', async ({ page }) => {
+test('편집 모드에서 고른 설비를 끄는 중 창이 포커스를 잃으면 원래 자리로 돌아간다 [OE-OBJ-15#2~]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

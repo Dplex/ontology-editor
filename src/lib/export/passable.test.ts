@@ -13,7 +13,7 @@ beforeAll(async () => {
 }, 60_000)
 
 describe('로봇 통과 속성', () => {
-  it('문은 passable=true, 창·벽은 passable=false 로 나가 받은 데이터만으로 문과 벽을 가른다 [OE-EQP-17#1~] [OE-ROB-03#1]', () => {
+  it('문은 passable=true, 창·벽은 passable=false 로 나가 받은 데이터만으로 문과 벽을 가른다 [OE-EQP-17#1~] [OE-ROB-03#1] [OE-OBJ-05#2]', () => {
     const bytes = new Uint8Array(readFileSync(fileURLToPath(new URL('../ifc/fixtures/two-rooms.ifc', import.meta.url))))
     const { model } = importIfcWithMeshes(api, bytes, undefined, { openings: true })
     const features = modelToGeoJSON(model).flatMap((f) => f.collection.features)

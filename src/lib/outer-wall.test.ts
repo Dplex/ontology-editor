@@ -85,7 +85,7 @@ describe('외벽 면에 설비 붙이기(OE-OBJ-04 외벽 전용 설비)', () =>
     expect(louver.spaceId).toBe(null)
   })
 
-  it('허용 설치면에 벽이 없는 종류는 내벽·외벽 어디에도 붙이지 않고, 벽 전용·복수 허용·표에 없는 종류는 붙인다 (OE-OBJ-10)', () => {
+  it('허용 설치면에 벽이 없는 종류는 내벽·외벽 어디에도 붙이지 않고, 벽 전용·복수 허용·표에 없는 종류는 붙인다 [OE-OBJ-05#3~] [OE-OBJ-10#2~]', () => {
     const light = addEquipment(model, 's1', { name: '조명', kind: 'lighting', position: [3, 2, 2.7] })!
     expect(mountOnWall(model, light.id, [3, 0.3])).toEqual({ refused: '벽에 설치할 수 없는 설비입니다(설치면 천장).' })
     expect(light.wallId).toBeUndefined()
@@ -186,7 +186,7 @@ describe('외벽 여부·크기 고치기(OE-OBJ-04)', () => {
     expect(Math.max(...w.footprint![0].map((p) => p[0]))).toBeCloseTo(7)
   })
 
-  it('내력벽은 크기를 못 바꾼다(OE-OBJ-06 잠금). 높이 모름(null)은 둘 수 있다', () => {
+  it('내력벽은 크기를 못 바꾼다(OE-OBJ-06 잠금). 높이 모름(null)은 둘 수 있다 [OE-OBJ-06#1~]', () => {
     setWallLoadBearing(model, 'east', true)
     expect(setWallThickness(model, 'east', 0.3)).toEqual({ refused: expect.stringContaining('내력벽') })
     expect(setWallHeight(model, 'east', 2.5)).toEqual({ refused: expect.stringContaining('내력벽') })

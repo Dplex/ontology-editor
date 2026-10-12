@@ -18,7 +18,7 @@ describe('설비 겹침', () => {
     expect(meshBox(mesh)).toEqual({ min: [1, 3, 2], max: [2, 5, 4] })
   })
 
-  it('맞닿기만 하거나 1cm 안으로 파고든 것은 겹침이 아니다', () => {
+  it('맞닿기만 하거나 1cm 안으로 파고든 것은 겹침이 아니다 [OE-OBJ-16#3~]', () => {
     const a: Box3 = { min: [0, 0, 0], max: [1, 1, 1] }
     expect(boxesOverlap(a, { min: [1, 0, 0], max: [2, 1, 1] })).toBe(false)
     expect(boxesOverlap(a, { min: [0.995, 0, 0], max: [2, 1, 1] })).toBe(false)
@@ -46,7 +46,7 @@ describe('설비 겹침', () => {
     expect(overlapAt(m, 'B', [1.5, 0, 3], boxOf, undefined, new Set(['A', 'B']))?.id).toBe('C')
   })
 
-  it('옮겨서 새로 겹치면 상대를 돌려주고, 원래 겹쳐 있던 상대는 떼어 놓을 수 있다', () => {
+  it('옮겨서 새로 겹치면 상대를 돌려주고, 원래 겹쳐 있던 상대는 떼어 놓을 수 있다 [OE-OBJ-16#1~,3~] [OE-OBJ-10#1]', () => {
     const boxes: Record<string, Box3> = { A: markerBox([0, 0, 3]), B: markerBox([2, 0, 3]) }
     const m = modelOf([device('A', 'lighting', [0, 0, 3]), device('B', 'smoke_detector', [2, 0, 3]), device('F', 'fcu', [4, 0, 3])])
     const boxOf = (id: string) => boxes[id] ?? null
