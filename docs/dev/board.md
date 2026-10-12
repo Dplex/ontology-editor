@@ -21,8 +21,12 @@ PR 본문에 `Closes #n` 을 넣어 연다. 그다음은 `.github/workflows/kanb
 | PR merge | Done(이슈는 `Closes #n` 으로 닫힌다) |
 | PR 을 merge 없이 Close | 이슈에 `rejected` 붙이고 In Progress |
 | 누가 이슈에 `rejected` 를 붙임 | In Progress |
-| 이슈에 `modified` 가 붙음 | In Review 면 In Progress 로 돌리고 코멘트. **Done 이면 그대로 두고 후속 이슈 `[후속 #n] …` 를 Todo 로 만든다** |
+| 이슈에 `modified` 가 붙음 | In Review 면 In Progress 로 돌린다. **Done 이면 그대로 두고 후속 이슈 `[후속 #n] …` 를 Todo 로 만든다**. 코멘트는 달지 않는다(라벨과 카드가 알린다) |
 | 후속 이슈를 Closes 하는 PR 이 merge | 원 이슈의 `modified` 를 뗀다 |
+
+PR 을 다른 PR 브랜치 위에 쌓았으면, 아래 PR 을 merge 하기 **전에** 위 PR 의 대상을 main 으로 바꾸고 merge 한 뒤 브랜치를 지운다.
+이 GitHub 는 대상 브랜치가 지워지면 위 PR 을 main 으로 옮기지 않고 닫아 버린다(2026-10-12 #423). 닫히면 kanban.yml 이 이슈에
+`rejected` 를 붙인다.
 
 카드는 PR 본문의 `Closes`·`Fixes`·`Resolves #n` 으로만 찾는다 — 빠뜨리면 카드가 안 움직인다. 아직 검토받을 게 아니면 draft 로 연다.
 **merge 는 사람이 확인한 뒤에만 한다**(그게 곧 Done 이다). 토큰은 저장소 시크릿 `PROJECT_TOKEN`(희록님 gh 토큰 사본)이라
@@ -68,7 +72,16 @@ Status 는 건드리지 않는다. 점검은 Actions `Board check` 가 PR·main 
 걸러 보는 화면은 프로젝트의 [🏷️ 라벨 보드](https://github.sec.samsung.net/orgs/IoT-Solution/projects/1/views/5)다. 열은 `🏷️ 라벨` 칸인데 라벨의
 사본이라 손으로 고치지 않는다. 라벨을 바꾼 뒤 `npm run board -- --apply` 를 돌리면 따라온다.
 
-- `needs-pm`: PM 결정 대기. 질문을 이슈 코멘트에 번호 선택지로 적고 붙인다. PRD(`docs/prd/`) 수정이 필요할 때도 개발이 고치지 않고 이 라벨로 PM 에게 넘긴다. 답이 오면 뗀다
+- `needs-pm`: PM 결정 대기. 질문을 이슈 코멘트에 번호 선택지로 적고 붙인다. PRD(`docs/prd/`) 수정이 필요할 때도 개발이 고치지 않고 이 라벨로 PM 에게 넘긴다. 답이 오면 뗀다.
+  **PM 만 정할 수 있는 것에만 단다(2026-10-12).** 아래 셋 중 하나일 때다.
+  - 요구사항·PRD 문구를 바꿔야 할 사정이 있다(PRD 1.8 은 재제출이라는데, 층 이름 하나로 막혀 에디터에서 채우게 했음)
+  - 두 티켓의 기준이 서로 어긋나거나, 해석에 따라 온톨로지에 나가는 값이 달라진다
+  - PM 이 줄 값이 없다(glossary 에 Flow Type 색이 없음)
+
+  요구사항 문구를 이렇게 이해하고 그대로 구현했으면, 묻지 않고 PR 본문의 수용 기준 대조에 "이렇게 이해하고 구현했습니다" 로 적는다.
+  **아직 만들지 않은 것도 묻지 않는다.** 요구사항이 PDF·DWG 인데 이미지만 받게 만들었으면 덜 만든 것이다. 이슈를 `Refs` 로 열어 두고
+  "남은 것" 에 적는다(#118, 2026-10-12). 만들려면 서버 같은 이 repo 밖의 것이 필요하면 그것만 `blocked` 사유로 적는다.
+  2026-10-12 에 질문 10개를 처리했는데, 구현을 바꾼 것은 #154 하나였다. 다른 팀의 확인을 기다리는 것은 `blocked` 다
 - `needs-dev`: 일부만 구현. 남은 것을 코멘트·티켓 메모에 적고 붙인다
 - `rejected`: 검토 반려. In Review → In Progress 로 돌릴 때 이유와 함께. 다시 In Review 로 올릴 때 뗀다
 - `blocked`: 기획 밖(개발 주체 D10·서버/저장 위치 PRD 1.7·다른 팀)을 기다린다. 무엇을 누가 풀지 코멘트에. 기획이 풀면 `needs-pm` 이다
