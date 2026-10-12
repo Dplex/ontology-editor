@@ -140,3 +140,57 @@ test('벽을 끄고 연 파일의 GeoJSON 을 놓으면 벽 0 이 "없음" 이 �
   await expect(page.locator('.skipped-note')).toContainText('읽지 않음: 벽')
   if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT })
 })
+
+test('사람이 그린 룸과 놓은 추가 공간 오브젝트가 GeoJSON 에 나가고 뷰어 평면에 그려진다. TTL 에는 없다 (#45 · #51)', async ({ page }, info) => {
+  const point = (x: number, y: number) => page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y]) as Promise<{ x: number; y: number }>
+  const clickAt = async (x: number, y: number) => {
+    const at = await point(x, y)
+    await page.mouse.click(at.x, at.y)
+  }
+  await page.addInitScript(() => {
+    delete (window as any).showDirectoryPicker
+  })
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.waitForTimeout(400)
+  // 회의실(2..6, 1..4) 안에 룸 하나, 그 옆에 책상 하나
+  await page.getByRole('button', { name: '룸 그리기' }).click()
+  await clickAt(2.5, 1.5)
+  await clickAt(4, 3)
+  await expect(page.locator('.room-picked h3')).toHaveText('룸 1')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: /^오브젝트/ }).click()
+  await page.locator('.object-library').getByRole('button', { name: '책상', exact: true }).click()
+  await clickAt(5, 2)
+  await expect(page.locator('.object-picked h3')).toHaveText('책상 1')
+
+  const saved: Promise<string>[] = []
+  page.on('download', (d) => saved.push(d.saveAs(info.outputPath(d.suggestedFilename())).then(() => info.outputPath(d.suggestedFilename()))))
+  await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
+  await page.getByRole('button', { name: '기하 내보내기 (GeoJSON)' }).click()
+  await expect.poll(() => saved.length).toBeGreaterThanOrEqual(2)
+  await page.waitForTimeout(500)
+  const files = await Promise.all(saved)
+  const { readFileSync } = await import('node:fs')
+  const floor = JSON.parse(readFileSync(files.find((f) => f.endsWith('floor-1F.geojson'))!, 'utf8'))
+  const kinds = floor.features.map((f: { properties: { kind: string } }) => f.properties.kind)
+  expect(kinds).toContain('room')
+  expect(kinds).toContain('spaceObject')
+  const desk = floor.features.find((f: { properties: { kind: string } }) => f.properties.kind === 'spaceObject')
+  expect(desk.properties).toMatchObject({ name: '책상 1', item: 'desk', itemName: '책상' })
+  const ttl = readFileSync(files.find((f) => f.endsWith('.ttl'))!, 'utf8')
+  expect(ttl).not.toContain('책상 1')
+  expect(ttl).not.toContain('룸 1')
+
+  await page.goto('/viewer.html')
+  await page.getByLabel('내보낸 파일 고르기').setInputFiles(files)
+  await expect(page.locator('path.shape.room')).toHaveCount(1)
+  await expect(page.locator('path.shape.spaceObject')).toHaveCount(1)
+  // 두 kind 는 TTL 에 주어가 없어도 검사가 문제로 세지 않는다(ADR-0023).
+  await expect(page.locator('.checks li.bad')).toHaveCount(0)
+  await page.locator('svg:has(path.shape.room)').screenshot({ path: info.outputPath('rooms-objects-viewer.png') })
+})
