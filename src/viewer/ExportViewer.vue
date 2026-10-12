@@ -5,7 +5,7 @@
 // 빠지거나 어긋난 것은 에디터 화면에서는 보이지 않는다. TTL 은 받는 쪽 DT 파서의 규칙(read-ttl.ts)으로, GeoJSON 은
 // RFC 7946 모양으로, 3D 는 three 의 로더로 읽고, 셋이 id 로 이어지는지(read-export.ts·read-3d.ts)를 같이 보인다.
 // 고른 것은 파일에 적힌 원문(TTL 블록·GeoJSON feature)까지 보인다. 파일은 브라우저 안에서만 읽는다.
-import { computed, ref, shallowRef } from 'vue'
+import { computed, onMounted, ref, shallowRef } from 'vue'
 import { mergeReadings, readOntologyTTL, type OntologyEntity, type TtlReading } from '../lib/export/read-ttl'
 import { crossCheck, readGeoJSON, type ExportFloor, type ReadFeature } from '../lib/export/read-export'
 import { check3D, read3D, type Reading3D } from '../lib/export/read-3d'
@@ -265,6 +265,37 @@ function select(id: string) {
   const at = featureById.value.get(id)
   if (at && at.floor !== floorIndex.value) floorIndex.value = at.floor
 }
+
+// 반영본 바로 열기(ADR-0050). 온톨로지 챗봇의 답에 붙은 [3D] 가 `viewer.html?key=…&v=…&select=…` 로 연다 — 서버의 그 버전
+// (/__data/__layouts, ADR-0037)에서 TTL·층 GeoJSON 을 받아 놓은 것처럼 읽고, select 의 요소를 고른다. GLB 는 크다(성수 214MB) —
+// `&3d=1` 일 때만 받는다. 파일은 놓을 때와 같은 길(load)로 읽어 받는 쪽 규칙이 그대로다.
+const published = ref<{ key: string; version: number } | null>(null)
+async function openPublished(params: URLSearchParams) {
+  const key = params.get('key')
+  if (!key) return
+  const base = `/__data/__layouts?key=${encodeURIComponent(key)}`
+  try {
+    const res = await fetch(base)
+    if (!res.ok) throw new Error(`반영본을 못 찾았습니다(${res.status})`)
+    const info = (await res.json()) as { current: number; versions: { version: number; files: string[] }[] }
+    const version = Number(params.get('v')) || info.current
+    const meta = info.versions.find((v) => v.version === version)
+    if (!meta) throw new Error(`버전 ${version} 이 없습니다(지난 버전은 7일이 지나면 목록에서 빠집니다)`)
+    const want = meta.files.filter((f) => f === 'ontology.ttl' || /^geojson\/.+\.geojson$/.test(f) || (params.get('3d') === '1' && /\.glb$/.test(f)))
+    const files = await Promise.all(want.map(async (f) => {
+      const r = await fetch(`${base}&v=${version}&file=${encodeURIComponent(f)}`)
+      if (!r.ok) throw new Error(`${f} 를 받지 못했습니다(${r.status})`)
+      return new File([await r.blob()], f.split('/').pop()!)
+    }))
+    await load(files)
+    published.value = { key, version }
+    const id = params.get('select')
+    if (id) select(id)
+  } catch (e) {
+    loadErrors.value = [e instanceof Error ? e.message : String(e)]
+  }
+}
+onMounted(() => void openPublished(new URLSearchParams(location.search)))
 const nameOf = (id: string) => {
   const f = featureById.value.get(id)?.feature.properties.name
   return byKey.value.get(id)?.label || (typeof f === 'string' ? f : '') || id
@@ -343,6 +374,7 @@ const PARTS_SHOWN = 40
         <input type="file" multiple accept=".ttl,.geojson,.json,.glb,.obj" aria-label="내보낸 파일 고르기" @change="onPick" />
       </label>
       <button v-if="ttl || floors.length || models3d.length" type="button" class="ghost clear" @click="clear">비우기</button>
+      <p v-if="published" class="muted" data-testid="published">서버의 반영본 v{{ published.version }} · {{ published.key.split('|').join(' + ') }}</p>
       <p v-if="skipped.length" class="muted">읽지 않은 파일: {{ skipped.join(', ') }}</p>
       <p v-for="e in loadErrors" :key="e" class="error" role="alert">읽지 못했습니다 — {{ e }}</p>
     </section>

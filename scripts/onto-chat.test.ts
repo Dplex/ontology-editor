@@ -48,7 +48,7 @@ const body = (r: { result?: { content: { text: string }[] } }) => JSON.parse(r.r
 
 describe('반영본 찾기', () => {
   it('data/.layouts 의 현재 버전 TTL — source 는 열쇠 폴더 앞 12자', () => {
-    expect(sources(data).map(({ file, ...s }: { file: string }) => s)).toEqual([{ source: '0123456789ab', title: 'mep.ifc', version: 2, at: '2026-10-11T00:00:00Z', by: '시험' }])
+    expect(sources(data).map(({ file, ...s }: { file: string }) => s)).toEqual([{ source: '0123456789ab', title: 'mep.ifc', version: 2, at: '2026-10-11T00:00:00Z', by: '시험', key: 'mep/mep.ifc' }])
   })
 })
 
@@ -95,7 +95,7 @@ describe('챗봇(가짜 gemini)', () => {
     expect(r.text).toContain('--allowed-mcp-server-names onto')
     expect(r.text).toMatch(/--admin-policy \S*onto-chat\.policy\.toml/)
     expect(r.text).toContain('source=0123456789ab')
-    expect(r.text).toContain('AHU-1 @ 사무실')
+    expect(r.text).toContain('AHU-1 (`ex:0MEP$Equip$AHU1$0000`) @ 사무실')
     // 작업 폴더의 설정에는 onto 서버 하나뿐이다
     const settings = JSON.parse(readFileSync(resolve(ROOT, 'run/onto-chat/.gemini/settings.json'), 'utf8'))
     expect(Object.keys(settings.mcpServers)).toEqual(['onto'])

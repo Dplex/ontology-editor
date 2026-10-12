@@ -44,7 +44,7 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     send({ method: 'session/update', params: { sessionId: 's1', update: { sessionUpdate: 'tool_call', title: `mcp_onto_${tool}(text: ${word})` } } })
     const { server, result } = await mcpCall(tool, { text: word, ...(source ? { source } : {}) })
     const found = JSON.parse(result.content[0].text)
-    const answer = `server=${server} args=${process.argv.slice(2).join(' ')}\nsource=${source ?? ''}\n` + (found.results ?? []).map((r) => `${r.label} @ ${r.in?.label ?? '?'}`).join('\n')
+    const answer = `server=${server} args=${process.argv.slice(2).join(' ')}\nsource=${source ?? ''}\n` + (found.results ?? []).map((r) => `${r.label} (\`${r.id}\`) @ ${r.in?.label ?? '?'}`).join('\n')
     send({ method: 'session/update', params: { sessionId: 's1', update: { sessionUpdate: 'agent_message_chunk', content: { text: answer } } } })
     return send({ id: m.id, result: { stopReason: 'end_turn' } })
   }

@@ -22,7 +22,8 @@
     onto: {
       url: '/__ask', store: 'onto-chat:history', title: '온톨로지 질의', sub: '반영한 온톨로지(TTL) · 읽기 전용', wait: '온톨로지를 읽는 중…',
       hint: '[반영] 한 건물 온톨로지를 읽고 답합니다. 답 끝에 쓴 질의가 붙어 다시 돌려 확인할 수 있고,\n' +
-        '받는 쪽 DT 파서가 읽지 않는 정보(면적·방번호 같은 ex: 속성)로 답했으면 그렇게 알려 줍니다.\n\n' +
+        '받는 쪽 DT 파서가 읽지 않는 정보(면적·방번호 같은 ex: 속성)로 답했으면 그렇게 알려 줍니다.\n' +
+        '답의 id 옆 [3D] 를 누르면 내보낸 파일 뷰어가 그 반영본을 열고 그 요소를 고릅니다.\n\n' +
         '예) "AHU-1 은 어느 방에 있어?"\n    "2층 회의실에 있는 설비는?"\n    "이 공조기가 공기를 보내는 방은?"\n    "A101호는 어느 층이야?"',
     },
   }
@@ -36,6 +37,20 @@
     try { return JSON.parse(sessionStorage.getItem(MODES[mode].store) || '[]') } catch (e) { return [] }
   }
 
+  /** 건물(source) → { key, version }. 반영본이면 key 가 있어 답의 id 를 내보낸 파일 뷰어로 잇는다. */
+  var sourceInfo = {}
+  /** [온톨로지] 답의 `ex:…` 옆에 [3D] — 그 버전의 TTL·GeoJSON 을 뷰어(viewer.html)로 열고 그 요소를 고른다. */
+  function linkIds(html, src) {
+    var s = sourceInfo[src]
+    if (!s || !s.key) return html
+    return html.replace(/<code>ex:([^<\s]+)<\/code>/g, function (all, id) {
+      var local = id.replace(/\\(.)/g, '$1')
+      var href = 'viewer.html?key=' + encodeURIComponent(s.key) + '&v=' + encodeURIComponent(s.version) + '&select=' + encodeURIComponent(local)
+      return all + ' <a href="' + href + '" target="_blank" rel="noopener" title="내보낸 파일 뷰어에서 이 요소 보기">3D</a>'
+    })
+  }
+  function renderBot(t) { return mode === 'onto' ? linkIds(render(t.text), t.source) : render(t.text) }
+
   var css = [
     '#docs-chat{position:fixed;right:16px;bottom:16px;width:min(460px,calc(100vw - 32px));height:min(680px,calc(100vh - 32px));',
     'display:flex;flex-direction:column;z-index:2147483000;background:#14181f;color:#e6e8eb;border:1px solid #2d3440;',
@@ -44,8 +59,9 @@
     '#docs-chat header b{font-size:14px}#docs-chat header small{color:#8b94a3;flex:1}',
     '#docs-chat button{background:#232a35;color:#e6e8eb;border:1px solid #333c4a;border-radius:6px;padding:3px 9px;cursor:pointer;font:inherit}',
     '#docs-chat button:hover{background:#2c3543}#docs-chat button:disabled{opacity:.5;cursor:default}',
-    '#docs-chat .tabs{display:flex;gap:4px;width:100%}#docs-chat .tabs button[aria-pressed=true]{background:#1f3a5a;border-color:#3d6ea3}',
-    '#docs-chat select{background:#0f1218;color:#e6e8eb;border:1px solid #333c4a;border-radius:6px;padding:2px 6px;font:inherit;max-width:100%;flex:1}',
+    '#docs-chat .tabs{display:flex;gap:4px;width:100%;min-width:0}#docs-chat .tabs button{flex:none;white-space:nowrap}',
+    '#docs-chat .tabs button[aria-pressed=true]{background:#1f3a5a;border-color:#3d6ea3}',
+    '#docs-chat select{background:#0f1218;color:#e6e8eb;border:1px solid #333c4a;border-radius:6px;padding:2px 6px;font:inherit;flex:1;min-width:0;text-overflow:ellipsis}',
     '#docs-chat .list{flex:1;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px}',
     '#docs-chat .msg{padding:8px 10px;border-radius:8px;white-space:pre-wrap;word-break:break-word}',
     '#docs-chat .user{align-self:flex-end;background:#1f3a5a;max-width:85%}',
@@ -106,7 +122,7 @@
   function redraw() {
     list.innerHTML = ''
     if (!history.length) add('hint', MODES[mode].hint)
-    history.forEach(function (t) { add('msg ' + (t.role === 'user' ? 'user' : 'bot'), t.role === 'user' ? esc(t.text) : render(t.text)) })
+    history.forEach(function (t) { add('msg ' + (t.role === 'user' ? 'user' : 'bot'), t.role === 'user' ? esc(t.text) : renderBot(t)) })
   }
 
   function save() { try { sessionStorage.setItem(MODES[mode].store, JSON.stringify(history.slice(-20))) } catch (e) { /* 가득 차면 버린다 */ } }
@@ -132,6 +148,7 @@
     var started = Date.now()
     var ctl = new AbortController()
     var asked = mode
+    var askedSource = mode === 'onto' ? source : undefined
     setBusy(ctl)
 
     fetch(MODES[mode].url, {
@@ -162,7 +179,7 @@
       else onEvent({ type: 'error', message: e.message })
     }).then(function () {
       // 답하는 중에 칸을 바꿨으면 답은 원래 칸의 기록에 남긴다
-      if (text && asked === mode) { history.push({ role: 'assistant', text: text }); save() }
+      if (text && asked === mode) { history.push({ role: 'assistant', text: text, source: askedSource }); save() }
       else if (!text && !bot.querySelector('.err')) bot.innerHTML = '<span class="err">답이 비었다</span>'
       status.textContent = ((Date.now() - started) / 1000).toFixed(1) + '초'
       setBusy(null)
@@ -173,7 +190,7 @@
         if (bot.parentNode === list) list.insertBefore(Object.assign(document.createElement('div'), { className: 'tool', textContent: toolLine(ev.name, ev.args) }), bot)
       } else if (ev.type === 'text') {
         text = ev.delta === false ? ev.text : text + ev.text
-        bot.innerHTML = render(text)
+        bot.innerHTML = asked === 'onto' ? linkIds(render(text), askedSource) : render(text)
       } else if (ev.type === 'error' || ev.type === 'tool_error') {
         var hint = bot.querySelector('.hint')
         if (hint) hint.remove()
@@ -199,6 +216,9 @@
       }
       if (mode === 'onto') {
         var list_ = j.sources || []
+        list_.forEach(function (s) { sourceInfo[s.source] = { key: s.key, version: s.version } })
+        // 기록의 답은 목록이 오기 전에 그렸다 — [3D] 링크를 붙이려고 한 번 더 그린다
+        if (history.length) redraw()
         picker.innerHTML = list_.length
           ? list_.map(function (s) {
             return '<option value="' + esc(s.source) + '">' + esc(s.title + (s.version ? ' · v' + s.version : '') + (s.at ? ' · ' + String(s.at).slice(0, 10) : '')) + '</option>'

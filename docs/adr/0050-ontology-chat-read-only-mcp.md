@@ -7,8 +7,8 @@ deciders: ["정희록"]
 prd: []
 tickets: ["OE-SPC-10"]
 criteria: []
-code: ["scripts/onto-graph.mjs", "scripts/onto-mcp.mjs", "scripts/onto-sources.mjs", "scripts/onto-questions.mjs", "scripts/onto-bench.mjs", "scripts/docs-chat.mjs", "scripts/docs-chat.js", "scripts/serve.mjs"]
-tests: ["scripts/onto-graph.test.ts", "scripts/onto-chat.test.ts"]
+code: ["scripts/onto-graph.mjs", "scripts/onto-mcp.mjs", "scripts/onto-sources.mjs", "scripts/onto-questions.mjs", "scripts/onto-bench.mjs", "scripts/docs-chat.mjs", "scripts/docs-chat.js", "scripts/serve.mjs", "src/viewer/ExportViewer.vue"]
+tests: ["scripts/onto-graph.test.ts", "scripts/onto-chat.test.ts", "e2e/viewer.spec.ts"]
 related: ["ADR-0001", "ADR-0037", "ADR-0049"]
 ---
 
@@ -42,6 +42,9 @@ DT 에서는 사라지는 질문이 있는지가 "BIM 으로 DT 온톨로지가 
 - **같은 질의를 두 보기에 돌린다.** full 은 우리 TTL 전부, receiver 는 받는 쪽 파서가 읽는 만큼(`read-ttl.ts` 의 규칙을
   `onto-graph.mjs` 에 옮겨 적고, 시험이 두 결과가 같은지 본다). `onto_query` 는 receiver 의 결과 수를 같이 돌려주고, 다르면
   "DT 쪽 파서는 이 정보를 읽지 않는다" 고 답하게 한다.
+- **답의 근거를 3D 로 잇는다.** 창은 답에 적힌 `ex:…` id 옆에 [3D] 를 붙인다. 누르면 내보낸 파일 뷰어가
+  `viewer.html?key=…&v=…&select=…` 로 그 반영본의 TTL·층 GeoJSON 을 서버(/__data/__layouts)에서 받아 놓은 것처럼 읽고 그 요소를 고른다
+  (GLB 는 커서 `&3d=1` 일 때만). Nomic 이 답마다 출처를 눌러 보게 하는 것을 우리 산출물로 한다 — 앱(편집 화면) 상태는 여전히 넘기지 않는다.
 - **질문 시험대(`npm run onto:bench`)로 잰다.** DT 화면별 질문 12개(`onto-questions.mjs`)를 건물마다 구체적인 대상으로 바꿔
   정해진 패턴으로 답을 내고 full·receiver 를 견준다. `--ask` 면 같은 질문을 gemini 에 말로 물어 답에 기대한 이름·수가 들었는지 채점한다.
 
