@@ -43,6 +43,29 @@ export type FeatureCollection = {
 /** 층 사이 연결: 가리키는 feature id 와 출처. 물리존과 수직 관통 오브젝트 조각이 같은 모양으로 받는다. */
 export type VerticalRef = { to: readonly string[]; source: string }
 
+/**
+ * 수직 관통 오브젝트의 로봇 통과 여부(OE-EQP-17). 계단실은 불가, 승강로(EL)는 정차하는 층에서만 가능이고 정차를 확인하지 못한 층은
+ * 불가다. 정차 층은 BIM 이 따로 말하지 않아서 **그 층에서 승강로로 이어지는 문이 있으면** 정차 층으로 본다(출처 계산 — 승강장 문이
+ * 그 층에 있다는 뜻이다). 같은 false 라도 왜 불가인지 passableReason 으로 가른다 — 미확인 층은 정차 정보가 생기면 바뀔 값이다.
+ * 수직 관통 오브젝트가 아닌 방은 통과 속성을 두지 않는다. ES·샤프트 종류는 사전에 아직 없다.
+ */
+export type PassableReason = 'staircase' | 'elevator_stop' | 'elevator_stop_unconfirmed'
+
+function verticalPassable(
+  space: Space,
+  storey: Storey,
+): { passable: boolean; passableSource: 'dict' | 'calc'; passableReason: PassableReason } | null {
+  if (space.kind === 'staircase') return { passable: false, passableSource: 'dict', passableReason: 'staircase' }
+  if (space.kind === 'elevator_shaft') {
+    // 이어지는 문이 없으면 정차하지 않는 층인지, 문을 그리지 않은 것인지 모른다. 모르는 층으로 로봇을 보내지 않도록 불가로 적는다.
+    const stops = storey.openings.some((o) => o.kind === 'door' && (o.connects ?? []).includes(space.id))
+    return stops
+      ? { passable: true, passableSource: 'calc', passableReason: 'elevator_stop' }
+      : { passable: false, passableSource: 'calc', passableReason: 'elevator_stop_unconfirmed' }
+  }
+  return null
+}
+
 function spaceFeature(space: Space, storey: Storey, vertical?: VerticalRef): Feature {
   // 외곽선을 못 만든 공간도 빼지 않는다. geometry 를 null 로 둔 Feature 는 GeoJSON 에서
   // 적법하고, 빼 버리면 "온톨로지에는 있는데 지도에는 없는" 공간이 조용히 생긴다.
@@ -67,6 +90,8 @@ function spaceFeature(space: Space, storey: Storey, vertical?: VerticalRef): Fea
       // 옮길 자리다. 다른 층 파일의 물리존 id 를 가리킨다. 출처는 계단 오브젝트가 말한 것(bim)과 겹침 추정(calc)을
       // 가른다(ADR-0032·0033). 모호 후보는 여기 오지 않는다.
       ...(vertical?.to.length ? { verticalConnects: [...vertical.to], verticalConnectsSource: vertical.source } : {}),
+      // 로봇 통과 여부(OE-EQP-17). 수직 관통 오브젝트에만 둔다. 문·창·벽의 passable 과 같은 열쇠다.
+      ...(verticalPassable(space, storey) ?? {}),
     },
   }
 }
