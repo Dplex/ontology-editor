@@ -1814,7 +1814,16 @@ export function newId(): string {
   return `U_${Array.from(bytes, (b) => ID_CHARS[b % ID_CHARS.length]).join('')}`
 }
 
-export type NewEquipment = { name: string; kind: string | null; position: Vec3 | null; id?: string }
+export type NewEquipment = {
+  name: string
+  kind: string | null
+  position: Vec3 | null
+  id?: string
+  /** 사람이 그린 배관의 구간·이음쇠(OE-PIP-11, manual-pipe.ts). 종류 대신 역할·IFC 클래스·중심선·Flow Type 을 받는다. */
+  conduit?: { role: 'segment' | 'fitting'; ifcClass: string; axis?: [Vec3, Vec3]; flowType: string; endShift?: [Vec3, Vec3] }
+}
+
+const pair = (p: readonly [Vec3, Vec3]): [Vec3, Vec3] => [[p[0][0], p[0][1], p[0][2]], [p[1][0], p[1][1], p[1][2]]]
 
 /** 설비를 더한다. 좌표가 있으면 소속을 판정한다. 좌표 없이 더하면 미배치 목록에 들어간다(E6 으로 놓는다). */
 export function addEquipment(model: Model, storeyId: string, spec: NewEquipment): Equipment | null {
@@ -1827,12 +1836,12 @@ export function addEquipment(model: Model, storeyId: string, spec: NewEquipment)
   const equipment: Equipment = {
     id,
     name: spec.name,
-    // IFC 클래스는 모른다. 설비 전체의 윗 클래스로 둔다 — 종류를 고르면 Brick 클래스는 종류에서 나온다.
-    ifcClass: 'DistributionElement',
+    // IFC 클래스는 모른다. 설비 전체의 윗 클래스로 둔다 — 종류를 고르면 Brick 클래스는 종류에서 나온다. 그린 배관은 구간·이음쇠 클래스다.
+    ifcClass: spec.conduit?.ifcClass ?? 'DistributionElement',
     objectType: '',
     declaredType: null,
     kind: spec.kind,
-    role: info?.role ?? null,
+    role: spec.conduit?.role ?? info?.role ?? null,
     position: spec.position ? [spec.position[0], spec.position[1], spec.position[2]] : null,
     ...(spec.position ? { positionSource: 'edited' as const } : {}),
     capacity: null,
@@ -1841,6 +1850,13 @@ export function addEquipment(model: Model, storeyId: string, spec: NewEquipment)
     spaceId: null,
     spaceSource: null,
     added: true,
+    ...(spec.conduit
+      ? {
+          flowType: spec.conduit.flowType,
+          ...(spec.conduit.axis ? { axis: pair(spec.conduit.axis) } : {}),
+          ...(spec.conduit.endShift ? { endShift: pair(spec.conduit.endShift) } : {}),
+        }
+      : {}),
   }
   storey.equipment.push(equipment)
   assignEquipment(equipment, storey.spaces)

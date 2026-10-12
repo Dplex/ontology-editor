@@ -93,7 +93,18 @@ export type EditFile = {
   /** `kind` 는 사람이 정한 방 종류(OE-SPC-17, `null` 은 "모름" 으로 정한 것). 이름 사전이 읽는 종류면 적지 않는다. */
   spaces: { id: string; number?: string; longName?: string; footprint?: Vec2[]; kind?: string | null }[]
   /** 사람이 더한 설비(E7). id 는 에디터가 지은 것(`U_…`)이라 다시 열어도 같은 id 로 만든다. */
-  equipmentAdded?: { id: string; storeyId: string; name: string; kind: string | null; position?: Vec3; system?: string; wall?: string; surface?: Surface }[]
+  equipmentAdded?: {
+    id: string
+    storeyId: string
+    name: string
+    kind: string | null
+    position?: Vec3
+    system?: string
+    wall?: string
+    surface?: Surface
+    /** 사람이 그린 배관의 구간·이음쇠(OE-PIP-11). 중심선은 배치점에서 잰 상대 좌표이고, `ends` 는 그 뒤 끝을 옮긴 양이다. */
+    conduit?: { role: 'segment' | 'fitting'; ifcClass: string; flowType: string; axis?: [Vec3, Vec3]; ends?: [Vec3, Vec3] }
+  }[]
   equipmentRemoved?: string[]
   /** 사람이 만든 물리존(E3 생성·분할). 나눈 방의 남는 조각은 `spaces` 의 외곽선으로 적힌다. */
   spacesAdded?: { id: string; storeyId: string; name: string; longName: string; footprint: Vec2[]; kind?: string | null }[]
@@ -235,6 +246,17 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           ...(e.systemId ? { system: e.systemId } : {}),
           ...(e.wallId ? { wall: e.wallId } : {}),
           ...(e.surfaceSet ? { surface: e.surfaceSet } : {}),
+          ...((e.role === 'segment' || e.role === 'fitting') && e.flowType
+            ? {
+                conduit: {
+                  role: e.role,
+                  ifcClass: e.ifcClass,
+                  flowType: e.flowType,
+                  ...(e.axis ? { axis: [[...e.axis[0]], [...e.axis[1]]] as [Vec3, Vec3] } : {}),
+                  ...(e.endShift && e.endShift.some((v) => v.some((x) => x !== 0)) ? { ends: [[...e.endShift[0]], [...e.endShift[1]]] as [Vec3, Vec3] } : {}),
+                },
+              }
+            : {}),
         })
         continue
       }
@@ -621,7 +643,8 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     else result.missing.systems++
   }
   for (const row of file.equipmentAdded ?? []) {
-    const done = addEquipment(model, resolve(row.storeyId), { id: row.id, name: row.name, kind: row.kind, position: row.position ?? null })
+    const conduit = row.conduit ? { role: row.conduit.role, ifcClass: row.conduit.ifcClass, flowType: row.conduit.flowType, axis: row.conduit.axis, endShift: row.conduit.ends } : undefined
+    const done = addEquipment(model, resolve(row.storeyId), { id: row.id, name: row.name, kind: row.kind, position: row.position ?? null, conduit })
     if (done) {
       result.applied++
       equipmentIds.add(done.id)
