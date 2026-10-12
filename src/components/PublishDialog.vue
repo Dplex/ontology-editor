@@ -12,6 +12,8 @@ const props = defineProps<{
   edits: number
   busy: boolean
   by: string
+  /** 반영자가 화면 위에서 고른 사람이면 칸 대신 이름만 보인다(OE-COM-01). */
+  fixed?: boolean
 }>()
 const emit = defineEmits<{ publish: [by: string]; cancel: [] }>()
 
@@ -42,7 +44,8 @@ watch(
         <li><b>바뀐 것</b>: 편집 {{ edits }}건</li>
         <li><b>올리는 것</b>: 온톨로지(TTL) · 층마다 GeoJSON · 3D 형상(GLB) · 편집 파일 · 공간 계층 · 리포트</li>
       </ul>
-      <label class="publish-by">반영자 <input v-model="name" type="text" aria-label="반영자" required /></label>
+      <p v-if="fixed" class="publish-by" data-testid="publisher">반영자 <b>{{ by || '(사용자를 고르세요)' }}</b></p>
+      <label v-else class="publish-by">반영자 <input v-model="name" type="text" aria-label="반영자" required /></label>
       <div class="exit-edit-actions">
         <button type="submit" class="ghost primary-action" :disabled="busy || !name.trim()">{{ busy ? '올리는 중…' : first ? '구축하기' : '반영하기' }}</button>
         <button type="button" class="ghost" :disabled="busy" @click="emit('cancel')">취소</button>

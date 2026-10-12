@@ -52,7 +52,19 @@ export function validFile(name: string): boolean {
   return !!m && m[1].endsWith('.geojson') && !m[1].startsWith('.')
 }
 
-export function layouts(root: string, now: () => Date = () => new Date()) {
+export type LayoutOptions = {
+  now?: () => Date
+  /**
+   * 쓰기(올리기·반영·되돌리기)를 해도 되는 사람. 안 되면 답을 보내고 null(users.ts 의 writer). 없으면 반영자를 몸통의 `by` 로 받는다
+   * — 사람 목록이 없는 시험용이다.
+   */
+  writer?: (req: IncomingMessage, res: ServerResponse) => { name: string } | null
+  /** 반영·되돌리기를 시스템 로그에 남긴다(activity-log.ts). */
+  onVersion?: (e: { type: 'publish' | 'rollback'; user: string; key: string; floors: string[]; version: number }) => void
+}
+
+export function layouts(root: string, options: LayoutOptions = {}) {
+  const now = options.now ?? (() => new Date())
   const base = join(root, '.layouts')
   const idOf = (key: string) => createHash('sha1').update(key).digest('hex').slice(0, 16)
   const dirOf = (key: string) => join(base, idOf(key))
@@ -157,6 +169,8 @@ export function layouts(root: string, now: () => Date = () => new Date()) {
     }
 
     const stage = q.get('stage')
+    const writer = options.writer ? options.writer(req, res) : { name: '' }
+    if (!writer) return
     // 파일 하나 올리기.
     if (req.method === 'PUT') {
       const file = q.get('file')
@@ -187,7 +201,7 @@ export function layouts(root: string, now: () => Date = () => new Date()) {
     readBody(req)
       .then((text) => {
         const body = (text ? JSON.parse(text) : {}) as { by?: string; floors?: string[]; summary?: Record<string, unknown> }
-        const by = (body.by ?? '').trim()
+        const by = (writer.name || body.by || '').trim()
         if (!by) return json(res, 400, { error: '반영자가 없습니다' })
         mkdirSync(dir, { recursive: true })
         if (!existsSync(join(dir, 'key.json'))) writeFileSync(join(dir, 'key.json'), JSON.stringify({ key, paths }))
@@ -206,6 +220,7 @@ export function layouts(root: string, now: () => Date = () => new Date()) {
           if (!have.some((f) => f.startsWith('geojson/'))) missing.push('geojson/*.geojson' as never)
           if (missing.length) return json(res, 400, { error: `반영하지 않았습니다 — 빠진 파일: ${missing.join(', ')}. 지금 반영된 버전은 그대로입니다.` })
           const meta = commit(dir, at, { at: now().toISOString(), by, floors: body.floors ?? [], summary: body.summary ?? {}, kind: 'publish' })
+          options.onVersion?.({ type: 'publish', user: by, key, floors: meta.floors, version: meta.version })
           return json(res, 200, meta)
         }
 
@@ -219,6 +234,7 @@ export function layouts(root: string, now: () => Date = () => new Date()) {
           cpSync(join(dir, `v${from}`), at, { recursive: true })
           rmSync(join(at, 'meta.json'))
           const meta = commit(dir, at, { at: now().toISOString(), by, floors: old.floors, summary: old.summary, kind: 'rollback', from })
+          options.onVersion?.({ type: 'rollback', user: by, key, floors: meta.floors, version: meta.version })
           return json(res, 200, meta)
         }
         return json(res, 400, { error: 'publish 또는 rollback 이 필요합니다' })

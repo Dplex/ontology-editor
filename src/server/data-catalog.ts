@@ -18,6 +18,8 @@ import { importIfcWithMeshes } from '../lib/ifc/import'
 import { profileOf, type Profile } from '../lib/profile'
 import { savedEdits } from './saved-edits'
 import { layouts } from './layouts'
+import { users as userStore } from './users'
+import { activityLog } from './activity-log'
 
 type Profiled = { profile: Profile } | { error: string }
 
@@ -99,7 +101,7 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
   const root = resolve(dataDir)
   const list = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
-      // .edits(8084 저장본)·.layouts(반영 버전) 같은 숨은 폴더는 샘플이 아니다
+      // .edits(8084 저장본)·.layouts(반영 버전) 같은 숨은 폴더·파일은 샘플이 아니다
       d.name.startsWith('.')
         ? []
         : d.isDirectory()
@@ -113,14 +115,30 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
   const rank = (p: string) => (p.startsWith('성수/') ? 0 : 1)
   const ordered = (paths: string[]) => paths.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ko'))
   const profile = profiler(root, libDir)
-  const edits = savedEdits(root)
-  const layoutStore = layouts(root)
+  // 사람·역할(users.ts)과 시스템 로그(activity-log.ts). 쓰기(저장·반영·되돌리기·로그)는 고른 사람이 편집할 수 있는 역할일 때만 받는다.
+  const people = userStore(root)
+  const log = activityLog(root)
+  const edits = savedEdits(root, (key) => {
+    // 저장은 PUT 을 받기 전에 사람을 확인했다. 여기서는 로그만 남긴다.
+    log.write({ type: 'save', user: lastWriter, key, floors: [] })
+  })
+  let lastWriter = ''
+  const layoutStore = layouts(root, { writer: people.writer, onVersion: (e) => log.write(e) })
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const [rawPath, query] = (req.url ?? '/').split('?')
     const path = decodeURIComponent(rawPath).replace(/^\/+/, '')
     // 8084 에 남긴 편집(saved-edits.ts). 쓰기(PUT)를 받는 곳은 여기뿐이다.
-    if (path === '__edits') return edits(req, res, query ?? '')
+    if (path === '__users') return people.handle(req, res)
+    if (path === '__log') return log.handle(req, res, query ?? '', () => people.writer(req, res)?.name ?? null)
+    if (path === '__edits') {
+      if (req.method === 'PUT') {
+        const u = people.writer(req, res)
+        if (!u) return
+        lastWriter = u.name
+      }
+      return edits(req, res, query ?? '')
+    }
     // 반영한 레이아웃·버전(layouts.ts). 올리기(PUT)·반영·되돌리기(POST)를 받는다.
     if (path === '__layouts') return layoutStore(req, res, query ?? '')
     if (req.method !== 'GET' && req.method !== 'HEAD') {

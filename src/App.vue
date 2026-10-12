@@ -300,6 +300,49 @@ watch(mode, (m) => {
 })
 const editing = computed(() => mode.value === 'edit')
 
+// --- 사람·역할 (OE-COM-01·02, ADR-0038, server/users.ts) ---------------------------------------------------
+// 로그인 대신 서버의 사람 목록(data/.users.json)에서 고른다. 고른 사람은 쓰기 요청(저장·반영·되돌리기·로그)에 머리로 붙는다. 보기 전용(Viewer)은
+// 편집에 들어가지 못한다. 목록을 못 받으면(손으로 연 파일만 쓰는 곳, e2e 의 흉내 서버) 사람을 묻지 않고 예전처럼 돈다.
+type Person = { name: string; role: 'viewer' | 'admin' | 'super_admin' }
+const PERSON_ROLE: Record<Person['role'], string> = { viewer: '보기 전용', admin: 'Admin', super_admin: 'Super Admin' }
+const people = ref<Person[] | null>(null)
+const currentUser = ref(
+  (() => {
+    try {
+      return localStorage.getItem('oe.user') ?? ''
+    } catch {
+      return ''
+    }
+  })(),
+)
+watch(currentUser, (u) => {
+  try {
+    localStorage.setItem('oe.user', u)
+  } catch {
+    // 못 남겨도 이번 창에서는 그대로다
+  }
+})
+fetch('./__data/__users')
+  .then((r) => (r.ok ? r.json() : null))
+  .then((list) => (people.value = Array.isArray(list) && list.length ? list : null))
+  .catch(() => {})
+const me = computed(() => people.value?.find((p) => p.name === currentUser.value) ?? null)
+/** 편집할 수 없는 이유. 사람 목록이 없으면 막지 않는다. */
+const editBlock = computed(() => {
+  if (!people.value) return null
+  if (!me.value) return '화면 위의 사용자 칸에서 사람을 먼저 고르세요'
+  return me.value.role === 'viewer' ? `${me.value.name}은(는) 보기 전용(Viewer)이라 편집에 들어가지 않습니다` : null
+})
+/** 쓰기 요청에 붙이는 사람. */
+const asMe = (): Record<string, string> => (currentUser.value ? { 'X-OE-User': encodeURIComponent(currentUser.value) } : {})
+// 편집에 들어가는 길이 여럿이라(버튼·E 키·목록의 [놓기] 등) 모드가 바뀐 뒤에 막는다.
+watch([mode, editBlock], () => {
+  if (mode.value === 'edit' && editBlock.value) {
+    mode.value = 'view'
+    window.setTimeout(() => (keyNote.value = editBlock.value ?? ''))
+  }
+})
+
 // 문·창 형상도 읽을까. 온톨로지에는 필요 없고 로봇 경로(문 자리·문이 잇는 방)용이라 기본은 끈다.
 // 파일을 열 때 정하므로, 바꾸면 다음에 여는 파일부터 적용된다. 이 브라우저에만 기억한다.
 const readOpenings = ref(
@@ -6669,7 +6712,7 @@ async function saveToServer(file: EditFile): Promise<boolean> {
   const key = serverKey.value
   if (!key) return false
   try {
-    const r = await fetch(savedEditsUrl(key), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(file) })
+    const r = await fetch(savedEditsUrl(key), { method: 'PUT', headers: { 'Content-Type': 'application/json', ...asMe() }, body: JSON.stringify(file) })
     if (!r.ok) {
       const why = await r.json().then((b: { error?: string }) => b.error ?? '').catch(() => '')
       editFileNote.value = `8084 에 저장하지 못했습니다(HTTP ${r.status}${why ? ` · ${why}` : ''}). 파일로 내려받았습니다.`
@@ -6753,6 +6796,7 @@ function exitSaving() {
  */
 function keepDraft(keys: string[] = viewStorey.value ? [viewStorey.value] : dirtyKeys()) {
   if (!model.value || !baseline.value) return
+  logActivity('draft', model.value.storeys.filter((st) => keys.includes(st.id)).map((st) => st.name))
   const parts = currentParts()
   const saved = new Map(savedParts.value)
   const all = [...new Set([...keys, BUILDING])]
@@ -7609,6 +7653,32 @@ async function refreshLayouts() {
   }
 }
 watch(serverKey, () => void refreshLayouts(), { immediate: true })
+
+// --- 시스템 로그 (OE-COM-04, server/activity-log.ts) ---
+// 편집 시작·종료·임시 저장은 화면만 안다. 반영·되돌리기·저장은 서버가 적는다. 보내다 실패해도 편집은 막지 않는다.
+function logActivity(type: 'edit-start' | 'edit-end' | 'draft', floors: string[] = []) {
+  const key = serverKey.value
+  if (!key || !people.value || !me.value) return
+  void fetch('./__data/__log', { method: 'POST', headers: asMe(), body: JSON.stringify({ type, key, floors }) }).catch(() => {})
+}
+watch(editing, (on, was) => {
+  if (on === was) return
+  const st = model.value?.storeys.find((x) => x.id === viewStorey.value)
+  logActivity(on ? 'edit-start' : 'edit-end', st ? [st.name] : [])
+})
+const activity = ref<{ at: string; type: string; user: string; floors: string[]; version?: number }[]>([])
+async function refreshActivity() {
+  const key = serverKey.value
+  if (!key) return void (activity.value = [])
+  try {
+    const r = await fetch(`./__data/__log?${new URLSearchParams({ key })}`)
+    activity.value = r.ok ? (await r.json()).slice(0, 10) : []
+  } catch {
+    activity.value = []
+  }
+}
+watch(layoutState, () => void refreshActivity())
+const ACTIVITY_LABEL: Record<string, string> = { 'edit-start': '편집 시작', 'edit-end': '편집 종료', draft: '임시 저장', save: '편집 저장', publish: '레이아웃 반영', rollback: '레이아웃 되돌리기' }
 /** 첫 반영이면 [구축하기](v1), 아니면 [반영하기]. */
 const firstPublish = computed(() => !layoutState.value?.current)
 const nextVersion = computed(() => Math.max(0, ...(layoutState.value?.versions.map((v) => v.version) ?? [])) + 1)
@@ -7632,6 +7702,7 @@ const publishFloors = computed(() => {
 })
 function askPublish() {
   if (!serverKey.value) return void build()
+  if (editBlock.value) return note(editBlock.value)
   publishAsk.value = true
 }
 async function publishLayout(by: string) {
@@ -7652,13 +7723,15 @@ async function publishLayout(by: string) {
     const edits = exportEdits(m, baseline.value, fileName.value)
     const stage = Array.from(crypto.getRandomValues(new Uint8Array(10)), (b) => b.toString(16).padStart(2, '0')).join('')
     const put = async (name: string, body: BodyInit) => {
-      const r = await fetch(layoutsUrl({ key, stage, file: name }), { method: 'PUT', body })
+      const r = await fetch(layoutsUrl({ key, stage, file: name }), { method: 'PUT', headers: asMe(), body })
+      if (r.status === 401 || r.status === 403) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`)
       if (!r.ok) throw new Error(`${name} 을 올리지 못했습니다(HTTP ${r.status})`)
     }
     for (const f of layoutFiles(m, edits)) await put(f.name, f.text)
     await put('model.glb', new Blob(await makeMesh3D('glb')))
     const r = await fetch(layoutsUrl({ key, stage, publish: '' }), {
       method: 'POST',
+      headers: asMe(),
       body: JSON.stringify({ by, floors: publishFloors.value, summary: layoutSummary(m, edits) }),
     })
     const body = await r.json()
@@ -7683,8 +7756,9 @@ async function publishLayout(by: string) {
 const rollbackAsk = ref<number | null>(null)
 async function rollbackLayout(version: number) {
   const key = serverKey.value
-  if (!key || !publisher.value.trim()) return note('반영자를 먼저 넣으세요(반영하기 창에서 한 번 넣으면 기억합니다)')
-  const r = await fetch(layoutsUrl({ key, rollback: String(version) }), { method: 'POST', body: JSON.stringify({ by: publisher.value }) })
+  const by = people.value ? currentUser.value : publisher.value
+  if (!key || !by.trim()) return note(people.value ? '화면 위의 사용자 칸에서 사람을 먼저 고르세요' : '반영자를 먼저 넣으세요(반영하기 창에서 한 번 넣으면 기억합니다)')
+  const r = await fetch(layoutsUrl({ key, rollback: String(version) }), { method: 'POST', headers: asMe(), body: JSON.stringify({ by }) })
   const body = await r.json().catch(() => ({}))
   rollbackAsk.value = null
   editNotice.value = ''
@@ -7879,8 +7953,15 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
             <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
             <div class="mode-switch" role="group" aria-label="화면 모드">
               <button type="button" :aria-pressed="mode === 'view'" @click="leaveEdit()">보기</button>
-              <button type="button" :aria-pressed="mode === 'edit'" :disabled="busy" @click="mode = 'edit'">편집</button>
+              <button type="button" :aria-pressed="mode === 'edit'" :disabled="busy || !!editBlock" :title="editBlock ?? undefined" @click="mode = 'edit'">편집</button>
             </div>
+            <!-- 사람(OE-COM-01). 서버의 사람 목록에서 고른다. 보기 전용은 편집에 들어가지 않는다. -->
+            <label v-if="people" class="who" title="반영자·로그에 남는 사람입니다(data/.users.json)">
+              <select v-model="currentUser" aria-label="사용자">
+                <option value="">사용자 고르기…</option>
+                <option v-for="p in people" :key="p.name" :value="p.name">{{ p.name }} · {{ PERSON_ROLE[p.role] }}</option>
+              </select>
+            </label>
             <span class="bar-sep" aria-hidden="true"></span>
             <!-- 여는·합치는 중(busy)에는 막는다. 건축·설비를 같이 열 때 설비를 읽는 동안 누르면 건축만 든 파일이 나갔다. -->
             <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" :disabled="busy" :class="{ done: justDone === 'geojson' }" @click="exportGeoJSONDone">GeoJSON</button>
@@ -10941,6 +11022,12 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
                 </tr>
               </tbody>
             </table>
+            <details v-if="activity.length" class="activity" data-testid="activity">
+              <summary>최근 기록 {{ activity.length }}줄 (시스템 로그)</summary>
+              <ul>
+                <li v-for="(a, i) in activity" :key="i">{{ versionTime(a.at) }} · {{ ACTIVITY_LABEL[a.type] ?? a.type }}{{ a.version ? ` v${a.version}` : '' }} · {{ a.user }}{{ a.floors.length ? ` · ${a.floors.join(' · ')}` : '' }}</li>
+              </ul>
+            </details>
             <p class="hint">최근 {{ 7 }}일의 반영만 보입니다. 지난 버전은 파일만 서버에 남습니다. 되돌리기는 그 버전을 새 버전으로 다시 반영하고, 지금 화면의 편집은 그대로 둡니다.</p>
           </Fold>
 
@@ -11114,7 +11201,8 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
       :floors="publishFloors"
       :edits="changeCount"
       :busy="publishing"
-      :by="publisher"
+      :by="people ? currentUser : publisher"
+      :fixed="!!people"
       @publish="publishLayout"
       @cancel="publishAsk = false"
     />
