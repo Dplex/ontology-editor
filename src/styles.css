@@ -3783,13 +3783,15 @@ button.done::after {
   padding: 0.35rem 0;
   border-bottom: 1px solid var(--line, #e5e7eb);
 }
-.hvac-zones .zone-served {
+.hvac-zones .zone-served,
+.served-zones .zone-served {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.3rem;
 }
-.hvac-zones .zone-served .chip {
+.hvac-zones .zone-served .chip,
+.served-zones .zone-served .chip {
   border: 1px solid var(--line, #e5e7eb);
   border-radius: 999px;
   padding: 0 0.5rem;
@@ -3800,6 +3802,12 @@ button.done::after {
   border-style: dashed;
   border-color: var(--accent);
   color: var(--accent);
+}
+.served-zones .zone-served {
+  margin: 0.2rem 0 0.6rem;
+}
+.served-zones span.chip {
+  cursor: default;
 }
 .hvac-zones .zone-make {
   display: flex;

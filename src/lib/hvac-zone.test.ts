@@ -12,6 +12,7 @@ import {
   deleteHvacZone,
   deleteZoneVertex,
   findHvacZone,
+  flowSpacesOfEquipment,
   flowSpacesOfZones,
   hvacZonesOf,
   insertZoneVertex,
@@ -261,6 +262,17 @@ describe('연결 기준 후보와 경고 (OE-MAP-02)', () => {
     setZoneServedBy(model, z.id, [equip('LIGHT-101-01').id])
     expect(flowSpacesOfZones(model).has(z.id)).toBe(false)
     expect(rule()).toEqual([])
+  })
+})
+
+describe('설비에서 공조존 만들기 (OE-ZON-01)', () => {
+  it('설비 하나에서 확정된 흐름으로 닿는 말단의 물리존을 담당으로 공조존을 만들 수 있고, 흐름이 없는 설비는 비어 있다', () => {
+    expect(flowSpacesOfEquipment(model, equip('AHU-1').id)).toEqual([office().id])
+    expect(flowSpacesOfEquipment(model, equip('AT-101-02').id)).toEqual([office().id])
+    expect(flowSpacesOfEquipment(model, equip('LIGHT-101-01').id)).toEqual([])
+    const zone = createZoneFromSpaces(model, { spaceIds: flowSpacesOfEquipment(model, equip('AHU-1').id), servedBy: [equip('AHU-1').id] }) as HvacZone
+    expect(zone.spaceIds).toEqual([office().id])
+    expect(block(modelToTTL(model), equip('AHU-1').id)).toContain(`ex:${escapeLocalName(zone.id)}`)
   })
 })
 
