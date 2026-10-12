@@ -64,3 +64,38 @@ test('담당 물리존을 골라 공조존을 만들고 담당 설비를 고르�
   await expect(zone).toHaveCount(3)
   expect(errors).toEqual([])
 })
+
+test('공조존 검증이 공백·중복·설비 미지정을 보이고, 담당 물리존을 빼고 더하면 바로 다시 잰다 (OE-ZON-05 · OE-ZON-04)', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const fold = page.getByTestId('hvac-zones')
+  const checks = fold.getByTestId('zone-checks')
+  await expect(checks).toContainText('공조존이 아직 없는 층은 Z-01 을 세지 않습니다: 1F')
+
+  await fold.getByLabel('사무실').check()
+  await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
+  await expect(checks.locator('li', { hasText: 'Z-04' })).toContainText('1개 — 공조존 1')
+  await expect(checks.locator('li', { hasText: 'Z-01' })).toContainText('없음')
+  // 경계를 그려 사무실 일부를 덮으면 공조존 1 과 같은 영역을 담당한다(Z-02).
+  await fold.getByRole('button', { name: '경계를 그려 만들기' }).click()
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  for (const [x, y] of [[1, 1], [4, 1], [4, 4], [1, 4]]) {
+    const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
+    await page.mouse.click(at.x, at.y)
+  }
+  await page.keyboard.press('Enter')
+  await expect(checks.locator('li', { hasText: 'Z-02' })).toContainText('공조존 1 · 공조존 2')
+  await fold.getByLabel('공조존 1 담당 설비 더하기').selectOption({ label: 'AHU-1 · 공조기' })
+  await expect(checks.locator('li', { hasText: 'Z-04' })).toContainText('1개 — 공조존 2')
+  await expect(checks.locator('li', { hasText: 'Z-05' })).toContainText('1개 — 공조존 2')
+
+  // 공조존 1 에서 사무실을 빼려 하면 하나는 남겨야 해서 막는다.
+  const first = fold.locator('.zone-list li[data-zone]').first()
+  await first.getByRole('button', { name: '사무실 ×' }).click()
+  await expect(page.locator('.key-note')).toContainText('담당 물리존을 하나 이상 남기세요')
+  expect(errors).toEqual([])
+})
