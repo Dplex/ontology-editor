@@ -31,6 +31,7 @@ import { storeyHeights, type StoreyHeight } from './lib/storey-height'
 import { storeyFiles } from './lib/export/storey-export'
 import { clearStoreyDone, markStoreyDone, storeyProgress, type StoreyProgress } from './lib/storey-progress'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
+import { outlinelessSpaces, outlineWarnings } from './lib/outline-fill'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
@@ -629,6 +630,15 @@ const wallThicknessLabel = (storey: { walls: { thickness: number | null }[] }) =
 // 외벽 설비(OE-EQP-15). 방 밖이 맞는 자리라 소속을 "외벽" 으로 보인다(TTL 은 층까지만 나간다).
 const exteriorIds = computed(() => (model.value ? exteriorDevices(model.value) : new Set<string>()))
 const locationOf = (e: Equipment) => (e.spaceId ? spaceNameOf(e.spaceId) : exteriorIds.value.has(e.id) ? '외벽 (층까지만)' : '(소속 없음)')
+/**
+ * 리포트의 소속 자리. 물리존이 없으면 TTL 이 그렇듯 층까지만이라고 적는다 — 외곽선 없는 물리존에 외곽선을 그리면 그 안 설비가
+ * "(1F 층까지만) → 사무실" 로 남는다(OE-MAN-03).
+ */
+const reportPlace = (spaceId: string | null, equipmentId: string) => {
+  if (spaceId) return spaceNameOf(spaceId)
+  const storey = storeyOf(equipmentId)
+  return storey ? `(${storey.name} 층까지만)` : '(소속 없음)'
+}
 const spaceNameOf = (spaceId: string | null) => {
   if (!model.value || !spaceId) return '(소속 없음)'
   for (const storey of model.value.storeys) {
@@ -4162,6 +4172,9 @@ function finishDraw(): boolean {
   if (changeFootprint(spaceId, `${d.name} 외곽선 그리기`, (m) => drawSpaceFootprint(m, spaceId, d.points))) {
     selectedSpaceId.value = spaceId
     note(`${d.name}의 외곽선을 그렸습니다. 꼭짓점은 끌거나 [ ]로 골라 고칩니다`)
+    // 막지 않고 알린다(OE-MAN-03): BIM 면적과 다름, 다른 물리존과 겹침, 자기교차.
+    const warn = outlineWarnings(model.value!, spaceId)
+    if (warn.length) editNotice.value = `${d.name}: ${warn.join(' ')} 외곽선을 확인하세요.`
   }
   return true
 }
@@ -6024,6 +6037,16 @@ const warnings = computed(() => [...(model.value?.warnings ?? []), ...(unlocated
 // 놓을 때마다 줄어든다. 설비 표의 빈 좌표 칸으로는 수천 행 사이에서 찾을 수 없었고, 완전성 검사는 방이 없는 파일에서
 // 건너뛴다(ifc4Mep 28대). 많으면 앞의 UNPLACED_SHOWN 대만 그린다.
 const unplaced = computed(() => (model.value ? unplacedOf(model.value) : []))
+/** 외곽선 없는 물리존(OE-MAN-03). 3D 에 없고 소속 판정에 쓰이지 않는다. 검토 화면에서 골라 그린다. */
+const outlineless = computed(() => (model.value ? outlinelessSpaces(model.value) : []))
+/** 검토 화면의 목록에서 고른 물리존의 외곽선을 그린다. 편집 모드가 아니면 들어간다. */
+async function drawOutlineFromList(spaceId: string) {
+  if (mode.value !== 'edit') {
+    mode.value = 'edit'
+    await nextTick()
+  }
+  startDraw(spaceId)
+}
 /** 팔레트의 미배치 목록. 한 층만 보는 중이면 그 층 것만. */
 const unplacedHere = computed(() => unplaced.value.filter((u) => !viewStorey.value || u.storey.id === viewStorey.value))
 const unplacedOpen = ref(false)
@@ -8142,6 +8165,28 @@ async function export3D(format: 'glb' | 'obj') {
 
         <!-- 미배치 목록(OE-BIM-07). 좌표가 없어 3D 에 없는 설비. 층은 BIM 이 말한 것이고, TTL 에는 그 층까지만 나간다. 놓기는 편집
              팔레트의 미배치 목록에서 한다(OE-EQP-02 — 따로 [3D에서 놓기] 버튼을 두지 않는다). -->
+        <!-- 외곽선 없는 물리존(OE-MAN-03). 모델을 합치며 다른 모델에서 외곽선을 빌려온 방은 이미 외곽선이 있어 나오지 않는다. -->
+        <Fold
+          v-if="outlineless.length"
+          title="외곽선 없는 물리존"
+          :meta="`${outlineless.length.toLocaleString()}개 — 3D 에 없고 설비 소속 판정에 쓰이지 않습니다`"
+          :default-open="outlineless.length <= 30"
+          class="outlineless"
+          data-testid="outlineless"
+        >
+          <ul class="unplaced-list">
+            <li v-for="o in outlineless.slice(0, UNPLACED_SHOWN)" :key="o.space.id">
+              <button type="button" class="link" :disabled="busy" @click="drawOutlineFromList(o.space.id)">{{ o.space.longName || o.space.name || o.space.id }}</button>
+              <span class="muted">
+                {{ o.storey.name }}<template v-if="o.space.name"> · 번호 {{ o.space.name }}</template> ·
+                {{ o.space.bimArea ? `BIM 면적 ${o.space.bimArea.m2.toFixed(1)}㎡` : 'BIM 면적 없음' }}
+              </span>
+            </li>
+          </ul>
+          <p v-if="outlineless.length > UNPLACED_SHOWN" class="muted">외 {{ (outlineless.length - UNPLACED_SHOWN).toLocaleString() }}개 — 편집의 물리존 표에서 "외곽선 없음" 인 것입니다</p>
+          <p class="hint">누르면 그 층 3D 에서 점을 차례로 찍어 외곽선을 그립니다(Enter·첫 점으로 닫기, Esc 취소). 물리존 수는 늘지 않고 이름·번호·종류는 그대로입니다.</p>
+        </Fold>
+
         <Fold v-if="unplaced.length" title="미배치 설비" :meta="`${unplaced.length.toLocaleString()}대 — 좌표가 없어 3D에 없습니다`" :default-open="unplaced.length <= 30" class="unplaced">
           <ul class="unplaced-list">
             <li v-for="u in unplaced.slice(0, UNPLACED_SHOWN)" :key="u.equipment.id">
@@ -8978,7 +9023,7 @@ async function export3D(format: 'glb' | 'obj') {
           <ul v-if="changeCount > 0 || areaChanges.length" class="report">
             <li v-for="c in report" :key="c.equipmentId">
               {{ c.equipmentName }}:
-              <b>{{ spaceNameOf(c.fromSpaceId) }}</b> → <b>{{ spaceNameOf(c.toSpaceId) }}</b>
+              <b>{{ reportPlace(c.fromSpaceId, c.equipmentId) }}</b> → <b>{{ reportPlace(c.toSpaceId, c.equipmentId) }}</b>
             </li>
             <!-- 사람의 소속 지정(K17). 해제된 것도 조용히 바꾸지 않고 까닭과 함께 보인다. -->
             <li v-for="r in assignLines" :key="`assign-${r.id}`">
