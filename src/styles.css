@@ -1298,6 +1298,37 @@ th {
   color: var(--accent);
 }
 
+/* 미리보기(OE-WF-07~09). 편집 막대 바로 아래. */
+.preview-panel {
+  margin: 0.4rem 0;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 0.85rem;
+}
+
+.preview-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.preview-head .muted {
+  flex: 1;
+}
+
+.preview-summary {
+  margin: 0.4rem 0;
+}
+
+.preview-impact {
+  max-height: 10rem;
+  overflow: auto;
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
 /* 수용 기준선 판정(OE-BIM-21). 미달이면 경고색. */
 .grade-banner {
   display: flex;

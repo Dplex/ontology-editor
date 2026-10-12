@@ -108,7 +108,7 @@ export type EditFile = {
   }[]
   equipmentRemoved?: string[]
   /** 사람이 만든 물리존(E3 생성·분할). 나눈 방의 남는 조각은 `spaces` 의 외곽선으로 적힌다. */
-  spacesAdded?: { id: string; storeyId: string; name: string; longName: string; footprint: Vec2[]; kind?: string | null }[]
+  spacesAdded?: { id: string; storeyId: string; name: string; longName: string; footprint: Vec2[]; kind?: string | null; splitFrom?: string }[]
   /** 없어진 물리존. `into` 가 있으면 그 방에 합친 것이고(문이 그 방을 가리키게 된다), 없으면 지운 것이다. */
   spacesRemoved?: { id: string; into?: string }[]
   /**
@@ -237,6 +237,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           longName: space.longName,
           footprint: space.footprint.map((p) => [p[0], p[1]]),
           ...(space.kindSource === 'edit' ? { kind: space.kind ?? null } : {}),
+          ...(space.splitFrom ? { splitFrom: space.splitFrom } : {}),
         })
         continue
       }
@@ -690,6 +691,10 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       result.applied++
       spaceIds.add(row.id)
       if (row.kind !== undefined) setSpacesKind(model, [row.id], row.kind)
+      if (row.splitFrom) {
+        const piece = model.storeys.flatMap((s) => s.spaces).find((sp) => sp.id === row.id)
+        if (piece) piece.splitFrom = resolve(row.splitFrom)
+      }
       result.changes.push(...done.equipment)
     } else result.missing.spaces++
   }

@@ -14,8 +14,10 @@ const props = defineProps<{
   by: string
   /** 반영자가 화면 위에서 고른 사람이면 칸 대신 이름만 보인다(OE-COM-01). */
   fixed?: boolean
+  /** 미리보기와 같은 변경 요약(OE-WF-12). */
+  summary?: string
 }>()
-const emit = defineEmits<{ publish: [by: string]; cancel: [] }>()
+const emit = defineEmits<{ publish: [by: string]; cancel: []; preview: [] }>()
 
 const dialog = ref<HTMLDialogElement | null>(null)
 const name = ref(props.by)
@@ -42,12 +44,14 @@ watch(
       <ul class="hint" data-testid="publish-summary">
         <li><b>대상 층</b>: {{ floors.length ? floors.join(' · ') : '없음' }}</li>
         <li><b>바뀐 것</b>: 편집 {{ edits }}건</li>
+        <li v-if="summary"><b>변경 요약</b>: {{ summary }}</li>
         <li><b>올리는 것</b>: 온톨로지(TTL) · 층마다 GeoJSON · 3D 형상(GLB) · 편집 파일 · 공간 계층 · 리포트</li>
       </ul>
       <p v-if="fixed" class="publish-by" data-testid="publisher">반영자 <b>{{ by || '(사용자를 고르세요)' }}</b></p>
       <label v-else class="publish-by">반영자 <input v-model="name" type="text" aria-label="반영자" required /></label>
       <div class="exit-edit-actions">
         <button type="submit" class="ghost primary-action" :disabled="busy || !name.trim()">{{ busy ? '올리는 중…' : first ? '구축하기' : '반영하기' }}</button>
+        <button type="button" class="ghost" :disabled="busy" @click="emit('preview')">미리보기</button>
         <button type="button" class="ghost" :disabled="busy" @click="emit('cancel')">취소</button>
       </div>
     </form>
