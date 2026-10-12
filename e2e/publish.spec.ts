@@ -37,7 +37,9 @@ test.afterAll(() => {
   rmSync(root, { recursive: true, force: true })
 })
 
-async function serve(page: Page) {
+/** mep.ifc 는 기기 5대 중 소속 4대(80%)라 수용 기준선(게이트 누적 등급 0~3, 등급 2 ≥ 85%) 미달이다. 반영을 재는 시험은 통과선을 낮춰 둔다(화면의 설정과 같은 자리). */
+async function serve(page: Page, gate = false) {
+  if (!gate) await page.addInitScript(() => localStorage.setItem('oe.gradeLines', JSON.stringify({ 0: 0.85, 1: 0.5, 2: 0.5, 3: 0, 4: 0.5 })))
   await page.route('**/__data/**', async (route) => {
     const url = new URL(route.request().url())
     const path = decodeURIComponent(url.pathname.replace(/^\/__data\/?/, ''))
@@ -301,4 +303,32 @@ test('반영된 온톨로지가 없으면 [초기 구축] 만, 있으면 [운영
   await expect(third.getByTestId('edit-kind')).toHaveText('운영 편집 · v1')
   await expect(light(third)).toHaveValue('7.5')
   await third.close()
+})
+
+test('수용 기준선(게이트 등급 0~3) 미달이면 [구축하기] 가 꺼지고 재제출 항목이 보이며, 통과선을 바꾸면 판정만 바뀐다 [OE-BIM-21#1] [OE-GEN-02#1~]', async ({ page }) => {
+  await serve(page, true)
+  await page.goto('/')
+  await page.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+  const banner = page.getByTestId('grade-banner')
+  await expect(banner).toContainText('게이트(등급 0~3) 미달')
+  await expect(banner).toContainText('재제출: 등급 1 설비 목록 80.0% · 등급 2 설비 소속 80.0%')
+  await page.getByLabel('사용자').selectOption('편집자')
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const build = page.locator('.edit-bar').getByRole('button', { name: '구축하기' })
+  await expect(build).toBeDisabled()
+  await expect(build).toHaveAttribute('title', /수용 기준선\(게이트 등급 0~3\) 미달이라 구축하지 않습니다/)
+  // 등급 판정 표: 게이트 줄의 재제출 항목과 목표선의 두 수치.
+  await banner.getByRole('button', { name: '등급 판정 보기' }).click()
+  const table = page.getByTestId('grade-table')
+  await expect(table.locator('.grade-rows li')).toHaveCount(5)
+  await expect(table.locator('.grade-rows li').nth(2)).toContainText('재제출: R12·R1')
+  if (process.env.SHOT_GRADE) await page.screenshot({ path: process.env.SHOT_GRADE })
+  // 통과선을 80% 로 낮추면 판정만 바뀌어 [구축하기] 가 켜진다.
+  for (const g of [1, 2]) {
+    await table.getByLabel(`등급 ${g} 통과선(%)`).fill('80')
+    await table.getByLabel(`등급 ${g} 통과선(%)`).press('Tab')
+  }
+  await expect(banner).toContainText('게이트(등급 0~3) 통과')
+  await expect(build).toBeEnabled()
 })
