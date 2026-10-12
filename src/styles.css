@@ -3840,3 +3840,10 @@ button.done::after {
 .pipe-draw-row select {
   max-width: 14rem;
 }
+
+/* 덕트·배관 조각을 지울 때의 영향(OE-PIP-10). 지우기 버튼 아래 한 줄. */
+.danger-zone .removal-impact {
+  display: block;
+  margin-top: 0.3rem;
+  color: var(--warn-fg);
+}
