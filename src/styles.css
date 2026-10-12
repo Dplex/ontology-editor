@@ -4020,6 +4020,48 @@ main.has-model .catalog {
   opacity: 1;
 }
 
+/* 문·창 도면 기호. 벽을 비우는 칸은 바탕색, 문짝은 글자색 굵은 선, 창의 유리 선은 3D 유리와 같은 파랑. */
+.floor-plan .openings g {
+  pointer-events: none;
+}
+
+.floor-plan .openings g.pickable {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.floor-plan .openings .gap {
+  fill: var(--surface);
+  stroke: var(--muted);
+}
+
+.floor-plan .openings .jamb {
+  stroke: var(--muted);
+}
+
+.floor-plan .openings .door .leaf {
+  stroke: var(--fg);
+}
+
+.floor-plan .openings .window .leaf {
+  stroke: #5b8fc7;
+}
+
+/* 다크 바탕에서는 같은 파랑이 어둡게 묻혀 한 단 밝게. */
+:root[data-theme='dark'] .floor-plan .openings .window .leaf {
+  stroke: #8db8ea;
+}
+
+.floor-plan .openings g.chosen .gap {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+}
+
+.floor-plan .openings g.chosen .leaf,
+.floor-plan .openings g.chosen .jamb {
+  stroke: var(--accent);
+}
+
 .floor-plan .labels text {
   fill: var(--fg);
   opacity: 0.7;

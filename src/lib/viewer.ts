@@ -56,6 +56,7 @@ import type { MeshMap } from './ifc/import'
 import { distanceToRing, pointInPolygon } from './mapping'
 import { easeOut, still } from './motion'
 import { isMultiSelect } from './shortcuts'
+import { alongOf, cutWall, openingRect, type OpeningCut } from './opening-cut'
 import { createReplayFx, type ReplayViewerApi } from './replay-viewer'
 import { type LibraryItem, type ObjectMaterial } from './space-object'
 import { partId } from './vertical-object'
@@ -136,6 +137,18 @@ const ARCH_WALL_HEIGHT = 1.2
  * 면을 세우면 방 안이 가리므로 윗면 외곽선과 모서리 세로선만 옅게 그린다. 높이를 모르는 벽(null)은 그리지 않는다.
  */
 const ARCH_WALL_TOP = { color: 0x8a94a3, opacity: 0.45 }
+/**
+ * 문·창의 모양(OE-OBJ-07). 벽에 그 자리를 뚫고(opening-cut.ts) 문틀 두 기둥과 문짝·유리를 세운다. 벽처럼 단면(ARCH_WALL_HEIGHT)
+ * 위는 자르고, 그 위의 실제 문·창 윤곽은 벽의 실제 높이 윤곽선과 같이 옅은 선으로 그린다. 문틀 폭·문짝·유리 두께(미터)와 유리 색.
+ */
+const OPENING_FRAME = 0.05
+const DOOR_LEAF = 0.04
+const GLASS = 0.02
+const GLASS_COLOR = { color: 0x9cc3e6, opacity: 0.4 }
+/** 다크 테마의 문짝·문틀. ARCH_COLORS.door(짙은 회청)는 어두운 바탕(#1c1f26)에 묻혀 바깥 벽의 문이 뚫린 구멍처럼 보였다. */
+const DOOR_DARK = 0x6b7a90
+/** 크기를 모르는 문·창(ADR-0009 의 기본값과 같다). */
+const FALLBACK_SIZE = { door: [0.9, 2.1], window: [1.0, 1.0] } as const
 /** 문·창을 누를 때 자리에서 이만큼 안이면 그 문·창이다(미터). */
 const ELEMENT_REACH = 0.35
 /** 룸(OE-OBJ-03) 외곽선 높이(층 바닥 위, 미터). 물리존 판(+0.1)과 커스텀존(+0.25) 사이다. */
@@ -1029,20 +1042,92 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
    * 수백 개를 다시 삼각분할했다(dental 의 문 하나 옮기기에 65ms). 합칠 때 복사하고 고치지 않으니 같은 것을 다시 써도 된다.
    */
   const extruded = new Map<string, BufferGeometry>()
-  function extrudeRing(ring: readonly Vec2[], y: number): BufferGeometry {
-    const key = `${y}|${ring.map((p) => `${p[0]},${p[1]}`).join(';')}`
+  function extrudeRing(ring: readonly Vec2[], y: number, height = ARCH_WALL_HEIGHT): BufferGeometry {
+    const key = `${y}|${height}|${ring.map((p) => `${p[0]},${p[1]}`).join(';')}`
     let g = extruded.get(key)
     if (!g) {
       const shape = new Shape()
       shape.moveTo(ring[0][0], ring[0][1])
       for (const p of ring.slice(1)) shape.lineTo(p[0], p[1])
-      g = new ExtrudeGeometry(shape, { depth: ARCH_WALL_HEIGHT, bevelEnabled: false })
+      g = new ExtrudeGeometry(shape, { depth: height, bevelEnabled: false })
       g.rotateX(-Math.PI / 2)
       g.translate(0, y, 0)
       if (extruded.size > 20000) extruded.clear()
       extruded.set(key, g)
     }
     return g
+  }
+  /** 그 층 벽에 뚫을 문·창 자리(벽 id → 자리들). 높이는 화면 벽 바닥(`y`)에서 잰다. 벽이 이 층에 없으면(천창은 지붕에 붙는다) 뚫지 않는다. */
+  function openingCutsOf(storey: Model['storeys'][number], y: number): Map<string, OpeningCut[]> {
+    const here = new Set(storey.walls.map((w) => w.id))
+    const out = new Map<string, OpeningCut[]>()
+    for (const o of storey.openings) {
+      // 사람이 놓은 문·창은 가로를 정하기 전까지 비어 있다 — 기본 크기로 뚫는다(그리는 것과 같은 크기).
+      const rect = o.wallId && here.has(o.wallId) ? openingRect({ ...o, width: o.width ?? FALLBACK_SIZE[o.kind][0] }) : null
+      if (!rect) continue
+      const sill = o.position![2] - y
+      const cut = { rect, sill, head: sill + (o.height ?? FALLBACK_SIZE[o.kind][1]) }
+      const list = out.get(o.wallId!)
+      if (list) list.push(cut)
+      else out.set(o.wallId!, [cut])
+    }
+    return out
+  }
+  /** 벽을 세울 조각: 문·창 자리를 뚫은 [아래, 위] 고리들. 뚫을 것이 없으면 고리 그대로 단면 높이까지다. */
+  const wallSlabsOf = (rings: readonly (readonly Vec2[])[], cuts: readonly OpeningCut[] | undefined) =>
+    cuts ? cutWall(rings, cuts, ARCH_WALL_HEIGHT) : rings.filter((r) => r.length >= 3).map((ring) => ({ ring, bottom: 0, top: ARCH_WALL_HEIGHT }))
+
+  /**
+   * 문·창 한 개의 조각들(three 좌표). 벽에 뚫린 것이면 문틀 두 기둥과 문짝(문)·창턱/창 위 틀과 유리(창)를 단면 높이까지 세운다.
+   * 뚫는 방향을 모르거나 벽이 이 층에 없으면(천창) 실제 크기의 상자 하나다. 크기를 모르면 기본 크기(FALLBACK_SIZE)다. 단면 위의 윤곽은 `ghost` 에 선분으로.
+   */
+  function openingPieces(o: Model['storeys'][number]['openings'][number], y: number, hosted: boolean, ghost: number[]): { solid: BufferGeometry[]; glass: BufferGeometry[] } {
+    const solid: BufferGeometry[] = []
+    const glass: BufferGeometry[] = []
+    const [w, h] = o.width && o.height ? [o.width, o.height] : FALLBACK_SIZE[o.kind]
+    const p = o.position!
+    const through: Vec2 = o.through ?? [0, 1]
+    const along = alongOf(through)
+    const yaw = Math.atan2(through[0], -through[1])
+    // 벽을 따라 a, 벽을 뚫는 쪽으로 b 만큼 옮긴 평면 점에, 화면 높이 [y0, y1] 로 세운 상자(가로 sx · 두께 sz).
+    const box = (a: number, b: number, sx: number, sz: number, y0: number, y1: number) => {
+      const g = new BoxGeometry(sx, y1 - y0, sz)
+      g.rotateY(yaw)
+      const [sx2, , sz2] = toScene([p[0] + along[0] * a + through[0] * b, p[1] + along[1] * a + through[1] * b, 0])
+      g.translate(sx2, (y0 + y1) / 2, sz2)
+      return g
+    }
+    const depth = o.depth && o.depth > 0 ? o.depth : 0.2
+    const bottom = p[2]
+    if (!hosted || !o.through) {
+      ;(o.kind === 'window' ? glass : solid).push(box(0, 0, w, depth, bottom, bottom + h))
+      return { solid, glass }
+    }
+    const cutTop = y + ARCH_WALL_HEIGHT
+    const y0 = Math.max(bottom, y)
+    const y1 = Math.min(bottom + h, cutTop)
+    // 문틀은 벽 두께를 넘지 않게 — 문 형상의 두께는 여닫는 폭까지 잡혀 0.48m 도 된다(Duplex).
+    const frameDepth = Math.min(depth, 0.25)
+    if (y1 > y0) {
+      for (const side of [-1, 1]) solid.push(box(side * (w / 2 - OPENING_FRAME / 2), 0, OPENING_FRAME, frameDepth, y0, y1))
+      const inner = Math.max(w - 2 * OPENING_FRAME, 0.05)
+      if (o.kind === 'door') solid.push(box(0, 0, inner, DOOR_LEAF, y0, y1))
+      else {
+        if (bottom >= y) solid.push(box(0, 0, inner, frameDepth, bottom, Math.min(bottom + OPENING_FRAME, y1)))
+        if (bottom + h <= cutTop) solid.push(box(0, 0, inner, frameDepth, Math.max(bottom + h - OPENING_FRAME, y0), bottom + h))
+        glass.push(box(0, 0, inner, GLASS, y0, y1))
+      }
+    }
+    // 단면 위로 올라간 부분은 윤곽선만: 양옆 세로선, 위 가로선(창이 단면보다 높이 났으면 아래 가로선도).
+    const top = bottom + h
+    if (top > cutTop + 0.05) {
+      const from = Math.max(bottom, cutTop)
+      const end = (a: number): [number, number] => [p[0] + along[0] * a, p[1] + along[1] * a]
+      const [l, r] = [end(-w / 2), end(w / 2)]
+      ghost.push(l[0], from, -l[1], l[0], top, -l[1], r[0], from, -r[1], r[0], top, -r[1], l[0], top, -l[1], r[0], top, -r[1])
+      if (bottom > cutTop) ghost.push(l[0], bottom, -l[1], r[0], bottom, -r[1])
+    }
+    return { solid, glass }
   }
   function buildArchitecture(model: Model | null, selected: string | null, also?: ReadonlySet<string>) {
     lastArch = { model, selected, also }
@@ -1073,6 +1158,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       }
       // 실제 높이 윤곽선(선분 쌍). 깎은 벽 윗면(y + ARCH_WALL_HEIGHT)에서 실제 윗면(층 바닥 + 벽 높이)까지 세로선, 실제 윗면 외곽선.
       const tops: number[] = []
+      const cuts = openingCutsOf(storey, y)
+      const glassByColor = new Map<number, BufferGeometry[]>()
       for (const wall of storey.walls) {
         const rings = wall.footprint ?? []
         if (!rings.length) continue
@@ -1091,9 +1178,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         }
         const color = wall.id === selected || also?.has(wall.id) ? ARCH_COLORS.selected : wall.loadBearing ? WALL_COLORS.loadBearing : wall.loadBearing === null ? WALL_COLORS.unknown : ARCH_COLORS.wall
         const own: BufferGeometry[] | null = fx.reveals(wall.id) ? [] : null
-        for (const ring of rings) {
-          if (ring.length < 3) continue
-          const g = extrudeRing(ring, y)
+        for (const slab of wallSlabsOf(rings, cuts.get(wall.id))) {
+          const g = extrudeRing(slab.ring, y + slab.bottom, slab.top - slab.bottom)
           if (own) own.push(g)
           else add(color, g)
         }
@@ -1107,18 +1193,32 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         if (!o.position) continue
         const dir: Vec2 | undefined = o.through ? [-o.through[1], o.through[0]] : undefined
         archTargets.push({ id: o.id, storeyId: storey.id, y, at: [o.position[0], o.position[1]], ...(dir && o.width ? { dir, half: o.width / 2 } : {}) })
-        const color = o.id === selected ? ARCH_COLORS.selected : o.kind === 'door' ? ARCH_COLORS.door : ARCH_COLORS.window
-        const h = o.kind === 'door' ? ARCH_WALL_HEIGHT + 0.3 : ARCH_WALL_HEIGHT + 0.15
-        // 가로를 아는 문·창은 그 가로만큼 벽을 따라 편다(OE-OBJ-07, 크기를 바꾸면 3D 에서 보인다). 모르면 기둥 하나다.
-        const g = new BoxGeometry(o.width && o.through ? o.width : 0.35, h, 0.35)
-        if (o.width && o.through) g.rotateY(Math.atan2(o.through[0], -o.through[1]))
-        const [sx, , sz] = toScene([o.position[0], o.position[1], 0])
-        g.translate(sx, y + h / 2, sz)
-        const mesh = fx.reveals(o.id) ? fx.revealMesh(o.id, [g], color) : null
+        const isSelected = o.id === selected
+        const color = isSelected ? ARCH_COLORS.selected : o.kind === 'door' ? (dark ? DOOR_DARK : ARCH_COLORS.door) : ARCH_COLORS.window
+        // 가로를 아는 문·창은 그 가로만큼 벽을 뚫고 문틀·문짝·유리를 세운다(OE-OBJ-07, 크기를 바꾸면 3D 에서 보인다).
+        const { solid, glass } = openingPieces(o, y, !!o.wallId && storey.walls.some((w) => w.id === o.wallId), tops)
+        const mesh = fx.reveals(o.id) ? fx.revealMesh(o.id, [...solid, ...glass], color) : null
         if (mesh) {
           mesh.userData.storeyId = storey.id
           arch.add(mesh)
-        } else add(color, g)
+          continue
+        }
+        for (const g of solid) add(color, g)
+        const glassColor = isSelected ? ARCH_COLORS.selected : GLASS_COLOR.color
+        for (const g of glass) {
+          const piece = g.index ? g.toNonIndexed() : g
+          const list = glassByColor.get(glassColor)
+          if (list) list.push(piece)
+          else glassByColor.set(glassColor, [piece])
+        }
+      }
+      for (const [color, pieces] of glassByColor) {
+        const merged = mergeGeometries(pieces)
+        for (const g of pieces) g.dispose()
+        if (!merged) continue
+        const mesh = new Mesh(merged, new MeshLambertMaterial({ color, side: DoubleSide, transparent: true, opacity: color === GLASS_COLOR.color ? GLASS_COLOR.opacity : 0.7, depthWrite: false }))
+        mesh.userData.storeyId = storey.id
+        arch.add(mesh)
       }
       for (const [color, pieces] of byColor) {
         const merged = mergeGeometries(pieces)
@@ -2515,8 +2615,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     warmArchitecture(model) {
       // 외곽선 층은 켤 때 처음 짓는다 — 리플레이의 첫 벽 장면이 벽 전부(dental 1300개)를 한 프레임에 압출했다. 오프닝 동안
       // 프레임마다 조금씩(6ms) 압출해 extrudeRing 에 기억해 둔다. 짓지는 않는다.
-      const jobs: [readonly Vec2[], number][] = []
-      for (const st of model.storeys) for (const w of st.walls) for (const ring of w.footprint ?? []) if (ring.length >= 3) jobs.push([ring, st.elevation + 0.1])
+      const jobs: [readonly Vec2[], number, number][] = []
+      for (const st of model.storeys) {
+        const y = st.elevation + 0.1
+        const cuts = openingCutsOf(st, y)
+        for (const w of st.walls) for (const slab of wallSlabsOf(w.footprint ?? [], cuts.get(w.id))) jobs.push([slab.ring, y + slab.bottom, slab.top - slab.bottom])
+      }
       let i = 0
       const slice = () => {
         const end = performance.now() + 6
@@ -2977,6 +3081,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       dark = on
       drawHandles()
       drawArrows()
+      if (lastArch.model) buildArchitecture(lastArch.model, lastArch.selected, lastArch.also)
     },
 
     frameAll() {
