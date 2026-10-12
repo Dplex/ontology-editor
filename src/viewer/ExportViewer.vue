@@ -151,6 +151,7 @@ const KIND_LABEL: Record<string, string> = {
   hvacZone: '공조존',
   room: '룸',
   spaceObject: '추가 공간 오브젝트',
+  vertical: '수직 관통 오브젝트',
 }
 const kindCounts = computed(() => {
   const n = new Map<string, number>()
@@ -248,7 +249,7 @@ const plan = computed(() => {
   if (!Number.isFinite(x0)) return { viewBox: '0 0 1 1', shapes: [], r: 0.1, empty: true }
   const pad = Math.max(x1 - x0, y1 - y0, 1) * 0.04
   // 넓이가 큰 것부터 그려 작은 것이 위에 온다. 점(설비·문)은 맨 위이고, 기기는 같은 자리의 덕트·배관 위에 둔다(눌러지게).
-  const order: Record<string, number> = { hvacZone: 0, customZone: 1, space: 2, room: 2.5, spaceObject: 2.7, wall: 3, window: 4, door: 5, equipment: 7 }
+  const order: Record<string, number> = { hvacZone: 0, customZone: 1, space: 2, room: 2.5, spaceObject: 2.7, vertical: 2.8, wall: 3, window: 4, door: 5, equipment: 7 }
   const rank = (s: Shape) => (s.kind === 'equipment' && unreadByKey.value.has(s.id) ? 6 : (order[s.kind] ?? 9))
   shapes.sort((a, b) => rank(a) - rank(b))
   return {
@@ -470,7 +471,7 @@ const PARTS_SHOWN = 40
           </svg>
           <p v-else class="empty">이 층에는 그릴 형상이 없습니다(좌표 없는 feature 만 있음).</p>
           <p class="plan-note muted">
-            <span class="sw space"></span>물리존 <span class="sw wall"></span>벽 <span class="sw zone"></span>존
+            <span class="sw space"></span>물리존 <span class="sw wall"></span>벽 <span class="sw zone"></span>존 <span class="sw vertical"></span>계단(수직 관통 오브젝트)
             <span class="dot equipment"></span>기기 <span class="dot unread"></span>덕트·배관(DT 가 읽지 않음) <span class="dot door"></span>문·창
           </p>
           </template>
@@ -750,6 +751,13 @@ const PARTS_SHOWN = 40
   fill-opacity: 0.35;
   stroke: #7c3aed;
 }
+/* 수직 관통 오브젝트(계단)의 층별 조각. 물리존 위에 겹쳐 그린다. 끝 층 조각은 종료 지점(점)이다. */
+.shape.vertical {
+  fill: #be185d;
+  fill-opacity: 0.3;
+  stroke: #be185d;
+  stroke-width: 1.5;
+}
 .shape.equipment {
   fill: #0f766e;
   stroke: none;
@@ -799,6 +807,10 @@ circle.shape.sel {
 }
 .sw.zone {
   border: 1.5px dashed #c2410c;
+}
+.sw.vertical {
+  background: rgb(190 24 93 / 0.3);
+  border: 1.5px solid #be185d;
 }
 .dot.equipment {
   background: #0f766e;

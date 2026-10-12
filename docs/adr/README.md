@@ -92,3 +92,4 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | [0030](0030-segment-path-linestring.md) | 덕트·배관 구간은 GeoJSON 에 LineString 으로 내고, 경로는 임포트 때 형상에서 읽은 중심선을 배치점에서 잰 상대 좌표로 둔다 | 제안 |
 | [0031](0031-manual-pipe-as-conduit-chain.md) | 사람이 그린 배관은 BIM 배관과 같은 구간·이음쇠 사슬로 더하고, Flow Type 은 그린 조각에만 두며, 방향은 정하지 않는다 | 제안 |
 | [0032](0032-multistorey-scope-and-vertical-candidates.md) | E18 다중층은 브라우저 안에서 데이터 모델·층 편집 잠금·다중층 뷰·편집까지 하고 세션 확정은 편집 이력으로 대신하며, 층간 겹침 후보는 서로를 최고 후보로 고른 짝만 calc 출처로 잇는다 | 제안 |
+| [0033](0033-vertical-objects-as-storey-parts.md) | 수직 관통 오브젝트는 층별 조각으로 두고 계단은 IfcStair 의 계단판·참 형상에서 만들며, 연관 물리존은 진입·종료 지점으로 그때 짚고, 계단이 이은 물리존은 겹침 추정에서 뺀다 | 제안 |
