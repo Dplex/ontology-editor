@@ -76,7 +76,7 @@ DT 화면이 묻는 질문에 답하는 데이터다. 이상 알림("이 설비�
 | `ex:ifcClass` | 원래 IFC 클래스 | 버림 |
 | `ex:systemKind` | 계통 종류(사전) | 버림 |
 | `ex:nominalAirFlowRate` · `ex:nominalWaterFlowRate` · `ex:nominalCapacity` · `ex:nominalFlowRate` | 용량(풍량·수량·능력·유량) | 버림 |
-| `ex:alias` | 커스텀존 별명(ADR-0012) | 버림 |
+| `ex:alias` | 커스텀존 별명(ADR-0004) | 버림 |
 | `ex:zoneKind` | 커스텀존 표시 `"custom"` | 버림 |
 | `ex:idfClass` | IDF 설비의 원래 클래스 | 버림 |
 

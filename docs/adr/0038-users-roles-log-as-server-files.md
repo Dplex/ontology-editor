@@ -9,14 +9,10 @@ tickets: ["OE-COM-01", "OE-COM-02", "OE-COM-04", "OE-XPRD-01", "OE-XPRD-04", "OE
 criteria: []
 code: ["src/server/users.ts", "src/server/activity-log.ts", "src/server/data-catalog.ts", "src/App.vue"]
 tests: []
-related: []
-supersedes: ["ADR-0037 (반영자 한 줄만)"]
-superseded_by: ""
+related: ["ADR-0037", "ADR-0039"]
 ---
 
 # ADR-0038 사람·역할·로그는 서버 파일
-
-> 맨 끝의 "(다음 PR)" 인 편집 잠금·서버 임시 저장본은 [ADR-0039](0039-floor-drafts-and-locks-as-server-files.md) 가 했다.
 
 ## 맥락
 
@@ -46,6 +42,6 @@ Admin·Super Admin 은 편집·[반영하기], 권한 없는 반영 API 호출�
 
 ## 결과
 
-- 편집 잠금(OE-COM-05)·서버 임시 저장본도 같은 사람을 쓴다(다음 PR).
+- 편집 잠금(OE-COM-05)·서버 임시 저장본도 같은 사람을 쓴다(ADR-0039).
 - 기존 [편집 저장](8084)도 사람이 필요해졌다. 사람을 고르지 않으면 서버가 401 을 주고 화면이 "사용자를 고르세요" 를 보인다.
 - 되돌리려면 `src/server/users.ts`·`activity-log.ts` 와 `data-catalog.ts` 의 연결, `App.vue` 의 "사람·역할"·"시스템 로그" 묶음을 걷어낸다.

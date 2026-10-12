@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/export/ttl.ts", "src/lib/export/geojson.ts", "src/lib/capacity.ts", "src/lib/export/read-ttl.ts"]
 tests: ["src/lib/ontology-doc.test.ts", "src/lib/export/export.test.ts"]
 related: ["ADR-0008", "ADR-0011", "ADR-0023", "ADR-0048"]
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0049 온톨로지의 정의

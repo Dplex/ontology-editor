@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/facade.ts", "src/App.vue"]
 tests: []
 related: ["ADR-0039"]
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0041 외벽 에디터 = 같은 면 외벽 묶음 옮기기

@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/edit.ts", "src/App.vue"]
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0029 배관 꼭짓점은 이음쇠다

@@ -529,7 +529,7 @@ export function context(idx, ref) {
       kind: 'adr', id: doc.id, title: doc.title, path: doc.path, status: m.status, date: m.date,
       tickets: metaList(m.tickets).map(r => resolveRef(idx, r)),
       criteria: metaList(m.criteria), code_files: metaList(m.code), test_files: metaList(m.tests),
-      related: [...metaList(m.supersedes), ...metaList(m.superseded_by), ...metaList(m.related)]
+      related: metaList(m.related)
         .map(r => resolveRef(idx, String(r).split(' ')[0])),
       text: doc.sections.filter(s => s.level >= 2).map(s => `## ${s.heading}\n\n${s.text}`).join('\n\n'),
       code: codeMentions(root, doc.id),

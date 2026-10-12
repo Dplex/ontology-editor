@@ -10,8 +10,6 @@ criteria: []
 code: []
 tests: []
 related: ["ADR-0008"]
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0018 사람이 지정한 설비 소속은 기계 판정과 따로 둔다

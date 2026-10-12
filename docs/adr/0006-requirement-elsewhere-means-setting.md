@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/requirements.ts"]
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0006 요구사항 보고서의 '다른 자리'는 export 설정으로 고쳐지는 것만 — 형상 중심으로 옮긴 배치점(R11)은 '일부'로 집계한다

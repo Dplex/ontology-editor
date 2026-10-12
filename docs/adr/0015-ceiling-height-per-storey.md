@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/ceiling.ts"]
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0015 천장고 h_c 는 층마다 하나를 BIM 근거 세 가지에서 고르고, 윗층 바닥판까지 닿는 방 높이는 버린다

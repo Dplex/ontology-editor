@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/exterior.ts"]
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0002 IsExternal 이 없는 벽은 층 평면을 격자로 채워 건물 바깥에 닿는지로 외벽을 판정한다

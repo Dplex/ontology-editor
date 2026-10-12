@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/export/read-export.ts", "src/lib/export/read-3d.ts", "src/lib/export/geojson.ts"]
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0030 덕트·배관 구간의 경로

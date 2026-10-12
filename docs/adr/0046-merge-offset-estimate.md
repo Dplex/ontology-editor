@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/merge.ts", "src/lib/align.ts"]
 tests: ["src/lib/merge.test.ts", "scripts/check-sample.test.ts"]
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0046 합칠 때 좌표계 어긋남(오프셋) 추정

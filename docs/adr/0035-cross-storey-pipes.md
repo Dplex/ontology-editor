@@ -9,9 +9,7 @@ tickets: ["OE-ML-12", "OE-ML-14", "OE-ML-18", "OE-PIP-15", "OE-PIP-11", "OE-ML-1
 criteria: []
 code: ["src/lib/storey-z.ts", "src/lib/manual-pipe.ts", "src/App.vue"]
 tests: []
-related: ["ADR-0029", "ADR-0036"]
-supersedes: ["ADR-0031 (한 층 안에서만 그린다는 한 줄만)"]
-superseded_by: ""
+related: ["ADR-0029", "ADR-0036", "ADR-0031"]
 ---
 
 # ADR-0035 층간 배관(라이저·오프셋)

@@ -10,8 +10,6 @@ criteria: []
 code: ["src/lib/edit.ts"]
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0024 방 종류는 같은 공간명 단위로 사람이 정하고, 이름을 고쳐도 남는다

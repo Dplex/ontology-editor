@@ -10,16 +10,9 @@ criteria: []
 code: ["src/lib/ifc/import.ts", "src/lib/vertical.ts"]
 tests: []
 related: ["ADR-0034", "ADR-0032", "ADR-0008", "ADR-0014"]
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0033 수직 관통 오브젝트의 데이터 모양과 계단 읽기
-
-> "EL·ES 는 다음 PR 이다" 는 쓸 때의 계획이다. 지금은 엘리베이터·에스컬레이터·샤프트도 수직 관통 오브젝트 종류다(`vertical-object.ts` 의 `VerticalKind`, 공통 축은 [ADR-0034](0034-vertical-object-edits.md)).
-
-> 아래 "결과" 의 "편집기 화면에는 아직 그리지 않는다" 와 "사람이 고치는 것은 OE-ML-06~09" 는 그 뒤에 바뀌었다 — 층 편집 화면 표시·읽기 전용은
-> OE-ML-05 PR, 다중층 뷰에서 옮기기·지우기·층별 고치기는 [ADR-0034](0034-vertical-object-edits.md) 다. 데이터 모양 결정은 그대로다.
 
 ## 맥락
 
@@ -53,7 +46,7 @@ OE-ML-02 는 수직 관통 오브젝트(EL·ES·계단·샤프트)를 물리존�
   지금은 `bim`), 그 두 물리존은 겹침 후보에서 뺀다. 한쪽을 못 짚으면 잇지 않고, 짚은 쪽은 겹침 후보에 남는다. 계단실이 아닌 물리존도 잇는다.
 - **GeoJSON 에만 낸다.** 조각마다 feature 하나(`kind: "vertical"`, id `<parentId>@<층 id>`)이고, 같은 오브젝트의 이웃 조각을
   `verticalConnects` 로 가리킨다. 계단은 `passable: false` 다(OE-ML-04). TTL 은 수신 측과 클래스를 정할 때까지 내지 않는다(ADR-0008 과 같은 까닭).
-- **EL·ES 는 다음 PR 이다.** 샘플에 IfcTransportElement 가 없어 이름 사전 설비(엘리베이터·에스컬레이터)에서 만들어야 하고, EL 은 정차 층
+- **EL·ES 도 같은 조각 모양이다.** 샘플에 IfcTransportElement 가 없어 이름 사전 설비(엘리베이터·에스컬레이터)에서 만들어야 하고, EL 은 정차 층
   (OE-ML-10, #181)이 걸려 있다.
 
 ## 고려한 다른 길
@@ -72,6 +65,6 @@ OE-ML-02 는 수직 관통 오브젝트(EL·ES·계단·샤프트)를 물리존�
   계단이 이은 짝 26 이 겹침만의 24 를 모두 품고, 둘이 더해졌다(B5F↔B4F 는 사이 층을 건넌다, B1F 로비↔1F 계단실). FZK(거실↔갤러리)·
   Institute(층마다 복도)는 계단실 종류가 없어 겹침으로는 0 이었다가 이어진다. Duplex 는 2층 복도에 외곽선이 없어 0 그대로다.
 - 물리존의 `verticalConnectsSource` 는 계단이 이은 것이 `bim` 이다. 병원 기준선(`check:sample` 의 `HOSPITAL_VERTICAL`)이 `bim` 으로 바뀌었다.
-- 편집기 화면에는 아직 그리지 않는다(ADR-0032 순서 ③ 층 편집 읽기 전용). 내보낸 파일 뷰어에는 보인다.
+- 층 편집 화면에는 읽기 전용으로 보이고(OE-ML-05), 고치는 것은 다중층 뷰에서 한다(ADR-0034). 내보낸 파일 뷰어에도 보인다.
 - 되돌리려면 `src/lib/ifc/import.ts` 의 "계단(OE-ML-02)" 묶음과 `Storey.verticalParts` 를 걷어내고, `vertical.ts` 의 `explicitSpaceLinks` 호출을
   뺀다. 그러면 ADR-0032 의 겹침 추정만 남는다.

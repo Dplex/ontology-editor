@@ -10,8 +10,6 @@ criteria: []
 code: []
 tests: []
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0017 새 벽 두께는 BIM 내벽 최빈값, 사이트 기본값과 스냅 거리는 브라우저 설정

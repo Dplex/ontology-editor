@@ -10,8 +10,6 @@ criteria: ["OE-ML-05#3"]
 code: ["src/lib/storey-z.ts"]
 tests: ["src/lib/cross-storey-pipe.test.ts", "e2e/riser.spec.ts"]
 related: []
-supersedes: []
-superseded_by: ""
 ---
 
 # ADR-0045 층을 넘는 덕트·배관 구간의 층 편집 잠금

@@ -184,7 +184,7 @@ export function zoneCorners(zone: HvacZone): Vec2[] | null {
 
 /**
  * 꼭짓점 손잡이로 경계를 고친다(OE-ZON-04). 바뀐 점들로 `reshapeHvacZone` 을 부르니 담당·몫은 다시 그린 것과 같이 다시 잰다 — 골라 만든 존도
- * 그린 존이 된다(ADR-0027).
+ * 그린 존이 된다(ADR-0026).
  * 끌어 놓은 자리에서 변이 엇갈리면 놓지 않는다(물리존 꼭짓점 끌기와 같다).
  */
 function editCorners(model: Model, id: string, edit: (pts: Vec2[]) => Vec2[] | { refused: string }): boolean | { refused: string } {

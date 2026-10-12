@@ -607,7 +607,7 @@ export type CustomZone = {
   /** 별명. 사람이 부르는 이름(임원석·식당). TTL rdfs:label 이다. */
   name: string
   /**
-   * 더 붙인 별명(2026-10-03 사용자 결정 — 별명은 여러 개, ADR-0012). `name` 과 겹치지 않고 비지 않는다. 없으면 키가 없다.
+   * 더 붙인 별명(2026-10-03 사용자 결정 — 별명은 여러 개, ADR-0004). `name` 과 겹치지 않고 비지 않는다. 없으면 키가 없다.
    * TTL `ex:alias`, GeoJSON `aliases`.
    */
   aliases?: string[]
