@@ -39,6 +39,7 @@ import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
 import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
 import { storeyHeights, type StoreyHeight } from './lib/storey-height'
+import { resetStoreyName, setStoreyName, storeyNamed } from './lib/storey-name'
 import { storeyFiles } from './lib/export/storey-export'
 import { clearStoreyDone, markStoreyDone, storeyProgress, type StoreyProgress } from './lib/storey-progress'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
@@ -174,6 +175,7 @@ import {
   snapshotCustomZones,
   snapshotHvacZones,
   snapshotRooms,
+  snapshotStoreyName,
   snapshotSpaceObjects,
   snapshotVerticals,
   newId,
@@ -451,6 +453,7 @@ const changeCount = computed(
     flowEditLines.value.length +
     kindEditLines.value.length +
     spaceKindLines.value.length +
+    storeyNameLines.value.length +
     sinceOpen.value.renamed.length +
     (sinceOpen.value.renumbered?.length ?? 0) +
     sinceOpen.value.restoreyed.length +
@@ -1488,7 +1491,11 @@ function applySnapshot(s: Snapshot) {
     if (selectedRoomId.value && !m.storeys.some((st) => st.rooms?.some((r) => r.id === selectedRoomId.value))) selectedRoomId.value = null
     triggerRef(model)
     sceneVersion.value++
-  } else if (s.kind === 'kinds' || s.kind === 'connection') {
+  } else if (s.kind === 'storey-name') {
+    // 층 이름. 층별 요약·등급 판정·층 고르기 목록이 이름을 다시 읽는다.
+    triggerRef(model)
+    sceneVersion.value++
+} else if (s.kind === 'kinds' || s.kind === 'connection') {
     // 종류·연결을 되돌리면 edit.ts 가 규칙 방향도 다시 돌렸다. 채점표도 그것으로 바꾼다.
     if (rules) ruleReport.value = rules
     triggerRef(model)
@@ -2110,6 +2117,37 @@ const dictKindOfSelected = computed(() => {
   return read ? read.info.label : '모름'
 })
 /** 리포트 줄: 사람이 정한 방 종류를 공간명마다 한 줄로(OE-SPC-17). */
+// --- 층 이름 (storey-name.ts) ---
+// 이름 없는 층이 있으면 등급 0(층 이름 100%)이 미달이라 [구축하기] 가 막힌다. 기초 층처럼 BIM 이 이름을 비운 층은 여기서 넣는다. 고친 층은
+// BIM 이름을 들고 있어 리포트·편집 파일·출처 표시가 그것을 본다.
+const storeyNameLines = computed(() => {
+  void model.value
+  void sceneVersion.value
+  return (model.value?.storeys ?? []).filter(storeyNamed).map((st) => ({ id: st.id, from: st.bimName?.trim() || '(없음)', to: st.name }))
+})
+const storeyNameEditing = ref<string | null>(null)
+const storeyNameInput = ref('')
+function startStoreyName(storeyId: string) {
+  storeyNameEditing.value = storeyId
+  storeyNameInput.value = model.value?.storeys.find((st) => st.id === storeyId)?.name ?? ''
+  void nextTick(() => document.querySelector<HTMLInputElement>('.storey-name-input')?.select())
+}
+function saveStoreyName(storeyId: string, reset = false) {
+  const m = model.value
+  const st = m?.storeys.find((x) => x.id === storeyId)
+  if (!m || !st) return
+  const snapshot = snapshotStoreyName(m, storeyId)
+  const at = mark()
+  const from = st.name.trim() || '(없음)'
+  const done = reset ? resetStoreyName(m, storeyId) : setStoreyName(m, storeyId, storeyNameInput.value)
+  if (done !== true && done !== false) return note(done.refused)
+  storeyNameEditing.value = null
+  if (!done) return
+  remember(`층 이름 ${from} → ${st.name.trim() || '(없음)'}`, snapshot, at)
+  triggerRef(model)
+  sceneVersion.value++
+  note(reset ? `층 이름을 BIM 이름(${st.name.trim() || '없음'})으로 돌렸습니다` : `층 이름을 '${st.name}' 로 정했습니다. TTL 의 층 이름과 GeoJSON 층 파일 이름이 바뀝니다`)
+}
 const spaceKindLines = computed(() => {
   void model.value
   const m = model.value
@@ -8182,7 +8220,8 @@ const gradesOpen = ref(false)
 const buildBlock = computed(() => {
   const g = grades.value
   if (!g || g.gate || (serverKey.value && !firstPublish.value)) return null
-  return `수용 기준선(게이트 등급 0~${GATE}) 미달이라 구축하지 않습니다 — ${g.failing.map((r) => `등급 ${r.grade} ${r.label} ${r.why}`).join(', ')}. 재제출 항목을 보세요`
+  const nameHint = g.failing.some((r) => r.why?.startsWith('층 이름')) ? ' 층 이름은 [층별 요약] 에서 넣을 수 있습니다.' : ''
+  return `수용 기준선(게이트 등급 0~${GATE}) 미달이라 구축하지 않습니다 — ${g.failing.map((r) => `등급 ${r.grade} ${r.label} ${r.why}`).join(', ')}. 재제출 항목을 보세요.${nameHint}`
 })
 function resetGradeLines() {
   gradeLines.value = { ...DEFAULT_LINES }
@@ -10502,7 +10541,7 @@ function rollbackFromReport() {
               <b>수용 기준선</b> · 게이트(등급 0~{{ GATE }}) <b>{{ grades.gate ? '통과' : '미달' }}</b> · 목표선(등급 {{ TARGET }}) {{ grades.target ? '도달' : '미도달' }}
               <span class="muted">(D1·D12 제안안)</span>
               <template v-if="grades.rows.some((r) => r.ratio === null)"> · 평가 불가 등급 {{ grades.rows.filter((r) => r.ratio === null).map((r) => r.grade).join('·') }}(셀 대상 없음)</template>
-              <template v-if="!grades.gate"> — 재제출: {{ grades.failing.map((r) => `등급 ${r.grade} ${r.label} ${percent(r.ratio)}`).join(' · ') }}</template>
+              <template v-if="!grades.gate"> — 재제출: {{ grades.failing.map((r) => `등급 ${r.grade} ${r.label} ${r.why && !r.why.includes('<') ? r.why : percent(r.ratio)}`).join(' · ') }}</template>
             </span>
             <button type="button" class="link" :aria-expanded="gradesOpen" @click="gradesOpen = !gradesOpen">{{ gradesOpen ? '접기' : '등급 판정 보기' }}</button>
             <div v-if="gradesOpen" class="grade-table" data-testid="grade-table">
@@ -11158,7 +11197,32 @@ function rollbackFromReport() {
             </thead>
             <tbody>
               <tr v-for="s in model.storeys" :key="s.id">
-                <td>{{ s.name }}</td>
+                <!-- 층 이름. 편집 모드에서 고친다 — 이름 없는 층은 등급 0 을 떨어뜨려 [구축하기] 를 막는다. -->
+                <td class="storey-name-cell">
+                  <template v-if="storeyNameEditing === s.id">
+                    <input
+                      v-model="storeyNameInput"
+                      v-keep-typing
+                      class="storey-name-input"
+                      :aria-label="`${s.name || '이름 없는 층'} 층 이름`"
+                      @keydown.enter.prevent="saveStoreyName(s.id)"
+                      @keydown.esc.stop="storeyNameEditing = null"
+                    />
+                    <button type="button" class="link" @click="saveStoreyName(s.id)">확인</button>
+                    <button type="button" class="link" @click="storeyNameEditing = null">취소</button>
+                  </template>
+                  <template v-else>
+                    <span v-if="s.name.trim()">{{ s.name }}</span>
+                    <span v-else class="height-mismatch" title="BIM 이 층 이름을 적지 않았습니다. 이름 없는 층이 있으면 등급 0 미달이라 구축하지 않습니다">이름 없음</span>
+                    <Src v-if="storeyNamed(s)" kind="edit" />
+                    <template v-if="editing">
+                      <button type="button" class="link" :aria-label="`${s.name || '이름 없는 층'} 층 이름 ${s.name.trim() ? '고치기' : '넣기'}`" @click="startStoreyName(s.id)">
+                        {{ s.name.trim() ? '고치기' : '이름 넣기' }}
+                      </button>
+                      <button v-if="storeyNamed(s)" type="button" class="link" @click="saveStoreyName(s.id, true)">BIM 이름으로</button>
+                    </template>
+                  </template>
+                </td>
                 <td class="num mono">{{ (Math.abs(s.elevation) < 0.005 ? 0 : s.elevation).toFixed(2) }} m</td>
                 <!-- 층고(OE-BIM-02). 출처 BIM 이면 그 값, 계산이면 윗층 바닥과의 차. 둘이 다르면 계산한 값도 옆에 보인다. -->
                 <td class="num mono storey-height">
@@ -11848,6 +11912,9 @@ function rollbackFromReport() {
             </li>
             <li v-for="(f, i) in flowEditLines" :key="`flow-${i}`" data-kind="pipe">
               <b>{{ f.from }}</b> → <b>{{ f.to }}</b>: 방향 직접 지정 ({{ f.note }}, brick:feeds)
+            </li>
+            <li v-for="k in storeyNameLines" :key="`storey-name-${k.id}`" data-testid="storey-name-line">
+              층 이름 {{ k.from }} → <b>{{ k.to }}</b> (rdfs:label · GeoJSON 층 파일)
             </li>
             <li v-for="k in spaceKindLines" :key="`room-kind-${k.key}`">
               공간명 <b>{{ k.name }}</b> {{ k.count }}개: 방 종류 {{ k.from }} → <b>{{ k.to }}</b> (Brick 클래스)

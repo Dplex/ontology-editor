@@ -492,6 +492,8 @@ export type HvacEquipment = {
 export type Storey = {
   id: string
   name: string
+  /** 사람이 층 이름을 고쳤으면 BIM 이 적은 이름(빈 값일 수 있다, storey-name.ts). 고친 적이 없으면 키가 없다. */
+  bimName?: string
   /** 층 바닥 높이(미터). */
   elevation: number
   /**

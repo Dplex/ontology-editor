@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { PUBLISH_ROOT } from '../playwright.publish-seongsu.config'
@@ -40,21 +40,17 @@ test.beforeAll(async ({ browser }) => {
   // 앞 판의 버전·로그·임시 저장본을 지우고 두 파일만 둔다.
   for (const name of readdirSync(root)) rmSync(join(root, name), { recursive: true, force: true })
   mkdirSync(join(root, SITE))
-  // 건축은 이름 없는 층에 이름을 넣은 사본이다. 이름 없는 층이 있으면 등급 0(층 이름 100%)이 미달이라 [구축하기] 가 막히는데(합성 성수의
-  // 기초 층), 이 시험이 보는 것은 게이트가 아니라 반영이다. 막는 이유가 층 이름인 것은 grade.test.ts 가 본다.
-  const arch = readFileSync(ARCH, 'latin1')
-  const named = arch.replace(/(IFCBUILDINGSTOREY\('[^']*',(?:#\d+|\$),)(''|\$)/g, "$1'Unnamed'")
-  record('R-0', `${(arch.match(/IFCBUILDINGSTOREY\('[^']*',(?:#\d+|\$),(''|\$)/g) ?? []).length}개`, '이름 없는 층(사본에서 Unnamed 로 채움)')
-  writeFileSync(join(root, paths[0]), named, 'latin1')
-  // 기계는 수백 MB 라 복사하지 않고 하드 링크로 둔다. 다른 드라이브면 복사한다.
-  try {
-    linkSync(MECH, join(root, paths[1]))
-  } catch {
-    copyFileSync(MECH, join(root, paths[1]))
+  // 수백 MB 를 복사하지 않고 하드 링크로 둔다. 다른 드라이브면 복사한다.
+  for (const [from, to] of [[ARCH, paths[0]], [MECH, paths[1]]]) {
+    try {
+      linkSync(from, join(root, to))
+    } catch {
+      copyFileSync(from, join(root, to))
+    }
   }
   page = await browser.newPage()
   page.on('pageerror', (e) => errors.push(e.message))
-  // 등급 게이트는 이 시험이 보는 것이 아니다(합성 성수는 미달일 수 있다). 통과선을 낮춰 둔다.
+  // 통과선은 낮춰 둔다(합성 성수의 비율은 이 시험이 보는 것이 아니다). 층 이름은 통과선과 상관없이 막아서 화면에서 넣는다(R-0).
   await page.addInitScript(() => localStorage.setItem('oe.gradeLines', JSON.stringify({ 0: 0.5, 1: 0.5, 2: 0.5, 3: 0.5, 4: 0.5 })))
   // 칸마다 채움(?profile)은 서버가 성수 기계를 1분 가까이 재는 동안 다른 요청을 받지 못한다. 열기 시간을 재기 전에 미리 재 둔다(서버가 캐시한다).
   // page.route 로 흉내 내면 안 된다 — 가로채기가 하나라도 있으면 Playwright 가 모든 요청을 보며 GLB(수백 MB)를 올리는 몸통을 문자열로 바꾸다 죽었다.
@@ -126,6 +122,19 @@ test('R 성수 크기 반영: 합쳐 열기 → 구축하기(v1) → 반영하�
   await page.getByRole('button', { name: '편집', exact: true }).click()
   const bar = page.locator('.edit-bar')
   await expect(bar.getByRole('button', { name: '구축하기' })).toBeVisible()
+  // R-0 이름 없는 층(합성 성수의 기초 층)이 있으면 등급 0 미달이라 [구축하기] 가 막힌다. 층별 요약에서 이름을 넣어 푼다.
+  const fold = page.locator('.fold-head', { hasText: '층별 요약' }).first()
+  if ((await fold.getAttribute('aria-expanded')) !== 'true') await fold.click()
+  const unnamed = page.getByRole('button', { name: '이름 없는 층 층 이름 넣기' })
+  const blank = await unnamed.count()
+  if (blank) await expect(bar.getByRole('button', { name: '구축하기' })).toHaveAttribute('title', /층 이름/)
+  for (let i = 1; i <= blank; i++) {
+    await unnamed.first().click()
+    await page.getByLabel('이름 없는 층 층 이름').fill(`이름 없던 층 ${i}`)
+    await page.getByLabel('이름 없는 층 층 이름').press('Enter')
+  }
+  await expect(unnamed).toHaveCount(0)
+  record('R-0', `${blank}개`, '이름 없는 층 — 층별 요약에서 이름을 넣어 게이트(등급 0 층 이름)를 풂')
   await moveOneDevice()
   // 배관이 따라오면 그것도 센다(OE-PIP-12).
   await expect(bar).toContainText(/바뀐 것 [1-9]\d*건/)

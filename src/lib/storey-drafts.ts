@@ -63,6 +63,7 @@ export function splitByStorey(file: EditFile, homeOf: HomeOf): Map<string, EditF
   for (const row of file.storeysDone ?? []) push(part(row.id), 'storeysDone', row)
   for (const row of file.rooms ?? []) push(part(row.storeyId), 'rooms', row)
   for (const row of file.ceilings ?? []) push(part(row.storeyId), 'ceilings', row)
+  for (const row of file.storeyNames ?? []) push(part(row.storeyId), 'storeyNames', row)
   for (const row of file.spaceObjects ?? []) push(part(row.storeyId), 'spaceObjects', row)
 
   // 층이 없는 편집 — 건물 조각
@@ -99,7 +100,7 @@ export function joinParts(parts: Iterable<EditFile>, base: Pick<EditFile, 'forma
   const lists = [
     'equipment', 'spaces', 'kinds', 'flows', 'confirmedSystems', 'confirmedFlows', 'systems', 'systemsAdded', 'systemsRemoved',
     'systemNames', 'equipmentAdded', 'equipmentRemoved', 'spacesAdded', 'spacesRemoved', 'walls', 'wallsAdded', 'wallsRemoved',
-    'openings', 'openingsAdded', 'openingsRemoved', 'customZones', 'hvacZones', 'storeysDone', 'ceilings', 'rooms', 'spaceObjects', 'objectLibrary',
+    'openings', 'openingsAdded', 'openingsRemoved', 'customZones', 'hvacZones', 'storeysDone', 'ceilings', 'storeyNames', 'rooms', 'spaceObjects', 'objectLibrary',
     'verticals',
   ] as const
   for (const p of parts) {
