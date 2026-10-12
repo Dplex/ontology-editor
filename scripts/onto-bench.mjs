@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // 온톨로지 질문 시험대(ADR-0050). DT 화면이 묻는 질문(scripts/onto-questions.mjs)에 우리 TTL 과 받는 쪽 DT 파서가 읽는 만큼이
 // 각각 답하는지 재고, --ask 면 온톨로지 챗봇(gemini)에 같은 질문을 말로 물어 답에 기대한 이름·수가 들었는지 채점한다.
 //
