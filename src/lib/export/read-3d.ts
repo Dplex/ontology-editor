@@ -118,6 +118,9 @@ export function check3D(parts: readonly Part3D[], floors: readonly ExportFloor[]
     if (f.geometry.type === 'Point') {
       const [x, y] = f.geometry.coordinates as number[]
       by = outside(x, y)
+    } else if (f.geometry.type === 'LineString') {
+      // 덕트·배관 구간의 경로(OE-PIP-13). 두 끝이 다 형상 범위 안이어야 한다.
+      by = Math.max(...(f.geometry.coordinates as number[][]).map((p) => outside(p[0], p[1])))
     } else if (kind === 'space' && f.geometry.type === 'Polygon') {
       // 방 판은 외곽선을 그대로 깐다. 외곽선 범위와 3D 범위가 같아야 한다.
       const ring = (f.geometry.coordinates as number[][][])[0]
