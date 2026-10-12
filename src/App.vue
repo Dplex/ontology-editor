@@ -16,6 +16,7 @@ import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, 
 import { previewSummary, summaryText } from './lib/preview'
 import { DEFAULT_GRID, gridLines, snapToGrid, type GridSettings } from './lib/grid'
 import { dimensionText, wallDimensions } from './lib/dimensions'
+import { facadeOf, moveFacade } from './lib/facade'
 import { customerReportHTML, generationReport, MISSING_LABEL, missingClass, sha256Hex, type ReportInput, type ReportSectionB } from './lib/build-report'
 import { ttlTriples } from './lib/export/read-export'
 import { readOntologyTTL } from './lib/export/read-ttl'
@@ -186,7 +187,7 @@ import {
   type Snapshot,
 } from './lib/edit'
 import { MERGE_GAP } from './lib/polygon'
-import { exteriorDevices, judgeExternal } from './lib/exterior'
+import { exteriorDevices, judgeExternal, judgeExternalAll } from './lib/exterior'
 import {
   createCustomZone,
   deleteCustomZone,
@@ -6076,9 +6077,6 @@ const wallDims = computed(() => {
   return d ? { ...d, text: dimensionText(d), storeyId: picked.storey.id } : null
 })
 watch([showZones, model, sceneVersion], () => viewer?.setHvacZones(showZones.value ? model.value : null, null))
-watch([archMode, editing, model, sceneVersion, selectedElementId], () => {
-  viewer?.setArchitecture(archMode.value && editing.value ? model.value : null, selectedElementId.value)
-})
 watch(archMode, (on) => {
   if (on) {
     viewer?.setWallsVisible(false)
@@ -6114,6 +6112,36 @@ const bearingSrc = (wall: Wall): 'edit' | 'bim' => {
   return wall.added || (was !== undefined && was.loadBearing !== wall.loadBearing) ? 'edit' : 'bim'
 }
 const externalOf = (wallId: string | null | undefined) => (wallId ? selectedExternal.value?.get(wallId) ?? null : null)
+
+// --- 외벽 에디터 (OE-EXT-03, lib/facade.ts) ---
+// 켜면 외벽을 골랐을 때 다른 층에서 같은 면에 쌓인 외벽까지 묶고, 방향키로 함께 옮긴다(층 편집 화면의 외벽 잠금 OE-EXT-02 를 이 묶음에만 푼다).
+// 층마다 벽 가까운 방 변이 따라가 설비 소속을 다시 잰다. 외벽 판정은 층마다 격자를 재야 해서 켰을 때만 전 층을 잰다.
+const exteriorEditor = ref(false)
+const allExternal = computed(() => {
+  void sceneVersion.value
+  return exteriorEditor.value && model.value ? judgeExternalAll(model.value) : null
+})
+const facadeGroup = computed(() => {
+  const picked = selectedElement.value
+  const m = model.value
+  if (!exteriorEditor.value || !picked?.wall || !m || !allExternal.value) return null
+  const group = facadeOf(m, allExternal.value, picked.wall.id)
+  if (!group) return null
+  const names = new Map(m.storeys.map((st) => [st.id, st.name]))
+  const walls = new Map(m.storeys.flatMap((st) => st.walls).map((w) => [w.id, w]))
+  return group.map((x) => ({ ...x, storeyName: names.get(x.storeyId) ?? x.storeyId, bearing: wallLocked(walls.get(x.id)) }))
+})
+const facadeIds = computed(() => new Set(facadeGroup.value?.map((x) => x.id) ?? []))
+watch([archMode, editing], ([a, e]) => {
+  if (!a || !e) exteriorEditor.value = false
+})
+// 켜면 모든 층을 보인다 — 같은 면에 쌓인 다른 층 외벽이 같이 보여야 무엇을 함께 옮기는지 안다.
+watch(exteriorEditor, (on) => {
+  if (on) viewStorey.value = null
+})
+watch([archMode, editing, model, sceneVersion, selectedElementId, facadeIds], () => {
+  viewer?.setArchitecture(archMode.value && editing.value ? model.value : null, selectedElementId.value, facadeIds.value)
+})
 /**
  * 고른 벽·문·창을 고칠 수 없는 이유(내력벽 OE-OBJ-05 · 외벽 OE-EXT-02). 계산으로 외벽인 벽도 잠근다 — edit.ts 는 BIM·편집 값만 본다
  * (계산은 층 격자를 다시 재야 해서 방향키마다 할 수 없다). 화면이 고른 층 하나를 재 둔 것을 쓴다.
@@ -6192,6 +6220,30 @@ function moveWallCarrying(storeyId: string, wall: Wall, delta: Vec2) {
   }
 }
 
+/** 외벽 에디터: 같은 면의 외벽을 전 층에서 함께 옮기고 방 변을 따라 옮긴다. 층마다의 벽·방을 한 번에 되돌리게 묶는다. */
+function moveFacadeNow(group: readonly { id: string; storeyId: string; storeyName: string; bearing: boolean }[], delta: Vec2) {
+  const m = model.value
+  if (!m) return
+  const storeyIds = [...new Set(group.map((x) => x.storeyId))]
+  const parts = storeyIds.flatMap((id) => [snapshotStoreyElements(m, id), snapshotStoreySpaces(m, id)]).filter((x): x is Snapshot => !!x)
+  const at = mark()
+  const mounted = mountedAt(m)
+  const done = moveFacade(m, group.map((x) => x.id), delta, true)
+  if ('refused' in done) return note(done.refused)
+  if (!done.moved) return
+  const movedOn = group.filter((x) => !x.bearing).map((x) => x.storeyName)
+  remember(`외벽 ${done.moved}개 옮김(${[...new Set(movedOn)].join('·')})`, { kind: 'many', parts }, at, `facade:${group.map((x) => x.id).join(',')}`)
+  areaChanges.value = [...areaChanges.value, ...done.changes]
+  changes.value = [...changes.value, ...done.changes.flatMap((c) => c.equipment)]
+  archEdited = true
+  triggerRef(model)
+  followMounted(mounted)
+  viewer?.updateSpaces(m)
+  sceneVersion.value++
+  if (done.crossed.length) note(`방 경계가 자기와 겹칩니다: ${done.crossed.slice(0, 3).join(', ')}${done.crossed.length > 3 ? ` 외 ${done.crossed.length - 3}` : ''}`)
+  else if (done.kept.length) note(`${done.kept.join('·')} 의 벽은 내력벽이라 제자리에 둡니다`)
+}
+
 function setBearing(wall: Wall, raw: string) {
   const value = raw === 'true' ? true : raw === 'false' ? false : null
   const storey = selectedElement.value?.storey
@@ -6263,6 +6315,10 @@ function nudgeElement(code: string, step: number): boolean {
   const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
   const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
   const delta: Vec2 = [cm(sign * ax * step), cm(sign * ay * step)]
+  if (picked.wall && facadeGroup.value) {
+    moveFacadeNow(facadeGroup.value, delta)
+    return true
+  }
   if (elementLock.value) {
     note(elementLock.value)
     return true
@@ -6782,7 +6838,8 @@ watch(
   viewStorey,
   (now, was) => {
     // "모든 층" 으로 넓히는 것은 다른 층으로 가는 것이 아니다 — 그 층도 계속 보이고 고칠 수 있다.
-    if (switching || !openSettled || !editing.value || !was || !now || now === was) return
+    // 외벽 에디터(OE-EXT-03)는 전 층을 한 번에 고친다. 층마다 물으면 [저장 안 함]이 한 층만 되돌려 같은 면이 어긋난다.
+    if (switching || !openSettled || !editing.value || !was || !now || now === was || exteriorEditor.value) return
     const parts = currentParts()
     if (!dirtyKeys(parts).includes(was)) return
     switching = true
@@ -8655,6 +8712,7 @@ function rollbackFromReport() {
               :selected-space-id="selectedSpaceId"
               :selected-vertical-id="selectedVerticalId"
               :selected-element-id="selectedElementId"
+              :also-chosen="facadeGroup ? facadeGroup.map((x) => x.id) : undefined"
               :editing="editing"
               :pick-walls="editing && archMode"
               :group="group"
@@ -8851,6 +8909,17 @@ function rollbackFromReport() {
                 <button type="button" class="ghost" title="바닥에 두 점을 찍어 벽을 긋습니다" @click="startWall">벽 긋기</button>
                 <button type="button" :class="['ghost', { on: adding?.what === 'door' }]" title="벽 가까이 눌러 문을 놓습니다" @click="adding?.what === 'door' ? stopAdd() : startOpening('door')">문 놓기</button>
                 <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
+                <!-- 외벽 에디터(OE-EXT-03). 외벽을 고르면 다른 층의 같은 면 외벽까지 묶어 함께 옮긴다. -->
+                <button
+                  type="button"
+                  :class="['ghost', { on: exteriorEditor }]"
+                  :aria-pressed="exteriorEditor"
+                  title="외벽을 고르면 다른 층에서 같은 면에 쌓인 외벽까지 묶어, 방향키로 전 층을 함께 옮깁니다"
+                  data-testid="exterior-editor"
+                  @click="exteriorEditor = !exteriorEditor"
+                >
+                  외벽 에디터
+                </button>
               </template>
             </nav>
             <!-- 시점 조작 안내(OE-OBJ-15). 지도처럼 왼쪽 드래그가 화면 이동이다. 편집 모드의 Ctrl+드래그는 여러 개 고르기다(OE-UI-09). -->
@@ -9750,7 +9819,17 @@ function rollbackFromReport() {
               <button type="button" class="ghost" @click="selectedElementId = null">선택 해제</button>
             </div>
           </div>
-          <p v-if="elementLock" class="lock-note" data-testid="wall-locked">
+          <div v-if="facadeGroup" class="facade-note" data-testid="facade-group" :data-walls="facadeGroup.filter((x) => !x.bearing).map((x) => x.id).join(' ')">
+            <p>
+              <b>외벽 에디터</b> — 같은 면 외벽 {{ facadeGroup.length }}개({{ facadeGroup.map((x) => x.storeyName).join('·') }}). 방향키로 옮기면 함께 옮겨지고, 층마다
+              벽 가까운 방 변이 따라가 설비 소속을 다시 잽니다.
+            </p>
+            <p v-if="facadeGroup.some((x) => x.bearing)" class="lock-note" data-testid="facade-bearing">
+              {{ facadeGroup.filter((x) => x.bearing).map((x) => x.storeyName).join('·') }} 의 벽은 내력벽이라 제자리에 둡니다(내력벽은 값이 있으면 고치지 않습니다).
+            </p>
+            <p class="muted">크기 바꾸기·지우기는 아직 층 편집과 같이 막혀 있습니다.</p>
+          </div>
+          <p v-if="elementLock && !facadeGroup" class="lock-note" data-testid="wall-locked">
             <template v-if="elementLock === EXTERIOR_LOCKED">
               외벽이라 층 편집 화면에서는 옮기거나 지우거나 크기를 바꿀 수 없습니다. 외벽 형상은 외벽 에디터에서 고칩니다. 문·창과 외벽 전용
               설비는 이 화면에서 놓습니다. 아래 외벽 여부를 바꾸면 풀립니다.

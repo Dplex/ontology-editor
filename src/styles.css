@@ -3696,6 +3696,23 @@ main.has-model .catalog {
 }
 
 /* 잠긴 벽·문·창(내력벽, OE-OBJ-06). 왜 안 움직이는지 패널에서 바로 보이게 한다. */
+/* 외벽 에디터(OE-EXT-03)의 같은 면 묶음. 잠금 안내 자리에 대신 선다. */
+.facade-note {
+  margin: 0.6rem 0 0;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.facade-note p {
+  margin: 0;
+}
+
+.facade-note p + p {
+  margin-top: 0.25rem;
+}
+
 .lock-note {
   margin: 0.6rem 0 0;
   padding: 0.4rem 0.6rem;

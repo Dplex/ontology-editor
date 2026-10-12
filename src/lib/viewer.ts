@@ -379,7 +379,8 @@ export type Viewer = {
    * 벽·문·창 편집 층(E4). model 이 null 이면 끈다. 켜면 벽 외곽선(모델의 값, 편집이 바로 보인다)과 문·창 자리를
    * 그리고, 편집 모드에서 바닥을 누르면 물리존보다 벽·문·창을 먼저 고른다.
    */
-  setArchitecture(model: Model | null, selected: string | null): void
+  /** `also` 는 같이 고른 색으로 칠할 벽(외벽 에디터의 같은 면 묶음, OE-EXT-03). */
+  setArchitecture(model: Model | null, selected: string | null, also?: ReadonlySet<string>): void
   /** 공조존(IDF) 외곽선. null 이면 지운다. 층별로 보기를 따른다. */
   setHvacZones(model: Model | null, selected: string | null): void
   /** 커스텀존(OE-OBJ-01) 외곽선과 고른 존의 면. null 이면 지운다. 층별로 보기를 따른다. */
@@ -991,7 +992,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     return best?.id ?? null
   }
 
-  function buildArchitecture(model: Model | null, selected: string | null) {
+  function buildArchitecture(model: Model | null, selected: string | null, also?: ReadonlySet<string>) {
     arch.traverse((o) => {
       if (o instanceof Mesh || o instanceof LineSegments) {
         o.geometry.dispose()
@@ -1026,7 +1027,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
             })
           }
         }
-        const color = wall.id === selected ? ARCH_COLORS.selected : wall.loadBearing ? WALL_COLORS.loadBearing : wall.loadBearing === null ? WALL_COLORS.unknown : ARCH_COLORS.wall
+        const color = wall.id === selected || also?.has(wall.id) ? ARCH_COLORS.selected : wall.loadBearing ? WALL_COLORS.loadBearing : wall.loadBearing === null ? WALL_COLORS.unknown : ARCH_COLORS.wall
         for (const ring of rings) {
           if (ring.length < 3) continue
           const shape = new Shape()
@@ -2262,8 +2263,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       buildSlabs(model)
     },
 
-    setArchitecture(model, selected) {
-      buildArchitecture(model, selected)
+    setArchitecture(model, selected, also) {
+      buildArchitecture(model, selected, also)
     },
 
     setHvacZones(model, selected) {

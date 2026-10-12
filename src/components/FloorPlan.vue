@@ -30,6 +30,8 @@ const props = defineProps<{
   selectedVerticalId?: string | null
   /** 고른 벽. 3D 의 [벽·문·창] 에서 고른 것과 같은 값이다. */
   selectedElementId: string | null
+  /** 같이 고른 것으로 칠할 벽(외벽 에디터의 같은 면 묶음, OE-EXT-03). */
+  alsoChosen?: readonly string[]
   editing: boolean
   /** 벽을 눌러 고를 수 있나. 3D 와 같이 편집 모드에서 [벽·문·창] 을 켰을 때만이다. */
   pickWalls: boolean
@@ -302,7 +304,7 @@ function pickVertical(event: MouseEvent, id: string) {
           v-for="(r, i) in w.footprint ?? []"
           :key="i"
           :points="points(r)"
-          :class="{ bearing: w.loadBearing === true, chosen: w.id === selectedElementId, pickable: pickWalls }"
+          :class="{ bearing: w.loadBearing === true, chosen: w.id === selectedElementId || !!alsoChosen?.includes(w.id), pickable: pickWalls }"
           :data-wall="w.id"
           @click.stop="pickWalls && !moved && emit('pickElement', w.id)"
         />

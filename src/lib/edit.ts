@@ -2279,7 +2279,8 @@ export function wallShapeLock(wall: Wall | null | undefined): string | null {
   if (wall?.external === true) return EXTERIOR_LOCKED
   return null
 }
-export type LockOptions = { ignoreLock?: boolean }
+/** `exterior` 는 외벽 에디터(OE-EXT-03) — 외벽 잠금만 풀고 내력 잠금은 그대로 둔다(PRD 1.4 "내력벽: 값 있으면 편집 불가"). */
+export type LockOptions = { ignoreLock?: boolean; exterior?: boolean }
 
 function openingLocked(storey: Storey, opening: Opening): boolean {
   return wallLocked(storey.walls.find((w) => w.id === opening.wallId))
@@ -2391,7 +2392,8 @@ const shiftRings = (rings: readonly (readonly Vec2[])[], d: Vec2) => rings.map((
 export function moveWall(model: Model, wallId: string, delta: Vec2, opts: LockOptions = {}): boolean {
   const found = findWall(model, wallId)
   if (!found || !found.wall.footprint?.length || (delta[0] === 0 && delta[1] === 0)) return false
-  if (!opts.ignoreLock && wallShapeLock(found.wall)) return false
+  const lock = wallShapeLock(found.wall)
+  if (!opts.ignoreLock && lock && !(opts.exterior && lock === EXTERIOR_LOCKED)) return false
   const next = shiftRings(found.wall.footprint, delta)
   if (newCrossing(model, wallId, next)) return false
   found.wall.footprint = next
@@ -3199,6 +3201,7 @@ export function moveWallWithSpaces(
   wallId: string,
   delta: Vec2,
   plan?: WallCarryPlan | null,
+  opts: LockOptions = {},
 ): { changes: BoundaryChange[]; crossed: string[]; plan: WallCarryPlan } | null {
   const spaceById = new Map(model.storeys.flatMap((st) => st.spaces).map((sp) => [sp.id, sp]))
   // 계획을 세운 뒤 그 방 경계를 따로 고쳤으면(꼭짓점 넣기·지우기) 꼭짓점 번호가 어긋난다. 그때는 새로 세운다.
@@ -3217,7 +3220,7 @@ export function moveWallWithSpaces(
     rings.push({ space, ring: withClosing(pts.map((p, i) => (moved.has(i) ? ([p[0] + k * item.n[0], p[1] + k * item.n[1]] as Vec2) : p)), true) })
     next.items.push(item)
   }
-  if (!moveWall(model, wallId, delta)) return null
+  if (!moveWall(model, wallId, delta, opts)) return null
   const changes: BoundaryChange[] = []
   const crossed: string[] = []
   for (const { space, ring } of rings) {
