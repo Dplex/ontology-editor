@@ -296,3 +296,49 @@ describe('내보내기가 깨지지 않는다', () => {
     expect(props('AT-101-02')).toMatchObject({ capacity: null, capacityQuantity: null })
   })
 })
+
+describe('로봇 통과 속성 (OE-EQP-17)', () => {
+  const sq = (x: number): [number, number][] => [[x, 0], [x + 2, 0], [x + 2, 2], [x, 2], [x, 0]]
+  const space = (id: string, kind: string | null) => ({ id, name: id, longName: id, footprint: sq(id.length * 3), areaM2: 4, boundedBy: [], kind })
+  const props = (m: Model) =>
+    Object.fromEntries(
+      modelToGeoJSON(m)
+        .flatMap((x) => x.collection.features)
+        .filter((f) => (f.properties as { kind: string }).kind === 'space')
+        .map((f) => {
+          const p = f.properties as Record<string, unknown>
+          return [f.id, { passable: p.passable, source: p.passableSource, reason: p.passableReason }]
+        }),
+    )
+  const model = (doorToShaft: boolean): Model => ({
+    schema: 'IFC4',
+    siteName: '',
+    buildingId: 'b',
+    buildingName: '',
+    storeys: [
+      {
+        id: 's',
+        name: '1F',
+        elevation: 0,
+        spaces: [space('st', 'staircase'), space('elv', 'elevator_shaft'), space('room', 'office')],
+        walls: [],
+        openings: doorToShaft
+          ? [{ id: 'd', name: 'd', kind: 'door', position: [3, 1, 0], wallId: null, width: 1, height: 2, passable: true, connects: ['elv', 'room'], connectsSource: 'bim' }]
+          : [],
+        equipment: [],
+      },
+    ],
+    systems: [],
+    connections: [],
+    warnings: [],
+  })
+
+  it('계단실은 불가, 승강로는 그 층에 이어지는 문이 있으면 가능이고 없으면 정차 미확인이라 불가이며, 일반 방에는 통과 속성이 없다', () => {
+    expect(props(model(true))).toEqual({
+      st: { passable: false, source: 'dict', reason: 'staircase' },
+      elv: { passable: true, source: 'calc', reason: 'elevator_stop' },
+      room: { passable: undefined, source: undefined, reason: undefined },
+    })
+    expect(props(model(false)).elv).toEqual({ passable: false, source: 'calc', reason: 'elevator_stop_unconfirmed' })
+  })
+})

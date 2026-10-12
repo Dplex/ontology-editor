@@ -348,6 +348,15 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH))('문이 잇는 
     expect(vertical).toHaveLength(7)
     const linked = all.filter((p) => p.kind === 'space' && Array.isArray(p.verticalConnects))
     expect(linked).toHaveLength(6)
+    // 수직 관통 오브젝트의 통과(OE-EQP-17). 계단실 6개는 불가(사전). 승강로는 그 층에서 이어지는 문이 없어 정차 미확인이라 불가다 —
+    // 병원 건축은 승강장 문을 IfcDoor 로 그리지 않았다.
+    const verticalPass = all
+      .filter((p) => p.kind === 'space' && p.passable !== undefined)
+      .map((p) => `${p.longName}:${p.passable}:${p.passableSource}:${p.passableReason}`)
+    expect(tally(verticalPass.map((v) => ({ v })), 'v')).toEqual({
+      'STAIR:false:dict:staircase': 6,
+      'ELEVATOR:false:calc:elevator_stop_unconfirmed': 1,
+    })
     expect(vertical.filter((v) => !linked.some((p) => v.endsWith(`/${p.name}`)))).toEqual(['First Floor/E1'])
   }, 300_000)
 
