@@ -12,7 +12,7 @@ import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import ExitEditDialog from './components/ExitEditDialog.vue'
 import PublishDialog from './components/PublishDialog.vue'
-import { layoutFiles, layoutSummary } from './lib/layout-files'
+import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
 import HoverTip from './components/HoverTip.vue'
 import FloorPlan from './components/FloorPlan.vue'
 import Roll from './components/Roll.vue'
@@ -7993,7 +7993,7 @@ async function publishLayout(by: string) {
       if (r.status === 401 || r.status === 403) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`)
       if (!r.ok) throw new Error(`${name} 을 올리지 못했습니다(HTTP ${r.status})`)
     }
-    for (const f of layoutFiles(m, edits)) await put(f.name, f.text)
+    for (const f of layoutFiles(m, edits, captureReport())) await put(f.name, f.text)
     await put('model.glb', new Blob(await makeMesh3D('glb')))
     const r = await fetch(layoutsUrl({ key, stage, publish: '' }), {
       method: 'POST',
@@ -8010,6 +8010,8 @@ async function publishLayout(by: string) {
     refreshPublished()
     await refreshLayouts()
     markDone('build')
+    // 반영 완료 화면 대신 그 버전의 결과 리포트를 연다(OE-SYNC-04).
+    void openReport(body.version)
     // 앞서 남은 편집 경고(천장 모드 안내 등)가 결과 줄을 가리지 않게 지운다.
     editNotice.value = ''
     note(`v${body.version} 으로 ${label}했습니다(${body.floors.join(' · ')}). 다른 사람은 새로고침하면 이 레이아웃을 받습니다`)
@@ -8037,6 +8039,40 @@ async function rollbackLayout(version: number) {
 }
 const versionTime = (at: string) => new Date(at).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.value ?? '', v: String(v), file })
+
+// --- 반영 결과 리포트·공간 계층 (OE-SYNC-03~06) ---
+// 리포트 줄은 화면의 "바뀐 내용" 그대로다(OE-SYNC-06 의 규칙으로 만든 것). 줄마다 붙은 종류(data-kind)로 여섯 항목에 묶어 버전의 report.json 에 담는다.
+/** 지금 "바뀐 내용" 의 줄을 리포트 묶음으로. */
+function captureReport(): ReportSection[] {
+  const lines = [...document.querySelectorAll<HTMLLIElement>('ul.report li')].map((li) => ({ kind: li.dataset.kind ?? 'other', text: li.innerText.replace(/\s+/g, ' ').trim() }))
+  return groupReport(lines)
+}
+/** 보고 있는 버전의 리포트. `fresh` 는 직전 버전에 없던 줄, `prev` 는 되돌릴 기본 버전(직전 버전). */
+const reportView = shallowRef<{ version: number; sections: ReportSection[]; fresh: Set<string>; prev: number | null; tree: SpaceTree | null } | null>(null)
+async function openReport(version: number) {
+  const key = serverKey.value
+  if (!key) return
+  const getJson = async <T,>(v: number, file: string): Promise<T | null> => {
+    try {
+      const r = await fetch(layoutsUrl({ key, v: String(v), file }))
+      return r.ok ? ((await r.json()) as T) : null
+    } catch {
+      return null
+    }
+  }
+  await refreshLayouts()
+  const prev = layoutState.value?.versions.map((v) => v.version).filter((v) => v < version).sort((a, b) => b - a)[0] ?? null
+  const now = (await getJson<{ sections?: ReportSection[] }>(version, 'report.json'))?.sections ?? groupReport([])
+  const before = prev ? ((await getJson<{ sections?: ReportSection[] }>(prev, 'report.json'))?.sections ?? null) : null
+  reportView.value = { version, sections: now, fresh: newSince(now, before), prev, tree: await getJson<SpaceTree>(version, 'tree.json') }
+}
+/** 리포트의 [되돌리기](OE-SYNC-05): 직전 버전을 골라 둔 되돌리기 확인으로 간다. */
+function rollbackFromReport() {
+  const prev = reportView.value?.prev
+  if (!prev) return note('되돌릴 직전 버전이 없습니다(7일 안)')
+  rollbackAsk.value = prev
+  void nextTick(() => document.querySelector('[data-testid="versions"] tr.rollback-ask')?.scrollIntoView({ block: 'center' }))
+}
 </script>
 
 <template>
@@ -11324,7 +11360,7 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
                 <tr><th>버전</th><th>반영</th><th>반영자</th><th>대상 층</th><th>바뀐 것</th><th>파일</th><th></th></tr>
               </thead>
               <tbody>
-                <tr v-for="v in layoutState.versions" :key="v.version" :class="{ current: v.version === layoutState.current }">
+                <tr v-for="v in layoutState.versions" :key="v.version" :class="{ current: v.version === layoutState.current, 'rollback-ask': rollbackAsk === v.version }">
                   <td><b>v{{ v.version }}</b> <span v-if="v.version === layoutState.current" class="muted">지금</span></td>
                   <td>{{ versionTime(v.at) }}{{ v.kind === 'rollback' ? ` · v${v.from} 되돌리기` : '' }}</td>
                   <td>{{ v.by }}</td>
@@ -11334,6 +11370,7 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
                     <a v-for="f in v.files" :key="f" :href="versionFileUrl(v.version, f)" :download="f.split('/').at(-1)" class="link">{{ f.replace('geojson/', '') }}</a>
                   </td>
                   <td>
+                    <button type="button" class="ghost" @click="openReport(v.version)">리포트</button>
                     <template v-if="v.version !== layoutState.current">
                       <template v-if="rollbackAsk === v.version">
                         <button type="button" class="ghost danger" @click="rollbackLayout(v.version)">v{{ v.version }} 다시 반영</button>
@@ -11345,6 +11382,29 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
                 </tr>
               </tbody>
             </table>
+            <!-- 반영 결과 리포트(OE-SYNC-04~06)와 그 버전의 공간 계층(OE-SYNC-03, 탐색기 트리 대신). -->
+            <div v-if="reportView" class="version-report" data-testid="version-report">
+              <div class="version-report-head">
+                <h4>v{{ reportView.version }} 반영 결과 리포트</h4>
+                <button v-if="reportView.prev" type="button" class="ghost" @click="rollbackFromReport">되돌리기 (v{{ reportView.prev }})</button>
+                <button type="button" class="ghost" @click="reportView = null">닫기</button>
+              </div>
+              <p class="hint">BIM 을 연 때와 견준 누적입니다. <b class="fresh-tag">새로</b> 는 직전 버전{{ reportView.prev ? ` v${reportView.prev}` : '' }}에 없던 줄입니다.</p>
+              <section v-for="sec in reportView.sections" :key="sec.kind" class="report-section" :data-kind="sec.kind">
+                <h5>{{ sec.label }} <span class="muted">{{ sec.lines.length || '없음' }}</span></h5>
+                <ul v-if="sec.lines.length">
+                  <li v-for="(l, i) in sec.lines" :key="i"><b v-if="reportView.fresh.has(l)" class="fresh-tag">새로</b> {{ l }}</li>
+                </ul>
+              </section>
+              <details v-if="reportView.tree" class="space-tree" data-testid="space-tree">
+                <summary>공간 계층 — {{ reportView.tree.site || '(사이트)' }} › {{ reportView.tree.building.name || '(건물)' }} · {{ reportView.tree.storeys.length }}개 층</summary>
+                <ul>
+                  <li v-for="st in reportView.tree.storeys" :key="st.id">
+                    <b>{{ st.name }}</b> <span class="muted">{{ st.spaces.length }}개</span> — {{ st.spaces.map((sp) => sp.longName || sp.name).join(', ') }}
+                  </li>
+                </ul>
+              </details>
+            </div>
             <details v-if="activity.length" class="activity" data-testid="activity">
               <summary>최근 기록 {{ activity.length }}줄 (시스템 로그)</summary>
               <ul>
@@ -11365,20 +11425,20 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
           </div>
           <p v-if="editFileNote" class="hint edit-file-note" role="status">{{ editFileNote }}</p>
           <ul v-if="changeCount > 0 || areaChanges.length" class="report">
-            <li v-for="c in report" :key="c.equipmentId">
+            <li v-for="c in report" :key="c.equipmentId" :data-kind="c.toSpaceId ? 'move' : 'unassigned'">
               {{ c.equipmentName }}:
               <b>{{ reportPlace(c.fromSpaceId, c.equipmentId) }}</b> → <b>{{ reportPlace(c.toSpaceId, c.equipmentId) }}</b>
             </li>
             <!-- 사람의 소속 지정(K17). 해제된 것도 조용히 바꾸지 않고 까닭과 함께 보인다. -->
-            <li v-for="r in assignLines" :key="`assign-${r.id}`">
+            <li v-for="r in assignLines" :key="`assign-${r.id}`" :data-kind="r.released ? 'release' : 'move'">
               <template v-if="r.released">사람 지정 해제: <b>{{ r.name }}</b> {{ spaceNameOf(r.from) }} → {{ spaceNameOf(r.to) }}({{ r.reason }})</template>
               <template v-else>설비 <b>{{ r.name }}</b>의 소속을 {{ spaceNameOf(r.from) }}(으)로 정했습니다 (TTL hasLocation · GeoJSON spaceSource edit)</template>
             </li>
-            <li v-if="areaSummary" class="muted">{{ areaSummary }}</li>
-            <li v-for="(c, i) in confirmations" :key="`rule-${i}`">
+            <li v-if="areaSummary" class="muted" data-kind="space">{{ areaSummary }}</li>
+            <li v-for="(c, i) in confirmations" :key="`rule-${i}`" data-kind="pipe">
               계통 <b>{{ c.systemName }}</b>: 규칙 방향 {{ c.count }}개 확정 (brick:feeds)
             </li>
-            <li v-for="(f, i) in flowEditLines" :key="`flow-${i}`">
+            <li v-for="(f, i) in flowEditLines" :key="`flow-${i}`" data-kind="pipe">
               <b>{{ f.from }}</b> → <b>{{ f.to }}</b>: 방향 직접 지정 ({{ f.note }}, brick:feeds)
             </li>
             <li v-for="k in spaceKindLines" :key="`room-kind-${k.key}`">
@@ -11390,20 +11450,20 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
             <li v-for="r in sinceOpen.restoreyed" :key="`storey-${r.id}`">
               {{ r.name }}: 층 <b>{{ r.from }}</b> → <b>{{ r.to }}</b> (brick:hasPart)
             </li>
-            <li v-for="(c, i) in sinceOpen.connected" :key="`join-${i}`">
+            <li v-for="(c, i) in sinceOpen.connected" :key="`join-${i}`" data-kind="pipe">
               <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결했습니다(방향을 정하면 brick:feeds)
             </li>
-            <li v-for="(c, i) in sinceOpen.disconnected" :key="`cut-${i}`">
+            <li v-for="(c, i) in sinceOpen.disconnected" :key="`cut-${i}`" data-kind="pipe">
               <b>{{ nameOfId(c.from) }}</b> — <b>{{ nameOfId(c.to) }}</b>: 연결을 끊었습니다
             </li>
-            <li v-for="(r, i) in releaseLines" :key="`release-${i}`">
+            <li v-for="(r, i) in releaseLines" :key="`release-${i}`" data-kind="pipe">
               <b>{{ nameOfId(r.from) }}</b> — <b>{{ nameOfId(r.to) }}</b>: 연결 해제 보정(사유: {{ r.reason }}). BIM 원본은 그대로, brick:feeds 에서 뺐습니다
               <template v-if="r.review"> · <b class="review-tag">재검토</b> {{ r.review === 'direction' ? '다시 연 판본에서 방향이 바뀜' : '다시 연 판본에 원본 연결이 없음' }}</template>
             </li>
-            <li v-for="r in sinceOpen.spacesAdded" :key="`space-add-${r.id}`">
+            <li v-for="r in sinceOpen.spacesAdded" :key="`space-add-${r.id}`" data-kind="space">
               물리존 <b>{{ r.name || r.id }}</b>{{ josa(r.name || r.id, '을/를') }} 만들었습니다 (brick:hasPart, GeoJSON)
             </li>
-            <li v-for="r in sinceOpen.spacesRemoved" :key="`space-rm-${r.id}`">
+            <li v-for="r in sinceOpen.spacesRemoved" :key="`space-rm-${r.id}`" data-kind="space">
               물리존 <b>{{ r.name }}</b>{{ josa(r.name, '이/가') }} 없어졌습니다(지우거나 합침). 그 안의 설비는 좌표로 다시 소속을 찾았습니다
             </li>
             <li v-for="r in sinceOpen.equipmentAdded" :key="`eq-add-${r.id}`">
@@ -11453,7 +11513,7 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
               커스텀존 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.change === 'added' ? '만들었습니다' : r.change === 'removed' ? '지웠습니다' : '고쳤습니다' }}
               (TTL brick:Zone · GeoJSON)
             </li>
-            <li v-for="r in sinceOpen.hvacZones" :key="`hz-${r.id}`">
+            <li v-for="r in sinceOpen.hvacZones" :key="`hz-${r.id}`" data-kind="zone">
               공조존 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.change === 'added' ? '만들었습니다' : r.change === 'removed' ? '지웠습니다' : '고쳤습니다' }}
               (TTL brick:HVAC_Zone · 담당 설비 brick:feeds · GeoJSON)
             </li>
@@ -11468,10 +11528,10 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
             <li v-for="r in sinceOpen.systemKinds" :key="`sys-kind-${r.id}`">
               계통 <b>{{ r.name || r.id }}</b>: 종류 {{ systemKindText(r.from.kind, r.from.fluid) }} → <b>{{ systemKindText(r.to.kind, r.to.fluid) }}</b> (계통 클래스)
             </li>
-            <li v-for="r in sinceOpen.renamed" :key="`name-${r.spaceId}`">
+            <li v-for="r in sinceOpen.renamed" :key="`name-${r.spaceId}`" data-kind="space">
               물리존 이름 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b> (rdfs:label)
             </li>
-            <li v-for="r in sinceOpen.renumbered ?? []" :key="`number-${r.spaceId}`">
+            <li v-for="r in sinceOpen.renumbered ?? []" :key="`number-${r.spaceId}`" data-kind="space">
               물리존 방번호 <b>{{ r.from || '(없음)' }}</b> → <b>{{ r.to || '(없음)' }}</b>
             </li>
             <li v-if="sinceOpen.moved.length" class="moved-only">
@@ -11484,7 +11544,7 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
           <!-- 공조존 검증 경고(OE-MAP-04 · OE-ZON-05 "결과는 반영 결과 리포트에 든다"). 반영(D10)이 없어 바뀐 내용 아래에 둔다.
                막지 않는다. 공조존을 하나도 만들지 않았으면 보이지 않는다(Z-01 이 층마다 전부 공백이 된다). -->
           <ul v-if="reportZoneChecks.length" class="report report-checks" data-testid="report-zone-checks">
-            <li v-for="c in reportZoneChecks" :key="c.rule" class="warn">
+            <li v-for="c in reportZoneChecks" :key="c.rule" class="warn" data-kind="zone">
               <b>{{ c.rule }}</b> {{ c.text }}: {{ c.items.length }}개 — {{ c.items.slice(0, 5).map((x) => x.label).join(', ') }}<template v-if="c.items.length > 5"> 외 {{ c.items.length - 5 }}개</template>
             </li>
           </ul>
