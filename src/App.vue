@@ -14,6 +14,9 @@ import ExitEditDialog from './components/ExitEditDialog.vue'
 import PublishDialog from './components/PublishDialog.vue'
 import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
 import { previewSummary, summaryText } from './lib/preview'
+import { customerReportHTML, generationReport, MISSING_LABEL, missingClass, sha256Hex, type ReportInput, type ReportSectionB } from './lib/build-report'
+import { ttlTriples } from './lib/export/read-export'
+import { readOntologyTTL } from './lib/export/read-ttl'
 import { DEFAULT_SITE_RULES, siteWarnings, type SiteRules } from './lib/site-rules'
 import { DEFAULT_LINES, GATE, gradeReport, percent, TARGET, type GradeLines, type GradeReport } from './lib/grade'
 import HoverTip from './components/HoverTip.vue'
@@ -8069,6 +8072,45 @@ const buildBlock = computed(() => {
 function resetGradeLines() {
   gradeLines.value = { ...DEFAULT_LINES }
 }
+
+// --- 생성 리포트(B-2)·고객사 결과 리포트(B-1) (OE-GEN-07·08, OE-BIM-20, lib/build-report.ts) ---
+// 같은 재료(모델·등급 판정·요구사항·완전성 검사·산출물)로 만든다. 산출물(⑪)은 TTL·GeoJSON 을 만들어 세므로 누를 때 만든다.
+async function reportInput(withOutputs: boolean): Promise<ReportInput | null> {
+  const m = model.value
+  if (!m) return null
+  const g = grades.value ?? gradeReport(m, gradeLines.value)
+  let outputs: ReportInput['outputs'] = null
+  if (withOutputs) {
+    const ttl = modelToTTL(m)
+    const reading = readOntologyTTL(ttl)
+    const geo = modelToGeoJSON(m)
+    outputs = {
+      ttlBytes: new TextEncoder().encode(ttl).length,
+      triples: ttlTriples(ttl).size,
+      entities: reading.entities.length,
+      unread: reading.unread.length,
+      hash: await sha256Hex(ttl),
+      geojsonFiles: geo.length,
+      geojsonFeatures: geo.reduce((n, f) => n + f.collection.features.length, 0),
+    }
+  }
+  return { fileName: fileName.value, model: m, grades: g, requirements: currentRequirements.value, checks: checks.value, outputs, at: new Date().toISOString() }
+}
+/** 화면에 보이는 생성 리포트(B-2). */
+const generation = shallowRef<ReportSectionB[] | null>(null)
+watch(baseline, () => (generation.value = null))
+async function makeGenerationReport() {
+  const input = await reportInput(true)
+  if (input) generation.value = generationReport(input)
+}
+async function downloadCustomerReport() {
+  const input = await reportInput(false)
+  if (!input) return
+  const stem = fileName.value.split(' + ').map((n) => n.replace(/\.[^.]+$/, '')).join('+') || 'model'
+  download(`${stem}-결과리포트.html`, customerReportHTML(input), 'text/html')
+  markDone('customer-report')
+  note(`${stem}-결과리포트.html 을 내려받았습니다. 재제출 항목(A·B)에 R 번호와 수정 방법이 붙어 있습니다`)
+}
 const nextVersion = computed(() => Math.max(0, ...(layoutState.value?.versions.map((v) => v.version) ?? [])) + 1)
 const publishAsk = ref(false)
 const publishing = ref(false)
@@ -8116,7 +8158,8 @@ async function publishLayout(by: string) {
       if (r.status === 401 || r.status === 403) throw new Error((await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`)
       if (!r.ok) throw new Error(`${name} 을 올리지 못했습니다(HTTP ${r.status})`)
     }
-    for (const f of layoutFiles(m, edits, captureReport())) await put(f.name, f.text)
+    const gen = await reportInput(true)
+    for (const f of layoutFiles(m, edits, captureReport(), gen ? generationReport(gen) : undefined)) await put(f.name, f.text)
     await put('model.glb', new Blob(await makeMesh3D('glb')))
     const r = await fetch(layoutsUrl({ key, stage, publish: '' }), {
       method: 'POST',
@@ -10623,16 +10666,17 @@ function rollbackFromReport() {
         <Fold v-if="currentRequirements.length" title="요구사항" :meta="requirementsMeta" :default-open="false" class="requirements">
           <table class="req-table">
             <thead>
-              <tr><th>#</th><th>요구</th><th>상태</th><th class="num" title="표준 자리 · 다른 자리 / 전체">개수</th><th>설명</th><th>고객사에 할 요청</th></tr>
+              <tr><th>#</th><th>요구</th><th>상태</th><th title="누락 분류(OE-BIM-20) — X 외부 · A 설정 · B 부재 · C 보정">분류</th><th class="num" title="표준 자리 · 다른 자리 / 전체">개수</th><th>설명</th><th>고객사에 할 요청</th></tr>
             </thead>
             <tbody v-for="g in requirementGroups" :key="g.level">
               <tr class="req-group">
-                <th colspan="6">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 대신 채울 방법이 없음' : ' — 없으면 계산·사전·수작업으로 채움' }}</th>
+                <th colspan="7">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 대신 채울 방법이 없음' : ' — 없으면 계산·사전·수작업으로 채움' }}</th>
               </tr>
               <tr v-for="r in g.rows" :key="r.id" v-flash="`${r.state}:${r.counts?.standard}:${r.counts?.elsewhere}`">
                 <td class="mono">{{ r.id }}</td>
                 <td>{{ r.title }}</td>
                 <td><span :class="['req-state', r.state]">{{ REQUIREMENT_STATE[r.state] }}</span></td>
+                <td class="req-class" :data-class="missingClass(r) ?? ''">{{ missingClass(r) ? MISSING_LABEL[missingClass(r)!] : '—' }}</td>
                 <td class="num mono">
                   <template v-if="r.counts && r.counts.of">
                     <Roll :value="r.counts.standard" /><template v-if="r.counts.elsewhere"> · <Roll :value="r.counts.elsewhere" /></template> / {{ r.counts.of }}
@@ -10654,6 +10698,23 @@ function rollbackFromReport() {
             표준 자리는 IDS(<span class="mono">docs/requirements.ids</span>) 검사도 통과합니다. 다른 자리는 값이 있어 읽을 수 있지만
             표준 자리가 아니라서, 고객사에 내보내기 설정을 바꿔 달라고 합니다(요청 칸에 무엇을 바꿀지). 기준은 정본 4장을 보세요.
           </p>
+        </Fold>
+
+        <!-- 생성 리포트(B-2, OE-GEN-07)와 고객사 결과 리포트(B-1, OE-GEN-08). B-2 는 반영할 때 버전에도 붙는다. -->
+        <Fold title="리포트" meta="생성 리포트(B-2) · 고객사 결과 리포트(B-1)" :default-open="false" class="reports" data-testid="reports">
+          <p class="report-actions">
+            <button type="button" class="ghost" @click="makeGenerationReport">생성 리포트 만들기</button>
+            <button type="button" class="ghost" :class="{ done: justDone === 'customer-report' }" @click="downloadCustomerReport">고객사 결과 리포트(HTML)</button>
+            <span class="muted">고객사 리포트는 등급·요구사항 판정과 수정 방법·재제출(A·B)·보정(C) 항목을 담은 HTML 한 파일입니다.</span>
+          </p>
+          <ol v-if="generation" class="generation" data-testid="generation">
+            <li v-for="sec in generation" :key="sec.no">
+              <b>{{ sec.title }}</b>
+              <ul>
+                <li v-for="(l, i) in sec.lines" :key="i">{{ l }}</li>
+              </ul>
+            </li>
+          </ol>
         </Fold>
 
         <!-- 판본 비교(PRD #6, R13). 이전 판본과 짝지어 무엇이 바뀌었는지와, GUID 가 판본 사이에 남는지를 잰다. -->
