@@ -142,7 +142,7 @@ describe('미배치 설비 배치 (E6)', () => {
     expect(change.summary).toContain('(소속 없음) 에서 사무실 로 바뀝니다')
   })
 
-  it('미배치 목록은 좌표 없는 설비와 그 층이고, 놓으면 빠지고 되돌리면 돌아온다 [OE-EQP-02#1] [OE-EQP-02#5~]', () => {
+  it('미배치 목록은 좌표 없는 설비와 그 층이고, 놓으면 빠지고 되돌리면 돌아온다 [OE-EQP-02#1] [OE-EQP-02#5~] [OE-MAP-01#3]', () => {
     // OE-BIM-07 수용 기준 "좌표 없는 설비는 미배치 목록". 층은 BIM 이 말한 것이라 어느 바닥에 놓을지 안다.
     const listed = () => unplacedOf(model).map((u) => `${u.equipment.name}@${u.storey.name}`)
     expect(listed()).toEqual(['TEMP-101-01@1F'])

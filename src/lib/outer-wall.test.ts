@@ -194,7 +194,7 @@ describe('외벽 여부·크기 고치기(OE-OBJ-04)', () => {
     expect(wallOf('west').height).toBe(null)
   })
 
-  it('외벽에도 문과 창을 놓는다', () => {
+  it('외벽에도 문과 창을 놓는다 [OE-OBJ-07#1~] [OE-OBJ-04#2]', () => {
     setWallExternal(model, 'south', true)
     expect(addOpening(model, 's1', 'door', [2, 0])).toMatchObject({ wallId: 'south' })
     expect(addOpening(model, 's1', 'window', [4, 0])).toMatchObject({ wallId: 'south' })

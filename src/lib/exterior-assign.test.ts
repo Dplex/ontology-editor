@@ -8,7 +8,7 @@ const eq = (kind: string, position: [number, number, number]): Equipment =>
   ({ id: kind, name: kind, ifcClass: 'X', kind, role: null, position, capacity: null, systemId: null, spaceId: null, spaceSource: null }) as unknown as Equipment
 
 describe('외벽 전용 설비의 소속 (OE-MAP-01 1단계 · OE-EQP-15)', () => {
-  it('외부 루버·외기 센서는 외곽선에서 허용 거리 안이어도, 외곽선 안이어도 방에 붙지 않고 소속 지정도 막힌다', () => {
+  it('외부 루버·외기 센서는 외곽선에서 허용 거리 안이어도, 외곽선 안이어도 방에 붙지 않고 소속 지정도 막힌다 [OE-MAP-01#4]', () => {
     for (const kind of ['outdoor_louver', 'outdoor_temperature_sensor']) {
       expect(exteriorKind({ kind })).toBe(true)
       for (const at of [[3, -0.03, 1.5], [3, 2, 1.5]] as [number, number, number][]) {

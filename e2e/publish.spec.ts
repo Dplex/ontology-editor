@@ -333,7 +333,7 @@ test('수용 기준선(게이트 등급 0~3) 미달이면 [구축하기] 가 꺼
   await expect(build).toBeEnabled()
 })
 
-test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보이고, 누르면 그 설비를 고르며, 확인 창의 수치와 [미리보기] 가 같다 [OE-WF-07#1~] [OE-WF-08#1~] [OE-WF-09#1] [OE-WF-11#1] [OE-WF-12#1] [OE-P3-01#1~]', async ({ page }) => {
+test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보이고, 누르면 그 설비를 고르며, 확인 창의 수치와 [미리보기] 가 같다 [OE-WF-07#1~] [OE-WF-08#1~] [OE-WF-09#1] [OE-WF-11#1] [OE-WF-12#1] [OE-P3-01#1~] [OE-MAP-01#2~]', async ({ page }) => {
   await serve(page)
   await page.goto('/')
   await page.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
