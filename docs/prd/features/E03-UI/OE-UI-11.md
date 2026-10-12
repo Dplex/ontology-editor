@@ -7,7 +7,7 @@ prd: "#4"
 release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: []
 depends: ["OE-SPC-03"]
 ---
@@ -29,9 +29,6 @@ depends: ["OE-SPC-03"]
 - 평면도에서 물리존을 고르면 오른쪽 패널에 그 물리존 속성이 보이고 3D 에서도 같은 것이 선택된다.
 - 평면도에서 꼭짓점을 끌면 3D 의 외곽선이 같이 바뀐다.
 
-## 검증 (이 repo)
-
-—
 
 ## 메모
 

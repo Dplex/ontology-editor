@@ -7,7 +7,7 @@ prd: "#4"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: []
 depends: ["OE-INT-07"]
 ---
@@ -27,9 +27,6 @@ depends: ["OE-INT-07"]
 
 패널의 모든 값 옆에 출처가 보이고, 사용자가 값을 고치면 출처가 '사람' 으로 바뀐다.
 
-## 검증 (이 repo)
-
-- 화면의 값마다 출처(BIM·계산·사전·편집)가 붙는다. 편집한 값은 "편집" 이다 — 성수 E-11·F-10·H-2, `components/Src.vue`
 
 ## 메모
 
