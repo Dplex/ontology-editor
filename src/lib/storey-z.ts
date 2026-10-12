@@ -45,3 +45,23 @@ export function storeyAtZ(model: Pick<Model, 'storeys'>, z: number): Storey | nu
   for (const s of sorted) if (s.elevation <= z + SAME_ELEVATION) found = s
   return found
 }
+
+/** 자기 층 바닥 아래로 이만큼(m)까지는 그 층 배관이다 — 바닥판 안·아래를 지나는 배관(Duplex 급수관이 바닥 -0.18m 까지 내려간다). */
+export const BELOW_FLOOR_REACH = 0.3
+/** 위층 바닥을 이만큼(m) 넘으면 위층으로 들어간 것이다. 천장 속 배관은 위층 바닥 아래에 머문다. */
+export const ABOVE_FLOOR_REACH = 0.05
+
+/**
+ * 덕트·배관 구간이 자기 층(`homeId`)을 벗어나 들어간 다른 층들(OE-ML-05). 없으면 빈 배열이다. 층 편집 화면은 이런 구간의 형상을 바꾸지 않고
+ * 다중층 뷰로 안내한다 — 한 층만 보며 고치면 보이지 않는 층의 경로가 바뀐다. 높이를 모르는 층은 가르지 않는다.
+ */
+export function storeysEntered(model: Pick<Model, 'storeys'>, homeId: string, path: readonly [Vec3, Vec3]): Storey[] {
+  const sorted = model.storeys.filter((s) => Number.isFinite(s.elevation)).sort((a, b) => a.elevation - b.elevation)
+  const i = sorted.findIndex((s) => s.id === homeId)
+  if (i < 0) return []
+  const low = Math.min(path[0][2], path[1][2])
+  const high = Math.max(path[0][2], path[1][2])
+  const below = sorted.slice(0, i).filter((s, k) => low < sorted[k + 1].elevation - BELOW_FLOOR_REACH)
+  const above = sorted.slice(i + 1).filter((s) => high > s.elevation + ABOVE_FLOOR_REACH)
+  return [...below, ...above]
+}

@@ -86,7 +86,7 @@ import {
 } from './lib/viewer'
 import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import { drawPipe } from './lib/manual-pipe'
-import { storeyAtZ, storeyElevationProblem, type PathPoint } from './lib/storey-z'
+import { storeyAtZ, storeyElevationProblem, storeysEntered, type PathPoint } from './lib/storey-z'
 import { branchPipe } from './lib/branch-pipe'
 import { planOffsetHeight, setOffsetHeight } from './lib/offset-edit'
 import { removalImpact } from './lib/removal-impact'
@@ -976,7 +976,7 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
   // `ignoreModeLock` 은 완전성 검사의 [방 안으로 옮기기] — 높이는 그대로 x·y 만 옮기는 명시적 고치기라 천장·바닥 모드 구분은 건너뛴다.
   // 다중층 뷰·수직 관통 잠금은 그대로다.
   const raw = moving ? editLock(moving) : null
-  const lock = opts.ignoreModeLock && raw !== MULTI_VIEW_ONLY && raw !== VERTICAL_LOCKED ? null : raw
+  const lock = opts.ignoreModeLock && raw !== MULTI_VIEW_ONLY && raw !== VERTICAL_LOCKED && raw !== CROSS_STOREY_LOCKED ? null : raw
   if (moving && lock) {
     goBack()
     refuseLock(moving, lock)
@@ -1020,6 +1020,13 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
   }
   // 붙은 배관(PRD #13). 옮기기 전에 정한다 — 옮긴 뒤에는 구간의 어느 끝이 가까웠는지 모른다.
   const plan = carryConduits.value && before ? planFollow(model.value, equipmentId, segmentAxis) : null
+  // 따라 늘어날 구간이 다른 층으로 이어졌으면 옮기지 않는다(OE-ML-05). 끄고 옮기면 설비만 간다.
+  const crossing = moving ? crossingFollower(plan) : null
+  if (moving && crossing) {
+    goBack()
+    editNotice.value = crossingText(moving, crossing)
+    return false
+  }
   const followers = plan ? [...plan.rigid, ...new Set(plan.stretch.map((x) => x.id))] : []
   const own = snapshotEquipment(model.value, equipmentId)
   const snapshot: Snapshot | null =
@@ -5084,6 +5091,44 @@ const NOT_ON_CEILING = '천장에 설치할 수 없는 설비입니다.'
 /** 수직 관통 오브젝트인 설비 종류(OE-OBJ-14). */
 const VERTICAL_DEVICES = new Set(['elevator', 'escalator'])
 const VERTICAL_LOCKED = '엘리베이터·에스컬레이터는 수직 관통 오브젝트라 층 편집 화면에서는 옮기거나 지우지 않습니다. 다중층 뷰에서 편집합니다.'
+const CROSS_STOREY_LOCKED = '다른 층으로 이어진 덕트·배관 구간이라 층 편집 화면에서는 형상을 바꾸지 않습니다. 다중층 뷰에서 편집합니다.'
+/**
+ * 덕트·배관 구간이 자기 층을 벗어나 들어간 다른 층(OE-ML-05). 층 편집 화면은 이런 구간을 옮기거나 늘이지 않는다 — 한 층만 보며 고치면
+ * 보이지 않는 층의 경로가 바뀐다. 같은 층 안에서 그 구간의 이음쇠에 배관을 이어 그리는 것은 된다(형상을 바꾸지 않는다).
+ */
+const crossStorey = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  const out = new Map<string, Storey[]>()
+  if (!m) return out
+  for (const st of m.storeys)
+    for (const e of st.equipment) {
+      if (e.role !== 'segment') continue
+      const p = segmentPath(e)
+      const entered = p && 'path' in p ? storeysEntered(m, st.id, p.path) : []
+      if (entered.length) out.set(e.id, entered)
+    }
+  return out
+})
+const enteredOf = (e: Equipment): Storey[] => crossStorey.value.get(e.id) ?? []
+/** 그 구간이 걸친 층들로 다중층 뷰를 연다. */
+function openMultiViewForSegment(e: Equipment) {
+  const home = storeyOf(e.id)
+  if (!home) return
+  const ids = new Set([home.id, ...enteredOf(e).map((s) => s.id)])
+  const list = storeysByHeight.value.filter((st) => ids.has(st.id))
+  if (list.length) openMultiView(list[0].id, list.at(-1)!.id)
+}
+/** 옮기면 늘어날 구간 중 다른 층으로 이어진 것. 층 편집 화면에서는 그 이동을 막는다. */
+function crossingFollower(plan: FollowPlan | null): Equipment | null {
+  for (const s of plan?.stretch ?? []) {
+    const e = equipmentById.value.get(s.id)
+    if (e && enteredOf(e).length) return e
+  }
+  return null
+}
+const crossingText = (moving: Equipment, seg: Equipment) =>
+  `${shortName(moving.name)}${josa(shortName(moving.name), '을/를')} 옮기면 다른 층(${enteredOf(seg).map((s) => s.name).join('·')})으로 이어진 ${shortName(seg.name)}의 형상이 바뀝니다. 층 편집 화면에서는 바꾸지 않습니다 — 다중층 뷰에서 편집하거나 [배관도 같이] 를 끄고 옮깁니다.`
 /**
  * 지금 모드에서 이 설비를 고칠 수 없는 이유. 고칠 수 있으면 null. 좌표가 없는 설비는 놓을 면으로 가른다 — 천장 모드에서는 천장에 놓을
  * 수 있는 종류, 바닥·벽 쪽에서는 천장 전용이 아닌 종류다(OE-EQP-02).
@@ -5095,6 +5140,7 @@ function editLock(e: Equipment): string | null {
   // 엘리베이터·에스컬레이터는 수직 관통 오브젝트라 층 편집 화면에서는 고르고 보기만 한다(OE-EQP-07·OE-ML-05). 종류는 고칠 수 있다 —
   // 이름 사전이 잘못 읽은 것을 풀 길이 없으면 그 설비가 계속 잠긴다.
   if (VERTICAL_DEVICES.has(e.kind ?? '')) return VERTICAL_LOCKED
+  if (enteredOf(e).length) return CROSS_STOREY_LOCKED
   if (editPart.value === 'space') return EQUIPMENT_IN_SPACE
   if (!e.position) {
     if (ceilingMode.value) return isConduit(e.role) ? '덕트·배관은 바닥·벽 쪽에서 편집합니다.' : canMountOn(e, 'ceiling') ? null : NOT_ON_CEILING
@@ -6418,7 +6464,8 @@ const followPreview = computed(() => {
   const plan = planFollow(model.value, e.id, segmentAxis)
   const stretch = new Set(plan.stretch.map((x) => x.id)).size
   if (!plan.rigid.length && !stretch && !plan.held.length && !plan.blocked.length) return null
-  return { rigid: plan.rigid.length, stretch, left: followLeftText(plan) }
+  const crossing = crossingFollower(plan)
+  return { rigid: plan.rigid.length, stretch, left: crossing ? crossingText(e, crossing) : followLeftText(plan), crossing: !!crossing }
 })
 let carryPlan: WallCarryPlan | null = null
 watch(selectedElementId, () => (carryPlan = null))
@@ -9326,6 +9373,7 @@ function rollbackFromReport() {
             <button v-if="selectedLock.includes('천장 편집 모드에서')" type="button" class="link" @click="setCeilingMode(true)">천장 편집으로</button>
             <button v-else-if="selectedLock.includes('바닥·벽')" type="button" class="link" @click="setCeilingMode(false)">바닥·벽으로</button>
             <!-- 다중층 뷰(E18 OE-ML-01)는 아직 없다. 들어갈 자리를 보이되 누르지 못하게 둔다. -->
+            <button v-else-if="selectedLock === CROSS_STOREY_LOCKED" type="button" class="link" @click="openMultiViewForSegment(selected)">다중층 뷰에서 편집</button>
             <button v-else-if="selectedLock === VERTICAL_LOCKED" type="button" class="link" disabled title="엘리베이터·에스컬레이터는 아직 수직 관통 오브젝트(OE-ML-02)로 읽지 않아 관통 층을 모릅니다">다중층 뷰에서 편집</button>
           </p>
           <!-- 이름(태그) 고치기(E7). 지우기는 패널 맨 아래에 둔다 — 이름 칸 바로 옆에 있어 고치려다 누르기 쉬웠다. -->
@@ -9458,7 +9506,7 @@ function rollbackFromReport() {
           </p>
           <!-- 옮기면 따라오는 배관(OE-PIP-12). [배관도 같이] 를 켰을 때만. 분기 이음쇠·추종 불가는 옮기기 전에 보이게 한다. -->
           <p v-if="editing && !selectedLock && followPreview" class="hint follow-preview" data-testid="follow-preview">
-            <template v-if="followPreview.rigid + followPreview.stretch">
+            <template v-if="!followPreview.crossing && followPreview.rigid + followPreview.stretch">
               옮기면 이음쇠 {{ followPreview.rigid }}개가 같이 가고 덕트·배관 {{ followPreview.stretch }}개가 늘어납니다.
             </template>
             <span v-if="followPreview.left" class="follow-left">{{ followPreview.left }}</span>

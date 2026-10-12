@@ -285,3 +285,65 @@ test('Duplex: 층 편집에서 그리던 배관을 들고 다중층 뷰로 가�
   await expect(page.locator('.key-note')).toContainText('2개 층')
   expect(errors).toEqual([])
 })
+
+test('Duplex: 층 편집 화면에서 다른 층으로 이어진 구간은 잠기고 다중층 뷰로 안내하며, 그 구간을 늘이게 되는 옮기기는 막고, 같은 층에서 이음쇠에 배관을 이어 그리는 것은 된다 [OE-ML-05#3]', async ({ page }) => {
+  test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(180_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await drawRiser(page)
+  await page.getByRole('button', { name: '층 편집으로' }).first().click()
+  await expect(page.getByTestId('multi-banner')).toHaveCount(0)
+  const search = page.getByPlaceholder(/물리존·설비 이름/)
+  const pickRow = async (text: string, name: string) => {
+    await search.fill(text)
+    await page.locator('.equipment tbody tr', { hasText: name }).first().getByRole('button', { name, exact: true }).click()
+  }
+  const notice = page.locator('.edit-notice').first()
+
+  // 1층 → 2층 수직 구간: 고르고 보기만. 편집 칸 대신 안내와 [다중층 뷰에서 편집].
+  await pickRow('HWS 배관 1', 'HWS 배관 1')
+  const lock = page.locator('.picked .ceiling-lock')
+  await expect(lock).toContainText('다른 층으로 이어진 덕트·배관 구간이라 층 편집 화면에서는 형상을 바꾸지 않습니다')
+  await expect(page.getByTestId('retarget')).toHaveCount(0)
+  // 표의 좌표 칸으로 옮기려 해도 막는다.
+  const segX = page.locator('.equipment tbody tr', { hasText: 'HWS 배관 1' }).first().locator('.coord').first()
+  const segBefore = await segX.inputValue()
+  await segX.fill(String(Number(segBefore) + 0.5))
+  await segX.press('Enter')
+  await expect(notice).toContainText('다른 층으로 이어진')
+  await expect(segX).toHaveValue(segBefore)
+
+  // 라이저 아래 라디에이터: [배관도 같이] 면 수직 구간이 늘어나므로 미리 알리고, 옮기면 막는다.
+  await pickRow('536919', FROM)
+  await expect(page.getByTestId('follow-preview')).toContainText('다른 층(Level 2)으로 이어진 HWS 배관 1의 형상이 바뀝니다')
+  if (process.env.SHOT_CROSS) {
+    await page.getByTestId('follow-preview').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: process.env.SHOT_CROSS })
+  }
+  const x = page.locator('.equipment tbody tr', { hasText: FROM }).last().locator('.coord').first()
+  const before = await x.inputValue()
+  await x.fill(String(Number(before) + 0.3))
+  await x.press('Enter')
+  await expect(notice).toContainText('층 편집 화면에서는 바꾸지 않습니다')
+  await expect(x).toHaveValue(before)
+
+  // 안내 버튼은 그 구간이 걸친 층으로 다중층 뷰를 연다.
+  await pickRow('HWS 배관 1', 'HWS 배관 1')
+  await lock.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await expect(page.getByTestId('multi-banner')).toContainText('Level 1 ~ Level 2 (2개 층)')
+  await page.getByRole('button', { name: '층 편집으로' }).first().click()
+
+  // 2층: 라이저 꼭대기 이음쇠(HWS 이음 2)는 옮기면 수직 구간이 늘어나 막지만, 거기서 같은 층 설비로 배관을 이어 그리는 것은 된다.
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 2만' })
+  // 1층에 저장 안 한 편집(라이저)이 있어 층을 바꾸기 전에 묻는다(OE-COM-08). 임시 저장하고 간다.
+  await page.locator('dialog[open]').getByRole('button', { name: '임시 저장', exact: true }).click()
+  await pickRow('HWS 이음 2', 'HWS 이음 2')
+  const draw = page.getByTestId('pipe-draw')
+  await expect(draw).toBeVisible()
+  await draw.getByLabel('배관 끝 대상').selectOption({ index: 1 })
+  await draw.getByLabel('배관 Flow Type').selectOption('HWS')
+  await draw.getByRole('button', { name: '곧게 연결하기' }).click()
+  await expect(page.locator('.key-note')).toContainText('HWS 배관을 그렸습니다')
+  expect(errors).toEqual([])
+})
