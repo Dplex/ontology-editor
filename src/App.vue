@@ -6516,6 +6516,10 @@ let homeOf: HomeOf = () => null
 let floorDrafts = new Map<string, EditFile>()
 /** 이미 얹은 임시 저장본의 열쇠. */
 const appliedFloors = new Set<string>()
+/** floorDrafts 가 바뀔 때 올린다(화면의 [임시 저장본 폐기] 가 본다). */
+const draftsVersion = ref(0)
+/** 지금 반영된 레이아웃의 편집 파일(ADR-0037). 폐기하면 그 층을 이것으로 돌린다. 반영 전이면 null(BIM 그대로). */
+const publishedFile = shallowRef<EditFile | null>(null)
 /** 조각마다 마지막으로 저장(임시 저장·8084·파일·구축하기)한 것. 저장 안 한 편집과 [저장 안 함] 이 이것과 견준다. */
 const savedParts = shallowRef(new Map<string, EditFile>())
 /** 열기(8084 저장본 얹기까지)가 끝났는가. 그 전에 임시 저장본을 얹으면 저장본과 겹친다. */
@@ -6524,6 +6528,8 @@ let openSettled = false
 watch(baseline, () => (openSettled = false), { flush: 'sync' })
 watch(baseline, (b) => {
   floorDrafts = new Map()
+  draftsVersion.value++
+  discardAsk.value = false
   appliedFloors.clear()
   savedParts.value = new Map()
   if (!b) return
@@ -6616,8 +6622,57 @@ function settleOpen() {
   enterFloors()
 }
 
+/** 서버의 층별 임시 저장본을 맞춘다(있으면 덮고, 없어진 조각은 지운다). 사람 목록이 없는 곳은 브라우저에만 남는다. */
+function syncDraftsToServer(keys: string[], parts: Map<string, EditFile>) {
+  const key = serverKey.value
+  if (!key || !people.value) return
+  for (const k of keys) {
+    const part = parts.get(k)
+    const url = `./__data/__drafts?${new URLSearchParams({ key, floor: k })}`
+    void fetch(url, part ? { method: 'PUT', headers: asMe(), body: JSON.stringify(part) } : { method: 'DELETE', headers: asMe() })
+      .then(async (r) => {
+        if (!r.ok) note(`임시 저장본을 서버에 두지 못했습니다(${(await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}`}). 이 브라우저에는 남았습니다`)
+      })
+      .catch(() => {})
+  }
+}
+/** [임시 저장본 폐기](OE-WF-04) 확인 중. */
+const discardAsk = ref(false)
+/** 폐기할 층: 보고 있는 층. 층이 하나뿐인 건물은 그 층이다. */
+const discardFloor = computed(() => viewStorey.value ?? (model.value?.storeys.length === 1 ? model.value.storeys[0].id : null))
+const canDiscardDraft = computed(() => {
+  void draftsVersion.value
+  return editing.value && !!discardFloor.value && floorDrafts.has(discardFloor.value)
+})
+/** 지금 층의 임시 저장본을 지우고 반영된 레이아웃(없으면 BIM)으로 돌린다. 되돌릴 수 없다. */
+function discardFloorDraft() {
+  const floor = discardFloor.value
+  const key = serverKey.value
+  discardAsk.value = false
+  if (!floor || !model.value) return
+  if (key && people.value) void fetch(`./__data/__drafts?${new URLSearchParams({ key, floor })}`, { method: 'DELETE', headers: asMe() }).catch(() => {})
+  try {
+    localStorage.removeItem(draftKey(floor))
+  } catch {
+    // 못 지워도 서버 것은 지웠다
+  }
+  floorDrafts.delete(floor)
+  appliedFloors.delete(floor)
+  draftsVersion.value++
+  const published = publishedFile.value ? (splitByStorey(publishedFile.value, homeOf).get(floor) ?? null) : null
+  replaceParts(new Map([[floor, published]]), '반영된 레이아웃')
+  const saved = new Map(savedParts.value)
+  if (published) saved.set(floor, published)
+  else saved.delete(floor)
+  savedParts.value = saved
+  note(`${floorName(floor)}의 임시 저장본을 폐기했습니다. ${publishedFile.value ? '반영된 레이아웃' : 'BIM 그대로'}로 돌아왔습니다`)
+}
+
 /** 이 파일의 임시 저장본을 전부 지운다. 저장(8084·파일·구축하기)하면 임시 저장본은 쓸모가 없다. */
 function clearDrafts() {
+  const key = serverKey.value
+  if (key && people.value) void fetch(`./__data/__drafts?${new URLSearchParams({ key })}`, { method: 'DELETE', headers: asMe() }).catch(() => {})
+  draftsVersion.value++
   try {
     const prefix = draftKey('')
     const keys: string[] = []
@@ -6711,12 +6766,26 @@ async function loadServerEdits() {
   const state = layoutState.value
   const cur = state?.current ? (state.versions.find((v) => v.version === state.current) ?? null) : null
   const saved = await getFile(savedEditsUrl(key))
+  // 서버의 층별 임시 저장본(OE-WF-01·02, ADR-0039). 브라우저의 것보다 앞선다 — 층의 것이라 누가 저장했든 이어서 편집한다.
+  try {
+    const r = await fetch(`./__data/__drafts?${new URLSearchParams({ key })}`)
+    const got = r.ok ? ((await r.json()) as Record<string, { file: unknown }>) : {}
+    for (const [k, d] of Object.entries(got)) {
+      const f = parseEditFile(JSON.stringify(d.file))
+      if (typeof f !== 'string') floorDrafts.set(k, f)
+    }
+    draftsVersion.value++
+  } catch {
+    // 서버 임시 저장본이 없으면 브라우저 것만 쓴다
+  }
   if (key !== serverKey.value) return
   loadedVersion.value = cur?.version ?? null
   let file: EditFile | null = null
   let from = ''
+  publishedFile.value = null
+  if (cur) publishedFile.value = await getFile(layoutsUrl({ key, v: String(cur.version), file: 'edits.json' }))
   if (cur && (!saved || saved.savedAt <= cur.at)) {
-    file = await getFile(layoutsUrl({ key, v: String(cur.version), file: 'edits.json' }))
+    file = publishedFile.value
     from = `반영된 레이아웃 v${cur.version} · ${when(cur.at)}`
   }
   if (!file && saved) {
@@ -6820,6 +6889,7 @@ function exitSaving() {
 function keepDraft(keys: string[] = viewStorey.value ? [viewStorey.value] : dirtyKeys()) {
   if (!model.value || !baseline.value) return
   logActivity('draft', model.value.storeys.filter((st) => keys.includes(st.id)).map((st) => st.name))
+  syncDraftsToServer([...new Set([...keys, BUILDING])], currentParts())
   const parts = currentParts()
   const saved = new Map(savedParts.value)
   const all = [...new Set([...keys, BUILDING])]
@@ -6829,10 +6899,12 @@ function keepDraft(keys: string[] = viewStorey.value ? [viewStorey.value] : dirt
       if (part) {
         localStorage.setItem(draftKey(k), JSON.stringify(part))
         floorDrafts.set(k, part)
+        draftsVersion.value++
         saved.set(k, part)
       } else {
         localStorage.removeItem(draftKey(k))
         floorDrafts.delete(k)
+        draftsVersion.value++
         saved.delete(k)
       }
       appliedFloors.add(k)
@@ -7766,6 +7838,57 @@ function reloadLayout() {
   const paths = openedSources.value.filter((p): p is string => !!p)
   if (paths.length) openDataSet(paths)
 }
+
+// --- 층 잠금 (OE-COM-05·06, ADR-0039, server/floor-state.ts) ---
+// 편집 중인 층(한 층을 보면 그 층, "모든 층" 이면 전부)을 잡는다. 1분마다 다시 잡아 늘이고, [편집 종료]·층 바꾸기·창 닫기 때 푼다. 남이 잡은 층이면
+// 보기로 돌리고 "OOO님이 편집 중입니다" 를 보인다. 사람 목록이 없는 곳은 잠그지 않는다.
+const heldLocks = new Map<string, { key: string; floor: string }>()
+const lockUrl = (key: string, floor: string) => `./__data/__locks?${new URLSearchParams({ key, floor })}`
+function releaseLocks(keep: (l: { key: string; floor: string }) => boolean = () => false) {
+  for (const [id, l] of [...heldLocks]) {
+    if (keep(l)) continue
+    heldLocks.delete(id)
+    void fetch(lockUrl(l.key, l.floor), { method: 'DELETE', headers: asMe(), keepalive: true }).catch(() => {})
+  }
+}
+let lockRun = 0
+async function syncLocks() {
+  const key = serverKey.value
+  const run = ++lockRun
+  if (!key || !people.value || !me.value || !editing.value || !model.value) return releaseLocks()
+  const want = floorsInView()
+  releaseLocks((l) => l.key === key && want.includes(l.floor))
+  for (const floor of want) {
+    let r: Response
+    try {
+      r = await fetch(lockUrl(key, floor), { method: 'PUT', headers: asMe() })
+    } catch {
+      return
+    }
+    if (run !== lockRun) return
+    if (r.status === 409) {
+      const by = ((await r.json().catch(() => ({}))) as { by?: string }).by ?? '다른 사람'
+      releaseLocks()
+      mode.value = 'view'
+      // 모드가 바뀌면 편집 경고를 지우는 감시가 있어, 그 뒤에 띄운다.
+      const why = `${by}님이 ${floorName(floor)}${josa(floorName(floor), '을/를')} 편집 중입니다. 그 층은 보기만 합니다. 편집이 끝나면 들어갈 수 있습니다`
+      window.setTimeout(() => (editNotice.value = why))
+      return
+    }
+    if (r.ok) heldLocks.set(`${key}\n${floor}`, { key, floor })
+  }
+}
+watch([editing, viewStorey, serverKey, me], () => void syncLocks())
+const lockTimer = window.setInterval(() => {
+  if (heldLocks.size) void syncLocks()
+}, 60_000)
+const onPageHide = () => releaseLocks()
+window.addEventListener('pagehide', onPageHide)
+onBeforeUnmount(() => {
+  window.clearInterval(lockTimer)
+  window.removeEventListener('pagehide', onPageHide)
+  releaseLocks()
+})
 /** 첫 반영이면 [구축하기](v1), 아니면 [반영하기]. */
 const firstPublish = computed(() => !layoutState.value?.current)
 const nextVersion = computed(() => Math.max(0, ...(layoutState.value?.versions.map((v) => v.version) ?? [])) + 1)
@@ -8122,7 +8245,16 @@ const versionFileUrl = (v: number, file: string) => layoutsUrl({ key: serverKey.
             편집 저장
           </button>
           <button v-if="serverKey" type="button" class="ghost" title="8084 에 두지 않고 편집 파일(JSON)로만 내려받습니다" @click="saveEdits(true)">파일로</button>
-          <button type="button" class="ghost" title="웹에 반영하지 않고 이 층의 편집을 이 브라우저에 남깁니다. 층마다 하나이고, 이 층에 다시 들어오면 이어서 편집합니다" @click="keepDraft()">임시 저장</button>
+          <button type="button" class="ghost" :title="people ? '반영하지 않고 이 층의 편집을 서버에 남깁니다. 층마다 하나이고, 누가 이 층에 들어오든 이어서 편집합니다' : '웹에 반영하지 않고 이 층의 편집을 이 브라우저에 남깁니다. 층마다 하나이고, 이 층에 다시 들어오면 이어서 편집합니다'" @click="keepDraft()">임시 저장</button>
+          <!-- 임시 저장본 폐기(OE-WF-04). 한 번 더 묻고, 반영된 레이아웃(없으면 BIM)으로 돌린다. 되돌릴 수 없다. -->
+          <template v-if="canDiscardDraft">
+            <template v-if="discardAsk">
+              <span class="muted">되돌릴 수 없습니다</span>
+              <button type="button" class="ghost danger" @click="discardFloorDraft">폐기</button>
+              <button type="button" class="ghost" @click="discardAsk = false">취소</button>
+            </template>
+            <button v-else type="button" class="ghost" title="이 층의 임시 저장본을 지우고 반영된 레이아웃으로 돌아갑니다" @click="discardAsk = true">임시 저장본 폐기</button>
+          </template>
           <!-- PRD #9 의 액션바. data/ 에서 연 건물은 첫 반영이 [구축하기](v1), 그다음은 [반영하기] 다(서버 버전, ADR-0037). 손으로 연 파일은 두 파일 내보내기. -->
           <button type="button" class="ghost" title="반영 전에 바뀐 내용(소속·경계·이름·방향)을 봅니다" @click="previewChanges">미리보기</button>
           <button

@@ -101,3 +101,4 @@ superseded_by: ""       # 이 결정을 대체한 ADR
 | [0036](0036-branch-tee-splits-segment.md) | 층별 분기는 고른 구간 위에 분기점(이음쇠)을 넣어 구간을 둘로 나누고, 구간 끝 5cm 안이면 Flow Type·계통이 같은 끝 이음쇠를 다시 쓰며, 나눈 끝의 BIM 포트 연결은 해제 보정으로 남긴다 | 제안 |
 | [0037](0037-layout-versions-as-server-files.md) | 반영은 서버 파일의 버전 폴더로 두고(올린 판을 rename 해 반만 반영되지 않게), 현재 버전 포인터가 'DT 와 온톨로지에 반영된 것' 이며, 되돌리기는 옛 버전을 새 버전으로 다시 반영하고 1주 지난 버전은 히스토리에서만 감춘다 | 제안 |
 | [0038](0038-users-roles-log-as-server-files.md) | 사람은 서버의 data/.users.json 에서 고르고 쓰기 요청마다 머리(X-OE-User)로 보내며, 보기 전용(Viewer)은 화면과 서버 양쪽에서 편집·저장·반영을 막고, 시스템 로그는 data/.log.jsonl 에 한 줄씩 쌓는다 | 제안 |
+| [0039](0039-floor-drafts-and-locks-as-server-files.md) | 임시 저장본은 서버 파일로 층마다 하나 두고 누구나 이어 편집하며, 편집 중인 층은 2분짜리 잠금을 1분마다 늘여 잡고 편집 종료·층 바꾸기·창 닫기 때 푼다 | 제안 |
