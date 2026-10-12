@@ -253,6 +253,8 @@ test('3D 를 전체 화면으로 띄워도 고른 설비 패널이 같이 보인
 })
 
 test('3D 에서 누를 수 있는 곳에 올라가면 커서가 손가락이 되고, 거기를 누르면 설비가 골라진다', async ({ page }) => {
+  // 격자를 칸마다 두 프레임씩 훑는다(최대 384칸). 바쁜 PC(e2e 병렬)에서는 기본 30초를 넘긴다.
+  test.setTimeout(120_000)
   await page.goto('/')
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
@@ -262,6 +264,8 @@ test('3D 에서 누를 수 있는 곳에 올라가면 커서가 손가락이 되
   await page.getByRole('button', { name: '선택 해제' }).click()
 
   const canvas = page.locator('.viewport canvas')
+  // 화면 좌표로 훑으므로 3D 가 화면 안에 있어야 한다.
+  await canvas.scrollIntoViewIfNeeded()
   const box = (await canvas.boundingBox())!
   const cursor = () => canvas.evaluate((el) => el.style.cursor)
   const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))

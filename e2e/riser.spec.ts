@@ -396,6 +396,9 @@ test('Duplex: 라이저 수직 구간을 둘러 샤프트를 만들고 그 구�
 
   // 샤프트를 지우면: 확인에 안의 배관 수 → 지워도 배관·연결은 남고 소속만 풀린다.
   // 조각 가운데는 안의 배관이 먼저 잡혀서, 2층 조각 판(바닥 + 0.22m, viewer.ts 의 VERTICAL_LIFT)의 배관에서 떨어진 귀퉁이를 누른다.
+  // 화면 좌표로 누르므로 3D 가 화면 안에 있어야 한다. 바쁜 PC(e2e 병렬)에서는 위 입력 뒤에 페이지가 아래로 내려가 있어 다른 것을 눌렀다.
+  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))))
   const corner = await viewer<{ x: number; y: number }>(page, 'point', [0.8, -15.1, 3.1 + 0.22])
   await page.mouse.click(corner.x, corner.y)
   const panel = page.getByTestId('vertical-picked')

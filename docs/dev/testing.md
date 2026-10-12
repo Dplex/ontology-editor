@@ -31,6 +31,10 @@ e2e 는 5175 에 `--mode e2e` 로 띄운다(`playwright.config.ts`). 그 모드�
 목록에서 시작하는 흐름(짝 링크, 골라 합쳐 열기, 아래쪽에서 열기, 열 수 없는 파일)은 `e2e/data-list.spec.ts` 가
 `page.route('**/__data/**')` 로 목록·등급·파일을 흉내 내서 본다. 서버 측정을 거치지 않아 멈추지 않고, `data/` 가 없는 PC 에서도 돈다.
 
+실제 시간으로 흘러가는 화면을 재는 시험(편집 리플레이)은 기본 `npm run e2e` 에서 빼고 `npm run e2e:serial` 이 하나씩 돌린다
+(목록은 `playwright.config.ts` 의 `SERIAL`). 병렬로 돌면 CPU 가 밀려 장면을 놓치고, 합쳐 2분 걸린다. 리플레이를 고쳤을 때 돌린다.
+화면 좌표로 3D 를 누르는 시험은 누르기 전에 캔버스를 화면 안으로 올린다 — 바쁠 때는 앞 입력 뒤에 페이지가 내려가 있다.
+
 ## 큰 파일의 속도는 GPU 로 잰다
 
 Playwright 헤드리스 크롬의 WebGL 은 기본이 CPU(SwiftShader)라서, 병원 MEP(207MB) 3D 한 프레임이 3초씩 걸려 방향키

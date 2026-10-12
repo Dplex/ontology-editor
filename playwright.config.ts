@@ -6,8 +6,13 @@ import { defineConfig, devices } from '@playwright/test'
 // 다른 checkout 의 dev 서버가 5175 를 잡고 있으면 그 서버에 붙어 남의 코드를 잰다(재사용). 그때는 E2E_PORT 로 비킨다.
 const port = Number(process.env.E2E_PORT ?? 5175)
 
+// 실제 시간으로 흘러가는 화면(편집 리플레이 — 장면이 5초마다 넘어간다)을 재는 시험. 병렬로 돌면 CPU 가 밀려 장면을 놓치고,
+// 합쳐 2분 걸린다. 기본(npm run e2e)에서는 빼고 npm run e2e:serial 이 하나씩 돌린다(playwright.serial.config.ts).
+export const SERIAL = ['**/edit-replay.spec.ts', '**/replay-edge.spec.ts', '**/replay-reduced.spec.ts']
+
 export default defineConfig({
   testDir: './e2e',
+  testIgnore: SERIAL,
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
