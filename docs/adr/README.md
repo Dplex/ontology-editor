@@ -115,3 +115,4 @@ related: []             # 같이 읽어야 하는 ADR(바꾸거나 바뀐 ADR �
 | [0047](0047-segment-shaft-membership.md) | 덕트·배관 구간의 샤프트 소속은 사람이 정하고(두 끝이 축 안일 때만), 구간에 샤프트 id 만 적어 샤프트를 지우면 소속만 효력을 잃는다 | 제안 |
 | [0048](0048-ticket-context-and-adr-links.md) | 티켓에서 ADR·시험·코드·번호 정의로 가는 길은 티켓 md 에 적지 않고 ADR 머리와 시험 태그에서 거꾸로 뽑아 ctx 한 번으로 보이며, 수용 기준은 AC 번호를 쓸 수 있게 한다 | 제안 |
 | [0049](0049-ontology-definition.md) | 우리 온톨로지는 새 스키마가 아니라 Brick 어휘로 적은 건물 데이터(TTL)와 그 형상(GeoJSON)을 id 로 이은 한 쌍으로 정의하고, 정의·어휘·받는 쪽이 읽는 범위는 docs/ontology.md 한 곳에 두어 코드와 시험으로 맞춘다 | 제안 |
+| [0050](0050-ontology-chat-read-only-mcp.md) | 온톨로지 질의는 반영한 TTL 을 읽기만 하는 MCP 로 55 의 gemini 에 붙이고, 답마다 쓴 질의를 보이며, 같은 질의를 받는 쪽 DT 파서가 읽는 만큼에도 돌려 질문 시험대로 잰다 | 제안 |
