@@ -5340,6 +5340,22 @@ function changeHvacZones(storeyId: string, label: string, apply: (m: Model) => u
 }
 /** 공조존 도구가 다루는 층. 층 하나만 보는 중이거나 고른 것의 층이다. */
 const zoneStorey = computed(() => (model.value ? targetStorey() : null))
+/**
+ * 공조존 생성 방법(OE-BIM-15). R1 은 직접 만들기(Case 3)만 있다 — 편집으로 들어가 공간 편집 모드에서 공조존 칸을 펼쳐 보인다.
+ * IDF·gbXML 추가로 가져오기(Case 1·2)는 R2 에서 같은 자리에 더한다. 아무것도 바꾸지 않으니 나중에 만들어도 임포트 결과는 그대로다.
+ */
+const zoneReveal = ref(false)
+async function startManualZones() {
+  if (!editing.value) mode.value = 'edit'
+  await nextTick()
+  if (!editing.value) return
+  setEditPart('space')
+  zoneReveal.value = true
+  await nextTick()
+  zoneReveal.value = false
+  document.querySelector('[data-testid="hvac-zones"]')?.scrollIntoView({ block: 'start' })
+  note(zoneStorey.value ? `공조존 도구입니다 — ${zoneStorey.value.name}에서 담당 물리존을 골라 만들거나 경계를 그립니다` : '공조존 도구입니다 — 층 하나를 고른 뒤 담당 물리존을 골라 만듭니다')
+}
 /** 그 층의 사람이 만든 공조존. */
 const zonesHere = computed(() => {
   void sceneVersion.value
@@ -10725,6 +10741,17 @@ function rollbackFromReport() {
             <li><b>{{ counts.systems }}</b> 계통</li>
             <li><b>{{ counts.connections }}</b> 연결</li>
           </ul>
+          <!-- 공조존 생성 방법(OE-BIM-15). R1 은 직접 만들기만 보인다. IDF·gbXML 추가로 가져오기는 R2 에서 이 목록에 더한다. -->
+          <div v-if="counts.spaces" class="zone-route" data-testid="zone-route">
+            <h4>공조존 생성 방법</h4>
+            <p class="muted">
+              {{ model && hvacZonesOf(model).length ? `공조존 ${hvacZonesOf(model).length}개가 있습니다.` : '아직 공조존이 없습니다.' }} 나중에 만들어도 불러온 BIM 은 그대로입니다.
+            </p>
+            <p>
+              <button type="button" class="ghost" :disabled="busy || !!editBlock" @click="startManualZones">공조존 직접 만들기</button>
+              <span class="muted">공간 편집 모드에서 담당 물리존을 골라 공조존을 직접 구성합니다.</span>
+            </p>
+          </div>
           <!-- 커스텀존(OE-OBJ-01). 3D 에서는 점선이라 누르기 어려워 여기서 고른다. -->
           <div v-if="allCustomZones.length" class="overview-zones">
             <h4>커스텀존 {{ allCustomZones.length }}</h4>
@@ -11743,7 +11770,7 @@ function rollbackFromReport() {
           </Fold>
 
  <!-- 수동 공조존(OE-ZON-01·02). R1 에서 공조존을 만드는 유일한 길이다. 고른 층(층 하나만 보는 중이면 그 층)에서 만든다. -->
-          <Fold v-if="editing" title="공조존" :meta="zoneStorey ? `${zoneStorey.name} · ${zonesHere.length}개` : '층을 고르세요'" class="hvac-zones" data-testid="hvac-zones">
+          <Fold v-if="editing" title="공조존" :meta="zoneStorey ? `${zoneStorey.name} · ${zonesHere.length}개` : '층을 고르세요'" :reveal="zoneReveal" class="hvac-zones" data-testid="hvac-zones">
             <p class="hint">
               공조존은 설비가 담당하는 구역입니다. 담당 물리존을 골라 만들면 그 물리존들이 담당이 되고, 한 물리존을 나눌 때는 경계를 그립니다(겹치는 물리존이 담당).
               담당 설비가 공조존을 공급하는 것으로 TTL 에 나갑니다.
