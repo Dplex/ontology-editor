@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Model, Space, Storey, Vec2, Vec3, Wall } from './model'
+import type { Connection, Equipment, Model, Space, Storey, Vec2, Vec3, Wall } from './model'
 import { stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
 import { COMMON_AXIS_LOCKED, createVertical, deleteVertical, movePart, moveVertical, planCreate, planRange, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
 import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
@@ -109,6 +109,21 @@ describe('수직 관통 오브젝트 삭제 (OE-ML-09)', () => {
     expect(deleteVertical(m, 'st')).toBe(false)
   })
 
+  it('샤프트를 지워도 그 안을 지나는 배관과 연결은 그대로 남는다 — 배관은 샤프트에 소속을 적지 않아 풀 것이 없다 [OE-ML-09#4~]', () => {
+    const m = tower()
+    expect(createVertical(m, { id: 'U_ps', kind: 'shaft', name: 'PS-1', from: '1F', to: '3F' }, new Map([['1F', { footprint: rect(3, 0, 4, 1) }]]))).toEqual({ id: 'U_ps' })
+    // 샤프트 축(3~4, 0~1) 안을 지나는 수직 배관과, 그 배관이 잇는 1층·2층 설비.
+    const device = (id: string, z: number) => ({ id, name: id, ifcClass: 'IfcFlowTerminal', role: 'terminal', position: [3.5, 0.5, z], capacity: null, systemId: null, spaceId: null, spaceSource: null }) as unknown as Equipment
+    m.storeys[0].equipment.push(device('low', 0.5), { ...device('riser', 0.5), ifcClass: 'IfcPipeSegment', role: 'segment', axis: [[0, 0, 0], [0, 0, 5]] })
+    m.storeys[1].equipment.push(device('high', 5))
+    const link = (from: string, to: string) => ({ from, to, source: 'manual', directed: false, tolerance: null }) as unknown as Connection
+    m.connections.push(link('low', 'riser'), link('riser', 'high'))
+    const before = JSON.stringify([m.storeys.map((s) => s.equipment), m.connections])
+    expect(deleteVertical(m, 'U_ps')).toBe(true)
+    expect(verticalObjects(m).some((o) => o.id === 'U_ps')).toBe(false)
+    expect(JSON.stringify([m.storeys.map((s) => s.equipment), m.connections])).toBe(before)
+  })
+
   it('지운 계단을 가리키는 GeoJSON 참조가 남지 않는다 — 계단실은 겹침 추정(calc)으로 다시 이어진다 [OE-ML-09#2] [OE-EQP-16#3~] [OE-ML-19#6~]', () => {
     const m = building()
     deleteVertical(m, 'st')
@@ -170,6 +185,46 @@ describe('되돌리기·편집 파일 (OE-ML-07·09)', () => {
     const result = applyEdits(b, { format: 'ontology-editor/edits', version: 1, source: 'x', savedAt: '', equipment: [], spaces: [], kinds: [], flows: [], confirmedSystems: [], verticals: [{ id: 'gone', move: [1, 0] }, { id: 'gone2', removed: true }] })
     expect(result.missing.elements).toBe(2)
     expect(verticalRef(b, 'st')).toEqual(partsOf(building(), 'st')[0].footprint[0])
+  })
+})
+
+describe('에스컬레이터와 엘리베이터 (OE-ML-02 · OE-ML-07)', () => {
+  const ring: Vec2[] = [[-0.5, 0], [0.5, 0], [0.5, 3], [-0.5, 3]]
+  const axis: Vec2[] = [[3, 0], [4, 0], [4, 1], [3, 1]]
+  /** 1F 진입 (0, 0.2) · 2F 종료 (0, 2.8) 인 에스컬레이터와 1F~3F 엘리베이터를 만든 모델과 그 편집 파일. */
+  function made() {
+    const m = tower()
+    const base = baselineOf(m)
+    expect(createVertical(m, { id: 'U_es', kind: 'escalator', name: 'ES-1', from: '1F', to: '2F' }, new Map([['1F', { footprint: ring, entry: [0, 0.2] as Vec2 }], ['2F', { exit: [0, 2.8] as Vec2 }]]))).toEqual({ id: 'U_es' })
+    expect(createVertical(m, { id: 'U_el', kind: 'elevator', name: 'EL-1', from: '1F', to: '3F' }, new Map([['1F', { footprint: axis }]]))).toEqual({ id: 'U_el' })
+    return { m, base }
+  }
+
+  it('1층 진입과 2층 종료가 다른 자리인 에스컬레이터를 만들고, 편집 파일로 새로 연 BIM 에 얹으면 같다 [OE-ML-02#2]', () => {
+    const { m, base } = made()
+    const [low, high] = partsOf(m, 'U_es')
+    expect([low.entry, low.exit, high.entry, high.exit]).toEqual([[0, 0.2, 0], null, null, [0, 2.8, 4.5]])
+    expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'U_es')).toMatchObject({ a: 'stair1', b: 'stair2' })
+    const file = parseEditFile(JSON.stringify(exportEdits(m, base, 'b.ifc'))) as EditFile
+    const again = tower()
+    expect(applyEdits(again, file).missing).toMatchObject({ elements: 0, storeys: 0 })
+    expect(again.storeys.map((s) => s.verticalParts)).toEqual(m.storeys.map((s) => s.verticalParts))
+  })
+
+  it('에스컬레이터는 층 조각마다 형상·크기·진입/종료 지점을 고치고, 엘리베이터는 한 층만 고치지 못하며 통째로 옮겨도 모든 층 축이 같다 [OE-ML-07#2]', () => {
+    const { m } = made()
+    expect(movePart(m, 'U_es@1F', [0.5, 0])).toBe(true)
+    expect(setPartVertex(m, 'U_es@1F', 2, [1.5, 3.5])).toBe(true)
+    expect(setPartPoint(m, 'U_es@2F', 'exit', [0.2, 2.5])).toBe(true)
+    const [low, high] = partsOf(m, 'U_es')
+    expect(low.footprint).toEqual([[0, 0], [1, 0], [1.5, 3.5], [0, 3]])
+    expect([low.entry, high.exit]).toEqual([[0.5, 0.2, 0], [0.2, 2.5, 4.5]])
+    expect([low.edited, high.edited]).toEqual([true, true])
+    // 엘리베이터 승강로는 공통 축이다.
+    expect(setPartVertex(m, 'U_el@2F', 0, [2.5, 0])).toEqual({ refused: COMMON_AXIS_LOCKED })
+    expect(movePart(m, 'U_el@3F', [1, 0])).toBe(false)
+    moveVertical(m, 'U_el', [0, 1])
+    expect(partsOf(m, 'U_el').map((p) => p.footprint)).toEqual([0, 1, 2].map(() => axis.map(([x, y]) => [x, y + 1])))
   })
 })
 
@@ -367,6 +422,37 @@ describe('만들기 (OE-ML-06)', () => {
     expect(explicitSpaceLinks(verticalObjects(m)).some((l) => l.parentId === 'U_shaft')).toBe(false)
     const shafts = modelToGeoJSON(m).flatMap((f) => f.collection.features).filter((f) => f.properties?.parentId === 'U_shaft')
     expect(shafts.map((f) => [f.properties?.verticalKind, f.properties?.source, f.properties?.passable])).toEqual([0, 1, 2].map(() => ['shaft', 'edit', false]))
+  })
+
+  it('손으로 만든 계단·에스컬레이터·엘리베이터·샤프트가 층마다 조각으로 나가고, 층간 연결이 가리키는 조각·물리존이 모두 출력에 있다 [OE-ML-19#1]', () => {
+    const m = tower()
+    const stairGiven = new Map([['1F', { footprint: ring, entry: [0, 0.2] as Vec2 }], ['2F', { exit: [0, 2.8] as Vec2 }]])
+    for (const [id, kind] of [['U_stair', 'stair'], ['U_es', 'escalator']] as const) {
+      expect(createVertical(m, { id, kind, name: id, from: '1F', to: '2F' }, stairGiven)).toEqual({ id })
+    }
+    for (const [id, kind] of [['U_el', 'elevator'], ['U_ps', 'shaft']] as const) {
+      const axis = new Map([['1F', { footprint: [[3, 0], [4, 0], [4, 1], [3, 1]] as Vec2[] }]])
+      expect(createVertical(m, { id, kind, name: id, from: '1F', to: '3F' }, axis)).toEqual({ id })
+    }
+    const features = modelToGeoJSON(m).flatMap((f) => f.collection.features)
+    const ids = new Set(features.map((f) => f.id))
+    const made = features.filter((f) => String(f.properties?.parentId ?? '').startsWith('U_'))
+    // 층마다 하나: 계단·ES 는 1F·2F, 엘리베이터·샤프트는 1F~3F 이고 출처는 편집이다.
+    expect(made.map((f) => f.id).sort()).toEqual(['U_el@1F', 'U_el@2F', 'U_el@3F', 'U_es@1F', 'U_es@2F', 'U_ps@1F', 'U_ps@2F', 'U_ps@3F', 'U_stair@1F', 'U_stair@2F'])
+    expect(made.every((f) => f.properties?.source === 'edit')).toBe(true)
+    for (const f of made) {
+      const p = f.properties!
+      // 위·아래 층 조각을 잇고, 가리키는 것은 모두 출력에 있다.
+      expect((p.verticalConnects as string[]).length).toBeGreaterThan(0)
+      for (const to of [...(p.verticalConnects as string[]), ...((p.spaceIds as string[]) ?? [])]) expect(ids.has(to)).toBe(true)
+    }
+    // 계단·ES 는 진입·종료 지점이 든 물리존(1F·2F 계단실)을 잇는다. 엘리베이터·샤프트는 지점이 없어 물리존을 잇지 않는다.
+    const links = explicitSpaceLinks(verticalObjects(m))
+    expect(links.filter((l) => l.parentId.startsWith('U_')).map((l) => [l.parentId, l.a, l.b, l.source])).toEqual([
+      ['U_stair', 'stair1', 'stair2', 'edit'],
+      ['U_es', 'stair1', 'stair2', 'edit'],
+    ])
+    expect(features.find((f) => f.id === 'stair1')!.properties?.verticalConnects).toContain('stair2')
   })
 
   it('만든 것은 되돌리기 한 번에 사라지고, 편집 파일로 새로 연 BIM 에 얹으면 같은 오브젝트가 생긴다 [OE-ML-06#4~]', () => {

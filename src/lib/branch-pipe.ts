@@ -82,6 +82,10 @@ export function branchPipe(model: Model, spec: BranchSpec, axisOf: (id: string) 
     return { refused: `주 배관의 계통(${name})과 다른 계통입니다. 다른 계통끼리 분기로 합치지 않습니다.` }
   }
 
+  // 계통을 고르지 않았으면(자동) 분기는 주 배관의 계통이다. drawPipe 의 자동은 "양 끝이 같은 계통" 이라, 계통 없는 말단으로 분기하면 계통이
+  // 비어 규칙 방향이 서지 않는다(OE-ML-13#8). 다른 계통은 위에서 거절했다.
+  const branchSpec: BranchSpec = spec.systemId === undefined && seg.systemId ? { ...spec, systemId: seg.systemId } : spec
+
   // 분기 자리를 구간 선 위로 내린다.
   const at = toCommon(model, spec.at)
   if ('refused' in at) return at
@@ -116,7 +120,7 @@ export function branchPipe(model: Model, spec: BranchSpec, axisOf: (id: string) 
       return { refused: `그 자리는 ${seg.name}의 끝입니다. 끝에 분기점으로 쓸 이음쇠가 없습니다 — 끝에서 ${BRANCH_REUSE * 100}cm 넘게 떨어진 자리를 고르세요.` }
     if ((fit.flowType && fit.flowType !== flow.code) || (fit.systemId ?? null) !== (seg.systemId ?? null))
       return { refused: `끝의 ${fit.name}은(는) Flow Type·계통이 달라 분기점으로 쓰지 않습니다. 끝에서 떨어진 자리를 고르세요.` }
-    const drawn = drawPipe(model, { ...spec, from: fit.id })
+    const drawn = drawPipe(model, { ...branchSpec, from: fit.id })
     if ('refused' in drawn) return drawn
     drawn.storeyOf.set(fit.id, n!.other!.storey.id)
     return { ...drawn, tee: fit, reused: true, tail: null, replaced: null }
@@ -137,7 +141,7 @@ export function branchPipe(model: Model, spec: BranchSpec, axisOf: (id: string) 
   })!
   tee.systemId = seg.systemId ?? null
   if (system) system.memberIds.push(tee.id)
-  const drawn = drawPipe(model, { ...spec, from: tee.id })
+  const drawn = drawPipe(model, { ...branchSpec, from: tee.id })
   if ('refused' in drawn) {
     home.equipment.splice(home.equipment.indexOf(tee), 1)
     if (system) system.memberIds.splice(system.memberIds.indexOf(tee.id), 1)
