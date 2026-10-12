@@ -27,7 +27,7 @@ test('연결 후보를 확인하고 이으면 위반이 줄고 출처는 직접 
   const list = boiler.getByTestId('fix-candidates')
   await expect(list.locator('li').first()).toContainText('Pipe Types #593630 · 72mm')
   await expect(list.locator('li').first()).toContainText('· 물')
-  await expect(list).toContainText('잇으면 출처는 직접 이음, 방향은 정하지 않은 채입니다')
+  await expect(list).toContainText('연결하면 출처는 직접 이음, 방향은 정하지 않은 채입니다')
 
   await list.getByTestId('fix-connect').first().click()
   await expect(page.getByRole('button', { name: '편집', exact: true })).toHaveAttribute('aria-pressed', 'true')
