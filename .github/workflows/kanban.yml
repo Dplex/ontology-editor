@@ -5,8 +5,9 @@ name: Kanban
 #   PR merge                                       → Done (이슈는 본문의 Closes #n 으로 GitHub 가 닫는다)
 #   PR 을 merge 없이 Close                          → 이슈에 rejected 를 붙이고 In Progress
 #   누가 이슈에 rejected 를 붙임                      → In Progress
-#   이슈에 modified 가 붙음(보드 동기화 --apply 나 손)  → In Review 면 In Progress 로 돌리고 코멘트
+#   이슈에 modified 가 붙음(보드 동기화 --apply 나 손)  → In Review 면 In Progress 로 돌린다
 #                                                     Done 이면 그대로 두고 후속 Todo 이슈 "[후속 #n] …" 를 만든다
+#   어느 쪽도 코멘트는 달지 않는다 — 라벨과 카드 상태가 알리고, 후속 이슈는 본문이 원 이슈를 가리켜 타임라인에 남는다
 #   후속 이슈를 Closes 하는 PR 이 merge                → 원 이슈의 modified 를 뗀다
 # 카드는 이슈다. PR 과 이슈는 PR 본문의 closes/fixes/resolves #n 으로 잇는다.
 # 코드를 체크아웃하지 않는다 — API 만 부른다.
@@ -119,7 +120,6 @@ jobs:
               core.info(`#${number} → ${status}${label ? ` (rejected ${label})` : ''}`)
             }
 
-            const comment = (number, body) => github.rest.issues.createComment({ owner, repo, issue_number: number, body })
             const removeLabel = (number, name) => github.rest.issues.removeLabel({ owner, repo, issue_number: number, name }).catch(e => {
               if (e.status !== 404) throw e
             })
@@ -170,7 +170,6 @@ jobs:
               await syncLabelField(issue.number, item.id)
               if (item.status === STATUS.inReview) {
                 await setSelect(item.id, statusField, STATUS.inProgress)
-                await comment(issue.number, '검토 중에 요구사항이 바뀌어(`modified`) In Progress 로 돌렸다. 바뀐 곳은 본문 위 **수정 이력**. 반영해서 다시 올리고 `modified` 를 뗀다.')
                 return core.info(`#${issue.number} In Review → In Progress (modified)`)
               }
               if (item.status !== STATUS.done) return core.info(`#${issue.number} 은 ${item.status ?? '상태 없음'} — 라벨 칸만 맞췄다`)
@@ -187,7 +186,6 @@ jobs:
                 title: `${prefix} ${id ? `${id} ` : ''}${name} — 요구사항 변경 반영` })
               const newItem = await itemFor(created.number)
               await setSelect(newItem.id, statusField, STATUS.todo)
-              await comment(issue.number, `Done 뒤에 요구사항이 바뀌어(\`modified\`) 후속 이슈 #${created.number} 을 Todo 로 만들었다. 이 이슈는 Done 그대로 두고, 후속 PR 이 merge 되면 \`modified\` 가 떼진다.`)
               core.info(`#${issue.number} (Done) → 후속 #${created.number} Todo`)
             }
 
