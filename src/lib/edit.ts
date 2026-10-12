@@ -13,7 +13,8 @@ import { inferFlowByRules, type RuleReport } from './flow-rules'
 import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapshotRulesAgain, type ReleaseSnapshot, type RuleSnapshot } from './connection-release'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, roomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
-import type { Connection, CustomZone, Equipment, Model, Opening, Room, Space, SpaceObject, Storey, System, Vec2, Vec3, Wall } from './model'
+import type { Connection, CustomZone, Equipment, HvacZone, Model, Opening, Room, Space, SpaceObject, Storey, System, Vec2, Vec3, Wall } from './model'
+import { copyHvacZones } from './hvac-zone'
 import { spacesBesideOpening } from './ifc/element-geometry'
 import { overlapArea, splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
@@ -768,6 +769,7 @@ export type Snapshot =
   | { kind: 'many'; parts: Snapshot[] }
   /** 한 층의 커스텀존 목록(OE-OBJ-01). 소속을 담지 않으니(쓸 때 계산한다) 목록만 사본으로 떠 둔다. */
   | { kind: 'custom-zones'; storeyId: string; zones: CustomZone[] | undefined }
+  | { kind: 'hvac-zones'; storeyId: string; zones: HvacZone[] | undefined }
   /** 층의 룸 전부(OE-OBJ-03). 만들기·지우기·옮기기·크기를 같은 방식으로 되돌린다. */
   | { kind: 'rooms'; storeyId: string; rooms: Room[] | undefined }
   /** 층의 추가 공간 오브젝트 전부(OE-OBJ-09). 놓기·지우기·옮기기·크기·이름을 같은 방식으로 되돌린다. */
@@ -831,6 +833,13 @@ export function snapshotCustomZones(model: Model, storeyId: string): Snapshot | 
   const storey = model.storeys.find((s) => s.id === storeyId)
   if (!storey) return null
   return { kind: 'custom-zones', storeyId, zones: storey.customZones ? copyZones(storey.customZones) : undefined }
+}
+
+/** 층의 사람이 만든 공조존 목록(OE-ZON-01·02). 만들기·지우기·담당 설비 바꾸기를 되돌린다. */
+export function snapshotHvacZones(model: Model, storeyId: string): Snapshot | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  return { kind: 'hvac-zones', storeyId, zones: storey.hvacZones ? copyHvacZones(storey.hvacZones) : undefined }
 }
 
 export function snapshotEquipment(model: Model, equipmentId: string): Snapshot | null {
@@ -940,6 +949,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotStoreyElements(model, snapshot.storeyId)
     case 'custom-zones':
       return snapshotCustomZones(model, snapshot.storeyId)
+    case 'hvac-zones':
+      return snapshotHvacZones(model, snapshot.storeyId)
     case 'rooms':
       return snapshotRooms(model, snapshot.storeyId)
     case 'space-objects':
@@ -1144,6 +1155,13 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete storey.customZones
       return null
     }
+    case 'hvac-zones': {
+      const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!storey) return null
+      if (snapshot.zones) storey.hvacZones = copyHvacZones(snapshot.zones)
+      else delete storey.hvacZones
+      return null
+    }
     case 'rooms': {
       const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
       if (!storey) return null
@@ -1343,6 +1361,8 @@ export type Baseline = {
   openings?: Map<string, { storeyId: string; name: string; kind: Opening['kind']; position: Vec3 | null | undefined; wallId: string | null; width?: number | null; height?: number | null }>
   /** 층마다 커스텀존(OE-OBJ-01) 목록의 사본. 이 칸이 생기기 전의 baseline 에는 없다(그때는 빈 것으로 본다). */
   customZones?: Map<string, CustomZone[]>
+  /** 층마다 사람이 만든 공조존(OE-ZON-01·02) 목록의 사본. 이 칸이 생기기 전의 baseline 에는 없다(빈 것으로 본다). */
+  hvacZones?: Map<string, HvacZone[]>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
@@ -1403,6 +1423,7 @@ export function baselineOf(model: Model): Baseline {
     connections: new Set(model.connections.map((c) => pairKey(c.from, c.to))),
     keys: fingerprints(model),
     customZones: new Map(model.storeys.map((s) => [s.id, copyZones(s.customZones ?? [])])),
+    hvacZones: new Map(model.storeys.map((s) => [s.id, copyHvacZones(s.hvacZones ?? [])])),
     walls,
     openings,
   }
@@ -1449,6 +1470,8 @@ export type BaselineDiff = {
   openingsMoved: { id: string; name: string; kind: Opening['kind']; moved: boolean; resized: boolean }[]
   /** 커스텀존(OE-OBJ-01). 만든 것·지운 것·고친 것(이름이나 다각형). 나누면 새 조각이 만든 것, 합치면 없어진 쪽이 지운 것이다. */
   customZones: { id: string; name: string; change: 'added' | 'removed' | 'changed' }[]
+  /** 사람이 만든 공조존(OE-ZON-01·02). 만든 것·지운 것·고친 것(이름·담당 물리존·담당 설비·바닥). */
+  hvacZones: { id: string; name: string; storeyId: string | null; change: 'added' | 'removed' | 'changed' }[]
   /** 계통을 바꾼 설비(E8). 계통 id 다. */
   systemMoved: { id: string; name: string; from: string | null; to: string | null }[]
   /** 사람이 만든 계통과 없어진 계통(E8). */
@@ -1565,6 +1588,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     equipmentMounted,
     ...e4,
     customZones: diffCustomZones(model, baseline),
+    hvacZones: diffHvacZones(model, baseline),
     systemMoved,
     systemKinds,
     systemNames,
@@ -1592,6 +1616,25 @@ function diffCustomZones(model: Model, baseline: Baseline): BaselineDiff['custom
     }
   }
   for (const [id, z] of was) if (!now.has(id)) out.push({ id, name: z.name, change: 'removed' })
+  return out
+}
+
+function diffHvacZones(model: Model, baseline: Baseline): BaselineDiff['hvacZones'] {
+  const was = new Map<string, HvacZone>()
+  for (const zones of baseline.hvacZones?.values() ?? []) for (const z of zones) was.set(z.id, z)
+  const out: BaselineDiff['hvacZones'] = []
+  const now = new Set<string>()
+  const same = (a: HvacZone, b: HvacZone) =>
+    a.name === b.name && a.spaceIds.join(' ') === b.spaceIds.join(' ') && (a.servedBy ?? []).join(' ') === (b.servedBy ?? []).join(' ') && sameRings(a.footprint, b.footprint)
+  for (const storey of model.storeys) {
+    for (const z of storey.hvacZones ?? []) {
+      now.add(z.id)
+      const before = was.get(z.id)
+      if (!before) out.push({ id: z.id, name: z.name, storeyId: z.storeyId, change: 'added' })
+      else if (!same(before, z)) out.push({ id: z.id, name: z.name, storeyId: z.storeyId, change: 'changed' })
+    }
+  }
+  for (const [id, z] of was) if (!now.has(id)) out.push({ id, name: z.name, storeyId: z.storeyId, change: 'removed' })
   return out
 }
 

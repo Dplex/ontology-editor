@@ -724,6 +724,7 @@ describe('연 때와 견주기', () => {
       openingsRemoved: [],
       openingsMoved: [],
       customZones: [],
+      hvacZones: [],
       systemMoved: [],
       systemKinds: [],
       systemNames: [],

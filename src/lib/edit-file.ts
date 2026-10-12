@@ -55,6 +55,7 @@ import {
 import type { RuleReport } from './flow-rules'
 import type { Fluid } from './kinds'
 import type { Connection, CustomObjectItem, Model, SpaceObject, Vec2, Vec3, Wall } from './model'
+import { polygonArea } from './model'
 import { copySpaceObjects } from './space-object'
 import { fingerprints, matchFingerprints, type Fingerprint, type MatchKey } from './versions'
 import { assignEquipment, spaceSetState } from './mapping'
@@ -135,6 +136,14 @@ export type EditFile = {
    * 없고, 나누기·합치기를 순서대로 다시 하지 않고 끝 모양을 얹는다(물리존 합치기의 `into` 와 같은 까닭).
    */
   customZones?: { storeyId: string; zones: { id: string; name: string; aliases?: string[]; footprint: Vec2[] }[] }[]
+  /**
+   * 사람이 만든 공조존(OE-ZON-01·02). 고친 층의 목록을 통째로 적는다(커스텀존과 같다). 담당 물리존·담당 설비는 BIM id 라 GUID 가 바뀐 판본에서도
+   * 지문으로 찾는다. 담당 물리존은 만들 때 정한 것을 그대로 적는다 — 불러올 때 다시 재면 그 사이 고친 물리존 때문에 세션과 달라진다.
+   */
+  hvacZones?: {
+    storeyId: string
+    zones: { id: string; name: string; footprint: Vec2[][]; spaceIds: string[]; spaceShares?: Record<string, number>; servedBy?: string[]; drawn?: true }[]
+  }[]
   /** 사람이 그린 룸(OE-OBJ-03). BIM 에는 없어서 룸이 있는 층의 끝 목록을 그대로 적는다. */
   rooms?: { storeyId: string; rooms: { id: string; name: string; spaceId: string; footprint: Vec2[] }[] }[]
   /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09). BIM 에는 없어서 오브젝트가 있는 층의 끝 목록을 그대로 적는다. */
@@ -317,6 +326,21 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const [storeyId, zones] of baseline.customZones ?? []) for (const z of zones) zoneStorey.set(z.id, storeyId)
   for (const storey of model.storeys) for (const z of storey.customZones ?? []) zoneStorey.set(z.id, storey.id)
   const touched = new Set(since.customZones.map((c) => zoneStorey.get(c.id)).filter((x): x is string => !!x))
+  const hvacTouched = new Set(since.hvacZones.map((z) => z.storeyId).filter((x): x is string => !!x))
+  const hvacZones = model.storeys
+    .filter((s) => hvacTouched.has(s.id))
+    .map((s) => ({
+      storeyId: s.id,
+      zones: (s.hvacZones ?? []).map((z) => ({
+        id: z.id,
+        name: z.name,
+        footprint: z.footprint.map((r) => r.map((p) => [p[0], p[1]] as Vec2)),
+        spaceIds: [...z.spaceIds],
+        ...(z.spaceShares ? { spaceShares: { ...z.spaceShares } } : {}),
+        ...(z.servedBy?.length ? { servedBy: [...z.servedBy] } : {}),
+        ...(z.drawn ? { drawn: true as const } : {}),
+      })),
+    }))
   const customZones = model.storeys
     .filter((s) => touched.has(s.id))
     .map((s) => ({
@@ -356,6 +380,10 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
   for (const id of [...wallsRemoved, ...openingsRemoved]) keep(id)
   for (const row of openingsAdded) if (row.wallId) keep(row.wallId)
   for (const row of customZones) keep(row.storeyId)
+  for (const row of hvacZones) {
+    keep(row.storeyId)
+    for (const z of row.zones) for (const id of [...z.spaceIds, ...(z.servedBy ?? [])]) keep(id)
+  }
   const rooms = model.storeys
     .filter((st) => st.rooms?.length)
     .map((st) => ({ storeyId: st.id, rooms: st.rooms!.map((r) => ({ id: r.id, name: r.name, spaceId: r.spaceId, footprint: r.footprint.map((p) => [p[0], p[1]] as Vec2) })) }))
@@ -419,6 +447,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(openingsAdded.length ? { openingsAdded } : {}),
     ...(openingsRemoved.length ? { openingsRemoved } : {}),
     ...(customZones.length ? { customZones } : {}),
+    ...(hvacZones.length ? { hvacZones } : {}),
     ...(rooms.length ? { rooms } : {}),
     ...(spaceObjects.length ? { spaceObjects } : {}),
     ...(objectLibrary.length ? { objectLibrary } : {}),
@@ -455,7 +484,8 @@ export function countEdits(f: EditFile): number {
     (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
     (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0) +
     (f.storeysDone?.length ?? 0) + (f.ceilings?.length ?? 0) + (f.rooms?.reduce((n, r) => n + r.rooms.length, 0) ?? 0) +
-    (f.spaceObjects?.reduce((n, r) => n + r.objects.length, 0) ?? 0)
+    (f.spaceObjects?.reduce((n, r) => n + r.objects.length, 0) ?? 0) +
+    (f.hvacZones?.reduce((n, r) => n + r.zones.length, 0) ?? 0)
   )
 }
 
@@ -565,6 +595,10 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   }
   for (const row of [...(file.wallsAdded ?? []), ...(file.openingsAdded ?? [])]) ref(row.storeyId)
   for (const row of file.customZones ?? []) ref(row.storeyId)
+  for (const row of file.hvacZones ?? []) {
+    ref(row.storeyId)
+    for (const z of row.zones) for (const id of [...z.spaceIds, ...(z.servedBy ?? [])]) ref(id)
+  }
   for (const row of file.rooms ?? []) {
     ref(row.storeyId)
     for (const r of row.rooms) ref(r.spaceId)
@@ -847,6 +881,34 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       ...(z.aliases?.length ? { aliases: [...z.aliases] } : {}),
       footprint: z.footprint.map((p) => [p[0], p[1]] as Vec2),
     }))
+    result.applied++
+  }
+
+  // 사람이 만든 공조존(OE-ZON-01·02). 물리존·설비를 다 얹은 뒤라 담당 id 를 찾을 수 있다.
+  for (const row of file.hvacZones ?? []) {
+    const storey = model.storeys.find((s) => s.id === resolve(row.storeyId))
+    if (!storey) {
+      result.missing.spaces++
+      continue
+    }
+    storey.hvacZones = row.zones.map((z) => {
+      const footprint = z.footprint.map((r) => r.map((p) => [p[0], p[1]] as Vec2))
+      const shares = z.spaceShares ? Object.fromEntries(Object.entries(z.spaceShares).map(([id, v]) => [resolve(id), v])) : undefined
+      return {
+        id: z.id,
+        name: z.name,
+        storeyId: storey.id,
+        footprint,
+        areaM2: footprint.reduce((a, r) => a + polygonArea(r), 0),
+        declaredAreaM2: null,
+        spaceIds: z.spaceIds.map(resolve),
+        ...(shares ? { spaceShares: shares } : {}),
+        ...(z.servedBy?.length ? { servedBy: z.servedBy.map(resolve) } : {}),
+        source: 'edit' as const,
+        ...(z.drawn ? { drawn: true as const } : {}),
+      }
+    })
+    if (!storey.hvacZones.length) delete storey.hvacZones
     result.applied++
   }
 
