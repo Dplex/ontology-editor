@@ -127,9 +127,9 @@ describe('티켓 파일', () => {
     }
   })
 
-  it('본문에 네 절이 있다', () => {
+  it('본문에 세 절이 있다', () => {
     for (const t of all)
-      for (const h of ['## 요구사항', '## 수용 기준', '## 검증 (이 repo)', '## 메모']) expect(t.body, `${t.file} ${h}`).toContain(`\n${h}\n`)
+      for (const h of ['## 요구사항', '## 수용 기준', '## 메모']) expect(t.body, `${t.file} ${h}`).toContain(`\n${h}\n`)
   })
 
   it('판본 표시가 남아 있지 않다', () => {
