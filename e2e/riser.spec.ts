@@ -169,3 +169,69 @@ test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 �
   await expect(page.locator('.equipment tbody tr', { hasText: 'HWS 분기' })).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+/** Duplex 를 열어 다중층 뷰에서 HWS 라이저를 그린다: 라디에이터 #536919 → 수직(2층 + 0.3m) → 옆으로(오프셋) → 라디에이터 #557522. */
+async function drawRiser(page: Page) {
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await page.locator('input[type=search]').fill('536919')
+  await page.locator('.equipment tbody tr', { hasText: FROM }).last().getByRole('button', { name: FROM, exact: true }).click()
+  const riser = page.getByTestId('riser-draw')
+  const target = riser.getByLabel('층간 배관 끝 대상').locator('option', { hasText: TO })
+  await riser.getByLabel('층간 배관 끝 대상').selectOption(await target.getAttribute('value'))
+  await riser.getByLabel('층간 배관 Flow Type').selectOption('HWS')
+  await riser.getByRole('button', { name: '경로 찍기' }).click()
+  const bar = page.locator('.draw-bar')
+  await bar.getByLabel('작업 층').selectOption({ label: 'Level 2' })
+  await bar.getByLabel('층 바닥에서 높이(m)').fill('0.3')
+  await bar.getByLabel('층 바닥에서 높이(m)').press('Tab')
+  await bar.getByTestId('riser-plumb').click()
+  const at = await viewer<{ x: number; y: number }>(page, 'point', [0.42, -13.4, 3.4])
+  await page.mouse.click(at.x, at.y)
+  await page.keyboard.press('Enter')
+  await expect(page.locator('.key-note')).toContainText('HWS 배관을 그렸습니다: 구간 3개 · 이음쇠 2개')
+}
+
+test('Duplex: 라이저의 2층 오프셋을 0.3m 올리면 양 끝 꺾임점이 같이 오르고 수직 구간이 늘어나며, 라디에이터 아래로는 내리지 못하고, 되돌리면 제자리다 [OE-ML-14#2~,4~,5~]', async ({ page }) => {
+  test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(180_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await drawRiser(page)
+
+  // 오프셋(HWS 배관 3, 2층 바닥 + 0.3m 의 수평 구간)을 고른다.
+  await page.locator('input[type=search]').fill('HWS 배관 3')
+  await page.locator('.equipment tbody tr', { hasText: 'HWS 배관 3' }).first().getByRole('button', { name: 'HWS 배관 3', exact: true }).click()
+  const form = page.getByTestId('offset-height')
+  await expect(form.getByLabel('오프셋 층').locator('option:checked')).toHaveText('Level 2')
+  await expect(form.getByLabel('오프셋 높이(m)')).toHaveValue('0.3')
+  await expect(form.getByRole('button', { name: '높이 바꾸기' })).toBeDisabled()
+
+  // 0.6m 로: 바꾸기 전에 움직일 것을 보인다.
+  await form.getByLabel('오프셋 높이(m)').fill('0.6')
+  await form.getByLabel('오프셋 높이(m)').press('Tab')
+  await expect(page.getByTestId('offset-impact')).toContainText('꺾임점 HWS 이음 2·HWS 이음 4가 같이 오르고(0.30m), 구간 2개가 늘거나 줄어듭니다')
+  if (process.env.SHOT_OFFSET) {
+    await page.getByTestId('offset-height').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: process.env.SHOT_OFFSET })
+  }
+  await form.getByRole('button', { name: '높이 바꾸기' }).click()
+  await expect(page.locator('.key-note')).toContainText('HWS 배관 3의 높이를 올렸습니다(0.30m): 꺾임점 2개가 같이 움직이고 구간 2개가 늘거나 줄었습니다')
+  await expect(form.getByLabel('오프셋 높이(m)')).toHaveValue('0.6')
+
+  // 2층 바닥(0m)으로 내리면 라디에이터로 내려가는 구간(3.12m 끝)이 뒤집힌다.
+  await form.getByLabel('오프셋 높이(m)').fill('0')
+  await form.getByLabel('오프셋 높이(m)').press('Tab')
+  await expect(page.getByTestId('offset-refused')).toContainText('HWS 배관 5이(가) 길이 0 이 되거나 뒤집힙니다')
+  await expect(form.getByRole('button', { name: '높이 바꾸기' })).toBeDisabled()
+
+  // 되돌리면 0.3m 로 돌아온다.
+  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.keyboard.press('Control+z')
+  await expect(form.getByLabel('오프셋 높이(m)')).toHaveValue('0.3')
+  expect(errors).toEqual([])
+})
