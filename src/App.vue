@@ -40,7 +40,24 @@ import { storeyFiles } from './lib/export/storey-export'
 import { clearStoreyDone, markStoreyDone, storeyProgress, type StoreyProgress } from './lib/storey-progress'
 import { completenessChecks, diagnoseFailure, type Box, type FailureFix } from './lib/checks'
 import { outlinelessSpaces, outlineWarnings } from './lib/outline-fill'
-import { createZoneFromOutline, createZoneFromSpaces, deleteHvacZone, flowSpacesOfEquipment, flowSpacesOfZones, hvacZonesOf, renameHvacZone, reshapeHvacZone, setZoneServedBy, setZoneSpaces, zoneChecks } from './lib/hvac-zone'
+import {
+  createZoneFromOutline,
+  createZoneFromSpaces,
+  deleteHvacZone,
+  deleteZoneVertex,
+  findHvacZone,
+  flowSpacesOfEquipment,
+  flowSpacesOfZones,
+  hvacZonesOf,
+  insertZoneVertex,
+  moveZoneVertex,
+  renameHvacZone,
+  reshapeHvacZone,
+  setZoneServedBy,
+  setZoneSpaces,
+  zoneChecks,
+  zoneCorners,
+} from './lib/hvac-zone'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
@@ -1699,6 +1716,9 @@ function clearSelection(): boolean {
               ? '계단 구간 채우기를 취소했습니다. 고르던 구간은 그대로입니다'
             : '외곽선 그리기를 취소했습니다',
     )
+  } else if (zoneVertexEdit.value) {
+    zoneVertexEdit.value = null
+    note('공조존 꼭짓점 고치기를 마쳤습니다')
   } else if (adding.value) {
     const what = adding.value.what
     stopAdd()
@@ -1746,6 +1766,7 @@ function nudge(code: string, step: number): boolean {
   if (group.value.length >= 2) return nudgeGroup(code, step)
   if (!selected.value && selectedVertical.value) return multiView.value ? nudgeVertical(code, step) : refuseVertical()
   if (!selected.value && selectedRoom.value) return nudgeRoom(code, step)
+  if (zoneEdited.value && viewer) return nudgeZoneVertex(code, step)
   if (!selected.value && selectedObject.value) return nudgeObject(code, step)
   if (!selected.value && selectedElement.value && viewer) return nudgeElement(code, step)
   if (!selected.value && selectedSpace.value && viewer) return nudgeVertex(code, step)
@@ -1825,6 +1846,10 @@ function stepStorey(dir: 1 | -1): boolean {
 }
 
 function stepArrow(dir: 1 | -1): boolean {
+  if (zoneEdited.value) {
+    stepZoneVertex(dir)
+    return true
+  }
   // 물리존을 골랐으면 [ ] 는 꼭짓점을 짚는다.
   if (!selected.value && selectedSpace.value) {
     const n = vertexCount.value
@@ -1924,6 +1949,11 @@ function moveVertex(spaceId: string, index: number, to: Vec2, coalesce?: string)
 function dropVertex(spaceId: string, index: number, raw: Vec2) {
   if (!model.value) return
   const to: Vec2 = [cm(raw[0]), cm(raw[1])]
+  // 공조존의 꼭짓점(OE-ZON-04).
+  if (zoneEdited.value?.zone.id === spaceId) {
+    moveZoneCorner(index, to)
+    return
+  }
   // 수직 관통 오브젝트 조각의 꼭짓점(OE-ML-07, 다중층 뷰).
   if (findPart(model.value, spaceId)) {
     let refused = ''
@@ -2799,7 +2829,10 @@ const riserPreview = computed(() => {
 watch([model, sceneVersion, verticalHighlight, verticalPreview, riserPreview], () =>
   viewer?.setVerticalParts(model.value, verticalHighlight.value, [...verticalPreview.value, ...riserPreview.value]),
 )
-watch([selectedSpace, selectedRoom, editing, sceneVersion, drawing, selectedVertical, multiView], () => {
+/** 꼭짓점을 고치는 공조존 id 와 [ ] 로 짚은 꼭짓점. 아래 "수동 공조존" 의 startZoneVertices 참조. */
+const zoneVertexEdit = ref<string | null>(null)
+const zoneActiveVertex = ref<number | null>(null)
+watch([selectedSpace, selectedRoom, editing, sceneVersion, drawing, selectedVertical, multiView, zoneVertexEdit], () => {
   const picked = selectedSpace.value
   if (!viewer) return
   // 다중층 뷰(OE-ML-07): 고른 계단 조각의 그 층 형상에만 손잡이를 단다. 물리존·룸은 층 편집에서 고친다.
@@ -2814,6 +2847,11 @@ watch([selectedSpace, selectedRoom, editing, sceneVersion, drawing, selectedVert
     // 층간 배관은 꺾임점마다 높이가 달라 바닥 손잡이 대신 3D 점선 미리보기(riserPreview)로 보인다.
     if (d.levels) return viewer.setSpaceHandles(null)
     viewer.setSpaceHandles({ id: d.spaceId ?? 'new', ring: d.points, elevation: d.elevation, active: d.points.length ? d.points.length - 1 : null })
+    return
+  }
+  const zone = zoneEdited.value
+  if (zone) {
+    viewer.setSpaceHandles({ id: zone.zone.id, ring: zone.corners, elevation: zone.storey.elevation, active: zoneActiveVertex.value })
     return
   }
   // 고른 룸의 꼭짓점 넷(OE-SPC-11). 편집 모드에서만 끈다.
@@ -4552,6 +4590,7 @@ function changeFootprint(spaceId: string, label: string, apply: (m: Model) => Bo
   return true
 }
 function editVertex(op: 'insert' | 'delete'): boolean {
+  if (zoneEdited.value) return editZoneVertex(op)
   const picked = selectedSpace.value
   const i = activeVertex.value
   if (!picked || i === null) return false
@@ -5075,7 +5114,7 @@ function startCustomZone() {
 // 담당 설비는 존마다 고르고, TTL 에서 그 설비가 존을 feeds 한다(계통도의 서비스 영역).
 
 /** 층 하나의 사람이 만든 공조존 목록을 바꾼다. 되돌리기는 그 층 목록 통째다. */
-function changeHvacZones(storeyId: string, label: string, apply: (m: Model) => unknown): boolean {
+function changeHvacZones(storeyId: string, label: string, apply: (m: Model) => unknown, coalesce?: string): boolean {
   const m = model.value
   if (!m) return false
   const snapshot = snapshotHvacZones(m, storeyId)
@@ -5086,7 +5125,7 @@ function changeHvacZones(storeyId: string, label: string, apply: (m: Model) => u
     note((done as { refused: string }).refused)
     return false
   }
-  remember(label, snapshot, at)
+  remember(label, snapshot, at, coalesce)
   triggerRef(model)
   sceneVersion.value++
   return true
@@ -5580,6 +5619,91 @@ function startHvacZoneOutline(zone: HvacZone) {
   viewer?.setPlaceMode(storey.elevation)
   stage.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   note(`${zone.name}의 새 경계를 바닥에 찍습니다. 겹치는 물리존이 담당이 됩니다 (Enter 마침, Esc 취소)`)
+}
+/**
+ * 꼭짓점을 고치는 공조존(OE-ZON-04). 3D 에 그 경계의 손잡이가 달리고, 물리존 꼭짓점처럼 끌기·[ ]·방향키·Insert·Delete 로 고친다.
+ * 고칠 때마다 담당 물리존·몫을 새 경계로 다시 잰다(`reshapeHvacZone`). 물리존·설비를 고르거나 그리기를 시작하면 끝난다.
+ */
+const zoneEdited = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  const id = zoneVertexEdit.value
+  const found = m && id ? findHvacZone(m, id) : null
+  const corners = found ? zoneCorners(found.zone) : null
+  return found && corners ? { zone: found.zone, storey: found.storey, corners } : null
+})
+watch([selectedSpaceId, selectedId, selectedRoomId, drawing, editing], () => {
+  if (selectedSpaceId.value || selectedId.value || selectedRoomId.value || drawing.value || !editing.value) zoneVertexEdit.value = null
+})
+watch(zoneVertexEdit, () => (zoneActiveVertex.value = null))
+watch(zoneActiveVertex, () => sceneVersion.value++)
+function startZoneVertices(zone: HvacZone) {
+  const storey = model.value?.storeys.find((s) => s.id === zone.storeyId)
+  if (!storey) return
+  if (!zoneCorners(zone)) return note('떨어진 조각이 있는 공조존은 꼭짓점을 고칠 수 없습니다. [경계 다시 그리기] 를 쓰세요.')
+  stopPlace()
+  stopAdd()
+  connectFrom.value = null
+  selectedId.value = null
+  selectedSpaceId.value = null
+  selectedRoomId.value = null
+  if (model.value!.storeys.length > 1) viewStorey.value = storey.id
+  zoneVertexEdit.value = zone.id
+  stage.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  note(`${zone.name}의 꼭짓점을 끌어 옮깁니다. [ ]로 꼭짓점을 짚으면 방향키·Insert·Delete 로 고칩니다 (Esc 마침)`)
+}
+/** 공조존 꼭짓점 하나를 옮긴다. 막히면(변 엇갈림·겹치는 물리존 없음) 손잡이를 원래 자리로 다시 그린다. */
+function moveZoneCorner(index: number, to: Vec2, coalesce?: string): boolean {
+  const z = zoneEdited.value
+  if (!z) return false
+  const done = changeHvacZones(z.storey.id, `${z.zone.name} 꼭짓점`, (m) => moveZoneVertex(m, z.zone.id, index, to), coalesce)
+  if (!done) sceneVersion.value++
+  return done
+}
+function editZoneVertex(op: 'insert' | 'delete'): boolean {
+  const z = zoneEdited.value
+  const i = zoneActiveVertex.value
+  if (!z) return false
+  if (i === null) {
+    note('[ ]로 꼭짓점을 먼저 고르세요')
+    return true
+  }
+  if (op === 'insert') {
+    if (changeHvacZones(z.storey.id, `${z.zone.name} 꼭짓점 넣기`, (m) => insertZoneVertex(m, z.zone.id, i))) {
+      zoneActiveVertex.value = i + 1
+      note(`꼭짓점을 넣었습니다(${i + 2}번). ←↑→↓로 옮깁니다`)
+    }
+    return true
+  }
+  if (changeHvacZones(z.storey.id, `${z.zone.name} 꼭짓점 지우기`, (m) => deleteZoneVertex(m, z.zone.id, i))) {
+    zoneActiveVertex.value = Math.min(i, z.corners.length - 2)
+    note('꼭짓점을 지웠습니다')
+  }
+  return true
+}
+function stepZoneVertex(dir: 1 | -1) {
+  const n = zoneEdited.value!.corners.length
+  const cur = zoneActiveVertex.value
+  zoneActiveVertex.value = cur === null ? (dir > 0 ? 0 : n - 1) : (cur + dir + n) % n
+  const p = zoneEdited.value!.corners[zoneActiveVertex.value]
+  note(`꼭짓점 ${zoneActiveVertex.value + 1}/${n} (${p[0].toFixed(2)}, ${p[1].toFixed(2)}) · ←↑→↓로 옮깁니다`)
+}
+function nudgeZoneVertex(code: string, step: number): boolean {
+  const z = zoneEdited.value!
+  const index = zoneActiveVertex.value
+  if (index === null) {
+    note('[ ]로 꼭짓점을 먼저 고르세요')
+    return true
+  }
+  const p = z.corners[index]
+  const { right, up } = viewer!.planeAxes()
+  const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
+  const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
+  const to: Vec2 = [cm(p[0] + sign * ax * step), cm(p[1] + sign * ay * step)]
+  if (moveZoneCorner(index, to, `zone-vertex:${z.zone.id}:${index}`)) {
+    note(`꼭짓점 ${index + 1} → (${to[0].toFixed(2)}, ${to[1].toFixed(2)}) · ${zoneEdited.value!.zone.areaM2.toFixed(1)}㎡`)
+  }
+  return true
 }
 function addZoneServed(zoneId: string, storeyId: string, equipmentId: string, served: readonly string[]) {
   if (!equipmentId) return
@@ -7910,7 +8034,7 @@ onBeforeUnmount(() => {
 const firstPublish = computed(() => !layoutState.value?.current)
 
 // --- 등급 판정·수용 기준선 (OE-REQ-04 · OE-BIM-21 · OE-GEN-02, ADR-0040) ---
-// D1·D12 제안안(lib/grade.ts). 게이트(등급 2) 미달이면 [구축하기] 를 끄고 재제출 항목을 보인다. 운영 편집의 [반영하기] 는 막지 않는다(이미 만든 온톨로지).
+// D1·D12 제안안(lib/grade.ts). 게이트(등급 0~3) 미달이면 [구축하기] 를 끄고 재제출 항목을 보인다. 운영 편집의 [반영하기] 는 막지 않는다(이미 만든 온톨로지).
 // 기준값은 브라우저 설정이고 비우면 1.8 의 안이다. 편집마다 다시 재면 큰 파일에서 느려서, 편집이 멈춘 뒤 한 번 잰다.
 const gradeLines = ref<GradeLines>(
   (() => {
@@ -7943,7 +8067,7 @@ const gradesOpen = ref(false)
 const buildBlock = computed(() => {
   const g = grades.value
   if (!g || g.gate || (serverKey.value && !firstPublish.value)) return null
-  return `수용 기준선(게이트 등급 ${GATE}) 미달이라 구축하지 않습니다 — ${g.failing.map((r) => `등급 ${r.grade} ${r.label} ${percent(r.ratio)} < ${Math.round(r.line * 100)}%`).join(', ')}. 재제출 항목을 보세요`
+  return `수용 기준선(게이트 등급 0~${GATE}) 미달이라 구축하지 않습니다 — ${g.failing.map((r) => `등급 ${r.grade} ${r.label} ${percent(r.ratio)} < ${Math.round(r.line * 100)}%`).join(', ')}. 재제출 항목을 보세요`
 })
 function resetGradeLines() {
   gradeLines.value = { ...DEFAULT_LINES }
@@ -10224,12 +10348,13 @@ function rollbackFromReport() {
         <section v-else key="overview" class="overview">
           <h3>이 파일</h3>
           <TierChips :tiers="currentTiers" />
-          <!-- 수용 기준선 판정(OE-BIM-21, D1·D12 제안안). 게이트(등급 2) 통과/미달과 목표선(등급 3). 미달이면 재제출 항목. 등급 칩 바로 아래 —
+          <!-- 수용 기준선 판정(OE-BIM-21, D1·D12 제안안). 게이트(등급 0~3) 통과/미달과 목표선(등급 4). 미달이면 재제출 항목. 등급 칩 바로 아래 —
              위쪽 막대에 두면 3D 가 밀린다. -->
           <div v-if="grades" class="grade-banner" :class="{ fail: !grades.gate }" role="status" data-testid="grade-banner">
             <span>
-              <b>수용 기준선</b> · 게이트(등급 {{ GATE }}) <b>{{ grades.gate ? '통과' : '미달' }}</b> · 목표선(등급 {{ TARGET }}) {{ grades.target ? '도달' : '미도달' }}
+              <b>수용 기준선</b> · 게이트(등급 0~{{ GATE }}) <b>{{ grades.gate ? '통과' : '미달' }}</b> · 목표선(등급 {{ TARGET }}) {{ grades.target ? '도달' : '미도달' }}
               <span class="muted">(D1·D12 제안안)</span>
+              <template v-if="grades.rows.some((r) => r.ratio === null)"> · 평가 불가 등급 {{ grades.rows.filter((r) => r.ratio === null).map((r) => r.grade).join('·') }}(셀 대상 없음)</template>
               <template v-if="!grades.gate"> — 재제출: {{ grades.failing.map((r) => `등급 ${r.grade} ${r.label} ${percent(r.ratio)}`).join(' · ') }}</template>
             </span>
             <button type="button" class="link" :aria-expanded="gradesOpen" @click="gradesOpen = !gradesOpen">{{ gradesOpen ? '접기' : '등급 판정 보기' }}</button>
@@ -10249,7 +10374,7 @@ function rollbackFromReport() {
                       :value="Math.round(gradeLines[r.grade] * 100)"
                       :aria-label="`등급 ${r.grade} 통과선(%)`"
                       @change="gradeLines = { ...gradeLines, [r.grade]: Math.min(100, Math.max(0, Number(($event.target as HTMLInputElement).value))) / 100 }"
-                    />% · <b>{{ r.pass ? '통과' : r.grade <= GATE ? '미달' : '미달(경고)' }}</b>
+                    />% · <b>{{ r.ratio === null ? '평가 불가(막지 않음)' : r.pass ? '통과' : r.grade <= GATE ? '미달' : '미달(경고)' }}</b>
                   </div>
                   <div class="muted">{{ r.measure }}<template v-if="!r.pass && r.grade <= GATE"> · 재제출: {{ r.resubmit }}</template></div>
                 </li>
@@ -11307,6 +11432,13 @@ function rollbackFromReport() {
                       </button>
                     </template>
                     <Src kind="calc" />
+                  </span>
+                  <button v-if="zoneVertexEdit !== z.id" type="button" class="ghost" :disabled="z.footprint.length !== 1" :title="z.footprint.length !== 1 ? '떨어진 조각이 있는 공조존은 [경계 다시 그리기] 로 고칩니다' : '3D 의 손잡이를 끌어 옮깁니다'" @click="startZoneVertices(z)">꼭짓점 고치기</button>
+                  <span v-else class="vertex-tools">
+                    <span>{{ zoneActiveVertex === null ? '손잡이를 끌거나 [ ]로 짚습니다' : `꼭짓점 ${zoneActiveVertex + 1}/${zoneEdited?.corners.length}` }}</span>
+                    <button type="button" class="ghost" :disabled="zoneActiveVertex === null" title="다음 꼭짓점과의 가운데에 넣습니다 (Insert)" @click="editZoneVertex('insert')">꼭짓점 넣기</button>
+                    <button type="button" class="ghost" :disabled="zoneActiveVertex === null || (zoneEdited?.corners.length ?? 0) <= 3" title="Delete" @click="editZoneVertex('delete')">꼭짓점 지우기</button>
+                    <button type="button" class="ghost" @click="zoneVertexEdit = null">마치기</button>
                   </span>
                   <button type="button" class="ghost" @click="startHvacZoneOutline(z)">경계 다시 그리기</button>
                   <button type="button" class="ghost danger" @click="changeHvacZones(zoneStorey!.id, '공조존 지우기', (m) => deleteHvacZone(m, z.id))">지우기</button>
