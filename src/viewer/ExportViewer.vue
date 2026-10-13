@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 내보낸 파일 뷰어. 에디터가 낸 ontology.ttl(의미)·floor-*.geojson(기하)·GLB/OBJ(3D 형상)를 **받는 쪽처럼** 다시 읽어 보인다.
+// 내보낸 파일 뷰어. 에디터가 낸 ontology.ttl(의미)·floor-*.geojson(기하)·GLB/OBJ/FBX(3D 형상)를 **받는 쪽처럼** 다시 읽어 보인다.
 //
 // 에디터 화면은 모델을 그린다. 이 화면은 파일을 그린다 — DT 가 받는 것은 모델이 아니라 이 파일들이라, 내보내기에서
 // 빠지거나 어긋난 것은 에디터 화면에서는 보이지 않는다. TTL 은 받는 쪽 DT 파서의 규칙(read-ttl.ts)으로, GeoJSON 은
@@ -65,7 +65,7 @@ async function load(files: FileList | File[]) {
       ttlName.value = ttlFiles.size === 1 ? name : `층 파일 ${ttlFiles.size}개 합침`
     } else if (/\.(geo)?json$/i.test(name)) {
       next.set(name, readGeoJSON(name, await file.text()))
-    } else if (/\.(glb|obj)$/i.test(name)) {
+    } else if (/\.(glb|obj|fbx)$/i.test(name)) {
       try {
         next3d.set(name, await read3D(name, await file.arrayBuffer()))
       } catch (e) {
@@ -193,6 +193,10 @@ const checks3d = computed<CheckRow[]>(() =>
             note: `${m.fileName}: 방은 외곽선 범위와 1cm 넘게, 설비는 GeoJSON 점이 3D 범위에서 0.5m 넘게 다르다`,
             ids: c.misplaced.map((x) => `${x.id} ${x.by.toFixed(2)}m`),
           },
+          // OBJ 는 kind 를 싣지 못해 이 줄이 늘 0 이라 뺀다.
+          ...(m.format === 'obj'
+            ? []
+            : [{ label: `${tag} — 종류 어긋남`, note: `${m.fileName}: 3D 객체의 kind(GLB extras·FBX 사용자 속성)가 GeoJSON 의 kind 와 다르다`, ids: c.kindMismatch.map((x) => `${x.id} ${x.kind3d}≠${x.kind}`) }]),
         ]
       })
     : [],
@@ -350,7 +354,7 @@ const PARTS_SHOWN = 40
         <div>
           <h1>내보낸 파일 보기</h1>
           <p class="sub">
-            에디터가 낸 <code>ontology.ttl</code>(의미)·<code>floor-*.geojson</code>(기하)·<code>.glb</code>/<code>.obj</code>(3D 형상)를 DT 파서와 같은
+            에디터가 낸 <code>ontology.ttl</code>(의미)·<code>floor-*.geojson</code>(기하)·<code>.glb</code>/<code>.obj</code>/<code>.fbx</code>(3D 형상)를 DT 파서와 같은
             규칙으로 다시 읽어, 파일에 실제로 무엇이 적혔고 셋이 id 로 이어지는지 봅니다. 파일은 이 브라우저 안에서만 읽습니다.
           </p>
         </div>
@@ -368,10 +372,10 @@ const PARTS_SHOWN = 40
       @dragleave.prevent="dragging = false"
       @drop.prevent="onDrop"
     >
-      <p>TTL·층마다의 GeoJSON·GLB/OBJ 를 함께 끌어다 놓으세요. 더 놓으면 같은 이름의 파일은 바뀌고 나머지는 더해집니다.</p>
+      <p>TTL·층마다의 GeoJSON·GLB/OBJ/FBX 를 함께 끌어다 놓으세요. 더 놓으면 같은 이름의 파일은 바뀌고 나머지는 더해집니다.</p>
       <label class="pick">
         파일 고르기
-        <input type="file" multiple accept=".ttl,.geojson,.json,.glb,.obj" aria-label="내보낸 파일 고르기" @change="onPick" />
+        <input type="file" multiple accept=".ttl,.geojson,.json,.glb,.obj,.fbx" aria-label="내보낸 파일 고르기" @change="onPick" />
       </label>
       <button v-if="ttl || floors.length || models3d.length" type="button" class="ghost clear" @click="clear">비우기</button>
       <p v-if="published" class="muted" data-testid="published">서버의 반영본 v{{ published.version }} · {{ published.key.split('|').join(' + ') }}</p>
@@ -452,7 +456,7 @@ const PARTS_SHOWN = 40
             >
               3D · {{ m3.format.toUpperCase() }}{{ models3d.filter((x) => x.format === m3.format).length > 1 ? ` ${m3.fileName}` : '' }}
             </button>
-            <span v-if="!models3d.length" class="muted hint">GLB·OBJ 를 놓으면 3D 로도 봅니다</span>
+            <span v-if="!models3d.length" class="muted hint">GLB·OBJ·FBX 를 놓으면 3D 로도 봅니다</span>
           </div>
           <div v-if="floors.length" class="floor-tabs" role="tablist" aria-label="층">
             <button
@@ -469,10 +473,10 @@ const PARTS_SHOWN = 40
             <label v-if="view === '3d'" class="all-floors"><input v-model="allFloors3d" type="checkbox" /> 모든 층</label>
           </div>
           <template v-if="view === '3d' && model3d">
-            <Scene3D :root="model3d.scene" :colored="model3d.format === 'glb'" :kind-of="kindOf" :selected-id="selectedId" :visible="visible3d" @select="select" />
+            <Scene3D :root="model3d.scene" :colored="model3d.format !== 'obj'" :kind-of="kindOf" :selected-id="selectedId" :visible="visible3d" @select="select" />
             <p class="plan-note muted">
               끌어서 돌리고, 휠로 당기고, 누르면 고릅니다. 객체 이름이 GlobalId 라 누른 것의 TTL·GeoJSON 이 오른쪽에 나옵니다.
-              {{ model3d.format === 'obj' ? 'OBJ 는 색이 없어 GeoJSON 종류로 칠했습니다.' : 'GLB 의 색(계통·벽 종류)은 파일에 든 그대로입니다.' }}
+              {{ model3d.format === 'obj' ? 'OBJ 는 색이 없어 GeoJSON 종류로 칠했습니다.' : `${model3d.format.toUpperCase()} 의 색(계통·벽 종류)은 파일에 든 그대로입니다.` }}
             </p>
           </template>
           <template v-else-if="floors.length">
@@ -566,6 +570,13 @@ const PARTS_SHOWN = 40
                   <dd>{{ p.triangles.toLocaleString() }}</dd>
                   <dt>범위(IFC m)</dt>
                   <dd class="mono">x {{ m(p.min[0]) }}~{{ m(p.max[0]) }} · y {{ m(p.min[1]) }}~{{ m(p.max[1]) }} · z {{ m(p.min[2]) }}~{{ m(p.max[2]) }}</dd>
+                  <!-- GLB extras·FBX 사용자 속성. 받는 쪽(Unity)이 객체에서 읽는 값 그대로다. -->
+                  <template v-if="Object.keys(p.props).length">
+                    <dt>속성</dt>
+                    <dd class="mono props3d">
+                      <span v-for="(v, k) in p.props" :key="k">{{ k }} = {{ v }}</span>
+                    </dd>
+                  </template>
                 </template>
               </dl>
               <p v-else class="muted">이 3D 파일에 이 id 의 객체가 없습니다(좌표 없는 설비·외곽선 없는 방·층·계통은 3D 에 나가지 않습니다).</p>
@@ -901,5 +912,11 @@ circle.shape.sel {
   .work {
     grid-template-columns: 1fr;
   }
+}
+.props3d {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  word-break: break-all;
 }
 </style>

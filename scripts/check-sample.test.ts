@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1342,10 +1342,33 @@ describe('받는 쪽 규칙으로 다시 읽는가 (read-ttl)', () => {
     }
   }, 900_000)
 
-  // 셋째 파일(3D, GLB·OBJ)도 뷰어와 같은 코드로 다시 읽어 GeoJSON 과 잇는다. 객체 이름이 GlobalId 라 같은 id 여야 하고, 방 판은
+  /** GLB 를 Blender 로 FBX 로 바꿔 읽는다. Blender 가 없으면 null(처음 한 번만 까닭을 찍는다). */
+  const BLENDER = process.env.BLENDER ?? 'blender'
+  let blenderChecked: boolean | null = null
+  async function glbToFbx(name: string, glb: ArrayBuffer) {
+    if (blenderChecked === null) {
+      try {
+        execFileSync(BLENDER, ['-b', '--factory-startup', '--version'], { stdio: 'ignore' })
+        blenderChecked = true
+      } catch {
+        blenderChecked = false
+        console.log(`!! ${BLENDER} 가 없어 FBX 는 건너뜁니다 — Blender 4.5 LTS 를 깔거나 BLENDER 로 경로를 줍니다`)
+      }
+    }
+    if (!blenderChecked) return null
+    const dir = mkdtempSync(join(tmpdir(), 'sample-fbx-'))
+    writeFileSync(join(dir, 'a.glb'), new Uint8Array(glb))
+    execFileSync(BLENDER, ['-b', '--factory-startup', '--python-exit-code', '1', '--python', 'scripts/glb2fbx.py', '--', join(dir, 'a.glb'), join(dir, 'a.fbx')], { stdio: 'ignore' })
+    const b = readFileSync(join(dir, 'a.fbx'))
+    rmSync(dir, { recursive: true, force: true })
+    return read3D(`${name}.fbx`, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer)
+  }
+
+  // 셋째 파일(3D, GLB·OBJ·FBX)도 뷰어와 같은 코드로 다시 읽어 GeoJSON 과 잇는다. FBX 는 Blender 가 있는 PC 에서만 GLB 를 바꿔 본다
+  // (scripts/glb2fbx.py, ADR-0052). 없으면 까닭을 찍고 GLB·OBJ 만 본다. 객체 이름이 GlobalId 라 같은 id 여야 하고, 방 판은
   // 외곽선과 1cm 안, 설비는 GeoJSON 점이 형상 범위에서 0.5m 안이다(배치점 보정 기준, read-3d.ts). ifc4Mep 의 플랜지·센서 39대는
   // 배치점이 형상에서 0.3m 떨어져 있어 허용치 안이다 — BIM 그대로다.
-  it('가진 BIM 의 GLB·OBJ 가 GeoJSON 과 같은 id·같은 자리다', async () => {
+  it('가진 BIM 의 GLB·OBJ·FBX 가 GeoJSON 과 같은 id·같은 자리다', async () => {
     if (!('FileReader' in globalThis)) {
       ;(globalThis as Record<string, unknown>).FileReader = class {
         result: ArrayBuffer | null = null
@@ -1378,10 +1401,17 @@ describe('받는 쪽 규칙으로 다시 읽는가 (read-ttl)', () => {
       const floors = modelToGeoJSON(model).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
       const ttl = readOntologyTTL(modelToTTL(model))
       const scene = modelToScene(model, meshes)
-      const glb = await read3D('a.glb', await sceneToGLB(scene))
+      const glbBytes = await sceneToGLB(scene)
+      const glb = await read3D('a.glb', glbBytes)
       const obj = await read3D('a.obj', new TextEncoder().encode((await sceneToOBJ(scene)).join('')).buffer as ArrayBuffer)
-      for (const r of [glb, obj]) expect(check3D(r.parts, floors, ttl), `${name} ${r.format}`).toEqual({ unknown: [], missing: [], misplaced: [] })
+      const fbx = await glbToFbx(name, glbBytes)
+      for (const r of fbx ? [glb, obj, fbx] : [glb, obj]) expect(check3D(r.parts, floors, ttl), `${name} ${r.format}`).toEqual({ unknown: [], missing: [], misplaced: [], kindMismatch: [] })
       expect(obj.parts.length, name).toBe(glb.parts.length)
+      if (fbx) {
+        // 같은 객체·삼각형 수에, GLB extras 가 FBX 사용자 속성으로 그대로 온다(bool 은 FBX 에 없어 1·0).
+        const row = (r: typeof glb) => r.parts.map((p) => `${p.name}:${p.triangles}:${p.kind}:${JSON.stringify(Object.entries(p.props).map(([k, v]) => [k, typeof v === 'boolean' ? Number(v) : v]).sort())}`).sort()
+        expect(row(fbx), name).toEqual(row(glb))
+      }
     }
   }, 1_800_000)
 })
@@ -2468,7 +2498,7 @@ describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every(
     for (const id of new Set(glb.parts.map((p) => p.id))) in3d.set(kindOf.get(id) ?? '?', (in3d.get(kindOf.get(id) ?? '?') ?? 0) + 1)
     // 문·창은 임포터가 형상을 버려 자리·크기로 세운 상자다(mesh3d.ts openingBox, ADR-0009). 전부 GeoJSON 과 같은 id 다.
     expect(Object.fromEntries(in3d)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14 })
-    expect(check3D(glb.parts, floors, ttl)).toEqual({ unknown: [], missing: [], misplaced: [] })
+    expect(check3D(glb.parts, floors, ttl)).toEqual({ unknown: [], missing: [], misplaced: [], kindMismatch: [] })
   }, 900_000)
 })
 

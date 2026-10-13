@@ -41,6 +41,22 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 - 검색을 고치면 `scripts/docs-mcp.test.ts`(실제 문서로 1위를 박아 둔 것)를 같이 본다.
 - 색인하는 곳은 `scripts/docs-index.mjs` 의 `SOURCES` 다. 문서 폴더를 새로 만들면 거기에 더해야 챗봇이 읽는다.
 
+## FBX 변환은 서버의 Blender 가 한다
+
+툴바의 [FBX] 는 화면이 만든 GLB 를 `POST /__data/__fbx` 로 보내고, 서버가 Blender 로 바꿔 돌려준다(ADR-0052,
+`src/server/fbx.ts`·`scripts/glb2fbx.py`). **Blender 가 없는 서버에서는 [FBX] 단추가 막힌다.** `GET /__data/__fbx` 가 `enabled:false`
+와 까닭을 주고, 화면이 그 까닭을 단추의 title 로 보인다.
+
+- 버전은 4.5 LTS 다. sudo 없이 홈에 풀고 PATH 에 건다. 다른 자리에 두면 `BLENDER=/경로/blender` 로 준다.
+  ```
+  curl -O https://download.blender.org/release/Blender4.5/blender-4.5.14-linux-x64.tar.xz   # 같은 폴더의 .sha256 과 맞춰 본다
+  mkdir -p ~/.local/opt && tar -xJf blender-4.5.14-linux-x64.tar.xz -C ~/.local/opt
+  ln -sfn ~/.local/opt/blender-4.5.14-linux-x64/blender ~/.local/bin/blender
+  ```
+- 서버는 Blender 가 있는지를 처음 물을 때 한 번만 잰다. 깔았으면 서버를 다시 띄운다.
+- 변환은 한 번에 하나씩 한다. 성수는 개발 PC 에서 46초, 메모리 4.3GB 였다. 둘이 겹치면 뒤의 것이 앞의 것을 기다린다.
+- 받은 GLB 와 만든 FBX 는 OS 임시 폴더(`oe-fbx-*`)에 두고 답한 뒤 지운다. `data/` 에는 남지 않는다.
+
 ## `data/` 샘플 목록과 등급 칩
 
 **dev 서버와 55 가 같은 코드로 낸다.** `src/server/data-catalog.ts`

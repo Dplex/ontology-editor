@@ -1,12 +1,14 @@
-// 내보낸 3D 형상(GLB·OBJ)을 다시 읽는다. 내보낸 파일 뷰어(viewer.html)와 check:sample 이 쓴다.
+// 내보낸 3D 형상(GLB·OBJ·FBX)을 다시 읽는다. 내보낸 파일 뷰어(viewer.html)와 check:sample 이 쓴다.
 //
 // 3D 는 보여 주기용 셋째 파일이다(mesh3d.ts) — 객체 이름이 GlobalId 라 GeoJSON·TTL 과 같은 id 로 이어지고, 좌표는 three 좌표
 // (y 가 위, 미터)다. 여기서는 객체마다 id·꼭짓점 수·범위(**IFC 좌표로 되돌린 것**, (x, y, z) = (x, -z, y))를 뽑고, GeoJSON 과
 // 견줘 이어지는지·같은 자리인지를 센다. 3D 만 다른 좌표로 나가면(축이 바뀌거나 층 높이가 빠지면) 파일 셋을 겹쳐 쓰는 쪽이 틀린다.
 
 import { Box3, type Mesh, type Object3D } from 'three'
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
+import { readFbxUserProps, type FbxValue } from './fbx-props'
 import type { ExportFloor } from './read-export'
 import type { TtlReading } from './read-ttl'
 
@@ -15,9 +17,11 @@ export type Part3D = {
   id: string
   /** 파일에 적힌 객체 이름 그대로. */
   name: string
-  /** GLB extras 의 kind·name(OBJ 는 이름 칸 하나뿐이라 없다). */
+  /** GLB extras·FBX 사용자 속성의 kind·name(OBJ 는 이름 칸 하나뿐이라 없다). */
   kind: string | null
   label: string | null
+  /** GLB extras·FBX 사용자 속성 전부(id 제외). 받는 쪽(Unity)이 객체에서 읽을 값이다. OBJ 는 비어 있다. */
+  props: Record<string, FbxValue>
   /** 삼각형 수. 꼭짓점 수는 OBJ 로더가 면마다 풀어 읽어 GLB 와 달라지므로 삼각형으로 센다. */
   triangles: number
   /** IFC 좌표(x 동, y 북, z 위) 범위. */
@@ -27,7 +31,7 @@ export type Part3D = {
 
 export type Reading3D = {
   fileName: string
-  format: 'glb' | 'obj'
+  format: 'glb' | 'obj' | 'fbx'
   scene: Object3D
   parts: Part3D[]
 }
@@ -48,6 +52,9 @@ function partsOf(scene: Object3D): Part3D[] {
       name: mesh.name,
       kind: typeof mesh.userData.kind === 'string' ? mesh.userData.kind : null,
       label: typeof mesh.userData.name === 'string' ? mesh.userData.name : null,
+      props: Object.fromEntries(
+        Object.entries(mesh.userData).filter(([k, v]) => k !== 'id' && (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean')),
+      ) as Record<string, FbxValue>,
       triangles: (mesh.geometry.index?.count ?? mesh.geometry.getAttribute('position')?.count ?? 0) / 3,
       min: [box.min.x, -box.max.z, box.min.y],
       max: [box.max.x, -box.min.z, box.max.y],
@@ -56,8 +63,21 @@ function partsOf(scene: Object3D): Part3D[] {
   return out
 }
 
-/** GLB(바이너리 glTF)·OBJ 를 읽는다. 확장자로 가른다. */
+/** GLB(바이너리 glTF)·OBJ·FBX 를 읽는다. 확장자로 가른다. */
 export async function read3D(fileName: string, data: ArrayBuffer): Promise<Reading3D> {
+  if (/\.fbx$/i.test(fileName)) {
+    // 형상·재질은 FBXLoader 가, 사용자 속성은 fbx-props.ts 가 읽는다. 속성을 GLB extras 처럼 userData 에 두고 이름을 그 id 로 바꾼다 —
+    // FBX 에서는 같은 이름이 둘이면 Blender 가 뒤에 .001 을 붙이고 FBXLoader 가 점을 지워서, 이름만으로는 GlobalId 가 아닐 수 있다.
+    const scene = new FBXLoader().parse(data, '')
+    const props = readFbxUserProps(data)
+    scene.traverse((o) => {
+      const p = props.get(o.name)
+      if (!p) return
+      o.userData = { ...p }
+      if (typeof p.id === 'string') o.name = p.id
+    })
+    return { fileName, format: 'fbx', scene, parts: partsOf(scene) }
+  }
   if (/\.obj$/i.test(fileName)) {
     const scene = new OBJLoader().parse(new TextDecoder().decode(data))
     return { fileName, format: 'obj', scene, parts: partsOf(scene) }
@@ -85,6 +105,8 @@ export type Check3D = {
   missing: { id: string; kind: string }[]
   /** 같은 id 인데 자리가 다르다 — 방은 외곽선 범위, 설비는 GeoJSON 점이 3D 범위 안에 드는지. */
   misplaced: { id: string; kind: string; by: number }[]
+  /** 3D 객체의 kind(GLB extras·FBX 사용자 속성)가 같은 id 의 GeoJSON kind 와 다르다. kind 가 없는 OBJ 는 늘 비어 있다. */
+  kindMismatch: { id: string; kind3d: string; kind: string }[]
 }
 
 const IN_3D = new Set(['space', 'equipment', 'wall', 'door', 'window'])
@@ -101,6 +123,14 @@ export function check3D(parts: readonly Part3D[], floors: readonly ExportFloor[]
   const inTtl = (id: string) => !!ttl && (ttl.entities.some((e) => e.key === id) || ttl.unread.some((u) => u.key === id))
 
   const unknown = [...byId.keys()].filter((id) => !features.has(id) && !inTtl(id))
+  const kindMismatch: Check3D['kindMismatch'] = []
+  const seen = new Set<string>()
+  for (const p of parts) {
+    const kind = features.get(p.id)?.properties.kind
+    if (!p.kind || typeof kind !== 'string' || p.kind === kind || seen.has(p.id)) continue
+    seen.add(p.id)
+    kindMismatch.push({ id: p.id, kind3d: p.kind, kind })
+  }
   const missing: Check3D['missing'] = []
   const misplaced: Check3D['misplaced'] = []
   for (const [id, f] of features) {
@@ -135,5 +165,5 @@ export function check3D(parts: readonly Part3D[], floors: readonly ExportFloor[]
     }
     if (by > (kind === 'equipment' ? EQUIPMENT_TOLERANCE : PLACE_TOLERANCE)) misplaced.push({ id, kind, by })
   }
-  return { unknown, missing, misplaced }
+  return { unknown, missing, misplaced, kindMismatch }
 }

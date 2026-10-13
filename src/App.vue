@@ -8322,21 +8322,28 @@ function exportTTLDone() {
 }
 
 /**
- * 3D 형상(GLB·OBJ). 보여 주기용 파일이라 GeoJSON·TTL 과 따로 낸다. 큰 파일은 몇 초(성수 OBJ 16초) 걸려 누르는 동안
+ * 3D 형상(GLB·OBJ·FBX). 보여 주기용 파일이라 GeoJSON·TTL 과 따로 낸다. 큰 파일은 몇 초(성수 OBJ 16초) 걸려 누르는 동안
  * 버튼을 막고, 여는 때와 같은 진행 막대에 단계를 보인다. OBJ 는 꼭짓점 수로 막대가 차고, GLB 는 흐르기만 한다.
+ * FBX 는 GLB 를 만들어 서버에 보내면 서버의 Blender 가 바꿔 돌려준다(src/server/fbx.ts, ADR-0052). 성수는 서버에서 46초다.
  */
-const exporting3d = ref<'glb' | 'obj' | null>(null)
+const exporting3d = ref<'glb' | 'obj' | 'fbx' | null>(null)
+/** 서버가 FBX 로 바꿀 수 있는지. 서버에 Blender 가 없거나 서버 없이 띄운 화면이면 단추를 막고 까닭을 title 로 보인다. */
+const fbxServer = ref<{ enabled: boolean; reason?: string }>({ enabled: false, reason: 'FBX 변환 서버를 확인하는 중입니다' })
+fetch('./__data/__fbx')
+  .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+  .then((p: { enabled?: boolean; reason?: string }) => (fbxServer.value = { enabled: p.enabled === true, reason: p.reason }))
+  .catch(() => (fbxServer.value = { enabled: false, reason: 'FBX 는 서버(8084)의 Blender 가 바꿉니다. 이 화면에서는 서버에 닿지 않습니다' }))
 /**
  * 3D 형상을 워커에서 만든다(lib/export/mesh3d.worker.ts). 화면 스레드로 만들면 성수에서 3~4초씩 멈췄다. 한 번 쓰고 닫는다 — 워커가 든
  * 장면(수백 MB)이 남지 않게. 진행 막대는 부르는 쪽이 연다.
  */
-async function makeMesh3D(format: 'glb' | 'obj'): Promise<ArrayBuffer[]> {
+async function makeMesh3D(format: 'glb' | 'obj', moreSteps = 0): Promise<ArrayBuffer[]> {
   const worker = new Worker(new URL('./lib/export/mesh3d.worker.ts', import.meta.url), { type: 'module' })
   try {
     return await new Promise<ArrayBuffer[]>((resolve, reject) => {
       worker.onmessage = (e: MessageEvent<Mesh3dReply>) => {
         const d = e.data
-        if (d.type === 'progress') progress.value = { label: d.stage, step: d.step, steps: d.steps, done: d.done, total: d.total, unit: 'items' }
+        if (d.type === 'progress') progress.value = { label: d.stage, step: d.step, steps: d.steps + moreSteps, done: d.done, total: d.total, unit: 'items' }
         else if (d.type === 'done') resolve(d.parts)
         else reject(new Error(d.message))
       }
@@ -8348,8 +8355,16 @@ async function makeMesh3D(format: 'glb' | 'obj'): Promise<ArrayBuffer[]> {
     worker.terminate()
   }
 }
-async function export3D(format: 'glb' | 'obj') {
+/** GLB 를 서버에 보내 FBX 로 받는다. 실패하면 서버가 준 까닭을 그대로 올린다. */
+async function glbToFBX(glb: ArrayBuffer[]): Promise<ArrayBuffer> {
+  progress.value = { label: 'FBX 로 바꾸는 중(서버의 Blender)', step: 3, steps: 3 }
+  const r = await fetch('./__data/__fbx', { method: 'POST', body: new Blob(glb, { type: 'model/gltf-binary' }) })
+  if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `서버가 ${r.status} 을 줬습니다`)
+  return r.arrayBuffer()
+}
+async function export3D(format: 'glb' | 'obj' | 'fbx') {
   if (!model.value || exporting3d.value || progress.value) return
+  if (format === 'fbx' && !fbxServer.value.enabled) return
   exporting3d.value = format
   beginProgress('형상 넘기는 중')
   // 형상을 워커로 복사하는 동안 화면이 잠깐 멈춘다. 막대가 먼저 보이게 한 번 그린다.
@@ -8357,9 +8372,9 @@ async function export3D(format: 'glb' | 'obj') {
   // 합쳐 연 파일은 이름이 "건축.ifc + 기계.ifc" 다. 확장자를 떼고 + 로 잇는다.
   const stem = fileName.value.split(' + ').map((n) => n.replace(/\.[^.]+$/, '')).join('+') || 'model'
   try {
-    const parts = await makeMesh3D(format)
+    const parts = format === 'fbx' ? [await glbToFBX(await makeMesh3D('glb', 1))] : await makeMesh3D(format)
     const name = `${stem}.${format}`
-    download(name, parts, format === 'glb' ? 'model/gltf-binary' : 'model/obj')
+    download(name, parts, format === 'glb' ? 'model/gltf-binary' : format === 'obj' ? 'model/obj' : 'application/octet-stream')
     // 막대가 닫히면 끝났는지 알 길이 브라우저 받기 표시뿐이다. 이름과 크기를 남긴다(성수 OBJ 는 683MB 다).
     note(`${name} (${mb(parts.reduce((s, p) => s + p.byteLength, 0))}) 내려받기를 시작했습니다`)
     markDone(format)
@@ -8995,8 +9010,10 @@ function rollbackFromReport() {
             <!-- 여는·합치는 중(busy)에는 막는다. 건축·설비를 같이 열 때 설비를 읽는 동안 누르면 건축만 든 파일이 나갔다. -->
             <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" :disabled="busy" :class="{ done: justDone === 'geojson' }" @click="exportGeoJSONDone">GeoJSON</button>
             <button type="button" class="ghost" aria-label="의미 내보내기 (Brick TTL)" title="관계 내보내기 (Brick TTL 파일 하나)" :disabled="busy" :class="{ done: justDone === 'ttl' }" @click="exportTTLDone">TTL</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'glb'" :class="{ done: justDone === 'glb' }" @click="export3D('glb')">{{ exporting3d === 'glb' ? '만드는 중…' : 'GLB' }}</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" :class="{ done: justDone === 'obj' }" @click="export3D('obj')">{{ exporting3d === 'obj' ? '만드는 중…' : 'OBJ' }}</button>
+            <!-- 만드는 동안 글자는 "GLB…" 로만 바꾼다. 무엇을 하는지는 진행 막대가 보인다. "만드는 중…" 으로 바꾸면 단추가 넓어져 1600px 에서 성수 이름과 함께 툴바가 두 줄로 넘어갔다. -->
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'glb'" :class="{ done: justDone === 'glb' }" @click="export3D('glb')">{{ exporting3d === 'glb' ? 'GLB…' : 'GLB' }}</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" :class="{ done: justDone === 'obj' }" @click="export3D('obj')">{{ exporting3d === 'obj' ? 'OBJ…' : 'OBJ' }}</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (FBX)" :title="fbxServer.enabled ? '3D 형상 내보내기 (FBX 파일 하나, 요소 이름은 GlobalId, 서버에서 GLB 를 변환)' : fbxServer.reason" :disabled="busy || !!exporting3d || !fbxServer.enabled" :aria-busy="exporting3d === 'fbx'" :class="{ done: justDone === 'fbx' }" @click="export3D('fbx')">{{ exporting3d === 'fbx' ? 'FBX…' : 'FBX' }}</button>
             <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
             <button type="button" class="ghost theme" :aria-pressed="dark" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
           </div>
