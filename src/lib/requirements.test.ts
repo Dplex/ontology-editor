@@ -96,6 +96,10 @@ describe('요구사항 보고서', () => {
     const d = structuredClone(mep)
     for (const e of d.storeys.flatMap((x) => x.equipment)) if (e.capacity !== null) e.capacityProperty = 'Flow'
     elsewhere.push(['R21', d])
+    const f = structuredClone(rooms)
+    for (const s of f.storeys.flatMap((x) => x.spaces))
+      s.designAirflow = { cooling: null, heating: null, supply: 300, source: 'bim', property: 'PSet_Revit_Mechanical - Airflow.Specified Supply Airflow' }
+    elsewhere.push(['R26', f])
     const e = structuredClone(mep)
     const device = e.storeys.flatMap((x) => x.equipment).find((x) => x.kind && x.role !== 'segment' && x.role !== 'fitting')!
     device.ifcClass = 'BuildingElementProxy'

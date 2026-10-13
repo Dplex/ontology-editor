@@ -11,6 +11,7 @@ import { assignEquipment, centroid, distanceToRing, exteriorKind, isSelfIntersec
 import { shaftOf } from './shaft'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
+import { repartitionFlowless } from './flow-review'
 import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapshotRulesAgain, type ReleaseSnapshot, type RuleSnapshot } from './connection-release'
 import { equipmentKind, FLUID_KINDS, resolveRoomKind, roomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
@@ -800,6 +801,8 @@ export type Snapshot =
   | { kind: 'rooms'; storeyId: string; rooms: Room[] | undefined }
   /** 층 이름(storey-name.ts). 지금 이름과 BIM 이름(고친 적 없으면 undefined). */
   | { kind: 'storey-name'; storeyId: string; name: string; bimName: string | undefined }
+  /** 사람이 넣은 설계 풍량·정격 풍량(OE-ZON-06, airflow.ts). 물리존이나 설비 하나의 값이다. 공조존 값은 'hvac-zones' 가 함께 뜬다. */
+  | { kind: 'airflow'; target: 'space' | 'equipment'; id: string; value: Space['designAirflow'] | Equipment['ratedAirflow'] }
   /** 층의 추가 공간 오브젝트 전부(OE-OBJ-09). 놓기·지우기·옮기기·크기·이름을 같은 방식으로 되돌린다. */
   | { kind: 'space-objects'; storeyId: string; objects: SpaceObject[] | undefined }
   /** 모든 층의 수직 관통 오브젝트 조각(OE-ML-07·09). 여러 층에 걸친 옮기기·지우기를 한 번에 되돌린다(vertical-edit.ts). */
@@ -998,6 +1001,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotRooms(model, snapshot.storeyId)
     case 'storey-name':
       return snapshotStoreyName(model, snapshot.storeyId)
+    case 'airflow':
+      return snapshotAirflow(model, snapshot.target, snapshot.id)
     case 'space-objects':
       return snapshotSpaceObjects(model, snapshot.storeyId)
     case 'verticals':
@@ -1034,6 +1039,16 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
 export function snapshotStoreyName(model: Model, storeyId: string): Snapshot | null {
   const storey = model.storeys.find((st) => st.id === storeyId)
   return storey ? { kind: 'storey-name', storeyId, name: storey.name, bimName: storey.bimName } : null
+}
+
+/** 물리존의 설계 풍량이나 설비의 정격 풍량 하나(OE-ZON-06). */
+export function snapshotAirflow(model: Model, target: 'space' | 'equipment', id: string): Snapshot | null {
+  if (target === 'space') {
+    const space = findSpace(model, id)
+    return space ? { kind: 'airflow', target, id, value: space.designAirflow ? { ...space.designAirflow } : undefined } : null
+  }
+  const e = findEquipment(model, id)
+  return e ? { kind: 'airflow', target, id, value: e.ratedAirflow ? { ...e.ratedAirflow } : undefined } : null
 }
 
 export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
@@ -1226,6 +1241,15 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete storey.rooms
       return null
     }
+    case 'airflow': {
+      const target: { designAirflow?: unknown; ratedAirflow?: unknown } | null | undefined =
+        snapshot.target === 'space' ? findSpace(model, snapshot.id) : findEquipment(model, snapshot.id)
+      const key = snapshot.target === 'space' ? 'designAirflow' : 'ratedAirflow'
+      if (!target) return null
+      if (snapshot.value) target[key] = { ...snapshot.value }
+      else delete target[key]
+      return null
+    }
     case 'storey-name': {
       const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
       if (!storey) return null
@@ -1288,6 +1312,7 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
         if (was !== exteriorKind(e)) reassignOnKind(model, e)
       }
       // 종류가 규칙 방향의 원천·말단을 정하므로 규칙도 다시 돌린다. 되돌리기는 거꾸로 쌓이므로 같은 결과가 나온다.
+      repartitionFlowless(model)
       return inferFlowByRules(model)
     }
   }
@@ -1362,7 +1387,7 @@ export function setTypeKind(
   model: Model,
   typeKey: string,
   kind: string | null,
-): { count: number; rules: RuleReport } | null {
+): { count: number; rules: RuleReport; flowless: { removed: number; restored: number } } | null {
   if (kind !== null && !equipmentKind(kind)) return null
   const members = model.storeys.flatMap((s) => s.equipment).filter((e) => inKindGroup(e, typeKey))
   if (members.length === 0 || members.every((e) => (e.kind ?? null) === kind)) return null
@@ -1373,7 +1398,9 @@ export function setTypeKind(
     if (e.kindEdited.from === kind) delete e.kindEdited
     if (was !== exteriorKind(e)) reassignOnKind(model, e)
   }
-  return { count: members.length, rules: inferFlowByRules(model) }
+  // 흐름 없는 종류가 되거나 아니게 되면 형상 연결을 다시 가른다(OE-PIP-18). 규칙 방향이 그 연결을 타므로 먼저 한다.
+  const flowless = repartitionFlowless(model)
+  return { count: members.length, rules: inferFlowByRules(model), flowless }
 }
 
 /**
@@ -1513,7 +1540,8 @@ export function baselineOf(model: Model): Baseline {
     numbers,
     footprints,
     equipment,
-    connections: new Set(model.connections.map((c) => pairKey(c.from, c.to))),
+    // 흐름 없는 기기에 닿아 빼 둔 형상 연결도 넣는다. 종류를 바꿔 오가는 것은 끊고 이은 것이 아니다(flow-review.ts).
+    connections: new Set([...model.connections, ...(model.flowlessGeometry ?? [])].map((c) => pairKey(c.from, c.to))),
     keys: fingerprints(model),
     customZones: new Map(model.storeys.map((s) => [s.id, copyZones(s.customZones ?? [])])),
     hvacZones: new Map(model.storeys.map((s) => [s.id, copyHvacZones(s.hvacZones ?? [])])),
@@ -1663,7 +1691,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const disconnected: BaselineDiff['disconnected'] = []
   if (baseline.connections) {
     const now = new Set<string>()
-    for (const c of model.connections) {
+    for (const c of [...model.connections, ...(model.flowlessGeometry ?? [])]) {
       const key = pairKey(c.from, c.to)
       now.add(key)
       if (!baseline.connections.has(key)) connected.push({ from: c.from, to: c.to })
@@ -1798,7 +1826,8 @@ function diffHvacZones(model: Model, baseline: Baseline): BaselineDiff['hvacZone
   const out: BaselineDiff['hvacZones'] = []
   const now = new Set<string>()
   const same = (a: HvacZone, b: HvacZone) =>
-    a.name === b.name && a.spaceIds.join(' ') === b.spaceIds.join(' ') && (a.servedBy ?? []).join(' ') === (b.servedBy ?? []).join(' ') && sameRings(a.footprint, b.footprint)
+    a.name === b.name && a.spaceIds.join(' ') === b.spaceIds.join(' ') && (a.servedBy ?? []).join(' ') === (b.servedBy ?? []).join(' ') && sameRings(a.footprint, b.footprint) &&
+    JSON.stringify(a.designAirflow ?? null) === JSON.stringify(b.designAirflow ?? null)
   for (const storey of model.storeys) {
     for (const z of storey.hvacZones ?? []) {
       now.add(z.id)

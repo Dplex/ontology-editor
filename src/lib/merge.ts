@@ -190,6 +190,9 @@ export function mergeModels(
 
     for (const space of incoming) {
       if (seenIds.has(space.id)) {
+        // 같은 GUID 면 같은 방이다. 설계 풍량(R26)만 설비 쪽에 있으면 옮긴다(아래 같은 자리와 같은 까닭).
+        const same = space.designAirflow && target.spaces.find((s) => s.id === space.id && !s.designAirflow)
+        if (same) same.designAirflow = { ...space.designAirflow! }
         duplicateIds++
         continue
       }
@@ -199,6 +202,8 @@ export function mergeModels(
         : // 외곽선이 없는 방은 자리로 비교할 수 없다. 방 번호가 같은 것이 있으면 같은 방이다.
           target.spaces.find((s) => space.name.trim() !== '' && normalize(s.name) === normalize(space.name))
       if (sameSpot) {
+        // 설계 풍량(R26)은 Revit 에서 설비 파일의 MEP 공간에 붙는다. 건축 방이 남고 설비 방이 빠지므로 값을 남는 방으로 옮긴다.
+        if (!sameSpot.designAirflow && space.designAirflow) sameSpot.designAirflow = { ...space.designAirflow }
         dropped.set(space.id, sameSpot.id)
         spaceTally.dropped++
         continue
@@ -300,6 +305,7 @@ export function mergeModels(
     storeys: a.storeys,
     systems: [...systems.values()],
     connections: [...connections.values()],
+    ...(a.flowlessGeometry?.length || b.flowlessGeometry?.length ? { flowlessGeometry: [...(a.flowlessGeometry ?? []), ...(b.flowlessGeometry ?? [])] } : {}),
     warnings: [...a.warnings.map((w) => `[${labels.base}] ${w}`), ...b.warnings.map((w) => `[${labels.overlay}] ${w}`)],
     ...(a.skipped || b.skipped ? { skipped: [...new Set([...(a.skipped ?? []), ...(b.skipped ?? [])])] } : {}),
     ...(a.facts && b.facts
@@ -432,6 +438,7 @@ export function dropDuplicateSpaces(model: Pick<Model, 'storeys'>): number {
         keep.omniclass = drop.omniclass
         if (drop.omniclassSource) keep.omniclassSource = drop.omniclassSource
       }
+      if (!keep.designAirflow && drop.designAirflow) keep.designAirflow = drop.designAirflow
       if (!keep.kind && drop.kind) {
         keep.kind = drop.kind
         if (drop.kindSource) keep.kindSource = drop.kindSource
