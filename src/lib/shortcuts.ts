@@ -21,6 +21,7 @@ export type ShortcutId =
   | 'editPart'
   | 'storeyUp'
   | 'storeyDown'
+  | 'duplicate'
   | 'arrowPrev'
   | 'arrowNext'
   | 'flow'
@@ -103,6 +104,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   },
   { id: 'storeyUp', combos: [{ code: 'PageUp' }], keys: ['PageUp'], label: '고른 설비를 위층으로', group: '편집 · 설비', edit: true },
   { id: 'storeyDown', combos: [{ code: 'PageDown' }], keys: ['PageDown'], label: '고른 설비를 아래층으로', group: '편집 · 설비', edit: true },
+  // 브라우저의 Ctrl+D(북마크)는 편집 모드에서 설비를 골랐을 때만 가로챈다.
+  { id: 'duplicate', combos: [{ code: 'KeyD', ctrl: true }], keys: ['Ctrl+D'], label: '고른 설비와 같은 모양의 설비를 하나 더 놓기', group: '편집 · 설비', edit: true },
 
   { id: 'arrowPrev', combos: [{ code: 'BracketLeft' }], keys: ['['], label: '이전 연결 (물리존이면 이전 꼭짓점)', group: '편집 · 연결 방향', edit: true },
   { id: 'arrowNext', combos: [{ code: 'BracketRight' }], keys: [']'], label: '다음 연결 (물리존이면 다음 꼭짓점)', group: '편집 · 연결 방향', edit: true },

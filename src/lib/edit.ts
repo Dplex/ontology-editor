@@ -2007,6 +2007,8 @@ export type NewEquipment = {
   id?: string
   /** 사람이 그린 배관의 구간·이음쇠(OE-PIP-11, manual-pipe.ts). 종류 대신 역할·IFC 클래스·중심선·Flow Type 을 받는다. */
   conduit?: { role: 'segment' | 'fitting'; ifcClass: string; axis?: [Vec3, Vec3]; flowType: string; endShift?: [Vec3, Vec3] }
+  /** 3D 모양을 빌려 올 BIM 설비(복제한 원본, ADR-0059). */
+  shapeOf?: string
 }
 
 const pair = (p: readonly [Vec3, Vec3]): [Vec3, Vec3] => [[p[0][0], p[0][1], p[0][2]], [p[1][0], p[1][1], p[1][2]]]
@@ -2036,6 +2038,7 @@ export function addEquipment(model: Model, storeyId: string, spec: NewEquipment)
     spaceId: null,
     spaceSource: null,
     added: true,
+    ...(spec.shapeOf && !spec.conduit ? { shapeOf: spec.shapeOf } : {}),
     ...(spec.conduit
       ? {
           flowType: spec.conduit.flowType,

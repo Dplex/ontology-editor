@@ -916,6 +916,71 @@ function shiftMesh(id: string, from: Vec3 | null, to: Vec3 | null) {
   meshes.set(id, { ...mesh, positions })
 }
 
+// --- 사람이 더한 설비의 모양 (ADR-0059) ---
+// 더한 설비는 IFC 형상이 없어 상자로 그렸다. 복제한 원본(shapeOf)이나 종류가 같은 BIM 설비가 있으면 그 형상을 이 설비 자리로
+// 옮겨 쓴다. 한 번 meshes 에 넣으면 옮기기·되돌리기는 다른 설비처럼 moveInScene 이 따라 옮긴다. 여기서는 만들 때와 빌려 올
+// 설비가 바뀔 때(종류를 바꿈·되돌림)만 넣고 뺀다. BIM 설비 중 형상이 없는 것은 그대로 상자다 — "BIM 에 형상이 없다" 를 가리지 않는다.
+/** 더한 설비 id → 모양을 빌려 온 BIM 설비 id. 패널이 어디서 온 모양인지 보인다. */
+const borrowedShape = shallowRef(new Map<string, string>())
+watch(baseline, () => (borrowedShape.value = new Map()))
+/**
+ * 종류마다 모양을 빌려 줄 BIM 설비. 형상이 있는 같은 종류 중 ObjectType(Revit "패밀리:유형")이 가장 많은 묶음의 첫 설비다.
+ * 정해진 규칙이라 편집 파일로 다시 열어도 같은 설비가 골라진다(그래서 종류로 빌린 것은 파일에 적지 않는다).
+ */
+function kindShapes(m: Model): Map<string, Equipment> {
+  const groups = new Map<string, Map<string, Equipment[]>>()
+  for (const e of m.storeys.flatMap((s) => s.equipment)) {
+    if (e.added || !e.kind || !e.position || e.flowType || isConduit(e.role) || !meshes.has(e.id) || meshBase.has(e.id)) continue
+    const byType = groups.get(e.kind) ?? new Map<string, Equipment[]>()
+    groups.set(e.kind, byType)
+    const list = byType.get(e.objectType ?? '') ?? []
+    byType.set(e.objectType ?? '', list)
+    list.push(e)
+  }
+  return new Map([...groups].map(([kind, byType]) => [kind, [...byType.values()].reduce((a, b) => (b.length > a.length ? b : a))[0]]))
+}
+function shapeSource(e: Equipment, byKind: () => Map<string, Equipment>): Equipment | null {
+  if (!e.added || !e.position || e.flowType || isConduit(e.role)) return null
+  // 복제한 원본. 종류를 바꿨으면 원본 모양이 맞지 않으니 새 종류로 고른다.
+  const own = e.shapeOf ? equipmentById.value.get(e.shapeOf) : undefined
+  if (own?.position && !own.added && meshes.has(own.id) && (own.kind ?? null) === (e.kind ?? null)) return own
+  return e.kind ? (byKind().get(e.kind) ?? null) : null
+}
+/** 더한 설비의 빌린 모양을 맞춘다. 바뀐 것이 있으면 true(다시 그려야 한다). */
+function syncBorrowedShapes(): boolean {
+  const m = model.value
+  if (!m) return false
+  let index: Map<string, Equipment> | null = null
+  const byKind = () => (index ??= kindShapes(m))
+  const next = new Map(borrowedShape.value)
+  let changed = false
+  for (const e of m.storeys.flatMap((s) => s.equipment)) {
+    if (!e.added) continue
+    const src = shapeSource(e, byKind)
+    const had = next.get(e.id)
+    if (!src) {
+      if (had) {
+        meshes.delete(e.id)
+        next.delete(e.id)
+        changed = true
+      }
+      continue
+    }
+    if (had === src.id && meshes.has(e.id)) continue
+    const mesh = meshes.get(src.id)!
+    meshes.set(e.id, { ...mesh, positions: mesh.positions })
+    // 원본 자리에 있는 형상을 이 설비 자리로 옮긴다.
+    shiftMesh(e.id, src.position, e.position)
+    next.set(e.id, src.id)
+    changed = true
+  }
+  if (changed) borrowedShape.value = next
+  return changed
+}
+watch(model, () => {
+  if (syncBorrowedShapes()) redraw()
+})
+
 /** 구간의 연 때 축. 처음 물을 때 형상을 떠 둔다(그때는 아직 늘이기 전이다). 형상이 없거나 구간이 아니면 null. */
 function segmentAxis(id: string): SegmentAxis | null {
   const known = meshBase.get(id)
@@ -1706,6 +1771,10 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
     case 'storeyUp':
     case 'storeyDown':
       return stepStorey(s.id === 'storeyUp' ? 1 : -1)
+    case 'duplicate':
+      if (!selected.value || selectedLock.value) return false
+      startDuplicate(selected.value)
+      return true
     case 'arrowPrev':
     case 'arrowNext':
       return stepArrow(s.id === 'arrowNext' ? 1 : -1)
@@ -6728,7 +6797,8 @@ function mergeInto(otherId: string) {
 // 더하기는 [설비 더하기] 를 누르고 바닥을 누른다. 종류는 모르는 채 바닥 높이에 놓고 고르게 한다 — 종류와 높이를
 // 지어내지 않는다. 지우면 붙은 연결·계통 자리도 같이 빠지고 Ctrl+Z 로 그대로 돌아온다(edit.ts).
 /** `object` 는 추가 공간 오브젝트(OE-SPC-14)이고 `item` 이 라이브러리 항목이다. */
-const adding = ref<{ storeyId: string; elevation: number; what: 'equipment' | 'door' | 'window' | 'object'; item?: string } | null>(null)
+/** `copyOf` 는 [같은 모양으로 더하기] 의 원본 설비(ADR-0059). */
+const adding = ref<{ storeyId: string; elevation: number; what: 'equipment' | 'door' | 'window' | 'object'; item?: string; copyOf?: string } | null>(null)
 function startAddEquipment() {
   const storey = targetStorey()
   if (!storey) return askStorey('설비를 더할')
@@ -6747,6 +6817,26 @@ function startAddEquipment() {
   // 이름부터 치게 이름 칸으로 간다. 치지 않고 바로 바닥을 눌러도 된다(종류 미상으로 놓인다).
   void nextTick(() => addNameInput.value?.focus())
   note(ceilingMode.value ? `${storey.name} 천장에 설비를 놓을 자리를 3D에서 클릭하세요 (Esc 취소)` : `${storey.name}에 설비를 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
+}
+/**
+ * 고른 설비와 종류·모양이 같은 설비를 더한다(ADR-0059). 바닥을 누르면 놓이고, 높이는 원본이 제 층 바닥에서 떠 있던 만큼이다.
+ * 연결·계통·소속은 복사하지 않는다 — 원본에 붙은 배관을 새 설비가 가져가면 엉뚱한 곳이 이어진다.
+ */
+function startDuplicate(e: Equipment) {
+  if (e.flowType || isConduit(e.role)) {
+    note('덕트·배관은 복제하지 않습니다. 배관 그리기로 잇습니다')
+    return
+  }
+  startAddEquipment()
+  const a = adding.value
+  if (!a || a.what !== 'equipment') return
+  const st = model.value?.storeys.find((s) => s.id === a.storeyId)
+  const home = storeyOf(e.id)
+  if (!st) return
+  const lift = e.position && home ? e.position[2] - home.elevation : 0
+  adding.value = { ...a, elevation: st.elevation + lift, copyOf: e.id }
+  viewer?.setPlaceMode(st.elevation + lift)
+  note(`${st.name}에 ${shortName(e.name)}${josa(shortName(e.name), '과/와')} 같은 모양의 설비를 놓을 자리를 3D에서 클릭하세요 (Esc 취소)`)
 }
 function stopAdd() {
   if (!adding.value) return
@@ -6827,20 +6917,28 @@ function addEquipmentAt(at: Vec2) {
   const blocked = overlapForNew(m, target.storeyId, position, currentBox)
   if (blocked) return refuseOverlap(blocked)
   const mk = mark()
-  const kind = addKind.value
-  const e = addEquipment(m, target.storeyId, { name: addName.value.trim() || `새 설비 ${n}`, kind, position })
+  // 복제면 원본의 종류·모양을 따른다. 원본도 더한 설비면 그 설비가 빌린 BIM 설비가 모양의 원본이다. 아니면 팔레트에서 미리 고른 종류·이름이다.
+  const src = target.copyOf ? (equipmentById.value.get(target.copyOf) ?? null) : null
+  const shapeOf = src ? (src.added ? (borrowedShape.value.get(src.id) ?? src.shapeOf) : meshes.has(src.id) ? src.id : undefined) : undefined
+  const kind = src ? (src.kind ?? null) : addKind.value
+  const e = addEquipment(m, target.storeyId, { name: src ? `${shortName(src.name)} 복제` : addName.value.trim() || `새 설비 ${n}`, kind, position, shapeOf })
   if (!e) return
   addName.value = ''
   addKind.value = null
   const snapshot = snapshotEquipmentSet(m, e.id)
   if (snapshot?.kind === 'equipment-set') remember(`${e.name} 더하기`, { ...snapshot, present: false }, mk)
+  syncBorrowedShapes()
   triggerRef(model)
   redraw()
   selectedId.value = e.id
+  const from = borrowedShape.value.get(e.id)
+  const shape = from ? ' 같은 종류 BIM 설비의 모양을 따릅니다.' : ''
   note(
-    kind
-      ? `${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '천장고' : '바닥 높이'}에 놓았습니다(종류 ${equipmentKind(kind)!.label}). 높이를 오른쪽 패널에서 정하세요`
-      : `${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '천장고' : '바닥 높이'}에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`,
+    src
+      ? `${e.name}${josa(e.name, '을/를')} 놓았습니다. ${from ? '원본과 같은 모양입니다' : '원본에 형상이 없어 상자로 그립니다'}. 연결·계통은 비어 있습니다`
+      : kind
+        ? `${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '천장고' : '바닥 높이'}에 놓았습니다(종류 ${equipmentKind(kind)!.label}).${shape} 높이를 오른쪽 패널에서 정하세요`
+        : `${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '천장고' : '바닥 높이'}에 놓았습니다. 종류를 정하면 같은 종류 설비의 모양을 따릅니다`,
   )
 }
 function removeEquipment(id: string) {
@@ -11241,6 +11339,21 @@ function rollbackFromReport() {
             </p>
           </div>
 
+          <!-- 더한 설비의 모양이 어디서 왔나(ADR-0059). 3D·GLB·OBJ·FBX 에만 쓰이고 TTL·GeoJSON 에는 모양이 없다. -->
+          <p v-if="selected.added && !selected.flowType" class="hint" data-testid="borrowed-shape">
+            3D 모양:
+            <template v-if="borrowedShape.get(selected.id)">
+              {{ shortName(nameOfId(borrowedShape.get(selected.id)!)) }}의 형상 <Src kind="edit" /> — {{ borrowedShape.get(selected.id) === selected.shapeOf ? '복제한 원본' : '같은 종류의 BIM 설비' }}. GLB·OBJ·FBX 에 나가고 TTL·GeoJSON 에는 모양이 없습니다.
+            </template>
+            <template v-else>상자 — {{ selected.kind ? '같은 종류에 형상이 있는 BIM 설비가 없습니다' : '종류를 정하면 같은 종류 BIM 설비의 모양을 따릅니다' }}.</template>
+          </p>
+          <!-- 복제(ADR-0059). 같은 종류·모양으로 하나 더 놓는다. -->
+          <p v-if="editing && !selectedLock && !selected.flowType && !isConduit(selected.role)" class="copy-zone">
+            <button type="button" class="ghost" data-testid="duplicate" title="종류·모양이 같은 설비를 바닥을 눌러 하나 더 놓습니다" @click="startDuplicate(selected)">
+              같은 모양으로 더하기 <kbd>Ctrl+D</kbd>
+            </button>
+            <span class="muted">연결·계통은 비어 있습니다.</span>
+          </p>
           <!-- 지우기(E7). 지우면 붙은 연결·계통 자리도 빠지고 Ctrl+Z 로 돌아온다. 고치는 칸과 떨어뜨려 맨 아래에 둔다. -->
           <p v-if="editing && !selectedLock" class="danger-zone">
             <button type="button" class="ghost danger" title="이 설비와 붙은 연결을 지웁니다 (Ctrl+Z 로 되돌림)" @click="removeEquipment(selected.id)">
