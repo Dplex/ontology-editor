@@ -7,7 +7,7 @@ const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 
 async function clickFloor(page: Page, x: number, y: number) {
   // 설정 칸을 채우면 페이지가 그쪽으로 스크롤된다. 3D 가 화면 밖에 걸친 채 좌표를 재면 바닥이 아닌 곳을 누른다.
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const at = (await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])) as { x: number; y: number }
   await page.mouse.click(at.x, at.y)
 }
@@ -19,7 +19,7 @@ test('사이트 기본 두께로 새 벽을 긋고, 스냅 거리를 줄이면 �
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
 
   const settings = page.getByTestId('element-settings')

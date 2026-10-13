@@ -27,7 +27,7 @@ test('룸을 그리고, 겹치거나 물리존 밖이면 막으며, 골라서 �
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
 
   // 회의실 안에 1.5 × 1.5 룸

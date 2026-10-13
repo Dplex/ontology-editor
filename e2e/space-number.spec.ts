@@ -12,7 +12,7 @@ test('같은 층에 있는 방번호로는 바꾸지 않고 원래 번호로 돌
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
 
   // 회의실 바닥을 눌러 고른다

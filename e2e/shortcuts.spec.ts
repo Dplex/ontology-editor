@@ -29,7 +29,7 @@ const coords = async (page: Page, name: string) =>
 
 async function pick(page: Page, name: string) {
   await row(page, name).getByRole('button', { name, exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await settle(page)
 }
 
@@ -229,7 +229,7 @@ test('물리존을 고르면 [ ] 로 꼭짓점을 짚고 방향키로 옮기며,
   const errors = await open(page)
   await page.keyboard.press('e')
   await page.keyboard.press('m') // 공간 편집 모드(OE-UI-04)
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   // 사무실 모서리 근처 빈 바닥(edit-3d.spec.ts 와 같은 자리).
   const floor = (await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))) as { x: number; y: number }
   await page.mouse.click(floor.x, floor.y)

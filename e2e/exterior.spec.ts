@@ -17,7 +17,7 @@ test('그은 벽은 방 사이면 내벽, 건물 밖이면 외벽으로 계산�
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
 
   // 사무실(0..10) 오른쪽에 창고를 그려 두 방 사이에 벽을 세울 자리를 만든다.

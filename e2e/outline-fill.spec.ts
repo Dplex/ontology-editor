@@ -26,7 +26,7 @@ test('검토 화면의 "외곽선 없는 물리존" 에서 골라 그리면 같�
   const before = await spaces()
 
   // 층 바닥에 2 × 2 사각형을 찍고 Enter 로 닫는다.
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const z = LEVEL2
   for (const [x, y] of [[0, 0], [2, 0], [2, 2], [0, 2]]) {
     const at = await page.evaluate(([px, py, pz]) => (window as any).__viewer.point([px, py, pz]), [x, y, z])
@@ -57,7 +57,7 @@ test('외곽선 없는 물리존에 외곽선을 그리면 그 안의 설비가 
   await list.getByRole('button', { name: 'Hallway' }).first().click()
   await expect(page.getByRole('button', { name: '편집', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await page.keyboard.press('Escape')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const z = LEVEL2
   const floor = (x: number, y: number) => page.evaluate(([px, py, pz]) => (window as any).__viewer.point([px, py, pz]), [x, y, z]) as Promise<{ x: number; y: number }>
   await toEquipment(page)
@@ -71,7 +71,7 @@ test('외곽선 없는 물리존에 외곽선을 그리면 그 안의 설비가 
   // 그 자리를 둘러 Hallway 의 외곽선을 그린다.
   await page.keyboard.press('Escape')
   await list.getByRole('button', { name: 'Hallway' }).first().click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const z2 = LEVEL2
   for (const [x, y] of [[6.4, -9.6], [7.6, -9.6], [7.6, -8.4], [6.4, -8.4]]) {
     const p = (await page.evaluate(([px, py, pz]) => (window as any).__viewer.point([px, py, pz]), [x, y, z2])) as { x: number; y: number }

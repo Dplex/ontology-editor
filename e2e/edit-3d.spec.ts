@@ -50,7 +50,7 @@ const coord = (page: Page, name: string, axis: number) => row(page, name).locato
 /** 표에서 설비를 고른다. 3D 가 그 자리로 시점을 옮긴다. 표는 3D 아래라 누르면 스크롤이 내려가니 3D 를 다시 띄운다. */
 async function pick(page: Page, name: string) {
   await row(page, name).getByRole('button', { name, exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   await settle(page)
 }

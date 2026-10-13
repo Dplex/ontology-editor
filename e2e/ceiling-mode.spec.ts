@@ -59,7 +59,7 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
 
   // 천장 모드에서 더한 설비는 반자 높이(2.7)에 놓인다(OE-EQP-02). 이 전에는 바닥 높이(0)였다.
   await page.getByRole('button', { name: '설비 더하기' }).click()
-  await page.locator('.viewport canvas').first().scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
   const spot = (await page.evaluate(() => (window as any).__viewer.point([8.5, 6.5, 2.7]))) as { x: number; y: number }
   await page.mouse.click(spot.x, spot.y)
   await expect(page.locator('.picked h3')).toHaveText('새 설비 1')
@@ -98,12 +98,12 @@ test('Duplex: 천장 모드는 위에서 내려다보고 천장고에 천장면�
   test.setTimeout(120_000)
   const errors = await open(page, DUPLEX)
   await page.locator('select.storey-view').selectOption({ label: 'Level 1만' })
-  await page.locator('.viewport canvas').first().scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
   await page.waitForTimeout(800)
   await page.locator('.viewport').first().screenshot({ path: 'test-results/ceiling-mode-floor-side.png' })
   await keys(page, 't')
   await expect(page.locator('.ceiling-now')).toContainText('천장고 2.60 m')
-  await page.locator('.viewport canvas').first().scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
   await page.waitForTimeout(1200)
   await page.locator('.viewport').first().screenshot({ path: 'test-results/ceiling-mode-ceiling-side.png' })
   expect(errors).toEqual([])

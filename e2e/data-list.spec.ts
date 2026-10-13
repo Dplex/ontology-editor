@@ -66,7 +66,7 @@ test('목록 아래쪽의 파일을 열어도 작업 화면은 맨 위(3D)부터
   await last.getByRole('button', { name: '열기', exact: true }).click()
   await expect(page.locator('.appbar h2')).toHaveText('zz-mep.ifc', { timeout: 30_000 })
   await expect.poll(() => page.evaluate(() => scrollY)).toBe(0)
-  await expect(page.locator('.viewport canvas')).toBeInViewport()
+  await expect(page.locator('.canvas-wrap > canvas')).toBeInViewport()
 })
 
 test('열 수 없는 파일은 이유를 보이고, 눌렀을 때 오류가 화면 안에 뜬다', async ({ page }) => {

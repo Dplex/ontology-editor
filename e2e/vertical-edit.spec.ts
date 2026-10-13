@@ -129,7 +129,7 @@ test('병원 건축: 다중층 뷰에서 계단을 통째로 옮기면 두 층�
   expect(after).toHaveLength(2)
   const back = after.find((id) => id.startsWith(`${parent2}@`))!
   // 불러오기 칸은 페이지 아래라 화면이 내려가 있다. 3D 를 다시 보이고 누른다.
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const at3 = await viewer<{ x: number; y: number }>(page, 'vertical', back)
   await page.mouse.click(at3.x, at3.y)
   expect(await coords(page, 'vertical-entry')).toEqual(moved)
@@ -205,7 +205,7 @@ test('병원 건축: 다중층 뷰에서 계단의 한 층 조각만 고친다 �
   await expect(page.locator('.picked .ceiling-lock').first()).toContainText('다중층 뷰에서는 수직 관통 오브젝트와 층간 배관만 다룹니다')
   await expect(page.locator('.position-edit')).toHaveCount(0)
   await expect(page.locator('.picked .danger-zone')).toHaveCount(0)
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
 
   // 저장 → 다시 열기 → 불러오기: 종료 지점이 고친 자리다.
   await page.getByRole('group', { name: '다중층 보기 범위' }).getByRole('button', { name: '층 편집으로' }).click()
@@ -219,7 +219,7 @@ test('병원 건축: 다중층 뷰에서 계단의 한 층 조각만 고친다 �
   await page.locator('.load-edits input').setInputFiles(path)
   await expect(page.locator('.edit-file-note')).toContainText('편집 1개를 적용했습니다')
   await expect(page.locator('.report')).toContainText('층별 모양을 고쳤습니다(First Floor · Second Floor, GeoJSON)')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   // 2층 종료 지점은 2층 설비에 가려질 수 있어, 1층 조각을 고르고 패널의 관통 층에서 2층으로 간다.
   await storeyBox(page).selectOption({ label: 'First Floor만' })
   for (const id of await viewer<string[]>(page, 'verticals')) {

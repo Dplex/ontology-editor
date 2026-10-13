@@ -41,7 +41,7 @@ test('공조기에서 디퓨저까지 배관을 곧게 잇고 되돌리며, 꺾�
   await row.getByRole('button', { name: 'AHU-1', exact: true }).click()
   await panel.getByLabel('배관 끝 대상').selectOption({ label: 'AT-101-02 · 6.7m' })
   await panel.getByRole('button', { name: '꺾임점 찍기' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await expect(page.locator('.key-note')).toContainText('배관이 꺾일 자리를 바닥에 찍습니다(높이 3.20m)')
   const at = await page.evaluate(() => (window as any).__viewer.point([7, 1, 3.2]))
   await page.mouse.click(at.x, at.y)

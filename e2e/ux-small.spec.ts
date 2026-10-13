@@ -49,7 +49,7 @@ test('Duplex: 층별 칩은 위층부터 쌓이고 누르면 그 층만 보며, 
   // 휠 클릭: 시점 방향은 그대로, 대상(회전 중심)이 누른 자리로 옮겨 가고 고리가 잠깐 뜬다.
   await settled(page)
   const before = await viewer<Cam>(page, 'camera')
-  const c = (await page.locator('.viewport canvas').first().boundingBox())!
+  const c = (await page.locator('.canvas-wrap > canvas').first().boundingBox())!
   await page.mouse.move(c.x + c.width * 0.3, c.y + c.height * 0.6)
   await page.mouse.down({ button: 'middle' })
   await page.mouse.up({ button: 'middle' })

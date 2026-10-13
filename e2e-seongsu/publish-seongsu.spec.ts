@@ -109,7 +109,7 @@ async function moveOneDevice() {
   await page.locator('.equipment tbody tr').first().locator('button').first().click()
   await search.fill('')
   await search.press('Escape')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.keyboard.press('ArrowRight')
 }
 

@@ -28,7 +28,7 @@ async function pickDevice(page: Page, name: string) {
   await page.locator('.equipment tbody tr').filter({ hasText: name }).first().locator('button').first().click()
   await search(page).fill('')
   await search(page).press('Escape')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await settle(page)
   await expect(page.locator('.picked h3')).toHaveText(name)
 }

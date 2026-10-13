@@ -36,8 +36,8 @@ test('팔레트의 미배치 설비를 누르면 바로 놓고, 다시 누르거
   await page.keyboard.press('Escape')
   await expect(item).toHaveAttribute('aria-pressed', 'false')
   // 취소한 뒤 바닥을 눌러도 놓이지 않는다 — 미배치 수·바뀐 것이 그대로다.
-  await page.locator('.viewport canvas').first().scrollIntoViewIfNeeded()
-  await page.locator('.viewport canvas').first().click({ position: { x: 200, y: 200 } })
+  await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').first().click({ position: { x: 200, y: 200 } })
   await expect.poll(count).toBe(before)
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
 
@@ -46,7 +46,7 @@ test('팔레트의 미배치 설비를 누르면 바로 놓고, 다시 누르거
   const centers = (await page.evaluate(() => (window as any).__viewer.centers())) as Record<string, number[]>
   const xs = Object.values(centers).map((c) => c[0] / 1000)
   const ys = Object.values(centers).map((c) => c[1] / 1000)
-  await page.locator('.viewport canvas').first().scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
   const spot = (await page.evaluate(([x, y]) => (window as any).__viewer.point([x, y, 0]), [Math.min(...xs) + 0.5, Math.min(...ys) - 1])) as { x: number; y: number }
   await page.mouse.click(spot.x, spot.y)
   await expect.poll(count).toBe(before - 1)

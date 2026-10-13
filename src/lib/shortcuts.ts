@@ -11,6 +11,7 @@ export type ShortcutId =
   | 'escape'
   | 'frame'
   | 'frameAll'
+  | 'fly'
   | 'perf'
   | 'rules'
   | 'walls'
@@ -77,6 +78,14 @@ export const SHORTCUTS: readonly Shortcut[] = [
   },
   { id: 'frame', combos: [{ code: 'KeyF' }], keys: ['F'], label: '고른 연결망·물리존·계통에 시점 맞추기', group: '3D 시점' },
   { id: 'frameAll', combos: [{ code: 'KeyF', shift: true }, { code: 'Home' }], keys: ['Shift+F', 'Home'], label: '건물 전체 보기', group: '3D 시점' },
+  // 비행 중에는 W·A·S·D·Q·E 가 이동이다 — 그동안 W(내력벽)·E(보기↔편집)·D(방향 미리보기)는 쉰다(App.vue 의 onKey).
+  {
+    id: 'fly',
+    combos: [{ code: 'KeyG' }],
+    keys: ['G'],
+    label: '비행 모드 켜기·끄기 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게',
+    group: '3D 시점',
+  },
   // 개발용. 성수 성능을 e2e:seongsu 없이 화면에서 바로 본다.
   { id: 'perf', combos: [{ code: 'Backquote' }], keys: ['`'], label: '성능 표 켜기·끄기(그린 장수·그리기 ms·draw call·삼각형, 개발용)', group: '3D 시점' },
   { id: 'rules', combos: [{ code: 'KeyR' }], keys: ['R'], label: '규칙 방향 표시 켜기·끄기', group: '3D 시점' },

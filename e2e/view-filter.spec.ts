@@ -21,7 +21,7 @@ test('Duplex: 보기 필터로 덕트·배관을 빼면 상자 선택이 기기�
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '모든 층' })
-  const canvas = page.locator('.viewport canvas').first()
+  const canvas = page.locator('.canvas-wrap > canvas').first()
   const c = (await canvas.boundingBox())!
 
   // 패널: 클래스는 기기 먼저, 덕트·배관은 뒤. 덕트·배관을 빼면 그만큼 숨는다.
