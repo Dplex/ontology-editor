@@ -4238,6 +4238,14 @@ function toggleFullscreen() {
 // dev 서버가 data/ 의 .ifc 목록을 준다(vite.config.ts). 빌드 번들에선 실패하고 빈 목록이 된다.
 const dataFiles = ref<{ path: string; size: number }[]>([])
 
+// 첫 화면의 [바로 열기] 묶음(예: 성수 건축 + 기계, 성수 전부). data/.open-sets.json 에 적고, 파일이 다 있는 것만 온다(server/data-catalog.ts).
+const openSetList = ref<{ title: string; paths: string[] }[]>([])
+fetch('./__data/__sets')
+  .then((r) => (r.ok ? r.json() : []))
+  // 모양이 다른 답(옛 서버·시험의 가짜 목록)은 버린다 — 제목과 경로 목록이 있는 것만.
+  .then((sets) => (openSetList.value = Array.isArray(sets) ? sets.filter((x) => x && typeof x.title === 'string' && Array.isArray(x.paths) && x.paths.length) : []))
+  .catch(() => {})
+
 // 파일마다 온톨로지를 어디까지 채우는지. dev 서버가 앱과 같은 임포터로 재서 준다(vite.config.ts).
 // 한 파일에 1초 남짓 걸려서 목록을 먼저 보이고, 요약은 하나씩 채운다.
 type Profiled = { profile: Profile } | { error: string }
@@ -9016,7 +9024,12 @@ function rollbackFromReport() {
         파일 선택
         <input type="file" accept=".ifc,.idf" multiple :disabled="busy" @change="onPick" />
       </label>
-      <!-- 피처 단위로 읽을 것. 물리존·설비는 늘 읽는다. 다음에 여는 파일부터 적용된다. -->
+
+    </section>
+
+    <!-- 읽을 것(피처 단위). 파일 상자 안에 두었더니 [파일 선택] 에만 걸리는 옵션처럼 보였다 — 파일 선택·끌어 놓기·바로 열기·data/ 목록·
+         덧붙이기 어디서 열든 같은 값을 쓴다(load 의 options). 그래서 상자 밖 한 줄로 둔다. 다음에 여는 파일부터 적용된다. -->
+    <section v-if="!model" class="read-settings" aria-label="읽을 것">
       <fieldset class="read-option features" :disabled="busy">
         <legend>읽을 것</legend>
         <label><input v-model="readFeatures.walls" type="checkbox" /> 벽</label>
@@ -9026,11 +9039,26 @@ function rollbackFromReport() {
           <input v-model="readOpenings" type="checkbox" :disabled="!readFeatures.doors && !readFeatures.windows" /> 문·창 자리(형상)
         </label>
         <span class="muted">
-          물리존·설비는 늘 읽습니다. 벽·문·창은 GeoJSON에만 나가고 온톨로지(TTL)에는 필요 없어서, 끄면 큰 파일이 빨리
-          열립니다. 문·창 자리는 로봇 경로와 문·창 옮기기에 씁니다.
+          어디서 열든 적용됩니다(파일 선택·끌어 놓기·바로 열기·data/ 목록·덧붙이기). 물리존·설비는 늘 읽습니다. 벽·문·창은 GeoJSON에만
+          나가고 온톨로지(TTL)에는 필요 없어서, 끄면 큰 파일이 빨리 열립니다. 문·창 자리는 로봇 경로와 문·창 옮기기에 씁니다.
         </span>
       </fieldset>
+    </section>
 
+    <!-- 바로 열기(data/.open-sets.json). 같이 여는 파일 묶음을 한 번에 — [합쳐서 열기] 와 같다. -->
+    <section v-if="openSetList.length && !model" class="open-sets" aria-label="바로 열기">
+      <b>바로 열기</b>
+      <button
+        v-for="set in openSetList"
+        :key="set.title"
+        type="button"
+        class="ghost"
+        :disabled="busy"
+        :title="set.paths.join(' + ')"
+        @click="openDataSet(set.paths)"
+      >
+        {{ set.title }} <small class="muted">{{ set.paths.length }}개</small>
+      </button>
     </section>
 
     <!-- 합쳐 연 판의 8084 저장본. 한 파일의 저장본은 아래 data/ 목록의 그 줄에 보인다. 임시 저장본은 목록을 두지 않는다 —
@@ -9166,7 +9194,7 @@ function rollbackFromReport() {
                 <label :class="{ off: !readFeatures.doors && !readFeatures.windows }">
                   <input v-model="readOpenings" type="checkbox" :disabled="!readFeatures.doors && !readFeatures.windows" /> 문·창 자리(형상)
                 </label>
-                <span class="muted">다음에 여는 파일부터 적용됩니다.</span>
+                <span class="muted">다음에 여는 파일부터, 어디서 열든(파일·data/ 목록·덧붙이기) 적용됩니다.</span>
               </fieldset>
             </details>
             <!-- 건축과 설비가 다른 파일일 때. 편집을 시작한 뒤에는 닫는다(canAppend 주석 참조). -->

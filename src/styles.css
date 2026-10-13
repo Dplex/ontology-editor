@@ -4606,3 +4606,22 @@ button.done::after {
 .system-suggest button {
   margin-left: 0.35rem;
 }
+
+/* 첫 화면의 읽을 것(어디서 열든 적용)과 바로 열기 묶음. 파일 상자와 data/ 목록 사이에 한 줄씩. */
+.read-settings {
+  margin: 0.75rem auto 0;
+}
+
+.read-settings fieldset.read-option.features {
+  margin-top: 0;
+}
+
+.open-sets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 0.75rem auto 0;
+  font-size: 0.85rem;
+}
