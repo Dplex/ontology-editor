@@ -10794,7 +10794,8 @@ function rollbackFromReport() {
                 <!-- 설계 급기 풍량(OE-ZON-06 · R26). BIM 값이 있으면 그 값이고 고치지 않는다. 없으면 편집 모드에서 사람이 넣는다.
                      에디터가 계산하거나 기본값을 넣지 않는다 — 비어 있으면 그 방을 담당하는 공조존의 용량 검증(Z-03)이 판정 불가다. -->
                 <div data-testid="space-airflow">
-                  <dt>설계 풍량</dt>
+                  <!-- 이름 칸이 두 글자 폭이라(3.2rem) "설계 풍량" 은 두 줄로 꺾인다. 짧게 두고 뜻은 툴팁으로. -->
+                  <dt title="설계 급기 풍량(OE-ZON-06)">풍량</dt>
                   <dd v-flash="JSON.stringify(selectedSpace.space.designAirflow ?? null)" class="space-airflow">
                     <template v-if="selectedSpace.space.designAirflow?.source === 'bim'">
                       {{ airflowText(selectedSpace.space.designAirflow) }} <Src kind="bim" />
