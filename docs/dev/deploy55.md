@@ -80,6 +80,21 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 `rsync -a --prune-empty-dirs --include='*/' --include='*.ifc' --exclude='*' data/ 55:/home/dt/git/dt/ontology-editor/data/`.
 등급은 첫 요청 때 재서 `data/.profiles.json` 에 캐시하고(17개 18초), 임포터 코드가 바뀌면 다시 잰다.
 
+첫 화면의 [바로 열기] 단추는 `data/.open-sets.json` 의 묶음이다(`GET /__data/__sets`, `data-catalog.ts` 의 `openSets`). PC·서버마다 `data/` 가
+달라서 코드가 아니라 데이터 옆에 둔다. 묶음의 파일이 하나라도 없으면 그 단추는 안 보인다. 위 rsync 는 `.ifc` 만 옮기니 이 파일은 따로 복사한다.
+
+```json
+[
+  { "title": "성수 건축 + 기계", "paths": ["성수/Factorial_건축.ifc", "성수/Factorial_기계.ifc"] },
+  { "title": "성수 전부 (건축 + 기계 + 10층 인테리어 + 엘리베이터 + 조경)",
+    "paths": ["성수/Factorial_건축.ifc", "성수/Factorial_기계.ifc", "성수/Factorial_10F_Interior.ifc", "성수/Factorial_elevator.ifc", "성수/Factorial_조경.ifc"] }
+]
+```
+
+성수 다섯 파일(2026-10-13, 사내 `http://10.251.2.225/ontology/` 에서 받음)을 같이 열면 개발 PC 에서 152초다. 엘리베이터 파일의 Proxy 6개
+(`EVEV.#1` …)와 조경 파일의 Proxy 131개(지형·건물 매스)는 포트도 이름 사전도 없어 건축 부재로 보고 읽지 않는다. 10층 인테리어의 벽 94장은
+10F 에 더해지고(76 → 170장) 가구 314개는 읽지 않는다. 인테리어 파일에는 방(IfcSpace)이 없어 10F 물리존은 그대로다.
+
 ## WASM 은 커밋하지 않는다
 
 `public/web-ifc.wasm` 은 `scripts/sync-wasm.mjs` 가 node_modules 에서 복사한다. 릴리스 바이트
