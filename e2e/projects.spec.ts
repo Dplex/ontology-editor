@@ -128,14 +128,12 @@ test('[새 프로젝트]는 이름·사이트·IFC 올리기만 있고, 만들�
   await other.locator('.edit-bar').getByRole('button', { name: '편집 종료' }).click()
   await other.close()
 
-  // 같은 IFC 로 프로젝트를 하나 더 만들면 앞 프로젝트의 임시 저장본이 얹히지 않는다(OE-UI-02 AC4).
-  const third = await browser.newPage()
-  await serve(third)
-  await third.addInitScript(() => localStorage.setItem('oe.user', '편집자'))
-  await third.goto('/')
-  await newProject(third, '본관 다시')
-  await expect(light(third)).not.toHaveValue('7.5')
-  await third.close()
+  // 같은 IFC 로 프로젝트를 하나 더 만들면 앞 프로젝트의 임시 저장본이 얹히지 않는다(OE-UI-02 AC4). 앞 프로젝트를 고친 같은 창이라
+  // 이 브라우저에 남은 임시 저장본도 섞이지 않는지 본다.
+  await page.goto('/')
+  await newProject(page, '본관 다시')
+  await expect(light(page)).not.toHaveValue('7.5')
+  await page.locator('.edit-bar').getByRole('button', { name: '편집 종료' }).click()
 
   // 주소로 바로 연다(DT 없이 에디터 URL, OE-UI-01 AC2).
   const direct = await browser.newPage()

@@ -7940,7 +7940,8 @@ function discardDraft() {
 //
 // 저장하지 않은 편집이 있는 층에서 다른 층으로 가려 하면 묻는다 — 임시 저장 / 저장 안 함 / 취소(편집 종료와 같은 대화상자).
 const DRAFT_PREFIX = 'oe-draft:'
-const draftKey = (storeyKey: string) => `${DRAFT_PREFIX}${fileName.value}@${storeyKey}`
+// 프로젝트로 연 판은 프로젝트 id 를 붙인다. 같은 IFC 로 만든 다른 프로젝트가 이 브라우저의 임시 저장본을 얹지 않게 한다(OE-UI-02 AC4).
+const draftKey = (storeyKey: string) => `${DRAFT_PREFIX}${openedProject.value ? `${openedProject.value.id}:` : ''}${fileName.value}@${storeyKey}`
 /** 연 때의 층. 층 조각을 가르는 기준이다. */
 let homeOf: HomeOf = () => null
 /** 이 파일의 층별 임시 저장본(브라우저에서 읽은 것). 열쇠는 층 id 또는 BUILDING. */
