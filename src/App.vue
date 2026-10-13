@@ -6935,13 +6935,13 @@ function applyPlan(text: string): PlanResult[] {
       const mk = mark()
       const e = addEquipment(m, storey.id, { name: c.name ?? `${equipmentKind(c.kind)!.label} ${n}`, kind: c.kind, position })
       if (!e) {
-        out.push({ ok: false, text: `${sp.label} 에 더하지 못했습니다` })
+        out.push({ ok: false, text: `${sp.label}에 더하지 못했습니다` })
         break
       }
       const snapshot = snapshotEquipmentSet(m, e.id)
       if (snapshot?.kind === 'equipment-set') remember(`${e.name} 더하기(말로)`, { ...snapshot, present: false }, mk)
       made.set(e.name, e.id)
-      out.push({ ok: true, text: `${storey.name} ${sp.label} 에 ${e.name} 를 더했습니다` })
+      out.push({ ok: true, text: `${storey.name} ${sp.label}에 ${e.name}${josa(e.name, '을/를')} 더했습니다` })
     } else {
       const id = (ref: string) => made.get(ref.trim()) ?? (resolveEquipment(m, ref) as { id: string }).id
       const a = id(c.from)
@@ -6949,12 +6949,12 @@ function applyPlan(text: string): PlanResult[] {
       const at = mark()
       const done = addConnection(m, a, b)
       if (!done) {
-        out.push({ ok: false, text: `${nameIn(a)}–${nameIn(b)} 는 잇지 않았습니다(이미 이어졌거나 같은 설비)` })
+        out.push({ ok: false, text: `${nameIn(a)}–${nameIn(b)}${josa(nameIn(b), '은/는')} 잇지 않았습니다(이미 이어졌거나 같은 설비)` })
         continue
       }
       remember(`${nameIn(a)}–${nameIn(b)} 연결(말로)`, { kind: 'connection', connection: done.connection, present: false, index: m.connections.length - 1 }, at)
       ruleReport.value = done.rules
-      out.push({ ok: true, text: `${nameIn(a)}–${nameIn(b)} 를 연결했습니다(방향 없음 — 상류로·하류로로 정합니다)` })
+      out.push({ ok: true, text: `${nameIn(a)}–${nameIn(b)}${josa(nameIn(b), '을/를')} 연결했습니다(방향 없음 — 상류로·하류로로 정합니다)` })
     }
   }
   triggerRef(model)

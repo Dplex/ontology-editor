@@ -93,7 +93,7 @@ export function previewPlan(model: Model, commands: readonly EditCommand[]): Pre
       if ('error' in sp) return { command: c, text: `설비 더하기 — ${sp.error}`, ok: false }
       if (c.name) pending.add(c.name)
       const storey = model.storeys.find((s) => s.id === sp.storeyId)!
-      return { command: c, text: `${storey.name} ${sp.label} 에 ${kind}${c.name ? ` "${c.name}"` : ''} 더하기`, ok: true }
+      return { command: c, text: `${storey.name} ${sp.label}에 ${kind}${c.name ? ` "${c.name}"` : ''} 더하기`, ok: true }
     }
     const a = equip(c.from)
     const b = equip(c.to)

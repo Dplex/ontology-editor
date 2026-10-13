@@ -42,13 +42,13 @@ test('"사무실에 공조기 놓고 AT-101-01 과 연결해줘" — 계획을 �
   await page.getByRole('button', { name: '편집', exact: true }).click()
   const chat = await ask(page, '사무실에 공조기 놓고 AT-101-01 과 연결해줘')
   const box = chat.locator('.plan')
-  await expect(box).toContainText('사무실 에 공조기 "공조기-9" 더하기')
+  await expect(box).toContainText('사무실에 공조기 "공조기-9" 더하기')
   await expect(box).toContainText('공조기-9(새로 더할 설비) – AT-101-01 연결')
   // 계획 블록(JSON)은 글로 보이지 않는다
   await expect(chat.locator('.msg.bot').last()).not.toContainText('"do"')
   await box.getByRole('button', { name: '적용' }).click()
-  await expect(box).toContainText('✔ 1F 사무실 에 공조기-9 를 더했습니다')
-  await expect(box).toContainText('✔ 공조기-9–AT-101-01 를 연결했습니다')
+  await expect(box).toContainText('✔ 1F 사무실에 공조기-9를 더했습니다')
+  await expect(box).toContainText('✔ 공조기-9–AT-101-01을 연결했습니다')
   await expect(box.getByRole('button', { name: '적용' })).toBeDisabled()
   await chat.screenshot({ path: 'test-results/edit-commands.png' })
 
@@ -77,7 +77,7 @@ test('편집 모드가 아니면 적용하지 않고 [편집] 을 누르라고 �
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await page.keyboard.press('Alt+Shift+K')
   await box.getByRole('button', { name: '적용' }).click()
-  await expect(box).toContainText('✔ 1F 사무실 에 공조기-9 를 더했습니다')
+  await expect(box).toContainText('✔ 1F 사무실에 공조기-9를 더했습니다')
   expect(errors).toEqual([])
 })
 
