@@ -12172,6 +12172,19 @@ function rollbackFromReport() {
                   <dt>넓이</dt>
                   <dd v-flash="selectedSpace.space.areaM2.toFixed(1)"><b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡ <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /></dd>
                 </div>
+                <!-- 방 높이·반자 높이(OE-BIM-03). 방이 BIM 에 적은 값만 보인다. 없으면 "모름" 이고 0 이나 층고로 채우지 않는다.
+                     반자 높이는 방 값이 없으면 층 값(층별 요약에서 고친다)을 괄호로 같이 보인다 — 설정 단위가 층이라서다(Q7). -->
+                <div data-testid="space-heights">
+                  <dt title="방 높이 · 반자 높이(층 바닥에서)">높이</dt>
+                  <dd>
+                    방
+                    <template v-if="selectedSpace.space.roomHeight"><span class="mono">{{ selectedSpace.space.roomHeight.m.toFixed(2) }}</span>m <Src kind="bim" /></template>
+                    <span v-else class="muted">모름</span>
+                    · 반자
+                    <template v-if="selectedSpace.space.ceilingHeight"><span class="mono">{{ selectedSpace.space.ceilingHeight.m.toFixed(2) }}</span>m <Src kind="bim" /></template>
+                    <span v-else class="muted">모름<template v-if="ceilingOf(selectedSpace.storey)"> (층 값 {{ ceilingOf(selectedSpace.storey)!.height.toFixed(2) }}m <Src :kind="ceilingOf(selectedSpace.storey)!.source" />)</template></span>
+                  </dd>
+                </div>
                 <!-- 설계 급기 풍량(OE-ZON-06 · R26). BIM 값이 있으면 그 값이고 고치지 않는다. 없으면 편집 모드에서 사람이 넣는다.
                      에디터가 계산하거나 기본값을 넣지 않는다 — 비어 있으면 그 방을 담당하는 공조존의 용량 검증(Z-03)이 판정 불가다. -->
                 <div data-testid="space-airflow">
