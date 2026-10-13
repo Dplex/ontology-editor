@@ -71,7 +71,33 @@
       return all + ' <a href="' + href + '" target="_blank" rel="noopener" title="내보낸 파일 뷰어에서 이 요소 보기">3D</a>'
     })
   }
-  function renderBot(t) { return mode === 'onto' ? linkIds(render(t.text), t.source) : render(t.text) }
+  function renderBot(t) { return mode === 'onto' ? linkIds(render(hidePlan(t.text)), t.source) : render(t.text) }
+  // 말로 편집 시키기(ADR-0060). gemini 가 답 끝에 붙인 ```oe-edit 블록(JSON)은 글로 보이지 않고, 아래 상자에 사람이 읽을 줄과 [적용] 이 뜬다.
+  // 미리보기·적용은 편집 화면(App.vue 의 window.__oe.plan·apply)이 한다 — 이 창은 글을 넘기고 결과를 보일 뿐이다.
+  function hidePlan(t) { return String(t).replace(/```oe-edit[\s\S]*?(```|$)/g, '') }
+  function showPlan(bot, text) {
+    if (!window.__oe || !window.__oe.plan) return
+    var p = window.__oe.plan(text)
+    if (!p) return
+    var box = document.createElement('div')
+    box.className = 'plan'
+    if (p.error) { box.innerHTML = '<span class="err">⚠ 편집 계획: ' + esc(p.error) + '</span>'; bot.appendChild(box); return }
+    var ok = p.preview.every(function (x) { return x.ok })
+    box.innerHTML = '<b>편집 계획</b>' + (p.editing ? '' : ' <span class="hint">— [편집] 을 누른 뒤 적용합니다</span>') +
+      '<ol>' + p.preview.map(function (x) { return '<li class="' + (x.ok ? '' : 'err') + '">' + esc(x.text) + '</li>' }).join('') + '</ol>' +
+      '<button data-plan="apply"' + (ok ? '' : ' disabled title="찾지 못한 대상이 있어 적용하지 않습니다"') + '>적용</button>'
+    box.querySelector('[data-plan=apply]').addEventListener('click', function (e) {
+      var results = window.__oe.apply(text)
+      var done = results.every(function (r) { return r.ok })
+      box.insertAdjacentHTML('beforeend', '<ul>' + results.map(function (r) { return '<li class="' + (r.ok ? 'ok' : 'err') + '">' + (r.ok ? '✔ ' : '⚠ ') + esc(r.text) + '</li>' }).join('') + '</ul>' +
+        (done ? '<span class="hint">편집 화면의 되돌리기(Ctrl+Z)로 하나씩 되돌립니다</span>' : ''))
+      // 적용했거나 편집 모드가 아니라서 막힌 것이 아니면 다시 누르지 못하게 한다(두 번 더하지 않게).
+      if (done || results.some(function (r) { return r.ok })) e.target.disabled = true
+      list.scrollTop = list.scrollHeight
+    })
+    bot.appendChild(box)
+    list.scrollTop = list.scrollHeight
+  }
 
   var css = [
     '#docs-chat{position:fixed;right:16px;bottom:16px;width:min(460px,calc(100vw - 32px));height:min(680px,calc(100vh - 32px));',
@@ -90,6 +116,8 @@
     '#docs-chat .bot{background:#1b2029;border:1px solid #262d38}',
     '#docs-chat .tool{color:#8b94a3;font-size:12px;padding:0 4px;word-break:break-all}',
     '#docs-chat .err{color:#ff8a80}',
+    '#docs-chat .plan{margin-top:8px;padding:8px 10px;border:1px solid #3a4a60;border-radius:8px;background:#18202b}',
+    '#docs-chat .plan ol,#docs-chat .plan ul{margin:6px 0 6px 18px;padding:0}#docs-chat .plan .ok{color:#9be29b}',
     '#docs-chat code{background:#262d38;padding:0 4px;border-radius:4px;font:12px ui-monospace,Consolas,monospace}',
     '#docs-chat pre{background:#0f1218;padding:8px;border-radius:6px;overflow:auto;margin:4px 0}',
     '#docs-chat pre code{background:none;padding:0}',
@@ -208,6 +236,7 @@
       // 답하는 중에 칸을 바꿨으면 답은 원래 칸의 기록에 남긴다
       if (text && asked === mode) { history.push({ role: 'assistant', text: text, source: askedSource }); save() }
       else if (!text && !bot.querySelector('.err')) bot.innerHTML = '<span class="err">답이 비었다</span>'
+      if (text && asked === 'onto') showPlan(bot, text)
       status.textContent = ((Date.now() - started) / 1000).toFixed(1) + '초'
       setBusy(null)
     })
@@ -217,7 +246,7 @@
         if (bot.parentNode === list) list.insertBefore(Object.assign(document.createElement('div'), { className: 'tool', textContent: toolLine(ev.name, ev.args) }), bot)
       } else if (ev.type === 'text') {
         text = ev.delta === false ? ev.text : text + ev.text
-        bot.innerHTML = asked === 'onto' ? linkIds(render(text), askedSource) : render(text)
+        bot.innerHTML = asked === 'onto' ? linkIds(render(hidePlan(text)), askedSource) : render(text)
       } else if (ev.type === 'error' || ev.type === 'tool_error') {
         var hint = bot.querySelector('.hint')
         if (hint) hint.remove()
