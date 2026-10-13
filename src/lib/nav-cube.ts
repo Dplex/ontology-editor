@@ -1,7 +1,7 @@
 // 3D 오른쪽 위의 방향 큐브. 메인 3D 와 따로 작은 캔버스에 그려서, 큐브를 누르고 끄는 것이 메인 3D 의 고르기·끌기와 섞이지 않는다.
 // 큐브는 메인 카메라와 같은 방향에서 본 모습이다(메인 시점이 돌면 같이 돈다). 면을 누르면 그 면 쪽에서 보는 시점으로, 모서리는
 // 두 면 사이 45°, 꼭짓점은 세 면 사이로 날아간다. 큐브를 끌면 메인 시점이 대상 둘레로 돈다.
-// 축은 장면 좌표다 — x 가 IFC x, y 가 위, z 가 IFC −y(viewer.ts 의 toScene). 면 글자는 모델 축 기준의 위·아래·앞·뒤·좌·우이고
+// 축은 장면 좌표다 — x 가 IFC x, y 가 위, z 가 IFC −y(viewer.ts 의 toScene). 면 글자는 모델 축 기준의 TOP·BOTTOM·FRONT·BACK·LEFT·RIGHT(Revit ViewCube 와 같은 말)이고
 // 진북(TrueNorth)이 아니다. 앞은 IFC −y 쪽에서 +y 를 보는 면이다(평면도에서 아래쪽에 서서 보는 방향).
 import {
   BoxGeometry,
@@ -21,7 +21,7 @@ import {
 } from 'three'
 
 /** BoxGeometry 의 면 순서(+x, −x, +y, −y, +z, −z)와 같은 순서의 글자. */
-export const CUBE_FACES = ['우', '좌', '위', '아래', '앞', '뒤'] as const
+export const CUBE_FACES = ['RIGHT', 'LEFT', 'TOP', 'BOTTOM', 'FRONT', 'BACK'] as const
 /** 면 가장자리에서 이만큼(큐브 한 변 1 기준) 안쪽까지는 모서리·꼭짓점으로 친다. */
 const EDGE = 0.2
 /** 누르기로 칠 끌기 거리(px). 이보다 많이 움직이면 시점 돌리기다. */
@@ -54,7 +54,7 @@ export function createNavCube(
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   const scene = new Scene()
   const camera = new PerspectiveCamera(30, 1, 0.1, 20)
-  const materials = CUBE_FACES.map((label) => new MeshBasicMaterial({ map: faceTexture(label, handlers.dark()) }))
+  const materials = CUBE_FACES.map((label) => new MeshBasicMaterial({ map: faceTexture(label, handlers.dark(), renderer.capabilities.getMaxAnisotropy()) }))
   const cube = new Mesh(new BoxGeometry(1, 1, 1), materials)
   scene.add(cube)
   const edges = new LineSegments(new EdgesGeometry(cube.geometry), new LineBasicMaterial({ color: 0x8a94a3 }))
@@ -74,7 +74,7 @@ export function createNavCube(
       dark = handlers.dark()
       materials.forEach((m, i) => {
         m.map?.dispose()
-        m.map = faceTexture(CUBE_FACES[i], dark)
+        m.map = faceTexture(CUBE_FACES[i], dark, renderer.capabilities.getMaxAnisotropy())
         m.needsUpdate = true
       })
     }
@@ -146,19 +146,26 @@ export function createNavCube(
   }
 }
 
-function faceTexture(label: string, dark: boolean): CanvasTexture {
-  const size = 128
+/** 면 글자 텍스처. 큐브가 84px 라 비스듬한 면은 크게 줄여 그려진다 — 256px 로 그리고 비스듬한 면 필터(anisotropy)를 켜야 TOP·RIGHT 가 번지지 않는다. */
+function faceTexture(label: string, dark: boolean, anisotropy: number): CanvasTexture {
+  const size = 256
   const c = document.createElement('canvas')
   c.width = c.height = size
   const g = c.getContext('2d')!
   g.fillStyle = dark ? '#2a313c' : '#f3f5f8'
   g.fillRect(0, 0, size, size)
   g.fillStyle = dark ? '#d6dbe3' : '#3c4654'
-  g.font = `600 ${label.length > 1 ? 40 : 48}px system-ui, sans-serif`
+  // 가장 긴 BOTTOM 도 면 안에 들게 줄인다. 글자마다 크기가 달라지지 않게 가장 긴 글자에 맞춘 크기 하나를 쓴다.
+  let px = 68
+  g.font = `700 ${px}px system-ui, sans-serif`
+  const widest = Math.max(...CUBE_FACES.map((f) => g.measureText(f).width))
+  if (widest > size * 0.86) px = Math.floor((px * size * 0.86) / widest)
+  g.font = `700 ${px}px system-ui, sans-serif`
   g.textAlign = 'center'
   g.textBaseline = 'middle'
   g.fillText(label, size / 2, size / 2 + 2)
   const t = new CanvasTexture(c)
   t.colorSpace = SRGBColorSpace
+  t.anisotropy = Math.min(8, anisotropy)
   return t
 }

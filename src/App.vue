@@ -40,6 +40,7 @@ import Roll from './components/Roll.vue'
 import Meter from './components/Meter.vue'
 import { vFlash } from './lib/motion'
 import { isMultiSelect, matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
+import { doubleTap, nextStoreyEye } from './lib/fly-storey'
 import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
 import { CONNECTION_CLASS_LABEL, connectionClass, countConnectionClasses } from './lib/connection-class'
@@ -1689,7 +1690,21 @@ function setFlying(on: boolean) {
   if (flying.value === on) return
   flying.value = on
   viewer?.setFly(on)
-  note(on ? '비행 모드 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · G·Esc 나가기' : '비행 모드를 껐습니다')
+  note(on ? '비행 모드 — WASD 이동 · Q/E 내려가기·올라가기 · E E·Q Q 위층·아래층 · 드래그 둘러보기 · 휠 빠르기 · G·Esc 나가기' : '비행 모드를 껐습니다')
+}
+/**
+ * 비행 중 층 이동(fly-storey.ts). E·Q 를 짧게 두 번 누르면 위층·아래층 눈높이(바닥 + 1.6m)로 옮긴다. 보일 층이 한 층이면 그 층으로
+ * 같이 넘기고, 모든 층이면 그대로 둔다. 두 번째 누름은 이동 키로 넘기지 않는다 — 넘기면 옮기는 동안 천천히 오르내리기가 겹친다.
+ */
+const flyTap = doubleTap()
+function flyStorey(dir: 1 | -1) {
+  const m = model.value
+  if (!m || !viewer) return
+  const next = nextStoreyEye(m.storeys, viewer.eyeHeight(), dir)
+  if (!next) return note(dir === 1 ? '맨 위층입니다' : '맨 아래층입니다')
+  viewer.flyToHeight(next.z)
+  if (viewStorey.value && !multiView.value) viewStorey.value = next.storey.id
+  note(`${next.storey.name} 눈높이로 옮겼습니다`)
 }
 function onKeyUp(e: KeyboardEvent) {
   if (flying.value && FLY_CODES.has(e.code)) viewer?.flyKey(e.code, false)
@@ -1704,6 +1719,11 @@ function onKey(e: KeyboardEvent) {
     return
   }
   if (flying.value && FLY_CODES.has(e.code) && !isTextEntry(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) {
+    if ((e.code === 'KeyE' || e.code === 'KeyQ') && !e.repeat && flyTap(e.code, e.timeStamp)) {
+      flyStorey(e.code === 'KeyE' ? 1 : -1)
+      e.preventDefault()
+      return
+    }
     viewer?.flyKey(e.code, true)
     e.preventDefault()
     return
@@ -5068,8 +5088,9 @@ function ctxExplode() {
 window.addEventListener('pointerdown', (e) => {
   if (ctxMenu.value && !(e.target as HTMLElement | null)?.closest?.('.ctx-menu')) closeContext()
 })
-// 천장 모드에서 층을 바꾸면 위에서 내려다보는 시점을 지킨다(OE-OBJ-08).
-watch(viewStorey, () => (ceilingMode.value ? viewer?.topView() : viewer?.frameAll()))
+// 천장 모드에서 층을 바꾸면 위에서 내려다보는 시점을 지킨다(OE-OBJ-08). 비행 중에는 시점을 그대로 둔다 — 층 이동(E E · Q Q)이
+// 보일 층을 같이 넘기는데, 여기서 전체 보기로 다시 맞추면 옮긴 눈높이가 덮인다.
+watch(viewStorey, () => (flying.value ? undefined : ceilingMode.value ? viewer?.topView() : viewer?.frameAll()))
 
 // --- 3D / 평면도 ---------------------------------------------------------------------
 //
