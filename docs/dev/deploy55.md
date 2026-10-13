@@ -64,7 +64,7 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 
 - 55 의 `.env` 에 `LAYA_URL=http://10.251.31.133:8096` 을 두면 켜진다. 없거나 133 이 안 받으면 `enabled:false` 와 까닭을 주고 Laya 줄이 안 보인다.
   dev 도 같다 — `LAYA_URL=… npm run dev`.
-- 133 에서: `cd ~/laya/run && LAYA_CKPT=~/laya/run/out-all/final nohup ../.venv/bin/python serve.py > serve.log 2>&1 &`. venv 는 `~/laya/.venv`
+- 133 에서: `~/laya/run/start.sh`(체크포인트 `~/laya/run/out-all2/final`, 133 이 켜지면 crontab `@reboot` 가 부른다). venv 는 `~/laya/.venv`
   (torch cu128 — 5090 은 CUDA 12.8 이상 판이 필요하다, `laya[serve]`).
 - 다시 배우는 법은 `scripts/laya/train.py` 머리말. 재료는 개발 PC 에서 `npx vitest run --config scripts/laya/vitest.config.ts` 로 뽑아(`data/laya/`) 옮긴다.
 - 133 에는 llama-server(Qwen 27B, 8085)가 있었고 VRAM 을 27GB 잡았다. Laya 추론만이면 1.5GB 라 같이 돈다. 학습할 때 내렸다(2026-10-13) —
