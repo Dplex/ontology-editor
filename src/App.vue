@@ -36,7 +36,9 @@ import { DEFAULT_SITE_RULES, siteWarnings, type SiteRules } from './lib/site-rul
 import { DEFAULT_LINES, GATE, gradeCounts, gradeReport, percent, TARGET, type GradeCounts, type GradeLines, type GradeReport } from './lib/grade'
 import HoverTip from './components/HoverTip.vue'
 import ProjectList from './components/ProjectList.vue'
-import { summaryOf, type ProjectRow } from './lib/projects'
+import FloorSummary from './components/FloorSummary.vue'
+import { floorSummary } from './lib/floor-summary'
+import { buildingsOf, summaryOf, type ProjectRow } from './lib/projects'
 import FloorPlan from './components/FloorPlan.vue'
 import Roll from './components/Roll.vue'
 import Meter from './components/Meter.vue'
@@ -8003,6 +8005,51 @@ function floorsInView(): string[] {
 }
 const floorName = (id: string | null) => (id ? (model.value?.storeys.find((st) => st.id === id)?.name ?? id) : '모든 층')
 
+// --- 화면 레이아웃의 층 표시(OE-UI-04) ---
+/** 층마다의 상태(미편집 · 저장 안 된 편집 · 임시 저장). 편집이 쌓이거나 저장할 때 다시 잰다. */
+const floorStates = computed(() => {
+  void history.value
+  void future.value
+  const m = model.value
+  if (!m || !baseline.value) return new Map<string, string>()
+  const parts = currentParts()
+  const dirty = new Set(dirtyKeys(parts))
+  const saved = savedParts.value
+  return new Map(m.storeys.map((st) => [st.id, dirty.has(st.id) ? '저장 안 된 편집' : editsIn(saved.get(st.id)) > 0 ? '임시 저장' : '미편집']))
+})
+/** 액션바의 위치 표시 "사이트 › 건물 › 층"(OE-UI-04 AC14). 사이트는 프로젝트의 사이트, 없으면 BIM 의 사이트 이름이다. */
+const breadcrumb = computed(() => {
+  const m = model.value
+  if (!m) return null
+  return { site: openedProject.value?.site || m.siteName || '(사이트 이름 없음)', building: m.buildingName || '(건물 이름 없음)', storey: floorName(viewStorey.value) }
+})
+/** 층 선택 칸의 건물 묶음 머리(OE-UI-04 AC13): 건물 · 층 범위 · 임시 저장한 층 수 / 층 수. 공통 표시 규칙은 OE-UI-03(lib/projects.ts). */
+const storeyGroup = computed(() => {
+  const m = model.value
+  if (!m) return null
+  const states = floorStates.value
+  const drafts = m.storeys.filter((st) => states.get(st.id) === '임시 저장').map((st) => ({ floor: st.id, by: '', savedAt: '' }))
+  const [b] = buildingsOf({ summary: summaryOf(m), drafts })
+  return b ? { label: `${b.name} · ${b.range} · 임시 저장 ${b.drafted}/${b.storeys.length}개 층`, storeys: b.storeys } : null
+})
+/** 오른쪽 패널의 현재 층 현황(OE-UI-04 AC9). */
+const floorNow = computed(() => (model.value ? floorSummary(model.value, viewStorey.value ? [viewStorey.value] : null, (e) => whatIs(e)?.label ?? null) : null))
+const floorNowStatus = computed(() => {
+  const states = floorStates.value
+  if (viewStorey.value) return states.get(viewStorey.value) ?? ''
+  const n = (s: string) => [...states.values()].filter((v) => v === s).length
+  return `저장 안 된 편집 ${n('저장 안 된 편집')} · 임시 저장 ${n('임시 저장')} · 미편집 ${n('미편집')}개 층`
+})
+function pickFromSummary(kind: 'space' | 'room' | 'customZone', id: string) {
+  if (kind === 'customZone') {
+    selectedId.value = null
+    selectedSpaceId.value = null
+    selectedCustomZoneId.value = id
+    return
+  }
+  pickSpace(id)
+}
+
 /** 조각을 갈아 끼우고 연 때부터 다시 얹는다. 값이 null 이면 그 조각을 뺀다(연 때로). */
 function replaceParts(next: Map<string, EditFile | null>, from: string) {
   if (!model.value || !baseline.value || !pristine) return
@@ -8495,6 +8542,18 @@ async function exitCommitting() {
   await saveEdits()
   if (ask?.floor) goFloor(ask.floor.to)
   else mode.value = 'view'
+}
+/** 저장 안 한 편집이 있는 층 이름(높이 순). 건물 조각(층이 없는 편집)뿐이면 "건물" 이다. 종료·구축 확인 창이 보인다(OE-UI-04 AC11·12). */
+function dirtyFloorNames(): string[] {
+  const dirty = new Set(dirtyKeys())
+  const names = storeysByHeight.value.filter((st) => dirty.has(st.id)).map((st) => st.name)
+  return names.length ? names : dirty.size ? ['건물'] : []
+}
+/** 층을 바꿀 때 [그대로 이동](OE-UI-04 AC10). 저장도 되돌리기도 하지 않고 간다 — 앞 층의 편집은 화면에 남고, [편집 종료]·[구축하기]가 층별로 묻는다. */
+function exitKeeping() {
+  const ask = exitAsk.value
+  exitAsk.value = null
+  if (ask?.floor) goFloor(ask.floor.to)
 }
 function exitDiscarding() {
   const ask = exitAsk.value
@@ -9618,7 +9677,8 @@ async function syncLocks() {
   const key = serverKey.value
   const run = ++lockRun
   if (!key || !people.value || !me.value || !editing.value || !model.value) return releaseLocks()
-  const want = floorsInView()
+  // 보는 층과, [그대로 이동]으로 떠났지만 저장 안 한 편집이 남은 층(OE-UI-04 AC10)을 쥔다. 남이 그 층을 고쳐 편집이 겹치지 않게 한다.
+  const want = [...new Set([...floorsInView(), ...dirtyKeys().filter((k) => k !== BUILDING)])]
   releaseLocks((l) => l.key === key && want.includes(l.floor))
   for (const floor of want) {
     let r: Response
@@ -9777,7 +9837,13 @@ function askPublish() {
   if (editBlock.value) return note(editBlock.value)
   publishAsk.value = true
 }
-async function publishLayout(by: string) {
+async function publishLayout(by: string, how: 'all' | 'save' | 'saved' = 'all') {
+  // 임시 저장하지 않은 층이 있을 때 구축하기(OE-UI-04 AC12): 임시 저장하고 구축하거나, 그 편집을 되돌려(저장 안 함과 같다) 저장한 내용으로 구축한다.
+  if (how !== 'all' && model.value && !publishing.value) {
+    const dirty = dirtyKeys()
+    if (how === 'save') keepDraft(dirty)
+    else discardFloors(dirty)
+  }
   const m = model.value
   const key = serverKey.value
   if (!m || !key || !baseline.value || publishing.value) return
@@ -10070,7 +10136,8 @@ function rollbackFromReport() {
         <div class="appbar-row">
           <div class="file">
             <h2 :title="fileName">{{ fileName }}</h2>
-            <span class="muted">{{ model.schema }} · {{ model.buildingName || '(건물 이름 없음)' }}</span>
+            <!-- 위치 표시 사이트 › 건물 › 층(OE-UI-04 AC14). 층은 보는 층(모든 층이면 "모든 층"). -->
+            <span v-if="breadcrumb" class="muted">{{ model.schema }} · <span class="crumbs" data-testid="breadcrumb">{{ breadcrumb.site }} › {{ breadcrumb.building }} › {{ breadcrumb.storey }}</span></span>
           </div>
           <div class="bar-actions">
             <label
@@ -10678,7 +10745,10 @@ function rollbackFromReport() {
                 <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
                 <select v-if="model.storeys.length > 1 && !multiView" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
                   <option :value="null">모든 층</option>
-                  <option v-for="st in model.storeys" :key="st.id" :value="st.id">{{ st.name }}만</option>
+                  <!-- 건물별로 묶고 머리에 층 범위·임시 저장한 층 수(OE-UI-04 AC13). 낮은 층부터다(OE-UI-03 공통 표시 규칙). -->
+                  <optgroup v-if="storeyGroup" :label="storeyGroup.label" data-testid="storey-group-label">
+                    <option v-for="st in storeyGroup.storeys" :key="st.key" :value="st.key" :title="floorStates.get(st.key)">{{ st.name }}만</option>
+                  </optgroup>
                 </select>
                 <!-- 다중층 뷰(OE-ML-01 ①). 누르면 지금 층과 위층으로 열고, 범위는 시작·끝 층으로 고쳐 고른다. -->
                 <button v-if="model.storeys.length > 1 && !multiView" type="button" class="ghost multi-open" title="층 범위를 골라 여러 층을 함께 봅니다(OE-ML-01)" @click="openMultiView()">
@@ -12516,6 +12586,15 @@ function rollbackFromReport() {
           </p>
         </section>
         </Transition>
+        <!-- 현재 층 현황(OE-UI-04 ③). 고른 것의 속성은 위에, 이것은 늘 그 아래에 보인다. -->
+        <FloorSummary
+          v-if="floorNow && breadcrumb"
+          :building="breadcrumb.building"
+          :storey="breadcrumb.storey"
+          :status="floorNowStatus"
+          :summary="floorNow"
+          @pick="pickFromSummary"
+        />
 
             <!-- 범례에서 고른 계통. 종류·유체는 규칙 방향과 TTL 계통 클래스를 정한다. 편집 모드에서 고친다(E8). -->
             <section v-if="selectedSystem" class="picked system-picked">
@@ -14028,11 +14107,12 @@ function rollbackFromReport() {
       :by="people ? currentUser : publisher"
       :fixed="!!people"
       :summary="previewText"
+      :unsaved="publishAsk ? dirtyFloorNames() : []"
       @preview="previewFromPublish"
       @publish="publishLayout"
       @cancel="publishAsk = false"
     />
-    <ExitEditDialog :open="!!exitAsk" :count="exitAsk?.count ?? 0" :server="!!serverKey" :floor="exitAsk?.floor ? { from: floorName(exitAsk.floor.from), to: floorName(exitAsk.floor.to) } : null" @commit="exitCommitting" @save="exitSaving" @discard="exitDiscarding" @cancel="exitAsk = null" />
+    <ExitEditDialog :open="!!exitAsk" :count="exitAsk?.count ?? 0" :server="!!serverKey" :floor="exitAsk?.floor ? { from: floorName(exitAsk.floor.from), to: floorName(exitAsk.floor.to) } : null" :floors="exitAsk && !exitAsk.floor ? dirtyFloorNames() : []" @commit="exitCommitting" @save="exitSaving" @keep="exitKeeping" @discard="exitDiscarding" @cancel="exitAsk = null" />
     <!-- 진행 표시. 스크롤 위치와 상관없이 보이도록 화면 아래에 띄운다. -->
     <div v-if="progress" class="progress-toast" role="status" aria-live="polite">
       <div v-if="progressFile" class="muted progress-file">{{ progressFile }}</div>

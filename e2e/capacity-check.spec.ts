@@ -96,7 +96,7 @@ test('방에 넣은 설계 풍량만 바꿔도 저장 안 한 편집으로 잡�
   await page.getByRole('button', { name: '편집 종료' }).click()
   const ask = page.locator('dialog.exit-edit')
   await expect(ask).toBeVisible()
-  await ask.getByRole('button', { name: '임시 저장', exact: true }).click()
+  await ask.getByRole('button', { name: '임시 저장 후 종료' }).click()
 
   await page.reload()
   await page.locator('.drop input[type=file]').setInputFiles(MEP)

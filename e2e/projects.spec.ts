@@ -157,7 +157,7 @@ test('구축을 마친 프로젝트는 층 선택 화면을 거쳐 운영 편집
   await newProject(page, '구축 끝')
   await editLight(page, '7.5')
   await page.locator('.edit-bar').getByRole('button', { name: '구축하기' }).click()
-  await page.locator('dialog.publish-dialog').getByRole('button', { name: '구축하기' }).click()
+  await page.locator('dialog.publish-dialog').getByRole('button', { name: '임시 저장 후 구축' }).click()
   await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
   // 운영 편집에서 한 번 더 고쳐 임시 저장한다.
   await editLight(page, '8')

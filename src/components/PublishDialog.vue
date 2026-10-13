@@ -16,8 +16,14 @@ const props = defineProps<{
   fixed?: boolean
   /** 미리보기와 같은 변경 요약(OE-WF-12). */
   summary?: string
+  /**
+   * 임시 저장하지 않은 편집이 있는 층(OE-UI-04 AC12). 구축하기에서 있으면 [구축하기] 대신 [임시 저장 후 구축]·[저장한 내용으로 구축]을 둔다.
+   * 각 층은 임시 저장한 내용(없으면 임포트 결과)으로 구축하는 것이 기준이라, 저장 안 한 편집을 넣을지 사람이 고른다.
+   */
+  unsaved?: string[]
 }>()
-const emit = defineEmits<{ publish: [by: string]; cancel: []; preview: [] }>()
+/** `how`: 'save' 는 임시 저장한 뒤 구축, 'saved' 는 저장 안 한 편집을 빼고 구축, 'all' 은 지금 화면 그대로(저장 안 한 층이 없을 때). */
+const emit = defineEmits<{ publish: [by: string, how: 'all' | 'save' | 'saved']; cancel: []; preview: [] }>()
 
 const dialog = ref<HTMLDialogElement | null>(null)
 const name = ref(props.by)
@@ -35,7 +41,7 @@ watch(
 
 <template>
   <dialog ref="dialog" class="publish-dialog" aria-labelledby="publish-title" @close="open && emit('cancel')">
-    <form class="exit-edit-body" @submit.prevent="name.trim() && emit('publish', name.trim())">
+    <form class="exit-edit-body" @submit.prevent="name.trim() && emit('publish', name.trim(), first && unsaved?.length ? 'save' : 'all')">
       <h2 id="publish-title">{{ first ? '구축하기' : '반영하기' }} — v{{ next }}</h2>
       <p>
         {{ first ? '처음 만든 온톨로지를 v1 로 둡니다.' : '편집 내용을 DT 3D 맵과 온톨로지에 한 번에 반영하고 새 버전을 만듭니다.' }}
@@ -47,10 +53,18 @@ watch(
         <li v-if="summary"><b>변경 요약</b>: {{ summary }}</li>
         <li><b>올리는 것</b>: 온톨로지(TTL) · 층마다 GeoJSON · 3D 형상(GLB) · 편집 파일 · 공간 계층 · 리포트</li>
       </ul>
+      <p v-if="first && unsaved?.length" class="publish-unsaved" data-testid="publish-unsaved">
+        임시 저장하지 않은 편집이 있는 층: <b>{{ unsaved.join(' · ') }}</b>. 각 층은 임시 저장한 내용(없으면 임포트 결과)으로 구축합니다.
+        [저장한 내용으로 구축]이면 이 편집은 구축에 넣지 않고 화면에서도 되돌립니다(위 줄의 [이어서 하기]로 되살립니다).
+      </p>
       <p v-if="fixed" class="publish-by" data-testid="publisher">반영자 <b>{{ by || '(사용자를 고르세요)' }}</b></p>
       <label v-else class="publish-by">반영자 <input v-model="name" type="text" aria-label="반영자" required /></label>
       <div class="exit-edit-actions">
-        <button type="submit" class="ghost primary-action" :disabled="busy || !name.trim()">{{ busy ? '올리는 중…' : first ? '구축하기' : '반영하기' }}</button>
+        <template v-if="first && unsaved?.length">
+          <button type="submit" class="ghost primary-action" :disabled="busy || !name.trim()">{{ busy ? '올리는 중…' : '임시 저장 후 구축' }}</button>
+          <button type="button" class="ghost" :disabled="busy || !name.trim()" @click="emit('publish', name.trim(), 'saved')">저장한 내용으로 구축</button>
+        </template>
+        <button v-else type="submit" class="ghost primary-action" :disabled="busy || !name.trim()">{{ busy ? '올리는 중…' : first ? '구축하기' : '반영하기' }}</button>
         <button type="button" class="ghost" :disabled="busy" @click="emit('preview')">미리보기</button>
         <button type="button" class="ghost" :disabled="busy" @click="emit('cancel')">취소</button>
       </div>
