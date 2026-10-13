@@ -29,6 +29,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createChat } from './docs-chat.mjs'
 import { sources } from './onto-sources.mjs'
+import { subjectsOf, viewLine } from './onto-view.mjs'
 import { createLayaProxy } from './laya-proxy.mjs'
 import { createScreenStore, touchScreen } from './onto-screen.mjs'
 
@@ -81,8 +82,17 @@ const ask = createChat({
     if (!s) return ''
     // 쓰이는 동안은 지우지 않게 시각을 고친다(onto-screen.mjs 의 KEEP_MS 는 마지막으로 쓴 때부터다).
     if (s.screen) touchScreen(s.file)
-    if (s.screen) return `[건물] source="${s.source}" (${s.title}) — 반영 전 지금 편집 화면의 온톨로지다. 도구를 부를 때 source 로 넘긴다. 답에 "반영 전 화면 기준" 이라고 밝힌다.`
-    return `[건물] source="${s.source}" (${s.title}${s.version ? `, 버전 ${s.version}` : ''}) — 도구를 부를 때 source 로 넘긴다.`
+    const head = s.screen
+      ? `[건물] source="${s.source}" (${s.title}) — 반영 전 지금 편집 화면의 온톨로지다. 도구를 부를 때 source 로 넘긴다. 답에 "반영 전 화면 기준" 이라고 밝힌다.`
+      : `[건물] source="${s.source}" (${s.title}${s.version ? `, 버전 ${s.version}` : ''}) — 도구를 부를 때 source 로 넘긴다.`
+    // 창이 같이 보낸 지금 화면(보는 층·고른 것·보기 필터). 이 출처 TTL 에 있는 id 만 남긴다(onto-view.mjs).
+    let view = ''
+    try {
+      if (body.view) view = viewLine(body.view, subjectsOf(s.file))
+    } catch (e) {
+      log({ msg: 'onto view skipped', error: e.message })
+    }
+    return view ? `${head}\n${view}` : head
   },
   // 화면 기준은 목록에 내지 않는다 — 창마다 자기 화면만 고른다(docs-chat.js).
   info: () => ({ sources: sources(DATA, process.env.ONTO_FILES).map(({ file, ...s }) => s) }),
