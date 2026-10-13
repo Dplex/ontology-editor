@@ -180,8 +180,13 @@ export type EditFile = {
   ratedAirflows?: { id: string; cmh: number }[]
   /** 사람이 그린 룸(OE-OBJ-03). BIM 에는 없어서 룸이 있는 층의 끝 목록을 그대로 적는다. */
   rooms?: { storeyId: string; rooms: { id: string; name: string; spaceId: string; footprint: Vec2[] }[] }[]
-  /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09). BIM 에는 없어서 오브젝트가 있는 층의 끝 목록을 그대로 적는다. */
+  /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09). BIM 에는 없어서 오브젝트가 있는 층의 끝 목록을 그대로 적는다. BIM 에서 받은 것은 아래 `bimObjects`. */
   spaceObjects?: { storeyId: string; objects: SpaceObject[] }[]
+  /**
+   * BIM 에서 받은 추가 공간 오브젝트(가구·주변 모델)를 고친 것. 연 때와 달라진 칸만 적고(`at`·`size`·`name`·`item`), 지운 것은 `removed`.
+   * id 는 BIM 요소의 GlobalId 라 다시 열면 같은 오브젝트에 얹힌다. 못 찾으면 `missing.elements` 로 센다.
+   */
+  bimObjects?: { id: string; storeyId: string; at?: Vec2; size?: Vec3; name?: string; item?: string; removed?: true }[]
   /** 사람이 넣은 3D 모델 라이브러리 항목(OE-P3-08). glb 를 그대로 든다. 층에 속하지 않아 건물 조각으로 간다. */
   objectLibrary?: CustomObjectItem[]
   kinds: { typeKey: string; kind: string | null }[]
@@ -490,8 +495,27 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     keep(row.storeyId)
     for (const r of row.rooms) keep(r.spaceId)
   }
-  const spaceObjects = model.storeys.filter((st) => st.spaceObjects?.length).map((st) => ({ storeyId: st.id, objects: copySpaceObjects(st.spaceObjects!) }))
+  const spaceObjects = model.storeys
+    .map((st) => ({ storeyId: st.id, objects: copySpaceObjects((st.spaceObjects ?? []).filter((o) => o.source !== 'bim')) }))
+    .filter((row) => row.objects.length)
   for (const row of spaceObjects) keep(row.storeyId)
+  // BIM 에서 받은 오브젝트는 연 때와 달라진 것만(Baseline.bimObjects).
+  const bimObjects: NonNullable<EditFile['bimObjects']> = []
+  for (const [id, was] of baseline.bimObjects ?? []) {
+    let now: SpaceObject | undefined
+    for (const st of model.storeys) now ??= st.spaceObjects?.find((o) => o.id === id)
+    if (!now) {
+      bimObjects.push({ id, storeyId: was.storeyId, removed: true })
+      continue
+    }
+    const row: NonNullable<EditFile['bimObjects']>[number] = { id, storeyId: was.storeyId }
+    if (!samePoint(now.at, was.at)) row.at = [now.at[0], now.at[1]]
+    if (!samePoint(now.size, was.size)) row.size = [now.size[0], now.size[1], now.size[2]]
+    if (now.name !== was.name) row.name = now.name
+    if (now.item !== was.item) row.item = now.item
+    if (Object.keys(row).length > 2) bimObjects.push(row)
+  }
+  for (const row of bimObjects) keep(row.storeyId)
   for (const v of verticals) for (const p of v.parts ?? []) keep(p.storeyId)
   // 놓인 오브젝트가 쓰는 항목만 남긴다. 넣고 안 쓴 모델까지 임시 저장본마다 실으면 편집 파일만 커진다.
   const used = new Set(spaceObjects.flatMap((row) => row.objects.map((o) => o.item)))
@@ -554,6 +578,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(ratedAirflows.length ? { ratedAirflows } : {}),
     ...(rooms.length ? { rooms } : {}),
     ...(spaceObjects.length ? { spaceObjects } : {}),
+    ...(bimObjects.length ? { bimObjects } : {}),
     ...(objectLibrary.length ? { objectLibrary } : {}),
     ...(storeysDone.length ? { storeysDone } : {}),
     ...(ceilings.length ? { ceilings } : {}),
@@ -590,7 +615,7 @@ export function countEdits(f: EditFile): number {
     (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
     (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0) +
     (f.storeysDone?.length ?? 0) + (f.ceilings?.length ?? 0) + (f.storeyNames?.length ?? 0) + (f.rooms?.reduce((n, r) => n + r.rooms.length, 0) ?? 0) +
-    (f.spaceObjects?.reduce((n, r) => n + r.objects.length, 0) ?? 0) +
+    (f.spaceObjects?.reduce((n, r) => n + r.objects.length, 0) ?? 0) + (f.bimObjects?.length ?? 0) +
     (f.hvacZones?.reduce((n, r) => n + r.zones.length, 0) ?? 0) +
     (f.spaceAirflows?.length ?? 0) + (f.ratedAirflows?.length ?? 0) +
     (f.verticals?.length ?? 0)
@@ -713,6 +738,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     for (const r of row.rooms) ref(r.spaceId)
   }
   for (const row of file.spaceObjects ?? []) ref(row.storeyId)
+  for (const row of file.bimObjects ?? []) ref(row.storeyId)
   for (const row of file.storeysDone ?? []) ref(row.id)
   for (const row of file.ceilings ?? []) ref(row.storeyId)
   for (const row of file.storeyNames ?? []) ref(row.storeyId)
@@ -1037,7 +1063,26 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       result.missing.storeys++
       continue
     }
-    storey.spaceObjects = copySpaceObjects(row.objects)
+    // 사람이 놓은 것만 끝 목록으로 바꾼다. BIM 에서 받은 것은 아래 `bimObjects` 가 고친다.
+    storey.spaceObjects = [...(storey.spaceObjects ?? []).filter((o) => o.source === 'bim'), ...copySpaceObjects(row.objects)]
+    result.applied++
+  }
+  for (const row of file.bimObjects ?? []) {
+    const storey = model.storeys.find((st) => st.spaceObjects?.some((o) => o.id === row.id))
+    const object = storey?.spaceObjects?.find((o) => o.id === row.id)
+    if (!storey || !object) {
+      result.missing.elements++
+      continue
+    }
+    if (row.removed) {
+      storey.spaceObjects = storey.spaceObjects!.filter((o) => o.id !== row.id)
+      if (!storey.spaceObjects.length) delete storey.spaceObjects
+    } else {
+      if (row.at) object.at = [row.at[0], row.at[1]]
+      if (row.size) object.size = [row.size[0], row.size[1], row.size[2]]
+      if (row.name) object.name = row.name
+      if (row.item) object.item = row.item
+    }
     result.applied++
   }
 

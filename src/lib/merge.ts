@@ -218,12 +218,17 @@ export function mergeModels(
   const baseParents = new Set(a.storeys.flatMap((s) => (s.verticalParts ?? []).map((p) => p.parentId)))
   const freshParts = (storey: Storey) => (storey.verticalParts ?? []).filter((p) => !baseParents.has(p.parentId))
 
+  // BIM 에서 받은 추가 공간 오브젝트(가구·주변 모델, space-object.ts). 같은 GlobalId 가 이미 있으면 다시 넣지 않는다.
+  const baseObjects = new Set(a.storeys.flatMap((s) => (s.spaceObjects ?? []).map((o) => o.id)))
+  const freshObjects = (storey: Storey) => (storey.spaceObjects ?? []).filter((o) => !baseObjects.has(o.id))
+
   for (const storey of b.storeys) {
     const match = matchStorey(storey, a.storeys)
     if (!match) {
       storeyReport.push({ name: storey.name, matchedTo: null, by: null, elevationDelta: null })
       const parts = freshParts(storey)
-      const added: Storey = { ...storey, spaces: [], walls: fresh(storey.walls), openings: fresh(storey.openings), equipment: fresh(storey.equipment), verticalParts: parts.length ? parts : undefined }
+      const objects = freshObjects(storey)
+      const added: Storey = { ...storey, spaces: [], walls: fresh(storey.walls), openings: fresh(storey.openings), equipment: fresh(storey.equipment), verticalParts: parts.length ? parts : undefined, spaceObjects: objects.length ? objects : undefined }
       absorbSpaces(added, storey.spaces)
       a.storeys.push(added)
       continue
@@ -247,6 +252,9 @@ export function mergeModels(
     target.equipment.push(...fresh(storey.equipment))
     const parts = freshParts(storey)
     if (parts.length) target.verticalParts = [...(target.verticalParts ?? []), ...parts]
+    // 맞춘 층에 덧붙인 파일의 오브젝트를 얹는다. 전에는 여기서 말없이 버려져, 10층 인테리어의 가구가 건축 10F 에 붙지 않았다.
+    const objects = freshObjects(storey)
+    if (objects.length) target.spaceObjects = [...(target.spaceObjects ?? []), ...objects]
   }
   a.storeys.sort((x, y) => x.elevation - y.elevation)
 

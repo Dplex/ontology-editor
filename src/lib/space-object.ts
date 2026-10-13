@@ -15,7 +15,7 @@ export type { SpaceObject }
 
 /** 모델 조각 하나. 항목 상자 안의 비율(0~1) 좌표 [x0, y0, z0, x1, y1, z1] 와 재질이다. y 는 평면의 세로, z 는 높이다. */
 export type ObjectPart = { box: readonly [number, number, number, number, number, number]; material: ObjectMaterial }
-export type ObjectMaterial = 'wood' | 'frame' | 'fabric' | 'panel' | 'board' | 'pot' | 'leaf'
+export type ObjectMaterial = 'wood' | 'frame' | 'fabric' | 'panel' | 'board' | 'pot' | 'leaf' | 'screen' | 'ceramic' | 'mass' | 'ground'
 
 /** 라이브러리 항목. 내장 항목은 조각(`parts`)으로, 사람이 넣은 항목은 glb 로 모양을 든다. */
 export type LibraryItem = { key: string; name: string; size: Vec3; parts?: readonly ObjectPart[]; glb?: string }
@@ -111,7 +111,18 @@ export const LIBRARY: readonly LibraryItem[] = [
       { box: [0, 0, 0.35, 1, 1, 1], material: 'leaf' },
     ],
   },
+  // BIM 의 가구·주변 모델을 받으려고 더한 항목(2026-10-13, 성수 10층 인테리어·조경 파일). 사람이 골라 놓을 수도 있다.
+  { key: 'cabinet', name: '캐비닛', size: [0.9, 0.45, 1.2], parts: [{ box: [0, 0, 0, 1, 1, 1], material: 'wood' }, { box: [0.49, 0, 0.05, 0.51, 0.02, 0.95], material: 'frame' }] },
+  { key: 'tv', name: 'TV', size: [1.2, 0.08, 0.7], parts: [{ box: [0, 0, 0, 1, 1, 1], material: 'screen' }] },
+  { key: 'office-machine', name: '사무기기', size: [0.6, 0.6, 1.1], parts: [{ box: [0, 0, 0, 1, 1, 0.85], material: 'panel' }, { box: [0, 0, 0.85, 1, 1, 1], material: 'frame' }] },
+  { key: 'sanitary', name: '위생도기', size: [0.4, 0.7, 0.8], parts: [{ box: [0, 0, 0, 1, 0.75, 0.5], material: 'ceramic' }, { box: [0, 0.75, 0, 1, 1, 1], material: 'ceramic' }] },
+  { key: 'furniture', name: '가구', size: [0.8, 0.6, 0.8], parts: [{ box: [0, 0, 0, 1, 1, 1], material: 'wood' }] },
+  { key: 'context-building', name: '주변 건물', size: [20, 15, 30], parts: [{ box: [0, 0, 0, 1, 1, 1], material: 'mass' }] },
+  { key: 'terrain', name: '지형', size: [30, 30, 1], parts: [{ box: [0, 0, 0, 1, 1, 1], material: 'ground' }] },
+  { key: 'stage', name: '스테이지', size: [3, 3, 0.3], parts: [{ box: [0, 0, 0, 1, 1, 1], material: 'ground' }] },
 ]
+
+export { contextItem, furnitureItem } from './object-names'
 
 /** 사람이 넣은 항목의 열쇠 앞머리. 내장 항목과 겹치지 않는다. */
 export const CUSTOM_PREFIX = 'custom:'
@@ -134,25 +145,30 @@ export function findSpaceObject(model: Model, id: string): { storey: Storey; obj
   return null
 }
 
-/** 점유 영역(IFC 좌표, z 가 위). 층 바닥에서 높이만큼 선 상자다. */
-export function objectBox(elevation: number, at: Vec2, size: Vec3): Box3 {
+/** 점유 영역(IFC 좌표, z 가 위). 층 바닥에서 `base` 만큼 뜬 자리부터 높이만큼 선 상자다. */
+export function objectBox(elevation: number, at: Vec2, size: Vec3, base = 0): Box3 {
   const [w, d, h] = size
-  return { min: [at[0] - w / 2, at[1] - d / 2, elevation], max: [at[0] + w / 2, at[1] + d / 2, elevation + h] }
+  return { min: [at[0] - w / 2, at[1] - d / 2, elevation + base], max: [at[0] + w / 2, at[1] + d / 2, elevation + base + h] }
 }
 
 export type ObjectRefusal = { refused: string; blocked?: string }
 
 const OVERLAP_MESSAGE = '이미 오브젝트가 있는 위치입니다. 추가 공간 오브젝트는 서로 겹칠 수 없습니다.'
 
-/** 이 자리·크기가 된다면 null, 안 되면 이유(겹친 상대와 함께). 모든 층의 오브젝트와 견준다(겹침은 3차원 자리로 정한다). */
-function refusalAt(model: Model, elevation: number, at: Vec2, size: Vec3, exceptId?: string): ObjectRefusal | null {
-  if (size.some((v) => !Number.isFinite(v) || v < OBJECT_MIN || v > OBJECT_MAX)) return { refused: `크기는 한 변이 ${OBJECT_MIN}~${OBJECT_MAX}m 여야 합니다.` }
+/**
+ * 이 자리·크기가 된다면 null, 안 되면 이유(겹친 상대와 함께). 모든 층의 오브젝트와 견준다(겹침은 3차원 자리로 정한다).
+ * `self` 가 BIM 에서 받은 것이면 BIM 에서 받은 다른 것과는 견주지 않는다 — 책상 밑 의자, 주변 건물 위 지형처럼 BIM 이 겹쳐 놓았다.
+ * 크기 상한(20m)도 사람이 치는 값에만 건다 — 주변 건물·지형은 수십 m 다.
+ */
+function refusalAt(model: Model, elevation: number, at: Vec2, size: Vec3, exceptId?: string, self?: Pick<SpaceObject, 'base' | 'source'>): ObjectRefusal | null {
+  const bim = self?.source === 'bim'
+  if (size.some((v) => !Number.isFinite(v) || v < OBJECT_MIN || (!bim && v > OBJECT_MAX))) return { refused: `크기는 한 변이 ${OBJECT_MIN}~${OBJECT_MAX}m 여야 합니다.` }
   if (!at.every(Number.isFinite)) return { refused: '자리가 숫자가 아닙니다.' }
-  const next = objectBox(elevation, at, size)
+  const next = objectBox(elevation, at, size, self?.base)
   for (const storey of model.storeys) {
     for (const other of storey.spaceObjects ?? []) {
-      if (other.id === exceptId) continue
-      if (boxesOverlap(next, objectBox(storey.elevation, other.at, other.size))) return { refused: OVERLAP_MESSAGE, blocked: other.id }
+      if (other.id === exceptId || (bim && other.source === 'bim')) continue
+      if (boxesOverlap(next, objectBox(storey.elevation, other.at, other.size, other.base))) return { refused: OVERLAP_MESSAGE, blocked: other.id }
     }
   }
   return null
@@ -193,7 +209,7 @@ export function renameSpaceObject(model: Model, id: string, name: string): boole
 export function placeSpaceObject(model: Model, id: string, at: Vec2): boolean | ObjectRefusal {
   const found = findSpaceObject(model, id)
   if (!found || (found.object.at[0] === at[0] && found.object.at[1] === at[1])) return false
-  const refused = refusalAt(model, found.storey.elevation, at, found.object.size, id)
+  const refused = refusalAt(model, found.storey.elevation, at, found.object.size, id, found.object)
   if (refused) return refused
   found.object.at = [at[0], at[1]]
   return true
@@ -209,7 +225,7 @@ export function moveSpaceObject(model: Model, id: string, delta: Vec2): boolean 
 export function resizeSpaceObject(model: Model, id: string, size: Vec3): boolean | ObjectRefusal {
   const found = findSpaceObject(model, id)
   if (!found || size.every((v, k) => v === found.object.size[k])) return false
-  const refused = refusalAt(model, found.storey.elevation, found.object.at, size, id)
+  const refused = refusalAt(model, found.storey.elevation, found.object.at, size, id, found.object)
   if (refused) return refused
   found.object.size = [size[0], size[1], size[2]]
   return true
@@ -234,5 +250,13 @@ export function addCustomItem(model: Model, name: string, size: Vec3, glb: strin
 
 /** 깊은 사본(되돌리기·편집 파일). */
 export function copySpaceObjects(objects: readonly SpaceObject[]): SpaceObject[] {
-  return objects.map((o) => ({ id: o.id, name: o.name, item: o.item, at: [o.at[0], o.at[1]] as Vec2, size: [o.size[0], o.size[1], o.size[2]] as Vec3 }))
+  return objects.map((o) => ({
+    id: o.id,
+    name: o.name,
+    item: o.item,
+    at: [o.at[0], o.at[1]] as Vec2,
+    size: [o.size[0], o.size[1], o.size[2]] as Vec3,
+    ...(o.base ? { base: o.base } : {}),
+    ...(o.source ? { source: o.source } : {}),
+  }))
 }

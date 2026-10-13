@@ -1490,6 +1490,11 @@ export type Baseline = {
    * V-03 충돌(연 때보다 더 겹쳤나)을 이것과 견준다. 이 칸이 생기기 전의 baseline 에는 없다.
    */
   verticals?: Map<string, { name: string; ref: Vec2 | null; footprints: Map<string, Vec2[]>; parts: Map<string, { footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null }> }>
+  /**
+   * BIM 에서 받은 추가 공간 오브젝트(가구·주변 모델, `source: 'bim'`)의 연 때 모습. 편집 파일은 이것과 달라진 것만 적는다 — 사람이 놓은
+   * 오브젝트처럼 끝 목록을 적으면 열자마자 바뀐 것이 수백 건이 되고, 지운 것이 다시 열면 돌아왔다. 이 칸이 생기기 전의 baseline 에는 없다.
+   */
+  bimObjects?: Map<string, { storeyId: string; name: string; item: string; at: Vec2; size: Vec3 }>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
@@ -1556,6 +1561,13 @@ export function baselineOf(model: Model): Baseline {
     walls,
     openings,
     verticals: verticalBaseline(model),
+    bimObjects: new Map(
+      model.storeys.flatMap((st) =>
+        (st.spaceObjects ?? [])
+          .filter((o) => o.source === 'bim')
+          .map((o) => [o.id, { storeyId: st.id, name: o.name, item: o.item, at: [o.at[0], o.at[1]] as Vec2, size: [o.size[0], o.size[1], o.size[2]] as Vec3 }] as const),
+      ),
+    ),
   }
 }
 

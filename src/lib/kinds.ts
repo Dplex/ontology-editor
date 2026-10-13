@@ -116,7 +116,8 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // 엘리베이터(2026-10-03 사용자 결정). 흐름이 없는 기기라 연결 추정에서 빠진다(ADR-0010). 로봇이 층을 옮길 때 탈 장치라 설비
   // 목록·TTL 에 둔다. 병원은 건축에 IfcFlowTerminal, 전기에 Proxy(`M_Elevator-Hydraulic`)로 들어 있다. 승강로(방)는 ROOM_KINDS 다.
   // 이름으로만 안다 — `ifc` 를 두면 고객사에 요구하는 어휘(R24)가 늘어서 넣지 않았다. IfcTransportElement 는 임포터가 아직 읽지 않는다.
-  { kind: 'elevator', label: '엘리베이터', test: /elevator|엘리베이터|승강기/i, brick: 'brick:Elevator', role: null, flow: {} },
+  // 성수 엘리베이터 파일(Factorial_elevator.ifc)은 Revit 패밀리 이름이 `EVEV.#1` 이다. `EV` 만으로는 받지 않는다(EV 충전기·EV Lobby).
+  { kind: 'elevator', label: '엘리베이터', test: /elevator|엘리베이터|승강기|\bEVEV\b/i, brick: 'brick:Elevator', role: null, flow: {} },
   // 에스컬레이터도 엘리베이터와 같이 수직 관통 오브젝트라 층 편집 화면에서 옮기거나 지우지 않는다(OE-EQP-07). 이름으로만 안다.
   { kind: 'escalator', label: '에스컬레이터', test: /escalator|에스컬레이터/i, brick: 'brick:Escalator', role: null, flow: {} },
   // Revit 의 "Lighting and Appliance Panelboard" 는 분전반이다. 이 줄이 조명보다 앞이라 "Lighting" 에 먼저 걸리지 않는다
