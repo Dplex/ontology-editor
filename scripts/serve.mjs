@@ -28,6 +28,7 @@ import { extname, join, normalize, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createChat } from './docs-chat.mjs'
 import { sources } from './onto-sources.mjs'
+import { createLayaProxy } from './laya-proxy.mjs'
 
 const ROOT = resolve(process.env.ONTOLOGY_EDITOR_DIST || 'dist')
 const [host, port] = (process.env.ONTOLOGY_EDITOR_ADDR || '0.0.0.0:8084').split(/:(?=\d+$)/)
@@ -78,11 +79,23 @@ const ask = createChat({
   info: () => ({ sources: sources(DATA, process.env.ONTO_FILES).map(({ file, ...s }) => s) }),
 })
 
+const laya = createLayaProxy({ log })
+
 const server = createServer((req, res) => {
   const started = Date.now()
   const done = (status) => log({ msg: 'request', method: req.method, path: req.url, status, ms: Date.now() - started })
 
   const path = decodeURIComponent((req.url || '/').split('?')[0])
+  // Laya 종류 후보(ADR-0057). 133 의 서버로 두 길만 넘긴다(scripts/laya-proxy.mjs). 아무것도 남기지 않는다.
+  if (path === '/__laya' || path === '/__laya/kinds') {
+    res.on('finish', () => done(res.statusCode))
+    laya(req, res).catch((e) => {
+      log({ msg: 'laya failed', error: String(e?.stack || e) })
+      if (!res.headersSent) res.writeHead(500)
+      res.end()
+    })
+    return
+  }
   if (path === '/__chat' || path === '/__ask') {
     res.on('finish', () => done(res.statusCode))
     ;(path === '/__ask' ? ask : chat)(req, res).catch(e => {
