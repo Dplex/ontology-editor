@@ -36,6 +36,14 @@ export type Change = {
   summary: string
 }
 
+/**
+ * 편집으로 소속을 잃은 설비(물리존이 있었는데 이제 없다, OE-OBJ-02). 나누기·합치기는 넓이를 그대로 나누거나 모아서 이것이 늘 비어야 한다
+ * (edit-fuzz). 지우기와 경계 줄이기는 생길 수 있고, 화면이 바로 알려 이웃 물리존과 합치게 한다(OE-SPC-04 "비는 자리는 합쳐 채운다").
+ */
+export function orphanedBy(changes: readonly Change[]): Change[] {
+  return changes.filter((c) => c.fromSpaceId !== null && c.toSpaceId === null)
+}
+
 function spaceLabel(model: Model, spaceId: string | null): string {
   if (spaceId === null) return '(소속 없음)'
   for (const storey of model.storeys) {

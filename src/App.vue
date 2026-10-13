@@ -185,6 +185,7 @@ import {
   snapshotCustomZones,
   snapshotHvacZones,
   snapshotAirflow,
+  orphanedBy,
   snapshotRooms,
   snapshotStoreyName,
   snapshotSpaceObjects,
@@ -2010,6 +2011,7 @@ function moveVertex(spaceId: string, index: number, to: Vec2, coalesce?: string)
   remember(`${change.spaceName} 꼭짓점`, snapshot, at, coalesce)
   areaChanges.value = [...areaChanges.value, change]
   changes.value = [...changes.value, ...change.equipment]
+  orphanNotice(change.equipment)
   triggerRef(model)
   // 설비는 그대로다. 판만 다시 만든다.
   viewer?.updateSpaces(model.value)
@@ -4766,6 +4768,7 @@ function changeFootprint(spaceId: string, label: string, apply: (m: Model) => Bo
   remember(label, snapshot, at)
   areaChanges.value = [...areaChanges.value, change]
   changes.value = [...changes.value, ...change.equipment]
+  orphanNotice(change.equipment)
   triggerRef(model)
   viewer?.updateSpaces(m)
   sceneVersion.value++
@@ -5011,6 +5014,18 @@ function finishDraw(): boolean {
 //
 // 경계 편집과 같이 넓이와 소속을 다시 재는데, 물리존이 생기고 없어져서 층 하나를 통째로 떠 두고 되돌린다
 // (snapshotStoreySpaces). 거절된 것(층의 마지막 방, 방을 셋으로 자르는 선, 맞닿지 않은 방)은 이유를 알린다.
+/**
+ * 편집으로 소속 물리존을 잃은 설비를 알린다(OE-OBJ-02 "물리존에 속하지 않은 설비가 없다"). 지우기·경계 줄이기로 생기고, BIM 좌표가 방 밖인
+ * 설비는 나누기로도 생긴다(Q13). 비는 자리는 이웃 물리존과 합치면 다시 소속을 찾는다(OE-SPC-04). 외벽 설비는 방 밖이 제자리라 세지 않는다.
+ */
+function orphanNotice(list: readonly Change[]) {
+  const lost = orphanedBy(list).filter((c) => !exteriorIds.value.has(c.equipmentId))
+  if (!lost.length) return
+  const SHOW = 3
+  editNotice.value =
+    `설비 ${lost.length}대가 소속 물리존을 잃었습니다: ${lost.slice(0, SHOW).map((c) => shortName(c.equipmentName)).join(', ')}` +
+    `${lost.length > SHOW ? ` 외 ${lost.length - SHOW}대` : ''}. 비는 자리는 이웃 물리존과 합치면 다시 소속을 찾습니다(Ctrl+Z 로 되돌립니다).`
+}
 function changeSpaces(storeyId: string, label: string, apply: (m: Model) => SpaceSetChange | { refused: string } | null): boolean {
   const m = model.value
   if (!m) return false
@@ -5024,6 +5039,7 @@ function changeSpaces(storeyId: string, label: string, apply: (m: Model) => Spac
   }
   remember(label, snapshot, at)
   changes.value = [...changes.value, ...done.equipment]
+  orphanNotice(done.equipment)
   triggerRef(model)
   viewer?.updateSpaces(m)
   sceneVersion.value++
@@ -9458,10 +9474,12 @@ function rollbackFromReport() {
             </template>
           </ul>
 
-          <p v-if="editNotice" class="edit-notice" role="alert">{{ editNotice }}</p>
-          <p v-else-if="keyNote" class="hint pick-hint key-note" role="status">{{ keyNote }}</p>
+          <p v-if="editNotice" class="edit-notice" :class="{ 'over-note': keyNote }" role="alert">{{ editNotice }}</p>
+          <!-- 경고가 떠 있어도 키로 한 일은 보인다. 남아 있는 경고(소속을 잃은 설비 등)가 뒤이어 막힌 이유("꼭짓점이 셋이라 …")를
+               가리면 안 된다. 경고는 그 위로 한 줄 비킨다(.over-note). -->
+          <p v-if="keyNote" class="hint pick-hint key-note" role="status">{{ keyNote }}</p>
           <!-- 다중층 뷰는 보기만 해서 편집 안내가 맞지 않는다. 그 자리는 다중층 안내 상자다. -->
-          <p v-else-if="editing && !multiView" class="hint pick-hint">
+          <p v-else-if="editing && !multiView && !editNotice" class="hint pick-hint">
             <template v-if="groupItems.length >= 2">
               설비 {{ groupItems.length }}대 · <kbd>←↑→↓</kbd>·끌기: 같이 옮기기 · <kbd>Delete</kbd>: 같이 지우기 · <kbd>Ctrl</kbd>+클릭: 넣고 빼기 · <kbd>Esc</kbd>: 풀기
             </template>
@@ -9485,7 +9503,7 @@ function rollbackFromReport() {
             </template>
             · <button type="button" class="link" @click="helpOpen = true">단축키 전체 <kbd>?</kbd></button>
           </p>
-          <p v-else-if="counts.equipment > 0" class="hint pick-hint">
+          <p v-else-if="counts.equipment > 0 && !editNotice" class="hint pick-hint">
             {{
               activeTab === 'plan'
                 ? '방이나 설비(점)를 누르면 오른쪽에 뜹니다. 휠로 확대, 끌어서 이동합니다.'

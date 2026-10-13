@@ -122,7 +122,7 @@ test('편집 모드에서 고른 설비를 3D 로 끌면 좌표와 소속이 바
   expect(errors).toEqual([])
 })
 
-test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓점을 끌면 넓이와 소속이 바뀐다 [OE-SPC-03#1,4]', async ({ page }) => {
+test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓점을 끌면 넓이와 소속이 바뀌고, 소속을 잃은 설비를 알린다 [OE-SPC-03#1,4] [OE-OBJ-02#2~]', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await toSpace(page)
@@ -147,6 +147,10 @@ test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓�
   await expect(panel).toContainText('36.0')
   await expect(panel.locator('.src.edit')).toBeVisible()
   await expect(row(page, 'AT-101-02')).toContainText('(소속 없음)')
+  // 소속을 잃은 설비는 그 자리에서 알리고 합치기를 권한다(OE-OBJ-02 · OE-SPC-04).
+  await expect(page.locator('.edit-notice')).toContainText('소속 물리존을 잃었습니다')
+  await expect(page.locator('.edit-notice')).toContainText('AT-101-02')
+  await expect(page.locator('.edit-notice')).toContainText('이웃 물리존과 합치면 다시 소속을 찾습니다')
   await expect(page.locator('.report')).toContainText('80.0㎡ → 36.0㎡')
   await expect(page.locator('.report')).toContainText('AT-101-02')
 
