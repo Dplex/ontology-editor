@@ -39,7 +39,7 @@ export function parseCriteria(body: string): Criterion[] {
   const lines = section.split('\n').map((l) => l.trim()).filter(Boolean)
   const bullets = lines.filter((l) => l.startsWith('- '))
   const items = (bullets.length ? bullets.map((l) => l.slice(2).trim()) : lines).filter((l) => l !== '—' && !/결정 후 적는다\.?$/.test(l))
-  // 기준 앞에 `AC3` 을 적었으면 그 번호다. 기준을 지우거나 끼워도 다른 기준의 번호(와 시험의 태그)가 밀리지 않는다(ADR-0048)
+  // 기준 앞에 `AC3` 을 적었으면 그 번호다. 기준을 지우거나 끼워도 다른 기준의 번호(와 시험의 태그)가 밀리지 않는다(docs/dev/testing.md)
   const labeled = items.some((l) => AC_LABEL.test(l))
   return items.map((l, i) => {
     const m = labeled ? AC_LABEL.exec(l) : null

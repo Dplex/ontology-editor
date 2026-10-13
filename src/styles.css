@@ -886,6 +886,136 @@ th {
 
 /* 왼쪽 위는 색 안내(.color-key·.wall-key) 자리다. 편집 도구에 벽·문·창·층 목록까지 펼치면 줄이 거기까지 뻗어 안내가
    [내력벽] 을 덮었다. 넘치면 오른쪽 맞춤으로 두 줄이 된다. */
+/* 층별 칩. 3D 오른쪽 가장자리 세로 가운데. 층이 많으면(성수) 칸 안에서 굴린다 — 위의 시점 막대·아래 알림을 덮지 않게. */
+.storey-chips {
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  max-height: calc(100% - 14rem);
+  transform: translateY(-50%);
+}
+
+.storey-chips .sc-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.storey-chips button {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 6.5rem;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.storey-chips button:hover {
+  border-color: var(--accent);
+}
+
+.storey-chips button.on {
+  border-color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.storey-chips .sc-name {
+  flex: 1;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storey-chips .sc-n {
+  min-width: 1.3rem;
+  padding: 0 0.25rem;
+  border-radius: 999px;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.storey-chips .unplaced {
+  background: #8a63d2;
+}
+
+.storey-chips .nospace {
+  background: #d9822b;
+}
+
+.storey-chips .failed {
+  background: #d64545;
+}
+
+.storey-chips .sc-ok {
+  color: var(--muted);
+}
+
+.storey-chips .sc-key {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.1rem 0.3rem;
+  margin: 0.15rem 0 0;
+  color: var(--muted);
+  font-size: 0.65rem;
+}
+
+.storey-chips .sc-key i {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+}
+
+/* 성능 표(개발용). 3D 오른쪽 아래. */
+.perf-hud {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 0.1rem 0.6rem;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+}
+
+.perf-hud div {
+  display: contents;
+}
+
+.perf-hud dt {
+  color: var(--muted);
+}
+
+.perf-hud dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .view-tools {
   position: absolute;
   top: 0.75rem;
@@ -3432,7 +3562,7 @@ main.has-model .catalog {
 
 /* 종류 후보. 단서 아래 한 줄에 누를 수 있게 둔다. 이유는 마우스를 올리면 보인다. */
 .unknown-types td.clues .suggest {
-  color: var(--text);
+  color: var(--fg);
 }
 
 .unknown-types td.clues .suggest button {
@@ -4610,4 +4740,23 @@ button.done::after {
 /* 계통 후보(ADR-0057). 계통 상자 바로 아래 한 줄. */
 .system-suggest button {
   margin-left: 0.35rem;
+}
+
+/* 첫 화면의 읽을 것(어디서 열든 적용)과 바로 열기 묶음. 파일 상자와 data/ 목록 사이에 한 줄씩. */
+.read-settings {
+  margin: 0.75rem auto 0;
+}
+
+.read-settings fieldset.read-option.features {
+  margin-top: 0;
+}
+
+.open-sets {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  margin: 0.75rem auto 0;
+  font-size: 0.85rem;
 }

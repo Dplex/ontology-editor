@@ -1,5 +1,5 @@
 // 챗봇 창. Alt+Shift+K 로 열고 닫는다. 칸이 둘이다.
-//   [문서]     55 의 gemini 가 이 repo 의 PRD·티켓·ADR·intent.md 를 읽고 답한다(/__chat, ADR-0001).
+//   [문서]     55 의 gemini 가 이 repo 의 PRD·티켓·ADR·intent.md 를 읽고 답한다(/__chat, docs/dev/deploy55.md).
 //   [온톨로지] 55 의 gemini 가 반영한 건물 온톨로지(TTL)를 읽고 답한다(/__ask, ADR-0050). 답 끝에 쓴 질의가 붙는다.
 //
 // 앱 코드(src)가 아니다. scripts/run.sh build 가 빌드한 dist/ 에 끼워 넣는다(review-info.js 와 같은 방식) —
@@ -20,8 +20,9 @@
         '예) "내력벽 정보가 없으면 편집은 어떻게 돼?"\n    "D10 이 걸린 티켓들 알려줘"\n    "OE-BIM-12 수용 기준은?"',
     },
     onto: {
-      url: '/__ask', store: 'onto-chat:history', title: '온톨로지 질의', sub: '반영한 온톨로지(TTL) · 읽기 전용', wait: '온톨로지를 읽는 중…',
-      hint: '[반영] 한 건물 온톨로지를 읽고 답합니다. 답 끝에 쓴 질의가 붙어 다시 돌려 확인할 수 있고,\n' +
+      url: '/__ask', store: 'onto-chat:history', title: '온톨로지 질의', sub: '반영한 온톨로지 · 지금 화면(반영 전) · 읽기 전용', wait: '온톨로지를 읽는 중…',
+      hint: '[구축하기]·[반영하기] 한 건물 온톨로지를 읽고 답합니다. 건물에서 "지금 화면 (반영 전)" 을 고르면 반영하지 않은 편집까지 본 온톨로지로 답합니다.\n' +
+        '답 끝에 쓴 질의가 붙어 다시 돌려 확인할 수 있고,\n' +
         '받는 쪽 DT 파서가 읽지 않는 정보(면적·방번호 같은 ex: 속성)로 답했으면 그렇게 알려 줍니다.\n' +
         '답의 id 옆 [3D] 를 누르면 내보낸 파일 뷰어가 그 반영본을 열고 그 요소를 고릅니다.\n\n' +
         '예) "AHU-1 은 어느 방에 있어?"\n    "2층 회의실에 있는 설비는?"\n    "이 공조기가 공기를 보내는 방은?"\n    "A101호는 어느 층이야?"',
@@ -31,6 +32,27 @@
   try { mode = sessionStorage.getItem('docs-chat:mode') === 'onto' ? 'onto' : 'docs' } catch (e) { mode = 'docs' }
   var history = load()
   var source = ''
+  // "지금 화면 (반영 전)"(ADR-0050). 고르면 묻기 전에 편집 화면(App.vue 의 window.__oe)이 만든 TTL 을 /__ask/screen 에 올리고,
+  // 그 토큰으로 묻는다. 토큰은 페이지를 열 때마다 새로 만든다 — sessionStorage 에 두면 탭을 복제했을 때 두 탭이 같은 토큰으로
+  // 서로의 화면을 덮어썼다. 올린 TTL 이 같으면 다시 올리지 않지만, 한 시간이 지나면 다시 올린다(서버는 2시간 안 쓰면 지운다).
+  var SCREEN = '__screen__'
+  var screenToken = Array.from(crypto.getRandomValues(new Uint8Array(24)), function (b) { return 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36] }).join('')
+  var screenSent = ''
+  var screenSentAt = 0
+  function hasScreen() { return !!(window.__oe && window.__oe.screen) }
+  /** 지금 화면의 TTL 을 올리고 source 를 돌려준다. 같은 글이면 다시 올리지 않는다(길이 + FNV-1a). */
+  function uploadScreen() {
+    var shot = hasScreen() ? window.__oe.screen() : null
+    if (!shot) return Promise.reject(new Error('편집 화면에 연 건물이 없다 — BIM 을 먼저 연다'))
+    var h = 2166136261
+    for (var i = 0; i < shot.ttl.length; i++) { h ^= shot.ttl.charCodeAt(i); h = Math.imul(h, 16777619) }
+    var sig = shot.title + '|' + shot.ttl.length + '|' + (h >>> 0)
+    if (sig === screenSent && Date.now() - screenSentAt < 60 * 60 * 1000) return Promise.resolve('screen-' + screenToken)
+    var q = '?token=' + screenToken + '&title=' + encodeURIComponent(shot.title || '') + '&by=' + encodeURIComponent(shot.by || '')
+    return fetch('/__ask/screen' + q, { method: 'POST', headers: { 'content-type': 'text/turtle; charset=utf-8' }, body: shot.ttl })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j }) })
+      .then(function (j) { screenSent = sig; screenSentAt = Date.now(); return j.source })
+  }
   var root, list, input, sendBtn, status, title, sub, picker, busy = null
 
   function load() {
@@ -49,7 +71,33 @@
       return all + ' <a href="' + href + '" target="_blank" rel="noopener" title="내보낸 파일 뷰어에서 이 요소 보기">3D</a>'
     })
   }
-  function renderBot(t) { return mode === 'onto' ? linkIds(render(t.text), t.source) : render(t.text) }
+  function renderBot(t) { return mode === 'onto' ? linkIds(render(hidePlan(t.text)), t.source) : render(t.text) }
+  // 말로 편집 시키기(ADR-0060). gemini 가 답 끝에 붙인 ```oe-edit 블록(JSON)은 글로 보이지 않고, 아래 상자에 사람이 읽을 줄과 [적용] 이 뜬다.
+  // 미리보기·적용은 편집 화면(App.vue 의 window.__oe.plan·apply)이 한다 — 이 창은 글을 넘기고 결과를 보일 뿐이다.
+  function hidePlan(t) { return String(t).replace(/```oe-edit[\s\S]*?(```|$)/g, '') }
+  function showPlan(bot, text) {
+    if (!window.__oe || !window.__oe.plan) return
+    var p = window.__oe.plan(text)
+    if (!p) return
+    var box = document.createElement('div')
+    box.className = 'plan'
+    if (p.error) { box.innerHTML = '<span class="err">⚠ 편집 계획: ' + esc(p.error) + '</span>'; bot.appendChild(box); return }
+    var ok = p.preview.every(function (x) { return x.ok })
+    box.innerHTML = '<b>편집 계획</b>' + (p.editing ? '' : ' <span class="hint">— [편집] 을 누른 뒤 적용합니다</span>') +
+      '<ol>' + p.preview.map(function (x) { return '<li class="' + (x.ok ? '' : 'err') + '">' + esc(x.text) + '</li>' }).join('') + '</ol>' +
+      '<button data-plan="apply"' + (ok ? '' : ' disabled title="찾지 못한 대상이 있어 적용하지 않습니다"') + '>적용</button>'
+    box.querySelector('[data-plan=apply]').addEventListener('click', function (e) {
+      var results = window.__oe.apply(text)
+      var done = results.every(function (r) { return r.ok })
+      box.insertAdjacentHTML('beforeend', '<ul>' + results.map(function (r) { return '<li class="' + (r.ok ? 'ok' : 'err') + '">' + (r.ok ? '✔ ' : '⚠ ') + esc(r.text) + '</li>' }).join('') + '</ul>' +
+        (done ? '<span class="hint">편집 화면의 되돌리기(Ctrl+Z)로 하나씩 되돌립니다</span>' : ''))
+      // 적용했거나 편집 모드가 아니라서 막힌 것이 아니면 다시 누르지 못하게 한다(두 번 더하지 않게).
+      if (done || results.some(function (r) { return r.ok })) e.target.disabled = true
+      list.scrollTop = list.scrollHeight
+    })
+    bot.appendChild(box)
+    list.scrollTop = list.scrollHeight
+  }
 
   var css = [
     '#docs-chat{position:fixed;right:16px;bottom:16px;width:min(460px,calc(100vw - 32px));height:min(680px,calc(100vh - 32px));',
@@ -68,6 +116,8 @@
     '#docs-chat .bot{background:#1b2029;border:1px solid #262d38}',
     '#docs-chat .tool{color:#8b94a3;font-size:12px;padding:0 4px;word-break:break-all}',
     '#docs-chat .err{color:#ff8a80}',
+    '#docs-chat .plan{margin-top:8px;padding:8px 10px;border:1px solid #3a4a60;border-radius:8px;background:#18202b}',
+    '#docs-chat .plan ol,#docs-chat .plan ul{margin:6px 0 6px 18px;padding:0}#docs-chat .plan .ok{color:#9be29b}',
     '#docs-chat code{background:#262d38;padding:0 4px;border-radius:4px;font:12px ui-monospace,Consolas,monospace}',
     '#docs-chat pre{background:#0f1218;padding:8px;border-radius:6px;overflow:auto;margin:4px 0}',
     '#docs-chat pre code{background:none;padding:0}',
@@ -151,10 +201,15 @@
     var askedSource = mode === 'onto' ? source : undefined
     setBusy(ctl)
 
-    fetch(MODES[mode].url, {
-      method: 'POST', signal: ctl.signal,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ question: q, history: prior, source: mode === 'onto' ? source : undefined }),
+    var ready = askedSource === SCREEN
+      ? (bot.innerHTML = '<span class="hint">지금 화면의 온톨로지를 올리는 중…</span>', uploadScreen().then(function (src) { bot.innerHTML = '<span class="hint">' + MODES.onto.wait + '</span>'; return src }))
+      : Promise.resolve(askedSource)
+    ready.then(function (src) {
+      return fetch(MODES[asked].url, {
+        method: 'POST', signal: ctl.signal,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ question: q, history: prior, source: src }),
+      })
     }).then(function (res) {
       if (!res.ok) return res.json().catch(function () { return {} }).then(function (j) { throw new Error(j.error || ('HTTP ' + res.status)) })
       var reader = res.body.getReader()
@@ -181,6 +236,7 @@
       // 답하는 중에 칸을 바꿨으면 답은 원래 칸의 기록에 남긴다
       if (text && asked === mode) { history.push({ role: 'assistant', text: text, source: askedSource }); save() }
       else if (!text && !bot.querySelector('.err')) bot.innerHTML = '<span class="err">답이 비었다</span>'
+      if (text && asked === 'onto') showPlan(bot, text)
       status.textContent = ((Date.now() - started) / 1000).toFixed(1) + '초'
       setBusy(null)
     })
@@ -190,7 +246,7 @@
         if (bot.parentNode === list) list.insertBefore(Object.assign(document.createElement('div'), { className: 'tool', textContent: toolLine(ev.name, ev.args) }), bot)
       } else if (ev.type === 'text') {
         text = ev.delta === false ? ev.text : text + ev.text
-        bot.innerHTML = asked === 'onto' ? linkIds(render(text), askedSource) : render(text)
+        bot.innerHTML = asked === 'onto' ? linkIds(render(hidePlan(text)), askedSource) : render(text)
       } else if (ev.type === 'error' || ev.type === 'tool_error') {
         var hint = bot.querySelector('.hint')
         if (hint) hint.remove()
@@ -219,12 +275,14 @@
         list_.forEach(function (s) { sourceInfo[s.source] = { key: s.key, version: s.version } })
         // 기록의 답은 목록이 오기 전에 그렸다 — [3D] 링크를 붙이려고 한 번 더 그린다
         if (history.length) redraw()
-        picker.innerHTML = list_.length
-          ? list_.map(function (s) {
-            return '<option value="' + esc(s.source) + '">' + esc(s.title + (s.version ? ' · v' + s.version : '') + (s.at ? ' · ' + String(s.at).slice(0, 10) : '')) + '</option>'
-          }).join('')
-          : '<option value="">반영한 건물이 없다 — 편집 화면에서 [반영]</option>'
-        if (!list_.some(function (s) { return s.source === source })) source = list_.length ? list_[0].source : ''
+        var options = list_.map(function (s) {
+          return '<option value="' + esc(s.source) + '">' + esc(s.title + (s.version ? ' · v' + s.version : '') + (s.at ? ' · ' + String(s.at).slice(0, 10) : '')) + '</option>'
+        })
+        // 편집 화면이 있는 곳(8084)이면 맨 앞에 "지금 화면". 내보낸 파일 뷰어(viewer.html)에는 없다.
+        if (hasScreen()) options.unshift('<option value="' + SCREEN + '">지금 화면 (반영 전)</option>')
+        picker.innerHTML = options.length ? options.join('') : '<option value="">반영한 건물이 없다 — 편집 화면에서 [구축하기]·[반영하기]</option>'
+        var ok = source === SCREEN ? hasScreen() : list_.some(function (s) { return s.source === source })
+        if (!ok) source = list_.length ? list_[0].source : hasScreen() ? SCREEN : ''
         picker.value = source
       }
     }).catch(function () {

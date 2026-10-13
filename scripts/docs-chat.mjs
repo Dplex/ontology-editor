@@ -1,4 +1,4 @@
-// 8084 의 문서 챗봇(Alt+Shift+K) 서버 쪽. serve.mjs 가 /__chat 에 붙인다(ADR-0001).
+// 8084 의 문서 챗봇(Alt+Shift+K) 서버 쪽. serve.mjs 가 /__chat 에 붙인다(docs/dev/deploy55.md).
 //
 //   GET  /__chat         → { enabled, reason? }   창을 열 때 쓸 수 있는지 본다
 //   POST /__chat         ← { question, history: [{ role: 'user'|'assistant', text }] }
@@ -62,7 +62,7 @@ export function parseToolTitle(title) {
 }
 
 /**
- * 챗봇 하나. 기본은 문서 챗봇(/__chat, ADR-0001)이고, 온톨로지 질의(/__ask, ADR-0050)는 name·mcp·policy·system 을 바꿔 같은 것을 띄운다.
+ * 챗봇 하나. 기본은 문서 챗봇(/__chat, docs/dev/deploy55.md)이고, 온톨로지 질의(/__ask, ADR-0050)는 name·mcp·policy·system 을 바꿔 같은 것을 띄운다.
  * gemini 가 쓸 수 있는 MCP 서버는 언제나 `name` 하나다(--allowed-mcp-server-names + 그 이름만 허용하는 정책).
  */
 export function createChat({
