@@ -68,7 +68,7 @@ test('Duplex: 방향 큐브의 윗면을 누르면 위에서 보고, 끌면 돌�
   const moved = after.position.map((v, i) => v - before.position[i])
   expect(moved.reduce((s, v, i) => s + v * forward[i], 0)).toBeGreaterThan(0)
   expect(after.target.map((v, i) => +(v - before.target[i]).toFixed(3))).toEqual(moved.map((v) => +v.toFixed(3)))
-  // E 는 올라가기다 — 보기 모드로 바뀌지 않는다. W(내력벽)·D(방향 미리보기)도 단축키로 가지 않는다.
+  // E 는 올라가기다 — 보기 모드로 바뀌지 않는다. W(벽)·D(방향 미리보기)도 단축키로 가지 않는다.
   await page.keyboard.down('e')
   await page.waitForTimeout(300)
   await page.keyboard.up('e')

@@ -103,6 +103,7 @@ import {
   type Viewer,
   type HoverTarget,
 } from './lib/viewer'
+import { wallTone } from './lib/wall-view'
 import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import { drawPipe } from './lib/manual-pipe'
 import { storeyAtZ, storeyElevationProblem, storeysEntered, type PathPoint } from './lib/storey-z'
@@ -627,23 +628,36 @@ const zoneRows = computed(() => {
 })
 const ZONE_LIMIT = 200
 
-// 3D 에 내력벽을 켜고 끈다. 내력 여부를 모르는 벽도 같이 켠다(모름은 아니오가 아니다).
-const showWalls = ref(false)
-watch(showWalls, (on) => viewer?.setWallsVisible(on))
-// 3D 에 그려지는 벽만 센다. 형상이 없는 벽(손으로 쓴 픽스처, COBie 판본)은 켜도 보일 것이 없다.
+// 보기 모드 3D 에 벽을 켜고 끈다(#599). 기본은 켠 것이다 — 끄면 방이 뚫려 보인다. 끈 것은 다음에 열 때도 남는다.
+const showWalls = ref(
+  (() => {
+    try {
+      return localStorage.getItem('oe-show-walls') !== '0'
+    } catch {
+      return true
+    }
+  })(),
+)
+watch(showWalls, (on) => {
+  viewer?.setWallsVisible(on)
+  try {
+    localStorage.setItem('oe-show-walls', on ? '1' : '0')
+  } catch {
+    /* 저장이 막힌 창이면 이번 탭에서만 */
+  }
+})
+// 3D 에 그려지는 벽만 센다(wall-view.ts). 형상도 외곽선도 없는 벽(손으로 쓴 픽스처, COBie 판본)은 켜도 보일 것이 없다.
 // meshes 는 반응형이 아니지만 늘 model 과 같이 바뀌므로 model 을 따라 다시 센다.
 const drawnWalls = computed(() => {
   if (!model.value) return null
-  let loadBearing = 0
-  let unknown = 0
+  const n = { loadBearing: 0, unknown: 0, ordinary: 0 }
   for (const storey of model.value.storeys) {
     for (const wall of storey.walls) {
-      if (wall.loadBearing === false || !meshes.has(wall.id)) continue
-      if (wall.loadBearing) loadBearing++
-      else unknown++
+      if (!meshes.has(wall.id) && !wall.footprint?.length) continue
+      n[wallTone(wall)]++
     }
   }
-  return loadBearing + unknown > 0 ? { loadBearing, unknown } : null
+  return n.loadBearing + n.unknown + n.ordinary > 0 ? n : null
 })
 
 // --- 편집 -------------------------------------------------------------------
@@ -1782,7 +1796,7 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       return true
     case 'walls':
       if (!drawnWalls.value) {
-        note('표시할 내력벽이 없습니다')
+        note('표시할 벽이 없습니다')
         return true
       }
       showWalls.value = !showWalls.value
@@ -10504,7 +10518,7 @@ function rollbackFromReport() {
                 :aria-pressed="showWalls"
                 @click="showWalls = !showWalls"
               >
-                내력벽
+                벽
               </button>
               <!-- 공조존(IDF) 외곽선. IDF 를 열거나 덧붙였을 때만. -->
               <button
@@ -10582,12 +10596,13 @@ function rollbackFromReport() {
                 {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
               </button>
             </div>
-            <!-- 내력 여부는 BIM 의 LoadBearing 속성 그대로다. 비내력벽은 그리지 않는다. -->
+            <!-- 내력 여부는 BIM 의 LoadBearing 속성 그대로다. 비내력벽(칸막이)도 그린다 — 빼면 방이 뚫려 보인다(#599). -->
             <ul v-if="showWalls && drawnWalls" class="wall-key">
-              <li><i :style="{ background: hex(WALL_COLORS.loadBearing) }"></i>내력벽 {{ drawnWalls.loadBearing }} <Src kind="bim" /></li>
+              <li v-if="drawnWalls.loadBearing"><i :style="{ background: hex(WALL_COLORS.loadBearing) }"></i>내력벽 {{ drawnWalls.loadBearing }} <Src kind="bim" /></li>
               <li v-if="drawnWalls.unknown">
                 <i :style="{ background: hex(WALL_COLORS.unknown) }"></i>내력 여부 모름 {{ drawnWalls.unknown }}
               </li>
+              <li v-if="drawnWalls.ordinary"><i :style="{ background: hex(WALL_COLORS.ordinary) }"></i>비내력벽 {{ drawnWalls.ordinary }} <Src kind="bim" /></li>
             </ul>
           </div>
 
