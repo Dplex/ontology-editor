@@ -9,6 +9,7 @@ import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
 import type { CustomZone, HvacZone } from './lib/model'
 import Src, { type SrcKind } from './components/Src.vue'
+import FlowBasis from './components/FlowBasis.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import ReplayHud from './components/ReplayHud.vue'
 import { pausedInReplay, replayArch, replayElement, replayMemo, replayOpen, useReplay } from './lib/replay-player'
@@ -73,6 +74,7 @@ import { airflowText, BASIS_LABEL, CAPACITY_CHECK_KINDS, cmhText, setRatedAirflo
 import { flowReviews } from './lib/flow-review'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
+import { cascadeWaves, exportedFlows, flowBasis, flowChanges, reviewKeys, type FlowSnapshot } from './lib/flow-cascade'
 import { clueText, familyClues as computeFamilyClues, type FamilyClue } from './lib/family-clues'
 import { LAYA_MIN, LAYA_SURE, layaKinds, layaStatus, newEquipmentText, type LayaPick, type LayaResult, type LayaStatus } from './lib/laya'
 import { candidateText, systemCandidates } from './lib/system-suggest'
@@ -3138,6 +3140,30 @@ const selectedRule = computed(() => {
 })
 
 /**
+ * 유체 흐름이 아니라 검토 대상인 연결의 열쇠(flow-cascade.ts 의 reviewKeys). 모델 전체를 훑어 성수 기계에서 130ms 가 걸려서 편집마다 한 번만
+ * 세고 근거 패널·연쇄가 같이 쓴다. 종류를 바꾸면 flowVersion 이 오르고, 연결을 더하거나 지우면 모델 신호가 온다.
+ */
+const flowReviewKeys = computed(() => {
+  void flowVersion.value
+  return model.value ? reviewKeys(model.value) : new Set<string>()
+})
+/** 고른 설비 계통의 흐름 방향 근거(flow-cascade.ts) — BIM 포트 → 규칙 → 사람 → brick:feeds 세 줄과 결과. */
+const selectedFlowBasis = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const r = selectedRule.value
+  if (!m || !r) return null
+  return flowBasis(m, r.systemId, new Set(systemById.value.get(r.systemId)?.memberIds ?? []), flowReviewKeys.value)
+})
+/** 고른 계통 패널의 같은 근거. */
+const selectedSystemBasis = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const s = selectedSystem.value
+  return m && s ? flowBasis(m, s.id, new Set(s.memberIds), flowReviewKeys.value) : null
+})
+
+/**
  * 규칙 방향이 선 계통 전부. 확정은 고른 설비의 패널에서만 할 수 있어서, 어느 계통이 남았는지 보려면 계통마다 설비를
  * 하나씩 찾아 골라야 했다. 재검토가 있는 것, 확정 안 한 것, 규칙 방향이 많은 것 순으로 둔다. 일치율은 그 계통에서 포트가
  * 이미 말한 연결에 같은 규칙을 대 본 값이다(확정한 계통도 규칙을 다시 돌려 잰다, OE-PIP-07).
@@ -3191,6 +3217,7 @@ function confirmMatching() {
   const m = model.value
   const rows = bulkCandidates.value
   if (!m || !rows.length) return
+  const before = exportedFlows(m)
   const snapshot = snapshotRules(m, rows.map((r) => r.id))
   const at = mark()
   const done: { systemName: string; count: number }[] = []
@@ -3202,11 +3229,27 @@ function confirmMatching() {
   remember(`계통 ${done.length}개 한꺼번에 확정(포트와 ${bulkThreshold.value}% 이상)`, snapshot, at)
   confirmations.value = [...confirmations.value, ...done]
   flowVersion.value++
+  playFlowCascade(before)
   note(`계통 ${done.length}개, 규칙 방향 ${done.reduce((n, d) => n + d.count, 0)}개를 확정했습니다. brick:feeds 로 내보냅니다`)
+}
+
+/**
+ * 확정·적용·해제로 TTL 에 나가는 흐름 방향이 바뀐 연결을 원천에서 가까운 순으로 3D 에 퍼뜨린다(flow-cascade.ts · viewer.ts 의 playCascade).
+ * 평소 화살표는 고른 설비의 이웃뿐이라 계통 확정처럼 수백 개가 바뀐 것은 안 보였다. `before` 는 바꾸기 전에 뜬 exportedFlows 다.
+ * 움직임을 끈 사람에게도 한꺼번에 띄운다 — 무엇이 brick:feeds 로 나가게 됐는지는 알아야 한다.
+ */
+function playFlowCascade(before: FlowSnapshot) {
+  const m = model.value
+  if (!m || !viewer) return
+  const changed = flowChanges(before, m)
+  if (!changed.length) return
+  const waves = cascadeWaves(changed)
+  viewer.playCascade(changed.map((c, i) => ({ ...c, wave: waves[i] })))
 }
 
 function confirmRule(systemId: string, systemName: string) {
   if (!model.value) return
+  const before = exportedFlows(model.value)
   const snapshot = snapshotRules(model.value, systemId)
   const at = mark()
   const n = confirmSystemFlow(model.value, systemId)
@@ -3216,6 +3259,7 @@ function confirmRule(systemId: string, systemName: string) {
   remember(`계통 ${systemName} 확정`, snapshot, at)
   confirmations.value = [...confirmations.value, { systemName, count: n }]
   flowVersion.value++
+  playFlowCascade(before)
 }
 
 // 바로 붙은 이웃. 몇 개인지보다 무엇에 붙어 있는지가 먼저 궁금한 자리다.
@@ -3302,6 +3346,7 @@ function submitFlow() {
   const d = flowDraft.value
   if (!m || !d) return
   const c = d.connection
+  const before = exportedFlows(m)
   const snapshot = snapshotRelease(m, c)
   const at = mark()
   const done = applyFlow(m, c, d.from, flowReason.value)
@@ -3314,6 +3359,7 @@ function submitFlow() {
   flowDraft.value = null
   editNotice.value = ''
   flowVersion.value++
+  playFlowCascade(before)
   note(`${flowText(c, d.from)} 방향을 적용했습니다. 규칙 방향보다 앞서고 확정 없이 brick:feeds 로 나갑니다`)
 }
 /** 수동 지정 해제. 규칙 방향이 있으면 그것으로, 없으면 방향 미지정으로 돌아간다. */
@@ -3321,12 +3367,15 @@ function clearManualFlow(c: Connection) {
   const m = model.value
   if (!m || !c.edited) return
   const was = flowText(c, c.edited.from)
+  const before = exportedFlows(m)
   const snapshot = snapshotRelease(m, c)
   const at = mark()
   if (!clearFlow(m, c)) return
   remember(`${was} 수동 지정 해제`, snapshot, at)
   flowDraft.value = null
   flowVersion.value++
+  // 해제하면 확정한 규칙 방향으로 돌아가 반대로 뒤집히는 일이 있다. 그때만 퍼진다(나가다 빠진 것은 그리지 않는다).
+  playFlowCascade(before)
 }
 // --- 3D 의 연결 화살표 ------------------------------------------------------------
 //
@@ -9968,6 +10017,8 @@ function rollbackFromReport() {
                 3D에 규칙 방향 표시
               </label>
             </p>
+            <!-- 흐름 방향의 근거(flow-cascade.ts). 이 계통의 연결이 방향을 어디서 얻었고, 그래서 TTL 에 brick:feeds 로 몇 개가 나가는지. -->
+            <FlowBasis v-if="selectedFlowBasis && selectedRule" :basis="selectedFlowBasis" :name="selectedRule.name" />
             <p v-if="selectedRule" class="rule-system">
               <b>{{ selectedRule.name }}</b><template v-if="selectedRule.kind">({{ selectedRule.kind }})</template>: 규칙으로 방향을 정한 연결
               {{ selectedRule.count }}개.
@@ -11273,6 +11324,8 @@ function rollbackFromReport() {
                   (유체 <Src :kind="selectedSystem.fluidSource === 'bim' ? 'bim' : 'dict'" />)
                 </template>
               </p>
+              <!-- 이 계통의 흐름 방향 근거(flow-cascade.ts). 규칙 방향이 없는 계통도 포트·사람 방향과 brick:feeds 수는 보인다. -->
+              <FlowBasis v-if="selectedSystemBasis && selectedSystemBasis.total" :basis="selectedSystemBasis" :name="selectedSystem.name || selectedSystem.id" />
               <p v-if="editing" class="system-edit system-name-edit">
                 <label>
                   이름

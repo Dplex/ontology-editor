@@ -1627,6 +1627,54 @@ th {
   margin: 0.25rem 0;
 }
 
+/* 흐름 방향 근거 세 줄과 결과(flow-cascade.ts). 단계 번호를 세로로 이어 "어디서 와서 무엇이 나가나" 가 위에서 아래로 읽힌다. */
+.flow-basis {
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.82rem;
+}
+
+.flow-basis li {
+  display: grid;
+  grid-template-columns: 1.3rem 1fr auto;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.18rem 0;
+}
+
+.flow-basis li + li {
+  border-top: 1px dotted var(--line);
+}
+
+.flow-basis .step-no {
+  display: inline-grid;
+  place-items: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.flow-basis small {
+  margin-left: 0.3rem;
+}
+
+.flow-basis b {
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-basis .flow-basis-result {
+  font-weight: 600;
+}
+
+.flow-basis .flow-basis-result .step-no {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .merge .merge-src {
   margin-left: -1rem;
   list-style: none;
