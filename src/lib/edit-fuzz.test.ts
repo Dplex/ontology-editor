@@ -92,3 +92,22 @@ describe('소속은 편집 함수 안에서 다시 계산된다 (OE-MAP-06)', ()
     expect(checked).toBeGreaterThan(1000)
   }, 180_000)
 })
+
+describe('물리존 나누기·합치기는 설비의 소속을 잃게 하지 않는다 (OE-OBJ-02)', () => {
+  it('어떤 순서로 나누고 합쳐도 물리존이 있던 설비는 물리존이 남는다 (씨앗 200개) [OE-OBJ-02#2]', () => {
+    // 기준 문장은 "물리존에 속하지 않은 설비가 없다" 다. BIM 이 방으로 둘러싸지 않은 자리의 설비(R2)는 편집으로 만들 수 없으니, 에디터가 지킬 몫은
+    // 편집이 소속 없는 설비를 새로 만들지 않는 것이다. 지우기·경계 줄이기는 만들 수 있어 화면이 알린다(App.vue 의 orphanNotice).
+    // 예외 하나: BIM 이 소속을 적었지만 좌표는 방 밖인 설비(mep.ifc 의 조명, 좌표 50,50)는 나누면 좌표로 다시 판정해 소속을 잃는다(Q13).
+    // 기준과 Q13 이 부딪히는 곳이라 PM 에게 묻는다(NEXT.md). 여기서는 그 설비만 빼고 잰다.
+    const model = read('mep.ifc')
+    const lost: string[] = []
+    let edits = 0
+    for (let seed = 1; seed <= 200; seed++) {
+      const r = fuzzEdits(model, seed, 25)
+      edits += r.log.filter((l) => l.startsWith('splitSpace') || l.startsWith('mergeSpaces')).length
+      for (const o of r.orphaned) lost.push(`seed ${seed} ${o.op}: ${o.ids.join(', ')}`)
+    }
+    expect(lost.slice(0, 3)).toEqual([])
+    expect(edits).toBeGreaterThan(100)
+  }, 120_000)
+})
