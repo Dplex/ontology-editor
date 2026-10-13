@@ -42,7 +42,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' ||
       github.event.label.name == 'rejected' || github.event.label.name == 'modified'
-    # API 만 부르니 55 가 아니라 공용 러너에서 돈다(ADR-0058).
+    # API 만 부르니 55 가 아니라 공용 러너에서 돈다(docs/dev/board.md "Actions 러너").
     runs-on: code-linux
     timeout-minutes: 5
     steps:

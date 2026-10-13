@@ -25,7 +25,7 @@ concurrency:
 jobs:
   note:
     if: ${{ !github.event.issue.pull_request }}
-    # API 만 부르니 55 가 아니라 공용 러너에서 돈다. 55 러너 하나에서 줄 서면 PR 의 Review 가 1시간 넘게 밀렸다(ADR-0058).
+    # API 만 부르니 55 가 아니라 공용 러너에서 돈다. 55 러너 하나에서 줄 서면 PR 의 Review 가 1시간 넘게 밀렸다(docs/dev/board.md "Actions 러너").
     runs-on: code-linux
     timeout-minutes: 3
     steps:

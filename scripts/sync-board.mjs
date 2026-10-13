@@ -145,7 +145,7 @@ function specChanged(oldBase, t) {
   return SPEC_SECTIONS.some((k) => noAc(withoutStory(before[k])) !== noAc(withoutStory(after[k])))
 }
 
-/** 수용 기준 앞의 AC 번호(`- **AC3** …`)를 뗀 글. 번호만 붙인 것은 요구사항 변경이 아니다(ADR-0048) — `modified` 를 붙이지 않는다. */
+/** 수용 기준 앞의 AC 번호(`- **AC3** …`)를 뗀 글. 번호만 붙인 것은 요구사항 변경이 아니다(docs/dev/testing.md) — `modified` 를 붙이지 않는다. */
 function noAc(s) {
   return s.replace(/^- \*{0,2}AC\d+\*{0,2}[.:)]?\s+/gm, '- ')
 }

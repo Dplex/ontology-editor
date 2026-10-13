@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // [반영하기]·[구축하기] 확인 창(OE-WF-11·12). 반영 전 변경 요약(대상 층·바뀐 것)을 보이고 반영자를 받는다. 반영하면 서버에 새 버전이
-// 생기고(ADR-0037), 다른 사람의 화면은 새로고침할 때 바뀐다(OE-WF-14). ExitEditDialog 와 같은 네이티브 <dialog> 라 Esc 는 취소다.
+// 생기고(src/server/layouts.ts), 다른 사람의 화면은 새로고침할 때 바뀐다(OE-WF-14). ExitEditDialog 와 같은 네이티브 <dialog> 라 Esc 는 취소다.
 import { ref, watch } from 'vue'
 
 const props = defineProps<{

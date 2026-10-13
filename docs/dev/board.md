@@ -13,7 +13,7 @@ CLAUDE.md 에서 옮겼다. 이슈를 만들거나, PR 을 열거나, 라벨·�
 
 **상태는 Todo → In Progress → In Review → Done 이고, In Progress 다음은 PR 이 옮긴다.** 손대기 시작하면 카드를
 In Progress 로 손으로 옮긴다(이것만 사람 몫). 티켓마다 main 에서 브랜치(`feature/OE-OBJ-06-bearing-lock` 처럼)를 갈라 작업하고,
-PR 본문에 `Closes #n` 을 넣어 연다. 그다음은 `.github/workflows/kanban.yml` 이 카드를 따라 옮긴다(공용 러너 `code-linux`, ADR-0058):
+PR 본문에 `Closes #n` 을 넣어 연다. 그다음은 `.github/workflows/kanban.yml` 이 카드를 따라 옮긴다(공용 러너 `code-linux`, docs/dev/board.md "Actions 러너"):
 
 | 일 | 카드 |
 |---|---|
@@ -89,3 +89,19 @@ Status 는 건드리지 않는다. 점검은 Actions `Board check` 가 PR·main 
   Done 이슈에 붙은 것은 손으로 떼지 않는다 — 후속 이슈가 생기고, 그 PR 이 merge 될 때 kanban.yml 이 뗀다.
   후속 이슈는 템플릿(원 이슈 수정 이력의 이전 문구 + 지금 요구사항·수용 기준)이고 제목 끝에 `(OE-XXX-nn)` 를 붙이지 않는다
   (sync-board 가 제목 끝 ID 로 짝지어서 둘이 되면 엉뚱한 이슈를 고친다). 그래서 `npm run board` 의 "제목 끝에 티켓 ID 가 없는 항목" 에 뜬다
+
+## Actions 러너
+
+워크플로는 두 러너에서 돈다(2026-10-13, #561).
+
+| 러너 | 워크플로 | 까닭 |
+|---|---|---|
+| 사내 공용 `code-linux` | `activity.yml` · `kanban.yml` | GHE API 만 부른다(`actions/github-script`). 55 의 파일·서비스를 만지지 않는다 |
+| 55 의 `[self-hosted, dt-dev]` | `review.yml` · `board-check.yml` · `prd-check.yml` | 55 의 검토 트리를 받아 8087 을 다시 띄우거나 55 에서 검사한다 |
+
+- 55 러너는 하나(v2.324.0, GHE 3.18.14 가 주는 판)이고, 잡을 마칠 때마다 다음 잡을 받기 전에 15~30초 쉰다(`_diag/Runner_*.log` 의
+  "Sleeping for … seconds before retrying"). 잡 하나가 3~8초인데 평균 42초가 들어 시간당 80~90개가 한계였고, 이슈 라벨·댓글마다 깨는
+  Activity 가 몰리면 PR 의 Review 가 1시간 넘게 queued 였다(#537). 55 서버 부하는 아니었다(CPU 98% 유휴).
+- `code-linux` 에서는 잡 5개가 5~7초 안에 서로 다른 머신에서 동시에 시작했다. `PROJECT_TOKEN`(Projects·repo 쓰기)이 공용 러너 머신에서 쓰인다.
+- GHE Server 에는 github.com 의 GitHub-hosted 러너(`ubuntu-latest`)가 없다.
+- 되돌리려면 `activity.yml`·`kanban.yml` 의 `runs-on` 을 `[self-hosted, dt-dev]` 로 바꾼다.

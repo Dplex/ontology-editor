@@ -51,3 +51,24 @@ describe('파일 목록과 검토 화면의 등급 칩', () => {
     }
   }, 120_000)
 })
+
+describe('[바로 열기] 묶음(data/.open-sets.json)', () => {
+  it('파일이 다 있는 묶음만 내고, data/ 밖·없는 파일·틀린 모양은 뺀다', async () => {
+    const { writeFileSync } = await import('node:fs')
+    const one = FILES[0].split('/').pop()!
+    const two = FILES[1].split('/').pop()!
+    writeFileSync(join(root, '.open-sets.json'), JSON.stringify([
+      { title: '둘 같이', paths: [one, two] },
+      { title: '없는 파일', paths: [one, '없다.ifc'] },
+      { title: '밖', paths: ['../x.ifc'] },
+      { title: 3, paths: [one] },
+      { title: '빈 묶음', paths: [] },
+    ]))
+    const r = await fetch(`${base}/__data/__sets`)
+    expect(await r.json()).toEqual([{ title: '둘 같이', paths: [one, two] }])
+    writeFileSync(join(root, '.open-sets.json'), '{틀린 JSON')
+    expect(await (await fetch(`${base}/__data/__sets`)).json()).toEqual([])
+    rmSync(join(root, '.open-sets.json'))
+    expect(await (await fetch(`${base}/__data/__sets`)).json()).toEqual([])
+  })
+})

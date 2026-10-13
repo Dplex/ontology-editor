@@ -73,7 +73,7 @@ describe('ADR 파일', () => {
   })
 })
 
-// 5. 개발하는 LLM 이 ADR 에서 기준·코드·시험으로 바로 가게 하는 칸(ADR-0048). 파일을 옮기거나 PM 이 기준을 지우면 여기서 걸린다.
+// 5. 개발하는 LLM 이 ADR 에서 기준·코드·시험으로 바로 가게 하는 칸(scripts/docs-ctx.mjs). 파일을 옮기거나 PM 이 기준을 지우면 여기서 걸린다.
 describe('ADR 이 가리키는 기준·코드·시험', () => {
   const criteria = new Map(readTickets(ROOT).map((t) => [t.id, new Set(t.criteria.map((c) => c.index))]))
   const byNum = new Set(adrs.map((a) => a.num))
