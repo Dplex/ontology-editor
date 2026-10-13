@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch, type Directive } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRaw, triggerRef, watch, type Directive } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
 import { countOf, isConduit, polygonArea, segmentPath, segmentRest, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
+import { labelBadges, placeLabels, type LabelBadge } from './lib/equipment-labels'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile'
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
@@ -12,6 +13,9 @@ import Src, { type SrcKind } from './components/Src.vue'
 import FlowBasis from './components/FlowBasis.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import ReplayHud from './components/ReplayHud.vue'
+import ExportCompare from './components/ExportCompare.vue'
+import type { CompareReading } from './lib/export/compare'
+import type { CompareReply, CompareRequest } from './lib/export/compare.worker'
 import { pausedInReplay, replayArch, replayElement, replayMemo, replayOpen, useReplay } from './lib/replay-player'
 import ExitEditDialog from './components/ExitEditDialog.vue'
 import PublishDialog from './components/PublishDialog.vue'
@@ -4250,6 +4254,57 @@ function select(id: string | null) {
 
 onBeforeUnmount(() => viewer?.dispose())
 
+// --- 온톨로지 챗의 답을 이 3D 에서 보기 (R4, ADR-0063) ---
+// 55 의 챗봇 창(scripts/docs-chat.js, dist 에 끼워 넣는 부속)이 [온톨로지] 답의 `ex:…` id 를 여기에 넘긴다. 열어 둔 BIM 에 그 id 가
+// 있으면 고르고 그 자리로 시점을 옮기고, 무엇을 했는지 돌려준다(창이 "3D 동작" 칩으로 적는다). 브라우저 안에서만 오가고 서버로는
+// 아무것도 보내지 않는다 — 앱 상태를 서버에 넘기지 않는다는 ADR-0050 그대로다. 열어 둔 BIM 에 없는 id 는 세기만 한다.
+type Editor3dResult = { equipment: number; spaces: number; storeys: number; missing: number; label: string }
+function showFromChat(ids: readonly string[]): Editor3dResult {
+  const m = model.value
+  const out: Editor3dResult = { equipment: 0, spaces: 0, storeys: 0, missing: 0, label: '' }
+  if (!m) return { ...out, missing: ids.length, label: '편집 화면에 연 BIM 이 없습니다' }
+  const eq: string[] = []
+  const sp: { id: string; storey: string }[] = []
+  const st: string[] = []
+  for (const id of new Set(ids)) {
+    if (equipmentById.value.has(id)) eq.push(id)
+    else {
+      const home = m.storeys.find((s) => s.spaces.some((x) => x.id === id))
+      if (home) sp.push({ id, storey: home.id })
+      else if (m.storeys.some((s) => s.id === id)) st.push(id)
+      else out.missing++
+    }
+  }
+  out.equipment = eq.length
+  out.spaces = sp.length
+  out.storeys = st.length
+  if (eq.length) {
+    // 설비가 있으면 설비가 답의 대상이다. 한 대면 고르고(층을 따라간다), 여럿이면 첫 대를 고르고 모두가 들어오게 본다.
+    select(eq[0])
+    if (eq.length > 1) {
+      const home = storeyOf(eq[0])?.id
+      if (viewStorey.value && eq.some((id) => storeyOf(id)?.id !== home)) viewStorey.value = null
+      nextTick(() => viewer?.frame(eq, 0.5))
+    }
+  } else if (sp.length) {
+    if (viewStorey.value && !multiView.value) viewStorey.value = sp[0].storey
+    pickSpace(sp[0].id)
+    nextTick(() => {
+      viewer?.pulseSpaces(sp.map((x) => x.id))
+      viewer?.frameSpace(sp[0].id)
+    })
+  } else if (st.length) {
+    viewStorey.value = st[0]
+  }
+  const parts = [eq.length && `설비 ${eq.length}`, sp.length && `물리존 ${sp.length}`, st.length && `층 ${st.length}`].filter(Boolean)
+  out.label = parts.length
+    ? `${parts.join(' · ')} — ${eq.length ? `${shortName(equipmentById.value.get(eq[0])?.name)}${josa(shortName(equipmentById.value.get(eq[0])?.name), "을/를")} 골라` : sp.length ? '물리존을 골라' : '층을 바꿔'} 그 자리로 옮겼습니다${out.missing ? ` (이 화면의 BIM 에 없는 id ${out.missing})` : ''}`
+    : `이 화면에 연 BIM 에는 답의 대상이 없습니다${ids.length ? ` (id ${ids.length})` : ''}`
+  return out
+}
+;(window as unknown as { __editor3d?: { show: typeof showFromChat } }).__editor3d = { show: showFromChat }
+onBeforeUnmount(() => delete (window as unknown as { __editor3d?: unknown }).__editor3d)
+
 // 3D 와 고른 설비 패널을 같이 전체 화면으로 띄운다. 3D 만 띄우면 설비를 눌러도 무엇을 골랐는지 안 보인다.
 // Esc 로 나가는 것은 브라우저가 하므로, 상태는 버튼이 아니라 fullscreenchange 로 따라간다.
 const stage = ref<HTMLElement | null>(null)
@@ -4671,6 +4726,67 @@ watch(viewStorey, () => (ceilingMode.value ? viewer?.topView() : viewer?.frameAl
 // 3D 와 같은 상태(viewStorey, selectedId)를 쓴다. 꼭짓점 끌기는 3D 에서 놓는 것과 같은 길(dropVertex — 자기 교차
 // 막기, cm 로 자르기, 되돌리기 이력)을 탄다.
 const activeTab = ref<'3d' | 'plan'>('3d')
+
+// --- 3D 위 설비 라벨 (V4, lib/equipment-labels.ts) ---
+// 층 하나를 3D 로 볼 때만 띄운다(여러 층이면 겹쳐 읽을 수 없다). 덕트·배관 구간·이음쇠는 빼고 기기만이다. 시점이 바뀔 때마다
+// (viewer.viewVersion) 자리를 다시 재서, 고른 것·화면 가운데에 가까운 것부터 겹치지 않는 만큼만(LABEL_MAX) 둔다.
+const showLabels = ref(false)
+const LABEL_MAX = 40
+const labelStorey = computed(() => (activeTab.value === '3d' && !multiView.value && viewStorey.value ? (model.value?.storeys.find((s) => s.id === viewStorey.value) ?? null) : null))
+const equipmentLabels = shallowRef<{ id: string; x: number; y: number; name: string; badges: LabelBadge[] }[]>([])
+let labelLoop = 0
+let labelSeen = ''
+function measureLabels() {
+  const st = labelStorey.value
+  const wrap = canvas.value?.parentElement
+  if (!showLabels.value || !st || !viewer || !wrap || replayOpen.value) {
+    if (equipmentLabels.value.length) equipmentLabels.value = []
+    labelLoop = 0
+    return
+  }
+  const seen = `${viewer.viewVersion()}|${st.id}|${selectedId.value}|${sceneVersion.value}`
+  if (seen !== labelSeen) {
+    labelSeen = seen
+    const items = st.equipment.filter((e) => e.position && !isConduit(e.role))
+    const at = viewer.screenOf(items.map((e) => e.id))
+    const r = wrap.getBoundingClientRect()
+    const names = items.map((e) => shortName(e.name))
+    const candidates = items.flatMap((e, i) => {
+      const p = at[i]
+      // 라벨 폭은 글자 수로 어림한다(이름 + 배지 둘). 재서 놓으면 한 번 그려야 해서 화면이 한 박자 늦는다.
+      const seenSize = labelSize.get(e.id)
+      return p ? [{ id: e.id, x: p.x - r.left, y: p.y - r.top, w: seenSize?.w ?? Math.min(names[i].length, 22) * 8 + 140, h: seenSize?.h ?? 24, first: e.id === selectedId.value }] : []
+    })
+    const placed = placeLabels(candidates, { x: r.width / 2, y: r.height / 2 }, LABEL_MAX)
+    const byId = new Map(items.map((e, i) => [e.id, { e, name: names[i] }]))
+    equipmentLabels.value = placed.map((l) => {
+      const { e, name } = byId.get(l.id)!
+      const b = labelBadges(e)
+      return { id: l.id, x: l.x, y: l.y, name, badges: [b.space, b.kind] }
+    })
+    // 처음 그린 라벨의 실제 크기를 재 둔다(어림한 폭으로 놓였다). 다르면 다음 프레임에 다시 놓는다. 이미 잰 라벨은 다시 재지 않는다 —
+    // 끌어 돌리는 동안 프레임마다 재면 레이아웃을 강제해 성수 3F 에서 p95 프레임 간격이 16.7 → 33.3ms 가 됐다.
+    if (equipmentLabels.value.some((l) => !labelSize.has(l.id)))
+      nextTick(() => {
+        let changed = false
+        for (const el of wrap.querySelectorAll<HTMLElement>('.eq-label')) {
+          const id = el.dataset.id!
+          if (labelSize.has(id)) continue
+          labelSize.set(id, { w: el.offsetWidth + 6, h: el.offsetHeight + 4 })
+          changed = true
+        }
+        if (changed) labelSeen = ''
+      })
+  }
+  labelLoop = requestAnimationFrame(measureLabels)
+}
+/** 라벨 id → 그려 잰 크기(px, 여백 포함). 이름·배지가 같으면 크기도 같아 한 번 재면 된다. */
+const labelSize = new Map<string, { w: number; h: number }>()
+watch([showLabels, labelStorey, replayOpen], () => {
+  labelSeen = ''
+  if (!labelLoop) labelLoop = requestAnimationFrame(measureLabels)
+})
+onBeforeUnmount(() => cancelAnimationFrame(labelLoop))
 // 편집 리플레이(PoC). 진행은 lib/replay-player.ts 가 하고, 여기서는 빌려줄 것만 넘긴다. 쓰는 것이 다 선언된 뒤라 여기서 부른다.
 const replay = useReplay({
   get viewer() {
@@ -6567,6 +6683,93 @@ const selectedElementId = ref<string | null>(null)
 watch([selectedId, selectedSpaceId, selectedRoomId, selectedObjectId, selectedElementId, selectedCustomZoneId, selectedSystemId], (now) => {
   if (now.some((x) => x)) selectedVerticalId.value = null
 })
+
+// --- 내보낸 결과와 나란히 보기(ADR-0061) ---
+// [결과 비교] 를 켜면 3D 오른쪽에 지금 모델을 내보낸 TTL·층 GeoJSON 을 받는 쪽처럼 다시 읽은 판(ExportCompare.vue)이 뜬다. 고르기는 id 하나로
+// 양쪽이 같고, 판의 평면은 3D 시점을 따라간다. 쓰고 읽기는 워커에서 하고(성수), 편집이 멈추고 잠시 뒤에 한 번 다시 한다.
+const compareOpen = ref(false)
+const compareReading = shallowRef<CompareReading | null>(null)
+const comparePending = ref(false)
+const compareError = ref('')
+const compareView = shallowRef<{ target: Vec2; halfWidth: number } | null>(null)
+let compareWorker: Worker | null = null
+let compareSeq = 0
+let compareTimer: number | undefined
+function requestCompare() {
+  const m = model.value
+  if (!m || !compareOpen.value) return
+  comparePending.value = true
+  compareWorker ??= new Worker(new URL('./lib/export/compare.worker.ts', import.meta.url), { type: 'module' })
+  compareWorker.onmessage = (e: MessageEvent<CompareReply>) => {
+    if (e.data.seq !== compareSeq) return
+    comparePending.value = false
+    if ('error' in e.data) compareError.value = `내보내지 못했습니다: ${e.data.error}`
+    else {
+      compareError.value = ''
+      compareReading.value = e.data.reading
+    }
+  }
+  try {
+    compareWorker.postMessage({ seq: ++compareSeq, model: toRaw(m) } satisfies CompareRequest)
+  } catch (err) {
+    comparePending.value = false
+    compareError.value = err instanceof Error ? err.message : String(err)
+  }
+}
+watch(model, () => {
+  if (!compareOpen.value) return
+  // 끌기·방향키는 편집이 이어진다. 멈춘 뒤 한 번만 다시 쓴다.
+  comparePending.value = true
+  window.clearTimeout(compareTimer)
+  compareTimer = window.setTimeout(requestCompare, 500)
+})
+watch(baseline, () => (compareReading.value = null))
+watch(compareOpen, (open) => {
+  if (open) {
+    requestCompare()
+    viewer?.onView((v) => (compareView.value = v))
+  } else {
+    viewer?.onView(null)
+    compareView.value = null
+    compareWorker?.terminate()
+    compareWorker = null
+    window.clearTimeout(compareTimer)
+    comparePending.value = false
+  }
+})
+// 리플레이(극장)·평면도에서는 판을 접는다. 켜 둔 것은 그대로라 3D 로 돌아오면 다시 뜬다.
+const compareShown = computed(() => compareOpen.value && activeTab.value === '3d' && !replayOpen.value && !!model.value)
+onBeforeUnmount(() => compareWorker?.terminate())
+/** 판이 칠할 id. 3D 에서 고른 것 하나(설비·물리존·룸·벽·문·창·존·오브젝트·수직 관통 조각). */
+const compareSelected = computed(
+  () => selectedId.value ?? selectedVerticalId.value ?? selectedRoomId.value ?? selectedSpaceId.value ?? selectedElementId.value ?? selectedCustomZoneId.value ?? selectedObjectId.value ?? null,
+)
+/** 판에서 고른 것을 3D 에서도 고른다. 종류를 모르면(관계 목록의 이름) 모델에서 찾는다. */
+function selectFromCompare(id: string, kind: string) {
+  const m = model.value
+  if (!m) return
+  const k = kind || (equipmentById.value.has(id) ? 'equipment' : '')
+  if (k === 'equipment') return select(id)
+  if (k === 'wall' || k === 'door' || k === 'window' || (!k && m.storeys.some((s) => s.walls.some((w) => w.id === id) || s.openings.some((o) => o.id === id)))) {
+    archMode.value = true
+    selectedId.value = null
+    selectedSpaceId.value = null
+    selectedElementId.value = id
+    return
+  }
+  if (k === 'customZone') {
+    selectedCustomZoneId.value = id
+    return
+  }
+  if (k === 'spaceObject') {
+    selectedObjectId.value = id
+    return
+  }
+  // 물리존·룸·수직 관통 조각은 바닥 누르기와 같은 길이다(pickSpace 가 가른다). 3D 가 그 방을 비춘다.
+  pickSpace(id)
+  viewer?.frameSpace(id)
+}
+
 // 여러 개 고르기(OE-UI-09): 다른 것을 고르거나 편집을 끝내면 묶음을 푼다. 지운 설비는 묶음에서 빠진다. 고른 것들이 다 선언된 뒤라 여기 둔다.
 // 다른 것을 고르면 룸은 풀린다(패널은 하나만).
 watch([selectedId, selectedSpaceId, selectedElementId, selectedCustomZoneId, selectedSystemId], (now) => {
@@ -9744,6 +9947,21 @@ function rollbackFromReport() {
               <button v-if="model && model.storeys.length > 1" type="button" class="ghost" title="다중층 뷰를 열어 층간 배관(라이저)을 그립니다" @click="openMultiView()">라이저</button>
               </template>
             </nav>
+            <!-- 설비 라벨(V4, lib/equipment-labels.ts). 점 위에 이름과 소속·종류 배지, 아래로 짧은 지시선. 누르면 그 설비를 고른다. -->
+            <div v-if="equipmentLabels.length" class="eq-labels" data-testid="eq-labels">
+              <button
+                v-for="l in equipmentLabels"
+                :key="l.id"
+                type="button"
+                :class="['eq-label', { chosen: l.id === selectedId }]"
+                :style="{ left: `${l.x}px`, top: `${l.y}px` }"
+                :data-id="l.id"
+                @click="select(l.id)"
+              >
+                <span class="eq-label-name">{{ l.name }}</span>
+                <span v-for="b in l.badges" :key="b.text" :class="['eq-badge', b.tone]" :title="b.title">{{ b.text }}</span>
+              </button>
+            </div>
             <!-- 시점 조작 안내(OE-OBJ-15). 지도처럼 왼쪽 드래그가 화면 이동이다. 편집 모드의 Ctrl+드래그는 여러 개 고르기다(OE-UI-09). -->
             <!-- 다중층 뷰에서는 위쪽에 보기 범위 칸이 길게 들어와 이 안내를 덮는다. 다중층 뷰는 보기만 하니 뺀다. -->
             <p v-if="activeTab === '3d' && !multiView" class="view-controls-hint" aria-label="시점 조작 안내">
@@ -9779,6 +9997,30 @@ function rollbackFromReport() {
                 @click="showZones = !showZones"
               >
                 공조존
+              </button>
+              <!-- 설비 라벨(V4). 층 하나를 볼 때 설비마다 이름과 소속·종류 출처 배지를 3D 위에 띄운다. -->
+              <button
+                v-if="activeTab === '3d'"
+                type="button"
+                :class="['ghost', 'labels-toggle', { on: showLabels }]"
+                :aria-pressed="showLabels"
+                :disabled="!labelStorey"
+                :title="labelStorey ? '설비마다 이름과 소속·종류 출처를 3D 위에 띄웁니다' : '층 하나를 고르면 설비 라벨을 띄웁니다'"
+                @click="showLabels = !showLabels"
+              >
+                라벨
+              </button>
+              <!-- 내보낸 결과와 나란히 보기(ADR-0061). 3D 오른쪽에 받는 쪽이 읽는 TTL·GeoJSON 판을 띄운다. -->
+              <button
+                v-if="activeTab === '3d'"
+                type="button"
+                :class="['ghost', { on: compareOpen }]"
+                :aria-pressed="compareOpen"
+                data-testid="compare-toggle"
+                title="3D 오른쪽에 지금 모델을 내보낸 TTL·GeoJSON 을 받는 쪽처럼 읽어 나란히 봅니다. 고르면 양쪽이 같은 것을 짚습니다"
+                @click="compareOpen = !compareOpen"
+              >
+                결과 비교
               </button>
               <div class="tabs" role="group" aria-label="보기">
                 <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
@@ -9904,6 +10146,17 @@ function rollbackFromReport() {
                   : '설비·배관을 클릭하면 연결된 것이 색으로 표시됩니다. 바닥을 누르면 그 방이 뜹니다. 계통은 오른쪽 범례에서 고르세요.'
             }}
           </p>
+          <ExportCompare
+            v-if="compareShown"
+            :reading="compareReading"
+            :pending="comparePending"
+            :error="compareError"
+            :storey-id="multiView ? null : viewStorey"
+            :selected-id="compareSelected"
+            :view="compareView"
+            @select="selectFromCompare"
+            @close="compareOpen = false"
+          />
         </section>
 
         <!-- 편집 리플레이 동안(극장이 창을 덮는다) 아래 패널은 다시 그리지 않는다(replayMemo). 닫으면 그때 상태로 한 번 그린다. -->

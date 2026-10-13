@@ -864,11 +864,87 @@ th {
   height: 100%;
 }
 
+/* 3D 위 설비 라벨(V4). 점(left·top) 위쪽에 놓이고 아래로 짧은 지시선이 점까지 내려온다. 라벨 바깥은 3D 를 그대로 누른다. */
+.eq-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.eq-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 20rem;
+  padding: 0.12rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  transform: translate(-50%, calc(-100% - 14px));
+  pointer-events: auto;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+
+.eq-label::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1px;
+  height: 14px;
+  background: var(--muted);
+}
+
+.eq-label.chosen {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.eq-label-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.eq-badge {
+  flex: none;
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+}
+
+.eq-badge.ok {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.eq-badge.warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.eq-badge.muted {
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+  color: var(--muted);
+}
+
+/* 결과 비교 판(ADR-0061)을 열면 3D 칸이 좁아져 시점 조작 안내가 시점 막대 밑에 깔린다. 판이 있는 동안은 뺀다. */
+.viewport:has(.export-compare) .view-controls-hint {
+  display: none;
+}
+
 /* 범례가 3D 오른쪽에 붙어 있으니, 버튼은 3D 칸 안의 오른쪽 위에 둔다. */
-/* 시점 조작 안내(OE-OBJ-15). 위쪽 가운데 작은 글자. 누르는 것이 없어 3D 조작을 막지 않는다. */
+/* 시점 조작 안내(OE-OBJ-15). 위쪽 가운데 작은 글자, 시점 막대(view-tools) 아래 줄 — 막대에 단추가 늘면 같은 줄에서 덮였다. 누르는 것이 없어 3D 조작을 막지 않는다. */
 .view-controls-hint {
   position: absolute;
-  top: 0.9rem;
+  top: 3.1rem;
   left: 50%;
   transform: translateX(-50%);
   max-width: 40%;
