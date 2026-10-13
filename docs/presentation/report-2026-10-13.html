@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<title>온톨로지 구축 자동화 플랫폼(PRD_011) — 현황 보고 초안 2026-10-08</title>
+<title>온톨로지 구축 자동화 플랫폼(PRD_011) — 현황 보고 초안 2026-10-13</title>
 <style>
   :root{
     --ink:#1d2433; --sub:#5b6577; --line:#e3e7ee; --bg:#f4f6fa; --card:#fff;
@@ -37,7 +37,7 @@
   body.notes .note{display:block}
   .legend{display:flex;gap:16px;font-size:13px;color:var(--sub);flex-wrap:wrap}
   .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:5px;vertical-align:-1px}
-  .c-done{background:var(--done)} .c-review{background:var(--review)} .c-todo{background:var(--todo)} .c-prd{background:var(--prd)} .c-mod{background:var(--mod)}
+  .c-done{background:var(--done)} .c-review{background:var(--review)} .c-todo{background:var(--todo)} .c-prd{background:var(--prd)} .c-mod{background:var(--mod)} .c-r2{background:#8b96aa}
   /* flow */
   .flow{display:flex;align-items:stretch;gap:0}
   .node{background:#fff;border:2px solid var(--brand);border-radius:12px;padding:12px 14px;font-size:14px;line-height:1.4;text-align:center}
@@ -70,7 +70,7 @@
     <p style="font-size:20px;color:#d6e3fb;margin-top:18px">① 기능 요구사항 &nbsp;·&nbsp; ② 구현 현황 &nbsp;·&nbsp; ③ 진행 방식과 로드맵</p>
   </div>
   <div style="position:absolute;left:80px;bottom:60px;font-size:15px;color:#c3d5f7">
-    2026-10-08 기준 &nbsp;|&nbsp; 기획 김민주 · 개발 정희록 &nbsp;|&nbsp; 숫자 출처: <code style="color:#fff">docs/prd/</code> 티켓 250건 · 사내 GitHub 칸반 · git 이력(main <code style="color:#fff">3262ce7</code>)
+    2026-10-13 기준 (10/8 보고 갱신) &nbsp;|&nbsp; 기획 김민주 · 개발 정희록 &nbsp;|&nbsp; 숫자 출처: <code style="color:#fff">docs/prd/</code> 티켓 251건 · 사내 GitHub 이슈·PR · git 이력(main <code style="color:#fff">94a3239</code>)
   </div>
 </section>
 
@@ -78,17 +78,17 @@
 <section class="slide">
   <div class="kicker">SUMMARY</div>
   <h2>한 장 요약</h2>
-  <p class="lead">BIM 을 넣으면 DT 온톨로지 골격이 나오는 데까지는 실제 고객사 BIM(성수)으로 돌아갑니다. 남은 큰 덩어리는 공조존(IDF)과 운영 편집의 반영 흐름입니다.</p>
+  <p class="lead">BIM 을 넣으면 DT 온톨로지 골격이 나오는 데까지는 실제 고객사 BIM(성수)으로 돌아갑니다. 10/8 이후 편집 워크플로우(저장·반영·버전)와 다중층 편집이 들어갔고, IDF 자동 구축은 R2 로 분리했습니다.</p>
   <div class="row" style="gap:16px">
     <div class="card" style="flex:1">
-      <div class="muted small">대표 기능 10개 중</div>
-      <div class="big" style="color:var(--done)">5<span style="font-size:24px;color:var(--sub)"> / 10 동작</span></div>
-      <p style="margin-top:8px">부분 3 · 미착수 2<br>(IDF 공조존, 편집 반영 흐름)</p>
+      <div class="muted small">대표 기능 10개 중 <span class="small">(10/8: 5개)</span></div>
+      <div class="big" style="color:var(--done)">8<span style="font-size:24px;color:var(--sub)"> / 10 동작</span></div>
+      <p style="margin-top:8px">부분 2 · 미착수 0<br>(IDF 공조존은 R2 · 편집 워크플로우는 PRD 재검토 중)</p>
     </div>
     <div class="card" style="flex:1">
-      <div class="muted small">PRD 티켓 250건 중 구현</div>
-      <div class="big" style="color:var(--review)">79<span style="font-size:24px;color:var(--sub)">건 · 32%</span></div>
-      <p style="margin-top:8px">완료 45 + 검토 중 34<br>개발 대기 65 · 기획 중 106</p>
+      <div class="muted small">PRD 티켓 251건 중 구현 <span class="small">(10/8: 79건)</span></div>
+      <div class="big" style="color:var(--review)">116<span style="font-size:24px;color:var(--sub)">건 · 46%</span></div>
+      <p style="margin-top:8px">칸반 완료 111 + 진행·검토 5 · 개발 대기 58<br>기획 중 47 · R2 30 (코드가 merge 된 것까지 171건 · 68%)</p>
     </div>
     <div class="card" style="flex:1">
       <div class="muted small">실제 BIM 검증 — 성수(고객사)</div>
@@ -96,32 +96,32 @@
       <p style="margin-top:8px">설비 소속 판정(등급 2). 통과선 85%<br>19층 · 물리존 508 · 기기 4,911</p>
     </div>
     <div class="card" style="flex:1">
-      <div class="muted small">요구사항을 고친 횟수 (티켓 250건)</div>
-      <div class="big" style="color:var(--todo)">635<span style="font-size:24px;color:var(--sub)">회</span></div>
-      <p style="margin-top:8px">247건이 1회 이상 · 티켓당 평균 2.5회<br>(10/2~10/7, 요구사항·수용 기준 문구)</p>
+      <div class="muted small">요구사항을 고친 횟수 (티켓 251건) <span class="small">(10/8: 635회)</span></div>
+      <div class="big" style="color:var(--todo)">1,535<span style="font-size:24px;color:var(--sub)">회</span></div>
+      <p style="margin-top:8px">248건이 1회 이상 · 티켓당 평균 6.1회<br>(10/2~10/13, 요구사항·수용 기준 문구)</p>
     </div>
   </div>
   <div class="card" style="margin-top:18px;display:flex;gap:24px;align-items:center">
     <span class="tag">결정 필요</span>
     <div style="font-size:15px;line-height:1.6">
-      <b>D1</b> BIM 수용 기준선(게이트 등급 3) 컨펌 &nbsp;·&nbsp;
-      <b>D-INT</b> DT 와 데이터 주고받는 방식(파일 / API / 공유 DB) — 편집 반영 흐름 42건이 이것을 기다림 &nbsp;·&nbsp;
+      <b>D1</b> BIM 수용 기준선(게이트 등급 0~3 · 목표선 4) 컨펌 — 10/8 재오픈 &nbsp;·&nbsp;
+      <b>D-INT</b> DT 와 데이터 주고받는 방식(파일 / API / 공유 DB) — 지금은 ① 파일 전제로 저장·반영·버전까지 구현, ②·③ 이면 서버 신설 &nbsp;·&nbsp;
       <b>R1 일정</b> 승인(개발 10/31 · 통합 검증 11/2~13 · R2 11/14~)
     </div>
   </div>
   <div class="foot"><span>요약</span><span class="pg"></span></div>
-  <div class="note">말할 것: "BIM 으로 어디까지 되나"의 답은 실측으로 나왔다(성수 등급 2 통과). 도구는 그 답을 재는 수단이고, 지금 막힌 것은 기술이 아니라 결정(D1, D-INT)이다.</div>
+  <div class="note">말할 것: "BIM 으로 어디까지 되나"의 답은 실측으로 나왔다(성수 등급 2 통과). 10/8 이후 막혀 있던 편집 워크플로우가 ① 파일 전제로 구현됐고, 지금 남은 것은 기획 재검토(화면 흐름)와 결정(D1, D-INT)이다. 116건은 칸반 완료 111 + 진행·검토 5 (10/8 과 같은 방식). 다만 개발 대기 58건 중 28건, 기획 중 47건 중 27건에도 PR 이 이미 merge 돼 있어(카드를 아직 안 옮김) 코드 기준으론 171건(68%).</div>
 </section>
 
 <!-- ============ 3. 무엇을 하나 ============ -->
 <section class="slide">
   <div class="kicker">① 기능 요구사항</div>
-  <h2>무엇을 하는 도구인가 — 입력 3갈래, 출력 4형식, 소비 5곳</h2>
+  <h2>무엇을 하는 도구인가 — 입력 3갈래, 출력 5형식, 소비 5곳</h2>
   <p class="lead">Unity DT 밖의 별도 웹 에디터(Three.js). 브라우저 안에서만 돌고, 결과는 DT 가 읽는 파일로 냅니다.</p>
   <div class="flow" style="margin-top:6px">
     <div class="col" style="width:210px;gap:10px">
       <div class="node"><b>BIM (IFC)</b>건축 + 설비(MEP)<br><span class="small muted">IFC2x3·IFC4 모두</span></div>
-      <div class="node"><b>IDF</b>공조존 · 담당 설비<br><span class="small muted">에너지 시뮬레이션 파일</span></div>
+      <div class="node" style="border-style:dashed;border-color:#8b96aa;color:#5b6577"><b>IDF <span class="tag" style="background:#eceff4;color:#5b6577">R2</span></b>공조존 · 담당 설비<br><span class="small muted">에너지 시뮬레이션 파일<br>R1 은 공조존을 수동으로</span></div>
       <div class="node"><b>수동</b>스캔·평면도 위에 그리기<br><span class="small muted">BIM 이 없을 때</span></div>
     </div>
     <div class="arrow">➜</div>
@@ -139,7 +139,7 @@
     <div class="col" style="width:200px;gap:8px;justify-content:center">
       <div class="node" style="border-color:var(--done);padding:9px 12px"><b>GeoJSON</b>기하<br><span class="small muted">방 외곽선·벽·문·설비 좌표</span></div>
       <div class="node" style="border-color:var(--done);padding:9px 12px"><b>Brick TTL</b>의미<br><span class="small muted">계층·소속·연결 (술어 4종)</span></div>
-      <div class="node" style="border-color:var(--review);padding:9px 12px"><b>GLB · OBJ</b>3D 형상<br><span class="small muted">DT·뷰어에 그대로 보여 주기용</span></div>
+      <div class="node" style="border-color:var(--review);padding:9px 12px"><b>GLB · OBJ · FBX</b>3D 형상<br><span class="small muted">DT·뷰어에 그대로 보여 주기용</span></div>
       <div class="small muted" style="text-align:center">셋 다 IfcGlobalId 하나로 이어짐</div>
     </div>
     <div class="arrow">➜</div>
@@ -155,7 +155,7 @@
     <b>왜 필요한가</b> — 기존 SR 온톨로지(<code>Zone 4,016 · 실내기 3,028</code>)에는 <b>좌표가 하나도 없다</b>. 이 도구가 그 빠진 절반(기하)을 만들고, 리모델링 때 3D·공간 계층·설비 소속·관제 화면이 서로 어긋나지 않게 한 번에 고친다.
   </div>
   <div class="foot"><span>PRD_011 1.1 · 1.7 / intent.md</span><span class="pg"></span></div>
-  <div class="note">GeoJSON 과 TTL 을 나눈 이유: 다각형을 TTL 에 넣으면 "이 방이 저 공조존과 겹치나"를 계산할 수 없다. 그래서 기하와 의미를 따로 내고 id 로 잇는다. DT 파서(ttl.go)로 실제로 읽히는지 테스트가 확인한다. GLB·OBJ 는 보여 주기용 셋째 출력이라 두 파일을 대신하지 않고, 객체 이름이 같은 GlobalId 다.</div>
+  <div class="note">GeoJSON 과 TTL 을 나눈 이유: 다각형을 TTL 에 넣으면 "이 방이 저 공조존과 겹치나"를 계산할 수 없다. 그래서 기하와 의미를 따로 내고 id 로 잇는다. DT 파서(ttl.go)로 실제로 읽히는지 테스트가 확인한다. GLB·OBJ·FBX 는 보여 주기용 셋째 출력이라 두 파일을 대신하지 않고, 객체 이름이 같은 GlobalId 다. FBX 는 10/13 에 들어왔고(서버의 Blender 가 GLB 를 변환), DT 가 어떤 형식을 쓸지는 D11 이 아직 열려 있다. IDF 입력은 10/8 에 R2(Phase 2)로 분리했다.</div>
 </section>
 
 <!-- ============ 4. 누구에게 무엇을 ============ -->
@@ -166,9 +166,9 @@
   <div class="row" style="gap:14px">
     <div class="col" style="flex:1">
       <div class="small" style="font-weight:700;color:var(--brand)">만드는 쪽 — 에디터를 직접 씀</div>
-      <div class="card"><h3>🏗️ 구축 담당자 <span class="tag">삼성·협력사</span></h3><p>BIM·IDF·수동으로 사이트의 <b>첫 온톨로지</b>(방·공조존·설비·배관)를 만들어 DT 에 등록</p></div>
+      <div class="card"><h3>🏗️ 구축 담당자 <span class="tag">삼성·협력사</span></h3><p>BIM·수동으로 사이트의 <b>첫 온톨로지</b>(방·공조존·설비·배관)를 만들어 DT 에 등록 (IDF 자동 구축은 R2)</p></div>
       <div class="card"><h3>🛠️ 고객사 관리자</h3><p>리모델링·벽 변경·설비 재배치를 <b>직접 편집</b>하고, 반영 전에 미리보기로 영향을 확인</p></div>
-      <div class="card"><h3>📐 고객사 BIM 담당·설계사</h3><p>요구사항 R0~R24 · IDS 파일로 <b>스스로 검사</b>한 BIM 을 제출하고, 등급·재제출 항목 리포트를 받음</p></div>
+      <div class="card"><h3>📐 고객사 BIM 담당·설계사</h3><p>요구사항 R0~R26 · IDS 파일로 <b>스스로 검사</b>한 BIM 을 제출하고, 등급·재제출 항목 리포트를 받음</p></div>
     </div>
     <div class="col" style="flex:1">
       <div class="small" style="font-weight:700;color:var(--done)">쓰는 쪽 — 결과(온톨로지)를 소비</div>
@@ -216,11 +216,11 @@
     <path class="l" d="M325,255 L385,255"/><text class="lb" x="338" y="246">없음</text>
     <polygon class="d" points="455,205 525,255 455,305 385,255"/><text class="t" x="455" y="250">BIM</text><text class="t" x="455" y="268">있나?</text>
     <path class="l" d="M525,255 L575,255"/><text class="lb" x="532" y="246">있음</text>
-    <polygon class="d" points="650,200 725,255 650,310 575,255"/><text class="t" x="650" y="250">등급 판정</text><text class="t" x="650" y="268">≥ 3 ?</text>
+    <polygon class="d" points="650,200 725,255 650,310 575,255"/><text class="t" x="650" y="250">게이트</text><text class="t" x="650" y="268">등급 0~3 ?</text>
     <path class="l" d="M650,310 L650,350"/><text class="lb" x="658" y="335">미달</text>
-    <rect class="r" x="560" y="350" width="180" height="56" rx="10"/><text class="tb" x="650" y="374">재제출 리포트</text><text class="t" x="650" y="394">[생성] 버튼 잠김</text>
+    <rect class="r" x="560" y="350" width="180" height="56" rx="10"/><text class="tb" x="650" y="374">재제출 리포트</text><text class="t" x="650" y="394">[구축하기] 잠김</text>
     <path class="l" d="M725,255 L775,255"/><text class="lb" x="732" y="246">통과</text>
-    <rect class="b" x="775" y="215" width="170" height="80" rx="10"/><text class="tb" x="860" y="243">자동 생성</text><text class="t" x="860" y="263">방·벽·설비·계통·소속</text><text class="t" x="860" y="281">+ IDF 있으면 공조존</text>
+    <rect class="b" x="775" y="215" width="170" height="80" rx="10"/><text class="tb" x="860" y="243">자동 생성</text><text class="t" x="860" y="263">방·벽·설비·계통·소속</text><text class="t" x="860" y="281">공조존은 수동 (IDF 는 R2)</text>
     <path class="l" d="M945,255 L985,255"/>
     <rect class="b" x="985" y="215" width="165" height="80" rx="10"/><text class="tb" x="1067" y="243">검토·보정</text><text class="t" x="1067" y="263">등급·요구사항</text><text class="t" x="1067" y="281">3D 에서 사람이 고침</text>
     <path class="l" d="M1067,295 L1067,345"/>
@@ -244,22 +244,22 @@
     <text x="10" y="60" style="font-size:13px;fill:#5b6577">온톨로지가 없는 사이트 — BIM 등급으로 갈림</text>
   </svg>
   <div class="foot"><span>PRD_011 1.1 사용자 플로우 · 1.6 시작점 분기</span><span class="pg"></span></div>
-  <div class="note">BIM 이 없거나 건축만 있으면 공간 골격만 자동이고 설비는 수동. IDF 가 없으면 공조존도 공조존 도구로 수동. 등급 2 미달이면 [생성]을 막고 재제출 리포트를 낸다.</div>
+  <div class="note">BIM 이 없거나 건축만 있으면 공간 골격만 자동이고 설비는 수동. R1 의 공조존은 공간 편집의 공조존 도구로 수동(IDF 자동 구축은 R2). 게이트(등급 0~3, BIM+계산 기준) 미달이면 [구축하기]를 막고 재제출 리포트를 낸다 — 사람이 에디터로 보정해 필수 검증을 통과하면 생성할 수 있고, 원본이 미달이었다는 기록은 남긴다. 게이트는 D1 컨펌 대기 안이다.</div>
 </section>
 
 <!-- ============ 6. 대표 기능 10 ============ -->
 <section class="slide">
   <div class="kicker">① 기능 요구사항</div>
-  <h2>대표 기능 10개 — PRD 22개 Epic · 티켓 250건을 묶으면</h2>
+  <h2>대표 기능 10개 — PRD 22개 Epic · 티켓 251건을 묶으면</h2>
   <p class="lead">왼쪽 다섯은 "초기 구축", 오른쪽 다섯은 "운영 편집" 입니다. 괄호는 티켓 수.</p>
   <div class="row" style="gap:16px">
     <div class="col" style="flex:1;gap:10px">
       <div class="small" style="font-weight:700;color:var(--brand)">초기 구축</div>
       <div class="card" style="padding:11px 16px"><b>1. BIM 임포트·검토 화면</b> <span class="chip">25</span><p>IFC 를 읽어 층·방·벽·문·설비·계통 생성, 건축+설비 파일 합치기, 판본 비교</p></div>
-      <div class="card" style="padding:11px 16px"><b>2. BIM 요구사항·등급 판정</b> <span class="chip">7</span><p>R0~R24 보고서, 고객사용 IDS 검사 파일, 등급 0~5 칩</p></div>
-      <div class="card" style="padding:11px 16px"><b>3. IDF 공조존 임포트·조닝</b> <span class="chip">22</span><p>공조존·담당 설비, 존↔방 매칭, 공조존 수정</p></div>
+      <div class="card" style="padding:11px 16px"><b>2. BIM 요구사항·등급 판정</b> <span class="chip">7</span><p>R0~R26 보고서, 고객사용 IDS 검사 파일, 등급 0~5 칩, 위반 요소 CSV·BCF</p></div>
+      <div class="card" style="padding:11px 16px"><b>3. 공조존 조닝 · IDF 임포트</b> <span class="chip">22</span> <span class="chip" style="background:#eceff4">R2 17</span><p>R1: 공조존 수동 생성·경계 수정·검증 · R2: IDF 로 공조존·담당 설비 자동 구축</p></div>
       <div class="card" style="padding:11px 16px"><b>4. 수동 구축</b> <span class="chip">6</span><p>BIM 없는 사이트 — 배경 위에 방·설비를 그림</p></div>
-      <div class="card" style="padding:11px 16px"><b>5. 온톨로지 생성·DT 연동</b> <span class="chip">24</span><p>GeoJSON+TTL·3D(GLB) 내보내기, DT 파서 호환, 생성 리포트</p></div>
+      <div class="card" style="padding:11px 16px"><b>5. 온톨로지 생성·DT 연동</b> <span class="chip">24</span><p>GeoJSON+TTL·3D(GLB·OBJ·FBX) 내보내기, DT 파서 호환, 생성·결과 리포트</p></div>
     </div>
     <div class="col" style="flex:1;gap:10px">
       <div class="small" style="font-weight:700;color:var(--done)">운영 편집</div>
@@ -270,7 +270,7 @@
       <div class="card" style="padding:11px 16px"><b>10. 다중층·외벽·로봇</b> <span class="chip">28</span><p>층을 넘는 샤프트·계단, 외벽 에디터, 로봇 통과 속성</p></div>
     </div>
   </div>
-  <div class="small muted" style="margin-top:10px">+ 화면·조작 기반(E03 UI 14) · 확장(E21 P3 8) = 22건은 공통 기반으로 따로 셈</div>
+  <div class="small muted" style="margin-top:10px">+ 화면·조작 기반(E03 UI 15) · 확장(E21 P3 8) = 23건은 공통 기반으로 따로 셈</div>
   <div class="foot"><span>docs/prd/features — Epic ↔ 대표 기능 매핑은 이 보고서에서 묶은 것</span><span class="pg"></span></div>
 </section>
 
@@ -278,7 +278,7 @@
 <section class="slide">
   <div class="kicker">① 기능 요구사항 · 핵심 제약</div>
   <h2>BIM 등급 사다리 — 어디까지 자동이 되나</h2>
-  <p class="lead">등급이 오를수록 DT 에서 되는 것이 늘어납니다. <b>게이트(생성 허용)는 등급 3</b> — 계통·연결망까지 있어야 온톨로지를 생성합니다. D1, 그룹장 컨펌 대기.</p>
+  <p class="lead">등급이 오를수록 DT 에서 되는 것이 늘어납니다. <b>게이트(생성 허용)는 등급 0~3 을 모두 통과</b> — 계통·연결망까지 있어야 하고, 흐름 방향(4)은 목표선으로 경고만 합니다. D1, 그룹장 컨펌 대기(10/8 재오픈).</p>
   <div class="row" style="gap:22px;align-items:flex-start">
     <svg viewBox="0 0 640 420" width="470" height="308" style="font-family:inherit;flex:none">
       <style>.s{font-size:14px;fill:#1d2433}.sb{font-size:15px;font-weight:700;fill:#fff}.sm{font-size:12px;fill:#5b6577}</style>
@@ -287,11 +287,11 @@
       <rect x="60"  y="292" width="260" height="56" fill="#7f9bcb"/><text class="sb" x="72" y="316">1 설비 목록</text><text class="sb" x="72" y="336" style="font-weight:400;font-size:13px">3D 에 설비 표시</text>
       <rect x="120" y="234" width="260" height="56" fill="#5f86c4"/><text class="sb" x="132" y="258">2 설비 소속</text><text class="sb" x="132" y="278" style="font-weight:400;font-size:13px">이상 알림 발생 위치</text>
       <rect x="180" y="176" width="260" height="56" fill="#1f8a5b"/><text class="sb" x="192" y="200">3 계통·연결망 ★ 게이트</text><text class="sb" x="192" y="220" style="font-weight:400;font-size:13px">계통별 보기</text>
-      <rect x="240" y="118" width="260" height="56" fill="#5a8fe3"/><text class="sb" x="252" y="142">4 흐름 방향</text><text class="sb" x="252" y="162" style="font-weight:400;font-size:13px">공조기 → 토출구 추적</text>
+      <rect x="240" y="118" width="260" height="56" fill="#5a8fe3"/><text class="sb" x="252" y="142">4 흐름 방향 · 목표선</text><text class="sb" x="252" y="162" style="font-weight:400;font-size:13px">공조기 → 토출구 추적</text>
       <rect x="300" y="60"  width="260" height="56" fill="#a9b4c4"/><text class="sb" x="312" y="84">5 운영</text><text class="sb" x="312" y="104" style="font-weight:400;font-size:13px">공조존·관제점 (BIM 밖: IDF·BAS)</text>
       <line x1="0" y1="233" x2="640" y2="233" stroke="#1f8a5b" stroke-width="2" stroke-dasharray="6 4"/>
-      <text x="450" y="225" class="s" style="fill:#1f8a5b;font-weight:700">↑ 등급 3 이상이면 생성 허용</text>
-      <text x="0" y="40" class="sm">등급 0~2 는 BIM + 계산만으로 판정 · 3~4 는 사전·규칙 보정을 함께 표기(D12)</text>
+      <text x="440" y="225" class="s" style="fill:#1f8a5b;font-weight:700;font-size:13px">↑ 0~3 통과 시 생성 허용</text>
+      <text x="0" y="40" class="sm">게이트 0~3: BIM + 계산만으로 판정 · 사전·사람 보정은 따로 표시(D12)</text>
     </svg>
     <div class="col" style="flex:1;min-width:0">
       <table class="ladder" style="font-size:12.5px;background:#fff;border:1px solid var(--line);border-radius:10px">
@@ -300,11 +300,11 @@
         <tr><td><b style="color:var(--brand)">0+</b></td><td>방 종류, 문으로 이어진 방-방</td><td>"회의실" 검색 · 로봇 경로</td><td>방 분류 코드 · 공간 경계 (R14·R5 권장)</td></tr>
         <tr><td><b style="color:var(--brand)">1</b></td><td>설비와 좌표</td><td>3D 에 설비 표시</td><td>설비(MEP) BIM (R9·R11)</td></tr>
         <tr><td><b style="color:var(--brand)">2</b></td><td>설비가 어느 방에 있는지 (계산)</td><td>이상 알림의 발생 위치 · 탐색기의 설비</td><td>건축·설비가 같은 좌표·층 이름 (R12·R1)</td></tr>
-        <tr style="background:#e7f5ee"><td><b style="color:var(--done)">3 ★</b></td><td><b>같은 계통·배관에 이어진 설비</b></td><td><b>계통별 보기</b></td><td>계통 정보, 맞닿게 그린 설비 (R16·R15) → <b>게이트</b></td></tr>
-        <tr><td><b style="color:var(--brand)">4·4+</b></td><td>공조기 → 토출구 흐름 방향, 담당 공간</td><td>담당 설비 추적 · 상류/하류 · 계통도 담당 공간</td><td>포트 흐름 방향 (R17) 또는 사람이 확정한 규칙 방향</td></tr>
+        <tr style="background:#e7f5ee"><td><b style="color:var(--done)">3 ★</b></td><td><b>같은 계통·배관에 이어진 설비</b></td><td><b>계통별 보기</b></td><td>계통 정보, 맞닿게 그린 설비 (R16·R15, 10/8 필수로 승격) → <b>게이트</b></td></tr>
+        <tr><td><b style="color:var(--brand)">4·4+</b></td><td>공조기 → 토출구 흐름 방향, 담당 공간</td><td>담당 설비 추적 · 상류/하류 · 계통도 담당 공간</td><td>포트 흐름 방향 (R17) 또는 사람이 확정한 규칙 방향 (확정 방향 ≥ 50% 가 목표선)</td></tr>
         <tr class="muted"><td><b>5</b></td><td>공조존 · 관제점</td><td>계통도 완성 · 실시간 값</td><td>BIM 밖 — IDF · BAS</td></tr>
       </table>
-      <p class="small muted" style="margin-top:8px">게이트 = 등급 3(계통 소속 기기 ≥ 70%). 그 아래 등급 0~2(외곽선 ≥ 85% · 위치 ≥ 90% · 소속 ≥ 85%)는 함께 충족해야 함. 실제 BIM 에서 잰 값은 13장</p>
+      <p class="small muted" style="margin-top:8px">게이트 = 누적 등급 0~3: 외곽선 ≥ 85%·층 이름 100% · 배치점 ≥ 90% · 소속 ≥ 85% · 계통 소속 ≥ 60% (이전 보고 초안은 70%). 성수(BIM 만) 89 · 100 · 87.9 · 60% — 계통 소속이 기준선과 맞닿은 경계값이라 같은 산식으로 재측정이 필요(PRD 1.8)</p>
     </div>
   </div>
   <div class="foot"><span>PRD_011 1.8 · questions.md D1·D12</span><span class="pg"></span></div>
@@ -318,10 +318,11 @@
     <div class="card" style="flex:1;border-top:4px solid var(--done)">
       <h3 class="ok">범위 안</h3>
       <ul style="margin:0;padding-left:18px;font-size:14px;line-height:1.75">
-        <li>초기 구축: BIM·IDF 임포트, 수동 구축, 온톨로지 생성</li>
-        <li>운영 편집: 방·벽·문·창·커스텀존</li>
+        <li>초기 구축: BIM 임포트, 수동 구축, 온톨로지 생성</li>
+        <li>운영 편집: 방·벽·문·창·커스텀존, 공조존(수동)</li>
         <li>설비 배치·이동, <b>좌표 있는 설비만</b> 자동 배치</li>
         <li>배관: 수동 그리기, <b>좌표 있을 때만</b> 자동</li>
+        <li>다중층 뷰: 계단·샤프트·층간 배관</li>
         <li>등급 판정·요구사항 보고서·결과 리포트</li>
         <li>편집 이력·되돌리기</li>
       </ul>
@@ -331,19 +332,19 @@
       <ul style="margin:0;padding-left:18px;font-size:14px;line-height:1.75">
         <li>BIM 원본 갱신과의 충돌 처리</li>
         <li>자동 배관 라우팅(좌표 없을 때)</li>
-        <li>IDF·gbXML <b>생성</b>, IMDF 변환 (고객사 제출물)</li>
+        <li>IDF 기반 자동 구축·gbXML 임포트 (<b>R2</b>) · IDF·gbXML <b>생성</b>, IMDF 변환 (고객사 제출물)</li>
         <li>관제점 ID·실시간 값 (BAS 트랙)</li>
         <li>Unity DT 내부 개발 — 별도 Three.js 에디터</li>
       </ul>
     </div>
     <div class="card" style="flex:1;border-top:4px solid var(--todo)">
-      <h3 class="warn">열린 결정 (10건)</h3>
+      <h3 class="warn">열린 결정·이슈 (9건)</h3>
       <ul style="margin:0;padding-left:18px;font-size:14px;line-height:1.75">
         <li><b>D-INT</b> DT 데이터 교환: ① 파일 ② API ③ 공유 DB — <i>지금은 ① 전제</i></li>
-        <li><b>D1</b> 수용 기준선 (그룹장)</li>
+        <li><b>D1</b> 수용 기준선 (그룹장, 10/8 재오픈)</li>
         <li><b>D5</b> 기존 SR 온톨로지 ID 와 GUID 매핑</li>
-        <li><b>D9·D11</b> 저장 포맷 · DT 3D 형상 출력(FBX/glTF/IMDF)</li>
-        <li>Q1·Q2 잠금 서버·반영 경로 (D-INT 종속)</li>
+        <li><b>D9·D11</b> 저장 포맷 · DT 3D 형상 출력(FBX 는 구현, glTF/IMDF 미정)</li>
+        <li>Q1·Q2 잠금 서버·반영 경로 (D-INT 종속) · Q3·Q15</li>
       </ul>
     </div>
   </div>
@@ -361,75 +362,77 @@
 <!-- ============ 9. 전체 현황 ============ -->
 <section class="slide">
   <div class="kicker">② 구현 현황</div>
-  <h2>PRD 티켓 250건 — 어디까지 왔나</h2>
-  <p class="lead">칸반(사내 GitHub Projects) 상태 그대로입니다. 기획 확정 → 개발 대기 → 개발 → 검토 → 완료 순으로 흐릅니다.</p>
+  <h2>PRD 티켓 251건 — 어디까지 왔나</h2>
+  <p class="lead">칸반(사내 GitHub Projects) 상태 그대로입니다. 기획 중 → 개발 대기 → 진행·검토 → 완료 순으로 흐르고, R2 로 분리한 30건은 따로 뺐습니다.</p>
   <div class="row" style="gap:40px;align-items:center">
     <div style="position:relative;width:340px;height:340px">
       <svg viewBox="0 0 42 42" width="340" height="340" style="transform:rotate(-90deg)">
-        <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#1f8a5b" stroke-width="7" stroke-dasharray="18 82" stroke-dashoffset="0"/>
-        <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#3b7ddd" stroke-width="7" stroke-dasharray="13.6 86.4" stroke-dashoffset="-18"/>
-        <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#f0a92e" stroke-width="7" stroke-dasharray="26 74" stroke-dashoffset="-31.6"/>
-        <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#c3c9d4" stroke-width="7" stroke-dasharray="42.4 57.6" stroke-dashoffset="-57.6"/>
+        <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#1f8a5b" stroke-width="7" stroke-dasharray="44.2 55.8" stroke-dashoffset="0"/>
+        <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#3b7ddd" stroke-width="7" stroke-dasharray="2 98" stroke-dashoffset="-44.2"/>
+        <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#f0a92e" stroke-width="7" stroke-dasharray="23.1 76.9" stroke-dashoffset="-46.2"/>
+        <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#c3c9d4" stroke-width="7" stroke-dasharray="18.7 81.3" stroke-dashoffset="-69.3"/>
+        <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#8b96aa" stroke-width="7" stroke-dasharray="12 88" stroke-dashoffset="-88"/>
       </svg>
       <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
-        <div class="big">250</div><div class="muted">티켓</div>
+        <div class="big">251</div><div class="muted">티켓</div>
       </div>
     </div>
     <div class="col" style="flex:1;gap:12px">
       <table style="font-size:16px">
         <tr><th></th><th>상태</th><th style="text-align:right">건수</th><th style="text-align:right">비율</th><th>뜻</th></tr>
-        <tr><td><i class="c-done" style="display:inline-block;width:14px;height:14px;border-radius:3px"></i></td><td><b>완료</b></td><td style="text-align:right">45</td><td style="text-align:right">18%</td><td class="small muted">PR merge 됨</td></tr>
-        <tr><td><i class="c-review" style="display:inline-block;width:14px;height:14px;border-radius:3px"></i></td><td><b>검토 중</b></td><td style="text-align:right">34</td><td style="text-align:right">14%</td><td class="small muted">구현됨, 55 서버 검토판(8087)에서 확인 대기</td></tr>
-        <tr><td><i class="c-todo" style="display:inline-block;width:14px;height:14px;border-radius:3px"></i></td><td><b>개발 대기</b></td><td style="text-align:right">65</td><td style="text-align:right">26%</td><td class="small muted">기획 확정, 착수 전</td></tr>
-        <tr><td><i class="c-prd" style="display:inline-block;width:14px;height:14px;border-radius:3px"></i></td><td><b>기획 중</b></td><td style="text-align:right">106</td><td style="text-align:right">42%</td><td class="small muted">요구사항 작성·리뷰 중</td></tr>
+        <tr><td><i class="c-done" style="display:inline-block;width:14px;height:14px;border-radius:3px"></i></td><td><b>완료</b></td><td style="text-align:right">111</td><td style="text-align:right">44%</td><td class="small muted">PR merge 됨 (Done)</td></tr>
+        <tr><td><i class="c-review" style="display:inline-block;width:14px;height:14px;border-radius:3px"></i></td><td><b>진행·검토 중</b></td><td style="text-align:right">5</td><td style="text-align:right">2%</td><td class="small muted">In Progress 2 · In Review 3 (55 서버 검토판 8087 에서 확인 대기)</td></tr>
+        <tr><td><i class="c-todo" style="display:inline-block;width:14px;height:14px;border-radius:3px"></i></td><td><b>개발 대기</b></td><td style="text-align:right">58</td><td style="text-align:right">23%</td><td class="small muted">R1, 기획 확정 · 이 중 28건은 PR 이 이미 merge 됨(다중층 11 …)</td></tr>
+        <tr><td><i class="c-prd" style="display:inline-block;width:14px;height:14px;border-radius:3px"></i></td><td><b>기획 중</b></td><td style="text-align:right">47</td><td style="text-align:right">19%</td><td class="small muted">R1, 요구사항 재검토 중 (편집 워크플로우·Sync·이력 32)</td></tr>
+        <tr><td><i class="c-r2" style="display:inline-block;width:14px;height:14px;border-radius:3px"></i></td><td><b>R2</b></td><td style="text-align:right">30</td><td style="text-align:right">12%</td><td class="small muted">R2 로 분리 (IDF 자동 구축 15 · 존↔방 매칭 · 로봇 시점 뷰 …)</td></tr>
       </table>
       <div class="card" style="padding:12px 16px">
-        <div class="small muted" style="margin-bottom:6px">R1(10월) 필수(P1) 187건만 보면</div>
+        <div class="small muted" style="margin-bottom:6px">R1(10월) 필수(P1) 172건만 보면</div>
         <div class="bar" style="height:30px">
-          <span class="c-done" style="width:18.7%">35</span><span class="c-review" style="width:15.5%">29</span><span class="c-todo" style="width:25.1%">47</span><span class="c-prd" style="width:40.6%">76</span>
+          <span class="c-done" style="width:52.3%">90</span><span class="c-review" style="width:2.3%">4</span><span class="c-todo" style="width:26.7%">46</span><span class="c-prd" style="width:18.6%">32</span>
         </div>
-        <p class="small" style="margin-top:6px">R2 로 미룬 것은 16건(gbXML·로봇 시점 뷰·스냅 등)</p>
+        <p class="small" style="margin-top:6px">R2 로 분리한 것은 30건 (10/8 에 IDF 기반 자동 구축 E04 전체를 R2 로 옮김) — 카드는 PRD in progress 에 둠</p>
       </div>
     </div>
   </div>
-  <div class="foot"><span>사내 GitHub 칸반 Projects #1, 2026-10-08 조회</span><span class="pg"></span></div>
-  <div class="note">주의: "기획 중" 106건 안에도 PoC 코드가 먼저 있는 것이 있다(예: BIM 물리존 생성 OE-BIM-03). 보드는 PRD 확정 → 개발 순서를 지키므로 기획 확정 전이면 기획 중으로 센다. 실제 동작 범위는 다음 장 기능별 표가 더 정확하다.</div>
+  <div class="foot"><span>사내 GitHub 칸반 Projects #1 Status, 2026-10-13 조회 · PR 제목의 티켓 ID 로 merge 여부 대조</span><span class="pg"></span></div>
+  <div class="note">주의: 보드 카드는 PR 이 merge 돼도 안 옮겨진 것이 많다. "개발 대기" 58건 중 28건, "기획 중" 47건 중 27건에 코드가 이미 있다(다중층 뷰, 편집 워크플로우·Sync·미리보기 등 — 기획 중은 10/12 PRD 7회차에서 화면 흐름을 다시 잡으며 prd-review 로 되돌린 것). 코드가 merge 된 티켓까지 모두 세면 171건(68%) — PR 제목에 티켓 ID 가 오른 것으로 셌다. 실제 동작 범위는 다음 장 기능별 표가 더 정확하다.</div>
 </section>
 
 <!-- ============ 10. 기능별 현황 ============ -->
 <section class="slide">
   <div class="kicker">② 구현 현황</div>
-  <h2>대표 기능 10개 — 동작 5 · 부분 3 · 미착수 2</h2>
-  <div class="legend" style="margin:6px 0 14px"><span><i class="c-done"></i>완료</span><span><i class="c-review"></i>검토 중</span><span><i class="c-todo"></i>개발 대기</span><span><i class="c-prd"></i>기획 중</span></div>
+  <h2>대표 기능 10개 — 동작 8 · 부분 2 · 미착수 0</h2>
+  <div class="legend" style="margin:6px 0 14px"><span><i class="c-done"></i>완료</span><span><i class="c-review"></i>진행·검토 중</span><span><i class="c-todo"></i>개발 대기</span><span><i class="c-prd"></i>기획 중</span><span><i class="c-r2"></i>R2</span></div>
   <table style="font-size:14px">
-    <tr><th style="width:40px"></th><th style="width:230px">대표 기능</th><th>티켓 상태 (막대 길이 = 티켓 수)</th><th style="width:70px;text-align:right">구현율</th></tr>
-    <tr><td class="ok">●</td><td>1. BIM 임포트·검토 화면</td><td><div class="bar" style="width:59.5%"><span class="c-done" style="width:52%">13</span><span class="c-prd" style="width:48%">12</span></div></td><td style="text-align:right">52%</td></tr>
-    <tr><td class="ok">●</td><td>2. BIM 요구사항·등급 판정</td><td><div class="bar" style="width:16.7%"><span class="c-done" style="width:57%">4</span><span class="c-prd" style="width:43%">3</span></div></td><td style="text-align:right">57%</td></tr>
-    <tr><td class="no">○</td><td>3. IDF 공조존 임포트·조닝</td><td><div class="bar" style="width:52.4%"><span class="c-todo" style="width:100%">22 — 기획 확정, 착수 전</span></div></td><td style="text-align:right">0%</td></tr>
-    <tr><td class="warn">◐</td><td>4. 수동 구축</td><td><div class="bar" style="width:14.3%"><span class="c-done" style="width:33%">2</span><span class="c-todo" style="width:67%">4</span></div></td><td style="text-align:right">33%</td></tr>
-    <tr><td class="ok">●</td><td>5. 온톨로지 생성·DT 연동</td><td><div class="bar" style="width:57.1%"><span class="c-done" style="width:25%">6</span><span class="c-prd" style="width:75%">18</span></div></td><td style="text-align:right">25%</td></tr>
-    <tr><td class="ok">●</td><td>6. 공간 편집</td><td><div class="bar" style="width:78.6%"><span class="c-done" style="width:24%">8</span><span class="c-review" style="width:61%">20</span><span class="c-todo" style="width:15%">5</span></div></td><td style="text-align:right">85%</td></tr>
-    <tr><td class="ok">●</td><td>7. 설비 배치·소속 재매핑</td><td><div class="bar" style="width:54.8%"><span class="c-done" style="width:13%">3</span><span class="c-review" style="width:39%">9</span><span class="c-todo" style="width:48%">11</span></div></td><td style="text-align:right">52%</td></tr>
-    <tr><td class="warn">◐</td><td>8. 배관·계통 에디터</td><td><div class="bar" style="width:42.9%"><span class="c-done" style="width:11%">2</span><span class="c-review" style="width:6%">1</span><span class="c-todo" style="width:83%">15</span></div></td><td style="text-align:right">17%</td></tr>
-    <tr><td class="no">○</td><td>9. 편집 워크플로우</td><td><div class="bar" style="width:100%"><span class="c-done" style="width:2.4%"></span><span class="c-todo" style="width:4.8%"></span><span class="c-prd" style="width:92.8%">39 — 기획 중 (D-INT 결정에 종속)</span></div></td><td style="text-align:right">2%</td></tr>
-    <tr><td class="warn">◐</td><td>10. 다중층·외벽·로봇</td><td><div class="bar" style="width:66.7%"><span class="c-done" style="width:7%"></span><span class="c-review" style="width:11%">3</span><span class="c-todo" style="width:18%">5</span><span class="c-prd" style="width:64%">18</span></div></td><td style="text-align:right">18%</td></tr>
+    <tr><th style="width:40px"></th><th style="width:230px">대표 기능</th><th>티켓 상태 (막대 길이 = 티켓 수)</th><th style="width:130px;text-align:right">구현율 · 코드</th></tr>
+    <tr><td class="ok">●</td><td>1. BIM 임포트·검토 화면</td><td><div class="bar" style="width:59.5%"><span class="c-done" style="width:52.0%">13</span><span class="c-review" style="width:4.0%">1</span><span class="c-todo" style="width:40.0%">10</span><span class="c-prd" style="width:4.0%">1</span></div></td><td style="text-align:right">56% <span class="small muted">· 코드 68%</span></td></tr>
+    <tr><td class="ok">●</td><td>2. BIM 요구사항·등급 판정</td><td><div class="bar" style="width:16.7%"><span class="c-done" style="width:71.4%">5</span><span class="c-todo" style="width:28.6%">2</span></div></td><td style="text-align:right">71% <span class="small muted">· 코드 86%</span></td></tr>
+    <tr><td class="warn">◐</td><td>3. 공조존 조닝 · IDF 임포트</td><td><div class="bar" style="width:52.4%"><span class="c-done" style="width:18.2%">4</span><span class="c-review" style="width:4.5%">1</span><span class="c-r2" style="width:77.3%">17</span></div></td><td style="text-align:right">23% <span class="small muted">· 코드 23%</span></td></tr>
+    <tr><td class="ok">●</td><td>4. 수동 구축</td><td><div class="bar" style="width:14.3%"><span class="c-done" style="width:66.7%">4</span><span class="c-review" style="width:16.7%">1</span><span class="c-r2" style="width:16.7%">1</span></div></td><td style="text-align:right">83% <span class="small muted">· 코드 83%</span></td></tr>
+    <tr><td class="ok">●</td><td>5. 온톨로지 생성·DT 연동</td><td><div class="bar" style="width:57.1%"><span class="c-done" style="width:37.5%">9</span><span class="c-todo" style="width:20.8%">5</span><span class="c-prd" style="width:37.5%">9</span><span class="c-r2" style="width:4.2%">1</span></div></td><td style="text-align:right">38% <span class="small muted">· 코드 46%</span></td></tr>
+    <tr><td class="ok">●</td><td>6. 공간 편집</td><td><div class="bar" style="width:78.6%"><span class="c-done" style="width:90.9%">30</span><span class="c-todo" style="width:9.1%">3</span></div></td><td style="text-align:right">91% <span class="small muted">· 코드 91%</span></td></tr>
+    <tr><td class="ok">●</td><td>7. 설비 배치·소속 재매핑</td><td><div class="bar" style="width:54.8%"><span class="c-done" style="width:87.0%">20</span><span class="c-review" style="width:4.3%">1</span><span class="c-todo" style="width:8.7%">2</span></div></td><td style="text-align:right">91% <span class="small muted">· 코드 91%</span></td></tr>
+    <tr><td class="ok">●</td><td>8. 배관·계통 에디터</td><td><div class="bar" style="width:42.9%"><span class="c-done" style="width:55.6%">10</span><span class="c-review" style="width:5.6%">1</span><span class="c-todo" style="width:27.8%">5</span><span class="c-r2" style="width:11.1%">2</span></div></td><td style="text-align:right">61% <span class="small muted">· 코드 83%</span></td></tr>
+    <tr><td class="warn">◐</td><td>9. 편집 워크플로우</td><td><div class="bar" style="width:100.0%"><span class="c-done" style="width:9.5%">4</span><span class="c-todo" style="width:4.8%">2</span><span class="c-prd" style="width:76.2%">32</span><span class="c-r2" style="width:9.5%">4</span></div></td><td style="text-align:right">10% <span class="small muted">· 코드 67%</span></td></tr>
+    <tr><td class="ok">●</td><td>10. 다중층·외벽·로봇</td><td><div class="bar" style="width:66.7%"><span class="c-done" style="width:25.0%">7</span><span class="c-todo" style="width:64.3%">18</span><span class="c-prd" style="width:3.6%">1</span><span class="c-r2" style="width:7.1%">2</span></div></td><td style="text-align:right">25% <span class="small muted">· 코드 64%</span></td></tr>
   </table>
-  <p class="small muted" style="margin-top:8px">● 동작 = 핵심 흐름을 실제 BIM 으로 시연 가능 · ◐ 부분 = 일부 티켓만 · ○ 미착수. 구현율 = (완료+검토 중) ÷ 티켓 수. 기능 1·5 는 핵심이 돌지만 리포트·게이트 같은 보강 티켓이 기획 중이라 비율이 낮게 나옴</p>
-  <div class="foot"><span>티켓 250 = 10개 기능 228 + 화면·확장 기반 22(완료 4 · 검토 1 · 대기 1 · 기획 16)</span><span class="pg"></span></div>
+  <p class="small muted" style="margin-top:8px">● 동작 = 핵심 흐름이 구현·시험됨 · ◐ 부분 = 일부만 · ○ 미착수. 구현율 = (칸반 완료+진행·검토) ÷ 티켓 수, 코드 = PR 이 merge 된 티켓까지 센 비율. ◐ 3 은 R1 범위(공조존 수동 도구)만 돌고 IDF 자동 구축은 R2 · ◐ 9 는 코드가 들어갔지만 PRD 화면 흐름을 재검토 중이라 카드가 기획 중(32건 중 22건에 코드). 기능 5 는 핵심 내보내기가 돌지만 리포트·DT 연동 보강 티켓이 남아 비율이 낮게 나옴. 기능 10 은 다중층 카드가 아직 Todo 라 보드로는 25% 지만 코드는 64%. 이번 갱신에서 화면을 직접 열어 보지는 않았다(티켓·PR·시험 기준 판단).</p>
+  <div class="foot"><span>티켓 251 = 10개 기능 228 + 화면·확장 기반 23(완료 5 · 대기 11 · 기획 4 · R2 3)</span><span class="pg"></span></div>
 </section>
 
 <!-- ============ 10-b. Epic 별 ============ -->
 <section class="slide">
   <div class="kicker">② 구현 현황 · Epic 별</div>
   <h2>Epic 22개 비교 — 구현율과 요구사항 수정 횟수</h2>
-  <p class="lead" style="margin-bottom:10px">막대 길이 = 티켓 수(최대 25). 오른쪽 숫자는 구현(완료+검토) / 전체, 그리고 그 Epic 의 요구사항·수용 기준이 고쳐진 횟수입니다.</p>
-  <div class="legend" style="margin-bottom:8px"><span><i class="c-done"></i>완료</span><span><i class="c-review"></i>검토 중</span><span><i class="c-todo"></i>개발 대기</span><span><i class="c-prd"></i>기획 중</span><span style="margin-left:auto"><b style="color:var(--done)">구현율 높음</b>: E09 공간 편집 88% · E02 오브젝트 81% · E12 설비 65% &nbsp; <b style="color:var(--mod)">0%</b>: E04·E10 공조존 · E14·E15·E19 편집 반영 · E22</span></div>
+  <p class="lead" style="margin-bottom:10px">막대 길이 = 티켓 수(최대 25). 오른쪽 숫자는 구현(완료+진행·검토) / 전체, 그리고 그 Epic 의 요구사항·수용 기준이 고쳐진 횟수입니다.</p>
+  <div class="legend" style="margin-bottom:8px"><span><i class="c-done"></i>완료</span><span><i class="c-review"></i>진행·검토 중</span><span><i class="c-todo"></i>개발 대기</span><span><i class="c-prd"></i>기획 중</span><span><i class="c-r2"></i>R2</span><span style="margin-left:auto"><b style="color:var(--done)">구현율 100%</b>: E09 공간 편집 · E11 매핑 · E17 외벽 &nbsp; <b style="color:var(--mod)">0%</b>: E04 IDF(R2) · E15 Sync · E19 편집 이력 · E22</span></div>
   <div class="row" style="gap:34px">
     <script class="gen">
-      // [Epic, 이름, 완료, 검토, 대기, 기획, 요구 수정 횟수]
-      const EP=[["E01","공통·권한·잠금",1,0,0,7,18],["E02","오브젝트 정의",8,5,3,0,45],["E03","진입·화면·도구",4,0,1,9,28],["E04","IDF 임포트",0,0,15,0,40],["E05","BIM 임포트·검토",13,0,0,12,55],["E06","BIM 요구사항·검증",4,0,0,3,12],["E07","수동 구축",2,0,4,0,18],["E08","생성·내보내기",3,0,0,8,22],["E09","공간 편집",0,15,2,0,52],["E10","공조 조닝",0,0,7,0,22],["E11","재매핑·공조존 매핑",1,0,5,0,18],
-              ["E12","설비 배치·편집",2,9,6,0,59],["E13","배관·계통",2,1,15,0,70],["E14","편집 워크플로우",0,0,1,21,46],["E15","Sync·반영 리포트",0,0,0,6,14],["E16","로봇",0,1,3,0,10],["E17","외벽",1,2,2,0,14],["E18","다중층·수직 관통",1,0,0,18,38],["E19","편집 이력",0,0,1,5,14],["E20","DT 연동·저장·ID",3,0,0,6,18],["E21","Phase 3 확장",0,1,0,7,14],["E22","타 PRD 연동",0,0,0,4,8]];
-      const cls=["c-done","c-review","c-todo","c-prd"];
+      // [Epic, 이름, 완료, 진행·검토, 대기, 기획, R2, 요구 수정 횟수]
+      const EP=[["E01","공통·권한·잠금",3,0,1,0,4,46],["E02","오브젝트 정의",13,0,3,0,0,94],["E03","진입·화면·도구",4,0,11,0,0,77],["E04","IDF 임포트",0,0,0,0,15,90],["E05","BIM 임포트·검토",13,1,10,1,0,172],["E06","BIM 요구사항·검증",5,0,2,0,0,44],["E07","수동 구축",4,1,0,0,1,38],["E08","생성·내보내기",6,0,5,0,0,80],["E09","공간 편집",17,0,0,0,0,105],["E10","공조 조닝",4,1,0,0,2,46],["E11","재매핑·공조존 매핑",6,0,0,0,0,39],
+              ["E12","설비 배치·편집",14,1,2,0,0,116],["E13","배관·계통",10,1,5,0,2,127],["E14","편집 워크플로우",1,0,0,21,0,121],["E15","Sync·반영 리포트",0,0,0,6,0,32],["E16","로봇",1,0,0,1,2,20],["E17","외벽",5,0,0,0,0,29],["E18","다중층·수직 관통",1,0,18,0,0,133],["E19","편집 이력",0,0,1,5,0,38],["E20","DT 연동·저장·ID",3,0,0,6,0,42],["E21","Phase 3 확장",1,0,0,4,3,19],["E22","타 PRD 연동",0,0,0,3,1,27]];
+      const cls=["c-done","c-review","c-todo","c-prd","c-r2"];
       const rowh=e=>{const [id,nm,...v]=e;const m=v.pop();const n=v.reduce((a,b)=>a+b,0);const imp=v[0]+v[1];
         return `<div style="display:flex;align-items:center;gap:8px;font-size:13px;height:34px;border-bottom:1px solid #e3e7ee">
           <div style="width:168px;flex:none"><b>${id}</b> ${nm}</div>
@@ -440,8 +443,8 @@
       document.write(`<div style="flex:1">${hdr}${EP.slice(0,11).map(rowh).join("")}</div><div style="flex:1">${hdr}${EP.slice(11).map(rowh).join("")}</div>`);
     </script>
   </div>
-  <p class="small muted" style="margin-top:10px">구현 79 / 250 · 요구 수정 635회. 수정이 많은 곳(E13 배관 70 · E12 설비 59 · E05 BIM 55 · E09 공간 52)은 실제 BIM 을 열어 본 결과가 요구사항으로 되돌아간 곳 — 개발과 기획이 같이 움직인 흔적</p>
-  <div class="foot"><span>칸반 상태 2026-10-08 · 수정 횟수 = 이슈 본문 "수정 이력" 중 요구사항·수용 기준 줄(10/2~10/7)</span><span class="pg"></span></div>
+  <p class="small muted" style="margin-top:10px">구현 116 / 251 · 요구 수정 1,535회. E18 다중층은 카드가 Todo 로 남아 1/19 로 보이지만 PR 은 12건 merge 됨. 수정이 많은 곳(E05 BIM 172 · E18 다중층 133 · E13 배관 127 · E14 편집 워크플로우 121 · E12 설비 116)은 실제 BIM 을 열어 본 결과와 화면 흐름 재검토가 요구사항으로 되돌아간 곳 — 개발과 기획이 같이 움직인 흔적. E14·E15·E19 의 기획 중 32건은 코드가 먼저 들어간 뒤 7회차에서 재검토 중</p>
+  <div class="foot"><span>칸반 Status 2026-10-13 · 수정 횟수 = 이슈 본문 "수정 이력" 중 요구사항·수용 기준 줄(10/2~10/13)</span><span class="pg"></span></div>
 </section>
 
 <!-- ============ 11. 시연 화면 ============ -->
@@ -458,8 +461,8 @@
       <div class="small muted" style="margin-top:4px">요구사항 보고서 — 고객사에 "값을 넣어 달라" 와 "설정을 바꿔 달라" 를 갈라 말함</div>
     </div>
   </div>
-  <div class="foot"><span>docs/figures/app-seongsu-3d.png · app-seongsu-requirements.png · 검토판 http://10.251.35.55:8087/</span><span class="pg"></span></div>
-  <div class="note">시연 경로: 55 서버 8084(main 판) 또는 8087(검토판) → 성수 건축+MEP 열기 → 3D 에서 설비 클릭(연결·소속) → 아래 요구사항 표.</div>
+  <div class="foot"><span>docs/figures/app-seongsu-3d.png · app-seongsu-requirements.png (10/8 이전에 찍은 스크린샷 — 이후 3D 칩·보기 필터·비행 모드가 바뀜) · 검토판 http://10.251.35.55:8087/</span><span class="pg"></span></div>
+  <div class="note">시연 경로: 55 서버 8084(main 판) 또는 8087(검토판) → 성수 건축+MEP 열기 → 3D 에서 설비 클릭(연결·소속) → 아래 요구사항 표. 스크린샷은 10/8 이전에 찍은 그대로다 — 성수 파일이 없는 PC 에서 갱신해 새로 찍지 못했다.</div>
 </section>
 
 <!-- ============ 11-b. 구현의 근거 ============ -->
@@ -471,13 +474,13 @@
       <h3>성수(19층 · 물리존 508 · 기기 4,911)에서 자동으로 채운 비율</h3>
       <div class="legend" style="margin-bottom:6px"><span><i style="background:#1f4e9c"></i>BIM 에 직접 적힌 값</span><span><i style="background:#9dbbe8"></i>계산·사전까지 더한 값</span></div>
       <script class="gen">
-        const CV=[["방 외곽선",89,89],["설비 위치",100,94],["내력벽 여부",98,98],["설비 종류",98,1],["계통 종류",97,0],["흐름 방향",89,62],["설비가 있는 방",84,24],["문·창이 달린 벽",77,77],["계통 소속",60,60],["문으로 이어진 방-방",44,0],["방 종류",31,0]];
+        const CV=[["방 외곽선",89,89],["설비 위치",100,94],["내력벽 여부",98,98],["설비 종류",98,1],["계통 종류",97,0],["흐름 방향",89,62],["설비가 있는 방",84,24],["문·창이 달린 벽",77,77],["계통 소속",60,60],["문으로 이어진 방-방",44,0],["방 종류",33,0]];
         document.write(CV.map(([n,a,b])=>`<div style="display:flex;align-items:center;gap:8px;font-size:13px;margin:5px 0">
           <div style="width:140px;flex:none">${n}</div>
           <div style="flex:1;height:14px;background:#eceff4;border-radius:3px;position:relative;overflow:hidden"><i style="position:absolute;left:0;top:0;bottom:0;width:${a}%;background:#9dbbe8"></i><i style="position:absolute;left:0;top:0;bottom:0;width:${b}%;background:#1f4e9c"></i></div>
           <div style="width:112px;flex:none;text-align:right"><b>${a}%</b> <span class="muted small">(BIM ${b}%)</span></div></div>`).join(""));
       </script>
-      <p class="small muted" style="margin-top:6px;line-height:1.5">빈 곳은 파일 작성 습관에서 옴 — 외곽선 없는 방 55 · 기본 이름 "공간" 42 · 어느 벽인지 없는 문·창 137 · 방을 안 그린 공용부의 기기 571. "설비가 있는 방" 84% 는 외벽 루버 포함, 빼면 87.9%(등급 2 지표).</p>
+      <p class="small muted" style="margin-top:6px;line-height:1.5">빈 곳은 파일 작성 습관에서 옴 — 외곽선 없는 방 55 · 기본 이름 "공간" 42 · 어느 벽인지 없는 문·창 137 · 방을 안 그린 공용부의 기기 571. "설비가 있는 방" 84% 는 외벽 루버 포함, 빼면 87.9%(등급 2 지표). 10/6 측정값이고 방 종류만 10/12 사전 보강(영문 방 이름 4개)으로 31 → 33%.</p>
     </div>
     <div class="col" style="flex:1">
       <div class="card">
@@ -492,15 +495,15 @@
       <div class="card">
         <h3>테스트 — PR 마다 돌리는 것</h3>
         <div class="row" style="gap:10px">
-          <div style="flex:1;text-align:center"><div class="big" style="font-size:34px;color:var(--brand)">653</div><div class="small muted">단위 테스트 통과<br>(vitest 41파일)</div></div>
-          <div style="flex:1;text-align:center"><div class="big" style="font-size:34px;color:var(--brand)">109</div><div class="small muted">화면 e2e 통과<br>(실제 IFC 열기)</div></div>
-          <div style="flex:1;text-align:center"><div class="big" style="font-size:34px;color:var(--brand)">71</div><div class="small muted">실측 BIM 기준값<br>(공개 BIM 5종)</div></div>
+          <div style="flex:1;text-align:center"><div class="big" style="font-size:34px;color:var(--brand)">1,181</div><div class="small muted">단위 테스트 통과<br>(vitest 120파일)</div></div>
+          <div style="flex:1;text-align:center"><div class="big" style="font-size:34px;color:var(--brand)">282</div><div class="small muted">화면 e2e 등록<br>(98파일 · 실제 IFC 열기)</div></div>
+          <div style="flex:1;text-align:center"><div class="big" style="font-size:34px;color:var(--brand)">54%</div><div class="small muted">수용 기준을 시험이 다 잼<br>(R1 567개 중 307개)</div></div>
         </div>
-        <p class="small muted" style="margin-top:8px">기준값 아래로 떨어지면 실패. PRD 정합(<code>prd.test.ts</code>: 티켓 ↔ Epic 표 ↔ PRD 표)도 PR 마다 검사</p>
+        <p class="small muted" style="margin-top:8px">실측 BIM 기준값(가진 BIM 5종) 아래로 떨어지면 실패. PRD 정합(<code>prd.test.ts</code>: 티켓 ↔ Epic 표 ↔ PRD 표)도 검사. 단위 테스트만 이번에 돌렸고, e2e·실측 BIM 은 성수 파일이 없는 PC 라 등록 수만 셈. 수용 기준 96개는 일부만 잼</p>
       </div>
     </div>
   </div>
-  <div class="foot"><span>docs/pm-brief.md 부록 A · docs/reviews/oe-map-01.md(성수 10-06) · docs/reviews/oe-bim-02.md(테스트 수, 그 검토 시점)</span><span class="pg"></span></div>
+  <div class="foot"><span>docs/pm-brief.md 부록 A · docs/reviews/oe-map-01.md(성수 10-06) · docs/dev/ac-coverage.md(수용 기준 ↔ 시험) · npm test 2026-10-13</span><span class="pg"></span></div>
 </section>
 
 <!-- ============ 12. 수정 중 / 미구현 ============ -->
@@ -509,39 +512,39 @@
   <h2>아직 안 된 것, 고치고 있는 것</h2>
   <div class="row" style="gap:16px;margin-top:12px">
     <div class="card" style="flex:1.1">
-      <h3>완료 후 요구사항이 바뀐 것 — <span style="color:var(--mod)">30 / 45건</span></h3>
-      <div class="bar" style="height:28px;margin:8px 0"><span class="c-mod" style="width:66.7%">요구 변경 30</span><span class="c-done" style="width:33.3%">그대로 15</span></div>
-      <p>바뀌면 <code>modified</code> 표시가 붙고 <b>후속 이슈</b>가 자동으로 생깁니다. 후속 22건 중</p>
-      <div class="bar" style="height:24px;margin-top:8px"><span class="c-done" style="width:59%">완료 13</span><span class="c-review" style="width:36.4%">검토 8</span><span class="c-todo" style="width:4.6%"></span></div>
-      <p class="small" style="margin-top:4px">→ 22건 중 21건이 이미 완료·검토 단계</p>
+      <h3>완료 후 요구사항이 바뀐 것 — <span style="color:var(--mod)">34 / 111건</span></h3>
+      <div class="bar" style="height:28px;margin:8px 0"><span class="c-mod" style="width:30.6%">요구 변경 34</span><span class="c-done" style="width:69.4%">그대로 77</span></div>
+      <p>바뀌면 <code>modified</code> 표시가 붙고 <b>후속 이슈</b>가 자동으로 생깁니다. 후속 62건 중</p>
+      <div class="bar" style="height:24px;margin-top:8px"><span class="c-done" style="width:91.9%">완료 57</span><span class="c-review" style="width:8.1%"></span></div>
+      <p class="small" style="margin-top:4px">→ 62건 중 57건이 이미 완료, 열린 5건(BIM 4·임포트 결과 1)은 PR 검토 중 2 · 기획 답 대기 2 · 나머지 1</p>
     </div>
     <div class="card" style="flex:1">
       <h3>멈춰 있는 이유</h3>
       <table style="font-size:13px">
         <tr><th>사유</th><th style="text-align:right">건</th><th>예</th></tr>
-        <tr><td><b>기획 답 대기</b> (needs-pm)</td><td style="text-align:right">9</td><td>룸 편집 범위, 설비 마스터 배치, 배관 잇기·끊기</td></tr>
-        <tr><td>일부만 구현 (needs-dev)</td><td style="text-align:right">1</td><td>바닥/천장(OBJ-08)</td></tr>
-        <tr><td><b>D-INT 결정 대기</b></td><td style="text-align:right">~42</td><td>잠금·반영·버전·배너 — 서버 위치가 정해져야 함</td></tr>
-        <tr><td>기획 확정, 착수 전</td><td style="text-align:right">65</td><td>IDF 공조존 22, 배관 15, 설비 11</td></tr>
+        <tr><td><b>기획 답 대기</b> (needs-pm)</td><td style="text-align:right">6</td><td>진입 경로(ML-01), 로봇 통과 속성(EQP-17), 수용 기준선(BIM-21), 배관 오브젝트(OBJ-12)</td></tr>
+        <tr><td>일부만 구현 · 기획 밖 대기</td><td style="text-align:right">2</td><td>로봇 통과 속성(needs-dev) · 로봇 데이터 선행 제공(ROB-04, blocked)</td></tr>
+        <tr><td><b>PRD 재검토 중</b> (D-INT 포함)</td><td style="text-align:right">32</td><td>편집 워크플로우 21 · Sync 6 · 편집 이력 5 — 코드는 대부분 들어감, 7회차 화면 흐름 기준으로 다시 확정</td></tr>
+        <tr><td>개발 대기 (R1)</td><td style="text-align:right">58</td><td>다중층 18 · 화면 11 · BIM 10 · 생성 5 · 배관 5 (이 중 28건은 PR merge 됨)</td></tr>
       </table>
     </div>
     <div class="card" style="width:270px;text-align:center">
-      <h3>결정·이슈 26건</h3>
+      <h3>결정·이슈 29건</h3>
       <div style="position:relative;width:180px;height:180px;margin:6px auto">
         <svg viewBox="0 0 42 42" width="180" height="180" style="transform:rotate(-90deg)">
-          <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#1f8a5b" stroke-width="7" stroke-dasharray="61.5 38.5"/>
-          <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#f0a92e" stroke-width="7" stroke-dasharray="38.5 61.5" stroke-dashoffset="-61.5"/>
+          <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#1f8a5b" stroke-width="7" stroke-dasharray="69 31"/>
+          <circle cx="21" cy="21" r="15.9155" fill="none" stroke="#f0a92e" stroke-width="7" stroke-dasharray="31 69" stroke-dashoffset="-69"/>
         </svg>
-        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:34px;font-weight:800">16</div><div class="small muted">해소</div></div>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center"><div style="font-size:34px;font-weight:800">20</div><div class="small muted">해소</div></div>
       </div>
-      <div class="legend" style="justify-content:center"><span><i class="c-done"></i>해소 16</span><span><i class="c-todo"></i>열림 10</span></div>
-      <p class="small" style="margin-top:8px">열림: D1·D5·D9·D11·D12·D14 · Q1·Q2·Q3·Q15</p>
+      <div class="legend" style="justify-content:center"><span><i class="c-done"></i>해소 20</span><span><i class="c-todo"></i>열림 9</span></div>
+      <p class="small" style="margin-top:8px">열림: D1·D5·D9·D11·D-INT · Q1·Q2·Q3·Q15<br>10/8 이후 해소: D12·D14·D-gbXML</p>
     </div>
   </div>
   <div class="card" style="margin-top:14px;font-size:14px">
-    <b>품질 장치</b> — 단위 테스트 52파일 · 화면(e2e) 테스트 33파일 · 실제 BIM 5종 정확도 하한선 · DT 파서(ttl.go)로 출력 읽기 확인 · PR 마다 55 검토판(8087) 자동 배포
+    <b>품질 장치</b> — 단위 테스트 120파일(1,181건) · 화면(e2e) 98파일(282건) · 수용 기준 ↔ 시험 짝짓기 보고서 · 실제 BIM 5종 정확도 하한선 · DT 파서(ttl.go)로 출력 읽기 확인 · 온톨로지 질의 챗봇 시험대 · PR 마다 55 검토판(8087) 자동 배포
   </div>
-  <div class="foot"><span>칸반 라벨 modified·needs-pm·needs-dev · questions.md</span><span class="pg"></span></div>
+  <div class="foot"><span>이슈 라벨 modified·needs-pm·needs-dev·blocked · questions.md · 2026-10-13</span><span class="pg"></span></div>
 </section>
 
 <!-- ============ 15. 애자일 루프 ============ -->
@@ -552,7 +555,7 @@
     <defs><marker id="ar2" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#1f4e9c"/></marker>
     <marker id="ar3" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#d9534f"/></marker></defs>
     <style>.n{fill:#fff;stroke:#1f4e9c;stroke-width:2}.nt{font-size:16px;font-weight:700;fill:#1d2433;text-anchor:middle}.ns{font-size:13px;fill:#5b6577;text-anchor:middle}.e{stroke:#1f4e9c;stroke-width:2.5;fill:none;marker-end:url(#ar2)}.er{stroke:#d9534f;stroke-width:2.5;fill:none;marker-end:url(#ar3);stroke-dasharray:7 5}.who{font-size:12px;font-weight:700}</style>
-    <rect class="n" x="20" y="60" width="190" height="90" rx="12"/><text class="nt" x="115" y="95">PRD 티켓 md</text><text class="ns" x="115" y="118">요구사항·수용 기준</text><text class="ns" x="115" y="136">250개 파일</text>
+    <rect class="n" x="20" y="60" width="190" height="90" rx="12"/><text class="nt" x="115" y="95">PRD 티켓 md</text><text class="ns" x="115" y="118">요구사항·수용 기준</text><text class="ns" x="115" y="136">251개 파일</text>
     <text class="who" x="20" y="48" fill="#1f4e9c">기획</text>
     <path class="e" d="M210,105 L265,105"/>
     <rect class="n" x="265" y="60" width="170" height="90" rx="12"/><text class="nt" x="350" y="95">GitHub 이슈</text><text class="ns" x="350" y="118">npm run board 로</text><text class="ns" x="350" y="136">본문 동기화</text>
@@ -572,13 +575,13 @@
     <text x="640" y="206" style="font-size:12px;fill:#d9534f;font-weight:700">반려(rejected) → 다시 개발</text>
     <!-- stats -->
     <g transform="translate(20,350)">
-      <rect width="260" height="96" rx="12" fill="#fff" stroke="#e3e7ee"/><text x="20" y="40" style="font-size:34px;font-weight:800;fill:#1f4e9c">65</text><text x="20" y="72" style="font-size:14px;fill:#5b6577">merge 된 PR (9/29~10/8)</text>
+      <rect width="260" height="96" rx="12" fill="#fff" stroke="#e3e7ee"/><text x="20" y="40" style="font-size:34px;font-weight:800;fill:#1f4e9c">223</text><text x="20" y="72" style="font-size:14px;fill:#5b6577">merge 된 PR (10/1~10/13)</text>
     </g>
     <g transform="translate(305,350)">
-      <rect width="260" height="96" rx="12" fill="#fff" stroke="#e3e7ee"/><text x="20" y="40" style="font-size:34px;font-weight:800;fill:#d9534f">22</text><text x="20" y="72" style="font-size:14px;fill:#5b6577">자동 생성된 후속 이슈 (13 완료)</text>
+      <rect width="260" height="96" rx="12" fill="#fff" stroke="#e3e7ee"/><text x="20" y="40" style="font-size:34px;font-weight:800;fill:#d9534f">62</text><text x="20" y="72" style="font-size:14px;fill:#5b6577">자동 생성된 후속 이슈 (57 완료)</text>
     </g>
     <g transform="translate(590,350)">
-      <rect width="260" height="96" rx="12" fill="#fff" stroke="#e3e7ee"/><text x="20" y="40" style="font-size:34px;font-weight:800;fill:#1f8a5b">85</text><text x="20" y="72" style="font-size:14px;fill:#5b6577">테스트 파일 (단위 52 · 화면 33)</text>
+      <rect width="260" height="96" rx="12" fill="#fff" stroke="#e3e7ee"/><text x="20" y="40" style="font-size:34px;font-weight:800;fill:#1f8a5b">218</text><text x="20" y="72" style="font-size:14px;fill:#5b6577">테스트 파일 (단위 120 · 화면 98)</text>
     </g>
     <g transform="translate(875,350)">
       <rect width="265" height="96" rx="12" fill="#fff" stroke="#e3e7ee"/><text x="20" y="40" style="font-size:34px;font-weight:800;fill:#f0a92e">2인</text><text x="20" y="72" style="font-size:14px;fill:#5b6577">기획 1 · 개발 1 + AI 코딩 도구</text>
@@ -591,39 +594,33 @@
 <!-- ============ 13. 요구사항 진화 ============ -->
 <section class="slide">
   <div class="kicker">③ 진행 방식</div>
-  <h2>요구사항은 7주 동안 9번 바뀌었고, 그때마다 코드가 따라갔다</h2>
+  <h2>요구사항은 8주 동안 9개 판으로 바뀌었고, 그때마다 코드가 따라갔다</h2>
   <svg viewBox="0 0 1160 330" width="1160" height="330" style="margin-top:14px;font-family:inherit">
     <style>.v{font-size:15px;font-weight:800;fill:#1f4e9c}.vt{font-size:12.5px;fill:#1d2433}.dt{font-size:12px;fill:#5b6577}.gr{font-size:12px;font-weight:700;fill:#d9534f}</style>
-    <!-- axis: 08-18 squeezed, then 09-14..10-08 -->
+    <!-- axis: 08-18 squeezed, then 09-14..10-13 -->
     <line x1="20" y1="150" x2="1140" y2="150" stroke="#9aa6bb" stroke-width="3"/>
     <line x1="150" y1="140" x2="170" y2="160" stroke="#9aa6bb" stroke-width="3"/><line x1="160" y1="140" x2="180" y2="160" stroke="#9aa6bb" stroke-width="3"/>
     <!-- dev band 09-22 → -->
-    <rect x="440" y="160" width="700" height="14" fill="#1f8a5b" opacity=".85" rx="3"/>
-    <text x="446" y="192" style="font-size:12px;font-weight:700;fill:#1f8a5b">이 저장소 첫 커밋 09-22 → 커밋 405 · PR 65</text>
-    <!-- x(d)= 220 + (d/24)*900 where d = days since 09-14 -->
-    <!-- v1.0 08-18 -->
+    <rect x="468" y="160" width="672" height="14" fill="#1f8a5b" opacity=".85" rx="3"/>
+    <text x="474" y="192" style="font-size:12px;font-weight:700;fill:#1f8a5b">이 저장소 첫 커밋 09-22 → 커밋 966 · PR 223</text>
+    <!-- x(d)= 220 + (d/29)*900 where d = days since 09-14 -->
     <circle cx="60" cy="150" r="8" fill="#1f4e9c"/><text class="v" x="40" y="120">v1.0</text><text class="dt" x="38" y="100">08-18</text><text class="vt" x="20" y="232">우선순위별 초안</text>
-    <!-- v1.1 09-14 x=220 -->
     <circle cx="220" cy="150" r="8" fill="#1f4e9c"/><text class="v" x="205" y="120">v1.1</text><text class="dt" x="203" y="100">09-14</text><text class="vt" x="190" y="232">커스텀존 신설</text>
-    <!-- v1.2 09-15 x=257 -->
-    <circle cx="257" cy="150" r="8" fill="#d9534f"/><text class="v" x="255" y="60">v1.2</text><text class="dt" x="253" y="40">09-15</text><text class="gr" x="250" y="78">그룹장 리뷰</text><text class="vt" x="190" y="300">v1.2: R1/R2 로드맵·공조존·배관·로봇</text>
-    <!-- 09-18 group decision x=332 -->
-    <circle cx="332" cy="150" r="6" fill="#d9534f"/><text class="gr" x="318" y="120">09-18 결정</text><text class="vt" x="318" y="232">기획/개발 분리,</text><text class="vt" x="318" y="248">AI 활용 iteration</text>
-    <!-- v1.3 09-22 x=520 -->
-    <circle cx="520" cy="150" r="8" fill="#d9534f"/><text class="v" x="505" y="120">v1.3</text><text class="dt" x="503" y="100">09-22</text><text class="gr" x="490" y="80">리뷰 반영</text><text class="vt" x="480" y="232">BIM 유무 시작점 분기</text>
-    <!-- v1.4 09-30 x=820 -->
-    <circle cx="820" cy="150" r="8" fill="#d9534f"/><text class="v" x="770" y="120">v1.4</text><text class="dt" x="768" y="100">09-30</text><text class="gr" x="745" y="80">0930 리뷰</text><text class="vt" x="700" y="232">수용 기준선·등급, 편집 이력</text>
-    <!-- v1.4통합/v1.5 10-01 x=857 -->
-    <circle cx="857" cy="150" r="8" fill="#1f4e9c"/><text class="v" x="842" y="60">v1.5</text><text class="dt" x="842" y="40">10-01</text><text class="vt" x="760" y="300">v1.5: Confluence → git, 티켓 250개로 분해</text>
-    <!-- v1.6/v1.7 10-06 x=1045 -->
-    <circle cx="1045" cy="150" r="8" fill="#1f4e9c"/><text class="v" x="1010" y="120">v1.6·1.7</text><text class="dt" x="1025" y="100">10-06</text><text class="vt" x="985" y="232">티켓 250 전부 상세화,</text><text class="vt" x="985" y="248">R2→R1 당김</text>
+    <circle cx="251" cy="150" r="8" fill="#d9534f"/><text class="v" x="249" y="60">v1.2</text><text class="dt" x="247" y="40">09-15</text><text class="gr" x="244" y="78">그룹장 리뷰</text><text class="vt" x="190" y="300">v1.2: R1/R2 로드맵·공조존·배관·로봇</text>
+    <circle cx="344" cy="150" r="6" fill="#d9534f"/><text class="gr" x="320" y="120">09-18 결정</text><text class="vt" x="318" y="232">기획/개발 분리,</text><text class="vt" x="318" y="248">AI 활용 iteration</text>
+    <circle cx="468" cy="150" r="8" fill="#d9534f"/><text class="v" x="453" y="120">v1.3</text><text class="dt" x="451" y="100">09-22</text><text class="gr" x="438" y="80">리뷰 반영</text><text class="vt" x="430" y="232">BIM 유무 시작점 분기</text>
+    <circle cx="716" cy="150" r="8" fill="#d9534f"/><text class="v" x="701" y="120">v1.4</text><text class="dt" x="699" y="100">09-30</text><text class="gr" x="686" y="80">0930 리뷰</text><text class="vt" x="640" y="232">수용 기준선·등급, 편집 이력</text>
+    <circle cx="747" cy="150" r="8" fill="#1f4e9c"/><text class="v" x="745" y="60">v1.5</text><text class="dt" x="743" y="40">10-01</text><text class="vt" x="620" y="300">v1.5: Confluence → git, 티켓 250개로 분해</text>
+    <circle cx="902" cy="150" r="8" fill="#1f4e9c"/><text class="v" x="868" y="120">v1.6·1.7</text><text class="dt" x="880" y="100">10-06</text><text class="vt" x="838" y="232">티켓 전부 상세화,</text><text class="vt" x="838" y="248">R2→R1 당김</text>
+    <circle cx="964" cy="150" r="8" fill="#1f4e9c"/><text class="v" x="950" y="60">v1.8</text><text class="dt" x="948" y="40">10-08</text><text class="vt" x="880" y="300">v1.8: IDF 자동 구축 R2 분리</text>
+    <circle cx="1088" cy="150" r="6" fill="#1f4e9c"/><text class="v" x="1072" y="120" style="font-size:13px">7회차</text><text class="dt" x="1068" y="100">10-12</text><text class="vt" x="1030" y="232">화면 흐름 재정리</text><text class="vt" x="1030" y="248">(초기 구축 UI)</text>
     <!-- today -->
-    <line x1="1120" y1="110" x2="1120" y2="190" stroke="#1d2433" stroke-dasharray="3 3"/><text class="dt" x="1090" y="205">오늘</text>
+    <line x1="1119" y1="90" x2="1119" y2="190" stroke="#1d2433" stroke-dasharray="3 3"/><text class="dt" x="1103" y="82">오늘</text>
   </svg>
   <div class="row" style="gap:14px">
     <div class="card" style="flex:1"><h3>정본을 git 으로 옮긴 효과</h3><p>PRD 가 <b>코드와 같은 저장소</b>에 있고 티켓 1개 = 파일 1개 = 이슈 1개. 요구 문구가 바뀌면 스크립트가 이슈 본문을 고치고 변경 이력을 남긴다.</p></div>
-    <div class="card" style="flex:1"><h3>요구사항 수정 635회</h3><p>요구사항·수용 기준 문구 기준 — 10-02 <b>30</b> · 10-06 <b>490</b>(전체 상세화) · 10-07 <b>115</b>. 티켓 250건 중 247건이 1회 이상, 가장 많이 고친 것은 내력벽(OBJ-06) 8회</p></div>
-    <div class="card" style="flex:1"><h3>그룹장 리뷰 → 반영</h3><p>리뷰·결정(09-15 · 09-18 · 09-30)이 <b>당일~수일</b> 안에 새 판으로 반영</p></div>
+    <div class="card" style="flex:1"><h3>요구사항 수정 1,535회</h3><p>요구사항·수용 기준 문구 기준 — 10-02 <b>30</b> · 10-06 <b>490</b>(전체 상세화) · 10-07 <b>115</b> · 10-08 <b>67</b> · 10-09 <b>243</b> · 10-10 <b>235</b> · 10-12 <b>94</b> · 10-13 <b>261</b>. 10-09·10 은 User story 추가·재작성, 10-13 은 수용 기준 번호(AC) 부여 같은 형식 손질이 큼. 티켓 251건 중 248건이 1회 이상, 가장 많이 고친 것은 편집 파일(HIST-03) 12회</p></div>
+    <div class="card" style="flex:1"><h3>그룹장 리뷰 → 반영</h3><p>리뷰·결정(09-15 · 09-18 · 09-30)이 <b>당일~수일</b> 안에 새 판으로 반영. 10-08 에는 게이트 0~3 안(D1 재오픈)과 IDF R2 분리가 같은 날 PRD 에 들어감</p></div>
   </div>
   <div class="foot"><span>PRD_011 변경 이력 · 1.9 리뷰 결정 · git log</span><span class="pg"></span></div>
 </section>
@@ -633,40 +630,40 @@
   <div class="kicker">③ 진행 방식 · 애자일</div>
   <h2>기획과 개발이 같은 날 같이 움직인다 — 일별 커밋</h2>
   <div class="legend" style="margin:8px 0 6px"><span><i style="background:#1f4e9c"></i>요구사항(PRD·정본 문서) 커밋</span><span><i class="c-done"></i>코드(src) 커밋</span><span><i class="c-todo" style="border-radius:50%"></i>merge 된 PR</span></div>
-  <div style="display:flex;align-items:flex-end;gap:10px;height:360px;border-bottom:2px solid #9aa6bb;padding:0 6px;margin-top:16px">
+  <div style="display:flex;align-items:flex-end;gap:4px;height:340px;border-bottom:2px solid #9aa6bb;padding:0 6px;margin-top:16px">
     <!-- scale: 36 → 330px  (9.17px/unit) -->
     <script class="gen">
       // [날짜, 기획, 코드, PR]
-      const D=[["9/22",5,11,0],["9/23",15,22,0],["9/24",6,16,0],["9/25",8,10,0],["9/26",1,8,0],["9/27",6,7,0],["9/28",2,2,0],["9/29",12,18,1],["9/30",0,3,0],["10/1",14,4,3],["10/2",25,11,11],["10/3",10,28,0],["10/4",0,1,0],["10/5",0,0,0],["10/6",36,4,26],["10/7",13,11,23],["10/8",0,0,1]];
-      const k=7.8;
+      const D=[["9/22",5,11,0],["9/23",15,22,0],["9/24",6,16,0],["9/25",8,12,0],["9/26",1,8,0],["9/27",6,7,0],["9/28",2,2,0],["9/29",12,18,0],["9/30",0,3,0],["10/1",13,10,1],["10/2",25,12,9],["10/3",10,33,0],["10/4",0,1,0],["10/5",0,0,0],["10/6",36,5,23],["10/7",13,25,20],["10/8",21,28,34],["10/9",7,38,4],["10/10",8,39,2],["10/11",0,3,0],["10/12",10,49,94],["10/13",2,37,36]];
+      const k=5;
       document.write(D.map(([d,p,s,m])=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;position:relative;height:100%;justify-content:flex-end">
-        ${m?`<div style="position:absolute;top:0;font-size:12px;font-weight:700;color:#b97800">PR ${m}</div><div style="position:absolute;top:18px;width:${8+m*1.2}px;height:${8+m*1.2}px;border-radius:50%;background:#f0a92e"></div>`:""}
+        ${m?`<div style="position:absolute;top:0;font-size:12px;font-weight:700;color:#b97800">PR ${m}</div><div style="position:absolute;top:18px;width:${8+Math.sqrt(m)*5}px;height:${8+Math.sqrt(m)*5}px;border-radius:50%;background:#f0a92e"></div>`:""}
         <div style="display:flex;gap:3px;align-items:flex-end">
-          <div style="width:20px;height:${p*k}px;background:#1f4e9c;border-radius:3px 3px 0 0;position:relative">${p?`<span style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:11px;color:#1f4e9c">${p}</span>`:""}</div>
-          <div style="width:20px;height:${s*k}px;background:#1f8a5b;border-radius:3px 3px 0 0;position:relative">${s?`<span style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:11px;color:#1f8a5b">${s}</span>`:""}</div>
+          <div style="width:15px;height:${p*k}px;background:#1f4e9c;border-radius:3px 3px 0 0;position:relative">${p?`<span style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:11px;color:#1f4e9c">${p}</span>`:""}</div>
+          <div style="width:15px;height:${s*k}px;background:#1f8a5b;border-radius:3px 3px 0 0;position:relative">${s?`<span style="position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:11px;color:#1f8a5b">${s}</span>`:""}</div>
         </div></div>`).join(""));
     </script>
   </div>
-  <div style="display:flex;gap:10px;padding:4px 6px 0">
-    <script class="gen">document.write(D.map(([d])=>`<div style="flex:1;text-align:center;font-size:12px;color:#5b6577">${d}</div>`).join(""))</script>
+  <div style="display:flex;gap:4px;padding:4px 6px 0">
+    <script class="gen">document.write(D.map(([d])=>`<div style="flex:1;text-align:center;font-size:11px;color:#5b6577">${d}</div>`).join(""))</script>
   </div>
   <div class="row" style="gap:14px;margin-top:14px">
     <div class="card" style="flex:1;padding:10px 16px"><p><b>9/22~9/29</b> 코드가 앞서 감 — "BIM 으로 어디까지 되나" 를 실측으로 먼저 답함</p></div>
     <div class="card" style="flex:1;padding:10px 16px"><p><b>10/1~10/2</b> PRD 를 git 으로 옮기고 티켓·이슈·칸반 연결 → PR 단위 개발로 전환</p></div>
-    <div class="card" style="flex:1;padding:10px 16px"><p><b>10/6~10/7</b> 요구 상세화(36) 와 같은 이틀에 PR <b>49개</b> merge</p></div>
+    <div class="card" style="flex:1;padding:10px 16px"><p><b>10/6~10/13</b> 요구 상세화·User story 와 같은 기간에 PR <b>213개</b> merge — 10/12 하루에만 <b>94개</b>(쌓아 둔 PR 묶음)</p></div>
   </div>
-  <div class="foot"><span>git log origin/main (merge 커밋 제외) · 한 커밋이 둘 다 고치면 양쪽에 셈</span><span class="pg"></span></div>
+  <div class="foot"><span>git log origin/main (merge 커밋 제외) · 한 커밋이 둘 다 고치면 양쪽에 셈 · PR 은 GitHub merge 시각(KST) · 10/13 은 오늘 오후까지</span><span class="pg"></span></div>
 </section>
 
 <!-- ============ 로드맵 ============ -->
 <section class="slide">
   <div class="kicker">③ 로드맵 (안)</div>
   <h2>앞으로 — 10/31 개발 마감 → 11/2~13 R1 통합 검증 → 11/14 R2</h2>
-  <p class="lead">편집 워크플로우와 다중층까지 <b>10/31 전에 마무리</b>하고, 11월 둘째 주까지 성수로 R1 을 통합 검증한 뒤 R2 로 넘어갑니다.</p>
+  <p class="lead">남은 R1 110건(기획 재검토·다중층·BIM 보강)을 <b>10/31 전에 마무리</b>하고, 11월 둘째 주까지 성수로 R1 을 통합 검증한 뒤 R2 로 넘어갑니다.</p>
   <div style="display:grid;grid-template-columns:190px repeat(7,1fr);font-size:13px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#fff">
     <div style="padding:8px;background:#fafbfd;font-weight:700">흐름</div>
-    <div style="padding:8px;background:#fff3d6;font-weight:700;text-align:center">W41 · 10/5~<br><span class="small">오늘</span></div>
-    <div style="padding:8px;background:#fafbfd;font-weight:700;text-align:center">W42 · 10/12~</div>
+    <div style="padding:8px;background:#f1f2f6;font-weight:700;text-align:center">W41 · 10/5~<br><span class="small muted">지남</span></div>
+    <div style="padding:8px;background:#fff3d6;font-weight:700;text-align:center">W42 · 10/12~<br><span class="small">오늘(10/13)</span></div>
     <div style="padding:8px;background:#fafbfd;font-weight:700;text-align:center">W43 · 10/19~</div>
     <div style="padding:8px;background:#fafbfd;font-weight:700;text-align:center;border-right:3px solid #d9534f">W44 · 10/26~<br><span class="small" style="color:#d9534f">10/31 개발 마감</span></div>
     <div style="padding:8px;background:#fff8ec;font-weight:700;text-align:center">W45 · 11/2~</div>
@@ -675,24 +672,23 @@
     <script class="gen">
       // [이름, 시작열(0~6), 길이, 색, 글]
       const RM=[
-        ["기획 확정 (106 → 0)",0,2,"#1f4e9c","워크플로우·다중층 먼저"],
-        ["검토 중 34건 merge",0,2,"#3b7ddd","공간 편집 · 설비"],
-        ["IDF 공조존 (22)",1,2,"#1f8a5b","임포트 → 존↔방 매칭 → 조닝"],
-        ["설비·배관 (26)",1,3,"#1f8a5b","설비 마스터 · 연결 잇기/끊기"],
-        ["편집 워크플로우 (42)",2,2,"#1f8a5b","잠금·반영·버전 — 10/31 완료"],
-        ["다중층·외벽·로봇 (28)",2,2,"#1f8a5b","샤프트·계단·외벽 — 10/31 완료"],
+        ["지난 2주 (W41~42)",0,2,"#1f8a5b","요구 상세화 · PR 223 merge · 완료 111건"],
+        ["기획 확정 (기획 중 R1 47 → 0)",1,2,"#1f4e9c","편집 워크플로우·Sync·이력 재검토(32) · DT 연동(6) · 기타 9"],
+        ["다중층 (개발 대기 18)",1,2,"#1f8a5b","층간 배관·샤프트 — 11건은 PR merge 됨, 10/31 완료"],
+        ["BIM·생성 보강 (R1 15)",1,3,"#1f8a5b","임포트 10 · 생성 5 — 판본 비교·보고서 보강"],
+        ["화면·오브젝트·기타 (R1 25)",2,2,"#1f8a5b","UI 11 · 배관 5 · 오브젝트 3 · 설비·요구사항 4 · 기타 2"],
         ["R1 통합 검증",4,2,"#f0a92e","11/2 ~ 11/13 · 성수 생성→DT 등록 (KPI_0)"],
-        ["R2 (16건)",6,1,"#8b96aa","11/14 ~ 12월 · gbXML · 로봇 뷰 · 스냅"],
+        ["R2 (30건)",6,1,"#8b96aa","IDF 자동 구축 · gbXML · 로봇 뷰"],
       ];
       document.write(RM.map(([n,s,l,c,t])=>`<div style="padding:8px;border-top:1px solid #e3e7ee;font-weight:700">${n}</div>`+
         Array.from({length:7},(_,i)=>i==s?`<div style="grid-column:span ${l};border-top:1px solid #e3e7ee;padding:5px 4px"><div style="background:${c};color:#fff;border-radius:6px;padding:4px 8px;font-size:12px;line-height:1.35">${t}</div></div>`:(i>s&&i<s+l)?"":`<div style="border-top:1px solid #e3e7ee"></div>`).join("")).join(""));
     </script>
   </div>
   <div class="row" style="gap:14px;margin-top:14px">
-    <div class="card" style="flex:1;padding:10px 16px"><p><b>지금 속도</b> — 티켓화(10/1) 1주 만에 완료+검토 79건(그 전 PoC 코드 포함). R1 잔여 155건의 병목은 개발 속도보다 <b>기획 중 98건</b>과 <b>D-INT</b></p></div>
-    <div class="card" style="flex:1;padding:10px 16px;border-color:#f3d9a8;background:#fff8ec"><p><b>일정의 전제</b> — 편집 워크플로우 42건 · 다중층 19건을 W43~W44 두 주에 넣는 계획. <b>기획 확정과 D-INT 결정이 W42 안에</b> 끝나야 10/31 이 지켜짐</p></div>
+    <div class="card" style="flex:1;padding:10px 16px"><p><b>지금 속도</b> — 티켓화(10/1) 후 12일 만에 완료+진행·검토 116건(그 전 PoC 코드 포함). 코드가 merge 된 것까지 171건. R1 잔여 110건(개발 대기 58 · 기획 중 47 · 진행·검토 5)의 병목은 개발 속도보다 <b>기획 재검토 47건</b>과 <b>D-INT</b></p></div>
+    <div class="card" style="flex:1;padding:10px 16px;border-color:#f3d9a8;background:#fff8ec"><p><b>일정의 전제</b> — 코드가 먼저 들어간 편집 워크플로우·Sync·이력 32건을 PRD 7회차 기준으로 다시 맞추는 일이 W43 까지 끝나야 하고, D-INT 가 ① 파일에서 바뀌면 W44 일정이 흔들림. <b>기획 확정과 D-INT 결정이 W42~W43 안에</b> 필요</p></div>
   </div>
-  <div class="foot"><span>초안 — 확인 필요: 개발 주체(D10 후속), 통합 검증 범위</span><span class="pg"></span></div>
+  <div class="foot"><span>초안 — 확인 필요: 통합 검증 범위 · 남은 R1 110건 = 개발 대기 58 + 기획 중 47 + 진행·검토 5(2026-10-13)</span><span class="pg"></span></div>
 </section>
 
 <!-- ============ 요청 ============ -->
@@ -700,12 +696,12 @@
   <div class="kicker">ASK</div>
   <h2>그룹장께 요청드릴 것</h2>
   <div class="col" style="gap:14px;margin-top:20px">
-    <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">1</div><div><h3>BIM 수용 기준선 컨펌 (D1)</h3><p>생성 게이트 = 등급 3(계통 소속 기기 ≥ 70%, 등급 0~2 도 함께 충족). 성수는 BIM 만으로 60% 라 <b>사전 보정을 포함해야 통과</b>(97%). 계통 정보 없이 내보낸 Revit 파일은 재제출이 늘 수 있음. 고객사 BIM 요청 문서(R0~R24)·리포트 문구가 이 결정에 묶여 있음</p></div></div>
-    <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">2</div><div><h3>DT 데이터 교환 방식 (D-INT) — W42 안에 결정</h3><p>파일 / 온톨로지 서버 API / 공유 DB. 편집 워크플로우 42건(잠금·반영·버전·배너)이 이것을 기다림. 10/31 마감을 지키려면 W43 착수 전에 정해져야 함</p></div></div>
-    <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">3</div><div><h3>R1 일정 승인</h3><p>개발 10/31 마감(편집 워크플로우·다중층 포함) → R1 통합 검증 11/2~11/13 → R2 11/14~12월</p></div></div>
+    <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">1</div><div><h3>BIM 수용 기준선 컨펌 (D1) — 10/8 재오픈</h3><p>생성 게이트 = 누적 등급 0~3(계통 소속 기기 ≥ 60%), 목표선 = 등급 4(확정 방향 ≥ 50%, 막지는 않고 경고). 원본 게이트는 BIM+계산만 보고, 사전 보정(성수 계통 종류 97%)은 따로 표시(D12 확정). 성수는 BIM 만으로 계통 소속 60% 라 기준선과 맞닿은 경계값 — 계통 정보 없이 내보낸 Revit 파일은 재제출이 늘 수 있어 R15·R16 을 필수로 올려 둠. 고객사 BIM 요청 문서(R0~R26)·리포트 문구가 이 결정에 묶여 있음</p></div></div>
+    <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">2</div><div><h3>DT 데이터 교환 방식 (D-INT) — W43 착수 전에 결정</h3><p>파일 / 온톨로지 서버 API / 공유 DB. 지금은 ① 파일 전제로 저장·잠금·반영·버전·배너까지 구현해 둠. ②·③ 으로 정해지면 서버 신설이 필요하고, 32건(편집 워크플로우·Sync·이력)의 PRD 재검토도 이 결정을 따라감</p></div></div>
+    <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">3</div><div><h3>R1 일정 승인 — IDF 자동 구축은 R2 로 분리한 상태</h3><p>개발 10/31 마감(남은 R1 110건) → R1 통합 검증 11/2~11/13 → R2 11/14~12월(IDF 자동 구축 포함 30건). R1 의 공조존은 공조존 도구로 수동 생성</p></div></div>
     <div class="card" style="display:flex;gap:20px;align-items:center"><div class="big" style="font-size:40px;color:var(--brand);width:60px">4</div><div><h3>성수 외 실제 고객사 BIM 추가 확보</h3><p>정확도 하한선을 BIM 5종으로 지키고 있음 — 한 파일에 맞춘 과적합을 막으려면 판본·저작 도구가 다른 실제 BIM 이 더 필요</p></div></div>
   </div>
-  <div class="foot"><span>questions.md D1 · D-INT · PRD_011 1.5</span><span class="pg"></span></div>
+  <div class="foot"><span>questions.md D1 · D12 · D-INT · PRD_011 1.5 · 1.8</span><span class="pg"></span></div>
 </section>
 
 </div>
