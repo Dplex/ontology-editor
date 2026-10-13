@@ -599,6 +599,12 @@ th {
   font-size: 0.8rem;
 }
 
+/* 키로 한 일(.key-note, 한 줄)이 같은 자리에 뜨는 동안 경고는 그 위로 비킨다. 둘 다 읽혀야 한다.
+   안내는 .hint 의 아래 여백까지 얹혀 바닥에서 1.5rem 위에 한 줄(약 2.1rem)로 뜬다. */
+.edit-notice.over-note {
+  bottom: 4rem;
+}
+
 /* 고른 설비의 연결 */
 .picked {
   margin-top: 1rem;

@@ -9474,10 +9474,12 @@ function rollbackFromReport() {
             </template>
           </ul>
 
-          <p v-if="editNotice" class="edit-notice" role="alert">{{ editNotice }}</p>
-          <p v-else-if="keyNote" class="hint pick-hint key-note" role="status">{{ keyNote }}</p>
+          <p v-if="editNotice" class="edit-notice" :class="{ 'over-note': keyNote }" role="alert">{{ editNotice }}</p>
+          <!-- 경고가 떠 있어도 키로 한 일은 보인다. 남아 있는 경고(소속을 잃은 설비 등)가 뒤이어 막힌 이유("꼭짓점이 셋이라 …")를
+               가리면 안 된다. 경고는 그 위로 한 줄 비킨다(.over-note). -->
+          <p v-if="keyNote" class="hint pick-hint key-note" role="status">{{ keyNote }}</p>
           <!-- 다중층 뷰는 보기만 해서 편집 안내가 맞지 않는다. 그 자리는 다중층 안내 상자다. -->
-          <p v-else-if="editing && !multiView" class="hint pick-hint">
+          <p v-else-if="editing && !multiView && !editNotice" class="hint pick-hint">
             <template v-if="groupItems.length >= 2">
               설비 {{ groupItems.length }}대 · <kbd>←↑→↓</kbd>·끌기: 같이 옮기기 · <kbd>Delete</kbd>: 같이 지우기 · <kbd>Ctrl</kbd>+클릭: 넣고 빼기 · <kbd>Esc</kbd>: 풀기
             </template>
@@ -9501,7 +9503,7 @@ function rollbackFromReport() {
             </template>
             · <button type="button" class="link" @click="helpOpen = true">단축키 전체 <kbd>?</kbd></button>
           </p>
-          <p v-else-if="counts.equipment > 0" class="hint pick-hint">
+          <p v-else-if="counts.equipment > 0 && !editNotice" class="hint pick-hint">
             {{
               activeTab === 'plan'
                 ? '방이나 설비(점)를 누르면 오른쪽에 뜹니다. 휠로 확대, 끌어서 이동합니다.'
