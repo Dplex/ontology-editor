@@ -17,7 +17,7 @@ test('외벽은 크기 칸·지우기가 없고 방향키로 옮기지 않으며
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
 
   const panel = page.locator('.element-picked')

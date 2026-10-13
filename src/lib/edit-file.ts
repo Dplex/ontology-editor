@@ -109,6 +109,8 @@ export type EditFile = {
     /** 사람이 넣은 샤프트(OE-ML-09·14). */
     shaft?: string | null
     surface?: Surface
+    /** 3D 모양을 빌려 온 BIM 설비(복제한 원본, ADR-0059). 종류로 빌린 모양은 다시 열 때 같은 규칙으로 고르니 적지 않는다. */
+    shapeOf?: string
     /** 사람이 그린 배관의 구간·이음쇠(OE-PIP-11). 중심선은 배치점에서 잰 상대 좌표이고, `ends` 는 그 뒤 끝을 옮긴 양이다. */
     conduit?: { role: 'segment' | 'fitting'; ifcClass: string; flowType: string; axis?: [Vec3, Vec3]; ends?: [Vec3, Vec3] }
   }[]
@@ -304,6 +306,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           ...(e.systemId ? { system: e.systemId } : {}),
           ...(e.wallId ? { wall: e.wallId } : {}),
           ...(shaftOf(model, e) ? { shaft: e.shaftId } : {}),
+          ...(e.shapeOf ? { shapeOf: e.shapeOf } : {}),
           ...(e.surfaceSet ? { surface: e.surfaceSet } : {}),
           ...((e.role === 'segment' || e.role === 'fitting') && e.flowType
             ? {
@@ -759,7 +762,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
   }
   for (const row of file.equipmentAdded ?? []) {
     const conduit = row.conduit ? { role: row.conduit.role, ifcClass: row.conduit.ifcClass, flowType: row.conduit.flowType, axis: row.conduit.axis, endShift: row.conduit.ends } : undefined
-    const done = addEquipment(model, resolve(row.storeyId), { id: row.id, name: row.name, kind: row.kind, position: row.position ?? null, conduit })
+    const done = addEquipment(model, resolve(row.storeyId), { id: row.id, name: row.name, kind: row.kind, position: row.position ?? null, conduit, shapeOf: row.shapeOf })
     if (done) {
       result.applied++
       equipmentIds.add(done.id)

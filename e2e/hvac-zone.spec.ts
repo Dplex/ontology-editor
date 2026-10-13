@@ -45,7 +45,7 @@ test('담당 물리존을 골라 공조존을 만들고 담당 설비를 고르�
   // ZON-02 경계를 그려 사무실을 나눈다. 두 존이 모두 사무실을 담당한다.
   for (const half of [[[0.2, 0.2], [5, 0.2], [5, 7.8], [0.2, 7.8]], [[5, 0.2], [9.8, 0.2], [9.8, 7.8], [5, 7.8]]] as const) {
     await fold.getByRole('button', { name: '경계를 그려 만들기' }).click()
-    await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+    await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
     for (const [x, y] of half) {
       const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
       await page.mouse.click(at.x, at.y)
@@ -82,7 +82,7 @@ test('공조존 검증이 공백·중복·설비 미지정을 보이고, 담당 
   await expect(checks.locator('li', { hasText: 'Z-01' })).toContainText('없음')
   // 경계를 그려 사무실 일부를 덮으면 공조존 1 과 같은 영역을 담당한다(Z-02).
   await fold.getByRole('button', { name: '경계를 그려 만들기' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   for (const [x, y] of [[1, 1], [4, 1], [4, 4], [1, 4]]) {
     const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
     await page.mouse.click(at.x, at.y)
@@ -115,7 +115,7 @@ test('공조존 경계를 다시 그리면 넓이와 담당 물리존 몫이 바
 
   await zone.getByRole('button', { name: '경계 다시 그리기' }).click()
   await expect(page.locator('.key-note')).toContainText('공조존 1의 새 경계를 바닥에 찍습니다')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   for (const [x, y] of [[0, 0], [5, 0], [5, 8], [0, 8]]) {
     const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
     await page.mouse.click(at.x, at.y)
@@ -144,7 +144,7 @@ test('담당 설비의 흐름이 닿는 물리존이 후보로 보이고, 담당
     await page.mouse.click(at.x, at.y)
   }
   // 사무실을 x=2 에서 나눈다. 공조기(1,1)가 든 왼쪽 조각이 사무실-2 이고, 디퓨저 둘(x 3·7)은 사무실에 남는다.
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await floor(9.6, 7.6)
   const room = page.locator('.space-picked')
   await room.getByRole('button', { name: '나누기' }).click()
@@ -176,7 +176,7 @@ test('설비 패널에서 담당 공조존을 더하고 빼며, 흐름이 닿는
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
   const pickAhu = async () => {
-    await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+    await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
     const at = await page.evaluate((id) => (window as any).__viewer.part(id), AHU)
     await page.mouse.click(at.x, at.y)
     await expect(page.locator('.picked h3')).toHaveText('AHU-1')
@@ -192,7 +192,7 @@ test('설비 패널에서 담당 공조존을 더하고 빼며, 흐름이 닿는
 
   // 경계를 그려 공조존 2 를 만들고, 공조기 패널에서 담당으로 더한다.
   await fold.getByRole('button', { name: '경계를 그려 만들기' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await expect(page.locator('.key-note')).toContainText('공조존 경계를 그립니다')
   for (const [x, y] of [[1, 1], [4, 1], [4, 4], [1, 4]]) {
     const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
@@ -249,7 +249,7 @@ test('물리존 하나를 공조존 둘이 담당하면 물리존 패널에 둘 
     await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
   }
   await expect(fold.locator('.zone-list li[data-zone]')).toHaveCount(2)
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const at = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0]))
   await page.mouse.click(at.x, at.y)
   const zones = page.locator('.space-picked').getByTestId('space-zones')
@@ -273,7 +273,7 @@ test('담당 없는 물리존이 생기면 바뀐 내용 리포트에 Z-01 이 �
   await fold.getByLabel('사무실').check()
   await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
   // 사무실을 나누면 새 조각도 공조존 1 의 담당이 된다(OE-MAP-02). 그 조각을 담당에서 빼면 담당 없는 물리존(Z-01)이 생긴다.
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const floor = async (x: number, y: number) => {
     const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
     await page.mouse.click(at.x, at.y)
@@ -347,7 +347,7 @@ test('공조존 꼭짓점을 3D 손잡이로 끌어 옮기고, [ ]·Insert·Dele
   const handles = () => page.evaluate(() => (window as any).__viewer.handles() as { x: number; y: number }[])
   await zone.getByRole('button', { name: '꼭짓점 고치기' }).click()
   await expect(page.locator('.key-note')).toContainText('공조존 1의 꼭짓점을 끌어 옮깁니다')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await expect.poll(async () => (await handles()).length).toBe(4)
 
   // 사무실 오른쪽 아래 (10, 0) 손잡이를 (12, 0) 으로 끈다 → 사다리꼴 (10 + 12) / 2 × 8 = 88㎡.

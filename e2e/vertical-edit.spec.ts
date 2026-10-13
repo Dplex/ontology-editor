@@ -129,7 +129,7 @@ test('병원 건축: 다중층 뷰에서 계단을 통째로 옮기면 두 층�
   expect(after).toHaveLength(2)
   const back = after.find((id) => id.startsWith(`${parent2}@`))!
   // 불러오기 칸은 페이지 아래라 화면이 내려가 있다. 3D 를 다시 보이고 누른다.
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const at3 = await viewer<{ x: number; y: number }>(page, 'vertical', back)
   await page.mouse.click(at3.x, at3.y)
   expect(await coords(page, 'vertical-entry')).toEqual(moved)
@@ -205,7 +205,7 @@ test('병원 건축: 다중층 뷰에서 계단의 한 층 조각만 고친다 �
   await expect(page.locator('.picked .ceiling-lock').first()).toContainText('다중층 뷰에서는 수직 관통 오브젝트와 층간 배관만 다룹니다')
   await expect(page.locator('.position-edit')).toHaveCount(0)
   await expect(page.locator('.picked .danger-zone')).toHaveCount(0)
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
 
   // 저장 → 다시 열기 → 불러오기: 종료 지점이 고친 자리다.
   await page.getByRole('group', { name: '다중층 보기 범위' }).getByRole('button', { name: '층 편집으로' }).click()
@@ -219,7 +219,7 @@ test('병원 건축: 다중층 뷰에서 계단의 한 층 조각만 고친다 �
   await page.locator('.load-edits input').setInputFiles(path)
   await expect(page.locator('.edit-file-note')).toContainText('편집 1개를 적용했습니다')
   await expect(page.locator('.report')).toContainText('층별 모양을 고쳤습니다(First Floor · Second Floor, GeoJSON)')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   // 2층 종료 지점은 2층 설비에 가려질 수 있어, 1층 조각을 고르고 패널의 관통 층에서 2층으로 간다.
   await storeyBox(page).selectOption({ label: 'First Floor만' })
   for (const id of await viewer<string[]>(page, 'verticals')) {
@@ -273,8 +273,8 @@ test('병원 건축: 계단 구간을 지붕층까지 늘리면 2층 형상과 �
   // 적용 전에는 모델이 그대로이고, 그린 형상이 점선 미리보기로 보인다.
   await expect(page.locator('.edit-bar .undo')).toBeDisabled()
   expect((await viewer<{ preview: number }>(page, 'verticalMarks')).preview).toBe(1)
-  // 지붕 종료 지점을 찍는다.
-  await plan.getByRole('button', { name: '종료 지점 찍기' }).click()
+  // 형상을 마치면 남은 것(지붕 종료 지점)을 바로 이어서 찍는다 — 단추를 다시 찾아 누르지 않는다.
+  await expect(plan).toContainText('종료 지점 찍는 중')
   const roof = await viewer<{ x: number; y: number }>(page, 'point', [entry[0], entry[1] + 1.5, 9.25])
   await page.mouse.click(roof.x, roof.y)
   await expect(range.getByRole('button', { name: '구간 적용' })).toBeEnabled()
@@ -292,6 +292,55 @@ test('병원 건축: 계단 구간을 지붕층까지 늘리면 2층 형상과 �
   await expect(panel.getByTestId('vertical-storeys')).not.toContainText('Roof')
   await page.keyboard.press('Control+Shift+z')
   await expect(panel.getByTestId('vertical-storeys')).toContainText('Roof - Main')
+  expect(errors).toEqual([])
+})
+
+test('병원 건축: 층 편집의 팔레트 [계단·샤프트] 로 다중층 뷰가 열리고, [그리기 시작] 한 번에 형상 → 진입 → 종료를 차례로 이어 그리며, 그리는 동안 그 층 위는 걷히고, 채운 것에 ✓ 가 붙는다 [OE-ML-06#1~]', async ({ page }) => {
+  test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(240_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await openClinic(page)
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await storeyBox(page).selectOption({ label: 'First Floor만' })
+  // 층 하나만 볼 때 보이는 계단 조각은 1층 것이다.
+  const firstId = (await viewer<string[]>(page, 'verticals'))[0].split('@')[1]
+  await page.locator('.edit-part').getByRole('button', { name: '공간' }).click()
+  await page.locator('.tool-palette').getByRole('button', { name: '계단·샤프트' }).click()
+  await expect(page.getByTestId('multi-banner')).toContainText('First Floor ~ Second Floor')
+  const form = page.getByTestId('vertical-create')
+  await expect(form.getByLabel('만들 종류')).toHaveValue('stair')
+  const steps = page.getByTestId('vertical-create-steps').locator('li')
+  await expect(steps).toHaveText([/First Floor · 형상/, /First Floor · 진입 지점/, /Second Floor · 종료 지점/])
+  const secondParts = async () => (await viewer<string[]>(page, 'verticals')).filter((id) => !id.endsWith(`@${firstId}`)).length
+  expect(await secondParts()).toBeGreaterThan(0)
+
+  await page.getByTestId('vertical-create-start').click()
+  await expect(steps.nth(0)).toHaveClass(/now/)
+  // 1층을 그리는 동안 2층(판·계단 조각)이 걷힌다.
+  await expect.poll(secondParts).toBe(0)
+  for (const [x, y] of [[-30, 20], [-27, 20], [-27, 24], [-30, 24]]) {
+    const at = await viewer<{ x: number; y: number }>(page, 'point', [x, y, 0])
+    await page.mouse.click(at.x, at.y)
+  }
+  await page.keyboard.press('Enter')
+  // 형상을 마치면 진입 지점을 바로 이어 찍는다.
+  await expect(steps.nth(0)).toHaveClass(/done/)
+  await expect(steps.nth(1)).toHaveClass(/now/)
+  const entry = await viewer<{ x: number; y: number }>(page, 'point', [-28.5, 20.2, 0])
+  await page.mouse.click(entry.x, entry.y)
+  // 끝 층(2층) 종료 지점 — 2층이 다시 보인다.
+  await expect(steps.nth(2)).toHaveClass(/now/)
+  await expect.poll(secondParts).toBeGreaterThan(0)
+  const exit = await viewer<{ x: number; y: number }>(page, 'point', [-28.5, 23.8, 4.57])
+  await page.mouse.click(exit.x, exit.y)
+  await expect(steps.filter({ has: page.locator('.step-mark', { hasText: '✓' }) })).toHaveCount(3)
+  await expect(page.getByTestId('vertical-create-plan')).toContainText('다 채웠습니다')
+  await expect(page.getByTestId('vertical-create-start')).toHaveCount(0)
+  await form.getByRole('button', { name: '만들기', exact: true }).click()
+  await expect(page.getByTestId('vertical-picked').locator('h3')).toHaveText('새 계단')
+  await expect(page.getByTestId('vertical-picked').getByTestId('vertical-storeys')).toContainText('First Floor → Second Floor')
   expect(errors).toEqual([])
 })
 

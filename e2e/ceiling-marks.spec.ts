@@ -29,7 +29,7 @@ test('편집 모드에서 천장 설비는 바닥 링으로 보이고, 고르면
   await row.getByRole('button').first().click()
   await expect.poll(async () => (await marks(page)).guide).not.toBeNull()
   await page.evaluate(() => window.scrollTo(0, 0))
-  await page.locator('.viewport canvas').first().screenshot({ path: 'test-results/ceiling-marks-duplex.png' })
+  await page.locator('.canvas-wrap > canvas').first().screenshot({ path: 'test-results/ceiling-marks-duplex.png' })
 
   await page.getByRole('button', { name: '선택 해제' }).click()
   await expect.poll(async () => (await marks(page)).guide).toBeNull()

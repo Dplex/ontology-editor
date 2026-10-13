@@ -12,7 +12,7 @@ async function open(page: Page) {
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   return errors
 }
@@ -113,13 +113,13 @@ test('[방 경계도 같이] 를 켜고 벽을 옮기면 양쪽 방이 따라오
   await expect(panel.locator('h3')).toHaveText('새 벽')
 
   // 끄고 옮기면 방은 그대로다.
-  await page.locator('.viewport canvas').focus()
+  await page.locator('.canvas-wrap > canvas').focus()
   await page.keyboard.press('ArrowRight')
   await expect(page.locator('.report')).not.toContainText('㎡')
   await page.keyboard.press('Control+z')
 
   await panel.locator('.carry-rooms input').check()
-  await page.locator('.viewport canvas').focus()
+  await page.locator('.canvas-wrap > canvas').focus()
   // 방향키 하나는 벽 길이 방향(방은 그대로), 하나는 벽에 수직(방이 따라온다)이다. 화면 방향에 따라 어느 쪽인지 달라서 둘 다 누른다.
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowUp')

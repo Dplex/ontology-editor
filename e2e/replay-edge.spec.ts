@@ -13,7 +13,7 @@ async function openReplay(page: Page) {
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.keyboard.press('e')
   await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   // 묶이지 않게 간격을 두고 두 번(되돌리기 두 단계).
   await page.keyboard.press('Shift+ArrowRight')
   await page.waitForTimeout(1800)
@@ -122,7 +122,7 @@ test('녹화를 공유 확인 중에 한 번 더 눌러도 녹화는 하나다',
     navigator.mediaDevices.getDisplayMedia = async () => {
       w.__gdm++
       await new Promise((r) => setTimeout(r, 800))
-      return (document.querySelector('.viewport canvas') as HTMLCanvasElement).captureStream(30)
+      return (document.querySelector('.canvas-wrap > canvas') as HTMLCanvasElement).captureStream(30)
     }
   })
   const { hud, errors } = await openReplay(page)

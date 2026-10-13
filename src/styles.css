@@ -858,17 +858,93 @@ th {
   min-width: 0;
 }
 
-.viewport canvas {
+.canvas-wrap > canvas {
   display: block;
   width: 100%;
   height: 100%;
 }
 
+/* 3D 위 설비 라벨(V4). 점(left·top) 위쪽에 놓이고 아래로 짧은 지시선이 점까지 내려온다. 라벨 바깥은 3D 를 그대로 누른다. */
+.eq-labels {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.eq-label {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  max-width: 20rem;
+  padding: 0.12rem 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  transform: translate(-50%, calc(-100% - 14px));
+  pointer-events: auto;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
+}
+
+.eq-label::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  width: 1px;
+  height: 14px;
+  background: var(--muted);
+}
+
+.eq-label.chosen {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.eq-label-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.eq-badge {
+  flex: none;
+  padding: 0 0.3rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+}
+
+.eq-badge.ok {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.eq-badge.warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+.eq-badge.muted {
+  background: color-mix(in srgb, var(--muted) 16%, transparent);
+  color: var(--muted);
+}
+
+/* 결과 비교 판(ADR-0061)을 열면 3D 칸이 좁아져 시점 조작 안내가 시점 막대 밑에 깔린다. 판이 있는 동안은 뺀다. */
+.viewport:has(.export-compare) .view-controls-hint {
+  display: none;
+}
+
 /* 범례가 3D 오른쪽에 붙어 있으니, 버튼은 3D 칸 안의 오른쪽 위에 둔다. */
-/* 시점 조작 안내(OE-OBJ-15). 위쪽 가운데 작은 글자. 누르는 것이 없어 3D 조작을 막지 않는다. */
+/* 시점 조작 안내(OE-OBJ-15). 위쪽 가운데 작은 글자, 시점 막대(view-tools) 아래 줄 — 막대에 단추가 늘면 같은 줄에서 덮였다. 누르는 것이 없어 3D 조작을 막지 않는다. */
 .view-controls-hint {
   position: absolute;
-  top: 0.9rem;
+  top: 3.1rem;
   left: 50%;
   transform: translateX(-50%);
   max-width: 40%;
@@ -877,6 +953,182 @@ th {
   font-size: 0.72rem;
   text-align: center;
   pointer-events: none;
+}
+
+/* --- 보기 필터 · 우클릭 메뉴 (ui-notes 보기 필터) --- */
+.filter-toggle .filter-dot {
+  margin-left: 0.3rem;
+  color: var(--accent);
+  font-size: 0.6rem;
+  vertical-align: middle;
+}
+
+/* 패널은 3D 오른쪽, 시점 막대 아래. 3D 를 가리는 넓이를 줄이려 좁게 두고 넘치면 스크롤한다. */
+.filter-panel {
+  position: absolute;
+  top: 3.4rem;
+  right: 0.75rem;
+  z-index: 6;
+  width: 17rem;
+  max-height: calc(100% - 4.4rem);
+  overflow-y: auto;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 0.8rem;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+}
+
+.filter-panel .filter-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.filter-panel .filter-head b {
+  flex: 1;
+}
+
+.filter-panel .filter-note {
+  margin: 0.25rem 0;
+  font-size: 0.74rem;
+}
+
+.filter-panel .filter-now {
+  margin: 0.35rem 0;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.filter-panel .filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.4rem 0;
+}
+
+.filter-panel .filter-actions .ghost {
+  padding: 0.15rem 0.55rem;
+  font-size: 0.76rem;
+}
+
+.filter-panel .ghost.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+}
+
+.filter-group {
+  margin: 0.35rem 0 0;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line);
+}
+
+.filter-group summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.filter-group summary .link {
+  margin-left: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 400;
+}
+
+.filter-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.08rem 0;
+}
+
+.filter-group label .muted {
+  margin-left: auto;
+}
+
+.filter-group label.off {
+  opacity: 0.5;
+}
+
+.filter-group label.conduit code {
+  color: var(--muted);
+}
+
+.filter-group code {
+  font-size: 0.74rem;
+  word-break: break-all;
+}
+
+/* 걸러 보는 중 표시. 오른쪽 위, 시점 막대 아래(패널을 닫았을 때 패널 자리) — 아래쪽은 도구 팔레트·단축키 안내·알림이 쓴다. */
+.filter-chip {
+  position: absolute;
+  top: 3.4rem;
+  right: 0.75rem;
+  z-index: 4;
+  max-width: 26rem;
+  margin: 0;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.76rem;
+}
+
+.filter-chip .link {
+  margin-left: 0.5rem;
+}
+
+.ctx-menu {
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  max-width: 20rem;
+  padding: 0.3rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 0.8rem;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 18%);
+}
+
+.ctx-menu button {
+  padding: 0.3rem 0.55rem;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ctx-menu button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.ctx-menu button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.ctx-menu code {
+  font-size: 0.72rem;
+}
+
+.ctx-menu .ctx-head {
+  margin: 0.15rem 0.55rem 0.25rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-menu .ctx-foot {
+  margin: 0.3rem 0.55rem 0.1rem;
+  font-size: 0.7rem;
 }
 
 /* 왼쪽 위는 색 안내(.color-key·.wall-key) 자리다. 편집 도구에 벽·문·창·층 목록까지 펼치면 줄이 거기까지 뻗어 안내가
@@ -1755,6 +2007,54 @@ th {
 
 .rule-box p {
   margin: 0.25rem 0;
+}
+
+/* 흐름 방향 근거 세 줄과 결과(flow-cascade.ts). 단계 번호를 세로로 이어 "어디서 와서 무엇이 나가나" 가 위에서 아래로 읽힌다. */
+.flow-basis {
+  margin: 0.5rem 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.82rem;
+}
+
+.flow-basis li {
+  display: grid;
+  grid-template-columns: 1.3rem 1fr auto;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.18rem 0;
+}
+
+.flow-basis li + li {
+  border-top: 1px dotted var(--line);
+}
+
+.flow-basis .step-no {
+  display: inline-grid;
+  place-items: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.flow-basis small {
+  margin-left: 0.3rem;
+}
+
+.flow-basis b {
+  font-variant-numeric: tabular-nums;
+}
+
+.flow-basis .flow-basis-result {
+  font-weight: 600;
+}
+
+.flow-basis .flow-basis-result .step-no {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .merge .merge-src {
@@ -3752,6 +4052,71 @@ main.has-model .catalog {
   padding-left: 1.2rem;
 }
 
+/* 만들기에서 채울 것 목록. 채운 것은 ✓, 지금 그리는 것은 굵게 — 어디까지 했고 무엇이 남았는지 한눈에. */
+.vertical-steps {
+  margin: 0.4rem 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.vertical-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.2rem 0;
+}
+
+.vertical-steps .step-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.7rem;
+}
+
+.vertical-steps li.done .step-mark {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+}
+
+.vertical-steps li.done .step-text {
+  color: var(--muted);
+}
+
+.vertical-steps li.now .step-text,
+.step-now {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.vertical-steps li.now .step-mark {
+  border-color: var(--accent);
+}
+
+.vertical-steps .link {
+  margin-left: auto;
+}
+
+.ghost.go {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+}
+
+.ghost.go:hover {
+  color: var(--surface);
+  filter: brightness(1.08);
+}
+
+.multi-banner .banner-action {
+  display: block;
+  margin-top: 0.4rem;
+}
+
 .vertical-warnings {
   margin: 0.5rem 0;
   padding: 0.35rem 0.7rem 0.35rem 1.4rem;
@@ -3777,6 +4142,51 @@ main.has-model .catalog {
 .vertical-delete-ask ul {
   margin: 0 0 0.5rem;
   padding-left: 1.2rem;
+}
+
+/* 방향 큐브. 시점 막대(view-tools) 아래 오른쪽 위. 큐브는 작게 — 3D 오른쪽 위의 설비를 덮지 않게. */
+.nav-cube {
+  position: absolute;
+  top: 3.4rem;
+  right: 0.75rem;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.nav-cube canvas {
+  width: 84px;
+  height: 84px;
+  touch-action: none;
+}
+
+.nav-cube .fly-toggle {
+  padding: 0.15rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.nav-cube .fly-toggle.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+}
+
+/* 비행 중 안내. 3D 위 가운데 아래 — 그리기 막대(위)·알림(아래)과 겹치지 않는 자리. */
+.fly-badge {
+  position: absolute;
+  bottom: 3.2rem;
+  left: 50%;
+  z-index: 4;
+  margin: 0;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.78rem;
+  transform: translateX(-50%);
+  white-space: nowrap;
 }
 
 /* 다중층 뷰는 도구 상자 자리에 범위와 지금 할 수 있는 것을 둔다. */
@@ -3982,6 +4392,16 @@ main.has-model .catalog {
   border-radius: 6px;
   background: var(--warn-bg);
   color: var(--warn-fg);
+  font-size: 0.8rem;
+}
+
+/* 같은 모양으로 더하기(ADR-0059). 지우기 줄과 같은 모양이되 위 선이 없다. */
+.copy-zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
+  margin: 0.75rem 0 0;
   font-size: 0.8rem;
 }
 

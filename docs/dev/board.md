@@ -13,7 +13,7 @@ CLAUDE.md 에서 옮겼다. 이슈를 만들거나, PR 을 열거나, 라벨·�
 
 **상태는 Todo → In Progress → In Review → Done 이고, In Progress 다음은 PR 이 옮긴다.** 손대기 시작하면 카드를
 In Progress 로 손으로 옮긴다(이것만 사람 몫). 티켓마다 main 에서 브랜치(`feature/OE-OBJ-06-bearing-lock` 처럼)를 갈라 작업하고,
-PR 본문에 `Closes #n` 을 넣어 연다. 그다음은 `.github/workflows/kanban.yml` 이 카드를 따라 옮긴다(55 러너 `dt-dev`):
+PR 본문에 `Closes #n` 을 넣어 연다. 그다음은 `.github/workflows/kanban.yml` 이 카드를 따라 옮긴다(공용 러너 `code-linux`, docs/dev/board.md "Actions 러너"):
 
 | 일 | 카드 |
 |---|---|
@@ -56,7 +56,7 @@ Status 선택지는 **웹 UI 에서만 고친다.** API(`updateProjectV2Field`)�
 ## 검토 코멘트(PR 본문)의 모양
 
 #32 의 모양을 따른다(PR 본문이나 이슈에): 구현한 것 · 화면(스샷) · **확인 방법**(어느 파일을 열고 무엇을 누르면 무엇이 보이나,
-번호 매긴 단계) · 테스트(파일과 `npm test`·`check:sample`·e2e 결과 숫자) · 남은 것. 스샷은 Playwright 로 실제 BIM 을 열어
+번호 매긴 단계) · 테스트(파일과 `npm test`·`check:sample`·e2e 결과 숫자) · 추가 작업 필요(항목마다 상태, `writing-style.md` 원칙 11). 스샷은 Playwright 로 실제 BIM 을 열어
 찍어 이슈·PR 에 직접 업로드한다(GitHub 첨부). 브랜치 경로로 링크하면 merge 뒤 브랜치를 지울 때 이미지가 깨진다(#340). 3D 의 벽·설비 자리는 e2e 모드(`vite --mode e2e`)의
 `window.__viewer`(`element`·`part`·`point`)로 짚는다.
 
@@ -80,7 +80,7 @@ Status 는 건드리지 않는다. 점검은 Actions `Board check` 가 PR·main 
 
   요구사항 문구를 이렇게 이해하고 그대로 구현했으면, 묻지 않고 PR 본문의 수용 기준 대조에 "이렇게 이해하고 구현했습니다" 로 적는다.
   **아직 만들지 않은 것도 묻지 않는다.** 요구사항이 PDF·DWG 인데 이미지만 받게 만들었으면 덜 만든 것이다. 이슈를 `Refs` 로 열어 두고
-  "남은 것" 에 적는다(#118, 2026-10-12). 만들려면 서버 같은 이 repo 밖의 것이 필요하면 그것만 `blocked` 사유로 적는다.
+  "추가 작업 필요" 에 적는다(#118, 2026-10-12). 만들려면 서버 같은 이 repo 밖의 것이 필요하면 그것만 `blocked` 사유로 적는다.
   2026-10-12 에 질문 10개를 처리했는데, 구현을 바꾼 것은 #154 하나였다. 다른 팀의 확인을 기다리는 것은 `blocked` 다
 - `needs-dev`: 일부만 구현. 남은 것을 코멘트·티켓 메모에 적고 붙인다
 - `rejected`: 검토 반려. In Review → In Progress 로 돌릴 때 이유와 함께. 다시 In Review 로 올릴 때 뗀다
@@ -89,3 +89,19 @@ Status 는 건드리지 않는다. 점검은 Actions `Board check` 가 PR·main 
   Done 이슈에 붙은 것은 손으로 떼지 않는다 — 후속 이슈가 생기고, 그 PR 이 merge 될 때 kanban.yml 이 뗀다.
   후속 이슈는 템플릿(원 이슈 수정 이력의 이전 문구 + 지금 요구사항·수용 기준)이고 제목 끝에 `(OE-XXX-nn)` 를 붙이지 않는다
   (sync-board 가 제목 끝 ID 로 짝지어서 둘이 되면 엉뚱한 이슈를 고친다). 그래서 `npm run board` 의 "제목 끝에 티켓 ID 가 없는 항목" 에 뜬다
+
+## Actions 러너
+
+워크플로는 두 러너에서 돈다(2026-10-13, #561).
+
+| 러너 | 워크플로 | 까닭 |
+|---|---|---|
+| 사내 공용 `code-linux` | `activity.yml` · `kanban.yml` | GHE API 만 부른다(`actions/github-script`). 55 의 파일·서비스를 만지지 않는다 |
+| 55 의 `[self-hosted, dt-dev]` | `review.yml` · `board-check.yml` · `prd-check.yml` | 55 의 검토 트리를 받아 8087 을 다시 띄우거나 55 에서 검사한다 |
+
+- 55 러너는 하나(v2.324.0, GHE 3.18.14 가 주는 판)이고, 잡을 마칠 때마다 다음 잡을 받기 전에 15~30초 쉰다(`_diag/Runner_*.log` 의
+  "Sleeping for … seconds before retrying"). 잡 하나가 3~8초인데 평균 42초가 들어 시간당 80~90개가 한계였고, 이슈 라벨·댓글마다 깨는
+  Activity 가 몰리면 PR 의 Review 가 1시간 넘게 queued 였다(#537). 55 서버 부하는 아니었다(CPU 98% 유휴).
+- `code-linux` 에서는 잡 5개가 5~7초 안에 서로 다른 머신에서 동시에 시작했다. `PROJECT_TOKEN`(Projects·repo 쓰기)이 공용 러너 머신에서 쓰인다.
+- GHE Server 에는 github.com 의 GitHub-hosted 러너(`ubuntu-latest`)가 없다.
+- 되돌리려면 `activity.yml`·`kanban.yml` 의 `runs-on` 을 `[self-hosted, dt-dev]` 로 바꾼다.

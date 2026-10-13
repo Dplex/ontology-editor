@@ -313,6 +313,11 @@ export type Equipment = {
   spaceSet?: string
   /** 사람이 에디터에서 더한 설비(E7). BIM 에 없던 것이라 화면의 출처가 "편집"이다. */
   added?: true
+  /**
+   * 사람이 더한 설비가 3D 모양을 빌려 온 BIM 설비 id(ADR-0059). [같은 모양으로 더하기] 로 복제하면 원본이다. 모양은 그 설비의 형상을
+   * 이 설비 자리로 옮긴 것이고 3D·GLB·OBJ·FBX 에만 쓰인다(TTL·GeoJSON 에는 모양이 없다). 없으면 종류가 같은 BIM 설비의 모양을 빌린다.
+   */
+  shapeOf?: string
   /** 사람이 이름(태그)을 고쳤으면 BIM 이 준 이름. 타입·패밀리 묶음은 이 이름으로 잡는다(edit.ts 의 bimName). */
   nameEdited?: { from: string }
   /**

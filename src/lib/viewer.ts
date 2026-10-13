@@ -14,6 +14,10 @@ import {
   Color,
   Ray,
   Sphere,
+  Spherical,
+  Sprite,
+  SpriteMaterial,
+  CanvasTexture,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
@@ -58,6 +62,7 @@ import { easeOut, still } from './motion'
 import { isMultiSelect } from './shortcuts'
 import { alongOf, cutWall, openingRect, type OpeningCut } from './opening-cut'
 import { createReplayFx, type ReplayViewerApi } from './replay-viewer'
+import { createNavCube } from './nav-cube'
 import { type LibraryItem, type ObjectMaterial } from './space-object'
 import { CONTEXT_ITEMS } from './object-names'
 import { partId } from './vertical-object'
@@ -359,6 +364,18 @@ export type Viewer = {
   focus(id: string): void
   /** 주어진 설비들이 화면에 꽉 차게 카메라를 맞춘다. 연결망만 보고 싶을 때 쓴다. margin(미터)만큼 둘레를 더 보인다. */
   frame(ids: Iterable<string>, margin?: number): void
+  /** 움직이지 않은 우클릭(ui-notes 보기 필터). 누른 자리의 설비 id(없으면 null)와 화면 좌표. 끈 오른쪽 드래그는 그대로 회전이다. */
+  onContext(handler: (id: string | null, x: number, y: number) => void): void
+  /** 보이는 것 전체에 맞춘다. `keep` 이면 지금 보는 방향 그대로(전체 맞추기), 아니면 처음 시점 방향(카메라 초기화). */
+  frameVisible(keep: boolean): void
+  /**
+   * Brick 클래스별 분해도(ui-notes 보기 필터). 묶음마다 그 설비를 건물 위로 한 켜씩 띄우고(평면 자리는 그대로) 켜 옆에 라벨을 단다.
+   * 화면에서만 옮긴다 — 모델·편집 파일에는 아무것도 남지 않고, 다시 그리거나 설비를 옮기면 먼저 제자리로 돌아온다.
+   * `null` 이면 제자리로. 띄웠으면 true.
+   */
+  setExplode(groups: readonly { label: string; ids: readonly string[] }[] | null): boolean
+  /** 분해도가 펼쳐져 있나. 다시 그리기 등으로 저절로 접힐 수 있어 화면이 이것으로 맞춘다. */
+  exploded(): boolean
   /** 내력벽(과 내력 여부를 모르는 벽)을 켜고 끈다. 모델을 바꿔도 켜 둔 상태는 남는다. */
   setWallsVisible(on: boolean): void
   /** 편집 모드를 켜고 끈다. 끄면 3D 는 보기 전용이고, 누르고 끄는 것은 전부 시점 조작이다. */
@@ -392,6 +409,11 @@ export type Viewer = {
   onVertexMove(handler: (spaceId: string, index: number, to: Vec2) => void): void
   /** 연결 화살표. 빈 배열이면 지운다. */
   setArrows(arrows: readonly Arrow[]): void
+  /**
+   * 흐름 방향의 연쇄(flow-cascade.ts). 확정·적용으로 TTL 에 나가는 방향이 바뀐 연결을 물결(wave) 순서대로 강조색 화살표로 띄웠다가
+   * 걷는다. 평소 화살표(setArrows, 고른 설비의 이웃)와 따로 겹쳐 그린다. 움직임을 끈 사람에게는 한꺼번에 띄웠다가 걷는다.
+   */
+  playCascade(items: readonly { a: string; b: string; from: string; wave: number }[]): void
   /** 편집 모드가 아니어도 화살표를 그린다(누르지는 못한다). 편집 리플레이가 바뀐 흐름을 보일 때 쓴다. */
   setArrowsShown(on: boolean): void
   onArrowClick(handler: (key: string) => void): void
@@ -440,6 +462,17 @@ export type Viewer = {
   setGrid(grid: { x: readonly number[]; y: readonly number[]; elevation: number; extent: { minX: number; minY: number; maxX: number; maxY: number } } | null): void
   /** 보이는 것 전체를 위에서 내려다본다. 화면 위쪽이 IFC +y(평면도와 같은 방위)다. */
   topView(): void
+  /** 보이는 것 전체를 이 방향(대상에서 카메라 쪽, 장면 좌표 — x 는 IFC x, y 는 위, z 는 IFC −y)에서 본다. 방향 큐브가 부른다. */
+  viewFrom(dir: readonly [number, number, number]): void
+  /** 오른쪽 위 방향 큐브(nav-cube.ts)를 이 캔버스에 붙인다. 떼는 함수를 돌려준다. */
+  attachNavCube(canvas: HTMLCanvasElement): () => void
+  /**
+   * 비행 모드. 켜면 WASD 로 앞·좌·뒤·우, Q/E 로 내려가기·올라가기(키는 flyKey 로 받는다), 왼쪽·오른쪽 드래그로 제자리에서 둘러보기,
+   * 휠로 빠르기를 바꾼다. 끄면 지도식 시점으로 돌아오고 눈앞의 점을 도는 중심으로 둔다.
+   */
+  setFly(on: boolean): void
+  /** 비행 중 눌린·뗀 키(`KeyW` 같은 code). 글자 칸·단축키 판단은 화면이 하고 넘긴다. `null` 이면 다 뗀다(창이 초점을 잃었을 때). */
+  flyKey(code: string | null, down: boolean): void
   /**
    * 추가 공간 오브젝트(OE-OBJ-09). 항목의 3D 조각(내장) 또는 넣은 모델(`models`, 열쇠 → 읽은 장면)을 오브젝트 상자에 맞춰
    * 늘려 그린다. 고른 것은 액센트 테두리, `conflict`(겹쳐서 막은 상대)는 붉게 그린다(OE-SPC-15). 편집 모드에서 고른 것은 끌 수 있다.
@@ -476,8 +509,20 @@ export type Viewer = {
    */
   setPlaceMode(elevation: number | null): void
   onPlace(handler: (at: Vec2) => void): void
+  /**
+   * 시점이 바뀌면 부른다(한 프레임에 한 번). 바라보는 점의 IFC 평면 좌표와, 그 거리에서 화면 가로 절반이 덮는 길이(m).
+   * 비교 판(ExportCompare.vue, ADR-0061)의 평면이 3D 를 따라간다. null 이면 뗀다.
+   */
+  onView(handler: ((view: { target: Vec2; halfWidth: number }) => void) | null): void
   /** 물리존 하나가 화면에 들어오게 한다. */
   frameSpace(id: string): void
+  /**
+   * 설비 형상 상자 가운데의 화면 좌표(창 기준 px). 그려지지 않았거나(다른 층·숨김) 카메라 뒤·캔버스 밖이면 null.
+   * 3D 위 설비 라벨(App.vue 의 equipmentLabels)이 쓴다.
+   */
+  screenOf(ids: readonly string[]): ({ x: number; y: number } | null)[]
+  /** 3D 를 다시 그릴 때마다 오르는 수. 라벨이 그대로인 화면에서 자리를 다시 재지 않게 본다. */
+  viewVersion(): number
   /**
    * 화면의 오른쪽·위쪽이 IFC 평면에서 어느 쪽인가(단위 벡터). 방향키로 설비를 옮길 때 쓴다. 비스듬히 보면
    * 화면 위쪽은 바닥에서 "멀어지는 쪽" 이다.
@@ -623,6 +668,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     dirty = true
   }
   let pickHandler: (id: string | null, additive?: boolean) => void = () => {}
+  let contextHandler: (id: string | null, x: number, y: number) => void = () => {}
   let boxHandler: (ids: string[]) => void = () => {}
   /** Ctrl+끌기로 그리는 고르기 상자(OE-UI-09). 화면 좌표의 시작점과 그리는 DOM 상자. */
   let box: { x: number; y: number; el: HTMLDivElement } | null = null
@@ -637,8 +683,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // **움직일 때만 다시 그린다.** 가만히 있을 때도 매 프레임 1만 8천 개를 다시 그리면 화면 전체(스크롤,
   // 입력칸)가 같이 느려진다. 시점이 바뀌거나 색·모델이 바뀌었을 때만 그린다.
   let dirty = true
+  // 시점을 알릴 곳(onView). 비행·관성으로 한 프레임에 여러 번 바뀌어도 프레임마다 한 번만 알린다.
+  let viewHandler: ((view: { target: Vec2; halfWidth: number }) => void) | null = null
+  let viewPending = false
   const invalidate = () => {
     dirty = true
+    if (viewHandler && !viewPending) {
+      viewPending = true
+      requestAnimationFrame(() => {
+        viewPending = false
+        const t = controls.target
+        const d = camera.position.distanceTo(t)
+        viewHandler?.({ target: [t.x, -t.z], halfWidth: d * Math.tan((camera.fov * Math.PI) / 360) * (camera.aspect || 1.6) })
+      })
+    }
   }
   controls.addEventListener('change', invalidate)
 
@@ -911,6 +969,98 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       }
       arrowSegs.push({ key: spec.key, a: ca, b: cb })
     }
+  }
+
+  // --- 흐름 방향의 연쇄 ---
+  // 바뀐 연결을 물결마다 CASCADE_STEP_MS 간격으로 띄운다. 물결이 많으면 간격을 줄여 전체가 CASCADE_SPAN_MS 안에 퍼진다. 다 띄운 뒤
+  // CASCADE_HOLD_MS 두었다가 CASCADE_FADE_MS 동안 옅어진다. 성수 한꺼번에 확정처럼 수천 개가 바뀌어도 CASCADE_MAX 개(앞 물결부터)만 그린다.
+  const CASCADE_STEP_MS = 140
+  const CASCADE_SPAN_MS = 1600
+  const CASCADE_HOLD_MS = 900
+  const CASCADE_FADE_MS = 400
+  const CASCADE_MAX = 400
+  // 촉 형상 하나(높이 1, 반지름 1/3 — 크기는 scale 로)와 재질 둘을 모두가 같이 쓴다. 성수에서 화살표마다 새로 만들면 확정 한 번에 160ms 가 들었다.
+  // 옅어지기는 다 같이라 재질 하나의 opacity 로 된다.
+  const CASCADE_CONE = new ConeGeometry(1 / 3, 1, 12)
+  let cascade: { t0: number | null; step: number; last: number; line: LineBasicMaterial; cone: MeshBasicMaterial; parts: { wave: number; r: number; objects: (Line | Mesh)[] }[] } | null = null
+  function clearCascade() {
+    if (!cascade) return
+    for (const p of cascade.parts)
+      for (const o of p.objects) {
+        o.parent?.remove(o)
+        if (o instanceof Line) o.geometry.dispose()
+      }
+    cascade.line.dispose()
+    cascade.cone.dispose()
+    cascade = null
+    dirty = true
+  }
+  function startCascade(items: readonly { a: string; b: string; from: string; wave: number }[]) {
+    clearCascade()
+    const color = arrowColors(dark).edit
+    const lineMat = new LineBasicMaterial({ color, depthTest: false, transparent: true })
+    const coneMat = new MeshBasicMaterial({ color, depthTest: false, transparent: true })
+    const parts: { wave: number; r: number; objects: (Line | Mesh)[] }[] = []
+    // 배관 마디는 수십 cm 라 길이로만 촉 크기를 잡으면 건물 전체를 볼 때 안 보인다(Duplex MEP). 촉은 보는 거리에 맞춰 최소 크기를 둔다.
+    const minR = camera.position.distanceTo(controls.target) * 0.012
+    const up = new Vector3(0, 1, 0)
+    for (const it of [...items].sort((x, y) => x.wave - y.wave).slice(0, CASCADE_MAX)) {
+      if (hiddenIds.has(it.a) || hiddenIds.has(it.b)) continue
+      const pa = partById.get(it.a)
+      const pb = partById.get(it.b)
+      if (!pa || !pb) continue
+      const ca = pa.box.getCenter(new Vector3())
+      const cb = pb.box.getCenter(new Vector3())
+      const len = ca.distanceTo(cb)
+      if (len < 1e-6) continue
+      const [tail, head] = it.from === it.a ? [ca, cb] : [cb, ca]
+      const dir = head.clone().sub(tail).normalize()
+      const line = new Line(new BufferGeometry().setFromPoints([tail, head]), lineMat)
+      line.renderOrder = 13
+      // 평소 화살촉보다 조금 크게 — 위에 겹쳐 그리니 같은 크기면 안 보인다.
+      const r = Math.max(Math.min(Math.max(len * 0.09, 0.07), 0.5), minR)
+      const cone = new Mesh(CASCADE_CONE, coneMat)
+      cone.position.copy(tail).addScaledVector(dir, len * 0.6)
+      cone.quaternion.setFromUnitVectors(up, dir)
+      cone.renderOrder = 14
+      for (const o of [line, cone]) {
+        o.visible = false
+        overlay.add(o)
+      }
+      parts.push({ wave: it.wave, r: r * 3, objects: [line, cone] })
+    }
+    if (!parts.length) {
+      lineMat.dispose()
+      coneMat.dispose()
+      return
+    }
+    const waves = parts.at(-1)!.wave + 1
+    const step = still() ? 0 : Math.min(CASCADE_STEP_MS, CASCADE_SPAN_MS / waves)
+    started.cascades++
+    cascade = { t0: null, step, last: parts.at(-1)!.wave, line: lineMat, cone: coneMat, parts }
+    dirty = true
+  }
+  function stepCascade(now: number) {
+    if (!cascade) return
+    if (cascade.t0 === null) cascade.t0 = now
+    const t = now - cascade.t0
+    const spread = cascade.last * cascade.step
+    for (const p of cascade.parts) {
+      const at = p.wave * cascade.step
+      if (t < at) continue
+      // 띄울 때 촉이 0.3 배에서 1 배로 커진다(180ms). 움직임을 끈 사람에게는 처음부터 1 배다.
+      const grow = cascade.step === 0 ? 1 : Math.min(1, 0.3 + ((t - at) / 180) * 0.7)
+      for (const o of p.objects) {
+        o.visible = true
+        if (o instanceof Mesh) o.scale.setScalar(p.r * grow)
+      }
+    }
+    const fade = still() ? 1 : 1 - Math.min(1, Math.max(0, t - spread - CASCADE_HOLD_MS) / CASCADE_FADE_MS)
+    cascade.line.opacity = fade
+    cascade.cone.opacity = fade
+    dirty = true
+    // 움직임을 끈 사람에게는 한꺼번에 띄워 2초 둔다 — 퍼지는 순서는 못 보지만 무엇이 바뀌었는지는 본다.
+    if (t > spread + CASCADE_HOLD_MS + (still() ? 1100 : CASCADE_FADE_MS)) clearCascade()
   }
 
   /** 손잡이는 화면에서 잰다. 크기가 시점 따라 바뀌어도 누르는 너비는 같아야 한다. */
@@ -1315,6 +1465,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     (e) => {
       pressedAt = { x: e.clientX, y: e.clientY }
       if (e.button !== 0) return
+      // 분해도는 화면에서만 띄운 자리라 거기서 끌면 엉뚱한 곳으로 옮겨진다. 펼친 동안은 끌지 않는다(시점 이동은 된다).
+      if (explodedParts) return
       if (!editMode && !(handleEdit && hitHandle(e.clientX, e.clientY) !== null)) return
       // 화살표 위에서 누른 것은 떼면서 방향을 바꾸는 누르기다. 끌기를 시작하지 않는다.
       if (hitArrow(e.clientX, e.clientY)) return
@@ -1415,6 +1567,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const dragged = Math.hypot(e.clientX - pressedAt.x, e.clientY - pressedAt.y) > 4
     pressedAt = null
     if (dragged) return
+    // 움직이지 않은 우클릭은 메뉴다(ui-notes 보기 필터). 전에는 왼쪽 누르기처럼 골랐다. 끈 오른쪽 드래그는 위에서 회전으로 끝났다.
+    if (e.button === 2) {
+      contextHandler(pick(rayAt(e.clientX, e.clientY)), e.clientX, e.clientY)
+      return
+    }
+    // 휠 클릭은 회전 중심 정하기다(아래 pivot 리스너). 고르기로 내려가면 빈 곳을 누른 셈이 되어 고른 것이 풀렸다.
+    if (e.button === 1) return
 
     // 리플레이의 빛기둥·이름표를 누르면 그 장면을 되풀이한다.
     const spot = fx.hitSpot(e.clientX, e.clientY)
@@ -1535,6 +1694,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   window.addEventListener('keydown', onKeyDown)
   // 끄는 중 창이 포커스를 잃으면(다른 창으로 전환) 버린다(OE-OBJ-15). 버튼을 뗀 것을 못 받으니 확정하지 않는다.
   const onBlur = () => {
+    // 비행 중 창을 떠나면 뗀 키를 못 받아 계속 날아간다.
+    flying?.keys.clear()
     if (drag) endDrag(false)
     if (box) {
       box.el.remove()
@@ -1691,10 +1852,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   let running = true
+  /** 다시 그린 횟수(viewVersion). */
+  let renders = 0
   function tick(now = performance.now()) {
     if (!running) return
     resize()
     stepFlight(now)
+    stepFly(now)
+    stepCascade(now)
     stepPivotMark(now)
     stepGlides(now)
     stepPulses(now)
@@ -1711,10 +1876,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (handles.length) scaleHandles()
       const t0 = performance.now()
       renderer.render(scene, camera)
+      renders++
       perf.renderMs = performance.now() - t0
       perf.calls = renderer.info.render.calls
       perf.triangles = renderer.info.render.triangles
       perf.frames.push(now)
+      // 방향 큐브는 메인 시점이 바뀔 때만 다시 그린다(같은 dirty).
+      navCube?.render(tmpDir.subVectors(camera.position, controls.target), camera.up)
       dirty = false
     }
     // 1초 창 안에 그린 장수와 그 사이 간격. 3D 는 바뀔 때만 그려서(dirty) 가만히 있으면 0 이 맞다.
@@ -1775,7 +1943,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 움직임을 끈 사람에게는 그대로 순간이동이다. 사람이 시점을 잡으면(controls 'start') 그 자리에서 멈춘다.
   const FLY_MS = 380
   /** 시작한 움직임 수(e2e 가 짧은 움직임을 놓치지 않게 센다). */
-  const started = { flights: 0, glides: 0, pulses: 0 }
+  const started = { flights: 0, glides: 0, pulses: 0, cascades: 0 }
   let flight: { t0: number | null; ms: number; lift: number; ease: (k: number) => number; fromT: Vector3; fromP: Vector3; toT: Vector3; toP: Vector3; near: number; far: number } | null = null
   function fly(target: Vector3, position: Vector3, clip: { near: number; far: number } | null) {
     flight = null
@@ -1821,6 +1989,101 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     flight = null
   })
 
+  // --- 방향 큐브와 비행 모드 ---
+  // 큐브(nav-cube.ts)는 면·모서리·꼭짓점을 누르면 그 방향에서 보이는 것 전체를 맞추고(fit), 끌면 대상 둘레로 돈다.
+  // 비행 모드는 사람이 건물 안을 걸어 다니듯 본다. 지도식 시점(OrbitControls)의 끌기·휠을 끄고, 키·드래그를 여기서 받는다.
+  let navCube: ReturnType<typeof createNavCube> | null = null
+  const tmpDir = new Vector3()
+  function visibleBox(): Box3 {
+    const box = new Box3()
+    for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
+    for (const o of slabs.children) if (o.visible) box.expandByObject(o)
+    if (box.isEmpty()) box.setFromObject(content)
+    return box
+  }
+  /** 대상 둘레로 시점을 돌린다(px). 오른쪽으로 끌면 건물이 오른쪽으로 돈다 — 지도식 시점의 오른쪽 드래그와 같은 쪽이다. */
+  const ORBIT_RAD_PER_PX = Math.PI / 240
+  function orbitBy(dx: number, dy: number) {
+    flight = null
+    const offset = tmpDir.subVectors(camera.position, controls.target)
+    const s = new Spherical().setFromVector3(offset)
+    s.theta -= dx * ORBIT_RAD_PER_PX
+    s.phi = Math.min(Math.PI - 0.01, Math.max(0.01, s.phi - dy * ORBIT_RAD_PER_PX))
+    camera.position.copy(controls.target).add(offset.setFromSpherical(s))
+    controls.update()
+    dirty = true
+  }
+
+  const FLY_KEYS: Record<string, [number, number, number]> = {
+    KeyW: [0, 0, 1],
+    KeyS: [0, 0, -1],
+    KeyA: [-1, 0, 0],
+    KeyD: [1, 0, 0],
+    KeyQ: [0, -1, 0],
+    KeyE: [0, 1, 0],
+  }
+  /** 비행 상태. `rate` 는 초당 m(건물 크기에 맞춘 기본값 × 휠로 바꾼 배수). */
+  let flying: { keys: Set<string>; base: number; scale: number; last: number | null; look: { x: number; y: number } | null } | null = null
+  const LOOK_RAD_PER_PX = Math.PI / 600
+  function stepFly(now: number) {
+    if (!flying) return
+    const moving = [...flying.keys].filter((k) => k in FLY_KEYS)
+    if (!moving.length) {
+      flying.last = null
+      return
+    }
+    const dt = flying.last === null ? 1 / 60 : Math.min(0.1, (now - flying.last) / 1000)
+    flying.last = now
+    const fast = flying.keys.has('ShiftLeft') || flying.keys.has('ShiftRight') ? 3 : 1
+    const step = flying.base * flying.scale * fast * dt
+    const forward = new Vector3().subVectors(controls.target, camera.position).normalize()
+    const right = new Vector3().crossVectors(forward, camera.up).normalize()
+    const move = new Vector3()
+    for (const k of moving) {
+      const [x, y, z] = FLY_KEYS[k]
+      move.addScaledVector(right, x).addScaledVector(camera.up, y).addScaledVector(forward, z)
+    }
+    if (move.lengthSq() === 0) return
+    move.normalize().multiplyScalar(step)
+    camera.position.add(move)
+    controls.target.add(move)
+    controls.update()
+    dirty = true
+  }
+  function onFlyDown(e: PointerEvent) {
+    if (!flying || (e.button !== 0 && e.button !== 2)) return
+    flying.look = { x: e.clientX, y: e.clientY }
+  }
+  function onFlyMove(e: PointerEvent) {
+    if (!flying?.look || !e.buttons) {
+      if (flying) flying.look = null
+      return
+    }
+    const dx = e.clientX - flying.look.x
+    const dy = e.clientY - flying.look.y
+    flying.look = { x: e.clientX, y: e.clientY }
+    // 제자리에서 고개를 돌린다: 눈은 그대로, 보는 점(target)을 눈 둘레로 돌린다.
+    const dir = tmpDir.subVectors(controls.target, camera.position)
+    const s = new Spherical().setFromVector3(dir)
+    s.theta -= dx * LOOK_RAD_PER_PX
+    s.phi = Math.min(Math.PI - 0.05, Math.max(0.05, s.phi + dy * LOOK_RAD_PER_PX))
+    controls.target.copy(camera.position).add(dir.setFromSpherical(s))
+    controls.update()
+    dirty = true
+  }
+  function onFlyUp() {
+    if (flying) flying.look = null
+  }
+  function onFlyWheel(e: WheelEvent) {
+    if (!flying) return
+    e.preventDefault()
+    flying.scale = Math.min(20, Math.max(0.05, flying.scale * (e.deltaY < 0 ? 1.25 : 0.8)))
+  }
+  canvas.addEventListener('pointerdown', onFlyDown)
+  canvas.addEventListener('pointermove', onFlyMove)
+  window.addEventListener('pointerup', onFlyUp)
+  canvas.addEventListener('wheel', onFlyWheel, { passive: false })
+  const MAP_BUTTONS = { ...controls.mouseButtons }
   // --- 휠 클릭으로 회전 중심 정하기 ---
   // 지도식 시점은 화면 가운데(target)를 중심으로 돈다. 큰 건물의 한쪽 구석을 돌려 보려면 그 자리를 가운데로 끌어와야 했다.
   // 휠(가운데 단추)을 움직이지 않고 누르면 그 자리(설비 형상, 없으면 물리존 바닥, 없으면 지금 중심 높이의 수평면)로 시점을 평행이동해
@@ -1945,6 +2208,65 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (hoverMarkKey === `equipment:${part.id}`) markHover(null)
     drawArrows()
     dirty = true
+  }
+
+  // --- Brick 클래스별 분해도(setExplode, ui-notes 보기 필터) ---
+  // 클래스 묶음마다 설비 형상을 위로 평행이동한다(꼭짓점을 고쳐 쓴다 — 미끄러짐과 같은 장치라 고르기 상자도 따라간다). 원래 꼭짓점을
+  // 떠 두었다가 접을 때 되돌린다. 모델은 건드리지 않는다. 다시 그리기·설비 옮기기가 오면 먼저 접는다 — 띄운 자리에서 옮기면 접을 때
+  // 옛 자리로 돌아가 버린다.
+  let explodedParts: Map<string, Float32Array> | null = null
+  const explodeLabels = new Group()
+  scene.add(explodeLabels)
+  /** 미끄러지게 띄우는 설비 수의 한도. 넘으면 바로 옮긴다 — 성수에서 수천 대를 매 프레임 섞으면 화면이 멈춘다. */
+  const EXPLODE_GLIDE_MAX = 400
+  function disposeExplodeLabels() {
+    for (const o of explodeLabels.children) {
+      if (o instanceof Sprite) o.material.map?.dispose()
+      else (o as LineLoop).geometry.dispose()
+      ;((o as Sprite | LineLoop).material as Material).dispose()
+    }
+    explodeLabels.clear()
+  }
+  function collapseExplode(glide: boolean) {
+    if (!explodedParts) return
+    const slide = glide && explodedParts.size <= EXPLODE_GLIDE_MAX
+    for (const [id, original] of explodedParts) {
+      const part = partById.get(id)
+      if (part && part.vCount * 3 === original.length) setPartPositions(part, original, slide)
+    }
+    explodedParts = null
+    disposeExplodeLabels()
+    dirty = true
+  }
+  function explodeLabel(text: string, height: number): Sprite {
+    const c = document.createElement('canvas')
+    const g = c.getContext('2d')!
+    const font = '600 30px system-ui, sans-serif'
+    g.font = font
+    c.width = Math.ceil(g.measureText(text).width) + 36
+    c.height = 52
+    g.font = font
+    g.fillStyle = 'rgba(17, 24, 39, 0.82)'
+    g.beginPath()
+    g.roundRect(0, 0, c.width, c.height, 12)
+    g.fill()
+    g.fillStyle = '#e8f4ff'
+    g.textBaseline = 'middle'
+    g.fillText(text, 18, c.height / 2 + 1)
+    const map = new CanvasTexture(c)
+    const sprite = new Sprite(new SpriteMaterial({ map, depthTest: false, depthWrite: false, transparent: true }))
+    sprite.scale.set((height * c.width) / c.height, height, 1)
+    sprite.center.set(1, 0.5)
+    sprite.renderOrder = 30
+    return sprite
+  }
+  /** 보이는 것(숨기지 않은 설비와 보이는 층의 판)의 상자. */
+  function shownBox(): Box3 {
+    const box = new Box3()
+    for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
+    for (const o of slabs.children) if (o.visible) box.expandByObject(o)
+    if (box.isEmpty()) box.setFromObject(content)
+    return box
   }
 
   // --- 소속이 바뀐 방의 번쩍임 ---
@@ -2340,6 +2662,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // e2e 모드에서만 연다. 3D 는 DOM 이 아니라서 테스트가 어디를 눌러야 하는지 알 길이 이것뿐이다.
   if (import.meta.env.MODE === 'e2e') {
     ;(window as unknown as { __viewer?: unknown }).__viewer = {
+      /** 숨긴 설비 수·보이는 층·분해도 라벨(ui-notes 의 보기 필터 절을 잰다). */
+      shown: () => ({ hidden: hiddenIds.size, parts: parts.length, storeys: visibleStoreys ? [...visibleStoreys] : null, labels: explodeLabels.children.filter((o) => o instanceof Sprite).length, exploded: explodedParts?.size ?? 0 }),
       /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */
       hoverMark: () => (hoverMark ? hoverMarkKey : ''),
       /** 깐 평면도 배경의 귀퉁이(IFC 평면). 없으면 null. */
@@ -2347,9 +2671,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       /** 지금 도는 움직임(카메라 비행·미끄러지는 설비 수·번쩍이는 방 수). */
       /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
       camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
+      flying: () => (flying ? { keys: [...flying.keys], scale: flying.scale } : null),
       /** 휠 클릭으로 정한 회전 중심 고리가 떠 있나. */
       pivot: () => (pivotMark ? pivotMark.at.toArray() : null),
-      motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, ...fx.motion(), started }),
+      motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, cascading: cascade ? cascade.parts.length : 0, cascadeShown: cascade ? cascade.parts.filter((p) => p.objects[0].visible).length : 0, ...fx.motion(), started }),
       part: (id: string) => {
         const part = partById.get(id)
         return part ? toScreen(part.box.getCenter(new Vector3())) : null
@@ -2492,9 +2817,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const api: Viewer = {
     ...fx.api,
     setModel(model, meshes, options) {
+      // 분해도는 화면에서만 띄운 것이다. 다시 그리기 전에 접는다(patchModel 은 안 바뀐 설비를 그대로 두니 띄운 채 남는다).
+      collapseExplode(false)
       // 편집 뒤 다시 그리기는 바뀐 설비만 고친다(patchModel). 안 되면 아래에서 처음부터 다시 짓는다.
       if (options?.keepView && meshes === lastMeshes && chunks.length && patchModel(model, meshes)) return
       lastMeshes = meshes
+      // 형상을 새로 지으면 연쇄 화살표가 가리키던 자리도 바뀐다. 걷는다.
+      clearCascade()
       // 끄는 중에 모델이 바뀌면 끌던 것은 버린다. 형상을 새로 만드니 되돌릴 것도 없다.
       drag = null
       controls.enabled = true
@@ -2614,6 +2943,99 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       fly(center, center.clone().add(offset), { near: camera.near, far: camera.far })
     },
 
+    onContext(handler) {
+      contextHandler = handler
+    },
+
+    frameVisible(keep) {
+      const box = shownBox()
+      for (const o of explodeLabels.children) box.expandByObject(o)
+      if (box.isEmpty()) return
+      if (keep) fit(box, true, new Vector3().subVectors(camera.position, controls.target))
+      else fit(box)
+    },
+
+    setExplode(groups) {
+      collapseExplode(!groups)
+      if (!groups?.length) return false
+      const all = shownBox()
+      if (all.isEmpty()) return false
+      const height = all.max.y - all.min.y
+      const width = Math.max(all.max.x - all.min.x, all.max.z - all.min.z)
+      // 넓은 건물(Duplex·병원)은 클래스마다 건물 위로 한 켜씩 쌓는다. 높은 건물(성수 19층)은 쌓으면 기둥처럼 길어져 라벨이 안 읽혀,
+      // 건물 옆에 바둑판으로 늘어놓는다(칸마다 그 클래스 설비가 건물 안 제자리에 있다 — 어디에 몰려 있는지가 보인다).
+      const tall = height > width * 0.8
+      const cell = width * 1.3
+      const cols = Math.ceil(Math.sqrt(groups.length + 1))
+      const gap = Math.max(2.5, height * 0.3)
+      // 라벨 높이는 건물 크기에 맞춘다. 건물 전체를 맞춘 시점에서 글자가 읽히는 크기.
+      const labelH = tall ? Math.max(1.5, cell * 0.09) : Math.max(1.2, Math.min(6, (all.max.x - all.min.x + all.max.z - all.min.z) * 0.045))
+      const moving = groups.reduce((n, g) => n + g.ids.length, 0)
+      const slide = moving <= EXPLODE_GLIDE_MAX
+      const next = new Map<string, Float32Array>()
+      let level = all.max.y + gap
+      const frameBox = all.clone()
+      groups.forEach((g, k) => {
+        const members = g.ids.map((id) => partById.get(id)).filter((p): p is Part => !!p && !hiddenIds.has(p.id) && !p.box.isEmpty())
+        if (!members.length) return
+        const box = new Box3()
+        for (const p of members) {
+          finishGlide(p.id)
+          box.union(p.box)
+        }
+        // 바둑판: 0번 칸은 건물(덕트·배관과 판)이 그대로 쓴다.
+        const at = k + 1
+        const shift = tall ? new Vector3((at % cols) * cell, 0, Math.floor(at / cols) * cell) : new Vector3(0, level - box.min.y, 0)
+        for (const p of members) {
+          const arr = p.chunk.position.array as Float32Array
+          const original = arr.slice(p.vStart * 3, (p.vStart + p.vCount) * 3)
+          next.set(p.id, original)
+          const moved = original.slice()
+          for (let i = 0; i < moved.length; i += 3) {
+            moved[i] += shift.x
+            moved[i + 1] += shift.y
+            moved[i + 2] += shift.z
+          }
+          setPartPositions(p, moved, slide)
+        }
+        const sprite = explodeLabel(g.label, labelH)
+        if (tall) {
+          // 칸 위 가운데. 칸의 바닥 윤곽(건물 발자국)을 옅게 그려 칸이 어디까지인지 보인다.
+          sprite.center.set(0.5, 0)
+          sprite.position.set((all.min.x + all.max.x) / 2 + shift.x, all.max.y + labelH * 0.4, (all.min.z + all.max.z) / 2 + shift.z)
+          const ring = new LineLoop(
+            new BufferGeometry().setFromPoints(
+              [
+                [all.min.x, all.min.z],
+                [all.max.x, all.min.z],
+                [all.max.x, all.max.z],
+                [all.min.x, all.max.z],
+              ].map(([x, z]) => new Vector3(x + shift.x, all.min.y, z + shift.z)),
+            ),
+            new LineBasicMaterial({ color: 0x8a94a3, transparent: true, opacity: 0.5 }),
+          )
+          ring.userData.explodeRing = true
+          explodeLabels.add(ring)
+        } else {
+          // 켜의 왼쪽 끝 바로 옆에 라벨(오른쪽 끝을 맞춘다). 건물 왼쪽 끝에 세우면 켜가 작을 때 라벨과 떨어져 무엇의 이름인지 몰랐다.
+          sprite.position.set(box.min.x - labelH * 0.3, level + (box.max.y - box.min.y) / 2, (box.min.z + box.max.z) / 2)
+          level += box.max.y - box.min.y + gap * 0.6
+        }
+        explodeLabels.add(sprite)
+        frameBox.union(box.clone().translate(shift))
+      })
+      if (!next.size) return false
+      explodedParts = next
+      for (const o of explodeLabels.children) frameBox.expandByObject(o)
+      fit(frameBox)
+      dirty = true
+      return true
+    },
+
+    exploded() {
+      return !!explodedParts
+    },
+
     frame(ids, margin = 0) {
       const box = new Box3()
       for (const id of ids) {
@@ -2646,6 +3068,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     shiftEquipment(id, delta, glide = false) {
       const part = partById.get(id)
       if (!part) return false
+      collapseExplode(false)
       finishGlide(id)
       const [dx, dy, dz] = toScene(delta)
       const arr = part.chunk.position.array as Float32Array
@@ -2662,6 +3085,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setEquipmentPositions(id, positions, glide = false) {
       const part = partById.get(id)
       if (!part || positions.length !== part.vCount * 3) return false
+      collapseExplode(false)
       setPartPositions(part, positions, glide)
       return true
     },
@@ -2703,6 +3127,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setArrows(arrows) {
       arrowSpecs = arrows
       drawArrows()
+    },
+
+    playCascade(items) {
+      startCascade(items)
     },
 
     setArrowsShown(on) {
@@ -2961,12 +3389,60 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     topView() {
-      const box = new Box3()
-      for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
-      for (const o of slabs.children) if (o.visible) box.expandByObject(o)
-      if (box.isEmpty()) box.setFromObject(content)
+      const box = visibleBox()
       // 바로 위는 OrbitControls 가 위쪽 방향을 잃는다. +z(IFC −y) 쪽으로 아주 조금 기울여 화면 위쪽이 IFC +y 가 되게 한다.
       if (!box.isEmpty()) fit(box, true, new Vector3(0, 1, 0.02))
+    },
+
+    viewFrom(dir) {
+      const box = visibleBox()
+      if (box.isEmpty()) return
+      const from = new Vector3(...dir)
+      if (from.lengthSq() === 0) return
+      // 바로 위·아래는 위쪽 방향을 잃는다(topView 와 같다). 앞(+z) 쪽으로 아주 조금 기울인다.
+      if (!from.x && !from.z) from.z = 0.02
+      fit(box, true, from)
+    },
+
+    attachNavCube(el) {
+      navCube?.dispose()
+      const cube = createNavCube(el, {
+        pick: (dir) => this.viewFrom(dir),
+        orbit: orbitBy,
+        dark: () => document.documentElement.getAttribute('data-theme') === 'dark',
+      })
+      navCube = cube
+      dirty = true
+      return () => {
+        cube.dispose()
+        if (navCube === cube) navCube = null
+      }
+    },
+
+    setFly(on) {
+      if (on === !!flying) return
+      if (on) {
+        flight = null
+        // 빠르기는 보이는 것 크기에 맞춘다 — 성수와 집 한 채가 같은 m/s 면 한쪽은 기어가고 한쪽은 튄다. 휠로 바꾼다.
+        const radius = visibleBox().getBoundingSphere(new Sphere()).radius
+        flying = { keys: new Set(), base: Math.max(1, radius * 0.25), scale: 1, last: null, look: null }
+        controls.mouseButtons = { LEFT: -1 as MOUSE, MIDDLE: -1 as MOUSE, RIGHT: -1 as MOUSE }
+        controls.enableZoom = false
+        canvas.style.cursor = 'crosshair'
+      } else {
+        flying = null
+        controls.mouseButtons = { ...MAP_BUTTONS }
+        controls.enableZoom = true
+        canvas.style.cursor = ''
+      }
+      dirty = true
+    },
+
+    flyKey(code, down) {
+      if (!flying) return
+      if (code === null) flying.keys.clear()
+      else if (down) flying.keys.add(code)
+      else flying.keys.delete(code)
     },
 
     setRooms(model, selected, conflict = null) {
@@ -3219,6 +3695,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       placeHandler = handler
     },
 
+    onView(handler) {
+      viewHandler = handler
+      if (handler) invalidate()
+    },
+
     setStoreyFilter(storeys, hidden) {
       // 화면은 모델이 바뀔 때마다(편집·되돌리기마다) 이것을 다시 부른다. 보일 층과 숨길 설비가 그대로면 삼각형 목록을 다시 짜지
       // 않는다 — 덩어리 전부의 인덱스를 새로 올려서 성수에서 편집·되돌리기마다 화면이 0.2초씩 멈췄다. 새 형상(setModel)은
@@ -3243,6 +3724,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       fit(box)
     },
 
+    screenOf(ids) {
+      const rect = canvas.getBoundingClientRect()
+      const c = new Vector3()
+      return ids.map((id) => {
+        const part = partById.get(id)
+        if (!part || hiddenIds.has(id)) return null
+        const at = toScreen(part.box.getCenter(c))
+        if (!at || at.x < rect.left || at.x > rect.right || at.y < rect.top || at.y > rect.bottom) return null
+        return at
+      })
+    },
+
+    viewVersion: () => renders,
+
     planeAxes() {
       camera.updateMatrixWorld()
       const right = new Vector3().setFromMatrixColumn(camera.matrixWorld, 0)
@@ -3261,6 +3756,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       running = false
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('blur', onBlur)
+      window.removeEventListener('pointerup', onFlyUp)
+      canvas.removeEventListener('pointerdown', onFlyDown)
+      canvas.removeEventListener('pointermove', onFlyMove)
+      canvas.removeEventListener('wheel', onFlyWheel)
+      navCube?.dispose()
+      clearCascade()
+      CASCADE_CONE.dispose()
       if (import.meta.env.MODE === 'e2e') delete (window as unknown as { __viewer?: unknown }).__viewer
       controls.removeEventListener('change', invalidate)
       controls.dispose()

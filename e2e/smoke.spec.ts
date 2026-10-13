@@ -40,7 +40,7 @@ test('IFC 를 올리면 검토 화면과 3D 가 나온다', async ({ page }) => 
   await expect(rows.nth(0)).toContainText('24.0 ㎡')
   await expect(rows.nth(1)).toContainText('3.00 m')
 
-  await expect(page.locator('.viewport canvas')).toBeVisible()
+  await expect(page.locator('.canvas-wrap > canvas')).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -263,7 +263,7 @@ test('3D 에서 누를 수 있는 곳에 올라가면 커서가 손가락이 되
   await page.getByRole('button', { name: '연결망 보기' }).click()
   await page.getByRole('button', { name: '선택 해제' }).click()
 
-  const canvas = page.locator('.viewport canvas')
+  const canvas = page.locator('.canvas-wrap > canvas')
   // 화면 좌표로 훑으므로 3D 가 화면 안에 있어야 한다.
   await canvas.scrollIntoViewIfNeeded()
   const box = (await canvas.boundingBox())!

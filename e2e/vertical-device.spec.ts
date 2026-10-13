@@ -28,7 +28,7 @@ test('엘리베이터는 층 편집 화면에서 옮기거나 지우지 못하�
   // 3D 에서 끌어도 그대로다.
   const x = row.locator('.coord').first()
   const before = await x.inputValue()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const at = await page.evaluate((id) => (window as any).__viewer.part(id), AHU)
   await page.mouse.move(at.x, at.y)
   await page.mouse.down()

@@ -44,7 +44,7 @@ test('배관 없는 설비를 다른 배관 없는 설비 자리에 놓으면 �
 
 test('새 설비를 다른 새 설비 자리에 더하면 막히고, 비켜 더하면 된다 (OE-OBJ-16 추가)', async ({ page }) => {
   const errors = await open(page)
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const clickFloor = async (x: number, y: number) => {
     const at = (await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])) as { x: number; y: number }
     await page.mouse.click(at.x, at.y)

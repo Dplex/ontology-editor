@@ -14,7 +14,7 @@ test('설계 풍량이 없으면 판정 불가, 사람이 넣으면 출처가 �
   await page.getByRole('button', { name: '편집', exact: true }).click()
 
   // 공조기 패널: BIM 의 정격 풍량을 CMH 로 보이고 고칠 칸이 없다(OE-ZON-06#3).
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const at = await page.evaluate((id) => (window as any).__viewer.part(id), AHU)
   await page.mouse.click(at.x, at.y)
   await expect(page.locator('.picked h3')).toHaveText('AHU-1')
@@ -59,7 +59,7 @@ test('설계 풍량이 없으면 판정 불가, 사람이 넣으면 출처가 �
   await expect(undetermined).toContainText('AHU-1 — 공조존 1 설계 풍량 없음: 사무실')
 
   // 물리존 패널에서 방 단위로 넣어도 같다. 출처가 편집이다.
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const floor = await page.evaluate(() => (window as any).__viewer.point([6, 4, 0]))
   await page.mouse.click(floor.x, floor.y)
   await expect(page.locator('.space-picked h3')).toHaveText('사무실')
@@ -83,7 +83,7 @@ test('방에 넣은 설계 풍량만 바꿔도 저장 안 한 편집으로 잡�
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const pickOffice = async () => {
     const floor = await page.evaluate(() => (window as any).__viewer.point([6, 4, 0]))
     await page.mouse.click(floor.x, floor.y)
@@ -102,7 +102,7 @@ test('방에 넣은 설계 풍량만 바꿔도 저장 안 한 편집으로 잡�
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await pickOffice()
   await expect(page.getByTestId('space-airflow').getByLabel('냉방 설계 풍량(CMH)')).toHaveValue('6500')
   expect(errors).toEqual([])

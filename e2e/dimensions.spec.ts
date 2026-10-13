@@ -15,7 +15,7 @@ test('벽을 고르면 길이·두께·가까운 벽까지 거리가 3D 칩과 �
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   for (const x of [10.1, 13]) {

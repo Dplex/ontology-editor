@@ -15,7 +15,7 @@ async function open(page: Page, file = MEP) {
   await page.locator('.drop input[type=file]').setInputFiles(file)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
   return errors
 }
@@ -58,7 +58,7 @@ test('공간 편집 모드에서 설비를 끌면 움직이지 않고 안내가 
   await toSpace(page)
   // 설비는 고르고 볼 수 있지만 끌면 제자리다.
   await row(page, 'AHU-1').getByRole('button', { name: 'AHU-1', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   await expect(page.locator('.picked h3')).toHaveText('AHU-1')
   const center = (await viewer<number[]>(page, 'center', AHU))!

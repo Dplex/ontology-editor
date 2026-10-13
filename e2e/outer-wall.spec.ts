@@ -21,7 +21,7 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
 
   // 외벽 긋기 — IsExternal 이 없으니 건물 바깥에 닿는지로 계산된다.
@@ -69,7 +69,7 @@ test('외벽을 긋고 문을 뚫고 크기·외벽 여부를 고치며, 설비�
   await expect(picked.getByRole('button', { name: '벽에 붙이기' })).toHaveCount(0)
   // 온도 센서는 설치면 표에 없는 종류라 막지 않는다.
   await row(page, 'TEMP-101-01').getByRole('button', { name: 'TEMP-101-01', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   await picked.getByRole('button', { name: '벽에 붙이기' }).click()
   await clickFloor(page, 10.6, 3)
@@ -112,7 +112,7 @@ test('외기 센서는 외벽 바깥 면에만 — 방 안으로 옮기기·안�
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   // 사무실 동쪽 바로 바깥에 외벽을 긋는다(위 시험과 같다).
   await toSpace(page)
@@ -130,7 +130,7 @@ test('외기 센서는 외벽 바깥 면에만 — 방 안으로 옮기기·안�
   await expect(picked.locator('.exterior-misplaced')).toBeVisible()
 
   // 안쪽 면을 누르면 붙이지 않는다.
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await picked.getByRole('button', { name: '벽에 붙이기' }).click()
   await clickFloor(page, 9.8, 3)
   await expect(page.locator('.key-note').first()).toContainText('외벽의 바깥쪽(방이 없는 쪽)을 누르세요')
@@ -166,7 +166,7 @@ test('외기 센서를 윗층으로 옮기려 해도 그 층의 같은 자리가
   await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   // 회의실 동쪽 바로 바깥에 외벽을 긋는다.
   await toSpace(page)
