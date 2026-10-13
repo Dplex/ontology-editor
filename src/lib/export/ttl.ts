@@ -8,6 +8,7 @@
 // 계층은 기존 온톨로지와 같은 술어만 쓴다: brick:hasPart, rdfs:label
 // (ieum-pipeline/internal/ontology/ttl.go 가 읽는 술어가 hasPoint·feeds·hasLocation·hasPart 뿐이다).
 
+import { fluidConnections } from '../flow-review'
 import { hvacZonesOf, zonesServedBy } from '../hvac-zone'
 import { isConduit, type Equipment, type Model } from '../model'
 import { deviceFlows } from '../topology'
@@ -155,7 +156,8 @@ export function modelToTTL(model: Model, only?: { storeyId: string }): string {
   const all = model.storeys.flatMap((s) => s.equipment)
   const conduits = new Set(all.filter((e) => isConduit(e.role)).map((e) => e.id))
   // **규칙 방향은 사람이 확정한 것만 넣는다**(flow-rules.ts). 확정 전의 것은 화면에서만 보인다.
-  const connections = withInferred(model.connections, true)
+  // 유체 흐름이 아닌 BIM·사람 연결(한쪽이 흐름 없는 기기, 매체가 다름)은 검토 대상이라 공급 관계로 내지 않는다(OE-PIP-18, flow-review.ts).
+  const connections = fluidConnections(model, withInferred(model.connections, true))
   const flows = deviceFlows(connections, (id) => conduits.has(id), all.filter((e) => !conduits.has(e.id)).map((e) => e.id))
   const feeds = new Map<string, string[]>()
   for (const c of connections) {

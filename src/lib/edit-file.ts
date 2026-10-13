@@ -243,6 +243,19 @@ const isEditorId = (id: string) => id.startsWith('U_')
 const samePoint = (a: readonly number[], b: readonly number[]) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-9)
 const sameRing = (a: readonly Vec2[], b: readonly Vec2[]) => a.length === b.length && a.every((p, i) => samePoint(p, b[i]))
 
+/**
+ * 끊은 형상 연결이 흐름 없는 기기에 닿아 빼 둔 목록(`flowlessGeometry`)에 있으면 거기서 지운다(OE-PIP-18). 종류를 먼저 얹으면 끊은 연결이
+ * 그 목록으로 가 있을 수 있다 — 거기 남기면 종류를 다시 바꿀 때 끊은 연결이 돌아온다.
+ */
+function dropFlowlessGeometry(model: Model, a: string, b: string): boolean {
+  const list = model.flowlessGeometry ?? []
+  const at = list.findIndex((c) => (c.from === a && c.to === b) || (c.from === b && c.to === a))
+  if (at < 0) return false
+  list.splice(at, 1)
+  if (!list.length) delete model.flowlessGeometry
+  return true
+}
+
 /** 지금 모델에서 연 때(baseline)와 달라진 편집만 뽑는다. */
 export function exportEdits(model: Model, baseline: Baseline, source: string, now = new Date()): EditFile {
   const equipment: EditFile['equipment'] = []
@@ -1112,7 +1125,8 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     if (rules) {
       result.applied++
       result.rules = rules
-    } else result.missing.connections++
+    } else if (dropFlowlessGeometry(model, resolve(row.from), resolve(row.to))) result.applied++
+    else result.missing.connections++
   }
   for (const row of file.connections?.add ?? []) {
     const done = addConnection(model, resolve(row.from), resolve(row.to))

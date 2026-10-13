@@ -217,6 +217,18 @@ export function equipmentKindOf(name: string, objectType = '', ifcClass = '', de
   return resolveEquipmentKind(name, objectType, ifcClass, declared)?.info ?? null
 }
 
+/** 냉매 설비. 사전에 공기·물 흐름이 없지만(`flow: {}`) 흐름 없는 기기가 아니다 — 지금 규칙이 다루지 않는 매체다(OE-PIP-18). */
+const REFRIGERANT_KINDS: readonly string[] = ['outdoor_unit']
+
+/**
+ * 종류를 아는 흐름 없는 기기(조명·감지기·비치품·분전반, OE-PIP-18). `flow: {}` 만으로 정하지 않는다 — 종류를 모르는 것과 냉매 설비는 흐름이
+ * 없다고 단정하지 않는다. 형상 추정(import.ts)·연결 후보(connect-candidates.ts)·검토 표시(flow-review.ts)가 이 하나를 쓴다.
+ */
+export function isFlowlessKind(kind: string | null | undefined): boolean {
+  const info = equipmentKind(kind)
+  return !!info && Object.keys(info.flow ?? {}).length === 0 && !REFRIGERANT_KINDS.includes(info.kind)
+}
+
 export function equipmentKind(kind: string | null | undefined): EquipmentKindInfo | null {
   return kind ? (EQUIPMENT_BY_KIND.get(kind) ?? null) : null
 }

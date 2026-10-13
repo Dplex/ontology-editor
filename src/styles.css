@@ -4539,3 +4539,9 @@ button.done::after {
 .zone-airflow label {
   white-space: nowrap;
 }
+
+/* 유체 흐름이 아닌 BIM·사람 연결(OE-PIP-18). 지우지 않고 검토 대상으로 표시한다. */
+.flow-review {
+  color: var(--warn-fg);
+  font-weight: 600;
+}
