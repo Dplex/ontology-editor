@@ -80,7 +80,7 @@ import { airflowText, BASIS_LABEL, CAPACITY_CHECK_KINDS, cmhText, setRatedAirflo
 import { flowReviews } from './lib/flow-review'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
-import { cascadeWaves, exportedFlows, flowBasis, flowChanges, reviewKeys, type FlowSnapshot } from './lib/flow-cascade'
+import { cascadeWaves, exportedFlows, flowBasis, flowChanges, systemOwns, reviewKeys, type FlowSnapshot } from './lib/flow-cascade'
 import { clueText, familyClues as computeFamilyClues, type FamilyClue } from './lib/family-clues'
 import { LAYA_MIN, LAYA_SURE, layaKinds, layaStatus, newEquipmentText, type LayaPick, type LayaResult, type LayaStatus } from './lib/laya'
 import { candidateText, systemCandidates } from './lib/system-suggest'
@@ -88,6 +88,7 @@ import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClas
 import { modelToGeoJSON } from './lib/export/geojson'
 import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
 import { classOf, escapeLocalName, modelToTTL } from './lib/export/ttl'
+import type { FlowEdge } from './lib/flow-pulse'
 import { EMPTY_FILTER, NO_SYSTEM, explodeGroups, facets, filterActive, filterSummary, filteredOut, type ViewFilter } from './lib/view-filter'
 import {
   arrowColors,
@@ -4423,6 +4424,32 @@ watch([selectedId, selectedSystemId, model, showRules, flowVersion, highlightRow
   }
 
   viewer.setHighlight(null)
+})
+
+// 고른 계통의 흐름을 3D 에서 달리는 빛으로 보인다(flow-pulse.ts). 방향은 화살표와 같은 차례로 읽는다 — BIM 포트, 사람이 정한 것,
+// 규칙(R 을 켰을 때만, 옅게). 방향을 모르는 연결은 그리지 않는다. 빛이 없는 배관이 곧 방향을 모르는 곳이다. 연결은 위의 흐름 근거
+// (FlowBasis)와 같은 것을 고른다 — 다르게 골랐더니 근거는 "포트 방향 24" 인데 아래 줄은 "모두 방향을 모름" 이라고 했다. `total` 은 그
+// 연결 수이고, 패널이 빛이 왜 드문지 말하는 데 쓴다.
+const systemFlow = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const system = selectedSystem.value
+  if (!m || !system) return null
+  const members = new Set(system.memberIds)
+  const edges: FlowEdge[] = []
+  let total = 0
+  for (const c of m.connections) {
+    if (!systemOwns(c, system.id, members)) continue
+    total++
+    if (c.directed) edges.push({ from: c.from, to: c.to, strong: true })
+    else if (c.edited) edges.push({ from: c.edited.from, to: c.edited.to, strong: true })
+    else if (c.inferred && showRules.value) edges.push({ from: c.inferred.from, to: c.inferred.to, strong: false })
+  }
+  return { edges, total, color: systemColors(m).get(system.id) ?? 0x2f6fed }
+})
+watch([systemFlow, sceneVersion], () => {
+  const f = systemFlow.value
+  viewer?.setFlow(f?.edges.length ? { edges: f.edges, color: f.color } : null)
 })
 
 /** 고른 것과 이어진 것 전체가 화면에 들어오게 시점을 맞춘다. */
@@ -12436,6 +12463,15 @@ function rollbackFromReport() {
               </p>
               <!-- 이 계통의 흐름 방향 근거(flow-cascade.ts). 규칙 방향이 없는 계통도 포트·사람 방향과 brick:feeds 수는 보인다. -->
               <FlowBasis v-if="selectedSystemBasis && selectedSystemBasis.total" :basis="selectedSystemBasis" :name="selectedSystem.name || selectedSystem.id" />
+              <!-- 3D 의 흐르는 빛(flow-pulse.ts)이 어디에 있고 왜 드문지. 방향을 모르는 연결에는 빛이 없다. -->
+              <p v-if="systemFlow && systemFlow.total" class="hint" data-testid="system-flow-note">
+                <template v-if="systemFlow.edges.length">
+                  3D의 흐르는 빛은 방향을 아는 연결 {{ systemFlow.edges.length.toLocaleString() }}개에만 있습니다. 나머지
+                  {{ (systemFlow.total - systemFlow.edges.length).toLocaleString() }}개는 방향을 몰라 빛이 없습니다.
+                </template>
+                <template v-else>연결 {{ systemFlow.total.toLocaleString() }}개 모두 방향을 몰라 3D에 흐르는 빛이 없습니다.</template>
+                <template v-if="!showRules"> 규칙 방향은 R 로 켜면 옅게 더해집니다.</template>
+              </p>
               <p v-if="editing" class="system-edit system-name-edit">
                 <label>
                   이름

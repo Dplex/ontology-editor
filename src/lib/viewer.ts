@@ -67,6 +67,7 @@ import { createNavCube } from './nav-cube'
 import { type LibraryItem, type ObjectMaterial } from './space-object'
 import { CONTEXT_ITEMS } from './object-names'
 import { partId } from './vertical-object'
+import { flowPulseMesh, setFlowTime, type FlowEdge, type FlowSegment } from './flow-pulse'
 
 /**
  * 층을 구분하는 색. 층 수만큼 순환한다.
@@ -412,6 +413,8 @@ export type Viewer = {
   onVertexMove(handler: (spaceId: string, index: number, to: Vec2) => void): void
   /** 연결 화살표. 빈 배열이면 지운다. */
   setArrows(arrows: readonly Arrow[]): void
+  /** 고른 계통의 흐름을 달리는 빛으로 보인다(flow-pulse.ts). 색은 계통 색이다. null 이면 걷는다. */
+  setFlow(flow: { edges: readonly FlowEdge[]; color: number } | null): void
   /**
    * 흐름 방향의 연쇄(flow-cascade.ts). 확정·적용으로 TTL 에 나가는 방향이 바뀐 연결을 물결(wave) 순서대로 강조색 화살표로 띄웠다가
    * 걷는다. 평소 화살표(setArrows, 고른 설비의 이웃)와 따로 겹쳐 그린다. 움직임을 끈 사람에게는 한꺼번에 띄웠다가 걷는다.
@@ -850,6 +853,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let arrowSpecs: readonly Arrow[] = []
   let arrowObjects: (Line | Mesh)[] = []
   let arrowSegs: { key: string; a: Vector3; b: Vector3 }[] = []
+  let flowSpec: { edges: readonly FlowEdge[]; color: number } | null = null
+  let flowMesh: Mesh | null = null
 
   type Drag =
     | { kind: 'equipment'; part: Part; original: Float32Array; box: Box3; plane: Plane; start: Vector3; delta: Vector3 }
@@ -951,7 +956,27 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     scaleHandles()
   }
 
+  /** 흐르는 빛. 화살표와 같은 때(층 보기·설비 형상·테마가 바뀔 때) 다시 짓는다. 화살표와 달리 보기 모드에서도 그린다. */
+  function drawFlow() {
+    if (flowMesh) disposeObject(flowMesh)
+    flowMesh = null
+    dirty = true
+    if (!flowSpec) return
+    const segments: FlowSegment[] = []
+    for (const e of flowSpec.edges) {
+      // 한 층만 볼 때 다른 층으로 가는 연결은 그리지 않는다(화살표와 같다).
+      if (hiddenIds.has(e.from) || hiddenIds.has(e.to)) continue
+      const pa = partById.get(e.from)
+      const pb = partById.get(e.to)
+      if (!pa || !pb) continue
+      segments.push({ ...e, a: pa.box.getCenter(new Vector3()), b: pb.box.getCenter(new Vector3()) })
+    }
+    flowMesh = flowPulseMesh(segments, flowSpec.color, dark)
+    if (flowMesh) overlay.add(flowMesh)
+  }
+
   function drawArrows() {
+    drawFlow()
     for (const o of arrowObjects) disposeObject(o)
     arrowObjects = []
     arrowSegs = []
@@ -1896,6 +1921,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     stepPivotMark(now)
     stepGlides(now)
     stepPulses(now)
+    // 흐르는 빛은 움직임을 끈 사람에게는 멈춘 채(혜성 꼴만으로 방향을 읽는다) 둔다. 흐르는 동안은 매 프레임 그린다.
+    if (flowMesh && !still()) {
+      setFlowTime(flowMesh, now / 1000)
+      dirty = true
+    }
     fx.step(now)
     // 관성(damping)으로 도는 동안에는 update 가 참을 돌려준다. 그동안만 계속 그린다.
     if (controls.update()) dirty = true
@@ -2757,6 +2787,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         }),
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
       /** 그린 추가 공간 오브젝트의 id. */
+      /** 그린 흐르는 빛의 연결 수. 없으면 0. */
+      flow: () => (flowMesh?.userData.flowSegments as number | undefined) ?? 0,
+      /** 지금까지 3D 를 다시 그린 장수. 가만히 있으면 늘지 않아야 한다(흐르는 빛이 있을 때만 매 프레임). */
+      renders: () => renders,
       objects: () => objectTargets.map((t) => t.id),
       /** 겹쳐서 막아 붉게 그린 공간 오브젝트(OE-SPC-15). 없으면 null. */
       objectConflict: () => objectConflictId,
@@ -3190,6 +3224,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setArrows(arrows) {
       arrowSpecs = arrows
       drawArrows()
+    },
+
+    setFlow(flow) {
+      flowSpec = flow
+      drawFlow()
     },
 
     playCascade(items) {
