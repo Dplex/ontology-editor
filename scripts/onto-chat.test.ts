@@ -101,3 +101,62 @@ describe('챗봇(가짜 gemini)', () => {
     expect(Object.keys(settings.mcpServers)).toEqual(['onto'])
   }, 60_000)
 })
+
+// "지금 화면 (반영 전)"(ADR-0050). 화면이 올린 TTL 은 OS 임시 폴더에 토큰 이름으로 두고(onto-screen.mjs), 도구가 ONTO_SCREENS 로 읽는다.
+describe('지금 화면 (반영 전)', () => {
+  const screens = mkdtempSync(join(tmpdir(), 'onto-screen-'))
+  const token = 'abcdefghij0123456789wxyz'
+  let base = ''
+  let server: import('node:http').Server
+
+  beforeAll(async () => {
+    const { createServer } = await import('node:http')
+    // @ts-expect-error — 의존성 없는 node 모듈(.mjs)이라 타입이 없다
+    const { createScreenStore } = await import('./onto-screen.mjs')
+    server = createServer(createScreenStore({ dir: screens }))
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    base = `http://127.0.0.1:${(server.address() as import('node:net').AddressInfo).port}`
+  })
+  afterAll(() => server.close())
+
+  const ttl = () => readFileSync(join(data, '.layouts', '0123456789abcdef0123', 'v2', 'ontology.ttl'), 'utf8')
+
+  it('올리면 토큰 이름으로 두고 source 를 돌려준다 — 토큰이 틀리면 받지 않는다', async () => {
+    const bad = await fetch(`${base}/__ask/screen?token=짧다`, { method: 'POST', body: 'x' })
+    expect(bad.status).toBe(400)
+    const r = await fetch(`${base}/__ask/screen?token=${token}&title=mep.ifc&by=${encodeURIComponent('시험')}`, { method: 'POST', body: ttl() })
+    expect(await r.json()).toMatchObject({ source: `screen-${token}` })
+    const all = sources(data, '', screens)
+    expect(all.find((s: { screen?: boolean }) => s.screen)).toMatchObject({ source: `screen-${token}`, title: 'mep.ifc · 지금 화면(반영 전)', by: '시험', screen: true })
+    // 화면 기준 폴더를 안 주면 반영본만이다
+    expect(sources(data).some((s: { screen?: boolean }) => s.screen)).toBe(false)
+  })
+
+  it('도구는 화면 기준을 목록에 내지 않지만 source 로 주면 읽는다. source 를 안 주면 반영본이다', async () => {
+    const [src, found, overview] = await new Promise<{ result?: { content: { text: string }[] } }[]>((done) => {
+      const child = spawn(process.execPath, [resolve(ROOT, 'scripts/onto-mcp.mjs')], { env: { ...process.env, ONTO_DATA: data, ONTO_SCREENS: screens }, stdio: ['pipe', 'pipe', 'ignore'] })
+      const out: never[] = []
+      let buf = ''
+      child.stdout.on('data', (d) => {
+        buf += d
+        for (let nl; (nl = buf.indexOf('\n')) >= 0; buf = buf.slice(nl + 1)) out.push(JSON.parse(buf.slice(0, nl)) as never)
+        if (out.length === 3) { child.kill(); done(out) }
+      })
+      for (const r of [call(1, 'onto_sources', {}), call(2, 'onto_find', { text: 'AHU', source: `screen-${token}` }), call(3, 'onto_overview', {})])
+        child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...r })}\n`)
+    })
+    expect(body(src).sources.map((s: { source: string }) => s.source)).toEqual(['0123456789ab'])
+    expect(body(found).results[0]).toMatchObject({ label: 'AHU-1' })
+    expect(JSON.stringify(body(overview))).toContain('0123456789ab')
+  })
+
+  it('두 시간 넘게 안 올린 화면은 다음에 누가 올릴 때 지운다', async () => {
+    const { utimesSync, existsSync } = await import('node:fs')
+    const old = new Date(Date.now() - 3 * 60 * 60 * 1000)
+    utimesSync(join(screens, `${token}.ttl`), old, old)
+    await fetch(`${base}/__ask/screen?token=zzzzzzzzzzzzzzzzzzzzzzzz`, { method: 'POST', body: ttl() })
+    expect(existsSync(join(screens, `${token}.ttl`))).toBe(false)
+    expect(existsSync(join(screens, `${token}.json`))).toBe(false)
+    expect(existsSync(join(screens, 'zzzzzzzzzzzzzzzzzzzzzzzz.ttl'))).toBe(true)
+  })
+})

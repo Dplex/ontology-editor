@@ -20,8 +20,9 @@
         '예) "내력벽 정보가 없으면 편집은 어떻게 돼?"\n    "D10 이 걸린 티켓들 알려줘"\n    "OE-BIM-12 수용 기준은?"',
     },
     onto: {
-      url: '/__ask', store: 'onto-chat:history', title: '온톨로지 질의', sub: '반영한 온톨로지(TTL) · 읽기 전용', wait: '온톨로지를 읽는 중…',
-      hint: '[반영] 한 건물 온톨로지를 읽고 답합니다. 답 끝에 쓴 질의가 붙어 다시 돌려 확인할 수 있고,\n' +
+      url: '/__ask', store: 'onto-chat:history', title: '온톨로지 질의', sub: '반영한 온톨로지 · 지금 화면(반영 전) · 읽기 전용', wait: '온톨로지를 읽는 중…',
+      hint: '[구축하기]·[반영하기] 한 건물 온톨로지를 읽고 답합니다. 건물에서 "지금 화면 (반영 전)" 을 고르면 반영하지 않은 편집까지 본 온톨로지로 답합니다.\n' +
+        '답 끝에 쓴 질의가 붙어 다시 돌려 확인할 수 있고,\n' +
         '받는 쪽 DT 파서가 읽지 않는 정보(면적·방번호 같은 ex: 속성)로 답했으면 그렇게 알려 줍니다.\n' +
         '답의 id 옆 [3D] 를 누르면 내보낸 파일 뷰어가 그 반영본을 열고 그 요소를 고릅니다.\n\n' +
         '예) "AHU-1 은 어느 방에 있어?"\n    "2층 회의실에 있는 설비는?"\n    "이 공조기가 공기를 보내는 방은?"\n    "A101호는 어느 층이야?"',
@@ -31,6 +32,30 @@
   try { mode = sessionStorage.getItem('docs-chat:mode') === 'onto' ? 'onto' : 'docs' } catch (e) { mode = 'docs' }
   var history = load()
   var source = ''
+  // "지금 화면 (반영 전)"(ADR-0050). 고르면 묻기 전에 편집 화면(App.vue 의 window.__oe)이 만든 TTL 을 /__ask/screen 에 올리고,
+  // 그 토큰으로 묻는다. 토큰은 탭마다 하나, 올린 TTL 이 같으면 다시 올리지 않는다.
+  var SCREEN = '__screen__'
+  var screenToken = ''
+  try { screenToken = sessionStorage.getItem('onto-chat:screen-token') || '' } catch (e) { screenToken = '' }
+  if (!/^[a-z0-9]{24}$/.test(screenToken)) {
+    screenToken = Array.from(crypto.getRandomValues(new Uint8Array(24)), function (b) { return 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36] }).join('')
+    try { sessionStorage.setItem('onto-chat:screen-token', screenToken) } catch (e) { /* 못 남기면 이 탭에서만 쓴다 */ }
+  }
+  var screenSent = ''
+  function hasScreen() { return !!(window.__oe && window.__oe.screen) }
+  /** 지금 화면의 TTL 을 올리고 source 를 돌려준다. 같은 글이면 다시 올리지 않는다(길이 + FNV-1a). */
+  function uploadScreen() {
+    var shot = hasScreen() ? window.__oe.screen() : null
+    if (!shot) return Promise.reject(new Error('편집 화면에 연 건물이 없다 — BIM 을 먼저 연다'))
+    var h = 2166136261
+    for (var i = 0; i < shot.ttl.length; i++) { h ^= shot.ttl.charCodeAt(i); h = Math.imul(h, 16777619) }
+    var sig = shot.title + '|' + shot.ttl.length + '|' + (h >>> 0)
+    if (sig === screenSent) return Promise.resolve('screen-' + screenToken)
+    var q = '?token=' + screenToken + '&title=' + encodeURIComponent(shot.title || '') + '&by=' + encodeURIComponent(shot.by || '')
+    return fetch('/__ask/screen' + q, { method: 'POST', headers: { 'content-type': 'text/turtle; charset=utf-8' }, body: shot.ttl })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j }) })
+      .then(function (j) { screenSent = sig; return j.source })
+  }
   var root, list, input, sendBtn, status, title, sub, picker, busy = null
 
   function load() {
@@ -151,10 +176,15 @@
     var askedSource = mode === 'onto' ? source : undefined
     setBusy(ctl)
 
-    fetch(MODES[mode].url, {
-      method: 'POST', signal: ctl.signal,
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ question: q, history: prior, source: mode === 'onto' ? source : undefined }),
+    var ready = askedSource === SCREEN
+      ? (bot.innerHTML = '<span class="hint">지금 화면의 온톨로지를 올리는 중…</span>', uploadScreen().then(function (src) { bot.innerHTML = '<span class="hint">' + MODES.onto.wait + '</span>'; return src }))
+      : Promise.resolve(askedSource)
+    ready.then(function (src) {
+      return fetch(MODES[asked].url, {
+        method: 'POST', signal: ctl.signal,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ question: q, history: prior, source: src }),
+      })
     }).then(function (res) {
       if (!res.ok) return res.json().catch(function () { return {} }).then(function (j) { throw new Error(j.error || ('HTTP ' + res.status)) })
       var reader = res.body.getReader()
@@ -219,12 +249,14 @@
         list_.forEach(function (s) { sourceInfo[s.source] = { key: s.key, version: s.version } })
         // 기록의 답은 목록이 오기 전에 그렸다 — [3D] 링크를 붙이려고 한 번 더 그린다
         if (history.length) redraw()
-        picker.innerHTML = list_.length
-          ? list_.map(function (s) {
-            return '<option value="' + esc(s.source) + '">' + esc(s.title + (s.version ? ' · v' + s.version : '') + (s.at ? ' · ' + String(s.at).slice(0, 10) : '')) + '</option>'
-          }).join('')
-          : '<option value="">반영한 건물이 없다 — 편집 화면에서 [반영]</option>'
-        if (!list_.some(function (s) { return s.source === source })) source = list_.length ? list_[0].source : ''
+        var options = list_.map(function (s) {
+          return '<option value="' + esc(s.source) + '">' + esc(s.title + (s.version ? ' · v' + s.version : '') + (s.at ? ' · ' + String(s.at).slice(0, 10) : '')) + '</option>'
+        })
+        // 편집 화면이 있는 곳(8084)이면 맨 앞에 "지금 화면". 내보낸 파일 뷰어(viewer.html)에는 없다.
+        if (hasScreen()) options.unshift('<option value="' + SCREEN + '">지금 화면 (반영 전)</option>')
+        picker.innerHTML = options.length ? options.join('') : '<option value="">반영한 건물이 없다 — 편집 화면에서 [구축하기]·[반영하기]</option>'
+        var ok = source === SCREEN ? hasScreen() : list_.some(function (s) { return s.source === source })
+        if (!ok) source = list_.length ? list_[0].source : hasScreen() ? SCREEN : ''
         picker.value = source
       }
     }).catch(function () {
