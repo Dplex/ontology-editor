@@ -13,7 +13,7 @@ import { importIfcWithMeshes } from '../lib/ifc/import'
 import { modelToScene, sceneToGLB } from '../lib/export/mesh3d'
 import { fbxConverter } from './fbx'
 
-// FBX 내보내기(OE-INT-03, ADR-0052). 실제 Blender 로 GLB → FBX 를 돌려, 받는 쪽(Unity)이 볼 것 — 이름·삼각형·자리·사용자 속성 — 이
+// FBX 내보내기(OE-INT-03, src/server/fbx.ts). 실제 Blender 로 GLB → FBX 를 돌려, 받는 쪽(Unity)이 볼 것 — 이름·삼각형·자리·사용자 속성 — 이
 // GLB 와 같은지 잰다. Blender 가 없는 PC 에서는 까닭을 찍고 건너뛴다(BLENDER 환경변수 또는 PATH).
 const BLENDER = process.env.BLENDER ?? 'blender'
 const have = spawnSync(BLENDER, ['-b', '--factory-startup', '--version']).status === 0

@@ -139,6 +139,33 @@ const stats = computed(() => [
   { n: props.steps.reduce((n, s) => n + s.ttlCount.added + s.ttlCount.removed, 0), label: 'ttl', sub: 'TTL 줄 (더함·지움)', spark: spark(props.steps.map((s) => s.ttlCount.added + s.ttlCount.removed)) },
 ])
 const two = (n: number) => String(n).padStart(2, '0')
+/** 장면이 바꾼 출력 한 줄("TTL +3 −1 · GeoJSON 2"). 둘 다 그대로면 빈 문자열. */
+function impactOf(s: ReplayStep): string {
+  const parts: string[] = []
+  if (s.ttlCount.added || s.ttlCount.removed) parts.push(`TTL +${s.ttlCount.added} −${s.ttlCount.removed}`)
+  const g = geoCount(s)
+  if (g) parts.push(`GeoJSON ${g}`)
+  return parts.join(' · ')
+}
+
+/**
+ * 반영 토스트. 다시 하기로 장면 하나가 모델에 들어간 순간 그 장면이 바꾼 출력을 짧게 알린다(카드는 오른쪽에 쌓이지만 눈은 3D 에 있다).
+ * 거르는 갈래·요약 재생에서 빠진 장면, B 로 편집 전을 보는 동안은 띄우지 않는다.
+ */
+const toast = ref<{ n: number; text: string; color: string } | null>(null)
+let toastTimer: number | undefined
+watch(
+  () => props.at,
+  (now, before) => {
+    if (props.phase !== 'play' || props.comparing || now !== before + 1) return
+    const s = props.steps[now - 1]
+    if (!s || !wanted(s)) return
+    toast.value = { n: now, text: impactOf(s) || '출력은 그대로', color: CAT_COLOR[s.category] }
+    window.clearTimeout(toastTimer)
+    toastTimer = window.setTimeout(() => (toast.value = null), 1600)
+  },
+)
+onBeforeUnmount(() => window.clearTimeout(toastTimer))
 
 /** 변경 리포트(마크다운)를 내려받는다 — 장면마다 TTL 의 어느 줄, GeoJSON 의 어느 feature 가 바뀌었나(replay-report.ts). */
 function downloadReport() {
@@ -353,10 +380,21 @@ const summary = computed(() => {
     <!-- 장면 제목: 판이 펼쳐지고 낱말이 차례로 튀어 오른다(키네틱 캡션) -->
     <transition name="scene">
       <div v-if="scene" :key="scene.index" class="scene" :style="{ '--c': CAT_COLOR[scene.category] }">
-        <div class="scene-kicker"><b>{{ two(scene.index + 1) }}</b><span>{{ scene.category }}</span></div>
+        <!-- 하단 자막: 번호 "03 / 12" · 갈래, 제목, 그 장면이 바꾼 출력 한 줄. 녹화물만 봐도 몇 번째 무엇이 어디에 남았는지 읽힌다(층은 위 막대에 있다). -->
+        <div class="scene-kicker" data-testid="scene-kicker">
+          <b>{{ two(scene.index + 1) }}<i class="of">/ {{ two(total) }}</i></b><span>{{ scene.category }}</span>
+        </div>
         <div class="scene-title">
           <span v-for="(t, i) in words(scene.label)" :key="i" :class="['wd', { key: t.key }]" :style="{ animationDelay: `${380 + i * 70}ms` }">{{ t.w }}</span>
         </div>
+        <div v-if="impactOf(scene)" class="scene-sub" :style="{ animationDelay: `${520 + words(scene.label).length * 70}ms` }">{{ impactOf(scene) }}</div>
+      </div>
+    </transition>
+
+    <!-- 반영 토스트: 다시 한 순간 1.6초. -->
+    <transition name="fade">
+      <div v-if="toast" :key="toast.n" class="rp-toast" role="status" data-testid="replay-toast" :style="{ '--c': toast.color }">
+        <b>반영</b>{{ toast.text }}
       </div>
     </transition>
 
@@ -831,6 +869,47 @@ const summary = computed(() => {
   font-size: 14px;
   clip-path: polygon(0 0, 100% 0, calc(100% - 9px) 100%, 0 100%);
   padding-right: 20px;
+}
+.scene-kicker .of {
+  margin-left: 5px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  opacity: 0.7;
+}
+.scene-sub {
+  display: table;
+  margin-top: 4px;
+  padding: 4px 14px;
+  background: rgba(5, 8, 13, 0.82);
+  color: #cfd6e0;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  animation: kicker-in 450ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+.rp-toast {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 8px;
+  border-left: 3px solid var(--c);
+  background: rgba(5, 8, 13, 0.88);
+  color: #e6ebf2;
+  font-size: 13px;
+  font-weight: 600;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.rp-toast b {
+  padding: 1px 7px;
+  background: var(--c);
+  color: #05080d;
+  font-size: 12px;
 }
 .scene-title {
   position: relative;

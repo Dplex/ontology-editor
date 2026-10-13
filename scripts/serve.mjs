@@ -11,10 +11,10 @@
 // 편집할 수 있는 역할일 때만 받는다(src/server/users.ts).
 // 이 모듈은 dt 플랫폼과 따로라 정문(8000)은 거치지 않는다.
 //
-// 3D 형상 FBX 는 화면이 보낸 GLB 를 Blender 로 바꿔 돌려준다(POST /__data/__fbx, src/server/fbx.ts, ADR-0052).
+// 3D 형상 FBX 는 화면이 보낸 GLB 를 Blender 로 바꿔 돌려준다(POST /__data/__fbx, src/server/fbx.ts).
 // Blender 가 없는 기계에서는 GET /__data/__fbx 가 enabled:false 를 주고 화면이 [FBX] 단추를 막는다.
 //
-// 다섯째로 문서 챗봇(Alt+Shift+K)의 /__chat 이 있다(scripts/docs-chat.mjs, ADR-0001). 앱의 API 가 아니라 이 repo 의
+// 다섯째로 문서 챗봇(Alt+Shift+K)의 /__chat 이 있다(scripts/docs-chat.mjs, docs/dev/deploy55.md). 앱의 API 가 아니라 이 repo 의
 // 문서를 읽고 답하는 개발용 부속이고, gemini 가 쓸 수 있는 도구는 문서 읽기 하나뿐이다. gemini 가 없는 기계에서는
 // GET /__chat 이 enabled:false 를 주고 창이 그 이유를 보인다.
 // 같은 창의 [온톨로지] 칸은 /__ask 다(ADR-0050). gemini 가 반영한 온톨로지(data/.layouts 의 현재 버전 TTL)를 읽기만 하는
@@ -25,15 +25,19 @@
 import { createServer } from 'node:http'
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { extname, join, normalize, resolve, sep } from 'node:path'
+import { tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createChat } from './docs-chat.mjs'
 import { sources } from './onto-sources.mjs'
 import { createLayaProxy } from './laya-proxy.mjs'
+import { createScreenStore, touchScreen } from './onto-screen.mjs'
 
 const ROOT = resolve(process.env.ONTOLOGY_EDITOR_DIST || 'dist')
 const [host, port] = (process.env.ONTOLOGY_EDITOR_ADDR || '0.0.0.0:8084').split(/:(?=\d+$)/)
 const DATA = resolve(process.env.ONTOLOGY_EDITOR_DATA || 'data')
 const CATALOG = resolve('dist-server/data-catalog.js')
+// [온톨로지] 칸의 "지금 화면(반영 전)" TTL 을 두는 곳(scripts/onto-screen.mjs). 버전이 아니라 남기지 않는다 — OS 임시 폴더다.
+const SCREENS = resolve(process.env.ONTO_SCREENS || join(tmpdir(), 'oe-onto-screens'))
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -68,18 +72,24 @@ const ask = createChat({
   root: REPO,
   log,
   name: 'onto',
-  mcp: { script: 'scripts/onto-mcp.mjs', env: { ONTO_DATA: DATA, ...(process.env.ONTO_FILES ? { ONTO_FILES: process.env.ONTO_FILES } : {}) } },
+  mcp: { script: 'scripts/onto-mcp.mjs', env: { ONTO_DATA: DATA, ONTO_SCREENS: SCREENS, ...(process.env.ONTO_FILES ? { ONTO_FILES: process.env.ONTO_FILES } : {}) } },
   policyFile: 'scripts/onto-chat.policy.toml',
   systemFile: 'scripts/onto-chat.md',
-  // 창에서 고른 건물. 목록에 있는 이름만 받는다(질문 앞에 아무 글이나 끼워 넣지 못하게).
+  // 창에서 고른 건물. 목록에 있는 이름만 받는다(질문 앞에 아무 글이나 끼워 넣지 못하게). 화면 기준은 반영 전이라고 같이 알린다.
   context: (body) => {
-    const s = sources(DATA, process.env.ONTO_FILES).find((x) => x.source === body.source)
-    return s ? `[건물] source="${s.source}" (${s.title}${s.version ? `, 버전 ${s.version}` : ''}) — 도구를 부를 때 source 로 넘긴다.` : ''
+    const s = sources(DATA, process.env.ONTO_FILES, SCREENS).find((x) => x.source === body.source)
+    if (!s) return ''
+    // 쓰이는 동안은 지우지 않게 시각을 고친다(onto-screen.mjs 의 KEEP_MS 는 마지막으로 쓴 때부터다).
+    if (s.screen) touchScreen(s.file)
+    if (s.screen) return `[건물] source="${s.source}" (${s.title}) — 반영 전 지금 편집 화면의 온톨로지다. 도구를 부를 때 source 로 넘긴다. 답에 "반영 전 화면 기준" 이라고 밝힌다.`
+    return `[건물] source="${s.source}" (${s.title}${s.version ? `, 버전 ${s.version}` : ''}) — 도구를 부를 때 source 로 넘긴다.`
   },
+  // 화면 기준은 목록에 내지 않는다 — 창마다 자기 화면만 고른다(docs-chat.js).
   info: () => ({ sources: sources(DATA, process.env.ONTO_FILES).map(({ file, ...s }) => s) }),
 })
 
 const laya = createLayaProxy({ log })
+const screen = createScreenStore({ dir: SCREENS, log })
 
 const server = createServer((req, res) => {
   const started = Date.now()
@@ -91,6 +101,15 @@ const server = createServer((req, res) => {
     res.on('finish', () => done(res.statusCode))
     laya(req, res).catch((e) => {
       log({ msg: 'laya failed', error: String(e?.stack || e) })
+      if (!res.headersSent) res.writeHead(500)
+      res.end()
+    })
+    return
+  }
+  if (path === '/__ask/screen') {
+    res.on('finish', () => done(res.statusCode))
+    screen(req, res).catch((e) => {
+      log({ msg: 'onto screen failed', error: String(e?.stack || e) })
       if (!res.headersSent) res.writeHead(500)
       res.end()
     })

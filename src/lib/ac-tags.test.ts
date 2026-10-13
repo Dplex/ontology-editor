@@ -24,7 +24,7 @@ describe('수용 기준 읽기', () => {
   })
 })
 
-describe('AC 번호(ADR-0048)', () => {
+describe('AC 번호(docs/dev/testing.md)', () => {
   it('한 티켓에서 AC 번호를 쓰면 모든 기준에 쓰고 겹치지 않는다 — 섞이면 번호 없는 기준이 순서로 세여 다른 기준과 겹친다', () => {
     const LABEL = /^-\s+\*{0,2}AC\d+/
     for (const t of readTickets(ROOT)) {
