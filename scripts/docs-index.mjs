@@ -400,9 +400,10 @@ const AC_LABEL = /^\*{0,2}AC(\d+)\*{0,2}[.:)]?\s+/
  * 글머리표가 `AC3` 으로 시작하면 그 번호, 아니면 순서로 센다.
  */
 export function parseCriteria(text) {
-  const lines = String(text).split('\n').map(l => l.trim()).filter(Boolean)
+  const lines = String(text).split('\n').map(l => l.trimEnd()).filter(l => l.trim())
+  // 들여 쓴 글머리표는 위 기준의 세부 항목이라 세지 않는다
   const bullets = lines.filter(l => l.startsWith('- '))
-  const items = (bullets.length ? bullets.map(l => l.slice(2).trim()) : lines).filter(l => l !== '—' && !/결정 후 적는다\.?$/.test(l))
+  const items = (bullets.length ? bullets.map(l => l.slice(2).trim()) : lines.map(l => l.trim())).filter(l => l !== '—' && !/결정 후 적는다\.?$/.test(l))
   const labeled = items.some(l => AC_LABEL.test(l))
   return items.map((l, i) => {
     const m = labeled ? AC_LABEL.exec(l) : null

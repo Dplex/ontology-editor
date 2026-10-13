@@ -22,6 +22,12 @@ describe('수용 기준 읽기', () => {
     expect(parseCriteria('## 수용 기준\n\nD-gbXML 결정 후 적는다.\n\n## 검증\n')).toEqual([])
     expect(parseCriteria('## 수용 기준\n\n- 하나\n—\n\n## 검증\n')).toHaveLength(1)
   })
+
+  it('들여 쓴 글머리표는 위 기준의 세부 항목이라 기준으로 세지 않는다', () => {
+    const body = '# 티켓\n\n## 수용 기준\n\n- **AC1** 하나\n- **AC2** 다음 둘은 막는다.\n  - 가\n  - 나\n- **AC3** 셋\n\n## 메모\n'
+    expect(parseCriteria(body).map((c) => [c.index, c.text])).toEqual([[1, '하나'], [2, '다음 둘은 막는다.'], [3, '셋']])
+    expect(labelCriteria(body.replace(/\*\*AC\d\*\* /g, ''))).toBe(body)
+  })
 })
 
 describe('AC 번호(docs/dev/testing.md)', () => {
@@ -29,23 +35,21 @@ describe('AC 번호(docs/dev/testing.md)', () => {
     const LABEL = /^-\s+\*{0,2}AC\d+/
     for (const t of readTickets(ROOT)) {
       const section = (readFileSync(ROOT + t.file, 'utf8').replace(/\r\n/g, '\n').split('\n## 수용 기준\n')[1] ?? '').split(/\n## /)[0]
-      const bullets = section.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('- '))
+      const bullets = section.split('\n').filter((l) => l.startsWith('- '))
       if (!bullets.some((l) => LABEL.test(l))) continue
       expect(bullets.filter((l) => !LABEL.test(l)), `${t.id}: AC 번호가 없는 기준`).toEqual([])
       expect(new Set(t.criteria.map((c) => c.index)).size, `${t.id}: AC 번호가 겹친다`).toBe(t.criteria.length)
     }
   })
 
+  // PM 이 모든 티켓에 AC 번호를 붙였다(1832b89f). 이제 번호 없는 티켓은 새로 생긴 것뿐이고, 그 티켓에 도구를 돌려도 태그가 안 밀리는지 본다
   it('지금 순서대로 AC 번호를 붙여도(scripts/prd-ac-label.mjs) 모든 티켓의 기준 번호·문장이 그대로다 — 태그가 안 밀린다', () => {
-    let labeled = 0
     for (const t of readTickets(ROOT)) {
       const md = readFileSync(ROOT + t.file, 'utf8')
       const next = labelCriteria(md)
-      if (next !== md) labeled++
       expect(parseCriteria(next).map((c) => [c.index, c.text, c.delegatedTo]), t.id).toEqual(t.criteria.map((c) => [c.index, c.text, c.delegatedTo]))
       expect(labelCriteria(next), `${t.id}: 두 번 돌려도 같다`).toBe(next)
     }
-    expect(labeled).toBeGreaterThan(200)
   })
 })
 
