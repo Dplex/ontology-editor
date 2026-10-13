@@ -54,7 +54,7 @@ const block = (ttl: string, id: string) => {
 }
 
 describe('수동 공조존 (OE-ZON-01·02)', () => {
-  it('물리존을 골라 만들면 고른 물리존이 담당이고 바닥은 합집합이며, 담당 설비가 공조존을 feeds 한다 — 계통도의 서비스 영역 [OE-ZON-01#1]', () => {
+  it('물리존을 골라 만들면 고른 물리존이 담당이고 바닥은 합집합이며, 담당 설비가 공조존을 feeds 한다 — 계통도의 서비스 영역 [OE-ZON-01#1] [OE-OBJ-13#1]', () => {
     const zone = createZoneFromSpaces(model, { spaceIds: [office().id, store], servedBy: [equip('AHU-1').id] })
     if (!zone || 'refused' in zone) throw new Error('zone')
     expect(zone).toMatchObject({ name: '공조존 1', storeyId: model.storeys[0].id, spaceIds: [office().id, store], source: 'edit' })
@@ -192,7 +192,7 @@ describe('공조존 검증과 담당 물리존 고치기 (OE-ZON-05 · OE-ZON-04
     expect(a.servedBy).toEqual([equip('AHU-1').id])
   })
 
-  it('담당 물리존을 더하고 빼면 골라 만든 공조존은 바닥이 다시 합집합이 되고, 그린 공조존은 바닥을 두고 담당만 바뀐다. 다 빼면 막는다', () => {
+  it('담당 물리존을 더하고 빼면 골라 만든 공조존은 바닥이 다시 합집합이 되고, 그린 공조존은 바닥을 두고 담당만 바뀐다. 다 빼면 막는다 [OE-OBJ-13#2]', () => {
     const picked = createZoneFromSpaces(model, { spaceIds: [office().id] }) as HvacZone
     expect(setZoneSpaces(model, picked.id, [office().id, store])).toBe(true)
     expect(picked.areaM2).toBeCloseTo(80 + 30.4 + 1.6, 1)
@@ -247,7 +247,7 @@ describe('실내기의 담당 공조존 (OE-EQP-08 · Z-06)', () => {
 })
 
 describe('공조존 경계 다시 그리기 (OE-ZON-04)', () => {
-  it('골라 만든 공조존도 경계를 다시 그리면 새 경계와 겹치는 물리존이 담당이 되고, 되돌리면 그 전과 같다', () => {
+  it('골라 만든 공조존도 경계를 다시 그리면 새 경계와 겹치는 물리존이 담당이 되고, 되돌리면 그 전과 같다 [OE-OBJ-13#2]', () => {
     const zone = createZoneFromSpaces(model, { spaceIds: [office().id] }) as HvacZone
     const snap = snapshotHvacZones(model, model.storeys[0].id)!
     const before = modelToTTL(model)
