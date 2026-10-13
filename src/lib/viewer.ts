@@ -15,6 +15,9 @@ import {
   Ray,
   Sphere,
   Spherical,
+  Sprite,
+  SpriteMaterial,
+  CanvasTexture,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
@@ -355,6 +358,18 @@ export type Viewer = {
   focus(id: string): void
   /** 주어진 설비들이 화면에 꽉 차게 카메라를 맞춘다. 연결망만 보고 싶을 때 쓴다. margin(미터)만큼 둘레를 더 보인다. */
   frame(ids: Iterable<string>, margin?: number): void
+  /** 움직이지 않은 우클릭(ui-notes 보기 필터). 누른 자리의 설비 id(없으면 null)와 화면 좌표. 끈 오른쪽 드래그는 그대로 회전이다. */
+  onContext(handler: (id: string | null, x: number, y: number) => void): void
+  /** 보이는 것 전체에 맞춘다. `keep` 이면 지금 보는 방향 그대로(전체 맞추기), 아니면 처음 시점 방향(카메라 초기화). */
+  frameVisible(keep: boolean): void
+  /**
+   * Brick 클래스별 분해도(ui-notes 보기 필터). 묶음마다 그 설비를 건물 위로 한 켜씩 띄우고(평면 자리는 그대로) 켜 옆에 라벨을 단다.
+   * 화면에서만 옮긴다 — 모델·편집 파일에는 아무것도 남지 않고, 다시 그리거나 설비를 옮기면 먼저 제자리로 돌아온다.
+   * `null` 이면 제자리로. 띄웠으면 true.
+   */
+  setExplode(groups: readonly { label: string; ids: readonly string[] }[] | null): boolean
+  /** 분해도가 펼쳐져 있나. 다시 그리기 등으로 저절로 접힐 수 있어 화면이 이것으로 맞춘다. */
+  exploded(): boolean
   /** 내력벽(과 내력 여부를 모르는 벽)을 켜고 끈다. 모델을 바꿔도 켜 둔 상태는 남는다. */
   setWallsVisible(on: boolean): void
   /** 편집 모드를 켜고 끈다. 끄면 3D 는 보기 전용이고, 누르고 끄는 것은 전부 시점 조작이다. */
@@ -647,6 +662,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     dirty = true
   }
   let pickHandler: (id: string | null, additive?: boolean) => void = () => {}
+  let contextHandler: (id: string | null, x: number, y: number) => void = () => {}
   let boxHandler: (ids: string[]) => void = () => {}
   /** Ctrl+끌기로 그리는 고르기 상자(OE-UI-09). 화면 좌표의 시작점과 그리는 DOM 상자. */
   let box: { x: number; y: number; el: HTMLDivElement } | null = null
@@ -1432,6 +1448,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     (e) => {
       pressedAt = { x: e.clientX, y: e.clientY }
       if (e.button !== 0) return
+      // 분해도는 화면에서만 띄운 자리라 거기서 끌면 엉뚱한 곳으로 옮겨진다. 펼친 동안은 끌지 않는다(시점 이동은 된다).
+      if (explodedParts) return
       if (!editMode && !(handleEdit && hitHandle(e.clientX, e.clientY) !== null)) return
       // 화살표 위에서 누른 것은 떼면서 방향을 바꾸는 누르기다. 끌기를 시작하지 않는다.
       if (hitArrow(e.clientX, e.clientY)) return
@@ -1532,6 +1550,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const dragged = Math.hypot(e.clientX - pressedAt.x, e.clientY - pressedAt.y) > 4
     pressedAt = null
     if (dragged) return
+    // 움직이지 않은 우클릭은 메뉴다(ui-notes 보기 필터). 전에는 왼쪽 누르기처럼 골랐다. 끈 오른쪽 드래그는 위에서 회전으로 끝났다.
+    if (e.button === 2) {
+      contextHandler(pick(rayAt(e.clientX, e.clientY)), e.clientX, e.clientY)
+      return
+    }
+    // 휠 클릭은 회전 중심 정하기다(아래 pivot 리스너). 고르기로 내려가면 빈 곳을 누른 셈이 되어 고른 것이 풀렸다.
+    if (e.button === 1) return
 
     // 리플레이의 빛기둥·이름표를 누르면 그 장면을 되풀이한다.
     const spot = fx.hitSpot(e.clientX, e.clientY)
@@ -2168,6 +2193,65 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     dirty = true
   }
 
+  // --- Brick 클래스별 분해도(setExplode, ui-notes 보기 필터) ---
+  // 클래스 묶음마다 설비 형상을 위로 평행이동한다(꼭짓점을 고쳐 쓴다 — 미끄러짐과 같은 장치라 고르기 상자도 따라간다). 원래 꼭짓점을
+  // 떠 두었다가 접을 때 되돌린다. 모델은 건드리지 않는다. 다시 그리기·설비 옮기기가 오면 먼저 접는다 — 띄운 자리에서 옮기면 접을 때
+  // 옛 자리로 돌아가 버린다.
+  let explodedParts: Map<string, Float32Array> | null = null
+  const explodeLabels = new Group()
+  scene.add(explodeLabels)
+  /** 미끄러지게 띄우는 설비 수의 한도. 넘으면 바로 옮긴다 — 성수에서 수천 대를 매 프레임 섞으면 화면이 멈춘다. */
+  const EXPLODE_GLIDE_MAX = 400
+  function disposeExplodeLabels() {
+    for (const o of explodeLabels.children) {
+      if (o instanceof Sprite) o.material.map?.dispose()
+      else (o as LineLoop).geometry.dispose()
+      ;((o as Sprite | LineLoop).material as Material).dispose()
+    }
+    explodeLabels.clear()
+  }
+  function collapseExplode(glide: boolean) {
+    if (!explodedParts) return
+    const slide = glide && explodedParts.size <= EXPLODE_GLIDE_MAX
+    for (const [id, original] of explodedParts) {
+      const part = partById.get(id)
+      if (part && part.vCount * 3 === original.length) setPartPositions(part, original, slide)
+    }
+    explodedParts = null
+    disposeExplodeLabels()
+    dirty = true
+  }
+  function explodeLabel(text: string, height: number): Sprite {
+    const c = document.createElement('canvas')
+    const g = c.getContext('2d')!
+    const font = '600 30px system-ui, sans-serif'
+    g.font = font
+    c.width = Math.ceil(g.measureText(text).width) + 36
+    c.height = 52
+    g.font = font
+    g.fillStyle = 'rgba(17, 24, 39, 0.82)'
+    g.beginPath()
+    g.roundRect(0, 0, c.width, c.height, 12)
+    g.fill()
+    g.fillStyle = '#e8f4ff'
+    g.textBaseline = 'middle'
+    g.fillText(text, 18, c.height / 2 + 1)
+    const map = new CanvasTexture(c)
+    const sprite = new Sprite(new SpriteMaterial({ map, depthTest: false, depthWrite: false, transparent: true }))
+    sprite.scale.set((height * c.width) / c.height, height, 1)
+    sprite.center.set(1, 0.5)
+    sprite.renderOrder = 30
+    return sprite
+  }
+  /** 보이는 것(숨기지 않은 설비와 보이는 층의 판)의 상자. */
+  function shownBox(): Box3 {
+    const box = new Box3()
+    for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
+    for (const o of slabs.children) if (o.visible) box.expandByObject(o)
+    if (box.isEmpty()) box.setFromObject(content)
+    return box
+  }
+
   // --- 소속이 바뀐 방의 번쩍임 ---
   // 편집이 실제로 고치는 것은 hasLocation 한 줄이다. 설비가 새 방에 들어가면 그 방 바닥이 한 번 차올랐다 빠진다.
   const PULSE_MS = 1100
@@ -2561,6 +2645,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // e2e 모드에서만 연다. 3D 는 DOM 이 아니라서 테스트가 어디를 눌러야 하는지 알 길이 이것뿐이다.
   if (import.meta.env.MODE === 'e2e') {
     ;(window as unknown as { __viewer?: unknown }).__viewer = {
+      /** 숨긴 설비 수·보이는 층·분해도 라벨(ui-notes 의 보기 필터 절을 잰다). */
+      shown: () => ({ hidden: hiddenIds.size, parts: parts.length, storeys: visibleStoreys ? [...visibleStoreys] : null, labels: explodeLabels.children.filter((o) => o instanceof Sprite).length, exploded: explodedParts?.size ?? 0 }),
       /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */
       hoverMark: () => (hoverMark ? hoverMarkKey : ''),
       /** 깐 평면도 배경의 귀퉁이(IFC 평면). 없으면 null. */
@@ -2569,7 +2655,6 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
       camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
       flying: () => (flying ? { keys: [...flying.keys], scale: flying.scale } : null),
-      motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, ...fx.motion(), started }),
       /** 휠 클릭으로 정한 회전 중심 고리가 떠 있나. */
       pivot: () => (pivotMark ? pivotMark.at.toArray() : null),
       motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, cascading: cascade ? cascade.parts.length : 0, cascadeShown: cascade ? cascade.parts.filter((p) => p.objects[0].visible).length : 0, ...fx.motion(), started }),
@@ -2715,6 +2800,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const api: Viewer = {
     ...fx.api,
     setModel(model, meshes, options) {
+      // 분해도는 화면에서만 띄운 것이다. 다시 그리기 전에 접는다(patchModel 은 안 바뀐 설비를 그대로 두니 띄운 채 남는다).
+      collapseExplode(false)
       // 편집 뒤 다시 그리기는 바뀐 설비만 고친다(patchModel). 안 되면 아래에서 처음부터 다시 짓는다.
       if (options?.keepView && meshes === lastMeshes && chunks.length && patchModel(model, meshes)) return
       lastMeshes = meshes
@@ -2839,6 +2926,99 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       fly(center, center.clone().add(offset), { near: camera.near, far: camera.far })
     },
 
+    onContext(handler) {
+      contextHandler = handler
+    },
+
+    frameVisible(keep) {
+      const box = shownBox()
+      for (const o of explodeLabels.children) box.expandByObject(o)
+      if (box.isEmpty()) return
+      if (keep) fit(box, true, new Vector3().subVectors(camera.position, controls.target))
+      else fit(box)
+    },
+
+    setExplode(groups) {
+      collapseExplode(!groups)
+      if (!groups?.length) return false
+      const all = shownBox()
+      if (all.isEmpty()) return false
+      const height = all.max.y - all.min.y
+      const width = Math.max(all.max.x - all.min.x, all.max.z - all.min.z)
+      // 넓은 건물(Duplex·병원)은 클래스마다 건물 위로 한 켜씩 쌓는다. 높은 건물(성수 19층)은 쌓으면 기둥처럼 길어져 라벨이 안 읽혀,
+      // 건물 옆에 바둑판으로 늘어놓는다(칸마다 그 클래스 설비가 건물 안 제자리에 있다 — 어디에 몰려 있는지가 보인다).
+      const tall = height > width * 0.8
+      const cell = width * 1.3
+      const cols = Math.ceil(Math.sqrt(groups.length + 1))
+      const gap = Math.max(2.5, height * 0.3)
+      // 라벨 높이는 건물 크기에 맞춘다. 건물 전체를 맞춘 시점에서 글자가 읽히는 크기.
+      const labelH = tall ? Math.max(1.5, cell * 0.09) : Math.max(1.2, Math.min(6, (all.max.x - all.min.x + all.max.z - all.min.z) * 0.045))
+      const moving = groups.reduce((n, g) => n + g.ids.length, 0)
+      const slide = moving <= EXPLODE_GLIDE_MAX
+      const next = new Map<string, Float32Array>()
+      let level = all.max.y + gap
+      const frameBox = all.clone()
+      groups.forEach((g, k) => {
+        const members = g.ids.map((id) => partById.get(id)).filter((p): p is Part => !!p && !hiddenIds.has(p.id) && !p.box.isEmpty())
+        if (!members.length) return
+        const box = new Box3()
+        for (const p of members) {
+          finishGlide(p.id)
+          box.union(p.box)
+        }
+        // 바둑판: 0번 칸은 건물(덕트·배관과 판)이 그대로 쓴다.
+        const at = k + 1
+        const shift = tall ? new Vector3((at % cols) * cell, 0, Math.floor(at / cols) * cell) : new Vector3(0, level - box.min.y, 0)
+        for (const p of members) {
+          const arr = p.chunk.position.array as Float32Array
+          const original = arr.slice(p.vStart * 3, (p.vStart + p.vCount) * 3)
+          next.set(p.id, original)
+          const moved = original.slice()
+          for (let i = 0; i < moved.length; i += 3) {
+            moved[i] += shift.x
+            moved[i + 1] += shift.y
+            moved[i + 2] += shift.z
+          }
+          setPartPositions(p, moved, slide)
+        }
+        const sprite = explodeLabel(g.label, labelH)
+        if (tall) {
+          // 칸 위 가운데. 칸의 바닥 윤곽(건물 발자국)을 옅게 그려 칸이 어디까지인지 보인다.
+          sprite.center.set(0.5, 0)
+          sprite.position.set((all.min.x + all.max.x) / 2 + shift.x, all.max.y + labelH * 0.4, (all.min.z + all.max.z) / 2 + shift.z)
+          const ring = new LineLoop(
+            new BufferGeometry().setFromPoints(
+              [
+                [all.min.x, all.min.z],
+                [all.max.x, all.min.z],
+                [all.max.x, all.max.z],
+                [all.min.x, all.max.z],
+              ].map(([x, z]) => new Vector3(x + shift.x, all.min.y, z + shift.z)),
+            ),
+            new LineBasicMaterial({ color: 0x8a94a3, transparent: true, opacity: 0.5 }),
+          )
+          ring.userData.explodeRing = true
+          explodeLabels.add(ring)
+        } else {
+          // 켜의 왼쪽 끝 바로 옆에 라벨(오른쪽 끝을 맞춘다). 건물 왼쪽 끝에 세우면 켜가 작을 때 라벨과 떨어져 무엇의 이름인지 몰랐다.
+          sprite.position.set(box.min.x - labelH * 0.3, level + (box.max.y - box.min.y) / 2, (box.min.z + box.max.z) / 2)
+          level += box.max.y - box.min.y + gap * 0.6
+        }
+        explodeLabels.add(sprite)
+        frameBox.union(box.clone().translate(shift))
+      })
+      if (!next.size) return false
+      explodedParts = next
+      for (const o of explodeLabels.children) frameBox.expandByObject(o)
+      fit(frameBox)
+      dirty = true
+      return true
+    },
+
+    exploded() {
+      return !!explodedParts
+    },
+
     frame(ids, margin = 0) {
       const box = new Box3()
       for (const id of ids) {
@@ -2871,6 +3051,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     shiftEquipment(id, delta, glide = false) {
       const part = partById.get(id)
       if (!part) return false
+      collapseExplode(false)
       finishGlide(id)
       const [dx, dy, dz] = toScene(delta)
       const arr = part.chunk.position.array as Float32Array
@@ -2887,6 +3068,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setEquipmentPositions(id, positions, glide = false) {
       const part = partById.get(id)
       if (!part || positions.length !== part.vCount * 3) return false
+      collapseExplode(false)
       setPartPositions(part, positions, glide)
       return true
     },

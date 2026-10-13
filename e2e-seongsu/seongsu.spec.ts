@@ -127,7 +127,7 @@ async function pickDeviceOnce(name: string) {
   await search().fill('')
   // 칸에서 나온다. 포커스가 남으면 뒤의 단축키(F, Home …)가 검색 칸에 글자로 들어간다.
   await search().press('Escape')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await settle()
   await expect(page.locator('.picked h3')).toHaveText(name)
 }
@@ -141,7 +141,7 @@ async function pickFirst(query: string) {
   await search().fill('')
   // 칸에서 나온다. 포커스가 남으면 뒤의 단축키(F, Home …)가 검색 칸에 글자로 들어간다.
   await search().press('Escape')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await settle()
   return name
 }
@@ -155,7 +155,7 @@ async function showStorey(name: string | null) {
   } else await select.selectOption({ index: 0 })
   // 상자에서 나온다. 포커스가 남으면 뒤의 글자 단축키(U, K …)를 상자가 먹는다.
   await select.evaluate((el) => (el as HTMLElement).blur())
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
   await settle()
 }
@@ -449,7 +449,7 @@ test('C 3D 보기: 층 고르기, 전체 보기, 고른 연결망, 설명 풍선
   }
 
   // C-11 회전·확대. 프레임 간격의 95% 가 50ms 안이어야 한다.
-  const box = (await page.locator('.viewport canvas').boundingBox())!
+  const box = (await page.locator('.canvas-wrap > canvas').boundingBox())!
   await page.evaluate(() => {
     const w = window as any
     w.__gaps = []
@@ -860,7 +860,7 @@ test('F 물리존: 바닥 고르기·꼭짓점 끌기·짚고 옮기기·넣고 
   const ringless = page.locator('.spaces-edit tbody tr', { hasText: '외곽선 없음' }).first()
   const storeyName = await ringless.locator('.tag').innerText()
   await ringless.getByRole('button', { name: '3D에서 그리기' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await settle()
   const host = map.spaces.find((s) => s.storey === stemOf(storeyName))!
   const [hx, hy] = centroid(host.ring)
