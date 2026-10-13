@@ -762,12 +762,44 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let selectedObject: string | null = null
   let objectPickHandler: (id: string) => void = () => {}
   let objectMoveHandler: (id: string, delta: Vec2) => void = () => {}
-  /** 광선에 맞은 맨 앞의 오브젝트와 거리(제곱). 숨긴 층의 것은 뺀다. */
+  /**
+   * 설비·계통을 고르는 동안 오브젝트(가구)를 흐리게 한다. 흐린 설비처럼 옅게만 남기고 고를 수 없다 — 성수 10층에서 계통을 고르면
+   * 의자·책상이 천장 아래 배관을 가렸고, 가구를 눌러 배관을 고를 수 없었다. 고른 오브젝트는 흐리게 하지 않는다(끌던 것을 잃는다).
+   */
+  let objectsFaded = false
+  const OBJECT_FADED_OPACITY = 0.08
+  function fadeObjects() {
+    for (const node of spaceObjects.children) {
+      const fade = objectsFaded && node.userData.objectId !== selectedObject
+      node.traverse((o) => {
+        if (!(o instanceof Mesh)) return
+        const base = o.userData.baseMaterial as Material | Material[] | undefined
+        if (fade && !base) {
+          o.userData.baseMaterial = o.material
+          const faded = (m: Material) => {
+            const c = m.clone()
+            c.transparent = true
+            c.opacity = Math.min(m.opacity, OBJECT_FADED_OPACITY)
+            c.depthWrite = false
+            return c
+          }
+          o.material = Array.isArray(o.material) ? o.material.map(faded) : faded(o.material)
+        } else if (!fade && base) {
+          for (const m of [o.material].flat()) m.dispose()
+          o.material = base
+          delete o.userData.baseMaterial
+        }
+      })
+    }
+    dirty = true
+  }
+  /** 광선에 맞은 맨 앞의 오브젝트와 거리(제곱). 숨긴 층의 것과 흐리게 한 것은 뺀다. */
   function pickObject(ray: Ray): { target: ObjectTarget; d: number } | null {
     let best: { target: ObjectTarget; d: number } | null = null
     const at = new Vector3()
     for (const target of objectTargets) {
       if (visibleStoreys && !visibleStoreys.has(target.storeyId)) continue
+      if (objectsFaded && target.id !== selectedObject) continue
       if (!ray.intersectBox(target.box, at)) continue
       const d = at.distanceToSquared(ray.origin)
       if (!best || d < best.d) best = { target, d }
@@ -2735,6 +2767,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const center = t.box.getCenter(new Vector3())
         return toScreen(center.setY(t.box.max.y))
       },
+      /** 오브젝트에서 가장 진한 면의 불투명도. 설비·계통을 고르는 동안 가구를 흐리게 했는지 본다. */
+      objectOpacity: (id: string) => {
+        const t = objectTargets.find((x) => x.id === id)
+        if (!t) return null
+        let most = 0
+        t.node.traverse((o) => {
+          if (o instanceof Mesh) for (const m of [o.material].flat()) most = Math.max(most, m.transparent ? m.opacity : 1)
+        })
+        return most
+      },
       /** 오브젝트 상자(화면 세계 좌표). 늘린 모델이 상자에 맞는지 본다. */
       objectBox: (id: string) => {
         const t = objectTargets.find((x) => x.id === id)
@@ -2915,6 +2957,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         // 천장 편집 모드에서 천장 설비가 아닌 것은 회색이다(고른 것·상류·하류 색은 둔다).
         if (next === part.color && dimIds.has(id)) next = DIM_COLOR
         paintPart(part, next)
+      }
+      // 고른 것이 있으면 가구도 흐리게 한다. 여러 개 고르는 중에는 설비처럼 두고, 칠할 것이 없는 강조(빈 계통)도 둔다.
+      const fadeObjectsNow = !!highlight && !highlight.group && nextFaded.size > 0
+      if (fadeObjectsNow !== objectsFaded) {
+        objectsFaded = fadeObjectsNow
+        fadeObjects()
       }
       // 흐리게 하기가 바뀐 설비가 든 덩어리만 인덱스를 다시 짠다.
       const touched = new Set<Chunk>()
@@ -3611,8 +3659,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (drag?.kind === 'object') return // 끄는 중에 다시 그리면 잡은 것을 잃는다. 놓으면 다시 불린다.
       spaceObjects.traverse((o) => {
         if (o instanceof Mesh || o instanceof LineSegments) {
+          // 흐리게 칠한 재질은 언제나 이 오브젝트 몫이다. 원래 재질은 넣은 모델과 나눠 쓰면 남긴다.
+          const base = o.userData.baseMaterial as Material | Material[] | undefined
+          if (base) for (const m of [o.material].flat()) m.dispose()
           if (!o.userData.shared) o.geometry.dispose()
-          if (!o.userData.shared) (o.material as { dispose(): void }).dispose()
+          if (!o.userData.shared) for (const m of [base ?? o.material].flat()) m.dispose()
         }
       })
       spaceObjects.clear()
@@ -3663,6 +3714,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
             edges.renderOrder = 2
             node.add(edges)
           }
+          node.userData.objectId = o.id
           spaceObjects.add(node)
           // 주변 모델(object-names.ts 의 CONTEXT_ITEMS)은 눌러도 고르지 않는다 — 바닥·설비를 가린다.
           if (CONTEXT_ITEMS.has(o.item)) continue
@@ -3671,6 +3723,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           objectTargets.push({ id: o.id, storeyId: storey.id, box, node })
         }
       }
+      if (objectsFaded) fadeObjects()
       applyStoreyVisibility()
     },
 

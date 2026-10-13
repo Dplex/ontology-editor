@@ -4191,19 +4191,18 @@ const sourceLabel = (tolerance: number | null) =>
   tolerance !== null && tolerance > TOLERANCE ? `${CONNECTION_CLASS_LABEL.geometry} (${Math.round(tolerance * 1000)}mm 간격)` : CONNECTION_CLASS_LABEL.geometry
 
 // 계통 범례. 색은 3D 와 같은 자리에서 가져온다.
+//
+// 수는 구성원 수다 — 고른 계통 패널의 "구성 N개", 3D 에서 칠하는 것과 같은 것을 센다. 설비의 `systemId` 로 세면 두 계통에
+// 든 설비(성수 FCU 가 순환수 공급과 기계 급기에 같이 든다)가 한쪽에서만 세여, 범례 1400 · 패널 1537 처럼 어긋났다.
 const legend = computed(() => {
   if (!model.value) return []
   const colors = systemColors(model.value)
-  const counted = new Map<string, number>()
-  for (const storey of model.value.storeys) {
-    for (const e of storey.equipment) if (e.systemId) counted.set(e.systemId, (counted.get(e.systemId) ?? 0) + 1)
-  }
   return model.value.systems
     .map((s) => ({
       id: s.id,
       name: s.name || '(이름 없는 계통)',
       source: s.source,
-      count: counted.get(s.id) ?? 0,
+      count: s.memberIds.length,
       color: `#${(colors.get(s.id) ?? 0).toString(16).padStart(6, '0')}`,
     }))
     .sort((a, b) => b.count - a.count)
