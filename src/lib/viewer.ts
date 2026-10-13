@@ -468,6 +468,13 @@ export type Viewer = {
   /** 물리존 하나가 화면에 들어오게 한다. */
   frameSpace(id: string): void
   /**
+   * 설비 형상 상자 가운데의 화면 좌표(창 기준 px). 그려지지 않았거나(다른 층·숨김) 카메라 뒤·캔버스 밖이면 null.
+   * 3D 위 설비 라벨(App.vue 의 equipmentLabels)이 쓴다.
+   */
+  screenOf(ids: readonly string[]): ({ x: number; y: number } | null)[]
+  /** 3D 를 다시 그릴 때마다 오르는 수. 라벨이 그대로인 화면에서 자리를 다시 재지 않게 본다. */
+  viewVersion(): number
+  /**
    * 화면의 오른쪽·위쪽이 IFC 평면에서 어느 쪽인가(단위 벡터). 방향키로 설비를 옮길 때 쓴다. 비스듬히 보면
    * 화면 위쪽은 바닥에서 "멀어지는 쪽" 이다.
    */
@@ -1669,6 +1676,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   let running = true
+  /** 다시 그린 횟수(viewVersion). */
+  let renders = 0
   function tick(now = performance.now()) {
     if (!running) return
     resize()
@@ -1687,6 +1696,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (dirty) {
       if (handles.length) scaleHandles()
       renderer.render(scene, camera)
+      renders++
       dirty = false
     }
     if (hoverPending) updateHover()
@@ -3127,6 +3137,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       box.expandByPoint(box.max.clone().setY(target.y + 3))
       fit(box)
     },
+
+    screenOf(ids) {
+      const rect = canvas.getBoundingClientRect()
+      const c = new Vector3()
+      return ids.map((id) => {
+        const part = partById.get(id)
+        if (!part || hiddenIds.has(id)) return null
+        const at = toScreen(part.box.getCenter(c))
+        if (!at || at.x < rect.left || at.x > rect.right || at.y < rect.top || at.y > rect.bottom) return null
+        return at
+      })
+    },
+
+    viewVersion: () => renders,
 
     planeAxes() {
       camera.updateMatrixWorld()
