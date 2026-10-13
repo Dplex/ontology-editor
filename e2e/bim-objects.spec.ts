@@ -22,7 +22,7 @@ async function toEdit(page: Page) {
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await toSpace(page)
   await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
 }
 /** GeoJSON 1F 를 내려받아 추가 공간 오브젝트만. */
