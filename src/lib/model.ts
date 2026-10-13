@@ -57,6 +57,11 @@ export type Space = {
    * Revit 이 붙인 속성(`Category Code`)이다. 요구사항 보고서가 "표준 자리"와 "다른 자리"를 가른다.
    */
   omniclassSource?: 'classification' | 'property'
+  /**
+   * 설계 급기 풍량(CMH, OE-ZON-06). 용량 검증 Z-03 이 공조존의 담당 물리존 값을 더한다. `bim` 은 IfcSpace 의 Pset(R26)에서 읽은 것이고,
+   * `edit` 는 BIM 에 값이 없어 사람이 넣은 것이다. **에디터가 계산하거나 기본값을 넣지 않는다** — 없으면 칸이 없고 Z-03 이 "판정 불가" 다.
+   */
+  designAirflow?: SpaceAirflow
   /** 사람이 에디터에서 만든 물리존(생성·분할, E3). BIM 에 없던 것이라 화면의 출처가 "편집"이다. */
   added?: true
   /**
@@ -278,6 +283,11 @@ export type Equipment = {
    * 고객사와 BIM 스펙을 맞출 때 "지금 이 이름으로 들어온다" 는 근거가 된다.
    */
   capacityProperty: string | null
+  /**
+   * 정격 풍량(CMH, OE-ZON-06). `bim` 은 용량(`capacity`)이 풍량이고 단위를 알 때 CMH 로 바꾼 것이고, `edit` 는 BIM 에 없어 사람이 넣은
+   * 것이다. `capacity` 는 TTL 이 쓰는 원래 값 그대로라 따로 둔다. 용량 검증 Z-03 이 이 값을 담당 공조존의 설계 풍량 합과 견준다.
+   */
+  ratedAirflow?: { cmh: number; source: 'bim' | 'edit'; property?: string }
   /** 속한 계통(IfcSystem)의 id. `null` 이면 어느 계통에도 안 묶여 있다. */
   systemId: string | null
   /** 사람이 계통을 바꿨으면 BIM 이 말한 계통(E8). 되돌리면 지운다. 화면의 출처가 "편집"이 된다. */
@@ -458,6 +468,13 @@ export type ConnectionLogEntry = {
  * 공조존(F12). IDF 의 Zone 이다(PRD 1.6 이 IDF 를 출처로 둔다). 바닥 외곽선은 GeoJSON 에, 담당 관계와 든 방은 TTL 에
  * 나간다(`brick:HVAC_Zone`, `brick:hasPart` 방, 설비 `brick:feeds` 존).
  */
+/**
+ * 설계 급기 풍량(CMH). 냉방·난방은 IFC 표준 Pset 의 두 값이고, `supply` 는 냉방·난방을 가르지 않는 값(Revit 의 `Specified Supply
+ * Airflow`)이다. Z-03 은 냉방·난방 중 큰 값을, 둘 다 없으면 `supply` 를 쓴다(Q16, airflow.ts 의 airflowBasis).
+ */
+export type DesignAirflow = { cooling: number | null; heating: number | null; supply?: number | null }
+export type SpaceAirflow = DesignAirflow & { source: 'bim' | 'edit'; property?: string }
+
 export type HvacZone = {
   id: string
   name: string
@@ -478,6 +495,11 @@ export type HvacZone = {
   servedBy?: string[]
   /** 경계를 그려 만든 공조존(OE-ZON-02). 담당 물리존이 겹침으로 정해졌다. 없으면 고른 물리존의 합집합이다. */
   drawn?: true
+  /**
+   * 사람이 공조존 단위로 넣은 설계 풍량(CMH, OE-ZON-06). 담당 물리존의 BIM 값을 다 더할 수 있으면 쓰지 않는다(BIM 이 앞선다, airflow.ts).
+   * 다른 공조존과 함께 담당하는 물리존이 있으면 물리존 값을 나눌 근거가 없어 이 값으로만 판정한다.
+   */
+  designAirflow?: DesignAirflow
 }
 
 /** IDF 가 말한 공조 설비(공조기·말단·실외기·실내기). 좌표는 IDF 에 없다. */
@@ -635,6 +657,12 @@ export type Model = {
   releasedConnections?: ReleasedConnection[]
   /** 해제 보정·취소·재검토 확인의 이력. 되돌리기로 무른 것은 남지 않는다. */
   connectionLog?: ConnectionLogEntry[]
+  /**
+   * 형상이 맞닿았지만 한쪽이 흐름 없는 기기(조명·감지기·비치품)라 연결로 넣지 않은 것(OE-PIP-18, flow-review.ts). 버리지 않고 여기 두는
+   * 것은 종류가 바뀌면 다시 재기 위해서다 — 조명을 "모름" 이나 흐름 있는 종류로 고치면 `connections` 로 돌아오고, 흐름 없는 종류로 고치면
+   * 그 기기의 형상 연결이 여기로 온다. 포트가 없어 형상으로 이은 파일에만 있다.
+   */
+  flowlessGeometry?: Connection[]
   /** 임포트가 그냥 넘어간 것들. 조용히 비는 대신 화면에 뜬다. */
   warnings: string[]
   /**

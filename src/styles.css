@@ -3237,6 +3237,16 @@ main.has-model .catalog {
   display: none;
 }
 
+/* PDF 를 그리는 동안(평면도 배경) 고르기 칸을 막는다. */
+.file-pick.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.bg-page {
+  width: 4.5em;
+}
+
 .version-pick {
   display: flex;
   flex-wrap: wrap;
@@ -4529,4 +4539,19 @@ button.done::after {
 }
 .report.report-checks li.warn {
   color: var(--warn-fg);
+}
+
+/* 설계 풍량·정격 풍량 입력(OE-ZON-06). CMH 는 다섯 자리까지라 칸을 좁게 둔다. */
+.airflow-input {
+  width: 6.5em;
+}
+.space-airflow label,
+.zone-airflow label {
+  white-space: nowrap;
+}
+
+/* 유체 흐름이 아닌 BIM·사람 연결(OE-PIP-18). 지우지 않고 검토 대상으로 표시한다. */
+.flow-review {
+  color: var(--warn-fg);
+  font-weight: 600;
 }

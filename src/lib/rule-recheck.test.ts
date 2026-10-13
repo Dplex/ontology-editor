@@ -105,6 +105,8 @@ describe('확정한 규칙 방향의 재검토 (OE-PIP-07)', () => {
   it('확정한 계통에 새로 이은 연결은 미확정 규칙 방향이고, 다시 확정하기 전에는 TTL 에 없다 [OE-PIP-07#4]', () => {
     const m = confirmedModel()
     const systemId = free(m).inferred!.systemId
+    // 조명은 흐름 없는 기기라 덕트에 이어도 feeds 로 나가지 않는다(OE-PIP-18). 새로 이은 기기의 확정만 보려고 종류를 "모름" 으로 둔다.
+    setTypeKind(m, typeKeyOf(equip(m, 'LIGHT-101-01')), null)
     setEquipmentSystem(m, idOf(m, 'LIGHT-101-01'), systemId)
     const added = addConnection(m, idOf(m, 'DUCT-01'), idOf(m, 'LIGHT-101-01'))!.connection
     expect(added.inferred).toMatchObject({ from: idOf(m, 'DUCT-01'), systemId, confirmed: false })

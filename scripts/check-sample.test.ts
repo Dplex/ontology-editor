@@ -33,7 +33,7 @@ import { verticalConnections, verticalLinks, VERTICAL_KINDS } from '../src/lib/v
 import { verticalObjects } from '../src/lib/vertical-object'
 import { storeyHeights } from '../src/lib/storey-height'
 import { markStoreyDone, storeyProgress } from '../src/lib/storey-progress'
-import { equipmentKind, roomKind } from '../src/lib/kinds'
+import { equipmentKind, isFlowlessKind, roomKind } from '../src/lib/kinds'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
 import { compareVersions, revitElementId } from '../src/lib/versions'
 import { storeyScaleMismatch } from '../src/lib/unit-check'
@@ -597,7 +597,7 @@ describe('임포트 피처 선택 — 끈 것은 읽지 않음 (OE-BIM-25)', () 
 // 포트가 있는 파일(병원 HVAC·Duplex HVAC·ifc4Mep)을 정답지로 형상 추정을 재 보면 흐름 없는 기기를 빼도 재현율·정밀도가 그대로다
 // (87.8%·99.9% / 70.9%·95.3% / 75.0%·79.5%, 2026-10-03) — 포트가 흐름 없는 기기를 잇는 일이 없어서다.
 describe('흐름 없는 기기는 형상으로 잇지 않는다 (OE-PIP-18)', () => {
-  it('병원 전기 — 조명끼리 잡히던 연결이 없다', async () => {
+  it('병원 전기 — 조명끼리 잡히던 연결이 없다 [OE-PIP-18#1]', async () => {
     const ELE = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc'
     if (!existsSync(ELE)) return
     const api = new WebIFC.IfcAPI()
@@ -611,6 +611,65 @@ describe('흐름 없는 기기는 형상으로 잇지 않는다 (OE-PIP-18)', ()
     expect(model.storeys.flatMap((s) => s.equipment).filter((e) => e.kind === 'lighting').length).toBeGreaterThan(30)
     expect(model.connections.filter((c) => flowless(c.from) || flowless(c.to))).toEqual([])
   }, 300_000)
+
+  // OE-PIP-18#5. 포트가 있는 세 파일에서 포트 연결을 정답지로 두고, 형상 추정을 흐름 없는 기기를 넣고·빼고 두 번 잰다. 빼서 새로 놓친
+  // 실제 연결이 있으면 실패한다(설명 없이 통과시키지 않는다). 종류를 모르는 기기는 빼지 않는다 — 빼서 정밀도를 올리지 않는다.
+  // 숫자는 docs/bim-to-dt-ontology.md 의 "흐름이 없는 기기는 형상으로 잇지 않는다" 표에 적는다.
+  it('흐름 없는 기기를 빼도 실제 연결을 새로 놓치지 않고, 정밀도·재현율과 종류별 제외 수를 잰다 [OE-PIP-18#5]', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const key = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
+    const out: Record<string, unknown> = {}
+    const files = [['병원 HVAC', CLINIC_HVAC], ['병원 MEP', 'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-MEP.ifc'], ['Duplex HVAC', DUPLEX_HVAC], ['Duplex MEP', DUPLEX_MEP_FULL], ['ifc4Mep', MEP]] as const
+    for (const [label, path] of files) {
+      if (!existsSync(path)) continue
+      const { model, meshes } = importIfcWithMeshes(api, new Uint8Array(readFileSync(path)))
+      const truth = new Set(model.connections.filter((c) => c.source === 'port' && meshes.has(c.from) && meshes.has(c.to)).map((c) => key(c.from, c.to)))
+      if (!truth.size) continue
+      const byId = new Map(model.storeys.flatMap((st) => st.equipment).map((e) => [e.id, e]))
+      const systemsOf = new Map<string, string[]>()
+      for (const sys of model.systems) for (const id of sys.memberIds) systemsOf.set(id, [...(systemsOf.get(id) ?? []), sys.name])
+      const all = [...meshes].map(([id, m]) => ({ id, points: m.positions, systems: systemsOf.get(id) ?? null }))
+      const kept = all.filter((el) => !isFlowlessKind(byId.get(el.id)?.kind))
+      const score = (elements: typeof all) => {
+        const got = new Set(inferConnections(elements).map((c) => key(c.from, c.to)))
+        const tp = [...got].filter((g) => truth.has(g)).length
+        return { got: got.size, tp, precision: +(tp / got.size).toFixed(4), recall: +(tp / truth.size).toFixed(4), pairs: got }
+      }
+      const before = score(all)
+      const after = score(kept)
+      // 빼서 새로 놓친 실제 연결. 있으면 그 쌍을 보인다.
+      const lost = [...before.pairs].filter((p) => truth.has(p) && !after.pairs.has(p))
+      expect(lost, label).toEqual([])
+      const byKind: Record<string, number> = {}
+      for (const el of all) if (!kept.includes(el)) byKind[equipmentKind(byId.get(el.id)?.kind)!.label] = (byKind[equipmentKind(byId.get(el.id)?.kind)!.label] ?? 0) + 1
+      // 종류를 모르는 기기(덕트·배관 제외). 빼지 않고 둔 수다.
+      const unknown = all.filter((el) => { const e = byId.get(el.id); return !!e && !e.kind && !isConduit(e.role) }).length
+      out[label] = {
+        truth: truth.size,
+        before: { got: before.got, tp: before.tp, precision: before.precision, recall: before.recall },
+        after: { got: after.got, tp: after.tp, precision: after.precision, recall: after.recall },
+        excludedPairs: before.got - after.got,
+        excludedByKind: byKind,
+        unknownDevicesKept: unknown,
+      }
+    }
+    // 2026-10-13. 병원 MEP·Duplex MEP 는 포트 연결이 없어 정답지가 못 된다. 흐름 없는 기기가 있는 것은 ifc4Mep 뿐이다.
+    const want: Record<string, unknown> = {
+      '병원 HVAC': { truth: 3693, before: { got: 3246, tp: 3244, precision: 0.9994, recall: 0.8784 }, after: { got: 3246, tp: 3244, precision: 0.9994, recall: 0.8784 }, excludedPairs: 0, excludedByKind: {}, unknownDevicesKept: 0 },
+      'Duplex HVAC': { truth: 485, before: { got: 361, tp: 344, precision: 0.9529, recall: 0.7093 }, after: { got: 361, tp: 344, precision: 0.9529, recall: 0.7093 }, excludedPairs: 0, excludedByKind: {}, unknownDevicesKept: 0 },
+      ifc4Mep: {
+        truth: 1974,
+        before: { got: 1882, tp: 1496, precision: 0.7949, recall: 0.7579 },
+        after: { got: 1881, tp: 1496, precision: 0.7953, recall: 0.7579 },
+        excludedPairs: 1,
+        excludedByKind: { 열감지기: 1, 콘센트: 24, 조명: 69, 분전반: 3 },
+        unknownDevicesKept: 73,
+      },
+    }
+    for (const [label, row] of Object.entries(out)) expect(row, label).toEqual(want[label])
+  }, 600_000)
 })
 
 // OE-PIP-09 계통 이름 규칙. BIM 계통 이름은 분야별 파일을 합칠 때 맞추는 열쇠다 — Revit `System Name` 이 곧 id 라 같은 이름이면 한 계통의
@@ -1622,7 +1681,7 @@ describe('요구사항 보고서의 요청 (OE-BIM-17)', () => {
     const api = new WebIFC.IfcAPI()
     return api.Init().then(() => {
       api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
-      const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_1, CLINIC_ARCH, CLINIC_HVAC].filter((f) => existsSync(f))
+      const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_1, DUPLEX_MEP_2, CLINIC_ARCH, CLINIC_HVAC].filter((f) => existsSync(f))
       expect(files.length).toBeGreaterThanOrEqual(2)
       const seen = new Map<string, string[]>()
       for (const f of files) {
@@ -1635,6 +1694,7 @@ describe('요구사항 보고서의 요청 (OE-BIM-17)', () => {
       }
       // 파일 하나로 재는 설정 표의 여섯이 다 실제로 나온다(2026-10-03): Revit IFC2x3 이라 R10(6개 파일), Category Code 방 분류 R14(5),
       // System Name 계통 R16(4), 패밀리 이름으로 정한 종류 R24(3), PSet_Revit 용량 R21(3), ifc4Mep 의 Proxy 49대 R23(1).
+      // R26 은 Duplex MEP-2 의 방 15개가 Revit 의 Specified Supply Airflow 에 값을 적었다(2026-10-13, OE-REQ-07).
       // R13 은 판본 비교를 할 때만 잰다(versions.test.ts·e2e/versions.spec.ts).
       expect([...seen.keys()].sort()).toEqual(Object.keys(EXPORT_SETTING).filter((id) => id !== 'R13').sort())
     })
@@ -1721,6 +1781,8 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
       'conduit-ends': '3103/3138',
       // 덕트·배관 구간 전부가 형상에서 읽은 경로(두 끝)를 갖는다(OE-PIP-13).
       'conduit-path': '1548/1548',
+      // 유체 흐름이 아닌 BIM 포트 연결(OE-PIP-18)은 없다. 성수·ifc4Mep 도 0 이다(물 코일 디퓨저·순환수 실내기·덕트 센서는 진짜 연결이다).
+      'connection-fluid': '3695/3695',
       'heat-source-user': '1/1',
       'hydronic-user-source': '2/2',
       // 스프링클러 헤드가 없는 파일이다(HVAC 모델).
@@ -1853,6 +1915,7 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
       'conduit-ends': '10923/12645',
       // 포트가 없어도 구간 형상은 있어 경로를 다 읽는다(OE-PIP-13).
       'conduit-path': '5952/5952',
+      'connection-fluid': '0/0',
       'heat-source-user': '0/1',
       'hydronic-user-source': '0/2',
       // 스프링클러 헤드 418대(`M_Sprinkler - Pendent`)는 IfcFlowTerminal 이라 종류를 사람이 고르기 전까지 대상이 아니다(kinds.ts 의 manual).
@@ -1974,6 +2037,7 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
       'device-connected': '2935/3384',
       // 덕트·배관 구간 전부가 형상에서 읽은 경로(두 끝)를 갖는다(OE-PIP-13).
       'conduit-path': '7874/7874',
+      'connection-fluid': '19515/19515',
     })
   }, 900_000)
 })

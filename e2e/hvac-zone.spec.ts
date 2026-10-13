@@ -34,7 +34,7 @@ test('담당 물리존을 골라 공조존을 만들고 담당 설비를 고르�
   await expect(zone).toContainText('담당 물리존 사무실')
   await fold.getByLabel('공조존 1 담당 설비 더하기').selectOption({ label: 'AHU-1 · 공조기' })
   await expect(zone).toContainText('AHU-1 ×')
-  await expect(page.locator('.report')).toContainText('공조존 공조존 1을 만들었습니다')
+  await expect(page.locator('.report:not(.report-checks)')).toContainText('공조존 공조존 1을 만들었습니다')
 
   const ttl = await ttlOf(page, info.outputPath('zone.ttl'))
   const zoneId = await zone.getAttribute('data-zone')

@@ -9,6 +9,7 @@
 // 필수·권장과 제목은 정본의 표를 옮긴 것이다. requirements-ids.test.ts 가 정본과 같은지 본다.
 
 import * as WebIFC from 'web-ifc'
+import { isStandardSpaceAirflow, UNCONDITIONED_ROOM_KINDS } from './airflow'
 import { CAPACITY_KINDS, isStandardCapacity } from './capacity'
 import { equipmentKind, equipmentKindOfIfc, IFC_REJECTED } from './kinds'
 import { isPlaceholder, type MergeReport } from './merge'
@@ -62,6 +63,9 @@ export const EXPORT_SETTING: Readonly<Record<string, string>> = {
   R21: '용량 속성을 표준 Pset 이름으로 매핑(속성 매핑 파일)',
   R23: '설비를 Proxy 대신 알맞은 IFC 클래스로(IfcExportAs)',
   R24: '설비 종류를 PredefinedType으로(IfcExportType)',
+  // Revit MEP 공간은 `PSet_Revit_Mechanical - Airflow` 의 `Specified Supply Airflow` 로 낸다(Duplex MEP-2·병원 MEP). 어느 Revit 매개변수를
+  // 냉방·난방으로 매핑할지는 아직 확인하지 않았다(U7). 그래서 자리만 말하고 매개변수 이름은 정해 주지 않는다.
+  R26: '공간의 설계 풍량을 Pset_SpaceThermalDesign의 CoolingDesignAirflow·HeatingDesignAirflow로 매핑(속성 매핑 파일)',
 }
 
 /** 없음·일부에서 "값을 넣어 달라" 보다 구체적으로 할 말이 있는 것. */
@@ -108,6 +112,7 @@ export const REQUIREMENTS: { id: string; level: RequirementLevel; title: string 
   { id: 'R20', level: '권장', title: '센서의 측정 대상 설비' },
   { id: 'R21', level: '권장', title: '용량' },
   { id: 'R22', level: '권장', title: '벽의 내력 여부' },
+  { id: 'R26', level: '권장', title: '방의 설계 급기 풍량' },
 ]
 
 /**
@@ -404,6 +409,26 @@ export function requirementsReport(
         : uniform
           ? `벽 ${known.length}장이 전부 ${trues === 0 ? '비내력' : '내력'}입니다. 모델러가 정한 값이 아니라 Revit 기본값일 수 있습니다.`
           : `내력 ${trues} · 비내력 ${known.length - trues}. 값이 없는 벽은 "모름"으로 둡니다.`,
+    })
+  }
+
+  {
+    // 공조 대상인 방만 센다(OE-REQ-07). 계단실·승강로는 해당 없음이고, 종류를 모르는 방은 비공조인지 몰라 뺀다고 보지 않는다.
+    // 사람이 넣은 값(source 'edit')은 BIM 에 없는 것이라 세지 않는다.
+    const want = spaces.filter((sp) => !UNCONDITIONED_ROOM_KINDS.has(sp.kind ?? ''))
+    const std = want.filter((sp) => isStandardSpaceAirflow(sp.designAirflow)).length
+    const other = want.filter((sp) => sp.designAirflow?.source === 'bim' && !isStandardSpaceAirflow(sp.designAirflow)).length
+    const skippedRooms = spaces.length - want.length
+    const rest = skippedRooms ? ` 계단실·승강로 ${skippedRooms}개는 해당 없음입니다.` : ''
+    set('R26', {
+      ...counted(std, other, want.length),
+      note: !spaces.length
+        ? '공간이 없습니다.'
+        : other
+          ? `${other}개는 Revit 속성(Specified Supply Airflow)에 들어 있습니다. 냉방·난방을 가르지 않아 그 값 하나로 판정합니다.${rest}`
+          : std + other < want.length
+            ? `설계 풍량이 없는 방은 용량 검증(Z-03)이 판정 불가입니다. 사람이 공조존·방 단위로 넣습니다.${rest}`
+            : `공조 대상인 방 중 설계 풍량이 있는 것입니다.${rest}`,
     })
   }
 

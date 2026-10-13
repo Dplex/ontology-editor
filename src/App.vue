@@ -69,6 +69,8 @@ import {
   zoneChecks,
   zoneCorners,
 } from './lib/hvac-zone'
+import { airflowText, BASIS_LABEL, CAPACITY_CHECK_KINDS, cmhText, setRatedAirflow, setSpaceAirflow, setZoneAirflow, zoneAirflow, type ZoneAirflow } from './lib/airflow'
+import { flowReviews } from './lib/flow-review'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
@@ -97,7 +99,8 @@ import { branchPipe } from './lib/branch-pipe'
 import { planOffsetHeight, setOffsetHeight } from './lib/offset-edit'
 import { removalImpact } from './lib/removal-impact'
 import { retargetEnd } from './lib/retarget'
-import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, type Background } from './lib/background'
+import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, switchPdfPage, type Background } from './lib/background'
+import { renderPdfPage } from './lib/pdf-page'
 import { FLOW_TYPES, flowType } from './lib/flow-type'
 import {
   applyFollow,
@@ -181,6 +184,7 @@ import {
   mountOnWall,
   snapshotCustomZones,
   snapshotHvacZones,
+  snapshotAirflow,
   snapshotRooms,
   snapshotStoreyName,
   snapshotSpaceObjects,
@@ -3218,11 +3222,14 @@ type NeighborRow = Neighbor & {
   what: { label: string; src: SrcKind } | null
   edited: 'upstream' | 'downstream' | null
   rule: { relation: 'upstream' | 'downstream'; confirmed: boolean; recheck: boolean } | null
+  /** 유체 흐름이 아닌 BIM·사람 연결이면 그 까닭(OE-PIP-18). 지우지 않고 TTL feeds 에서만 뺀다. */
+  review: string | null
 }
 const selectedNeighbors = computed((): NeighborRow[] => {
   void flowVersion.value
   if (!model.value || !selectedId.value) return []
   const id = selectedId.value
+  const reviews = new Map(flowReviews(model.value, (x) => shortName(nameOfId(x))).map((r) => [r.connection, r.reason]))
   return neighbors(model.value.connections, id).map((n) => {
     const c = n.connection
     const edited = !c.directed && c.edited ? (c.edited.from === id ? 'downstream' : 'upstream') : null
@@ -3234,6 +3241,7 @@ const selectedNeighbors = computed((): NeighborRow[] => {
       ...n,
       edited,
       rule,
+      review: reviews.get(c) ?? null,
       name: equipmentById.value.get(n.id)?.name || equipmentById.value.get(n.id)?.ifcClass || n.id,
       what: whatIs(equipmentById.value.get(n.id)),
     }
@@ -3661,6 +3669,15 @@ function setKind(typeKey: string, kind: string | null, label: string) {
   ruleReport.value = done.rules
   triggerRef(model)
   flowVersion.value++
+  // 흐름 없는 종류가 되거나 아니게 되어 형상 연결이 빠지거나 돌아왔다(OE-PIP-18). 3D 연결선을 다시 그린다.
+  if (done.flowless.removed || done.flowless.restored) {
+    sceneVersion.value++
+    note(
+      done.flowless.removed
+        ? `흐름 없는 기기라 형상으로 이은 연결 ${done.flowless.removed}개를 뺐습니다(종류를 되돌리면 돌아옵니다)`
+        : `형상으로 이은 연결 ${done.flowless.restored}개를 되살렸습니다(흐름 없는 기기가 아니게 됨)`,
+    )
+  }
   // remember 가 알림을 지우므로 그 뒤에 건다.
   kindWarning.value = ''
   if (worse.length) {
@@ -5510,27 +5527,75 @@ watch([bgHere, bgStorey, viewStorey, sceneVersion], () => {
   const st = bgStorey.value
   viewer?.setBackground(bg && st ? { url: bg.url, corners: backgroundCorners(bg), elevation: st.elevation, opacity: bg.opacity } : null)
 })
+/** PDF 로 깐 층의 원본 바이트. 쪽을 바꿔 다시 그릴 때 쓴다(층 id → 바이트). 화면에 보이지 않아 반응형으로 두지 않는다. */
+const bgPdfs = new Map<string, ArrayBuffer>()
+/** PDF 를 그리는 중(큰 도면은 몇 초). 그동안 고르기 칸과 쪽 칸을 막는다. */
+const bgBusy = ref(false)
 function pickBackground(input: HTMLInputElement) {
   const file = input.files?.[0]
   input.value = ''
   const st = bgStorey.value
   if (!file || !st) return
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return void pickPdfBackground(st, file)
   const url = URL.createObjectURL(file)
   const img = new Image()
   img.onload = () => {
-    // 건물 범위: 이 층 물리존 외곽선. 없으면 1px = 1cm 로 원점에 둔다.
-    const pts = st.spaces.flatMap((sp) => sp.footprint)
-    const box = pts.length ? { x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])), y1: Math.max(...pts.map((p) => p[1])) } : null
-    const old = backgrounds.value[st.id]
-    if (old) URL.revokeObjectURL(old.url)
-    backgrounds.value = { ...backgrounds.value, [st.id]: initialBackground({ url, name: file.name, width: img.naturalWidth, height: img.naturalHeight }, box) }
+    bgPdfs.delete(st.id)
+    placeBackground(st, { url, name: file.name, width: img.naturalWidth, height: img.naturalHeight })
     note(`${file.name}을 ${st.name} 바닥에 깔았습니다. [스케일 맞추기] 로 두 점의 실제 거리를, [원점 맞추기] 로 한 점의 실제 좌표를 넣으세요`)
   }
   img.onerror = () => {
     URL.revokeObjectURL(url)
-    note('이미지를 읽지 못했습니다. PNG·JPG 로 저장한 도면을 고르세요(PDF·DWG 는 이미지로 내보낸 뒤 고릅니다)')
+    note('이미지를 읽지 못했습니다. PNG·JPG·PDF 도면을 고르세요(DWG 는 PDF 나 이미지로 내보낸 뒤 고릅니다)')
   }
   img.src = url
+}
+/** 처음 깔 때. 이 층 물리존 외곽선의 범위에 너비를 맞춘다. 없으면 1px = 1cm 로 원점에 둔다. */
+function placeBackground(st: Storey, spec: { url: string; name: string; width: number; height: number }, pdf?: Background['pdf']) {
+  const pts = st.spaces.flatMap((sp) => sp.footprint)
+  const box = pts.length ? { x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])), y1: Math.max(...pts.map((p) => p[1])) } : null
+  const old = backgrounds.value[st.id]
+  if (old) URL.revokeObjectURL(old.url)
+  backgrounds.value = { ...backgrounds.value, [st.id]: { ...initialBackground(spec, box), ...(pdf ? { pdf } : {}) } }
+}
+/** PDF 도면은 첫 쪽을 이미지로 그려 깐다(pdf-page.ts). 여러 쪽이면 [쪽] 칸에서 바꾼다. */
+async function pickPdfBackground(st: Storey, file: File) {
+  bgBusy.value = true
+  try {
+    const data = await file.arrayBuffer()
+    const r = await renderPdfPage(data, 1)
+    bgPdfs.set(st.id, data)
+    placeBackground(st, { url: URL.createObjectURL(r.blob), name: file.name, width: r.width, height: r.height }, { page: r.page, pages: r.pages, pxPerPt: r.pxPerPt })
+    note(
+      `${file.name}${r.pages > 1 ? ` ${r.pages}쪽 중 1쪽` : ''}을 ${st.name} 바닥에 깔았습니다. ` +
+        (r.pages > 1 ? '다른 쪽은 [쪽] 칸에서 고르고, ' : '') +
+        '[스케일 맞추기] 로 두 점의 실제 거리를, [원점 맞추기] 로 한 점의 실제 좌표를 넣으세요',
+    )
+  } catch (e) {
+    note(`PDF 를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    bgBusy.value = false
+  }
+}
+/** PDF 의 다른 쪽을 깐다. 맞춘 스케일(종이 위 축척)과 왼쪽 위는 그대로다(switchPdfPage). */
+async function setBackgroundPage(page: number) {
+  const st = bgStorey.value
+  const bg = bgHere.value
+  const data = st ? bgPdfs.get(st.id) : undefined
+  if (!st || !bg?.pdf || !data || page === bg.pdf.page || bgBusy.value) return
+  bgBusy.value = true
+  try {
+    const r = await renderPdfPage(data, page)
+    const now = backgrounds.value[st.id]
+    if (!now) return
+    URL.revokeObjectURL(now.url)
+    backgrounds.value = { ...backgrounds.value, [st.id]: switchPdfPage(now, { url: URL.createObjectURL(r.blob), width: r.width, height: r.height, page: r.page, pages: r.pages, pxPerPt: r.pxPerPt }) }
+    note(`${bg.name} ${r.page}/${r.pages}쪽을 깔았습니다. 스케일과 왼쪽 위는 그대로입니다`)
+  } catch (e) {
+    note(`PDF 쪽을 그리지 못했습니다: ${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    bgBusy.value = false
+  }
 }
 function startBackgroundStep(kind: 'bgScale' | 'bgAnchor') {
   const st = bgStorey.value
@@ -5574,6 +5639,7 @@ function removeBackground() {
   const bg = bgHere.value
   if (!st || !bg) return
   URL.revokeObjectURL(bg.url)
+  bgPdfs.delete(st.id)
   const { [st.id]: _gone, ...rest } = backgrounds.value
   backgrounds.value = rest
   bgStep.value = null
@@ -6063,6 +6129,53 @@ function makeZoneForSelected() {
   if (!z || !e || !z.flow.length) return
   if (changeHvacZones(z.storeyId, '공조존 만들기', (m) => createZoneFromSpaces(m, { spaceIds: z.flow, servedBy: [e.id] })))
     note(`공조존을 만들었습니다. 담당 물리존은 ${shortName(e.name)}의 흐름이 닿는 ${z.flow.map((id) => spaceNameOf(id)).join(', ')}입니다`)
+}
+/** 공조존마다 Z-03 이 쓰는 설계 풍량과 출처(OE-ZON-06, airflow.ts). */
+const zoneAirflows = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  const out = new Map<string, ZoneAirflow>()
+  if (m) for (const z of hvacZonesOf(m)) out.set(z.id, zoneAirflow(m, z, (id) => spaceNameOf(id)))
+  return out
+})
+/** 입력 칸의 값. 빈칸은 null(값 없음)이다 — 0 을 넣어도 값 없음이다(airflow.ts 의 cleanAirflow). */
+const airflowInput = (ev: Event) => {
+  const v = (ev.target as HTMLInputElement).value.trim()
+  return v === '' ? null : Number(v)
+}
+/** 공조존에 설계 풍량을 넣는다(OE-ZON-06). 냉방·난방 칸 하나씩 고친다. */
+function applyZoneAirflow(z: HvacZone, key: 'cooling' | 'heating', ev: Event) {
+  const storeyId = z.storeyId
+  if (!storeyId) return
+  const next = { cooling: z.designAirflow?.cooling ?? null, heating: z.designAirflow?.heating ?? null, [key]: airflowInput(ev) }
+  if (!changeHvacZones(storeyId, `${z.name} 설계 풍량`, (m) => setZoneAirflow(m, z.id, next))) {
+    const was = z.designAirflow?.[key] ?? null
+    ;(ev.target as HTMLInputElement).value = was === null ? '' : String(was)
+  }
+}
+/** 물리존·설비에 설계 풍량·정격 풍량을 넣는다(OE-ZON-06). BIM 값이 있는 곳은 거절되고 칸을 되돌린다. */
+function applyAirflow(target: 'space' | 'equipment', id: string, label: string, apply: (m: Model) => boolean | { refused: string }, ev: Event, was: number | null) {
+  const m = model.value
+  if (!m) return
+  const snapshot = snapshotAirflow(m, target, id)
+  const at = mark()
+  const done = apply(m)
+  if (done !== true) {
+    // 거절됐거나 바뀐 것이 없으면(0·음수는 빈칸이다) 칸을 지금 값으로 돌려놓는다.
+    if (done) editNotice.value = done.refused
+    ;(ev.target as HTMLInputElement).value = was === null ? '' : String(was)
+    return
+  }
+  remember(label, snapshot, at)
+  triggerRef(model)
+  sceneVersion.value++
+}
+function applySpaceAirflow(space: { id: string; designAirflow?: { cooling: number | null; heating: number | null } }, key: 'cooling' | 'heating', ev: Event) {
+  const next = { cooling: space.designAirflow?.cooling ?? null, heating: space.designAirflow?.heating ?? null, [key]: airflowInput(ev) }
+  applyAirflow('space', space.id, `${spaceNameOf(space.id)} 설계 풍량`, (m) => setSpaceAirflow(m, space.id, next), ev, space.designAirflow?.[key] ?? null)
+}
+function applyRatedAirflow(e: Equipment, ev: Event) {
+  applyAirflow('equipment', e.id, `${shortName(e.name)} 정격 풍량`, (m) => setRatedAirflow(m, e.id, airflowInput(ev)), ev, e.ratedAirflow?.cmh ?? null)
 }
 /** 리포트에 싣는 공조존 검증(OE-MAP-04). 경고가 있는 규칙만. 공조존이 하나도 없으면 싣지 않는다. */
 const reportZoneChecks = computed(() => {
@@ -9778,6 +9891,8 @@ function rollbackFromReport() {
                     <span v-else-if="n.rule">{{ n.rule.recheck ? '규칙 방향(확정 · 재검토, 내보내지 않음)' : n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
                     <!-- 한 층만 보는 중이면 다른 층 것은 3D 에 없고 화살표도 안 그린다(OE-UI-12). 왜 안 보이는지 적는다. -->
                     <span v-if="otherFloor(n.id)" class="other-floor">다른 층({{ otherFloor(n.id) }}) — 3D에 안 보임</span>
+                    <!-- 유체 흐름이 아닌 BIM·사람 연결(OE-PIP-18). 지우지 않고 검토 대상으로 둔다. 공급 관계(brick:feeds)로는 나가지 않는다. -->
+                    <span v-if="n.review" class="flow-review" data-testid="flow-review" :title="n.review">검토 — 흐름 아님, feeds 제외</span>
                   </div>
                   <!-- 방향 버튼은 이름 아래 줄에 둔다. 좁은 패널에서 네 번째 칸으로 두었더니 이름이 한 글자씩 꺾이고 버튼이 잘렸다.
                        포트가 방향을 말한 연결은 고칠 수 없다. BIM 이 말한 것을 덮어쓰지 않는다. -->
@@ -9916,6 +10031,26 @@ function rollbackFromReport() {
                 </button>
               </li>
             </ul>
+          </div>
+
+          <!-- 정격 풍량(OE-ZON-06). BIM 용량이 풍량이면 CMH 로 바꾼 값이고 고치지 않는다. 없으면 편집 모드에서 사람이 넣는다.
+               용량 검증 Z-03 의 판정 대상(VAV·FCU·실내기·공조기)이거나 값이 있는 설비에만 보인다. -->
+          <div v-if="selected.ratedAirflow || CAPACITY_CHECK_KINDS.has(selected.kind ?? '')" class="rated-airflow" data-testid="rated-airflow">
+            <h4 class="picked-sub">
+              정격 풍량
+              <template v-if="selected.ratedAirflow?.source === 'bim'">
+                <b class="mono">{{ cmhText(selected.ratedAirflow.cmh) }}</b> CMH <Src kind="bim" />
+                <span class="muted">{{ selected.ratedAirflow.property }}</span>
+              </template>
+              <template v-else-if="editing && !selectedLock">
+                <input type="number" min="0" step="any" class="airflow-input" :value="selected.ratedAirflow?.cmh ?? ''" aria-label="정격 풍량(CMH)" @change="applyRatedAirflow(selected, $event)" />
+                CMH <Src v-if="selected.ratedAirflow" kind="edit" />
+              </template>
+              <template v-else-if="selected.ratedAirflow">
+                <b class="mono">{{ cmhText(selected.ratedAirflow.cmh) }}</b> CMH <Src kind="edit" />
+              </template>
+              <span v-else class="muted">없음 — 담당 공조존의 용량 검증(Z-03)이 판정 불가입니다</span>
+            </h4>
           </div>
 
           <!-- 담당 공조존(OE-ZON-01). 공조존 목록의 담당 설비와 같은 값을 설비 쪽에서 고친다. 보기 모드에서는 담당하는 공조존이 있을 때만. -->
@@ -10738,6 +10873,24 @@ function rollbackFromReport() {
                 <div>
                   <dt>넓이</dt>
                   <dd v-flash="selectedSpace.space.areaM2.toFixed(1)"><b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡ <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /></dd>
+                </div>
+                <!-- 설계 급기 풍량(OE-ZON-06 · R26). BIM 값이 있으면 그 값이고 고치지 않는다. 없으면 편집 모드에서 사람이 넣는다.
+                     에디터가 계산하거나 기본값을 넣지 않는다 — 비어 있으면 그 방을 담당하는 공조존의 용량 검증(Z-03)이 판정 불가다. -->
+                <div data-testid="space-airflow">
+                  <!-- 이름 칸이 두 글자 폭이라(3.2rem) "설계 풍량" 은 두 줄로 꺾인다. 짧게 두고 뜻은 툴팁으로. -->
+                  <dt title="설계 급기 풍량(OE-ZON-06)">풍량</dt>
+                  <dd v-flash="JSON.stringify(selectedSpace.space.designAirflow ?? null)" class="space-airflow">
+                    <template v-if="selectedSpace.space.designAirflow?.source === 'bim'">
+                      {{ airflowText(selectedSpace.space.designAirflow) }} <Src kind="bim" />
+                    </template>
+                    <template v-else-if="editing">
+                      <label>냉방 <input type="number" min="0" step="any" class="airflow-input" :value="selectedSpace.space.designAirflow?.cooling ?? ''" aria-label="냉방 설계 풍량(CMH)" @change="applySpaceAirflow(selectedSpace.space, 'cooling', $event)" /></label>
+                      <label>난방 <input type="number" min="0" step="any" class="airflow-input" :value="selectedSpace.space.designAirflow?.heating ?? ''" aria-label="난방 설계 풍량(CMH)" @change="applySpaceAirflow(selectedSpace.space, 'heating', $event)" /></label>
+                      CMH <Src v-if="selectedSpace.space.designAirflow" kind="edit" />
+                    </template>
+                    <template v-else-if="selectedSpace.space.designAirflow">{{ airflowText(selectedSpace.space.designAirflow) }} <Src kind="edit" /></template>
+                    <span v-else class="muted">없음</span>
+                  </dd>
                 </div>
                 <div>
                   <dt>소속</dt>
@@ -11901,16 +12054,30 @@ function rollbackFromReport() {
           <!-- 평면도 배경 이미지(OE-MAN-02). 준공 도면을 깔고 그 위에 물리존을 그린다. 온톨로지에 나가지 않고 이 탭에만 있다. -->
           <Fold v-if="editing" title="평면도 배경" :meta="bgStorey ? (bgHere ? `${bgStorey.name} · ${bgHere.name}` : `${bgStorey.name} · 없음`) : '층을 고르세요'" :default-open="false" class="bg-plan" data-testid="bg-plan">
             <p class="hint">
-              준공 도면을 이미지(PNG·JPG)로 깔고 그 위에 물리존을 그립니다. PDF·DWG 는 이미지로 내보낸 뒤 고릅니다.
+              준공 도면(PNG·JPG·PDF)을 깔고 그 위에 물리존을 그립니다. DWG 는 PDF 나 이미지로 내보낸 뒤 고릅니다.
               배경은 온톨로지와 편집 파일에 나가지 않고, 이 브라우저 탭에만 있습니다.
             </p>
             <template v-if="bgStorey">
               <p class="pipe-draw-row">
-                <label class="file-pick">
-                  {{ bgHere ? '다른 도면 고르기' : '도면 이미지 고르기' }}
-                  <input type="file" accept="image/png,image/jpeg" aria-label="평면도 배경 이미지" @change="pickBackground($event.target as HTMLInputElement)" />
+                <label class="file-pick" :class="{ disabled: bgBusy }">
+                  {{ bgBusy ? 'PDF 그리는 중…' : bgHere ? '다른 도면 고르기' : '도면 고르기' }}
+                  <input type="file" accept="image/png,image/jpeg,application/pdf,.pdf" aria-label="평면도 배경 이미지" :disabled="bgBusy" @change="pickBackground($event.target as HTMLInputElement)" />
                 </label>
                 <template v-if="bgHere">
+                  <label v-if="bgHere.pdf && bgHere.pdf.pages > 1">
+                    쪽
+                    <input
+                      type="number"
+                      min="1"
+                      :max="bgHere.pdf.pages"
+                      :value="bgHere.pdf.page"
+                      :disabled="bgBusy"
+                      aria-label="PDF 쪽"
+                      class="bg-page"
+                      @change="setBackgroundPage(Number(($event.target as HTMLInputElement).value))"
+                    />
+                    / {{ bgHere.pdf.pages }}
+                  </label>
                   <span class="muted" data-testid="bg-scale">1px = {{ (bgHere.scale * 1000).toFixed(1) }}mm · 왼쪽 위 ({{ bgHere.origin[0].toFixed(2) }}, {{ bgHere.origin[1].toFixed(2) }})</span>
                   <label>
                     진하기
@@ -11984,6 +12151,25 @@ function rollbackFromReport() {
                       </option>
                     </select>
                   </span>
+                  <!-- 설계 풍량(OE-ZON-06). 담당 물리존의 BIM 값을 다 더할 수 있으면 그 합이고 고치지 않는다. 아니면 사람이 넣는다.
+                       용량 검증 Z-03 이 이 값을 담당 설비의 정격 풍량과 견준다. 값이 없으면 판정 불가(경고 아님)다. -->
+                  <span class="zone-served zone-airflow" :data-testid="`zone-airflow-${z.name}`">
+                    설계 풍량
+                    <template v-if="zoneAirflows.get(z.id)?.from === 'bim'">
+                      <b class="mono">{{ cmhText(zoneAirflows.get(z.id)!.cmh!) }}</b> CMH ({{ BASIS_LABEL[zoneAirflows.get(z.id)!.basis!] }}, 담당 물리존 합)
+                      <Src kind="bim" />
+                    </template>
+                    <template v-else>
+                      <label>냉방 <input type="number" min="0" step="any" class="airflow-input" :value="z.designAirflow?.cooling ?? ''" :aria-label="`${z.name} 냉방 설계 풍량(CMH)`" @change="applyZoneAirflow(z, 'cooling', $event)" /></label>
+                      <label>난방 <input type="number" min="0" step="any" class="airflow-input" :value="z.designAirflow?.heating ?? ''" :aria-label="`${z.name} 난방 설계 풍량(CMH)`" @change="applyZoneAirflow(z, 'heating', $event)" /></label>
+                      CMH
+                      <span v-if="zoneAirflows.get(z.id)?.from" class="muted">
+                        → {{ cmhText(zoneAirflows.get(z.id)!.cmh!) }} CMH({{ BASIS_LABEL[zoneAirflows.get(z.id)!.basis!] }}{{ zoneAirflows.get(z.id)!.from === 'spaces' ? ', 담당 물리존 합' : '' }})
+                        <Src kind="edit" />
+                      </span>
+                      <span v-else class="muted">판정 불가 — {{ zoneAirflows.get(z.id)?.missing }}</span>
+                    </template>
+                  </span>
                   <!-- 연결 기준 후보(OE-MAP-02). 담당을 대신 정하지 않고, 빠진 방을 한 번에 더하게만 한다. -->
                   <span v-if="zoneFlow.get(z.id)" class="zone-served zone-flow" :data-testid="`zone-flow-${z.name}`">
                     흐름이 닿는 물리존
@@ -12007,9 +12193,9 @@ function rollbackFromReport() {
                 </li>
                 <li v-if="!zonesHere.length" class="muted">이 층에 만든 공조존이 없습니다.</li>
               </ul>
-              <!-- 공조존 검증(OE-ZON-05). 경고만 하고 막지 않는다. Z-03 용량은 설계 풍량 입력(OE-ZON-06)과 같이 둔다. -->
+              <!-- 공조존 검증(OE-ZON-05). 경고만 하고 막지 않는다. Z-03 판정 불가는 경고가 아니라 따로 센다(값이 없다). -->
               <ul v-if="zoneCheckList" class="plain zone-checks" data-testid="zone-checks">
-                <li v-for="c in zoneCheckList.checks" :key="c.rule" :class="{ warn: c.items.length }">
+                <li v-for="c in zoneCheckList.checks" :key="`${c.rule}${c.undetermined ? '?' : ''}`" :class="{ warn: c.items.length && !c.undetermined }">
                   <b>{{ c.rule }}</b> {{ c.text }}:
                   <template v-if="c.items.length">
                     {{ c.items.length }}개 — {{ c.items.slice(0, 5).map((x) => x.label).join(', ') }}<template v-if="c.items.length > 5"> 외 {{ c.items.length - 5 }}개</template>
@@ -12373,7 +12559,7 @@ function rollbackFromReport() {
           <!-- 공조존 검증 경고(OE-MAP-04 · OE-ZON-05 "결과는 반영 결과 리포트에 든다"). 반영(D10)이 없어 바뀐 내용 아래에 둔다.
                막지 않는다. 공조존을 하나도 만들지 않았으면 보이지 않는다(Z-01 이 층마다 전부 공백이 된다). -->
           <ul v-if="reportZoneChecks.length" class="report report-checks" data-testid="report-zone-checks">
-            <li v-for="c in reportZoneChecks" :key="c.rule" class="warn" data-kind="zone">
+            <li v-for="c in reportZoneChecks" :key="`${c.rule}${c.undetermined ? '?' : ''}`" :class="{ warn: !c.undetermined }" data-kind="zone">
               <b>{{ c.rule }}</b> {{ c.text }}: {{ c.items.length }}개 — {{ c.items.slice(0, 5).map((x) => x.label).join(', ') }}<template v-if="c.items.length > 5"> 외 {{ c.items.length - 5 }}개</template>
             </li>
           </ul>

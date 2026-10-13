@@ -37,6 +37,8 @@ const CATALOG = resolve('dist-server/data-catalog.js')
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
+  // pdf.js 워커(PDF 도면 배경, src/lib/pdf-page.ts)가 .mjs 로 나간다. 모듈 워커는 JavaScript 타입이 아니면 브라우저가 실행하지 않는다.
+  '.mjs': 'text/javascript; charset=utf-8',
   '.css': 'text/css; charset=utf-8',
   '.wasm': 'application/wasm',
   '.json': 'application/json; charset=utf-8',

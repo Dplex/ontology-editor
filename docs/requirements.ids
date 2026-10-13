@@ -214,6 +214,22 @@
         <property dataType="IFCBOOLEAN" instructions="참·거짓을 적는다. 비워 두면 '모름' 이다."><propertySet><simpleValue>Pset_WallCommon</simpleValue></propertySet><baseName><simpleValue>LoadBearing</simpleValue></baseName></property>
       </requirements>
     </specification>
+    <specification name="[권장] R26 방의 설계 급기 풍량" ifcVersion="IFC2X3 IFC4" identifier="R26" description="용량 검증(Z-03)에 쓴다. 공조 대상인 방에 사이트가 설계한 냉방·난방 급기 풍량을 적는다. 계단실·승강로처럼 공조하지 않는 방은 해당 없음이지만 IDS 로는 가를 수 없어 같이 검사된다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCSPACE</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <property dataType="IFCVOLUMETRICFLOWRATEMEASURE" instructions="냉방(CoolingDesignAirflow)·난방(HeatingDesignAirflow) 중 하나 이상. 둘 다 있으면 큰 값으로 판정한다."><propertySet><simpleValue>Pset_SpaceThermalDesign</simpleValue></propertySet><baseName><xs:restriction base="xs:string"><xs:pattern value="(Cooling|Heating)DesignAirflow"/></xs:restriction></baseName></property>
+      </requirements>
+    </specification>
+    <specification name="[권장] R26 방의 설계 급기 풍량 (IFC4.3)" ifcVersion="IFC4X3_ADD2" identifier="R26" description="IFC4.3 에서는 설계 풍량이 Pset_SpaceAirHandlingDimensioning 에 있다.">
+      <applicability minOccurs="0" maxOccurs="unbounded">
+        <entity><name><simpleValue>IFCSPACE</simpleValue></name></entity>
+      </applicability>
+      <requirements>
+        <property dataType="IFCVOLUMETRICFLOWRATEMEASURE" instructions="냉방(CoolingDesignAirflow)·난방(HeatingDesignAirflow) 중 하나 이상. 둘 다 있으면 큰 값으로 판정한다."><propertySet><simpleValue>Pset_SpaceAirHandlingDimensioning</simpleValue></propertySet><baseName><xs:restriction base="xs:string"><xs:pattern value="(Cooling|Heating)DesignAirflow"/></xs:restriction></baseName></property>
+      </requirements>
+    </specification>
     <specification name="[권장] R23 Proxy 를 쓰지 않음" ifcVersion="IFC2X3 IFC4 IFC4X3_ADD2" identifier="R23" description="FCU·공조기·히트펌프를 IfcBuildingElementProxy 로 내보내면 종류를 이름으로 추정해야 한다. 설비는 알맞은 IfcDistributionElement 하위 클래스로 낸다.">
       <applicability minOccurs="0" maxOccurs="0">
         <entity><name><simpleValue>IFCBUILDINGELEMENTPROXY</simpleValue></name></entity>

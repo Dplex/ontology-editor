@@ -1,6 +1,6 @@
 // 평면도 배경 이미지의 스케일·원점 맞추기(OE-MAN-02).
 import { describe, expect, it } from 'vitest'
-import { anchorBackground, backgroundCorners, calibrateScale, initialBackground } from './background'
+import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, switchPdfPage } from './background'
 
 const img = { url: 'blob:x', name: 'plan.png', width: 1000, height: 500 }
 
@@ -30,5 +30,16 @@ describe('평면도 배경 이미지 (OE-MAN-02)', () => {
     const moved = anchorBackground(bg, [3, 5], [0, 0])
     expect(moved.origin).toEqual([-3, 3])
     expect(moved.scale).toBe(bg.scale)
+  })
+
+  it('PDF 의 다른 쪽으로 바꾸면 왼쪽 위와 종이 위 축척(1pt 가 몇 m)을 그대로 두고, 종이 크기가 달라도 같은 축척이다 [OE-MAN-02#1~]', () => {
+    // A3 가로(1191×842pt)를 4096px 로 그렸다: 1pt = 3.44px. 스케일을 맞춰 1px = 5mm.
+    const a3 = { ...initialBackground({ ...img, width: 4096, height: 2896 }, null), scale: 0.005, origin: [2, 30] as [number, number], pdf: { page: 1, pages: 3, pxPerPt: 4096 / 1191 } }
+    const metersPerPt = a3.scale * a3.pdf.pxPerPt
+    // 2쪽은 A1 가로(2384×1684pt)라 같은 4096px 에 더 작게 그려진다: 1pt = 1.72px.
+    const a1 = switchPdfPage(a3, { url: 'blob:y', width: 4096, height: 2893, page: 2, pages: 3, pxPerPt: 4096 / 2384 })
+    expect(a1.origin).toEqual([2, 30])
+    expect(a1.scale * a1.pdf!.pxPerPt).toBeCloseTo(metersPerPt, 12)
+    expect(a1).toMatchObject({ url: 'blob:y', width: 4096, height: 2893, pdf: { page: 2, pages: 3 }, opacity: a3.opacity, name: a3.name })
   })
 })

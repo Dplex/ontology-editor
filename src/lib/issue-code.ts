@@ -50,6 +50,8 @@ const CHECK_R: Readonly<Record<string, string>> = {
   'device-connected': 'R15',
   'conduit-ends': 'R15',
   'conduit-path': 'R15',
+  // 흐름 없는 기기나 매체가 다른 덕트·배관에 물린 포트(OE-PIP-18). 포트 연결의 문제라 R17 이다.
+  'connection-fluid': 'R17',
   'heat-source-user': 'R15',
   'hydronic-user-source': 'R15',
   'sprinkler-fp': 'R16',
