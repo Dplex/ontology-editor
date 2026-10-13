@@ -33,15 +33,12 @@
   var history = load()
   var source = ''
   // "지금 화면 (반영 전)"(ADR-0050). 고르면 묻기 전에 편집 화면(App.vue 의 window.__oe)이 만든 TTL 을 /__ask/screen 에 올리고,
-  // 그 토큰으로 묻는다. 토큰은 탭마다 하나, 올린 TTL 이 같으면 다시 올리지 않는다.
+  // 그 토큰으로 묻는다. 토큰은 페이지를 열 때마다 새로 만든다 — sessionStorage 에 두면 탭을 복제했을 때 두 탭이 같은 토큰으로
+  // 서로의 화면을 덮어썼다. 올린 TTL 이 같으면 다시 올리지 않지만, 한 시간이 지나면 다시 올린다(서버는 2시간 안 쓰면 지운다).
   var SCREEN = '__screen__'
-  var screenToken = ''
-  try { screenToken = sessionStorage.getItem('onto-chat:screen-token') || '' } catch (e) { screenToken = '' }
-  if (!/^[a-z0-9]{24}$/.test(screenToken)) {
-    screenToken = Array.from(crypto.getRandomValues(new Uint8Array(24)), function (b) { return 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36] }).join('')
-    try { sessionStorage.setItem('onto-chat:screen-token', screenToken) } catch (e) { /* 못 남기면 이 탭에서만 쓴다 */ }
-  }
+  var screenToken = Array.from(crypto.getRandomValues(new Uint8Array(24)), function (b) { return 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36] }).join('')
   var screenSent = ''
+  var screenSentAt = 0
   function hasScreen() { return !!(window.__oe && window.__oe.screen) }
   /** 지금 화면의 TTL 을 올리고 source 를 돌려준다. 같은 글이면 다시 올리지 않는다(길이 + FNV-1a). */
   function uploadScreen() {
@@ -50,11 +47,11 @@
     var h = 2166136261
     for (var i = 0; i < shot.ttl.length; i++) { h ^= shot.ttl.charCodeAt(i); h = Math.imul(h, 16777619) }
     var sig = shot.title + '|' + shot.ttl.length + '|' + (h >>> 0)
-    if (sig === screenSent) return Promise.resolve('screen-' + screenToken)
+    if (sig === screenSent && Date.now() - screenSentAt < 60 * 60 * 1000) return Promise.resolve('screen-' + screenToken)
     var q = '?token=' + screenToken + '&title=' + encodeURIComponent(shot.title || '') + '&by=' + encodeURIComponent(shot.by || '')
     return fetch('/__ask/screen' + q, { method: 'POST', headers: { 'content-type': 'text/turtle; charset=utf-8' }, body: shot.ttl })
       .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j }) })
-      .then(function (j) { screenSent = sig; return j.source })
+      .then(function (j) { screenSent = sig; screenSentAt = Date.now(); return j.source })
   }
   var root, list, input, sendBtn, status, title, sub, picker, busy = null
 

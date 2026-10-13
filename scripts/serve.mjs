@@ -29,7 +29,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createChat } from './docs-chat.mjs'
 import { sources } from './onto-sources.mjs'
-import { createScreenStore } from './onto-screen.mjs'
+import { createScreenStore, touchScreen } from './onto-screen.mjs'
 
 const ROOT = resolve(process.env.ONTOLOGY_EDITOR_DIST || 'dist')
 const [host, port] = (process.env.ONTOLOGY_EDITOR_ADDR || '0.0.0.0:8084').split(/:(?=\d+$)/)
@@ -78,6 +78,8 @@ const ask = createChat({
   context: (body) => {
     const s = sources(DATA, process.env.ONTO_FILES, SCREENS).find((x) => x.source === body.source)
     if (!s) return ''
+    // 쓰이는 동안은 지우지 않게 시각을 고친다(onto-screen.mjs 의 KEEP_MS 는 마지막으로 쓴 때부터다).
+    if (s.screen) touchScreen(s.file)
     if (s.screen) return `[건물] source="${s.source}" (${s.title}) — 반영 전 지금 편집 화면의 온톨로지다. 도구를 부를 때 source 로 넘긴다. 답에 "반영 전 화면 기준" 이라고 밝힌다.`
     return `[건물] source="${s.source}" (${s.title}${s.version ? `, 버전 ${s.version}` : ''}) — 도구를 부를 때 source 로 넘긴다.`
   },
