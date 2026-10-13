@@ -3815,6 +3815,16 @@ main.has-model .catalog {
   font-size: 0.8rem;
 }
 
+/* 같은 모양으로 더하기(ADR-0059). 지우기 줄과 같은 모양이되 위 선이 없다. */
+.copy-zone {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.6rem;
+  margin: 0.75rem 0 0;
+  font-size: 0.8rem;
+}
+
 /* 고른 것의 패널 맨 아래 지우기 줄. 이름 칸·나누기 옆에 있어 고치려다 누르기 쉬웠다. 선으로 고치는 칸과 가른다. */
 .danger-zone {
   display: flex;
