@@ -3763,19 +3763,24 @@ const familyClues = computed(() => {
  */
 const layaState = ref<LayaStatus | null>(null)
 const layaResults = ref(new Map<string, LayaResult>())
+// 편집 모드에 들어갈 때마다 다시 본다 — 133 이 잠깐 꺼졌다 켜져도 다음 편집부터 다시 보인다.
 watch(editing, (on) => {
-  if (on && !layaState.value) void layaStatus().then((s) => (layaState.value = s))
+  if (on) void layaStatus().then((s) => (layaState.value = s))
 })
+let layaAsk = 0
 watch(
   () => [familyClues.value, layaState.value] as const,
   async ([clues, state]) => {
+    // 늦게 온 답이 새 단서의 답을 덮지 않게 번호를 본다.
+    const ask = ++layaAsk
     if (!state?.enabled || !clues.size) return
     const texts = new Map([...clues].map(([key, c]) => [key, clueText(c)]))
     try {
       const got = await layaKinds([...texts.values()])
-      layaResults.value = new Map([...texts].filter(([, t]) => got.has(t)).map(([key, t]) => [key, got.get(t)!]))
-    } catch (e) {
-      layaState.value = { enabled: false, reason: String(e) }
+      if (ask === layaAsk) layaResults.value = new Map([...texts].filter(([, t]) => got.has(t)).map(([key, t]) => [key, got.get(t)!]))
+    } catch {
+      // 한 번 실패로 끄지 않는다(성수처럼 한 번에 많이 물으면 시간 초과가 날 수 있다). 이번 줄만 비우고 다음 편집 때 다시 묻는다.
+      if (ask === layaAsk) layaResults.value = new Map()
     }
   },
 )

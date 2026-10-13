@@ -48,13 +48,14 @@ export function createLayaProxy({ url = process.env.LAYA_URL, log = () => {} } =
     }
     if (req.method === 'POST' && path === '/kinds') {
       if (!base) return json(503, { error: 'LAYA_URL 이 없습니다' })
+      // 너무 크면 모으기를 멈추되 끝까지 읽고 413 을 준다 — 읽다 말고 답하면 연결이 끊겨 413 이 안 보인다.
       const chunks = []
       let size = 0
       for await (const c of req) {
         size += c.length
-        if (size > MAX_BODY) return json(413, { error: '요청이 너무 큽니다' })
-        chunks.push(c)
+        if (size <= MAX_BODY) chunks.push(c)
       }
+      if (size > MAX_BODY) return json(413, { error: '요청이 너무 큽니다' })
       const started = Date.now()
       try {
         const r = await call(`${base}/kinds`, { method: 'POST', body: Buffer.concat(chunks), timeout: 20_000 })
