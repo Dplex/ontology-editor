@@ -240,7 +240,8 @@ import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOO
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
-import { ASSIGN_SNAP_RANGE, assignEquipmentToSpaces, assignSnapNow, distanceToRing, setAssignSnap, SNAP, spaceAssignable, spaceSetState } from './lib/mapping'
+import { ASSIGN_SNAP_RANGE, assignEquipmentToSpaces, assignSnapNow, distanceToRing, interiorPoint, pointInPolygon, setAssignSnap, SNAP, spaceAssignable, spaceSetState } from './lib/mapping'
+import { bare, parsePlan, previewPlan, resolveEquipment, resolveSpace, type EditCommand, type Preview } from './lib/edit-commands'
 
 // 테마는 라이트가 기본이고, 고른 값만 저장한다. 선행 스크립트(index.html)가 첫 페인트
 // 전에 같은 값을 읽어 깜빡임을 막는다.
@@ -327,7 +328,7 @@ watch(mode, (m) => {
 })
 const editing = computed(() => mode.value === 'edit')
 
-// --- 사람·역할 (OE-COM-01·02, ADR-0038, server/users.ts) ---------------------------------------------------
+// --- 사람·역할 (OE-COM-01·02, server/users.ts) ---------------------------------------------------
 // 로그인 대신 서버의 사람 목록(data/.users.json)에서 고른다. 고른 사람은 쓰기 요청(저장·반영·되돌리기·로그)에 머리로 붙는다. 보기 전용(Viewer)은
 // 편집에 들어가지 못한다. 목록을 못 받으면(손으로 연 파일만 쓰는 곳, e2e 의 흉내 서버) 사람을 묻지 않고 예전처럼 돈다.
 type Person = { name: string; role: 'viewer' | 'admin' | 'super_admin' }
@@ -1663,6 +1664,9 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       return frameSelection()
     case 'frameAll':
       viewer?.frameAll()
+      return true
+    case 'perf':
+      perfOn.value = !perfOn.value
       return true
     case 'rules':
       showRules.value = !showRules.value
@@ -4288,6 +4292,14 @@ function toggleFullscreen() {
 
 // dev 서버가 data/ 의 .ifc 목록을 준다(vite.config.ts). 빌드 번들에선 실패하고 빈 목록이 된다.
 const dataFiles = ref<{ path: string; size: number }[]>([])
+
+// 첫 화면의 [바로 열기] 묶음(예: 성수 건축 + 기계, 성수 전부). data/.open-sets.json 에 적고, 파일이 다 있는 것만 온다(server/data-catalog.ts).
+const openSetList = ref<{ title: string; paths: string[] }[]>([])
+fetch('./__data/__sets')
+  .then((r) => (r.ok ? r.json() : []))
+  // 모양이 다른 답(옛 서버·시험의 가짜 목록)은 버린다 — 제목과 경로 목록이 있는 것만.
+  .then((sets) => (openSetList.value = Array.isArray(sets) ? sets.filter((x) => x && typeof x.title === 'string' && Array.isArray(x.paths) && x.paths.length) : []))
+  .catch(() => {})
 
 // 파일마다 온톨로지를 어디까지 채우는지. dev 서버가 앱과 같은 임포터로 재서 준다(vite.config.ts).
 // 한 파일에 1초 남짓 걸려서 목록을 먼저 보이고, 요약은 하나씩 채운다.
@@ -7063,6 +7075,107 @@ function connectTo(id: string) {
   selectedId.value = from
   note(`${nameOfId(from)}–${nameOfId(id)}${josa(nameOfId(id), '을/를')} 연결했습니다. 방향은 상류로·하류로로 정합니다`)
 }
+// --- 말로 편집 시키기(ADR-0060) -------------------------------------------------------------
+//
+// [온톨로지] 칸의 gemini 가 붙인 편집 계획(```oe-edit)을 창(scripts/docs-chat.js)이 window.__oe.plan 으로 미리 보이고, 사람이 [적용] 을
+// 누르면 window.__oe.apply 가 여기서 하나씩 실행한다. 실행은 여느 편집과 같은 함수다 — 되돌리기 이력에 명령마다 쌓이고, 겹침·소속 검사도
+// 같다. 대상 찾기·계획 읽기는 lib/edit-commands.ts.
+type PlanResult = { ok: boolean; text: string }
+/** 창이 부르는 window.__oe(screen·plan·apply). 여러 곳에서 더하므로 없으면 만든다. */
+function oeHook(): Record<string, unknown> {
+  const w = window as unknown as { __oe?: Record<string, unknown> }
+  return (w.__oe ??= {})
+}
+function planOf(text: string): { error: string } | { commands: EditCommand[]; preview: Preview[] } | null {
+  const m = model.value
+  const plan = parsePlan(text)
+  if (!plan || 'error' in plan) return plan
+  if (!m) return { error: '편집 화면에 연 건물이 없습니다' }
+  return { commands: plan.commands, preview: previewPlan(m, plan.commands) }
+}
+/** 방 안에 새 설비를 놓을 자리. 방 안의 점에서 시작해 다른 설비와 겹치면 0.5m 씩 비켜 본다(8방향 × 3바퀴). */
+function freeSpotIn(m: Model, storeyId: string, ring: readonly Vec2[], z: number): Vec3 | null {
+  const at = interiorPoint(ring)
+  if (!at) return null
+  for (let r = 0; r <= 3; r++) {
+    for (let k = 0; k < (r ? 8 : 1); k++) {
+      const a = (k * Math.PI) / 4
+      const p: Vec2 = [at[0] + r * 0.5 * Math.cos(a), at[1] + r * 0.5 * Math.sin(a)]
+      if (r && !pointInPolygon(p, ring)) continue
+      const position: Vec3 = [cm(p[0]), cm(p[1]), cm(z)]
+      if (!overlapForNew(m, storeyId, position, currentBox)) return position
+    }
+  }
+  return null
+}
+function applyPlan(text: string): PlanResult[] {
+  const m = model.value
+  const plan = planOf(text)
+  if (!plan) return [{ ok: false, text: '편집 계획이 없습니다' }]
+  if ('error' in plan) return [{ ok: false, text: plan.error }]
+  if (!m) return [{ ok: false, text: '편집 화면에 연 건물이 없습니다' }]
+  if (!editing.value) return [{ ok: false, text: '편집 모드에서 적용합니다 — [편집] 을 누른 뒤 다시 [적용] 하세요' }]
+  const bad = plan.preview.find((p) => !p.ok)
+  if (bad) return [{ ok: false, text: `적용하지 않았습니다: ${bad.text}` }]
+  const made = new Map<string, string>()
+  // 이 계획에서 더한 설비는 equipmentById(화면 갱신 뒤에 다시 셈)에 아직 없다 — 모델에서 바로 찾는다.
+  const nameIn = (id: string) => shortName(m.storeys.flatMap((s) => s.equipment).find((e) => e.id === id)?.name || id)
+  const out: PlanResult[] = []
+  for (const c of plan.commands) {
+    if (c.do === 'add_equipment') {
+      const sp = resolveSpace(m, c.space) as Exclude<ReturnType<typeof resolveSpace>, { error: string }>
+      const storey = m.storeys.find((s) => s.id === sp.storeyId)!
+      const space = storey.spaces.find((s) => s.id === sp.id)!
+      // 천장에만 놓는 종류(디퓨저 등)는 천장고를 알면 천장에, 아니면 바닥에 놓는다(높이는 사람이 패널에서 고친다).
+      const ceilingOnly = !(allowedSurfaces(c.kind)?.some((s) => s !== 'ceiling') ?? true)
+      const ceil = ceilingOf(storey)
+      const z = ceilingOnly && ceil ? storey.elevation + ceil.height : storey.elevation
+      const position = freeSpotIn(m, storey.id, space.footprint, z)
+      if (!position) {
+        out.push({ ok: false, text: `${sp.label} 안에 빈 자리를 찾지 못했습니다(다른 설비와 겹침)` })
+        break
+      }
+      const n = m.storeys.reduce((k, st) => k + st.equipment.filter((e) => e.added).length, 0) + 1
+      const mk = mark()
+      const e = addEquipment(m, storey.id, { name: c.name ?? `${equipmentKind(c.kind)!.label} ${n}`, kind: c.kind, position })
+      if (!e) {
+        out.push({ ok: false, text: `${sp.label}에 더하지 못했습니다` })
+        break
+      }
+      const snapshot = snapshotEquipmentSet(m, e.id)
+      if (snapshot?.kind === 'equipment-set') remember(`${e.name} 더하기(말로)`, { ...snapshot, present: false }, mk)
+      made.set(e.name, e.id)
+      out.push({ ok: true, text: `${storey.name} ${sp.label}에 ${e.name}${josa(e.name, '을/를')} 더했습니다` })
+    } else {
+      const id = (ref: string) => made.get(bare(ref)) ?? (resolveEquipment(m, ref) as { id: string }).id
+      const a = id(c.from)
+      const b = id(c.to)
+      const at = mark()
+      const done = addConnection(m, a, b)
+      if (!done) {
+        out.push({ ok: false, text: `${nameIn(a)}–${nameIn(b)}${josa(nameIn(b), '은/는')} 잇지 않았습니다(이미 이어졌거나 같은 설비)` })
+        continue
+      }
+      remember(`${nameIn(a)}–${nameIn(b)} 연결(말로)`, { kind: 'connection', connection: done.connection, present: false, index: m.connections.length - 1 }, at)
+      ruleReport.value = done.rules
+      out.push({ ok: true, text: `${nameIn(a)}–${nameIn(b)}${josa(nameIn(b), '을/를')} 연결했습니다(방향 없음 — 상류로·하류로로 정합니다)` })
+    }
+  }
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+  const last = [...made.values()].at(-1)
+  if (last) selectedId.value = last
+  return out
+}
+Object.assign(oeHook(), {
+  plan: (text: string) => {
+    const p = planOf(text)
+    return p && !('error' in p) ? { preview: p.preview.map(({ text, ok }) => ({ text, ok })), editing: editing.value } : p
+  },
+  apply: applyPlan,
+})
+
 function disconnect(c: Connection) {
   const m = model.value
   if (!m) return
@@ -7259,7 +7372,7 @@ let floorDrafts = new Map<string, EditFile>()
 const appliedFloors = new Set<string>()
 /** floorDrafts 가 바뀔 때 올린다(화면의 [임시 저장본 폐기] 가 본다). */
 const draftsVersion = ref(0)
-/** 지금 반영된 레이아웃의 편집 파일(ADR-0037). 폐기하면 그 층을 이것으로 돌린다. 반영 전이면 null(BIM 그대로). */
+/** 지금 반영된 레이아웃의 편집 파일(src/server/layouts.ts). 폐기하면 그 층을 이것으로 돌린다. 반영 전이면 null(BIM 그대로). */
 const publishedFile = shallowRef<EditFile | null>(null)
 /** 조각마다 마지막으로 저장(임시 저장·8084·파일·구축하기)한 것. 저장 안 한 편집과 [저장 안 함] 이 이것과 견준다. */
 const savedParts = shallowRef(new Map<string, EditFile>())
@@ -7487,7 +7600,7 @@ function refreshSavedSets() {
 refreshSavedSets()
 const savedFor = (path: string) => savedSets.value.find((s) => s.key === path) ?? null
 
-// --- 모드 자동 분기 (OE-UI-01·02·03, ADR-0037) ------------------------------------------------------
+// --- 모드 자동 분기 (OE-UI-01·02·03, src/server/layouts.ts) ------------------------------------------------------
 // 반영한 버전(온톨로지)이 있는 건물은 운영 편집, 없으면 초기 구축이다. 사람이 모드를 고르지 않는다 — data/ 목록의 [초기 구축]·[운영 편집] 은 그 판정대로
 // 하나만 켜진다. 층마다는 반영된 버전의 공간 계층(tree.json)에 그 층이 있는지로 가른다.
 type Published = { key: string; paths: string[]; current: number; at: string; by: string }
@@ -7531,7 +7644,7 @@ const editKind = computed<'build' | 'operate'>(() => {
 }
 
 /**
- * data/ 에서 연 건물에 서버의 편집을 얹는다. 반영된 버전(ADR-0037)이 있으면 그 레이아웃(버전의 편집 파일)이 시작점이다(OE-WF-17 "다시 들어오면 새
+ * data/ 에서 연 건물에 서버의 편집을 얹는다. 반영된 버전(src/server/layouts.ts)이 있으면 그 레이아웃(버전의 편집 파일)이 시작점이다(OE-WF-17 "다시 들어오면 새
  * 레이아웃을 적용"). 8084 저장본이 그 버전보다 나중에 저장된 것이면 저장본을 얹는다 — 반영 뒤 이어 고친 것이다. 둘 다 BIM 을 기준으로 한 편집 파일이라
  * 하나만 얹는다.
  */
@@ -7552,7 +7665,7 @@ async function loadServerEdits() {
   const state = layoutState.value
   const cur = state?.current ? (state.versions.find((v) => v.version === state.current) ?? null) : null
   const saved = await getFile(savedEditsUrl(key))
-  // 서버의 층별 임시 저장본(OE-WF-01·02, ADR-0039). 브라우저의 것보다 앞선다 — 층의 것이라 누가 저장했든 이어서 편집한다.
+  // 서버의 층별 임시 저장본(OE-WF-01·02, src/server/floor-state.ts). 브라우저의 것보다 앞선다 — 층의 것이라 누가 저장했든 이어서 편집한다.
   try {
     const r = await fetch(`./__data/__drafts?${new URLSearchParams({ key })}`)
     const got = r.ok ? ((await r.json()) as Record<string, { file: unknown }>) : {}
@@ -8231,6 +8344,72 @@ async function drawOutlineFromList(spaceId: string) {
 }
 /** 팔레트의 미배치 목록. 한 층만 보는 중이면 그 층 것만. */
 const unplacedHere = computed(() => unplaced.value.filter((u) => !viewStorey.value || u.storey.id === viewStorey.value))
+
+// --- 층별 칩 ---
+// 3D 오른쪽 가장자리에 층마다(위층이 위) 손볼 것의 수를 쌓는다. 어느 층부터 고칠지 한눈에 보고, 누르면 그 층만 본다.
+// 값은 새로 재지 않는다 — 미배치(unplacedOf)·완전성 검사(checks)가 이미 센 것을 층으로 나눈다.
+//   미배치 = 좌표가 없는 설비 · 소속 없음 = 기기마다 소속 방 검사(device-space)에 걸린 기기 · 위반 = 그 밖의 검사에 걸린 설비·물리존(중복 없이)
+const storeyChips = computed(() => {
+  const m = model.value
+  if (!m || m.storeys.length < 2) return []
+  // 검사에 걸리는 것은 설비와 물리존이다. 둘 다 제 층으로 센다.
+  const home = new Map(m.storeys.flatMap((s) => [...s.equipment.map((e) => [e.id, s.id] as const), ...s.spaces.map((sp) => [sp.id, s.id] as const)]))
+  const noSpace = new Set(checks.value.find((c) => c.key === 'device-space' && !c.skipped)?.failed ?? [])
+  // 소속 없음은 따로 세니 위반에서 뺀다 — 같은 설비가 두 칩에 겹쳐 더해 읽히지 않게.
+  const failed = new Set(checks.value.filter((c) => !c.skipped && c.key !== 'device-space').flatMap((c) => c.failed))
+  const count = (ids: Iterable<string>) => {
+    const n = new Map<string, number>()
+    for (const id of ids) {
+      const st = home.get(id)
+      if (st) n.set(st, (n.get(st) ?? 0) + 1)
+    }
+    return n
+  }
+  const un = new Map<string, number>()
+  for (const u of unplaced.value) un.set(u.storey.id, (un.get(u.storey.id) ?? 0) + 1)
+  const ns = count(noSpace)
+  const fl = count(failed)
+  return [...storeysByHeight.value].reverse().map((st) => ({ id: st.id, name: st.name, unplaced: un.get(st.id) ?? 0, noSpace: ns.get(st.id) ?? 0, failed: fl.get(st.id) ?? 0 }))
+})
+function pickStoreyChip(id: string) {
+  if (multiView.value) return
+  viewStorey.value = viewStorey.value === id ? null : id
+}
+// 층이 많으면(성수 19개 층) 목록이 굴러 지금 층 칩이 밖에 있을 수 있다. 층이 바뀌면 그 칩이 보이게 굴린다.
+const storeyChipList = ref<HTMLElement | null>(null)
+function revealStoreyChip() {
+  // scrollIntoView 는 페이지까지 굴린다(아래 표를 보다가 층을 바꾸면 화면이 튄다). 목록 안에서만 굴린다.
+  const list = storeyChipList.value
+  const on = list?.querySelector<HTMLElement>('button.on')
+  if (!list || !on) return
+  if (on.offsetTop < list.scrollTop) list.scrollTop = on.offsetTop
+  else if (on.offsetTop + on.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = on.offsetTop + on.offsetHeight - list.clientHeight
+}
+// 연 직후에는 3D 칸 높이가 몇 번 바뀌어 목록이 나중에야 넘친다. 목록 크기가 바뀔 때도 지금 층 칩이 보이게 맞춘다.
+const chipListSize = new ResizeObserver(() => revealStoreyChip())
+watch(storeyChipList, (el, was) => {
+  if (was) chipListSize.unobserve(was)
+  if (el) chipListSize.observe(el)
+})
+onBeforeUnmount(() => chipListSize.disconnect())
+watch(viewStorey, async () => {
+  await nextTick()
+  revealStoreyChip()
+})
+
+// --- 성능 표(개발용, ` 키) ---
+const perfOn = ref(false)
+const perfStats = ref<{ fps: number; renderMs: number; calls: number; triangles: number } | null>(null)
+let perfTimer: number | undefined
+watch(perfOn, (on) => {
+  window.clearInterval(perfTimer)
+  perfStats.value = null
+  if (!on) return
+  const read = () => (perfStats.value = viewer?.stats() ?? null)
+  read()
+  perfTimer = window.setInterval(read, 500)
+})
+onBeforeUnmount(() => window.clearInterval(perfTimer))
 const unplacedOpen = ref(false)
 const UNPLACED_SHOWN = 200
 /** 목록에서 바로 놓는다. 편집 모드로 들어가 고르고, 다른 층만 보고 있었다면 설비의 층으로 바꾼 뒤 바닥을 누르게 한다. */
@@ -8521,6 +8700,14 @@ async function buildStorey(storeyId: string) {
   markDone(`build:${storeyId}`)
 }
 
+/**
+ * [온톨로지] 칸(scripts/docs-chat.js)이 "지금 화면(반영 전)" 으로 물을 때 부른다(ADR-0050). [TTL] 내려받기와 같은 글이다 — 반영하면
+ * 나갈 온톨로지를 반영 전에 묻는다. 창은 Vue 밖(빌드에 끼워 넣는 스크립트)이라 window 로 건넨다. 모델이 없으면 null.
+ */
+Object.assign(oeHook(), {
+  screen: () => (model.value ? { title: fileName.value, by: currentUser.value ?? '', ttl: modelToTTL(model.value) } : null),
+})
+
 function exportTTL() {
   if (!model.value) return
   download('ontology.ttl', modelToTTL(model.value), 'text/turtle')
@@ -8533,7 +8720,7 @@ function exportTTLDone() {
 /**
  * 3D 형상(GLB·OBJ·FBX). 보여 주기용 파일이라 GeoJSON·TTL 과 따로 낸다. 큰 파일은 몇 초(성수 OBJ 16초) 걸려 누르는 동안
  * 버튼을 막고, 여는 때와 같은 진행 막대에 단계를 보인다. OBJ 는 꼭짓점 수로 막대가 차고, GLB 는 흐르기만 한다.
- * FBX 는 GLB 를 만들어 서버에 보내면 서버의 Blender 가 바꿔 돌려준다(src/server/fbx.ts, ADR-0052). 성수는 서버에서 46초다.
+ * FBX 는 GLB 를 만들어 서버에 보내면 서버의 Blender 가 바꿔 돌려준다(src/server/fbx.ts). 성수는 서버에서 46초다.
  */
 const exporting3d = ref<'glb' | 'obj' | 'fbx' | null>(null)
 /** 서버가 FBX 로 바꿀 수 있는지. 서버에 Blender 가 없거나 서버 없이 띄운 화면이면 단추를 막고 까닭을 title 로 보인다. */
@@ -8595,7 +8782,7 @@ async function export3D(format: 'glb' | 'obj' | 'fbx') {
   }
 }
 
-// --- 반영하기·버전 (OE-WF-10~13·18~20, OE-GEN-05, ADR-0037, server/layouts.ts) ------------------------------------
+// --- 반영하기·버전 (OE-WF-10~13·18~20, OE-GEN-05, server/layouts.ts) ------------------------------------
 // data/ 에서 연 건물은 [구축하기](첫 반영 = v1)·[반영하기] 가 서버에 새 버전을 만든다. 반영된 것은 서버의 현재 버전 폴더다(DT·온톨로지 대신).
 // 손으로 연 파일은 서버 열쇠가 없어 예전처럼 두 파일을 내려받는다.
 
@@ -8707,7 +8894,7 @@ function reloadLayout() {
   if (paths.length) openDataSet(paths)
 }
 
-// --- 층 잠금 (OE-COM-05·06, ADR-0039, server/floor-state.ts) ---
+// --- 층 잠금 (OE-COM-05·06, server/floor-state.ts) ---
 // 편집 중인 층(한 층을 보면 그 층, "모든 층" 이면 전부)을 잡는다. 1분마다 다시 잡아 늘이고, [편집 종료]·층 바꾸기·창 닫기 때 푼다. 남이 잡은 층이면
 // 보기로 돌리고 "OOO님이 편집 중입니다" 를 보인다. 사람 목록이 없는 곳은 잠그지 않는다.
 const heldLocks = new Map<string, { key: string; floor: string }>()
@@ -9019,7 +9206,12 @@ function rollbackFromReport() {
         파일 선택
         <input type="file" accept=".ifc,.idf" multiple :disabled="busy" @change="onPick" />
       </label>
-      <!-- 피처 단위로 읽을 것. 물리존·설비는 늘 읽는다. 다음에 여는 파일부터 적용된다. -->
+
+    </section>
+
+    <!-- 읽을 것(피처 단위). 파일 상자 안에 두었더니 [파일 선택] 에만 걸리는 옵션처럼 보였다 — 파일 선택·끌어 놓기·바로 열기·data/ 목록·
+         덧붙이기 어디서 열든 같은 값을 쓴다(load 의 options). 그래서 상자 밖 한 줄로 둔다. 다음에 여는 파일부터 적용된다. -->
+    <section v-if="!model" class="read-settings" aria-label="읽을 것">
       <fieldset class="read-option features" :disabled="busy">
         <legend>읽을 것</legend>
         <label><input v-model="readFeatures.walls" type="checkbox" /> 벽</label>
@@ -9029,11 +9221,26 @@ function rollbackFromReport() {
           <input v-model="readOpenings" type="checkbox" :disabled="!readFeatures.doors && !readFeatures.windows" /> 문·창 자리(형상)
         </label>
         <span class="muted">
-          물리존·설비는 늘 읽습니다. 벽·문·창은 GeoJSON에만 나가고 온톨로지(TTL)에는 필요 없어서, 끄면 큰 파일이 빨리
-          열립니다. 문·창 자리는 로봇 경로와 문·창 옮기기에 씁니다.
+          어디서 열든 적용됩니다(파일 선택·끌어 놓기·바로 열기·data/ 목록·덧붙이기). 물리존·설비는 늘 읽습니다. 벽·문·창은 GeoJSON에만
+          나가고 온톨로지(TTL)에는 필요 없어서, 끄면 큰 파일이 빨리 열립니다. 문·창 자리는 로봇 경로와 문·창 옮기기에 씁니다.
         </span>
       </fieldset>
+    </section>
 
+    <!-- 바로 열기(data/.open-sets.json). 같이 여는 파일 묶음을 한 번에 — [합쳐서 열기] 와 같다. -->
+    <section v-if="openSetList.length && !model" class="open-sets" aria-label="바로 열기">
+      <b>바로 열기</b>
+      <button
+        v-for="set in openSetList"
+        :key="set.title"
+        type="button"
+        class="ghost"
+        :disabled="busy"
+        :title="set.paths.join(' + ')"
+        @click="openDataSet(set.paths)"
+      >
+        {{ set.title }} <small class="muted">{{ set.paths.length }}개</small>
+      </button>
     </section>
 
     <!-- 합쳐 연 판의 8084 저장본. 한 파일의 저장본은 아래 data/ 목록의 그 줄에 보인다. 임시 저장본은 목록을 두지 않는다 —
@@ -9169,7 +9376,7 @@ function rollbackFromReport() {
                 <label :class="{ off: !readFeatures.doors && !readFeatures.windows }">
                   <input v-model="readOpenings" type="checkbox" :disabled="!readFeatures.doors && !readFeatures.windows" /> 문·창 자리(형상)
                 </label>
-                <span class="muted">다음에 여는 파일부터 적용됩니다.</span>
+                <span class="muted">다음에 여는 파일부터, 어디서 열든(파일·data/ 목록·덧붙이기) 적용됩니다.</span>
               </fieldset>
             </details>
             <!-- 건축과 설비가 다른 파일일 때. 편집을 시작한 뒤에는 닫는다(canAppend 주석 참조). -->
@@ -9294,7 +9501,7 @@ function rollbackFromReport() {
             </template>
             <button v-else type="button" class="ghost" title="이 층의 임시 저장본을 지우고 반영된 레이아웃으로 돌아갑니다" @click="discardAsk = true">임시 저장본 폐기</button>
           </template>
-          <!-- PRD #9 의 액션바. data/ 에서 연 건물은 첫 반영이 [구축하기](v1), 그다음은 [반영하기] 다(서버 버전, ADR-0037). 손으로 연 파일은 두 파일 내보내기. -->
+          <!-- PRD #9 의 액션바. data/ 에서 연 건물은 첫 반영이 [구축하기](v1), 그다음은 [반영하기] 다(서버 버전, src/server/layouts.ts). 손으로 연 파일은 두 파일 내보내기. -->
           <button type="button" class="ghost" :aria-pressed="previewOpen" title="반영 전에 결과를 봅니다 — 변경 요약과 소속이 바뀔 설비(반영은 바뀌지 않습니다)" @click="previewChanges">미리보기</button>
           <button
             type="button"
@@ -9348,6 +9555,34 @@ function rollbackFromReport() {
         <section :class="['viewport', { theater: replayOpen }]">
           <div class="canvas-wrap">
             <canvas v-show="activeTab === '3d'" ref="canvas"></canvas>
+            <!-- 층별 칩. 위층이 위. 누르면 그 층만 보고, 다시 누르면 전체. 다중층 뷰·리플레이에서는 뺀다. -->
+            <nav v-if="storeyChips.length && activeTab === '3d' && !replayOpen && !multiView" class="storey-chips" aria-label="층별 손볼 것" data-testid="storey-chips">
+              <div ref="storeyChipList" class="sc-list">
+              <button
+                v-for="c in storeyChips"
+                :key="c.id"
+                type="button"
+                :class="{ on: viewStorey === c.id, clean: !c.unplaced && !c.noSpace && !c.failed }"
+                :aria-pressed="viewStorey === c.id"
+                :title="`${c.name} — 미배치 ${c.unplaced} · 소속 없음 ${c.noSpace} · 그 밖의 검사 위반 ${c.failed}. 누르면 이 층만 봅니다`"
+                @click="pickStoreyChip(c.id)"
+              >
+                <span class="sc-name">{{ c.name }}</span>
+                <span v-if="c.unplaced" class="sc-n unplaced" title="미배치">{{ c.unplaced }}</span>
+                <span v-if="c.noSpace" class="sc-n nospace" title="소속 없음">{{ c.noSpace }}</span>
+                <span v-if="c.failed" class="sc-n failed" title="검사 위반">{{ c.failed }}</span>
+                <span v-if="!c.unplaced && !c.noSpace && !c.failed" class="sc-ok" aria-label="손볼 것 없음">✓</span>
+              </button>
+              </div>
+              <p class="sc-key"><i class="unplaced"></i>미배치 <i class="nospace"></i>소속 없음 <i class="failed"></i>위반</p>
+            </nav>
+            <!-- 성능 표(개발용, ` 키). 3D 는 바뀔 때만 그려서 가만히 있으면 그린 장수가 0 이다. -->
+            <dl v-if="perfOn && perfStats" class="perf-hud" data-testid="perf-hud">
+              <div><dt>그린 장수/초</dt><dd>{{ perfStats.fps }}</dd></div>
+              <div><dt>그리기</dt><dd>{{ perfStats.renderMs.toFixed(1) }} ms</dd></div>
+              <div><dt>draw call</dt><dd>{{ perfStats.calls.toLocaleString() }}</dd></div>
+              <div><dt>삼각형</dt><dd>{{ perfStats.triangles.toLocaleString() }}</dd></div>
+            </dl>
             <ReplayHud v-if="replayOpen" v-bind="replay.hud.value" v-on="replay.hudOn" />
             <!-- 평면도. 3D 와 탭으로 갈아 끼우고, 층 하나를 골랐을 때만 그린다. -->
             <FloorPlan

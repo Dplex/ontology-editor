@@ -9,7 +9,7 @@ tickets: ["OE-EXT-03", "OE-EXT-02", "OE-OBJ-04", "OE-MAP-01"]
 criteria: []
 code: ["src/lib/facade.ts", "src/App.vue"]
 tests: []
-related: ["ADR-0039"]
+related: []
 ---
 
 # ADR-0041 외벽 에디터 = 같은 면 외벽 묶음 옮기기
@@ -54,5 +54,5 @@ PRD 에 없다. IFC 에는 층마다 따로 된 벽만 있고 층을 건너 같�
 ## 결과
 
 - 외벽 형상은 층마다의 벽 외곽선으로 남는다(편집 파일·TTL·GeoJSON 은 층 편집으로 옮긴 벽과 같다). 외벽 에디터만의 저장물은 없다.
-- 층별 임시 저장본(ADR-0039)은 층마다 나뉘어 남는다. 한 층의 임시 저장본만 폐기하면 그 층만 돌아간다 — 폐기 확인에 그 점을 보이는 것은 남은 일이다.
+- 층별 임시 저장본(src/server/floor-state.ts)은 층마다 나뉘어 남는다. 한 층의 임시 저장본만 폐기하면 그 층만 돌아간다 — 폐기 확인에 그 점을 보이는 것은 남은 일이다.
 - 되돌리려면 `src/lib/facade.ts` 와 `App.vue` 의 "외벽 에디터" 묶음, edit.ts 의 `LockOptions.exterior` 를 걷어낸다.

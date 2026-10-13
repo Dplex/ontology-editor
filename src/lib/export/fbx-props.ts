@@ -1,7 +1,7 @@
 // FBX(바이너리)에서 Model 마다 사용자 속성을 읽는다. 내보낸 파일 뷰어가 FBX 를 GLB 처럼 kind·name 을 가진 객체로 보이려고 쓴다.
 //
 // 에디터의 FBX 는 GLB extras(kind·name·systemId …)를 Model 의 Properties70 에 플래그 `U`(사용자 정의)인 P 줄로 남긴다
-// (scripts/glb2fbx.py, ADR-0052). Unity 가 OnPostprocessGameObjectWithUserProperties 로 받는 값이 이것이다. three 의 FBXLoader 는
+// (scripts/glb2fbx.py, src/server/fbx.ts). Unity 가 OnPostprocessGameObjectWithUserProperties 로 받는 값이 이것이다. three 의 FBXLoader 는
 // 이 줄을 읽고도 객체에 붙이지 않아서 여기서 따로 읽는다. 형상 배열은 길이만 보고 건너뛰므로 압축을 풀지 않는다(성수 225MB).
 //
 // 바이너리 레코드: [끝 위치, 속성 수, 속성 목록 길이](7500 부터 8바이트씩, 그 전 4바이트씩) · 이름 길이(1) · 이름 · 속성들 · 자식들.

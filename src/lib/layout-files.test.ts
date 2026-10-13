@@ -1,4 +1,4 @@
-// 반영 한 번에 올리는 파일(OE-WF-10·13, OE-SYNC-03, ADR-0037). 서버(layouts.ts)가 받는 이름과 같아야 하고, 공간 계층은 사이트 > 건물 > 층(높이 순) > 물리존이다.
+// 반영 한 번에 올리는 파일(OE-WF-10·13, OE-SYNC-03, src/server/layouts.ts). 서버(layouts.ts)가 받는 이름과 같아야 하고, 공간 계층은 사이트 > 건물 > 층(높이 순) > 물리존이다.
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
