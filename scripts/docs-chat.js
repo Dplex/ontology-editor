@@ -1,5 +1,5 @@
 // 챗봇 창. Alt+Shift+K 로 열고 닫는다. 칸이 둘이다.
-//   [문서]     55 의 gemini 가 이 repo 의 PRD·티켓·ADR·intent.md 를 읽고 답한다(/__chat, ADR-0001).
+//   [문서]     55 의 gemini 가 이 repo 의 PRD·티켓·ADR·intent.md 를 읽고 답한다(/__chat, docs/dev/deploy55.md).
 //   [온톨로지] 55 의 gemini 가 반영한 건물 온톨로지(TTL)를 읽고 답한다(/__ask, ADR-0050). 답 끝에 쓴 질의가 붙는다.
 //
 // 앱 코드(src)가 아니다. scripts/run.sh build 가 빌드한 dist/ 에 끼워 넣는다(review-info.js 와 같은 방식) —

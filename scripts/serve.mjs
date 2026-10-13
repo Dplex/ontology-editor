@@ -11,10 +11,10 @@
 // 편집할 수 있는 역할일 때만 받는다(src/server/users.ts).
 // 이 모듈은 dt 플랫폼과 따로라 정문(8000)은 거치지 않는다.
 //
-// 3D 형상 FBX 는 화면이 보낸 GLB 를 Blender 로 바꿔 돌려준다(POST /__data/__fbx, src/server/fbx.ts, ADR-0052).
+// 3D 형상 FBX 는 화면이 보낸 GLB 를 Blender 로 바꿔 돌려준다(POST /__data/__fbx, src/server/fbx.ts).
 // Blender 가 없는 기계에서는 GET /__data/__fbx 가 enabled:false 를 주고 화면이 [FBX] 단추를 막는다.
 //
-// 다섯째로 문서 챗봇(Alt+Shift+K)의 /__chat 이 있다(scripts/docs-chat.mjs, ADR-0001). 앱의 API 가 아니라 이 repo 의
+// 다섯째로 문서 챗봇(Alt+Shift+K)의 /__chat 이 있다(scripts/docs-chat.mjs, docs/dev/deploy55.md). 앱의 API 가 아니라 이 repo 의
 // 문서를 읽고 답하는 개발용 부속이고, gemini 가 쓸 수 있는 도구는 문서 읽기 하나뿐이다. gemini 가 없는 기계에서는
 // GET /__chat 이 enabled:false 를 주고 창이 그 이유를 보인다.
 // 같은 창의 [온톨로지] 칸은 /__ask 다(ADR-0050). gemini 가 반영한 온톨로지(data/.layouts 의 현재 버전 TTL)를 읽기만 하는
