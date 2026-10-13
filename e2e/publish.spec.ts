@@ -148,7 +148,7 @@ test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리�
     await versions.scrollIntoViewIfNeeded()
     await page.screenshot({ path: process.env.SHOT })
   }
-  // 시스템 로그: 편집 시작·반영 둘·되돌리기가 그 사람으로 남는다.
+  // 시스템 로그: 편집 시작·반영 둘·되돌리기가 그 사람으로 남는다. [OE-COM-04#1]
   await page.getByTestId('activity').locator('summary').click()
   await expect(page.getByTestId('activity')).toContainText('레이아웃 되돌리기 v3 · 편집자')
   const log = JSON.parse(await (await fetch(`${base}/__log?key=${encodeURIComponent(PATH)}`)).text()) as { type: string; user: string }[]

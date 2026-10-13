@@ -57,6 +57,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { polygonArea, type Model, type Vec2, type Vec3 } from './model'
 import type { MeshMap } from './ifc/import'
+import { wallShapes } from './wall-view'
 import { distanceToRing, pointInPolygon } from './mapping'
 import { easeOut, still } from './motion'
 import { isMultiSelect } from './shortcuts'
@@ -212,6 +213,8 @@ export type CeilingMark = { id: string; storeyId: string; at: Vec3; floor: numbe
 export const WALL_COLORS = {
   loadBearing: 0x39424e,
   unknown: 0xd9a531,
+  /** 비내력벽(칸막이). 편집 모드의 보통 벽(ARCH_COLORS.wall)과 같은 회색이다. */
+  ordinary: 0xb7bec7,
 }
 
 export type Highlight = {
@@ -376,7 +379,7 @@ export type Viewer = {
   setExplode(groups: readonly { label: string; ids: readonly string[] }[] | null): boolean
   /** 분해도가 펼쳐져 있나. 다시 그리기 등으로 저절로 접힐 수 있어 화면이 이것으로 맞춘다. */
   exploded(): boolean
-  /** 내력벽(과 내력 여부를 모르는 벽)을 켜고 끈다. 모델을 바꿔도 켜 둔 상태는 남는다. */
+  /** 보기 모드 3D 의 벽을 켜고 끈다. 모델을 바꿔도 켜 둔 상태는 남는다. */
   setWallsVisible(on: boolean): void
   /** 편집 모드를 켜고 끈다. 끄면 3D 는 보기 전용이고, 누르고 끄는 것은 전부 시점 조작이다. */
   setEditMode(on: boolean): void
@@ -571,17 +574,10 @@ export type Part = {
   src?: unknown
 }
 
-/** 내력벽과 내력 여부를 모르는 벽을 한 덩어리로 합친다. 형상을 못 얻은 벽은 건너뛴다. */
-function wallMesh(model: Model, meshes?: MeshMap): Mesh | null {
-  const pieces: { color: Color; mesh: { positions: Float32Array; normals: Float32Array; indices: Uint32Array } }[] = []
-  for (const storey of model.storeys) {
-    for (const wall of storey.walls) {
-      if (wall.loadBearing === false) continue
-      const mesh = meshes?.get(wall.id)
-      if (!mesh) continue
-      pieces.push({ color: new Color(wall.loadBearing ? WALL_COLORS.loadBearing : WALL_COLORS.unknown), mesh })
-    }
-  }
+/** 한 층의 벽을 한 덩어리로 합친다(wall-view.ts). 내력벽·모름·보통 벽을 색으로 가른다. */
+function wallMesh(storey: Model['storeys'][number], meshes?: MeshMap): Mesh | null {
+  const shapes = wallShapes(storey, meshes)
+  const pieces = shapes.map(({ tone, mesh }) => ({ color: new Color(WALL_COLORS[tone]), mesh }))
   if (pieces.length === 0) return null
   let vTotal = 0
   let iTotal = 0
@@ -611,6 +607,7 @@ function wallMesh(model: Model, meshes?: MeshMap): Mesh | null {
   geometry.setIndex(new BufferAttribute(index, 1))
   const mesh = new Mesh(geometry, new MeshLambertMaterial({ vertexColors: true, side: DoubleSide }))
   mesh.frustumCulled = false
+  mesh.userData.rebuilt = shapes.filter((w) => w.rebuilt).map((w) => w.id)
   return mesh
 }
 
@@ -650,7 +647,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let parts: Part[] = []
   let partById = new Map<string, Part>()
   let chunks: Chunk[] = []
-  // 내력벽. 고르기 대상이 아니다(pick 은 설비만 본다). 벽 너머의 설비를 누를 수 있어야 해서다.
+  // IFC 벽(#599). 고르기 대상이 아니다(pick 은 설비만 본다). 벽 너머의 설비를 누를 수 있어야 해서다.
   let walls: Group | null = null
   let wallsVisible = false
   // 층별로 보기. 숨긴 층의 판·벽은 visible 을 끄고, 숨긴 설비는 인덱스에서 뺀다(흐리게 칠한 것과 같은 장치).
@@ -2564,13 +2561,17 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
   const tmpV = new Vector3()
   let lastWallsKey = ''
-  const wallsKey = (model: Model) => model.storeys.map((st) => `${st.id}:${st.elevation}:${st.walls.map((w) => `${w.id}/${w.loadBearing}`).join(',')}`).join('|')
+  // 편집으로 옮기거나 크기를 바꾼 벽은 지금 외곽선으로 다시 세운다(wall-view.ts) — 외곽선·높이도 열쇠에 넣는다.
+  const wallsKey = (model: Model) =>
+    model.storeys
+      .map((st) => `${st.id}:${st.elevation}:${st.walls.map((w) => `${w.id}/${w.loadBearing}/${w.height ?? ''}/${(w.footprint ?? []).map((r) => r.map((p) => p.join(',')).join(';')).join('&')}`).join(',')}`)
+      .join('|')
   /** 층마다 IFC 벽 형상(층별 보기가 층 단위로 켜고 끈다). */
   function buildWalls(model: Model, meshes: MeshMap | undefined) {
     lastWallsKey = wallsKey(model)
     walls = new Group()
     for (const storey of model.storeys) {
-      const w = wallMesh({ ...model, storeys: [storey] }, meshes)
+      const w = wallMesh(storey, meshes)
       if (!w) continue
       w.userData.storeyId = storey.id
       walls.add(w)
@@ -2670,6 +2671,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       shown: () => ({ hidden: hiddenIds.size, parts: parts.length, storeys: visibleStoreys ? [...visibleStoreys] : null, labels: explodeLabels.children.filter((o) => o instanceof Sprite).length, exploded: explodedParts?.size ?? 0 }),
       /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */
       hoverMark: () => (hoverMark ? hoverMarkKey : ''),
+      /** 보기 모드 3D 의 벽(#599): 켜져 있나, 삼각형 수. 벽이 없으면 null. */
+      walls: () =>
+        walls
+          ? {
+              visible: walls.visible,
+              triangles: walls.children.reduce((n, o) => n + ((o as Mesh).geometry.index?.count ?? 0) / 3, 0),
+              /** IFC 형상 대신 지금 외곽선으로 다시 세운 벽(편집한 벽만이어야 한다). */
+              rebuilt: walls.children.flatMap((o) => o.userData.rebuilt as string[]),
+            }
+          : null,
       /** 깐 평면도 배경의 귀퉁이(IFC 평면). 없으면 null. */
       background: () => backdropCorners,
       /** 지금 도는 움직임(카메라 비행·미끄러지는 설비 수·번쩍이는 방 수). */
