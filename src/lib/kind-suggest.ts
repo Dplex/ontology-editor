@@ -72,6 +72,11 @@ const VOCABULARY = new Map(
   }),
 )
 
+/** 이름의 낱말만으로 낸 후보(닮은 패밀리 없이). [설비 더하기] 처럼 놓기 전이라 이웃·계통이 없을 때의 후보다. */
+export function suggestByName(label: string, limit = 3): KindSuggestion[] {
+  return nameHits(label).slice(0, limit)
+}
+
 function nameHits(label: string): KindSuggestion[] {
   const own = words(label).filter((w) => !GENERIC.has(w))
   if (!own.length) return []
