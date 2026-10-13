@@ -27,7 +27,7 @@ test('도면 이미지를 깔면 건물 너비에 맞춰 놓이고, 두 점으�
   }
   // 도면에서 5m 로 보이는 두 점이 실제로는 10m 다.
   await fold.getByRole('button', { name: '스케일 맞추기' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await expect(page.locator('.key-note')).toContainText('두 점을 찍으세요')
   await floor(0, 4)
   await floor(5, 4)
@@ -37,7 +37,7 @@ test('도면 이미지를 깔면 건물 너비에 맞춰 놓이고, 두 점으�
 
   // 찍은 점 (4, 6) 이 실제로는 (0, 0) 이다.
   await fold.getByRole('button', { name: '원점 맞추기' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await expect(page.locator('.key-note')).toContainText('한 점을 찍으세요')
   await floor(4, 6)
   await expect(fold.getByLabel('실제 x')).toBeVisible()
@@ -77,7 +77,7 @@ test('PDF 도면은 첫 쪽을 그려 같은 길로 깔고, 맞춘 스케일·�
     await page.mouse.click(at.x, at.y)
   }
   await fold.getByRole('button', { name: '스케일 맞추기' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await floor(0, 4)
   await floor(5, 4)
   await fold.getByLabel('실제 거리(m)').fill('10')

@@ -19,7 +19,7 @@ test('커스텀존을 그리면 품는 방·든 설비가 계산되고, 이름·
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   await clickFloor(page, 6, 4)
   await expect(page.locator('.space-picked h3')).toHaveText('사무실')
@@ -75,7 +75,7 @@ test('커스텀존에 별명을 여럿 달면 패널·TTL 에 나온다 (ADR-000
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   await clickFloor(page, 6, 4)
   await page.keyboard.press('f')
@@ -121,7 +121,7 @@ test('Duplex MEP: 커스텀존의 별명으로 검색하면 그 존 안의 설�
   const dot = page.locator('svg.floor-plan .devices circle').first()
   const [id, name] = await dot.evaluate((e) => [e.getAttribute('data-equipment')!, e.querySelector('title')?.textContent ?? ''])
   await view.getByRole('button', { name: '3D' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
   const [x, y] = (await page.evaluate((i) => (window as any).__viewer.center(i), id)) as number[]
   // 이름으로는 안 나온다(대조군).

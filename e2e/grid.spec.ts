@@ -17,7 +17,7 @@ test('그리드를 켜면 선이 보이고 찍은 점이 교점으로 가서, �
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await toSpace(page)
   await page.getByRole('button', { name: '물리존 그리기' }).click()
   const bar = page.locator('.draw-bar')

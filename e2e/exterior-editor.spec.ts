@@ -46,7 +46,7 @@ test('외벽 에디터에서 외벽을 옮기면 같은 면에 쌓인 다른 층
   await expect(page.getByTestId('exterior-editor')).toHaveAttribute('aria-pressed', 'true')
   // 켜면 모든 층을 보인다.
   await expect(page.getByRole('combobox', { name: '보일 층' })).toHaveValue('모든 층')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
 
   // 다른 층에 같은 면이 있는 외벽을 골라 방향키로 옮긴다. 내력벽(Duplex 는 면마다 기초벽 T/FDN)은 제자리에 두고 나머지 층만 옮긴다.

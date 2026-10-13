@@ -14,6 +14,7 @@ import {
   Color,
   Ray,
   Sphere,
+  Spherical,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
@@ -58,6 +59,7 @@ import { easeOut, still } from './motion'
 import { isMultiSelect } from './shortcuts'
 import { alongOf, cutWall, openingRect, type OpeningCut } from './opening-cut'
 import { createReplayFx, type ReplayViewerApi } from './replay-viewer'
+import { createNavCube } from './nav-cube'
 import { type LibraryItem, type ObjectMaterial } from './space-object'
 import { partId } from './vertical-object'
 
@@ -434,6 +436,17 @@ export type Viewer = {
   setGrid(grid: { x: readonly number[]; y: readonly number[]; elevation: number; extent: { minX: number; minY: number; maxX: number; maxY: number } } | null): void
   /** 보이는 것 전체를 위에서 내려다본다. 화면 위쪽이 IFC +y(평면도와 같은 방위)다. */
   topView(): void
+  /** 보이는 것 전체를 이 방향(대상에서 카메라 쪽, 장면 좌표 — x 는 IFC x, y 는 위, z 는 IFC −y)에서 본다. 방향 큐브가 부른다. */
+  viewFrom(dir: readonly [number, number, number]): void
+  /** 오른쪽 위 방향 큐브(nav-cube.ts)를 이 캔버스에 붙인다. 떼는 함수를 돌려준다. */
+  attachNavCube(canvas: HTMLCanvasElement): () => void
+  /**
+   * 비행 모드. 켜면 WASD 로 앞·좌·뒤·우, Q/E 로 내려가기·올라가기(키는 flyKey 로 받는다), 왼쪽·오른쪽 드래그로 제자리에서 둘러보기,
+   * 휠로 빠르기를 바꾼다. 끄면 지도식 시점으로 돌아오고 눈앞의 점을 도는 중심으로 둔다.
+   */
+  setFly(on: boolean): void
+  /** 비행 중 눌린·뗀 키(`KeyW` 같은 code). 글자 칸·단축키 판단은 화면이 하고 넘긴다. `null` 이면 다 뗀다(창이 초점을 잃었을 때). */
+  flyKey(code: string | null, down: boolean): void
   /**
    * 추가 공간 오브젝트(OE-OBJ-09). 항목의 3D 조각(내장) 또는 넣은 모델(`models`, 열쇠 → 읽은 장면)을 오브젝트 상자에 맞춰
    * 늘려 그린다. 고른 것은 액센트 테두리, `conflict`(겹쳐서 막은 상대)는 붉게 그린다(OE-SPC-15). 편집 모드에서 고른 것은 끌 수 있다.
@@ -1513,6 +1526,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   window.addEventListener('keydown', onKeyDown)
   // 끄는 중 창이 포커스를 잃으면(다른 창으로 전환) 버린다(OE-OBJ-15). 버튼을 뗀 것을 못 받으니 확정하지 않는다.
   const onBlur = () => {
+    // 비행 중 창을 떠나면 뗀 키를 못 받아 계속 날아간다.
+    flying?.keys.clear()
     if (drag) endDrag(false)
     if (box) {
       box.el.remove()
@@ -1673,6 +1688,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (!running) return
     resize()
     stepFlight(now)
+    stepFly(now)
     stepGlides(now)
     stepPulses(now)
     fx.step(now)
@@ -1687,6 +1703,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (dirty) {
       if (handles.length) scaleHandles()
       renderer.render(scene, camera)
+      // 방향 큐브는 메인 시점이 바뀔 때만 다시 그린다(같은 dirty).
+      navCube?.render(tmpDir.subVectors(camera.position, controls.target), camera.up)
       dirty = false
     }
     if (hoverPending) updateHover()
@@ -1788,6 +1806,102 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     camera.near = Math.min(camera.near, flight.near)
     flight = null
   })
+
+  // --- 방향 큐브와 비행 모드 ---
+  // 큐브(nav-cube.ts)는 면·모서리·꼭짓점을 누르면 그 방향에서 보이는 것 전체를 맞추고(fit), 끌면 대상 둘레로 돈다.
+  // 비행 모드는 사람이 건물 안을 걸어 다니듯 본다. 지도식 시점(OrbitControls)의 끌기·휠을 끄고, 키·드래그를 여기서 받는다.
+  let navCube: ReturnType<typeof createNavCube> | null = null
+  const tmpDir = new Vector3()
+  function visibleBox(): Box3 {
+    const box = new Box3()
+    for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
+    for (const o of slabs.children) if (o.visible) box.expandByObject(o)
+    if (box.isEmpty()) box.setFromObject(content)
+    return box
+  }
+  /** 대상 둘레로 시점을 돌린다(px). 오른쪽으로 끌면 건물이 오른쪽으로 돈다 — 지도식 시점의 오른쪽 드래그와 같은 쪽이다. */
+  const ORBIT_RAD_PER_PX = Math.PI / 240
+  function orbitBy(dx: number, dy: number) {
+    flight = null
+    const offset = tmpDir.subVectors(camera.position, controls.target)
+    const s = new Spherical().setFromVector3(offset)
+    s.theta -= dx * ORBIT_RAD_PER_PX
+    s.phi = Math.min(Math.PI - 0.01, Math.max(0.01, s.phi - dy * ORBIT_RAD_PER_PX))
+    camera.position.copy(controls.target).add(offset.setFromSpherical(s))
+    controls.update()
+    dirty = true
+  }
+
+  const FLY_KEYS: Record<string, [number, number, number]> = {
+    KeyW: [0, 0, 1],
+    KeyS: [0, 0, -1],
+    KeyA: [-1, 0, 0],
+    KeyD: [1, 0, 0],
+    KeyQ: [0, -1, 0],
+    KeyE: [0, 1, 0],
+  }
+  /** 비행 상태. `rate` 는 초당 m(건물 크기에 맞춘 기본값 × 휠로 바꾼 배수). */
+  let flying: { keys: Set<string>; base: number; scale: number; last: number | null; look: { x: number; y: number } | null } | null = null
+  const LOOK_RAD_PER_PX = Math.PI / 600
+  function stepFly(now: number) {
+    if (!flying) return
+    const moving = [...flying.keys].filter((k) => k in FLY_KEYS)
+    if (!moving.length) {
+      flying.last = null
+      return
+    }
+    const dt = flying.last === null ? 1 / 60 : Math.min(0.1, (now - flying.last) / 1000)
+    flying.last = now
+    const fast = flying.keys.has('ShiftLeft') || flying.keys.has('ShiftRight') ? 3 : 1
+    const step = flying.base * flying.scale * fast * dt
+    const forward = new Vector3().subVectors(controls.target, camera.position).normalize()
+    const right = new Vector3().crossVectors(forward, camera.up).normalize()
+    const move = new Vector3()
+    for (const k of moving) {
+      const [x, y, z] = FLY_KEYS[k]
+      move.addScaledVector(right, x).addScaledVector(camera.up, y).addScaledVector(forward, z)
+    }
+    if (move.lengthSq() === 0) return
+    move.normalize().multiplyScalar(step)
+    camera.position.add(move)
+    controls.target.add(move)
+    controls.update()
+    dirty = true
+  }
+  function onFlyDown(e: PointerEvent) {
+    if (!flying || (e.button !== 0 && e.button !== 2)) return
+    flying.look = { x: e.clientX, y: e.clientY }
+  }
+  function onFlyMove(e: PointerEvent) {
+    if (!flying?.look || !e.buttons) {
+      if (flying) flying.look = null
+      return
+    }
+    const dx = e.clientX - flying.look.x
+    const dy = e.clientY - flying.look.y
+    flying.look = { x: e.clientX, y: e.clientY }
+    // 제자리에서 고개를 돌린다: 눈은 그대로, 보는 점(target)을 눈 둘레로 돌린다.
+    const dir = tmpDir.subVectors(controls.target, camera.position)
+    const s = new Spherical().setFromVector3(dir)
+    s.theta -= dx * LOOK_RAD_PER_PX
+    s.phi = Math.min(Math.PI - 0.05, Math.max(0.05, s.phi + dy * LOOK_RAD_PER_PX))
+    controls.target.copy(camera.position).add(dir.setFromSpherical(s))
+    controls.update()
+    dirty = true
+  }
+  function onFlyUp() {
+    if (flying) flying.look = null
+  }
+  function onFlyWheel(e: WheelEvent) {
+    if (!flying) return
+    e.preventDefault()
+    flying.scale = Math.min(20, Math.max(0.05, flying.scale * (e.deltaY < 0 ? 1.25 : 0.8)))
+  }
+  canvas.addEventListener('pointerdown', onFlyDown)
+  canvas.addEventListener('pointermove', onFlyMove)
+  window.addEventListener('pointerup', onFlyUp)
+  canvas.addEventListener('wheel', onFlyWheel, { passive: false })
+  const MAP_BUTTONS = { ...controls.mouseButtons }
 
   // --- 되돌리기의 미끄러짐 ---
   // 되돌린 설비(와 따라온 배관)가 순간이동하지 않고 원래 자리로 미끄러진다. 꼭짓점을 두 배열 사이에서 섞는다.
@@ -2243,6 +2357,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       /** 지금 도는 움직임(카메라 비행·미끄러지는 설비 수·번쩍이는 방 수). */
       /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
       camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
+      flying: () => (flying ? { keys: [...flying.keys], scale: flying.scale } : null),
       motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, ...fx.motion(), started }),
       part: (id: string) => {
         const part = partById.get(id)
@@ -2855,12 +2970,60 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     topView() {
-      const box = new Box3()
-      for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
-      for (const o of slabs.children) if (o.visible) box.expandByObject(o)
-      if (box.isEmpty()) box.setFromObject(content)
+      const box = visibleBox()
       // 바로 위는 OrbitControls 가 위쪽 방향을 잃는다. +z(IFC −y) 쪽으로 아주 조금 기울여 화면 위쪽이 IFC +y 가 되게 한다.
       if (!box.isEmpty()) fit(box, true, new Vector3(0, 1, 0.02))
+    },
+
+    viewFrom(dir) {
+      const box = visibleBox()
+      if (box.isEmpty()) return
+      const from = new Vector3(...dir)
+      if (from.lengthSq() === 0) return
+      // 바로 위·아래는 위쪽 방향을 잃는다(topView 와 같다). 앞(+z) 쪽으로 아주 조금 기울인다.
+      if (!from.x && !from.z) from.z = 0.02
+      fit(box, true, from)
+    },
+
+    attachNavCube(el) {
+      navCube?.dispose()
+      const cube = createNavCube(el, {
+        pick: (dir) => this.viewFrom(dir),
+        orbit: orbitBy,
+        dark: () => document.documentElement.getAttribute('data-theme') === 'dark',
+      })
+      navCube = cube
+      dirty = true
+      return () => {
+        cube.dispose()
+        if (navCube === cube) navCube = null
+      }
+    },
+
+    setFly(on) {
+      if (on === !!flying) return
+      if (on) {
+        flight = null
+        // 빠르기는 보이는 것 크기에 맞춘다 — 성수와 집 한 채가 같은 m/s 면 한쪽은 기어가고 한쪽은 튄다. 휠로 바꾼다.
+        const radius = visibleBox().getBoundingSphere(new Sphere()).radius
+        flying = { keys: new Set(), base: Math.max(1, radius * 0.25), scale: 1, last: null, look: null }
+        controls.mouseButtons = { LEFT: -1 as MOUSE, MIDDLE: -1 as MOUSE, RIGHT: -1 as MOUSE }
+        controls.enableZoom = false
+        canvas.style.cursor = 'crosshair'
+      } else {
+        flying = null
+        controls.mouseButtons = { ...MAP_BUTTONS }
+        controls.enableZoom = true
+        canvas.style.cursor = ''
+      }
+      dirty = true
+    },
+
+    flyKey(code, down) {
+      if (!flying) return
+      if (code === null) flying.keys.clear()
+      else if (down) flying.keys.add(code)
+      else flying.keys.delete(code)
     },
 
     setRooms(model, selected, conflict = null) {
@@ -3146,6 +3309,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       running = false
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('blur', onBlur)
+      window.removeEventListener('pointerup', onFlyUp)
+      canvas.removeEventListener('pointerdown', onFlyDown)
+      canvas.removeEventListener('pointermove', onFlyMove)
+      canvas.removeEventListener('wheel', onFlyWheel)
+      navCube?.dispose()
       if (import.meta.env.MODE === 'e2e') delete (window as unknown as { __viewer?: unknown }).__viewer
       controls.removeEventListener('change', invalidate)
       controls.dispose()

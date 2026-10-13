@@ -181,7 +181,7 @@ test('사람이 그린 룸과 놓은 추가 공간 오브젝트가 GeoJSON 에 �
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
   // 회의실(2..6, 1..4) 안에 룸 하나, 그 옆에 책상 하나
   await toSpace(page)

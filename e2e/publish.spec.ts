@@ -397,7 +397,7 @@ test('물리존 공간명을 고쳐 반영하면 그 버전의 공간 계층(탐
   await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
 
   // 사무실 바닥을 골라 공간명을 고친다.
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const at = (await page.evaluate(() => (window as any).__viewer.point([5, 4, 0.1]))) as { x: number; y: number }
   await page.mouse.click(at.x, at.y)
   const panel = page.locator('.space-picked')

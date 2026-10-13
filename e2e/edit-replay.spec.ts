@@ -20,7 +20,7 @@ async function open(page: Page) {
 const row = (page: Page, name: string) => page.locator('.equipment tbody tr', { hasText: name }).last()
 async function pick(page: Page, name: string) {
   await row(page, name).getByRole('button', { name, exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
 }
 const coords = async (page: Page, name: string) =>
   Promise.all([0, 1, 2].map(async (i) => Number(await row(page, name).locator('.coord').nth(i).inputValue())))
@@ -124,7 +124,7 @@ test('벽·문·창 장면은 그 자리로 카메라를 보내고 외곽선 층
   test.setTimeout(120_000)
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const clickFloor = async (x: number, y: number) => {
     const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
     await page.mouse.click(at.x, at.y)
@@ -179,7 +179,7 @@ test('벽·문·창 장면은 그 자리로 카메라를 보내고 외곽선 층
   // 반복 중에는 카메라가 첫 바퀴에만 그 자리로 간다. 사람이 다가가면(휠) 그 시점이 다음 바퀴에도 그대로다 — 저절로 돌지도 않는다.
   await expect(hud).toHaveAttribute('data-at', '1', { timeout: 15_000 })
   await page.waitForTimeout(800)
-  const canvas = (await page.locator('.viewport canvas').boundingBox())!
+  const canvas = (await page.locator('.canvas-wrap > canvas').boundingBox())!
   await page.mouse.move(canvas.x + canvas.width / 2, canvas.y + canvas.height / 2)
   await page.mouse.wheel(0, -400)
   await page.waitForTimeout(600)
@@ -230,7 +230,7 @@ test('끝 화면의 빛기둥을 누르면 카드를 누른 것처럼 그 장면
   await page.waitForTimeout(2500)
   const at = await page.evaluate((p) => (window as any).__viewer.point(p), [x, y, z + 1])
   await page.mouse.move(at.x, at.y)
-  await expect(page.locator('.viewport canvas')).toHaveCSS('cursor', 'pointer')
+  await expect(page.locator('.canvas-wrap > canvas')).toHaveCSS('cursor', 'pointer')
   await page.mouse.click(at.x, at.y)
   await expect(hud).toHaveAttribute('data-loop', '0')
   await expect(hud).toHaveAttribute('data-phase', 'play')
@@ -353,7 +353,7 @@ test('● 녹화는 처음부터 끝 화면까지 찍어 영상(mp4, 안 되면 
   test.setTimeout(120_000)
   // 화면 공유는 사람이 고르는 창이라 시험에서는 3D 캔버스 스트림으로 바꿔 끼운다. 녹화·멈춤·내려받기 흐름을 본다.
   await page.addInitScript(() => {
-    navigator.mediaDevices.getDisplayMedia = async () => (document.querySelector('.viewport canvas') as HTMLCanvasElement).captureStream(30)
+    navigator.mediaDevices.getDisplayMedia = async () => (document.querySelector('.canvas-wrap > canvas') as HTMLCanvasElement).captureStream(30)
   })
   const errors = await open(page)
   await page.keyboard.press('e')

@@ -52,7 +52,7 @@ test('취소하면 편집이 이어지고, 임시 저장은 브라우저에 남�
   await expect(dialog(page)).not.toBeVisible()
   await expect(page.locator('.edit-bar')).toBeVisible()
 
-  await page.locator('.viewport canvas').click({ position: { x: 5, y: 5 } })
+  await page.locator('.canvas-wrap > canvas').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('KeyE')
   await expect(dialog(page)).toBeVisible()
   await dialog(page).getByRole('button', { name: '임시 저장' }).click()

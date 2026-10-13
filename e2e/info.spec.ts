@@ -121,7 +121,7 @@ test('좌표가 없는 설비를 3D 바닥을 눌러 놓는다', async ({ page }
   // 놓기는 편집 팔레트의 미배치 목록에서 한다(OE-EQP-02).
   await page.getByRole('button', { name: /미배치 \d+대/ }).click()
   await page.getByRole('list', { name: '미배치 설비' }).getByRole('button', { name: 'TEMP-101-01' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   const at = await page.evaluate(() => (window as any).__viewer.point([6, 5, 0]))
   await page.mouse.click(at.x, at.y)
@@ -153,7 +153,7 @@ test('좌표 없는 설비는 미배치 목록에 있고 3D 에 그리지 않으
   await page.getByRole('button', { name: /미배치 \d+대/ }).click()
   await page.getByRole('list', { name: '미배치 설비' }).getByRole('button', { name: 'TEMP-101-01' }).click()
   await expect(page.locator('.picked')).toContainText('TEMP-101-01')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   const at = await page.evaluate(() => (window as any).__viewer.point([6, 5, 0]))
   await page.mouse.click(at.x, at.y)
@@ -170,7 +170,7 @@ test('좌표 없는 설비는 미배치 목록에 있고 3D 에 그리지 않으
 test('물리존 꼭짓점을 넣고 지운다(Insert·Delete)', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const floor = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))
   await page.mouse.click(floor.x, floor.y)
   await expect(page.locator('.space-picked')).toContainText('사무실')

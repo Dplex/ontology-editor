@@ -1587,10 +1587,32 @@ function note(text: string) {
   keyNoteTimer = window.setTimeout(() => (keyNote.value = ''), 2600)
 }
 
+// --- 비행 모드 ---
+// G 로 켜고 끈다. 켜져 있는 동안 W·A·S·D·Q·E(와 Shift)는 이동이라 단축키로 보내지 않는다 — W(내력벽)·E(보기↔편집)·D(방향
+// 미리보기)는 쉰다. 글자 칸에서는 그대로 글자다. 리플레이를 열거나 평면도로 가면 끈다.
+const flying = ref(false)
+const FLY_CODES = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'ShiftLeft', 'ShiftRight'])
+function setFlying(on: boolean) {
+  if (flying.value === on) return
+  flying.value = on
+  viewer?.setFly(on)
+  note(on ? '비행 모드 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · G·Esc 나가기' : '비행 모드를 껐습니다')
+}
+function onKeyUp(e: KeyboardEvent) {
+  if (flying.value && FLY_CODES.has(e.code)) viewer?.flyKey(e.code, false)
+}
+window.addEventListener('keyup', onKeyUp)
+onBeforeUnmount(() => window.removeEventListener('keyup', onKeyUp))
+
 function onKey(e: KeyboardEvent) {
   if (e.isComposing || !model.value) return
   if (replayOpen.value) {
     if (replay.key(e)) e.preventDefault()
+    return
+  }
+  if (flying.value && FLY_CODES.has(e.code) && !isTextEntry(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) {
+    viewer?.flyKey(e.code, true)
+    e.preventDefault()
     return
   }
   // 글자 칸의 Esc 는 칸에서 나온다. 좌표를 넣은 뒤 마우스 없이 다음 단축키(N, U …)로 이어 가게 한다.
@@ -1654,11 +1676,19 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       searchInput.value.focus()
       return true
     case 'escape':
+      if (flying.value) {
+        setFlying(false)
+        return true
+      }
       return clearSelection()
     case 'frame':
       return frameSelection()
     case 'frameAll':
       viewer?.frameAll()
+      return true
+    case 'fly':
+      if (activeTab.value !== '3d') return false
+      setFlying(!flying.value)
       return true
     case 'rules':
       showRules.value = !showRules.value
@@ -4602,6 +4632,17 @@ watch(viewStorey, () => (ceilingMode.value ? viewer?.topView() : viewer?.frameAl
 // 3D 와 같은 상태(viewStorey, selectedId)를 쓴다. 꼭짓점 끌기는 3D 에서 놓는 것과 같은 길(dropVertex — 자기 교차
 // 막기, cm 로 자르기, 되돌리기 이력)을 탄다.
 const activeTab = ref<'3d' | 'plan'>('3d')
+// 비행 모드는 3D 에서만이다. 리플레이는 제 카메라를 쓴다.
+watch([replayOpen, activeTab], ([open, tab]) => {
+  if (open || tab !== '3d') setFlying(false)
+})
+/** 3D 오른쪽 위 방향 큐브의 캔버스. 뷰어가 있고 캔버스가 뜨면 붙인다. */
+const cubeCanvas = ref<HTMLCanvasElement | null>(null)
+// 모델이 있느냐만 본다 — 편집마다 다시 붙이면 WebGL 문맥을 편집마다 새로 만든다. 뷰어는 위의 watch([model, canvas]) 가 먼저 만든다.
+watch([cubeCanvas, () => !!model.value], ([el], _, onCleanup) => {
+  if (!el || !viewer) return
+  onCleanup(viewer.attachNavCube(el))
+})
 // 편집 리플레이(PoC). 진행은 lib/replay-player.ts 가 하고, 여기서는 빌려줄 것만 넘긴다. 쓰는 것이 다 선언된 뒤라 여기서 부른다.
 const replay = useReplay({
   get viewer() {
@@ -9155,6 +9196,22 @@ function rollbackFromReport() {
         <section :class="['viewport', { theater: replayOpen }]">
           <div class="canvas-wrap">
             <canvas v-show="activeTab === '3d'" ref="canvas"></canvas>
+            <!-- 방향 큐브(nav-cube.ts)와 비행 모드. 면·모서리·꼭짓점을 누르면 그 방향에서 보고, 끌면 돈다. 3D 일 때만, 리플레이 극장에서는 뺀다. -->
+            <div v-if="model && activeTab === '3d' && !replayOpen" class="nav-cube" data-testid="nav-cube">
+              <canvas ref="cubeCanvas" aria-label="방향 큐브 — 면을 누르면 그 방향에서 보고, 끌면 돕니다"></canvas>
+              <button
+                type="button"
+                :class="['ghost', 'fly-toggle', { on: flying }]"
+                :aria-pressed="flying"
+                title="비행 모드 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게"
+                @click="setFlying(!flying)"
+              >
+                비행 <kbd>G</kbd>
+              </button>
+            </div>
+            <p v-if="flying" class="fly-badge" role="status" data-testid="fly-badge">
+              <b>비행 모드</b> · WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게 · <kbd>G</kbd>·<kbd>Esc</kbd> 나가기
+            </p>
             <ReplayHud v-if="replayOpen" v-bind="replay.hud.value" v-on="replay.hudOn" />
             <!-- 평면도. 3D 와 탭으로 갈아 끼우고, 층 하나를 골랐을 때만 그린다. -->
             <FloorPlan

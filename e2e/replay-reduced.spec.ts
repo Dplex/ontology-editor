@@ -12,7 +12,7 @@ test('움직임 줄이기에서도 리플레이가 끝까지 돌고, 빛기둥 �
   // 편집 둘(AHU-1 옮기기 · 사무실 꼭짓점 지우기). 움직임 줄이기라 옮기기는 미끄러지지 않고 바로 놓인다.
   await page.keyboard.press('e')
   await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.keyboard.press('Shift+ArrowRight')
   await page.waitForTimeout(1800)
   const floor = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))
