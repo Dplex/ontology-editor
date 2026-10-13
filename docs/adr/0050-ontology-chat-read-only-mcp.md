@@ -1,14 +1,14 @@
 ---
 id: "ADR-0050"
-title: "온톨로지 질의는 반영한 TTL 을 읽기만 하는 MCP 로 55 의 gemini 에 붙이고, 답마다 쓴 질의를 보이며, 같은 질의를 받는 쪽 DT 파서가 읽는 만큼에도 돌려 질문 시험대로 잰다"
+title: "온톨로지 질의는 반영한 TTL(고르면 반영 전 지금 화면도)을 읽기만 하는 MCP 로 55 의 gemini 에 붙이고, 답마다 쓴 질의를 보이며, 같은 질의를 받는 쪽 DT 파서가 읽는 만큼에도 돌려 질문 시험대로 잰다"
 status: "제안"
 date: "2026-10-11"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-SPC-10"]
 criteria: []
-code: ["scripts/onto-graph.mjs", "scripts/onto-mcp.mjs", "scripts/onto-sources.mjs", "scripts/onto-questions.mjs", "scripts/onto-bench.mjs", "scripts/docs-chat.mjs", "scripts/docs-chat.js", "scripts/serve.mjs", "src/viewer/ExportViewer.vue"]
-tests: ["scripts/onto-graph.test.ts", "scripts/onto-chat.test.ts", "e2e/viewer.spec.ts"]
+code: ["scripts/onto-graph.mjs", "scripts/onto-mcp.mjs", "scripts/onto-sources.mjs", "scripts/onto-screen.mjs", "src/App.vue", "scripts/onto-questions.mjs", "scripts/onto-bench.mjs", "scripts/docs-chat.mjs", "scripts/docs-chat.js", "scripts/serve.mjs", "src/viewer/ExportViewer.vue"]
+tests: ["scripts/onto-graph.test.ts", "scripts/onto-chat.test.ts", "e2e/viewer.spec.ts", "e2e/onto-screen.spec.ts"]
 related: ["ADR-0001", "ADR-0037", "ADR-0049"]
 ---
 
@@ -24,6 +24,10 @@ DT 화면이 실제로 묻는 것은 질문이다 — "AHU-1 은 어디 있어"(
 우리에게는 받는 쪽이 하나 더 있다. ADR-0049 의 측정대로 받는 쪽 DT 파서는 우리 TTL 의 26~29% 만 읽는다. 우리 TTL 에 답이 있어도
 DT 에서는 사라지는 질문이 있는지가 "BIM 으로 DT 온톨로지가 어디까지 되나" 의 마지막 칸이다.
 
+처음에는 반영본만 읽게 했다. 2026-10-13 에 55 에서 성수를 [편집 저장] 까지만 하고 물었더니 반영본이 0개라 "조회할 건물이 없다" 만
+돌아왔다. 편집하는 사람이 묻고 싶은 것은 반영 전 지금 화면이고, 다음 단계(말로 편집 시키기 — "1F A룸에 공조기 설치해줘")도 gemini 가
+지금 화면의 "A룸" 이 무엇인지 알아야 한다. 그래서 "지금 화면 (반영 전)" 을 출처로 더했다.
+
 제약은 ADR-0001 과 같다. 55 에는 gemini CLI(사내 계정)만 있고 npm 레지스트리에 닿지 않으며 node 는 TS 를 바로 못 돌린다.
 8084 는 사내망 누구나 연다.
 
@@ -34,8 +38,16 @@ DT 에서는 사라지는 질문이 있는지가 "BIM 으로 DT 온톨로지가 
   그 정책 파일은 그대로다.
 - **gemini 가 쓸 수 있는 도구는 반영한 온톨로지를 읽기만 하는 MCP 서버(`scripts/onto-mcp.mjs`) 하나다.** 정책
   `scripts/onto-chat.policy.toml` 은 전역 deny + `onto` 만 허용으로, 문서 챗봇 정책과 같은 모양이다. 고치는 도구는 없다.
-- **읽는 것은 반영본이다.** `data/.layouts/<열쇠>/current.json` 이 가리키는 버전의 `ontology.ttl`(ADR-0037) — "DT 에 반영된 것" 이다.
-  창은 건물을 고르고, 서버가 목록에 있는 이름만 질문 앞에 붙인다. 앱 상태(열어 둔 BIM, 편집 중인 것)는 여전히 보내지 않는다.
+- **읽는 것은 반영본, 그리고 묻는 사람이 고르면 지금 화면이다.** 반영본은 `data/.layouts/<열쇠>/current.json` 이 가리키는 버전의
+  `ontology.ttl`(ADR-0037) — "DT 에 반영된 것" 이다. 창은 건물을 고르고, 서버가 목록에 있는 이름만 질문 앞에 붙인다.
+- **지금 화면 (반영 전)은 창이 올린다(2026-10-13 더함).** 창의 건물 고르기 맨 앞에 "지금 화면 (반영 전)" 이 있고, 고르면 묻기 전에 편집
+  화면이 만든 TTL(App.vue 의 `window.__oe.screen()`, [TTL] 내려받기와 같은 글)을 `POST /__ask/screen?token=…` 로 올린다
+  (`scripts/onto-screen.mjs`). 서버는 그것을 OS 임시 폴더에 토큰 이름으로 두고 gemini 의 도구가 `ONTO_SCREENS` 로 출처로 읽는다
+  (`source = screen-<토큰>`). 질문 본문(64KB)에 싣지 않는 것은 크기 때문이다 — 성수 화면 TTL 이 4.8MB(만드는 데 0.45초)다.
+  - 버전이 아니고 남기지 않는다. 토큰은 탭마다 하나, 같은 글이면 다시 올리지 않고, 2시간 동안 안 올린 것은 다음 업로드 때 지운다(40개까지).
+  - **다른 사람의 화면은 보이지 않는다.** 화면 기준은 출처 목록(`onto_sources`, `GET /__ask`)에 내지 않고, source 를 안 준 질문의 기본값도
+    반영본이다. 없는 건물을 물었을 때의 "있는 것" 에도 넣지 않는다 — 넣었더니 gemini 가 없는 건물 대신 다른 탭의 화면으로 답했다.
+  - 서버는 화면 기준 질문 앞에 "반영 전 지금 편집 화면의 온톨로지다" 를 붙이고, gemini 는 답 첫머리에 "반영 전 화면 기준" 이라고 밝힌다.
 - **도구는 그래프를 묻는 다섯 가지다**: 한눈에(`onto_overview`), 이름으로 찾기(`onto_find`), 한 대상의 관계(`onto_describe`),
   술어를 따라 걷기(`onto_walk`), triple 패턴 질의(`onto_query`, SPARQL 의 기본 그래프 패턴). 답에는 쓴 질의를 그대로 붙이게 한다
   (`scripts/onto-chat.md`) — Nomic 의 "SQL 을 보여 준다" 를 패턴으로 한다.
@@ -52,8 +64,9 @@ DT 에서는 사라지는 질문이 있는지가 "BIM 으로 DT 온톨로지가 
 
 - **SPARQL 엔진(Comunica·Oxigraph)을 붙인다** — 55 에서 npm 으로 받을 수 없고, 우리 TTL 은 writer 가 정해진 모양이라 의존성 없는
   읽기로 충분하다. 패턴 질의는 조인·필터·세기까지다. OPTIONAL·경로식이 필요해지면 그때 다시 본다.
-- **편집 화면(src)에 패널을 넣고 열어 둔 모델에 묻는다** — 편집 중인 상태는 DT 에 반영된 것이 아니다. AI Agent 사용자가 묻는
-  대상은 반영본이고, ADR-0001 과 같은 이유로 앱이 서버를 아는 길을 만들지 않는다.
+- **편집 화면(src)에 질의 패널을 따로 넣는다** — 창은 문서 챗봇과 하나로 둔다. 앱은 지금 화면의 TTL 을 `window.__oe` 로 내줄 뿐
+  서버를 부르지 않는다(올리는 것은 창이다).
+- **질문마다 TTL 을 질문 본문에 싣는다** — 성수 4.8MB 를 질문마다 보내게 되고, 본문 한도(64KB)를 크게 늘려야 한다.
 - **TTL 원문을 통째로 프롬프트에 넣는다** — 성수 TTL 이 5.5MB 다. 넣을 수 있어도 세기·조인을 모델이 눈으로 하게 되어 틀린다.
 - **문서 챗봇의 MCP 서버(docs)에 도구를 더한다** — 정책을 넓히지 않고 되지만, 문서와 온톨로지는 묻는 사람도 답하는 법도 다르다.
   프롬프트를 섞으면 둘 다 나빠진다.
@@ -67,4 +80,9 @@ DT 에서는 사라지는 질문이 있는지가 "BIM 으로 DT 온톨로지가 
   "A101호는 어디" 같은 운영자 질문이 DT 쪽에서는 답이 없다. 로봇 통과(Q12)는 TTL 밖(GeoJSON)이다. Duplex 는 흐름 방향이 없어
   상류·담당 공간(Q7·Q8)을 물을 대상이 없다.
 - gemini 채점은 gemini 가 되는 곳(55)에서 `npm run onto:bench -- --ask` 로 잰다. 이 PC 의 개인 계정 gemini 는 막혀 있다.
-- 되돌리려면 `serve.mjs` 의 `/__ask` 와 창의 [온톨로지] 칸을 빼면 된다. 앱 코드(src)는 건드리지 않았다.
+- 2026-10-13 55 의 gemini 채점(편집 화면이 만든 TTL 그대로, 질문할 대상이 있는 질문만): Duplex 8/8 평균 10.6초, 성수 11/11 평균 13.9초.
+  화면 기준 경로(`/__ask/screen` 으로 성수 5.1MB 를 올리고 "1F 에 있는 설비 어떤거야?")도 55 에서 답했다 — 클래스별 수는 13종 모두 맞았지만
+  합계를 81 이라고 했다(맞는 값 86). 도구를 16번 불러 66.5초가 걸렸다. 수를 모델이 더하게 두면 틀린다.
+- 되돌리려면 `serve.mjs` 의 `/__ask`·`/__ask/screen` 과 창의 [온톨로지] 칸을 빼면 된다. 앱 코드(src)는 `window.__oe` 하나다.
+- 시험대와 8084 를 같은 폴더에서 같이 띄우면 둘이 gemini 설정 파일(`run/onto-chat/.gemini/settings.json`)을 같이 써서 나중에 뜬 쪽의 MCP 설정으로
+  덮인다. 55 에서 시험대를 돌릴 때는 다른 폴더에 스크립트를 두고 돌린다(2026-10-13 에 이것 때문에 Duplex 질문이 성수 화면으로 답했다).

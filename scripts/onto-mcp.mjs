@@ -36,7 +36,8 @@ function open(source) {
   const published = all.filter((s) => !s.screen)
   const pick = source ? all.find((s) => s.source === source || s.title === source) : published.slice().sort((a, b) => String(b.at).localeCompare(String(a.at)))[0]
   if (!source && !pick) return { error: '반영한 온톨로지가 없다(편집 화면에서 [구축하기](처음) 또는 [반영하기])' }
-  if (!pick) return { error: `${source} 가 없다. 있는 것: ${all.map((s) => s.source).join(', ')}` }
+  // 있는 것에 화면 기준은 넣지 않는다 — 넣었더니 gemini 가 없는 건물 대신 다른 탭의 반영 전 화면으로 답했다(2026-10-13, 55 시험대).
+  if (!pick) return { error: `${source} 가 없다. 있는 것: ${published.map((s) => s.source).join(', ') || '(반영본 없음)'}` }
   const mtime = statSync(pick.file).mtimeMs
   const had = cache.get(pick.file)
   if (had && had.mtime === mtime) return had

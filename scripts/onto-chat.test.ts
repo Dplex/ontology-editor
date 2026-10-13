@@ -133,21 +133,24 @@ describe('지금 화면 (반영 전)', () => {
   })
 
   it('도구는 화면 기준을 목록에 내지 않지만 source 로 주면 읽는다. source 를 안 주면 반영본이다', async () => {
-    const [src, found, overview] = await new Promise<{ result?: { content: { text: string }[] } }[]>((done) => {
+    const [src, found, overview, missing] = await new Promise<{ result?: { content: { text: string }[] } }[]>((done) => {
       const child = spawn(process.execPath, [resolve(ROOT, 'scripts/onto-mcp.mjs')], { env: { ...process.env, ONTO_DATA: data, ONTO_SCREENS: screens }, stdio: ['pipe', 'pipe', 'ignore'] })
       const out: never[] = []
       let buf = ''
       child.stdout.on('data', (d) => {
         buf += d
         for (let nl; (nl = buf.indexOf('\n')) >= 0; buf = buf.slice(nl + 1)) out.push(JSON.parse(buf.slice(0, nl)) as never)
-        if (out.length === 3) { child.kill(); done(out) }
+        if (out.length === 4) { child.kill(); done(out) }
       })
-      for (const r of [call(1, 'onto_sources', {}), call(2, 'onto_find', { text: 'AHU', source: `screen-${token}` }), call(3, 'onto_overview', {})])
+      for (const r of [call(1, 'onto_sources', {}), call(2, 'onto_find', { text: 'AHU', source: `screen-${token}` }), call(3, 'onto_overview', {}), call(4, 'onto_find', { text: 'AHU', source: 'duplex' })])
         child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...r })}\n`)
     })
     expect(body(src).sources.map((s: { source: string }) => s.source)).toEqual(['0123456789ab'])
     expect(body(found).results[0]).toMatchObject({ label: 'AHU-1' })
     expect(JSON.stringify(body(overview))).toContain('0123456789ab')
+    // 없는 건물을 물었을 때 "있는 것" 에 화면 토큰을 내지 않는다 — 냈더니 gemini 가 다른 탭의 반영 전 화면으로 답했다
+    expect(missing.result!.content[0].text).toContain('0123456789ab')
+    expect(missing.result!.content[0].text).not.toContain('screen-')
   })
 
   it('두 시간 넘게 안 올린 화면은 다음에 누가 올릴 때 지운다', async () => {
