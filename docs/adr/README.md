@@ -122,3 +122,4 @@ related: []             # 같이 읽어야 하는 ADR(바꾸거나 바뀐 ADR �
 | [0054](0054-capacity-check-inputs.md) | 용량 검증 Z-03 은 사이트가 적은 설계 풍량·정격 풍량만 CMH 로 바꿔 쓰고, 설비마다 담당 공조존의 설계 풍량 합과 견주며, 값이 없으면 무엇이 없는지 적은 판정 불가로 둔다. Revit 의 단위 없는 풍량은 내부 단위 ft³/s 로 읽는다 | 제안 |
 | [0055](0055-non-fluid-connections-review.md) | 흐름 없는 기기에 닿은 형상 연결은 버리지 않고 따로 두어 종류가 바뀔 때마다 다시 가르고, 유체 흐름이 아닌 BIM 포트·사람 연결은 지우지 않고 검토 대상으로 표시해 brick:feeds 에서만 뺀다 | 제안 |
 | [0056](0056-edits-do-not-orphan-equipment.md) | "물리존에 속하지 않은 설비가 없다" 는 편집이 소속 없는 설비를 새로 만들지 않는 것으로 재고, 지우기·경계 줄이기로 생긴 고아는 그 자리에서 알려 합치기를 권한다 | 제안 |
+| [0058](0058-api-only-workflows-on-shared-runner.md) | API 만 부르는 Activity·Kanban 워크플로는 사내 공용 러너 code-linux 에서 돌리고, 55 러너에는 55 를 만지는 Review 만 남긴다 | 채택 |

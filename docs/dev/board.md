@@ -13,7 +13,7 @@ CLAUDE.md 에서 옮겼다. 이슈를 만들거나, PR 을 열거나, 라벨·�
 
 **상태는 Todo → In Progress → In Review → Done 이고, In Progress 다음은 PR 이 옮긴다.** 손대기 시작하면 카드를
 In Progress 로 손으로 옮긴다(이것만 사람 몫). 티켓마다 main 에서 브랜치(`feature/OE-OBJ-06-bearing-lock` 처럼)를 갈라 작업하고,
-PR 본문에 `Closes #n` 을 넣어 연다. 그다음은 `.github/workflows/kanban.yml` 이 카드를 따라 옮긴다(55 러너 `dt-dev`):
+PR 본문에 `Closes #n` 을 넣어 연다. 그다음은 `.github/workflows/kanban.yml` 이 카드를 따라 옮긴다(공용 러너 `code-linux`, ADR-0058):
 
 | 일 | 카드 |
 |---|---|
