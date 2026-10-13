@@ -180,6 +180,12 @@ export type EquipmentRole =
  * (Duplex MEP 926대 중 785대). "설비 926대" 로 DT 에 나가면 기기가 여섯 배로 부푼다.
  * 온톨로지 쪽에서도 자리가 다르다 — 기기는 Brick, 도관은 FSO 가 맡는다.
  */
+/**
+ * 배치점이 자기 형상에서 이만큼 넘게 떨어져 있으면 배치점을 믿지 않는다(미터, OE-BIM-12 · K5). 임포터(ifc/import.ts 의 anchorToGeometry)가 쓰고
+ * 화면이 까닭에 보인다. 천장 설비의 삽입점이 몸체 윗면에 있는 정도는 정상이라 조금 여유를 둔다.
+ */
+export const ANCHOR_MARGIN = 0.5
+
 export function isConduit(role: EquipmentRole | null): boolean {
   return role === 'segment' || role === 'fitting'
 }
@@ -273,6 +279,11 @@ export type Equipment = {
    * `'panel'` 은 좌표가 없는 분전반 안 부품(보호기)을 같은 층에 하나뿐인 분전반 자리에 놓은 것이다(OE-BIM-07, import.ts 의 placeInPanels).
    */
   positionSource?: 'geometry' | 'edited' | 'panel'
+  /**
+   * 배치점 보정(OE-BIM-12)으로 좌표를 형상 중심으로 바꿨으면 BIM 원본 배치점과 형상까지의 거리(미터, 기준 0.5m 를 넘은 값). 화면이 원본·보정
+   * 위치와 까닭을 보인다. 보정하지 않았으면 키가 없다. 사람이 옮겨도 남는다 — 원본 배치점은 BIM 이 말한 값이라서다.
+   */
+  anchored?: { from: Vec3; off: number }
   /**
    * 설계 풍량 등 용량 파라미터. `null` 이면 BIM 에 안 적혀 있다.
    * PRD #6 의 "용량 파라미터 누락 설비" 이고, 공조존 용량 검증(Z-03)이 이 값에 걸린다.

@@ -255,7 +255,7 @@ test('물리존 하나를 공조존 둘이 담당하면 물리존 패널에 둘 
   const zones = page.locator('.space-picked').getByTestId('space-zones')
   await expect(zones).toContainText('공조존 1')
   await expect(zones).toContainText('공조존 2')
-  await expect(zones).toContainText('편집')
+  await expect(zones).toContainText('사람')
   expect(errors).toEqual([])
 })
 

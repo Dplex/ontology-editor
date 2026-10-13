@@ -10,6 +10,7 @@
 // "층에 속한다" 는 말인데 IFC 가 관계를 나눠 놓아서, 한쪽만 읽으면 절반이 빈다.
 
 import * as WebIFC from 'web-ifc'
+import { ANCHOR_MARGIN } from '../model'
 import type {
   Connection,
   Equipment,
@@ -148,11 +149,8 @@ export function readMeshes(
   return out
 }
 
-/**
- * 배치점이 자기 형상에서 이만큼 넘게 떨어져 있으면 배치점을 믿지 않는다(미터).
- * 천장 설비의 삽입점이 몸체 윗면에 있는 정도는 정상이라 조금 여유를 둔다.
- */
-export const ANCHOR_MARGIN = 0.5
+// 배치점 보정 기준(미터)은 화면도 보이므로 web-ifc 를 들이지 않는 model.ts 에 둔다.
+export { ANCHOR_MARGIN } from '../model'
 
 /**
  * 배치점이 자기 형상 밖에 있는 설비는 형상의 중심을 좌표로 쓴다. 고친 대수를 돌려준다.
@@ -188,6 +186,8 @@ export function anchorToGeometry(equipment: Equipment[], meshes: MeshMap): numbe
     const off = Math.max(minX - px, px - maxX, minY - py, py - maxY, minZ - pz, pz - maxZ)
     if (off <= ANCHOR_MARGIN) continue
 
+    // 원본 배치점과 떨어진 거리를 남긴다(OE-BIM-12 "원본 삽입점과 보정 배치점을 보존"). 화면이 둘을 나란히 보인다.
+    e.anchored = { from: [px, py, pz], off: Math.round(off * 1000) / 1000 }
     e.position = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2]
     e.positionSource = 'geometry'
     fixed++

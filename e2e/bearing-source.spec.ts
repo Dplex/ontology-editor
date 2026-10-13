@@ -33,7 +33,7 @@ test('BIM 벽의 내력 여부를 바꾸면 출처가 편집이 되고 잠기며
   await expect(src).toHaveText('BIM')
 
   await bearing.selectOption('true')
-  await expect(src).toHaveText('편집')
+  await expect(src).toHaveText('사람')
   await expect(panel.getByTestId('wall-locked')).toBeVisible()
 
   await bearing.selectOption('false')

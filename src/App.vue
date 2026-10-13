@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRaw, triggerRef, watch, type Directive } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
-import { countOf, isConduit, polygonArea, segmentPath, segmentRest, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
+import { ANCHOR_MARGIN, countOf, isConduit, polygonArea, segmentPath, segmentRest, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
 import { labelBadges, placeLabels, type LabelBadge } from './lib/equipment-labels'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile'
@@ -4091,7 +4091,7 @@ function applyAssign(id: string, raw: string) {
   }
   remember(raw ? `${shortName(name)} 소속 지정` : `${shortName(name)} 소속 지정 지우기`, snapshot, at)
   triggerRef(model)
-  note(raw ? `${name}의 소속을 ${spaceNameOf(raw)}(으)로 정했습니다(출처 편집). 옮기면 지정이 지워집니다` : `${name}의 소속 지정을 지웠습니다. 좌표로 다시 판정합니다`)
+  note(raw ? `${name}의 소속을 ${spaceNameOf(raw)}(으)로 정했습니다(출처 사람). 옮기면 지정이 지워집니다` : `${name}의 소속 지정을 지웠습니다. 좌표로 다시 판정합니다`)
 }
 /** 리포트의 사람 지정 줄. BIM 에는 사람 지정이 없으니 지정이 있는 설비가 전부 편집이다. */
 const assignLines = computed(() =>
@@ -10882,6 +10882,14 @@ function rollbackFromReport() {
                     </template>
                   </dd>
                 </div>
+                <!-- 배치점 보정(OE-BIM-12). BIM 배치점이 형상에서 기준(0.5m)보다 멀어 형상 중심을 좌표로 쓴 설비. 원본과 보정 위치, 까닭을 같이 보인다. -->
+                <div v-if="selected.anchored" data-testid="anchored">
+                  <dt>배치점</dt>
+                  <dd>
+                    형상 중심 <span class="mono">({{ selected.position ? selected.position.map((v) => mmOf(v).toFixed(2)).join(', ') : '—' }})</span> <Src kind="calc" />
+                    <span class="muted">— BIM 배치점 <span class="mono">({{ selected.anchored.from.map((v) => mmOf(v).toFixed(2)).join(', ') }})</span> <Src kind="bim" />이 형상에서 {{ selected.anchored.off.toFixed(2) }}m 떨어져(기준 {{ ANCHOR_MARGIN }}m 초과) 형상 중심을 씁니다</span>
+                  </dd>
+                </div>
               </dl>
             </div>
             <div class="picked-actions">
@@ -13194,7 +13202,7 @@ function rollbackFromReport() {
                       v-if="layaPicks(t.key).length"
                       class="suggest laya"
                       :class="{ unsure: layaResults.get(t.key)!.confidence < LAYA_SURE }"
-                      :title="`Laya(${layaState?.model ?? ''})가 단서 글로 고른 종류와 확률입니다. 누르면 이 패밀리 전체에 붙습니다(출처 편집).`"
+                      :title="`Laya(${layaState?.model ?? ''})가 단서 글로 고른 종류와 확률입니다. 누르면 이 패밀리 전체에 붙습니다(출처 사람).`"
                     >
                       Laya<template v-if="layaResults.get(t.key)!.confidence < LAYA_SURE"> · 자신 없음</template>:
                       <button
