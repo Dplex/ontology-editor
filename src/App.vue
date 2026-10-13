@@ -4453,7 +4453,7 @@ onBeforeUnmount(() => viewer?.dispose())
 // --- 온톨로지 챗의 답을 이 3D 에서 보기 (R4, ADR-0063) ---
 // 55 의 챗봇 창(scripts/docs-chat.js, dist 에 끼워 넣는 부속)이 [온톨로지] 답의 `ex:…` id 를 여기에 넘긴다. 열어 둔 BIM 에 그 id 가
 // 있으면 고르고 그 자리로 시점을 옮기고, 무엇을 했는지 돌려준다(창이 "3D 동작" 칩으로 적는다). 브라우저 안에서만 오가고 서버로는
-// 아무것도 보내지 않는다 — 앱 상태를 서버에 넘기지 않는다는 ADR-0050 그대로다. 열어 둔 BIM 에 없는 id 는 세기만 한다.
+// 아무것도 보내지 않는다(서버로 가는 앱 상태는 질문과 함께 보내는 지금 화면의 id 뿐이다, ADR-0050 · viewForChat). 열어 둔 BIM 에 없는 id 는 세기만 한다.
 type Editor3dResult = { equipment: number; spaces: number; storeys: number; missing: number; label: string }
 function showFromChat(ids: readonly string[]): Editor3dResult {
   const m = model.value
@@ -4935,7 +4935,10 @@ let shownHidden: ReadonlySet<string> = new Set()
 function applyStoreyFilter() {
   const m = model.value
   if (!viewer || !m) return
-  const extra = filterOn.value ? filteredOut(m, viewFilter.value) : null
+  // 리플레이는 건물 전체 3D 에서 열고 장면마다 그 층으로 들어간다(replay-player 가 viewStorey 만 쓴다). 보기 필터·다중층 뷰는 편집 화면의
+  // 상태라 리플레이 동안은 보지 않는다. 값을 고치지 않으니 닫으면 그대로 돌아온다.
+  const replaying = replayOpen.value
+  const extra = filterOn.value && !replaying ? filteredOut(m, viewFilter.value) : null
   const merge = (hidden: Set<string>) => {
     if (extra) for (const id of extra) hidden.add(id)
     return hidden
@@ -4945,7 +4948,7 @@ function applyStoreyFilter() {
     viewer!.setStoreyFilter(storeys, hidden)
   }
   // 다중층 뷰면 보기 범위의 층들이다(OE-ML-01).
-  const range = multiRange.value
+  const range = replaying ? null : multiRange.value
   if (range) {
     // 수직 관통 오브젝트의 형상·지점을 그리는 동안에는 그 층 위를 걷어 낸다. 위층 판이 덮으면 찍은 점이 안 보이고, 바닥에 대면
     // 위층 방이 떠서 어느 층에 찍는지 헷갈렸다(2026-10-13, 병원 1층에 계단을 그릴 때).
@@ -4958,7 +4961,7 @@ function applyStoreyFilter() {
   const id = viewStorey.value
   if (!id || !m.storeys.some((s) => s.id === id)) {
     // 모든 층을 볼 때만 보기 필터의 층 칸이 먹는다.
-    const picked = viewFilter.value.storeys
+    const picked = replaying ? null : viewFilter.value.storeys
     if (picked) {
       const ids = new Set(picked)
       send(ids, merge(new Set(m.storeys.filter((s) => !ids.has(s.id)).flatMap((s) => s.equipment.map((e) => e.id)))))
@@ -4972,7 +4975,7 @@ const verticalDrawAt = computed(() => {
   const d = drawing.value
   return d && (d.purpose === 'verticalFootprint' || d.purpose === 'verticalPoint') ? d.storeyId : null
 })
-watch([viewStorey, model, sceneVersion, () => multiRange.value, viewFilter, verticalDrawAt], applyStoreyFilter)
+watch([viewStorey, model, sceneVersion, () => multiRange.value, viewFilter, verticalDrawAt, replayOpen], applyStoreyFilter)
 // 걸러 보는 중에 고른 설비가 숨으면 고르기를 푼다 — 안 보이는 것이 패널에 남아 있으면 무엇을 고쳤는지 모른다.
 watch(viewFilter, () => {
   if (selectedId.value && shownHidden.has(selectedId.value)) selectedId.value = null
@@ -5002,6 +5005,24 @@ watch(viewFilter, () => {
 })
 watch([model, sceneVersion], () => {
   if (exploded.value && !viewer?.exploded()) exploded.value = false
+})
+// 리플레이 동안은 분해도를 접고 다중층 뷰의 손잡이를 끈다(건물 전체 3D 에서 튼다 — 보기 필터는 applyStoreyFilter). 닫으면 되살린다.
+// 닫을 때 리플레이가 뷰어 편집 모드를 editing 으로만 돌려서, 다중층 뷰였으면 여기서 다시 맞춘다(위 watch([multiView, editing]) 와 같은 값).
+let explodeAfterReplay = false
+watch(replayOpen, (open) => {
+  if (open) {
+    explodeAfterReplay = exploded.value
+    if (exploded.value) {
+      viewer?.setExplode(null)
+      exploded.value = false
+    }
+    viewer?.setHandleEdit(false)
+    return
+  }
+  viewer?.setEditMode(editing.value && !multiView.value)
+  viewer?.setHandleEdit(editing.value && !!multiView.value)
+  if (explodeAfterReplay) exploded.value = explodeNow()
+  explodeAfterReplay = false
 })
 
 // --- 3D 우클릭 메뉴 (E3) ---
