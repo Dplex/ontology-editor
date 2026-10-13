@@ -1,0 +1,159 @@
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('furniture.ifc','2026-09-22T00:00:00',(''),(''),'','ontology-editor fixture','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+/* 단위와 표현 문맥 */
+#1= IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#2= IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.);
+#3= IFCUNITASSIGNMENT((#1,#2));
+#4= IFCCARTESIANPOINT((0.,0.,0.));
+#5= IFCDIRECTION((0.,0.,1.));
+#6= IFCDIRECTION((1.,0.,0.));
+#7= IFCAXIS2PLACEMENT3D(#4,#5,#6);
+#8= IFCDIRECTION((0.,1.));
+#9= IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#7,#8);
+
+/* 공간 계층: 프로젝트 > 대지 > 건물 > 층 */
+#10= IFCPROJECT('0PoC$Project$00000000','$',$,$,$,$,$,(#9),#3);
+#11= IFCLOCALPLACEMENT($,#7);
+#12= IFCSITE('0PoC$Site$000000000000',$,'\X2\D3C4C9C0\X0\','$',$,#11,$,$,.ELEMENT.,$,$,$,$,$);
+#13= IFCLOCALPLACEMENT(#11,#7);
+#14= IFCBUILDING('0PoC$Building$0000000',$,'PoC Building',$,$,#13,$,$,.ELEMENT.,$,$,$);
+
+/* 1층은 원점, 2층은 3m 위. 두 층의 배치가 다르면 사슬 접기가 검증된다. */
+#15= IFCLOCALPLACEMENT(#13,#7);
+#16= IFCBUILDINGSTOREY('0PoC$Storey$1F$00000',$,'1F',$,$,#15,$,$,.ELEMENT.,0.);
+#17= IFCCARTESIANPOINT((0.,0.,3.));
+#18= IFCAXIS2PLACEMENT3D(#17,#5,#6);
+#19= IFCLOCALPLACEMENT(#13,#18);
+#20= IFCBUILDINGSTOREY('0PoC$Storey$2F$00000',$,'2F',$,$,#19,$,$,.ELEMENT.,3.);
+
+/* 1층 회의실: 원점에서 (2,1) 만큼 옮기고 회전은 없다. 4m x 3m. */
+#21= IFCCARTESIANPOINT((2.,1.,0.));
+#22= IFCAXIS2PLACEMENT3D(#21,#5,#6);
+#23= IFCLOCALPLACEMENT(#15,#22);
+#24= IFCCARTESIANPOINT((0.,0.));
+#25= IFCCARTESIANPOINT((4.,0.));
+#26= IFCCARTESIANPOINT((4.,3.));
+#27= IFCCARTESIANPOINT((0.,3.));
+#28= IFCPOLYLINE((#24,#25,#26,#27,#24));
+#29= IFCGEOMETRICCURVESET((#28));
+#30= IFCSHAPEREPRESENTATION(#9,'FootPrint','GeometricCurveSet',(#29));
+#31= IFCPRODUCTDEFINITIONSHAPE($,$,(#30));
+#32= IFCSPACE('0PoC$Space$Meeting$000',$,'101','$',$,#23,#31,'\X2\D68CC758C2E4\X0\',.ELEMENT.,.SPACE.,$);
+
+/* 1층 복도: RefDirection (0,-1) 로 -90도 돌려 놓는다. 회전까지 타야 값이 맞는다. */
+#33= IFCCARTESIANPOINT((10.,8.,0.));
+#34= IFCDIRECTION((0.,-1.,0.));
+#35= IFCAXIS2PLACEMENT3D(#33,#5,#34);
+#36= IFCLOCALPLACEMENT(#15,#35);
+#37= IFCCARTESIANPOINT((0.,0.));
+#38= IFCCARTESIANPOINT((6.,0.));
+#39= IFCCARTESIANPOINT((6.,2.));
+#40= IFCCARTESIANPOINT((0.,2.));
+#41= IFCPOLYLINE((#37,#38,#39,#40,#37));
+#42= IFCGEOMETRICCURVESET((#41));
+#43= IFCSHAPEREPRESENTATION(#9,'FootPrint','GeometricCurveSet',(#42));
+#44= IFCPRODUCTDEFINITIONSHAPE($,$,(#43));
+#45= IFCSPACE('0PoC$Space$Corridor$00',$,'102',$,$,#36,#44,'\X2\BCF5B3C4\X0\',.ELEMENT.,.SPACE.,$);
+
+/* 2층 창고: FootPrint 가 없다. 외곽선을 못 만드는 경우를 픽스처가 직접 담는다. */
+#46= IFCLOCALPLACEMENT(#19,#7);
+#47= IFCSPACE('0PoC$Space$Store$00000',$,'201',$,$,#46,$,'\X2\CC3DACE0\X0\',.ELEMENT.,.SPACE.,$);
+
+/* 벽 넷: 1층 셋(하나만 내력벽, 하나는 명시적 비내력, 하나는 속성 없음) + 2층 하나 */
+#50= IFCWALLSTANDARDCASE('0PoC$Wall$Bearing$000',$,'W-1F-01',$,$,#15,$,'W1',.NOTDEFINED.);
+#51= IFCWALLSTANDARDCASE('0PoC$Wall$Partition$00',$,'W-1F-02',$,$,#15,$,'W2',.NOTDEFINED.);
+#52= IFCWALLSTANDARDCASE('0PoC$Wall$Unknown$000',$,'W-1F-03',$,$,#15,$,'W3',.NOTDEFINED.);
+#53= IFCWALLSTANDARDCASE('0PoC$Wall$2F$00000000',$,'W-2F-01',$,$,#19,$,'W4',.NOTDEFINED.);
+
+/* 문 하나, 창 둘 */
+#60= IFCDOOR('0PoC$Door$000000000000',$,'D-1F-01',$,$,#15,$,'D1',2.1,0.9,.DOOR.,.SINGLE_SWING_LEFT.,$);
+#61= IFCWINDOW('0PoC$Window$1F$0000000',$,'WD-1F-01',$,$,#15,$,'N1',1.5,1.2,.WINDOW.,.NOTDEFINED.,$);
+#62= IFCWINDOW('0PoC$Window$2F$0000000',$,'WD-2F-01',$,$,#19,$,'N2',1.5,1.2,.WINDOW.,.NOTDEFINED.,$);
+
+/* Pset_WallCommon. #50 은 참, #51 은 거짓, #52 는 아예 선언이 없다. 외벽 여부(IsExternal)도 같다 — #50 외벽, #51 내벽, #52 모름. */
+#70= IFCPROPERTYSINGLEVALUE('LoadBearing',$,IFCBOOLEAN(.T.),$);
+#76= IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.T.),$);
+#71= IFCPROPERTYSET('0PoC$Pset$Bearing$000',$,'Pset_WallCommon',$,(#70,#76));
+#72= IFCRELDEFINESBYPROPERTIES('0PoC$Rel$Pset$Bear$000',$,$,$,(#50),#71);
+#73= IFCPROPERTYSINGLEVALUE('LoadBearing',$,IFCBOOLEAN(.F.),$);
+#77= IFCPROPERTYSINGLEVALUE('IsExternal',$,IFCBOOLEAN(.F.),$);
+#74= IFCPROPERTYSET('0PoC$Pset$Partition$0',$,'Pset_WallCommon',$,(#73,#77));
+#75= IFCRELDEFINESBYPROPERTIES('0PoC$Rel$Pset$Part$000',$,$,$,(#51),#74);
+
+/* 재료 구성. IFC 는 벽 두께를 기하가 아니라 여기에 둔다.
+   #50 은 200mm 한 층, #51 은 100mm + 50mm 두 층이라 합이 150mm 다. */
+#100= IFCMATERIAL('Concrete',$,$);
+#101= IFCMATERIALLAYER(#100,0.2,$,'Bearing',$,$,$);
+#102= IFCMATERIALLAYERSET((#101),'Ext-200',$);
+#103= IFCMATERIALLAYERSETUSAGE(#102,.AXIS2.,.POSITIVE.,0.,$);
+#104= IFCRELASSOCIATESMATERIAL('0PoC$Rel$Mat$W1$0000',$,$,$,(#50),#103);
+#105= IFCMATERIAL('Gypsum',$,$);
+#106= IFCMATERIALLAYER(#105,0.1,$,'Board',$,$,$);
+#107= IFCMATERIALLAYER(#105,0.05,$,'Insulation',$,$,$);
+#108= IFCMATERIALLAYERSET((#106,#107),'Int-150',$);
+#109= IFCMATERIALLAYERSETUSAGE(#108,.AXIS2.,.POSITIVE.,0.,$);
+#110= IFCRELASSOCIATESMATERIAL('0PoC$Rel$Mat$W2$0000',$,$,$,(#51),#109);
+
+/* 개구부. 벽에 구멍을 내고(#RelVoids) 그 구멍을 문·창으로 채운다(#RelFills).
+   한 단계만 보면 문이 어느 벽에 있는지 알 수 없다. #52 는 일부러 비워 둔다. */
+#120= IFCOPENINGELEMENT('0PoC$Opening$D01$000',$,'O-D1',$,$,#15,$,'O1',.OPENING.);
+#121= IFCRELVOIDSELEMENT('0PoC$Rel$Voids$D01$00',$,$,$,#50,#120);
+#122= IFCRELFILLSELEMENT('0PoC$Rel$Fills$D01$00',$,$,$,#120,#60);
+#123= IFCOPENINGELEMENT('0PoC$Opening$W01$000',$,'O-N1',$,$,#15,$,'O2',.OPENING.);
+#124= IFCRELVOIDSELEMENT('0PoC$Rel$Voids$W01$00',$,$,$,#51,#123);
+#125= IFCRELFILLSELEMENT('0PoC$Rel$Fills$W01$00',$,$,$,#123,#61);
+
+/* 공간 경계. 이 물리존을 어떤 부재가 둘러쌌는지를 BIM 이 직접 말해 준다.
+   #130 은 부재가 없는 경계다(바깥 공기). 경계가 아니라 열린 면이므로 세지 않는다. */
+#130= IFCRELSPACEBOUNDARY('0PoC$Rel$Bnd$Air$0000',$,$,$,#32,$,$,.PHYSICAL.,.EXTERNAL.);
+#131= IFCRELSPACEBOUNDARY('0PoC$Rel$Bnd$M$W1$000',$,$,$,#32,#50,$,.PHYSICAL.,.EXTERNAL.);
+#132= IFCRELSPACEBOUNDARY('0PoC$Rel$Bnd$M$W2$000',$,$,$,#32,#51,$,.PHYSICAL.,.INTERNAL.);
+#133= IFCRELSPACEBOUNDARY('0PoC$Rel$Bnd$M$W2b$00',$,$,$,#32,#51,$,.PHYSICAL.,.INTERNAL.);
+#134= IFCRELSPACEBOUNDARY('0PoC$Rel$Bnd$C$W3$000',$,$,$,#45,#52,$,.PHYSICAL.,.INTERNAL.);
+
+/* 분해 관계: 층과 공간을 묶는다 */
+#80= IFCRELAGGREGATES('0PoC$Rel$Proj$Site$00',$,$,$,#10,(#12));
+#81= IFCRELAGGREGATES('0PoC$Rel$Site$Bldg$00',$,$,$,#12,(#14));
+#82= IFCRELAGGREGATES('0PoC$Rel$Bldg$Storey$',$,$,$,#14,(#16,#20));
+#83= IFCRELAGGREGATES('0PoC$Rel$1F$Spaces$00',$,$,$,#16,(#32,#45));
+#84= IFCRELAGGREGATES('0PoC$Rel$2F$Spaces$00',$,$,$,#20,(#47));
+
+/* 방 분류: OmniClass Table 13(docs/requirements.ids 의 R14). 창고는 이름과 분류가 같은 것을 말하고,
+   회의실은 분류가 사무실(13-15 11 34 11)이라고 말한다 — 이름이 더 좁게 말하므로 이름이 이긴다. */
+#85= IFCCLASSIFICATION('OCCS',$,$,'OmniClass',$,$,$);
+#86= IFCCLASSIFICATIONREFERENCE($,'13-75 11 11','Storage Room',#85,$,$);
+#87= IFCRELASSOCIATESCLASSIFICATION('0PoC$Rel$Class$Store$0',$,$,$,(#47),#86);
+#88= IFCCLASSIFICATIONREFERENCE($,'13-15 11 34 11','Office',#85,$,$);
+#89= IFCRELASSOCIATESCLASSIFICATION('0PoC$Rel$Class$Meet$00',$,$,$,(#32),#88);
+
+/* 포함 관계: 층과 벽·문·창을 묶는다 */
+/* 가구 둘(e2e/bim-objects.spec.ts). 1층 회의실 (2..6, 1..4) 안에 둔다.
+   책상은 (3, 2) 를 가운데로 1.2 x 0.6 x 0.75m, 바닥에 선다. 상부장은 (5, 3.2) 를 가운데로 0.8 x 0.4 x 0.6m, 바닥에서 1.4m 뜬다. */
+#200= IFCCARTESIANPOINT((0.,0.));
+#201= IFCAXIS2PLACEMENT2D(#200,$);
+#202= IFCRECTANGLEPROFILEDEF(.AREA.,$,#201,1.2,0.6);
+#203= IFCEXTRUDEDAREASOLID(#202,#7,#5,0.75);
+#204= IFCSHAPEREPRESENTATION(#9,'Body','SweptSolid',(#203));
+#205= IFCPRODUCTDEFINITIONSHAPE($,$,(#204));
+#206= IFCCARTESIANPOINT((3.,2.,0.));
+#207= IFCAXIS2PLACEMENT3D(#206,#5,#6);
+#208= IFCLOCALPLACEMENT(#15,#207);
+#209= IFCFURNITURE('0PoC$Furn$Desk$0000000',$,'Desk:Office Desk:1001',$,$,#208,#205,$,.NOTDEFINED.);
+#210= IFCRECTANGLEPROFILEDEF(.AREA.,$,#201,0.8,0.4);
+#211= IFCEXTRUDEDAREASOLID(#210,#7,#5,0.6);
+#212= IFCSHAPEREPRESENTATION(#9,'Body','SweptSolid',(#211));
+#213= IFCPRODUCTDEFINITIONSHAPE($,$,(#212));
+#214= IFCCARTESIANPOINT((5.,3.2,1.4));
+#215= IFCAXIS2PLACEMENT3D(#214,#5,#6);
+#216= IFCLOCALPLACEMENT(#15,#215);
+#217= IFCFURNITURE('0PoC$Furn$Cabinet$0000',$,'Cabinet:Upper:1002',$,$,#216,#213,$,.NOTDEFINED.);
+
+#90= IFCRELCONTAINEDINSPATIALSTRUCTURE('0PoC$Rel$1F$Elements$',$,$,$,(#50,#51,#52,#60,#61,#209,#217),#16);
+#91= IFCRELCONTAINEDINSPATIALSTRUCTURE('0PoC$Rel$2F$Elements$',$,$,$,(#53,#62),#20);
+ENDSEC;
+END-ISO-10303-21;

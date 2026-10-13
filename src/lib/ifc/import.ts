@@ -1870,7 +1870,6 @@ function read(
       const all = [...bimObjectsOf.values()].flat()
       const objMeshes = readMeshes(api, model, new Set(all.map((o) => o.expressID)), globalIdOf)
       let noShape = 0
-      let furniture = 0
       for (const storey of result.storeys) {
         for (const o of bimObjectsOf.get(storey.id) ?? []) {
           const mesh = objMeshes.get(o.id)
@@ -1895,10 +1894,8 @@ function read(
               source: 'bim' as const,
             },
           ]
-          if (!contextProxies.has(o.expressID)) furniture++
         }
       }
-      if (furniture) warnings.push(`가구 ${furniture}개(IfcFurnishingElement)를 추가 공간 오브젝트로 받았습니다. 온톨로지에는 GeoJSON 에만 나가고 TTL 에는 넣지 않습니다.`)
       if (noShape) warnings.push(`가구·주변 모델 ${noShape}개는 형상이 없어 추가 공간 오브젝트로 받지 못했습니다.`)
     }
     const heights = storeyHeights(result.storeys)
