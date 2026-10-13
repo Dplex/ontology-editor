@@ -21,9 +21,9 @@ const shown = (p: Profile) => p.tiers.map((t) => [t.key, t.level, t.figure])
 describe('profileOf — 파일이 온톨로지를 어디까지 채우나', () => {
   it('건축 파일은 공간만 차고, 설비 칸은 해당 없음(—)이다', () => {
     const p = profileOf(read('two-rooms.ifc'))
-    // 창고는 외곽선이 없어 3개 중 2개다. 다 차지 않은 칸은 분수로 보인다.
+    // 창고는 외곽선이 없어 3개 중 2개다. 칩 숫자는 분자/분모 (%) 다(OE-BIM-16).
     expect(shown(p)).toEqual([
-      ['space', 'partial', '2/3'],
+      ['space', 'partial', '2/3 (66.7%)'],
       ['equipment', 'none', '—'],
       ['location', 'none', '—'],
       ['network', 'none', '—'],
@@ -38,15 +38,17 @@ describe('profileOf — 파일이 온톨로지를 어디까지 채우나', () =>
     // 좌표 없는 센서 하나가 설비·소속 칸을 4/5 로 만든다. 방향은 연결이 아니라 **기기**로 센다 —
     // 덕트로 다른 기기와 이어진 기기 셋(공조기, 토출구 둘) 중 흐름 방향으로 이어진 것은 공조기와
     // 첫 토출구 둘이다. 둘째 토출구는 SOURCEANDSINK 포트라 방향을 모른다. 규칙 방향은 거기에도 방향을 주지만 아직 확정 전이라,
-    // 목표선 칩은 두 수치를 출처와 같이 보인다 — BIM 포트로 2/3, 규칙(사전)까지 3/3 (OE-BIM-16). 칠은 앞 수치로 정한다.
+    // 본 숫자는 BIM 포트로 2/3 이고 미확정 규칙까지 넣은 3/3 은 판정에 안 쓰는 보조 숫자다(OE-BIM-16). 칠은 본 숫자로 정한다.
+    // 연결망은 계통에 든 기기다 — 기기 5대 중 AHU-1 급기 계통에 든 것이 3대다.
     expect(shown(p)).toEqual([
-      ['space', 'full', '1'],
-      ['equipment', 'partial', '4/5'],
-      ['location', 'partial', '4/5'],
-      ['network', 'full', '3'],
-      ['direction', 'partial', '2/3(BIM) → 3/3(사전)'],
+      ['space', 'full', '1/1 (100.0%)'],
+      ['equipment', 'partial', '4/5 (80.0%)'],
+      ['location', 'partial', '4/5 (80.0%)'],
+      ['network', 'partial', '3/5 (60.0%)'],
+      ['direction', 'partial', '2/3 (66.7%)'],
     ])
-    expect(p.tiers[4].note).toContain('확정 전 규칙 방향까지 넣으면 3대')
+    expect(p.tiers[4].aux).toEqual({ have: 3, of: 3, figure: '3/3 (100.0%)', source: 'rule' })
+    expect(p.tiers[4].note).toContain('미확정 규칙 방향까지 넣으면 3대')
     // 도관은 분모에 넣지 않는다. 기기 5대(덕트 1개는 따로)다.
     expect(p.tiers[1].of).toBe(5)
     expect(p.tiers[1].note).toContain('덕트·배관 1개는 제외')
@@ -61,14 +63,14 @@ describe('profileOf — 파일이 온톨로지를 어디까지 채우나', () =>
     }
     const p = profileOf(m)
     expect(p.needsArchitecture).toBe(true)
-    expect(p.tiers[2]).toMatchObject({ level: 'none', figure: '0/5' })
+    expect(p.tiers[2]).toMatchObject({ level: 'none', figure: '0/5 (0.0%)' })
     expect(p.tiers[2].note).toContain('건축 파일과 합쳐야')
   })
 
   it('합친 모델에도 같은 계산이 돈다', () => {
     const { model } = mergeModels(read('two-rooms.ifc'), read('mep.ifc'))
     // 회의실·복도(two-rooms) + 사무실(mep). 창고는 여전히 외곽선이 없다.
-    expect(profileOf(model).tiers[0]).toMatchObject({ have: 3, of: 4, figure: '3/4' })
+    expect(profileOf(model).tiers[0]).toMatchObject({ have: 3, of: 4, figure: '3/4 (75.0%)' })
   })
 })
 

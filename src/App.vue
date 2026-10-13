@@ -33,7 +33,7 @@ import { setSegmentShaft, shaftCandidates, shaftDeviations, shaftOf } from './li
 import { ttlTriples } from './lib/export/read-export'
 import { readOntologyTTL } from './lib/export/read-ttl'
 import { DEFAULT_SITE_RULES, siteWarnings, type SiteRules } from './lib/site-rules'
-import { DEFAULT_LINES, GATE, gradeReport, percent, TARGET, type GradeLines, type GradeReport } from './lib/grade'
+import { DEFAULT_LINES, GATE, gradeCounts, gradeReport, percent, TARGET, type GradeCounts, type GradeLines, type GradeReport } from './lib/grade'
 import HoverTip from './components/HoverTip.vue'
 import FloorPlan from './components/FloorPlan.vue'
 import Roll from './components/Roll.vue'
@@ -8785,6 +8785,18 @@ const unlocatedLine = computed(() => {
 // 모델 전체를 다시 재므로 병원 MEP(1만 3천 개)에서 한 번에 0.14초가 든다. 편집마다 재면 방향키를 누를 때마다
 // 그만큼 막힌다. 새 모델은 바로 재고, 편집은 멈춘 뒤(TIERS_DELAY) 한 번 잰다.
 const currentTiers = shallowRef<Profile['tiers']>([])
+// 연 때의 모델(pristine)을 센 것. 등급 칩·판정의 본 숫자(BIM + 계산)가 여기서 나오고, 지금 모델과 다르면 보정 후 값이 보조 숫자로 붙는다
+// (OE-BIM-16). pristine 은 열거나 덧붙일 때만 바뀌므로 그때 한 번 센다.
+let countedPristine: Model | null = null
+let pristineCountsCache: GradeCounts | undefined
+function pristineCounts(): GradeCounts | undefined {
+  if (!pristine) return undefined
+  if (pristine !== countedPristine) {
+    countedPristine = pristine
+    pristineCountsCache = gradeCounts(pristine)
+  }
+  return pristineCountsCache
+}
 // 요구사항 보고서(정본 4장). 등급 칩과 같은 때에 잰다 — 둘 다 모델 전체를 훑는다.
 const currentRequirements = shallowRef<RequirementRow[]>([])
 const TIERS_DELAY = 400
@@ -8802,7 +8814,7 @@ watch([model, flowVersion, versionStat, replayOpen], () => {
   // 편집 리플레이 중에는 재지 않는다(장면마다 모델 전체를 훑어 화면이 끊긴다). 닫으면 한 번 잰다.
   if (replayOpen.value) return
   const measure = () => {
-    currentTiers.value = profileOf(m).tiers
+    currentTiers.value = profileOf(m, pristineCounts()).tiers
     currentRequirements.value = requirementsReport(m, mergeReport.value, versionStat.value)
   }
   if (m !== tieredModel) {
@@ -9461,7 +9473,7 @@ watch(
   [model, changeCount, () => JSON.stringify(gradeLines.value)],
   () => {
     window.clearTimeout(gradeTimer)
-    gradeTimer = window.setTimeout(() => (grades.value = model.value ? gradeReport(model.value, gradeLines.value) : null), grades.value ? 300 : 0)
+    gradeTimer = window.setTimeout(() => (grades.value = model.value ? gradeReport(model.value, gradeLines.value, pristineCounts()) : null), grades.value ? 300 : 0)
   },
   { immediate: true },
 )
@@ -9482,7 +9494,7 @@ function resetGradeLines() {
 async function reportInput(withOutputs: boolean): Promise<ReportInput | null> {
   const m = model.value
   if (!m) return null
-  const g = grades.value ?? gradeReport(m, gradeLines.value)
+  const g = grades.value ?? gradeReport(m, gradeLines.value, pristineCounts())
   let outputs: ReportInput['outputs'] = null
   if (withOutputs) {
     const ttl = modelToTTL(m)
@@ -12155,7 +12167,8 @@ function rollbackFromReport() {
               <b>수용 기준선</b> · 게이트(등급 0~{{ GATE }}) <b>{{ grades.gate ? '통과' : '미달' }}</b> · 목표선(등급 {{ TARGET }}) {{ grades.target ? '도달' : '미도달' }}
               <span class="muted">(D1·D12 제안안)</span>
               <template v-if="grades.rows.some((r) => r.ratio === null)"> · 평가 불가 등급 {{ grades.rows.filter((r) => r.ratio === null).map((r) => r.grade).join('·') }}(셀 대상 없음)</template>
-              <template v-if="!grades.gate"> — 재제출: {{ grades.failing.map((r) => `등급 ${r.grade} ${r.label} ${r.why && !r.why.includes('<') ? r.why : percent(r.ratio)}`).join(' · ') }}</template>
+              <template v-if="grades.gate && !grades.bimGate"> · 원본 BIM 은 미달(보정 후 통과)</template>
+              <template v-if="!grades.bimGate"> — 재제출: {{ grades.bimFailing.map((r) => `등급 ${r.grade} ${r.label} ${r.why && !r.why.includes('<') ? r.why : percent(r.ratio)}`).join(' · ') }}</template>
             </span>
             <button type="button" class="link" :aria-expanded="gradesOpen" @click="gradesOpen = !gradesOpen">{{ gradesOpen ? '접기' : '등급 판정 보기' }}</button>
             <div v-if="gradesOpen" class="grade-table" data-testid="grade-table">
@@ -12163,7 +12176,8 @@ function rollbackFromReport() {
                 <li v-for="r in grades.rows" :key="r.grade" :class="{ fail: !r.pass, gate: r.grade <= GATE }">
                   <div>
                     <b>{{ r.grade }} {{ r.label }}</b><span class="muted">{{ r.grade <= GATE ? ' · 게이트' : r.grade === TARGET ? ' · 목표선' : '' }}</span> —
-                    BIM {{ r.of ? `${r.have}/${r.of} · ` : '' }}{{ percent(r.ratio) }}<template v-if="r.withDictionary"> · 사전 포함 {{ percent(r.withDictionary.ratio) }}</template>
+                    {{ r.grade <= GATE ? 'BIM' : 'BIM 포트·확정' }} {{ r.of ? `${r.have}/${r.of} · ` : '' }}{{ percent(r.ratio) }}
+                    <span v-if="r.aux" class="aux-figure" data-testid="grade-aux">({{ r.aux.source === 'rule' ? '미확정 규칙' : '보정 후' }} {{ r.aux.have }}/{{ r.aux.of }} · {{ percent(r.aux.ratio) }} · 목표에 안 셈)</span>
                     · 통과선
                     <input
                       type="number"
@@ -12176,11 +12190,14 @@ function rollbackFromReport() {
                       @change="gradeLines = { ...gradeLines, [r.grade]: Math.min(100, Math.max(0, Number(($event.target as HTMLInputElement).value))) / 100 }"
                     />% · <b>{{ r.ratio === null ? '평가 불가(막지 않음)' : r.pass ? '통과' : r.grade <= GATE ? '미달' : '미달(경고)' }}</b>
                   </div>
-                  <div class="muted">{{ r.measure }}<template v-if="!r.pass && r.grade <= GATE"> · 재제출: {{ r.resubmit }}</template></div>
+                  <div class="muted">
+                    {{ r.measure }}<template v-if="!r.pass && r.grade <= GATE"> · 재제출: {{ r.resubmit }}</template>
+                    <template v-if="r.dictKinds?.of"> · 계통 종류(사전) {{ r.dictKinds.have }}/{{ r.dictKinds.of }} · {{ percent(r.dictKinds.ratio) }}(판정에 안 씀)</template>
+                  </div>
                 </li>
               </ul>
               <p class="hint">
-                게이트(0~2)는 BIM·계산 수치로만 판정하고, 목표선(3·4)은 사전(이름 사전·흐름 규칙) 포함 수치를 같이 보입니다(D12 안). 통과선은 PRD 1.8 의 안(D1)이고 이 브라우저의
+                본 숫자로 판정합니다. 게이트(0~3)는 연 때의 BIM·계산 수치, 목표선(4)은 BIM 포트와 사람이 확정한 방향입니다. 괄호 안 보조 숫자(보정 후 · 미확정 규칙)는 판정에 쓰지 않습니다. [구축하기] 는 보정 후 수치로 막고 풉니다(D12 안). 통과선은 PRD 1.8 의 안(D1)이고 이 브라우저의
                 설정입니다. <button type="button" class="link" @click="resetGradeLines">기본값으로</button>
               </p>
             </div>

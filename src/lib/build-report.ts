@@ -6,7 +6,7 @@
 
 import type { CheckResult } from './checks'
 import type { GradeReport } from './grade'
-import { percent } from './grade'
+import { GATE, percent, TARGET } from './grade'
 import { countOf, isConduit, type Model } from './model'
 import type { RequirementRow } from './requirements'
 
@@ -81,8 +81,14 @@ export function generationReport(input: ReportInput): ReportSectionB[] {
       no: 2,
       title: '판정 등급',
       lines: [
-        `게이트(등급 2) ${grades.gate ? '통과' : '미달'} · 목표선(등급 3) ${grades.target ? '도달' : '미도달'} (D1·D12 제안안)`,
-        ...grades.rows.map((r) => `등급 ${r.grade} ${r.label}: ${percent(r.ratio)}${r.withDictionary ? ` (사전 포함 ${percent(r.withDictionary.ratio)})` : ''} / 통과선 ${Math.round(r.line * 100)}% ${r.pass ? '통과' : '미달'}`),
+        `게이트(등급 0~${GATE}) ${grades.gate ? '통과' : '미달'}${grades.gate && !grades.bimGate ? '(원본 BIM 은 미달, 보정 후 통과)' : ''} · 목표선(등급 ${TARGET}) ${grades.target ? '도달' : '미도달'} (D1·D12 제안안)`,
+        ...grades.rows.map(
+          (r) =>
+            `등급 ${r.grade} ${r.label}: ${r.of ? `${r.have}/${r.of} ` : ''}${percent(r.ratio)}` +
+            (r.aux ? ` (${r.aux.source === 'rule' ? '미확정 규칙' : '보정 후'} ${r.aux.have}/${r.aux.of} ${percent(r.aux.ratio)}, 목표에 안 셈)` : '') +
+            (r.dictKinds?.of ? ` · 계통 종류(사전) ${r.dictKinds.have}/${r.dictKinds.of}` : '') +
+            ` / 통과선 ${Math.round(r.line * 100)}% ${r.pass ? '통과' : '미달'}`,
+        ),
       ],
     },
     {

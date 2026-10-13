@@ -249,18 +249,29 @@ test('층별 요약에 층고를 출처와 같이 보이고, 모르면 모름이
   expect(errors).toEqual([])
 })
 
-test('등급 판정의 목표선 등급 3·4 는 BIM 과 사전 포함 두 수치를 같이 보이고, 게이트 등급 0~2 는 BIM 수치만이다 [OE-BIM-16#2]', async ({ page }) => {
+test('등급 칩과 등급 판정은 판정에 쓰는 본 숫자 하나를 분자/분모 (%) 로 보이고, 미확정 규칙 방향은 "목표에 안 셈" 보조 숫자로 따로 보인다 [OE-BIM-16#2] [OE-BIM-16#3] [OE-BIM-16#4]', async ({ page }) => {
   const errors = await open(page)
+  // 칩: mep.ifc 는 연결망 기기 3대 중 BIM 포트로 방향을 아는 것이 2대, 확정 전 규칙 방향까지 넣으면 3대다.
+  const chips = page.locator('.overview .tiers')
+  const direction = chips.locator('li[data-tier=direction]')
+  await expect(direction.locator('b')).toHaveText('2/3 (66.7%)')
+  await expect(direction.locator('.aux')).toHaveText('미확정 규칙 3/3 (100.0%) · 목표에 안 셈')
+  // 보정 전이라 다른 칩에는 보조 숫자가 없고, 어느 칩도 화살표로 잇지 않는다.
+  await expect(chips.locator('.aux')).toHaveCount(1)
+  expect(await chips.innerText()).not.toMatch(/→/)
+
   const banner = page.getByTestId('grade-banner')
   await banner.getByRole('button', { name: '등급 판정 보기' }).click()
   const rows = page.getByTestId('grade-table').locator('.grade-rows > li')
   await expect(rows).toHaveCount(5)
-  for (let g = 0; g < 5; g++) {
+  for (let g = 0; g < 4; g++) {
     const text = await rows.nth(g).locator('div').first().innerText()
     expect(text, `등급 ${g}`).toMatch(new RegExp(`^${g} `))
     expect(text, `등급 ${g}`).toContain('BIM ')
-    expect(text.includes('사전 포함'), `등급 ${g}`).toBe(g >= 3)
+    await expect(rows.nth(g).getByTestId('grade-aux'), `등급 ${g}`).toHaveCount(0)
   }
+  await expect(rows.nth(4).locator('div').first()).toContainText('BIM 포트·확정 2/3 · 66.7%')
+  await expect(rows.nth(4).getByTestId('grade-aux')).toHaveText('(미확정 규칙 3/3 · 100.0% · 목표에 안 셈)')
   expect(errors).toEqual([])
 })
 

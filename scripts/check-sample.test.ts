@@ -1105,26 +1105,29 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
   it('파일마다 어느 칸이 얼마나 차는지', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
+    // 순서: 공간 · 설비(좌표 있는 기기) · 소속(방을 찾은 기기) · 연결망(계통에 든 기기) ·
+    // 방향(덕트·배관으로 다른 기기와 이어진 기기 중 흐름 방향으로 이어진 기기 — deviceFlows 참조).
+    // 칩 숫자는 판정에 쓰는 본 숫자 하나를 분자/분모 (%) 로 보인다(OE-BIM-16). [ ] 는 판정에 안 쓰는 보조 숫자다.
     const chips = (path: string) =>
-      profileOf(importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model).tiers.map((t) => `${t.label} ${t.figure}`).join(' | ')
+      profileOf(importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model)
+        .tiers.map((t) => `${t.label} ${t.figure}${t.aux ? ` [${t.aux.source === 'rule' ? '미확정 규칙' : '보정 후'} ${t.aux.figure}]` : ''}`)
+        .join(' | ')
 
-    // 순서: 공간 · 설비(좌표 있는 기기) · 소속(방을 찾은 기기) · 연결망(연결 수) ·
-    // 방향(덕트·배관으로 다른 기기와 이어진 기기 중 흐름 방향으로 이어진 기기 — deviceFlows 참조)
-    expect(chips(SAMPLE)).toBe('공간 7 | 설비 — | 소속 — | 연결망 — | 방향 —')
-    expect(chips(DUPLEX_ARCH)).toBe('공간 19/21 | 설비 — | 소속 — | 연결망 — | 방향 —')
+    expect(chips(SAMPLE)).toBe('공간 7/7 (100.0%) | 설비 — | 소속 — | 연결망 — | 방향 —')
+    expect(chips(DUPLEX_ARCH)).toBe('공간 19/21 (90.5%) | 설비 — | 소속 — | 연결망 — | 방향 —')
     // 설비 전용. 방이 없어 소속이 0 이다. 연결 1,995개는 **전부** 방향을 아는데 기기 단위로는
     // 37/103 이다 — 나머지 66대는 난방·오수처럼 원천 기기(보일러·펌프)가 모델에 없는 망에 형제로만
     // 매달려서 "누가 이 기기에 공급하나" 에 답이 없다. 연결 단위(100%)로 보이면 DT 가 받는 것을
     // 크게 부풀려 말하게 된다.
-    expect(chips(MEP)).toBe('공간 — | 설비 297/308 | 소속 0/308 | 연결망 1995 | 방향 37/103')
+    expect(chips(MEP)).toBe('공간 — | 설비 297/308 (96.4%) | 소속 0/308 (0.0%) | 연결망 129/308 (41.9%) | 방향 37/103 (35.9%)')
     // 공간 1 은 지붕뿐이다. 기기 40대가 갈 방이 없다 — 건축 파일을 덧붙이면 소속 40 이 된다.
     // 연결 단위로는 39%(190/485)가 방향을 아는데, 기기에서 출발한 방향 사슬은 전부 중간의
     // SOURCEANDSINK 에서 끊긴다. 기기끼리 닿는 흐름은 0 이다.
-    expect(chips(DUPLEX_HVAC)).toBe('공간 1 | 설비 40 | 소속 0/40 | 연결망 485 | 방향 0/26')
-    // 목표선(방향) 칩은 두 수치다(OE-BIM-16): BIM 포트로 0/27, 규칙(사전)으로 짐작한 방향까지 23/27.
-    expect(chips(DUPLEX_MEP)).toBe('공간 22 | 설비 141 | 소속 141 | 연결망 783 | 방향 0/27(BIM) → 23/27(사전)')
+    expect(chips(DUPLEX_HVAC)).toBe('공간 1/1 (100.0%) | 설비 40/40 (100.0%) | 소속 0/40 (0.0%) | 연결망 40/40 (100.0%) | 방향 0/26 (0.0%)')
+    // 방향의 본 숫자는 BIM 포트로 0/27 이다. 확정 전 규칙 방향까지 넣은 23/27 은 판정에 안 쓰는 보조 숫자다(OE-BIM-16).
+    expect(chips(DUPLEX_MEP)).toBe('공간 22/22 (100.0%) | 설비 141/141 (100.0%) | 소속 141/141 (100.0%) | 연결망 44/141 (31.2%) | 방향 0/27 (0.0%) [미확정 규칙 23/27 (85.2%)]')
     // COBie 판본은 형상이 없다. 좌표도 외곽선도 0 인데 소속은 BIM 이 전부 말해 준다.
-    expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 | 설비 0/133 | 소속 133 | 연결망 0 | 방향 —')
+    expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 (0.0%) | 설비 0/133 (0.0%) | 소속 133/133 (100.0%) | 연결망 36/133 (27.1%) | 방향 —')
   }, 300_000)
 
   // OE-BIM-16 "목록 숫자 = 열람 숫자". 목록은 서버(data-catalog.ts)가 기본 옵션으로 재고, 열람은 워커가 화면의
