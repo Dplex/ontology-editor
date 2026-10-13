@@ -1,5 +1,5 @@
 ---
-id: "ADR-0058"
+id: "ADR-0060"
 title: "말로 편집 시키기는 gemini 가 답 끝에 편집 계획(JSON)을 붙이고, 창이 미리 보인 뒤 사람이 [적용] 을 눌러야 편집 화면이 여느 편집 함수로 실행한다 — 서버는 아무것도 실행하지 않는다"
 status: "제안"
 date: "2026-10-13"
@@ -12,7 +12,7 @@ tests: ["src/lib/edit-commands.test.ts", "e2e/edit-commands.spec.ts"]
 related: ["ADR-0050"]
 ---
 
-# ADR-0058 말로 편집 시키기
+# ADR-0060 말로 편집 시키기
 
 ## 맥락
 

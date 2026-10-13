@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
-// 말로 편집 시키기(ADR-0058). [온톨로지] 칸의 gemini 가 답 끝에 붙인 ```oe-edit 계획을 창이 미리 보이고, [적용] 을 누르면 편집 화면이
+// 말로 편집 시키기(ADR-0060). [온톨로지] 칸의 gemini 가 답 끝에 붙인 ```oe-edit 계획을 창이 미리 보이고, [적용] 을 누르면 편집 화면이
 // 여느 편집과 같은 함수로 실행한다. 창(scripts/docs-chat.js)은 8084 빌드에만 끼워 넣어서 dev 화면에 직접 끼우고, gemini 의 답은
 // page.route 로 흉내 낸다. 대상 id 는 픽스처(mep.ifc)의 것을 TTL 처럼 ex: 로 적는다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'

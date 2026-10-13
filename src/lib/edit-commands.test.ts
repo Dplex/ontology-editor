@@ -8,7 +8,7 @@ import { EQUIPMENT_KINDS } from './kinds'
 import type { Model } from './model'
 import { MAX_COMMANDS, parsePlan, previewPlan, resolveEquipment, resolveSpace } from './edit-commands'
 
-// 말로 편집 시키기(ADR-0058). gemini 가 붙인 ```oe-edit 블록을 읽고, 대상을 지금 모델에서 찾는다. 실행은 App.vue(e2e/edit-commands.spec.ts).
+// 말로 편집 시키기(ADR-0060). gemini 가 붙인 ```oe-edit 블록을 읽고, 대상을 지금 모델에서 찾는다. 실행은 App.vue(e2e/edit-commands.spec.ts).
 let model: Model
 beforeAll(async () => {
   const api = new WebIFC.IfcAPI()

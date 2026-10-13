@@ -75,7 +75,7 @@
     })
   }
   function renderBot(t) { return mode === 'onto' ? linkIds(render(hidePlan(t.text)), t.source) : render(t.text) }
-  // 말로 편집 시키기(ADR-0058). gemini 가 답 끝에 붙인 ```oe-edit 블록(JSON)은 글로 보이지 않고, 아래 상자에 사람이 읽을 줄과 [적용] 이 뜬다.
+  // 말로 편집 시키기(ADR-0060). gemini 가 답 끝에 붙인 ```oe-edit 블록(JSON)은 글로 보이지 않고, 아래 상자에 사람이 읽을 줄과 [적용] 이 뜬다.
   // 미리보기·적용은 편집 화면(App.vue 의 window.__oe.plan·apply)이 한다 — 이 창은 글을 넘기고 결과를 보일 뿐이다.
   function hidePlan(t) { return String(t).replace(/```oe-edit[\s\S]*?(```|$)/g, '') }
   function showPlan(bot, text) {
