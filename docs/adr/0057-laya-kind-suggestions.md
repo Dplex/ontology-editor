@@ -5,10 +5,10 @@ status: "제안"
 date: "2026-10-13"
 deciders: ["정희록"]
 prd: []
-tickets: ["OE-EQP-14", "OE-EQP-13"]
+tickets: ["OE-EQP-14", "OE-EQP-13", "OE-PIP-02"]
 criteria: ["OE-EQP-14#1"]
-code: ["src/lib/laya.ts", "src/lib/family-clues.ts", "scripts/laya-proxy.mjs", "scripts/laya/serve.py", "scripts/laya/train.py", "src/App.vue"]
-tests: ["e2e/laya-kinds.spec.ts", "e2e/laya-add.spec.ts"]
+code: ["src/lib/laya.ts", "src/lib/family-clues.ts", "src/lib/system-suggest.ts", "scripts/laya-proxy.mjs", "scripts/laya/serve.py", "scripts/laya/train.py", "src/App.vue"]
+tests: ["e2e/laya-kinds.spec.ts", "e2e/laya-add.spec.ts", "e2e/system-suggest.spec.ts"]
 related: []
 ---
 
@@ -81,6 +81,27 @@ related: []
   방열기 45%, "냉온수 헤더" → 냉동기 83%, "온도조절기" → 디퓨저 39% 다. 학습한 이름이 거의 영어 Revit 이름이고, 헤더·온도조절기는 라벨이 없다.
   이름 하나에 칩이 뜨기까지 0.35초(치기를 멈추고 0.15초 기다림 포함)다. 5% 아래 Laya 후보(`LAYA_MIN`)는 보이지 않는다 — 0% 칩이 자리를 채웠다.
 - 이름 칸을 팔레트(3D 왼쪽 아래)에 두었더니 팔레트가 커져 바닥을 가렸고, 바닥을 누른 것이 [천장] 토글에 떨어져 더하기가 취소됐다. 3D 왼쪽 위에 띄운다.
+
+## 계통 후보는 Laya 없이 거리 순으로 (2026-10-13 더함)
+
+계통이 없는 설비를 고르면 패널의 계통 상자 아래에 근처 계통 셋을 보인다(`system-suggest.ts`). 같은 층에서 15m 안에 구성원이 있는 계통을
+가장 가까운 구성원까지의 거리 순으로 놓는다. 누르면 상자에서 고른 것과 같다(출처 편집, OE-PIP-02). 성수는 계통이 1,037개라 상자에서 고르기 어렵다.
+
+**Laya 로 순서를 다시 매기지 않는다.** 가진 BIM 에서 계통이 있는 설비 960대(병원 400 · Duplex 55 · ifc4Mep 105 · 성수 400)를, 그 설비에 이미
+이어진 덕트·배관을 빼고(막 놓은 설비를 흉내 냄) 그 건물을 학습에서 빼고 쟀다. 한 설비가 계통 여럿에 들면 그중 어느 것이든 맞은 것으로 셌다.
+첫 후보 / 셋 안:
+
+| 방법 | 960대 |
+|---|---|
+| 가장 가까운 계통(지금 화면) | 608 / 897 |
+| Laya 가 후보 계통을 고름(후보 글에 거리 포함) | 병원만 123 / 263 (가장 가까운 계통 234 / 371) |
+| Laya 가 후보 계통을 고름(거리 빼고) × 거리 감쇠 exp(-d/0.5) | 541 / 888 |
+| Laya 가 계통 종류를 고름 → 그 종류 후보 중 가장 가까운 것 | 569 / 856 |
+| Laya 계통 종류 확률 × 거리 감쇠 exp(-d/0.5) | 582 / 864 |
+
+근처 후보끼리는 계통 종류도 대개 같아서(성수는 급기 계통만 753개, 이름은 "기계 급기 28" 처럼 번호만 다르다) 가르는 것이 거리뿐이다.
+ifc4Mep 만 Laya × 거리(τ=2)가 첫 후보 65 로 가장 가까운 계통 50 보다 나았다. 실험 코드는 `scripts/laya/train.py` 의 `--picks`·`--sysk` 와
+`combine_picks.py` 에 남긴다 — 학습 재료가 늘면 다시 잰다.
 
 ## 고려한 다른 길
 

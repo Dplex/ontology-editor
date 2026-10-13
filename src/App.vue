@@ -75,6 +75,7 @@ import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { clueText, familyClues as computeFamilyClues, type FamilyClue } from './lib/family-clues'
 import { LAYA_MIN, LAYA_SURE, layaKinds, layaStatus, newEquipmentText, type LayaPick, type LayaResult, type LayaStatus } from './lib/laya'
+import { candidateText, systemCandidates } from './lib/system-suggest'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveEquipmentKind, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
@@ -3982,11 +3983,13 @@ const filteredSystemOptions = computed(() => narrowOptions(systemOptions.value, 
 watch(selectedId, () => (systemFilter.value = ''))
 function pickSystem(event: Event, equipmentId: string) {
   const el = event.target as HTMLSelectElement
+  el.blur()
+  applySystem(equipmentId, el.value || null)
+}
+function applySystem(equipmentId: string, to: string | null) {
   const m = model.value
   const e = equipmentById.value.get(equipmentId)
-  el.blur()
   if (!m || !e) return
-  const to = el.value || null
   const snapshot = snapshotSystems(m, [e.systemId, to], [equipmentId])
   const at = mark()
   const rules = setEquipmentSystem(m, equipmentId, to)
@@ -3997,6 +4000,18 @@ function pickSystem(event: Event, equipmentId: string) {
   flowVersion.value++
   redraw()
 }
+/**
+ * 계통이 없는 고른 설비의 계통 후보(system-suggest.ts, ADR-0057). 근처에 구성원이 있는 계통을 거리 순으로 셋 보인다.
+ * 누르면 계통 상자에서 고른 것과 같다(applySystem).
+ */
+const systemSuggest = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e || !editing.value || e.systemId || isConduit(e.role) || !e.position) return []
+  return systemCandidates(m, e.id)
+})
+const systemChips = computed(() => systemSuggest.value.slice(0, 3))
 function setSystemKindTo(systemId: string, kind: string | null, fluid: Fluid | null) {
   const m = model.value
   const system = systemById.value.get(systemId)
@@ -9812,6 +9827,21 @@ function rollbackFromReport() {
             <span v-if="systemFilter && filteredSystemOptions.options.length <= 1" class="muted">맞는 계통이 없습니다</span>
             <span v-else-if="filteredSystemOptions.hidden" class="muted">{{ filteredSystemOptions.hidden }}개 더 있습니다. 찾기 칸으로 줄이세요</span>
             <button type="button" class="link" @click="newSystemOpen = !newSystemOpen">새 계통…</button>
+          </p>
+          <!-- 계통이 없으면 근처 계통 후보(ADR-0057). 거리 순 셋. 누르면 위 상자에서 고른 것과 같다. -->
+          <p v-if="editing && !selectedLock && systemChips.length" class="system-suggest" role="group" aria-label="계통 후보">
+            계통 후보:
+            <button
+              v-for="c in systemChips"
+              :key="c.system.id"
+              type="button"
+              class="link"
+              :title="`${candidateText(c)} · ${c.distance.toFixed(1)}m`"
+              @click="applySystem(selected.id, c.system.id)"
+            >
+              {{ c.system.name }}
+              <small class="muted">{{ systemKind(c.system.kind)?.label ?? '종류 모름' }} · {{ c.distance.toFixed(1) }}m</small>
+            </button>
           </p>
           <!-- 새 계통(E8). 사람이 더한 설비처럼 넣을 계통이 없을 때. 만들면 고른 설비를 바로 넣는다. -->
           <form v-if="editing && !selectedLock && newSystemOpen" class="system-edit new-system" @submit.prevent="createSystemFor(selected.id)">

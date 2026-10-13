@@ -5,6 +5,7 @@
     python train.py <data/laya 폴더> <결과 폴더> [--zero-shot-only] [--epochs N]   # 건물 하나를 빼고 배워 잰다
     python train.py <data/laya 폴더> <결과 폴더> --within                         # 그 건물의 다른 패밀리도 넣어 5겹으로 잰다
     python train.py <data/laya 폴더> <결과 폴더> --adds                           # [설비 더하기] 이름 줄을 건물 하나씩 빼고 잰다
+    python train.py <data/laya 폴더> <결과 폴더> --picks                          # 계통 후보를 건물 하나씩 빼고 잰다
     python train.py <data/laya 폴더> <결과 폴더> --final                          # 전부로 배워 <결과>/final (serve.py 용)
 
 venv 는 133 의 ~/laya/.venv(torch cu128 + laya[serve]). 2026-10-13 숫자는 ADR-0057.
@@ -29,6 +30,8 @@ import time
 
 TEST_BUILDINGS = ["clinic", "seongsu", "duplex"]
 INSTRUCTIONS = "건물 설비 하나를 설명하는 글이다. 이 설비의 종류는 무엇인가?"
+SYSTEM_INSTRUCTIONS = "건물 설비 하나와 그 근처 계통 후보들이다. 이 설비가 들어갈 계통은 어느 후보인가?"
+LETTERS = "ABCDEFGHIJKLMNOP"
 # [설비 더하기] 이름 줄(adds)을 잴 건물. 이름만으로 사전이 못 읽는 줄이 있는 곳이다(Office_A·치과는 0줄).
 ADD_TEST = ["clinic", "duplex", "ifc4mep", "seongsu"]
 
@@ -74,6 +77,139 @@ def add_train_rows(adds, labels, held_out):
         seen.add((r["state"], r["kind"]))
         out.append({"state": r["state"], "questions": question(labels), "expected": {"kind": r["kind"]}})
     return out
+
+
+def system_question(options, order=None):
+    """계통 후보 질문. 열쇠(A·B·…)를 `order` 대로 붙인다. 학습은 섞고(자리 순서를 외우지 않게), 서버는 받은 순서대로 붙인다."""
+    order = order or list(range(len(options)))
+    crit = {LETTERS[k]: options[i] for k, i in enumerate(order)}
+    return {"system": {"type": "choice", "instructions": SYSTEM_INSTRUCTIONS, "criteria": crit}}, order
+
+
+def pick_train_rows(picks, held_out, seed=0):
+    rng = random.Random(seed)
+    out = []
+    for r in picks:
+        if r["building"] == held_out:
+            continue
+        order = list(range(len(r["options"])))
+        rng.shuffle(order)
+        q, order = system_question(r["options"], order)
+        out.append({"state": r["state"], "questions": q, "expected": {"system": LETTERS[order.index(r["gold"])]}})
+    return out
+
+
+def rank_systems(agent, state, options):
+    """후보 순서(거리 순) 번호를 확률 순서로. 서버(serve.py)도 이 함수를 쓴다."""
+    q, order = system_question(options)
+    a = agent.predict(state, q)["answers"]["system"]
+    probs = a.get("probabilities", {})
+    ranked = sorted(probs.items(), key=lambda x: -x[1])
+    return [(order[LETTERS.index(k)], p) for k, p in ranked]
+
+
+SYSK_INSTRUCTIONS = "건물 설비 하나다. 이 설비가 드는 계통의 종류는 무엇인가?"
+
+
+def kind_of_option(text):
+    """후보 글(candidateText)의 둘째 칸이 계통 종류의 우리말 이름이다."""
+    parts = text.split(" · ")
+    return parts[1] if len(parts) > 1 else None
+
+
+def sysk_rows(picks, sys_labels, held_out):
+    """계통 종류 질문. 정답은 정답 후보의 계통 종류다(종류 모름이면 뺀다)."""
+    names = {v: k for k, v in sys_labels.items()}
+    out = []
+    for r in picks:
+        k = names.get(kind_of_option(r["options"][r["gold"]]))
+        if r["building"] == held_out or not k:
+            continue
+        out.append({"state": r["state"], "questions": {"syskind": {"type": "choice", "instructions": SYSK_INSTRUCTIONS, "criteria": sys_labels}}, "expected": {"syskind": k}})
+    return out
+
+
+def sysk_eval(args, rows, adds, picks, labels, sys_labels, base_dir):
+    """계통 종류를 Laya 가 고르고, 그 종류인 후보 중 가장 가까운 것을 고른다. 건물 하나를 빼고 배워 잰다. 확률은 저장해 두고
+    combine_picks.py --sysk 로 셈을 바꿔 본다."""
+    import laya
+    from laya.train import TrainConfig, finetune
+
+    names = {v: k for k, v in sys_labels.items()}
+    for b in ADD_TEST:
+        test = [r for r in picks if r["building"] == b]
+        if not test:
+            continue
+        tr = train_rows(rows, labels, b) + add_train_rows(adds, labels, b) + sysk_rows(picks, sys_labels, b)
+        random.Random(0).shuffle(tr)
+        path = os.path.join(args.out, f"sysk-without-{b}.jsonl")
+        with open(path, "w", encoding="utf8") as f:
+            f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in tr)
+        cfg = TrainConfig(epochs=args.epochs, micro_batch=8, grad_accum=1, loss="soft-ce", shuffle_options=("choice",),
+                          calib_frac=0.1, log_every=50)
+        ckpt = os.path.join(args.out, f"sysk-without-{b}")
+        finetune(path, base_dir, ckpt, cfg)
+        tuned = laya.load(ckpt)
+        q = {"syskind": {"type": "choice", "instructions": SYSK_INSTRUCTIONS, "criteria": sys_labels}}
+        saved = []
+        for i in range(0, len(test), 16):
+            for r, res in zip(test[i:i + 16], tuned.predict_batch([x["state"] for x in test[i:i + 16]], q)):
+                probs = res["answers"]["syskind"].get("probabilities", {})
+                saved.append({"golds": r["golds"], "distances": r["distances"], "kindHidden": r["kindHidden"],
+                              "optionKinds": [names.get(kind_of_option(o)) for o in r["options"]], "kindProbs": probs})
+        with open(os.path.join(args.out, f"sysk-{b}.probs.json"), "w", encoding="utf8") as f:
+            json.dump(saved, f)
+        print(b, "sysk saved", len(saved), file=sys.stderr)
+        del tuned
+
+
+def pick_eval(args, rows, adds, picks, labels, base_dir):
+    """계통 후보. 건물 하나를 빼고 셋(패밀리·이름·계통)으로 배운 뒤 그 건물의 계통 줄을 잰다. 기준선은 가장 가까운 계통(후보 첫째)."""
+    import laya
+    from laya.train import TrainConfig, finetune
+
+    report = {}
+    for b in ADD_TEST:
+        test = [r for r in picks if r["building"] == b]
+        if not test:
+            continue
+        tr = train_rows(rows, labels, b) + add_train_rows(adds, labels, b) + pick_train_rows(picks, b)
+        random.Random(0).shuffle(tr)
+        path = os.path.join(args.out, f"picks-without-{b}.jsonl")
+        with open(path, "w", encoding="utf8") as f:
+            f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in tr)
+        cfg = TrainConfig(epochs=args.epochs, micro_batch=8, grad_accum=1, loss="soft-ce", shuffle_options=("choice",),
+                          calib_frac=0.1, log_every=50)
+        ckpt = os.path.join(args.out, f"picks-without-{b}")
+        finetune(path, base_dir, ckpt, cfg)
+        tuned = laya.load(ckpt)
+        tally = {"n": 0, "laya_top1": 0, "laya_top3": 0, "base_top1": 0, "base_top3": 0, "kind_hidden": {"n": 0, "laya_top1": 0, "base_top1": 0}}
+        saved = []
+        t0 = time.time()
+        for r in test:
+            ranked = rank_systems(tuned, r["state"], r["options"])
+            got = [i for i, _ in ranked]
+            # 거리 감쇠와 곱해 보는 것(combine_picks)은 저장한 확률로 따로 한다.
+            saved.append({"golds": r["golds"], "distances": r["distances"], "kindHidden": r["kindHidden"], "probs": {i: p for i, p in ranked}})
+            golds = set(r["golds"])
+            tally["n"] += 1
+            tally["laya_top1"] += got[0] in golds
+            tally["laya_top3"] += bool(golds & set(got[:3]))
+            tally["base_top1"] += 0 in golds
+            tally["base_top3"] += bool(golds & {0, 1, 2})
+            if r["kindHidden"]:
+                tally["kind_hidden"]["n"] += 1
+                tally["kind_hidden"]["laya_top1"] += got[0] in golds
+                tally["kind_hidden"]["base_top1"] += 0 in golds
+        tally["ms_per_row"] = round((time.time() - t0) * 1000 / len(test), 1)
+        with open(os.path.join(args.out, f"picks-{b}.probs.json"), "w", encoding="utf8") as f:
+            json.dump(saved, f)
+        tally["train_rows"] = len(tr)
+        report[b] = tally
+        print(b, "picks", json.dumps(tally), file=sys.stderr)
+        del tuned
+    with open(os.path.join(args.out, "report-picks.json"), "w", encoding="utf8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=1)
 
 
 def add_eval(args, rows, adds, labels, base_dir):
@@ -186,6 +322,8 @@ def main():
     ap.add_argument("--zero-shot-only", action="store_true")
     ap.add_argument("--within", action="store_true", help="그 건물의 다른 패밀리도 학습에 넣는다(k 겹)")
     ap.add_argument("--folds", type=int, default=5)
+    ap.add_argument("--picks", action="store_true", help="계통 후보를 건물 하나씩 빼고 잰다")
+    ap.add_argument("--sysk", action="store_true", help="계통 종류를 Laya 로 고르고 그 종류의 가장 가까운 후보를 잰다")
     ap.add_argument("--adds", action="store_true", help="[설비 더하기] 이름 줄을 건물 하나씩 빼고 잰다")
     ap.add_argument("--final", action="store_true", help="가진 건물 전부로 배워 <out>/final 에 둔다(serve.py 용)")
     ap.add_argument("--epochs", type=int, default=6)
@@ -200,13 +338,19 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     base_dir = resolve_checkpoint_dir(args.base)
     adds = load_rows(args.data, "adds")
+    picks = load_rows(args.data, "picks")
+    if args.picks:
+        return pick_eval(args, rows, adds, picks, labels, base_dir)
+    if args.sysk:
+        sys_labels = json.load(open(os.path.join(args.data, "labels.json"), encoding="utf8"))["system"]
+        return sysk_eval(args, rows, adds, picks, labels, sys_labels, base_dir)
     if args.within:
         return within(args, rows, labels, base_dir)
     if args.adds:
         return add_eval(args, rows, adds, labels, base_dir)
     if args.final:
         # 서버(serve.py)가 쓰는 체크포인트. 가진 건물 전부로 배운다.
-        tr = train_rows(rows, labels, None) + add_train_rows(adds, labels, None)
+        tr = train_rows(rows, labels, None) + add_train_rows(adds, labels, None) + pick_train_rows(picks, None)
         random.Random(0).shuffle(tr)
         path = os.path.join(args.out, "train-all.jsonl")
         with open(path, "w", encoding="utf8") as f:
