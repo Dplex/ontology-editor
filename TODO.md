@@ -1,45 +1,5 @@
 # 다음에 할 일
 
-## 이어서 할 것 — 브랜치 `feature/import-furniture-landscape-elevator` (2026-10-13, 다른 PC 로 넘김)
-
-성수 10층 인테리어·엘리베이터·조경 IFC 의 객체를 읽게 하는 작업. **PR 전이다.** 이 절은 merge 할 때 지운다.
-
-### 준비(다른 PC)
-
-- `data/` 는 저장소에 없다. 사내에서 받아 `data/성수/` 에 둔다(받을 때 프록시를 끈다 — `curl --noproxy "*"`).
-  `http://10.251.2.225/ontology/Factorial_10F_Interior.ifc` · `Factorial_elevator.ifc` · `Factorial_조경.ifc`
-- 첫 화면 [바로 열기] 묶음(#581)은 `data/.open-sets.json` 이다. 모양은 `docs/dev/deploy55.md` "data/ 샘플 목록과 등급 칩".
-
-### 된 것(커밋됨, 단위 시험 통과)
-
-- 엘리베이터 `EVEV.#1~6` → 이름 사전(kinds.ts)에 `\bEVEV\b` 를 더해 설비 brick:Elevator 로 받는다. `EV 충전기` 는 안 잡는다(kinds.test.ts).
-- 가구(IfcFurnishingElement·IfcFurniture·IfcSystemFurnitureElement) → 추가 공간 오브젝트. 이름으로 항목(`src/lib/object-names.ts`).
-- 방도 포트도 없는 파일의 Proxy(조경 131) → 주변 건물·지형·스테이지 오브젝트. 형상을 읽는 임포트에서만(import.ts 끝의 "BIM 의 가구·주변 모델").
-- 라이브러리 항목 8개 더함(캐비닛·TV·사무기기·위생도기·가구·주변 건물·지형·스테이지). 사람도 골라 놓을 수 있다.
-- `SpaceObject` 에 `base`(바닥에서 뜬 높이)·`source: 'bim'`. BIM 것끼리는 겹쳐도 막지 않고, 20m 상한은 사람이 치는 값에만.
-- 편집 파일: BIM 오브젝트는 연 때와 달라진 것만 `bimObjects` 로(Baseline.bimObjects, edit-file.ts, storey-drafts.ts). 사람이 놓은 것만 `spaceObjects`.
-- 합치기(merge.ts): 맞춘 층에도 덧붙인 파일의 오브젝트를 얹는다(전에는 버려졌다).
-- 3D: `base` 만큼 띄우고, 주변 모델(CONTEXT_ITEMS)은 반투명·고르기 제외(viewer.ts). GeoJSON `spaceObject` 에 `base`·`source`.
-- 리포트·편집 수: 사람이 놓은 것(`objectLines`) + BIM 오브젝트 고친 것(`bimObjectLines`, App.vue).
-- ADR-0016 에 "BIM 에서 받는 오브젝트" 절, 내장 항목 17개.
-- 성수 다섯 파일([바로 열기] "성수 전부")로 개발 PC 에서 확인: 가구 314·조경 131 오브젝트, 엘리베이터 6(TTL brick:Elevator 6), 화면 오류 0,
-  10F 3D 에 가구가 제자리. Node 에서 세 파일 임포트는 각 0.2초 안.
-
-### 남은 것
-
-1. ~~3D 다시 보기~~ — 확인함(2026-10-13): 주변 건물이 반투명 상자로 보이고 1F 건물·설비가 가려지지 않는다.
-2. ~~여는 시간~~ — 확인함: 캐시가 찬 뒤 다섯 파일 116초(전 152초). 239초는 임포터를 고친 직후 dev 서버가 등급을 다시 잰 탓이었다.
-3. **e2e 회귀** — `e2e/space-objects.spec.ts`(편집 수 "바뀐 것 n건"·오브젝트 수), `edit-structure`·`export`·`viewer`·`data-list`·`import-draft`.
-   BIM 오브젝트를 옮김·지움 → 저장·임시 저장 → 다시 열기 왕복을 보는 e2e 를 하나 더한다(지금은 단위 시험만).
-4. **`npm run check:sample`** — 병원·Duplex Arch·치과·Office_A·C20 에도 가구가 있어 GeoJSON 오브젝트·경고 수가 바뀔 수 있다. 바뀐 숫자가
-   "오브젝트가 늘었다" 뿐인지 보고 기준값을 고친다. 방·설비·소속 수치가 내려가면 넣지 않는다.
-5. **`npm test` 전체** — 지금 `ac-tags` 3개는 main 의 PRD 개정(#530) 쪽 실패라 이 작업과 무관하다.
-6. 이슈 + PR(`Closes #n`) → merge. 이 절을 지운다.
-
-알아 둘 것: 파이썬으로 TS 를 고칠 때 `"\b"` 가 백스페이스 문자로 들어가 정규식이 깨졌다(두 번). raw 문자열을 쓰거나 Edit 도구로 고친다.
-
----
-
 이어서 작업할 때 이 파일부터 읽는다. 무엇이 되는지는 정본 [`docs/bim-to-dt-ontology.md`](docs/bim-to-dt-ontology.md)
 7장("지금 상태와 남은 일")이 말하고, 여기에는 **아직 안 된 것과 그 이유**만 적는다. 피처 번호(F11, E5 같은 것)는 정본을 가리킨다.
 

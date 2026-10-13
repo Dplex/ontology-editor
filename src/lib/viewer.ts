@@ -989,6 +989,17 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   /**
+   * 벽·문·창 편집 층이 켜져 있을 때 광선이 그린 벽·문·창에 처음 닿는 거리(제곱). 꺼져 있거나 안 닿으면 Infinity.
+   * 오브젝트와 견준다 — 벽 앞에 붙은 BIM 가구(하부장·조리대) 상자가 벽 윗면을 누른 광선에도 닿아, 견주지 않으면 벽을 고를 수 없었다.
+   */
+  function archDistance(ray: Ray): number {
+    if (!archTargets.length) return Infinity
+    raycaster.ray.copy(ray)
+    const hit = raycaster.intersectObjects(arch.children.filter((o) => o.visible && o instanceof Mesh), false)[0]
+    return hit ? hit.point.distanceToSquared(ray.origin) : Infinity
+  }
+
+  /**
    * 광선이 닿는 벽·문·창. 세워 그린 벽의 옆면·윗면을 누르는 것이 보통이라 그린 형상에 먼저 쏘고, 맞은 자리의 평면
    * 좌표로 어느 것인지 가린다. 문·창이 벽보다 먼저다(문은 벽 안에 있다). 형상에 안 맞으면 바닥 평면에서 잰다.
    */
@@ -1426,9 +1437,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const ray = rayAt(e.clientX, e.clientY)
     const additive = editMode && isMultiSelect(e)
     const id = pick(ray, additive)
-    // 오브젝트(OE-OBJ-09)가 설비보다 앞에 있으면 오브젝트다. 책상 위로 보이는 천장 조명을 누르면 조명이다.
+    // 오브젝트(OE-OBJ-09)가 설비·벽·문·창보다 앞에 있으면 오브젝트다. 책상 위로 보이는 천장 조명을 누르면 조명이다.
     const object = !additive ? pickObject(ray) : null
-    if (object && (!id || object.d < pickDistance(ray, id))) {
+    if (object && (!id || object.d < pickDistance(ray, id)) && object.d < archDistance(ray)) {
       objectPickHandler(object.target.id)
       return
     }
@@ -1564,9 +1575,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
     const ray = rayAt(x, y)
     const id = pick(ray)
-    // 누르기와 같게, 설비보다 앞에 있는 오브젝트만 오브젝트다.
+    // 누르기와 같게, 설비·벽·문·창보다 앞에 있는 오브젝트만 오브젝트다.
     const object = pickObject(ray)
-    if (object && (!id || object.d < pickDistance(ray, id))) {
+    if (object && (!id || object.d < pickDistance(ray, id)) && object.d < archDistance(ray)) {
       canvas.style.cursor = editMode && object.target.id === selectedObject ? 'grab' : 'pointer'
       hoverHandler(null, null)
       return
