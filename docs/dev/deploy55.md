@@ -57,6 +57,19 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 - 변환은 한 번에 하나씩 한다. 성수는 개발 PC 에서 46초, 메모리 4.3GB 였다. 둘이 겹치면 뒤의 것이 앞의 것을 기다린다.
 - 받은 GLB 와 만든 FBX 는 OS 임시 폴더(`oe-fbx-*`)에 두고 답한 뒤 지운다. `data/` 에는 남지 않는다.
 
+## Laya 종류 후보는 133 의 GPU 가 답한다
+
+편집 화면 "종류를 모르는 패밀리" 칸의 Laya 줄(ADR-0057)은 `GET /__laya`·`POST /__laya/kinds` 두 길만 133(RTX 5090, ssh 별칭 `5090`)의
+`scripts/laya/serve.py` 로 넘긴다(`scripts/laya-proxy.mjs`). 55 는 GPU 드라이버가 없어서 133 에 둔다.
+
+- 55 의 `.env` 에 `LAYA_URL=http://10.251.31.133:8096` 을 두면 켜진다. 없거나 133 이 안 받으면 `enabled:false` 와 까닭을 주고 Laya 줄이 안 보인다.
+  dev 도 같다 — `LAYA_URL=… npm run dev`.
+- 133 에서: `~/laya/run/start.sh`(체크포인트 `~/laya/run/out-all2/final`, 133 이 켜지면 crontab `@reboot` 가 부른다). venv 는 `~/laya/.venv`
+  (torch cu128 — 5090 은 CUDA 12.8 이상 판이 필요하다, `laya[serve]`).
+- 다시 배우는 법은 `scripts/laya/train.py` 머리말. 재료는 개발 PC 에서 `npx vitest run --config scripts/laya/vitest.config.ts` 로 뽑아(`data/laya/`) 옮긴다.
+- 133 에는 llama-server(Qwen 27B, 8085)가 있었고 VRAM 을 27GB 잡았다. Laya 추론만이면 1.5GB 라 같이 돈다. 학습할 때 내렸다(2026-10-13) —
+  다시 띄우려면 133 의 `~/llama_restart.sh`.
+
 ## `data/` 샘플 목록과 등급 칩
 
 **dev 서버와 55 가 같은 코드로 낸다.** `src/server/data-catalog.ts`
