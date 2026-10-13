@@ -587,7 +587,15 @@ export type VerticalPart = {
   exit: Vec3 | null
   /** 사람이 다중층 뷰에서 고친 조각(OE-ML-07). BIM 원본 형상은 baseline 에 남는다(vertical-edit.ts). */
   edited?: true
+  /**
+   * 엘리베이터가 이 층에 서는가(OE-ML-10). `stop` 정차 · `skip` 무정차 · 없거나 `unknown` 은 미확인이다. 미확인을 정차로 보지 않는다 —
+   * 로봇 통과(OE-ML-04)는 확인된 정차 층에서만 가능이다. 엘리베이터에만 둔다. BIM 이 정차를 말하지 않아(EL 을 설비로 받는다) 지금은
+   * 사람이 정한 값뿐이고 출처는 편집이다.
+   */
+  stop?: ElevatorStop
 }
+
+export type ElevatorStop = 'stop' | 'skip' | 'unknown'
 
 /**
  * 추가 공간 오브젝트(OE-OBJ-09). 책상·의자·소파처럼 공간을 꾸미는 사물이다. 층 바닥에 서고, 서로 겹치지 않는다(space-object.ts).

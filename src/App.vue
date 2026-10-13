@@ -8,7 +8,7 @@ import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
-import type { CustomZone, HvacZone } from './lib/model'
+import type { CustomZone, ElevatorStop, HvacZone } from './lib/model'
 import Src, { type SrcKind } from './components/Src.vue'
 import FlowBasis from './components/FlowBasis.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
@@ -22,6 +22,7 @@ import PublishDialog from './components/PublishDialog.vue'
 import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
 import { previewSummary, summaryText } from './lib/preview'
 import { DEFAULT_GRID, gridLines, snapToGrid, type GridSettings } from './lib/grid'
+import { verticalPartPassable } from './lib/export/geojson'
 import { dimensionText, wallDimensions } from './lib/dimensions'
 import { familyHeight } from './lib/placement'
 import { facadeOf, moveFacade } from './lib/facade'
@@ -243,7 +244,7 @@ import {
 import type { Object3D } from 'three'
 import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL } from './lib/vertical-object'
 import type { VerticalKind } from './lib/model'
-import { COMMON_AXIS, createVertical, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
+import { COMMON_AXIS, createVertical, deleteVertical, setElevatorStop, STOP_LABEL, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -2649,6 +2650,11 @@ function changeVerticals(label: string, apply: (m: Model) => boolean): boolean {
   triggerRef(model)
   sceneVersion.value++
   return true
+}
+/** 엘리베이터 한 층의 정차를 바꾼다(OE-ML-10). 되돌리기 한 번이다. */
+function setStopFrom(parentId: string, storeyId: string, stop: ElevatorStop) {
+  const name = model.value?.storeys.find((st) => st.id === storeyId)?.name ?? storeyId
+  changeVerticals(`엘리베이터 ${name} ${STOP_LABEL[stop]}`, (m) => setElevatorStop(m, parentId, storeyId, stop))
 }
 /** 고른 오브젝트를 x·y 로 옮긴다(전체 이동). 모든 층 조각이 같이 간다. */
 function moveSelectedVertical(d: Vec2): boolean {
@@ -11847,9 +11853,33 @@ function rollbackFromReport() {
                     <span v-else class="muted">지점이 든 물리존이 없습니다</span>
                   </dd>
                 </div>
+                <!-- 엘리베이터 정차 층(OE-ML-10). 층마다 정차·무정차·미확인. 다중층 뷰의 편집에서 고치고, 아니면 보기만 한다. -->
+                <div v-if="selectedVertical.part.kind === 'elevator'">
+                  <dt>정차</dt>
+                  <dd class="elevator-stops" data-testid="elevator-stops">
+                    <span v-for="p in selectedVertical.object.parts" :key="p.storey.id" class="elevator-stop">
+                      {{ p.storey.name }}
+                      <select
+                        v-if="multiView && editing"
+                        :value="p.part.stop ?? 'unknown'"
+                        :aria-label="`${p.storey.name} 정차`"
+                        @change="setStopFrom(selectedVertical.object.id, p.storey.id, ($event.target as HTMLSelectElement).value as ElevatorStop)"
+                      >
+                        <option v-for="(label, k) in STOP_LABEL" :key="k" :value="k">{{ label }}</option>
+                      </select>
+                      <b v-else>{{ STOP_LABEL[p.part.stop ?? 'unknown'] }}</b>
+                    </span>
+                    <Src kind="edit" />
+                  </dd>
+                </div>
                 <div>
                   <dt>로봇</dt>
-                  <dd>통과 불가 — 층을 이어도 로봇은 지나가지 못합니다</dd>
+                  <dd data-testid="vertical-passable">
+                    <template v-if="selectedVertical.part.kind === 'elevator'">
+                      {{ selectedVertical.storey.name }}: {{ verticalPartPassable(selectedVertical.part).passable ? '통과 가능 — 정차를 확인한 층입니다' : (selectedVertical.part.stop ?? 'unknown') === 'skip' ? '통과 불가 — 서지 않는 층입니다' : '통과 불가 — 정차를 확인하지 않은 층입니다' }}
+                    </template>
+                    <template v-else>통과 불가 — 층을 이어도 로봇은 지나가지 못합니다</template>
+                  </dd>
                 </div>
               </dl>
             </div>
