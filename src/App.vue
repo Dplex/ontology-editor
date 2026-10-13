@@ -1795,7 +1795,8 @@ function clearSelection(): boolean {
     note('공조존 꼭짓점 고치기를 마쳤습니다')
   } else if (adding.value) {
     const what = adding.value.what
-    stopAdd()
+    if (what === 'equipment') cancelAddEquipment()
+    else stopAdd()
     note(what === 'equipment' ? '설비 더하기를 취소했습니다' : what === 'door' ? '문 놓기를 취소했습니다' : what === 'object' ? '오브젝트 놓기를 취소했습니다' : '창 놓기를 취소했습니다')
   } else if (group.value.length) {
     group.value = []
@@ -3764,19 +3765,24 @@ const familyClues = computed(() => {
  */
 const layaState = ref<LayaStatus | null>(null)
 const layaResults = ref(new Map<string, LayaResult>())
+// 편집 모드에 들어갈 때마다 다시 본다 — 133 이 잠깐 꺼졌다 켜져도 다음 편집부터 다시 보인다.
 watch(editing, (on) => {
-  if (on && !layaState.value) void layaStatus().then((s) => (layaState.value = s))
+  if (on) void layaStatus().then((s) => (layaState.value = s))
 })
+let layaAsk = 0
 watch(
   () => [familyClues.value, layaState.value] as const,
   async ([clues, state]) => {
+    // 늦게 온 답이 새 단서의 답을 덮지 않게 번호를 본다.
+    const ask = ++layaAsk
     if (!state?.enabled || !clues.size) return
     const texts = new Map([...clues].map(([key, c]) => [key, clueText(c)]))
     try {
       const got = await layaKinds([...texts.values()])
-      layaResults.value = new Map([...texts].filter(([, t]) => got.has(t)).map(([key, t]) => [key, got.get(t)!]))
-    } catch (e) {
-      layaState.value = { enabled: false, reason: String(e) }
+      if (ask === layaAsk) layaResults.value = new Map([...texts].filter(([, t]) => got.has(t)).map(([key, t]) => [key, got.get(t)!]))
+    } catch {
+      // 한 번 실패로 끄지 않는다(성수처럼 한 번에 많이 물으면 시간 초과가 날 수 있다). 이번 줄만 비우고 다음 편집 때 다시 묻는다.
+      if (ask === layaAsk) layaResults.value = new Map()
     }
   },
 )
@@ -6360,6 +6366,12 @@ function stopAdd() {
   adding.value = null
   viewer?.setPlaceMode(null)
 }
+/** 사람이 [설비 더하기] 를 그만둔다(Esc·[더하기 취소]). 친 이름과 고른 종류도 버린다 — 다음 더하기에 묻지 않고 남지 않게. */
+function cancelAddEquipment() {
+  stopAdd()
+  addName.value = ''
+  addKind.value = null
+}
 
 /**
  * 놓기 전에 이름을 치면 종류 후보를 보인다(ADR-0057). 사전이 이름을 읽으면 그것이 먼저(출처 사전), 이어서 Laya 의 후보(확률).
@@ -6379,12 +6391,20 @@ const addSuggestions = computed(() => {
   return out
 })
 let addAsk = 0
+// 이름이 바뀌면 고른 종류를 버린다(다른 이름의 후보다).
+watch(
+  () => addName.value.trim(),
+  () => (addKind.value = null),
+)
 watch(
   () => [addName.value.trim(), ceilingMode.value, adding.value?.what === 'equipment', layaState.value?.enabled] as const,
   ([name, ceiling, on, enabled]) => {
-    addLaya.value = []
-    if (addKind.value && !addSuggestions.value.some((s) => s.kind === addKind.value)) addKind.value = null
-    if (!name || !on || !enabled) return
+    if (!name || !on || !enabled) {
+      addLaya.value = []
+      return
+    }
+    // 이미 고른 종류가 있으면 다시 묻지 않는다 — 천장 모드를 바꾸면(T) 글이 바뀌어 다시 물었고, 새 답에 그 종류가 없으면 고른 것이 말없이 빠졌다.
+    if (addKind.value) return
     const ask = ++addAsk
     const text = newEquipmentText(name, ceiling)
     // 치는 동안은 묻지 않는다 — 멈추고 0.15초 뒤에 한 번. 늦게 온 답이 새 이름의 답을 덮지 않게 번호를 본다.
@@ -9402,7 +9422,7 @@ function rollbackFromReport() {
                 :aria-pressed="adding?.what === 'equipment'"
                 :disabled="ceilingAsk"
                 :title="ceilingMode ? '천장을 눌러 새 설비를 천장고에 놓습니다' : '바닥을 눌러 새 설비를 놓습니다'"
-                @click="adding?.what === 'equipment' ? stopAdd() : startAddEquipment()"
+                @click="adding?.what === 'equipment' ? cancelAddEquipment() : startAddEquipment()"
               >
                 {{ adding?.what === 'equipment' ? '더하기 취소' : '설비 더하기' }}
               </button>
@@ -9544,6 +9564,7 @@ function rollbackFromReport() {
               aria-label="새 설비 이름"
               placeholder="이름(선택) — 치면 종류 후보"
               @keydown.enter.prevent="acceptAddKind"
+              @keydown.esc.stop.prevent="cancelAddEquipment"
             />
             <span v-if="addSuggestions.length" class="add-kinds" role="group" aria-label="새 설비 종류 후보">
               <button

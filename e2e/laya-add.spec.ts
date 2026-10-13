@@ -91,6 +91,24 @@ test('고른 종류가 지금 놓는 면에 맞지 않으면 알린다(디퓨저
   expect(errors).toEqual([])
 })
 
+test('이름 칸에서 Esc 한 번이면 더하기를 그만두고, 다시 열면 이름·종류가 비어 있다', async ({ page }) => {
+  const { errors } = await open(page)
+  await page.getByRole('button', { name: '설비 더하기' }).click()
+  const name = page.getByRole('textbox', { name: '새 설비 이름' })
+  await name.fill('천장형 냉난방기')
+  const chip = page.getByRole('group', { name: '새 설비 종류 후보' }).getByRole('button', { name: /시스템에어컨 실내기/ })
+  await expect(chip).toBeVisible()
+  await name.press('Enter')
+  await expect(chip).toHaveAttribute('aria-pressed', 'true')
+  await name.press('Escape')
+  await expect(name).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '설비 더하기' })).toBeVisible()
+  await page.getByRole('button', { name: '설비 더하기' }).click()
+  await expect(page.getByRole('textbox', { name: '새 설비 이름' })).toHaveValue('')
+  await expect(page.getByRole('group', { name: '새 설비 종류 후보' })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
 test('Laya 서버가 없으면 사전 후보만 보이고 묻지 않는다', async ({ page }) => {
   const { errors, asked } = await open(page, false)
   await page.getByRole('button', { name: '설비 더하기' }).click()
