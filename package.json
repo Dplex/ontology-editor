@@ -13,15 +13,22 @@
     "test": "vitest run",
     "pree2e": "npm run sync:wasm",
     "e2e": "playwright test",
+    "pree2e:serial": "npm run sync:wasm",
+    "e2e:serial": "playwright test -c playwright.serial.config.ts",
+    "onto:bench": "node scripts/onto-bench.mjs",
     "pree2e:seongsu": "npm run sync:wasm",
     "e2e:seongsu": "playwright test -c playwright.seongsu.config.ts",
+    "e2e:seongsu:publish": "playwright test -c playwright.publish-seongsu.config.ts",
     "check:sample": "vitest run --config vitest.sample.config.ts",
     "check:seongsu": "vitest run --config vitest.sample.config.ts -t 성수",
+    "ac:coverage": "vitest run --config vitest.ac.config.ts",
     "preview": "vite preview",
     "fetch:sample": "node scripts/fetch-sample.mjs",
-    "board": "node scripts/sync-board.mjs"
+    "board": "node scripts/sync-board.mjs",
+    "ctx": "node scripts/docs-ctx.mjs"
   },
   "dependencies": {
+    "pdfjs-dist": "^6.3.289",
     "three": "^0.186.0",
     "vue": "^3.5.13",
     "web-ifc": "^0.0.78"

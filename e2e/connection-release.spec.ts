@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 // 연결 해제 보정(OE-PIP-01·06). BIM 포트 연결은 끊지 않고 해제 보정한다. 원본은 남아 "해제한 연결" 에 비활성으로 보이고, 취소하면
 // 원본 방향 그대로 돌아온다. 해제·취소는 사유를 받아 보정 이력에 남는다.
-test('포트 연결을 사유와 함께 해제 보정하고, 되돌리기·해제 취소로 원본이 돌아오며 이력이 남는다', async ({ page }) => {
+test('포트 연결을 사유와 함께 해제 보정하고, 되돌리기·해제 취소로 원본이 돌아오며 이력이 남는다 [OE-PIP-01#3] [OE-PIP-06#4]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

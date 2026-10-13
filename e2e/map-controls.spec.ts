@@ -24,16 +24,16 @@ async function drag(page: Page, from: { x: number; y: number }, dx: number, opts
   await page.waitForTimeout(600) // 관성(damping)이 멎을 때까지
 }
 
-test('빈 곳 왼쪽 드래그는 화면 이동, 오른쪽·Shift+왼쪽 드래그는 편집 모드에서도 회전이고, 조작 안내가 보인다', async ({ page }) => {
+test('빈 곳 왼쪽 드래그는 화면 이동, 오른쪽·Shift+왼쪽 드래그는 편집 모드에서도 회전이고, 조작 안내가 보인다 [OE-OBJ-15#3,4,5]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await expect(page.locator('.view-controls-hint')).toContainText('드래그: 이동')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(800)
-  const box = (await page.locator('.viewport canvas').first().boundingBox())!
+  const box = (await page.locator('.canvas-wrap > canvas').first().boundingBox())!
   const empty = { x: box.x + box.width * 0.75, y: box.y + box.height * 0.2 }
 
   const a = await cam(page)
@@ -57,7 +57,7 @@ test('빈 곳 왼쪽 드래그는 화면 이동, 오른쪽·Shift+왼쪽 드래�
   await page.exposeFunction('__sawBox', (v: boolean) => boxes.push(v))
   await page.evaluate(() => {
     const seen = () => (window as any).__sawBox(!!document.querySelector('.box-select'))
-    document.querySelector('.viewport canvas')!.addEventListener('pointermove', seen)
+    document.querySelector('.canvas-wrap > canvas')!.addEventListener('pointermove', seen)
   })
   await drag(page, empty, 80, { shift: true })
   const e = await cam(page)
@@ -67,7 +67,7 @@ test('빈 곳 왼쪽 드래그는 화면 이동, 오른쪽·Shift+왼쪽 드래�
   expect(errors).toEqual([])
 })
 
-test('편집 모드에서 고른 설비를 끄는 중 창이 포커스를 잃으면 원래 자리로 돌아간다', async ({ page }) => {
+test('편집 모드에서 고른 설비를 끄는 중 창이 포커스를 잃으면 원래 자리로 돌아간다 [OE-OBJ-15#2~]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -76,7 +76,7 @@ test('편집 모드에서 고른 설비를 끄는 중 창이 포커스를 잃으
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await expect(page.locator('.view-controls-hint')).toContainText('Ctrl+드래그: 여러 개 고르기')
   await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(600)
   const id = '0MEP$Equip$AHU1$0000'
   const before = (await page.evaluate((x) => (window as any).__viewer.center(x), id)) as number[]

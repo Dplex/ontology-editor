@@ -78,14 +78,14 @@ describe('외벽 면에 설비 붙이기(OE-OBJ-04 외벽 전용 설비)', () =>
     expect(louver.spaceId).toBe(null)
   })
 
-  it('안쪽 면을 누르면 안쪽 면에 붙어 그 방에 속한다', () => {
+  it('안쪽 면을 누르면 안쪽 면에 붙고, 외부 루버는 외벽 설비라 허용 거리 안이어도 방에 속하지 않는다 (OE-MAP-01 1단계 · OE-EQP-15)', () => {
     mountOnWall(model, louver.id, [3, 0.3])
     expect(louver.position![1]).toBeCloseTo(0.1)
-    // 안쪽 면(0.1)은 방 외곽선(0.15)에서 5cm — 벽면 여유(SNAP) 안이라 방에 든다.
-    expect(louver.spaceId).toBe('room')
+    // 안쪽 면(0.1)은 방 외곽선(0.15)에서 5cm — 벽면 여유(SNAP) 안이지만, 외벽 설비는 소속 판정에서 빠진다.
+    expect(louver.spaceId).toBe(null)
   })
 
-  it('허용 설치면에 벽이 없는 종류는 내벽·외벽 어디에도 붙이지 않고, 벽 전용·복수 허용·표에 없는 종류는 붙인다 (OE-OBJ-10)', () => {
+  it('허용 설치면에 벽이 없는 종류는 내벽·외벽 어디에도 붙이지 않고, 벽 전용·복수 허용·표에 없는 종류는 붙인다 [OE-OBJ-05#3~] [OE-OBJ-10#2~]', () => {
     const light = addEquipment(model, 's1', { name: '조명', kind: 'lighting', position: [3, 2, 2.7] })!
     expect(mountOnWall(model, light.id, [3, 0.3])).toEqual({ refused: '벽에 설치할 수 없는 설비입니다(설치면 천장).' })
     expect(light.wallId).toBeUndefined()
@@ -145,7 +145,8 @@ describe('외벽 면에 설비 붙이기(OE-OBJ-04 외벽 전용 설비)', () =>
     restore(model, snap)
     expect([...louver.position!]).toEqual([3, 2, 1.5])
     expect(louver.wallId).toBeUndefined()
-    expect(louver.spaceId).toBe('room')
+    // 외벽 설비라 붙기 전에도 소속이 없다(방 안 좌표여도, OE-MAP-01 1단계).
+    expect(louver.spaceId).toBe(null)
   })
 })
 
@@ -185,7 +186,7 @@ describe('외벽 여부·크기 고치기(OE-OBJ-04)', () => {
     expect(Math.max(...w.footprint![0].map((p) => p[0]))).toBeCloseTo(7)
   })
 
-  it('내력벽은 크기를 못 바꾼다(OE-OBJ-06 잠금). 높이 모름(null)은 둘 수 있다', () => {
+  it('내력벽은 크기를 못 바꾼다(OE-OBJ-06 잠금). 높이 모름(null)은 둘 수 있다 [OE-OBJ-06#1~]', () => {
     setWallLoadBearing(model, 'east', true)
     expect(setWallThickness(model, 'east', 0.3)).toEqual({ refused: expect.stringContaining('내력벽') })
     expect(setWallHeight(model, 'east', 2.5)).toEqual({ refused: expect.stringContaining('내력벽') })
@@ -193,7 +194,7 @@ describe('외벽 여부·크기 고치기(OE-OBJ-04)', () => {
     expect(wallOf('west').height).toBe(null)
   })
 
-  it('외벽에도 문과 창을 놓는다', () => {
+  it('외벽에도 문과 창을 놓는다 [OE-OBJ-07#1~] [OE-OBJ-04#2]', () => {
     setWallExternal(model, 'south', true)
     expect(addOpening(model, 's1', 'door', [2, 0])).toMatchObject({ wallId: 'south' })
     expect(addOpening(model, 's1', 'window', [4, 0])).toMatchObject({ wallId: 'south' })

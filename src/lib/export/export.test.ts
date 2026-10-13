@@ -5,6 +5,8 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from '../ifc/import'
 import type { Model } from '../model'
 import { modelToGeoJSON, storeyToGeoJSON } from './geojson'
+import { createRoom } from '../room'
+import { addSpaceObject } from '../space-object'
 import { escapeLocalName, modelToTTL } from './ttl'
 import { NUMERIC_OK, numericPredicates, readGeoJSON } from './read-export'
 
@@ -52,7 +54,7 @@ describe('GeoJSON', () => {
     expect(readGeoJSON('x', JSON.stringify(modelToGeoJSON(model)[0].collection)).skipped).toEqual([])
   })
 
-  it('벽·문·창은 GeoJSON 에만 나가고, 문이 잇는 방은 TTL 주어를 가리킨다', () => {
+  it('벽·문·창은 GeoJSON 에만 나가고, 문이 잇는 방은 TTL 주어를 가리킨다 [OE-BIM-04#1~]', () => {
     // Brick 에는 건축 부재 클래스가 없다. 벽·문·창은 3D Map·로봇 경로가 쓰는 기하 층이다.
     const walled: Model = structuredClone(model)
     const storey = walled.storeys[0]
@@ -74,6 +76,36 @@ describe('GeoJSON', () => {
     expect(ttl).not.toContain(`ex:${escapeLocalName('w1')} a`)
     expect(ttl).not.toContain(`ex:${escapeLocalName('d1')} a`)
     for (const id of [a.id, b.id]) expect(ttl).toContain(`ex:${escapeLocalName(id)} a brick:`)
+  })
+
+  it('룸과 추가 공간 오브젝트는 3D Map 용으로 GeoJSON 에만 나가고, TTL 에는 없으며 설비 소속은 물리존 그대로다 (#45 · #51)', () => {
+    const m: Model = structuredClone(mep)
+    const storey = m.storeys[0]
+    const office = storey.spaces[0]
+    const room = createRoom(m, storey.id, [1, 1], [4, 3], { name: '회의실 A' })
+    if (!room || 'refused' in room) throw new Error('room')
+    const desk = addSpaceObject(m, storey.id, 'desk', [7, 5])
+    if (!desk || 'refused' in desk) throw new Error('desk')
+    const before = storey.equipment.map((e) => [e.id, e.spaceId])
+
+    const fc = storeyToGeoJSON(storey, [], new Map(), new Map([['desk', '책상']]))
+    const r = fc.features.find((f) => f.id === room.id)!
+    expect(r.geometry).toEqual({ type: 'Polygon', coordinates: [[[1, 1], [4, 1], [4, 3], [1, 3], [1, 1]]] })
+    expect(r.properties).toMatchObject({ kind: 'room', name: '회의실 A', storeyId: storey.id, spaceId: office.id, areaM2: 6 })
+    const o = fc.features.find((f) => f.id === desk.id)!
+    // 책상의 기본 크기는 1.2 × 0.7 × 0.72m 다. 바닥 사각형은 놓은 자리(7, 5)가 가운데다.
+    const [w, d, h] = desk.size
+    expect(o.geometry).toEqual({ type: 'Polygon', coordinates: [[[7 - w / 2, 5 - d / 2], [7 + w / 2, 5 - d / 2], [7 + w / 2, 5 + d / 2], [7 - w / 2, 5 + d / 2], [7 - w / 2, 5 - d / 2]]] })
+    expect(o.properties).toMatchObject({ kind: 'spaceObject', item: 'desk', itemName: '책상', size: [w, d, h], height: h, storeyId: storey.id })
+    // 모델 전체로 내보내면 라이브러리 이름을 붙이고, 받는 쪽 GeoJSON 검사도 통과한다.
+    const file = modelToGeoJSON(m)[0]
+    expect(file.collection.features.find((f) => f.id === desk.id)!.properties.itemName).toBe('책상')
+    expect(readGeoJSON(file.fileName, JSON.stringify(file.collection)).problems).toEqual([])
+
+    const ttl = modelToTTL(m)
+    expect(ttl).not.toContain(escapeLocalName(room.id))
+    expect(ttl).not.toContain(escapeLocalName(desk.id))
+    expect(storey.equipment.map((e) => [e.id, e.spaceId])).toEqual(before)
   })
 })
 
@@ -179,7 +211,7 @@ describe('설비 내보내기', () => {
     expect(out).not.toContain('ex:nominalAirFlowRate')
   })
 
-  it('계통을 hasPart 로 묶고, 종류를 알면 Brick 계통 클래스로 적는다', () => {
+  it('계통을 hasPart 로 묶고, 종류를 알면 Brick 계통 클래스로 적는다 [OE-PIP-03#1]', () => {
     const ttl = modelToTTL(mep)
     // AIRCONDITIONING + SUP 는 급기다. Brick 에는 급기만의 계통 클래스가 없어 공기 계통이고, 급기는 따로 적는다.
     expect(ttl).toMatch(/a brick:Air_System ;\n {4}ex:systemKind "supply_air" ;\n {4}brick:hasPart ex:\S+/)
@@ -294,5 +326,51 @@ describe('내보내기가 깨지지 않는다', () => {
     const props = (name: string) => features.find((f) => f.properties.name === name)!.properties
     expect(props('AHU-1')).toMatchObject({ capacity: 1.6667, capacityQuantity: 'airflow' })
     expect(props('AT-101-02')).toMatchObject({ capacity: null, capacityQuantity: null })
+  })
+})
+
+describe('로봇 통과 속성 (OE-EQP-17)', () => {
+  const sq = (x: number): [number, number][] => [[x, 0], [x + 2, 0], [x + 2, 2], [x, 2], [x, 0]]
+  const space = (id: string, kind: string | null) => ({ id, name: id, longName: id, footprint: sq(id.length * 3), areaM2: 4, boundedBy: [], kind })
+  const props = (m: Model) =>
+    Object.fromEntries(
+      modelToGeoJSON(m)
+        .flatMap((x) => x.collection.features)
+        .filter((f) => (f.properties as { kind: string }).kind === 'space')
+        .map((f) => {
+          const p = f.properties as Record<string, unknown>
+          return [f.id, { passable: p.passable, source: p.passableSource, reason: p.passableReason }]
+        }),
+    )
+  const model = (doorToShaft: boolean): Model => ({
+    schema: 'IFC4',
+    siteName: '',
+    buildingId: 'b',
+    buildingName: '',
+    storeys: [
+      {
+        id: 's',
+        name: '1F',
+        elevation: 0,
+        spaces: [space('st', 'staircase'), space('elv', 'elevator_shaft'), space('room', 'office')],
+        walls: [],
+        openings: doorToShaft
+          ? [{ id: 'd', name: 'd', kind: 'door', position: [3, 1, 0], wallId: null, width: 1, height: 2, passable: true, connects: ['elv', 'room'], connectsSource: 'bim' }]
+          : [],
+        equipment: [],
+      },
+    ],
+    systems: [],
+    connections: [],
+    warnings: [],
+  })
+
+  it('계단실은 불가, 승강로는 그 층에 이어지는 문이 있으면 가능이고 없으면 정차 미확인이라 불가이며, 일반 방에는 통과 속성이 없다', () => {
+    expect(props(model(true))).toEqual({
+      st: { passable: false, source: 'dict', reason: 'staircase' },
+      elv: { passable: true, source: 'calc', reason: 'elevator_stop' },
+      room: { passable: undefined, source: undefined, reason: undefined },
+    })
+    expect(props(model(false)).elv).toEqual({ passable: false, source: 'calc', reason: 'elevator_stop_unconfirmed' })
   })
 })

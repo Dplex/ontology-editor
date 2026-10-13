@@ -73,6 +73,50 @@ test('3D 형상은 GLB·OBJ 한 파일로 내려받고, 요소 이름이 GlobalI
   expect(text).toMatch(/^v /m)
 })
 
+// FBX 는 서버의 Blender 가 GLB 를 바꾼다(src/server/fbx.ts). 변환 자체는 src/server/fbx.test.ts 가 실제 Blender 로 재고,
+// 여기서는 화면이 GLB 를 보내고 받은 것을 .fbx 로 내려받는지·서버가 없거나 실패할 때 무엇을 보이는지를 본다.
+test('FBX 는 GLB 를 서버에 보내 받은 파일을 내려받는다 (OE-INT-03)', async ({ page }) => {
+  let sent: Buffer | null = null
+  await page.route('**/__data/__fbx', async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ json: { enabled: true, version: '4.5.14' } })
+    sent = route.request().postDataBuffer()
+    await route.fulfill({ body: Buffer.from('Kaydara FBX Binary  \0\x1a\0'), contentType: 'application/octet-stream' })
+  })
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+
+  const fbx = page.waitForEvent('download')
+  await page.getByRole('button', { name: '3D 형상 내보내기 (FBX)' }).click()
+  const file = await fbx
+  expect(file.suggestedFilename()).toBe('mep.fbx')
+  expect(Buffer.concat(await (await file.createReadStream()).toArray()).subarray(0, 18).toString()).toBe('Kaydara FBX Binary')
+  expect(sent!.subarray(0, 4).toString()).toBe('glTF')
+})
+
+test('FBX 변환 서버가 없으면 단추를 막고 까닭을 보이며, 변환이 실패하면 서버가 준 까닭을 알린다 (OE-INT-03)', async ({ page }) => {
+  // e2e 는 data/ 서버를 붙이지 않는다(vite.config.ts). 가로채지 않으면 서버가 없는 화면이다.
+  await page.goto('/')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  const button = page.getByRole('button', { name: '3D 형상 내보내기 (FBX)' })
+  await expect(button).toBeDisabled()
+  await expect(button).toHaveAttribute('title', /서버/)
+
+  await page.route('**/__data/__fbx', (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ json: { enabled: true, version: '4.5.14' } })
+      : route.fulfill({ status: 500, json: { error: 'FBX 로 바꾸지 못했습니다: 시험용 실패' } }),
+  )
+  await page.reload()
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '3D 형상 내보내기 (FBX)' }).click()
+  await expect(page.getByText('FBX 로 바꾸지 못했습니다: 시험용 실패')).toBeVisible()
+  // 실패해도 단추가 다시 풀린다.
+  await expect(page.getByRole('button', { name: '3D 형상 내보내기 (FBX)' })).toBeEnabled()
+})
+
 test('층별 요약의 [구축] 은 그 층의 TTL·GeoJSON 한 쌍만 받는다 (OE-GEN-11)', async ({ page }) => {
   // 두 층 fixture 에 설비 파일을 합쳤다. 1F 를 구축하면 1F 의 방·설비만 TTL 주어로 들고, 2F 방은 없다.
   await page.goto('/')

@@ -34,11 +34,13 @@ describe('설비 종류 사전', () => {
     ['Security_Camera-Vivotek-.Ext_Dome-2', 'camera'],
     ['Wall_Light:1', 'lighting'],
     ['라인조명:1', 'lighting'],
+    // 수직 관통 오브젝트(OE-EQP-07). 사전에 없을 때는 모르는 이름이었다.
+    ['Escalator_(AUS)', 'escalator'],
   ])('%s → %s', (name, expected) => {
     expect(kind(name)).toBe(expected)
   })
 
-  it.each(['RThisWheelStops850', 'Escalator_(AUS)', '2층 캐노피 03', 'Rectangular Duct:Standard', 'Trench Drain', '1.6.6'])(
+  it.each(['RThisWheelStops850', '2층 캐노피 03', 'Rectangular Duct:Standard', 'Trench Drain', '1.6.6'])(
     '모르는 이름은 null 로 둔다: %s',
     (name) => {
       // 추측으로 넓히면 틀린 Brick 클래스가 온톨로지에 들어간다. 빈칸이 낫다.
@@ -60,6 +62,9 @@ describe('설비 종류 사전', () => {
     // 병원 건축(IfcFlowTerminal)·전기(Proxy)의 유압 엘리베이터.
     expect(kind('M_Elevator-Hydraulic:2000 lbs:2000 lbs:1186968', '2000 lbs')).toBe('elevator')
     expect(kind('승강기 1호기')).toBe('elevator')
+    // 성수 엘리베이터 파일의 Revit 패밀리 이름. EV 충전기·EV Lobby 같은 `EV` 는 엘리베이터가 아니다.
+    expect(kind('EVEV.#1:EVEV.#1')).toBe('elevator')
+    expect(kind('EV 충전기')).not.toBe('elevator')
     expect(equipmentKind('elevator')).toMatchObject({ brick: 'brick:Elevator', flow: {} })
   })
 

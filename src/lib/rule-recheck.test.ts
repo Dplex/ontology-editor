@@ -42,7 +42,7 @@ const confirmedModel = () => {
 }
 
 describe('확정한 규칙 방향의 재검토 (OE-PIP-07)', () => {
-  it('근거가 그대로면 확정이 남고, 원천이 사라지면 재검토로 두어 TTL 에서 빼며, 근거가 돌아오면 저절로 풀린다', () => {
+  it('근거가 그대로면 확정이 남고, 원천이 사라지면 재검토로 두어 TTL 에서 빼며, 근거가 돌아오면 저절로 풀린다 [OE-PIP-07#3]', () => {
     const m = confirmedModel()
     const c = free(m)
     expect(feeds(m, 'DUCT-01', 'AT-101-02')).toBe(true)
@@ -102,9 +102,11 @@ describe('확정한 규칙 방향의 재검토 (OE-PIP-07)', () => {
     expect(free(m).inferred).toBeUndefined()
   })
 
-  it('확정한 계통에 새로 이은 연결은 미확정 규칙 방향이고, 다시 확정하기 전에는 TTL 에 없다', () => {
+  it('확정한 계통에 새로 이은 연결은 미확정 규칙 방향이고, 다시 확정하기 전에는 TTL 에 없다 [OE-PIP-07#4]', () => {
     const m = confirmedModel()
     const systemId = free(m).inferred!.systemId
+    // 조명은 흐름 없는 기기라 덕트에 이어도 feeds 로 나가지 않는다(OE-PIP-18). 새로 이은 기기의 확정만 보려고 종류를 "모름" 으로 둔다.
+    setTypeKind(m, typeKeyOf(equip(m, 'LIGHT-101-01')), null)
     setEquipmentSystem(m, idOf(m, 'LIGHT-101-01'), systemId)
     const added = addConnection(m, idOf(m, 'DUCT-01'), idOf(m, 'LIGHT-101-01'))!.connection
     expect(added.inferred).toMatchObject({ from: idOf(m, 'DUCT-01'), systemId, confirmed: false })
@@ -114,7 +116,7 @@ describe('확정한 규칙 방향의 재검토 (OE-PIP-07)', () => {
     expect(feeds(m, 'DUCT-01', 'LIGHT-101-01')).toBe(true)
   })
 
-  it('일치율은 포트 방향과 규칙 방향을 둘 다 가진 연결만 세고, 나머지는 추정 불가로 센다', () => {
+  it('일치율은 포트 방향과 규칙 방향을 둘 다 가진 연결만 세고, 나머지는 추정 불가로 센다 [OE-PIP-07#5~]', () => {
     const m = read()
     const r = inferFlowByRules(m)
     // 포트가 방향을 말한 연결 둘(AHU-1 → DUCT-01, DUCT-01 → AT-101-01). 규칙도 같은 쪽이다.
@@ -125,7 +127,7 @@ describe('확정한 규칙 방향의 재검토 (OE-PIP-07)', () => {
     expect(off.agree + off.disagree).toBe(0)
   })
 
-  it('저장·불러오기 뒤 확정 방향과 재검토 상태, TTL 이 저장할 때와 같다', () => {
+  it('저장·불러오기 뒤 확정 방향과 재검토 상태, TTL 이 저장할 때와 같다 [OE-PIP-07#6~]', () => {
     const m = confirmedModel()
     const base = baselineOf(read())
     setSystemKind(m, free(m).inferred!.systemId, 'return_air')

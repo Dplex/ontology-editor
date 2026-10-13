@@ -39,7 +39,7 @@ beforeEach(() => {
 const make = (storeyId: string, name: string, r: Vec2[], id?: string) => createCustomZone(model, storeyId, { name, footprint: r, id }) as CustomZone
 
 describe('이름·별명은 건물 안에서 고유하다 (OE-SPC-06)', () => {
-  it('다른 존의 이름·별명과 같은 이름, 어느 존의 이름·별명과 같은 별명(자기 이름 포함), 한 존 안 같은 별명 두 번은 막고 쓰는 존을 알린다', () => {
+  it('다른 존의 이름·별명과 같은 이름, 어느 존의 이름·별명과 같은 별명(자기 이름 포함), 한 존 안 같은 별명 두 번은 막고 쓰는 존을 알린다 [OE-SPC-06#3]', () => {
     make('s3', '임원석', rect(0, 6, 5, 10), 'U_exec')
     setCustomZoneAliases(model, 'U_exec', ['경영진석'])
     const team = make('s4', '개발팀', rect(0, 0, 10, 10), 'U_team')
@@ -57,14 +57,14 @@ describe('이름·별명은 건물 안에서 고유하다 (OE-SPC-06)', () => {
     expect(renameCustomZone(model, team.id, '임원석')).toEqual({ refused: expect.stringContaining('예: 임원석-02') })
   })
 
-  it('별명은 없어도 여럿이어도 되고, 이름이나 어느 별명으로도 그 존을 찾는다', () => {
+  it('별명은 없어도 여럿이어도 되고, 이름이나 어느 별명으로도 그 존을 찾는다 [OE-SPC-06#2]', () => {
     const exec = make('s3', '임원석', rect(0, 6, 5, 10))
     expect(setCustomZoneAliases(model, exec.id, ['경영진석', '임원 구역'])).toBe(true)
     for (const word of ['임원석', '경영진석', '임원 구역']) expect(zoneUsing(model, word)?.id).toBe(exec.id)
     expect(zoneUsing(model, '없는 말')).toBeNull()
   })
 
-  it('지운 존이 쓰던 이름·별명은 다른 존에 붙일 수 있다', () => {
+  it('지운 존이 쓰던 이름·별명은 다른 존에 붙일 수 있다 [OE-SPC-06#5]', () => {
     const exec = make('s3', '임원석', rect(0, 6, 5, 10))
     setCustomZoneAliases(model, exec.id, ['경영진석'])
     deleteCustomZone(model, exec.id)
@@ -80,7 +80,7 @@ describe('이름·별명은 건물 안에서 고유하다 (OE-SPC-06)', () => {
 })
 
 describe('나누기·합치기의 이름 (OE-SPC-08)', () => {
-  it('"임원석" 을 나누면 넓은 존은 임원석(별명 그대로), 다른 존은 임원석-02(별명 없음). -02 가 쓰이고 있으면 -03 이다', () => {
+  it('"임원석" 을 나누면 넓은 존은 임원석(별명 그대로), 다른 존은 임원석-02(별명 없음). -02 가 쓰이고 있으면 -03 이다 [OE-SPC-08#2]', () => {
     const exec = make('s3', '임원석', rect(0, 0, 10, 10), 'U_exec')
     setCustomZoneAliases(model, 'U_exec', ['경영진석'])
     const piece = splitCustomZone(model, 'U_exec', [7, -1], [7, 11]) as CustomZone
@@ -100,7 +100,7 @@ describe('나누기·합치기의 이름 (OE-SPC-08)', () => {
     expect((splitCustomZone(model, 'U_two', [7, -1], [7, 11]) as CustomZone).name).toBe('임원석-03')
   })
 
-  it('합치면 넓은 쪽이 남고(같으면 먼저 고른 쪽), 없어진 존의 이름·별명으로 물어도 남은 존이 나온다', () => {
+  it('합치면 넓은 쪽이 남고(같으면 먼저 고른 쪽), 없어진 존의 이름·별명으로 물어도 남은 존이 나온다 [OE-SPC-06#4] [OE-SPC-08#3]', () => {
     make('s3', 'A석', rect(0, 0, 4, 10), 'U_a')
     make('s3', 'B석', rect(4, 0, 20, 10), 'U_b')
     setCustomZoneAliases(model, 'U_a', ['창가'])
@@ -113,14 +113,14 @@ describe('나누기·합치기의 이름 (OE-SPC-08)', () => {
 })
 
 describe('겹침과 매핑 (OE-SPC-07 · OE-SPC-09)', () => {
-  it('겹치게 그려도 막지 않고, 겹친 자리의 설비는 두 존 모두에서 나온다', () => {
+  it('겹치게 그려도 막지 않고, 겹친 자리의 설비는 두 존 모두에서 나온다 [OE-SPC-07#1,2] [OE-OBJ-01#3]', () => {
     addEquipment(model, 's3', { name: 'FCU', kind: 'fcu', position: [5, 5, 2.7], id: 'fcu' })
     make('s3', '사무석', rect(0, 0, 10, 10), 'U_desk')
     expect(createCustomZone(model, 's3', { name: '창가석', footprint: rect(4, 0, 12, 10), id: 'U_window' })).toMatchObject({ id: 'U_window' })
     expect(customZonesOfEquipment(model).get('fcu')).toEqual(['U_desk', 'U_window'])
   })
 
-  it('나눠 경계가 바뀌면 TTL 의 커스텀존↔물리존 매핑이 새 경계에 맞게 바뀐다', () => {
+  it('나눠 경계가 바뀌면 TTL 의 커스텀존↔물리존 매핑이 새 경계에 맞게 바뀐다 [OE-SPC-09#1] [OE-SPC-08#1~] [OE-OBJ-01#1~,2~]', () => {
     make('s3', '사무석', rect(0, 0, 20, 10), 'U_desk')
     const hasPart = (id: string) => modelToTTL(model).split('\n\n').find((b) => b.startsWith(`ex:${id} `))?.includes('brick:hasPart ex:office3') ?? false
     expect(hasPart('U_desk')).toBe(true)

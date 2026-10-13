@@ -1,14 +1,15 @@
 <script setup lang="ts">
-// 내보낸 파일 뷰어. 에디터가 낸 ontology.ttl(의미)·floor-*.geojson(기하)·GLB/OBJ(3D 형상)를 **받는 쪽처럼** 다시 읽어 보인다.
+// 내보낸 파일 뷰어. 에디터가 낸 ontology.ttl(의미)·floor-*.geojson(기하)·GLB/OBJ/FBX(3D 형상)를 **받는 쪽처럼** 다시 읽어 보인다.
 //
 // 에디터 화면은 모델을 그린다. 이 화면은 파일을 그린다 — DT 가 받는 것은 모델이 아니라 이 파일들이라, 내보내기에서
 // 빠지거나 어긋난 것은 에디터 화면에서는 보이지 않는다. TTL 은 받는 쪽 DT 파서의 규칙(read-ttl.ts)으로, GeoJSON 은
 // RFC 7946 모양으로, 3D 는 three 의 로더로 읽고, 셋이 id 로 이어지는지(read-export.ts·read-3d.ts)를 같이 보인다.
 // 고른 것은 파일에 적힌 원문(TTL 블록·GeoJSON feature)까지 보인다. 파일은 브라우저 안에서만 읽는다.
-import { computed, ref, shallowRef } from 'vue'
+import { computed, onMounted, ref, shallowRef } from 'vue'
 import { mergeReadings, readOntologyTTL, type OntologyEntity, type TtlReading } from '../lib/export/read-ttl'
 import { crossCheck, readGeoJSON, type ExportFloor, type ReadFeature } from '../lib/export/read-export'
 import { check3D, read3D, type Reading3D } from '../lib/export/read-3d'
+import { KIND_LABEL, planOf } from '../lib/export/plan-shapes'
 import Scene3D from './Scene3D.vue'
 
 const ttl = shallowRef<TtlReading | null>(null)
@@ -65,7 +66,7 @@ async function load(files: FileList | File[]) {
       ttlName.value = ttlFiles.size === 1 ? name : `층 파일 ${ttlFiles.size}개 합침`
     } else if (/\.(geo)?json$/i.test(name)) {
       next.set(name, readGeoJSON(name, await file.text()))
-    } else if (/\.(glb|obj)$/i.test(name)) {
+    } else if (/\.(glb|obj|fbx)$/i.test(name)) {
       try {
         next3d.set(name, await read3D(name, await file.arrayBuffer()))
       } catch (e) {
@@ -141,15 +142,6 @@ const unreadCounts = computed(() => {
   for (const u of ttl.value?.unread ?? []) n.set(u.cls, (n.get(u.cls) ?? 0) + 1)
   return [...n]
 })
-const KIND_LABEL: Record<string, string> = {
-  space: '물리존',
-  equipment: '설비',
-  wall: '벽',
-  door: '문',
-  window: '창',
-  customZone: '커스텀존',
-  hvacZone: '공조존',
-}
 const kindCounts = computed(() => {
   const n = new Map<string, number>()
   for (const fl of floors.value) for (const f of fl.features) n.set(String(f.properties.kind), (n.get(String(f.properties.kind)) ?? 0) + 1)
@@ -190,6 +182,10 @@ const checks3d = computed<CheckRow[]>(() =>
             note: `${m.fileName}: 방은 외곽선 범위와 1cm 넘게, 설비는 GeoJSON 점이 3D 범위에서 0.5m 넘게 다르다`,
             ids: c.misplaced.map((x) => `${x.id} ${x.by.toFixed(2)}m`),
           },
+          // OBJ 는 kind 를 싣지 못해 이 줄이 늘 0 이라 뺀다.
+          ...(m.format === 'obj'
+            ? []
+            : [{ label: `${tag} — 종류 어긋남`, note: `${m.fileName}: 3D 객체의 kind(GLB extras·FBX 사용자 속성)가 GeoJSON 의 kind 와 다르다`, ids: c.kindMismatch.map((x) => `${x.id} ${x.kind3d}≠${x.kind}`) }]),
         ]
       })
     : [],
@@ -209,59 +205,45 @@ const visible3d = computed<Set<string> | null>(() => {
 const floor = computed(() => floors.value[floorIndex.value] ?? null)
 
 // --- 평면 -----------------------------------------------------------------------------------------
-// 좌표는 건물 로컬 미터다(geojson.ts). y 를 뒤집어 북쪽이 위로 오게 그린다.
-type Shape = { id: string; kind: string; d?: string; cx?: number; cy?: number; name: string }
-const plan = computed(() => {
-  const fl = floor.value
-  if (!fl) return null
-  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity]
-  const add = (p: number[]) => {
-    x0 = Math.min(x0, p[0])
-    x1 = Math.max(x1, p[0])
-    y0 = Math.min(y0, -p[1])
-    y1 = Math.max(y1, -p[1])
-  }
-  const shapes: Shape[] = []
-  for (const f of fl.features) {
-    const g = f.geometry
-    if (!g) continue
-    const kind = String(f.properties.kind)
-    const name = String(f.properties.name ?? '')
-    if (g.type === 'Point') {
-      const p = g.coordinates as number[]
-      add(p)
-      shapes.push({ id: f.id, kind, cx: p[0], cy: -p[1], name })
-    } else if (g.type === 'Polygon' || g.type === 'MultiPolygon') {
-      const polys = (g.type === 'Polygon' ? [g.coordinates] : g.coordinates) as number[][][][]
-      const d = polys
-        .flat()
-        .map((ring) => {
-          ring.forEach(add)
-          return `M${ring.map((p) => `${p[0]},${-p[1]}`).join('L')}Z`
-        })
-        .join('')
-      shapes.push({ id: f.id, kind, d, name })
-    }
-  }
-  if (!Number.isFinite(x0)) return { viewBox: '0 0 1 1', shapes: [], r: 0.1, empty: true }
-  const pad = Math.max(x1 - x0, y1 - y0, 1) * 0.04
-  // 넓이가 큰 것부터 그려 작은 것이 위에 온다. 점(설비·문)은 맨 위이고, 기기는 같은 자리의 덕트·배관 위에 둔다(눌러지게).
-  const order: Record<string, number> = { hvacZone: 0, customZone: 1, space: 2, wall: 3, window: 4, door: 5, equipment: 7 }
-  const rank = (s: Shape) => (s.kind === 'equipment' && unreadByKey.value.has(s.id) ? 6 : (order[s.kind] ?? 9))
-  shapes.sort((a, b) => rank(a) - rank(b))
-  return {
-    viewBox: `${x0 - pad} ${y0 - pad} ${x1 - x0 + pad * 2} ${y1 - y0 + pad * 2}`,
-    shapes,
-    r: Math.max(x1 - x0, y1 - y0, 1) / 220,
-    empty: false,
-  }
-})
+// 모양은 에디터의 비교 판과 같이 쓴다(plan-shapes.ts).
+const plan = computed(() => (floor.value ? planOf(floor.value, new Set(unreadByKey.value.keys())) : null))
 
 function select(id: string) {
   selectedId.value = id
   const at = featureById.value.get(id)
   if (at && at.floor !== floorIndex.value) floorIndex.value = at.floor
 }
+
+// 반영본 바로 열기(ADR-0050). 온톨로지 챗봇의 답에 붙은 [3D] 가 `viewer.html?key=…&v=…&select=…` 로 연다 — 서버의 그 버전
+// (/__data/__layouts, src/server/layouts.ts)에서 TTL·층 GeoJSON 을 받아 놓은 것처럼 읽고, select 의 요소를 고른다. GLB 는 크다(성수 214MB) —
+// `&3d=1` 일 때만 받는다. 파일은 놓을 때와 같은 길(load)로 읽어 받는 쪽 규칙이 그대로다.
+const published = ref<{ key: string; version: number } | null>(null)
+async function openPublished(params: URLSearchParams) {
+  const key = params.get('key')
+  if (!key) return
+  const base = `/__data/__layouts?key=${encodeURIComponent(key)}`
+  try {
+    const res = await fetch(base)
+    if (!res.ok) throw new Error(`반영본을 못 찾았습니다(${res.status})`)
+    const info = (await res.json()) as { current: number; versions: { version: number; files: string[] }[] }
+    const version = Number(params.get('v')) || info.current
+    const meta = info.versions.find((v) => v.version === version)
+    if (!meta) throw new Error(`버전 ${version} 이 없습니다(지난 버전은 7일이 지나면 목록에서 빠집니다)`)
+    const want = meta.files.filter((f) => f === 'ontology.ttl' || /^geojson\/.+\.geojson$/.test(f) || (params.get('3d') === '1' && /\.glb$/.test(f)))
+    const files = await Promise.all(want.map(async (f) => {
+      const r = await fetch(`${base}&v=${version}&file=${encodeURIComponent(f)}`)
+      if (!r.ok) throw new Error(`${f} 를 받지 못했습니다(${r.status})`)
+      return new File([await r.blob()], f.split('/').pop()!)
+    }))
+    await load(files)
+    published.value = { key, version }
+    const id = params.get('select')
+    if (id) select(id)
+  } catch (e) {
+    loadErrors.value = [e instanceof Error ? e.message : String(e)]
+  }
+}
+onMounted(() => void openPublished(new URLSearchParams(location.search)))
 const nameOf = (id: string) => {
   const f = featureById.value.get(id)?.feature.properties.name
   return byKey.value.get(id)?.label || (typeof f === 'string' ? f : '') || id
@@ -316,7 +298,7 @@ const PARTS_SHOWN = 40
         <div>
           <h1>내보낸 파일 보기</h1>
           <p class="sub">
-            에디터가 낸 <code>ontology.ttl</code>(의미)·<code>floor-*.geojson</code>(기하)·<code>.glb</code>/<code>.obj</code>(3D 형상)를 DT 파서와 같은
+            에디터가 낸 <code>ontology.ttl</code>(의미)·<code>floor-*.geojson</code>(기하)·<code>.glb</code>/<code>.obj</code>/<code>.fbx</code>(3D 형상)를 DT 파서와 같은
             규칙으로 다시 읽어, 파일에 실제로 무엇이 적혔고 셋이 id 로 이어지는지 봅니다. 파일은 이 브라우저 안에서만 읽습니다.
           </p>
         </div>
@@ -334,12 +316,13 @@ const PARTS_SHOWN = 40
       @dragleave.prevent="dragging = false"
       @drop.prevent="onDrop"
     >
-      <p>TTL·층마다의 GeoJSON·GLB/OBJ 를 함께 끌어다 놓으세요. 더 놓으면 같은 이름의 파일은 바뀌고 나머지는 더해집니다.</p>
+      <p>TTL·층마다의 GeoJSON·GLB/OBJ/FBX 를 함께 끌어다 놓으세요. 더 놓으면 같은 이름의 파일은 바뀌고 나머지는 더해집니다.</p>
       <label class="pick">
         파일 고르기
-        <input type="file" multiple accept=".ttl,.geojson,.json,.glb,.obj" aria-label="내보낸 파일 고르기" @change="onPick" />
+        <input type="file" multiple accept=".ttl,.geojson,.json,.glb,.obj,.fbx" aria-label="내보낸 파일 고르기" @change="onPick" />
       </label>
       <button v-if="ttl || floors.length || models3d.length" type="button" class="ghost clear" @click="clear">비우기</button>
+      <p v-if="published" class="muted" data-testid="published">서버의 반영본 v{{ published.version }} · {{ published.key.split('|').join(' + ') }}</p>
       <p v-if="skipped.length" class="muted">읽지 않은 파일: {{ skipped.join(', ') }}</p>
       <p v-for="e in loadErrors" :key="e" class="error" role="alert">읽지 못했습니다 — {{ e }}</p>
     </section>
@@ -417,7 +400,7 @@ const PARTS_SHOWN = 40
             >
               3D · {{ m3.format.toUpperCase() }}{{ models3d.filter((x) => x.format === m3.format).length > 1 ? ` ${m3.fileName}` : '' }}
             </button>
-            <span v-if="!models3d.length" class="muted hint">GLB·OBJ 를 놓으면 3D 로도 봅니다</span>
+            <span v-if="!models3d.length" class="muted hint">GLB·OBJ·FBX 를 놓으면 3D 로도 봅니다</span>
           </div>
           <div v-if="floors.length" class="floor-tabs" role="tablist" aria-label="층">
             <button
@@ -434,10 +417,10 @@ const PARTS_SHOWN = 40
             <label v-if="view === '3d'" class="all-floors"><input v-model="allFloors3d" type="checkbox" /> 모든 층</label>
           </div>
           <template v-if="view === '3d' && model3d">
-            <Scene3D :root="model3d.scene" :colored="model3d.format === 'glb'" :kind-of="kindOf" :selected-id="selectedId" :visible="visible3d" @select="select" />
+            <Scene3D :root="model3d.scene" :colored="model3d.format !== 'obj'" :kind-of="kindOf" :selected-id="selectedId" :visible="visible3d" @select="select" />
             <p class="plan-note muted">
               끌어서 돌리고, 휠로 당기고, 누르면 고릅니다. 객체 이름이 GlobalId 라 누른 것의 TTL·GeoJSON 이 오른쪽에 나옵니다.
-              {{ model3d.format === 'obj' ? 'OBJ 는 색이 없어 GeoJSON 종류로 칠했습니다.' : 'GLB 의 색(계통·벽 종류)은 파일에 든 그대로입니다.' }}
+              {{ model3d.format === 'obj' ? 'OBJ 는 색이 없어 GeoJSON 종류로 칠했습니다.' : `${model3d.format.toUpperCase()} 의 색(계통·벽 종류)은 파일에 든 그대로입니다.` }}
             </p>
           </template>
           <template v-else-if="floors.length">
@@ -468,7 +451,7 @@ const PARTS_SHOWN = 40
           </svg>
           <p v-else class="empty">이 층에는 그릴 형상이 없습니다(좌표 없는 feature 만 있음).</p>
           <p class="plan-note muted">
-            <span class="sw space"></span>물리존 <span class="sw wall"></span>벽 <span class="sw zone"></span>존
+            <span class="sw space"></span>물리존 <span class="sw wall"></span>벽 <span class="sw zone"></span>존 <span class="sw vertical"></span>계단(수직 관통 오브젝트)
             <span class="dot equipment"></span>기기 <span class="dot unread"></span>덕트·배관(DT 가 읽지 않음) <span class="dot door"></span>문·창
           </p>
           </template>
@@ -531,6 +514,13 @@ const PARTS_SHOWN = 40
                   <dd>{{ p.triangles.toLocaleString() }}</dd>
                   <dt>범위(IFC m)</dt>
                   <dd class="mono">x {{ m(p.min[0]) }}~{{ m(p.max[0]) }} · y {{ m(p.min[1]) }}~{{ m(p.max[1]) }} · z {{ m(p.min[2]) }}~{{ m(p.max[2]) }}</dd>
+                  <!-- GLB extras·FBX 사용자 속성. 받는 쪽(Unity)이 객체에서 읽는 값 그대로다. -->
+                  <template v-if="Object.keys(p.props).length">
+                    <dt>속성</dt>
+                    <dd class="mono props3d">
+                      <span v-for="(v, k) in p.props" :key="k">{{ k }} = {{ v }}</span>
+                    </dd>
+                  </template>
                 </template>
               </dl>
               <p v-else class="muted">이 3D 파일에 이 id 의 객체가 없습니다(좌표 없는 설비·외곽선 없는 방·층·계통은 3D 에 나가지 않습니다).</p>
@@ -737,6 +727,24 @@ const PARTS_SHOWN = 40
   stroke-dasharray: 4 3;
   stroke-width: 1.5;
 }
+.shape.room {
+  fill: none;
+  stroke: var(--accent);
+  stroke-dasharray: 2 2;
+  stroke-width: 1.5;
+}
+.shape.spaceObject {
+  fill: #7c3aed;
+  fill-opacity: 0.35;
+  stroke: #7c3aed;
+}
+/* 수직 관통 오브젝트(계단)의 층별 조각. 물리존 위에 겹쳐 그린다. 끝 층 조각은 종료 지점(점)이다. */
+.shape.vertical {
+  fill: #be185d;
+  fill-opacity: 0.3;
+  stroke: #be185d;
+  stroke-width: 1.5;
+}
 .shape.equipment {
   fill: #0f766e;
   stroke: none;
@@ -787,6 +795,10 @@ circle.shape.sel {
 .sw.zone {
   border: 1.5px dashed #c2410c;
 }
+.sw.vertical {
+  background: rgb(190 24 93 / 0.3);
+  border: 1.5px solid #be185d;
+}
 .dot.equipment {
   background: #0f766e;
 }
@@ -814,6 +826,8 @@ circle.shape.sel {
 }
 .detail dt {
   color: var(--muted);
+  /* verticalConnectsSource 처럼 칸보다 긴 속성 이름은 줄을 바꾼다. 안 바꾸면 옆 값 위로 겹친다. */
+  overflow-wrap: anywhere;
 }
 .detail dd {
   margin: 0;
@@ -842,5 +856,11 @@ circle.shape.sel {
   .work {
     grid-template-columns: 1fr;
   }
+}
+.props3d {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  word-break: break-all;
 }
 </style>

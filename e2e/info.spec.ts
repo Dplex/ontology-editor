@@ -49,6 +49,18 @@ test('완전성 검사의 위반마다 이유가 붙는다', async ({ page }) =>
   expect(errors).toEqual([])
 })
 
+test('경로를 쓸 수 없는 덕트·배관 구간은 관으로 그리지 않고 배치점의 표시 상자뿐이며, 완전성 검사에 까닭과 원본 GlobalId 로 보인다 (OE-PIP-13) [OE-PIP-14#2]', async ({ page }) => {
+  const errors = await open(page)
+  // 배치점만 있는 덕트는 이웃 설비까지 틈을 메운 관이 아니라, "형상 없음" 을 뜻하는 0.4m 표시 상자 하나다.
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.size('0MEP$Duct$D01$00000'))).toEqual([0.4, 0.4, 0.4])
+  const fold = page.getByRole('button', { name: /완전성 검사/ })
+  if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
+  // mep.ifc 의 DUCT-01 은 배치점은 있지만 형상이 없어 경로(두 끝)를 모른다.
+  await page.locator('.checks tbody tr', { hasText: '유효한 경로' }).click()
+  await expect(page.locator('.check-list li', { hasText: 'DUCT-01' })).toContainText('형상 없음(경로를 모름) · BIM GlobalId 0MEP$Duct$D01$00000')
+  expect(errors).toEqual([])
+})
+
 test('종류를 모르는 패밀리에 계통·이웃·위치 단서가 붙는다', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
@@ -60,7 +72,7 @@ test('종류를 모르는 패밀리에 계통·이웃·위치 단서가 붙는�
   expect(errors).toEqual([])
 })
 
-test('위반 목록에서 한 번에 고친다: 방 경계 바로 밖의 설비를 방 안으로', async ({ page }) => {
+test('위반 목록에서 한 번에 고친다: 방 경계 바로 밖의 설비를 방 안으로 [OE-BIM-18#2]', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
   // 공조기를 사무실(0..10) 경계 30cm 밖으로 옮긴다.
@@ -109,7 +121,7 @@ test('좌표가 없는 설비를 3D 바닥을 눌러 놓는다', async ({ page }
   // 놓기는 편집 팔레트의 미배치 목록에서 한다(OE-EQP-02).
   await page.getByRole('button', { name: /미배치 \d+대/ }).click()
   await page.getByRole('list', { name: '미배치 설비' }).getByRole('button', { name: 'TEMP-101-01' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   const at = await page.evaluate(() => (window as any).__viewer.point([6, 5, 0]))
   await page.mouse.click(at.x, at.y)
@@ -123,12 +135,17 @@ test('좌표가 없는 설비를 3D 바닥을 눌러 놓는다', async ({ page }
   expect(errors).toEqual([])
 })
 
-test('미배치 목록에서 바로 3D 바닥을 눌러 놓으면 목록에서 빠진다', async ({ page }) => {
+test('좌표 없는 설비는 미배치 목록에 있고 3D 에 그리지 않으며, 바로 3D 바닥을 눌러 놓으면 목록에서 빠지고 그려진다 [OE-BIM-07#1]', async ({ page }) => {
   // OE-BIM-07 "좌표 없는 설비는 미배치 목록". 검토 화면의 목록을 보고, 편집 팔레트의 미배치 목록에서 놓는다.
   const errors = await open(page)
   const fold = page.locator('.unplaced')
   await expect(fold).toContainText('미배치 설비')
   await expect(fold).toContainText('1대')
+  // 원점(0,0,0)에 그리지 않는다 — 3D 에 형상이 없다. 공조기는 그려져 있다.
+  const TEMP = '0MEP$Equip$SEN01$000'
+  const drawn = (id: string) => page.evaluate((x) => (window as any).__viewer.center(x), id)
+  await expect.poll(() => drawn(AHU)).not.toBeNull()
+  expect(await drawn(TEMP)).toBeNull()
   const item = fold.locator('li', { hasText: 'TEMP-101-01' })
   await expect(item).toContainText('1F')
   // 놓기는 편집 팔레트의 미배치 목록에서 한다(OE-EQP-02).
@@ -136,12 +153,13 @@ test('미배치 목록에서 바로 3D 바닥을 눌러 놓으면 목록에서 �
   await page.getByRole('button', { name: /미배치 \d+대/ }).click()
   await page.getByRole('list', { name: '미배치 설비' }).getByRole('button', { name: 'TEMP-101-01' }).click()
   await expect(page.locator('.picked')).toContainText('TEMP-101-01')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   const at = await page.evaluate(() => (window as any).__viewer.point([6, 5, 0]))
   await page.mouse.click(at.x, at.y)
   await expect(fold).toBeHidden()
   await expect(page.locator('.picked')).toContainText('사무실')
+  await expect.poll(() => drawn(TEMP)).not.toBeNull()
   // 되돌리면 다시 목록에 든다.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
@@ -152,7 +170,7 @@ test('미배치 목록에서 바로 3D 바닥을 눌러 놓으면 목록에서 �
 test('물리존 꼭짓점을 넣고 지운다(Insert·Delete)', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const floor = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))
   await page.mouse.click(floor.x, floor.y)
   await expect(page.locator('.space-picked')).toContainText('사무실')
@@ -193,7 +211,7 @@ test('펼친 칸의 제목 줄은 스크롤을 따라와서 끝에서 바로 접
   expect(errors).toEqual([])
 })
 
-test('층별 요약에 층고를 출처와 같이 보이고, 모르면 모름이라 적는다 (OE-BIM-02)', async ({ page }) => {
+test('층별 요약에 층고를 출처와 같이 보이고, 모르면 모름이라 적는다 (OE-BIM-02) [OE-BIM-02#2]', async ({ page }) => {
   // fixture 는 BIM 이 층 높이를 안 적었다. 1F 는 윗층(2F, 3m)과의 차로 계산하고, 맨 위 2F 는 모른다.
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -228,5 +246,48 @@ test('층별 요약에 층고를 출처와 같이 보이고, 모르면 모름이
     await expect(page.locator('.appbar h2')).toHaveText(/COBie_Arch-Design/, { timeout: 60_000 })
     await expect(page.locator('.storeys tbody td.storey-height').filter({ hasText: '0.0031 m' })).toHaveCount(1)
   }
+  expect(errors).toEqual([])
+})
+
+test('등급 칩과 등급 판정은 판정에 쓰는 본 숫자 하나를 분자/분모 (%) 로 보이고, 미확정 규칙 방향은 "목표에 안 셈" 보조 숫자로 따로 보인다 [OE-BIM-16#2] [OE-BIM-16#3] [OE-BIM-16#4]', async ({ page }) => {
+  const errors = await open(page)
+  // 칩: mep.ifc 는 연결망 기기 3대 중 BIM 포트로 방향을 아는 것이 2대, 확정 전 규칙 방향까지 넣으면 3대다.
+  const chips = page.locator('.overview .tiers')
+  const direction = chips.locator('li[data-tier=direction]')
+  await expect(direction.locator('b')).toHaveText('2/3 (66.7%)')
+  await expect(direction.locator('.aux')).toHaveText('미확정 규칙 3/3 (100.0%) · 목표에 안 셈')
+  // 보정 전이라 다른 칩에는 보조 숫자가 없고, 어느 칩도 화살표로 잇지 않는다.
+  await expect(chips.locator('.aux')).toHaveCount(1)
+  expect(await chips.innerText()).not.toMatch(/→/)
+
+  const banner = page.getByTestId('grade-banner')
+  await banner.getByRole('button', { name: '등급 판정 보기' }).click()
+  const rows = page.getByTestId('grade-table').locator('.grade-rows > li')
+  await expect(rows).toHaveCount(5)
+  for (let g = 0; g < 4; g++) {
+    const text = await rows.nth(g).locator('div').first().innerText()
+    expect(text, `등급 ${g}`).toMatch(new RegExp(`^${g} `))
+    expect(text, `등급 ${g}`).toContain('BIM ')
+    await expect(rows.nth(g).getByTestId('grade-aux'), `등급 ${g}`).toHaveCount(0)
+  }
+  await expect(rows.nth(4).locator('div').first()).toContainText('BIM 포트·확정 2/3 · 66.7%')
+  await expect(rows.nth(4).getByTestId('grade-aux')).toHaveText('(미확정 규칙 3/3 · 100.0% · 목표에 안 셈)')
+  expect(errors).toEqual([])
+})
+
+test('경고와 완전성 검사 규칙마다 누락 분류 코드와 R 번호가 붙는다 [OE-BIM-20#1]', async ({ page }) => {
+  const errors = await open(page)
+  const items = page.locator('#warnings > li')
+  await expect(items.first()).toBeVisible()
+  const n = await items.count()
+  for (let i = 0; i < n; i++) await expect(items.nth(i).locator('.issue-code')).toHaveText(/^[XABC]-(외부|설정|부재|보정) · R\d+$/)
+  const fold = page.getByRole('button', { name: /완전성 검사/ })
+  if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
+  const rows = page.locator('.checks tbody tr')
+  await expect(rows.first()).toBeVisible()
+  const m = await rows.count()
+  for (let i = 0; i < m; i++) await expect(rows.nth(i).locator('.issue-code')).toHaveText(/^[XABC]-(외부|설정|부재|보정) · R\d+$/)
+  await expect(rows.filter({ hasText: '소속 방이 있다' }).locator('.issue-code')).toHaveText('B-부재 · R2')
+  if (process.env.SHOT) await page.locator('#warnings').screenshot({ path: process.env.SHOT })
   expect(errors).toEqual([])
 })

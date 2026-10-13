@@ -10,13 +10,18 @@
 // data/.profiles.json 에 둔다. 캐시 열쇠에 **src/lib 코드의 지문**을 넣는다 — 임포터를 고치면
 // 숫자가 바뀌어야 하는데, 손으로 버전을 올리게 두면 언젠가 잊고 낡은 숫자를 보인다.
 import { createHash } from 'node:crypto'
-import { createReadStream, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative, resolve, sep } from 'node:path'
 import * as WebIFC from 'web-ifc'
 import { importIfcWithMeshes } from '../lib/ifc/import'
 import { profileOf, type Profile } from '../lib/profile'
 import { savedEdits } from './saved-edits'
+import { layouts } from './layouts'
+import { users as userStore } from './users'
+import { activityLog } from './activity-log'
+import { floorState } from './floor-state'
+import { fbxConverter } from './fbx'
 
 type Profiled = { profile: Profile } | { error: string }
 
@@ -90,6 +95,32 @@ function profiler(root: string, libDir: string) {
   }
 }
 
+export type OpenSet = { title: string; paths: string[] }
+
+/**
+ * 첫 화면 [바로 열기] 의 묶음(예: 성수 건축 + 기계, 성수 전부). 무엇을 같이 여는지는 건물·PC 마다 달라서 코드가 아니라 데이터와 같은 자리
+ * `data/.open-sets.json` 에 둔다 — `[{ "title": "성수 건축 + 기계", "paths": ["성수/Factorial_건축.ifc", "성수/Factorial_기계.ifc"] }]`.
+ * 파일이 하나라도 없는 묶음은 내지 않는다(55 와 개발 PC 의 data/ 가 다르다). 파일이 없거나 틀리면 빈 목록이다.
+ */
+export function openSets(root: string): OpenSet[] {
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(join(root, '.open-sets.json'), 'utf8'))
+  } catch {
+    return []
+  }
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((s): OpenSet[] => {
+    if (!s || typeof s.title !== 'string' || !Array.isArray(s.paths) || !s.paths.length) return []
+    const paths: string[] = s.paths.filter((p: unknown): p is string => typeof p === 'string')
+    const inside = paths.every((p) => {
+      const f = resolve(root, p)
+      return f.startsWith(root + sep) && f.toLowerCase().endsWith('.ifc') && existsSync(f)
+    })
+    return inside && paths.length === s.paths.length ? [{ title: s.title.slice(0, 80), paths }] : []
+  })
+}
+
 /**
  * `/__data` 아래에 붙일 핸들러. `req.url` 은 붙인 자리 기준이다(`/`, `/a.ifc`, `/a.ifc?profile`).
  * `libDir` 은 캐시 지문을 뜨는 임포터 소스다. 55 에서도 체크아웃이 있으니 같은 자리를 본다.
@@ -98,7 +129,7 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
   const root = resolve(dataDir)
   const list = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
-      // .edits(8084 저장본) 같은 숨은 폴더는 샘플이 아니다
+      // .edits(8084 저장본)·.layouts(반영 버전) 같은 숨은 폴더·파일은 샘플이 아니다
       d.name.startsWith('.')
         ? []
         : d.isDirectory()
@@ -112,13 +143,45 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
   const rank = (p: string) => (p.startsWith('성수/') ? 0 : 1)
   const ordered = (paths: string[]) => paths.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'ko'))
   const profile = profiler(root, libDir)
-  const edits = savedEdits(root)
+  // 사람·역할(users.ts)과 시스템 로그(activity-log.ts). 쓰기(저장·반영·되돌리기·로그)는 고른 사람이 편집할 수 있는 역할일 때만 받는다.
+  const people = userStore(root)
+  const log = activityLog(root)
+  const edits = savedEdits(root, (key) => {
+    // 저장은 PUT 을 받기 전에 사람을 확인했다. 여기서는 로그만 남긴다.
+    log.write({ type: 'save', user: lastWriter, key, floors: [] })
+  })
+  let lastWriter = ''
+  const layoutStore = layouts(root, { writer: people.writer, onVersion: (e) => log.write(e) })
+  const floors = floorState(root, people.writer)
+  const fbx = fbxConverter()
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const [rawPath, query] = (req.url ?? '/').split('?')
     const path = decodeURIComponent(rawPath).replace(/^\/+/, '')
     // 8084 에 남긴 편집(saved-edits.ts). 쓰기(PUT)를 받는 곳은 여기뿐이다.
-    if (path === '__edits') return edits(req, res, query ?? '')
+    if (path === '__users') return people.handle(req, res)
+    // 층마다의 임시 저장본·편집 잠금(floor-state.ts).
+    if (path === '__drafts') return floors.drafts(req, res, query ?? '')
+    if (path === '__locks') return floors.locks(req, res, query ?? '')
+    if (path === '__log') return log.handle(req, res, query ?? '', () => people.writer(req, res)?.name ?? null)
+    if (path === '__edits') {
+      if (req.method === 'PUT') {
+        const u = people.writer(req, res)
+        if (!u) return
+        lastWriter = u.name
+      }
+      return edits(req, res, query ?? '')
+    }
+    // 반영한 레이아웃·버전(layouts.ts). 올리기(PUT)·반영·되돌리기(POST)를 받는다.
+    if (path === '__layouts') return layoutStore(req, res, query ?? '')
+    // GLB 를 받아 FBX 로 바꿔 돌려준다(fbx.ts). data/ 에는 아무것도 남기지 않는다.
+    if (path === '__fbx') return fbx(req, res)
+    // 첫 화면의 [바로 열기] 묶음. data/.open-sets.json 의 [{ title, paths }] 중 파일이 다 있는 것만 낸다(openSets).
+    if (path === '__sets') {
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify(openSets(root)))
+      return
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.statusCode = 405
       res.end()

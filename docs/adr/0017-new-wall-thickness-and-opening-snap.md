@@ -6,8 +6,10 @@ date: "2026-10-08"
 deciders: ["정희록"]
 prd: ["#9"]
 tickets: ["OE-SPC-12", "OE-SPC-13"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: []
+tests: []
+related: []
 ---
 
 # ADR-0017 새 벽 두께는 BIM 내벽 최빈값, 사이트 기본값과 스냅 거리는 브라우저 설정

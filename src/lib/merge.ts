@@ -14,6 +14,7 @@
 // 모델이 같은 자리를 차지하는지부터 재고, 결과를 보고서로 돌려준다.
 
 import { ratioLabel, storeyScaleMismatch, type ScaleMismatch } from './unit-check'
+import { estimateOffset, offsetText, type Offset } from './align'
 import { assignEquipmentToSpaces, distanceToRing, interiorPoint, pointInPolygon } from './mapping'
 import { inferFlowByRules } from './flow-rules'
 import type { Connection, Model, Space, Storey, System, Vec2 } from './model'
@@ -50,6 +51,8 @@ export type MergeReport = {
    * 기준 모델에 공간이 없으면 잴 수 없어 null 이다.
    */
   alignment: { placed: number; inside: number; ratio: number } | null
+  /** 덧붙인 모델을 기준 모델에 맞추는 회전·이동 추정(OE-BIM-22, align.ts). 잴 것이 없으면 null. 정렬 경고에 같이 적는다. */
+  offset: Offset | null
   /**
    * 덧붙인 모델의 물리존을 어떻게 받았나.
    *
@@ -187,6 +190,9 @@ export function mergeModels(
 
     for (const space of incoming) {
       if (seenIds.has(space.id)) {
+        // 같은 GUID 면 같은 방이다. 설계 풍량(R26)만 설비 쪽에 있으면 옮긴다(아래 같은 자리와 같은 까닭).
+        const same = space.designAirflow && target.spaces.find((s) => s.id === space.id && !s.designAirflow)
+        if (same) same.designAirflow = { ...space.designAirflow! }
         duplicateIds++
         continue
       }
@@ -196,6 +202,8 @@ export function mergeModels(
         : // 외곽선이 없는 방은 자리로 비교할 수 없다. 방 번호가 같은 것이 있으면 같은 방이다.
           target.spaces.find((s) => space.name.trim() !== '' && normalize(s.name) === normalize(space.name))
       if (sameSpot) {
+        // 설계 풍량(R26)은 Revit 에서 설비 파일의 MEP 공간에 붙는다. 건축 방이 남고 설비 방이 빠지므로 값을 남는 방으로 옮긴다.
+        if (!sameSpot.designAirflow && space.designAirflow) sameSpot.designAirflow = { ...space.designAirflow }
         dropped.set(space.id, sameSpot.id)
         spaceTally.dropped++
         continue
@@ -206,11 +214,21 @@ export function mergeModels(
     }
   }
 
+  // 수직 관통 오브젝트 조각(OE-ML-02). 같은 오브젝트가 두 판본에 다 있으면 바탕 것만 둔다 — 층마다 섞이면 한 오브젝트가 두 모양이 된다.
+  const baseParents = new Set(a.storeys.flatMap((s) => (s.verticalParts ?? []).map((p) => p.parentId)))
+  const freshParts = (storey: Storey) => (storey.verticalParts ?? []).filter((p) => !baseParents.has(p.parentId))
+
+  // BIM 에서 받은 추가 공간 오브젝트(가구·주변 모델, space-object.ts). 같은 GlobalId 가 이미 있으면 다시 넣지 않는다.
+  const baseObjects = new Set(a.storeys.flatMap((s) => (s.spaceObjects ?? []).map((o) => o.id)))
+  const freshObjects = (storey: Storey) => (storey.spaceObjects ?? []).filter((o) => !baseObjects.has(o.id))
+
   for (const storey of b.storeys) {
     const match = matchStorey(storey, a.storeys)
     if (!match) {
       storeyReport.push({ name: storey.name, matchedTo: null, by: null, elevationDelta: null })
-      const added: Storey = { ...storey, spaces: [], walls: fresh(storey.walls), openings: fresh(storey.openings), equipment: fresh(storey.equipment) }
+      const parts = freshParts(storey)
+      const objects = freshObjects(storey)
+      const added: Storey = { ...storey, spaces: [], walls: fresh(storey.walls), openings: fresh(storey.openings), equipment: fresh(storey.equipment), verticalParts: parts.length ? parts : undefined, spaceObjects: objects.length ? objects : undefined }
       absorbSpaces(added, storey.spaces)
       a.storeys.push(added)
       continue
@@ -232,6 +250,11 @@ export function mergeModels(
     target.walls.push(...fresh(storey.walls))
     target.openings.push(...fresh(storey.openings))
     target.equipment.push(...fresh(storey.equipment))
+    const parts = freshParts(storey)
+    if (parts.length) target.verticalParts = [...(target.verticalParts ?? []), ...parts]
+    // 맞춘 층에 덧붙인 파일의 오브젝트를 얹는다. 전에는 여기서 말없이 버려져, 10층 인테리어의 가구가 건축 10F 에 붙지 않았다.
+    const objects = freshObjects(storey)
+    if (objects.length) target.spaceObjects = [...(target.spaceObjects ?? []), ...objects]
   }
   a.storeys.sort((x, y) => x.elevation - y.elevation)
 
@@ -290,6 +313,7 @@ export function mergeModels(
     storeys: a.storeys,
     systems: [...systems.values()],
     connections: [...connections.values()],
+    ...(a.flowlessGeometry?.length || b.flowlessGeometry?.length ? { flowlessGeometry: [...(a.flowlessGeometry ?? []), ...(b.flowlessGeometry ?? [])] } : {}),
     warnings: [...a.warnings.map((w) => `[${labels.base}] ${w}`), ...b.warnings.map((w) => `[${labels.overlay}] ${w}`)],
     ...(a.skipped || b.skipped ? { skipped: [...new Set([...(a.skipped ?? []), ...(b.skipped ?? [])])] } : {}),
     ...(a.facts && b.facts
@@ -304,6 +328,7 @@ export function mergeModels(
                     total: (a.facts.proxies?.total ?? 0) + (b.facts.proxies?.total ?? 0),
                     ported: (a.facts.proxies?.ported ?? 0) + (b.facts.proxies?.ported ?? 0),
                     named: (a.facts.proxies?.named ?? 0) + (b.facts.proxies?.named ?? 0),
+                    louvers: (a.facts.proxies?.louvers ?? 0) + (b.facts.proxies?.louvers ?? 0),
                     skipped: [...new Set([...(a.facts.proxies?.skipped ?? []), ...(b.facts.proxies?.skipped ?? [])])].slice(0, 5),
                   },
                 }
@@ -321,6 +346,7 @@ export function mergeModels(
   const report: MergeReport = {
     storeys: storeyReport,
     alignment,
+    offset: estimateOffset(base, overlay),
     spaces: spaceTally,
     declaredRemapped: remapped + orphaned === 0 ? { total: 0, remapped: 0 } : { total: remapped + orphaned, remapped },
     duplicateIds,
@@ -420,6 +446,7 @@ export function dropDuplicateSpaces(model: Pick<Model, 'storeys'>): number {
         keep.omniclass = drop.omniclass
         if (drop.omniclassSource) keep.omniclassSource = drop.omniclassSource
       }
+      if (!keep.designAirflow && drop.designAirflow) keep.designAirflow = drop.designAirflow
       if (!keep.kind && drop.kind) {
         keep.kind = drop.kind
         if (drop.kindSource) keep.kindSource = drop.kindSource
@@ -448,7 +475,8 @@ function mergeWarnings(report: MergeReport, labels: { base: string; overlay: str
     const pct = Math.round(report.alignment.ratio * 100)
     out.push(
       `${labels.overlay}의 설비 ${report.alignment.placed}대 중 ${pct}%만 ${labels.base}의 공간 범위 안에 있습니다. ` +
-        '두 파일의 좌표계(원점·북방향)가 다른 것 같습니다. 이대로면 설비 소속이 틀립니다.',
+        '두 파일의 좌표계(원점·북방향)가 다른 것 같습니다. 이대로면 설비 소속이 틀립니다.' +
+        (report.offset ? ` ${offsetText(report.offset)}` : ''),
     )
   }
 

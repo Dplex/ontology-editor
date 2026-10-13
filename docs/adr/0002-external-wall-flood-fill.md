@@ -6,8 +6,10 @@ date: "2026-10-03"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-EXT-01", "OE-OBJ-04"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: ["src/lib/exterior.ts"]
+tests: []
+related: []
 ---
 
 # ADR-0002 IsExternal 이 없는 벽은 층 평면을 격자로 채워 건물 바깥에 닿는지로 외벽을 판정한다

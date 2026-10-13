@@ -9,7 +9,7 @@ priority: "P1"
 owner: "tbd"
 status: "prd-review"
 blocked_by: []
-depends: ["OE-INT-02", "OE-GEN-03", "OE-GEN-02"]
+depends: ["OE-INT-02", "OE-GEN-03", "OE-GEN-02", "OE-UI-15"]
 ---
 
 # OE-GEN-01 온톨로지 생성·내보내기
@@ -19,21 +19,23 @@ depends: ["OE-INT-02", "OE-GEN-03", "OE-GEN-02"]
 - [OE-INT-02](../E20-INT/OE-INT-02.md): GeoJSON·TTL 산출물 형식
 - [OE-GEN-03](./OE-GEN-03.md): 구축 전 검증
 - [OE-GEN-02](./OE-GEN-02.md): 생성 차단 게이트
+- [OE-UI-15](../E03-UI/OE-UI-15.md): 구축 결과 리포트 화면
 
 ## 요구사항
+> User story : 구축 담당자는 사이트의 층별 편집·보정을 마치고 액션바의 [구축하기]를 눌러 DT 온톨로지를 생성할 수 있다. 생성된 산출물은 DT가 읽을 수 있음이 확인되므로, 사용자는 등록 후 DT 3D 맵과 AI Agent가 바로 그 층 데이터를 쓸 수 있어야 한다. 
 
-초기 구축 결과(물리존·커스텀존·공조존·설비·배관·담당 관계)를 DT 온톨로지로 생성한다. 산출물은 GeoJSON(기하)과 Brick TTL(의미)이며 같은 IfcGlobalId 로 이어진다(OE-INT-02). 술어는 `hasPart`·`hasLocation`·`feeds`·`hasPoint` 넷이고 TTL 에 좌표를 넣지 않는다.
-[구축하기] 를 누르면 생성 전 검증(OE-GEN-03)과 게이트(OE-GEN-02)를 거쳐 두 파일을 만들고 DT 에 등록한다. 등록 경로는 D-INT(결정 전 파일 export).
+초기 구축 결과(물리존·커스텀존·공조존·설비·배관·담당 관계)를 DT 온톨로지로 생성한다. [구축하기] 를 누르면 생성 전 검증(OE-GEN-03)과 게이트(OE-GEN-02)를 거쳐 산출물이 다운로드 상태로 준비된다. 
+DT 수신 규격에 맞게 GeoJSON, Brick TTL, Bin, Obj 유형으로 파일을 생성하고 사용자가 다운로드할 수 있도록 제공한다. 단일 층 출력과 다중층 세션의 영향 범위 출력은 공유 객체·층간 연결 참조를 유효하게 유지한다. 
+서버의 통합 온톨로지 동기화와 DT 파일 전달은 별개다. 
+R1은 DT 실제 등록·반영 확인 없이 다운로드까지 완료할 수 있고 R2에서 DT 직접 등록을 지원한다. 
+각 층은 임시 저장한 내용(없으면 임포트 결과)으로 생성한다. 산출물은 구축 결과 리포트 화면(OE-UI-15 ④)에서 각각 또는 한 번에 내려받을 수 있다.
 
 ## 수용 기준
 
-- 생성한 TTL 이 rdflib 검사를, GeoJSON 이 스키마 검사를 통과하고 DT 파서(ttl.go)가 읽는다.
-- TTL 에 좌표 값이 없다.
-
-## 검증 (이 repo)
-
-- TTL 의 관계(`hasPart`·`hasLocation`·`feeds`)가 가리키는 주어가 전부 TTL 에 있다. 계통 그룹에 든 포트(Revit 이 기기와 같이 넣는다)는 구성원으로 받지 않는다 — `import.test.ts`, `check:sample`(가진 BIM), 성수 불변식
+- **AC1** 다운로드는 DT 등록 확인을 요구하지 않고 UI에 DT 등록 성공을 주장하지 않는다.
+- **AC2** (R2) 서버 저장 실패와 파일 생성 실패가 각각 표시된다.
+- **AC3** 구축 결과 리포트 화면에서 GeoJSON·TTL·OBJ·BIN 을 내려받을 수 있다.
 
 ## 메모
 
-—
+OBJ·BIN 의 내용과 용도, D11(DT 3D 형상 출력 형식)과의 관계는 확인 필요.

@@ -6,8 +6,10 @@ date: "2026-10-08"
 deciders: ["정희록"]
 prd: ["#12"]
 tickets: ["OE-MAP-01", "OE-HIST-03"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: []
+tests: []
+related: ["ADR-0008"]
 ---
 
 # ADR-0018 사람이 지정한 설비 소속은 기계 판정과 따로 둔다

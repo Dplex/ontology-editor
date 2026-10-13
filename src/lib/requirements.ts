@@ -9,6 +9,7 @@
 // 필수·권장과 제목은 정본의 표를 옮긴 것이다. requirements-ids.test.ts 가 정본과 같은지 본다.
 
 import * as WebIFC from 'web-ifc'
+import { isStandardSpaceAirflow, UNCONDITIONED_ROOM_KINDS } from './airflow'
 import { CAPACITY_KINDS, isStandardCapacity } from './capacity'
 import { equipmentKind, equipmentKindOfIfc, IFC_REJECTED } from './kinds'
 import { isPlaceholder, type MergeReport } from './merge'
@@ -62,6 +63,9 @@ export const EXPORT_SETTING: Readonly<Record<string, string>> = {
   R21: '용량 속성을 표준 Pset 이름으로 매핑(속성 매핑 파일)',
   R23: '설비를 Proxy 대신 알맞은 IFC 클래스로(IfcExportAs)',
   R24: '설비 종류를 PredefinedType으로(IfcExportType)',
+  // Revit MEP 공간은 `PSet_Revit_Mechanical - Airflow` 의 `Specified Supply Airflow` 로 낸다(Duplex MEP-2·병원 MEP). 어느 Revit 매개변수를
+  // 냉방·난방으로 매핑할지는 아직 확인하지 않았다(U7). 그래서 자리만 말하고 매개변수 이름은 정해 주지 않는다.
+  R26: '공간의 설계 풍량을 Pset_SpaceThermalDesign의 CoolingDesignAirflow·HeatingDesignAirflow로 매핑(속성 매핑 파일)',
 }
 
 /** 없음·일부에서 "값을 넣어 달라" 보다 구체적으로 할 말이 있는 것. */
@@ -108,13 +112,14 @@ export const REQUIREMENTS: { id: string; level: RequirementLevel; title: string 
   { id: 'R20', level: '권장', title: '센서의 측정 대상 설비' },
   { id: 'R21', level: '권장', title: '용량' },
   { id: 'R22', level: '권장', title: '벽의 내력 여부' },
+  { id: 'R26', level: '권장', title: '방의 설계 급기 풍량' },
 ]
 
 /**
  * `클래스.값` 의 값이 IFC 표준 열거값인가(IFC2x3·IFC4·IFC4X3 중 하나에라도 있으면). USERDEFINED 로 적은 유형 이름
  * (`Fan.200 mm`)은 아니다. requirements.ids 의 R24 가 허용하는 것과 같은 기준이다.
  */
-function isStandardPredefined(declared: string | null | undefined): boolean {
+export function isStandardPredefined(declared: string | null | undefined): boolean {
   const dot = declared?.indexOf('.') ?? -1
   if (!declared || dot < 0 || IFC_REJECTED.includes(declared)) return false
   const cls = declared.slice(0, dot)
@@ -320,14 +325,17 @@ export function requirementsReport(
     const proxies = devices.filter((e) => e.ifcClass === 'BuildingElementProxy').length
     // 파일의 Proxy 중 설비로 읽지 않은 것(OE-BIM-13). 설비로 읽은 것만 세면 빠뜨린 것이 보이지 않는다.
     const p = facts?.proxies
-    const left = p ? p.total - p.ported - p.named : 0
+    const louvers = p?.louvers ?? 0
+    const left = p ? p.total - p.ported - p.named - louvers : 0
     set('R23', {
       ...counted(devices.length - proxies, proxies, devices.length),
       note:
         (proxies > 0
           ? `${proxies}대가 IfcBuildingElementProxy입니다. 포트가 있거나 이름이 사전에 있어 설비로 읽었습니다.`
           : 'Proxy로 들어온 설비가 없습니다.') +
-        (left > 0 ? ` 파일의 Proxy ${p!.total}개 중 ${left}개는 포트도 이름도 없어 건축 부재로 보고 읽지 않았습니다(예: ${p!.skipped.join(', ')}).` : ''),
+        (left > 0 ? ` 파일의 Proxy ${p!.total}개 중 ${left}개는 포트도 이름도 없어 건축 부재로 보고 읽지 않았습니다(예: ${p!.skipped.join(', ')}).` : '') +
+        // 이름은 루버지만 포트가 없는 것(OE-EXT-05). 차양·외장 마감이라 설비가 아니다.
+        (louvers > 0 ? ` 이름이 루버이지만 포트가 없는 ${louvers}개는 건축 루버(차양·외장 마감)로 보고 설비로 받지 않았습니다.` : ''),
     })
   }
 
@@ -401,6 +409,26 @@ export function requirementsReport(
         : uniform
           ? `벽 ${known.length}장이 전부 ${trues === 0 ? '비내력' : '내력'}입니다. 모델러가 정한 값이 아니라 Revit 기본값일 수 있습니다.`
           : `내력 ${trues} · 비내력 ${known.length - trues}. 값이 없는 벽은 "모름"으로 둡니다.`,
+    })
+  }
+
+  {
+    // 공조 대상인 방만 센다(OE-REQ-07). 계단실·승강로는 해당 없음이고, 종류를 모르는 방은 비공조인지 몰라 뺀다고 보지 않는다.
+    // 사람이 넣은 값(source 'edit')은 BIM 에 없는 것이라 세지 않는다.
+    const want = spaces.filter((sp) => !UNCONDITIONED_ROOM_KINDS.has(sp.kind ?? ''))
+    const std = want.filter((sp) => isStandardSpaceAirflow(sp.designAirflow)).length
+    const other = want.filter((sp) => sp.designAirflow?.source === 'bim' && !isStandardSpaceAirflow(sp.designAirflow)).length
+    const skippedRooms = spaces.length - want.length
+    const rest = skippedRooms ? ` 계단실·승강로 ${skippedRooms}개는 해당 없음입니다.` : ''
+    set('R26', {
+      ...counted(std, other, want.length),
+      note: !spaces.length
+        ? '공간이 없습니다.'
+        : other
+          ? `${other}개는 Revit 속성(Specified Supply Airflow)에 들어 있습니다. 냉방·난방을 가르지 않아 그 값 하나로 판정합니다.${rest}`
+          : std + other < want.length
+            ? `설계 풍량이 없는 방은 용량 검증(Z-03)이 판정 불가입니다. 사람이 공조존·방 단위로 넣습니다.${rest}`
+            : `공조 대상인 방 중 설계 풍량이 있는 것입니다.${rest}`,
     })
   }
 

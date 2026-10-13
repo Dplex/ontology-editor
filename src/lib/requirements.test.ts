@@ -51,7 +51,7 @@ describe('요구사항 보고서', () => {
     expect(row(rows, 'R9').state).toBe('missing')
   })
 
-  it('호스트 벽을 모르는 문·창은 R4 를 "일부" 로 만든다 — 빼지 않고 모수에 넣는다(OE-BIM-05)', () => {
+  it('호스트 벽을 모르는 문·창은 R4 를 "일부" 로 만든다 — 빼지 않고 모수에 넣는다(OE-BIM-05) [OE-BIM-05#1]', () => {
     const m = structuredClone(rooms)
     const openings = m.storeys.flatMap((s) => s.openings)
     const hosted = openings.filter((o) => o.wallId !== null)
@@ -82,7 +82,7 @@ describe('요구사항 보고서', () => {
 
   // OE-BIM-17 "다른 위치는 '설정을 바꿔 달라' 문구". 다른 자리가 나올 수 있는 R 을 하나씩 다른 자리로 만들어, 요청이 설정을
   // 바꿔 달라는 말과 무엇을 바꿀지로 나오는지 본다. 한쪽만 다른 자리(일부)여도 그 몫은 설정 요청이다.
-  it('다른 자리면 요청이 늘 "내보내기 설정을 바꿔 달라" 와 무엇을 바꿀지다', () => {
+  it('다른 자리면 요청이 늘 "내보내기 설정을 바꿔 달라" 와 무엇을 바꿀지다 [OE-BIM-17#1~]', () => {
     const elsewhere: [string, Model][] = []
     const a = structuredClone(rooms)
     for (const s of a.storeys.flatMap((x) => x.spaces)) Object.assign(s, { omniclass: '13-15 11 34 11', omniclassSource: 'property' })
@@ -96,6 +96,10 @@ describe('요구사항 보고서', () => {
     const d = structuredClone(mep)
     for (const e of d.storeys.flatMap((x) => x.equipment)) if (e.capacity !== null) e.capacityProperty = 'Flow'
     elsewhere.push(['R21', d])
+    const f = structuredClone(rooms)
+    for (const s of f.storeys.flatMap((x) => x.spaces))
+      s.designAirflow = { cooling: null, heating: null, supply: 300, source: 'bim', property: 'PSet_Revit_Mechanical - Airflow.Specified Supply Airflow' }
+    elsewhere.push(['R26', f])
     const e = structuredClone(mep)
     const device = e.storeys.flatMap((x) => x.equipment).find((x) => x.kind && x.role !== 'segment' && x.role !== 'fitting')!
     device.ifcClass = 'BuildingElementProxy'

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,9 +10,12 @@ import { createDataCatalog } from '../src/server/data-catalog'
 import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-geometry'
 import { profileOf, type Profile } from '../src/lib/profile'
 import { CAPACITY_PREDICATE } from '../src/lib/capacity'
-import { countOf, isConduit, polygonArea, unplacedOf, type Vec2 } from '../src/lib/model'
+import { countOf, isConduit, polygonArea, segmentPath, unplacedOf, type Vec2 } from '../src/lib/model'
+import { segmentAxisOf } from '../src/lib/conduit-mesh'
+import { releaseConnection } from '../src/lib/connection-release'
 import { assignEquipment, assignEquipmentToSpaces, interiorPoint, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
+import { outlinelessSpaces } from '../src/lib/outline-fill'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
 import { modelToGeoJSON } from '../src/lib/export/geojson'
 import { mergeReadings, readOntologyTTL, type OntologyEntity } from '../src/lib/export/read-ttl'
@@ -24,11 +27,13 @@ import { deviceFlows, inferConnections, REACH, TOLERANCE } from '../src/lib/topo
 import { inferFlowByRules, newlyDisagreeing, withInferred } from '../src/lib/flow-rules'
 import { airBasis, airServices, needsSystem, systemlessAir } from '../src/lib/served'
 import { completenessChecks } from '../src/lib/checks'
+import { warningCode } from '../src/lib/issue-code'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
-import { verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
+import { verticalConnections, verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
+import { verticalObjects } from '../src/lib/vertical-object'
 import { storeyHeights } from '../src/lib/storey-height'
 import { markStoreyDone, storeyProgress } from '../src/lib/storey-progress'
-import { equipmentKind, roomKind } from '../src/lib/kinds'
+import { equipmentKind, isFlowlessKind, roomKind } from '../src/lib/kinds'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
 import { compareVersions, revitElementId } from '../src/lib/versions'
 import { storeyScaleMismatch } from '../src/lib/unit-check'
@@ -40,7 +45,7 @@ import { attachIdf, modelFromIdf } from '../src/lib/idf/attach'
 import { overlapArea } from '../src/lib/polygon'
 import { computeExternal } from '../src/lib/exterior'
 import { createCustomZone } from '../src/lib/custom-zone'
-import { addEquipment, baselineOf, moveEquipment, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, wallShapeLock, type WallCarryPlan } from '../src/lib/edit'
+import { addEquipment, applyFollow, baselineOf, familyKeyOf, moveEquipment, planFollow, setTypeKind, deleteSpace, deleteWall, moveOpening, moveWall, moveWallWithSpaces, renameSpace, setWallLoadBearing, wallLocked, wallShapeLock, type WallCarryPlan } from '../src/lib/edit'
 import { applyEdits, exportEdits, parseEditFile } from '../src/lib/edit-file'
 
 // 손으로 쓴 픽스처가 통과해도 진짜 BIM 에서 깨질 수 있다. 실제 저작 도구가 내보낸 파일은
@@ -252,7 +257,7 @@ const DUPLEX_ARCH = 'data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc'
 // 공간 85개가 전부 외곽선 0 이었고, 그래서 3D 에 방이 한 칸도 안 그려지고 설비 소속 판정도
 // 통째로 못 돌았다. 이 검사가 그 회귀를 지킨다.
 describe.skipIf(!existsSync(DUPLEX_ARCH))('Revit 이 낸 공간 외곽선 (SweptSolid)', () => {
-  it('FootPrint 가 없어도 SweptSolid 에서 바닥 단면을 꺼낸다', async () => {
+  it('FootPrint 가 없어도 SweptSolid 에서 바닥 단면을 꺼낸다 [OE-BIM-03#1~]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const model = importIfc(api, new Uint8Array(readFileSync(DUPLEX_ARCH)))
@@ -275,6 +280,17 @@ describe.skipIf(!existsSync(DUPLEX_ARCH))('Revit 이 낸 공간 외곽선 (Swept
     expect(total).toBeLessThan(500)
   }, 300_000)
 })
+
+// 병원 건축의 층간 연결 기준선: 계단실·승강로 id → 이어질 방 id. 1층 승강로 E1 은 2층에 승강로 공간이 BIM 에 없어 잇지 않는다.
+const HOSPITAL_VERTICAL: Record<string, string | null> = {
+  '0ztdC3L1HAzhbhMHypqdeT': '0uLn6BSvvEB8kgChiujNG3', // First Floor/1AS1 ↔ Second Floor/2AS1 (98.2%)
+  '0uLn6BSvvEB8kgChiujNG3': '0ztdC3L1HAzhbhMHypqdeT',
+  '0ztdC3L1HAzhbhMHypqcTW': '0ClPCUC7jCQRnj1dhupMQV', // 1BS2 ↔ 2BS2 (100%)
+  '0ClPCUC7jCQRnj1dhupMQV': '0ztdC3L1HAzhbhMHypqcTW',
+  '0ztdC3L1HAzhbhMHypqc0q': '0ClPCUC7jCQRnj1dhupMQK', // 1CS3 ↔ 2CS3 (99.5%)
+  '0ClPCUC7jCQRnj1dhupMQK': '0ztdC3L1HAzhbhMHypqc0q',
+  '0ztdC3L1HAzhbhMHypqdiM': null, // First Floor/E1 (ELEVATOR)
+}
 
 // 문이 잇는 방을 좌표로 짚는 것(element-geometry.ts)이 BIM 의 공간 경계와 얼마나 맞나. 성수 건축은 공간
 // 경계가 0 이라 좌표로만 잇는다. 정답지는 공간 경계가 있는 두 파일이다. 외곽선이 없는 방은 좌표로 짚을
@@ -343,12 +359,46 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH))('문이 잇는 
     // 13개 중 11개는 방 하나다 — 커튼월 문 3개는 바깥문이고, 화장실 칸막이 문 8개는 양쪽이 같은 화장실이다. 2개는 방을 못 짚는다.
     expect(tally(calc, 'rooms')).toEqual({ 0: 2, 1: 11 })
 
-    // 층 사이: 계단실 6 + 승강로 1 = 7개 중 6개.
-    const vertical = model.storeys.flatMap((st) => st.spaces.filter((sp) => VERTICAL_KINDS.includes(sp.kind ?? '')).map((sp) => `${st.name}/${sp.name}`))
-    expect(vertical).toHaveLength(7)
-    const linked = all.filter((p) => p.kind === 'space' && Array.isArray(p.verticalConnects))
-    expect(linked).toHaveLength(6)
-    expect(vertical.filter((v) => !linked.some((p) => v.endsWith(`/${p.name}`)))).toEqual(['First Floor/E1'])
+    // [OE-EQP-16#1] [OE-ML-19#7] [OE-ML-02#4] [OE-EQP-16#2~]
+    // 층 사이 고정 기준선(OE-EQP-16 "7개 중 6개 이상", OE-ML-19). 대상 id·기대 연결·출처를 박아 둔다 — 개수만 재면 엉뚱한 짝이나
+    // 모호 후보를 억지로 이어도 통과한다. 계단(IfcStair) 셋이 1층 계단실에서 올라 2층 계단실에 닿아 명시 연결(bim)이 된다.
+    const vertical = model.storeys.flatMap((st) => st.spaces.filter((sp) => VERTICAL_KINDS.includes(sp.kind ?? '')).map((sp) => sp.id))
+    expect(vertical.sort()).toEqual(Object.keys(HOSPITAL_VERTICAL).sort())
+    const spaces = new Map(modelToGeoJSON(model).flatMap((x) => x.collection.features).filter((f) => f.properties.kind === 'space').map((f) => [String(f.id), f.properties]))
+    for (const [id, expected] of Object.entries(HOSPITAL_VERTICAL)) {
+      const p = spaces.get(id)!
+      if (expected) expect({ id, connects: p.verticalConnects, source: p.verticalConnectsSource }).toEqual({ id, connects: [expected], source: 'bim' })
+      else expect(p).not.toHaveProperty('verticalConnects')
+    }
+    expect(verticalConnections(model).ambiguous).toEqual([])
+    // 계단 오브젝트를 빼고 겹침만으로 재도 같은 짝이다(겹침 98~100%, 서로를 최고 후보로 고른다). 두 근거가 맞는지 보는 대조다.
+    const bare = structuredClone(model)
+    for (const st of bare.storeys) delete st.verticalParts
+    const byOverlap = verticalConnections(bare)
+    expect(Object.fromEntries([...byOverlap.links].map(([id, to]) => [id, to[0]]))).toEqual(Object.fromEntries(Object.entries(HOSPITAL_VERTICAL).filter(([, to]) => to)))
+    expect(new Set(byOverlap.sources.values())).toEqual(new Set(['calc']))
+    // 계단 오브젝트(OE-ML-02): 1층에 형상·진입 지점, 2층에 종료 지점. 조각 feature 는 1층 3 · 2층 3 이다.
+    const objects = verticalObjects(model)
+    expect(objects.map((o) => o.parts.map((p) => `${p.storey.name}:${p.part.entry ? 'in' : ''}${p.part.exit ? 'out' : ''}`))).toEqual(
+      Array(3).fill(['First Floor:in', 'Second Floor:out']),
+    )
+    expect(all.filter((p) => p.kind === 'vertical' && p.passable === false)).toHaveLength(6)
+    // 층간 연결·연관 물리존이 가리키는 id 는 전부 실제로 내보낸 feature 다(OE-ML-02). 조각 id 가 물리존 id 와 겹치지 않는다.
+    const features = modelToGeoJSON(model).flatMap((x) => x.collection.features)
+    const ids = new Set(features.map((f) => String(f.id)))
+    expect(ids.size).toBe(features.length)
+    const refs = features.flatMap((f) => [...((f.properties.verticalConnects as string[]) ?? []), ...((f.properties.spaceIds as string[]) ?? [])])
+    expect(refs.length).toBeGreaterThan(0)
+    expect(refs.filter((id) => !ids.has(id))).toEqual([])
+    // 수직 관통 오브젝트의 통과(OE-EQP-17). 계단실 6개는 불가(사전). 승강로는 그 층에서 이어지는 문이 없어 정차 미확인이라 불가다 —
+    // 병원 건축은 승강장 문을 IfcDoor 로 그리지 않았다.
+    const verticalPass = all
+      .filter((p) => p.kind === 'space' && p.passable !== undefined)
+      .map((p) => `${p.longName}:${p.passable}:${p.passableSource}:${p.passableReason}`)
+    expect(tally(verticalPass.map((v) => ({ v })), 'v')).toEqual({
+      'STAIR:false:dict:staircase': 6,
+      'ELEVATOR:false:calc:elevator_stop_unconfirmed': 1,
+    })
   }, 300_000)
 
   it('벽의 평면 외곽선과 문·창의 자리를 형상에서 읽는다', async () => {
@@ -498,7 +548,7 @@ describe('요구사항 상태 집계 — 필수 11 (OE-REQ-06)', () => {
 // OE-BIM-25 임포트 피처 선택. 벽·문·창은 GeoJSON 에만 나가고 TTL 에는 없어서, 설비만 볼 때 끄고 연다. 끈 것은 0 이 아니라 "읽지 않음"
 // 이어야 한다 — 0 이면 "BIM 에 없다" 는 말이 되고 요구사항 보고서가 고객사에 엉뚱한 요청을 한다. 큰 건축 파일로 잰다.
 describe('임포트 피처 선택 — 끈 것은 읽지 않음 (OE-BIM-25)', () => {
-  it('병원 건축에서 벽·문·창을 끄면 0 이 아니라 읽지 않음이고, 합쳐도 남고, TTL 은 그대로다', async () => {
+  it('병원 건축에서 벽·문·창을 끄면 0 이 아니라 읽지 않음이고, 합쳐도 남고, TTL 은 그대로다 [OE-BIM-25#1]', async () => {
     if (!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC)) return
     const api = new WebIFC.IfcAPI()
     await api.Init()
@@ -547,7 +597,7 @@ describe('임포트 피처 선택 — 끈 것은 읽지 않음 (OE-BIM-25)', () 
 // 포트가 있는 파일(병원 HVAC·Duplex HVAC·ifc4Mep)을 정답지로 형상 추정을 재 보면 흐름 없는 기기를 빼도 재현율·정밀도가 그대로다
 // (87.8%·99.9% / 70.9%·95.3% / 75.0%·79.5%, 2026-10-03) — 포트가 흐름 없는 기기를 잇는 일이 없어서다.
 describe('흐름 없는 기기는 형상으로 잇지 않는다 (OE-PIP-18)', () => {
-  it('병원 전기 — 조명끼리 잡히던 연결이 없다', async () => {
+  it('병원 전기 — 조명끼리 잡히던 연결이 없다 [OE-PIP-18#1]', async () => {
     const ELE = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc'
     if (!existsSync(ELE)) return
     const api = new WebIFC.IfcAPI()
@@ -561,6 +611,65 @@ describe('흐름 없는 기기는 형상으로 잇지 않는다 (OE-PIP-18)', ()
     expect(model.storeys.flatMap((s) => s.equipment).filter((e) => e.kind === 'lighting').length).toBeGreaterThan(30)
     expect(model.connections.filter((c) => flowless(c.from) || flowless(c.to))).toEqual([])
   }, 300_000)
+
+  // OE-PIP-18#5. 포트가 있는 세 파일에서 포트 연결을 정답지로 두고, 형상 추정을 흐름 없는 기기를 넣고·빼고 두 번 잰다. 빼서 새로 놓친
+  // 실제 연결이 있으면 실패한다(설명 없이 통과시키지 않는다). 종류를 모르는 기기는 빼지 않는다 — 빼서 정밀도를 올리지 않는다.
+  // 숫자는 docs/bim-to-dt-ontology.md 의 "흐름이 없는 기기는 형상으로 잇지 않는다" 표에 적는다.
+  it('흐름 없는 기기를 빼도 실제 연결을 새로 놓치지 않고, 정밀도·재현율과 종류별 제외 수를 잰다 [OE-PIP-18#5]', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const key = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
+    const out: Record<string, unknown> = {}
+    const files = [['병원 HVAC', CLINIC_HVAC], ['병원 MEP', 'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-MEP.ifc'], ['Duplex HVAC', DUPLEX_HVAC], ['Duplex MEP', DUPLEX_MEP_FULL], ['ifc4Mep', MEP]] as const
+    for (const [label, path] of files) {
+      if (!existsSync(path)) continue
+      const { model, meshes } = importIfcWithMeshes(api, new Uint8Array(readFileSync(path)))
+      const truth = new Set(model.connections.filter((c) => c.source === 'port' && meshes.has(c.from) && meshes.has(c.to)).map((c) => key(c.from, c.to)))
+      if (!truth.size) continue
+      const byId = new Map(model.storeys.flatMap((st) => st.equipment).map((e) => [e.id, e]))
+      const systemsOf = new Map<string, string[]>()
+      for (const sys of model.systems) for (const id of sys.memberIds) systemsOf.set(id, [...(systemsOf.get(id) ?? []), sys.name])
+      const all = [...meshes].map(([id, m]) => ({ id, points: m.positions, systems: systemsOf.get(id) ?? null }))
+      const kept = all.filter((el) => !isFlowlessKind(byId.get(el.id)?.kind))
+      const score = (elements: typeof all) => {
+        const got = new Set(inferConnections(elements).map((c) => key(c.from, c.to)))
+        const tp = [...got].filter((g) => truth.has(g)).length
+        return { got: got.size, tp, precision: +(tp / got.size).toFixed(4), recall: +(tp / truth.size).toFixed(4), pairs: got }
+      }
+      const before = score(all)
+      const after = score(kept)
+      // 빼서 새로 놓친 실제 연결. 있으면 그 쌍을 보인다.
+      const lost = [...before.pairs].filter((p) => truth.has(p) && !after.pairs.has(p))
+      expect(lost, label).toEqual([])
+      const byKind: Record<string, number> = {}
+      for (const el of all) if (!kept.includes(el)) byKind[equipmentKind(byId.get(el.id)?.kind)!.label] = (byKind[equipmentKind(byId.get(el.id)?.kind)!.label] ?? 0) + 1
+      // 종류를 모르는 기기(덕트·배관 제외). 빼지 않고 둔 수다.
+      const unknown = all.filter((el) => { const e = byId.get(el.id); return !!e && !e.kind && !isConduit(e.role) }).length
+      out[label] = {
+        truth: truth.size,
+        before: { got: before.got, tp: before.tp, precision: before.precision, recall: before.recall },
+        after: { got: after.got, tp: after.tp, precision: after.precision, recall: after.recall },
+        excludedPairs: before.got - after.got,
+        excludedByKind: byKind,
+        unknownDevicesKept: unknown,
+      }
+    }
+    // 2026-10-13. 병원 MEP·Duplex MEP 는 포트 연결이 없어 정답지가 못 된다. 흐름 없는 기기가 있는 것은 ifc4Mep 뿐이다.
+    const want: Record<string, unknown> = {
+      '병원 HVAC': { truth: 3693, before: { got: 3246, tp: 3244, precision: 0.9994, recall: 0.8784 }, after: { got: 3246, tp: 3244, precision: 0.9994, recall: 0.8784 }, excludedPairs: 0, excludedByKind: {}, unknownDevicesKept: 0 },
+      'Duplex HVAC': { truth: 485, before: { got: 361, tp: 344, precision: 0.9529, recall: 0.7093 }, after: { got: 361, tp: 344, precision: 0.9529, recall: 0.7093 }, excludedPairs: 0, excludedByKind: {}, unknownDevicesKept: 0 },
+      ifc4Mep: {
+        truth: 1974,
+        before: { got: 1882, tp: 1496, precision: 0.7949, recall: 0.7579 },
+        after: { got: 1881, tp: 1496, precision: 0.7953, recall: 0.7579 },
+        excludedPairs: 1,
+        excludedByKind: { 열감지기: 1, 콘센트: 24, 조명: 69, 분전반: 3 },
+        unknownDevicesKept: 73,
+      },
+    }
+    for (const [label, row] of Object.entries(out)) expect(row, label).toEqual(want[label])
+  }, 600_000)
 })
 
 // OE-PIP-09 계통 이름 규칙. BIM 계통 이름은 분야별 파일을 합칠 때 맞추는 열쇠다 — Revit `System Name` 이 곧 id 라 같은 이름이면 한 계통의
@@ -775,7 +884,7 @@ describe.skipIf(!existsSync(DUPLEX_HVAC))('배치점이 층 원점에 찍힌 덕
 // **실제 프로젝트는 건축과 설비가 다른 파일이다.** 설비 파일에는 방이 없어서 혼자서는 F11 이
 // 안 나온다. 같은 건물의 두 판본을 합쳐서 되는지를 지킨다.
 describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP))('건축 + 설비 합치기 (Duplex)', () => {
-  it('층 GUID 가 달라도 이름으로 맞추고, HVAC 기기 40대 전부의 소속을 찾는다', async () => {
+  it('층 GUID 가 달라도 이름으로 맞추고, HVAC 기기 40대 전부의 소속을 찾는다 [OE-BIM-10#1]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_ARCH))).model
@@ -996,26 +1105,29 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
   it('파일마다 어느 칸이 얼마나 차는지', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
+    // 순서: 공간 · 설비(좌표 있는 기기) · 소속(방을 찾은 기기) · 연결망(계통에 든 기기) ·
+    // 방향(덕트·배관으로 다른 기기와 이어진 기기 중 흐름 방향으로 이어진 기기 — deviceFlows 참조).
+    // 칩 숫자는 판정에 쓰는 본 숫자 하나를 분자/분모 (%) 로 보인다(OE-BIM-16). [ ] 는 판정에 안 쓰는 보조 숫자다.
     const chips = (path: string) =>
-      profileOf(importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model).tiers.map((t) => `${t.label} ${t.figure}`).join(' | ')
+      profileOf(importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model)
+        .tiers.map((t) => `${t.label} ${t.figure}${t.aux ? ` [${t.aux.source === 'rule' ? '미확정 규칙' : '보정 후'} ${t.aux.figure}]` : ''}`)
+        .join(' | ')
 
-    // 순서: 공간 · 설비(좌표 있는 기기) · 소속(방을 찾은 기기) · 연결망(연결 수) ·
-    // 방향(덕트·배관으로 다른 기기와 이어진 기기 중 흐름 방향으로 이어진 기기 — deviceFlows 참조)
-    expect(chips(SAMPLE)).toBe('공간 7 | 설비 — | 소속 — | 연결망 — | 방향 —')
-    expect(chips(DUPLEX_ARCH)).toBe('공간 19/21 | 설비 — | 소속 — | 연결망 — | 방향 —')
+    expect(chips(SAMPLE)).toBe('공간 7/7 (100.0%) | 설비 — | 소속 — | 연결망 — | 방향 —')
+    expect(chips(DUPLEX_ARCH)).toBe('공간 19/21 (90.5%) | 설비 — | 소속 — | 연결망 — | 방향 —')
     // 설비 전용. 방이 없어 소속이 0 이다. 연결 1,995개는 **전부** 방향을 아는데 기기 단위로는
     // 37/103 이다 — 나머지 66대는 난방·오수처럼 원천 기기(보일러·펌프)가 모델에 없는 망에 형제로만
     // 매달려서 "누가 이 기기에 공급하나" 에 답이 없다. 연결 단위(100%)로 보이면 DT 가 받는 것을
     // 크게 부풀려 말하게 된다.
-    expect(chips(MEP)).toBe('공간 — | 설비 297/308 | 소속 0/308 | 연결망 1995 | 방향 37/103')
+    expect(chips(MEP)).toBe('공간 — | 설비 297/308 (96.4%) | 소속 0/308 (0.0%) | 연결망 129/308 (41.9%) | 방향 37/103 (35.9%)')
     // 공간 1 은 지붕뿐이다. 기기 40대가 갈 방이 없다 — 건축 파일을 덧붙이면 소속 40 이 된다.
     // 연결 단위로는 39%(190/485)가 방향을 아는데, 기기에서 출발한 방향 사슬은 전부 중간의
     // SOURCEANDSINK 에서 끊긴다. 기기끼리 닿는 흐름은 0 이다.
-    expect(chips(DUPLEX_HVAC)).toBe('공간 1 | 설비 40 | 소속 0/40 | 연결망 485 | 방향 0/26')
-    // 목표선(방향) 칩은 두 수치다(OE-BIM-16): BIM 포트로 0/27, 규칙(사전)으로 짐작한 방향까지 23/27.
-    expect(chips(DUPLEX_MEP)).toBe('공간 22 | 설비 141 | 소속 141 | 연결망 783 | 방향 0/27(BIM) → 23/27(사전)')
+    expect(chips(DUPLEX_HVAC)).toBe('공간 1/1 (100.0%) | 설비 40/40 (100.0%) | 소속 0/40 (0.0%) | 연결망 40/40 (100.0%) | 방향 0/26 (0.0%)')
+    // 방향의 본 숫자는 BIM 포트로 0/27 이다. 확정 전 규칙 방향까지 넣은 23/27 은 판정에 안 쓰는 보조 숫자다(OE-BIM-16).
+    expect(chips(DUPLEX_MEP)).toBe('공간 22/22 (100.0%) | 설비 141/141 (100.0%) | 소속 141/141 (100.0%) | 연결망 44/141 (31.2%) | 방향 0/27 (0.0%) [미확정 규칙 23/27 (85.2%)]')
     // COBie 판본은 형상이 없다. 좌표도 외곽선도 0 인데 소속은 BIM 이 전부 말해 준다.
-    expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 | 설비 0/133 | 소속 133 | 연결망 0 | 방향 —')
+    expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 (0.0%) | 설비 0/133 (0.0%) | 소속 133/133 (100.0%) | 연결망 36/133 (27.1%) | 방향 —')
   }, 300_000)
 
   // OE-BIM-16 "목록 숫자 = 열람 숫자". 목록은 서버(data-catalog.ts)가 기본 옵션으로 재고, 열람은 워커가 화면의
@@ -1233,10 +1345,33 @@ describe('받는 쪽 규칙으로 다시 읽는가 (read-ttl)', () => {
     }
   }, 900_000)
 
-  // 셋째 파일(3D, GLB·OBJ)도 뷰어와 같은 코드로 다시 읽어 GeoJSON 과 잇는다. 객체 이름이 GlobalId 라 같은 id 여야 하고, 방 판은
+  /** GLB 를 Blender 로 FBX 로 바꿔 읽는다. Blender 가 없으면 null(처음 한 번만 까닭을 찍는다). */
+  const BLENDER = process.env.BLENDER ?? 'blender'
+  let blenderChecked: boolean | null = null
+  async function glbToFbx(name: string, glb: ArrayBuffer) {
+    if (blenderChecked === null) {
+      try {
+        execFileSync(BLENDER, ['-b', '--factory-startup', '--version'], { stdio: 'ignore' })
+        blenderChecked = true
+      } catch {
+        blenderChecked = false
+        console.log(`!! ${BLENDER} 가 없어 FBX 는 건너뜁니다 — Blender 4.5 LTS 를 깔거나 BLENDER 로 경로를 줍니다`)
+      }
+    }
+    if (!blenderChecked) return null
+    const dir = mkdtempSync(join(tmpdir(), 'sample-fbx-'))
+    writeFileSync(join(dir, 'a.glb'), new Uint8Array(glb))
+    execFileSync(BLENDER, ['-b', '--factory-startup', '--python-exit-code', '1', '--python', 'scripts/glb2fbx.py', '--', join(dir, 'a.glb'), join(dir, 'a.fbx')], { stdio: 'ignore' })
+    const b = readFileSync(join(dir, 'a.fbx'))
+    rmSync(dir, { recursive: true, force: true })
+    return read3D(`${name}.fbx`, b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer)
+  }
+
+  // 셋째 파일(3D, GLB·OBJ·FBX)도 뷰어와 같은 코드로 다시 읽어 GeoJSON 과 잇는다. FBX 는 Blender 가 있는 PC 에서만 GLB 를 바꿔 본다
+  // (scripts/glb2fbx.py, src/server/fbx.ts). 없으면 까닭을 찍고 GLB·OBJ 만 본다. 객체 이름이 GlobalId 라 같은 id 여야 하고, 방 판은
   // 외곽선과 1cm 안, 설비는 GeoJSON 점이 형상 범위에서 0.5m 안이다(배치점 보정 기준, read-3d.ts). ifc4Mep 의 플랜지·센서 39대는
   // 배치점이 형상에서 0.3m 떨어져 있어 허용치 안이다 — BIM 그대로다.
-  it('가진 BIM 의 GLB·OBJ 가 GeoJSON 과 같은 id·같은 자리다', async () => {
+  it('가진 BIM 의 GLB·OBJ·FBX 가 GeoJSON 과 같은 id·같은 자리다', async () => {
     if (!('FileReader' in globalThis)) {
       ;(globalThis as Record<string, unknown>).FileReader = class {
         result: ArrayBuffer | null = null
@@ -1269,10 +1404,17 @@ describe('받는 쪽 규칙으로 다시 읽는가 (read-ttl)', () => {
       const floors = modelToGeoJSON(model).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
       const ttl = readOntologyTTL(modelToTTL(model))
       const scene = modelToScene(model, meshes)
-      const glb = await read3D('a.glb', await sceneToGLB(scene))
+      const glbBytes = await sceneToGLB(scene)
+      const glb = await read3D('a.glb', glbBytes)
       const obj = await read3D('a.obj', new TextEncoder().encode((await sceneToOBJ(scene)).join('')).buffer as ArrayBuffer)
-      for (const r of [glb, obj]) expect(check3D(r.parts, floors, ttl), `${name} ${r.format}`).toEqual({ unknown: [], missing: [], misplaced: [] })
+      const fbx = await glbToFbx(name, glbBytes)
+      for (const r of fbx ? [glb, obj, fbx] : [glb, obj]) expect(check3D(r.parts, floors, ttl), `${name} ${r.format}`).toEqual({ unknown: [], missing: [], misplaced: [], kindMismatch: [] })
       expect(obj.parts.length, name).toBe(glb.parts.length)
+      if (fbx) {
+        // 같은 객체·삼각형 수에, GLB extras 가 FBX 사용자 속성으로 그대로 온다(bool 은 FBX 에 없어 1·0).
+        const row = (r: typeof glb) => r.parts.map((p) => `${p.name}:${p.triangles}:${p.kind}:${JSON.stringify(Object.entries(p.props).map(([k, v]) => [k, typeof v === 'boolean' ? Number(v) : v]).sort())}`).sort()
+        expect(row(fbx), name).toEqual(row(glb))
+      }
     }
   }, 1_800_000)
 })
@@ -1492,17 +1634,17 @@ describe.skipIf(!hasIfctester)('IDS 를 ifctester 로 (OE-REQ-02)', () => {
 // 건축 부재인지는 이름 예로 사람이 본다 — ifc4Mep 의 48개는 태양광 거치대 40개(`SolarMountingSystems`, 설명 "Mounting rack")와
 // 이름·형상 없는 8개다. 병원 전기의 유압 엘리베이터 1대는 읽지 않다가 이름 사전에 "엘리베이터" 를 더해 설비로 읽는다(2026-10-03 사용자 결정).
 describe('Proxy 리포트 (OE-BIM-13)', () => {
-  it('가진 BIM 의 Proxy 를 전부 세고 읽지 않은 것을 이름과 함께 적는다', async () => {
+  it('가진 BIM 의 Proxy 를 전부 세고 읽지 않은 것을 이름과 함께 적는다 [OE-BIM-13#1]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
     const want: Record<string, unknown> = {
       [SAMPLE]: undefined,
-      [MEP]: { total: 49, ported: 1, named: 0, skipped: ['(이름 없음)', 'SolarMountingSystems'] },
+      [MEP]: { total: 49, ported: 1, named: 0, louvers: 0, skipped: ['(이름 없음)', 'SolarMountingSystems'] },
       [DUPLEX_HVAC]: undefined,
       [CLINIC_ARCH]: undefined,
       [CLINIC_HVAC]: undefined,
-      'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc': { total: 29, ported: 0, named: 29, skipped: [] },
+      'data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-ELE.ifc': { total: 29, ported: 0, named: 29, louvers: 0, skipped: [] },
     }
     let measured = 0
     for (const [path, proxies] of Object.entries(want)) {
@@ -1512,10 +1654,27 @@ describe('Proxy 리포트 (OE-BIM-13)', () => {
       expect(model.facts?.proxies, path).toEqual(proxies)
       const r23 = requirementsReport(model).find((r) => r.id === 'R23')!
       const p = model.facts?.proxies
-      if (p && p.total > p.ported + p.named) expect(r23.note, path).toContain(`파일의 Proxy ${p.total}개 중 ${p.total - p.ported - p.named}개는`)
+      // [OE-EXT-05#2] 포트 없는 루버만 빠지고 다른 BIM 의 설비 수는 그대로다
+      if (p && p.total > p.ported + p.named + (p.louvers ?? 0)) expect(r23.note, path).toContain(`파일의 Proxy ${p.total}개 중 ${p.total - p.ported - p.named - (p.louvers ?? 0)}개는`)
     }
     expect(measured).toBeGreaterThanOrEqual(2)
   }, 600_000)
+})
+
+// OE-MAN-03 외곽선 없는 물리존. 합치기로 다른 모델의 같은 방에서 외곽선을 빌려올 수 있는 방(K8)은 목록에 나오지 않는다 — 빌려오는 것이
+// 먼저고, 빌려올 수 없는 것만 사람이 그린다. BIM 면적은 Revit 이 PSet_Revit_Dimensions.Area 로 적는다(성수 건축은 면적 속성이 없다).
+describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_MEP))('외곽선 없는 물리존 (OE-MAN-03)', () => {
+  it('Duplex 건축의 외곽선 없는 방 둘은 MEP 와 합치면 외곽선을 빌려와 목록에서 빠진다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const arch = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_ARCH))).model
+    const alone = outlinelessSpaces(arch)
+    expect(alone.map((x) => [x.space.longName, x.space.bimArea?.m2.toFixed(1)])).toEqual([['Hallway', '7.8'], ['Hallway', '7.8']])
+    const merged = mergeModels(arch, importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_MEP))).model)
+    expect(merged.report.spaces.borrowed).toBe(2)
+    expect(outlinelessSpaces(merged.model)).toEqual([])
+  }, 300_000)
 })
 
 // OE-BIM-17 요구사항 보고서. 가진 BIM 에서 "다른 자리" 가 나온 줄은 전부 "내보내기 설정을 바꿔 달라" 와 무엇을 바꿀지를
@@ -1525,7 +1684,7 @@ describe('요구사항 보고서의 요청 (OE-BIM-17)', () => {
     const api = new WebIFC.IfcAPI()
     return api.Init().then(() => {
       api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
-      const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_1, CLINIC_ARCH, CLINIC_HVAC].filter((f) => existsSync(f))
+      const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_1, DUPLEX_MEP_2, CLINIC_ARCH, CLINIC_HVAC].filter((f) => existsSync(f))
       expect(files.length).toBeGreaterThanOrEqual(2)
       const seen = new Map<string, string[]>()
       for (const f of files) {
@@ -1538,6 +1697,7 @@ describe('요구사항 보고서의 요청 (OE-BIM-17)', () => {
       }
       // 파일 하나로 재는 설정 표의 여섯이 다 실제로 나온다(2026-10-03): Revit IFC2x3 이라 R10(6개 파일), Category Code 방 분류 R14(5),
       // System Name 계통 R16(4), 패밀리 이름으로 정한 종류 R24(3), PSet_Revit 용량 R21(3), ifc4Mep 의 Proxy 49대 R23(1).
+      // R26 은 Duplex MEP-2 의 방 15개가 Revit 의 Specified Supply Airflow 에 값을 적었다(2026-10-13, OE-REQ-07).
       // R13 은 판본 비교를 할 때만 잰다(versions.test.ts·e2e/versions.spec.ts).
       expect([...seen.keys()].sort()).toEqual(Object.keys(EXPORT_SETTING).filter((id) => id !== 'R13').sort())
     })
@@ -1622,14 +1782,21 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
       'device-connected': '565/566',
       // 한쪽 끝만 이어진 덕트·배관(Mavrokapnidis 2023 의 규칙). 포트가 있는 파일이라 끊긴 자리가 1% 남짓이다.
       'conduit-ends': '3103/3138',
+      // 덕트·배관 구간 전부가 형상에서 읽은 경로(두 끝)를 갖는다(OE-PIP-13).
+      'conduit-path': '1548/1548',
+      // 유체 흐름이 아닌 BIM 포트 연결(OE-PIP-18)은 없다. 성수·ifc4Mep 도 0 이다(물 코일 디퓨저·순환수 실내기·덕트 센서는 진짜 연결이다).
+      'connection-fluid': '3695/3695',
       'heat-source-user': '1/1',
       'hydronic-user-source': '2/2',
+      // 스프링클러 헤드가 없는 파일이다(HVAC 모델).
+      'sprinkler-fp': '0/0',
     })
 
     // 종류 후보(kind-suggest.ts). 종류를 아는 Revit 패밀리를 하나씩 가리고 닮은 패밀리로 맞혀 본다(2026-09-29 실측).
     const guess = evaluateSuggestions(model)
     // 엘리베이터(이름 사전, 2026-10-03)가 종류를 아는 패밀리로 더해져 14 → 15.
     expect(guess.families).toBe(15)
+    // [OE-EQP-14#1~] 병원은 15 중 10(67%). 기준은 성수에서 69~85% 이상이라 성수 PC 에서 잰다.
     expect(guess.top3).toBeGreaterThanOrEqual(10)
     // 층 사이 연결. 계단실·승강로 7개 중 6개가 위·아래층과 이어진다(vertical.ts).
     expect(verticalLinks(model).size).toBe(6)
@@ -1749,14 +1916,24 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('병원 건
       'device-connected': '849/884',
       // 포트 없이 형상으로 이은 연결망은 끊긴 자리가 많다(14%). 열원 하나와 냉온수 기기 둘이 배관으로 닿지 않는다.
       'conduit-ends': '10923/12645',
+      // 포트가 없어도 구간 형상은 있어 경로를 다 읽는다(OE-PIP-13).
+      'conduit-path': '5952/5952',
+      'connection-fluid': '0/0',
       'heat-source-user': '0/1',
       'hydronic-user-source': '0/2',
+      // 스프링클러 헤드 418대(`M_Sprinkler - Pendent`)는 IfcFlowTerminal 이라 종류를 사람이 고르기 전까지 대상이 아니다(kinds.ts 의 manual).
+      'sprinkler-fp': '0/0',
     })
     const guess = evaluateSuggestions(model)
     // 33 = 엘리베이터 패밀리가 더해짐(2026-10-03). 맞힌 수 26 → 25 는 분전반이 조명에서 분전반으로 바로잡혀(위 Duplex 와 같은 까닭)
     // 하나뿐인 분전반 패밀리를 닮은 것으로 맞힐 수 없게 된 것이다. 엘리베이터도 하나뿐이라 맞히지 못한다.
     expect(guess.families).toBe(33)
     expect(guess.top3).toBeGreaterThanOrEqual(25)
+
+    // 사람이 그 패밀리를 "스프링클러 헤드" 로 정하면 418대 전부가 소화(Fire Protection) 배관에 이어져 통과한다(OE-EQP-11).
+    const head = model.storeys.flatMap((st) => st.equipment).find((e) => /Sprinkler - Pendent/.test(e.name))!
+    expect(setTypeKind(model, familyKeyOf(head), 'sprinkler')?.count).toBe(418)
+    expect(checksOf(model)['sprinkler-fp']).toBe('418/418')
   }, 600_000)
 })
 
@@ -1790,8 +1967,10 @@ describe.skipIf(!existsSync(SEONGSU_ARCH))('성수 건축', () => {
     expect.soft(doors).toHaveLength(528)
     // 233 에서 270 으로 올랐다. 방이 겹친 자리에서 문이 가장 작은 방을 짚게 고친 d2b242e 의 결과다(성수는 공간 경계가 0 이라 문 전부가 좌표 판정).
     expect.soft(doors.filter((d) => (d.connects?.length ?? 0) >= 2)).toHaveLength(270)
-    // 방 이름 사전(정본 4장). 넓히면 오르지만 틀리게 읽는 것도 는다 — 떨어지면 실패로만 둔다.
-    expect.soft(model.storeys.flatMap((s) => s.spaces).filter((sp) => roomKind(sp.kind)).length).toBeGreaterThanOrEqual(159)
+    // [OE-SPC-17#1]
+    // 방 이름 사전(정본 4장). 넓히면 오르지만 틀리게 읽는 것도 는다 — 떨어지면 실패로만 둔다. 159 → 169 는 영문 이름 넷(Air Handling Unit Room·
+    // MECH.·CORR.·UPS Room)을 사전에 더한 것이다(OE-SPC-17, 2026-10-09). 약어(S.T·P.S 등)는 사람이 확인한 뒤 넣는다.
+    expect.soft(model.storeys.flatMap((s) => s.spaces).filter((sp) => roomKind(sp.kind)).length).toBeGreaterThanOrEqual(169)
   }, 600_000)
 })
 
@@ -1844,15 +2023,24 @@ describe.skipIf(!existsSync(SEONGSU_ARCH) || !existsSync(SEONGSU_MECH))('성수 
     const [pass, total] = checks['terminal-single-source'].split('/')
     expect.soft(pass).toBe(total)
     // 도관 끝·물 계통 규칙(2026-09-29 추가)은 성수가 없는 PC 에서 더해 아직 재지 못했다. 처음 돌 때 값을 정본에 적는다.
-    const { 'conduit-ends': _ends, 'heat-source-user': _heat, 'hydronic-user-source': _user, ...measured } = checks
+    const { 'conduit-ends': _ends, 'heat-source-user': _heat, 'hydronic-user-source': _user, 'sprinkler-fp': _fp, ...measured } = checks
     expect.soft({ ...measured, 'terminal-single-source': undefined }).toEqual({
       // 분모가 22 늘었다: 타입 객체에서 종류를 읽게 되면서(603d144) 8AG 그릴 22개를 말단으로 알아본다.
       'terminal-source': '1386/2400',
-      'source-terminal': '156/268',
+      // 냉매로 도는 DVM 실내기 8대는 배관 없이도 위반이 아니라 이 검사와 연결망 검사에서 뺀다(OE-OBJ-11#3, #487). 그 전에는 156/268.
+      'source-terminal': '156/260',
       'terminal-single-source': undefined,
-      // 외벽 설비(외부 루버 등 299대)는 방 밖이 맞는 자리라 세지 않는다(OE-EQP-15). 소속 없던 루버 203대가 위반에서 빠졌다(전에는 4137/4911).
-      'device-space': '4041/4612',
-      'device-connected': '2991/3632',
+      // [OE-EQP-15#1]
+      // 외벽 설비(기계 파일의 외부 루버 59대)는 방 밖이 맞는 자리라 세지 않는다(OE-EQP-15). 건축 파일의 루버 240개는 포트가 없어 아예 설비로
+      // 받지 않는다(OE-EXT-05, 2026-10-09) — 그 전에는 외벽 설비가 299대였고 분모가 같았다(4911 - 299 = 4671 - 59).
+      // 건축의 에스컬레이터 6대(`Escalator_(AUS)`)가 이름 사전으로 종류를 얻어 기기로 세진다(OE-EQP-07). 6대 다 방에 든다. 그 전에는 4041/4612.
+      'device-space': '4047/4618',
+      // 건축 루버 240개가 빠져 분모가 3632 → 3392. 그중 48개는 형상으로 덕트에 닿아 "이어졌다" 로 세던 것이다.
+      // DVM 실내기 8대를 뺐다(OE-OBJ-11#3, #487). 8대 다 이어져 있던 것이라 분자도 8 준다. 그 전에는 2943/3392.
+      'device-connected': '2935/3384',
+      // 덕트·배관 구간 전부가 형상에서 읽은 경로(두 끝)를 갖는다(OE-PIP-13).
+      'conduit-path': '7874/7874',
+      'connection-fluid': '19515/19515',
     })
   }, 900_000)
 })
@@ -1879,6 +2067,16 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_HVAC) || !existsS
         if (!r.reloadSame || r.missing || !r.undoSame || !r.redoSame) {
           failed.push(`${name} seed ${seed} 불러오기 ${r.reloadSame ? '같음' : '다름'} · 못 찾음 ${r.missing} · 되돌리기 ${r.undoSame ? '같음' : '다름'} · 다시 하기 ${r.redoSame ? '같음' : '다름'} :: ${r.log.join(' | ')}`)
         }
+        // [OE-MAP-06#1]
+        // 소속은 편집 함수 안에서 다시 계산된다(OE-MAP-06): 저장된 소속이 그 자리에서 다시 판정한 소속과 같다.
+        for (const [which, m] of [['편집', r.edited], ['불러옴', r.reloaded]] as const)
+          for (const st of m.storeys)
+            for (const e of st.equipment) {
+              const again = structuredClone(e)
+              assignEquipment(again, st.spaces)
+              if (again.spaceId !== e.spaceId || again.spaceSource !== e.spaceSource)
+                failed.push(`${name} seed ${seed} ${which} ${e.name}: 소속 ${e.spaceId}/${e.spaceSource} · 다시 판정 ${again.spaceId}/${again.spaceSource}`)
+            }
       }
     }
     expect(failed.slice(0, 3)).toEqual([])
@@ -1940,7 +2138,7 @@ describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH) || !existsS
 // 끌어 붙이는 방식은 옮기지 않아도 Duplex 방 37개·병원 368개를 바꿨다. 지금은 벽이 움직인 만큼만 옮긴다. 방향키로 다섯 걸음
 // 나갔다 돌아오면 방이 제자리여야 한다 — 걸음마다 끌려올 방을 새로 고르던 때는 병원 벽 300개 중 22개에서 어긋났다.
 describe.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(CLINIC_ARCH))('벽과 함께 방 경계 옮기기 (실제 벽)', () => {
-  it('벽마다 다섯 걸음 나갔다 돌아오면 방이 전부 제자리이고, 벽 길이 방향으로 밀면 방이 그대로다', async () => {
+  it('벽마다 다섯 걸음 나갔다 돌아오면 방이 전부 제자리이고, 벽 길이 방향으로 밀면 방이 그대로다 [OE-SPC-12#4]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const failed: string[] = []
@@ -2199,7 +2397,7 @@ describe.skipIf(![DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP, DUPLEX_MEP_FULL, DUPLEX_
 // PRD 부록 C 요구조건 S1~S8(OE-INT-09)을 실제 BIM 으로. 픽스처로 재는 묶음은 src/lib/requirements-s.test.ts 다. 여기서는
 // 픽스처에 없는 것 — 실제로 GUID 가 바뀐 판본(S1), 22자 IfcGlobalId(S2), BIM 이 말한 소속(S4), 벽·문·창의 3D(S7) — 을 잰다.
 describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every((f) => existsSync(f)))('요구조건 S (OE-INT-09, Duplex)', () => {
-  it('S1: 같은 Revit 으로 다시 낸 MEP-2(GUID 가 바뀐 설비 217대)에 MEP 에서 한 편집이 다시 얹힌다', async () => {
+  it('S1: 같은 Revit 으로 다시 낸 MEP-2(GUID 가 바뀐 설비 217대)에 MEP 에서 한 편집이 다시 얹힌다 [OE-HIST-03#2]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const load = (path: string) => importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
@@ -2234,9 +2432,16 @@ describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every(
     const ttl = readOntologyTTL(x)
     const floors = modelToGeoJSON(target).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
     const feats = new Map(floors.flatMap((f) => f.features).map((f) => [f.id, f]))
+    // 덕트·배관 구간은 경로(LineString)로 나간다(OE-PIP-13). 편집한 쪽의 경로와 같은 자리로 옮겨졌는지 본다.
+    const editedFeats = new Map(modelToGeoJSON(edited).flatMap((f) => f.collection.features).map((f) => [f.id, f]))
     for (const r of movedEq) {
       const p = prevEq.get(r.prevId)!.position!
-      expect((feats.get(r.id)!.geometry!.coordinates as number[])[0], r.name).toBeCloseTo(p[0] + 0.5, 6)
+      const g = feats.get(r.id)!.geometry!
+      if (g.type === 'LineString') {
+        const want = editedFeats.get(r.prevId)!.geometry!.coordinates as number[][]
+        ;(g.coordinates as number[][]).forEach((q, i) => q.forEach((v, k) => expect(v, r.name).toBeCloseTo(want[i][k], 3)))
+        expect(want[0][0] - (prevEq.get(r.prevId)!.axis![0][0] + p[0]), r.name).toBeCloseTo(0.5, 3)
+      } else expect((g.coordinates as number[])[0], r.name).toBeCloseTo(p[0] + 0.5, 6)
     }
     expect(ttl.entities.find((e) => e.key === room.id)!.label).toBe('S1 고친 이름')
     expect(ttl.entities.find((e) => e.key === added.id)!.cls).toBe('Smoke_Detector')
@@ -2272,10 +2477,15 @@ describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every(
     for (const f of features) {
       const kind = String(f.properties.kind)
       kinds.set(kind, (kinds.get(kind) ?? 0) + 1)
-      expect(f.id, kind).toMatch(/^[0-9A-Za-z_$]{22}$/)
+      // 수직 관통 오브젝트의 층별 조각은 "부모 id@층 id" 다(OE-ML-02). 부모 id 가 BIM 계단의 GlobalId 다.
+      if (kind === 'vertical') {
+        expect(f.properties.parentId, kind).toMatch(/^[0-9A-Za-z_$]{22}$/)
+        expect(f.id).toBe(`${f.properties.parentId}@${f.properties.storeyId}`)
+      } else expect(f.id, kind).toMatch(/^[0-9A-Za-z_$]{22}$/)
       if (kind === 'space' || kind === 'equipment') expect(keys.has(f.id), f.id).toBe(true)
     }
-    expect(Object.fromEntries(kinds)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14 })
+    // 계단 2개가 1·2층에 조각 하나씩이다. 가구 61개는 추가 공간 오브젝트이고 id 는 BIM 의 GlobalId 그대로다.
+    expect(Object.fromEntries(kinds)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14, vertical: 4, spaceObject: 61 })
 
     // S4: 소속의 출처. BIM 이 말한 소속(합칠 때 같은 자리의 방으로 옮겨 적은 것)은 bim, 나머지는 calc.
     const src = features.filter((f) => f.properties.kind === 'equipment' && f.properties.spaceId).map((f) => f.properties.spaceSource)
@@ -2291,7 +2501,7 @@ describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every(
     for (const id of new Set(glb.parts.map((p) => p.id))) in3d.set(kindOf.get(id) ?? '?', (in3d.get(kindOf.get(id) ?? '?') ?? 0) + 1)
     // 문·창은 임포터가 형상을 버려 자리·크기로 세운 상자다(mesh3d.ts openingBox, ADR-0009). 전부 GeoJSON 과 같은 id 다.
     expect(Object.fromEntries(in3d)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14 })
-    expect(check3D(glb.parts, floors, ttl)).toEqual({ unknown: [], missing: [], misplaced: [] })
+    expect(check3D(glb.parts, floors, ttl)).toEqual({ unknown: [], missing: [], misplaced: [], kindMismatch: [] })
   }, 900_000)
 })
 
@@ -2497,9 +2707,13 @@ describe.skipIf(!existsSync(MEP))('좌표 없는 설비는 미배치 목록 (ifc
     const again = new Map(reopened.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e.position]))
     expect(list.filter(({ equipment }) => JSON.stringify(again.get(equipment.id)) !== JSON.stringify(equipment.position))).toEqual([])
 
-    // GeoJSON 에 점으로 나간다(놓기 전에는 geometry null).
+    // 기기는 GeoJSON 에 점으로 나간다(놓기 전에는 geometry null). 덕트 구간 6개는 형상이 없어 경로(두 끝)를 모르니, 점 하나로 놓아도
+    // 경로를 만들지 않고 까닭을 적는다(OE-PIP-13 "설비의 단일 배치점만으로 배관 경로를 만들지 않는다").
     const features = new Map(modelToGeoJSON(reopened).flatMap((f) => f.collection.features).map((f) => [f.id, f]))
-    expect(list.filter(({ equipment }) => features.get(equipment.id)?.geometry?.type !== 'Point')).toEqual([])
+    const [segments, devices] = [list.filter(({ equipment }) => equipment.role === 'segment'), list.filter(({ equipment }) => equipment.role !== 'segment')]
+    expect([segments.length, devices.length]).toEqual([6, 11])
+    expect(devices.filter(({ equipment }) => features.get(equipment.id)?.geometry?.type !== 'Point')).toEqual([])
+    expect(segments.map(({ equipment }) => [features.get(equipment.id)?.geometry, features.get(equipment.id)?.properties.pathIssue])).toEqual(Array(6).fill([null, '형상 없음(경로를 모름)']))
   }, 300_000)
 })
 
@@ -2623,4 +2837,163 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('층 단�
     expect(result.missing.storeys).toBe(0)
     expect(storeyProgress(b).map((r) => `${r.name} ${r.state}`)).toEqual(storeyProgress(m).map((r) => `${r.name} ${r.state}`))
   }, 300_000)
+})
+
+// BIM 배관 가져오기(OE-PIP-14). 같은 BIM 을 다시 열고 편집 파일을 얹어도 구간이 늘지 않고, 사람이 한 형상 보정(꺾임점 옮기기)과
+// 연결 해제 보정이 그대로 남는다. 형상만으로 이은 연결은 방향 없이 들어와 원본(포트) 연결과 출처로 갈린다.
+describe.skipIf(!existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP_FULL) || !existsSync(DUPLEX_MEP_2))('BIM 배관 다시 열기 (OE-PIP-14)', () => {
+  it('Duplex HVAC: 꺾임점을 옮기고 포트 연결을 해제 보정한 뒤 다시 열어 얹으면, 구간 수·경로·해제 보정이 같고 새 연결이 생기지 않는다 [OE-PIP-14#3,5] [OE-PIP-10#5~]', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const bytes = new Uint8Array(readFileSync(DUPLEX_HVAC))
+    const { model: edited, meshes } = importIfcWithMeshes(api, bytes)
+    const base = baselineOf(edited)
+    const all = edited.storeys.flatMap((st) => st.equipment)
+    const axisOf = (id: string) => {
+      const mesh = meshes.get(id)
+      return all.find((e) => e.id === id)?.role === 'segment' && mesh ? segmentAxisOf(mesh.positions) : null
+    }
+    // 엘보 #582938 을 0.3m 옮긴다(양쪽 구간이 늘어난다).
+    const elbow = all.find((e) => e.name.endsWith(':582938'))!
+    const plan = planFollow(edited, elbow.id, axisOf)
+    const p = elbow.position!
+    moveEquipment(edited, elbow.id, [p[0] + 0.3, p[1], p[2]])
+    applyFollow(edited, plan, [0.3, 0, 0], axisOf)
+    const stretched = [...new Set(plan.stretch.map((x) => x.id))]
+    expect(stretched).toHaveLength(2)
+    // 배수관 #582951 과 샤워 #582917 의 포트 연결을 해제 보정한다.
+    const pipe = all.find((e) => e.name.endsWith(':582951'))!
+    const shower = all.find((e) => e.name.endsWith(':582917'))!
+    const port = edited.connections.find((c) => c.source === 'port' && [c.from, c.to].includes(pipe.id) && [c.from, c.to].includes(shower.id))!
+    expect('refused' in releaseConnection(edited, port, '시험')).toBe(false)
+
+    const file = parseEditFile(JSON.stringify(exportEdits(edited, base, 'HVAC.ifc')))
+    if (typeof file === 'string') throw new Error(file)
+    const again = importIfcWithMeshes(api, bytes).model
+    const opened = { equipment: countOf(again).equipment, connections: again.connections.length }
+    applyEdits(again, file)
+    // 다시 연 모델에 얹어도 구간·설비가 늘지 않는다. 연결은 해제 보정한 하나만 빠진다.
+    expect(countOf(again).equipment).toBe(opened.equipment)
+    expect(again.connections.length).toBe(opened.connections - 1)
+    expect(again.releasedConnections?.map((r) => [r.connection.from, r.connection.to].sort())).toEqual([[pipe.id, shower.id].sort()])
+    // 늘인 두 구간의 경로가 편집한 쪽과 같다.
+    const pathOf = (m: Model, id: string) => segmentPath(m.storeys.flatMap((st) => st.equipment).find((e) => e.id === id)!)
+    for (const id of stretched) expect(pathOf(again, id)).toEqual(pathOf(edited, id))
+  }, 600_000)
+
+  it('Duplex·병원 MEP: 포트 없이 형상으로 이은 연결은 출처가 geometry 이고 방향이 없다. 다른 판본(MEP-2)에서도 같다 [OE-PIP-14#4]', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    for (const path of [DUPLEX_MEP_FULL, DUPLEX_MEP_2]) {
+      const m = importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model
+      expect(m.connections.length, path).toBeGreaterThan(0)
+      expect(m.connections.filter((c) => c.source !== 'geometry' || c.directed), path).toEqual([])
+    }
+  }, 600_000)
+})
+
+// 가져오기의 기본 약속(OE-BIM-02·04·08·09)을 가진 BIM 전부에 대 본다. 숫자는 2026-10-10 에 잰 것이다.
+describe('가져오기 기본 — 층·벽·말단·배관·연결 (OE-BIM-02·04·08·09)', () => {
+  const FILES = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP_FULL, CLINIC_ARCH, CLINIC_HVAC, CLINIC_MEP].filter((f) => existsSync(f))
+  const opened = new Map<string, ReturnType<typeof importIfcWithMeshes>['model']>()
+  const open = async (path: string) => {
+    if (!opened.has(path)) {
+      const api = new WebIFC.IfcAPI()
+      await api.Init()
+      opened.set(path, importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model)
+    }
+    return opened.get(path)!
+  }
+  const features = (m: Awaited<ReturnType<typeof open>>) => modelToGeoJSON(m).flatMap((f) => f.collection.features)
+
+  it.skipIf(!FILES.length)('층 수가 파일의 IfcBuildingStorey 수와 같고, 층마다 높이(Elevation)가 있다 [OE-BIM-02#1]', async () => {
+    for (const path of FILES) {
+      const declared = (readFileSync(path, 'latin1').match(/=\s*IFCBUILDINGSTOREY\s*\(/gi) ?? []).length
+      const m = await open(path)
+      expect(m.storeys.length, path).toBe(declared)
+      expect(m.storeys.every((s) => Number.isFinite(s.elevation)), path).toBe(true)
+    }
+  }, 600_000)
+
+  it.skipIf(!FILES.length)('벽마다 GeoJSON 벽 feature 로 위치(외곽선)와 두께가 나간다 — Duplex 57 · 병원 1,080 · AC20 13 [OE-BIM-04#1]', async () => {
+    const counts: Record<string, number> = {}
+    for (const path of FILES) {
+      const m = await open(path)
+      const walls = m.storeys.flatMap((s) => s.walls)
+      if (!walls.length) continue
+      const out = new Map(features(m).filter((f) => f.properties?.kind === 'wall').map((f) => [f.id, f]))
+      for (const w of walls) {
+        const f = out.get(w.id)
+        expect(['Polygon', 'MultiPolygon'], `${path} ${w.name}`).toContain(f?.geometry?.type)
+        expect(f?.properties?.thickness, `${path} ${w.name}`).toBeGreaterThan(0)
+      }
+      counts[path] = walls.length
+    }
+    expect(counts).toMatchObject(Object.fromEntries([[DUPLEX_ARCH, 57], [CLINIC_ARCH, 1080], [SAMPLE, 13]].filter(([p]) => existsSync(p as string))))
+  }, 600_000)
+
+  it.skipIf(!FILES.length)('토출구·말단은 좌표와 함께 설비 목록에 들고, 덕트·배관 구간은 경로가 있으면 GeoJSON 선(배관 초안)으로 나간다 [OE-BIM-08#1]', async () => {
+    for (const path of FILES) {
+      const m = await open(path)
+      const all = m.storeys.flatMap((s) => s.equipment)
+      const terminals = all.filter((e) => e.role === 'terminal')
+      expect(terminals.filter((e) => !e.position).map((e) => e.name), path).toEqual([])
+      const segments = all.filter((e) => e.role === 'segment')
+      const lines = new Set(features(m).filter((f) => f.geometry?.type === 'LineString').map((f) => f.id))
+      for (const s of segments) {
+        const p = segmentPath(s)
+        expect(lines.has(s.id), `${path} ${s.name}`).toBe(!!p && 'path' in p)
+      }
+    }
+    // 경로를 모르는 구간이 있는 파일은 IFC4 샘플 하나다(1,075 중 27 — 완전성 검사에 까닭이 뜬다).
+    if (existsSync(MEP)) {
+      const segs = (await open(MEP)).storeys.flatMap((s) => s.equipment).filter((e) => e.role === 'segment')
+      expect(segs.filter((e) => { const p = segmentPath(e); return p && 'path' in p }).length).toBe(1048)
+      expect(segs).toHaveLength(1075)
+    }
+  }, 600_000)
+
+  it.skipIf(!existsSync(DUPLEX_HVAC) || !existsSync(MEP) || !existsSync(DUPLEX_MEP_FULL))('IFC2x3·IFC4 모두 연결을 읽고, 포트에서 읽은 연결과 형상으로 추정한 연결의 출처가 갈린다 [OE-BIM-09#1,2]', async () => {
+    const sources = async (path: string) => {
+      const m = await open(path)
+      const out: Record<string, number> = {}
+      for (const c of m.connections) out[c.source] = (out[c.source] ?? 0) + 1
+      return { schema: m.schema, ...out }
+    }
+    expect(await sources(DUPLEX_HVAC)).toEqual({ schema: 'IFC2X3', port: 485 })
+    expect(await sources(MEP)).toEqual({ schema: 'IFC4', port: 1995 })
+    // 포트가 없는 판본은 형상에서 추정하고, 출처가 geometry 라 방향이 없다.
+    expect(await sources(DUPLEX_MEP_FULL)).toEqual({ schema: 'IFC2X3', geometry: 783 })
+    expect((await open(DUPLEX_MEP_FULL)).connections.every((c) => !c.directed)).toBe(true)
+  }, 600_000)
+})
+
+// 좌표 정합(OE-BIM-22). 가진 건축·설비 쌍은 좌표계가 같다 — 같은 방 번호로 잰 오프셋이 0 근처라 거짓 경고가 없다.
+describe('합칠 때 좌표계 어긋남 추정 (OE-BIM-22)', () => {
+  it.skipIf(!existsSync(DUPLEX_ARCH) || !existsSync(DUPLEX_MEP_FULL) || !existsSync(CLINIC_ARCH) || !existsSync(CLINIC_MEP))('Duplex·병원 건축+MEP 는 같은 방 번호 18·261쌍으로 재어 회전 0° · 이동 2cm 안이다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const open = (p: string) => importIfc(api, new Uint8Array(readFileSync(p)))
+    const duplex = mergeModels(open(DUPLEX_ARCH), open(DUPLEX_MEP_FULL)).report.offset
+    expect(duplex).toEqual({ dx: 0, dy: 0, rotationDeg: 0, basis: 'spaces', pairs: 18, residual: 0 })
+    const clinic = mergeModels(open(CLINIC_ARCH), open(CLINIC_MEP)).report.offset!
+    expect([clinic.basis, clinic.pairs, clinic.rotationDeg]).toEqual(['spaces', 261, 0])
+    expect(Math.hypot(clinic.dx, clinic.dy)).toBeLessThan(0.05)
+  }, 300_000)
+})
+
+// 누락 분류 코드(OE-BIM-20). 가진 BIM 과 그 합치기에서 나오는 경고마다 X/A/B/C 코드와 R 번호가 붙는다.
+describe('경고마다 누락 분류 코드 (OE-BIM-20)', () => {
+  it('가진 BIM 8개와 건축+설비 합치기의 경고에 코드가 없는 것이 없다 [OE-BIM-20#1]', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP_FULL, DUPLEX_COBIE, CLINIC_ARCH, CLINIC_HVAC, CLINIC_MEP].filter((f) => existsSync(f))
+    if (!files.length) return
+    const opened = new Map(files.map((f) => [f, importIfcWithMeshes(api, new Uint8Array(readFileSync(f))).model]))
+    const warnings = new Set([...opened.values()].flatMap((m) => m.warnings))
+    for (const [a, b] of [[DUPLEX_ARCH, DUPLEX_MEP_FULL], [DUPLEX_ARCH, DUPLEX_HVAC], [CLINIC_ARCH, CLINIC_HVAC], [CLINIC_ARCH, CLINIC_MEP], [SAMPLE, MEP]])
+      if (opened.has(a) && opened.has(b)) for (const w of mergeModels(opened.get(a)!, opened.get(b)!, { base: 'A', overlay: 'B' }).model.warnings) warnings.add(w)
+    expect(warnings.size).toBeGreaterThan(15)
+    expect([...warnings].filter((w) => !warningCode(w))).toEqual([])
+  }, 600_000)
 })

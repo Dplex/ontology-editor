@@ -6,8 +6,10 @@ date: "2026-10-03"
 deciders: ["정희록"]
 prd: ["#6"]
 tickets: ["OE-BIM-11", "OE-BIM-19", "OE-BIM-17"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: ["src/lib/ifc/units.ts", "src/lib/unit-check.ts", "src/lib/merge.ts", "src/lib/versions.ts", "src/lib/requirements.ts"]
+tests: []
+related: []
 ---
 
 # ADR-0007 길이 단위 교차 확인은 이름이 같은 층의 높이 비로 — 모든 쌍이 같은 단위 배수(±2%)일 때만, 틀린 쪽은 층간 높이 2~12m 로 판정한다

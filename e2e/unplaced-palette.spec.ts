@@ -6,7 +6,7 @@ import { expect, test } from '@playwright/test'
 // 돌아온다. 종류를 모르는 설비는 바닥에 놓는다. ifc4Mep(gitignore)는 00층에 좌표 없는 퓨즈(종류 모름)가 있다.
 const MEP = 'data/ifc4Mep_IFC4.ifc'
 
-test('팔레트의 미배치 설비를 누르면 바로 놓고, 다시 누르거나 Esc 면 취소이며, 놓은 것은 Ctrl+Z 로 미배치로 돌아온다', async ({ page }) => {
+test('팔레트의 미배치 설비를 누르면 바로 놓고, 다시 누르거나 Esc 면 취소이며, 놓은 것은 Ctrl+Z 로 미배치로 돌아온다 [OE-EQP-02#2,3] [OE-EQP-02#4~,5~] [OE-UI-04#6]', async ({ page }) => {
   test.skip(!existsSync(MEP), `${MEP} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []
@@ -35,13 +35,18 @@ test('팔레트의 미배치 설비를 누르면 바로 놓고, 다시 누르거
   await item.click()
   await page.keyboard.press('Escape')
   await expect(item).toHaveAttribute('aria-pressed', 'false')
+  // 취소한 뒤 바닥을 눌러도 놓이지 않는다 — 미배치 수·바뀐 것이 그대로다.
+  await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').first().click({ position: { x: 200, y: 200 } })
+  await expect.poll(count).toBe(before)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
 
   // 누르고 바닥을 누르면 그 자리에 놓인다. 설비가 없는 자리(건물 바깥 1m)를 누른다.
   await item.click()
   const centers = (await page.evaluate(() => (window as any).__viewer.centers())) as Record<string, number[]>
   const xs = Object.values(centers).map((c) => c[0] / 1000)
   const ys = Object.values(centers).map((c) => c[1] / 1000)
-  await page.locator('.viewport canvas').first().scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
   const spot = (await page.evaluate(([x, y]) => (window as any).__viewer.point([x, y, 0]), [Math.min(...xs) + 0.5, Math.min(...ys) - 1])) as { x: number; y: number }
   await page.mouse.click(spot.x, spot.y)
   await expect.poll(count).toBe(before - 1)

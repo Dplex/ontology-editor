@@ -116,7 +116,10 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // 엘리베이터(2026-10-03 사용자 결정). 흐름이 없는 기기라 연결 추정에서 빠진다(ADR-0010). 로봇이 층을 옮길 때 탈 장치라 설비
   // 목록·TTL 에 둔다. 병원은 건축에 IfcFlowTerminal, 전기에 Proxy(`M_Elevator-Hydraulic`)로 들어 있다. 승강로(방)는 ROOM_KINDS 다.
   // 이름으로만 안다 — `ifc` 를 두면 고객사에 요구하는 어휘(R24)가 늘어서 넣지 않았다. IfcTransportElement 는 임포터가 아직 읽지 않는다.
-  { kind: 'elevator', label: '엘리베이터', test: /elevator|엘리베이터|승강기/i, brick: 'brick:Elevator', role: null, flow: {} },
+  // 성수 엘리베이터 파일(Factorial_elevator.ifc)은 Revit 패밀리 이름이 `EVEV.#1` 이다. `EV` 만으로는 받지 않는다(EV 충전기·EV Lobby).
+  { kind: 'elevator', label: '엘리베이터', test: /elevator|엘리베이터|승강기|\bEVEV\b/i, brick: 'brick:Elevator', role: null, flow: {} },
+  // 에스컬레이터도 엘리베이터와 같이 수직 관통 오브젝트라 층 편집 화면에서 옮기거나 지우지 않는다(OE-EQP-07). 이름으로만 안다.
+  { kind: 'escalator', label: '에스컬레이터', test: /escalator|에스컬레이터/i, brick: 'brick:Escalator', role: null, flow: {} },
   // Revit 의 "Lighting and Appliance Panelboard" 는 분전반이다. 이 줄이 조명보다 앞이라 "Lighting" 에 먼저 걸리지 않는다
   // (병원 건축·전기의 분전반이 조명 brick:Luminaire 로 나갔다, 2026-10-03).
   { kind: 'panel', label: '분전반', test: /분전반|\bPNL\b|breaker\s*panel|panel\s*board/i, brick: 'brick:Breaker_Panel', role: null, ifc: ['ElectricDistributionBoard.DISTRIBUTIONBOARD'], flow: {} },
@@ -213,6 +216,18 @@ export function resolveEquipmentKind(
 /** 이름과 ObjectType 을 합쳐 사전에서 찾고, 없으면 IFC 클래스로 찾는다. 모르면 null. */
 export function equipmentKindOf(name: string, objectType = '', ifcClass = '', declared: string | null = null): EquipmentKindInfo | null {
   return resolveEquipmentKind(name, objectType, ifcClass, declared)?.info ?? null
+}
+
+/** 냉매 설비. 사전에 공기·물 흐름이 없지만(`flow: {}`) 흐름 없는 기기가 아니다 — 지금 규칙이 다루지 않는 매체다(OE-PIP-18). */
+const REFRIGERANT_KINDS: readonly string[] = ['outdoor_unit']
+
+/**
+ * 종류를 아는 흐름 없는 기기(조명·감지기·비치품·분전반, OE-PIP-18). `flow: {}` 만으로 정하지 않는다 — 종류를 모르는 것과 냉매 설비는 흐름이
+ * 없다고 단정하지 않는다. 형상 추정(import.ts)·연결 후보(connect-candidates.ts)·검토 표시(flow-review.ts)가 이 하나를 쓴다.
+ */
+export function isFlowlessKind(kind: string | null | undefined): boolean {
+  const info = equipmentKind(kind)
+  return !!info && Object.keys(info.flow ?? {}).length === 0 && !REFRIGERANT_KINDS.includes(info.kind)
 }
 
 export function equipmentKind(kind: string | null | undefined): EquipmentKindInfo | null {
@@ -313,13 +328,14 @@ export const ROOM_KINDS: RoomKindInfo[] = [
   { kind: 'staircase', label: '계단실', test: /stair|계단/i, brick: 'brick:Staircase', omniclass: ['13-85 21 11'] },
   { kind: 'elevator_shaft', label: '승강로', test: /elev(ator)?\.?\s*shaft|승강로/i, brick: 'brick:Elevator_Shaft', omniclass: ['13-81 21 31'] },
   { kind: 'lobby', label: '로비·홀', test: /lobby|로비|elev(ator)?\.?\s*hall|\bEV\.?\s*hall|승강기\s*홀|엘리베이터\s*홀/i, brick: 'brick:Lobby' },
-  { kind: 'mechanical', label: '기계실', test: /machine\s*room|mech(anical)?\s*room|\bHVAC\b|pump\s*room|기계실|공조실|펌프실/i, brick: 'brick:Mechanical_Room', omniclass: ['13-81 21 17'] },
-  { kind: 'electrical', label: '전기실', test: /\bEPS\b|electric|전기실|변전실/i, brick: 'brick:Electrical_Room', omniclass: ['13-81 21 21'] },
+  // 성수 건축의 영문 이름(OE-SPC-17): `Air Handling Unit Room` 7개, `MECH.` 1개.
+  { kind: 'mechanical', label: '기계실', test: /machine\s*room|mech(anical)?\s*room|^\s*MECH\.?\s*$|air\s*handling\s*unit\s*room|\bAHU\s*room|\bHVAC\b|pump\s*room|기계실|공조실|펌프실/i, brick: 'brick:Mechanical_Room', omniclass: ['13-81 21 17'] },
+  { kind: 'electrical', label: '전기실', test: /\bEPS\b|electric|\bUPS\s*room|전기실|변전실/i, brick: 'brick:Electrical_Room', omniclass: ['13-81 21 21'] },
   { kind: 'telecom', label: '통신실', test: /\bTPS\b|\bMDF\b|\bIDF\b|telecom|통신실/i, brick: 'brick:Telecom_Room' },
   { kind: 'server', label: '전산실', test: /server|전산실/i, brick: 'brick:Server_Room' },
   { kind: 'storage', label: '창고', test: /storage|창고/i, brick: 'brick:Storage_Room', omniclass: ['13-75 11 11'] },
   { kind: 'janitor', label: '청소도구실', test: /\bJAN\b\.?|janitor|청소/i, brick: 'brick:Janitor_Room' },
-  { kind: 'hallway', label: '복도', test: /corridor|hallway|복도/i, brick: 'brick:Hallway', omniclass: ['13-85 11 11'] },
+  { kind: 'hallway', label: '복도', test: /corridor|\bCORR\b\.?|hallway|복도/i, brick: 'brick:Hallway', omniclass: ['13-85 11 11'] },
 ]
 
 const ROOM_BY_KIND = new Map(ROOM_KINDS.map((k) => [k.kind, k]))

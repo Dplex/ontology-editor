@@ -1,4 +1,4 @@
-// 8084 의 문서 챗봇(Alt+Shift+K) 서버 쪽. serve.mjs 가 /__chat 에 붙인다(ADR-0001).
+// 8084 의 문서 챗봇(Alt+Shift+K) 서버 쪽. serve.mjs 가 /__chat 에 붙인다(docs/dev/deploy55.md).
 //
 //   GET  /__chat         → { enabled, reason? }   창을 열 때 쓸 수 있는지 본다
 //   POST /__chat         ← { question, history: [{ role: 'user'|'assistant', text }] }
@@ -58,34 +58,51 @@ export function parseToolTitle(title) {
     const kv = /^([\w-]+):\s*(.*)$/s.exec(part.trim())
     if (kv) args[kv[1]] = kv[2]
   }
-  return { name: m[1].replace(/^mcp_docs_/, ''), args }
+  return { name: m[1].replace(/^mcp_[a-z]+_/, ''), args }
 }
 
-export function createChat({ root, log = () => {} }) {
+/**
+ * 챗봇 하나. 기본은 문서 챗봇(/__chat, docs/dev/deploy55.md)이고, 온톨로지 질의(/__ask, ADR-0050)는 name·mcp·policy·system 을 바꿔 같은 것을 띄운다.
+ * gemini 가 쓸 수 있는 MCP 서버는 언제나 `name` 하나다(--allowed-mcp-server-names + 그 이름만 허용하는 정책).
+ */
+export function createChat({
+  root,
+  log = () => {},
+  name = 'docs',
+  mcp = { script: 'scripts/docs-mcp.mjs', env: { DOCS_ROOT: root } },
+  policyFile = 'scripts/docs-chat.policy.toml',
+  systemFile = 'scripts/docs-chat.md',
+  // 질문 앞에 붙일 맥락(몸통 → 글). 온톨로지 챗봇은 창에서 고른 건물(source)을 붙인다.
+  context = null,
+  // GET 이 enabled 와 같이 줄 것. 온톨로지 챗봇은 볼 수 있는 건물 목록을 준다.
+  info = null,
+}) {
   const gemini = process.env.DOCS_CHAT_GEMINI || 'gemini'
   // .mjs·.js 를 주면 node 로 띄운다(gemini 대신 다른 스크립트를 붙여 볼 때). 셸은 거치지 않는다.
   const run = (args, opt) => (/\.m?js$/.test(gemini) ? [process.execPath, [gemini, ...args], opt] : [gemini, args, opt])
-  const policy = join(root, 'scripts/docs-chat.policy.toml')
+  const policy = join(root, policyFile)
+  const tag = `${name}-chat`
   const max = Number(process.env.DOCS_CHAT_MAX) || 2
   const timeoutMs = (Number(process.env.DOCS_CHAT_TIMEOUT) || 150) * 1000
   const idleMs = (Number(process.env.DOCS_CHAT_IDLE) || 1800) * 1000
   const thinking = (process.env.DOCS_CHAT_THINKING || 'LOW').toUpperCase()
 
   let reason = null
-  if (process.env.DOCS_CHAT === '0') reason = 'DOCS_CHAT=0 으로 꺼 두었다'
+  const off = `${name.toUpperCase()}_CHAT`
+  if (process.env[off] === '0') reason = `${off}=0 으로 꺼 두었다`
   else if (!existsSync(policy)) reason = `도구 제한 정책이 없다(${policy})`
   else if (spawnSync(...run(['--version'], { encoding: 'utf8', timeout: 20000 })).status !== 0) {
     reason = `이 서버에 gemini CLI 가 없다(${gemini})`
   }
 
-  const work = join(root, 'run/docs-chat')
+  const work = join(root, `run/${tag}`)
   const system = join(work, 'system.md')
   if (!reason) {
     mkdirSync(join(work, '.gemini'), { recursive: true })
     writeFileSync(join(work, '.gemini/settings.json'), JSON.stringify({
       general: { disableAutoUpdate: true, disableUpdateNag: true },
       mcpServers: {
-        docs: { command: process.execPath, args: [join(root, 'scripts/docs-mcp.mjs')], env: { DOCS_ROOT: root }, trust: true, timeout: 30000 },
+        [name]: { command: process.execPath, args: [join(root, mcp.script)], env: mcp.env || {}, trust: true, timeout: 30000 },
       },
       modelConfigs: {
         customAliases: {
@@ -93,11 +110,11 @@ export function createChat({ root, log = () => {} }) {
         },
       },
     }, null, 2))
-    writeFileSync(system, readFileSync(join(root, 'scripts/docs-chat.md'), 'utf8') + NOTE)
+    writeFileSync(system, readFileSync(join(root, systemFile), 'utf8') + NOTE)
     // 예전 판(gemini -p)이 맥락 파일로 두던 것. 시스템 프롬프트와 같은 글이 두 번 실리지 않게 지운다.
     rmSync(join(work, 'GEMINI.md'), { force: true })
   }
-  log({ msg: 'docs-chat', enabled: !reason, reason, gemini, thinking })
+  log({ msg: tag, enabled: !reason, reason, gemini, thinking })
 
   let running = 0
   /** 떠 있는 gemini --acp. 없거나 죽었으면 다음 질문이 띄운다. */
@@ -107,7 +124,7 @@ export function createChat({ root, log = () => {} }) {
   function startAgent() {
     const a = { ready: null, calls: new Map(), sessions: new Map(), nextId: 0, exited: false, stderr: '', pid: 0 }
     const began = Date.now()
-    const args = ['--acp', '--admin-policy', policy, '--allowed-mcp-server-names', 'docs']
+    const args = ['--acp', '--admin-policy', policy, '--allowed-mcp-server-names', name]
     const child = spawn(...run(args, {
       cwd: work,
       env: { ...process.env, GEMINI_SYSTEM_MD: system, GEMINI_CLI_TRUST_WORKSPACE: 'true', NO_COLOR: '1' },
@@ -141,7 +158,7 @@ export function createChat({ root, log = () => {} }) {
           a.sessions.get(m.params?.sessionId)?.(m.params.update)
         } else if (m.method && m.id != null) {
           // gemini 가 이쪽에 무엇을 요청한다. 아무것도 들어주지 않는다 — 권한 요청은 도구가 돌고 싶다는 뜻이다.
-          log({ msg: 'docs-chat refused', method: m.method })
+          log({ msg: `${tag} refused`, method: m.method })
           if (m.method === 'session/request_permission') write({ id: m.id, result: { outcome: { outcome: 'cancelled' } } })
           else write({ id: m.id, error: { code: -32601, message: 'not offered by this client' } })
         } else if (m.id != null && a.calls.has(m.id)) {
@@ -165,14 +182,14 @@ export function createChat({ root, log = () => {} }) {
     child.on('close', code => {
       const last = a.stderr.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('at ')).slice(-2).join(' / ')
       gone(`gemini 가 ${code} 로 끝났다${last ? `: ${last.slice(0, 300)}` : ''}`)
-      log({ msg: 'docs-chat agent exited', pid: a.pid, code })
+      log({ msg: `${tag} agent exited`, pid: a.pid, code })
       if (agent === a) agent = null
     })
 
     a.ready = Promise.race([
       a.call('initialize', { protocolVersion: 1, clientCapabilities: { fs: { readTextFile: false, writeTextFile: false } } }),
       new Promise((_, reject) => setTimeout(() => reject(new Error(`gemini 가 ${START_MS / 1000}초 안에 안 떴다`)), START_MS)),
-    ]).then(() => log({ msg: 'docs-chat agent started', pid: a.pid, ms: Date.now() - began }))
+    ]).then(() => log({ msg: `${tag} agent started`, pid: a.pid, ms: Date.now() - began }))
     a.ready.catch(() => { a.stop(); if (agent === a) agent = null })
     return a
   }
@@ -185,18 +202,19 @@ export function createChat({ root, log = () => {} }) {
   // 오래 안 쓰인 gemini 를 내린다. 다음 질문이 다시 띄운다(기동 4초 안팎).
   const reaper = setInterval(() => {
     if (agent && running === 0 && Date.now() - lastUsed > idleMs) {
-      log({ msg: 'docs-chat agent stopped, idle', pid: agent.pid })
+      log({ msg: `${tag} agent stopped, idle`, pid: agent.pid })
       agent.stop()
       agent = null
     }
   }, Math.min(60_000, idleMs))
   reaper.unref()
 
-  function prompt(question, history) {
+  function prompt(question, history, ctx) {
     const turns = (Array.isArray(history) ? history : []).slice(-MAX_TURNS)
       .filter(t => t && (t.role === 'user' || t.role === 'assistant') && typeof t.text === 'string')
       .map(t => `${t.role === 'user' ? '사용자' : '챗봇'}: ${t.text.slice(0, MAX_TURN_CHARS)}`)
     return [
+      ctx ? `${ctx}\n` : '',
       turns.length ? `[앞선 대화]\n${turns.join('\n\n')}\n` : '',
       `[지금 질문]\n${question}`,
     ].join('\n')
@@ -248,8 +266,61 @@ export function createChat({ root, log = () => {} }) {
     res.end(JSON.stringify(body))
   }
 
-  return async function handle(req, res) {
-    if (req.method === 'GET') return json(res, 200, { enabled: !reason, ...(reason ? { reason } : {}) })
+  /**
+   * HTTP 없이 한 번 묻는다(질문 시험대 scripts/onto-bench.mjs 가 쓴다). 답 글·쓴 도구(이름·인자)·시간을 돌려준다.
+   * 창과 같은 gemini 를 쓰고 같은 동시 실행 제한을 받는다.
+   */
+  async function ask(question, { history = [], body = {} } = {}) {
+    if (reason) return { ok: false, error: reason, text: '', tools: [], ms: 0 }
+    while (running >= max) await new Promise((r) => setTimeout(r, 500))
+    running++
+    lastUsed = Date.now()
+    const started = Date.now()
+    let text = ''
+    const tools = []
+    const toolErrors = []
+    let error = null
+    const emit = (ev) => {
+      if (ev.type === 'text') text = ev.delta === false ? ev.text : text + ev.text
+      else if (ev.type === 'tool') tools.push({ name: ev.name, args: ev.args })
+      else if (ev.type === 'tool_error') toolErrors.push(ev.message)
+      else if (ev.type === 'error') error = ev.message
+    }
+    const ctl = { aborted: false, cancel: () => {} }
+    const timer = setTimeout(() => { ctl.aborted = true; ctl.cancel(); error = `${timeoutMs / 1000}초 안에 답이 안 왔다` }, timeoutMs)
+    let out = {}
+    try {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          out = await askOnce(getAgent(), prompt(question, history, context?.(body)), emit, ctl)
+          break
+        } catch (e) {
+          if (e.gone && !text && attempt === 0 && !ctl.aborted) continue
+          error = e.message
+          break
+        }
+      }
+    } finally {
+      clearTimeout(timer)
+      running--
+      lastUsed = Date.now()
+    }
+    return { ok: !error, error, text, tools, toolErrors, ms: Date.now() - started, tokens: out.usage }
+  }
+
+  /** 띄워 둔 gemini 를 내린다(스크립트가 끝날 때). */
+  function close() {
+    clearInterval(reaper)
+    agent?.stop()
+    agent = null
+  }
+
+  handle.ask = ask
+  handle.close = close
+  return handle
+
+  async function handle(req, res) {
+    if (req.method === 'GET') return json(res, 200, { enabled: !reason, ...(reason ? { reason } : {}), ...(info?.() ?? {}) })
     if (req.method !== 'POST') return json(res, 405, { error: 'GET 이나 POST' })
     if (reason) return json(res, 503, { error: reason })
 
@@ -278,7 +349,7 @@ export function createChat({ root, log = () => {} }) {
     let timedOut = false
     const timer = setTimeout(() => { timedOut = true; abort() }, timeoutMs)
 
-    const text = prompt(question, body.history)
+    const text = prompt(question, body.history, context?.(body))
     let failed = false
     let out = {}
     let pid = 0
@@ -290,7 +361,7 @@ export function createChat({ root, log = () => {} }) {
         break
       } catch (e) {
         // 답을 하나도 안 보냈는데 gemini 가 죽었으면 한 번은 새로 띄워 다시 묻는다
-        if (e.gone && emitted === 0 && attempt === 0 && !ctl.aborted) { log({ msg: 'docs-chat retry', error: e.message }); continue }
+        if (e.gone && emitted === 0 && attempt === 0 && !ctl.aborted) { log({ msg: `${tag} retry`, error: e.message }); continue }
         failed = true
         if (!ctl.aborted) emit({ type: 'error', message: e.message })
         break
@@ -304,6 +375,6 @@ export function createChat({ root, log = () => {} }) {
     emit({ type: 'done', ms })
     res.end()
     // 질문 내용은 남기지 않는다. 길이·도구·시간·토큰만
-    log({ msg: 'chat', q_len: question.length, turns: Array.isArray(body.history) ? body.history.length : 0, tools, ms, ok: !failed, stop: out.stop, tokens: out.usage, pid })
+    log({ msg: name === 'docs' ? 'chat' : `${name} chat`, q_len: question.length, turns: Array.isArray(body.history) ? body.history.length : 0, tools, ms, ok: !failed, stop: out.stop, tokens: out.usage, pid })
   }
 }

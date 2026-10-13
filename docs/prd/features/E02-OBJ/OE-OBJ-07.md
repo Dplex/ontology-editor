@@ -19,6 +19,7 @@ depends: ["OE-EQP-17"]
 - [OE-EQP-17](../E12-EQP/OE-EQP-17.md): 문·창 로봇 통과 속성
 
 ## 요구사항
+> User story : 고객사 관리자는 공간 편집에서 문과 창문을 벽 위에만 배치할 수 있으며, 내벽과 외벽 어느 쪽에도 놓을 수 있다. 벽이 내벽인지 외벽인지에 따라 문·창 종류를 따로 고를 필요가 없다. 사용자는 문과 창문의 가로·세로 길이를 각각 조절해 실측에 맞출 수 있다. 창문은 바닥면과 천장면이 모두 막혀 있고 문은 바닥이 뚫려 있어, 로봇 관제는 문을 통과시킬 수 있지만 창문은 통과시킬 수 없다는 것을 레이아웃에서 확인할 수 있어야 한다.
 
 문과 창문은 벽에만 배치할 수 있다. 
 문과 창문은 내벽과 외벽 모두에 배치할 수 있다. 벽이 내벽인지 외벽인지에 따라 문·창을 나누지는 않는다. 
@@ -27,19 +28,8 @@ depends: ["OE-EQP-17"]
 
 ## 수용 기준
 
-문과 창문을 내벽과 외벽 어느 쪽에도 배치할 수 있다. 
-통과 속성은 OE-EQP-17 의 수용 기준을 따른다.
-
-## 검증 (이 repo)
-
-- `src/lib/edit.test.ts` E4 "외벽 / 내벽 / 외벽 여부 모름 에도 문과 창을 둘 다 놓는다"(수용 기준)
-- `src/lib/edit.test.ts` E4 "문·창 가로·세로를 바꾸고, 벽 끝을 넘거나 범위 밖이거나 내력벽이면 바꾸지 않는다"(되돌리기 포함)
-- `src/lib/edit-file.test.ts` "문·창 크기 편집이 편집 파일로 돌아온다"(BIM 창·더한 문)
-- `src/lib/edit-fuzz.ts` 퍼징 `resizeOpening`(성수 불변식에서 되돌리기가 크기를 안 되돌리던 것을 잡았다)
-- `src/lib/ifc/import.test.ts`: 벽의 외벽 여부(IsExternal) 참·거짓·모름
-- `src/lib/export/export.test.ts`: 벽 feature 의 `external`·`passable`
-- `e2e/edit-elements.spec.ts` "창을 놓고 가로·세로를 바꾸며, 벽 끝을 넘는 가로는 막힌다"
-- 화면: `docs/figures/app-opening-size-before.png`, `docs/figures/app-opening-size-after.png` (Duplex 건축 Level 1 외벽 창)
+- **AC1** 문과 창문을 내벽과 외벽 어느 쪽에도 배치할 수 있다.
+- **AC2** 통과 속성은 OE-EQP-17 의 수용 기준을 따른다.
 
 ## 메모
 

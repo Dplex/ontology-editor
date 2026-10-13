@@ -27,7 +27,7 @@ async function undo(page: Page) {
   await page.keyboard.press('Control+z')
 }
 
-test('설비를 계통에서 빼고, 계통 종류·유체를 고치고, 되돌린다', async ({ page }) => {
+test('설비를 계통에서 빼고, 계통 종류·유체를 고치고, 되돌린다 [OE-PIP-03#2~]', async ({ page }) => {
   const errors = await open(page)
   const row = page.locator('.equipment tbody tr', { hasText: 'DUCT-01' })
   await row.getByRole('button', { name: 'DUCT-01', exact: true }).click()
@@ -56,7 +56,7 @@ test('설비를 계통에서 빼고, 계통 종류·유체를 고치고, 되돌�
   expect(errors).toEqual([])
 })
 
-test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비가 계통 없음이 되며, 되돌리면 차례로 돌아온다', async ({ page }) => {
+test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비가 계통 없음이 되며, 되돌리면 차례로 돌아온다 [OE-PIP-02#2]', async ({ page }) => {
   const errors = await open(page)
   await enterCeiling(page)
   await page.locator('.equipment tbody tr', { hasText: 'AT-101-01' }).getByRole('button', { name: 'AT-101-01', exact: true }).click()
@@ -86,7 +86,7 @@ test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비�
   expect(errors).toEqual([])
 })
 
-test('계통 없는 토출구는 패널과 검토 화면에 경고하고, 담당 공조기를 흐름으로 보인다 (OE-EQP-10)', async ({ page }) => {
+test('계통 없는 토출구는 패널과 검토 화면에 경고하고, 담당 공조기를 흐름으로 보인다 [OE-EQP-10#1]', async ({ page }) => {
   const errors = await open(page)
   await enterCeiling(page)
   const row = page.locator('.equipment tbody tr', { hasText: 'AT-101-01' })
@@ -116,7 +116,7 @@ test('계통 없는 토출구는 패널과 검토 화면에 경고하고, 담당
   expect(errors).toEqual([])
 })
 
-test('BIM 계통의 이름을 고치면 TTL 이름이 바뀌고, 편집 파일로 저장·불러오면 그대로이며, 되돌리면 앞 이름이다 (OE-PIP-09)', async ({ page }, info) => {
+test('BIM 계통의 이름을 고치면 TTL 이름이 바뀌고, 편집 파일로 저장·불러오면 그대로이며, 되돌리면 앞 이름이다 [OE-PIP-09#3~,4~]', async ({ page }, info) => {
   // 2026-10-03 사용자 결정: BIM 이 준 계통도 이름을 고친다.
   const errors = await open(page)
   await page.locator('.legend button', { hasText: 'AHU-1 급기 계통' }).click()

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 커스텀존 이름·별명의 고유성(OE-SPC-06)과 나누기·합치기의 이름(OE-SPC-08). 다른 존이 쓰는 이름·별명으로 고치면 막고 쓰는 존을
 // 알리며 칸이 원래 값으로 돌아간다. 나누면 좁은 조각이 "이름-02" 이고, 합치면 넓은 쪽이 남아 고른 존이 그쪽으로 바뀐다.
@@ -10,19 +11,20 @@ async function clickFloor(page: Page, x: number, y: number) {
   await page.mouse.click(at.x, at.y)
 }
 async function drawZone(page: Page, pts: [number, number][]) {
+  await toSpace(page)
   await page.getByRole('button', { name: '커스텀존 그리기' }).click()
   for (const [x, y] of pts) await clickFloor(page, x, y)
   await page.keyboard.press('Enter')
 }
 
-test('다른 존이 쓰는 이름·별명은 막고 칸을 되돌리며, 나누면 -02, 합치면 넓은 쪽이 남는다', async ({ page }) => {
+test('다른 존이 쓰는 이름·별명은 막고 칸을 되돌리며, 나누면 -02, 합치면 넓은 쪽이 남는다 [OE-SPC-06#3~] [OE-SPC-08#2,3]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   await clickFloor(page, 6, 4)
   await page.keyboard.press('f')

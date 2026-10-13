@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { dropDuplicateSpaces, mergeModels } from './merge'
+import { outlinelessSpaces } from './outline-fill'
 import { countOf, polygonArea, type Equipment, type Model, type Space, type Storey, type Vec2 } from './model'
 
 // 건축 파일과 설비 파일을 손으로 만든다. 실제 두 판본이 그렇듯 **층 GUID 가 서로 다르고**
@@ -138,12 +139,50 @@ describe('좌표계 확인', () => {
     expect(merged.warnings.some((w) => w.includes('좌표계'))).toBe(false)
   })
 
-  it('원점이 어긋나면 경고한다 — 합치기 자체는 성공하고 숫자만 틀리는 경우다', () => {
+  it('원점이 어긋나면 경고하고, 같은 방 번호가 없으면 범위 중심 차로 x·y 를 대략 적고 회전은 모른다고 한다 [OE-BIM-22#1]', () => {
     // 측량 원점과 프로젝트 원점이 다른 파일. 파싱도 합치기도 오류 없이 끝난다.
     const { model: merged, report } = mergeModels(arch(), mep([1200, -800]))
     expect(report.alignment!.ratio).toBe(0)
     expect(report.unlocated.after).toBe(3)
-    expect(merged.warnings.some((w) => w.includes('좌표계') && w.includes('0%'))).toBe(true)
+    // 기준 범위 중심 (5, 2.5), 덧붙인 설비 범위 중심 (1208.5, -797.75).
+    expect(report.offset).toEqual({ dx: -1203.5, dy: 800.25, rotationDeg: null, basis: 'extent', pairs: 0, residual: null })
+    const warning = merged.warnings.find((w) => w.includes('좌표계'))!
+    expect(warning).toContain('0%')
+    expect(warning).toContain('대략 x -1203.50m · y +800.25m 옮깁니다')
+    expect(warning).toContain('회전은 모릅니다')
+  })
+
+  it('같은 방 번호가 둘 이상이면 회전·이동을 재어 경고에 적고, 그대로 돌려 옮기면 기준 자리와 겹친다 [OE-BIM-22#1]', () => {
+    // 덧붙인 판본은 같은 방(A102·A103)을 30° 돌리고 (100, -50) 옮긴 좌표계로 냈다.
+    const turn = (p: Vec2, deg: number): Vec2 => {
+      const r = (deg * Math.PI) / 180
+      return [Math.cos(r) * p[0] - Math.sin(r) * p[1], Math.sin(r) * p[0] + Math.cos(r) * p[1]]
+    }
+    const moved = (p: Vec2): Vec2 => {
+      const q = turn(p, 30)
+      return [q[0] + 100, q[1] - 50]
+    }
+    const overlay = model([
+      storey('mep-L1', 'Level 1', 0, {
+        spaces: [space('living-mep', 'A102', rect(0, 0, 6, 5).map(moved)), space('kitchen-mep', 'A103', rect(6, 0, 10, 5).map(moved))],
+        equipment: [device('diffuser', [...moved([3, 2.5]), 2.7] as [number, number, number])],
+      }),
+    ])
+    const { model: merged, report } = mergeModels(arch(), overlay)
+    const o = report.offset!
+    expect([o.basis, o.pairs, o.rotationDeg, o.residual]).toEqual(['spaces', 2, -30, 0])
+    // 잰 회전·이동을 덧붙인 좌표에 적용하면 기준 좌표로 돌아온다.
+    const back = turn(moved([3, 2.5]), o.rotationDeg!)
+    expect(back[0] + o.dx).toBeCloseTo(3, 1)
+    expect(back[1] + o.dy).toBeCloseTo(2.5, 1)
+    expect(merged.warnings.find((w) => w.includes('좌표계'))).toContain('회전 -30.0°(원점 둘레, 반시계 +) 뒤')
+  })
+
+  it('좌표계가 같으면 오프셋이 0 이고 경고하지 않는다', () => {
+    const same = model([storey('mep-L1', 'Level 1', 0, { spaces: [space('l', 'A102', rect(0, 0, 6, 5)), space('k', 'A103', rect(6, 0, 10, 5))] })])
+    const { model: merged, report } = mergeModels(arch(), same)
+    expect(report.offset).toMatchObject({ dx: 0, dy: 0, rotationDeg: 0, basis: 'spaces', pairs: 2 })
+    expect(merged.warnings.some((w) => w.includes('좌표계'))).toBe(false)
   })
 
   it('짝 없는 층은 새 층으로 넣고 경고한다', () => {
@@ -202,7 +241,7 @@ describe('물리존이 양쪽에 있을 때', () => {
     expect(merged.storeys[0].spaces.map((s) => s.id)).toEqual(['living', 'kitchen', 'hall-mep'])
   })
 
-  it('외곽선이 없는 기준 방은 같은 방 번호의 외곽선을 빌리고 id 는 지킨다', () => {
+  it('외곽선이 없는 기준 방은 같은 방 번호의 외곽선을 빌리고 id 는 지킨다. 빌린 방은 외곽선 없는 물리존 목록에 나오지 않는다 [OE-MAN-03#4]', () => {
     const a = arch()
     a.storeys[1].spaces = [space('hall', 'A201', [])]
     const b = mep()
@@ -217,6 +256,9 @@ describe('물리존이 양쪽에 있을 때', () => {
     expect(merged.storeys[1].spaces[0]).toMatchObject({ id: 'hall', areaM2: 6 })
     expect(report.spaces).toEqual({ dropped: 1, kept: 0, borrowed: 1 })
     expect(find(merged, 'light').spaceId).toBe('hall')
+    // 합치기 전 건축 혼자일 때는 그려야 할 방이었다
+    expect(outlinelessSpaces(a).map((x) => x.space.id)).toEqual(['hall'])
+    expect(outlinelessSpaces(merged)).toEqual([])
   })
 
   it('ㄱ 자 방은 넓이 중심이 아니라 안쪽 점으로 같은 자리를 본다', () => {

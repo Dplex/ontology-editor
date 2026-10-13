@@ -428,7 +428,7 @@ const variants = {
     for (const r of roots) moveRoot(r)
     return out
   },
-  // 깨끗하게 낸 판본 — 방마다 분류 관계(OmniClass), 모든 기기·덕트·배관이 IfcSystem 에, 용량은 표준 Pset 이름으로.
+  // 깨끗하게 낸 판본 — 방마다 분류 관계(OmniClass)와 설계 풍량(R26), 모든 기기·덕트·배관이 IfcSystem 에, 용량은 표준 Pset 이름으로.
   // 요구사항 줄의 "표준" 을 재는 데 쓴다(병원은 이 셋을 다 Revit 속성으로 적었다).
   clean: (lines, kind) => {
     const out = [...lines]
@@ -446,6 +446,14 @@ const variants = {
       const ref = ++next
       out.push(line(ref, 'IFCCLASSIFICATIONREFERENCE', ['$', str('13-11 21 00'), str('Office'), '$']))
       out.push(line(++next, 'IFCRELASSOCIATESCLASSIFICATION', [str(guid('0SynthOmniClassRel0000', 0, 1)), own, '$', '$', list(spaces), `#${ref}`]))
+      // 방의 설계 급기 풍량(R26)을 표준 자리(Pset_SpaceThermalDesign)에. 병원은 Revit 속성에 0 으로만 적었다.
+      const cool = ++next
+      out.push(line(cool, 'IFCPROPERTYSINGLEVALUE', [str('CoolingDesignAirflow'), '$', 'IFCVOLUMETRICFLOWRATEMEASURE(0.2)', '$']))
+      const heat = ++next
+      out.push(line(heat, 'IFCPROPERTYSINGLEVALUE', [str('HeatingDesignAirflow'), '$', 'IFCVOLUMETRICFLOWRATEMEASURE(0.15)', '$']))
+      const thermal = ++next
+      out.push(line(thermal, 'IFCPROPERTYSET', [str(guid('0SynthThermalPset00000', 0, 1)), own, str('Pset_SpaceThermalDesign'), '$', `(#${cool},#${heat})`]))
+      out.push(line(++next, 'IFCRELDEFINESBYPROPERTIES', [str(guid('0SynthThermalRel000000', 0, 1)), own, '$', '$', list(spaces), `#${thermal}`]))
     }
     // 기계: System Name 속성 값마다 IfcSystem 하나, 값이 없는 것은 "기타 계통".
     const parsed = out.map(parse)

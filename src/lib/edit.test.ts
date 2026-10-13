@@ -142,7 +142,7 @@ describe('미배치 설비 배치 (E6)', () => {
     expect(change.summary).toContain('(소속 없음) 에서 사무실 로 바뀝니다')
   })
 
-  it('미배치 목록은 좌표 없는 설비와 그 층이고, 놓으면 빠지고 되돌리면 돌아온다', () => {
+  it('미배치 목록은 좌표 없는 설비와 그 층이고, 놓으면 빠지고 되돌리면 돌아온다 [OE-EQP-02#1] [OE-EQP-02#5~] [OE-MAP-01#3]', () => {
     // OE-BIM-07 수용 기준 "좌표 없는 설비는 미배치 목록". 층은 BIM 이 말한 것이라 어느 바닥에 놓을지 안다.
     const listed = () => unplacedOf(model).map((u) => `${u.equipment.name}@${u.storey.name}`)
     expect(listed()).toEqual(['TEMP-101-01@1F'])
@@ -160,7 +160,7 @@ describe('미배치 설비 배치 (E6)', () => {
     expect(listed()).toEqual(['TEMP-101-01@1F', '새 센서@1F'])
   })
 
-  it('미배치 설비는 TTL 에 층까지만, GeoJSON 에 형상 없이 나간다', () => {
+  it('미배치 설비는 TTL 에 층까지만, GeoJSON 에 형상 없이 나간다 [OE-EQP-02#1]', () => {
     // 3D 에 없다고 온톨로지에서 빠지지 않는다. 위치는 아는 데(층)까지만 쓰고 지어내지 않는다.
     const sensor = equip('TEMP-101-01')
     const ttl = modelToTTL(model)
@@ -222,7 +222,7 @@ describe('층 이동', () => {
 })
 
 describe('방번호 (OE-OBJ-02)', () => {
-  it('같은 층에서 방번호가 겹치면 막고, 공간명은 겹쳐도 된다', () => {
+  it('같은 층에서 방번호가 겹치면 막고, 공간명은 겹쳐도 된다 [OE-OBJ-02#1]', () => {
     model.storeys[0].spaces.push({ id: 'b', name: '102', longName: '사무실', footprint: [], areaM2: 0, boundedBy: [] })
     const office = model.storeys[0].spaces[0]
     expect(setSpaceNumber(model, office.id, '102')).toEqual({ refused: expect.stringContaining('방번호 102가 이미 있습니다') })
@@ -246,7 +246,7 @@ describe('방번호 (OE-OBJ-02)', () => {
     expect(diffBaseline(model, base).renumbered).toEqual([])
   })
 
-  it('나눈 조각의 방번호는 비워 두고 사람이 넣는다(OE-SPC-02)', () => {
+  it('나눈 조각의 방번호는 비워 두고 사람이 넣는다 [OE-SPC-02#5]', () => {
     const office = model.storeys[0].spaces[0]
     const done = splitSpace(model, office.id, [5, -1], [5, 9])!
     expect('refused' in done).toBe(false)
@@ -269,7 +269,7 @@ describe('이름 수정 (E1)', () => {
     expect(equip('AHU-1').spaceId).toBe(space.id)
   })
 
-  it('이름 사전으로 정한 방 종류는 이름을 따라가고, 되돌리면 같이 돌아온다', () => {
+  it('이름 사전으로 정한 방 종류는 이름을 따라가고, TTL 라벨·GeoJSON 이름도 같이 바뀌며, 되돌리면 같이 돌아온다 [OE-SPC-01#1]', () => {
     // 계단을 "회의실" 로 고쳤는데 brick:Staircase 로 나갔다. 사람이 방 종류를 바로잡는 길이 이름 고치기뿐이다.
     const space = model.storeys[0].spaces[0]
     const before = { kind: space.kind, source: space.kindSource }
@@ -277,6 +277,9 @@ describe('이름 수정 (E1)', () => {
     renameSpace(model, space.id, '계단실 A')
     expect([space.kind, space.kindSource]).toEqual(['staircase', 'dict'])
     expect(modelToTTL(model)).toContain('brick:Staircase')
+    expect(modelToTTL(model)).toContain('rdfs:label "계단실 A"')
+    const feature = modelToGeoJSON(model).flatMap((f) => f.collection.features).find((f) => f.id === space.id)!
+    expect((feature.properties as { longName: string }).longName).toBe('계단실 A')
     renameSpace(model, space.id, 'S.T')
     expect(space.kind).toBe(null)
     restore(model, snap)
@@ -579,7 +582,7 @@ describe('타입 단위 종류 지정', () => {
     expect(kindEdits(model)).toEqual([{ typeKey: 'AirTerminal|M_Return Register:600', count: 2, from: 'air_diffuser', to: 'air_grille' }])
   })
 
-  it('Revit 이름의 패밀리:유형으로 묶고, 유형 이름만 같은 다른 패밀리는 묶지 않는다', () => {
+  it('Revit 이름의 패밀리:유형으로 묶고, 유형 이름만 같은 다른 패밀리는 묶지 않는다 [OE-EQP-14#2]', () => {
     // Revit 2011 은 ObjectType 에 유형 이름만 적는다. ObjectType 으로만 묶으면 VAV 와 배관 부속이 한 묶음이 된다.
     const vav = { ...equip('AT-101-01'), name: 'M_VAV Unit - Single Duct:150 mm:150 mm:585441', objectType: '150 mm' }
     const vav2 = { ...vav, id: 'x', name: 'M_VAV Unit - Single Duct:150 mm:150 mm:603608' }
@@ -593,7 +596,7 @@ describe('타입 단위 종류 지정', () => {
     expect(typeKeyOf({ ...vav, name: 'AHU-1', objectType: '' })).toBe(`#${vav.id}`)
   })
 
-  it('패밀리로 고르면 크기만 다른 유형까지 한 번에 붙고, 다른 패밀리는 그대로다', () => {
+  it('패밀리로 고르면 크기만 다른 유형까지 한 번에 붙고, 다른 패밀리는 그대로다 [OE-EQP-14#2]', () => {
     // 병원 MEP 의 VAV 는 한 패밀리에 유형(150·200 mm …)이 다섯이었다.
     const [a, b, c] = ['AT-101-01', 'AT-101-02', 'AHU-1'].map(equip)
     a.name = 'M_VAV Unit - Single Duct:150 mm:150 mm:1'
@@ -717,6 +720,7 @@ describe('연 때와 견주기', () => {
       equipmentRemoved: [],
       equipmentRenamed: [],
       equipmentMounted: [],
+      equipmentShaft: [],
       wallsAdded: [],
       wallsRemoved: [],
       wallsChanged: [],
@@ -724,6 +728,7 @@ describe('연 때와 견주기', () => {
       openingsRemoved: [],
       openingsMoved: [],
       customZones: [],
+      hvacZones: [],
       systemMoved: [],
       systemKinds: [],
       systemNames: [],
@@ -778,7 +783,7 @@ describe('물리존 꼭짓점 넣기·지우기, 외곽선 그리기', () => {
     expect(deleteSpaceVertex(model, office.id, 0)).toBeNull()
   })
 
-  it('외곽선이 없던 물리존에 찍은 점으로 외곽선을 주고 소속을 다시 잰다', () => {
+  it('외곽선이 없던 물리존에 찍은 점으로 외곽선을 주고 소속을 다시 잰다 [OE-MAN-03#3~]', () => {
     const office = model.storeys[0].spaces[0]
     office.footprint = []
     office.areaM2 = 0
@@ -804,7 +809,7 @@ describe('설비 추가·삭제·이름 (E7)', () => {
     expect(addEquipment(model, model.storeys[0].id, { name: 'x', kind: 'nope', position: null })).toBeNull()
   })
 
-  it('지우면 붙은 연결과 계통 자리도 빠진다 — 없는 설비를 가리키는 feeds·hasPart 가 나가지 않게', () => {
+  it('지우면 붙은 연결과 계통 자리도 빠진다 — 없는 설비를 가리키는 feeds·hasPart 가 나가지 않게 [OE-EQP-13#1] [OE-OBJ-11#2]', () => {
     const duct = equip('DUCT-01')
     expect(model.connections.some((c) => c.from === duct.id || c.to === duct.id)).toBe(true)
     const done = deleteEquipment(model, duct.id)!
@@ -823,7 +828,7 @@ describe('설비 추가·삭제·이름 (E7)', () => {
     expect(modelToTTL(model)).toBe(before)
   })
 
-  it('이름을 고친 설비도 같은 패밀리 일괄 종류 지정에 든다 — 패밀리는 BIM 이 준 이름으로 묶는다 (OE-EQP-13)', () => {
+  it('이름을 고친 설비도 같은 패밀리 일괄 종류 지정에 든다 — 패밀리는 BIM 이 준 이름으로 묶는다 [OE-EQP-13#2]', () => {
     const [a, b] = ['AT-101-01', 'AT-101-02'].map(equip)
     a.name = 'M_Supply Diffuser:600 x 600:1'
     b.name = 'M_Supply Diffuser:600 x 600:2'
@@ -857,7 +862,7 @@ describe('물리존 생성·삭제·분할·병합 (E3)', () => {
     expect(done.equipment.map((c) => c.equipmentName)).toEqual(['AT-101-01'])
   })
 
-  it('층에 하나 남은 물리존은 지우지 않는다', () => {
+  it('층에 하나 남은 물리존은 지우지 않는다 [OE-SPC-04#1] [OE-OBJ-02#3]', () => {
     expect(deleteSpace(model, office().id)).toEqual({ refused: expect.stringContaining('하나 남은') })
   })
 
@@ -872,7 +877,7 @@ describe('물리존 생성·삭제·분할·병합 (E3)', () => {
     expect(light.spaceSource).toBeNull()
   })
 
-  it('선으로 나누면 넓은 조각이 원래 id 를 갖고, 새 조각의 설비는 새 방으로 간다', () => {
+  it('선으로 나누면 넓은 조각이 원래 id 를 갖고, 새 조각의 설비는 새 방으로 간다 [OE-SPC-02#1]', () => {
     const id = office().id
     const done = splitSpace(model, id, [6, -1], [6, 9])
     expect(done && 'created' in done).toBe(true)
@@ -890,7 +895,7 @@ describe('물리존 생성·삭제·분할·병합 (E3)', () => {
     expect(splitSpace(model, office().id, [20, 0], [20, 5])).toEqual({ refused: expect.any(String) })
   })
 
-  it('나눈 것을 다시 합치면 원래 외곽선·넓이이고, 문은 남는 방을 가리킨다', () => {
+  it('나눈 것을 다시 합치면 원래 외곽선·넓이이고, 문은 남는 방을 가리킨다 [OE-SPC-02#3~]', () => {
     const id = office().id
     model.storeys[0].openings.push({ id: 'door', kind: 'door', name: '', width: null, height: null, wallId: null, passable: true, connects: [id] })
     const split = splitSpace(model, id, [6, -1], [6, 9])
@@ -983,7 +988,7 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(door.connects).toEqual([])
   })
 
-  it('방 경계를 고쳐도 좌표로 짚은 문이 잇는 방이 바뀐다', () => {
+  it('방 경계를 고쳐도 좌표로 짚은 문이 잇는 방이 바뀐다 [OE-SPC-13#3]', () => {
     const { store } = setup()
     const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening
     // 창고를 문에서 멀리 민다.
@@ -1011,7 +1016,7 @@ describe('벽·문·창 편집 (E4)', () => {
   })
 
   // OE-OBJ-06. 잠그는 것은 true 뿐이다 — 모름(null)까지 잠그면 내력 속성이 없는 파일의 벽을 하나도 못 고친다.
-  it('내력벽은 옮기거나 지우지 못하고, 거기 뚫린 문·창도 그렇다. 모름은 잠그지 않는다', () => {
+  it('내력벽은 옮기거나 지우지 못하고, 거기 뚫린 문·창도 그렇다. 모름은 잠그지 않는다 [OE-OBJ-06#1~,2~]', () => {
     const { wall } = setup()
     const door = addOpening(model, storey().id, 'door', [10.1, 4]) as Opening
     setWallLoadBearing(model, wall.id, true)
@@ -1045,7 +1050,7 @@ describe('벽·문·창 편집 (E4)', () => {
     expect(wallsCrossed(storey(), wall.footprint!, wall.id)).toEqual([])
   })
 
-  it('옮겨서 새로 가로지르게 되면 옮기지 않고, 원래 가로지르던 벽은 옮길 수 있다', () => {
+  it('옮겨서 새로 가로지르게 되면 옮기지 않고, 원래 가로지르던 벽은 옮길 수 있다 [OE-OBJ-05#1]', () => {
     const { wall } = setup()
     const stem = addWall(model, storey().id, [5, 4], [10, 4]) as Wall
     // 줄기를 벽 쪽으로 30cm 밀면 벽을 뚫고 나간다.
@@ -1075,7 +1080,7 @@ describe('벽·문·창 편집 (E4)', () => {
   })
 
   // OE-OBJ-07. 자리(가운데)는 두고 가로·세로만 바꾼다.
-  it('문·창 가로·세로를 바꾸고, 벽 끝을 넘거나 범위 밖이거나 내력벽이면 바꾸지 않는다', () => {
+  it('문·창 가로·세로를 바꾸고, 벽 끝을 넘거나 범위 밖이거나 내력벽이면 바꾸지 않는다 [OE-SPC-13#2]', () => {
     const { wall } = setup()
     const base = baselineOf(model)
     const win = addOpening(model, storey().id, 'window', [10.1, 2]) as Opening
@@ -1150,6 +1155,21 @@ describe('계통 편집 (E8)', () => {
     restore(model, snap)
     expect(modelToTTL(model)).toBe(opened)
     expect(w.memberIds).toEqual(['0MEP$Equip$X', ahu.id])
+  })
+
+  it('공기·물 계통에 다 든 공조기의 공기 계통을 다른 공기 계통으로 바꿔도 물 계통 자리는 그대로다 [OE-PIP-02#1]', () => {
+    const w = water()
+    const ahu = equip('AHU-1')
+    const air = model.systems[0]
+    w.memberIds.push(ahu.id)
+    model.systems.push({ id: 'A2', name: '급기 2', memberIds: [], source: 'ifc', kind: 'supply_air', fluid: null })
+    setEquipmentSystem(model, ahu.id, 'A2')
+    expect(ahu.systemId).toBe('A2')
+    expect(air.memberIds).not.toContain(ahu.id)
+    expect(w.memberIds).toEqual([ahu.id])
+    const ttl = modelToTTL(model)
+    const block = ttl.slice(ttl.indexOf('ex:W1 a brick:Water_System')).split('\n\n')[0]
+    expect(block).toContain(`ex:${ahu.id.replaceAll('$', '\\$')}`)
   })
 
   it('계통을 옮긴 설비를 지웠다가 되돌리면 옮긴 계통으로 돌아오고, 한 번 더 되돌리면 원래 계통의 원래 자리다', () => {

@@ -6,6 +6,7 @@
 // 설비는 상자 점이 아니라 IFC 의 실제 형상으로 그린다. 배관·덕트는 점으로 찍으면 계통이
 // 어디로 지나가는지가 사라져서, 연결을 추정한 것이 맞는지 눈으로 확인할 수가 없다.
 
+import { hvacZonesOf } from './hvac-zone'
 import {
   Box3,
   MOUSE,
@@ -13,9 +14,14 @@ import {
   Color,
   Ray,
   Sphere,
+  Spherical,
+  Sprite,
+  SpriteMaterial,
+  CanvasTexture,
   BoxGeometry,
   BufferAttribute,
   BufferGeometry,
+  CircleGeometry,
   ConeGeometry,
   OctahedronGeometry,
   DirectionalLight,
@@ -35,9 +41,11 @@ import {
   type Material,
   Object3D,
   type Texture,
+  TextureLoader,
   PerspectiveCamera,
   Plane,
   Raycaster,
+  RingGeometry,
   Scene,
   Shape,
   ShapeGeometry,
@@ -49,10 +57,16 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { polygonArea, type Model, type Vec2, type Vec3 } from './model'
 import type { MeshMap } from './ifc/import'
+import { wallShapes } from './wall-view'
 import { distanceToRing, pointInPolygon } from './mapping'
 import { easeOut, still } from './motion'
 import { isMultiSelect } from './shortcuts'
+import { alongOf, cutWall, openingRect, type OpeningCut } from './opening-cut'
+import { createReplayFx, type ReplayViewerApi } from './replay-viewer'
+import { createNavCube } from './nav-cube'
 import { type LibraryItem, type ObjectMaterial } from './space-object'
+import { CONTEXT_ITEMS } from './object-names'
+import { partId } from './vertical-object'
 
 /**
  * 층을 구분하는 색. 층 수만큼 순환한다.
@@ -130,11 +144,32 @@ const ARCH_WALL_HEIGHT = 1.2
  * 면을 세우면 방 안이 가리므로 윗면 외곽선과 모서리 세로선만 옅게 그린다. 높이를 모르는 벽(null)은 그리지 않는다.
  */
 const ARCH_WALL_TOP = { color: 0x8a94a3, opacity: 0.45 }
+/**
+ * 문·창의 모양(OE-OBJ-07). 벽에 그 자리를 뚫고(opening-cut.ts) 문틀 두 기둥과 문짝·유리를 세운다. 벽처럼 단면(ARCH_WALL_HEIGHT)
+ * 위는 자르고, 그 위의 실제 문·창 윤곽은 벽의 실제 높이 윤곽선과 같이 옅은 선으로 그린다. 문틀 폭·문짝·유리 두께(미터)와 유리 색.
+ */
+const OPENING_FRAME = 0.05
+const DOOR_LEAF = 0.04
+const GLASS = 0.02
+const GLASS_COLOR = { color: 0x9cc3e6, opacity: 0.4 }
+/** 다크 테마의 문짝·문틀. ARCH_COLORS.door(짙은 회청)는 어두운 바탕(#1c1f26)에 묻혀 바깥 벽의 문이 뚫린 구멍처럼 보였다. */
+const DOOR_DARK = 0x6b7a90
+/** 크기를 모르는 문·창(ADR-0009 의 기본값과 같다). */
+const FALLBACK_SIZE = { door: [0.9, 2.1], window: [1.0, 1.0] } as const
 /** 문·창을 누를 때 자리에서 이만큼 안이면 그 문·창이다(미터). */
 const ELEMENT_REACH = 0.35
 /** 룸(OE-OBJ-03) 외곽선 높이(층 바닥 위, 미터). 물리존 판(+0.1)과 커스텀존(+0.25) 사이다. */
 const ROOM_LIFT = 0.18
 const ROOM_COLORS = { line: 0xc0782a, conflict: 0xd93636 }
+/** 수직 관통 오브젝트(OE-ML-05) 조각 높이(층 바닥 위, 미터). 룸(+0.18) 위라 바닥을 누르면 룸·물리존보다 먼저 닿는다. */
+const VERTICAL_LIFT = 0.22
+/**
+ * 계단 조각 색. 평면도·내보낸 파일 뷰어는 분홍이지만 3D 는 층 판이 층마다 색(STOREY_COLORS, 분홍도 있다)이라 어느 색이든 한 층에서는
+ * 묻힌다. 판 위에서 늘 진하게 읽히는 짙은 회색으로 둔다. 고른 것은 액센트 파랑이다.
+ */
+const VERTICAL_COLOR = 0x2a2f3a
+/** 형상 없이 지점만 있는 조각(끝 층)을 누르는 반경(미터). */
+const VERTICAL_POINT_REACH = 0.6
 /** 추가 공간 오브젝트(OE-OBJ-09) 재질 색. 설비·벽과 헷갈리지 않게 가구다운 무채색·나무색으로 둔다. */
 const OBJECT_COLORS: Record<ObjectMaterial, number> = {
   wood: 0xb08a5e,
@@ -144,6 +179,11 @@ const OBJECT_COLORS: Record<ObjectMaterial, number> = {
   board: 0xf4f5f7,
   pot: 0x9c6b4e,
   leaf: 0x5f9e5a,
+  screen: 0x2b2f36,
+  ceramic: 0xf1f2f4,
+  // 주변 건물 매스·지형(조경 파일). 건물보다 흐리게 — 맥락이지 고칠 대상이 아니다.
+  mass: 0xd7dbe2,
+  ground: 0xc8c2a8,
 }
 /** 넣은 모델을 못 읽었을 때(아직 읽는 중이거나 깨진 파일) 그리는 상자 색. */
 const OBJECT_FALLBACK = 0xa7adb7
@@ -173,6 +213,8 @@ export type CeilingMark = { id: string; storeyId: string; at: Vec3; floor: numbe
 export const WALL_COLORS = {
   loadBearing: 0x39424e,
   unknown: 0xd9a531,
+  /** 비내력벽(칸막이). 편집 모드의 보통 벽(ARCH_COLORS.wall)과 같은 회색이다. */
+  ordinary: 0xb7bec7,
 }
 
 export type Highlight = {
@@ -245,7 +287,7 @@ export function equipmentMarker(position: readonly [number, number, number], col
 
 /**
  * 넣은 3D 모델(OE-P3-08)의 재질을 Lambert 로 바꾼다. glTF 는 PBR 재질(MeshStandardMaterial)로 읽히는데, 3D 는 Lambert 와 빛 두 개로만
- * 음영을 낸다(ADR-0013). 색·텍스처·투명도는 그대로 둔다.
+ * 음영을 낸다(docs/dev/ui-notes.md). 색·텍스처·투명도는 그대로 둔다.
  */
 export function lambertize(root: Object3D): Object3D {
   const convert = (m: Material): Material => {
@@ -300,6 +342,10 @@ export type SpaceHandles = {
   active?: number | null
 }
 
+/** 수직 관통 오브젝트 구간 바꾸기(OE-ML-08)에서 적용 전에 사람이 그린 형상·찍은 지점. 점선으로 그린다. */
+/** 적용 전 미리보기. `path` 는 그리는 중인 층간 배관의 경로(공통 좌표)다(OE-ML-12). */
+export type VerticalPreview = { storeyId: string; elevation: number; footprint?: readonly Vec2[]; point?: Vec2; path?: readonly Vec3[] }
+
 /** 마우스 아래에 있는 것. 설비·물리존(편집 모드)·연결 화살표(편집 모드). */
 export type HoverTarget = { kind: 'equipment'; id: string } | { kind: 'space'; id: string } | { kind: 'arrow'; key: string }
 
@@ -319,12 +365,29 @@ export type Viewer = {
   onHover(handler: (target: HoverTarget | null, at: { x: number; y: number } | null) => void): void
   /** 그 설비가 화면 가운데 오도록 카메라를 돌린다. */
   focus(id: string): void
-  /** 주어진 설비들이 화면에 꽉 차게 카메라를 맞춘다. 연결망만 보고 싶을 때 쓴다. */
-  frame(ids: Iterable<string>): void
-  /** 내력벽(과 내력 여부를 모르는 벽)을 켜고 끈다. 모델을 바꿔도 켜 둔 상태는 남는다. */
+  /** 주어진 설비들이 화면에 꽉 차게 카메라를 맞춘다. 연결망만 보고 싶을 때 쓴다. margin(미터)만큼 둘레를 더 보인다. */
+  frame(ids: Iterable<string>, margin?: number): void
+  /** 움직이지 않은 우클릭(ui-notes 보기 필터). 누른 자리의 설비 id(없으면 null)와 화면 좌표. 끈 오른쪽 드래그는 그대로 회전이다. */
+  onContext(handler: (id: string | null, x: number, y: number) => void): void
+  /** 보이는 것 전체에 맞춘다. `keep` 이면 지금 보는 방향 그대로(전체 맞추기), 아니면 처음 시점 방향(카메라 초기화). */
+  frameVisible(keep: boolean): void
+  /**
+   * Brick 클래스별 분해도(ui-notes 보기 필터). 묶음마다 그 설비를 건물 위로 한 켜씩 띄우고(평면 자리는 그대로) 켜 옆에 라벨을 단다.
+   * 화면에서만 옮긴다 — 모델·편집 파일에는 아무것도 남지 않고, 다시 그리거나 설비를 옮기면 먼저 제자리로 돌아온다.
+   * `null` 이면 제자리로. 띄웠으면 true.
+   */
+  setExplode(groups: readonly { label: string; ids: readonly string[] }[] | null): boolean
+  /** 분해도가 펼쳐져 있나. 다시 그리기 등으로 저절로 접힐 수 있어 화면이 이것으로 맞춘다. */
+  exploded(): boolean
+  /** 보기 모드 3D 의 벽을 켜고 끈다. 모델을 바꿔도 켜 둔 상태는 남는다. */
   setWallsVisible(on: boolean): void
   /** 편집 모드를 켜고 끈다. 끄면 3D 는 보기 전용이고, 누르고 끄는 것은 전부 시점 조작이다. */
   setEditMode(on: boolean): void
+  /**
+   * 편집 모드가 꺼져 있어도 꼭짓점 손잡이만은 끌게 한다. 다중층 뷰(OE-ML-07)는 설비·물리존을 고치지 않고 수직 관통 오브젝트 조각의 형상만
+   * 고친다 — 편집 모드를 켜면 고른 설비도 끌린다.
+   */
+  setHandleEdit(on: boolean): void
   /** 편집 모드에서 무언가를 끄는 중인가. 그동안의 Ctrl+Z 는 받지 않는다(Esc 가 취소다). */
   isDragging(): boolean
   /**
@@ -349,6 +412,13 @@ export type Viewer = {
   onVertexMove(handler: (spaceId: string, index: number, to: Vec2) => void): void
   /** 연결 화살표. 빈 배열이면 지운다. */
   setArrows(arrows: readonly Arrow[]): void
+  /**
+   * 흐름 방향의 연쇄(flow-cascade.ts). 확정·적용으로 TTL 에 나가는 방향이 바뀐 연결을 물결(wave) 순서대로 강조색 화살표로 띄웠다가
+   * 걷는다. 평소 화살표(setArrows, 고른 설비의 이웃)와 따로 겹쳐 그린다. 움직임을 끈 사람에게는 한꺼번에 띄웠다가 걷는다.
+   */
+  playCascade(items: readonly { a: string; b: string; from: string; wave: number }[]): void
+  /** 편집 모드가 아니어도 화살표를 그린다(누르지는 못한다). 편집 리플레이가 바뀐 흐름을 보일 때 쓴다. */
+  setArrowsShown(on: boolean): void
   onArrowClick(handler: (key: string) => void): void
   /** 물리존 판만 다시 만든다. 경계 하나를 고쳤다고 설비 1만 8천 개까지 다시 만들 까닭이 없다. */
   updateSpaces(model: Model): void
@@ -356,7 +426,10 @@ export type Viewer = {
    * 벽·문·창 편집 층(E4). model 이 null 이면 끈다. 켜면 벽 외곽선(모델의 값, 편집이 바로 보인다)과 문·창 자리를
    * 그리고, 편집 모드에서 바닥을 누르면 물리존보다 벽·문·창을 먼저 고른다.
    */
-  setArchitecture(model: Model | null, selected: string | null): void
+  /** `also` 는 같이 고른 색으로 칠할 벽(외벽 에디터의 같은 면 묶음, OE-EXT-03). */
+  setArchitecture(model: Model | null, selected: string | null, also?: ReadonlySet<string>): void
+  /** 외곽선 층의 벽 입체를 프레임마다 조금씩 미리 압출해 둔다(짓지는 않는다). 리플레이가 오프닝 동안 부른다. */
+  warmArchitecture(model: Model): void
   /** 공조존(IDF) 외곽선. null 이면 지운다. 층별로 보기를 따른다. */
   setHvacZones(model: Model | null, selected: string | null): void
   /** 커스텀존(OE-OBJ-01) 외곽선과 고른 존의 면. null 이면 지운다. 층별로 보기를 따른다. */
@@ -367,6 +440,12 @@ export type Viewer = {
    */
   setRooms(model: Model | null, selected: string | null, conflict?: string | null): void
   /**
+   * 수직 관통 오브젝트의 층별 조각(OE-ML-05): 그 층의 형상, 진입 지점(채운 원)·종료 지점(빈 고리). 바닥을 누르면 룸·물리존보다 먼저
+   * 골라진다(onPickSpace 로 조각 id 가 간다). 고른 조각을 다시 누르면 그 아래 룸·물리존이 골라진다 — 계단실을 고칠 길이다. 끌어 옮기지 않는다.
+   * `selected` 는 고른 조각 id 들이다. 층 편집은 고른 조각 하나, 다중층 뷰는 고른 오브젝트의 모든 층 조각이다(OE-ML-01).
+   */
+  setVerticalParts(model: Model | null, selected: ReadonlySet<string>, preview?: readonly VerticalPreview[]): void
+  /**
    * 천장 설비의 바닥 발자국 링과, 고른 설비에서 링까지의 수직 점선(OE-EQP-04). 빈 배열이면 지운다. 층별로 보기를 따르고
    * 고르지 않는다 — 링을 눌러도 바닥(물리존)이 골라진다.
    */
@@ -375,8 +454,32 @@ export type Viewer = {
   setCeilingView(view: CeilingView | null): void
   /** 끌어 옮기지 못하는 설비(모드 밖의 설비, OE-OBJ-08). 고르기는 된다. */
   setFrozen(ids: ReadonlySet<string>): void
+  /** 얼린(지금 모드에서 고칠 수 없는) 고른 설비를 끌려 했다. 화면은 이유를 알린다(OE-UI-04 · OE-OBJ-08). 끌기는 시점 이동이 된다. */
+  onFrozenGrab(handler: (id: string) => void): void
+  /**
+   * 평면도 배경 이미지(OE-MAN-02). 네 귀퉁이(IFC 평면, 왼쪽 위부터 시계 방향)에 이미지를 펴서 층 바닥 바로 위에 깐다. 누를 수 없고,
+   * 물리존을 그리는 바닥 클릭은 그대로 바닥에 찍힌다. null 이면 걷는다.
+   */
+  setBackground(bg: { url: string; corners: readonly [Vec2, Vec2, Vec2, Vec2]; elevation: number; opacity: number } | null): void
+  /** 그리드(OE-UI-07). 선(IFC 평면 x·y 값)과 높이. null 이면 지운다. 고르기 대상이 아니다. */
+  setGrid(grid: { x: readonly number[]; y: readonly number[]; elevation: number; extent: { minX: number; minY: number; maxX: number; maxY: number } } | null): void
   /** 보이는 것 전체를 위에서 내려다본다. 화면 위쪽이 IFC +y(평면도와 같은 방위)다. */
   topView(): void
+  /** 보이는 것 전체를 이 방향(대상에서 카메라 쪽, 장면 좌표 — x 는 IFC x, y 는 위, z 는 IFC −y)에서 본다. 방향 큐브가 부른다. */
+  viewFrom(dir: readonly [number, number, number]): void
+  /** 오른쪽 위 방향 큐브(nav-cube.ts)를 이 캔버스에 붙인다. 떼는 함수를 돌려준다. */
+  attachNavCube(canvas: HTMLCanvasElement): () => void
+  /**
+   * 비행 모드. 켜면 WASD 로 앞·좌·뒤·우, Q/E 로 내려가기·올라가기(키는 flyKey 로 받는다), 왼쪽·오른쪽 드래그로 제자리에서 둘러보기,
+   * 휠로 빠르기를 바꾼다. 끄면 지도식 시점으로 돌아오고 눈앞의 점을 도는 중심으로 둔다.
+   */
+  setFly(on: boolean): void
+  /** 비행 중 눌린·뗀 키(`KeyW` 같은 code). 글자 칸·단축키 판단은 화면이 하고 넘긴다. `null` 이면 다 뗀다(창이 초점을 잃었을 때). */
+  flyKey(code: string | null, down: boolean): void
+  /** 지금 눈(카메라)의 높이(IFC z, 미터). 비행 중 층 이동(E E · Q Q)이 다음 층을 고를 때 쓴다. */
+  eyeHeight(): number
+  /** 눈과 보는 점을 함께 이 높이(IFC z)로 0.4초에 옮긴다. 가로 자리와 보는 방향은 그대로다. 비행 중 층 이동이 부른다. */
+  flyToHeight(z: number): void
   /**
    * 추가 공간 오브젝트(OE-OBJ-09). 항목의 3D 조각(내장) 또는 넣은 모델(`models`, 열쇠 → 읽은 장면)을 오브젝트 상자에 맞춰
    * 늘려 그린다. 고른 것은 액센트 테두리, `conflict`(겹쳐서 막은 상대)는 붉게 그린다(OE-SPC-15). 편집 모드에서 고른 것은 끌 수 있다.
@@ -398,6 +501,11 @@ export type Viewer = {
   /** 건물 전체가 화면에 들어오게 한다. */
   frameAll(): void
   /**
+   * 개발용 성능 표. 지난 1초에 그린 장수, 마지막 프레임을 그린 시간(ms), draw call 수, 삼각형 수. 3D 는 바뀔 때만 그려서 가만히 있으면
+   * 그린 장수가 0 이다.
+   */
+  stats(): { fps: number; renderMs: number; calls: number; triangles: number }
+  /**
    * 보일 층만 남긴다. storeys 가 null 이면 전부. hidden 은 숨길 설비 id(그 층에 없는 설비) — 층과 설비의 짝은 편집으로
    * 바뀌므로(층 옮기기) 화면이 셈해서 준다. 숨긴 것은 그리지도, 고르지도 않는다.
    */
@@ -408,22 +516,34 @@ export type Viewer = {
    */
   setPlaceMode(elevation: number | null): void
   onPlace(handler: (at: Vec2) => void): void
+  /**
+   * 시점이 바뀌면 부른다(한 프레임에 한 번). 바라보는 점의 IFC 평면 좌표와, 그 거리에서 화면 가로 절반이 덮는 길이(m).
+   * 비교 판(ExportCompare.vue, ADR-0061)의 평면이 3D 를 따라간다. null 이면 뗀다.
+   */
+  onView(handler: ((view: { target: Vec2; halfWidth: number }) => void) | null): void
   /** 물리존 하나가 화면에 들어오게 한다. */
   frameSpace(id: string): void
+  /**
+   * 설비 형상 상자 가운데의 화면 좌표(창 기준 px). 그려지지 않았거나(다른 층·숨김) 카메라 뒤·캔버스 밖이면 null.
+   * 3D 위 설비 라벨(App.vue 의 equipmentLabels)이 쓴다.
+   */
+  screenOf(ids: readonly string[]): ({ x: number; y: number } | null)[]
+  /** 3D 를 다시 그릴 때마다 오르는 수. 라벨이 그대로인 화면에서 자리를 다시 재지 않게 본다. */
+  viewVersion(): number
   /**
    * 화면의 오른쪽·위쪽이 IFC 평면에서 어느 쪽인가(단위 벡터). 방향키로 설비를 옮길 때 쓴다. 비스듬히 보면
    * 화면 위쪽은 바닥에서 "멀어지는 쪽" 이다.
    */
   planeAxes(): { right: Vec2; up: Vec2 }
   dispose(): void
-}
+} & ReplayViewerApi
 
 /**
  * 합친 형상의 한 덩어리. 설비 형상을 한 벌로 합치면 첫 그리기에 GPU 로 한 번에 올라가서 성수(정점 1천만 개,
  * 403MB)에서 화면이 3초 멈췄다. 덩어리로 나눠 한 프레임에 하나씩 켜면 올리는 일도 프레임마다 나뉜다.
  * 옮기거나 칠할 때도 그 덩어리만 다시 올린다(전부 올리면 방향키 한 번에 122MB 가 다시 갔다).
  */
-type Chunk = {
+export type Chunk = {
   position: BufferAttribute
   colors: BufferAttribute
   /** 덩어리 안의 삼각형 인덱스 전부. 흐리게·숨기기를 바꿀 때 여기서 두 메시의 인덱스를 다시 짠다. */
@@ -440,7 +560,7 @@ type Chunk = {
 const CHUNK_VERTICES = 250_000
 
 /** 합친 형상 안에서 설비 하나가 차지하는 자리. 강조·선택·시점 맞추기가 이 표로 설비를 찾는다. */
-type Part = {
+export type Part = {
   id: string
   color: number
   chunk: Chunk
@@ -450,19 +570,14 @@ type Part = {
   iStart: number
   iCount: number
   box: Box3
+  /** 그린 형상의 출처(형상 데이터 또는 상자 자리). 편집 뒤 다시 그릴 때 바뀌었는지 가른다(patchModel). */
+  src?: unknown
 }
 
-/** 내력벽과 내력 여부를 모르는 벽을 한 덩어리로 합친다. 형상을 못 얻은 벽은 건너뛴다. */
-function wallMesh(model: Model, meshes?: MeshMap): Mesh | null {
-  const pieces: { color: Color; mesh: { positions: Float32Array; normals: Float32Array; indices: Uint32Array } }[] = []
-  for (const storey of model.storeys) {
-    for (const wall of storey.walls) {
-      if (wall.loadBearing === false) continue
-      const mesh = meshes?.get(wall.id)
-      if (!mesh) continue
-      pieces.push({ color: new Color(wall.loadBearing ? WALL_COLORS.loadBearing : WALL_COLORS.unknown), mesh })
-    }
-  }
+/** 한 층의 벽을 한 덩어리로 합친다(wall-view.ts). 내력벽·모름·보통 벽을 색으로 가른다. */
+function wallMesh(storey: Model['storeys'][number], meshes?: MeshMap): Mesh | null {
+  const shapes = wallShapes(storey, meshes)
+  const pieces = shapes.map(({ tone, mesh }) => ({ color: new Color(WALL_COLORS[tone]), mesh }))
   if (pieces.length === 0) return null
   let vTotal = 0
   let iTotal = 0
@@ -492,6 +607,7 @@ function wallMesh(model: Model, meshes?: MeshMap): Mesh | null {
   geometry.setIndex(new BufferAttribute(index, 1))
   const mesh = new Mesh(geometry, new MeshLambertMaterial({ vertexColors: true, side: DoubleSide }))
   mesh.frustumCulled = false
+  mesh.userData.rebuilt = shapes.filter((w) => w.rebuilt).map((w) => w.id)
   return mesh
 }
 
@@ -513,7 +629,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 하늘빛(HemisphereLight)은 윗면을 밝게, 아랫면을 어둡게 해 덕트·배관의 위아래를 가른다. 주광은 카메라에 붙여 화면 왼쪽
   // 위에서 비춘다 — 세계에 고정하면 해 반대편으로 돌아갔을 때 모든 면이 그늘이라 다시 한 덩어리가 된다. 3D 는 시점이
   // 바뀔 때만 다시 그리므로(아래 tick 의 dirty) 빛이 따라 움직여도 더 그리지 않는다.
-  scene.add(new HemisphereLight(0xffffff, 0x6f7684, 0.9))
+  const hemi = new HemisphereLight(0xffffff, 0x6f7684, 0.9)
+  scene.add(hemi)
   const sun = new DirectionalLight(0xffffff, 1.45)
   sun.position.set(-0.5, 1, 0.6)
   sun.target.position.set(0, 0, -1)
@@ -530,7 +647,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let parts: Part[] = []
   let partById = new Map<string, Part>()
   let chunks: Chunk[] = []
-  // 내력벽. 고르기 대상이 아니다(pick 은 설비만 본다). 벽 너머의 설비를 누를 수 있어야 해서다.
+  // IFC 벽(#599). 고르기 대상이 아니다(pick 은 설비만 본다). 벽 너머의 설비를 누를 수 있어야 해서다.
   let walls: Group | null = null
   let wallsVisible = false
   // 층별로 보기. 숨긴 층의 판·벽은 visible 을 끄고, 숨긴 설비는 인덱스에서 뺀다(흐리게 칠한 것과 같은 장치).
@@ -544,12 +661,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const o of zoneLines.children) o.visible = storeyShown(o)
     for (const o of customZones.children) o.visible = storeyShown(o)
     for (const o of rooms.children) o.visible = storeyShown(o)
+    // 층을 잇는 선(진입 → 종료)은 양 끝 층이 다 보일 때만이다. 한 층만 보면 다른 층으로 뻗은 선만 떠 있게 된다.
+    for (const o of verticals.children) o.visible = o.userData.storeys ? (o.userData.storeys as string[]).every((id) => !visibleStoreys || visibleStoreys.has(id)) : storeyShown(o)
     for (const o of ceilingMarks.children) o.visible = storeyShown(o)
     for (const o of ceilingPlanes.children) o.visible = storeyShown(o)
     for (const o of spaceObjects.children) o.visible = storeyShown(o)
     dirty = true
   }
   let pickHandler: (id: string | null, additive?: boolean) => void = () => {}
+  let contextHandler: (id: string | null, x: number, y: number) => void = () => {}
   let boxHandler: (ids: string[]) => void = () => {}
   /** Ctrl+끌기로 그리는 고르기 상자(OE-UI-09). 화면 좌표의 시작점과 그리는 DOM 상자. */
   let box: { x: number; y: number; el: HTMLDivElement } | null = null
@@ -564,8 +684,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // **움직일 때만 다시 그린다.** 가만히 있을 때도 매 프레임 1만 8천 개를 다시 그리면 화면 전체(스크롤,
   // 입력칸)가 같이 느려진다. 시점이 바뀌거나 색·모델이 바뀌었을 때만 그린다.
   let dirty = true
+  // 시점을 알릴 곳(onView). 비행·관성으로 한 프레임에 여러 번 바뀌어도 프레임마다 한 번만 알린다.
+  let viewHandler: ((view: { target: Vec2; halfWidth: number }) => void) | null = null
+  let viewPending = false
   const invalidate = () => {
     dirty = true
+    if (viewHandler && !viewPending) {
+      viewPending = true
+      requestAnimationFrame(() => {
+        viewPending = false
+        const t = controls.target
+        const d = camera.position.distanceTo(t)
+        viewHandler?.({ target: [t.x, -t.z], halfWidth: d * Math.tan((camera.fov * Math.PI) / 360) * (camera.aspect || 1.6) })
+      })
+    }
   }
   controls.addEventListener('change', invalidate)
 
@@ -596,6 +728,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 쪽이 edit.ts 로 한다. 손잡이·화살표는 모델과 따로(overlay) 두고, 모델을 다시 만들면 비운다 — 부르는 쪽이
   // 새 모델 기준으로 다시 넘겨야 예전 좌표의 손잡이가 남지 않는다.
   let editMode = false
+  let handleEdit = false
+  /** 편집 모드가 아니어도 화살표를 그리나(setArrowsShown). */
+  let arrowsShown = false
   let dark = false
   let selectedPart: string | null = null
   /** 끌 수 있는 설비. 고른 것 하나, 여러 개 골랐으면 그 전부(OE-UI-09). */
@@ -641,12 +776,26 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
   /** 누를 수 있는 룸. 물리존 판보다 먼저 본다(pickSpace). */
   let roomTargets: { id: string; storeyId: string; y: number; ring: readonly Vec2[] }[] = []
+  /** 누를 수 있는 수직 관통 오브젝트 조각(OE-ML-05). 룸보다 먼저 본다. 고른 조각은 건너뛰어 그 아래가 골라지게 한다. */
+  const verticals = new Group()
+  scene.add(verticals)
+  let verticalTargets: { id: string; storeyId: string; y: number; ring: readonly Vec2[]; at: Vec2 }[] = []
+  let selectedVertical: ReadonlySet<string> = new Set()
   const ceilingMarks = new Group()
   scene.add(ceilingMarks)
   const ceilingPlanes = new Group()
   scene.add(ceilingPlanes)
+  // 평면도 배경 이미지(OE-MAN-02). 지금 깐 것의 귀퉁이를 e2e 가 읽는다.
+  const backdrop = new Group()
+  // 그리드(OE-UI-07). 바닥판 바로 위의 가는 선.
+  const gridGroup = new Group()
+  let gridCount = 0
+  scene.add(backdrop)
+  scene.add(gridGroup)
+  let backdropCorners: readonly [Vec2, Vec2, Vec2, Vec2] | null = null
   let dimIds: ReadonlySet<string> = new Set()
   let frozenIds: ReadonlySet<string> = new Set()
+  let frozenGrabHandler: (id: string) => void = () => {}
   let lastHighlight: Highlight | null = null
   /** 누를 수 있는 벽·문·창. 문·창은 자리(`at`)와, 가로를 알면 벽을 따라 편 반 폭(`half`, 방향 `dir`)을 든다. */
   let archTargets: { id: string; storeyId: string; y: number; rings?: readonly (readonly Vec2[])[]; at?: Vec2; dir?: Vec2; half?: number }[] = []
@@ -701,7 +850,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     outline = new LineLoop(new BufferGeometry().setFromPoints(points), new LineBasicMaterial({ color: handleColor(dark), depthTest: false }))
     outline.renderOrder = 10
     overlay.add(outline)
-    if (!editMode) return
+    if (!editMode && !handleEdit) return
     points.forEach((p, i) => {
       const active = i === handleSpace!.active
       const color = active ? (dark ? 0xffffff : 0x1a1d21) : handleColor(dark)
@@ -731,7 +880,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       hoverMark = new LineSegments(geometry, new LineBasicMaterial({ color: HOVER_COLORS.equipment, depthTest: false }))
       part.box.getCenter(hoverMark.position)
     } else {
-      const t = roomTargets.find((x) => x.id === target.id) ?? spaceTargets.find((x) => x.id === target.id)
+      const t = verticalTargets.find((x) => x.id === target.id) ?? roomTargets.find((x) => x.id === target.id) ?? spaceTargets.find((x) => x.id === target.id)
       if (!t || t.ring.length < 3) return
       const points = t.ring.map(([x, z]) => new Vector3(...toScene([x, z, 0])).setY(t.y + 0.1))
       hoverMark = new LineLoop(
@@ -745,6 +894,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   let conflictMark: LineSegments | null = null
+  /** 겹쳐서 막아 붉게 그린 공간 오브젝트(OE-SPC-15). e2e 가 읽는다. */
+  let objectConflictId: string | null = null
   let conflictTimer: number | undefined
   function clearConflict() {
     window.clearTimeout(conflictTimer)
@@ -773,7 +924,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     arrowObjects = []
     arrowSegs = []
     dirty = true
-    if (!editMode) return
+    if (!editMode && !arrowsShown) return
     for (const spec of arrowSpecs) {
       // 한 층만 볼 때 다른 층 끝으로 가는 화살표는 그리지도 누르지도 않는다(OE-UI-12). 끝이 안 보이는 곳을 가리켰다.
       // 그 연결은 오른쪽 패널의 연결 표에 "다른 층" 으로 남고, 방향도 거기서 바꾼다.
@@ -821,6 +972,98 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
   }
 
+  // --- 흐름 방향의 연쇄 ---
+  // 바뀐 연결을 물결마다 CASCADE_STEP_MS 간격으로 띄운다. 물결이 많으면 간격을 줄여 전체가 CASCADE_SPAN_MS 안에 퍼진다. 다 띄운 뒤
+  // CASCADE_HOLD_MS 두었다가 CASCADE_FADE_MS 동안 옅어진다. 성수 한꺼번에 확정처럼 수천 개가 바뀌어도 CASCADE_MAX 개(앞 물결부터)만 그린다.
+  const CASCADE_STEP_MS = 140
+  const CASCADE_SPAN_MS = 1600
+  const CASCADE_HOLD_MS = 900
+  const CASCADE_FADE_MS = 400
+  const CASCADE_MAX = 400
+  // 촉 형상 하나(높이 1, 반지름 1/3 — 크기는 scale 로)와 재질 둘을 모두가 같이 쓴다. 성수에서 화살표마다 새로 만들면 확정 한 번에 160ms 가 들었다.
+  // 옅어지기는 다 같이라 재질 하나의 opacity 로 된다.
+  const CASCADE_CONE = new ConeGeometry(1 / 3, 1, 12)
+  let cascade: { t0: number | null; step: number; last: number; line: LineBasicMaterial; cone: MeshBasicMaterial; parts: { wave: number; r: number; objects: (Line | Mesh)[] }[] } | null = null
+  function clearCascade() {
+    if (!cascade) return
+    for (const p of cascade.parts)
+      for (const o of p.objects) {
+        o.parent?.remove(o)
+        if (o instanceof Line) o.geometry.dispose()
+      }
+    cascade.line.dispose()
+    cascade.cone.dispose()
+    cascade = null
+    dirty = true
+  }
+  function startCascade(items: readonly { a: string; b: string; from: string; wave: number }[]) {
+    clearCascade()
+    const color = arrowColors(dark).edit
+    const lineMat = new LineBasicMaterial({ color, depthTest: false, transparent: true })
+    const coneMat = new MeshBasicMaterial({ color, depthTest: false, transparent: true })
+    const parts: { wave: number; r: number; objects: (Line | Mesh)[] }[] = []
+    // 배관 마디는 수십 cm 라 길이로만 촉 크기를 잡으면 건물 전체를 볼 때 안 보인다(Duplex MEP). 촉은 보는 거리에 맞춰 최소 크기를 둔다.
+    const minR = camera.position.distanceTo(controls.target) * 0.012
+    const up = new Vector3(0, 1, 0)
+    for (const it of [...items].sort((x, y) => x.wave - y.wave).slice(0, CASCADE_MAX)) {
+      if (hiddenIds.has(it.a) || hiddenIds.has(it.b)) continue
+      const pa = partById.get(it.a)
+      const pb = partById.get(it.b)
+      if (!pa || !pb) continue
+      const ca = pa.box.getCenter(new Vector3())
+      const cb = pb.box.getCenter(new Vector3())
+      const len = ca.distanceTo(cb)
+      if (len < 1e-6) continue
+      const [tail, head] = it.from === it.a ? [ca, cb] : [cb, ca]
+      const dir = head.clone().sub(tail).normalize()
+      const line = new Line(new BufferGeometry().setFromPoints([tail, head]), lineMat)
+      line.renderOrder = 13
+      // 평소 화살촉보다 조금 크게 — 위에 겹쳐 그리니 같은 크기면 안 보인다.
+      const r = Math.max(Math.min(Math.max(len * 0.09, 0.07), 0.5), minR)
+      const cone = new Mesh(CASCADE_CONE, coneMat)
+      cone.position.copy(tail).addScaledVector(dir, len * 0.6)
+      cone.quaternion.setFromUnitVectors(up, dir)
+      cone.renderOrder = 14
+      for (const o of [line, cone]) {
+        o.visible = false
+        overlay.add(o)
+      }
+      parts.push({ wave: it.wave, r: r * 3, objects: [line, cone] })
+    }
+    if (!parts.length) {
+      lineMat.dispose()
+      coneMat.dispose()
+      return
+    }
+    const waves = parts.at(-1)!.wave + 1
+    const step = still() ? 0 : Math.min(CASCADE_STEP_MS, CASCADE_SPAN_MS / waves)
+    started.cascades++
+    cascade = { t0: null, step, last: parts.at(-1)!.wave, line: lineMat, cone: coneMat, parts }
+    dirty = true
+  }
+  function stepCascade(now: number) {
+    if (!cascade) return
+    if (cascade.t0 === null) cascade.t0 = now
+    const t = now - cascade.t0
+    const spread = cascade.last * cascade.step
+    for (const p of cascade.parts) {
+      const at = p.wave * cascade.step
+      if (t < at) continue
+      // 띄울 때 촉이 0.3 배에서 1 배로 커진다(180ms). 움직임을 끈 사람에게는 처음부터 1 배다.
+      const grow = cascade.step === 0 ? 1 : Math.min(1, 0.3 + ((t - at) / 180) * 0.7)
+      for (const o of p.objects) {
+        o.visible = true
+        if (o instanceof Mesh) o.scale.setScalar(p.r * grow)
+      }
+    }
+    const fade = still() ? 1 : 1 - Math.min(1, Math.max(0, t - spread - CASCADE_HOLD_MS) / CASCADE_FADE_MS)
+    cascade.line.opacity = fade
+    cascade.cone.opacity = fade
+    dirty = true
+    // 움직임을 끈 사람에게는 한꺼번에 띄워 2초 둔다 — 퍼지는 순서는 못 보지만 무엇이 바뀌었는지는 본다.
+    if (t > spread + CASCADE_HOLD_MS + (still() ? 1100 : CASCADE_FADE_MS)) clearCascade()
+  }
+
   /** 손잡이는 화면에서 잰다. 크기가 시점 따라 바뀌어도 누르는 너비는 같아야 한다. */
   function hitHandle(x: number, y: number): number | null {
     let best: { index: number; d: number } | null = null
@@ -853,6 +1096,26 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   /**
+   * 광선이 닿는 수직 관통 오브젝트 조각(고른 것은 건너뛴다)과 거리(제곱). 여러 층을 함께 보면 위층 계단 지점 너머로 아래층 설비가 보여,
+   * 설비를 늘 먼저 고르면 위층 계단을 누를 수 없었다(다중층 뷰, 병원 2층 계단 지점 너머의 1층 거울). 누르기가 둘의 거리를 견준다.
+   */
+  function pickVertical(ray: Ray): { id: string; d: number } | null {
+    let best: { id: string; d: number } | null = null
+    const plane = new Plane(new Vector3(0, 1, 0), 0)
+    const at = new Vector3()
+    for (const target of verticalTargets) {
+      if (selectedVertical.has(target.id)) continue
+      if (visibleStoreys && !visibleStoreys.has(target.storeyId)) continue
+      plane.constant = -target.y
+      if (!ray.intersectPlane(plane, at)) continue
+      if (!pointInPolygon([at.x, -at.z], target.ring)) continue
+      const d = at.distanceToSquared(ray.origin)
+      if (!best || d < best.d) best = { id: target.id, d }
+    }
+    return best
+  }
+
+  /**
    * 광선이 먼저 닿는 물리존 판. 판 윗면에서 외곽선 안에 드는지로 본다. 같은 층에서 방이 겹친 자리면 **가장 작은 방**이다 —
    * 설비 소속(mapping.ts 의 locate)과 같은 규칙이라, 누른 자리의 설비가 속한 방이 골라진다.
    */
@@ -860,8 +1123,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     let best: { id: string; d: number; area: number } | null = null
     const plane = new Plane(new Vector3(0, 1, 0), 0)
     const at = new Vector3()
-    // 룸(OE-OBJ-03)이 먼저다 — 물리존 판보다 위에 그려 광선이 먼저 닿는다.
-    for (const target of [...roomTargets, ...spaceTargets]) {
+    // 수직 관통 오브젝트 조각, 룸(OE-OBJ-03) 순으로 먼저다 — 물리존 판보다 위에 그려 광선이 먼저 닿는다. 고른 조각은 건너뛴다.
+    for (const target of [...verticalTargets.filter((t) => !selectedVertical.has(t.id)), ...roomTargets, ...spaceTargets]) {
       if (visibleStoreys && !visibleStoreys.has(target.storeyId)) continue
       plane.constant = -target.y
       if (!ray.intersectPlane(plane, at)) continue
@@ -874,6 +1137,17 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       best = { id: target.id, d, area }
     }
     return best?.id ?? null
+  }
+
+  /**
+   * 벽·문·창 편집 층이 켜져 있을 때 광선이 그린 벽·문·창에 처음 닿는 거리(제곱). 꺼져 있거나 안 닿으면 Infinity.
+   * 오브젝트와 견준다 — 벽 앞에 붙은 BIM 가구(하부장·조리대) 상자가 벽 윗면을 누른 광선에도 닿아, 견주지 않으면 벽을 고를 수 없었다.
+   */
+  function archDistance(ray: Ray): number {
+    if (!archTargets.length) return Infinity
+    raycaster.ray.copy(ray)
+    const hit = raycaster.intersectObjects(arch.children.filter((o) => o.visible && o instanceof Mesh), false)[0]
+    return hit ? hit.point.distanceToSquared(ray.origin) : Infinity
   }
 
   /**
@@ -919,7 +1193,120 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     return best?.id ?? null
   }
 
-  function buildArchitecture(model: Model | null, selected: string | null) {
+  /** 마지막에 그린 외곽선 층. 리플레이가 새로 생긴 벽을 따로 그리려고 다시 그린다(rebuildArchitecture). */
+  let lastArch: { model: Model | null; selected: string | null; also?: ReadonlySet<string> } = { model: null, selected: null }
+  let lastArchKey = ''
+  /** buildArchitecture 가 읽는 것(층 높이, 벽 외곽선·높이·내력, 문·창 자리·종류·폭·방향, 고른 것)을 이은 열쇠. */
+  function archKey(model: Model | null, selected: string | null, also?: ReadonlySet<string>): string {
+    if (!model) return `-|${selected}`
+    const out: (string | number | null | undefined)[] = [selected, also ? [...also].join('+') : '']
+    for (const st of model.storeys) {
+      out.push('S', st.id, st.elevation)
+      for (const w of st.walls) {
+        out.push('W', w.id, w.height, String(w.loadBearing))
+        for (const ring of w.footprint ?? []) for (const p of ring) out.push(p[0], p[1])
+      }
+      for (const o of st.openings) out.push('O', o.id, o.kind, o.width, o.position?.[0], o.position?.[1], o.through?.[0], o.through?.[1])
+    }
+    return out.join(',')
+  }
+  /**
+   * 벽 외곽선 하나를 세운 입체(층 바닥 y 에서 ARCH_WALL_HEIGHT). 외곽선·높이로 기억한다 — 외곽선 층을 다시 지을 때마다 벽
+   * 수백 개를 다시 삼각분할했다(dental 의 문 하나 옮기기에 65ms). 합칠 때 복사하고 고치지 않으니 같은 것을 다시 써도 된다.
+   */
+  const extruded = new Map<string, BufferGeometry>()
+  function extrudeRing(ring: readonly Vec2[], y: number, height = ARCH_WALL_HEIGHT): BufferGeometry {
+    const key = `${y}|${height}|${ring.map((p) => `${p[0]},${p[1]}`).join(';')}`
+    let g = extruded.get(key)
+    if (!g) {
+      const shape = new Shape()
+      shape.moveTo(ring[0][0], ring[0][1])
+      for (const p of ring.slice(1)) shape.lineTo(p[0], p[1])
+      g = new ExtrudeGeometry(shape, { depth: height, bevelEnabled: false })
+      g.rotateX(-Math.PI / 2)
+      g.translate(0, y, 0)
+      if (extruded.size > 20000) extruded.clear()
+      extruded.set(key, g)
+    }
+    return g
+  }
+  /** 그 층 벽에 뚫을 문·창 자리(벽 id → 자리들). 높이는 화면 벽 바닥(`y`)에서 잰다. 벽이 이 층에 없으면(천창은 지붕에 붙는다) 뚫지 않는다. */
+  function openingCutsOf(storey: Model['storeys'][number], y: number): Map<string, OpeningCut[]> {
+    const here = new Set(storey.walls.map((w) => w.id))
+    const out = new Map<string, OpeningCut[]>()
+    for (const o of storey.openings) {
+      // 사람이 놓은 문·창은 가로를 정하기 전까지 비어 있다 — 기본 크기로 뚫는다(그리는 것과 같은 크기).
+      const rect = o.wallId && here.has(o.wallId) ? openingRect({ ...o, width: o.width ?? FALLBACK_SIZE[o.kind][0] }) : null
+      if (!rect) continue
+      const sill = o.position![2] - y
+      const cut = { rect, sill, head: sill + (o.height ?? FALLBACK_SIZE[o.kind][1]) }
+      const list = out.get(o.wallId!)
+      if (list) list.push(cut)
+      else out.set(o.wallId!, [cut])
+    }
+    return out
+  }
+  /** 벽을 세울 조각: 문·창 자리를 뚫은 [아래, 위] 고리들. 뚫을 것이 없으면 고리 그대로 단면 높이까지다. */
+  const wallSlabsOf = (rings: readonly (readonly Vec2[])[], cuts: readonly OpeningCut[] | undefined) =>
+    cuts ? cutWall(rings, cuts, ARCH_WALL_HEIGHT) : rings.filter((r) => r.length >= 3).map((ring) => ({ ring, bottom: 0, top: ARCH_WALL_HEIGHT }))
+
+  /**
+   * 문·창 한 개의 조각들(three 좌표). 벽에 뚫린 것이면 문틀 두 기둥과 문짝(문)·창턱/창 위 틀과 유리(창)를 단면 높이까지 세운다.
+   * 뚫는 방향을 모르거나 벽이 이 층에 없으면(천창) 실제 크기의 상자 하나다. 크기를 모르면 기본 크기(FALLBACK_SIZE)다. 단면 위의 윤곽은 `ghost` 에 선분으로.
+   */
+  function openingPieces(o: Model['storeys'][number]['openings'][number], y: number, hosted: boolean, ghost: number[]): { solid: BufferGeometry[]; glass: BufferGeometry[] } {
+    const solid: BufferGeometry[] = []
+    const glass: BufferGeometry[] = []
+    const [w, h] = o.width && o.height ? [o.width, o.height] : FALLBACK_SIZE[o.kind]
+    const p = o.position!
+    const through: Vec2 = o.through ?? [0, 1]
+    const along = alongOf(through)
+    const yaw = Math.atan2(through[0], -through[1])
+    // 벽을 따라 a, 벽을 뚫는 쪽으로 b 만큼 옮긴 평면 점에, 화면 높이 [y0, y1] 로 세운 상자(가로 sx · 두께 sz).
+    const box = (a: number, b: number, sx: number, sz: number, y0: number, y1: number) => {
+      const g = new BoxGeometry(sx, y1 - y0, sz)
+      g.rotateY(yaw)
+      const [sx2, , sz2] = toScene([p[0] + along[0] * a + through[0] * b, p[1] + along[1] * a + through[1] * b, 0])
+      g.translate(sx2, (y0 + y1) / 2, sz2)
+      return g
+    }
+    const depth = o.depth && o.depth > 0 ? o.depth : 0.2
+    const bottom = p[2]
+    if (!hosted || !o.through) {
+      ;(o.kind === 'window' ? glass : solid).push(box(0, 0, w, depth, bottom, bottom + h))
+      return { solid, glass }
+    }
+    const cutTop = y + ARCH_WALL_HEIGHT
+    const y0 = Math.max(bottom, y)
+    const y1 = Math.min(bottom + h, cutTop)
+    // 문틀은 벽 두께를 넘지 않게 — 문 형상의 두께는 여닫는 폭까지 잡혀 0.48m 도 된다(Duplex).
+    const frameDepth = Math.min(depth, 0.25)
+    if (y1 > y0) {
+      for (const side of [-1, 1]) solid.push(box(side * (w / 2 - OPENING_FRAME / 2), 0, OPENING_FRAME, frameDepth, y0, y1))
+      const inner = Math.max(w - 2 * OPENING_FRAME, 0.05)
+      if (o.kind === 'door') solid.push(box(0, 0, inner, DOOR_LEAF, y0, y1))
+      else {
+        if (bottom >= y) solid.push(box(0, 0, inner, frameDepth, bottom, Math.min(bottom + OPENING_FRAME, y1)))
+        if (bottom + h <= cutTop) solid.push(box(0, 0, inner, frameDepth, Math.max(bottom + h - OPENING_FRAME, y0), bottom + h))
+        glass.push(box(0, 0, inner, GLASS, y0, y1))
+      }
+    }
+    // 단면 위로 올라간 부분은 윤곽선만: 양옆 세로선, 위 가로선(창이 단면보다 높이 났으면 아래 가로선도).
+    const top = bottom + h
+    if (top > cutTop + 0.05) {
+      const from = Math.max(bottom, cutTop)
+      const end = (a: number): [number, number] => [p[0] + along[0] * a, p[1] + along[1] * a]
+      const [l, r] = [end(-w / 2), end(w / 2)]
+      ghost.push(l[0], from, -l[1], l[0], top, -l[1], r[0], from, -r[1], r[0], top, -r[1], l[0], top, -l[1], r[0], top, -r[1])
+      if (bottom > cutTop) ghost.push(l[0], bottom, -l[1], r[0], bottom, -r[1])
+    }
+    return { solid, glass }
+  }
+  function buildArchitecture(model: Model | null, selected: string | null, also?: ReadonlySet<string>) {
+    lastArch = { model, selected, also }
+    // 다시 지은 상태의 열쇠. 솟아오르기·미끄러짐이 먼저 다시 지었으면(rebuildArchitecture) 뒤따르는 setArchitecture 는 건너뛴다 —
+    // 문 하나 옮기는 데 외곽선 층을 두세 번 지었다.
+    lastArchKey = archKey(model, selected, also)
     arch.traverse((o) => {
       if (o instanceof Mesh || o instanceof LineSegments) {
         o.geometry.dispose()
@@ -935,9 +1322,17 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const storey of model.storeys) {
       const y = storey.elevation + 0.1
       const byColor = new Map<number, BufferGeometry[]>()
-      const add = (color: number, g: BufferGeometry) => byColor.set(color, [...(byColor.get(color) ?? []), g.index ? g.toNonIndexed() : g])
+      // 펼쳐 새 배열을 만들면 벽 수의 제곱이 된다(dental 리플레이 8장면에 126ms). 붙이기만 한다.
+      const add = (color: number, g: BufferGeometry) => {
+        const piece = g.index ? g.toNonIndexed() : g
+        const list = byColor.get(color)
+        if (list) list.push(piece)
+        else byColor.set(color, [piece])
+      }
       // 실제 높이 윤곽선(선분 쌍). 깎은 벽 윗면(y + ARCH_WALL_HEIGHT)에서 실제 윗면(층 바닥 + 벽 높이)까지 세로선, 실제 윗면 외곽선.
       const tops: number[] = []
+      const cuts = openingCutsOf(storey, y)
+      const glassByColor = new Map<number, BufferGeometry[]>()
       for (const wall of storey.walls) {
         const rings = wall.footprint ?? []
         if (!rings.length) continue
@@ -954,30 +1349,49 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
             })
           }
         }
-        const color = wall.id === selected ? ARCH_COLORS.selected : wall.loadBearing ? WALL_COLORS.loadBearing : wall.loadBearing === null ? WALL_COLORS.unknown : ARCH_COLORS.wall
-        for (const ring of rings) {
-          if (ring.length < 3) continue
-          const shape = new Shape()
-          shape.moveTo(ring[0][0], ring[0][1])
-          for (const p of ring.slice(1)) shape.lineTo(p[0], p[1])
-          const g = new ExtrudeGeometry(shape, { depth: ARCH_WALL_HEIGHT, bevelEnabled: false })
-          g.rotateX(-Math.PI / 2)
-          g.translate(0, y, 0)
-          add(color, g)
+        const color = wall.id === selected || also?.has(wall.id) ? ARCH_COLORS.selected : wall.loadBearing ? WALL_COLORS.loadBearing : wall.loadBearing === null ? WALL_COLORS.unknown : ARCH_COLORS.wall
+        const own: BufferGeometry[] | null = fx.reveals(wall.id) ? [] : null
+        for (const slab of wallSlabsOf(rings, cuts.get(wall.id))) {
+          const g = extrudeRing(slab.ring, y + slab.bottom, slab.top - slab.bottom)
+          if (own) own.push(g)
+          else add(color, g)
+        }
+        const mesh = own?.length ? fx.revealMesh(wall.id, own, color) : null
+        if (mesh) {
+          mesh.userData.storeyId = storey.id
+          arch.add(mesh)
         }
       }
       for (const o of storey.openings) {
         if (!o.position) continue
         const dir: Vec2 | undefined = o.through ? [-o.through[1], o.through[0]] : undefined
         archTargets.push({ id: o.id, storeyId: storey.id, y, at: [o.position[0], o.position[1]], ...(dir && o.width ? { dir, half: o.width / 2 } : {}) })
-        const color = o.id === selected ? ARCH_COLORS.selected : o.kind === 'door' ? ARCH_COLORS.door : ARCH_COLORS.window
-        const h = o.kind === 'door' ? ARCH_WALL_HEIGHT + 0.3 : ARCH_WALL_HEIGHT + 0.15
-        // 가로를 아는 문·창은 그 가로만큼 벽을 따라 편다(OE-OBJ-07, 크기를 바꾸면 3D 에서 보인다). 모르면 기둥 하나다.
-        const g = new BoxGeometry(o.width && o.through ? o.width : 0.35, h, 0.35)
-        if (o.width && o.through) g.rotateY(Math.atan2(o.through[0], -o.through[1]))
-        const [sx, , sz] = toScene([o.position[0], o.position[1], 0])
-        g.translate(sx, y + h / 2, sz)
-        add(color, g)
+        const isSelected = o.id === selected
+        const color = isSelected ? ARCH_COLORS.selected : o.kind === 'door' ? (dark ? DOOR_DARK : ARCH_COLORS.door) : ARCH_COLORS.window
+        // 가로를 아는 문·창은 그 가로만큼 벽을 뚫고 문틀·문짝·유리를 세운다(OE-OBJ-07, 크기를 바꾸면 3D 에서 보인다).
+        const { solid, glass } = openingPieces(o, y, !!o.wallId && storey.walls.some((w) => w.id === o.wallId), tops)
+        const mesh = fx.reveals(o.id) ? fx.revealMesh(o.id, [...solid, ...glass], color) : null
+        if (mesh) {
+          mesh.userData.storeyId = storey.id
+          arch.add(mesh)
+          continue
+        }
+        for (const g of solid) add(color, g)
+        const glassColor = isSelected ? ARCH_COLORS.selected : GLASS_COLOR.color
+        for (const g of glass) {
+          const piece = g.index ? g.toNonIndexed() : g
+          const list = glassByColor.get(glassColor)
+          if (list) list.push(piece)
+          else glassByColor.set(glassColor, [piece])
+        }
+      }
+      for (const [color, pieces] of glassByColor) {
+        const merged = mergeGeometries(pieces)
+        for (const g of pieces) g.dispose()
+        if (!merged) continue
+        const mesh = new Mesh(merged, new MeshLambertMaterial({ color, side: DoubleSide, transparent: true, opacity: color === GLASS_COLOR.color ? GLASS_COLOR.opacity : 0.7, depthWrite: false }))
+        mesh.userData.storeyId = storey.id
+        arch.add(mesh)
       }
       for (const [color, pieces] of byColor) {
         const merged = mergeGeometries(pieces)
@@ -1008,6 +1422,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       arr[k + 1] = d.original[v * 3 + 1] + delta.y
       arr[k + 2] = d.original[v * 3 + 2] + delta.z
     }
+    position.addUpdateRange(d.part.vStart * 3, d.part.vCount * 3)
     position.needsUpdate = true
     d.part.box.copy(d.box).translate(delta)
   }
@@ -1050,7 +1465,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     'pointerdown',
     (e) => {
       pressedAt = { x: e.clientX, y: e.clientY }
-      if (!editMode || e.button !== 0) return
+      if (e.button !== 0) return
+      // 분해도는 화면에서만 띄운 자리라 거기서 끌면 엉뚱한 곳으로 옮겨진다. 펼친 동안은 끌지 않는다(시점 이동은 된다).
+      if (explodedParts) return
+      if (!editMode && !(handleEdit && hitHandle(e.clientX, e.clientY) !== null)) return
       // 화살표 위에서 누른 것은 떼면서 방향을 바꾸는 누르기다. 끌기를 시작하지 않는다.
       if (hitArrow(e.clientX, e.clientY)) return
       const ray = rayAt(e.clientX, e.clientY)
@@ -1081,6 +1499,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         // 가려도 잡힌다 — 덕트 사이의 VAV 처럼 가운데가 늘 가려진 설비가 있다. 끌지 않고 떼면 맨 앞의 것을
         // 고른다(pointerup).
         const part = grabbable(ray)
+        if (!part) {
+          // 고른 설비가 얼어 있으면 끌리지 않는다 — 왜 안 끌리는지 알리게 화면에 말한다.
+          for (const id of grabIds) {
+            const frozen = frozenIds.has(id) && !hiddenIds.has(id) ? partById.get(id) : undefined
+            if (frozen && hitsPart(ray, frozen)) {
+              frozenGrabHandler(id)
+              break
+            }
+          }
+        }
         const held = !part && selectedObject ? pickObject(ray) : null
         if (held && held.target.id === selectedObject) {
           // 잡은 높이의 수평면 위로 끈다. 바닥면으로 끌면 비스듬히 볼 때 오브젝트가 마우스보다 빨리 간다.
@@ -1140,6 +1568,17 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const dragged = Math.hypot(e.clientX - pressedAt.x, e.clientY - pressedAt.y) > 4
     pressedAt = null
     if (dragged) return
+    // 움직이지 않은 우클릭은 메뉴다(ui-notes 보기 필터). 전에는 왼쪽 누르기처럼 골랐다. 끈 오른쪽 드래그는 위에서 회전으로 끝났다.
+    if (e.button === 2) {
+      contextHandler(pick(rayAt(e.clientX, e.clientY)), e.clientX, e.clientY)
+      return
+    }
+    // 휠 클릭은 회전 중심 정하기다(아래 pivot 리스너). 고르기로 내려가면 빈 곳을 누른 셈이 되어 고른 것이 풀렸다.
+    if (e.button === 1) return
+
+    // 리플레이의 빛기둥·이름표를 누르면 그 장면을 되풀이한다.
+    const spot = fx.hitSpot(e.clientX, e.clientY)
+    if (spot) return fx.spotClick(spot)
 
     if (placeElevation !== null) {
       const at = new Vector3()
@@ -1158,10 +1597,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const ray = rayAt(e.clientX, e.clientY)
     const additive = editMode && isMultiSelect(e)
     const id = pick(ray, additive)
-    // 오브젝트(OE-OBJ-09)가 설비보다 앞에 있으면 오브젝트다. 책상 위로 보이는 천장 조명을 누르면 조명이다.
+    // 오브젝트(OE-OBJ-09)가 설비·벽·문·창보다 앞에 있으면 오브젝트다. 책상 위로 보이는 천장 조명을 누르면 조명이다.
     const object = !additive ? pickObject(ray) : null
-    if (object && (!id || object.d < pickDistance(ray, id))) {
+    if (object && (!id || object.d < pickDistance(ray, id)) && object.d < archDistance(ray)) {
       objectPickHandler(object.target.id)
+      return
+    }
+    // 수직 관통 오브젝트 조각이 설비보다 앞에 있으면 조각이다(바닥 누르기와 같은 길, onPickSpace 로 조각 id).
+    const vertical = id && !additive ? pickVertical(ray) : null
+    if (vertical && vertical.d < pickDistance(ray, id!)) {
+      spacePickHandler(vertical.id)
       return
     }
     if (id) {
@@ -1250,6 +1695,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   window.addEventListener('keydown', onKeyDown)
   // 끄는 중 창이 포커스를 잃으면(다른 창으로 전환) 버린다(OE-OBJ-15). 버튼을 뗀 것을 못 받으니 확정하지 않는다.
   const onBlur = () => {
+    // 비행 중 창을 떠나면 뗀 키를 못 받아 계속 날아간다.
+    flying?.keys.clear()
     if (drag) endDrag(false)
     if (box) {
       box.el.remove()
@@ -1271,8 +1718,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       return
     }
     const { x, y } = hoverAt
-    if (editMode && hitHandle(x, y) !== null) {
+    if ((editMode || handleEdit) && hitHandle(x, y) !== null) {
       canvas.style.cursor = 'grab'
+      hoverHandler(null, null)
+      return
+    }
+    // 리플레이에서 누를 수 있는 빛기둥·이름표 위에서는 손가락 모양이다(누르면 그 장면을 되풀이한다).
+    if (fx.hitSpot(x, y)) {
+      canvas.style.cursor = 'pointer'
       hoverHandler(null, null)
       return
     }
@@ -1284,9 +1737,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
     const ray = rayAt(x, y)
     const id = pick(ray)
-    // 누르기와 같게, 설비보다 앞에 있는 오브젝트만 오브젝트다.
+    // 누르기와 같게, 설비·벽·문·창보다 앞에 있는 오브젝트만 오브젝트다.
     const object = pickObject(ray)
-    if (object && (!id || object.d < pickDistance(ray, id))) {
+    if (object && (!id || object.d < pickDistance(ray, id)) && object.d < archDistance(ray)) {
       canvas.style.cursor = editMode && object.target.id === selectedObject ? 'grab' : 'pointer'
       hoverHandler(null, null)
       return
@@ -1400,12 +1853,18 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   let running = true
+  /** 다시 그린 횟수(viewVersion). */
+  let renders = 0
   function tick(now = performance.now()) {
     if (!running) return
     resize()
     stepFlight(now)
+    stepFly(now)
+    stepCascade(now)
+    stepPivotMark(now)
     stepGlides(now)
     stepPulses(now)
+    fx.step(now)
     // 관성(damping)으로 도는 동안에는 update 가 참을 돌려준다. 그동안만 계속 그린다.
     if (controls.update()) dirty = true
     // 새로 연 모델은 덩어리를 한 프레임에 하나씩 켠다. 켜는 프레임에 그 덩어리만 GPU 로 올라간다.
@@ -1416,12 +1875,24 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
     if (dirty) {
       if (handles.length) scaleHandles()
+      const t0 = performance.now()
       renderer.render(scene, camera)
+      renders++
+      perf.renderMs = performance.now() - t0
+      perf.calls = renderer.info.render.calls
+      perf.triangles = renderer.info.render.triangles
+      perf.frames.push(now)
+      // 방향 큐브는 메인 시점이 바뀔 때만 다시 그린다(같은 dirty).
+      navCube?.render(tmpDir.subVectors(camera.position, controls.target), camera.up)
       dirty = false
     }
+    // 1초 창 안에 그린 장수와 그 사이 간격. 3D 는 바뀔 때만 그려서(dirty) 가만히 있으면 0 이 맞다.
+    while (perf.frames.length && now - perf.frames[0] > 1000) perf.frames.shift()
     if (hoverPending) updateHover()
     requestAnimationFrame(tick)
   }
+  /** 성능 표(개발용 HUD, stats). 마지막으로 그린 프레임의 값이다. */
+  const perf = { renderMs: 0, calls: 0, triangles: 0, frames: [] as number[] }
   // 첫 틱도 다음 프레임에 — 아래에 선언한 비행·미끄러짐 상태를 읽기 때문이다.
   requestAnimationFrame(tick)
 
@@ -1435,7 +1906,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
    * 가장 가까운 거리를 잡는다.
    */
   const FILL = 0.88
-  function fit(box: Box3, animate = true, from = new Vector3(1, 0.65, 1)) {
+  function fit(box: Box3, animate = true, from = fx.fitFrom() ?? new Vector3(1, 0.65, 1)) {
     const sphere = box.getBoundingSphere(new Sphere())
     if (sphere.radius <= 0) return
 
@@ -1473,8 +1944,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 움직임을 끈 사람에게는 그대로 순간이동이다. 사람이 시점을 잡으면(controls 'start') 그 자리에서 멈춘다.
   const FLY_MS = 380
   /** 시작한 움직임 수(e2e 가 짧은 움직임을 놓치지 않게 센다). */
-  const started = { flights: 0, glides: 0, pulses: 0 }
-  let flight: { t0: number | null; fromT: Vector3; fromP: Vector3; toT: Vector3; toP: Vector3; near: number; far: number } | null = null
+  const started = { flights: 0, glides: 0, pulses: 0, cascades: 0 }
+  let flight: { t0: number | null; ms: number; lift: number; ease: (k: number) => number; fromT: Vector3; fromP: Vector3; toT: Vector3; toP: Vector3; near: number; far: number } | null = null
   function fly(target: Vector3, position: Vector3, clip: { near: number; far: number } | null) {
     flight = null
     if (!clip || still()) {
@@ -1494,15 +1965,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     camera.far = Math.max(camera.far, clip.far)
     camera.updateProjectionMatrix()
     started.flights++
-    flight = { t0: null, fromT: controls.target.clone(), fromP: camera.position.clone(), toT: target, toP: position, ...clip }
+    flight = { t0: null, ...fx.flight(FLY_MS, camera.position.distanceTo(position)), fromT: controls.target.clone(), fromP: camera.position.clone(), toT: target, toP: position, ...clip }
   }
   function stepFlight(now: number) {
     if (!flight) return
     if (flight.t0 === null) flight.t0 = now
-    const k = Math.min(1, (now - flight.t0) / FLY_MS)
-    const e = easeOut(k)
+    const k = Math.min(1, (now - flight.t0) / flight.ms)
+    const e = flight.ease(k)
     controls.target.lerpVectors(flight.fromT, flight.toT, e)
     camera.position.lerpVectors(flight.fromP, flight.toP, e)
+    if (flight.lift) camera.position.y += Math.sin(Math.PI * e) * flight.lift
     if (k === 1) {
       camera.near = flight.near
       camera.far = flight.far
@@ -1518,13 +1990,183 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     flight = null
   })
 
+  // --- 방향 큐브와 비행 모드 ---
+  // 큐브(nav-cube.ts)는 면·모서리·꼭짓점을 누르면 그 방향에서 보이는 것 전체를 맞추고(fit), 끌면 대상 둘레로 돈다.
+  // 비행 모드는 사람이 건물 안을 걸어 다니듯 본다. 지도식 시점(OrbitControls)의 끌기·휠을 끄고, 키·드래그를 여기서 받는다.
+  let navCube: ReturnType<typeof createNavCube> | null = null
+  const tmpDir = new Vector3()
+  function visibleBox(): Box3 {
+    const box = new Box3()
+    for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
+    for (const o of slabs.children) if (o.visible) box.expandByObject(o)
+    if (box.isEmpty()) box.setFromObject(content)
+    return box
+  }
+  /** 대상 둘레로 시점을 돌린다(px). 오른쪽으로 끌면 건물이 오른쪽으로 돈다 — 지도식 시점의 오른쪽 드래그와 같은 쪽이다. */
+  const ORBIT_RAD_PER_PX = Math.PI / 240
+  function orbitBy(dx: number, dy: number) {
+    flight = null
+    const offset = tmpDir.subVectors(camera.position, controls.target)
+    const s = new Spherical().setFromVector3(offset)
+    s.theta -= dx * ORBIT_RAD_PER_PX
+    s.phi = Math.min(Math.PI - 0.01, Math.max(0.01, s.phi - dy * ORBIT_RAD_PER_PX))
+    camera.position.copy(controls.target).add(offset.setFromSpherical(s))
+    controls.update()
+    dirty = true
+  }
+
+  const FLY_KEYS: Record<string, [number, number, number]> = {
+    KeyW: [0, 0, 1],
+    KeyS: [0, 0, -1],
+    KeyA: [-1, 0, 0],
+    KeyD: [1, 0, 0],
+    KeyQ: [0, -1, 0],
+    KeyE: [0, 1, 0],
+  }
+  /** 비행 상태. `rate` 는 초당 m(건물 크기에 맞춘 기본값 × 휠로 바꾼 배수). */
+  let flying: { keys: Set<string>; base: number; scale: number; last: number | null; look: { x: number; y: number } | null } | null = null
+  const LOOK_RAD_PER_PX = Math.PI / 600
+  function stepFly(now: number) {
+    if (!flying) return
+    const moving = [...flying.keys].filter((k) => k in FLY_KEYS)
+    if (!moving.length) {
+      flying.last = null
+      return
+    }
+    const dt = flying.last === null ? 1 / 60 : Math.min(0.1, (now - flying.last) / 1000)
+    flying.last = now
+    const fast = flying.keys.has('ShiftLeft') || flying.keys.has('ShiftRight') ? 3 : 1
+    const step = flying.base * flying.scale * fast * dt
+    const forward = new Vector3().subVectors(controls.target, camera.position).normalize()
+    const right = new Vector3().crossVectors(forward, camera.up).normalize()
+    const move = new Vector3()
+    for (const k of moving) {
+      const [x, y, z] = FLY_KEYS[k]
+      move.addScaledVector(right, x).addScaledVector(camera.up, y).addScaledVector(forward, z)
+    }
+    if (move.lengthSq() === 0) return
+    move.normalize().multiplyScalar(step)
+    camera.position.add(move)
+    controls.target.add(move)
+    controls.update()
+    dirty = true
+  }
+  function onFlyDown(e: PointerEvent) {
+    if (!flying || (e.button !== 0 && e.button !== 2)) return
+    flying.look = { x: e.clientX, y: e.clientY }
+  }
+  function onFlyMove(e: PointerEvent) {
+    if (!flying?.look || !e.buttons) {
+      if (flying) flying.look = null
+      return
+    }
+    const dx = e.clientX - flying.look.x
+    const dy = e.clientY - flying.look.y
+    flying.look = { x: e.clientX, y: e.clientY }
+    // 제자리에서 고개를 돌린다: 눈은 그대로, 보는 점(target)을 눈 둘레로 돌린다.
+    const dir = tmpDir.subVectors(controls.target, camera.position)
+    const s = new Spherical().setFromVector3(dir)
+    s.theta -= dx * LOOK_RAD_PER_PX
+    s.phi = Math.min(Math.PI - 0.05, Math.max(0.05, s.phi + dy * LOOK_RAD_PER_PX))
+    controls.target.copy(camera.position).add(dir.setFromSpherical(s))
+    controls.update()
+    dirty = true
+  }
+  function onFlyUp() {
+    if (flying) flying.look = null
+  }
+  function onFlyWheel(e: WheelEvent) {
+    if (!flying) return
+    e.preventDefault()
+    flying.scale = Math.min(20, Math.max(0.05, flying.scale * (e.deltaY < 0 ? 1.25 : 0.8)))
+  }
+  canvas.addEventListener('pointerdown', onFlyDown)
+  canvas.addEventListener('pointermove', onFlyMove)
+  window.addEventListener('pointerup', onFlyUp)
+  canvas.addEventListener('wheel', onFlyWheel, { passive: false })
+  const MAP_BUTTONS = { ...controls.mouseButtons }
+  // --- 휠 클릭으로 회전 중심 정하기 ---
+  // 지도식 시점은 화면 가운데(target)를 중심으로 돈다. 큰 건물의 한쪽 구석을 돌려 보려면 그 자리를 가운데로 끌어와야 했다.
+  // 휠(가운데 단추)을 움직이지 않고 누르면 그 자리(설비 형상, 없으면 물리존 바닥, 없으면 지금 중심 높이의 수평면)로 시점을 평행이동해
+  // 회전 중심으로 삼는다. 각도는 그대로다. 휠 끌기(확대)는 그대로다.
+  const PIVOT_PX = 4
+  let pivotDown: { x: number; y: number } | null = null
+  /** 마지막으로 정한 회전 중심(장면 좌표). 표시 고리는 이 자리에 잠깐 뜬다. */
+  let pivotMark: { at: Vector3; t0: number } | null = null
+  const pivotRing = new Mesh(new RingGeometry(0.55, 0.75, 40), new MeshBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0, depthTest: false, side: DoubleSide }))
+  pivotRing.rotation.x = -Math.PI / 2
+  pivotRing.renderOrder = 10
+  pivotRing.visible = false
+  scene.add(pivotRing)
+  /** 화면 점(클라이언트 좌표)이 가리키는 장면의 점. */
+  function pointUnder(x: number, y: number): Vector3 | null {
+    const ray = rayAt(x, y).clone()
+    let best = Infinity
+    const id = pick(ray)
+    if (id) best = pickDistance(ray, id)
+    const at = new Vector3()
+    const plane = new Plane(new Vector3(0, 1, 0), 0)
+    for (const t of spaceTargets) {
+      if (visibleStoreys && !visibleStoreys.has(t.storeyId)) continue
+      plane.constant = -t.y
+      if (!ray.intersectPlane(plane, at)) continue
+      const d = at.distanceToSquared(ray.origin)
+      if (d < best && pointInPolygon([at.x, -at.z], t.ring)) best = d
+    }
+    if (Number.isFinite(best)) return ray.origin.clone().addScaledVector(ray.direction, Math.sqrt(best))
+    plane.constant = -controls.target.y
+    return ray.intersectPlane(plane, at) ? at.clone() : null
+  }
+  function setPivot(at: Vector3) {
+    const shift = at.clone().sub(controls.target)
+    const near = camera.near
+    const far = camera.far
+    fly(at, camera.position.clone().add(shift), { near, far })
+    pivotMark = { at, t0: performance.now() }
+    dirty = true
+  }
+  function stepPivotMark(now: number) {
+    if (!pivotMark) return
+    const k = (now - pivotMark.t0) / 900
+    if (k >= 1) {
+      pivotMark = null
+      pivotRing.visible = false
+      dirty = true
+      return
+    }
+    // 고리 크기는 화면에서 비슷하게 — 카메라 거리에 비례.
+    const s = camera.position.distanceTo(pivotMark.at) * 0.03
+    pivotRing.position.copy(pivotMark.at)
+    pivotRing.scale.setScalar(s * (0.6 + 0.4 * k))
+    ;(pivotRing.material as MeshBasicMaterial).opacity = 0.9 * (1 - k)
+    pivotRing.visible = true
+    dirty = true
+  }
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button === 1) pivotDown = { x: e.clientX, y: e.clientY }
+  })
+  canvas.addEventListener('pointerup', (e) => {
+    const down = pivotDown
+    pivotDown = null
+    if (e.button !== 1 || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > PIVOT_PX) return
+    const at = pointUnder(e.clientX, e.clientY)
+    if (at) setPivot(at)
+  })
+  // 윈도의 가운데 단추 자동 스크롤을 막는다.
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 1) e.preventDefault()
+  })
+
   // --- 되돌리기의 미끄러짐 ---
   // 되돌린 설비(와 따라온 배관)가 순간이동하지 않고 원래 자리로 미끄러진다. 꼭짓점을 두 배열 사이에서 섞는다.
   const GLIDE_MS = 240
-  const glides = new Map<string, { part: Part; from: Float32Array; to: Float32Array; t0: number | null }>()
+  /** ms·ease·delay 는 미끄러짐마다 정한다 — 리플레이에서는 길고 따라오는 배관이 늦게 출발한다(fx.glide). */
+  const glides = new Map<string, { part: Part; from: Float32Array; to: Float32Array; t0: number | null; ms: number; ease: (k: number) => number; delay: number }>()
   function writePart(part: Part, positions: Float32Array) {
     const position = part.chunk.position
     ;(position.array as Float32Array).set(positions, part.vStart * 3)
+    // 그 설비 범위만 올린다. 덩어리 전부(약 3MB)를 미끄러지는 프레임마다 올리면 성수에서 프레임이 끊겼다.
+    position.addUpdateRange(part.vStart * 3, part.vCount * 3)
     position.needsUpdate = true
   }
   function finishGlide(id: string) {
@@ -1537,12 +2179,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (!glides.size) return
     for (const [id, g] of glides) {
       if (g.t0 === null) g.t0 = now
-      const k = Math.min(1, (now - g.t0) / GLIDE_MS)
+      const t = now - g.t0 - g.delay
+      if (t < 0) continue
+      const k = Math.min(1, t / g.ms)
       if (k === 1) {
         finishGlide(id)
         continue
       }
-      const e = easeOut(k)
+      const e = g.ease(k)
       const mix = new Float32Array(g.to.length)
       for (let i = 0; i < mix.length; i++) mix[i] = g.from[i] + (g.to[i] - g.from[i]) * e
       writePart(g.part, mix)
@@ -1554,15 +2198,76 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     finishGlide(part.id)
     const arr = part.chunk.position.array as Float32Array
     const from = arr.slice(part.vStart * 3, (part.vStart + part.vCount) * 3)
+    const fromBox = part.box.clone()
     part.box.setFromArray(positions)
     if (glide && !still()) {
-      glides.set(part.id, { part, from, to: positions, t0: null })
+      glides.set(part.id, { part, from, to: positions, t0: null, ...fx.glide(part.id, GLIDE_MS) })
       started.glides++
+      fx.glided(part.id, fromBox, part.box)
     }
     else writePart(part, positions)
     if (hoverMarkKey === `equipment:${part.id}`) markHover(null)
     drawArrows()
     dirty = true
+  }
+
+  // --- Brick 클래스별 분해도(setExplode, ui-notes 보기 필터) ---
+  // 클래스 묶음마다 설비 형상을 위로 평행이동한다(꼭짓점을 고쳐 쓴다 — 미끄러짐과 같은 장치라 고르기 상자도 따라간다). 원래 꼭짓점을
+  // 떠 두었다가 접을 때 되돌린다. 모델은 건드리지 않는다. 다시 그리기·설비 옮기기가 오면 먼저 접는다 — 띄운 자리에서 옮기면 접을 때
+  // 옛 자리로 돌아가 버린다.
+  let explodedParts: Map<string, Float32Array> | null = null
+  const explodeLabels = new Group()
+  scene.add(explodeLabels)
+  /** 미끄러지게 띄우는 설비 수의 한도. 넘으면 바로 옮긴다 — 성수에서 수천 대를 매 프레임 섞으면 화면이 멈춘다. */
+  const EXPLODE_GLIDE_MAX = 400
+  function disposeExplodeLabels() {
+    for (const o of explodeLabels.children) {
+      if (o instanceof Sprite) o.material.map?.dispose()
+      else (o as LineLoop).geometry.dispose()
+      ;((o as Sprite | LineLoop).material as Material).dispose()
+    }
+    explodeLabels.clear()
+  }
+  function collapseExplode(glide: boolean) {
+    if (!explodedParts) return
+    const slide = glide && explodedParts.size <= EXPLODE_GLIDE_MAX
+    for (const [id, original] of explodedParts) {
+      const part = partById.get(id)
+      if (part && part.vCount * 3 === original.length) setPartPositions(part, original, slide)
+    }
+    explodedParts = null
+    disposeExplodeLabels()
+    dirty = true
+  }
+  function explodeLabel(text: string, height: number): Sprite {
+    const c = document.createElement('canvas')
+    const g = c.getContext('2d')!
+    const font = '600 30px system-ui, sans-serif'
+    g.font = font
+    c.width = Math.ceil(g.measureText(text).width) + 36
+    c.height = 52
+    g.font = font
+    g.fillStyle = 'rgba(17, 24, 39, 0.82)'
+    g.beginPath()
+    g.roundRect(0, 0, c.width, c.height, 12)
+    g.fill()
+    g.fillStyle = '#e8f4ff'
+    g.textBaseline = 'middle'
+    g.fillText(text, 18, c.height / 2 + 1)
+    const map = new CanvasTexture(c)
+    const sprite = new Sprite(new SpriteMaterial({ map, depthTest: false, depthWrite: false, transparent: true }))
+    sprite.scale.set((height * c.width) / c.height, height, 1)
+    sprite.center.set(1, 0.5)
+    sprite.renderOrder = 30
+    return sprite
+  }
+  /** 보이는 것(숨기지 않은 설비와 보이는 층의 판)의 상자. */
+  function shownBox(): Box3 {
+    const box = new Box3()
+    for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
+    for (const o of slabs.children) if (o.visible) box.expandByObject(o)
+    if (box.isEmpty()) box.setFromObject(content)
+    return box
   }
 
   // --- 소속이 바뀐 방의 번쩍임 ---
@@ -1603,10 +2308,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         continue
       }
       // 빨리 차오르고(15%) 천천히 빠진다.
-      ;(p.mesh.material as MeshBasicMaterial).opacity = 0.35 * (k < 0.15 ? k / 0.15 : 1 - easeOut((k - 0.15) / 0.85))
+      ;(p.mesh.material as MeshBasicMaterial).opacity = (fx.cinema() ? 0.6 : 0.35) * (k < 0.15 ? k / 0.15 : 1 - easeOut((k - 0.15) / 0.85))
     }
     dirty = true
   }
+
 
   let fadedIds = new Set<string>()
 
@@ -1627,6 +2333,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       arr[v * 3 + 1] = g
       arr[v * 3 + 2] = b
     }
+    attr.addUpdateRange(k0, part.vCount * 3)
     attr.needsUpdate = true
   }
 
@@ -1641,6 +2348,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
    * 보이는(진한) 설비와 흐린 설비의 삼각형 목록을 다시 짠다. 형상은 둘이 같이 쓴다. `only` 를 주면 그 덩어리만
    * 짠다 — 계통 하나를 고를 때 바뀌는 덩어리는 몇 개뿐이다.
    */
+  const sameSet = (a: ReadonlySet<string> | null, b: ReadonlySet<string> | null) =>
+    a === b || (!!a && !!b && a.size === b.size && [...a].every((x) => b.has(x)))
   function splitIndex(only?: ReadonlySet<Chunk>) {
     for (const chunk of chunks) {
       if (only && !only.has(chunk)) continue
@@ -1675,6 +2384,218 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
   }
 
+  type Piece = { id: string; color: number; p: ArrayLike<number>; n: ArrayLike<number>; i: ArrayLike<number>; src: unknown }
+  /** 설비: 형상이 있으면 그 형상, 없고 좌표만 있으면 작은 상자. 좌표도 없으면 찍지 않는다 — 원점에 찍으면 거기 있는 것처럼 보인다. */
+  function piecesOf(model: Model, meshes: MeshMap | undefined, colorOf: Map<string, number>): Piece[] {
+    const pieces: Piece[] = []
+    for (const storey of model.storeys) {
+      for (const equipment of storey.equipment) {
+        const color = equipment.systemId ? (colorOf.get(equipment.systemId) ?? NO_SYSTEM) : NO_SYSTEM
+        const data = meshes?.get(equipment.id)
+        if (data) {
+          pieces.push({ id: equipment.id, color, p: data.positions, n: data.normals, i: data.indices, src: data })
+        } else if (equipment.position) {
+          const box = new BoxGeometry(0.4, 0.4, 0.4)
+          box.translate(...toScene(equipment.position))
+          pieces.push({
+            id: equipment.id,
+            color,
+            p: box.getAttribute('position').array,
+            n: box.getAttribute('normal').array,
+            i: box.index!.array,
+            src: `box:${equipment.position.join(',')}`,
+          })
+          box.dispose()
+        }
+      }
+    }
+    return pieces
+  }
+  /** 덩어리로 나눈다. 설비 하나는 한 덩어리 안에만 든다(끌기·칠하기가 설비 단위다). */
+  function groupPieces(pieces: Piece[]): Piece[][] {
+    const groups: Piece[][] = []
+    let group: Piece[] = []
+    let groupVertices = 0
+    for (const piece of pieces) {
+      const vCount = piece.p.length / 3
+      if (group.length && groupVertices + vCount > CHUNK_VERTICES) {
+        groups.push(group)
+        group = []
+        groupVertices = 0
+      }
+      group.push(piece)
+      groupVertices += vCount
+    }
+    if (group.length) groups.push(group)
+    return groups
+  }
+  /** 설비 묶음 하나를 한 덩어리(형상 하나에 진한·흐린 메시 둘)로 합쳐 장면에 건다. */
+  function buildChunk(members: Piece[], solidMaterial: Material, fadedMaterial: Material): Chunk {
+      let vTotal = 0
+      let iTotal = 0
+      for (const piece of members) {
+        vTotal += piece.p.length / 3
+        iTotal += piece.i.length
+      }
+      const positions = new Float32Array(vTotal * 3)
+      const normals = new Float32Array(vTotal * 3)
+      const index = new Uint32Array(iTotal)
+      const solidGeometry = new BufferGeometry()
+      const fadedGeometry = new BufferGeometry()
+      const chunk: Chunk = {
+        position: new BufferAttribute(positions, 3),
+        // 색은 바이트로 둔다. 부동소수로 두면 꼭짓점마다 12바이트라 올리는 양의 4분의 1이 색이었다.
+        colors: new BufferAttribute(new Uint8Array(vTotal * 3), 3, true),
+        index,
+        solid: new Mesh(solidGeometry, solidMaterial),
+        faded: new Mesh(fadedGeometry, fadedMaterial),
+        parts: [],
+        shown: false,
+        solidCount: 0,
+        fadedCount: 0,
+      }
+      let vo = 0
+      let io = 0
+      for (const piece of members) {
+        const vCount = piece.p.length / 3
+        const p = piece.p
+        positions.set(p, vo * 3)
+        normals.set(piece.n, vo * 3)
+        for (let k = 0; k < piece.i.length; k++) index[io + k] = piece.i[k] + vo
+        // 상자는 맨 루프로 잰다. 성수는 꼭짓점이 1천만 개라 Vector3 를 거치면 여기서 0.1초가 나갔다.
+        let x0 = Infinity
+        let y0 = Infinity
+        let z0 = Infinity
+        let x1 = -Infinity
+        let y1 = -Infinity
+        let z1 = -Infinity
+        for (let k = 0; k < p.length; k += 3) {
+          if (p[k] < x0) x0 = p[k]
+          if (p[k] > x1) x1 = p[k]
+          if (p[k + 1] < y0) y0 = p[k + 1]
+          if (p[k + 1] > y1) y1 = p[k + 1]
+          if (p[k + 2] < z0) z0 = p[k + 2]
+          if (p[k + 2] > z1) z1 = p[k + 2]
+        }
+        const box = vCount ? new Box3(new Vector3(x0, y0, z0), new Vector3(x1, y1, z1)) : new Box3()
+        const part: Part = { id: piece.id, color: piece.color, chunk, vStart: vo, vCount, iStart: io, iCount: piece.i.length, box, src: piece.src }
+        chunk.parts.push(part)
+        parts.push(part)
+        partById.set(part.id, part)
+        vo += vCount
+        io += piece.i.length
+      }
+      const normalAttr = new BufferAttribute(normals, 3)
+      for (const g of [solidGeometry, fadedGeometry]) {
+        g.setAttribute('position', chunk.position)
+        g.setAttribute('normal', normalAttr)
+        g.setAttribute('color', chunk.colors)
+      }
+      for (const part of chunk.parts) paintPart(part, part.color)
+      // 합친 형상은 경계가 크고 켜 둔 채 시점을 돌린다. 화면 밖 판정은 꺼 둔다.
+      chunk.solid.frustumCulled = false
+      chunk.faded.frustumCulled = false
+      content.add(chunk.solid, chunk.faded)
+      chunks.push(chunk)
+      return chunk
+  }
+  /**
+   * 편집 뒤 다시 그리기(setModel keepView)를 고칠 것만 고쳐서 끝낸다. 설비 하나를 더하거나 계통을 바꿀 때마다 설비 형상 전부를
+   * 다시 합쳐 GPU 에 올리느라 화면이 0.3~0.4초 멈췄다(dental 실측: 설비 더하기 392ms · 계통 300ms, 옮기기는 50~83ms).
+   * 있던 덩어리는 두고 — 새 설비는 덩어리를 하나 더 붙이고, 색이 바뀐 설비는 칠만 다시 하고, 형상을 옮긴 설비는 꼭짓점만
+   * 다시 쓴다. 지워진 설비가 있거나 꼭짓점 수가 달라졌으면 false(처음부터 다시 짓는다).
+   */
+  let lastMeshes: MeshMap | undefined
+  function patchModel(model: Model, meshes: MeshMap | undefined): boolean {
+    const colorOf = systemColors(model)
+    const want = new Map(piecesOf(model, meshes, colorOf).map((p) => [p.id, p]))
+    for (const part of parts) {
+      const w = want.get(part.id)
+      if (!w || w.p.length / 3 !== part.vCount || (w.src !== part.src && glides.has(part.id))) return false
+    }
+    for (const part of parts) {
+      const w = want.get(part.id)!
+      if (w.src !== part.src) {
+        const positions = w.p instanceof Float32Array ? w.p : Float32Array.from(w.p)
+        writePart(part, positions)
+        part.box.makeEmpty()
+        for (let k = 0; k < positions.length; k += 3) part.box.expandByPoint(tmpV.set(positions[k], positions[k + 1], positions[k + 2]))
+        part.src = w.src
+      }
+      if (w.color !== part.color) {
+        part.color = w.color
+        paintPart(part, w.color)
+      }
+    }
+    const added = [...want.values()].filter((w) => !partById.has(w.id))
+    if (added.length) {
+      const made = new Set<Chunk>()
+      for (const members of groupPieces(added)) made.add(buildChunk(members, chunks[0].solid.material as Material, chunks[0].faded.material as Material))
+      splitIndex(made)
+      for (const chunk of made) showChunk(chunk)
+    }
+    movable = new Set(model.storeys.flatMap((s) => s.equipment.filter((e) => e.position).map((e) => e.id)))
+    fx.modelChanged(model)
+    drag = null
+    controls.enabled = true
+    handleSpace = null
+    arrowSpecs = []
+    drawHandles()
+    drawArrows()
+    // 공간 판은 방 외곽선이, IFC 벽 형상은 층마다의 벽 목록이 바뀌었을 때만 다시 만든다(편집 파일을 얹으면 벽도 바뀐다).
+    if (slabsKey(model) !== lastSlabsKey) buildSlabs(model)
+    if (wallsKey(model) !== lastWallsKey) {
+      if (walls) {
+        content.remove(walls)
+        walls.traverse((o) => {
+          if (o instanceof Mesh) {
+            o.geometry.dispose()
+            ;(o.material as { dispose(): void }).dispose()
+          }
+        })
+      }
+      buildWalls(model, meshes)
+    }
+    dirty = true
+    return true
+  }
+  const tmpV = new Vector3()
+  let lastWallsKey = ''
+  // 편집으로 옮기거나 크기를 바꾼 벽은 지금 외곽선으로 다시 세운다(wall-view.ts) — 외곽선·높이도 열쇠에 넣는다.
+  const wallsKey = (model: Model) =>
+    model.storeys
+      .map((st) => `${st.id}:${st.elevation}:${st.walls.map((w) => `${w.id}/${w.loadBearing}/${w.height ?? ''}/${(w.footprint ?? []).map((r) => r.map((p) => p.join(',')).join(';')).join('&')}`).join(',')}`)
+      .join('|')
+  /** 층마다 IFC 벽 형상(층별 보기가 층 단위로 켜고 끈다). */
+  function buildWalls(model: Model, meshes: MeshMap | undefined) {
+    lastWallsKey = wallsKey(model)
+    walls = new Group()
+    for (const storey of model.storeys) {
+      const w = wallMesh(storey, meshes)
+      if (!w) continue
+      w.userData.storeyId = storey.id
+      walls.add(w)
+    }
+    if (walls.children.length === 0) walls = null
+    if (walls) {
+      walls.visible = wallsVisible
+      content.add(walls)
+      applyStoreyVisibility()
+    }
+  }
+  let lastSlabsKey = ''
+  function slabsKey(model: Model): string {
+    const out: (string | number)[] = [slabOpacity]
+    for (const st of model.storeys) {
+      out.push('S', st.id, st.elevation)
+      for (const sp of st.spaces) {
+        out.push(sp.id, sp.kind ?? '')
+        for (const p of sp.footprint) out.push(p[0], p[1])
+      }
+    }
+    return out.join(',')
+  }
+
   function disposeContent() {
     content.traverse((o) => {
       if (o instanceof Mesh) {
@@ -1688,8 +2609,29 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let slabs = new Group()
   let slabOpacity = 0.8
 
+  /**
+   * 방 하나의 판 조각(spaceMesh 와 같은 압출, 층 높이로 올림). 외곽선·높이로 기억한다 — 방 하나를 고칠 때마다 모든 방을 다시
+   * 압출했다(dental 리플레이의 방 장면마다 30~40ms, 성수는 934개).
+   */
+  const slabPieces = new Map<string, BufferGeometry | null>()
+  function slabPiece(footprint: readonly Vec2[], elevation: number): BufferGeometry | null {
+    const key = `${elevation}|${footprint.map((p) => `${p[0]},${p[1]}`).join(';')}`
+    if (slabPieces.has(key)) return slabPieces.get(key)!
+    const mesh = spaceMesh(footprint, 0)
+    let g: BufferGeometry | null = null
+    if (mesh) {
+      mesh.geometry.translate(0, elevation, 0)
+      g = mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry
+      ;(mesh.material as { dispose(): void }).dispose()
+    }
+    if (slabPieces.size > 20000) slabPieces.clear()
+    slabPieces.set(key, g)
+    return g
+  }
+
   /** 공간 판. 층마다 하나로 합친다. 성수는 방이 934개다. 편집 모드에서 바닥을 눌러 고를 자리도 같이 만든다. */
   function buildSlabs(model: Model) {
+    lastSlabsKey = slabsKey(model)
     slabs.traverse((o) => {
       if (o instanceof Mesh) {
         o.geometry.dispose()
@@ -1703,17 +2645,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const color = STOREY_COLORS[i % STOREY_COLORS.length]
       const pieces: BufferGeometry[] = []
       for (const space of storey.spaces) {
-        const mesh = spaceMesh(space.footprint, color, slabOpacity)
-        if (!mesh) continue
-        mesh.geometry.translate(0, storey.elevation, 0)
-        pieces.push(mesh.geometry.index ? mesh.geometry.toNonIndexed() : mesh.geometry)
-        ;(mesh.material as { dispose(): void }).dispose()
+        const piece = slabPiece(space.footprint, storey.elevation)
+        if (!piece) continue
+        pieces.push(piece)
         // 판 두께가 0.1 이다(spaceMesh). 윗면에서 잰다.
         spaceTargets.push({ id: space.id, storeyId: storey.id, y: storey.elevation + 0.1, ring: space.footprint })
       }
       if (pieces.length === 0) return
+      // 조각은 slabPiece 가 기억해 두고 다시 쓴다 — 합치기는 복사라 놓지 않는다.
       const merged = mergeGeometries(pieces)
-      for (const g of pieces) g.dispose()
       if (merged) {
         const slab = new Mesh(merged, new MeshLambertMaterial({ color, transparent: true, opacity: slabOpacity, side: DoubleSide }))
         slab.userData.storeyId = storey.id
@@ -1727,15 +2667,39 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // e2e 모드에서만 연다. 3D 는 DOM 이 아니라서 테스트가 어디를 눌러야 하는지 알 길이 이것뿐이다.
   if (import.meta.env.MODE === 'e2e') {
     ;(window as unknown as { __viewer?: unknown }).__viewer = {
+      /** 숨긴 설비 수·보이는 층·분해도 라벨(ui-notes 의 보기 필터 절을 잰다). */
+      shown: () => ({ hidden: hiddenIds.size, parts: parts.length, storeys: visibleStoreys ? [...visibleStoreys] : null, labels: explodeLabels.children.filter((o) => o instanceof Sprite).length, exploded: explodedParts?.size ?? 0 }),
       /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */
       hoverMark: () => (hoverMark ? hoverMarkKey : ''),
+      /** 보기 모드 3D 의 벽(#599): 켜져 있나, 삼각형 수. 벽이 없으면 null. */
+      walls: () =>
+        walls
+          ? {
+              visible: walls.visible,
+              triangles: walls.children.reduce((n, o) => n + ((o as Mesh).geometry.index?.count ?? 0) / 3, 0),
+              /** IFC 형상 대신 지금 외곽선으로 다시 세운 벽(편집한 벽만이어야 한다). */
+              rebuilt: walls.children.flatMap((o) => o.userData.rebuilt as string[]),
+            }
+          : null,
+      /** 깐 평면도 배경의 귀퉁이(IFC 평면). 없으면 null. */
+      background: () => backdropCorners,
       /** 지금 도는 움직임(카메라 비행·미끄러지는 설비 수·번쩍이는 방 수). */
       /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
       camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
-      motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, started }),
+      flying: () => (flying ? { keys: [...flying.keys], scale: flying.scale } : null),
+      /** 휠 클릭으로 정한 회전 중심 고리가 떠 있나. */
+      pivot: () => (pivotMark ? pivotMark.at.toArray() : null),
+      motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, cascading: cascade ? cascade.parts.length : 0, cascadeShown: cascade ? cascade.parts.filter((p) => p.objects[0].visible).length : 0, ...fx.motion(), started }),
       part: (id: string) => {
         const part = partById.get(id)
         return part ? toScreen(part.box.getCenter(new Vector3())) : null
+      },
+      /** 설비 형상 상자의 가로·세로·높이(IFC 축, mm 로 반올림). 형상 없는 설비는 표시 상자(0.4m)다. */
+      size: (id: string) => {
+        const part = partById.get(id)
+        if (!part) return null
+        const s = part.box.getSize(new Vector3())
+        return [s.x, s.z, s.y].map((v) => Math.round(v * 1000) / 1000)
       },
       /** 설비 형상 중심의 IFC 좌표. 끌기는 이 높이의 수평면 위에서 움직인다. */
       center: (id: string) => {
@@ -1762,6 +2726,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
       /** 그린 추가 공간 오브젝트의 id. */
       objects: () => objectTargets.map((t) => t.id),
+      /** 겹쳐서 막아 붉게 그린 공간 오브젝트(OE-SPC-15). 없으면 null. */
+      objectConflict: () => objectConflictId,
       /** 오브젝트 윗면 가운데의 화면 자리. 눌러 고르고 끄는 데 쓴다. */
       object: (id: string) => {
         const t = objectTargets.find((x) => x.id === id)
@@ -1776,6 +2742,23 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       },
       /** 그린 룸의 id. */
       rooms: () => roomTargets.map((t) => t.id),
+      /** 그린 수직 관통 오브젝트 조각의 id(보이는 층만)와, 조각을 누를 화면 자리(형상 가운데 또는 지점). */
+      verticals: () => verticalTargets.filter((t) => !visibleStoreys || visibleStoreys.has(t.storeyId)).map((t) => t.id),
+      vertical: (id: string) => {
+        const t = verticalTargets.find((x) => x.id === id)
+        return t ? toScreen(new Vector3(t.at[0], t.y, -t.at[1])) : null
+      },
+      /** 그린 그리드 선 수(OE-UI-07). */
+      grid: () => gridCount,
+      /** 고른(파랗게 칠한) 조각 id. */
+      verticalSelected: () => [...selectedVertical],
+      /** 진입·종료 표시 수(보이는 층만). */
+      verticalMarks: () => ({
+        entry: verticals.children.filter((o) => o.visible && o.userData.mark === 'entry').length,
+        exit: verticals.children.filter((o) => o.visible && o.userData.mark === 'exit').length,
+        rise: verticals.children.filter((o) => o.visible && o.userData.mark === 'rise').length,
+        preview: verticals.children.filter((o) => o.visible && o.userData.mark === 'preview').length,
+      }),
       /** 룸 바닥의 화면 자리(가운데). 룸을 눌러 고르는 데 쓴다. */
       room: (id: string) => {
         const t = roomTargets.find((x) => x.id === id)
@@ -1797,10 +2780,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const p = t?.at ?? (ring?.length ? ([ring.reduce((a, q) => a + q[0], 0) / ring.length, ring.reduce((a, q) => a + q[1], 0) / ring.length] as Vec2) : null)
         return t && p ? toScreen(new Vector3(p[0], t.y, -p[1])) : null
       },
-      /** 화면의 한 점을 누르면 무엇이 골라지는가(설비·벽·문·창·물리존). */
+      /** 화면의 한 점을 누르면 무엇이 골라지는가(설비·벽·문·창·물리존·수직 관통 오브젝트 조각). */
       pickAt: (x: number, y: number) => {
         const ray = rayAt(x, y)
-        return { equipment: pick(ray), element: archTargets.length ? pickElement(ray) : null, space: pickSpace(ray) }
+        return { equipment: pick(ray), element: archTargets.length ? pickElement(ray) : null, space: pickSpace(ray), vertical: pickVertical(ray)?.id ?? null }
       },
       /** 합친 설비 형상의 크기와 켠 덩어리 수. 첫 그리기에 GPU 로 올리는 양을 잰다. */
       stats: () => {
@@ -1829,8 +2812,33 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
   }
 
+  // 편집 리플레이(PoC)의 연출. 뷰어 안의 것을 빌려주고, 위아래의 `fx.` 자리에서 부른다(replay-viewer.ts).
+  const fx = createReplayFx({
+    scene, camera, controls, renderer, hemi, sun, raycaster, overlay, arch, rooms, customZones, spaceObjects,
+    content: () => content,
+    chunks: () => chunks,
+    partById: () => partById,
+    objectTargets: () => objectTargets,
+    spaceTargets: () => spaceTargets,
+    archTargets: () => archTargets,
+    hiddenIds: () => hiddenIds,
+    visibleStoreys: () => visibleStoreys,
+    storeyShown, invalidate, writePart, paintPart, toScene, rayAt, toScreen,
+    fit: (box) => fit(box),
+    viewDistance: () => (flight ? flight.toP.distanceTo(flight.toT) : camera.position.distanceTo(controls.target)),
+    rebuildArchitecture: () => lastArch.model && buildArchitecture(lastArch.model, lastArch.selected, lastArch.also),
+  })
+
   const api: Viewer = {
+    ...fx.api,
     setModel(model, meshes, options) {
+      // 분해도는 화면에서만 띄운 것이다. 다시 그리기 전에 접는다(patchModel 은 안 바뀐 설비를 그대로 두니 띄운 채 남는다).
+      collapseExplode(false)
+      // 편집 뒤 다시 그리기는 바뀐 설비만 고친다(patchModel). 안 되면 아래에서 처음부터 다시 짓는다.
+      if (options?.keepView && meshes === lastMeshes && chunks.length && patchModel(model, meshes)) return
+      lastMeshes = meshes
+      // 형상을 새로 지으면 연쇄 화살표가 가리키던 자리도 바뀐다. 걷는다.
+      clearCascade()
       // 끄는 중에 모델이 바뀌면 끌던 것은 버린다. 형상을 새로 만드니 되돌릴 것도 없다.
       drag = null
       controls.enabled = true
@@ -1842,6 +2850,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       partById = new Map()
       fadedIds = new Set()
       movable = new Set(model.storeys.flatMap((s) => s.equipment.filter((e) => e.position).map((e) => e.id)))
+      fx.modelChanged(model)
       handleSpace = null
       arrowSpecs = []
       drawHandles()
@@ -1854,135 +2863,18 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       slabOpacity = hasEquipmentMeshes ? 0.25 : 0.8
       buildSlabs(model)
 
-      // 설비: 형상이 있으면 그 형상, 없고 좌표만 있으면 작은 상자. 좌표도 없으면 찍지 않는다 —
-      // 원점에 찍으면 거기 있는 것처럼 보인다.
-      const pieces: { id: string; color: number; p: ArrayLike<number>; n: ArrayLike<number>; i: ArrayLike<number> }[] = []
-      for (const storey of model.storeys) {
-        for (const equipment of storey.equipment) {
-          const color = equipment.systemId ? (colorOf.get(equipment.systemId) ?? NO_SYSTEM) : NO_SYSTEM
-          const data = meshes?.get(equipment.id)
-          if (data) {
-            pieces.push({ id: equipment.id, color, p: data.positions, n: data.normals, i: data.indices })
-          } else if (equipment.position) {
-            const box = new BoxGeometry(0.4, 0.4, 0.4)
-            box.translate(...toScene(equipment.position))
-            pieces.push({
-              id: equipment.id,
-              color,
-              p: box.getAttribute('position').array,
-              n: box.getAttribute('normal').array,
-              i: box.index!.array,
-            })
-            box.dispose()
-          }
-        }
-      }
-
-      // 덩어리로 나눈다. 설비 하나는 한 덩어리 안에만 든다(끌기·칠하기가 설비 단위다).
-      const groups: (typeof pieces)[] = []
-      let group: typeof pieces = []
-      let groupVertices = 0
-      for (const piece of pieces) {
-        const vCount = piece.p.length / 3
-        if (group.length && groupVertices + vCount > CHUNK_VERTICES) {
-          groups.push(group)
-          group = []
-          groupVertices = 0
-        }
-        group.push(piece)
-        groupVertices += vCount
-      }
-      if (group.length) groups.push(group)
+      const groups = groupPieces(piecesOf(model, meshes, colorOf))
 
       chunks = []
       const solidMaterial = new MeshLambertMaterial({ vertexColors: true, side: DoubleSide })
       // 아주 옅게 남긴다. 아예 지우면 연결망이 건물 어디쯤인지 알 수 없고, 진하면 가는 배관 한 줄이 묻힌다.
       const fadedMaterial = new MeshLambertMaterial({ vertexColors: true, side: DoubleSide, transparent: true, opacity: 0.08, depthWrite: false })
-      for (const members of groups) {
-        let vTotal = 0
-        let iTotal = 0
-        for (const piece of members) {
-          vTotal += piece.p.length / 3
-          iTotal += piece.i.length
-        }
-        const positions = new Float32Array(vTotal * 3)
-        const normals = new Float32Array(vTotal * 3)
-        const index = new Uint32Array(iTotal)
-        const solidGeometry = new BufferGeometry()
-        const fadedGeometry = new BufferGeometry()
-        const chunk: Chunk = {
-          position: new BufferAttribute(positions, 3),
-          // 색은 바이트로 둔다. 부동소수로 두면 꼭짓점마다 12바이트라 올리는 양의 4분의 1이 색이었다.
-          colors: new BufferAttribute(new Uint8Array(vTotal * 3), 3, true),
-          index,
-          solid: new Mesh(solidGeometry, solidMaterial),
-          faded: new Mesh(fadedGeometry, fadedMaterial),
-          parts: [],
-          shown: false,
-          solidCount: 0,
-          fadedCount: 0,
-        }
-        let vo = 0
-        let io = 0
-        for (const piece of members) {
-          const vCount = piece.p.length / 3
-          const p = piece.p
-          positions.set(p, vo * 3)
-          normals.set(piece.n, vo * 3)
-          for (let k = 0; k < piece.i.length; k++) index[io + k] = piece.i[k] + vo
-          // 상자는 맨 루프로 잰다. 성수는 꼭짓점이 1천만 개라 Vector3 를 거치면 여기서 0.1초가 나갔다.
-          let x0 = Infinity
-          let y0 = Infinity
-          let z0 = Infinity
-          let x1 = -Infinity
-          let y1 = -Infinity
-          let z1 = -Infinity
-          for (let k = 0; k < p.length; k += 3) {
-            if (p[k] < x0) x0 = p[k]
-            if (p[k] > x1) x1 = p[k]
-            if (p[k + 1] < y0) y0 = p[k + 1]
-            if (p[k + 1] > y1) y1 = p[k + 1]
-            if (p[k + 2] < z0) z0 = p[k + 2]
-            if (p[k + 2] > z1) z1 = p[k + 2]
-          }
-          const box = vCount ? new Box3(new Vector3(x0, y0, z0), new Vector3(x1, y1, z1)) : new Box3()
-          const part: Part = { id: piece.id, color: piece.color, chunk, vStart: vo, vCount, iStart: io, iCount: piece.i.length, box }
-          chunk.parts.push(part)
-          parts.push(part)
-          partById.set(part.id, part)
-          vo += vCount
-          io += piece.i.length
-        }
-        const normalAttr = new BufferAttribute(normals, 3)
-        for (const g of [solidGeometry, fadedGeometry]) {
-          g.setAttribute('position', chunk.position)
-          g.setAttribute('normal', normalAttr)
-          g.setAttribute('color', chunk.colors)
-        }
-        for (const part of chunk.parts) paintPart(part, part.color)
-        // 합친 형상은 경계가 크고 켜 둔 채 시점을 돌린다. 화면 밖 판정은 꺼 둔다.
-        chunk.solid.frustumCulled = false
-        chunk.faded.frustumCulled = false
-        content.add(chunk.solid, chunk.faded)
-        chunks.push(chunk)
-      }
+      for (const members of groups) buildChunk(members, solidMaterial, fadedMaterial)
       splitIndex()
       // 같은 모델을 다시 그리는 것(편집 뒤)은 한꺼번에 켠다. 나눠 켜면 편집할 때마다 건물이 사라졌다 다시 찬다.
       if (options?.keepView) for (const chunk of chunks) showChunk(chunk)
       // 층마다 따로 만든다. 층별로 보기가 층 단위로 켜고 끈다.
-      walls = new Group()
-      for (const storey of model.storeys) {
-        const w = wallMesh({ ...model, storeys: [storey] }, meshes)
-        if (!w) continue
-        w.userData.storeyId = storey.id
-        walls.add(w)
-      }
-      if (walls.children.length === 0) walls = null
-      if (walls) {
-        walls.visible = wallsVisible
-        content.add(walls)
-        applyStoreyVisibility()
-      }
+      buildWalls(model, meshes)
 
       scene.add(content)
       dirty = true
@@ -2066,13 +2958,107 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       fly(center, center.clone().add(offset), { near: camera.near, far: camera.far })
     },
 
-    frame(ids) {
+    onContext(handler) {
+      contextHandler = handler
+    },
+
+    frameVisible(keep) {
+      const box = shownBox()
+      for (const o of explodeLabels.children) box.expandByObject(o)
+      if (box.isEmpty()) return
+      if (keep) fit(box, true, new Vector3().subVectors(camera.position, controls.target))
+      else fit(box)
+    },
+
+    setExplode(groups) {
+      collapseExplode(!groups)
+      if (!groups?.length) return false
+      const all = shownBox()
+      if (all.isEmpty()) return false
+      const height = all.max.y - all.min.y
+      const width = Math.max(all.max.x - all.min.x, all.max.z - all.min.z)
+      // 넓은 건물(Duplex·병원)은 클래스마다 건물 위로 한 켜씩 쌓는다. 높은 건물(성수 19층)은 쌓으면 기둥처럼 길어져 라벨이 안 읽혀,
+      // 건물 옆에 바둑판으로 늘어놓는다(칸마다 그 클래스 설비가 건물 안 제자리에 있다 — 어디에 몰려 있는지가 보인다).
+      const tall = height > width * 0.8
+      const cell = width * 1.3
+      const cols = Math.ceil(Math.sqrt(groups.length + 1))
+      const gap = Math.max(2.5, height * 0.3)
+      // 라벨 높이는 건물 크기에 맞춘다. 건물 전체를 맞춘 시점에서 글자가 읽히는 크기.
+      const labelH = tall ? Math.max(1.5, cell * 0.09) : Math.max(1.2, Math.min(6, (all.max.x - all.min.x + all.max.z - all.min.z) * 0.045))
+      const moving = groups.reduce((n, g) => n + g.ids.length, 0)
+      const slide = moving <= EXPLODE_GLIDE_MAX
+      const next = new Map<string, Float32Array>()
+      let level = all.max.y + gap
+      const frameBox = all.clone()
+      groups.forEach((g, k) => {
+        const members = g.ids.map((id) => partById.get(id)).filter((p): p is Part => !!p && !hiddenIds.has(p.id) && !p.box.isEmpty())
+        if (!members.length) return
+        const box = new Box3()
+        for (const p of members) {
+          finishGlide(p.id)
+          box.union(p.box)
+        }
+        // 바둑판: 0번 칸은 건물(덕트·배관과 판)이 그대로 쓴다.
+        const at = k + 1
+        const shift = tall ? new Vector3((at % cols) * cell, 0, Math.floor(at / cols) * cell) : new Vector3(0, level - box.min.y, 0)
+        for (const p of members) {
+          const arr = p.chunk.position.array as Float32Array
+          const original = arr.slice(p.vStart * 3, (p.vStart + p.vCount) * 3)
+          next.set(p.id, original)
+          const moved = original.slice()
+          for (let i = 0; i < moved.length; i += 3) {
+            moved[i] += shift.x
+            moved[i + 1] += shift.y
+            moved[i + 2] += shift.z
+          }
+          setPartPositions(p, moved, slide)
+        }
+        const sprite = explodeLabel(g.label, labelH)
+        if (tall) {
+          // 칸 위 가운데. 칸의 바닥 윤곽(건물 발자국)을 옅게 그려 칸이 어디까지인지 보인다.
+          sprite.center.set(0.5, 0)
+          sprite.position.set((all.min.x + all.max.x) / 2 + shift.x, all.max.y + labelH * 0.4, (all.min.z + all.max.z) / 2 + shift.z)
+          const ring = new LineLoop(
+            new BufferGeometry().setFromPoints(
+              [
+                [all.min.x, all.min.z],
+                [all.max.x, all.min.z],
+                [all.max.x, all.max.z],
+                [all.min.x, all.max.z],
+              ].map(([x, z]) => new Vector3(x + shift.x, all.min.y, z + shift.z)),
+            ),
+            new LineBasicMaterial({ color: 0x8a94a3, transparent: true, opacity: 0.5 }),
+          )
+          ring.userData.explodeRing = true
+          explodeLabels.add(ring)
+        } else {
+          // 켜의 왼쪽 끝 바로 옆에 라벨(오른쪽 끝을 맞춘다). 건물 왼쪽 끝에 세우면 켜가 작을 때 라벨과 떨어져 무엇의 이름인지 몰랐다.
+          sprite.position.set(box.min.x - labelH * 0.3, level + (box.max.y - box.min.y) / 2, (box.min.z + box.max.z) / 2)
+          level += box.max.y - box.min.y + gap * 0.6
+        }
+        explodeLabels.add(sprite)
+        frameBox.union(box.clone().translate(shift))
+      })
+      if (!next.size) return false
+      explodedParts = next
+      for (const o of explodeLabels.children) frameBox.expandByObject(o)
+      fit(frameBox)
+      dirty = true
+      return true
+    },
+
+    exploded() {
+      return !!explodedParts
+    },
+
+    frame(ids, margin = 0) {
       const box = new Box3()
       for (const id of ids) {
         const part = partById.get(id)
         if (part) box.union(part.box)
       }
       if (box.isEmpty()) return
+      if (margin > 0) box.expandByScalar(margin)
       fit(box)
     },
 
@@ -2084,6 +3070,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (hoverAt) hoverPending = true
     },
 
+    setHandleEdit(on) {
+      handleEdit = on
+      if (!on && drag?.kind === 'vertex') endDrag(false)
+      drawHandles()
+    },
+
     isDragging() {
       return drag !== null
     },
@@ -2091,6 +3083,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     shiftEquipment(id, delta, glide = false) {
       const part = partById.get(id)
       if (!part) return false
+      collapseExplode(false)
       finishGlide(id)
       const [dx, dy, dz] = toScene(delta)
       const arr = part.chunk.position.array as Float32Array
@@ -2107,6 +3100,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setEquipmentPositions(id, positions, glide = false) {
       const part = partById.get(id)
       if (!part || positions.length !== part.vCount * 3) return false
+      collapseExplode(false)
       setPartPositions(part, positions, glide)
       return true
     },
@@ -2150,6 +3144,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       drawArrows()
     },
 
+    playCascade(items) {
+      startCascade(items)
+    },
+
+    setArrowsShown(on) {
+      arrowsShown = on
+      drawArrows()
+    },
+
     onArrowClick(handler) {
       arrowHandler = handler
     },
@@ -2158,8 +3161,29 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       buildSlabs(model)
     },
 
-    setArchitecture(model, selected) {
-      buildArchitecture(model, selected)
+    warmArchitecture(model) {
+      // 외곽선 층은 켤 때 처음 짓는다 — 리플레이의 첫 벽 장면이 벽 전부(dental 1300개)를 한 프레임에 압출했다. 오프닝 동안
+      // 프레임마다 조금씩(6ms) 압출해 extrudeRing 에 기억해 둔다. 짓지는 않는다.
+      const jobs: [readonly Vec2[], number, number][] = []
+      for (const st of model.storeys) {
+        const y = st.elevation + 0.1
+        const cuts = openingCutsOf(st, y)
+        for (const w of st.walls) for (const slab of wallSlabsOf(w.footprint ?? [], cuts.get(w.id))) jobs.push([slab.ring, y + slab.bottom, slab.top - slab.bottom])
+      }
+      let i = 0
+      const slice = () => {
+        const end = performance.now() + 6
+        while (i < jobs.length && performance.now() < end) extrudeRing(...jobs[i++])
+        if (i < jobs.length && running) requestAnimationFrame(slice)
+      }
+      requestAnimationFrame(slice)
+    },
+
+    setArchitecture(model, selected, also) {
+      // 벽·문·창과 고른 것이 그대로면 다시 짓지 않는다. 화면 갱신(sceneVersion)마다 불려서 설비만 바뀐 편집에도 벽을 전부 다시
+      // 압출했다(dental 의 리플레이 다시 하기 한 번에 92ms). 솟아오르기·미끄러짐은 rebuildArchitecture 로 따로 다시 짓는다.
+      if (archKey(model, selected, also) === lastArchKey) return
+      buildArchitecture(model, selected, also)
     },
 
     setHvacZones(model, selected) {
@@ -2171,7 +3195,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       })
       zoneLines.clear()
       const elevation = new Map((model?.storeys ?? []).map((s) => [s.id, s.elevation]))
-      for (const zone of model?.hvac?.zones ?? []) {
+      for (const zone of model ? hvacZonesOf(model) : []) {
         if (!zone.storeyId) continue
         const y = (elevation.get(zone.storeyId) ?? 0) + 0.2
         for (const ring of zone.footprint) {
@@ -2317,13 +3341,131 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       frozenIds = ids
     },
 
+    onFrozenGrab(handler) {
+      frozenGrabHandler = handler
+    },
+
+    setGrid(grid) {
+      for (const o of gridGroup.children) {
+        const line = o as LineSegments
+        line.geometry.dispose()
+        ;(line.material as LineBasicMaterial).dispose()
+      }
+      gridGroup.clear()
+      gridCount = 0
+      dirty = true
+      if (!grid) return
+      const y = grid.elevation + 0.115
+      const pts: number[] = []
+      for (const x of grid.x) pts.push(x, y, -grid.extent.minY, x, y, -grid.extent.maxY)
+      for (const v of grid.y) pts.push(grid.extent.minX, y, -v, grid.extent.maxX, y, -v)
+      const geometry = new BufferGeometry()
+      geometry.setAttribute('position', new BufferAttribute(new Float32Array(pts), 3))
+      const lines = new LineSegments(geometry, new LineBasicMaterial({ color: 0x8a93a3, transparent: true, opacity: 0.35, depthWrite: false }))
+      lines.raycast = () => {}
+      lines.renderOrder = 2
+      gridGroup.add(lines)
+      gridCount = grid.x.length + grid.y.length
+    },
+
+    setBackground(bg) {
+      for (const o of backdrop.children) {
+        const mesh = o as Mesh
+        mesh.geometry.dispose()
+        const material = mesh.material as MeshBasicMaterial
+        material.map?.dispose()
+        material.dispose()
+      }
+      backdrop.clear()
+      backdropCorners = bg?.corners ?? null
+      // 화면은 바뀐 것이 있을 때만 다시 그린다.
+      dirty = true
+      if (!bg) return
+      // IFC 평면(x, y)을 three 바닥(x, -z)으로. 물리존 판(두께 0.1m, spaceMesh) 바로 위에 깐다 — 아래에 두면 판이 도면을 덮어
+      // 그 위에 물리존을 그릴 수 없다. 반투명이라 판의 색은 비친다.
+      const y = bg.elevation + 0.11
+      const positions = bg.corners.flatMap((p) => [p[0], y, -p[1]])
+      const geometry = new BufferGeometry()
+      geometry.setAttribute('position', new BufferAttribute(new Float32Array(positions), 3))
+      // 텍스처는 위가 v=1 이다. 왼쪽 위·오른쪽 위·오른쪽 아래·왼쪽 아래.
+      geometry.setAttribute('uv', new BufferAttribute(new Float32Array([0, 1, 1, 1, 1, 0, 0, 0]), 2))
+      geometry.setIndex([0, 2, 1, 0, 3, 2])
+      const material = new MeshBasicMaterial({ transparent: true, opacity: bg.opacity, side: DoubleSide, depthWrite: false })
+      new TextureLoader().load(bg.url, (texture) => {
+        material.map = texture
+        material.needsUpdate = true
+        dirty = true
+      })
+      const mesh = new Mesh(geometry, material)
+      mesh.raycast = () => {}
+      // 물리존 판도 반투명이라 먼저 그리면 판이 덮는다. 판 뒤에 그려 그 위에 비치게 한다. 설비는 깊이로 가려진다.
+      mesh.renderOrder = 1
+      backdrop.add(mesh)
+    },
+
     topView() {
-      const box = new Box3()
-      for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
-      for (const o of slabs.children) if (o.visible) box.expandByObject(o)
-      if (box.isEmpty()) box.setFromObject(content)
+      const box = visibleBox()
       // 바로 위는 OrbitControls 가 위쪽 방향을 잃는다. +z(IFC −y) 쪽으로 아주 조금 기울여 화면 위쪽이 IFC +y 가 되게 한다.
       if (!box.isEmpty()) fit(box, true, new Vector3(0, 1, 0.02))
+    },
+
+    viewFrom(dir) {
+      const box = visibleBox()
+      if (box.isEmpty()) return
+      const from = new Vector3(...dir)
+      if (from.lengthSq() === 0) return
+      // 바로 위·아래는 위쪽 방향을 잃는다(topView 와 같다). 앞(+z) 쪽으로 아주 조금 기울인다.
+      if (!from.x && !from.z) from.z = 0.02
+      fit(box, true, from)
+    },
+
+    attachNavCube(el) {
+      navCube?.dispose()
+      const cube = createNavCube(el, {
+        pick: (dir) => this.viewFrom(dir),
+        orbit: orbitBy,
+        dark: () => document.documentElement.getAttribute('data-theme') === 'dark',
+      })
+      navCube = cube
+      dirty = true
+      return () => {
+        cube.dispose()
+        if (navCube === cube) navCube = null
+      }
+    },
+
+    setFly(on) {
+      if (on === !!flying) return
+      if (on) {
+        flight = null
+        // 빠르기는 보이는 것 크기에 맞춘다 — 성수와 집 한 채가 같은 m/s 면 한쪽은 기어가고 한쪽은 튄다. 휠로 바꾼다.
+        const radius = visibleBox().getBoundingSphere(new Sphere()).radius
+        flying = { keys: new Set(), base: Math.max(1, radius * 0.25), scale: 1, last: null, look: null }
+        controls.mouseButtons = { LEFT: -1 as MOUSE, MIDDLE: -1 as MOUSE, RIGHT: -1 as MOUSE }
+        controls.enableZoom = false
+        canvas.style.cursor = 'crosshair'
+      } else {
+        flying = null
+        controls.mouseButtons = { ...MAP_BUTTONS }
+        controls.enableZoom = true
+        canvas.style.cursor = ''
+      }
+      dirty = true
+    },
+
+    flyKey(code, down) {
+      if (!flying) return
+      if (code === null) flying.keys.clear()
+      else if (down) flying.keys.add(code)
+      else flying.keys.delete(code)
+    },
+    eyeHeight: () => camera.position.y,
+    flyToHeight(z) {
+      const shift = new Vector3(0, z - camera.position.y, 0)
+      if (Math.abs(shift.y) < 1e-3) return
+      fly(controls.target.clone().add(shift), camera.position.clone().add(shift), { near: camera.near, far: camera.far })
+      // 위아래로만 옮기니 포물선(lift) 없이 곧게 간다.
+      if (flight) Object.assign(flight, { lift: 0, ms: 400 })
     },
 
     setRooms(model, selected, conflict = null) {
@@ -2357,7 +3499,115 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       applyStoreyVisibility()
     },
 
+    setVerticalParts(model, selected, preview = []) {
+      verticals.traverse((o) => {
+        if (o instanceof Line || o instanceof Mesh) {
+          o.geometry.dispose()
+          ;(o.material as { dispose(): void }).dispose()
+        }
+      })
+      verticals.clear()
+      verticalTargets = []
+      selectedVertical = selected
+      for (const storey of model?.storeys ?? []) {
+        const y = storey.elevation + VERTICAL_LIFT
+        for (const part of storey.verticalParts ?? []) {
+          const id = partId(part.parentId, storey.id)
+          const on = selected.has(id)
+          const color = on ? ARCH_COLORS.selected : VERTICAL_COLOR
+          const add = (o: Object3D, mark?: 'entry' | 'exit') => {
+            o.userData.storeyId = storey.id
+            if (mark) o.userData.mark = mark
+            verticals.add(o)
+          }
+          const ring = part.footprint
+          if (ring.length >= 3) {
+            add(new LineLoop(new BufferGeometry().setFromPoints(ring.map((p) => new Vector3(p[0], y, -p[1]))), new LineBasicMaterial({ color })))
+            const face = new Mesh(
+              new ShapeGeometry(new Shape(ring.map((p) => new Vector2(p[0], p[1])))),
+              new MeshBasicMaterial({ color, transparent: true, opacity: on ? 0.4 : 0.32, side: DoubleSide, depthWrite: false }),
+            )
+            face.rotation.x = -Math.PI / 2
+            face.position.y = y
+            add(face)
+          }
+          // 진입 지점은 채운 원, 종료 지점은 빈 고리. 층 바닥 높이에 눕힌다(지점의 z 는 패널이 말한다).
+          for (const [mark, p] of [['entry', part.entry], ['exit', part.exit]] as const) {
+            if (!p) continue
+            const geometry = mark === 'entry' ? new CircleGeometry(0.3, 24) : new RingGeometry(0.22, 0.34, 24)
+            const dot = new Mesh(geometry, new MeshBasicMaterial({ color, side: DoubleSide, depthTest: false }))
+            dot.rotation.x = -Math.PI / 2
+            dot.position.set(p[0], y + 0.01, -p[1])
+            dot.renderOrder = 3
+            add(dot, mark)
+          }
+          // 누르는 자리: 형상이 있으면 형상, 없으면(끝 층) 종료 지점 둘레의 작은 정사각형.
+          const point = part.exit ?? part.entry
+          const r = VERTICAL_POINT_REACH
+          const target: Vec2[] | null =
+            ring.length >= 3 ? ring : point ? [[point[0] - r, point[1] - r], [point[0] + r, point[1] - r], [point[0] + r, point[1] + r], [point[0] - r, point[1] + r]] : null
+          if (!target) continue
+          const at: Vec2 = ring.length >= 3 ? [ring.reduce((a, q) => a + q[0], 0) / ring.length, ring.reduce((a, q) => a + q[1], 0) / ring.length] : [point![0], point![1]]
+          verticalTargets.push({ id, storeyId: storey.id, y, ring: target, at })
+        }
+      }
+      // 같은 오브젝트의 시작 층 진입 지점과 끝 층 종료 지점을 잇는 점선(실제 높이). 여러 층을 함께 볼 때 두 층의 조각이 한 오브젝트로 읽힌다
+      // (다중층 뷰, OE-ML-01). 고르기 대상은 아니다.
+      const ends = new Map<string, { entry?: { p: Vec3; storey: string; id: string }; exit?: { p: Vec3; storey: string; id: string } }>()
+      for (const storey of model?.storeys ?? []) {
+        for (const part of storey.verticalParts ?? []) {
+          const e = ends.get(part.parentId) ?? {}
+          const id = partId(part.parentId, storey.id)
+          if (part.entry) e.entry = { p: part.entry, storey: storey.id, id }
+          if (part.exit) e.exit = { p: part.exit, storey: storey.id, id }
+          ends.set(part.parentId, e)
+        }
+      }
+      // 적용 전 미리보기(OE-ML-08). 고르기 대상이 아니다.
+      for (const p of preview) {
+        if (p.path) {
+          const line = new Line(new BufferGeometry().setFromPoints(p.path.map((q) => new Vector3(q[0], q[2], -q[1]))), new LineDashedMaterial({ color: ARCH_COLORS.selected, dashSize: 0.25, gapSize: 0.15, depthTest: false }))
+          line.computeLineDistances()
+          line.renderOrder = 4
+          line.userData.storeyId = p.storeyId
+          line.userData.mark = 'preview'
+          verticals.add(line)
+          continue
+        }
+        const y = p.elevation + VERTICAL_LIFT + 0.02
+        const r = 0.35
+        const pts: readonly Vec2[] | null =
+          p.footprint && p.footprint.length >= 3
+            ? p.footprint
+            : p.point
+              ? [[p.point[0] - r, p.point[1] - r], [p.point[0] + r, p.point[1] - r], [p.point[0] + r, p.point[1] + r], [p.point[0] - r, p.point[1] + r]]
+              : null
+        if (!pts) continue
+        const line = new LineLoop(new BufferGeometry().setFromPoints(pts.map((q) => new Vector3(q[0], y, -q[1]))), new LineDashedMaterial({ color: ARCH_COLORS.selected, dashSize: 0.25, gapSize: 0.15, depthTest: false }))
+        line.computeLineDistances()
+        line.renderOrder = 4
+        line.userData.storeyId = p.storeyId
+        line.userData.mark = 'preview'
+        verticals.add(line)
+      }
+      for (const { entry, exit } of ends.values()) {
+        if (!entry || !exit || entry.storey === exit.storey) continue
+        const on = selected.has(entry.id) || selected.has(exit.id)
+        const line = new Line(
+          new BufferGeometry().setFromPoints([new Vector3(entry.p[0], entry.p[2], -entry.p[1]), new Vector3(exit.p[0], exit.p[2], -exit.p[1])]),
+          new LineDashedMaterial({ color: on ? ARCH_COLORS.selected : VERTICAL_COLOR, dashSize: 0.3, gapSize: 0.2, depthTest: false }),
+        )
+        line.computeLineDistances()
+        line.renderOrder = 3
+        line.userData.storeys = [entry.storey, exit.storey]
+        line.userData.mark = 'rise'
+        verticals.add(line)
+      }
+      applyStoreyVisibility()
+    },
+
     setSpaceObjects(model, library, models, selected, conflict = null) {
+      objectConflictId = conflict
       if (drag?.kind === 'object') return // 끄는 중에 다시 그리면 잡은 것을 잃는다. 놓으면 다시 불린다.
       spaceObjects.traverse((o) => {
         if (o instanceof Mesh || o instanceof LineSegments) {
@@ -2372,7 +3622,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         for (const o of storey.spaceObjects ?? []) {
           const [w, d, h] = o.size
           const node = new Group()
-          node.position.set(o.at[0], storey.elevation, -o.at[1])
+          // BIM 에서 받은 상부장·지하 지형처럼 바닥에 서지 않는 것은 `base` 만큼 띄운다.
+          node.position.set(o.at[0], storey.elevation + (o.base ?? 0), -o.at[1])
           node.userData.storeyId = storey.id
           const item = library(o.item)
           const tint = o.id === conflict ? OBJECT_CONFLICT : null
@@ -2400,7 +3651,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
             for (const p of parts) {
               const [x0, y0, z0, x1, y1, z1] = p.box
               const g = new BoxGeometry((x1 - x0) * w, (z1 - z0) * h, (y1 - y0) * d)
-              const mesh = new Mesh(g, new MeshLambertMaterial({ color: tint ?? (item ? OBJECT_COLORS[p.material] : OBJECT_FALLBACK) }))
+              const context = CONTEXT_ITEMS.has(o.item)
+              const mesh = new Mesh(g, new MeshLambertMaterial({ color: tint ?? (item ? OBJECT_COLORS[p.material] : OBJECT_FALLBACK), ...(context ? { transparent: true, opacity: 0.28, depthWrite: false } : {}) }))
               mesh.position.set(((x0 + x1) / 2 - 0.5) * w, ((z0 + z1) / 2) * h, -((y0 + y1) / 2 - 0.5) * d)
               node.add(mesh)
             }
@@ -2412,7 +3664,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
             node.add(edges)
           }
           spaceObjects.add(node)
-          const box = new Box3(new Vector3(o.at[0] - w / 2, storey.elevation, -o.at[1] - d / 2), new Vector3(o.at[0] + w / 2, storey.elevation + h, -o.at[1] + d / 2))
+          // 주변 모델(object-names.ts 의 CONTEXT_ITEMS)은 눌러도 고르지 않는다 — 바닥·설비를 가린다.
+          if (CONTEXT_ITEMS.has(o.item)) continue
+          const z0 = storey.elevation + (o.base ?? 0)
+          const box = new Box3(new Vector3(o.at[0] - w / 2, z0, -o.at[1] - d / 2), new Vector3(o.at[0] + w / 2, z0 + h, -o.at[1] + d / 2))
           objectTargets.push({ id: o.id, storeyId: storey.id, box, node })
         }
       }
@@ -2436,6 +3691,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       dark = on
       drawHandles()
       drawArrows()
+      if (lastArch.model) buildArchitecture(lastArch.model, lastArch.selected, lastArch.also)
+    },
+
+    stats() {
+      return { fps: perf.frames.length, renderMs: perf.renderMs, calls: perf.calls, triangles: perf.triangles }
     },
 
     frameAll() {
@@ -2444,6 +3704,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
       for (const o of slabs.children) if (o.visible) box.expandByObject(o)
       if (box.isEmpty()) box.setFromObject(content)
+      // 밤 다이오라마로 층을 띄우면(여러 층이 보일 때) 건물이 그만큼 높아진다.
+      if (!box.isEmpty()) box.max.y += fx.fitHeight()
       if (!box.isEmpty()) fit(box)
     },
 
@@ -2456,10 +3718,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       placeHandler = handler
     },
 
+    onView(handler) {
+      viewHandler = handler
+      if (handler) invalidate()
+    },
+
     setStoreyFilter(storeys, hidden) {
+      // 화면은 모델이 바뀔 때마다(편집·되돌리기마다) 이것을 다시 부른다. 보일 층과 숨길 설비가 그대로면 삼각형 목록을 다시 짜지
+      // 않는다 — 덩어리 전부의 인덱스를 새로 올려서 성수에서 편집·되돌리기마다 화면이 0.2초씩 멈췄다. 새 형상(setModel)은
+      // 거기서 따로 짠다.
+      const same = sameSet(visibleStoreys, storeys) && sameSet(hiddenIds, hidden)
       visibleStoreys = storeys
       hiddenIds = hidden
       applyStoreyVisibility()
+      if (same) return
       splitIndex()
       drawArrows()
       if (hoverAt) hoverPending = true
@@ -2474,6 +3746,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       box.expandByPoint(box.max.clone().setY(target.y + 3))
       fit(box)
     },
+
+    screenOf(ids) {
+      const rect = canvas.getBoundingClientRect()
+      const c = new Vector3()
+      return ids.map((id) => {
+        const part = partById.get(id)
+        if (!part || hiddenIds.has(id)) return null
+        const at = toScreen(part.box.getCenter(c))
+        if (!at || at.x < rect.left || at.x > rect.right || at.y < rect.top || at.y > rect.bottom) return null
+        return at
+      })
+    },
+
+    viewVersion: () => renders,
 
     planeAxes() {
       camera.updateMatrixWorld()
@@ -2493,6 +3779,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       running = false
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('blur', onBlur)
+      window.removeEventListener('pointerup', onFlyUp)
+      canvas.removeEventListener('pointerdown', onFlyDown)
+      canvas.removeEventListener('pointermove', onFlyMove)
+      canvas.removeEventListener('wheel', onFlyWheel)
+      navCube?.dispose()
+      clearCascade()
+      CASCADE_CONE.dispose()
       if (import.meta.env.MODE === 'e2e') delete (window as unknown as { __viewer?: unknown }).__viewer
       controls.removeEventListener('change', invalidate)
       controls.dispose()

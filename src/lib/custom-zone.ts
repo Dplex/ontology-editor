@@ -2,7 +2,7 @@
 //
 // - 층마다 둔다(`Storey.customZones`). 서로 겹쳐도 되고, 물리존과 경계가 맞지 않아도 된다 — 넓은 사무실 한쪽 구석만 덮는
 //   "임원석" 같은 것이 흔하다(OE-OBJ-01: "커스텀 존은 서로 겹쳐서 설정할 수 있다").
-// - 별명은 여러 개다(2026-10-03 사용자 결정, ADR-0012). 첫 이름(`name`)이 TTL rdfs:label 이고 나머지(`aliases`)는 ex:alias 다.
+// - 별명은 여러 개다(2026-10-03 사용자 결정, ADR-0004). 첫 이름(`name`)이 TTL rdfs:label 이고 나머지(`aliases`)는 ex:alias 다.
 //   OE-OBJ-01 은 "커스텀 존 당 1개", 용어집·OE-SPC-06 은 "별명 복수" 라 어긋났었다.
 // - 매핑은 저장하지 않고 쓸 때 계산한다(exterior.ts·vertical.ts 와 같다). 물리존을 나누거나 옮기거나 설비를 옮기면 다음 내보내기에
 //   그대로 들어가서 "커스텀존 수정이 물리존·공조존과 매핑되어 온톨로지에 갱신" 이 따로 할 일 없이 맞는다.
@@ -115,7 +115,7 @@ export function renameCustomZone(model: Model, id: string, name: string): boolea
 }
 
 /**
- * 더 붙인 별명을 통째로 바꾼다(ADR-0012). 앞뒤 공백을 떼고 빈 것은 뺀다. 같은 별명을 두 번 쓰거나, 이 존의 이름이거나, 다른 존의
+ * 더 붙인 별명을 통째로 바꾼다(ADR-0004). 앞뒤 공백을 떼고 빈 것은 뺀다. 같은 별명을 두 번 쓰거나, 이 존의 이름이거나, 다른 존의
  * 이름·별명이면 막고 쓰는 존을 알린다(OE-SPC-06). 바뀌지 않았으면 false.
  */
 export function setCustomZoneAliases(model: Model, id: string, aliases: readonly string[]): boolean | { refused: string } {
@@ -138,7 +138,7 @@ export function setCustomZoneAliases(model: Model, id: string, aliases: readonly
 /** 이 존을 부르는 이름 전부(이름 + 더 붙인 별명). 검색이 쓴다. */
 export const zoneNames = (zone: CustomZone): string[] => [zone.name, ...(zone.aliases ?? [])]
 
-/** 설비마다 든 커스텀존의 이름·별명 전부(ADR-0012). 설비 검색이 "임원석" 으로 그 존 안의 설비를 찾게 한다. 존에 안 들면 없다. */
+/** 설비마다 든 커스텀존의 이름·별명 전부(ADR-0004). 설비 검색이 "임원석" 으로 그 존 안의 설비를 찾게 한다. 존에 안 들면 없다. */
 export function zoneNamesOfEquipment(model: Model): Map<string, string[]> {
   const byId = new Map(model.storeys.flatMap((s) => (s.customZones ?? []).map((z) => [z.id, zoneNames(z)] as const)))
   const out = new Map<string, string[]>()
@@ -184,7 +184,7 @@ export function mergeCustomZones(model: Model, firstId: string, secondId: string
   const u = unionRings(keep.zone.footprint, other.zone.footprint, MERGE_GAP)
   if (!u.ok) return { refused: `${u.reason} 커스텀존은 변을 맞댔거나 한쪽이 다른 쪽을 품을 때 합칩니다.` }
   keep.zone.footprint = close(u.ring)
-  // 없어지는 존의 이름·별명은 합친 존의 별명으로 남긴다 — 그 이름으로 부르던 사람이 찾을 수 있게(ADR-0012).
+  // 없어지는 존의 이름·별명은 합친 존의 별명으로 남긴다 — 그 이름으로 부르던 사람이 찾을 수 있게(ADR-0004).
   const merged = [...new Set([...(keep.zone.aliases ?? []), ...zoneNames(other.zone)].filter((a) => a !== keep.zone.name))]
   if (merged.length) keep.zone.aliases = merged
   keep.storey.customZones = keep.storey.customZones!.filter((z) => z.id !== otherId)

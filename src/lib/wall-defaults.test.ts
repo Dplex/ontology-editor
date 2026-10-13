@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addOpening, addWall, moveOpening, newWallThickness, OPENING_SNAP } from './edit'
+import { addOpening, addWall, moveOpening, newWallThickness, OPENING_SNAP, SITE_INTERIOR_WALL } from './edit'
 import type { Model, Opening, Vec2, Wall } from './model'
 
 // 새 벽 두께(OE-SPC-12)와 문·창 스냅 거리(OE-SPC-13).
@@ -32,7 +32,7 @@ const model = (walls: Wall[]): Model => ({
 })
 
 describe('새 벽 두께 (OE-SPC-12)', () => {
-  it('BIM 내벽 최빈 두께가 0.24m 인 층에서 새 벽을 그으면 0.24m 다. 외벽·더한 벽·두께 모르는 벽은 세지 않는다', () => {
+  it('BIM 내벽 최빈 두께가 0.24m 인 층에서 새 벽을 그으면 0.24m 다. 외벽·더한 벽·두께 모르는 벽은 세지 않는다 [OE-SPC-12#1]', () => {
     const m = model([
       wall('a', 0.2399, {}, 0),
       wall('b', 0.24, {}, 2),
@@ -49,11 +49,16 @@ describe('새 벽 두께 (OE-SPC-12)', () => {
     expect(made.thickness).toBe(0.24)
   })
 
-  it('BIM 벽이 없고 사이트 기본값이 0.15m 이면 0.15m, 둘 다 없으면 0.2m 다', () => {
+  it('BIM 벽이 없고 사이트 기본값이 0.15m 이면 0.15m, 둘 다 없으면 0.2m 다 [OE-SPC-12#2,3]', () => {
     const empty = model([wall('ext', 0.4, { external: true })])
     expect(newWallThickness(empty.storeys[0], 0.15)).toEqual({ thickness: 0.15, from: 'site' })
     expect(newWallThickness(empty.storeys[0], null)).toEqual({ thickness: 0.2, from: 'default' })
     expect(newWallThickness(model([]).storeys[0])).toEqual({ thickness: 0.2, from: 'default' })
+  })
+
+  it('사이트 기본 내벽 두께의 처음 값은 0.15m 라, 설정을 손대지 않은 사이트에서 BIM 벽이 없는 층의 새 벽은 0.15m 다 [OE-SPC-12#2]', () => {
+    expect(SITE_INTERIOR_WALL).toBe(0.15)
+    expect(newWallThickness(model([]).storeys[0], SITE_INTERIOR_WALL)).toEqual({ thickness: 0.15, from: 'site' })
   })
 
   it('같은 수면 두꺼운 쪽이고, 8cm 보다 얇은 마감벽·칸막이는 세지 않는다', () => {
@@ -66,7 +71,7 @@ describe('새 벽 두께 (OE-SPC-12)', () => {
 })
 
 describe('문·창 스냅 거리 (OE-SPC-13)', () => {
-  it('기본 0.6m 밖을 누르면 "벽 가까이 놓아 주세요" 로 거절하고, 스냅 거리를 늘리면 같은 자리에 붙는다', () => {
+  it('기본 0.6m 밖을 누르면 "벽 가까이 놓아 주세요" 로 거절하고, 스냅 거리를 늘리면 같은 자리에 붙는다 [OE-SPC-13#1]', () => {
     const m = model([wall('w', 0.2)])
     expect(OPENING_SNAP).toBe(0.6)
     expect(addOpening(m, 's', 'door', [3, 1])).toEqual({ refused: '벽 가까이 놓아 주세요(벽에서 0.6m 안에만 놓습니다).' })

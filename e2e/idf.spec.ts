@@ -27,7 +27,7 @@ test('IFC 에 IDF 를 덧붙이면 공조존이 얹히고, 방을 누르면 그 
 
   // 방을 누르면 그 방의 공조존이 패널에 뜬다(편집 모드에서 바닥 누르기).
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   const floor = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))
   await page.mouse.click(floor.x, floor.y)

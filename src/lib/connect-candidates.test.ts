@@ -69,7 +69,7 @@ function scene() {
 }
 
 describe('연결 후보 (OE-PIP-08)', () => {
-  it('가까워도 다른 매체·흐름 없는 기기·말단끼리·다른 계통·해제한 연결은 빼고, 남은 것을 거리·계통·매체와 함께 준다', () => {
+  it('가까워도 다른 매체·흐름 없는 기기·말단끼리·다른 계통·해제한 연결은 빼고, 남은 것을 거리·계통·매체와 함께 준다 [OE-PIP-08#3] [OE-PIP-10#5~]', () => {
     const { m, boxes } = scene()
     const found = connectCandidates(m, 'orphan', boxes)
     expect(found.media).toEqual(['air'])
@@ -77,7 +77,7 @@ describe('연결 후보 (OE-PIP-08)', () => {
     expect(found.excluded).toEqual({ medium: 1, flowless: 1, terminal: 1, system: 1, released: 1 })
   })
 
-  it('위반 이유에 의도한 해제와 뺀 후보를 말하고, 남은 후보로 고치기를 권한다', () => {
+  it('위반 이유에 의도한 해제와 뺀 후보를 말하고, 남은 후보로 고치기를 권한다 [OE-PIP-08#1]', () => {
     const { m, boxes } = scene()
     const ctx = { model: m, connections: m.connections, services: airServices(m, m.connections), boxes, label: (id: string) => id }
     expect(diagnoseFailure('device-connected', 'orphan', ctx)).toEqual({
@@ -88,7 +88,7 @@ describe('연결 후보 (OE-PIP-08)', () => {
     })
   })
 
-  it('맞는 후보가 없으면 고치기를 권하지 않고 수동 검토 길을 말한다', () => {
+  it('맞는 후보가 없으면 고치기를 권하지 않고 수동 검토 길을 말한다 [OE-PIP-08#1]', () => {
     const { m, boxes } = scene()
     boxes.delete('duct')
     const ctx = { model: m, connections: m.connections, services: airServices(m, m.connections), boxes, label: (id: string) => id }
@@ -98,7 +98,7 @@ describe('연결 후보 (OE-PIP-08)', () => {
     expect(out.text).toContain('직접 확인한 뒤 설비 패널의 [연결하기]로 잇습니다')
   })
 
-  it('흐름 없는 기기는 종류를 아는 것만이다. 종류를 모르는 설비와 냉매 설비(실외기)는 흐름 없다고 단정하지 않는다', () => {
+  it('흐름 없는 기기는 종류를 아는 것만이다. 종류를 모르는 설비와 냉매 설비(실외기)는 흐름 없다고 단정하지 않는다 [OE-PIP-18#2]', () => {
     expect(isFlowless(eq('a', 'lighting', 'terminal'))).toBe(true)
     expect(isFlowless(eq('b', 'smoke_detector', 'sensing'))).toBe(true)
     expect(isFlowless(eq('c', null, null))).toBe(false)

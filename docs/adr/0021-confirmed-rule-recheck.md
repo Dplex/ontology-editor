@@ -6,8 +6,10 @@ date: "2026-10-08"
 deciders: ["정희록"]
 prd: ["#14"]
 tickets: ["OE-PIP-07"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: []
+tests: []
+related: []
 ---
 
 # ADR-0021 확정한 규칙 방향도 규칙을 돌릴 때마다 새로 잰다

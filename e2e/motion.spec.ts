@@ -55,7 +55,7 @@ test('카메라는 날아가고, 되돌리면 설비가 미끄러지며 돌아�
   await expect(page.locator('.picked h3')).toHaveText('AHU-1')
 
   // 사무실 밖으로 끌어 놓는다(edit-3d.spec.ts 와 같은 자리).
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const center = await page.evaluate((id) => (window as any).__viewer.center(id), AHU)
   const from = await page.evaluate((id) => (window as any).__viewer.part(id), AHU)
   const to = await page.evaluate((p) => (window as any).__viewer.point(p), [center[0] - 8, center[1], center[2]])

@@ -12,6 +12,7 @@ import { modelToTTL } from './export/ttl'
 import { confirmSystemFlow } from './flow-rules'
 import { EQUIPMENT_KINDS, FLUIDS, SYSTEM_KINDS } from './kinds'
 import { isConduit, type Model, type Vec2 } from './model'
+import { pointInPolygon } from './mapping'
 
 export const FUZZ_OPS = [
   'move',
@@ -88,10 +89,31 @@ export type FuzzResult = {
   /** 편집을 다 한 모델과, 그 편집 파일을 새로 연 모델에 얹은 것. 불변식(OE-PIP-09 BIM 계통 이름 등)을 볼 때 쓴다. */
   edited: Model
   reloaded: Model
+  /** 나누기·합치기가 소속을 잃게 한 설비(OE-OBJ-02#2). BIM 소속만 있고 좌표가 방 밖이던 것(Q13)은 뺀다. 늘 비어야 한다. */
+  orphaned: { op: string; ids: string[] }[]
+}
+
+/**
+ * BIM 이 소속을 적었지만 좌표는 그 방들 밖인 설비. 사람이 나누거나 합치면 좌표로 다시 판정해(Q13) 소속을 잃을 수 있다 — 편집이 만든 고아가
+ * 아니라 BIM 의 좌표가 틀린 것이다(OE-OBJ-02#2 와 Q13 이 만나는 곳, NEXT.md).
+ */
+function heldByDeclaration(storey: Model['storeys'][number], rings: readonly (readonly Vec2[])[]): Set<string> {
+  return new Set(
+    storey.equipment
+      .filter((e) => e.spaceSource === 'bim' && (!e.position || !rings.some((ring) => pointInPolygon([e.position![0], e.position![1]], ring))))
+      .map((e) => e.id),
+  )
 }
 
 /** `pristine` 은 건드리지 않는다. 사본에 편집하고, 편집 파일은 또 다른 사본에 얹는다. */
-export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: ReadonlySet<FuzzOp> = new Set()): FuzzResult {
+export function fuzzEdits(
+  pristine: Model,
+  seed: number,
+  steps = 30,
+  skip: ReadonlySet<FuzzOp> = new Set(),
+  /** 다 편집한 모델과 되돌리기 이력. 되돌리기 전에 부른다 — 이력을 다시 트는 리플레이(replay.ts)를 볼 때 쓴다. */
+  capture?: (m: Model, undo: readonly E.Snapshot[]) => void,
+): FuzzResult {
   let state = seed
   const r = () => (state = (state * 1103515245 + 12345) % 2147483648) / 2147483648
   const pick = <T>(xs: readonly T[]): T | undefined => xs[Math.floor(r() * xs.length)]
@@ -107,6 +129,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
   const undo: E.Snapshot[] = []
   let detail = ''
   const log: string[] = []
+  const orphaned: FuzzResult['orphaned'] = []
   for (let step = 0; step < steps; step++) {
     const op = pick(ops)!
     const devices = m.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
@@ -251,19 +274,25 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
       const xs = room.footprint.map((p) => p[0])
       const cut = Math.min(...xs) + (Math.max(...xs) - Math.min(...xs)) * (0.2 + 0.6 * r())
       const snapshot = E.snapshotStoreySpaces(m, home.id)!
+      const held = heldByDeclaration(home, [room.footprint])
       const done = E.splitSpace(m, room.id, [cut, -1000], [cut + (r() < 0.5 ? 0 : 1), 1000], `U_fuzz${seed}_${step}`)
       if (!done || 'refused' in done) continue
       undo.push(snapshot)
       log.push(`splitSpace ${room.name} @${cut.toFixed(2)}`)
+      const lost = E.orphanedBy(done.equipment).filter((c) => !held.has(c.equipmentId))
+      if (lost.length) orphaned.push({ op: log.at(-1)!, ids: lost.map((c) => c.equipmentId) })
     } else if (op === 'mergeSpaces' && room) {
       const home = m.storeys.find((s) => s.spaces.includes(room))!
       const other = pick(home.spaces.filter((x) => x !== room && x.footprint.length >= 4))
       if (!other) continue
       const snapshot = E.snapshotStoreySpaces(m, home.id)!
+      const held = heldByDeclaration(home, [room.footprint, other.footprint])
       const done = E.mergeSpaces(m, room.id, other.id)
       if (!done || 'refused' in done) continue
       undo.push(snapshot)
       log.push(`mergeSpaces ${room.name} + ${other.name}`)
+      const lost = E.orphanedBy(done.equipment).filter((c) => !held.has(c.equipmentId))
+      if (lost.length) orphaned.push({ op: log.at(-1)!, ids: lost.map((c) => c.equipmentId) })
     } else if (op === 'addWall') {
       // 방의 변 하나를 따라 바깥쪽에 벽을 긋는다. 문을 붙일 자리가 생긴다.
       const storey = pick(m.storeys)!
@@ -472,6 +501,7 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
   }
 
   const opened = modelToTTL(pristine) + JSON.stringify(modelToGeoJSON(pristine))
+  capture?.(m, undo)
   const redo: (E.Snapshot | null)[] = []
   for (const s of undo.reverse()) {
     redo.push(E.snapshotOf(m, s))
@@ -490,5 +520,6 @@ export function fuzzEdits(pristine: Model, seed: number, steps = 30, skip: Reado
     ...(detail ? { detail, texts: { session, reloaded } } : {}),
     edited,
     reloaded: fresh,
+    orphaned,
   }
 }

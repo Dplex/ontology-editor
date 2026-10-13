@@ -66,7 +66,7 @@ test('목록 아래쪽의 파일을 열어도 작업 화면은 맨 위(3D)부터
   await last.getByRole('button', { name: '열기', exact: true }).click()
   await expect(page.locator('.appbar h2')).toHaveText('zz-mep.ifc', { timeout: 30_000 })
   await expect.poll(() => page.evaluate(() => scrollY)).toBe(0)
-  await expect(page.locator('.viewport canvas')).toBeInViewport()
+  await expect(page.locator('.canvas-wrap > canvas')).toBeInViewport()
 })
 
 test('열 수 없는 파일은 이유를 보이고, 눌렀을 때 오류가 화면 안에 뜬다', async ({ page }) => {
@@ -95,4 +95,33 @@ test('등급 응답의 모양이 달라도 목록이 멈추지 않는다', async
   await r.getByRole('button', { name: '열기', exact: true }).click()
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
   expect(errors).toEqual([])
+})
+
+// [바로 열기](data/.open-sets.json, server/data-catalog.ts 의 openSets). 같이 여는 묶음을 한 번에 — [합쳐서 열기] 와 같다.
+test('[바로 열기] 묶음을 누르면 그 파일들이 합쳐 열린다', async ({ page }) => {
+  await serveData(page, [
+    { path: '현장/two-rooms.ifc', bytes: ROOMS, ...arch },
+    { path: '현장/mep.ifc', bytes: MEP, ...mech },
+  ])
+  // 나중에 붙인 길이 먼저 받는다.
+  await page.route('**/__data/__sets', (r) => r.fulfill({ json: [{ title: '현장 건축 + 설비', paths: ['현장/two-rooms.ifc', '현장/mep.ifc'] }] }))
+  await page.goto('/')
+  const quick = page.getByRole('region', { name: '바로 열기' })
+  await quick.getByRole('button', { name: /현장 건축 \+ 설비/ }).click()
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+  // 연 뒤에는 첫 화면 줄(바로 열기·읽을 것)이 없다.
+  await expect(quick).toHaveCount(0)
+})
+
+test('"읽을 것" 은 파일 상자 밖 한 줄이고, data/ 목록에서 열어도 적용된다 — 벽을 끄고 열면 벽은 "읽지 않음"', async ({ page }) => {
+  await serveData(page, [{ path: '현장/two-rooms.ifc', bytes: ROOMS, ...arch }])
+  await page.goto('/')
+  const read = page.getByRole('region', { name: '읽을 것' })
+  await expect(read).toContainText('어디서 열든 적용됩니다')
+  // 파일 상자(.drop) 안에는 없다 — 안에 두었더니 [파일 선택] 에만 걸리는 옵션처럼 보였다.
+  await expect(page.locator('.drop fieldset.read-option')).toHaveCount(0)
+  await read.getByLabel('벽').uncheck()
+  await row(page, '현장/two-rooms.ifc').getByRole('button', { name: '열기', exact: true }).click()
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
+  await expect(page.locator('li.skipped', { hasText: '벽' })).toContainText('읽지 않음')
 })

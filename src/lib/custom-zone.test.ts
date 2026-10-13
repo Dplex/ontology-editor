@@ -74,7 +74,7 @@ describe('커스텀존 만들기·이름·지우기(OE-OBJ-01)', () => {
     expect(modelToTTL(model)).toContain('ex:U_team a brick:Zone ;\n    brick:hasPart ex:meeting ;')
   })
 
-  it('엇갈린 다각형·작은 다각형은 만들지 않고 이유를 돌려준다. 빈 이름은 받지 않는다', () => {
+  it('엇갈린 다각형·작은 다각형은 만들지 않고 이유를 돌려준다. 빈 이름은 받지 않는다 [OE-SPC-06#1]', () => {
     expect(createCustomZone(model, 's1', { footprint: [[0, 0], [5, 5], [5, 0], [0, 5]] })).toEqual({ refused: expect.stringContaining('엇갈립니다') })
     expect(createCustomZone(model, 's1', { footprint: [[0, 0], [0.05, 0], [0.05, 0.05]] })).toEqual({ refused: expect.stringContaining('작습니다') })
     const z = make('', rect(0, 0, 2, 2))
@@ -174,7 +174,7 @@ describe('되돌리기·편집 파일·GeoJSON', () => {
   })
 })
 
-describe('별명 여러 개 (2026-10-03 사용자 결정, ADR-0012)', () => {
+describe('별명 여러 개 (2026-10-03 사용자 결정, ADR-0004)', () => {
   it('더 붙인 별명은 공백을 떼고 빈 것을 뺀다. 이름과 같은 것·두 번 적은 것은 막는다(OE-SPC-06)', () => {
     make('임원석', rect(0, 6, 5, 10), 'U_exec')
     expect(setCustomZoneAliases(model, 'U_exec', [' 임원 구역 ', '', '임원석', '경영진석'])).toEqual({ refused: expect.stringContaining('임원석') })
@@ -235,7 +235,7 @@ describe('별명 여러 개 (2026-10-03 사용자 결정, ADR-0012)', () => {
   })
 })
 
-describe('설비 검색 — 든 커스텀존의 이름·별명으로 (ADR-0012)', () => {
+describe('설비 검색 — 든 커스텀존의 이름·별명으로 (ADR-0004)', () => {
   it('설비마다 든 존의 이름·별명 전부. 존 밖 설비는 없다', () => {
     make('임원석', rect(10, 0, 26, 10), 'U_exec')
     setCustomZoneAliases(model, 'U_exec', ['경영진석'])

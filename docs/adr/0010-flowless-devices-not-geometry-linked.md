@@ -5,8 +5,10 @@ status: "제안"
 date: "2026-10-03"
 prd: []
 tickets: ["OE-PIP-18", "OE-BIM-09"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: ["src/lib/topology.ts", "src/lib/kinds.ts", "src/lib/ifc/import.ts", "src/lib/checks.ts", "src/lib/overlap.ts"]
+tests: []
+related: []
 ---
 
 # ADR-0010 포트가 없는 파일에서 형상으로 연결을 추정할 때 흐름 없는 기기(조명·콘센트·감지기·비치품)는 넣지 않는다

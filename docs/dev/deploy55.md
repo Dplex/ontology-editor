@@ -20,7 +20,7 @@ PoC 라 원할 때 손으로 배포한다: `ssh 55 'cd /home/dt/git/dt/ontology-
 
 ## 예외: 문서 챗봇 `/__chat`
 
-문서 챗봇 `/__chat`(Alt+Shift+K, ADR-0001)은 앱의 API 가 아니라 55 의 gemini 가 이 repo 의
+문서 챗봇 `/__chat`(Alt+Shift+K, docs/dev/deploy55.md)은 앱의 API 가 아니라 55 의 gemini 가 이 repo 의
 PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지키는 것은 토큰이 아니라 도구 제한이다:
 `scripts/docs-chat.policy.toml`(admin 정책)이 문서 읽는 MCP 서버(`scripts/docs-mcp.mjs`) 밖의 도구를 전부 막는다.
 이 정책을 느슨하게 하면 사내망 누구나 질문 한 줄로 55 에서 명령을 돌린다. 2026-10-02 에 셸·파일 쓰기·인증 파일 읽기를
@@ -30,6 +30,9 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 - 55 의 gemini 는 사내 계정이라 `GOOGLE_CLOUD_PROJECT` 가 없으면 바로 죽는다. `run.sh` 가 `~/.bashrc` 에서 옮겨 온다.
 - **gemini 는 질문마다 띄우지 않는다.** `gemini --acp` 하나를 띄워 두고 질문마다 세션을 새로 연다(정문 `ieum-gateway` 의
   assistant.Gemini 와 같은 방식). 처음 질문만 기동 3~4초가 더 붙고, 30분 안 쓰이면 내린다(`DOCS_CHAT_IDLE`, 하나에 약 380MB).
+- 같은 창의 [온톨로지] 칸은 `/__ask` 다(ADR-0050). 반영본(`data/.layouts` 의 현재 버전 TTL)을 읽기만 하는 MCP 서버
+  (`scripts/onto-mcp.mjs`) 하나를 `scripts/onto-chat.policy.toml` 로 묶는다 — 문서 챗봇 정책과 같은 모양이고, 이것도 느슨하게 하지 않는다.
+  gemini 는 칸마다 따로 떠서 둘 다 쓰면 둘이 뜬다. 질문 시험대의 gemini 채점은 55 에서 `npm run onto:bench -- --ask`.
   thinking 은 LOW 다(`DOCS_CHAT_THINKING`). 아래 실측에서 MEDIUM 보다 절반쯤 빨랐고 답은 같은 문서를 찾았다.
 - 55 실측(2026-10-06, 같은 질문 셋, 한 번씩): 예전 `gemini -p` 12.4 · 15.0 · 16.8초 → `--acp` MEDIUM 15.4(기동 포함) · 11.9 · 11.5초,
   LOW 9.7(기동 포함) · 6.9 · 5.8초. 시간의 대부분은 모델이 생각하는 구간이라 thinking 단계가 기동보다 크게 움직인다.
@@ -37,6 +40,35 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 - 도구를 많이 부를수록 길어지니, 답하는 법(`scripts/docs-chat.md`)을 고칠 때 도구 수를 같이 본다. 서버 로그(`log/ontology-editor.log` 의 `"msg":"chat"`)에 도구·시간이 남고 질문 내용은 안 남는다.
 - 검색을 고치면 `scripts/docs-mcp.test.ts`(실제 문서로 1위를 박아 둔 것)를 같이 본다.
 - 색인하는 곳은 `scripts/docs-index.mjs` 의 `SOURCES` 다. 문서 폴더를 새로 만들면 거기에 더해야 챗봇이 읽는다.
+
+## FBX 변환은 서버의 Blender 가 한다
+
+툴바의 [FBX] 는 화면이 만든 GLB 를 `POST /__data/__fbx` 로 보내고, 서버가 Blender 로 바꿔 돌려준다(src/server/fbx.ts,
+`src/server/fbx.ts`·`scripts/glb2fbx.py`). **Blender 가 없는 서버에서는 [FBX] 단추가 막힌다.** `GET /__data/__fbx` 가 `enabled:false`
+와 까닭을 주고, 화면이 그 까닭을 단추의 title 로 보인다.
+
+- 버전은 4.5 LTS 다. sudo 없이 홈에 풀고 PATH 에 건다. 다른 자리에 두면 `BLENDER=/경로/blender` 로 준다.
+  ```
+  curl -O https://download.blender.org/release/Blender4.5/blender-4.5.14-linux-x64.tar.xz   # 같은 폴더의 .sha256 과 맞춰 본다
+  mkdir -p ~/.local/opt && tar -xJf blender-4.5.14-linux-x64.tar.xz -C ~/.local/opt
+  ln -sfn ~/.local/opt/blender-4.5.14-linux-x64/blender ~/.local/bin/blender
+  ```
+- 서버는 Blender 가 있는지를 처음 물을 때 한 번만 잰다. 깔았으면 서버를 다시 띄운다.
+- 변환은 한 번에 하나씩 한다. 성수는 개발 PC 에서 46초, 메모리 4.3GB 였다. 둘이 겹치면 뒤의 것이 앞의 것을 기다린다.
+- 받은 GLB 와 만든 FBX 는 OS 임시 폴더(`oe-fbx-*`)에 두고 답한 뒤 지운다. `data/` 에는 남지 않는다.
+
+## Laya 종류 후보는 133 의 GPU 가 답한다
+
+편집 화면 "종류를 모르는 패밀리" 칸의 Laya 줄(ADR-0057)은 `GET /__laya`·`POST /__laya/kinds` 두 길만 133(RTX 5090, ssh 별칭 `5090`)의
+`scripts/laya/serve.py` 로 넘긴다(`scripts/laya-proxy.mjs`). 55 는 GPU 드라이버가 없어서 133 에 둔다.
+
+- 55 의 `.env` 에 `LAYA_URL=http://10.251.31.133:8096` 을 두면 켜진다. 없거나 133 이 안 받으면 `enabled:false` 와 까닭을 주고 Laya 줄이 안 보인다.
+  dev 도 같다 — `LAYA_URL=… npm run dev`.
+- 133 에서: `~/laya/run/start.sh`(체크포인트 `~/laya/run/out-all2/final`, 133 이 켜지면 crontab `@reboot` 가 부른다). venv 는 `~/laya/.venv`
+  (torch cu128 — 5090 은 CUDA 12.8 이상 판이 필요하다, `laya[serve]`).
+- 다시 배우는 법은 `scripts/laya/train.py` 머리말. 재료는 개발 PC 에서 `npx vitest run --config scripts/laya/vitest.config.ts` 로 뽑아(`data/laya/`) 옮긴다.
+- 133 에는 llama-server(Qwen 27B, 8085)가 있었고 VRAM 을 27GB 잡았다. Laya 추론만이면 1.5GB 라 같이 돈다. 학습할 때 내렸다(2026-10-13) —
+  다시 띄우려면 133 의 `~/llama_restart.sh`.
 
 ## `data/` 샘플 목록과 등급 칩
 
@@ -47,6 +79,24 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 닿지 않았다. 개발 PC 의 `data/` 에서 IFC 만 복사한다:
 `rsync -a --prune-empty-dirs --include='*/' --include='*.ifc' --exclude='*' data/ 55:/home/dt/git/dt/ontology-editor/data/`.
 등급은 첫 요청 때 재서 `data/.profiles.json` 에 캐시하고(17개 18초), 임포터 코드가 바뀌면 다시 잰다.
+
+첫 화면의 [바로 열기] 단추는 `data/.open-sets.json` 의 묶음이다(`GET /__data/__sets`, `data-catalog.ts` 의 `openSets`). PC·서버마다 `data/` 가
+달라서 코드가 아니라 데이터 옆에 둔다. 묶음의 파일이 하나라도 없으면 그 단추는 안 보인다. 위 rsync 는 `.ifc` 만 옮기니 이 파일은 따로 복사한다.
+
+```json
+[
+  { "title": "성수 건축 + 기계", "paths": ["성수/Factorial_건축.ifc", "성수/Factorial_기계.ifc"] },
+  { "title": "성수 전부 (건축 + 기계 + 10층 인테리어 + 엘리베이터)",
+    "paths": ["성수/Factorial_건축.ifc", "성수/Factorial_기계.ifc", "성수/Factorial_10F_Interior.ifc", "성수/Factorial_elevator.ifc"] }
+]
+```
+
+성수 파일(2026-10-13, 사내 `http://10.251.2.225/ontology/` 에서 받음, 받을 때 프록시를 끈다 — `curl --noproxy "*"`)은 조경까지 다섯 개를 같이 열면 캐시가 찬
+개발 PC 에서 116초였다. 엘리베이터 파일의 Proxy 6개(`EVEV.#1` …)는 이름 사전으로 설비 brick:Elevator 가 되고, 10층 인테리어의 가구 314개는 추가 공간
+오브젝트가 된다(ADR-0016 "BIM 에서 받는 오브젝트").
+조경 파일(`Factorial_조경.ifc`)은 "성수 전부" 묶음에 넣지 않는다. Proxy 131개(지형·건물 매스)가 축에 맞춘 상자 하나씩의 주변 모델이 될 뿐이고, TTL 에는
+들어가지 않으며 3D 에서 고르지도 못한다. 볼 일이 있으면 목록에서 따로 연다. 인테리어의 벽 94장은 10F 에 더해지고(76 → 170장),
+인테리어 파일에는 방(IfcSpace)이 없어 10F 물리존은 그대로다.
 
 ## WASM 은 커밋하지 않는다
 

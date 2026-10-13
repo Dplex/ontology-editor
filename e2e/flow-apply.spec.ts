@@ -6,7 +6,7 @@ const AT02 = '0MEP$Equip$AT02$0000'
 const arrows = (page: Page) =>
   page.evaluate(() => (window as any).__viewer.arrows() as { a: string; b: string; source: string }[])
 
-test('미리보기는 바뀐 것이 아니고, 규칙과 반대면 사유를 받아 적용하며, 되돌리기·수동 지정 해제·이력이 된다', async ({ page }) => {
+test('미리보기는 바뀐 것이 아니고, 규칙과 반대면 사유를 받아 적용하며, 되돌리기·수동 지정 해제·이력이 된다 [OE-PIP-04#1]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

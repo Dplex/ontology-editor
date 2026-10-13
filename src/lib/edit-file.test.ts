@@ -56,7 +56,7 @@ const addUpperStorey = (m: Model) => m.storeys.push({ id: 'up', name: '2F', elev
 const exports = (m: Model) => ({ ttl: modelToTTL(m), geo: JSON.stringify(modelToGeoJSON(m)) })
 
 describe('편집 저장·불러오기', () => {
-  it('편집한 모델에서 저장한 것을 새로 연 모델에 얹으면 내보내는 파일이 똑같다', () => {
+  it('편집한 모델에서 저장한 것을 새로 연 모델에 얹으면 내보내는 파일이 똑같다 [OE-HIST-03#1]', () => {
     const a = read('mep.ifc')
     addUpperStorey(a)
     const base = baselineOf(a)

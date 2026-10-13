@@ -98,7 +98,7 @@ const issueIds = firstCells(questions, /^\| ((?:D|Q|U|P)[-A-Za-z0-9]*) \|/gm)
 const CHAPTERS = new Set(['1.8', '부록 A', '부록 B', '부록 C'])
 
 const STATUS = ['prd-done', 'prd-review']
-const OWNER = ['ontology-editor', 'srcn', 'tbd']
+const OWNER = ['ontology-editor', 'srcn', 'DT FE/BE', 'tbd']
 const RELEASE = ['R1', 'R2']
 const PRIORITY = ['P1', 'P2', 'P3']
 
@@ -127,9 +127,13 @@ describe('티켓 파일', () => {
     }
   })
 
-  it('본문에 네 절이 있다', () => {
+  it('본문에 세 절이 있다', () => {
     for (const t of all)
-      for (const h of ['## 요구사항', '## 수용 기준', '## 검증 (이 repo)', '## 메모']) expect(t.body, `${t.file} ${h}`).toContain(`\n${h}\n`)
+      for (const h of ['## 요구사항', '## 수용 기준', '## 메모']) expect(t.body, `${t.file} ${h}`).toContain(`\n${h}\n`)
+  })
+
+  it("'검증 (이 repo)' 절은 없다 — 기준마다 재는 시험은 시험 태그에서 뽑는다", () => {
+    for (const t of all) expect(t.body, t.file).not.toContain('\n## 검증')
   })
 
   it('판본 표시가 남아 있지 않다', () => {
@@ -239,33 +243,50 @@ describe('색인', () => {
   })
 })
 
-// OE-REQ-01 "부록 A 와 정본 4장 일치". 부록 A 는 R0~R24 를 베끼지 않고 정본 4장(docs/bim-to-dt-ontology.md)을 가리키며, 정본에 아직
-// 없는 **제안**(R25 등)만 표로 둔다(부록 A 머리말). 두 곳에 두었다가 같은 R 이 한쪽은 필수, 다른 쪽은 권장이 된 일이 있어서다.
+// OE-REQ-01 "부록 A 와 정본 4장 일치". 부록 A 는 고객사 요구 R 전부를 한 표로 둔다(2026-10-08 — 기획이 요구 목록을 PRD 에서 본다).
+// 요구·실측은 정본 4장(docs/bim-to-dt-ontology.md)에서 옮기고, 정본에 없는 번호는 제안(R25~)이다. 두 곳에 두면 같은 R 이 한쪽은 필수,
+// 다른 쪽은 권장이 되는 일이 생긴다 — 그래서 구분이 정본과 다른 R 은 비고에 바꾼 날짜를 적게 해서 어긋남을 눈에 보이게 둔다.
 // 여기서 그 약속을 잰다 — PRD 는 읽기만 한다.
 describe('부록 A 와 정본 4장 (OE-REQ-01)', () => {
   const appendix = prd.slice(prd.indexOf('## 부록 A.'), prd.indexOf('## 부록 B.'))
   const section = (from: string, to: string) => canon.slice(canon.indexOf(from), canon.indexOf(to))
   const must = [...section('### 4.1 필수', '### 4.2 권장').matchAll(/^\| (R\d+) \|/gm)].map((m) => m[1])
   const should = [...section('### 4.2 권장', '### 4.3').matchAll(/^\| (R\d+) \|/gm)].map((m) => m[1])
-
-  it('정본 4장이 R0~R24 를 필수 11 · 권장 14 로 한 번씩 담는다 — 제목·용어집의 개수와 같다', () => {
-    expect(must).toHaveLength(11)
-    expect(should).toHaveLength(14)
-    const byNumber = (a: string, b: string) => +a.slice(1) - +b.slice(1)
-    expect([...must, ...should].sort(byNumber)).toEqual(Array.from({ length: 25 }, (_, i) => `R${i}`))
-    expect(canon).toContain('### 4.1 필수 (11개)')
-    expect(canon).toContain('### 4.2 권장 (14개)')
-    expect(read('glossary.md')).toMatch(/요구사항 R0~R24\*\* \| [^|]*필수 11 · 권장 14/)
+  // | R | 요구 | 구분 | 등급 | 빠지면 | 확인하는 위치 | 실측 | 결정·비고 |
+  const rows = [...appendix.matchAll(/^\| (R\d+) \|.*$/gm)].map((m) => {
+    const cells = m[0].split('|').map((c) => c.trim())
+    return { r: m[1], kind: cells[3].replace(/\*/g, ''), note: cells[8] ?? '' }
   })
 
-  it('부록 A 는 정본을 가리키고, 표에는 정본에 없는 제안만 둔다', () => {
+  it('정본 4장이 R0~R24·R26 을 한 번씩 담고, 제목의 개수와 같다', () => {
+    // R25(BAS 매핑 키)는 PRD 가 채택했지만 정본에 아직 옮기지 않았다(OE-REQ-05). R26 은 OE-REQ-07 로 옮겼다.
+    const byNumber = (a: string, b: string) => +a.slice(1) - +b.slice(1)
+    expect([...must, ...should].sort(byNumber)).toEqual([...Array.from({ length: 25 }, (_, i) => `R${i}`), 'R26'])
+    expect(canon).toContain(`### 4.1 필수 (${must.length}개)`)
+    expect(canon).toContain(`### 4.2 권장 (${should.length}개)`)
+  })
+
+  it('부록 A 는 정본 4장의 R 전부와 제안을 한 번씩 담고, 개수가 머리말·용어집과 같다', () => {
     // 링크가 실제 파일을 가리킨다(docs/prd/ 기준 상대 경로).
     const links = [...appendix.matchAll(/\]\((\.\.\/[^)]+)\)/g)].map((m) => m[1])
     expect(links).toEqual(expect.arrayContaining(['../bim-to-dt-ontology.md', '../requirements.ids']))
     for (const l of links) expect(() => statSync(PRD + l), l).not.toThrow()
-    // 표의 R 은 정본 4장에 없다. 채택되면 정본·IDS·보고서로 옮기고 여기서 뺀다.
-    const proposed = [...appendix.matchAll(/^\| (R\d+) \|/gm)].map((m) => m[1])
-    for (const r of proposed) expect([r, must.includes(r) || should.includes(r)]).toEqual([r, false])
-    expect(proposed.every((r) => +r.slice(1) > 24)).toBe(true)
+    const ids = rows.map((x) => x.r)
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const r of [...must, ...should]) expect(ids, r).toContain(r)
+    // 정본에 없는 번호는 제안(R25~)뿐이다.
+    for (const r of ids.filter((r) => !must.includes(r) && !should.includes(r))) expect(+r.slice(1), r).toBeGreaterThan(24)
+    for (const x of rows) expect(['필수', '권장'], x.r).toContain(x.kind)
+    const nMust = rows.filter((x) => x.kind === '필수').length
+    const nShould = rows.length - nMust
+    expect(appendix).toContain(`필수 ${nMust} · 권장 ${nShould}`)
+    expect(read('glossary.md')).toMatch(new RegExp(`요구사항 R0~${ids[ids.length - 1]}\\*\\* \\| [^|]*필수 ${nMust} · 권장 ${nShould}`))
+  })
+
+  it('구분이 정본과 다른 R 은 비고에 바꾼 날짜가 있다', () => {
+    for (const x of rows) {
+      const canonKind = must.includes(x.r) ? '필수' : should.includes(x.r) ? '권장' : null
+      if (canonKind && canonKind !== x.kind) expect(x.note, x.r).toMatch(/\d{4}-\d{2}-\d{2}/)
+    }
   })
 })

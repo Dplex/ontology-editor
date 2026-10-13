@@ -10,10 +10,16 @@
 // 동안은 여기서 미리보기만 그리고, 놓을 때 한 번만 알린다 — 끄는 내내 소속을 재판정하면 성수에서 느리다.
 //
 // 고른 것(설비·방·벽)은 부모가 들고 3D·오른쪽 패널과 같이 쓴다(OE-UI-11). 벽은 3D 처럼 편집 모드에서 [벽·문·창] 을
-// 켰을 때만 눌러 고른다 — 아니면 벽 위를 눌러도 밑의 방이 골라진다. 문·창은 평면도에 그리지 않는다.
+// 켰을 때만 눌러 고른다 — 아니면 벽 위를 눌러도 밑의 방이 골라진다. 문·창은 도면 기호로 그린다 — 벽을 그 폭만큼 비우고 문은 문틀
+// 두 선과 닫힌 문짝 선, 창은 유리 선이다. 여닫는 방향(호)은 BIM 에서 읽지 않아 그리지 않는다(틀린 방향을 그리지 않는다).
+//
+// 수직 관통 오브젝트(계단)의 이 층 조각은 방 위에 분홍으로 그리고, 진입 지점은 채운 원·종료 지점은 빈 원이다(OE-ML-05). 누르면 조각이
+// 골라지고(pickSpace 로 조각 id), 고른 조각을 다시 누르면 그 자리의 방이 골라진다. 끌어 옮기지 않는다.
 import { computed, ref, watch } from 'vue'
 import { isConduit, type Storey, type Vec2 } from '../lib/model'
 import { labelPoint } from '../lib/polygon'
+import { locate } from '../lib/mapping'
+import { partId } from '../lib/vertical-object'
 import { isMultiSelect } from '../lib/shortcuts'
 
 const props = defineProps<{
@@ -21,13 +27,21 @@ const props = defineProps<{
   selectedId: string | null
   /** 고른 물리존. 3D 에서 고른 것과 같은 값이라, 여기서 누르면 부모가 오른쪽 패널에 그 방을 띄운다. */
   selectedSpaceId: string | null
+  /** 고른 수직 관통 오브젝트 조각(`부모 id@층 id`). */
+  selectedVerticalId?: string | null
   /** 고른 벽. 3D 의 [벽·문·창] 에서 고른 것과 같은 값이다. */
   selectedElementId: string | null
+  /** 같이 고른 것으로 칠할 벽(외벽 에디터의 같은 면 묶음, OE-EXT-03). */
+  alsoChosen?: readonly string[]
   editing: boolean
   /** 벽을 눌러 고를 수 있나. 3D 와 같이 편집 모드에서 [벽·문·창] 을 켰을 때만이다. */
   pickWalls: boolean
   /** 여러 개 고른 설비(OE-UI-09). 고른 색으로 그린다. */
   group?: readonly string[]
+  /** 그리드 선(IFC x·y 값, OE-UI-07). null 이면 그리지 않는다. */
+  grid?: { x: readonly number[]; y: readonly number[] } | null
+  /** 고른 벽의 치수(OE-UI-08). 중심선 치수선과 가까운 벽까지의 거리선. */
+  dimension?: { axis: { a: Vec2; b: Vec2 }; length: number; thickness: number | null; nearest: { from: Vec2; to: Vec2; distance: number } | null } | null
 }>()
 const emit = defineEmits<{
   /** `additive` 는 Ctrl(⌘)을 누른 채 누른 것(여러 개 고르기, OE-UI-09). */
@@ -205,6 +219,22 @@ const labels = computed(() =>
  * (성수 19개 층에 67쌍). 확대하면 들어가는 만큼 나타난다. 고른 방의 이름은 늘 보인다.
  */
 const fontSize = computed(() => unit.value * 11)
+
+/** 길이 치수선. 벽 위에 그리면 고른 벽 색에 묻히므로 벽 면에서 조금 띄운다 — 가까운 벽의 반대쪽으로. 양 끝은 벽 끝에서 내린 보조선. */
+const dimLine = computed(() => {
+  const d = props.dimension
+  if (!d) return null
+  const { a, b } = d.axis
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1
+  let n: Vec2 = [-(b[1] - a[1]) / len, (b[0] - a[0]) / len]
+  if (d.nearest) {
+    const toward = (d.nearest.to[0] - a[0]) * n[0] + (d.nearest.to[1] - a[1]) * n[1]
+    if (toward > 0) n = [-n[0], -n[1]]
+  }
+  const off = (d.thickness ?? 0) / 2 + unit.value * 16
+  const shift = (p: Vec2): Vec2 => [p[0] + n[0] * off, p[1] + n[1] * off]
+  return { a: shift(a), b: shift(b), mid: shift([(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]), n }
+})
 const shownLabels = computed(() =>
   labels.value.filter((l) => l.id === spaceId.value || (l.em * fontSize.value <= l.w * 0.95 && fontSize.value * 1.2 <= l.h)),
 )
@@ -226,6 +256,41 @@ function pickSpace(id: string) {
   if (moved) return
   emit('pickSpace', spaceId.value === id ? null : id)
 }
+
+/**
+ * 문·창 도면 기호. 자리·뚫는 방향을 알아야 그린다. 벽 두께 쪽 폭은 붙은 벽 외곽선에서 그 자리 둘레를 재고(문·창 형상의
+ * 두께는 문틀이나 여닫는 폭이라 벽과 다르다), 벽이 없으면 형상 두께다.
+ */
+const openings = computed(() =>
+  props.storey.openings.flatMap((o) => {
+    if (!o.position || !o.through) return []
+    const c: Vec2 = [o.position[0], o.position[1]]
+    const t = o.through
+    const d: Vec2 = [-t[1], t[0]]
+    // 사람이 놓은 문·창은 가로를 정하기 전까지 비어 있다 — 3D 와 같은 기본 크기(ADR-0009)로 그린다.
+    const half = (o.width ?? (o.kind === 'door' ? 0.9 : 1.0)) / 2
+    let [lo, hi] = [-(o.depth ?? 0.2) / 2, (o.depth ?? 0.2) / 2]
+    const wall = o.wallId ? props.storey.walls.find((w) => w.id === o.wallId) : undefined
+    const near = (wall?.footprint ?? []).flat().filter((p) => Math.abs((p[0] - c[0]) * d[0] + (p[1] - c[1]) * d[1]) <= half + 1)
+    const across = near.map((p) => (p[0] - c[0]) * t[0] + (p[1] - c[1]) * t[1]).filter((v) => Math.abs(v) <= 1)
+    if (across.length >= 2) [lo, hi] = [Math.min(...across), Math.max(...across)]
+    const at = (a: number, b: number): Vec2 => [c[0] + d[0] * a + t[0] * b, c[1] + d[1] * a + t[1] * b]
+    const mid = (lo + hi) / 2
+    return [{ o, rect: [at(-half, lo), at(half, lo), at(half, hi), at(-half, hi)], jambs: [[at(-half, lo), at(-half, hi)], [at(half, lo), at(half, hi)]] as [Vec2, Vec2][], leaf: [at(-half, mid), at(half, mid)] as [Vec2, Vec2] }]
+  }),
+)
+
+/** 이 층의 수직 관통 오브젝트 조각. 형상이 없는 끝 층 조각은 종료 지점만 있다. */
+const verticals = computed(() =>
+  (props.storey.verticalParts ?? []).map((part) => ({ id: partId(part.parentId, props.storey.id), part, ring: part.footprint.length >= 3 ? part.footprint : null })),
+)
+/** 조각을 누른다. 이미 고른 조각이면 그 자리의 방을 고른다 — 계단실을 고칠 길이다. */
+function pickVertical(event: MouseEvent, id: string) {
+  if (moved) return
+  if (props.selectedVerticalId !== id) return emit('pickSpace', id)
+  const under = locate(toModel(event as PointerEvent), props.storey.spaces)
+  emit('pickSpace', under)
+}
 </script>
 
 <template>
@@ -242,6 +307,10 @@ function pickSpace(id: string) {
     @pointerup="onPointerUp"
     @pointerleave="onPointerUp"
   >
+    <g v-if="grid" class="grid" data-testid="plan-grid">
+      <line v-for="x in grid.x" :key="`gx${x}`" :x1="sx(x)" :x2="sx(x)" :y1="0" :y2="bounds.maxY - bounds.minY" />
+      <line v-for="y in grid.y" :key="`gy${y}`" :x1="0" :x2="bounds.maxX - bounds.minX" :y1="sy(y)" :y2="sy(y)" />
+    </g>
     <g class="spaces">
       <polygon
         v-for="s in spaces"
@@ -259,10 +328,52 @@ function pickSpace(id: string) {
           v-for="(r, i) in w.footprint ?? []"
           :key="i"
           :points="points(r)"
-          :class="{ bearing: w.loadBearing === true, chosen: w.id === selectedElementId, pickable: pickWalls }"
+          :class="{ bearing: w.loadBearing === true, chosen: w.id === selectedElementId || !!alsoChosen?.includes(w.id), pickable: pickWalls }"
           :data-wall="w.id"
           @click.stop="pickWalls && !moved && emit('pickElement', w.id)"
         />
+      </template>
+    </g>
+    <g class="openings" data-testid="plan-openings">
+      <g
+        v-for="x in openings"
+        :key="x.o.id"
+        :class="[x.o.kind, { chosen: x.o.id === selectedElementId, pickable: pickWalls }]"
+        :data-opening="x.o.id"
+        @click.stop="pickWalls && !moved && emit('pickElement', x.o.id)"
+      >
+        <polygon class="gap" :points="points(x.rect)" :stroke-width="unit" />
+        <line v-for="(j, i) in x.jambs" :key="i" class="jamb" :x1="sx(j[0][0])" :y1="sy(j[0][1])" :x2="sx(j[1][0])" :y2="sy(j[1][1])" :stroke-width="unit * 1.5" />
+        <line class="leaf" :x1="sx(x.leaf[0][0])" :y1="sy(x.leaf[0][1])" :x2="sx(x.leaf[1][0])" :y2="sy(x.leaf[1][1])" :stroke-width="unit * (x.o.kind === 'door' ? 3 : 1.5)" />
+        <title>{{ x.o.name }}</title>
+      </g>
+    </g>
+    <g class="verticals" :class="{ inert: pickWalls }">
+      <template v-for="v in verticals" :key="v.id">
+        <polygon
+          v-if="v.ring"
+          :points="points(v.ring)"
+          :class="{ chosen: v.id === selectedVerticalId }"
+          :stroke-width="unit * 1.5"
+          :data-vertical="v.id"
+          @click.stop="pickVertical($event, v.id)"
+        >
+          <title>{{ v.part.name }}</title>
+        </polygon>
+        <circle
+          v-for="[mark, p] in ([['entry', v.part.entry], ['exit', v.part.exit]] as const).filter(([, q]) => q)"
+          :key="mark"
+          :class="[mark, { chosen: v.id === selectedVerticalId }]"
+          :cx="sx(p![0])"
+          :cy="sy(p![1])"
+          :r="unit * 6"
+          :stroke-width="unit * 2"
+          :data-vertical="v.id"
+          :data-mark="mark"
+          @click.stop="pickVertical($event, v.id)"
+        >
+          <title>{{ v.part.name }} {{ mark === 'entry' ? '진입 지점' : '종료 지점' }}</title>
+        </circle>
       </template>
     </g>
     <g class="labels" :font-size="fontSize">
@@ -310,6 +421,47 @@ function pickSpace(id: string) {
           :data-vertex="i"
           @pointerdown="startVertex($event, i)"
         />
+      </template>
+    </g>
+    <g v-if="dimension" class="dims" data-testid="plan-dims">
+      <template v-if="dimLine">
+        <line class="dim-ext" :x1="sx(dimension.axis.a[0])" :y1="sy(dimension.axis.a[1])" :x2="sx(dimLine.a[0])" :y2="sy(dimLine.a[1])" :stroke-width="unit" />
+        <line class="dim-ext" :x1="sx(dimension.axis.b[0])" :y1="sy(dimension.axis.b[1])" :x2="sx(dimLine.b[0])" :y2="sy(dimLine.b[1])" :stroke-width="unit" />
+        <line class="dim-line" :x1="sx(dimLine.a[0])" :y1="sy(dimLine.a[1])" :x2="sx(dimLine.b[0])" :y2="sy(dimLine.b[1])" :stroke-width="unit * 1.5" />
+      </template>
+      <text
+        v-if="dimLine"
+        class="dim-text"
+        :x="sx(dimLine.mid[0] + dimLine.n[0] * unit * 8)"
+        :y="sy(dimLine.mid[1] + dimLine.n[1] * unit * 8)"
+        :font-size="unit * 13"
+        :stroke-width="unit * 3"
+        :text-anchor="Math.abs(dimLine.n[0]) > 0.5 ? (dimLine.n[0] > 0 ? 'start' : 'end') : 'middle'"
+        dominant-baseline="middle"
+      >
+        {{ dimension.length.toFixed(2) }}m
+      </text>
+      <template v-if="dimension.nearest">
+        <line
+          class="dim-gap"
+          :x1="sx(dimension.nearest.from[0])"
+          :y1="sy(dimension.nearest.from[1])"
+          :x2="sx(dimension.nearest.to[0])"
+          :y2="sy(dimension.nearest.to[1])"
+          :stroke-width="unit * 1.2"
+          :stroke-dasharray="`${unit * 4} ${unit * 3}`"
+        />
+        <text
+          class="dim-text"
+          :x="sx((dimension.nearest.from[0] + dimension.nearest.to[0]) / 2)"
+          :y="sy((dimension.nearest.from[1] + dimension.nearest.to[1]) / 2)"
+          :font-size="unit * 12"
+          :stroke-width="unit * 3"
+          :dy="unit * 14"
+          text-anchor="middle"
+        >
+          {{ dimension.nearest.distance.toFixed(2) }}m
+        </text>
       </template>
     </g>
   </svg>

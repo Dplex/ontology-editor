@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 천장 편집 모드(OE-OBJ-08). 설비 편집의 [바닥·벽 / 천장] 토글(T). 바닥·벽 쪽에서 천장 설비는 고르기·조회만, 천장 쪽에서는 천장 설비만
 // 고친다. 반자 높이를 모르는 층은 천장 모드에서 입력을 받기 전에 천장 설비를 놓지 않는다. mep.ifc 에는 반자 높이가 없고, 사무실에
@@ -26,7 +27,7 @@ async function open(page: Page, file = MEP) {
   return errors
 }
 
-test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장 모드에서 천장고를 넣은 뒤 x·y 로 옮긴다', async ({ page }) => {
+test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장 모드에서 천장고를 넣은 뒤 x·y 로 옮긴다 [OE-EQP-02#6] [OE-EQP-04#2,3] [OE-EQP-04#1~] [OE-OBJ-08#1,5] [OE-OBJ-08#3~,4~]', async ({ page }) => {
   const errors = await open(page)
   // 바닥·벽 쪽: 디퓨저는 잠겨 있다
   await pick(page, 'AT-101-01')
@@ -36,6 +37,9 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
   await keys(page, 'Shift+ArrowRight')
   await expect(page.locator('.edit-notice').first()).toContainText('천장 편집 모드에서 편집')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  // 종류는 놓기·옮기기가 아니라 패밀리 속성이라 잠겨도 고친다 — 숨기면 [U]→[K] 가 천장 설비에서 멈췄다(성수 H-2).
+  await keys(page, 'k')
+  await expect(page.locator('.picked .kind-edit select')).toBeFocused()
 
   // T 로 천장 모드 — 선택이 풀리고, 반자 높이를 모르니 입력을 받는다. 그 전에는 설비를 더하지 못한다.
   await keys(page, 't')
@@ -43,9 +47,8 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
   await expect(page.locator('.picked h3')).toHaveCount(0)
   await expect(page.locator('.ceiling-ask')).toBeVisible()
   await expect(page.getByRole('button', { name: '설비 더하기' })).toBeDisabled()
-  // 공간 도구는 잠겨 있고 누르면 알린다
-  await page.getByRole('button', { name: '물리존 그리기' }).click()
-  await expect(page.locator('.edit-notice').first()).toContainText('공간은 [바닥·벽] 쪽에서 편집')
+  // 천장은 설비 편집 모드의 한쪽이라 공간 도구가 팔레트에 없다(OE-UI-04)
+  await expect(page.getByRole('button', { name: '물리존 그리기' })).toHaveCount(0)
 
   await page.getByLabel('천장 모드 천장고(m)').fill('2.7')
   await page.getByLabel('천장 모드 천장고(m)').press('Enter')
@@ -56,7 +59,7 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
 
   // 천장 모드에서 더한 설비는 반자 높이(2.7)에 놓인다(OE-EQP-02). 이 전에는 바닥 높이(0)였다.
   await page.getByRole('button', { name: '설비 더하기' }).click()
-  await page.locator('.viewport canvas').first().scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
   const spot = (await page.evaluate(() => (window as any).__viewer.point([8.5, 6.5, 2.7]))) as { x: number; y: number }
   await page.mouse.click(spot.x, spot.y)
   await expect(page.locator('.picked h3')).toHaveText('새 설비 1')
@@ -90,18 +93,43 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
   expect(errors).toEqual([])
 })
 
-test('Duplex: 천장 모드는 위에서 내려다보고 천장고에 천장면을 그린다 (스샷)', async ({ page }) => {
+test('Duplex: 천장 모드는 위에서 내려다보고 천장고에 천장면을 그린다 (스샷) [OE-OBJ-08#2~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors = await open(page, DUPLEX)
   await page.locator('select.storey-view').selectOption({ label: 'Level 1만' })
-  await page.locator('.viewport canvas').first().scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
   await page.waitForTimeout(800)
   await page.locator('.viewport').first().screenshot({ path: 'test-results/ceiling-mode-floor-side.png' })
   await keys(page, 't')
   await expect(page.locator('.ceiling-now')).toContainText('천장고 2.60 m')
-  await page.locator('.viewport canvas').first().scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
   await page.waitForTimeout(1200)
   await page.locator('.viewport').first().screenshot({ path: 'test-results/ceiling-mode-ceiling-side.png' })
+  expect(errors).toEqual([])
+})
+
+test('완전성 검사의 [방 안으로 옮기기]는 천장 설비도 바닥·벽 쪽에서 바로 옮긴다(높이는 그대로)', async ({ page }) => {
+  const errors = await open(page)
+  // 천장 모드에서 디퓨저를 사무실(0..10) 경계 30cm 밖으로 낸다.
+  await keys(page, 't')
+  await page.getByLabel('천장 모드 천장고(m)').fill('2.7')
+  await page.getByLabel('천장 모드 천장고(m)').press('Enter')
+  await pick(page, 'AT-101-01')
+  const x = page.locator('.picked .position-edit .coord').first()
+  await x.fill('10.3')
+  await x.press('Enter')
+  await keys(page, 'Escape', 't')
+  await expect(toggle(page).getByRole('button', { name: '바닥·벽' })).toHaveAttribute('aria-pressed', 'true')
+  // 바닥·벽 쪽에서 검사의 고치기를 누른다. 모드 잠금에 막히면 안내만 뜨고 안 옮겨졌다(성수 J-1).
+  const fold = page.getByRole('button', { name: /완전성 검사/ })
+  if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
+  await page.locator('.checks tbody tr', { hasText: '소속 방이 있다' }).click()
+  const item = page.locator('.check-list li', { hasText: 'AT-101-01' })
+  await item.getByRole('button', { name: '사무실 안으로 옮기기' }).click()
+  await expect(page.locator('.check-list li', { hasText: 'AT-101-01' })).toHaveCount(0)
+  const coords = row(page, 'AT-101-01').locator('.coord')
+  await expect(coords.first()).toHaveValue('9.9')
+  await expect(coords.nth(2)).toHaveValue('2.7')
   expect(errors).toEqual([])
 })

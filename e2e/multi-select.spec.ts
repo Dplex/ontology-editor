@@ -103,7 +103,7 @@ test('평면도에서 Ctrl+끌기 상자로 디퓨저 둘을 고르고, 3D 에�
 
   // 3D. 디퓨저 하나를 누르고 다른 하나를 Ctrl+클릭한다.
   await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '3D' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
   const screen = (id: string) => page.evaluate((x) => (window as any).__viewer.part(x) as { x: number; y: number }, id)
   const [pa, pb] = [await screen(idOf('AT-101-01')), await screen(idOf('AT-101-02'))]
@@ -177,7 +177,7 @@ async function idsByName(page: Page) {
     .locator('svg.floor-plan .devices circle')
     .evaluateAll((els) => els.map((e) => [e.querySelector('title')?.textContent ?? '', e.getAttribute('data-equipment')!]))
   await tab(page, '3D')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
   return new Map(pairs as [string, string][])
 }
@@ -192,7 +192,7 @@ const panelTitle = (page: Page) => page.locator('.picked h3').first()
 const nameButton = (page: Page, n: string) => row(page, n).getByRole('button', { name: n, exact: true })
 /** 공조기·덕트와 이어지지 않은 설비 하나를 사무실 구석에 더한다. 디퓨저를 고르면 이것이 흐려진다. */
 async function addLone(page: Page) {
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.getByRole('button', { name: '설비 더하기' }).click()
   const spot = await floorAt(page, 8.5, 6.5)
   await page.mouse.click(spot.x, spot.y)
@@ -223,7 +223,7 @@ test('흐리게 칠한 설비도 Ctrl+클릭으로 더하고, 묶음 중에는 �
   await shiftClick(page, await floorAt(page, 5, 1.5))
   await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
   // 아무것도 없는 곳(캔버스 귀퉁이 — 하늘)을 그냥 누르면 푼다.
-  const canvas = (await page.locator('.viewport canvas').boundingBox())!
+  const canvas = (await page.locator('.canvas-wrap > canvas').boundingBox())!
   const out = { x: canvas.x + 8, y: canvas.y + 8 }
   expect(await viewer<{ equipment: string | null; space: string | null }>(page, 'pickAt', out.x, out.y)).toMatchObject({ equipment: null, space: null })
   await page.mouse.click(out.x, out.y)
@@ -265,7 +265,7 @@ test('다른 설비를 그냥 고르거나 편집을 끝내면 묶음이 풀리�
 test('묶음끼리는 서로의 옛 자리와 견주지 않는다 — 하나가 다른 하나의 옛 자리로 가도 같이 옮긴다', async ({ page }) => {
   // 겹침 금지(OE-OBJ-16)는 배관 없는 설비끼리다. 디퓨저는 덕트에 붙어 걸리지 않아서, 조명 둘을 더해 잰다.
   const errors = await open(page)
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   for (const [n, x] of [['새 설비 1', 2], ['새 설비 2', 5]] as const) {
     await page.getByRole('button', { name: '설비 더하기' }).click()
     const spot = await floorAt(page, x, 6.5)
@@ -321,7 +321,7 @@ test('Duplex MEP: 한 층만 볼 때 3D 의 Ctrl+끌기 상자는 숨긴 층 설
   await page.getByRole('button', { name: '편집', exact: true }).click()
   const storeyBox = page.getByRole('combobox', { name: '보일 층' })
   await storeyBox.selectOption({ label: 'Level 1만' })
-  const canvas = page.locator('.viewport canvas')
+  const canvas = page.locator('.canvas-wrap > canvas')
   await canvas.scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
   // 캔버스 전체를 상자로 — 위층(Level 2)은 화면에서 같은 자리에 겹쳐 있지만 숨겨져 있다.

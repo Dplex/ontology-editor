@@ -85,7 +85,7 @@ describe('S1 — 재임포트 후 에디터 편집분 유지 (GUID 유지 전제
 })
 
 describe('S2 — 물리존·설비·공조존이 에디터·DT·Agent 에서 같은 ID 로 조회', () => {
-  it('모델의 id 가 TTL 주어(DT·Agent 가 읽는 키)와 GeoJSON feature id 에 그대로 나간다', () => {
+  it('모델의 id 가 TTL 주어(DT·Agent 가 읽는 키)와 GeoJSON feature id 에 그대로 나간다 [OE-INT-02#1]', () => {
     const x = exportOf(edited)
     const ttlKeys = new Set([...x.ttl.entities.map((e) => e.key), ...x.ttl.unread.map((u) => u.key)])
     const geoIds = new Set(x.features.map((f) => f.id))
@@ -101,9 +101,11 @@ describe('S2 — 물리존·설비·공조존이 에디터·DT·Agent 에서 같
     }
     // `$` 든 GUID 도 받는 쪽 키가 GeoJSON id 와 같은 문자열이다(이스케이프를 푼 값).
     expect(ttlKeys.has(OFFICE)).toBe(true)
+    // 좌표는 GeoJSON 에만 있다. TTL 에는 좌표 리터럴(WKT·좌표 배열)이 없다.
+    expect(x.ttlText).not.toMatch(/POLYGON|POINT|LINESTRING|wkt|asWKT|coordinates/i)
   })
 
-  it('id 규칙: BIM 은 IfcGlobalId, 사람이 만든 것은 U_ 22자($ 없음), IDF 출신은 Z_·I_', () => {
+  it('id 규칙: BIM 은 IfcGlobalId, 사람이 만든 것은 U_ 22자($ 없음), IDF 출신은 Z_·I_ [OE-INT-05#1~]', () => {
     expect(added).toMatch(/^U_[0-9A-Za-z_]{20}$/)
     expect(zoneId).toMatch(/^U_[0-9A-Za-z_]{20}$/)
     expect(edited.hvac!.zones.map((z) => z.id)).toEqual(['Z_1F_OFFICE', 'Z_1F_STORE'])
@@ -239,12 +241,12 @@ describe('S7·S8 — DT 가 그릴 형상 출력, 형상 파일과 TTL 이 같�
           expect(of.length, `${name} ${kind}`).toBeGreaterThan(0)
           for (const f of of) expect(ids.has(f.id), `${name} ${kind} ${f.id}`).toBe(true)
         }
-        expect(check3D(r.parts, x.floors, x.ttl), name).toEqual({ unknown: [], missing: [], misplaced: [] })
+        expect(check3D(r.parts, x.floors, x.ttl), name).toEqual({ unknown: [], missing: [], misplaced: [], kindMismatch: [] })
       }
     }
   })
 
-  it('S8: 편집한 모델(옮긴 설비·더한 설비·커스텀존·공조존)도 GeoJSON 과 TTL 이 id 로 어긋남 없이 이어진다', () => {
+  it('S8: 편집한 모델(옮긴 설비·더한 설비·커스텀존·공조존)도 GeoJSON 과 TTL 이 id 로 어긋남 없이 이어진다 [OE-INT-09#1]', () => {
     const x = exportOf(edited)
     expect(crossCheck(x.ttl, x.floors)).toEqual({ notInTtl: [], dangling: [], toUnread: expect.any(Number), locationMismatch: [], doorLinks: [] })
     // 지도에서 누른 설비의 방이 온톨로지의 위치와 같다 — 옮긴 공조기도.

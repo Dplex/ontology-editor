@@ -37,8 +37,16 @@ export type Space = {
    * `brick:Room` 으로 나간다. `PredefinedType` 은 방 종류를 말하지 않는다(SPACE·PARKING 같은 것뿐이고 실측 0/4 파일).
    */
   kind?: string | null
-  /** `kind` 를 누가 정했나. `bim` 이면 `omniclass` 에서, `dict` 면 이름 사전에서 읽었다. */
-  kindSource?: 'bim' | 'dict'
+  /**
+   * BIM 이 적은 바닥 면적(㎡)과 그 속성 자리(OE-MAN-03). 외곽선 없는 물리존 목록에 보이고, 사람이 그린 외곽선의 넓이와 견준다.
+   * `areaM2` 는 외곽선으로 잰 넓이라 외곽선이 없으면 0 이다. 기준 물량·Revit 치수 속성이 없으면 칸이 없다(성수 건축은 없다).
+   */
+  bimArea?: { m2: number; property: string }
+  /**
+   * `kind` 를 누가 정했나. `bim` 이면 `omniclass` 에서, `dict` 면 이름 사전에서 읽었고, `edit` 면 사람이 정했다(OE-SPC-17, edit.ts 의
+   * setSpacesKind). 사람이 정한 종류는 이름을 고쳐도 그대로다.
+   */
+  kindSource?: 'bim' | 'dict' | 'edit'
   /**
    * OmniClass Table 13 코드(`13-15 11 34 11`). Revit 은 방마다 적는다(병원 건축 269/269). 표준 분류 관계가 먼저고,
    * 없으면 Revit 의 `Category Code` 속성이다. 없으면 `null`.
@@ -49,6 +57,11 @@ export type Space = {
    * Revit 이 붙인 속성(`Category Code`)이다. 요구사항 보고서가 "표준 자리"와 "다른 자리"를 가른다.
    */
   omniclassSource?: 'classification' | 'property'
+  /**
+   * 설계 급기 풍량(CMH, OE-ZON-06). 용량 검증 Z-03 이 공조존의 담당 물리존 값을 더한다. `bim` 은 IfcSpace 의 Pset(R26)에서 읽은 것이고,
+   * `edit` 는 BIM 에 값이 없어 사람이 넣은 것이다. **에디터가 계산하거나 기본값을 넣지 않는다** — 없으면 칸이 없고 Z-03 이 "판정 불가" 다.
+   */
+  designAirflow?: SpaceAirflow
   /** 사람이 에디터에서 만든 물리존(생성·분할, E3). BIM 에 없던 것이라 화면의 출처가 "편집"이다. */
   added?: true
   /**
@@ -56,6 +69,8 @@ export type Space = {
    * 문은 남는 방을 가리키고, 지운 방을 가리키던 문은 그 방을 놓는다.
    */
   merged?: string[]
+  /** 사람이 나눠 생긴 조각이면 원래 물리존 id(E3 분할). 미리보기·리포트가 "분할" 을 센다(OE-WF-08). 내보내지 않는다. */
+  splitFrom?: string
 }
 
 export type Wall = {
@@ -169,6 +184,51 @@ export function isConduit(role: EquipmentRole | null): boolean {
   return role === 'segment' || role === 'fitting'
 }
 
+/** 구간 경로를 쓸 수 없는 까닭(OE-PIP-13). 화면·GeoJSON 이 같은 말을 쓴다. */
+export const SEGMENT_PATH_ISSUES = {
+  'no-position': '좌표 없음',
+  'no-geometry': '형상 없음(경로를 모름)',
+  invalid: '좌표 수치가 유효하지 않음',
+  'zero-length': '길이 0',
+} as const
+export type SegmentPathIssue = keyof typeof SEGMENT_PATH_ISSUES
+/** 서로 다른 두 끝으로 치는 최소 길이(m). 이보다 짧으면 길이 0 이다. */
+export const MIN_SEGMENT_LENGTH = 0.001
+
+/**
+ * 끝을 늘이기 전 구간의 배치점과 두 끝(`axis` 와 `position` 이 있을 때). 끝을 늘이면 `position` 은 축 위 같은 비율 t 자리로 가므로
+ * (edit.ts 의 applyFollow) 그 몫을 빼면 늘이기 전 배치점이다. 통째로 옮긴 양은 그대로 남는다. 3D 가 그린 배관의 형상을 늘이기 전
+ * 모양으로 만들 때도 쓴다.
+ */
+export function segmentRest(e: Equipment): { at: Vec3; ends: [Vec3, Vec3] } | null {
+  if (!e.position || !e.axis) return null
+  const [a, b] = e.axis
+  const shift = e.endShift ?? [[0, 0, 0], [0, 0, 0]]
+  const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+  const len2 = d[0] ** 2 + d[1] ** 2 + d[2] ** 2
+  const t = len2 === 0 ? 0.5 : Math.min(1, Math.max(0, -(a[0] * d[0] + a[1] * d[1] + a[2] * d[2]) / len2))
+  const at: Vec3 = [0, 1, 2].map((k) => e.position![k] - (shift[0][k] * (1 - t) + shift[1][k] * t)) as unknown as Vec3
+  const end = (i: 0 | 1): Vec3 => [at[0] + e.axis![i][0], at[1] + e.axis![i][1], at[2] + e.axis![i][2]]
+  return { at, ends: [end(0), end(1)] }
+}
+
+/**
+ * 덕트·배관 구간의 지금 경로(OE-PIP-13). 연 때 중심선(`axis`)을 지금 배치점에 맞춰 놓고 끝이 옮겨진 양(`endShift`)을 더한 두 점이다. 배치점 하나로 경로를
+ * 만들지 않고, 좌표·형상이 없거나 길이가 0 이면 그 까닭을 돌려준다. 원본의 (0,0,0) 은 유효한 좌표로 본다. 구간이 아니면 null.
+ */
+export function segmentPath(e: Equipment): { path: [Vec3, Vec3] } | { issue: SegmentPathIssue } | null {
+  if (e.role !== 'segment') return null
+  if (!e.position) return { issue: 'no-position' }
+  if (!e.axis) return { issue: 'no-geometry' }
+  const rest = segmentRest(e)!
+  const shift = e.endShift ?? [[0, 0, 0], [0, 0, 0]]
+  const end = (i: 0 | 1): Vec3 => [rest.ends[i][0] + shift[i][0], rest.ends[i][1] + shift[i][1], rest.ends[i][2] + shift[i][2]]
+  const path: [Vec3, Vec3] = [end(0), end(1)]
+  if (!path.every((p) => p.every(Number.isFinite))) return { issue: 'invalid' }
+  if (Math.hypot(path[1][0] - path[0][0], path[1][1] - path[0][1], path[1][2] - path[0][2]) < MIN_SEGMENT_LENGTH) return { issue: 'zero-length' }
+  return { path }
+}
+
 export type Equipment = {
   id: string
   name: string
@@ -223,6 +283,11 @@ export type Equipment = {
    * 고객사와 BIM 스펙을 맞출 때 "지금 이 이름으로 들어온다" 는 근거가 된다.
    */
   capacityProperty: string | null
+  /**
+   * 정격 풍량(CMH, OE-ZON-06). `bim` 은 용량(`capacity`)이 풍량이고 단위를 알 때 CMH 로 바꾼 것이고, `edit` 는 BIM 에 없어 사람이 넣은
+   * 것이다. `capacity` 는 TTL 이 쓰는 원래 값 그대로라 따로 둔다. 용량 검증 Z-03 이 이 값을 담당 공조존의 설계 풍량 합과 견준다.
+   */
+  ratedAirflow?: { cmh: number; source: 'bim' | 'edit'; property?: string }
   /** 속한 계통(IfcSystem)의 id. `null` 이면 어느 계통에도 안 묶여 있다. */
   systemId: string | null
   /** 사람이 계통을 바꿨으면 BIM 이 말한 계통(E8). 되돌리면 지운다. 화면의 출처가 "편집"이 된다. */
@@ -248,6 +313,11 @@ export type Equipment = {
   spaceSet?: string
   /** 사람이 에디터에서 더한 설비(E7). BIM 에 없던 것이라 화면의 출처가 "편집"이다. */
   added?: true
+  /**
+   * 사람이 더한 설비가 3D 모양을 빌려 온 BIM 설비 id(ADR-0059). [같은 모양으로 더하기] 로 복제하면 원본이다. 모양은 그 설비의 형상을
+   * 이 설비 자리로 옮긴 것이고 3D·GLB·OBJ·FBX 에만 쓰인다(TTL·GeoJSON 에는 모양이 없다). 없으면 종류가 같은 BIM 설비의 모양을 빌린다.
+   */
+  shapeOf?: string
   /** 사람이 이름(태그)을 고쳤으면 BIM 이 준 이름. 타입·패밀리 묶음은 이 이름으로 잡는다(edit.ts 의 bimName). */
   nameEdited?: { from: string }
   /**
@@ -256,10 +326,25 @@ export type Equipment = {
    */
   wallId?: string
   /**
+   * 사람이 넣은 샤프트(수직 관통 오브젝트 kind 'shaft')의 id(OE-ML-09·14, shaft.ts). 덕트·배관 구간만 갖는다. 위치로 저절로 붙이지 않는다.
+   * 그 샤프트가 없으면(지웠다) 효력이 없다 — 읽는 쪽은 `shaftOf` 로 확인한다.
+   */
+  shaftId?: string
+  /**
    * 덕트·배관 구간의 두 끝이 연 때 자리에서 얼마나 옮겨졌나(세계 좌표, m). 끝 순서는 연 때 형상의 축(`SegmentAxis`)을 따른다.
    * 붙은 설비를 옮겨 구간이 늘어난 것이다(`followConduits`). 3D 형상은 이 값으로 늘이고, `position` 은 축 위 같은 비율 자리로 간다.
    */
   endShift?: [Vec3, Vec3]
+  /**
+   * 덕트·배관 구간의 중심선 두 끝을 **연 때 `position` 에서 잰 상대 좌표**(m). 임포트가 형상이 있는 구간에만 채운다(conduit-mesh.ts 의
+   * `segmentAxisOf`). 상대로 두는 것은 구간을 통째로 옮긴 것(`position` 만 바뀐다)과 끝을 늘인 것(`endShift`)을 함께 따라가기 위해서다.
+   * 지금 경로는 `segmentPath` 가 세우고, GeoJSON 의 LineString 이 된다(OE-PIP-13).
+   */
+  axis?: [Vec3, Vec3]
+  /**
+   * 사람이 그린 배관의 Flow Type(OE-OBJ-12·OE-PIP-11, flow-type.ts 의 코드). 그린 구간·이음쇠에만 있다. BIM 배관은 계통으로 가른다.
+   */
+  flowType?: string
   /**
    * 사람이 정한 설치면(OE-EQP-05). z 로 판정하지 못한 설비(미정)에 정한다. 있으면 판정보다 앞선다(ceiling.ts 의 judgeSurface).
    * BIM 에는 없고 편집 파일에 남는다.
@@ -388,6 +473,13 @@ export type ConnectionLogEntry = {
  * 공조존(F12). IDF 의 Zone 이다(PRD 1.6 이 IDF 를 출처로 둔다). 바닥 외곽선은 GeoJSON 에, 담당 관계와 든 방은 TTL 에
  * 나간다(`brick:HVAC_Zone`, `brick:hasPart` 방, 설비 `brick:feeds` 존).
  */
+/**
+ * 설계 급기 풍량(CMH). 냉방·난방은 IFC 표준 Pset 의 두 값이고, `supply` 는 냉방·난방을 가르지 않는 값(Revit 의 `Specified Supply
+ * Airflow`)이다. Z-03 은 냉방·난방 중 큰 값을, 둘 다 없으면 `supply` 를 쓴다(Q16, airflow.ts 의 airflowBasis).
+ */
+export type DesignAirflow = { cooling: number | null; heating: number | null; supply?: number | null }
+export type SpaceAirflow = DesignAirflow & { source: 'bim' | 'edit'; property?: string }
+
 export type HvacZone = {
   id: string
   name: string
@@ -402,6 +494,17 @@ export type HvacZone = {
   spaceIds: string[]
   /** 든 물리존마다 이 존이 덮는 몫(0~1). 외곽선이 자기 교차해 넓이를 못 잰 방은 없다. */
   spaceShares?: Record<string, number>
+  /** 사람이 만든 공조존이면 `edit`(OE-ZON-01·02, hvac-zone.ts). IDF 로 불러온 것은 칸이 없다. */
+  source?: 'edit'
+  /** 담당 설비(BIM 설비 id). TTL 에서 그 설비가 이 존을 `brick:feeds` 한다. 사람이 만든 공조존만 갖는다(IDF 는 HvacEquipment.feeds). */
+  servedBy?: string[]
+  /** 경계를 그려 만든 공조존(OE-ZON-02). 담당 물리존이 겹침으로 정해졌다. 없으면 고른 물리존의 합집합이다. */
+  drawn?: true
+  /**
+   * 사람이 공조존 단위로 넣은 설계 풍량(CMH, OE-ZON-06). 담당 물리존의 BIM 값을 다 더할 수 있으면 쓰지 않는다(BIM 이 앞선다, airflow.ts).
+   * 다른 공조존과 함께 담당하는 물리존이 있으면 물리존 값을 나눌 근거가 없어 이 값으로만 판정한다.
+   */
+  designAirflow?: DesignAirflow
 }
 
 /** IDF 가 말한 공조 설비(공조기·말단·실외기·실내기). 좌표는 IDF 에 없다. */
@@ -421,6 +524,8 @@ export type HvacEquipment = {
 export type Storey = {
   id: string
   name: string
+  /** 사람이 층 이름을 고쳤으면 BIM 이 적은 이름(빈 값일 수 있다, storey-name.ts). 고친 적이 없으면 키가 없다. */
+  bimName?: string
   /** 층 바닥 높이(미터). */
   elevation: number
   /**
@@ -447,10 +552,41 @@ export type Storey = {
   equipment: Equipment[]
   /** 운영자가 정한 커스텀존(OE-OBJ-01, custom-zone.ts). BIM 에는 없어 연 직후에는 없다. */
   customZones?: CustomZone[]
+  /** 사람이 만든 공조존(OE-ZON-01·02, hvac-zone.ts). R1 에서 공조존을 만드는 유일한 길이다. 연 직후에는 없다. */
+  hvacZones?: HvacZone[]
   /** 사람이 물리존 안에 그린 룸(OE-OBJ-03, room.ts). 임포트는 만들지 않아 연 직후에는 없다. */
   rooms?: Room[]
   /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09, space-object.ts). 임포트는 만들지 않아 연 직후에는 없다. */
   spaceObjects?: SpaceObject[]
+  /**
+   * 이 층을 지나는 수직 관통 오브젝트의 층별 조각(OE-ML-02, vertical-object.ts). 같은 `parentId` 의 조각들이 오브젝트 하나다.
+   * 지금은 BIM 의 계단(IfcStair)만 임포트가 만든다. 형상을 읽는 임포트에서만 생긴다.
+   */
+  verticalParts?: VerticalPart[]
+}
+
+/** 수직 관통 오브젝트의 종류(glossary: EL·ES·계단·샤프트). */
+export type VerticalKind = 'stair' | 'escalator' | 'elevator' | 'shaft'
+
+/**
+ * 수직 관통 오브젝트의 한 층 조각(OE-ML-02). 오브젝트는 따로 두지 않고 `parentId` 가 같은 조각을 모아 본다 — 층별 표현이 곧 데이터라서
+ * 층 단위 저장·합치기가 다른 층 요소와 같은 길을 탄다. 연관 물리존은 저장하지 않고 진입·종료점으로 그때 짚는다(물리존을 고쳐도 낡은 id 가
+ * 남지 않는다).
+ */
+export type VerticalPart = {
+  /** 오브젝트 id. BIM 이면 IfcStair 의 GlobalId 다. */
+  parentId: string
+  kind: VerticalKind
+  name: string
+  source: 'bim' | 'edit'
+  /** 이 층에 그리는 평면 형상(닫지 않은 고리). 오브젝트가 끝나는 층처럼 그릴 것이 없으면 빈 배열이다. */
+  footprint: Vec2[]
+  /** 이 층에서 오르기 시작하는 자리(아래 끝, 세계 좌표). 시작 층에만 있다. */
+  entry: Vec3 | null
+  /** 이 층에 다다르는 자리(위 끝, 세계 좌표). 끝 층에만 있다. 사이 층은 진입·종료 모두 없다. */
+  exit: Vec3 | null
+  /** 사람이 다중층 뷰에서 고친 조각(OE-ML-07). BIM 원본 형상은 baseline 에 남는다(vertical-edit.ts). */
+  edited?: true
 }
 
 /**
@@ -467,6 +603,15 @@ export type SpaceObject = {
   at: Vec2
   /** 가로(x)·세로(y)·높이(미터). 축에 나란한 상자다. */
   size: Vec3
+  /**
+   * 층 바닥에서 상자 밑면까지(미터). 없으면 0(바닥에 선다). BIM 에서 받은 상부장·벽걸이 TV·지하로 내려간 지형처럼 바닥에 서지 않는 것에만 있다.
+   */
+  base?: number
+  /**
+   * 어디서 왔나. `bim` 이면 임포트가 BIM 요소(IfcFurnishingElement, 방이 없는 파일의 Proxy)에서 만들었고 id 는 GlobalId 다.
+   * 없으면 사람이 놓았다. BIM 에서 받은 것끼리는 겹쳐도 막지 않는다(책상 밑 의자처럼 BIM 이 그렇게 놓았다).
+   */
+  source?: 'bim'
 }
 
 /** 사람이 넣은 3D 모델로 만든 라이브러리 항목(OE-P3-08). 파일을 그대로 들고 있어 편집 파일에 같이 남는다. */
@@ -498,7 +643,7 @@ export type CustomZone = {
   /** 별명. 사람이 부르는 이름(임원석·식당). TTL rdfs:label 이다. */
   name: string
   /**
-   * 더 붙인 별명(2026-10-03 사용자 결정 — 별명은 여러 개, ADR-0012). `name` 과 겹치지 않고 비지 않는다. 없으면 키가 없다.
+   * 더 붙인 별명(2026-10-03 사용자 결정 — 별명은 여러 개, ADR-0004). `name` 과 겹치지 않고 비지 않는다. 없으면 키가 없다.
    * TTL `ex:alias`, GeoJSON `aliases`.
    */
   aliases?: string[]
@@ -526,6 +671,12 @@ export type Model = {
   releasedConnections?: ReleasedConnection[]
   /** 해제 보정·취소·재검토 확인의 이력. 되돌리기로 무른 것은 남지 않는다. */
   connectionLog?: ConnectionLogEntry[]
+  /**
+   * 형상이 맞닿았지만 한쪽이 흐름 없는 기기(조명·감지기·비치품)라 연결로 넣지 않은 것(OE-PIP-18, flow-review.ts). 버리지 않고 여기 두는
+   * 것은 종류가 바뀌면 다시 재기 위해서다 — 조명을 "모름" 이나 흐름 있는 종류로 고치면 `connections` 로 돌아오고, 흐름 없는 종류로 고치면
+   * 그 기기의 형상 연결이 여기로 온다. 포트가 없어 형상으로 이은 파일에만 있다.
+   */
+  flowlessGeometry?: Connection[]
   /** 임포트가 그냥 넘어간 것들. 조용히 비는 대신 화면에 뜬다. */
   warnings: string[]
   /**
@@ -550,9 +701,10 @@ export type Model = {
     siteLatLong: boolean
     /**
      * 파일의 IfcBuildingElementProxy(OE-BIM-13). 포트가 있거나(ported) 이름이 사전에 있어(named) 설비로 읽은 것과, 둘 다 아니라
-     * 건축 부재로 보고 읽지 않은 것의 이름 예(앞 5가지). 읽지 않은 수 = total - ported - named. 빠진 설비가 없는지 사람이 본다.
+     * 건축 부재로 보고 읽지 않은 것의 이름 예(앞 5가지). 읽지 않은 수 = total - ported - named(- louvers). 빠진 설비가 없는지 사람이 본다.
      */
-    proxies?: { total: number; ported: number; named: number; skipped: string[] }
+    /** `louvers` 는 이름이 외부 루버인데 포트가 없어 건축 루버로 보고 받지 않은 수다(OE-EXT-05). 예전 파일에는 없다. */
+    proxies?: { total: number; ported: number; named: number; louvers?: number; skipped: string[] }
   }
 }
 

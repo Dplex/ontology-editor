@@ -6,8 +6,10 @@ date: "2026-10-08"
 deciders: ["정희록"]
 prd: ["#14"]
 tickets: ["OE-PIP-01", "OE-PIP-06"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: []
+tests: []
+related: []
 ---
 
 # ADR-0019 BIM 포트 연결의 해제 보정은 연결을 별도 목록으로 옮겨 둔다

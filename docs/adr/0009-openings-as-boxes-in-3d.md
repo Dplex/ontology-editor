@@ -5,8 +5,10 @@ status: "제안"
 date: "2026-10-03"
 prd: ["1.7"]
 tickets: ["OE-INT-09", "OE-INT-03"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: ["src/lib/export/mesh3d.ts", "src/lib/ifc/import.ts", "src/lib/export/read-3d.ts"]
+tests: []
+related: []
 ---
 
 # ADR-0009 3D export(GLB·OBJ)의 문·창은 위치·크기·벽 방향으로 만든 박스로 export 한다 — 임포터는 문·창 형상을 계속 버린다

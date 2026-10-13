@@ -7,7 +7,8 @@
 //   --only=OE-COM-01,OE-COM-02   그 티켓만      --date=2026-10-02   수정 이력의 날짜(기본: 오늘)
 //
 // 맞추는 것: 제목, 본문(md 사본 + 수정 이력), 라벨 phase-1/2, Phase 칸. 개발이 손댄 이슈(In Progress·In Review·Done)의 요구사항·
-// 수용 기준이 바뀌면 라벨 `modified` 를 붙인다(뗄 때는 개발이 구현을 다시 본 뒤 손으로). 보드의 모든 항목에서 라벨을 `🏷️ 라벨` 칸으로
+// 수용 기준이 바뀌면 라벨 `modified` 를 붙인다(뗄 때는 개발이 구현을 다시 본 뒤 손으로). 요구사항 첫 줄의 `> User story : …` 만
+// 바뀐 것은 요구 변경으로 치지 않는다(본문은 고치되 `modified` 는 붙이지 않는다). 보드의 모든 항목에서 라벨을 `🏷️ 라벨` 칸으로
 // 옮겨 적는다(라벨 보드의 열). 이 스크립트가 하지 않는 것: Status 이동(개발이 판단),
 // 코멘트, 이슈 닫기·만들기. `planned` 라벨이 없는 이슈(구현 완료 보고로 대체된 것)는 건드리지 않는다.
 // 로컬 `gh` 로 수동 실행한다 — 의존성 없이 node 만 있으면 된다.
@@ -35,6 +36,11 @@ const SPEC_SECTIONS = ['요구사항', '수용 기준']
 /** 개발이 이미 손댄 상태. Todo·PRD in progress 는 다시 볼 구현이 없어 `modified` 를 붙이지 않는다. */
 const DEV_STATUS = /In Progress|In Review|Done/
 const MODIFIED = 'modified'
+/**
+ * `prd-done` 이어도 개발로 넘기지 않고 PRD in progress 에 두는 티켓(2026-10-12 기획). R2 는 이번 릴리스 개발 대상이 아니고,
+ * E22 는 다른 팀(DT FE/BE) PRD 의 개정이라 이 보드의 개발 Todo 가 아니다. "넘길 후보" 에서 빼고 따로 알린다.
+ */
+const holdInPrd = (fm) => fm.release === 'R2' || fm.epic === 'E22'
 /**
  * 라벨을 보드 열로 보이려고 옮겨 적는 단일 선택 칸. 보드는 라벨(여러 개)을 열로 못 쓴다. 정본은 라벨이고 이 칸은 사본이다.
  * 라벨이 둘 이상이면 앞의 것 하나만 적는다(반려가 가장 급하고, 그다음 요구사항 변경 · 기획 결정 · 외부 대기 · 개발 남음).
@@ -126,11 +132,22 @@ function mdOf(base) {
   return at < 0 ? '' : base.slice(at).trim()
 }
 
-/** 요구사항·수용 기준이 바뀌었나. */
+// 요구사항 절 첫 줄의 `> User story : …` 는 누가 왜 쓰는지를 적은 배경 서술이라 요구가 아니다. 이것만 바뀌었을 때
+// `modified` 를 붙이면 개발이 다시 볼 구현이 없는데도 카드가 되돌아간다(#410 — 스토리를 더하자 52개 이슈가 걸렸다).
+const STORY_LINE = /^> User story\s*:.*$\n?/gm
+const storyOf = (s) => /^> User story\s*:\s*(.*)$/m.exec(s ?? '')?.[1] ?? null
+const withoutStory = (s) => (s ?? '').replace(STORY_LINE, '').trim()
+
+/** 요구사항·수용 기준이 바뀌었나. User story 줄만 바뀐 것은 치지 않는다. */
 function specChanged(oldBase, t) {
   const before = sections(mdOf(oldBase))
   const after = sections(t.md)
-  return SPEC_SECTIONS.some((k) => (before[k] ?? '') !== (after[k] ?? ''))
+  return SPEC_SECTIONS.some((k) => noAc(withoutStory(before[k])) !== noAc(withoutStory(after[k])))
+}
+
+/** 수용 기준 앞의 AC 번호(`- **AC3** …`)를 뗀 글. 번호만 붙인 것은 요구사항 변경이 아니다(docs/dev/testing.md) — `modified` 를 붙이지 않는다. */
+function noAc(s) {
+  return s.replace(/^- \*{0,2}AC\d+\*{0,2}[.:)]?\s+/gm, '- ')
 }
 
 const quote = (s) => s.split('\n').map((l) => (l ? `  > ${l}` : '  >')).join('\n')
@@ -151,7 +168,13 @@ function describeChanges(oldBase, t) {
   const after = sections(t.md)
   for (const k of new Set([...Object.keys(before), ...Object.keys(after)])) {
     if (before[k] === after[k]) continue
-    if (before[k] === undefined) add(`**${k}** 절 추가`)
+    if (before[k] !== undefined && after[k] !== undefined && withoutStory(before[k]) === withoutStory(after[k])) {
+      const old = storyOf(before[k])
+      add(old === null ? `**${k}** User story 추가` : storyOf(after[k]) === null ? `**${k}** User story 삭제 — 이전 문구:\n${quote(old)}` : `**${k}** User story 수정 — 이전 문구:\n${quote(old)}`)
+      continue
+    }
+    if (before[k] !== undefined && after[k] !== undefined && noAc(withoutStory(before[k])) === noAc(withoutStory(after[k]))) add(`**${k}** 에 AC 번호 붙임(문장은 그대로)`)
+    else if (before[k] === undefined) add(`**${k}** 절 추가`)
     else if (after[k] === undefined) add(`**${k}** 절 삭제`)
     else add(`**${k}** 수정 — 이전 문구:\n${quote(before[k] || '(비어 있음)')}`)
   }
@@ -219,14 +242,15 @@ function main() {
 
   const scope = [...tickets.values()].filter((t) => !ONLY || ONLY.includes(t.fm.id))
   if (ONLY) for (const id of ONLY) if (!tickets.has(id)) throw new Error(`--only: 티켓 ${id} 이 없다`)
-  const noIssue = [], unmanaged = [], drift = [], handOver = [], boardAhead = []
+  const noIssue = [], unmanaged = [], drift = [], handOver = [], held = [], boardAhead = []
   for (const t of scope) {
     const item = byId.get(t.fm.id)
     if (!item) { noIssue.push(t.fm.id); continue }
     if (!(item.labels ?? []).includes('planned')) { unmanaged.push(`${t.fm.id} #${item.content.number}`); continue }
     const d = compare(item, t)
     if (d.diffs.length) drift.push({ t, item, d })
-    if (t.fm.status === 'prd-done' && item.status === 'PRD in progress') handOver.push(`${t.fm.id} #${item.content.number}`)
+    if (t.fm.status === 'prd-done' && item.status === 'PRD in progress')
+      (holdInPrd(t.fm) ? held : handOver).push(`${t.fm.id} #${item.content.number}`)
     if (t.fm.status === 'prd-review' && item.status && item.status !== 'PRD in progress') boardAhead.push(`${t.fm.id} #${item.content.number} (${item.status})`)
   }
   // 라벨 칸은 계획 이슈만이 아니라 보드의 모든 항목을 맞춘다(완료 보고 이슈의 enhancement 도 보인다).
@@ -269,6 +293,7 @@ function main() {
 
   const note = (title, list) => list.length && console.log(`\n${title} (${list.length})\n  ${list.join('\n  ')}`)
   note('[참고] prd-done 인데 보드는 PRD in progress — 개발로 넘길 후보(Status 는 쓰지 않는다)', handOver)
+  note('[참고] prd-done 이지만 R2·E22 라 PRD in progress 에 둔다(넘길 후보 아님)', held)
   note('[참고] prd-review 인데 보드가 PRD in progress 보다 앞섬', boardAhead)
   note('[참고] planned 라벨이 없어 건드리지 않은 이슈', unmanaged)
   note('[주의] 이슈가 없는 티켓(이 스크립트는 이슈를 만들지 않는다)', noIssue)

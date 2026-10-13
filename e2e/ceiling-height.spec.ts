@@ -41,7 +41,7 @@ test('천장고를 모르는 층은 "모름" 이고, 입력하면 출처 편집�
   expect(errors).toEqual([])
 })
 
-test('BIM 이 말한 천장고와 고른 설비의 판정 설치면을 보인다 (Duplex MEP)', async ({ page }) => {
+test('BIM 이 말한 천장고와 고른 설비의 판정 설치면을 보인다 (Duplex MEP) [OE-EQP-03#1]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []

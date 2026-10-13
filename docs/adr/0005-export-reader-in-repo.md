@@ -5,8 +5,10 @@ status: "채택"
 date: "2026-10-03"
 prd: []
 tickets: ["OE-GEN-01"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: ["src/lib/export/read-ttl.ts", "src/lib/export/read-export.ts", "src/lib/export/read-3d.ts"]
+tests: ["scripts/check-sample.test.ts", "scripts/seongsu.test.ts"]
+related: []
 ---
 
 # ADR-0005 export 한 TTL 은 다른 저장소의 ttl.go 를 빌드하지 않고, 그 규칙을 옮긴 이 repo 의 reader 와 뷰어로 다시 읽는다

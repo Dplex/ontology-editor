@@ -6,8 +6,10 @@ date: "2026-10-03"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-BIM-17", "OE-BIM-12", "OE-BIM-19"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: ["src/lib/requirements.ts"]
+tests: []
+related: []
 ---
 
 # ADR-0006 요구사항 보고서의 '다른 자리'는 export 설정으로 고쳐지는 것만 — 형상 중심으로 옮긴 배치점(R11)은 '일부'로 집계한다

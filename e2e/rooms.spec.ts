@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 룸(OE-OBJ-03 · OE-SPC-11). 물리존 안에 대각선 두 꼭짓점으로 그리는 사각 편집 단위. 다른 룸과 겹치거나 물리존 밖으로 나가는 시도는
 // 막고 원래 상태로 둔다. 바닥을 누르면 룸이 물리존보다 먼저 골라지고, 꼭짓점 손잡이로 크기를, 방향키로 자리를 바꾼다.
@@ -12,12 +13,13 @@ async function clickAt(page: Page, x: number, y: number, z = 0) {
   await page.mouse.click(at.x, at.y)
 }
 async function drawRoom(page: Page, a: [number, number], b: [number, number]) {
+  await toSpace(page)
   await page.getByRole('button', { name: '룸 그리기' }).click()
   await clickAt(page, ...a)
   await clickAt(page, ...b)
 }
 
-test('룸을 그리고, 겹치거나 물리존 밖이면 막으며, 골라서 옮기고 크기를 바꾸고 지우면 Ctrl+Z 로 돌아온다', async ({ page }) => {
+test('룸을 그리고, 겹치거나 물리존 밖이면 막으며, 골라서 옮기고 크기를 바꾸고 지우면 Ctrl+Z 로 돌아온다 [OE-OBJ-03#1] [OE-SPC-11#1]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -25,7 +27,7 @@ test('룸을 그리고, 겹치거나 물리존 밖이면 막으며, 골라서 �
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
 
   // 회의실 안에 1.5 × 1.5 룸

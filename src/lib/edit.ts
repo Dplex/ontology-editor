@@ -7,13 +7,17 @@
 // 반영 전에 차이를 보여 주는 것이 PRD #16(미리보기)이고, 반영 뒤에 남기는 것이 #21(결과
 // 리포트)이다. 둘 다 같은 값을 쓰므로 계산을 한 곳에 둔다.
 
-import { assignEquipment, centroid, distanceToRing, isSelfIntersecting, locate, nearRing } from './mapping'
+import { assignEquipment, centroid, distanceToRing, exteriorKind, isSelfIntersecting, locate, nearRing } from './mapping'
+import { shaftOf } from './shaft'
 import { judgeExternal } from './exterior'
 import { inferFlowByRules, type RuleReport } from './flow-rules'
+import { repartitionFlowless } from './flow-review'
 import { releasedBetween, restoreRelease, restoreRules, snapshotRelease, snapshotRulesAgain, type ReleaseSnapshot, type RuleSnapshot } from './connection-release'
-import { equipmentKind, FLUID_KINDS, resolveRoomKind, systemKind, type Fluid } from './kinds'
+import { equipmentKind, FLUID_KINDS, resolveRoomKind, roomKind, systemKind, type Fluid } from './kinds'
 import { polygonArea } from './model'
-import type { Connection, CustomZone, Equipment, Model, Opening, Room, Space, SpaceObject, Storey, System, Vec2, Vec3, Wall } from './model'
+import type { Connection, CustomZone, Equipment, HvacZone, Model, Opening, Room, Space, SpaceObject, Storey, System, Vec2, Vec3, VerticalPart, Wall } from './model'
+import { partRef } from './vertical-edit'
+import { copyHvacZones, remapZonesForSpaces } from './hvac-zone'
 import { spacesBesideOpening } from './ifc/element-geometry'
 import { overlapArea, splitRing, unionRings } from './polygon'
 import { fingerprints, type Fingerprint } from './versions'
@@ -30,6 +34,14 @@ export type Change = {
   toSpaceId: string | null
   /** 사람이 읽을 문장. 검토 화면이 그대로 보여 준다. */
   summary: string
+}
+
+/**
+ * 편집으로 소속을 잃은 설비(물리존이 있었는데 이제 없다, OE-OBJ-02). 나누기·합치기는 넓이를 그대로 나누거나 모아서 이것이 늘 비어야 한다
+ * (edit-fuzz). 지우기와 경계 줄이기는 생길 수 있고, 화면이 바로 알려 이웃 물리존과 합치게 한다(OE-SPC-04 "비는 자리는 합쳐 채운다").
+ */
+export function orphanedBy(changes: readonly Change[]): Change[] {
+  return changes.filter((c) => c.fromSpaceId !== null && c.toSpaceId === null)
 }
 
 function spaceLabel(model: Model, spaceId: string | null): string {
@@ -171,6 +183,16 @@ export type FollowPlan = {
   rigid: string[]
   /** 한 끝만 늘일 구간과 그 끝(0·1). */
   stretch: { id: string; end: 0 | 1 }[]
+  /**
+   * 옮기지 않고 둔 이음쇠(OE-PIP-12 "공유 분기점은 무조건 이동하지 않는다"). 다른 분기(이웃 셋 이상)나 옮기는 설비가 아닌 다른 설비에도
+   * 붙은 것이다. 사람이 영향을 보고 배관 형상을 고친다(OE-PIP-10). 그 너머는 따라가지 않는다.
+   */
+  held: string[]
+  /**
+   * 따라와야 하는데 끝점을 옮길 수 없는 도관과 그 까닭(OE-PIP-12 "끝점 자동 추종 불가"). 임의 좌표를 만들지 않고 건너뛴다.
+   * `geometry` 는 형상이 없어 구간의 축을 모르는 것, `position` 은 좌표가 없는 것이다.
+   */
+  blocked: { id: string; reason: 'geometry' | 'position' }[]
 }
 
 /** 이음쇠가 이음쇠에 물린 사슬을 이만큼만 탄다. 이음쇠끼리 길게 이어진 BIM 에서 배관망 전체가 끌려오지 않게 한다. */
@@ -183,12 +205,23 @@ const FITTING_DEPTH = 3
 export function planFollow(model: Model, equipmentId: string, axisOf: (id: string) => SegmentAxis | null): FollowPlan {
   const byId = new Map(model.storeys.flatMap((s) => s.equipment).map((e) => [e.id, e]))
   const root = byId.get(equipmentId)
-  const plan: FollowPlan = { rigid: [], stretch: [] }
-  if (!root?.position || isConduitRole(root.role)) return plan
-  const neighbors = new Map<string, string[]>()
+  const plan: FollowPlan = { rigid: [], stretch: [], held: [], blocked: [] }
+  // 구간은 통째로 옮기지 않는다. 이음쇠는 배관의 꼭짓점이라(OE-PIP-10) 옮기면 붙은 구간의 가까운 끝이 따라 늘어난다.
+  // 설비에 바로 붙은 이음쇠(배관 끝점)는 옮기지 않으니 따라올 것도 없다.
+  if (!root?.position || root.role === 'segment' || fittingMoveRefusal(model, equipmentId)) return plan
+  const neighbors = new Map<string, Set<string>>()
   for (const c of model.connections) {
-    neighbors.set(c.from, [...(neighbors.get(c.from) ?? []), c.to])
-    neighbors.set(c.to, [...(neighbors.get(c.to) ?? []), c.from])
+    if (c.from === c.to) continue
+    neighbors.set(c.from, (neighbors.get(c.from) ?? new Set()).add(c.to))
+    neighbors.set(c.to, (neighbors.get(c.to) ?? new Set()).add(c.from))
+  }
+  // 분기 이음쇠: 셋 이상과 이어졌거나(티·크로스), 옮기는 설비가 아닌 다른 설비에 붙었다. 옮기면 그 분기의 배관이 끌려온다.
+  const shared = (id: string) => {
+    const around = neighbors.get(id) ?? new Set()
+    return around.size >= 3 || [...around].some((x) => x !== equipmentId && !isConduitRole(byId.get(x)?.role ?? null))
+  }
+  const block = (id: string, reason: 'geometry' | 'position') => {
+    if (!plan.blocked.some((b) => b.id === id)) plan.blocked.push({ id, reason })
   }
   const seen = new Set([equipmentId])
   let frontier: Equipment[] = [root]
@@ -197,14 +230,25 @@ export function planFollow(model: Model, equipmentId: string, axisOf: (id: strin
     for (const mover of frontier) {
       for (const id of neighbors.get(mover.id) ?? []) {
         const e = byId.get(id)
-        if (!e?.position || seen.has(id)) continue
+        if (!e || seen.has(id)) continue
+        if (!e.position) {
+          if (isConduitRole(e.role)) block(id, 'position')
+          continue
+        }
         if (e.role === 'fitting' && depth < FITTING_DEPTH) {
           seen.add(id)
+          if (shared(id)) {
+            plan.held.push(id)
+            continue
+          }
           plan.rigid.push(id)
           next.push(e)
         } else if (e.role === 'segment') {
           const axis = axisOf(id)
-          if (!axis) continue
+          if (!axis) {
+            block(id, 'geometry')
+            continue
+          }
           const now = currentAxis(e, axis)
           const end: 0 | 1 = dist2(now[0], mover.position!) <= dist2(now[1], mover.position!) ? 0 : 1
           // 양 끝이 다 옮겨지는 구간(두 이음쇠 사이)은 끝을 둘 다 적는다.
@@ -222,6 +266,24 @@ export function planFollow(model: Model, equipmentId: string, axisOf: (id: strin
 }
 
 const isConduitRole = (role: Equipment['role']) => role === 'segment' || role === 'fitting'
+
+/**
+ * 이음쇠(배관의 꼭짓점)를 옮길 수 없으면 그 까닭(OE-PIP-10). 공조기·토출구 같은 설비에 바로 붙은 이음쇠는 배관의 끝점이라, 옮기면 설비와
+ * 떨어진다 — 끝점은 설비를 옮겨 따라오게 하거나 연결 대상을 바꿔서 고친다(OE-PIP-01). 이음쇠가 아니면 null.
+ */
+export function fittingMoveRefusal(model: Model, id: string, nameOf: (e: Equipment) => string = (e) => e.name): string | null {
+  const all = model.storeys.flatMap((s) => s.equipment)
+  const e = all.find((x) => x.id === id)
+  if (e?.role !== 'fitting') return null
+  const byId = new Map(all.map((x) => [x.id, x]))
+  const device = model.connections
+    .filter((c) => c.from === id || c.to === id)
+    .map((c) => byId.get(c.from === id ? c.to : c.from))
+    .find((x) => x && !isConduitRole(x.role))
+  if (!device) return null
+  const [a, b] = [nameOf(e), nameOf(device)]
+  return `${a}${josa(a, '은/는')} ${b}에 바로 붙은 배관 끝점입니다. 끝점은 ${b}${josa(b, '을/를')} 옮기면 따라옵니다.`
+}
 
 /**
  * 설비가 `delta` 만큼 옮겨진 뒤 계획대로 배관을 따라오게 한다. 좌표는 `moveEquipment` 로 바꿔 소속도 다시 판정한다.
@@ -395,6 +457,41 @@ function setRoomKind(space: Space, found: ReturnType<typeof resolveRoomKind>) {
 }
 
 /**
+ * 같은 공간명의 물리존(OE-SPC-17 "같은 공간명의 방은 종류를 일괄 수정"). 건물의 모든 층에서 찾는다 — 성수의 `S.T`·`P.S` 처럼 층마다
+ * 되풀이되는 이름이 일괄 수정을 바라는 경우다. 공간명이 비었으면 그 물리존 하나다. 앞뒤 빈칸은 견주지 않는다.
+ */
+export function sameNameSpaces(model: Model, spaceId: string): Space[] {
+  const all = model.storeys.flatMap((s) => s.spaces)
+  const space = all.find((s) => s.id === spaceId)
+  if (!space) return []
+  const name = space.longName.trim()
+  return name ? all.filter((s) => s.longName.trim() === name) : [space]
+}
+
+/**
+ * 방 종류를 사람이 정한다(OE-SPC-17). 출처는 `edit` 이고 이름을 고쳐도 남는다. `kind` 가 `undefined` 면 사람이 정한 것을 거두고 이름 사전 →
+ * OmniClass 로 다시 읽는다. 사전이 읽는 값과 같은 종류를 고르면 거두는 것과 같다 — 편집 파일에 같은 값의 편집이 쌓이지 않게. `null` 은
+ * "모름" 으로 정한 것이다(사전이 잘못 읽은 것을 지울 때). 바뀐 물리존 수를 돌려준다.
+ */
+export function setSpacesKind(model: Model, spaceIds: readonly string[], kind: string | null | undefined): number {
+  if (kind && !roomKind(kind)) return 0
+  const ids = new Set(spaceIds)
+  let changed = 0
+  for (const space of model.storeys.flatMap((s) => s.spaces)) {
+    if (!ids.has(space.id)) continue
+    const before = `${space.kind ?? ''}|${space.kindSource ?? ''}`
+    const read = resolveRoomKind(space.name, space.longName, space.omniclass ?? null)
+    if (kind === undefined || kind === (read?.info.kind ?? null)) setRoomKind(space, read)
+    else {
+      space.kind = kind
+      space.kindSource = 'edit'
+    }
+    if (`${space.kind ?? ''}|${space.kindSource ?? ''}` !== before) changed++
+  }
+  return changed
+}
+
+/**
  * 같은 층에서 이 방번호를 쓰는 다른 물리존(OE-OBJ-02 "방번호는 한 층 안에서 고유"). 빈 번호는 아직 안 정한 것이라 겹쳐도 된다.
  * 공간명(longName)은 겹쳐도 된다.
  */
@@ -428,9 +525,9 @@ export function renameSpace(model: Model, spaceId: string, longName: string): bo
     const space = storey.spaces.find((s) => s.id === spaceId)
     if (space) {
       space.longName = longName
-      // 이름 사전으로 정한 방 종류는 이름을 따라간다. 계단을 "회의실" 로 고쳤는데 brick:Staircase 로 나갔다 — 이름을
-      // 고치는 것이 사람이 방 종류를 바로잡는 유일한 길이라서다. 임포트와 같은 순서(이름 사전 → OmniClass)로 다시 읽는다.
-      setRoomKind(space, resolveRoomKind(space.name, longName, space.omniclass ?? null))
+      // 이름 사전으로 정한 방 종류는 이름을 따라간다. 계단을 "회의실" 로 고쳤는데 brick:Staircase 로 나갔다. 임포트와 같은 순서
+      // (이름 사전 → OmniClass)로 다시 읽는다. 사람이 정한 종류(OE-SPC-17)는 이름을 고쳐도 그대로 둔다.
+      if (space.kindSource !== 'edit') setRoomKind(space, resolveRoomKind(space.name, longName, space.omniclass ?? null))
       return true
     }
   }
@@ -624,6 +721,8 @@ export type Snapshot =
       nameEdited: Equipment['nameEdited']
       endShift: Equipment['endShift']
       wallId: string | undefined
+      /** 사람이 넣은 샤프트(OE-ML-09·14). */
+      shaftId?: string
       /** 사람이 정한 설치면(OE-EQP-05). */
       surfaceSet?: Equipment['surfaceSet']
     }
@@ -681,6 +780,8 @@ export type Snapshot =
       }[]
       equipment: { equipment: Equipment; spaceId: string | null; spaceSource: Equipment['spaceSource'] }[]
       openings: { id: string; connects: string[] | undefined }[]
+      /** 그 층의 사람이 만든 공조존. 물리존을 나누고 합치면 담당 물리존이 따라 바뀐다(OE-MAP-02). */
+      hvacZones?: HvacZone[]
     }
   /** 계통의 구성원·종류·유체와 설비의 계통(E8). */
   | {
@@ -703,10 +804,17 @@ export type Snapshot =
   | { kind: 'many'; parts: Snapshot[] }
   /** 한 층의 커스텀존 목록(OE-OBJ-01). 소속을 담지 않으니(쓸 때 계산한다) 목록만 사본으로 떠 둔다. */
   | { kind: 'custom-zones'; storeyId: string; zones: CustomZone[] | undefined }
+  | { kind: 'hvac-zones'; storeyId: string; zones: HvacZone[] | undefined }
   /** 층의 룸 전부(OE-OBJ-03). 만들기·지우기·옮기기·크기를 같은 방식으로 되돌린다. */
   | { kind: 'rooms'; storeyId: string; rooms: Room[] | undefined }
+  /** 층 이름(storey-name.ts). 지금 이름과 BIM 이름(고친 적 없으면 undefined). */
+  | { kind: 'storey-name'; storeyId: string; name: string; bimName: string | undefined }
+  /** 사람이 넣은 설계 풍량·정격 풍량(OE-ZON-06, airflow.ts). 물리존이나 설비 하나의 값이다. 공조존 값은 'hvac-zones' 가 함께 뜬다. */
+  | { kind: 'airflow'; target: 'space' | 'equipment'; id: string; value: Space['designAirflow'] | Equipment['ratedAirflow'] }
   /** 층의 추가 공간 오브젝트 전부(OE-OBJ-09). 놓기·지우기·옮기기·크기·이름을 같은 방식으로 되돌린다. */
   | { kind: 'space-objects'; storeyId: string; objects: SpaceObject[] | undefined }
+  /** 모든 층의 수직 관통 오브젝트 조각(OE-ML-07·09). 여러 층에 걸친 옮기기·지우기를 한 번에 되돌린다(vertical-edit.ts). */
+  | { kind: 'verticals'; storeys: { storeyId: string; parts: VerticalPart[] | undefined }[] }
   /** 한 층의 벽·문·창(E4). 객체를 그대로 들고 있어 되돌려도 같은 객체다. */
   | {
       kind: 'storey-elements'
@@ -753,6 +861,18 @@ export function snapshotRooms(model: Model, storeyId: string): Snapshot | null {
 }
 const copyRoomList = (rooms: readonly Room[]): Room[] => rooms.map((r) => ({ ...r, footprint: r.footprint.map((p) => [p[0], p[1]] as Vec2) }))
 
+const copyVerticalParts = (parts: readonly VerticalPart[]): VerticalPart[] =>
+  parts.map((p) => ({
+    ...p,
+    footprint: p.footprint.map((q) => [q[0], q[1]] as Vec2),
+    entry: p.entry ? [p.entry[0], p.entry[1], p.entry[2]] : null,
+    exit: p.exit ? [p.exit[0], p.exit[1], p.exit[2]] : null,
+  }))
+/** 모든 층의 수직 관통 오브젝트 조각을 떠 둔다(OE-ML-07·09). 조각은 계단마다 지나는 층 수만큼이라(병원 6개) 통째로 뜬다. */
+export function snapshotVerticals(model: Model): Snapshot {
+  return { kind: 'verticals', storeys: model.storeys.map((st) => ({ storeyId: st.id, parts: st.verticalParts ? copyVerticalParts(st.verticalParts) : undefined })) }
+}
+
 /** 한 층의 추가 공간 오브젝트를 떠 둔다(OE-OBJ-09). */
 export function snapshotSpaceObjects(model: Model, storeyId: string): Snapshot | null {
   const storey = model.storeys.find((s) => s.id === storeyId)
@@ -766,6 +886,13 @@ export function snapshotCustomZones(model: Model, storeyId: string): Snapshot | 
   const storey = model.storeys.find((s) => s.id === storeyId)
   if (!storey) return null
   return { kind: 'custom-zones', storeyId, zones: storey.customZones ? copyZones(storey.customZones) : undefined }
+}
+
+/** 층의 사람이 만든 공조존 목록(OE-ZON-01·02). 만들기·지우기·담당 설비 바꾸기를 되돌린다. */
+export function snapshotHvacZones(model: Model, storeyId: string): Snapshot | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  if (!storey) return null
+  return { kind: 'hvac-zones', storeyId, zones: storey.hvacZones ? copyHvacZones(storey.hvacZones) : undefined }
 }
 
 export function snapshotEquipment(model: Model, equipmentId: string): Snapshot | null {
@@ -787,6 +914,7 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
       nameEdited: e.nameEdited ? { ...e.nameEdited } : undefined,
       endShift: e.endShift ? copyShift(e.endShift) : undefined,
       wallId: e.wallId,
+      ...(e.shaftId ? { shaftId: e.shaftId } : {}),
       surfaceSet: e.surfaceSet,
     }
   }
@@ -875,10 +1003,18 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotStoreyElements(model, snapshot.storeyId)
     case 'custom-zones':
       return snapshotCustomZones(model, snapshot.storeyId)
+    case 'hvac-zones':
+      return snapshotHvacZones(model, snapshot.storeyId)
     case 'rooms':
       return snapshotRooms(model, snapshot.storeyId)
+    case 'storey-name':
+      return snapshotStoreyName(model, snapshot.storeyId)
+    case 'airflow':
+      return snapshotAirflow(model, snapshot.target, snapshot.id)
     case 'space-objects':
       return snapshotSpaceObjects(model, snapshot.storeyId)
+    case 'verticals':
+      return snapshotVerticals(model)
     case 'many': {
       const parts = snapshot.parts.map((p) => snapshotOf(model, p))
       return parts.every((p): p is Snapshot => !!p) ? { kind: 'many', parts } : null
@@ -907,6 +1043,22 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
  * 스냅숏을 되돌려 놓고 소속을 다시 판정한다. 좌표·경계를 되돌렸는데 소속이 그대로면 리포트가 거짓이 된다.
  * 연결 방향과 확정은 소속과 상관이 없어 값만 되돌린다.
  */
+/** 층 이름 하나(storey-name.ts). */
+export function snapshotStoreyName(model: Model, storeyId: string): Snapshot | null {
+  const storey = model.storeys.find((st) => st.id === storeyId)
+  return storey ? { kind: 'storey-name', storeyId, name: storey.name, bimName: storey.bimName } : null
+}
+
+/** 물리존의 설계 풍량이나 설비의 정격 풍량 하나(OE-ZON-06). */
+export function snapshotAirflow(model: Model, target: 'space' | 'equipment', id: string): Snapshot | null {
+  if (target === 'space') {
+    const space = findSpace(model, id)
+    return space ? { kind: 'airflow', target, id, value: space.designAirflow ? { ...space.designAirflow } : undefined } : null
+  }
+  const e = findEquipment(model, id)
+  return e ? { kind: 'airflow', target, id, value: e.ratedAirflow ? { ...e.ratedAirflow } : undefined } : null
+}
+
 export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
   switch (snapshot.kind) {
     case 'equipment': {
@@ -928,6 +1080,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete equipment.endShift
       if (snapshot.wallId) equipment.wallId = snapshot.wallId
       else delete equipment.wallId
+      if (snapshot.shaftId) equipment.shaftId = snapshot.shaftId
+      else delete equipment.shaftId
       if (snapshot.surfaceSet) equipment.surfaceSet = snapshot.surfaceSet
       else delete equipment.surfaceSet
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
@@ -1030,6 +1184,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       }
       for (const e of storey.equipment) assignEquipment(e, storey.spaces)
       relinkDoors(storey)
+      if (snapshot.hvacZones) storey.hvacZones = copyHvacZones(snapshot.hvacZones)
+      else delete storey.hvacZones
       return null
     }
     case 'storey-elements': {
@@ -1079,6 +1235,13 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete storey.customZones
       return null
     }
+    case 'hvac-zones': {
+      const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!storey) return null
+      if (snapshot.zones) storey.hvacZones = copyHvacZones(snapshot.zones)
+      else delete storey.hvacZones
+      return null
+    }
     case 'rooms': {
       const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
       if (!storey) return null
@@ -1086,11 +1249,37 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete storey.rooms
       return null
     }
+    case 'airflow': {
+      const target: { designAirflow?: unknown; ratedAirflow?: unknown } | null | undefined =
+        snapshot.target === 'space' ? findSpace(model, snapshot.id) : findEquipment(model, snapshot.id)
+      const key = snapshot.target === 'space' ? 'designAirflow' : 'ratedAirflow'
+      if (!target) return null
+      if (snapshot.value) target[key] = { ...snapshot.value }
+      else delete target[key]
+      return null
+    }
+    case 'storey-name': {
+      const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
+      if (!storey) return null
+      storey.name = snapshot.name
+      if (snapshot.bimName === undefined) delete storey.bimName
+      else storey.bimName = snapshot.bimName
+      return null
+    }
     case 'space-objects': {
       const storey = model.storeys.find((st) => st.id === snapshot.storeyId)
       if (!storey) return null
       if (snapshot.objects) storey.spaceObjects = copyObjectList(snapshot.objects)
       else delete storey.spaceObjects
+      return null
+    }
+    case 'verticals': {
+      for (const row of snapshot.storeys) {
+        const storey = model.storeys.find((st) => st.id === row.storeyId)
+        if (!storey) continue
+        if (row.parts) storey.verticalParts = copyVerticalParts(row.parts)
+        else delete storey.verticalParts
+      }
       return null
     }
     case 'many': {
@@ -1124,11 +1313,14 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       for (const entry of snapshot.entries) {
         const e = byId.get(entry.id)
         if (!e) continue
+        const was = exteriorKind(e)
         e.kind = entry.kind
         if (entry.kindEdited) e.kindEdited = { ...entry.kindEdited }
         else delete e.kindEdited
+        if (was !== exteriorKind(e)) reassignOnKind(model, e)
       }
       // 종류가 규칙 방향의 원천·말단을 정하므로 규칙도 다시 돌린다. 되돌리기는 거꾸로 쌓이므로 같은 결과가 나온다.
+      repartitionFlowless(model)
       return inferFlowByRules(model)
     }
   }
@@ -1203,16 +1395,29 @@ export function setTypeKind(
   model: Model,
   typeKey: string,
   kind: string | null,
-): { count: number; rules: RuleReport } | null {
+): { count: number; rules: RuleReport; flowless: { removed: number; restored: number } } | null {
   if (kind !== null && !equipmentKind(kind)) return null
   const members = model.storeys.flatMap((s) => s.equipment).filter((e) => inKindGroup(e, typeKey))
   if (members.length === 0 || members.every((e) => (e.kind ?? null) === kind)) return null
   for (const e of members) {
+    const was = exteriorKind(e)
     if (!e.kindEdited) e.kindEdited = { from: e.kind ?? null }
     e.kind = kind
     if (e.kindEdited.from === kind) delete e.kindEdited
+    if (was !== exteriorKind(e)) reassignOnKind(model, e)
   }
-  return { count: members.length, rules: inferFlowByRules(model) }
+  // 흐름 없는 종류가 되거나 아니게 되면 형상 연결을 다시 가른다(OE-PIP-18). 규칙 방향이 그 연결을 타므로 먼저 한다.
+  const flowless = repartitionFlowless(model)
+  return { count: members.length, rules: inferFlowByRules(model), flowless }
+}
+
+/**
+ * 종류가 외벽 전용(외부 루버·외기 센서)이 되거나 아니게 되면 소속을 다시 판정한다(OE-MAP-01 1단계). 외벽 전용이 되면 방에서 빠지고,
+ * 아니게 되면 좌표로 방을 찾는다. 다른 종류 변경은 소속에 닿지 않는다.
+ */
+function reassignOnKind(model: Model, e: Equipment) {
+  const storey = model.storeys.find((s) => s.equipment.includes(e))
+  if (storey) assignEquipment(e, storey.spaces)
 }
 
 export function kindEdits(model: Model): KindEdit[] {
@@ -1250,7 +1455,7 @@ export type Baseline = {
   numbers?: Map<string, string>
   /** 물리존 외곽선. 편집 저장(edit-file.ts)이 바뀐 경계만 골라 담는다. */
   footprints: Map<string, Vec2[]>
-  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource']; name?: string; systemId?: string | null; wallId?: string | null }>
+  equipment: Map<string, { position: Vec3 | null; storeyId: string; spaceId: string | null; spaceSource?: Equipment['spaceSource']; name?: string; systemId?: string | null; wallId?: string | null; shaftId?: string | null }>
   /** 계통의 종류·유체(E8). 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
   systems?: Map<string, { name: string; kind: string | null; fluid: Fluid | null }>
   /** 연 때 있던 연결(순서 없는 짝). 이은 것·끊은 것을 이것과 견준다. 옛 편집 파일에서 온 baseline 에는 없을 수 있다. */
@@ -1278,6 +1483,18 @@ export type Baseline = {
   openings?: Map<string, { storeyId: string; name: string; kind: Opening['kind']; position: Vec3 | null | undefined; wallId: string | null; width?: number | null; height?: number | null }>
   /** 층마다 커스텀존(OE-OBJ-01) 목록의 사본. 이 칸이 생기기 전의 baseline 에는 없다(그때는 빈 것으로 본다). */
   customZones?: Map<string, CustomZone[]>
+  /** 층마다 사람이 만든 공조존(OE-ZON-01·02) 목록의 사본. 이 칸이 생기기 전의 baseline 에는 없다(빈 것으로 본다). */
+  hvacZones?: Map<string, HvacZone[]>
+  /**
+   * 수직 관통 오브젝트(OE-ML-02)의 연 때 모습 — 이름, 기준점(첫 층 조각, vertical-edit.ts 의 partRef), 층별 형상. 옮긴 거리·지움과
+   * V-03 충돌(연 때보다 더 겹쳤나)을 이것과 견준다. 이 칸이 생기기 전의 baseline 에는 없다.
+   */
+  verticals?: Map<string, { name: string; ref: Vec2 | null; footprints: Map<string, Vec2[]>; parts: Map<string, { footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null }> }>
+  /**
+   * BIM 에서 받은 추가 공간 오브젝트(가구·주변 모델, `source: 'bim'`)의 연 때 모습. 편집 파일은 이것과 달라진 것만 적는다 — 사람이 놓은
+   * 오브젝트처럼 끝 목록을 적으면 열자마자 바뀐 것이 수백 건이 되고, 지운 것이 다시 열면 돌아왔다. 이 칸이 생기기 전의 baseline 에는 없다.
+   */
+  bimObjects?: Map<string, { storeyId: string; name: string; item: string; at: Vec2; size: Vec3 }>
 }
 
 /** 파일을 열거나 합친 직후에 뜬다. */
@@ -1326,6 +1543,7 @@ export function baselineOf(model: Model): Baseline {
         name: e.name,
         systemId: e.systemId,
         wallId: e.wallId ?? null,
+        shaftId: shaftOf(model, e)?.id ?? null,
       })
     }
   }
@@ -1335,12 +1553,41 @@ export function baselineOf(model: Model): Baseline {
     numbers,
     footprints,
     equipment,
-    connections: new Set(model.connections.map((c) => pairKey(c.from, c.to))),
+    // 흐름 없는 기기에 닿아 빼 둔 형상 연결도 넣는다. 종류를 바꿔 오가는 것은 끊고 이은 것이 아니다(flow-review.ts).
+    connections: new Set([...model.connections, ...(model.flowlessGeometry ?? [])].map((c) => pairKey(c.from, c.to))),
     keys: fingerprints(model),
     customZones: new Map(model.storeys.map((s) => [s.id, copyZones(s.customZones ?? [])])),
+    hvacZones: new Map(model.storeys.map((s) => [s.id, copyHvacZones(s.hvacZones ?? [])])),
     walls,
     openings,
+    verticals: verticalBaseline(model),
+    bimObjects: new Map(
+      model.storeys.flatMap((st) =>
+        (st.spaceObjects ?? [])
+          .filter((o) => o.source === 'bim')
+          .map((o) => [o.id, { storeyId: st.id, name: o.name, item: o.item, at: [o.at[0], o.at[1]] as Vec2, size: [o.size[0], o.size[1], o.size[2]] as Vec3 }] as const),
+      ),
+    ),
   }
+}
+
+function verticalBaseline(model: Model): NonNullable<Baseline['verticals']> {
+  const out: NonNullable<Baseline['verticals']> = new Map()
+  // 높이 순으로 돌아 첫 조각이 시작 층이다(vertical-edit.ts 의 verticalRef 와 같은 기준점).
+  for (const storey of [...model.storeys].sort((a, b) => a.elevation - b.elevation)) {
+    for (const part of storey.verticalParts ?? []) {
+      let row = out.get(part.parentId)
+      if (!row) out.set(part.parentId, (row = { name: part.name, ref: null, footprints: new Map(), parts: new Map() }))
+      row.ref ??= partRef(part)
+      row.footprints.set(storey.id, part.footprint.map((p) => [p[0], p[1]] as Vec2))
+      row.parts.set(storey.id, {
+        footprint: part.footprint.map((p) => [p[0], p[1]] as Vec2),
+        entry: part.entry ? [part.entry[0], part.entry[1], part.entry[2]] : null,
+        exit: part.exit ? [part.exit[0], part.exit[1], part.exit[2]] : null,
+      })
+    }
+  }
+  return out
 }
 
 export type BaselineDiff = {
@@ -1363,6 +1610,8 @@ export type BaselineDiff = {
   equipmentRenamed: { id: string; from: string; to: string }[]
   /** 벽 면에 붙이거나(`wall` 은 벽 이름) 벽에서 뗀(`null`) 설비(OE-OBJ-04). 연 때 있던 설비만 — 더한 설비는 equipmentAdded 에 든다. */
   equipmentMounted: { id: string; name: string; wall: string | null }[]
+  /** 덕트·배관 구간의 샤프트 소속을 바꾼 것(OE-ML-09·14). `shaft` 는 지금 샤프트 이름, 없으면 null. */
+  equipmentShaft?: { id: string; name: string; shaft: string | null }[]
   /** 벽·문·창(E4). 지운 벽에 뚫려 같이 빠진 문·창은 openingsRemoved 에 세지 않는다. */
   wallsAdded: { id: string; name: string }[]
   wallsRemoved: { id: string; name: string }[]
@@ -1384,6 +1633,8 @@ export type BaselineDiff = {
   openingsMoved: { id: string; name: string; kind: Opening['kind']; moved: boolean; resized: boolean }[]
   /** 커스텀존(OE-OBJ-01). 만든 것·지운 것·고친 것(이름이나 다각형). 나누면 새 조각이 만든 것, 합치면 없어진 쪽이 지운 것이다. */
   customZones: { id: string; name: string; change: 'added' | 'removed' | 'changed' }[]
+  /** 사람이 만든 공조존(OE-ZON-01·02). 만든 것·지운 것·고친 것(이름·담당 물리존·담당 설비·바닥). */
+  hvacZones: { id: string; name: string; storeyId: string | null; change: 'added' | 'removed' | 'changed' }[]
   /** 계통을 바꾼 설비(E8). 계통 id 다. */
   systemMoved: { id: string; name: string; from: string | null; to: string | null }[]
   /** 사람이 만든 계통과 없어진 계통(E8). */
@@ -1393,6 +1644,11 @@ export type BaselineDiff = {
   systemKinds: { id: string; name: string; from: { kind: string | null; fluid: Fluid | null }; to: { kind: string | null; fluid: Fluid | null } }[]
   /** 이름을 고친 계통(OE-PIP-09). 연 때 있던 계통만 — 사람이 만든 계통의 이름은 `systemsAdded` 가 끝 이름을 든다. */
   systemNames: { id: string; from: string; to: string }[]
+  /**
+   * 옮기거나(`move` 는 연 때와 견준 x·y 이동량) 지운 수직 관통 오브젝트(OE-ML-07·09). 층별로 따로 고친 것(한 층 조각만 옮김·꼭짓점·진입/종료
+   * 지점)은 `reshaped` 에 그 층 id 를 적는다 — 전체 이동량 하나로 다시 만들 수 없어 편집 파일이 조각을 통째로 적는다. 옛 baseline 이면 없다.
+   */
+  verticals?: { id: string; name: string; move?: Vec2; removed?: true; reshaped?: string[]; created?: VerticalPart['kind'] }[]
 }
 
 /** 좌표를 같다고 보는 차. 표와 3D 가 센티미터로 자르므로 그보다 작은 차는 같은 자리다. */
@@ -1407,6 +1663,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const equipmentAdded: BaselineDiff['equipmentAdded'] = []
   const equipmentRenamed: BaselineDiff['equipmentRenamed'] = []
   const equipmentMounted: BaselineDiff['equipmentMounted'] = []
+  const equipmentShaft: NonNullable<BaselineDiff['equipmentShaft']> = []
   const wallName = new Map(model.storeys.flatMap((s) => s.walls.map((w) => [w.id, w.name || '벽'] as const)))
   const systemMoved: BaselineDiff['systemMoved'] = []
   const storeyName = new Map(model.storeys.map((s) => [s.id, s.name]))
@@ -1426,12 +1683,17 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
       const was = baseline.equipment.get(e.id)
       if (!was) {
         equipmentAdded.push({ id: e.id, name: e.name || e.ifcClass })
+        // 더한 구간(그린 배관)도 샤프트에 넣었으면 그 줄을 남긴다.
+        const into = shaftOf(model, e)
+        if (into) equipmentShaft.push({ id: e.id, name: e.name || e.ifcClass, shaft: into.name })
         continue
       }
       if (was.name !== undefined && was.name !== e.name) equipmentRenamed.push({ id: e.id, from: was.name, to: e.name })
       if (was.wallId !== undefined && (was.wallId ?? null) !== (e.wallId ?? null)) {
         equipmentMounted.push({ id: e.id, name: e.name || e.ifcClass, wall: e.wallId ? (wallName.get(e.wallId) ?? e.wallId) : null })
       }
+      const shaft = shaftOf(model, e)
+      if (was.shaftId !== undefined && (was.shaftId ?? null) !== (shaft?.id ?? null)) equipmentShaft.push({ id: e.id, name: e.name || e.ifcClass, shaft: shaft?.name ?? null })
       const name = e.name || e.ifcClass
       if (was.systemId !== undefined && was.systemId !== e.systemId) systemMoved.push({ id: e.id, name, from: was.systemId, to: e.systemId })
       if (was.storeyId !== storey.id) {
@@ -1449,7 +1711,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const disconnected: BaselineDiff['disconnected'] = []
   if (baseline.connections) {
     const now = new Set<string>()
-    for (const c of model.connections) {
+    for (const c of [...model.connections, ...(model.flowlessGeometry ?? [])]) {
       const key = pairKey(c.from, c.to)
       now.add(key)
       if (!baseline.connections.has(key)) connected.push({ from: c.from, to: c.to })
@@ -1485,6 +1747,7 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
   const systemsAdded = baseline.systems ? model.systems.filter((s) => !baseline.systems!.has(s.id)).map((s) => ({ id: s.id, name: s.name })) : []
   const systemIds = new Set(model.systems.map((s) => s.id))
   const systemsRemoved = baseline.systems ? [...baseline.systems].filter(([id]) => !systemIds.has(id)).map(([id, was]) => ({ id, name: was.name })) : []
+  const verticals = diffVerticals(model, baseline)
   return {
     renamed,
     renumbered,
@@ -1498,14 +1761,61 @@ export function diffBaseline(model: Model, baseline: Baseline): BaselineDiff {
     equipmentRemoved,
     equipmentRenamed,
     equipmentMounted,
+    equipmentShaft,
     ...e4,
     customZones: diffCustomZones(model, baseline),
+    hvacZones: diffHvacZones(model, baseline),
     systemMoved,
     systemKinds,
     systemNames,
     systemsAdded,
     systemsRemoved,
+    ...(verticals.length ? { verticals } : {}),
   }
+}
+
+/** 연 때와 견준 수직 관통 오브젝트의 이동량·지움. 1mm 안이면 안 옮긴 것이다(옮겼다 되돌린 것). */
+export function diffVerticals(model: Model, baseline: Baseline): NonNullable<BaselineDiff['verticals']> {
+  const out: NonNullable<BaselineDiff['verticals']> = []
+  if (!baseline.verticals) return out
+  const now = new Map<string, Vec2 | null>()
+  for (const storey of [...model.storeys].sort((a, b) => a.elevation - b.elevation)) {
+    for (const part of storey.verticalParts ?? []) if (!now.get(part.parentId)) now.set(part.parentId, partRef(part))
+  }
+  for (const [id, was] of baseline.verticals) {
+    if (!now.has(id)) {
+      out.push({ id, name: was.name, removed: true })
+      continue
+    }
+    const ref = now.get(id)
+    if (!ref || !was.ref) continue
+    const d: Vec2 = [Math.round((ref[0] - was.ref[0]) * 1000) / 1000, Math.round((ref[1] - was.ref[1]) * 1000) / 1000]
+    // 모든 층 조각이 연 때 조각에 같은 이동량을 더한 것이면 전체 이동이다. 아니면 층별로 고친 것이고, 연 때와 달라진 층을 모두 적는다.
+    const near = (a: number, b: number) => Math.abs(a - b) < 0.0015
+    const sameXY = (p: readonly number[] | null, q: readonly number[] | null, s: Vec2) => (!p && !q) || (!!p && !!q && near(p[0], q[0] + s[0]) && near(p[1], q[1] + s[1]))
+    const samePart = (part: VerticalPart | undefined, base: { footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null } | undefined, s: Vec2) =>
+      !!part &&
+      !!base &&
+      part.footprint.length === base.footprint.length &&
+      part.footprint.every((p, i) => sameXY(p, base.footprint[i], s)) &&
+      sameXY(part.entry, base.entry, s) &&
+      sameXY(part.exit, base.exit, s)
+    const pairs = model.storeys
+      .map((st) => ({ storeyId: st.id, part: (st.verticalParts ?? []).find((p) => p.parentId === id), base: was.parts.get(st.id) }))
+      .filter((x) => x.part || x.base)
+    if (pairs.every((x) => samePart(x.part, x.base, d))) {
+      if (Math.abs(d[0]) >= 0.001 || Math.abs(d[1]) >= 0.001) out.push({ id, name: was.name, move: d })
+      continue
+    }
+    out.push({ id, name: was.name, reshaped: pairs.filter((x) => !samePart(x.part, x.base, [0, 0])).map((x) => x.storeyId) })
+  }
+  // 사람이 만든 것(OE-ML-06). 연 때 없던 오브젝트다.
+  const made = new Map<string, VerticalPart>()
+  for (const storey of [...model.storeys].sort((a, b) => a.elevation - b.elevation)) {
+    for (const part of storey.verticalParts ?? []) if (!baseline.verticals.has(part.parentId) && !made.has(part.parentId)) made.set(part.parentId, part)
+  }
+  for (const [id, part] of made) out.push({ id, name: part.name, created: part.kind })
+  return out
 }
 
 const sameRings = (a: readonly (readonly Vec2[])[] | undefined, b: readonly (readonly Vec2[])[] | undefined) =>
@@ -1527,6 +1837,26 @@ function diffCustomZones(model: Model, baseline: Baseline): BaselineDiff['custom
     }
   }
   for (const [id, z] of was) if (!now.has(id)) out.push({ id, name: z.name, change: 'removed' })
+  return out
+}
+
+function diffHvacZones(model: Model, baseline: Baseline): BaselineDiff['hvacZones'] {
+  const was = new Map<string, HvacZone>()
+  for (const zones of baseline.hvacZones?.values() ?? []) for (const z of zones) was.set(z.id, z)
+  const out: BaselineDiff['hvacZones'] = []
+  const now = new Set<string>()
+  const same = (a: HvacZone, b: HvacZone) =>
+    a.name === b.name && a.spaceIds.join(' ') === b.spaceIds.join(' ') && (a.servedBy ?? []).join(' ') === (b.servedBy ?? []).join(' ') && sameRings(a.footprint, b.footprint) &&
+    JSON.stringify(a.designAirflow ?? null) === JSON.stringify(b.designAirflow ?? null)
+  for (const storey of model.storeys) {
+    for (const z of storey.hvacZones ?? []) {
+      now.add(z.id)
+      const before = was.get(z.id)
+      if (!before) out.push({ id: z.id, name: z.name, storeyId: z.storeyId, change: 'added' })
+      else if (!same(before, z)) out.push({ id: z.id, name: z.name, storeyId: z.storeyId, change: 'changed' })
+    }
+  }
+  for (const [id, z] of was) if (!now.has(id)) out.push({ id, name: z.name, storeyId: z.storeyId, change: 'removed' })
   return out
 }
 
@@ -1682,7 +2012,18 @@ export function newId(): string {
   return `U_${Array.from(bytes, (b) => ID_CHARS[b % ID_CHARS.length]).join('')}`
 }
 
-export type NewEquipment = { name: string; kind: string | null; position: Vec3 | null; id?: string }
+export type NewEquipment = {
+  name: string
+  kind: string | null
+  position: Vec3 | null
+  id?: string
+  /** 사람이 그린 배관의 구간·이음쇠(OE-PIP-11, manual-pipe.ts). 종류 대신 역할·IFC 클래스·중심선·Flow Type 을 받는다. */
+  conduit?: { role: 'segment' | 'fitting'; ifcClass: string; axis?: [Vec3, Vec3]; flowType: string; endShift?: [Vec3, Vec3] }
+  /** 3D 모양을 빌려 올 BIM 설비(복제한 원본, ADR-0059). */
+  shapeOf?: string
+}
+
+const pair = (p: readonly [Vec3, Vec3]): [Vec3, Vec3] => [[p[0][0], p[0][1], p[0][2]], [p[1][0], p[1][1], p[1][2]]]
 
 /** 설비를 더한다. 좌표가 있으면 소속을 판정한다. 좌표 없이 더하면 미배치 목록에 들어간다(E6 으로 놓는다). */
 export function addEquipment(model: Model, storeyId: string, spec: NewEquipment): Equipment | null {
@@ -1695,12 +2036,12 @@ export function addEquipment(model: Model, storeyId: string, spec: NewEquipment)
   const equipment: Equipment = {
     id,
     name: spec.name,
-    // IFC 클래스는 모른다. 설비 전체의 윗 클래스로 둔다 — 종류를 고르면 Brick 클래스는 종류에서 나온다.
-    ifcClass: 'DistributionElement',
+    // IFC 클래스는 모른다. 설비 전체의 윗 클래스로 둔다 — 종류를 고르면 Brick 클래스는 종류에서 나온다. 그린 배관은 구간·이음쇠 클래스다.
+    ifcClass: spec.conduit?.ifcClass ?? 'DistributionElement',
     objectType: '',
     declaredType: null,
     kind: spec.kind,
-    role: info?.role ?? null,
+    role: spec.conduit?.role ?? info?.role ?? null,
     position: spec.position ? [spec.position[0], spec.position[1], spec.position[2]] : null,
     ...(spec.position ? { positionSource: 'edited' as const } : {}),
     capacity: null,
@@ -1709,6 +2050,14 @@ export function addEquipment(model: Model, storeyId: string, spec: NewEquipment)
     spaceId: null,
     spaceSource: null,
     added: true,
+    ...(spec.shapeOf && !spec.conduit ? { shapeOf: spec.shapeOf } : {}),
+    ...(spec.conduit
+      ? {
+          flowType: spec.conduit.flowType,
+          ...(spec.conduit.axis ? { axis: pair(spec.conduit.axis) } : {}),
+          ...(spec.conduit.endShift ? { endShift: pair(spec.conduit.endShift) } : {}),
+        }
+      : {}),
   }
   storey.equipment.push(equipment)
   assignEquipment(equipment, storey.spaces)
@@ -1792,6 +2141,7 @@ export function snapshotStoreySpaces(model: Model, storeyId: string): Snapshot |
     })),
     equipment: storey.equipment.map((equipment) => ({ equipment, spaceId: equipment.spaceId, spaceSource: equipment.spaceSource })),
     openings: storey.openings.map((o) => ({ id: o.id, connects: o.connects ? [...o.connects] : undefined })),
+    ...(storey.hvacZones ? { hvacZones: copyHvacZones(storey.hvacZones) } : {}),
   }
 }
 
@@ -1857,6 +2207,7 @@ export function deleteSpace(model: Model, spaceId: string): SpaceSetChange | { r
   if (storey.spaces.length <= 1) return { refused: '층에 하나 남은 물리존은 지울 수 없습니다.' }
   const before = snapshotSpaces(model)
   storey.spaces = storey.spaces.filter((s) => s.id !== spaceId)
+  remapZonesForSpaces(storey, { removed: spaceId })
   return { storeyId: storey.id, created: [], removed: [spaceId], equipment: settleStorey(model, storey, new Set([spaceId]), before) }
 }
 
@@ -1902,12 +2253,15 @@ export function splitSpace(
     areaM2: polygonArea(small),
     boundedBy: [],
     added: true,
+    splitFrom: spaceId,
   })
   const piece = storey.spaces[storey.spaces.length - 1]
   setRoomKind(piece, resolveRoomKind(piece.name, piece.longName, null))
   // 사람이 나눈 물리존은 BIM 이 거기 담아 둔 설비도 좌표로 다시 판정한다(OE-MAP-01 3단계, Q13). 좁은 조각에 든 설비는 좁은
   // 조각으로, 넓은 조각(원래 id)에 든 설비는 그대로, 둘 다 밖인 설비는 좌표대로 다른 방이나 층으로 간다.
   releaseDeclared(storey, spaceId)
+  // 나눈 물리존을 담당하던 공조존은 두 조각 모두 담당한다(OE-MAP-02).
+  remapZonesForSpaces(storey, { split: [spaceId, id] })
   return { storeyId: storey.id, created: [id], removed: [], equipment: settleStorey(model, storey, new Set(), before) }
 }
 
@@ -1938,6 +2292,7 @@ export function mergeSpaces(
 function absorb(model: Model, storey: Storey, keep: Space, other: Space, before: ReturnType<typeof snapshotSpaces>): SpaceSetChange {
   keep.merged = [...(keep.merged ?? []), other.id, ...(other.merged ?? [])]
   storey.spaces = storey.spaces.filter((s) => s !== other)
+  remapZonesForSpaces(storey, { merged: [keep.id, other.id] })
   const equipment = settleStorey(model, storey, new Set([other.id]), before, new Map([[other.id, keep.id]]))
   return { storeyId: storey.id, created: [], removed: [other.id], equipment }
 }
@@ -2010,7 +2365,8 @@ export function wallShapeLock(wall: Wall | null | undefined): string | null {
   if (wall?.external === true) return EXTERIOR_LOCKED
   return null
 }
-export type LockOptions = { ignoreLock?: boolean }
+/** `exterior` 는 외벽 에디터(OE-EXT-03) — 외벽 잠금만 풀고 내력 잠금은 그대로 둔다(PRD 1.4 "내력벽: 값 있으면 편집 불가"). */
+export type LockOptions = { ignoreLock?: boolean; exterior?: boolean }
 
 function openingLocked(storey: Storey, opening: Opening): boolean {
   return wallLocked(storey.walls.find((w) => w.id === opening.wallId))
@@ -2122,7 +2478,8 @@ const shiftRings = (rings: readonly (readonly Vec2[])[], d: Vec2) => rings.map((
 export function moveWall(model: Model, wallId: string, delta: Vec2, opts: LockOptions = {}): boolean {
   const found = findWall(model, wallId)
   if (!found || !found.wall.footprint?.length || (delta[0] === 0 && delta[1] === 0)) return false
-  if (!opts.ignoreLock && wallShapeLock(found.wall)) return false
+  const lock = wallShapeLock(found.wall)
+  if (!opts.ignoreLock && lock && !(opts.exterior && lock === EXTERIOR_LOCKED)) return false
   const next = shiftRings(found.wall.footprint, delta)
   if (newCrossing(model, wallId, next)) return false
   found.wall.footprint = next
@@ -2166,6 +2523,12 @@ export function deleteWall(model: Model, wallId: string, opts: LockOptions = {})
 
 /** 기본 벽 두께(미터). 사람이 두께를 정하지 않고 그은 벽이다. */
 export const NEW_WALL_THICKNESS = 0.2
+
+/**
+ * 사이트 기본 내벽 두께(미터, OE-SPC-12 "내벽 150 / 외벽 300mm"). 사이트 설정의 처음 값이고, 사람이 바꾸거나 비울 수 있다.
+ * 층 편집에서 새로 긋는 벽은 내벽이라 이 값만 쓴다. 외벽 300mm 는 쓰는 곳(OE-IDF-10, R2)이 생길 때 같이 둔다.
+ */
+export const SITE_INTERIOR_WALL = 0.15
 
 /**
  * 새로 긋는 벽의 두께와 그 근거(OE-SPC-12). 1) 같은 층 BIM 내벽 두께의 최빈값 → 2) 사이트 기본값 → 3) 0.2m 순이다.
@@ -2924,6 +3287,7 @@ export function moveWallWithSpaces(
   wallId: string,
   delta: Vec2,
   plan?: WallCarryPlan | null,
+  opts: LockOptions = {},
 ): { changes: BoundaryChange[]; crossed: string[]; plan: WallCarryPlan } | null {
   const spaceById = new Map(model.storeys.flatMap((st) => st.spaces).map((sp) => [sp.id, sp]))
   // 계획을 세운 뒤 그 방 경계를 따로 고쳤으면(꼭짓점 넣기·지우기) 꼭짓점 번호가 어긋난다. 그때는 새로 세운다.
@@ -2942,7 +3306,7 @@ export function moveWallWithSpaces(
     rings.push({ space, ring: withClosing(pts.map((p, i) => (moved.has(i) ? ([p[0] + k * item.n[0], p[1] + k * item.n[1]] as Vec2) : p)), true) })
     next.items.push(item)
   }
-  if (!moveWall(model, wallId, delta)) return null
+  if (!moveWall(model, wallId, delta, opts)) return null
   const changes: BoundaryChange[] = []
   const crossed: string[] = []
   for (const { space, ring } of rings) {

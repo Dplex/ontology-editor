@@ -27,14 +27,19 @@ import { polygonArea } from '../model'
 import { apply, compose, foldChain, foldElevation, fromAxisPlacement, type Transform2 } from './placement'
 import { assignEquipmentToSpaces } from '../mapping'
 import { dropDuplicateSpaces } from '../merge'
-import { lengthScale } from './units'
+import { areaScale, flowScale, lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
-import { equipmentKind, equipmentKindOf, FLUID_KINDS, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
-import { CAPACITY_KINDS, capacityRank } from '../capacity'
+import { equipmentKind, equipmentKindOf, FLUID_KINDS, isFlowlessKind, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
+import { CAPACITY_KINDS, capacityQuantity, capacityRank } from '../capacity'
+import { flowToCmh, REVIT_SPACE_AIRFLOW, SPACE_AIRFLOW_PROPERTIES, SPACE_AIRFLOW_PSETS } from '../airflow'
 import { inferFlowByRules } from '../flow-rules'
 import { footprintRings, meshBottom, meshHeight, openingPlacement, spacesBesideOpening } from './element-geometry'
 import { emptyEvidence, pickCeiling, type CeilingEvidence } from '../ceiling'
 import { storeyHeights } from '../storey-height'
+import { segmentAxisOf } from '../conduit-mesh'
+import { stairParts } from '../vertical-object'
+import { contextItem, furnitureItem } from '../object-names'
+import { meshBox } from '../overlap'
 
 /**
  * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
@@ -323,7 +328,8 @@ function ref(attr: { value?: number } | null | undefined): number | null {
 type Api = InstanceType<typeof WebIFC.IfcAPI>
 
 /** 속성 줄에서 쓰는 값만. `measure` 는 용량이 읽는 값(범위면 설정값, 없으면 위 끝)이다. */
-type PropInfo = { name: string | undefined; nominal: unknown; measure: unknown }
+/** `measureType` 은 값의 IFC 타입 이름(`IFCVOLUMETRICFLOWRATEMEASURE`·`IFCREAL` …)이다. 단위가 붙는 값인지 가른다(airflow.ts 의 flowToCmh). */
+type PropInfo = { name: string | undefined; nominal: unknown; measure: unknown; measureType?: string }
 
 class Reader {
   constructor(
@@ -433,6 +439,7 @@ class Reader {
               nominal: val(line.NominalValue) as unknown,
               // 범위(IfcPropertyBoundedValue)는 설정값을, 없으면 위 끝을 쓴다(용량).
               measure: val(line.NominalValue ?? line.SetPointValue ?? line.UpperBoundValue) as unknown,
+              measureType: ((line.NominalValue ?? line.SetPointValue ?? line.UpperBoundValue) as { name?: string } | null)?.name,
             }
           : null
         this.propCache.set(h.value, prop)
@@ -520,6 +527,79 @@ class Reader {
       if (depth !== null) offer(id, 'room', depth, '방 형상 높이(SweptSolid)')
     }
     return out
+  }
+
+  /**
+   * 방마다 BIM 이 적은 바닥 면적(OE-MAN-03, ㎡). 외곽선 없는 물리존 목록에 보이고, 사람이 그린 외곽선의 넓이와 견준다. 순서는 ① 기준 물량
+   * `NetFloorArea`(ArchiCAD 가 적는다, AC20) ② `GrossFloorArea` ③ GSA 의 `GSA BIM Area` ④ Revit 의 `Area`(PSet_Revit_Dimensions —
+   * Duplex·병원·Office). 0 이하는 비운 칸이다. `areaScale` 은 넓이 1 이 몇 ㎡ 인지(units.ts 의 areaScale).
+   */
+  spaceAreas(areaScale: number): Map<number, { m2: number; property: string }> {
+    const spaces = new Set(this.ids(WebIFC.IFCSPACE))
+    const rank = (name: string) => ['NetFloorArea', 'GrossFloorArea', 'GSA BIM Area', 'Area'].indexOf(name)
+    const best = new Map<number, { m2: number; property: string; rank: number }>()
+    const offer = (id: number, name: string, v: unknown, where: string) => {
+      const k = rank(name)
+      if (k < 0 || typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return
+      const had = best.get(id)
+      if (!had || k < had.rank) best.set(id, { m2: v * areaScale, property: where, rank: k })
+    }
+    for (const { objects, psetID } of this.propertyRels()) {
+      const targets = psetID === null ? [] : objects.filter((o) => spaces.has(o))
+      if (!targets.length) continue
+      const set = this.tryLine(psetID!)
+      const setName = (val(set?.Name) as string) ?? ''
+      for (const h of set?.Quantities ?? []) {
+        const q = this.tryLine(h.value)
+        const name = (val(q?.Name) as string) ?? ''
+        if (name === 'NetFloorArea' || name === 'GrossFloorArea') for (const id of targets) offer(id, name, val(q?.AreaValue), `${setName}.${name}`)
+      }
+      for (const p of set?.HasProperties ? this.psetProps(psetID!) : []) {
+        // Revit 의 `Area` 는 치수 속성 세트에 있다. 다른 세트의 `Area`(마감 면적 등)를 바닥 면적으로 읽지 않게 세트 이름을 본다.
+        const ok = p.name === 'GSA BIM Area' || (p.name === 'Area' && /Revit_Dimensions|^Dimensions$/i.test(setName))
+        if (ok) for (const id of targets) offer(id, p.name!, p.nominal, `${setName}.${p.name}`)
+      }
+    }
+    return new Map([...best].map(([id, { m2, property }]) => [id, { m2, property }]))
+  }
+
+  /**
+   * 방마다 BIM 이 적은 설계 급기 풍량(CMH, R26·OE-ZON-06). 표준 자리는 `Pset_SpaceThermalDesign`(IFC2x3·IFC4)과
+   * `Pset_SpaceAirHandlingDimensioning`(IFC4.3)의 냉방·난방 두 값이다. 다른 자리로 Revit MEP 공간의 `Specified Supply Airflow` 를 읽는다
+   * (냉방·난방을 가르지 않는다). **0 이하는 비운 칸이다** — 병원 MEP 의 방 260개가 모두 0 이었다(Revit 이 넣지 않은 값을 0 으로 낸다).
+   * 둘 다 있으면 표준 자리가 앞선다.
+   */
+  spaceAirflows(scale: number): Map<number, NonNullable<Space['designAirflow']>> {
+    const spaces = new Set(this.ids(WebIFC.IFCSPACE))
+    const standard = new Map<number, NonNullable<Space['designAirflow']>>()
+    const revit = new Map<number, NonNullable<Space['designAirflow']>>()
+    for (const { objects, psetID } of this.propertyRels()) {
+      const targets = psetID === null ? [] : objects.filter((o) => spaces.has(o))
+      if (!targets.length) continue
+      const setName = (val(this.tryLine(psetID!)?.Name) as string) ?? ''
+      const isStandard = (SPACE_AIRFLOW_PSETS as readonly string[]).includes(setName)
+      const said: { cooling: number | null; heating: number | null; supply: number | null } = { cooling: null, heating: null, supply: null }
+      const names: string[] = []
+      for (const p of this.psetProps(psetID!)) {
+        const key =
+          isStandard && p.name === SPACE_AIRFLOW_PROPERTIES.cooling
+            ? 'cooling'
+            : isStandard && p.name === SPACE_AIRFLOW_PROPERTIES.heating
+              ? 'heating'
+              : p.name === REVIT_SPACE_AIRFLOW && /^PSet_Revit/i.test(setName)
+                ? 'supply'
+                : null
+        if (!key) continue
+        const cmh = flowToCmh(Number(p.measure), p.measureType, setName, scale)
+        if (cmh === null || cmh <= 0) continue
+        said[key] = cmh
+        names.push(p.name!)
+      }
+      if (!names.length) continue
+      const value = { ...said, source: 'bim' as const, property: `${setName}.${names.join('·')}` }
+      for (const id of targets) (isStandard ? standard : revit).set(id, value)
+    }
+    return new Map([...revit, ...standard])
   }
 
   /** 수직으로 밀어 올린 형상(SweptSolid)의 깊이(미터). 없거나 기울었으면 null. */
@@ -630,23 +710,26 @@ class Reader {
    * 모델에서 표준 Pset 이름은 한 건도 없었고, Duplex HVAC 은 Revit 이 붙인 `Flow` 로
    * 155건이 들어 있었다. 어느 이름이 쓰였는지 보이면 고객사와 스펙을 맞출 때 근거가 된다.
    */
-  capacityByElement(): Map<number, { value: number; property: string }> {
-    const out = new Map<number, { value: number; property: string }>()
+  capacityByElement(scale = 1): Map<number, { value: number; property: string; cmh: number | null; pset: string }> {
+    const out = new Map<number, { value: number; property: string; cmh: number | null; pset: string }>()
     // 목록에서 앞선 이름이 이긴다. 같은 이름이면 나중에 넣은 것(개체)이 타입을 덮는다 — IFC 에서 개체의 값이 타입의
     // 값보다 앞선다.
-    const offer = (objectID: number, value: number, property: string) => {
+    const offer = (objectID: number, entry: { value: number; property: string; cmh: number | null; pset: string }) => {
       const had = out.get(objectID)
-      if (had && capacityRank(had.property) < capacityRank(property)) return
-      out.set(objectID, { value, property })
+      if (had && capacityRank(had.property) < capacityRank(entry.property)) return
+      out.set(objectID, entry)
     }
     const read = (psetID: number, objectIDs: number[]) => {
+      const pset = (val(this.tryLine(psetID)?.Name) as string) ?? ''
       for (const prop of this.psetProps(psetID)) {
         const name = prop.name as string
         if (capacityRank(name) < 0) continue
         // 범위(IfcPropertyBoundedValue)는 설정값을, 없으면 위 끝을 쓴다. 표준의 AirFlowrateRange·FlowRateRange 가 범위다.
         const value = Number(prop.measure)
         if (!Number.isFinite(value)) continue
-        for (const id of objectIDs) offer(id, value, name)
+        // 풍량이면 CMH 로도 바꿔 둔다(OE-ZON-06). 단위를 모르면 null 이고 Z-03 은 "정격 풍량 없음" 이다.
+        const cmh = capacityQuantity(name) === 'airflow' ? flowToCmh(value, prop.measureType, pset, scale) : null
+        for (const id of objectIDs) offer(id, { value, property: name, cmh, pset })
       }
     }
 
@@ -1009,6 +1092,8 @@ function spaceOf(
   boundaries: Map<number, number[]>,
   warnings: string[],
   omniclass: Map<number, { code: string; source: 'classification' | 'property' }>,
+  bimAreas: Map<number, { m2: number; property: string }> = new Map(),
+  airflows: Map<number, NonNullable<Space['designAirflow']>> = new Map(),
 ): Space {
   const e = r.line(expressID)
   const id = (val(e?.GlobalId) as string) ?? `space-${expressID}`
@@ -1031,6 +1116,8 @@ function spaceOf(
     omniclass: omniclass.get(expressID)?.code ?? null,
     ...(omniclass.has(expressID) ? { omniclassSource: omniclass.get(expressID)!.source } : {}),
     ...roomKindFields((val(e?.Name) as string) ?? '', longName, omniclass.get(expressID)?.code ?? null),
+    ...(bimAreas.has(expressID) ? { bimArea: bimAreas.get(expressID)! } : {}),
+    ...(airflows.has(expressID) ? { designAirflow: { ...airflows.get(expressID)! } } : {}),
   }
 }
 
@@ -1203,7 +1290,8 @@ function read(
     stage(1)
     const loadBearing = r.loadBearingByElement()
     const external = r.flagByElement('IsExternal')
-    const capacity = r.capacityByElement()
+    const flow = flowScale(api, model).scale
+    const capacity = r.capacityByElement(flow)
     const declaredTypeOf = r.declaredType(api)
     const omniclass = r.omniclassBySpace()
     const thickness = r.thicknessByElement()
@@ -1251,16 +1339,32 @@ function read(
     // (포트 없이 놓인 CCTV 같은 장치). 둘 다 아니면 휠스톱·캐노피 같은 건축 부재라 받지 않는다.
     // 제외 목록을 늘리는 대신 포함 근거를 IFC 구조(포트)와 좁은 사전에 둔다. 역할은 IFC 가 안 주므로
     // 사전의 것을 쓴다.
+    //
+    // **포트가 없는 Proxy 는 이름이 루버여도 받지 않는다(OE-EXT-05).** 건축 파일의 알루미늄·옥상·캐노피 루버는 차양·외장 마감재다
+    // (성수 건축 Proxy 339개 중 240개). 설비 루버(외기·배기)는 덕트에 포트로 붙어 있거나 IFC 클래스(IfcAirTerminal LOUVRE)가 말하므로
+    // 여기서 빼도 그대로 들어온다. 제외 낱말을 늘리지 않고 "이름만으로 받는 종류" 에서 외부 루버를 뺀다. 뺀 수는 `louvers` 로 센다.
     const ported = r.portOwners()
-    const proxies = { total: 0, ported: 0, named: 0, skipped: [] as string[] }
+    const proxies = { total: 0, ported: 0, named: 0, louvers: 0, skipped: [] as string[], context: 0 }
+    // **방도 포트도 없는 파일의 Proxy 는 주변 모델이다**(2026-10-13, 성수 조경 파일: 스테이지·지형·주변 건물 매스 131개). 버리지 않고
+    // 추가 공간 오브젝트(주변 건물·지형·스테이지)로 받는다 — 형상을 읽는 임포트에서만(상자를 형상에서 잰다). 방이 있는 건축 파일의 남은
+    // Proxy(캐노피·단열 모서리)와 포트가 있는 설비 파일의 남은 Proxy(MCC·발전기)는 지금처럼 읽지 않는다.
+    const contextFile = withMeshes && r.ids(WebIFC.IFCSPACE).length === 0 && ported.size === 0
+    const contextProxies = new Set<number>()
     for (const id of r.ids(WebIFC.IFCBUILDINGELEMENTPROXY)) {
       const el = r.line(id)
       const name = (val(el?.Name) as string) ?? ''
       const info = equipmentKindOf(name, (val(el?.ObjectType) as string) ?? '')
       proxies.total++
       if (ported.has(id)) proxies.ported++
-      else if (info) proxies.named++
-      else {
+      else if (info?.kind === 'outdoor_louver') {
+        proxies.louvers++
+        continue
+      } else if (info) proxies.named++
+      else if (contextFile) {
+        proxies.context++
+        contextProxies.add(id)
+        continue
+      } else {
         // 읽지 않은 것의 이름 예. Revit 이름은 `패밀리:유형:요소ID` 라 요소 ID 를 떼어 같은 패밀리를 한 번만 적는다.
         const family = name.replace(/:\d+$/, '').trim() || '(이름 없음)'
         if (proxies.skipped.length < 5 && !proxies.skipped.includes(family)) proxies.skipped.push(family)
@@ -1395,9 +1499,15 @@ function read(
 
     const declaredHeights = r.storeyHeights()
     const ceilingBySpace = r.ceilingBySpace()
+    const bimAreas = r.spaceAreas(areaScale(api, model).scale)
+    const airflows = r.spaceAirflows(flow)
     // 층마다 반자 높이 근거(ceiling.ts). 천장재는 형상을 읽은 뒤에 아랫면을 잰다.
     const ceilingEvidence = new Map<string, CeilingEvidence>()
     const coveringsOf = new Map<string, number[]>()
+    /** 층 GlobalId → BIM 에서 받을 추가 공간 오브젝트(가구·주변 모델). 형상을 읽은 뒤 상자를 잰다(space-object.ts). */
+    const bimObjectsOf = new Map<string, { expressID: number; id: string; name: string; item: string }[]>()
+    /** 층 GlobalId → 그 층에 속한 계단(IfcStair). 형상을 읽은 뒤 수직 관통 오브젝트로 만든다(OE-ML-02). */
+    const stairsOf = new Map<string, { expressID: number; id: string; name: string }[]>()
     const storeys: Storey[] = r.ids(WebIFC.IFCBUILDINGSTOREY).map((storeyID) => {
       const e = r.line(storeyID)
       const storeyGlobalID = (val(e?.GlobalId) as string) ?? `storey-${storeyID}`
@@ -1438,7 +1548,20 @@ function read(
           case WebIFC.IFCCOVERING:
             if (val(el?.PredefinedType) === 'CEILING') coveringsOf.set(storeyGlobalID, [...(coveringsOf.get(storeyGlobalID) ?? []), elementID])
             break
+          case WebIFC.IFCSTAIR:
+            stairsOf.set(storeyGlobalID, [...(stairsOf.get(storeyGlobalID) ?? []), { expressID: elementID, id, name }])
+            break
+          // 가구(성수 10층 인테리어 314개). 형상을 읽는 임포트에서만 추가 공간 오브젝트가 된다.
+          case WebIFC.IFCFURNISHINGELEMENT:
+          case WebIFC.IFCFURNITURE:
+          case WebIFC.IFCSYSTEMFURNITUREELEMENT:
+            if (withMeshes) bimObjectsOf.set(storeyGlobalID, [...(bimObjectsOf.get(storeyGlobalID) ?? []), { expressID: elementID, id, name, item: furnitureItem(name) }])
+            break
           default:
+            if (contextProxies.has(elementID)) {
+              bimObjectsOf.set(storeyGlobalID, [...(bimObjectsOf.get(storeyGlobalID) ?? []), { expressID: elementID, id, name, item: contextItem(name) }])
+              break
+            }
             if (!mepIDs.has(elementID)) break
             {
             // GetNameFromTypeCode 는 'IfcAirTerminal' 을 준다. 앞의 Ifc 만 뗀다.
@@ -1458,6 +1581,9 @@ function read(
               position: r.position3(el),
               capacity: capacity.get(elementID)?.value ?? null,
               capacityProperty: capacity.get(elementID)?.property ?? null,
+              ...(capacity.get(elementID)?.cmh
+                ? { ratedAirflow: { cmh: capacity.get(elementID)!.cmh!, source: 'bim' as const, property: `${capacity.get(elementID)!.pset}.${capacity.get(elementID)!.property}` } }
+                : {}),
               systemId: systemOfElement.get(elementID) ?? null,
               // BIM 이 소속을 말해 줬으면 그대로 쓴다. 아니면 좌표로 판정하는데, 그건
               // 층이 다 모인 뒤라야 돌 수 있어서 아래에서 채운다.
@@ -1474,7 +1600,7 @@ function read(
         elevation: ((val(e?.Elevation) as number) ?? 0) * scale,
         ...(declaredHeights.has(storeyID) ? { declaredHeight: declaredHeights.get(storeyID)! } : {}),
         spaces: (spacesByStorey.get(storeyID) ?? []).map((id) =>
-          spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass),
+          spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass, bimAreas, airflows),
         ),
         walls,
         openings,
@@ -1548,7 +1674,7 @@ function read(
         // IfcMapConversion 은 IFC4 부터 있다. IFC2x3 에서는 늘 0 이다.
         mapConversion: r.ids(WebIFC.IFCMAPCONVERSION).length > 0,
         siteLatLong: r.ids(WebIFC.IFCSITE).some((id) => (r.line(id)?.RefLatitude?.length ?? 0) > 0),
-        ...(proxies.total ? { proxies } : {}),
+        ...(proxies.total ? { proxies: (({ context, ...rest }) => (context ? { ...rest, context } : rest))(proxies) } : {}),
       },
     }
 
@@ -1569,6 +1695,16 @@ function read(
     // 배치점을 형상에 맞춘 뒤에 소속을 판정한다. 순서를 바꾸면 층 원점에 찍힌 덕트가 원점이
     // 든 방으로 먼저 들어가 버린다.
     const anchored = anchorToGeometry(allEquipment, meshes)
+    // 덕트·배관 구간의 중심선(OE-PIP-13). GeoJSON 이 이 두 끝으로 경로(LineString)를 낸다. 배치점에서 잰 상대 좌표로 둔다(model.ts 의
+    // `axis`). 형상이나 배치점이 없는 구간은 비워 둔다 — 배치점 하나로 경로를 만들지 않는다. 0.1mm 로 반올림한다(성수 구간 7,874개).
+    for (const e of allEquipment) {
+      const mesh = e.role === 'segment' && e.position ? meshes.get(e.id) : undefined
+      const axis = mesh && segmentAxisOf(mesh.positions)
+      const at = e.position
+      const q = (v: number, k: number) => Math.round((v - at![k]) * 1e4) / 1e4
+      const r = (p: Vec3): Vec3 => [q(p[0], 0), q(p[1], 1), q(p[2], 2)]
+      if (axis) e.axis = [r(axis[0]), r(axis[1])]
+    }
     if (anchored > 0) {
       warnings.push(
         `설비 ${anchored}대는 배치점이 형상에서 ${ANCHOR_MARGIN}m 넘게 떨어져 있어(층 원점에 찍힌 것으로 보임) 형상 중심을 좌표로 썼습니다.`,
@@ -1605,22 +1741,20 @@ function read(
       for (const system of systems) {
         for (const id of system.memberIds) systemsOf.set(id, [...(systemsOf.get(id) ?? []), system.name])
       }
-      // 흐름이 없는 종류(조명·감지기·비치품·분전반 — kinds.ts 의 `flow: {}`)는 형상이 맞닿아도 잇지 않는다(OE-PIP-18). 병원 MEP 에서
+      // 흐름이 없는 종류(조명·감지기·비치품·분전반, kinds.ts 의 isFlowlessKind)는 형상이 맞닿아도 잇지 않는다(OE-PIP-18). 병원 MEP 에서
       // 나란히 붙은 조명기구 16쌍이 서로 "연결" 로 잡혔다. 포트가 있는 세 파일(병원 HVAC·Duplex HVAC·ifc4Mep)을 정답지로 재면 빼도
-      // 재현율·정밀도가 그대로다 — 포트가 흐름 없는 기기를 잇는 일이 없다. 종류를 모르는 것은 둔다.
+      // 재현율이 그대로다 — 포트가 흐름 없는 기기를 잇는 일이 없다(check-sample 의 OE-PIP-18#5). 종류를 모르는 것과 냉매 설비는 둔다.
       const kindOf = new Map(allEquipment.map((e) => [e.id, e.kind]))
-      const flows = (id: string) => {
-        const info = equipmentKind(kindOf.get(id))
-        return !info || Object.keys(info.flow ?? {}).length > 0
-      }
-      const points = [...meshes]
-        .filter(([id]) => flows(id))
-        .map(([id, mesh]) => ({
-          id,
-          points: mesh.positions,
-          systems: systemsOf.get(id) ?? null,
-        }))
+      const elements = [...meshes].map(([id, mesh]) => ({ id, points: mesh.positions, systems: systemsOf.get(id) ?? null }))
+      const points = elements.filter((el) => !isFlowlessKind(kindOf.get(el.id)))
       result.connections = inferConnections(points)
+      // 뺀 쪽에 닿는 쌍은 버리지 않고 따로 둔다. 사람이 종류를 고치면 연결로 돌아온다(flow-review.ts 의 repartitionFlowless).
+      // 흐름 없는 기기가 있을 때만 한 번 더 잰다 — 형상 추정은 쌍마다 따로라 결과가 같고, 위 결과의 순서는 건드리지 않는다.
+      if (points.length < elements.length) {
+        const flowless = new Set(elements.filter((el) => isFlowlessKind(kindOf.get(el.id))).map((el) => el.id))
+        const set = inferConnections(elements).filter((c) => flowless.has(c.from) || flowless.has(c.to))
+        if (set.length) result.flowlessGeometry = set
+      }
       if (result.connections.length > 0) {
         warnings.push(
           `포트(IfcDistributionPort)가 없어 형상이 맞닿은 곳을 연결로 추정했습니다(${result.connections.length}개). 흐름 방향은 알 수 없습니다.`,
@@ -1658,11 +1792,13 @@ function read(
     // 읽은 것과 읽지 않은 것을 같이 센다(OE-BIM-13). 읽은 수만 말하면 빠뜨린 설비가 없는지 볼 길이 없다.
     if (proxies.total > 0) {
       const read = proxies.ported + proxies.named
-      const left = proxies.total - read
+      const left = proxies.total - read - proxies.context
       warnings.push(
         `Proxy(IfcBuildingElementProxy) ${proxies.total}개 중 ${read}개를 설비로 읽었습니다` +
           (read ? `(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 정한 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름으로 추정했습니다` : '') +
-          (left ? `. 나머지 ${left}개는 포트도 없고 이름도 사전에 없어 건축 부재로 보고 읽지 않았습니다(예: ${proxies.skipped.join(', ')})` : '') +
+          (proxies.louvers ? `. 이름이 루버이지만 포트가 없는 ${proxies.louvers}개는 건축 루버(차양·외장 마감)로 보고 설비로 받지 않았습니다` : '') +
+          (left - proxies.louvers ? `. 나머지 ${left - proxies.louvers}개는 포트도 없고 이름도 사전에 없어 건축 부재로 보고 읽지 않았습니다(예: ${proxies.skipped.join(', ')})` : '') +
+          (proxies.context ? `. 방도 포트도 없는 파일이라 ${proxies.context}개를 주변 모델로 보고 추가 공간 오브젝트(주변 건물·지형·스테이지)로 받았습니다. GeoJSON 에만 나갑니다` : '') +
           '(요구사항 R23).',
       )
     }
@@ -1691,6 +1827,76 @@ function read(
           if (bottom !== null) ceilingEvidence.get(storey.id)?.covering.push(bottom - storey.elevation)
         }
       }
+    }
+    // 계단(OE-ML-02, vertical-object.ts). 형상을 읽는 임포트에서만 만든다 — 층을 잇는지·진입/종료 지점이 모두 형상에서 나온다.
+    if (withMeshes && stairsOf.size) {
+      const stairs = [...stairsOf.values()].flat()
+      const stairOf = new Map<number, number>()
+      const children = new Map<number, number[]>()
+      for (const relID of r.ids(WebIFC.IFCRELAGGREGATES)) {
+        const rel = r.line(relID)
+        const parent = ref(rel?.RelatingObject)
+        if (parent !== null) children.set(parent, (rel.RelatedObjects ?? []).map((c: { value: number }) => c.value))
+      }
+      for (const s of stairs) {
+        // 계단판·참만 잰다. 난간은 위 끝을 1m 쯤 올려 위층을 잘못 고르게 한다. 하위 부재가 없으면 계단 자신의 형상이다.
+        const parts = (children.get(s.expressID) ?? []).filter((c) => [WebIFC.IFCSTAIRFLIGHT, WebIFC.IFCSLAB].includes(r.line(c)?.type))
+        for (const c of parts.length ? parts : [s.expressID]) stairOf.set(c, s.expressID)
+      }
+      const stairMeshes = readMeshes(api, model, new Set(stairOf.keys()), (id) => String(id))
+      const points = new Map<number, Vec3[]>()
+      for (const [key, mesh] of stairMeshes) {
+        const owner = stairOf.get(Number(key))!
+        const list = points.get(owner) ?? []
+        // 메시는 three.js 좌표(x, 높이, -y)다.
+        for (let i = 0; i < mesh.positions.length; i += 3) list.push([mesh.positions[i], -mesh.positions[i + 2], mesh.positions[i + 1]])
+        points.set(owner, list)
+      }
+      let flat = 0
+      for (const storey of result.storeys) {
+        for (const s of stairsOf.get(storey.id) ?? []) {
+          const made = stairParts({ id: s.id, name: s.name, points: points.get(s.expressID) ?? [] }, storey, result.storeys)
+          if (!made) {
+            flat++
+            continue
+          }
+          for (const { storey: at, part } of made) at.verticalParts = [...(at.verticalParts ?? []), part]
+        }
+      }
+      if (flat) warnings.push(`계단 ${stairs.length}개 중 ${flat}개는 다른 층에 닿지 않아(한 층 안의 몇 계단이거나 형상이 없음) 수직 관통 오브젝트로 만들지 않았습니다.`)
+    }
+    // BIM 의 가구·주변 모델(space-object.ts). 형상에서 축 정렬 상자를 재 추가 공간 오브젝트로 둔다. 형상은 재고 버린다(3D 는 항목 모델로 그린다).
+    if (withMeshes && bimObjectsOf.size) {
+      const all = [...bimObjectsOf.values()].flat()
+      const objMeshes = readMeshes(api, model, new Set(all.map((o) => o.expressID)), globalIdOf)
+      let noShape = 0
+      for (const storey of result.storeys) {
+        for (const o of bimObjectsOf.get(storey.id) ?? []) {
+          const mesh = objMeshes.get(o.id)
+          const box = mesh ? meshBox(mesh) : null
+          if (!box) {
+            noShape++
+            continue
+          }
+          const cm2 = (v: number) => Math.round(v * 100) / 100
+          const size: Vec3 = [0, 1, 2].map((k) => Math.max(0.05, cm2(box.max[k] - box.min[k]))) as unknown as Vec3
+          const base = cm2(box.min[2] - storey.elevation)
+          storey.spaceObjects = [
+            ...(storey.spaceObjects ?? []),
+            {
+              id: o.id,
+              // Revit 이름은 `패밀리:유형:요소ID` 다. 요소 ID 는 뗀다.
+              name: o.name.replace(/:\d+$/, '').trim() || o.item,
+              item: o.item,
+              at: [cm2((box.min[0] + box.max[0]) / 2), cm2((box.min[1] + box.max[1]) / 2)],
+              size,
+              ...(Math.abs(base) >= 0.02 ? { base } : {}),
+              source: 'bim' as const,
+            },
+          ]
+        }
+      }
+      if (noShape) warnings.push(`가구·주변 모델 ${noShape}개는 형상이 없어 추가 공간 오브젝트로 받지 못했습니다.`)
     }
     const heights = storeyHeights(result.storeys)
     for (const storey of result.storeys) {

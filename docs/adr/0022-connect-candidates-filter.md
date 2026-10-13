@@ -6,8 +6,10 @@ date: "2026-10-08"
 deciders: ["정희록"]
 prd: ["#14"]
 tickets: ["OE-PIP-08", "OE-PIP-18"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: []
+tests: []
+related: []
 ---
 
 # ADR-0022 연결 누락의 후보는 거르고 보이며, 사람이 골라 잇는다

@@ -6,6 +6,12 @@ const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 const AT02 = '0MEP$Equip$AT02$0000'
 
 async function open(page: Page) {
+  // E2E_SLOW_FRAME=1 이면 화면 프레임을 50ms 늦춘다. 프레임이 늦게 오는 PC 에서만 흔들리던 시험(방향키)을 이 PC 에서 다시 본다.
+  if (process.env.E2E_SLOW_FRAME)
+    await page.addInitScript(() => {
+      const raf = window.requestAnimationFrame.bind(window)
+      window.requestAnimationFrame = (cb) => (setTimeout(() => raf(cb), 50), 0)
+    })
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -23,7 +29,7 @@ const coords = async (page: Page, name: string) =>
 
 async function pick(page: Page, name: string) {
   await row(page, name).getByRole('button', { name, exact: true }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await settle(page)
 }
 
@@ -72,7 +78,10 @@ test('방향키는 고른 설비를 10cm(Shift 1m) 옮기고, 누른 만큼이 �
   await pick(page, 'AHU-1')
   const start = await coords(page, 'AHU-1')
 
+  // 방향키는 다음 프레임에 모아 옮긴다(App.vue 의 nudge·flushNudge). 누르자마자 읽으면 프레임이 늦은 PC 에서 옮기기 전 값을 읽었다
+  // (Windows 에서 3번 중 2번 moved 0). 두 프레임을 기다린 뒤 읽는다.
   await page.keyboard.press('ArrowRight')
+  await settle(page)
   let now = await coords(page, 'AHU-1')
   // 화면 방향에 가장 가까운 평면 축 하나로만 움직인다. 높이는 그대로다.
   const moved = [Math.abs(now[0] - start[0]), Math.abs(now[1] - start[1])]
@@ -82,6 +91,7 @@ test('방향키는 고른 설비를 10cm(Shift 1m) 옮기고, 누른 만큼이 �
 
   await page.keyboard.press('Shift+ArrowRight')
   await page.keyboard.press('ArrowUp')
+  await settle(page)
   now = await coords(page, 'AHU-1')
   expect(Math.hypot(now[0] - start[0], now[1] - start[1])).toBeGreaterThan(1)
   await expect(page.locator('.key-note')).toContainText('AHU-1')
@@ -218,7 +228,8 @@ test('방 안에서 옮긴 좌표와 물리존 이름도 바뀐 것으로 세고
 test('물리존을 고르면 [ ] 로 꼭짓점을 짚고 방향키로 옮기며, 이어 누른 것은 되돌리기 한 번이다', async ({ page }) => {
   const errors = await open(page)
   await page.keyboard.press('e')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.keyboard.press('m') // 공간 편집 모드(OE-UI-04)
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   // 사무실 모서리 근처 빈 바닥(edit-3d.spec.ts 와 같은 자리).
   const floor = (await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))) as { x: number; y: number }
   await page.mouse.click(floor.x, floor.y)
@@ -303,10 +314,10 @@ test('N 으로 소속 없는 설비에 가서 패널에서 좌표를 넣으면 �
   await page.keyboard.press('Escape')
   await expect(inputs.nth(2)).not.toBeFocused()
   await expect(page.locator('.picked h3')).toHaveText('TEMP-101-01')
-  // 소속 규칙은 이제 통과다. N 은 어긴 것이 남은 다음 규칙으로 간다(픽스처에는 열원이 없어 공조기가 물 계통 규칙을 어긴다).
+  // 소속 규칙은 이제 통과다. N 은 어긴 것이 남은 다음 규칙으로 간다 — 형상이 없는 DUCT-01 의 경로(OE-PIP-13)다.
   await expect(page.locator('.checks tbody tr', { hasText: '소속 방이 있다' }).locator('button')).toHaveCount(0)
   await page.keyboard.press('n')
-  await expect(page.locator('.key-note')).toContainText('열원과 이어져 있다')
-  await expect(page.locator('.key-note')).toContainText('위반 1/1: AHU-1')
+  await expect(page.locator('.key-note')).toContainText('유효한 경로')
+  await expect(page.locator('.key-note')).toContainText('위반 1/1: DUCT-01')
   expect(errors).toEqual([])
 })

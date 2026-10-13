@@ -371,3 +371,22 @@ export function labelPoint(ring: readonly Vec2[], steps = 16): Vec2 | null {
   }
   return best ?? interiorPoint(ring)
 }
+
+/** 볼록 껍질(모노톤 체인). 벽 바닥 외곽선의 문 자리 홈을 메우고(exterior.ts), 계단 형상의 평면을 잡는다(vertical-object.ts). 닫지 않은 고리다. */
+export function convexHull(points: readonly Vec2[]): Vec2[] {
+  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
+  if (pts.length < 3) return pts
+  const cross = (o: Vec2, a: Vec2, b: Vec2) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+  const lower: Vec2[] = []
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop()
+    lower.push(p)
+  }
+  const upper: Vec2[] = []
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i]
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop()
+    upper.push(p)
+  }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)]
+}

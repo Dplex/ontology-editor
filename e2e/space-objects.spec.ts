@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // 추가 공간 오브젝트(OE-OBJ-09 · OE-SPC-14 · OE-SPC-15 · OE-SPC-16 · OE-P3-08). 팔레트의 라이브러리에서 항목을 골라 바닥을 누르면
 // 놓이고, 다른 오브젝트와 겹치는 놓기·끌기·키우기는 막혀 상대가 붉게 짚이며 오브젝트는 원래 자리에 남는다. 넣은 glb 는 라이브러리
@@ -19,20 +20,21 @@ async function place(page: Page, name: string, x: number, y: number) {
   await clickAt(page, x, y)
 }
 
-test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기는 막으며, 넣은 glb 도 놓이고 지우면 Ctrl+Z 로 돌아온다', async ({ page }) => {
+test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기는 막으며, 넣은 glb 도 놓이고 지우면 Ctrl+Z 로 돌아온다 [OE-OBJ-09#1,2] [OE-OBJ-16#1~] [OE-OBJ-15#1~] [OE-SPC-14#1]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(FIXTURE)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
+  await toSpace(page)
   await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
 
-  // 라이브러리(OE-SPC-16): 내장 항목 9개
+  // 라이브러리(OE-SPC-16): 내장 항목 17개(ADR-0016)
   await page.getByRole('button', { name: /^오브젝트/ }).click()
-  await expect(page.locator('.object-library .ghost:not(.object-import)')).toHaveCount(9)
+  await expect(page.locator('.object-library .ghost:not(.object-import)')).toHaveCount(17)
 
   // 책상을 (3, 2)에 놓는다
   await place(page, '책상', 3, 2)
@@ -41,10 +43,12 @@ test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기�
   await expect(panel).toContainText('3.00, 2.00')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
 
-  // 책상과 겹치는 자리에는 의자를 놓지 못한다(OE-SPC-15)
+  // 책상과 겹치는 자리에는 의자를 놓지 못한다. 막은 상대(책상)가 붉게 그려지고 안내가 뜨며 놓이지 않는다 [OE-SPC-15#1]
   await place(page, '의자', 3.2, 2.1)
   await expect(page.locator('.edit-notice').first()).toContainText('이미 오브젝트가 있는 위치입니다')
   expect(await objects(page)).toHaveLength(1)
+  const [desk0] = await objects(page)
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.objectConflict())).toBe(desk0)
 
   // 비켜 놓으면 놓인다
   await place(page, '의자', 3, 3)

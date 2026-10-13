@@ -40,7 +40,7 @@ test('IFC 를 올리면 검토 화면과 3D 가 나온다', async ({ page }) => 
   await expect(rows.nth(0)).toContainText('24.0 ㎡')
   await expect(rows.nth(1)).toContainText('3.00 m')
 
-  await expect(page.locator('.viewport canvas')).toBeVisible()
+  await expect(page.locator('.canvas-wrap > canvas')).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -119,8 +119,9 @@ test('연결을 읽어 계통 범례와 상류·하류를 보여 준다', async 
   // SOURCEANDSINK 로 붙은 토출구. 이어진 것만 알고 방향은 모른다.
   await expect(picked.locator('.flow .linked b')).toHaveText('1')
 
-  // 출처가 화면에 남는다. BIM 이 말한 것과 우리가 추정한 것을 구별할 수 있어야 한다.
-  await expect(picked.locator('.neighbors')).toContainText('포트 BIM')
+  // 출처가 화면에 남는다. BIM 이 말한 것과 우리가 추정한 것을 구별할 수 있어야 한다. 포트 연결은 방향을 말했는지까지 적는다(OE-BIM-09).
+  await expect(picked.locator('.neighbors')).toContainText('BIM 포트 · 방향 명시 BIM')
+  await expect(picked.locator('.neighbors')).toContainText('BIM 포트 · 양방향/미지정 BIM')
 
   expect(errors).toEqual([])
 })
@@ -253,6 +254,8 @@ test('3D 를 전체 화면으로 띄워도 고른 설비 패널이 같이 보인
 })
 
 test('3D 에서 누를 수 있는 곳에 올라가면 커서가 손가락이 되고, 거기를 누르면 설비가 골라진다', async ({ page }) => {
+  // 격자를 칸마다 두 프레임씩 훑는다(최대 384칸). 바쁜 PC(e2e 병렬)에서는 기본 30초를 넘긴다.
+  test.setTimeout(120_000)
   await page.goto('/')
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
@@ -261,7 +264,9 @@ test('3D 에서 누를 수 있는 곳에 올라가면 커서가 손가락이 되
   await page.getByRole('button', { name: '연결망 보기' }).click()
   await page.getByRole('button', { name: '선택 해제' }).click()
 
-  const canvas = page.locator('.viewport canvas')
+  const canvas = page.locator('.canvas-wrap > canvas')
+  // 화면 좌표로 훑으므로 3D 가 화면 안에 있어야 한다.
+  await canvas.scrollIntoViewIfNeeded()
   const box = (await canvas.boundingBox())!
   const cursor = () => canvas.evaluate((el) => el.style.cursor)
   const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))))
@@ -394,8 +399,8 @@ test('완전성 검사는 규칙마다 통과 수를 세고, 어긴 것을 펼�
 
   const checks = page.locator('.checks')
   const rows = checks.locator('tbody tr')
-  // 공기 계통 셋, 물 계통, 도관 끝, 소속, 연결망 … 규칙이 여덟이다.
-  await expect(rows).toHaveCount(8)
+  // 공기 계통 셋, 물 계통 둘, 도관 끝, 도관 경로(OE-PIP-13), 유체 흐름이 아닌 연결(OE-PIP-18), 소속, 연결망, 스프링클러 소화 배관 — 규칙이 열하나다.
+  await expect(rows).toHaveCount(11)
   await expect(checks).toContainText('공기 말단(디퓨저·그릴)이 원천(공조기·FCU 등)과 이어져 있다')
 
   // 어긴 것이 있는 첫 규칙을 펼치고, 목록에서 하나를 고르면 설비 패널이 뜬다.

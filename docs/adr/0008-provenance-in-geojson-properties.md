@@ -1,12 +1,14 @@
 ---
 id: "ADR-0008"
-title: "계산한 관계의 출처는 GeoJSON 속성의 *Source(bim·calc)로 export 한다 — TTL 출처 predicate 는 수신 측과 합의(OE-INT-07)할 때까지 export 하지 않는다"
+title: "계산한 관계의 출처는 GeoJSON 속성의 *Source(bim·calc·edit)로 export 한다 — TTL 출처 predicate 는 수신 측과 합의(OE-INT-07)할 때까지 export 하지 않는다"
 status: "제안"
 date: "2026-10-03"
 prd: []
 tickets: ["OE-INT-09", "OE-INT-07"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: ["src/components/Src.vue", "src/lib/export/geojson.ts"]
+tests: ["src/lib/requirements-s.test.ts"]
+related: ["ADR-0002", "ADR-0018"]
 ---
 
 # ADR-0008 계산한 관계의 출처는 GeoJSON 속성의 *Source(bim·calc)로 export 한다 — TTL 출처 predicate 는 수신 측과 합의(OE-INT-07)할 때까지 export 하지 않는다
@@ -25,7 +27,7 @@ TTL 에 새 predicate(관계·값을 나타내는 이름) 를 넣으면 수신 �
 
 ## 결정
 
-- 출처가 BIM·계산으로 섞이는 관계는 **그 feature 의 GeoJSON 속성에 `…Source: 'bim' | 'calc'`** 로 적는다. 이미 있는 두 가지에 설비 소속
+- 출처가 BIM·계산으로 섞이는 관계는 **그 feature 의 GeoJSON 속성에 `…Source: 'bim' | 'calc' | 'edit'`** 로 적는다(`edit` 은 사람이 정한 것 — 사람이 지정한 설비 소속 ADR-0018, 벽 외벽 여부). 이미 있는 두 가지에 설비 소속
   `spaceSource` 를 추가한다(방이 없으면 null). 사람이 옮긴 설비도 좌표로 다시 판정하므로 `calc` 다
 - 출처가 항상 하나인 관계는 속성으로 적지 않고 BIM→DT 문서(`docs/bim-to-dt-ontology.md`) 부록 C 에 적는다 — 공조존·커스텀존이 포함하는 방(겹친 넓이로 계산), IDF 설비의 `feeds`(외부),
   공기 원천이 급기를 보내는 방(방향과 소속으로 계산). 사람이 만든 것은 id 가 `U_`, IDF 출신은 `Z_`·`I_` 다

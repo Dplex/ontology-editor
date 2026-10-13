@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from './edit-part'
 
 // OE-UI-12 3D 단일 층 표시: "숨긴 층은 그리지도 고르지도 않는다". 방 둘짜리 fixture 는 층마다 설비가 없어 실제 BIM 으로 잰다.
 // 병원 건축+HVAC 의 1층만 볼 때, 2층 설비가 있던 화면 자리를 눌러도 2층 설비·방이 골라지지 않아야 한다. 2층은 1층 위에 있어서
@@ -73,6 +74,7 @@ test('병원: 한 층만 보면 다른 층 설비·방·벽은 그리지도 고�
 
   // 편집 모드의 [벽·문·창] 도 같다. 2층 벽 자리를 눌러도 2층 벽은 안 골라지고, 1층 벽은 골라진다.
   await page.getByRole('button', { name: '편집', exact: true }).click()
+  await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await expect.poll(async () => (await viewer<string[]>('elements')).length).toBeGreaterThan(0)
   const pickWalls = async (ids: string[]) => {

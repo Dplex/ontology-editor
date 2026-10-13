@@ -10,7 +10,8 @@
 // 재판정을 호출부에 맡길 일이 없다. 접은 방법과 실측은 docs/adr/0002-external-wall-flood-fill.md.
 
 import { isConduit, type Model, type Storey, type Vec2, type Wall } from './model'
-import { equipmentKind } from './kinds'
+import { exteriorKind } from './mapping'
+import { convexHull } from './polygon'
 
 /** 격자 한 칸(미터). 문 폭(0.8m~)보다 충분히 작고, 방-벽 틈(몇 cm)보다 크다. */
 const CELL = 0.1
@@ -216,25 +217,6 @@ function wallAxis(rings: readonly (readonly Vec2[])[]): { at: (x: number, y: num
   return { at, lo, hi }
 }
 
-/** 볼록 껍질(모노톤 체인). 벽 바닥 외곽선의 문 자리 홈을 메운다. */
-function convexHull(points: readonly Vec2[]): Vec2[] {
-  const pts = [...points].sort((a, b) => a[0] - b[0] || a[1] - b[1])
-  if (pts.length < 3) return pts
-  const cross = (o: Vec2, a: Vec2, b: Vec2) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
-  const lower: Vec2[] = []
-  for (const p of pts) {
-    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop()
-    lower.push(p)
-  }
-  const upper: Vec2[] = []
-  for (let i = pts.length - 1; i >= 0; i--) {
-    const p = pts[i]
-    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop()
-    upper.push(p)
-  }
-  return [...lower.slice(0, -1), ...upper.slice(0, -1)]
-}
-
 /**
  * 외벽 설비(OE-EQP-15·OE-EXT-04). 외벽 바깥 면에 붙는 종류(외기 센서 — kinds.ts 의 `mount: 'exterior'` — 와 외부 루버)와, 사람이
  * 외벽에 붙인 설비다. 방 안에 들지 않는 것이 맞는 설비라 소속 방 없음을 허용하고, 완전성 검사 "기기마다 소속 방" 과 등급 2(소속)의
@@ -246,7 +228,7 @@ export function exteriorDevices(model: Model): Set<string> {
     let judged: Map<string, ExternalJudgement> | null = null
     for (const e of storey.equipment) {
       if (isConduit(e.role)) continue
-      if (equipmentKind(e.kind)?.mount === 'exterior' || e.kind === 'outdoor_louver') out.add(e.id)
+      if (exteriorKind(e)) out.add(e.id)
       else if (e.wallId) {
         judged ??= judgeExternal(storey)
         if (judged.get(e.wallId)?.external) out.add(e.id)

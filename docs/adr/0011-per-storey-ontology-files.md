@@ -5,8 +5,10 @@ status: "채택"
 date: "2026-10-03"
 prd: ["#7", "#8"]
 tickets: ["OE-GEN-11", "OE-MAN-06"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: ["src/lib/export/storey-export.ts", "src/lib/export/ttl.ts"]
+tests: []
+related: []
 ---
 
 # ADR-0011 층 단위 생성은 층마다 TTL·GeoJSON 두 파일로 export 하고, 층 파일을 모두 합치면 건물 전체 TTL 과 같은 triple 이 되도록 나눈다

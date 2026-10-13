@@ -4,6 +4,7 @@ import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import { fuzzEdits } from './edit-fuzz'
+import { assignEquipment } from './mapping'
 import type { Model } from './model'
 
 // 편집을 무작위로 섞어도 편집 파일과 되돌리기가 화면과 같은 결과를 낸다(edit-fuzz.ts). 실제 BIM 으로 도는 판은
@@ -65,5 +66,48 @@ describe('계통 이름 규칙 (OE-PIP-09)', () => {
     // 계통 만들기·이름 고치기가 실제로 섞였다 — 검사가 빈손으로 통과한 것이 아니다.
     expect(created).toBeGreaterThan(20)
     expect(renamed).toBeGreaterThan(20)
+  }, 120_000)
+})
+
+describe('소속은 편집 함수 안에서 다시 계산된다 (OE-MAP-06)', () => {
+  it('어떤 편집 뒤에도, 저장·불러온 뒤에도 저장된 소속이 그 자리에서 다시 판정한 소속과 같다 (씨앗 200개) [OE-MAP-06#1]', () => {
+    // 호출부가 따로 재계산을 부르지 않아도 맞아야 한다. 다시 판정은 판정 함수 그대로(BIM 명시 소속·사람 지정·외벽 설비 포함)다.
+    const model = read('mep.ifc')
+    const wrong: string[] = []
+    let checked = 0
+    for (let seed = 1; seed <= 200; seed++) {
+      const r = fuzzEdits(model, seed, 25)
+      for (const [which, m] of [['edited', r.edited], ['reloaded', r.reloaded]] as const) {
+        for (const st of m.storeys)
+          for (const e of st.equipment) {
+            const again = structuredClone(e)
+            assignEquipment(again, st.spaces)
+            checked++
+            if (again.spaceId !== e.spaceId || again.spaceSource !== e.spaceSource)
+              wrong.push(`seed ${seed} ${which} ${e.name}: 저장 ${e.spaceId}/${e.spaceSource} · 다시 ${again.spaceId}/${again.spaceSource} :: ${r.log.join(' | ')}`)
+          }
+      }
+    }
+    expect(wrong.slice(0, 3)).toEqual([])
+    expect(checked).toBeGreaterThan(1000)
+  }, 180_000)
+})
+
+describe('물리존 나누기·합치기는 설비의 소속을 잃게 하지 않는다 (OE-OBJ-02)', () => {
+  it('어떤 순서로 나누고 합쳐도 물리존이 있던 설비는 물리존이 남는다 (씨앗 200개) [OE-OBJ-02#2]', () => {
+    // 기준 문장은 "물리존에 속하지 않은 설비가 없다" 다. BIM 이 방으로 둘러싸지 않은 자리의 설비(R2)는 편집으로 만들 수 없으니, 에디터가 지킬 몫은
+    // 편집이 소속 없는 설비를 새로 만들지 않는 것이다. 지우기·경계 줄이기는 만들 수 있어 화면이 알린다(App.vue 의 orphanNotice).
+    // 예외 하나: BIM 이 소속을 적었지만 좌표는 방 밖인 설비(mep.ifc 의 조명, 좌표 50,50)는 나누면 좌표로 다시 판정해 소속을 잃는다(Q13).
+    // 기준과 Q13 이 부딪히는 곳이라 PM 에게 묻는다(NEXT.md). 여기서는 그 설비만 빼고 잰다.
+    const model = read('mep.ifc')
+    const lost: string[] = []
+    let edits = 0
+    for (let seed = 1; seed <= 200; seed++) {
+      const r = fuzzEdits(model, seed, 25)
+      edits += r.log.filter((l) => l.startsWith('splitSpace') || l.startsWith('mergeSpaces')).length
+      for (const o of r.orphaned) lost.push(`seed ${seed} ${o.op}: ${o.ids.join(', ')}`)
+    }
+    expect(lost.slice(0, 3)).toEqual([])
+    expect(edits).toBeGreaterThan(100)
   }, 120_000)
 })

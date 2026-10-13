@@ -7,7 +7,7 @@ prd: "#6"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "편집 파일"
 blocked_by: []
 depends: ["OE-WF-06"]
@@ -20,16 +20,13 @@ depends: ["OE-WF-06"]
 - [OE-WF-06](../E14-WF/OE-WF-06.md): BIM 임포트 임시 저장본
 
 ## 요구사항
+> User story : 생략
 
 OE-WF-06 을 따른다. (BIM 임포트)
 
 ## 수용 기준
 
-OE-WF-06 의 수용 기준을 따른다.
-
-## 검증 (이 repo)
-
-—
+- **AC1** OE-WF-06 의 수용 기준을 따른다.
 
 ## 메모
 

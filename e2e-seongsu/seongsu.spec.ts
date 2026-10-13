@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process'
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
+import { toEquipment, toSpace } from '../e2e/edit-part'
 
 // docs/seongsu-test.md 의 화면 항목(B~O)을 성수 건축+기계로 돈다. 두 파일을 한 번 열고 한 페이지에서 차례로 간다 —
 // 여는 데만 15초가 넘고, 항목 대부분이 같은 모델 위의 편집이라서다. 그래서 편집 묶음마다 끝에 Ctrl+Z 로 연 때로
@@ -22,7 +23,7 @@ const stemOf = (name: string) => name.replace(/[^\w가-힣-]+/g, '_')
 const TERMINAL = new RegExp(process.env.SEONGSU_TERMINAL ?? 'FCU')
 const AHU = new RegExp(process.env.SEONGSU_AHU ?? 'AHU', 'i')
 // 성수의 요약 수(층 · 물리존 · 기기). 다른 파일이면 SEONGSU_COUNTS=21,1375,3826 처럼 주거나 'record' 로 재서 적기만 한다.
-const COUNTS = process.env.SEONGSU_COUNTS ?? '19,508,4911'
+const COUNTS = process.env.SEONGSU_COUNTS ?? '19,508,4671'
 // 편집·연결 시험에 쓰는 기기 둘(같은 층, 계통에 든 말단)과 C-9 의 연결망 기기 수. 'record' 면 재서 적기만 한다.
 const DEVICE_A = process.env.SEONGSU_DEVICE_A ?? 'FCU3:FCU3:958283'
 const DEVICE_B = process.env.SEONGSU_DEVICE_B ?? 'FCU3:FCU3:958291'
@@ -52,7 +53,7 @@ test.skip(!have, `성수 파일이 없다(${ARCH}, ${MECH}). 성수가 있는 PC
 type Pt = { x: number; y: number }
 type Ring = [number, number][]
 type Space = { id: string; name: string; longName: string; ring: Ring; area: number; storey: string; elevation: number }
-type Wall = { id: string; name: string; ring: Ring; loadBearing: boolean | null; storey: string; elevation: number }
+type Wall = { id: string; name: string; ring: Ring; loadBearing: boolean | null; external: boolean | null; storey: string; elevation: number }
 type Device = { id: string; name: string; at: [number, number, number]; spaceId: string | null; storey: string }
 
 let page: Page
@@ -84,19 +85,49 @@ async function openFold(title: string | RegExp) {
   const head = page.locator('.fold-head', { hasText: title }).first()
   if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
 }
-async function editMode(on: boolean) {
+async function editMode(on: boolean, part: 'space' | 'equipment' = 'equipment') {
   const button = page.getByRole('button', { name: on ? '편집' : '보기', exact: true })
   if ((await button.getAttribute('aria-pressed')) !== 'true') await button.click()
+  // 시험마다 바닥·벽 쪽에서 시작한다. 앞 시험이 천장 설비를 고르느라 천장 편집 모드에 둔 채 끝날 수 있다(pickDevice). 그 모드는 한 층만
+  // 보이게 바꾸므로 보이는 층도 처음처럼 모든 층으로 돌린다.
+  // 편집 대상(OE-UI-04). 천장 토글은 설비 편집 모드에만 있어 먼저 설비로 간다. 물리존·벽 시험(F·N·P)은 그다음 공간으로 간다.
+  if (on) await toEquipment(page)
+  if (on && (await ceilingMode(false))) await showStorey(null)
+  if (on && part === 'space') await toSpace(page)
 }
-/** 표에서 설비를 이름으로 고른다. 3D 가 그 자리로 시점을 옮긴다. */
+/**
+ * 천장 편집 모드(OE-OBJ-08). 천장 설비(성수 FCU 는 천장고 위 플레넘)는 이 모드에서만 옮기고 지운다 — 바닥·벽 쪽에서는 위치 칸이 잠긴다.
+ * T 로 들어가고 나온다. 들어가면 고른 것이 풀리므로 고르기 전에 부른다. 층을 모두 보던 중이면 고른 설비의 층으로 바뀐다.
+ */
+async function ceilingMode(on: boolean): Promise<boolean> {
+  const button = page.getByRole('group', { name: '설비 편집 면' }).getByRole('button', { name: '천장' })
+  if (((await button.getAttribute('aria-pressed')) === 'true') === on) return false
+  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.keyboard.press('t')
+  await expect(button).toHaveAttribute('aria-pressed', on ? 'true' : 'false')
+  return true
+}
+/**
+ * 표에서 설비를 이름으로 고른다. 3D 가 그 자리로 시점을 옮긴다. 지금 모드에서 고칠 수 없는 설비면(천장 설비를 바닥·벽 쪽에서, 바닥 설비나
+ * 덕트를 천장 편집 모드에서 고른 것, OE-OBJ-08) 패널의 [천장 편집으로]/[바닥·벽으로] 로 모드를 맞추고 다시 고른다. 모드를 바꾸면 고른 것이 풀린다.
+ */
 async function pickDevice(name: string) {
+  await pickDeviceOnce(name)
+  const lock = page.locator('.picked .ceiling-lock')
+  if (!(await lock.isVisible().catch(() => false))) return
+  const switchTo = lock.getByRole('button', { name: /천장 편집으로|바닥·벽으로/ })
+  if (!(await switchTo.count())) return
+  await switchTo.click()
+  await pickDeviceOnce(name)
+}
+async function pickDeviceOnce(name: string) {
   await search().fill(name)
   await openFold(/설비 목록|설비 위치와 소속/)
   await page.locator('.equipment tbody tr').filter({ hasText: name }).first().locator('button').first().click()
   await search().fill('')
   // 칸에서 나온다. 포커스가 남으면 뒤의 단축키(F, Home …)가 검색 칸에 글자로 들어간다.
   await search().press('Escape')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await settle()
   await expect(page.locator('.picked h3')).toHaveText(name)
 }
@@ -110,7 +141,7 @@ async function pickFirst(query: string) {
   await search().fill('')
   // 칸에서 나온다. 포커스가 남으면 뒤의 단축키(F, Home …)가 검색 칸에 글자로 들어간다.
   await search().press('Escape')
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await settle()
   return name
 }
@@ -124,7 +155,7 @@ async function showStorey(name: string | null) {
   } else await select.selectOption({ index: 0 })
   // 상자에서 나온다. 포커스가 남으면 뒤의 글자 단축키(U, K …)를 상자가 먹는다.
   await select.evaluate((el) => (el as HTMLElement).blur())
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
   await settle()
 }
@@ -317,7 +348,7 @@ test('B 열기: 두 파일을 같이 고르면 합쳐 열리고, 3D 를 그리�
       if (p.kind === 'space' && f.geometry?.coordinates?.[0]?.length)
         map.spaces.push({ id: f.id, name: p.name, longName: p.longName ?? '', ring: f.geometry.coordinates[0], area: p.areaM2, storey, elevation: p.elevation })
       else if (p.kind === 'wall' && f.geometry)
-        map.walls.push({ id: f.id, name: p.name, ring: f.geometry.coordinates[0], loadBearing: p.loadBearing, storey, elevation: p.elevation })
+        map.walls.push({ id: f.id, name: p.name, ring: f.geometry.coordinates[0], loadBearing: p.loadBearing, external: p.external ?? null, storey, elevation: p.elevation })
       else if (p.kind === 'equipment' && f.geometry)
         map.devices.push({ id: f.id, name: p.name, at: f.geometry.coordinates, spaceId: p.spaceId, storey })
     }
@@ -418,7 +449,7 @@ test('C 3D 보기: 층 고르기, 전체 보기, 고른 연결망, 설명 풍선
   }
 
   // C-11 회전·확대. 프레임 간격의 95% 가 50ms 안이어야 한다.
-  const box = (await page.locator('.viewport canvas').boundingBox())!
+  const box = (await page.locator('.canvas-wrap > canvas').boundingBox())!
   await page.evaluate(() => {
     const w = window as any
     w.__gaps = []
@@ -516,6 +547,9 @@ test('D 패널: 무엇인지와 출처, 계통별 표, 담당 공간, 검색, �
 test('E 설비 편집: 끌기·Esc·방향키·층 옮기기·방 밖·더하기·이름·지우기와 되돌리기', async () => {
   await editMode(true)
   const fcu = map.devices.find((d) => d.name === DEVICE_B)!
+  // FCU 는 천장 설비라 천장 편집 모드에서 고친다(OE-OBJ-08). 고른 설비의 층으로 들어가도록 한 번 고른 뒤 들어가 다시 고른다.
+  await pickDevice(fcu.name)
+  await ceilingMode(true)
   await pickDevice(fcu.name)
   const coord = (i: number) => page.locator('.picked .position-edit .coord').nth(i).inputValue()
   const home = () => page.locator('.picked .position-edit').innerText()
@@ -549,23 +583,25 @@ test('E 설비 편집: 끌기·Esc·방향키·층 옮기기·방 밖·더하기
   // 한 번 옮긴 뒤 바뀐 것 수. 붙은 배관이 따라오면(배관도 같이) 그 배관도 센다 — 성수 FCU 는 1, 배관이 붙은 디퓨저는 더 많다.
   const changedOnce = /바뀐 것 (\d+)건/.exec(await page.locator('.edit-bar').innerText())?.[1] ?? '1'
 
-  // E-3 방향키. 한 번씩 누른 것과 쌓인 반복 30번.
+  // E-3 방향키. 한 번씩 누른 것과 쌓인 반복 30번. 방향키는 화면 방향에 가장 가까운 평면 축으로 옮긴다 — 천장 편집 모드는 위에서
+  // 내려다보는 평면도 방위라 → 가 x 가 아닐 수 있어 평면 자리(x·y)가 바뀌었는지를 본다.
+  const plane = async () => `${await coord(0)},${await coord(1)}`
   const arrows: number[] = []
   for (let i = 0; i < 5; i++) {
-    const before = await coord(0)
+    const before = await plane()
     arrows.push(
       await timed(async () => {
         await page.keyboard.press('ArrowRight')
-        await expect.poll(() => coord(0)).not.toBe(before)
+        await expect.poll(plane).not.toBe(before)
       }),
     )
   }
-  const y0 = Number(await coord(1))
+  const [x1, y1] = [Number(await coord(0)), Number(await coord(1))]
   const burst = await timed(async () => {
     await page.evaluate(() => {
       for (let i = 0; i < 30; i++) window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', code: 'ArrowUp', repeat: i > 0, bubbles: true }))
     })
-    await expect.poll(async () => Math.abs(Number(await coord(1)) - y0)).toBeGreaterThan(2.9)
+    await expect.poll(async () => Math.hypot(Number(await coord(0)) - x1, Number(await coord(1)) - y1)).toBeGreaterThan(2.9)
   })
   const median = [...arrows].sort((a, b) => a - b)[2]
   record('E-3', `${median}ms`, `방향키 5번의 중앙값. 쌓인 키 반복 30번은 ${burst}ms 에 한 번으로 옮긴다`)
@@ -613,7 +649,8 @@ test('E 설비 편집: 끌기·Esc·방향키·층 옮기기·방 밖·더하기
   const ttl2 = await download(() => page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click())
   expect(ttlBlock(ttl2.text, map.devices.find((d) => d.name === DEVICE_A)!.id)).toContain('rdfs:label "FCU-3F-테스트"')
 
-  // E-11·E-12 설비를 바닥에 더하고 이름을 고친다. 종류는 모름으로 둔다.
+  // E-11·E-12 설비를 바닥에 더하고 이름을 고친다. 종류는 모름으로 둔다. 바닥에 놓으므로 천장 편집 모드에서 나온다.
+  await ceilingMode(false)
   await showStorey(STOREY)
   const target = await roomToEdit(stemOf(STOREY))
   expect(target, '3F 에서 누를 방을 못 찾았다').not.toBeNull()
@@ -722,7 +759,7 @@ function partitionWalls(storey: string) {
 const panelArea = async () => Number(await page.locator('.space-picked .stats b.mono').first().innerText())
 
 test('F 물리존: 바닥 고르기·꼭짓점 끌기·짚고 옮기기·넣고 지우기·교차·만들기·나누기·합치기·지우기와 되돌리기', async () => {
-  await editMode(true)
+  await editMode(true, 'space')
   await showStorey(STOREY)
   const target = await roomToEdit(stemOf(STOREY))
   expect(target, '3F 에서 누를 방을 못 찾았다').not.toBeNull()
@@ -801,8 +838,11 @@ test('F 물리존: 바닥 고르기·꼭짓점 끌기·짚고 옮기기·넣고 
   const split = await page.locator('.report').innerText().catch(() => '')
   if (/-2/.test(split)) {
     record('F-11', `${f11}ms`, `${whole}㎡ 를 ${await panelArea()}㎡ 와 나머지로`)
+    // 나누면 새 조각(공간명 끝 -2)이 골라진다 — 방번호를 사람이 넣게 하려고다(OE-SPC-02). 그래서 합칠 상대는 원래 방이다.
     const merge = panel.locator('.space-tools select')
-    const option = (await merge.locator('option').allInnerTexts()).find((t) => /-2/.test(t))!
+    await expect(panel.locator('h3')).toContainText('-2')
+    const original = space.longName || space.name
+    const option = (await merge.locator('option').allInnerTexts()).find((t) => t.replace(/ \(벽 .*\)$/, '').trim() === original)!
     const f13 = await timed(() => merge.selectOption({ label: option }))
     await expect.poll(panelArea).toBeCloseTo(whole, 0)
     record('F-13', `${f13}ms`, `다시 ${await panelArea()}㎡`)
@@ -820,7 +860,7 @@ test('F 물리존: 바닥 고르기·꼭짓점 끌기·짚고 옮기기·넣고 
   const ringless = page.locator('.spaces-edit tbody tr', { hasText: '외곽선 없음' }).first()
   const storeyName = await ringless.locator('.tag').innerText()
   await ringless.getByRole('button', { name: '3D에서 그리기' }).click()
-  await page.locator('.viewport canvas').scrollIntoViewIfNeeded()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await settle()
   const host = map.spaces.find((s) => s.storey === stemOf(storeyName))!
   const [hx, hy] = centroid(host.ring)
@@ -843,20 +883,25 @@ test('G 연결: 짚기·방향 바꾸기·포트 방향은 그대로·연결하�
     await page.keyboard.press('d')
     await expect(rows.nth(0)).toHaveClass(/active/)
   }
-  const unknown = await rows.evaluateAll((trs) => trs.findIndex((tr) => tr.querySelector('.rel')?.textContent?.trim() === '연결'))
+  // 방향을 아무도 말하지 않은 연결(포트·규칙 둘 다 없음). 규칙과 반대 방향은 사유를 받아야 적용되므로(OE-PIP-04) 규칙 방향이 없는 것을 고른다.
+  const unknown = await rows.evaluateAll((trs) => trs.findIndex((tr) => tr.querySelector('.rel')?.textContent?.trim() === '방향 미지정'))
   expect(unknown).toBeGreaterThanOrEqual(0)
   for (let i = 0; i < unknown; i++) await page.keyboard.press(']')
   const row = rows.nth(unknown)
   if ((await rows.count()) > 1) await expect(row).toHaveClass(/active/)
-  // G-1 방향 모르는 연결에 D: 하류 → 상류 → 방향 모름.
-  const seen: string[] = []
-  let slowest = 0
-  for (let i = 0; i < 3; i++) {
-    slowest = Math.max(slowest, await timed(() => page.keyboard.press('d')))
-    seen.push((await row.locator('.rel').innerText()).trim())
-  }
-  expect(seen).toEqual(['하류', '상류', '연결'])
-  record('G-1', `${slowest}ms`, `D 세 번: ${seen.join(' → ')}`)
+  // G-1 방향 모르는 연결에 D 는 미리보기, Enter 가 [적용] 이다(OE-PIP-04). 적용하면 하류, 다시 D 두 번은 반대 방향을 미리 보고 거둔다.
+  let slowest = await timed(() => page.keyboard.press('d'))
+  await expect(row.getByTestId('flow-preview')).toContainText('→')
+  slowest = Math.max(slowest, await timed(() => page.keyboard.press('Enter')))
+  await expect(row.locator('.rel')).toHaveText('하류')
+  const seen = [(await row.locator('.rel').innerText()).trim()]
+  await page.keyboard.press('d')
+  await expect(row.getByTestId('flow-preview')).toContainText('→')
+  await page.keyboard.press('d')
+  await expect(row.getByTestId('flow-preview')).toHaveCount(0)
+  seen.push((await row.locator('.rel').innerText()).trim())
+  expect(seen).toEqual(['하류', '하류'])
+  record('G-1', `${slowest}ms`, 'D 미리보기 → Enter 적용(하류) → D 두 번으로 반대 방향 미리보기를 거두면 하류 그대로')
   await page.keyboard.press('Escape')
 
   // G-2 포트가 말한 방향은 D 로 바뀌지 않는다.
@@ -916,8 +961,9 @@ test('H 종류와 I 되돌리기: U·K 로 패밀리 종류 정하기, 되돌리
   await kind.selectOption('')
   await expect(page.locator('.report li', { hasText: '배기팬' })).toHaveCount(0)
 
-  // I-1·I-3 편집 여럿 뒤 되돌리기·다시 하기 한 번.
-  await pickDevice(DEVICE_B)
+  // I-1·I-3 편집 여럿 뒤 되돌리기·다시 하기 한 번. 바닥 설비(공조기)로 한다 — FCU 는 천장 편집 모드에서만 옮기는데, 그 모드는 한 층만 보여서
+  // 다른 층에 저장 안 한 편집(H-2)이 있으면 들어갈 때 저장 여부를 묻는다(OE-OBJ-08).
+  await pickFirst('공조기')
   for (const key of ['ArrowRight', 'ArrowUp', 'PageUp', 'ArrowLeft', 'PageDown']) {
     await page.keyboard.press(key)
     await settle()
@@ -934,8 +980,8 @@ test('H 종류와 I 되돌리기: U·K 로 패밀리 종류 정하기, 되돌리
   expect(Math.max(...undos)).toBeLessThan(1000)
   await undoAll()
 
-  // I-4 글자 칸의 Ctrl+Z 는 칸의 글자만 되돌린다.
-  await pickDevice(DEVICE_B)
+  // I-4 글자 칸의 Ctrl+Z 는 칸의 글자만 되돌린다. 바닥 설비라 바닥·벽 쪽에서 이름 칸이 열린다.
+  await pickFirst('공조기')
   const name = page.locator('.picked .equipment-name-edit input')
   await name.click()
   await name.press('End')
@@ -959,19 +1005,24 @@ test('H 종류와 I 되돌리기: U·K 로 패밀리 종류 정하기, 되돌리
   expect(errors).toEqual([])
 })
 
-test('J 완전성 검사에서 한 번에 고치기', async () => {
+test('J 완전성 검사에서 한 번에 고치기 [OE-BIM-18#1~,2]', async () => {
   await editMode(true)
   await openFold('완전성 검사')
   const out: string[] = []
   for (const [label, key] of [['소속 방이 있다', 'J-1'], ['연결망에 붙어', 'J-2']] as const) {
     const tr = page.locator('.checks tbody tr', { hasText: label }).first()
-    const count = async () => (await tr.innerText()).match(/(\d+) \/ (\d+)/)![1]
+    const count = async () => (await tr.innerText()).match(/([\d,]+) \/ ([\d,]+)/)![1]
     const before = await count()
     await tr.locator('button.link').click()
     const fix = page.locator('.check-list button.fix').first()
     await expect(fix).toBeVisible()
     const what = await fix.innerText()
-    const ms = await timed(() => fix.click())
+    // [연결 후보 확인] 은 후보 목록을 연다. 사람이 하나를 골라 [연결하기] 를 눌러야 잇는다(OE-PIP-08). [방 안으로 옮기기] 는 바로 고친다.
+    const ms = await timed(async () => {
+      await fix.click()
+      const candidates = page.getByTestId('fix-candidates')
+      if (/연결 후보/.test(what)) await candidates.getByRole('button', { name: '연결하기' }).first().click()
+    })
     await expect.poll(count).not.toBe(before)
     const after = await count()
     await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
@@ -986,7 +1037,7 @@ test('J 완전성 검사에서 한 번에 고치기', async () => {
 })
 
 test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 놓기·지우기와 방 경계 같이', async () => {
-  await editMode(true)
+  await editMode(true, 'space')
   await showStorey(STOREY)
   const layer = page.getByRole('button', { name: '벽·문·창' })
   const n1 = await timed(() => layer.click())
@@ -995,9 +1046,10 @@ test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 
   const panel = page.locator('.element-picked')
 
   // N-2·N-3 내력 모름인 벽을 골라 방향키로 옮기고 내력으로 바꾼다.
-  const unknown = await wallToPick((w) => w.loadBearing === null)
+  // 외벽은 층 편집 화면에서 잠겨(OE-EXT-02) 방향키·지우기가 없다 — 외벽 에디터(P)가 본다.
+  const unknown = await wallToPick((w) => w.loadBearing === null && w.external !== true)
   // 내력벽은 잠겨서(OE-OBJ-06) 방향키·지우기를 볼 수 없다. 모름이 없으면 내력이 아닌 벽이다.
-  const any = unknown ?? (await wallToPick((w) => w.storey === stemOf(STOREY) && w.loadBearing !== true))
+  const any = unknown ?? (await wallToPick((w) => w.storey === stemOf(STOREY) && w.loadBearing !== true && w.external !== true))
   expect(any, '3F 에서 누를 벽을 못 찾았다').not.toBeNull()
   await showStorey(any!.wall.storey)
   await page.mouse.click(any!.at.x, any!.at.y)
@@ -1091,6 +1143,78 @@ test('N 벽·문·창: 켜기·고르기·방향키·내력 여부·긋기·문 
   expect(errors).toEqual([])
 })
 
+test('P 외벽 에디터·치수: 켜기·같은 면 묶기·전 층 옮기기·층 바꿔도 안 묻기·되돌리기, 벽 치수', async () => {
+  await editMode(true, 'space')
+  await showStorey(null)
+  const layer = page.getByRole('button', { name: '벽·문·창' })
+  await layer.click()
+  // P-1 켜기. 모든 층으로 넓히고 전 층 외벽을 판정한다(OE-EXT-03).
+  const p1 = await timed(() => page.getByTestId('exterior-editor').click())
+  await expect(page.getByRole('combobox', { name: '보일 층' })).toHaveValue('모든 층')
+  record('P-1', `${p1}ms`, '외벽 에디터 켜기 — 모든 층으로 넓힘')
+  const panel = page.locator('.element-picked')
+  const group = panel.getByTestId('facade-group')
+  const bar = page.locator('.edit-bar')
+
+  // P-2 내력이 아닌 외벽을 눌러 다른 층의 같은 면까지 묶이는 것을 찾는다. 모든 층이 보여 위층이 가릴 수 있어 짚히는지 먼저 본다.
+  let picked: { wall: Wall; ids: string[]; ms: number; text: string } | null = null
+  let tried = 0
+  for (const w of map.walls.filter((x) => x.external === true && x.loadBearing !== true)) {
+    if (++tried > 80) break
+    const [x, y] = centroid(w.ring)
+    const at = await floor(x, y, w.elevation + 1.15)
+    const hit = await viewer<{ equipment: string | null; element: string | null }>('pickAt', at.x, at.y)
+    if (hit.element !== w.id || hit.equipment) continue
+    const ms = await timed(() => page.mouse.click(at.x, at.y))
+    if (!(await group.isVisible())) continue
+    const ids = (await group.getAttribute('data-walls'))!.split(' ').filter(Boolean)
+    if (ids.length < 2) continue
+    picked = { wall: w, ids, ms, text: (await group.locator('p').first().innerText()).replace(/\s+/g, ' ') }
+    break
+  }
+  expect(picked, `같은 면이 둘 넘는 외벽을 못 찾았다(${tried}개 시도)`).not.toBeNull()
+  record('P-2', `${picked!.ms}ms`, `${picked!.wall.name} — ${picked!.text.match(/같은 면 외벽 \d+개\([^)]*\)/)![0]} · 옮길 것 ${picked!.ids.length}`)
+  // P-6 치수 칩이 같이 뜬다(OE-UI-08).
+  await expect(page.getByTestId('dim-chip')).toContainText('길이')
+  record('P-6', '통과', (await page.getByTestId('dim-chip').innerText()).trim())
+
+  // P-3 방향키 한 번에 묶음 전체를 옮긴다. 화면 방향이 벽 길이 방향이면 모서리 벽을 가로질러 막힐 수 있어 두 방향을 본다.
+  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  let key = ''
+  let p3 = 0
+  for (const k of ['ArrowRight', 'ArrowUp']) {
+    p3 = await timed(() => page.keyboard.press(k))
+    if (/외벽 \d+개 옮김/.test(await bar.innerText())) {
+      key = k
+      break
+    }
+  }
+  expect(key, `방향키로 옮기지 못했다: ${await note().innerText().catch(() => '')}`).not.toBe('')
+  const label = (await bar.innerText()).match(/외벽 \d+개 옮김\([^)]*\)/)![0]
+  // P-4 같은 방향으로 네 번 더 — 한 번에 걸린 시간의 중앙값.
+  const times: number[] = []
+  for (let i = 0; i < 4; i++) times.push(await timed(() => page.keyboard.press(key)))
+  times.sort((a, b) => a - b)
+  record('P-3', `${p3}ms`, `${label} — 첫 걸음`)
+  record('P-4', `${times[2]}ms`, `네 걸음 더의 중앙값(${times.join('·')}ms). 바뀐 것 ${await changeCount()}건`)
+  expect(times[2]).toBeLessThan(3000)
+
+  // P-5 층을 바꿔도 "저장하지 않은 편집" 을 묻지 않는다 — 한 층만 되돌리면 같은 면이 어긋난다.
+  await showStorey(STOREY)
+  await showStorey(OTHER_STOREY)
+  await expect(page.locator('dialog.exit-edit')).not.toBeVisible()
+  record('P-5', '통과', `${STOREY} → ${OTHER_STOREY} 로 바꿔도 묻지 않는다`)
+  await showStorey(null)
+
+  // P-7 되돌리기. 걸음마다 한 번이고 다 되돌리면 0건.
+  const back = await undoAll()
+  record('P-7', `${back.slowest}ms`, `되돌리기 ${back.n}번(가장 느린 한 번)`)
+  await page.getByTestId('exterior-editor').click()
+  await layer.click()
+  await showStorey(null)
+  expect(errors).toEqual([])
+})
+
 test('O 계통: 계통 빼기와 같은 자리로 되돌리기, 종류 바꾸기 알림, 유체, 확정 뒤 옮기기, 만들고 지우기, 찾기', async () => {
   await editMode(true)
   // O-2 계통 없음으로 뺐다가 되돌리면 원래 계통으로.
@@ -1135,8 +1259,8 @@ test('O 계통: 계통 빼기와 같은 자리로 되돌리기, 종류 바꾸기
   record('O-4', '통과', '순환수 공급 → 냉수, TTL 계통 클래스 brick:Chilled_Water_System')
   await page.keyboard.press('Control+z')
 
-  // O-5 확정한 계통의 덕트를 다른 계통으로 옮겨도 확정한 방향은 그대로다(규칙이 확정 계통을 얼려 둔다).
-  // FCU3:958283 의 급기 덕트가 든 계통을 확정하고, 그 덕트의 계통을 바꾼 뒤 TTL 의 feeds 를 견준다.
+  // O-5 확정한 계통의 덕트를 다른 계통으로 옮기면, 근거가 그대로인 확정 방향은 남고 근거가 바뀐 것은 재검토로 바뀌어 내보내지 않는다
+  // (OE-PIP-07, ADR-0021). FCU3:958283 의 급기 덕트가 든 계통을 확정하고, 그 덕트의 계통을 바꾼 뒤 TTL 의 feeds 를 견준다.
   await pickDevice(SUPPLY_DEVICE)
   const duct = (await page.locator('.picked .neighbors tr', { hasText: SUPPLY_DUCT }).first().locator('a, button').first().innerText()).trim()
   await pickDevice(duct)
@@ -1153,8 +1277,10 @@ test('O 계통: 계통 빼기와 같은 자리로 되돌리기, 종류 바꾸기
   const other = await select.locator('option').nth(3).getAttribute('value')
   await select.selectOption(other!)
   const f2 = await feeds()
-  expect(f2).toBe(f1)
-  record('O-5', '통과', `${ductSystem} 확정 뒤 ${duct} 의 계통을 바꿔도 feeds ${f1} → ${f2}`)
+  // 늘지는 않는다. 줄어든 만큼이 재검토로 빠진 확정 방향이고, 계통 확정 표에 재검토 수가 보인다.
+  expect(f2).toBeLessThanOrEqual(f1)
+  if (f2 < f1) await expect(confirmRow).toContainText('재검토')
+  record('O-5', '통과', `${ductSystem} 확정 뒤 ${duct} 의 계통을 바꾸면 feeds ${f1} → ${f2}(재검토로 빠진 것 ${f1 - f2})`)
   await undoAll()
 
   // O-5a 새 계통, O-5b 지우고 되돌리기.
@@ -1190,8 +1316,9 @@ test('O 계통: 계통 빼기와 같은 자리로 되돌리기, 종류 바꾸기
 
 test('K·L 저장과 불러오기, 자동 저장, 내보내기가 같다', async () => {
   await editMode(true)
-  // 편집 여러 종류를 섞는다: 설비 옮기기, 방 이름, 패밀리 종류, 계통 확정, 잇기.
-  await pickDevice(DEVICE_B)
+  // 편집 여러 종류를 섞는다: 설비 옮기기, 방 이름, 패밀리 종류, 계통 확정, 잇기. 옮기는 설비는 바닥 설비(공조기)다 — 천장 설비(FCU)는
+  // 천장 편집 모드에서만 옮기고, 그 모드에서는 물리존 이름을 고칠 수 없다(OE-OBJ-08).
+  await pickFirst('공조기')
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('PageUp')
   await showStorey(STOREY)
