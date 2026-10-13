@@ -327,7 +327,7 @@ watch(mode, (m) => {
 })
 const editing = computed(() => mode.value === 'edit')
 
-// --- 사람·역할 (OE-COM-01·02, ADR-0038, server/users.ts) ---------------------------------------------------
+// --- 사람·역할 (OE-COM-01·02, server/users.ts) ---------------------------------------------------
 // 로그인 대신 서버의 사람 목록(data/.users.json)에서 고른다. 고른 사람은 쓰기 요청(저장·반영·되돌리기·로그)에 머리로 붙는다. 보기 전용(Viewer)은
 // 편집에 들어가지 못한다. 목록을 못 받으면(손으로 연 파일만 쓰는 곳, e2e 의 흉내 서버) 사람을 묻지 않고 예전처럼 돈다.
 type Person = { name: string; role: 'viewer' | 'admin' | 'super_admin' }
@@ -7248,7 +7248,7 @@ let floorDrafts = new Map<string, EditFile>()
 const appliedFloors = new Set<string>()
 /** floorDrafts 가 바뀔 때 올린다(화면의 [임시 저장본 폐기] 가 본다). */
 const draftsVersion = ref(0)
-/** 지금 반영된 레이아웃의 편집 파일(ADR-0037). 폐기하면 그 층을 이것으로 돌린다. 반영 전이면 null(BIM 그대로). */
+/** 지금 반영된 레이아웃의 편집 파일(src/server/layouts.ts). 폐기하면 그 층을 이것으로 돌린다. 반영 전이면 null(BIM 그대로). */
 const publishedFile = shallowRef<EditFile | null>(null)
 /** 조각마다 마지막으로 저장(임시 저장·8084·파일·구축하기)한 것. 저장 안 한 편집과 [저장 안 함] 이 이것과 견준다. */
 const savedParts = shallowRef(new Map<string, EditFile>())
@@ -7476,7 +7476,7 @@ function refreshSavedSets() {
 refreshSavedSets()
 const savedFor = (path: string) => savedSets.value.find((s) => s.key === path) ?? null
 
-// --- 모드 자동 분기 (OE-UI-01·02·03, ADR-0037) ------------------------------------------------------
+// --- 모드 자동 분기 (OE-UI-01·02·03, src/server/layouts.ts) ------------------------------------------------------
 // 반영한 버전(온톨로지)이 있는 건물은 운영 편집, 없으면 초기 구축이다. 사람이 모드를 고르지 않는다 — data/ 목록의 [초기 구축]·[운영 편집] 은 그 판정대로
 // 하나만 켜진다. 층마다는 반영된 버전의 공간 계층(tree.json)에 그 층이 있는지로 가른다.
 type Published = { key: string; paths: string[]; current: number; at: string; by: string }
@@ -7520,7 +7520,7 @@ const editKind = computed<'build' | 'operate'>(() => {
 }
 
 /**
- * data/ 에서 연 건물에 서버의 편집을 얹는다. 반영된 버전(ADR-0037)이 있으면 그 레이아웃(버전의 편집 파일)이 시작점이다(OE-WF-17 "다시 들어오면 새
+ * data/ 에서 연 건물에 서버의 편집을 얹는다. 반영된 버전(src/server/layouts.ts)이 있으면 그 레이아웃(버전의 편집 파일)이 시작점이다(OE-WF-17 "다시 들어오면 새
  * 레이아웃을 적용"). 8084 저장본이 그 버전보다 나중에 저장된 것이면 저장본을 얹는다 — 반영 뒤 이어 고친 것이다. 둘 다 BIM 을 기준으로 한 편집 파일이라
  * 하나만 얹는다.
  */
@@ -7541,7 +7541,7 @@ async function loadServerEdits() {
   const state = layoutState.value
   const cur = state?.current ? (state.versions.find((v) => v.version === state.current) ?? null) : null
   const saved = await getFile(savedEditsUrl(key))
-  // 서버의 층별 임시 저장본(OE-WF-01·02, ADR-0039). 브라우저의 것보다 앞선다 — 층의 것이라 누가 저장했든 이어서 편집한다.
+  // 서버의 층별 임시 저장본(OE-WF-01·02, src/server/floor-state.ts). 브라우저의 것보다 앞선다 — 층의 것이라 누가 저장했든 이어서 편집한다.
   try {
     const r = await fetch(`./__data/__drafts?${new URLSearchParams({ key })}`)
     const got = r.ok ? ((await r.json()) as Record<string, { file: unknown }>) : {}
@@ -8530,7 +8530,7 @@ function exportTTLDone() {
 /**
  * 3D 형상(GLB·OBJ·FBX). 보여 주기용 파일이라 GeoJSON·TTL 과 따로 낸다. 큰 파일은 몇 초(성수 OBJ 16초) 걸려 누르는 동안
  * 버튼을 막고, 여는 때와 같은 진행 막대에 단계를 보인다. OBJ 는 꼭짓점 수로 막대가 차고, GLB 는 흐르기만 한다.
- * FBX 는 GLB 를 만들어 서버에 보내면 서버의 Blender 가 바꿔 돌려준다(src/server/fbx.ts, ADR-0052). 성수는 서버에서 46초다.
+ * FBX 는 GLB 를 만들어 서버에 보내면 서버의 Blender 가 바꿔 돌려준다(src/server/fbx.ts). 성수는 서버에서 46초다.
  */
 const exporting3d = ref<'glb' | 'obj' | 'fbx' | null>(null)
 /** 서버가 FBX 로 바꿀 수 있는지. 서버에 Blender 가 없거나 서버 없이 띄운 화면이면 단추를 막고 까닭을 title 로 보인다. */
@@ -8592,7 +8592,7 @@ async function export3D(format: 'glb' | 'obj' | 'fbx') {
   }
 }
 
-// --- 반영하기·버전 (OE-WF-10~13·18~20, OE-GEN-05, ADR-0037, server/layouts.ts) ------------------------------------
+// --- 반영하기·버전 (OE-WF-10~13·18~20, OE-GEN-05, server/layouts.ts) ------------------------------------
 // data/ 에서 연 건물은 [구축하기](첫 반영 = v1)·[반영하기] 가 서버에 새 버전을 만든다. 반영된 것은 서버의 현재 버전 폴더다(DT·온톨로지 대신).
 // 손으로 연 파일은 서버 열쇠가 없어 예전처럼 두 파일을 내려받는다.
 
@@ -8704,7 +8704,7 @@ function reloadLayout() {
   if (paths.length) openDataSet(paths)
 }
 
-// --- 층 잠금 (OE-COM-05·06, ADR-0039, server/floor-state.ts) ---
+// --- 층 잠금 (OE-COM-05·06, server/floor-state.ts) ---
 // 편집 중인 층(한 층을 보면 그 층, "모든 층" 이면 전부)을 잡는다. 1분마다 다시 잡아 늘이고, [편집 종료]·층 바꾸기·창 닫기 때 푼다. 남이 잡은 층이면
 // 보기로 돌리고 "OOO님이 편집 중입니다" 를 보인다. 사람 목록이 없는 곳은 잠그지 않는다.
 const heldLocks = new Map<string, { key: string; floor: string }>()
@@ -9291,7 +9291,7 @@ function rollbackFromReport() {
             </template>
             <button v-else type="button" class="ghost" title="이 층의 임시 저장본을 지우고 반영된 레이아웃으로 돌아갑니다" @click="discardAsk = true">임시 저장본 폐기</button>
           </template>
-          <!-- PRD #9 의 액션바. data/ 에서 연 건물은 첫 반영이 [구축하기](v1), 그다음은 [반영하기] 다(서버 버전, ADR-0037). 손으로 연 파일은 두 파일 내보내기. -->
+          <!-- PRD #9 의 액션바. data/ 에서 연 건물은 첫 반영이 [구축하기](v1), 그다음은 [반영하기] 다(서버 버전, src/server/layouts.ts). 손으로 연 파일은 두 파일 내보내기. -->
           <button type="button" class="ghost" :aria-pressed="previewOpen" title="반영 전에 결과를 봅니다 — 변경 요약과 소속이 바뀔 설비(반영은 바뀌지 않습니다)" @click="previewChanges">미리보기</button>
           <button
             type="button"

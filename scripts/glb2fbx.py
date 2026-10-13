@@ -1,4 +1,4 @@
-# 에디터가 낸 GLB 를 FBX 로 바꾼다. 서버(src/server/fbx.ts)가 Blender 를 띄워 이 스크립트를 돌린다(ADR-0052).
+# 에디터가 낸 GLB 를 FBX 로 바꾼다. 서버(src/server/fbx.ts)가 Blender 를 띄워 이 스크립트를 돌린다.
 #
 #   blender -b --factory-startup --python-exit-code 1 --python scripts/glb2fbx.py -- in.glb out.fbx
 #

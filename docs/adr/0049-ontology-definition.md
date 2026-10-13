@@ -9,7 +9,7 @@ tickets: ["OE-INT-02", "OE-INT-03", "OE-INT-05", "OE-INT-07", "OE-INT-08"]
 criteria: []
 code: ["src/lib/export/ttl.ts", "src/lib/export/geojson.ts", "src/lib/capacity.ts", "src/lib/export/read-ttl.ts"]
 tests: ["src/lib/ontology-doc.test.ts", "src/lib/export/export.test.ts"]
-related: ["ADR-0008", "ADR-0011", "ADR-0023", "ADR-0048"]
+related: ["ADR-0008", "ADR-0011", "ADR-0023"]
 ---
 
 # ADR-0049 온톨로지의 정의
@@ -41,7 +41,7 @@ PRD 1.7 의 "술어 4종 · `ttl.go` 가 읽는 것 확인" 과 실제가 다르
 ## 고려한 다른 길
 
 - **intent.md 에 절을 더하기.** intent 는 "바꾸면 안 되는 의도" 라 월요일에 바뀔 사실(받는 쪽 범위·측정)과 섞인다.
-- **개발 정본(`bim-to-dt-ontology.md`)에 장을 더하기.** 그 문서는 "BIM 이 어디까지 주나" 에 답한다. 113KB 라 정의를 찾는 비용이 이미 크다(ADR-0048).
+- **개발 정본(`bim-to-dt-ontology.md`)에 장을 더하기.** 그 문서는 "BIM 이 어디까지 주나" 에 답한다. 113KB 라 정의를 찾는 비용이 이미 크다.
 - **PRD glossary 에 정의.** PM 몫이다. 한 문장 정의를 넣어 주시도록 요청하고, 어휘·측정 같은 개발 사실은 여기 둔다.
 - **지금 바로 `ex:` 속성·`fso:` 를 빼거나 파서를 넓히기.** 받는 쪽이 무엇을 쓰는지 모른 채 정하는 일이다. 월요일 확인 뒤로 미룬다.
 

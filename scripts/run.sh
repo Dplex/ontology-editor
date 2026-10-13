@@ -50,7 +50,7 @@ build() {
   npm run build
   # data/ 샘플 목록과 등급 칩을 내주는 모듈을 node 용으로 묶는다(serve.mjs 가 /__data 에 붙인다).
   npm run build:server
-  # 문서 챗봇 창(Alt+Shift+K, ADR-0001). 앱 코드가 아니라 빌드 결과에 끼워 넣는다 — 8084·8087 둘 다 여기를 지난다.
+  # 문서 챗봇 창(Alt+Shift+K, docs/dev/deploy55.md). 앱 코드가 아니라 빌드 결과에 끼워 넣는다 — 8084·8087 둘 다 여기를 지난다.
   cp scripts/docs-chat.js dist/docs-chat.js
   sed -i 's#</body>#<script src="./docs-chat.js"></script></body>#' dist/index.html
   grep -q docs-chat.js dist/index.html

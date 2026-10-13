@@ -271,7 +271,7 @@ function select(id: string) {
 }
 
 // 반영본 바로 열기(ADR-0050). 온톨로지 챗봇의 답에 붙은 [3D] 가 `viewer.html?key=…&v=…&select=…` 로 연다 — 서버의 그 버전
-// (/__data/__layouts, ADR-0037)에서 TTL·층 GeoJSON 을 받아 놓은 것처럼 읽고, select 의 요소를 고른다. GLB 는 크다(성수 214MB) —
+// (/__data/__layouts, src/server/layouts.ts)에서 TTL·층 GeoJSON 을 받아 놓은 것처럼 읽고, select 의 요소를 고른다. GLB 는 크다(성수 214MB) —
 // `&3d=1` 일 때만 받는다. 파일은 놓을 때와 같은 길(load)로 읽어 받는 쪽 규칙이 그대로다.
 const published = ref<{ key: string; version: number } | null>(null)
 async function openPublished(params: URLSearchParams) {

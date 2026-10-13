@@ -9,7 +9,7 @@ tickets: ["OE-SPC-10"]
 criteria: []
 code: ["scripts/onto-graph.mjs", "scripts/onto-mcp.mjs", "scripts/onto-sources.mjs", "scripts/onto-screen.mjs", "src/App.vue", "scripts/onto-questions.mjs", "scripts/onto-bench.mjs", "scripts/docs-chat.mjs", "scripts/docs-chat.js", "scripts/serve.mjs", "src/viewer/ExportViewer.vue"]
 tests: ["scripts/onto-graph.test.ts", "scripts/onto-chat.test.ts", "e2e/viewer.spec.ts", "e2e/onto-screen.spec.ts"]
-related: ["ADR-0001", "ADR-0037", "ADR-0049"]
+related: ["ADR-0049"]
 ---
 
 # ADR-0050 온톨로지 질의 챗봇과 질문 시험대
@@ -28,7 +28,7 @@ DT 에서는 사라지는 질문이 있는지가 "BIM 으로 DT 온톨로지가 
 돌아왔다. 편집하는 사람이 묻고 싶은 것은 반영 전 지금 화면이고, 다음 단계(말로 편집 시키기 — "1F A룸에 공조기 설치해줘")도 gemini 가
 지금 화면의 "A룸" 이 무엇인지 알아야 한다. 그래서 "지금 화면 (반영 전)" 을 출처로 더했다.
 
-제약은 ADR-0001 과 같다. 55 에는 gemini CLI(사내 계정)만 있고 npm 레지스트리에 닿지 않으며 node 는 TS 를 바로 못 돌린다.
+제약은 문서 챗봇과 같다(docs/dev/deploy55.md). 55 에는 gemini CLI(사내 계정)만 있고 npm 레지스트리에 닿지 않으며 node 는 TS 를 바로 못 돌린다.
 8084 는 사내망 누구나 연다.
 
 ## 결정
@@ -39,7 +39,7 @@ DT 에서는 사라지는 질문이 있는지가 "BIM 으로 DT 온톨로지가 
 - **gemini 가 쓸 수 있는 도구는 반영한 온톨로지를 읽기만 하는 MCP 서버(`scripts/onto-mcp.mjs`) 하나다.** 정책
   `scripts/onto-chat.policy.toml` 은 전역 deny + `onto` 만 허용으로, 문서 챗봇 정책과 같은 모양이다. 고치는 도구는 없다.
 - **읽는 것은 반영본, 그리고 묻는 사람이 고르면 지금 화면이다.** 반영본은 `data/.layouts/<열쇠>/current.json` 이 가리키는 버전의
-  `ontology.ttl`(ADR-0037) — "DT 에 반영된 것" 이다. 창은 건물을 고르고, 서버가 목록에 있는 이름만 질문 앞에 붙인다.
+  `ontology.ttl`(src/server/layouts.ts) — "DT 에 반영된 것" 이다. 창은 건물을 고르고, 서버가 목록에 있는 이름만 질문 앞에 붙인다.
 - **지금 화면 (반영 전)은 창이 올린다(2026-10-13 더함).** 창의 건물 고르기 맨 앞에 "지금 화면 (반영 전)" 이 있고, 고르면 묻기 전에 편집
   화면이 만든 TTL(App.vue 의 `window.__oe.screen()`, [TTL] 내려받기와 같은 글)을 `POST /__ask/screen?token=…` 로 올린다
   (`scripts/onto-screen.mjs`). 서버는 그것을 OS 임시 폴더에 토큰 이름으로 두고 gemini 의 도구가 `ONTO_SCREENS` 로 출처로 읽는다

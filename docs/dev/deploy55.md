@@ -20,7 +20,7 @@ PoC 라 원할 때 손으로 배포한다: `ssh 55 'cd /home/dt/git/dt/ontology-
 
 ## 예외: 문서 챗봇 `/__chat`
 
-문서 챗봇 `/__chat`(Alt+Shift+K, ADR-0001)은 앱의 API 가 아니라 55 의 gemini 가 이 repo 의
+문서 챗봇 `/__chat`(Alt+Shift+K, docs/dev/deploy55.md)은 앱의 API 가 아니라 55 의 gemini 가 이 repo 의
 PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지키는 것은 토큰이 아니라 도구 제한이다:
 `scripts/docs-chat.policy.toml`(admin 정책)이 문서 읽는 MCP 서버(`scripts/docs-mcp.mjs`) 밖의 도구를 전부 막는다.
 이 정책을 느슨하게 하면 사내망 누구나 질문 한 줄로 55 에서 명령을 돌린다. 2026-10-02 에 셸·파일 쓰기·인증 파일 읽기를
@@ -43,7 +43,7 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 
 ## FBX 변환은 서버의 Blender 가 한다
 
-툴바의 [FBX] 는 화면이 만든 GLB 를 `POST /__data/__fbx` 로 보내고, 서버가 Blender 로 바꿔 돌려준다(ADR-0052,
+툴바의 [FBX] 는 화면이 만든 GLB 를 `POST /__data/__fbx` 로 보내고, 서버가 Blender 로 바꿔 돌려준다(src/server/fbx.ts,
 `src/server/fbx.ts`·`scripts/glb2fbx.py`). **Blender 가 없는 서버에서는 [FBX] 단추가 막힌다.** `GET /__data/__fbx` 가 `enabled:false`
 와 까닭을 주고, 화면이 그 까닭을 단추의 title 로 보인다.
 

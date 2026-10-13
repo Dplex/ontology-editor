@@ -1,4 +1,4 @@
-// 문서 챗봇의 MCP 서버(ADR-0001). 입력은 이 repo 의 실제 문서다 — 문서가 바뀌면 검색 1위가 움직일 수 있으니,
+// 문서 챗봇의 MCP 서버(docs/dev/deploy55.md). 입력은 이 repo 의 실제 문서다 — 문서가 바뀌면 검색 1위가 움직일 수 있으니,
 // 여기서 박아 두는 것은 "그 질문이면 그 문서가 위에 와야 한다" 가 분명한 것만이다.
 import { spawn } from 'node:child_process'
 import { readdirSync, readFileSync } from 'node:fs'
@@ -30,7 +30,7 @@ describe('색인', () => {
     expect(m.count.ticket).toBeGreaterThan(200)
     expect(m.count.prd).toBeGreaterThanOrEqual(3)
     expect(m.count.intent).toBe(1)
-    expect(m.adrs[0]).toMatchObject({ id: 'ADR-0001', status: '채택' })
+    expect(m.adrs[0]).toMatchObject({ id: 'ADR-0002', status: '채택' })
     expect(m.prd_outline.some((h: string) => h.startsWith('4. 결정 사항'))).toBe(true)
   })
 })
@@ -92,7 +92,7 @@ describe('링크', () => {
   })
 })
 
-describe('정의·맥락 (ADR-0048)', () => {
+describe('정의·맥락 (scripts/docs-ctx.mjs)', () => {
   it('R·K·D·F·E 번호는 첫 칸이 그 번호인 표 줄과 그 표의 머리로 찾는다 — 정의가 있는 문서가 먼저', () => {
     // R 은 두 곳에 줄이 있다 — PRD 부록 A(고객사 요구 전체 표, 2026-10-10~)가 먼저, 개발 문서 4장(실측·대응)이 다음.
     const [prd, dev] = define(idx, 'R11')

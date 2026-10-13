@@ -1,4 +1,4 @@
-// 티켓 md 의 수용 기준 앞에 지금 순서 그대로 `**AC1**` … 을 붙인다(ADR-0048, docs/dev/prd-format-proposal.md 제안 1).
+// 티켓 md 의 수용 기준 앞에 지금 순서 그대로 `**AC1**` … 을 붙인다(docs/dev/prd-format-proposal.md 제안 1).
 // 번호가 지금 순서와 같으니 시험의 `[OE-ML-09#4]` 태그는 그대로 맞는다(ac-tags.test.ts 가 모든 티켓으로 본다).
 //
 // PRD 는 PM 이 고친다 — PM 이 제안 1 의 "한 번에" 를 고를 때 PM 이 돌리는 도구다. 개발은 --write 를 돌리지 않는다.

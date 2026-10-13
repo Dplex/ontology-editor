@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 이 repo 의 문서(PRD·티켓·ADR·intent.md)를 읽기만 하는 MCP 서버(stdio). 55 의 문서 챗봇이 gemini 에 붙인다(ADR-0001).
+// 이 repo 의 문서(PRD·티켓·ADR·intent.md)를 읽기만 하는 MCP 서버(stdio). 55 의 문서 챗봇이 gemini 에 붙인다(docs/dev/deploy55.md).
 //
 //   node scripts/docs-mcp.mjs              repo 루트는 이 파일의 한 칸 위
 //   DOCS_ROOT=/path node scripts/docs-mcp.mjs
@@ -47,7 +47,7 @@ const TOOLS = [
   },
   {
     name: 'docs_read',
-    description: '문서를 읽는다. path 는 docs_search 결과의 path 나 OE-BIM-12·ADR-0001 같은 id. section 을 주면 제목에 그 말이 든 절과 그 하위 절만 읽는다. 항상 목차(outline)를 같이 준다.',
+    description: '문서를 읽는다. path 는 docs_search 결과의 path 나 OE-BIM-12·ADR-0049 같은 id. section 을 주면 제목에 그 말이 든 절과 그 하위 절만 읽는다. 항상 목차(outline)를 같이 준다.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -74,7 +74,7 @@ const TOOLS = [
   },
   {
     name: 'docs_links',
-    description: 'OE-BIM-12 · ADR-0001 · D10 · Q3 같은 식별자가 어느 문서의 어느 절, 몇째 줄에서 언급되나(frontmatter 의 depends·blocked_by·tickets·prd 포함).',
+    description: 'OE-BIM-12 · ADR-0049 · D10 · Q3 같은 식별자가 어느 문서의 어느 절, 몇째 줄에서 언급되나(frontmatter 의 depends·blocked_by·tickets·prd 포함).',
     inputSchema: { type: 'object', properties: { ref: { type: 'string' } }, required: ['ref'] },
     run: a => ({ ref: a.ref, mentions: links(idx(), a.ref) }),
   },
