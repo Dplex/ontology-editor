@@ -311,7 +311,7 @@ test('반영된 온톨로지가 없으면 [초기 구축] 만, 있으면 [운영
   await third.close()
 })
 
-test('수용 기준선(게이트 등급 0~3) 미달이면 [구축하기] 가 꺼지고 재제출 항목이 보이며, 통과선을 바꾸면 판정만 바뀐다 [OE-BIM-21#1] [OE-GEN-02#1~]', async ({ page }) => {
+test('수용 기준선(게이트 등급 0~3) 미달이면 [구축하기] 가 꺼지고 재제출 항목이 보이며, 통과선을 바꾸면 판정만 바뀐다 [OE-BIM-21#1] [OE-GEN-02#1]', async ({ page }) => {
   await serve(page, true)
   await page.goto('/')
   await page.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
@@ -336,6 +336,11 @@ test('수용 기준선(게이트 등급 0~3) 미달이면 [구축하기] 가 꺼
     await table.getByLabel(`등급 ${g} 통과선(%)`).press('Tab')
   }
   await expect(banner).toContainText('게이트(등급 0~3) 통과')
+  await expect(build).toBeEnabled()
+  // 권장 요구사항이 빠져 있어도 막지 않는다 — mep.ifc 는 권장 줄 중 "없음" 이 있는데 [구축하기] 가 켜져 있다.
+  await page.getByRole('button', { name: /^요구사항/ }).click()
+  const recommended = page.locator('.req-table tbody').filter({ has: page.locator('th', { hasText: /^권장/ }) })
+  await expect(recommended.locator('.req-state.missing').first()).toBeVisible()
   await expect(build).toBeEnabled()
 })
 
