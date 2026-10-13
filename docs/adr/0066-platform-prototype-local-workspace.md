@@ -1,16 +1,18 @@
 ---
-id: "ADR-0015"
+id: "ADR-0066"
 title: "플랫폼 프로토타입은 별도 진입점과 층별 브라우저 저장을 사용한다"
 status: "제안"
 date: "2026-10-08"
 deciders: ["Codex"]
 prd: ["D-INT", "D1", "U5"]
 tickets: ["OE-UI-01", "OE-UI-02", "OE-UI-04", "OE-GEN-02", "OE-WF-01", "OE-WF-18", "OE-WF-19"]
-supersedes: []
-superseded_by: ""
+criteria: []
+code: ["prototype.html", "src/platform/Platform.vue", "src/platform/state.ts"]
+tests: ["src/platform/state.test.ts"]
+related: []
 ---
 
-# ADR-0015 플랫폼 프로토타입의 별도 진입점
+# ADR-0066 플랫폼 프로토타입의 별도 진입점
 
 ## 맥락
 
