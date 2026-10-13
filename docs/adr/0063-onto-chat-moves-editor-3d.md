@@ -9,7 +9,7 @@ tickets: []
 criteria: []
 code: ["scripts/docs-chat.js", "src/App.vue", "src/lib/equipment-labels.ts", "src/lib/viewer.ts"]
 tests: ["e2e/chat-3d-labels.spec.ts", "src/lib/equipment-labels.test.ts"]
-related: ["ADR-0050", "ADR-0001"]
+related: ["ADR-0050"]
 ---
 
 # ADR-0063 온톨로지 챗 답을 편집 화면 3D 에서 보기
