@@ -11,6 +11,7 @@ export type ShortcutId =
   | 'escape'
   | 'frame'
   | 'frameAll'
+  | 'perf'
   | 'rules'
   | 'walls'
   | 'undo'
@@ -76,6 +77,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   },
   { id: 'frame', combos: [{ code: 'KeyF' }], keys: ['F'], label: '고른 연결망·물리존·계통에 시점 맞추기', group: '3D 시점' },
   { id: 'frameAll', combos: [{ code: 'KeyF', shift: true }, { code: 'Home' }], keys: ['Shift+F', 'Home'], label: '건물 전체 보기', group: '3D 시점' },
+  // 개발용. 성수 성능을 e2e:seongsu 없이 화면에서 바로 본다.
+  { id: 'perf', combos: [{ code: 'Backquote' }], keys: ['`'], label: '성능 표 켜기·끄기(그린 장수·그리기 ms·draw call·삼각형, 개발용)', group: '3D 시점' },
   { id: 'rules', combos: [{ code: 'KeyR' }], keys: ['R'], label: '규칙 방향 표시 켜기·끄기', group: '3D 시점' },
   { id: 'walls', combos: [{ code: 'KeyW' }], keys: ['W'], label: '내력벽 켜기·끄기', group: '3D 시점' },
 

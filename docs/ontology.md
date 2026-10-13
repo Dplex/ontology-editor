@@ -133,7 +133,7 @@ DT 화면이 묻는 질문 12개(`scripts/onto-questions.mjs`)를 건물마다 �
 - **좌표.** GeoJSON 은 IFC 세계 좌표(m)이고 위경도가 아니다. 점은 `[x, y, z]`, 다각형은 `[x, y]` 에 `elevation` 이다.
   **TTL 에는 형상(다각형·점)을 넣지 않는다**(`export.test.ts`) — 넣으면 WKT 문자열이 되어 겹침을 물을 수 없다. 면적·높이 같은 수치 속성은 형상이 아니라 TTL 에 있다.
 - **층.** 층마다 TTL·GeoJSON 한 쌍이고, 층 TTL 을 다 모으면 건물 전체 TTL 과 같은 트리플이다(ADR-0011). 다른 층을 가리키는 목적어는 id 로 남는다.
-  반영본(서버 버전 폴더, ADR-0037)은 건물 전체 `ontology.ttl` 하나 + 층별 `geojson/*.geojson` + `model.glb` 다.
+  반영본(서버 버전 폴더, src/server/layouts.ts)은 건물 전체 `ontology.ttl` 하나 + 층별 `geojson/*.geojson` + `model.glb` 다.
 - **확정된 것만.** 흐름 방향(`feeds`)은 확정된 것만 낸다. 추정만 된 것은 내지 않는다(K14, ADR-0021).
 - **출처.** TTL 관계에는 출처가 없다. 계산·편집이 섞이는 관계는 GeoJSON 의 `*Source`(`bim`·`calc`·`edit`)에 적는다(ADR-0008, OE-INT-07).
 - **파서 부분 문법.** 받는 쪽은 범용 Turtle 파서가 아니다. `ex:X a 클래스` 로 시작하는 블록만 읽는다(`read-ttl.ts`, bim-to-dt-ontology 부록 C).

@@ -19,6 +19,7 @@ import type { Snapshot } from './edit'
 import type { Arrow, Viewer } from './viewer'
 import { CATEGORY_COLOR, type ReplayMessage, type ReplayStart, type ReplayStep } from './replay'
 import { pickHighlights } from './replay-report'
+import { cascadeWaves } from './flow-cascade'
 
 /**
  * 리플레이가 열려 있나. App 의 여러 곳이 "리플레이 중이면 건너뛴다" 로 읽어서 모듈에 둔다(useReplay 를 부르기 전에 선언된
@@ -754,7 +755,13 @@ export function useReplay(host: ReplayPlayerHost) {
     // 연결·흐름 방향 장면에서만, 방향을 아는 연결에 빛 알갱이가 상류에서 하류로 흐른다(TTL 의 brick:feeds 가 눈에 보이게).
     // 설비를 옮긴 장면도 붙은 연결이 바뀐 것으로 잡히는데, 거기서 흘리면 따라온 배관 마디마다 알갱이가 날뛴다.
     const flowScene = step?.category === '연결' || step?.category === '흐름 방향'
-    host.viewer.setFlows(flowScene ? arrows.flatMap((a) => (a.from ? [{ a: a.a, b: a.b, from: a.from }] : [])) : [])
+    const directed = arrows.flatMap((a) => (a.from ? [{ a: a.a, b: a.b, from: a.from }] : []))
+    host.viewer.setFlows(flowScene ? directed : [])
+    // 흐름 방향 장면은 편집 화면과 같이 바뀐 연결이 원천 쪽부터 차례로 켜진다(flow-cascade.ts). 계통 확정이 계통을 따라 퍼지는 것이 보인다.
+    if (step?.category === '흐름 방향' && directed.length) {
+      const waves = cascadeWaves(directed)
+      host.viewer.playCascade(directed.map((d, i) => ({ ...d, wave: waves[i] })))
+    }
   }
 
   /** 물리존 경계·이름은 3D 에서 미끄러지지 않고 바로 바뀐다. 바뀐 방 바닥을 한 번 번쩍여 어디가 바뀌었는지 보인다. */
