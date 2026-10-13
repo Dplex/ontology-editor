@@ -6,7 +6,7 @@ import { modelToTTL } from './export/ttl'
 import type { Model } from './model'
 import { EMPTY_FILTER, NO_SYSTEM, explodeGroups, facets, filterActive, filteredOut, passes } from './view-filter'
 
-// 3D 보기 필터(ADR-0062). 화면 상태만 — 모델·편집 파일·TTL 은 그대로다.
+// 3D 보기 필터(ui-notes 보기 필터). 화면 상태만 — 모델·편집 파일·TTL 은 그대로다.
 function building(): Model {
   const m: Model = {
     schema: 'IFC4',
@@ -32,7 +32,7 @@ function building(): Model {
   return m
 }
 
-describe('보기 필터 (ADR-0062)', () => {
+describe('보기 필터 (ui-notes 보기 필터)', () => {
   it('항목과 개수 — 층은 높이 순, 클래스는 기기 먼저 많은 것부터(TTL 과 같은 클래스), 계통 없음은 맨 뒤', () => {
     const f = facets(building())
     expect(f.storeys.map((s) => [s.id, s.count])).toEqual([['1F', 2], ['2F', 2]])

@@ -1,4 +1,4 @@
-// 3D 보기 필터(ADR-0062). 층 여러 개 골라 보기, Brick 클래스·계통으로 거르기, 숨기기·격리. **화면 상태다** — 모델·편집 파일·TTL·
+// 3D 보기 필터(ui-notes 보기 필터). 층 여러 개 골라 보기, Brick 클래스·계통으로 거르기, 숨기기·격리. **화면 상태다** — 모델·편집 파일·TTL·
 // GeoJSON 에 아무것도 남지 않는다. 층 보기(viewStorey)·다중층 뷰가 정한 보일 층과 숨길 설비 위에 얹는다(App.vue 의 applyStoreyFilter).
 // 클래스는 내보내기와 같은 규칙(export/ttl.ts 의 classOf)으로 센다 — 필터에서 고른 `brick:Air_Diffuser` 가 TTL 의 그 클래스다.
 import { classOf } from './export/ttl'

@@ -9,6 +9,7 @@ import { computed, onMounted, ref, shallowRef } from 'vue'
 import { mergeReadings, readOntologyTTL, type OntologyEntity, type TtlReading } from '../lib/export/read-ttl'
 import { crossCheck, readGeoJSON, type ExportFloor, type ReadFeature } from '../lib/export/read-export'
 import { check3D, read3D, type Reading3D } from '../lib/export/read-3d'
+import { KIND_LABEL, planOf } from '../lib/export/plan-shapes'
 import Scene3D from './Scene3D.vue'
 
 const ttl = shallowRef<TtlReading | null>(null)
@@ -141,18 +142,6 @@ const unreadCounts = computed(() => {
   for (const u of ttl.value?.unread ?? []) n.set(u.cls, (n.get(u.cls) ?? 0) + 1)
   return [...n]
 })
-const KIND_LABEL: Record<string, string> = {
-  space: '물리존',
-  equipment: '설비',
-  wall: '벽',
-  door: '문',
-  window: '창',
-  customZone: '커스텀존',
-  hvacZone: '공조존',
-  room: '룸',
-  spaceObject: '추가 공간 오브젝트',
-  vertical: '수직 관통 오브젝트',
-}
 const kindCounts = computed(() => {
   const n = new Map<string, number>()
   for (const fl of floors.value) for (const f of fl.features) n.set(String(f.properties.kind), (n.get(String(f.properties.kind)) ?? 0) + 1)
@@ -216,53 +205,8 @@ const visible3d = computed<Set<string> | null>(() => {
 const floor = computed(() => floors.value[floorIndex.value] ?? null)
 
 // --- 평면 -----------------------------------------------------------------------------------------
-// 좌표는 건물 로컬 미터다(geojson.ts). y 를 뒤집어 북쪽이 위로 오게 그린다.
-type Shape = { id: string; kind: string; d?: string; cx?: number; cy?: number; name: string }
-const plan = computed(() => {
-  const fl = floor.value
-  if (!fl) return null
-  let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity]
-  const add = (p: number[]) => {
-    x0 = Math.min(x0, p[0])
-    x1 = Math.max(x1, p[0])
-    y0 = Math.min(y0, -p[1])
-    y1 = Math.max(y1, -p[1])
-  }
-  const shapes: Shape[] = []
-  for (const f of fl.features) {
-    const g = f.geometry
-    if (!g) continue
-    const kind = String(f.properties.kind)
-    const name = String(f.properties.name ?? '')
-    if (g.type === 'Point') {
-      const p = g.coordinates as number[]
-      add(p)
-      shapes.push({ id: f.id, kind, cx: p[0], cy: -p[1], name })
-    } else if (g.type === 'Polygon' || g.type === 'MultiPolygon') {
-      const polys = (g.type === 'Polygon' ? [g.coordinates] : g.coordinates) as number[][][][]
-      const d = polys
-        .flat()
-        .map((ring) => {
-          ring.forEach(add)
-          return `M${ring.map((p) => `${p[0]},${-p[1]}`).join('L')}Z`
-        })
-        .join('')
-      shapes.push({ id: f.id, kind, d, name })
-    }
-  }
-  if (!Number.isFinite(x0)) return { viewBox: '0 0 1 1', shapes: [], r: 0.1, empty: true }
-  const pad = Math.max(x1 - x0, y1 - y0, 1) * 0.04
-  // 넓이가 큰 것부터 그려 작은 것이 위에 온다. 점(설비·문)은 맨 위이고, 기기는 같은 자리의 덕트·배관 위에 둔다(눌러지게).
-  const order: Record<string, number> = { hvacZone: 0, customZone: 1, space: 2, room: 2.5, spaceObject: 2.7, vertical: 2.8, wall: 3, window: 4, door: 5, equipment: 7 }
-  const rank = (s: Shape) => (s.kind === 'equipment' && unreadByKey.value.has(s.id) ? 6 : (order[s.kind] ?? 9))
-  shapes.sort((a, b) => rank(a) - rank(b))
-  return {
-    viewBox: `${x0 - pad} ${y0 - pad} ${x1 - x0 + pad * 2} ${y1 - y0 + pad * 2}`,
-    shapes,
-    r: Math.max(x1 - x0, y1 - y0, 1) / 220,
-    empty: false,
-  }
-})
+// 모양은 에디터의 비교 판과 같이 쓴다(plan-shapes.ts).
+const plan = computed(() => (floor.value ? planOf(floor.value, new Set(unreadByKey.value.keys())) : null))
 
 function select(id: string) {
   selectedId.value = id

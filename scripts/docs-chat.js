@@ -24,7 +24,8 @@
       hint: '[구축하기]·[반영하기] 한 건물 온톨로지를 읽고 답합니다. 건물에서 "지금 화면 (반영 전)" 을 고르면 반영하지 않은 편집까지 본 온톨로지로 답합니다.\n' +
         '답 끝에 쓴 질의가 붙어 다시 돌려 확인할 수 있고,\n' +
         '받는 쪽 DT 파서가 읽지 않는 정보(면적·방번호 같은 ex: 속성)로 답했으면 그렇게 알려 줍니다.\n' +
-        '답의 id 옆 [3D] 를 누르면 내보낸 파일 뷰어가 그 반영본을 열고 그 요소를 고릅니다.\n\n' +
+        '답의 id 옆 [3D] 를 누르면 내보낸 파일 뷰어가 그 반영본을 열고 그 요소를 고릅니다.\n' +
+        '편집 화면에서는 답이 끝나면 답의 대상을 열어 둔 BIM 의 3D 에서 골라 그 자리로 가고(🎯 3D 동작), [여기] 로 하나씩 갈 수 있습니다.\n\n' +
         '예) "AHU-1 은 어느 방에 있어?"\n    "2층 회의실에 있는 설비는?"\n    "이 공조기가 공기를 보내는 방은?"\n    "A101호는 어느 층이야?"',
     },
   }
@@ -61,15 +62,58 @@
 
   /** 건물(source) → { key, version }. 반영본이면 key 가 있어 답의 id 를 내보낸 파일 뷰어로 잇는다. */
   var sourceInfo = {}
-  /** [온톨로지] 답의 `ex:…` 옆에 [3D] — 그 버전의 TTL·GeoJSON 을 뷰어(viewer.html)로 열고 그 요소를 고른다. */
+  /**
+   * [온톨로지] 답의 `ex:…` 옆에 [여기]·[3D].
+   *   [여기] 편집 화면(index.html)이 window.__editor3d 를 열어 두었으면 — 그 화면의 3D 에서 그 요소를 고르고 그 자리로 간다(ADR-0063).
+   *          열어 둔 BIM 에 없는 id 면 칩이 그렇게 알린다. 브라우저 안에서만 오가고 서버로는 아무것도 보내지 않는다.
+   *   [3D]   그 버전의 TTL·GeoJSON 을 뷰어(viewer.html)로 열고 그 요소를 고른다(ADR-0050).
+   */
   function linkIds(html, src) {
     var s = sourceInfo[src]
-    if (!s || !s.key) return html
+    var here = !!window.__editor3d
+    if ((!s || !s.key) && !here) return html
     return html.replace(/<code>ex:([^<\s]+)<\/code>/g, function (all, id) {
       var local = id.replace(/\\(.)/g, '$1')
-      var href = 'viewer.html?key=' + encodeURIComponent(s.key) + '&v=' + encodeURIComponent(s.version) + '&select=' + encodeURIComponent(local)
-      return all + ' <a href="' + href + '" target="_blank" rel="noopener" title="내보낸 파일 뷰어에서 이 요소 보기">3D</a>'
+      var out = all
+      if (here) out += ' <a href="#" data-a="here" data-id="' + esc(local) + '" title="이 편집 화면의 3D 에서 이 요소를 고릅니다">여기</a>'
+      if (s && s.key) {
+        var href = 'viewer.html?key=' + encodeURIComponent(s.key) + '&v=' + encodeURIComponent(s.version) + '&select=' + encodeURIComponent(local)
+        out += ' <a href="' + href + '" target="_blank" rel="noopener" title="내보낸 파일 뷰어에서 이 요소 보기">3D</a>'
+      }
+      return out
     })
+  }
+  /** 답 글에 나온 `ex:…` id(이스케이프를 푼 로컬 이름). 같은 것은 한 번. */
+  function idsOf(text) {
+    var seen = {}
+    var out = []
+    String(text).replace(/ex:((?:\\.|[A-Za-z0-9_$\-.가-힣])+)/g, function (_, id) {
+      var local = id.replace(/\.+$/, '').replace(/\\(.)/g, '$1')
+      if (local && !seen[local]) { seen[local] = true; out.push(local) }
+      return _
+    })
+    return out
+  }
+  /**
+   * 편집 화면 3D 를 움직이고 무엇을 했는지 칩으로 남긴다(에테리온 데모의 "뷰어 동작" 칩). `after` 가 있으면 그 말 바로 뒤에 붙인다.
+   * 편집 화면이 아니면(viewer.html 등) 아무것도 안 한다.
+   */
+  function act(ids, after) {
+    if (!window.__editor3d || !ids.length) return
+    var r
+    try { r = window.__editor3d.show(ids) } catch (e) { return }
+    var found = r.equipment + r.spaces + r.storeys
+    var d = document.createElement('div')
+    d.className = 'act' + (found ? '' : ' none')
+    d.innerHTML = '🎯 3D 동작 · ' + esc(r.label) +
+      (found ? ' <a href="#" data-a="again" data-ids="' + esc(JSON.stringify(ids)) + '" title="같은 대상으로 다시 갑니다">다시 보기</a>' : '')
+    // 그 말 뒤에 이미 붙은 칩이 있으면 그 칩들 뒤에 — 위에서 아래로 한 일 순서다
+    if (after && after.parentNode === list) {
+      var at = after
+      while (at.nextSibling && at.nextSibling.classList && at.nextSibling.classList.contains('act')) at = at.nextSibling
+      list.insertBefore(d, at.nextSibling)
+    } else list.appendChild(d)
+    list.scrollTop = list.scrollHeight
   }
   function renderBot(t) { return mode === 'onto' ? linkIds(render(hidePlan(t.text)), t.source) : render(t.text) }
   // 말로 편집 시키기(ADR-0060). gemini 가 답 끝에 붙인 ```oe-edit 블록(JSON)은 글로 보이지 않고, 아래 상자에 사람이 읽을 줄과 [적용] 이 뜬다.
@@ -116,6 +160,8 @@
     '#docs-chat .bot{background:#1b2029;border:1px solid #262d38}',
     '#docs-chat .tool{color:#8b94a3;font-size:12px;padding:0 4px;word-break:break-all}',
     '#docs-chat .err{color:#ff8a80}',
+    '#docs-chat .act{align-self:flex-start;font-size:12px;padding:3px 9px;border-radius:999px;background:#1d3324;border:1px solid #2f5a3c;color:#b9e6c4}',
+    '#docs-chat .act.none{background:#262d38;border-color:#333c4a;color:#8b94a3}',
     '#docs-chat .plan{margin-top:8px;padding:8px 10px;border:1px solid #3a4a60;border-radius:8px;background:#18202b}',
     '#docs-chat .plan ol,#docs-chat .plan ul{margin:6px 0 6px 18px;padding:0}#docs-chat .plan .ok{color:#9be29b}',
     '#docs-chat code{background:#262d38;padding:0 4px;border-radius:4px;font:12px ui-monospace,Consolas,monospace}',
@@ -235,6 +281,8 @@
     }).then(function () {
       // 답하는 중에 칸을 바꿨으면 답은 원래 칸의 기록에 남긴다
       if (text && asked === mode) { history.push({ role: 'assistant', text: text, source: askedSource }); save() }
+      // [온톨로지] 답이 끝나면 답의 대상을 편집 화면 3D 에서 고르고 그 자리로 간다(편집 화면일 때만, ADR-0063)
+      if (text && asked === 'onto' && asked === mode) act(idsOf(text), bot)
       else if (!text && !bot.querySelector('.err')) bot.innerHTML = '<span class="err">답이 비었다</span>'
       if (text && asked === 'onto') showPlan(bot, text)
       status.textContent = ((Date.now() - started) / 1000).toFixed(1) + '초'
@@ -336,6 +384,11 @@
       if (a === 'new') { if (busy) busy.abort(); history = []; save(); redraw() }
       if (a === 'mode-docs') setMode('docs')
       if (a === 'mode-onto') setMode('onto')
+      if (a === 'here' || a === 'again') {
+        e.preventDefault()
+        var ids = a === 'here' ? [e.target.getAttribute('data-id')] : JSON.parse(e.target.getAttribute('data-ids') || '[]')
+        act(ids, e.target.closest('.msg, .act'))
+      }
     })
     // 창 안의 키는 앱으로 보내지 않는다(Delete·방향키·Ctrl+Z 가 3D 편집을 건드리지 않게)
     root.addEventListener('keydown', function (e) {

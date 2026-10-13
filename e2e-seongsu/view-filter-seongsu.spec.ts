@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs'
 import { basename } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 
-// 성수 건축+기계에서 보기 필터·격리·분해도가 화면을 멈추지 않는지 잰다(ADR-0062). 걸린 시간(다음 두 프레임까지)과
+// 성수 건축+기계에서 보기 필터·격리·분해도가 화면을 멈추지 않는지 잰다(ui-notes 보기 필터). 걸린 시간(다음 두 프레임까지)과
 // 그동안 가장 긴 프레임 간격을 콘솔에 찍는다. 기준: 한 동작 1.5초 안, 프레임 멈춤 1초 안.
 const ARCH = process.env.SEONGSU_ARCH ?? 'data/성수/Factorial_건축.ifc'
 const MECH = process.env.SEONGSU_MECH ?? 'data/성수/Factorial_기계.ifc'

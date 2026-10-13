@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
 
-// 3D 보기 필터 · 우클릭 메뉴 · 분해도(ADR-0062). 화면 상태만 — 바뀐 것 0건이 그대로인지도 본다.
+// 3D 보기 필터 · 우클릭 메뉴 · 분해도(ui-notes 보기 필터). 화면 상태만 — 바뀐 것 0건이 그대로인지도 본다.
 // Duplex MEP: Level 1·2·Roof, 기기 141대 · 덕트·배관 785개.
 const DUPLEX = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc'
 const RADIATOR = 'M_Radiator - Hosted:Readiator - 25:Readiator - 25:536919'

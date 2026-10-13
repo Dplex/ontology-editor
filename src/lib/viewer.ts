@@ -356,12 +356,12 @@ export type Viewer = {
   focus(id: string): void
   /** 주어진 설비들이 화면에 꽉 차게 카메라를 맞춘다. 연결망만 보고 싶을 때 쓴다. margin(미터)만큼 둘레를 더 보인다. */
   frame(ids: Iterable<string>, margin?: number): void
-  /** 움직이지 않은 우클릭(ADR-0062). 누른 자리의 설비 id(없으면 null)와 화면 좌표. 끈 오른쪽 드래그는 그대로 회전이다. */
+  /** 움직이지 않은 우클릭(ui-notes 보기 필터). 누른 자리의 설비 id(없으면 null)와 화면 좌표. 끈 오른쪽 드래그는 그대로 회전이다. */
   onContext(handler: (id: string | null, x: number, y: number) => void): void
   /** 보이는 것 전체에 맞춘다. `keep` 이면 지금 보는 방향 그대로(전체 맞추기), 아니면 처음 시점 방향(카메라 초기화). */
   frameVisible(keep: boolean): void
   /**
-   * Brick 클래스별 분해도(ADR-0062). 묶음마다 그 설비를 건물 위로 한 켜씩 띄우고(평면 자리는 그대로) 켜 옆에 라벨을 단다.
+   * Brick 클래스별 분해도(ui-notes 보기 필터). 묶음마다 그 설비를 건물 위로 한 켜씩 띄우고(평면 자리는 그대로) 켜 옆에 라벨을 단다.
    * 화면에서만 옮긴다 — 모델·편집 파일에는 아무것도 남지 않고, 다시 그리거나 설비를 옮기면 먼저 제자리로 돌아온다.
    * `null` 이면 제자리로. 띄웠으면 true.
    */
@@ -401,6 +401,11 @@ export type Viewer = {
   onVertexMove(handler: (spaceId: string, index: number, to: Vec2) => void): void
   /** 연결 화살표. 빈 배열이면 지운다. */
   setArrows(arrows: readonly Arrow[]): void
+  /**
+   * 흐름 방향의 연쇄(flow-cascade.ts). 확정·적용으로 TTL 에 나가는 방향이 바뀐 연결을 물결(wave) 순서대로 강조색 화살표로 띄웠다가
+   * 걷는다. 평소 화살표(setArrows, 고른 설비의 이웃)와 따로 겹쳐 그린다. 움직임을 끈 사람에게는 한꺼번에 띄웠다가 걷는다.
+   */
+  playCascade(items: readonly { a: string; b: string; from: string; wave: number }[]): void
   /** 편집 모드가 아니어도 화살표를 그린다(누르지는 못한다). 편집 리플레이가 바뀐 흐름을 보일 때 쓴다. */
   setArrowsShown(on: boolean): void
   onArrowClick(handler: (key: string) => void): void
@@ -485,8 +490,20 @@ export type Viewer = {
    */
   setPlaceMode(elevation: number | null): void
   onPlace(handler: (at: Vec2) => void): void
+  /**
+   * 시점이 바뀌면 부른다(한 프레임에 한 번). 바라보는 점의 IFC 평면 좌표와, 그 거리에서 화면 가로 절반이 덮는 길이(m).
+   * 비교 판(ExportCompare.vue, ADR-0061)의 평면이 3D 를 따라간다. null 이면 뗀다.
+   */
+  onView(handler: ((view: { target: Vec2; halfWidth: number }) => void) | null): void
   /** 물리존 하나가 화면에 들어오게 한다. */
   frameSpace(id: string): void
+  /**
+   * 설비 형상 상자 가운데의 화면 좌표(창 기준 px). 그려지지 않았거나(다른 층·숨김) 카메라 뒤·캔버스 밖이면 null.
+   * 3D 위 설비 라벨(App.vue 의 equipmentLabels)이 쓴다.
+   */
+  screenOf(ids: readonly string[]): ({ x: number; y: number } | null)[]
+  /** 3D 를 다시 그릴 때마다 오르는 수. 라벨이 그대로인 화면에서 자리를 다시 재지 않게 본다. */
+  viewVersion(): number
   /**
    * 화면의 오른쪽·위쪽이 IFC 평면에서 어느 쪽인가(단위 벡터). 방향키로 설비를 옮길 때 쓴다. 비스듬히 보면
    * 화면 위쪽은 바닥에서 "멀어지는 쪽" 이다.
@@ -647,8 +664,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // **움직일 때만 다시 그린다.** 가만히 있을 때도 매 프레임 1만 8천 개를 다시 그리면 화면 전체(스크롤,
   // 입력칸)가 같이 느려진다. 시점이 바뀌거나 색·모델이 바뀌었을 때만 그린다.
   let dirty = true
+  // 시점을 알릴 곳(onView). 비행·관성으로 한 프레임에 여러 번 바뀌어도 프레임마다 한 번만 알린다.
+  let viewHandler: ((view: { target: Vec2; halfWidth: number }) => void) | null = null
+  let viewPending = false
   const invalidate = () => {
     dirty = true
+    if (viewHandler && !viewPending) {
+      viewPending = true
+      requestAnimationFrame(() => {
+        viewPending = false
+        const t = controls.target
+        const d = camera.position.distanceTo(t)
+        viewHandler?.({ target: [t.x, -t.z], halfWidth: d * Math.tan((camera.fov * Math.PI) / 360) * (camera.aspect || 1.6) })
+      })
+    }
   }
   controls.addEventListener('change', invalidate)
 
@@ -921,6 +950,98 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       }
       arrowSegs.push({ key: spec.key, a: ca, b: cb })
     }
+  }
+
+  // --- 흐름 방향의 연쇄 ---
+  // 바뀐 연결을 물결마다 CASCADE_STEP_MS 간격으로 띄운다. 물결이 많으면 간격을 줄여 전체가 CASCADE_SPAN_MS 안에 퍼진다. 다 띄운 뒤
+  // CASCADE_HOLD_MS 두었다가 CASCADE_FADE_MS 동안 옅어진다. 성수 한꺼번에 확정처럼 수천 개가 바뀌어도 CASCADE_MAX 개(앞 물결부터)만 그린다.
+  const CASCADE_STEP_MS = 140
+  const CASCADE_SPAN_MS = 1600
+  const CASCADE_HOLD_MS = 900
+  const CASCADE_FADE_MS = 400
+  const CASCADE_MAX = 400
+  // 촉 형상 하나(높이 1, 반지름 1/3 — 크기는 scale 로)와 재질 둘을 모두가 같이 쓴다. 성수에서 화살표마다 새로 만들면 확정 한 번에 160ms 가 들었다.
+  // 옅어지기는 다 같이라 재질 하나의 opacity 로 된다.
+  const CASCADE_CONE = new ConeGeometry(1 / 3, 1, 12)
+  let cascade: { t0: number | null; step: number; last: number; line: LineBasicMaterial; cone: MeshBasicMaterial; parts: { wave: number; r: number; objects: (Line | Mesh)[] }[] } | null = null
+  function clearCascade() {
+    if (!cascade) return
+    for (const p of cascade.parts)
+      for (const o of p.objects) {
+        o.parent?.remove(o)
+        if (o instanceof Line) o.geometry.dispose()
+      }
+    cascade.line.dispose()
+    cascade.cone.dispose()
+    cascade = null
+    dirty = true
+  }
+  function startCascade(items: readonly { a: string; b: string; from: string; wave: number }[]) {
+    clearCascade()
+    const color = arrowColors(dark).edit
+    const lineMat = new LineBasicMaterial({ color, depthTest: false, transparent: true })
+    const coneMat = new MeshBasicMaterial({ color, depthTest: false, transparent: true })
+    const parts: { wave: number; r: number; objects: (Line | Mesh)[] }[] = []
+    // 배관 마디는 수십 cm 라 길이로만 촉 크기를 잡으면 건물 전체를 볼 때 안 보인다(Duplex MEP). 촉은 보는 거리에 맞춰 최소 크기를 둔다.
+    const minR = camera.position.distanceTo(controls.target) * 0.012
+    const up = new Vector3(0, 1, 0)
+    for (const it of [...items].sort((x, y) => x.wave - y.wave).slice(0, CASCADE_MAX)) {
+      if (hiddenIds.has(it.a) || hiddenIds.has(it.b)) continue
+      const pa = partById.get(it.a)
+      const pb = partById.get(it.b)
+      if (!pa || !pb) continue
+      const ca = pa.box.getCenter(new Vector3())
+      const cb = pb.box.getCenter(new Vector3())
+      const len = ca.distanceTo(cb)
+      if (len < 1e-6) continue
+      const [tail, head] = it.from === it.a ? [ca, cb] : [cb, ca]
+      const dir = head.clone().sub(tail).normalize()
+      const line = new Line(new BufferGeometry().setFromPoints([tail, head]), lineMat)
+      line.renderOrder = 13
+      // 평소 화살촉보다 조금 크게 — 위에 겹쳐 그리니 같은 크기면 안 보인다.
+      const r = Math.max(Math.min(Math.max(len * 0.09, 0.07), 0.5), minR)
+      const cone = new Mesh(CASCADE_CONE, coneMat)
+      cone.position.copy(tail).addScaledVector(dir, len * 0.6)
+      cone.quaternion.setFromUnitVectors(up, dir)
+      cone.renderOrder = 14
+      for (const o of [line, cone]) {
+        o.visible = false
+        overlay.add(o)
+      }
+      parts.push({ wave: it.wave, r: r * 3, objects: [line, cone] })
+    }
+    if (!parts.length) {
+      lineMat.dispose()
+      coneMat.dispose()
+      return
+    }
+    const waves = parts.at(-1)!.wave + 1
+    const step = still() ? 0 : Math.min(CASCADE_STEP_MS, CASCADE_SPAN_MS / waves)
+    started.cascades++
+    cascade = { t0: null, step, last: parts.at(-1)!.wave, line: lineMat, cone: coneMat, parts }
+    dirty = true
+  }
+  function stepCascade(now: number) {
+    if (!cascade) return
+    if (cascade.t0 === null) cascade.t0 = now
+    const t = now - cascade.t0
+    const spread = cascade.last * cascade.step
+    for (const p of cascade.parts) {
+      const at = p.wave * cascade.step
+      if (t < at) continue
+      // 띄울 때 촉이 0.3 배에서 1 배로 커진다(180ms). 움직임을 끈 사람에게는 처음부터 1 배다.
+      const grow = cascade.step === 0 ? 1 : Math.min(1, 0.3 + ((t - at) / 180) * 0.7)
+      for (const o of p.objects) {
+        o.visible = true
+        if (o instanceof Mesh) o.scale.setScalar(p.r * grow)
+      }
+    }
+    const fade = still() ? 1 : 1 - Math.min(1, Math.max(0, t - spread - CASCADE_HOLD_MS) / CASCADE_FADE_MS)
+    cascade.line.opacity = fade
+    cascade.cone.opacity = fade
+    dirty = true
+    // 움직임을 끈 사람에게는 한꺼번에 띄워 2초 둔다 — 퍼지는 순서는 못 보지만 무엇이 바뀌었는지는 본다.
+    if (t > spread + CASCADE_HOLD_MS + (still() ? 1100 : CASCADE_FADE_MS)) clearCascade()
   }
 
   /** 손잡이는 화면에서 잰다. 크기가 시점 따라 바뀌어도 누르는 너비는 같아야 한다. */
@@ -1416,7 +1537,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const dragged = Math.hypot(e.clientX - pressedAt.x, e.clientY - pressedAt.y) > 4
     pressedAt = null
     if (dragged) return
-    // 움직이지 않은 우클릭은 메뉴다(ADR-0062). 전에는 왼쪽 누르기처럼 골랐다. 끈 오른쪽 드래그는 위에서 회전으로 끝났다.
+    // 움직이지 않은 우클릭은 메뉴다(ui-notes 보기 필터). 전에는 왼쪽 누르기처럼 골랐다. 끈 오른쪽 드래그는 위에서 회전으로 끝났다.
     if (e.button === 2) {
       contextHandler(pick(rayAt(e.clientX, e.clientY)), e.clientX, e.clientY)
       return
@@ -1699,10 +1820,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   let running = true
+  /** 다시 그린 횟수(viewVersion). */
+  let renders = 0
   function tick(now = performance.now()) {
     if (!running) return
     resize()
     stepFlight(now)
+    stepCascade(now)
     stepPivotMark(now)
     stepGlides(now)
     stepPulses(now)
@@ -1719,6 +1843,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (handles.length) scaleHandles()
       const t0 = performance.now()
       renderer.render(scene, camera)
+      renders++
       perf.renderMs = performance.now() - t0
       perf.calls = renderer.info.render.calls
       perf.triangles = renderer.info.render.triangles
@@ -1783,7 +1908,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 움직임을 끈 사람에게는 그대로 순간이동이다. 사람이 시점을 잡으면(controls 'start') 그 자리에서 멈춘다.
   const FLY_MS = 380
   /** 시작한 움직임 수(e2e 가 짧은 움직임을 놓치지 않게 센다). */
-  const started = { flights: 0, glides: 0, pulses: 0 }
+  const started = { flights: 0, glides: 0, pulses: 0, cascades: 0 }
   let flight: { t0: number | null; ms: number; lift: number; ease: (k: number) => number; fromT: Vector3; fromP: Vector3; toT: Vector3; toP: Vector3; near: number; far: number } | null = null
   function fly(target: Vector3, position: Vector3, clip: { near: number; far: number } | null) {
     flight = null
@@ -1955,7 +2080,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     dirty = true
   }
 
-  // --- Brick 클래스별 분해도(setExplode, ADR-0062) ---
+  // --- Brick 클래스별 분해도(setExplode, ui-notes 보기 필터) ---
   // 클래스 묶음마다 설비 형상을 위로 평행이동한다(꼭짓점을 고쳐 쓴다 — 미끄러짐과 같은 장치라 고르기 상자도 따라간다). 원래 꼭짓점을
   // 떠 두었다가 접을 때 되돌린다. 모델은 건드리지 않는다. 다시 그리기·설비 옮기기가 오면 먼저 접는다 — 띄운 자리에서 옮기면 접을 때
   // 옛 자리로 돌아가 버린다.
@@ -2407,7 +2532,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // e2e 모드에서만 연다. 3D 는 DOM 이 아니라서 테스트가 어디를 눌러야 하는지 알 길이 이것뿐이다.
   if (import.meta.env.MODE === 'e2e') {
     ;(window as unknown as { __viewer?: unknown }).__viewer = {
-      /** 숨긴 설비 수·보이는 층·분해도 라벨(보기 필터 ADR-0062 를 잰다). */
+      /** 숨긴 설비 수·보이는 층·분해도 라벨(ui-notes 의 보기 필터 절을 잰다). */
       shown: () => ({ hidden: hiddenIds.size, parts: parts.length, storeys: visibleStoreys ? [...visibleStoreys] : null, labels: explodeLabels.children.filter((o) => o instanceof Sprite).length, exploded: explodedParts?.size ?? 0 }),
       /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */
       hoverMark: () => (hoverMark ? hoverMarkKey : ''),
@@ -2418,7 +2543,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
       /** 휠 클릭으로 정한 회전 중심 고리가 떠 있나. */
       pivot: () => (pivotMark ? pivotMark.at.toArray() : null),
-      motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, ...fx.motion(), started }),
+      motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, cascading: cascade ? cascade.parts.length : 0, cascadeShown: cascade ? cascade.parts.filter((p) => p.objects[0].visible).length : 0, ...fx.motion(), started }),
       part: (id: string) => {
         const part = partById.get(id)
         return part ? toScreen(part.box.getCenter(new Vector3())) : null
@@ -2566,6 +2691,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       // 편집 뒤 다시 그리기는 바뀐 설비만 고친다(patchModel). 안 되면 아래에서 처음부터 다시 짓는다.
       if (options?.keepView && meshes === lastMeshes && chunks.length && patchModel(model, meshes)) return
       lastMeshes = meshes
+      // 형상을 새로 지으면 연쇄 화살표가 가리키던 자리도 바뀐다. 걷는다.
+      clearCascade()
       // 끄는 중에 모델이 바뀌면 끌던 것은 버린다. 형상을 새로 만드니 되돌릴 것도 없다.
       drag = null
       controls.enabled = true
@@ -2869,6 +2996,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setArrows(arrows) {
       arrowSpecs = arrows
       drawArrows()
+    },
+
+    playCascade(items) {
+      startCascade(items)
     },
 
     setArrowsShown(on) {
@@ -3380,6 +3511,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       placeHandler = handler
     },
 
+    onView(handler) {
+      viewHandler = handler
+      if (handler) invalidate()
+    },
+
     setStoreyFilter(storeys, hidden) {
       // 화면은 모델이 바뀔 때마다(편집·되돌리기마다) 이것을 다시 부른다. 보일 층과 숨길 설비가 그대로면 삼각형 목록을 다시 짜지
       // 않는다 — 덩어리 전부의 인덱스를 새로 올려서 성수에서 편집·되돌리기마다 화면이 0.2초씩 멈췄다. 새 형상(setModel)은
@@ -3404,6 +3540,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       fit(box)
     },
 
+    screenOf(ids) {
+      const rect = canvas.getBoundingClientRect()
+      const c = new Vector3()
+      return ids.map((id) => {
+        const part = partById.get(id)
+        if (!part || hiddenIds.has(id)) return null
+        const at = toScreen(part.box.getCenter(c))
+        if (!at || at.x < rect.left || at.x > rect.right || at.y < rect.top || at.y > rect.bottom) return null
+        return at
+      })
+    },
+
+    viewVersion: () => renders,
+
     planeAxes() {
       camera.updateMatrixWorld()
       const right = new Vector3().setFromMatrixColumn(camera.matrixWorld, 0)
@@ -3422,6 +3572,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       running = false
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('blur', onBlur)
+      clearCascade()
+      CASCADE_CONE.dispose()
       if (import.meta.env.MODE === 'e2e') delete (window as unknown as { __viewer?: unknown }).__viewer
       controls.removeEventListener('change', invalidate)
       controls.dispose()
