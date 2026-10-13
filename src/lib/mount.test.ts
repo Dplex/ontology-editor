@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { allowedSurfaces, canMountOn, MOUNT, surfaceOf } from './mount'
-import { equipmentKind } from './kinds'
+import { equipmentKind, equipmentKindOf } from './kinds'
+import { CAPACITY_CHECK_KINDS } from './airflow'
 
 // OE-OBJ-08 설치면. 표는 PRD 가 정한 것이고, 표에 없는 종류는 정하지 않는다.
 describe('설치면', () => {
@@ -22,6 +23,19 @@ describe('설치면', () => {
     expect(allowedSurfaces('sprinkler')).toEqual(['ceiling'])
     expect(surfaceOf({ kind: 'sprinkler' })).toBe('ceiling')
     expect(canMountOn({ kind: 'sprinkler' }, 'wall')).toBe(false)
+  })
+
+  it('공조기·패키지 에어컨(PAC)은 바닥 전용이고, PAC 는 이름으로 읽혀 정격 풍량이 Z-03 입력이 된다 (OE-EQP-09)', () => {
+    for (const k of ['ahu', 'pac']) {
+      expect(allowedSurfaces(k)).toEqual(['floor'])
+      expect(canMountOn({ kind: k }, 'ceiling')).toBe(false)
+      expect(canMountOn({ kind: k }, 'wall')).toBe(false)
+    }
+    for (const name of ['PAC-1', 'PAC 3F-02', '패키지 에어컨 1', '패키지형 에어컨', 'Packaged Air Conditioner']) expect(equipmentKindOf(name, '', '')?.kind, name).toBe('pac')
+    // 다른 낱말 속의 pac 는 읽지 않는다.
+    for (const name of ['Space Heater', 'IMPACT-1', 'capacitor']) expect(equipmentKindOf(name, '', '')?.kind, name).not.toBe('pac')
+    expect(CAPACITY_CHECK_KINDS.has('pac')).toBe(true)
+    expect(equipmentKind('pac')?.brick).toBe('brick:PAC')
   })
 
   it('정하지 않은 종류는 막지 않는다', () => {

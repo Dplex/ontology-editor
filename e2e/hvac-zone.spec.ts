@@ -236,6 +236,44 @@ test('실내기를 담당 공조존 밖으로 옮기면 다시 지정하라는 �
   expect(errors).toEqual([])
 })
 
+test('공조기를 다른 물리존으로 옮기면 담당 공조존에서 빠져 Z-04 가 뜨고, Ctrl+Z 로 담당이 돌아온다 (OE-EQP-09) [OE-EQP-09#1]', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const row = page.locator('.equipment tbody tr', { hasText: 'AHU-1' })
+  await row.getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await page.getByTestId('served-zones').getByRole('button', { name: '흐름이 닿는 물리존으로 새 공조존 (사무실)' }).click()
+  const checks = page.getByTestId('hvac-zones').getByTestId('zone-checks')
+  await expect(checks.locator('li', { hasText: 'Z-04' })).toContainText('없음')
+
+  // 사무실 안에서 1m 옮기면 담당은 그대로다.
+  const x = row.locator('.coord').first()
+  const was = Number(await x.inputValue())
+  await x.fill(String(was + 1))
+  await x.press('Enter')
+  await expect(checks.locator('li', { hasText: 'Z-04' })).toContainText('없음')
+
+  // 사무실(0..10) 밖으로 옮기면 담당에서 빠진다.
+  await x.fill('11')
+  await x.press('Enter')
+  await expect(page.locator('.edit-notice')).toContainText('AHU-1을 다른 물리존으로 옮겨 담당하던 공조존(공조존 1)에서 뺐습니다(Z-04)')
+  await expect(checks.locator('li', { hasText: 'Z-04' })).toContainText('1개 — 공조존 1')
+  await expect(page.getByTestId('report-zone-checks')).toContainText('Z-04 담당 설비가 없는 공조존: 1개 — 공조존 1')
+  if (process.env.SHOT_EQP09) {
+    await page.locator('.edit-notice').screenshot({ path: `${process.env.SHOT_EQP09}-notice.png` })
+    await checks.screenshot({ path: `${process.env.SHOT_EQP09}-checks.png` })
+  }
+
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await expect(checks.locator('li', { hasText: 'Z-04' })).toContainText('없음')
+  await expect(x).toHaveValue(String(was + 1))
+  expect(errors).toEqual([])
+})
+
 test('물리존 하나를 공조존 둘이 담당하면 물리존 패널에 둘 다 보인다 (OE-MAP-03) [OE-MAP-03#1]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
