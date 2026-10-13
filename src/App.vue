@@ -6488,6 +6488,11 @@ watch(offsetNow, (now, was) => {
   if (now?.storeyId !== was?.storeyId || now?.height !== was?.height) offsetDraft.value = null
 })
 const offsetTarget = computed(() => (offsetNow.value ? (offsetDraft.value ?? offsetNow.value) : null))
+/** [오프셋 층] 칸의 층: 보기 범위의 층과, 범위 밖이면 지금 오프셋이 있는 층(높이 순). */
+const offsetStoreys = computed(() => {
+  const ids = new Set([...(multiRange.value ?? []).map((st) => st.id), ...(offsetTarget.value ? [offsetTarget.value.storeyId] : [])])
+  return storeysByHeight.value.filter((st) => ids.has(st.id))
+})
 const offsetPlan = computed(() => {
   void sceneVersion.value
   const m = model.value
@@ -11479,7 +11484,8 @@ function rollbackFromReport() {
               <h4 class="picked-sub">오프셋 높이 <Src kind="edit" /></h4>
               <form class="pipe-draw-row" data-testid="offset-height" @submit.prevent="applyOffsetHeight">
                 <select :value="offsetTarget.storeyId" aria-label="오프셋 층" @change="offsetDraft = { ...offsetTarget!, storeyId: ($event.target as HTMLSelectElement).value }">
-                  <option v-for="st in multiRange ?? []" :key="st.id" :value="st.id">{{ st.name }}</option>
+                  <!-- 지금 오프셋이 있는 층은 보기 범위 밖이어도 넣는다. 빠지면 고른 것이 없는 빈칸이 된다. -->
+                  <option v-for="st in offsetStoreys" :key="st.id" :value="st.id">{{ st.name }}</option>
                 </select>
                 바닥에서
                 <input v-keep-typing type="number" step="0.1" class="riser-height" :value="offsetTarget.height" aria-label="오프셋 높이(m)" @change="offsetDraft = { ...offsetTarget!, height: Number(($event.target as HTMLInputElement).value) }" />
