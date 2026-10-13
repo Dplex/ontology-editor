@@ -26,11 +26,7 @@ depends: ["K12", "OE-SPC-17"]
 
 ## 수용 기준
 
-공간명을 바꾸면 TTL label·GeoJSON 이름·방 종류가 함께 바뀐다.
-
-## 검증 (이 repo)
-
-- 이름을 고치면 TTL `rdfs:label` 과 GeoJSON 이름이 같이 바뀌고, 이름 사전이 정한 방 종류가 따라간다. OmniClass 는 이름이 모를 때만 쓴다 — `edit.test.ts` "이름 수정 (E1)", 성수 L-5
+- **AC1** 공간명을 바꾸면 TTL label·GeoJSON 이름·방 종류가 함께 바뀐다.
 
 ## 메모
 

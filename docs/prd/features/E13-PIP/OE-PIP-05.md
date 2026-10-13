@@ -26,11 +26,7 @@ depends: ["K14", "OE-GEN-04"]
 
 ## 수용 기준
 
-- 확정 전 계통의 규칙 방향은 TTL 에 없다.
-
-## 검증 (이 repo)
-
-- 규칙 방향은 계통 단위로 확정하고, 확정한 것만 `brick:feeds` 로 나간다. 확정 전 규칙 방향은 TTL 에 없다 — `flow-rules.test.ts`, `export.test.ts`, 성수 G-5·L-3
+- **AC1** 확정 전 계통의 규칙 방향은 TTL 에 없다.
 
 ## 메모
 

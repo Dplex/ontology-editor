@@ -31,10 +31,6 @@ depends: ["OE-COM-05", "OE-WF-01", "OE-WF-10", "OE-WF-18"]
 
 D-INT 결정 후 적는다.
 
-## 검증 (이 repo)
-
-—
-
 ## 메모
 
 —

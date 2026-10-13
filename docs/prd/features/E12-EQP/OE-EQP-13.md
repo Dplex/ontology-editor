@@ -29,14 +29,8 @@ depends: ["OE-EQP-14", "OE-PIP-01", "OE-PIP-02", "OE-PIP"]
 
 ## 수용 기준
 
-- 설비를 지운 뒤 TTL 에 그 설비를 가리키는 `feeds`·`hasPart` 가 없다.
-- 이름을 고친 설비가 같은 패밀리 일괄 종류 지정에 여전히 포함된다.
-
-## 검증 (이 repo)
-
-- 더한 설비는 바닥 높이에 생기고 소속을 찾고 종류는 모름이다. 모르는 종류로는 더하지 않는다 — `edit.test.ts` "설비 추가·삭제·이름 (E7)", `e2e/edit-structure.spec.ts`, 성수 E-11
-- 지우면 붙은 연결과 계통 자리도 빠져 없는 설비를 가리키는 `feeds`·`hasPart` 가 나가지 않는다. 되돌리면 전부 돌아온다 — 같은 describe, `e2e/edit-structure.spec.ts` "BIM 설비를 지우면", 성수 E-13·E-14
-- 이름을 고치면 `rdfs:label` 이 바뀌되, 타입·패밀리 종류 묶음은 BIM 이름으로 유지된다 — `edit.test.ts` "이름을 고치면 label 이 바뀌고", 성수 E-15
+- **AC1** 설비를 지운 뒤 TTL 에 그 설비를 가리키는 `feeds`·`hasPart` 가 없다.
+- **AC2** 이름을 고친 설비가 같은 패밀리 일괄 종류 지정에 여전히 포함된다.
 
 ## 메모
 
