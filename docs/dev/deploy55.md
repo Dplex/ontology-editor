@@ -86,14 +86,16 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 ```json
 [
   { "title": "성수 건축 + 기계", "paths": ["성수/Factorial_건축.ifc", "성수/Factorial_기계.ifc"] },
-  { "title": "성수 전부 (건축 + 기계 + 10층 인테리어 + 엘리베이터 + 조경)",
-    "paths": ["성수/Factorial_건축.ifc", "성수/Factorial_기계.ifc", "성수/Factorial_10F_Interior.ifc", "성수/Factorial_elevator.ifc", "성수/Factorial_조경.ifc"] }
+  { "title": "성수 전부 (건축 + 기계 + 10층 인테리어 + 엘리베이터)",
+    "paths": ["성수/Factorial_건축.ifc", "성수/Factorial_기계.ifc", "성수/Factorial_10F_Interior.ifc", "성수/Factorial_elevator.ifc"] }
 ]
 ```
 
-성수 다섯 파일(2026-10-13, 사내 `http://10.251.2.225/ontology/` 에서 받음, 받을 때 프록시를 끈다 — `curl --noproxy "*"`)을 같이 열면 캐시가 찬
-개발 PC 에서 116초다. 엘리베이터 파일의 Proxy 6개(`EVEV.#1` …)는 이름 사전으로 설비 brick:Elevator 가 되고, 조경 파일의 Proxy 131개(지형·건물 매스)와
-10층 인테리어의 가구 314개는 추가 공간 오브젝트가 된다(ADR-0016 "BIM 에서 받는 오브젝트"). 인테리어의 벽 94장은 10F 에 더해지고(76 → 170장),
+성수 파일(2026-10-13, 사내 `http://10.251.2.225/ontology/` 에서 받음, 받을 때 프록시를 끈다 — `curl --noproxy "*"`)은 조경까지 다섯 개를 같이 열면 캐시가 찬
+개발 PC 에서 116초였다. 엘리베이터 파일의 Proxy 6개(`EVEV.#1` …)는 이름 사전으로 설비 brick:Elevator 가 되고, 10층 인테리어의 가구 314개는 추가 공간
+오브젝트가 된다(ADR-0016 "BIM 에서 받는 오브젝트").
+조경 파일(`Factorial_조경.ifc`)은 "성수 전부" 묶음에 넣지 않는다. Proxy 131개(지형·건물 매스)가 축에 맞춘 상자 하나씩의 주변 모델이 될 뿐이고, TTL 에는
+들어가지 않으며 3D 에서 고르지도 못한다. 볼 일이 있으면 목록에서 따로 연다. 인테리어의 벽 94장은 10F 에 더해지고(76 → 170장),
 인테리어 파일에는 방(IfcSpace)이 없어 10F 물리존은 그대로다.
 
 ## WASM 은 커밋하지 않는다
