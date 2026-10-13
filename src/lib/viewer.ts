@@ -470,6 +470,11 @@ export type Viewer = {
   /** 건물 전체가 화면에 들어오게 한다. */
   frameAll(): void
   /**
+   * 개발용 성능 표. 지난 1초에 그린 장수, 마지막 프레임을 그린 시간(ms), draw call 수, 삼각형 수. 3D 는 바뀔 때만 그려서 가만히 있으면
+   * 그린 장수가 0 이다.
+   */
+  stats(): { fps: number; renderMs: number; calls: number; triangles: number }
+  /**
    * 보일 층만 남긴다. storeys 가 null 이면 전부. hidden 은 숨길 설비 id(그 층에 없는 설비) — 층과 설비의 짝은 편집으로
    * 바뀌므로(층 옮기기) 화면이 셈해서 준다. 숨긴 것은 그리지도, 고르지도 않는다.
    */
@@ -1416,6 +1421,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       contextHandler(pick(rayAt(e.clientX, e.clientY)), e.clientX, e.clientY)
       return
     }
+    // 휠 클릭은 회전 중심 정하기다(아래 pivot 리스너). 고르기로 내려가면 빈 곳을 누른 셈이 되어 고른 것이 풀렸다.
+    if (e.button === 1) return
 
     // 리플레이의 빛기둥·이름표를 누르면 그 장면을 되풀이한다.
     const spot = fx.hitSpot(e.clientX, e.clientY)
@@ -1696,6 +1703,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (!running) return
     resize()
     stepFlight(now)
+    stepPivotMark(now)
     stepGlides(now)
     stepPulses(now)
     fx.step(now)
@@ -1709,12 +1717,21 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
     if (dirty) {
       if (handles.length) scaleHandles()
+      const t0 = performance.now()
       renderer.render(scene, camera)
+      perf.renderMs = performance.now() - t0
+      perf.calls = renderer.info.render.calls
+      perf.triangles = renderer.info.render.triangles
+      perf.frames.push(now)
       dirty = false
     }
+    // 1초 창 안에 그린 장수와 그 사이 간격. 3D 는 바뀔 때만 그려서(dirty) 가만히 있으면 0 이 맞다.
+    while (perf.frames.length && now - perf.frames[0] > 1000) perf.frames.shift()
     if (hoverPending) updateHover()
     requestAnimationFrame(tick)
   }
+  /** 성능 표(개발용 HUD, stats). 마지막으로 그린 프레임의 값이다. */
+  const perf = { renderMs: 0, calls: 0, triangles: 0, frames: [] as number[] }
   // 첫 틱도 다음 프레임에 — 아래에 선언한 비행·미끄러짐 상태를 읽기 때문이다.
   requestAnimationFrame(tick)
 
@@ -1810,6 +1827,78 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (!flight) return
     camera.near = Math.min(camera.near, flight.near)
     flight = null
+  })
+
+  // --- 휠 클릭으로 회전 중심 정하기 ---
+  // 지도식 시점은 화면 가운데(target)를 중심으로 돈다. 큰 건물의 한쪽 구석을 돌려 보려면 그 자리를 가운데로 끌어와야 했다.
+  // 휠(가운데 단추)을 움직이지 않고 누르면 그 자리(설비 형상, 없으면 물리존 바닥, 없으면 지금 중심 높이의 수평면)로 시점을 평행이동해
+  // 회전 중심으로 삼는다. 각도는 그대로다. 휠 끌기(확대)는 그대로다.
+  const PIVOT_PX = 4
+  let pivotDown: { x: number; y: number } | null = null
+  /** 마지막으로 정한 회전 중심(장면 좌표). 표시 고리는 이 자리에 잠깐 뜬다. */
+  let pivotMark: { at: Vector3; t0: number } | null = null
+  const pivotRing = new Mesh(new RingGeometry(0.55, 0.75, 40), new MeshBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0, depthTest: false, side: DoubleSide }))
+  pivotRing.rotation.x = -Math.PI / 2
+  pivotRing.renderOrder = 10
+  pivotRing.visible = false
+  scene.add(pivotRing)
+  /** 화면 점(클라이언트 좌표)이 가리키는 장면의 점. */
+  function pointUnder(x: number, y: number): Vector3 | null {
+    const ray = rayAt(x, y).clone()
+    let best = Infinity
+    const id = pick(ray)
+    if (id) best = pickDistance(ray, id)
+    const at = new Vector3()
+    const plane = new Plane(new Vector3(0, 1, 0), 0)
+    for (const t of spaceTargets) {
+      if (visibleStoreys && !visibleStoreys.has(t.storeyId)) continue
+      plane.constant = -t.y
+      if (!ray.intersectPlane(plane, at)) continue
+      const d = at.distanceToSquared(ray.origin)
+      if (d < best && pointInPolygon([at.x, -at.z], t.ring)) best = d
+    }
+    if (Number.isFinite(best)) return ray.origin.clone().addScaledVector(ray.direction, Math.sqrt(best))
+    plane.constant = -controls.target.y
+    return ray.intersectPlane(plane, at) ? at.clone() : null
+  }
+  function setPivot(at: Vector3) {
+    const shift = at.clone().sub(controls.target)
+    const near = camera.near
+    const far = camera.far
+    fly(at, camera.position.clone().add(shift), { near, far })
+    pivotMark = { at, t0: performance.now() }
+    dirty = true
+  }
+  function stepPivotMark(now: number) {
+    if (!pivotMark) return
+    const k = (now - pivotMark.t0) / 900
+    if (k >= 1) {
+      pivotMark = null
+      pivotRing.visible = false
+      dirty = true
+      return
+    }
+    // 고리 크기는 화면에서 비슷하게 — 카메라 거리에 비례.
+    const s = camera.position.distanceTo(pivotMark.at) * 0.03
+    pivotRing.position.copy(pivotMark.at)
+    pivotRing.scale.setScalar(s * (0.6 + 0.4 * k))
+    ;(pivotRing.material as MeshBasicMaterial).opacity = 0.9 * (1 - k)
+    pivotRing.visible = true
+    dirty = true
+  }
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.button === 1) pivotDown = { x: e.clientX, y: e.clientY }
+  })
+  canvas.addEventListener('pointerup', (e) => {
+    const down = pivotDown
+    pivotDown = null
+    if (e.button !== 1 || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > PIVOT_PX) return
+    const at = pointUnder(e.clientX, e.clientY)
+    if (at) setPivot(at)
+  })
+  // 윈도의 가운데 단추 자동 스크롤을 막는다.
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 1) e.preventDefault()
   })
 
   // --- 되돌리기의 미끄러짐 ---
@@ -2327,6 +2416,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       /** 지금 도는 움직임(카메라 비행·미끄러지는 설비 수·번쩍이는 방 수). */
       /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
       camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
+      /** 휠 클릭으로 정한 회전 중심 고리가 떠 있나. */
+      pivot: () => (pivotMark ? pivotMark.at.toArray() : null),
       motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, ...fx.motion(), started }),
       part: (id: string) => {
         const part = partById.get(id)
@@ -3263,6 +3354,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       drawHandles()
       drawArrows()
       if (lastArch.model) buildArchitecture(lastArch.model, lastArch.selected, lastArch.also)
+    },
+
+    stats() {
+      return { fps: perf.frames.length, renderMs: perf.renderMs, calls: perf.calls, triangles: perf.triangles }
     },
 
     frameAll() {

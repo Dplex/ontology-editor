@@ -1365,7 +1365,7 @@ describe('받는 쪽 규칙으로 다시 읽는가 (read-ttl)', () => {
   }
 
   // 셋째 파일(3D, GLB·OBJ·FBX)도 뷰어와 같은 코드로 다시 읽어 GeoJSON 과 잇는다. FBX 는 Blender 가 있는 PC 에서만 GLB 를 바꿔 본다
-  // (scripts/glb2fbx.py, ADR-0052). 없으면 까닭을 찍고 GLB·OBJ 만 본다. 객체 이름이 GlobalId 라 같은 id 여야 하고, 방 판은
+  // (scripts/glb2fbx.py, src/server/fbx.ts). 없으면 까닭을 찍고 GLB·OBJ 만 본다. 객체 이름이 GlobalId 라 같은 id 여야 하고, 방 판은
   // 외곽선과 1cm 안, 설비는 GeoJSON 점이 형상 범위에서 0.5m 안이다(배치점 보정 기준, read-3d.ts). ifc4Mep 의 플랜지·센서 39대는
   // 배치점이 형상에서 0.3m 떨어져 있어 허용치 안이다 — BIM 그대로다.
   it('가진 BIM 의 GLB·OBJ·FBX 가 GeoJSON 과 같은 id·같은 자리다', async () => {

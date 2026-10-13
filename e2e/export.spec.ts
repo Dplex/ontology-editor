@@ -73,7 +73,7 @@ test('3D 형상은 GLB·OBJ 한 파일로 내려받고, 요소 이름이 GlobalI
   expect(text).toMatch(/^v /m)
 })
 
-// FBX 는 서버의 Blender 가 GLB 를 바꾼다(src/server/fbx.ts, ADR-0052). 변환 자체는 src/server/fbx.test.ts 가 실제 Blender 로 재고,
+// FBX 는 서버의 Blender 가 GLB 를 바꾼다(src/server/fbx.ts). 변환 자체는 src/server/fbx.test.ts 가 실제 Blender 로 재고,
 // 여기서는 화면이 GLB 를 보내고 받은 것을 .fbx 로 내려받는지·서버가 없거나 실패할 때 무엇을 보이는지를 본다.
 test('FBX 는 GLB 를 서버에 보내 받은 파일을 내려받는다 (OE-INT-03)', async ({ page }) => {
   let sent: Buffer | null = null
