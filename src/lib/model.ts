@@ -284,6 +284,16 @@ export type Equipment = {
    */
   capacityProperty: string | null
   /**
+   * 설비 태그(요구사항 R25 — BAS 관제점과 이을 매핑 키, OE-REQ-05). Revit 이 인스턴스 속성 `Mark`(Identity Data)에 적은 값이다.
+   * 비었거나 `N/A` 같은 자리표시값이면 없다. 판정에만 쓰고 TTL·GeoJSON 에는 내보내지 않는다.
+   */
+  mark?: string
+  /**
+   * IFC 의 `IfcElement.Tag` 속성. Revit 은 여기에 요소 ID(이름 끝의 숫자)를 넣어 BAS 키가 아니므로, 그 값이면 없다. R25 는 이 칸을
+   * 세지 않고 보고서 설명에만 쓴다(Mark 가 아닌 자리에 태그가 있다는 것을 알리려고).
+   */
+  ifcTag?: string
+  /**
    * 정격 풍량(CMH, OE-ZON-06). `bim` 은 용량(`capacity`)이 풍량이고 단위를 알 때 CMH 로 바꾼 것이고, `edit` 는 BIM 에 없어 사람이 넣은
    * 것이다. `capacity` 는 TTL 이 쓰는 원래 값 그대로라 따로 둔다. 용량 검증 Z-03 이 이 값을 담당 공조존의 설계 풍량 합과 견준다.
    */

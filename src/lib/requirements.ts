@@ -34,8 +34,13 @@ export type RequirementRow = {
   level: RequirementLevel
   title: string
   state: RequirementState
-  /** 표준 자리 / 다른 자리 / 대상. 셀 수 없는 요구는 null. */
-  counts: { standard: number; elsewhere: number; of: number } | null
+  /**
+   * 충족(표준 자리 · 다른 자리) / 검사 / 대상(OE-BIM-17). `of` 는 판정할 수 있었던 것(검사)이고, `target` 은 그 요구가 걸리는 것(대상)이다.
+   * 둘은 대개 같고, 대상 중 판정하지 못한 것이 있으면 `target` 이 크다(R13 의 짝 후보가 여럿인 것). 셀 수 없는 요구는 null.
+   */
+  counts: { standard: number; elsewhere: number; of: number; target: number } | null
+  /** 잴 수 없는 까닭이 임포트 때 그 피처를 읽지 않기로 한 것이면 true(OE-BIM-17 "측정 불가·읽지 않음"). 다시 읽으면 잴 수 있다. */
+  unread?: true
   /** 무엇을 셌는지, 다른 자리면 어디인지, 없으면 우리가 무엇으로 메우는지. */
   note: string
   /**
@@ -71,6 +76,8 @@ export const EXPORT_SETTING: Readonly<Record<string, string>> = {
 /** 없음·일부에서 "값을 넣어 달라" 보다 구체적으로 할 말이 있는 것. */
 const FIX: Readonly<Record<string, string>> = {
   R6: '길이 단위 선언을 좌표·높이에 실제로 쓴 단위에 맞춰 달라',
+  // OE-REQ-05 AC2 의 문구. 겹친 값은 어느 설비 것인지 모르므로 설비마다 다른 값이어야 한다.
+  R25: '설비 태그에 BAS 식별자를 넣어 달라(Mark, 설비마다 다른 값)',
   R7: 'IfcMapConversion을 넣어 달라(또는 기준점을 협의)',
   R11: '좌표 없는 설비에 배치를, 배치점이 형상에서 떨어진 설비는 삽입점을 형상 위로 고쳐 달라',
 }
@@ -102,6 +109,7 @@ export const REQUIREMENTS: { id: string; level: RequirementLevel; title: string 
   { id: 'R14', level: '권장', title: '방 분류(OmniClass)' },
   { id: 'R10', level: '권장', title: 'IFC4 형식' },
   { id: 'R24', level: '권장', title: '설비 종류' },
+  { id: 'R25', level: '권장', title: '설비 태그(BAS 매핑 키)' },
   { id: 'R23', level: '권장', title: 'Proxy를 쓰지 않음' },
   { id: 'R15', level: '권장', title: '설비 형상이 서로 맞닿음' },
   { id: 'R8', level: '권장', title: '형상 정확도 LOD 300' },
@@ -138,8 +146,8 @@ function stateOf(standard: number, elsewhere: number, of: number): RequirementSt
   return 'partial'
 }
 
-function counted(standard: number, elsewhere: number, of: number) {
-  return { state: stateOf(standard, elsewhere, of), counts: { standard, elsewhere, of } }
+function counted(standard: number, elsewhere: number, of: number, target = of) {
+  return { state: stateOf(standard, elsewhere, of), counts: { standard, elsewhere, of, target } }
 }
 
 /**
@@ -149,7 +157,7 @@ function counted(standard: number, elsewhere: number, of: number) {
 export function requirementsReport(
   model: Model,
   merge: MergeReport | null = null,
-  versions: { name: string; kept: number; rematched: number; storeyScale?: ScaleMismatch | null } | null = null,
+  versions: { name: string; kept: number; rematched: number; ambiguous?: number; storeyScale?: ScaleMismatch | null } | null = null,
 ): RequirementRow[] {
   const spaces = model.storeys.flatMap((s) => s.spaces)
   const all = model.storeys.flatMap((s) => s.equipment)
@@ -164,6 +172,7 @@ export function requirementsReport(
   const rows = new Map<string, Omit<RequirementRow, 'id' | 'level' | 'title' | 'ask'>>()
   const set = (id: string, row: Omit<RequirementRow, 'id' | 'level' | 'title' | 'ask'>) => rows.set(id, row)
   const unmeasured = (note: string) => ({ state: 'unmeasured' as const, counts: null, note })
+  const unread = (note: string) => ({ ...unmeasured(note), unread: true as const })
 
   set('R0', { state: 'standard', counts: null, note: '문제없이 열립니다.' })
 
@@ -206,7 +215,7 @@ export function requirementsReport(
   // 임포트 때 읽지 않기로 한 피처는 "없음" 이 아니라 잴 수 없음이다(Model.skipped).
   const skipped = new Set(model.skipped ?? [])
   if (skipped.has('walls') || (skipped.has('doors') && skipped.has('windows'))) {
-    set('R4', unmeasured(skipped.has('walls') ? '벽을 읽지 않고 열었습니다. 벽·문·창을 읽도록 켜고 다시 여세요.' : '문·창을 읽지 않고 열었습니다.'))
+    set('R4', unread(skipped.has('walls') ? '벽을 읽지 않고 열었습니다. 벽·문·창을 읽도록 켜고 다시 여세요.' : '문·창을 읽지 않고 열었습니다.'))
   } else {
     const hung = openings.filter((o) => o.wallId !== null).length
     set('R4', { ...counted(hung, 0, openings.length), note: openings.length ? '어느 벽에 있는지 아는 문·창입니다.' : '문·창이 없습니다. 설비 파일이면 건축 파일을 덧붙이세요.' })
@@ -241,7 +250,7 @@ export function requirementsReport(
   set('R8', unmeasured('형상 정확도는 3D에서 확인하세요.'))
 
   set('R9', devices.length > 0
-    ? { state: 'standard', counts: { standard: devices.length, elsewhere: 0, of: devices.length }, note: `설비 ${devices.length}대가 있습니다.` }
+    ? { state: 'standard', counts: { standard: devices.length, elsewhere: 0, of: devices.length, target: devices.length }, note: `설비 ${devices.length}대가 있습니다.` }
     : { state: 'missing', counts: null, note: '설비가 없습니다. 건축 파일이면 정상이며, 설비 파일을 덧붙이면 됩니다.' })
 
   {
@@ -271,9 +280,10 @@ export function requirementsReport(
   if (!versions) set('R13', unmeasured('판본 비교에서 이전 판본을 열면 잴 수 있습니다.'))
   else set('R13', {
     // 다른 열쇠로 찾은 것은 다른 자리다 — 내보내기가 GUID 를 새로 지은 것이라 설정으로 고쳐진다(EXPORT_SETTING.R13).
-    ...counted(versions.kept, versions.rematched, versions.kept + versions.rematched),
+    ...counted(versions.kept, versions.rematched, versions.kept + versions.rematched, versions.kept + versions.rematched + (versions.ambiguous ?? 0)),
     note: `이전 판본(${versions.name})과 비교. 양쪽에 있는 물리존·설비 중 GUID가 그대로인 것입니다` +
-      (versions.rematched ? `. 다른 자리 ${versions.rematched}개는 GUID가 바뀌어 Revit 요소 ID·이름·위치로 찾았습니다. 편집은 적용되지만 DT 쪽 id는 바뀝니다.` : '.'),
+      (versions.rematched ? `. 다른 자리 ${versions.rematched}개는 GUID가 바뀌어 Revit 요소 ID·이름·위치로 찾았습니다. 편집은 적용되지만 DT 쪽 id는 바뀝니다.` : '.') +
+      (versions.ambiguous ? ` 짝 후보가 여럿이라 짓지 못한 ${versions.ambiguous}개는 대상에만 들고 검사에서 뺍니다.` : ''),
   })
 
   {
@@ -319,6 +329,27 @@ export function requirementsReport(
         unknown > 0 ? `${unknown}대는 IFC에도 이름에도 종류가 없습니다(USERDEFINED에 유형 이름만 있는 경우 등).` : '',
       ].join(' ').trim(),
     })
+  }
+
+  {
+    // 설비 태그(R25, OE-REQ-05). Mark 에 값이 있고 설비끼리 겹치지 않아야 BAS 관제점과 하나씩 잇는다. 겹친 값은 어느 설비 것인지 모르므로
+    // 없는 것과 같이 센다. IFC Tag 속성에만 이름을 적은 설비(ifc4Mep 의 A001 등)는 Mark 가 아니라 세지 않고 설명에 적는다 — 그 칸이
+    // BAS 키인지는 모델마다 달라 단정하지 않는다.
+    const times = new Map<string, number>()
+    for (const e of devices) if (e.mark) times.set(e.mark, (times.get(e.mark) ?? 0) + 1)
+    const unique = devices.filter((e) => e.mark && times.get(e.mark) === 1).length
+    const shared = devices.filter((e) => e.mark && times.get(e.mark)! > 1).length
+    const tagOnly = devices.filter((e) => !e.mark && e.ifcTag).length
+    set('R25', devices.length === 0
+      ? { state: 'none', counts: null, note: '설비가 없습니다.' }
+      : {
+          ...counted(unique, 0, devices.length),
+          note: [
+            `설비 태그(Mark)에 값이 있고 다른 설비와 겹치지 않는 설비입니다.`,
+            shared ? `${shared}대는 다른 설비와 같은 값이라 세지 않았습니다(값 ${[...times].filter(([, n]) => n > 1).length}종).` : '',
+            tagOnly ? `${tagOnly}대는 Mark 가 없고 IFC Tag 속성에만 이름이 있습니다.` : '',
+          ].filter(Boolean).join(' '),
+        })
   }
 
   {
@@ -397,7 +428,7 @@ export function requirementsReport(
     })
   }
 
-  if (skipped.has('walls')) set('R22', unmeasured('벽을 읽지 않고 열었습니다. 벽을 읽도록 켜고 다시 여세요.'))
+  if (skipped.has('walls')) set('R22', unread('벽을 읽지 않고 열었습니다. 벽을 읽도록 켜고 다시 여세요.'))
   else {
     const known = walls.filter((w) => w.loadBearing !== null)
     const trues = known.filter((w) => w.loadBearing).length

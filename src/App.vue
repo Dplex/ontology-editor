@@ -8974,6 +8974,9 @@ const requirementsMeta = computed(() => {
         [`표준 ${count(rows, ['standard'])}`],
         count(rows, ['elsewhere']) ? [`다른 자리 ${count(rows, ['elsewhere'])}`] : [],
         count(rows, ['missing', 'partial']) ? [`없음·일부 ${count(rows, ['missing', 'partial'])}`] : [],
+        // 해당 없음·잴 수 없음은 미충족(없음·일부)과 따로 센다(OE-BIM-17). 섞으면 이 파일이 할 수 없는 것이 고객사가 빠뜨린 것처럼 읽힌다.
+        count(rows, ['none']) ? [`해당 없음 ${count(rows, ['none'])}`] : [],
+        count(rows, ['unmeasured']) ? [`잴 수 없음 ${count(rows, ['unmeasured'])}`] : [],
       ].flat()
       return `${level} ${rows.length}개: ${parts.join(' · ')}`
     })
@@ -12534,7 +12537,7 @@ function rollbackFromReport() {
         <Fold v-if="currentRequirements.length" title="요구사항" :meta="requirementsMeta" :default-open="false" class="requirements">
           <table class="req-table">
             <thead>
-              <tr><th>#</th><th>요구</th><th>상태</th><th title="누락 분류(OE-BIM-20) — X 외부 · A 설정 · B 부재 · C 보정">분류</th><th class="num" title="표준 자리 · 다른 자리 / 전체">개수</th><th>설명</th><th>고객사에 할 요청</th></tr>
+              <tr><th>#</th><th>요구</th><th>상태</th><th title="누락 분류(OE-BIM-20) — X 외부 · A 설정 · B 부재 · C 보정">분류</th><th class="num" title="충족(표준 자리 · 다른 자리) / 검사 — 대상이 검사보다 많으면 대상도(판정하지 못한 것이 있다)">충족 / 검사 · 대상</th><th>설명</th><th>고객사에 할 요청</th></tr>
             </thead>
             <tbody v-for="g in requirementGroups" :key="g.level">
               <tr class="req-group">
@@ -12543,11 +12546,11 @@ function rollbackFromReport() {
               <tr v-for="r in g.rows" :key="r.id" v-flash="`${r.state}:${r.counts?.standard}:${r.counts?.elsewhere}`">
                 <td class="mono">{{ r.id }}</td>
                 <td>{{ r.title }}</td>
-                <td><span :class="['req-state', r.state]">{{ REQUIREMENT_STATE[r.state] }}</span></td>
+                <td><span :class="['req-state', r.state]">{{ REQUIREMENT_STATE[r.state] }}<template v-if="r.unread"> · 읽지 않음</template></span></td>
                 <td class="req-class" :data-class="missingClass(r) ?? ''">{{ missingClass(r) ? MISSING_LABEL[missingClass(r)!] : '—' }}</td>
                 <td class="num mono">
                   <template v-if="r.counts && r.counts.of">
-                    <Roll :value="r.counts.standard" /><template v-if="r.counts.elsewhere"> · <Roll :value="r.counts.elsewhere" /></template> / {{ r.counts.of }}
+                    <Roll :value="r.counts.standard" /><template v-if="r.counts.elsewhere"> · <Roll :value="r.counts.elsewhere" /></template> / {{ r.counts.of }}<template v-if="r.counts.target !== r.counts.of"> · 대상 {{ r.counts.target }}</template>
                     <Meter
                       :parts="[
                         { value: r.counts.standard / r.counts.of, tone: 'accent' },

@@ -545,6 +545,30 @@ describe('요구사항 상태 집계 — 필수 11 (OE-REQ-06)', () => {
   }, 900_000)
 })
 
+// R25 설비 태그(OE-REQ-05). Revit 의 인스턴스 속성 Mark 를 읽고, 자리표시값(N/A·매개변수 이름)과 설비끼리 겹친 값은 세지 않는다.
+// Revit 은 IFC Tag 속성에 요소 ID 를 넣으므로 그 칸은 세지 않는다(정본 4.2 표의 값).
+describe('R25 설비 태그 (OE-REQ-05)', () => {
+  it('병원 HVAC 는 기기 전부가 저마다 다른 Mark 를 갖고, Duplex 는 같은 Mark 를 나눠 쓴 설비가 있어 일부다 [OE-REQ-05#1] [OE-REQ-05#2]', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    api.SetLogLevel(WebIFC.LogLevel.LOG_LEVEL_OFF)
+    const r25 = (path: string) => {
+      const r = requirementsReport(importIfc(api, new Uint8Array(readFileSync(path)))).find((x) => x.id === 'R25')!
+      return `${r.state} ${r.counts?.standard}/${r.counts?.of}`
+    }
+    const want: [string, string][] = [
+      ['data/NBU_MedicalClinic/NBU_MedicalClinic_Eng-HVAC.ifc', 'standard 566/566'],
+      ['data/NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc', 'partial 100/102'],
+      [DUPLEX_HVAC, 'partial 22/40'],
+      [DUPLEX_MEP_FULL, 'partial 34/141'],
+      [MEP, 'missing 0/308'],
+    ]
+    const have = want.filter(([f]) => existsSync(f))
+    expect(have.length).toBeGreaterThanOrEqual(2)
+    for (const [f, v] of have) expect(r25(f), f).toBe(v)
+  }, 300_000)
+})
+
 // OE-BIM-25 임포트 피처 선택. 벽·문·창은 GeoJSON 에만 나가고 TTL 에는 없어서, 설비만 볼 때 끄고 연다. 끈 것은 0 이 아니라 "읽지 않음"
 // 이어야 한다 — 0 이면 "BIM 에 없다" 는 말이 되고 요구사항 보고서가 고객사에 엉뚱한 요청을 한다. 큰 건축 파일로 잰다.
 describe('임포트 피처 선택 — 끈 것은 읽지 않음 (OE-BIM-25)', () => {
@@ -1825,15 +1849,15 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     const brief = (id: string) => ({ state: rows.get(id)!.state, counts: rows.get(id)!.counts })
 
     // 건축 Roof - Main 과 설비 Roof - Mech 가 이름이 달라 높이로 맞췄다.
-    expect(brief('R1')).toEqual({ state: 'partial', counts: { standard: 3, elsewhere: 0, of: 4 } })
+    expect(brief('R1')).toEqual({ state: 'partial', counts: { standard: 3, elsewhere: 0, of: 4, target: 4 } })
     expect(rows.get('R7')!.state).toBe('missing')
-    expect(brief('R14')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 269, of: 272 } })
+    expect(brief('R14')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 269, of: 272, target: 272 } })
     expect(rows.get('R10')!.state).toBe('elsewhere')
-    expect(brief('R16')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 3701, of: 3806 } })
-    expect(brief('R21')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 563, of: 566 } })
+    expect(brief('R16')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 3701, of: 3806, target: 3806 } })
+    expect(brief('R21')).toEqual({ state: 'partial', counts: { standard: 0, elsewhere: 563, of: 566, target: 566 } })
     // SPLITSYSTEM 2대는 표준 값이지만 받지 않는다(kinds.ts 의 IFC_REJECTED). 이름 사전이 종류를 알아서 다른 자리로 간다.
     // 건축의 유압 엘리베이터(IfcFlowTerminal)도 이름 사전으로 알게 되어(2026-10-03) 모르는 것이 0 — 다른 자리다.
-    expect(brief('R24')).toEqual({ state: 'elsewhere', counts: { standard: 662, elsewhere: 6, of: 668 } })
+    expect(brief('R24')).toEqual({ state: 'elsewhere', counts: { standard: 662, elsewhere: 6, of: 668, target: 668 } })
     expect(rows.get('R22')!.note).toContain('기본값')
   }, 300_000)
 
@@ -2632,9 +2656,9 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(DUPLEX_ARCH) || !existsSync(C
       const row = requirementsReport(model).find((r) => r.id === 'R4')!
       return { state: row.state, counts: row.counts }
     }
-    expect(r4(SAMPLE)).toEqual({ state: 'standard', counts: { standard: 16, elsewhere: 0, of: 16 } })
-    expect(r4(DUPLEX_ARCH)).toEqual({ state: 'standard', counts: { standard: 38, elsewhere: 0, of: 38 } })
-    expect(r4(CLINIC_ARCH)).toEqual({ state: 'partial', counts: { standard: 302, elsewhere: 0, of: 307 } })
+    expect(r4(SAMPLE)).toEqual({ state: 'standard', counts: { standard: 16, elsewhere: 0, of: 16, target: 16 } })
+    expect(r4(DUPLEX_ARCH)).toEqual({ state: 'standard', counts: { standard: 38, elsewhere: 0, of: 38, target: 38 } })
+    expect(r4(CLINIC_ARCH)).toEqual({ state: 'partial', counts: { standard: 302, elsewhere: 0, of: 307, target: 307 } })
   }, 300_000)
 })
 
@@ -2665,7 +2689,7 @@ describe.skipIf(!existsSync(MEP))('좌표 없는 설비는 미배치 목록 (ifc
     // 분전반 자리는 짐작이라 표준에서 뺀다 — 형상 중심으로 옮긴 것(계산)과 같이.
     const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
     const bimPlaced = devices.filter((e) => e.position && !e.positionSource).length
-    expect(r11.counts).toEqual({ standard: bimPlaced, elsewhere: 0, of: devices.length })
+    expect(r11.counts).toEqual({ standard: bimPlaced, elsewhere: 0, of: devices.length, target: devices.length })
 
     const ttl = modelToTTL(model)
     const features = new Map(modelToGeoJSON(model).flatMap((f) => f.collection.features).map((f) => [f.id, f]))

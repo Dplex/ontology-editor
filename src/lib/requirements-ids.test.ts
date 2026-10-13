@@ -54,11 +54,11 @@ function standardValues(cls: string): Set<string> {
   return out
 }
 
-/** 정본 4장의 R 번호. R25(BAS 매핑 키)는 PRD 가 채택했지만 정본에 옮기지 않았다(OE-REQ-05). R26 은 OE-REQ-07 로 옮겼다. */
-const CANON = [...Array.from({ length: 25 }, (_, i) => `R${i}`), 'R26']
+/** 정본 4장의 R 번호. R25(BAS 매핑 키)는 OE-REQ-05, R26 은 OE-REQ-07 로 옮겼다. */
+const CANON = Array.from({ length: 27 }, (_, i) => `R${i}`)
 
 describe('requirements.ids', () => {
-  it('정본 4장에 R0~R24·R26 이 하나씩 있고, PRD 부록 A 는 그 전부에 정본에 아직 없는 번호(R25)를 더한 표다 [OE-REQ-07#1]', () => {
+  it('정본 4장에 R0~R26 이 하나씩 있고, PRD 부록 A 는 그 전부를 담은 표다 [OE-REQ-07#1]', () => {
     // 2026-10-10(D1) 부터 부록 A 는 R0~R26 전체 표다. 구분(필수·권장)이 4장과 다른 줄은 prd.test.ts 가 비고의 날짜로 본다.
     const doc = [...levelsInDoc().keys()].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))
     expect(doc).toEqual(CANON)

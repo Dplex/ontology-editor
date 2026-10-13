@@ -33,7 +33,7 @@ describe('요구사항 보고서의 요청 — 섞인 줄 (OE-BIM-17)', () => {
     const before = row(m, 'R11').counts!
     placed[0].positionSource = 'geometry'
     const r11 = row(m, 'R11')
-    expect(r11.counts).toEqual({ standard: before.standard - 1, elsewhere: 0, of: before.of })
+    expect(r11.counts).toEqual({ standard: before.standard - 1, elsewhere: 0, of: before.of, target: before.target })
     expect(r11.ask).not.toContain('내보내기 설정을 바꿔 달라')
     expect(r11.ask).toContain('삽입점을 형상 위로 고쳐 달라')
   })
