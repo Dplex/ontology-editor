@@ -42,6 +42,7 @@ import { vFlash } from './lib/motion'
 import { isMultiSelect, matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
 import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
+import { CONNECTION_CLASS_LABEL, connectionClass, countConnectionClasses } from './lib/connection-class'
 import { connectCandidates, mediaLabel, type ConnectCandidate } from './lib/connect-candidates'
 import { againstRule, applyFlow, cancelRelease, clearFlow, dropRelease, keepRelease, releaseConnection, releasedBetween, releasesOf, snapshotRelease, snapshotRules } from './lib/connection-release'
 import { applyEdits, countEdits, EDIT_FORMAT, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
@@ -4091,11 +4092,13 @@ const proxyDevices = computed(() => {
   return { ported: p, named: n }
 })
 
-/** 연결 수를 출처별로. 포트는 BIM 이 말한 것이고, 형상 추정은 우리가 맞닿음으로 계산한 것이다. */
+/**
+ * 연결 수를 근거별로(OE-BIM-09, connection-class.ts). 포트는 BIM 이 말한 것이고 방향을 말했는지(명시 · 양방향/미지정)로 다시 가른다.
+ * 형상 추정은 우리가 맞닿음으로 계산한 미확정 후보, 사람이 이은 것은 편집이다.
+ */
 const connectionSources = computed(() => {
-  const cs = model.value?.connections ?? []
-  const port = cs.filter((c) => c.source === 'port').length
-  return { port, geometry: cs.length - port }
+  const n = countConnectionClasses(model.value?.connections ?? [])
+  return { ...n, port: n['port-directed'] + n['port-undirected'], kinds: [n['port-directed'] > 0, n['port-undirected'] > 0, n.geometry > 0, n.manual > 0].filter(Boolean).length }
 })
 
 // --- 종류와 관제점 후보 --------------------------------------------------------------
@@ -4149,8 +4152,9 @@ const kindSummary = computed(() => {
 
 // 형상으로 이은 연결에 거리를 붙여 보여 준다. 기본 판정에서 붙은 것과 고립된 요소를
 // 살리려고 넓혀서 붙인 것은 확신의 정도가 달라서, 검토하는 사람이 구별할 수 있어야 한다.
+// 형상 추정은 미확정 연결 후보다(OE-BIM-09) — 포트가 말한 연결과 같은 무게로 읽히지 않게 이름에 적는다.
 const sourceLabel = (tolerance: number | null) =>
-  tolerance !== null && tolerance > TOLERANCE ? `형상 추정 (${Math.round(tolerance * 1000)}mm 간격)` : '형상 추정'
+  tolerance !== null && tolerance > TOLERANCE ? `${CONNECTION_CLASS_LABEL.geometry} (${Math.round(tolerance * 1000)}mm 간격)` : CONNECTION_CLASS_LABEL.geometry
 
 // 계통 범례. 색은 3D 와 같은 자리에서 가져온다.
 const legend = computed(() => {
@@ -11059,7 +11063,7 @@ function rollbackFromReport() {
                   <span v-if="n.what" class="what">{{ n.what.label }} <Src :kind="n.what.src" /></span>
                   <!-- 출처는 이름 아래 한 줄. 글과 출처 꼬리표가 따로 꺾이지 않게 한 덩어리씩 묶는다. -->
                   <div class="muted src-cell">
-                    <span v-if="n.source === 'port'">포트 <Src kind="bim" /></span>
+                    <span v-if="n.source === 'port'" data-testid="neighbor-source">{{ CONNECTION_CLASS_LABEL[connectionClass(n.connection)] }} <Src kind="bim" /></span>
                     <span v-else-if="n.source === 'manual'">직접 이음 <Src kind="edit" /></span>
                     <span v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></span>
                     <span v-if="n.edited">직접 정한 방향 <Src kind="edit" /></span>
@@ -12453,11 +12457,17 @@ function rollbackFromReport() {
           </li>
           <li v-flash="counts.conduits"><b><Roll :value="counts.conduits" /></b><span>덕트·배관</span><Src kind="bim" /></li>
           <li v-flash="counts.systems"><b><Roll :value="counts.systems" /></b><span>계통</span><Src kind="bim" /></li>
-          <li :class="{ wide: connectionSources.geometry > 0 && connectionSources.port > 0 }" v-flash="counts.connections">
+          <!-- 연결의 근거(OE-BIM-09): BIM 포트(방향 명시 · 양방향/미지정) · 형상 추정(미확정 후보) · 사람이 이음. 한 가지뿐이면 출처 꼬리표만. -->
+          <li :class="{ wide: connectionSources.kinds > 1 }" v-flash="counts.connections" data-testid="connection-classes">
             <b><Roll :value="counts.connections" /></b><span>연결</span>
-            <template v-if="connectionSources.geometry === 0"><Src kind="bim" /></template>
-            <template v-else-if="connectionSources.port === 0"><Src kind="calc" /></template>
-            <small v-else>포트 {{ connectionSources.port }} <Src kind="bim" /> · 형상 {{ connectionSources.geometry }} <Src kind="calc" /></small>
+            <template v-if="connectionSources.kinds <= 1">
+              <Src v-if="connectionSources.port" kind="bim" /><Src v-else-if="connectionSources.geometry" kind="calc" /><Src v-else-if="connectionSources.manual" kind="edit" />
+            </template>
+            <small v-else>
+              <template v-if="connectionSources.port">포트 {{ connectionSources.port }}(방향 명시 {{ connectionSources['port-directed'] }} · 양방향/미지정 {{ connectionSources['port-undirected'] }}) <Src kind="bim" /></template>
+              <template v-if="connectionSources.geometry"> · 형상 추정 후보 {{ connectionSources.geometry }} <Src kind="calc" /></template>
+              <template v-if="connectionSources.manual"> · 사람 {{ connectionSources.manual }} <Src kind="edit" /></template>
+            </small>
           </li>
           <li v-flash="counts.directedConnections"><b><Roll :value="counts.directedConnections" /></b><span>흐름 방향</span><Src kind="bim" /></li>
           <li v-if="ruleReport && ruleReport.oriented > 0" v-flash="ruleReport.oriented">
