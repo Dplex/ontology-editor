@@ -6,6 +6,12 @@ const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 const AT02 = '0MEP$Equip$AT02$0000'
 
 async function open(page: Page) {
+  // E2E_SLOW_FRAME=1 이면 화면 프레임을 50ms 늦춘다. 프레임이 늦게 오는 PC 에서만 흔들리던 시험(방향키)을 이 PC 에서 다시 본다.
+  if (process.env.E2E_SLOW_FRAME)
+    await page.addInitScript(() => {
+      const raf = window.requestAnimationFrame.bind(window)
+      window.requestAnimationFrame = (cb) => (setTimeout(() => raf(cb), 50), 0)
+    })
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -72,7 +78,10 @@ test('방향키는 고른 설비를 10cm(Shift 1m) 옮기고, 누른 만큼이 �
   await pick(page, 'AHU-1')
   const start = await coords(page, 'AHU-1')
 
+  // 방향키는 다음 프레임에 모아 옮긴다(App.vue 의 nudge·flushNudge). 누르자마자 읽으면 프레임이 늦은 PC 에서 옮기기 전 값을 읽었다
+  // (Windows 에서 3번 중 2번 moved 0). 두 프레임을 기다린 뒤 읽는다.
   await page.keyboard.press('ArrowRight')
+  await settle(page)
   let now = await coords(page, 'AHU-1')
   // 화면 방향에 가장 가까운 평면 축 하나로만 움직인다. 높이는 그대로다.
   const moved = [Math.abs(now[0] - start[0]), Math.abs(now[1] - start[1])]
@@ -82,6 +91,7 @@ test('방향키는 고른 설비를 10cm(Shift 1m) 옮기고, 누른 만큼이 �
 
   await page.keyboard.press('Shift+ArrowRight')
   await page.keyboard.press('ArrowUp')
+  await settle(page)
   now = await coords(page, 'AHU-1')
   expect(Math.hypot(now[0] - start[0], now[1] - start[1])).toBeGreaterThan(1)
   await expect(page.locator('.key-note')).toContainText('AHU-1')
