@@ -240,7 +240,7 @@ import {
 import type { Object3D } from 'three'
 import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL } from './lib/vertical-object'
 import type { VerticalKind } from './lib/model'
-import { COMMON_AXIS, createVertical, deleteVertical, movePart, moveVertical, planCreate, planRange, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
+import { COMMON_AXIS, createVertical, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -2625,8 +2625,8 @@ function setRangeEnd(which: 'from' | 'to', storeyId: string) {
   const hi = Math.max(at(v.from), at(v.to), at(rangeDraft.value.from), at(rangeDraft.value.to))
   if (lo >= 0 && hi >= 0) multiView.value = { ...v, from: list[lo].id, to: list[hi].id }
 }
-/** 그 층의 빈 것을 채우러 바닥에 그리거나 찍는다. */
-function fillRange(storeyId: string, what: RangeNeed) {
+/** 그 층의 빈 것을 채우러 바닥에 그리거나 찍는다. `lead` 는 안내 앞에 붙는 말(앞 단계를 채웠다는 것). */
+function fillRange(storeyId: string, what: RangeNeed, lead = '') {
   const st = model.value?.storeys.find((s) => s.id === storeyId)
   if (!st) return
   stopPlace()
@@ -2634,10 +2634,25 @@ function fillRange(storeyId: string, what: RangeNeed) {
   const label = RANGE_NEED[what]
   drawing.value =
     what === 'footprint'
-      ? { purpose: 'verticalFootprint', spaceId: null, storeyId, name: `${st.name} 계단 형상`, elevation: st.elevation, points: [] }
+      ? { purpose: 'verticalFootprint', spaceId: null, storeyId, name: `${st.name} 형상`, elevation: st.elevation, points: [] }
       : { purpose: 'verticalPoint', which: what, spaceId: null, storeyId, name: `${st.name} ${label}`, elevation: st.elevation, points: [] }
   viewer?.setPlaceMode(st.elevation)
-  note(what === 'footprint' ? `${st.name} 바닥에 계단 형상의 꼭짓점을 찍고 Enter 로 마칩니다 (Esc 취소)` : `${st.name} 바닥에서 ${label}을 누릅니다 (Esc 취소)`)
+  note(lead + (what === 'footprint' ? `${st.name} 바닥에 형상의 꼭짓점을 찍고 Enter 로 마칩니다 (Esc 취소)` : `${st.name} 바닥에서 ${label}을 누릅니다 (Esc 취소)`))
+}
+/** 만들기·구간 바꾸기에서 아직 채우지 않은 첫 번째 것. 하나를 채우면 이것을 이어서 그린다 — 층마다 단추를 찾아 누르지 않게. */
+function nextFill(): { storeyId: string; what: RangeNeed } | null {
+  const plan = verticalCreate.value ? createPlan.value : rangePlan.value
+  const n = plan && !('refused' in plan) ? plan.needs[0] : undefined
+  return n ? { storeyId: n.storey.id, what: n.what[0] } : null
+}
+function isFilling(storeyId: string, what: RangeNeed): boolean {
+  const d = drawing.value
+  if (!d || d.storeyId !== storeyId) return false
+  return what === 'footprint' ? d.purpose === 'verticalFootprint' : d.purpose === 'verticalPoint' && d.which === what
+}
+function fillNext() {
+  const n = nextFill()
+  if (n) fillRange(n.storeyId, n.what)
 }
 function cancelRange() {
   rangeDraft.value = null
@@ -2672,7 +2687,12 @@ const createPlan = computed(() => {
   const c = verticalCreate.value
   return c && model.value ? planCreate(model.value, c.kind, c.from, c.to, rangeGiven.value) : null
 })
-function startCreateVertical() {
+/**
+ * 층 편집 화면의 도구 팔레트에서 부르면 지금 층과 위층으로 다중층 뷰를 열고 만든다(만들기는 다중층 뷰에서만 한다, OE-ML-06).
+ * 계단·샤프트는 공간 쪽, 엘리베이터·에스컬레이터는 설비 쪽 팔레트에 있다.
+ */
+function startCreateVertical(kind: VerticalKind = 'stair') {
+  if (!multiView.value) openMultiView()
   const range = multiRange.value
   if (!range || range.length < 2) {
     note('보기 범위를 두 층 이상으로 넓힌 뒤 만듭니다')
@@ -2683,8 +2703,13 @@ function startCreateVertical() {
   selectedSpaceId.value = null
   rangeDraft.value = null
   rangeGiven.value = new Map()
-  verticalCreate.value = { kind: 'stair', name: '새 계단', from: range[0].id, to: range[1].id }
+  verticalCreate.value = { kind, name: `새 ${VERTICAL_KIND_LABEL[kind]}`, from: range[0].id, to: range[1].id }
 }
+const createSteps = computed(() => {
+  const c = verticalCreate.value
+  const plan = createPlan.value
+  return c && plan && !('refused' in plan) ? planSteps(c.kind, plan) : []
+})
 function setCreateKind(kind: VerticalKind) {
   const c = verticalCreate.value
   if (!c) return
@@ -4758,7 +4783,11 @@ function applyStoreyFilter() {
   // 다중층 뷰면 보기 범위의 층들이다(OE-ML-01).
   const range = multiRange.value
   if (range) {
-    const ids = new Set(range.map((st) => st.id))
+    // 수직 관통 오브젝트의 형상·지점을 그리는 동안에는 그 층 위를 걷어 낸다. 위층 판이 덮으면 찍은 점이 안 보이고, 바닥에 대면
+    // 위층 방이 떠서 어느 층에 찍는지 헷갈렸다(2026-10-13, 병원 1층에 계단을 그릴 때).
+    const d = drawing.value
+    const cut = d && (d.purpose === 'verticalFootprint' || d.purpose === 'verticalPoint') ? d.elevation : null
+    const ids = new Set(range.filter((st) => cut === null || st.elevation <= cut + 1e-6).map((st) => st.id))
     send(ids, merge(new Set(m.storeys.filter((s) => !ids.has(s.id)).flatMap((s) => s.equipment.map((e) => e.id)))))
     return
   }
@@ -4775,7 +4804,11 @@ function applyStoreyFilter() {
   const hidden = new Set(m.storeys.filter((s) => s.id !== id).flatMap((s) => s.equipment.map((e) => e.id)))
   send(new Set([id]), merge(hidden))
 }
-watch([viewStorey, model, sceneVersion, () => multiRange.value, viewFilter], applyStoreyFilter)
+const verticalDrawAt = computed(() => {
+  const d = drawing.value
+  return d && (d.purpose === 'verticalFootprint' || d.purpose === 'verticalPoint') ? d.storeyId : null
+})
+watch([viewStorey, model, sceneVersion, () => multiRange.value, viewFilter, verticalDrawAt], applyStoreyFilter)
 // 걸러 보는 중에 고른 설비가 숨으면 고르기를 푼다 — 안 보이는 것이 패널에 남아 있으면 무엇을 고쳤는지 모른다.
 watch(viewFilter, () => {
   if (selectedId.value && shownHidden.has(selectedId.value)) selectedId.value = null
@@ -5214,7 +5247,10 @@ function finishDraw(): boolean {
     const had = next.get(d.storeyId) ?? {}
     next.set(d.storeyId, d.purpose === 'verticalFootprint' ? { ...had, footprint: d.points } : { ...had, [d.which!]: d.points[0] })
     rangeGiven.value = next
-    note(`${d.name}${josa(d.name, '을/를')} 채웠습니다. 적용 전까지는 점선 미리보기입니다`)
+    // 남은 것이 있으면 바로 이어서 그린다. 다 채웠으면 무엇을 누르면 끝나는지 알린다.
+    const after = nextFill()
+    if (after) fillRange(after.storeyId, after.what, `${d.name} 채움 → 다음: `)
+    else note(`${d.name}${josa(d.name, '을/를')} 채웠습니다. 다 채웠으니 [${verticalCreate.value ? '만들기' : '구간 적용'}] 를 누릅니다(그 전까지는 점선 미리보기)`)
     return true
   }
   if (d.purpose === 'bgScale' || d.purpose === 'bgAnchor') {
@@ -10055,7 +10091,7 @@ function rollbackFromReport() {
               <b>다중층 뷰</b> · {{ multiRange[0].name }} ~ {{ multiRange.at(-1)!.name }} ({{ multiRange.length }}개 층) · 바닥 높이
               {{ elevationText(multiRange[0].elevation) }} ~ {{ elevationText(multiRange.at(-1)!.elevation) }} m <Src kind="bim" /><br />
               <span class="muted">보기 범위만 바꿉니다. 오브젝트의 관통 구간은 그대로입니다. {{ editing ? '여기서는 수직 관통 오브젝트를 만들고 옮기고 지우고 구간을 바꿉니다. 설비를 고르면 다른 층 설비까지 층간 배관을 그립니다.' : '' }}</span>
-              <button v-if="editing && !verticalCreate" type="button" class="link" @click="startCreateVertical">수직 관통 오브젝트 만들기</button>
+              <button v-if="editing && !verticalCreate" type="button" class="ghost banner-action" @click="startCreateVertical()">수직 관통 오브젝트 만들기</button>
             </p>
             <nav v-if="editing && !drawing && activeTab === '3d' && !multiView" class="tool-palette" aria-label="편집 도구">
               <!-- 천장 편집 모드(OE-OBJ-08). 천장 쪽에서는 공간 도구와 바닥·벽 도구가 잠기고, 누르면 어디서 편집하는지 알린다. -->
@@ -10083,6 +10119,9 @@ function rollbackFromReport() {
                   오브젝트
                 </button>
               </span>
+              <!-- 수직 관통 오브젝트는 다중층 뷰에서 만든다(OE-ML-06). 여기서 누르면 지금 층과 위층으로 열고 만들기 칸을 띄운다 — 다중층 뷰
+                   안쪽에만 길이 있으면 찾지 못했다(2026-10-13). 위 줄에 붙이면 팔레트 밖으로 삐져나와 제 줄에 둔다. -->
+              <button v-if="model && model.storeys.length > 1" type="button" :class="['ghost', { locked: ceilingMode }]" title="다중층 뷰(지금 층과 위층)를 열어 계단·샤프트를 만듭니다" @click="ceilingMode ? lockedTool() : startCreateVertical('stair')">계단·샤프트</button>
               <div v-if="objectsOpen && !ceilingMode" class="object-library" role="group" aria-label="오브젝트 라이브러리">
                 <button
                   v-for="item in objectLibrary"
@@ -10194,6 +10233,7 @@ function rollbackFromReport() {
               </span>
               <!-- 라이저(OE-UI-04 · OE-ML-12). 층간 배관은 다중층 뷰에서 그린다 — 설비를 고르면 다른 층 설비까지 잇는 칸이 뜬다. -->
               <button v-if="model && model.storeys.length > 1" type="button" class="ghost" title="다중층 뷰를 열어 층간 배관(라이저)을 그립니다" @click="openMultiView()">라이저</button>
+              <button v-if="model && model.storeys.length > 1" type="button" class="ghost" title="다중층 뷰(지금 층과 위층)를 열어 엘리베이터·에스컬레이터를 만듭니다" @click="startCreateVertical('elevator')">EL·ES</button>
               </template>
             </nav>
             <!-- 설비 라벨(V4, lib/equipment-labels.ts). 점 위에 이름과 소속·종류 배지, 아래로 짧은 지시선. 누르면 그 설비를 고른다. -->
@@ -11430,21 +11470,29 @@ function rollbackFromReport() {
           </p>
           <template v-if="createPlan">
             <p v-if="'refused' in createPlan" class="edit-warn" data-testid="vertical-create-refused">{{ createPlan.refused }}</p>
-            <ul v-else class="vertical-range-plan" data-testid="vertical-create-plan">
-              <li>지나는 층: {{ createPlan.storeys.map((s) => s.name).join(' → ') }}</li>
-              <li v-for="n in createPlan.needs" :key="n.storey.id">
-                {{ n.storey.name }}:
-                <template v-for="w in n.what" :key="w">
-                  <button type="button" class="link" :disabled="!!drawing" @click="fillRange(n.storey.id, w)">{{ RANGE_NEED[w] }} {{ w === 'footprint' ? '그리기' : '찍기' }}</button>
-                </template>
-              </li>
-              <li v-if="!createPlan.needs.length" class="muted">다 채웠습니다</li>
-              <li v-if="createPlan.link">잇는 물리존: {{ createPlan.link.from ?? '없음' }} ↔ {{ createPlan.link.to ?? '없음' }}</li>
-              <li class="muted">개구부·EL 정차 층·ES 운행 방향은 아직 다루지 않습니다</li>
-            </ul>
+            <div v-else data-testid="vertical-create-plan">
+              <p class="vertical-move">지나는 층: {{ createPlan.storeys.map((s) => s.name).join(' → ') }}</p>
+              <!-- 채울 것 전부를 순서대로. 하나를 채우면 다음 것을 바로 이어 그린다(finishDraw) — 단추는 다시 그리거나 순서를 건너뛸 때 쓴다. -->
+              <ol class="vertical-steps" data-testid="vertical-create-steps">
+                <li v-for="s in createSteps" :key="`${s.storey.id}:${s.what}`" :class="{ done: s.done, now: isFilling(s.storey.id, s.what) }">
+                  <span class="step-mark" aria-hidden="true">{{ s.done ? '✓' : '' }}</span>
+                  <span class="step-text">{{ s.storey.name }} · {{ RANGE_NEED[s.what] }}</span>
+                  <span v-if="isFilling(s.storey.id, s.what)" class="step-now">{{ s.what === 'footprint' ? '그리는 중' : '찍는 중' }}</span>
+                  <button v-else type="button" class="link" :disabled="!!drawing" @click="fillRange(s.storey.id, s.what)">
+                    {{ s.done ? '다시 ' : '' }}{{ RANGE_NEED[s.what] }} {{ s.what === 'footprint' ? '그리기' : '찍기' }}
+                  </button>
+                </li>
+              </ol>
+              <p v-if="!createPlan.needs.length" class="muted">다 채웠습니다</p>
+              <p v-if="createPlan.link" class="vertical-move">잇는 물리존: {{ createPlan.link.from ?? '없음' }} ↔ {{ createPlan.link.to ?? '없음' }}</p>
+              <p class="muted">개구부·EL 정차 층·ES 운행 방향은 아직 다루지 않습니다</p>
+            </div>
           </template>
           <p>
-            <button type="button" class="ghost" :disabled="!createPlan || 'refused' in createPlan || !!createPlan.needs.length || !verticalCreate.name.trim()" @click="applyCreateVertical">만들기</button>
+            <button v-if="createPlan && !('refused' in createPlan) && createPlan.needs.length && !drawing" type="button" class="ghost go" data-testid="vertical-create-start" @click="fillNext">
+              {{ createSteps.some((s) => s.done) ? '이어서 채우기' : '그리기 시작' }}
+            </button>
+            <button type="button" :class="['ghost', { go: !!createPlan && !('refused' in createPlan) && !createPlan.needs.length }]" :disabled="!createPlan || 'refused' in createPlan || !!createPlan.needs.length || !verticalCreate.name.trim()" @click="applyCreateVertical">만들기</button>
             <button type="button" class="ghost" @click="cancelCreateVertical">취소</button>
           </p>
         </section>
@@ -11571,8 +11619,9 @@ function rollbackFromReport() {
                     <li v-if="rangePlan.removed.length">빠지는 층: {{ rangePlan.removed.map((s) => s.name).join(' · ') }} — 그 층 조각을 걷습니다</li>
                     <li v-for="n in rangePlan.needs" :key="n.storey.id">
                       {{ n.storey.name }}:
-                      <template v-for="w in n.what" :key="w">
-                        <button type="button" class="link" :disabled="!!drawing" @click="fillRange(n.storey.id, w)">{{ RANGE_NEED[w] }} {{ w === 'footprint' ? '그리기' : '찍기' }}</button>
+                      <template v-for="(w, i) in n.what" :key="w">
+                        {{ i ? ' · ' : '' }}<span v-if="isFilling(n.storey.id, w)" class="step-now">{{ RANGE_NEED[w] }} {{ w === 'footprint' ? '그리는 중' : '찍는 중' }}</span>
+                        <button v-else type="button" class="link" :disabled="!!drawing" @click="fillRange(n.storey.id, w)">{{ RANGE_NEED[w] }} {{ w === 'footprint' ? '그리기' : '찍기' }}</button>
                       </template>
                       <span class="muted">(채워야 적용됩니다)</span>
                     </li>

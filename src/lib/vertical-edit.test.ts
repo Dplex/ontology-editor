@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connection, Equipment, Model, Space, Storey, Vec2, Vec3, Wall } from './model'
 import { stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
-import { COMMON_AXIS_LOCKED, createVertical, deleteVertical, movePart, moveVertical, planCreate, planRange, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
+import { COMMON_AXIS_LOCKED, createVertical, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
 import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
 import { BUILDING, joinParts, splitByStorey } from './storey-drafts'
@@ -397,6 +397,21 @@ describe('만들기 (OE-ML-06)', () => {
     // 진입·종료 지점이 든 물리존을 잇는다. 같은 id 로 또 만들 수는 없다.
     expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'U_new')).toMatchObject({ a: 'stair1', b: 'stair2', source: 'edit' })
     expect(createVertical(m, { id: 'U_new', kind: 'stair', name: '또', from: '1F', to: '2F' }, given)).toEqual({ refused: expect.stringContaining('같은 id') })
+  })
+
+  it('채울 것 전부를 채울 순서대로 늘어놓고 채운 것에 표시한다 — 계단은 끝 층을 뺀 층 형상·시작 층 진입·끝 층 종료, 샤프트는 축 하나 [OE-ML-06#1~]', () => {
+    const m = tower()
+    const steps = (kind: 'stair' | 'shaft', given: Map<string, { footprint?: Vec2[]; entry?: Vec2; exit?: Vec2 }>) => {
+      const plan = planCreate(m, kind, '1F', '3F', given)
+      if (!('needs' in plan)) throw new Error(plan.refused)
+      return planSteps(kind, plan).map((s) => `${s.storey.id}:${s.what}${s.done ? '✓' : ''}`)
+    }
+    expect(steps('stair', new Map())).toEqual(['1F:footprint', '1F:entry', '2F:footprint', '3F:exit'])
+    expect(steps('stair', new Map([['1F', { footprint: ring, entry: [0, 0.2] as Vec2 }]]))).toEqual(['1F:footprint✓', '1F:entry✓', '2F:footprint', '3F:exit'])
+    // 엇갈린 형상은 채운 것으로 치지 않는다.
+    expect(steps('stair', new Map([['1F', { footprint: [[0, 0], [1, 1], [1, 0], [0, 1]] as Vec2[] }]]))[0]).toBe('1F:footprint')
+    expect(steps('shaft', new Map())).toEqual(['1F:footprint'])
+    expect(steps('shaft', new Map([['2F', { footprint: ring }]]))).toEqual(['1F:footprint✓'])
   })
 
   it('층 높이를 모르거나 구간이 잘못되면 만들지 않는다 [OE-ML-06#3~]', () => {

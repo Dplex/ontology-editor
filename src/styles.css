@@ -4052,6 +4052,71 @@ main.has-model .catalog {
   padding-left: 1.2rem;
 }
 
+/* 만들기에서 채울 것 목록. 채운 것은 ✓, 지금 그리는 것은 굵게 — 어디까지 했고 무엇이 남았는지 한눈에. */
+.vertical-steps {
+  margin: 0.4rem 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.vertical-steps li {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.2rem 0;
+}
+
+.vertical-steps .step-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.7rem;
+}
+
+.vertical-steps li.done .step-mark {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+}
+
+.vertical-steps li.done .step-text {
+  color: var(--muted);
+}
+
+.vertical-steps li.now .step-text,
+.step-now {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.vertical-steps li.now .step-mark {
+  border-color: var(--accent);
+}
+
+.vertical-steps .link {
+  margin-left: auto;
+}
+
+.ghost.go {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+}
+
+.ghost.go:hover {
+  color: var(--surface);
+  filter: brightness(1.08);
+}
+
+.multi-banner .banner-action {
+  display: block;
+  margin-top: 0.4rem;
+}
+
 .vertical-warnings {
   margin: 0.5rem 0;
   padding: 0.35rem 0.7rem 0.35rem 1.4rem;
