@@ -241,7 +241,7 @@ describe('S7·S8 — DT 가 그릴 형상 출력, 형상 파일과 TTL 이 같�
           expect(of.length, `${name} ${kind}`).toBeGreaterThan(0)
           for (const f of of) expect(ids.has(f.id), `${name} ${kind} ${f.id}`).toBe(true)
         }
-        expect(check3D(r.parts, x.floors, x.ttl), name).toEqual({ unknown: [], missing: [], misplaced: [] })
+        expect(check3D(r.parts, x.floors, x.ttl), name).toEqual({ unknown: [], missing: [], misplaced: [], kindMismatch: [] })
       }
     }
   })

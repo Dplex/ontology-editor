@@ -99,7 +99,8 @@ import { branchPipe } from './lib/branch-pipe'
 import { planOffsetHeight, setOffsetHeight } from './lib/offset-edit'
 import { removalImpact } from './lib/removal-impact'
 import { retargetEnd } from './lib/retarget'
-import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, type Background } from './lib/background'
+import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, switchPdfPage, type Background } from './lib/background'
+import { renderPdfPage } from './lib/pdf-page'
 import { FLOW_TYPES, flowType } from './lib/flow-type'
 import {
   applyFollow,
@@ -5542,27 +5543,75 @@ watch([bgHere, bgStorey, viewStorey, sceneVersion], () => {
   const st = bgStorey.value
   viewer?.setBackground(bg && st ? { url: bg.url, corners: backgroundCorners(bg), elevation: st.elevation, opacity: bg.opacity } : null)
 })
+/** PDF 로 깐 층의 원본 바이트. 쪽을 바꿔 다시 그릴 때 쓴다(층 id → 바이트). 화면에 보이지 않아 반응형으로 두지 않는다. */
+const bgPdfs = new Map<string, ArrayBuffer>()
+/** PDF 를 그리는 중(큰 도면은 몇 초). 그동안 고르기 칸과 쪽 칸을 막는다. */
+const bgBusy = ref(false)
 function pickBackground(input: HTMLInputElement) {
   const file = input.files?.[0]
   input.value = ''
   const st = bgStorey.value
   if (!file || !st) return
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return void pickPdfBackground(st, file)
   const url = URL.createObjectURL(file)
   const img = new Image()
   img.onload = () => {
-    // 건물 범위: 이 층 물리존 외곽선. 없으면 1px = 1cm 로 원점에 둔다.
-    const pts = st.spaces.flatMap((sp) => sp.footprint)
-    const box = pts.length ? { x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])), y1: Math.max(...pts.map((p) => p[1])) } : null
-    const old = backgrounds.value[st.id]
-    if (old) URL.revokeObjectURL(old.url)
-    backgrounds.value = { ...backgrounds.value, [st.id]: initialBackground({ url, name: file.name, width: img.naturalWidth, height: img.naturalHeight }, box) }
+    bgPdfs.delete(st.id)
+    placeBackground(st, { url, name: file.name, width: img.naturalWidth, height: img.naturalHeight })
     note(`${file.name}을 ${st.name} 바닥에 깔았습니다. [스케일 맞추기] 로 두 점의 실제 거리를, [원점 맞추기] 로 한 점의 실제 좌표를 넣으세요`)
   }
   img.onerror = () => {
     URL.revokeObjectURL(url)
-    note('이미지를 읽지 못했습니다. PNG·JPG 로 저장한 도면을 고르세요(PDF·DWG 는 이미지로 내보낸 뒤 고릅니다)')
+    note('이미지를 읽지 못했습니다. PNG·JPG·PDF 도면을 고르세요(DWG 는 PDF 나 이미지로 내보낸 뒤 고릅니다)')
   }
   img.src = url
+}
+/** 처음 깔 때. 이 층 물리존 외곽선의 범위에 너비를 맞춘다. 없으면 1px = 1cm 로 원점에 둔다. */
+function placeBackground(st: Storey, spec: { url: string; name: string; width: number; height: number }, pdf?: Background['pdf']) {
+  const pts = st.spaces.flatMap((sp) => sp.footprint)
+  const box = pts.length ? { x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])), y1: Math.max(...pts.map((p) => p[1])) } : null
+  const old = backgrounds.value[st.id]
+  if (old) URL.revokeObjectURL(old.url)
+  backgrounds.value = { ...backgrounds.value, [st.id]: { ...initialBackground(spec, box), ...(pdf ? { pdf } : {}) } }
+}
+/** PDF 도면은 첫 쪽을 이미지로 그려 깐다(pdf-page.ts). 여러 쪽이면 [쪽] 칸에서 바꾼다. */
+async function pickPdfBackground(st: Storey, file: File) {
+  bgBusy.value = true
+  try {
+    const data = await file.arrayBuffer()
+    const r = await renderPdfPage(data, 1)
+    bgPdfs.set(st.id, data)
+    placeBackground(st, { url: URL.createObjectURL(r.blob), name: file.name, width: r.width, height: r.height }, { page: r.page, pages: r.pages, pxPerPt: r.pxPerPt })
+    note(
+      `${file.name}${r.pages > 1 ? ` ${r.pages}쪽 중 1쪽` : ''}을 ${st.name} 바닥에 깔았습니다. ` +
+        (r.pages > 1 ? '다른 쪽은 [쪽] 칸에서 고르고, ' : '') +
+        '[스케일 맞추기] 로 두 점의 실제 거리를, [원점 맞추기] 로 한 점의 실제 좌표를 넣으세요',
+    )
+  } catch (e) {
+    note(`PDF 를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    bgBusy.value = false
+  }
+}
+/** PDF 의 다른 쪽을 깐다. 맞춘 스케일(종이 위 축척)과 왼쪽 위는 그대로다(switchPdfPage). */
+async function setBackgroundPage(page: number) {
+  const st = bgStorey.value
+  const bg = bgHere.value
+  const data = st ? bgPdfs.get(st.id) : undefined
+  if (!st || !bg?.pdf || !data || page === bg.pdf.page || bgBusy.value) return
+  bgBusy.value = true
+  try {
+    const r = await renderPdfPage(data, page)
+    const now = backgrounds.value[st.id]
+    if (!now) return
+    URL.revokeObjectURL(now.url)
+    backgrounds.value = { ...backgrounds.value, [st.id]: switchPdfPage(now, { url: URL.createObjectURL(r.blob), width: r.width, height: r.height, page: r.page, pages: r.pages, pxPerPt: r.pxPerPt }) }
+    note(`${bg.name} ${r.page}/${r.pages}쪽을 깔았습니다. 스케일과 왼쪽 위는 그대로입니다`)
+  } catch (e) {
+    note(`PDF 쪽을 그리지 못했습니다: ${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    bgBusy.value = false
+  }
 }
 function startBackgroundStep(kind: 'bgScale' | 'bgAnchor') {
   const st = bgStorey.value
@@ -5606,6 +5655,7 @@ function removeBackground() {
   const bg = bgHere.value
   if (!st || !bg) return
   URL.revokeObjectURL(bg.url)
+  bgPdfs.delete(st.id)
   const { [st.id]: _gone, ...rest } = backgrounds.value
   backgrounds.value = rest
   bgStep.value = null
@@ -8288,21 +8338,28 @@ function exportTTLDone() {
 }
 
 /**
- * 3D 형상(GLB·OBJ). 보여 주기용 파일이라 GeoJSON·TTL 과 따로 낸다. 큰 파일은 몇 초(성수 OBJ 16초) 걸려 누르는 동안
+ * 3D 형상(GLB·OBJ·FBX). 보여 주기용 파일이라 GeoJSON·TTL 과 따로 낸다. 큰 파일은 몇 초(성수 OBJ 16초) 걸려 누르는 동안
  * 버튼을 막고, 여는 때와 같은 진행 막대에 단계를 보인다. OBJ 는 꼭짓점 수로 막대가 차고, GLB 는 흐르기만 한다.
+ * FBX 는 GLB 를 만들어 서버에 보내면 서버의 Blender 가 바꿔 돌려준다(src/server/fbx.ts, ADR-0052). 성수는 서버에서 46초다.
  */
-const exporting3d = ref<'glb' | 'obj' | null>(null)
+const exporting3d = ref<'glb' | 'obj' | 'fbx' | null>(null)
+/** 서버가 FBX 로 바꿀 수 있는지. 서버에 Blender 가 없거나 서버 없이 띄운 화면이면 단추를 막고 까닭을 title 로 보인다. */
+const fbxServer = ref<{ enabled: boolean; reason?: string }>({ enabled: false, reason: 'FBX 변환 서버를 확인하는 중입니다' })
+fetch('./__data/__fbx')
+  .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+  .then((p: { enabled?: boolean; reason?: string }) => (fbxServer.value = { enabled: p.enabled === true, reason: p.reason }))
+  .catch(() => (fbxServer.value = { enabled: false, reason: 'FBX 는 서버(8084)의 Blender 가 바꿉니다. 이 화면에서는 서버에 닿지 않습니다' }))
 /**
  * 3D 형상을 워커에서 만든다(lib/export/mesh3d.worker.ts). 화면 스레드로 만들면 성수에서 3~4초씩 멈췄다. 한 번 쓰고 닫는다 — 워커가 든
  * 장면(수백 MB)이 남지 않게. 진행 막대는 부르는 쪽이 연다.
  */
-async function makeMesh3D(format: 'glb' | 'obj'): Promise<ArrayBuffer[]> {
+async function makeMesh3D(format: 'glb' | 'obj', moreSteps = 0): Promise<ArrayBuffer[]> {
   const worker = new Worker(new URL('./lib/export/mesh3d.worker.ts', import.meta.url), { type: 'module' })
   try {
     return await new Promise<ArrayBuffer[]>((resolve, reject) => {
       worker.onmessage = (e: MessageEvent<Mesh3dReply>) => {
         const d = e.data
-        if (d.type === 'progress') progress.value = { label: d.stage, step: d.step, steps: d.steps, done: d.done, total: d.total, unit: 'items' }
+        if (d.type === 'progress') progress.value = { label: d.stage, step: d.step, steps: d.steps + moreSteps, done: d.done, total: d.total, unit: 'items' }
         else if (d.type === 'done') resolve(d.parts)
         else reject(new Error(d.message))
       }
@@ -8314,8 +8371,16 @@ async function makeMesh3D(format: 'glb' | 'obj'): Promise<ArrayBuffer[]> {
     worker.terminate()
   }
 }
-async function export3D(format: 'glb' | 'obj') {
+/** GLB 를 서버에 보내 FBX 로 받는다. 실패하면 서버가 준 까닭을 그대로 올린다. */
+async function glbToFBX(glb: ArrayBuffer[]): Promise<ArrayBuffer> {
+  progress.value = { label: 'FBX 로 바꾸는 중(서버의 Blender)', step: 3, steps: 3 }
+  const r = await fetch('./__data/__fbx', { method: 'POST', body: new Blob(glb, { type: 'model/gltf-binary' }) })
+  if (!r.ok) throw new Error(((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `서버가 ${r.status} 을 줬습니다`)
+  return r.arrayBuffer()
+}
+async function export3D(format: 'glb' | 'obj' | 'fbx') {
   if (!model.value || exporting3d.value || progress.value) return
+  if (format === 'fbx' && !fbxServer.value.enabled) return
   exporting3d.value = format
   beginProgress('형상 넘기는 중')
   // 형상을 워커로 복사하는 동안 화면이 잠깐 멈춘다. 막대가 먼저 보이게 한 번 그린다.
@@ -8323,9 +8388,9 @@ async function export3D(format: 'glb' | 'obj') {
   // 합쳐 연 파일은 이름이 "건축.ifc + 기계.ifc" 다. 확장자를 떼고 + 로 잇는다.
   const stem = fileName.value.split(' + ').map((n) => n.replace(/\.[^.]+$/, '')).join('+') || 'model'
   try {
-    const parts = await makeMesh3D(format)
+    const parts = format === 'fbx' ? [await glbToFBX(await makeMesh3D('glb', 1))] : await makeMesh3D(format)
     const name = `${stem}.${format}`
-    download(name, parts, format === 'glb' ? 'model/gltf-binary' : 'model/obj')
+    download(name, parts, format === 'glb' ? 'model/gltf-binary' : format === 'obj' ? 'model/obj' : 'application/octet-stream')
     // 막대가 닫히면 끝났는지 알 길이 브라우저 받기 표시뿐이다. 이름과 크기를 남긴다(성수 OBJ 는 683MB 다).
     note(`${name} (${mb(parts.reduce((s, p) => s + p.byteLength, 0))}) 내려받기를 시작했습니다`)
     markDone(format)
@@ -8961,8 +9026,10 @@ function rollbackFromReport() {
             <!-- 여는·합치는 중(busy)에는 막는다. 건축·설비를 같이 열 때 설비를 읽는 동안 누르면 건축만 든 파일이 나갔다. -->
             <button type="button" class="ghost" aria-label="기하 내보내기 (GeoJSON)" title="형상 내보내기 (층마다 GeoJSON 파일 하나)" :disabled="busy" :class="{ done: justDone === 'geojson' }" @click="exportGeoJSONDone">GeoJSON</button>
             <button type="button" class="ghost" aria-label="의미 내보내기 (Brick TTL)" title="관계 내보내기 (Brick TTL 파일 하나)" :disabled="busy" :class="{ done: justDone === 'ttl' }" @click="exportTTLDone">TTL</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'glb'" :class="{ done: justDone === 'glb' }" @click="export3D('glb')">{{ exporting3d === 'glb' ? '만드는 중…' : 'GLB' }}</button>
-            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" :class="{ done: justDone === 'obj' }" @click="export3D('obj')">{{ exporting3d === 'obj' ? '만드는 중…' : 'OBJ' }}</button>
+            <!-- 만드는 동안 글자는 "GLB…" 로만 바꾼다. 무엇을 하는지는 진행 막대가 보인다. "만드는 중…" 으로 바꾸면 단추가 넓어져 1600px 에서 성수 이름과 함께 툴바가 두 줄로 넘어갔다. -->
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'glb'" :class="{ done: justDone === 'glb' }" @click="export3D('glb')">{{ exporting3d === 'glb' ? 'GLB…' : 'GLB' }}</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" :class="{ done: justDone === 'obj' }" @click="export3D('obj')">{{ exporting3d === 'obj' ? 'OBJ…' : 'OBJ' }}</button>
+            <button type="button" class="ghost" aria-label="3D 형상 내보내기 (FBX)" :title="fbxServer.enabled ? '3D 형상 내보내기 (FBX 파일 하나, 요소 이름은 GlobalId, 서버에서 GLB 를 변환)' : fbxServer.reason" :disabled="busy || !!exporting3d || !fbxServer.enabled" :aria-busy="exporting3d === 'fbx'" :class="{ done: justDone === 'fbx' }" @click="export3D('fbx')">{{ exporting3d === 'fbx' ? 'FBX…' : 'FBX' }}</button>
             <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
             <button type="button" class="ghost theme" :aria-pressed="dark" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
           </div>
@@ -12003,16 +12070,30 @@ function rollbackFromReport() {
           <!-- 평면도 배경 이미지(OE-MAN-02). 준공 도면을 깔고 그 위에 물리존을 그린다. 온톨로지에 나가지 않고 이 탭에만 있다. -->
           <Fold v-if="editing" title="평면도 배경" :meta="bgStorey ? (bgHere ? `${bgStorey.name} · ${bgHere.name}` : `${bgStorey.name} · 없음`) : '층을 고르세요'" :default-open="false" class="bg-plan" data-testid="bg-plan">
             <p class="hint">
-              준공 도면을 이미지(PNG·JPG)로 깔고 그 위에 물리존을 그립니다. PDF·DWG 는 이미지로 내보낸 뒤 고릅니다.
+              준공 도면(PNG·JPG·PDF)을 깔고 그 위에 물리존을 그립니다. DWG 는 PDF 나 이미지로 내보낸 뒤 고릅니다.
               배경은 온톨로지와 편집 파일에 나가지 않고, 이 브라우저 탭에만 있습니다.
             </p>
             <template v-if="bgStorey">
               <p class="pipe-draw-row">
-                <label class="file-pick">
-                  {{ bgHere ? '다른 도면 고르기' : '도면 이미지 고르기' }}
-                  <input type="file" accept="image/png,image/jpeg" aria-label="평면도 배경 이미지" @change="pickBackground($event.target as HTMLInputElement)" />
+                <label class="file-pick" :class="{ disabled: bgBusy }">
+                  {{ bgBusy ? 'PDF 그리는 중…' : bgHere ? '다른 도면 고르기' : '도면 고르기' }}
+                  <input type="file" accept="image/png,image/jpeg,application/pdf,.pdf" aria-label="평면도 배경 이미지" :disabled="bgBusy" @change="pickBackground($event.target as HTMLInputElement)" />
                 </label>
                 <template v-if="bgHere">
+                  <label v-if="bgHere.pdf && bgHere.pdf.pages > 1">
+                    쪽
+                    <input
+                      type="number"
+                      min="1"
+                      :max="bgHere.pdf.pages"
+                      :value="bgHere.pdf.page"
+                      :disabled="bgBusy"
+                      aria-label="PDF 쪽"
+                      class="bg-page"
+                      @change="setBackgroundPage(Number(($event.target as HTMLInputElement).value))"
+                    />
+                    / {{ bgHere.pdf.pages }}
+                  </label>
                   <span class="muted" data-testid="bg-scale">1px = {{ (bgHere.scale * 1000).toFixed(1) }}mm · 왼쪽 위 ({{ bgHere.origin[0].toFixed(2) }}, {{ bgHere.origin[1].toFixed(2) }})</span>
                   <label>
                     진하기

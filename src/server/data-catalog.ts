@@ -21,6 +21,7 @@ import { layouts } from './layouts'
 import { users as userStore } from './users'
 import { activityLog } from './activity-log'
 import { floorState } from './floor-state'
+import { fbxConverter } from './fbx'
 
 type Profiled = { profile: Profile } | { error: string }
 
@@ -126,6 +127,7 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
   let lastWriter = ''
   const layoutStore = layouts(root, { writer: people.writer, onVersion: (e) => log.write(e) })
   const floors = floorState(root, people.writer)
+  const fbx = fbxConverter()
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const [rawPath, query] = (req.url ?? '/').split('?')
@@ -146,6 +148,8 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
     }
     // 반영한 레이아웃·버전(layouts.ts). 올리기(PUT)·반영·되돌리기(POST)를 받는다.
     if (path === '__layouts') return layoutStore(req, res, query ?? '')
+    // GLB 를 받아 FBX 로 바꿔 돌려준다(fbx.ts). data/ 에는 아무것도 남기지 않는다.
+    if (path === '__fbx') return fbx(req, res)
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.statusCode = 405
       res.end()

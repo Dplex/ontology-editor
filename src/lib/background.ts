@@ -19,6 +19,8 @@ export type Background = {
   origin: Vec2
   /** 0..1. */
   opacity: number
+  /** PDF 도면이면 그린 쪽(1부터)·전체 쪽 수·PDF 1pt 가 몇 픽셀인지(pdf-page.ts). 쪽을 바꿔도 종이 위 축척을 이어 쓰는 데 쓴다. */
+  pdf?: { page: number; pages: number; pxPerPt: number }
 }
 
 /** 이미지 네 귀퉁이의 세계 좌표(왼쪽 위부터 시계 방향). */
@@ -49,6 +51,15 @@ export function calibrateScale(bg: Background, a: Vec2, b: Vec2, meters: number)
   if (!(measured > 1e-6) || !(meters > 0) || !Number.isFinite(meters)) return null
   const k = meters / measured
   return { ...bg, scale: bg.scale * k, origin: [a[0] + (bg.origin[0] - a[0]) * k, a[1] + (bg.origin[1] - a[1]) * k] }
+}
+
+/**
+ * PDF 의 다른 쪽으로 바꾼다. 왼쪽 위와 **종이 위 축척**(PDF 1pt 가 몇 m 인가)을 그대로 둔다 — 한 도면 묶음은 쪽마다 축척이 같아서,
+ * 한 쪽에서 맞춘 스케일을 다른 쪽에 이어 쓴다. 쪽마다 종이 크기가 달라 픽셀 크기(`pxPerPt`)가 달라도 같다.
+ */
+export function switchPdfPage(bg: Background, next: { url: string; width: number; height: number; page: number; pages: number; pxPerPt: number }): Background {
+  const metersPerPt = bg.pdf ? bg.scale * bg.pdf.pxPerPt : bg.scale
+  return { ...bg, url: next.url, width: next.width, height: next.height, scale: metersPerPt / next.pxPerPt, pdf: { page: next.page, pages: next.pages, pxPerPt: next.pxPerPt } }
 }
 
 /** 원점 맞추기. 이미지 위에서 찍은 점 `at` 이 실제로는 세계 좌표 `to` 다. 이미지를 그만큼 옮긴다. */

@@ -3237,6 +3237,16 @@ main.has-model .catalog {
   display: none;
 }
 
+/* PDF 를 그리는 동안(평면도 배경) 고르기 칸을 막는다. */
+.file-pick.disabled {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.bg-page {
+  width: 4.5em;
+}
+
 .version-pick {
   display: flex;
   flex-wrap: wrap;
