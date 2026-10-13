@@ -12,7 +12,8 @@
 //    2022)를 가장 단순하게 옮겼다 — 특징을 세어 닮은 정도(코사인)로 가장 닮은 패밀리의 종류를 앞에 둔다. 그 건물에 이미
 //    있는 종류만 권할 수 있다는 한계가 있어서 1과 같이 쓴다.
 //
-// 외부 모델도 네트워크도 쓰지 않는다(55 는 바깥에 닿지 않는다). 2 가 얼마나 맞는지는 종류를 아는 패밀리를 하나씩 가리고
+// 외부 모델도 네트워크도 쓰지 않는다(55 는 바깥에 닿지 않는다). 학습한 모델의 후보는 따로 한 줄로 보인다(laya.ts, ADR-0057) —
+// 이 후보를 대신하지 않는다. 2 가 얼마나 맞는지는 종류를 아는 패밀리를 하나씩 가리고
 // 맞혀 보는 것으로 잰다(`evaluateSuggestions`, check:sample). 1 은 종류를 아는 패밀리가 이미 이름으로 정해진 것이라
 // 같은 방법으로는 잴 수 없다.
 
@@ -193,4 +194,25 @@ export function evaluateSuggestions(model: Model): { families: number; top1: num
     if (kinds.includes(f.kind!)) top3++
   }
   return { families: scored.length, top1, top3 }
+}
+
+/**
+ * 종류를 아는 패밀리마다, 그 패밀리를 모른다고 치고 낸 후보. `byLook` 은 닮은 패밀리만(이름을 가린 셈, `evaluateSuggestions`
+ * 와 같은 셈), `combined` 는 화면이 내는 후보(이름의 낱말 + 닮은 패밀리, `suggestKinds` 와 같은 순서)다. 다른 후보 방식
+ * (scripts/laya)을 같은 패밀리에 대 볼 때 기준선으로 쓴다.
+ */
+export function hiddenSuggestions(model: Model, limit = 3): Map<string, { byLook: string[]; combined: string[] }> {
+  const all = families(model)
+  const known = all.filter((f) => f.kind)
+  const out = new Map<string, { byLook: string[]; combined: string[] }>()
+  for (const f of known) {
+    const look = lookalikes(f, known)
+    const combined: string[] = []
+    for (const s of [...nameHits(f.label), ...look.filter((s) => s.score >= MIN_LIKENESS)]) {
+      if (combined.length >= limit) break
+      if (!combined.includes(s.kind)) combined.push(s.kind)
+    }
+    out.set(f.key, { byLook: look.slice(0, limit).map((s) => s.kind), combined })
+  }
+  return out
 }

@@ -73,6 +73,8 @@ import { airflowText, BASIS_LABEL, CAPACITY_CHECK_KINDS, cmhText, setRatedAirflo
 import { flowReviews } from './lib/flow-review'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
+import { clueText, familyClues as computeFamilyClues, type FamilyClue } from './lib/family-clues'
+import { LAYA_SURE, layaKinds, layaStatus, type LayaResult, type LayaStatus } from './lib/laya'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
@@ -3747,52 +3749,37 @@ const kindSuggestions = computed(() => {
 const suggestionWhy = (s: KindSuggestion) =>
   'name' in s.why ? `이름의 '${s.why.name}'` : `닮은 패밀리: ${s.why.like} (${Math.round(s.score * 100)}%)`
 
-/**
- * 종류를 모르는 패밀리마다 고를 단서. 이름이 암호 같아도(`M_Exhaust Unit…:47-84 LPS`) 어느 계통에 있고, 무엇에
- * 붙어 있고, 어디(천장·바닥·방)에 놓였는지를 보면 대부분 짐작한다 — 급기 계통 끝에서 덕트 하나에 붙어 천장에
- * 있으면 디퓨저다. 모두 BIM 이 말한 계통·연결·좌표를 모은 것이다. 편집 모드에서 보이는 줄에만 잰다.
- */
+/** 종류를 모르는 패밀리마다 고를 단서(family-clues.ts). 편집 모드에서 보이는 줄에만 잰다. */
 const familyClues = computed(() => {
   void flowVersion.value
   const m = model.value
-  const out = new Map<string, { system: string; neighbors: string; place: string }>()
-  if (!m || !editing.value) return out
-  const shown = new Set(unknownTypes.value.slice(0, TYPE_LIMIT).map((t) => t.key))
-  const adjacent = new Map<string, string[]>()
-  for (const c of m.connections) {
-    adjacent.set(c.from, [...(adjacent.get(c.from) ?? []), c.to])
-    adjacent.set(c.to, [...(adjacent.get(c.to) ?? []), c.from])
-  }
-  const tally = () => new Map<string, number>()
-  const add = (map: Map<string, number>, k: string) => map.set(k, (map.get(k) ?? 0) + 1)
-  const top = (map: Map<string, number>, n: number) =>
-    [...map].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, c]) => `${k} ${c}`).join(' · ')
-  const acc = new Map<string, { systems: Map<string, number>; neighbors: Map<string, number>; rooms: Map<string, number>; heights: number[] }>()
-  for (const storey of m.storeys) {
-    for (const e of storey.equipment) {
-      if (isConduit(e.role) || equipmentKind(e.kind)) continue
-      const key = familyKeyOf(e)
-      if (!shown.has(key)) continue
-      const a = acc.get(key) ?? { systems: tally(), neighbors: tally(), rooms: tally(), heights: [] }
-      const sy = e.systemId ? systemById.value.get(e.systemId) : null
-      if (sy) add(a.systems, systemKind(sy.kind)?.label ?? sy.name ?? '이름 없는 계통')
-      for (const other of adjacent.get(e.id) ?? []) add(a.neighbors, whatIs(equipmentById.value.get(other))?.label ?? '종류 모름')
-      if (e.spaceId) add(a.rooms, spaceNameOf(e.spaceId))
-      if (e.position) a.heights.push(e.position[2] - storey.elevation)
-      acc.set(key, a)
-    }
-  }
-  for (const [key, a] of acc) {
-    const h = [...a.heights].sort((x, y) => x - y)
-    const median = h.length ? h[Math.floor(h.length / 2)] : null
-    out.set(key, {
-      system: a.systems.size ? top(a.systems, 2) : '계통 없음',
-      neighbors: a.neighbors.size ? top(a.neighbors, 3) : '연결 없음',
-      place: [median !== null ? `바닥에서 ${median.toFixed(1)}m` : '', top(a.rooms, 2)].filter(Boolean).join(' · ') || '위치 모름',
-    })
-  }
-  return out
+  if (!m || !editing.value) return new Map<string, FamilyClue>()
+  return computeFamilyClues(m, { keys: new Set(unknownTypes.value.slice(0, TYPE_LIMIT).map((t) => t.key)) })
 })
+
+/**
+ * Laya 종류 후보(laya.ts, ADR-0057). 편집 모드에 들어갈 때 133 의 서버가 있는지 한 번 보고, 있으면 보이는 줄의 단서 글을
+ * 묻는다. 정하지 않는다 — 지금의 후보처럼 눌러야 붙는다. 서버가 없으면 이 줄이 보이지 않는다.
+ */
+const layaState = ref<LayaStatus | null>(null)
+const layaResults = ref(new Map<string, LayaResult>())
+watch(editing, (on) => {
+  if (on && !layaState.value) void layaStatus().then((s) => (layaState.value = s))
+})
+watch(
+  () => [familyClues.value, layaState.value] as const,
+  async ([clues, state]) => {
+    if (!state?.enabled || !clues.size) return
+    const texts = new Map([...clues].map(([key, c]) => [key, clueText(c)]))
+    try {
+      const got = await layaKinds([...texts.values()])
+      layaResults.value = new Map([...texts].filter(([, t]) => got.has(t)).map(([key, t]) => [key, got.get(t)!]))
+    } catch (e) {
+      layaState.value = { enabled: false, reason: String(e) }
+    }
+  },
+)
+const layaPicks = (key: string) => (layaResults.value.get(key)?.ranked ?? []).filter((s) => equipmentKind(s.kind)).slice(0, 3)
 const kindEditLines = computed(() => {
   void flowVersion.value
   const m = model.value
@@ -11896,6 +11883,21 @@ function rollbackFromReport() {
                         @click="setKind(t.key, s.kind, t.label)"
                       >{{ equipmentKind(s.kind)?.label }}</button>
                       <Src kind="dict" />
+                    </span>
+                    <span
+                      v-if="layaPicks(t.key).length"
+                      class="suggest laya"
+                      :class="{ unsure: layaResults.get(t.key)!.confidence < LAYA_SURE }"
+                      :title="`Laya(${layaState?.model ?? ''})가 단서 글로 고른 종류와 확률입니다. 누르면 이 패밀리 전체에 붙습니다(출처 편집).`"
+                    >
+                      Laya<template v-if="layaResults.get(t.key)!.confidence < LAYA_SURE"> · 자신 없음</template>:
+                      <button
+                        v-for="s in layaPicks(t.key)"
+                        :key="s.kind"
+                        type="button"
+                        class="link"
+                        @click="setKind(t.key, s.kind, t.label)"
+                      >{{ equipmentKind(s.kind)?.label }} <small class="muted">{{ Math.round(s.p * 100) }}%</small></button>
                     </span>
                   </td>
                   <td>
