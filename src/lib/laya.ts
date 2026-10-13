@@ -13,6 +13,17 @@ export type LayaStatus = { enabled: boolean; reason?: string; model?: string }
  */
 export const LAYA_SURE = 0.5
 
+/** 이보다 낮은 후보는 보이지 않는다(임시값). */
+export const LAYA_MIN = 0.05
+
+/**
+ * [설비 더하기] 에서 사람이 친 이름을 Laya 가 읽는 글로. 놓기 전이라 방·계통·이웃은 아직 모르고, 아는 것은 이름과 놓을 면
+ * (천장 모드인가)뿐이다. 학습 재료(scripts/laya/export.test.ts)도 이 함수로 만든다 — 줄을 바꾸면 다시 학습한다.
+ */
+export function newEquipmentText(name: string, ceiling: boolean): string {
+  return [`새 설비 이름: ${name.trim()}`, `놓는 면: ${ceiling ? '천장' : '바닥·벽'}`].join('\n')
+}
+
 export async function layaStatus(): Promise<LayaStatus> {
   try {
     const r = await fetch('./__laya')

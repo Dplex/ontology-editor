@@ -74,8 +74,8 @@ import { flowReviews } from './lib/flow-review'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { clueText, familyClues as computeFamilyClues, type FamilyClue } from './lib/family-clues'
-import { LAYA_SURE, layaKinds, layaStatus, type LayaResult, type LayaStatus } from './lib/laya'
-import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
+import { LAYA_MIN, LAYA_SURE, layaKinds, layaStatus, newEquipmentText, type LayaPick, type LayaResult, type LayaStatus } from './lib/laya'
+import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveEquipmentKind, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
 import { modelToTTL } from './lib/export/ttl'
@@ -1794,7 +1794,8 @@ function clearSelection(): boolean {
     note('공조존 꼭짓점 고치기를 마쳤습니다')
   } else if (adding.value) {
     const what = adding.value.what
-    stopAdd()
+    if (what === 'equipment') cancelAddEquipment()
+    else stopAdd()
     note(what === 'equipment' ? '설비 더하기를 취소했습니다' : what === 'door' ? '문 놓기를 취소했습니다' : what === 'object' ? '오브젝트 놓기를 취소했습니다' : '창 놓기를 취소했습니다')
   } else if (group.value.length) {
     group.value = []
@@ -3763,19 +3764,24 @@ const familyClues = computed(() => {
  */
 const layaState = ref<LayaStatus | null>(null)
 const layaResults = ref(new Map<string, LayaResult>())
+// 편집 모드에 들어갈 때마다 다시 본다 — 133 이 잠깐 꺼졌다 켜져도 다음 편집부터 다시 보인다.
 watch(editing, (on) => {
-  if (on && !layaState.value) void layaStatus().then((s) => (layaState.value = s))
+  if (on) void layaStatus().then((s) => (layaState.value = s))
 })
+let layaAsk = 0
 watch(
   () => [familyClues.value, layaState.value] as const,
   async ([clues, state]) => {
+    // 늦게 온 답이 새 단서의 답을 덮지 않게 번호를 본다.
+    const ask = ++layaAsk
     if (!state?.enabled || !clues.size) return
     const texts = new Map([...clues].map(([key, c]) => [key, clueText(c)]))
     try {
       const got = await layaKinds([...texts.values()])
-      layaResults.value = new Map([...texts].filter(([, t]) => got.has(t)).map(([key, t]) => [key, got.get(t)!]))
-    } catch (e) {
-      layaState.value = { enabled: false, reason: String(e) }
+      if (ask === layaAsk) layaResults.value = new Map([...texts].filter(([, t]) => got.has(t)).map(([key, t]) => [key, got.get(t)!]))
+    } catch {
+      // 한 번 실패로 끄지 않는다(성수처럼 한 번에 많이 물으면 시간 초과가 날 수 있다). 이번 줄만 비우고 다음 편집 때 다시 묻는다.
+      if (ask === layaAsk) layaResults.value = new Map()
     }
   },
 )
@@ -6336,6 +6342,8 @@ function startAddEquipment() {
   const z = ceilingMode.value ? storey.elevation + ceilingOf(storey)!.height : storey.elevation
   adding.value = { storeyId: storey.id, elevation: z, what: 'equipment' }
   viewer?.setPlaceMode(z)
+  // 이름부터 치게 이름 칸으로 간다. 치지 않고 바로 바닥을 눌러도 된다(종류 미상으로 놓인다).
+  void nextTick(() => addNameInput.value?.focus())
   note(ceilingMode.value ? `${storey.name} 천장에 설비를 놓을 자리를 3D에서 클릭하세요 (Esc 취소)` : `${storey.name}에 설비를 놓을 바닥을 3D에서 클릭하세요 (Esc 취소)`)
 }
 function stopAdd() {
@@ -6343,6 +6351,69 @@ function stopAdd() {
   adding.value = null
   viewer?.setPlaceMode(null)
 }
+/** 사람이 [설비 더하기] 를 그만둔다(Esc·[더하기 취소]). 친 이름과 고른 종류도 버린다 — 다음 더하기에 묻지 않고 남지 않게. */
+function cancelAddEquipment() {
+  stopAdd()
+  addName.value = ''
+  addKind.value = null
+}
+
+/**
+ * 놓기 전에 이름을 치면 종류 후보를 보인다(ADR-0057). 사전이 이름을 읽으면 그것이 먼저(출처 사전), 이어서 Laya 의 후보(확률).
+ * **고르지 않으면 지금처럼 종류 미상으로 놓는다**(OE-EQP-13) — 사람이 칩을 누르거나 Enter 로 첫 후보를 받아야 그 종류로 놓인다.
+ */
+const addName = ref('')
+const addNameInput = ref<HTMLInputElement | null>(null)
+const addKind = ref<string | null>(null)
+const addLaya = ref<LayaPick[]>([])
+const addSuggestions = computed(() => {
+  const name = addName.value.trim()
+  if (!name) return []
+  const dict = resolveEquipmentKind(name)?.info.kind ?? null
+  const out: { kind: string; p: number | null }[] = dict ? [{ kind: dict, p: null }] : []
+  // 5% 아래는 보이지 않는다 — 0% 칩이 셋째 자리를 채워 고를 것처럼 보였다(Duplex 에서 쳐 본 12개 중 9개).
+  for (const s of addLaya.value) if (s.p >= LAYA_MIN && equipmentKind(s.kind) && !out.some((o) => o.kind === s.kind) && out.length < 3) out.push(s)
+  return out
+})
+let addAsk = 0
+// 이름이 바뀌면 고른 종류를 버린다(다른 이름의 후보다).
+watch(
+  () => addName.value.trim(),
+  () => (addKind.value = null),
+)
+watch(
+  () => [addName.value.trim(), ceilingMode.value, adding.value?.what === 'equipment', layaState.value?.enabled] as const,
+  ([name, ceiling, on, enabled]) => {
+    if (!name || !on || !enabled) {
+      addLaya.value = []
+      return
+    }
+    // 이미 고른 종류가 있으면 다시 묻지 않는다 — 천장 모드를 바꾸면(T) 글이 바뀌어 다시 물었고, 새 답에 그 종류가 없으면 고른 것이 말없이 빠졌다.
+    if (addKind.value) return
+    const ask = ++addAsk
+    const text = newEquipmentText(name, ceiling)
+    // 치는 동안은 묻지 않는다 — 멈추고 0.15초 뒤에 한 번. 늦게 온 답이 새 이름의 답을 덮지 않게 번호를 본다.
+    setTimeout(() => {
+      if (ask !== addAsk) return
+      layaKinds([text])
+        .then((got) => {
+          if (ask === addAsk) addLaya.value = got.get(text)?.ranked ?? []
+        })
+        .catch(() => {})
+    }, 150)
+  },
+)
+function acceptAddKind() {
+  if (!addKind.value && addSuggestions.value.length) addKind.value = addSuggestions.value[0].kind
+}
+/** 고른 종류가 지금 놓는 면(천장 모드인가)에 놓이지 않는 종류면 알린다. 막지는 않는다. */
+const addMountHint = computed(() => {
+  const allowed = allowedSurfaces(addKind.value)
+  if (!addKind.value || !allowed) return ''
+  const fits = ceilingMode.value ? allowed.includes('ceiling') : allowed.some((s) => s !== 'ceiling')
+  const label = equipmentKind(addKind.value)!.label
+  return fits ? '' : `${label}${josa(label, '은/는')} ${allowedLabel(addKind.value)}에 놓는 종류입니다${ceilingMode.value ? '' : ' — 천장이면 T 로 천장 모드'}`
+})
 function addEquipmentAt(at: Vec2) {
   const m = model.value
   const target = adding.value
@@ -6354,14 +6425,21 @@ function addEquipmentAt(at: Vec2) {
   const blocked = overlapForNew(m, target.storeyId, position, currentBox)
   if (blocked) return refuseOverlap(blocked)
   const mk = mark()
-  const e = addEquipment(m, target.storeyId, { name: `새 설비 ${n}`, kind: null, position })
+  const kind = addKind.value
+  const e = addEquipment(m, target.storeyId, { name: addName.value.trim() || `새 설비 ${n}`, kind, position })
   if (!e) return
+  addName.value = ''
+  addKind.value = null
   const snapshot = snapshotEquipmentSet(m, e.id)
   if (snapshot?.kind === 'equipment-set') remember(`${e.name} 더하기`, { ...snapshot, present: false }, mk)
   triggerRef(model)
   redraw()
   selectedId.value = e.id
-  note(`${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '천장고' : '바닥 높이'}에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`)
+  note(
+    kind
+      ? `${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '천장고' : '바닥 높이'}에 놓았습니다(종류 ${equipmentKind(kind)!.label}). 높이를 오른쪽 패널에서 정하세요`
+      : `${e.name}${josa(e.name, '을/를')} ${ceilingMode.value ? '천장고' : '바닥 높이'}에 놓았습니다. 종류·이름·높이를 오른쪽 패널에서 정하세요`,
+  )
 }
 function removeEquipment(id: string) {
   const m = model.value
@@ -9329,7 +9407,7 @@ function rollbackFromReport() {
                 :aria-pressed="adding?.what === 'equipment'"
                 :disabled="ceilingAsk"
                 :title="ceilingMode ? '천장을 눌러 새 설비를 천장고에 놓습니다' : '바닥을 눌러 새 설비를 놓습니다'"
-                @click="adding?.what === 'equipment' ? stopAdd() : startAddEquipment()"
+                @click="adding?.what === 'equipment' ? cancelAddEquipment() : startAddEquipment()"
               >
                 {{ adding?.what === 'equipment' ? '더하기 취소' : '설비 더하기' }}
               </button>
@@ -9461,6 +9539,34 @@ function rollbackFromReport() {
             </template>
           </ul>
 
+          <!-- 놓기 전에 이름을 치면 종류 후보(사전 → Laya, ADR-0057). 고른 것만 붙는다 — 안 고르면 종류 미상으로 놓인다.
+               3D 왼쪽 위에 띄운다. 팔레트(왼쪽 아래)에 두면 팔레트가 커져 바닥을 가리고, 바닥을 누른 것이 [천장] 토글에 떨어졌다. -->
+          <div v-if="adding?.what === 'equipment'" class="add-name">
+            <input
+              ref="addNameInput"
+              v-model="addName"
+              type="text"
+              aria-label="새 설비 이름"
+              placeholder="이름(선택) — 치면 종류 후보"
+              @keydown.enter.prevent="acceptAddKind"
+              @keydown.esc.stop.prevent="cancelAddEquipment"
+            />
+            <span v-if="addSuggestions.length" class="add-kinds" role="group" aria-label="새 설비 종류 후보">
+              <button
+                v-for="s in addSuggestions"
+                :key="s.kind"
+                type="button"
+                :class="['ghost', { on: addKind === s.kind, unsure: s.p !== null && s.p < LAYA_SURE }]"
+                :aria-pressed="addKind === s.kind"
+                :title="s.p === null ? '이름 사전이 읽은 종류' : `Laya 가 이름으로 고른 종류 (${Math.round(s.p * 100)}%)`"
+                @click="addKind = addKind === s.kind ? null : s.kind"
+              >
+                {{ equipmentKind(s.kind)?.label }}
+                <small class="muted">{{ s.p === null ? '사전' : `Laya ${Math.round(s.p * 100)}%` }}</small>
+              </button>
+            </span>
+            <small v-if="addMountHint" class="muted">{{ addMountHint }}</small>
+          </div>
           <p v-if="editNotice" class="edit-notice" :class="{ 'over-note': keyNote }" role="alert">{{ editNotice }}</p>
           <!-- 경고가 떠 있어도 키로 한 일은 보인다. 남아 있는 경고(소속을 잃은 설비 등)가 뒤이어 막힌 이유("꼭짓점이 셋이라 …")를
                가리면 안 된다. 경고는 그 위로 한 줄 비킨다(.over-note). -->

@@ -4,6 +4,7 @@
 
     python train.py <data/laya 폴더> <결과 폴더> [--zero-shot-only] [--epochs N]   # 건물 하나를 빼고 배워 잰다
     python train.py <data/laya 폴더> <결과 폴더> --within                         # 그 건물의 다른 패밀리도 넣어 5겹으로 잰다
+    python train.py <data/laya 폴더> <결과 폴더> --adds                           # [설비 더하기] 이름 줄을 건물 하나씩 빼고 잰다
     python train.py <data/laya 폴더> <결과 폴더> --final                          # 전부로 배워 <결과>/final (serve.py 용)
 
 venv 는 133 의 ~/laya/.venv(torch cu128 + laya[serve]). 2026-10-13 숫자는 ADR-0057.
@@ -27,7 +28,9 @@ import sys
 import time
 
 TEST_BUILDINGS = ["clinic", "seongsu", "duplex"]
-INSTRUCTIONS = "건물 설비 패밀리 하나의 단서다. 이 설비의 종류는 무엇인가?"
+INSTRUCTIONS = "건물 설비 하나를 설명하는 글이다. 이 설비의 종류는 무엇인가?"
+# [설비 더하기] 이름 줄(adds)을 잴 건물. 이름만으로 사전이 못 읽는 줄이 있는 곳이다(Office_A·치과는 0줄).
+ADD_TEST = ["clinic", "duplex", "ifc4mep", "seongsu"]
 
 
 def state_of(row, hide_name):
@@ -35,9 +38,9 @@ def state_of(row, hide_name):
     return row["stateHidden" if hide_name else "state"]
 
 
-def load_rows(folder):
+def load_rows(folder, what="families"):
     rows = []
-    for path in sorted(glob.glob(os.path.join(folder, "*.families.jsonl"))):
+    for path in sorted(glob.glob(os.path.join(folder, f"*.{what}.jsonl"))):
         with open(path, encoding="utf8") as f:
             rows += [json.loads(line) for line in f if line.strip()]
     return rows
@@ -60,6 +63,52 @@ def train_rows(rows, labels, held_out):
             seen.add((s, r["kind"]))
             out.append({"state": s, "questions": question(labels), "expected": {"kind": r["kind"]}})
     return out
+
+
+def add_train_rows(adds, labels, held_out):
+    """[설비 더하기] 이름 줄(src/lib/laya.ts 의 newEquipmentText). 사전이 읽는 이름도 넣는다 — 사전과 같은 답을 내는 것도 배워야 한다."""
+    seen, out = set(), []
+    for r in adds:
+        if r["building"] == held_out or r["kind"] not in labels or (r["state"], r["kind"]) in seen:
+            continue
+        seen.add((r["state"], r["kind"]))
+        out.append({"state": r["state"], "questions": question(labels), "expected": {"kind": r["kind"]}})
+    return out
+
+
+def add_eval(args, rows, adds, labels, base_dir):
+    """이름만 친 새 설비. 건물 하나를 빼고 패밀리 단서 + 이름 줄로 배운 뒤, 그 건물에서 이름만으로 사전이 못 읽는 줄을 잰다.
+    기준선은 이름의 낱말 후보(kind-suggest.ts 의 suggestByName)다."""
+    import laya
+    from laya.train import TrainConfig, finetune
+
+    zero = laya.load(base_dir)
+    report = {}
+    for b in ADD_TEST:
+        test = [r for r in adds if r["building"] == b and not r["dictKind"] and r["kind"] in labels]
+        sets = [(r["state"], r["kind"], r["baseline"], r) for r in test]
+        tr = train_rows(rows, labels, b) + add_train_rows(adds, labels, b)
+        random.Random(0).shuffle(tr)
+        path = os.path.join(args.out, f"adds-without-{b}.jsonl")
+        with open(path, "w", encoding="utf8") as f:
+            f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in tr)
+        cfg = TrainConfig(epochs=args.epochs, micro_batch=8, grad_accum=1, loss="soft-ce", shuffle_options=("choice",),
+                          calib_frac=0.1, log_every=50)
+        ckpt = os.path.join(args.out, f"adds-without-{b}")
+        finetune(path, base_dir, ckpt, cfg)
+        tuned = laya.load(ckpt)
+        preds = ranked(tuned, [x[0] for x in sets], labels)
+        report[b] = {
+            "train_rows": len(tr),
+            "zero": score(sets, ranked(zero, [x[0] for x in sets], labels)),
+            "tuned": score(sets, preds),
+            "rows": [{"name": r["name"], "ceiling": r["ceiling"], "gold": gold, "laya": rk[:3], "conf": round(c, 2), "base": base[:3]}
+                     for (_, gold, base, r), (rk, c) in zip(sets, preds)],
+        }
+        print(b, "adds", json.dumps({k: v for k, v in report[b].items() if k != "rows"}), file=sys.stderr)
+        del tuned
+    with open(os.path.join(args.out, "report-adds.json"), "w", encoding="utf8") as f:
+        json.dump(report, f, ensure_ascii=False, indent=1)
 
 
 def test_sets(rows, building):
@@ -137,6 +186,7 @@ def main():
     ap.add_argument("--zero-shot-only", action="store_true")
     ap.add_argument("--within", action="store_true", help="그 건물의 다른 패밀리도 학습에 넣는다(k 겹)")
     ap.add_argument("--folds", type=int, default=5)
+    ap.add_argument("--adds", action="store_true", help="[설비 더하기] 이름 줄을 건물 하나씩 빼고 잰다")
     ap.add_argument("--final", action="store_true", help="가진 건물 전부로 배워 <out>/final 에 둔다(serve.py 용)")
     ap.add_argument("--epochs", type=int, default=6)
     ap.add_argument("--base", default="convaiinnovations/laya-multilingual")
@@ -149,11 +199,14 @@ def main():
     rows = load_rows(args.data)
     os.makedirs(args.out, exist_ok=True)
     base_dir = resolve_checkpoint_dir(args.base)
+    adds = load_rows(args.data, "adds")
     if args.within:
         return within(args, rows, labels, base_dir)
+    if args.adds:
+        return add_eval(args, rows, adds, labels, base_dir)
     if args.final:
         # 서버(serve.py)가 쓰는 체크포인트. 가진 건물 전부로 배운다.
-        tr = train_rows(rows, labels, None)
+        tr = train_rows(rows, labels, None) + add_train_rows(adds, labels, None)
         random.Random(0).shuffle(tr)
         path = os.path.join(args.out, "train-all.jsonl")
         with open(path, "w", encoding="utf8") as f:

@@ -9,10 +9,11 @@ import * as WebIFC from 'web-ifc'
 import { describe, it } from 'vitest'
 import { importIfcWithMeshes } from '../../src/lib/ifc/import'
 import { mergeModels } from '../../src/lib/merge'
-import { familyKeyOf } from '../../src/lib/edit'
+import { familyKeyOf, familyNameOf } from '../../src/lib/edit'
+import { newEquipmentText } from '../../src/lib/laya'
 import { clueText, familyClues } from '../../src/lib/family-clues'
-import { EQUIPMENT_KINDS, ROOM_KINDS, SYSTEM_KINDS, equipmentKind, roomKind, systemKind } from '../../src/lib/kinds'
-import { hiddenSuggestions } from '../../src/lib/kind-suggest'
+import { EQUIPMENT_KINDS, ROOM_KINDS, SYSTEM_KINDS, equipmentKind, resolveEquipmentKind, roomKind, systemKind } from '../../src/lib/kinds'
+import { hiddenSuggestions, suggestByName } from '../../src/lib/kind-suggest'
 import { isConduit, type Model } from '../../src/lib/model'
 
 const BUILDINGS: [string, string[]][] = [
@@ -65,6 +66,35 @@ function families(model: Model, building: string) {
   })
 }
 
+/**
+ * [설비 더하기] 에서 사람이 칠 만한 이름 한 줄마다(패밀리 이름, 설비 이름에서 Revit 요소 번호를 뗀 것) 놓는 면과 종류.
+ * 정답은 그 이름의 설비들이 BIM·사전으로 얻은 종류(대수가 가장 많은 것)다. `dictKind` 는 이름만으로 사전이 읽은 종류다 —
+ * 화면은 사전이 읽으면 그것을 먼저 보이니, Laya 가 보탬이 되는 곳은 `dictKind` 가 없는 줄이다.
+ */
+function adds(model: Model, building: string) {
+  const acc = new Map<string, { name: string; ceiling: boolean; kinds: Tally; sources: Tally }>()
+  for (const storey of model.storeys) {
+    for (const e of storey.equipment) {
+      if (isConduit(e.role) || !equipmentKind(e.kind) || !e.position) continue
+      const ceiling = e.position[2] - storey.elevation >= 2
+      const names = new Set([familyNameOf(e), e.name.replace(/:\d+$/, '')].filter((n): n is string => !!n && n.trim().length > 1))
+      for (const name of names) {
+        const key = `${name}\u0000${ceiling}`
+        const a = acc.get(key) ?? { name, ceiling, kinds: new Map(), sources: new Map() }
+        add(a.kinds, e.kind!)
+        add(a.sources, e.kindSource ?? 'dict')
+        acc.set(key, a)
+      }
+    }
+  }
+  return [...acc.values()].map((a) => ({
+    building, name: a.name, ceiling: a.ceiling, state: newEquipmentText(a.name, a.ceiling),
+    kind: majority(a.kinds), kindSource: majority(a.sources),
+    dictKind: resolveEquipmentKind(a.name)?.info.kind ?? null,
+    baseline: suggestByName(a.name).map((s) => s.kind),
+  }))
+}
+
 function rooms(model: Model, building: string) {
   return model.storeys.flatMap((st) =>
     st.spaces.map((sp) => ({
@@ -104,6 +134,7 @@ describe('Laya 재료 뽑기', () => {
       write('families', fam)
       write('rooms', rooms(model!, building))
       write('systems', systemRows(model!, building))
+      write('adds', adds(model!, building))
       console.log(building, 'families', fam.length, 'known', fam.filter((f) => f.kind).length, 'bim', fam.filter((f) => f.kindSource === 'bim').length)
     }, 900_000)
   }

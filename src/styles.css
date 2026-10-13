@@ -3434,6 +3434,40 @@ main.has-model .catalog {
   margin-left: 0.35rem;
 }
 
+/* [설비 더하기] 의 이름 칸과 종류 후보(ADR-0057). 3D 왼쪽 위에 띄운다 — 팔레트(왼쪽 아래)에 두면 바닥을 가린다. */
+.add-name {
+  position: absolute;
+  left: 0.75rem;
+  /* 위쪽 조작 안내 줄(드래그·회전)과 3D 단추 줄 아래로. 그 줄을 가리면 안내가 잘린다. */
+  top: 3.6rem;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: calc(60% - 1.5rem);
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 0.8rem;
+}
+
+.add-name input {
+  width: 12rem;
+}
+
+.add-name .add-kinds {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.add-name .add-kinds button.unsure:not(.on) {
+  opacity: 0.6;
+}
+
 /* Laya 후보(ADR-0057). 자신이 없으면 흐리게 — 눌러는 지지만 앞세우지 않는다. */
 .unknown-types td.clues .suggest.laya.unsure {
   color: var(--muted);
