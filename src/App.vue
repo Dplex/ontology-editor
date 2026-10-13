@@ -1662,6 +1662,9 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
     case 'frameAll':
       viewer?.frameAll()
       return true
+    case 'perf':
+      perfOn.value = !perfOn.value
+      return true
     case 'rules':
       showRules.value = !showRules.value
       note(showRules.value ? '3D에 규칙 방향을 표시합니다' : '3D에서 규칙 방향을 숨깁니다')
@@ -8103,6 +8106,72 @@ async function drawOutlineFromList(spaceId: string) {
 }
 /** 팔레트의 미배치 목록. 한 층만 보는 중이면 그 층 것만. */
 const unplacedHere = computed(() => unplaced.value.filter((u) => !viewStorey.value || u.storey.id === viewStorey.value))
+
+// --- 층별 칩 ---
+// 3D 오른쪽 가장자리에 층마다(위층이 위) 손볼 것의 수를 쌓는다. 어느 층부터 고칠지 한눈에 보고, 누르면 그 층만 본다.
+// 값은 새로 재지 않는다 — 미배치(unplacedOf)·완전성 검사(checks)가 이미 센 것을 층으로 나눈다.
+//   미배치 = 좌표가 없는 설비 · 소속 없음 = 기기마다 소속 방 검사(device-space)에 걸린 기기 · 위반 = 그 밖의 검사에 걸린 설비·물리존(중복 없이)
+const storeyChips = computed(() => {
+  const m = model.value
+  if (!m || m.storeys.length < 2) return []
+  // 검사에 걸리는 것은 설비와 물리존이다. 둘 다 제 층으로 센다.
+  const home = new Map(m.storeys.flatMap((s) => [...s.equipment.map((e) => [e.id, s.id] as const), ...s.spaces.map((sp) => [sp.id, s.id] as const)]))
+  const noSpace = new Set(checks.value.find((c) => c.key === 'device-space' && !c.skipped)?.failed ?? [])
+  // 소속 없음은 따로 세니 위반에서 뺀다 — 같은 설비가 두 칩에 겹쳐 더해 읽히지 않게.
+  const failed = new Set(checks.value.filter((c) => !c.skipped && c.key !== 'device-space').flatMap((c) => c.failed))
+  const count = (ids: Iterable<string>) => {
+    const n = new Map<string, number>()
+    for (const id of ids) {
+      const st = home.get(id)
+      if (st) n.set(st, (n.get(st) ?? 0) + 1)
+    }
+    return n
+  }
+  const un = new Map<string, number>()
+  for (const u of unplaced.value) un.set(u.storey.id, (un.get(u.storey.id) ?? 0) + 1)
+  const ns = count(noSpace)
+  const fl = count(failed)
+  return [...storeysByHeight.value].reverse().map((st) => ({ id: st.id, name: st.name, unplaced: un.get(st.id) ?? 0, noSpace: ns.get(st.id) ?? 0, failed: fl.get(st.id) ?? 0 }))
+})
+function pickStoreyChip(id: string) {
+  if (multiView.value) return
+  viewStorey.value = viewStorey.value === id ? null : id
+}
+// 층이 많으면(성수 19개 층) 목록이 굴러 지금 층 칩이 밖에 있을 수 있다. 층이 바뀌면 그 칩이 보이게 굴린다.
+const storeyChipList = ref<HTMLElement | null>(null)
+function revealStoreyChip() {
+  // scrollIntoView 는 페이지까지 굴린다(아래 표를 보다가 층을 바꾸면 화면이 튄다). 목록 안에서만 굴린다.
+  const list = storeyChipList.value
+  const on = list?.querySelector<HTMLElement>('button.on')
+  if (!list || !on) return
+  if (on.offsetTop < list.scrollTop) list.scrollTop = on.offsetTop
+  else if (on.offsetTop + on.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = on.offsetTop + on.offsetHeight - list.clientHeight
+}
+// 연 직후에는 3D 칸 높이가 몇 번 바뀌어 목록이 나중에야 넘친다. 목록 크기가 바뀔 때도 지금 층 칩이 보이게 맞춘다.
+const chipListSize = new ResizeObserver(() => revealStoreyChip())
+watch(storeyChipList, (el, was) => {
+  if (was) chipListSize.unobserve(was)
+  if (el) chipListSize.observe(el)
+})
+onBeforeUnmount(() => chipListSize.disconnect())
+watch(viewStorey, async () => {
+  await nextTick()
+  revealStoreyChip()
+})
+
+// --- 성능 표(개발용, ` 키) ---
+const perfOn = ref(false)
+const perfStats = ref<{ fps: number; renderMs: number; calls: number; triangles: number } | null>(null)
+let perfTimer: number | undefined
+watch(perfOn, (on) => {
+  window.clearInterval(perfTimer)
+  perfStats.value = null
+  if (!on) return
+  const read = () => (perfStats.value = viewer?.stats() ?? null)
+  read()
+  perfTimer = window.setInterval(read, 500)
+})
+onBeforeUnmount(() => window.clearInterval(perfTimer))
 const unplacedOpen = ref(false)
 const UNPLACED_SHOWN = 200
 /** 목록에서 바로 놓는다. 편집 모드로 들어가 고르고, 다른 층만 보고 있었다면 설비의 층으로 바꾼 뒤 바닥을 누르게 한다. */
@@ -9220,6 +9289,34 @@ function rollbackFromReport() {
         <section :class="['viewport', { theater: replayOpen }]">
           <div class="canvas-wrap">
             <canvas v-show="activeTab === '3d'" ref="canvas"></canvas>
+            <!-- 층별 칩. 위층이 위. 누르면 그 층만 보고, 다시 누르면 전체. 다중층 뷰·리플레이에서는 뺀다. -->
+            <nav v-if="storeyChips.length && activeTab === '3d' && !replayOpen && !multiView" class="storey-chips" aria-label="층별 손볼 것" data-testid="storey-chips">
+              <div ref="storeyChipList" class="sc-list">
+              <button
+                v-for="c in storeyChips"
+                :key="c.id"
+                type="button"
+                :class="{ on: viewStorey === c.id, clean: !c.unplaced && !c.noSpace && !c.failed }"
+                :aria-pressed="viewStorey === c.id"
+                :title="`${c.name} — 미배치 ${c.unplaced} · 소속 없음 ${c.noSpace} · 그 밖의 검사 위반 ${c.failed}. 누르면 이 층만 봅니다`"
+                @click="pickStoreyChip(c.id)"
+              >
+                <span class="sc-name">{{ c.name }}</span>
+                <span v-if="c.unplaced" class="sc-n unplaced" title="미배치">{{ c.unplaced }}</span>
+                <span v-if="c.noSpace" class="sc-n nospace" title="소속 없음">{{ c.noSpace }}</span>
+                <span v-if="c.failed" class="sc-n failed" title="검사 위반">{{ c.failed }}</span>
+                <span v-if="!c.unplaced && !c.noSpace && !c.failed" class="sc-ok" aria-label="손볼 것 없음">✓</span>
+              </button>
+              </div>
+              <p class="sc-key"><i class="unplaced"></i>미배치 <i class="nospace"></i>소속 없음 <i class="failed"></i>위반</p>
+            </nav>
+            <!-- 성능 표(개발용, ` 키). 3D 는 바뀔 때만 그려서 가만히 있으면 그린 장수가 0 이다. -->
+            <dl v-if="perfOn && perfStats" class="perf-hud" data-testid="perf-hud">
+              <div><dt>그린 장수/초</dt><dd>{{ perfStats.fps }}</dd></div>
+              <div><dt>그리기</dt><dd>{{ perfStats.renderMs.toFixed(1) }} ms</dd></div>
+              <div><dt>draw call</dt><dd>{{ perfStats.calls.toLocaleString() }}</dd></div>
+              <div><dt>삼각형</dt><dd>{{ perfStats.triangles.toLocaleString() }}</dd></div>
+            </dl>
             <ReplayHud v-if="replayOpen" v-bind="replay.hud.value" v-on="replay.hudOn" />
             <!-- 평면도. 3D 와 탭으로 갈아 끼우고, 층 하나를 골랐을 때만 그린다. -->
             <FloorPlan
