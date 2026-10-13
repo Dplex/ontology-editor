@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
 import { createDataCatalog } from '../src/server/data-catalog'
 
-// [구축하기]·[반영하기]·버전 히스토리·되돌리기(OE-WF-10~13·18·19, OE-GEN-05, ADR-0037). e2e 서버는 data/ 목록을 붙이지 않아서 목록·IFC 는
+// [구축하기]·[반영하기]·버전 히스토리·되돌리기(OE-WF-10~13·18·19, OE-GEN-05, src/server/layouts.ts). e2e 서버는 data/ 목록을 붙이지 않아서 목록·IFC 는
 // 흉내 내고, 반영·사람·로그 요청(/__data/__layouts·__users·__log·__edits)은 진짜 src/server/data-catalog.ts 를 임시 폴더에 띄워 넘긴다 — 화면이 올린
 // 파일이 서버에 그대로 남는지, 역할 검사가 서버에서도 걸리는지까지 본다.
 const MEP = readFileSync('src/lib/ifc/fixtures/mep.ifc')
@@ -185,7 +185,7 @@ test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, 
     await p.getByLabel('사용자').selectOption(who)
     if (edit) await p.getByRole('button', { name: '편집', exact: true }).click()
   }
-  // B 가 먼저 보기로 열어 둔다(아직 반영한 버전이 없다). 편집에 들어가면 층을 잠가 A 가 못 고친다(ADR-0039).
+  // B 가 먼저 보기로 열어 둔다(아직 반영한 버전이 없다). 편집에 들어가면 층을 잠가 A 가 못 고친다(src/server/floor-state.ts).
   const other = await browser.newPage()
   await open(other, '관리자', false)
   // A 가 고쳐서 구축(v1)하고 편집을 끝낸다.

@@ -88,7 +88,7 @@ test('GLB·OBJ 도 같이 열면 3D 로 보이고, GeoJSON 과 같은 id·자리
   await expect(detail).toContainText('삼각형')
 })
 
-// FBX 는 서버의 Blender 가 만든다(ADR-0052). e2e 에는 Blender 가 없어서 같은 mep.ifc 로 만들어 둔 src/lib/export/fixtures/mep.fbx 를 놓는다.
+// FBX 는 서버의 Blender 가 만든다(src/server/fbx.ts). e2e 에는 Blender 가 없어서 같은 mep.ifc 로 만들어 둔 src/lib/export/fixtures/mep.fbx 를 놓는다.
 test('FBX 를 같이 열면 3D 로 보이고, 사용자 속성으로 종류를 읽어 GeoJSON 과 견주며, 고른 것의 속성이 보인다 (OE-INT-03)', async ({ page }, info) => {
   const files = await exported(page, 'mep.ifc', (n) => info.outputPath(n))
   await page.goto('/viewer.html')

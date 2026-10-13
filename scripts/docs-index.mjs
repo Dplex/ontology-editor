@@ -1,6 +1,6 @@
 // 이 repo 의 문서(PRD·티켓·ADR·intent.md)를 섹션 단위로 색인하고 찾는다. docs-mcp.mjs 가 쓰는 순수 로직이다.
 //
-// 의존성이 없다 — 55 는 npm 레지스트리에 닿지 않고 node 가 22.14 라 TS 를 바로 못 돌린다(ADR-0001).
+// 의존성이 없다 — 55 는 npm 레지스트리에 닿지 않고 node 가 22.14 라 TS 를 바로 못 돌린다(docs/dev/deploy55.md).
 // 검색은 wiki-mcp(AI-Agent-Wiki-Template/tools/wiki-mcp)를 따른다:
 //   - 한국어는 문자 2-gram. 조사가 붙어도("내력벽을") 앞쪽 bigram 이 겹쳐 잡힌다
 //   - ASCII 식별자는 통 토큰. OE-BIM-12·D10·loadBearing 이 가장 정밀한 신호라 쪼개지 않는다
@@ -266,7 +266,7 @@ export function search(idx, query, opt = {}) {
 
 // ---------------------------------------------------------------- 읽기·링크
 
-/** 경로나 id(OE-BIM-12, ADR-0001)로 문서를 찾는다. 색인 밖의 경로는 없는 것으로 친다 — 아무 파일이나 읽히지 않게. */
+/** 경로나 id(OE-BIM-12, ADR-0049)로 문서를 찾는다. 색인 밖의 경로는 없는 것으로 친다 — 아무 파일이나 읽히지 않게. */
 export function findDoc(idx, ref) {
   const r = String(ref || '').trim().replace(/^\.?\//, '').replace(/\\/g, '/')
   return idx.byPath.get(r) || idx.byId.get(r.toUpperCase()) || null
@@ -298,7 +298,7 @@ export function read(idx, ref, section, maxChars = 6000) {
   return { path: doc.path, kind: doc.kind, id: doc.id, title: doc.title, meta: doc.meta, line: picked[0]?.line, outline, text, truncated }
 }
 
-/** OE-BIM-12 · ADR-0001 · D10 · Q3 가 어디서 언급되나. frontmatter(depends·tickets·prd)도 본다. */
+/** OE-BIM-12 · ADR-0049 · D10 · Q3 가 어디서 언급되나. frontmatter(depends·tickets·prd)도 본다. */
 export function links(idx, ref, limit = 60) {
   const r = String(ref || '').trim()
   if (!r) return []
@@ -355,7 +355,7 @@ export function map(idx) {
 
 // ---------------------------------------------------------------- 정의·맥락
 //
-// 개발하는 LLM 이 티켓 하나를 따라갈 때 읽는 글을 줄이려고 둔다(ADR-0048). 2026-10-10 에 지난 세션 83개를 쟀더니 가장 많이 연 문서가
+// 개발하는 LLM 이 티켓 하나를 따라갈 때 읽는 글을 줄이려고 둔다(scripts/docs-ctx.mjs). 2026-10-10 에 지난 세션 83개를 쟀더니 가장 많이 연 문서가
 // docs/bim-to-dt-ontology.md(113KB)였다 — 티켓 depends 의 R11 같은 번호가 어디 정의됐는지 몰라 grep 113번 · 통째 읽기 17번.
 // 번호는 늘 "첫 칸이 그 번호인 표의 줄" 에 정의되니(R 은 PRD_011 부록 A 와 개발 정본 4장 두 곳, F·E 는 개발 정본, K·S 는 PRD_011,
 // D·Q·U·P 는 questions.md) 그 줄과 표 머리만 준다. 두 곳에 있으면 DEF_FIRST 순서로 둘 다 준다.

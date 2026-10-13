@@ -277,6 +277,24 @@ function planFor(
   }
 }
 
+/**
+ * 만들 때 채울 것 전부를 채울 순서대로(OE-ML-06). 계단·ES 는 끝 층을 뺀 층마다 형상, 시작 층 진입, 끝 층 종료이고, 샤프트·EL 은 공통 축
+ * 형상 하나다. `done` 은 계획의 needs 에 없는 것 — 화면이 채운 것에 ✓ 를 달고 남은 것을 차례로 이어 그린다.
+ */
+export function planSteps(kind: VerticalKind, plan: RangePlan): { storey: Storey; what: RangeNeed; done: boolean }[] {
+  const left = new Set(plan.needs.flatMap((n) => n.what.map((w) => `${n.storey.id}:${w}`)))
+  const steps: { storey: Storey; what: RangeNeed }[] = []
+  if (COMMON_AXIS.has(kind)) steps.push({ storey: plan.storeys[0], what: 'footprint' })
+  else
+    plan.storeys.forEach((storey, k) => {
+      const last = k === plan.storeys.length - 1
+      if (!last) steps.push({ storey, what: 'footprint' })
+      if (k === 0) steps.push({ storey, what: 'entry' })
+      if (last) steps.push({ storey, what: 'exit' })
+    })
+  return steps.map((s) => ({ ...s, done: !left.has(`${s.storey.id}:${s.what}`) }))
+}
+
 function partSpaceAt(storey: Storey, at: Vec2): string | null {
   return partSpaces(storey, { parentId: '', kind: 'stair', name: '', source: 'edit', footprint: [], entry: [at[0], at[1], 0], exit: null })[0] ?? null
 }

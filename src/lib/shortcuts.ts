@@ -12,6 +12,7 @@ export type ShortcutId =
   | 'frame'
   | 'frameAll'
   | 'fly'
+  | 'perf'
   | 'rules'
   | 'walls'
   | 'undo'
@@ -21,6 +22,7 @@ export type ShortcutId =
   | 'editPart'
   | 'storeyUp'
   | 'storeyDown'
+  | 'duplicate'
   | 'arrowPrev'
   | 'arrowNext'
   | 'flow'
@@ -84,6 +86,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
     label: '비행 모드 켜기·끄기 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게',
     group: '3D 시점',
   },
+  // 개발용. 성수 성능을 e2e:seongsu 없이 화면에서 바로 본다.
+  { id: 'perf', combos: [{ code: 'Backquote' }], keys: ['`'], label: '성능 표 켜기·끄기(그린 장수·그리기 ms·draw call·삼각형, 개발용)', group: '3D 시점' },
   { id: 'rules', combos: [{ code: 'KeyR' }], keys: ['R'], label: '규칙 방향 표시 켜기·끄기', group: '3D 시점' },
   { id: 'walls', combos: [{ code: 'KeyW' }], keys: ['W'], label: '내력벽 켜기·끄기', group: '3D 시점' },
 
@@ -109,6 +113,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   },
   { id: 'storeyUp', combos: [{ code: 'PageUp' }], keys: ['PageUp'], label: '고른 설비를 위층으로', group: '편집 · 설비', edit: true },
   { id: 'storeyDown', combos: [{ code: 'PageDown' }], keys: ['PageDown'], label: '고른 설비를 아래층으로', group: '편집 · 설비', edit: true },
+  // 브라우저의 Ctrl+D(북마크)는 편집 모드에서 설비를 골랐을 때만 가로챈다.
+  { id: 'duplicate', combos: [{ code: 'KeyD', ctrl: true }], keys: ['Ctrl+D'], label: '고른 설비와 같은 모양의 설비를 하나 더 놓기', group: '편집 · 설비', edit: true },
 
   { id: 'arrowPrev', combos: [{ code: 'BracketLeft' }], keys: ['['], label: '이전 연결 (물리존이면 이전 꼭짓점)', group: '편집 · 연결 방향', edit: true },
   { id: 'arrowNext', combos: [{ code: 'BracketRight' }], keys: [']'], label: '다음 연결 (물리존이면 다음 꼭짓점)', group: '편집 · 연결 방향', edit: true },

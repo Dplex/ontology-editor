@@ -20,7 +20,7 @@ PoC 라 원할 때 손으로 배포한다: `ssh 55 'cd /home/dt/git/dt/ontology-
 
 ## 예외: 문서 챗봇 `/__chat`
 
-문서 챗봇 `/__chat`(Alt+Shift+K, ADR-0001)은 앱의 API 가 아니라 55 의 gemini 가 이 repo 의
+문서 챗봇 `/__chat`(Alt+Shift+K, docs/dev/deploy55.md)은 앱의 API 가 아니라 55 의 gemini 가 이 repo 의
 PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지키는 것은 토큰이 아니라 도구 제한이다:
 `scripts/docs-chat.policy.toml`(admin 정책)이 문서 읽는 MCP 서버(`scripts/docs-mcp.mjs`) 밖의 도구를 전부 막는다.
 이 정책을 느슨하게 하면 사내망 누구나 질문 한 줄로 55 에서 명령을 돌린다. 2026-10-02 에 셸·파일 쓰기·인증 파일 읽기를
@@ -43,7 +43,7 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 
 ## FBX 변환은 서버의 Blender 가 한다
 
-툴바의 [FBX] 는 화면이 만든 GLB 를 `POST /__data/__fbx` 로 보내고, 서버가 Blender 로 바꿔 돌려준다(ADR-0052,
+툴바의 [FBX] 는 화면이 만든 GLB 를 `POST /__data/__fbx` 로 보내고, 서버가 Blender 로 바꿔 돌려준다(src/server/fbx.ts,
 `src/server/fbx.ts`·`scripts/glb2fbx.py`). **Blender 가 없는 서버에서는 [FBX] 단추가 막힌다.** `GET /__data/__fbx` 가 `enabled:false`
 와 까닭을 주고, 화면이 그 까닭을 단추의 title 로 보인다.
 
@@ -57,6 +57,19 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 - 변환은 한 번에 하나씩 한다. 성수는 개발 PC 에서 46초, 메모리 4.3GB 였다. 둘이 겹치면 뒤의 것이 앞의 것을 기다린다.
 - 받은 GLB 와 만든 FBX 는 OS 임시 폴더(`oe-fbx-*`)에 두고 답한 뒤 지운다. `data/` 에는 남지 않는다.
 
+## Laya 종류 후보는 133 의 GPU 가 답한다
+
+편집 화면 "종류를 모르는 패밀리" 칸의 Laya 줄(ADR-0057)은 `GET /__laya`·`POST /__laya/kinds` 두 길만 133(RTX 5090, ssh 별칭 `5090`)의
+`scripts/laya/serve.py` 로 넘긴다(`scripts/laya-proxy.mjs`). 55 는 GPU 드라이버가 없어서 133 에 둔다.
+
+- 55 의 `.env` 에 `LAYA_URL=http://10.251.31.133:8096` 을 두면 켜진다. 없거나 133 이 안 받으면 `enabled:false` 와 까닭을 주고 Laya 줄이 안 보인다.
+  dev 도 같다 — `LAYA_URL=… npm run dev`.
+- 133 에서: `~/laya/run/start.sh`(체크포인트 `~/laya/run/out-all2/final`, 133 이 켜지면 crontab `@reboot` 가 부른다). venv 는 `~/laya/.venv`
+  (torch cu128 — 5090 은 CUDA 12.8 이상 판이 필요하다, `laya[serve]`).
+- 다시 배우는 법은 `scripts/laya/train.py` 머리말. 재료는 개발 PC 에서 `npx vitest run --config scripts/laya/vitest.config.ts` 로 뽑아(`data/laya/`) 옮긴다.
+- 133 에는 llama-server(Qwen 27B, 8085)가 있었고 VRAM 을 27GB 잡았다. Laya 추론만이면 1.5GB 라 같이 돈다. 학습할 때 내렸다(2026-10-13) —
+  다시 띄우려면 133 의 `~/llama_restart.sh`.
+
 ## `data/` 샘플 목록과 등급 칩
 
 **dev 서버와 55 가 같은 코드로 낸다.** `src/server/data-catalog.ts`
@@ -66,6 +79,21 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 닿지 않았다. 개발 PC 의 `data/` 에서 IFC 만 복사한다:
 `rsync -a --prune-empty-dirs --include='*/' --include='*.ifc' --exclude='*' data/ 55:/home/dt/git/dt/ontology-editor/data/`.
 등급은 첫 요청 때 재서 `data/.profiles.json` 에 캐시하고(17개 18초), 임포터 코드가 바뀌면 다시 잰다.
+
+첫 화면의 [바로 열기] 단추는 `data/.open-sets.json` 의 묶음이다(`GET /__data/__sets`, `data-catalog.ts` 의 `openSets`). PC·서버마다 `data/` 가
+달라서 코드가 아니라 데이터 옆에 둔다. 묶음의 파일이 하나라도 없으면 그 단추는 안 보인다. 위 rsync 는 `.ifc` 만 옮기니 이 파일은 따로 복사한다.
+
+```json
+[
+  { "title": "성수 건축 + 기계", "paths": ["성수/Factorial_건축.ifc", "성수/Factorial_기계.ifc"] },
+  { "title": "성수 전부 (건축 + 기계 + 10층 인테리어 + 엘리베이터 + 조경)",
+    "paths": ["성수/Factorial_건축.ifc", "성수/Factorial_기계.ifc", "성수/Factorial_10F_Interior.ifc", "성수/Factorial_elevator.ifc", "성수/Factorial_조경.ifc"] }
+]
+```
+
+성수 다섯 파일(2026-10-13, 사내 `http://10.251.2.225/ontology/` 에서 받음)을 같이 열면 개발 PC 에서 152초다. 엘리베이터 파일의 Proxy 6개
+(`EVEV.#1` …)와 조경 파일의 Proxy 131개(지형·건물 매스)는 포트도 이름 사전도 없어 건축 부재로 보고 읽지 않는다. 10층 인테리어의 벽 94장은
+10F 에 더해지고(76 → 170장) 가구 314개는 읽지 않는다. 인테리어 파일에는 방(IfcSpace)이 없어 10F 물리존은 그대로다.
 
 ## WASM 은 커밋하지 않는다
 

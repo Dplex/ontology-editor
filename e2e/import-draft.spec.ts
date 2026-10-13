@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
 // 임포트 결과와 보정 내용이 닫았다 다시 열어도 그대로다(OE-WF-06). 임포트 결과는 같은 IFC 를 다시 읽으면 같은 것이 나오고(임포터는 같은
-// 입력에 같은 출력), 보정 내용은 층별 임시 저장본에 남는다(ADR-0014). 그래서 탭을 닫고 같은 파일을 다시 열어 [이어서 하기] 를 누르면,
+// 입력에 같은 출력), 보정 내용은 층별 임시 저장본에 남는다(src/server/floor-state.ts). 그래서 탭을 닫고 같은 파일을 다시 열어 [이어서 하기] 를 누르면,
 // 내보낸 TTL·GeoJSON 이 닫기 전과 같아야 한다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 

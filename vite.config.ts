@@ -5,6 +5,8 @@ import vue from '@vitejs/plugin-vue'
 import type { Plugin } from 'vite'
 import { resolve } from 'node:path'
 import { createDataCatalog } from './src/server/data-catalog'
+// @ts-expect-error — 8084 의 정적 서버와 같이 쓰는 plain JS 모듈이다(타입 선언 없음).
+import { createLayaProxy } from './scripts/laya-proxy.mjs'
 
 // data/ 에 받아 둔 샘플을 화면에서 고르게 한다. 목록·파일·등급 측정은 src/server/data-catalog.ts
 // 가 맡고, 55 의 정적 서버(scripts/serve.mjs)도 같은 모듈을 쓴다.
@@ -17,6 +19,21 @@ function dataFiles(root = 'data'): Plugin {
   }
 }
 
+// Laya 종류 후보(ADR-0057). 8084 와 같은 넘김(scripts/laya-proxy.mjs)을 dev 에도 붙인다. LAYA_URL 이 없으면 꺼진 채로 답한다.
+function layaProxy(): Plugin {
+  return {
+    name: 'laya-proxy',
+    configureServer(server) {
+      const laya = createLayaProxy()
+      server.middlewares.use((req, res, next) => {
+        const path = (req.url || '').split('?')[0]
+        if (path === '/__laya' || path === '/__laya/kinds') laya(req, res).catch(next)
+        else next()
+      })
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => ({
   // e2e 는 data/ 목록을 붙이지 않는다. 화면이 뜨자마자 파일마다 등급을 재는데, 측정이 서버와 같은
   // 스레드에서 돌아서 그동안 dev 서버가 응답하지 않는다. 임포터를 고친 직후에는 캐시가 무효라 성수
@@ -24,7 +41,7 @@ export default defineConfig(({ mode }) => ({
   // gitignore 인 data/ 에 무엇이 있느냐에 결과가 달라져서도 안 된다.
   // 성수 크기 반영 시험(e2e-seongsu/publish-seongsu.spec.ts)만 OE_DATA_ROOT 로 따로 만든 폴더를 붙인다 — 수백 MB 를 Playwright 의
   // 가로채기로 넘기면 멈췄다.
-  plugins: mode === 'e2e' ? (process.env.OE_DATA_ROOT ? [vue(), dataFiles(process.env.OE_DATA_ROOT)] : [vue()]) : [vue(), dataFiles()],
+  plugins: mode === 'e2e' ? (process.env.OE_DATA_ROOT ? [vue(), dataFiles(process.env.OE_DATA_ROOT)] : [vue()]) : [vue(), dataFiles(), layaProxy()],
 
   // 5173 은 ieum-pipeline/web 이 쓴다. 두 화면을 같이 띄우는 일이 잦아서 포트를 비켜 둔다.
   // data/ 는 감시하지 않는다(샘플 BIM 과 반영 버전 — 화면 코드가 아니다). 감시가 반영 버전의 하위 폴더(geojson/)를 잡고 있으면 Windows 에서
