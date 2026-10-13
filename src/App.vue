@@ -237,7 +237,7 @@ import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
 import { ASSIGN_SNAP_RANGE, assignEquipmentToSpaces, assignSnapNow, distanceToRing, interiorPoint, pointInPolygon, setAssignSnap, SNAP, spaceAssignable, spaceSetState } from './lib/mapping'
-import { parsePlan, previewPlan, resolveEquipment, resolveSpace, type EditCommand, type Preview } from './lib/edit-commands'
+import { bare, parsePlan, previewPlan, resolveEquipment, resolveSpace, type EditCommand, type Preview } from './lib/edit-commands'
 
 // 테마는 라이트가 기본이고, 고른 값만 저장한다. 선행 스크립트(index.html)가 첫 페인트
 // 전에 같은 값을 읽어 깜빡임을 막는다.
@@ -6943,7 +6943,7 @@ function applyPlan(text: string): PlanResult[] {
       made.set(e.name, e.id)
       out.push({ ok: true, text: `${storey.name} ${sp.label}에 ${e.name}${josa(e.name, '을/를')} 더했습니다` })
     } else {
-      const id = (ref: string) => made.get(ref.trim()) ?? (resolveEquipment(m, ref) as { id: string }).id
+      const id = (ref: string) => made.get(bare(ref)) ?? (resolveEquipment(m, ref) as { id: string }).id
       const a = id(c.from)
       const b = id(c.to)
       const at = mark()

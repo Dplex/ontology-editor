@@ -52,8 +52,8 @@ export function parsePlan(text: string): { commands: EditCommand[] } | { error: 
 
 export type Resolved = { id: string; label: string; storeyId: string } | { error: string }
 
-/** `ex:` 를 떼고 TTL 이스케이프(`\$`)를 푼다. */
-const bare = (ref: string) => ref.trim().replace(/^`|`$/g, '').replace(/^ex:/, '').replace(/\\(.)/g, '$1')
+/** `ex:` 를 떼고 TTL 이스케이프(`\$`)를 푼다. 미리보기와 실행(App.vue 의 applyPlan)이 같은 글로 이름을 맞추게 내보낸다. */
+export const bare = (ref: string) => ref.trim().replace(/^`|`$/g, '').replace(/^ex:/, '').replace(/\\(.)/g, '$1')
 
 /** 방(물리존) 하나. id·이스케이프한 id·이름(하나뿐일 때) 순으로 찾는다. */
 export function resolveSpace(model: Model, ref: string): Resolved {
