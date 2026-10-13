@@ -470,6 +470,11 @@ export type Viewer = {
    */
   setPlaceMode(elevation: number | null): void
   onPlace(handler: (at: Vec2) => void): void
+  /**
+   * 시점이 바뀌면 부른다(한 프레임에 한 번). 바라보는 점의 IFC 평면 좌표와, 그 거리에서 화면 가로 절반이 덮는 길이(m).
+   * 비교 판(ExportCompare.vue, ADR-0061)의 평면이 3D 를 따라간다. null 이면 뗀다.
+   */
+  onView(handler: ((view: { target: Vec2; halfWidth: number }) => void) | null): void
   /** 물리존 하나가 화면에 들어오게 한다. */
   frameSpace(id: string): void
   /**
@@ -638,8 +643,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // **움직일 때만 다시 그린다.** 가만히 있을 때도 매 프레임 1만 8천 개를 다시 그리면 화면 전체(스크롤,
   // 입력칸)가 같이 느려진다. 시점이 바뀌거나 색·모델이 바뀌었을 때만 그린다.
   let dirty = true
+  // 시점을 알릴 곳(onView). 비행·관성으로 한 프레임에 여러 번 바뀌어도 프레임마다 한 번만 알린다.
+  let viewHandler: ((view: { target: Vec2; halfWidth: number }) => void) | null = null
+  let viewPending = false
   const invalidate = () => {
     dirty = true
+    if (viewHandler && !viewPending) {
+      viewPending = true
+      requestAnimationFrame(() => {
+        viewPending = false
+        const t = controls.target
+        const d = camera.position.distanceTo(t)
+        viewHandler?.({ target: [t.x, -t.z], halfWidth: d * Math.tan((camera.fov * Math.PI) / 360) * (camera.aspect || 1.6) })
+      })
+    }
   }
   controls.addEventListener('change', invalidate)
 
@@ -3205,6 +3222,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     onPlace(handler) {
       placeHandler = handler
+    },
+
+    onView(handler) {
+      viewHandler = handler
+      if (handler) invalidate()
     },
 
     setStoreyFilter(storeys, hidden) {
