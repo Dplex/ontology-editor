@@ -83,7 +83,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     id: 'fly',
     combos: [{ code: 'KeyG' }],
     keys: ['G'],
-    label: '비행 모드 켜기·끄기 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게',
+    label: '비행 모드 켜기·끄기 — WASD 이동 · Q/E 내려가기·올라가기 · E E·Q Q 위층·아래층 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게',
     group: '3D 시점',
   },
   // 개발용. 성수 성능을 e2e:seongsu 없이 화면에서 바로 본다.

@@ -95,3 +95,64 @@ test('Duplex: 방향 큐브의 윗면을 누르면 위에서 보고, 끌면 돌�
   await expect(page.locator('.edit-bar')).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+// 비행 중 층 이동(fly-storey.ts). two-rooms.ifc 는 1F 가 0m, 2F 가 3m 라 눈높이가 1.6m · 4.6m 다.
+test('비행 중 Q Q·E E 로 아래층·위층 눈높이로 옮기고 보일 층이 따라오며, 맨 아래에서는 멈추고, 모든 층이면 보일 층은 그대로다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  const storey = page.getByRole('combobox', { name: '보일 층' })
+  await storey.selectOption({ label: '1F만' })
+  await settled(page)
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('g')
+  await expect(page.getByTestId('fly-badge')).toBeVisible()
+  const eye = async () => (await cam(page)).position[1]
+  const twice = async (key: string) => {
+    await page.keyboard.press(key)
+    await page.keyboard.press(key)
+    await settled(page)
+  }
+  const start = await cam(page)
+  expect(start.position[1]).toBeGreaterThan(4.6)
+
+  // 건물 위에서 Q Q 는 맨 위층(2F) 눈높이로. 가로 자리·보는 방향은 그대로다.
+  await twice('q')
+  expect(await eye()).toBeCloseTo(4.6, 3)
+  const at2 = await cam(page)
+  expect([at2.position[0], at2.position[2]].map((v) => +v.toFixed(3))).toEqual([start.position[0], start.position[2]].map((v) => +v.toFixed(3)))
+  expect(at2.target[1] - at2.position[1]).toBeCloseTo(start.target[1] - start.position[1], 3)
+  await expect(storey.locator('option:checked')).toHaveText('2F만')
+
+  await twice('q')
+  expect(await eye()).toBeCloseTo(1.6, 3)
+  await expect(storey.locator('option:checked')).toHaveText('1F만')
+  // 맨 아래층에서는 더 가지 않는다.
+  await twice('q')
+  expect(await eye()).toBeCloseTo(1.6, 3)
+  await expect(page.locator('.key-note')).toContainText('맨 아래층입니다')
+
+  // 한 번 누름은 층 이동이 아니라 지금처럼 오르내리기다(누르고 있는 만큼만).
+  await page.keyboard.down('e')
+  await page.waitForTimeout(150)
+  await page.keyboard.up('e')
+  const nudged = await eye()
+  expect(nudged).toBeGreaterThan(1.6)
+  expect(nudged).toBeLessThan(4.6 - 0.3)
+
+  // 모든 층을 보고 있으면 E E 로 올라가도 보일 층은 그대로다.
+  await page.keyboard.press('Escape')
+  await storey.selectOption({ label: '모든 층' })
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('g')
+  await settled(page)
+  await twice('q')
+  await twice('q')
+  expect(await eye()).toBeCloseTo(1.6, 3)
+  await twice('e')
+  expect(await eye()).toBeCloseTo(4.6, 3)
+  await expect(storey.locator('option:checked')).toHaveText('모든 층')
+  expect(errors).toEqual([])
+})

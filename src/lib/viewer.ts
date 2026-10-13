@@ -473,6 +473,10 @@ export type Viewer = {
   setFly(on: boolean): void
   /** 비행 중 눌린·뗀 키(`KeyW` 같은 code). 글자 칸·단축키 판단은 화면이 하고 넘긴다. `null` 이면 다 뗀다(창이 초점을 잃었을 때). */
   flyKey(code: string | null, down: boolean): void
+  /** 지금 눈(카메라)의 높이(IFC z, 미터). 비행 중 층 이동(E E · Q Q)이 다음 층을 고를 때 쓴다. */
+  eyeHeight(): number
+  /** 눈과 보는 점을 함께 이 높이(IFC z)로 0.4초에 옮긴다. 가로 자리와 보는 방향은 그대로다. 비행 중 층 이동이 부른다. */
+  flyToHeight(z: number): void
   /**
    * 추가 공간 오브젝트(OE-OBJ-09). 항목의 3D 조각(내장) 또는 넣은 모델(`models`, 열쇠 → 읽은 장면)을 오브젝트 상자에 맞춰
    * 늘려 그린다. 고른 것은 액센트 테두리, `conflict`(겹쳐서 막은 상대)는 붉게 그린다(OE-SPC-15). 편집 모드에서 고른 것은 끌 수 있다.
@@ -3443,6 +3447,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (code === null) flying.keys.clear()
       else if (down) flying.keys.add(code)
       else flying.keys.delete(code)
+    },
+    eyeHeight: () => camera.position.y,
+    flyToHeight(z) {
+      const shift = new Vector3(0, z - camera.position.y, 0)
+      if (Math.abs(shift.y) < 1e-3) return
+      fly(controls.target.clone().add(shift), camera.position.clone().add(shift), { near: camera.near, far: camera.far })
+      // 위아래로만 옮기니 포물선(lift) 없이 곧게 간다.
+      if (flight) Object.assign(flight, { lift: 0, ms: 400 })
     },
 
     setRooms(model, selected, conflict = null) {
