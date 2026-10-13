@@ -1489,7 +1489,7 @@ export type Baseline = {
    * 수직 관통 오브젝트(OE-ML-02)의 연 때 모습 — 이름, 기준점(첫 층 조각, vertical-edit.ts 의 partRef), 층별 형상. 옮긴 거리·지움과
    * V-03 충돌(연 때보다 더 겹쳤나)을 이것과 견준다. 이 칸이 생기기 전의 baseline 에는 없다.
    */
-  verticals?: Map<string, { name: string; ref: Vec2 | null; footprints: Map<string, Vec2[]>; parts: Map<string, { footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null; stop?: VerticalPart['stop'] }> }>
+  verticals?: Map<string, { name: string; ref: Vec2 | null; footprints: Map<string, Vec2[]>; parts: Map<string, { footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null; stop?: VerticalPart['stop']; direction?: VerticalPart['direction'] }> }>
   /**
    * BIM 에서 받은 추가 공간 오브젝트(가구·주변 모델, `source: 'bim'`)의 연 때 모습. 편집 파일은 이것과 달라진 것만 적는다 — 사람이 놓은
    * 오브젝트처럼 끝 목록을 적으면 열자마자 바뀐 것이 수백 건이 되고, 지운 것이 다시 열면 돌아왔다. 이 칸이 생기기 전의 baseline 에는 없다.
@@ -1585,6 +1585,7 @@ function verticalBaseline(model: Model): NonNullable<Baseline['verticals']> {
         entry: part.entry ? [part.entry[0], part.entry[1], part.entry[2]] : null,
         exit: part.exit ? [part.exit[0], part.exit[1], part.exit[2]] : null,
         ...(part.stop ? { stop: part.stop } : {}),
+        ...(part.direction ? { direction: part.direction } : {}),
       })
     }
   }
@@ -1795,10 +1796,11 @@ export function diffVerticals(model: Model, baseline: Baseline): NonNullable<Bas
     const near = (a: number, b: number) => Math.abs(a - b) < 0.0015
     const sameXY = (p: readonly number[] | null, q: readonly number[] | null, s: Vec2) => (!p && !q) || (!!p && !!q && near(p[0], q[0] + s[0]) && near(p[1], q[1] + s[1]))
     // 정차 층(OE-ML-10)을 바꾼 것도 층별로 고친 것이다 — 이동량으로 다시 만들 수 없다.
-    const samePart = (part: VerticalPart | undefined, base: { footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null; stop?: VerticalPart['stop'] } | undefined, s: Vec2) =>
+    const samePart = (part: VerticalPart | undefined, base: { footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null; stop?: VerticalPart['stop']; direction?: VerticalPart['direction'] } | undefined, s: Vec2) =>
       !!part &&
       !!base &&
       (part.stop ?? 'unknown') === (base.stop ?? 'unknown') &&
+      part.direction === base.direction &&
       part.footprint.length === base.footprint.length &&
       part.footprint.every((p, i) => sameXY(p, base.footprint[i], s)) &&
       sameXY(part.entry, base.entry, s) &&
