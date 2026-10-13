@@ -236,7 +236,8 @@ import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOO
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
-import { ASSIGN_SNAP_RANGE, assignEquipmentToSpaces, assignSnapNow, distanceToRing, setAssignSnap, SNAP, spaceAssignable, spaceSetState } from './lib/mapping'
+import { ASSIGN_SNAP_RANGE, assignEquipmentToSpaces, assignSnapNow, distanceToRing, interiorPoint, pointInPolygon, setAssignSnap, SNAP, spaceAssignable, spaceSetState } from './lib/mapping'
+import { parsePlan, previewPlan, resolveEquipment, resolveSpace, type EditCommand, type Preview } from './lib/edit-commands'
 
 // 테마는 라이트가 기본이고, 고른 값만 저장한다. 선행 스크립트(index.html)가 첫 페인트
 // 전에 같은 값을 읽어 깜빡임을 막는다.
@@ -6870,6 +6871,107 @@ function connectTo(id: string) {
   selectedId.value = from
   note(`${nameOfId(from)}–${nameOfId(id)}${josa(nameOfId(id), '을/를')} 연결했습니다. 방향은 상류로·하류로로 정합니다`)
 }
+// --- 말로 편집 시키기(ADR-0058) -------------------------------------------------------------
+//
+// [온톨로지] 칸의 gemini 가 붙인 편집 계획(```oe-edit)을 창(scripts/docs-chat.js)이 window.__oe.plan 으로 미리 보이고, 사람이 [적용] 을
+// 누르면 window.__oe.apply 가 여기서 하나씩 실행한다. 실행은 여느 편집과 같은 함수다 — 되돌리기 이력에 명령마다 쌓이고, 겹침·소속 검사도
+// 같다. 대상 찾기·계획 읽기는 lib/edit-commands.ts.
+type PlanResult = { ok: boolean; text: string }
+/** 창이 부르는 window.__oe(screen·plan·apply). 여러 곳에서 더하므로 없으면 만든다. */
+function oeHook(): Record<string, unknown> {
+  const w = window as unknown as { __oe?: Record<string, unknown> }
+  return (w.__oe ??= {})
+}
+function planOf(text: string): { error: string } | { commands: EditCommand[]; preview: Preview[] } | null {
+  const m = model.value
+  const plan = parsePlan(text)
+  if (!plan || 'error' in plan) return plan
+  if (!m) return { error: '편집 화면에 연 건물이 없습니다' }
+  return { commands: plan.commands, preview: previewPlan(m, plan.commands) }
+}
+/** 방 안에 새 설비를 놓을 자리. 방 안의 점에서 시작해 다른 설비와 겹치면 0.5m 씩 비켜 본다(8방향 × 3바퀴). */
+function freeSpotIn(m: Model, storeyId: string, ring: readonly Vec2[], z: number): Vec3 | null {
+  const at = interiorPoint(ring)
+  if (!at) return null
+  for (let r = 0; r <= 3; r++) {
+    for (let k = 0; k < (r ? 8 : 1); k++) {
+      const a = (k * Math.PI) / 4
+      const p: Vec2 = [at[0] + r * 0.5 * Math.cos(a), at[1] + r * 0.5 * Math.sin(a)]
+      if (r && !pointInPolygon(p, ring)) continue
+      const position: Vec3 = [cm(p[0]), cm(p[1]), cm(z)]
+      if (!overlapForNew(m, storeyId, position, currentBox)) return position
+    }
+  }
+  return null
+}
+function applyPlan(text: string): PlanResult[] {
+  const m = model.value
+  const plan = planOf(text)
+  if (!plan) return [{ ok: false, text: '편집 계획이 없습니다' }]
+  if ('error' in plan) return [{ ok: false, text: plan.error }]
+  if (!m) return [{ ok: false, text: '편집 화면에 연 건물이 없습니다' }]
+  if (!editing.value) return [{ ok: false, text: '편집 모드에서 적용합니다 — [편집] 을 누른 뒤 다시 [적용] 하세요' }]
+  const bad = plan.preview.find((p) => !p.ok)
+  if (bad) return [{ ok: false, text: `적용하지 않았습니다: ${bad.text}` }]
+  const made = new Map<string, string>()
+  // 이 계획에서 더한 설비는 equipmentById(화면 갱신 뒤에 다시 셈)에 아직 없다 — 모델에서 바로 찾는다.
+  const nameIn = (id: string) => shortName(m.storeys.flatMap((s) => s.equipment).find((e) => e.id === id)?.name || id)
+  const out: PlanResult[] = []
+  for (const c of plan.commands) {
+    if (c.do === 'add_equipment') {
+      const sp = resolveSpace(m, c.space) as Exclude<ReturnType<typeof resolveSpace>, { error: string }>
+      const storey = m.storeys.find((s) => s.id === sp.storeyId)!
+      const space = storey.spaces.find((s) => s.id === sp.id)!
+      // 천장에만 놓는 종류(디퓨저 등)는 천장고를 알면 천장에, 아니면 바닥에 놓는다(높이는 사람이 패널에서 고친다).
+      const ceilingOnly = !(allowedSurfaces(c.kind)?.some((s) => s !== 'ceiling') ?? true)
+      const ceil = ceilingOf(storey)
+      const z = ceilingOnly && ceil ? storey.elevation + ceil.height : storey.elevation
+      const position = freeSpotIn(m, storey.id, space.footprint, z)
+      if (!position) {
+        out.push({ ok: false, text: `${sp.label} 안에 빈 자리를 찾지 못했습니다(다른 설비와 겹침)` })
+        break
+      }
+      const n = m.storeys.reduce((k, st) => k + st.equipment.filter((e) => e.added).length, 0) + 1
+      const mk = mark()
+      const e = addEquipment(m, storey.id, { name: c.name ?? `${equipmentKind(c.kind)!.label} ${n}`, kind: c.kind, position })
+      if (!e) {
+        out.push({ ok: false, text: `${sp.label} 에 더하지 못했습니다` })
+        break
+      }
+      const snapshot = snapshotEquipmentSet(m, e.id)
+      if (snapshot?.kind === 'equipment-set') remember(`${e.name} 더하기(말로)`, { ...snapshot, present: false }, mk)
+      made.set(e.name, e.id)
+      out.push({ ok: true, text: `${storey.name} ${sp.label} 에 ${e.name} 를 더했습니다` })
+    } else {
+      const id = (ref: string) => made.get(ref.trim()) ?? (resolveEquipment(m, ref) as { id: string }).id
+      const a = id(c.from)
+      const b = id(c.to)
+      const at = mark()
+      const done = addConnection(m, a, b)
+      if (!done) {
+        out.push({ ok: false, text: `${nameIn(a)}–${nameIn(b)} 는 잇지 않았습니다(이미 이어졌거나 같은 설비)` })
+        continue
+      }
+      remember(`${nameIn(a)}–${nameIn(b)} 연결(말로)`, { kind: 'connection', connection: done.connection, present: false, index: m.connections.length - 1 }, at)
+      ruleReport.value = done.rules
+      out.push({ ok: true, text: `${nameIn(a)}–${nameIn(b)} 를 연결했습니다(방향 없음 — 상류로·하류로로 정합니다)` })
+    }
+  }
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+  const last = [...made.values()].at(-1)
+  if (last) selectedId.value = last
+  return out
+}
+Object.assign(oeHook(), {
+  plan: (text: string) => {
+    const p = planOf(text)
+    return p && !('error' in p) ? { preview: p.preview.map(({ text, ok }) => ({ text, ok })), editing: editing.value } : p
+  },
+  apply: applyPlan,
+})
+
 function disconnect(c: Connection) {
   const m = model.value
   if (!m) return
@@ -8332,9 +8434,9 @@ async function buildStorey(storeyId: string) {
  * [온톨로지] 칸(scripts/docs-chat.js)이 "지금 화면(반영 전)" 으로 물을 때 부른다(ADR-0050). [TTL] 내려받기와 같은 글이다 — 반영하면
  * 나갈 온톨로지를 반영 전에 묻는다. 창은 Vue 밖(빌드에 끼워 넣는 스크립트)이라 window 로 건넨다. 모델이 없으면 null.
  */
-;(window as unknown as { __oe?: object }).__oe = {
+Object.assign(oeHook(), {
   screen: () => (model.value ? { title: fileName.value, by: currentUser.value ?? '', ttl: modelToTTL(model.value) } : null),
-}
+})
 
 function exportTTL() {
   if (!model.value) return
