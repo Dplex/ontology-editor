@@ -34,7 +34,8 @@ function open(source) {
   if (!all.length) return { error: '볼 온톨로지가 없다. 아직 반영한 레이아웃이 없다(편집 화면에서 [구축하기](처음) 또는 [반영하기]). 반영 전 화면을 물으려면 [온톨로지] 칸의 건물에서 "지금 화면(반영 전)" 을 고른다' }
   // source 를 안 주면 가장 최근 반영본. 화면 기준(반영 전)은 고른 사람만 묻는다 — 다른 사람의 반영 전 화면을 답에 섞지 않는다.
   const published = all.filter((s) => !s.screen)
-  const pick = source ? all.find((s) => s.source === source || s.title === source) : published.slice().sort((a, b) => String(b.at).localeCompare(String(a.at)))[0]
+  // 화면 기준은 토큰(source)으로만 찾는다 — 제목(파일 이름)은 짐작할 수 있어서 남의 반영 전 화면을 읽게 된다.
+  const pick = source ? all.find((s) => s.source === source || (!s.screen && s.title === source)) : published.slice().sort((a, b) => String(b.at).localeCompare(String(a.at)))[0]
   if (!source && !pick) return { error: '반영한 온톨로지가 없다(편집 화면에서 [구축하기](처음) 또는 [반영하기])' }
   // 있는 것에 화면 기준은 넣지 않는다 — 넣었더니 gemini 가 없는 건물 대신 다른 탭의 반영 전 화면으로 답했다(2026-10-13, 55 시험대).
   if (!pick) return { error: `${source} 가 없다. 있는 것: ${published.map((s) => s.source).join(', ') || '(반영본 없음)'}` }
