@@ -25,15 +25,20 @@ const INSTRUCTIONS = `반영한 건물 온톨로지(Brick TTL)를 읽는 도구�
 
 // ---------------------------------------------------------------- 출처
 
-const listSources = () => sources(DATA, process.env.ONTO_FILES)
+const listSources = () => sources(DATA, process.env.ONTO_FILES, process.env.ONTO_SCREENS)
 
 const cache = new Map()
 /** 출처 하나를 읽은 것(두 보기). 파일이 바뀌면 다시 읽는다. source 를 안 주면 가장 최근에 반영한 것. */
 function open(source) {
   const all = listSources()
-  if (!all.length) return { error: '볼 온톨로지가 없다. 아직 반영한 레이아웃이 없다(편집 화면에서 [반영])' }
-  const pick = source ? all.find((s) => s.source === source || s.title === source) : all.slice().sort((a, b) => String(b.at).localeCompare(String(a.at)))[0]
-  if (!pick) return { error: `${source} 가 없다. 있는 것: ${all.map((s) => s.source).join(', ')}` }
+  if (!all.length) return { error: '볼 온톨로지가 없다. 아직 반영한 레이아웃이 없다(편집 화면에서 [구축하기](처음) 또는 [반영하기]). 반영 전 화면을 물으려면 [온톨로지] 칸의 건물에서 "지금 화면(반영 전)" 을 고른다' }
+  // source 를 안 주면 가장 최근 반영본. 화면 기준(반영 전)은 고른 사람만 묻는다 — 다른 사람의 반영 전 화면을 답에 섞지 않는다.
+  const published = all.filter((s) => !s.screen)
+  // 화면 기준은 토큰(source)으로만 찾는다 — 제목(파일 이름)은 짐작할 수 있어서 남의 반영 전 화면을 읽게 된다.
+  const pick = source ? all.find((s) => s.source === source || (!s.screen && s.title === source)) : published.slice().sort((a, b) => String(b.at).localeCompare(String(a.at)))[0]
+  if (!source && !pick) return { error: '반영한 온톨로지가 없다(편집 화면에서 [구축하기](처음) 또는 [반영하기])' }
+  // 있는 것에 화면 기준은 넣지 않는다 — 넣었더니 gemini 가 없는 건물 대신 다른 탭의 반영 전 화면으로 답했다(2026-10-13, 55 시험대).
+  if (!pick) return { error: `${source} 가 없다. 있는 것: ${published.map((s) => s.source).join(', ') || '(반영본 없음)'}` }
   const mtime = statSync(pick.file).mtimeMs
   const had = cache.get(pick.file)
   if (had && had.mtime === mtime) return had
@@ -44,7 +49,7 @@ function open(source) {
 }
 
 const view = (o, v) => (v === 'receiver' ? o.receiver : o.full)
-const SOURCE = { type: 'string', description: '건물(onto_sources 의 source). 없으면 가장 최근에 반영한 것' }
+const SOURCE = { type: 'string', description: '건물(onto_sources 의 source, 또는 질문의 [건물] 줄이 준 screen-… ). 없으면 가장 최근에 반영한 것' }
 const VIEW = { type: 'string', enum: ['full', 'receiver'], description: 'full: 우리 TTL 전부(기본). receiver: 받는 쪽 DT 파서가 읽는 만큼' }
 
 // ---------------------------------------------------------------- 도구
@@ -54,7 +59,8 @@ const TOOLS = [
     name: 'onto_sources',
     description: '볼 수 있는 건물 온톨로지(반영한 레이아웃의 현재 버전). source·제목·버전·반영 일시·반영자.',
     inputSchema: { type: 'object', properties: {} },
-    run: () => ({ sources: listSources().map(({ file, ...s }) => s) }),
+    // 화면 기준(반영 전)은 목록에 내지 않는다 — 질문마다 창이 고른 것만 그 질문의 [건물] 줄로 받는다.
+    run: () => ({ sources: listSources().filter((s) => !s.screen).map(({ file, ...s }) => s) }),
   },
   {
     name: 'onto_overview',

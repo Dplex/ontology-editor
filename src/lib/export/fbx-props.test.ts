@@ -13,7 +13,7 @@ import { readGeoJSON } from './read-export'
 import { readOntologyTTL } from './read-ttl'
 import { modelToTTL } from './ttl'
 
-// 내보낸 파일 뷰어가 FBX 를 읽는다(OE-INT-03, ADR-0052). 형상은 FBXLoader, 사용자 속성은 fbx-props.ts 다.
+// 내보낸 파일 뷰어가 FBX 를 읽는다(OE-INT-03, src/server/fbx.ts). 형상은 FBXLoader, 사용자 속성은 fbx-props.ts 다.
 //
 // fixtures/mep.fbx 는 ../ifc/fixtures/mep.ifc 를 에디터의 GLB 로 내고 scripts/glb2fbx.py 로 바꾼 것이다. 내보내기(mesh3d.ts·glb2fbx.py)를
 // 바꿔 아래 비교가 깨지면 다시 만든다: GLB 를 내려받아

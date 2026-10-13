@@ -10,7 +10,7 @@
 // data/.profiles.json 에 둔다. 캐시 열쇠에 **src/lib 코드의 지문**을 넣는다 — 임포터를 고치면
 // 숫자가 바뀌어야 하는데, 손으로 버전을 올리게 두면 언젠가 잊고 낡은 숫자를 보인다.
 import { createHash } from 'node:crypto'
-import { createReadStream, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { join, relative, resolve, sep } from 'node:path'
 import * as WebIFC from 'web-ifc'
@@ -95,6 +95,32 @@ function profiler(root: string, libDir: string) {
   }
 }
 
+export type OpenSet = { title: string; paths: string[] }
+
+/**
+ * 첫 화면 [바로 열기] 의 묶음(예: 성수 건축 + 기계, 성수 전부). 무엇을 같이 여는지는 건물·PC 마다 달라서 코드가 아니라 데이터와 같은 자리
+ * `data/.open-sets.json` 에 둔다 — `[{ "title": "성수 건축 + 기계", "paths": ["성수/Factorial_건축.ifc", "성수/Factorial_기계.ifc"] }]`.
+ * 파일이 하나라도 없는 묶음은 내지 않는다(55 와 개발 PC 의 data/ 가 다르다). 파일이 없거나 틀리면 빈 목록이다.
+ */
+export function openSets(root: string): OpenSet[] {
+  let raw: unknown
+  try {
+    raw = JSON.parse(readFileSync(join(root, '.open-sets.json'), 'utf8'))
+  } catch {
+    return []
+  }
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((s): OpenSet[] => {
+    if (!s || typeof s.title !== 'string' || !Array.isArray(s.paths) || !s.paths.length) return []
+    const paths: string[] = s.paths.filter((p: unknown): p is string => typeof p === 'string')
+    const inside = paths.every((p) => {
+      const f = resolve(root, p)
+      return f.startsWith(root + sep) && f.toLowerCase().endsWith('.ifc') && existsSync(f)
+    })
+    return inside && paths.length === s.paths.length ? [{ title: s.title.slice(0, 80), paths }] : []
+  })
+}
+
 /**
  * `/__data` 아래에 붙일 핸들러. `req.url` 은 붙인 자리 기준이다(`/`, `/a.ifc`, `/a.ifc?profile`).
  * `libDir` 은 캐시 지문을 뜨는 임포터 소스다. 55 에서도 체크아웃이 있으니 같은 자리를 본다.
@@ -150,6 +176,12 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
     if (path === '__layouts') return layoutStore(req, res, query ?? '')
     // GLB 를 받아 FBX 로 바꿔 돌려준다(fbx.ts). data/ 에는 아무것도 남기지 않는다.
     if (path === '__fbx') return fbx(req, res)
+    // 첫 화면의 [바로 열기] 묶음. data/.open-sets.json 의 [{ title, paths }] 중 파일이 다 있는 것만 낸다(openSets).
+    if (path === '__sets') {
+      res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify(openSets(root)))
+      return
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.statusCode = 405
       res.end()

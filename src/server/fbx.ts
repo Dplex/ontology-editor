@@ -1,4 +1,4 @@
-// 3D 형상 FBX 내보내기(OE-INT-03, ADR-0052). 화면이 만든 GLB 를 받아 Blender(scripts/glb2fbx.py)로 FBX 로 바꿔 돌려준다.
+// 3D 형상 FBX 내보내기(OE-INT-03). 화면이 만든 GLB 를 받아 Blender(scripts/glb2fbx.py)로 FBX 로 바꿔 돌려준다.
 // GLB·OBJ 는 브라우저가 만들지만 FBX 는 three 에 내보내기가 없고 형식 문서도 없어, 검증된 작성기(Blender)가 있는 서버에서 바꾼다.
 //
 // 경로(`/__data` 아래 `/__fbx`):
