@@ -86,7 +86,7 @@ import { candidateText, systemCandidates } from './lib/system-suggest'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveEquipmentKind, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
-import { classOf, modelToTTL } from './lib/export/ttl'
+import { classOf, escapeLocalName, modelToTTL } from './lib/export/ttl'
 import { EMPTY_FILTER, NO_SYSTEM, explodeGroups, facets, filterActive, filterSummary, filteredOut, type ViewFilter } from './lib/view-filter'
 import {
   arrowColors,
@@ -9237,7 +9237,39 @@ async function buildStorey(storeyId: string) {
  */
 Object.assign(oeHook(), {
   screen: () => (model.value ? { title: fileName.value, by: currentUser.value ?? '', ttl: modelToTTL(model.value) } : null),
+  view: viewForChat,
 })
+
+/**
+ * [온톨로지] 칸이 질문과 같이 보내는 지금 화면(ADR-0050 "보는 화면"). "이 층·이거·여기" 를 알아듣게 한다. **id 와 정해진 값만** 담는다 — 이름·
+ * 메모처럼 사람이 친 글은 안 넣는다(서버가 질문 앞에 붙이니 그 칸이 지시문 통로가 된다). id 는 TTL 의 지역 이름(`ex:` 뒤)과 같게 이스케이프한다.
+ * 서버(scripts/onto-view.mjs)가 고른 출처 TTL 에 있는 id 만 남기고 나머지는 버린다.
+ */
+function viewForChat() {
+  if (!model.value) return null
+  const id = (x: string | null | undefined) => (x ? escapeLocalName(x) : null)
+  const f = viewFilter.value
+  return {
+    mode: activeTab.value,
+    editing: editing.value,
+    part: editing.value ? (ceilingMode.value ? 'ceiling' : editPart.value) : null,
+    storey: id(viewStorey.value),
+    range: multiView.value ? { from: escapeLocalName(multiView.value.from), to: escapeLocalName(multiView.value.to) } : null,
+    selected: [selectedId.value, selectedSpaceId.value, selectedRoomId.value, selectedSystemId.value].filter((x): x is string => !!x).map(escapeLocalName),
+    zone: id(selectedCustomZoneId.value),
+    hvacZone: id(zoneVertexEdit.value),
+    filter: filterActive(f)
+      ? {
+          // 서버가 받는 개수만큼 자른다(onto-view.mjs). 격리·층이 수백 개면 본문 상한(64KB)에 걸린다.
+          storeys: f.storeys?.slice(0, 60).map(escapeLocalName) ?? null,
+          classes: f.classes?.slice(0, 30) ?? null,
+          systems: f.systems?.filter((s) => s !== NO_SYSTEM).slice(0, 30).map(escapeLocalName) ?? null,
+          isolate: f.isolate?.slice(0, 30).map(escapeLocalName) ?? null,
+          hidden: f.hidden.length,
+        }
+      : null,
+  }
+}
 
 function exportTTL() {
   if (!model.value) return

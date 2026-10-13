@@ -4,7 +4,8 @@
 //
 // 앱 코드(src)가 아니다. scripts/run.sh build 가 빌드한 dist/ 에 끼워 넣는다(review-info.js 와 같은 방식) —
 // 그래서 개발 서버(5174)에는 없고, 8084·8087 에는 있다. 서버 쪽은 같은 주소의 /__chat·/__ask(scripts/docs-chat.mjs).
-// 앱 상태(열어 둔 BIM, 고른 요소)는 보내지 않는다. 질문과 앞선 대화, [온톨로지] 칸에서 고른 건물만 보낸다.
+// 보내는 것은 질문과 앞선 대화, [온톨로지] 칸에서 고른 건물, 그리고 [온톨로지] 칸이면 지금 화면(window.__oe.view — 보는 층·2D/3D·고른 요소·
+// 보기 필터의 id 만, ADR-0050)이다. 서버는 그 건물 TTL 에 있는 id 만 남긴다(scripts/onto-view.mjs). 열어 둔 BIM 자체는 보내지 않는다.
 //
 // 키는 e.code 로 본다 — 한글 입력 상태면 e.key 가 'ㅏ' 가 된다. 앱의 단축키는 Alt 조합을 받지 않아 겹치지 않고,
 // 창 안의 키 입력은 창에서 끊어서 앱 단축키(Delete, 방향키 …)로 새지 않는다.
@@ -41,6 +42,10 @@
   var screenSent = ''
   var screenSentAt = 0
   function hasScreen() { return !!(window.__oe && window.__oe.screen) }
+  /** 앱이 알려 주는 지금 화면(App.vue 의 viewForChat). 앱이 없거나(문서 뷰어) 깨지면 보내지 않는다 — 질문은 그대로 간다. */
+  function currentView() {
+    try { return window.__oe && window.__oe.view ? window.__oe.view() || undefined : undefined } catch (e) { return undefined }
+  }
   /** 지금 화면의 TTL 을 올리고 source 를 돌려준다. 같은 글이면 다시 올리지 않는다(길이 + FNV-1a). */
   function uploadScreen() {
     var shot = hasScreen() ? window.__oe.screen() : null
@@ -245,6 +250,8 @@
     var ctl = new AbortController()
     var asked = mode
     var askedSource = mode === 'onto' ? source : undefined
+    // 물은 때의 화면이다. 화면 TTL 을 올리는 동안 사용자가 다른 층으로 옮겨도 질문은 그때 보던 것을 가리킨다.
+    var askedView = mode === 'onto' ? currentView() : undefined
     setBusy(ctl)
 
     var ready = askedSource === SCREEN
@@ -254,7 +261,7 @@
       return fetch(MODES[asked].url, {
         method: 'POST', signal: ctl.signal,
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ question: q, history: prior, source: src }),
+        body: JSON.stringify({ question: q, history: prior, source: src, view: askedView }),
       })
     }).then(function (res) {
       if (!res.ok) return res.json().catch(function () { return {} }).then(function (j) { throw new Error(j.error || ('HTTP ' + res.status)) })
