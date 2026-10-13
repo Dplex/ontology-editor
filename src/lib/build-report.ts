@@ -5,6 +5,7 @@
 // 두 리포트는 같은 재료(모델·등급 판정·요구사항·완전성 검사·산출물)에서 만든다. B-2 는 화면과 반영 버전(report.json)에, B-1 은 고객사에 보낼 HTML 이다.
 
 import type { CheckResult } from './checks'
+import { CONNECTION_CLASS_LABEL, connectionClass } from './connection-class'
 import type { GradeReport } from './grade'
 import { percent } from './grade'
 import { countOf, isConduit, type Model } from './model'
@@ -92,7 +93,7 @@ export function generationReport(input: ReportInput): ReportSectionB[] {
         `물리존 외곽선: BIM ${spaces.filter((sp) => sp.footprint.length >= 3 && !sp.added).length} · 편집 ${spaces.filter((sp) => sp.added).length} · 없음 ${spaces.filter((sp) => sp.footprint.length < 3).length}`,
         `설비 소속: ${count(devices, (e) => (e.spaceSource === 'bim' ? 'BIM' : e.spaceSource === 'computed' ? '계산' : e.spaceSource === 'edit' ? '편집' : null))}`,
         `설비 종류: ${count(devices, (e) => (e.kindSource === 'bim' ? 'BIM' : e.kindSource === 'dict' ? '사전' : e.kindEdited ? '편집' : e.kind ? 'BIM' : null))}`,
-        `연결: ${count(model.connections, (x) => ({ port: 'BIM 포트', geometry: '형상 추정', manual: '편집' })[x.source])}`,
+        `연결: ${count(model.connections, (x) => CONNECTION_CLASS_LABEL[connectionClass(x)])}`,
       ],
     },
     {
