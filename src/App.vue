@@ -79,7 +79,8 @@ import { candidateText, systemCandidates } from './lib/system-suggest'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveEquipmentKind, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
-import { modelToTTL } from './lib/export/ttl'
+import { classOf, modelToTTL } from './lib/export/ttl'
+import { EMPTY_FILTER, NO_SYSTEM, explodeGroups, facets, filterActive, filterSummary, filteredOut, type ViewFilter } from './lib/view-filter'
 import {
   arrowColors,
   CEILING_RING_COLORS,
@@ -849,7 +850,8 @@ function hoverText(t: HoverTarget): { title: string; lines: string[] } | null {
 function onHover(t: HoverTarget | null, at: { x: number; y: number } | null) {
   const tip = hoverTip.value
   if (!tip) return
-  if (!t || !at) {
+  // 우클릭 메뉴가 떠 있으면 설명 풍선을 띄우지 않는다 — 메뉴 위를 덮었다(ADR-0062).
+  if (!t || !at || ctxMenu.value) {
     hoverKey = ''
     tip.hide()
     return
@@ -1657,6 +1659,10 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       searchInput.value.focus()
       return true
     case 'escape':
+      if (ctxMenu.value) {
+        closeContext()
+        return true
+      }
       return clearSelection()
     case 'frame':
       return frameSelection()
@@ -2263,6 +2269,7 @@ watch([model, canvas], ([m, el]) => {
   if (!m || !el) return
   if (!viewer) {
     viewer = createViewer(el)
+    viewer.onContext(openContext)
     viewer.onPick((id, additive) => {
       if (connectFrom.value && id) return connectTo(id)
       if (additive && id) return toggleGroup(id)
@@ -4582,25 +4589,192 @@ function firstStorey(m: Model | null): string | null {
   return st.id
 }
 watch(baseline, () => (viewStorey.value = firstStorey(model.value)))
+// --- 보기 필터 · 숨기기 · 격리 · 분해도 (ADR-0062) ---
+// 층 보기(위)가 정한 보일 층·숨길 설비 위에 얹는다. 전부 화면 상태다 — 모델·편집 파일·TTL·GeoJSON 에 남지 않고, 파일을 새로 열면 푼다.
+const viewFilter = shallowRef<ViewFilter>(EMPTY_FILTER)
+const filterOpen = ref(false)
+const filterOn = computed(() => filterActive(viewFilter.value))
+const viewFacets = computed(() => (model.value && filterOpen.value ? facets(model.value) : null))
+const filterText = computed(() => (model.value && filterOn.value ? filterSummary(model.value, viewFilter.value) : ''))
+/** 층 칸은 모든 층을 볼 때만 쓴다. 층 하나만 보거나 다중층 뷰면 그쪽이 보일 층을 정한다(편집할 층이 하나여야 한다). */
+const filterStoreysUsable = computed(() => !viewStorey.value && !multiView.value)
+watch(baseline, () => {
+  viewFilter.value = EMPTY_FILTER
+  exploded.value = false
+})
+function setViewFilter(patch: Partial<ViewFilter>) {
+  viewFilter.value = { ...viewFilter.value, ...patch }
+}
+function clearViewFilter() {
+  viewFilter.value = EMPTY_FILTER
+  if (exploded.value) toggleExplode()
+  note('모두 보입니다')
+}
+/** 체크 목록 한 칸을 켜고 끈다. 전부 켜지면 null(거르지 않음)로 돌린다. */
+function toggleFacet(key: 'storeys' | 'classes' | 'systems', id: string, all: readonly string[]) {
+  const now = viewFilter.value[key] ?? [...all]
+  const next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id]
+  setViewFilter({ [key]: next.length === all.length ? null : next })
+}
+function setFacetAll(key: 'storeys' | 'classes' | 'systems', on: boolean, ids?: readonly string[]) {
+  if (!ids) return setViewFilter({ [key]: on ? null : [] })
+  // 덕트·배관처럼 일부 묶음만 켜고 끈다.
+  const all = viewFacets.value?.[key === 'storeys' ? 'storeys' : key].map((x) => x.id) ?? []
+  const now = new Set(viewFilter.value[key] ?? all)
+  for (const id of ids) on ? now.add(id) : now.delete(id)
+  setViewFilter({ [key]: now.size === all.length ? null : [...now] })
+}
+const facetOn = (key: 'storeys' | 'classes' | 'systems', id: string) => viewFilter.value[key]?.includes(id) ?? true
+/** 마지막으로 뷰어에 준 숨길 설비. 분해도가 보이는 것만 띄울 때 쓴다. */
+let shownHidden: ReadonlySet<string> = new Set()
 function applyStoreyFilter() {
   const m = model.value
   if (!viewer || !m) return
+  const extra = filterOn.value ? filteredOut(m, viewFilter.value) : null
+  const merge = (hidden: Set<string>) => {
+    if (extra) for (const id of extra) hidden.add(id)
+    return hidden
+  }
+  const send = (storeys: Set<string> | null, hidden: Set<string>) => {
+    shownHidden = hidden
+    viewer!.setStoreyFilter(storeys, hidden)
+  }
   // 다중층 뷰면 보기 범위의 층들이다(OE-ML-01).
   const range = multiRange.value
   if (range) {
     const ids = new Set(range.map((st) => st.id))
-    viewer.setStoreyFilter(ids, new Set(m.storeys.filter((s) => !ids.has(s.id)).flatMap((s) => s.equipment.map((e) => e.id))))
+    send(ids, merge(new Set(m.storeys.filter((s) => !ids.has(s.id)).flatMap((s) => s.equipment.map((e) => e.id)))))
     return
   }
   const id = viewStorey.value
   if (!id || !m.storeys.some((s) => s.id === id)) {
-    viewer.setStoreyFilter(null, new Set())
+    // 모든 층을 볼 때만 보기 필터의 층 칸이 먹는다.
+    const picked = viewFilter.value.storeys
+    if (picked) {
+      const ids = new Set(picked)
+      send(ids, merge(new Set(m.storeys.filter((s) => !ids.has(s.id)).flatMap((s) => s.equipment.map((e) => e.id)))))
+    } else send(null, merge(new Set()))
     return
   }
   const hidden = new Set(m.storeys.filter((s) => s.id !== id).flatMap((s) => s.equipment.map((e) => e.id)))
-  viewer.setStoreyFilter(new Set([id]), hidden)
+  send(new Set([id]), merge(hidden))
 }
-watch([viewStorey, model, sceneVersion, () => multiRange.value], applyStoreyFilter)
+watch([viewStorey, model, sceneVersion, () => multiRange.value, viewFilter], applyStoreyFilter)
+// 걸러 보는 중에 고른 설비가 숨으면 고르기를 푼다 — 안 보이는 것이 패널에 남아 있으면 무엇을 고쳤는지 모른다.
+watch(viewFilter, () => {
+  if (selectedId.value && shownHidden.has(selectedId.value)) selectedId.value = null
+})
+
+/** 분해도(V3). 보이는 기기를 Brick 클래스별로 건물 위에 한 켜씩 띄운다. */
+const exploded = ref(false)
+function explodeNow(): boolean {
+  const m = model.value
+  if (!viewer || !m) return false
+  return viewer.setExplode(explodeGroups(m, (e) => !shownHidden.has(e.id)))
+}
+function toggleExplode() {
+  if (exploded.value) {
+    viewer?.setExplode(null)
+    exploded.value = false
+    viewer?.frameVisible(true)
+    return
+  }
+  if (activeTab.value !== '3d') activeTab.value = '3d'
+  exploded.value = explodeNow()
+  note(exploded.value ? 'Brick 클래스별로 띄웠습니다 — 화면에서만이고, 펼친 동안 3D 에서 끌어 옮기지 않습니다' : '띄울 기기가 없습니다(덕트·배관은 띄우지 않습니다)')
+}
+// 필터를 바꾸면 보이는 것으로 다시 띄운다. 편집으로 다시 그리면 뷰어가 접으니 화면도 맞춘다.
+watch(viewFilter, () => {
+  if (exploded.value) exploded.value = explodeNow()
+})
+watch([model, sceneVersion], () => {
+  if (exploded.value && !viewer?.exploded()) exploded.value = false
+})
+
+// --- 3D 우클릭 메뉴 (E3) ---
+const ctxMenu = ref<{ x: number; y: number; ids: string[]; cls: string | null; systemId: string | null } | null>(null)
+function openContext(id: string | null, x: number, y: number) {
+  const wrap = canvas.value?.parentElement?.getBoundingClientRect()
+  if (!wrap) return
+  hoverTip.value?.hide()
+  const e = id ? (equipmentById.value.get(id) ?? null) : null
+  // 여러 개 고른 묶음 안을 누르면 묶음 전체가 대상이다. 아니면 누른 것을 고른다(메뉴가 무엇에 대한 것인지 패널·강조로 보인다).
+  const ids = e ? (group.value.includes(e.id) && group.value.length > 1 ? [...group.value] : [e.id]) : []
+  if (e && ids.length === 1 && selectedId.value !== e.id) select(e.id)
+  // 3D 오른쪽·아래 끝에서 누르면 메뉴가 잘린다. 대략의 메뉴 크기(넓이 20rem·높이 항목 수)만큼 안쪽으로 당긴다.
+  const w = 320
+  const h = (ids.length ? 7 : 5) * 30 + 30
+  ctxMenu.value = {
+    x: Math.max(4, Math.min(x - wrap.left, wrap.width - w)),
+    y: Math.max(4, Math.min(y - wrap.top, wrap.height - h)),
+    ids,
+    cls: e ? classOf(e) : null,
+    systemId: e?.systemId ?? null,
+  }
+}
+function closeContext() {
+  ctxMenu.value = null
+}
+function ctxHide() {
+  const c = ctxMenu.value
+  if (!c) return
+  setViewFilter({ hidden: [...new Set([...viewFilter.value.hidden, ...c.ids])], isolate: viewFilter.value.isolate?.filter((x) => !c.ids.includes(x)) ?? null })
+  note(`${c.ids.length === 1 ? shortName(nameOfId(c.ids[0])) : `설비 ${c.ids.length}대`}를 숨겼습니다 — 화면에서만. 빈 곳 우클릭 [모두 보이기] 로 돌아옵니다`)
+  closeContext()
+}
+function ctxIsolate() {
+  const c = ctxMenu.value
+  if (!c) return
+  setViewFilter({ isolate: c.ids, hidden: viewFilter.value.hidden.filter((x) => !c.ids.includes(x)) })
+  viewer?.frame(c.ids, 1)
+  note(`${c.ids.length === 1 ? shortName(nameOfId(c.ids[0])) : `설비 ${c.ids.length}대`}만 보입니다 — 화면에서만`)
+  closeContext()
+}
+function ctxFrame() {
+  const c = ctxMenu.value
+  if (c) viewer?.frame(c.ids, 1)
+  closeContext()
+}
+function ctxOnlyClass() {
+  const c = ctxMenu.value
+  if (!c?.cls) return
+  setViewFilter({ classes: [c.cls], isolate: null })
+  filterOpen.value = true
+  closeContext()
+}
+function ctxOnlySystem() {
+  const c = ctxMenu.value
+  if (!c) return
+  setViewFilter({ systems: [c.systemId ?? NO_SYSTEM], isolate: null })
+  filterOpen.value = true
+  closeContext()
+}
+async function ctxCopy() {
+  const c = ctxMenu.value
+  if (!c) return
+  closeContext()
+  try {
+    await navigator.clipboard.writeText(c.ids.join('\n'))
+    note(`GlobalId ${c.ids.length}개를 복사했습니다`)
+  } catch {
+    note(`복사하지 못했습니다(브라우저가 막음): ${c.ids.slice(0, 3).join(', ')}`)
+  }
+}
+function ctxShowAll() {
+  clearViewFilter()
+  closeContext()
+}
+function ctxFit(keep: boolean) {
+  viewer?.frameVisible(keep)
+  closeContext()
+}
+function ctxExplode() {
+  toggleExplode()
+  closeContext()
+}
+window.addEventListener('pointerdown', (e) => {
+  if (ctxMenu.value && !(e.target as HTMLElement | null)?.closest?.('.ctx-menu')) closeContext()
+})
 // 천장 모드에서 층을 바꾸면 위에서 내려다보는 시점을 지킨다(OE-OBJ-08).
 watch(viewStorey, () => (ceilingMode.value ? viewer?.topView() : viewer?.frameAll()))
 
@@ -9235,6 +9409,81 @@ function rollbackFromReport() {
         <section :class="['viewport', { theater: replayOpen }]">
           <div class="canvas-wrap">
             <canvas v-show="activeTab === '3d'" ref="canvas"></canvas>
+            <!-- 3D 우클릭 메뉴(E3, ADR-0062). 끌지 않은 우클릭만 — 오른쪽 드래그는 그대로 회전이다. -->
+            <div
+              v-if="ctxMenu && activeTab === '3d'"
+              class="ctx-menu"
+              role="menu"
+              data-testid="ctx-menu"
+              :style="{ left: `${ctxMenu.x}px`, top: `${ctxMenu.y}px` }"
+              @contextmenu.prevent
+            >
+              <template v-if="ctxMenu.ids.length">
+                <p class="ctx-head">{{ ctxMenu.ids.length === 1 ? shortName(nameOfId(ctxMenu.ids[0])) : `설비 ${ctxMenu.ids.length}대` }}</p>
+                <button type="button" role="menuitem" @click="ctxHide">숨기기</button>
+                <button type="button" role="menuitem" @click="ctxIsolate">이것만 보기</button>
+                <button type="button" role="menuitem" @click="ctxFrame">시점 맞추기</button>
+                <button v-if="ctxMenu.cls" type="button" role="menuitem" @click="ctxOnlyClass">같은 클래스만 <code>{{ ctxMenu.cls }}</code></button>
+                <button type="button" role="menuitem" @click="ctxOnlySystem">같은 계통만 <span class="muted">{{ ctxMenu.systemId ? (systemById.get(ctxMenu.systemId)?.name || ctxMenu.systemId) : NO_SYSTEM }}</span></button>
+                <button type="button" role="menuitem" @click="ctxCopy">GlobalId 복사</button>
+              </template>
+              <template v-else>
+                <button type="button" role="menuitem" :disabled="!filterOn && !exploded" @click="ctxShowAll">모두 보이기</button>
+                <button type="button" role="menuitem" @click="ctxFit(true)">전체 맞추기</button>
+                <button type="button" role="menuitem" @click="ctxFit(false)">카메라 초기화</button>
+                <button type="button" role="menuitem" @click="ctxExplode">{{ exploded ? '분해도 접기' : 'Brick 클래스별 분해도' }}</button>
+              </template>
+              <p class="ctx-foot muted">화면에서만 — 편집 파일·TTL·GeoJSON 에는 남지 않습니다</p>
+            </div>
+            <!-- 보기 필터 패널(V2). 항목마다 설비 대수. 클래스는 TTL 에 나가는 그 클래스다. -->
+            <aside v-if="filterOpen && viewFacets && activeTab === '3d'" class="filter-panel" data-testid="filter-panel" aria-label="보기 필터">
+              <div class="filter-head">
+                <b>보기 필터</b>
+                <button type="button" class="link" :disabled="!filterOn && !exploded" @click="clearViewFilter">모두 보이기</button>
+                <button type="button" class="link" aria-label="보기 필터 닫기" @click="filterOpen = false">닫기</button>
+              </div>
+              <p class="muted filter-note">화면에서만 거릅니다. 편집 파일·TTL·GeoJSON 은 그대로입니다. Ctrl+끌기 상자는 보이는 것만 고릅니다.</p>
+              <p v-if="filterOn" class="filter-now" data-testid="filter-summary">{{ filterText }}</p>
+              <p class="filter-actions">
+                <button type="button" :class="['ghost', { on: exploded }]" :aria-pressed="exploded" data-testid="explode-toggle" @click="toggleExplode">
+                  {{ exploded ? '분해도 접기' : 'Brick 클래스별 분해도' }}
+                </button>
+                <button v-if="viewFilter.isolate" type="button" class="ghost" @click="setViewFilter({ isolate: null })">격리 풀기 ({{ viewFilter.isolate.length }})</button>
+                <button v-if="viewFilter.hidden.length" type="button" class="ghost" @click="setViewFilter({ hidden: [] })">숨긴 {{ viewFilter.hidden.length }}대 보이기</button>
+              </p>
+              <details v-if="viewFacets.storeys.length > 1" open class="filter-group">
+                <summary>층 <span class="muted">{{ viewFilter.storeys ? `${viewFilter.storeys.length}/${viewFacets.storeys.length}` : '전부' }}</span></summary>
+                <p v-if="!filterStoreysUsable" class="muted filter-note">층 하나만 보거나 다중층 뷰에서는 그쪽이 층을 정합니다. 위 층 칸을 "모든 층" 으로 두면 여러 층을 골라 봅니다.</p>
+                <label v-for="s in viewFacets.storeys" :key="s.id" :class="{ off: !filterStoreysUsable }">
+                  <input type="checkbox" :checked="facetOn('storeys', s.id)" :disabled="!filterStoreysUsable" @change="toggleFacet('storeys', s.id, viewFacets.storeys.map((x) => x.id))" />
+                  {{ s.name }} <span class="muted">{{ s.count.toLocaleString() }}</span>
+                </label>
+              </details>
+              <details open class="filter-group">
+                <summary>
+                  Brick 클래스 <span class="muted">{{ viewFilter.classes ? `${viewFilter.classes.length}/${viewFacets.classes.length}` : '전부' }}</span>
+                  <button type="button" class="link" @click.prevent="setFacetAll('classes', true, viewFacets.classes.filter((c) => !c.conduit).map((c) => c.id))">기기 전부</button>
+                  <button type="button" class="link" @click.prevent="setFacetAll('classes', false, viewFacets.classes.filter((c) => c.conduit).map((c) => c.id))">덕트·배관 빼기</button>
+                </summary>
+                <label v-for="c in viewFacets.classes" :key="c.id" :class="{ conduit: c.conduit }">
+                  <input type="checkbox" :checked="facetOn('classes', c.id)" @change="toggleFacet('classes', c.id, viewFacets.classes.map((x) => x.id))" />
+                  <code>{{ c.id }}</code> <span class="muted">{{ c.count.toLocaleString() }}</span>
+                </label>
+              </details>
+              <details class="filter-group">
+                <summary>계통 <span class="muted">{{ viewFilter.systems ? `${viewFilter.systems.length}/${viewFacets.systems.length}` : '전부' }}</span></summary>
+                <label v-for="s in viewFacets.systems" :key="s.id">
+                  <input type="checkbox" :checked="facetOn('systems', s.id)" @change="toggleFacet('systems', s.id, viewFacets.systems.map((x) => x.id))" />
+                  {{ s.name }} <span class="muted">{{ s.count.toLocaleString() }}</span>
+                </label>
+              </details>
+            </aside>
+            <!-- 걸러 보는 중임을 3D 위에 늘 보인다(패널을 닫아도). 안 보이는 것을 없는 것으로 오해하지 않게. -->
+            <p v-if="(filterOn || exploded) && !filterOpen && activeTab === '3d'" class="filter-chip" role="status" data-testid="filter-chip">
+              <b>보기 필터</b> {{ exploded ? '분해도 · ' : '' }}{{ filterText || '전부' }} · 화면에서만
+              <button type="button" class="link" @click="filterOpen = true">고치기</button>
+              <button type="button" class="link" @click="clearViewFilter">모두 보이기</button>
+            </p>
             <ReplayHud v-if="replayOpen" v-bind="replay.hud.value" v-on="replay.hudOn" />
             <!-- 평면도. 3D 와 탭으로 갈아 끼우고, 층 하나를 골랐을 때만 그린다. -->
             <FloorPlan
@@ -9495,6 +9744,18 @@ function rollbackFromReport() {
                 @click="showZones = !showZones"
               >
                 공조존
+              </button>
+              <!-- 보기 필터(ADR-0062). 층 여러 개·Brick 클래스·계통으로 거르고, 숨기기·격리·분해도. 화면에만 적용된다. -->
+              <button
+                v-if="activeTab === '3d'"
+                type="button"
+                :class="['ghost', 'filter-toggle', { on: filterOpen || filterOn || exploded }]"
+                :aria-expanded="filterOpen"
+                data-testid="filter-toggle"
+                title="층·Brick 클래스·계통으로 걸러 봅니다. 화면에서만이고 편집 파일·TTL·GeoJSON 에는 남지 않습니다"
+                @click="filterOpen = !filterOpen"
+              >
+                보기 필터<b v-if="filterOn || exploded" class="filter-dot" aria-label="켜짐">●</b>
               </button>
               <div class="tabs" role="group" aria-label="보기">
                 <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
