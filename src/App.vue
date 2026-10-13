@@ -22,6 +22,7 @@ import PublishDialog from './components/PublishDialog.vue'
 import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
 import { previewSummary, summaryText } from './lib/preview'
 import { DEFAULT_GRID, gridLines, snapToGrid, type GridSettings } from './lib/grid'
+import { DEFAULT_SNAP, snapPoint, snapTargets, type SnapHit, type SnapRing, type SnapSettings } from './lib/snap'
 import { dimensionText, wallDimensions } from './lib/dimensions'
 import { familyHeight } from './lib/placement'
 import { facadeOf, moveFacade } from './lib/facade'
@@ -35,6 +36,7 @@ import { readOntologyTTL } from './lib/export/read-ttl'
 import { DEFAULT_SITE_RULES, siteWarnings, type SiteRules } from './lib/site-rules'
 import { DEFAULT_LINES, GATE, gradeCounts, gradeReport, percent, TARGET, type GradeCounts, type GradeLines, type GradeReport } from './lib/grade'
 import HoverTip from './components/HoverTip.vue'
+import AlignToggles from './components/AlignToggles.vue'
 import FloorPlan from './components/FloorPlan.vue'
 import Roll from './components/Roll.vue'
 import Meter from './components/Meter.vue'
@@ -2179,7 +2181,9 @@ function moveVertex(spaceId: string, index: number, to: Vec2, coalesce?: string)
  */
 function dropVertex(spaceId: string, index: number, raw: Vec2) {
   if (!model.value) return
-  const to: Vec2 = [cm(raw[0]), cm(raw[1])]
+  // 평면도에서 끈 꼭짓점도 3D 와 같이 보정한다(3D 는 끄는 동안 이미 보정해 넘긴다 — 다시 대도 같은 자리다).
+  const aligned = dragAlign.point(spaceId, index, raw)
+  const to: Vec2 = [cm(aligned[0]), cm(aligned[1])]
   // 공조존의 꼭짓점(OE-ZON-04).
   if (zoneEdited.value?.zone.id === spaceId) {
     moveZoneCorner(index, to)
@@ -2424,6 +2428,8 @@ watch([model, canvas], ([m, el]) => {
     viewer.onBoxSelect(addBoxToGroup)
     viewer.onHover(onHover)
     viewer.onPlace((at) => placeAt(at))
+    viewer.onPlaceHover(onPlaceHover)
+    viewer.setDragSnap(dragAlign)
     viewer.onPickSpace(pickSpace)
     viewer.onEquipmentMove(dropEquipment)
     viewer.onFrozenGrab((id) => {
@@ -3187,6 +3193,78 @@ const gridView = computed(() => {
   return { storeyId: st.id, elevation: drawing.value?.elevation ?? st.elevation, extent, ...gridLines(extent, grid.value.spacing) }
 })
 watch(gridView, (g) => viewer?.setGrid(g && !multiView.value ? { x: g.x, y: g.y, elevation: g.elevation, extent: g.extent } : null))
+
+// --- 스냅 (OE-UI-06, lib/snap.ts) ---
+// 켜면 그리기에서 찍는 점과 끄는 꼭짓점이 반경 안의 물리존·벽·룸·커스텀존 꼭짓점·변에 붙는다. 그리드와 같이 켜져 있으면 오브젝트가
+// 앞선다. 반경은 이 브라우저 설정이다(그리드 간격과 같다).
+const snap = ref<SnapSettings>(
+  (() => {
+    try {
+      return { ...DEFAULT_SNAP, ...(JSON.parse(localStorage.getItem('oe.snap') ?? 'null') ?? {}) }
+    } catch {
+      return { ...DEFAULT_SNAP }
+    }
+  })(),
+)
+watch(
+  snap,
+  (v) => {
+    try {
+      localStorage.setItem('oe.snap', JSON.stringify(v))
+    } catch {
+      // 못 남겨도 이번 창에서는 그대로다
+    }
+  },
+  { deep: true },
+)
+// 대상 고리는 끄는 동안 마우스가 움직일 때마다 찾으므로, 층·뺄 것이 같고 그 사이 편집이 없으면 지난 것을 그대로 쓴다.
+// 편집은 모델을 그 자리에서 고치고 triggerRef 로 알리므로 그때 버린다.
+let snapCache: { key: string; rings: SnapRing[] } | null = null
+watch(model, () => (snapCache = null), { flush: 'sync' })
+function snapRingsOf(storeyId: string, skip?: string): SnapRing[] {
+  const m = model.value
+  if (!m) return []
+  const key = `${storeyId}:${skip ?? ''}`
+  if (snapCache?.key !== key) snapCache = { key, rings: snapTargets(m, storeyId, new Set(skip ? [skip] : [])) }
+  return snapCache.rings
+}
+/** 점 하나를 스냅·그리드로 보정한다(OE-UI-06·07). `skip` 은 고치는 중인 오브젝트(제 변에 붙지 않게). 붙을 데가 없으면 null. */
+function alignAt(at: Vec2, storeyId: string | null, skip?: string): SnapHit | null {
+  if (!storeyId || (!snap.value.on && !grid.value.on)) return null
+  return snapPoint(at, snap.value.on ? snapRingsOf(storeyId, skip) : [], snap.value, grid.value)
+}
+/** 그리는 층. 그리는 중이면 그 층, 아니면 보는 층(층이 하나면 그 층). */
+const alignStorey = computed(() => drawing.value?.storeyId ?? viewStorey.value ?? (model.value?.storeys.length === 1 ? model.value.storeys[0].id : null))
+// 그리는 동안 마우스가 가리키는 자리가 어디에 붙을지 3D 에 미리 보인다(OE-UI-06 "달라붙었음을 인지할 수 있는 시각적 피드백").
+function onPlaceHover(at: Vec2 | null) {
+  const d = drawing.value
+  if (!viewer) return
+  const hit = d && at && !multiView.value ? alignAt(at, d.storeyId) : null
+  const st = d && model.value?.storeys.find((x) => x.id === d.storeyId)
+  viewer.setSnapMarker(hit && st ? { at: hit.at, kind: hit.kind, edge: hit.kind === 'edge' ? hit.edge : undefined, elevation: d.elevation ?? st.elevation } : null)
+}
+watch(drawing, (d) => {
+  if (!d) viewer?.setSnapMarker(null)
+})
+/**
+ * 끄는 동안의 보정(OE-UI-07 AC3 "다시 이동시킬 때부터 가장 가까운 그리드 교점으로"). 켜기만 해서는 아무것도 옮기지 않는다 —
+ * 그리드에 어긋난 채 놓인 것은 그대로 두고, 끌기 시작한 것만 교점(설비·오브젝트는 그 배치점)에 맞춘다. 꼭짓점은 스냅도 받는다.
+ * 다중층 뷰는 층이 여럿이라 보정하지 않는다.
+ */
+const dragAlign = {
+  delta(kind: 'equipment' | 'object', id: string, delta: Vec2): Vec2 {
+    const m = model.value
+    if (!m || !grid.value.on || multiView.value) return delta
+    const origin = kind === 'equipment' ? equipmentById.value.get(id)?.position : findSpaceObject(m, id)?.object.at
+    if (!origin) return delta
+    const to = snapToGrid([origin[0] + delta[0], origin[1] + delta[1]], grid.value.spacing)
+    return [to[0] - origin[0], to[1] - origin[1]]
+  },
+  point(spaceId: string, _index: number, at: Vec2): Vec2 {
+    if (multiView.value) return at
+    return alignAt(at, alignStorey.value, spaceId)?.at ?? at
+  },
+}
 /** 그리는 중인 층간 배관의 경로(시작 설비 → 찍은 꺾임점). 점선 미리보기다. */
 const riserPreview = computed(() => {
   const d = drawing.value
@@ -5296,8 +5374,9 @@ watch([selectedId, editing, viewStorey], () => {
   if (placing.value && (selectedId.value !== placing.value || !editing.value)) stopPlace()
 })
 function placeAt(at: Vec2) {
-  // 그리드 정렬(OE-UI-07)을 켰으면 그리기에서 찍은 점을 교점으로 옮긴다. 설비 놓기는 그리드를 따르지 않는다.
-  if (drawing.value && grid.value.on) at = snapToGrid(at, grid.value.spacing)
+  // 스냅(OE-UI-06)·그리드 정렬(OE-UI-07)을 켰으면 그리기에서 찍은 점을 붙을 자리로 옮긴다. 설비 놓기는 따르지 않는다.
+  if (drawing.value && !multiView.value) at = alignAt(at, drawing.value.storeyId)?.at ?? at
+  else if (drawing.value && grid.value.on) at = snapToGrid(at, grid.value.spacing)
   if (drawing.value) {
     const d = drawing.value
     drawing.value = { ...d, points: [...d.points, [cm(at[0]), cm(at[1])]], ...(d.levels && d.work ? { levels: [...d.levels, { ...d.work }] } : {}) }
@@ -10097,6 +10176,9 @@ function rollbackFromReport() {
           >
             ↷ 다시
           </button>
+          <!-- 그리드·스냅(OE-UI-06·07). 그리지 않을 때도 끄는 설비·오브젝트·꼭짓점에 걸려서 편집 막대에도 둔다. 팔레트에 두면
+               팔레트가 높아져 3D 왼쪽 아래 바닥을 가린다. -->
+          <AlignToggles v-model:grid="grid" v-model:snap="snap" class="bar-align" />
           <span class="muted last-edit" :title="history.at(-1)?.label">{{ history.at(-1)?.label ?? '' }}</span>
           <button
             type="button"
@@ -10324,11 +10406,8 @@ function rollbackFromReport() {
               </button>
               <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
               <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
-              <!-- 그리드 정렬(OE-UI-07). 그릴 때 쓰는 것이라 그리기 막대에 둔다. -->
-              <label class="grid-toggle" title="찍은 점을 그리드 교점으로 옮깁니다(겹침 판정은 형상 기준 그대로)">
-                <input v-model="grid.on" type="checkbox" aria-label="그리드 정렬" /> 그리드
-                <input v-model.number="grid.spacing" v-keep-typing type="number" min="0.05" step="0.05" class="riser-height" aria-label="그리드 간격(m)" />m
-              </label>
+              <!-- 그리드 정렬(OE-UI-07)·스냅(OE-UI-06). 찍는 점을 옮긴다. 다중층 뷰는 층이 여럿이라 그리드만 받는다. -->
+              <AlignToggles v-model:grid="grid" v-model:snap="snap" />
             </div>
             <!-- 편집 도구 팔레트(PRD #9 화면 레이아웃의 왼쪽). 편집 모드에서만, 무엇을 만드는지로 묶는다. 넣을 층은 층 하나만
                  보는 중이면 그 층이다(targetStorey). 왼쪽 위는 색 안내 자리라 아래쪽에 둔다. -->
