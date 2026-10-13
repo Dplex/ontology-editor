@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, shallowRef, triggerRef, watch, type Directive } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRaw, triggerRef, watch, type Directive } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
 import { countOf, isConduit, polygonArea, segmentPath, segmentRest, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
 import { mergeModels, type MergeReport } from './lib/merge'
@@ -11,6 +11,9 @@ import type { CustomZone, HvacZone } from './lib/model'
 import Src, { type SrcKind } from './components/Src.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import ReplayHud from './components/ReplayHud.vue'
+import ExportCompare from './components/ExportCompare.vue'
+import type { CompareReading } from './lib/export/compare'
+import type { CompareReply, CompareRequest } from './lib/export/compare.worker'
 import { pausedInReplay, replayArch, replayElement, replayMemo, replayOpen, useReplay } from './lib/replay-player'
 import ExitEditDialog from './components/ExitEditDialog.vue'
 import PublishDialog from './components/PublishDialog.vue'
@@ -6506,6 +6509,93 @@ const selectedElementId = ref<string | null>(null)
 watch([selectedId, selectedSpaceId, selectedRoomId, selectedObjectId, selectedElementId, selectedCustomZoneId, selectedSystemId], (now) => {
   if (now.some((x) => x)) selectedVerticalId.value = null
 })
+
+// --- 내보낸 결과와 나란히 보기(ADR-0061) ---
+// [결과 비교] 를 켜면 3D 오른쪽에 지금 모델을 내보낸 TTL·층 GeoJSON 을 받는 쪽처럼 다시 읽은 판(ExportCompare.vue)이 뜬다. 고르기는 id 하나로
+// 양쪽이 같고, 판의 평면은 3D 시점을 따라간다. 쓰고 읽기는 워커에서 하고(성수), 편집이 멈추고 잠시 뒤에 한 번 다시 한다.
+const compareOpen = ref(false)
+const compareReading = shallowRef<CompareReading | null>(null)
+const comparePending = ref(false)
+const compareError = ref('')
+const compareView = shallowRef<{ target: Vec2; halfWidth: number } | null>(null)
+let compareWorker: Worker | null = null
+let compareSeq = 0
+let compareTimer: number | undefined
+function requestCompare() {
+  const m = model.value
+  if (!m || !compareOpen.value) return
+  comparePending.value = true
+  compareWorker ??= new Worker(new URL('./lib/export/compare.worker.ts', import.meta.url), { type: 'module' })
+  compareWorker.onmessage = (e: MessageEvent<CompareReply>) => {
+    if (e.data.seq !== compareSeq) return
+    comparePending.value = false
+    if ('error' in e.data) compareError.value = `내보내지 못했습니다: ${e.data.error}`
+    else {
+      compareError.value = ''
+      compareReading.value = e.data.reading
+    }
+  }
+  try {
+    compareWorker.postMessage({ seq: ++compareSeq, model: toRaw(m) } satisfies CompareRequest)
+  } catch (err) {
+    comparePending.value = false
+    compareError.value = err instanceof Error ? err.message : String(err)
+  }
+}
+watch(model, () => {
+  if (!compareOpen.value) return
+  // 끌기·방향키는 편집이 이어진다. 멈춘 뒤 한 번만 다시 쓴다.
+  comparePending.value = true
+  window.clearTimeout(compareTimer)
+  compareTimer = window.setTimeout(requestCompare, 500)
+})
+watch(baseline, () => (compareReading.value = null))
+watch(compareOpen, (open) => {
+  if (open) {
+    requestCompare()
+    viewer?.onView((v) => (compareView.value = v))
+  } else {
+    viewer?.onView(null)
+    compareView.value = null
+    compareWorker?.terminate()
+    compareWorker = null
+    window.clearTimeout(compareTimer)
+    comparePending.value = false
+  }
+})
+// 리플레이(극장)·평면도에서는 판을 접는다. 켜 둔 것은 그대로라 3D 로 돌아오면 다시 뜬다.
+const compareShown = computed(() => compareOpen.value && activeTab.value === '3d' && !replayOpen.value && !!model.value)
+onBeforeUnmount(() => compareWorker?.terminate())
+/** 판이 칠할 id. 3D 에서 고른 것 하나(설비·물리존·룸·벽·문·창·존·오브젝트·수직 관통 조각). */
+const compareSelected = computed(
+  () => selectedId.value ?? selectedVerticalId.value ?? selectedRoomId.value ?? selectedSpaceId.value ?? selectedElementId.value ?? selectedCustomZoneId.value ?? selectedObjectId.value ?? null,
+)
+/** 판에서 고른 것을 3D 에서도 고른다. 종류를 모르면(관계 목록의 이름) 모델에서 찾는다. */
+function selectFromCompare(id: string, kind: string) {
+  const m = model.value
+  if (!m) return
+  const k = kind || (equipmentById.value.has(id) ? 'equipment' : '')
+  if (k === 'equipment') return select(id)
+  if (k === 'wall' || k === 'door' || k === 'window' || (!k && m.storeys.some((s) => s.walls.some((w) => w.id === id) || s.openings.some((o) => o.id === id)))) {
+    archMode.value = true
+    selectedId.value = null
+    selectedSpaceId.value = null
+    selectedElementId.value = id
+    return
+  }
+  if (k === 'customZone') {
+    selectedCustomZoneId.value = id
+    return
+  }
+  if (k === 'spaceObject') {
+    selectedObjectId.value = id
+    return
+  }
+  // 물리존·룸·수직 관통 조각은 바닥 누르기와 같은 길이다(pickSpace 가 가른다). 3D 가 그 방을 비춘다.
+  pickSpace(id)
+  viewer?.frameSpace(id)
+}
+
 // 여러 개 고르기(OE-UI-09): 다른 것을 고르거나 편집을 끝내면 묶음을 푼다. 지운 설비는 묶음에서 빠진다. 고른 것들이 다 선언된 뒤라 여기 둔다.
 // 다른 것을 고르면 룸은 풀린다(패널은 하나만).
 watch([selectedId, selectedSpaceId, selectedElementId, selectedCustomZoneId, selectedSystemId], (now) => {
@@ -9496,6 +9586,18 @@ function rollbackFromReport() {
               >
                 공조존
               </button>
+              <!-- 내보낸 결과와 나란히 보기(ADR-0061). 3D 오른쪽에 받는 쪽이 읽는 TTL·GeoJSON 판을 띄운다. -->
+              <button
+                v-if="activeTab === '3d'"
+                type="button"
+                :class="['ghost', { on: compareOpen }]"
+                :aria-pressed="compareOpen"
+                data-testid="compare-toggle"
+                title="3D 오른쪽에 지금 모델을 내보낸 TTL·GeoJSON 을 받는 쪽처럼 읽어 나란히 봅니다. 고르면 양쪽이 같은 것을 짚습니다"
+                @click="compareOpen = !compareOpen"
+              >
+                결과 비교
+              </button>
               <div class="tabs" role="group" aria-label="보기">
                 <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
                 <button type="button" :aria-pressed="activeTab === 'plan'" :disabled="!!multiView" :title="multiView ? '평면도는 층 하나를 그립니다. 다중층 뷰는 3D 입니다' : undefined" @click="showPlan">평면도</button>
@@ -9620,6 +9722,17 @@ function rollbackFromReport() {
                   : '설비·배관을 클릭하면 연결된 것이 색으로 표시됩니다. 바닥을 누르면 그 방이 뜹니다. 계통은 오른쪽 범례에서 고르세요.'
             }}
           </p>
+          <ExportCompare
+            v-if="compareShown"
+            :reading="compareReading"
+            :pending="comparePending"
+            :error="compareError"
+            :storey-id="multiView ? null : viewStorey"
+            :selected-id="compareSelected"
+            :view="compareView"
+            @select="selectFromCompare"
+            @close="compareOpen = false"
+          />
         </section>
 
         <!-- 편집 리플레이 동안(극장이 창을 덮는다) 아래 패널은 다시 그리지 않는다(replayMemo). 닫으면 그때 상태로 한 번 그린다. -->
