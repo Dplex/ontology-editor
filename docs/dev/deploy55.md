@@ -18,6 +18,12 @@ PoC 라 원할 때 손으로 배포한다: `ssh 55 'cd /home/dt/git/dt/ontology-
 `data/.edits/history/` 에 20개). 사내망 누구나 쓸 수 있다 — 잘못 덮으면 history 에서 되찾는다. 임시 저장은 브라우저에만 남고
 서버에 오지 않는다. 8087 검토 판은 `data/` 를 따로 둬서(review55.sh 의 하드링크) 검토 중 저장이 8084 에 섞이지 않는다.
 
+**프로젝트와 [새 프로젝트]의 IFC 는 8084 의 `data/` 에 남는다(OE-UI-02·03).** 프로젝트는 `data/.projects/<id>.json`,
+[새 프로젝트]에서 올린 IFC 는 `data/uploads/<시각>-<이름>.ifc` 다(`src/server/projects.ts`). 올린 IFC 는 data/ 목록에도 보인다.
+프로젝트로 연 판의 임시 저장본·잠금·반영 버전은 열쇠 앞에 `@<프로젝트 id>|` 가 붙어, 같은 IFC 로 만든 다른 프로젝트나 파일로 연 판과
+섞이지 않는다. 올리기는 한 파일 1GB 까지다. 사내망 누구나 올릴 수 있어(사람 목록의 편집 역할이면) 디스크를 채울 수 있다 —
+`data/uploads/` 를 가끔 보고 쓰지 않는 파일을 지운다.
+
 ## 예외: 문서 챗봇 `/__chat`
 
 문서 챗봇 `/__chat`(Alt+Shift+K, docs/dev/deploy55.md)은 앱의 API 가 아니라 55 의 gemini 가 이 repo 의

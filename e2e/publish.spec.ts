@@ -264,7 +264,7 @@ test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 
   await other.close()
 })
 
-test('반영된 온톨로지가 없으면 [초기 구축] 만, 있으면 [운영 편집] 만 켜지고, 편집 막대에 그 모드가 보인다. 주소로 바로 연다 [OE-UI-02#1] [OE-UI-02#2] [OE-UI-03#1] [OE-UI-01#2~]', async ({ page, browser }) => {
+test('반영된 온톨로지가 없으면 [초기 구축] 만, 있으면 [운영 편집] 만 켜지고, 편집 막대에 그 모드가 보인다. 주소로 바로 연다', async ({ page, browser }) => {
   test.setTimeout(120_000)
   await serve(page)
   await page.goto('/')

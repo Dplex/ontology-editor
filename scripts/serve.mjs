@@ -138,7 +138,9 @@ const server = createServer((req, res) => {
   // 쓰기는 8084 에 남기는 편집(/__data/__edits, src/server/saved-edits.ts)과 반영 버전(/__data/__layouts, src/server/layouts.ts)뿐이다.
   // FBX 변환(POST /__data/__fbx, src/server/fbx.ts)은 GLB 를 받아 FBX 를 돌려줄 뿐 아무것도 남기지 않는다. 나머지는 읽기만 받는다.
   const writable = (req.method === 'PUT' && path === '/__data/__edits') || ((req.method === 'PUT' || req.method === 'POST') && path === '/__data/__layouts') || (req.method === 'POST' && (path === '/__data/__log' || path === '/__data/__fbx')) ||
-    ((req.method === 'PUT' || req.method === 'DELETE') && (path === '/__data/__drafts' || path === '/__data/__locks'))
+    ((req.method === 'PUT' || req.method === 'DELETE') && (path === '/__data/__drafts' || path === '/__data/__locks')) ||
+    // 프로젝트 만들기·층 구성 올리기와 [새 프로젝트]의 IFC 올리기(src/server/projects.ts).
+    ((req.method === 'POST' || req.method === 'PUT') && path === '/__data/__projects') || (req.method === 'POST' && path === '/__data/__upload')
   if (req.method !== 'GET' && req.method !== 'HEAD' && !writable) {
     res.writeHead(405, { Allow: 'GET, HEAD' }).end()
     return done(405)

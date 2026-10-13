@@ -246,6 +246,73 @@ th {
 }
 
 /* data/ 의 IFC 목록. 파일을 열기 전에 무엇이 들어 있는지 본다. */
+/* 프로젝트 목록·층 선택(OE-UI-02·03, ProjectList.vue). 첫 화면 맨 위, data/ 목록과 같은 판 모양. */
+.projects {
+  margin-top: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.projects-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.projects-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.projects td {
+  padding: 0.5rem;
+  vertical-align: middle;
+  font-size: 0.85rem;
+}
+
+.projects .name span {
+  display: block;
+}
+
+.projects .row-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.projects .building-row td {
+  color: var(--muted);
+}
+
+.projects .storey-group h3 {
+  margin: 1rem 0 0.25rem;
+  font-size: 0.95rem;
+}
+
+.new-project {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+
+.new-project input[type='text'] {
+  margin-left: 0.25rem;
+}
+
+.projects-who {
+  display: block;
+  margin-top: 1rem;
+  text-align: right;
+}
+
 .catalog {
   margin-top: 1.5rem;
   padding: 1.25rem 1.5rem;
