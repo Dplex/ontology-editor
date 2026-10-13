@@ -220,7 +220,7 @@ test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, 
   await other.close()
 })
 
-test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 편집하고, 편집 중인 층은 잠기며, 폐기하면 반영된 레이아웃으로 돌아간다 [OE-WF-01#2] [OE-WF-02#1] [OE-WF-04#1~] [OE-WF-05#1] [OE-COM-03#1] [OE-COM-03#2] [OE-COM-05#1~] [OE-COM-06#1] [OE-COM-08#3]', async ({ page, browser }) => {
+test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 편집하고, 편집 중인 층은 잠기며, 폐기하면 반영된 레이아웃으로 돌아간다 [OE-WF-01#2] [OE-WF-02#1] [OE-WF-04#1~] [OE-WF-05#1] [OE-COM-03#1] [OE-COM-03#2] [OE-COM-03#3] [OE-COM-05#1~] [OE-COM-06#1] [OE-COM-08#3]', async ({ page, browser }) => {
   test.setTimeout(120_000)
   const open = async (p: Page, who: string, edit = true) => {
     await serve(p)
@@ -242,7 +242,7 @@ test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 
   // B: A 가 편집 중이라 같은 층에 못 들어간다.
   const other = await browser.newPage()
   await open(other, '관리자')
-  await expect(other.locator('.edit-notice')).toContainText('편집자님이')
+  await expect(other.locator('.edit-notice')).toContainText(/편집자님이 .+ 편집 중입니다/)
   if (process.env.SHOT_LOCK) await other.screenshot({ path: process.env.SHOT_LOCK })
   await expect(other.locator('.edit-bar')).toHaveCount(0)
 

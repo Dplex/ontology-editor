@@ -95,7 +95,7 @@ test('Duplex: 1층 라디에이터에서 수직으로 올라 2층에서 옆으�
   expect(errors).toEqual([])
 })
 
-test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 설비로 분기하고, 층 편집 화면에서도 같은 분기점이 보이며, 되돌리면 라이저가 하나로 돌아온다 [OE-ML-13#1~,5~] [OE-PIP-15#4~]', async ({ page }) => {
+test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 설비로 분기하고, 층 편집 화면에서도 같은 분기점이 보이며, 되돌리면 라이저가 하나로 돌아온다 [OE-ML-13#1~,5~] [OE-PIP-15#4~] [OE-PIP-11#1~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)
   const errors: string[] = []
@@ -242,7 +242,7 @@ test('Duplex: 라이저의 2층 오프셋을 0.3m 올리면 양 끝 꺾임점이
   expect(errors).toEqual([])
 })
 
-test('Duplex: 층 편집에서 그리던 배관을 들고 다중층 뷰로 가서 2층까지 잇고, [층 편집으로] 로 돌아오면 그리던 상태 그대로다 [OE-ML-01#2] [OE-PIP-15#5]', async ({ page }) => {
+test('Duplex: 층 편집에서 그리던 배관을 들고 다중층 뷰로 가서 2층까지 잇고, [층 편집으로] 로 돌아오면 그리던 상태 그대로다 [OE-ML-01#2] [OE-PIP-15#5] [OE-PIP-11#1~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)
   const errors: string[] = []
