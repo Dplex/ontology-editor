@@ -69,6 +69,7 @@ import {
   zoneChecks,
   zoneCorners,
 } from './lib/hvac-zone'
+import { airflowText, BASIS_LABEL, CAPACITY_CHECK_KINDS, cmhText, setRatedAirflow, setSpaceAirflow, setZoneAirflow, zoneAirflow, type ZoneAirflow } from './lib/airflow'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
@@ -181,6 +182,7 @@ import {
   mountOnWall,
   snapshotCustomZones,
   snapshotHvacZones,
+  snapshotAirflow,
   snapshotRooms,
   snapshotStoreyName,
   snapshotSpaceObjects,
@@ -6064,6 +6066,53 @@ function makeZoneForSelected() {
   if (changeHvacZones(z.storeyId, '공조존 만들기', (m) => createZoneFromSpaces(m, { spaceIds: z.flow, servedBy: [e.id] })))
     note(`공조존을 만들었습니다. 담당 물리존은 ${shortName(e.name)}의 흐름이 닿는 ${z.flow.map((id) => spaceNameOf(id)).join(', ')}입니다`)
 }
+/** 공조존마다 Z-03 이 쓰는 설계 풍량과 출처(OE-ZON-06, airflow.ts). */
+const zoneAirflows = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  const out = new Map<string, ZoneAirflow>()
+  if (m) for (const z of hvacZonesOf(m)) out.set(z.id, zoneAirflow(m, z, (id) => spaceNameOf(id)))
+  return out
+})
+/** 입력 칸의 값. 빈칸은 null(값 없음)이다 — 0 을 넣어도 값 없음이다(airflow.ts 의 cleanAirflow). */
+const airflowInput = (ev: Event) => {
+  const v = (ev.target as HTMLInputElement).value.trim()
+  return v === '' ? null : Number(v)
+}
+/** 공조존에 설계 풍량을 넣는다(OE-ZON-06). 냉방·난방 칸 하나씩 고친다. */
+function applyZoneAirflow(z: HvacZone, key: 'cooling' | 'heating', ev: Event) {
+  const storeyId = z.storeyId
+  if (!storeyId) return
+  const next = { cooling: z.designAirflow?.cooling ?? null, heating: z.designAirflow?.heating ?? null, [key]: airflowInput(ev) }
+  if (!changeHvacZones(storeyId, `${z.name} 설계 풍량`, (m) => setZoneAirflow(m, z.id, next))) {
+    const was = z.designAirflow?.[key] ?? null
+    ;(ev.target as HTMLInputElement).value = was === null ? '' : String(was)
+  }
+}
+/** 물리존·설비에 설계 풍량·정격 풍량을 넣는다(OE-ZON-06). BIM 값이 있는 곳은 거절되고 칸을 되돌린다. */
+function applyAirflow(target: 'space' | 'equipment', id: string, label: string, apply: (m: Model) => boolean | { refused: string }, ev: Event, was: number | null) {
+  const m = model.value
+  if (!m) return
+  const snapshot = snapshotAirflow(m, target, id)
+  const at = mark()
+  const done = apply(m)
+  if (done !== true) {
+    // 거절됐거나 바뀐 것이 없으면(0·음수는 빈칸이다) 칸을 지금 값으로 돌려놓는다.
+    if (done) editNotice.value = done.refused
+    ;(ev.target as HTMLInputElement).value = was === null ? '' : String(was)
+    return
+  }
+  remember(label, snapshot, at)
+  triggerRef(model)
+  sceneVersion.value++
+}
+function applySpaceAirflow(space: { id: string; designAirflow?: { cooling: number | null; heating: number | null } }, key: 'cooling' | 'heating', ev: Event) {
+  const next = { cooling: space.designAirflow?.cooling ?? null, heating: space.designAirflow?.heating ?? null, [key]: airflowInput(ev) }
+  applyAirflow('space', space.id, `${spaceNameOf(space.id)} 설계 풍량`, (m) => setSpaceAirflow(m, space.id, next), ev, space.designAirflow?.[key] ?? null)
+}
+function applyRatedAirflow(e: Equipment, ev: Event) {
+  applyAirflow('equipment', e.id, `${shortName(e.name)} 정격 풍량`, (m) => setRatedAirflow(m, e.id, airflowInput(ev)), ev, e.ratedAirflow?.cmh ?? null)
+}
 /** 리포트에 싣는 공조존 검증(OE-MAP-04). 경고가 있는 규칙만. 공조존이 하나도 없으면 싣지 않는다. */
 const reportZoneChecks = computed(() => {
   const m = model.value
@@ -9901,6 +9950,26 @@ function rollbackFromReport() {
             </ul>
           </div>
 
+          <!-- 정격 풍량(OE-ZON-06). BIM 용량이 풍량이면 CMH 로 바꾼 값이고 고치지 않는다. 없으면 편집 모드에서 사람이 넣는다.
+               용량 검증 Z-03 의 판정 대상(VAV·FCU·실내기·공조기)이거나 값이 있는 설비에만 보인다. -->
+          <div v-if="selected.ratedAirflow || CAPACITY_CHECK_KINDS.has(selected.kind ?? '')" class="rated-airflow" data-testid="rated-airflow">
+            <h4 class="picked-sub">
+              정격 풍량
+              <template v-if="selected.ratedAirflow?.source === 'bim'">
+                <b class="mono">{{ cmhText(selected.ratedAirflow.cmh) }}</b> CMH <Src kind="bim" />
+                <span class="muted">{{ selected.ratedAirflow.property }}</span>
+              </template>
+              <template v-else-if="editing && !selectedLock">
+                <input type="number" min="0" step="any" class="airflow-input" :value="selected.ratedAirflow?.cmh ?? ''" aria-label="정격 풍량(CMH)" @change="applyRatedAirflow(selected, $event)" />
+                CMH <Src v-if="selected.ratedAirflow" kind="edit" />
+              </template>
+              <template v-else-if="selected.ratedAirflow">
+                <b class="mono">{{ cmhText(selected.ratedAirflow.cmh) }}</b> CMH <Src kind="edit" />
+              </template>
+              <span v-else class="muted">없음 — 담당 공조존의 용량 검증(Z-03)이 판정 불가입니다</span>
+            </h4>
+          </div>
+
           <!-- 담당 공조존(OE-ZON-01). 공조존 목록의 담당 설비와 같은 값을 설비 쪽에서 고친다. 보기 모드에서는 담당하는 공조존이 있을 때만. -->
           <div v-if="selectedZones && (editing ? !selectedLock : selectedZones.serving.length)" class="served-zones" data-testid="served-zones">
             <h4 class="picked-sub">
@@ -10721,6 +10790,24 @@ function rollbackFromReport() {
                 <div>
                   <dt>넓이</dt>
                   <dd v-flash="selectedSpace.space.areaM2.toFixed(1)"><b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡ <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /></dd>
+                </div>
+                <!-- 설계 급기 풍량(OE-ZON-06 · R26). BIM 값이 있으면 그 값이고 고치지 않는다. 없으면 편집 모드에서 사람이 넣는다.
+                     에디터가 계산하거나 기본값을 넣지 않는다 — 비어 있으면 그 방을 담당하는 공조존의 용량 검증(Z-03)이 판정 불가다. -->
+                <div data-testid="space-airflow">
+                  <!-- 이름 칸이 두 글자 폭이라(3.2rem) "설계 풍량" 은 두 줄로 꺾인다. 짧게 두고 뜻은 툴팁으로. -->
+                  <dt title="설계 급기 풍량(OE-ZON-06)">풍량</dt>
+                  <dd v-flash="JSON.stringify(selectedSpace.space.designAirflow ?? null)" class="space-airflow">
+                    <template v-if="selectedSpace.space.designAirflow?.source === 'bim'">
+                      {{ airflowText(selectedSpace.space.designAirflow) }} <Src kind="bim" />
+                    </template>
+                    <template v-else-if="editing">
+                      <label>냉방 <input type="number" min="0" step="any" class="airflow-input" :value="selectedSpace.space.designAirflow?.cooling ?? ''" aria-label="냉방 설계 풍량(CMH)" @change="applySpaceAirflow(selectedSpace.space, 'cooling', $event)" /></label>
+                      <label>난방 <input type="number" min="0" step="any" class="airflow-input" :value="selectedSpace.space.designAirflow?.heating ?? ''" aria-label="난방 설계 풍량(CMH)" @change="applySpaceAirflow(selectedSpace.space, 'heating', $event)" /></label>
+                      CMH <Src v-if="selectedSpace.space.designAirflow" kind="edit" />
+                    </template>
+                    <template v-else-if="selectedSpace.space.designAirflow">{{ airflowText(selectedSpace.space.designAirflow) }} <Src kind="edit" /></template>
+                    <span v-else class="muted">없음</span>
+                  </dd>
                 </div>
                 <div>
                   <dt>소속</dt>
@@ -11967,6 +12054,25 @@ function rollbackFromReport() {
                       </option>
                     </select>
                   </span>
+                  <!-- 설계 풍량(OE-ZON-06). 담당 물리존의 BIM 값을 다 더할 수 있으면 그 합이고 고치지 않는다. 아니면 사람이 넣는다.
+                       용량 검증 Z-03 이 이 값을 담당 설비의 정격 풍량과 견준다. 값이 없으면 판정 불가(경고 아님)다. -->
+                  <span class="zone-served zone-airflow" :data-testid="`zone-airflow-${z.name}`">
+                    설계 풍량
+                    <template v-if="zoneAirflows.get(z.id)?.from === 'bim'">
+                      <b class="mono">{{ cmhText(zoneAirflows.get(z.id)!.cmh!) }}</b> CMH ({{ BASIS_LABEL[zoneAirflows.get(z.id)!.basis!] }}, 담당 물리존 합)
+                      <Src kind="bim" />
+                    </template>
+                    <template v-else>
+                      <label>냉방 <input type="number" min="0" step="any" class="airflow-input" :value="z.designAirflow?.cooling ?? ''" :aria-label="`${z.name} 냉방 설계 풍량(CMH)`" @change="applyZoneAirflow(z, 'cooling', $event)" /></label>
+                      <label>난방 <input type="number" min="0" step="any" class="airflow-input" :value="z.designAirflow?.heating ?? ''" :aria-label="`${z.name} 난방 설계 풍량(CMH)`" @change="applyZoneAirflow(z, 'heating', $event)" /></label>
+                      CMH
+                      <span v-if="zoneAirflows.get(z.id)?.from" class="muted">
+                        → {{ cmhText(zoneAirflows.get(z.id)!.cmh!) }} CMH({{ BASIS_LABEL[zoneAirflows.get(z.id)!.basis!] }}{{ zoneAirflows.get(z.id)!.from === 'spaces' ? ', 담당 물리존 합' : '' }})
+                        <Src kind="edit" />
+                      </span>
+                      <span v-else class="muted">판정 불가 — {{ zoneAirflows.get(z.id)?.missing }}</span>
+                    </template>
+                  </span>
                   <!-- 연결 기준 후보(OE-MAP-02). 담당을 대신 정하지 않고, 빠진 방을 한 번에 더하게만 한다. -->
                   <span v-if="zoneFlow.get(z.id)" class="zone-served zone-flow" :data-testid="`zone-flow-${z.name}`">
                     흐름이 닿는 물리존
@@ -11990,9 +12096,9 @@ function rollbackFromReport() {
                 </li>
                 <li v-if="!zonesHere.length" class="muted">이 층에 만든 공조존이 없습니다.</li>
               </ul>
-              <!-- 공조존 검증(OE-ZON-05). 경고만 하고 막지 않는다. Z-03 용량은 설계 풍량 입력(OE-ZON-06)과 같이 둔다. -->
+              <!-- 공조존 검증(OE-ZON-05). 경고만 하고 막지 않는다. Z-03 판정 불가는 경고가 아니라 따로 센다(값이 없다). -->
               <ul v-if="zoneCheckList" class="plain zone-checks" data-testid="zone-checks">
-                <li v-for="c in zoneCheckList.checks" :key="c.rule" :class="{ warn: c.items.length }">
+                <li v-for="c in zoneCheckList.checks" :key="`${c.rule}${c.undetermined ? '?' : ''}`" :class="{ warn: c.items.length && !c.undetermined }">
                   <b>{{ c.rule }}</b> {{ c.text }}:
                   <template v-if="c.items.length">
                     {{ c.items.length }}개 — {{ c.items.slice(0, 5).map((x) => x.label).join(', ') }}<template v-if="c.items.length > 5"> 외 {{ c.items.length - 5 }}개</template>
@@ -12356,7 +12462,7 @@ function rollbackFromReport() {
           <!-- 공조존 검증 경고(OE-MAP-04 · OE-ZON-05 "결과는 반영 결과 리포트에 든다"). 반영(D10)이 없어 바뀐 내용 아래에 둔다.
                막지 않는다. 공조존을 하나도 만들지 않았으면 보이지 않는다(Z-01 이 층마다 전부 공백이 된다). -->
           <ul v-if="reportZoneChecks.length" class="report report-checks" data-testid="report-zone-checks">
-            <li v-for="c in reportZoneChecks" :key="c.rule" class="warn" data-kind="zone">
+            <li v-for="c in reportZoneChecks" :key="`${c.rule}${c.undetermined ? '?' : ''}`" :class="{ warn: !c.undetermined }" data-kind="zone">
               <b>{{ c.rule }}</b> {{ c.text }}: {{ c.items.length }}개 — {{ c.items.slice(0, 5).map((x) => x.label).join(', ') }}<template v-if="c.items.length > 5"> 외 {{ c.items.length - 5 }}개</template>
             </li>
           </ul>

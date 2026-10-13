@@ -144,3 +144,60 @@ export function areaScale(api: Api, model: number): { scale: number; found: bool
   const length = lengthScale(api, model).scale
   return { scale: length * length, found: false }
 }
+
+/**
+ * 단위 하나를 SI 기본 단위의 배수로(OE-ZON-06 의 풍량). 길이·넓이와 달리 풍량은 대개 **유도 단위**(IfcDerivedUnit, 부피 ÷ 시간)라서
+ * 원소마다 배수를 지수만큼 곱한다. SI 단위의 접두사는 차원만큼 거듭제곱한다(밀리리터가 아니라 세제곱 밀리미터면 1e-9).
+ */
+function siScaleOfUnit(api: Api, model: number, expressID: number, depth = 0): number | null {
+  if (depth > 8) return null
+  const unit = api.GetLine(model, expressID)
+  if (!unit) return null
+  if (unit.type === WebIFC.IFCSIUNIT) {
+    const name = unwrap(unit.Name) as string
+    const dim = name === 'SQUARE_METRE' ? 2 : name === 'CUBIC_METRE' ? 3 : 1
+    const prefix = unwrap(unit.Prefix) as string | null
+    const p = prefix ? (SI_PREFIX[prefix] ?? null) : 1
+    return p === null ? null : p ** dim
+  }
+  if (unit.type === WebIFC.IFCCONVERSIONBASEDUNIT || unit.type === WebIFC.IFCCONVERSIONBASEDUNITWITHOFFSET) {
+    if (!unit.ConversionFactor) return null
+    const measure = api.GetLine(model, unit.ConversionFactor.value)
+    const factor = Number(unwrap(measure?.ValueComponent))
+    if (!Number.isFinite(factor)) return null
+    const base = measure?.UnitComponent ? siScaleOfUnit(api, model, measure.UnitComponent.value, depth + 1) : null
+    return base === null ? null : factor * base
+  }
+  if (unit.type === WebIFC.IFCDERIVEDUNIT) {
+    let scale = 1
+    for (const handle of unit.Elements ?? []) {
+      const element = api.GetLine(model, handle.value)
+      const exponent = Number(unwrap(element?.Exponent))
+      const base = element?.Unit ? siScaleOfUnit(api, model, element.Unit.value, depth + 1) : null
+      if (base === null || !Number.isFinite(exponent)) return null
+      scale *= base ** exponent
+    }
+    return scale
+  }
+  return null
+}
+
+/**
+ * 이 모델의 풍량 1 이 몇 m³/s 인지. `IfcProject.UnitsInContext` 의 `VOLUMETRICFLOWRATEUNIT` 을 본다. 못 찾으면 1 이다 — IFC 는 선언하지
+ * 않은 단위를 SI(m³/s)로 읽는다. 단위가 붙는 것은 `IfcVolumetricFlowRateMeasure` 로 적힌 값뿐이다(`IfcReal` 은 airflow.ts 의 flowToCmh).
+ */
+export function flowScale(api: Api, model: number): { scale: number; found: boolean } {
+  const projects = api.GetLineIDsWithType(model, WebIFC.IFCPROJECT, false)
+  for (let i = 0; i < projects.size(); i++) {
+    const project = api.GetLine(model, projects.get(i))
+    if (!project?.UnitsInContext) continue
+    const assignment = api.GetLine(model, project.UnitsInContext.value)
+    for (const handle of assignment?.Units ?? []) {
+      const unit = api.GetLine(model, handle.value)
+      if (unwrap(unit?.UnitType) !== 'VOLUMETRICFLOWRATEUNIT') continue
+      const scale = siScaleOfUnit(api, model, handle.value)
+      if (scale !== null && scale > 0) return { scale, found: true }
+    }
+  }
+  return { scale: 1, found: false }
+}

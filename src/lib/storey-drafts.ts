@@ -65,6 +65,9 @@ export function splitByStorey(file: EditFile, homeOf: HomeOf): Map<string, EditF
   for (const row of file.ceilings ?? []) push(part(row.storeyId), 'ceilings', row)
   for (const row of file.storeyNames ?? []) push(part(row.storeyId), 'storeyNames', row)
   for (const row of file.spaceObjects ?? []) push(part(row.storeyId), 'spaceObjects', row)
+  // 사람이 넣은 설계 풍량·정격 풍량(OE-ZON-06)은 그 방·설비의 층 조각이다. 연 때 없던 것(더한 방·설비)은 건물 조각으로 간다.
+  for (const row of file.spaceAirflows ?? []) push(part(homeOf(row.id)), 'spaceAirflows', row)
+  for (const row of file.ratedAirflows ?? []) push(part(homeOf(row.id)), 'ratedAirflows', row)
 
   // 층이 없는 편집 — 건물 조각
   const building = () => part(null)
@@ -101,7 +104,7 @@ export function joinParts(parts: Iterable<EditFile>, base: Pick<EditFile, 'forma
     'equipment', 'spaces', 'kinds', 'flows', 'confirmedSystems', 'confirmedFlows', 'systems', 'systemsAdded', 'systemsRemoved',
     'systemNames', 'equipmentAdded', 'equipmentRemoved', 'spacesAdded', 'spacesRemoved', 'walls', 'wallsAdded', 'wallsRemoved',
     'openings', 'openingsAdded', 'openingsRemoved', 'customZones', 'hvacZones', 'storeysDone', 'ceilings', 'storeyNames', 'rooms', 'spaceObjects', 'objectLibrary',
-    'verticals',
+    'verticals', 'spaceAirflows', 'ratedAirflows',
   ] as const
   for (const p of parts) {
     for (const key of lists) {

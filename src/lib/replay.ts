@@ -97,6 +97,8 @@ export function categoryOf(s: Snapshot): Category {
       return '설비 추가·삭제'
     case 'kinds':
       return '설비 종류'
+    case 'airflow':
+      return s.target === 'space' ? '물리존' : '설비 종류'
     case 'space':
     case 'storey-spaces':
     case 'storey-name':

@@ -27,10 +27,11 @@ import { polygonArea } from '../model'
 import { apply, compose, foldChain, foldElevation, fromAxisPlacement, type Transform2 } from './placement'
 import { assignEquipmentToSpaces } from '../mapping'
 import { dropDuplicateSpaces } from '../merge'
-import { areaScale, lengthScale } from './units'
+import { areaScale, flowScale, lengthScale } from './units'
 import { connectGaps, findGaps, REACH, inferConnections } from '../topology'
 import { equipmentKind, equipmentKindOf, FLUID_KINDS, omniclassCode, resolveEquipmentKind, resolveFluid, resolveRoomKind, systemKindOf, systemKindOfIfc } from '../kinds'
-import { CAPACITY_KINDS, capacityRank } from '../capacity'
+import { CAPACITY_KINDS, capacityQuantity, capacityRank } from '../capacity'
+import { flowToCmh, REVIT_SPACE_AIRFLOW, SPACE_AIRFLOW_PROPERTIES, SPACE_AIRFLOW_PSETS } from '../airflow'
 import { inferFlowByRules } from '../flow-rules'
 import { footprintRings, meshBottom, meshHeight, openingPlacement, spacesBesideOpening } from './element-geometry'
 import { emptyEvidence, pickCeiling, type CeilingEvidence } from '../ceiling'
@@ -325,7 +326,8 @@ function ref(attr: { value?: number } | null | undefined): number | null {
 type Api = InstanceType<typeof WebIFC.IfcAPI>
 
 /** 속성 줄에서 쓰는 값만. `measure` 는 용량이 읽는 값(범위면 설정값, 없으면 위 끝)이다. */
-type PropInfo = { name: string | undefined; nominal: unknown; measure: unknown }
+/** `measureType` 은 값의 IFC 타입 이름(`IFCVOLUMETRICFLOWRATEMEASURE`·`IFCREAL` …)이다. 단위가 붙는 값인지 가른다(airflow.ts 의 flowToCmh). */
+type PropInfo = { name: string | undefined; nominal: unknown; measure: unknown; measureType?: string }
 
 class Reader {
   constructor(
@@ -435,6 +437,7 @@ class Reader {
               nominal: val(line.NominalValue) as unknown,
               // 범위(IfcPropertyBoundedValue)는 설정값을, 없으면 위 끝을 쓴다(용량).
               measure: val(line.NominalValue ?? line.SetPointValue ?? line.UpperBoundValue) as unknown,
+              measureType: ((line.NominalValue ?? line.SetPointValue ?? line.UpperBoundValue) as { name?: string } | null)?.name,
             }
           : null
         this.propCache.set(h.value, prop)
@@ -558,6 +561,45 @@ class Reader {
     return new Map([...best].map(([id, { m2, property }]) => [id, { m2, property }]))
   }
 
+  /**
+   * 방마다 BIM 이 적은 설계 급기 풍량(CMH, R26·OE-ZON-06). 표준 자리는 `Pset_SpaceThermalDesign`(IFC2x3·IFC4)과
+   * `Pset_SpaceAirHandlingDimensioning`(IFC4.3)의 냉방·난방 두 값이다. 다른 자리로 Revit MEP 공간의 `Specified Supply Airflow` 를 읽는다
+   * (냉방·난방을 가르지 않는다). **0 이하는 비운 칸이다** — 병원 MEP 의 방 260개가 모두 0 이었다(Revit 이 넣지 않은 값을 0 으로 낸다).
+   * 둘 다 있으면 표준 자리가 앞선다.
+   */
+  spaceAirflows(scale: number): Map<number, NonNullable<Space['designAirflow']>> {
+    const spaces = new Set(this.ids(WebIFC.IFCSPACE))
+    const standard = new Map<number, NonNullable<Space['designAirflow']>>()
+    const revit = new Map<number, NonNullable<Space['designAirflow']>>()
+    for (const { objects, psetID } of this.propertyRels()) {
+      const targets = psetID === null ? [] : objects.filter((o) => spaces.has(o))
+      if (!targets.length) continue
+      const setName = (val(this.tryLine(psetID!)?.Name) as string) ?? ''
+      const isStandard = (SPACE_AIRFLOW_PSETS as readonly string[]).includes(setName)
+      const said: { cooling: number | null; heating: number | null; supply: number | null } = { cooling: null, heating: null, supply: null }
+      const names: string[] = []
+      for (const p of this.psetProps(psetID!)) {
+        const key =
+          isStandard && p.name === SPACE_AIRFLOW_PROPERTIES.cooling
+            ? 'cooling'
+            : isStandard && p.name === SPACE_AIRFLOW_PROPERTIES.heating
+              ? 'heating'
+              : p.name === REVIT_SPACE_AIRFLOW && /^PSet_Revit/i.test(setName)
+                ? 'supply'
+                : null
+        if (!key) continue
+        const cmh = flowToCmh(Number(p.measure), p.measureType, setName, scale)
+        if (cmh === null || cmh <= 0) continue
+        said[key] = cmh
+        names.push(p.name!)
+      }
+      if (!names.length) continue
+      const value = { ...said, source: 'bim' as const, property: `${setName}.${names.join('·')}` }
+      for (const id of targets) (isStandard ? standard : revit).set(id, value)
+    }
+    return new Map([...revit, ...standard])
+  }
+
   /** 수직으로 밀어 올린 형상(SweptSolid)의 깊이(미터). 없거나 기울었으면 null. */
   private extrusionDepth(entity: any): number | null {
     const reps = entity?.Representation ? this.line(entity.Representation.value)?.Representations : null
@@ -666,23 +708,26 @@ class Reader {
    * 모델에서 표준 Pset 이름은 한 건도 없었고, Duplex HVAC 은 Revit 이 붙인 `Flow` 로
    * 155건이 들어 있었다. 어느 이름이 쓰였는지 보이면 고객사와 스펙을 맞출 때 근거가 된다.
    */
-  capacityByElement(): Map<number, { value: number; property: string }> {
-    const out = new Map<number, { value: number; property: string }>()
+  capacityByElement(scale = 1): Map<number, { value: number; property: string; cmh: number | null; pset: string }> {
+    const out = new Map<number, { value: number; property: string; cmh: number | null; pset: string }>()
     // 목록에서 앞선 이름이 이긴다. 같은 이름이면 나중에 넣은 것(개체)이 타입을 덮는다 — IFC 에서 개체의 값이 타입의
     // 값보다 앞선다.
-    const offer = (objectID: number, value: number, property: string) => {
+    const offer = (objectID: number, entry: { value: number; property: string; cmh: number | null; pset: string }) => {
       const had = out.get(objectID)
-      if (had && capacityRank(had.property) < capacityRank(property)) return
-      out.set(objectID, { value, property })
+      if (had && capacityRank(had.property) < capacityRank(entry.property)) return
+      out.set(objectID, entry)
     }
     const read = (psetID: number, objectIDs: number[]) => {
+      const pset = (val(this.tryLine(psetID)?.Name) as string) ?? ''
       for (const prop of this.psetProps(psetID)) {
         const name = prop.name as string
         if (capacityRank(name) < 0) continue
         // 범위(IfcPropertyBoundedValue)는 설정값을, 없으면 위 끝을 쓴다. 표준의 AirFlowrateRange·FlowRateRange 가 범위다.
         const value = Number(prop.measure)
         if (!Number.isFinite(value)) continue
-        for (const id of objectIDs) offer(id, value, name)
+        // 풍량이면 CMH 로도 바꿔 둔다(OE-ZON-06). 단위를 모르면 null 이고 Z-03 은 "정격 풍량 없음" 이다.
+        const cmh = capacityQuantity(name) === 'airflow' ? flowToCmh(value, prop.measureType, pset, scale) : null
+        for (const id of objectIDs) offer(id, { value, property: name, cmh, pset })
       }
     }
 
@@ -1046,6 +1091,7 @@ function spaceOf(
   warnings: string[],
   omniclass: Map<number, { code: string; source: 'classification' | 'property' }>,
   bimAreas: Map<number, { m2: number; property: string }> = new Map(),
+  airflows: Map<number, NonNullable<Space['designAirflow']>> = new Map(),
 ): Space {
   const e = r.line(expressID)
   const id = (val(e?.GlobalId) as string) ?? `space-${expressID}`
@@ -1069,6 +1115,7 @@ function spaceOf(
     ...(omniclass.has(expressID) ? { omniclassSource: omniclass.get(expressID)!.source } : {}),
     ...roomKindFields((val(e?.Name) as string) ?? '', longName, omniclass.get(expressID)?.code ?? null),
     ...(bimAreas.has(expressID) ? { bimArea: bimAreas.get(expressID)! } : {}),
+    ...(airflows.has(expressID) ? { designAirflow: { ...airflows.get(expressID)! } } : {}),
   }
 }
 
@@ -1241,7 +1288,8 @@ function read(
     stage(1)
     const loadBearing = r.loadBearingByElement()
     const external = r.flagByElement('IsExternal')
-    const capacity = r.capacityByElement()
+    const flow = flowScale(api, model).scale
+    const capacity = r.capacityByElement(flow)
     const declaredTypeOf = r.declaredType(api)
     const omniclass = r.omniclassBySpace()
     const thickness = r.thicknessByElement()
@@ -1441,6 +1489,7 @@ function read(
     const declaredHeights = r.storeyHeights()
     const ceilingBySpace = r.ceilingBySpace()
     const bimAreas = r.spaceAreas(areaScale(api, model).scale)
+    const airflows = r.spaceAirflows(flow)
     // 층마다 반자 높이 근거(ceiling.ts). 천장재는 형상을 읽은 뒤에 아랫면을 잰다.
     const ceilingEvidence = new Map<string, CeilingEvidence>()
     const coveringsOf = new Map<string, number[]>()
@@ -1509,6 +1558,9 @@ function read(
               position: r.position3(el),
               capacity: capacity.get(elementID)?.value ?? null,
               capacityProperty: capacity.get(elementID)?.property ?? null,
+              ...(capacity.get(elementID)?.cmh
+                ? { ratedAirflow: { cmh: capacity.get(elementID)!.cmh!, source: 'bim' as const, property: `${capacity.get(elementID)!.pset}.${capacity.get(elementID)!.property}` } }
+                : {}),
               systemId: systemOfElement.get(elementID) ?? null,
               // BIM 이 소속을 말해 줬으면 그대로 쓴다. 아니면 좌표로 판정하는데, 그건
               // 층이 다 모인 뒤라야 돌 수 있어서 아래에서 채운다.
@@ -1525,7 +1577,7 @@ function read(
         elevation: ((val(e?.Elevation) as number) ?? 0) * scale,
         ...(declaredHeights.has(storeyID) ? { declaredHeight: declaredHeights.get(storeyID)! } : {}),
         spaces: (spacesByStorey.get(storeyID) ?? []).map((id) =>
-          spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass, bimAreas),
+          spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass, bimAreas, airflows),
         ),
         walls,
         openings,

@@ -800,6 +800,8 @@ export type Snapshot =
   | { kind: 'rooms'; storeyId: string; rooms: Room[] | undefined }
   /** 층 이름(storey-name.ts). 지금 이름과 BIM 이름(고친 적 없으면 undefined). */
   | { kind: 'storey-name'; storeyId: string; name: string; bimName: string | undefined }
+  /** 사람이 넣은 설계 풍량·정격 풍량(OE-ZON-06, airflow.ts). 물리존이나 설비 하나의 값이다. 공조존 값은 'hvac-zones' 가 함께 뜬다. */
+  | { kind: 'airflow'; target: 'space' | 'equipment'; id: string; value: Space['designAirflow'] | Equipment['ratedAirflow'] }
   /** 층의 추가 공간 오브젝트 전부(OE-OBJ-09). 놓기·지우기·옮기기·크기·이름을 같은 방식으로 되돌린다. */
   | { kind: 'space-objects'; storeyId: string; objects: SpaceObject[] | undefined }
   /** 모든 층의 수직 관통 오브젝트 조각(OE-ML-07·09). 여러 층에 걸친 옮기기·지우기를 한 번에 되돌린다(vertical-edit.ts). */
@@ -998,6 +1000,8 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
       return snapshotRooms(model, snapshot.storeyId)
     case 'storey-name':
       return snapshotStoreyName(model, snapshot.storeyId)
+    case 'airflow':
+      return snapshotAirflow(model, snapshot.target, snapshot.id)
     case 'space-objects':
       return snapshotSpaceObjects(model, snapshot.storeyId)
     case 'verticals':
@@ -1034,6 +1038,16 @@ export function snapshotOf(model: Model, snapshot: Snapshot): Snapshot | null {
 export function snapshotStoreyName(model: Model, storeyId: string): Snapshot | null {
   const storey = model.storeys.find((st) => st.id === storeyId)
   return storey ? { kind: 'storey-name', storeyId, name: storey.name, bimName: storey.bimName } : null
+}
+
+/** 물리존의 설계 풍량이나 설비의 정격 풍량 하나(OE-ZON-06). */
+export function snapshotAirflow(model: Model, target: 'space' | 'equipment', id: string): Snapshot | null {
+  if (target === 'space') {
+    const space = findSpace(model, id)
+    return space ? { kind: 'airflow', target, id, value: space.designAirflow ? { ...space.designAirflow } : undefined } : null
+  }
+  const e = findEquipment(model, id)
+  return e ? { kind: 'airflow', target, id, value: e.ratedAirflow ? { ...e.ratedAirflow } : undefined } : null
 }
 
 export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
@@ -1224,6 +1238,15 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       if (!storey) return null
       if (snapshot.rooms) storey.rooms = copyRoomList(snapshot.rooms)
       else delete storey.rooms
+      return null
+    }
+    case 'airflow': {
+      const target: { designAirflow?: unknown; ratedAirflow?: unknown } | null | undefined =
+        snapshot.target === 'space' ? findSpace(model, snapshot.id) : findEquipment(model, snapshot.id)
+      const key = snapshot.target === 'space' ? 'designAirflow' : 'ratedAirflow'
+      if (!target) return null
+      if (snapshot.value) target[key] = { ...snapshot.value }
+      else delete target[key]
       return null
     }
     case 'storey-name': {
@@ -1798,7 +1821,8 @@ function diffHvacZones(model: Model, baseline: Baseline): BaselineDiff['hvacZone
   const out: BaselineDiff['hvacZones'] = []
   const now = new Set<string>()
   const same = (a: HvacZone, b: HvacZone) =>
-    a.name === b.name && a.spaceIds.join(' ') === b.spaceIds.join(' ') && (a.servedBy ?? []).join(' ') === (b.servedBy ?? []).join(' ') && sameRings(a.footprint, b.footprint)
+    a.name === b.name && a.spaceIds.join(' ') === b.spaceIds.join(' ') && (a.servedBy ?? []).join(' ') === (b.servedBy ?? []).join(' ') && sameRings(a.footprint, b.footprint) &&
+    JSON.stringify(a.designAirflow ?? null) === JSON.stringify(b.designAirflow ?? null)
   for (const storey of model.storeys) {
     for (const z of storey.hvacZones ?? []) {
       now.add(z.id)
