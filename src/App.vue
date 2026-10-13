@@ -528,6 +528,7 @@ const changeCount = computed(
     sinceOpen.value.hvacZones.length +
     roomLines.value.length +
     objectLines.value.length +
+    bimObjectLines.value.length +
     sinceOpen.value.systemMoved.length +
     sinceOpen.value.systemKinds.length +
     sinceOpen.value.systemNames.length +
@@ -2855,10 +2856,13 @@ function removeSelectedVertical() {
 }
 
 // --- 추가 공간 오브젝트 (OE-OBJ-09 · OE-SPC-14 · OE-SPC-16 · OE-P3-08) ---------------------------------
-/** 리포트의 오브젝트 줄. 연 때는 없으니(임포트는 만들지 않는다) 있는 것이 전부 편집이다. */
+/**
+ * 리포트의 오브젝트 줄 — 사람이 놓은 것. BIM 에서 받은 가구·주변 모델(`source: 'bim'`)은 연 때 있던 것이라 편집이 아니다. 그것을 옮기거나
+ * 지운 것은 편집 파일의 `bimObjects` 로 세고(edit-file.ts), 리포트에는 `bimObjectLines` 로 따로 보인다.
+ */
 const objectLines = computed(() =>
   (model.value?.storeys ?? []).flatMap((st) =>
-    (st.spaceObjects ?? []).map((o) => ({
+    (st.spaceObjects ?? []).filter((o) => o.source !== 'bim').map((o) => ({
       id: o.id,
       name: o.name,
       storey: st.name,
@@ -2867,6 +2871,29 @@ const objectLines = computed(() =>
     })),
   ),
 )
+/** BIM 에서 받은 오브젝트 중 연 때와 달라진 것(옮김·크기·이름·종류·지움). 편집 파일의 `bimObjects` 와 같은 셈이다(edit-file.ts). */
+const bimObjectLines = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const was = baseline.value?.bimObjects
+  if (!m || !was) return []
+  const now = new Map(m.storeys.flatMap((st) => (st.spaceObjects ?? []).filter((o) => o.source === 'bim').map((o) => [o.id, o] as const)))
+  const out: { id: string; name: string; what: string }[] = []
+  for (const [id, w] of was) {
+    const o = now.get(id)
+    if (!o) out.push({ id, name: w.name, what: '지움' })
+    else {
+      const what = [
+        o.at[0] !== w.at[0] || o.at[1] !== w.at[1] ? '옮김' : '',
+        o.size.some((v, k) => v !== w.size[k]) ? '크기' : '',
+        o.name !== w.name ? '이름' : '',
+        o.item !== w.item ? '종류' : '',
+      ].filter(Boolean)
+      if (what.length) out.push({ id, name: o.name, what: what.join('·') })
+    }
+  }
+  return out
+})
 const selectedObjectId = ref<string | null>(null)
 const selectedObject = computed(() => {
   const m = model.value
@@ -13718,6 +13745,7 @@ function rollbackFromReport() {
             <li v-for="r in objectLines" :key="`object-${r.id}`">
               오브젝트 <b>{{ r.name }}</b> ({{ r.storey }} · {{ r.item }}, {{ r.size }} m) — 편집 파일에만 남습니다
             </li>
+            <li v-for="r in bimObjectLines" :key="`bim-object-${r.id}`">BIM 오브젝트 {{ r.name }} — {{ r.what }}</li>
             <li v-for="r in sinceOpen.customZones" :key="`cz-${r.id}`">
               커스텀존 <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }} {{ r.change === 'added' ? '만들었습니다' : r.change === 'removed' ? '지웠습니다' : '고쳤습니다' }}
               (TTL brick:Zone · GeoJSON)

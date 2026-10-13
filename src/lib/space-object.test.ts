@@ -153,3 +153,83 @@ describe('편집 파일', () => {
     expect(fresh.objectLibrary).toEqual(file.objectLibrary)
   })
 })
+
+// BIM 에서 받은 오브젝트(가구·주변 모델, ADR-0016 "BIM 에서 받는 오브젝트"). 임포트가 `source: 'bim'` 으로 만든다.
+describe('BIM 에서 받은 오브젝트', () => {
+  const bim = (id: string, at: [number, number], size: [number, number, number], item = 'chair', base?: number): SpaceObject => ({
+    id,
+    name: id,
+    item,
+    at,
+    size,
+    ...(base ? { base } : {}),
+    source: 'bim',
+  })
+  const withBim = (): Model => {
+    const m = model()
+    m.storeys[0].spaceObjects = [bim('CHAIR', [2, 2], [0.5, 0.5, 0.9]), bim('DESK', [2, 2.2], [1.2, 0.7, 0.72], 'desk'), bim('HILL', [50, 50], [80, 60, 4], 'terrain', -3)]
+    return m
+  }
+
+  it('이름으로 항목을 고른다 — 성수 10층 인테리어·조경의 이름', async () => {
+    const { contextItem, furnitureItem } = await import('./object-names')
+    expect(furnitureItem('인테리어_회의실 의자:인테리어_회의실 의자')).toBe('chair')
+    expect(furnitureItem('인테리어_회의실 책상:인테리어_사무실_회의책상')).toBe('meeting-table')
+    expect(furnitureItem('인테리어_업무시설_책상')).toBe('desk')
+    expect(furnitureItem('인테리어_업무시설2_캐비넷')).toBe('cabinet')
+    expect(furnitureItem('인테리어_메인거실_대형소파_코너')).toBe('sofa')
+    expect(furnitureItem('인테리어_회의실_TV')).toBe('tv')
+    expect(furnitureItem('인테리어_복사기')).toBe('office-machine')
+    expect(furnitureItem('인테리어_소변기')).toBe('sanitary')
+    expect(furnitureItem('알 수 없는 것')).toBe('furniture')
+    expect(contextItem('지형 솔리드:보도블럭')).toBe('terrain')
+    expect(contextItem('스테이지73:스테이지35')).toBe('stage')
+    expect(contextItem('하나은행:하나은행')).toBe('context-building')
+  })
+
+  it('BIM 것끼리는 겹쳐도 옮길 수 있고, 사람이 놓는 것은 BIM 것과 겹치면 막는다. 20m 넘는 주변 모델도 크기를 고칠 수 있다', () => {
+    const m = withBim()
+    // 의자는 책상 밑에 있다(BIM 그대로). 조금 옮겨도 책상과 겹친 채 된다.
+    expect(moveSpaceObject(m, 'CHAIR', [0.1, 0])).toBe(true)
+    expect(addSpaceObject(m, 's1', 'desk', [2, 2])).toMatchObject({ refused: expect.stringContaining('겹칠 수 없습니다') })
+    expect(resizeSpaceObject(m, 'HILL', [90, 60, 4])).toBe(true)
+  })
+
+  it('편집 파일은 연 때와 달라진 BIM 오브젝트만 적는다 — 손대지 않으면 0건, 옮김·지움만 남고 다시 열면 같은 자리다', () => {
+    const m = withBim()
+    const base = baselineOf(m)
+    expect(exportEdits(m, base, 'x.ifc').bimObjects).toBeUndefined()
+    expect(exportEdits(m, base, 'x.ifc').spaceObjects).toBeUndefined()
+    moveSpaceObject(m, 'CHAIR', [1, 0])
+    deleteSpaceObject(m, 'DESK')
+    const mine = made(addSpaceObject(m, 's1', 'plant', [10, 10]))
+    const file = exportEdits(m, base, 'x.ifc')
+    expect(file.bimObjects).toEqual([
+      { id: 'CHAIR', storeyId: 's1', at: [3, 2] },
+      { id: 'DESK', storeyId: 's1', removed: true },
+    ])
+    // 사람이 놓은 것만 끝 목록으로 남는다.
+    expect(file.spaceObjects).toEqual([{ storeyId: 's1', objects: [mine] }])
+    expect(splitByStorey(file, () => null).get('s1')?.bimObjects).toEqual(file.bimObjects)
+    const fresh = withBim()
+    applyEdits(fresh, file)
+    expect(fresh.storeys[0].spaceObjects?.map((o) => [o.id, o.at])).toEqual([['CHAIR', [3, 2]], ['HILL', [50, 50]], [mine.id, [10, 10]]])
+    // 다시 얹어도 지운 책상이 돌아오지 않는다.
+    expect(fresh.storeys[0].spaceObjects?.some((o) => o.id === 'DESK')).toBe(false)
+  })
+})
+
+describe('합치기', () => {
+  it('맞춘 층에도 덧붙인 파일의 오브젝트가 얹힌다 — 전에는 말없이 버려져 10층 인테리어의 가구가 건축 10F 에 붙지 않았다', async () => {
+    const { mergeModels } = await import('./merge')
+    const arch = model()
+    const interior = model()
+    interior.buildingId = 'interior'
+    interior.storeys[1].spaceObjects = [{ id: 'G1', name: '의자', item: 'chair', at: [1, 1], size: [0.5, 0.5, 0.9], source: 'bim' }]
+    const { model: merged } = mergeModels(arch, interior)
+    expect(merged.storeys.find((s) => s.name === '2F')?.spaceObjects?.map((o) => o.id)).toEqual(['G1'])
+    // 같은 파일을 한 번 더 덧붙여도 두 번 들어가지 않는다.
+    const { model: again } = mergeModels(merged, interior)
+    expect(again.storeys.find((s) => s.name === '2F')?.spaceObjects?.length).toBe(1)
+  })
+})

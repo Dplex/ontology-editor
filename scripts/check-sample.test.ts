@@ -2484,8 +2484,8 @@ describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every(
       } else expect(f.id, kind).toMatch(/^[0-9A-Za-z_$]{22}$/)
       if (kind === 'space' || kind === 'equipment') expect(keys.has(f.id), f.id).toBe(true)
     }
-    // 계단 2개가 1·2층에 조각 하나씩이다.
-    expect(Object.fromEntries(kinds)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14, vertical: 4 })
+    // 계단 2개가 1·2층에 조각 하나씩이다. 가구 61개는 추가 공간 오브젝트이고 id 는 BIM 의 GlobalId 그대로다.
+    expect(Object.fromEntries(kinds)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14, vertical: 4, spaceObject: 61 })
 
     // S4: 소속의 출처. BIM 이 말한 소속(합칠 때 같은 자리의 방으로 옮겨 적은 것)은 bim, 나머지는 calc.
     const src = features.filter((f) => f.properties.kind === 'equipment' && f.properties.spaceId).map((f) => f.properties.spaceSource)

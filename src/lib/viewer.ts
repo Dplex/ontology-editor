@@ -64,6 +64,7 @@ import { alongOf, cutWall, openingRect, type OpeningCut } from './opening-cut'
 import { createReplayFx, type ReplayViewerApi } from './replay-viewer'
 import { createNavCube } from './nav-cube'
 import { type LibraryItem, type ObjectMaterial } from './space-object'
+import { CONTEXT_ITEMS } from './object-names'
 import { partId } from './vertical-object'
 
 /**
@@ -177,6 +178,11 @@ const OBJECT_COLORS: Record<ObjectMaterial, number> = {
   board: 0xf4f5f7,
   pot: 0x9c6b4e,
   leaf: 0x5f9e5a,
+  screen: 0x2b2f36,
+  ceramic: 0xf1f2f4,
+  // 주변 건물 매스·지형(조경 파일). 건물보다 흐리게 — 맥락이지 고칠 대상이 아니다.
+  mass: 0xd7dbe2,
+  ground: 0xc8c2a8,
 }
 /** 넣은 모델을 못 읽었을 때(아직 읽는 중이거나 깨진 파일) 그리는 상자 색. */
 const OBJECT_FALLBACK = 0xa7adb7
@@ -1133,6 +1139,17 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
 
   /**
+   * 벽·문·창 편집 층이 켜져 있을 때 광선이 그린 벽·문·창에 처음 닿는 거리(제곱). 꺼져 있거나 안 닿으면 Infinity.
+   * 오브젝트와 견준다 — 벽 앞에 붙은 BIM 가구(하부장·조리대) 상자가 벽 윗면을 누른 광선에도 닿아, 견주지 않으면 벽을 고를 수 없었다.
+   */
+  function archDistance(ray: Ray): number {
+    if (!archTargets.length) return Infinity
+    raycaster.ray.copy(ray)
+    const hit = raycaster.intersectObjects(arch.children.filter((o) => o.visible && o instanceof Mesh), false)[0]
+    return hit ? hit.point.distanceToSquared(ray.origin) : Infinity
+  }
+
+  /**
    * 광선이 닿는 벽·문·창. 세워 그린 벽의 옆면·윗면을 누르는 것이 보통이라 그린 형상에 먼저 쏘고, 맞은 자리의 평면
    * 좌표로 어느 것인지 가린다. 문·창이 벽보다 먼저다(문은 벽 안에 있다). 형상에 안 맞으면 바닥 평면에서 잰다.
    */
@@ -1579,9 +1596,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const ray = rayAt(e.clientX, e.clientY)
     const additive = editMode && isMultiSelect(e)
     const id = pick(ray, additive)
-    // 오브젝트(OE-OBJ-09)가 설비보다 앞에 있으면 오브젝트다. 책상 위로 보이는 천장 조명을 누르면 조명이다.
+    // 오브젝트(OE-OBJ-09)가 설비·벽·문·창보다 앞에 있으면 오브젝트다. 책상 위로 보이는 천장 조명을 누르면 조명이다.
     const object = !additive ? pickObject(ray) : null
-    if (object && (!id || object.d < pickDistance(ray, id))) {
+    if (object && (!id || object.d < pickDistance(ray, id)) && object.d < archDistance(ray)) {
       objectPickHandler(object.target.id)
       return
     }
@@ -1719,9 +1736,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
     const ray = rayAt(x, y)
     const id = pick(ray)
-    // 누르기와 같게, 설비보다 앞에 있는 오브젝트만 오브젝트다.
+    // 누르기와 같게, 설비·벽·문·창보다 앞에 있는 오브젝트만 오브젝트다.
     const object = pickObject(ray)
-    if (object && (!id || object.d < pickDistance(ray, id))) {
+    if (object && (!id || object.d < pickDistance(ray, id)) && object.d < archDistance(ray)) {
       canvas.style.cursor = editMode && object.target.id === selectedObject ? 'grab' : 'pointer'
       hoverHandler(null, null)
       return
@@ -3582,7 +3599,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         for (const o of storey.spaceObjects ?? []) {
           const [w, d, h] = o.size
           const node = new Group()
-          node.position.set(o.at[0], storey.elevation, -o.at[1])
+          // BIM 에서 받은 상부장·지하 지형처럼 바닥에 서지 않는 것은 `base` 만큼 띄운다.
+          node.position.set(o.at[0], storey.elevation + (o.base ?? 0), -o.at[1])
           node.userData.storeyId = storey.id
           const item = library(o.item)
           const tint = o.id === conflict ? OBJECT_CONFLICT : null
@@ -3610,7 +3628,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
             for (const p of parts) {
               const [x0, y0, z0, x1, y1, z1] = p.box
               const g = new BoxGeometry((x1 - x0) * w, (z1 - z0) * h, (y1 - y0) * d)
-              const mesh = new Mesh(g, new MeshLambertMaterial({ color: tint ?? (item ? OBJECT_COLORS[p.material] : OBJECT_FALLBACK) }))
+              const context = CONTEXT_ITEMS.has(o.item)
+              const mesh = new Mesh(g, new MeshLambertMaterial({ color: tint ?? (item ? OBJECT_COLORS[p.material] : OBJECT_FALLBACK), ...(context ? { transparent: true, opacity: 0.28, depthWrite: false } : {}) }))
               mesh.position.set(((x0 + x1) / 2 - 0.5) * w, ((z0 + z1) / 2) * h, -((y0 + y1) / 2 - 0.5) * d)
               node.add(mesh)
             }
@@ -3622,7 +3641,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
             node.add(edges)
           }
           spaceObjects.add(node)
-          const box = new Box3(new Vector3(o.at[0] - w / 2, storey.elevation, -o.at[1] - d / 2), new Vector3(o.at[0] + w / 2, storey.elevation + h, -o.at[1] + d / 2))
+          // 주변 모델(object-names.ts 의 CONTEXT_ITEMS)은 눌러도 고르지 않는다 — 바닥·설비를 가린다.
+          if (CONTEXT_ITEMS.has(o.item)) continue
+          const z0 = storey.elevation + (o.base ?? 0)
+          const box = new Box3(new Vector3(o.at[0] - w / 2, z0, -o.at[1] - d / 2), new Vector3(o.at[0] + w / 2, z0 + h, -o.at[1] + d / 2))
           objectTargets.push({ id: o.id, storeyId: storey.id, box, node })
         }
       }

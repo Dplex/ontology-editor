@@ -278,6 +278,9 @@ function spaceObjectFeature(object: SpaceObject, storey: Storey, itemNames: Read
       itemName: itemNames.get(object.item) ?? null,
       size: [w, d, h],
       height: h,
+      // 바닥에서 뜬 높이와 출처. BIM 에서 받은 가구·주변 모델은 `source: "bim"`(id 는 GlobalId), 사람이 놓은 것은 `edit` 이다.
+      base: object.base ?? 0,
+      source: object.source ?? 'edit',
     },
   }
 }

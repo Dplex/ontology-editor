@@ -38,6 +38,8 @@ import { emptyEvidence, pickCeiling, type CeilingEvidence } from '../ceiling'
 import { storeyHeights } from '../storey-height'
 import { segmentAxisOf } from '../conduit-mesh'
 import { stairParts } from '../vertical-object'
+import { contextItem, furnitureItem } from '../object-names'
+import { meshBox } from '../overlap'
 
 /**
  * 요소 하나의 삼각형 메시. 3D 화면만 쓴다 — 모델과 내보내기에는 들어가지 않는다.
@@ -1342,7 +1344,12 @@ function read(
     // (성수 건축 Proxy 339개 중 240개). 설비 루버(외기·배기)는 덕트에 포트로 붙어 있거나 IFC 클래스(IfcAirTerminal LOUVRE)가 말하므로
     // 여기서 빼도 그대로 들어온다. 제외 낱말을 늘리지 않고 "이름만으로 받는 종류" 에서 외부 루버를 뺀다. 뺀 수는 `louvers` 로 센다.
     const ported = r.portOwners()
-    const proxies = { total: 0, ported: 0, named: 0, louvers: 0, skipped: [] as string[] }
+    const proxies = { total: 0, ported: 0, named: 0, louvers: 0, skipped: [] as string[], context: 0 }
+    // **방도 포트도 없는 파일의 Proxy 는 주변 모델이다**(2026-10-13, 성수 조경 파일: 스테이지·지형·주변 건물 매스 131개). 버리지 않고
+    // 추가 공간 오브젝트(주변 건물·지형·스테이지)로 받는다 — 형상을 읽는 임포트에서만(상자를 형상에서 잰다). 방이 있는 건축 파일의 남은
+    // Proxy(캐노피·단열 모서리)와 포트가 있는 설비 파일의 남은 Proxy(MCC·발전기)는 지금처럼 읽지 않는다.
+    const contextFile = withMeshes && r.ids(WebIFC.IFCSPACE).length === 0 && ported.size === 0
+    const contextProxies = new Set<number>()
     for (const id of r.ids(WebIFC.IFCBUILDINGELEMENTPROXY)) {
       const el = r.line(id)
       const name = (val(el?.Name) as string) ?? ''
@@ -1353,7 +1360,11 @@ function read(
         proxies.louvers++
         continue
       } else if (info) proxies.named++
-      else {
+      else if (contextFile) {
+        proxies.context++
+        contextProxies.add(id)
+        continue
+      } else {
         // 읽지 않은 것의 이름 예. Revit 이름은 `패밀리:유형:요소ID` 라 요소 ID 를 떼어 같은 패밀리를 한 번만 적는다.
         const family = name.replace(/:\d+$/, '').trim() || '(이름 없음)'
         if (proxies.skipped.length < 5 && !proxies.skipped.includes(family)) proxies.skipped.push(family)
@@ -1493,6 +1504,8 @@ function read(
     // 층마다 반자 높이 근거(ceiling.ts). 천장재는 형상을 읽은 뒤에 아랫면을 잰다.
     const ceilingEvidence = new Map<string, CeilingEvidence>()
     const coveringsOf = new Map<string, number[]>()
+    /** 층 GlobalId → BIM 에서 받을 추가 공간 오브젝트(가구·주변 모델). 형상을 읽은 뒤 상자를 잰다(space-object.ts). */
+    const bimObjectsOf = new Map<string, { expressID: number; id: string; name: string; item: string }[]>()
     /** 층 GlobalId → 그 층에 속한 계단(IfcStair). 형상을 읽은 뒤 수직 관통 오브젝트로 만든다(OE-ML-02). */
     const stairsOf = new Map<string, { expressID: number; id: string; name: string }[]>()
     const storeys: Storey[] = r.ids(WebIFC.IFCBUILDINGSTOREY).map((storeyID) => {
@@ -1538,7 +1551,17 @@ function read(
           case WebIFC.IFCSTAIR:
             stairsOf.set(storeyGlobalID, [...(stairsOf.get(storeyGlobalID) ?? []), { expressID: elementID, id, name }])
             break
+          // 가구(성수 10층 인테리어 314개). 형상을 읽는 임포트에서만 추가 공간 오브젝트가 된다.
+          case WebIFC.IFCFURNISHINGELEMENT:
+          case WebIFC.IFCFURNITURE:
+          case WebIFC.IFCSYSTEMFURNITUREELEMENT:
+            if (withMeshes) bimObjectsOf.set(storeyGlobalID, [...(bimObjectsOf.get(storeyGlobalID) ?? []), { expressID: elementID, id, name, item: furnitureItem(name) }])
+            break
           default:
+            if (contextProxies.has(elementID)) {
+              bimObjectsOf.set(storeyGlobalID, [...(bimObjectsOf.get(storeyGlobalID) ?? []), { expressID: elementID, id, name, item: contextItem(name) }])
+              break
+            }
             if (!mepIDs.has(elementID)) break
             {
             // GetNameFromTypeCode 는 'IfcAirTerminal' 을 준다. 앞의 Ifc 만 뗀다.
@@ -1651,7 +1674,7 @@ function read(
         // IfcMapConversion 은 IFC4 부터 있다. IFC2x3 에서는 늘 0 이다.
         mapConversion: r.ids(WebIFC.IFCMAPCONVERSION).length > 0,
         siteLatLong: r.ids(WebIFC.IFCSITE).some((id) => (r.line(id)?.RefLatitude?.length ?? 0) > 0),
-        ...(proxies.total ? { proxies } : {}),
+        ...(proxies.total ? { proxies: (({ context, ...rest }) => (context ? { ...rest, context } : rest))(proxies) } : {}),
       },
     }
 
@@ -1769,12 +1792,13 @@ function read(
     // 읽은 것과 읽지 않은 것을 같이 센다(OE-BIM-13). 읽은 수만 말하면 빠뜨린 설비가 없는지 볼 길이 없다.
     if (proxies.total > 0) {
       const read = proxies.ported + proxies.named
-      const left = proxies.total - read
+      const left = proxies.total - read - proxies.context
       warnings.push(
         `Proxy(IfcBuildingElementProxy) ${proxies.total}개 중 ${read}개를 설비로 읽었습니다` +
           (read ? `(포트가 있는 것 ${proxies.ported}개, 이름으로 종류를 정한 것 ${proxies.named}개). IFC 클래스가 없어 종류는 이름으로 추정했습니다` : '') +
           (proxies.louvers ? `. 이름이 루버이지만 포트가 없는 ${proxies.louvers}개는 건축 루버(차양·외장 마감)로 보고 설비로 받지 않았습니다` : '') +
           (left - proxies.louvers ? `. 나머지 ${left - proxies.louvers}개는 포트도 없고 이름도 사전에 없어 건축 부재로 보고 읽지 않았습니다(예: ${proxies.skipped.join(', ')})` : '') +
+          (proxies.context ? `. 방도 포트도 없는 파일이라 ${proxies.context}개를 주변 모델로 보고 추가 공간 오브젝트(주변 건물·지형·스테이지)로 받았습니다. GeoJSON 에만 나갑니다` : '') +
           '(요구사항 R23).',
       )
     }
@@ -1840,6 +1864,39 @@ function read(
         }
       }
       if (flat) warnings.push(`계단 ${stairs.length}개 중 ${flat}개는 다른 층에 닿지 않아(한 층 안의 몇 계단이거나 형상이 없음) 수직 관통 오브젝트로 만들지 않았습니다.`)
+    }
+    // BIM 의 가구·주변 모델(space-object.ts). 형상에서 축 정렬 상자를 재 추가 공간 오브젝트로 둔다. 형상은 재고 버린다(3D 는 항목 모델로 그린다).
+    if (withMeshes && bimObjectsOf.size) {
+      const all = [...bimObjectsOf.values()].flat()
+      const objMeshes = readMeshes(api, model, new Set(all.map((o) => o.expressID)), globalIdOf)
+      let noShape = 0
+      for (const storey of result.storeys) {
+        for (const o of bimObjectsOf.get(storey.id) ?? []) {
+          const mesh = objMeshes.get(o.id)
+          const box = mesh ? meshBox(mesh) : null
+          if (!box) {
+            noShape++
+            continue
+          }
+          const cm2 = (v: number) => Math.round(v * 100) / 100
+          const size: Vec3 = [0, 1, 2].map((k) => Math.max(0.05, cm2(box.max[k] - box.min[k]))) as unknown as Vec3
+          const base = cm2(box.min[2] - storey.elevation)
+          storey.spaceObjects = [
+            ...(storey.spaceObjects ?? []),
+            {
+              id: o.id,
+              // Revit 이름은 `패밀리:유형:요소ID` 다. 요소 ID 는 뗀다.
+              name: o.name.replace(/:\d+$/, '').trim() || o.item,
+              item: o.item,
+              at: [cm2((box.min[0] + box.max[0]) / 2), cm2((box.min[1] + box.max[1]) / 2)],
+              size,
+              ...(Math.abs(base) >= 0.02 ? { base } : {}),
+              source: 'bim' as const,
+            },
+          ]
+        }
+      }
+      if (noShape) warnings.push(`가구·주변 모델 ${noShape}개는 형상이 없어 추가 공간 오브젝트로 받지 못했습니다.`)
     }
     const heights = storeyHeights(result.storeys)
     for (const storey of result.storeys) {
