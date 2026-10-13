@@ -11,6 +11,7 @@ import { importIfcWithMeshes } from '../../src/lib/ifc/import'
 import { mergeModels } from '../../src/lib/merge'
 import { familyKeyOf, familyNameOf } from '../../src/lib/edit'
 import { newEquipmentText } from '../../src/lib/laya'
+import { candidateText, equipmentText, LIMIT, systemCandidates } from '../../src/lib/system-suggest'
 import { clueText, familyClues } from '../../src/lib/family-clues'
 import { EQUIPMENT_KINDS, ROOM_KINDS, SYSTEM_KINDS, equipmentKind, resolveEquipmentKind, roomKind, systemKind } from '../../src/lib/kinds'
 import { hiddenSuggestions, suggestByName } from '../../src/lib/kind-suggest'
@@ -95,6 +96,40 @@ function adds(model: Model, building: string) {
   }))
 }
 
+/**
+ * 계통 후보(system-suggest.ts). BIM 이 계통을 말한 설비마다, 그 설비에 이어진 구성원을 빼고 후보를 모아 정답 계통이 몇 번째인지 적는다.
+ * 정답이 후보에 없으면(반경 밖) 센다. 설비가 많은 건물(성수 4천여 대)은 `PER_BUILDING` 줄만 고른다(씨앗 고정).
+ */
+const PER_BUILDING = 400
+function systemPicks(model: Model, building: string) {
+  const adjacent = new Map<string, Set<string>>()
+  for (const c of model.connections) {
+    adjacent.set(c.from, (adjacent.get(c.from) ?? new Set()).add(c.to))
+    adjacent.set(c.to, (adjacent.get(c.to) ?? new Set()).add(c.from))
+  }
+  const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role) && e.systemId && e.position)
+  // 씨앗 고정 섞기(mulberry32).
+  let seed = 20261013
+  const rand = () => ((seed = (seed + 0x6d2b79f5) | 0), (((seed ^ (seed >>> 15)) * (1 | seed)) >>> 0) / 4294967296)
+  const order = devices.map((e) => [rand(), e] as const).sort((a, b) => a[0] - b[0]).map(([, e]) => e)
+  const rows: unknown[] = []
+  let outside = 0
+  for (const e of order) {
+    if (rows.length >= PER_BUILDING) break
+    const cands = systemCandidates(model, e.id, LIMIT, adjacent.get(e.id) ?? new Set())
+    const gold = cands.findIndex((c) => c.system.id === e.systemId)
+    if (gold < 0) {
+      outside++
+      continue
+    }
+    const hide = rows.length % 2 === 1
+    // 한 설비가 계통 여럿에 들기도 한다(전열교환기는 급기·환기). 든 계통이면 다 맞은 것으로 센다. 학습 정답은 systemId 하나다.
+    const golds = cands.flatMap((c, i) => (c.system.memberIds.includes(e.id) ? [i] : []))
+    rows.push({ building, id: e.id, state: equipmentText(model, e.id, hide)!, kindHidden: hide, options: cands.map(candidateText), distances: cands.map((c) => +c.distance.toFixed(2)), gold, golds, n: cands.length })
+  }
+  return { rows, outside, devices: devices.length }
+}
+
 function rooms(model: Model, building: string) {
   return model.storeys.flatMap((st) =>
     st.spaces.map((sp) => ({
@@ -135,6 +170,9 @@ describe('Laya 재료 뽑기', () => {
       write('rooms', rooms(model!, building))
       write('systems', systemRows(model!, building))
       write('adds', adds(model!, building))
+      const picks = systemPicks(model!, building)
+      write('picks', picks.rows)
+      console.log(building, 'picks', picks.rows.length, 'outside', picks.outside, 'devices', picks.devices)
       console.log(building, 'families', fam.length, 'known', fam.filter((f) => f.kind).length, 'bim', fam.filter((f) => f.kindSource === 'bim').length)
     }, 900_000)
   }

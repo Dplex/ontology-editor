@@ -4601,3 +4601,8 @@ button.done::after {
   color: var(--warn-fg);
   font-weight: 600;
 }
+
+/* 계통 후보(ADR-0057). 계통 상자 바로 아래 한 줄. */
+.system-suggest button {
+  margin-left: 0.35rem;
+}
