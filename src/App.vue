@@ -10174,19 +10174,6 @@ function rollbackFromReport() {
         <section :class="['viewport', { theater: replayOpen }]">
           <div class="canvas-wrap">
             <canvas v-show="activeTab === '3d'" ref="canvas"></canvas>
-            <!-- 방향 큐브(nav-cube.ts)와 비행 모드. 면·모서리·꼭짓점을 누르면 그 방향에서 보고, 끌면 돈다. 3D 일 때만, 리플레이 극장에서는 뺀다. -->
-            <div v-if="model && activeTab === '3d' && !replayOpen" class="nav-cube" data-testid="nav-cube">
-              <canvas ref="cubeCanvas" aria-label="방향 큐브 — 면을 누르면 그 방향에서 보고, 끌면 돕니다"></canvas>
-              <button
-                type="button"
-                :class="['ghost', 'fly-toggle', { on: flying }]"
-                :aria-pressed="flying"
-                title="비행 모드 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게"
-                @click="setFlying(!flying)"
-              >
-                비행 <kbd>G</kbd>
-              </button>
-            </div>
             <p v-if="flying" class="fly-badge" role="status" data-testid="fly-badge">
               <b>비행 모드</b> · WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게 · <kbd>G</kbd>·<kbd>Esc</kbd> 나가기
             </p>
@@ -10259,33 +10246,6 @@ function rollbackFromReport() {
                 </label>
               </details>
             </aside>
-            <!-- 걸러 보는 중임을 3D 위에 늘 보인다(패널을 닫아도). 안 보이는 것을 없는 것으로 오해하지 않게. -->
-            <p v-if="(filterOn || exploded) && !filterOpen && activeTab === '3d'" class="filter-chip" role="status" data-testid="filter-chip">
-              <b>보기 필터</b> {{ exploded ? '분해도 · ' : '' }}{{ filterText || '전부' }} · 화면에서만
-              <button type="button" class="link" @click="filterOpen = true">고치기</button>
-              <button type="button" class="link" @click="clearViewFilter">모두 보이기</button>
-            </p>
-            <!-- 층별 칩. 위층이 위. 누르면 그 층만 보고, 다시 누르면 전체. 다중층 뷰·리플레이에서는 뺀다. -->
-            <nav v-if="storeyChips.length && activeTab === '3d' && !replayOpen && !multiView" class="storey-chips" aria-label="층별 손볼 것" data-testid="storey-chips">
-              <div ref="storeyChipList" class="sc-list">
-              <button
-                v-for="c in storeyChips"
-                :key="c.id"
-                type="button"
-                :class="{ on: viewStorey === c.id, clean: !c.unplaced && !c.noSpace && !c.failed }"
-                :aria-pressed="viewStorey === c.id"
-                :title="`${c.name} — 미배치 ${c.unplaced} · 소속 없음 ${c.noSpace} · 그 밖의 검사 위반 ${c.failed}. 누르면 이 층만 봅니다`"
-                @click="pickStoreyChip(c.id)"
-              >
-                <span class="sc-name">{{ c.name }}</span>
-                <span v-if="c.unplaced" class="sc-n unplaced" title="미배치">{{ c.unplaced }}</span>
-                <span v-if="c.noSpace" class="sc-n nospace" title="소속 없음">{{ c.noSpace }}</span>
-                <span v-if="c.failed" class="sc-n failed" title="검사 위반">{{ c.failed }}</span>
-                <span v-if="!c.unplaced && !c.noSpace && !c.failed" class="sc-ok" aria-label="손볼 것 없음">✓</span>
-              </button>
-              </div>
-              <p class="sc-key"><i class="unplaced"></i>미배치 <i class="nospace"></i>소속 없음 <i class="failed"></i>위반</p>
-            </nav>
             <!-- 성능 표(개발용, ` 키). 3D 는 바뀔 때만 그려서 가만히 있으면 그린 장수가 0 이다. -->
             <dl v-if="perfOn && perfStats" class="perf-hud" data-testid="perf-hud">
               <div><dt>그린 장수/초</dt><dd>{{ perfStats.fps }}</dd></div>
@@ -10542,110 +10502,156 @@ function rollbackFromReport() {
             <p v-if="activeTab === '3d' && !multiView" class="view-controls-hint" aria-label="시점 조작 안내">
               드래그: 이동 · Shift/우클릭 드래그: 회전 · {{ editing ? 'Ctrl+드래그: 여러 개 고르기 · ' : '' }}휠: 확대
             </p>
-            <div class="view-tools">
-              <!-- 보기 ↔ 편집, 단축키 안내. 위 도구막대와 같은 일이라 전체 화면(도구막대가 안 보인다)에서만 둔다.
-                   평소에도 두었더니 같은 스위치가 한 화면에 둘이었다. -->
-              <label v-if="fullscreen" class="edit-toggle" title="켜면 3D에서 설비와 물리존 꼭짓점을 옮기고 연결 방향을 정할 수 있습니다.">
-                <input
-                  type="checkbox"
-                  :checked="editing"
-                  @change="onEditToggle($event.target as HTMLInputElement)"
-                />
-                편집
-              </label>
-              <button
-                v-if="drawnWalls"
-                type="button"
-                :class="['ghost', 'walls-toggle', { on: showWalls }]"
-                :aria-pressed="showWalls"
-                @click="showWalls = !showWalls"
-              >
-                벽
-              </button>
-              <!-- 공조존(IDF) 외곽선. IDF 를 열거나 덧붙였을 때만. -->
-              <button
-                v-if="model.hvac?.zones.length"
-                type="button"
-                :class="['ghost', { on: showZones }]"
-                :aria-pressed="showZones"
-                title="IDF 공조존의 바닥 외곽선"
-                @click="showZones = !showZones"
-              >
-                공조존
-              </button>
-              <!-- 보기 필터(ui-notes 보기 필터). 층 여러 개·Brick 클래스·계통으로 거르고, 숨기기·격리·분해도. 화면에만 적용된다. -->
-              <button
-                v-if="activeTab === '3d'"
-                type="button"
-                :class="['ghost', 'filter-toggle', { on: filterOpen || filterOn || exploded }]"
-                :aria-expanded="filterOpen"
-                data-testid="filter-toggle"
-                title="층·Brick 클래스·계통으로 걸러 봅니다. 화면에서만이고 편집 파일·TTL·GeoJSON 에는 남지 않습니다"
-                @click="filterOpen = !filterOpen"
-              >
-                보기 필터<b v-if="filterOn || exploded" class="filter-dot" aria-label="켜짐">●</b>
-              </button>
-              <!-- 설비 라벨(V4). 층 하나를 볼 때 설비마다 이름과 소속·종류 출처 배지를 3D 위에 띄운다. -->
-              <button
-                v-if="activeTab === '3d'"
-                type="button"
-                :class="['ghost', 'labels-toggle', { on: showLabels }]"
-                :aria-pressed="showLabels"
-                :disabled="!labelStorey"
-                :title="labelStorey ? '설비마다 이름과 소속·종류 출처를 3D 위에 띄웁니다' : '층 하나를 고르면 설비 라벨을 띄웁니다'"
-                @click="showLabels = !showLabels"
-              >
-                라벨
-              </button>
-              <!-- 내보낸 결과와 나란히 보기(ADR-0061). 3D 오른쪽에 받는 쪽이 읽는 TTL·GeoJSON 판을 띄운다. -->
-              <button
-                v-if="activeTab === '3d'"
-                type="button"
-                :class="['ghost', { on: compareOpen }]"
-                :aria-pressed="compareOpen"
-                data-testid="compare-toggle"
-                title="3D 오른쪽에 지금 모델을 내보낸 TTL·GeoJSON 을 받는 쪽처럼 읽어 나란히 봅니다. 고르면 양쪽이 같은 것을 짚습니다"
-                @click="compareOpen = !compareOpen"
-              >
-                결과 비교
-              </button>
-              <div class="tabs" role="group" aria-label="보기">
-                <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
-                <button type="button" :aria-pressed="activeTab === 'plan'" :disabled="!!multiView" :title="multiView ? '평면도는 층 하나를 그립니다. 다중층 뷰는 3D 입니다' : undefined" @click="showPlan">평면도</button>
+            <!-- 3D 오른쪽 위 세로 줄: 시점 막대 → 보기 필터 칩 → [벽 범례 | 방향 큐브] → 층별 칩. 한 줄에 차례로 쌓아서
+               막대가 두 줄로 꺾이거나 층이 많아도(성수 20층) 서로 덮지 않는다. -->
+            <div class="right-col">
+              <div class="view-tools">
+                <!-- 보기 ↔ 편집, 단축키 안내. 위 도구막대와 같은 일이라 전체 화면(도구막대가 안 보인다)에서만 둔다.
+                     평소에도 두었더니 같은 스위치가 한 화면에 둘이었다. -->
+                <label v-if="fullscreen" class="edit-toggle" title="켜면 3D에서 설비와 물리존 꼭짓점을 옮기고 연결 방향을 정할 수 있습니다.">
+                  <input
+                    type="checkbox"
+                    :checked="editing"
+                    @change="onEditToggle($event.target as HTMLInputElement)"
+                  />
+                  편집
+                </label>
+                <button
+                  v-if="drawnWalls"
+                  type="button"
+                  :class="['ghost', 'walls-toggle', { on: showWalls }]"
+                  :aria-pressed="showWalls"
+                  @click="showWalls = !showWalls"
+                >
+                  벽
+                </button>
+                <!-- 공조존(IDF) 외곽선. IDF 를 열거나 덧붙였을 때만. -->
+                <button
+                  v-if="model.hvac?.zones.length"
+                  type="button"
+                  :class="['ghost', { on: showZones }]"
+                  :aria-pressed="showZones"
+                  title="IDF 공조존의 바닥 외곽선"
+                  @click="showZones = !showZones"
+                >
+                  공조존
+                </button>
+                <!-- 보기 필터(ui-notes 보기 필터). 층 여러 개·Brick 클래스·계통으로 거르고, 숨기기·격리·분해도. 화면에만 적용된다. -->
+                <button
+                  v-if="activeTab === '3d'"
+                  type="button"
+                  :class="['ghost', 'filter-toggle', { on: filterOpen || filterOn || exploded }]"
+                  :aria-expanded="filterOpen"
+                  data-testid="filter-toggle"
+                  title="층·Brick 클래스·계통으로 걸러 봅니다. 화면에서만이고 편집 파일·TTL·GeoJSON 에는 남지 않습니다"
+                  @click="filterOpen = !filterOpen"
+                >
+                  보기 필터<b v-if="filterOn || exploded" class="filter-dot" aria-label="켜짐">●</b>
+                </button>
+                <!-- 설비 라벨(V4). 층 하나를 볼 때 설비마다 이름과 소속·종류 출처 배지를 3D 위에 띄운다. -->
+                <button
+                  v-if="activeTab === '3d'"
+                  type="button"
+                  :class="['ghost', 'labels-toggle', { on: showLabels }]"
+                  :aria-pressed="showLabels"
+                  :disabled="!labelStorey"
+                  :title="labelStorey ? '설비마다 이름과 소속·종류 출처를 3D 위에 띄웁니다' : '층 하나를 고르면 설비 라벨을 띄웁니다'"
+                  @click="showLabels = !showLabels"
+                >
+                  라벨
+                </button>
+                <!-- 내보낸 결과와 나란히 보기(ADR-0061). 3D 오른쪽에 받는 쪽이 읽는 TTL·GeoJSON 판을 띄운다. -->
+                <button
+                  v-if="activeTab === '3d'"
+                  type="button"
+                  :class="['ghost', { on: compareOpen }]"
+                  :aria-pressed="compareOpen"
+                  data-testid="compare-toggle"
+                  title="3D 오른쪽에 지금 모델을 내보낸 TTL·GeoJSON 을 받는 쪽처럼 읽어 나란히 봅니다. 고르면 양쪽이 같은 것을 짚습니다"
+                  @click="compareOpen = !compareOpen"
+                >
+                  결과 비교
+                </button>
+                <div class="tabs" role="group" aria-label="보기">
+                  <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
+                  <button type="button" :aria-pressed="activeTab === 'plan'" :disabled="!!multiView" :title="multiView ? '평면도는 층 하나를 그립니다. 다중층 뷰는 3D 입니다' : undefined" @click="showPlan">평면도</button>
+                </div>
+                <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
+                <select v-if="model.storeys.length > 1 && !multiView" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
+                  <option :value="null">모든 층</option>
+                  <option v-for="st in model.storeys" :key="st.id" :value="st.id">{{ st.name }}만</option>
+                </select>
+                <!-- 다중층 뷰(OE-ML-01 ①). 누르면 지금 층과 위층으로 열고, 범위는 시작·끝 층으로 고쳐 고른다. -->
+                <button v-if="model.storeys.length > 1 && !multiView" type="button" class="ghost multi-open" title="층 범위를 골라 여러 층을 함께 봅니다(OE-ML-01)" @click="openMultiView()">
+                  다중층 뷰에서 편집
+                </button>
+                <span v-if="multiView" class="multi-range" role="group" aria-label="다중층 보기 범위">
+                  <select v-model="multiView.from" aria-label="다중층 시작 층">
+                    <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
+                  </select>
+                  ~
+                  <select v-model="multiView.to" aria-label="다중층 끝 층">
+                    <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
+                  </select>
+                  <button type="button" class="ghost" @click="setMultiAll">전체</button>
+                  <button type="button" class="ghost" @click="closeMultiView">층 편집으로</button>
+                </span>
+                <button v-if="fullscreen" type="button" class="ghost keys-help" title="단축키 안내" aria-label="단축키 안내" @click="helpOpen = true">?</button>
+                <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
+                  {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
+                </button>
               </div>
-              <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
-              <select v-if="model.storeys.length > 1 && !multiView" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
-                <option :value="null">모든 층</option>
-                <option v-for="st in model.storeys" :key="st.id" :value="st.id">{{ st.name }}만</option>
-              </select>
-              <!-- 다중층 뷰(OE-ML-01 ①). 누르면 지금 층과 위층으로 열고, 범위는 시작·끝 층으로 고쳐 고른다. -->
-              <button v-if="model.storeys.length > 1 && !multiView" type="button" class="ghost multi-open" title="층 범위를 골라 여러 층을 함께 봅니다(OE-ML-01)" @click="openMultiView()">
-                다중층 뷰에서 편집
-              </button>
-              <span v-if="multiView" class="multi-range" role="group" aria-label="다중층 보기 범위">
-                <select v-model="multiView.from" aria-label="다중층 시작 층">
-                  <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
-                </select>
-                ~
-                <select v-model="multiView.to" aria-label="다중층 끝 층">
-                  <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
-                </select>
-                <button type="button" class="ghost" @click="setMultiAll">전체</button>
-                <button type="button" class="ghost" @click="closeMultiView">층 편집으로</button>
-              </span>
-              <button v-if="fullscreen" type="button" class="ghost keys-help" title="단축키 안내" aria-label="단축키 안내" @click="helpOpen = true">?</button>
-              <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
-                {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
-              </button>
+              <!-- 걸러 보는 중임을 3D 위에 늘 보인다(패널을 닫아도). 안 보이는 것을 없는 것으로 오해하지 않게. -->
+              <p v-if="(filterOn || exploded) && !filterOpen && activeTab === '3d'" class="filter-chip" role="status" data-testid="filter-chip">
+                <b>보기 필터</b> {{ exploded ? '분해도 · ' : '' }}{{ filterText || '전부' }} · 화면에서만
+                <button type="button" class="link" @click="filterOpen = true">고치기</button>
+                <button type="button" class="link" @click="clearViewFilter">모두 보이기</button>
+              </p>
+              <div class="rail-row">
+                <!-- 내력 여부는 BIM 의 LoadBearing 속성 그대로다. 비내력벽(칸막이)도 그린다 — 빼면 방이 뚫려 보인다(#599). -->
+                <ul v-if="showWalls && drawnWalls" class="wall-key">
+                  <li v-if="drawnWalls.loadBearing"><i :style="{ background: hex(WALL_COLORS.loadBearing) }"></i>내력벽 {{ drawnWalls.loadBearing }} <Src kind="bim" /></li>
+                  <li v-if="drawnWalls.unknown">
+                    <i :style="{ background: hex(WALL_COLORS.unknown) }"></i>내력 여부 모름 {{ drawnWalls.unknown }}
+                  </li>
+                  <li v-if="drawnWalls.ordinary"><i :style="{ background: hex(WALL_COLORS.ordinary) }"></i>비내력벽 {{ drawnWalls.ordinary }} <Src kind="bim" /></li>
+                </ul>
+                <!-- 방향 큐브(nav-cube.ts)와 비행 모드. 면·모서리·꼭짓점을 누르면 그 방향에서 보고, 끌면 돈다. 3D 일 때만, 리플레이 극장에서는 뺀다. -->
+                <div v-if="model && activeTab === '3d' && !replayOpen" class="nav-cube" data-testid="nav-cube">
+                  <canvas ref="cubeCanvas" aria-label="방향 큐브 — 면을 누르면 그 방향에서 보고, 끌면 돕니다"></canvas>
+                  <button
+                    type="button"
+                    :class="['ghost', 'fly-toggle', { on: flying }]"
+                    :aria-pressed="flying"
+                    title="비행 모드 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게"
+                    @click="setFlying(!flying)"
+                  >
+                    비행 <kbd>G</kbd>
+                  </button>
+                </div>
+              </div>
+              <!-- 층별 칩. 위층이 위. 누르면 그 층만 보고, 다시 누르면 전체. 다중층 뷰·리플레이에서는 뺀다. -->
+              <nav v-if="storeyChips.length && activeTab === '3d' && !replayOpen && !multiView" class="storey-chips" aria-label="층별 손볼 것" data-testid="storey-chips">
+                <div ref="storeyChipList" class="sc-list">
+                <button
+                  v-for="c in storeyChips"
+                  :key="c.id"
+                  type="button"
+                  :class="{ on: viewStorey === c.id, clean: !c.unplaced && !c.noSpace && !c.failed }"
+                  :aria-pressed="viewStorey === c.id"
+                  :title="`${c.name} — 미배치 ${c.unplaced} · 소속 없음 ${c.noSpace} · 그 밖의 검사 위반 ${c.failed}. 누르면 이 층만 봅니다`"
+                  @click="pickStoreyChip(c.id)"
+                >
+                  <span class="sc-name">{{ c.name }}</span>
+                  <span v-if="c.unplaced" class="sc-n unplaced" title="미배치">{{ c.unplaced }}</span>
+                  <span v-if="c.noSpace" class="sc-n nospace" title="소속 없음">{{ c.noSpace }}</span>
+                  <span v-if="c.failed" class="sc-n failed" title="검사 위반">{{ c.failed }}</span>
+                  <span v-if="!c.unplaced && !c.noSpace && !c.failed" class="sc-ok" aria-label="손볼 것 없음">✓</span>
+                </button>
+                </div>
+                <p class="sc-key"><i class="unplaced"></i>미배치 <i class="nospace"></i>소속 없음 <i class="failed"></i>위반</p>
+              </nav>
             </div>
-            <!-- 내력 여부는 BIM 의 LoadBearing 속성 그대로다. 비내력벽(칸막이)도 그린다 — 빼면 방이 뚫려 보인다(#599). -->
-            <ul v-if="showWalls && drawnWalls" class="wall-key">
-              <li v-if="drawnWalls.loadBearing"><i :style="{ background: hex(WALL_COLORS.loadBearing) }"></i>내력벽 {{ drawnWalls.loadBearing }} <Src kind="bim" /></li>
-              <li v-if="drawnWalls.unknown">
-                <i :style="{ background: hex(WALL_COLORS.unknown) }"></i>내력 여부 모름 {{ drawnWalls.unknown }}
-              </li>
-              <li v-if="drawnWalls.ordinary"><i :style="{ background: hex(WALL_COLORS.ordinary) }"></i>비내력벽 {{ drawnWalls.ordinary }} <Src kind="bim" /></li>
-            </ul>
           </div>
 
           <!-- 3D 색이 무엇을 뜻하는지. 진한 색은 BIM 포트가 말한 흐름, 옅은 색은 규칙으로 정한 흐름이다. -->
