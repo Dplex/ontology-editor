@@ -109,6 +109,7 @@ import { wallTone } from './lib/wall-view'
 import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import { drawPipe } from './lib/manual-pipe'
 import { storeyAtZ, storeyElevationProblem, storeysEntered, type PathPoint } from './lib/storey-z'
+import { insertPipeVertex, removePipeVertex } from './lib/pipe-vertex'
 import { branchPipe } from './lib/branch-pipe'
 import { planOffsetHeight, setOffsetHeight } from './lib/offset-edit'
 import { removalImpact } from './lib/removal-impact'
@@ -6525,6 +6526,55 @@ function makeBranch(segId: string, points: PathPoint[], range: string[]): boolea
   return true
 }
 
+// --- 배관 꼭짓점 넣기·지우기 (OE-PIP-10, pipe-vertex.ts) ---
+// 구간을 고르면 가운데에 꼭짓점(엘보)을 넣어 둘로 나눈다 — 넣은 엘보를 골라 두므로 바로 끌거나 좌표 칸으로 옮겨 꺾는다. 구간 둘 사이의 엘보를
+// 고르면 지워 두 구간을 하나로 합친다. 확정 방향은 이어받는다.
+
+/** 고른 것에 할 수 있는 꼭짓점 편집. 형상이 있는 구간이면 넣기, 구간 둘 사이의 이음쇠면 지우기. */
+const vertexAction = computed((): 'insert' | 'remove' | null => {
+  void sceneVersion.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e || !editing.value) return null
+  if (e.role === 'segment') return segmentPath(e) && 'path' in segmentPath(e)! ? 'insert' : null
+  if (e.role !== 'fitting') return null
+  const sides = m.connections.filter((c) => c.from === e.id || c.to === e.id).map((c) => equipmentById.value.get(c.from === e.id ? c.to : c.from))
+  return sides.length === 2 && sides.every((x) => x?.role === 'segment') ? 'remove' : null
+})
+function insertVertexHere(seg: Equipment) {
+  const m = model.value
+  const path = segmentPath(seg)
+  if (!m || !path || !('path' in path)) return
+  const [p, q] = path.path
+  const at = mark()
+  const done = insertPipeVertex(m, seg.id, [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, (p[2] + q[2]) / 2], segmentAxis)
+  if ('refused' in done) return void note(done.refused)
+  remember(`${shortName(seg.name)} 꼭짓점 넣기`, done.undo, at)
+  ruleReport.value = done.rules
+  ensureDrawnMeshes()
+  placeStretched(seg.id)
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+  select(done.elbow.id)
+  note(`${shortName(seg.name)} 가운데에 꼭짓점 ${done.elbow.name}을 넣어 둘로 나눴습니다${done.replaced?.released ? '(옛 BIM 포트 연결은 해제 보정으로 남김)' : ''}. 꼭짓점을 끌거나 좌표 칸으로 옮겨 꺾습니다`)
+}
+function removeVertexHere(fitting: Equipment) {
+  const m = model.value
+  if (!m) return
+  const at = mark()
+  const done = removePipeVertex(m, fitting.id, segmentAxis)
+  if ('refused' in done) return void note(done.refused)
+  remember(`${shortName(fitting.name)} 꼭짓점 지우기`, done.undo, at)
+  ruleReport.value = done.rules
+  placeStretched(done.kept.id)
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+  select(done.kept.id)
+  note(`꼭짓점 ${shortName(fitting.name)}을 지워 ${shortName(done.kept.name)}·${shortName(done.removed[1].name)}을 하나로 합쳤습니다. Ctrl+Z 로 되돌립니다`)
+}
+
 // --- 오프셋 높이 (다중층 뷰, OE-ML-14, offset-edit.ts) ---
 // 고른 수평 구간(오프셋)과 양 끝 꺾임점을 같이 올리거나 내린다. 이어진 구간은 끝만 늘거나 준다. 바꾸기 전에 무엇이 움직이는지 보인다.
 
@@ -11625,6 +11675,12 @@ function rollbackFromReport() {
               같은 모양으로 더하기 <kbd>Ctrl+D</kbd>
             </button>
             <span class="muted">연결·계통은 비어 있습니다.</span>
+          </p>
+          <!-- 배관 꼭짓점 넣기·지우기(OE-PIP-10). 구간은 가운데에 넣고, 구간 둘 사이의 이음쇠는 지워 두 구간을 합친다. -->
+          <p v-if="!selectedLock && vertexAction" class="copy-zone" data-testid="pipe-vertex">
+            <button v-if="vertexAction === 'insert'" type="button" class="ghost" @click="insertVertexHere(selected)">가운데에 꼭짓점 넣기</button>
+            <button v-else type="button" class="ghost" @click="removeVertexHere(selected)">꼭짓점 지우기</button>
+            <span class="muted">{{ vertexAction === 'insert' ? '구간을 둘로 나눠 꺾을 자리를 만듭니다.' : '양쪽 구간을 하나로 곧게 합칩니다.' }} 연결 대상과 확정 방향은 그대로입니다.</span>
           </p>
           <!-- 지우기(E7). 지우면 붙은 연결·계통 자리도 빠지고 Ctrl+Z 로 돌아온다. 고치는 칸과 떨어뜨려 맨 아래에 둔다. -->
           <p v-if="editing && !selectedLock" class="danger-zone">

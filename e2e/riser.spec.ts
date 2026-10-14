@@ -202,7 +202,7 @@ async function drawRiser(page: Page) {
   await expect(page.locator('.key-note')).toContainText('HWS 배관을 그렸습니다: 구간 3개 · 이음쇠 2개')
 }
 
-test('Duplex: 라이저의 2층 오프셋을 0.3m 올리면 양 끝 꺾임점이 같이 오르고 수직 구간이 늘어나며, 라디에이터 아래로는 내리지 못하고, 되돌리면 제자리다 [OE-ML-14#2~,4~,5~]', async ({ page }) => {
+test('Duplex: 라이저의 2층 오프셋을 0.3m 올리면 양 끝 꺾임점이 같이 오르고 수직 구간이 늘어나며, 라디에이터 아래로는 내리지 못하고, 되돌리면 제자리다 [OE-ML-14#2~,4~,5~] [OE-PIP-10#1~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)
   const errors: string[] = []
