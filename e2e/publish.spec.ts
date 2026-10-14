@@ -90,8 +90,11 @@ test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리�
   await expect(dialog.getByTestId('publish-summary')).toContainText('대상 층: 1F')
   await expect(dialog.getByTestId('publish-summary')).toContainText('편집 1건')
   await expect(dialog.getByTestId('publisher')).toHaveText('반영자 편집자')
+  // 임시 저장하지 않은 편집이 있는 층을 보이고, [구축하기] 대신 둘 중에서 고른다 [OE-UI-04#12~]
+  await expect(dialog.getByTestId('publish-unsaved')).toContainText('1F')
+  await expect(dialog.getByRole('button', { name: '저장한 내용으로 구축' })).toBeVisible()
   if (process.env.SHOT_DIALOG) await page.screenshot({ path: process.env.SHOT_DIALOG })
-  await dialog.getByRole('button', { name: '구축하기' }).click()
+  await dialog.getByRole('button', { name: '임시 저장 후 구축' }).click()
   await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다(1F)', { timeout: 30_000 })
   await expect(dialog).not.toBeVisible()
   // 이제 [반영하기] 다.
@@ -148,11 +151,12 @@ test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리�
     await versions.scrollIntoViewIfNeeded()
     await page.screenshot({ path: process.env.SHOT })
   }
-  // 시스템 로그: 편집 시작·반영 둘·되돌리기가 그 사람으로 남는다. [OE-COM-04#1]
+  // 시스템 로그: 편집 시작·(구축 전 임시 저장)·반영 둘·되돌리기가 그 사람으로 남는다. [OE-COM-04#1]
   await page.getByTestId('activity').locator('summary').click()
   await expect(page.getByTestId('activity')).toContainText('레이아웃 되돌리기 v3 · 편집자')
   const log = JSON.parse(await (await fetch(`${base}/__log?key=${encodeURIComponent(PATH)}`)).text()) as { type: string; user: string }[]
-  expect(log.map((e) => e.type)).toEqual(['rollback', 'publish', 'publish', 'edit-start'])
+  // v1 은 [임시 저장 후 구축]이라 구축 앞에 임시 저장이 하나 있다(OE-UI-04 AC12).
+  expect(log.map((e) => e.type)).toEqual(['rollback', 'publish', 'publish', 'draft', 'edit-start'])
   expect(errors).toEqual([])
 })
 
@@ -194,7 +198,7 @@ test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, 
   expect(before).not.toBe('7.5')
   await editLight(page, '7.5')
   await page.locator('.edit-bar').getByRole('button', { name: '구축하기' }).click()
-  await page.locator('dialog.publish-dialog').getByRole('button', { name: '구축하기' }).click()
+  await page.locator('dialog.publish-dialog').getByRole('button', { name: '임시 저장 후 구축' }).click()
   await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
   // 반영한 사람에게는 배너가 없다.
   await expect(page.getByTestId('layout-banner')).toHaveCount(0)
@@ -279,7 +283,7 @@ test('반영된 온톨로지가 없으면 [초기 구축] 만, 있으면 [운영
   await expect(page.getByTestId('edit-kind')).toHaveText('초기 구축')
   await editLight(page, '7.5')
   await page.locator('.edit-bar').getByRole('button', { name: '구축하기' }).click()
-  await page.locator('dialog.publish-dialog').getByRole('button', { name: '구축하기' }).click()
+  await page.locator('dialog.publish-dialog').getByRole('button', { name: '임시 저장 후 구축' }).click()
   await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
   await expect(page.getByTestId('edit-kind')).toHaveText('운영 편집 · v1')
   // 운영 편집의 편집 막대: [임시 저장]·[미리보기]·[반영하기]·[편집 종료] [OE-UI-04#1]
@@ -398,7 +402,7 @@ test('물리존 공간명을 고쳐 반영하면 그 버전의 공간 계층(탐
   // v1 은 BIM 이름(사무실) 그대로.
   await editLight(page, '7.5')
   await bar.getByRole('button', { name: '구축하기' }).click()
-  await dialog.getByRole('button', { name: '구축하기' }).click()
+  await dialog.getByRole('button', { name: '임시 저장 후 구축' }).click()
   await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
 
   // 사무실 바닥을 골라 공간명을 고친다.
@@ -474,9 +478,38 @@ test('이름 없는 층이 있으면 등급 0 이 층 이름으로 미달이라 
 
   // 구축하면 TTL 의 층 이름이 넣은 이름이다.
   await build.click()
-  await page.locator('dialog.publish-dialog').getByRole('button', { name: '구축하기' }).click()
+  await page.locator('dialog.publish-dialog').getByRole('button', { name: '임시 저장 후 구축' }).click()
   await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
   expect(await fromServer({ v: '1', file: 'ontology.ttl' })).toMatch(/rdfs:label "1F"/)
   expect(JSON.parse(await fromServer({ v: '1', file: 'edits.json' })).storeyNames).toEqual([{ storeyId: expect.any(String), name: '1F' }])
+  expect(errors).toEqual([])
+})
+
+test('임시 저장하지 않은 편집이 있는 채 [구축하기] 에서 [저장한 내용으로 구축] 을 고르면 그 편집이 산출물에 없다 [OE-UI-04#12]', async ({ page }) => {
+  test.setTimeout(120_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await serve(page)
+  await page.goto('/')
+  await page.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+  await page.getByLabel('사용자').selectOption('편집자')
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const bar = page.locator('.edit-bar')
+  // 7.5 로 고쳐 임시 저장하고, 8 로 더 고친 것은 저장하지 않는다.
+  await editLight(page, '7.5')
+  await bar.getByRole('button', { name: '임시 저장' }).click()
+  await editLight(page, '8')
+  await bar.getByRole('button', { name: '구축하기' }).click()
+  const dialog = page.locator('dialog.publish-dialog')
+  await expect(dialog.getByTestId('publish-unsaved')).toContainText('1F')
+  await dialog.getByRole('button', { name: '저장한 내용으로 구축' }).click()
+  await expect(page.locator('.key-note')).toContainText('v1 으로 구축했습니다', { timeout: 30_000 })
+  const edits = JSON.parse(await fromServer({ v: '1', file: 'edits.json' })) as { equipment: { position: number[] }[] }
+  expect(edits.equipment).toHaveLength(1)
+  expect(edits.equipment[0].position[0]).toBe(7.5)
+  // 화면도 저장한 때(7.5)로 돌아오고, 빠진 편집은 [이어서 하기]로 되살릴 수 있다.
+  await expect(light(page)).toHaveValue('7.5')
+  await expect(page.locator('.draft-bar')).toBeVisible()
   expect(errors).toEqual([])
 })

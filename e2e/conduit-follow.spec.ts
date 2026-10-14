@@ -44,7 +44,7 @@ test('설비를 옮기면 붙은 배관이 따라오고, 끄면 설비만 옮겨
   expect(await page.evaluate(() => (window as any).__viewer.centers())).not.toEqual(opened)
   // 액션바의 편집 종료는 묻고 나서 보기 모드로 돌아가고 팔레트를 거둔다.
   await page.locator('.edit-bar').getByRole('button', { name: '편집 종료' }).click()
-  await page.locator('dialog.exit-edit').getByRole('button', { name: '저장 안 함' }).click()
+  await page.locator('dialog.exit-edit').getByRole('button', { name: '저장하지 않고 종료' }).click()
   await expect(page.locator('.tool-palette')).toHaveCount(0)
   expect(await page.evaluate(() => (window as any).__viewer.centers())).toEqual(opened)
   expect(errors).toEqual([])
