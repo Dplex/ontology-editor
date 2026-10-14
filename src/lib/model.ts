@@ -617,6 +617,11 @@ export type VerticalPart = {
    * 사람이 정한 값뿐이고 출처는 편집이다.
    */
   stop?: ElevatorStop
+  /**
+   * 에스컬레이터 운행 방향(OE-ML-11). `up` 은 시작 층(아래) 진입 지점에서 끝 층(위) 종료 지점으로, `down` 은 그 반대다. 없으면 미확인이고
+   * 방향을 지어내지 않는다. 오브젝트 하나의 값이라 모든 층 조각에 같이 적는다. 사람이 정한 값뿐이고 출처는 편집이다.
+   */
+  direction?: 'up' | 'down'
 }
 
 export type ElevatorStop = 'stop' | 'skip' | 'unknown'

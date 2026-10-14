@@ -250,7 +250,7 @@ import {
 import type { Object3D } from 'three'
 import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL } from './lib/vertical-object'
 import type { VerticalKind } from './lib/model'
-import { COMMON_AXIS, createVertical, deleteVertical, setElevatorStop, STOP_LABEL, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
+import { COMMON_AXIS, createVertical, deleteVertical, DIRECTION_LABEL, escalatorTravel, setElevatorStop, setEscalatorDirection, STOP_LABEL, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -2710,6 +2710,10 @@ function changeVerticals(label: string, apply: (m: Model) => boolean): boolean {
   triggerRef(model)
   sceneVersion.value++
   return true
+}
+/** 에스컬레이터 운행 방향을 바꾼다(OE-ML-11). 되돌리기 한 번이다. */
+function setDirectionFrom(parentId: string, direction: 'up' | 'down' | 'unknown') {
+  changeVerticals(`에스컬레이터 ${DIRECTION_LABEL[direction]}`, (m) => setEscalatorDirection(m, parentId, direction))
 }
 /** 엘리베이터 한 층의 정차를 바꾼다(OE-ML-10). 되돌리기 한 번이다. */
 function setStopFrom(parentId: string, storeyId: string, stop: ElevatorStop) {
@@ -12152,7 +12156,7 @@ function rollbackFromReport() {
               </ol>
               <p v-if="!createPlan.needs.length" class="muted">다 채웠습니다</p>
               <p v-if="createPlan.link" class="vertical-move">잇는 물리존: {{ createPlan.link.from ?? '없음' }} ↔ {{ createPlan.link.to ?? '없음' }}</p>
-              <p class="muted">개구부·EL 정차 층·ES 운행 방향은 아직 다루지 않습니다</p>
+              <p class="muted">엘리베이터는 전 층 정차로 시작하고, 에스컬레이터 운행 방향은 만든 뒤 패널에서 정합니다(정하기 전에는 미확인). 슬래브 개구부는 아직 다루지 않습니다</p>
             </div>
           </template>
           <p>
@@ -12223,6 +12227,25 @@ function rollbackFromReport() {
                       <b v-else>{{ STOP_LABEL[p.part.stop ?? 'unknown'] }}</b>
                     </span>
                     <Src kind="edit" />
+                  </dd>
+                </div>
+                <!-- 에스컬레이터 운행 방향(OE-ML-11). 미확인이면 지어내지 않는다. 운행 시작·종료 지점은 방향과 진입·종료 지점으로 정한다. -->
+                <div v-if="selectedVertical.part.kind === 'escalator'">
+                  <dt>운행</dt>
+                  <dd data-testid="escalator-direction">
+                    <select
+                      v-if="multiView && editing"
+                      :value="selectedVertical.part.direction ?? 'unknown'"
+                      aria-label="운행 방향"
+                      @change="setDirectionFrom(selectedVertical.object.id, ($event.target as HTMLSelectElement).value as 'up' | 'down' | 'unknown')"
+                    >
+                      <option v-for="(label, k) in DIRECTION_LABEL" :key="k" :value="k">{{ label }}</option>
+                    </select>
+                    <b v-else>{{ DIRECTION_LABEL[selectedVertical.part.direction ?? 'unknown'] }}</b>
+                    <Src v-if="selectedVertical.part.direction" kind="edit" />
+                    <span v-if="model && escalatorTravel(model, selectedVertical.object.id)" class="muted mono">
+                      {{ escalatorTravel(model, selectedVertical.object.id)!.from.map((v) => v.toFixed(2)).join(', ') }} → {{ escalatorTravel(model, selectedVertical.object.id)!.to.map((v) => v.toFixed(2)).join(', ') }}
+                    </span>
                   </dd>
                 </div>
                 <div>

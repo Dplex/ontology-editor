@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connection, Equipment, Model, Space, Storey, Vec2, Vec3, Wall } from './model'
 import { stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
-import { COMMON_AXIS_LOCKED, createVertical, setElevatorStop, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
+import { COMMON_AXIS_LOCKED, createVertical, setElevatorStop, setEscalatorDirection, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
 import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
 import { BUILDING, joinParts, splitByStorey } from './storey-drafts'
@@ -558,5 +558,73 @@ describe('엘리베이터 정차 층(OE-ML-10)과 로봇 통과(OE-ML-04)', () =
     const cb = baselineOf(c)
     setElevatorStop(c, 'U_el', '1F', 'unknown')
     expect(diffBaseline(c, cb).verticals).toEqual([{ id: 'U_el', name: 'EL-1', reshaped: ['1F'] }])
+  })
+})
+
+describe('에스컬레이터 운행 방향 (OE-ML-11)', () => {
+  const ring: Vec2[] = rect(5, 0, 6, 3)
+  const withEscalator = () => {
+    const m = tower()
+    const done = createVertical(m, { id: 'U_es', kind: 'escalator', name: 'ES-1', from: '1F', to: '2F' }, new Map([['1F', { footprint: ring, entry: [5.5, 0.2] as Vec2 }], ['2F', { exit: [5.5, 2.8] as Vec2 }]]))
+    if ('refused' in done) throw new Error(done.refused)
+    return m
+  }
+  const esFeatures = (m: Model) =>
+    modelToGeoJSON(m)
+      .flatMap((f) => f.collection.features)
+      .filter((f) => f.properties?.kind === 'vertical' && f.properties.parentId === 'U_es')
+      .map((f) => f.properties!)
+
+  it('만든 직후 방향은 미확인이고 지어내지 않으며 로봇 통과는 불가다. 상행·하행을 정하면 운행 시작·종료 지점과 함께 GeoJSON 에 나간다 [OE-ML-11#1,4]', () => {
+    const m = withEscalator()
+    expect(esFeatures(m).map((p) => [p.storeyId, p.direction, p.travel, p.passable])).toEqual([
+      ['1F', null, undefined, false],
+      ['2F', null, undefined, false],
+    ])
+    expect(setEscalatorDirection(m, 'U_es', 'up')).toBe(true)
+    // 상행: 시작 층(1F, 0m) 진입 지점 → 끝 층(2F, 4.5m) 종료 지점. 진입·종료는 서로 다른 층·자리다.
+    expect(esFeatures(m).map((p) => [p.direction, p.directionSource, p.travel])).toEqual([
+      ['up', 'edit', { from: [5.5, 0.2, 0], to: [5.5, 2.8, 4.5] }],
+      ['up', 'edit', { from: [5.5, 0.2, 0], to: [5.5, 2.8, 4.5] }],
+    ])
+    expect(setEscalatorDirection(m, 'U_es', 'down')).toBe(true)
+    expect(esFeatures(m)[0].travel).toEqual({ from: [5.5, 2.8, 4.5], to: [5.5, 0.2, 0] })
+    // 방향을 정해도 로봇 통과는 불가다.
+    expect(esFeatures(m).every((p) => p.passable === false && p.passableReason === 'escalator')).toBe(true)
+    // 엘리베이터·계단에는 방향이 없다.
+    expect(setEscalatorDirection(m, 'st', 'up')).toBe(false)
+  })
+
+  it('같은 층을 양 끝으로 두거나, 구간을 줄여 운행 구간이 벗어나면 끝 지점을 다시 정하기 전에는 적용하지 않는다 [OE-ML-11#2,3]', () => {
+    const m = tower()
+    expect(createVertical(m, { id: 'U_es', kind: 'escalator', name: 'ES-1', from: '1F', to: '1F' }, new Map())).toEqual({ refused: expect.stringContaining('같은 층') })
+    const es = withEscalator()
+    // 3층까지 넓혔다가 2층으로 줄이면 2층이 다시 끝 층이 되어 종료 지점을 받아야 한다.
+    expect(setVerticalRange(es, 'U_es', '1F', '3F', new Map([['2F', { footprint: ring }], ['3F', { exit: [5.5, 2.8] as Vec2 }]]))).toBe(true)
+    setEscalatorDirection(es, 'U_es', 'up')
+    expect(setVerticalRange(es, 'U_es', '1F', '2F')).toEqual({ refused: expect.stringContaining('2F 종료 지점') })
+    expect(setVerticalRange(es, 'U_es', '1F', '2F', new Map([['2F', { exit: [5.5, 2.5] as Vec2 }]]))).toBe(true)
+    // 방향은 구간을 바꿔도 그대로다.
+    expect(esFeatures(es).map((p) => p.direction)).toEqual(['up', 'up'])
+  })
+
+  it('방향·구간·지점은 되돌리기 한 번에 돌아오고, 편집 파일로 새로 연 모델에 얹어도 같다 [OE-ML-11#5]', () => {
+    const base = baselineOf(tower())
+    const a = withEscalator()
+    const snap = snapshotVerticals(a)
+    setEscalatorDirection(a, 'U_es', 'up')
+    const after = structuredClone(a.storeys.map((s) => s.verticalParts))
+    restore(a, snap)
+    expect(esFeatures(a).map((p) => p.direction)).toEqual([null, null])
+    a.storeys.forEach((s, i) => (s.verticalParts = after[i]))
+    const file = parseEditFile(JSON.stringify(exportEdits(a, base, 'b.ifc'))) as EditFile
+    const b = tower()
+    expect(applyEdits(b, file).missing).toMatchObject({ elements: 0, storeys: 0 })
+    expect(esFeatures(b)).toEqual(esFeatures(a))
+    // 만든 뒤 방향만 바꾼 것도 연 때와 견준 차이에 남는다.
+    const c = withEscalator()
+    const cb = baselineOf(c)
+    setEscalatorDirection(c, 'U_es', 'down')
+    expect(diffBaseline(c, cb).verticals).toEqual([{ id: 'U_es', name: 'ES-1', reshaped: ['1F', '2F'] }])
   })
 })

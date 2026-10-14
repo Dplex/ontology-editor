@@ -53,3 +53,45 @@ test('다중층 뷰에서 만든 엘리베이터는 전 층 정차로 시작하�
   await expect(panel.getByTestId('vertical-passable')).toContainText('2F: 통과 가능')
   expect(errors).toEqual([])
 })
+
+test('다중층 뷰에서 만든 에스컬레이터는 방향이 미확인으로 시작하고, 상행을 고르면 운행 시작·종료 지점이 보이며 로봇 통과는 불가 그대로다 [OE-ML-11#1~,4]', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles([MEP, ROOMS])
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
+  await page.getByTestId('multi-banner').getByRole('button', { name: '수직 관통 오브젝트 만들기' }).click()
+  const form = page.getByTestId('vertical-create')
+  await form.getByLabel('만들 종류').selectOption({ label: '에스컬레이터' })
+  await form.getByLabel('만들 이름').fill('ES-1')
+  // 1F 형상 → 1F 진입 지점 → 2F(3m) 종료 지점을 차례로 채운다.
+  await page.getByTestId('vertical-create-start').click()
+  for (const [x, y] of [[12, 1], [13, 1], [13, 4], [12, 4]]) {
+    const at = await viewer<{ x: number; y: number }>(page, 'point', [x, y, 0])
+    await page.mouse.click(at.x, at.y)
+  }
+  await page.keyboard.press('Enter')
+  const entry = await viewer<{ x: number; y: number }>(page, 'point', [12.5, 1.2, 0])
+  await page.mouse.click(entry.x, entry.y)
+  const exit = await viewer<{ x: number; y: number }>(page, 'point', [12.5, 3.8, 3])
+  await page.mouse.click(exit.x, exit.y)
+  await expect(page.getByTestId('vertical-create-plan')).toContainText('다 채웠습니다')
+  await form.getByRole('button', { name: '만들기', exact: true }).click()
+
+  const panel = page.getByTestId('vertical-picked')
+  await expect(panel.locator('h3')).toHaveText('ES-1')
+  const direction = panel.getByTestId('escalator-direction')
+  await expect(direction.getByLabel('운행 방향')).toHaveValue('unknown')
+  await direction.getByLabel('운행 방향').selectOption('up')
+  await expect(page.locator('.edit-bar .last-edit')).toContainText('에스컬레이터 상행')
+  // 상행: 1F(0m) 진입 → 2F(3m) 종료.
+  await expect(direction).toContainText(/12\.50, 1\.20, 0\.00 → 12\.50, 3\.80, 3\.00/)
+  await expect(panel.getByTestId('vertical-passable')).toContainText('통과 불가')
+  await page.locator('.edit-bar .undo').click()
+  await expect(direction.getByLabel('운행 방향')).toHaveValue('unknown')
+  expect(errors).toEqual([])
+})
