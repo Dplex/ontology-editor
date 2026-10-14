@@ -355,7 +355,7 @@ test('보기 모드는 고치는 칸을 숨기고, 편집 모드는 막대와 �
   await expect(page.locator('.report')).toContainText('AT-101-02 → DUCT-01')
 })
 
-test('고른 설비의 연결을 계통별로 나눠 세고, 줄을 누르면 그 계통만 고른다', async ({ page }) => {
+test('고른 설비의 연결을 계통별로 나눠 기기 단계로 잇고, 계통 이름을 누르면 그 계통만 고른다', async ({ page }) => {
   await page.goto('/')
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
@@ -363,11 +363,12 @@ test('고른 설비의 연결을 계통별로 나눠 세고, 줄을 누르면 �
 
   const row = page.locator('.by-system li', { hasText: 'AHU-1 급기 계통' })
   await expect(row).toBeVisible()
-  // 공조기에서 덕트를 따라 토출구 둘까지 내려간다(하나는 규칙 방향).
-  await expect(row.locator('.downstream b')).toHaveText('2')
-  await row.click()
+  // 공조기에서 덕트를 건너뛰어 토출구 둘까지 내려간다(하나는 규칙 방향). 덕트는 단계에 들지 않는다.
+  await expect(row.locator('.ladder-chip.down')).toHaveText(/디퓨저 2/)
+  const name = row.getByRole('button', { name: /AHU-1 급기 계통/ })
+  await name.click()
   await expect(row).toHaveClass(/chosen/)
-  await row.click()
+  await name.click()
   await expect(row).not.toHaveClass(/chosen/)
 })
 
