@@ -9,7 +9,7 @@ import { capacityQuantity } from '../capacity'
 import { polygonArea, segmentPath, SEGMENT_PATH_ISSUES, type CustomZone, type Equipment, type HvacZone, type Model, type Opening, type Room, type Space, type SpaceObject, type Storey, type System, type Vec3, type VerticalPart, type Wall } from '../model'
 import { verticalConnections } from '../vertical'
 import { partId, partLinks, partSpaces, verticalObjects } from '../vertical-object'
-import { escalatorTravel } from '../vertical-edit'
+import { escalatorTravel, verticalHeading } from '../vertical-edit'
 import { judgeExternal, type ExternalJudgement } from '../exterior'
 import { zoneEquipment, zoneSpaces } from '../custom-zone'
 import { libraryOf } from '../space-object'
@@ -303,7 +303,7 @@ export function verticalPartPassable(part: Pick<VerticalPart, 'kind' | 'stop'>):
  * 종료 지점(끝 층)이다. 계단은 구조로 이어져 있어도 로봇이 지나가지 못한다(OE-ML-04) — `verticalConnects` 와 `passable` 은 따로다.
  * TTL 에는 아직 내보내지 않는다(ADR-0033).
  */
-function verticalPartFeature(part: VerticalPart, storey: Storey, vertical?: VerticalRef, travel?: { from: Vec3; to: Vec3 } | null): Feature {
+function verticalPartFeature(part: VerticalPart, storey: Storey, vertical?: VerticalRef, travel?: { from: Vec3; to: Vec3 } | null, heading?: number): Feature {
   const ring = part.footprint
   const point = part.exit ?? part.entry
   return {
@@ -328,6 +328,10 @@ function verticalPartFeature(part: VerticalPart, storey: Storey, vertical?: Vert
       entry: part.entry ? [...part.entry] : null,
       exit: part.exit ? [...part.exit] : null,
       spaceIds: partSpaces(storey, part),
+      // 평면 회전각(OE-ML-02 "평면 회전각(방위)"). +x 에서 반시계로 잰 도(°)이고 형상에서 잰 값이라 출처는 계산이다(vertical-edit.ts 의
+      // verticalHeading — 계단·ES 는 시작점 → 끝점, EL·샤프트는 형상의 가장 긴 변). 잴 수 없으면 null.
+      heading: heading ?? null,
+      ...(heading !== undefined ? { headingSource: 'calc' } : {}),
       // 에스컬레이터 운행 방향(OE-ML-11). 미확인이면 null — 방향을 지어내지 않는다. 운행 시작·종료 지점은 travel 로 따로 낸다.
       ...(part.kind === 'escalator' ? { direction: part.direction ?? null, ...(part.direction ? { directionSource: 'edit' } : {}), ...(travel ? { travel: { from: [...travel.from], to: [...travel.to] } } : {}) } : {}),
       // 로봇 통과(OE-ML-04 · OE-EQP-17)는 층마다다. 엘리베이터는 정차를 확인한 층만 가능이고, 무정차·미확인은 불가이며 까닭을 가른다.
@@ -348,6 +352,8 @@ export function storeyToGeoJSON(
   systems: ReadonlyMap<string, System> = new Map(),
   /** 에스컬레이터 운행 시작·종료 지점(오브젝트 id → 지점, vertical-edit.ts 의 escalatorTravel). 여러 층에 걸친 값이라 모델에서 미리 잰다. */
   travels: ReadonlyMap<string, { from: Vec3; to: Vec3 }> = new Map(),
+  /** 오브젝트 id → 평면 회전각(°). 여러 층에 걸친 값이라 모델에서 미리 잰다. */
+  headings: ReadonlyMap<string, number> = new Map(),
 ): FeatureCollection {
   const external = judgeExternal(storey)
   return {
@@ -361,7 +367,7 @@ export function storeyToGeoJSON(
       ...(storey.customZones ?? []).map((z) => customZoneFeature(z, storey)),
       ...(storey.rooms ?? []).map((r) => roomFeature(r, storey)),
       ...(storey.spaceObjects ?? []).map((o) => spaceObjectFeature(o, storey, itemNames)),
-      ...(storey.verticalParts ?? []).map((p) => verticalPartFeature(p, storey, vertical.get(partId(p.parentId, storey.id)), travels.get(p.parentId))),
+      ...(storey.verticalParts ?? []).map((p) => verticalPartFeature(p, storey, vertical.get(partId(p.parentId, storey.id)), travels.get(p.parentId), headings.get(p.parentId))),
     ],
   }
 }
@@ -393,7 +399,13 @@ export function geoContext(model: Model) {
         return t ? [[o.id, t] as const] : []
       }),
   )
-  return [hvacZonesOf(model), verticalRefs(model), new Map(libraryOf(model).map((i) => [i.key, i.name])), shafts, new Map(model.systems.map((x) => [x.id, x])), travels] as const
+  const headings = new Map(
+    verticalObjects(model).flatMap((o) => {
+      const h = verticalHeading(model, o.id)
+      return h === null ? [] : [[o.id, Math.round(h * 10) / 10] as const]
+    }),
+  )
+  return [hvacZonesOf(model), verticalRefs(model), new Map(libraryOf(model).map((i) => [i.key, i.name])), shafts, new Map(model.systems.map((x) => [x.id, x])), travels, headings] as const
 }
 
 /** 층 id → 층 파일 이름. 내보내기와 편집 리플레이가 같은 이름을 쓴다. */

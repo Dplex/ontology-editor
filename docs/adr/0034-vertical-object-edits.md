@@ -5,10 +5,10 @@ status: "제안"
 date: "2026-10-09"
 deciders: ["정희록"]
 prd: []
-tickets: ["OE-ML-06", "OE-ML-07", "OE-OBJ-15", "OE-ML-08", "OE-ML-09", "OE-ML-01", "OE-ML-02", "OE-ML-05", "OE-HIST-03", "OE-ML-19"]
+tickets: ["OE-ML-06", "OE-ML-07", "OE-OBJ-15", "OE-ML-10", "OE-ML-11", "OE-ML-08", "OE-ML-09", "OE-ML-01", "OE-ML-02", "OE-ML-05", "OE-HIST-03", "OE-ML-19"]
 criteria: []
-code: ["src/lib/edit.ts", "src/lib/vertical-edit.ts", "src/lib/edit-file.ts", "src/lib/viewer.ts"]
-tests: ["e2e/vertical-edit.spec.ts"]
+code: ["src/lib/edit.ts", "src/lib/vertical-edit.ts", "src/lib/edit-file.ts", "src/lib/viewer.ts", "src/lib/export/geojson.ts"]
+tests: ["e2e/vertical-edit.spec.ts", "e2e/elevator-stops.spec.ts"]
 related: ["ADR-0033", "ADR-0032", "ADR-0008"]
 ---
 
@@ -50,6 +50,17 @@ ADR-0033 은 오브젝트를 층별 조각(`Storey.verticalParts`)으로 두고 
 - **만들기는 구간 바꾸기와 같은 채우기를 쓴다**(OE-ML-06, 2026-10-09 더함). 종류·이름·시작/끝 층을 정하면 층마다 채울 것이 나오고, 사람이
   그 층에 그리거나 찍어 채운다. 계획·채우기는 모델을 바꾸지 않아 [취소] 하면 남는 것이 없고, [만들기] 한 번이 이력 하나다. id 는 에디터가 짓는
   `U_…`, 출처는 `edit` 라 처음 모양에 `edited` 를 달지 않는다. 편집 파일에는 `created: { kind, name }` 과 모든 층 조각(`parts`)을 적는다.
+- **계단·ES·EL 은 점 하나로 만들고, 샤프트만 형상을 그린다**(OE-ML-06 · OE-ML-11 AC2, 2026-10-14 더함). 계단·ES 는 시작 층에서 시작점을
+  찍으면 끝 층이 높이 순서로 바로 위층이 되고, 수평 길이 = 층고 차 ÷ tan(기울기)로 시작점에서 방위 쪽으로 뻗은 직사각형과 끝점을 만든다
+  (`planFlight`). EL 은 위치를 찍으면 그 둘레에 기본 크기 정사각형 승강로를 둔다(`planElevator`). 기본값(EL 2.4m, ES 폭 1.2m·30°, 계단
+  폭 1.5m·34°)은 PRD 가 정하지 않아 PM 프로토타입의 시험용 값을 쓴다(`VERTICAL_DEFAULTS`). 방위는 위 회전 손잡이·회전각 칸으로 정하고, 계산한
+  형상·지점은 구간 바꾸기와 같은 채우기(`rangeGiven`)에 넣어 [만들기] 가 같은 `createVertical` 을 탄다. **건물 범위는 물리존으로 본다** —
+  형상 꼭짓점이 시작 층 물리존 안(0.5m 여유)에, 끝점이 위층 물리존 안에 있어야 만든다. 건물 외곽선은 모델에 따로 없고, 0.5m 는 계단판 끝이
+  벽 두께에 드는 것(위 표의 병원 계단 0.26㎡)을 밖으로 치지 않으려는 여유다. 물리존이 없는 층은 잴 수 없어 막지 않는다. ES 는 상행이 처음
+  선택이고 사람이 확인해야 만든다. 처음 모양은 출처 `edit` 라 `edited` 를 달지 않는다. 되돌리려면 `vertical-edit.ts` 의 `--- 기본 형상으로
+  만들기` 절과 App.vue 의 `--- 시작점·위치 찍기와 기본 형상` 절을 빼고 `placesByPoint` 를 거짓으로 둔다(층마다 그리는 옛 길이 그대로 남아 있다).
+- **평면 회전각은 GeoJSON 에 계산값으로 낸다**(OE-ML-02, 2026-10-14 더함). 층 조각마다 오브젝트의 `heading`(°)과 `headingSource: "calc"` 다.
+  위 "돌리기" 처럼 각도를 저장하지 않고 형상에서 잰 값이라 출처가 계산이다.
 - **샤프트·엘리베이터 승강로는 공통 축 하나다**(OE-ML-02 "공통 수직 축"). 형상을 한 번 그리면 구간의 모든 층에 같은 형상을 둔다 — 아래층을
   베끼는 것이 아니라 축의 정의라 OE-ML-08 의 "임의 복제 금지" 와 부딪히지 않는다. 진입·종료 지점은 두지 않아 물리존을 잇지 않는다(EL 정차 층은
   OE-ML-10 #181 답 뒤). 한 층만 고치기(손잡이·그 층만 옮기기)는 막고 전체 이동만 한다(OE-ML-07 "공통 축은 유지").

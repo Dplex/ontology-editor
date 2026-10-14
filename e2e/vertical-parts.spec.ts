@@ -118,16 +118,19 @@ test('Duplex: 다중층 뷰에서 만든 샤프트는 층 편집 화면에서 �
   await page.getByTestId('multi-banner').getByRole('button', { name: '수직 관통 오브젝트 만들기' }).click()
   const form = page.getByTestId('vertical-create')
   const create = page.getByTestId('vertical-create-plan')
-  // 채울 것이 종류마다 다르다(OE-ML-02 AC3): 계단·에스컬레이터는 층별 형상과 진입·종료 지점, 샤프트·엘리베이터는 공통 축 형상 하나다.
+  // 만드는 법이 종류마다 다르다(OE-ML-02 AC3 · OE-ML-06): 계단·에스컬레이터는 시작점 하나로 위층까지의 형상을, 엘리베이터는 승강로 위치
+  // 하나로 공통 축을 만든다. 샤프트는 공통 축 형상 하나를 그린다.
+  const points = page.getByTestId('vertical-create-point').locator('li .step-text')
   const steps = page.getByTestId('vertical-create-steps').locator('li .step-text')
-  for (const label of ['계단', '에스컬레이터']) {
-    await form.getByLabel('만들 종류').selectOption({ label })
-    await expect(steps).toHaveText(['Level 1 · 형상', 'Level 1 · 진입 지점', 'Level 2 · 종료 지점'])
-  }
-  for (const label of ['엘리베이터', '샤프트']) {
-    await form.getByLabel('만들 종류').selectOption({ label })
-    await expect(steps).toHaveText(['Level 1 · 형상'])
-  }
+  await form.getByLabel('만들 종류').selectOption({ label: '계단' })
+  await expect(points).toHaveText(['Level 1 · 시작점', /^방향/])
+  await form.getByLabel('만들 종류').selectOption({ label: '에스컬레이터' })
+  await expect(points).toHaveText(['Level 1 · 시작점', /^방향/, '운행 방향'])
+  await form.getByLabel('만들 종류').selectOption({ label: '엘리베이터' })
+  await expect(points).toHaveText(['Level 1 · 승강로 위치', /^방향/])
+  await form.getByLabel('만들 종류').selectOption({ label: '샤프트' })
+  await expect(points).toHaveCount(0)
+  await expect(steps).toHaveText(['Level 1 · 형상'])
   await form.getByLabel('만들 이름').fill('PS-1')
   await create.getByRole('button', { name: '형상 그리기' }).click()
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()

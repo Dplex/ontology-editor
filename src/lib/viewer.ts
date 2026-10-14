@@ -129,6 +129,8 @@ const CONFLICT_MS = 2600
  * 모르는 벽이 내력벽이 아닌 것처럼 보인다. 비내력벽은 그리지 않는다.
  */
 /** 벽·문·창 편집 층의 색. 비내력벽은 회색, 고른 것은 액센트 하나다. 내력·모름은 WALL_COLORS 를 같이 쓴다. */
+/** 만들 수 없는 미리보기(건물 밖)의 색. */
+const PREVIEW_WARN = 0xd1495b
 export const ARCH_COLORS = { wall: 0xb7bec7, door: 0x39424e, window: 0x7fa6cf, selected: 0x2f6fed }
 /** 공조존(IDF) 외곽선 색. 계통 색과 헷갈리지 않게 한 가지로만 그린다. */
 const ZONE_COLOR = 0x6b7280
@@ -350,7 +352,8 @@ export type SpaceHandles = {
  * 그 방향으로 중심을 지나는 점선(자석 스냅의 기준선)을, `label` 이 있으면 손잡이 옆에 글을 띄운다.
  */
 export type RotateHandle = { center: Vec2; elevation: number; radius: number; angle: number; guide: number | null; label: string }
-export type VerticalPreview = { storeyId: string; elevation: number; footprint?: readonly Vec2[]; point?: Vec2; path?: readonly Vec3[] }
+/** 점선 미리보기. `warn` 이면 경고 색(빨강)으로 그린다 — 만들기 미리보기가 건물 밖으로 나갈 때(OE-ML-06 AC3). */
+export type VerticalPreview = { storeyId: string; elevation: number; footprint?: readonly Vec2[]; point?: Vec2; path?: readonly Vec3[]; warn?: boolean }
 
 /** 마우스 아래에 있는 것. 설비·물리존(편집 모드)·연결 화살표(편집 모드). */
 export type HoverTarget = { kind: 'equipment'; id: string } | { kind: 'space'; id: string } | { kind: 'arrow'; key: string }
@@ -3841,7 +3844,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
               ? [[p.point[0] - r, p.point[1] - r], [p.point[0] + r, p.point[1] - r], [p.point[0] + r, p.point[1] + r], [p.point[0] - r, p.point[1] + r]]
               : null
         if (!pts) continue
-        const line = new LineLoop(new BufferGeometry().setFromPoints(pts.map((q) => new Vector3(q[0], y, -q[1]))), new LineDashedMaterial({ color: ARCH_COLORS.selected, dashSize: 0.25, gapSize: 0.15, depthTest: false }))
+        const line = new LineLoop(new BufferGeometry().setFromPoints(pts.map((q) => new Vector3(q[0], y, -q[1]))), new LineDashedMaterial({ color: p.warn ? PREVIEW_WARN : ARCH_COLORS.selected, dashSize: 0.25, gapSize: 0.15, depthTest: false }))
         line.computeLineDistances()
         line.renderOrder = 4
         line.userData.storeyId = p.storeyId
