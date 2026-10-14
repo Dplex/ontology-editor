@@ -1,0 +1,199 @@
+<!doctype html>
+<!--
+  수직 관통 오브젝트(EL·ES·계단) 배치·회전·이어 놓기 인터랙션 프로토타입.
+  PRD OE-ML-06·07·11·19·02, OE-OBJ-15 의 2026-10-14 수정안을 눈으로 확인하려고 만든 참고 자료다 — 에디터 코드가 아니고 앱에서 쓰지 않는다.
+  브라우저로 파일을 그냥 열면 된다(three.js 를 CDN 에서 받으므로 인터넷이 필요하다).
+  숫자(각도 스냅 ±3°, 이어진 구간 ±8°, 고정 화면 거리 28px, 기본 기울기·폭)는 시험용 값이다.
+-->
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>수직 관통 오브젝트 배치 프로토타입</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+:root{--surface-1:#f6f5f2;--surface-2:#fff;--border:rgba(0,0,0,.12);--border-strong:rgba(0,0,0,.22);--border-accent:#85B7EB;--bg-accent:#E6F1FB;--text-accent:#185FA5;--text-primary:#1f1e1c;--text-secondary:#5f5e5a;--text-danger:#A32D2D;--text-success:#3B6D11;--radius:8px}
+@media (prefers-color-scheme:dark){:root{--surface-1:#262624;--surface-2:#30302e;--border:rgba(255,255,255,.14);--border-strong:rgba(255,255,255,.26);--border-accent:#185FA5;--bg-accent:#0C447C;--text-accent:#B5D4F4;--text-primary:#f1efe8;--text-secondary:#b4b2a9;--text-danger:#F09595;--text-success:#97C459}}
+body{margin:0 auto;max-width:960px;padding:16px;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--surface-1);color:var(--text-primary)}
+h1{font-size:18px;font-weight:500;margin:0 0 4px}
+.sub{font-size:13px;color:var(--text-secondary);margin:0 0 8px}
+button,select,input{font:inherit;font-size:13px;color:var(--text-primary);background:transparent;border:0.5px solid var(--border-strong);border-radius:var(--radius);padding:4px 10px}
+button{cursor:pointer}button:hover{background:var(--surface-1)}
+input[type=checkbox],input[type=radio]{padding:0}
+.pill{font-size:12px;padding:3px 10px;border-radius:var(--radius);background:var(--surface-2);color:var(--text-secondary)}
+.pill.on{background:var(--bg-accent);color:var(--text-accent)}
+.card{background:var(--surface-2);border:0.5px solid var(--border);border-radius:12px;padding:12px 14px;margin-top:10px;font-size:13px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+.lbl{color:var(--text-secondary);font-size:12px}
+.err{color:var(--text-danger);font-size:13px;margin-top:6px}
+.okt{color:var(--text-success)}.bad{color:var(--text-danger)}
+button.sel{background:var(--bg-accent);color:var(--text-accent);border-color:var(--border-accent)}
+.kv td{padding:2px 10px 2px 0;font-size:12px;vertical-align:top}
+.kv td:first-child{color:var(--text-secondary);white-space:nowrap}
+.hud{position:absolute;font-size:12px;padding:4px 8px;border-radius:var(--radius);background:var(--surface-2);border:0.5px solid var(--border);color:var(--text-primary);pointer-events:none}
+</style></head><body>
+<h1>수직 관통 오브젝트 배치 프로토타입</h1>
+<p class="sub">엘리베이터: 시작/끝 층 → 바닥에 놓기 → 돌리기. 에스컬레이터·계단: 시작점만 찍으면 위층까지 계산. 주황 점에 커서를 대면 기존 구간에 고정되고, 커서로 방향을 정해 클릭. 참고: PRD OE-ML-06·07·11·19·02, OE-OBJ-15.</p>
+<div id="root">
+<div class="row" id="modes"></div>
+<div class="row" id="steps"></div>
+<div class="row" id="floors"></div>
+<div id="wrap" style="position:relative;height:520px;border:0.5px solid var(--border);border-radius:12px;overflow:hidden;touch-action:none;background:var(--surface-2)">
+<div class="hud" id="hudA" style="top:8px;left:8px">불러오는 중…</div>
+<div class="hud" id="hudB" style="bottom:8px;left:8px;color:var(--text-secondary)">드래그: 화면 이동 · Shift+왼쪽 드래그 또는 오른쪽 드래그: 시점 회전 · 휠: 확대 · 파란 손잡이: 회전 · Alt: 스냅 끔</div>
+<div class="hud" id="hudC" style="top:8px;right:8px;color:var(--text-secondary)">주황 = 붙일 수 있는 지점 · 초록 = 이어짐 · 빨강 = 재검토</div>
+</div>
+<div class="card" id="panel"></div>
+<div class="card" id="edit"></div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+const F=[{id:'1F',z:0},{id:'2F',z:5},{id:'3F',z:9},{id:'4F',z:12.5},{id:'5F',z:null}];
+const BW=36,BH=22,WALL=Math.atan2(6,10)*180/Math.PI,PI=Math.PI,SCRPX=28;
+const SP={EL:{w:2.4,col:0x7F77DD,nm:'엘리베이터'},ES:{w:1.2,ang:30,col:0x1D9E75,nm:'에스컬레이터'},ST:{w:1.5,ang:34,col:0xD85A30,nm:'계단'}};
+const RED=0xE24B4A,BLUE=0x378ADD,AMB=0xEF9F27,GRAY=0x888780,GRN=0x639922;
+const $=id=>document.getElementById(id),fi=id=>F.findIndex(f=>f.id===id),zf=id=>F[fi(id)].z,r1=v=>Math.round(v*10)/10;
+const norm=a=>((a%360)+360)%360,dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y),clampP=p=>({x:Math.max(0,Math.min(BW,Math.round(p.x*2)/2)),y:Math.max(0,Math.min(BH,Math.round(p.z*2)/2))});
+let st={d:null,objs:[],links:[],hist:[],sel:null,view:'1F',hover:null,hoverAng:null,anchor:null,err:'',eerr:'',snapBy:null,cnt:{EL:0,ES:0,ST:0}};
+const snapS=()=>JSON.stringify({o:st.objs,l:st.links}),push=()=>st.hist.push(snapS());
+function newDraft(t){st.err='';st.sel=null;st.anchor=null;st.d=t==='EL'?{t,step:1,a:'1F',b:'4F',c:null,ang:0,stops:{},ok:false}:{t,startF:st.view,c:null,ang:0,up:true,dirOK:false,link:null};}
+const dv=a=>[Math.cos(a*PI/180),Math.sin(a*PI/180)];
+function rect(c,ang,x0,x1,hw){const[dx,dy]=dv(ang),px=-dy,py=dx;return[[x0,-hw],[x1,-hw],[x1,hw],[x0,hw]].map(([u,v])=>[c.x+dx*u+px*v,c.y+dy*u+py*v]);}
+const inB=cs=>cs.every(([x,y])=>x>=-0.01&&x<=BW+0.01&&y>=-0.01&&y<=BH+0.01);
+const range=(a,b)=>F.slice(fi(a),fi(b)+1).map(f=>f.id);
+function calc(o){if(o.t==='EL'){const cs=rect(o.c,o.ang,-1.2,1.2,1.2);return{cs,err:inB(cs)?'':'승강로가 건물 밖으로 나감'};}
+const i=fi(o.startF);if(i===F.length-1)return{err:o.startF+' 는 최상층이라 위층이 없음 — 다른 층에서 시작해 봐'};const e=F[i+1];if(F[i].z==null||e.z==null)return{err:(F[i].z==null?o.startF:e.id)+' 기준 높이가 없어 종료점을 계산할 수 없음'};
+const rise=e.z-F[i].z,L=rise/Math.tan(SP[o.t].ang*PI/180),r={endF:e.id,rise,L};if(!o.c)return r;r.cs=rect(o.c,o.ang,0,L,SP[o.t].w/2);const[dx,dy]=dv(o.ang);r.end={x:o.c.x+dx*L,y:o.c.y+dy*L};if(!inB(r.cs))r.err='이 각도·위치에서는 형상(길이 '+r1(L)+'m)이 건물 밖으로 나감';return r;}
+function snap(a,alt,extra){a=norm(a);if(alt)return{a:r1(a),by:null};let b=null;[[0,'건물 축',3],[90,'건물 축',3],[180,'건물 축',3],[270,'건물 축',3],[WALL,'사선 벽',3],[WALL+90,'사선 벽 직각',3],[WALL+180,'사선 벽',3],[WALL+270,'사선 벽 직각',3]].concat(extra||[]).forEach(([t,n,tol])=>{const d=Math.abs((((a-t)%360)+540)%360-180);if(d<=tol&&(!b||d-tol<b.d-b.tol))b={d,t:norm(t),n,tol}});return b?{a:b.t,by:b.n}:{a:r1(a),by:null};}
+const byId=id=>st.objs.find(o=>o.id===id);
+function cands(d,startF){const nf=F[fi(startF)+1],out=[];st.objs.forEach(o=>{if(o.t!==d.t)return;if(d.t==='ES'&&o.up!==d.up)return;const r=calc(o);if(r.err||!r.end)return;
+if(r.endF===startF&&!st.links.some(l=>l.lower===o.id))out.push({kind:'start',id:o.id,p:r.end,y:zf(startF),ang:o.ang});if(nf&&o.startF===nf.id&&!st.links.some(l=>l.upper===o.id))out.push({kind:'end',id:o.id,p:o.c,y:zf(nf.id),ang:o.ang});});return out;}
+function lstat(l){const a=byId(l.lower),b=byId(l.upper);if(!a||!b)return{ok:false,why:'대상 없음'};const r=calc(a);if(!r.end)return{ok:false,why:'형상 오류'};const z=zf(r.endF);if(a.t==='ES'&&a.up!==b.up)return{ok:false,why:'운행 방향 다름',p:r.end,z};const dd=dist(r.end,b.c);return dd<0.05?{ok:true,p:r.end,z}:{ok:false,why:'지점 어긋남 '+r1(dd)+'m',p:r.end,z};}
+const linkEx=ids=>{const ex=[];ids.forEach(id=>{const o=byId(id);if(o){ex.push([o.ang,'이어진 구간 방향',8]);ex.push([o.ang+180,'꺾어 오르기(반대 방향)',8]);}});return ex;};
+function extraFor(t){const ids=[];if(t===st.d){if(t.link)ids.push(t.link.to);}else st.links.forEach(l=>{if(l.lower===t.id)ids.push(l.upper);if(l.upper===t.id)ids.push(l.lower);});return linkEx(ids);}
+function pivotOf(t){if(t===st.d&&t.link&&t.link.kind==='end'){const r=calc(t);return{p:r.end,end:true,y:zf(r.endF)+0.15};}return{p:t.c,end:false,y:(t.t==='EL'?zf(t.a):zf(t.startF))+0.15};}
+let rot=null;
+function boot(){
+const wrap=$('wrap'),Wd=wrap.clientWidth,Hh=wrap.clientHeight;
+const R=new THREE.WebGLRenderer({antialias:true,alpha:true});R.setPixelRatio(Math.min(2,devicePixelRatio));R.setSize(Wd,Hh);wrap.insertBefore(R.domElement,wrap.firstChild);
+const scene=new THREE.Scene(),cam=new THREE.PerspectiveCamera(42,Wd/Hh,0.1,500);cam.position.set(52,34,48);
+const ctl=new THREE.MapControls(cam,R.domElement);ctl.target.set(18,6,11);ctl.screenSpacePanning=false;ctl.maxPolarAngle=PI*0.47;ctl.update();
+scene.add(new THREE.AmbientLight(0xffffff,0.75));const dl=new THREE.DirectionalLight(0xffffff,0.55);dl.position.set(30,60,20);scene.add(dl);
+const stat=new THREE.Group(),dyn=new THREE.Group();scene.add(stat,dyn);
+const line=(pts,col,dash,op)=>{const g=new THREE.BufferGeometry().setFromPoints(pts.map(p=>new THREE.Vector3(...p)));const m=dash?new THREE.LineDashedMaterial({color:col,dashSize:0.6,gapSize:0.4,transparent:true,opacity:op??1}):new THREE.LineBasicMaterial({color:col,transparent:true,opacity:op??1});const l=new THREE.Line(g,m);if(dash)l.computeLineDistances();return l;};
+function label(txt,x,y,z){const c=document.createElement('canvas');c.width=256;c.height=64;const g=c.getContext('2d');g.font='28px sans-serif';g.fillStyle='#888780';g.fillText(txt,4,40);const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),depthTest:false,transparent:true}));s.scale.set(6,1.5,1);s.position.set(x,y,z);return s;}
+const zs=f=>f.z??15.5,slabs={};
+F.forEach(f=>{const z=zs(f);const m=new THREE.Mesh(new THREE.BoxGeometry(BW,0.08,BH),new THREE.MeshLambertMaterial({color:f.z==null?RED:GRAY,transparent:true,opacity:0.06,depthWrite:false}));m.position.set(BW/2,z-0.04,BH/2);stat.add(m);slabs[f.id]=m;
+stat.add(line([[0,z,0],[BW,z,0],[BW,z,BH],[0,z,BH],[0,z,0]],f.z==null?RED:GRAY,f.z==null,0.9));
+[[[0,10],[36,10]],[[0,14],[22,14]],[[12,0],[12,10]],[[24,0],[24,10]],[[22,14],[32,20]]].forEach(([a,b],k)=>stat.add(line([[a[0],z,a[1]],[b[0],z,b[1]]],k===4?AMB:GRAY,false,k===4?0.9:0.45)));
+stat.add(label(f.id+' '+(f.z==null?'높이 없음':f.z+'m'),-4,z+0.6,-1));});
+stat.add(label('사선 벽 31°',30,1.2,21.5));
+const ray=new THREE.Raycaster(),mv=new THREE.Vector2();
+function setRay(e){const b=R.domElement.getBoundingClientRect();mv.set((e.clientX-b.left)/b.width*2-1,-(e.clientY-b.top)/b.height*2+1);ray.setFromCamera(mv,cam);}
+function planeHit(e,y){setRay(e);const p=new THREE.Vector3();return ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0),-y),p)?p:null;}
+function scrD(e,x,y,z){const b=R.domElement.getBoundingClientRect(),v=new THREE.Vector3(x,y,z).project(cam);return Math.hypot((v.x+1)/2*b.width+b.left-e.clientX,(1-v.y)/2*b.height+b.top-e.clientY);}
+const ball=(x,y,z,col,r)=>{const m=new THREE.Mesh(new THREE.SphereGeometry(r||0.4,14,10),new THREE.MeshBasicMaterial({color:col}));m.position.set(x,y,z);return m;};
+let knob=null,pick=[];
+function build(o,ghost){const g=new THREE.Group(),r=calc(o),bad=!!r.err&&!!(r.cs),col=bad?RED:SP[o.t].col,op=ghost?0.3:0.5;
+const mat=()=>new THREE.MeshLambertMaterial({color:col,transparent:true,opacity:op});g.position.set(o.c.x,0,o.c.y);g.rotation.y=-o.ang*PI/180;
+if(o.t==='EL'){const z0=zf(o.a),top=zf(o.b)+3;const m=new THREE.Mesh(new THREE.BoxGeometry(2.4,top-z0,2.4),mat());m.position.set(0,z0+(top-z0)/2,0);g.add(m);
+const e=new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry),new THREE.LineBasicMaterial({color:col}));e.position.copy(m.position);g.add(e);
+range(o.a,o.b).forEach(id=>{const stop=o.stops[id]!==false;const k=new THREE.Mesh(new THREE.BoxGeometry(0.15,2,1.6),new THREE.MeshLambertMaterial({color:stop?col:GRAY,transparent:true,opacity:stop?0.95:0.4}));k.position.set(1.3,zf(id)+1,0);g.add(k);});m.userData.id=o.id;pick.push(m);}
+else if(r.L){const z0=zf(o.startF),z1=zf(r.endF),L=r.L,w=SP[o.t].w;
+if(o.t==='ES'){const Ls=Math.hypot(L,r.rise),m=new THREE.Mesh(new THREE.BoxGeometry(Ls,0.35,w),mat());m.position.set(L/2,z0+r.rise/2,0);m.rotation.z=Math.atan2(r.rise,L);g.add(m);m.userData.id=o.id;pick.push(m);
+const ar=new THREE.Mesh(new THREE.ConeGeometry(0.35,0.9,12),new THREE.MeshLambertMaterial({color:col}));ar.position.set(L/2,z0+r.rise/2+0.6,0);ar.rotation.z=(o.up?-1:1)*(PI/2-Math.atan2(r.rise,L));g.add(ar);}
+else{const n=Math.max(8,Math.round(r.rise/0.18));for(let i=0;i<n;i++){const m=new THREE.Mesh(new THREE.BoxGeometry(L/n,r.rise/n,w),mat());m.position.set((i+.5)*L/n,z0+(i+.5)*r.rise/n,0);g.add(m);m.userData.id=o.id;pick.push(m);}}
+const hw=w/2;g.add(line([[0,z0+0.05,-hw],[L,z0+0.05,-hw],[L,z0+0.05,hw],[0,z0+0.05,hw],[0,z0+0.05,-hw]],col,false));
+g.add(line([[0,z1+0.05,-hw],[L,z1+0.05,-hw],[L,z1+0.05,hw],[0,z1+0.05,hw],[0,z1+0.05,-hw]],col,true));
+g.add(ball(0,z0+0.3,0,col,0.3));const en=new THREE.Mesh(new THREE.TorusGeometry(0.35,0.08,8,20),new THREE.MeshLambertMaterial({color:col}));en.rotation.x=PI/2;en.position.set(L,z1+0.2,0);g.add(en);}
+return g;}
+function rebuild(){while(dyn.children.length)dyn.remove(dyn.children[0]);pick=[];knob=null;
+const d=st.d,act=d?(d.t==='EL'?d.a:(d.c?d.startF:st.view)):st.view;F.forEach(f=>slabs[f.id].material.opacity=f.id===act?0.2:0.06);
+st.objs.forEach(o=>dyn.add(build(o,false)));
+st.links.forEach(l=>{const s=lstat(l);if(s.p)dyn.add(ball(s.p.x,s.z+0.45,s.p.y,s.ok?GRN:RED,0.5));});
+if(d&&d.t!=='EL'&&!d.c){const an=st.anchor;cands(d,st.view).forEach(c=>{const on=an&&an.id===c.id&&an.kind===c.kind;dyn.add(ball(c.p.x,c.y+0.45,c.p.y,AMB,on?0.65:0.38));});
+if(an){const R2=new THREE.Mesh(new THREE.TorusGeometry(0.9,0.06,8,40),new THREE.MeshBasicMaterial({color:AMB}));R2.rotation.x=PI/2;R2.position.set(an.p.x,an.y+0.2,an.p.y);dyn.add(R2);
+if(st.snapBy&&st.hover){const[dx,dy]=dv(st.hoverAng);dyn.add(line([[an.p.x-dx*40,an.y+0.1,an.p.y-dy*40],[an.p.x+dx*40,an.y+0.1,an.p.y+dy*40]],AMB,true));}}}
+let tgt=null;
+if(d){const c=d.c||(d.t==='EL'?(d.step>=2?st.hover:null):st.hover);if(c){if(d.c){tgt=d;dyn.add(build(d,false));}else dyn.add(build(Object.assign({},d,{c,startF:st.view,ang:st.hoverAng??d.ang}),true));}}
+else if(st.sel)tgt=byId(st.sel);
+if(tgt){const Rr=tgt.t==='EL'?2.7:2.2,pv=pivotOf(tgt);
+const ring=new THREE.Mesh(new THREE.TorusGeometry(Rr,0.07,8,72),new THREE.MeshBasicMaterial({color:BLUE,transparent:true,opacity:0.7}));ring.rotation.x=PI/2;ring.position.set(pv.p.x,pv.y,pv.p.y);dyn.add(ring);
+const[dx,dy]=dv(tgt.ang);knob=ball(pv.p.x+dx*Rr,pv.y,pv.p.y+dy*Rr,BLUE,0.5);dyn.add(knob);
+if(rot&&st.snapBy)dyn.add(line([[pv.p.x-dx*40,pv.y,pv.p.y-dy*40],[pv.p.x+dx*40,pv.y,pv.p.y+dy*40]],AMB,true));}
+hud(tgt);}
+function hud(t){let s;const an=st.anchor;
+if(rot&&t)s=`회전 ${r1(t.ang).toFixed(1)}°`+(st.snapBy?` · ${st.snapBy}에 붙음`:(rot.alt?' · 스냅 끔(Alt)':' · 자유'));
+else if(st.d&&!st.d.c&&an)s=`${an.id} ${an.kind==='start'?'끝점에 시작점':'시작점에 끝점'} 고정 · 커서로 방향 ${r1(st.hoverAng??0).toFixed(1)}°${st.snapBy?' ('+st.snapBy+')':''} · 클릭 확정 · 멀리 빼거나 Alt 면 해제`;
+else if(t)s=`회전 ${r1(t.ang).toFixed(1)}°`+(t.link?` · ${t.link.to} 에 이어 붙음`:'');
+else if(st.d)s=st.d.t==='EL'&&st.d.step===1?'시작/끝 층부터 골라 줘':(st.d.t==='EL'?st.d.a:st.view)+' 바닥을 클릭해 놓기 — 주황 점에 커서를 대면 붙음';else s='만든 걸 클릭하면 고르고 돌릴 수 있음';$('hudA').textContent=s;}
+function hoverES(e){const d=st.d,sf=st.view,y0=F[fi(sf)].z??15.5,raw=planeHit(e,y0);if(!raw){st.hover=null;return;}const cur={x:raw.x,y:raw.z},L=calc(Object.assign({},d,{startF:sf,c:null})).L;
+if(st.anchor&&(e.altKey||(L&&dist(cur,st.anchor.p)>L+6)))st.anchor=null;
+if(!st.anchor&&!e.altKey&&L){let best=null;cands(d,sf).forEach(c=>{const sd=scrD(e,c.p.x,c.y+0.45,c.p.y);const near=sd<=SCRPX||(c.kind==='start'&&dist(cur,c.p)<=1);if(near&&(!best||sd<best.sd))best={...c,sd};});if(best)st.anchor=best;}
+const an=st.anchor;if(an&&L){let a;const v=an.kind==='start'?{x:cur.x-an.p.x,y:cur.y-an.p.y}:{x:an.p.x-cur.x,y:an.p.y-cur.y};
+if(Math.hypot(v.x,v.y)<0.4)a=st.hoverAng??an.ang;else a=Math.atan2(v.y,v.x)*180/PI;const s=snap(a,false,linkEx([an.id]));st.hoverAng=s.a;st.snapBy=s.by;
+if(an.kind==='start')st.hover={x:an.p.x,y:an.p.y};else{const[dx,dy]=dv(s.a);st.hover={x:an.p.x-dx*L,y:an.p.y-dy*L};}}
+else{st.hover=clampP(raw);st.hoverAng=null;st.snapBy=null;}}
+let down=null;const tgtObj=()=>st.d&&st.d.c?st.d:(st.sel?byId(st.sel):null);
+wrap.addEventListener('pointerdown',e=>{down={x:e.clientX,y:e.clientY};if(!knob||e.button!==0||e.shiftKey)return;setRay(e);if(ray.intersectObject(knob).length){const t=tgtObj(),pv=pivotOf(t);rot={start:t.ang,startC:{...t.c},snapStart:t.snap,alt:false,before:snapS(),piv:pv};ctl.enabled=false;e.preventDefault();}},true);
+window.addEventListener('pointermove',e=>{if(rot){const p=planeHit(e,rot.piv.y);if(!p)return;const t=tgtObj(),s=snap(Math.atan2(p.z-rot.piv.p.y,p.x-rot.piv.p.x)*180/PI,e.altKey,extraFor(t));rot.alt=e.altKey;t.ang=s.a;st.snapBy=s.by;t.snap=s.by||'자유';
+if(rot.piv.end){const L=calc(t).L,[dx,dy]=dv(t.ang);t.c={x:rot.piv.p.x-dx*L,y:rot.piv.p.y-dy*L};}rebuild();return;}
+const d=st.d;if(!d||d.c||(d.t==='EL'&&d.step<2))return;if(e.buttons)return;
+if(d.t==='EL'){const p=planeHit(e,zf(d.a));st.hover=p?clampP(p):null;}else hoverES(e);rebuild();});
+window.addEventListener('pointerup',e=>{if(rot){const t=tgtObj();ctl.enabled=true;if(!st.d){if(calc(t).err){t.ang=rot.start;t.c=rot.startC;t.snap=rot.snapStart;st.eerr='이 각도는 건물 밖으로 나가서 적용하지 않음';}else{st.hist.push(rot.before);st.eerr='';}}rot=null;st.snapBy=null;rebuild();renderUI();down=null;return;}
+if(down&&Math.hypot(e.clientX-down.x,e.clientY-down.y)<5&&e.target===R.domElement)click(e);down=null;});
+window.addEventListener('keydown',e=>{if(e.key==='Escape'){if(rot){const t=tgtObj();t.ang=rot.start;t.c=rot.startC;t.snap=rot.snapStart;rot=null;st.snapBy=null;ctl.enabled=true;}else if(st.anchor){st.anchor=null;}rebuild();renderUI();}});
+function click(e){const d=st.d;if(d){if(d.t==='EL'&&d.step<2)return;if(d.c){setRay(e);if(knob&&ray.intersectObject(knob).length)return;}
+if(d.t==='EL'){const p=planeHit(e,zf(d.a));if(!p)return;d.c=clampP(p);}
+else{if(d.c){d.c=null;d.link=null;hoverES(e);rebuild();renderUI();return;}hoverES(e);if(!st.hover)return;d.c={...st.hover};d.startF=st.view;if(st.anchor){d.link={kind:st.anchor.kind,to:st.anchor.id};d.ang=st.hoverAng;d.snap=st.snapBy||'자유';}else{d.link=null;}st.anchor=null;st.hoverAng=null;st.snapBy=null;}
+st.err='';rebuild();renderUI();return;}
+setRay(e);const h=ray.intersectObjects(pick);st.sel=h.length?h[0].object.userData.id:null;st.eerr='';rebuild();renderUI();}
+window.__rb=rebuild;window.__st=st;window.__cam=cam;window.__scr=(x,y,z)=>{const b=R.domElement.getBoundingClientRect(),v=new THREE.Vector3(x,y,z).project(cam);return{x:(v.x+1)/2*b.width+b.left,y:(1-v.y)/2*b.height+b.top};};
+(function loop(){requestAnimationFrame(loop);ctl.update();R.render(scene,cam);})();
+rebuild();}
+function angRow(t){return `<div class="row"><span class="lbl">회전각</span><input type="number" step="0.1" value="${r1(t.ang)}" data-k="ang" style="width:90px"><span class="lbl">°${t.t!=='EL'&&(t.link||st.links.some(l=>l.lower===t.id||l.upper===t.id))?' · 이어진 구간 방향·반대는 ±8°, 건물 축·사선 벽은 ±3° 에서 붙음':' · 건물 축·사선 벽(31°) ±3° 에서 붙음'}</span></div>`;}
+function renderUI(){const d=st.d;
+$('modes').innerHTML=['EL','ES','ST'].map(m=>`<button data-act="mode" data-v="${m}" class="${d&&d.t===m?'sel':''}">${SP[m].nm} 만들기</button>`).join('')+`<button data-act="undo" ${st.hist.length?'':'style="opacity:.5"'}><i class="ti ti-arrow-back-up" aria-hidden="true"></i> 되돌리기</button>`;
+let s=[],on=0;if(d&&d.t==='EL'){s=['1 시작/끝 층','2 바닥에 놓기','3 돌려서 방향','4 정차 층 확인'];on=d.step===1?1:(d.c?3:2);}else if(d){s=(d.t==='ES'?['운행 방향']:[]).concat(['주황 점에 커서 → 커서로 방향 → 클릭','필요하면 손잡이로 다시 돌리기']);on=d.c?s.length:s.length-1;}
+$('steps').innerHTML=s.map((t,i)=>`<span class="pill ${i+1===on?'on':''}">${t}</span>`).join('<span class="lbl">›</span>')||'<span class="lbl">위 버튼으로 하나 만들거나, 3D 에서 만든 걸 클릭해 골라 봐</span>';
+$('floors').innerHTML='<span class="lbl">시작 층(보는 층)</span>'+F.map(f=>`<button data-act="view" data-v="${f.id}" class="${st.view===f.id?'sel':''}" style="padding:2px 10px">${f.id}</button>`).join('')+'<span class="lbl">에스컬레이터·계단은 이 층 바닥에 찍힘</span>';
+let h='';if(!d)h='<span class="lbl">만들기 버튼을 누르면 여기에 단계가 나옴</span>';
+else if(d.t==='EL'){const o=v=>F.map(f=>`<option ${f.id===v?'selected':''}>${f.id}</option>`).join('');
+if(d.step===1)h=`<div class="row"><span class="lbl">시작 층</span><select data-k="a">${o(d.a)}</select><span class="lbl">끝 층</span><select data-k="b">${o(d.b)}</select><button data-act="elnext">다음 — 놓기</button></div>`;
+else{h=`<div class="row"><span class="lbl">구간</span>${d.a} → ${d.b}<span class="lbl">위치</span>${d.c?`(${d.c.x}, ${d.c.y})`:`${d.a} 바닥 클릭`}<button data-act="elback">층 다시 고르기</button></div>`;
+if(d.c)h+=angRow(d)+`<div class="row"><span class="lbl">정차</span>${range(d.a,d.b).map(id=>`<label><input type="checkbox" data-k="stop" data-f="${id}" ${d.stops[id]!==false?'checked':''}> ${id}</label>`).join('')}</div><div class="row"><label><input type="checkbox" data-k="ok" ${d.ok?'checked':''}> 정차 층 확인함</label></div>`;}}
+else{const sf=d.c?d.startF:st.view,r=calc(Object.assign({},d,{startF:sf}));
+if(d.t==='ES')h+=`<div class="row"><span class="lbl">운행 방향</span><label><input type="radio" name="ud" data-k="up" value="1" ${d.up?'checked':''}> 상행 (기본)</label><label><input type="radio" name="ud" data-k="up" value="0" ${d.up?'':'checked'}> 하행</label><label><input type="checkbox" data-k="dirok" ${d.dirOK?'checked':''}> 방향 확인함</label><span class="lbl">같은 방향끼리만 주황 점이 뜸</span></div>`;
+h+=`<div class="row"><span class="lbl">시작 층</span>${sf}<span class="lbl">끝 층</span>${r.endF?r.endF+' (자동)':'—'}${d.c?`<span class="lbl">시작점</span>(${r1(d.c.x)}, ${r1(d.c.y)})`:''}</div>`;
+if(r.rise!=null)h+=`<div class="lbl">층고 차 ${r1(r.rise)}m ÷ tan ${SP[d.t].ang}° = 수평 길이 ${r1(r.L)}m</div>`;
+if(d.c)h+=`<div class="row"><span class="lbl">이어 붙음</span>${d.link?`<span class="okt">${d.link.to} 의 ${d.link.kind==='start'?'끝점에 이 구간 시작점':'시작점에 이 구간 끝점'}</span>`:'<span class="lbl">없음</span>'}<span class="lbl">· 3D 를 다시 클릭하면 다시 놓기</span></div>`+angRow(d);}
+if(d&&(d.t!=='EL'||d.step>1))h+=`<div class="row"><button data-act="done">완료</button><button data-act="cancel">취소</button></div>`;
+const de=d&&d.c?calc(d).err:'';if(de)h+=`<div class="err">${de}</div>`;else if(st.err)h+=`<div class="err">${st.err}</div>`;
+$('panel').innerHTML=h;
+const o=st.sel&&byId(st.sel);const bad=id=>st.links.some(l=>(l.lower===id||l.upper===id)&&!lstat(l).ok);
+let e=`<div class="row"><span class="lbl">만든 것</span>${st.objs.length?st.objs.map(x=>`<button data-act="pick" data-v="${x.id}" class="${x.id===st.sel?'sel':''}" style="padding:2px 10px">${x.id}${x.t==='ES'?(x.up?' 상행':' 하행'):''} ${x.t==='EL'?x.a+'→'+x.b:x.startF+'→'+F[fi(x.startF)+1].id}${bad(x.id)?' · 재검토':''}</button>`).join(''):'<span class="lbl">아직 없음</span>'}</div>`;
+if(o){const r=calc(o);let lk='';st.links.forEach((l,i)=>{if(l.lower!==o.id&&l.upper!==o.id)return;const s=lstat(l),other=l.lower===o.id?l.upper:l.lower;lk+=`<div class="row"><span class="${s.ok?'okt':'bad'}">${l.lower===o.id?'위':'아래'} 구간 ${other} 와 ${s.ok?'이어짐':'재검토 — '+s.why}</span>${s.ok?'':`<button data-act="reat" data-v="${i}" style="padding:2px 10px">다시 붙이기</button>`}<button data-act="unlink" data-v="${i}" style="padding:2px 10px">연결 해제</button></div>`;});
+e+=`<table class="kv" style="margin:6px 0"><tr><td>구간</td><td>${o.t==='EL'?o.a+' → '+o.b:o.startF+' → '+r.endF+' (끝 층 자동)'}</td></tr><tr><td>${o.t==='EL'?'중심':'하층 지점'}</td><td>(${r1(o.c.x)}, ${r1(o.c.y)}) m</td></tr>${o.t!=='EL'?`<tr><td>상층 지점</td><td>(${r1(r.end.x)}, ${r1(r.end.y)}) m · 계산</td></tr>`:''}<tr><td>회전각</td><td>${r1(o.ang).toFixed(1)}° · ${o.snap&&o.snap!=='자유'?o.snap:'자유 회전'}</td></tr>${o.t==='ES'?`<tr><td>운행</td><td>${o.up?'상행 — 하층 지점에서 타고 상층 지점에서 내림':'하행 — 상층 지점에서 타고 하층 지점에서 내림'}</td></tr>`:''}</table>`+(lk||(o.t!=='EL'?'<div class="lbl">이어진 구간 없음</div>':''))+angRow(o)+
+`<div class="row">${o.t!=='EL'?`<span class="lbl">옮기기 0.5m</span>${[['W','←'],['N','↑'],['S','↓'],['E','→']].map(([k,a])=>`<button data-act="mv" data-v="${k}" style="padding:2px 10px" aria-label="${k}">${a}</button>`).join('')}`:''}${o.t==='ES'?'<button data-act="flip">운행 방향 바꾸기</button>':''}<button data-act="del"><i class="ti ti-trash" aria-hidden="true"></i> 삭제</button></div>`;}
+if(st.eerr)e+=`<div class="err">${st.eerr}</div>`;$('edit').innerHTML=e;}
+const rb=()=>window.__rb&&window.__rb();
+const MV={W:[-0.5,0],E:[0.5,0],N:[0,-0.5],S:[0,0.5]};
+$('root').addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b)return;const a=b.dataset.act,v=b.dataset.v,d=st.d,o=st.sel&&byId(st.sel);
+if(a==='mode')newDraft(v);else if(a==='view'){st.view=v;st.anchor=null;}else if(a==='cancel'){st.d=null;st.err='';st.anchor=null;}
+else if(a==='undo'){if(!st.hist.length)return;const s=JSON.parse(st.hist.pop());st.objs=s.o;st.links=s.l;if(!byId(st.sel))st.sel=null;st.eerr='';}
+else if(a==='elnext'){st.err='';if(fi(d.b)<=fi(d.a))st.err='끝 층은 시작 층보다 위여야 함';else{const bad=range(d.a,d.b).find(id=>zf(id)==null);if(bad)st.err=bad+' 기준 높이가 없어 관통 구간에 넣을 수 없음';else d.step=2;}}
+else if(a==='elback'){d.step=1;d.c=null;d.ok=false;}else if(a==='pick'){st.d=null;st.sel=v;st.eerr='';}
+else if(a==='del'){push();st.objs=st.objs.filter(x=>x.id!==st.sel);st.links=st.links.filter(l=>l.lower!==st.sel&&l.upper!==st.sel);st.sel=null;}
+else if(a==='mv'){const bk=snapS(),c={...o.c};o.c={x:o.c.x+MV[v][0],y:o.c.y+MV[v][1]};if(calc(o).err){o.c=c;st.eerr='건물 밖으로 나가서 옮기지 않음';}else{st.hist.push(bk);st.eerr='';}}
+else if(a==='flip'){push();o.up=!o.up;st.eerr='';}
+else if(a==='unlink'){push();st.links.splice(+v,1);}
+else if(a==='reat'){const l=st.links[+v],lo=byId(l.lower),up=byId(l.upper);if(lo.t==='ES'&&lo.up!==up.up){st.eerr='운행 방향이 달라 붙일 수 없음 — 방향부터 맞춰 봐';}else{const bk=snapS();if(o.id===up.id)up.c={...calc(lo).end};else{const L=calc(lo).L,[dx,dy]=dv(lo.ang);lo.c={x:up.c.x-dx*L,y:up.c.y-dy*L};}if(calc(o).err){const s=JSON.parse(bk);st.objs=s.o;st.eerr='붙이면 건물 밖으로 나가서 적용하지 않음';}else{st.hist.push(bk);st.eerr='';}}}
+else if(a==='done'){st.err='';if(!d.c)st.err='바닥을 클릭해 먼저 놓아 줘';else{const r=calc(d);if(r.err)st.err=r.err;else if(d.t==='EL'&&!d.ok)st.err='정차 층을 확인해야 완료됨';else if(d.t==='ES'&&!d.dirOK)st.err='운행 방향을 확인해야 완료됨 (상행이 기본값)';else{push();st.cnt[d.t]++;const n=JSON.parse(JSON.stringify(d));n.id=d.t+'-'+st.cnt[d.t];n.snap=d.snap||'자유';delete n.link;st.objs.push(n);if(d.link)st.links.push(d.link.kind==='start'?{lower:d.link.to,upper:n.id}:{lower:n.id,upper:d.link.to});st.d=null;st.sel=n.id;}}}
+renderUI();rb();});
+$('root').addEventListener('change',e=>{const t=e.target,k=t.dataset.k;if(!k)return;const d=st.d;
+if(k==='ang'){const v=parseFloat(t.value);if(isNaN(v))return;const tg=d&&d.c?d:byId(st.sel);if(!tg)return;const pv=pivotOf(tg);const apply=()=>{tg.ang=norm(v);if(pv.end){const L=calc(tg).L,[dx,dy]=dv(tg.ang);tg.c={x:pv.p.x-dx*L,y:pv.p.y-dy*L};}};
+if(d&&d.c){apply();tg.snap='숫자 입력';}else{const bk=snapS(),old={a:tg.ang,c:{...tg.c}};apply();if(calc(tg).err){tg.ang=old.a;tg.c=old.c;st.eerr='이 각도는 건물 밖으로 나가서 적용하지 않음';}else{st.hist.push(bk);tg.snap='숫자 입력';st.eerr='';}}}
+else if(k==='a'||k==='b')d[k]=t.value;else if(k==='stop'){d.stops[t.dataset.f]=t.checked;d.ok=false;}else if(k==='ok')d.ok=t.checked;
+else if(k==='up'){d.up=t.value==='1';d.dirOK=false;st.anchor=null;if(d.link){d.link=null;d.c=null;st.err='방향을 바꿔서 이어 붙인 연결이 풀림 — 같은 방향 구간에 다시 붙여 봐';renderUI();rb();return;}}else if(k==='dirok')d.dirOK=t.checked;
+st.err='';renderUI();rb();});
+renderUI();
+if(window.THREE&&THREE.MapControls)boot();else $('hudA').textContent='3D 라이브러리를 못 불러옴';
+</script></body></html>
