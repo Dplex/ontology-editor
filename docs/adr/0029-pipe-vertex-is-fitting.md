@@ -6,9 +6,9 @@ date: "2026-10-09"
 deciders: ["정희록"]
 prd: ["K14"]
 tickets: ["OE-PIP-10", "OE-PIP-12", "OE-PIP-01", "OE-PIP-11"]
-criteria: ["OE-PIP-10#2"]
+criteria: ["OE-PIP-10#2", "OE-PIP-10#1"]
 code: ["src/lib/edit.ts", "src/lib/pipe-vertex.ts", "src/App.vue"]
-tests: ["src/lib/pipe-vertex.test.ts", "e2e/pipe-vertex-edit.spec.ts"]
+tests: ["src/lib/pipe-vertex.test.ts", "e2e/pipe-vertex-edit.spec.ts", "e2e/pipe-vertex-multi.spec.ts"]
 related: []
 ---
 
@@ -58,6 +58,10 @@ OE-PIP-10 은 "배관 폴리라인의 꼭짓점을 이동·추가·삭제" 하�
   구간을 지운다. 나누거나 합쳐 새로 생기는 연결은 사람이 이은 것(manual)이지만, 옛 사슬이 확정 방향이었으면 같은 쪽으로 방향을 이어받는다
   (`edited`, 편집 파일의 flows) — 중간점 편집만으로 확정 방향이 바뀌지 않게 한다(OE-PIP-10 AC2). 새 조각은 원래 구간의 Flow Type 을 그린 배관 값으로
   갖는다(ADR-0067). Flow Type 을 정하지 못한 BIM 구간에는 넣지 않고 먼저 고르게 한다
+- **다중층 뷰에서도 덕트·배관은 같은 패널로 고친다(2026-10-14 더함, OE-PIP-10 AC1).** 다중층 뷰는 설비를 잠그지만 덕트·배관 구간과 이음쇠는
+  잠그지 않는다. 꼭짓점 넣기·지우기, 꺾임점 좌표, 끝 대상 바꾸기, 구간 지우기가 층 편집과 같은 함수로 돈다. 층을 넘는 구간은 층 편집 화면에서
+  잠기고(OE-ML-05) 여기서만 고친다 — 꺾임점을 옮겨 층을 넘는 구간이 늘어나도 막지 않는다. 3D 끌기는 다중층 뷰 전체에서 꺼 둔 채라 좌표 칸으로
+  옮긴다(층 높이가 섞여 끌어 놓을 면이 하나가 아니다). 설비에서 배관 그리기·다른 층으로 옮기기는 숨긴다 — 다중층 뷰에는 층간 배관 그리기가 따로 있다.
 
 ## 고려한 다른 길
 
