@@ -489,6 +489,14 @@ const variants = {
     const pset = ++next
     out.push(line(pset, 'IFCPROPERTYSET', [str(guid('0SynthCapacityPset0000', 0, 1)), own, str('Pset_AirTerminalOccurrence'), '$', `(#${prop})`]))
     out.push(line(++next, 'IFCRELDEFINESBYPROPERTIES', [str(guid('0SynthCapacityRel00000', 0, 1)), own, '$', '$', list(devices), `#${pset}`]))
+    // 설비 태그(R25): 개체마다 다른 Mark. 병원의 Mark 는 층 묶음을 복사하며 겹쳤다. 뒤에 붙인 속성이라 읽을 때 원래 Mark 를 덮는다.
+    elements.forEach((id, i) => {
+      const mark = ++next
+      out.push(line(mark, 'IFCPROPERTYSINGLEVALUE', [str('Mark'), '$', `IFCTEXT(${str(`SYN-${id}`)})`, '$']))
+      const tag = ++next
+      out.push(line(tag, 'IFCPROPERTYSET', [str(guid('0SynthMarkPset00000000', 0, i)), own, str('Identity Data'), '$', `(#${mark})`]))
+      out.push(line(++next, 'IFCRELDEFINESBYPROPERTIES', [str(guid('0SynthMarkRel000000000', 0, i)), own, '$', '$', `(#${id})`, `#${tag}`]))
+    })
     return out
   },
 }
