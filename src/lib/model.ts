@@ -597,6 +597,28 @@ export type Storey = {
    * 지금은 BIM 의 계단(IfcStair)만 임포트가 만든다. 형상을 읽는 임포트에서만 생긴다.
    */
   verticalParts?: VerticalPart[]
+  /**
+   * 이 층의 바닥·기초·지붕 슬래브(IfcSlab FLOOR · BASESLAB · ROOF). 수직 관통 오브젝트가 실제로 뚫는 슬래브를 가리는 데만 쓴다
+   * (OE-ML-03, slab-opening.ts). 내보내지 않는다. 형상을 읽는 임포트에서만 생긴다.
+   */
+  slabs?: Slab[]
+}
+
+/**
+ * 슬래브의 윗면(OE-ML-03). 형상에서 위를 보는 면의 삼각형만 평면에 눕혀 둔다 — 슬래브의 구멍(BIM 개구부나 외곽선의 빈 곳)은
+ * 형상에서 이미 빠져 있어, 이 삼각형과 겹치는 넓이가 그 자리에 실제 슬래브가 있는 넓이다.
+ */
+export type Slab = {
+  /** IfcSlab 의 GlobalId. */
+  id: string
+  name: string
+  kind: 'floor' | 'base' | 'roof'
+  /** 윗면 높이(세계 z, m). */
+  top: number
+  /** 윗면 삼각형. 평면 (x, y) 를 여섯 개씩 잇는다(cm 로 반올림). */
+  tris: number[]
+  /** 이 슬래브를 뚫은 BIM 개구부(IfcOpeningElement). 평면 외곽은 형상 점들의 볼록 껍질이다. */
+  openings: { id: string; footprint: Vec2[] }[]
 }
 
 /** 수직 관통 오브젝트의 종류(glossary: EL·ES·계단·샤프트). */

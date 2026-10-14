@@ -247,6 +247,8 @@ export function mergeModels(
     if (!target.declaredHeight && storey.declaredHeight) target.declaredHeight = { ...storey.declaredHeight }
     // 반자 높이(OE-EQP-03)도 비어 있을 때만 채운다. 설비 판본의 방 높이는 임포터가 이미 거른다(ceiling.ts).
     if (!target.ceiling && storey.ceiling) target.ceiling = { ...storey.ceiling }
+    // 슬래브(OE-ML-03)도 바탕에 없을 때만 덧붙인 파일 것을 쓴다. 설비 판본에는 보통 슬래브가 없다.
+    if (!target.slabs?.length && storey.slabs?.length) target.slabs = storey.slabs
     target.walls.push(...fresh(storey.walls))
     target.openings.push(...fresh(storey.openings))
     target.equipment.push(...fresh(storey.equipment))
