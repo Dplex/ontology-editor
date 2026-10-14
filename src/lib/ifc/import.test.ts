@@ -510,7 +510,7 @@ describe('Proxy 로 들어온 설비', () => {
     expect(warning).toContain('나머지 1개는 포트도 없고 이름도 사전에 없어 건축 부재로 보고 읽지 않았습니다(예: RThisWheelStops850:850)')
     const r23 = requirementsReport(proxy).find((r) => r.id === 'R23')!
     // 기기 셋(덕트는 빼고) 중 Proxy 로 들어온 둘이 다른 자리다.
-    expect(r23.counts).toEqual({ standard: 1, elsewhere: 2, of: 3 })
+    expect(r23.counts).toEqual({ standard: 1, elsewhere: 2, of: 3, target: 3 })
     expect(r23.note).toContain('파일의 Proxy 3개 중 1개는 포트도 이름도 없어 건축 부재로 보고 읽지 않았습니다')
     // 합치면 두 파일의 Proxy 를 더한다.
     const twice = mergeModels(proxy, structuredClone(proxy)).model

@@ -704,6 +704,24 @@ class Reader {
   }
 
   /**
+   * 개체별 인스턴스 속성 `Mark`(요구사항 R25). Revit 은 Identity Data 에 적는다(Duplex HVAC 40/40 · 병원 HVAC 의 기기 전부). 타입 속성
+   * `Type Mark` 는 같은 종류 설비가 같은 값을 나눠 가져 매핑 키가 못 되므로 읽지 않는다. 자리표시값은 버린다(isPlaceholderTag).
+   */
+  marks(): Map<number, string> {
+    const out = new Map<number, string>()
+    for (const { objects, psetID } of this.propertyRels()) {
+      if (psetID === null) continue
+      for (const p of this.psetProps(psetID)) {
+        if (p.name !== 'Mark') continue
+        const v = typeof p.nominal === 'string' || typeof p.nominal === 'number' ? String(p.nominal).trim() : ''
+        if (!v || isPlaceholderTag(v, p.name)) continue
+        for (const id of objects) out.set(id, v)
+      }
+    }
+    return out
+  }
+
+  /**
    * 설비별 용량 파라미터를 모은다. 어느 속성에서 왔는지도 같이 남긴다.
    *
    * 출처를 남기는 이유는 **표준 이름으로 들어오는 일이 드물기 때문이다.** 실측한 두
@@ -1302,6 +1320,7 @@ function read(
     const external = r.flagByElement('IsExternal')
     const flow = flowScale(api, model).scale
     const capacity = r.capacityByElement(flow)
+    const marks = r.marks()
     const declaredTypeOf = r.declaredType(api)
     const omniclass = r.omniclassBySpace()
     const thickness = r.thicknessByElement()
@@ -1591,6 +1610,8 @@ function read(
               position: r.position3(el),
               capacity: capacity.get(elementID)?.value ?? null,
               capacityProperty: capacity.get(elementID)?.property ?? null,
+              ...(marks.has(elementID) ? { mark: marks.get(elementID)! } : {}),
+              ...ifcTagOf(el, name),
               ...(capacity.get(elementID)?.cmh
                 ? { ratedAirflow: { cmh: capacity.get(elementID)!.cmh!, source: 'bim' as const, property: `${capacity.get(elementID)!.pset}.${capacity.get(elementID)!.property}` } }
                 : {}),
@@ -1917,4 +1938,21 @@ function read(
   } finally {
     api.CloseModel(model)
   }
+}
+
+/**
+ * 설비 태그 칸의 자리표시값(요구사항 R25). Revit 은 빈 매개변수를 `N/A` 나 매개변수 이름 그대로 낸다 — Duplex HVAC 의 AssetIdentifier·
+ * TagNumber 40개가 전부 `N/A`, Duplex MEP 는 141개가 전부 `AssetIdentifier` 였다. 이런 값은 없는 것으로 센다.
+ */
+export function isPlaceholderTag(value: string, property?: string): boolean {
+  const v = value.trim().toLowerCase()
+  return !v || ['n/a', 'na', '-', '--', 'none', 'null', 'tbd', '?'].includes(v) || (!!property && v === property.toLowerCase())
+}
+
+/** `IfcElement.Tag`. Revit 이 넣는 요소 ID(이름 끝의 `:숫자` 와 같은 값)와 자리표시값은 버린다. */
+function ifcTagOf(el: { Tag?: { value?: unknown } | null } | null | undefined, name: string): { ifcTag?: string } {
+  const raw = val(el?.Tag)
+  const v = typeof raw === 'string' || typeof raw === 'number' ? String(raw).trim() : ''
+  if (!v || isPlaceholderTag(v) || name.endsWith(`:${v}`)) return {}
+  return { ifcTag: v }
 }

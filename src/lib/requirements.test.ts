@@ -4,7 +4,7 @@ import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import { mergeModels } from './merge'
-import type { Model } from './model'
+import { isConduit, type Model } from './model'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport, type RequirementRow } from './requirements'
 import { compareVersions } from './versions'
 
@@ -28,14 +28,14 @@ describe('요구사항 보고서', () => {
     expect(brief(row(rows, 'R0'))).toEqual({ state: 'standard', counts: null })
     expect(row(rows, 'R6').state).toBe('standard')
     // 좌표 없는 센서
-    expect(brief(row(rows, 'R11'))).toEqual({ state: 'partial', counts: { standard: 4, elsewhere: 0, of: 5 } })
+    expect(brief(row(rows, 'R11'))).toEqual({ state: 'partial', counts: { standard: 4, elsewhere: 0, of: 5, target: 5 } })
     // 용량 없는 토출구. 공조기는 DT_Capacity, 다른 토출구는 타입의 표준 Pset 이다.
-    expect(brief(row(rows, 'R21'))).toEqual({ state: 'partial', counts: { standard: 2, elsewhere: 0, of: 3 } })
+    expect(brief(row(rows, 'R21'))).toEqual({ state: 'partial', counts: { standard: 2, elsewhere: 0, of: 3, target: 3 } })
     // 공조기(AIRHANDLER)·토출구(DIFFUSER)·조명(LightFixture)은 IFC 가 종류를 말한다. 온도 센서(TEMPERATURESENSOR)는
     // 우리 표에 없지만 IFC 표준 값이라 표준 자리다.
-    expect(brief(row(rows, 'R24'))).toEqual({ state: 'standard', counts: { standard: 5, elsewhere: 0, of: 5 } })
+    expect(brief(row(rows, 'R24'))).toEqual({ state: 'standard', counts: { standard: 5, elsewhere: 0, of: 5, target: 5 } })
     // 포트 셋 중 둘이 방향을 말한다. 하나는 SOURCEANDSINK 다.
-    expect(brief(row(rows, 'R17'))).toEqual({ state: 'partial', counts: { standard: 2, elsewhere: 0, of: 3 } })
+    expect(brief(row(rows, 'R17'))).toEqual({ state: 'partial', counts: { standard: 2, elsewhere: 0, of: 3, target: 3 } })
     expect(row(rows, 'R18').state).toBe('standard')
     // 지도 변환은 없다.
     expect(row(rows, 'R7').state).toBe('missing')
@@ -46,8 +46,8 @@ describe('요구사항 보고서', () => {
 
   it('건축 픽스처: 방 분류는 둘만 있고, 내력 여부는 반만 안다', () => {
     const rows = requirementsReport(rooms)
-    expect(brief(row(rows, 'R14'))).toEqual({ state: 'partial', counts: { standard: 2, elsewhere: 0, of: 3 } })
-    expect(brief(row(rows, 'R22'))).toEqual({ state: 'partial', counts: { standard: 2, elsewhere: 0, of: 4 } })
+    expect(brief(row(rows, 'R14'))).toEqual({ state: 'partial', counts: { standard: 2, elsewhere: 0, of: 3, target: 3 } })
+    expect(brief(row(rows, 'R22'))).toEqual({ state: 'partial', counts: { standard: 2, elsewhere: 0, of: 4, target: 4 } })
     expect(row(rows, 'R9').state).toBe('missing')
   })
 
@@ -57,10 +57,10 @@ describe('요구사항 보고서', () => {
     const hosted = openings.filter((o) => o.wallId !== null)
     // 손 픽스처에는 벽에 매달리지 않은 개구부가 일부러 하나 있다.
     expect(openings.length - hosted.length).toBe(1)
-    expect(brief(row(requirementsReport(m), 'R4'))).toEqual({ state: 'partial', counts: { standard: hosted.length, elsewhere: 0, of: openings.length } })
+    expect(brief(row(requirementsReport(m), 'R4'))).toEqual({ state: 'partial', counts: { standard: hosted.length, elsewhere: 0, of: openings.length, target: openings.length } })
     // 개구부 관계(IfcRelVoidsElement·IfcRelFillsElement)가 하나 더 끊기면 하나 더 빠지고 모수는 그대로다.
     hosted[0].wallId = null
-    expect(brief(row(requirementsReport(m), 'R4'))).toEqual({ state: 'partial', counts: { standard: hosted.length - 1, elsewhere: 0, of: openings.length } })
+    expect(brief(row(requirementsReport(m), 'R4'))).toEqual({ state: 'partial', counts: { standard: hosted.length - 1, elsewhere: 0, of: openings.length, target: openings.length } })
     // 전부 매달리면 표준.
     for (const o of openings) o.wallId = m.storeys[0].walls[0]?.id ?? 'w'
     expect(row(requirementsReport(m), 'R4').state).toBe('standard')
@@ -134,7 +134,7 @@ describe('요구사항 보고서', () => {
     // Revit IFC2x3 이 흔히 내는 모양: 개체는 추상 클래스, 타입은 USERDEFINED 에 크기만 적었다.
     Object.assign(eq.find((e) => e.name === 'AHU-1')!, { declaredType: 'UnitaryEquipment.63300000 J' })
     Object.assign(eq.find((e) => e.name === 'TEMP-101-01')!, { declaredType: 'Sensor.150 mm' })
-    expect(brief(row(requirementsReport(m), 'R24'))).toEqual({ state: 'partial', counts: { standard: 3, elsewhere: 1, of: 5 } })
+    expect(brief(row(requirementsReport(m), 'R24'))).toEqual({ state: 'partial', counts: { standard: 3, elsewhere: 1, of: 5, target: 5 } })
   })
 
   it('벽이 전부 같은 값이면 기본값일 수 있다고 알린다', () => {
@@ -230,5 +230,69 @@ describe('단위 선언 교차 확인 (OE-BIM-11)', () => {
     const r6 = row(requirementsReport(rooms, null, { name: 'wrong.ifc', kept: 0, rematched: 0, storeyScale: d.storeyScale }), 'R6')
     expect(r6.state).toBe('standard')
     expect(r6.note).toBe('길이 단위가 선언되어 있습니다. 이전 판본(wrong.ifc)은 같은 이름 층의 높이가 이 파일의 1000배로, 층간 높이로 보면 그 판본의 선언이 실제 값과 다릅니다(밀리미터 ↔ 미터).')
+  })
+})
+
+describe('요구사항 보고서의 대상·검사·충족과 요청 (OE-BIM-17)', () => {
+  const all = (m: Model, versions?: Parameters<typeof requirementsReport>[2]) => [
+    ...requirementsReport(m),
+    ...requirementsReport(structuredClone(m), null, versions ?? { name: 'prev.ifc', kept: 3, rematched: 1, ambiguous: 2 }),
+  ]
+
+  it('셀 수 있는 R 마다 충족 · 검사 · 대상이 있고, 해당 없음·잴 수 없음은 미충족과 섞이지 않으며, 요청 문구가 그 근거와 맞는다 [OE-BIM-17#1]', () => {
+    for (const r of [...all(mep), ...all(rooms)]) {
+      if (r.counts) {
+        expect(r.counts.standard + r.counts.elsewhere, r.id).toBeLessThanOrEqual(r.counts.of)
+        expect(r.counts.of, r.id).toBeLessThanOrEqual(r.counts.target)
+      }
+      // 해당 없음·잴 수 없음·표준은 고객사에 할 말이 없다. 미충족(없음·일부·다른 자리)만 요청이 있다.
+      if (['standard', 'none', 'unmeasured'].includes(r.state)) expect(r.ask, r.id).toBe('')
+      else expect(r.ask, r.id).not.toBe('')
+      // "내보내기 설정을 바꿔 달라" 는 다른 자리에 값이 있을 때만이다 — 불확실한 원인을 설정 오류로 단정하지 않는다.
+      expect(r.ask.startsWith(ASK_SETTING), r.id).toBe(r.state === 'elsewhere' || (r.counts?.elsewhere ?? 0) > 0)
+    }
+  })
+
+  it('R13 은 짝 후보가 여럿이라 짓지 못한 것을 대상에만 넣고 검사에서 뺀다 [OE-BIM-17#1]', () => {
+    const r13 = row(requirementsReport(mep, null, { name: 'prev.ifc', kept: 3, rematched: 1, ambiguous: 2 }), 'R13')
+    expect(r13.counts).toEqual({ standard: 3, elsewhere: 1, of: 4, target: 6 })
+    expect(r13.note).toContain('짝 후보가 여럿이라 짓지 못한 2개는 대상에만 들고 검사에서 뺍니다')
+  })
+
+  it('읽지 않기로 한 피처는 "잴 수 없음 · 읽지 않음" 이고 요청이 없다', () => {
+    const m = structuredClone(rooms)
+    m.skipped = ['walls']
+    const rows = requirementsReport(m)
+    for (const id of ['R4', 'R22']) expect([row(rows, id).state, row(rows, id).unread, row(rows, id).ask]).toEqual(['unmeasured', true, ''])
+    // 파일 하나로는 잴 수 없는 것(R12)은 읽지 않은 것이 아니다.
+    expect(row(rows, 'R12').unread).toBeUndefined()
+  })
+})
+
+describe('R25 설비 태그 (OE-REQ-05)', () => {
+  it('Mark 가 있고 설비끼리 겹치지 않는 설비만 세고, 겹치거나 비면 없음·일부와 "설비 태그에 BAS 식별자를 넣어 달라" 다 [OE-REQ-05#1] [OE-REQ-05#2] [OE-BIM-17#1]', () => {
+    const m = structuredClone(mep)
+    const devices = m.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
+    // 이 픽스처는 Mark 가 없고 IFC Tag 에만 이름(AHU-1·AT1…)이 있다. Tag 는 세지 않는다.
+    const none = row(requirementsReport(m), 'R25')
+    expect([none.level, none.state, none.counts?.standard]).toEqual(['권장', 'missing', 0])
+    expect(none.note).toContain('IFC Tag 속성에만 이름이 있습니다')
+    expect(none.ask).toContain('설비 태그에 BAS 식별자를 넣어 달라')
+    // 셋은 저마다 다른 값, 둘은 같은 값이다. 같은 값은 어느 설비 것인지 몰라 세지 않는다.
+    devices.forEach((e, i) => (e.mark = i < 3 ? `M-${i}` : 'SHARED'))
+    const some = row(requirementsReport(m), 'R25')
+    expect(brief(some)).toEqual({ state: 'partial', counts: { standard: 3, elsewhere: 0, of: devices.length, target: devices.length } })
+    expect(some.note).toContain(`${devices.length - 3}대는 다른 설비와 같은 값이라 세지 않았습니다(값 1종)`)
+    devices.forEach((e, i) => (e.mark = `M-${i}`))
+    expect(row(requirementsReport(m), 'R25')).toMatchObject({ state: 'standard', ask: '' })
+  })
+
+  it('R25 는 권장이라 값이 없어도 생성 게이트를 막지 않는다 [OE-REQ-05#3]', async () => {
+    const { gradeReport } = await import('./grade')
+    const m = structuredClone(mep)
+    const before = gradeReport(m)
+    expect(row(requirementsReport(m), 'R25').state).toBe('missing')
+    for (const e of m.storeys.flatMap((s) => s.equipment)) e.mark = e.id
+    expect(gradeReport(m)).toEqual(before)
   })
 })

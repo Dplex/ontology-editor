@@ -258,10 +258,10 @@ describe('부록 A 와 정본 4장 (OE-REQ-01)', () => {
     return { r: m[1], kind: cells[3].replace(/\*/g, ''), note: cells[8] ?? '' }
   })
 
-  it('정본 4장이 R0~R24·R26 을 한 번씩 담고, 제목의 개수와 같다', () => {
-    // R25(BAS 매핑 키)는 PRD 가 채택했지만 정본에 아직 옮기지 않았다(OE-REQ-05). R26 은 OE-REQ-07 로 옮겼다.
+  it('정본 4장이 R0~R26 을 한 번씩 담고, 제목의 개수와 같다', () => {
+    // R25(BAS 매핑 키)는 OE-REQ-05, R26 은 OE-REQ-07 로 옮겼다.
     const byNumber = (a: string, b: string) => +a.slice(1) - +b.slice(1)
-    expect([...must, ...should].sort(byNumber)).toEqual([...Array.from({ length: 25 }, (_, i) => `R${i}`), 'R26'])
+    expect([...must, ...should].sort(byNumber)).toEqual(Array.from({ length: 27 }, (_, i) => `R${i}`))
     expect(canon).toContain(`### 4.1 필수 (${must.length}개)`)
     expect(canon).toContain(`### 4.2 권장 (${should.length}개)`)
   })
