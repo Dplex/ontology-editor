@@ -6,19 +6,19 @@ import type { Equipment } from './model'
 
 export type LabelBadge = { text: string; tone: 'ok' | 'warn' | 'muted'; title: string }
 
-/** 소속·종류 배지. 출처 낱말은 화면의 출처 칩(BIM·계산·사전·편집)과 같게 쓴다. */
+/** 소속·종류 배지. 출처 낱말은 화면의 출처 칩(BIM·계산·사전·사람)과 같게 쓴다. */
 export function labelBadges(e: Pick<Equipment, 'spaceId' | 'spaceSource' | 'kind' | 'kindSource' | 'kindEdited' | 'added'>): { space: LabelBadge; kind: LabelBadge } {
   const space: LabelBadge = !e.spaceId
     ? { text: '소속 없음', tone: 'warn', title: '든 물리존이 없습니다 — TTL 에 brick:hasLocation 이 나가지 않습니다' }
     : e.spaceSource === 'bim'
       ? { text: '소속 BIM', tone: 'ok', title: 'BIM 이 이 설비가 든 물리존을 말했습니다(IfcRelContainedInSpatialStructure)' }
       : e.spaceSource === 'edit'
-        ? { text: '소속 편집', tone: 'ok', title: '사람이 물리존을 지정했습니다' }
+        ? { text: '소속 사람', tone: 'ok', title: '사람이 물리존을 지정했습니다' }
         : { text: '소속 계산', tone: 'ok', title: '좌표가 든 물리존 외곽선으로 계산했습니다' }
   const kind: LabelBadge = !e.kind
     ? { text: '종류 모름', tone: 'warn', title: '사전에 없는 종류입니다 — Brick 클래스가 IFC 클래스에서 나옵니다' }
     : e.kindEdited || e.added
-      ? { text: '종류 편집', tone: 'ok', title: '사람이 종류를 정했습니다' }
+      ? { text: '종류 사람', tone: 'ok', title: '사람이 종류를 정했습니다' }
       : e.kindSource === 'bim'
         ? { text: '종류 BIM', tone: 'ok', title: 'IFC 타입(PredefinedType)에서 읽었습니다' }
         : { text: '종류 사전', tone: 'muted', title: '이름 사전으로 읽었습니다' }

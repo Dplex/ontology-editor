@@ -98,8 +98,8 @@ export function generationReport(input: ReportInput): ReportSectionB[] {
       title: '자동 생성 범위(출처별)',
       lines: [
         `물리존 외곽선: BIM ${spaces.filter((sp) => sp.footprint.length >= 3 && !sp.added).length} · 편집 ${spaces.filter((sp) => sp.added).length} · 없음 ${spaces.filter((sp) => sp.footprint.length < 3).length}`,
-        `설비 소속: ${count(devices, (e) => (e.spaceSource === 'bim' ? 'BIM' : e.spaceSource === 'computed' ? '계산' : e.spaceSource === 'edit' ? '편집' : null))}`,
-        `설비 종류: ${count(devices, (e) => (e.kindSource === 'bim' ? 'BIM' : e.kindSource === 'dict' ? '사전' : e.kindEdited ? '편집' : e.kind ? 'BIM' : null))}`,
+        `설비 소속: ${count(devices, (e) => (e.spaceSource === 'bim' ? 'BIM' : e.spaceSource === 'computed' ? '계산' : e.spaceSource === 'edit' ? '사람' : null))}`,
+        `설비 종류: ${count(devices, (e) => (e.kindSource === 'bim' ? 'BIM' : e.kindSource === 'dict' ? '사전' : e.kindEdited ? '사람' : e.kind ? 'BIM' : null))}`,
         `연결: ${count(model.connections, (x) => CONNECTION_CLASS_LABEL[connectionClass(x)])}`,
       ],
     },
