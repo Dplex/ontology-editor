@@ -401,7 +401,7 @@ test('Duplex: 층 편집 화면에서 다른 층으로 이어진 구간은 잠�
   expect(errors).toEqual([])
 })
 
-test('Duplex: 라이저 수직 구간을 둘러 샤프트를 만들고 그 구간을 넣으면, 오프셋을 바꾸기 전에 샤프트 소속이 보이고, 샤프트를 지우면 배관은 남고 소속만 풀린다 [OE-ML-09#4] [OE-ML-14#5,6]', async ({ page }) => {
+test('Duplex: 라이저 수직 구간을 둘러 샤프트를 만들고 그 구간을 넣으면, 오프셋을 바꾸기 전에 샤프트 소속이 보이고, 샤프트를 지우면 배관은 남고 소속만 풀린다 [OE-ML-09#4] [OE-ML-14#5,6] [OE-ML-17#4]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(240_000)
   const errors: string[] = []
@@ -456,6 +456,14 @@ test('Duplex: 라이저 수직 구간을 둘러 샤프트를 만들고 그 구�
   await page.mouse.click(corner.x, corner.y)
   const panel = page.getByTestId('vertical-picked')
   await expect(panel.locator('h3')).toHaveText('PS-1')
+  // 샤프트를 옮기기 전에 같이 갈 배관과 막히는 까닭을 보인다(OE-ML-17). 이 라이저의 수직 구간은 1층 라디에이터에 바로 붙어 있어, 샤프트와 같이
+  // 옮기면 설비에서 떨어진다 — 일부만 옮기지 않고 막는다. 방향키를 눌러도 샤프트·배관이 그대로다.
+  const carry = page.getByTestId('shaft-carry')
+  await expect(carry).toContainText('안쪽 구간 1')
+  await expect(carry).toContainText(/옮길 수 없습니다 — .*바로 붙어 있어 같이 옮기면 설비에서 떨어집니다/)
+  await page.locator('.appbar h2').click()
+  await page.keyboard.press('ArrowRight')
+  await expect(page.locator('.edit-notice').first()).toContainText('PS-1을(를) 옮기지 않았습니다')
   await panel.getByRole('button', { name: '샤프트 지우기' }).click()
   await expect(page.getByTestId('vertical-delete-pipes')).toContainText('안의 덕트·배관 1개와 그 연결은 남고 샤프트 소속만 풀립니다')
   await page.getByTestId('vertical-delete-ask').getByRole('button', { name: '지우기', exact: true }).click()

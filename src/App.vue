@@ -33,6 +33,7 @@ import { issueList, issueSummary, issuesCSV } from './lib/issue-list'
 import { issuesToBCF } from './lib/export/bcf'
 import { checkCode, issueText, warningCode } from './lib/issue-code'
 import { setSegmentShaft, shaftCandidates, shaftDeviations, shaftOf } from './lib/shaft'
+import { moveShaftCarrying, planShaftCarry } from './lib/shaft-carry'
 import { ttlTriples } from './lib/export/read-export'
 import { readOntologyTTL } from './lib/export/read-ttl'
 import { DEFAULT_SITE_RULES, siteWarnings, type SiteRules } from './lib/site-rules'
@@ -2725,8 +2726,43 @@ function moveSelectedVertical(d: Vec2): boolean {
   const v = selectedVertical.value
   if (!v) return false
   const name = v.part.name || v.label
+  if (v.object.kind === 'shaft') return moveShaft(v.object.id, name, [cm(d[0]), cm(d[1])])
   return changeVerticals(`${name} 옮김`, (m) => moveVertical(m, v.object.id, [cm(d[0]), cm(d[1])]))
 }
+/**
+ * 샤프트를 옮기면 안쪽 배관이 같이, 바깥 배관 끝이 따라온다(OE-ML-17, lib/shaft-carry.ts). 일부만 옮길 수밖에 없으면 까닭을 알리고 아무것도
+ * 옮기지 않는다. 샤프트와 따라온 배관이 되돌리기 한 번이다.
+ */
+function moveShaft(id: string, name: string, d: Vec2): boolean {
+  const m = model.value
+  if (!m || !multiView.value || !editing.value) return false
+  const plan = planShaftCarry(m, id, segmentAxis)
+  if (plan.reasons.length) {
+    editNotice.value = `${name}을(를) 옮기지 않았습니다 — ${plan.reasons.join(' · ')}`
+    return false
+  }
+  const followers = [...plan.rigid, ...new Set(plan.stretch.map((x) => x.id))]
+  const was = new Map(followers.map((fid) => [fid, equipmentById.value.get(fid)?.position ?? null]))
+  const snapshot: Snapshot = { kind: 'many', parts: [snapshotVerticals(m), ...followers.flatMap((fid) => snapshotEquipment(m, fid) ?? [])] }
+  const at = mark()
+  const done = moveShaftCarrying(m, id, d, segmentAxis)
+  if (done !== true) {
+    if (done) editNotice.value = done.refused
+    return false
+  }
+  remember(`${name} 옮김${followers.length ? ` (배관 ${followers.length}개 같이)` : ''}`, snapshot, at)
+  for (const fid of followers) moveInScene(fid, was.get(fid) ?? null, equipmentById.value.get(fid)?.position ?? null)
+  triggerRef(model)
+  sceneVersion.value++
+  return true
+}
+/** 고른 샤프트를 옮기면 무엇이 같이 가는지(OE-ML-17 "이동 전 미리 표시"). 다중층 뷰의 편집에서만 잰다. */
+const shaftCarry = computed(() => {
+  void sceneVersion.value
+  const v = selectedVertical.value
+  const m = model.value
+  return m && v && v.object.kind === 'shaft' && multiView.value && editing.value ? planShaftCarry(m, v.object.id, segmentAxis) : null
+})
 /** 방향키로 옮긴다(10cm, Shift 1m). 화면 방향에 가장 가까운 평면 축이다(설비·룸 옮기기와 같다). */
 function nudgeVertical(code: string, step: number): boolean {
   if (!viewer || !selectedVertical.value) return false
@@ -12269,6 +12305,12 @@ function rollbackFromReport() {
           </p>
           <!-- 다중층 뷰의 편집(OE-ML-07·09). 모든 층 조각이 같이 움직이고, 지우기는 영향을 보이고 확인을 받는다. -->
           <template v-if="multiView && editing">
+            <!-- 샤프트를 옮기면 같이 가는 배관(OE-ML-17). 옮기기 전에 보인다. 막히는 까닭이 있으면 옮기지 않는다. -->
+            <p v-if="shaftCarry && (shaftCarry.rigid.length || shaftCarry.reasons.length)" class="vertical-move" data-testid="shaft-carry">
+              옮기면 같이 갑니다: 안쪽 구간 {{ shaftCarry.segments.length }} · 분기점 {{ shaftCarry.fittings.length }} · 끝을 늘일 바깥 배관 {{ shaftCarry.outside.length }}
+              <template v-if="shaftCarry.storeys.length"> · 영향 층 {{ shaftCarry.storeys.join(' · ') }}</template>
+              <span v-if="shaftCarry.reasons.length" class="lock-note" role="alert"><br />옮길 수 없습니다 — {{ shaftCarry.reasons.join(' · ') }}</span>
+            </p>
             <ul v-if="verticalWarnings.length" class="vertical-warnings" data-testid="vertical-v03" role="alert">
               <li v-for="w in verticalWarnings" :key="w.storeyId">
                 <b>V-03</b> {{ w.storey }}:
