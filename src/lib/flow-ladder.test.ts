@@ -49,6 +49,8 @@ describe('기기에서 기기로 건너가기', () => {
     const supply = (s: string | null) => s === 'HWS' || s === 'SA'
     const fromVav = supplyChain(index(), 'VAV1', supply)
     expect(fromVav.up.map((s) => s.ids)).toEqual([['AHU'], ['CH']])
+    // 단계마다 건너온 계통: VAV ← 급기 ← 공조기 ← 냉수 공급 ← 냉동기
+    expect(fromVav.up.map((s) => s.systems)).toEqual([['SA'], ['HWS']])
     expect(fromVav.down.map((s) => s.ids)).toEqual([['D1']])
     const fromAhu = supplyChain(index(), 'AHU', supply)
     expect(fromAhu.up.map((s) => s.ids)).toEqual([['CH']])

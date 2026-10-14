@@ -92,8 +92,11 @@ export function flowIndex(
   }
 }
 
-/** 단계 하나. 고른 기기에서 기기 몇 개를 건너 닿는지가 같은 기기들이다. 첫 단계가 "바로 다음 기기" 다. */
-export type Step = { ids: string[] }
+/**
+ * 단계 하나. 고른 기기에서 기기 몇 개를 건너 닿는지가 같은 기기들이다. 첫 단계가 "바로 다음 기기" 다.
+ * `systems` 는 앞 단계에서 이 단계로 건너올 때 탄 계통이다 — 화면이 화살표에 "급기"·"순환수 공급" 을 붙인다.
+ */
+export type Step = { ids: string[]; systems: (string | null)[] }
 
 /** 단계는 이만큼까지만 따라간다. 성수 순환수처럼 길게 이어진 망에서 패널이 끝없이 길어지지 않게 한다. */
 export const LADDER_MAX = 5
@@ -114,15 +117,17 @@ export function ladder(
   let front = [start]
   while (front.length && steps.length < max) {
     const ids: string[] = []
+    const systems = new Set<string | null>()
     for (const at of front) {
       for (const hop of index.next(at)[dir]) {
         if (!pass(hop) || seen.has(hop.id)) continue
         seen.add(hop.id)
         ids.push(hop.id)
+        systems.add(hop.systemId)
       }
     }
     if (!ids.length) break
-    steps.push({ ids })
+    steps.push({ ids, systems: [...systems] })
     front = ids
   }
   return steps

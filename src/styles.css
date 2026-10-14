@@ -2808,93 +2808,45 @@ th {
   margin-top: 0;
 }
 
-.flow-label {
-  margin: 0.5rem 0 0.3rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.flow-label .muted {
-  margin-left: 0.3rem;
-  font-weight: 400;
-}
-
-.flow-chain {
-  padding: 0.1rem 0 0.5rem;
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.flow-systems {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.flow-systems li {
-  padding: 0.35rem 0.4rem 0.45rem;
-  border-radius: var(--radius-sm);
-}
-
-.flow-systems li + li {
-  border-top: 1px solid var(--line-soft);
-}
-
-.flow-systems li.chosen {
-  background: var(--accent-soft);
-}
-
-.flow-systems .sys {
-  display: flex;
-  align-items: baseline;
-  gap: 0.35rem;
-  max-width: 100%;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  font-size: 0.85rem;
-  text-align: left;
-  cursor: pointer;
-}
-
-.flow-systems .sys i {
-  display: inline-block;
-  flex: none;
-  width: 0.7rem;
-  height: 0.7rem;
-  border-radius: 0.2rem;
-}
-
-.flow-systems .sys-kind {
-  flex: none;
-  font-weight: 600;
-}
-
-.flow-systems .sys-name {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 0.78rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.flow-systems .sys:hover .sys-name {
-  color: var(--accent);
-}
-
-.sys-empty {
-  margin: 0.2rem 0 0 1.05rem;
-  font-size: 0.78rem;
-}
-
 .ladder {
   margin-top: 0.3rem;
   font-size: 0.8rem;
 }
 
-.flow-systems .ladder {
-  padding-left: 1.05rem;
+/* 줄 머리말(받는 곳·보내는 곳) 칸과 줄 칸. 줄이 꺾여도 머리말 칸 오른쪽에서 이어진다. */
+.ladder-row {
+  display: grid;
+  grid-template-columns: 4.2rem 1fr;
+  gap: 0.4rem;
+  align-items: baseline;
+  padding: 0.2rem 0;
+}
+
+.ladder-head {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.ladder-arrow {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.15rem;
+}
+
+.ladder-arrow small {
+  font-size: 0.72rem;
+}
+
+.ladder-tag {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.flow-none,
+.flow-quiet {
+  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
 }
 
 .ladder-line {
@@ -2904,28 +2856,20 @@ th {
   gap: 0.3rem;
 }
 
-.ladder-line.unknown {
-  margin-top: 0.3rem;
-}
-
 .ladder-step {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 0.25rem;
 }
 
-.ladder-arrow,
-.ladder-note {
+.ladder-arrow {
   color: var(--muted);
 }
 
 .ladder-me {
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-weight: 600;
-  white-space: nowrap;
+  color: var(--accent);
+  font-size: 1rem;
+  line-height: 1;
 }
 
 .ladder-chip {
