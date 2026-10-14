@@ -5,9 +5,9 @@ status: "제안"
 date: "2026-10-09"
 deciders: ["정희록"]
 prd: []
-tickets: ["OE-ML-06", "OE-ML-07", "OE-ML-08", "OE-ML-09", "OE-ML-01", "OE-ML-02", "OE-ML-05", "OE-HIST-03", "OE-ML-19"]
+tickets: ["OE-ML-06", "OE-ML-07", "OE-OBJ-15", "OE-ML-08", "OE-ML-09", "OE-ML-01", "OE-ML-02", "OE-ML-05", "OE-HIST-03", "OE-ML-19"]
 criteria: []
-code: ["src/lib/edit.ts", "src/lib/vertical-edit.ts", "src/lib/edit-file.ts"]
+code: ["src/lib/edit.ts", "src/lib/vertical-edit.ts", "src/lib/edit-file.ts", "src/lib/viewer.ts"]
 tests: ["e2e/vertical-edit.spec.ts"]
 related: ["ADR-0033", "ADR-0032", "ADR-0008"]
 ---
@@ -57,6 +57,15 @@ ADR-0033 은 오브젝트를 층별 조각(`Storey.verticalParts`)으로 두고 
   GeoJSON 은 `source`(처음 온 곳, bim)를 두고 `edited: true` 를 따로 낸다(OE-ML-02 "원본과 보정 구분"). 숫자가 아닌 이동량은 적용하지 않는다.
   `edited` 는 ADR-0008·0018 의 `…Source`(관계의 출처: bim·calc·edit)와 다른 축이다 — 관계가 아니라 오브젝트 형상이 BIM 원본인지 보정인지를
   말한다. 물리존 외곽선·설비 좌표처럼 다른 형상 편집은 아직 이 표시를 내지 않는다(OE-ML-02 만 원본·보정 구분을 수용 기준으로 요구한다).
+- **돌리기는 모든 층 조각을 같은 중심에서 같은 각도만큼 돌리고, 각도를 따로 저장하지 않는다**(OE-ML-07 AC2 · OE-OBJ-15 AC6, 2026-10-14 더함).
+  중심은 EL·샤프트가 공통 축(형상 가운데), 계단·ES 가 시작점(시작 층 진입 지점)이다. 방위는 그때 형상에서 잰다 — 계단·ES 는 시작점에서 끝점,
+  EL·샤프트는 형상의 가장 긴 변 방향(`verticalHeading`). 돌리면 형상이 같이 도니 잰 값도 같이 돈다. 회전각 필드를 두면 형상과 각도 두 곳이
+  어긋날 수 있고(층별 고치기·꼭짓점 끌기 뒤), 평행이동이 아닌 변경은 이미 조각 모양을 통째로 적는 편집 파일 길(`parts`)을 타서 따로 적을 것이
+  없다. 다중층 뷰의 3D 회전 손잡이(Shift 없이 왼쪽 끌기)와 패널의 회전각 칸으로 돌린다. 손잡이는 건물 축(0·90·180·270°)과 시작 층에서
+  중심 8m 안 벽의 방향·직각에 ±3° 안이면 붙고(Alt 면 안 붙음), 숫자 칸은 붙이지 않는다. 끄는 동안은 미리보기만 그리고 떼야 모델이 바뀐다 —
+  Esc·창 포커스 잃음이면 아무것도 바뀌지 않는다. **샤프트 안에 배관이 있으면 돌리지 않는다.** 옮기기는 안쪽 배관을 같이 옮기지만(OE-ML-17)
+  돌리기는 배관을 같이 돌리지 않아 배관이 샤프트 밖으로 삐져나간다. 되돌리려면 `vertical-edit.ts` 의 `rotateVertical`·`snapHeading` 절,
+  `viewer.ts` 의 `--- 회전 손잡이` 절, App.vue 의 `--- 전체 회전` 절을 뺀다.
 - **지우기는 모든 층 조각을 걷는다.** 물리존은 그대로다. 연관 물리존·층간 연결은 저장하지 않으므로(ADR-0033) 고칠 것이 없다 — 옮기면 새
   자리의 물리존이, 지우면 겹침 추정(ADR-0032, `calc`)이 그 자리를 잇는다. 지운 계단을 가리키는 GeoJSON 참조는 생기지 않는다.
 - **되돌리기는 모든 층의 조각 목록을 통째로 뜬 스냅샷 하나다**(`edit.ts` 의 `verticals`). 조각은 계단마다 지나는 층 수만큼이라 적다(병원 6개).

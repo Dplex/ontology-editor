@@ -56,6 +56,142 @@ export function moveVertical(model: Pick<Model, 'storeys'>, parentId: string, d:
   return hit
 }
 
+// --- 회전 (OE-OBJ-15 AC6 · OE-ML-07 AC2 · OE-ML-02 평면 회전각) -------------------------------------------------
+//
+// 전체 회전은 모든 층 조각의 형상·진입/종료 지점을 같은 중심에서 같은 각도만큼 돌린다. 중심은 EL·샤프트가 공통 축(형상 가운데),
+// 계단·ES 가 시작점(시작 층 진입 지점)이다. 각도는 평면 방위로, +x 에서 반시계로 잰 도(°)다.
+//
+// **각도를 따로 저장하지 않는다.** 방위는 형상에서 그때 잰다 — 계단·ES 는 시작점에서 끝점으로, EL·샤프트는 형상의 가장 긴 변의 방향이다.
+// 돌리면 형상이 같이 도니 잰 값도 같이 돈다. 돌린 조각에는 `edited` 를 달아 보정으로 가르고, 편집 파일은 끝 모양을 통째로 적는다(평행이동이
+// 아니라서, edit-file.ts 의 reshaped). BIM 원본 방향은 baseline 의 형상에 남는다.
+
+/** 회전 자석 스냅의 허용 각도(°). OE-OBJ-15 "건물 축·가까운 벽 방향과 ±3° 안". */
+export const HEADING_SNAP = 3
+/** 가까운 벽으로 보는 거리(m). 이보다 먼 벽의 방향에는 붙지 않는다. 시험용 값이다. */
+export const HEADING_WALL_RADIUS = 8
+
+const norm360 = (a: number) => ((a % 360) + 360) % 360
+/** 두 방위 사이의 가장 작은 차(°, 0~180). */
+export const angleGap = (a: number, b: number) => Math.abs(((((a - b) % 360) + 540) % 360) - 180)
+const dirOf = (a: readonly number[], b: readonly number[]) => norm360((Math.atan2(b[1] - a[1], b[0] - a[0]) * 180) / Math.PI)
+
+/** 고리의 가장 긴 변(첫 번째)의 방향. 돌려도 같은 변이 가장 길어 같이 돈다. */
+function longestEdgeDir(ring: readonly Vec2[]): number | null {
+  let best = -1
+  let dir: number | null = null
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i]
+    const b = ring[(i + 1) % ring.length]
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+    if (len > best + 1e-9) {
+      best = len
+      dir = dirOf(a, b)
+    }
+  }
+  return best > 1e-6 ? dir : null
+}
+const centroid = (ring: readonly Vec2[]): Vec2 => [ring.reduce((s, p) => s + p[0], 0) / ring.length, ring.reduce((s, p) => s + p[1], 0) / ring.length]
+
+/** 오브젝트의 회전 중심. EL·샤프트는 공통 축(형상 가운데), 계단·ES 는 시작점이다. 시작점이 없으면 시작 층 형상 가운데다. */
+export function verticalPivot(model: Pick<Model, 'storeys'>, parentId: string): Vec2 | null {
+  const o = verticalObjects(model).find((x) => x.id === parentId)
+  if (!o) return null
+  if (!COMMON_AXIS.has(o.kind)) {
+    const entry = o.parts.find(({ part }) => part.entry)?.part.entry
+    if (entry) return [entry[0], entry[1]]
+  }
+  const ring = o.parts.find(({ part }) => part.footprint.length >= 3)?.part.footprint
+  return ring ? centroid(ring) : null
+}
+
+/** 오브젝트의 평면 방위(°). 계단·ES 는 시작점 → 끝점, EL·샤프트는 형상의 가장 긴 변 방향이다. 잴 수 없으면 null. */
+export function verticalHeading(model: Pick<Model, 'storeys'>, parentId: string): number | null {
+  const o = verticalObjects(model).find((x) => x.id === parentId)
+  if (!o) return null
+  if (!COMMON_AXIS.has(o.kind)) {
+    const entry = o.parts.find(({ part }) => part.entry)?.part.entry
+    const exit = [...o.parts].reverse().find(({ part }) => part.exit)?.part.exit
+    if (entry && exit && Math.hypot(exit[0] - entry[0], exit[1] - entry[1]) > 0.05) return dirOf(entry, exit)
+  }
+  const ring = o.parts.find(({ part }) => part.footprint.length >= 2)?.part.footprint
+  return ring ? longestEdgeDir(ring) : null
+}
+
+/**
+ * 모든 층 조각을 `pivot` 둘레로 `deg` 만큼 돌린다(반시계가 +). 높이는 그대로다. 0° 이거나 숫자가 아니거나 오브젝트가 없으면 false.
+ * 공통 축(샤프트·EL)은 모든 층이 같은 중심이라 축이 그대로 겹친다.
+ */
+export function rotateVertical(model: Pick<Model, 'storeys'>, parentId: string, deg: number, pivot = verticalPivot(model, parentId)): boolean {
+  if (!pivot || !Number.isFinite(deg) || Math.abs(norm360(deg + 180) - 180) < 1e-9) return false
+  const r = (deg * Math.PI) / 180
+  const [c, s] = [Math.cos(r), Math.sin(r)]
+  const turn = (x: number, y: number): [number, number] => {
+    const dx = x - pivot[0]
+    const dy = y - pivot[1]
+    return [mm(pivot[0] + dx * c - dy * s), mm(pivot[1] + dx * s + dy * c)]
+  }
+  const turn3 = (p: Vec3 | null): Vec3 | null => (p ? [...turn(p[0], p[1]), p[2]] : null)
+  let hit = false
+  for (const storey of model.storeys) {
+    for (const part of storey.verticalParts ?? []) {
+      if (part.parentId !== parentId) continue
+      part.footprint = part.footprint.map((p) => turn(p[0], p[1]) as Vec2)
+      part.entry = turn3(part.entry)
+      part.exit = turn3(part.exit)
+      // 사람이 만든 것(출처 편집)은 원본이 없어 보정 표시를 달지 않는다(편집 파일에서 다시 얹을 때와 같다).
+      if (part.source !== 'edit') part.edited = true
+      hit = true
+    }
+  }
+  return hit
+}
+
+/** 오브젝트 방위를 `to`(°)로 맞춘다. 지금 방위와 같으면 false. */
+export function setVerticalHeading(model: Pick<Model, 'storeys'>, parentId: string, to: number): boolean {
+  const now = verticalHeading(model, parentId)
+  if (now === null || !Number.isFinite(to)) return false
+  const d = ((((to - now) % 360) + 540) % 360) - 180
+  return rotateVertical(model, parentId, d)
+}
+
+/**
+ * 스냅 기준이 되는 가까운 벽의 방향(°). 그 층에서 중심 `near` 로부터 `radius` 안에 있는 벽마다 외곽선의 가장 긴 변 방향과 그 직각을 낸다.
+ * 외곽선이 없는 벽(형상을 읽지 않은 임포트)은 건너뛴다.
+ */
+export function wallHeadings(storey: Pick<Storey, 'walls'>, near: Vec2, radius = HEADING_WALL_RADIUS): number[] {
+  const out: number[] = []
+  for (const w of storey.walls) {
+    const ring = w.footprint?.[0]
+    if (!ring || ring.length < 3) continue
+    const d = Math.min(...ring.map((p) => Math.hypot(p[0] - near[0], p[1] - near[1])))
+    if (d > radius) continue
+    const dir = longestEdgeDir(ring)
+    if (dir !== null) out.push(dir, norm360(dir + 90))
+  }
+  return out
+}
+
+/**
+ * 회전 자석 스냅(OE-OBJ-15 AC6). 건물 축(0·90·180·270°)이나 가까운 벽 방향과 ±3° 안이면 그 각도로 붙이고 무엇에 붙었는지 돌려준다.
+ * 둘 다 가까우면 더 가까운 쪽이다. `free`(Alt) 면 붙이지 않는다. 벽 방향은 180° 뒤집어도 같은 벽이라 반대쪽도 본다.
+ */
+export function snapHeading(angle: number, walls: readonly number[] = [], free = false): { angle: number; by: '건물 축' | '벽 방향' | null } {
+  const a = norm360(angle)
+  if (free) return { angle: Math.round(a * 10) / 10, by: null }
+  let best: { angle: number; by: '건물 축' | '벽 방향'; gap: number } | null = null
+  const consider = (t: number, by: '건물 축' | '벽 방향') => {
+    const gap = angleGap(a, t)
+    if (gap <= HEADING_SNAP && (!best || gap < best.gap - 1e-9)) best = { angle: norm360(t), by, gap }
+  }
+  for (const t of [0, 90, 180, 270]) consider(t, '건물 축')
+  for (const t of walls) {
+    consider(t, '벽 방향')
+    consider(t + 180, '벽 방향')
+  }
+  const hit = best as { angle: number; by: '건물 축' | '벽 방향' } | null
+  return hit ? { angle: Math.round(hit.angle * 10) / 10, by: hit.by } : { angle: Math.round(a * 10) / 10, by: null }
+}
+
 /** 조각 id(`부모 id@층 id`)의 조각. */
 function partOf(model: Pick<Model, 'storeys'>, key: string): VerticalPart | null {
   for (const storey of model.storeys) {

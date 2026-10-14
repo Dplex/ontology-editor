@@ -27,7 +27,7 @@ async function enterWithStair(page: Page, index = 0): Promise<string> {
   return ids[index].split('@')[0]
 }
 
-test('병원 건축: 다중층 뷰에서 계단을 통째로 옮기면 두 층이 같이 가고 V-03 을 알리며, 되돌리기·지우기 확인·취소가 맞고, 편집 파일로 다시 얹힌다 [OE-ML-07#1,4~,5~] [OE-ML-09#1,2,5~] [OE-ML-01#9~] [OE-OBJ-14#3~]', async ({ page }, info) => {
+test('병원 건축: 다중층 뷰에서 계단을 통째로 옮기면 두 층이 같이 가고 V-03 을 알리며, 되돌리기·지우기 확인·취소가 맞고, 편집 파일로 다시 얹힌다 [OE-ML-07#1,5~,7~] [OE-ML-09#1,2,5~] [OE-ML-01#9~] [OE-OBJ-14#3~]', async ({ page }, info) => {
   test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(240_000)
   const errors: string[] = []
@@ -137,7 +137,100 @@ test('병원 건축: 다중층 뷰에서 계단을 통째로 옮기면 두 층�
   expect(errors).toEqual([])
 })
 
-test('병원 건축: 다중층 뷰에서 계단의 한 층 조각만 고친다 — 꼭짓점 손잡이·이 층만 옮기기·종료 지점 좌표, 설비는 끌리지 않고, 편집 파일로 다시 얹힌다 [OE-ML-07#2~,4~,5~] [OE-OBJ-14#3~]', async ({ page }, info) => {
+type RotateSpec = { center: [number, number]; elevation: number; radius: number; angle: number }
+type RotateHandleInfo = { knob: { x: number; y: number }; center: { x: number; y: number }; angle: number; guide: number | null; spec: RotateSpec }
+/** 회전 손잡이를 잡아 평면 방위 `to`(°) 쪽으로 끈다. `release` 가 false 면 누른 채 둔다. */
+async function dragKnob(page: Page, to: number, opts: { alt?: boolean; release?: boolean } = {}) {
+  const h = (await viewer<RotateHandleInfo | null>(page, 'rotateHandle'))!
+  const r = (to * Math.PI) / 180
+  const target = await viewer<{ x: number; y: number }>(page, 'screenOf', [h.spec.center[0] + Math.cos(r) * h.spec.radius, h.spec.center[1] + Math.sin(r) * h.spec.radius, h.spec.elevation])
+  await page.mouse.move(h.knob.x, h.knob.y)
+  await page.mouse.down()
+  if (opts.alt) await page.keyboard.down('Alt')
+  await page.mouse.move((h.knob.x + target.x) / 2, (h.knob.y + target.y) / 2, { steps: 4 })
+  await page.mouse.move(target.x, target.y, { steps: 4 })
+  if (opts.release === false) return
+  await page.mouse.up()
+  if (opts.alt) await page.keyboard.up('Alt')
+}
+
+test('병원 건축: 다중층 뷰에서 계단을 회전 손잡이로 돌리면 시작점을 중심으로 두 층이 같이 돌고, 건물 축 ±3° 에 붙으며 Alt 면 붙지 않고, Esc·Shift 끌기는 돌리지 않으며, 숫자로도 돌린다 [OE-OBJ-15#6] [OE-ML-07#2~]', async ({ page }) => {
+  test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(240_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await openClinic(page)
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterWithStair(page)
+  const panel = page.getByTestId('vertical-picked')
+  const angle = page.getByLabel('회전각(°)')
+  const heading = async () => Number(await angle.inputValue())
+  const label = page.getByTestId('rotate-label')
+  await expect(angle).toBeVisible()
+  const h0 = await heading()
+  const entry0 = await coords(page, 'vertical-entry')
+  await panel.getByTestId('vertical-storeys').getByRole('button', { name: 'Second Floor' }).click()
+  const exit0 = await coords(page, 'vertical-exit')
+  await panel.getByTestId('vertical-storeys').getByRole('button', { name: 'First Floor' }).click()
+
+  // 축에서 먼 각도로 끌면 자유 회전이다. 시작점(진입)은 제자리, 종료 지점은 시작점 둘레로 돈다.
+  const free = (h0 + 47) % 360
+  await dragKnob(page, free, { release: false })
+  await expect(label).toContainText('자유')
+  await page.mouse.up()
+  await expect.poll(heading).toBeGreaterThan(free - 1.5)
+  expect(await heading()).toBeLessThan(free + 1.5)
+  expect(await coords(page, 'vertical-entry')).toEqual(entry0)
+  await panel.getByTestId('vertical-storeys').getByRole('button', { name: 'Second Floor' }).click()
+  const exit1 = await coords(page, 'vertical-exit')
+  const reach = (p: number[]) => Math.hypot(p[0] - entry0[0], p[1] - entry0[1])
+  expect(Math.abs(reach(exit1) - reach(exit0))).toBeLessThan(0.01)
+  expect(exit1[2]).toBe(exit0[2])
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await page.locator('.edit-bar .undo').click()
+  await expect.poll(heading).toBe(h0)
+
+  // 91.5° 쪽으로 끌면 건물 축 90° 에 붙고 기준선이 보인다. Alt 를 누르면 붙지 않는다.
+  await dragKnob(page, 91.5, { release: false })
+  await expect(label).toContainText('90.0° · 건물 축에 붙음')
+  expect((await viewer<RotateHandleInfo>(page, 'rotateHandle')).guide).toBe(90)
+  await page.mouse.up()
+  await expect.poll(heading).toBe(90)
+  await dragKnob(page, 181.5, { alt: true, release: false })
+  await expect(label).toContainText('스냅 끔(Alt)')
+  await page.mouse.up()
+  await page.keyboard.up('Alt')
+  await expect.poll(heading).not.toBe(90)
+  expect(Math.abs((await heading()) - 181.5)).toBeLessThan(1.5)
+
+  // 끄는 중 Esc 는 돌리지 않는다.
+  const before = await heading()
+  await dragKnob(page, (before + 120) % 360, { release: false })
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  await expect.poll(heading).toBe(before)
+
+  // Shift 를 누른 채 손잡이에서 끌면 시점이 돌고 계단은 돌지 않는다.
+  const cam0 = await viewer<{ position: number[] }>(page, 'camera')
+  const h = (await viewer<RotateHandleInfo>(page, 'rotateHandle'))!
+  await page.keyboard.down('Shift')
+  await page.mouse.move(h.knob.x, h.knob.y)
+  await page.mouse.down()
+  await page.mouse.move(h.knob.x + 80, h.knob.y + 10, { steps: 6 })
+  await page.mouse.up()
+  await page.keyboard.up('Shift')
+  expect(await heading()).toBe(before)
+  expect((await viewer<{ position: number[] }>(page, 'camera')).position).not.toEqual(cam0.position)
+
+  // 숫자로 넣으면 붙이지 않고 그대로다.
+  await angle.fill('31.5')
+  await angle.press('Enter')
+  await expect.poll(heading).toBe(31.5)
+  expect(errors).toEqual([])
+})
+
+test('병원 건축: 다중층 뷰에서 계단의 한 층 조각만 고친다 — 꼭짓점 손잡이·이 층만 옮기기·종료 지점 좌표, 설비는 끌리지 않고, 편집 파일로 다시 얹힌다 [OE-ML-07#3~,5~,7~] [OE-OBJ-14#3~]', async ({ page }, info) => {
   test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(240_000)
   const errors: string[] = []
