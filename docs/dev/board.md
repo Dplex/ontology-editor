@@ -89,6 +89,8 @@ Status 는 건드리지 않는다. 점검은 Actions `Board check` 가 PR·main 
   Done 이슈에 붙은 것은 손으로 떼지 않는다 — 후속 이슈가 생기고, 그 PR 이 merge 될 때 kanban.yml 이 뗀다.
   후속 이슈는 템플릿(원 이슈 수정 이력의 이전 문구 + 지금 요구사항·수용 기준)이고 제목 끝에 `(OE-XXX-nn)` 를 붙이지 않는다
   (sync-board 가 제목 끝 ID 로 짝지어서 둘이 되면 엉뚱한 이슈를 고친다). 그래서 `npm run board` 의 "제목 끝에 티켓 ID 가 없는 항목" 에 뜬다
+  티켓 md 쪽 짝은 `status: "prd-updated"`(기획이 바뀐 요구를 개발에 전한 표시, `docs/prd/README.md` "`prd-updated` 쓰는 법")다.
+  `modified` 를 떼면 `npm run board` 가 "prd-done 으로 되돌릴 후보" 로 알리고, 되돌리는 것은 기획이다
 
 ## Actions 러너
 
