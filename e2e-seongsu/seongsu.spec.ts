@@ -23,7 +23,7 @@ const stemOf = (name: string) => name.replace(/[^\w가-힣-]+/g, '_')
 const TERMINAL = new RegExp(process.env.SEONGSU_TERMINAL ?? 'FCU')
 const AHU = new RegExp(process.env.SEONGSU_AHU ?? 'AHU', 'i')
 // 성수의 요약 수(층 · 물리존 · 기기). 다른 파일이면 SEONGSU_COUNTS=21,1375,3826 처럼 주거나 'record' 로 재서 적기만 한다.
-const COUNTS = process.env.SEONGSU_COUNTS ?? '19,508,4671'
+const COUNTS = process.env.SEONGSU_COUNTS ?? '19,508,4677'
 // 편집·연결 시험에 쓰는 기기 둘(같은 층, 계통에 든 말단)과 C-9 의 연결망 기기 수. 'record' 면 재서 적기만 한다.
 const DEVICE_A = process.env.SEONGSU_DEVICE_A ?? 'FCU3:FCU3:958283'
 const DEVICE_B = process.env.SEONGSU_DEVICE_B ?? 'FCU3:FCU3:958291'
@@ -219,13 +219,15 @@ const centroid = (ring: Ring): [number, number] => {
  */
 async function roomToEdit(storey: string) {
   const rooms = map.spaces
-    .filter((x) => x.storey === storey && x.ring.length >= 5 && x.ring.length <= 13 && x.area > 10 && x.area < 1000)
+    // 꼭짓점 20개까지 본다. 13개까지만 보면 3F 에서 후보가 셋뿐이고, 셋 다 계단(수직 관통 오브젝트) 조각이 덮거나 설비가 걸렸다(2026-10-14).
+    .filter((x) => x.storey === storey && x.ring.length >= 5 && x.ring.length <= 20 && x.area > 10 && x.area < 1000)
     .sort((a, b) => a.ring.length - b.ring.length)
   for (const s of rooms) {
     const xs = s.ring.map((p) => p[0])
     const ys = s.ring.map((p) => p[1])
     const [x0, x1, y0, y1] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
-    for (const [fx, fy] of [[0.5, 0.5], [0.3, 0.3], [0.7, 0.7], [0.3, 0.7], [0.7, 0.3], [0.5, 0.25], [0.5, 0.75], [0.25, 0.5], [0.75, 0.5]]) {
+    const grid = [0.2, 0.35, 0.5, 0.65, 0.8].flatMap((fx) => [0.2, 0.35, 0.5, 0.65, 0.8].map((fy) => [fx, fy]))
+    for (const [fx, fy] of [[0.5, 0.5], ...grid]) {
       const cx = x0 + (x1 - x0) * fx
       const cy = y0 + (y1 - y0) * fy
       // 새 물리존(2m 정사각형)과 나누는 선이 방 안에 들도록 벽에서 1.2m 는 떨어진 점만 쓴다.
@@ -264,7 +266,7 @@ test.afterAll(async () => {
   writeFileSync(REPORT, lines.join('\n'))
 })
 
-test('B 열기: 두 파일을 같이 고르면 합쳐 열리고, 3D 를 그리는 동안 화면이 오래 멈추지 않는다', async () => {
+test('B 열기: 두 파일을 같이 고르면 16초 안에 합쳐 열리고, 3D 를 그리는 동안 화면이 1초 넘게 멈추지 않는다 [OE-BIM-01#1] [OE-UI-14#2]', async () => {
   await page.goto('/')
   await page.evaluate(() => {
     for (const k of Object.keys(localStorage)) if (k.startsWith('oe-draft')) localStorage.removeItem(k)
@@ -305,6 +307,8 @@ test('B 열기: 두 파일을 같이 고르면 합쳐 열리고, 3D 를 그리�
   record('B-6a', `${(openMs / 1000).toFixed(1)}초`, '두 파일을 파일 칸에서 같이 골라 합쳐 열기(기계를 먼저 골라도 건축이 기준)')
   record('B-4·B-6 멈춤', `${gap}ms`, `여는 동안 가장 긴 프레임 간격. 설비 형상 ${stats.vertices.toLocaleString()}정점 ${stats.mb}MB 를 ${stats.chunks}덩어리로 올린다`)
   expect(gap, '연 뒤 화면이 1초 넘게 멈췄다').toBeLessThan(1000)
+  // 성수 건축(84MB)+기계(203MB)를 16초 안에(OE-BIM-01 AC1). GPU 크롬 기준이다(OE-UI-14). 55·개발 PC(RTX 2080 Ti)에서 14~16초다.
+  expect(openMs, '성수 두 파일을 여는 데 16초를 넘었다').toBeLessThan(16_000)
 
   // B-9 요약 수. A-1-11 과 같은 수다.
   const tile = (label: string) => page.locator('.tiles li', { hasText: label }).first().locator('b')
@@ -408,7 +412,7 @@ test('L 3D 내보내기: GLB·OBJ 가 한 파일로 내려받아지고, 만드�
   await expect(page.getByRole('button', { name: /3D 형상 내보내기 \(OBJ\)/ })).toHaveText('OBJ')
 })
 
-test('C 3D 보기: 층 고르기, 전체 보기, 고른 연결망, 설명 풍선, 회전, 전체 화면, 테마', async () => {
+test('C 3D 보기: 층 고르기, 전체 보기, 고른 연결망, 설명 풍선, 회전(60fps), 전체 화면, 테마 [OE-UI-14#1]', async () => {
   // C-2 층 하나만 그린다.
   await showStorey(STOREY)
   expect(await viewer<string[]>('visibleStoreys')).toHaveLength(1)
@@ -478,13 +482,15 @@ test('C 3D 보기: 층 고르기, 전체 보기, 고른 연결망, 설명 풍선
   })
   record('C-11', `중앙값 ${frames.p50}ms · 95% ${frames.p95}ms · 최대 ${frames.max}ms`, '회전과 확대 중 프레임 간격')
   expect(frames.p95).toBeLessThan(50)
+  // 60fps 유지(OE-UI-14 AC1): 프레임 간격의 가운데 값이 한 프레임(16.7ms) 안이다. 재는 틀(requestAnimationFrame)의 흔들림만큼 1ms 를 둔다.
+  expect(frames.p50, '회전·확대 중 60fps 를 지키지 못했다').toBeLessThanOrEqual(17)
 
-  // C-6 W 는 내력벽 켜고 끄기. C-7 R 은 규칙 방향 표시.
-  const wallsButton = page.getByRole('button', { name: '내력벽' })
+  // C-6 W 는 벽 켜고 끄기(#600 부터 버튼 이름이 "벽"). C-7 R 은 규칙 방향 표시.
+  const wallsButton = page.getByRole('button', { name: '벽', exact: true })
   const w0 = await wallsButton.getAttribute('aria-pressed')
   const wMs = await timed(() => page.keyboard.press('w'))
   expect(await wallsButton.getAttribute('aria-pressed')).not.toBe(w0)
-  record('C-6', `${wMs}ms`, '내력벽 켜기')
+  record('C-6', `${wMs}ms`, '벽 켜기')
   await page.keyboard.press('w')
   await page.keyboard.press('r')
   await expect(note()).toContainText('규칙 방향')
@@ -999,7 +1005,7 @@ test('H 종류와 I 되돌리기: U·K 로 패밀리 종류 정하기, 되돌리
   await page.keyboard.press('Shift+Slash')
   const help = page.getByRole('dialog', { name: '단축키' })
   await expect(help).toBeVisible()
-  for (const k of ['보기 ↔ 편집', '되돌리기', '다시 하기', '규칙 방향', '내력벽']) await expect(help).toContainText(k)
+  for (const k of ['보기 ↔ 편집', '되돌리기', '다시 하기', '규칙 방향', '벽 켜기·끄기']) await expect(help).toContainText(k)
   await page.keyboard.press('Escape')
   record('I-4·I-5·I-6', '통과')
   expect(errors).toEqual([])
