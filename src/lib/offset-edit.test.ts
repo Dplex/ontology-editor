@@ -60,6 +60,24 @@ describe('오프셋 높이 바꾸기 (OE-ML-14)', () => {
     expect(JSON.stringify(m.connections)).toBe(links)
   })
 
+  it('사람이 방향을 확정해 둔 라이저도 형상(오프셋 높이)만 바꾸면 연결 대상과 확정 방향이 그대로다 [OE-ML-14#2]', () => {
+    const m = withRiser()
+    const ids = new Set(['AHU-1', 'SA 덕트 1', 'SA 이음 2', 'SA 덕트 3', 'SA 이음 4', 'SA 덕트 5', 'AT-201'].map((n) => equip(m, n).id))
+    const riser = m.connections.filter((c) => ids.has(c.from) && ids.has(c.to))
+    expect(riser.length).toBeGreaterThan(0)
+    // 그린 직후 수동 확정 방향은 미지정이다(OE-PIP-11). 사람이 공조기 → 말단 쪽으로 정한다.
+    for (const c of riser) c.edited = { from: c.from, to: c.to, at: '2026-10-14T00:00:00Z' }
+    const before = JSON.stringify(m.connections)
+    const done = setOffsetHeight(m, equip(m, 'SA 덕트 3').id, at2F(3), restAxis(m))
+    if ('refused' in done) throw new Error(done.refused)
+    expect(segmentPath(equip(m, 'SA 덕트 3'))).toEqual({ path: [[1, 1, 7], [5, 1, 7]] })
+    expect(JSON.stringify(m.connections)).toBe(before)
+    // TTL 에도 같은 방향으로 나간다(형상을 바꿨다고 feeds 가 바뀌지 않는다).
+    const ttl = modelToTTL(m)
+    for (const c of riser) expect(m.connections.find((x) => x.from === c.from && x.to === c.to)?.edited).toEqual(c.edited)
+    expect(ttl).toContain('brick:feeds')
+  })
+
   it('되돌리기 한 번이면 바꾸기 전과 같고, 편집 파일로 새로 연 모델에 얹으면 같은 높이다 [OE-ML-14#4]', () => {
     const m = withRiser()
     const base = baselineOf(tower())

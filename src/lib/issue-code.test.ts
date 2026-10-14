@@ -28,7 +28,7 @@ beforeAll(async () => {
 }, 120_000)
 
 describe('누락 분류 코드 (OE-BIM-20)', () => {
-  it('픽스처를 열고 합쳐서 나오는 모든 경고와 IDF 경고, 화면의 미소속 줄에 X/A/B/C 코드와 R 번호가 붙는다 [OE-BIM-20#1]', () => {
+  it('픽스처를 열고 합쳐서 나오는 모든 경고와 IDF 경고, 화면의 미소속 줄에 X/A/B/C 코드와 R 번호가 붙는다 [OE-BIM-20#1~,2]', () => {
     const warnings = new Set<string>()
     for (const m of models.values()) for (const w of m.warnings) warnings.add(w)
     const list = [...models.values()]
@@ -41,7 +41,7 @@ describe('누락 분류 코드 (OE-BIM-20)', () => {
     expect([...warnings].filter((w) => !warningCode(w))).toEqual([])
   })
 
-  it('완전성 검사 규칙마다 코드와 R 번호가 있다 [OE-BIM-20#1]', () => {
+  it('완전성 검사 규칙마다 코드와 R 번호가 있다 [OE-BIM-20#1~,2]', () => {
     const keys = new Set([...models.values()].flatMap((m) => completenessChecks(m, []).map((c) => c.key)))
     expect(keys.size).toBeGreaterThanOrEqual(10)
     expect([...keys].filter((k) => !checkCode(k))).toEqual([])

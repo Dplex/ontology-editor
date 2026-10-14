@@ -66,7 +66,7 @@ test('설계 풍량이 없으면 판정 불가, 사람이 넣으면 출처가 �
   const spaceAir = page.getByTestId('space-airflow')
   await spaceAir.getByLabel('냉방 설계 풍량(CMH)').fill('6500')
   await spaceAir.getByLabel('냉방 설계 풍량(CMH)').press('Enter')
-  await expect(spaceAir.locator('.src')).toHaveText('편집')
+  await expect(spaceAir.locator('.src')).toHaveText('사람')
   await expect(zoneAir).toContainText('6,500 CMH(냉방, 담당 물리존 합)')
   await expect(warn).toContainText('AHU-1 정격 6,000 CMH < 공조존 1 설계 6,500 CMH(냉방 기준)')
   // 0 은 값이 아니라 빈칸이다 — 지운 것과 같다.

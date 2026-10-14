@@ -481,4 +481,27 @@ describe('한 대만 정한 종류 (OE-EQP-14)', () => {
     applyEdits(fresh, file)
     expect([equip(fresh, 'AT-101-01').kind, equip(fresh, 'AT-101-02').kind]).toEqual(['air_grille', 'air_diffuser'])
   })
+
+  it('패밀리로 정한 종류는 타입 열쇠, 한 대만 정한 종류는 `#id` 로 적용 범위가 남고, 다시 열어 얹어도 종류와 사람 출처가 그대로다 [OE-BIM-14#3]', () => {
+    const prep = (m: Model) => {
+      equip(m, 'AT-101-01').objectType = 'M_Return Register:600'
+      equip(m, 'AT-101-02').objectType = 'M_Return Register:600'
+      return m
+    }
+    for (const scope of ['family', 'single'] as const) {
+      const m = prep(read('mep.ifc'))
+      const base = baselineOf(m)
+      const key = scope === 'family' ? typeKeyOf(equip(m, 'AT-101-01')) : `#${equip(m, 'AT-101-01').id}`
+      setTypeKind(m, key, 'air_grille')
+      const file = parseEditFile(JSON.stringify(exportEdits(m, base, 'mep.ifc')))
+      if (typeof file === 'string') throw new Error(file)
+      expect(file.kinds).toEqual([{ typeKey: key, kind: 'air_grille' }])
+      const fresh = prep(read('mep.ifc'))
+      applyEdits(fresh, file)
+      const [a, b] = [equip(fresh, 'AT-101-01'), equip(fresh, 'AT-101-02')]
+      // 패밀리면 두 대 다, 한 대면 그 설비만 바뀌고 사람이 정한 것(화면 출처 "사람")으로 남는다.
+      expect([a.kind, b.kind]).toEqual(scope === 'family' ? ['air_grille', 'air_grille'] : ['air_grille', 'air_diffuser'])
+      expect([!!a.kindEdited, !!b.kindEdited]).toEqual(scope === 'family' ? [true, true] : [true, false])
+    }
+  })
 })

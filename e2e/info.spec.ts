@@ -72,25 +72,53 @@ test('종류를 모르는 패밀리에 계통·이웃·위치 단서가 붙는�
   expect(errors).toEqual([])
 })
 
-test('위반 목록에서 한 번에 고친다: 방 경계 바로 밖의 설비를 방 안으로 [OE-BIM-18#2]', async ({ page }) => {
+test('위반 목록에서 한 번에 고친다: 방 경계 바로 밖의 설비를 방 안으로. 목록만 열고 닫으면 아무것도 바뀌지 않고, 고치고 되돌리면 검사 표·리포트가 따라 바뀐다 [OE-BIM-18#1,2] [OE-BIM-18#3~]', async ({ page }) => {
   const errors = await open(page)
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  // 공조기를 사무실(0..10) 경계 30cm 밖으로 옮긴다.
+  const fold = page.getByRole('button', { name: /완전성 검사/ })
+  if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
+  // 규칙별 통과/대상과 위반 수가 보인다. 기기 5대 중 좌표 없는 TEMP-101-01 하나가 소속 방이 없다.
+  const row = page.locator('.checks tbody tr', { hasText: '소속 방이 있다' })
+  const pass = row.locator('td.num').first()
+  const fail = row.locator('td.num').nth(1)
+  await expect(pass).toContainText('4 / 5')
+  await expect(fail).toHaveText('1')
+  // 바뀐 내용 리포트의 설비 줄.
+  const report = page.locator('ul.report:not(.report-checks) li', { hasText: 'AHU-1' })
+  await expect(report).toHaveCount(0)
+
+  // 공조기를 사무실(0..10) 경계 30cm 밖으로 옮기면 위반이 하나 는다.
   const x = page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).locator('.coord').first()
   await x.fill('10.3')
   await x.press('Enter')
-  const fold = page.getByRole('button', { name: /완전성 검사/ })
-  if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
-  await page.locator('.checks tbody tr', { hasText: '소속 방이 있다' }).click()
+  await expect(pass).toContainText('3 / 5')
+  await expect(fail).toHaveText('2')
+  await expect(report).toContainText('사무실 → (1F 층까지만)')
+  const changed = page.locator('.edit-bar').getByRole('link', { name: /바뀐 것/ })
+  const before = await changed.innerText()
+
+  // 목록만 열고 닫으면(취소) 바뀐 것이 없다.
+  await row.click()
+  await expect(page.locator('.check-list li', { hasText: 'AHU-1' })).toBeVisible()
+  await row.click()
+  await expect(page.locator('.check-list li', { hasText: 'AHU-1' })).toHaveCount(0)
+  await expect(changed).toHaveText(before)
+  await expect(x).toHaveValue('10.3')
+
+  await row.click()
   const item = page.locator('.check-list li', { hasText: 'AHU-1' })
   await expect(item).toContainText('가장 가까운 방은 사무실(0.30m)')
   await item.getByRole('button', { name: '사무실 안으로 옮기기' }).click()
   await expect(x).toHaveValue('9.9')
   await expect(page.locator('.check-list li', { hasText: 'AHU-1' })).toHaveCount(0)
-  // 여느 편집과 같이 되돌릴 수 있다.
+  await expect(pass).toContainText('4 / 5')
+  await expect(report).toContainText('소속은 같고 좌표만 바뀐 설비 1대 (GeoJSON 위치): AHU-1')
+  // 여느 편집과 같이 되돌릴 수 있고, 되돌리면 숫자도 돌아온다.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
   await expect(x).toHaveValue('10.3')
+  await expect(pass).toContainText('3 / 5')
+  await expect(report).toContainText('사무실 → (1F 층까지만)')
   expect(errors).toEqual([])
 })
 
@@ -275,7 +303,7 @@ test('등급 칩과 등급 판정은 판정에 쓰는 본 숫자 하나를 분�
   expect(errors).toEqual([])
 })
 
-test('경고와 완전성 검사 규칙마다 누락 분류 코드와 R 번호가 붙는다 [OE-BIM-20#1]', async ({ page }) => {
+test('경고와 완전성 검사 규칙마다 누락 분류 코드와 R 번호가 붙는다 [OE-BIM-20#1~,2]', async ({ page }) => {
   const errors = await open(page)
   const items = page.locator('#warnings > li')
   await expect(items.first()).toBeVisible()

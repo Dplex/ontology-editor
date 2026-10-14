@@ -34,7 +34,7 @@ test('천장고를 모르는 층은 "모름" 이고, 입력하면 출처 편집�
   await input.fill('2.7')
   await input.press('Enter')
   await expect(cell(page, '1F')).toContainText('2.70 m')
-  await expect(cell(page, '1F').locator('.src')).toHaveText('편집')
+  await expect(cell(page, '1F').locator('.src')).toHaveText('사람')
 
   await cell(page, '1F').getByRole('button', { name: '지우기' }).click()
   await expect(cell(page, '1F')).toContainText('모름')

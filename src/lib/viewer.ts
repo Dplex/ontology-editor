@@ -67,6 +67,7 @@ import { createNavCube } from './nav-cube'
 import { type LibraryItem, type ObjectMaterial } from './space-object'
 import { CONTEXT_ITEMS } from './object-names'
 import { partId } from './vertical-object'
+import { flowPulseMesh, setFlowTime, type FlowEdge, type FlowSegment } from './flow-pulse'
 
 /**
  * 층을 구분하는 색. 층 수만큼 순환한다.
@@ -412,6 +413,8 @@ export type Viewer = {
   onVertexMove(handler: (spaceId: string, index: number, to: Vec2) => void): void
   /** 연결 화살표. 빈 배열이면 지운다. */
   setArrows(arrows: readonly Arrow[]): void
+  /** 고른 계통의 흐름을 달리는 빛으로 보인다(flow-pulse.ts). 색은 계통 색이다. null 이면 걷는다. */
+  setFlow(flow: { edges: readonly FlowEdge[]; color: number } | null): void
   /**
    * 흐름 방향의 연쇄(flow-cascade.ts). 확정·적용으로 TTL 에 나가는 방향이 바뀐 연결을 물결(wave) 순서대로 강조색 화살표로 띄웠다가
    * 걷는다. 평소 화살표(setArrows, 고른 설비의 이웃)와 따로 겹쳐 그린다. 움직임을 끈 사람에게는 한꺼번에 띄웠다가 걷는다.
@@ -516,6 +519,18 @@ export type Viewer = {
    */
   setPlaceMode(elevation: number | null): void
   onPlace(handler: (at: Vec2) => void): void
+  /** 놓기 모드에서 마우스가 가리키는 바닥 점(IFC x, y). 벗어나면 null. 스냅 자리를 미리 보이는 데 쓴다(OE-UI-06). */
+  onPlaceHover(handler: ((at: Vec2 | null) => void) | null): void
+  /**
+   * 스냅 표시(OE-UI-06). 붙을 자리(점)와, 변에 붙었으면 그 변을 높이 `elevation` 바닥 위에 그린다. 그리드 교점이면 점만이다.
+   * null 이면 지운다.
+   */
+  setSnapMarker(marker: { at: Vec2; kind: 'vertex' | 'edge' | 'grid'; edge?: [Vec2, Vec2]; elevation: number } | null): void
+  /**
+   * 끄는 동안 자리를 보정한다(OE-UI-07 그리드, OE-UI-06 스냅). 설비·오브젝트는 옮긴 거리(IFC 평면)를, 물리존 꼭짓점은 놓일 점을
+   * 받아 보정한 값을 돌려준다. 끄는 동안의 3D 와 놓을 때 넘기는 값이 같다. null 이면 보정하지 않는다.
+   */
+  setDragSnap(snap: { delta(kind: 'equipment' | 'object', id: string, delta: Vec2): Vec2; point(spaceId: string, index: number, at: Vec2): Vec2 } | null): void
   /**
    * 시점이 바뀌면 부른다(한 프레임에 한 번). 바라보는 점의 IFC 평면 좌표와, 그 거리에서 화면 가로 절반이 덮는 길이(m).
    * 비교 판(ExportCompare.vue, ADR-0061)의 평면이 3D 를 따라간다. null 이면 뗀다.
@@ -679,6 +694,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     hoverCb(target, at)
   }
   let placeElevation: number | null = null
+  let placeHoverHandler: ((at: Vec2 | null) => void) | null = null
+  let dragSnap: { delta(kind: 'equipment' | 'object', id: string, delta: Vec2): Vec2; point(spaceId: string, index: number, at: Vec2): Vec2 } | null = null
   let placeHandler: (at: Vec2) => void = () => {}
 
   // **움직일 때만 다시 그린다.** 가만히 있을 때도 매 프레임 1만 8천 개를 다시 그리면 화면 전체(스크롤,
@@ -762,12 +779,44 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let selectedObject: string | null = null
   let objectPickHandler: (id: string) => void = () => {}
   let objectMoveHandler: (id: string, delta: Vec2) => void = () => {}
-  /** 광선에 맞은 맨 앞의 오브젝트와 거리(제곱). 숨긴 층의 것은 뺀다. */
+  /**
+   * 설비·계통을 고르는 동안 오브젝트(가구)를 흐리게 한다. 흐린 설비처럼 옅게만 남기고 고를 수 없다 — 성수 10층에서 계통을 고르면
+   * 의자·책상이 천장 아래 배관을 가렸고, 가구를 눌러 배관을 고를 수 없었다. 고른 오브젝트는 흐리게 하지 않는다(끌던 것을 잃는다).
+   */
+  let objectsFaded = false
+  const OBJECT_FADED_OPACITY = 0.08
+  function fadeObjects() {
+    for (const node of spaceObjects.children) {
+      const fade = objectsFaded && node.userData.objectId !== selectedObject
+      node.traverse((o) => {
+        if (!(o instanceof Mesh)) return
+        const base = o.userData.baseMaterial as Material | Material[] | undefined
+        if (fade && !base) {
+          o.userData.baseMaterial = o.material
+          const faded = (m: Material) => {
+            const c = m.clone()
+            c.transparent = true
+            c.opacity = Math.min(m.opacity, OBJECT_FADED_OPACITY)
+            c.depthWrite = false
+            return c
+          }
+          o.material = Array.isArray(o.material) ? o.material.map(faded) : faded(o.material)
+        } else if (!fade && base) {
+          for (const m of [o.material].flat()) m.dispose()
+          o.material = base
+          delete o.userData.baseMaterial
+        }
+      })
+    }
+    dirty = true
+  }
+  /** 광선에 맞은 맨 앞의 오브젝트와 거리(제곱). 숨긴 층의 것과 흐리게 한 것은 뺀다. */
   function pickObject(ray: Ray): { target: ObjectTarget; d: number } | null {
     let best: { target: ObjectTarget; d: number } | null = null
     const at = new Vector3()
     for (const target of objectTargets) {
       if (visibleStoreys && !visibleStoreys.has(target.storeyId)) continue
+      if (objectsFaded && target.id !== selectedObject) continue
       if (!ray.intersectBox(target.box, at)) continue
       const d = at.distanceToSquared(ray.origin)
       if (!best || d < best.d) best = { target, d }
@@ -792,6 +841,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let gridCount = 0
   scene.add(backdrop)
   scene.add(gridGroup)
+  // 스냅 표시(OE-UI-06). 붙을 자리의 고리와 붙은 변.
+  const snapGroup = new Group()
+  scene.add(snapGroup)
+  let snapState: { at: Vec2; kind: 'vertex' | 'edge' | 'grid' } | null = null
   let backdropCorners: readonly [Vec2, Vec2, Vec2, Vec2] | null = null
   let dimIds: ReadonlySet<string> = new Set()
   let frozenIds: ReadonlySet<string> = new Set()
@@ -818,6 +871,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let arrowSpecs: readonly Arrow[] = []
   let arrowObjects: (Line | Mesh)[] = []
   let arrowSegs: { key: string; a: Vector3; b: Vector3 }[] = []
+  let flowSpec: { edges: readonly FlowEdge[]; color: number } | null = null
+  let flowMesh: Mesh | null = null
 
   type Drag =
     | { kind: 'equipment'; part: Part; original: Float32Array; box: Box3; plane: Plane; start: Vector3; delta: Vector3 }
@@ -919,7 +974,27 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     scaleHandles()
   }
 
+  /** 흐르는 빛. 화살표와 같은 때(층 보기·설비 형상·테마가 바뀔 때) 다시 짓는다. 화살표와 달리 보기 모드에서도 그린다. */
+  function drawFlow() {
+    if (flowMesh) disposeObject(flowMesh)
+    flowMesh = null
+    dirty = true
+    if (!flowSpec) return
+    const segments: FlowSegment[] = []
+    for (const e of flowSpec.edges) {
+      // 한 층만 볼 때 다른 층으로 가는 연결은 그리지 않는다(화살표와 같다).
+      if (hiddenIds.has(e.from) || hiddenIds.has(e.to)) continue
+      const pa = partById.get(e.from)
+      const pb = partById.get(e.to)
+      if (!pa || !pb) continue
+      segments.push({ ...e, a: pa.box.getCenter(new Vector3()), b: pb.box.getCenter(new Vector3()) })
+    }
+    flowMesh = flowPulseMesh(segments, flowSpec.color, dark)
+    if (flowMesh) overlay.add(flowMesh)
+  }
+
   function drawArrows() {
+    drawFlow()
     for (const o of arrowObjects) disposeObject(o)
     arrowObjects = []
     arrowSegs = []
@@ -1660,17 +1735,25 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4) drag.moved = true
       const at = new Vector3()
       if (!rayAt(e.clientX, e.clientY).intersectPlane(drag.plane, at)) return
+      // 보정(dragSnap)은 IFC 평면에서 한다. 화면은 x 가 같고 z 가 IFC y 의 부호를 뒤집은 것이다(toScene).
       if (drag.kind === 'equipment') {
-        drag.delta.set(at.x - drag.start.x, 0, at.z - drag.start.z)
+        const [dx, dy] = dragSnap ? dragSnap.delta('equipment', drag.part.id, [at.x - drag.start.x, -(at.z - drag.start.z)]) : [at.x - drag.start.x, -(at.z - drag.start.z)]
+        drag.delta.set(dx, 0, -dy)
         placePart(drag, drag.delta)
         drawArrows()
       } else if (drag.kind === 'object') {
-        const step = new Vector3(at.x - drag.start.x, 0, at.z - drag.start.z).sub(drag.delta)
+        const [dx, dy] = dragSnap ? dragSnap.delta('object', drag.target.id, [at.x - drag.start.x, -(at.z - drag.start.z)]) : [at.x - drag.start.x, -(at.z - drag.start.z)]
+        const step = new Vector3(dx, 0, -dy).sub(drag.delta)
         drag.delta.add(step)
         drag.target.node.position.add(step)
         drag.target.box.translate(step)
       } else {
         drag.at.copy(at).add(drag.offset)
+        if (dragSnap && handleSpace) {
+          const [x, y] = dragSnap.point(handleSpace.id, drag.index, [drag.at.x, -drag.at.z])
+          drag.at.x = x
+          drag.at.z = -y
+        }
         moveHandle(drag.index, drag.at)
       }
       dirty = true
@@ -1682,6 +1765,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   })
   canvas.addEventListener('pointerleave', () => {
     hoverAt = null
+    if (placeElevation !== null) placeHoverHandler?.(null)
     if (!drag) canvas.style.cursor = ''
     hoverHandler(null, null)
   })
@@ -1711,6 +1795,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (placeElevation !== null) {
       canvas.style.cursor = 'crosshair'
       hoverHandler(null, null)
+      if (placeHoverHandler) {
+        const at = new Vector3()
+        const plane = new Plane(new Vector3(0, 1, 0), -toScene([0, 0, placeElevation])[1])
+        placeHoverHandler(hoverAt && rayAt(hoverAt.x, hoverAt.y).intersectPlane(plane, at) ? [at.x, -at.z] : null)
+      }
       return
     }
     if (!hoverAt || drag) {
@@ -1864,6 +1953,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     stepPivotMark(now)
     stepGlides(now)
     stepPulses(now)
+    // 흐르는 빛은 움직임을 끈 사람에게는 멈춘 채(혜성 꼴만으로 방향을 읽는다) 둔다. 흐르는 동안은 매 프레임 그린다.
+    if (flowMesh && !still()) {
+      setFlowTime(flowMesh, now / 1000)
+      dirty = true
+    }
     fx.step(now)
     // 관성(damping)으로 도는 동안에는 update 가 참을 돌려준다. 그동안만 계속 그린다.
     if (controls.update()) dirty = true
@@ -2725,6 +2819,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         }),
       point: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
       /** 그린 추가 공간 오브젝트의 id. */
+      /** 그린 흐르는 빛의 연결 수. 없으면 0. */
+      flow: () => (flowMesh?.userData.flowSegments as number | undefined) ?? 0,
+      /** 지금까지 3D 를 다시 그린 장수. 가만히 있으면 늘지 않아야 한다(흐르는 빛이 있을 때만 매 프레임). */
+      renders: () => renders,
       objects: () => objectTargets.map((t) => t.id),
       /** 겹쳐서 막아 붉게 그린 공간 오브젝트(OE-SPC-15). 없으면 null. */
       objectConflict: () => objectConflictId,
@@ -2734,6 +2832,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         if (!t) return null
         const center = t.box.getCenter(new Vector3())
         return toScreen(center.setY(t.box.max.y))
+      },
+      /** 오브젝트에서 가장 진한 면의 불투명도. 설비·계통을 고르는 동안 가구를 흐리게 했는지 본다. */
+      objectOpacity: (id: string) => {
+        const t = objectTargets.find((x) => x.id === id)
+        if (!t) return null
+        let most = 0
+        t.node.traverse((o) => {
+          if (o instanceof Mesh) for (const m of [o.material].flat()) most = Math.max(most, m.transparent ? m.opacity : 1)
+        })
+        return most
       },
       /** 오브젝트 상자(화면 세계 좌표). 늘린 모델이 상자에 맞는지 본다. */
       objectBox: (id: string) => {
@@ -2750,6 +2858,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       },
       /** 그린 그리드 선 수(OE-UI-07). */
       grid: () => gridCount,
+      snap: () => snapState,
       /** 고른(파랗게 칠한) 조각 id. */
       verticalSelected: () => [...selectedVertical],
       /** 진입·종료 표시 수(보이는 층만). */
@@ -2915,6 +3024,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         // 천장 편집 모드에서 천장 설비가 아닌 것은 회색이다(고른 것·상류·하류 색은 둔다).
         if (next === part.color && dimIds.has(id)) next = DIM_COLOR
         paintPart(part, next)
+      }
+      // 고른 것이 있으면 가구도 흐리게 한다. 여러 개 고르는 중에는 설비처럼 두고, 칠할 것이 없는 강조(빈 계통)도 둔다.
+      const fadeObjectsNow = !!highlight && !highlight.group && nextFaded.size > 0
+      if (fadeObjectsNow !== objectsFaded) {
+        objectsFaded = fadeObjectsNow
+        fadeObjects()
       }
       // 흐리게 하기가 바뀐 설비가 든 덩어리만 인덱스를 다시 짠다.
       const touched = new Set<Chunk>()
@@ -3142,6 +3257,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setArrows(arrows) {
       arrowSpecs = arrows
       drawArrows()
+    },
+
+    setFlow(flow) {
+      flowSpec = flow
+      drawFlow()
     },
 
     playCascade(items) {
@@ -3611,8 +3731,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (drag?.kind === 'object') return // 끄는 중에 다시 그리면 잡은 것을 잃는다. 놓으면 다시 불린다.
       spaceObjects.traverse((o) => {
         if (o instanceof Mesh || o instanceof LineSegments) {
+          // 흐리게 칠한 재질은 언제나 이 오브젝트 몫이다. 원래 재질은 넣은 모델과 나눠 쓰면 남긴다.
+          const base = o.userData.baseMaterial as Material | Material[] | undefined
+          if (base) for (const m of [o.material].flat()) m.dispose()
           if (!o.userData.shared) o.geometry.dispose()
-          if (!o.userData.shared) (o.material as { dispose(): void }).dispose()
+          if (!o.userData.shared) for (const m of [base ?? o.material].flat()) m.dispose()
         }
       })
       spaceObjects.clear()
@@ -3663,6 +3786,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
             edges.renderOrder = 2
             node.add(edges)
           }
+          node.userData.objectId = o.id
           spaceObjects.add(node)
           // 주변 모델(object-names.ts 의 CONTEXT_ITEMS)은 눌러도 고르지 않는다 — 바닥·설비를 가린다.
           if (CONTEXT_ITEMS.has(o.item)) continue
@@ -3671,6 +3795,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           objectTargets.push({ id: o.id, storeyId: storey.id, box, node })
         }
       }
+      if (objectsFaded) fadeObjects()
       applyStoreyVisibility()
     },
 
@@ -3716,6 +3841,44 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     onPlace(handler) {
       placeHandler = handler
+    },
+
+    onPlaceHover(handler) {
+      placeHoverHandler = handler
+    },
+
+    setSnapMarker(marker) {
+      for (const o of snapGroup.children) {
+        const obj = o as Mesh | Line
+        obj.geometry.dispose()
+        ;(obj.material as MeshBasicMaterial | LineBasicMaterial).dispose()
+      }
+      snapGroup.clear()
+      snapState = marker ? { at: marker.at, kind: marker.kind } : null
+      dirty = true
+      if (!marker) return
+      // 그리드(0.115)보다 조금 위에, 깊이를 무시하고 그려 바닥판·벽에 묻히지 않게 한다.
+      const y = marker.elevation + 0.13
+      const color = marker.kind === 'grid' ? 0x8a93a3 : 0xf59e0b
+      const ring = new Mesh(new RingGeometry(marker.kind === 'vertex' ? 0.12 : 0.08, marker.kind === 'vertex' ? 0.2 : 0.14, 24), new MeshBasicMaterial({ color, depthTest: false, transparent: true, side: DoubleSide }))
+      ring.rotation.x = -Math.PI / 2
+      ring.position.set(marker.at[0], y, -marker.at[1])
+      ring.raycast = () => {}
+      ring.renderOrder = 10
+      snapGroup.add(ring)
+      if (marker.edge) {
+        const [a, b] = marker.edge
+        const g = new BufferGeometry()
+        g.setAttribute('position', new BufferAttribute(new Float32Array([a[0], y, -a[1], b[0], y, -b[1]]), 3))
+        const line = new Line(g, new LineBasicMaterial({ color, depthTest: false, transparent: true }))
+        line.raycast = () => {}
+        line.renderOrder = 10
+        snapGroup.add(line)
+      }
+    },
+
+    setDragSnap(snap) {
+      dragSnap = snap
     },
 
     onView(handler) {

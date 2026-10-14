@@ -471,6 +471,122 @@ export function traceBySystem(
   })
 }
 
+/**
+ * 확정 흐름 경로 하나(OE-ML-16). 고른 요소에서 방향 있는 연결만 따라가 닿은 기기와, 거기까지 가는 가장 짧은 길이다.
+ * `via` 는 그 사이의 기기(덕트·배관 빼고), `conduits` 는 지나는 덕트·배관 수, `branches` 는 고른 요소에서 나가는 몇 갈래로
+ * 그 기기에 닿는지다 — 2 이상이면 대체 경로가 있다.
+ */
+export type Route = { id: string; via: string[]; conduits: number; branches: number }
+
+export type Routes = {
+  /** 거슬러 올라가 닿는 기기(원천 쪽). 가까운 것부터. 여럿이면 여럿 다 — 하나를 공급자로 정하지 않는다. */
+  sources: Route[]
+  /** 따라 내려가 닿는 기기(말단 쪽). */
+  targets: Route[]
+  /** 거슬러 올라가도, 따라 내려가도 닿는 기기 — 고른 요소와 같은 고리 위에 있다. 경로는 거슬러 올라간 쪽이다. */
+  looped: Route[]
+  /** 방향 있는 연결이 고리를 이룬 요소. 추적은 한 번 간 곳을 다시 가지 않아 끝나고, 고리가 있었다는 것만 알린다. 없으면 빈 목록. */
+  cycle: string[]
+}
+
+/**
+ * 원천·말단별 경로(OE-ML-16 AC3). `trace` 가 "어디까지 닿나" 를 셋으로 나눈다면, 이것은 닿은 기기마다 "어느 길로" 를 하나씩 준다.
+ * 방향 있는 연결만 탄다 — 방향을 모르는 연결은 흐름 추적이 멈추는 자리라(AC2) 경로가 아니다. 상류와 하류에 같이 닿는 기기는 고리 위에
+ * 있는 것이라 원천·말단 어느 쪽으로도 정하지 않고 `looped` 에 따로 둔다(`trace` 가 그것을 "이어짐" 으로 두는 것과 같다).
+ */
+export function traceRoutes(connections: readonly Connection[], start: string, isConduit: (id: string) => boolean): Routes {
+  const forward = new Map<string, string[]>()
+  const backward = new Map<string, string[]>()
+  const push = (map: Map<string, string[]>, at: string, to: string) => {
+    const list = map.get(at)
+    if (list) list.push(to)
+    else map.set(at, [to])
+  }
+  for (const c of connections) {
+    if (!c.directed) continue
+    push(forward, c.from, c.to)
+    push(backward, c.to, c.from)
+  }
+  // 넓이 우선이라 처음 닿은 길이 가장 짧은 길이다. 한 번 간 곳은 다시 가지 않아 고리가 있어도 끝난다.
+  const reach = (adj: Map<string, string[]>, from: string, skip: string) => {
+    const parent = new Map<string, string>([[from, '']])
+    const queue = [from]
+    for (let i = 0; i < queue.length; i++) {
+      for (const to of adj.get(queue[i]) ?? []) {
+        if (parent.has(to) || to === skip) continue
+        parent.set(to, queue[i])
+        queue.push(to)
+      }
+    }
+    return parent
+  }
+  const down = reach(forward, start, '')
+  const up = reach(backward, start, '')
+  const routes = (adj: Map<string, string[]>, parent: Map<string, string>, other: Map<string, string>, both = false): Route[] => {
+    // 갈래 수: 고른 요소의 이웃마다 따로 따라가 그 기기에 닿는 이웃이 몇인지 센다.
+    const firsts = (adj.get(start) ?? []).filter((x, i, a) => a.indexOf(x) === i)
+    const reachedBy = firsts.map((n) => reach(adj, n, start))
+    const out: Route[] = []
+    for (const id of parent.keys()) {
+      if (id === start || isConduit(id) || other.has(id) !== both) continue
+      const chain: string[] = []
+      for (let at = parent.get(id)!; at && at !== start; at = parent.get(at)!) chain.unshift(at)
+      out.push({ id, via: chain.filter((x) => !isConduit(x)), conduits: chain.filter(isConduit).length, branches: reachedBy.filter((r) => r.has(id)).length })
+    }
+    return out.sort((a, b) => a.via.length + a.conduits - (b.via.length + b.conduits) || (a.id < b.id ? -1 : 1))
+  }
+  // 고리: 닿은 요소 안에서 방향 있는 연결로 서로 오갈 수 있는 묶음(강한 연결 요소)이 둘 이상인 것.
+  const nodes = new Set([...down.keys(), ...up.keys()])
+  const index = new Map<string, number>()
+  const low = new Map<string, number>()
+  const stack: string[] = []
+  const onStack = new Set<string>()
+  const cycle: string[] = []
+  let counter = 0
+  for (const root of nodes) {
+    if (index.has(root)) continue
+    // 재귀 대신 손으로 쌓는다 — 성수 순환수 배관은 한 갈래가 수천 개다.
+    const work: [string, number][] = [[root, 0]]
+    index.set(root, counter)
+    low.set(root, counter++)
+    stack.push(root)
+    onStack.add(root)
+    while (work.length) {
+      const top = work[work.length - 1]
+      const [v, i] = top
+      const next = (forward.get(v) ?? []).filter((w) => nodes.has(w))
+      if (i < next.length) {
+        top[1]++
+        const w = next[i]
+        if (!index.has(w)) {
+          index.set(w, counter)
+          low.set(w, counter++)
+          stack.push(w)
+          onStack.add(w)
+          work.push([w, 0])
+        } else if (onStack.has(w)) low.set(v, Math.min(low.get(v)!, index.get(w)!))
+        continue
+      }
+      work.pop()
+      if (work.length) {
+        const u = work[work.length - 1][0]
+        low.set(u, Math.min(low.get(u)!, low.get(v)!))
+      }
+      if (low.get(v) === index.get(v)) {
+        const group: string[] = []
+        let w: string
+        do {
+          w = stack.pop()!
+          onStack.delete(w)
+          group.push(w)
+        } while (w !== v)
+        if (group.length > 1) cycle.push(...group)
+      }
+    }
+  }
+  return { sources: routes(backward, up, down), targets: routes(forward, down, up), looped: routes(backward, up, down, true), cycle: cycle.sort() }
+}
+
 /** 한 요소에 바로 붙은 이웃. 선택한 요소의 연결 목록을 보여 줄 때 쓴다. */
 export type Neighbor = {
   id: string
