@@ -50,7 +50,7 @@ import { applyEdits, countEdits, EDIT_FORMAT, exportEdits, parseEditFile, type E
 import { BUILDING, joinParts, partSig, splitByStorey, type HomeOf } from './lib/storey-drafts'
 import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
 import { ratioLabel } from './lib/unit-check'
-import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
+import { neighbors, trace, traceBySystem, traceRoutes, TOLERANCE, type Neighbor, type Route } from './lib/topology'
 import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
 import { storeyHeights, type StoreyHeight } from './lib/storey-height'
 import { resetStoreyName, setStoreyName, storeyNamed } from './lib/storey-name'
@@ -3665,6 +3665,40 @@ const flowSystemRow = computed(() => systemRows.value.find((r) => r.key === flow
 function toggleFlowSystem(key: string) {
   flowSystemKey.value = flowSystemKey.value === key ? null : key
 }
+// --- 흐름 경로 (OE-ML-16) -------------------------------------------------------
+//
+// 고른 기기에서 방향 있는 연결만 따라 닿는 원천·말단을 경로와 함께 나열한다. 원천이 여럿이면 여럿 다 보이고(하나를 공급자로 정하지 않는다),
+// 한 원천에 두 갈래 넘게 닿으면 대체 경로가 있다고 적는다. 방향 있는 고리가 있으면 알린다 — 추적은 한 번 간 곳을 다시 가지 않아 끝난다.
+// 방향은 계통별로 보기와 같은 것을 쓴다(규칙을 켜 두면 규칙 방향까지).
+/** 한 목록에 보이는 수. 성수 공조기는 디퓨저가 수백 개다. */
+const ROUTE_LIST_MAX = 6
+const routeView = pausedInReplay(() => {
+  void flowVersion.value
+  const m = model.value
+  const id = selectedId.value
+  if (!m || !id) return null
+  // 확정 흐름(포트 · 사람이 정한 방향 · 확정한 규칙)만 따라간다. 규칙 미리보기를 켜면 확정 전 규칙 방향까지 넣고, 그렇다고 적는다(AC5).
+  const preview = showRules.value && hasRules.value
+  const r = traceRoutes(withInferred(m.connections, !preview), id, conduitId)
+  if (!r.sources.length && !r.targets.length && !r.looped.length && !r.cycle.length) return null
+  const name = (x: string) => shortName(equipmentById.value.get(x)?.name ?? x)
+  const line = (x: Route) => ({
+    id: x.id,
+    name: name(x.id),
+    detail: [x.via.length ? `${x.via.map(name).join(' → ')} 경유` : '', `덕트·배관 ${x.conduits}개`, x.branches > 1 ? `${x.branches}갈래(대체 경로)` : ''].filter(Boolean).join(' · '),
+  })
+  return {
+    sources: r.sources.slice(0, ROUTE_LIST_MAX).map(line),
+    moreSources: Math.max(0, r.sources.length - ROUTE_LIST_MAX),
+    targets: r.targets.slice(0, ROUTE_LIST_MAX).map(line),
+    moreTargets: Math.max(0, r.targets.length - ROUTE_LIST_MAX),
+    looped: r.looped.slice(0, ROUTE_LIST_MAX).map(line),
+    moreLooped: Math.max(0, r.looped.length - ROUTE_LIST_MAX),
+    cycle: r.cycle.slice(0, ROUTE_LIST_MAX).map(name),
+    moreCycle: Math.max(0, r.cycle.length - ROUTE_LIST_MAX),
+    preview,
+  }
+})
 const kindsText = (kinds: [string, number][]) =>
   kinds.slice(0, 3).map(([label, n]) => `${label} ${n}`).join(' · ') + (kinds.length > 3 ? ` 외 ${kinds.length - 3}종` : '')
 
@@ -11303,6 +11337,35 @@ function rollbackFromReport() {
                   </span>
                 </button>
               </li>
+            </ul>
+          </div>
+
+          <!-- 흐름 경로(OE-ML-16). 방향을 아는 연결만 따라 닿은 원천·말단과 그 길. 원천이 여럿이면 다 보이고, 고리가 있으면 알린다. -->
+          <div v-if="routeView" class="trace-routes" data-testid="trace-routes">
+            <h4 class="picked-sub">
+              흐름 경로
+              <span class="muted">
+                확정한 방향만 따라갑니다<template v-if="routeView.preview">(지금은 확정 전 규칙 방향 미리보기 포함 <Src kind="dict" />)</template>. 원천이 여럿이면 모두
+                보입니다.
+              </span>
+            </h4>
+            <p v-if="routeView.cycle.length" class="edit-notice inline" data-testid="trace-cycle">
+              순환이 있습니다: {{ routeView.cycle.join(', ') }}<template v-if="routeView.moreCycle"> 외 {{ routeView.moreCycle }}개</template>. 한 번 지난 곳은 다시 따라가지 않아
+              추적이 끝납니다.
+            </p>
+            <ul class="route-list">
+              <li v-for="r in routeView.sources" :key="`up-${r.id}`" data-kind="source">
+                <span class="upstream">원천</span> <button type="button" class="link" @click="select(r.id)">{{ r.name }}</button> <span class="muted">{{ r.detail }}</span>
+              </li>
+              <li v-if="routeView.moreSources" class="muted">원천 외 {{ routeView.moreSources }}개</li>
+              <li v-for="r in routeView.targets" :key="`down-${r.id}`" data-kind="target">
+                <span class="downstream">도달</span> <button type="button" class="link" @click="select(r.id)">{{ r.name }}</button> <span class="muted">{{ r.detail }}</span>
+              </li>
+              <li v-if="routeView.moreTargets" class="muted">도달 외 {{ routeView.moreTargets }}개</li>
+              <li v-for="r in routeView.looped" :key="`loop-${r.id}`" data-kind="looped" title="위로도 아래로도 닿아 원천·말단으로 정하지 않습니다">
+                <span class="linked">순환 위</span> <button type="button" class="link" @click="select(r.id)">{{ r.name }}</button> <span class="muted">{{ r.detail }}</span>
+              </li>
+              <li v-if="routeView.moreLooped" class="muted">순환 위 외 {{ routeView.moreLooped }}개</li>
             </ul>
           </div>
 
