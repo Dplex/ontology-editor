@@ -21,7 +21,7 @@ test('고른 설비에서 [연결하기] 를 누르고 상대를 고르면 연�
   await pickRow('LIGHT-101-01').click()
   await expect(page.locator('.picked h3')).toHaveText('AHU-1')
   const joined = rows.filter({ hasText: 'LIGHT-101-01' })
-  await expect(joined).toContainText('직접 이음')
+  await expect(joined).toContainText('수동 연결')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
   await expect(page.locator('.report')).toContainText('연결했습니다')
 

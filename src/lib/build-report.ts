@@ -45,7 +45,7 @@ export type ReportInput = {
 
 export type ReportSectionB = { no: number; title: string; lines: string[] }
 
-const STATE: Record<string, string> = { standard: '표준 자리', elsewhere: '다른 자리', partial: '일부', missing: '없음', none: '해당 없음', unmeasured: '잴 수 없음' }
+const STATE: Record<string, string> = { standard: '표준 자리', elsewhere: '다른 자리', partial: '일부', missing: '없음', none: '해당 없음', unmeasured: '측정 불가' }
 /** 위반 줄 한 줄: 상태와 개수, 요청. R 의 설명(note)은 무엇을 셌는지라 문제처럼 읽히지 않아 쓰지 않는다. */
 const problem = (r: RequirementRow, fallback: string) =>
   `${r.id} ${r.title}: ${STATE[r.state] ?? r.state}${r.counts && r.counts.of ? ` ${r.counts.standard + r.counts.elsewhere}/${r.counts.of}` : ''} — ${r.ask || fallback}`
@@ -87,7 +87,7 @@ export function generationReport(input: ReportInput): ReportSectionB[] {
         ...grades.rows.map(
           (r) =>
             `등급 ${r.grade} ${r.label}: ${r.of ? `${r.have}/${r.of} ` : ''}${percent(r.ratio)}` +
-            (r.aux ? ` (${r.aux.source === 'rule' ? '미확정 규칙' : '보정 후'} ${r.aux.have}/${r.aux.of} ${percent(r.aux.ratio)}, 목표에 안 셈)` : '') +
+            (r.aux ? ` (${r.aux.source === 'rule' ? '미확정 규칙' : '보정 후'} ${r.aux.have}/${r.aux.of} ${percent(r.aux.ratio)}, 판정 제외)` : '') +
             (r.dictKinds?.of ? ` · 계통 종류(사전) ${r.dictKinds.have}/${r.dictKinds.of}` : '') +
             ` / 통과선 ${Math.round(r.line * 100)}% ${r.pass ? '통과' : '미달'}`,
         ),
@@ -150,7 +150,7 @@ export function generationReport(input: ReportInput): ReportSectionB[] {
       // 생성 전 검증(OE-GEN-03) 항목이 먼저다 — [차단] 이 하나라도 있으면 만들지 않는다. 그 아래가 완전성 검사 규칙별 결과다.
       lines: [
         ...preBuildChecks(model, checks).map((x) => `[${LEVEL_LABEL[x.level]}] ${x.label}: ${x.detail}`),
-        ...checks.map((x) => (x.skipped ? `${x.rule}: 잴 수 없음(${x.skipped})` : `${x.rule}: ${x.total - x.failed.length}/${x.total}${x.failed.length ? ` — 어김 ${x.failed.length}` : ''}`)),
+        ...checks.map((x) => (x.skipped ? `${x.rule}: 측정 불가(${x.skipped})` : `${x.rule}: ${x.total - x.failed.length}/${x.total}${x.failed.length ? ` — 어김 ${x.failed.length}` : ''}`)),
       ],
     },
     {

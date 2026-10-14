@@ -87,7 +87,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: '3D 시점',
   },
   // 개발용. 성수 성능을 e2e:seongsu 없이 화면에서 바로 본다.
-  { id: 'perf', combos: [{ code: 'Backquote' }], keys: ['`'], label: '성능 표 켜기·끄기(그린 장수·그리기 ms·draw call·삼각형, 개발용)', group: '3D 시점' },
+  { id: 'perf', combos: [{ code: 'Backquote' }], keys: ['`'], label: '성능 표 켜기·끄기(FPS·렌더링 시간·draw call·삼각형, 개발용)', group: '3D 시점' },
   { id: 'rules', combos: [{ code: 'KeyR' }], keys: ['R'], label: '규칙 방향 표시 켜기·끄기', group: '3D 시점' },
   { id: 'walls', combos: [{ code: 'KeyW' }], keys: ['W'], label: '벽 켜기·끄기', group: '3D 시점' },
 
@@ -122,7 +122,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     id: 'flow',
     combos: [{ code: 'KeyD' }],
     keys: ['D'],
-    label: '고른 연결의 방향 미리보기 (나감 → 들어옴 → 거둠). Enter 로 적용',
+    label: '선택한 연결의 방향 미리보기 (나감 → 들어옴 → 해제). Enter 로 적용',
     group: '편집 · 연결 방향',
     edit: true,
   },

@@ -12,27 +12,27 @@ defineProps<{ basis: FlowBasis; name: string }>()
   <ol class="flow-basis" data-testid="flow-basis" :aria-label="`${name} 흐름 방향 근거`">
     <li>
       <span class="step-no">1</span>
-      <span><Src kind="bim" /> BIM 포트가 말한 방향</span>
+      <span><Src kind="bim" /> BIM 포트 방향</span>
       <b>{{ basis.bim }}</b>
     </li>
     <li>
       <span class="step-no">2</span>
       <span>
-        <Src kind="dict" /> 규칙(계통·설비 종류)이 정한 방향
+        <Src kind="dict" /> 규칙(계통·설비 종류) 추정 방향
         <small class="muted">확정 {{ basis.ruleConfirmed }}<template v-if="basis.ruleRecheck"> · 재검토 {{ basis.ruleRecheck }}</template></small>
       </span>
       <b>{{ basis.rule }}</b>
     </li>
     <li>
       <span class="step-no">3</span>
-      <span><Src kind="edit" /> 사람이 정한 방향</span>
+      <span><Src kind="edit" /> 직접 지정한 방향</span>
       <b>{{ basis.edited }}</b>
     </li>
     <li class="flow-basis-result">
       <span class="step-no">→</span>
       <span>
         TTL <code>brick:feeds</code>
-        <small class="muted">포트 · 사람 · 확정한 규칙만<template v-if="basis.unknown"> · 방향 모름 {{ basis.unknown }}</template><template v-if="basis.review"> · 흐름 아님 {{ basis.review }}</template></small>
+        <small class="muted">포트 · 직접 지정 · 확정된 규칙만<template v-if="basis.unknown"> · 방향 미상 {{ basis.unknown }}</template><template v-if="basis.review"> · 흐름 제외 {{ basis.review }}</template></small>
       </span>
       <b>{{ basis.feeds }}<small class="muted">/{{ basis.total }}</small></b>
     </li>

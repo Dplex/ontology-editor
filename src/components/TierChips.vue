@@ -13,7 +13,7 @@ defineProps<{ tiers: Tier[] }>()
   <ul class="tiers">
     <li v-for="t in tiers" :key="t.key" :class="t.level" :title="t.note" :data-tier="t.key">
       <span>{{ t.label }}</span><b>{{ t.figure }}</b>
-      <small v-if="t.aux" class="aux">{{ t.aux.source === 'rule' ? '미확정 규칙' : '보정 후' }} {{ t.aux.figure }} · 목표에 안 셈</small>
+      <small v-if="t.aux" class="aux">{{ t.aux.source === 'rule' ? '미확정 규칙' : '보정 후' }} {{ t.aux.figure }} · 판정 제외</small>
     </li>
   </ul>
 </template>

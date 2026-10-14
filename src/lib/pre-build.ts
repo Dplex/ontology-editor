@@ -16,7 +16,7 @@ import { isConduit, type Model } from './model'
 export type PreBuildLevel = 'block' | 'warn' | 'unmeasured' | 'pass'
 export type PreBuildItem = { key: string; label: string; level: PreBuildLevel; detail: string }
 
-export const LEVEL_LABEL: Record<PreBuildLevel, string> = { block: '차단', warn: '경고', unmeasured: '잴 수 없음', pass: '통과' }
+export const LEVEL_LABEL: Record<PreBuildLevel, string> = { block: '차단', warn: '경고', unmeasured: '측정 불가', pass: '통과' }
 
 /** feeds 에서 뺀 방향(OE-GEN-04). 사람이 정한 방향·BIM 포트 방향·확정한 규칙 방향만 나가고, 이것들은 화면에만 보인다. */
 export function feedsExcluded(m: Model): { unconfirmed: number; recheck: number; released: number } {
@@ -51,7 +51,7 @@ export function preBuildChecks(m: Model, checks: readonly CheckResult[]): PreBui
     key: 'room-number',
     label: '한 층 안에서 방번호가 겹치지 않는다',
     level: dup.length ? 'block' : 'pass',
-    detail: dup.length ? `방번호가 겹치는 물리존: ${list(dup)} — 방번호를 고쳐야 만듭니다` : '겹치는 방번호 없음',
+    detail: dup.length ? `방번호가 겹치는 물리존: ${list(dup)} — 방번호를 수정해야 생성할 수 있습니다` : '겹치는 방번호 없음',
   })
   const all = m.storeys.flatMap((s) => s.equipment)
   const noCoords = all.filter((e) => !e.position)
@@ -83,7 +83,7 @@ export function preBuildChecks(m: Model, checks: readonly CheckResult[]): PreBui
     key: 'completeness',
     label: `완전성 검사 ${checks.length}규칙`,
     level: violated.length ? 'warn' : measured.length ? 'pass' : 'unmeasured',
-    detail: violated.length ? `위반 규칙 ${violated.length}개(위반 ${violated.reduce((n, c) => n + c.failed.length, 0)}건) · 잴 수 없음 ${checks.length - measured.length}` : `잴 수 없음 ${checks.length - measured.length}`,
+    detail: violated.length ? `위반 규칙 ${violated.length}개(위반 ${violated.reduce((n, c) => n + c.failed.length, 0)}건) · 측정 불가 ${checks.length - measured.length}` : `측정 불가 ${checks.length - measured.length}`,
   })
   const ex = feedsExcluded(m)
   const out = ex.unconfirmed + ex.recheck + ex.released

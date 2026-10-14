@@ -40,7 +40,7 @@ test('에디터가 낸 두 파일을 열면 받는 쪽이 읽는 주어·관계�
   const summary = page.getByRole('region', { name: '요약' })
   await expect(summary).toContainText('feeds')
   // 덕트·배관은 TTL 에 있지만 받는 쪽이 읽지 않는다. 따로 센다.
-  await expect(summary).toContainText('읽지 않는 주어: fso:')
+  await expect(summary).toContainText('미사용 엔티티: fso:')
   const checks = page.locator('.checks > ul > li')
   await expect(checks).toHaveCount(5)
   await expect(page.locator('.checks li.bad')).toHaveCount(0)
@@ -63,7 +63,7 @@ test('짝이 아닌 TTL 과 GeoJSON 을 같이 열면 TTL 에 없는 feature 를
   // 누르면 그 feature 를 고른다.
   await bad.locator('summary').click()
   await bad.locator('.ids button').first().click()
-  await expect(page.getByRole('complementary', { name: '고른 것' })).toContainText('TTL 에 이 id 의 주어가 없습니다')
+  await expect(page.getByRole('complementary', { name: '고른 것' })).toContainText('TTL 에 이 id 의 엔티티가 없습니다')
 })
 
 test('GLB·OBJ 도 같이 열면 3D 로 보이고, GeoJSON 과 같은 id·자리인지 재며, 고른 것의 원문이 보인다', async ({ page }, info) => {

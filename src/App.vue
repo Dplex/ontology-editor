@@ -4977,7 +4977,7 @@ async function saveEdits(toFile = false) {
   const sig = editSig(file)
   if (!toFile && serverKey.value && (await saveToServer(file))) {
     committed()
-    note(`8084 에 저장했습니다(편집 ${editCount(file)}건). 이 파일을 여는 사람 모두 같은 편집을 봅니다`)
+    note(`서버에 저장했습니다(편집 ${editCount(file)}건). 이 파일을 여는 모든 사용자가 같은 편집을 봅니다`)
     markDone('save')
     return
   }
@@ -5103,7 +5103,7 @@ async function beginMultiSession(): Promise<boolean> {
   sessionBusy = true
   try {
     if (uncommitted() && !(await commitWork('다중층 뷰로 가지 않았습니다. 층 편집은 그대로입니다.'))) {
-      note('층 편집을 8084 에 저장하지 못해 다중층 뷰로 가지 않았습니다. 편집은 그대로입니다')
+      note('층 편집을 서버에 저장하지 못해 다중층 뷰로 가지 않았습니다. 편집은 그대로입니다')
       return false
     }
     work = { id: newWorkId(), kind: 'multi' }
@@ -5132,7 +5132,7 @@ async function closeMultiView() {
     sessionBusy = true
     try {
       if (editing.value && serverKey.value && uncommitted() && !(await commitWork('다중층 뷰에 남았습니다.'))) {
-        note('다중층 작업을 8084 에 저장하지 못해 다중층 뷰에 남았습니다. 편집은 그대로이고, [층 편집으로] 를 다시 누르면 다시 저장합니다')
+        note('다중층 작업을 서버에 저장하지 못해 다중층 뷰에 남았습니다. 편집은 그대로이고, [층 편집으로] 를 다시 누르면 다시 저장합니다')
         return
       }
     } finally {
@@ -6433,7 +6433,7 @@ const dwgServer = ref<{ enabled: boolean; reason?: string }>({ enabled: false, r
 fetch('./__data/__dwg')
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
   .then((p: { enabled?: boolean; reason?: string }) => (dwgServer.value = { enabled: p.enabled === true, reason: p.reason }))
-  .catch(() => (dwgServer.value = { enabled: false, reason: 'DWG 는 서버(8084)가 바꿉니다. 이 화면에서는 서버에 닿지 않습니다' }))
+  .catch(() => (dwgServer.value = { enabled: false, reason: 'DWG 는 서버가 변환합니다. 이 화면에서는 서버에 연결되지 않습니다' }))
 /** PDF 로 깐 층의 원본 바이트. 쪽을 바꿔 다시 그릴 때 쓴다(층 id → 바이트). 화면에 보이지 않아 반응형으로 두지 않는다. */
 const bgPdfs = new Map<string, ArrayBuffer>()
 /** PDF 를 그리는 중(큰 도면은 몇 초). 그동안 고르기 칸과 쪽 칸을 막는다. */
@@ -8819,7 +8819,7 @@ async function loadServerEdits() {
   }
   if (!file && saved) {
     file = saved
-    from = `8084 저장본 · ${when(saved.savedAt)}`
+    from = `서버 저장본 · ${when(saved.savedAt)}`
   }
   if (!file || key !== serverKey.value) return
   applyEditFile(file, from)
@@ -8829,7 +8829,7 @@ async function loadServerEdits() {
   committedParts = savedParts.value
 }
 
-/** 편집 파일을 8084 에 둔다. 됐으면 true. 못 두면 `then`(그다음 무엇을 했는지)을 붙여 알린다. */
+/** 편집 파일을 서버에 둔다. 됐으면 true. 못 두면 `then`(그다음 무엇을 했는지)을 붙여 알린다. */
 async function saveToServer(file: EditFile, then = '파일로 내려받았습니다.'): Promise<boolean> {
   const key = serverKey.value
   if (!key) return false
@@ -8840,11 +8840,11 @@ async function saveToServer(file: EditFile, then = '파일로 내려받았습니
     const r = await fetch(at, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...asMe() }, body: JSON.stringify(file) })
     if (!r.ok) {
       const why = await r.json().then((b: { error?: string }) => b.error ?? '').catch(() => '')
-      editFileNote.value = `8084 에 저장하지 못했습니다(HTTP ${r.status}${why ? ` · ${why}` : ''}). ${then}`
+      editFileNote.value = `서버에 저장하지 못했습니다(HTTP ${r.status}${why ? ` · ${why}` : ''}). ${then}`
       return false
     }
   } catch {
-    editFileNote.value = `8084 에 닿지 못했습니다. ${then}`
+    editFileNote.value = `서버에 연결하지 못했습니다. ${then}`
     return false
   }
   serverSaved.value = { file, savedAt: file.savedAt }
@@ -8987,12 +8987,12 @@ function exitDiscarding() {
   if (ask?.floor) {
     const n = discardFloors([ask.floor.from])
     goFloor(ask.floor.to)
-    note(`${floorName(ask.floor.from)}의 저장 안 한 편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 위 줄의 [이어서 하기]로 되살립니다`)
+    note(`${floorName(ask.floor.from)}의 저장 안 한 편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 상단 바의 [이어서 하기]로 복구할 수 있습니다`)
     return
   }
   const n = discardFloors(dirtyKeys())
   mode.value = 'view'
-  note(`편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 위 줄의 [이어서 하기]로 되살립니다`)
+  note(`편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 상단 바의 [이어서 하기]로 복구할 수 있습니다`)
 }
 
 /**
@@ -9067,7 +9067,7 @@ async function onVersionPick(event: Event) {
   versionBusy.value = true
   busy.value = true
   versionError.value = ''
-  beginProgress('이전 판본 여는 중')
+  beginProgress('이전 버전 여는 중')
   try {
     const { model: prev } = await importInWorker(await picked.arrayBuffer())
     const diff = compareVersions(prev, m)
@@ -9609,7 +9609,7 @@ const REQUIREMENT_STATE: Record<RequirementState, string> = {
   partial: '일부',
   missing: '없음',
   none: '해당 없음',
-  unmeasured: '잴 수 없음',
+  unmeasured: '측정 불가',
 }
 // 접힌 칸의 제목 옆에 붙는 한 줄. 고객사에 할 말이 셋으로 갈린다 — 할 말 없음, 설정을 바꿔 달라, 값을 넣어 달라.
 // 파일 하나로 잴 수 없는 것(R12·R13)을 분모에 넣으면 필수가 반쯤 빠진 것처럼 읽힌다. 잰 것만 센다.
@@ -9624,9 +9624,9 @@ const requirementsMeta = computed(() => {
         [`표준 ${count(rows, ['standard'])}`],
         count(rows, ['elsewhere']) ? [`다른 자리 ${count(rows, ['elsewhere'])}`] : [],
         count(rows, ['missing', 'partial']) ? [`없음·일부 ${count(rows, ['missing', 'partial'])}`] : [],
-        // 해당 없음·잴 수 없음은 미충족(없음·일부)과 따로 센다(OE-BIM-17). 섞으면 이 파일이 할 수 없는 것이 고객사가 빠뜨린 것처럼 읽힌다.
+        // 해당 없음·측정 불가는 미충족(없음·일부)과 따로 센다(OE-BIM-17). 섞으면 이 파일이 할 수 없는 것이 고객사가 빠뜨린 것처럼 읽힌다.
         count(rows, ['none']) ? [`해당 없음 ${count(rows, ['none'])}`] : [],
-        count(rows, ['unmeasured']) ? [`잴 수 없음 ${count(rows, ['unmeasured'])}`] : [],
+        count(rows, ['unmeasured']) ? [`측정 불가 ${count(rows, ['unmeasured'])}`] : [],
       ].flat()
       return `${level} ${rows.length}개: ${parts.join(' · ')}`
     })
@@ -9944,7 +9944,7 @@ const fbxServer = ref<{ enabled: boolean; reason?: string }>({ enabled: false, r
 fetch('./__data/__fbx')
   .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
   .then((p: { enabled?: boolean; reason?: string }) => (fbxServer.value = { enabled: p.enabled === true, reason: p.reason }))
-  .catch(() => (fbxServer.value = { enabled: false, reason: 'FBX 는 서버(8084)의 Blender 가 바꿉니다. 이 화면에서는 서버에 닿지 않습니다' }))
+  .catch(() => (fbxServer.value = { enabled: false, reason: 'FBX 는 서버의 Blender 가 변환합니다. 이 화면에서는 서버에 연결되지 않습니다' }))
 /**
  * 3D 형상을 워커에서 만든다(lib/export/mesh3d.worker.ts). 화면 스레드로 만들면 성수에서 3~4초씩 멈췄다. 한 번 쓰고 닫는다 — 워커가 든
  * 장면(수백 MB)이 남지 않게. 진행 막대는 부르는 쪽이 연다.
@@ -10485,13 +10485,13 @@ function rollbackFromReport() {
     <!-- 합쳐 연 판의 8084 저장본. 한 파일의 저장본은 아래 data/ 목록의 그 줄에 보인다. 임시 저장본은 목록을 두지 않는다 —
          층마다 하나라 그 층에 들어가면 바로 얹힌다(OE-COM-08 · OE-WF-03). -->
     <section v-if="savedSets.some((s) => s.paths.length > 1)" class="catalog resume">
-      <Fold :key="model ? 'loaded' : 'empty'" title="8084 에 저장한 편집" :meta="`${savedSets.filter((s) => s.paths.length > 1).length}건`" :default-open="!model">
+      <Fold :key="model ? 'loaded' : 'empty'" title="서버에 저장한 편집" :meta="`${savedSets.filter((s) => s.paths.length > 1).length}건`" :default-open="!model">
         <table>
           <tbody>
             <tr v-for="sv in savedSets.filter((s) => s.paths.length > 1)" :key="'saved:' + sv.key" class="saved-row">
               <td class="name">
                 <span>{{ sv.paths.map(baseName).join(' + ') }}</span>
-                <span class="muted">8084 저장 · 편집 {{ sv.count }}건 · {{ when(sv.savedAt) }}</span>
+                <span class="muted">서버 저장 · 편집 {{ sv.count }}건 · {{ when(sv.savedAt) }}</span>
               </td>
               <td class="row-actions">
                 <button type="button" class="ghost" :disabled="busy" @click="openDataSet(sv.paths)">합쳐서 열기</button>
@@ -10529,7 +10529,7 @@ function rollbackFromReport() {
                 <span class="muted">{{ mb(f.size) }}<template v-if="profileAt(f.path)"> · {{ profileAt(f.path)!.schema }}</template></span>
               </td>
               <td class="chips">
-                <span v-if="!profiles[f.path]" class="muted">재는 중…</span>
+                <span v-if="!profiles[f.path]" class="muted">분석 중…</span>
                 <span v-else-if="errorAt(f.path)" class="unreadable" :title="errorAt(f.path)">열 수 없음</span>
                 <!-- 모양이 다른 응답(옛 서버 등)이 오면 칩 없이 둔다. `!` 로 밀어붙였더니 목록 렌더가 멈춰 그 뒤 화면 갱신이 꼬였다. -->
                 <template v-else-if="profileAt(f.path)">
@@ -10548,7 +10548,7 @@ function rollbackFromReport() {
                 </template>
               </td>
               <td class="row-actions">
-                <span v-if="savedFor(f.path)" class="saved-chip" :title="`8084 에 저장된 편집 ${savedFor(f.path)!.count}건 — 열면 얹어서 보입니다`">
+                <span v-if="savedFor(f.path)" class="saved-chip" :title="`서버에 저장된 편집 ${savedFor(f.path)!.count}건 — 열면 적용되어 표시됩니다`">
                   저장 {{ savedFor(f.path)!.count }}건 · {{ when(savedFor(f.path)!.savedAt) }}
                 </span>
                 <span v-if="!model && publishedFor(f.path)" class="saved-chip published-chip" :title="`${publishedFor(f.path)!.by} · ${when(publishedFor(f.path)!.at)}`">반영 v{{ publishedFor(f.path)!.current }}</span>
@@ -10727,13 +10727,13 @@ function rollbackFromReport() {
             class="ghost save-edits"
             :class="{ done: justDone === 'save' }"
             :title="serverKey
-              ? '편집 저장 (Ctrl+S). 8084 에 둡니다 — 이 파일을 여는 사람 모두 같은 편집을 봅니다.'
+              ? '편집 저장 (Ctrl+S). 서버에 저장합니다 — 이 파일을 여는 모든 사용자가 같은 편집을 봅니다.'
               : '편집 저장 (Ctrl+S). 손으로 연 파일이라 바뀐 내용을 JSON으로 내려받습니다. 같은 IFC를 다시 열고 불러오면 이어서 편집할 수 있습니다.'"
             @click="saveEdits()"
           >
             편집 저장
           </button>
-          <button v-if="serverKey" type="button" class="ghost" title="8084 에 두지 않고 편집 파일(JSON)로만 내려받습니다" @click="saveEdits(true)">파일로</button>
+          <button v-if="serverKey" type="button" class="ghost" title="서버에 저장하지 않고 편집 파일(JSON)로만 내려받습니다" @click="saveEdits(true)">파일로</button>
           <button type="button" class="ghost" :title="people ? '반영하지 않고 이 층의 편집을 서버에 남깁니다. 층마다 하나이고, 누가 이 층에 들어오든 이어서 편집합니다' : '웹에 반영하지 않고 이 층의 편집을 이 브라우저에 남깁니다. 층마다 하나이고, 이 층에 다시 들어오면 이어서 편집합니다'" @click="keepDraft()">임시 저장</button>
           <!-- 임시 저장본 폐기(OE-WF-04). 한 번 더 묻고, 반영된 레이아웃(없으면 BIM)으로 돌린다. 되돌릴 수 없다. -->
           <template v-if="canDiscardDraft">
@@ -10751,7 +10751,7 @@ function rollbackFromReport() {
             class="ghost primary-action"
             :class="{ done: justDone === 'build' }"
             :disabled="busy || publishing || !!buildBlock"
-            :title="buildBlock ?? (serverKey ? (firstPublish ? '처음 만든 온톨로지를 서버에 v1 로 둡니다' : '편집 내용을 DT 3D 맵과 온톨로지에 반영하고 새 버전을 만듭니다') : '온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)')"
+            :title="buildBlock ?? (serverKey ? (firstPublish ? '초기 온톨로지를 서버에 v1으로 생성합니다' : '편집 내용을 DT 3D 맵과 온톨로지에 반영하고 새 버전을 만듭니다') : '온톨로지 두 파일을 냅니다 — 기하(GeoJSON)와 관계(Brick TTL)')"
             @click="askPublish"
           >
             {{ serverKey && !firstPublish ? '반영하기' : '구축하기' }}
@@ -10872,8 +10872,8 @@ function rollbackFromReport() {
             </aside>
             <!-- 성능 표(개발용, ` 키). 3D 는 바뀔 때만 그려서 가만히 있으면 그린 장수가 0 이다. -->
             <dl v-if="perfOn && perfStats" class="perf-hud" data-testid="perf-hud">
-              <div><dt>그린 장수/초</dt><dd>{{ perfStats.fps }}</dd></div>
-              <div><dt>그리기</dt><dd>{{ perfStats.renderMs.toFixed(1) }} ms</dd></div>
+              <div><dt>FPS</dt><dd>{{ perfStats.fps }}</dd></div>
+              <div><dt>렌더링</dt><dd>{{ perfStats.renderMs.toFixed(1) }} ms</dd></div>
               <div><dt>draw call</dt><dd>{{ perfStats.calls.toLocaleString() }}</dd></div>
               <div><dt>삼각형</dt><dd>{{ perfStats.triangles.toLocaleString() }}</dd></div>
             </dl>
@@ -11188,7 +11188,7 @@ function rollbackFromReport() {
                   :class="['ghost', { on: compareOpen }]"
                   :aria-pressed="compareOpen"
                   data-testid="compare-toggle"
-                  title="3D 오른쪽에 지금 모델을 내보낸 TTL·GeoJSON 을 받는 쪽처럼 읽어 나란히 봅니다. 고르면 양쪽이 같은 것을 짚습니다"
+                  title="3D 오른쪽에 지금 모델을 내보낸 TTL·GeoJSON 을 DT 플랫폼처럼 읽어 나란히 봅니다. 고르면 양쪽이 같은 것을 짚습니다"
                   @click="compareOpen = !compareOpen"
                 >
                   결과 비교
@@ -11336,7 +11336,7 @@ function rollbackFromReport() {
               설비 {{ groupItems.length }}대 · <kbd>←↑→↓</kbd>·끌기: 같이 옮기기 · <kbd>Delete</kbd>: 같이 지우기 · <kbd>Ctrl</kbd>+클릭: 넣고 빼기 · <kbd>Esc</kbd>: 풀기
             </template>
             <template v-else-if="selectedSpace">
-              파란 손잡이 끌기 또는 <kbd>[ ]</kbd> 후 <kbd>←↑→↓</kbd>: 꼭짓점 옮기기 · <kbd>F</kbd>: 이 물리존 보기
+              꼭짓점 핸들 끌기 또는 <kbd>[ ]</kbd> 후 <kbd>←↑→↓</kbd>: 꼭짓점 옮기기 · <kbd>F</kbd>: 이 물리존 보기
             </template>
             <template v-else-if="selected">
               끌기 또는 <kbd>←↑→↓</kbd>: 옮기기 · <kbd>PageUp/Down</kbd>: 층 바꾸기 · 화살표 클릭 또는 <kbd>[ ]</kbd>: 연결 고르기 ·
@@ -11444,10 +11444,10 @@ function rollbackFromReport() {
                       aria-label="구간 Flow Type"
                       @change="onFlowTypePick(selected.id, $event.target as HTMLSelectElement)"
                     >
-                      <option value="">{{ selectedFlowType.calc ? `계산: ${flowTypeText(selectedFlowType.calc.code)}` : '정하지 못함(계통 종류·유체 모름)' }}</option>
+                      <option value="">{{ selectedFlowType.calc ? `계산: ${flowTypeText(selectedFlowType.calc.code)}` : '미확정(계통 종류·유체 미상)' }}</option>
                       <option v-for="f in FLOW_TYPES" :key="f.code" :value="f.code">{{ f.code }} {{ f.label }}</option>
                     </select>
-                    <template v-else>{{ selectedFlowType.now ? flowTypeText(selectedFlowType.now.code) : '정하지 못함(계통 종류·유체 모름)' }}</template>
+                    <template v-else>{{ selectedFlowType.now ? flowTypeText(selectedFlowType.now.code) : '미확정(계통 종류·유체 미상)' }}</template>
                     <Src v-if="selectedFlowType.now" :kind="selectedFlowType.now.source" />
                   </dd>
                 </div>
@@ -11808,7 +11808,7 @@ function rollbackFromReport() {
                   <!-- 출처는 이름 아래 한 줄. 글과 출처 꼬리표가 따로 꺾이지 않게 한 덩어리씩 묶는다. -->
                   <div class="muted src-cell">
                     <span v-if="n.source === 'port'" data-testid="neighbor-source">{{ CONNECTION_CLASS_LABEL[connectionClass(n.connection)] }} <Src kind="bim" /></span>
-                    <span v-else-if="n.source === 'manual'">직접 이음 <Src kind="edit" /></span>
+                    <span v-else-if="n.source === 'manual'">수동 연결 <Src kind="edit" /></span>
                     <span v-else>{{ sourceLabel(n.tolerance) }} <Src kind="calc" /></span>
                     <span v-if="n.edited">직접 정한 방향 <Src kind="edit" /></span>
                     <span v-else-if="n.rule">{{ n.rule.recheck ? '규칙 방향(확정 · 재검토, 내보내지 않음)' : n.rule.confirmed ? '규칙 방향(확정)' : '규칙 방향(추정)' }} <Src kind="dict" /></span>
@@ -12384,7 +12384,7 @@ function rollbackFromReport() {
               </select>
             </label>
             <Src :kind="bearingSrc(selectedElement.wall)" />
-            <span class="muted">{{ selectedElement.wall.loadBearing === null ? '모름은 아니오가 아닙니다. 내벽처럼 고칠 수 있습니다.' : '모름은 아니오가 아닙니다.' }}</span>
+            <span class="muted">{{ selectedElement.wall.loadBearing === null ? "'모름'은 비내력벽과 구분되며 내벽처럼 편집할 수 있습니다." : "'모름'은 비내력벽과 구분됩니다." }}</span>
           </p>
           <!-- 문·창 크기(OE-OBJ-07). 자리(가운데)는 두고 가로·세로만 바꾼다. 모르는 값은 빈칸이다. -->
           <p v-if="selectedElement.opening" class="opening-size">
@@ -12421,7 +12421,7 @@ function rollbackFromReport() {
             </label>
           </p>
           <p v-if="selectedElement.opening?.kind === 'door'" class="stats">
-            잇는 방:
+            연결 공간:
             {{ selectedElement.opening.connects?.length ? selectedElement.opening.connects.map(nameOfSpace).join(' · ') : '(없음)' }}
             <Src v-if="selectedElement.opening.connectsSource" :kind="selectedElement.opening.connectsSource === 'bim' ? 'bim' : 'calc'" />
           </p>
@@ -12477,7 +12477,7 @@ function rollbackFromReport() {
                 </li>
               </ol>
               <p v-if="!createPlan.needs.length" class="muted">다 채웠습니다</p>
-              <p v-if="createPlan.link" class="vertical-move">잇는 물리존: {{ createPlan.link.from ?? '없음' }} ↔ {{ createPlan.link.to ?? '없음' }}</p>
+              <p v-if="createPlan.link" class="vertical-move">연결 물리존: {{ createPlan.link.from ?? '없음' }} ↔ {{ createPlan.link.to ?? '없음' }}</p>
               <p class="muted">엘리베이터는 전 층 정차로 시작하고, 에스컬레이터 운행 방향은 만든 뒤 패널에서 정합니다(정하기 전에는 미확인). 슬래브 개구부는 아직 다루지 않습니다</p>
             </div>
           </template>
@@ -12669,7 +12669,7 @@ function rollbackFromReport() {
                 <template v-else>
                   <ul class="vertical-range-plan" data-testid="vertical-range-plan">
                     <li v-if="rangePlan.added.length">더해지는 층: {{ rangePlan.added.map((s) => s.name).join(' · ') }}</li>
-                    <li v-if="rangePlan.removed.length">빠지는 층: {{ rangePlan.removed.map((s) => s.name).join(' · ') }} — 그 층 조각을 걷습니다</li>
+                    <li v-if="rangePlan.removed.length">빠지는 층: {{ rangePlan.removed.map((s) => s.name).join(' · ') }} — 해당 층 형상을 삭제합니다</li>
                     <li v-for="n in rangePlan.needs" :key="n.storey.id">
                       {{ n.storey.name }}:
                       <template v-for="(w, i) in n.what" :key="w">
@@ -12678,7 +12678,7 @@ function rollbackFromReport() {
                       </template>
                       <span class="muted">(채워야 적용됩니다)</span>
                     </li>
-                    <li v-if="rangePlan.link">적용하면 잇는 물리존: {{ rangePlan.link.from ?? '없음' }} ↔ {{ rangePlan.link.to ?? '없음' }}</li>
+                    <li v-if="rangePlan.link">적용 시 연결 물리존: {{ rangePlan.link.from ?? '없음' }} ↔ {{ rangePlan.link.to ?? '없음' }}</li>
                     <li class="muted">개구부·정차 층·운행 구간·샤프트 배관 소속은 아직 다루지 않습니다</li>
                   </ul>
                 </template>
@@ -12814,7 +12814,7 @@ function rollbackFromReport() {
                   <dd><b class="mono">{{ selectedCustomZone.areaM2.toFixed(1) }}</b> ㎡ <Src kind="calc" /></dd>
                 </div>
                 <div>
-                  <dt>품는 방</dt>
+                  <dt>포함 물리존</dt>
                   <dd data-testid="zone-spaces">
                     <!-- 방 번호를 같이 — 거울 대칭 세대는 이름이 같은 방이 둘이다(Duplex 의 Bathroom 1 A104·B104). -->
                     <template v-if="selectedCustomZone.spaces.length">{{ selectedCustomZone.spaces.map(zoneRoomLabel).join(', ') }}</template>
@@ -12823,7 +12823,7 @@ function rollbackFromReport() {
                   </dd>
                 </div>
                 <div>
-                  <dt>든 설비</dt>
+                  <dt>포함 설비</dt>
                   <dd data-testid="zone-equipment">{{ selectedCustomZone.equipment.length }}대 <Src kind="calc" /></dd>
                 </div>
               </dl>
@@ -12858,7 +12858,7 @@ function rollbackFromReport() {
             </label>
           </p>
           <p class="hint">
-            TTL 에 brick:Zone 으로 나갑니다. 품는 방은 hasPart, 든 설비는 이 존을 위치(hasLocation)로 하나 더 갖습니다. 공조존과는 같은 방을
+            TTL 에 brick:Zone 으로 나갑니다. 포함 물리존은 hasPart, 포함 설비는 이 존을 위치(hasLocation)로 하나 더 갖습니다. 공조존과는 같은 방을
             품는 것으로 이어집니다.
           </p>
           <ul v-if="selectedCustomZone.equipment.length" class="plain space-members">
@@ -12992,7 +12992,7 @@ function rollbackFromReport() {
           <!-- 다섯 줄 설명이 이름 칸과 나누기·합치기 사이에 있어 도구를 아래로 밀었다. 손잡이·꼭짓점 조작은 3D 아래 안내줄과
                ? 안내에 이미 있어 여기서는 이 패널에서만 알 수 있는 것(이름 → 종류)만 둔다. -->
           <p v-if="editing" class="hint">
-            이름을 고치면 종류도 새 이름으로 다시 읽습니다(사전이 모르면 BIM 방 분류). 경계는 3D·평면도의 파란 손잡이로 고치고,
+            이름을 고치면 종류도 새 이름으로 다시 읽습니다(사전이 모르면 BIM 방 분류). 경계는 3D·평면도의 꼭짓점 핸들로 고치고,
             넓이·설비 소속은 다시 계산됩니다.
           </p>
           <!-- 나누기·합치기(E3). 합칠 방은 벽 두께 안의 같은 층 방만 가까운 순으로 보인다. 지우기는 맨 아래. -->
@@ -13061,7 +13061,7 @@ function rollbackFromReport() {
                   <div>
                     <b>{{ r.grade }} {{ r.label }}</b><span class="muted">{{ r.grade <= GATE ? ' · 게이트' : r.grade === TARGET ? ' · 목표선' : '' }}</span> —
                     {{ r.grade <= GATE ? 'BIM' : 'BIM 포트·확정' }} {{ r.of ? `${r.have}/${r.of} · ` : '' }}{{ percent(r.ratio) }}
-                    <span v-if="r.aux" class="aux-figure" data-testid="grade-aux">({{ r.aux.source === 'rule' ? '미확정 규칙' : '보정 후' }} {{ r.aux.have }}/{{ r.aux.of }} · {{ percent(r.aux.ratio) }} · 목표에 안 셈)</span>
+                    <span v-if="r.aux" class="aux-figure" data-testid="grade-aux">({{ r.aux.source === 'rule' ? '미확정 규칙' : '보정 후' }} {{ r.aux.have }}/{{ r.aux.of }} · {{ percent(r.aux.ratio) }} · 판정 제외)</span>
                     · 통과선
                     <input
                       type="number"
@@ -13477,14 +13477,14 @@ function rollbackFromReport() {
 
         <!-- 판본 비교(PRD #6, R13). 이전 판본과 짝지어 무엇이 바뀌었는지와, GUID 가 판본 사이에 남는지를 잰다. -->
         <Fold
-          title="판본 비교"
-          :meta="versionDiff ? `이전 판본: ${versionDiff.name}` : '이전 판본과 무엇이 바뀌었는지 봅니다'"
+          title="버전 비교"
+          :meta="versionDiff ? `이전 버전: ${versionDiff.name}` : '이전 버전과 무엇이 바뀌었는지 비교합니다'"
           :default-open="false"
           class="versions"
         >
           <p class="version-pick">
             <label class="ghost file-pick">
-              {{ versionDiff ? '다른 판본' : '이전 판본 열기' }}
+              {{ versionDiff ? '다른 버전' : '이전 버전 열기' }}
               <input type="file" accept=".ifc" :disabled="versionBusy || busy" @change="onVersionPick" />
             </label>
             <span v-if="versionBusy" class="muted">여는 중…</span>
@@ -13493,13 +13493,13 @@ function rollbackFromReport() {
           <p v-if="versionError" class="edit-notice inline" role="alert">{{ versionError }}</p>
           <template v-if="versionDiff">
             <p v-if="versionDiff.diff.storeyScale" class="edit-notice inline" role="alert">
-              이름이 같은 층의 높이가 이전 판본의 {{ ratioLabel(versionDiff.diff.storeyScale.ratio) }}입니다({{
+              이름이 같은 층의 높이가 이전 버전의 {{ ratioLabel(versionDiff.diff.storeyScale.ratio) }}입니다({{
                 versionDiff.diff.storeyScale.storeys.slice(0, 3).map(([n, x, y]) => `${n} ${+x.toPrecision(4)}m → ${+y.toPrecision(4)}m`).join(', ')
-              }}). {{ { first: '층간 높이로 보면 이전 판본', second: '층간 높이로 보면 지금 파일', none: '한 판본' }[versionDiff.diff.storeyScale.suspect ?? 'none'] }}의 길이 단위 선언이 실제 값과 다른 것 같습니다({{ versionDiff.diff.storeyScale.what }}, 요구사항 R6).
+              }}). {{ { first: '층간 높이로 보면 이전 버전', second: '층간 높이로 보면 지금 파일', none: '한 버전' }[versionDiff.diff.storeyScale.suspect ?? 'none'] }}의 길이 단위 선언이 실제 값과 다른 것 같습니다({{ versionDiff.diff.storeyScale.what }}, 요구사항 R6).
             </p>
-            <!-- 파일 역할(OE-BIM-19): 어느 쪽이 기준이고 어느 쪽이 견줄 판본인지. -->
+            <!-- 파일 역할(OE-BIM-19): 어느 쪽이 기준이고 어느 쪽이 비교 대상인지. -->
             <p class="hint" data-testid="version-roles">
-              기준: 지금 연 파일 <b>{{ fileName }}</b>(화면·내보내기) · 견줄 판본: <b>{{ versionDiff.name }}</b>(비교에만 씀)
+              기준: 지금 연 파일 <b>{{ fileName }}</b>(화면·내보내기) · 비교 대상 모델: <b>{{ versionDiff.name }}</b>(비교에만 씀)
             </p>
             <p class="hint" data-testid="version-normalized">비교 전에 맞춘 것: {{ versionNormalized }}</p>
             <table class="version-sum">
@@ -13686,7 +13686,7 @@ function rollbackFromReport() {
                     <span class="muted"> · {{ Math.round(c.distance * 1000) }}mm · {{ c.system ?? '계통 없음' }} · {{ mediaLabel(c.media) }}</span>
                     <button type="button" class="ghost" data-testid="fix-connect" @click="connectCandidate(id, c.id)">연결하기</button>
                   </li>
-                  <li class="muted">연결하면 출처는 직접 이음, 방향은 정하지 않은 채입니다. 규칙 방향은 확정 전까지 추정으로만 보입니다.</li>
+                  <li class="muted">연결하면 출처는 수동 연결, 방향은 정하지 않은 채입니다. 규칙 방향은 확정 전까지 추정으로만 보입니다.</li>
                 </ul>
               </li>
             </ul>
@@ -13981,7 +13981,7 @@ function rollbackFromReport() {
                       :class="{ unsure: layaResults.get(t.key)!.confidence < LAYA_SURE }"
                       :title="`Laya(${layaState?.model ?? ''})가 단서 글로 고른 종류와 확률입니다. 누르면 이 패밀리 전체에 붙습니다(출처 사람).`"
                     >
-                      Laya<template v-if="layaResults.get(t.key)!.confidence < LAYA_SURE"> · 자신 없음</template>:
+                      Laya<template v-if="layaResults.get(t.key)!.confidence < LAYA_SURE"> · 신뢰도 낮음</template>:
                       <button
                         v-for="s in layaPicks(t.key)"
                         :key="s.kind"
@@ -14073,7 +14073,7 @@ function rollbackFromReport() {
           <div class="table-box">
             <table class="equipment zones">
               <thead>
-                <tr><th>공조존</th><th>층</th><th class="num">바닥면 ㎡</th><th class="num">IDF ㎡</th><th>든 방</th><th>말단</th><th>원천</th></tr>
+                <tr><th>공조존</th><th>층</th><th class="num">바닥면 ㎡</th><th class="num">IDF ㎡</th><th>포함 공간</th><th>말단</th><th>원천</th></tr>
               </thead>
               <tbody>
                 <tr v-for="z in zoneRows.slice(0, ZONE_LIMIT)" :key="z.id">
@@ -14201,7 +14201,7 @@ function rollbackFromReport() {
               <p v-if="bgHere" class="pipe-draw-row">
                 <button type="button" class="ghost" @click="startBackgroundStep('bgScale')">스케일 맞추기</button>
                 <button type="button" class="ghost" @click="startBackgroundStep('bgAnchor')">원점 맞추기</button>
-                <button type="button" class="ghost danger" @click="removeBackground">걷기</button>
+                <button type="button" class="ghost danger" @click="removeBackground">배경 제거</button>
               </p>
               <form v-if="bgStep?.kind === 'scale'" class="pipe-draw-row" @submit.prevent="applyBackgroundStep">
                 <span>찍은 두 점의 실제 거리</span>
@@ -14627,7 +14627,7 @@ function rollbackFromReport() {
             <li v-for="r in sinceOpen.openingsMoved" :key="`op-mv-${r.id}`">
               {{ elementLabel(r.kind) }} <b>{{ r.name }}</b>{{ josa(r.name, '을/를') }}
               {{ r.moved && r.resized ? '옮기고 크기를 바꿨습니다' : r.moved ? '옮겼습니다' : '크기를 바꿨습니다' }}
-              ({{ r.moved ? 'GeoJSON 위치·잇는 방' : 'GeoJSON 가로·세로' }})
+              ({{ r.moved ? 'GeoJSON 위치·연결 공간' : 'GeoJSON 가로·세로' }})
             </li>
             <!-- 룸(OE-OBJ-03). BIM 에는 없어서 있는 룸이 곧 사람이 그린 것이다. 온톨로지(TTL·GeoJSON)로는 아직 나가지 않는다. -->
             <li v-for="r in roomLines" :key="`room-${r.id}`">
@@ -14697,7 +14697,7 @@ function rollbackFromReport() {
         <p class="note">
           <b>내보내기</b>(도구막대의 GeoJSON · TTL · GLB · OBJ).
           두 파일은 같은 id로 연결됩니다. 형상은 GeoJSON, 설비와 계통의 관계는 TTL에 들어갑니다.
-          벽·문·창과 문이 잇는 방은 GeoJSON에만 있습니다(Brick에 건축 부재 클래스가 없음).
+          벽·문·창과 문이 연결하는 공간은 GeoJSON에만 있습니다(Brick에 건축 부재 클래스가 없음).
           벽·문·창은 '읽을 것'에서 켠 것만 들어가고, 문·창 위치는 '문·창 자리'를 켜고 연 파일에서만 나갑니다.
           TTL의 설비·방 클래스는 <Src kind="dict" /> 기준이고, 규칙 방향은 확정한 계통만 들어갑니다.
           GLB · OBJ는 보여 주기용 3D 형상입니다. 요소 이름이 같은 id(GlobalId)이고, 좌표는 y가 위인 미터입니다.

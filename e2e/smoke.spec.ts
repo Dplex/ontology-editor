@@ -88,7 +88,7 @@ test('요구사항 칸이 R 번호마다 표준 자리·다른 자리·없음을
   await expect(row('R21').locator('.req-state')).toHaveText('일부')
   await expect(row('R7').locator('.req-state')).toHaveText('없음')
   await expect(row('R6').locator('.req-state')).toHaveText('표준 자리')
-  await expect(row('R12').locator('.req-state')).toHaveText('잴 수 없음')
+  await expect(row('R12').locator('.req-state')).toHaveText('측정 불가')
 
   expect(errors).toEqual([])
 })

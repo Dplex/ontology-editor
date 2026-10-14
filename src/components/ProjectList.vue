@@ -33,7 +33,7 @@ const missing = computed(() => {
   const f = form.value
   if (!f) return ''
   const need = [!f.name.trim() && '프로젝트 이름', !f.site.trim() && '사이트 이름', !f.files.length && 'IFC 파일'].filter(Boolean)
-  return need.length ? `${need.join(' · ')}을(를) 넣어야 만듭니다` : ''
+  return need.length ? `${need.join(' · ')}을(를) 입력해 주세요` : ''
 })
 function pickFiles(e: Event) {
   if (!form.value) return
@@ -63,9 +63,9 @@ const pickBuildings = computed(() => (picking.value ? buildingsOf(picking.value)
         <h2>{{ picking.name }} <small class="muted">{{ picking.site }} · 구축 완료 v{{ picking.built!.version }}</small></h2>
         <button type="button" class="ghost" @click="picking = null">← 프로젝트 목록</button>
       </header>
-      <p class="muted">고친 층만 운영 편집으로 엽니다. 임시 저장본이 있는 층은 그 내용부터 이어서 편집합니다.</p>
+      <p class="muted">선택한 층을 운영 편집 모드로 엽니다. 임시 저장본이 있는 층은 저장된 내용부터 이어서 편집합니다.</p>
       <p v-if="!pickBuildings.length" class="muted">
-        층 구성을 아직 모릅니다(이 프로젝트를 한 번도 열지 않았습니다).
+        아직 프로젝트를 열지 않아 층 구성을 확인할 수 없습니다.
         <button type="button" class="ghost" :disabled="busy" :title="busy ? '파일을 여는 중입니다' : ''" @click="emit('open', picking, null)">모든 층으로 열기</button>
       </p>
       <div v-for="b in pickBuildings" :key="b.name" class="storey-group" data-testid="storey-group">
@@ -94,7 +94,7 @@ const pickBuildings = computed(() => (picking.value ? buildingsOf(picking.value)
           type="button"
           class="pick"
           :disabled="!!createBlock || busy"
-          :title="createBlock ?? (busy ? '파일을 여는 중입니다' : '이름·사이트를 정하고 IFC 를 올려 초기 구축을 시작합니다')"
+          :title="createBlock ?? (busy ? '파일을 여는 중입니다' : '이름과 사이트를 입력하고 IFC 파일을 업로드해 초기 구축을 시작합니다')"
           @click="form = { name: '', site: '', files: [] }"
         >
           새 프로젝트
@@ -108,18 +108,18 @@ const pickBuildings = computed(() => (picking.value ? buildingsOf(picking.value)
           IFC 파일 올리기
           <input type="file" accept=".ifc" multiple aria-label="IFC 파일" @change="pickFiles" />
         </label>
-        <span class="muted">{{ form.files.length ? form.files.map((f) => f.name).join(' + ') : '건축·설비가 다른 파일이면 둘을 같이 고릅니다' }}</span>
+        <span class="muted">{{ form.files.length ? form.files.map((f) => f.name).join(' + ') : '건축·설비 파일이 나뉘어 있으면 함께 선택하세요' }}</span>
         <button type="submit" class="pick" :disabled="!!missing || busy" :title="missing || (busy ? '올리는 중입니다' : '')">만들기</button>
         <button type="button" class="ghost" @click="form = null">취소</button>
       </form>
 
-      <p v-if="!rows.length && !form" class="muted">프로젝트가 없습니다. [새 프로젝트]로 IFC 를 올려 시작합니다.</p>
+      <p v-if="!rows.length && !form" class="muted">프로젝트가 없습니다. [새 프로젝트]로 IFC 파일을 올려 시작하세요.</p>
       <table v-else-if="rows.length">
         <tbody>
           <template v-for="p in rows" :key="p.id">
             <tr class="project-row" data-testid="project-row">
               <td class="pick-cell">
-                <button type="button" class="link" :aria-expanded="expanded.has(p.id)" :aria-label="`${p.name} 건물별 보기`" :disabled="!p.summary" :title="p.summary ? '' : '한 번 열면 건물·층을 셉니다'" @click="toggle(p.id)">
+                <button type="button" class="link" :aria-expanded="expanded.has(p.id)" :aria-label="`${p.name} 건물별 보기`" :disabled="!p.summary" :title="p.summary ? '' : '처음 열 때 건물·층 정보를 불러옵니다'" @click="toggle(p.id)">
                   {{ expanded.has(p.id) ? '▾' : '▸' }}
                 </button>
               </td>
@@ -135,7 +135,7 @@ const pickBuildings = computed(() => (picking.value ? buildingsOf(picking.value)
                   건물 {{ siteTotals(p)!.buildings }} · 층 {{ siteTotals(p)!.storeys }} ·
                   {{ p.built ? `임시 저장본 ${siteTotals(p)!.drafted}개 층` : `임시 저장 ${siteTotals(p)!.drafted}/${siteTotals(p)!.storeys}` }}
                 </template>
-                <span v-else class="muted">층 수 모름(한 번 열면 셉니다)</span>
+                <span v-else class="muted">층 수 미확인(처음 열 때 불러옵니다)</span>
               </td>
               <td class="muted">{{ lastActivity(p).what }} · {{ lastActivity(p).by }} · {{ when(lastActivity(p).at) }}</td>
               <td class="row-actions">

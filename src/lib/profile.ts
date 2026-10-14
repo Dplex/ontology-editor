@@ -118,7 +118,7 @@ export function profileOf(model: Model, original?: GradeCounts): Profile {
       (g) => [g.inSystem, g.devices],
       all === 0
         ? '설비가 없다'
-        : `기기 ${bim.devices}대 중 계통에 든 것 ${bim.inSystem}대 · 계통 ${c.systems}개 · 연결 ${c.connections}개(포트 ${ported} · 형상 추정 ${guessed}${c.connections - ported - guessed ? ` · 사람이 이음 ${c.connections - ported - guessed}` : ''})` +
+        : `기기 ${bim.devices}대 중 계통에 든 것 ${bim.inSystem}대 · 계통 ${c.systems}개 · 연결 ${c.connections}개(포트 ${ported} · 형상 추정 ${guessed}${c.connections - ported - guessed ? ` · 수동 연결 ${c.connections - ported - guessed}` : ''})` +
             (now.systems ? ` · 계통 종류(사전) ${now.dictKinds}/${now.systems}` : ''),
     ),
     {
@@ -136,7 +136,7 @@ export function profileOf(model: Model, original?: GradeCounts): Profile {
           : now.fed === 0
             ? `다른 기기와 이어진 기기 ${now.linked}대 중 흐름 방향(BIM 포트·사람이 확정)으로 이어진 것이 없다. brick:feeds가 기기에 닿지 않는다 (연결 단위로는 ${c.directedConnections}/${c.connections})`
             : `다른 기기와 이어진 기기 ${now.linked}대 중 흐름 방향(BIM 포트·사람이 확정)으로 이어진(공급하거나 공급받는) 것 ${now.fed}대 (연결 단위로는 ${c.directedConnections}/${c.connections})`) +
-        (now.ruleFed !== now.fed ? ` · 미확정 규칙 방향까지 넣으면 ${now.ruleFed}대(목표에 안 셈)` : ''),
+        (now.ruleFed !== now.fed ? ` · 미확정 규칙 방향까지 넣으면 ${now.ruleFed}대(판정 제외)` : ''),
     },
   ]
 

@@ -48,7 +48,7 @@ test('도면 이미지를 깔면 건물 너비에 맞춰 놓이고, 두 점으�
 
   // 온톨로지에는 나가지 않는다: 편집 막대의 바뀐 것이 0 이다.
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
-  await fold.getByRole('button', { name: '걷기' }).click()
+  await fold.getByRole('button', { name: '배경 제거' }).click()
   expect(await page.evaluate(() => (window as any).__viewer.background())).toBeNull()
   expect(errors).toEqual([])
 })

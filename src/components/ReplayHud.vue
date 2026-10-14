@@ -133,10 +133,10 @@ const floorSpark = computed(() => {
 })
 const geoCount = (s: ReplayStep) => (s.geojson ? s.geojson.count.changed + s.geojson.count.added + s.geojson.count.removed : 0)
 const stats = computed(() => [
-  { n: props.total, label: 'edits', sub: '고친 편집', spark: spark(props.steps.map((s) => s.changes.length)) },
-  { n: new Set(props.steps.flatMap((s) => s.storeyIds)).size, label: 'floors', sub: '고친 층', spark: floorSpark.value },
+  { n: props.total, label: 'edits', sub: '편집 건수', spark: spark(props.steps.map((s) => s.changes.length)) },
+  { n: new Set(props.steps.flatMap((s) => s.storeyIds)).size, label: 'floors', sub: '편집된 층', spark: floorSpark.value },
   { n: props.steps.reduce((n, s) => n + geoCount(s), 0), label: 'features', sub: 'GeoJSON feature', spark: spark(props.steps.map(geoCount)) },
-  { n: props.steps.reduce((n, s) => n + s.ttlCount.added + s.ttlCount.removed, 0), label: 'ttl', sub: 'TTL 줄 (더함·지움)', spark: spark(props.steps.map((s) => s.ttlCount.added + s.ttlCount.removed)) },
+  { n: props.steps.reduce((n, s) => n + s.ttlCount.added + s.ttlCount.removed, 0), label: 'ttl', sub: 'TTL 줄 (추가·삭제)', spark: spark(props.steps.map((s) => s.ttlCount.added + s.ttlCount.removed)) },
 ])
 const two = (n: number) => String(n).padStart(2, '0')
 /** 장면이 바꾼 출력 한 줄("TTL +3 −1 · GeoJSON 2"). 둘 다 그대로면 빈 문자열. */
@@ -185,10 +185,10 @@ const KEYS: [string, string][] = [
   ['Home', '처음부터'],
   ['B 누른 채', '지금 장면의 편집 전 보기'],
   ['R', '녹화 시작 · 멈추고 내려받기'],
-  ['D', '끝 화면에서 변경 지도(더함·고침·지움 색) 켜고 끄기'],
-  ['E', '끝 화면에서 층 펼치기 — 고친 층 위를 들어 올려 들여다보기'],
-  ['S', '요약 재생 — 바뀐 양이 큰 장면 몇 개만(갈래마다 하나 먼저) 처음부터'],
-  ['T', '판 모양 바꾸기 — 도면(가는 선) · 중계(색과 빛)'],
+  ['D', '끝 화면에서 변경 지도(추가·수정·삭제 색상) 켜고 끄기'],
+  ['E', '끝 화면에서 층 펼치기 — 편집된 층 위를 들어 올려 들여다보기'],
+  ['S', '요약 재생 — 변경량이 큰 주요 장면만(분류별 하나씩 우선) 처음부터'],
+  ['T', '테마 바꾸기 — 도면(가는 선) · 중계(색과 빛)'],
   ['?', '이 안내'],
   ['Esc', '닫기 — 한 번 묻는다(Enter 로 닫기). 편집한 상태로 돌아감'],
 ]
@@ -344,9 +344,9 @@ const summary = computed(() => {
     <!-- 변경 지도 범례(D 로 켜고 끈다) -->
     <div v-if="diff" class="diff-legend">
       <b>변경 지도</b>
-      <span><i class="sw add"></i>더함 {{ diff.added }}</span>
-      <span><i class="sw mod"></i>고침 {{ diff.modified }}</span>
-      <span><i class="sw del"></i>지움 {{ diff.removed }}</span>
+      <span><i class="sw add"></i>추가 {{ diff.added }}</span>
+      <span><i class="sw mod"></i>수정 {{ diff.modified }}</span>
+      <span><i class="sw del"></i>삭제 {{ diff.removed }}</span>
       <kbd>D</kbd>
     </div>
 
@@ -504,17 +504,17 @@ const summary = computed(() => {
           :key="b.c"
           type="button"
           :class="['sum-row', { on: filter === b.c }]"
-          :title="filter === b.c ? '모든 갈래를 처음부터' : `${b.c} 장면만 처음부터 다시 보기`"
+          :title="filter === b.c ? '전체 분류를 처음부터' : `${b.c} 장면만 처음부터 다시 보기`"
           @click="emit('filter', filter === b.c ? null : b.c)"
         >
           <span>{{ b.c }}</span>
           <i :style="{ width: `${b.w}%`, background: CAT_COLOR[b.c], '--bc': CAT_COLOR[b.c] }"></i>
           <b>{{ b.n }}</b>
         </button>
-        <p class="sum-hint">갈래를 누르면 그 갈래 장면만 처음부터</p>
-        <button v-if="highlightCount || highlights" type="button" :class="['report', 'highlight', { on: !!highlights }]" :title="highlights ? '요약 풀고 모든 장면을 처음부터 (S)' : '바뀐 양이 큰 장면만 골라 처음부터 — 녹화와 같이 쓰면 짧은 영상 (S)'" @click="emit('highlights')">★ 요약 재생 · {{ highlights?.length ?? highlightCount }}장면</button>
-        <button type="button" :class="['report', { on: diff }]" title="더한·고친·지운 것을 3D 에 색으로 한꺼번에 (D)" @click="emit('diff')">▦ 변경 지도</button>
-        <button v-if="spread != null" type="button" :class="['report', 'spread', { on: spread }]" title="고친 층 위의 층을 들어 올려 고친 층을 들여다보기 (E)" @click="emit('spread')">☰ 층 펼치기</button>
+        <p class="sum-hint">분류를 누르면 해당 분류 장면만 처음부터 재생합니다</p>
+        <button v-if="highlightCount || highlights" type="button" :class="['report', 'highlight', { on: !!highlights }]" :title="highlights ? '요약 풀고 모든 장면을 처음부터 (S)' : '변경량이 큰 주요 장면만 골라 처음부터 — 녹화와 같이 쓰면 짧은 영상 (S)'" @click="emit('highlights')">★ 요약 재생 · {{ highlights?.length ?? highlightCount }}장면</button>
+        <button type="button" :class="['report', { on: diff }]" title="추가·수정·삭제 항목을 3D 에 색으로 한꺼번에 표시 (D)" @click="emit('diff')">▦ 변경 지도</button>
+        <button v-if="spread != null" type="button" :class="['report', 'spread', { on: spread }]" title="편집된 층 위의 층을 들어 올려 들여다보기 (E)" @click="emit('spread')">☰ 층 펼치기</button>
         <button type="button" class="report" title="장면마다 TTL·GeoJSON 에서 바뀐 것을 마크다운으로" @click="downloadReport">⇩ 변경 리포트 (.md)</button>
         <div class="totals">
           <span class="add">TTL +{{ summary.added }}</span>
@@ -587,9 +587,9 @@ const summary = computed(() => {
           <template v-else-if="comparing">편집 전 보는 중 · <kbd>B</kbd> 떼면 편집 후</template>
           <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }} · <kbd>B</kbd> 누르고 있으면 편집 전</template>
         </span>
-        <span class="themes" role="group" aria-label="판 모양">
+        <span class="themes" role="group" aria-label="테마">
           <button type="button" :aria-pressed="(theme ?? 'plan') === 'plan'" title="도면 — 무채색 가는 선 (T)" @click="(theme ?? 'plan') !== 'plan' && emit('theme')">도면</button>
-          <button type="button" :aria-pressed="theme === 'show'" title="중계 — 갈래 색과 빛 (T)" @click="theme !== 'show' && emit('theme')">중계</button>
+          <button type="button" :aria-pressed="theme === 'show'" title="중계 — 분류 색상과 빛 효과 (T)" @click="theme !== 'show' && emit('theme')">중계</button>
         </span>
         <button type="button" class="help-btn" title="단축키 (?)" @click="help = !help">?</button>
         <button

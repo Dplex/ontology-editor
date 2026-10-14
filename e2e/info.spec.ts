@@ -283,7 +283,7 @@ test('등급 칩과 등급 판정은 판정에 쓰는 본 숫자 하나를 분�
   const chips = page.locator('.overview .tiers')
   const direction = chips.locator('li[data-tier=direction]')
   await expect(direction.locator('b')).toHaveText('2/3 (66.7%)')
-  await expect(direction.locator('.aux')).toHaveText('미확정 규칙 3/3 (100.0%) · 목표에 안 셈')
+  await expect(direction.locator('.aux')).toHaveText('미확정 규칙 3/3 (100.0%) · 판정 제외')
   // 보정 전이라 다른 칩에는 보조 숫자가 없고, 어느 칩도 화살표로 잇지 않는다.
   await expect(chips.locator('.aux')).toHaveCount(1)
   expect(await chips.innerText()).not.toMatch(/→/)
@@ -299,7 +299,7 @@ test('등급 칩과 등급 판정은 판정에 쓰는 본 숫자 하나를 분�
     await expect(rows.nth(g).getByTestId('grade-aux'), `등급 ${g}`).toHaveCount(0)
   }
   await expect(rows.nth(4).locator('div').first()).toContainText('BIM 포트·확정 2/3 · 66.7%')
-  await expect(rows.nth(4).getByTestId('grade-aux')).toHaveText('(미확정 규칙 3/3 · 100.0% · 목표에 안 셈)')
+  await expect(rows.nth(4).getByTestId('grade-aux')).toHaveText('(미확정 규칙 3/3 · 100.0% · 판정 제외)')
   expect(errors).toEqual([])
 })
 

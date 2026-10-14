@@ -157,10 +157,10 @@ const checks = computed<CheckRow[]>(() => {
   const c = check.value
   if (!c) return rows
   rows.push(
-    { label: 'TTL 에 없는 feature', note: '물리존·설비·존인데 같은 id 의 주어가 없다', ids: c.notInTtl.map((x) => x.id) },
-    { label: '끊긴 참조', note: '관계가 가리키는 주어가 TTL 에 없다', ids: c.dangling.map((d) => `${d.from} ${d.predicate} ${d.to}`) },
+    { label: 'TTL 에 없는 feature', note: '물리존·설비·존인데 같은 id 의 엔티티가 없다', ids: c.notInTtl.map((x) => x.id) },
+    { label: '끊긴 참조', note: '관계가 가리키는 엔티티가 TTL 에 없다', ids: c.dangling.map((d) => `${d.from} ${d.predicate} ${d.to}`) },
     { label: '소속 어긋남', note: 'GeoJSON 의 spaceId 가 TTL 의 hasLocation 에 없다', ids: c.locationMismatch.map((x) => x.id) },
-    { label: '문이 잇는 방', note: '문의 connects 가 TTL 에 없는 방을 가리킨다', ids: c.doorLinks.map((x) => `${x.id} → ${x.to}`) },
+    { label: '문이 연결하는 공간', note: '문의 connects 가 TTL 에 없는 방을 가리킨다', ids: c.doorLinks.map((x) => `${x.id} → ${x.to}`) },
   )
   return rows
 })
@@ -332,16 +332,16 @@ const PARTS_SHOWN = 40
         <div class="card">
           <h2>TTL <span class="muted mono">{{ ttlName || '없음' }}</span></h2>
           <template v-if="ttl">
-            <p class="big"><b>{{ ttl.entities.length.toLocaleString() }}</b> 주어</p>
+            <p class="big"><b>{{ ttl.entities.length.toLocaleString() }}</b> 엔티티</p>
             <p class="muted">
               hasPart {{ relationCounts.hasPart.toLocaleString() }} · hasLocation {{ relationCounts.hasLocation.toLocaleString() }} ·
               feeds {{ relationCounts.feeds.toLocaleString() }} · hasPoint {{ relationCounts.hasPoint.toLocaleString() }}
             </p>
-            <p v-if="unreadCounts.length" class="muted" title="주어 블록이지만 DT 파서가 읽지 않는 클래스. 덕트·배관(fso:)은 일부러다.">
-              읽지 않는 주어: {{ unreadCounts.map(([cls, n]) => `${cls} ${n.toLocaleString()}`).join(' · ') }}
+            <p v-if="unreadCounts.length" class="muted" title="엔티티 블록이지만 DT 파서가 읽지 않는 클래스. 덕트·배관(fso:)은 일부러다.">
+              미사용 엔티티: {{ unreadCounts.map(([cls, n]) => `${cls} ${n.toLocaleString()}`).join(' · ') }}
             </p>
           </template>
-          <p v-else class="muted">ontology.ttl 을 놓으면 관계와 id 잇기를 봅니다.</p>
+          <p v-else class="muted">ontology.ttl 을 놓으면 관계와 id 연결을 확인합니다.</p>
         </div>
         <div class="card">
           <h2>GeoJSON <span class="muted">층 파일 {{ floors.length }}</span></h2>
@@ -481,7 +481,7 @@ const PARTS_SHOWN = 40
             <p v-else-if="selected.unread" class="muted">
               TTL 에 <code>{{ selected.unread }}</code> 로 있지만 DT 파서는 읽지 않습니다(덕트·배관은 일부러 Brick 밖에 둡니다).
             </p>
-            <p v-else class="muted">TTL 에 이 id 의 주어가 없습니다{{ selected.feature && ['wall', 'door', 'window'].includes(String(selected.feature.properties.kind)) ? ' — 벽·문·창은 GeoJSON 에만 있습니다' : '' }}.</p>
+            <p v-else class="muted">TTL 에 이 id 의 엔티티가 없습니다{{ selected.feature && ['wall', 'door', 'window'].includes(String(selected.feature.properties.kind)) ? ' — 벽·문·창은 GeoJSON 에만 있습니다' : '' }}.</p>
 
             <template v-if="selected.incoming.length">
               <h3>가리키는 것 <span class="muted">{{ selected.incoming.length }}</span></h3>

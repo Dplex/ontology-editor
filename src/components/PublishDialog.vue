@@ -44,20 +44,20 @@ watch(
     <form class="exit-edit-body" @submit.prevent="name.trim() && emit('publish', name.trim(), first && unsaved?.length ? 'save' : 'all')">
       <h2 id="publish-title">{{ first ? '구축하기' : '반영하기' }} — v{{ next }}</h2>
       <p>
-        {{ first ? '처음 만든 온톨로지를 v1 로 둡니다.' : '편집 내용을 DT 3D 맵과 온톨로지에 한 번에 반영하고 새 버전을 만듭니다.' }}
-        반영된 것은 다른 사람이 새로고침할 때 보입니다.
+        {{ first ? '초기 온톨로지를 v1으로 생성합니다.' : '편집 내용을 DT 3D 맵과 온톨로지에 한 번에 반영하고 새 버전을 만듭니다.' }}
+        반영된 내용은 다른 사용자가 새로고침할 때 표시됩니다.
       </p>
       <ul class="hint" data-testid="publish-summary">
         <li><b>대상 층</b>: {{ floors.length ? floors.join(' · ') : '없음' }}</li>
-        <li><b>바뀐 것</b>: 편집 {{ edits }}건</li>
+        <li><b>변경 내역</b>: 편집 {{ edits }}건</li>
         <li v-if="summary"><b>변경 요약</b>: {{ summary }}</li>
-        <li><b>올리는 것</b>: 온톨로지(TTL) · 층마다 GeoJSON · 3D 형상(GLB) · 편집 파일 · 공간 계층 · 리포트</li>
+        <li><b>생성 항목</b>: 온톨로지(TTL) · 층별 GeoJSON · 3D 형상(GLB) · 편집 파일 · 공간 계층 · 리포트</li>
       </ul>
       <p v-if="first && unsaved?.length" class="publish-unsaved" data-testid="publish-unsaved">
         임시 저장하지 않은 편집이 있는 층: <b>{{ unsaved.join(' · ') }}</b>. 각 층은 임시 저장한 내용(없으면 임포트 결과)으로 구축합니다.
-        [저장한 내용으로 구축]이면 이 편집은 구축에 넣지 않고 화면에서도 되돌립니다(위 줄의 [이어서 하기]로 되살립니다).
+        [저장한 내용으로 구축]을 선택하면 이 편집은 구축에서 제외하고 화면에서도 되돌립니다(상단 바의 [이어서 하기]로 복구할 수 있습니다).
       </p>
-      <p v-if="fixed" class="publish-by" data-testid="publisher">반영자 <b>{{ by || '(사용자를 고르세요)' }}</b></p>
+      <p v-if="fixed" class="publish-by" data-testid="publisher">반영자 <b>{{ by || '(사용자를 선택하세요)' }}</b></p>
       <label v-else class="publish-by">반영자 <input v-model="name" type="text" aria-label="반영자" required /></label>
       <div class="exit-edit-actions">
         <template v-if="first && unsaved?.length">

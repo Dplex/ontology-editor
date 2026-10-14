@@ -80,7 +80,7 @@ describe('등급 판정 (D1·D12 제안안)', () => {
     // 기기 3대가 연결망에 들고, BIM 포트로 방향을 아는 것은 2대다. 규칙 방향(확정 전)까지 넣으면 3대.
     expect([four().have, four().of, four().aux?.have, four().aux?.source]).toEqual([2, 3, 3, 'rule'])
     expect(profileOf(m).tiers[4]).toMatchObject({ figure: '2/3 (66.7%)', aux: { figure: '3/3 (100.0%)', source: 'rule' } })
-    expect(profileOf(m).tiers[4].note).toContain('미확정 규칙 방향까지 넣으면 3대(목표에 안 셈)')
+    expect(profileOf(m).tiers[4].note).toContain('미확정 규칙 방향까지 넣으면 3대(판정 제외)')
     for (const c of m.connections) if (c.inferred) c.inferred.confirmed = true
     expect([four().have, four().of, four().aux]).toEqual([3, 3, undefined])
   })

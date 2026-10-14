@@ -30,17 +30,17 @@ watch(
     <div class="exit-edit-body">
       <h2 id="exit-edit-title">{{ floor ? '저장하지 않은 편집이 있습니다' : '임시 저장하시겠습니까?' }}</h2>
       <p v-if="floor">
-        <b>{{ floor.from }}</b>에서 마지막으로 저장한 뒤 바뀐 것이 <b>{{ count }}건</b> 있습니다. {{ floor.to }}(으)로 가기 전에 어떻게 할까요?
+        <b>{{ floor.from }}</b>에서 마지막으로 저장한 뒤 변경 내역이 <b>{{ count }}건</b> 있습니다. {{ floor.to }}(으)로 이동하기 전에 어떻게 할까요?
       </p>
       <p v-else>
-        마지막으로 저장한 뒤 바뀐 것이 <b>{{ count }}건</b> 있습니다<template v-if="floors?.length"> — 저장하지 않은 층: <b data-testid="exit-floors">{{ floors.join(' · ') }}</b></template>.
-        편집을 끝내기 전에 어떻게 할까요?
+        마지막으로 저장한 뒤 변경 내역이 <b>{{ count }}건</b> 있습니다<template v-if="floors?.length"> — 저장하지 않은 층: <b data-testid="exit-floors">{{ floors.join(' · ') }}</b></template>.
+        편집을 종료하기 전에 어떻게 할까요?
       </p>
       <ul class="hint">
-        <li v-if="server"><b>저장</b>: 8084 에 둡니다. 이 파일을 여는 사람 모두 같은 편집을 봅니다.</li>
-        <li><b>임시 저장</b>: {{ floor ? '이 층의' : '위 층들의' }} 편집을 층마다 남깁니다(DT 에는 반영되지 않습니다). 그 층에 다시 들어오면 이어서 편집합니다.</li>
-        <li v-if="floor"><b>그대로 이동</b>: 저장하지 않고 {{ floor.to }}(으)로 갑니다. {{ floor.from }}의 편집은 화면에 남아 있고, 편집을 끝내거나 구축할 때 다시 묻습니다.</li>
-        <li><b>{{ floor ? '저장 안 함' : '저장하지 않고 종료' }}</b>: {{ floor ? '이 층을' : '' }} 마지막으로 저장한 때로 되돌립니다. 버린 편집은 위 줄의 [이어서 하기]로 한 번 되살릴 수 있습니다.</li>
+        <li v-if="server"><b>저장</b>: 서버에 저장합니다. 이 파일을 여는 모든 사용자가 같은 편집 내용을 봅니다.</li>
+        <li><b>임시 저장</b>: {{ floor ? '이 층의' : '위 층들의' }} 편집을 층별로 보관합니다(DT에는 반영되지 않습니다). 해당 층을 다시 열면 이어서 편집할 수 있습니다.</li>
+        <li v-if="floor"><b>그대로 이동</b>: 저장하지 않고 {{ floor.to }}(으)로 이동합니다. {{ floor.from }}의 편집은 화면에 유지되며, 편집을 종료하거나 구축할 때 다시 확인합니다.</li>
+        <li><b>{{ floor ? '저장 안 함' : '저장하지 않고 종료' }}</b>: {{ floor ? '이 층을' : '' }} 마지막으로 저장한 상태로 되돌립니다. 취소한 편집은 상단 바의 [이어서 하기]로 복구할 수 있습니다.</li>
       </ul>
       <div class="exit-edit-actions">
         <button v-if="server" type="button" class="ghost primary-action" @click="emit('commit')">저장</button>

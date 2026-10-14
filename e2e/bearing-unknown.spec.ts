@@ -42,14 +42,14 @@ test('LoadBearing 이 없는 벽은 "모름"(AC20), false 인 벽은 "비내력�
   await openWalls(page, AC20)
   const unknown = await pickWall(page, 'null')
   await expect(unknown.getByTestId('wall-bearing').locator('option:checked')).toHaveText('모름')
-  await expect(unknown).toContainText('모름은 아니오가 아닙니다. 내벽처럼 고칠 수 있습니다.')
+  await expect(unknown).toContainText("'모름'은 비내력벽과 구분되며 내벽처럼 편집할 수 있습니다.")
 
   // Duplex: BIM 이 false 라고 적은 벽은 비내력벽(BIM)이다.
   await openWalls(page, DUPLEX)
   const no = await pickWall(page, 'false', true)
   await expect(no.getByTestId('wall-bearing').locator('option:checked')).toHaveText('비내력벽')
   await expect(no.getByTestId('wall-bearing').locator('xpath=ancestor::p[1]').locator('.src')).toHaveClass(/\bbim\b/)
-  await expect(no).toContainText('모름은 아니오가 아닙니다.')
+  await expect(no).toContainText("'모름'은 비내력벽과 구분됩니다.")
   // 내력벽은 잠기고 까닭이 보인다. Duplex 의 BIM 내력벽 7개는 모두 외벽이라 3D 에서 앞의 창·문이 먼저 잡혀, 이 비내력벽을 내력벽으로 바꿔 본다.
   const bearing = no.getByTestId('wall-bearing')
   await bearing.selectOption('true')

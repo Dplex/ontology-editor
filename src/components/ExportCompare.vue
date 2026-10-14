@@ -89,7 +89,7 @@ const nameOf = (id: string) => {
 const SRC: Record<string, SrcKind> = { bim: 'bim', calc: 'calc', dict: 'dict', edit: 'edit', IDF: 'idf', idf: 'idf' }
 const SOURCE_LABEL: Record<string, string> = {
   spaceSource: '소속',
-  connectsSource: '잇는 방',
+  connectsSource: '연결 공간',
   externalSource: '외벽',
   passableSource: '통과',
   verticalConnectsSource: '층간 연결',
@@ -166,16 +166,16 @@ const counts = computed(() => {
   <aside class="export-compare" data-testid="export-compare" aria-label="내보낸 결과 비교">
     <header class="ec-head">
       <div>
-        <b>내보낸 결과</b> <span class="muted">— 받는 쪽이 읽는 TTL · GeoJSON</span>
+        <b>내보낸 결과</b> <span class="muted">— DT 플랫폼이 읽는 TTL · GeoJSON</span>
         <p v-if="counts" class="ec-counts muted" data-testid="export-compare-counts">
-          주어 {{ counts.subjects.toLocaleString() }} · 관계 {{ counts.relations.toLocaleString() }} · feature {{ counts.features.toLocaleString() }}
-          <template v-if="counts.unread"> · DT 가 읽지 않는 덕트·배관 {{ counts.unread.toLocaleString() }}</template>
-          <span v-if="pending" class="ec-pending">· 다시 쓰는 중…</span>
+          엔티티 {{ counts.subjects.toLocaleString() }} · 관계 {{ counts.relations.toLocaleString() }} · feature {{ counts.features.toLocaleString() }}
+          <template v-if="counts.unread"> · DT가 읽지 않는 덕트·배관 {{ counts.unread.toLocaleString() }}</template>
+          <span v-if="pending" class="ec-pending">· 갱신 중…</span>
           <span v-else-if="reading" class="ec-ms">· {{ reading.ms.toLocaleString() }}ms</span>
         </p>
         <p v-else-if="pending" class="ec-counts muted">내보내는 중…</p>
       </div>
-      <button type="button" class="ghost" title="비교 판 닫기" @click="emit('close')">닫기</button>
+      <button type="button" class="ghost" title="비교 패널 닫기" @click="emit('close')">닫기</button>
     </header>
     <p v-if="error" class="edit-warn">{{ error }}</p>
     <template v-if="reading">
@@ -183,7 +183,7 @@ const counts = computed(() => {
         <select :value="reading.floors[floorIndex]?.storeyId" aria-label="비교할 층 파일" @change="chosenFloor = ($event.target as HTMLSelectElement).value">
           <option v-for="f in reading.floors" :key="f.storeyId" :value="f.storeyId">{{ f.floor.fileName }}</option>
         </select>
-        <label class="ec-follow" title="평면이 3D 시점을 따라갑니다(바라보는 점이 가운데)"><input v-model="follow" type="checkbox" /> 3D 따라가기</label>
+        <label class="ec-follow" title="평면도가 3D 시점을 따라갑니다(바라보는 중심 기준)"><input v-model="follow" type="checkbox" /> 3D 시점 연동</label>
       </div>
       <svg v-if="plan && !plan.empty" ref="svg" :viewBox="viewBox" class="ec-plan" role="img" :aria-label="`${floor?.fileName} 평면`" preserveAspectRatio="xMidYMid meet">
         <template v-for="s in plan.shapes" :key="s.id">
@@ -212,16 +212,16 @@ const counts = computed(() => {
           </circle>
         </template>
       </svg>
-      <p v-else class="muted ec-empty">이 층 파일에는 그릴 형상이 없습니다.</p>
+      <p v-else class="muted ec-empty">이 층 파일에는 표시할 형상이 없습니다.</p>
 
       <section v-if="selected" class="ec-card" data-testid="export-compare-card">
         <h4>
           {{ nameOf(selected.id) }}
           <span v-if="selected.kind" class="muted">· {{ KIND_LABEL[selected.kind] ?? selected.kind }}</span>
         </h4>
-        <p v-if="selected.entity" class="ec-cls"><code>brick:{{ selected.entity.cls }}</code> <span class="muted">TTL 주어</span></p>
-        <p v-else-if="selected.skip" class="ec-cls"><code>{{ selected.skip.cls }}</code> <span class="muted">DT 가 읽지 않는 주어(덕트·배관)</span></p>
-        <p v-else-if="selected.feature" class="ec-cls muted" data-testid="export-compare-no-ttl">TTL 에는 없고 GeoJSON 에만 있습니다.</p>
+        <p v-if="selected.entity" class="ec-cls"><code>brick:{{ selected.entity.cls }}</code> <span class="muted">TTL 엔티티</span></p>
+        <p v-else-if="selected.skip" class="ec-cls"><code>{{ selected.skip.cls }}</code> <span class="muted">미사용 엔티티(덕트·배관)</span></p>
+        <p v-else-if="selected.feature" class="ec-cls muted" data-testid="export-compare-no-ttl">TTL에는 없고 GeoJSON에만 있습니다.</p>
         <p v-else class="ec-cls edit-warn" data-testid="export-compare-missing">이 요소는 내보낸 파일에 없습니다.</p>
         <p v-if="selected.sources.length" class="ec-sources">
           <span v-for="s in selected.sources" :key="s.key">{{ s.label }} <Src :kind="s.kind" /></span>
@@ -246,7 +246,7 @@ const counts = computed(() => {
           <pre data-testid="export-compare-geojson">{{ featureText }}</pre>
         </details>
       </section>
-      <p v-else class="muted ec-hint">3D 나 이 평면에서 고르면, 그 요소가 TTL 의 어느 블록·GeoJSON 의 어느 feature 가 됐는지 보입니다.</p>
+      <p v-else class="muted ec-hint">3D나 평면에서 요소를 선택하면 TTL 블록과 GeoJSON feature 변환 결과가 표시됩니다.</p>
     </template>
   </aside>
 </template>

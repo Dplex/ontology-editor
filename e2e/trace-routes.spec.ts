@@ -14,7 +14,7 @@ test('원천이 여럿이면 모두 경로와 함께 보이고, 대체 경로는
   const connect = async (other: string) => {
     await page.locator('.picked').getByRole('button', { name: '연결하기', exact: true }).click()
     await pickRow(other).click()
-    await expect(neighbor(other)).toContainText('직접 이음')
+    await expect(neighbor(other)).toContainText('수동 연결')
   }
 
   // 디퓨저 하나: 원천은 공조기 하나다(덕트 1개 경유).

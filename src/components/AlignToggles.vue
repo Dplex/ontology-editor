@@ -10,11 +10,11 @@ const snap = defineModel<SnapSettings>('snap', { required: true })
 
 <template>
   <span class="align-toggles">
-    <label class="grid-toggle" title="찍거나 끄는 점을 그리드 교점으로 옮깁니다. 켜기만 해서는 놓인 것을 옮기지 않습니다(겹침 판정은 형상 기준 그대로)">
+    <label class="grid-toggle" title="클릭·드래그 지점을 그리드 교점으로 옮깁니다. 그리드를 켜도 이미 배치된 요소는 이동하지 않습니다(겹침 판정은 형상 기준 그대로)">
       <input v-model="grid.on" type="checkbox" aria-label="그리드 정렬" /> 그리드
       <input v-model.number="grid.spacing" type="number" min="0.05" step="0.05" class="align-num" aria-label="그리드 간격(m)" />m
     </label>
-    <label class="grid-toggle" title="찍거나 끄는 점이 가까운 물리존·벽·룸·커스텀존의 꼭짓점·변에 붙습니다. 그리드보다 앞섭니다">
+    <label class="grid-toggle" title="클릭·드래그 지점이 가까운 물리존·벽·룸·커스텀존의 꼭짓점·변에 붙습니다. 그리드 정렬보다 우선 적용됩니다">
       <input v-model="snap.on" type="checkbox" aria-label="스냅" /> 스냅
       <input v-model.number="snap.radius" type="number" min="0.05" max="2" step="0.05" class="align-num" aria-label="스냅 반경(m)" />m
     </label>

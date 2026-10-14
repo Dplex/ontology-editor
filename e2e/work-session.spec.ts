@@ -136,7 +136,7 @@ test('들어가기 전 저장이 실패하면 층 편집에 남고, 나올 때 �
 
   await release(page, '582915', WC1, '층 편집에서 해제')
   await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
-  await expect(page.locator('.key-note')).toContainText('층 편집을 8084 에 저장하지 못해 다중층 뷰로 가지 않았습니다')
+  await expect(page.locator('.key-note')).toContainText('층 편집을 서버에 저장하지 못해 다중층 뷰로 가지 않았습니다')
   await expect(banner(page)).toHaveCount(0)
   await expect(released).toHaveCount(1)
   await expect(undo(page)).toBeEnabled()
@@ -149,7 +149,7 @@ test('들어가기 전 저장이 실패하면 층 편집에 남고, 나올 때 �
   await release(page, '582925', WC2, '다중층에서 2층 해제')
   fail.on = true
   await toFloor(page)
-  await expect(page.locator('.key-note')).toContainText('다중층 작업을 8084 에 저장하지 못해 다중층 뷰에 남았습니다')
+  await expect(page.locator('.key-note')).toContainText('다중층 작업을 서버에 저장하지 못해 다중층 뷰에 남았습니다')
   await expect(banner(page)).toBeVisible()
   if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT })
   await expect(released).toHaveCount(1)

@@ -48,7 +48,7 @@ test('Laya 서버가 있으면 종류를 모르는 패밀리에 Laya 후보와 �
 test('Laya 가 자신 없으면 흐리게 "자신 없음" 으로 보인다', async ({ page }) => {
   const { errors } = await open(page, { enabled: true, confidence: 0.2 })
   const laya = page.locator('.unknown-types tr', { hasText: 'TEMP-101-01' }).locator('.suggest.laya')
-  await expect(laya).toContainText('자신 없음')
+  await expect(laya).toContainText('신뢰도 낮음')
   await expect(laya).toHaveClass(/unsure/)
   expect(errors).toEqual([])
 })

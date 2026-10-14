@@ -7,7 +7,7 @@ const DUPLEX_HVAC = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-HVAC.ifc'
 const RULE = '공기·물이 흐르는 기기가 연결망에 붙어 있다'
 test.setTimeout(240_000)
 
-test('연결 후보를 확인하고 이으면 위반이 줄고 출처는 직접 이음이며, 되돌리기·다시 하기가 된다 [OE-PIP-08#2,4~,5]', async ({ page }) => {
+test('연결 후보를 확인하고 이으면 위반이 줄고 출처는 수동 연결이며, 되돌리기·다시 하기가 된다 [OE-PIP-08#2,4~,5]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX_HVAC), `${DUPLEX_HVAC} 이 없다(npm run fetch:sample)`)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -27,20 +27,20 @@ test('연결 후보를 확인하고 이으면 위반이 줄고 출처는 직접 
   const list = boiler.getByTestId('fix-candidates')
   await expect(list.locator('li').first()).toContainText('Pipe Types #593630 · 72mm')
   await expect(list.locator('li').first()).toContainText('· 물')
-  await expect(list).toContainText('연결하면 출처는 직접 이음, 방향은 정하지 않은 채입니다')
+  await expect(list).toContainText('연결하면 출처는 수동 연결, 방향은 정하지 않은 채입니다')
 
   await list.getByTestId('fix-connect').first().click()
   await expect(page.getByRole('button', { name: '편집', exact: true })).toHaveAttribute('aria-pressed', 'true')
   await expect(row).toContainText('31 / 40')
   await expect(page.locator('.report')).toContainText('#593630: 연결했습니다')
 
-  // 고른 설비 패널에서 그 연결은 직접 이음이고 사람이 정한 방향이 없다.
+  // 고른 설비 패널에서 그 연결은 수동 연결이고 사람이 정한 방향이 없다.
   await page.getByPlaceholder(/물리존·설비 이름/).fill('530072')
   const list2 = page.getByRole('button', { name: /설비 위치와 소속/ })
   if ((await list2.getAttribute('aria-expanded')) === 'false') await list2.click()
   await page.locator('.equipment tbody tr', { hasText: '530072' }).first().getByRole('button').first().click()
   const joined = page.locator('.picked .neighbors:not(.released) tr', { hasText: '#593630' })
-  await expect(joined).toContainText('직접 이음')
+  await expect(joined).toContainText('수동 연결')
   await expect(joined).not.toContainText('직접 정한 방향')
 
   await page.locator('body').click({ position: { x: 5, y: 5 } })

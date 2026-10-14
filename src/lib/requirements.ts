@@ -277,11 +277,11 @@ export function requirementsReport(
     set('R12', { ...counted(inside, 0, placed), note: '덧붙인 파일의 설비 중 건축 공간 범위 안에 있는 것입니다.' })
   }
 
-  if (!versions) set('R13', unmeasured('판본 비교에서 이전 판본을 열면 잴 수 있습니다.'))
+  if (!versions) set('R13', unmeasured('버전 비교에서 이전 버전을 열면 확인할 수 있습니다.'))
   else set('R13', {
     // 다른 열쇠로 찾은 것은 다른 자리다 — 내보내기가 GUID 를 새로 지은 것이라 설정으로 고쳐진다(EXPORT_SETTING.R13).
     ...counted(versions.kept, versions.rematched, versions.kept + versions.rematched, versions.kept + versions.rematched + (versions.ambiguous ?? 0)),
-    note: `이전 판본(${versions.name})과 비교. 양쪽에 있는 물리존·설비 중 GUID가 그대로인 것입니다` +
+    note: `이전 버전(${versions.name})과 비교. 양쪽에 있는 물리존·설비 중 GUID가 그대로인 것입니다` +
       (versions.rematched ? `. 다른 자리 ${versions.rematched}개는 GUID가 바뀌어 Revit 요소 ID·이름·위치로 찾았습니다. 편집은 적용되지만 DT 쪽 id는 바뀝니다.` : '.') +
       (versions.ambiguous ? ` 짝 후보가 여럿이라 짓지 못한 ${versions.ambiguous}개는 대상에만 들고 검사에서 뺍니다.` : ''),
   })

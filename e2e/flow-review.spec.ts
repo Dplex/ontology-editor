@@ -17,7 +17,7 @@ test('흐름 없는 기기에 이은 연결은 지우지 않고 "검토" 로 보
   await page.locator('.picked').getByRole('button', { name: '연결하기', exact: true }).click()
   await pickRow('LIGHT-101-01').click()
   const joined = rows.filter({ hasText: 'LIGHT-101-01' })
-  await expect(joined).toContainText('직접 이음')
+  await expect(joined).toContainText('수동 연결')
   await expect(joined.getByTestId('flow-review')).toHaveText('검토 — 흐름 아님, feeds 제외')
   await expect(joined.getByTestId('flow-review')).toHaveAttribute('title', 'LIGHT-101-01: 흐름 없는 기기')
 
@@ -30,7 +30,7 @@ test('흐름 없는 기기에 이은 연결은 지우지 않고 "검토" 로 보
   await pickRow('LIGHT-101-01').click()
   await page.locator('.kind-edit select').selectOption('')
   await pickRow('AHU-1').click()
-  await expect(joined).toContainText('직접 이음')
+  await expect(joined).toContainText('수동 연결')
   await expect(joined.getByTestId('flow-review')).toHaveCount(0)
   // 위반이 없으면 "·" 로 보인다.
   await expect(check.locator('.num').last()).toHaveText('·')

@@ -20,8 +20,8 @@ test('Duplex: [결과 비교] 판은 받는 쪽이 읽은 TTL·GeoJSON 을 보�
   const pane = page.getByTestId('export-compare')
   await page.getByTestId('compare-toggle').click()
   const counts = page.getByTestId('export-compare-counts')
-  await expect(counts).toContainText(/주어 [\d,]+ · 관계 [\d,]+ · feature [\d,]+/, { timeout: 60_000 })
-  await expect(counts).not.toContainText('다시 쓰는 중')
+  await expect(counts).toContainText(/엔티티 [\d,]+ · 관계 [\d,]+ · feature [\d,]+/, { timeout: 60_000 })
+  await expect(counts).not.toContainText('갱신 중')
   // 3D 의 층을 따라간다.
   await expect(pane.getByLabel('비교할 층 파일').locator('option:checked')).toHaveText('floor-Level_1.geojson')
 
@@ -52,7 +52,7 @@ test('Duplex: [결과 비교] 판은 받는 쪽이 읽은 TTL·GeoJSON 을 보�
   await name.fill('RAD-1F-A')
   await name.press('Enter')
   await expect(page.getByTestId('export-compare-ttl')).toContainText('rdfs:label "RAD-1F-A"', { timeout: 10_000 })
-  await expect(counts).not.toContainText('다시 쓰는 중')
+  await expect(counts).not.toContainText('갱신 중')
 
   // 닫으면 판이 없고, 평면도로 가도 뜨지 않는다.
   await pane.getByRole('button', { name: '닫기' }).click()

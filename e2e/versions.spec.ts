@@ -13,9 +13,9 @@ test('이전 판본을 열면 바뀐 것을 보이고, R13 을 잰다 [OE-BIM-19
   // 비교 전에는 R13 을 잴 수 없다.
   await page.getByRole('button', { name: /^요구사항/ }).click()
   const r13 = page.locator('.req-table tr', { hasText: 'R13' })
-  await expect(r13).toContainText('잴 수 없음')
+  await expect(r13).toContainText('측정 불가')
 
-  await page.getByRole('button', { name: /판본 비교/ }).click()
+  await page.getByRole('button', { name: /버전 비교/ }).click()
   await page.locator('.versions input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   const sum = page.locator('.version-sum')
   await expect(sum.locator('tr', { hasText: '물리존' })).toContainText('이름으로 1개')
@@ -29,7 +29,7 @@ test('이전 판본을 열면 바뀐 것을 보이고, R13 을 잰다 [OE-BIM-19
 
   // 어느 쪽이 기준인지(파일 역할)와 견주기 전에 맞춘 것(정규화)이 보인다 [OE-BIM-19#2] [OE-BIM-19#3].
   await expect(page.getByTestId('version-roles')).toContainText('기준: 지금 연 파일 mep-v2.ifc')
-  await expect(page.getByTestId('version-roles')).toContainText('견줄 판본: mep.ifc')
+  await expect(page.getByTestId('version-roles')).toContainText('비교 대상 모델: mep.ifc')
   await expect(page.getByTestId('version-normalized')).toContainText('이름은 공백·유니코드 조합을 맞춰 견줌')
   // R13 판정 근거: GUID 유지율(분자/분모)과, GUID 가 바뀐 것(지금 이름 · 무엇으로 찾았나 · 이전 GUID). 비교하면 이 목록이 먼저 열린다.
   // 설비 6 → 6 중 짝지은 5대가 분모이고, 센서는 없어진 것·더한 토출구는 새것이다. 후보가 여럿인 것은 없다.
@@ -70,16 +70,16 @@ test('이전 판본과 층 높이가 단위 배수로 다르면 경고하고 R6 
   const r6 = page.locator('.req-table tr', { hasText: 'R6' })
   await expect(r6).toContainText('길이 단위가 선언되어 있습니다')
 
-  await page.getByRole('button', { name: /판본 비교/ }).click()
+  await page.getByRole('button', { name: /버전 비교/ }).click()
   await page.locator('.versions input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
-  await expect(page.locator('.versions .edit-notice')).toContainText('이름이 같은 층의 높이가 이전 판본의 1000배입니다(2F 3m → 3000m). 층간 높이로 보면 지금 파일의 길이 단위 선언이')
+  await expect(page.locator('.versions .edit-notice')).toContainText('이름이 같은 층의 높이가 이전 버전의 1000배입니다(2F 3m → 3000m). 층간 높이로 보면 지금 파일의 길이 단위 선언이')
   await expect(r6).toContainText('이전 판본(two-rooms.ifc)과 같은 이름 층의 높이가 1000배로 다릅니다')
   await expect(r6).toContainText('길이 단위 선언을 좌표·높이에 실제로 쓴 단위에 맞춰 달라')
 
   // 틀린 쪽은 지금 파일이다. 단위를 제대로 선언한 밀리미터 판본과 견줘도 같은 1000배가 나온다(선언 단위가 아니라 값으로 잰다).
   await page.locator('.versions input[type=file]').setInputFiles('src/lib/ifc/fixtures/millimetre.ifc')
-  await expect(page.locator('.versions')).toContainText('이전 판본: millimetre.ifc')
-  await expect(page.locator('.versions .edit-notice')).toContainText('이전 판본의 1000배입니다(2F 3m → 3000m)')
+  await expect(page.locator('.versions')).toContainText('이전 버전: millimetre.ifc')
+  await expect(page.locator('.versions .edit-notice')).toContainText('이전 버전의 1000배입니다(2F 3m → 3000m)')
   await expect(r6).toContainText('이전 판본(millimetre.ifc)')
   expect(errors).toEqual([])
 })
