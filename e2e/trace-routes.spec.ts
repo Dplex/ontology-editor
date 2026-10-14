@@ -17,8 +17,10 @@ test('원천이 여럿이면 모두 경로와 함께 보이고, 대체 경로는
     await expect(neighbor(other)).toContainText('수동 연결')
   }
 
-  // 디퓨저 하나: 원천은 공조기 하나다(덕트 1개 경유).
+  // 디퓨저 하나: 원천은 공조기 하나다(덕트 1개 경유). 기기를 고르면 흐름 지도가 먼저 답하고 경로 목록은 접혀 있다.
   await pickRow('AT-101-01').click()
+  await expect(routes).not.toHaveAttribute('open')
+  await routes.locator('summary').click()
   await expect(routes.locator('li[data-kind=source]')).toHaveCount(1)
   await expect(routes.locator('li[data-kind=source]')).toContainText('AHU-1 덕트·배관 1개')
   await expect(page.getByTestId('trace-cycle')).toHaveCount(0)

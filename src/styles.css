@@ -643,8 +643,14 @@ th {
   flex: none;
 }
 
+.legend .kind {
+  flex: none;
+  font-weight: 600;
+}
+
 .legend .name {
   flex: 1;
+  color: var(--muted);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2788,6 +2794,183 @@ th {
   margin-left: 0.35rem;
   font-size: 0.78rem;
   font-weight: 400;
+}
+
+/* 흐름 지도: 공급 사슬 한 줄 + 계통마다 사다리 한 줄. 칸은 종류별 묶음이고, 색은 3D 의 상류·하류 색과 같다. */
+.flow-map {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.7rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.flow-map > .picked-sub {
+  margin-top: 0;
+}
+
+.ladder {
+  margin-top: 0.3rem;
+  font-size: 0.8rem;
+}
+
+/* 줄 머리말(받는 곳·보내는 곳) 칸과 줄 칸. 줄이 꺾여도 머리말 칸 오른쪽에서 이어진다. */
+.ladder-row {
+  display: grid;
+  grid-template-columns: 4.2rem 1fr;
+  gap: 0.4rem;
+  align-items: baseline;
+  padding: 0.2rem 0;
+}
+
+.ladder-head {
+  color: var(--muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.ladder-arrow {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.15rem;
+}
+
+.ladder-arrow small {
+  font-size: 0.72rem;
+}
+
+.ladder-tag {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.flow-none,
+.flow-quiet {
+  margin: 0.3rem 0 0;
+  font-size: 0.78rem;
+}
+
+.ladder-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.ladder-step {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.ladder-arrow {
+  color: var(--muted);
+}
+
+.ladder-me {
+  color: var(--accent);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.ladder-chip {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.ladder-chip:hover,
+.ladder-chip.on {
+  border-color: currentColor;
+}
+
+/* 여러 대 칸은 펼치는 칸이라 ▾ 를 단다. 한 대 칸은 그 설비로 건너가는 칸이다. */
+.ladder-chip:not(.one)::after {
+  content: ' ▾';
+  font-size: 0.7em;
+}
+
+.ladder-chip.on:not(.one)::after {
+  content: ' ▴';
+}
+
+.ladder-chip.up {
+  color: #c06a26;
+}
+
+.ladder-chip.down {
+  color: #148062;
+}
+
+.ladder-chip.linked {
+  color: #7d3fb8;
+}
+
+.ladder-chip.room {
+  color: var(--accent);
+}
+
+.ladder-chip.on {
+  background: var(--surface-soft);
+}
+
+.ladder-list {
+  margin-top: 0.35rem;
+  padding: 0.3rem 0.5rem;
+  border-left: 2px solid var(--line);
+}
+
+.ladder-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ladder-list {
+  max-height: 15rem;
+  overflow-y: auto;
+}
+
+.ladder-list li {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+  padding: 0.1rem 0;
+}
+
+.ladder-list li .where {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ladder-list li .link {
+  flex: none;
+}
+
+.ladder-away {
+  margin: 0 0 0.3rem;
+  color: var(--warn-fg);
+  font-size: 0.78rem;
+}
+
+.ladder-list .more {
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+}
+
+/* 이 설비가 무엇을 하는지 한 줄. 이름이 Revit 패밀리 이름이라 그것만으로는 무엇인지 모른다. */
+.picked-summary {
+  margin: 0.15rem 0 0.4rem;
+  font-size: 0.85rem;
+}
+
+.trace-routes > summary {
+  cursor: pointer;
 }
 
 /* 흐름 경로(OE-ML-16): 원천·도달 한 줄씩. 길은 이름 뒤에 작게. */

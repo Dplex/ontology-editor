@@ -11,6 +11,7 @@ import Fold from './components/Fold.vue'
 import type { CustomZone, ElevatorStop, HvacZone } from './lib/model'
 import Src, { type SrcKind } from './components/Src.vue'
 import FlowBasis from './components/FlowBasis.vue'
+import FlowLadder, { type LadderChip, type LadderLine, type LadderPart, type LadderRow } from './components/FlowLadder.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
 import ReplayHud from './components/ReplayHud.vue'
 import ExportCompare from './components/ExportCompare.vue'
@@ -60,6 +61,7 @@ import { BUILDING, buildingStoreys, joinParts, partSig, splitByStorey, type Home
 import { compareVersions, MATCH_KEY_BY, MATCH_KEY_LABEL, type MatchKey, type VersionDiff } from './lib/versions'
 import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, traceRoutes, TOLERANCE, type Neighbor, type Route } from './lib/topology'
+import { flowIndex, ladder, supplyChain, type Hop, type Step } from './lib/flow-ladder'
 import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
 import { storeyHeights, type StoreyHeight } from './lib/storey-height'
 import { resetStoreyName, setStoreyName, storeyNamed } from './lib/storey-name'
@@ -3854,6 +3856,200 @@ const flowSystemRow = computed(() => systemRows.value.find((r) => r.key === flow
 function toggleFlowSystem(key: string) {
   flowSystemKey.value = flowSystemKey.value === key ? null : key
 }
+// --- 흐름 지도 -------------------------------------------------------------------
+//
+// 고른 기기에서 덕트·배관을 건너뛰고 기기에서 기기로 건너간다(flow-ladder.ts). 바로 붙은 이웃은 거의 관 조각이라(병원 공조기는 넷 다)
+// "이 공조기의 VAV 는?", "어느 냉동기에서?" 에 답하지 못했다. 맨 위 한 줄은 계통을 넘는 공급 사슬(냉동기 → 공조기 → VAV → 디퓨저 → 방)이고,
+// 아래는 계통마다 같은 사다리다. 방향은 흐름 경로(OE-ML-16)와 같다 — 포트·사람이 정한 방향·확정한 규칙은 늘 타고, 규칙 방향을 켜 두면
+// 확정 전 규칙까지 탄다. 포트만 타면 사람이 방향을 정해도 사다리에 안 들었다.
+const flowIdx = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  if (!m) return null
+  const connections = withInferred(m.connections, !(showRules.value && hasRules.value))
+  return flowIndex(connections, conduitId, (x) => equipmentById.value.get(x)?.systemId ?? null)
+})
+/** 공급 쪽 계통(급기·외기·순환수 공급처럼 원천에서 말단으로 보내는 것)이거나 기기끼리 바로 붙은 연결. 공급 사슬이 이것만 탄다. */
+const isSupplySystem = (id: string | null) => id === null || systemKind(systemById.value.get(id)?.kind)?.sense === 'out'
+/** 설비가 놓인 층. `storeyOf` 는 부를 때마다 층을 훑어서, 디퓨저 수백 개짜리 칸에서 쓰기에 느리다. */
+const equipmentStorey = computed(() => {
+  const map = new Map<string, { id: string; name: string }>()
+  for (const s of model.value?.storeys ?? []) for (const e of s.equipment) map.set(e.id, { id: s.id, name: s.name })
+  return map
+})
+const spaceInfo = computed(() => {
+  const map = new Map<string, { name: string; storey: string }>()
+  for (const s of model.value?.storeys ?? []) for (const sp of s.spaces) map.set(sp.id, { name: sp.longName || sp.name, storey: s.name })
+  return map
+})
+/**
+ * 칸·목록에 적는 짧은 이름. 종류는 칸이 이미 말하므로 Revit 패밀리 이름(`M_Screw Chiller - Air Cooled - 281-1231 kW #725669`)이 길면
+ * 번호(`#725669`)만 남긴다. 짧은 패밀리(`OHU1 #790637`)나 사람이 붙인 이름(`AHU-1`)은 그대로 둔다.
+ */
+function flowTag(id: string): string {
+  const name = nameOfId(id)
+  const revit = / (#\d+)$/.exec(name)
+  if (revit && name.length - revit[0].length > 12) return revit[1]
+  return flowLabel(id)
+}
+/** 목록을 층·방 순으로 늘어놓는 열쇠. 같은 방의 VAV 가 붙어 보인다. */
+const placeKey = (id: string) => {
+  const e = equipmentById.value.get(id)
+  return `${equipmentStorey.value.get(id)?.name ?? ''}\u0000${(e?.spaceId && spaceInfo.value.get(e.spaceId)?.name) || '\uffff'}\u0000${nameOfId(id)}`
+}
+/** 사다리 칸. 한 단계의 기기를 종류별로 묶는다. 한 대면 이름까지 적어 누르기 전에 무엇인지 보인다. */
+function chipsOf(block: string, ids: string[]): LadderChip[] {
+  const byKind = new Map<string, string[]>()
+  for (const id of ids) {
+    const label = whatIs(equipmentById.value.get(id))?.label ?? '종류 모름'
+    byKind.set(label, [...(byKind.get(label) ?? []), id])
+  }
+  return [...byKind]
+    .sort((a, b) => b[1].length - a[1].length)
+    .map(([kind, list]) => [kind, list.sort((a, b) => placeKey(a).localeCompare(placeKey(b), 'ko', { numeric: true }))] as const)
+    .map(([kind, list]) => ({
+      key: `${block}:${kind}`,
+      label: list.length === 1 ? `${kind} ${flowTag(list[0])}` : `${kind} ${list.length}`,
+      ids: list,
+      target: 'device' as const,
+      title: list.length === 1 ? `${nameOfId(list[0])} — 누르면 이 설비로 갑니다` : `${kind} ${list.length}대 — 누르면 목록을 펼칩니다`,
+    }))
+}
+/**
+ * 화살표 꼬리표. 건너간 계통의 종류이고, 같은 낱말로 시작하면 줄인다(`순환수 공급`·`순환수 환수` → `순환수 공급·환수`).
+ * 꼬리표의 툴팁이 BIM 계통 이름(`Hydronic Supply 1`)이다. 이름은 Revit 이 붙인 번호라 그것만으로는 무엇인지 모른다.
+ */
+function viaLabel(systems: (string | null)[]): { label: string; title: string } {
+  // 종류를 모르는 계통은 BIM 이름 그대로 둔다(`위생 2`). "종류 모를 계통" 이라고 적으면 무엇인지 더 모른다.
+  const kinds = [...new Set(systems.map((x) => (x === null ? '직접 연결' : (systemKind(systemById.value.get(x)?.kind)?.label ?? (systemById.value.get(x)?.name || '이름 없는 계통')))))]
+  const groups = new Map<string, string[]>()
+  for (const k of kinds) {
+    const cut = k.indexOf(' ')
+    const head = cut < 0 ? k : k.slice(0, cut)
+    groups.set(head, [...(groups.get(head) ?? []), cut < 0 ? '' : k.slice(cut + 1)])
+  }
+  const label = [...groups].map(([head, rest]) => (rest.length > 1 && rest.every(Boolean) ? `${head} ${rest.join('·')}` : rest.map((r) => (r ? `${head} ${r}` : head)).join('·'))).join('·')
+  const title = [...new Set(systems.filter((x): x is string => x !== null).map((x) => systemById.value.get(x)?.name || x))].join(', ')
+  return { label, title }
+}
+const flowMap = pausedInReplay(() => {
+  const m = model.value
+  const id = selectedId.value
+  const idx = flowIdx.value
+  if (!m || !id || !idx || conduitId(id)) return null
+  // 받는 곳·보내는 곳의 줄기는 공급 사슬이다(냉동기 → 공조기 → VAV → 디퓨저). 공급 쪽 계통만 타서 계통을 넘어 이어진다.
+  const chain = supplyChain(idx, id, isSupplySystem)
+  // 환기·환수·배기처럼 돌아오는 쪽 계통은 계통마다 따로 따라간다. 사슬에 이미 바로 붙은 설비(공조기의 냉수 환수 → 냉동기)면 줄을 새로
+  // 만들지 않고 그 화살표 꼬리표에 계통만 더한다. 냉동기가 공급관 줄과 환수관 줄에 두 번 나오던 것이 한 번이 된다.
+  const extra: { key: string | null; dir: 'up' | 'down'; steps: Step[] }[] = []
+  const quiet: string[] = []
+  for (const key of idx.systemsOf(id)) {
+    const pass = (h: Hop) => h.systemId === key
+    const up = ladder(idx, id, 'up', pass)
+    const down = ladder(idx, id, 'down', pass)
+    if (!up.length && !down.length && !idx.next(id).unknown.some(pass)) quiet.push(key ? systemById.value.get(key)?.name || key : '직접 연결')
+    if (isSupplySystem(key)) continue
+    for (const [dir, steps] of [['up', up], ['down', down]] as const) {
+      if (!steps.length) continue
+      const near = steps.length === 1 ? new Set(steps[0].ids) : null
+      const into = near && [chain.up[0], chain.down[0]].find((st) => st && [...near].every((x) => st.ids.includes(x)))
+      if (into) into.systems.push(key)
+      else extra.push({ key, dir, steps })
+    }
+  }
+  // 사슬 끝의 말단(디퓨저·그릴)이 든 방. 말단이 방 안에 있다는 것까지가 BIM 이 말하는 것이라, 담당 공간 표와 같은 근거다.
+  const rooms = [...new Set(chain.down.flatMap((st) => st.ids).filter((x) => equipmentById.value.get(x)?.role === 'terminal').map((x) => equipmentById.value.get(x)!.spaceId).filter((x): x is string => !!x))]
+  const roomKey = (x: string) => `${spaceInfo.value.get(x)?.storey ?? ''}\u0000${spaceInfo.value.get(x)?.name ?? ''}`
+  rooms.sort((a, b) => roomKey(a).localeCompare(roomKey(b), 'ko', { numeric: true }))
+
+  // 고른 설비는 줄마다 ● 하나다. 무엇인지는 패널 머리의 한 줄이 말한다 — 줄마다 "공조기 · 이 설비" 를 적었더니 좁은 패널에서 줄이 꺾였다.
+  const me: LadderPart = { kind: 'me', label: `이 설비(${whatIs(selected.value)?.label ?? '고른 설비'})` }
+  /** 화살표. 앞 화살표와 같은 계통이면 글을 빼고 → 만 둔다(`● ─급기→ VAV 54 → 디퓨저 143`). */
+  const arrows = () => {
+    let last = ''
+    return (systems: (string | null)[]): LadderPart => {
+      const v = viaLabel(systems)
+      const label = v.label === last ? '' : v.label
+      last = v.label
+      return { kind: 'arrow', label, title: v.title }
+    }
+  }
+  // 받는 곳: 먼 것부터 고른 설비 쪽으로. 화살표는 그 단계에 올 때 탄 계통이다.
+  const upLine = (block: string, steps: Step[]): LadderPart[] => {
+    const arrow = arrows()
+    const parts: LadderPart[] = []
+    for (let i = steps.length - 1; i >= 0; i--) parts.push({ kind: 'chips', tone: 'up', chips: chipsOf(`${block}:${i}`, steps[i].ids) }, arrow(steps[i].systems))
+    return [...parts, me]
+  }
+  const downLine = (block: string, steps: Step[], tail: LadderChip | null): LadderPart[] => {
+    const arrow = arrows()
+    const parts: LadderPart[] = [me]
+    steps.forEach((st, i) => parts.push(arrow(st.systems), { kind: 'chips', tone: 'down', chips: chipsOf(`${block}:${i}`, st.ids) }))
+    if (tail) parts.push({ kind: 'arrow', label: '', title: '' }, { kind: 'chips', tone: 'down', chips: [tail] })
+    return parts
+  }
+  const lines: LadderLine[] = []
+  // 머리말(받는 곳·보내는 곳)은 무리의 첫 줄에만 적는다.
+  const add = (head: string, key: string, parts: LadderPart[]) => lines.push({ key, head: lines.some((l) => l.key.startsWith(`${head}:`)) ? '' : head, parts })
+  if (chain.up.length) add('받는 곳', '받는 곳:chain', upLine('chain:up', chain.up))
+  for (const e of extra.filter((x) => x.dir === 'up')) add('받는 곳', `받는 곳:${e.key}`, upLine(`up:${e.key}`, e.steps))
+  const roomChip: LadderChip | null = rooms.length ? { key: 'chain:rooms', label: `방 ${rooms.length}곳`, ids: rooms, target: 'room', title: '사슬 끝의 말단이 놓인 방 — 누르면 목록을 펼칩니다' } : null
+  if (chain.down.length) add('보내는 곳', '보내는 곳:chain', downLine('chain:down', chain.down, roomChip))
+  for (const e of extra.filter((x) => x.dir === 'down')) add('보내는 곳', `보내는 곳:${e.key}`, downLine(`down:${e.key}`, e.steps, null))
+  // 방향을 모르는 연결로만 닿은 기기. 계통을 가리지 않고 한 줄로 모은다(성수 FCU 는 순환수 공급·환수에 같은 FCU 가 120대씩 겹쳤다).
+  const shown = new Set(lines.flatMap((l) => l.parts.flatMap((p) => (p.kind === 'chips' ? p.chips.flatMap((c) => c.ids) : []))))
+  const loose = idx.next(id).unknown.filter((h) => !shown.has(h.id))
+  if (loose.length) {
+    const v = viaLabel([...new Set(loose.map((h) => h.systemId))])
+    lines.push({ key: '방향 모름', head: '방향 모름', parts: [{ kind: 'chips', tone: 'linked', chips: chipsOf('unknown', [...new Set(loose.map((h) => h.id))]) }, { kind: 'tag', label: v.label, title: v.title }] })
+  }
+  return { lines, quiet, summary: flowSentence(chain.up[0]?.ids ?? [], chain.down.flatMap((st) => st.ids), rooms.length) }
+})
+/** `냉동기 1대에서 받아 VAV 54대·디퓨저 143대로 보냅니다(방 124곳)`. 받는 쪽은 바로 위 단계만, 보내는 쪽은 사슬 끝까지 센다. */
+function flowSentence(from: string[], to: string[], rooms: number): string {
+  const count = (ids: string[]) => {
+    const n = new Map<string, number>()
+    for (const id of ids) {
+      const label = whatIs(equipmentById.value.get(id))?.label ?? '종류 모름'
+      n.set(label, (n.get(label) ?? 0) + 1)
+    }
+    // 보내는 쪽은 사슬 차례(VAV → 디퓨저)대로 둔다. 많은 순으로 두면 "디퓨저 143대·VAV 54대" 가 되어 흐름이 거꾸로 읽힌다.
+    const list = [...n]
+    return list.slice(0, 3).map(([k, v]) => `${k} ${v}대`).join('·') + (list.length > 3 ? ` 외 ${list.length - 3}종` : '')
+  }
+  const tail = rooms ? `(방 ${rooms}곳)` : ''
+  if (from.length && to.length) return `${count(from)}에서 받아 ${count(to)}로 보냅니다${tail}`
+  if (from.length) return `${count(from)}에서 받습니다`
+  if (to.length) return `${count(to)}로 보냅니다${tail}`
+  return ''
+}
+/** 펼친 사다리 칸. 하나만 연다. 3D 는 그 칸의 기기만 남겨 칠한다. */
+const flowOpen = shallowRef<LadderChip | null>(null)
+watch([selectedId, showRules], () => (flowOpen.value = null))
+function describeFlow(id: string, target: LadderChip['target']): LadderRow {
+  if (target === 'room') {
+    const sp = spaceInfo.value.get(id)
+    return { id, name: sp?.name ?? id, where: sp?.storey ?? '' }
+  }
+  const e = equipmentById.value.get(id)
+  const room = e?.spaceId ? spaceInfo.value.get(e.spaceId)?.name : null
+  return { id, name: flowTag(id), where: [room ?? '방 밖', equipmentStorey.value.get(id)?.name].filter(Boolean).join(' · ') }
+}
+/** 펼친 칸의 기기 중 지금 3D 에 안 보이는 것(한 층만 보는 중에 다른 층에 있는 것). 목록 위에 알리고 모든 층 보기로 넘긴다. */
+const flowOpenAway = computed(() => {
+  const chip = flowOpen.value
+  const at = viewStorey.value
+  if (!chip || chip.target !== 'device' || !at) return null
+  const away = chip.ids.filter((id) => equipmentStorey.value.get(id)?.id !== at)
+  if (!away.length) return null
+  const names = [...new Set(away.map((id) => equipmentStorey.value.get(id)?.name).filter(Boolean))]
+  return { count: away.length, all: away.length === chip.ids.length, storeys: names.slice(0, 2).join(', ') + (names.length > 2 ? ` 외 ${names.length - 2}개 층` : '') }
+})
+function pickFlow(id: string, target: LadderChip['target']) {
+  if (target === 'room') showSpace(id)
+  else select(id)
+}
+
 // --- 흐름 경로 (OE-ML-16) -------------------------------------------------------
 //
 // 고른 기기에서 방향 있는 연결만 따라 닿는 원천·말단을 경로와 함께 나열한다. 원천이 여럿이면 여럿 다 보이고(하나를 공급자로 정하지 않는다),
@@ -4417,17 +4613,26 @@ const sourceLabel = (tolerance: number | null) =>
 //
 // 수는 구성원 수다 — 고른 계통 패널의 "구성 N개", 3D 에서 칠하는 것과 같은 것을 센다. 설비의 `systemId` 로 세면 두 계통에
 // 든 설비(성수 FCU 가 순환수 공급과 기계 급기에 같이 든다)가 한쪽에서만 세여, 범례 1400 · 패널 1537 처럼 어긋났다.
+//
+// 줄에는 종류(급기·순환수 공급)를 이름 앞에 두고, 숫자는 기기 대수다. 이름(`기계 급기 287`)은 BIM 이 붙인 번호라 그것만으로는 무엇인지
+// 모르고, 구성원 수는 대부분 덕트·배관 조각이라 "급기 계통 48" 의 48 이 무엇인지 안 읽혔다. 구성원 수는 툴팁에 나눠 적는다.
 const legend = computed(() => {
   if (!model.value) return []
   const colors = systemColors(model.value)
   return model.value.systems
-    .map((s) => ({
-      id: s.id,
-      name: s.name || '(이름 없는 계통)',
-      source: s.source,
-      count: s.memberIds.length,
-      color: `#${(colors.get(s.id) ?? 0).toString(16).padStart(6, '0')}`,
-    }))
+    .map((s) => {
+      const devices = s.memberIds.filter((id) => !conduitId(id)).length
+      return {
+        id: s.id,
+        name: s.name || '(이름 없는 계통)',
+        kind: systemKind(s.kind)?.label ?? null,
+        source: s.source,
+        count: s.memberIds.length,
+        devices,
+        title: `${s.name || '(이름 없는 계통)'} — 구성원 ${s.memberIds.length}개(기기 ${devices} · 덕트·배관 ${s.memberIds.length - devices})`,
+        color: `#${(colors.get(s.id) ?? 0).toString(16).padStart(6, '0')}`,
+      }
+    })
     .sort((a, b) => b.count - a.count)
 })
 
@@ -4582,8 +4787,14 @@ function toggleSystem(id: string) {
 // 계통별 표의 고른 줄·펼친 검사는 옆 패널의 것이다. 편집 리플레이 동안은 보지 않는다 — 읽기만 해도 장면마다 계통 표·완전성 검사를
 // 모델 전체로 다시 돌려 화면이 끊겼다.
 const highlightRow = () => (replayOpen.value ? null : flowSystemRow.value)
+/** 3D 에 남길 것. 펼친 사다리 칸이 있으면 그 기기만(방 칸은 기기가 아니라 계통 줄을 따른다), 없으면 고른 계통 줄. */
+const highlightOnly = (): Set<string> | null => {
+  const chip = replayOpen.value ? null : flowOpen.value
+  if (chip && chip.target === 'device' && selectedId.value) return new Set([selectedId.value, ...chip.ids])
+  return highlightRow()?.ids ?? null
+}
 const highlightCheck = () => (replayOpen.value ? null : openCheck.value)
-watch([selectedId, selectedSystemId, model, showRules, flowVersion, highlightRow, highlightCheck, selectedSpace, sceneVersion, group], () => {
+watch([selectedId, selectedSystemId, model, showRules, flowVersion, highlightRow, highlightOnly, highlightCheck, selectedSpace, sceneVersion, group], () => {
   if (!viewer) return
 
   // 여러 개 고른 설비(OE-UI-09). 고른 색으로 칠하고 나머지는 흐리게 하지 않는다(흐린 것은 Ctrl+클릭으로 더할 수 없다).
@@ -4597,8 +4808,8 @@ watch([selectedId, selectedSystemId, model, showRules, flowVersion, highlightRow
     // 포트가 말한 상류·하류는 진한 색, 규칙(사전)으로만 정해진 것은 옅은 색이다. 한 색으로 섞어 칠하면
     // 3D 만 보고는 BIM 이 말한 흐름인지 우리가 정한 흐름인지 알 수 없다.
     const r = showRules.value ? tracedRules.value : null
-    // 계통별 표에서 한 줄을 골랐으면 그 계통의 추적에 든 것만 남긴다.
-    const only = highlightRow()?.ids
+    // 계통별 표에서 한 줄을 골랐거나 사다리 칸을 펼쳤으면 그것만 남긴다.
+    const only = highlightOnly()
     const keep = (ids: Iterable<string>) => new Set([...ids].filter((id) => !only || only.has(id)))
     const port = new Set([...t.upstream, ...t.downstream])
     viewer.setHighlight({
@@ -11412,6 +11623,10 @@ function rollbackFromReport() {
           <div class="picked-head">
             <div>
               <h3>{{ selected.name || '(이름 없음)' }}</h3>
+              <!-- 무엇을 하는 설비인지 한 줄(흐름 지도의 공급 사슬). 이름은 Revit 패밀리 이름이라 공조기인지조차 안 보인다. -->
+              <p v-if="flowMap?.summary" class="picked-summary" data-testid="flow-summary">
+                <b>{{ whatIs(selected)?.label ?? '설비' }}</b> · {{ flowMap.summary }} <Src kind="calc" />
+              </p>
               <!-- 한 줄에 "공조기 사전 · UnitaryEquipment.AIRHANDLER BIM · 에너지 변환 BIM · …" 로 이었더니 출처 칩이 어느 값에
                    붙은 것인지 읽기 어려웠다. 무엇에 대한 값인지를 앞에 두고 줄을 나눈다. -->
               <dl class="stats facts">
@@ -11430,6 +11645,8 @@ function rollbackFromReport() {
                 <div>
                   <dt>계통</dt>
                   <dd v-flash="selected.systemId">
+                    <!-- 종류를 앞에 둔다. 이름(`기계 급기 287`, `Hydronic Return 1`)은 BIM 이 붙인 번호라 그것만으로는 무엇인지 모른다. -->
+                    <template v-if="selected.systemId && systemKind(systemById.get(selected.systemId)?.kind)">{{ systemKindText(systemById.get(selected.systemId)?.kind, systemById.get(selected.systemId)?.fluid) }} · </template>
                     {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
                     <Src v-if="selected.systemEdited" kind="edit" /><Src v-else-if="selected.systemId" kind="bim" />
                   </dd>
@@ -11723,7 +11940,27 @@ function rollbackFromReport() {
             </span>
           </p>
 
-          <ul class="flow">
+          <!-- 흐름 지도. 기기를 고르면 관 조각을 건너뛰고 기기 단위로 위·아래를 잇는다. 덕트·배관을 고르면 요소 수(아래 세 칸)가 그대로 보인다 —
+               기기에서 세면 관 조각까지 들어가 공조기 하나가 "상류 1110 · 하류 2305" 였다. -->
+          <div v-if="flowMap" class="flow-map" data-testid="flow-map">
+            <h4 class="picked-sub">
+              흐름
+              <span class="muted">덕트·배관은 건너뛰고 설비만 잇습니다<template v-if="showRules && hasRules">(규칙 방향 포함 <Src kind="dict" />)</template>. 화살표 위 글은 거쳐 간 계통입니다.</span>
+            </h4>
+            <FlowLadder v-if="flowMap.lines.length" :lines="flowMap.lines" :open="flowOpen?.key ?? null" :describe="describeFlow" @toggle="flowOpen = $event" @pick="pickFlow">
+              <template #note>
+                <p v-if="flowOpenAway" class="ladder-away">
+                  {{ flowOpenAway.all ? '모두' : `${flowOpenAway.count}대가` }} 다른 층({{ flowOpenAway.storeys }})에 있어 지금 3D에 안 보입니다.
+                  <button type="button" class="link" @click="viewStorey = null">모든 층 보기</button>
+                </p>
+              </template>
+            </FlowLadder>
+            <p v-else class="muted flow-none">덕트·배관 너머로 이어진 설비가 없습니다.</p>
+            <!-- Revit 은 급기 계통을 가지마다 쪼개서, 관이 다른 계통으로 이어질 수 있다. 끊겼다고 단정하지 않고 몇 개인지만 적는다. -->
+            <p v-if="flowMap.quiet.length" class="muted flow-quiet" :title="flowMap.quiet.join(', ')">설비로 이어지지 않는 계통 {{ flowMap.quiet.length }}개</p>
+          </div>
+
+          <ul v-else class="flow">
             <li class="upstream">
               <b>{{ traced?.upstream.size ?? 0 }}</b><span>상류</span><Src kind="bim" />
             </li>
@@ -11924,7 +12161,7 @@ function rollbackFromReport() {
 
           <!-- 계통별로 보기. 한 기기에 물·바람·배수가 같이 붙으므로 계통마다 나눠 센다. 패널이 좁아 표가 아니라
                줄마다 두세 줄짜리 목록이다 — 일곱 칸 표는 오른쪽 넷(방향 모름·덕트·이어진 기기)이 잘렸다. -->
-          <div v-if="systemRows.length" class="by-system">
+          <div v-if="systemRows.length && !flowMap" class="by-system">
             <h4 class="picked-sub">
               계통별로 보기 <Src kind="bim" />
               <span class="muted">
@@ -11956,15 +12193,18 @@ function rollbackFromReport() {
             </ul>
           </div>
 
-          <!-- 흐름 경로(OE-ML-16). 방향을 아는 연결만 따라 닿은 원천·말단과 그 길. 원천이 여럿이면 다 보이고, 고리가 있으면 알린다. -->
-          <div v-if="routeView" class="trace-routes" data-testid="trace-routes">
-            <h4 class="picked-sub">
-              흐름 경로
+          <!-- 흐름 경로(OE-ML-16). 방향을 아는 연결만 따라 닿은 원천·말단과 그 길. 원천이 여럿이면 다 보이고, 고리가 있으면 알린다.
+               기기를 고르면 위 흐름 지도가 먼저 답하므로 접어 둔다. 계통을 섞어 가까운 순으로 늘어놓아, 병원 공조기는 환기 그릴 여섯 줄과
+               "원천 외 177개" 가 먼저 보였다. 대체 경로·순환을 볼 때 편다. -->
+          <details v-if="routeView" class="trace-routes" data-testid="trace-routes" :open="!flowMap">
+            <summary class="picked-sub">
+              {{ flowMap ? '경로 자세히' : '흐름 경로' }}
               <span class="muted">
+                <template v-if="flowMap">원천 {{ routeView.sources.length + routeView.moreSources }} · 도달 {{ routeView.targets.length + routeView.moreTargets }}<template v-if="routeView.cycle.length"> · 순환 있음</template>. </template>
                 확정한 방향만 따라갑니다<template v-if="routeView.preview">(지금은 확정 전 규칙 방향 미리보기 포함 <Src kind="dict" />)</template>. 원천이 여럿이면 모두
-                보입니다.
+                보이고, 대체 경로는 갈래 수로 적습니다.
               </span>
-            </h4>
+            </summary>
             <p v-if="routeView.cycle.length" class="edit-notice inline" data-testid="trace-cycle">
               순환이 있습니다: {{ routeView.cycle.join(', ') }}<template v-if="routeView.moreCycle"> 외 {{ routeView.moreCycle }}개</template>. 한 번 지난 곳은 다시 따라가지 않아
               추적이 끝납니다.
@@ -11983,7 +12223,7 @@ function rollbackFromReport() {
               </li>
               <li v-if="routeView.moreLooped" class="muted">순환 위 외 {{ routeView.moreLooped }}개</li>
             </ul>
-          </div>
+          </details>
 
           <!-- 정격 풍량(OE-ZON-06). BIM 용량이 풍량이면 CMH 로 바꾼 값이고 고치지 않는다. 없으면 편집 모드에서 사람이 넣는다.
                용량 검증 Z-03 의 판정 대상(VAV·FCU·실내기·공조기)이거나 값이 있는 설비에만 보인다. -->
@@ -13275,8 +13515,9 @@ function rollbackFromReport() {
                     @click="toggleSystem(s.id)"
                   >
                     <i :style="{ background: s.color }"></i>
-                    <span class="name">{{ s.name }}</span>
-                    <span class="mono muted">{{ s.count }}</span>
+                    <span v-if="s.kind" class="kind">{{ s.kind }}</span>
+                    <span class="name" :title="s.title">{{ s.name }}</span>
+                    <span class="mono muted" :title="s.title">기기 {{ s.devices }}</span>
                   </button>
                 </li>
               </ul>
