@@ -71,6 +71,7 @@
 | `entry` | 오르기 시작하는 자리 `[x, y, z]`. 시작 층 feature 에만 있고, 나머지는 `null` 입니다 |
 | `exit` | 다다르는 자리 `[x, y, z]`. 끝 층 feature 에만 있고, 나머지는 `null` 입니다 |
 | `spaceIds` | `entry`·`exit` 가 드는 같은 층 물리존 id. 지점이 없는 사이 층은 빈 목록입니다 |
+| `heading` | 평면 회전각(°). +x 축에서 반시계로 잰 방위입니다. 계단·에스컬레이터는 시작점에서 끝점 쪽, 엘리베이터·샤프트는 형상의 가장 긴 변의 방향입니다. 형상에서 계산한 값이라 `headingSource` 는 `calc` 입니다. 잴 수 없으면 `null` 입니다 |
 | `passable` | 늘 `false` 입니다. 계단은 로봇이 지나가지 못합니다 |
 | `verticalConnects` | 같은 오브젝트의 바로 아래·위층 feature id. 출처는 `verticalConnectsSource` 입니다 |
 

@@ -11,7 +11,7 @@
 // **연관 물리존·층간 연결은 저장하지 않으니 따로 고칠 것이 없다.** 진입·종료 지점이 드는 물리존을 그때 짚으므로(ADR-0033) 옮기면 새
 // 자리의 물리존이, 지우면 겹침 추정(ADR-0032)이 그 자리를 잇는다. 형상이 닿았다고 새 연결을 확정하지 않는다(OE-ML-19).
 
-import { isSelfIntersecting } from './mapping'
+import { distanceToRing, isSelfIntersecting, pointInPolygon } from './mapping'
 import { shaftMembers } from './shaft'
 import { overlapArea } from './polygon'
 import { polygonArea, type ElevatorStop, type Model, type Storey, type Vec2, type Vec3, type VerticalKind, type VerticalPart } from './model'
@@ -190,6 +190,71 @@ export function snapHeading(angle: number, walls: readonly number[] = [], free =
   }
   const hit = best as { angle: number; by: '건물 축' | '벽 방향' } | null
   return hit ? { angle: Math.round(hit.angle * 10) / 10, by: hit.by } : { angle: Math.round(a * 10) / 10, by: null }
+}
+
+// --- 기본 형상으로 만들기 (OE-ML-06 · OE-ML-11, 2026-10-14 PRD) ------------------------------------------------
+//
+// 계단·ES 는 시작 층에서 시작점 하나만 받는다. 끝 층은 같은 건물에서 높이 순서로 바로 위층이고, 두 층 기준 높이 차와 종류의 기본 폭·기울기로
+// 수평 길이를 정해 시작점에서 방위 쪽으로 뻗은 직사각형과 끝점을 만든다. EL 은 위치 하나를 받아 종류의 기본 크기 정사각형 승강로를 둔다.
+// 만든 뒤의 형상·크기·지점은 층별 고치기(OE-ML-07)로 고친다.
+
+/**
+ * 종류별 기본 크기. EL 승강로 한 변, 계단·ES 폭과 기울기(°). PRD 가 값을 정하지 않아 PM 프로토타입(docs/presentation/
+ * vertical-object-placement-prototype.html)의 시험용 값을 쓴다.
+ */
+export const VERTICAL_DEFAULTS = { elevator: { size: 2.4 }, escalator: { width: 1.2, slope: 30 }, stair: { width: 1.5, slope: 34 } } as const
+/** 건물 안으로 보는 여유(m). 계단판 끝이 벽 두께 안으로 드는 것을 밖으로 치지 않는다(ADR-0034 의 병원 계단 0.26㎡). */
+export const INSIDE_TOLERANCE = 0.5
+
+/** 높이 순서로 바로 위층. 없거나(최상층) 그 층을 모르면 null. 이 앱의 층은 한 건물이다. */
+export function storeyAbove(model: Pick<Model, 'storeys'>, storeyId: string): Storey | null {
+  const sorted = [...model.storeys].filter((s) => Number.isFinite(s.elevation)).sort((a, b) => a.elevation - b.elevation)
+  const i = sorted.findIndex((s) => s.id === storeyId)
+  return i >= 0 ? (sorted[i + 1] ?? null) : null
+}
+
+/** 점들이 모두 그 층의 물리존 안(또는 `INSIDE_TOLERANCE` 안)에 있나. 물리존이 없는 층은 잴 수 없어 참이다. */
+export function insideStorey(storey: Pick<Storey, 'spaces'>, points: readonly Vec2[]): boolean {
+  const rings = storey.spaces.map((sp) => sp.footprint).filter((r) => r.length >= 3)
+  if (!rings.length) return true
+  return points.every((p) => rings.some((r) => pointInPolygon(p, r) || distanceToRing(p, r) <= INSIDE_TOLERANCE))
+}
+
+const along = (start: Vec2, deg: number, u: number, v: number): Vec2 => {
+  const r = (deg * Math.PI) / 180
+  const [c, s] = [Math.cos(r), Math.sin(r)]
+  return [mm(start[0] + c * u - s * v), mm(start[1] + s * u + c * v)]
+}
+
+export type FlightDraft = { from: Storey; to: Storey; rise: number; length: number; footprint: Vec2[]; entry: Vec2; exit: Vec2; outside: boolean }
+
+/**
+ * 계단·ES 한 구간의 기본 형상(OE-ML-06 AC2). 시작점에서 방위 `heading`(°) 쪽으로 수평 길이 = 층고 차 ÷ tan(기울기) 만큼 뻗는다.
+ * 시작 층이 최상층이거나 두 층 높이 차가 0 이하면 이유와 함께 거절한다(AC6). 형상이 시작 층 물리존 밖이거나 끝점이 위층 물리존 밖이면
+ * `outside` 다 — 화면이 경고 색으로 보이고 완료를 막는다(AC3).
+ */
+export function planFlight(model: Pick<Model, 'storeys'>, kind: 'stair' | 'escalator', fromId: string, start: Vec2, heading: number): FlightDraft | { refused: string } {
+  const from = model.storeys.find((s) => s.id === fromId)
+  if (!from) return { refused: '시작 층을 찾지 못했습니다.' }
+  if (!Number.isFinite(from.elevation)) return { refused: `${from.name} 의 기준 높이가 없어 종료점을 계산할 수 없습니다.` }
+  const to = storeyAbove(model, fromId)
+  if (!to) return { refused: `${from.name} 이 최상층이라 위층이 없습니다. 다른 층에서 시작합니다.` }
+  const rise = to.elevation - from.elevation
+  if (!(rise > 0)) return { refused: `${from.name} 과 ${to.name} 의 높이 차가 없어 종료점을 계산할 수 없습니다.` }
+  const { width, slope } = VERTICAL_DEFAULTS[kind]
+  const length = mm(rise / Math.tan((slope * Math.PI) / 180))
+  const footprint: Vec2[] = [along(start, heading, 0, -width / 2), along(start, heading, length, -width / 2), along(start, heading, length, width / 2), along(start, heading, 0, width / 2)]
+  const exit = along(start, heading, length, 0)
+  const entry: Vec2 = [mm(start[0]), mm(start[1])]
+  return { from, to, rise, length, footprint, entry, exit, outside: !insideStorey(from, footprint) || !insideStorey(to, [exit]) }
+}
+
+/** EL 승강로의 기본 형상(OE-ML-06 AC1). 위치 `center` 둘레 한 변 `VERTICAL_DEFAULTS.elevator.size` 정사각형을 방위만큼 돌린다. */
+export function planElevator(model: Pick<Model, 'storeys'>, fromId: string, center: Vec2, heading: number): { footprint: Vec2[]; outside: boolean } {
+  const h = VERTICAL_DEFAULTS.elevator.size / 2
+  const footprint: Vec2[] = [along(center, heading, -h, -h), along(center, heading, h, -h), along(center, heading, h, h), along(center, heading, -h, h)]
+  const from = model.storeys.find((s) => s.id === fromId)
+  return { footprint, outside: !!from && !insideStorey(from, footprint) }
 }
 
 /** 조각 id(`부모 id@층 id`)의 조각. */

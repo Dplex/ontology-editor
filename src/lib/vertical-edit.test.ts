@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connection, Equipment, Model, Space, Storey, Vec2, Vec3, Wall } from './model'
 import { stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
-import { COMMON_AXIS_LOCKED, createVertical, rotateVertical, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, setElevatorStop, setEscalatorDirection, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
+import { COMMON_AXIS_LOCKED, createVertical, planElevator, planFlight, rotateVertical, storeyAbove, VERTICAL_DEFAULTS, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, setElevatorStop, setEscalatorDirection, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
 import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
 import { BUILDING, joinParts, splitByStorey } from './storey-drafts'
@@ -266,6 +266,19 @@ describe('전체 회전 (OE-ML-07 · OE-OBJ-15)', () => {
     expect(rotateVertical(m, 'U_el', Number.NaN)).toBe(false)
   })
 
+  it('GeoJSON 의 층 조각마다 오브젝트의 평면 회전각(heading, 출처 calc)을 내고, 돌리면 같이 바뀐다 (OE-ML-02 평면 회전각)', () => {
+    const { m } = made()
+    const headingOf = (id: string) =>
+      modelToGeoJSON(m)
+        .flatMap((f) => f.collection.features)
+        .filter((f) => f.properties?.parentId === id)
+        .map((f) => [f.properties?.heading, f.properties?.headingSource])
+    expect(headingOf('U_es')).toEqual([[90, 'calc'], [90, 'calc']])
+    rotateVertical(m, 'U_es', -30)
+    expect(headingOf('U_es')).toEqual([[60, 'calc'], [60, 'calc']])
+    expect(headingOf('U_el').every(([h]) => h === 0)).toBe(true)
+  })
+
   it('건물 축과 가까운 벽 방향에 ±3° 안이면 붙고, Alt 면 붙지 않으며, 먼 벽에는 붙지 않는다 [OE-ML-07#2~] [OE-OBJ-15#6~]', () => {
     expect(snapHeading(2.5)).toEqual({ angle: 0, by: '건물 축' })
     expect(snapHeading(268)).toEqual({ angle: 270, by: '건물 축' })
@@ -381,6 +394,45 @@ function tower(): Model {
 }
 const shape = (m: Model, id: string) => verticalObjects(m).find((o) => o.id === id)!.parts.map((p) => [p.storey.id, p.part.footprint.length, !!p.part.entry, !!p.part.exit])
 
+describe('기본 형상으로 만들기 (OE-ML-06 · 2026-10-14)', () => {
+  it('계단·ES 는 시작점과 방위만으로 바로 위층까지의 형상·끝점을 계산하고, 시작/끝 지점이 서로 다른 층·자리에 기록된다 [OE-ML-06#2]', () => {
+    const m = tower()
+    expect(storeyAbove(m, '1F')?.id).toBe('2F')
+    const plan = planFlight(m, 'stair', '1F', [-0.5, 2], 0)
+    if ('refused' in plan) throw new Error(plan.refused)
+    // 층고 4.5m ÷ tan 34° = 6.672m. 폭 1.5m 의 직사각형이 시작점에서 +x 로 뻗는다.
+    expect(plan.to.id).toBe('2F')
+    expect(plan.length).toBeCloseTo(4.5 / Math.tan((34 * Math.PI) / 180), 2)
+    expect(plan.footprint).toEqual([[-0.5, 1.25], [6.172, 1.25], [6.172, 2.75], [-0.5, 2.75]])
+    expect([plan.entry, plan.exit]).toEqual([[-0.5, 2], [6.172, 2]])
+    expect(plan.outside).toBe(false)
+    expect(createVertical(m, { id: 'U_st', kind: 'stair', name: '계단', from: '1F', to: plan.to.id }, new Map([['1F', { footprint: plan.footprint, entry: plan.entry }], ['2F', { exit: plan.exit }]]))).toEqual({ id: 'U_st' })
+    const [low, high] = partsOf(m, 'U_st')
+    expect([low.entry, high.exit]).toEqual([[-0.5, 2, 0], [6.172, 2, 4.5]])
+    // ES 는 30° 라 같은 층고에 더 길다.
+    const es = planFlight(m, 'escalator', '1F', [-0.5, 2], 0)
+    expect('refused' in es ? 0 : es.length).toBeCloseTo(4.5 / Math.tan((VERTICAL_DEFAULTS.escalator.slope * Math.PI) / 180), 2)
+  })
+
+  it('형상이 물리존 밖으로 나가는 방위면 outside 이고, 최상층에서 시작하거나 위층과 높이 차가 없으면 이유와 함께 거절한다 [OE-ML-06#3~,6~]', () => {
+    const m = tower()
+    const up = planFlight(m, 'escalator', '1F', [0, 0], 90)
+    expect('refused' in up ? null : up.outside).toBe(true)
+    expect(planFlight(m, 'stair', '3F', [0, 0], 0)).toEqual({ refused: expect.stringContaining('최상층') })
+    m.storeys[1].elevation = 0
+    expect(planFlight(m, 'stair', '1F', [0, 0], 0)).toEqual({ refused: expect.stringContaining('높이 차가 없어') })
+  })
+
+  it('EL 은 위치 하나에 기본 크기 승강로를 두고 방위만큼 돌리며, 물리존 밖이면 outside 다 [OE-ML-06#1~]', () => {
+    const m = tower()
+    const el = planElevator(m, '1F', [4, 2], 0)
+    expect(el.footprint).toEqual([[2.8, 0.8], [5.2, 0.8], [5.2, 3.2], [2.8, 3.2]])
+    expect(el.outside).toBe(false)
+    expect(planElevator(m, '1F', [4, 2], 45).footprint[0].map((v) => +v.toFixed(2))).toEqual([4, 0.3])
+    expect(planElevator(m, '1F', [20, 20], 0).outside).toBe(true)
+  })
+})
+
 describe('구간 바꾸기 (OE-ML-08)', () => {
   it('같은 층을 양 끝으로 두거나 시작 층이 끝 층보다 위면 바꾸지 않는다', () => {
     const m = tower()
@@ -463,7 +515,7 @@ describe('구간 바꾸기 (OE-ML-08)', () => {
 describe('만들기 (OE-ML-06)', () => {
   const ring: Vec2[] = [[-0.5, 0], [0.5, 0], [0.5, 3], [-0.5, 3]]
 
-  it('계단은 층별로 채워야 만든다 — 시작 층 형상·진입, 끝 층 종료. 이름이 비거나 채울 것이 남으면 이유와 함께 만들지 않는다 [OE-ML-06#1~,3~]', () => {
+  it('계단은 층별로 채워야 만든다 — 시작 층 형상·진입, 끝 층 종료. 이름이 비거나 채울 것이 남으면 이유와 함께 만들지 않는다 [OE-ML-06#2~,6~]', () => {
     const m = tower()
     const before = structuredClone(m.storeys.map((s) => s.verticalParts))
     const plan = planCreate(m, 'stair', '1F', '2F')
@@ -496,7 +548,7 @@ describe('만들기 (OE-ML-06)', () => {
     expect(steps('shaft', new Map([['2F', { footprint: ring }]]))).toEqual(['1F:footprint✓'])
   })
 
-  it('층 높이를 모르거나 구간이 잘못되면 만들지 않는다 [OE-ML-06#3~]', () => {
+  it('층 높이를 모르거나 구간이 잘못되면 만들지 않는다 [OE-ML-06#6~]', () => {
     const m = tower()
     expect(planCreate(m, 'stair', '2F', '1F')).toEqual({ refused: expect.stringContaining('시작 층이 끝 층보다 위') })
     expect(planCreate(m, 'shaft', '1F', '1F')).toEqual({ refused: expect.stringContaining('같은 층') })
@@ -552,7 +604,7 @@ describe('만들기 (OE-ML-06)', () => {
     expect(features.find((f) => f.id === 'stair1')!.properties?.verticalConnects).toContain('stair2')
   })
 
-  it('만든 것은 되돌리기 한 번에 사라지고, 편집 파일로 새로 연 BIM 에 얹으면 같은 오브젝트가 생긴다 [OE-ML-06#4~]', () => {
+  it('만든 것은 되돌리기 한 번에 사라지고, 편집 파일로 새로 연 BIM 에 얹으면 같은 오브젝트가 생긴다 [OE-ML-06#7~]', () => {
     const a = tower()
     const base = baselineOf(a)
     const snap = snapshotVerticals(a)
@@ -650,7 +702,7 @@ describe('에스컬레이터 운행 방향 (OE-ML-11)', () => {
       .filter((f) => f.properties?.kind === 'vertical' && f.properties.parentId === 'U_es')
       .map((f) => f.properties!)
 
-  it('만든 직후 방향은 미확인이고 지어내지 않으며 로봇 통과는 불가다. 상행·하행을 정하면 운행 시작·종료 지점과 함께 GeoJSON 에 나간다 [OE-ML-11#1,4]', () => {
+  it('만든 직후 방향은 미확인이고 지어내지 않으며 로봇 통과는 불가다. 상행·하행을 정하면 운행 시작·종료 지점과 함께 GeoJSON 에 나간다 [OE-ML-11#1,5~]', () => {
     const m = withEscalator()
     expect(esFeatures(m).map((p) => [p.storeyId, p.direction, p.travel, p.passable])).toEqual([
       ['1F', null, undefined, false],
@@ -670,7 +722,7 @@ describe('에스컬레이터 운행 방향 (OE-ML-11)', () => {
     expect(setEscalatorDirection(m, 'st', 'up')).toBe(false)
   })
 
-  it('같은 층을 양 끝으로 두거나, 구간을 줄여 운행 구간이 벗어나면 끝 지점을 다시 정하기 전에는 적용하지 않는다 [OE-ML-11#2,3]', () => {
+  it('같은 층을 양 끝으로 두거나, 구간을 줄여 운행 구간이 벗어나면 끝 지점을 다시 정하기 전에는 적용하지 않는다 [OE-ML-11#3,4]', () => {
     const m = tower()
     expect(createVertical(m, { id: 'U_es', kind: 'escalator', name: 'ES-1', from: '1F', to: '1F' }, new Map())).toEqual({ refused: expect.stringContaining('같은 층') })
     const es = withEscalator()
@@ -683,7 +735,7 @@ describe('에스컬레이터 운행 방향 (OE-ML-11)', () => {
     expect(esFeatures(es).map((p) => p.direction)).toEqual(['up', 'up'])
   })
 
-  it('방향·구간·지점은 되돌리기 한 번에 돌아오고, 편집 파일로 새로 연 모델에 얹어도 같다 [OE-ML-11#5]', () => {
+  it('방향·구간·지점은 되돌리기 한 번에 돌아오고, 편집 파일로 새로 연 모델에 얹어도 같다 [OE-ML-11#7]', () => {
     const base = baselineOf(tower())
     const a = withEscalator()
     const snap = snapshotVerticals(a)

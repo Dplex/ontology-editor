@@ -388,7 +388,7 @@ test('병원 건축: 계단 구간을 지붕층까지 늘리면 2층 형상과 �
   expect(errors).toEqual([])
 })
 
-test('병원 건축: 층 편집의 팔레트 [계단·샤프트] 로 다중층 뷰가 열리고, [그리기 시작] 한 번에 형상 → 진입 → 종료를 차례로 이어 그리며, 그리는 동안 그 층 위는 걷히고, 채운 것에 ✓ 가 붙는다 [OE-ML-06#1~]', async ({ page }) => {
+test('병원 건축: 층 편집의 팔레트 [계단·샤프트] 로 다중층 뷰가 열리고, 시작점을 찍는 동안 그 층 위는 걷히며, 시작점 하나로 위층까지의 계단이 생긴다 [OE-ML-06#2~]', async ({ page }) => {
   test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(240_000)
   const errors: string[] = []
@@ -404,40 +404,25 @@ test('병원 건축: 층 편집의 팔레트 [계단·샤프트] 로 다중층 �
   await expect(page.getByTestId('multi-banner')).toContainText('First Floor ~ Second Floor')
   const form = page.getByTestId('vertical-create')
   await expect(form.getByLabel('만들 종류')).toHaveValue('stair')
-  const steps = page.getByTestId('vertical-create-steps').locator('li')
-  await expect(steps).toHaveText([/First Floor · 형상/, /First Floor · 진입 지점/, /Second Floor · 종료 지점/])
+  await expect(page.getByTestId('vertical-create-to')).toContainText('Second Floor (바로 위층, 자동)')
   const secondParts = async () => (await viewer<string[]>(page, 'verticals')).filter((id) => !id.endsWith(`@${firstId}`)).length
   expect(await secondParts()).toBeGreaterThan(0)
 
   await page.getByTestId('vertical-create-start').click()
-  await expect(steps.nth(0)).toHaveClass(/now/)
-  // 1층을 그리는 동안 2층(판·계단 조각)이 걷힌다.
+  // 1층에 시작점을 찍는 동안 2층(판·계단 조각)이 걷힌다.
   await expect.poll(secondParts).toBe(0)
-  for (const [x, y] of [[-30, 20], [-27, 20], [-27, 24], [-30, 24]]) {
-    const at = await viewer<{ x: number; y: number }>(page, 'point', [x, y, 0])
-    await page.mouse.click(at.x, at.y)
-  }
-  await page.keyboard.press('Enter')
-  // 형상을 마치면 진입 지점을 바로 이어 찍는다.
-  await expect(steps.nth(0)).toHaveClass(/done/)
-  await expect(steps.nth(1)).toHaveClass(/now/)
-  const entry = await viewer<{ x: number; y: number }>(page, 'point', [-28.5, 20.2, 0])
-  await page.mouse.click(entry.x, entry.y)
-  // 끝 층(2층) 종료 지점 — 2층이 다시 보인다.
-  await expect(steps.nth(2)).toHaveClass(/now/)
+  const start = await viewer<{ x: number; y: number }>(page, 'point', [-28.5, 20.2, 0])
+  await page.mouse.click(start.x, start.y)
   await expect.poll(secondParts).toBeGreaterThan(0)
-  const exit = await viewer<{ x: number; y: number }>(page, 'point', [-28.5, 23.8, 4.57])
-  await page.mouse.click(exit.x, exit.y)
-  await expect(steps.filter({ has: page.locator('.step-mark', { hasText: '✓' }) })).toHaveCount(3)
-  await expect(page.getByTestId('vertical-create-plan')).toContainText('다 채웠습니다')
-  await expect(page.getByTestId('vertical-create-start')).toHaveCount(0)
+  await expect(page.getByTestId('vertical-create-point').locator('li').first()).toHaveClass(/done/)
+  await expect(page.getByTestId('vertical-create-length')).toContainText('÷ tan 34°')
   await form.getByRole('button', { name: '만들기', exact: true }).click()
   await expect(page.getByTestId('vertical-picked').locator('h3')).toHaveText('새 계단')
   await expect(page.getByTestId('vertical-picked').getByTestId('vertical-storeys')).toContainText('First Floor → Second Floor')
   expect(errors).toEqual([])
 })
 
-test('병원 건축: 다중층 뷰에서 샤프트를 만들면 한 번 그린 형상이 두 층의 공통 축이 되고, 취소하면 남는 것이 없으며, 되돌리기 한 번에 사라진다 [OE-ML-06#1~,3~,4~]', async ({ page }) => {
+test('병원 건축: 다중층 뷰에서 샤프트를 만들면 한 번 그린 형상이 두 층의 공통 축이 되고, 취소하면 남는 것이 없으며, 되돌리기 한 번에 사라진다 [OE-ML-06#1~,6~,7~]', async ({ page }) => {
   test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(240_000)
   const errors: string[] = []
