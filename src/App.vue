@@ -61,7 +61,7 @@ import { BUILDING, buildingStoreys, joinParts, partSig, splitByStorey, type Home
 import { compareVersions, MATCH_KEY_BY, MATCH_KEY_LABEL, type MatchKey, type VersionDiff } from './lib/versions'
 import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, traceRoutes, TOLERANCE, type Neighbor, type Route } from './lib/topology'
-import { flowIndex, ladder, supplyChain, type Hop, type Step } from './lib/flow-ladder'
+import { flowIndex, ladder, supplyChain, type FlowIndex, type Hop, type Step } from './lib/flow-ladder'
 import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
 import { storeyHeights, type StoreyHeight } from './lib/storey-height'
 import { resetStoreyName, setStoreyName, storeyNamed } from './lib/storey-name'
@@ -95,7 +95,7 @@ import { cascadeWaves, exportedFlows, flowBasis, flowChanges, systemOwns, review
 import { clueText, familyClues as computeFamilyClues, type FamilyClue } from './lib/family-clues'
 import { LAYA_MIN, LAYA_SURE, layaKinds, layaStatus, newEquipmentText, type LayaPick, type LayaResult, type LayaStatus } from './lib/laya'
 import { candidateText, systemCandidates } from './lib/system-suggest'
-import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveEquipmentKind, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
+import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, type FlowPart, type Medium, FLUIDS, fluidInfo, ifcClassLabel, resolveEquipmentKind, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
 import { classOf, escapeLocalName, modelToTTL } from './lib/export/ttl'
@@ -3867,7 +3867,12 @@ const flowIdx = computed(() => {
   const m = model.value
   if (!m) return null
   const connections = withInferred(m.connections, !(showRules.value && hasRules.value))
-  return flowIndex(connections, conduitId, (x) => equipmentById.value.get(x)?.systemId ?? null)
+  // 관 중간의 부속(댐퍼·소음기·밸브)은 관처럼 지나간다(kinds.ts 의 inline). 성수 공조기의 보내는 곳이 덕트 부속만 늘어선 줄이었다.
+  // Revit 이 가지마다 쪼갠 같은 종류의 계통(급기·급기)은 이어 간다(kindOf).
+  return flowIndex(connections, conduitId, (x) => equipmentById.value.get(x)?.systemId ?? null, {
+    inline: (x) => !!equipmentKind(equipmentById.value.get(x)?.kind)?.inline,
+    kindOf: (x) => systemById.value.get(x)?.kind,
+  })
 })
 /** 공급 쪽 계통(급기·외기·순환수 공급처럼 원천에서 말단으로 보내는 것)이거나 기기끼리 바로 붙은 연결. 공급 사슬이 이것만 탄다. */
 const isSupplySystem = (id: string | null) => id === null || systemKind(systemById.value.get(id)?.kind)?.sense === 'out'
@@ -3932,6 +3937,9 @@ function viaLabel(systems: (string | null)[]): { label: string; title: string } 
   const title = [...new Set(systems.filter((x): x is string => x !== null).map((x) => systemById.value.get(x)?.name || x))].join(', ')
   return { label, title }
 }
+/** 보기 모드에서 흐름 카드 아래의 근거(규칙 방향·직접 연결·경로)를 접는다. 한 번 펴면 다른 설비를 골라도 편 채로 둔다. */
+const foldDetail = computed(() => !editing.value && !!flowMap.value)
+const detailOpen = ref(false)
 const flowMap = pausedInReplay(() => {
   const m = model.value
   const id = selectedId.value
@@ -4003,8 +4011,45 @@ const flowMap = pausedInReplay(() => {
     const v = viaLabel([...new Set(loose.map((h) => h.systemId))])
     lines.push({ key: '방향 모름', head: '방향 모름', parts: [{ kind: 'chips', tone: 'linked', chips: chipsOf('unknown', [...new Set(loose.map((h) => h.id))]) }, { kind: 'tag', label: v.label, title: v.title }] })
   }
-  return { lines, quiet, summary: flowSentence(chain.up[0]?.ids ?? [], chain.down.flatMap((st) => st.ids), rooms.length) }
+  return { lines, quiet, gaps: flowGaps(idx, id), summary: flowSentence(chain.up[0]?.ids ?? [], chain.down.flatMap((st) => st.ids), rooms.length) }
 })
+/**
+ * 받는 곳·보내는 곳이 비었을 때 그 까닭 한 줄. 줄이 없으면 보는 사람은 "덕트만 보인다" 로 읽었다(성수 FCU·6층 공조기).
+ * 종류가 말하는 흐름 자리(kinds.ts 의 flow)마다 본다 — FCU 는 물을 받고(sink) 공기를 보낸다(source). 그 매체의 관이 아예 안 붙은
+ * 설비는 말하지 않는다(덕트 없이 방에 놓인 카세트형 등). 보는 범위는 흐름 카드와 같다 — 관을 지나 처음 닿는 설비.
+ */
+const MEDIUM_PIPE: Record<Medium, string> = { air: '덕트', water: '배관', refrigerant: '냉매 배관' }
+function flowGaps(idx: FlowIndex, id: string): string[] {
+  const info = equipmentKind(equipmentById.value.get(id)?.kind)
+  if (!info) return []
+  const mediumOf = (systemId: string | null) => (systemId ? systemKind(systemById.value.get(systemId)?.kind)?.medium : undefined)
+  const next = idx.next(id)
+  const gaps: string[] = []
+  for (const [medium, part] of Object.entries(info.flow) as [Medium, FlowPart][]) {
+    if (part === 'through' || medium === 'refrigerant') continue
+    const has = (hops: Hop[]) => hops.filter((h) => mediumOf(h.systemId) === medium)
+    if (!idx.systemsOf(id).some((k) => mediumOf(k) === medium)) continue
+    const want = part === 'sink' ? 'up' : 'down'
+    if (has(next[want]).length) continue
+    const head = part === 'sink' ? '받는 곳' : '보내는 곳'
+    const pipe = MEDIUM_PIPE[medium]
+    // 반대 자리의 설비. 물을 받는 FCU 에게는 물을 보내는 설비(열원·펌프)가 받는 곳이다.
+    const other = part === 'sink' ? 'source' : 'sink'
+    const loose = [...new Set(has(next.unknown).map((h) => h.id))]
+    const fits = loose.filter((x) => equipmentKind(equipmentById.value.get(x)?.kind)?.flow[medium] === other)
+    const whom = part === 'sink' ? (medium === 'air' ? '공조기·팬' : '열원·펌프') : medium === 'air' ? '디퓨저·그릴' : '물을 받는 설비'
+    if (fits.length) {
+      const kinds = new Map<string, number>()
+      for (const x of fits) {
+        const label = whatIs(equipmentById.value.get(x))?.label ?? '종류 모름'
+        kinds.set(label, (kinds.get(label) ?? 0) + 1)
+      }
+      gaps.push(`${head}: ${pipe} 방향이 정해지지 않았습니다. 방향 모름 줄에 ${head} 후보가 있습니다(${kindsText([...kinds].sort((a, b) => b[1] - a[1]))}).`)
+    } else if (loose.length) gaps.push(`${head}: ${pipe}${josa(pipe, '을/를')} 따라 바로 닿는 설비 ${loose.length}대 중에 ${whom}${josa(whom, '이/가')} 없습니다.`)
+    else gaps.push(`${head}: ${pipe}${josa(pipe, '이/가')} 다른 설비까지 이어지지 않습니다.`)
+  }
+  return gaps
+}
 /** `냉동기 1대에서 받아 VAV 54대·디퓨저 143대로 보냅니다(방 124곳)`. 받는 쪽은 바로 위 단계만, 보내는 쪽은 사슬 끝까지 센다. */
 function flowSentence(from: string[], to: string[], rooms: number): string {
   const count = (ids: string[]) => {
@@ -11947,6 +11992,11 @@ function rollbackFromReport() {
               흐름
               <span class="muted">덕트·배관은 건너뛰고 설비만 잇습니다<template v-if="showRules && hasRules">(규칙 방향 포함 <Src kind="dict" />)</template>. 화살표 위 글은 거쳐 간 계통입니다.</span>
             </h4>
+            <!-- 근거 칸을 접은 동안 규칙 방향 토글은 여기 둔다. 이 카드의 줄을 바꾸는 손잡이라 접힌 칸 안에 두면 보기 모드에서 끌 수 없다. -->
+            <label v-if="foldDetail && tracedRules" class="rule-toggle flow-rule-toggle">
+              <input v-model="showRules" type="checkbox" />
+              규칙 방향 포함 <span class="muted">(3D에도 표시)</span>
+            </label>
             <FlowLadder v-if="flowMap.lines.length" :lines="flowMap.lines" :open="flowOpen?.key ?? null" :describe="describeFlow" @toggle="flowOpen = $event" @pick="pickFlow">
               <template #note>
                 <p v-if="flowOpenAway" class="ladder-away">
@@ -11958,6 +12008,8 @@ function rollbackFromReport() {
             <p v-else class="muted flow-none">덕트·배관 너머로 이어진 설비가 없습니다.</p>
             <!-- Revit 은 급기 계통을 가지마다 쪼개서, 관이 다른 계통으로 이어질 수 있다. 끊겼다고 단정하지 않고 몇 개인지만 적는다. -->
             <p v-if="flowMap.quiet.length" class="muted flow-quiet" :title="flowMap.quiet.join(', ')">설비로 이어지지 않는 계통 {{ flowMap.quiet.length }}개</p>
+            <!-- 받는 곳·보내는 곳이 빈 까닭. 줄이 없으면 "덕트만 보인다" 로 읽혔다. -->
+            <p v-for="g in flowMap.gaps" :key="g" class="flow-gap" data-testid="flow-gap">{{ g }}</p>
           </div>
 
           <ul v-else class="flow">
@@ -11973,6 +12025,12 @@ function rollbackFromReport() {
             </li>
           </ul>
 
+          <!-- 보기 모드에서 흐름 카드가 답하면, 그 근거(규칙 방향·직접 연결·경로)는 접는다. 성수 FCU 패널이 1,650px 이었고 답(흐름 카드)
+               아래로 검증용 숫자가 이어져 무엇을 봐야 할지 몰랐다. 편집 모드는 여기서 방향을 정하므로 펼친 그대로다. -->
+          <component :is="foldDetail ? 'details' : 'div'" :class="foldDetail ? 'picked-more' : 'picked-more-flat'" :open="foldDetail ? detailOpen : undefined" data-testid="picked-more" @toggle="foldDetail && (detailOpen = ($event.target as HTMLDetailsElement).open)">
+          <summary v-if="foldDetail" class="picked-sub">
+            연결·방향 자세히 <span class="muted">직접 연결 {{ selectedNeighbors.length }} · 방향 근거 · 경로</span>
+          </summary>
           <!-- 규칙 방향. 위 숫자는 BIM 포트가 말한 것만이고, 여기부터가 계통·설비 종류로 정한 것이다. -->
           <div v-if="tracedRules" class="rule-box">
             <p>
@@ -11980,7 +12038,7 @@ function rollbackFromReport() {
               포함하면 상류 <b>{{ tracedRules.upstream.size }}</b> · 하류 <b>{{ tracedRules.downstream.size }}</b> ·
               방향 모름 <b>{{ tracedRules.linked.size }}</b>
               <template v-if="tracedRules.linked.size">(그중 기기 {{ deviceCount(tracedRules.linked) }})</template>
-              <label class="rule-toggle">
+              <label v-if="!foldDetail" class="rule-toggle">
                 <input v-model="showRules" type="checkbox" />
                 3D에 규칙 방향 표시
               </label>
@@ -12224,10 +12282,12 @@ function rollbackFromReport() {
               <li v-if="routeView.moreLooped" class="muted">순환 위 외 {{ routeView.moreLooped }}개</li>
             </ul>
           </details>
+          </component>
 
           <!-- 정격 풍량(OE-ZON-06). BIM 용량이 풍량이면 CMH 로 바꾼 값이고 고치지 않는다. 없으면 편집 모드에서 사람이 넣는다.
-               용량 검증 Z-03 의 판정 대상(VAV·FCU·실내기·공조기)이거나 값이 있는 설비에만 보인다. -->
-          <div v-if="selected.ratedAirflow || CAPACITY_CHECK_KINDS.has(selected.kind ?? '')" class="rated-airflow" data-testid="rated-airflow">
+               값이 있는 설비, 그리고 편집 모드에서는 용량 검증 Z-03 의 판정 대상(VAV·FCU·실내기·공조기)에도 보인다. 보기 모드의 "없음" 줄은
+               넣을 수 없는 자리라 패널만 길게 했다. -->
+          <div v-if="selected.ratedAirflow || (editing && CAPACITY_CHECK_KINDS.has(selected.kind ?? ''))" class="rated-airflow" data-testid="rated-airflow">
             <h4 class="picked-sub">
               정격 풍량
               <template v-if="selected.ratedAirflow?.source === 'bim'">

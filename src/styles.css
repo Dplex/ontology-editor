@@ -2973,6 +2973,35 @@ th {
   cursor: pointer;
 }
 
+/* 보기 모드에서 흐름 카드 아래 근거를 접은 칸. 편집 모드는 감싸는 상자 없이 그대로 흐른다. */
+.picked-more {
+  margin-top: 1rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.6rem;
+}
+
+.picked-more > summary {
+  cursor: pointer;
+  margin-top: 0;
+}
+
+.picked-more-flat {
+  display: contents;
+}
+
+.flow-rule-toggle {
+  display: block;
+  margin: -0.2rem 0 0.4rem;
+  font-size: 0.78rem;
+}
+
+/* 받는 곳·보내는 곳이 빈 까닭 한 줄. */
+.flow-gap {
+  margin: 0.3rem 0 0;
+  font-size: 0.8rem;
+  color: var(--warn-fg);
+}
+
 /* 흐름 경로(OE-ML-16): 원천·도달 한 줄씩. 길은 이름 뒤에 작게. */
 .route-list {
   margin: 0;
