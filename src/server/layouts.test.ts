@@ -59,6 +59,9 @@ describe('반영한 레이아웃과 버전', () => {
     expect(r.status).toBe(200)
     expect(await r.json()).toEqual({
       version: 1,
+      base: null,
+      work: expect.stringMatching(/^w/),
+      paths: [KEY],
       at: '2026-10-09T10:00:00.000Z',
       by: '정희록',
       floors: ['1F'],
@@ -133,6 +136,21 @@ describe('반영한 레이아웃과 버전', () => {
     expect((await fetch(url({ key: KEY, stage: 'stage0001', file: 'geojson/../../x.geojson' }), { method: 'PUT', body: 'x' })).status).toBe(400)
     expect((await fetch(url({ key: KEY, v: '1', file: '../key.json' }))).status).toBe(404)
   })
+
+  it('v1 과 이후 반영 버전은 같은 메타 칸을 쓰고, 반영 버전은 기준 버전과 화면이 보낸 작업 id 를 적는다 [OE-GEN-05#3] [OE-GEN-05#1~]', async () => {
+    // 앞 시험이 시계를 며칠 뒤로 돌려 두었다. 그대로면 방금 올린 판을 하루 넘게 묵은 판으로 보고 치운다.
+    clock = new Date()
+    const before = (await list()).current
+    const stage = 'stagework01'
+    for (const [file, body] of Object.entries({ 'ontology.ttl': '# w', 'edits.json': '{}', 'tree.json': '{"storeys":[]}', 'geojson/1F.geojson': '{"type":"FeatureCollection","features":[]}' }))
+      await fetch(url({ key: KEY, stage, file }), { method: 'PUT', body })
+    const r = await fetch(url({ key: KEY, stage, publish: '' }), { method: 'POST', body: JSON.stringify({ by: '정희록', floors: ['1F'], summary: {}, work: 'multi1' }) })
+    const meta = await r.json()
+    expect(meta).toMatchObject({ base: before, work: 'multi1', paths: [KEY] })
+    const { versions } = await list()
+    const v1 = versions.find((v) => v.version === 1)!
+    expect(Object.keys(meta).filter((k) => k !== 'shared').sort()).toEqual(Object.keys(v1).filter((k) => k !== 'shared').sort())
+  })
 })
 
 describe('Windows 에서 폴더 옮기기가 잠깐 막힐 때', () => {
@@ -179,4 +197,5 @@ describe('Windows 에서 폴더 옮기기가 잠깐 막힐 때', () => {
       rmSync(dir, { recursive: true, force: true })
     }
   })
+
 })
