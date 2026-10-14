@@ -4,12 +4,12 @@ import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
 import { addWall, baselineOf, moveEquipment, renameSpace, renameSystem } from './edit'
-import { applyEdits, exportEdits } from './edit-file'
+import { applyEdits, exportEdits, type EditFile } from './edit-file'
 import { inferFlowByRules } from './flow-rules'
 import { modelToGeoJSON } from './export/geojson'
 import { modelToTTL } from './export/ttl'
 import type { Model } from './model'
-import { BUILDING, joinParts, partSig, splitByStorey, type HomeOf } from './storey-drafts'
+import { BUILDING, buildingStoreys, joinParts, partSig, splitByStorey, type HomeOf } from './storey-drafts'
 
 // 층마다 임시 저장본 하나(OE-COM-08). mep.ifc 1층에 2층을 하나 더 두고, 두 층과 건물(계통)에 편집을 하나씩 한다.
 
@@ -86,5 +86,22 @@ describe('층별 임시 저장본 (OE-COM-08)', () => {
     renameSpace(m, m.storeys[0].spaces[0].id, '다시 바꾼 이름')
     const again = splitByStorey(exportEdits(m, baselineOf(open()), 'mep.ifc'), home).get('up')!
     expect(partSig(again)).toBe(partSig(a))
+  })
+})
+
+describe('건물 조각의 영향 층 (OE-HIST-03 작업)', () => {
+  const part = (rows: Partial<EditFile>): EditFile => ({ format: 'x', version: 1, source: 'a.ifc', savedAt: '', equipment: [], spaces: [], kinds: [], flows: [], confirmedSystems: [], ...rows }) as EditFile
+  const storeyOf: HomeOf = (id) => ({ A: '1F', B: '1F', C: '2F' })[id] ?? null
+
+  it('바뀐 잇기·해제·방향 줄의 양 끝 층을 모으고, 그대로인 줄과 층을 모르는 것은 뺀다', () => {
+    const before = part({ connections: { add: [{ from: 'A', to: 'B' }], remove: [] }, kinds: [{ key: 'k', kind: 'ahu' }] as never })
+    const after = part({
+      connections: { add: [{ from: 'A', to: 'B' }], remove: [] },
+      connectionsReleased: [{ from: 'B', to: 'C', directed: true, at: 't', reason: 'r' }],
+      kinds: [{ key: 'k2', kind: 'fan' }] as never,
+    })
+    expect(buildingStoreys(before, after, storeyOf).sort()).toEqual(['1F', '2F'])
+    expect(buildingStoreys(after, after, storeyOf)).toEqual([])
+    expect(buildingStoreys(undefined, part({ flows: [{ from: 'C', to: 'X' }] }), storeyOf)).toEqual(['2F'])
   })
 })

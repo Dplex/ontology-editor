@@ -16,7 +16,7 @@
 //   GET  ?key=K                           { current, versions: [meta…] } — 최근 7일(OE-WF-20)과 현재 버전, 새것부터
 //   GET  ?key=K&v=N&file=F                그 버전의 파일
 //   PUT  ?key=K&stage=S&file=F            올리는 판에 파일 하나(몸통 그대로)
-//   POST ?key=K&stage=S&publish           몸통 { by, floors, summary } → 새 버전(meta)
+//   POST ?key=K&stage=S&publish           몸통 { by, floors, summary, work } → 새 버전(meta)
 //   POST ?key=K&rollback=N                몸통 { by } → 그 버전을 새 버전으로 다시 반영(OE-WF-19)
 import { createHash, randomBytes } from 'node:crypto'
 import { copyFileSync, createReadStream, createWriteStream, existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -31,8 +31,16 @@ const MAX_BYTES = 1024 * 1024 * 1024
 /** 반영에 꼭 있어야 하는 파일. 하나라도 없으면 반영하지 않는다(TTL 만 바뀌고 GeoJSON 은 옛것인 상태를 만들지 않는다). */
 export const REQUIRED = ['ontology.ttl', 'edits.json', 'tree.json'] as const
 
+// 버전 메타는 첫 구축(v1)과 이후 반영이 같은 칸을 쓴다(OE-GEN-05 AC3): 버전 번호·기준 버전·작업 ID·영향 건물(연 파일)·층·일시·사용자·
+// 파일(산출물·report.json)·요약. v1 의 요약은 화면이 구축 요약으로 채운다.
 export type VersionMeta = {
   version: number
+  /** 기준 버전 — 이 버전을 반영할 때 반영돼 있던 버전. 첫 버전(v1)은 null. 아래 세 칸은 생기기 전의 버전에는 없다. */
+  base?: number | null
+  /** 이 버전을 만든 작업 id(saved-edits.ts 의 Work 와 같은 id). 화면이 안 보냈으면 반영 하나를 작업 하나로 지어 둔다. */
+  work?: string
+  /** 영향 건물 — 이 버전을 만든 모델의 data/ 경로(연 순서). */
+  paths?: string[]
   /** 반영 일시(ISO). */
   at: string
   /** 반영자. */
@@ -186,11 +194,11 @@ export function layouts(root: string, options: LayoutOptions = {}) {
     rmSync(stage, { recursive: true, force: true })
   }
   /** 올린 판(또는 옛 버전을 베낀 판)을 새 버전으로 넣는다. 번호가 겹치면(동시에 둘이 반영) 다음 번호로 다시 한다. */
-  async function commit(dir: string, stage: string, meta: Omit<VersionMeta, 'version' | 'files' | 'hashes' | 'shared'>): Promise<VersionMeta> {
+  async function commit(dir: string, stage: string, meta: Omit<VersionMeta, 'version' | 'base' | 'files' | 'hashes' | 'shared'>): Promise<VersionMeta> {
     const { hashes, shared } = await dedupe(dir, stage)
     for (let tries = 0; tries < 5; tries++) {
       const version = (versionsOf(dir)[0]?.version ?? 0) + 1
-      const full: VersionMeta = { version, ...meta, files: filesIn(stage).sort(), hashes, ...(shared.length ? { shared } : {}) }
+      const full: VersionMeta = { version, base: current(dir), ...meta, files: filesIn(stage).sort(), hashes, ...(shared.length ? { shared } : {}) }
       writeFileSync(join(stage, 'meta.json'), JSON.stringify(full, null, 2))
       const target = join(dir, `v${version}`)
       if (existsSync(target)) continue
@@ -292,7 +300,8 @@ export function layouts(root: string, options: LayoutOptions = {}) {
 
     readBody(req)
       .then(async (text) => {
-        const body = (text ? JSON.parse(text) : {}) as { by?: string; floors?: string[]; summary?: Record<string, unknown> }
+        const body = (text ? JSON.parse(text) : {}) as { by?: string; floors?: string[]; summary?: Record<string, unknown>; work?: string }
+        const work = typeof body.work === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(body.work) ? body.work : `w${now().getTime().toString(36)}${randomBytes(3).toString('hex')}`
         const by = (writer.name || body.by || '').trim()
         if (!by) return json(res, 400, { error: '반영자가 없습니다' })
         mkdirSync(dir, { recursive: true })
@@ -311,7 +320,7 @@ export function layouts(root: string, options: LayoutOptions = {}) {
           const missing = REQUIRED.filter((f) => !have.includes(f))
           if (!have.some((f) => f.startsWith('geojson/'))) missing.push('geojson/*.geojson' as never)
           if (missing.length) return json(res, 400, { error: `반영하지 않았습니다 — 빠진 파일: ${missing.join(', ')}. 지금 반영된 버전은 그대로입니다.` })
-          const meta = await commit(dir, at, { at: now().toISOString(), by, floors: body.floors ?? [], summary: body.summary ?? {}, kind: 'publish' })
+          const meta = await commit(dir, at, { at: now().toISOString(), by, work, paths, floors: body.floors ?? [], summary: body.summary ?? {}, kind: 'publish' })
           options.onVersion?.({ type: 'publish', user: by, key, floors: meta.floors, version: meta.version })
           return json(res, 200, meta)
         }
@@ -325,7 +334,7 @@ export function layouts(root: string, options: LayoutOptions = {}) {
           const at = join(dir, `.stage-rb${randomBytes(6).toString('hex')}`)
           // 옛 버전의 파일을 링크한다(복사하지 않는다). 해시가 같아 dedupe 가 shared 로 센다.
           for (const f of old.files) linkOrCopy(join(dir, `v${from}`, f), join(at, f))
-          const meta = await commit(dir, at, { at: now().toISOString(), by, floors: old.floors, summary: old.summary, kind: 'rollback', from })
+          const meta = await commit(dir, at, { at: now().toISOString(), by, work, paths, floors: old.floors, summary: old.summary, kind: 'rollback', from })
           options.onVersion?.({ type: 'rollback', user: by, key, floors: meta.floors, version: meta.version })
           return json(res, 200, meta)
         }
