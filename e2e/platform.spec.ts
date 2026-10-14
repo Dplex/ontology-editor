@@ -1,4 +1,10 @@
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { test, expect } from '@playwright/test'
+
+// PRD 티켓 수는 PM 이 티켓을 더하면 바뀐다. 화면(src/platform/catalog.ts)과 같은 규칙(docs/prd/features/**/OE-*.md)으로 센다.
+const prdTickets = (dir = 'docs/prd/features'): number =>
+  readdirSync(dir, { withFileTypes: true }).reduce((n, d) => n + (d.isDirectory() ? prdTickets(join(dir, d.name)) : /^OE-.*\.md$/.test(d.name) ? 1 : 0), 0)
 
 test('platform: dashboard, PRD catalog and automatic mode branching', async ({ page }) => {
   const errors:string[]=[]
@@ -13,7 +19,7 @@ test('platform: dashboard, PRD catalog and automatic mode branching', async ({ p
   await page.screenshot({path:'.local/platform-editor.png',fullPage:true})
   await page.getByRole('button',{name:'편집 종료',exact:true}).click()
   await page.getByRole('button',{name:'요구사항 탐색',exact:false}).click()
-  await expect(page.locator('.ticket-list>button')).toHaveCount(250)
+  await expect(page.locator('.ticket-list>button')).toHaveCount(prdTickets())
   await page.getByRole('textbox',{name:'요구사항 검색'}).fill('OE-UI-04')
   await expect(page.locator('.ticket-list>button')).toHaveCount(1)
   await page.locator('.ticket-list>button').click()

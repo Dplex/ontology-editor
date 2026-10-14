@@ -1,14 +1,14 @@
 ---
 id: "ADR-0053"
-title: "PDF 도면 배경은 브라우저에서 pdf.js 로 한 쪽을 PNG 로 그려 이미지 배경과 같은 길로 깔고, 쪽을 바꿔도 종이 위 축척을 이어 쓴다"
+title: "PDF 도면 배경은 브라우저에서 pdf.js 로 한 쪽을 PNG 로 그려 이미지 배경과 같은 길로 깔고, 쪽을 바꿔도 종이 위 축척을 이어 쓴다. DWG 는 서버가 LibreDWG·ezdxf 로 PNG 로 바꾸고 도면 단위로 실제 크기에 깐다"
 status: "제안"
 date: "2026-10-12"
 deciders: []
 prd: []
 tickets: ["OE-MAN-02"]
 criteria: ["OE-MAN-02#1"]
-code: ["src/lib/pdf-page.ts", "src/lib/background.ts", "src/App.vue", "scripts/serve.mjs"]
-tests: ["src/lib/background.test.ts", "e2e/background.spec.ts"]
+code: ["src/lib/pdf-page.ts", "src/lib/background.ts", "src/App.vue", "scripts/serve.mjs", "src/server/dwg.ts", "scripts/dwg2png.py"]
+tests: ["src/lib/background.test.ts", "e2e/background.spec.ts", "src/server/dwg.test.ts"]
 related: []
 ---
 
@@ -31,15 +31,23 @@ OE-MAN-02 는 준공 도면(PDF·DWG)을 평면도 배경으로 깐다. PR #444 
 - **`serve.mjs` 가 `.mjs` 를 JavaScript 로 준다.** pdf.js 워커가 `.mjs` 로 빌드되는데, 모듈 워커는 JavaScript 타입이 아니면 브라우저가
   실행하지 않는다. 이 줄이 없으면 55(8084)에서는 PDF 가 열리지 않았다("Strict MIME type checking is enforced for module scripts")
 
+- **DWG 는 서버가 PNG 로 바꾼다(2026-10-14 더함).** 브라우저에는 DWG 를 읽는 것이 없어 FBX 처럼 8084 가 바꾼다(`src/server/dwg.ts`). LibreDWG 의
+  `dwg2dxf` 로 DXF 를 만들고 파이썬 ezdxf 로 긴 변 4096px 로 그린다(`scripts/dwg2png.py`). LibreDWG 의 `dwg2SVG` 는 그림 범위를 잘못 잡아 샘플이
+  빈 화면이 되어 쓰지 않는다. 그릴 범위는 개체 중심의 2~98% 다 — 멀리 떨어진 선 하나에 범위가 끌려가 도면이 점이 되지 않게 한다.
+  서버가 그림이 덮는 도면 좌표와 단위($INSUNITS)를 함께 주면, 화면은 단위로 실제 크기를 맞추고 도면 좌표가 건물 범위와 겹치면 그 자리에 둔다
+  (`dwgBackground`) — 같은 Revit 프로젝트에서 낸 DWG 는 BIM 과 좌표가 같다. 단위를 모르면 PNG 와 같이 건물 너비에 맞춘다
+
 ## 고려한 다른 길
 
 - 서버에서 PDF 를 이미지로 바꾸기: 배경은 브라우저 탭에만 있는 작업 보조라 서버가 할 일이 없다. 서버 없이 띄운 dev 화면에서도 된다
 - 쪽마다 처음처럼 건물 너비에 맞춰 다시 깔기: 맞춘 스케일을 쪽마다 다시 맞춰야 한다
+- DWG 를 브라우저에서 읽기(LibreDWG 를 WebAssembly 로): GPL 라이브러리가 앱 번들에 들어가고, 번들이 수 MB 늘어난다. 서버에서 별도 프로세스로 돌리면 앱과 섞이지 않는다
+- DWG 를 ODA File Converter 로 바꾸기: 무료지만 배포 조건이 있는 상용 도구라 55 에 두지 않았다
 
 ## 결과
 
-- PNG·JPG·PDF 를 같은 칸에서 고른다. DWG 는 여전히 PDF 나 이미지로 내보낸 뒤 고른다. 브라우저만으로는 DWG 를 읽을 수 없어 변환
-  서버가 필요하다(#118 코멘트)
+- PNG·JPG·PDF·DWG 를 같은 칸에서 고른다. DWG 는 변환기가 있는 서버(55, 깔기는 `docs/dev/deploy55.md`)에서만 받고, 없으면 칸의 안내가 까닭을 말한다
 - PDF 도 배경은 온톨로지·편집 파일에 나가지 않고 이 탭에만 있다. 다시 열면 다시 깐다
 - 되돌리려면: `pickBackground` 의 PDF 갈래·`pickPdfBackground`·`setBackgroundPage`·[쪽] 칸을 지우고 `src/lib/pdf-page.ts`, `pdfjs-dist`
-  의존성, `serve.mjs` 의 `.mjs` 줄을 지운다. 이미지 도면은 그대로다
+  의존성, `serve.mjs` 의 `.mjs` 줄을 지운다. 이미지 도면은 그대로다. DWG 를 빼려면 `pickDwgBackground`·`src/server/dwg.ts`·`scripts/dwg2png.py` 와
+  `data-catalog.ts`·`serve.mjs` 의 `__dwg` 줄을 지운다

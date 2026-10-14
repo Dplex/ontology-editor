@@ -109,11 +109,15 @@ export type FlowBasis = {
 }
 
 /**
- * 한 계통의 흐름 방향 근거. 연결은 규칙 계통이 이 계통인 것과, 규칙이 없고 한쪽 끝이 이 계통의 구성원인 것이다. 다른 계통의 규칙이
- * 구성원에 닿은 연결은 그 계통에서 센다 — 계통별 확정 표의 "규칙 방향" 수와 같게.
+ * 연결이 이 계통의 것인가. 규칙 계통이 이 계통인 것과, 규칙이 없고 한쪽 끝이 이 계통의 구성원인 것이다. 다른 계통의 규칙이
+ * 구성원에 닿은 연결은 그 계통에서 센다 — 계통별 확정 표의 "규칙 방향" 수와 같게. 3D 의 흐르는 빛(App.vue)도 이것으로 고른다.
  */
+export const systemOwns = (c: Connection, systemId: string, members: ReadonlySet<string>): boolean =>
+  c.inferred ? c.inferred.systemId === systemId : members.has(c.from) || members.has(c.to)
+
+/** 한 계통의 흐름 방향 근거. 연결은 `systemOwns` 로 고른다. */
 export function flowBasis(model: Model, systemId: string, members: ReadonlySet<string>, review: ReadonlySet<string> = reviewKeys(model)): FlowBasis {
-  const own = model.connections.filter((c) => (c.inferred ? c.inferred.systemId === systemId : members.has(c.from) || members.has(c.to)))
+  const own = model.connections.filter((c) => systemOwns(c, systemId, members))
   const basis: FlowBasis = { total: own.length, bim: 0, rule: 0, ruleConfirmed: 0, ruleRecheck: 0, edited: 0, unknown: 0, review: 0, feeds: 0 }
   for (const c of own) {
     if (c.directed) basis.bim++

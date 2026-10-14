@@ -34,6 +34,8 @@ export type Change = {
   toSpaceId: string | null
   /** 사람이 읽을 문장. 검토 화면이 그대로 보여 준다. */
   summary: string
+  /** 옮겨서 담당 설비에서 빠진 공조존 이름(OE-EQP-09). 다시 지정하기 전까지 Z-04 대상이다. */
+  servedReleased?: string[]
 }
 
 /**
@@ -131,6 +133,7 @@ export function moveEquipment(model: Model, equipmentId: string, to: Vec3): Chan
   dropSpaceSet(equipment)
   reassignStoreyOf(model, equipment)
   const toSpaceId = equipment.spaceId
+  const released = fromSpaceId !== toSpaceId ? releaseServedBy(model, equipment) : []
 
   return {
     equipmentId,
@@ -138,10 +141,48 @@ export function moveEquipment(model: Model, equipmentId: string, to: Vec3): Chan
     fromSpaceId,
     toSpaceId,
     summary:
-      fromSpaceId === toSpaceId
+      (fromSpaceId === toSpaceId
         ? `${equipment.name}: 위치만 바뀌었고 소속은 ${spaceLabel(model, toSpaceId)} 그대로입니다.`
-        : `${equipment.name}: 소속이 ${spaceLabel(model, fromSpaceId)} 에서 ${spaceLabel(model, toSpaceId)} 로 바뀝니다.`,
+        : `${equipment.name}: 소속이 ${spaceLabel(model, fromSpaceId)} 에서 ${spaceLabel(model, toSpaceId)} 로 바뀝니다.`) + servedText(released),
+    ...(released.length ? { servedReleased: released } : {}),
   }
+}
+
+// --- 옮긴 공조기·PAC 의 담당 공조존 (OE-EQP-09) ----------------------------------------------
+//
+// 공조기·패키지 에어컨은 덕트로 멀리 있는 공조존을 담당해서, 설비가 공조존 밖에 있는 것이 정상이다(실내기의 Z-06 과 다르다).
+// 그래서 "공조존 밖으로 나갔나" 로는 담당이 아직 맞는지 알 수 없다. 다른 물리존이나 다른 층으로 옮기면 덕트도 다시 깔아야 하는
+// 다른 자리라 담당을 비우고, 사람이 다시 지정할 때까지 그 공조존을 Z-04(담당 설비 없음)로 둔다. 같은 방 안에서 자리만 다듬으면
+// 담당은 그대로다(2026-10-14 사용자 결정). IDF 가 준 공조존은 고치지 않는 것이라 건드리지 않는다.
+
+/** 옮기면 담당 공조존을 다시 지정해야 하는 종류. */
+export const SERVED_RESET_KINDS: ReadonlySet<string> = new Set(['ahu', 'pac'])
+
+/** 이 설비를 사람이 만든 공조존의 담당 설비에서 뺀다. 뺀 공조존 이름을 돌려준다. */
+function releaseServedBy(model: Model, equipment: Equipment): string[] {
+  if (!SERVED_RESET_KINDS.has(equipment.kind ?? '')) return []
+  const names: string[] = []
+  for (const storey of model.storeys) {
+    for (const zone of storey.hvacZones ?? []) {
+      if (!zone.servedBy?.includes(equipment.id)) continue
+      zone.servedBy = zone.servedBy.filter((id) => id !== equipment.id)
+      names.push(zone.name)
+    }
+  }
+  return names
+}
+
+/** 옮기기 전에 받아 둘 공조존 목록. 옮기면 담당에서 빠질 수 있는 층만이다(되돌리기). */
+export function snapshotServedZones(model: Model, equipmentId: string): Snapshot[] {
+  const equipment = findEquipment(model, equipmentId)
+  if (!equipment || !SERVED_RESET_KINDS.has(equipment.kind ?? '')) return []
+  return model.storeys
+    .filter((s) => s.hvacZones?.some((z) => z.servedBy?.includes(equipmentId)))
+    .flatMap((s) => snapshotHvacZones(model, s.id) ?? [])
+}
+
+function servedText(names: readonly string[]): string {
+  return names.length ? ` 담당하던 공조존(${names.join(', ')})에서 빠졌습니다. 담당 공조존을 다시 지정하세요.` : ''
 }
 
 // --- 배관이 설비를 따라온다 (PRD #13 "이동(연결 배관 함께)") ---------------------------------
@@ -398,13 +439,15 @@ export function moveEquipmentToStorey(model: Model, equipmentId: string, storeyI
 
   const fromSpaceId = equipment.spaceId
   assignEquipment(equipment, target.spaces)
+  const released = source !== target ? releaseServedBy(model, equipment) : []
 
   return {
     equipmentId,
     equipmentName: equipment.name,
     fromSpaceId,
     toSpaceId: equipment.spaceId,
-    summary: `${equipment.name}: ${target.name} 층으로 옮겨져 소속이 ${spaceLabel(model, equipment.spaceId)} 가 됩니다.`,
+    summary: `${equipment.name}: ${target.name} 층으로 옮겨져 소속이 ${spaceLabel(model, equipment.spaceId)} 가 됩니다.` + servedText(released),
+    ...(released.length ? { servedReleased: released } : {}),
   }
 }
 
@@ -725,6 +768,8 @@ export type Snapshot =
       shaftId?: string
       /** 사람이 정한 설치면(OE-EQP-05). */
       surfaceSet?: Equipment['surfaceSet']
+      /** 사람이 BIM 덕트·배관에 정한 Flow Type(OE-PIP-14). */
+      flowTypeSet?: string
     }
   | {
       kind: 'space'
@@ -916,6 +961,7 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
       wallId: e.wallId,
       ...(e.shaftId ? { shaftId: e.shaftId } : {}),
       surfaceSet: e.surfaceSet,
+      ...(e.flowTypeSet ? { flowTypeSet: e.flowTypeSet } : {}),
     }
   }
   return null
@@ -1084,6 +1130,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete equipment.shaftId
       if (snapshot.surfaceSet) equipment.surfaceSet = snapshot.surfaceSet
       else delete equipment.surfaceSet
+      if (snapshot.flowTypeSet) equipment.flowTypeSet = snapshot.flowTypeSet
+      else delete equipment.flowTypeSet
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
       equipment.spaceSource = snapshot.spaceSource
       equipment.spaceId = snapshot.spaceId

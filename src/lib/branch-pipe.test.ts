@@ -137,6 +137,30 @@ describe('층별 분기 (OE-ML-13)', () => {
     expect(JSON.stringify(m.releasedConnections)).toBe(released)
   })
 
+  it('분기 경로가 다른 구간과 형상으로 겹쳐도 그 구간과 잇지 않는다 — 연결은 찍은 분기점과 끝 대상에만 생긴다 [OE-ML-13#3~]', () => {
+    const { m, riser } = withRiser()
+    // 라이저의 2층 수평 구간: (1,1,6.5) → (5,1,6.5).
+    const across = m.storeys.flatMap((s) => s.equipment).find((e) => JSON.stringify(segmentPath(e)) === JSON.stringify({ path: [[1, 1, 6.5], [5, 1, 6.5]] }))!
+    const linksOf = (id: string) => m.connections.filter((c) => c.from === id || c.to === id).map((c) => `${c.from}>${c.to}`).sort()
+    const had = linksOf(across.id)
+    // 분기: 분기점(1,1,5) → (3,1,5) → 위로 (3,1,6.5) 에서 수평 구간을 지나 → (3,3,6.5) → AT-202.
+    const done = branch(m, riser.id, { via: [{ at: [3, 1], storeyId: '2F', height: 1 }, { at: [3, 1], storeyId: '2F', height: 2.5 }, { at: [3, 3], storeyId: '2F', height: 2.5 }] })
+    if ('refused' in done) throw new Error(done.refused)
+    expect(done.segments.some((e) => { const r = segmentPath(e); return !!r && 'path' in r && r.path.some((p) => p[0] === 3 && p[1] === 1 && p[2] === 6.5) })).toBe(true)
+    expect(linksOf(across.id)).toEqual(had)
+    const made = new Set([...done.segments, ...done.fittings].map((e) => e.id))
+    expect(m.connections.some((c) => (made.has(c.from) && c.to === across.id) || (made.has(c.to) && c.from === across.id))).toBe(false)
+  })
+
+  it('주 배관과 다른 계통으로 분기하려 하면 검토 안내로 막고 모델을 바꾸지 않는다 [OE-ML-13#3~]', () => {
+    const t = tower()
+    const { m, riser } = withRiser(t, equip(t, 'AHU-1').systemId)
+    m.systems.push({ ...structuredClone(m.systems[0]), id: 'OTHER', name: '다른 급기 계통' })
+    const before = JSON.stringify(m)
+    expect(branch(m, riser.id, { systemId: 'OTHER' })).toEqual({ refused: expect.stringContaining('과 다른 계통입니다. 다른 계통끼리 분기로 합치지 않습니다.') })
+    expect(JSON.stringify(m)).toBe(before)
+  })
+
   it('구간 위가 아닌 자리, 다른 매체·Flow Type 은 거절하고 모델을 바꾸지 않는다 [OE-ML-13#3~] [OE-ML-13#4~]', () => {
     const { m, riser } = withRiser()
     const before = JSON.stringify(m)

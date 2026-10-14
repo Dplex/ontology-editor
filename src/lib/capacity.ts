@@ -62,7 +62,7 @@ export const CAPACITY_PREDICATE: Record<CapacityQuantity, string> = {
  * "2130대에 용량이 없다" 고 했다.
  */
 export const CAPACITY_KINDS = new Set([
-  'ahu', 'fcu', 'indoor_unit', 'heat_pump', 'ground_source_heat_pump',
+  'ahu', 'pac', 'fcu', 'indoor_unit', 'heat_pump', 'ground_source_heat_pump',
   'fan', 'exhaust_fan', 'pump', 'chiller', 'cooling_tower', 'radiator',
   'vav', 'air_diffuser', 'air_grille', 'outdoor_louver',
 ])

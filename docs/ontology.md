@@ -90,7 +90,7 @@ DT 화면이 묻는 질문에 답하는 데이터다. 이상 알림("이 설비�
 | `space` | Polygon(외곽선이 없으면 null) | `longName`·`areaM2`·`elevation`·`verticalConnects` | 있음(방) |
 | `wall` | Polygon · MultiPolygon | `thickness`·`height`·`loadBearing`·`external`(+`externalSource`)·`passable` | 없음 |
 | `door` · `window` | Point — **기본 설정에서는 null**(문·창 자리를 읽을 때만) | `wallId`·`width`·`height`·`passable`, 문은 `connects`(+`connectsSource`) | 없음 |
-| `equipment` | Point(기기) · LineString(덕트·배관 구간) | `ifcClass`·`spaceId`(+`spaceSource`)·`systemId`·`capacity` | 있음 |
+| `equipment` | Point(기기) · LineString(덕트·배관 구간) | `ifcClass`·`spaceId`(+`spaceSource`)·`systemId`·`capacity`, 덕트·배관은 `flowType`(+`flowTypeSource`, ADR-0067) | 있음 |
 | `vertical` | Polygon · Point | `verticalKind`·`parentId`·`spaceIds`·`entry`·`exit` | 계단실·승강로 방만 |
 | `hvacZone` · `customZone` | Polygon | `spaceIds`(든 방), 공조존은 `source`(`IDF`·`edit`), 커스텀존은 `equipmentIds` | 있음(존) |
 | `room` · `spaceObject` | Polygon | `spaceId`, 오브젝트는 `height`·`size`·`item` | 없음(ADR-0023) |
