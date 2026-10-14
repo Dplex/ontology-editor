@@ -346,6 +346,11 @@ export type Equipment = {
    */
   flowType?: string
   /**
+   * 사람이 BIM 덕트·배관 구간에 정한 Flow Type(OE-PIP-14). 없으면 계통 종류·유체로 계산한다(flow-type.ts 의 conduitFlowType).
+   * BIM 에는 없고 편집 파일에 남는다.
+   */
+  flowTypeSet?: string
+  /**
    * 사람이 정한 설치면(OE-EQP-05). z 로 판정하지 못한 설비(미정)에 정한다. 있으면 판정보다 앞선다(ceiling.ts 의 judgeSurface).
    * BIM 에는 없고 편집 파일에 남는다.
    */
