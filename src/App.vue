@@ -11747,7 +11747,7 @@ function rollbackFromReport() {
             계통 <small class="mono">{{ legend.length }}</small>
           </button>
           <button v-if="hasInspectorSelection" type="button" class="side-clear" title="선택을 해제하고 파일 개요로 돌아갑니다 (Esc)" @click="clearInspectorSelection">
-            선택 해제 ×
+            파일 개요로 ×
           </button>
         </nav>
         <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
@@ -13693,7 +13693,7 @@ function rollbackFromReport() {
                 v-if="legendOpen && legend.length > 6"
                 v-model="legendSearch"
                 v-keep-typing
-                type="search"
+                type="text"
                 class="legend-search"
                 placeholder="계통 이름 검색…"
                 aria-label="계통 범례 검색"
@@ -13807,10 +13807,10 @@ function rollbackFromReport() {
               계통 미지정 <b>{{ systemless.length.toLocaleString() }}대</b>
             </button>
             <button v-if="failedChecksTotal > 0" type="button" class="diag-chip warn" title="완전성 검사 위반 항목으로 이동합니다" @click="jumpToSection('.fold.checks')">
-              완전성 검사 위반 <b>{{ failedChecksTotal.toLocaleString() }}건</b> <small>({{ failedCheckRules.length }}규칙)</small>
+              검사 위반 <b>{{ failedChecksTotal.toLocaleString() }}건</b> <small>({{ failedCheckRules.length }}규칙)</small>
             </button>
             <button type="button" class="diag-chip ghost-link" title="전체 요구사항 판정표를 봅니다" @click="jumpToSection('.fold.requirements')">
-              요구사항 판정표 →
+              판정표 →
             </button>
           </div>
 
@@ -13846,7 +13846,7 @@ function rollbackFromReport() {
                   v-if="warnings.length > 4 && !warningsCollapsed"
                   v-model="warnSearch"
                   v-keep-typing
-                  type="search"
+                  type="text"
                   class="warn-search"
                   placeholder="경고 내용 검색…"
                   aria-label="경고 내용 검색"
