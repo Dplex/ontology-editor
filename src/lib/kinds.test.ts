@@ -62,6 +62,9 @@ describe('설비 종류 사전', () => {
     // 병원 건축(IfcFlowTerminal)·전기(Proxy)의 유압 엘리베이터.
     expect(kind('M_Elevator-Hydraulic:2000 lbs:2000 lbs:1186968', '2000 lbs')).toBe('elevator')
     expect(kind('승강기 1호기')).toBe('elevator')
+    // 성수 엘리베이터 파일의 Revit 패밀리 이름. EV 충전기·EV Lobby 같은 `EV` 는 엘리베이터가 아니다.
+    expect(kind('EVEV.#1:EVEV.#1')).toBe('elevator')
+    expect(kind('EV 충전기')).not.toBe('elevator')
     expect(equipmentKind('elevator')).toMatchObject({ brick: 'brick:Elevator', flow: {} })
   })
 

@@ -36,9 +36,10 @@ const AC_LABEL = /^\*{0,2}AC(\d+)\*{0,2}[.:)]?\s+/
 /** 수용 기준 절을 기준 목록으로. 글머리표가 있으면 글머리표, 없으면 문단 줄. "—"·"… 결정 후 적는다" 처럼 기준이 아닌 줄은 뺀다. */
 export function parseCriteria(body: string): Criterion[] {
   const section = (lf('\n' + body).split('\n## 수용 기준\n')[1] ?? '').split(/\n## /)[0]
-  const lines = section.split('\n').map((l) => l.trim()).filter(Boolean)
+  const lines = section.split('\n').map((l) => l.trimEnd()).filter((l) => l.trim())
+  // 들여 쓴 글머리표는 위 기준의 세부 항목이다(OE-SPC-06 AC3 아래 넷). 기준으로 세면 뒤 기준 번호와 겹친다
   const bullets = lines.filter((l) => l.startsWith('- '))
-  const items = (bullets.length ? bullets.map((l) => l.slice(2).trim()) : lines).filter((l) => l !== '—' && !/결정 후 적는다\.?$/.test(l))
+  const items = (bullets.length ? bullets.map((l) => l.slice(2).trim()) : lines.map((l) => l.trim())).filter((l) => l !== '—' && !/결정 후 적는다\.?$/.test(l))
   // 기준 앞에 `AC3` 을 적었으면 그 번호다. 기준을 지우거나 끼워도 다른 기준의 번호(와 시험의 태그)가 밀리지 않는다(docs/dev/testing.md)
   const labeled = items.some((l) => AC_LABEL.test(l))
   return items.map((l, i) => {

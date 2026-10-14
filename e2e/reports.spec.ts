@@ -22,7 +22,7 @@ test('리포트 칸에서 11항 생성 리포트를 만들고, 고객사 결과 
   await box.getByRole('button', { name: '생성 리포트 만들기' }).click()
   const gen = box.getByTestId('generation')
   await expect(gen.locator(':scope > li')).toHaveCount(11)
-  await expect(gen.locator(':scope > li').nth(1)).toContainText('게이트(등급 2) 미달')
+  await expect(gen.locator(':scope > li').nth(1)).toContainText('게이트(등급 0~3) 미달')
   await expect(gen.locator(':scope > li').nth(10)).toContainText(/sha256 [0-9a-f]{16}…/)
   if (process.env.SHOT) await gen.screenshot({ path: process.env.SHOT })
 

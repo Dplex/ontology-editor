@@ -80,6 +80,9 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // --- 공조 기기 ---------------------------------------------------------------
   // OHU 는 외기 공조기(Outdoor air Handling Unit)다. 공조기와 같이 본다.
   { kind: 'ahu', label: '공조기', test: /\b[AO]HU|공조기|air\s*handl/i, brick: 'brick:Air_Handling_Unit', role: 'conversion', ifc: ['UnitaryEquipment.AIRHANDLER'], flow: { air: 'source', water: 'sink' } },
+  // 패키지 에어컨(glossary "설치면 type" 21). 냉매 배관을 쓰는 바닥형 공조기다. 받는 쪽(ttl.go equipClass)이 `PAC` 를 그대로
+  // 읽는다 — Brick 1.4 에는 없지만 Indoor_Unit 과 같은 선례다. IFC 에는 따로 값이 없고 SPLITSYSTEM 은 실내기와 갈리지 않아 받지 않는다.
+  { kind: 'pac', label: '패키지 에어컨(PAC)', test: /\bPAC\b|패키지\s*(형\s*)?에어컨|packaged\s*air\s*condition/i, brick: 'brick:PAC', role: 'conversion', flow: { air: 'source' } },
   { kind: 'fcu', label: 'FCU', test: /\bFCU|팬\s*코일|fan\s*coil/i, brick: 'brick:Fan_Coil_Unit', role: 'conversion', ifc: ['UnitaryEquipment.FANCOILUNIT'], flow: { air: 'source', water: 'sink' } },
   { kind: 'indoor_unit', label: '시스템에어컨 실내기', test: /시스템\s*에어컨|실내기|indoor\s*unit|\bIDU\b/i, brick: 'brick:Indoor_Unit', role: 'conversion', ifc: ['UnitaryEquipment.INDOORUNIT'], flow: { air: 'source' } },
   { kind: 'vav', label: 'VAV', test: /\bVAV\b/i, brick: 'brick:Variable_Air_Volume_Box', role: 'control', ifc: ['AirTerminalBox.VARIABLEFLOWPRESSUREDEPENDANT', 'AirTerminalBox.VARIABLEFLOWPRESSUREINDEPENDANT'], flow: { air: 'through' } },
@@ -116,7 +119,8 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   // 엘리베이터(2026-10-03 사용자 결정). 흐름이 없는 기기라 연결 추정에서 빠진다(ADR-0010). 로봇이 층을 옮길 때 탈 장치라 설비
   // 목록·TTL 에 둔다. 병원은 건축에 IfcFlowTerminal, 전기에 Proxy(`M_Elevator-Hydraulic`)로 들어 있다. 승강로(방)는 ROOM_KINDS 다.
   // 이름으로만 안다 — `ifc` 를 두면 고객사에 요구하는 어휘(R24)가 늘어서 넣지 않았다. IfcTransportElement 는 임포터가 아직 읽지 않는다.
-  { kind: 'elevator', label: '엘리베이터', test: /elevator|엘리베이터|승강기/i, brick: 'brick:Elevator', role: null, flow: {} },
+  // 성수 엘리베이터 파일(Factorial_elevator.ifc)은 Revit 패밀리 이름이 `EVEV.#1` 이다. `EV` 만으로는 받지 않는다(EV 충전기·EV Lobby).
+  { kind: 'elevator', label: '엘리베이터', test: /elevator|엘리베이터|승강기|\bEVEV\b/i, brick: 'brick:Elevator', role: null, flow: {} },
   // 에스컬레이터도 엘리베이터와 같이 수직 관통 오브젝트라 층 편집 화면에서 옮기거나 지우지 않는다(OE-EQP-07). 이름으로만 안다.
   { kind: 'escalator', label: '에스컬레이터', test: /escalator|에스컬레이터/i, brick: 'brick:Escalator', role: null, flow: {} },
   // Revit 의 "Lighting and Appliance Panelboard" 는 분전반이다. 이 줄이 조명보다 앞이라 "Lighting" 에 먼저 걸리지 않는다

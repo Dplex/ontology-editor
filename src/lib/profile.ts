@@ -6,23 +6,26 @@
 // 실제로는 건축 파일과 합칠 짝이다. 그래서 칸마다 따로 채움 정도를 보인다.
 
 import { countOf, isConduit, type Model } from './model'
-import { deviceFlows } from './topology'
-import { withInferred } from './flow-rules'
 import { matchStorey } from './merge'
-import { exteriorDevices } from './exterior'
+import { gradeCounts, percent, type GradeCounts } from './grade'
 
 /** 한 등급이 얼마나 찼나. 분수로 들고 다니고, 화면이 채움·일부·없음으로 칠한다. */
 export type Tier = {
   key: 'space' | 'equipment' | 'location' | 'network' | 'direction'
   /** 칩에 쓰는 짧은 이름. */
   label: string
-  /** 채운 것 / 채워야 할 것. 분모가 0 이면 이 파일에는 해당하는 것이 없다. */
+  /** 본 숫자(판정에 씀, OE-BIM-16). 채운 것 / 채워야 할 것. 분모가 0 이면 이 파일에는 해당하는 것이 없다. */
   have: number
   of: number
   level: 'full' | 'partial' | 'none'
-  /** 칩에 보이는 숫자. 다 찼으면 개수만, 덜 찼으면 분수, 해당이 없으면 대시. */
+  /** 칩에 보이는 본 숫자. `분자/분모 (%)`, 해당이 없으면 대시. */
   figure: string
-  /** 칩에 마우스를 올리면 보이는 설명. 무엇을 셌는지와 비었을 때 왜 비었는지. */
+  /**
+   * 판정에 안 쓰는 보조 숫자. 본 숫자와 다를 때만 있다 — 공간·설비·소속·연결망은 사용자 보정 후 값(`edit`),
+   * 방향은 확정 전 규칙 방향까지 넣은 값(`rule`). 칩에 "목표에 안 셈" 과 같이 따로 보인다.
+   */
+  aux?: { have: number; of: number; figure: string; source: 'edit' | 'rule' }
+  /** 칩에 마우스를 올리면 보이는 설명(칩 상세). 무엇을 셌는지와 뺀 것, 비었을 때 왜 비었는지. */
   note: string
 }
 
@@ -48,9 +51,10 @@ export type Profile = {
   levels?: { name: string; elevation: number }[]
 }
 
+/** 칩 숫자. 비율은 등급 판정(grade.ts 의 percent)과 같은 자리수다 — 칩과 판정 표의 숫자가 같아야 둘을 견준다. */
 function figure(have: number, of: number): string {
   if (of === 0) return '—'
-  return have >= of ? String(of) : `${have}/${of}`
+  return `${have}/${of} (${percent(have / of)})`
 }
 
 function level(have: number, of: number): Tier['level'] {
@@ -59,109 +63,80 @@ function level(have: number, of: number): Tier['level'] {
 }
 
 /**
- * 모델을 등급별로 잰다.
+ * 모델을 등급별로 잰다. 셈은 등급 판정과 같은 `gradeCounts` 다.
  *
  * 설비 쪽 분모는 **기기만** 센다. 덕트·배관은 대수가 기기의 여섯 배라(Duplex MEP 785 대 141)
  * 분모에 넣으면 기기가 다 소속돼도 "20%" 로 보인다. 이상 알림이 비는 것은 기기다.
+ *
+ * `original` 은 연 때의 모델(BIM + 계산)을 센 것이다. 주면 공간·설비·소속·연결망의 본 숫자가 거기서 나오고, 지금 모델이 다르면
+ * 보조 숫자(보정 후)가 붙는다. 방향의 본 숫자는 늘 지금 모델이다 — 사람이 확정한 방향이 본 숫자에 든다(OE-BIM-16 표).
  */
-export function profileOf(model: Model): Profile {
+export function profileOf(model: Model, original?: GradeCounts): Profile {
   const c = countOf(model)
-  const all = model.storeys.flatMap((s) => s.equipment)
-  const devices = all.filter((e) => !isConduit(e.role))
-  const drawn = model.storeys.reduce((n, s) => n + s.spaces.filter((sp) => sp.footprint.length >= 3).length, 0)
-  const placed = devices.filter((e) => e.position !== null).length
-  // 소속(등급 2)은 외벽 설비를 분모에서 뺀다 — 방 밖이 맞는 자리다(OE-EQP-15).
-  const exterior = exteriorDevices(model)
-  const indoor = devices.filter((e) => !exterior.has(e.id))
-  const located = indoor.filter((e) => e.spaceId !== null).length
+  const now = gradeCounts(model)
+  const bim = original ?? now
   const ported = model.connections.filter((x) => x.source === 'port').length
-  // 방향은 연결이 아니라 **기기 쌍**으로 센다. DT 가 받는 것은 덕트·배관을 건너뛴 기기 → 기기
-  // 흐름이라(deviceFlows 주석 참조), 연결 단위로 세면 받는 것보다 좋아 보인다.
-  const conduitIds = new Set(all.filter((e) => isConduit(e.role)).map((e) => e.id))
-  // 등급은 내보내는 것과 같은 기준으로 잰다. 포트 방향 + 사람이 확정한 규칙 방향이다.
-  const flows = deviceFlows(withInferred(model.connections, true), (id) => conduitIds.has(id), devices.map((e) => e.id))
-  // 확정 전 규칙 방향까지 넣으면 얼마나 채워지는지. 칩 설명에만 쓴다.
-  const confirmedRules = model.connections.some((x) => x.inferred?.confirmed)
-  const candidate = model.connections.some((x) => x.inferred && !x.inferred.confirmed)
-    ? deviceFlows(withInferred(model.connections), (id) => conduitIds.has(id), devices.map((e) => e.id)).fed.size
-    : null
-  // 받는 쪽에 가는 흐름 대부분이 방향을 모르는 형상 추정이면 fed 가 비어 있다. linked 에는 없는데
-  // fed 에만 있는 기기는 없다(방향 있는 길은 방향 없는 길이기도 하다).
-  const fed = flows.fed.size
-  const linked = flows.linked.size
+  const guessed = model.connections.filter((x) => x.source === 'geometry').length
+  const tier = (key: Tier['key'], label: string, pick: (g: GradeCounts) => [number, number], note: string): Tier => {
+    const [have, of] = pick(bim)
+    const [h, o] = pick(now)
+    return {
+      key,
+      label,
+      have,
+      of,
+      level: level(have, of),
+      figure: figure(have, of),
+      ...(h !== have || o !== of ? { aux: { have: h, of: o, figure: figure(h, o), source: 'edit' as const } } : {}),
+      note,
+    }
+  }
+  const all = c.devices + c.conduits
 
   const tiers: Tier[] = [
-    {
-      key: 'space',
-      label: '공간',
-      have: drawn,
-      of: c.spaces,
-      level: level(drawn, c.spaces),
-      figure: figure(drawn, c.spaces),
-      note:
-        c.spaces === 0
-          ? '물리존(IfcSpace)이 없다'
-          : `물리존 ${c.spaces}개 중 바닥 외곽선을 얻은 것 ${drawn}개`,
-    },
-    {
-      key: 'equipment',
-      label: '설비',
-      have: placed,
-      of: devices.length,
-      level: level(placed, devices.length),
-      figure: figure(placed, devices.length),
-      note:
-        devices.length === 0
-          ? '기기가 없다(MEP 미포함)'
-          : `기기 ${devices.length}대 중 좌표가 있는 것 ${placed}대 · 덕트·배관 ${c.conduits}개는 제외`,
-    },
-    {
-      key: 'location',
-      label: '소속',
-      have: located,
-      of: indoor.length,
-      level: level(located, indoor.length),
-      figure: figure(located, indoor.length),
-      note:
-        devices.length === 0
-          ? '기기가 없다'
-          : c.spaces === 0
-            ? `기기 ${devices.length}대가 있는데 방이 없다. 건축 파일과 합쳐야 한다`
-            : `기기 ${indoor.length}대 중 소속 물리존을 찾은 것 ${located}대` + (exterior.size ? ` · 외벽 설비 ${exterior.size}대는 제외` : ''),
-    },
-    {
-      key: 'network',
-      label: '연결망',
-      // 계통과 연결 둘 다 있어야 "연결망" 이다. 하나만 있으면 반쯤 찬 것으로 본다.
-      have: (c.systems > 0 ? 1 : 0) + (c.connections > 0 ? 1 : 0),
-      of: all.length > 0 ? 2 : 0,
-      level: level((c.systems > 0 ? 1 : 0) + (c.connections > 0 ? 1 : 0), all.length > 0 ? 2 : 0),
-      // 칸 둘(계통·연결)을 센 분수는 뜻이 없다. 사람이 궁금한 것은 연결 개수다.
-      figure: all.length === 0 ? '—' : String(c.connections),
-      note:
-        all.length === 0
-          ? '설비가 없다'
-          : `계통 ${c.systems}개 · 연결 ${c.connections}개(포트 ${ported} · 형상 추정 ${c.connections - ported})`,
-    },
+    tier('space', '공간', (g) => [g.drawn, g.spaces], bim.spaces === 0 ? '물리존(IfcSpace)이 없다' : `물리존 ${bim.spaces}개 중 바닥 외곽선을 얻은 것 ${bim.drawn}개`),
+    tier(
+      'equipment',
+      '설비',
+      (g) => [g.placed, g.devices],
+      bim.devices === 0 ? '기기가 없다(MEP 미포함)' : `기기 ${bim.devices}대 중 좌표가 있는 것 ${bim.placed}대 · 덕트·배관 ${c.conduits}개는 제외`,
+    ),
+    tier(
+      'location',
+      '소속',
+      (g) => [g.located, g.indoor],
+      bim.devices === 0
+        ? '기기가 없다'
+        : bim.spaces === 0
+          ? `기기 ${bim.devices}대가 있는데 방이 없다. 건축 파일과 합쳐야 한다`
+          : `기기 ${bim.indoor}대 중 소속 물리존을 찾은 것 ${bim.located}대` + (bim.exterior ? ` · 외벽 설비 ${bim.exterior}대는 제외` : ''),
+    ),
+    // 연결망(등급 3)은 계통에 든 기기를 센다. 계통 종류를 이름 사전으로 맞힌 비율은 판정에 안 쓰는 별도 지표라 상세에만 둔다.
+    tier(
+      'network',
+      '연결망',
+      (g) => [g.inSystem, g.devices],
+      all === 0
+        ? '설비가 없다'
+        : `기기 ${bim.devices}대 중 계통에 든 것 ${bim.inSystem}대 · 계통 ${c.systems}개 · 연결 ${c.connections}개(포트 ${ported} · 형상 추정 ${guessed}${c.connections - ported - guessed ? ` · 사람이 이음 ${c.connections - ported - guessed}` : ''})` +
+            (now.systems ? ` · 계통 종류(사전) ${now.dictKinds}/${now.systems}` : ''),
+    ),
     {
       key: 'direction',
       label: '방향',
-      have: fed,
-      of: linked,
-      level: level(fed, linked),
-      // 목표선(등급 4)은 두 수치를 출처와 같이 보인다(OE-BIM-16, D12 권고안). 앞은 BIM 포트(+ 사람이 확정한 규칙 방향),
-      // 뒤는 확정 전 규칙 방향까지 — 규칙은 화면의 출처 "사전"(Src.vue 의 dict)이다. `0/27(BIM) → 23/27(사전)`.
-      figure:
-        candidate !== null && candidate > fed && linked > 0
-          ? `${fed}/${linked}(${confirmedRules ? 'BIM+확정' : 'BIM'}) → ${candidate}/${linked}(사전)`
-          : figure(fed, linked),
+      have: now.fed,
+      of: now.linked,
+      level: level(now.fed, now.linked),
+      figure: figure(now.fed, now.linked),
+      // 보조 숫자는 이름 사전이 아니라 규칙 방향에서 나온다. 출처를 "미확정 규칙" 으로 적고, 사람이 계통을 확정하면 그만큼 본 숫자로 옮겨 간다.
+      ...(now.ruleFed !== now.fed && now.linked > 0 ? { aux: { have: now.ruleFed, of: now.linked, figure: figure(now.ruleFed, now.linked), source: 'rule' as const } } : {}),
       note:
-        (linked === 0
+        (now.linked === 0
           ? '덕트·배관으로 다른 기기와 이어진 기기가 없다'
-          : fed === 0
-            ? `다른 기기와 이어진 기기 ${linked}대 중 흐름 방향으로 이어진 것이 없다. brick:feeds가 기기에 닿지 않는다 (연결 단위로는 ${c.directedConnections}/${c.connections})`
-            : `다른 기기와 이어진 기기 ${linked}대 중 흐름 방향으로 이어진(공급하거나 공급받는) 것 ${fed}대 (연결 단위로는 ${c.directedConnections}/${c.connections})`) +
-        (candidate !== null ? ` · 확정 전 규칙 방향까지 넣으면 ${candidate}대` : ''),
+          : now.fed === 0
+            ? `다른 기기와 이어진 기기 ${now.linked}대 중 흐름 방향(BIM 포트·사람이 확정)으로 이어진 것이 없다. brick:feeds가 기기에 닿지 않는다 (연결 단위로는 ${c.directedConnections}/${c.connections})`
+            : `다른 기기와 이어진 기기 ${now.linked}대 중 흐름 방향(BIM 포트·사람이 확정)으로 이어진(공급하거나 공급받는) 것 ${now.fed}대 (연결 단위로는 ${c.directedConnections}/${c.connections})`) +
+        (now.ruleFed !== now.fed ? ` · 미확정 규칙 방향까지 넣으면 ${now.ruleFed}대(목표에 안 셈)` : ''),
     },
   ]
 
@@ -169,13 +144,13 @@ export function profileOf(model: Model): Profile {
     schema: model.schema,
     storeys: c.storeys,
     spaces: c.spaces,
-    devices: devices.length,
+    devices: c.devices,
     conduits: c.conduits,
     systems: c.systems,
     connections: c.connections,
     tiers,
-    needsArchitecture: c.spaces === 0 && devices.length > 0,
-    needsEquipment: drawn > 0 && all.length === 0,
+    needsArchitecture: c.spaces === 0 && c.devices > 0,
+    needsEquipment: now.drawn > 0 && all === 0,
     extent: extentOf(model),
     levels: model.storeys.map((s) => ({ name: s.name, elevation: s.elevation })),
   }

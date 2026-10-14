@@ -36,6 +36,7 @@ const WARNING_R: readonly (readonly [RegExp, string])[] = [
   [/Proxy\(IfcBuildingElementProxy\)/, 'R23'],
   [/포트에 방향이 없는 연결/, 'R17'],
   [/계단 .*다른 층에 닿지 않아/, 'R8'],
+  [/가구·주변 모델 .*형상이 없어/, 'R8'],
   // IDF(공조존). IFC 밖의 자료라 X 다.
   [/바닥면/, 'R19'],
   [/이상 부하 장치/, 'R19'],

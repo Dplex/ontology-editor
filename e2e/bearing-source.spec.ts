@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { toEquipment, toSpace } from './edit-part'
 
@@ -6,6 +7,7 @@ import { toEquipment, toSpace } from './edit-part'
 const DUPLEX = 'data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc'
 
 test('BIM 벽의 내력 여부를 바꾸면 출처가 편집이 되고 잠기며, 되돌려 놓으면 BIM 으로 돌아온다 [OE-OBJ-06#3] [OE-BIM-06#1~]', async ({ page }) => {
+  test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -19,12 +21,13 @@ test('BIM 벽의 내력 여부를 바꾸면 출처가 편집이 되고 잠기며
 
   const panel = page.locator('.element-picked')
   const ids = (await page.evaluate(() => (window as any).__viewer.elements())) as string[]
-  // 벽을 하나 고른다. 문·창이 먼저 잡히는 자리도 있어서 벽 패널이 뜰 때까지 다음 것을 누른다.
+  // 내벽을 하나 고른다. 문·창이나 벽 앞의 가구가 먼저 잡히는 자리도 있고, 외벽은 처음부터 잠겨 있어서(OE-EXT-02)
+  // 잠기지 않은 벽 패널이 뜰 때까지 다음 것을 누른다.
   for (const id of ids) {
     const at = (await page.evaluate((x) => (window as any).__viewer.element(x), id)) as { x: number; y: number } | null
     if (!at) continue
     await page.mouse.click(at.x, at.y)
-    if (await panel.getByTestId('wall-bearing').isVisible()) break
+    if ((await panel.getByTestId('wall-bearing').isVisible()) && !(await panel.getByTestId('wall-locked').isVisible())) break
   }
   const bearing = panel.getByTestId('wall-bearing')
   const src = bearing.locator('xpath=ancestor::p[1]').locator('.src')
@@ -32,7 +35,7 @@ test('BIM 벽의 내력 여부를 바꾸면 출처가 편집이 되고 잠기며
   await expect(src).toHaveText('BIM')
 
   await bearing.selectOption('true')
-  await expect(src).toHaveText('편집')
+  await expect(src).toHaveText('사람')
   await expect(panel.getByTestId('wall-locked')).toBeVisible()
 
   await bearing.selectOption('false')

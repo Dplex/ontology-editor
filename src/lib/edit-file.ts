@@ -10,6 +10,7 @@
 // 같이 적고, 불러올 때 GUID 로 못 찾으면 Revit 요소 ID·이름·위치로 찾는다. 그래도 못 찾은 id 는 조용히 버리지
 // 않고 센다 — 재임포트에서 무엇이 빠졌는지가 그 숫자다.
 
+import { setConduitFlowType } from './flow-type'
 import { confirmSystemFlow, inferFlowByRules } from './flow-rules'
 import { shaftOf } from './shaft'
 import { applyReleases, exportReleases, type ReleaseRow } from './connection-release'
@@ -81,7 +82,7 @@ export type EditFile = {
    * 연 때와 같아도 소속을 좌표로 다시 잰 상태다(edit.ts 의 releaseDeclaredSpace).
    */
   /** `wall` 은 설비를 붙인 벽(OE-OBJ-04). `null` 은 벽에서 뗀 것이다. */
-  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3]; wall?: string | null; shaft?: string | null; surface?: Surface }[]
+  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3]; wall?: string | null; shaft?: string | null; surface?: Surface; flowType?: string }[]
   /** 종류·유체를 고친 계통(E8). 설비의 계통은 위 `equipment` 의 `system` 에 적는다(`null` 은 계통에서 뺀 것). */
   systems?: { id: string; kind: string | null; fluid: Fluid | null }[]
   /** 사람이 만든 계통(끝 이름·종류)과 지운 계통. 구성원은 설비 쪽 `system` 으로 적는다. */
@@ -182,8 +183,13 @@ export type EditFile = {
   ratedAirflows?: { id: string; cmh: number }[]
   /** 사람이 그린 룸(OE-OBJ-03). BIM 에는 없어서 룸이 있는 층의 끝 목록을 그대로 적는다. */
   rooms?: { storeyId: string; rooms: { id: string; name: string; spaceId: string; footprint: Vec2[] }[] }[]
-  /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09). BIM 에는 없어서 오브젝트가 있는 층의 끝 목록을 그대로 적는다. */
+  /** 사람이 놓은 추가 공간 오브젝트(OE-OBJ-09). BIM 에는 없어서 오브젝트가 있는 층의 끝 목록을 그대로 적는다. BIM 에서 받은 것은 아래 `bimObjects`. */
   spaceObjects?: { storeyId: string; objects: SpaceObject[] }[]
+  /**
+   * BIM 에서 받은 추가 공간 오브젝트(가구·주변 모델)를 고친 것. 연 때와 달라진 칸만 적고(`at`·`size`·`name`·`item`), 지운 것은 `removed`.
+   * id 는 BIM 요소의 GlobalId 라 다시 열면 같은 오브젝트에 얹힌다. 못 찾으면 `missing.elements` 로 센다.
+   */
+  bimObjects?: { id: string; storeyId: string; at?: Vec2; size?: Vec3; name?: string; item?: string; removed?: true }[]
   /** 사람이 넣은 3D 모델 라이브러리 항목(OE-P3-08). glb 를 그대로 든다. 층에 속하지 않아 건물 조각으로 간다. */
   objectLibrary?: CustomObjectItem[]
   kinds: { typeKey: string; kind: string | null }[]
@@ -230,7 +236,8 @@ export type EditFile = {
     id: string
     move?: Vec2
     removed?: true
-    parts?: { storeyId: string; footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null }[]
+    /** `stop` 은 엘리베이터 정차 상태(OE-ML-10). 미확인이면 적지 않는다. */
+    parts?: { storeyId: string; footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null; stop?: 'stop' | 'skip'; direction?: 'up' | 'down' }[]
     /** 사람이 만든 오브젝트(OE-ML-06). 연 때 없던 것이라 종류·이름과 모든 층 조각(`parts`)을 적는다. id 는 에디터가 지은 `U_…` 다. */
     created?: { kind: VerticalKind; name: string }
   }[]
@@ -335,7 +342,9 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       if (was.shaftId !== undefined && (was.shaftId ?? null) !== shaft) row.shaft = shaft
       // 사람이 정한 설치면(OE-EQP-05). BIM 에는 없어서 있으면 적는다.
       if (e.surfaceSet) row.surface = e.surfaceSet
-      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined || row.shaft !== undefined || row.surface) equipment.push(row)
+      // 사람이 BIM 덕트·배관에 정한 Flow Type(OE-PIP-14). BIM 에는 없어서 있으면 적는다.
+      if (e.flowTypeSet) row.flowType = e.flowTypeSet
+      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined || row.shaft !== undefined || row.surface || row.flowType) equipment.push(row)
     }
   }
   const assignedSpaces = model.storeys.flatMap((st) => st.equipment.flatMap((e) => (e.spaceSet !== undefined ? [{ id: e.id, spaceId: e.spaceSet }] : [])))
@@ -360,6 +369,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           footprint: p.footprint.map((q) => [q[0], q[1]] as Vec2),
           entry: p.entry ? ([p.entry[0], p.entry[1], p.entry[2]] as Vec3) : null,
           exit: p.exit ? ([p.exit[0], p.exit[1], p.exit[2]] as Vec3) : null,
+          ...(p.stop === 'stop' || p.stop === 'skip' ? { stop: p.stop } : {}),
+          ...(p.direction ? { direction: p.direction } : {}),
         })),
     )
     return { id: v.id, parts, ...(v.created ? { created: { kind: v.created, name: v.name } } : {}) }
@@ -493,8 +504,27 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     keep(row.storeyId)
     for (const r of row.rooms) keep(r.spaceId)
   }
-  const spaceObjects = model.storeys.filter((st) => st.spaceObjects?.length).map((st) => ({ storeyId: st.id, objects: copySpaceObjects(st.spaceObjects!) }))
+  const spaceObjects = model.storeys
+    .map((st) => ({ storeyId: st.id, objects: copySpaceObjects((st.spaceObjects ?? []).filter((o) => o.source !== 'bim')) }))
+    .filter((row) => row.objects.length)
   for (const row of spaceObjects) keep(row.storeyId)
+  // BIM 에서 받은 오브젝트는 연 때와 달라진 것만(Baseline.bimObjects).
+  const bimObjects: NonNullable<EditFile['bimObjects']> = []
+  for (const [id, was] of baseline.bimObjects ?? []) {
+    let now: SpaceObject | undefined
+    for (const st of model.storeys) now ??= st.spaceObjects?.find((o) => o.id === id)
+    if (!now) {
+      bimObjects.push({ id, storeyId: was.storeyId, removed: true })
+      continue
+    }
+    const row: NonNullable<EditFile['bimObjects']>[number] = { id, storeyId: was.storeyId }
+    if (!samePoint(now.at, was.at)) row.at = [now.at[0], now.at[1]]
+    if (!samePoint(now.size, was.size)) row.size = [now.size[0], now.size[1], now.size[2]]
+    if (now.name !== was.name) row.name = now.name
+    if (now.item !== was.item) row.item = now.item
+    if (Object.keys(row).length > 2) bimObjects.push(row)
+  }
+  for (const row of bimObjects) keep(row.storeyId)
   for (const v of verticals) for (const p of v.parts ?? []) keep(p.storeyId)
   // 놓인 오브젝트가 쓰는 항목만 남긴다. 넣고 안 쓴 모델까지 임시 저장본마다 실으면 편집 파일만 커진다.
   const used = new Set(spaceObjects.flatMap((row) => row.objects.map((o) => o.item)))
@@ -557,6 +587,7 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
     ...(ratedAirflows.length ? { ratedAirflows } : {}),
     ...(rooms.length ? { rooms } : {}),
     ...(spaceObjects.length ? { spaceObjects } : {}),
+    ...(bimObjects.length ? { bimObjects } : {}),
     ...(objectLibrary.length ? { objectLibrary } : {}),
     ...(storeysDone.length ? { storeysDone } : {}),
     ...(ceilings.length ? { ceilings } : {}),
@@ -593,7 +624,7 @@ export function countEdits(f: EditFile): number {
     (f.walls?.length ?? 0) + (f.wallsAdded?.length ?? 0) + (f.wallsRemoved?.length ?? 0) +
     (f.openings?.length ?? 0) + (f.openingsAdded?.length ?? 0) + (f.openingsRemoved?.length ?? 0) +
     (f.storeysDone?.length ?? 0) + (f.ceilings?.length ?? 0) + (f.storeyNames?.length ?? 0) + (f.rooms?.reduce((n, r) => n + r.rooms.length, 0) ?? 0) +
-    (f.spaceObjects?.reduce((n, r) => n + r.objects.length, 0) ?? 0) +
+    (f.spaceObjects?.reduce((n, r) => n + r.objects.length, 0) ?? 0) + (f.bimObjects?.length ?? 0) +
     (f.hvacZones?.reduce((n, r) => n + r.zones.length, 0) ?? 0) +
     (f.spaceAirflows?.length ?? 0) + (f.ratedAirflows?.length ?? 0) +
     (f.verticals?.length ?? 0)
@@ -716,6 +747,7 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     for (const r of row.rooms) ref(r.spaceId)
   }
   for (const row of file.spaceObjects ?? []) ref(row.storeyId)
+  for (const row of file.bimObjects ?? []) ref(row.storeyId)
   for (const row of file.storeysDone ?? []) ref(row.id)
   for (const row of file.ceilings ?? []) ref(row.storeyId)
   for (const row of file.storeyNames ?? []) ref(row.storeyId)
@@ -961,6 +993,14 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     else if (done !== false) result.missing.equipment++
   }
 
+  // 사람이 BIM 덕트·배관에 정한 Flow Type(OE-PIP-14). 범례에 없거나 매체가 다르면 버리고 못 찾은 것으로 센다.
+  for (const row of file.equipment) {
+    if (!row.flowType) continue
+    const done = setConduitFlowType(model, resolve(row.id), row.flowType)
+    if (done === true) result.applied++
+    else if (done !== false) result.missing.equipment++
+  }
+
   // 수직 관통 오브젝트(OE-ML-07·09). 옮긴 거리를 다시 더하거나 다시 지운다 — 지운 계단은 다시 열어도 되살아나지 않는다.
   for (const row of file.verticals ?? []) {
     let done = row.removed ? deleteVertical(model, row.id) : row.move ? moveVertical(model, row.id, row.move) : false
@@ -997,6 +1037,16 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
         part.exit = p.exit ? [p.exit[0], p.exit[1], p.exit[2]] : null
         // 사람이 만든 것(created)은 출처가 edit 라 보정 표시를 달지 않는다.
         if (!row.created) part.edited = true
+      }
+      // 엘리베이터 정차 상태(OE-ML-10). 적히지 않았으면 미확인이다.
+      if (part.kind === 'elevator') {
+        if (p.stop) part.stop = p.stop
+        else delete part.stop
+      }
+      // 에스컬레이터 운행 방향(OE-ML-11). 적히지 않았으면 미확인이다.
+      if (part.kind === 'escalator') {
+        if (p.direction === 'up' || p.direction === 'down') part.direction = p.direction
+        else delete part.direction
       }
       done = true
     }
@@ -1040,7 +1090,26 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
       result.missing.storeys++
       continue
     }
-    storey.spaceObjects = copySpaceObjects(row.objects)
+    // 사람이 놓은 것만 끝 목록으로 바꾼다. BIM 에서 받은 것은 아래 `bimObjects` 가 고친다.
+    storey.spaceObjects = [...(storey.spaceObjects ?? []).filter((o) => o.source === 'bim'), ...copySpaceObjects(row.objects)]
+    result.applied++
+  }
+  for (const row of file.bimObjects ?? []) {
+    const storey = model.storeys.find((st) => st.spaceObjects?.some((o) => o.id === row.id))
+    const object = storey?.spaceObjects?.find((o) => o.id === row.id)
+    if (!storey || !object) {
+      result.missing.elements++
+      continue
+    }
+    if (row.removed) {
+      storey.spaceObjects = storey.spaceObjects!.filter((o) => o.id !== row.id)
+      if (!storey.spaceObjects.length) delete storey.spaceObjects
+    } else {
+      if (row.at) object.at = [row.at[0], row.at[1]]
+      if (row.size) object.size = [row.size[0], row.size[1], row.size[2]]
+      if (row.name) object.name = row.name
+      if (row.item) object.item = row.item
+    }
     result.applied++
   }
 

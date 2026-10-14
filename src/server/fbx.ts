@@ -26,14 +26,14 @@ export type FbxOptions = {
 
 type Probe = { enabled: true; version: string } | { enabled: false; reason: string }
 
-function json(res: ServerResponse, status: number, body: unknown) {
+export function json(res: ServerResponse, status: number, body: unknown) {
   res.statusCode = status
   res.setHeader('Content-Type', 'application/json; charset=utf-8')
   res.end(JSON.stringify(body))
 }
 
-/** 명령을 돌려 종료 코드와 출력을 모은다. 시간을 넘기면 죽인다. */
-function run(cmd: string, args: string[], timeoutMs: number): Promise<{ code: number | null; out: string; error?: string }> {
+/** 명령을 돌려 종료 코드와 출력을 모은다. 시간을 넘기면 죽인다. DWG 변환(dwg.ts)도 쓴다. */
+export function run(cmd: string, args: string[], timeoutMs: number): Promise<{ code: number | null; out: string; error?: string }> {
   return new Promise((done) => {
     let out = ''
     let child

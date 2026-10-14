@@ -62,7 +62,7 @@ export default defineConfig(({ mode }) => ({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
-    rollupOptions: { input: { main: resolve('index.html'), viewer: resolve('viewer.html') } },
+    rollupOptions: { input: { main: resolve('index.html'), viewer: resolve('viewer.html'), prototype: resolve('prototype.html') } },
   },
 
   // vitest 는 src 의 순수 로직만 본다. e2e/ 는 Playwright 것이라 여기서 걸러내지 않으면

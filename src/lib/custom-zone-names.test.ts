@@ -39,7 +39,7 @@ beforeEach(() => {
 const make = (storeyId: string, name: string, r: Vec2[], id?: string) => createCustomZone(model, storeyId, { name, footprint: r, id }) as CustomZone
 
 describe('이름·별명은 건물 안에서 고유하다 (OE-SPC-06)', () => {
-  it('다른 존의 이름·별명과 같은 이름, 어느 존의 이름·별명과 같은 별명(자기 이름 포함), 한 존 안 같은 별명 두 번은 막고 쓰는 존을 알린다 [OE-SPC-06#3,4,5,6,7]', () => {
+  it('다른 존의 이름·별명과 같은 이름, 어느 존의 이름·별명과 같은 별명(자기 이름 포함), 한 존 안 같은 별명 두 번은 막고 쓰는 존을 알린다 [OE-SPC-06#3]', () => {
     make('s3', '임원석', rect(0, 6, 5, 10), 'U_exec')
     setCustomZoneAliases(model, 'U_exec', ['경영진석'])
     const team = make('s4', '개발팀', rect(0, 0, 10, 10), 'U_team')
@@ -64,7 +64,7 @@ describe('이름·별명은 건물 안에서 고유하다 (OE-SPC-06)', () => {
     expect(zoneUsing(model, '없는 말')).toBeNull()
   })
 
-  it('지운 존이 쓰던 이름·별명은 다른 존에 붙일 수 있다 [OE-SPC-06#9]', () => {
+  it('지운 존이 쓰던 이름·별명은 다른 존에 붙일 수 있다 [OE-SPC-06#5]', () => {
     const exec = make('s3', '임원석', rect(0, 6, 5, 10))
     setCustomZoneAliases(model, exec.id, ['경영진석'])
     deleteCustomZone(model, exec.id)
@@ -100,7 +100,7 @@ describe('나누기·합치기의 이름 (OE-SPC-08)', () => {
     expect((splitCustomZone(model, 'U_two', [7, -1], [7, 11]) as CustomZone).name).toBe('임원석-03')
   })
 
-  it('합치면 넓은 쪽이 남고(같으면 먼저 고른 쪽), 없어진 존의 이름·별명으로 물어도 남은 존이 나온다 [OE-SPC-06#8] [OE-SPC-08#3]', () => {
+  it('합치면 넓은 쪽이 남고(같으면 먼저 고른 쪽), 없어진 존의 이름·별명으로 물어도 남은 존이 나온다 [OE-SPC-06#4] [OE-SPC-08#3]', () => {
     make('s3', 'A석', rect(0, 0, 4, 10), 'U_a')
     make('s3', 'B석', rect(4, 0, 20, 10), 'U_b')
     setCustomZoneAliases(model, 'U_a', ['창가'])

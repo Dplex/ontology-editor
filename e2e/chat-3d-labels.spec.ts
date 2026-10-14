@@ -75,8 +75,11 @@ test('Duplex: [온톨로지] 답의 ex: id 로 편집 화면 3D 가 그 설비�
   await expect(chip).toContainText('3D 동작 · 설비 1')
   await expect(chip).toContainText('BIM 에 없는 id 1')
   expect(asked).toHaveLength(1)
-  // 앱 상태는 서버로 가지 않는다 — 질문·앞선 대화·고른 건물만이다.
-  expect(Object.keys(JSON.parse(asked[0])).sort()).toEqual(['history', 'question', 'source'])
+  // 서버로 가는 것은 질문·앞선 대화·고른 건물과 지금 화면(view)이다. 지금 화면은 id 와 정해진 값뿐이고 이름은 없다(ADR-0050 "보는 화면").
+  const sent = JSON.parse(asked[0])
+  expect(Object.keys(sent).sort()).toEqual(['history', 'question', 'source', 'view'])
+  expect(sent.view).toMatchObject({ mode: '3d', storey: expect.any(String), selected: [] })
+  expect(JSON.stringify(sent.view)).not.toContain('Level')
   // 고른 것이 라디에이터이고, 층이 1층으로 따라갔다.
   await expect(page.getByRole('combobox', { name: '보일 층' })).toHaveValue(/.+/)
   await expect(page.locator('.picked h3').first()).toContainText('536919')

@@ -72,7 +72,7 @@ test('E 는 보기와 편집을 오간다', async ({ page }) => {
   expect(errors).toEqual([])
 })
 
-test('방향키는 고른 설비를 10cm(Shift 1m) 옮기고, 누른 만큼이 되돌리기 한 번이며, 다시 하기로 돌아온다', async ({ page }) => {
+test('방향키는 고른 설비를 10cm(Shift 1m) 옮기고, 누른 만큼이 되돌리기 한 번이며, 다시 하기로 돌아온다 [OE-UI-05#1,2]', async ({ page }) => {
   const errors = await open(page)
   await page.keyboard.press('e')
   await pick(page, 'AHU-1')
@@ -115,6 +115,38 @@ test('방향키는 고른 설비를 10cm(Shift 1m) 옮기고, 누른 만큼이 �
   await page.keyboard.press('Control+z')
   await page.keyboard.press('ArrowLeft')
   await expect(page.locator('.edit-bar .redo')).toBeDisabled()
+  expect(errors).toEqual([])
+})
+
+test('글자 칸에서 친 Ctrl+Z 는 그 칸의 글자만 되돌리고 편집 이력은 그대로다. 칸에서 나오면 편집을 되돌린다 [OE-UI-05#3]', async ({ page }) => {
+  const errors = await open(page)
+  await page.keyboard.press('e')
+  await pick(page, 'AHU-1')
+  const start = await coords(page, 'AHU-1')
+  await page.keyboard.press('Shift+ArrowRight')
+  await settle(page)
+  const moved = await coords(page, 'AHU-1')
+  expect(moved).not.toEqual(start)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+
+  const name = page.locator('.rows input').first()
+  const was = await name.inputValue()
+  await name.click()
+  await page.keyboard.press('End')
+  await page.keyboard.type('xyz')
+  await expect(name).toHaveValue(`${was}xyz`)
+  await page.keyboard.press('Control+z')
+  // 브라우저의 글자 되돌리기다. 설비 자리와 편집 수는 그대로다.
+  await expect(name).toHaveValue(was)
+  await settle(page)
+  expect(await coords(page, 'AHU-1')).toEqual(moved)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+
+  // Esc 로 칸에서 나오면 Ctrl+Z 가 편집을 되돌린다.
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => coords(page, 'AHU-1')).toEqual(start)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
   expect(errors).toEqual([])
 })
 
@@ -310,7 +342,9 @@ test('N 으로 소속 없는 설비에 가서 패널에서 좌표를 넣으면 �
   await inputs.nth(2).press('Enter')
   await expect(page.locator('.position-edit')).toContainText('소속 사무실')
 
-  // 글자 칸의 Esc 는 칸에서 나온다. 그다음 N 은 다시 단축키다.
+  // 글자 칸의 Esc 는 칸에서 나온다. 그다음 N 은 다시 단축키다. 좌표가 들어가면 패널이 다시 그려져 Enter 뒤에 포커스가
+  // 칸에 남지 않을 수 있다 — 그때의 Esc 는 단축키라 고른 설비를 푼다. 칸에 들어간 채로 Esc 를 누르게 한다.
+  await inputs.nth(2).focus()
   await page.keyboard.press('Escape')
   await expect(inputs.nth(2)).not.toBeFocused()
   await expect(page.locator('.picked h3')).toHaveText('TEMP-101-01')

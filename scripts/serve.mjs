@@ -13,6 +13,8 @@
 //
 // 3D 형상 FBX 는 화면이 보낸 GLB 를 Blender 로 바꿔 돌려준다(POST /__data/__fbx, src/server/fbx.ts).
 // Blender 가 없는 기계에서는 GET /__data/__fbx 가 enabled:false 를 주고 화면이 [FBX] 단추를 막는다.
+// 평면도 배경의 DWG 는 같은 방식으로 PNG 로 바꿔 돌려준다(POST /__data/__dwg, src/server/dwg.ts — LibreDWG dwg2dxf + ezdxf).
+// 변환기가 없으면 GET /__data/__dwg 가 enabled:false 를 주고 화면이 DWG 를 받지 않는다.
 //
 // 다섯째로 문서 챗봇(Alt+Shift+K)의 /__chat 이 있다(scripts/docs-chat.mjs, docs/dev/deploy55.md). 앱의 API 가 아니라 이 repo 의
 // 문서를 읽고 답하는 개발용 부속이고, gemini 가 쓸 수 있는 도구는 문서 읽기 하나뿐이다. gemini 가 없는 기계에서는
@@ -29,6 +31,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createChat } from './docs-chat.mjs'
 import { sources } from './onto-sources.mjs'
+import { subjectsOf, viewLine } from './onto-view.mjs'
 import { createLayaProxy } from './laya-proxy.mjs'
 import { createScreenStore, touchScreen } from './onto-screen.mjs'
 
@@ -81,8 +84,17 @@ const ask = createChat({
     if (!s) return ''
     // 쓰이는 동안은 지우지 않게 시각을 고친다(onto-screen.mjs 의 KEEP_MS 는 마지막으로 쓴 때부터다).
     if (s.screen) touchScreen(s.file)
-    if (s.screen) return `[건물] source="${s.source}" (${s.title}) — 반영 전 지금 편집 화면의 온톨로지다. 도구를 부를 때 source 로 넘긴다. 답에 "반영 전 화면 기준" 이라고 밝힌다.`
-    return `[건물] source="${s.source}" (${s.title}${s.version ? `, 버전 ${s.version}` : ''}) — 도구를 부를 때 source 로 넘긴다.`
+    const head = s.screen
+      ? `[건물] source="${s.source}" (${s.title}) — 반영 전 지금 편집 화면의 온톨로지다. 도구를 부를 때 source 로 넘긴다. 답에 "반영 전 화면 기준" 이라고 밝힌다.`
+      : `[건물] source="${s.source}" (${s.title}${s.version ? `, 버전 ${s.version}` : ''}) — 도구를 부를 때 source 로 넘긴다.`
+    // 창이 같이 보낸 지금 화면(보는 층·고른 것·보기 필터). 이 출처 TTL 에 있는 id 만 남긴다(onto-view.mjs).
+    let view = ''
+    try {
+      if (body.view) view = viewLine(body.view, subjectsOf(s.file))
+    } catch (e) {
+      log({ msg: 'onto view skipped', error: e.message })
+    }
+    return view ? `${head}\n${view}` : head
   },
   // 화면 기준은 목록에 내지 않는다 — 창마다 자기 화면만 고른다(docs-chat.js).
   info: () => ({ sources: sources(DATA, process.env.ONTO_FILES).map(({ file, ...s }) => s) }),
@@ -126,9 +138,12 @@ const server = createServer((req, res) => {
   }
 
   // 쓰기는 8084 에 남기는 편집(/__data/__edits, src/server/saved-edits.ts)과 반영 버전(/__data/__layouts, src/server/layouts.ts)뿐이다.
-  // FBX 변환(POST /__data/__fbx, src/server/fbx.ts)은 GLB 를 받아 FBX 를 돌려줄 뿐 아무것도 남기지 않는다. 나머지는 읽기만 받는다.
-  const writable = (req.method === 'PUT' && path === '/__data/__edits') || ((req.method === 'PUT' || req.method === 'POST') && path === '/__data/__layouts') || (req.method === 'POST' && (path === '/__data/__log' || path === '/__data/__fbx')) ||
-    ((req.method === 'PUT' || req.method === 'DELETE') && (path === '/__data/__drafts' || path === '/__data/__locks'))
+  // FBX 변환(POST /__data/__fbx, src/server/fbx.ts)·DWG 변환(POST /__data/__dwg, src/server/dwg.ts)은 받아서 바꿔 돌려줄 뿐 아무것도 남기지 않는다.
+  // 나머지는 읽기만 받는다.
+  const writable = (req.method === 'PUT' && path === '/__data/__edits') || ((req.method === 'PUT' || req.method === 'POST') && path === '/__data/__layouts') || (req.method === 'POST' && (path === '/__data/__log' || path === '/__data/__fbx' || path === '/__data/__dwg')) ||
+    ((req.method === 'PUT' || req.method === 'DELETE') && (path === '/__data/__drafts' || path === '/__data/__locks')) ||
+    // 프로젝트 만들기·층 구성 올리기와 [새 프로젝트]의 IFC 올리기(src/server/projects.ts).
+    ((req.method === 'POST' || req.method === 'PUT') && path === '/__data/__projects') || (req.method === 'POST' && path === '/__data/__upload')
   if (req.method !== 'GET' && req.method !== 'HEAD' && !writable) {
     res.writeHead(405, { Allow: 'GET, HEAD' }).end()
     return done(405)

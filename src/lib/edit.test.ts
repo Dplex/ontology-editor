@@ -1204,8 +1204,16 @@ describe('계통 편집 (E8)', () => {
     expect(ruled[0].inferred).toMatchObject({ systemId: system, confirmed: true })
   })
 
-  it('계통 종류와 유체를 정하면 TTL 계통 클래스가 유체 클래스가 되고, 순환수가 아니면 유체를 버린다', () => {
+  it('계통 종류와 유체를 정하면 TTL 계통 클래스가 유체 클래스가 되고, 순환수가 아니면 유체를 버린다 [OE-PIP-03#2]', () => {
     water()
+    // 유체를 고를 때마다 클래스가 그 유체의 것으로 바뀐다. 환수도 같다.
+    for (const [kind, fluid, brick] of [
+      ['hydronic_supply', 'hot', 'Hot_Water_System'],
+      ['hydronic_return', 'condenser', 'Condenser_Water_System'],
+    ] as const) {
+      setSystemKind(model, 'W1', kind, fluid)
+      expect(modelToTTL(model)).toContain(`W1 a brick:${brick} ;`)
+    }
     setSystemKind(model, 'W1', 'hydronic_supply', 'chilled')
     expect(model.systems.at(-1)!.fluid).toBe('chilled')
     expect(modelToTTL(model)).toContain('W1 a brick:Chilled_Water_System ;')

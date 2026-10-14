@@ -119,8 +119,9 @@ test('연결을 읽어 계통 범례와 상류·하류를 보여 준다', async 
   // SOURCEANDSINK 로 붙은 토출구. 이어진 것만 알고 방향은 모른다.
   await expect(picked.locator('.flow .linked b')).toHaveText('1')
 
-  // 출처가 화면에 남는다. BIM 이 말한 것과 우리가 추정한 것을 구별할 수 있어야 한다.
-  await expect(picked.locator('.neighbors')).toContainText('포트 BIM')
+  // 출처가 화면에 남는다. BIM 이 말한 것과 우리가 추정한 것을 구별할 수 있어야 한다. 포트 연결은 방향을 말했는지까지 적는다(OE-BIM-09).
+  await expect(picked.locator('.neighbors')).toContainText('BIM 포트 · 방향 명시 BIM')
+  await expect(picked.locator('.neighbors')).toContainText('BIM 포트 · 양방향/미지정 BIM')
 
   expect(errors).toEqual([])
 })
@@ -314,7 +315,7 @@ test('규칙이 짐작한 방향은 (추정)으로 보이고, 사람이 연결 �
   await terminal.getByTestId('flow-reason').fill('현장 확인')
   await terminal.getByTestId('flow-apply').click()
   await expect(terminal.locator('.rel')).toHaveText('상류')
-  await expect(terminal).toContainText('직접 정한 방향 편집')
+  await expect(terminal).toContainText('직접 정한 방향 사람')
   const report = page.locator('.report')
   await expect(report).toContainText('AT-101-02 → DUCT-01')
   await expect(report).toContainText('규칙 방향과 반대')

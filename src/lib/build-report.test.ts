@@ -41,7 +41,7 @@ describe('생성 리포트 (B-2)', () => {
     expect(b2.map((x) => x.no)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
     expect(b2.map((x) => x.title)).toEqual(['파일 요약', '판정 등급', '자동 생성 범위(출처별)', '요구사항 판정', '보정 항목(C)', '자동 보정 내역', '좌표 정합', 'BIM 밖 항목(X)', '사람 확정 현황', '검증 결과', '산출물'])
     for (const x of b2) expect(x.lines.length).toBeGreaterThan(0)
-    expect(b2[1].lines[0]).toContain('게이트(등급 2) 미달')
+    expect(b2[1].lines[0]).toContain('게이트(등급 0~3) 미달')
     expect(b2[10].lines[0]).toMatch(/sha256 [0-9a-f]{16}…/)
     // 산출물이 없으면 그 항은 "아직 만들지 않음".
     expect(generationReport(i)[10].lines).toEqual(['아직 만들지 않음'])

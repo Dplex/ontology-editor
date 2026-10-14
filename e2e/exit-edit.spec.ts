@@ -126,7 +126,7 @@ test('저장 안 함은 연 때로 되돌리고, 버린 편집은 위 줄에서 
   const before = await row(page, 'AHU-1').locator('.coord').first().inputValue()
   await moveAhu(page, '2')
   await page.getByRole('button', { name: '편집 종료' }).click()
-  await dialog(page).getByRole('button', { name: '저장 안 함' }).click()
+  await dialog(page).getByRole('button', { name: '저장하지 않고 종료' }).click()
   await expect(page.locator('.edit-bar')).toHaveCount(0)
   await expect(page.locator('.key-note')).toContainText('편집 1건을 버리고')
 

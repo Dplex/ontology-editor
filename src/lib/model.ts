@@ -43,6 +43,14 @@ export type Space = {
    */
   bimArea?: { m2: number; property: string }
   /**
+   * 방이 말한 방 높이(OE-BIM-03, 층 바닥에서 m). Revit `Unbounded Height`·ArchiCAD 기준 물량 `Height`, 둘 다 없으면 방 형상(SweptSolid)의
+   * 압출 깊이다. 없으면 키가 없고 화면이 "모름" 이다. 설비 판본(MEP Space)의 방 높이는 층고와 같아 반자가 아니다 — 층 반자 높이를 고를 때
+   * 걸러지고(ceiling.ts), 여기에는 읽은 그대로 둔다.
+   */
+  roomHeight?: { m: number; property: string }
+  /** 방이 말한 반자 높이(FinishCeilingHeight, 층 바닥에서 m). 없으면 키가 없고 화면이 "모름" 이다. 층의 반자 높이(Storey.ceiling)는 이 값들의 가운데다. */
+  ceilingHeight?: { m: number; property: string }
+  /**
    * `kind` 를 누가 정했나. `bim` 이면 `omniclass` 에서, `dict` 면 이름 사전에서 읽었고, `edit` 면 사람이 정했다(OE-SPC-17, edit.ts 의
    * setSpacesKind). 사람이 정한 종류는 이름을 고쳐도 그대로다.
    */
@@ -180,6 +188,12 @@ export type EquipmentRole =
  * (Duplex MEP 926대 중 785대). "설비 926대" 로 DT 에 나가면 기기가 여섯 배로 부푼다.
  * 온톨로지 쪽에서도 자리가 다르다 — 기기는 Brick, 도관은 FSO 가 맡는다.
  */
+/**
+ * 배치점이 자기 형상에서 이만큼 넘게 떨어져 있으면 배치점을 믿지 않는다(미터, OE-BIM-12 · K5). 임포터(ifc/import.ts 의 anchorToGeometry)가 쓰고
+ * 화면이 까닭에 보인다. 천장 설비의 삽입점이 몸체 윗면에 있는 정도는 정상이라 조금 여유를 둔다.
+ */
+export const ANCHOR_MARGIN = 0.5
+
 export function isConduit(role: EquipmentRole | null): boolean {
   return role === 'segment' || role === 'fitting'
 }
@@ -274,6 +288,11 @@ export type Equipment = {
    */
   positionSource?: 'geometry' | 'edited' | 'panel'
   /**
+   * 배치점 보정(OE-BIM-12)으로 좌표를 형상 중심으로 바꿨으면 BIM 원본 배치점과 형상까지의 거리(미터, 기준 0.5m 를 넘은 값). 화면이 원본·보정
+   * 위치와 까닭을 보인다. 보정하지 않았으면 키가 없다. 사람이 옮겨도 남는다 — 원본 배치점은 BIM 이 말한 값이라서다.
+   */
+  anchored?: { from: Vec3; off: number }
+  /**
    * 설계 풍량 등 용량 파라미터. `null` 이면 BIM 에 안 적혀 있다.
    * PRD #6 의 "용량 파라미터 누락 설비" 이고, 공조존 용량 검증(Z-03)이 이 값에 걸린다.
    */
@@ -345,6 +364,11 @@ export type Equipment = {
    * 사람이 그린 배관의 Flow Type(OE-OBJ-12·OE-PIP-11, flow-type.ts 의 코드). 그린 구간·이음쇠에만 있다. BIM 배관은 계통으로 가른다.
    */
   flowType?: string
+  /**
+   * 사람이 BIM 덕트·배관 구간에 정한 Flow Type(OE-PIP-14). 없으면 계통 종류·유체로 계산한다(flow-type.ts 의 conduitFlowType).
+   * BIM 에는 없고 편집 파일에 남는다.
+   */
+  flowTypeSet?: string
   /**
    * 사람이 정한 설치면(OE-EQP-05). z 로 판정하지 못한 설비(미정)에 정한다. 있으면 판정보다 앞선다(ceiling.ts 의 judgeSurface).
    * BIM 에는 없고 편집 파일에 남는다.
@@ -587,7 +611,20 @@ export type VerticalPart = {
   exit: Vec3 | null
   /** 사람이 다중층 뷰에서 고친 조각(OE-ML-07). BIM 원본 형상은 baseline 에 남는다(vertical-edit.ts). */
   edited?: true
+  /**
+   * 엘리베이터가 이 층에 서는가(OE-ML-10). `stop` 정차 · `skip` 무정차 · 없거나 `unknown` 은 미확인이다. 미확인을 정차로 보지 않는다 —
+   * 로봇 통과(OE-ML-04)는 확인된 정차 층에서만 가능이다. 엘리베이터에만 둔다. BIM 이 정차를 말하지 않아(EL 을 설비로 받는다) 지금은
+   * 사람이 정한 값뿐이고 출처는 편집이다.
+   */
+  stop?: ElevatorStop
+  /**
+   * 에스컬레이터 운행 방향(OE-ML-11). `up` 은 시작 층(아래) 진입 지점에서 끝 층(위) 종료 지점으로, `down` 은 그 반대다. 없으면 미확인이고
+   * 방향을 지어내지 않는다. 오브젝트 하나의 값이라 모든 층 조각에 같이 적는다. 사람이 정한 값뿐이고 출처는 편집이다.
+   */
+  direction?: 'up' | 'down'
 }
+
+export type ElevatorStop = 'stop' | 'skip' | 'unknown'
 
 /**
  * 추가 공간 오브젝트(OE-OBJ-09). 책상·의자·소파처럼 공간을 꾸미는 사물이다. 층 바닥에 서고, 서로 겹치지 않는다(space-object.ts).
@@ -603,6 +640,15 @@ export type SpaceObject = {
   at: Vec2
   /** 가로(x)·세로(y)·높이(미터). 축에 나란한 상자다. */
   size: Vec3
+  /**
+   * 층 바닥에서 상자 밑면까지(미터). 없으면 0(바닥에 선다). BIM 에서 받은 상부장·벽걸이 TV·지하로 내려간 지형처럼 바닥에 서지 않는 것에만 있다.
+   */
+  base?: number
+  /**
+   * 어디서 왔나. `bim` 이면 임포트가 BIM 요소(IfcFurnishingElement, 방이 없는 파일의 Proxy)에서 만들었고 id 는 GlobalId 다.
+   * 없으면 사람이 놓았다. BIM 에서 받은 것끼리는 겹쳐도 막지 않는다(책상 밑 의자처럼 BIM 이 그렇게 놓았다).
+   */
+  source?: 'bim'
 }
 
 /** 사람이 넣은 3D 모델로 만든 라이브러리 항목(OE-P3-08). 파일을 그대로 들고 있어 편집 파일에 같이 남는다. */

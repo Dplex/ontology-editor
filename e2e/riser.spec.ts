@@ -95,7 +95,7 @@ test('Duplex: 1층 라디에이터에서 수직으로 올라 2층에서 옆으�
   expect(errors).toEqual([])
 })
 
-test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 설비로 분기하고, 층 편집 화면에서도 같은 분기점이 보이며, 되돌리면 라이저가 하나로 돌아온다 [OE-ML-13#1~,5~] [OE-PIP-15#4~]', async ({ page }) => {
+test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 설비로 분기하고, 층 편집 화면에서도 같은 분기점과 연결이 보이고 배관을 이어 그리며 분기 꺾임점을 옮길 수 있으며, 그리다 그만두면 아무것도 남지 않고, 되돌리면 라이저가 하나로 돌아온다 [OE-ML-13#1~,4,5] [OE-PIP-15#4~] [OE-PIP-11#1~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)
   const errors: string[] = []
@@ -136,6 +136,25 @@ test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 �
   await branch.getByLabel('층간 배관 끝 층').selectOption({ label: 'Level 1' })
   const other = branch.getByLabel('층간 배관 끝 대상').locator('option', { hasText: '557620' })
   await branch.getByLabel('층간 배관 끝 대상').selectOption(await other.getAttribute('value'))
+  // 분기 자리와 꺾임점 하나를 찍다가 Esc 로 그만두면 분기점·구간·연결이 남지 않는다(OE-ML-13 AC4).
+  const hws = page.locator('.equipment tbody tr', { hasText: /HWS (배관|이음|분기) / })
+  await page.locator('input[type=search]').fill('HWS')
+  await expect(hws).toHaveCount(5)
+  await branch.getByRole('button', { name: '분기 그리기' }).click()
+  await bar.getByLabel('작업 층').selectOption({ label: 'Level 1' })
+  await bar.getByLabel('층 바닥에서 높이(m)').fill('1.5')
+  await bar.getByLabel('층 바닥에서 높이(m)').press('Tab')
+  await bar.getByTestId('branch-at').click()
+  const p0 = await viewer<{ x: number; y: number }>(page, 'point', [0.42, -8.81, 1.5])
+  await page.mouse.click(p0.x, p0.y)
+  await expect(bar).toContainText('분기 자리 + 꺾임점 1개')
+  await page.keyboard.press('Escape')
+  await expect(bar).toHaveCount(0)
+  await expect(hws).toHaveCount(5)
+  await page.locator('input[type=search]').fill('HWS 배관 1')
+  await page.locator('.equipment tbody tr', { hasText: 'HWS 배관 1' }).first().getByRole('button', { name: 'HWS 배관 1', exact: true }).click()
+  await expect(page.locator('.picked .neighbors:not(.released) tbody tr')).toHaveCount(2)
+
   await branch.getByRole('button', { name: '분기 그리기' }).click()
   await expect(bar).toContainText('첫 점은 분기 자리')
   // 작업 높이 Level 1 + 1.5m 에서 라이저 위에 분기 자리를 찍는다.
@@ -164,8 +183,36 @@ test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 �
   await page.getByRole('button', { name: '층 편집으로' }).first().click()
   await page.locator('input[type=search]').fill('HWS 분기')
   await expect(page.locator('.equipment tbody tr', { hasText: 'HWS 분기 6' })).toHaveCount(1)
+  const pickRow = async (name: string) => {
+    await page.locator('input[type=search]').fill(name)
+    await page.locator('.equipment tbody tr', { hasText: name }).first().getByRole('button', { name, exact: true }).click()
+  }
+  // 분기점의 연결 상태: 라이저 아래·위 두 토막과 분기 구간 하나에 이어져 있다.
+  await pickRow('HWS 분기 6')
+  await expect(page.locator('.picked .neighbors:not(.released) tbody tr')).toHaveCount(3)
+  // 분기는 여느 배관과 같은 편집으로 고친다: 1층 안의 분기 꺾임점(HWS 이음 8)을 옆으로 옮기면 붙은 구간이 따라 늘어난다.
+  const elbow = page.locator('.equipment tbody tr', { hasText: 'HWS 이음 8' }).first().locator('.coord').first()
+  await pickRow('HWS 이음 8')
+  const was = await elbow.inputValue()
+  await elbow.fill(String(Number(was) + 0.2))
+  await elbow.press('Enter')
+  await expect(elbow).toHaveValue(String(Number(was) + 0.2))
+  await expect(page.locator('.edit-notice')).toHaveCount(0)
+  // 층 편집 화면에서 분기점에 배관을 이어 그린다.
+  await pickRow('HWS 분기 6')
+  const draw = page.getByTestId('pipe-draw')
+  await draw.getByLabel('배관 끝 대상').selectOption({ index: 1 })
+  await draw.getByLabel('배관 Flow Type').selectOption('HWS')
+  await draw.getByRole('button', { name: '곧게 연결하기' }).click()
+  await expect(page.locator('.key-note')).toContainText('HWS 배관을 그렸습니다')
+  await expect(page.locator('.picked .neighbors:not(.released) tbody tr')).toHaveCount(4)
 
-  // 되돌리기 한 번에 분기점·뒤 구간·분기가 빠진다(라이저 다섯 조각만 남는다).
+  // 이어 그린 것과 옮긴 것을 되돌리고, 한 번 더 되돌리면 분기점·뒤 구간·분기가 빠진다(라이저 다섯 조각만 남는다).
+  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.keyboard.press('Control+z')
+  await page.keyboard.press('Control+z')
+  await page.locator('input[type=search]').fill('HWS 이음 8')
+  await expect(elbow).toHaveValue(was)
   await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
   await page.keyboard.press('Control+z')
   await page.locator('input[type=search]').fill('HWS')
@@ -202,7 +249,7 @@ async function drawRiser(page: Page) {
   await expect(page.locator('.key-note')).toContainText('HWS 배관을 그렸습니다: 구간 3개 · 이음쇠 2개')
 }
 
-test('Duplex: 라이저의 2층 오프셋을 0.3m 올리면 양 끝 꺾임점이 같이 오르고 수직 구간이 늘어나며, 라디에이터 아래로는 내리지 못하고, 되돌리면 제자리다 [OE-ML-14#2~,4~,5~]', async ({ page }) => {
+test('Duplex: 라이저의 2층 오프셋을 0.3m 올리면 양 끝 꺾임점이 같이 오르고 수직 구간이 늘어나며, 라디에이터 아래로는 내리지 못하고, 되돌리면 제자리다 [OE-ML-14#2~,4~,5~] [OE-PIP-10#1~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)
   const errors: string[] = []
@@ -242,7 +289,7 @@ test('Duplex: 라이저의 2층 오프셋을 0.3m 올리면 양 끝 꺾임점이
   expect(errors).toEqual([])
 })
 
-test('Duplex: 층 편집에서 그리던 배관을 들고 다중층 뷰로 가서 2층까지 잇고, [층 편집으로] 로 돌아오면 그리던 상태 그대로다 [OE-ML-01#2] [OE-PIP-15#5]', async ({ page }) => {
+test('Duplex: 층 편집에서 그리던 배관을 들고 다중층 뷰로 가서 2층까지 잇고, [층 편집으로] 로 돌아오면 그리던 상태 그대로다 [OE-ML-01#2] [OE-PIP-15#5] [OE-PIP-11#1~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)
   const errors: string[] = []
@@ -354,7 +401,7 @@ test('Duplex: 층 편집 화면에서 다른 층으로 이어진 구간은 잠�
   expect(errors).toEqual([])
 })
 
-test('Duplex: 라이저 수직 구간을 둘러 샤프트를 만들고 그 구간을 넣으면, 오프셋을 바꾸기 전에 샤프트 소속이 보이고, 샤프트를 지우면 배관은 남고 소속만 풀린다 [OE-ML-09#4] [OE-ML-14#5,6]', async ({ page }) => {
+test('Duplex: 라이저 수직 구간을 둘러 샤프트를 만들고 그 구간을 넣으면, 오프셋을 바꾸기 전에 샤프트 소속이 보이고, 샤프트를 지우면 배관은 남고 소속만 풀린다 [OE-ML-09#4] [OE-ML-14#5,6] [OE-ML-17#4]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(240_000)
   const errors: string[] = []
@@ -409,6 +456,14 @@ test('Duplex: 라이저 수직 구간을 둘러 샤프트를 만들고 그 구�
   await page.mouse.click(corner.x, corner.y)
   const panel = page.getByTestId('vertical-picked')
   await expect(panel.locator('h3')).toHaveText('PS-1')
+  // 샤프트를 옮기기 전에 같이 갈 배관과 막히는 까닭을 보인다(OE-ML-17). 이 라이저의 수직 구간은 1층 라디에이터에 바로 붙어 있어, 샤프트와 같이
+  // 옮기면 설비에서 떨어진다 — 일부만 옮기지 않고 막는다. 방향키를 눌러도 샤프트·배관이 그대로다.
+  const carry = page.getByTestId('shaft-carry')
+  await expect(carry).toContainText('안쪽 구간 1')
+  await expect(carry).toContainText(/옮길 수 없습니다 — .*바로 붙어 있어 같이 옮기면 설비에서 떨어집니다/)
+  await page.locator('.appbar h2').click()
+  await page.keyboard.press('ArrowRight')
+  await expect(page.locator('.edit-notice').first()).toContainText('PS-1을(를) 옮기지 않았습니다')
   await panel.getByRole('button', { name: '샤프트 지우기' }).click()
   await expect(page.getByTestId('vertical-delete-pipes')).toContainText('안의 덕트·배관 1개와 그 연결은 남고 샤프트 소속만 풀립니다')
   await page.getByTestId('vertical-delete-ask').getByRole('button', { name: '지우기', exact: true }).click()

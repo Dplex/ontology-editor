@@ -32,9 +32,9 @@ test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기�
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
 
-  // 라이브러리(OE-SPC-16): 내장 항목 9개
+  // 라이브러리(OE-SPC-16): 내장 항목 17개(ADR-0016)
   await page.getByRole('button', { name: /^오브젝트/ }).click()
-  await expect(page.locator('.object-library .ghost:not(.object-import)')).toHaveCount(9)
+  await expect(page.locator('.object-library .ghost:not(.object-import)')).toHaveCount(17)
 
   // 책상을 (3, 2)에 놓는다
   await place(page, '책상', 3, 2)

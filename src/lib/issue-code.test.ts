@@ -28,7 +28,7 @@ beforeAll(async () => {
 }, 120_000)
 
 describe('누락 분류 코드 (OE-BIM-20)', () => {
-  it('픽스처를 열고 합쳐서 나오는 모든 경고와 IDF 경고, 화면의 미소속 줄에 X/A/B/C 코드와 R 번호가 붙는다 [OE-BIM-20#1]', () => {
+  it('픽스처를 열고 합쳐서 나오는 모든 경고와 IDF 경고, 화면의 미소속 줄에 X/A/B/C 코드와 R 번호가 붙는다 [OE-BIM-20#1~,2]', () => {
     const warnings = new Set<string>()
     for (const m of models.values()) for (const w of m.warnings) warnings.add(w)
     const list = [...models.values()]
@@ -41,7 +41,7 @@ describe('누락 분류 코드 (OE-BIM-20)', () => {
     expect([...warnings].filter((w) => !warningCode(w))).toEqual([])
   })
 
-  it('완전성 검사 규칙마다 코드와 R 번호가 있다 [OE-BIM-20#1]', () => {
+  it('완전성 검사 규칙마다 코드와 R 번호가 있다 [OE-BIM-20#1~,2]', () => {
     const keys = new Set([...models.values()].flatMap((m) => completenessChecks(m, []).map((c) => c.key)))
     expect(keys.size).toBeGreaterThanOrEqual(10)
     expect([...keys].filter((k) => !checkCode(k))).toEqual([])
@@ -52,6 +52,7 @@ describe('누락 분류 코드 (OE-BIM-20)', () => {
     expect(issueText(warningCode('공간 2개에 바닥 외곽선(FootPrint, SweptSolid)이 없습니다(Hallway, Hallway).')!)).toBe('B-부재 · R2')
     expect(issueText(warningCode('설비 3대는 주변 50mm 안에 이어질 부재가 없어 연결하지 못했습니다(접합 부재 누락).')!)).toBe('C-보정 · R15')
     expect(issueText(warningCode('공조존 1개에 바닥면이 없습니다(Z1).')!)).toBe('X-외부 · R19')
+    expect(issueText(warningCode('가구·주변 모델 61개는 형상이 없어 추가 공간 오브젝트로 받지 못했습니다.')!)).toBe('B-부재 · R8')
     // 합친 파일의 경고는 이름표가 앞에 붙는다.
     expect(warningCode('[NBU_Duplex-Apt_Arch.ifc] 벽 3장에 내력(LoadBearing) 속성이 없습니다.')?.r).toBe('R22')
     expect(issueText(checkCode('device-space')!)).toBe('B-부재 · R2')

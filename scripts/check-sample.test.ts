@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as WebIFC from 'web-ifc'
 import { describe, expect, it } from 'vitest'
+import { conduitFlowType } from '../src/lib/flow-type'
 import { importIfc, importIfcWithMeshes, readMeshes, UnreadableIfcError, type ImportOptions } from '../src/lib/ifc/import'
 import { createDataCatalog } from '../src/server/data-catalog'
 import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-geometry'
@@ -1105,26 +1106,29 @@ describe.skipIf(!existsSync(SAMPLE) || !existsSync(MEP) || !existsSync(DUPLEX_AR
   it('파일마다 어느 칸이 얼마나 차는지', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
+    // 순서: 공간 · 설비(좌표 있는 기기) · 소속(방을 찾은 기기) · 연결망(계통에 든 기기) ·
+    // 방향(덕트·배관으로 다른 기기와 이어진 기기 중 흐름 방향으로 이어진 기기 — deviceFlows 참조).
+    // 칩 숫자는 판정에 쓰는 본 숫자 하나를 분자/분모 (%) 로 보인다(OE-BIM-16). [ ] 는 판정에 안 쓰는 보조 숫자다.
     const chips = (path: string) =>
-      profileOf(importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model).tiers.map((t) => `${t.label} ${t.figure}`).join(' | ')
+      profileOf(importIfcWithMeshes(api, new Uint8Array(readFileSync(path))).model)
+        .tiers.map((t) => `${t.label} ${t.figure}${t.aux ? ` [${t.aux.source === 'rule' ? '미확정 규칙' : '보정 후'} ${t.aux.figure}]` : ''}`)
+        .join(' | ')
 
-    // 순서: 공간 · 설비(좌표 있는 기기) · 소속(방을 찾은 기기) · 연결망(연결 수) ·
-    // 방향(덕트·배관으로 다른 기기와 이어진 기기 중 흐름 방향으로 이어진 기기 — deviceFlows 참조)
-    expect(chips(SAMPLE)).toBe('공간 7 | 설비 — | 소속 — | 연결망 — | 방향 —')
-    expect(chips(DUPLEX_ARCH)).toBe('공간 19/21 | 설비 — | 소속 — | 연결망 — | 방향 —')
+    expect(chips(SAMPLE)).toBe('공간 7/7 (100.0%) | 설비 — | 소속 — | 연결망 — | 방향 —')
+    expect(chips(DUPLEX_ARCH)).toBe('공간 19/21 (90.5%) | 설비 — | 소속 — | 연결망 — | 방향 —')
     // 설비 전용. 방이 없어 소속이 0 이다. 연결 1,995개는 **전부** 방향을 아는데 기기 단위로는
     // 37/103 이다 — 나머지 66대는 난방·오수처럼 원천 기기(보일러·펌프)가 모델에 없는 망에 형제로만
     // 매달려서 "누가 이 기기에 공급하나" 에 답이 없다. 연결 단위(100%)로 보이면 DT 가 받는 것을
     // 크게 부풀려 말하게 된다.
-    expect(chips(MEP)).toBe('공간 — | 설비 297/308 | 소속 0/308 | 연결망 1995 | 방향 37/103')
+    expect(chips(MEP)).toBe('공간 — | 설비 297/308 (96.4%) | 소속 0/308 (0.0%) | 연결망 129/308 (41.9%) | 방향 37/103 (35.9%)')
     // 공간 1 은 지붕뿐이다. 기기 40대가 갈 방이 없다 — 건축 파일을 덧붙이면 소속 40 이 된다.
     // 연결 단위로는 39%(190/485)가 방향을 아는데, 기기에서 출발한 방향 사슬은 전부 중간의
     // SOURCEANDSINK 에서 끊긴다. 기기끼리 닿는 흐름은 0 이다.
-    expect(chips(DUPLEX_HVAC)).toBe('공간 1 | 설비 40 | 소속 0/40 | 연결망 485 | 방향 0/26')
-    // 목표선(방향) 칩은 두 수치다(OE-BIM-16): BIM 포트로 0/27, 규칙(사전)으로 짐작한 방향까지 23/27.
-    expect(chips(DUPLEX_MEP)).toBe('공간 22 | 설비 141 | 소속 141 | 연결망 783 | 방향 0/27(BIM) → 23/27(사전)')
+    expect(chips(DUPLEX_HVAC)).toBe('공간 1/1 (100.0%) | 설비 40/40 (100.0%) | 소속 0/40 (0.0%) | 연결망 40/40 (100.0%) | 방향 0/26 (0.0%)')
+    // 방향의 본 숫자는 BIM 포트로 0/27 이다. 확정 전 규칙 방향까지 넣은 23/27 은 판정에 안 쓰는 보조 숫자다(OE-BIM-16).
+    expect(chips(DUPLEX_MEP)).toBe('공간 22/22 (100.0%) | 설비 141/141 (100.0%) | 소속 141/141 (100.0%) | 연결망 44/141 (31.2%) | 방향 0/27 (0.0%) [미확정 규칙 23/27 (85.2%)]')
     // COBie 판본은 형상이 없다. 좌표도 외곽선도 0 인데 소속은 BIM 이 전부 말해 준다.
-    expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 | 설비 0/133 | 소속 133 | 연결망 0 | 방향 —')
+    expect(chips(DUPLEX_COBIE)).toBe('공간 0/22 (0.0%) | 설비 0/133 (0.0%) | 소속 133/133 (100.0%) | 연결망 36/133 (27.1%) | 방향 —')
   }, 300_000)
 
   // OE-BIM-16 "목록 숫자 = 열람 숫자". 목록은 서버(data-catalog.ts)가 기본 옵션으로 재고, 열람은 워커가 화면의
@@ -2481,8 +2485,8 @@ describe.skipIf(![DUPLEX_MEP_FULL, DUPLEX_MEP_2, DUPLEX_ARCH, DUPLEX_MEP].every(
       } else expect(f.id, kind).toMatch(/^[0-9A-Za-z_$]{22}$/)
       if (kind === 'space' || kind === 'equipment') expect(keys.has(f.id), f.id).toBe(true)
     }
-    // 계단 2개가 1·2층에 조각 하나씩이다.
-    expect(Object.fromEntries(kinds)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14, vertical: 4 })
+    // 계단 2개가 1·2층에 조각 하나씩이다. 가구 61개는 추가 공간 오브젝트이고 id 는 BIM 의 GlobalId 그대로다.
+    expect(Object.fromEntries(kinds)).toEqual({ wall: 57, space: 21, equipment: 926, window: 24, door: 14, vertical: 4, spaceObject: 61 })
 
     // S4: 소속의 출처. BIM 이 말한 소속(합칠 때 같은 자리의 방으로 옮겨 적은 것)은 bim, 나머지는 calc.
     const src = features.filter((f) => f.properties.kind === 'equipment' && f.properties.spaceId).map((f) => f.properties.spaceSource)
@@ -2889,6 +2893,38 @@ describe.skipIf(!existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP_FULL) || !exi
   }, 600_000)
 })
 
+// BIM 배관의 Flow Type(OE-PIP-14). BIM 배관에는 Flow Type 칸이 없어 계통 종류·유체로 계산한다. 숫자는 2026-10-14 에 잰 것이다.
+// 정하지 못한 구간은 계통이 없거나, 계통 종류를 모르거나(공급·환수가 한 계통에 섞인 Revit 기본 계통 등), 유체를 모르는 순환수다.
+describe('BIM 배관의 Flow Type (OE-PIP-14)', () => {
+  const EXPECTED: [string, { conduits: number; typed: number; noSystem: number; by: Record<string, number> }][] = [
+    [MEP, { conduits: 1895, typed: 1461, noSystem: 310, by: { DCW: 209, SA: 272, EA: 89, HWS: 343, HWR: 331, DHWS: 108, CHWS: 53, CHWR: 53, OA: 3 } }],
+    [DUPLEX_HVAC, { conduits: 458, typed: 322, noSystem: 0, by: { DCW: 161, DHWS: 159, HWS: 2 } }],
+    [DUPLEX_MEP_FULL, { conduits: 785, typed: 615, noSystem: 18, by: { HWS: 333, DCW: 144, DHWS: 134, EA: 4 } }],
+    [CLINIC_HVAC, { conduits: 3138, typed: 3135, noSystem: 3, by: { CHWR: 37, CHWS: 40, SA: 1956, EA: 175, RA: 927 } }],
+    [CLINIC_MEP, { conduits: 12645, typed: 9834, noSystem: 65, by: { DCW: 1914, DHWS: 1893, CHWR: 47, CHWS: 50, RA: 1222, SA: 2570, FP: 2136, EA: 2 } }],
+  ]
+  it.skipIf(!EXPECTED.some(([p]) => existsSync(p)))('가진 BIM 의 덕트·배관 구간이 계통으로 Flow Type 을 얻고, GeoJSON 에 출처와 함께 들어간다 [OE-PIP-14#1~]', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    for (const [path, want] of EXPECTED) {
+      if (!existsSync(path)) continue
+      const m = importIfc(api, new Uint8Array(readFileSync(path)))
+      const systems = new Map(m.systems.map((x) => [x.id, x]))
+      const conduits = m.storeys.flatMap((st) => st.equipment).filter((e) => e.role === 'segment' || e.role === 'fitting')
+      const by: Record<string, number> = {}
+      for (const e of conduits) {
+        const f = conduitFlowType(e, (id) => systems.get(id))
+        if (f) by[f.code] = (by[f.code] ?? 0) + 1
+      }
+      const got = { conduits: conduits.length, typed: Object.values(by).reduce((a, b) => a + b, 0), noSystem: conduits.filter((e) => !e.systemId).length, by }
+      expect(got, path).toEqual(want)
+      const typedFeatures = modelToGeoJSON(m).flatMap((f) => f.collection.features).filter((f) => f.properties.flowType)
+      expect(typedFeatures.length, path).toBe(want.typed)
+      expect(typedFeatures.every((f) => f.properties.flowTypeSource === 'calc' || f.properties.flowTypeSource === 'dict'), path).toBe(true)
+    }
+  }, 600_000)
+})
+
 // 가져오기의 기본 약속(OE-BIM-02·04·08·09)을 가진 BIM 전부에 대 본다. 숫자는 2026-10-10 에 잰 것이다.
 describe('가져오기 기본 — 층·벽·말단·배관·연결 (OE-BIM-02·04·08·09)', () => {
   const FILES = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP_FULL, CLINIC_ARCH, CLINIC_HVAC, CLINIC_MEP].filter((f) => existsSync(f))
@@ -2981,7 +3017,7 @@ describe('합칠 때 좌표계 어긋남 추정 (OE-BIM-22)', () => {
 
 // 누락 분류 코드(OE-BIM-20). 가진 BIM 과 그 합치기에서 나오는 경고마다 X/A/B/C 코드와 R 번호가 붙는다.
 describe('경고마다 누락 분류 코드 (OE-BIM-20)', () => {
-  it('가진 BIM 8개와 건축+설비 합치기의 경고에 코드가 없는 것이 없다 [OE-BIM-20#1]', async () => {
+  it('가진 BIM 8개와 건축+설비 합치기의 경고에 코드가 없는 것이 없다 [OE-BIM-20#2]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP_FULL, DUPLEX_COBIE, CLINIC_ARCH, CLINIC_HVAC, CLINIC_MEP].filter((f) => existsSync(f))

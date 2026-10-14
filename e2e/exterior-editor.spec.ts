@@ -65,6 +65,8 @@ test('외벽 에디터에서 외벽을 옮기면 같은 면에 쌓인 다른 층
     if (!(await group.isVisible())) continue
     const these = (await group.getAttribute('data-walls'))!.split(' ').filter(Boolean)
     if (these.length < 2) continue
+    // 층 목록은 옮기기 전에 읽는다. 고른 벽이 내력벽(기초벽)이면 옮긴 뒤 같은 면에 남는 것이 자기뿐이라 묶음 글이 그 층 하나로 바뀐다.
+    const groupStoreys = (await group.textContent())!.match(/같은 면 외벽 \d+개\(([^)]+)\)/)![1].split('·')
     // 층 편집 화면의 외벽 잠금 안내 대신 외벽 에디터 안내가 선다.
     await expect(panel.getByTestId('wall-locked')).toHaveCount(0)
     kept = await panel.getByTestId('facade-bearing').isVisible()
@@ -80,7 +82,7 @@ test('외벽 에디터에서 외벽을 옮기면 같은 면에 쌓인 다른 층
     }
     if (!/외벽 \d+개 옮김/.test((await bar.textContent()) ?? '')) continue
     walls = these
-    storeys = (await group.textContent())!.match(/같은 면 외벽 \d+개\(([^)]+)\)/)![1].split('·')
+    storeys = groupStoreys
     break
   }
   expect(walls.length).toBeGreaterThanOrEqual(2)

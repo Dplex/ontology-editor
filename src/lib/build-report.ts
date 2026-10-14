@@ -5,10 +5,12 @@
 // 두 리포트는 같은 재료(모델·등급 판정·요구사항·완전성 검사·산출물)에서 만든다. B-2 는 화면과 반영 버전(report.json)에, B-1 은 고객사에 보낼 HTML 이다.
 
 import type { CheckResult } from './checks'
+import { CONNECTION_CLASS_LABEL, connectionClass } from './connection-class'
 import type { GradeReport } from './grade'
-import { percent } from './grade'
+import { GATE, percent, TARGET } from './grade'
 import { countOf, isConduit, type Model } from './model'
 import type { RequirementRow } from './requirements'
+import { LEVEL_LABEL, preBuildChecks } from './pre-build'
 
 export type MissingClass = 'X' | 'A' | 'B' | 'C'
 export const MISSING_LABEL: Record<MissingClass, string> = { X: 'X-외부', A: 'A-설정', B: 'B-부재', C: 'C-보정' }
@@ -81,8 +83,14 @@ export function generationReport(input: ReportInput): ReportSectionB[] {
       no: 2,
       title: '판정 등급',
       lines: [
-        `게이트(등급 2) ${grades.gate ? '통과' : '미달'} · 목표선(등급 3) ${grades.target ? '도달' : '미도달'} (D1·D12 제안안)`,
-        ...grades.rows.map((r) => `등급 ${r.grade} ${r.label}: ${percent(r.ratio)}${r.withDictionary ? ` (사전 포함 ${percent(r.withDictionary.ratio)})` : ''} / 통과선 ${Math.round(r.line * 100)}% ${r.pass ? '통과' : '미달'}`),
+        `게이트(등급 0~${GATE}) ${grades.gate ? '통과' : '미달'}${grades.gate && !grades.bimGate ? '(원본 BIM 은 미달, 보정 후 통과)' : ''} · 목표선(등급 ${TARGET}) ${grades.target ? '도달' : '미도달'} (D1·D12 제안안)`,
+        ...grades.rows.map(
+          (r) =>
+            `등급 ${r.grade} ${r.label}: ${r.of ? `${r.have}/${r.of} ` : ''}${percent(r.ratio)}` +
+            (r.aux ? ` (${r.aux.source === 'rule' ? '미확정 규칙' : '보정 후'} ${r.aux.have}/${r.aux.of} ${percent(r.aux.ratio)}, 목표에 안 셈)` : '') +
+            (r.dictKinds?.of ? ` · 계통 종류(사전) ${r.dictKinds.have}/${r.dictKinds.of}` : '') +
+            ` / 통과선 ${Math.round(r.line * 100)}% ${r.pass ? '통과' : '미달'}`,
+        ),
       ],
     },
     {
@@ -90,9 +98,9 @@ export function generationReport(input: ReportInput): ReportSectionB[] {
       title: '자동 생성 범위(출처별)',
       lines: [
         `물리존 외곽선: BIM ${spaces.filter((sp) => sp.footprint.length >= 3 && !sp.added).length} · 편집 ${spaces.filter((sp) => sp.added).length} · 없음 ${spaces.filter((sp) => sp.footprint.length < 3).length}`,
-        `설비 소속: ${count(devices, (e) => (e.spaceSource === 'bim' ? 'BIM' : e.spaceSource === 'computed' ? '계산' : e.spaceSource === 'edit' ? '편집' : null))}`,
-        `설비 종류: ${count(devices, (e) => (e.kindSource === 'bim' ? 'BIM' : e.kindSource === 'dict' ? '사전' : e.kindEdited ? '편집' : e.kind ? 'BIM' : null))}`,
-        `연결: ${count(model.connections, (x) => ({ port: 'BIM 포트', geometry: '형상 추정', manual: '편집' })[x.source])}`,
+        `설비 소속: ${count(devices, (e) => (e.spaceSource === 'bim' ? 'BIM' : e.spaceSource === 'computed' ? '계산' : e.spaceSource === 'edit' ? '사람' : null))}`,
+        `설비 종류: ${count(devices, (e) => (e.kindSource === 'bim' ? 'BIM' : e.kindSource === 'dict' ? '사전' : e.kindEdited ? '사람' : e.kind ? 'BIM' : null))}`,
+        `연결: ${count(model.connections, (x) => CONNECTION_CLASS_LABEL[connectionClass(x)])}`,
       ],
     },
     {
@@ -139,10 +147,11 @@ export function generationReport(input: ReportInput): ReportSectionB[] {
     {
       no: 10,
       title: '검증 결과',
-      lines: or(
-        checks.map((x) => (x.skipped ? `${x.rule}: 잴 수 없음(${x.skipped})` : `${x.rule}: ${x.total - x.failed.length}/${x.total}${x.failed.length ? ` — 어김 ${x.failed.length}` : ''}`)),
-        '검사 없음',
-      ),
+      // 생성 전 검증(OE-GEN-03) 항목이 먼저다 — [차단] 이 하나라도 있으면 만들지 않는다. 그 아래가 완전성 검사 규칙별 결과다.
+      lines: [
+        ...preBuildChecks(model, checks).map((x) => `[${LEVEL_LABEL[x.level]}] ${x.label}: ${x.detail}`),
+        ...checks.map((x) => (x.skipped ? `${x.rule}: 잴 수 없음(${x.skipped})` : `${x.rule}: ${x.total - x.failed.length}/${x.total}${x.failed.length ? ` — 어김 ${x.failed.length}` : ''}`)),
+      ],
     },
     {
       no: 11,

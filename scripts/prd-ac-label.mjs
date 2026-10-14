@@ -21,12 +21,12 @@ export function labelCriteria(md) {
   const next = text.indexOf('\n## ', start)
   const end = next < 0 ? text.length : next
   const lines = text.slice(start, end).split('\n')
-  const bullets = lines.some(l => l.trim().startsWith('- '))
+  const bullets = lines.some(l => l.startsWith('- '))
   if (lines.some(l => LABELED.test(l.trim()))) return md
   let n = 0
   const out = lines.map(l => {
     const t = l.trim()
-    if (!t || (bullets && !t.startsWith('- '))) return l
+    if (!t || (bullets && !l.startsWith('- '))) return l  // 들여 쓴 글머리표는 위 기준의 세부 항목이다
     const body = bullets ? t.slice(2).trim() : t
     if (notCriterion(body)) return l
     return `- **AC${++n}** ${body}`
