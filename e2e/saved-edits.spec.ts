@@ -90,7 +90,7 @@ test('임시 저장은 8084 에 가지 않고, 다시 열어 편집에 들어가
   await openFromList(page)
   await editLight(page, '6.25')
   await page.getByRole('button', { name: '편집 종료' }).click()
-  await page.locator('dialog.exit-edit').getByRole('button', { name: '임시 저장', exact: true }).click()
+  await page.locator('dialog.exit-edit').getByRole('button', { name: '임시 저장 후 종료' }).click()
   expect(puts).toEqual([])
 
   await page.reload()
@@ -147,7 +147,7 @@ test('저장 안 함은 8084 저장본까지만 되돌린다', async ({ page }) 
   await page.getByRole('button', { name: '편집 종료' }).click()
   // 저장본 위에서 더 고친 것만 센다
   await expect(page.locator('dialog.exit-edit')).toContainText('1건')
-  await page.locator('dialog.exit-edit').getByRole('button', { name: '저장 안 함' }).click()
+  await page.locator('dialog.exit-edit').getByRole('button', { name: '저장하지 않고 종료' }).click()
   await page.getByRole('button', { name: '편집', exact: true }).click()
   await expect(light(page)).toHaveValue('7.5')
 })

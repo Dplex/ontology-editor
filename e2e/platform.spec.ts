@@ -1,0 +1,81 @@
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { test, expect } from '@playwright/test'
+
+// PRD 티켓 수는 PM 이 티켓을 더하면 바뀐다. 화면(src/platform/catalog.ts)과 같은 규칙(docs/prd/features/**/OE-*.md)으로 센다.
+const prdTickets = (dir = 'docs/prd/features'): number =>
+  readdirSync(dir, { withFileTypes: true }).reduce((n, d) => n + (d.isDirectory() ? prdTickets(join(dir, d.name)) : /^OE-.*\.md$/.test(d.name) ? 1 : 0), 0)
+
+test('platform: dashboard, PRD catalog and automatic mode branching', async ({ page }) => {
+  const errors:string[]=[]
+  page.on('pageerror',e=>errors.push(e.message))
+  await page.goto('/prototype.html')
+  await expect(page.getByRole('heading',{name:'온톨로지 구축 워크스페이스'})).toBeVisible()
+  await expect(page.locator('.floor-card')).toHaveCount(3)
+  await page.screenshot({path:'.local/platform-dashboard.png',fullPage:true})
+  await page.locator('.floor-card').nth(1).getByRole('button',{name:'초기 구축 →'}).click()
+  await expect(page.getByRole('button',{name:'구축하기',exact:true})).toBeEnabled()
+  await expect(page.locator('.studio-canvas')).toBeVisible()
+  await page.screenshot({path:'.local/platform-editor.png',fullPage:true})
+  await page.getByRole('button',{name:'편집 종료',exact:true}).click()
+  await page.getByRole('button',{name:'요구사항 탐색',exact:false}).click()
+  await expect(page.locator('.ticket-list>button')).toHaveCount(prdTickets())
+  await page.getByRole('textbox',{name:'요구사항 검색'}).fill('OE-UI-04')
+  await expect(page.locator('.ticket-list>button')).toHaveCount(1)
+  await page.locator('.ticket-list>button').click()
+  await expect(page.locator('.ticket-detail')).toContainText('화면은 네 영역')
+  expect(errors).toEqual([])
+})
+
+test('platform: edit, draft reload, preview, publish and rollback', async ({ page }) => {
+  await page.goto('/prototype.html')
+  await page.locator('.floor-card').first().getByRole('button',{name:'운영 편집 →'}).click()
+  await page.locator('.object-list button').first().click()
+  await page.getByRole('textbox',{name:'선택 이름'}).fill('변경된 회의실')
+  await page.getByRole('button',{name:'속성 적용'}).click()
+  await page.getByRole('button',{name:'임시 저장',exact:true}).click()
+  await page.reload()
+  await page.locator('.floor-card').first().getByRole('button',{name:'운영 편집 →'}).click()
+  await expect(page.locator('.object-list')).toContainText('변경된 회의실')
+  await page.getByRole('button',{name:'미리보기',exact:true}).click()
+  await expect(page.locator('.modal')).toContainText('물리존: 추가 0 · 수정 1')
+  await expect(page.locator('.preview-scene canvas')).toBeVisible()
+  await page.getByRole('button',{name:'다음: 생성 확인'}).click()
+  const download=page.waitForEvent('download')
+  await page.getByRole('button',{name:'데모 반영 & 내보내기'}).click()
+  expect((await download).suggestedFilename()).toMatch(/\.ttl$/)
+  await expect(page.locator('.report-card')).toHaveCount(11)
+  await expect(page.locator('.artifacts')).toContainText('DT 수신 규칙 reader')
+  await page.getByRole('button',{name:'버전 히스토리'}).click()
+  await expect(page.locator('.version-card')).toHaveCount(2)
+  await page.locator('.version-card').nth(1).getByRole('button',{name:'되돌리기',exact:true}).click()
+  await page.getByRole('button',{name:'새 버전으로 되돌리기'}).click()
+  await expect(page.locator('.version-card')).toHaveCount(3)
+  await expect(page.locator('.version-card').first()).toContainText('v1로 되돌리기')
+})
+
+test('platform: empty floor blocks generation and guards unsaved navigation', async ({ page }) => {
+  await page.goto('/prototype.html')
+  await page.locator('.floor-card').nth(2).getByRole('button',{name:'초기 구축 →'}).click()
+  await expect(page.getByRole('button',{name:'구축하기',exact:true})).toBeDisabled()
+  await page.getByRole('button',{name:'물리존 그리기',exact:false}).click()
+  const svg=page.locator('svg.plan')
+  const box=(await svg.boundingBox())!
+  for(const [x,y] of [[.25,.3],[.5,.3],[.5,.6],[.25,.6]]) await svg.click({position:{x:box.width*x,y:box.height*y}})
+  await page.getByRole('button',{name:'완성',exact:true}).click()
+  await expect(page.locator('.object-list')).toContainText('회의실')
+  await page.getByRole('button',{name:'편집 종료',exact:true}).click()
+  await expect(page.getByRole('dialog')).toContainText('저장하지 않은 변경')
+  await page.getByRole('button',{name:'취소',exact:true}).click()
+  await expect(page.locator('.editor-page')).toBeVisible()
+})
+
+test('platform: real IFC import and invalid file retain existing sites', async ({ page }) => {
+  await page.goto('/prototype.html')
+  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.locator('.section-heading').filter({hasText:'사이트 & 층'})).toContainText('mep.ifc',{timeout:60000})
+  await expect(page.getByRole('combobox',{name:'사이트 선택'}).locator('option')).toHaveCount(2)
+  await page.locator('input[type=file]').setInputFiles({name:'broken.ifc',mimeType:'application/octet-stream',buffer:Buffer.from('not IFC')})
+  await expect(page.locator('[role=alert]')).toBeVisible({timeout:60000})
+  await expect(page.getByRole('combobox',{name:'사이트 선택'}).locator('option')).toHaveCount(2)
+})

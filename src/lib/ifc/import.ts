@@ -10,6 +10,7 @@
 // "층에 속한다" 는 말인데 IFC 가 관계를 나눠 놓아서, 한쪽만 읽으면 절반이 빈다.
 
 import * as WebIFC from 'web-ifc'
+import { ANCHOR_MARGIN } from '../model'
 import type {
   Connection,
   Equipment,
@@ -148,11 +149,8 @@ export function readMeshes(
   return out
 }
 
-/**
- * 배치점이 자기 형상에서 이만큼 넘게 떨어져 있으면 배치점을 믿지 않는다(미터).
- * 천장 설비의 삽입점이 몸체 윗면에 있는 정도는 정상이라 조금 여유를 둔다.
- */
-export const ANCHOR_MARGIN = 0.5
+// 배치점 보정 기준(미터)은 화면도 보이므로 web-ifc 를 들이지 않는 model.ts 에 둔다.
+export { ANCHOR_MARGIN } from '../model'
 
 /**
  * 배치점이 자기 형상 밖에 있는 설비는 형상의 중심을 좌표로 쓴다. 고친 대수를 돌려준다.
@@ -188,6 +186,8 @@ export function anchorToGeometry(equipment: Equipment[], meshes: MeshMap): numbe
     const off = Math.max(minX - px, px - maxX, minY - py, py - maxY, minZ - pz, pz - maxZ)
     if (off <= ANCHOR_MARGIN) continue
 
+    // 원본 배치점과 떨어진 거리를 남긴다(OE-BIM-12 "원본 삽입점과 보정 배치점을 보존"). 화면이 둘을 나란히 보인다.
+    e.anchored = { from: [px, py, pz], off: Math.round(off * 1000) / 1000 }
     e.position = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2]
     e.positionSource = 'geometry'
     fixed++
@@ -1112,6 +1112,7 @@ function spaceOf(
   omniclass: Map<number, { code: string; source: 'classification' | 'property' }>,
   bimAreas: Map<number, { m2: number; property: string }> = new Map(),
   airflows: Map<number, NonNullable<Space['designAirflow']>> = new Map(),
+  heights: Map<number, { finish?: [number, string]; room?: [number, string] }> = new Map(),
 ): Space {
   const e = r.line(expressID)
   const id = (val(e?.GlobalId) as string) ?? `space-${expressID}`
@@ -1136,7 +1137,16 @@ function spaceOf(
     ...roomKindFields((val(e?.Name) as string) ?? '', longName, omniclass.get(expressID)?.code ?? null),
     ...(bimAreas.has(expressID) ? { bimArea: bimAreas.get(expressID)! } : {}),
     ...(airflows.has(expressID) ? { designAirflow: { ...airflows.get(expressID)! } } : {}),
+    ...spaceHeights(heights.get(expressID)),
   }
+}
+
+/** 방이 말한 방 높이·반자 높이(OE-BIM-03). 없는 값은 키를 두지 않는다 — 화면이 "모름" 으로 보인다(0 이나 층고로 채우지 않는다). */
+function spaceHeights(said: { finish?: [number, string]; room?: [number, string] } | undefined): Pick<Space, 'roomHeight' | 'ceilingHeight'> {
+  const out: Pick<Space, 'roomHeight' | 'ceilingHeight'> = {}
+  if (said?.room) out.roomHeight = { m: Math.round(said.room[0] * 1000) / 1000, property: said.room[1] }
+  if (said?.finish) out.ceilingHeight = { m: Math.round(said.finish[0] * 1000) / 1000, property: said.finish[1] }
+  return out
 }
 
 function systemKindFields(name: string, objectType: string, predefined: string | null): Pick<System, 'kind' | 'kindSource' | 'fluid' | 'fluidSource'> {
@@ -1621,7 +1631,7 @@ function read(
         elevation: ((val(e?.Elevation) as number) ?? 0) * scale,
         ...(declaredHeights.has(storeyID) ? { declaredHeight: declaredHeights.get(storeyID)! } : {}),
         spaces: (spacesByStorey.get(storeyID) ?? []).map((id) =>
-          spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass, bimAreas, airflows),
+          spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass, bimAreas, airflows, ceilingBySpace),
         ),
         walls,
         openings,

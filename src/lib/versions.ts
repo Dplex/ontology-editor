@@ -63,7 +63,7 @@ export function revitElementId(name: string): string | null {
  * 모델의 지문. baseline 을 주면 이름·외곽선·좌표를 **연 때의 값**으로 잰다 — 새 판본의 BIM 에는 사람이 고치기
  * 전의 값이 들어 있으므로, 고친 이름으로는 찾을 수 없다.
  */
-export function fingerprints(model: Model, baseline?: Baseline): Map<string, Fingerprint> {
+export function fingerprints(model: Model, baseline?: Baseline, dropped?: Map<string, MatchKey[]>): Map<string, Fingerprint> {
   const out = new Map<string, Fingerprint>()
   for (const storey of model.storeys) {
     out.set(storey.id, { kind: 'storey', name: storey.name })
@@ -134,13 +134,22 @@ export function fingerprints(model: Model, baseline?: Baseline): Map<string, Fin
       const v = fp[key]
       if (v !== undefined) seen.set(`${fp.kind}|${v}`, (seen.get(`${fp.kind}|${v}`) ?? 0) + 1)
     }
-    for (const fp of out.values()) {
+    for (const [id, fp] of out) {
       const v = fp[key]
-      if (v !== undefined && seen.get(`${fp.kind}|${v}`)! > 1) delete fp[key]
+      if (v !== undefined && seen.get(`${fp.kind}|${v}`)! > 1) {
+        delete fp[key]
+        dropped?.set(id, [...(dropped.get(id) ?? []), key])
+      }
     }
   }
   return out
 }
+
+/**
+ * 이름 열쇠를 견줄 때의 모양. 저작 도구가 판본마다 같은 이름을 다르게 적는 것(유니코드 조합 NFC·NFD, 겹친 공백, 앞뒤 공백)은 같은
+ * 이름으로 본다. 대소문자는 맞추지 않는다(`AHU-1` 과 `ahu-1` 은 다른 이름) — 틀린 짝은 못 찾은 것보다 나쁘다.
+ */
+export const normalizeKey = (v: string) => v.normalize('NFC').replace(/\s+/g, ' ').trim()
 
 export type Matching = {
   /** 앞 판본 id → 뒤 판본 id 와 무엇으로 짝지었나. */
@@ -149,15 +158,25 @@ export type Matching = {
   added: string[]
   /** 앞 판본에만 있는 id. */
   removed: string[]
+  /**
+   * 짝을 못 지은 것 중 후보가 여럿이라 짓지 않은 것(모호)과 그 열쇠. 앞·뒤 판본 id 가 섞여 있다(짝 못 지은 id 는 두 판본에서 겹치지 않는다).
+   * 여기 없는 `added`·`removed` 는 어느 열쇠로도 후보가 없던 것이다(미매칭).
+   */
+  ambiguous: Map<string, MatchKey[]>
 }
 
 /**
  * 두 지문 묶음을 짝짓는다. 열쇠마다 **양쪽에서 하나뿐일 때만** 짓는다. 위치는 거리 안에 서로가 하나뿐일 때만 짓는다.
  * 앞 판본 쪽 지문에 kind 가 없으면(옛 편집 파일) GUID 로만 찾는다.
  */
-export function matchFingerprints(prev: ReadonlyMap<string, Partial<Fingerprint>>, next: ReadonlyMap<string, Fingerprint>): Matching {
+export function matchFingerprints(prev: ReadonlyMap<string, Partial<Fingerprint>>, next: ReadonlyMap<string, Fingerprint>, options: { positions?: boolean } = {}): Matching {
   const pairs: Matching['pairs'] = new Map()
   const taken = new Set<string>()
+  const ambiguous = new Map<string, MatchKey[]>()
+  const mark = (id: string, key: MatchKey) => {
+    const was = ambiguous.get(id) ?? []
+    if (!was.includes(key)) ambiguous.set(id, [...was, key])
+  }
   for (const id of prev.keys()) {
     if (next.has(id)) {
       pairs.set(id, { id, by: 'guid' })
@@ -171,25 +190,34 @@ export function matchFingerprints(prev: ReadonlyMap<string, Partial<Fingerprint>
 
   for (const key of ['revitId', 'name'] as const) {
     const index = <T extends Partial<Fingerprint>>(rows: [string, T][]) => {
-      const m = new Map<string, string | null>()
+      const m = new Map<string, string[]>()
       for (const [id, fp] of rows) {
         const v = fp[key]
         if (v === undefined) continue
-        const k = `${fp.kind}|${v}`
-        m.set(k, m.has(k) ? null : id)
+        const k = `${fp.kind}|${normalizeKey(v)}`
+        m.set(k, [...(m.get(k) ?? []), id])
       }
       return m
     }
     const a = index(openPrev())
     const b = index(openNext())
-    for (const [k, id] of a) {
-      const other = b.get(k)
-      if (id && other && !differ(prev.get(id)!, next.get(other)!)) {
+    for (const [k, ids] of a) {
+      const others = b.get(k)
+      if (!others) continue
+      // 한쪽에라도 둘 이상이 걸리면 이 열쇠로는 짓지 않고, 걸린 것을 모호로 적는다.
+      if (ids.length > 1 || others.length > 1) {
+        for (const id of [...ids, ...others]) mark(id, key)
+        continue
+      }
+      const [id] = ids
+      const [other] = others
+      if (!differ(prev.get(id)!, next.get(other)!)) {
         pairs.set(id, { id: other, by: key })
         taken.add(other)
       }
     }
   }
+  if (options.positions === false) return finish()
 
   // 위치: 무리가 같고 거리 안에 서로가 하나뿐인 짝. 칸으로 나눠 가까운 것만 본다(설비가 만 개를 넘는다).
   for (const kind of POSITIONED) {
@@ -220,9 +248,11 @@ export function matchFingerprints(prev: ReadonlyMap<string, Partial<Fingerprint>
     const found: [string, string][] = []
     for (const [id, fp] of prevOpen) {
       const hits = near(fp, around(fp.at!).filter(([nid]) => !taken.has(nid)))
+      if (hits.length > 1) for (const x of [id, ...hits]) mark(x, 'position')
       if (hits.length !== 1) continue
       const back = near(next.get(hits[0])!, prevOpen)
       if (back.length === 1 && back[0] === id) found.push([id, hits[0]])
+      else for (const x of [hits[0], ...back]) mark(x, 'position')
     }
     for (const [a, b] of found) {
       pairs.set(a, { id: b, by: 'position' })
@@ -230,16 +260,26 @@ export function matchFingerprints(prev: ReadonlyMap<string, Partial<Fingerprint>
     }
   }
 
-  return {
-    pairs,
-    added: [...next.keys()].filter((id) => !taken.has(id)),
-    removed: [...prev.keys()].filter((id) => !pairs.has(id)),
+  return finish()
+
+  function finish(): Matching {
+    const added = [...next.keys()].filter((id) => !taken.has(id))
+    const removed = [...prev.keys()].filter((id) => !pairs.has(id))
+    const open = new Set([...added, ...removed])
+    for (const id of [...ambiguous.keys()]) if (!open.has(id)) ambiguous.delete(id)
+    return { pairs, added, removed, ambiguous }
   }
 }
 
 export type VersionDiff = {
   /** 이름이 같은 층의 높이가 단위 배수로 다르다(OE-BIM-11). 비는 지금 판본 / 이전 판본. 한 판본의 길이 단위 선언이 실제 값과 다르다. */
   storeyScale: ScaleMismatch | null
+  /**
+   * 견주기 전에 이전 판본을 지금 판본에 맞춘 것(OE-BIM-19 "단위·좌표·식별 정보를 정규화"). 길이는 둘 다 m 로 읽었지만(OE-BIM-11) 선언이
+   * 틀린 판본은 `scale` 배로 들어온다. 원점을 옮겨 다시 낸 판본은 모든 좌표가 `offset`(미터, 이전 → 지금)만큼 밀려 있다. 둘 다 맞춘 뒤
+   * 위치로 짝을 짓고 옮김·넓이를 잰다. 이름은 공백·유니코드 조합을 맞춰 견준다(normalizeKey).
+   */
+  normalized: { scale: number | null; offset: [number, number, number] | null }
   spaces: KindDiff & {
     renamed: { id: string; from: string; to: string }[]
     /** 넓이가 1% 넘게 바뀐 물리존. */
@@ -263,15 +303,70 @@ type KindDiff = {
    * 어느 요소의 DT id 가 바뀌는지 고객사에 보여 줄 수 없다.
    */
   rekeyed: { id: string; name: string; prevId: string; by: Exclude<MatchKey, 'guid'> }[]
+  /** 지금 판본에만 있는 것(미매칭 — 어느 열쇠로도 이전 판본에 후보가 없다). */
   added: { id: string; name: string }[]
+  /** 이전 판본에만 있는 것(미매칭). */
   removed: { id: string; name: string }[]
+  /**
+   * 후보가 여럿이라 짝을 짓지 않은 것(모호). 이전·지금 어느 쪽 것인지와 걸린 열쇠. `added`·`removed` 에는 들지 않는다 — 없어진 것이 아니라
+   * 어느 것과 같은지 모르는 것이라, 고객사에 할 말(이름·태그를 하나뿐이게)이 다르다.
+   */
+  ambiguous: { id: string; name: string; side: 'prev' | 'next'; keys: MatchKey[] }[]
+}
+
+/** 원점이 옮겨졌다고 보는 최소 거리(미터). 물리존 위치 허용 거리보다 커야 위치 짝짓기가 못 하는 일이다. */
+export const ORIGIN_SHIFT_MIN = 0.25
+/** 다른 열쇠로 짝지은 것 중 이만큼이 같은 거리만큼 밀려 있어야 원점이 옮겨진 것으로 본다. 나머지는 실제로 옮긴 것이다. */
+const ORIGIN_SHIFT_SHARE = 0.6
+/** 원점 이동을 재려면 이만큼의 짝이 있어야 한다. 몇 개로는 실제로 옮긴 설비와 가르지 못한다. */
+const ORIGIN_SHIFT_PAIRS = 3
+
+const median = (xs: number[]) => {
+  const a = [...xs].sort((x, y) => x - y)
+  return a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2
+}
+
+/**
+ * 원점 이동. GUID·Revit 요소 ID·이름으로 짝지은 것(위치는 쓰지 않는다 — 원점이 다르면 위치로는 못 짓는다)의 좌표 차이의 중앙값이다.
+ * 짝의 `ORIGIN_SHIFT_SHARE` 넘게가 그 차이에서 설비 위치 허용 거리(5cm) 안에 있을 때만 돌려준다.
+ */
+export function originShift(
+  prev: ReadonlyMap<string, Partial<Fingerprint>>,
+  next: ReadonlyMap<string, Fingerprint>,
+  pairs: Matching['pairs'],
+): [number, number, number] | null {
+  const deltas: [number, number, number][] = []
+  for (const [a, { id: b }] of pairs) {
+    const p = prev.get(a)
+    const n = next.get(b)
+    if (p?.kind !== 'equipment' || !p.at || !n?.at) continue
+    deltas.push([n.at[0] - p.at[0], n.at[1] - p.at[1], n.at[2] - p.at[2]])
+  }
+  if (deltas.length < ORIGIN_SHIFT_PAIRS) return null
+  const d: [number, number, number] = [median(deltas.map((x) => x[0])), median(deltas.map((x) => x[1])), median(deltas.map((x) => x[2]))]
+  if (Math.hypot(...d) < ORIGIN_SHIFT_MIN) return null
+  const agree = deltas.filter((x) => Math.hypot(x[0] - d[0], x[1] - d[1], x[2] - d[2]) <= POSITION_TOLERANCE.equipment).length
+  return agree / deltas.length > ORIGIN_SHIFT_SHARE ? d : null
 }
 
 const emptyBy = (): Record<MatchKey, number> => ({ guid: 0, revitId: 0, name: 0, position: 0 })
 
 /** 앞 판본(prev)과 지금 모델(next)을 견준다. 추가·옮김은 지금 모델의 id 로 적어 화면이 골라 보일 수 있게 한다. */
 export function compareVersions(prev: Model, next: Model): VersionDiff {
-  const m = matchFingerprints(fingerprints(prev), fingerprints(next))
+  const dropped = new Map<string, MatchKey[]>()
+  const pf = fingerprints(prev, undefined, dropped)
+  const nf = fingerprints(next, undefined, dropped)
+  // 정규화 1 — 단위: 이름이 같은 층의 높이가 단위 배수로 다르면 이전 판본 좌표를 그 배수로 맞춘다.
+  const storeyScale = storeyScaleMismatch(prev.storeys, next.storeys)
+  const scale = storeyScale?.ratio ?? 1
+  // 정규화 2 — 원점: 위치 말고 다른 열쇠로 먼저 짝지어 좌표 차이를 잰다.
+  const fit = (at: readonly number[], shift: readonly number[] | null): [number, number, number] =>
+    [at[0] * scale + (shift?.[0] ?? 0), at[1] * scale + (shift?.[1] ?? 0), at[2] * scale + (shift?.[2] ?? 0)]
+  if (scale !== 1) for (const fp of pf.values()) if (fp.at) fp.at = fit(fp.at, null)
+  const offset = originShift(pf, nf, matchFingerprints(pf, nf, { positions: false }).pairs)
+  if (offset) for (const fp of pf.values()) if (fp.at) fp.at = [fp.at[0] + offset[0], fp.at[1] + offset[1], fp.at[2] + offset[2]]
+  const m = matchFingerprints(pf, nf)
+  const moveOf = (p: readonly number[]) => fit(p, offset)
   const spacesOf = (model: Model) => new Map(model.storeys.flatMap((s) => s.spaces.map((sp) => [sp.id, { sp, storey: s.name }] as const)))
   const equipmentOf = (model: Model) => new Map(model.storeys.flatMap((s) => s.equipment.map((e) => [e.id, e] as const)))
   const ps = spacesOf(prev)
@@ -283,36 +378,53 @@ export function compareVersions(prev: Model, next: Model): VersionDiff {
   const spaceName = (id: string | null, map: typeof ns) => (id && map.get(id) ? spaceLabel(map.get(id)!) : null)
 
   const diff: VersionDiff = {
-    storeyScale: storeyScaleMismatch(prev.storeys, next.storeys),
-    spaces: { prevCount: ps.size, nextCount: ns.size, by: emptyBy(), rekeyed: [], added: [], removed: [], renamed: [], reshaped: [] },
-    equipment: { prevCount: pe.size, nextCount: ne.size, by: emptyBy(), rekeyed: [], added: [], removed: [], moved: [], relocated: [] },
+    storeyScale,
+    normalized: { scale: scale !== 1 ? scale : null, offset },
+    spaces: { prevCount: ps.size, nextCount: ns.size, by: emptyBy(), rekeyed: [], added: [], removed: [], ambiguous: [], renamed: [], reshaped: [] },
+    equipment: { prevCount: pe.size, nextCount: ne.size, by: emptyBy(), rekeyed: [], added: [], removed: [], ambiguous: [], moved: [], relocated: [] },
+  }
+  // 모호: 짝짓기가 후보 여럿을 본 것과, 한 판본 안에서 같은 이름·Revit 요소 ID 가 겹쳐 그 열쇠를 못 쓴 것.
+  const ambiguousKeys = (id: string) => {
+    const keys = [...(m.ambiguous.get(id) ?? []), ...(dropped.get(id) ?? [])]
+    return [...new Set(keys)]
   }
   for (const [id, x] of ps) {
     const pair = m.pairs.get(id)
     if (!pair) {
-      diff.spaces.removed.push({ id, name: spaceLabel(x) })
+      const keys = ambiguousKeys(id)
+      if (keys.length) diff.spaces.ambiguous.push({ id, name: spaceLabel(x), side: 'prev', keys })
+      else diff.spaces.removed.push({ id, name: spaceLabel(x) })
       continue
     }
     diff.spaces.by[pair.by]++
     const y = ns.get(pair.id)!
     if (pair.by !== 'guid') diff.spaces.rekeyed.push({ id: pair.id, name: spaceLabel(y), prevId: id, by: pair.by })
     if (x.sp.longName !== y.sp.longName) diff.spaces.renamed.push({ id: pair.id, from: x.sp.longName, to: y.sp.longName })
-    if (Math.abs(x.sp.areaM2 - y.sp.areaM2) > Math.max(x.sp.areaM2, y.sp.areaM2) * 0.01)
-      diff.spaces.reshaped.push({ id: pair.id, name: spaceLabel(y), from: x.sp.areaM2, to: y.sp.areaM2 })
+    const area = x.sp.areaM2 * scale * scale
+    if (Math.abs(area - y.sp.areaM2) > Math.max(area, y.sp.areaM2) * 0.01)
+      diff.spaces.reshaped.push({ id: pair.id, name: spaceLabel(y), from: area, to: y.sp.areaM2 })
   }
-  for (const id of m.added) if (ns.has(id)) diff.spaces.added.push({ id, name: spaceLabel(ns.get(id)!) })
+  for (const id of m.added) {
+    if (!ns.has(id)) continue
+    const keys = ambiguousKeys(id)
+    if (keys.length) diff.spaces.ambiguous.push({ id, name: spaceLabel(ns.get(id)!), side: 'next', keys })
+    else diff.spaces.added.push({ id, name: spaceLabel(ns.get(id)!) })
+  }
 
   for (const [id, x] of pe) {
     const pair = m.pairs.get(id)
     if (!pair) {
-      diff.equipment.removed.push({ id, name: x.name || x.ifcClass })
+      const keys = ambiguousKeys(id)
+      if (keys.length) diff.equipment.ambiguous.push({ id, name: x.name || x.ifcClass, side: 'prev', keys })
+      else diff.equipment.removed.push({ id, name: x.name || x.ifcClass })
       continue
     }
     diff.equipment.by[pair.by]++
     const y = ne.get(pair.id)!
     if (pair.by !== 'guid') diff.equipment.rekeyed.push({ id: pair.id, name: y.name || y.ifcClass, prevId: id, by: pair.by })
     if (x.position && y.position) {
-      const d = Math.hypot(x.position[0] - y.position[0], x.position[1] - y.position[1], x.position[2] - y.position[2])
+      const was = moveOf(x.position)
+      const d = Math.hypot(was[0] - y.position[0], was[1] - y.position[1], was[2] - y.position[2])
       if (d > POSITION_TOLERANCE.equipment) diff.equipment.moved.push({ id: pair.id, name: y.name || y.ifcClass, distance: d })
     }
     const was = x.spaceId ? (m.pairs.get(x.spaceId)?.id ?? `gone:${x.spaceId}`) : null
@@ -325,7 +437,13 @@ export function compareVersions(prev: Model, next: Model): VersionDiff {
       })
     }
   }
-  for (const id of m.added) if (ne.has(id)) diff.equipment.added.push({ id, name: ne.get(id)!.name || ne.get(id)!.ifcClass })
+  for (const id of m.added) {
+    const e = ne.get(id)
+    if (!e) continue
+    const keys = ambiguousKeys(id)
+    if (keys.length) diff.equipment.ambiguous.push({ id, name: e.name || e.ifcClass, side: 'next', keys })
+    else diff.equipment.added.push({ id, name: e.name || e.ifcClass })
+  }
   diff.equipment.moved.sort((a, b) => b.distance - a.distance)
   return diff
 }

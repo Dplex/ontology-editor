@@ -391,13 +391,23 @@ describe('배치점이 형상에서 떨어진 설비', () => {
     spaceSource: null,
   })
 
-  it('층 원점에 찍힌 배치점은 형상 중심으로 바꾼다', () => {
+  it('층 원점에 찍힌 배치점은 형상 중심으로 바꾸고, 원본 배치점과 떨어진 거리를 남긴다 [OE-BIM-12#1~]', () => {
     // Revit IFC2x3 의 덕트 구간이 이렇다. 형상은 제자리인데 배치점만 (0,0) 이다.
     const e = duct([0, 0, 0])
     expect(anchorToGeometry([e], box())).toBe(1)
     expect(e.position![0]).toBeCloseTo(5)
     expect(e.position![1]).toBeCloseTo(2.5)
     expect(e.position![2]).toBeCloseTo(2.65)
+    expect(e.positionSource).toBe('geometry')
+    expect(e.anchored?.from).toEqual([0, 0, 0])
+    expect(e.anchored!.off).toBeGreaterThan(0.5)
+  })
+
+  it('형상이 없는 설비(화면의 임시 상자로 그리는 것)는 보정하지 않는다 — 임시 상자는 형상이 아니다 [OE-BIM-12#1~]', () => {
+    const e = duct([0, 0, 0])
+    expect(anchorToGeometry([e], new Map())).toBe(0)
+    expect(e.position).toEqual([0, 0, 0])
+    expect(e.anchored).toBeUndefined()
   })
 
   it('형상 가까이 있는 배치점은 그대로 둔다', () => {

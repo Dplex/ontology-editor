@@ -19,9 +19,11 @@ import { profileOf, type Profile } from '../lib/profile'
 import { savedEdits } from './saved-edits'
 import { layouts } from './layouts'
 import { users as userStore } from './users'
+import { projects as projectStore } from './projects'
 import { activityLog } from './activity-log'
 import { floorState } from './floor-state'
 import { fbxConverter } from './fbx'
+import { dwgConverter } from './dwg'
 
 type Profiled = { profile: Profile } | { error: string }
 
@@ -153,7 +155,9 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
   let lastWriter = ''
   const layoutStore = layouts(root, { writer: people.writer, onVersion: (e) => log.write(e) })
   const floors = floorState(root, people.writer)
+  const projectList = projectStore(root, people.writer)
   const fbx = fbxConverter()
+  const dwg = dwgConverter()
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const [rawPath, query] = (req.url ?? '/').split('?')
@@ -163,6 +167,9 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
     // 층마다의 임시 저장본·편집 잠금(floor-state.ts).
     if (path === '__drafts') return floors.drafts(req, res, query ?? '')
     if (path === '__locks') return floors.locks(req, res, query ?? '')
+    // 프로젝트(projects.ts). 첫 화면의 목록과 [새 프로젝트]의 IFC 올리기.
+    if (path === '__projects') return projectList.handle(req, res, query ?? '')
+    if (path === '__upload') return projectList.upload(req, res, query ?? '')
     if (path === '__log') return log.handle(req, res, query ?? '', () => people.writer(req, res)?.name ?? null)
     if (path === '__edits') {
       if (req.method === 'PUT') {
@@ -176,6 +183,8 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
     if (path === '__layouts') return layoutStore(req, res, query ?? '')
     // GLB 를 받아 FBX 로 바꿔 돌려준다(fbx.ts). data/ 에는 아무것도 남기지 않는다.
     if (path === '__fbx') return fbx(req, res)
+    // DWG 를 받아 평면도 배경 PNG 로 바꿔 돌려준다(dwg.ts). data/ 에는 아무것도 남기지 않는다.
+    if (path === '__dwg') return dwg(req, res)
     // 첫 화면의 [바로 열기] 묶음. data/.open-sets.json 의 [{ title, paths }] 중 파일이 다 있는 것만 낸다(openSets).
     if (path === '__sets') {
       res.setHeader('Content-Type', 'application/json')

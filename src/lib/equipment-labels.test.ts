@@ -6,7 +6,7 @@ describe('3D 설비 라벨', () => {
     expect(labelBadges({ spaceId: 's', spaceSource: 'bim', kind: 'fcu', kindSource: 'bim' })).toMatchObject({ space: { text: '소속 BIM', tone: 'ok' }, kind: { text: '종류 BIM' } })
     expect(labelBadges({ spaceId: 's', spaceSource: 'computed', kind: 'fcu', kindSource: 'dict' })).toMatchObject({ space: { text: '소속 계산' }, kind: { text: '종류 사전', tone: 'muted' } })
     expect(labelBadges({ spaceId: null, spaceSource: null, kind: null })).toMatchObject({ space: { text: '소속 없음', tone: 'warn' }, kind: { text: '종류 모름', tone: 'warn' } })
-    expect(labelBadges({ spaceId: 's', spaceSource: 'edit', kind: 'fan', kindSource: 'dict', kindEdited: { from: null } })).toMatchObject({ space: { text: '소속 편집' }, kind: { text: '종류 편집' } })
+    expect(labelBadges({ spaceId: 's', spaceSource: 'edit', kind: 'fan', kindSource: 'dict', kindEdited: { from: null } })).toMatchObject({ space: { text: '소속 사람' }, kind: { text: '종류 사람' } })
   })
 
   it('겹치면 뒤의 것을 빼고, 고른 것이 먼저이며, 가운데에 가까운 순이고, max 개까지다', () => {

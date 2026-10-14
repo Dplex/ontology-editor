@@ -174,6 +174,78 @@ describe('두 판본 견주기', () => {
     // 사무실의 GUID 가 바뀌었어도 짝지은 방으로 견주므로, 제자리인 그릴은 소속이 바뀐 것이 아니다.
     expect(d.equipment.relocated).toEqual([{ id: 'fcu-v2', name: 'FCU:FCU:500001', from: '1F 사무실 (101)', to: '1F 자료실 (102)' }])
   })
+
+  it('원점을 옮겨 다시 낸 판본은 좌표 차이를 맞춘 뒤 위치로 짓고, 옮긴 것으로 세지 않는다 [OE-BIM-19#2]', () => {
+    // 이름 있는 설비 넷은 GUID 가 그대로라 좌표 차이(100, 50, 0)를 잴 수 있다. 이름 없는 둘은 위치로만 찾는다.
+    const at = (id: string, name: string, x: number, y: number, dx = 0, dy = 0) => device(id, name, [x + dx, y + dy, 2.7])
+    const room = (id: string, dx = 0, dy = 0) => space(id, '101', '사무실', rect(dx, dy, 10 + dx, 8 + dy))
+    const build = (dx: number, dy: number, suffix: string) =>
+      model([
+        storey('L1', '1F', {
+          spaces: [room(`r${suffix}`, dx, dy)],
+          equipment: [
+            at('a', 'FCU-1', 1, 1, dx, dy),
+            at('b', 'FCU-2', 3, 1, dx, dy),
+            at('c', 'FCU-3', 5, 1, dx, dy),
+            at('d', 'FCU-4', 7, 1, dx, dy),
+            at(`x${suffix}`, '', 2, 6, dx, dy),
+            at(`y${suffix}`, '', 8, 6, dx, dy),
+          ],
+        }),
+      ])
+    const d = compareVersions(build(0, 0, ''), build(100, 50, '-v2'))
+    expect(d.normalized.offset).toEqual([100, 50, 0])
+    expect(d.normalized.scale).toBeNull()
+    expect(d.equipment.by).toMatchObject({ guid: 4, position: 2 })
+    expect(d.equipment.moved).toEqual([])
+    expect([d.equipment.added, d.equipment.removed, d.equipment.ambiguous]).toEqual([[], [], []])
+    // 물리존도 옮긴 원점으로 맞춰 이름으로 짓고, 넓이는 그대로라 바뀐 것이 아니다.
+    expect(d.spaces.by.name).toBe(1)
+    expect(d.spaces.reshaped).toEqual([])
+  })
+
+  it('길이 단위 선언이 틀린 판본은 층 높이로 잰 배수로 좌표·넓이를 맞춰 견준다 [OE-BIM-19#2]', () => {
+    // 이전 판본은 밀리미터를 미터로 적어 1/1000 로 들어왔다(Duplex COBie Design 이 이랬다). 이름 없는 설비는 위치로만 찾는다.
+    const levels = (k: number) => [storey('L1', 'Level 1', { elevation: 0 }), storey('L2', 'Level 2', { elevation: 3.1 * k })]
+    const prev = model(levels(0.001))
+    prev.storeys[0].spaces = [space('r', '101', '사무실', rect(0, 0, 0.01, 0.008))]
+    prev.storeys[0].equipment = [device('e', '', [0.002, 0.002, 0.0027])]
+    const next = model(levels(1))
+    next.storeys[0].spaces = [space('r', '101', '사무실', rect(0, 0, 10, 8))]
+    next.storeys[0].equipment = [device('e-v2', '', [2, 2, 2.7])]
+    const d = compareVersions(prev, next)
+    expect(d.normalized.scale).toBeCloseTo(1000)
+    expect(d.equipment.by.position).toBe(1)
+    expect(d.equipment.moved).toEqual([])
+    expect(d.spaces.reshaped).toEqual([])
+  })
+
+  it('이름은 공백·유니코드 조합을 맞춰 견준다 [OE-BIM-19#2]', () => {
+    const prev = model([storey('L1', '1F', { equipment: [device('a', '공조기  1 '.normalize('NFD'), [0, 0, 0])] })])
+    const next = model([storey('L1', '1F', { equipment: [device('a-v2', '공조기 1', [30, 0, 0])] })])
+    const d = compareVersions(prev, next)
+    expect(d.equipment.by.name).toBe(1)
+  })
+
+  it('후보가 여럿이라 짓지 않은 것은 없어진 것·새것과 따로 "모호" 로 세고, GUID 유지율의 분모에 넣지 않는다 [OE-BIM-19#3]', () => {
+    // 같은 번호·이름·자리의 방이 지금 판본에 두 번 들어 있다(Duplex MEP-2 가 이렇다). 사무실은 GUID 그대로다.
+    const twin = (id: string) => space(id, 'B102', 'Living Room', rect(0, 0, 5, 5))
+    const office = space('office', 'B101', 'Office', rect(10, 0, 15, 5))
+    const prev = model([storey('L1', 'Level 1', { spaces: [twin('old'), office] })])
+    const next = model([storey('L1', 'Level 1', { spaces: [twin('new-a'), twin('new-b'), office, space('gym', 'B103', 'Gym', rect(20, 0, 25, 5))] })])
+    const d = compareVersions(prev, next)
+    expect(d.spaces.ambiguous.map((r) => [r.id, r.side])).toEqual([
+      ['old', 'prev'],
+      ['new-a', 'next'],
+      ['new-b', 'next'],
+    ])
+    expect(d.spaces.ambiguous[1].keys).toContain('name')
+    // 미매칭은 정말 후보가 없던 것뿐이다.
+    expect(d.spaces.removed).toEqual([])
+    expect(d.spaces.added.map((r) => r.id)).toEqual(['gym'])
+    // 분모는 짝지은 것(사무실 하나)이다.
+    expect(d.spaces.by).toMatchObject({ guid: 1, revitId: 0, name: 0, position: 0 })
+  })
 })
 
 // 실제 임포터를 거친다. mep-v2.ifc 는 mep.ifc 를 다시 내보낸 판본이다(사무실·공조기 GUID 가 바뀌고, 토출구 하나가

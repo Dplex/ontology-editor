@@ -28,6 +28,20 @@ const MAX_BYTES = 32 * 1024 * 1024
 
 type Writer = (req: IncomingMessage, res: ServerResponse) => { name: string } | null
 
+/** 그 열쇠의 층별 임시 저장본 목록(편집 파일은 빼고). 프로젝트 목록(projects.ts)이 진행 현황을 여기서 센다. */
+export function draftSummary(root: string, key: string): { floor: string; by: string; savedAt: string }[] {
+  const dir = join(root, '.drafts', createHash('sha1').update(key).digest('hex').slice(0, 16))
+  if (!existsSync(dir)) return []
+  return readdirSync(dir).flatMap((n) => {
+    try {
+      const { floor, by, savedAt } = JSON.parse(readFileSync(join(dir, n), 'utf-8')) as { floor: string; by: string; savedAt: string }
+      return [{ floor, by, savedAt }]
+    } catch {
+      return []
+    }
+  })
+}
+
 export function floorState(root: string, writer: Writer, now: () => Date = () => new Date()) {
   const hash = (s: string) => createHash('sha1').update(s).digest('hex').slice(0, 16)
   const dirOf = (kind: 'drafts' | 'locks', key: string) => join(root, `.${kind}`, hash(key))

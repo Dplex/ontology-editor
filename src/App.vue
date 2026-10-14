@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRaw, triggerRef, watch, type Directive } from 'vue'
 import type { MeshMap } from './lib/ifc/import'
-import { countOf, isConduit, polygonArea, segmentPath, segmentRest, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
+import { ANCHOR_MARGIN, countOf, isConduit, polygonArea, segmentPath, segmentRest, unplacedOf, type Connection, type Equipment, type Model, type Opening, type Storey, type Vec2, type Vec3, type Wall } from './lib/model'
 import { labelBadges, placeLabels, type LabelBadge } from './lib/equipment-labels'
 import { mergeModels, type MergeReport } from './lib/merge'
 import { partnerOf as findPartner, profileOf, type Profile } from './lib/profile'
 import { requirementsReport, type RequirementRow, type RequirementState } from './lib/requirements'
 import TierChips from './components/TierChips.vue'
 import Fold from './components/Fold.vue'
-import type { CustomZone, HvacZone } from './lib/model'
+import type { CustomZone, ElevatorStop, HvacZone } from './lib/model'
 import Src, { type SrcKind } from './components/Src.vue'
 import FlowBasis from './components/FlowBasis.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
@@ -22,6 +22,9 @@ import PublishDialog from './components/PublishDialog.vue'
 import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
 import { previewSummary, summaryText } from './lib/preview'
 import { DEFAULT_GRID, gridLines, snapToGrid, type GridSettings } from './lib/grid'
+import { verticalPartPassable } from './lib/export/geojson'
+import { blockingOf, preBuildChecks } from './lib/pre-build'
+import { DEFAULT_SNAP, snapPoint, snapTargets, type SnapHit, type SnapRing, type SnapSettings } from './lib/snap'
 import { dimensionText, wallDimensions } from './lib/dimensions'
 import { familyHeight } from './lib/placement'
 import { facadeOf, moveFacade } from './lib/facade'
@@ -30,16 +33,23 @@ import { issueList, issueSummary, issuesCSV } from './lib/issue-list'
 import { issuesToBCF } from './lib/export/bcf'
 import { checkCode, issueText, warningCode } from './lib/issue-code'
 import { setSegmentShaft, shaftCandidates, shaftDeviations, shaftOf } from './lib/shaft'
+import { moveShaftCarrying, planShaftCarry } from './lib/shaft-carry'
 import { ttlTriples } from './lib/export/read-export'
 import { readOntologyTTL } from './lib/export/read-ttl'
 import { DEFAULT_SITE_RULES, siteWarnings, type SiteRules } from './lib/site-rules'
 import { DEFAULT_LINES, GATE, gradeCounts, gradeReport, percent, TARGET, type GradeCounts, type GradeLines, type GradeReport } from './lib/grade'
 import HoverTip from './components/HoverTip.vue'
+import ProjectList from './components/ProjectList.vue'
+import FloorSummary from './components/FloorSummary.vue'
+import { floorSummary } from './lib/floor-summary'
+import { buildingsOf, summaryOf, type ProjectRow } from './lib/projects'
+import AlignToggles from './components/AlignToggles.vue'
 import FloorPlan from './components/FloorPlan.vue'
 import Roll from './components/Roll.vue'
 import Meter from './components/Meter.vue'
 import { vFlash } from './lib/motion'
 import { isMultiSelect, matchShortcut, snapAxis, type Shortcut } from './lib/shortcuts'
+import { doubleTap, nextStoreyEye } from './lib/fly-storey'
 import { josa } from './lib/josa'
 import { narrowOptions } from './lib/options'
 import { CONNECTION_CLASS_LABEL, connectionClass, countConnectionClasses } from './lib/connection-class'
@@ -47,9 +57,9 @@ import { connectCandidates, mediaLabel, type ConnectCandidate } from './lib/conn
 import { againstRule, applyFlow, cancelRelease, clearFlow, dropRelease, keepRelease, releaseConnection, releasedBetween, releasesOf, snapshotRelease, snapshotRules } from './lib/connection-release'
 import { applyEdits, countEdits, EDIT_FORMAT, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
 import { BUILDING, joinParts, partSig, splitByStorey, type HomeOf } from './lib/storey-drafts'
-import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
+import { compareVersions, MATCH_KEY_BY, MATCH_KEY_LABEL, type MatchKey, type VersionDiff } from './lib/versions'
 import { ratioLabel } from './lib/unit-check'
-import { neighbors, trace, traceBySystem, TOLERANCE, type Neighbor } from './lib/topology'
+import { neighbors, trace, traceBySystem, traceRoutes, TOLERANCE, type Neighbor, type Route } from './lib/topology'
 import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
 import { storeyHeights, type StoreyHeight } from './lib/storey-height'
 import { resetStoreyName, setStoreyName, storeyNamed } from './lib/storey-name'
@@ -79,14 +89,15 @@ import { airflowText, BASIS_LABEL, CAPACITY_CHECK_KINDS, cmhText, setRatedAirflo
 import { flowReviews } from './lib/flow-review'
 import { suggestKinds, type KindSuggestion } from './lib/kind-suggest'
 import { confirmSystemFlow, inferFlowByRules, newlyDisagreeing, withInferred, type RuleReport } from './lib/flow-rules'
-import { cascadeWaves, exportedFlows, flowBasis, flowChanges, reviewKeys, type FlowSnapshot } from './lib/flow-cascade'
+import { cascadeWaves, exportedFlows, flowBasis, flowChanges, systemOwns, reviewKeys, type FlowSnapshot } from './lib/flow-cascade'
 import { clueText, familyClues as computeFamilyClues, type FamilyClue } from './lib/family-clues'
 import { LAYA_MIN, LAYA_SURE, layaKinds, layaStatus, newEquipmentText, type LayaPick, type LayaResult, type LayaStatus } from './lib/laya'
 import { candidateText, systemCandidates } from './lib/system-suggest'
 import { EQUIPMENT_KINDS, equipmentKind, FLUID_KINDS, FLUIDS, fluidInfo, ifcClassLabel, resolveEquipmentKind, resolveRoomKind, ROOM_KINDS, roomKind, SYSTEM_KINDS, systemKind, type Fluid } from './lib/kinds'
 import { modelToGeoJSON } from './lib/export/geojson'
 import type { Mesh3dReply, Mesh3dRequest } from './lib/export/mesh3d.worker'
-import { classOf, modelToTTL } from './lib/export/ttl'
+import { classOf, escapeLocalName, modelToTTL } from './lib/export/ttl'
+import type { FlowEdge } from './lib/flow-pulse'
 import { EMPTY_FILTER, NO_SYSTEM, explodeGroups, facets, filterActive, filterSummary, filteredOut, type ViewFilter } from './lib/view-filter'
 import {
   arrowColors,
@@ -103,16 +114,18 @@ import {
   type Viewer,
   type HoverTarget,
 } from './lib/viewer'
+import { wallTone } from './lib/wall-view'
 import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
 import { drawPipe } from './lib/manual-pipe'
 import { storeyAtZ, storeyElevationProblem, storeysEntered, type PathPoint } from './lib/storey-z'
+import { insertPipeVertex, removePipeVertex } from './lib/pipe-vertex'
 import { branchPipe } from './lib/branch-pipe'
 import { planOffsetHeight, setOffsetHeight } from './lib/offset-edit'
 import { removalImpact } from './lib/removal-impact'
 import { retargetEnd } from './lib/retarget'
-import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, switchPdfPage, type Background } from './lib/background'
+import { anchorBackground, backgroundCorners, calibrateScale, dwgBackground, initialBackground, switchPdfPage, type Background, type DwgStats } from './lib/background'
 import { renderPdfPage } from './lib/pdf-page'
-import { FLOW_TYPES, flowType } from './lib/flow-type'
+import { conduitFlowType, FLOW_TYPES, flowType, setConduitFlowType } from './lib/flow-type'
 import {
   applyFollow,
   fittingMoveRefusal,
@@ -195,6 +208,7 @@ import {
   mountOnWall,
   snapshotCustomZones,
   snapshotHvacZones,
+  snapshotServedZones,
   snapshotAirflow,
   orphanedBy,
   snapshotRooms,
@@ -241,7 +255,7 @@ import {
 import type { Object3D } from 'three'
 import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL } from './lib/vertical-object'
 import type { VerticalKind } from './lib/model'
-import { COMMON_AXIS, createVertical, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
+import { COMMON_AXIS, createVertical, deleteVertical, DIRECTION_LABEL, escalatorTravel, setElevatorStop, setEscalatorDirection, STOP_LABEL, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -627,23 +641,36 @@ const zoneRows = computed(() => {
 })
 const ZONE_LIMIT = 200
 
-// 3D 에 내력벽을 켜고 끈다. 내력 여부를 모르는 벽도 같이 켠다(모름은 아니오가 아니다).
-const showWalls = ref(false)
-watch(showWalls, (on) => viewer?.setWallsVisible(on))
-// 3D 에 그려지는 벽만 센다. 형상이 없는 벽(손으로 쓴 픽스처, COBie 판본)은 켜도 보일 것이 없다.
+// 보기 모드 3D 에 벽을 켜고 끈다(#599). 기본은 켠 것이다 — 끄면 방이 뚫려 보인다. 끈 것은 다음에 열 때도 남는다.
+const showWalls = ref(
+  (() => {
+    try {
+      return localStorage.getItem('oe-show-walls') !== '0'
+    } catch {
+      return true
+    }
+  })(),
+)
+watch(showWalls, (on) => {
+  viewer?.setWallsVisible(on)
+  try {
+    localStorage.setItem('oe-show-walls', on ? '1' : '0')
+  } catch {
+    /* 저장이 막힌 창이면 이번 탭에서만 */
+  }
+})
+// 3D 에 그려지는 벽만 센다(wall-view.ts). 형상도 외곽선도 없는 벽(손으로 쓴 픽스처, COBie 판본)은 켜도 보일 것이 없다.
 // meshes 는 반응형이 아니지만 늘 model 과 같이 바뀌므로 model 을 따라 다시 센다.
 const drawnWalls = computed(() => {
   if (!model.value) return null
-  let loadBearing = 0
-  let unknown = 0
+  const n = { loadBearing: 0, unknown: 0, ordinary: 0 }
   for (const storey of model.value.storeys) {
     for (const wall of storey.walls) {
-      if (wall.loadBearing === false || !meshes.has(wall.id)) continue
-      if (wall.loadBearing) loadBearing++
-      else unknown++
+      if (!meshes.has(wall.id) && !wall.footprint?.length) continue
+      n[wallTone(wall)]++
     }
   }
-  return loadBearing + unknown > 0 ? { loadBearing, unknown } : null
+  return n.loadBearing + n.unknown + n.ordinary > 0 ? n : null
 })
 
 // --- 편집 -------------------------------------------------------------------
@@ -755,6 +782,40 @@ function setSurfaceOf(id: string, surface: Surface | null) {
   triggerRef(model)
   note(surface ? `${name}의 설치면을 ${SURFACE_LABEL[surface]}으로 정했습니다` : `${name}의 설치면을 z 판정으로 되돌렸습니다`)
 }
+
+/**
+ * BIM 덕트·배관 구간의 Flow Type 을 사람이 정한다(OE-PIP-14). null 이면 지워 계통 종류·유체로 계산한 값으로 돌아간다. 되돌리기에 쌓인다.
+ * 계통 하나에 공급·환수가 섞여 계산으로 가르지 못한 배관을 사람이 가른다.
+ */
+function setFlowTypeOf(id: string, code: string | null) {
+  const m = model.value
+  if (!m) return
+  const snapshot = snapshotEquipment(m, id)
+  const at = mark()
+  const done = setConduitFlowType(m, id, code)
+  if (done !== true) {
+    if (done) note(done.refused)
+    return
+  }
+  const name = shortName(nameOfId(id))
+  remember(code ? `${name} Flow Type ${code}` : `${name} Flow Type 계산으로`, snapshot, at)
+  triggerRef(model)
+  note(code ? `${name}의 Flow Type 을 ${code}(${flowType(code)?.label})로 정했습니다 (GeoJSON flowType)` : `${name}의 Flow Type 을 계통으로 계산한 값으로 되돌렸습니다`)
+}
+/** 패널의 Flow Type 칸. 막히면 칸을 지금 값으로 되돌린다 — 고른 값이 남으면 바뀐 것처럼 보인다. */
+function onFlowTypePick(id: string, select: HTMLSelectElement) {
+  setFlowTypeOf(id, select.value || null)
+  select.value = equipmentById.value.get(id)?.flowTypeSet ?? ''
+}
+/** 고른 덕트·배관의 Flow Type: 지금 값과, 사람이 고른 것을 뺀 계산 값. */
+const selectedFlowType = computed(() => {
+  void model.value
+  const e = selected.value
+  if (!e || !isConduit(e.role)) return null
+  const systemOf = (id: string) => systemById.value.get(id)
+  return { now: conduitFlowType(e, systemOf), calc: conduitFlowType({ ...e, flowTypeSet: undefined }, systemOf) }
+})
+const flowTypeText = (code: string | null | undefined) => (code ? `${code} ${flowType(code)?.label ?? ''}` : '')
 
 // 설치면 판정(OE-EQP-03). z(층 바닥 기준)로 판정하고, 허용 설치면 밖이면 목록에 올린다(Q9).
 const JUDGED_LABEL: Record<Judged, string> = { ...SURFACE_LABEL, plenum: '천장(플레넘)' }
@@ -1120,8 +1181,10 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
   }
   const followers = plan ? [...plan.rigid, ...new Set(plan.stretch.map((x) => x.id))] : []
   const own = snapshotEquipment(model.value, equipmentId)
+  // 공조기·PAC 를 다른 물리존으로 옮기면 담당 공조존에서 빠진다(OE-EQP-09). 되돌리면 담당도 돌아와야 해서 그 층의 공조존을 같이 받아 둔다.
+  const served = snapshotServedZones(model.value, equipmentId)
   const snapshot: Snapshot | null =
-    own && followers.length ? { kind: 'many', parts: [own, ...followers.flatMap((id) => snapshotEquipment(model.value!, id) ?? [])] } : own
+    own && (followers.length || served.length) ? { kind: 'many', parts: [own, ...followers.flatMap((id) => snapshotEquipment(model.value!, id) ?? []), ...served] } : own
   const at = mark()
   const change = moveEquipment(model.value, equipmentId, to)
   if (!change) return false
@@ -1140,7 +1203,16 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
     const z06 = zoneCheckList.value?.checks.find((c) => c.rule === 'Z-06')?.items.find((x) => x.id.includes(equipmentId))
     if (z06) editNotice.value = `실내기를 옮겼습니다. 담당 공조존을 다시 지정하세요(Z-06: ${z06.label}). 설비 패널의 "담당 공조존" 에서 고릅니다.`
   }
+  noticeServedReleased([change])
   return true
+}
+
+/** 옮겨서 담당 공조존에서 빠진 공조기·PAC 를 알린다(OE-EQP-09). 다시 지정하기 전까지 그 공조존은 Z-04 다. */
+function noticeServedReleased(done: readonly Change[]) {
+  const hit = done.filter((c) => c.servedReleased?.length)
+  if (!hit.length) return
+  const zones = [...new Set(hit.flatMap((c) => c.servedReleased!))]
+  editNotice.value = `${hit.map((c) => shortName(c.equipmentName)).join(', ')}${josa(shortName(hit.at(-1)!.equipmentName), '을/를')} 다른 물리존으로 옮겨 담당하던 공조존(${zones.join(', ')})에서 뺐습니다(Z-04). 공조존 패널의 "담당 설비" 에서 다시 지정하세요.`
 }
 
 // 좌표가 없는 설비(E6)에 표로 넣은 축. 셋이 다 차야 옮긴다(completePosition). 새 파일을 열면 비운다.
@@ -1312,13 +1384,15 @@ function moveGroup(dx: number, dy: number, dragged?: { id: string; drawnAt: Vec3
       return false
     }
   }
-  const snapshot: Snapshot = { kind: 'many', parts: targets.flatMap(({ e }) => snapshotEquipment(m, e.id) ?? []) }
+  const served = new Map(targets.flatMap(({ e }) => snapshotServedZones(m, e.id)).map((x) => [x.kind === 'hvac-zones' ? x.storeyId : '', x]))
+  const snapshot: Snapshot = { kind: 'many', parts: [...targets.flatMap(({ e }) => snapshotEquipment(m, e.id) ?? []), ...served.values()] }
   const at = mark()
   const done: Change[] = []
   for (const { e, to } of targets) {
     const change = moveEquipment(m, e.id, to)
     if (change) done.push(change)
   }
+  noticeServedReleased(done)
   remember(`설비 ${items.length}대 옮김`, snapshot, at, coalesce)
   for (const { e, from, to } of targets) {
     if (dragged?.id === e.id) shiftMesh(e.id, from, dragged.drawnAt)
@@ -1393,10 +1467,13 @@ function moveToStorey(equipmentId: string, storeyId: string): boolean {
       return false
     }
   }
-  const snapshot = snapshotEquipment(model.value, equipmentId)
+  const own = snapshotEquipment(model.value, equipmentId)
+  const served = snapshotServedZones(model.value, equipmentId)
+  const snapshot: Snapshot | null = own && served.length ? { kind: 'many', parts: [own, ...served] } : own
   const at = mark()
   const change = moveEquipmentToStorey(model.value, equipmentId, storeyId)
   if (!change) return false
+  noticeServedReleased([change])
   remember(`${shortName(change.equipmentName)} 층 옮김`, snapshot, at)
   moveInScene(equipmentId, before, equipmentById.value.get(equipmentId)?.position ?? null)
   changes.value = [...changes.value, change]
@@ -1675,7 +1752,21 @@ function setFlying(on: boolean) {
   if (flying.value === on) return
   flying.value = on
   viewer?.setFly(on)
-  note(on ? '비행 모드 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · G·Esc 나가기' : '비행 모드를 껐습니다')
+  note(on ? '비행 모드 — WASD 이동 · Q/E 내려가기·올라가기 · E E·Q Q 위층·아래층 · 드래그 둘러보기 · 휠 빠르기 · G·Esc 나가기' : '비행 모드를 껐습니다')
+}
+/**
+ * 비행 중 층 이동(fly-storey.ts). E·Q 를 짧게 두 번 누르면 위층·아래층 눈높이(바닥 + 1.6m)로 옮긴다. 보일 층이 한 층이면 그 층으로
+ * 같이 넘기고, 모든 층이면 그대로 둔다. 두 번째 누름은 이동 키로 넘기지 않는다 — 넘기면 옮기는 동안 천천히 오르내리기가 겹친다.
+ */
+const flyTap = doubleTap()
+function flyStorey(dir: 1 | -1) {
+  const m = model.value
+  if (!m || !viewer) return
+  const next = nextStoreyEye(m.storeys, viewer.eyeHeight(), dir)
+  if (!next) return note(dir === 1 ? '맨 위층입니다' : '맨 아래층입니다')
+  viewer.flyToHeight(next.z)
+  if (viewStorey.value && !multiView.value) viewStorey.value = next.storey.id
+  note(`${next.storey.name} 눈높이로 옮겼습니다`)
 }
 function onKeyUp(e: KeyboardEvent) {
   if (flying.value && FLY_CODES.has(e.code)) viewer?.flyKey(e.code, false)
@@ -1690,6 +1781,11 @@ function onKey(e: KeyboardEvent) {
     return
   }
   if (flying.value && FLY_CODES.has(e.code) && !isTextEntry(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) {
+    if ((e.code === 'KeyE' || e.code === 'KeyQ') && !e.repeat && flyTap(e.code, e.timeStamp)) {
+      flyStorey(e.code === 'KeyE' ? 1 : -1)
+      e.preventDefault()
+      return
+    }
     viewer?.flyKey(e.code, true)
     e.preventDefault()
     return
@@ -1782,7 +1878,7 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       return true
     case 'walls':
       if (!drawnWalls.value) {
-        note('표시할 내력벽이 없습니다')
+        note('표시할 벽이 없습니다')
         return true
       }
       showWalls.value = !showWalls.value
@@ -2145,7 +2241,9 @@ function moveVertex(spaceId: string, index: number, to: Vec2, coalesce?: string)
  */
 function dropVertex(spaceId: string, index: number, raw: Vec2) {
   if (!model.value) return
-  const to: Vec2 = [cm(raw[0]), cm(raw[1])]
+  // 평면도에서 끈 꼭짓점도 3D 와 같이 보정한다(3D 는 끄는 동안 이미 보정해 넘긴다 — 다시 대도 같은 자리다).
+  const aligned = dragAlign.point(spaceId, index, raw)
+  const to: Vec2 = [cm(aligned[0]), cm(aligned[1])]
   // 공조존의 꼭짓점(OE-ZON-04).
   if (zoneEdited.value?.zone.id === spaceId) {
     moveZoneCorner(index, to)
@@ -2390,6 +2488,8 @@ watch([model, canvas], ([m, el]) => {
     viewer.onBoxSelect(addBoxToGroup)
     viewer.onHover(onHover)
     viewer.onPlace((at) => placeAt(at))
+    viewer.onPlaceHover(onPlaceHover)
+    viewer.setDragSnap(dragAlign)
     viewer.onPickSpace(pickSpace)
     viewer.onEquipmentMove(dropEquipment)
     viewer.onFrozenGrab((id) => {
@@ -2616,13 +2716,57 @@ function changeVerticals(label: string, apply: (m: Model) => boolean): boolean {
   sceneVersion.value++
   return true
 }
+/** 에스컬레이터 운행 방향을 바꾼다(OE-ML-11). 되돌리기 한 번이다. */
+function setDirectionFrom(parentId: string, direction: 'up' | 'down' | 'unknown') {
+  changeVerticals(`에스컬레이터 ${DIRECTION_LABEL[direction]}`, (m) => setEscalatorDirection(m, parentId, direction))
+}
+/** 엘리베이터 한 층의 정차를 바꾼다(OE-ML-10). 되돌리기 한 번이다. */
+function setStopFrom(parentId: string, storeyId: string, stop: ElevatorStop) {
+  const name = model.value?.storeys.find((st) => st.id === storeyId)?.name ?? storeyId
+  changeVerticals(`엘리베이터 ${name} ${STOP_LABEL[stop]}`, (m) => setElevatorStop(m, parentId, storeyId, stop))
+}
 /** 고른 오브젝트를 x·y 로 옮긴다(전체 이동). 모든 층 조각이 같이 간다. */
 function moveSelectedVertical(d: Vec2): boolean {
   const v = selectedVertical.value
   if (!v) return false
   const name = v.part.name || v.label
+  if (v.object.kind === 'shaft') return moveShaft(v.object.id, name, [cm(d[0]), cm(d[1])])
   return changeVerticals(`${name} 옮김`, (m) => moveVertical(m, v.object.id, [cm(d[0]), cm(d[1])]))
 }
+/**
+ * 샤프트를 옮기면 안쪽 배관이 같이, 바깥 배관 끝이 따라온다(OE-ML-17, lib/shaft-carry.ts). 일부만 옮길 수밖에 없으면 까닭을 알리고 아무것도
+ * 옮기지 않는다. 샤프트와 따라온 배관이 되돌리기 한 번이다.
+ */
+function moveShaft(id: string, name: string, d: Vec2): boolean {
+  const m = model.value
+  if (!m || !multiView.value || !editing.value) return false
+  const plan = planShaftCarry(m, id, segmentAxis)
+  if (plan.reasons.length) {
+    editNotice.value = `${name}을(를) 옮기지 않았습니다 — ${plan.reasons.join(' · ')}`
+    return false
+  }
+  const followers = [...plan.rigid, ...new Set(plan.stretch.map((x) => x.id))]
+  const was = new Map(followers.map((fid) => [fid, equipmentById.value.get(fid)?.position ?? null]))
+  const snapshot: Snapshot = { kind: 'many', parts: [snapshotVerticals(m), ...followers.flatMap((fid) => snapshotEquipment(m, fid) ?? [])] }
+  const at = mark()
+  const done = moveShaftCarrying(m, id, d, segmentAxis)
+  if (done !== true) {
+    if (done) editNotice.value = done.refused
+    return false
+  }
+  remember(`${name} 옮김${followers.length ? ` (배관 ${followers.length}개 같이)` : ''}`, snapshot, at)
+  for (const fid of followers) moveInScene(fid, was.get(fid) ?? null, equipmentById.value.get(fid)?.position ?? null)
+  triggerRef(model)
+  sceneVersion.value++
+  return true
+}
+/** 고른 샤프트를 옮기면 무엇이 같이 가는지(OE-ML-17 "이동 전 미리 표시"). 다중층 뷰의 편집에서만 잰다. */
+const shaftCarry = computed(() => {
+  void sceneVersion.value
+  const v = selectedVertical.value
+  const m = model.value
+  return m && v && v.object.kind === 'shaft' && multiView.value && editing.value ? planShaftCarry(m, v.object.id, segmentAxis) : null
+})
 /** 방향키로 옮긴다(10cm, Shift 1m). 화면 방향에 가장 가까운 평면 축이다(설비·룸 옮기기와 같다). */
 function nudgeVertical(code: string, step: number): boolean {
   if (!viewer || !selectedVertical.value) return false
@@ -3153,6 +3297,78 @@ const gridView = computed(() => {
   return { storeyId: st.id, elevation: drawing.value?.elevation ?? st.elevation, extent, ...gridLines(extent, grid.value.spacing) }
 })
 watch(gridView, (g) => viewer?.setGrid(g && !multiView.value ? { x: g.x, y: g.y, elevation: g.elevation, extent: g.extent } : null))
+
+// --- 스냅 (OE-UI-06, lib/snap.ts) ---
+// 켜면 그리기에서 찍는 점과 끄는 꼭짓점이 반경 안의 물리존·벽·룸·커스텀존 꼭짓점·변에 붙는다. 그리드와 같이 켜져 있으면 오브젝트가
+// 앞선다. 반경은 이 브라우저 설정이다(그리드 간격과 같다).
+const snap = ref<SnapSettings>(
+  (() => {
+    try {
+      return { ...DEFAULT_SNAP, ...(JSON.parse(localStorage.getItem('oe.snap') ?? 'null') ?? {}) }
+    } catch {
+      return { ...DEFAULT_SNAP }
+    }
+  })(),
+)
+watch(
+  snap,
+  (v) => {
+    try {
+      localStorage.setItem('oe.snap', JSON.stringify(v))
+    } catch {
+      // 못 남겨도 이번 창에서는 그대로다
+    }
+  },
+  { deep: true },
+)
+// 대상 고리는 끄는 동안 마우스가 움직일 때마다 찾으므로, 층·뺄 것이 같고 그 사이 편집이 없으면 지난 것을 그대로 쓴다.
+// 편집은 모델을 그 자리에서 고치고 triggerRef 로 알리므로 그때 버린다.
+let snapCache: { key: string; rings: SnapRing[] } | null = null
+watch(model, () => (snapCache = null), { flush: 'sync' })
+function snapRingsOf(storeyId: string, skip?: string): SnapRing[] {
+  const m = model.value
+  if (!m) return []
+  const key = `${storeyId}:${skip ?? ''}`
+  if (snapCache?.key !== key) snapCache = { key, rings: snapTargets(m, storeyId, new Set(skip ? [skip] : [])) }
+  return snapCache.rings
+}
+/** 점 하나를 스냅·그리드로 보정한다(OE-UI-06·07). `skip` 은 고치는 중인 오브젝트(제 변에 붙지 않게). 붙을 데가 없으면 null. */
+function alignAt(at: Vec2, storeyId: string | null, skip?: string): SnapHit | null {
+  if (!storeyId || (!snap.value.on && !grid.value.on)) return null
+  return snapPoint(at, snap.value.on ? snapRingsOf(storeyId, skip) : [], snap.value, grid.value)
+}
+/** 그리는 층. 그리는 중이면 그 층, 아니면 보는 층(층이 하나면 그 층). */
+const alignStorey = computed(() => drawing.value?.storeyId ?? viewStorey.value ?? (model.value?.storeys.length === 1 ? model.value.storeys[0].id : null))
+// 그리는 동안 마우스가 가리키는 자리가 어디에 붙을지 3D 에 미리 보인다(OE-UI-06 "달라붙었음을 인지할 수 있는 시각적 피드백").
+function onPlaceHover(at: Vec2 | null) {
+  const d = drawing.value
+  if (!viewer) return
+  const hit = d && at && !multiView.value ? alignAt(at, d.storeyId) : null
+  const st = d && model.value?.storeys.find((x) => x.id === d.storeyId)
+  viewer.setSnapMarker(hit && st ? { at: hit.at, kind: hit.kind, edge: hit.kind === 'edge' ? hit.edge : undefined, elevation: d.elevation ?? st.elevation } : null)
+}
+watch(drawing, (d) => {
+  if (!d) viewer?.setSnapMarker(null)
+})
+/**
+ * 끄는 동안의 보정(OE-UI-07 AC3 "다시 이동시킬 때부터 가장 가까운 그리드 교점으로"). 켜기만 해서는 아무것도 옮기지 않는다 —
+ * 그리드에 어긋난 채 놓인 것은 그대로 두고, 끌기 시작한 것만 교점(설비·오브젝트는 그 배치점)에 맞춘다. 꼭짓점은 스냅도 받는다.
+ * 다중층 뷰는 층이 여럿이라 보정하지 않는다.
+ */
+const dragAlign = {
+  delta(kind: 'equipment' | 'object', id: string, delta: Vec2): Vec2 {
+    const m = model.value
+    if (!m || !grid.value.on || multiView.value) return delta
+    const origin = kind === 'equipment' ? equipmentById.value.get(id)?.position : findSpaceObject(m, id)?.object.at
+    if (!origin) return delta
+    const to = snapToGrid([origin[0] + delta[0], origin[1] + delta[1]], grid.value.spacing)
+    return [to[0] - origin[0], to[1] - origin[1]]
+  },
+  point(spaceId: string, _index: number, at: Vec2): Vec2 {
+    if (multiView.value) return at
+    return alignAt(at, alignStorey.value, spaceId)?.at ?? at
+  },
+}
 /** 그리는 중인 층간 배관의 경로(시작 설비 → 찍은 꺾임점). 점선 미리보기다. */
 const riserPreview = computed(() => {
   const d = drawing.value
@@ -3631,6 +3847,40 @@ const flowSystemRow = computed(() => systemRows.value.find((r) => r.key === flow
 function toggleFlowSystem(key: string) {
   flowSystemKey.value = flowSystemKey.value === key ? null : key
 }
+// --- 흐름 경로 (OE-ML-16) -------------------------------------------------------
+//
+// 고른 기기에서 방향 있는 연결만 따라 닿는 원천·말단을 경로와 함께 나열한다. 원천이 여럿이면 여럿 다 보이고(하나를 공급자로 정하지 않는다),
+// 한 원천에 두 갈래 넘게 닿으면 대체 경로가 있다고 적는다. 방향 있는 고리가 있으면 알린다 — 추적은 한 번 간 곳을 다시 가지 않아 끝난다.
+// 방향은 계통별로 보기와 같은 것을 쓴다(규칙을 켜 두면 규칙 방향까지).
+/** 한 목록에 보이는 수. 성수 공조기는 디퓨저가 수백 개다. */
+const ROUTE_LIST_MAX = 6
+const routeView = pausedInReplay(() => {
+  void flowVersion.value
+  const m = model.value
+  const id = selectedId.value
+  if (!m || !id) return null
+  // 확정 흐름(포트 · 사람이 정한 방향 · 확정한 규칙)만 따라간다. 규칙 미리보기를 켜면 확정 전 규칙 방향까지 넣고, 그렇다고 적는다(AC5).
+  const preview = showRules.value && hasRules.value
+  const r = traceRoutes(withInferred(m.connections, !preview), id, conduitId)
+  if (!r.sources.length && !r.targets.length && !r.looped.length && !r.cycle.length) return null
+  const name = (x: string) => shortName(equipmentById.value.get(x)?.name ?? x)
+  const line = (x: Route) => ({
+    id: x.id,
+    name: name(x.id),
+    detail: [x.via.length ? `${x.via.map(name).join(' → ')} 경유` : '', `덕트·배관 ${x.conduits}개`, x.branches > 1 ? `${x.branches}갈래(대체 경로)` : ''].filter(Boolean).join(' · '),
+  })
+  return {
+    sources: r.sources.slice(0, ROUTE_LIST_MAX).map(line),
+    moreSources: Math.max(0, r.sources.length - ROUTE_LIST_MAX),
+    targets: r.targets.slice(0, ROUTE_LIST_MAX).map(line),
+    moreTargets: Math.max(0, r.targets.length - ROUTE_LIST_MAX),
+    looped: r.looped.slice(0, ROUTE_LIST_MAX).map(line),
+    moreLooped: Math.max(0, r.looped.length - ROUTE_LIST_MAX),
+    cycle: r.cycle.slice(0, ROUTE_LIST_MAX).map(name),
+    moreCycle: Math.max(0, r.cycle.length - ROUTE_LIST_MAX),
+    preview,
+  }
+})
 const kindsText = (kinds: [string, number][]) =>
   kinds.slice(0, 3).map(([label, n]) => `${label} ${n}`).join(' · ') + (kinds.length > 3 ? ` 외 ${kinds.length - 3}종` : '')
 
@@ -4057,7 +4307,7 @@ function applyAssign(id: string, raw: string) {
   }
   remember(raw ? `${shortName(name)} 소속 지정` : `${shortName(name)} 소속 지정 지우기`, snapshot, at)
   triggerRef(model)
-  note(raw ? `${name}의 소속을 ${spaceNameOf(raw)}(으)로 정했습니다(출처 편집). 옮기면 지정이 지워집니다` : `${name}의 소속 지정을 지웠습니다. 좌표로 다시 판정합니다`)
+  note(raw ? `${name}의 소속을 ${spaceNameOf(raw)}(으)로 정했습니다(출처 사람). 옮기면 지정이 지워집니다` : `${name}의 소속 지정을 지웠습니다. 좌표로 다시 판정합니다`)
 }
 /** 리포트의 사람 지정 줄. BIM 에는 사람 지정이 없으니 지정이 있는 설비가 전부 편집이다. */
 const assignLines = computed(() =>
@@ -4157,19 +4407,18 @@ const sourceLabel = (tolerance: number | null) =>
   tolerance !== null && tolerance > TOLERANCE ? `${CONNECTION_CLASS_LABEL.geometry} (${Math.round(tolerance * 1000)}mm 간격)` : CONNECTION_CLASS_LABEL.geometry
 
 // 계통 범례. 색은 3D 와 같은 자리에서 가져온다.
+//
+// 수는 구성원 수다 — 고른 계통 패널의 "구성 N개", 3D 에서 칠하는 것과 같은 것을 센다. 설비의 `systemId` 로 세면 두 계통에
+// 든 설비(성수 FCU 가 순환수 공급과 기계 급기에 같이 든다)가 한쪽에서만 세여, 범례 1400 · 패널 1537 처럼 어긋났다.
 const legend = computed(() => {
   if (!model.value) return []
   const colors = systemColors(model.value)
-  const counted = new Map<string, number>()
-  for (const storey of model.value.storeys) {
-    for (const e of storey.equipment) if (e.systemId) counted.set(e.systemId, (counted.get(e.systemId) ?? 0) + 1)
-  }
   return model.value.systems
     .map((s) => ({
       id: s.id,
       name: s.name || '(이름 없는 계통)',
       source: s.source,
-      count: counted.get(s.id) ?? 0,
+      count: s.memberIds.length,
       color: `#${(colors.get(s.id) ?? 0).toString(16).padStart(6, '0')}`,
     }))
     .sort((a, b) => b.count - a.count)
@@ -4392,6 +4641,32 @@ watch([selectedId, selectedSystemId, model, showRules, flowVersion, highlightRow
   viewer.setHighlight(null)
 })
 
+// 고른 계통의 흐름을 3D 에서 달리는 빛으로 보인다(flow-pulse.ts). 방향은 화살표와 같은 차례로 읽는다 — BIM 포트, 사람이 정한 것,
+// 규칙(R 을 켰을 때만, 옅게). 방향을 모르는 연결은 그리지 않는다. 빛이 없는 배관이 곧 방향을 모르는 곳이다. 연결은 위의 흐름 근거
+// (FlowBasis)와 같은 것을 고른다 — 다르게 골랐더니 근거는 "포트 방향 24" 인데 아래 줄은 "모두 방향을 모름" 이라고 했다. `total` 은 그
+// 연결 수이고, 패널이 빛이 왜 드문지 말하는 데 쓴다.
+const systemFlow = computed(() => {
+  void flowVersion.value
+  const m = model.value
+  const system = selectedSystem.value
+  if (!m || !system) return null
+  const members = new Set(system.memberIds)
+  const edges: FlowEdge[] = []
+  let total = 0
+  for (const c of m.connections) {
+    if (!systemOwns(c, system.id, members)) continue
+    total++
+    if (c.directed) edges.push({ from: c.from, to: c.to, strong: true })
+    else if (c.edited) edges.push({ from: c.edited.from, to: c.edited.to, strong: true })
+    else if (c.inferred && showRules.value) edges.push({ from: c.inferred.from, to: c.inferred.to, strong: false })
+  }
+  return { edges, total, color: systemColors(m).get(system.id) ?? 0x2f6fed }
+})
+watch([systemFlow, sceneVersion], () => {
+  const f = systemFlow.value
+  viewer?.setFlow(f?.edges.length ? { edges: f.edges, color: f.color } : null)
+})
+
 /** 고른 것과 이어진 것 전체가 화면에 들어오게 시점을 맞춘다. */
 function frameNetwork() {
   const t = tracedShown.value
@@ -4419,7 +4694,7 @@ onBeforeUnmount(() => viewer?.dispose())
 // --- 온톨로지 챗의 답을 이 3D 에서 보기 (R4, ADR-0063) ---
 // 55 의 챗봇 창(scripts/docs-chat.js, dist 에 끼워 넣는 부속)이 [온톨로지] 답의 `ex:…` id 를 여기에 넘긴다. 열어 둔 BIM 에 그 id 가
 // 있으면 고르고 그 자리로 시점을 옮기고, 무엇을 했는지 돌려준다(창이 "3D 동작" 칩으로 적는다). 브라우저 안에서만 오가고 서버로는
-// 아무것도 보내지 않는다 — 앱 상태를 서버에 넘기지 않는다는 ADR-0050 그대로다. 열어 둔 BIM 에 없는 id 는 세기만 한다.
+// 아무것도 보내지 않는다(서버로 가는 앱 상태는 질문과 함께 보내는 지금 화면의 id 뿐이다, ADR-0050 · viewForChat). 열어 둔 BIM 에 없는 id 는 세기만 한다.
 type Editor3dResult = { equipment: number; spaces: number; storeys: number; missing: number; label: string }
 function showFromChat(ids: readonly string[]): Editor3dResult {
   const m = model.value
@@ -4901,7 +5176,10 @@ let shownHidden: ReadonlySet<string> = new Set()
 function applyStoreyFilter() {
   const m = model.value
   if (!viewer || !m) return
-  const extra = filterOn.value ? filteredOut(m, viewFilter.value) : null
+  // 리플레이는 건물 전체 3D 에서 열고 장면마다 그 층으로 들어간다(replay-player 가 viewStorey 만 쓴다). 보기 필터·다중층 뷰는 편집 화면의
+  // 상태라 리플레이 동안은 보지 않는다. 값을 고치지 않으니 닫으면 그대로 돌아온다.
+  const replaying = replayOpen.value
+  const extra = filterOn.value && !replaying ? filteredOut(m, viewFilter.value) : null
   const merge = (hidden: Set<string>) => {
     if (extra) for (const id of extra) hidden.add(id)
     return hidden
@@ -4911,7 +5189,7 @@ function applyStoreyFilter() {
     viewer!.setStoreyFilter(storeys, hidden)
   }
   // 다중층 뷰면 보기 범위의 층들이다(OE-ML-01).
-  const range = multiRange.value
+  const range = replaying ? null : multiRange.value
   if (range) {
     // 수직 관통 오브젝트의 형상·지점을 그리는 동안에는 그 층 위를 걷어 낸다. 위층 판이 덮으면 찍은 점이 안 보이고, 바닥에 대면
     // 위층 방이 떠서 어느 층에 찍는지 헷갈렸다(2026-10-13, 병원 1층에 계단을 그릴 때).
@@ -4924,7 +5202,7 @@ function applyStoreyFilter() {
   const id = viewStorey.value
   if (!id || !m.storeys.some((s) => s.id === id)) {
     // 모든 층을 볼 때만 보기 필터의 층 칸이 먹는다.
-    const picked = viewFilter.value.storeys
+    const picked = replaying ? null : viewFilter.value.storeys
     if (picked) {
       const ids = new Set(picked)
       send(ids, merge(new Set(m.storeys.filter((s) => !ids.has(s.id)).flatMap((s) => s.equipment.map((e) => e.id)))))
@@ -4938,7 +5216,7 @@ const verticalDrawAt = computed(() => {
   const d = drawing.value
   return d && (d.purpose === 'verticalFootprint' || d.purpose === 'verticalPoint') ? d.storeyId : null
 })
-watch([viewStorey, model, sceneVersion, () => multiRange.value, viewFilter, verticalDrawAt], applyStoreyFilter)
+watch([viewStorey, model, sceneVersion, () => multiRange.value, viewFilter, verticalDrawAt, replayOpen], applyStoreyFilter)
 // 걸러 보는 중에 고른 설비가 숨으면 고르기를 푼다 — 안 보이는 것이 패널에 남아 있으면 무엇을 고쳤는지 모른다.
 watch(viewFilter, () => {
   if (selectedId.value && shownHidden.has(selectedId.value)) selectedId.value = null
@@ -4968,6 +5246,24 @@ watch(viewFilter, () => {
 })
 watch([model, sceneVersion], () => {
   if (exploded.value && !viewer?.exploded()) exploded.value = false
+})
+// 리플레이 동안은 분해도를 접고 다중층 뷰의 손잡이를 끈다(건물 전체 3D 에서 튼다 — 보기 필터는 applyStoreyFilter). 닫으면 되살린다.
+// 닫을 때 리플레이가 뷰어 편집 모드를 editing 으로만 돌려서, 다중층 뷰였으면 여기서 다시 맞춘다(위 watch([multiView, editing]) 와 같은 값).
+let explodeAfterReplay = false
+watch(replayOpen, (open) => {
+  if (open) {
+    explodeAfterReplay = exploded.value
+    if (exploded.value) {
+      viewer?.setExplode(null)
+      exploded.value = false
+    }
+    viewer?.setHandleEdit(false)
+    return
+  }
+  viewer?.setEditMode(editing.value && !multiView.value)
+  viewer?.setHandleEdit(editing.value && !!multiView.value)
+  if (explodeAfterReplay) exploded.value = explodeNow()
+  explodeAfterReplay = false
 })
 
 // --- 3D 우클릭 메뉴 (E3) ---
@@ -5054,8 +5350,9 @@ function ctxExplode() {
 window.addEventListener('pointerdown', (e) => {
   if (ctxMenu.value && !(e.target as HTMLElement | null)?.closest?.('.ctx-menu')) closeContext()
 })
-// 천장 모드에서 층을 바꾸면 위에서 내려다보는 시점을 지킨다(OE-OBJ-08).
-watch(viewStorey, () => (ceilingMode.value ? viewer?.topView() : viewer?.frameAll()))
+// 천장 모드에서 층을 바꾸면 위에서 내려다보는 시점을 지킨다(OE-OBJ-08). 비행 중에는 시점을 그대로 둔다 — 층 이동(E E · Q Q)이
+// 보일 층을 같이 넘기는데, 여기서 전체 보기로 다시 맞추면 옮긴 눈높이가 덮인다.
+watch(viewStorey, () => (flying.value ? undefined : ceilingMode.value ? viewer?.topView() : viewer?.frameAll()))
 
 // --- 3D / 평면도 ---------------------------------------------------------------------
 //
@@ -5240,8 +5537,9 @@ watch([selectedId, editing, viewStorey], () => {
   if (placing.value && (selectedId.value !== placing.value || !editing.value)) stopPlace()
 })
 function placeAt(at: Vec2) {
-  // 그리드 정렬(OE-UI-07)을 켰으면 그리기에서 찍은 점을 교점으로 옮긴다. 설비 놓기는 그리드를 따르지 않는다.
-  if (drawing.value && grid.value.on) at = snapToGrid(at, grid.value.spacing)
+  // 스냅(OE-UI-06)·그리드 정렬(OE-UI-07)을 켰으면 그리기에서 찍은 점을 붙을 자리로 옮긴다. 설비 놓기는 따르지 않는다.
+  if (drawing.value && !multiView.value) at = alignAt(at, drawing.value.storeyId)?.at ?? at
+  else if (drawing.value && grid.value.on) at = snapToGrid(at, grid.value.spacing)
   if (drawing.value) {
     const d = drawing.value
     drawing.value = { ...d, points: [...d.points, [cm(at[0]), cm(at[1])]], ...(d.levels && d.work ? { levels: [...d.levels, { ...d.work }] } : {}) }
@@ -6079,6 +6377,12 @@ watch([bgHere, bgStorey, viewStorey, sceneVersion], () => {
   const st = bgStorey.value
   viewer?.setBackground(bg && st ? { url: bg.url, corners: backgroundCorners(bg), elevation: st.elevation, opacity: bg.opacity } : null)
 })
+/** 서버가 DWG 를 그림으로 바꿀 수 있는지(src/server/dwg.ts). 못 하면 도면 칸의 안내가 까닭을 말한다. */
+const dwgServer = ref<{ enabled: boolean; reason?: string }>({ enabled: false, reason: 'DWG 변환 서버를 확인하는 중입니다' })
+fetch('./__data/__dwg')
+  .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+  .then((p: { enabled?: boolean; reason?: string }) => (dwgServer.value = { enabled: p.enabled === true, reason: p.reason }))
+  .catch(() => (dwgServer.value = { enabled: false, reason: 'DWG 는 서버(8084)가 바꿉니다. 이 화면에서는 서버에 닿지 않습니다' }))
 /** PDF 로 깐 층의 원본 바이트. 쪽을 바꿔 다시 그릴 때 쓴다(층 id → 바이트). 화면에 보이지 않아 반응형으로 두지 않는다. */
 const bgPdfs = new Map<string, ArrayBuffer>()
 /** PDF 를 그리는 중(큰 도면은 몇 초). 그동안 고르기 칸과 쪽 칸을 막는다. */
@@ -6089,6 +6393,7 @@ function pickBackground(input: HTMLInputElement) {
   const st = bgStorey.value
   if (!file || !st) return
   if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return void pickPdfBackground(st, file)
+  if (/\.dwg$/i.test(file.name)) return void pickDwgBackground(st, file)
   const url = URL.createObjectURL(file)
   const img = new Image()
   img.onload = () => {
@@ -6098,7 +6403,7 @@ function pickBackground(input: HTMLInputElement) {
   }
   img.onerror = () => {
     URL.revokeObjectURL(url)
-    note('이미지를 읽지 못했습니다. PNG·JPG·PDF 도면을 고르세요(DWG 는 PDF 나 이미지로 내보낸 뒤 고릅니다)')
+    note('이미지를 읽지 못했습니다. PNG·JPG·PDF·DWG 도면을 고르세요')
   }
   img.src = url
 }
@@ -6125,6 +6430,41 @@ async function pickPdfBackground(st: Storey, file: File) {
     )
   } catch (e) {
     note(`PDF 를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    bgBusy.value = false
+  }
+}
+/**
+ * DWG 도면은 서버가 PNG 로 바꿔 준다(src/server/dwg.ts — LibreDWG + ezdxf). 브라우저에는 DWG 를 읽을 길이 없다. 서버가 도면 단위를 알려 주면
+ * 축척을 그 단위로 맞추고, 도면 좌표가 건물과 겹치면 그 자리에 둔다(background.ts 의 dwgBackground).
+ */
+async function pickDwgBackground(st: Storey, file: File) {
+  bgBusy.value = true
+  try {
+    const r = await fetch('./__data/__dwg', { method: 'POST', body: file })
+    if (!r.ok) {
+      const why = ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `서버가 ${r.status} 로 답했습니다`
+      note(`DWG 를 깔지 못했습니다: ${why}. PDF 나 이미지로 내보내 고를 수 있습니다`)
+      return
+    }
+    const stats = JSON.parse(r.headers.get('X-Dwg2png') ?? 'null') as DwgStats | null
+    if (!stats) {
+      note('DWG 를 깔지 못했습니다: 서버가 도면 범위를 알려 주지 않았습니다')
+      return
+    }
+    const url = URL.createObjectURL(await r.blob())
+    const pts = st.spaces.flatMap((sp) => sp.footprint)
+    const box = pts.length ? { x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])), y1: Math.max(...pts.map((p) => p[1])) } : null
+    const old = backgrounds.value[st.id]
+    if (old) URL.revokeObjectURL(old.url)
+    bgPdfs.delete(st.id)
+    const bg = dwgBackground({ url, name: file.name }, stats, box)
+    backgrounds.value = { ...backgrounds.value, [st.id]: bg }
+    const how = bg.dwg?.unit ? `도면 단위(${bg.dwg.unit})로 실제 크기에 맞췄${bg.dwg.placed === 'drawing' ? '고, 도면 좌표가 건물과 겹쳐 그 자리에 두었' : ''}습니다. ` : '도면 단위를 몰라 건물 너비에 맞췄습니다. [스케일 맞추기] 로 두 점의 실제 거리를 넣으세요. '
+    const lost = stats.minimal ? ' 도면의 블록 정의를 읽지 못해 블록으로 넣은 기호(문·가구 등)는 빠졌을 수 있습니다.' : ''
+    note(`${file.name}을 ${st.name} 바닥에 깔았습니다. ${how}어긋나면 [원점 맞추기] 로 한 점의 실제 좌표를 넣으세요.${lost}`)
+  } catch (e) {
+    note(`DWG 를 깔지 못했습니다: ${e instanceof Error ? e.message : String(e)}`)
   } finally {
     bgBusy.value = false
   }
@@ -6409,6 +6749,55 @@ function makeBranch(segId: string, points: PathPoint[], range: string[]): boolea
   return true
 }
 
+// --- 배관 꼭짓점 넣기·지우기 (OE-PIP-10, pipe-vertex.ts) ---
+// 구간을 고르면 가운데에 꼭짓점(엘보)을 넣어 둘로 나눈다 — 넣은 엘보를 골라 두므로 바로 끌거나 좌표 칸으로 옮겨 꺾는다. 구간 둘 사이의 엘보를
+// 고르면 지워 두 구간을 하나로 합친다. 확정 방향은 이어받는다.
+
+/** 고른 것에 할 수 있는 꼭짓점 편집. 형상이 있는 구간이면 넣기, 구간 둘 사이의 이음쇠면 지우기. */
+const vertexAction = computed((): 'insert' | 'remove' | null => {
+  void sceneVersion.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e || !editing.value) return null
+  if (e.role === 'segment') return segmentPath(e) && 'path' in segmentPath(e)! ? 'insert' : null
+  if (e.role !== 'fitting') return null
+  const sides = m.connections.filter((c) => c.from === e.id || c.to === e.id).map((c) => equipmentById.value.get(c.from === e.id ? c.to : c.from))
+  return sides.length === 2 && sides.every((x) => x?.role === 'segment') ? 'remove' : null
+})
+function insertVertexHere(seg: Equipment) {
+  const m = model.value
+  const path = segmentPath(seg)
+  if (!m || !path || !('path' in path)) return
+  const [p, q] = path.path
+  const at = mark()
+  const done = insertPipeVertex(m, seg.id, [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2, (p[2] + q[2]) / 2], segmentAxis)
+  if ('refused' in done) return void note(done.refused)
+  remember(`${shortName(seg.name)} 꼭짓점 넣기`, done.undo, at)
+  ruleReport.value = done.rules
+  ensureDrawnMeshes()
+  placeStretched(seg.id)
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+  select(done.elbow.id)
+  note(`${shortName(seg.name)} 가운데에 꼭짓점 ${done.elbow.name}을 넣어 둘로 나눴습니다${done.replaced?.released ? '(옛 BIM 포트 연결은 해제 보정으로 남김)' : ''}. 꼭짓점을 끌거나 좌표 칸으로 옮겨 꺾습니다`)
+}
+function removeVertexHere(fitting: Equipment) {
+  const m = model.value
+  if (!m) return
+  const at = mark()
+  const done = removePipeVertex(m, fitting.id, segmentAxis)
+  if ('refused' in done) return void note(done.refused)
+  remember(`${shortName(fitting.name)} 꼭짓점 지우기`, done.undo, at)
+  ruleReport.value = done.rules
+  placeStretched(done.kept.id)
+  triggerRef(model)
+  flowVersion.value++
+  redraw()
+  select(done.kept.id)
+  note(`꼭짓점 ${shortName(fitting.name)}을 지워 ${shortName(done.kept.name)}·${shortName(done.removed[1].name)}을 하나로 합쳤습니다. Ctrl+Z 로 되돌립니다`)
+}
+
 // --- 오프셋 높이 (다중층 뷰, OE-ML-14, offset-edit.ts) ---
 // 고른 수평 구간(오프셋)과 양 끝 꺾임점을 같이 올리거나 내린다. 이어진 구간은 끝만 늘거나 준다. 바꾸기 전에 무엇이 움직이는지 보인다.
 
@@ -6432,6 +6821,11 @@ watch(offsetNow, (now, was) => {
   if (now?.storeyId !== was?.storeyId || now?.height !== was?.height) offsetDraft.value = null
 })
 const offsetTarget = computed(() => (offsetNow.value ? (offsetDraft.value ?? offsetNow.value) : null))
+/** [오프셋 층] 칸의 층: 보기 범위의 층과, 범위 밖이면 지금 오프셋이 있는 층(높이 순). */
+const offsetStoreys = computed(() => {
+  const ids = new Set([...(multiRange.value ?? []).map((st) => st.id), ...(offsetTarget.value ? [offsetTarget.value.storeyId] : [])])
+  return storeysByHeight.value.filter((st) => ids.has(st.id))
+})
 const offsetPlan = computed(() => {
   void sceneVersion.value
   const m = model.value
@@ -7809,7 +8203,7 @@ const AUTOSAVE_PREFIX = 'oe-autosave:'
 const draft = shallowRef<{ file: EditFile; count: number; savedAt: string } | null>(null)
 let autosaveArmed = false
 let autosaveTimer: number | undefined
-const autosaveKey = () => AUTOSAVE_PREFIX + fileName.value
+const autosaveKey = () => AUTOSAVE_PREFIX + (openedProject.value ? `${openedProject.value.id}:` : '') + fileName.value
 /** 층 완료를 누르거나 지운 횟수(OE-MAN-06). 완료 표시는 되돌리기 이력에 들지 않아, 자동 저장·저장 안 한 편집 판정이 이것도 본다. */
 const progressVersion = ref(0)
 watch(baseline, () => (progressVersion.value = 0))
@@ -7882,7 +8276,8 @@ function discardDraft() {
 //
 // 저장하지 않은 편집이 있는 층에서 다른 층으로 가려 하면 묻는다 — 임시 저장 / 저장 안 함 / 취소(편집 종료와 같은 대화상자).
 const DRAFT_PREFIX = 'oe-draft:'
-const draftKey = (storeyKey: string) => `${DRAFT_PREFIX}${fileName.value}@${storeyKey}`
+// 프로젝트로 연 판은 프로젝트 id 를 붙인다. 같은 IFC 로 만든 다른 프로젝트가 이 브라우저의 임시 저장본을 얹지 않게 한다(OE-UI-02 AC4).
+const draftKey = (storeyKey: string) => `${DRAFT_PREFIX}${openedProject.value ? `${openedProject.value.id}:` : ''}${fileName.value}@${storeyKey}`
 /** 연 때의 층. 층 조각을 가르는 기준이다. */
 let homeOf: HomeOf = () => null
 /** 이 파일의 층별 임시 저장본(브라우저에서 읽은 것). 열쇠는 층 id 또는 BUILDING. */
@@ -7943,6 +8338,51 @@ function floorsInView(): string[] {
   return viewStorey.value ? [viewStorey.value] : m.storeys.map((st) => st.id)
 }
 const floorName = (id: string | null) => (id ? (model.value?.storeys.find((st) => st.id === id)?.name ?? id) : '모든 층')
+
+// --- 화면 레이아웃의 층 표시(OE-UI-04) ---
+/** 층마다의 상태(미편집 · 저장 안 된 편집 · 임시 저장). 편집이 쌓이거나 저장할 때 다시 잰다. */
+const floorStates = computed(() => {
+  void history.value
+  void future.value
+  const m = model.value
+  if (!m || !baseline.value) return new Map<string, string>()
+  const parts = currentParts()
+  const dirty = new Set(dirtyKeys(parts))
+  const saved = savedParts.value
+  return new Map(m.storeys.map((st) => [st.id, dirty.has(st.id) ? '저장 안 된 편집' : editsIn(saved.get(st.id)) > 0 ? '임시 저장' : '미편집']))
+})
+/** 액션바의 위치 표시 "사이트 › 건물 › 층"(OE-UI-04 AC14). 사이트는 프로젝트의 사이트, 없으면 BIM 의 사이트 이름이다. */
+const breadcrumb = computed(() => {
+  const m = model.value
+  if (!m) return null
+  return { site: openedProject.value?.site || m.siteName || '(사이트 이름 없음)', building: m.buildingName || '(건물 이름 없음)', storey: floorName(viewStorey.value) }
+})
+/** 층 선택 칸의 건물 묶음 머리(OE-UI-04 AC13): 건물 · 층 범위 · 임시 저장한 층 수 / 층 수. 공통 표시 규칙은 OE-UI-03(lib/projects.ts). */
+const storeyGroup = computed(() => {
+  const m = model.value
+  if (!m) return null
+  const states = floorStates.value
+  const drafts = m.storeys.filter((st) => states.get(st.id) === '임시 저장').map((st) => ({ floor: st.id, by: '', savedAt: '' }))
+  const [b] = buildingsOf({ summary: summaryOf(m), drafts })
+  return b ? { label: `${b.name} · ${b.range} · 임시 저장 ${b.drafted}/${b.storeys.length}개 층`, storeys: b.storeys } : null
+})
+/** 오른쪽 패널의 현재 층 현황(OE-UI-04 AC9). */
+const floorNow = computed(() => (model.value ? floorSummary(model.value, viewStorey.value ? [viewStorey.value] : null, (e) => whatIs(e)?.label ?? null) : null))
+const floorNowStatus = computed(() => {
+  const states = floorStates.value
+  if (viewStorey.value) return states.get(viewStorey.value) ?? ''
+  const n = (s: string) => [...states.values()].filter((v) => v === s).length
+  return `저장 안 된 편집 ${n('저장 안 된 편집')} · 임시 저장 ${n('임시 저장')} · 미편집 ${n('미편집')}개 층`
+})
+function pickFromSummary(kind: 'space' | 'room' | 'customZone', id: string) {
+  if (kind === 'customZone') {
+    selectedId.value = null
+    selectedSpaceId.value = null
+    selectedCustomZoneId.value = id
+    return
+  }
+  pickSpace(id)
+}
 
 /** 조각을 갈아 끼우고 연 때부터 다시 얹는다. 값이 null 이면 그 조각을 뺀다(연 때로). */
 function replaceParts(next: Map<string, EditFile | null>, from: string) {
@@ -8092,11 +8532,86 @@ function goFloor(id: string | null) {
 // 누구나 그 편집을 얹은 채로 본다. 손으로 연 파일은 서버에 원본이 없어서 예전처럼 파일로 내려받는다. 임시 저장은 서버에
 // 오지 않는다(이 브라우저에만, "웹에 반영되지 않는다").
 let loadingPath: string | null = null
+
+// --- 프로젝트 (OE-UI-02·03·01, OE-WF-06, src/server/projects.ts · components/ProjectList.vue) ---
+// 첫 화면은 프로젝트 목록이다. 서버(8084·dev)가 있을 때만 보인다 — 손으로 고른 파일만 여는 곳(e2e 의 흉내 서버)은 예전처럼 파일 상자부터다.
+const projectRows = ref<ProjectRow[] | null>(null)
+function refreshProjects() {
+  return fetch('./__data/__projects')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((list) => (projectRows.value = Array.isArray(list) ? list : null))
+    .catch(() => {})
+}
+void refreshProjects()
+/** 지금 연 프로젝트. 다른 파일을 열면 비운다(load 가 projectLoading 으로 갈아 끼운다). */
+const openedProject = ref<ProjectRow | null>(null)
+let projectLoading: ProjectRow | null = null
+const projectList = ref<InstanceType<typeof ProjectList> | null>(null)
+/** [새 프로젝트]를 못 누르는 까닭. 사람 목록이 없으면(서버 사람 기능이 없는 곳) 막지 않는다 — 서버가 다시 거른다. */
+const projectBlock = computed(() => {
+  if (!people.value) return null
+  if (!me.value) return '사용자를 먼저 고르세요'
+  return me.value.role === 'viewer' ? `${me.value.name}은(는) 보기 전용(Viewer)이라 프로젝트를 만들 수 없습니다` : null
+})
+/** 그 IFC 의 분야. data/ 목록이 잰 요약으로 정한다(방이 없으면 설비, 설비가 없으면 건축). */
+function fieldOf(path: string): string {
+  const p = profileAt(path)
+  return !p ? '' : p.needsArchitecture ? '설비' : p.needsEquipment ? '건축' : '건축·설비'
+}
+/**
+ * 프로젝트를 연다(OE-UI-02). 구축 전이면 시작 화면 없이 초기 구축 에디터로, 구축을 마쳤으면 층 선택 화면에서 고른 층을 운영 편집으로 연다.
+ * 열고 나면 센 층 구성을 서버에 올려 목록이 건물·층 수를 보이게 한다(서버는 IFC 를 읽지 않는다).
+ */
+async function openProject(p: ProjectRow, storey: string | null) {
+  projectLoading = p
+  // 올린 파일은 서버가 이름 앞에 올린 시각을 붙여 둔다(projects.ts). 화면에는 원래 이름을 보인다.
+  await openMany(p.paths.map((path) => ({ name: baseName(path).replace(/^\d{8}-\d{6}-/, ''), read: () => fetchData(path), dataPath: path })), 'open')
+  projectLoading = null
+  if (!model.value || openedProject.value?.id !== p.id) return
+  if (storey && model.value.storeys.some((x) => x.id === storey)) viewStorey.value = storey
+  mode.value = 'edit'
+  const summary = summaryOf(model.value)
+  if (JSON.stringify(summary) !== JSON.stringify(p.summary ?? null))
+    void fetch(`./__data/__projects?${new URLSearchParams({ id: p.id, summary: '' })}`, { method: 'PUT', body: JSON.stringify(summary) }).catch(() => {})
+}
+/** [새 프로젝트]. IFC 를 올리고(data/uploads) 프로젝트를 만든 뒤 바로 초기 구축 에디터로 연다(OE-UI-15 ①→③). */
+async function createProject(input: { name: string; site: string; files: File[] }) {
+  busy.value = true
+  error.value = ''
+  const paths: string[] = []
+  try {
+    for (const [i, f] of input.files.entries()) {
+      progress.value = { label: `IFC 올리는 중 ${i + 1}/${input.files.length} · ${f.name}` }
+      const r = await fetch(`./__data/__upload?${new URLSearchParams({ name: f.name })}`, { method: 'POST', headers: asMe(), body: f })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(`${f.name} 을(를) 올리지 못했습니다: ${body.error ?? `HTTP ${r.status}`}`)
+      paths.push(body.path)
+    }
+    const r = await fetch('./__data/__projects', { method: 'POST', headers: { ...asMe(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: input.name, site: input.site, paths }) })
+    const row = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(`프로젝트를 만들지 못했습니다: ${row.error ?? `HTTP ${r.status}`}`)
+    projectList.value?.closeForm()
+    await refreshProjects()
+    busy.value = false
+    progress.value = null
+    await openProject(row as ProjectRow, null)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    busy.value = false
+    if (!model.value) progress.value = null
+  }
+}
 /** 열린 모델을 이룬 파일들의 data/ 경로(연 순서). 손으로 고른 파일은 null. */
 const openedSources = ref<(string | null)[]>([])
-const serverKey = computed(() =>
-  openedSources.value.length && openedSources.value.every((p) => p) ? openedSources.value.join('|') : null,
-)
+const serverKey = computed(() => {
+  if (!openedSources.value.length || !openedSources.value.every((p) => p)) return null
+  const paths = openedSources.value.join('|')
+  // 프로젝트로 연 판은 프로젝트 열쇠(`@id|경로…`)를 쓴다 — 같은 IFC 의 다른 프로젝트와 임시 저장본·버전이 섞이지 않는다(OE-UI-02 AC4).
+  // 프로젝트에 없는 파일을 덧붙였으면 프로젝트의 판이 아니라서 파일 열쇠로 돌아간다.
+  const p = openedProject.value
+  return p && p.paths.join('|') === paths ? p.key : paths
+})
 /** 지금 모델에 얹은 8084 저장본. 저장 안 함은 여기까지만 되돌린다. */
 const serverSaved = shallowRef<{ file: EditFile; savedAt: string } | null>(null)
 /** 마지막으로 정말 저장한(8084·파일) 편집의 서명. 자동 저장이 이것과 같으면 임시 저장으로 남기지 않는다. */
@@ -8152,7 +8667,15 @@ const editKind = computed<'build' | 'operate'>(() => {
 {
   const q = new URLSearchParams(location.search)
   const paths = (q.get('open') ?? '').split('|').filter(Boolean)
-  if (paths.length)
+  // `?project=<id>[&storey=<층 id>]`: 프로젝트를 바로 연다(OE-UI-01 AC2, DT 없이 에디터 주소로 초기 구축에 들어간다).
+  const projectId = q.get('project')
+  if (projectId)
+    void refreshProjects().then(() => {
+      const p = projectRows.value?.find((x) => x.id === projectId)
+      if (p) void openProject(p, q.get('storey'))
+      else error.value = `프로젝트 ${projectId} 가 없습니다`
+    })
+  else if (paths.length)
     void nextTick(() =>
       openMany(paths.map((path) => ({ name: baseName(path), read: () => fetchData(path), dataPath: path })), 'open').then(() => {
         const st = q.get('storey')
@@ -8354,6 +8877,18 @@ async function exitCommitting() {
   if (ask?.floor) goFloor(ask.floor.to)
   else mode.value = 'view'
 }
+/** 저장 안 한 편집이 있는 층 이름(높이 순). 건물 조각(층이 없는 편집)뿐이면 "건물" 이다. 종료·구축 확인 창이 보인다(OE-UI-04 AC11·12). */
+function dirtyFloorNames(): string[] {
+  const dirty = new Set(dirtyKeys())
+  const names = storeysByHeight.value.filter((st) => dirty.has(st.id)).map((st) => st.name)
+  return names.length ? names : dirty.size ? ['건물'] : []
+}
+/** 층을 바꿀 때 [그대로 이동](OE-UI-04 AC10). 저장도 되돌리기도 하지 않고 간다 — 앞 층의 편집은 화면에 남고, [편집 종료]·[구축하기]가 층별로 묻는다. */
+function exitKeeping() {
+  const ask = exitAsk.value
+  exitAsk.value = null
+  if (ask?.floor) goFloor(ask.floor.to)
+}
 function exitDiscarding() {
   const ask = exitAsk.value
   exitAsk.value = null
@@ -8499,9 +9034,30 @@ const versionLists = computed((): { key: string; label: string; rows: VersionRow
     },
     { key: 'spaces-added', label: '새 물리존', rows: d.spaces.added.map((r) => sp(r)) },
     { key: 'spaces-removed', label: '없어진 물리존', rows: d.spaces.removed.map(gone) },
+    // 후보가 여럿이라 짝짓지 않은 것(OE-BIM-19). 없어진 것·새것과 따로 둔다 — 어느 것과 같은지 모르는 것이다.
+    {
+      key: 'ambiguous',
+      label: '짝 후보가 여럿',
+      rows: [
+        ...d.spaces.ambiguous.map((r) => (r.side === 'next' ? sp(r, ambiguousDetail(r)) : { ...gone(r), detail: ambiguousDetail(r) })),
+        ...d.equipment.ambiguous.map((r) => (r.side === 'next' ? eq(r, ambiguousDetail(r)) : { ...gone(r), detail: ambiguousDetail(r) })),
+      ],
+    },
   ]
 })
 const versionRows = computed(() => versionLists.value.find((l) => l.key === versionView.value)?.rows ?? [])
+const ambiguousDetail = (r: VersionDiff['spaces']['ambiguous'][number]) =>
+  `${r.side === 'prev' ? '이전 판본' : '지금 판본'} · ${r.keys.map((k) => MATCH_KEY_LABEL[k]).join('·')}에 후보가 여럿이라 짝짓지 않음`
+/** 비교 전에 맞춘 것(OE-BIM-19 정규화). 단위 배수와 원점 이동은 맞춘 경우에만, 이름 정규화는 늘 한다. */
+const versionNormalized = computed(() => {
+  const n = versionDiff.value?.diff.normalized
+  if (!n) return ''
+  return [
+    n.scale ? `이전 판본 길이를 ${ratioLabel(n.scale)}로(단위 선언이 실제와 달라 맞춤)` : '',
+    n.offset ? `이전 판본 원점 (${n.offset.map((x) => x.toFixed(2)).join(', ')}) m 옮겨 맞춤` : '',
+    '이름은 공백·유니코드 조합을 맞춰 견줌',
+  ].filter(Boolean).join(' · ')
+})
 
 /** 비교 목록에서 물리존을 고른다. 3D 에서 바닥을 누른 것과 같다(편집 모드가 아니어도 그 방에 맞춘다). */
 function showSpace(id: string) {
@@ -8569,6 +9125,8 @@ ${name} 파일을 열까요?`,
     model.value = result.model
     fileName.value = name
     openedSources.value = [loadingPath]
+    openedProject.value = projectLoading
+    projectLoading = null
     mergeReport.value = null
     selectedId.value = null
     selectedSpaceId.value = null
@@ -9240,7 +9798,39 @@ async function buildStorey(storeyId: string) {
  */
 Object.assign(oeHook(), {
   screen: () => (model.value ? { title: fileName.value, by: currentUser.value ?? '', ttl: modelToTTL(model.value) } : null),
+  view: viewForChat,
 })
+
+/**
+ * [온톨로지] 칸이 질문과 같이 보내는 지금 화면(ADR-0050 "보는 화면"). "이 층·이거·여기" 를 알아듣게 한다. **id 와 정해진 값만** 담는다 — 이름·
+ * 메모처럼 사람이 친 글은 안 넣는다(서버가 질문 앞에 붙이니 그 칸이 지시문 통로가 된다). id 는 TTL 의 지역 이름(`ex:` 뒤)과 같게 이스케이프한다.
+ * 서버(scripts/onto-view.mjs)가 고른 출처 TTL 에 있는 id 만 남기고 나머지는 버린다.
+ */
+function viewForChat() {
+  if (!model.value) return null
+  const id = (x: string | null | undefined) => (x ? escapeLocalName(x) : null)
+  const f = viewFilter.value
+  return {
+    mode: activeTab.value,
+    editing: editing.value,
+    part: editing.value ? (ceilingMode.value ? 'ceiling' : editPart.value) : null,
+    storey: id(viewStorey.value),
+    range: multiView.value ? { from: escapeLocalName(multiView.value.from), to: escapeLocalName(multiView.value.to) } : null,
+    selected: [selectedId.value, selectedSpaceId.value, selectedRoomId.value, selectedSystemId.value].filter((x): x is string => !!x).map(escapeLocalName),
+    zone: id(selectedCustomZoneId.value),
+    hvacZone: id(zoneVertexEdit.value),
+    filter: filterActive(f)
+      ? {
+          // 서버가 받는 개수만큼 자른다(onto-view.mjs). 격리·층이 수백 개면 본문 상한(64KB)에 걸린다.
+          storeys: f.storeys?.slice(0, 60).map(escapeLocalName) ?? null,
+          classes: f.classes?.slice(0, 30) ?? null,
+          systems: f.systems?.filter((s) => s !== NO_SYSTEM).slice(0, 30).map(escapeLocalName) ?? null,
+          isolate: f.isolate?.slice(0, 30).map(escapeLocalName) ?? null,
+          hidden: f.hidden.length,
+        }
+      : null,
+  }
+}
 
 function exportTTL() {
   if (!model.value) return
@@ -9445,7 +10035,8 @@ async function syncLocks() {
   const key = serverKey.value
   const run = ++lockRun
   if (!key || !people.value || !me.value || !editing.value || !model.value) return releaseLocks()
-  const want = floorsInView()
+  // 보는 층과, [그대로 이동]으로 떠났지만 저장 안 한 편집이 남은 층(OE-UI-04 AC10)을 쥔다. 남이 그 층을 고쳐 편집이 겹치지 않게 한다.
+  const want = [...new Set([...floorsInView(), ...dirtyKeys().filter((k) => k !== BUILDING)])]
   releaseLocks((l) => l.key === key && want.includes(l.floor))
   for (const floor of want) {
     let r: Response
@@ -9514,6 +10105,10 @@ watch(
 const gradesOpen = ref(false)
 /** [구축하기] 를 막는 이유(게이트 미달). 반영한 버전이 있으면(운영 편집) 막지 않는다. */
 const buildBlock = computed(() => {
+  // 생성 전 검증의 차단 항목(OE-GEN-03 — 한 층 안 방번호 중복, 물리존 없는 층)은 구축·반영 모두 막는다. 경고는 막지 않고 리포트 ⑩ 에 남는다.
+  const m = model.value
+  const blocks = m ? blockingOf(preBuildChecks(m, [])) : []
+  if (blocks.length) return `생성 전 검증에서 막혔습니다 — ${blocks.map((x) => x.detail).join(' · ')}`
   const g = grades.value
   if (!g || g.gate || (serverKey.value && !firstPublish.value)) return null
   const nameHint = g.failing.some((r) => r.why?.startsWith('층 이름')) ? ' 층 이름은 [층별 요약] 에서 넣을 수 있습니다.' : ''
@@ -9604,7 +10199,13 @@ function askPublish() {
   if (editBlock.value) return note(editBlock.value)
   publishAsk.value = true
 }
-async function publishLayout(by: string) {
+async function publishLayout(by: string, how: 'all' | 'save' | 'saved' = 'all') {
+  // 임시 저장하지 않은 층이 있을 때 구축하기(OE-UI-04 AC12): 임시 저장하고 구축하거나, 그 편집을 되돌려(저장 안 함과 같다) 저장한 내용으로 구축한다.
+  if (how !== 'all' && model.value && !publishing.value) {
+    const dirty = dirtyKeys()
+    if (how === 'save') keepDraft(dirty)
+    else discardFloors(dirty)
+  }
   const m = model.value
   const key = serverKey.value
   if (!m || !key || !baseline.value || publishing.value) return
@@ -9722,6 +10323,17 @@ function rollbackFromReport() {
         </button>
       </div>
     </header>
+
+    <!-- 프로젝트 목록(OE-UI-02·03). 첫 화면이다. 서버가 없으면 보이지 않고 아래 파일 상자부터다. -->
+    <template v-if="!model && projectRows">
+      <label v-if="people" class="who projects-who" title="프로젝트를 만든 사람·임시 저장한 사람으로 남습니다(data/.users.json)">
+        <select v-model="currentUser" aria-label="사용자">
+          <option value="">사용자 고르기…</option>
+          <option v-for="p in people" :key="p.name" :value="p.name">{{ p.name }} · {{ PERSON_ROLE[p.role] }}</option>
+        </select>
+      </label>
+      <ProjectList ref="projectList" :rows="projectRows" :create-block="projectBlock" :busy="busy" :field-of="fieldOf" :when="when" @open="openProject" @create="createProject" />
+    </template>
 
     <section
       v-if="!model"
@@ -9886,7 +10498,8 @@ function rollbackFromReport() {
         <div class="appbar-row">
           <div class="file">
             <h2 :title="fileName">{{ fileName }}</h2>
-            <span class="muted">{{ model.schema }} · {{ model.buildingName || '(건물 이름 없음)' }}</span>
+            <!-- 위치 표시 사이트 › 건물 › 층(OE-UI-04 AC14). 층은 보는 층(모든 층이면 "모든 층"). -->
+            <span v-if="breadcrumb" class="muted">{{ model.schema }} · <span class="crumbs" data-testid="breadcrumb">{{ breadcrumb.site }} › {{ breadcrumb.building }} › {{ breadcrumb.storey }}</span></span>
           </div>
           <div class="bar-actions">
             <label
@@ -10012,6 +10625,9 @@ function rollbackFromReport() {
           >
             ↷ 다시
           </button>
+          <!-- 그리드·스냅(OE-UI-06·07). 그리지 않을 때도 끄는 설비·오브젝트·꼭짓점에 걸려서 편집 막대에도 둔다. 팔레트에 두면
+               팔레트가 높아져 3D 왼쪽 아래 바닥을 가린다. -->
+          <AlignToggles v-model:grid="grid" v-model:snap="snap" class="bar-align" />
           <span class="muted last-edit" :title="history.at(-1)?.label">{{ history.at(-1)?.label ?? '' }}</span>
           <button
             type="button"
@@ -10089,19 +10705,6 @@ function rollbackFromReport() {
         <section :class="['viewport', { theater: replayOpen }]">
           <div class="canvas-wrap">
             <canvas v-show="activeTab === '3d'" ref="canvas"></canvas>
-            <!-- 방향 큐브(nav-cube.ts)와 비행 모드. 면·모서리·꼭짓점을 누르면 그 방향에서 보고, 끌면 돈다. 3D 일 때만, 리플레이 극장에서는 뺀다. -->
-            <div v-if="model && activeTab === '3d' && !replayOpen" class="nav-cube" data-testid="nav-cube">
-              <canvas ref="cubeCanvas" aria-label="방향 큐브 — 면을 누르면 그 방향에서 보고, 끌면 돕니다"></canvas>
-              <button
-                type="button"
-                :class="['ghost', 'fly-toggle', { on: flying }]"
-                :aria-pressed="flying"
-                title="비행 모드 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게"
-                @click="setFlying(!flying)"
-              >
-                비행 <kbd>G</kbd>
-              </button>
-            </div>
             <p v-if="flying" class="fly-badge" role="status" data-testid="fly-badge">
               <b>비행 모드</b> · WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게 · <kbd>G</kbd>·<kbd>Esc</kbd> 나가기
             </p>
@@ -10174,33 +10777,6 @@ function rollbackFromReport() {
                 </label>
               </details>
             </aside>
-            <!-- 걸러 보는 중임을 3D 위에 늘 보인다(패널을 닫아도). 안 보이는 것을 없는 것으로 오해하지 않게. -->
-            <p v-if="(filterOn || exploded) && !filterOpen && activeTab === '3d'" class="filter-chip" role="status" data-testid="filter-chip">
-              <b>보기 필터</b> {{ exploded ? '분해도 · ' : '' }}{{ filterText || '전부' }} · 화면에서만
-              <button type="button" class="link" @click="filterOpen = true">고치기</button>
-              <button type="button" class="link" @click="clearViewFilter">모두 보이기</button>
-            </p>
-            <!-- 층별 칩. 위층이 위. 누르면 그 층만 보고, 다시 누르면 전체. 다중층 뷰·리플레이에서는 뺀다. -->
-            <nav v-if="storeyChips.length && activeTab === '3d' && !replayOpen && !multiView" class="storey-chips" aria-label="층별 손볼 것" data-testid="storey-chips">
-              <div ref="storeyChipList" class="sc-list">
-              <button
-                v-for="c in storeyChips"
-                :key="c.id"
-                type="button"
-                :class="{ on: viewStorey === c.id, clean: !c.unplaced && !c.noSpace && !c.failed }"
-                :aria-pressed="viewStorey === c.id"
-                :title="`${c.name} — 미배치 ${c.unplaced} · 소속 없음 ${c.noSpace} · 그 밖의 검사 위반 ${c.failed}. 누르면 이 층만 봅니다`"
-                @click="pickStoreyChip(c.id)"
-              >
-                <span class="sc-name">{{ c.name }}</span>
-                <span v-if="c.unplaced" class="sc-n unplaced" title="미배치">{{ c.unplaced }}</span>
-                <span v-if="c.noSpace" class="sc-n nospace" title="소속 없음">{{ c.noSpace }}</span>
-                <span v-if="c.failed" class="sc-n failed" title="검사 위반">{{ c.failed }}</span>
-                <span v-if="!c.unplaced && !c.noSpace && !c.failed" class="sc-ok" aria-label="손볼 것 없음">✓</span>
-              </button>
-              </div>
-              <p class="sc-key"><i class="unplaced"></i>미배치 <i class="nospace"></i>소속 없음 <i class="failed"></i>위반</p>
-            </nav>
             <!-- 성능 표(개발용, ` 키). 3D 는 바뀔 때만 그려서 가만히 있으면 그린 장수가 0 이다. -->
             <dl v-if="perfOn && perfStats" class="perf-hud" data-testid="perf-hud">
               <div><dt>그린 장수/초</dt><dd>{{ perfStats.fps }}</dd></div>
@@ -10279,11 +10855,8 @@ function rollbackFromReport() {
               </button>
               <button type="button" class="ghost" :disabled="!drawing.points.length" @click="undoDrawPoint">한 점 지우기</button>
               <button type="button" class="ghost" @click="stopDraw">취소 <kbd>Esc</kbd></button>
-              <!-- 그리드 정렬(OE-UI-07). 그릴 때 쓰는 것이라 그리기 막대에 둔다. -->
-              <label class="grid-toggle" title="찍은 점을 그리드 교점으로 옮깁니다(겹침 판정은 형상 기준 그대로)">
-                <input v-model="grid.on" type="checkbox" aria-label="그리드 정렬" /> 그리드
-                <input v-model.number="grid.spacing" v-keep-typing type="number" min="0.05" step="0.05" class="riser-height" aria-label="그리드 간격(m)" />m
-              </label>
+              <!-- 그리드 정렬(OE-UI-07)·스냅(OE-UI-06). 찍는 점을 옮긴다. 다중층 뷰는 층이 여럿이라 그리드만 받는다. -->
+              <AlignToggles v-model:grid="grid" v-model:snap="snap" />
             </div>
             <!-- 편집 도구 팔레트(PRD #9 화면 레이아웃의 왼쪽). 편집 모드에서만, 무엇을 만드는지로 묶는다. 넣을 층은 층 하나만
                  보는 중이면 그 층이다(targetStorey). 왼쪽 위는 색 안내 자리라 아래쪽에 둔다. -->
@@ -10457,109 +11030,159 @@ function rollbackFromReport() {
             <p v-if="activeTab === '3d' && !multiView" class="view-controls-hint" aria-label="시점 조작 안내">
               드래그: 이동 · Shift/우클릭 드래그: 회전 · {{ editing ? 'Ctrl+드래그: 여러 개 고르기 · ' : '' }}휠: 확대
             </p>
-            <div class="view-tools">
-              <!-- 보기 ↔ 편집, 단축키 안내. 위 도구막대와 같은 일이라 전체 화면(도구막대가 안 보인다)에서만 둔다.
-                   평소에도 두었더니 같은 스위치가 한 화면에 둘이었다. -->
-              <label v-if="fullscreen" class="edit-toggle" title="켜면 3D에서 설비와 물리존 꼭짓점을 옮기고 연결 방향을 정할 수 있습니다.">
-                <input
-                  type="checkbox"
-                  :checked="editing"
-                  @change="onEditToggle($event.target as HTMLInputElement)"
-                />
-                편집
-              </label>
-              <button
-                v-if="drawnWalls"
-                type="button"
-                :class="['ghost', 'walls-toggle', { on: showWalls }]"
-                :aria-pressed="showWalls"
-                @click="showWalls = !showWalls"
-              >
-                내력벽
-              </button>
-              <!-- 공조존(IDF) 외곽선. IDF 를 열거나 덧붙였을 때만. -->
-              <button
-                v-if="model.hvac?.zones.length"
-                type="button"
-                :class="['ghost', { on: showZones }]"
-                :aria-pressed="showZones"
-                title="IDF 공조존의 바닥 외곽선"
-                @click="showZones = !showZones"
-              >
-                공조존
-              </button>
-              <!-- 보기 필터(ui-notes 보기 필터). 층 여러 개·Brick 클래스·계통으로 거르고, 숨기기·격리·분해도. 화면에만 적용된다. -->
-              <button
-                v-if="activeTab === '3d'"
-                type="button"
-                :class="['ghost', 'filter-toggle', { on: filterOpen || filterOn || exploded }]"
-                :aria-expanded="filterOpen"
-                data-testid="filter-toggle"
-                title="층·Brick 클래스·계통으로 걸러 봅니다. 화면에서만이고 편집 파일·TTL·GeoJSON 에는 남지 않습니다"
-                @click="filterOpen = !filterOpen"
-              >
-                보기 필터<b v-if="filterOn || exploded" class="filter-dot" aria-label="켜짐">●</b>
-              </button>
-              <!-- 설비 라벨(V4). 층 하나를 볼 때 설비마다 이름과 소속·종류 출처 배지를 3D 위에 띄운다. -->
-              <button
-                v-if="activeTab === '3d'"
-                type="button"
-                :class="['ghost', 'labels-toggle', { on: showLabels }]"
-                :aria-pressed="showLabels"
-                :disabled="!labelStorey"
-                :title="labelStorey ? '설비마다 이름과 소속·종류 출처를 3D 위에 띄웁니다' : '층 하나를 고르면 설비 라벨을 띄웁니다'"
-                @click="showLabels = !showLabels"
-              >
-                라벨
-              </button>
-              <!-- 내보낸 결과와 나란히 보기(ADR-0061). 3D 오른쪽에 받는 쪽이 읽는 TTL·GeoJSON 판을 띄운다. -->
-              <button
-                v-if="activeTab === '3d'"
-                type="button"
-                :class="['ghost', { on: compareOpen }]"
-                :aria-pressed="compareOpen"
-                data-testid="compare-toggle"
-                title="3D 오른쪽에 지금 모델을 내보낸 TTL·GeoJSON 을 받는 쪽처럼 읽어 나란히 봅니다. 고르면 양쪽이 같은 것을 짚습니다"
-                @click="compareOpen = !compareOpen"
-              >
-                결과 비교
-              </button>
-              <div class="tabs" role="group" aria-label="보기">
-                <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
-                <button type="button" :aria-pressed="activeTab === 'plan'" :disabled="!!multiView" :title="multiView ? '평면도는 층 하나를 그립니다. 다중층 뷰는 3D 입니다' : undefined" @click="showPlan">평면도</button>
+            <!-- 3D 오른쪽 위 세로 줄: 시점 막대 → 보기 필터 칩 → [벽 범례 | 방향 큐브] → 층별 칩. 한 줄에 차례로 쌓아서
+               막대가 두 줄로 꺾이거나 층이 많아도(성수 20층) 서로 덮지 않는다. -->
+            <div class="right-col">
+              <div class="view-tools">
+                <!-- 보기 ↔ 편집, 단축키 안내. 위 도구막대와 같은 일이라 전체 화면(도구막대가 안 보인다)에서만 둔다.
+                     평소에도 두었더니 같은 스위치가 한 화면에 둘이었다. -->
+                <label v-if="fullscreen" class="edit-toggle" title="켜면 3D에서 설비와 물리존 꼭짓점을 옮기고 연결 방향을 정할 수 있습니다.">
+                  <input
+                    type="checkbox"
+                    :checked="editing"
+                    @change="onEditToggle($event.target as HTMLInputElement)"
+                  />
+                  편집
+                </label>
+                <button
+                  v-if="drawnWalls"
+                  type="button"
+                  :class="['ghost', 'walls-toggle', { on: showWalls }]"
+                  :aria-pressed="showWalls"
+                  @click="showWalls = !showWalls"
+                >
+                  벽
+                </button>
+                <!-- 공조존(IDF) 외곽선. IDF 를 열거나 덧붙였을 때만. -->
+                <button
+                  v-if="model.hvac?.zones.length"
+                  type="button"
+                  :class="['ghost', { on: showZones }]"
+                  :aria-pressed="showZones"
+                  title="IDF 공조존의 바닥 외곽선"
+                  @click="showZones = !showZones"
+                >
+                  공조존
+                </button>
+                <!-- 보기 필터(ui-notes 보기 필터). 층 여러 개·Brick 클래스·계통으로 거르고, 숨기기·격리·분해도. 화면에만 적용된다. -->
+                <button
+                  v-if="activeTab === '3d'"
+                  type="button"
+                  :class="['ghost', 'filter-toggle', { on: filterOpen || filterOn || exploded }]"
+                  :aria-expanded="filterOpen"
+                  data-testid="filter-toggle"
+                  title="층·Brick 클래스·계통으로 걸러 봅니다. 화면에서만이고 편집 파일·TTL·GeoJSON 에는 남지 않습니다"
+                  @click="filterOpen = !filterOpen"
+                >
+                  보기 필터<b v-if="filterOn || exploded" class="filter-dot" aria-label="켜짐">●</b>
+                </button>
+                <!-- 설비 라벨(V4). 층 하나를 볼 때 설비마다 이름과 소속·종류 출처 배지를 3D 위에 띄운다. -->
+                <button
+                  v-if="activeTab === '3d'"
+                  type="button"
+                  :class="['ghost', 'labels-toggle', { on: showLabels }]"
+                  :aria-pressed="showLabels"
+                  :disabled="!labelStorey"
+                  :title="labelStorey ? '설비마다 이름과 소속·종류 출처를 3D 위에 띄웁니다' : '층 하나를 고르면 설비 라벨을 띄웁니다'"
+                  @click="showLabels = !showLabels"
+                >
+                  라벨
+                </button>
+                <!-- 내보낸 결과와 나란히 보기(ADR-0061). 3D 오른쪽에 받는 쪽이 읽는 TTL·GeoJSON 판을 띄운다. -->
+                <button
+                  v-if="activeTab === '3d'"
+                  type="button"
+                  :class="['ghost', { on: compareOpen }]"
+                  :aria-pressed="compareOpen"
+                  data-testid="compare-toggle"
+                  title="3D 오른쪽에 지금 모델을 내보낸 TTL·GeoJSON 을 받는 쪽처럼 읽어 나란히 봅니다. 고르면 양쪽이 같은 것을 짚습니다"
+                  @click="compareOpen = !compareOpen"
+                >
+                  결과 비교
+                </button>
+                <div class="tabs" role="group" aria-label="보기">
+                  <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
+                  <button type="button" :aria-pressed="activeTab === 'plan'" :disabled="!!multiView" :title="multiView ? '평면도는 층 하나를 그립니다. 다중층 뷰는 3D 입니다' : undefined" @click="showPlan">평면도</button>
+                </div>
+                <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
+                <select v-if="model.storeys.length > 1 && !multiView" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
+                  <option :value="null">모든 층</option>
+                  <!-- 건물별로 묶고 머리에 층 범위·임시 저장한 층 수(OE-UI-04 AC13). 낮은 층부터다(OE-UI-03 공통 표시 규칙). -->
+                  <optgroup v-if="storeyGroup" :label="storeyGroup.label" data-testid="storey-group-label">
+                    <option v-for="st in storeyGroup.storeys" :key="st.key" :value="st.key" :title="floorStates.get(st.key)">{{ st.name }}만</option>
+                  </optgroup>
+                </select>
+                <!-- 다중층 뷰(OE-ML-01 ①). 누르면 지금 층과 위층으로 열고, 범위는 시작·끝 층으로 고쳐 고른다. -->
+                <button v-if="model.storeys.length > 1 && !multiView" type="button" class="ghost multi-open" title="층 범위를 골라 여러 층을 함께 봅니다(OE-ML-01)" @click="openMultiView()">
+                  다중층 뷰에서 편집
+                </button>
+                <span v-if="multiView" class="multi-range" role="group" aria-label="다중층 보기 범위">
+                  <select v-model="multiView.from" aria-label="다중층 시작 층">
+                    <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
+                  </select>
+                  ~
+                  <select v-model="multiView.to" aria-label="다중층 끝 층">
+                    <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
+                  </select>
+                  <button type="button" class="ghost" @click="setMultiAll">전체</button>
+                  <button type="button" class="ghost" @click="closeMultiView">층 편집으로</button>
+                </span>
+                <button v-if="fullscreen" type="button" class="ghost keys-help" title="단축키 안내" aria-label="단축키 안내" @click="helpOpen = true">?</button>
+                <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
+                  {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
+                </button>
               </div>
-              <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
-              <select v-if="model.storeys.length > 1 && !multiView" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
-                <option :value="null">모든 층</option>
-                <option v-for="st in model.storeys" :key="st.id" :value="st.id">{{ st.name }}만</option>
-              </select>
-              <!-- 다중층 뷰(OE-ML-01 ①). 누르면 지금 층과 위층으로 열고, 범위는 시작·끝 층으로 고쳐 고른다. -->
-              <button v-if="model.storeys.length > 1 && !multiView" type="button" class="ghost multi-open" title="층 범위를 골라 여러 층을 함께 봅니다(OE-ML-01)" @click="openMultiView()">
-                다중층 뷰에서 편집
-              </button>
-              <span v-if="multiView" class="multi-range" role="group" aria-label="다중층 보기 범위">
-                <select v-model="multiView.from" aria-label="다중층 시작 층">
-                  <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
-                </select>
-                ~
-                <select v-model="multiView.to" aria-label="다중층 끝 층">
-                  <option v-for="st in storeysByHeight" :key="st.id" :value="st.id">{{ st.name }}</option>
-                </select>
-                <button type="button" class="ghost" @click="setMultiAll">전체</button>
-                <button type="button" class="ghost" @click="closeMultiView">층 편집으로</button>
-              </span>
-              <button v-if="fullscreen" type="button" class="ghost keys-help" title="단축키 안내" aria-label="단축키 안내" @click="helpOpen = true">?</button>
-              <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
-                {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
-              </button>
+              <!-- 걸러 보는 중임을 3D 위에 늘 보인다(패널을 닫아도). 안 보이는 것을 없는 것으로 오해하지 않게. -->
+              <p v-if="(filterOn || exploded) && !filterOpen && activeTab === '3d'" class="filter-chip" role="status" data-testid="filter-chip">
+                <b>보기 필터</b> {{ exploded ? '분해도 · ' : '' }}{{ filterText || '전부' }} · 화면에서만
+                <button type="button" class="link" @click="filterOpen = true">고치기</button>
+                <button type="button" class="link" @click="clearViewFilter">모두 보이기</button>
+              </p>
+              <div class="rail-row">
+                <!-- 내력 여부는 BIM 의 LoadBearing 속성 그대로다. 비내력벽(칸막이)도 그린다 — 빼면 방이 뚫려 보인다(#599). -->
+                <ul v-if="showWalls && drawnWalls" class="wall-key">
+                  <li v-if="drawnWalls.loadBearing"><i :style="{ background: hex(WALL_COLORS.loadBearing) }"></i>내력벽 {{ drawnWalls.loadBearing }} <Src kind="bim" /></li>
+                  <li v-if="drawnWalls.unknown">
+                    <i :style="{ background: hex(WALL_COLORS.unknown) }"></i>내력 여부 모름 {{ drawnWalls.unknown }}
+                  </li>
+                  <li v-if="drawnWalls.ordinary"><i :style="{ background: hex(WALL_COLORS.ordinary) }"></i>비내력벽 {{ drawnWalls.ordinary }} <Src kind="bim" /></li>
+                </ul>
+                <!-- 방향 큐브(nav-cube.ts)와 비행 모드. 면·모서리·꼭짓점을 누르면 그 방향에서 보고, 끌면 돈다. 3D 일 때만, 리플레이 극장에서는 뺀다. -->
+                <div v-if="model && activeTab === '3d' && !replayOpen" class="nav-cube" data-testid="nav-cube">
+                  <canvas ref="cubeCanvas" aria-label="방향 큐브 — 면을 누르면 그 방향에서 보고, 끌면 돕니다"></canvas>
+                  <button
+                    type="button"
+                    :class="['ghost', 'fly-toggle', { on: flying }]"
+                    :aria-pressed="flying"
+                    title="비행 모드 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게"
+                    @click="setFlying(!flying)"
+                  >
+                    비행 <kbd>G</kbd>
+                  </button>
+                </div>
+              </div>
+              <!-- 층별 칩. 위층이 위. 누르면 그 층만 보고, 다시 누르면 전체. 다중층 뷰·리플레이에서는 뺀다. -->
+              <nav v-if="storeyChips.length && activeTab === '3d' && !replayOpen && !multiView" class="storey-chips" aria-label="층별 손볼 것" data-testid="storey-chips">
+                <div ref="storeyChipList" class="sc-list">
+                <button
+                  v-for="c in storeyChips"
+                  :key="c.id"
+                  type="button"
+                  :class="{ on: viewStorey === c.id, clean: !c.unplaced && !c.noSpace && !c.failed }"
+                  :aria-pressed="viewStorey === c.id"
+                  :title="`${c.name} — 미배치 ${c.unplaced} · 소속 없음 ${c.noSpace} · 그 밖의 검사 위반 ${c.failed}. 누르면 이 층만 봅니다`"
+                  @click="pickStoreyChip(c.id)"
+                >
+                  <span class="sc-name">{{ c.name }}</span>
+                  <span v-if="c.unplaced" class="sc-n unplaced" title="미배치">{{ c.unplaced }}</span>
+                  <span v-if="c.noSpace" class="sc-n nospace" title="소속 없음">{{ c.noSpace }}</span>
+                  <span v-if="c.failed" class="sc-n failed" title="검사 위반">{{ c.failed }}</span>
+                  <span v-if="!c.unplaced && !c.noSpace && !c.failed" class="sc-ok" aria-label="손볼 것 없음">✓</span>
+                </button>
+                </div>
+                <p class="sc-key"><i class="unplaced"></i>미배치 <i class="nospace"></i>소속 없음 <i class="failed"></i>위반</p>
+              </nav>
             </div>
-            <!-- 내력 여부는 BIM 의 LoadBearing 속성 그대로다. 비내력벽은 그리지 않는다. -->
-            <ul v-if="showWalls && drawnWalls" class="wall-key">
-              <li><i :style="{ background: hex(WALL_COLORS.loadBearing) }"></i>내력벽 {{ drawnWalls.loadBearing }} <Src kind="bim" /></li>
-              <li v-if="drawnWalls.unknown">
-                <i :style="{ background: hex(WALL_COLORS.unknown) }"></i>내력 여부 모름 {{ drawnWalls.unknown }}
-              </li>
-            </ul>
           </div>
 
           <!-- 3D 색이 무엇을 뜻하는지. 진한 색은 BIM 포트가 말한 흐름, 옅은 색은 규칙으로 정한 흐름이다. -->
@@ -10718,6 +11341,23 @@ function rollbackFromReport() {
                     <Src v-if="selected.systemEdited" kind="edit" /><Src v-else-if="selected.systemId" kind="bim" />
                   </dd>
                 </div>
+                <!-- Flow Type(OE-PIP-14). BIM 배관은 계통 종류·유체로 계산하고, 공급·환수가 섞여 정하지 못한 구간은 사람이 고른다. -->
+                <div v-if="selectedFlowType" data-testid="flow-type-row">
+                  <dt>Flow Type</dt>
+                  <dd v-flash="selectedFlowType.now?.code">
+                    <select
+                      v-if="editing && !selectedLock && !selected.flowType"
+                      :value="selected.flowTypeSet ?? ''"
+                      aria-label="구간 Flow Type"
+                      @change="onFlowTypePick(selected.id, $event.target as HTMLSelectElement)"
+                    >
+                      <option value="">{{ selectedFlowType.calc ? `계산: ${flowTypeText(selectedFlowType.calc.code)}` : '정하지 못함(계통 종류·유체 모름)' }}</option>
+                      <option v-for="f in FLOW_TYPES" :key="f.code" :value="f.code">{{ f.code }} {{ f.label }}</option>
+                    </select>
+                    <template v-else>{{ selectedFlowType.now ? flowTypeText(selectedFlowType.now.code) : '정하지 못함(계통 종류·유체 모름)' }}</template>
+                    <Src v-if="selectedFlowType.now" :kind="selectedFlowType.now.source" />
+                  </dd>
+                </div>
                 <!-- 담당 근거(OE-EQP-10). VAV·말단을 어느 공조기가 맡는지 흐름 방향으로 찾은 것. -->
                 <div v-if="selectedBasis" class="basis">
                   <dt>담당</dt>
@@ -10788,6 +11428,14 @@ function rollbackFromReport() {
                         </select>
                       </label>
                     </template>
+                  </dd>
+                </div>
+                <!-- 배치점 보정(OE-BIM-12). BIM 배치점이 형상에서 기준(0.5m)보다 멀어 형상 중심을 좌표로 쓴 설비. 원본과 보정 위치, 까닭을 같이 보인다. -->
+                <div v-if="selected.anchored" data-testid="anchored">
+                  <dt>배치점</dt>
+                  <dd>
+                    형상 중심 <span class="mono">({{ selected.position ? selected.position.map((v) => mmOf(v).toFixed(2)).join(', ') : '—' }})</span> <Src kind="calc" />
+                    <span class="muted">— BIM 배치점 <span class="mono">({{ selected.anchored.from.map((v) => mmOf(v).toFixed(2)).join(', ') }})</span> <Src kind="bim" />이 형상에서 {{ selected.anchored.off.toFixed(2) }}m 떨어져(기준 {{ ANCHOR_MARGIN }}m 초과) 형상 중심을 씁니다</span>
                   </dd>
                 </div>
               </dl>
@@ -11215,6 +11863,35 @@ function rollbackFromReport() {
             </ul>
           </div>
 
+          <!-- 흐름 경로(OE-ML-16). 방향을 아는 연결만 따라 닿은 원천·말단과 그 길. 원천이 여럿이면 다 보이고, 고리가 있으면 알린다. -->
+          <div v-if="routeView" class="trace-routes" data-testid="trace-routes">
+            <h4 class="picked-sub">
+              흐름 경로
+              <span class="muted">
+                확정한 방향만 따라갑니다<template v-if="routeView.preview">(지금은 확정 전 규칙 방향 미리보기 포함 <Src kind="dict" />)</template>. 원천이 여럿이면 모두
+                보입니다.
+              </span>
+            </h4>
+            <p v-if="routeView.cycle.length" class="edit-notice inline" data-testid="trace-cycle">
+              순환이 있습니다: {{ routeView.cycle.join(', ') }}<template v-if="routeView.moreCycle"> 외 {{ routeView.moreCycle }}개</template>. 한 번 지난 곳은 다시 따라가지 않아
+              추적이 끝납니다.
+            </p>
+            <ul class="route-list">
+              <li v-for="r in routeView.sources" :key="`up-${r.id}`" data-kind="source">
+                <span class="upstream">원천</span> <button type="button" class="link" @click="select(r.id)">{{ r.name }}</button> <span class="muted">{{ r.detail }}</span>
+              </li>
+              <li v-if="routeView.moreSources" class="muted">원천 외 {{ routeView.moreSources }}개</li>
+              <li v-for="r in routeView.targets" :key="`down-${r.id}`" data-kind="target">
+                <span class="downstream">도달</span> <button type="button" class="link" @click="select(r.id)">{{ r.name }}</button> <span class="muted">{{ r.detail }}</span>
+              </li>
+              <li v-if="routeView.moreTargets" class="muted">도달 외 {{ routeView.moreTargets }}개</li>
+              <li v-for="r in routeView.looped" :key="`loop-${r.id}`" data-kind="looped" title="위로도 아래로도 닿아 원천·말단으로 정하지 않습니다">
+                <span class="linked">순환 위</span> <button type="button" class="link" @click="select(r.id)">{{ r.name }}</button> <span class="muted">{{ r.detail }}</span>
+              </li>
+              <li v-if="routeView.moreLooped" class="muted">순환 위 외 {{ routeView.moreLooped }}개</li>
+            </ul>
+          </div>
+
           <!-- 정격 풍량(OE-ZON-06). BIM 용량이 풍량이면 CMH 로 바꾼 값이고 고치지 않는다. 없으면 편집 모드에서 사람이 넣는다.
                용량 검증 Z-03 의 판정 대상(VAV·FCU·실내기·공조기)이거나 값이 있는 설비에만 보인다. -->
           <div v-if="selected.ratedAirflow || CAPACITY_CHECK_KINDS.has(selected.kind ?? '')" class="rated-airflow" data-testid="rated-airflow">
@@ -11387,7 +12064,8 @@ function rollbackFromReport() {
               <h4 class="picked-sub">오프셋 높이 <Src kind="edit" /></h4>
               <form class="pipe-draw-row" data-testid="offset-height" @submit.prevent="applyOffsetHeight">
                 <select :value="offsetTarget.storeyId" aria-label="오프셋 층" @change="offsetDraft = { ...offsetTarget!, storeyId: ($event.target as HTMLSelectElement).value }">
-                  <option v-for="st in multiRange ?? []" :key="st.id" :value="st.id">{{ st.name }}</option>
+                  <!-- 지금 오프셋이 있는 층은 보기 범위 밖이어도 넣는다. 빠지면 고른 것이 없는 빈칸이 된다. -->
+                  <option v-for="st in offsetStoreys" :key="st.id" :value="st.id">{{ st.name }}</option>
                 </select>
                 바닥에서
                 <input v-keep-typing type="number" step="0.1" class="riser-height" :value="offsetTarget.height" aria-label="오프셋 높이(m)" @change="offsetDraft = { ...offsetTarget!, height: Number(($event.target as HTMLInputElement).value) }" />
@@ -11456,6 +12134,12 @@ function rollbackFromReport() {
               같은 모양으로 더하기 <kbd>Ctrl+D</kbd>
             </button>
             <span class="muted">연결·계통은 비어 있습니다.</span>
+          </p>
+          <!-- 배관 꼭짓점 넣기·지우기(OE-PIP-10). 구간은 가운데에 넣고, 구간 둘 사이의 이음쇠는 지워 두 구간을 합친다. -->
+          <p v-if="!selectedLock && vertexAction" class="copy-zone" data-testid="pipe-vertex">
+            <button v-if="vertexAction === 'insert'" type="button" class="ghost" @click="insertVertexHere(selected)">가운데에 꼭짓점 넣기</button>
+            <button v-else type="button" class="ghost" @click="removeVertexHere(selected)">꼭짓점 지우기</button>
+            <span class="muted">{{ vertexAction === 'insert' ? '구간을 둘로 나눠 꺾을 자리를 만듭니다.' : '양쪽 구간을 하나로 곧게 합칩니다.' }} 연결 대상과 확정 방향은 그대로입니다.</span>
           </p>
           <!-- 지우기(E7). 지우면 붙은 연결·계통 자리도 빠지고 Ctrl+Z 로 돌아온다. 고치는 칸과 떨어뜨려 맨 아래에 둔다. -->
           <p v-if="editing && !selectedLock" class="danger-zone">
@@ -11701,7 +12385,7 @@ function rollbackFromReport() {
               </ol>
               <p v-if="!createPlan.needs.length" class="muted">다 채웠습니다</p>
               <p v-if="createPlan.link" class="vertical-move">잇는 물리존: {{ createPlan.link.from ?? '없음' }} ↔ {{ createPlan.link.to ?? '없음' }}</p>
-              <p class="muted">개구부·EL 정차 층·ES 운행 방향은 아직 다루지 않습니다</p>
+              <p class="muted">엘리베이터는 전 층 정차로 시작하고, 에스컬레이터 운행 방향은 만든 뒤 패널에서 정합니다(정하기 전에는 미확인). 슬래브 개구부는 아직 다루지 않습니다</p>
             </div>
           </template>
           <p>
@@ -11755,9 +12439,52 @@ function rollbackFromReport() {
                     <span v-else class="muted">지점이 든 물리존이 없습니다</span>
                   </dd>
                 </div>
+                <!-- 엘리베이터 정차 층(OE-ML-10). 층마다 정차·무정차·미확인. 다중층 뷰의 편집에서 고치고, 아니면 보기만 한다. -->
+                <div v-if="selectedVertical.part.kind === 'elevator'">
+                  <dt>정차</dt>
+                  <dd class="elevator-stops" data-testid="elevator-stops">
+                    <span v-for="p in selectedVertical.object.parts" :key="p.storey.id" class="elevator-stop">
+                      {{ p.storey.name }}
+                      <select
+                        v-if="multiView && editing"
+                        :value="p.part.stop ?? 'unknown'"
+                        :aria-label="`${p.storey.name} 정차`"
+                        @change="setStopFrom(selectedVertical.object.id, p.storey.id, ($event.target as HTMLSelectElement).value as ElevatorStop)"
+                      >
+                        <option v-for="(label, k) in STOP_LABEL" :key="k" :value="k">{{ label }}</option>
+                      </select>
+                      <b v-else>{{ STOP_LABEL[p.part.stop ?? 'unknown'] }}</b>
+                    </span>
+                    <Src kind="edit" />
+                  </dd>
+                </div>
+                <!-- 에스컬레이터 운행 방향(OE-ML-11). 미확인이면 지어내지 않는다. 운행 시작·종료 지점은 방향과 진입·종료 지점으로 정한다. -->
+                <div v-if="selectedVertical.part.kind === 'escalator'">
+                  <dt>운행</dt>
+                  <dd data-testid="escalator-direction">
+                    <select
+                      v-if="multiView && editing"
+                      :value="selectedVertical.part.direction ?? 'unknown'"
+                      aria-label="운행 방향"
+                      @change="setDirectionFrom(selectedVertical.object.id, ($event.target as HTMLSelectElement).value as 'up' | 'down' | 'unknown')"
+                    >
+                      <option v-for="(label, k) in DIRECTION_LABEL" :key="k" :value="k">{{ label }}</option>
+                    </select>
+                    <b v-else>{{ DIRECTION_LABEL[selectedVertical.part.direction ?? 'unknown'] }}</b>
+                    <Src v-if="selectedVertical.part.direction" kind="edit" />
+                    <span v-if="model && escalatorTravel(model, selectedVertical.object.id)" class="muted mono">
+                      {{ escalatorTravel(model, selectedVertical.object.id)!.from.map((v) => v.toFixed(2)).join(', ') }} → {{ escalatorTravel(model, selectedVertical.object.id)!.to.map((v) => v.toFixed(2)).join(', ') }}
+                    </span>
+                  </dd>
+                </div>
                 <div>
                   <dt>로봇</dt>
-                  <dd>통과 불가 — 층을 이어도 로봇은 지나가지 못합니다</dd>
+                  <dd data-testid="vertical-passable">
+                    <template v-if="selectedVertical.part.kind === 'elevator'">
+                      {{ selectedVertical.storey.name }}: {{ verticalPartPassable(selectedVertical.part).passable ? '통과 가능 — 정차를 확인한 층입니다' : (selectedVertical.part.stop ?? 'unknown') === 'skip' ? '통과 불가 — 서지 않는 층입니다' : '통과 불가 — 정차를 확인하지 않은 층입니다' }}
+                    </template>
+                    <template v-else>통과 불가 — 층을 이어도 로봇은 지나가지 못합니다</template>
+                  </dd>
                 </div>
               </dl>
             </div>
@@ -11771,6 +12498,12 @@ function rollbackFromReport() {
           </p>
           <!-- 다중층 뷰의 편집(OE-ML-07·09). 모든 층 조각이 같이 움직이고, 지우기는 영향을 보이고 확인을 받는다. -->
           <template v-if="multiView && editing">
+            <!-- 샤프트를 옮기면 같이 가는 배관(OE-ML-17). 옮기기 전에 보인다. 막히는 까닭이 있으면 옮기지 않는다. -->
+            <p v-if="shaftCarry && (shaftCarry.rigid.length || shaftCarry.reasons.length)" class="vertical-move" data-testid="shaft-carry">
+              옮기면 같이 갑니다: 안쪽 구간 {{ shaftCarry.segments.length }} · 분기점 {{ shaftCarry.fittings.length }} · 끝을 늘일 바깥 배관 {{ shaftCarry.outside.length }}
+              <template v-if="shaftCarry.storeys.length"> · 영향 층 {{ shaftCarry.storeys.join(' · ') }}</template>
+              <span v-if="shaftCarry.reasons.length" class="lock-note" role="alert"><br />옮길 수 없습니다 — {{ shaftCarry.reasons.join(' · ') }}</span>
+            </p>
             <ul v-if="verticalWarnings.length" class="vertical-warnings" data-testid="vertical-v03" role="alert">
               <li v-for="w in verticalWarnings" :key="w.storeyId">
                 <b>V-03</b> {{ w.storey }}:
@@ -12080,6 +12813,19 @@ function rollbackFromReport() {
                   <dt>넓이</dt>
                   <dd v-flash="selectedSpace.space.areaM2.toFixed(1)"><b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡ <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /></dd>
                 </div>
+                <!-- 방 높이·반자 높이(OE-BIM-03). 방이 BIM 에 적은 값만 보인다. 없으면 "모름" 이고 0 이나 층고로 채우지 않는다.
+                     반자 높이는 방 값이 없으면 층 값(층별 요약에서 고친다)을 괄호로 같이 보인다 — 설정 단위가 층이라서다(Q7). -->
+                <div data-testid="space-heights">
+                  <dt title="방 높이 · 반자 높이(층 바닥에서)">높이</dt>
+                  <dd>
+                    방
+                    <template v-if="selectedSpace.space.roomHeight"><span class="mono">{{ selectedSpace.space.roomHeight.m.toFixed(2) }}</span>m <Src kind="bim" /></template>
+                    <span v-else class="muted">모름</span>
+                    · 반자
+                    <template v-if="selectedSpace.space.ceilingHeight"><span class="mono">{{ selectedSpace.space.ceilingHeight.m.toFixed(2) }}</span>m <Src kind="bim" /></template>
+                    <span v-else class="muted">모름<template v-if="ceilingOf(selectedSpace.storey)"> (층 값 {{ ceilingOf(selectedSpace.storey)!.height.toFixed(2) }}m <Src :kind="ceilingOf(selectedSpace.storey)!.source" />)</template></span>
+                  </dd>
+                </div>
                 <!-- 설계 급기 풍량(OE-ZON-06 · R26). BIM 값이 있으면 그 값이고 고치지 않는다. 없으면 편집 모드에서 사람이 넣는다.
                      에디터가 계산하거나 기본값을 넣지 않는다 — 비어 있으면 그 방을 담당하는 공조존의 용량 검증(Z-03)이 판정 불가다. -->
                 <div data-testid="space-airflow">
@@ -12325,6 +13071,15 @@ function rollbackFromReport() {
           </p>
         </section>
         </Transition>
+        <!-- 현재 층 현황(OE-UI-04 ③). 고른 것의 속성은 위에, 이것은 늘 그 아래에 보인다. -->
+        <FloorSummary
+          v-if="floorNow && breadcrumb"
+          :building="breadcrumb.building"
+          :storey="breadcrumb.storey"
+          :status="floorNowStatus"
+          :summary="floorNow"
+          @pick="pickFromSummary"
+        />
 
             <!-- 범례에서 고른 계통. 종류·유체는 규칙 방향과 TTL 계통 클래스를 정한다. 편집 모드에서 고친다(E8). -->
             <section v-if="selectedSystem" class="picked system-picked">
@@ -12345,6 +13100,15 @@ function rollbackFromReport() {
               </p>
               <!-- 이 계통의 흐름 방향 근거(flow-cascade.ts). 규칙 방향이 없는 계통도 포트·사람 방향과 brick:feeds 수는 보인다. -->
               <FlowBasis v-if="selectedSystemBasis && selectedSystemBasis.total" :basis="selectedSystemBasis" :name="selectedSystem.name || selectedSystem.id" />
+              <!-- 3D 의 흐르는 빛(flow-pulse.ts)이 어디에 있고 왜 드문지. 방향을 모르는 연결에는 빛이 없다. -->
+              <p v-if="systemFlow && systemFlow.total" class="hint" data-testid="system-flow-note">
+                <template v-if="systemFlow.edges.length">
+                  3D의 흐르는 빛은 방향을 아는 연결 {{ systemFlow.edges.length.toLocaleString() }}개에만 있습니다. 나머지
+                  {{ (systemFlow.total - systemFlow.edges.length).toLocaleString() }}개는 방향을 몰라 빛이 없습니다.
+                </template>
+                <template v-else>연결 {{ systemFlow.total.toLocaleString() }}개 모두 방향을 몰라 3D에 흐르는 빛이 없습니다.</template>
+                <template v-if="!showRules"> 규칙 방향은 R 로 켜면 옅게 더해집니다.</template>
+              </p>
               <p v-if="editing" class="system-edit system-name-edit">
                 <label>
                   이름
@@ -12629,14 +13393,21 @@ function rollbackFromReport() {
                 versionDiff.diff.storeyScale.storeys.slice(0, 3).map(([n, x, y]) => `${n} ${+x.toPrecision(4)}m → ${+y.toPrecision(4)}m`).join(', ')
               }}). {{ { first: '층간 높이로 보면 이전 판본', second: '층간 높이로 보면 지금 파일', none: '한 판본' }[versionDiff.diff.storeyScale.suspect ?? 'none'] }}의 길이 단위 선언이 실제 값과 다른 것 같습니다({{ versionDiff.diff.storeyScale.what }}, 요구사항 R6).
             </p>
+            <!-- 파일 역할(OE-BIM-19): 어느 쪽이 기준이고 어느 쪽이 견줄 판본인지. -->
+            <p class="hint" data-testid="version-roles">
+              기준: 지금 연 파일 <b>{{ fileName }}</b>(화면·내보내기) · 견줄 판본: <b>{{ versionDiff.name }}</b>(비교에만 씀)
+            </p>
+            <p class="hint" data-testid="version-normalized">비교 전에 맞춘 것: {{ versionNormalized }}</p>
             <table class="version-sum">
               <thead>
                 <tr>
                   <th></th>
                   <th class="num">이전 → 지금</th>
-                  <th class="num">양쪽에 있는 것</th>
-                  <th class="num" title="양쪽에 있는 것 중 GUID가 그대로인 비율(요구사항 R13)">GUID 유지</th>
+                  <th class="num" title="두 판본에서 짝지은 것. GUID 유지율의 분모입니다">양쪽에 있는 것(분모)</th>
+                  <th class="num" title="양쪽에 있는 것 중 GUID가 그대로인 것 / 양쪽에 있는 것(요구사항 R13)">GUID 유지</th>
                   <th>그중 GUID가 바뀐 것 <Src kind="calc" /></th>
+                  <th class="num" title="이전 판본에만 있음 · 지금 판본에만 있음 — 어느 열쇠로도 후보가 없던 것(미매칭)">없어짐 · 새것</th>
+                  <th class="num" title="후보가 여럿이라 짝짓지 않은 것(모호). 분모에 들지 않습니다">짝 후보 여럿</th>
                 </tr>
               </thead>
               <tbody>
@@ -12645,7 +13416,7 @@ function rollbackFromReport() {
                   <td class="num mono">{{ k.prevCount }} → {{ k.nextCount }}</td>
                   <td class="num mono">{{ k.by.guid + k.by.revitId + k.by.name + k.by.position }}</td>
                   <td class="num mono">
-                    {{ k.by.guid + k.by.revitId + k.by.name + k.by.position ? `${Math.round((k.by.guid / (k.by.guid + k.by.revitId + k.by.name + k.by.position)) * 100)}%` : '—' }}
+                    {{ k.by.guid + k.by.revitId + k.by.name + k.by.position ? `${k.by.guid}/${k.by.guid + k.by.revitId + k.by.name + k.by.position} · ${Math.round((k.by.guid / (k.by.guid + k.by.revitId + k.by.name + k.by.position)) * 100)}%` : '—' }}
                   </td>
                   <td>
                     <template v-if="k.by.revitId + k.by.name + k.by.position">
@@ -12656,13 +13427,15 @@ function rollbackFromReport() {
                     </template>
                     <span v-else class="muted">없음</span>
                   </td>
+                  <td class="num mono">{{ k.removed.length }} · {{ k.added.length }}</td>
+                  <td class="num mono">{{ k.ambiguous.length }}</td>
                 </tr>
               </tbody>
             </table>
             <p class="hint">
               GUID가 바뀌어도 편집 파일은 Revit 요소 ID·이름·위치로 찾아 적용합니다. 다만 DT 쪽에서는 다른 id가 됩니다(요구사항 R13 — 어느 것인지는
               [GUID가 바뀐 것] 목록, 고객사에 할 요청은 요구사항 칸의 R13).
-              기준 하나에 여러 개가 걸리면 짝짓지 않고 새것·없어진 것으로 셉니다.
+              기준 하나에 여러 개가 걸리면 짝짓지 않고 [짝 후보가 여럿] 으로 따로 셉니다(없어진 것·새것과 GUID 유지율의 분모에 들지 않습니다).
             </p>
             <div class="version-tabs" role="tablist">
               <button
@@ -13102,7 +13875,7 @@ function rollbackFromReport() {
                       v-if="layaPicks(t.key).length"
                       class="suggest laya"
                       :class="{ unsure: layaResults.get(t.key)!.confidence < LAYA_SURE }"
-                      :title="`Laya(${layaState?.model ?? ''})가 단서 글로 고른 종류와 확률입니다. 누르면 이 패밀리 전체에 붙습니다(출처 편집).`"
+                      :title="`Laya(${layaState?.model ?? ''})가 단서 글로 고른 종류와 확률입니다. 누르면 이 패밀리 전체에 붙습니다(출처 사람).`"
                     >
                       Laya<template v-if="layaResults.get(t.key)!.confidence < LAYA_SURE"> · 자신 없음</template>:
                       <button
@@ -13288,14 +14061,16 @@ function rollbackFromReport() {
           <!-- 평면도 배경 이미지(OE-MAN-02). 준공 도면을 깔고 그 위에 물리존을 그린다. 온톨로지에 나가지 않고 이 탭에만 있다. -->
           <Fold v-if="editing" title="평면도 배경" :meta="bgStorey ? (bgHere ? `${bgStorey.name} · ${bgHere.name}` : `${bgStorey.name} · 없음`) : '층을 고르세요'" :default-open="false" class="bg-plan" data-testid="bg-plan">
             <p class="hint">
-              준공 도면(PNG·JPG·PDF)을 깔고 그 위에 물리존을 그립니다. DWG 는 PDF 나 이미지로 내보낸 뒤 고릅니다.
+              준공 도면(PNG·JPG·PDF·DWG)을 깔고 그 위에 물리존을 그립니다.
+              <span v-if="dwgServer.enabled" data-testid="dwg-ready">DWG 는 서버가 그림으로 바꾸고, 도면 단위를 알면 실제 크기로 깝니다.</span>
+              <span v-else class="muted" data-testid="dwg-off">DWG 는 지금 받을 수 없어 PDF 나 이미지로 내보낸 뒤 고릅니다({{ dwgServer.reason }}).</span>
               배경은 온톨로지와 편집 파일에 나가지 않고, 이 브라우저 탭에만 있습니다.
             </p>
             <template v-if="bgStorey">
               <p class="pipe-draw-row">
                 <label class="file-pick" :class="{ disabled: bgBusy }">
-                  {{ bgBusy ? 'PDF 그리는 중…' : bgHere ? '다른 도면 고르기' : '도면 고르기' }}
-                  <input type="file" accept="image/png,image/jpeg,application/pdf,.pdf" aria-label="평면도 배경 이미지" :disabled="bgBusy" @change="pickBackground($event.target as HTMLInputElement)" />
+                  {{ bgBusy ? '도면 그리는 중…' : bgHere ? '다른 도면 고르기' : '도면 고르기' }}
+                  <input type="file" accept="image/png,image/jpeg,application/pdf,.pdf,.dwg" aria-label="평면도 배경 이미지" :disabled="bgBusy" @change="pickBackground($event.target as HTMLInputElement)" />
                 </label>
                 <template v-if="bgHere">
                   <label v-if="bgHere.pdf && bgHere.pdf.pages > 1">
@@ -13837,11 +14612,12 @@ function rollbackFromReport() {
       :by="people ? currentUser : publisher"
       :fixed="!!people"
       :summary="previewText"
+      :unsaved="publishAsk ? dirtyFloorNames() : []"
       @preview="previewFromPublish"
       @publish="publishLayout"
       @cancel="publishAsk = false"
     />
-    <ExitEditDialog :open="!!exitAsk" :count="exitAsk?.count ?? 0" :server="!!serverKey" :floor="exitAsk?.floor ? { from: floorName(exitAsk.floor.from), to: floorName(exitAsk.floor.to) } : null" @commit="exitCommitting" @save="exitSaving" @discard="exitDiscarding" @cancel="exitAsk = null" />
+    <ExitEditDialog :open="!!exitAsk" :count="exitAsk?.count ?? 0" :server="!!serverKey" :floor="exitAsk?.floor ? { from: floorName(exitAsk.floor.from), to: floorName(exitAsk.floor.to) } : null" :floors="exitAsk && !exitAsk.floor ? dirtyFloorNames() : []" @commit="exitCommitting" @save="exitSaving" @keep="exitKeeping" @discard="exitDiscarding" @cancel="exitAsk = null" />
     <!-- 진행 표시. 스크롤 위치와 상관없이 보이도록 화면 아래에 띄운다. -->
     <div v-if="progress" class="progress-toast" role="status" aria-live="polite">
       <div v-if="progressFile" class="muted progress-file">{{ progressFile }}</div>

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as WebIFC from 'web-ifc'
 import { describe, expect, it } from 'vitest'
+import { conduitFlowType } from '../src/lib/flow-type'
 import { importIfc, importIfcWithMeshes, readMeshes, UnreadableIfcError, type ImportOptions } from '../src/lib/ifc/import'
 import { createDataCatalog } from '../src/server/data-catalog'
 import { openingPlacement, spacesBesideOpening } from '../src/lib/ifc/element-geometry'
@@ -2916,6 +2917,38 @@ describe.skipIf(!existsSync(DUPLEX_HVAC) || !existsSync(DUPLEX_MEP_FULL) || !exi
   }, 600_000)
 })
 
+// BIM 배관의 Flow Type(OE-PIP-14). BIM 배관에는 Flow Type 칸이 없어 계통 종류·유체로 계산한다. 숫자는 2026-10-14 에 잰 것이다.
+// 정하지 못한 구간은 계통이 없거나, 계통 종류를 모르거나(공급·환수가 한 계통에 섞인 Revit 기본 계통 등), 유체를 모르는 순환수다.
+describe('BIM 배관의 Flow Type (OE-PIP-14)', () => {
+  const EXPECTED: [string, { conduits: number; typed: number; noSystem: number; by: Record<string, number> }][] = [
+    [MEP, { conduits: 1895, typed: 1461, noSystem: 310, by: { DCW: 209, SA: 272, EA: 89, HWS: 343, HWR: 331, DHWS: 108, CHWS: 53, CHWR: 53, OA: 3 } }],
+    [DUPLEX_HVAC, { conduits: 458, typed: 322, noSystem: 0, by: { DCW: 161, DHWS: 159, HWS: 2 } }],
+    [DUPLEX_MEP_FULL, { conduits: 785, typed: 615, noSystem: 18, by: { HWS: 333, DCW: 144, DHWS: 134, EA: 4 } }],
+    [CLINIC_HVAC, { conduits: 3138, typed: 3135, noSystem: 3, by: { CHWR: 37, CHWS: 40, SA: 1956, EA: 175, RA: 927 } }],
+    [CLINIC_MEP, { conduits: 12645, typed: 9834, noSystem: 65, by: { DCW: 1914, DHWS: 1893, CHWR: 47, CHWS: 50, RA: 1222, SA: 2570, FP: 2136, EA: 2 } }],
+  ]
+  it.skipIf(!EXPECTED.some(([p]) => existsSync(p)))('가진 BIM 의 덕트·배관 구간이 계통으로 Flow Type 을 얻고, GeoJSON 에 출처와 함께 들어간다 [OE-PIP-14#1~]', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    for (const [path, want] of EXPECTED) {
+      if (!existsSync(path)) continue
+      const m = importIfc(api, new Uint8Array(readFileSync(path)))
+      const systems = new Map(m.systems.map((x) => [x.id, x]))
+      const conduits = m.storeys.flatMap((st) => st.equipment).filter((e) => e.role === 'segment' || e.role === 'fitting')
+      const by: Record<string, number> = {}
+      for (const e of conduits) {
+        const f = conduitFlowType(e, (id) => systems.get(id))
+        if (f) by[f.code] = (by[f.code] ?? 0) + 1
+      }
+      const got = { conduits: conduits.length, typed: Object.values(by).reduce((a, b) => a + b, 0), noSystem: conduits.filter((e) => !e.systemId).length, by }
+      expect(got, path).toEqual(want)
+      const typedFeatures = modelToGeoJSON(m).flatMap((f) => f.collection.features).filter((f) => f.properties.flowType)
+      expect(typedFeatures.length, path).toBe(want.typed)
+      expect(typedFeatures.every((f) => f.properties.flowTypeSource === 'calc' || f.properties.flowTypeSource === 'dict'), path).toBe(true)
+    }
+  }, 600_000)
+})
+
 // 가져오기의 기본 약속(OE-BIM-02·04·08·09)을 가진 BIM 전부에 대 본다. 숫자는 2026-10-10 에 잰 것이다.
 describe('가져오기 기본 — 층·벽·말단·배관·연결 (OE-BIM-02·04·08·09)', () => {
   const FILES = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP_FULL, CLINIC_ARCH, CLINIC_HVAC, CLINIC_MEP].filter((f) => existsSync(f))
@@ -3008,7 +3041,7 @@ describe('합칠 때 좌표계 어긋남 추정 (OE-BIM-22)', () => {
 
 // 누락 분류 코드(OE-BIM-20). 가진 BIM 과 그 합치기에서 나오는 경고마다 X/A/B/C 코드와 R 번호가 붙는다.
 describe('경고마다 누락 분류 코드 (OE-BIM-20)', () => {
-  it('가진 BIM 8개와 건축+설비 합치기의 경고에 코드가 없는 것이 없다 [OE-BIM-20#1]', async () => {
+  it('가진 BIM 8개와 건축+설비 합치기의 경고에 코드가 없는 것이 없다 [OE-BIM-20#2]', async () => {
     const api = new WebIFC.IfcAPI()
     await api.Init()
     const files = [SAMPLE, MEP, DUPLEX_ARCH, DUPLEX_HVAC, DUPLEX_MEP_FULL, DUPLEX_COBIE, CLINIC_ARCH, CLINIC_HVAC, CLINIC_MEP].filter((f) => existsSync(f))

@@ -246,6 +246,73 @@ th {
 }
 
 /* data/ 의 IFC 목록. 파일을 열기 전에 무엇이 들어 있는지 본다. */
+/* 프로젝트 목록·층 선택(OE-UI-02·03, ProjectList.vue). 첫 화면 맨 위, data/ 목록과 같은 판 모양. */
+.projects {
+  margin-top: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.projects-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.projects-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.projects td {
+  padding: 0.5rem;
+  vertical-align: middle;
+  font-size: 0.85rem;
+}
+
+.projects .name span {
+  display: block;
+}
+
+.projects .row-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.projects .building-row td {
+  color: var(--muted);
+}
+
+.projects .storey-group h3 {
+  margin: 1rem 0 0.25rem;
+  font-size: 0.95rem;
+}
+
+.new-project {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+
+.new-project input[type='text'] {
+  margin-left: 0.25rem;
+}
+
+.projects-who {
+  display: block;
+  margin-top: 1rem;
+  text-align: right;
+}
+
 .catalog {
   margin-top: 1.5rem;
   padding: 1.25rem 1.5rem;
@@ -1074,12 +1141,8 @@ th {
   word-break: break-all;
 }
 
-/* 걸러 보는 중 표시. 오른쪽 위, 시점 막대 아래(패널을 닫았을 때 패널 자리) — 아래쪽은 도구 팔레트·단축키 안내·알림이 쓴다. */
+/* 걸러 보는 중 표시. 오른쪽 세로 줄(.right-col)에서 시점 막대 바로 아래(패널을 닫았을 때 패널 자리) — 아래쪽은 도구 팔레트·단축키 안내·알림이 쓴다. */
 .filter-chip {
-  position: absolute;
-  top: 3.4rem;
-  right: 0.75rem;
-  z-index: 4;
   max-width: 26rem;
   margin: 0;
   padding: 0.3rem 0.7rem;
@@ -1146,19 +1209,15 @@ th {
 }
 
 /* 왼쪽 위는 색 안내(.color-key·.wall-key) 자리다. 편집 도구에 벽·문·창·층 목록까지 펼치면 줄이 거기까지 뻗어 안내가
-   [내력벽] 을 덮었다. 넘치면 오른쪽 맞춤으로 두 줄이 된다. */
-/* 층별 칩. 3D 오른쪽 가장자리 세로 가운데. 층이 많으면(성수) 칸 안에서 굴린다 — 위의 시점 막대·아래 알림을 덮지 않게. */
+   [벽] 을 덮었다. 넘치면 오른쪽 맞춤으로 두 줄이 된다. */
+/* 층별 칩. 오른쪽 세로 줄(.right-col)의 큐브 아래, 남는 높이의 가운데. 층이 많으면(성수) 칸 안에서 굴린다 — 큐브·아래 알림을 덮지 않게. */
 .storey-chips {
-  position: absolute;
-  top: 50%;
-  right: 0.75rem;
-  z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 0.3rem;
-  max-height: calc(100% - 14rem);
-  transform: translateY(-50%);
+  min-height: 0;
+  margin-block: auto;
 }
 
 .storey-chips .sc-list {
@@ -1277,15 +1336,40 @@ th {
   font-variant-numeric: tabular-nums;
 }
 
-.view-tools {
+/* 3D 오른쪽 위 세로 줄. 시점 막대·보기 필터 칩·[벽 범례 | 방향 큐브]·층별 칩을 차례로 쌓는다. 따로 absolute 로 두었을 때는
+   막대가 두 줄로 꺾이면 큐브·범례를 덮고, 성수처럼 층이 많으면 층별 칩이 큐브 위로 올라왔다. 왼쪽 13rem 은 색 안내 자리다.
+   줄 자체는 3D 조작을 막지 않는다 — 안의 것만 눌린다. */
+.right-col {
   position: absolute;
   top: 0.75rem;
   right: 0.75rem;
+  bottom: 4rem;
+  left: 13rem;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.right-col > *,
+.rail-row > * {
+  pointer-events: auto;
+}
+
+.rail-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.view-tools {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.4rem;
-  max-width: calc(100% - 13rem);
 }
 
 .view-tools .ghost {
@@ -1323,11 +1407,9 @@ th {
   color: var(--accent);
 }
 
-/* 모양은 .color-key 와 같고 자리만 버튼 아래다. */
-.viewport .wall-key {
-  top: 3.1rem;
-  left: auto;
-  right: 0.75rem;
+/* 모양은 .color-key 와 같고 자리만 오른쪽 세로 줄의 방향 큐브 왼쪽이다. */
+.right-col .wall-key {
+  position: static;
 }
 
 /* 전체 화면에서는 3D 가 남는 높이를 다 쓰고, 고른 설비 패널은 아래에서 따로 스크롤한다. */
@@ -2686,6 +2768,7 @@ th {
 /* ---- 고른 설비 패널의 소제목·계통별·담당 공간 --------------------------------------- */
 
 .by-system,
+.trace-routes,
 .served {
   margin-top: 1rem;
 }
@@ -2696,6 +2779,7 @@ th {
 }
 
 .by-system .picked-sub,
+.trace-routes .picked-sub,
 .served .picked-sub {
   margin-top: 0;
 }
@@ -2704,6 +2788,23 @@ th {
   margin-left: 0.35rem;
   font-size: 0.78rem;
   font-weight: 400;
+}
+
+/* 흐름 경로(OE-ML-16): 원천·도달 한 줄씩. 길은 이름 뒤에 작게. */
+.route-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.route-list li {
+  padding: 0.2rem 0;
+}
+
+.route-list li .muted {
+  margin-left: 0.35rem;
+  font-size: 0.78rem;
 }
 
 /* 계통별: 패널이 좁아 표가 아니라 줄마다 이름 / 숫자 / 이어진 기기 세 줄이다. 줄 전체가 버튼이다. */
@@ -2802,6 +2903,7 @@ th {
 }
 
 .sys-counts .upstream,
+.route-list .upstream,
 .served .upstream,
 .served td.upstream,
 .service td.upstream {
@@ -2809,13 +2911,15 @@ th {
 }
 
 .sys-counts .downstream,
+.route-list .downstream,
 .served .downstream,
 .served td.downstream,
 .service td.downstream {
   color: #148062;
 }
 
-.sys-counts .linked {
+.sys-counts .linked,
+.route-list .linked {
   color: #7d3fb8;
 }
 
@@ -3454,7 +3558,8 @@ main.has-model .catalog {
 }
 
 .side .picked,
-.side .overview {
+.side .overview,
+.side .floor-summary {
   flex: none;
   margin-top: 0;
 }
@@ -4158,12 +4263,8 @@ main.has-model .catalog {
   padding-left: 1.2rem;
 }
 
-/* 방향 큐브. 시점 막대(view-tools) 아래 오른쪽 위. 큐브는 작게 — 3D 오른쪽 위의 설비를 덮지 않게. */
+/* 방향 큐브. 오른쪽 세로 줄(.right-col)에서 시점 막대 아래. 큐브는 작게 — 3D 오른쪽 위의 설비를 덮지 않게. */
 .nav-cube {
-  position: absolute;
-  top: 3.4rem;
-  right: 0.75rem;
-  z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -4299,8 +4400,19 @@ main.has-model .catalog {
   gap: 0.25rem;
 }
 
-.draw-bar .grid-toggle .riser-height {
+.align-toggles {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.align-toggles .align-num {
   width: 3.6rem;
+}
+
+.edit-bar .bar-align {
+  font-size: 0.8rem;
 }
 
 /* 층간 배관의 작업 높이·오프셋 높이(층 바닥에서 m, OE-ML-12·14). */
@@ -5188,4 +5300,37 @@ button.done::after {
   gap: 0.4rem;
   margin: 0.75rem auto 0;
   font-size: 0.85rem;
+}
+
+/* 오른쪽 패널의 현재 층 현황(OE-UI-04 ③, FloorSummary.vue). 고른 것의 카드 아래 같은 모양의 카드로 둔다. */
+.floor-summary {
+  margin-top: 1rem;
+  padding: 0.75rem 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 0.85rem;
+}
+
+.floor-summary h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.floor-summary h3 small {
+  font-weight: 400;
+  font-size: 0.8rem;
+}
+
+.floor-summary details {
+  margin: 0.25rem 0;
+}
+
+.floor-summary ul {
+  margin: 0.25rem 0 0.25rem 1rem;
+}
+
+.floor-summary p {
+  margin: 0.25rem 0 0;
 }

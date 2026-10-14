@@ -27,8 +27,15 @@ test('이전 판본을 열면 바뀐 것을 보이고, R13 을 잰다 [OE-BIM-19
   await expect(r13).toContainText('4 · 2 / 6')
   await expect(r13).toContainText('내보내기 설정을 바꿔 달라 — IFC GUID를 요소 매개변수에 저장')
 
-  // R13 판정 근거: GUID 유지율과, GUID 가 바뀐 것(지금 이름 · 무엇으로 찾았나 · 이전 GUID). 비교하면 이 목록이 먼저 열린다.
-  await expect(sum.locator('tr', { hasText: '설비' })).toContainText('80%')
+  // 어느 쪽이 기준인지(파일 역할)와 견주기 전에 맞춘 것(정규화)이 보인다 [OE-BIM-19#2] [OE-BIM-19#3].
+  await expect(page.getByTestId('version-roles')).toContainText('기준: 지금 연 파일 mep-v2.ifc')
+  await expect(page.getByTestId('version-roles')).toContainText('견줄 판본: mep.ifc')
+  await expect(page.getByTestId('version-normalized')).toContainText('이름은 공백·유니코드 조합을 맞춰 견줌')
+  // R13 판정 근거: GUID 유지율(분자/분모)과, GUID 가 바뀐 것(지금 이름 · 무엇으로 찾았나 · 이전 GUID). 비교하면 이 목록이 먼저 열린다.
+  // 설비 6 → 6 중 짝지은 5대가 분모이고, 센서는 없어진 것·더한 토출구는 새것이다. 후보가 여럿인 것은 없다.
+  await expect(sum.locator('tr', { hasText: '설비' })).toContainText('4/5 · 80%')
+  await expect(sum.locator('tr', { hasText: '설비' }).locator('td').nth(4)).toHaveText('1 · 1')
+  await expect(sum.locator('tr', { hasText: '설비' }).locator('td').nth(5)).toHaveText('0')
   await expect(sum.locator('tr', { hasText: '물리존' })).toContainText('0%')
   const rekeyedTab = page.getByRole('tab', { name: /GUID가 바뀐 것/ })
   await expect(rekeyedTab).toHaveAttribute('aria-selected', 'true')

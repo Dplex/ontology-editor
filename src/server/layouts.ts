@@ -73,6 +73,18 @@ export type LayoutOptions = {
   onVersion?: (e: { type: 'publish' | 'rollback'; user: string; key: string; floors: string[]; version: number }) => void
 }
 
+/** 그 열쇠의 지금 반영 버전과 반영 일시·사람. 반영한 적이 없으면 null. 프로젝트 목록(projects.ts)이 구축 여부를 여기서 읽는다. */
+export function currentVersion(root: string, key: string): { version: number; at: string; by: string } | null {
+  const dir = join(root, '.layouts', createHash('sha1').update(key).digest('hex').slice(0, 16))
+  try {
+    const { version } = JSON.parse(readFileSync(join(dir, 'current.json'), 'utf-8')) as { version: number }
+    const meta = JSON.parse(readFileSync(join(dir, `v${version}`, 'meta.json'), 'utf-8')) as VersionMeta
+    return { version, at: meta.at, by: meta.by }
+  } catch {
+    return null
+  }
+}
+
 export function layouts(root: string, options: LayoutOptions = {}) {
   const now = options.now ?? (() => new Date())
   const base = join(root, '.layouts')

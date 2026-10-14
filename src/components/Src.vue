@@ -6,21 +6,21 @@
 //          바깥 지식은 안 들어가지만 BIM 이 직접 말한 것은 아니다.
 // - dict : 우리가 만든 이름 사전과 흐름 규칙에서 나왔다(설비·방·계통 종류, Brick 클래스, 규칙 방향).
 //          도메인 지식이 들어간 것이라 사전이 틀리면 같이 틀린다.
-// - edit : 사람이 이 화면에서 고쳤다.
-// - idf  : IDF(에너지 시뮬레이션 모델)에 적힌 그대로다(공조존, 공조기·말단의 담당 관계). BIM 이 아니다.
+// - edit : 사람이 이 화면에서 고쳤다. 화면 글자는 PRD 용어대로 "사람" 이다(glossary "출처", OE-UI-13).
+// - idf  : IDF(에너지 시뮬레이션 모델)에 적힌 그대로다(공조존, 공조기·말단의 담당 관계). BIM 밖이라 화면 글자는 "외부" 이고, 툴팁이 IDF 라고 말한다.
 //
 // 온톨로지를 받는 쪽이 이 셋을 구별할 수 없으므로, 적어도 만드는 쪽 화면에서는 구별되어야 한다.
 export type SrcKind = 'bim' | 'calc' | 'dict' | 'edit' | 'idf'
 
 defineProps<{ kind: SrcKind }>()
 
-const LABEL: Record<SrcKind, string> = { bim: 'BIM', calc: '계산', dict: '사전', edit: '편집', idf: 'IDF' }
+const LABEL: Record<SrcKind, string> = { bim: 'BIM', calc: '계산', dict: '사전', edit: '사람', idf: '외부' }
 const TITLE: Record<SrcKind, string> = {
   bim: 'BIM 파일에 적힌 그대로입니다.',
   calc: 'BIM 좌표·형상으로 계산한 값입니다.',
   dict: '이름 사전·흐름 규칙으로 추정한 값입니다.',
-  edit: '직접 고친 값입니다.',
-  idf: 'IDF(에너지 시뮬레이션 모델)에 적힌 그대로입니다.',
+  edit: '사람이 직접 고친 값입니다.',
+  idf: '외부 자료 — IDF(에너지 시뮬레이션 모델)에 적힌 그대로입니다.',
 }
 </script>
 
