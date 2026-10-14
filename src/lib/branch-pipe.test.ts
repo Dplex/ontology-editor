@@ -146,7 +146,7 @@ describe('층별 분기 (OE-ML-13)', () => {
     // 분기: 분기점(1,1,5) → (3,1,5) → 위로 (3,1,6.5) 에서 수평 구간을 지나 → (3,3,6.5) → AT-202.
     const done = branch(m, riser.id, { via: [{ at: [3, 1], storeyId: '2F', height: 1 }, { at: [3, 1], storeyId: '2F', height: 2.5 }, { at: [3, 3], storeyId: '2F', height: 2.5 }] })
     if ('refused' in done) throw new Error(done.refused)
-    expect(done.segments.some((e) => segmentPath(e).path?.some((p) => p[0] === 3 && p[1] === 1 && p[2] === 6.5))).toBe(true)
+    expect(done.segments.some((e) => { const r = segmentPath(e); return !!r && 'path' in r && r.path.some((p) => p[0] === 3 && p[1] === 1 && p[2] === 6.5) })).toBe(true)
     expect(linksOf(across.id)).toEqual(had)
     const made = new Set([...done.segments, ...done.fittings].map((e) => e.id))
     expect(m.connections.some((c) => (made.has(c.from) && c.to === across.id) || (made.has(c.to) && c.from === across.id))).toBe(false)
