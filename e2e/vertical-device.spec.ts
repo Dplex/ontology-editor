@@ -5,7 +5,7 @@ import { expect, test } from '@playwright/test'
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 const AHU = '0MEP$Equip$AHU1$0000'
 
-test('엘리베이터는 층 편집 화면에서 옮기거나 지우지 못하고 다중층 뷰를 안내하며, 종류를 바꾸면 다시 고칠 수 있다 [OE-EQP-07#1] [OE-ML-05#1~]', async ({ page }) => {
+test('엘리베이터·에스컬레이터는 층 편집 화면에서 옮기거나 지우지 못하고 다중층 뷰를 안내하며, 종류를 바꾸면 다시 고칠 수 있다 [OE-EQP-07#1] [OE-ML-05#1~]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -38,6 +38,14 @@ test('엘리베이터는 층 편집 화면에서 옮기거나 지우지 못하�
   // Delete 도 막힌다.
   await page.keyboard.press('Delete')
   await expect(row).toHaveCount(1)
+
+  // 에스컬레이터도 같다.
+  await kind.selectOption('escalator')
+  await expect(lock).toContainText('수직 관통 오브젝트라 층 편집 화면에서는 옮기거나 지우지 않습니다')
+  await expect(page.locator('.position-edit')).toHaveCount(0)
+  await page.keyboard.press('Delete')
+  await expect(row).toHaveCount(1)
+  await expect(x).toHaveValue(before)
 
   // 종류를 공조기로 되돌리면 다시 고칠 수 있다.
   await kind.selectOption('ahu')

@@ -11,6 +11,7 @@ import { modelToTTL } from './export/ttl'
 import { modelToGeoJSON } from './export/geojson'
 import { completenessChecks } from './checks'
 import { segmentPath, type Model } from './model'
+import { releaseConnection } from './connection-release'
 
 let api: WebIFC.IfcAPI
 beforeAll(async () => {
@@ -85,6 +86,34 @@ describe('수동 배관 그리기 (OE-PIP-11)', () => {
     if ('refused' in done) throw new Error(done.refused)
     expect(done.segments[0]).toMatchObject({ systemId: null, ifcClass: 'PipeSegment', name: 'CHWS 배관 1' })
     expect(JSON.stringify(m.systems)).toBe(members)
+  })
+
+  it('사람이 해제 보정한 BIM 연결은 같은 설비에 배관을 그리고, 되돌리고, 편집 파일로 다시 열어도 해제된 채다 [OE-PIP-11#6]', () => {
+    const m = read()
+    const base = baselineOf(m)
+    const ahu = equip(m, 'AHU-1').id
+    const port = m.connections.find((c) => c.source === 'port' && (c.from === ahu || c.to === ahu))!
+    const key = `${port.from}>${port.to}`
+    const released = () => m.releasedConnections?.some((r) => `${r.connection.from}>${r.connection.to}` === key) && !m.connections.some((c) => c.source === 'port' && `${c.from}>${c.to}` === key)
+    expect('refused' in releaseConnection(m, port, '시험: 덕트를 다시 깔 예정')).toBe(false)
+    expect(released()).toBe(true)
+    const before = JSON.stringify(m)
+    // 같은 공조기에서 디퓨저로 배관을 그려도 해제한 연결이 되살아나지 않는다.
+    const done = drawPipe(m, { from: ahu, to: equip(m, 'AT-101-01').id, via: [[1, 4, 3.2]], flowType: 'SA' })
+    if ('refused' in done) throw new Error(done.refused)
+    expect(released()).toBe(true)
+    // 편집 파일로 다시 연 모델에서도 해제된 채다.
+    const file = parseEditFile(JSON.stringify(exportEdits(m, base, 'mep.ifc')))
+    if (typeof file === 'string') throw new Error(file)
+    const again = read()
+    applyEdits(again, file)
+    expect(again.connections.some((c) => c.source === 'port' && `${c.from}>${c.to}` === key)).toBe(false)
+    expect(modelToTTL(again)).toBe(modelToTTL(m))
+    // 그리기를 되돌려도 해제는 남는다.
+    const storeyId = m.storeys[0].id
+    restore(m, { kind: 'many', parts: [...done.segments, ...done.fittings].map((equipment) => ({ kind: 'equipment-set', equipment, storeyId, index: 0, present: false, connections: [], systems: [] })) })
+    expect(JSON.stringify(m)).toBe(before)
+    expect(released()).toBe(true)
   })
 
   it('편집 파일을 거쳐도 같은 배관이고, 한 번 되돌리면 그리기 전과 같다 [OE-PIP-11#6~]', () => {

@@ -27,7 +27,7 @@ async function undo(page: Page) {
   await page.keyboard.press('Control+z')
 }
 
-test('설비를 계통에서 빼고, 계통 종류·유체를 고치고, 되돌린다 [OE-PIP-03#2~]', async ({ page }) => {
+test('설비를 계통에서 빼고, 계통 종류·유체를 고치고, 되돌린다 [OE-PIP-03#2]', async ({ page }) => {
   const errors = await open(page)
   const row = page.locator('.equipment tbody tr', { hasText: 'DUCT-01' })
   await row.getByRole('button', { name: 'DUCT-01', exact: true }).click()
