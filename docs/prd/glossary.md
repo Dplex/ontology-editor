@@ -228,27 +228,29 @@ PRD_011 의 2장 "용어 정의" 와 부록 D "코드 체계" 를 옮긴 것이�
 
 ### Flow Type
 
-| 항목 | 코드 | 한국어 | 비고 |
-|---|---|---|---|
-| 냉수 | CHWS | 냉수 공급 | Chilled Water Supply. 냉동기 7℃ 생산 기준 |
-| 냉수 | CHWR | 냉수 환수 | Chilled Water Return |
-| 온수 | HWS | 온수 공급 | Hot Water Supply. 보일러·열교환기 계열 |
-| 온수 | HWR | 온수 환수 | Hot Water Return |
-| 냉각수 | CWS | 냉각수 공급 | Condenser Water Supply. 냉각탑↔냉동기 루프 |
-| 냉각수 | CWR | 냉각수 환수 | Condenser Water Return |
-| 냉매 | REF | 냉매 | 공급·환수 구분 없음. 냉매 배관도 배관이며 계통도를 표시할 때 보여 준다. PAC·DVM 은 그리는 것이 필수가 아니다 |
-| 공기 | OA | 외기 | Outside Air |
-| 공기 | SA | 급기 | Supply Air. 존까지 최종 전달 |
-| 공기 | RA | 리턴(還氣) | Return Air |
-| 공기 | EA | 배기 | Exhaust Air |
-| 급탕 | DHWS | 급탕 공급 | Domestic Hot Water Supply. 급탕탱크·급탕펌프 → 세면·주방 등 사용처. 온수(HWS, 난방용)와 다른 물이다. 코드는 제안 |
-| 급탕 | DHWR | 급탕 환수 | Domestic Hot Water Return. 급탕 순환관(식지 않게 되돌리는 관). 코드는 제안 |
-| 급수 | DCW | 급수 | Domestic Cold Water. 공급만 있고 환수 없음. 냉각수(CWS)와 다른 물이다. 코드는 제안 |
-| 소화 | FP | 소화 | Fire Protection. 스프링클러·옥내소화전 배관. 공급만 있고 환수 없음. 코드는 제안 |
-| 스팀 | STM | 증기 공급 | Steam. 보일러 → 가열 코일·열교환기. 코드는 제안 |
-| 스팀 | CR | 응축수 환수 | Condensate Return. 증기가 식어 물이 되어 돌아오는 관. 코드는 제안 |
-| 지열수 | GWS | 지열수 공급 | Geothermal Water Supply. 지중 열교환기 ↔ 지열 히트펌프 루프. 코드는 제안 |
-| 지열수 | GWR | 지열수 환수 | Geothermal Water Return. 코드는 제안 |
+**색은 UX v0.9 계통도 범례를 따른다(2026-10-14).** 출처는 [b.IoT Digital Twin 2.0 UX v0.9 · 1. 스마트 관제 · 1-0.7.1. 범례](https://www.figma.com/design/UA9AR11j81GAjwd7p1Mv7c/b.IoT-Digital-Twin-2.0_UX_v0.9?node-id=40050681-147765&m=dev)이고, 색 칩에 디자인 변수 없이 HEX 가 직접 들어가 있다. 범례의 "환기" 는 RA(리턴, 還氣)다. 범례에 없는 Flow Type 은 "미정" 이며, 정해질 때까지 임의의 색을 주지 않는다(OE-ML-15). 범례는 검은 배경(`#000000`)에 계통 제목 `#C6CBD5`(`Semantic/fg/Secondary`), 항목 이름 `#EFEFEF`(`Text/Default`)로 그린다.
+
+| 항목 | 코드 | 한국어 | 색 (UX v0.9) | 비고 |
+|---|---|---|---|---|
+| 냉수 | CHWS | 냉수 공급 | `#2994FF` | Chilled Water Supply. 냉동기 7℃ 생산 기준 |
+| 냉수 | CHWR | 냉수 환수 | `#58DBFF` | Chilled Water Return |
+| 온수 | HWS | 온수 공급 | `#FD4466` | Hot Water Supply. 보일러·열교환기 계열 |
+| 온수 | HWR | 온수 환수 | `#D459F9` | Hot Water Return |
+| 냉각수 | CWS | 냉각수 공급 | `#03E1A6` | Condenser Water Supply. 냉각탑↔냉동기 루프 |
+| 냉각수 | CWR | 냉각수 환수 | `#FF8E56` | Condenser Water Return |
+| 냉매 | REF | 냉매 | 미정 | 공급·환수 구분 없음. 냉매 배관도 배관이며 계통도를 표시할 때 보여 준다. PAC·DVM 은 그리는 것이 필수가 아니다 |
+| 공기 | OA | 외기 | `#0DFFB2` | Outside Air |
+| 공기 | SA | 급기 | `#99FF00` | Supply Air. 존까지 최종 전달 |
+| 공기 | RA | 리턴(還氣) | `#FFCD57` | Return Air |
+| 공기 | EA | 배기 | `#E8C3B4` | Exhaust Air |
+| 급탕 | DHWS | 급탕 공급 | 미정 | Domestic Hot Water Supply. 급탕탱크·급탕펌프 → 세면·주방 등 사용처. 온수(HWS, 난방용)와 다른 물이다. 코드는 제안 |
+| 급탕 | DHWR | 급탕 환수 | 미정 | Domestic Hot Water Return. 급탕 순환관(식지 않게 되돌리는 관). 코드는 제안 |
+| 급수 | DCW | 급수 | 미정 | Domestic Cold Water. 공급만 있고 환수 없음. 냉각수(CWS)와 다른 물이다. 코드는 제안 |
+| 소화 | FP | 소화 | 미정 | Fire Protection. 스프링클러·옥내소화전 배관. 공급만 있고 환수 없음. 코드는 제안 |
+| 스팀 | STM | 증기 공급 | 미정 | Steam. 보일러 → 가열 코일·열교환기. 코드는 제안 |
+| 스팀 | CR | 응축수 환수 | 미정 | Condensate Return. 증기가 식어 물이 되어 돌아오는 관. 코드는 제안 |
+| 지열수 | GWS | 지열수 공급 | 미정 | Geothermal Water Supply. 지중 열교환기 ↔ 지열 히트펌프 루프. 코드는 제안 |
+| 지열수 | GWR | 지열수 환수 | 미정 | Geothermal Water Return. 코드는 제안 |
 
 **FCU 는 2관식과 4관식이 갈린다.** 2관식(냉온수 절환)은 같은 배관에 계절별로 냉수와 온수가 흐르므로, Flow Type 을 배관에 한 번 고정해 부여하면 틀린다. 계통도에서 FCU 배관을 구분하려면 2관식·4관식 속성이 필요하다(제안 — 확인 필요).
 
