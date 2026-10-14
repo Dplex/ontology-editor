@@ -19,6 +19,51 @@ import { partId, partSpaces, verticalObjects } from './vertical-object'
 
 const mm = (v: number) => Math.round(v * 1000) / 1000
 
+// --- 엘리베이터 층별 진입 지점 (OE-ML-10 · OE-ML-06 EL, 2026-10-14 PRD) -------------------------------------------
+//
+// 진입 지점은 승강로 한 면의 가운데에서 바깥으로 `LANDING_OFFSET` 뺀 점이다. 면 위에 두면 승강로 방과 홀의 경계라 어느 물리존인지 갈리지
+// 않아서 바깥으로 뺐다. 면은 형상의 변 순서(0 부터)로 고른다 — 돌려도 변 순서는 같아 같은 면이다.
+
+/** 진입 지점을 승강로 면에서 바깥으로 빼는 거리(m). 시험용 값이다. */
+export const LANDING_OFFSET = 0.3
+
+/** 형상 `ring` 의 `face` 번째 면 진입 지점. 면이 없으면 null. 고리 방향(시계·반시계)과 상관없이 바깥으로 뺀다. */
+export function faceLanding(ring: readonly Vec2[], face: number): Vec2 | null {
+  if (ring.length < 3 || face < 0 || face >= ring.length) return null
+  const a = ring[face]
+  const b = ring[(face + 1) % ring.length]
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1])
+  if (len < 1e-9) return null
+  // polygonArea 는 넓이(절댓값)라 방향은 부호 있는 넓이로 따로 잰다.
+  const ccw = ring.reduce((sum, p, i) => sum + p[0] * ring[(i + 1) % ring.length][1] - ring[(i + 1) % ring.length][0] * p[1], 0) > 0
+  // 반시계 고리면 변 방향의 오른쪽이 바깥이다.
+  const [nx, ny] = ccw ? [(b[1] - a[1]) / len, -(b[0] - a[0]) / len] : [-(b[1] - a[1]) / len, (b[0] - a[0]) / len]
+  return [mm((a[0] + b[0]) / 2 + nx * LANDING_OFFSET), mm((a[1] + b[1]) / 2 + ny * LANDING_OFFSET)]
+}
+
+/** 진입 지점이 형상의 몇 번째 면 것인가(가장 가까운 면 진입 지점). 없으면 null. */
+export function landingFace(ring: readonly Vec2[], landing: Vec2 | undefined): number | null {
+  if (!landing) return null
+  let best: { i: number; d: number } | null = null
+  for (let i = 0; i < ring.length; i++) {
+    const p = faceLanding(ring, i)
+    if (!p) continue
+    const d = Math.hypot(p[0] - landing[0], p[1] - landing[1])
+    if (!best || d < best.d) best = { i, d }
+  }
+  return best?.i ?? null
+}
+
+/** 엘리베이터 한 층의 진입 면을 바꾼다. 같으면 false. */
+export function setElevatorLanding(model: Pick<Model, 'storeys'>, parentId: string, storeyId: string, face: number): boolean {
+  const part = model.storeys.find((s) => s.id === storeyId)?.verticalParts?.find((p) => p.parentId === parentId)
+  if (!part || part.kind !== 'elevator') return false
+  const at = faceLanding(part.footprint, face)
+  if (!at || (part.landing && part.landing[0] === at[0] && part.landing[1] === at[1])) return false
+  part.landing = at
+  return true
+}
+
 /** 조각의 기준점. 연 때와 견줘 얼마나 옮겼는지 잰다. 형상 첫 꼭짓점, 없으면 진입·종료 지점이다. */
 export function partRef(part: VerticalPart): Vec2 | null {
   const p = part.footprint[0] ?? part.entry ?? part.exit
@@ -49,6 +94,7 @@ export function moveVertical(model: Pick<Model, 'storeys'>, parentId: string, d:
       part.footprint = part.footprint.map((p) => [mm(p[0] + d[0]), mm(p[1] + d[1])] as Vec2)
       part.entry = shift3(part.entry)
       part.exit = shift3(part.exit)
+      if (part.landing) part.landing = [mm(part.landing[0] + d[0]), mm(part.landing[1] + d[1])]
       part.edited = true
       hit = true
     }
@@ -138,6 +184,7 @@ export function rotateVertical(model: Pick<Model, 'storeys'>, parentId: string, 
       part.footprint = part.footprint.map((p) => turn(p[0], p[1]) as Vec2)
       part.entry = turn3(part.entry)
       part.exit = turn3(part.exit)
+      if (part.landing) part.landing = turn(part.landing[0], part.landing[1]) as Vec2
       // 사람이 만든 것(출처 편집)은 원본이 없어 보정 표시를 달지 않는다(편집 파일에서 다시 얹을 때와 같다).
       if (part.source !== 'edit') part.edited = true
       hit = true
@@ -551,6 +598,13 @@ function writeParts(plan: RangePlan, kind: VerticalKind, template: Pick<Vertical
     if (JSON.stringify([part.footprint, part.entry, part.exit]) !== JSON.stringify([next.footprint, next.entry, next.exit])) {
       Object.assign(part, next)
       part.edited = true
+    }
+    // 엘리베이터 층마다 진입 지점이 있어야 한다(OE-ML-10). 새로 생긴 층은 아래층과 같은 면, 없으면 첫 면이다.
+    if (kind === 'elevator' && !part.landing) {
+      const near = parts.find((p) => p?.landing)
+      const face = near ? (landingFace(near.footprint, near.landing) ?? 0) : 0
+      const at = faceLanding(part.footprint, face)
+      if (at) part.landing = at
     }
   })
 }

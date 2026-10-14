@@ -87,7 +87,8 @@ export const partId = (parentId: string, storeyId: string) => `${parentId}@${sto
 
 /** 조각의 진입·종료 지점이 드는 물리존. 지점이 없는 사이 층 조각은 비어 있다. */
 export function partSpaces(storey: Storey, part: VerticalPart): string[] {
-  const ids = [part.entry, part.exit].flatMap((p) => (p ? [locate([p[0], p[1]], storey.spaces)] : []))
+  // 엘리베이터는 층마다 진입 지점(landing)이 드는 물리존이다(OE-ML-10).
+  const ids = [part.entry, part.exit, part.landing].flatMap((p) => (p ? [locate([p[0], p[1]], storey.spaces)] : []))
   return [...new Set(ids.filter((id): id is string => id !== null))]
 }
 
@@ -131,6 +132,8 @@ export function partLinks(objects: readonly VerticalObject[]): Map<string, strin
 export function explicitSpaceLinks(objects: readonly VerticalObject[]): { a: string; b: string; parentId: string; source: VerticalPart['source'] }[] {
   const out: { a: string; b: string; parentId: string; source: VerticalPart['source'] }[] = []
   for (const o of objects) {
+    // 엘리베이터 진입 지점은 층마다라 시작·끝 층 홀만 잇지 않는다. 층 사이 연결은 조각끼리(partLinks)이고 로봇 통과는 정차가 정한다.
+    if (o.kind === 'elevator') continue
     const first = o.parts[0]
     const last = o.parts.at(-1)!
     if (first === last) continue

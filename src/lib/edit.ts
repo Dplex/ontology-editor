@@ -912,6 +912,7 @@ const copyVerticalParts = (parts: readonly VerticalPart[]): VerticalPart[] =>
     footprint: p.footprint.map((q) => [q[0], q[1]] as Vec2),
     entry: p.entry ? [p.entry[0], p.entry[1], p.entry[2]] : null,
     exit: p.exit ? [p.exit[0], p.exit[1], p.exit[2]] : null,
+    ...(p.landing ? { landing: [p.landing[0], p.landing[1]] as Vec2 } : {}),
   }))
 /** 모든 층의 수직 관통 오브젝트 조각을 떠 둔다(OE-ML-07·09). 조각은 계단마다 지나는 층 수만큼이라(병원 6개) 통째로 뜬다. */
 export function snapshotVerticals(model: Model): Snapshot {

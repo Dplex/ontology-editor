@@ -8,7 +8,7 @@ const ROOMS = 'src/lib/ifc/fixtures/two-rooms.ifc'
 const viewer = <T,>(page: Page, fn: string, ...args: unknown[]) =>
   page.evaluate(([f, a]) => (window as any).__viewer[f as string](...(a as unknown[])), [fn, args] as const) as Promise<T>
 
-test('다중층 뷰에서 엘리베이터는 시작/끝 층을 고르고 위치를 한 번 찍으면 기본 크기 승강로가 생기고 전 층 정차로 시작하며, 건물 밖이면 만들지 않고, 층마다 무정차로 바꾸면 그 층의 로봇 통과가 불가가 되며, 되돌리면 돌아온다 [OE-ML-06#1~] [OE-ML-10#1~] [OE-ML-04#1~]', async ({ page }) => {
+test('다중층 뷰에서 엘리베이터는 시작/끝 층을 고르고 위치를 한 번 찍으면 기본 크기 승강로가 생기고 전 층 정차로 시작하며, 건물 밖이면 만들지 않고, 층마다 무정차로 바꾸면 그 층의 로봇 통과가 불가가 되며, 되돌리면 돌아온다 [OE-ML-06#1~] [OE-ML-10#1] [OE-ML-04#1~]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -36,6 +36,14 @@ test('다중층 뷰에서 엘리베이터는 시작/끝 층을 고르고 위치�
   await page.getByTestId('vertical-create-place').click()
   at = await viewer<{ x: number; y: number }>(page, 'point', [11, 5, 0])
   await page.mouse.click(at.x, at.y)
+  // 정차 층·진입 지점(OE-ML-10 AC1): 처음은 전 층 정차·첫 면이고, 확인해야 만든다. 2F 는 다른 면으로 고친다.
+  const stopsBox = page.getByTestId('vertical-create-stops')
+  await expect(stopsBox.getByLabel('1F 정차')).toBeChecked()
+  await expect(stopsBox.getByLabel('2F 정차')).toBeChecked()
+  await expect(page.getByTestId('vertical-create-block')).toHaveText('정차 층·진입 지점을 확인합니다')
+  await expect(make).toBeDisabled()
+  await stopsBox.getByLabel('2F 진입 면').selectOption({ index: 1 })
+  await stopsBox.getByLabel('정차 층·진입 지점을 확인했습니다').check()
   await expect(page.getByTestId('vertical-create-block')).toHaveCount(0)
   await make.click()
 
@@ -47,6 +55,10 @@ test('다중층 뷰에서 엘리베이터는 시작/끝 층을 고르고 위치�
   await expect(panel.getByTestId('vertical-passable')).toContainText('통과 가능')
   // 승강로 가운데가 찍은 자리이고, 기본 크기라 회전각은 0° 다.
   await expect(page.getByLabel('회전각(°)')).toHaveValue('0.0')
+  // 진입 면은 고른 대로다(1F 첫 면 · 2F 둘째 면). 1F 진입 지점은 복도 안이라 그 물리존을 짚는다.
+  await expect(stops.getByLabel('1F 진입 면')).toHaveValue('0')
+  await expect(stops.getByLabel('2F 진입 면')).toHaveValue('1')
+  await expect(panel.getByTestId('vertical-spaces')).toContainText('복도')
 
   // 2F 를 무정차로. 2F 조각을 고르면 그 층은 통과 불가다.
   await stops.getByLabel('2F 정차').selectOption('skip')

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connection, Equipment, Model, Space, Storey, Vec2, Vec3, Wall } from './model'
-import { stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
-import { COMMON_AXIS_LOCKED, createVertical, planElevator, planFlight, rotateVertical, storeyAbove, VERTICAL_DEFAULTS, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, setElevatorStop, setEscalatorDirection, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
+import { partSpaces, stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
+import { COMMON_AXIS_LOCKED, createVertical, faceLanding, landingFace, setElevatorLanding, planElevator, planFlight, rotateVertical, storeyAbove, VERTICAL_DEFAULTS, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, setElevatorStop, setEscalatorDirection, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
 import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
 import { BUILDING, joinParts, splitByStorey } from './storey-drafts'
@@ -430,6 +430,59 @@ describe('기본 형상으로 만들기 (OE-ML-06 · 2026-10-14)', () => {
     expect(el.outside).toBe(false)
     expect(planElevator(m, '1F', [4, 2], 45).footprint[0].map((v) => +v.toFixed(2))).toEqual([4, 0.3])
     expect(planElevator(m, '1F', [20, 20], 0).outside).toBe(true)
+  })
+})
+
+describe('엘리베이터 층별 진입 지점 (OE-ML-10 · 2026-10-14)', () => {
+  const axis: Vec2[] = [[3, 0], [4, 0], [4, 1], [3, 1]]
+  function made() {
+    const m = tower()
+    const base = baselineOf(m)
+    createVertical(m, { id: 'U_el', kind: 'elevator', name: 'EL-1', from: '1F', to: '2F' }, new Map([['1F', { footprint: axis }]]))
+    return { m, base }
+  }
+
+  it('만들면 층마다 승강로 첫 면 바깥 0.3m 에 진입 지점이 생기고, 그 점이 든 물리존(홀)을 짚는다 [OE-ML-10#1~]', () => {
+    const { m } = made()
+    expect(faceLanding(axis, 0)).toEqual([3.5, -0.3])
+    // 시계 방향 고리여도 바깥으로 뺀다. 뒤집은 고리의 아래 면은 2번 변이다.
+    expect(faceLanding([...axis].reverse(), 2)).toEqual([3.5, -0.3])
+    expect(partsOf(m, 'U_el').map((p) => p.landing)).toEqual([[3.5, -0.3], [3.5, -0.3]])
+    const parts = verticalObjects(m).find((o) => o.id === 'U_el')!.parts
+    expect(parts.map((p) => partSpaces(p.storey, p.part))).toEqual([['hall1'], ['hall2']])
+    // 층마다 다른 면을 고른다.
+    expect(setElevatorLanding(m, 'U_el', '2F', 1)).toBe(true)
+    expect(setElevatorLanding(m, 'U_el', '2F', 1)).toBe(false)
+    expect(partsOf(m, 'U_el')[1].landing).toEqual([4.3, 0.5])
+    expect(landingFace(axis, partsOf(m, 'U_el')[1].landing)).toBe(1)
+    // 엘리베이터 진입 지점은 시작·끝 층 물리존을 잇는 명시 연결이 아니다.
+    expect(explicitSpaceLinks(verticalObjects(m)).some((l) => l.parentId === 'U_el')).toBe(false)
+  })
+
+  it('진입 지점은 옮기기·돌리기를 따라가고, 구간을 늘린 새 층은 아래층과 같은 면이다 [OE-ML-10#4~]', () => {
+    const { m } = made()
+    setElevatorLanding(m, 'U_el', '2F', 1)
+    moveVertical(m, 'U_el', [1, 0])
+    expect(partsOf(m, 'U_el').map((p) => p.landing)).toEqual([[4.5, -0.3], [5.3, 0.5]])
+    rotateVertical(m, 'U_el', 90)
+    const [a, b] = partsOf(m, 'U_el')
+    expect(landingFace(a.footprint, a.landing)).toBe(0)
+    expect(landingFace(b.footprint, b.landing)).toBe(1)
+    expect(setVerticalRange(m, 'U_el', '1F', '3F')).toBe(true)
+    const top = partsOf(m, 'U_el')[2]
+    expect(landingFace(top.footprint, top.landing)).toBe(0)
+  })
+
+  it('GeoJSON 에 층마다 진입 지점(그 층 높이)을 내고, 편집 파일로 새로 연 모델에 얹어도 같다 [OE-ML-10#4~]', () => {
+    const { m, base } = made()
+    setElevatorLanding(m, 'U_el', '2F', 2)
+    const props = (id: string) => modelToGeoJSON(m).flatMap((f) => f.collection.features).find((f) => f.id === id)!.properties!
+    expect(props('U_el@1F')).toMatchObject({ landing: [3.5, -0.3, 0], spaceIds: ['hall1'] })
+    expect(props('U_el@2F').landing).toEqual([3.5, 1.3, 4.5])
+    const file = parseEditFile(JSON.stringify(exportEdits(m, base, 'b.ifc'))) as EditFile
+    const again = tower()
+    applyEdits(again, file)
+    expect(partsOf(again, 'U_el').map((p) => p.landing)).toEqual(partsOf(m, 'U_el').map((p) => p.landing))
   })
 })
 
