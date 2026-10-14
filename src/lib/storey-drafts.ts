@@ -138,3 +138,31 @@ export function partSig(part: EditFile | undefined): string | null {
   const { savedAt: _savedAt, keys: _keys, source: _source, ...rest } = part
   return JSON.stringify(rest)
 }
+
+/**
+ * 건물 조각에서 바뀐 줄이 닿는 층(OE-HIST-03 의 작업 영향 층). 잇기·끊기·해제 보정·방향처럼 층이 없는 편집도 양 끝 설비의 층에는 닿는다.
+ * 두 조각의 같은 칸을 줄 단위로 견줘 한쪽에만 있는 줄의 `from`·`to`·`id` 를 `storeyOf` 로 층에 옮긴다. 층을 모르는 것(계통·타입 종류)은 뺀다.
+ */
+export function buildingStoreys(before: EditFile | undefined, after: EditFile | undefined, storeyOf: HomeOf): string[] {
+  const rows = (p: EditFile | undefined): unknown[] => {
+    if (!p) return []
+    const { format: _f, version: _v, source: _s, savedAt: _t, keys: _k, connections, ...rest } = p
+    const lists = Object.values(rest).filter(Array.isArray) as unknown[][]
+    if (connections) lists.push(connections.add, connections.remove)
+    return lists.flat()
+  }
+  const a = new Set(rows(before).map((r) => JSON.stringify(r)))
+  const b = new Set(rows(after).map((r) => JSON.stringify(r)))
+  const changed = [...[...a].filter((r) => !b.has(r)), ...[...b].filter((r) => !a.has(r))]
+  const out = new Set<string>()
+  for (const text of changed) {
+    const row = JSON.parse(text) as Record<string, unknown>
+    if (!row || typeof row !== 'object') continue
+    for (const k of ['from', 'to', 'id']) {
+      const id = row[k]
+      const at = typeof id === 'string' ? storeyOf(id) : null
+      if (at) out.add(at)
+    }
+  }
+  return [...out]
+}

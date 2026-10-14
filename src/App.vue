@@ -56,7 +56,7 @@ import { CONNECTION_CLASS_LABEL, connectionClass, countConnectionClasses } from 
 import { connectCandidates, mediaLabel, type ConnectCandidate } from './lib/connect-candidates'
 import { againstRule, applyFlow, cancelRelease, clearFlow, dropRelease, keepRelease, releaseConnection, releasedBetween, releasesOf, snapshotRelease, snapshotRules } from './lib/connection-release'
 import { applyEdits, countEdits, EDIT_FORMAT, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
-import { BUILDING, joinParts, partSig, splitByStorey, type HomeOf } from './lib/storey-drafts'
+import { BUILDING, buildingStoreys, joinParts, partSig, splitByStorey, type HomeOf } from './lib/storey-drafts'
 import { compareVersions, MATCH_KEY_BY, MATCH_KEY_LABEL, type MatchKey, type VersionDiff } from './lib/versions'
 import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, traceRoutes, TOLERANCE, type Neighbor, type Route } from './lib/topology'
@@ -1173,8 +1173,8 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
   }
   // 붙은 배관(PRD #13). 옮기기 전에 정한다 — 옮긴 뒤에는 구간의 어느 끝이 가까웠는지 모른다.
   const plan = carryConduits.value && before ? planFollow(model.value, equipmentId, segmentAxis) : null
-  // 따라 늘어날 구간이 다른 층으로 이어졌으면 옮기지 않는다(OE-ML-05). 끄고 옮기면 설비만 간다.
-  const crossing = moving ? crossingFollower(plan) : null
+  // 따라 늘어날 구간이 다른 층으로 이어졌으면 층 편집에서는 옮기지 않는다(OE-ML-05). 끄고 옮기면 설비만 간다. 다중층 뷰에서는 옮긴다.
+  const crossing = moving && !multiView.value ? crossingFollower(plan) : null
   if (moving && crossing) {
     goBack()
     editNotice.value = crossingText(moving, crossing)
@@ -1814,7 +1814,13 @@ function onKey(e: KeyboardEvent) {
   // 다중층 뷰는 아직 보기만 한다(OE-ML-01). 편집 키는 무엇을 막았는지 알린다.
   // 고른 수직 관통 오브젝트의 방향키(전체 이동)와 Delete(지우기 확인)는 다중층 뷰의 편집이다(OE-ML-07·09).
   // 되돌리기·다시 하기는 다중층 뷰의 편집도 되돌린다.
-  const verticalKey = (!!selectedVertical.value && (shortcut.id === 'nudge' || shortcut.id === 'vertexDelete')) || shortcut.id === 'undo' || shortcut.id === 'redo' || (!!drawing.value && shortcut.id === 'drawFinish')
+  // 고른 덕트·배관의 방향키(꺾임점 옮기기)도 다중층 뷰의 편집이다(OE-PIP-10 AC1).
+  const verticalKey =
+    (!!selectedVertical.value && (shortcut.id === 'nudge' || shortcut.id === 'vertexDelete')) ||
+    (shortcut.id === 'nudge' && !!selected.value && isConduit(selected.value.role)) ||
+    shortcut.id === 'undo' ||
+    shortcut.id === 'redo' ||
+    (!!drawing.value && shortcut.id === 'drawFinish')
   if (shortcut.edit && multiView.value && !verticalKey) {
     editNotice.value = MULTI_VIEW_ONLY
     e.preventDefault()
@@ -2937,8 +2943,8 @@ const createPlan = computed(() => {
  * 층 편집 화면의 도구 팔레트에서 부르면 지금 층과 위층으로 다중층 뷰를 열고 만든다(만들기는 다중층 뷰에서만 한다, OE-ML-06).
  * 계단·샤프트는 공간 쪽, 엘리베이터·에스컬레이터는 설비 쪽 팔레트에 있다.
  */
-function startCreateVertical(kind: VerticalKind = 'stair') {
-  if (!multiView.value) openMultiView()
+async function startCreateVertical(kind: VerticalKind = 'stair') {
+  if (!multiView.value && !(await openMultiView())) return
   const range = multiRange.value
   if (!range || range.length < 2) {
     note('보기 범위를 두 층 이상으로 넓힌 뒤 만듭니다')
@@ -5054,8 +5060,8 @@ function applyEditFile(file: EditFile, from: string, quiet = false) {
 //
 // 여러 층을 함께 보는 화면이다. 들어가는 길은 ① 층 고르는 칸 옆 [다중층 뷰에서 편집](범위는 지금 층과 위층, 고쳐 고른다) ② 수직 관통
 // 오브젝트 패널의 [다중층 뷰에서 편집](그 오브젝트의 관통 층). ③ 배관 그리기 중 전환은 층간 배관(OE-PIP-15)과 같이 한다.
-// **보기 범위는 오브젝트의 관통 구간과 따로다** — 범위를 바꿔도 데이터는 그대로다. 수직 관통 오브젝트 편집(OE-ML-06~09)과 진입 전 층 편집
-// 확정(OE-WF-03)이 아직 없어서 지금은 보기만 한다: 3D 끌기·편집 단축키·도구 상자를 끈다. 화면 상태라 저장하지 않는다.
+// **보기 범위는 오브젝트의 관통 구간과 따로다** — 범위를 바꿔도 데이터는 그대로다. 편집 중에 들어가고 나오는 것은 다중층 세션(작업)의
+// 경계다(위 "작업" 절): 들어가기 전에 층 편집을, 나올 때 세션을 8084 에 저장한다. 보기 범위 자체는 화면 상태라 저장하지 않는다.
 const storeysByHeight = computed(() => [...(model.value?.storeys ?? [])].sort((a, b) => a.elevation - b.elevation))
 /** 보기 범위의 층(높이 순). 시작·끝을 거꾸로 골라도 그 사이다. */
 const multiRange = computed(() => {
@@ -5070,10 +5076,14 @@ const multiRange = computed(() => {
 })
 /** 층 바닥 높이(cm 까지). 병원 1층은 -1e-13 이라 그대로 쓰면 "-0.00" 이 된다. */
 const elevationText = (v: number) => (Math.abs(v) < 0.005 ? 0 : v).toFixed(2)
-/** 다중층 뷰를 연다. 범위를 안 주면 지금 층과 바로 위층(맨 위층이면 아래층), 층을 안 골랐으면 전체다. */
-function openMultiView(from?: string, to?: string) {
+/**
+ * 다중층 뷰를 연다. 범위를 안 주면 지금 층과 바로 위층(맨 위층이면 아래층), 층을 안 골랐으면 전체다. 편집 중에 들어가면 다중층 세션(작업)을
+ * 시작한다 — 층 편집을 먼저 저장하고, 못 하면 열지 않고 false 다.
+ */
+async function openMultiView(from?: string, to?: string): Promise<boolean> {
   const list = storeysByHeight.value
-  if (list.length < 2) return
+  if (list.length < 2) return false
+  if (!multiView.value && !(await beginMultiSession())) return false
   if (!from || !to) {
     const i = list.findIndex((st) => st.id === viewStorey.value)
     if (i < 0) [from, to] = [list[0].id, list.at(-1)!.id]
@@ -5083,6 +5093,26 @@ function openMultiView(from?: string, to?: string) {
   activeTab.value = '3d'
   editNotice.value = ''
   viewer?.frameAll()
+  return true
+}
+/** 다중층 세션을 시작한다(OE-HIST-03). 저장 안 한 층 편집을 층 작업으로 저장한 뒤 새 작업 id 를 잡고 되돌리기 이력을 비운다. */
+let sessionBusy = false
+async function beginMultiSession(): Promise<boolean> {
+  if (!editing.value || !serverKey.value) return true
+  if (sessionBusy) return false
+  sessionBusy = true
+  try {
+    if (uncommitted() && !(await commitWork('다중층 뷰로 가지 않았습니다. 층 편집은 그대로입니다.'))) {
+      note('층 편집을 8084 에 저장하지 못해 다중층 뷰로 가지 않았습니다. 편집은 그대로입니다')
+      return false
+    }
+    work = { id: newWorkId(), kind: 'multi' }
+    history.value = []
+    future.value = []
+    return true
+  } finally {
+    sessionBusy = false
+  }
 }
 /** 고른 수직 관통 오브젝트의 관통 층으로 연다(진입 경로 ②). 고른 조각은 그대로다. */
 function openMultiViewFor(objectParts: readonly { storey: { id: string } }[]) {
@@ -5092,8 +5122,26 @@ function setMultiAll() {
   const list = storeysByHeight.value
   if (multiView.value && list.length) multiView.value = { ...multiView.value, from: list[0].id, to: list.at(-1)!.id }
 }
-/** 층 편집으로 돌아간다. 들어오기 전에 보던 층이다. 고른 계단 조각이 그 층에 없으면 푼다. */
-function closeMultiView() {
+/**
+ * 층 편집으로 돌아간다. 들어오기 전에 보던 층이다. 고른 계단 조각이 그 층에 없으면 푼다. 다중층 세션이었으면 세션의 편집을 그 작업으로
+ * 저장한 뒤 돌아가고, 못 하면 다중층 뷰에 남는다(편집·세션 그대로).
+ */
+async function closeMultiView() {
+  if (sessionBusy) return
+  if (work?.kind === 'multi') {
+    sessionBusy = true
+    try {
+      if (editing.value && serverKey.value && uncommitted() && !(await commitWork('다중층 뷰에 남았습니다.'))) {
+        note('다중층 작업을 8084 에 저장하지 못해 다중층 뷰에 남았습니다. 편집은 그대로이고, [층 편집으로] 를 다시 누르면 다시 저장합니다')
+        return
+      }
+    } finally {
+      sessionBusy = false
+    }
+    work = null
+    history.value = []
+    future.value = []
+  }
   // 그리던 배관을 들고 왔으면(진입 경로 ③) 옮기기 전의 그리기로 되돌린다.
   const handoff = pipeHandoff
   if (handoff && drawing.value?.purpose === 'pipe' && drawing.value.levels) {
@@ -5655,7 +5703,7 @@ function stopDraw() {
 // 이어 간다(시작 설비·끝 대상·Flow Type 그대로, 찍은 점은 그 층 + 같은 높이). [층 편집으로] 로 돌아오면 옮기기 전의 그리기로 되돌린다(전환 취소).
 /** 옮기기 전의 그리기. 다중층 뷰에서 마치거나 그리기를 그만두면 비운다. */
 let pipeHandoff: Drawing | null = null
-function pipeToMulti() {
+async function pipeToMulti() {
   const d = drawing.value
   const m = model.value
   const home = m?.storeys.find((st) => st.id === d?.storeyId)
@@ -5663,7 +5711,7 @@ function pipeToMulti() {
   const saved: Drawing = { ...d, points: [...d.points] }
   const height = cm(d.elevation - home.elevation)
   viewStorey.value = home.id
-  openMultiView()
+  if (!(await openMultiView())) return
   drawing.value = { ...d, levels: d.points.map(() => ({ storeyId: home.id, height })), work: { storeyId: home.id, height } }
   pipeHandoff = saved
   viewer?.setPlaceMode(d.elevation)
@@ -6032,8 +6080,10 @@ const crossingText = (moving: Equipment, seg: Equipment) =>
  */
 function editLock(e: Equipment): string | null {
   if (!editing.value) return null
-  // 다중층 뷰는 수직 관통 오브젝트만 고친다(OE-ML-01·07). 설비는 고르고 보기만 — 3D 에서 안 끌리고 패널의 좌표·지우기 칸도 없다.
-  if (multiView.value) return MULTI_VIEW_ONLY
+  // 다중층 뷰는 수직 관통 오브젝트와 덕트·배관만 고친다(OE-ML-01·07, OE-PIP-10 AC1). 설비는 고르고 보기만 — 3D 에서 안 끌리고 패널의
+  // 좌표·지우기 칸도 없다. 덕트·배관은 층 편집과 같은 패널(꼭짓점 넣기·지우기, 꺾임점 좌표, 끝 대상 바꾸기, 구간 지우기)을 쓴다 — 층을 넘는
+  // 구간도 여기서는 고친다. 3D 끌기는 다중층 뷰 전체에서 꺼져 있다.
+  if (multiView.value) return isConduit(e.role) ? null : MULTI_VIEW_ONLY
   // 엘리베이터·에스컬레이터는 수직 관통 오브젝트라 층 편집 화면에서는 고르고 보기만 한다(OE-EQP-07·OE-ML-05). 종류는 고칠 수 있다 —
   // 이름 사전이 잘못 읽은 것을 풀 길이 없으면 그 설비가 계속 잠긴다.
   if (VERTICAL_DEVICES.has(e.kind ?? '')) return VERTICAL_LOCKED
@@ -7822,7 +7872,7 @@ const followPreview = computed(() => {
   const plan = planFollow(model.value, e.id, segmentAxis)
   const stretch = new Set(plan.stretch.map((x) => x.id)).size
   if (!plan.rigid.length && !stretch && !plan.held.length && !plan.blocked.length) return null
-  const crossing = crossingFollower(plan)
+  const crossing = multiView.value ? null : crossingFollower(plan)
   return { rigid: plan.rigid.length, stretch, left: crossing ? crossingText(e, crossing) : followLeftText(plan), crossing: !!crossing }
 })
 let carryPlan: WallCarryPlan | null = null
@@ -8617,9 +8667,36 @@ const serverKey = computed(() => {
 const serverSaved = shallowRef<{ file: EditFile; savedAt: string } | null>(null)
 /** 마지막으로 정말 저장한(8084·파일) 편집의 서명. 자동 저장이 이것과 같으면 임시 저장으로 남기지 않는다. */
 let committedSig: string | null = null
+/** 마지막으로 정말 저장한(8084·파일·구축하기) 때의 층별 조각. 작업의 영향 층과 다중층에 들어가기 전에 저장할지를 이것과 견준다. */
+let committedParts = new Map<string, EditFile>()
+// --- 작업(OE-HIST-03 · OE-PIP-15 AC8) ---
+// 8084 저장은 작업에 묶인다. 층 편집과 다중층 세션은 다른 작업이고, 다중층에 들어가서 나올 때까지의 저장은 층·공간/설비 모드와 상관없이
+// 한 작업이다. 다중층에 들어가기 전에 층 편집을 저장하고(못 하면 들어가지 않는다), 나올 때 세션을 저장한다(못 하면 나오지 않는다).
+// 경계에서 되돌리기 이력을 비운다 — 세션의 되돌리기로 앞 작업을 되돌리지 않는다. 8084 에 두지 않는 판(손으로 연 파일)은 완료 작업을
+// 남길 곳이 없어 경계도 없다. 임시 저장·자동 저장은 작업을 만들지 않는다.
+let work: { id: string; kind: 'floor' | 'multi' } | null = null
+const newWorkId = () => `w${Date.now().toString(36)}${Array.from(crypto.getRandomValues(new Uint8Array(3)), (b) => b.toString(16).padStart(2, '0')).join('')}`
+/** 이 종류의 지금 작업. 종류가 바뀌었으면(층 편집 ↔ 다중층) 새 작업이다. */
+function workFor(kind: 'floor' | 'multi') {
+  if (!work || work.kind !== kind) work = { id: newWorkId(), kind }
+  return work
+}
+/** 마지막으로 정말 저장한 뒤 바뀐 층 id(건물 조각은 뺀다). 작업의 영향 층이다. */
+function uncommittedStoreys(parts = currentParts()): string[] {
+  const keys = new Set([...parts.keys(), ...committedParts.keys()])
+  const changed = [...keys].filter((k) => partSig(parts.get(k)) !== partSig(committedParts.get(k)))
+  const storeys = new Set(changed.filter((k) => k !== BUILDING))
+  // 층이 없는 편집(잇기·해제 보정·방향)은 양 끝 설비의 층에 닿는다.
+  if (changed.includes(BUILDING)) for (const id of buildingStoreys(committedParts.get(BUILDING), parts.get(BUILDING), homeOf)) storeys.add(id)
+  return [...storeys]
+}
+/** 마지막으로 정말 저장한 뒤 바뀐 것이 있나. 임시 저장은 저장으로 치지 않는다. */
+const uncommitted = () => editSig() !== committedSig
 watch(baseline, () => {
   serverSaved.value = null
   committedSig = null
+  committedParts = new Map()
+  work = null
 })
 const savedEditsUrl = (key?: string) => `./__data/__edits${key ? `?key=${encodeURIComponent(key)}` : ''}`
 
@@ -8749,25 +8826,38 @@ async function loadServerEdits() {
   serverSaved.value = { file, savedAt: file.savedAt }
   markSaved()
   committedSig = savedSig
+  committedParts = savedParts.value
 }
 
-/** 편집 파일을 8084 에 둔다. 됐으면 true. */
-async function saveToServer(file: EditFile): Promise<boolean> {
+/** 편집 파일을 8084 에 둔다. 됐으면 true. 못 두면 `then`(그다음 무엇을 했는지)을 붙여 알린다. */
+async function saveToServer(file: EditFile, then = '파일로 내려받았습니다.'): Promise<boolean> {
   const key = serverKey.value
   if (!key) return false
+  const kind = multiView.value ? 'multi' : 'floor'
+  const w = workFor(kind)
+  const at = `${savedEditsUrl(key)}&${new URLSearchParams({ work: w.id, kind, storeys: uncommittedStoreys().join(',') })}`
   try {
-    const r = await fetch(savedEditsUrl(key), { method: 'PUT', headers: { 'Content-Type': 'application/json', ...asMe() }, body: JSON.stringify(file) })
+    const r = await fetch(at, { method: 'PUT', headers: { 'Content-Type': 'application/json', ...asMe() }, body: JSON.stringify(file) })
     if (!r.ok) {
       const why = await r.json().then((b: { error?: string }) => b.error ?? '').catch(() => '')
-      editFileNote.value = `8084 에 저장하지 못했습니다(HTTP ${r.status}${why ? ` · ${why}` : ''}). 파일로 내려받았습니다.`
+      editFileNote.value = `8084 에 저장하지 못했습니다(HTTP ${r.status}${why ? ` · ${why}` : ''}). ${then}`
       return false
     }
   } catch {
-    editFileNote.value = '8084 에 닿지 못했습니다. 파일로 내려받았습니다.'
+    editFileNote.value = `8084 에 닿지 못했습니다. ${then}`
     return false
   }
   serverSaved.value = { file, savedAt: file.savedAt }
   refreshSavedSets()
+  return true
+}
+
+/** 지금 편집을 지금 작업의 완료 저장으로 8084 에 둔다(다중층 진입·종료). 못 두면 false 이고 아무것도 바꾸지 않는다. */
+async function commitWork(then: string): Promise<boolean> {
+  const m = model.value
+  if (!m || !baseline.value) return false
+  if (!(await saveToServer(exportEdits(m, baseline.value, fileName.value), then))) return false
+  committed()
   return true
 }
 
@@ -8800,6 +8890,7 @@ function committed() {
   clearDrafts()
   markSaved()
   committedSig = savedSig
+  committedParts = savedParts.value
 }
 /** 묻는 중인 대화상자. `floor` 가 있으면 층을 바꾸려다 물은 것이다. */
 const exitAsk = shallowRef<{ count: number; floor?: { from: string; to: string | null } } | null>(null)
@@ -10234,12 +10325,13 @@ async function publishLayout(by: string, how: 'all' | 'save' | 'saved' = 'all') 
     const r = await fetch(layoutsUrl({ key, stage, publish: '' }), {
       method: 'POST',
       headers: asMe(),
-      body: JSON.stringify({ by, floors: publishFloors.value, summary: layoutSummary(m, edits) }),
+      body: JSON.stringify({ by, floors: publishFloors.value, summary: layoutSummary(m, edits), work: workFor(multiView.value ? 'multi' : 'floor').id }),
     })
     const body = await r.json()
     if (!r.ok) throw new Error(body.error ?? `HTTP ${r.status}`)
-    // 반영이 PoC 의 저장이다. 끝낼 때 다시 묻지 않고 임시 저장본도 지운다.
+    // 반영이 PoC 의 저장이다. 끝낼 때 다시 묻지 않고 임시 저장본도 지운다. 층 편집에서 반영했으면 그 작업은 끝났다(다음 편집은 새 작업).
     committed()
+    if (work?.kind === 'floor') work = null
     publishAsk.value = false
     loadedVersion.value = body.version
     ontologyFloors.value = new Set(m.storeys.map((st) => st.id))
@@ -11608,7 +11700,7 @@ function rollbackFromReport() {
           </p>
 
           <!-- 층 옮기기(E6). 층은 좌표로 판정하지 않고 사람이 고른다(edit.ts). -->
-          <p v-if="editing && !selectedLock" class="storey-move">
+          <p v-if="editing && !selectedLock && !multiView" class="storey-move">
             <label>
               층
               <select
@@ -11986,7 +12078,7 @@ function rollbackFromReport() {
           </div>
 
           <!-- 배관 그리기(OE-PIP-11). 이 설비에서 끝 대상까지 구간·이음쇠를 더하고 manual 연결로 잇는다. 방향은 정하지 않는다. -->
-          <div v-if="editing && !selectedLock && selected.position && selected.role !== 'segment'" class="pipe-draw" data-testid="pipe-draw">
+          <div v-if="editing && !selectedLock && !multiView && selected.position && selected.role !== 'segment'" class="pipe-draw" data-testid="pipe-draw">
             <h4 class="picked-sub">배관 그리기 <Src kind="edit" /></h4>
             <p class="pipe-draw-row">
               <label>
