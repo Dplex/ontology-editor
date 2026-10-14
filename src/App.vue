@@ -5444,14 +5444,27 @@ watch(baseline, () => (viewStorey.value = firstStorey(model.value)))
 // 층 보기(위)가 정한 보일 층·숨길 설비 위에 얹는다. 전부 화면 상태다 — 모델·편집 파일·TTL·GeoJSON 에 남지 않고, 파일을 새로 열면 푼다.
 const viewFilter = shallowRef<ViewFilter>(EMPTY_FILTER)
 const filterOpen = ref(false)
+const explorerQuery = ref('')
 const filterOn = computed(() => filterActive(viewFilter.value))
 const viewFacets = computed(() => (model.value && filterOpen.value ? facets(model.value) : null))
+const filteredExplorerFacets = computed(() => {
+  const f = viewFacets.value
+  if (!f) return null
+  const q = explorerQuery.value.trim().toLowerCase()
+  if (!q) return f
+  return {
+    storeys: f.storeys.filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)),
+    classes: f.classes.filter((c) => c.id.toLowerCase().includes(q)),
+    systems: f.systems.filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)),
+  }
+})
 const filterText = computed(() => (model.value && filterOn.value ? filterSummary(model.value, viewFilter.value) : ''))
 /** 층 칸은 모든 층을 볼 때만 쓴다. 층 하나만 보거나 다중층 뷰면 그쪽이 보일 층을 정한다(편집할 층이 하나여야 한다). */
 const filterStoreysUsable = computed(() => !viewStorey.value && !multiView.value)
 watch(baseline, () => {
   viewFilter.value = EMPTY_FILTER
   exploded.value = false
+  explorerQuery.value = ''
 })
 function setViewFilter(patch: Partial<ViewFilter>) {
   viewFilter.value = { ...viewFilter.value, ...patch }
@@ -5463,7 +5476,11 @@ function clearViewFilter() {
 }
 /** 체크 목록 한 칸을 켜고 끈다. 전부 켜지면 null(거르지 않음)로 돌린다. */
 function toggleFacet(key: 'storeys' | 'classes' | 'systems', id: string, all: readonly string[]) {
-  const now = viewFilter.value[key] ?? [...all]
+  // 층 하나만 보던 중에 다른 층 칸을 누르면 모든 층 보기로 풀고, 보던 층에서 시작해 누른 층을 더하거나 뺀다.
+  // 모든 층에서 시작하면 화면에 체크돼 보이지 않던 층을 누른 것이 "그 층만 빼기" 가 돼 보던 것과 거꾸로 된다.
+  const single = key === 'storeys' && viewStorey.value && !multiView.value ? viewStorey.value : null
+  if (single) viewStorey.value = null
+  const now = single ? [single] : viewFilter.value[key] ?? [...all]
   const next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id]
   setViewFilter({ [key]: next.length === all.length ? null : next })
 }
@@ -11183,12 +11200,69 @@ function rollbackFromReport() {
               </template>
               <p class="ctx-foot muted">화면에서만 — 편집 파일·TTL·GeoJSON 에는 남지 않습니다</p>
             </div>
-            <!-- 보기 필터 패널(V2). 항목마다 설비 대수. 클래스는 TTL 에 나가는 그 클래스다. -->
-            <aside v-if="filterOpen && viewFacets && activeTab === '3d'" class="filter-panel" data-testid="filter-panel" aria-label="보기 필터">
+            <!-- 좌측 상단 FACADE 스타일 플로팅 독(Dock). 3D 탐색·필터·분해도를 왼쪽에서 바로 열고 닫는다. -->
+            <nav v-if="activeTab === '3d' && !replayOpen" class="facade-dock" aria-label="3D 탐색 독">
+              <button
+                type="button"
+                :class="['dock-btn', { on: filterOpen || filterOn }]"
+                :aria-expanded="filterOpen"
+                title="층 · Brick 클래스 · 계통 탐색 및 필터 패널을 엽니다"
+                @click="filterOpen = !filterOpen"
+              >
+                <span class="dock-icon">⧩</span>
+                <span>Filter</span>
+                <b v-if="filterOn" class="dock-dot" aria-label="필터 켜짐"></b>
+              </button>
+              <button
+                type="button"
+                :class="['dock-btn', { on: exploded }]"
+                :aria-pressed="exploded"
+                title="보이는 기기를 Brick 클래스별로 공중에 펼쳐 봅니다"
+                @click="toggleExplode"
+              >
+                <span class="dock-icon">❖</span>
+                <span>Cluster</span>
+              </button>
+              <button
+                v-if="drawnWalls"
+                type="button"
+                :class="['dock-btn', { on: showWalls }]"
+                :aria-pressed="showWalls"
+                title="3D 벽 표시 켜기·끄기 (W)"
+                @click="showWalls = !showWalls"
+              >
+                <span class="dock-icon">▣</span>
+                <span>Walls</span>
+              </button>
+              <button
+                v-if="filterOn || exploded"
+                type="button"
+                class="dock-btn reset"
+                title="적용된 모든 필터와 분해도를 초기화합니다"
+                @click="clearViewFilter"
+              >
+                Reset
+              </button>
+            </nav>
+            <!-- 보기 필터 패널(V2 · FACADE 스타일 좌측 탐색 드로어). 항목마다 설비 대수. 클래스는 TTL 에 나가는 그 클래스다. -->
+            <aside v-if="filterOpen && viewFacets && filteredExplorerFacets && activeTab === '3d'" class="filter-panel" data-testid="filter-panel" aria-label="보기 필터">
               <div class="filter-head">
-                <b>보기 필터</b>
+                <div class="filter-brand">
+                  <span class="brand-badge">EXPLORER</span>
+                  <b>보기 필터</b>
+                </div>
                 <button type="button" class="link" :disabled="!filterOn && !exploded" @click="clearViewFilter">모두 보이기</button>
                 <button type="button" class="link" aria-label="보기 필터 닫기" @click="filterOpen = false">닫기</button>
+              </div>
+              <div class="filter-search-wrap">
+                <input
+                  v-model="explorerQuery"
+                  v-keep-typing
+                  type="text"
+                  class="filter-search"
+                  placeholder="층 · 클래스 · 계통 검색…"
+                  aria-label="보기 필터 검색"
+                />
               </div>
               <p class="muted filter-note">화면에서만 거릅니다. 편집 파일·TTL·GeoJSON 은 그대로입니다. Ctrl+끌기 상자는 보이는 것만 고릅니다.</p>
               <p v-if="filterOn" class="filter-now" data-testid="filter-summary">{{ filterText }}</p>
@@ -11200,29 +11274,39 @@ function rollbackFromReport() {
                 <button v-if="viewFilter.hidden.length" type="button" class="ghost" @click="setViewFilter({ hidden: [] })">숨긴 {{ viewFilter.hidden.length }}대 보이기</button>
               </p>
               <details v-if="viewFacets.storeys.length > 1" open class="filter-group">
-                <summary>층 <span class="muted">{{ viewFilter.storeys ? `${viewFilter.storeys.length}/${viewFacets.storeys.length}` : '전부' }}</span></summary>
-                <p v-if="!filterStoreysUsable" class="muted filter-note">층 하나만 보거나 다중층 뷰에서는 그쪽이 층을 정합니다. 위 층 칸을 "모든 층" 으로 두면 여러 층을 골라 봅니다.</p>
-                <label v-for="s in viewFacets.storeys" :key="s.id" :class="{ off: !filterStoreysUsable }">
-                  <input type="checkbox" :checked="facetOn('storeys', s.id)" :disabled="!filterStoreysUsable" @change="toggleFacet('storeys', s.id, viewFacets.storeys.map((x) => x.id))" />
-                  {{ s.name }} <span class="muted">{{ s.count.toLocaleString() }}</span>
+                <summary>
+                  <span class="group-tag">LEVELS</span> 층 <span class="muted">{{ viewFilter.storeys ? `${viewFilter.storeys.length}/${viewFacets.storeys.length}` : '전부' }}</span>
+                  <button type="button" class="link" @click.prevent="viewStorey = null; setFacetAll('storeys', true)">전부</button>
+                  <button type="button" class="link" @click.prevent="viewStorey = null; setFacetAll('storeys', false)">CLEAR</button>
+                </summary>
+                <p v-if="!filterStoreysUsable && multiView" class="muted filter-note">다중층 뷰에서는 상단 범위 선택기가 층을 정합니다.</p>
+                <p v-else-if="viewStorey" class="muted filter-note">단일 층 보기 중입니다. 아래 체크박스를 누르면 다중 층 필터로 바로 전환됩니다.</p>
+                <label v-for="s in filteredExplorerFacets.storeys" :key="s.id" :class="{ off: !!multiView }">
+                  <input type="checkbox" :checked="viewStorey ? viewStorey === s.id : facetOn('storeys', s.id)" :disabled="!!multiView" @change="toggleFacet('storeys', s.id, viewFacets.storeys.map((x) => x.id))" />
+                  <span class="facet-name">{{ s.name }}</span> <span class="muted">{{ s.count.toLocaleString() }}</span>
                 </label>
               </details>
               <details open class="filter-group">
                 <summary>
-                  Brick 클래스 <span class="muted">{{ viewFilter.classes ? `${viewFilter.classes.length}/${viewFacets.classes.length}` : '전부' }}</span>
+                  <span class="group-tag">CATEGORY</span> Brick 클래스 <span class="muted">{{ viewFilter.classes ? `${viewFilter.classes.length}/${viewFacets.classes.length}` : '전부' }}</span>
                   <button type="button" class="link" @click.prevent="setFacetAll('classes', true, viewFacets.classes.filter((c) => !c.conduit).map((c) => c.id))">기기 전부</button>
                   <button type="button" class="link" @click.prevent="setFacetAll('classes', false, viewFacets.classes.filter((c) => c.conduit).map((c) => c.id))">덕트·배관 빼기</button>
+                  <button type="button" class="link" @click.prevent="setFacetAll('classes', true)">전부</button>
                 </summary>
-                <label v-for="c in viewFacets.classes" :key="c.id" :class="{ conduit: c.conduit }">
+                <label v-for="c in filteredExplorerFacets.classes" :key="c.id" :class="{ conduit: c.conduit }">
                   <input type="checkbox" :checked="facetOn('classes', c.id)" @change="toggleFacet('classes', c.id, viewFacets.classes.map((x) => x.id))" />
                   <code>{{ c.id }}</code> <span class="muted">{{ c.count.toLocaleString() }}</span>
                 </label>
               </details>
-              <details class="filter-group">
-                <summary>계통 <span class="muted">{{ viewFilter.systems ? `${viewFilter.systems.length}/${viewFacets.systems.length}` : '전부' }}</span></summary>
-                <label v-for="s in viewFacets.systems" :key="s.id">
+              <details open class="filter-group">
+                <summary>
+                  <span class="group-tag">SYSTEMS</span> 계통 <span class="muted">{{ viewFilter.systems ? `${viewFilter.systems.length}/${viewFacets.systems.length}` : '전부' }}</span>
+                  <button type="button" class="link" @click.prevent="setFacetAll('systems', true)">전부</button>
+                  <button type="button" class="link" @click.prevent="setFacetAll('systems', false)">CLEAR</button>
+                </summary>
+                <label v-for="s in filteredExplorerFacets.systems" :key="s.id">
                   <input type="checkbox" :checked="facetOn('systems', s.id)" @change="toggleFacet('systems', s.id, viewFacets.systems.map((x) => x.id))" />
-                  {{ s.name }} <span class="muted">{{ s.count.toLocaleString() }}</span>
+                  <span class="facet-name">{{ s.name }}</span> <span class="muted">{{ s.count.toLocaleString() }}</span>
                 </label>
               </details>
             </aside>

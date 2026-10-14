@@ -210,3 +210,19 @@ PM 검토에서 "3D 에서 방이 휑하니 뚫려 있다" 가 나왔다. 보기
   `input[type=search]`(설비 검색) 로 찾아서, 처음 이름(`완전성 검사 위반`·`요구사항 판정표`·`선택 해제 ×`)과 `type=search` 로는 32개가 둘 이상을 잡아 떨어졌다.
   그래서 `검사 위반`·`판정표 →`·`파일 개요로 ×` 이고 범례·경고 검색칸은 `type=text` 다.
 - 되돌리려면 `App.vue` 의 `sideTab`·`warnFilter`·`splitWarning`·`diag-hub` 절과 `styles.css` 맨 아래의 `.side-tabs`·`.diag-hub`·`.warnings-panel` 규칙을 뺀다.
+
+## FACADE 스타일 좌측 탐색 독(`.facade-dock`) · 좌측 슬라이드 드로어 · 글래스 UI (`feat/facade-style-explorer`, 2026-10-14)
+
+에테리온 이화빌딩 데모(`fUw8-xKM24E` Feature 1. Model Exploration)처럼 3D 캔버스 왼쪽 위에서 바로 층·카테고리·계통을 탐색·격리하고,
+캔버스 위 오버레이들이 유려한 다크 글래스(Glassmorphism) 톤으로 어우러지게 다듬었다.
+
+- **좌측 상단 플로팅 독(`.facade-dock`)**: 3D 캔버스 왼쪽 위(`top: 0.65rem; left: 0.75rem`, 높이 `2rem`으로 `y = 60px` 아래 상자 선택 영역과 겹치지 않음)에
+  `Filter` · `Cluster(분해도)` · `Walls(벽)` · `Reset` 캡슐 독을 두었다. 기존 오른쪽 위 `[보기 필터]`(`data-testid="filter-toggle"`)와 같은 상태를 공유한다.
+- **좌측 슬라이드아웃 탐색 드로어(`.filter-panel`)**:
+  - 오른쪽 위에 뜨던 필터 패널을 독 바로 아래 왼쪽(`top: 3.05rem; left: 0.75rem`)으로 옮기고, 다크 블러 글래스(`backdrop-filter: blur(18px)`)와 슬라이드 애니메이션을 입혔다.
+  - 패널 상단에 **통합 검색창(`explorerQuery`)**을 두어 층·Brick 클래스·계통이 많을 때 실시간으로 걸러 본다. 설비 검색(`input[type=search]`)과 겹치지 않게 `type=text` 다.
+  - `LEVELS(층)` · `CATEGORY(Brick 클래스)` · `SYSTEMS(계통)` 머리줄마다 `전부` / `CLEAR` 단추를 두고, 단일 층 보기 중에도 왼쪽 층 체크박스를 누르면
+    즉시 모든 층 기반 다중 층 필터로 전환되게 했다(`toggleFacet`).
+- **글래스 오버레이 통일**: 우클릭 메뉴(`.ctx-menu`), 3D 설비 콜아웃 라벨(`.eq-label`), 시점 도구·층별 칩에 반투명 블러와 시안(`#38bdf8`) 강조 테두리를 맞춰
+  3D 모델 위에서 입체감 있게 읽히도록 정돈했다.
+
