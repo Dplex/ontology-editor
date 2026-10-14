@@ -5,10 +5,10 @@ status: "제안"
 date: "2026-10-09"
 deciders: ["정희록"]
 prd: ["S3", "Q16"]
-tickets: ["OE-ZON-01", "OE-ZON-02", "OE-MAN-05", "OE-OBJ-13", "OE-MAP-02", "OE-MAP-03", "OE-ZON-04"]
-criteria: []
-code: ["src/lib/hvac-zone.ts", "src/App.vue"]
-tests: []
+tickets: ["OE-ZON-01", "OE-ZON-02", "OE-MAN-05", "OE-OBJ-13", "OE-MAP-02", "OE-MAP-03", "OE-ZON-04", "OE-EQP-09"]
+criteria: ["OE-EQP-09#1"]
+code: ["src/lib/hvac-zone.ts", "src/lib/edit.ts", "src/App.vue"]
+tests: ["src/lib/hvac-zone.test.ts", "e2e/hvac-zone.spec.ts"]
 related: []
 ---
 
@@ -47,9 +47,17 @@ IDF 로 읽은 공조존(`model.hvac.zones`)과 그것을 TTL·GeoJSON·3D 로 �
   어느 쪽으로 고쳐도 그린 공조존(`drawn`)이 되고 새 경계와 0.05㎡ 넘게 겹치는 물리존이 담당이며 몫(`spaceShares`)도 새로 잰다 — 골라 만든 목록을 두면 바닥과
   담당이 어긋난다(사무실을 고른 공조존을 창고까지 걸치게 그리면 창고가 공백 Z-01 로 남는다). 겹치는 물리존이 없으면 막고, 담당 설비와 이름은 그대로 둔다.
 
+- **공조기·패키지 에어컨(PAC)을 다른 물리존이나 다른 층으로 옮기면 담당 설비에서 뺀다(OE-EQP-09, 2026-10-14 더함).** 두 설비는 덕트로 멀리 있는
+  공조존을 담당해서 설비가 공조존 밖에 있는 것이 정상이다. 그래서 실내기처럼 "담당 공조존 밖으로 나갔나"(Z-06)로는 담당이 아직 맞는지 알 수 없다.
+  소속 물리존이나 층이 바뀌면 덕트를 다시 깔아야 하는 다른 자리라 보고 담당에서 빼며, 그 공조존은 사람이 다시 지정할 때까지 Z-04(담당 설비 없음)다.
+  같은 방 안에서 자리만 다듬으면 담당은 그대로다. 사람이 만든 공조존만 고치고 IDF 공조존은 건드리지 않는다. 되돌리기는 옮기기 전 그 층의 공조존
+  목록을 같이 받아 두어(`snapshotServedZones`) 담당까지 돌아온다.
+
 ## 고려한 다른 길
 
 - **다시 그리기만 두기**(2026-10-09 의 결정). 공조존은 꼭짓점이 많지 않다고 봤으나, 꼭짓점 하나를 옮기려고 경계를 다시 찍는 것은 받아들이기 어려웠다(#154).
+- **공조기·PAC 를 조금이라도 옮기면 늘 담당을 비우기**(OE-EQP-09 글자 그대로). 10cm 만 다듬어도 담당을 다시 골라야 한다.
+- **담당은 두고 "옮긴 뒤 담당 미확인" 경고를 따로 띄우기.** Z-04 와 다른 경고라 PRD 의 수용 기준과 어긋난다.
 
 ## 결과
 
@@ -60,5 +68,7 @@ IDF 로 읽은 공조존(`model.hvac.zones`)과 그것을 TTL·GeoJSON·3D 로 �
 - 손잡이 편집은 바뀐 점들로 다시 그리기(`reshapeHvacZone`)를 부르는 것이라 담당 규칙이 하나다. 손잡이는 물리존과 같은 3D 손잡이(`setSpaceHandles`)이고,
   `App.vue` 의 `dropVertex`·`[ ]`·방향키·Insert·Delete 가 공조존을 고치는 중이면 `hvac-zone.ts` 의 `moveZoneVertex`·`insertZoneVertex`·`deleteZoneVertex` 로 보낸다.
   평면도에는 공조존 손잡이가 없다(평면도가 물리존만 그린다).
+- 옮긴 공조기·PAC 의 담당을 늘 비우려면(조금만 옮겨도) `edit.ts` 의 `moveEquipment` 에서 `fromSpaceId !== toSpaceId` 조건을 뺀다. 비우지 않게 하려면
+  `SERVED_RESET_KINDS` 를 비운다.
 - 되돌리려면(담당 기준을 절반 넘게 덮는 것으로 하려면) `hvac-zone.ts` 의 `overlappedSpaces` 를 고친다. 손잡이를 걷으려면 `App.vue` 의 `zoneVertexEdit` 과 그것을
   보는 분기를 걷어낸다.

@@ -268,7 +268,7 @@ describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () =
     expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'st')).toMatchObject({ a: 'stair1', b: 'hall2' })
   })
 
-  it('층별로 고친 것은 편집 파일에 조각을 통째로 적고(이동량 대신), 새로 연 BIM 에 얹으면 같다 [OE-ML-07#5~] [OE-ML-02#5~]', () => {
+  it('층별로 고친 것은 편집 파일에 조각을 통째로 적고(이동량 대신), 새로 연 BIM 에 얹으면 같으며 고친 조각과 원본이 구분된다 [OE-ML-07#5~] [OE-ML-02#5]', () => {
     const a = building()
     const base = baselineOf(a)
     moveVertical(a, 'st', [0.3, 0])
@@ -288,6 +288,13 @@ describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () =
     const result = applyEdits(b, file)
     expect(result.missing).toMatchObject({ elements: 0, storeys: 0 })
     expect(b.storeys.map((s) => s.verticalParts)).toEqual(a.storeys.map((s) => s.verticalParts))
+    // 다시 연 모델에서 원본과 사람 보정이 구분된다: 고친 조각은 edited 이고 출처는 BIM 그대로다. 같은 조각이 두 번 생기지 않는다.
+    const parts = (m: Model) => m.storeys.flatMap((s) => (s.verticalParts ?? []).map((p) => `${s.id}:${p.parentId}:${p.source}:${p.edited ? 'edited' : 'bim'}`))
+    expect(parts(b).filter((x) => x.includes(':st:'))).toEqual(['1F:st:bim:edited', '2F:st:bim:edited'])
+    expect(parts(b).filter((x) => x.includes(':st2:'))).toEqual(['1F:st2:bim:bim', '2F:st2:bim:edited'])
+    expect(new Set(parts(b)).size).toBe(parts(b).length)
+    // 원본 형상은 연 때의 기준(baseline)에 남아, 다시 연 모델에서도 무엇을 고쳤는지 잰다.
+    expect(diffBaseline(b, baselineOf(building())).verticals?.map((v) => [v.id, v.reshaped])).toEqual([['st', ['1F', '2F']], ['st2', ['2F']]])
   })
 })
 

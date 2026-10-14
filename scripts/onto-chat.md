@@ -44,7 +44,7 @@
     같은 계획 안의 `connect` 는 앞에서 더한 설비를 `name` 으로 가리킬 수 있다.
   - `connect`: 두 설비를 잇는다(방향 없음 — 사람이 상류로·하류로로 정한다). "파이프로 연결" 도 이것이다. 배관 형상을 그리지는 않는다.
   - 명령은 10개까지. 이 둘 말고(옮기기·지우기·이름 바꾸기 등)는 아직 못 한다 — 편집 화면에서 어떻게 하면 되는지만 말한다.
-- 종류(`kind`): ahu(공조기) · fcu(FCU) · indoor_unit(시스템에어컨 실내기) · vav(VAV) · heat_recovery(전열교환기) ·
+- 종류(`kind`): ahu(공조기) · pac(패키지 에어컨) · fcu(FCU) · indoor_unit(시스템에어컨 실내기) · vav(VAV) · heat_recovery(전열교환기) ·
   ground_source_heat_pump(지열 히트펌프) · heat_pump(히트펌프) · ground_heat_exchanger(지중 열교환기) · chiller(냉동기) · boiler(보일러) ·
   cooling_tower(냉각탑) · pump(펌프) · exhaust_fan(배기팬) · fan(팬) · air_diffuser(디퓨저) · outdoor_temperature_sensor(외기 온도 센서) ·
   outdoor_humidity_sensor(외기 습도 센서) · outdoor_louver(외부 루버) · air_grille(그릴) · damper(댐퍼) · silencer(소음기) · water_meter(수량계) ·

@@ -10,6 +10,7 @@ import type { GradeReport } from './grade'
 import { GATE, percent, TARGET } from './grade'
 import { countOf, isConduit, type Model } from './model'
 import type { RequirementRow } from './requirements'
+import { LEVEL_LABEL, preBuildChecks } from './pre-build'
 
 export type MissingClass = 'X' | 'A' | 'B' | 'C'
 export const MISSING_LABEL: Record<MissingClass, string> = { X: 'X-외부', A: 'A-설정', B: 'B-부재', C: 'C-보정' }
@@ -97,8 +98,8 @@ export function generationReport(input: ReportInput): ReportSectionB[] {
       title: '자동 생성 범위(출처별)',
       lines: [
         `물리존 외곽선: BIM ${spaces.filter((sp) => sp.footprint.length >= 3 && !sp.added).length} · 편집 ${spaces.filter((sp) => sp.added).length} · 없음 ${spaces.filter((sp) => sp.footprint.length < 3).length}`,
-        `설비 소속: ${count(devices, (e) => (e.spaceSource === 'bim' ? 'BIM' : e.spaceSource === 'computed' ? '계산' : e.spaceSource === 'edit' ? '편집' : null))}`,
-        `설비 종류: ${count(devices, (e) => (e.kindSource === 'bim' ? 'BIM' : e.kindSource === 'dict' ? '사전' : e.kindEdited ? '편집' : e.kind ? 'BIM' : null))}`,
+        `설비 소속: ${count(devices, (e) => (e.spaceSource === 'bim' ? 'BIM' : e.spaceSource === 'computed' ? '계산' : e.spaceSource === 'edit' ? '사람' : null))}`,
+        `설비 종류: ${count(devices, (e) => (e.kindSource === 'bim' ? 'BIM' : e.kindSource === 'dict' ? '사전' : e.kindEdited ? '사람' : e.kind ? 'BIM' : null))}`,
         `연결: ${count(model.connections, (x) => CONNECTION_CLASS_LABEL[connectionClass(x)])}`,
       ],
     },
@@ -146,10 +147,11 @@ export function generationReport(input: ReportInput): ReportSectionB[] {
     {
       no: 10,
       title: '검증 결과',
-      lines: or(
-        checks.map((x) => (x.skipped ? `${x.rule}: 잴 수 없음(${x.skipped})` : `${x.rule}: ${x.total - x.failed.length}/${x.total}${x.failed.length ? ` — 어김 ${x.failed.length}` : ''}`)),
-        '검사 없음',
-      ),
+      // 생성 전 검증(OE-GEN-03) 항목이 먼저다 — [차단] 이 하나라도 있으면 만들지 않는다. 그 아래가 완전성 검사 규칙별 결과다.
+      lines: [
+        ...preBuildChecks(model, checks).map((x) => `[${LEVEL_LABEL[x.level]}] ${x.label}: ${x.detail}`),
+        ...checks.map((x) => (x.skipped ? `${x.rule}: 잴 수 없음(${x.skipped})` : `${x.rule}: ${x.total - x.failed.length}/${x.total}${x.failed.length ? ` — 어김 ${x.failed.length}` : ''}`)),
+      ],
     },
     {
       no: 11,

@@ -173,7 +173,7 @@ export function zoneAirflow(model: Model, zone: HvacZone, spaceName: (id: string
  * Z-03 판정 대상. 공조존을 직접 담당하는 설비(VAV·FCU·실내기·단일존 공조기)다. 여러 공조존에 급기하는 공조기는 동시 부하를 고려해 존 합보다
  * 작게 설계하는 것이 보통이라 뺀다(Q16). 디퓨저 같은 말단은 담당 설비로 골라도 대상이 아니다.
  */
-export const CAPACITY_CHECK_KINDS: ReadonlySet<string> = new Set(['vav', 'fcu', 'indoor_unit', 'ahu'])
+export const CAPACITY_CHECK_KINDS: ReadonlySet<string> = new Set(['vav', 'fcu', 'indoor_unit', 'ahu', 'pac'])
 
 export type CapacityItem = { id: string; label: string }
 

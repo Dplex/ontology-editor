@@ -315,7 +315,7 @@ test('규칙이 짐작한 방향은 (추정)으로 보이고, 사람이 연결 �
   await terminal.getByTestId('flow-reason').fill('현장 확인')
   await terminal.getByTestId('flow-apply').click()
   await expect(terminal.locator('.rel')).toHaveText('상류')
-  await expect(terminal).toContainText('직접 정한 방향 편집')
+  await expect(terminal).toContainText('직접 정한 방향 사람')
   const report = page.locator('.report')
   await expect(report).toContainText('AT-101-02 → DUCT-01')
   await expect(report).toContainText('규칙 방향과 반대')
