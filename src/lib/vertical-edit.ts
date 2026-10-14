@@ -14,7 +14,7 @@
 import { isSelfIntersecting } from './mapping'
 import { shaftMembers } from './shaft'
 import { overlapArea } from './polygon'
-import { polygonArea, type Model, type Storey, type Vec2, type Vec3, type VerticalKind, type VerticalPart } from './model'
+import { polygonArea, type ElevatorStop, type Model, type Storey, type Vec2, type Vec3, type VerticalKind, type VerticalPart } from './model'
 import { partId, partSpaces, verticalObjects } from './vertical-object'
 
 const mm = (v: number) => Math.round(v * 1000) / 1000
@@ -318,6 +318,8 @@ function writeParts(plan: RangePlan, kind: VerticalKind, template: Pick<Vertical
     let part = parts[k]
     if (!part) {
       part = { ...template, footprint: [], entry: null, exit: null }
+      // 구간을 넓혀 새로 생긴 엘리베이터 층은 정차 미확인이다(OE-ML-10 "신규 층의 정차 여부는 사용자 확인 전 미확인"). 만들 때는 createVertical 이 정한다.
+      if (kind === 'elevator') part.stop = 'unknown'
       storey.verticalParts = [...(storey.verticalParts ?? []), part]
     }
     const was = part
@@ -380,6 +382,25 @@ export function createVertical(
   if (plan.needs.length) return { refused: needsText(plan) }
   writeParts(plan, spec.kind, { parentId: spec.id, kind: spec.kind, name: spec.name.trim(), source: 'edit' }, given)
   // 사람이 만든 것은 출처가 edit 라 원본과 보정을 가를 것이 없다. 처음 모양에는 보정 표시를 달지 않는다.
-  for (const st of plan.storeys) for (const p of st.verticalParts ?? []) if (p.parentId === spec.id) delete p.edited
+  // 엘리베이터는 관통 구간 전 층을 정차로 두고 시작한다(OE-ML-10 "수동 생성의 초기 선택은 전 층 정차"). 사람이 패널에서 무정차로 바꾼다.
+  for (const st of plan.storeys)
+    for (const p of st.verticalParts ?? [])
+      if (p.parentId === spec.id) {
+        delete p.edited
+        if (spec.kind === 'elevator') p.stop = 'stop'
+      }
   return { id: spec.id }
+}
+
+export const STOP_LABEL: Record<ElevatorStop, string> = { stop: '정차', skip: '무정차', unknown: '미확인' }
+
+/**
+ * 엘리베이터의 한 층 정차 상태를 바꾼다(OE-ML-10). 엘리베이터가 아니거나 그 층 조각이 없으면 false. 미확인으로 되돌릴 수도 있다 —
+ * 모르는 것을 정차로 남기지 않게. 로봇 통과(OE-ML-04)는 GeoJSON 이 이 값으로 정한다.
+ */
+export function setElevatorStop(model: Pick<Model, 'storeys'>, parentId: string, storeyId: string, stop: ElevatorStop): boolean {
+  const part = model.storeys.find((s) => s.id === storeyId)?.verticalParts?.find((p) => p.parentId === parentId)
+  if (!part || part.kind !== 'elevator' || (part.stop ?? 'unknown') === stop) return false
+  part.stop = stop
+  return true
 }

@@ -288,6 +288,15 @@ function spaceObjectFeature(object: SpaceObject, storey: Storey, itemNames: Read
   }
 }
 
+/** 수직 관통 오브젝트 조각의 로봇 통과(OE-ML-04). 엘리베이터 정차 상태(OE-ML-10)는 사람이 정한 값이라 출처가 편집이다. */
+export function verticalPartPassable(part: Pick<VerticalPart, 'kind' | 'stop'>): { passable: boolean; passableReason: string; stop?: string; stopSource?: 'edit' } {
+  if (part.kind !== 'elevator') return { passable: false, passableReason: part.kind === 'stair' ? 'staircase' : part.kind }
+  const stop = part.stop ?? 'unknown'
+  if (stop === 'stop') return { passable: true, passableReason: 'elevator_stop', stop, stopSource: 'edit' }
+  if (stop === 'skip') return { passable: false, passableReason: 'elevator_no_stop', stop, stopSource: 'edit' }
+  return { passable: false, passableReason: 'elevator_stop_unconfirmed', stop }
+}
+
 /**
  * 수직 관통 오브젝트의 한 층 조각(OE-ML-02, vertical-object.ts). id 는 `오브젝트 id@층 id` 다. 형상이 있으면 평면 다각형, 없으면
  * 종료 지점(끝 층)이다. 계단은 구조로 이어져 있어도 로봇이 지나가지 못한다(OE-ML-04) — `verticalConnects` 와 `passable` 은 따로다.
@@ -318,7 +327,9 @@ function verticalPartFeature(part: VerticalPart, storey: Storey, vertical?: Vert
       entry: part.entry ? [...part.entry] : null,
       exit: part.exit ? [...part.exit] : null,
       spaceIds: partSpaces(storey, part),
-      passable: false,
+      // 로봇 통과(OE-ML-04 · OE-EQP-17)는 층마다다. 엘리베이터는 정차를 확인한 층만 가능이고, 무정차·미확인은 불가이며 까닭을 가른다.
+      // 계단·ES·샤프트는 구조로 이어져 있어도(verticalConnects) 로봇이 지나가지 못한다 — 연결이 있다고 통과로 바꾸지 않는다.
+      ...verticalPartPassable(part),
       ...(vertical?.to.length ? { verticalConnects: [...vertical.to], verticalConnectsSource: vertical.source } : {}),
     },
   }

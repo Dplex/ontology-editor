@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connection, Equipment, Model, Space, Storey, Vec2, Vec3, Wall } from './model'
 import { stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
-import { COMMON_AXIS_LOCKED, createVertical, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
+import { COMMON_AXIS_LOCKED, createVertical, setElevatorStop, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
 import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
 import { BUILDING, joinParts, splitByStorey } from './storey-drafts'
@@ -492,5 +492,71 @@ describe('만들기 (OE-ML-06)', () => {
     expect(b.storeys.map((s) => s.verticalParts)).toEqual(a.storeys.map((s) => s.verticalParts))
     restore(a, snap)
     expect(verticalObjects(a).map((o) => o.id)).toEqual(['st', 'st2'])
+  })
+})
+
+describe('엘리베이터 정차 층(OE-ML-10)과 로봇 통과(OE-ML-04)', () => {
+  const axis: Vec2[] = rect(3, 0, 4, 1)
+  const withElevator = () => {
+    const m = tower()
+    const done = createVertical(m, { id: 'U_el', kind: 'elevator', name: 'EL-1', from: '1F', to: '2F' }, new Map([['1F', { footprint: axis }]]))
+    if ('refused' in done) throw new Error(done.refused)
+    return m
+  }
+  const stops = (m: Model) => verticalObjects(m).find((o) => o.id === 'U_el')!.parts.map((p) => [p.storey.id, p.part.stop ?? 'unknown'])
+  const passOf = (m: Model) =>
+    modelToGeoJSON(m)
+      .flatMap((f) => f.collection.features)
+      .filter((f) => f.properties?.kind === 'vertical' && f.properties.parentId === 'U_el')
+      .map((f) => [f.properties!.storeyId, f.properties!.passable, f.properties!.passableReason])
+
+  it('수동으로 만들면 관통 구간 전 층이 정차로 시작하고, 층마다 무정차·미확인으로 바꾼다. 무정차·미확인은 확정 정차 목록에 없다 [OE-ML-10#1~,3]', () => {
+    const m = withElevator()
+    expect(stops(m)).toEqual([['1F', 'stop'], ['2F', 'stop']])
+    expect(setElevatorStop(m, 'U_el', '2F', 'skip')).toBe(true)
+    expect(setElevatorStop(m, 'U_el', '2F', 'skip')).toBe(false)
+    expect(stops(m)).toEqual([['1F', 'stop'], ['2F', 'skip']])
+    // 계단에는 정차가 없다.
+    expect(setElevatorStop(m, 'st', '1F', 'stop')).toBe(false)
+  })
+
+  it('구간을 넓혀 새로 생긴 층은 미확인이고 통과 가능으로 나가지 않는다. 줄이면 빠진 층이 정차 목록에서 빠진다 [OE-ML-10#2~,4~] [OE-ML-04#2]', () => {
+    const m = withElevator()
+    expect(setVerticalRange(m, 'U_el', '1F', '3F')).toBe(true)
+    expect(stops(m)).toEqual([['1F', 'stop'], ['2F', 'stop'], ['3F', 'unknown']])
+    expect(passOf(m)).toEqual([['1F', true, 'elevator_stop'], ['2F', true, 'elevator_stop'], ['3F', false, 'elevator_stop_unconfirmed']])
+    expect(setVerticalRange(m, 'U_el', '1F', '2F')).toBe(true)
+    expect(stops(m)).toEqual([['1F', 'stop'], ['2F', 'stop']])
+  })
+
+  it('정차 층은 통과 가능, 무정차 층은 불가로 층마다 다르게 나간다. 계단·샤프트는 이어져 있어도 불가다 [OE-ML-04#1,3]', () => {
+    const m = withElevator()
+    setElevatorStop(m, 'U_el', '2F', 'skip')
+    expect(passOf(m)).toEqual([['1F', true, 'elevator_stop'], ['2F', false, 'elevator_no_stop']])
+    const stairs = modelToGeoJSON(m).flatMap((f) => f.collection.features).filter((f) => f.properties?.kind === 'vertical' && f.properties.verticalKind === 'stair')
+    expect(stairs.length).toBeGreaterThan(0)
+    expect(stairs.every((f) => f.properties!.passable === false && f.properties!.passableReason === 'staircase')).toBe(true)
+  })
+
+  it('정차를 바꾼 것은 되돌리기 한 번에 돌아오고, 편집 파일로 새로 연 모델에 얹어도 정차 목록과 층별 통과가 같다 [OE-ML-10#4] [OE-ML-04#4]', () => {
+    const base = baselineOf(tower())
+    const a = withElevator()
+    const snap = snapshotVerticals(a)
+    setElevatorStop(a, 'U_el', '2F', 'skip')
+    const after = structuredClone(a.storeys.map((s) => s.verticalParts))
+    restore(a, snap)
+    expect(stops(a)).toEqual([['1F', 'stop'], ['2F', 'stop']])
+    a.storeys.forEach((s, i) => (s.verticalParts = after[i]))
+    const file = parseEditFile(JSON.stringify(exportEdits(a, base, 'b.ifc'))) as EditFile
+    expect(file.verticals?.find((v) => v.id === 'U_el')?.parts?.map((p) => p.stop)).toEqual(['stop', 'skip'])
+    const b = tower()
+    expect(applyEdits(b, file).missing).toMatchObject({ elements: 0, storeys: 0 })
+    expect(stops(b)).toEqual(stops(a))
+    expect(passOf(b)).toEqual(passOf(a))
+    // 만든 뒤 정차만 바꾼 것도 연 때와 견준 차이에 남는다(층별로 고친 것).
+    const c = withElevator()
+    const cb = baselineOf(c)
+    setElevatorStop(c, 'U_el', '1F', 'unknown')
+    expect(diffBaseline(c, cb).verticals).toEqual([{ id: 'U_el', name: 'EL-1', reshaped: ['1F'] }])
   })
 })
