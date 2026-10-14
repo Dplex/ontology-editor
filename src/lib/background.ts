@@ -21,6 +21,19 @@ export type Background = {
   opacity: number
   /** PDF 도면이면 그린 쪽(1부터)·전체 쪽 수·PDF 1pt 가 몇 픽셀인지(pdf-page.ts). 쪽을 바꿔도 종이 위 축척을 이어 쓰는 데 쓴다. */
   pdf?: { page: number; pages: number; pxPerPt: number }
+  /** DWG 도면이면 서버가 알려 준 도면 단위(scripts/dwg2png.py). 단위를 알아 축척을 맞췄는지, 도면 좌표에 놓았는지를 화면이 말한다. */
+  dwg?: { unit: string | null; placed: 'drawing' | 'building' | 'origin' }
+}
+
+/** DWG 를 그린 PNG 와 함께 서버가 주는 값(`X-Dwg2png`). 그림이 덮는 도면 좌표 범위와 도면 단위다. */
+export type DwgStats = {
+  width: number
+  height: number
+  extents: [number, number, number, number]
+  unit: string | null
+  metersPerUnit: number | null
+  /** 전체 DXF 를 읽지 못해 개체만 그렸다. 블록으로 넣은 기호(문·가구)가 빠졌을 수 있다(scripts/dwg2png.py). */
+  minimal?: boolean
 }
 
 /** 이미지 네 귀퉁이의 세계 좌표(왼쪽 위부터 시계 방향). */
@@ -40,6 +53,22 @@ export function backgroundCorners(bg: Background): [Vec2, Vec2, Vec2, Vec2] {
 export function initialBackground(spec: { url: string; name: string; width: number; height: number }, box: { x0: number; x1: number; y0: number; y1: number } | null): Background {
   const scale = box && box.x1 > box.x0 ? (box.x1 - box.x0) / spec.width : 0.01
   return { ...spec, scale, origin: box ? [box.x0, box.y1] : [0, 0], opacity: 0.5 }
+}
+
+/**
+ * DWG 도면을 처음 깔 때. 도면 단위를 알면(mm·m …) 축척을 단위로 맞춘다 — 사람이 두 점으로 맞추지 않아도 실제 크기다. 단위를 모르면 PNG·JPG 와
+ * 같이 건물 너비에 맞춘다(`initialBackground`).
+ * 자리는 도면 좌표가 건물 범위와 겹치면 도면 좌표 그대로 둔다 — 같은 Revit 프로젝트에서 낸 DWG 는 BIM 과 좌표가 같아 바로 맞는다. 겹치지 않으면
+ * 왼쪽 위를 건물 범위의 왼쪽 위에, 건물 범위를 모르면 원점에 둔다.
+ */
+export function dwgBackground(spec: { url: string; name: string }, stats: DwgStats, box: { x0: number; x1: number; y0: number; y1: number } | null): Background {
+  const k = stats.metersPerUnit
+  if (!k) return { ...initialBackground({ ...spec, width: stats.width, height: stats.height }, box), dwg: { unit: null, placed: box ? 'building' : 'origin' } }
+  const [x0, y0, x1, y1] = stats.extents.map((v) => v * k)
+  const scale = (x1 - x0) / stats.width
+  const overlaps = !!box && x0 < box.x1 && x1 > box.x0 && y0 < box.y1 && y1 > box.y0
+  const origin: Vec2 = overlaps ? [x0, y1] : box ? [box.x0, box.y1] : [0, 0]
+  return { ...spec, width: stats.width, height: stats.height, scale, origin, opacity: 0.5, dwg: { unit: stats.unit, placed: overlaps ? 'drawing' : box ? 'building' : 'origin' } }
 }
 
 /**

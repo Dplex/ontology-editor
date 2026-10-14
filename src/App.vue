@@ -113,7 +113,7 @@ import { branchPipe } from './lib/branch-pipe'
 import { planOffsetHeight, setOffsetHeight } from './lib/offset-edit'
 import { removalImpact } from './lib/removal-impact'
 import { retargetEnd } from './lib/retarget'
-import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, switchPdfPage, type Background } from './lib/background'
+import { anchorBackground, backgroundCorners, calibrateScale, dwgBackground, initialBackground, switchPdfPage, type Background, type DwgStats } from './lib/background'
 import { renderPdfPage } from './lib/pdf-page'
 import { FLOW_TYPES, flowType } from './lib/flow-type'
 import {
@@ -6161,6 +6161,12 @@ watch([bgHere, bgStorey, viewStorey, sceneVersion], () => {
   const st = bgStorey.value
   viewer?.setBackground(bg && st ? { url: bg.url, corners: backgroundCorners(bg), elevation: st.elevation, opacity: bg.opacity } : null)
 })
+/** 서버가 DWG 를 그림으로 바꿀 수 있는지(src/server/dwg.ts). 못 하면 도면 칸의 안내가 까닭을 말한다. */
+const dwgServer = ref<{ enabled: boolean; reason?: string }>({ enabled: false, reason: 'DWG 변환 서버를 확인하는 중입니다' })
+fetch('./__data/__dwg')
+  .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+  .then((p: { enabled?: boolean; reason?: string }) => (dwgServer.value = { enabled: p.enabled === true, reason: p.reason }))
+  .catch(() => (dwgServer.value = { enabled: false, reason: 'DWG 는 서버(8084)가 바꿉니다. 이 화면에서는 서버에 닿지 않습니다' }))
 /** PDF 로 깐 층의 원본 바이트. 쪽을 바꿔 다시 그릴 때 쓴다(층 id → 바이트). 화면에 보이지 않아 반응형으로 두지 않는다. */
 const bgPdfs = new Map<string, ArrayBuffer>()
 /** PDF 를 그리는 중(큰 도면은 몇 초). 그동안 고르기 칸과 쪽 칸을 막는다. */
@@ -6171,6 +6177,7 @@ function pickBackground(input: HTMLInputElement) {
   const st = bgStorey.value
   if (!file || !st) return
   if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) return void pickPdfBackground(st, file)
+  if (/\.dwg$/i.test(file.name)) return void pickDwgBackground(st, file)
   const url = URL.createObjectURL(file)
   const img = new Image()
   img.onload = () => {
@@ -6180,7 +6187,7 @@ function pickBackground(input: HTMLInputElement) {
   }
   img.onerror = () => {
     URL.revokeObjectURL(url)
-    note('이미지를 읽지 못했습니다. PNG·JPG·PDF 도면을 고르세요(DWG 는 PDF 나 이미지로 내보낸 뒤 고릅니다)')
+    note('이미지를 읽지 못했습니다. PNG·JPG·PDF·DWG 도면을 고르세요')
   }
   img.src = url
 }
@@ -6207,6 +6214,41 @@ async function pickPdfBackground(st: Storey, file: File) {
     )
   } catch (e) {
     note(`PDF 를 읽지 못했습니다: ${e instanceof Error ? e.message : String(e)}`)
+  } finally {
+    bgBusy.value = false
+  }
+}
+/**
+ * DWG 도면은 서버가 PNG 로 바꿔 준다(src/server/dwg.ts — LibreDWG + ezdxf). 브라우저에는 DWG 를 읽을 길이 없다. 서버가 도면 단위를 알려 주면
+ * 축척을 그 단위로 맞추고, 도면 좌표가 건물과 겹치면 그 자리에 둔다(background.ts 의 dwgBackground).
+ */
+async function pickDwgBackground(st: Storey, file: File) {
+  bgBusy.value = true
+  try {
+    const r = await fetch('./__data/__dwg', { method: 'POST', body: file })
+    if (!r.ok) {
+      const why = ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? `서버가 ${r.status} 로 답했습니다`
+      note(`DWG 를 깔지 못했습니다: ${why}. PDF 나 이미지로 내보내 고를 수 있습니다`)
+      return
+    }
+    const stats = JSON.parse(r.headers.get('X-Dwg2png') ?? 'null') as DwgStats | null
+    if (!stats) {
+      note('DWG 를 깔지 못했습니다: 서버가 도면 범위를 알려 주지 않았습니다')
+      return
+    }
+    const url = URL.createObjectURL(await r.blob())
+    const pts = st.spaces.flatMap((sp) => sp.footprint)
+    const box = pts.length ? { x0: Math.min(...pts.map((p) => p[0])), x1: Math.max(...pts.map((p) => p[0])), y0: Math.min(...pts.map((p) => p[1])), y1: Math.max(...pts.map((p) => p[1])) } : null
+    const old = backgrounds.value[st.id]
+    if (old) URL.revokeObjectURL(old.url)
+    bgPdfs.delete(st.id)
+    const bg = dwgBackground({ url, name: file.name }, stats, box)
+    backgrounds.value = { ...backgrounds.value, [st.id]: bg }
+    const how = bg.dwg?.unit ? `도면 단위(${bg.dwg.unit})로 실제 크기에 맞췄${bg.dwg.placed === 'drawing' ? '고, 도면 좌표가 건물과 겹쳐 그 자리에 두었' : ''}습니다. ` : '도면 단위를 몰라 건물 너비에 맞췄습니다. [스케일 맞추기] 로 두 점의 실제 거리를 넣으세요. '
+    const lost = stats.minimal ? ' 도면의 블록 정의를 읽지 못해 블록으로 넣은 기호(문·가구 등)는 빠졌을 수 있습니다.' : ''
+    note(`${file.name}을 ${st.name} 바닥에 깔았습니다. ${how}어긋나면 [원점 맞추기] 로 한 점의 실제 좌표를 넣으세요.${lost}`)
+  } catch (e) {
+    note(`DWG 를 깔지 못했습니다: ${e instanceof Error ? e.message : String(e)}`)
   } finally {
     bgBusy.value = false
   }
@@ -13415,14 +13457,16 @@ function rollbackFromReport() {
           <!-- 평면도 배경 이미지(OE-MAN-02). 준공 도면을 깔고 그 위에 물리존을 그린다. 온톨로지에 나가지 않고 이 탭에만 있다. -->
           <Fold v-if="editing" title="평면도 배경" :meta="bgStorey ? (bgHere ? `${bgStorey.name} · ${bgHere.name}` : `${bgStorey.name} · 없음`) : '층을 고르세요'" :default-open="false" class="bg-plan" data-testid="bg-plan">
             <p class="hint">
-              준공 도면(PNG·JPG·PDF)을 깔고 그 위에 물리존을 그립니다. DWG 는 PDF 나 이미지로 내보낸 뒤 고릅니다.
+              준공 도면(PNG·JPG·PDF·DWG)을 깔고 그 위에 물리존을 그립니다.
+              <span v-if="dwgServer.enabled" data-testid="dwg-ready">DWG 는 서버가 그림으로 바꾸고, 도면 단위를 알면 실제 크기로 깝니다.</span>
+              <span v-else class="muted" data-testid="dwg-off">DWG 는 지금 받을 수 없어 PDF 나 이미지로 내보낸 뒤 고릅니다({{ dwgServer.reason }}).</span>
               배경은 온톨로지와 편집 파일에 나가지 않고, 이 브라우저 탭에만 있습니다.
             </p>
             <template v-if="bgStorey">
               <p class="pipe-draw-row">
                 <label class="file-pick" :class="{ disabled: bgBusy }">
-                  {{ bgBusy ? 'PDF 그리는 중…' : bgHere ? '다른 도면 고르기' : '도면 고르기' }}
-                  <input type="file" accept="image/png,image/jpeg,application/pdf,.pdf" aria-label="평면도 배경 이미지" :disabled="bgBusy" @change="pickBackground($event.target as HTMLInputElement)" />
+                  {{ bgBusy ? '도면 그리는 중…' : bgHere ? '다른 도면 고르기' : '도면 고르기' }}
+                  <input type="file" accept="image/png,image/jpeg,application/pdf,.pdf,.dwg" aria-label="평면도 배경 이미지" :disabled="bgBusy" @change="pickBackground($event.target as HTMLInputElement)" />
                 </label>
                 <template v-if="bgHere">
                   <label v-if="bgHere.pdf && bgHere.pdf.pages > 1">
