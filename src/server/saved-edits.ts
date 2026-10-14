@@ -25,8 +25,20 @@ const KEEP = 20
 
 type Saved = { key: string; paths: string[]; count: number; savedAt: string }
 
-/** 열쇠(연 파일의 data/ 상대 경로를 `|` 로 이은 것)가 data/ 안의 .ifc 들이면 그 경로들. 아니면 null(아무 이름이나 받아 디스크를 채우지 않게). */
+/** 프로젝트 id(projects.ts 가 짓는다). 열쇠에 붙어 파일 이름이 되므로 글자를 좁힌다. */
+export const PROJECT_ID = /^p[0-9a-f]{12}$/
+
+/**
+ * 열쇠(연 파일의 data/ 상대 경로를 `|` 로 이은 것)가 data/ 안의 .ifc 들이면 그 경로들. 아니면 null(아무 이름이나 받아 디스크를 채우지 않게).
+ * 프로젝트로 연 판은 열쇠 앞에 `@프로젝트id|` 가 붙는다(projects.ts). 같은 IFC 로 만든 두 프로젝트의 임시 저장본·잠금·반영 버전이
+ * 섞이지 않게 열쇠를 가른다(OE-UI-02 AC4). 그 프로젝트가 있어야 받는다.
+ */
 export function dataKeyPaths(root: string, key: string): string[] | null {
+  const [head, ...rest] = key.split('|')
+  if (head?.startsWith('@')) {
+    if (!PROJECT_ID.test(head.slice(1)) || !existsSync(join(root, '.projects', `${head.slice(1)}.json`))) return null
+    return dataKeyPaths(root, rest.join('|'))
+  }
   const paths = key.split('|')
   if (!paths.length || paths.some((p) => !p || !p.toLowerCase().endsWith('.ifc'))) return null
   for (const p of paths) {

@@ -39,6 +39,8 @@ import { readOntologyTTL } from './lib/export/read-ttl'
 import { DEFAULT_SITE_RULES, siteWarnings, type SiteRules } from './lib/site-rules'
 import { DEFAULT_LINES, GATE, gradeCounts, gradeReport, percent, TARGET, type GradeCounts, type GradeLines, type GradeReport } from './lib/grade'
 import HoverTip from './components/HoverTip.vue'
+import ProjectList from './components/ProjectList.vue'
+import { summaryOf, type ProjectRow } from './lib/projects'
 import AlignToggles from './components/AlignToggles.vue'
 import FloorPlan from './components/FloorPlan.vue'
 import Roll from './components/Roll.vue'
@@ -8199,7 +8201,7 @@ const AUTOSAVE_PREFIX = 'oe-autosave:'
 const draft = shallowRef<{ file: EditFile; count: number; savedAt: string } | null>(null)
 let autosaveArmed = false
 let autosaveTimer: number | undefined
-const autosaveKey = () => AUTOSAVE_PREFIX + fileName.value
+const autosaveKey = () => AUTOSAVE_PREFIX + (openedProject.value ? `${openedProject.value.id}:` : '') + fileName.value
 /** 층 완료를 누르거나 지운 횟수(OE-MAN-06). 완료 표시는 되돌리기 이력에 들지 않아, 자동 저장·저장 안 한 편집 판정이 이것도 본다. */
 const progressVersion = ref(0)
 watch(baseline, () => (progressVersion.value = 0))
@@ -8272,7 +8274,8 @@ function discardDraft() {
 //
 // 저장하지 않은 편집이 있는 층에서 다른 층으로 가려 하면 묻는다 — 임시 저장 / 저장 안 함 / 취소(편집 종료와 같은 대화상자).
 const DRAFT_PREFIX = 'oe-draft:'
-const draftKey = (storeyKey: string) => `${DRAFT_PREFIX}${fileName.value}@${storeyKey}`
+// 프로젝트로 연 판은 프로젝트 id 를 붙인다. 같은 IFC 로 만든 다른 프로젝트가 이 브라우저의 임시 저장본을 얹지 않게 한다(OE-UI-02 AC4).
+const draftKey = (storeyKey: string) => `${DRAFT_PREFIX}${openedProject.value ? `${openedProject.value.id}:` : ''}${fileName.value}@${storeyKey}`
 /** 연 때의 층. 층 조각을 가르는 기준이다. */
 let homeOf: HomeOf = () => null
 /** 이 파일의 층별 임시 저장본(브라우저에서 읽은 것). 열쇠는 층 id 또는 BUILDING. */
@@ -8482,11 +8485,86 @@ function goFloor(id: string | null) {
 // 누구나 그 편집을 얹은 채로 본다. 손으로 연 파일은 서버에 원본이 없어서 예전처럼 파일로 내려받는다. 임시 저장은 서버에
 // 오지 않는다(이 브라우저에만, "웹에 반영되지 않는다").
 let loadingPath: string | null = null
+
+// --- 프로젝트 (OE-UI-02·03·01, OE-WF-06, src/server/projects.ts · components/ProjectList.vue) ---
+// 첫 화면은 프로젝트 목록이다. 서버(8084·dev)가 있을 때만 보인다 — 손으로 고른 파일만 여는 곳(e2e 의 흉내 서버)은 예전처럼 파일 상자부터다.
+const projectRows = ref<ProjectRow[] | null>(null)
+function refreshProjects() {
+  return fetch('./__data/__projects')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((list) => (projectRows.value = Array.isArray(list) ? list : null))
+    .catch(() => {})
+}
+void refreshProjects()
+/** 지금 연 프로젝트. 다른 파일을 열면 비운다(load 가 projectLoading 으로 갈아 끼운다). */
+const openedProject = ref<ProjectRow | null>(null)
+let projectLoading: ProjectRow | null = null
+const projectList = ref<InstanceType<typeof ProjectList> | null>(null)
+/** [새 프로젝트]를 못 누르는 까닭. 사람 목록이 없으면(서버 사람 기능이 없는 곳) 막지 않는다 — 서버가 다시 거른다. */
+const projectBlock = computed(() => {
+  if (!people.value) return null
+  if (!me.value) return '사용자를 먼저 고르세요'
+  return me.value.role === 'viewer' ? `${me.value.name}은(는) 보기 전용(Viewer)이라 프로젝트를 만들 수 없습니다` : null
+})
+/** 그 IFC 의 분야. data/ 목록이 잰 요약으로 정한다(방이 없으면 설비, 설비가 없으면 건축). */
+function fieldOf(path: string): string {
+  const p = profileAt(path)
+  return !p ? '' : p.needsArchitecture ? '설비' : p.needsEquipment ? '건축' : '건축·설비'
+}
+/**
+ * 프로젝트를 연다(OE-UI-02). 구축 전이면 시작 화면 없이 초기 구축 에디터로, 구축을 마쳤으면 층 선택 화면에서 고른 층을 운영 편집으로 연다.
+ * 열고 나면 센 층 구성을 서버에 올려 목록이 건물·층 수를 보이게 한다(서버는 IFC 를 읽지 않는다).
+ */
+async function openProject(p: ProjectRow, storey: string | null) {
+  projectLoading = p
+  // 올린 파일은 서버가 이름 앞에 올린 시각을 붙여 둔다(projects.ts). 화면에는 원래 이름을 보인다.
+  await openMany(p.paths.map((path) => ({ name: baseName(path).replace(/^\d{8}-\d{6}-/, ''), read: () => fetchData(path), dataPath: path })), 'open')
+  projectLoading = null
+  if (!model.value || openedProject.value?.id !== p.id) return
+  if (storey && model.value.storeys.some((x) => x.id === storey)) viewStorey.value = storey
+  mode.value = 'edit'
+  const summary = summaryOf(model.value)
+  if (JSON.stringify(summary) !== JSON.stringify(p.summary ?? null))
+    void fetch(`./__data/__projects?${new URLSearchParams({ id: p.id, summary: '' })}`, { method: 'PUT', body: JSON.stringify(summary) }).catch(() => {})
+}
+/** [새 프로젝트]. IFC 를 올리고(data/uploads) 프로젝트를 만든 뒤 바로 초기 구축 에디터로 연다(OE-UI-15 ①→③). */
+async function createProject(input: { name: string; site: string; files: File[] }) {
+  busy.value = true
+  error.value = ''
+  const paths: string[] = []
+  try {
+    for (const [i, f] of input.files.entries()) {
+      progress.value = { label: `IFC 올리는 중 ${i + 1}/${input.files.length} · ${f.name}` }
+      const r = await fetch(`./__data/__upload?${new URLSearchParams({ name: f.name })}`, { method: 'POST', headers: asMe(), body: f })
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(`${f.name} 을(를) 올리지 못했습니다: ${body.error ?? `HTTP ${r.status}`}`)
+      paths.push(body.path)
+    }
+    const r = await fetch('./__data/__projects', { method: 'POST', headers: { ...asMe(), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: input.name, site: input.site, paths }) })
+    const row = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(`프로젝트를 만들지 못했습니다: ${row.error ?? `HTTP ${r.status}`}`)
+    projectList.value?.closeForm()
+    await refreshProjects()
+    busy.value = false
+    progress.value = null
+    await openProject(row as ProjectRow, null)
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    busy.value = false
+    if (!model.value) progress.value = null
+  }
+}
 /** 열린 모델을 이룬 파일들의 data/ 경로(연 순서). 손으로 고른 파일은 null. */
 const openedSources = ref<(string | null)[]>([])
-const serverKey = computed(() =>
-  openedSources.value.length && openedSources.value.every((p) => p) ? openedSources.value.join('|') : null,
-)
+const serverKey = computed(() => {
+  if (!openedSources.value.length || !openedSources.value.every((p) => p)) return null
+  const paths = openedSources.value.join('|')
+  // 프로젝트로 연 판은 프로젝트 열쇠(`@id|경로…`)를 쓴다 — 같은 IFC 의 다른 프로젝트와 임시 저장본·버전이 섞이지 않는다(OE-UI-02 AC4).
+  // 프로젝트에 없는 파일을 덧붙였으면 프로젝트의 판이 아니라서 파일 열쇠로 돌아간다.
+  const p = openedProject.value
+  return p && p.paths.join('|') === paths ? p.key : paths
+})
 /** 지금 모델에 얹은 8084 저장본. 저장 안 함은 여기까지만 되돌린다. */
 const serverSaved = shallowRef<{ file: EditFile; savedAt: string } | null>(null)
 /** 마지막으로 정말 저장한(8084·파일) 편집의 서명. 자동 저장이 이것과 같으면 임시 저장으로 남기지 않는다. */
@@ -8542,7 +8620,15 @@ const editKind = computed<'build' | 'operate'>(() => {
 {
   const q = new URLSearchParams(location.search)
   const paths = (q.get('open') ?? '').split('|').filter(Boolean)
-  if (paths.length)
+  // `?project=<id>[&storey=<층 id>]`: 프로젝트를 바로 연다(OE-UI-01 AC2, DT 없이 에디터 주소로 초기 구축에 들어간다).
+  const projectId = q.get('project')
+  if (projectId)
+    void refreshProjects().then(() => {
+      const p = projectRows.value?.find((x) => x.id === projectId)
+      if (p) void openProject(p, q.get('storey'))
+      else error.value = `프로젝트 ${projectId} 가 없습니다`
+    })
+  else if (paths.length)
     void nextTick(() =>
       openMany(paths.map((path) => ({ name: baseName(path), read: () => fetchData(path), dataPath: path })), 'open').then(() => {
         const st = q.get('storey')
@@ -8959,6 +9045,8 @@ ${name} 파일을 열까요?`,
     model.value = result.model
     fileName.value = name
     openedSources.value = [loadingPath]
+    openedProject.value = projectLoading
+    projectLoading = null
     mergeReport.value = null
     selectedId.value = null
     selectedSpaceId.value = null
@@ -10145,6 +10233,17 @@ function rollbackFromReport() {
         </button>
       </div>
     </header>
+
+    <!-- 프로젝트 목록(OE-UI-02·03). 첫 화면이다. 서버가 없으면 보이지 않고 아래 파일 상자부터다. -->
+    <template v-if="!model && projectRows">
+      <label v-if="people" class="who projects-who" title="프로젝트를 만든 사람·임시 저장한 사람으로 남습니다(data/.users.json)">
+        <select v-model="currentUser" aria-label="사용자">
+          <option value="">사용자 고르기…</option>
+          <option v-for="p in people" :key="p.name" :value="p.name">{{ p.name }} · {{ PERSON_ROLE[p.role] }}</option>
+        </select>
+      </label>
+      <ProjectList ref="projectList" :rows="projectRows" :create-block="projectBlock" :busy="busy" :field-of="fieldOf" :when="when" @open="openProject" @create="createProject" />
+    </template>
 
     <section
       v-if="!model"

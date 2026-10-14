@@ -19,6 +19,7 @@ import { profileOf, type Profile } from '../lib/profile'
 import { savedEdits } from './saved-edits'
 import { layouts } from './layouts'
 import { users as userStore } from './users'
+import { projects as projectStore } from './projects'
 import { activityLog } from './activity-log'
 import { floorState } from './floor-state'
 import { fbxConverter } from './fbx'
@@ -154,6 +155,7 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
   let lastWriter = ''
   const layoutStore = layouts(root, { writer: people.writer, onVersion: (e) => log.write(e) })
   const floors = floorState(root, people.writer)
+  const projectList = projectStore(root, people.writer)
   const fbx = fbxConverter()
   const dwg = dwgConverter()
 
@@ -165,6 +167,9 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
     // 층마다의 임시 저장본·편집 잠금(floor-state.ts).
     if (path === '__drafts') return floors.drafts(req, res, query ?? '')
     if (path === '__locks') return floors.locks(req, res, query ?? '')
+    // 프로젝트(projects.ts). 첫 화면의 목록과 [새 프로젝트]의 IFC 올리기.
+    if (path === '__projects') return projectList.handle(req, res, query ?? '')
+    if (path === '__upload') return projectList.upload(req, res, query ?? '')
     if (path === '__log') return log.handle(req, res, query ?? '', () => people.writer(req, res)?.name ?? null)
     if (path === '__edits') {
       if (req.method === 'PUT') {
