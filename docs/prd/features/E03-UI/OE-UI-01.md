@@ -7,7 +7,7 @@ prd: "#4"
 release: "R1"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "단독 실행 / 링크 ✗"
 blocked_by: []
 depends: ["OE-INT-01", "D-INT"]
