@@ -1813,7 +1813,13 @@ function onKey(e: KeyboardEvent) {
   // 다중층 뷰는 아직 보기만 한다(OE-ML-01). 편집 키는 무엇을 막았는지 알린다.
   // 고른 수직 관통 오브젝트의 방향키(전체 이동)와 Delete(지우기 확인)는 다중층 뷰의 편집이다(OE-ML-07·09).
   // 되돌리기·다시 하기는 다중층 뷰의 편집도 되돌린다.
-  const verticalKey = (!!selectedVertical.value && (shortcut.id === 'nudge' || shortcut.id === 'vertexDelete')) || shortcut.id === 'undo' || shortcut.id === 'redo' || (!!drawing.value && shortcut.id === 'drawFinish')
+  // 고른 덕트·배관의 방향키(꺾임점 옮기기)도 다중층 뷰의 편집이다(OE-PIP-10 AC1).
+  const verticalKey =
+    (!!selectedVertical.value && (shortcut.id === 'nudge' || shortcut.id === 'vertexDelete')) ||
+    (shortcut.id === 'nudge' && !!selected.value && isConduit(selected.value.role)) ||
+    shortcut.id === 'undo' ||
+    shortcut.id === 'redo' ||
+    (!!drawing.value && shortcut.id === 'drawFinish')
   if (shortcut.edit && multiView.value && !verticalKey) {
     editNotice.value = MULTI_VIEW_ONLY
     e.preventDefault()

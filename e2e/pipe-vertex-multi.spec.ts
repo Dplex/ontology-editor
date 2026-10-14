@@ -66,6 +66,10 @@ test('다중층 뷰에서 층을 넘는 수직 구간에 꼭짓점을 넣어 옮
   await coords.nth(0).fill('0.92')
   await coords.nth(0).press('Enter')
   await expect(page.locator('.edit-bar')).toContainText('옮김 (배관 2개 따라옴)')
+  // 방향키도 층 편집처럼 옮긴다(10cm, cm 로 맞춘다). 아래에서 되돌릴 때 이 한 번이 더 있다.
+  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.keyboard.press('ArrowUp')
+  await expect(coords.nth(1)).toHaveValue('-14.69')
   if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT })
 
   // 층 편집으로 갔다 와도 같은 꼭짓점·좌표다. 넣은 꼭짓점 아래 구간(HWS 배관 1)은 이제 1층 안이라 층 편집에서 고치고, 위 구간(새로 생긴
@@ -79,6 +83,7 @@ test('다중층 뷰에서 층을 넘는 수직 구간에 꼭짓점을 넣어 옮
   await expect(page.getByTestId('multi-banner')).toBeVisible()
   await pick(page, elbow)
   await expect(coords.nth(0)).toHaveValue('0.92')
+  await expect(coords.nth(1)).toHaveValue('-14.69')
   await expect(rows(page)).toHaveCount(7)
 
   // 그 꼭짓점을 지우면 위아래 구간이 하나로 곧게 합쳐진다.
@@ -86,10 +91,11 @@ test('다중층 뷰에서 층을 넘는 수직 구간에 꼭짓점을 넣어 옮
   await expect(page.locator('.key-note')).toContainText('하나로 합쳤습니다')
   await expect(rows(page)).toHaveCount(5)
 
-  // 지우기 · 옮기기 · 넣기를 차례로 되돌리면 그린 다섯 조각이다(층 편집을 오간 것은 되돌리기에 없다).
+  // 지우기 · 방향키 · 옮기기 · 넣기를 차례로 되돌리면 그린 다섯 조각이다(층 편집을 오간 것은 되돌리기에 없다).
   await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
   await page.keyboard.press('Control+z')
   await expect(rows(page)).toHaveCount(7)
+  await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
   await expect(rows(page)).toHaveCount(5)
