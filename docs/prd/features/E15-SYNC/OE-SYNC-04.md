@@ -7,7 +7,7 @@ prd: "#20 #21"
 release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "편집 리포트 ✔"
 blocked_by: []
 depends: ["OE-MAP-04", "OE-MAP-01", "K17", "OE-SYNC-06", "OE-WF-18", "OE-ZON-05"]
