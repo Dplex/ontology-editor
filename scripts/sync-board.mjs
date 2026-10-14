@@ -36,6 +36,9 @@ const SPEC_SECTIONS = ['요구사항', '수용 기준']
 /** 개발이 이미 손댄 상태. Todo·PRD in progress 는 다시 볼 구현이 없어 `modified` 를 붙이지 않는다. */
 const DEV_STATUS = /In Progress|In Review|Done/
 const MODIFIED = 'modified'
+/** prd-done 이던 티켓의 요구사항이 바뀌어 개발이 다시 봐야 하는 상태(티켓 머리 `status`). 개발로 넘길 후보로는 prd-done 과 같게 센다. */
+const UPDATED = 'prd-updated'
+const HANDOVER_STATUS = ['prd-done', UPDATED]
 /**
  * `prd-done` 이어도 개발로 넘기지 않고 PRD in progress 에 두는 티켓(2026-10-12 기획). R2 는 이번 릴리스 개발 대상이 아니고,
  * E22 는 다른 팀(DT FE/BE) PRD 의 개정이라 이 보드의 개발 Todo 가 아니다. "넘길 후보" 에서 빼고 따로 알린다.
@@ -242,15 +245,18 @@ function main() {
 
   const scope = [...tickets.values()].filter((t) => !ONLY || ONLY.includes(t.fm.id))
   if (ONLY) for (const id of ONLY) if (!tickets.has(id)) throw new Error(`--only: 티켓 ${id} 이 없다`)
-  const noIssue = [], unmanaged = [], drift = [], handOver = [], held = [], boardAhead = []
+  const noIssue = [], unmanaged = [], drift = [], handOver = [], held = [], boardAhead = [], revertable = []
   for (const t of scope) {
     const item = byId.get(t.fm.id)
     if (!item) { noIssue.push(t.fm.id); continue }
     if (!(item.labels ?? []).includes('planned')) { unmanaged.push(`${t.fm.id} #${item.content.number}`); continue }
     const d = compare(item, t)
     if (d.diffs.length) drift.push({ t, item, d })
-    if (t.fm.status === 'prd-done' && item.status === 'PRD in progress')
+    if (HANDOVER_STATUS.includes(t.fm.status) && item.status === 'PRD in progress')
       (holdInPrd(t.fm) ? held : handOver).push(`${t.fm.id} #${item.content.number}`)
+    // 개발이 손댄 이슈에서 modified 가 떨어졌고 이슈 본문이 md 와 같으면 개발이 바뀐 요구를 다시 본 것이다. md 를 prd-done 으로 되돌리는 것은 기획 몫이다.
+    if (t.fm.status === UPDATED && !d.diffs.length && DEV_STATUS.test(item.status ?? '') && !(item.labels ?? []).includes(MODIFIED))
+      revertable.push(`${t.fm.id} #${item.content.number} (${item.status})`)
     if (t.fm.status === 'prd-review' && item.status && item.status !== 'PRD in progress') boardAhead.push(`${t.fm.id} #${item.content.number} (${item.status})`)
   }
   // 라벨 칸은 계획 이슈만이 아니라 보드의 모든 항목을 맞춘다(완료 보고 이슈의 enhancement 도 보인다).
@@ -292,8 +298,9 @@ function main() {
   }
 
   const note = (title, list) => list.length && console.log(`\n${title} (${list.length})\n  ${list.join('\n  ')}`)
-  note('[참고] prd-done 인데 보드는 PRD in progress — 개발로 넘길 후보(Status 는 쓰지 않는다)', handOver)
+  note('[참고] prd-done·prd-updated 인데 보드는 PRD in progress — 개발로 넘길 후보(Status 는 쓰지 않는다)', handOver)
   note('[참고] prd-done 이지만 R2·E22 라 PRD in progress 에 둔다(넘길 후보 아님)', held)
+  note(`[참고] ${UPDATED} 인데 개발이 다시 보고 modified 를 뗐다 — 기획이 prd-done 으로 되돌릴 후보(status_note 도 지운다)`, revertable)
   note('[참고] prd-review 인데 보드가 PRD in progress 보다 앞섬', boardAhead)
   note('[참고] planned 라벨이 없어 건드리지 않은 이슈', unmanaged)
   note('[주의] 이슈가 없는 티켓(이 스크립트는 이슈를 만들지 않는다)', noIssue)
