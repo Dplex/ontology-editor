@@ -171,3 +171,43 @@ export function spacesBesideOpening(placement: OpeningPlacement, spaces: readonl
   }
   return found
 }
+
+/**
+ * 슬래브 윗면(OE-ML-03). 위를 보는 삼각형(면 법선의 높이 성분이 0.7 넘게) 중 가장 높은 윗면에서 30cm 안의 것만 평면에 눕힌다 —
+ * 아랫면·옆면·처진 보 자리를 빼고, 단 차이가 조금 있는 바닥은 같이 둔다. 메시는 three.js 좌표(x, 높이, -y)다. 평면 좌표는 cm 로
+ * 반올림한다(성수 바닥 슬래브 285개를 다 들고 있어야 한다). 위를 보는 면이 없으면 null.
+ */
+export function slabTop(mesh: ElementMesh | undefined): { top: number; tris: number[] } | null {
+  if (!mesh) return null
+  const p = mesh.positions
+  const idx = mesh.indices
+  const up: number[] = []
+  let top = -Infinity
+  for (let k = 0; k + 2 < idx.length; k += 3) {
+    const a = idx[k] * 3, b = idx[k + 1] * 3, c = idx[k + 2] * 3
+    const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
+    const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2]
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+    const len = Math.hypot(nx, ny, nz)
+    if (len < 1e-9 || ny / len <= 0.7) continue
+    up.push(k)
+    top = Math.max(top, p[a + 1], p[b + 1], p[c + 1])
+  }
+  if (!up.length) return null
+  const cm = (v: number) => Math.round(v * 100) / 100
+  const tris: number[] = []
+  for (const k of up) {
+    const corners = [idx[k] * 3, idx[k + 1] * 3, idx[k + 2] * 3]
+    if (corners.some((i) => p[i + 1] < top - 0.3)) continue
+    for (const i of corners) tris.push(cm(p[i]), cm(-p[i + 2]))
+  }
+  return tris.length ? { top: Math.round(top * 1000) / 1000, tris } : null
+}
+
+/** 형상 점들을 평면에 눕힌 것(세계 x, y). 개구부의 볼록 껍질을 잰다. */
+export function meshPlanPoints(mesh: ElementMesh | undefined): Vec2[] {
+  if (!mesh) return []
+  const out: Vec2[] = []
+  for (let i = 0; i < mesh.positions.length; i += 3) out.push([mesh.positions[i], -mesh.positions[i + 2]])
+  return out
+}

@@ -5334,3 +5334,45 @@ button.done::after {
 .floor-summary p {
   margin: 0.25rem 0 0;
 }
+
+/* 슬래브 개구부(OE-ML-03). 층 바닥마다 판정 칩과 까닭. 확정은 강조, 초안·산정 못 함은 경고 색이다. */
+.slab-openings {
+  width: 100%;
+  margin-top: 0.75rem;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.slab-openings caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 0.25rem;
+}
+.slab-openings th,
+.slab-openings td {
+  padding: 0.3rem 0.5rem;
+  border-top: 1px solid var(--line-soft);
+  text-align: left;
+  vertical-align: top;
+}
+.slab-openings th {
+  white-space: nowrap;
+  font-weight: 500;
+}
+.slab-state {
+  display: inline-block;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.slab-state.cut {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+.slab-state.draft,
+.slab-state.unmeasured {
+  color: var(--warn-fg);
+  background: var(--warn-bg);
+  border-color: var(--warn-line);
+}

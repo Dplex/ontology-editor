@@ -32,6 +32,7 @@ import { warningCode } from '../src/lib/issue-code'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
 import { verticalConnections, verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
 import { verticalObjects } from '../src/lib/vertical-object'
+import { slabOpenings } from '../src/lib/slab-opening'
 import { storeyHeights } from '../src/lib/storey-height'
 import { markStoreyDone, storeyProgress } from '../src/lib/storey-progress'
 import { equipmentKind, isFlowlessKind, roomKind } from '../src/lib/kinds'
@@ -3053,4 +3054,30 @@ describe('경고마다 누락 분류 코드 (OE-BIM-20)', () => {
     expect(warnings.size).toBeGreaterThan(15)
     expect([...warnings].filter((w) => !warningCode(w))).toEqual([])
   }, 600_000)
+})
+
+// 슬래브 개구부(OE-ML-03). 가진 건축 BIM 마다 슬래브·BIM 개구부를 읽은 수와 원본 계단의 층 바닥 판정을 박는다. 원본 계단은 슬래브를
+// 그대로 믿어 새 개구부를 내지 않는다(`cut` 0) — 바닥 외곽선이 비워 두었거나(Duplex·성수), BIM 개구부가 있거나(FZK·Institute),
+// 바닥 슬래브가 아예 없어 초안이다(병원·치과·Office_A 는 슬래브가 계단참뿐이다).
+const SLAB_FILES: [string, { slabs: number; bimOpenings: number; states: Record<string, number> }][] = [
+  [DUPLEX_ARCH, { slabs: 20, bimOpenings: 0, states: { open: 2 } }],
+  [SAMPLE, { slabs: 2, bimOpenings: 1, states: { bim: 1 } }],
+  ['data/C20-Institute-Var-2.ifc', { slabs: 8, bimOpenings: 4, states: { bim: 4 } }],
+  [CLINIC_ARCH, { slabs: 0, bimOpenings: 0, states: { draft: 3 } }],
+  ['data/dental_clinic.ifc', { slabs: 0, bimOpenings: 0, states: { draft: 3 } }],
+  ['data/Office_A_20110811.ifc', { slabs: 0, bimOpenings: 0, states: { draft: 2 } }],
+  [SEONGSU_ARCH, { slabs: 289, bimOpenings: 19, states: { open: 34 } }],
+]
+describe('슬래브 개구부 — 원본 계단은 새로 뚫지 않는다 (OE-ML-03)', () => {
+  for (const [file, want] of SLAB_FILES) {
+    it.skipIf(!existsSync(file))(`${file}: 슬래브 ${want.slabs} · BIM 개구부 ${want.bimOpenings} · ${JSON.stringify(want.states)} [OE-ML-03#1~] [OE-ML-03#3~]`, async () => {
+      const api = new WebIFC.IfcAPI()
+      await api.Init()
+      const model = importIfcWithMeshes(api, new Uint8Array(readFileSync(file))).model
+      const slabs = model.storeys.flatMap((s) => s.slabs ?? [])
+      const states: Record<string, number> = {}
+      for (const o of verticalObjects(model).flatMap((x) => slabOpenings(model, x))) states[o.state] = (states[o.state] ?? 0) + 1
+      expect({ slabs: slabs.length, bimOpenings: slabs.reduce((n, s) => n + s.openings.length, 0), states }).toEqual(want)
+    }, 900_000)
+  }
 })

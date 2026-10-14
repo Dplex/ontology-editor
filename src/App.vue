@@ -119,6 +119,7 @@ import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './l
 import { drawPipe } from './lib/manual-pipe'
 import { storeyAtZ, storeyElevationProblem, storeysEntered, type PathPoint } from './lib/storey-z'
 import { insertPipeVertex, removePipeVertex } from './lib/pipe-vertex'
+import { SLAB_OPENING_LABEL, slabOpenings } from './lib/slab-opening'
 import { branchPipe } from './lib/branch-pipe'
 import { planOffsetHeight, setOffsetHeight } from './lib/offset-edit'
 import { removalImpact } from './lib/removal-impact'
@@ -2663,7 +2664,7 @@ const selectedVertical = computed(() => {
   if (!found) return null
   const { storey, part } = found.object.parts[found.index]
   const spaces = partSpaces(storey, part).map((sid) => ({ id: sid, name: spaceNameOf(sid) }))
-  return { ...found, storey, part, spaces, label: VERTICAL_KIND_LABEL[part.kind] }
+  return { ...found, storey, part, spaces, label: VERTICAL_KIND_LABEL[part.kind], openings: slabOpenings(m, found.object) }
 })
 /** 다중층 뷰(OE-ML-01)의 보기 범위. 아래 "다중층 뷰" 묶음이 다룬다. 고른 계단 조각의 칠하기가 먼저 읽어 여기 둔다. */
 const multiView = ref<{ from: string; to: string; back: string | null } | null>(null)
@@ -12487,6 +12488,17 @@ function rollbackFromReport() {
                   </dd>
                 </div>
               </dl>
+              <!-- 슬래브 개구부(OE-ML-03, slab-opening.ts). 지나는 층 바닥마다 판정과 까닭. 저장하지 않고 지금 형상에서 계산한다. -->
+              <table v-if="selectedVertical.openings.length" class="slab-openings" data-testid="slab-openings">
+                <caption>슬래브 개구부 <Src kind="calc" /></caption>
+                <tbody>
+                  <tr v-for="o in selectedVertical.openings" :key="o.storeyId" :class="`slab-${o.state}`">
+                    <th scope="row">{{ floorName(o.storeyId) }} 바닥</th>
+                    <td><span :class="['slab-state', o.state]">{{ SLAB_OPENING_LABEL[o.state] }}</span></td>
+                    <td class="muted">{{ o.reason }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
             <div class="picked-actions">
               <button type="button" class="ghost" @click="selectedVerticalId = null">선택 해제</button>

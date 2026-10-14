@@ -17,6 +17,7 @@ import type {
   EquipmentRole,
   Model,
   Opening,
+  Slab,
   Space,
   Storey,
   System,
@@ -34,7 +35,8 @@ import { equipmentKind, equipmentKindOf, FLUID_KINDS, isFlowlessKind, omniclassC
 import { CAPACITY_KINDS, capacityQuantity, capacityRank } from '../capacity'
 import { flowToCmh, REVIT_SPACE_AIRFLOW, SPACE_AIRFLOW_PROPERTIES, SPACE_AIRFLOW_PSETS } from '../airflow'
 import { inferFlowByRules } from '../flow-rules'
-import { footprintRings, meshBottom, meshHeight, openingPlacement, spacesBesideOpening } from './element-geometry'
+import { footprintRings, meshBottom, meshHeight, meshPlanPoints, openingPlacement, slabTop, spacesBesideOpening } from './element-geometry'
+import { convexHull } from '../polygon'
 import { emptyEvidence, pickCeiling, type CeilingEvidence } from '../ceiling'
 import { storeyHeights } from '../storey-height'
 import { segmentAxisOf } from '../conduit-mesh'
@@ -57,6 +59,9 @@ export type ImportProgress = { stage: string; step: number; steps: number; done?
 export type OnProgress = (p: ImportProgress) => void
 
 /** 임포트 단계. 화면이 "3/6" 처럼 몇 번째인지 보인다. 순서를 바꾸면 여기와 read() 를 같이 고친다. */
+/** 개구부 판정에 쓰는 슬래브 종류(IfcSlabTypeEnum). 계단참(LANDING)은 계단의 일부라 뺀다. */
+const SLAB_KINDS: Record<string, Slab['kind']> = { FLOOR: 'floor', BASESLAB: 'base', ROOF: 'roof' }
+
 export const IMPORT_STAGES = ['파일 여는 중', '공간·벽 읽는 중', '설비·계통 읽는 중', '형상 읽는 중', '소속·연결 계산 중', '흐름 방향 계산 중'] as const
 
 export type ElementMesh = {
@@ -1537,6 +1542,8 @@ function read(
     const bimObjectsOf = new Map<string, { expressID: number; id: string; name: string; item: string }[]>()
     /** 층 GlobalId → 그 층에 속한 계단(IfcStair). 형상을 읽은 뒤 수직 관통 오브젝트로 만든다(OE-ML-02). */
     const stairsOf = new Map<string, { expressID: number; id: string; name: string }[]>()
+    /** 층 GlobalId → 그 층의 바닥·기초·지붕 슬래브. 형상을 읽은 뒤 윗면을 잰다(OE-ML-03, slab-opening.ts). 계단참(LANDING)은 뺀다. */
+    const slabsOf = new Map<string, { expressID: number; id: string; name: string; kind: Slab['kind'] }[]>()
     const storeys: Storey[] = r.ids(WebIFC.IFCBUILDINGSTOREY).map((storeyID) => {
       const e = r.line(storeyID)
       const storeyGlobalID = (val(e?.GlobalId) as string) ?? `storey-${storeyID}`
@@ -1580,6 +1587,11 @@ function read(
           case WebIFC.IFCSTAIR:
             stairsOf.set(storeyGlobalID, [...(stairsOf.get(storeyGlobalID) ?? []), { expressID: elementID, id, name }])
             break
+          case WebIFC.IFCSLAB: {
+            const kind = SLAB_KINDS[String(val(el?.PredefinedType) ?? '')]
+            if (withMeshes && kind) slabsOf.set(storeyGlobalID, [...(slabsOf.get(storeyGlobalID) ?? []), { expressID: elementID, id, name, kind }])
+            break
+          }
           // 가구(성수 10층 인테리어 314개). 형상을 읽는 임포트에서만 추가 공간 오브젝트가 된다.
           case WebIFC.IFCFURNISHINGELEMENT:
           case WebIFC.IFCFURNITURE:
@@ -1895,6 +1907,35 @@ function read(
         }
       }
       if (flat) warnings.push(`계단 ${stairs.length}개 중 ${flat}개는 다른 층에 닿지 않아(한 층 안의 몇 계단이거나 형상이 없음) 수직 관통 오브젝트로 만들지 않았습니다.`)
+    }
+    // 슬래브 윗면과 슬래브를 뚫은 BIM 개구부(OE-ML-03). 형상을 읽는 임포트에서만 — 개구부 판정이 형상에서 나온다.
+    if (withMeshes && slabsOf.size) {
+      const slabIDs = new Set([...slabsOf.values()].flat().map((x) => x.expressID))
+      const holesOf = new Map<number, number[]>()
+      for (const relID of r.ids(WebIFC.IFCRELVOIDSELEMENT)) {
+        const rel = r.line(relID)
+        const slab = ref(rel?.RelatingBuildingElement)
+        const hole = ref(rel?.RelatedOpeningElement)
+        if (slab !== null && hole !== null && slabIDs.has(slab)) holesOf.set(slab, [...(holesOf.get(slab) ?? []), hole])
+      }
+      const holeIDs = [...holesOf.values()].flat()
+      const slabMeshes = readMeshes(api, model, new Set([...slabIDs, ...holeIDs]), (id) => String(id))
+      let noTop = 0
+      for (const storey of result.storeys) {
+        for (const s of slabsOf.get(storey.id) ?? []) {
+          const top = slabTop(slabMeshes.get(String(s.expressID)))
+          if (!top) {
+            noTop++
+            continue
+          }
+          const openings = (holesOf.get(s.expressID) ?? []).flatMap((h) => {
+            const ring = convexHull(meshPlanPoints(slabMeshes.get(String(h))))
+            return ring.length >= 3 ? [{ id: globalIdOf(h), footprint: ring.map(([x, y]) => [Math.round(x * 100) / 100, Math.round(y * 100) / 100] as Vec2) }] : []
+          })
+          storey.slabs = [...(storey.slabs ?? []), { id: s.id, name: s.name, kind: s.kind, top: top.top, tris: top.tris, openings }]
+        }
+      }
+      if (noTop) warnings.push(`슬래브 ${slabIDs.size}개 중 ${noTop}개는 위를 보는 면이 없어(형상이 없거나 기울어진 지붕) 개구부 판정에 쓰지 않습니다.`)
     }
     // BIM 의 가구·주변 모델(space-object.ts). 형상에서 축 정렬 상자를 재 추가 공간 오브젝트로 둔다. 형상은 재고 버린다(3D 는 항목 모델로 그린다).
     if (withMeshes && bimObjectsOf.size) {
