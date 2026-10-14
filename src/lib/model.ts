@@ -43,6 +43,14 @@ export type Space = {
    */
   bimArea?: { m2: number; property: string }
   /**
+   * 방이 말한 방 높이(OE-BIM-03, 층 바닥에서 m). Revit `Unbounded Height`·ArchiCAD 기준 물량 `Height`, 둘 다 없으면 방 형상(SweptSolid)의
+   * 압출 깊이다. 없으면 키가 없고 화면이 "모름" 이다. 설비 판본(MEP Space)의 방 높이는 층고와 같아 반자가 아니다 — 층 반자 높이를 고를 때
+   * 걸러지고(ceiling.ts), 여기에는 읽은 그대로 둔다.
+   */
+  roomHeight?: { m: number; property: string }
+  /** 방이 말한 반자 높이(FinishCeilingHeight, 층 바닥에서 m). 없으면 키가 없고 화면이 "모름" 이다. 층의 반자 높이(Storey.ceiling)는 이 값들의 가운데다. */
+  ceilingHeight?: { m: number; property: string }
+  /**
    * `kind` 를 누가 정했나. `bim` 이면 `omniclass` 에서, `dict` 면 이름 사전에서 읽었고, `edit` 면 사람이 정했다(OE-SPC-17, edit.ts 의
    * setSpacesKind). 사람이 정한 종류는 이름을 고쳐도 그대로다.
    */

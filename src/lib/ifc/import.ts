@@ -1094,6 +1094,7 @@ function spaceOf(
   omniclass: Map<number, { code: string; source: 'classification' | 'property' }>,
   bimAreas: Map<number, { m2: number; property: string }> = new Map(),
   airflows: Map<number, NonNullable<Space['designAirflow']>> = new Map(),
+  heights: Map<number, { finish?: [number, string]; room?: [number, string] }> = new Map(),
 ): Space {
   const e = r.line(expressID)
   const id = (val(e?.GlobalId) as string) ?? `space-${expressID}`
@@ -1118,7 +1119,16 @@ function spaceOf(
     ...roomKindFields((val(e?.Name) as string) ?? '', longName, omniclass.get(expressID)?.code ?? null),
     ...(bimAreas.has(expressID) ? { bimArea: bimAreas.get(expressID)! } : {}),
     ...(airflows.has(expressID) ? { designAirflow: { ...airflows.get(expressID)! } } : {}),
+    ...spaceHeights(heights.get(expressID)),
   }
+}
+
+/** 방이 말한 방 높이·반자 높이(OE-BIM-03). 없는 값은 키를 두지 않는다 — 화면이 "모름" 으로 보인다(0 이나 층고로 채우지 않는다). */
+function spaceHeights(said: { finish?: [number, string]; room?: [number, string] } | undefined): Pick<Space, 'roomHeight' | 'ceilingHeight'> {
+  const out: Pick<Space, 'roomHeight' | 'ceilingHeight'> = {}
+  if (said?.room) out.roomHeight = { m: Math.round(said.room[0] * 1000) / 1000, property: said.room[1] }
+  if (said?.finish) out.ceilingHeight = { m: Math.round(said.finish[0] * 1000) / 1000, property: said.finish[1] }
+  return out
 }
 
 function systemKindFields(name: string, objectType: string, predefined: string | null): Pick<System, 'kind' | 'kindSource' | 'fluid' | 'fluidSource'> {
@@ -1600,7 +1610,7 @@ function read(
         elevation: ((val(e?.Elevation) as number) ?? 0) * scale,
         ...(declaredHeights.has(storeyID) ? { declaredHeight: declaredHeights.get(storeyID)! } : {}),
         spaces: (spacesByStorey.get(storeyID) ?? []).map((id) =>
-          spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass, bimAreas, airflows),
+          spaceOf(r, id, globalIdOf, boundaries, noFootprint, omniclass, bimAreas, airflows, ceilingBySpace),
         ),
         walls,
         openings,
