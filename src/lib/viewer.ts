@@ -519,6 +519,18 @@ export type Viewer = {
    */
   setPlaceMode(elevation: number | null): void
   onPlace(handler: (at: Vec2) => void): void
+  /** 놓기 모드에서 마우스가 가리키는 바닥 점(IFC x, y). 벗어나면 null. 스냅 자리를 미리 보이는 데 쓴다(OE-UI-06). */
+  onPlaceHover(handler: ((at: Vec2 | null) => void) | null): void
+  /**
+   * 스냅 표시(OE-UI-06). 붙을 자리(점)와, 변에 붙었으면 그 변을 높이 `elevation` 바닥 위에 그린다. 그리드 교점이면 점만이다.
+   * null 이면 지운다.
+   */
+  setSnapMarker(marker: { at: Vec2; kind: 'vertex' | 'edge' | 'grid'; edge?: [Vec2, Vec2]; elevation: number } | null): void
+  /**
+   * 끄는 동안 자리를 보정한다(OE-UI-07 그리드, OE-UI-06 스냅). 설비·오브젝트는 옮긴 거리(IFC 평면)를, 물리존 꼭짓점은 놓일 점을
+   * 받아 보정한 값을 돌려준다. 끄는 동안의 3D 와 놓을 때 넘기는 값이 같다. null 이면 보정하지 않는다.
+   */
+  setDragSnap(snap: { delta(kind: 'equipment' | 'object', id: string, delta: Vec2): Vec2; point(spaceId: string, index: number, at: Vec2): Vec2 } | null): void
   /**
    * 시점이 바뀌면 부른다(한 프레임에 한 번). 바라보는 점의 IFC 평면 좌표와, 그 거리에서 화면 가로 절반이 덮는 길이(m).
    * 비교 판(ExportCompare.vue, ADR-0061)의 평면이 3D 를 따라간다. null 이면 뗀다.
@@ -682,6 +694,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     hoverCb(target, at)
   }
   let placeElevation: number | null = null
+  let placeHoverHandler: ((at: Vec2 | null) => void) | null = null
+  let dragSnap: { delta(kind: 'equipment' | 'object', id: string, delta: Vec2): Vec2; point(spaceId: string, index: number, at: Vec2): Vec2 } | null = null
   let placeHandler: (at: Vec2) => void = () => {}
 
   // **움직일 때만 다시 그린다.** 가만히 있을 때도 매 프레임 1만 8천 개를 다시 그리면 화면 전체(스크롤,
@@ -827,6 +841,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let gridCount = 0
   scene.add(backdrop)
   scene.add(gridGroup)
+  // 스냅 표시(OE-UI-06). 붙을 자리의 고리와 붙은 변.
+  const snapGroup = new Group()
+  scene.add(snapGroup)
+  let snapState: { at: Vec2; kind: 'vertex' | 'edge' | 'grid' } | null = null
   let backdropCorners: readonly [Vec2, Vec2, Vec2, Vec2] | null = null
   let dimIds: ReadonlySet<string> = new Set()
   let frozenIds: ReadonlySet<string> = new Set()
@@ -1717,17 +1735,25 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) > 4) drag.moved = true
       const at = new Vector3()
       if (!rayAt(e.clientX, e.clientY).intersectPlane(drag.plane, at)) return
+      // 보정(dragSnap)은 IFC 평면에서 한다. 화면은 x 가 같고 z 가 IFC y 의 부호를 뒤집은 것이다(toScene).
       if (drag.kind === 'equipment') {
-        drag.delta.set(at.x - drag.start.x, 0, at.z - drag.start.z)
+        const [dx, dy] = dragSnap ? dragSnap.delta('equipment', drag.part.id, [at.x - drag.start.x, -(at.z - drag.start.z)]) : [at.x - drag.start.x, -(at.z - drag.start.z)]
+        drag.delta.set(dx, 0, -dy)
         placePart(drag, drag.delta)
         drawArrows()
       } else if (drag.kind === 'object') {
-        const step = new Vector3(at.x - drag.start.x, 0, at.z - drag.start.z).sub(drag.delta)
+        const [dx, dy] = dragSnap ? dragSnap.delta('object', drag.target.id, [at.x - drag.start.x, -(at.z - drag.start.z)]) : [at.x - drag.start.x, -(at.z - drag.start.z)]
+        const step = new Vector3(dx, 0, -dy).sub(drag.delta)
         drag.delta.add(step)
         drag.target.node.position.add(step)
         drag.target.box.translate(step)
       } else {
         drag.at.copy(at).add(drag.offset)
+        if (dragSnap && handleSpace) {
+          const [x, y] = dragSnap.point(handleSpace.id, drag.index, [drag.at.x, -drag.at.z])
+          drag.at.x = x
+          drag.at.z = -y
+        }
         moveHandle(drag.index, drag.at)
       }
       dirty = true
@@ -1739,6 +1765,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   })
   canvas.addEventListener('pointerleave', () => {
     hoverAt = null
+    if (placeElevation !== null) placeHoverHandler?.(null)
     if (!drag) canvas.style.cursor = ''
     hoverHandler(null, null)
   })
@@ -1768,6 +1795,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (placeElevation !== null) {
       canvas.style.cursor = 'crosshair'
       hoverHandler(null, null)
+      if (placeHoverHandler) {
+        const at = new Vector3()
+        const plane = new Plane(new Vector3(0, 1, 0), -toScene([0, 0, placeElevation])[1])
+        placeHoverHandler(hoverAt && rayAt(hoverAt.x, hoverAt.y).intersectPlane(plane, at) ? [at.x, -at.z] : null)
+      }
       return
     }
     if (!hoverAt || drag) {
@@ -2826,6 +2858,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       },
       /** 그린 그리드 선 수(OE-UI-07). */
       grid: () => gridCount,
+      snap: () => snapState,
       /** 고른(파랗게 칠한) 조각 id. */
       verticalSelected: () => [...selectedVertical],
       /** 진입·종료 표시 수(보이는 층만). */
@@ -3808,6 +3841,44 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     onPlace(handler) {
       placeHandler = handler
+    },
+
+    onPlaceHover(handler) {
+      placeHoverHandler = handler
+    },
+
+    setSnapMarker(marker) {
+      for (const o of snapGroup.children) {
+        const obj = o as Mesh | Line
+        obj.geometry.dispose()
+        ;(obj.material as MeshBasicMaterial | LineBasicMaterial).dispose()
+      }
+      snapGroup.clear()
+      snapState = marker ? { at: marker.at, kind: marker.kind } : null
+      dirty = true
+      if (!marker) return
+      // 그리드(0.115)보다 조금 위에, 깊이를 무시하고 그려 바닥판·벽에 묻히지 않게 한다.
+      const y = marker.elevation + 0.13
+      const color = marker.kind === 'grid' ? 0x8a93a3 : 0xf59e0b
+      const ring = new Mesh(new RingGeometry(marker.kind === 'vertex' ? 0.12 : 0.08, marker.kind === 'vertex' ? 0.2 : 0.14, 24), new MeshBasicMaterial({ color, depthTest: false, transparent: true, side: DoubleSide }))
+      ring.rotation.x = -Math.PI / 2
+      ring.position.set(marker.at[0], y, -marker.at[1])
+      ring.raycast = () => {}
+      ring.renderOrder = 10
+      snapGroup.add(ring)
+      if (marker.edge) {
+        const [a, b] = marker.edge
+        const g = new BufferGeometry()
+        g.setAttribute('position', new BufferAttribute(new Float32Array([a[0], y, -a[1], b[0], y, -b[1]]), 3))
+        const line = new Line(g, new LineBasicMaterial({ color, depthTest: false, transparent: true }))
+        line.raycast = () => {}
+        line.renderOrder = 10
+        snapGroup.add(line)
+      }
+    },
+
+    setDragSnap(snap) {
+      dragSnap = snap
     },
 
     onView(handler) {
