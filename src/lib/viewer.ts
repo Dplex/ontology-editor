@@ -345,6 +345,11 @@ export type SpaceHandles = {
 
 /** 수직 관통 오브젝트 구간 바꾸기(OE-ML-08)에서 적용 전에 사람이 그린 형상·찍은 지점. 점선으로 그린다. */
 /** 적용 전 미리보기. `path` 는 그리는 중인 층간 배관의 경로(공통 좌표)다(OE-ML-12). */
+/**
+ * 회전 손잡이(OE-OBJ-15 AC6). `center` 둘레 반지름 `radius` 의 고리와 `angle`(평면 방위 °, +x 에서 반시계) 방향의 손잡이다. `guide` 가 있으면
+ * 그 방향으로 중심을 지나는 점선(자석 스냅의 기준선)을, `label` 이 있으면 손잡이 옆에 글을 띄운다.
+ */
+export type RotateHandle = { center: Vec2; elevation: number; radius: number; angle: number; guide: number | null; label: string }
 export type VerticalPreview = { storeyId: string; elevation: number; footprint?: readonly Vec2[]; point?: Vec2; path?: readonly Vec3[] }
 
 /** 마우스 아래에 있는 것. 설비·물리존(편집 모드)·연결 화살표(편집 모드). */
@@ -411,6 +416,13 @@ export type Viewer = {
   setSpaceHandles(space: SpaceHandles | null): void
   /** 손잡이를 끌어 놓으면 부른다. IFC 평면 좌표로 넘긴다. */
   onVertexMove(handler: (spaceId: string, index: number, to: Vec2) => void): void
+  /** 회전 손잡이를 그린다. null 이면 지운다. 화면은 끄는 동안 이 값을 다시 넣어 손잡이·기준선·글을 옮긴다. */
+  setRotateHandle(spec: RotateHandle | null): void
+  /**
+   * 회전 손잡이 끌기. `move` 는 마우스가 가리키는 방위(°)와 Alt 를 눌렀는지, `end` 는 버튼을 뗀 것, `cancel` 은 Esc·창 포커스 잃음이다.
+   * Shift+왼쪽 드래그는 손잡이 위에서 시작해도 시점 회전이라 여기로 오지 않는다(OE-OBJ-15).
+   */
+  onRotate(handler: (phase: 'move' | 'end' | 'cancel', angle: number, free: boolean) => void): void
   /** 연결 화살표. 빈 배열이면 지운다. */
   setArrows(arrows: readonly Arrow[]): void
   /** 고른 계통의 흐름을 달리는 빛으로 보인다(flow-pulse.ts). 색은 계통 색이다. null 이면 걷는다. */
@@ -759,6 +771,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let moveHandler: (id: string, delta: Vec3) => void = () => {}
   let spacePickHandler: (id: string | null) => void = () => {}
   let vertexHandler: (spaceId: string, index: number, to: Vec2) => void = () => {}
+  let rotateHandler: (phase: 'move' | 'end' | 'cancel', angle: number, free: boolean) => void = () => {}
   let arrowHandler: (key: string) => void = () => {}
   let elementHandler: (id: string | null) => void = () => {}
   // 벽·문·창 편집 층(E4). 누르는 자리는 판처럼 평면에서 잰다 — 벽은 외곽선 안, 문·창은 자리에서 ELEMENT_REACH 안.
@@ -878,6 +891,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     | { kind: 'equipment'; part: Part; original: Float32Array; box: Box3; plane: Plane; start: Vector3; delta: Vector3 }
     | { kind: 'object'; target: ObjectTarget; origin: Vector3; plane: Plane; start: Vector3; delta: Vector3 }
     | { kind: 'vertex'; index: number; plane: Plane; offset: Vector3; at: Vector3 }
+    | { kind: 'rotate'; plane: Plane; angle: number; free: boolean }
   let drag: (Drag & { x: number; y: number; moved: boolean }) | null = null
 
   function disposeObject(o: Line | Mesh) {
@@ -889,6 +903,87 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   /** 손잡이는 화면에서 늘 같은 크기로 보이게 한다. 성수처럼 넓은 모델에서 10cm 상자는 점도 안 된다. */
   function scaleHandles() {
     for (const h of handles) h.scale.setScalar(camera.position.distanceTo(h.position) * 0.012 * (h.userData.size ?? 1))
+    if (rotateKnob) rotateKnob.scale.setScalar(camera.position.distanceTo(rotateKnob.position) * 0.016)
+  }
+
+  // --- 회전 손잡이 (OE-OBJ-15 AC6) ---------------------------------------------------------------------
+  // 고리·손잡이·기준선은 overlay 에 그리고, 각도 글은 캔버스 위 div 로 띄운다(손잡이 화면 자리를 따라간다).
+  let rotateSpec: RotateHandle | null = null
+  let rotateParts: (Line | Mesh)[] = []
+  let rotateKnob: Mesh | null = null
+  let rotateLabel: HTMLDivElement | null = null
+  function drawRotate() {
+    for (const o of rotateParts) disposeObject(o)
+    rotateParts = []
+    rotateKnob = null
+    dirty = true
+    const spec = rotateSpec
+    if (!spec) {
+      rotateLabel?.remove()
+      rotateLabel = null
+      return
+    }
+    const y = toScene([0, 0, spec.elevation])[1] + 0.05
+    const at = (a: number, r: number) => new Vector3(spec.center[0] + Math.cos(a) * r, y, -(spec.center[1] + Math.sin(a) * r))
+    const ring = new LineLoop(
+      new BufferGeometry().setFromPoints(Array.from({ length: 72 }, (_, i) => at((i / 72) * Math.PI * 2, spec.radius))),
+      new LineBasicMaterial({ color: ARCH_COLORS.selected, transparent: true, opacity: 0.8, depthTest: false }),
+    )
+    ring.renderOrder = 10
+    overlay.add(ring)
+    rotateParts.push(ring as unknown as Line)
+    const rad = (spec.angle * Math.PI) / 180
+    const spoke = new Line(new BufferGeometry().setFromPoints([at(0, 0), at(rad, spec.radius)]), new LineBasicMaterial({ color: ARCH_COLORS.selected, depthTest: false }))
+    spoke.renderOrder = 10
+    overlay.add(spoke)
+    rotateParts.push(spoke)
+    if (spec.guide !== null) {
+      const g = (spec.guide * Math.PI) / 180
+      const guide = new Line(
+        new BufferGeometry().setFromPoints([at(g + Math.PI, 40), at(g, 40)]),
+        new LineDashedMaterial({ color: 0xe0803a, dashSize: 0.5, gapSize: 0.35, depthTest: false }),
+      )
+      guide.computeLineDistances()
+      guide.renderOrder = 10
+      overlay.add(guide)
+      rotateParts.push(guide)
+    }
+    const knob = new Mesh(new OctahedronGeometry(1, 2), new MeshBasicMaterial({ color: ARCH_COLORS.selected, depthTest: false }))
+    knob.position.copy(at(rad, spec.radius))
+    knob.renderOrder = 11
+    overlay.add(knob)
+    rotateParts.push(knob)
+    rotateKnob = knob
+    scaleHandles()
+    if (!rotateLabel) {
+      rotateLabel = document.createElement('div')
+      rotateLabel.className = 'rotate-label'
+      rotateLabel.dataset.testid = 'rotate-label'
+      Object.assign(rotateLabel.style, { position: 'absolute', pointerEvents: 'none', zIndex: '5', transform: 'translate(12px, -50%)' })
+      canvas.parentElement?.appendChild(rotateLabel)
+    }
+    rotateLabel.textContent = spec.label
+    placeRotateLabel()
+  }
+  /** 각도 글을 손잡이의 화면 자리에 둔다. 시점이 바뀌면 다시 둔다. */
+  function placeRotateLabel() {
+    if (!rotateLabel || !rotateKnob) return
+    // toScreen 은 창 좌표다. 글은 캔버스를 감싼 칸 안에 두므로 그 칸의 왼쪽 위를 뺀다.
+    const p = toScreen(rotateKnob.position)
+    const parent = canvas.parentElement?.getBoundingClientRect()
+    if (!p || !parent) {
+      rotateLabel.style.display = 'none'
+      return
+    }
+    rotateLabel.style.display = rotateLabel.textContent ? '' : 'none'
+    rotateLabel.style.left = `${p.x - parent.left}px`
+    rotateLabel.style.top = `${p.y - parent.top}px`
+  }
+  /** 손잡이를 눌렀는가. 화면에서 손잡이 자리로부터 14px 안이다. */
+  function hitRotateKnob(x: number, y: number): boolean {
+    if (!rotateKnob) return false
+    const at = toScreen(rotateKnob.position)
+    return !!at && Math.hypot(at.x - x, at.y - y) <= 14
   }
 
   function drawHandles() {
@@ -1510,6 +1605,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     canvas.style.cursor = ''
     dirty = true
     if (hoverAt) hoverPending = true
+    if (d.kind === 'rotate') {
+      rotateHandler(commit && d.moved ? 'end' : 'cancel', d.angle, d.free)
+      return
+    }
     if (d.kind === 'object') {
       // 놓을지는 화면이 정한다(겹치면 막는다). 막히면 setSpaceObjects 로 다시 그려져 원래 자리로 돌아간다.
       if (commit && d.moved) objectMoveHandler(d.target.id, [d.delta.x, -d.delta.z])
@@ -1543,6 +1642,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (e.button !== 0) return
       // 분해도는 화면에서만 띄운 자리라 거기서 끌면 엉뚱한 곳으로 옮겨진다. 펼친 동안은 끌지 않는다(시점 이동은 된다).
       if (explodedParts) return
+      // 회전 손잡이(OE-OBJ-15 AC6). Shift 를 누른 채 시작하면 손잡이 위여도 시점 회전이다 — 여기서 받지 않고 컨트롤로 넘긴다.
+      if (rotateSpec && !e.shiftKey && hitRotateKnob(e.clientX, e.clientY)) {
+        const plane = new Plane(new Vector3(0, 1, 0), -(toScene([0, 0, rotateSpec.elevation])[1] + 0.05))
+        drag = { kind: 'rotate', plane, angle: rotateSpec.angle, free: false, x: e.clientX, y: e.clientY, moved: false }
+        controls.enabled = false
+        canvas.setPointerCapture(e.pointerId)
+        e.stopImmediatePropagation()
+        canvas.style.cursor = 'grabbing'
+        return
+      }
       if (!editMode && !(handleEdit && hitHandle(e.clientX, e.clientY) !== null)) return
       // 화살표 위에서 누른 것은 떼면서 방향을 바꾸는 누르기다. 끌기를 시작하지 않는다.
       if (hitArrow(e.clientX, e.clientY)) return
@@ -1633,7 +1742,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const kind = drag.kind
       endDrag(moved)
       // 설비를 잡았다가 끌지 않고 뗀 것은 누르기다. 아래로 내려가 평소처럼 맨 앞의 것을 고른다.
-      if (moved || kind === 'vertex') {
+      if (moved || kind === 'vertex' || kind === 'rotate') {
         pressedAt = null
         return
       }
@@ -1736,6 +1845,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const at = new Vector3()
       if (!rayAt(e.clientX, e.clientY).intersectPlane(drag.plane, at)) return
       // 보정(dragSnap)은 IFC 평면에서 한다. 화면은 x 가 같고 z 가 IFC y 의 부호를 뒤집은 것이다(toScene).
+      if (drag.kind === 'rotate') {
+        if (!rotateSpec) return
+        const a = (Math.atan2(-at.z - rotateSpec.center[1], at.x - rotateSpec.center[0]) * 180) / Math.PI
+        drag.angle = ((a % 360) + 360) % 360
+        drag.free = e.altKey
+        rotateHandler('move', drag.angle, drag.free)
+        dirty = true
+        return
+      }
       if (drag.kind === 'equipment') {
         const [dx, dy] = dragSnap ? dragSnap.delta('equipment', drag.part.id, [at.x - drag.start.x, -(at.z - drag.start.z)]) : [at.x - drag.start.x, -(at.z - drag.start.z)]
         drag.delta.set(dx, 0, -dy)
@@ -1968,7 +2086,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       dirty = true
     }
     if (dirty) {
-      if (handles.length) scaleHandles()
+      if (handles.length || rotateKnob) scaleHandles()
+      if (rotateLabel) placeRotateLabel()
       const t0 = performance.now()
       renderer.render(scene, camera)
       renders++
@@ -2777,6 +2896,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           : null,
       /** 깐 평면도 배경의 귀퉁이(IFC 평면). 없으면 null. */
       background: () => backdropCorners,
+      /** 회전 손잡이의 화면 자리(창 좌표)와 손잡이 둘레의 중심·반지름. 손잡이가 없으면 null. */
+      rotateHandle: () => {
+        if (!rotateKnob || !rotateSpec) return null
+        const knob = toScreen(rotateKnob.position)
+        const y = toScene([0, 0, rotateSpec.elevation])[1] + 0.05
+        const center = toScreen(new Vector3(rotateSpec.center[0], y, -rotateSpec.center[1]))
+        return knob && center ? { knob, center, angle: rotateSpec.angle, guide: rotateSpec.guide, spec: rotateSpec } : null
+      },
+      /** 평면 점(IFC x·y, 높이 z)의 화면 자리. 회전 손잡이를 어느 방향으로 끌지 정할 때 쓴다. */
+      screenOf: (p: Vec3) => toScreen(new Vector3(...toScene(p))),
       /** 지금 도는 움직임(카메라 비행·미끄러지는 설비 수·번쩍이는 방 수). */
       /** 카메라 자리와 바라보는 점(three.js 좌표). 시점 조작(OE-OBJ-15)이 이동인지 회전인지 가른다 — 이동은 둘의 차가 그대로다. */
       camera: () => ({ position: camera.position.toArray(), target: controls.target.toArray() }),
@@ -3252,6 +3381,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     onVertexMove(handler) {
       vertexHandler = handler
+    },
+
+    setRotateHandle(spec) {
+      rotateSpec = spec
+      drawRotate()
+    },
+
+    onRotate(handler) {
+      rotateHandler = handler
     },
 
     setArrows(arrows) {
@@ -3947,6 +4085,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       canvas.removeEventListener('pointermove', onFlyMove)
       canvas.removeEventListener('wheel', onFlyWheel)
       navCube?.dispose()
+      rotateLabel?.remove()
       clearCascade()
       CASCADE_CONE.dispose()
       if (import.meta.env.MODE === 'e2e') delete (window as unknown as { __viewer?: unknown }).__viewer

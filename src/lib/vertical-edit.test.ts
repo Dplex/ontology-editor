@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connection, Equipment, Model, Space, Storey, Vec2, Vec3, Wall } from './model'
 import { stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
-import { COMMON_AXIS_LOCKED, createVertical, setElevatorStop, setEscalatorDirection, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
+import { COMMON_AXIS_LOCKED, createVertical, rotateVertical, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, setElevatorStop, setEscalatorDirection, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
 import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
 import { BUILDING, joinParts, splitByStorey } from './storey-drafts'
@@ -73,7 +73,7 @@ describe('수직 관통 오브젝트 전체 이동 (OE-ML-07)', () => {
     expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'st')).toMatchObject({ a: 'hall1', b: 'hall2' })
   })
 
-  it('이동량이 0 이거나 숫자가 아니면 적용하지 않는다 [OE-ML-07#4~]', () => {
+  it('이동량이 0 이거나 숫자가 아니면 적용하지 않는다 [OE-ML-07#5~]', () => {
     const m = building()
     const before = structuredClone(partsOf(m, 'st'))
     expect(moveVertical(m, 'st', [0, 0])).toBe(false)
@@ -82,7 +82,7 @@ describe('수직 관통 오브젝트 전체 이동 (OE-ML-07)', () => {
     expect(partsOf(m, 'st')).toEqual(before)
   })
 
-  it('V-03: 연 때보다 벽과 더 겹치거나 물리존 경계를 넘은 층을 적고, 연 때 자리에서는 적지 않는다 [OE-ML-07#4~]', () => {
+  it('V-03: 연 때보다 벽과 더 겹치거나 물리존 경계를 넘은 층을 적고, 연 때 자리에서는 적지 않는다 [OE-ML-07#5~]', () => {
     const m = building()
     const base = baselineOf(m)
     const original = base.verticals!.get('st')!.footprints
@@ -136,7 +136,7 @@ describe('수직 관통 오브젝트 삭제 (OE-ML-09)', () => {
 })
 
 describe('되돌리기·편집 파일 (OE-ML-07·09)', () => {
-  it('여러 층의 옮기기·지우기를 스냅샷 하나로 되돌린다 [OE-ML-01#9~] [OE-ML-07#5~] [OE-ML-09#5~]', () => {
+  it('여러 층의 옮기기·지우기를 스냅샷 하나로 되돌린다 [OE-ML-01#9~] [OE-ML-07#7~] [OE-ML-09#5~]', () => {
     const m = building()
     const before = structuredClone(m.storeys.map((s) => s.verticalParts))
     const snap = snapshotVerticals(m)
@@ -146,7 +146,7 @@ describe('되돌리기·편집 파일 (OE-ML-07·09)', () => {
     expect(m.storeys.map((s) => s.verticalParts)).toEqual(before)
   })
 
-  it('연 때와 견준 이동량·지움을 편집 파일에 적고, 새로 연 같은 BIM 에 얹으면 같은 모습이며 지운 계단은 되살아나지 않는다 [OE-ML-09#5~] [OE-ML-07#5~]', () => {
+  it('연 때와 견준 이동량·지움을 편집 파일에 적고, 새로 연 같은 BIM 에 얹으면 같은 모습이며 지운 계단은 되살아나지 않는다 [OE-ML-09#5~] [OE-ML-07#7~]', () => {
     const a = building()
     const base = baselineOf(a)
     moveVertical(a, 'st', [0.4, 0])
@@ -211,7 +211,7 @@ describe('에스컬레이터와 엘리베이터 (OE-ML-02 · OE-ML-07)', () => {
     expect(again.storeys.map((s) => s.verticalParts)).toEqual(m.storeys.map((s) => s.verticalParts))
   })
 
-  it('에스컬레이터는 층 조각마다 형상·크기·진입/종료 지점을 고치고, 엘리베이터는 한 층만 고치지 못하며 통째로 옮겨도 모든 층 축이 같다 [OE-ML-07#2]', () => {
+  it('에스컬레이터는 층 조각마다 형상·크기·진입/종료 지점을 고치고, 엘리베이터는 한 층만 고치지 못하며 통째로 옮겨도 모든 층 축이 같다 [OE-ML-07#3]', () => {
     const { m } = made()
     expect(movePart(m, 'U_es@1F', [0.5, 0])).toBe(true)
     expect(setPartVertex(m, 'U_es@1F', 2, [1.5, 3.5])).toBe(true)
@@ -228,8 +228,83 @@ describe('에스컬레이터와 엘리베이터 (OE-ML-02 · OE-ML-07)', () => {
   })
 })
 
+describe('전체 회전 (OE-ML-07 · OE-OBJ-15)', () => {
+  const ring: Vec2[] = [[-0.5, 0], [0.5, 0], [0.5, 3], [-0.5, 3]]
+  const axis: Vec2[] = [[3, 0], [4, 0], [4, 1], [3, 1]]
+  function made() {
+    const m = tower()
+    const base = baselineOf(m)
+    createVertical(m, { id: 'U_es', kind: 'escalator', name: 'ES-1', from: '1F', to: '2F' }, new Map([['1F', { footprint: ring, entry: [0, 0.2] as Vec2 }], ['2F', { exit: [0, 2.8] as Vec2 }]]))
+    createVertical(m, { id: 'U_el', kind: 'elevator', name: 'EL-1', from: '1F', to: '3F' }, new Map([['1F', { footprint: axis }]]))
+    return { m, base }
+  }
+
+  it('계단·ES 는 시작점, EL 은 승강로 가운데를 중심으로 모든 층 조각을 같은 각도만큼 돌리고, 방위는 형상에서 잰다 [OE-ML-07#2~] [OE-OBJ-15#6~]', () => {
+    const { m } = made()
+    expect(verticalPivot(m, 'U_es')).toEqual([0, 0.2])
+    expect(verticalHeading(m, 'U_es')).toBe(90)
+    expect(rotateVertical(m, 'U_es', -90)).toBe(true)
+    const [low, high] = partsOf(m, 'U_es')
+    // 시작점은 제자리, 끝점은 시작점 둘레로 돈다 — 두 층 사이 상대 위치가 그대로다.
+    expect([low.entry, high.exit]).toEqual([[0, 0.2, 0], [2.6, 0.2, 4.5]])
+    expect(low.footprint).toEqual([[-0.2, 0.7], [-0.2, -0.3], [2.8, -0.3], [2.8, 0.7]])
+    expect(verticalHeading(m, 'U_es')).toBe(0)
+    // 사람이 만든 것은 원본이 없어 보정 표시가 없고, BIM 계단을 돌리면 보정이다.
+    expect([low.edited, high.edited]).toEqual([undefined, undefined])
+    expect(rotateVertical(m, 'st', 10)).toBe(true)
+    expect(partsOf(m, 'st').every((p) => p.edited)).toBe(true)
+
+    expect(verticalPivot(m, 'U_el')).toEqual([3.5, 0.5])
+    expect(verticalHeading(m, 'U_el')).toBe(0)
+    expect(setVerticalHeading(m, 'U_el', 30)).toBe(true)
+    expect(verticalHeading(m, 'U_el')).toBeCloseTo(30, 1)
+    // 공통 축: 세 층 조각이 같은 형상이다.
+    const shapes = partsOf(m, 'U_el').map((p) => JSON.stringify(p.footprint))
+    expect(new Set(shapes).size).toBe(1)
+    expect(rotateVertical(m, 'U_el', 0)).toBe(false)
+    expect(rotateVertical(m, 'U_el', 360)).toBe(false)
+    expect(rotateVertical(m, 'U_el', Number.NaN)).toBe(false)
+  })
+
+  it('건물 축과 가까운 벽 방향에 ±3° 안이면 붙고, Alt 면 붙지 않으며, 먼 벽에는 붙지 않는다 [OE-ML-07#2~] [OE-OBJ-15#6~]', () => {
+    expect(snapHeading(2.5)).toEqual({ angle: 0, by: '건물 축' })
+    expect(snapHeading(268)).toEqual({ angle: 270, by: '건물 축' })
+    expect(snapHeading(3.5)).toEqual({ angle: 3.5, by: null })
+    expect(snapHeading(2.5, [], true)).toEqual({ angle: 2.5, by: null })
+    // 31° 로 비스듬한 벽. 그 방향, 직각, 반대쪽(211°)에 붙는다.
+    const r = (Math.PI * 31) / 180
+    const slanted: Vec2[] = [[0, 0], [10 * Math.cos(r), 10 * Math.sin(r)], [10 * Math.cos(r) - 0.2 * Math.sin(r), 10 * Math.sin(r) + 0.2 * Math.cos(r)], [-0.2 * Math.sin(r), 0.2 * Math.cos(r)]]
+    const storey = { walls: [wall('slant', slanted)] }
+    const walls = wallHeadings(storey, [1, 1])
+    expect(walls.map((a) => Math.round(a))).toEqual([31, 121])
+    expect(snapHeading(33, walls)).toEqual({ angle: 31, by: '벽 방향' })
+    expect(snapHeading(209, walls)).toEqual({ angle: 211, by: '벽 방향' })
+    expect(snapHeading(119, walls)).toEqual({ angle: 121, by: '벽 방향' })
+    expect(snapHeading(33, walls, true)).toEqual({ angle: 33, by: null })
+    expect(wallHeadings(storey, [40, 40])).toEqual([])
+  })
+
+  it('돌린 것은 되돌리기 한 번에 돌아오고, 편집 파일로 새로 연 모델에 얹어도 같은 방위다 [OE-ML-07#7~]', () => {
+    const { m, base } = made()
+    const snapshot = snapshotVerticals(m)
+    const before = JSON.stringify(m.storeys.map((s) => s.verticalParts))
+    rotateVertical(m, 'U_es', 45)
+    restore(m, snapshot)
+    expect(JSON.stringify(m.storeys.map((s) => s.verticalParts))).toBe(before)
+
+    rotateVertical(m, 'U_es', 45)
+    setVerticalHeading(m, 'U_el', 120)
+    const file = parseEditFile(JSON.stringify(exportEdits(m, base, 'b.ifc'))) as EditFile
+    const again = tower()
+    applyEdits(again, file)
+    expect(verticalHeading(again, 'U_es')).toBeCloseTo(135, 1)
+    expect(verticalHeading(again, 'U_el')).toBeCloseTo(120, 1)
+    expect(again.storeys.map((s) => s.verticalParts)).toEqual(m.storeys.map((s) => s.verticalParts))
+  })
+})
+
 describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () => {
-  it('한 층 조각만 옮기면 그 층 형상·지점만 가고 다른 층은 그대로다 [OE-ML-07#2~]', () => {
+  it('한 층 조각만 옮기면 그 층 형상·지점만 가고 다른 층은 그대로다 [OE-ML-07#3~]', () => {
     const m = building()
     const [low0, high0] = partsOf(m, 'st').map((p) => structuredClone(p))
     expect(movePart(m, 'st@1F', [0, 0.5])).toBe(true)
@@ -241,7 +316,7 @@ describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () =
     expect(movePart(m, 'st@3F', [1, 0])).toBe(false)
   })
 
-  it('꼭짓점을 옮겨 형상(크기)을 바꾸고, 변이 교차하는 자리는 이유와 함께 되돌린다 [OE-ML-07#2~,4~]', () => {
+  it('꼭짓점을 옮겨 형상(크기)을 바꾸고, 변이 교차하는 자리는 이유와 함께 되돌린다 [OE-ML-07#3~,5~]', () => {
     const m = building()
     const before = structuredClone(partsOf(m, 'st')[0].footprint)
     const far = before.reduce((a, p) => (p[1] > a[1] ? p : a))
@@ -257,7 +332,7 @@ describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () =
     expect(setPartVertex(m, 'st@1F', 99, [0, 0])).toBe(false)
   })
 
-  it('진입·종료 지점을 x·y 로 옮기고 높이는 그대로 둔다. 지점이 없는 조각이면 하지 않는다 [OE-ML-07#2~]', () => {
+  it('진입·종료 지점을 x·y 로 옮기고 높이는 그대로 둔다. 지점이 없는 조각이면 하지 않는다 [OE-ML-07#3~]', () => {
     const m = building()
     const z = partsOf(m, 'st')[1].exit![2]
     expect(setPartPoint(m, 'st@2F', 'exit', [0.2, 3.1])).toBe(true)
@@ -268,7 +343,7 @@ describe('층별 형상·진입/종료 지점 고치기 (OE-ML-07 후반)', () =
     expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'st')).toMatchObject({ a: 'stair1', b: 'hall2' })
   })
 
-  it('층별로 고친 것은 편집 파일에 조각을 통째로 적고(이동량 대신), 새로 연 BIM 에 얹으면 같으며 고친 조각과 원본이 구분된다 [OE-ML-07#5~] [OE-ML-02#5]', () => {
+  it('층별로 고친 것은 편집 파일에 조각을 통째로 적고(이동량 대신), 새로 연 BIM 에 얹으면 같으며 고친 조각과 원본이 구분된다 [OE-ML-07#7~] [OE-ML-02#5]', () => {
     const a = building()
     const base = baselineOf(a)
     moveVertical(a, 'st', [0.3, 0])
@@ -429,7 +504,7 @@ describe('만들기 (OE-ML-06)', () => {
     expect(planCreate(m, 'shaft', '1F', '3F')).toEqual({ refused: expect.stringContaining('3F 의 층 높이를 모릅니다') })
   })
 
-  it('샤프트는 형상 하나가 모든 층의 공통 축이고 지점이 없다. 한 층만 고치지 못하고 통째로 옮기면 축이 같이 간다 [OE-ML-06#1~] [OE-ML-07#2~]', () => {
+  it('샤프트는 형상 하나가 모든 층의 공통 축이고 지점이 없다. 한 층만 고치지 못하고 통째로 옮기면 축이 같이 간다 [OE-ML-06#1~] [OE-ML-07#3~]', () => {
     const m = tower()
     const plan = planCreate(m, 'shaft', '1F', '3F')
     expect('needs' in plan && plan.needs.map((n) => [n.storey.id, n.what])).toEqual([['1F', ['footprint']]])

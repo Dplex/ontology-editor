@@ -115,6 +115,7 @@ import {
   type CeilingView,
   type Viewer,
   type HoverTarget,
+  type RotateHandle,
 } from './lib/viewer'
 import { wallTone } from './lib/wall-view'
 import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './lib/conduit-mesh'
@@ -258,7 +259,7 @@ import {
 import type { Object3D } from 'three'
 import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL } from './lib/vertical-object'
 import type { VerticalKind } from './lib/model'
-import { COMMON_AXIS, createVertical, deleteVertical, DIRECTION_LABEL, escalatorTravel, setElevatorStop, setEscalatorDirection, STOP_LABEL, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
+import { COMMON_AXIS, createVertical, deleteVertical, rotateVertical, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, DIRECTION_LABEL, escalatorTravel, setElevatorStop, setEscalatorDirection, STOP_LABEL, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -2513,6 +2514,8 @@ watch([model, canvas], ([m, el]) => {
       if (o) changeObjects(id, `${o.object.name} 옮김`, (m) => moveSpaceObject(m, id, [cm(delta[0]), cm(delta[1])]))
     })
     viewer.onVertexMove(dropVertex)
+    viewer.onRotate(onRotate)
+    viewer.setRotateHandle(rotateHandle.value)
     viewer.onArrowClick(cycleFlow)
     viewer.setWallsVisible(showWalls.value)
     viewer.setEditMode(editing.value && !multiView.value)
@@ -2794,6 +2797,102 @@ function applyVerticalShift() {
     return
   }
   if (moveSelectedVertical(d)) verticalShift.value = ['', '']
+}
+// --- 전체 회전 (OE-OBJ-15 AC6 · OE-ML-07 AC2) ---------------------------------------------------------
+//
+// 다중층 뷰의 편집에서 고른 오브젝트 둘레에 회전 손잡이를 둔다. 손잡이를 끌면 건물 축·가까운 벽 방향 ±3° 에 붙고(Alt 면 안 붙음), 떼면
+// 모든 층 조각이 같은 중심에서 그 각도만큼 돈다. 끄는 동안은 돌린 모양을 미리보기로만 그리고 모델은 떼야 바뀐다 — Esc·창 포커스 잃음이면
+// 아무것도 바뀌지 않는다. 숫자로 넣는 칸(패널)은 붙이지 않고 넣은 값 그대로다.
+/** 끄는 중의 각도와 무엇에 붙었는지. 끄지 않을 때는 null. */
+const rotating = ref<{ angle: number; by: string | null; free: boolean } | null>(null)
+watch(selectedVerticalId, () => (rotating.value = null))
+const rotateTarget = computed(() => {
+  void sceneVersion.value
+  const v = selectedVertical.value
+  const m = model.value
+  if (!v || !m || !multiView.value || !editing.value) return null
+  const pivot = verticalPivot(m, v.object.id)
+  const heading = verticalHeading(m, v.object.id)
+  if (!pivot || heading === null) return null
+  // 손잡이 높이는 시작 층 바닥이다. 계단·ES 의 회전 중심(시작점)이 거기 있다.
+  const home = v.object.parts[0].storey
+  const ring = v.object.parts.find((x) => x.part.footprint.length)?.part.footprint ?? []
+  const reach = Math.max(1.2, ...ring.map((p) => Math.hypot(p[0] - pivot[0], p[1] - pivot[1])))
+  return { id: v.object.id, name: v.part.name || v.label, pivot, heading, storey: home, radius: reach * 1.2 }
+})
+/** 끄는 동안 돌린 모양. 모든 층 조각의 형상과 진입·종료 지점이다. */
+const rotatePreview = computed(() => {
+  const t = rotateTarget.value
+  const r = rotating.value
+  const m = model.value
+  const v = selectedVertical.value
+  if (!t || !r || !m || !v) return []
+  const d = (((r.angle - t.heading) % 360) + 540) % 360 - 180
+  const copy = { storeys: v.object.parts.map(({ storey, part }) => ({ ...storey, verticalParts: [structuredClone(toRaw(part))] })) }
+  rotateVertical(copy as unknown as Model, t.id, d, t.pivot)
+  return copy.storeys.flatMap((st) =>
+    st.verticalParts.flatMap((part) => [
+      ...(part.footprint.length ? [{ storeyId: st.id, elevation: st.elevation, footprint: part.footprint }] : []),
+      ...[part.entry, part.exit].filter((p): p is Vec3 => !!p).map((p) => ({ storeyId: st.id, elevation: st.elevation, point: [p[0], p[1]] as Vec2 })),
+    ]),
+  )
+})
+const rotateHandle = computed<RotateHandle | null>(() => {
+  const t = rotateTarget.value
+  if (!t) return null
+  const r = rotating.value
+  const angle = r?.angle ?? t.heading
+  const label = r ? `${angle.toFixed(1)}° · ${r.by ? `${r.by}에 붙음` : r.free ? '스냅 끔(Alt)' : '자유'}` : `${angle.toFixed(1)}°`
+  return { center: t.pivot, elevation: t.storey.elevation, radius: t.radius, angle, guide: r?.by ? angle : null, label }
+})
+watch(rotateHandle, (h) => viewer?.setRotateHandle(h))
+/**
+ * 고른 오브젝트의 방위를 `to`(°)로 맞춘다. 샤프트 안에 배관이 있으면 돌리지 않는다 — 옮기기는 배관을 같이 옮기지만(OE-ML-17) 돌리기는
+ * 배관을 같이 돌리지 않아 배관이 샤프트 밖으로 삐져나간다.
+ */
+function rotateSelectedVertical(to: number): boolean {
+  const t = rotateTarget.value
+  const m = model.value
+  if (!t || !m || !Number.isFinite(to)) return false
+  if (selectedVertical.value?.object.kind === 'shaft') {
+    const carry = planShaftCarry(m, t.id, segmentAxis)
+    const inside = carry.rigid.length + new Set(carry.stretch.map((x) => x.id)).size
+    if (inside) {
+      editNotice.value = `${t.name}: 샤프트 안 배관 ${inside}개가 같이 돌지 않아 돌리지 않았습니다. 옮기기는 배관이 같이 갑니다.`
+      return false
+    }
+  }
+  const angle = ((to % 360) + 360) % 360
+  return changeVerticals(`${t.name} ${angle.toFixed(1)}°로 돌림`, (mm) => setVerticalHeading(mm, t.id, angle))
+}
+function onRotate(phase: 'move' | 'end' | 'cancel', raw: number, free: boolean) {
+  const t = rotateTarget.value
+  if (!t) return
+  if (phase === 'cancel') {
+    rotating.value = null
+    return
+  }
+  if (phase === 'move') {
+    const home = model.value?.storeys.find((st) => st.id === t.storey.id)
+    const snap = snapHeading(raw, home ? wallHeadings(home, t.pivot) : [], free)
+    rotating.value = { angle: snap.angle, by: snap.by, free }
+    return
+  }
+  const r = rotating.value
+  rotating.value = null
+  if (r) rotateSelectedVertical(r.angle)
+}
+/** 패널의 회전각 칸. 붙이지 않고 넣은 값 그대로 돌린다. */
+function applyVerticalHeading(input: HTMLInputElement) {
+  const t = rotateTarget.value
+  const value = Number(input.value)
+  if (!t) return
+  if (!input.value.trim() || !Number.isFinite(value)) {
+    editNotice.value = '회전각은 숫자로 넣습니다(°).'
+    input.value = t.heading.toFixed(1)
+    return
+  }
+  if (!rotateSelectedVertical(value)) input.value = t.heading.toFixed(1)
 }
 /** V-03 다중층 이동 충돌 경고(OE-ML-07). 연 때 형상과 견준다. 막지는 않는다. */
 const verticalWarnings = computed(() => {
@@ -3387,8 +3486,8 @@ const riserPreview = computed(() => {
   const path: Vec3[] = [...(d.branchOf ? [] : [from.position]), ...d.points.map((p, i): Vec3 => [p[0], p[1], z(d.levels![i])])]
   return path.length > 1 && path.every((p) => Number.isFinite(p[2])) ? [{ storeyId: d.storeyId, elevation: from.position[2], path }] : []
 })
-watch([model, sceneVersion, verticalHighlight, verticalPreview, riserPreview], () =>
-  viewer?.setVerticalParts(model.value, verticalHighlight.value, [...verticalPreview.value, ...riserPreview.value]),
+watch([model, sceneVersion, verticalHighlight, verticalPreview, riserPreview, rotatePreview], () =>
+  viewer?.setVerticalParts(model.value, verticalHighlight.value, [...verticalPreview.value, ...riserPreview.value, ...rotatePreview.value]),
 )
 /** 꼭짓점을 고치는 공조존 id 와 [ ] 로 짚은 꼭짓점. 아래 "수동 공조존" 의 startZoneVertices 참조. */
 const zoneVertexEdit = ref<string | null>(null)
@@ -13122,6 +13221,14 @@ function rollbackFromReport() {
               <button type="submit" class="ghost">옮기기</button>
             </form>
             <p class="hint">방향키로도 옮깁니다(10cm, Shift 1m). 모든 층 조각과 진입·종료 지점이 같이 움직이고 높이는 그대로입니다. 벽·물리존 경계와 겹치면 V-03 을 알리지만 막지는 않습니다.</p>
+            <!-- 전체 회전(OE-OBJ-15 AC6 · OE-ML-07 AC2). 3D 의 파란 손잡이를 끌거나 여기에 각도를 넣는다. 숫자는 붙이지 않고 그대로다. -->
+            <form v-if="rotateTarget" class="vertical-move" data-testid="vertical-rotate" @submit.prevent>
+              <span>회전각</span>
+              <label><input :key="rotateTarget.heading" :value="rotateTarget.heading.toFixed(1)" v-keep-typing type="number" step="0.1" aria-label="회전각(°)" @change="applyVerticalHeading($event.target as HTMLInputElement)" /></label>
+              °
+              <span class="muted">{{ COMMON_AXIS.has(selectedVertical.part.kind) ? '승강로 가운데' : '시작점' }} 기준</span>
+            </form>
+            <p v-if="rotateTarget" class="hint">3D 의 파란 손잡이를 끌어 돌립니다. 건물 축·가까운 벽 방향 ±3° 안에서는 그 각도에 붙고, Alt 를 누르면 붙지 않습니다. 끄는 중 Esc 면 돌리지 않습니다.</p>
             <!-- 이 층 조각만(OE-ML-07 "층별 형상·크기·진입/종료 위치"). 다른 층 조각은 그대로다. 형상은 3D 의 꼭짓점 손잡이로 고친다. -->
             <p v-if="COMMON_AXIS.has(selectedVertical.part.kind)" class="hint">모든 층이 같은 공통 축이라 한 층만 고치지 않습니다. 전체 이동으로 옮깁니다.</p>
             <div v-else class="vertical-part-edit" data-testid="vertical-part-edit">
