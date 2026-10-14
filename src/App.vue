@@ -1172,8 +1172,8 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
   }
   // 붙은 배관(PRD #13). 옮기기 전에 정한다 — 옮긴 뒤에는 구간의 어느 끝이 가까웠는지 모른다.
   const plan = carryConduits.value && before ? planFollow(model.value, equipmentId, segmentAxis) : null
-  // 따라 늘어날 구간이 다른 층으로 이어졌으면 옮기지 않는다(OE-ML-05). 끄고 옮기면 설비만 간다.
-  const crossing = moving ? crossingFollower(plan) : null
+  // 따라 늘어날 구간이 다른 층으로 이어졌으면 층 편집에서는 옮기지 않는다(OE-ML-05). 끄고 옮기면 설비만 간다. 다중층 뷰에서는 옮긴다.
+  const crossing = moving && !multiView.value ? crossingFollower(plan) : null
   if (moving && crossing) {
     goBack()
     editNotice.value = crossingText(moving, crossing)
@@ -6031,8 +6031,10 @@ const crossingText = (moving: Equipment, seg: Equipment) =>
  */
 function editLock(e: Equipment): string | null {
   if (!editing.value) return null
-  // 다중층 뷰는 수직 관통 오브젝트만 고친다(OE-ML-01·07). 설비는 고르고 보기만 — 3D 에서 안 끌리고 패널의 좌표·지우기 칸도 없다.
-  if (multiView.value) return MULTI_VIEW_ONLY
+  // 다중층 뷰는 수직 관통 오브젝트와 덕트·배관만 고친다(OE-ML-01·07, OE-PIP-10 AC1). 설비는 고르고 보기만 — 3D 에서 안 끌리고 패널의
+  // 좌표·지우기 칸도 없다. 덕트·배관은 층 편집과 같은 패널(꼭짓점 넣기·지우기, 꺾임점 좌표, 끝 대상 바꾸기, 구간 지우기)을 쓴다 — 층을 넘는
+  // 구간도 여기서는 고친다. 3D 끌기는 다중층 뷰 전체에서 꺼져 있다.
+  if (multiView.value) return isConduit(e.role) ? null : MULTI_VIEW_ONLY
   // 엘리베이터·에스컬레이터는 수직 관통 오브젝트라 층 편집 화면에서는 고르고 보기만 한다(OE-EQP-07·OE-ML-05). 종류는 고칠 수 있다 —
   // 이름 사전이 잘못 읽은 것을 풀 길이 없으면 그 설비가 계속 잠긴다.
   if (VERTICAL_DEVICES.has(e.kind ?? '')) return VERTICAL_LOCKED
@@ -7821,7 +7823,7 @@ const followPreview = computed(() => {
   const plan = planFollow(model.value, e.id, segmentAxis)
   const stretch = new Set(plan.stretch.map((x) => x.id)).size
   if (!plan.rigid.length && !stretch && !plan.held.length && !plan.blocked.length) return null
-  const crossing = crossingFollower(plan)
+  const crossing = multiView.value ? null : crossingFollower(plan)
   return { rigid: plan.rigid.length, stretch, left: crossing ? crossingText(e, crossing) : followLeftText(plan), crossing: !!crossing }
 })
 let carryPlan: WallCarryPlan | null = null
@@ -11607,7 +11609,7 @@ function rollbackFromReport() {
           </p>
 
           <!-- 층 옮기기(E6). 층은 좌표로 판정하지 않고 사람이 고른다(edit.ts). -->
-          <p v-if="editing && !selectedLock" class="storey-move">
+          <p v-if="editing && !selectedLock && !multiView" class="storey-move">
             <label>
               층
               <select
@@ -11985,7 +11987,7 @@ function rollbackFromReport() {
           </div>
 
           <!-- 배관 그리기(OE-PIP-11). 이 설비에서 끝 대상까지 구간·이음쇠를 더하고 manual 연결로 잇는다. 방향은 정하지 않는다. -->
-          <div v-if="editing && !selectedLock && selected.position && selected.role !== 'segment'" class="pipe-draw" data-testid="pipe-draw">
+          <div v-if="editing && !selectedLock && !multiView && selected.position && selected.role !== 'segment'" class="pipe-draw" data-testid="pipe-draw">
             <h4 class="picked-sub">배관 그리기 <Src kind="edit" /></h4>
             <p class="pipe-draw-row">
               <label>

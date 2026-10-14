@@ -66,7 +66,7 @@ describe('수동 배관 그리기 (OE-PIP-11)', () => {
     expect(feedsOf(modelToTTL(m), ahu.id)).toBe(before)
   })
 
-  it('범례에 없는 Flow Type · 같은 대상 · 좌표 없는 설비 · 길이 0 · 없는 계통은 막고 아무것도 남기지 않는다 [OE-PIP-11#5]', () => {
+  it('범례에 없는 Flow Type · 같은 대상 · 좌표 없는 설비 · 길이 0 · 없는 계통은 막고 아무것도 남기지 않는다 [OE-PIP-11#5] [OE-PIP-10#4~]', () => {
     const m = read()
     const before = JSON.stringify(m)
     const [ahu, at, temp] = ['AHU-1', 'AT-101-01', 'TEMP-101-01'].map((n) => equip(m, n))

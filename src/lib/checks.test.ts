@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { completenessChecks, diagnoseFailure, explainFailure, type Box } from './checks'
+import { releaseConnection } from './connection-release'
 import { airServices } from './served'
 import { profileOf } from './profile'
 import type { Connection, Equipment, EquipmentRole, Model, Space } from './model'
@@ -77,6 +78,33 @@ describe('완전성 검사', () => {
       text: '한쪽 끝만 이어져 있습니다. 가장 가까운 것: diff, 20mm 떨어져 있습니다. 5mm 안이어야 연결로 봅니다.',
       fix: { kind: 'connect', other: 'diff' },
     })
+  })
+
+  it('열린 끝·길이 0 인 구간은 검증 위반이고, 해제 보정으로 생긴 열린 끝은 사유를 말하며 맞닿아 있어도 다시 잇지 않는다 [OE-PIP-10#4] [OE-PIP-10#5~]', () => {
+    const seg = (id: string, axis: [[number, number, number], [number, number, number]]): Equipment => ({ ...eq(id, null, 'segment', null), position: [0, 0, 0], axis })
+    // 공조기 → d1 → 엘보 → d2 → 디퓨저. z 는 두 끝이 같은 자리인 구간(길이 0)이다.
+    const m = model(
+      [eq('ahu', 'ahu', 'conversion'), seg('d1', [[0, 0, 0], [1, 0, 0]]), eq('elbow', null, 'fitting', null), seg('d2', [[1, 0, 0], [2, 0, 0]]), eq('diff', 'air_diffuser', 'terminal'), seg('z', [[3, 0, 0], [3, 0, 0]])],
+      [d('ahu', 'd1'), d('d1', 'elbow'), d('elbow', 'd2'), d('d2', 'diff'), d('ahu', 'z'), d('z', 'diff')],
+    )
+    expect(failed(m)['conduit-ends']).toEqual([])
+    expect(failed(m)['conduit-path']).toEqual(['z'])
+
+    // d2 와 디퓨저의 BIM 포트 연결을 해제 보정하면 d2 는 열린 끝이 된다. 형상이 맞닿아 있어도(0mm) 후보로 권하지 않고 연결도 생기지 않는다.
+    const report = releaseConnection(m, m.connections.find((c) => c.from === 'd2' && c.to === 'diff')!, '현장 확인: 디퓨저는 다른 덕트에 붙음')
+    expect('refused' in report).toBe(false)
+    const links = JSON.stringify(m.connections)
+    expect(failed(m)['conduit-ends']).toEqual(['d2'])
+    const boxes = new Map<string, Box>([
+      ['d2', [1, 0, 0, 2, 0.2, 0.2]],
+      ['elbow', [0.9, 0, 0, 1, 0.2, 0.2]],
+      ['diff', [2, 0, 0, 2.5, 0.2, 0.2]],
+    ])
+    const ctx = { model: m, connections: m.connections, services: airServices(m, m.connections), boxes, label: (id: string) => id }
+    const said = diagnoseFailure('conduit-ends', 'd2', ctx)
+    expect(said.text).toMatch(/^해제 보정한 BIM 연결 1개가 있습니다\(의도한 해제라 되살리지 않습니다\)\. 한쪽 끝만 이어져 있습니다\. /)
+    expect(said.fix).toBeUndefined()
+    expect(JSON.stringify(m.connections)).toBe(links)
   })
 
   it('열원과 냉온수 기기가 배관으로 이어졌는지 보되, 공기 덕트를 건너 이어진 것으로 세지 않는다', () => {
