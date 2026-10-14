@@ -47,6 +47,32 @@ test('공조기를 고르면 덕트를 건너뛴 디퓨저와 그 방이 보내�
   expect(errors).toEqual([])
 })
 
+test('보기 모드에서는 흐름 카드가 답하고 근거(규칙 방향·직접 연결·경로)는 접혀 있다가 펴면 다른 설비에서도 편 채로 남고, 편집 모드는 펼친 그대로다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await pick(page, 'AHU-1')
+  const more = page.locator('.picked').getByTestId('picked-more')
+  await expect(page.getByTestId('flow-map')).toBeVisible()
+  await expect(more).not.toHaveAttribute('open')
+  await expect(page.locator('.picked .rule-box')).toBeHidden()
+  await expect(page.locator('.picked .neighbors')).toBeHidden()
+  await more.locator(':scope > summary').click()
+  await expect(page.locator('.picked .neighbors')).toBeVisible()
+  // 편 것은 다른 설비를 골라도 남는다 — 하나씩 다시 펴지 않게.
+  await pick(page, 'AT-101-01')
+  await expect(page.locator('.picked .neighbors')).toBeVisible()
+
+  // 편집 모드에서는 여기서 방향을 정하므로 접지 않는다(감싸는 칸이 없다).
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await pick(page, 'AHU-1')
+  await expect(page.locator('.picked .picked-more')).toHaveCount(0)
+  await expect(page.locator('.picked .neighbors')).toBeVisible()
+  expect(errors).toEqual([])
+})
+
 test('방향을 모르는 연결은 방향 모름 줄로 따로 보이고, 방향을 정하면 보내는 곳으로 들어오며 되돌리면 돌아간다', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -62,6 +88,10 @@ test('방향을 모르는 연결은 방향 모름 줄로 따로 보이고, 방�
   await expect(send.locator('.ladder-chip')).toHaveText(['디퓨저 AT-101-01', /방 1곳/])
   await expect(loose.locator('.ladder-chip')).toHaveText(['디퓨저 AT-101-02'])
   await expect(loose.locator('.ladder-tag')).toHaveText('급기')
+  // 디퓨저 쪽에서 보면 받는 곳이 비고, 그 까닭(방향만 모른다)과 후보를 한 줄로 적는다.
+  await pick(page, 'AT-101-02')
+  await expect(page.getByTestId('flow-gap')).toHaveText('받는 곳: 덕트 방향이 정해지지 않았습니다. 방향 모름 줄에 받는 곳 후보가 있습니다(공조기 1).')
+  await pick(page, 'AHU-1')
 
   // 덕트에서 AT-101-02 쪽으로 방향을 정한다(OE-PIP-04). 공조기의 보내는 곳에 둘이 같이 든다.
   await pick(page, 'DUCT-01')

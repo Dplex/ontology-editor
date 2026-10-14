@@ -12,6 +12,11 @@ import type { Connection } from './model'
  *   붙은 연결은 계통 없음(null)이다(`topology.ts` 의 `traceBySystem` 과 같은 규칙).
  * - **방향을 아는 연결만** 상류·하류로 탄다. 방향을 모르는 연결로만 닿는 기기는 `unknown` 이고, 그 너머로는 가지 않는다.
  *   모르는 것을 한쪽으로 정하면 틀린 쪽이 반이다.
+ * - **종류가 같은 계통끼리는 잇는다(`kindOf`).** Revit 은 급기 계통을 가지마다 쪼개서(`기계 급기 166`·`기계 급기 171`) 급기 덕트가
+ *   다른 급기 계통의 덕트로 이어진다. 그 이음을 버리면 성수 FCU 의 흐름 카드에 디퓨저가 안 보였다(담당 공간 표는 방향만 따라가 3개를 찾았다).
+ *   맞닿은 계통들은 그중 하나(id 가 가장 앞선 것)로 묶어 센다. 종류를 모르거나 종류가 다르면(급기·환기) 예전처럼 버린다.
+ * - **관 중간의 부속(`inline`)은 관처럼 지나간다.** 댐퍼·소음기·밸브는 기기지만 사람이 묻는 "어디서 받나" 의 답이 아니다.
+ *   지나가되 시작점이면 그대로 시작한다(댐퍼를 고르면 그 댐퍼의 위·아래 기기가 보인다).
  */
 export type Hop = { id: string; systemId: string | null }
 export type Next = { down: Hop[]; up: Hop[]; unknown: Hop[] }
@@ -29,7 +34,36 @@ export function flowIndex(
   connections: readonly Connection[],
   isConduit: (id: string) => boolean,
   systemOf: (id: string) => string | null,
+  opts: {
+    /** 관 중간의 부속(댐퍼·소음기·밸브). 관처럼 지나간다. */
+    inline?: (id: string) => boolean
+    /** 계통의 종류(급기·순환수 공급). 같은 종류의 계통이 관으로 맞닿으면 하나로 센다. */
+    kindOf?: (systemId: string) => string | null | undefined
+  } = {},
 ): FlowIndex {
+  const inline = opts.inline ?? (() => false)
+  // 같은 종류로 맞닿은 계통 묶음. 묶음의 대표는 id 가 가장 앞선 계통이라 같은 연결망이면 늘 같은 대표다.
+  const parent = new Map<string, string>()
+  const rep = (x: string | null): string | null => {
+    if (x === null) return null
+    let r = x
+    while (parent.get(r) !== undefined && parent.get(r) !== r) r = parent.get(r)!
+    return r
+  }
+  if (opts.kindOf) {
+    for (const c of connections) {
+      if (!isConduit(c.from) || !isConduit(c.to)) continue
+      const a = rep(systemOf(c.from))
+      const b = rep(systemOf(c.to))
+      if (a === null || b === null || a === b) continue
+      const kind = opts.kindOf(a)
+      if (!kind || kind !== opts.kindOf(b)) continue
+      const [lo, hi] = a < b ? [a, b] : [b, a]
+      parent.set(hi, lo)
+      if (!parent.has(lo)) parent.set(lo, lo)
+    }
+  }
+  const systemKey = (id: string) => rep(systemOf(id))
   const adj = new Map<string, Edge[]>()
   const push = (at: string, edge: Edge) => {
     const list = adj.get(at)
@@ -40,9 +74,9 @@ export function flowIndex(
     const conduits = [c.from, c.to].filter(isConduit)
     let key: string | null = null
     if (conduits.length) {
-      key = systemOf(conduits[0])
-      // 두 계통의 관이 맞닿은 연결은 어느 계통의 것도 아니다. 이으면 급기가 환기로 새어 든다.
-      if (conduits.some((id) => systemOf(id) !== key)) continue
+      key = systemKey(conduits[0])
+      // 종류가 다른 두 계통의 관이 맞닿은 연결은 어느 계통의 것도 아니다. 이으면 급기가 환기로 새어 든다.
+      if (conduits.some((id) => systemKey(id) !== key)) continue
     }
     push(c.from, { other: c.to, key, dir: c.directed ? 'out' : 'both' })
     push(c.to, { other: c.from, key, dir: c.directed ? 'in' : 'both' })
@@ -62,7 +96,7 @@ export function flowIndex(
         if (e.key !== key || seen.has(e.other)) continue
         if (e.dir !== want && !(loose && e.dir === 'both')) continue
         seen.add(e.other)
-        if (isConduit(e.other)) queue.push(e.other)
+        if (isConduit(e.other) || inline(e.other)) queue.push(e.other)
         else found.push(e.other)
       }
     }

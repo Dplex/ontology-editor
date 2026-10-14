@@ -77,4 +77,30 @@ describe('방향 모름의 범위', () => {
     expect(index().next('VAV1').unknown).toEqual([])
     expect(ids(index().next('VAV1').up)).toEqual(['AHU'])
   })
+
+  it('관 중간의 댐퍼·소음기는 관처럼 지나가 공조기의 보내는 곳이 디퓨저가 되고, 댐퍼를 고르면 그 위·아래 기기가 보인다', () => {
+    // AHU →(SA1)→ 소음기 SL →(SA2)→ 댐퍼 DP →(SA3)→ D1. 부속도 계통 없는 기기로 덕트 사이에 낀다.
+    const sys: Record<string, string> = { SA1: 'SA', SA2: 'SA', SA3: 'SA' }
+    const net = [port('AHU', 'SA1'), port('SA1', 'SL'), port('SL', 'SA2'), port('SA2', 'DP'), port('DP', 'SA3'), port('SA3', 'D1')]
+    const inline = (id: string) => id === 'SL' || id === 'DP'
+    const idx = flowIndex(net, (id) => id in sys, (id) => sys[id] ?? null, { inline })
+    expect(ids(idx.next('AHU').down)).toEqual(['D1'])
+    expect(ids(idx.next('D1').up)).toEqual(['AHU'])
+    expect(ids(idx.next('DP').up)).toEqual(['AHU'])
+    expect(ids(idx.next('DP').down)).toEqual(['D1'])
+    // 부속을 지나가지 않으면 예전처럼 소음기에서 멈춘다.
+    expect(ids(flowIndex(net, (id) => id in sys, (id) => sys[id] ?? null).next('AHU').down)).toEqual(['SL'])
+  })
+
+  it('Revit 이 가지마다 쪼갠 급기 계통끼리는 이어 가고, 급기와 환기가 맞닿은 자리는 여전히 끊는다', () => {
+    // FCU →(급기 SA-1 의 S1)→(급기 SA-2 의 S2)→ D1. S2 는 환기 RA-1 의 R1 에도 닿아 있고 그 너머에 그릴 G 가 있다.
+    const sys: Record<string, string> = { S1: 'SA-1', S2: 'SA-2', R1: 'RA-1' }
+    const kind: Record<string, string> = { 'SA-1': 'supply_air', 'SA-2': 'supply_air', 'RA-1': 'return_air' }
+    const net = [port('FCU', 'S1'), port('S1', 'S2'), port('S2', 'D1'), port('S2', 'R1'), port('R1', 'G')]
+    const idx = flowIndex(net, (id) => id in sys, (id) => sys[id] ?? null, { kindOf: (s) => kind[s] })
+    expect(idx.next('FCU').down).toEqual([{ id: 'D1', systemId: 'SA-1' }])
+    expect(idx.systemsOf('D1')).toEqual(['SA-1'])
+    // 종류를 모르면 예전처럼 끊는다.
+    expect(flowIndex(net, (id) => id in sys, (id) => sys[id] ?? null).next('FCU').down).toEqual([])
+  })
 })

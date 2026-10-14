@@ -71,6 +71,12 @@ export type EquipmentKindInfo = {
    * 외벽에서 벽 붙이기 거리 안이어야 한다(edit.ts 의 onExteriorFace). 없으면 어디든.
    */
   mount?: 'exterior'
+  /**
+   * 덕트·배관 중간에 끼는 부속(댐퍼·소음기·밸브·수량계). 흐름 카드(flow-ladder.ts)가 관처럼 지나간다 — 멈추면 공조기의 보내는 곳이
+   * `소음기 → 댐퍼 → 댐퍼 14 → 디퓨저 42` 가 되어, 무엇을 담당하는지 묻는 사람에게 덕트만 보였다(성수 AHU1). VAV 는 방을 맡는
+   * 단위라 넣지 않는다. 연결·TTL 은 그대로다 — 화면의 건너가기만 바꾼다.
+   */
+  inline?: true
 }
 
 /** 아무 이름에도 맞지 않는 식. 사람만 고르는 종류의 `test` 다. */
@@ -109,12 +115,12 @@ export const EQUIPMENT_KINDS: EquipmentKindInfo[] = [
   { kind: 'outdoor_humidity_sensor', label: '외기 습도 센서', test: /외기\s*습도|(outdoor|outside)\s*air\s*humid/i, brick: 'brick:Outside_Air_Humidity_Sensor', role: 'sensing', flow: {}, point: true, mount: 'exterior' },
   { kind: 'outdoor_louver', label: '외부 루버', test: /루버|louver|vent[-_\s]*cap|[_\s-](OA|EA)\b/i, brick: null, role: 'terminal', ifc: ['AirTerminal.LOUVRE'], flow: { air: 'sink' } },
   { kind: 'air_grille', label: '그릴', test: /그릴|grille/i, brick: null, role: 'terminal', ifc: ['AirTerminal.GRILLE', 'AirTerminal.REGISTER'], flow: { air: 'sink' } },
-  { kind: 'damper', label: '댐퍼', test: /댐퍼|damper/i, brick: 'brick:Damper', role: 'control', ifc: ['Damper'], flow: { air: 'through' } },
-  { kind: 'silencer', label: '소음기', test: /silencer|소음기|attenuat/i, brick: null, role: 'treatment', ifc: ['DuctSilencer'], flow: { air: 'through' } },
-  { kind: 'water_meter', label: '수량계', test: /water[-_\s]*meter|수량계|유량계/i, brick: 'brick:Water_Meter', role: 'control', ifc: ['FlowMeter.WATERMETER'], flow: { water: 'through' } },
+  { kind: 'damper', label: '댐퍼', test: /댐퍼|damper/i, brick: 'brick:Damper', role: 'control', ifc: ['Damper'], flow: { air: 'through' }, inline: true },
+  { kind: 'silencer', label: '소음기', test: /silencer|소음기|attenuat/i, brick: null, role: 'treatment', ifc: ['DuctSilencer'], flow: { air: 'through' }, inline: true },
+  { kind: 'water_meter', label: '수량계', test: /water[-_\s]*meter|수량계|유량계/i, brick: 'brick:Water_Meter', role: 'control', ifc: ['FlowMeter.WATERMETER'], flow: { water: 'through' }, inline: true },
   // 세정 밸브(flush valve)는 변기·소변기의 부품이다. 병원 MEP 에서 `M_Water Closet - Flush Valve` 24대와 `M_Urinal …:25 mm
   // Flush Valve` 3대를 IFC 가 SanitaryTerminal(WCSEAT·URINAL)이라고 말했는데 이름이 먼저라 밸브가 됐다.
-  { kind: 'valve', label: '밸브', test: /(?<!flush[-_\s]*)valve|(?<!세정\s*)밸브/i, brick: 'brick:Valve', role: 'control', ifc: ['Valve'], flow: { water: 'through' } },
+  { kind: 'valve', label: '밸브', test: /(?<!flush[-_\s]*)valve|(?<!세정\s*)밸브/i, brick: 'brick:Valve', role: 'control', ifc: ['Valve'], flow: { water: 'through' }, inline: true },
   // --- 전기·조명 ------------------------------------------------------------------
   // 엘리베이터(2026-10-03 사용자 결정). 흐름이 없는 기기라 연결 추정에서 빠진다(ADR-0010). 로봇이 층을 옮길 때 탈 장치라 설비
   // 목록·TTL 에 둔다. 병원은 건축에 IfcFlowTerminal, 전기에 Proxy(`M_Elevator-Hydraulic`)로 들어 있다. 승강로(방)는 ROOM_KINDS 다.
