@@ -9765,6 +9765,106 @@ watch([model, flowVersion, versionStat, replayOpen], () => {
 
 const warnings = computed(() => [...(model.value?.warnings ?? []), ...(unlocatedLine.value ? [unlocatedLine.value] : [])])
 
+// --- 우측 패널 구역 탭 · 계통 범례 검색 · 하단 진단/경고 대시보드 ---
+type SideTab = 'all' | 'inspector' | 'floor' | 'systems'
+const sideTab = ref<SideTab>('all')
+const legendOpen = ref(true)
+const legendSearch = ref('')
+const filteredLegend = computed(() => {
+  const q = legendSearch.value.trim().toLowerCase()
+  return q ? legend.value.filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)) : legend.value
+})
+const hasInspectorSelection = computed(
+  () =>
+    !!(
+      groupItems.value.length >= 2 ||
+      selected.value ||
+      selectedElement.value ||
+      verticalCreate.value ||
+      selectedVertical.value ||
+      selectedObject.value ||
+      selectedRoom.value ||
+      selectedCustomZone.value ||
+      selectedSpace.value
+    ),
+)
+const inspectorBadge = computed(() => {
+  if (groupItems.value.length >= 2) return `다중 설비 (${groupItems.value.length})`
+  if (selected.value) return isConduit(selected.value.role) ? '덕트·배관' : '설비'
+  if (selectedElement.value) return selectedElement.value.wall ? '벽' : selectedElement.value.opening?.kind === 'door' ? '문' : '창문'
+  if (verticalCreate.value || selectedVertical.value) return '수직 관통'
+  if (selectedObject.value) return '공간 오브젝트'
+  if (selectedRoom.value) return '룸'
+  if (selectedCustomZone.value) return '커스텀존'
+  if (selectedSpace.value) return '물리존'
+  return '파일 개요'
+})
+function clearInspectorSelection() {
+  group.value = []
+  selectedId.value = null
+  selectedElementId.value = null
+  selectedVerticalId.value = null
+  selectedObjectId.value = null
+  selectedRoomId.value = null
+  selectedCustomZoneId.value = null
+  selectedSpaceId.value = null
+}
+watch(hasInspectorSelection, (has) => {
+  if (has && (sideTab.value === 'floor' || sideTab.value === 'systems')) sideTab.value = 'all'
+})
+
+type WarnFilter = 'all' | 'A' | 'B' | 'C' | 'X' | 'other'
+const warnFilter = ref<WarnFilter>('all')
+const warnSearch = ref('')
+const warningsCollapsed = ref(false)
+watch(fileName, () => {
+  warnFilter.value = 'all'
+  warnSearch.value = ''
+  warningsCollapsed.value = false
+  legendSearch.value = ''
+  sideTab.value = 'all'
+})
+const warnCounts = computed(() => {
+  const c = { all: warnings.value.length, A: 0, B: 0, C: 0, X: 0, other: 0 }
+  for (const w of warnings.value) {
+    const code = warningCode(w)
+    if (code && (code.cls === 'A' || code.cls === 'B' || code.cls === 'C' || code.cls === 'X')) c[code.cls]++
+    else c.other++
+  }
+  return c
+})
+const filteredWarnings = computed(() => {
+  const q = warnSearch.value.trim().toLowerCase()
+  return warnings.value.filter((w) => {
+    if (warnFilter.value !== 'all') {
+      const cls = warningCode(w)?.cls ?? 'other'
+      if (cls !== warnFilter.value) return false
+    }
+    return !q || w.toLowerCase().includes(q)
+  })
+})
+/** 경고 한 줄을 [파일명] · 핵심 문장 · 부연 설명으로 나누되 원문 글자 순서는 그대로 유지한다(E2E toContainText 호환). */
+function splitWarning(w: string): { prefix: string; main: string; rest: string } {
+  const m = /^(\[[^\]]+\]\s*)(.*)$/s.exec(w)
+  const prefix = m ? m[1] : ''
+  const body = m ? m[2] : w
+  const dot = body.indexOf('. ')
+  if (dot > 0 && dot < body.length - 2) {
+    return { prefix, main: body.slice(0, dot + 1), rest: body.slice(dot + 1) }
+  }
+  return { prefix, main: body, rest: '' }
+}
+const failedCheckRules = computed(() => checks.value.filter((c) => !c.skipped && c.total > 0 && c.failed.length > 0))
+const failedChecksTotal = computed(() => failedCheckRules.value.reduce((sum, c) => sum + c.failed.length, 0))
+function jumpToSection(selector: string) {
+  const el = document.querySelector<HTMLElement>(selector)
+  if (!el) return
+  if (el.classList.contains('fold') && !el.classList.contains('open')) {
+    el.querySelector<HTMLButtonElement>('.fold-head')?.click()
+  }
+  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 // 미배치 목록(OE-BIM-07). BIM 에 좌표가 없어 3D·평면에 그려지지 않는 설비. 임포트 경고는 연 때의 수만 말하고, 이 목록은
 // 놓을 때마다 줄어든다. 설비 표의 빈 좌표 칸으로는 수천 행 사이에서 찾을 수 없었고, 완전성 검사는 방이 없는 파일에서
 // 건너뛴다(ifc4Mep 28대). 많으면 앞의 UNPLACED_SHOWN 대만 그린다.
@@ -11635,8 +11735,24 @@ function rollbackFromReport() {
 
         <!-- 편집 리플레이 동안(극장이 창을 덮는다) 아래 패널은 다시 그리지 않는다(replayMemo). 닫으면 그때 상태로 한 번 그린다. -->
         <aside v-memo="replayMemo()" class="side">
+        <nav class="side-tabs" aria-label="우측 패널 구역">
+          <button type="button" :class="{ on: sideTab === 'all' }" :aria-pressed="sideTab === 'all'" title="모든 우측 카드를 함께 표시합니다" @click="sideTab = 'all'">전체</button>
+          <button type="button" :class="{ on: sideTab === 'inspector' }" :aria-pressed="sideTab === 'inspector'" title="선택한 요소 속성 또는 파일 개요만 표시합니다" @click="sideTab = 'inspector'">
+            {{ inspectorBadge }}
+          </button>
+          <button v-if="floorNow && breadcrumb" type="button" :class="{ on: sideTab === 'floor' }" :aria-pressed="sideTab === 'floor'" title="현재 층의 공간·설비 현황만 표시합니다" @click="sideTab = 'floor'">
+            현재 층
+          </button>
+          <button v-if="legend.length" type="button" :class="{ on: sideTab === 'systems' }" :aria-pressed="sideTab === 'systems'" title="계통 상세와 색상 범례만 표시합니다" @click="sideTab = 'systems'">
+            계통 <small class="mono">{{ legend.length }}</small>
+          </button>
+          <button v-if="hasInspectorSelection" type="button" class="side-clear" title="선택을 해제하고 파일 개요로 돌아갑니다 (Esc)" @click="clearInspectorSelection">
+            선택 해제 ×
+          </button>
+        </nav>
         <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
         <!-- 고른 것이 바뀌면 패널을 살짝 갈아 끼운다. 같은 것을 고친 것은 key 가 같아 가만히 있고, 바뀐 값만 v-flash 가 번쩍인다. -->
+        <div v-show="sideTab === 'all' || sideTab === 'inspector'" class="side-inspector-wrap">
         <Transition name="swap" mode="out-in">
         <!-- 여러 개 고른 설비(OE-UI-09). 방향키·끌기로 같이 옮기고 Delete 로 같이 지운다. 되돌리기 한 번에 전부. -->
         <section v-if="groupItems.length >= 2" key="group" class="picked group-picked">
@@ -13475,9 +13591,11 @@ function rollbackFromReport() {
           </p>
         </section>
         </Transition>
+        </div>
         <!-- 현재 층 현황(OE-UI-04 ③). 고른 것의 속성은 위에, 이것은 늘 그 아래에 보인다. -->
         <FloorSummary
           v-if="floorNow && breadcrumb"
+          v-show="sideTab === 'all' || sideTab === 'floor'"
           :building="breadcrumb.building"
           :storey="breadcrumb.storey"
           :status="floorNowStatus"
@@ -13486,7 +13604,7 @@ function rollbackFromReport() {
         />
 
             <!-- 범례에서 고른 계통. 종류·유체는 규칙 방향과 TTL 계통 클래스를 정한다. 편집 모드에서 고친다(E8). -->
-            <section v-if="selectedSystem" class="picked system-picked">
+            <section v-if="selectedSystem" v-show="sideTab === 'all' || sideTab === 'systems'" class="picked system-picked">
               <h3>{{ selectedSystem.name || '(이름 없는 계통)' }}</h3>
               <p v-if="systemNameAtOpen(selectedSystem.id) !== null && systemNameAtOpen(selectedSystem.id) !== selectedSystem.name" class="stats system-renamed">
                 BIM 이름 {{ systemNameAtOpen(selectedSystem.id) || '(없음)' }} <Src kind="bim" /> → 고친 이름 <Src kind="edit" />
@@ -13559,15 +13677,29 @@ function rollbackFromReport() {
             </section>
 
             <!-- 계통 범례. 색이 스물이면 색만으로는 못 고르니, 여기서 짚는 쪽이 주된 길이다. -->
-            <div v-if="legend.length" class="legend">
-              <h3>
-                계통 {{ legend.length }}
-                <span v-if="legend[0].source === 'property'" class="tag">System Name 속성</span>
-                <span v-else class="tag">IfcSystem</span>
-                <Src kind="bim" />
-              </h3>
-              <ul>
-                <li v-for="s in legend" :key="s.id">
+            <div v-if="legend.length" v-show="sideTab === 'all' || sideTab === 'systems'" class="legend">
+              <div class="legend-head">
+                <h3>
+                  계통 {{ legend.length }}
+                  <span v-if="legend[0].source === 'property'" class="tag">System Name 속성</span>
+                  <span v-else class="tag">IfcSystem</span>
+                  <Src kind="bim" />
+                </h3>
+                <button type="button" class="link legend-collapse" :aria-expanded="legendOpen" @click="legendOpen = !legendOpen">
+                  {{ legendOpen ? '접기 ▾' : '펼치기 ▸' }}
+                </button>
+              </div>
+              <input
+                v-if="legendOpen && legend.length > 6"
+                v-model="legendSearch"
+                v-keep-typing
+                type="search"
+                class="legend-search"
+                placeholder="계통 이름 검색…"
+                aria-label="계통 범례 검색"
+              />
+              <ul v-show="legendOpen">
+                <li v-for="s in filteredLegend" :key="s.id">
                   <button
                     type="button"
                     :class="{ on: s.id === selectedSystemId }"
@@ -13652,10 +13784,87 @@ function rollbackFromReport() {
           <li v-for="line in mergeLines" :key="line">{{ line }}</li>
         </ul>
 
-        <ul v-if="warnings.length" id="warnings" class="warnings">
-          <!-- 누락 분류 코드와 R 번호(OE-BIM-20). 어느 R 을 고쳐 달라고 할지가 경고마다 보인다. -->
-          <li v-for="w in warnings" :key="w"><span v-if="warningCode(w)" class="issue-code" :data-class="warningCode(w)!.cls">{{ issueText(warningCode(w)!) }}</span> {{ w }}</li>
-        </ul>
+        <div v-if="warnings.length || outlineless.length || unplaced.length || systemless.length || failedChecksTotal > 0" class="diag-hub" data-testid="diag-hub">
+          <!-- 행동 중심 진단 요약 바(P2): 어디부터 보정해야 하는지 한눈에 보고 클릭 시 해당 섹션으로 바로 이동·열기 -->
+          <div class="diag-bar" role="region" aria-label="보정 할 일 요약">
+            <span class="diag-title">진단 요약</span>
+            <button
+              v-if="grades"
+              type="button"
+              :class="['diag-chip', grades.gate ? 'ok' : 'fail']"
+              title="우측 파일 개요의 수용 기준선 등급 판정 표를 봅니다"
+              @click="sideTab = 'inspector'; clearInspectorSelection(); gradesOpen = true; jumpToSection('.overview .grade-banner')"
+            >
+              수용 기준선 <b>{{ grades.gate ? '통과' : '미달' }}</b>
+            </button>
+            <button v-if="outlineless.length" type="button" class="diag-chip warn" title="외곽선 없는 물리존 목록으로 이동합니다" @click="jumpToSection('.fold.outlineless')">
+              외곽선 없는 물리존 <b>{{ outlineless.length.toLocaleString() }}개</b>
+            </button>
+            <button v-if="unplaced.length" type="button" class="diag-chip warn" title="미배치 설비 목록으로 이동합니다" @click="jumpToSection('.fold.unplaced')">
+              미배치 설비 <b>{{ unplaced.length.toLocaleString() }}대</b>
+            </button>
+            <button v-if="systemless.length" type="button" class="diag-chip warn" title="계통 없는 VAV·토출구 목록으로 이동합니다" @click="jumpToSection('.fold.systemless')">
+              계통 미지정 <b>{{ systemless.length.toLocaleString() }}대</b>
+            </button>
+            <button v-if="failedChecksTotal > 0" type="button" class="diag-chip warn" title="완전성 검사 위반 항목으로 이동합니다" @click="jumpToSection('.fold.checks')">
+              완전성 검사 위반 <b>{{ failedChecksTotal.toLocaleString() }}건</b> <small>({{ failedCheckRules.length }}규칙)</small>
+            </button>
+            <button type="button" class="diag-chip ghost-link" title="전체 요구사항 판정표를 봅니다" @click="jumpToSection('.fold.requirements')">
+              요구사항 판정표 →
+            </button>
+          </div>
+
+          <!-- 구조화된 경고 패널(P1): 분류별 필터 칩 + 검색 + 카드형 리스트 (E2E #warnings > li 및 .issue-code 유지) -->
+          <div v-if="warnings.length" class="warnings-panel">
+            <div class="warnings-head">
+              <div class="warnings-title">
+                <b>모델 진단 알림</b>
+                <span class="muted">총 {{ warnings.length }}건</span>
+              </div>
+              <div class="warn-filters" role="group" aria-label="경고 분류 필터">
+                <button type="button" :class="['warn-chip', { on: warnFilter === 'all' }]" :aria-pressed="warnFilter === 'all'" @click="warnFilter = 'all'; warningsCollapsed = false">
+                  전체 <b>{{ warnCounts.all }}</b>
+                </button>
+                <button v-if="warnCounts.A" type="button" :class="['warn-chip', 'cls-A', { on: warnFilter === 'A' }]" :aria-pressed="warnFilter === 'A'" title="내보내기 설정 변경이 필요한 항목" @click="warnFilter = warnFilter === 'A' ? 'all' : 'A'; warningsCollapsed = false">
+                  A-설정 <b>{{ warnCounts.A }}</b>
+                </button>
+                <button v-if="warnCounts.B" type="button" :class="['warn-chip', 'cls-B', { on: warnFilter === 'B' }]" :aria-pressed="warnFilter === 'B'" title="원본 BIM에 값이나 요소 추가가 필요한 항목" @click="warnFilter = warnFilter === 'B' ? 'all' : 'B'; warningsCollapsed = false">
+                  B-부재 <b>{{ warnCounts.B }}</b>
+                </button>
+                <button v-if="warnCounts.C" type="button" :class="['warn-chip', 'cls-C', { on: warnFilter === 'C' }]" :aria-pressed="warnFilter === 'C'" title="에디터에서 보정 가능한 항목" @click="warnFilter = warnFilter === 'C' ? 'all' : 'C'; warningsCollapsed = false">
+                  C-보정 <b>{{ warnCounts.C }}</b>
+                </button>
+                <button v-if="warnCounts.X" type="button" :class="['warn-chip', 'cls-X', { on: warnFilter === 'X' }]" :aria-pressed="warnFilter === 'X'" title="BIM 범위 밖 항목" @click="warnFilter = warnFilter === 'X' ? 'all' : 'X'; warningsCollapsed = false">
+                  X-외부 <b>{{ warnCounts.X }}</b>
+                </button>
+                <button v-if="warnCounts.other" type="button" :class="['warn-chip', 'cls-other', { on: warnFilter === 'other' }]" :aria-pressed="warnFilter === 'other'" title="일반 참고 알림" @click="warnFilter = warnFilter === 'other' ? 'all' : 'other'; warningsCollapsed = false">
+                  기타 <b>{{ warnCounts.other }}</b>
+                </button>
+              </div>
+              <div class="warnings-tools">
+                <input
+                  v-if="warnings.length > 4 && !warningsCollapsed"
+                  v-model="warnSearch"
+                  v-keep-typing
+                  type="search"
+                  class="warn-search"
+                  placeholder="경고 내용 검색…"
+                  aria-label="경고 내용 검색"
+                />
+                <button type="button" class="link warn-collapse" :aria-expanded="!warningsCollapsed" @click="warningsCollapsed = !warningsCollapsed">
+                  {{ warningsCollapsed ? `펼치기 (${filteredWarnings.length}건) ▸` : '접기 ▾' }}
+                </button>
+              </div>
+            </div>
+            <ul v-show="!warningsCollapsed" id="warnings" class="warnings">
+              <!-- 누락 분류 코드와 R 번호(OE-BIM-20). 어느 R 을 고쳐 달라고 할지가 경고마다 보인다. -->
+              <li v-for="w in filteredWarnings" :key="w" :data-class="warningCode(w)?.cls ?? 'other'">
+                <span v-if="warningCode(w)" class="issue-code" :data-class="warningCode(w)!.cls">{{ issueText(warningCode(w)!) }}</span>
+                <span class="warn-body"><b v-if="splitWarning(w).prefix" class="warn-file">{{ splitWarning(w).prefix }}</b><span class="warn-main">{{ splitWarning(w).main }}</span><span v-if="splitWarning(w).rest" class="warn-rest">{{ splitWarning(w).rest }}</span></span>
+              </li>
+            </ul>
+          </div>
+        </div>
 
         <!-- 미배치 목록(OE-BIM-07). 좌표가 없어 3D 에 없는 설비. 층은 BIM 이 말한 것이고, TTL 에는 그 층까지만 나간다. 놓기는 편집
              팔레트의 미배치 목록에서 한다(OE-EQP-02 — 따로 [3D에서 놓기] 버튼을 두지 않는다). -->
