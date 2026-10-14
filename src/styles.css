@@ -6258,3 +6258,27 @@ button.done::after {
   white-space: nowrap;
   box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
 }
+
+/* 이어진 구간(OE-ML-19). 유효는 초록 점, 재검토는 경고 글. */
+.vertical-links ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.85rem;
+}
+
+.vertical-links li {
+  padding: 0.15rem 0;
+}
+
+.vertical-links li.ok::before {
+  content: '●';
+  margin-right: 0.3rem;
+  color: #1f9d7a;
+}
+
+.vertical-links li.review::before {
+  content: '●';
+  margin-right: 0.3rem;
+  color: var(--error);
+}

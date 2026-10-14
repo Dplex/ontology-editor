@@ -129,8 +129,11 @@ const CONFLICT_MS = 2600
  * 모르는 벽이 내력벽이 아닌 것처럼 보인다. 비내력벽은 그리지 않는다.
  */
 /** 벽·문·창 편집 층의 색. 비내력벽은 회색, 고른 것은 액센트 하나다. 내력·모름은 WALL_COLORS 를 같이 쓴다. */
-/** 만들 수 없는 미리보기(건물 밖)의 색. */
+/** 만들 수 없는 미리보기(건물 밖)·재검토 연결의 색. */
 const PREVIEW_WARN = 0xd1495b
+/** 이어 놓을 수 있는 지점(후보)과 유효한 연속 연결의 색(OE-ML-06 AC4). */
+const PREVIEW_CANDIDATE = 0xe0803a
+const PREVIEW_OK = 0x1f9d7a
 export const ARCH_COLORS = { wall: 0xb7bec7, door: 0x39424e, window: 0x7fa6cf, selected: 0x2f6fed }
 /** 공조존(IDF) 외곽선 색. 계통 색과 헷갈리지 않게 한 가지로만 그린다. */
 const ZONE_COLOR = 0x6b7280
@@ -353,7 +356,7 @@ export type SpaceHandles = {
  */
 export type RotateHandle = { center: Vec2; elevation: number; radius: number; angle: number; guide: number | null; label: string }
 /** 점선 미리보기. `warn` 이면 경고 색(빨강)으로 그린다 — 만들기 미리보기가 건물 밖으로 나갈 때(OE-ML-06 AC3). */
-export type VerticalPreview = { storeyId: string; elevation: number; footprint?: readonly Vec2[]; point?: Vec2; path?: readonly Vec3[]; warn?: boolean }
+export type VerticalPreview = { storeyId: string; elevation: number; footprint?: readonly Vec2[]; point?: Vec2; path?: readonly Vec3[]; warn?: boolean; tone?: 'candidate' | 'ok' }
 
 /** 마우스 아래에 있는 것. 설비·물리존(편집 모드)·연결 화살표(편집 모드). */
 export type HoverTarget = { kind: 'equipment'; id: string } | { kind: 'space'; id: string } | { kind: 'arrow'; key: string }
@@ -534,8 +537,8 @@ export type Viewer = {
    */
   setPlaceMode(elevation: number | null): void
   onPlace(handler: (at: Vec2) => void): void
-  /** 놓기 모드에서 마우스가 가리키는 바닥 점(IFC x, y). 벗어나면 null. 스냅 자리를 미리 보이는 데 쓴다(OE-UI-06). */
-  onPlaceHover(handler: ((at: Vec2 | null) => void) | null): void
+  /** 놓기 모드에서 마우스가 가리키는 바닥 점(IFC x, y)과 Alt 를 눌렀는지. 벗어나면 null. 스냅 자리를 미리 보이는 데 쓴다(OE-UI-06). */
+  onPlaceHover(handler: ((at: Vec2 | null, alt: boolean) => void) | null): void
   /**
    * 스냅 표시(OE-UI-06). 붙을 자리(점)와, 변에 붙었으면 그 변을 높이 `elevation` 바닥 위에 그린다. 그리드 교점이면 점만이다.
    * null 이면 지운다.
@@ -709,7 +712,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     hoverCb(target, at)
   }
   let placeElevation: number | null = null
-  let placeHoverHandler: ((at: Vec2 | null) => void) | null = null
+  let placeHoverHandler: ((at: Vec2 | null, alt: boolean) => void) | null = null
+  /** 마지막 마우스 이동 때 Alt 를 누르고 있었나. 놓기 모드의 알림에 같이 실어 보낸다(이어 놓기의 고정 풀기). */
+  let hoverAlt = false
   let dragSnap: { delta(kind: 'equipment' | 'object', id: string, delta: Vec2): Vec2; point(spaceId: string, index: number, at: Vec2): Vec2 } | null = null
   let placeHandler: (at: Vec2) => void = () => {}
 
@@ -1882,11 +1887,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
     if (e.buttons !== 0) return // 끄는 중에는 시점을 돌리는 것이지 고르려는 것이 아니다.
     hoverAt = { x: e.clientX, y: e.clientY }
+    hoverAlt = e.altKey
     hoverPending = true
   })
   canvas.addEventListener('pointerleave', () => {
     hoverAt = null
-    if (placeElevation !== null) placeHoverHandler?.(null)
+    if (placeElevation !== null) placeHoverHandler?.(null, false)
     if (!drag) canvas.style.cursor = ''
     hoverHandler(null, null)
   })
@@ -1919,7 +1925,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (placeHoverHandler) {
         const at = new Vector3()
         const plane = new Plane(new Vector3(0, 1, 0), -toScene([0, 0, placeElevation])[1])
-        placeHoverHandler(hoverAt && rayAt(hoverAt.x, hoverAt.y).intersectPlane(plane, at) ? [at.x, -at.z] : null)
+        placeHoverHandler(hoverAt && rayAt(hoverAt.x, hoverAt.y).intersectPlane(plane, at) ? [at.x, -at.z] : null, hoverAlt)
       }
       return
     }
@@ -3844,7 +3850,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
               ? [[p.point[0] - r, p.point[1] - r], [p.point[0] + r, p.point[1] - r], [p.point[0] + r, p.point[1] + r], [p.point[0] - r, p.point[1] + r]]
               : null
         if (!pts) continue
-        const line = new LineLoop(new BufferGeometry().setFromPoints(pts.map((q) => new Vector3(q[0], y, -q[1]))), new LineDashedMaterial({ color: p.warn ? PREVIEW_WARN : ARCH_COLORS.selected, dashSize: 0.25, gapSize: 0.15, depthTest: false }))
+        const line = new LineLoop(new BufferGeometry().setFromPoints(pts.map((q) => new Vector3(q[0], y, -q[1]))), new LineDashedMaterial({ color: p.warn ? PREVIEW_WARN : p.tone === 'candidate' ? PREVIEW_CANDIDATE : p.tone === 'ok' ? PREVIEW_OK : ARCH_COLORS.selected, dashSize: 0.25, gapSize: 0.15, depthTest: false }))
         line.computeLineDistances()
         line.renderOrder = 4
         line.userData.storeyId = p.storeyId

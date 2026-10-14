@@ -654,6 +654,14 @@ export type VerticalPart = {
    * 방향을 지어내지 않는다. 오브젝트 하나의 값이라 모든 층 조각에 같이 적는다. 사람이 정한 값뿐이고 출처는 편집이다.
    */
   direction?: 'up' | 'down'
+  /**
+   * 이어 놓기의 연속 연결(OE-ML-06 AC4 · OE-ML-19 AC8). 시작 층 조각의 `continuesFrom` 은 "이 구간의 시작점이 아래 구간(그 오브젝트 id)의
+   * 끝점에 이어진다", 끝 층 조각의 `continuesTo` 는 "이 구간의 끝점이 위 구간의 시작점에 이어진다" 다. 사람이 이어 놓을 때 새로 만든 구간에만
+   * 적는다(출처 편집). 유효한지(같은 층·같은 자리·같은 종류·ES 같은 방향)는 저장하지 않고 그때 잰다(vertical-link.ts) — 옮기거나 방향을
+   * 바꿔도 지우지 않고 재검토로 본다.
+   */
+  continuesFrom?: string
+  continuesTo?: string
 }
 
 export type ElevatorStop = 'stop' | 'skip' | 'unknown'

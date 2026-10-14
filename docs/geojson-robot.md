@@ -74,6 +74,8 @@
 | `heading` | 평면 회전각(°). +x 축에서 반시계로 잰 방위입니다. 계단·에스컬레이터는 시작점에서 끝점 쪽, 엘리베이터·샤프트는 형상의 가장 긴 변의 방향입니다. 형상에서 계산한 값이라 `headingSource` 는 `calc` 입니다. 잴 수 없으면 `null` 입니다 |
 | `passable` | 늘 `false` 입니다. 계단은 로봇이 지나가지 못합니다 |
 | `verticalConnects` | 같은 오브젝트의 바로 아래·위층 feature id. 출처는 `verticalConnectsSource` 입니다 |
+| `continuesWith` | 같은 층에서 이어지는 다른 계단·에스컬레이터 구간의 feature id 입니다. 사람이 이어 놓은 연결이라 `continuesWithSource` 는 `edit` 입니다. 1-2층 계단의 2층 feature 와 2-3층 계단의 2층 feature 가 서로를 가리키면 두 구간이 한 동선입니다 |
+| `continuesReview` | 이어 놓았지만 지금은 지점이 어긋났거나 에스컬레이터 운행 방향이 달라진 연결입니다. `[{ "id", "reason" }]` 이고 `continuesWith` 에는 들지 않습니다 |
 
 - 형상은 그 층 높이 구간에 든 계단판·참의 평면 볼록 껍질(Polygon)입니다. 끝 층은 다다르는 자리뿐이라 `exit` 를 점(Point)으로 냅니다.
 - 다른 층에 닿지 않는 계단(한 층 안의 몇 계단)은 내보내지 않습니다. 성수 건축은 계단 35개 중 32개가 오브젝트가 됩니다. 그중 2개는 사이 층(B5'F)을 지나 B4F 에 닿아, 사이 층 feature 에는 형상만 있습니다.

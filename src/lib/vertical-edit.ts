@@ -146,12 +146,15 @@ export function rotateVertical(model: Pick<Model, 'storeys'>, parentId: string, 
   return hit
 }
 
-/** 오브젝트 방위를 `to`(°)로 맞춘다. 지금 방위와 같으면 false. */
-export function setVerticalHeading(model: Pick<Model, 'storeys'>, parentId: string, to: number): boolean {
+/**
+ * 오브젝트 방위를 `to`(°)로 맞춘다. 지금 방위와 같으면 false. 중심을 주면 그 둘레로 돈다 — 위 구간이 이어져 끝점이 고정된 계단은 끝점이
+ * 중심이다(이어 놓기, vertical-link.ts).
+ */
+export function setVerticalHeading(model: Pick<Model, 'storeys'>, parentId: string, to: number, pivot?: Vec2 | null): boolean {
   const now = verticalHeading(model, parentId)
   if (now === null || !Number.isFinite(to)) return false
   const d = ((((to - now) % 360) + 540) % 360) - 180
-  return rotateVertical(model, parentId, d)
+  return rotateVertical(model, parentId, d, pivot ?? verticalPivot(model, parentId))
 }
 
 /**
@@ -175,20 +178,27 @@ export function wallHeadings(storey: Pick<Storey, 'walls'>, near: Vec2, radius =
  * 회전 자석 스냅(OE-OBJ-15 AC6). 건물 축(0·90·180·270°)이나 가까운 벽 방향과 ±3° 안이면 그 각도로 붙이고 무엇에 붙었는지 돌려준다.
  * 둘 다 가까우면 더 가까운 쪽이다. `free`(Alt) 면 붙이지 않는다. 벽 방향은 180° 뒤집어도 같은 벽이라 반대쪽도 본다.
  */
-export function snapHeading(angle: number, walls: readonly number[] = [], free = false): { angle: number; by: '건물 축' | '벽 방향' | null } {
+export function snapHeading(
+  angle: number,
+  walls: readonly number[] = [],
+  free = false,
+  /** 기준 더하기(이어 놓기의 "이어진 구간 방향" ±8° 처럼 허용 각도가 다른 것). 허용 범위 안에서 가장 가까운 것에 붙는다. */
+  extra: readonly { angle: number; by: string; tol: number }[] = [],
+): { angle: number; by: string | null } {
   const a = norm360(angle)
   if (free) return { angle: Math.round(a * 10) / 10, by: null }
-  let best: { angle: number; by: '건물 축' | '벽 방향'; gap: number } | null = null
-  const consider = (t: number, by: '건물 축' | '벽 방향') => {
+  let best: { angle: number; by: string; gap: number } | null = null
+  const consider = (t: number, by: string, tol = HEADING_SNAP) => {
     const gap = angleGap(a, t)
-    if (gap <= HEADING_SNAP && (!best || gap < best.gap - 1e-9)) best = { angle: norm360(t), by, gap }
+    if (gap <= tol && (!best || gap < best.gap - 1e-9)) best = { angle: norm360(t), by, gap }
   }
   for (const t of [0, 90, 180, 270]) consider(t, '건물 축')
   for (const t of walls) {
     consider(t, '벽 방향')
     consider(t + 180, '벽 방향')
   }
-  const hit = best as { angle: number; by: '건물 축' | '벽 방향' } | null
+  for (const x of extra) consider(x.angle, x.by, x.tol)
+  const hit = best as { angle: number; by: string } | null
   return hit ? { angle: Math.round(hit.angle * 10) / 10, by: hit.by } : { angle: Math.round(a * 10) / 10, by: null }
 }
 

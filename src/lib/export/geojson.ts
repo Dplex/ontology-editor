@@ -10,6 +10,7 @@ import { polygonArea, segmentPath, SEGMENT_PATH_ISSUES, type CustomZone, type Eq
 import { verticalConnections } from '../vertical'
 import { partId, partLinks, partSpaces, verticalObjects } from '../vertical-object'
 import { escalatorTravel, verticalHeading } from '../vertical-edit'
+import { linkFeatures } from '../vertical-link'
 import { judgeExternal, type ExternalJudgement } from '../exterior'
 import { zoneEquipment, zoneSpaces } from '../custom-zone'
 import { libraryOf } from '../space-object'
@@ -303,7 +304,7 @@ export function verticalPartPassable(part: Pick<VerticalPart, 'kind' | 'stop'>):
  * 종료 지점(끝 층)이다. 계단은 구조로 이어져 있어도 로봇이 지나가지 못한다(OE-ML-04) — `verticalConnects` 와 `passable` 은 따로다.
  * TTL 에는 아직 내보내지 않는다(ADR-0033).
  */
-function verticalPartFeature(part: VerticalPart, storey: Storey, vertical?: VerticalRef, travel?: { from: Vec3; to: Vec3 } | null, heading?: number): Feature {
+function verticalPartFeature(part: VerticalPart, storey: Storey, vertical?: VerticalRef, travel?: { from: Vec3; to: Vec3 } | null, heading?: number, link?: { with: string[]; review: { id: string; reason: string }[] }): Feature {
   const ring = part.footprint
   const point = part.exit ?? part.entry
   return {
@@ -338,6 +339,10 @@ function verticalPartFeature(part: VerticalPart, storey: Storey, vertical?: Vert
       // 계단·ES·샤프트는 구조로 이어져 있어도(verticalConnects) 로봇이 지나가지 못한다 — 연결이 있다고 통과로 바꾸지 않는다.
       ...verticalPartPassable(part),
       ...(vertical?.to.length ? { verticalConnects: [...vertical.to], verticalConnectsSource: vertical.source } : {}),
+      // 이어 놓은 계단·ES 의 연속 연결(OE-ML-19 AC8). 같은 층에서 만나는 다른 오브젝트의 feature 다. 사람이 이어 놓아 출처는 편집이다.
+      // 지점이 어긋나거나 ES 방향이 달라진 것은 연결로 내지 않고 continuesReview 에 까닭과 함께 둔다.
+      ...(link?.with.length ? { continuesWith: [...link.with], continuesWithSource: 'edit' } : {}),
+      ...(link?.review.length ? { continuesReview: link.review.map((r) => ({ ...r })) } : {}),
     },
   }
 }
@@ -354,6 +359,8 @@ export function storeyToGeoJSON(
   travels: ReadonlyMap<string, { from: Vec3; to: Vec3 }> = new Map(),
   /** 오브젝트 id → 평면 회전각(°). 여러 층에 걸친 값이라 모델에서 미리 잰다. */
   headings: ReadonlyMap<string, number> = new Map(),
+  /** feature id → 연속 연결(vertical-link.ts 의 linkFeatures). */
+  links: ReadonlyMap<string, { with: string[]; review: { id: string; reason: string }[] }> = new Map(),
 ): FeatureCollection {
   const external = judgeExternal(storey)
   return {
@@ -367,7 +374,7 @@ export function storeyToGeoJSON(
       ...(storey.customZones ?? []).map((z) => customZoneFeature(z, storey)),
       ...(storey.rooms ?? []).map((r) => roomFeature(r, storey)),
       ...(storey.spaceObjects ?? []).map((o) => spaceObjectFeature(o, storey, itemNames)),
-      ...(storey.verticalParts ?? []).map((p) => verticalPartFeature(p, storey, vertical.get(partId(p.parentId, storey.id)), travels.get(p.parentId), headings.get(p.parentId))),
+      ...(storey.verticalParts ?? []).map((p) => verticalPartFeature(p, storey, vertical.get(partId(p.parentId, storey.id)), travels.get(p.parentId), headings.get(p.parentId), links.get(partId(p.parentId, storey.id)))),
     ],
   }
 }
@@ -405,7 +412,7 @@ export function geoContext(model: Model) {
       return h === null ? [] : [[o.id, Math.round(h * 10) / 10] as const]
     }),
   )
-  return [hvacZonesOf(model), verticalRefs(model), new Map(libraryOf(model).map((i) => [i.key, i.name])), shafts, new Map(model.systems.map((x) => [x.id, x])), travels, headings] as const
+  return [hvacZonesOf(model), verticalRefs(model), new Map(libraryOf(model).map((i) => [i.key, i.name])), shafts, new Map(model.systems.map((x) => [x.id, x])), travels, headings, linkFeatures(model)] as const
 }
 
 /** 층 id → 층 파일 이름. 내보내기와 편집 리플레이가 같은 이름을 쓴다. */
