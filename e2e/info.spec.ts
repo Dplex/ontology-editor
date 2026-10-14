@@ -303,7 +303,7 @@ test('등급 칩과 등급 판정은 판정에 쓰는 본 숫자 하나를 분�
   expect(errors).toEqual([])
 })
 
-test('경고와 완전성 검사 규칙마다 누락 분류 코드와 R 번호가 붙는다 [OE-BIM-20#1]', async ({ page }) => {
+test('경고와 완전성 검사 규칙마다 누락 분류 코드와 R 번호가 붙는다 [OE-BIM-20#1~,2]', async ({ page }) => {
   const errors = await open(page)
   const items = page.locator('#warnings > li')
   await expect(items.first()).toBeVisible()

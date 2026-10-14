@@ -22,6 +22,7 @@ import PublishDialog from './components/PublishDialog.vue'
 import { groupReport, layoutFiles, layoutSummary, newSince, type ReportSection, type SpaceTree } from './lib/layout-files'
 import { previewSummary, summaryText } from './lib/preview'
 import { DEFAULT_GRID, gridLines, snapToGrid, type GridSettings } from './lib/grid'
+import { blockingOf, preBuildChecks } from './lib/pre-build'
 import { DEFAULT_SNAP, snapPoint, snapTargets, type SnapHit, type SnapRing, type SnapSettings } from './lib/snap'
 import { dimensionText, wallDimensions } from './lib/dimensions'
 import { familyHeight } from './lib/placement'
@@ -9881,6 +9882,10 @@ watch(
 const gradesOpen = ref(false)
 /** [구축하기] 를 막는 이유(게이트 미달). 반영한 버전이 있으면(운영 편집) 막지 않는다. */
 const buildBlock = computed(() => {
+  // 생성 전 검증의 차단 항목(OE-GEN-03 — 한 층 안 방번호 중복, 물리존 없는 층)은 구축·반영 모두 막는다. 경고는 막지 않고 리포트 ⑩ 에 남는다.
+  const m = model.value
+  const blocks = m ? blockingOf(preBuildChecks(m, [])) : []
+  if (blocks.length) return `생성 전 검증에서 막혔습니다 — ${blocks.map((x) => x.detail).join(' · ')}`
   const g = grades.value
   if (!g || g.gate || (serverKey.value && !firstPublish.value)) return null
   const nameHint = g.failing.some((r) => r.why?.startsWith('층 이름')) ? ' 층 이름은 [층별 요약] 에서 넣을 수 있습니다.' : ''
