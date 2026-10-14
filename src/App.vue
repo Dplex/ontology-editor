@@ -115,7 +115,7 @@ import { removalImpact } from './lib/removal-impact'
 import { retargetEnd } from './lib/retarget'
 import { anchorBackground, backgroundCorners, calibrateScale, dwgBackground, initialBackground, switchPdfPage, type Background, type DwgStats } from './lib/background'
 import { renderPdfPage } from './lib/pdf-page'
-import { FLOW_TYPES, flowType } from './lib/flow-type'
+import { conduitFlowType, FLOW_TYPES, flowType, setConduitFlowType } from './lib/flow-type'
 import {
   applyFollow,
   fittingMoveRefusal,
@@ -772,6 +772,40 @@ function setSurfaceOf(id: string, surface: Surface | null) {
   triggerRef(model)
   note(surface ? `${name}의 설치면을 ${SURFACE_LABEL[surface]}으로 정했습니다` : `${name}의 설치면을 z 판정으로 되돌렸습니다`)
 }
+
+/**
+ * BIM 덕트·배관 구간의 Flow Type 을 사람이 정한다(OE-PIP-14). null 이면 지워 계통 종류·유체로 계산한 값으로 돌아간다. 되돌리기에 쌓인다.
+ * 계통 하나에 공급·환수가 섞여 계산으로 가르지 못한 배관을 사람이 가른다.
+ */
+function setFlowTypeOf(id: string, code: string | null) {
+  const m = model.value
+  if (!m) return
+  const snapshot = snapshotEquipment(m, id)
+  const at = mark()
+  const done = setConduitFlowType(m, id, code)
+  if (done !== true) {
+    if (done) note(done.refused)
+    return
+  }
+  const name = shortName(nameOfId(id))
+  remember(code ? `${name} Flow Type ${code}` : `${name} Flow Type 계산으로`, snapshot, at)
+  triggerRef(model)
+  note(code ? `${name}의 Flow Type 을 ${code}(${flowType(code)?.label})로 정했습니다 (GeoJSON flowType)` : `${name}의 Flow Type 을 계통으로 계산한 값으로 되돌렸습니다`)
+}
+/** 패널의 Flow Type 칸. 막히면 칸을 지금 값으로 되돌린다 — 고른 값이 남으면 바뀐 것처럼 보인다. */
+function onFlowTypePick(id: string, select: HTMLSelectElement) {
+  setFlowTypeOf(id, select.value || null)
+  select.value = equipmentById.value.get(id)?.flowTypeSet ?? ''
+}
+/** 고른 덕트·배관의 Flow Type: 지금 값과, 사람이 고른 것을 뺀 계산 값. */
+const selectedFlowType = computed(() => {
+  void model.value
+  const e = selected.value
+  if (!e || !isConduit(e.role)) return null
+  const systemOf = (id: string) => systemById.value.get(id)
+  return { now: conduitFlowType(e, systemOf), calc: conduitFlowType({ ...e, flowTypeSet: undefined }, systemOf) }
+})
+const flowTypeText = (code: string | null | undefined) => (code ? `${code} ${flowType(code)?.label ?? ''}` : '')
 
 // 설치면 판정(OE-EQP-03). z(층 바닥 기준)로 판정하고, 허용 설치면 밖이면 목록에 올린다(Q9).
 const JUDGED_LABEL: Record<Judged, string> = { ...SURFACE_LABEL, plenum: '천장(플레넘)' }
@@ -10927,6 +10961,23 @@ function rollbackFromReport() {
                   <dd v-flash="selected.systemId">
                     {{ selected.systemId ? systemById.get(selected.systemId)?.name : '(계통 없음)' }}
                     <Src v-if="selected.systemEdited" kind="edit" /><Src v-else-if="selected.systemId" kind="bim" />
+                  </dd>
+                </div>
+                <!-- Flow Type(OE-PIP-14). BIM 배관은 계통 종류·유체로 계산하고, 공급·환수가 섞여 정하지 못한 구간은 사람이 고른다. -->
+                <div v-if="selectedFlowType" data-testid="flow-type-row">
+                  <dt>Flow Type</dt>
+                  <dd v-flash="selectedFlowType.now?.code">
+                    <select
+                      v-if="editing && !selectedLock && !selected.flowType"
+                      :value="selected.flowTypeSet ?? ''"
+                      aria-label="구간 Flow Type"
+                      @change="onFlowTypePick(selected.id, $event.target as HTMLSelectElement)"
+                    >
+                      <option value="">{{ selectedFlowType.calc ? `계산: ${flowTypeText(selectedFlowType.calc.code)}` : '정하지 못함(계통 종류·유체 모름)' }}</option>
+                      <option v-for="f in FLOW_TYPES" :key="f.code" :value="f.code">{{ f.code }} {{ f.label }}</option>
+                    </select>
+                    <template v-else>{{ selectedFlowType.now ? flowTypeText(selectedFlowType.now.code) : '정하지 못함(계통 종류·유체 모름)' }}</template>
+                    <Src v-if="selectedFlowType.now" :kind="selectedFlowType.now.source" />
                   </dd>
                 </div>
                 <!-- 담당 근거(OE-EQP-10). VAV·말단을 어느 공조기가 맡는지 흐름 방향으로 찾은 것. -->

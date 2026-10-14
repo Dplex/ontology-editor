@@ -768,6 +768,8 @@ export type Snapshot =
       shaftId?: string
       /** 사람이 정한 설치면(OE-EQP-05). */
       surfaceSet?: Equipment['surfaceSet']
+      /** 사람이 BIM 덕트·배관에 정한 Flow Type(OE-PIP-14). */
+      flowTypeSet?: string
     }
   | {
       kind: 'space'
@@ -959,6 +961,7 @@ export function snapshotEquipment(model: Model, equipmentId: string): Snapshot |
       wallId: e.wallId,
       ...(e.shaftId ? { shaftId: e.shaftId } : {}),
       surfaceSet: e.surfaceSet,
+      ...(e.flowTypeSet ? { flowTypeSet: e.flowTypeSet } : {}),
     }
   }
   return null
@@ -1127,6 +1130,8 @@ export function restore(model: Model, snapshot: Snapshot): RuleReport | null {
       else delete equipment.shaftId
       if (snapshot.surfaceSet) equipment.surfaceSet = snapshot.surfaceSet
       else delete equipment.surfaceSet
+      if (snapshot.flowTypeSet) equipment.flowTypeSet = snapshot.flowTypeSet
+      else delete equipment.flowTypeSet
       // BIM 이 말한 소속은 재판정이 건너뛰므로 값째 되돌린다. 나머지는 좌표로 다시 나온다.
       equipment.spaceSource = snapshot.spaceSource
       equipment.spaceId = snapshot.spaceId
