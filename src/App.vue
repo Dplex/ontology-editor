@@ -198,6 +198,7 @@ import {
   mountOnWall,
   snapshotCustomZones,
   snapshotHvacZones,
+  snapshotServedZones,
   snapshotAirflow,
   orphanedBy,
   snapshotRooms,
@@ -1136,8 +1137,10 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
   }
   const followers = plan ? [...plan.rigid, ...new Set(plan.stretch.map((x) => x.id))] : []
   const own = snapshotEquipment(model.value, equipmentId)
+  // 공조기·PAC 를 다른 물리존으로 옮기면 담당 공조존에서 빠진다(OE-EQP-09). 되돌리면 담당도 돌아와야 해서 그 층의 공조존을 같이 받아 둔다.
+  const served = snapshotServedZones(model.value, equipmentId)
   const snapshot: Snapshot | null =
-    own && followers.length ? { kind: 'many', parts: [own, ...followers.flatMap((id) => snapshotEquipment(model.value!, id) ?? [])] } : own
+    own && (followers.length || served.length) ? { kind: 'many', parts: [own, ...followers.flatMap((id) => snapshotEquipment(model.value!, id) ?? []), ...served] } : own
   const at = mark()
   const change = moveEquipment(model.value, equipmentId, to)
   if (!change) return false
@@ -1156,7 +1159,16 @@ function relocate(equipmentId: string, to: Vec3, drawnAt?: Vec3, coalesce?: stri
     const z06 = zoneCheckList.value?.checks.find((c) => c.rule === 'Z-06')?.items.find((x) => x.id.includes(equipmentId))
     if (z06) editNotice.value = `실내기를 옮겼습니다. 담당 공조존을 다시 지정하세요(Z-06: ${z06.label}). 설비 패널의 "담당 공조존" 에서 고릅니다.`
   }
+  noticeServedReleased([change])
   return true
+}
+
+/** 옮겨서 담당 공조존에서 빠진 공조기·PAC 를 알린다(OE-EQP-09). 다시 지정하기 전까지 그 공조존은 Z-04 다. */
+function noticeServedReleased(done: readonly Change[]) {
+  const hit = done.filter((c) => c.servedReleased?.length)
+  if (!hit.length) return
+  const zones = [...new Set(hit.flatMap((c) => c.servedReleased!))]
+  editNotice.value = `${hit.map((c) => shortName(c.equipmentName)).join(', ')}${josa(shortName(hit.at(-1)!.equipmentName), '을/를')} 다른 물리존으로 옮겨 담당하던 공조존(${zones.join(', ')})에서 뺐습니다(Z-04). 공조존 패널의 "담당 설비" 에서 다시 지정하세요.`
 }
 
 // 좌표가 없는 설비(E6)에 표로 넣은 축. 셋이 다 차야 옮긴다(completePosition). 새 파일을 열면 비운다.
@@ -1328,13 +1340,15 @@ function moveGroup(dx: number, dy: number, dragged?: { id: string; drawnAt: Vec3
       return false
     }
   }
-  const snapshot: Snapshot = { kind: 'many', parts: targets.flatMap(({ e }) => snapshotEquipment(m, e.id) ?? []) }
+  const served = new Map(targets.flatMap(({ e }) => snapshotServedZones(m, e.id)).map((x) => [x.kind === 'hvac-zones' ? x.storeyId : '', x]))
+  const snapshot: Snapshot = { kind: 'many', parts: [...targets.flatMap(({ e }) => snapshotEquipment(m, e.id) ?? []), ...served.values()] }
   const at = mark()
   const done: Change[] = []
   for (const { e, to } of targets) {
     const change = moveEquipment(m, e.id, to)
     if (change) done.push(change)
   }
+  noticeServedReleased(done)
   remember(`설비 ${items.length}대 옮김`, snapshot, at, coalesce)
   for (const { e, from, to } of targets) {
     if (dragged?.id === e.id) shiftMesh(e.id, from, dragged.drawnAt)
@@ -1409,10 +1423,13 @@ function moveToStorey(equipmentId: string, storeyId: string): boolean {
       return false
     }
   }
-  const snapshot = snapshotEquipment(model.value, equipmentId)
+  const own = snapshotEquipment(model.value, equipmentId)
+  const served = snapshotServedZones(model.value, equipmentId)
+  const snapshot: Snapshot | null = own && served.length ? { kind: 'many', parts: [own, ...served] } : own
   const at = mark()
   const change = moveEquipmentToStorey(model.value, equipmentId, storeyId)
   if (!change) return false
+  noticeServedReleased([change])
   remember(`${shortName(change.equipmentName)} 층 옮김`, snapshot, at)
   moveInScene(equipmentId, before, equipmentById.value.get(equipmentId)?.position ?? null)
   changes.value = [...changes.value, change]

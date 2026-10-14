@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import * as WebIFC from 'web-ifc'
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { importIfc } from './ifc/import'
-import { addEquipment, baselineOf, createSpace, deleteSpace, diffBaseline, mergeSpaces, moveEquipment, renameSpace, restore, snapshotHvacZones, snapshotStoreySpaces, splitSpace } from './edit'
+import { addEquipment, baselineOf, createSpace, deleteSpace, diffBaseline, mergeSpaces, moveEquipment, moveEquipmentToStorey, renameSpace, restore, snapshotHvacZones, snapshotServedZones, snapshotStoreySpaces, splitSpace } from './edit'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
 import { splitByStorey } from './storey-drafts'
 import {
@@ -190,6 +190,51 @@ describe('공조존 검증과 담당 물리존 고치기 (OE-ZON-05 · OE-ZON-04
     setZoneServedBy(model, (findHvacZone(model, hvacZonesOf(model).find((z) => z.name === '다')!.id)!).zone.id, [equip('AHU-1').id])
     expect(rule('Z-06')).toEqual(['AHU-1 — 사무실 에 있고 다 담당'])
     expect(a.servedBy).toEqual([equip('AHU-1').id])
+  })
+
+  it('공조기를 다른 물리존·층으로 옮기면 담당 공조존에서 빠져 Z-04 가 보이고, 같은 방 안에서 옮기면 그대로다. 되돌리면 담당도 돌아온다 [OE-EQP-09#1]', () => {
+    const ahu = equip('AHU-1')
+    const zone = createZoneFromSpaces(model, { spaceIds: [store], name: '가', servedBy: [ahu.id] }) as HvacZone
+    expect(rule('Z-04')).toEqual([])
+    // 같은 사무실 안에서 1m 옮김 — 덕트가 그대로 닿는 자리라 담당은 그대로다.
+    const near = moveEquipment(model, ahu.id, [ahu.position![0] + 1, ahu.position![1], ahu.position![2]])!
+    expect(near.fromSpaceId).toBe(near.toSpaceId)
+    expect(near.servedReleased).toBeUndefined()
+    expect(zone.servedBy).toEqual([ahu.id])
+
+    // 창고로 옮김 — 담당에서 빠지고 Z-04, 리포트 문장이 다시 지정하라고 한다.
+    const served = snapshotServedZones(model, ahu.id)
+    expect(served).toHaveLength(1)
+    const far = moveEquipment(model, ahu.id, [12, 4, ahu.position![2]])!
+    expect(far.toSpaceId).toBe(store)
+    expect(far.servedReleased).toEqual(['가'])
+    expect(far.summary).toContain('담당하던 공조존(가)에서 빠졌습니다')
+    expect(rule('Z-04')).toEqual(['가'])
+    // 되돌리면(화면이 받아 둔 공조존 스냅숏) 담당이 돌아온다.
+    for (const snap of served) restore(model, snap)
+    expect(findHvacZone(model, zone.id)!.zone.servedBy).toEqual([ahu.id])
+    expect(rule('Z-04')).toEqual([])
+
+    // 다른 층으로 보내도 빠진다.
+    const upper = { ...structuredClone(model.storeys[0]), id: '2F', name: '2F', elevation: 4, spaces: [], equipment: [], hvacZones: undefined }
+    model.storeys.push(upper)
+    const moved = moveEquipmentToStorey(model, ahu.id, '2F')!
+    expect(moved.servedReleased).toEqual(['가'])
+    expect(rule('Z-04')).toEqual(['가'])
+  })
+
+  it('패키지 에어컨(PAC)도 옮기면 담당에서 빠진다. 실내기·FCU 는 이 규칙이 아니라 Z-06 이다 [OE-EQP-09#1]', () => {
+    const ahu = equip('AHU-1')
+    ahu.kind = 'pac'
+    createZoneFromSpaces(model, { spaceIds: [store], name: '가', servedBy: [ahu.id] })
+    moveEquipment(model, ahu.id, [12, 4, ahu.position![2]])
+    expect(rule('Z-04')).toEqual(['가'])
+
+    const fcu = equip('AT-101-01')
+    fcu.kind = 'fcu'
+    createZoneFromSpaces(model, { spaceIds: [office().id], name: '나', servedBy: [fcu.id] })
+    expect(moveEquipment(model, fcu.id, [12, 5, fcu.position![2]])!.servedReleased).toBeUndefined()
+    expect(rule('Z-04')).toEqual(['가'])
   })
 
   it('담당 물리존을 더하고 빼면 골라 만든 공조존은 바닥이 다시 합집합이 되고, 그린 공조존은 바닥을 두고 담당만 바뀐다. 다 빼면 막는다', () => {
