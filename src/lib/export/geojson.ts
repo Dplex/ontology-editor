@@ -6,7 +6,7 @@
 // 지도 위에 얹을 일이 생기면 그때 사이트 원점의 위경도와 방위를 받아 한 번에 변환한다.
 
 import { capacityQuantity } from '../capacity'
-import { polygonArea, segmentPath, SEGMENT_PATH_ISSUES, type CustomZone, type Equipment, type HvacZone, type Model, type Opening, type Room, type Space, type SpaceObject, type Storey, type VerticalPart, type Wall } from '../model'
+import { polygonArea, segmentPath, SEGMENT_PATH_ISSUES, type CustomZone, type Equipment, type HvacZone, type Model, type Opening, type Room, type Space, type SpaceObject, type Storey, type System, type VerticalPart, type Wall } from '../model'
 import { verticalConnections } from '../vertical'
 import { partId, partLinks, partSpaces, verticalObjects } from '../vertical-object'
 import { judgeExternal, type ExternalJudgement } from '../exterior'
@@ -14,6 +14,7 @@ import { zoneEquipment, zoneSpaces } from '../custom-zone'
 import { libraryOf } from '../space-object'
 import { hvacZonesOf } from '../hvac-zone'
 import { rectRing } from '../room'
+import { conduitFlowType } from '../flow-type'
 
 export type Geometry =
   | { type: 'Polygon'; coordinates: number[][][] }
@@ -96,10 +97,11 @@ function spaceFeature(space: Space, storey: Storey, vertical?: VerticalRef): Fea
   }
 }
 
-function equipmentFeature(equipment: Equipment, storey: Storey, shafts: ReadonlySet<string>): Feature {
+function equipmentFeature(equipment: Equipment, storey: Storey, shafts: ReadonlySet<string>, systems: ReadonlyMap<string, System>): Feature {
   // 덕트·배관 구간은 경로(두 끝)로 낸다(OE-PIP-13). 배치점 하나로 경로를 만들지 않으니, 경로를 쓸 수 없는 구간은 geometry 를
   // 비우고 `pathIssue` 에 까닭을 적는다. 연결·계통은 형상과 따로라 TTL 에 그대로 나간다.
   const path = segmentPath(equipment)
+  const flow = conduitFlowType(equipment, (id) => systems.get(id))
   return {
     type: 'Feature',
     id: equipment.id,
@@ -133,8 +135,9 @@ function equipmentFeature(equipment: Equipment, storey: Storey, shafts: Readonly
       ...(equipment.shaftId && shafts.has(equipment.shaftId) ? { shaftId: equipment.shaftId } : {}),
       // 경로를 쓸 수 없는 덕트·배관 구간의 까닭(좌표 없음 · 형상 없음 · 수치 오류 · 길이 0). 경로가 있거나 구간이 아니면 키가 없다.
       ...(path && 'issue' in path ? { pathIssue: SEGMENT_PATH_ISSUES[path.issue] } : {}),
-      // 사람이 그린 배관의 Flow Type(OE-OBJ-12, SA·CHWS 등). BIM 배관에는 없다.
-      ...(equipment.flowType ? { flowType: equipment.flowType } : {}),
+      // 덕트·배관의 Flow Type(OE-OBJ-12·OE-PIP-14, SA·CHWS 등)과 출처. 사람이 그리거나 고른 것은 edit, BIM 배관은 계통 종류·유체로 계산한다
+      // (calc · 사전으로 짐작한 종류면 dict). 정하지 못한 구간(유체를 모르는 순환수 등)에는 키가 없다.
+      ...(flow ? { flowType: flow.code, flowTypeSource: flow.source } : {}),
     },
   }
 }
@@ -328,13 +331,14 @@ export function storeyToGeoJSON(
   vertical: ReadonlyMap<string, VerticalRef> = new Map(),
   itemNames: ReadonlyMap<string, string> = new Map(),
   shafts: ReadonlySet<string> = new Set(),
+  systems: ReadonlyMap<string, System> = new Map(),
 ): FeatureCollection {
   const external = judgeExternal(storey)
   return {
     type: 'FeatureCollection',
     features: [
       ...storey.spaces.map((s) => spaceFeature(s, storey, vertical.get(s.id))),
-      ...storey.equipment.map((e) => equipmentFeature(e, storey, shafts)),
+      ...storey.equipment.map((e) => equipmentFeature(e, storey, shafts, systems)),
       ...storey.walls.map((w) => wallFeature(w, storey, external.get(w.id))),
       ...storey.openings.map((o) => openingFeature(o, storey)),
       ...zones.filter((z) => z.storeyId === storey.id).map((z) => hvacZoneFeature(z, storey)),
@@ -365,7 +369,7 @@ export function modelToGeoJSON(model: Model): { fileName: string; collection: Fe
 /** 층마다 storeyToGeoJSON 에 같이 넘기는 모델 전체의 것. 내보내기와 편집 리플레이(한 층씩)가 같이 쓴다. */
 export function geoContext(model: Model) {
   const shafts = new Set(verticalObjects(model).filter((o) => o.kind === 'shaft').map((o) => o.id))
-  return [hvacZonesOf(model), verticalRefs(model), new Map(libraryOf(model).map((i) => [i.key, i.name])), shafts] as const
+  return [hvacZonesOf(model), verticalRefs(model), new Map(libraryOf(model).map((i) => [i.key, i.name])), shafts, new Map(model.systems.map((x) => [x.id, x]))] as const
 }
 
 /** 층 id → 층 파일 이름. 내보내기와 편집 리플레이가 같은 이름을 쓴다. */
