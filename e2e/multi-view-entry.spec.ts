@@ -142,8 +142,13 @@ test('Duplex 건축+HVAC: 세 진입 경로 모두 같은 배관 그리기·연�
   const drawn = page.locator('.equipment tbody tr', { hasText: /DCW 배관 \d+/ })
   let offset = false
   for (let i = 0; i < (await drawn.count()) && !offset; i++) {
-    await drawn.nth(i).locator('button.link').first().click()
-    offset = (await page.getByTestId('offset-height').count()) > 0 && (await page.getByTestId('offset-height').getByLabel('오프셋 층').locator('option:checked').innerText()) === 'Level 2'
+    const link = drawn.nth(i).locator('button.link').first()
+    const name = await link.innerText()
+    await link.click()
+    // 패널이 누른 구간으로 바뀐 뒤에 읽는다. 앞 구간의 오프셋 칸을 읽다가 그 칸이 사라지면 기다리기만 하다 끝난다.
+    await expect(picked).toContainText(name)
+    const storeys = await page.getByTestId('offset-height').getByLabel('오프셋 층').evaluateAll((els) => els.map((s) => (s as HTMLSelectElement).selectedOptions[0]?.text ?? ''))
+    offset = storeys[0] === 'Level 2'
   }
   expect(offset).toBe(true)
   const form = page.getByTestId('offset-height')

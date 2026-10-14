@@ -53,7 +53,8 @@ test('Duplex: 층별 칩은 위층부터 쌓이고 누르면 그 층만 보며, 
   await page.mouse.move(c.x + c.width * 0.3, c.y + c.height * 0.6)
   await page.mouse.down({ button: 'middle' })
   await page.mouse.up({ button: 'middle' })
-  await expect.poll(() => viewer(page, 'pivot')).not.toBeNull()
+  // 고리(pivot)는 0.9초만 떠서 부하가 걸리면 poll 이 놓친다. 남는 결과인 대상 이동을 기다린다.
+  await expect.poll(async () => (await viewer<Cam>(page, 'camera')).target).not.toEqual(before.target)
   await settled(page)
   const after = await viewer<Cam>(page, 'camera')
   expect(after.target).not.toEqual(before.target)
