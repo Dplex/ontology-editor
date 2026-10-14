@@ -220,7 +220,7 @@ PM 검토에서 "3D 에서 방이 휑하니 뚫려 있다" 가 나왔다. 보기
   `Filter` · `Cluster(분해도)` · `Walls(벽)` · `Reset` 캡슐 독을 두었다. 기존 오른쪽 위 `[보기 필터]`(`data-testid="filter-toggle"`)와 같은 상태를 공유한다.
 - **좌측 슬라이드아웃 탐색 드로어(`.filter-panel`)**:
   - 오른쪽 위에 뜨던 필터 패널을 독 바로 아래 왼쪽(`top: 3.05rem; left: 0.75rem`)으로 옮기고, 다크 블러 글래스(`backdrop-filter: blur(18px)`)와 슬라이드 애니메이션을 입혔다.
-  - 패널 상단에 **통합 검색창(`explorerQuery`)**을 두어 층·Brick 클래스·계통이 많을 때 실시간으로 걸러 본다.
+  - 패널 상단에 **통합 검색창(`explorerQuery`)**을 두어 층·Brick 클래스·계통이 많을 때 실시간으로 걸러 본다. 설비 검색(`input[type=search]`)과 겹치지 않게 `type=text` 다.
   - `LEVELS(층)` · `CATEGORY(Brick 클래스)` · `SYSTEMS(계통)` 머리줄마다 `전부` / `CLEAR` 단추를 두고, 단일 층 보기 중에도 왼쪽 층 체크박스를 누르면
     즉시 모든 층 기반 다중 층 필터로 전환되게 했다(`toggleFacet`).
 - **글래스 오버레이 통일**: 우클릭 메뉴(`.ctx-menu`), 3D 설비 콜아웃 라벨(`.eq-label`), 시점 도구·층별 칩에 반투명 블러와 시안(`#38bdf8`) 강조 테두리를 맞춰

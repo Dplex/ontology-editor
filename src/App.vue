@@ -5476,11 +5476,11 @@ function clearViewFilter() {
 }
 /** 체크 목록 한 칸을 켜고 끈다. 전부 켜지면 null(거르지 않음)로 돌린다. */
 function toggleFacet(key: 'storeys' | 'classes' | 'systems', id: string, all: readonly string[]) {
-  if (key === 'storeys' && viewStorey.value && !multiView.value) {
-    // 단일 층 보기 중이라도 왼쪽 탐색 패널에서 층 체크박스를 누르면 즉시 모든 층 기반 다중 필터로 전환한다(FACADE 스타일).
-    viewStorey.value = null
-  }
-  const now = viewFilter.value[key] ?? [...all]
+  // 층 하나만 보던 중에 다른 층 칸을 누르면 모든 층 보기로 풀고, 보던 층에서 시작해 누른 층을 더하거나 뺀다.
+  // 모든 층에서 시작하면 화면에 체크돼 보이지 않던 층을 누른 것이 "그 층만 빼기" 가 돼 보던 것과 거꾸로 된다.
+  const single = key === 'storeys' && viewStorey.value && !multiView.value ? viewStorey.value : null
+  if (single) viewStorey.value = null
+  const now = single ? [single] : viewFilter.value[key] ?? [...all]
   const next = now.includes(id) ? now.filter((x) => x !== id) : [...now, id]
   setViewFilter({ [key]: next.length === all.length ? null : next })
 }
@@ -11258,7 +11258,7 @@ function rollbackFromReport() {
                 <input
                   v-model="explorerQuery"
                   v-keep-typing
-                  type="search"
+                  type="text"
                   class="filter-search"
                   placeholder="층 · 클래스 · 계통 검색…"
                   aria-label="보기 필터 검색"
