@@ -23,6 +23,7 @@ import { projects as projectStore } from './projects'
 import { activityLog } from './activity-log'
 import { floorState } from './floor-state'
 import { fbxConverter } from './fbx'
+import { dwgConverter } from './dwg'
 
 type Profiled = { profile: Profile } | { error: string }
 
@@ -156,6 +157,7 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
   const floors = floorState(root, people.writer)
   const projectList = projectStore(root, people.writer)
   const fbx = fbxConverter()
+  const dwg = dwgConverter()
 
   return (req: IncomingMessage, res: ServerResponse) => {
     const [rawPath, query] = (req.url ?? '/').split('?')
@@ -181,6 +183,8 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
     if (path === '__layouts') return layoutStore(req, res, query ?? '')
     // GLB 를 받아 FBX 로 바꿔 돌려준다(fbx.ts). data/ 에는 아무것도 남기지 않는다.
     if (path === '__fbx') return fbx(req, res)
+    // DWG 를 받아 평면도 배경 PNG 로 바꿔 돌려준다(dwg.ts). data/ 에는 아무것도 남기지 않는다.
+    if (path === '__dwg') return dwg(req, res)
     // 첫 화면의 [바로 열기] 묶음. data/.open-sets.json 의 [{ title, paths }] 중 파일이 다 있는 것만 낸다(openSets).
     if (path === '__sets') {
       res.setHeader('Content-Type', 'application/json')

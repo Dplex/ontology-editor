@@ -63,6 +63,42 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 - 변환은 한 번에 하나씩 한다. 성수는 개발 PC 에서 46초, 메모리 4.3GB 였다. 둘이 겹치면 뒤의 것이 앞의 것을 기다린다.
 - 받은 GLB 와 만든 FBX 는 OS 임시 폴더(`oe-fbx-*`)에 두고 답한 뒤 지운다. `data/` 에는 남지 않는다.
 
+## DWG 변환은 서버의 LibreDWG·ezdxf 가 한다
+
+평면도 배경(OE-MAN-02)에 DWG 를 고르면 화면이 파일을 `POST /__data/__dwg` 로 보내고, 서버가 PNG 로 바꿔 돌려준다(`src/server/dwg.ts`,
+`scripts/dwg2png.py`). DWG 는 LibreDWG 의 `dwg2dxf` 로 DXF 로 바꾸고, DXF 는 파이썬 ezdxf 로 그린다. 머리 `X-Dwg2png` 에 그림이 덮는 도면 범위와
+단위가 가고, 화면은 단위를 알면 실제 크기로 깐다. **변환기가 없으면 `GET /__data/__dwg` 가 `enabled:false` 와 까닭을 주고**, 도면 칸의 안내가
+그 까닭을 보이며 DWG 를 받지 않는다.
+
+- 55 에는 sudo 가 없고 pip 도 없다(Python 3.14, ensurepip 없음). 둘 다 홈에 깔고, 경로는 `.env` 의 `DWG_PYTHON`·`DWG2DXF` 로 준다.
+  2026-10-14 에 아래대로 깔았다.
+  - **GitHub 릴리스 파일은 55 에서 받지 못한다.** 프록시가 다운로드 서버(objects.githubusercontent.com)에 빈 응답을 준다. 개발 PC 에서 받아 scp 로 넘긴다.
+  - **gcc 15(Ubuntu 26.04)는 LibreDWG 를 경고 때문에 멈춘다.** `--enable-release` 로도 `-Werror` 가 남아 make 에 `WARN_CFLAGS=-Wno-error` 를 준다.
+  - **uv 는 사내 프록시의 인증서를 모른다.** `--system-certs` 를 준다. uv 도 GitHub 릴리스라 개발 PC 의 것을 넘긴다.
+  ```
+  # 개발 PC 에서: LibreDWG 0.13.3 릴리스 tarball 과 uv 를 넘긴다
+  curl -LO https://github.com/LibreDWG/libredwg/releases/download/0.13.3/libredwg-0.13.3.tar.xz
+  sha256sum libredwg-0.13.3.tar.xz   # 83f1f6e78a744777a481ff4520e4cef3f8ac4b2c1c25671077ca12fe81e8816e
+  scp libredwg-0.13.3.tar.xz 55:.local/src/ && scp ~/.local/bin/uv 55:.local/bin/
+
+  # 55 에서: LibreDWG 를 홈에 빌드한다(릴리스 tarball 에 configure 가 들어 있어 autoconf 가 없어도 된다)
+  cd ~/.local/src && tar -xJf libredwg-0.13.3.tar.xz && cd libredwg-0.13.3
+  ./configure --prefix=$HOME/.local --disable-bindings --enable-release
+  make -j8 WARN_CFLAGS=-Wno-error && make install WARN_CFLAGS=-Wno-error
+  # 파이썬 — uv 로 venv 를 만들고 ezdxf·matplotlib 을 넣는다
+  ~/.local/bin/uv venv ~/.local/share/dwg2png/venv
+  VIRTUAL_ENV=~/.local/share/dwg2png/venv ~/.local/bin/uv pip install --system-certs ezdxf==1.4.4 matplotlib
+  # 확인 — DWG2PNG-PROBE {...} 가 찍히면 된다
+  DWG2DXF=~/.local/bin/dwg2dxf ~/.local/share/dwg2png/venv/bin/python /home/dt/git/dt/ontology-editor/scripts/dwg2png.py --probe
+  ```
+  `/home/dt/git/dt/ontology-editor/.env` 에 두 줄을 둔다(`DWG_PYTHON=/home/dt/.local/share/dwg2png/venv/bin/python`,
+  `DWG2DXF=/home/dt/.local/bin/dwg2dxf`). `.env` 는 gitignore 라 저장소에는 `.env.example` 만 있다.
+- 서버는 변환기가 있는지를 처음 물을 때 한 번만 잰다. 깔았거나 `.env` 를 고쳤으면 서버를 다시 띄운다.
+- 변환은 한 번에 하나씩 한다. 받은 DWG 와 만든 PNG 는 OS 임시 폴더(`oe-dwg-*`)에 두고 답한 뒤 지운다. `data/` 에는 남지 않는다.
+- LibreDWG 가 핸들이 겹치는 DXF 를 쓰는 도면이 있다(LibreDWG 로 만든 DWG 가 그랬다). 그때는 개체만 담은 최소 DXF 로 다시 그리고, 블록으로 넣은 기호(문·가구)는
+  빠질 수 있다고 화면이 알린다.
+- dev 에서 쓰려면 같은 두 변수를 주고 `npm run dev` 한다. 시험(`src/server/dwg.test.ts`)도 두 변수가 있어야 돌고, 없으면 까닭을 찍고 건너뛴다.
+
 ## Laya 종류 후보는 133 의 GPU 가 답한다
 
 편집 화면 "종류를 모르는 패밀리" 칸의 Laya 줄(ADR-0057)은 `GET /__laya`·`POST /__laya/kinds` 두 길만 133(RTX 5090, ssh 별칭 `5090`)의

@@ -1,6 +1,6 @@
 // 평면도 배경 이미지의 스케일·원점 맞추기(OE-MAN-02).
 import { describe, expect, it } from 'vitest'
-import { anchorBackground, backgroundCorners, calibrateScale, initialBackground, switchPdfPage } from './background'
+import { anchorBackground, backgroundCorners, calibrateScale, dwgBackground, initialBackground, switchPdfPage } from './background'
 
 const img = { url: 'blob:x', name: 'plan.png', width: 1000, height: 500 }
 
@@ -41,5 +41,24 @@ describe('평면도 배경 이미지 (OE-MAN-02)', () => {
     expect(a1.origin).toEqual([2, 30])
     expect(a1.scale * a1.pdf!.pxPerPt).toBeCloseTo(metersPerPt, 12)
     expect(a1).toMatchObject({ url: 'blob:y', width: 4096, height: 2893, pdf: { page: 2, pages: 3 }, opacity: a3.opacity, name: a3.name })
+  })
+
+  it('DWG 는 도면 단위로 실제 크기에 맞추고, 도면 좌표가 건물과 겹치면 그 자리에, 아니면 건물 왼쪽 위에 둔다. 단위를 모르면 건물 너비에 맞춘다 [OE-MAN-02#1~]', () => {
+    const spec = { url: 'blob:x', name: 'plan.dwg' }
+    const office = { x0: 0, x1: 10, y0: 0, y1: 8 }
+    const stats = { width: 400, height: 200, extents: [-700, -400, 14700, 8400] as [number, number, number, number], unit: 'mm', metersPerUnit: 0.001 }
+    const here = dwgBackground(spec, stats, office)
+    expect(here.scale).toBeCloseTo(0.0385, 9)
+    expect(here.origin[0]).toBeCloseTo(-0.7, 9)
+    expect(here.origin[1]).toBeCloseTo(8.4, 9)
+    expect(here.dwg).toEqual({ unit: 'mm', placed: 'drawing' })
+    // 도면 좌표가 건물에서 멀면(다른 원점) 크기는 그대로 두고 건물 왼쪽 위에 둔다.
+    const far = dwgBackground(spec, { ...stats, extents: [100000, 100000, 115400, 108800] }, office)
+    expect(far.scale).toBeCloseTo(0.0385, 9)
+    expect(far.origin).toEqual([0, 8])
+    expect(far.dwg).toEqual({ unit: 'mm', placed: 'building' })
+    // 단위를 모르면 PNG 와 같다: 400px 를 사무실 너비 10m 에.
+    const unknown = dwgBackground(spec, { ...stats, unit: null, metersPerUnit: null }, office)
+    expect([unknown.scale, unknown.origin, unknown.dwg]).toEqual([0.025, [0, 8], { unit: null, placed: 'building' }])
   })
 })

@@ -4,10 +4,10 @@ epic: "E14"
 epic_title: "편집 워크플로우"
 title: "임시 저장 후 잠금 해제"
 prd: "#15 #16 #17 #18 #19"
-release: "R1"
+release: "R2"
 priority: "P1"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 blocked_by: []
 depends: ["OE-COM-06", "OE-COM-03"]
 ---
