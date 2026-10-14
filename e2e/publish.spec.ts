@@ -224,7 +224,7 @@ test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, 
   await other.close()
 })
 
-test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 편집하고, 편집 중인 층은 잠기며, 폐기하면 반영된 레이아웃으로 돌아간다 [OE-WF-01#2] [OE-WF-02#1] [OE-WF-04#1~] [OE-WF-05#1] [OE-COM-03#1] [OE-COM-03#2] [OE-COM-05#1~] [OE-COM-06#1] [OE-COM-08#3]', async ({ page, browser }) => {
+test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 편집하고, 편집 중인 층은 잠기며, 폐기하면 반영된 레이아웃으로 돌아간다 [OE-WF-01#2] [OE-WF-02#1] [OE-WF-04#1~] [OE-WF-05#1] [OE-COM-03#1] [OE-COM-03#2] [OE-COM-03#3] [OE-COM-05#1~] [OE-COM-06#1] [OE-COM-08#3]', async ({ page, browser }) => {
   test.setTimeout(120_000)
   const open = async (p: Page, who: string, edit = true) => {
     await serve(p)
@@ -246,7 +246,7 @@ test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 
   // B: A 가 편집 중이라 같은 층에 못 들어간다.
   const other = await browser.newPage()
   await open(other, '관리자')
-  await expect(other.locator('.edit-notice')).toContainText('편집자님이')
+  await expect(other.locator('.edit-notice')).toContainText(/편집자님이 .+ 편집 중입니다/)
   if (process.env.SHOT_LOCK) await other.screenshot({ path: process.env.SHOT_LOCK })
   await expect(other.locator('.edit-bar')).toHaveCount(0)
 
@@ -315,7 +315,7 @@ test('반영된 온톨로지가 없으면 [초기 구축] 만, 있으면 [운영
   await third.close()
 })
 
-test('수용 기준선(게이트 등급 0~3) 미달이면 [구축하기] 가 꺼지고 재제출 항목이 보이며, 통과선을 바꾸면 판정만 바뀐다 [OE-BIM-21#1] [OE-GEN-02#1~]', async ({ page }) => {
+test('수용 기준선(게이트 등급 0~3) 미달이면 [구축하기] 가 꺼지고 재제출 항목이 보이며, 통과선을 바꾸면 판정만 바뀐다 [OE-BIM-21#1] [OE-GEN-02#1]', async ({ page }) => {
   await serve(page, true)
   await page.goto('/')
   await page.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
@@ -340,6 +340,11 @@ test('수용 기준선(게이트 등급 0~3) 미달이면 [구축하기] 가 꺼
     await table.getByLabel(`등급 ${g} 통과선(%)`).press('Tab')
   }
   await expect(banner).toContainText('게이트(등급 0~3) 통과')
+  await expect(build).toBeEnabled()
+  // 권장 요구사항이 빠져 있어도 막지 않는다 — mep.ifc 는 권장 줄 중 "없음" 이 있는데 [구축하기] 가 켜져 있다.
+  await page.getByRole('button', { name: /^요구사항/ }).click()
+  const recommended = page.locator('.req-table tbody').filter({ has: page.locator('th', { hasText: /^권장/ }) })
+  await expect(recommended.locator('.req-state.missing').first()).toBeVisible()
   await expect(build).toBeEnabled()
 })
 

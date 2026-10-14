@@ -10,6 +10,7 @@
 // 같이 적고, 불러올 때 GUID 로 못 찾으면 Revit 요소 ID·이름·위치로 찾는다. 그래도 못 찾은 id 는 조용히 버리지
 // 않고 센다 — 재임포트에서 무엇이 빠졌는지가 그 숫자다.
 
+import { setConduitFlowType } from './flow-type'
 import { confirmSystemFlow, inferFlowByRules } from './flow-rules'
 import { shaftOf } from './shaft'
 import { applyReleases, exportReleases, type ReleaseRow } from './connection-release'
@@ -81,7 +82,7 @@ export type EditFile = {
    * 연 때와 같아도 소속을 좌표로 다시 잰 상태다(edit.ts 의 releaseDeclaredSpace).
    */
   /** `wall` 은 설비를 붙인 벽(OE-OBJ-04). `null` 은 벽에서 뗀 것이다. */
-  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3]; wall?: string | null; shaft?: string | null; surface?: Surface }[]
+  equipment: { id: string; storeyId?: string; position?: Vec3; released?: true; name?: string; system?: string | null; ends?: [Vec3, Vec3]; wall?: string | null; shaft?: string | null; surface?: Surface; flowType?: string }[]
   /** 종류·유체를 고친 계통(E8). 설비의 계통은 위 `equipment` 의 `system` 에 적는다(`null` 은 계통에서 뺀 것). */
   systems?: { id: string; kind: string | null; fluid: Fluid | null }[]
   /** 사람이 만든 계통(끝 이름·종류)과 지운 계통. 구성원은 설비 쪽 `system` 으로 적는다. */
@@ -235,7 +236,8 @@ export type EditFile = {
     id: string
     move?: Vec2
     removed?: true
-    parts?: { storeyId: string; footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null }[]
+    /** `stop` 은 엘리베이터 정차 상태(OE-ML-10). 미확인이면 적지 않는다. */
+    parts?: { storeyId: string; footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null; stop?: 'stop' | 'skip'; direction?: 'up' | 'down' }[]
     /** 사람이 만든 오브젝트(OE-ML-06). 연 때 없던 것이라 종류·이름과 모든 층 조각(`parts`)을 적는다. id 는 에디터가 지은 `U_…` 다. */
     created?: { kind: VerticalKind; name: string }
   }[]
@@ -340,7 +342,9 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
       if (was.shaftId !== undefined && (was.shaftId ?? null) !== shaft) row.shaft = shaft
       // 사람이 정한 설치면(OE-EQP-05). BIM 에는 없어서 있으면 적는다.
       if (e.surfaceSet) row.surface = e.surfaceSet
-      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined || row.shaft !== undefined || row.surface) equipment.push(row)
+      // 사람이 BIM 덕트·배관에 정한 Flow Type(OE-PIP-14). BIM 에는 없어서 있으면 적는다.
+      if (e.flowTypeSet) row.flowType = e.flowTypeSet
+      if (row.storeyId || row.position || row.released || row.name !== undefined || row.system !== undefined || row.ends || row.wall !== undefined || row.shaft !== undefined || row.surface || row.flowType) equipment.push(row)
     }
   }
   const assignedSpaces = model.storeys.flatMap((st) => st.equipment.flatMap((e) => (e.spaceSet !== undefined ? [{ id: e.id, spaceId: e.spaceSet }] : [])))
@@ -365,6 +369,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           footprint: p.footprint.map((q) => [q[0], q[1]] as Vec2),
           entry: p.entry ? ([p.entry[0], p.entry[1], p.entry[2]] as Vec3) : null,
           exit: p.exit ? ([p.exit[0], p.exit[1], p.exit[2]] as Vec3) : null,
+          ...(p.stop === 'stop' || p.stop === 'skip' ? { stop: p.stop } : {}),
+          ...(p.direction ? { direction: p.direction } : {}),
         })),
     )
     return { id: v.id, parts, ...(v.created ? { created: { kind: v.created, name: v.name } } : {}) }
@@ -987,6 +993,14 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
     else if (done !== false) result.missing.equipment++
   }
 
+  // 사람이 BIM 덕트·배관에 정한 Flow Type(OE-PIP-14). 범례에 없거나 매체가 다르면 버리고 못 찾은 것으로 센다.
+  for (const row of file.equipment) {
+    if (!row.flowType) continue
+    const done = setConduitFlowType(model, resolve(row.id), row.flowType)
+    if (done === true) result.applied++
+    else if (done !== false) result.missing.equipment++
+  }
+
   // 수직 관통 오브젝트(OE-ML-07·09). 옮긴 거리를 다시 더하거나 다시 지운다 — 지운 계단은 다시 열어도 되살아나지 않는다.
   for (const row of file.verticals ?? []) {
     let done = row.removed ? deleteVertical(model, row.id) : row.move ? moveVertical(model, row.id, row.move) : false
@@ -1023,6 +1037,16 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
         part.exit = p.exit ? [p.exit[0], p.exit[1], p.exit[2]] : null
         // 사람이 만든 것(created)은 출처가 edit 라 보정 표시를 달지 않는다.
         if (!row.created) part.edited = true
+      }
+      // 엘리베이터 정차 상태(OE-ML-10). 적히지 않았으면 미확인이다.
+      if (part.kind === 'elevator') {
+        if (p.stop) part.stop = p.stop
+        else delete part.stop
+      }
+      // 에스컬레이터 운행 방향(OE-ML-11). 적히지 않았으면 미확인이다.
+      if (part.kind === 'escalator') {
+        if (p.direction === 'up' || p.direction === 'down') part.direction = p.direction
+        else delete part.direction
       }
       done = true
     }
