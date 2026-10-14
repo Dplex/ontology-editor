@@ -57,7 +57,7 @@ import { connectCandidates, mediaLabel, type ConnectCandidate } from './lib/conn
 import { againstRule, applyFlow, cancelRelease, clearFlow, dropRelease, keepRelease, releaseConnection, releasedBetween, releasesOf, snapshotRelease, snapshotRules } from './lib/connection-release'
 import { applyEdits, countEdits, EDIT_FORMAT, exportEdits, parseEditFile, type EditFile } from './lib/edit-file'
 import { BUILDING, joinParts, partSig, splitByStorey, type HomeOf } from './lib/storey-drafts'
-import { compareVersions, MATCH_KEY_BY, type MatchKey, type VersionDiff } from './lib/versions'
+import { compareVersions, MATCH_KEY_BY, MATCH_KEY_LABEL, type MatchKey, type VersionDiff } from './lib/versions'
 import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, traceRoutes, TOLERANCE, type Neighbor, type Route } from './lib/topology'
 import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
@@ -9034,9 +9034,30 @@ const versionLists = computed((): { key: string; label: string; rows: VersionRow
     },
     { key: 'spaces-added', label: '새 물리존', rows: d.spaces.added.map((r) => sp(r)) },
     { key: 'spaces-removed', label: '없어진 물리존', rows: d.spaces.removed.map(gone) },
+    // 후보가 여럿이라 짝짓지 않은 것(OE-BIM-19). 없어진 것·새것과 따로 둔다 — 어느 것과 같은지 모르는 것이다.
+    {
+      key: 'ambiguous',
+      label: '짝 후보가 여럿',
+      rows: [
+        ...d.spaces.ambiguous.map((r) => (r.side === 'next' ? sp(r, ambiguousDetail(r)) : { ...gone(r), detail: ambiguousDetail(r) })),
+        ...d.equipment.ambiguous.map((r) => (r.side === 'next' ? eq(r, ambiguousDetail(r)) : { ...gone(r), detail: ambiguousDetail(r) })),
+      ],
+    },
   ]
 })
 const versionRows = computed(() => versionLists.value.find((l) => l.key === versionView.value)?.rows ?? [])
+const ambiguousDetail = (r: VersionDiff['spaces']['ambiguous'][number]) =>
+  `${r.side === 'prev' ? '이전 판본' : '지금 판본'} · ${r.keys.map((k) => MATCH_KEY_LABEL[k]).join('·')}에 후보가 여럿이라 짝짓지 않음`
+/** 비교 전에 맞춘 것(OE-BIM-19 정규화). 단위 배수와 원점 이동은 맞춘 경우에만, 이름 정규화는 늘 한다. */
+const versionNormalized = computed(() => {
+  const n = versionDiff.value?.diff.normalized
+  if (!n) return ''
+  return [
+    n.scale ? `이전 판본 길이를 ${ratioLabel(n.scale)}로(단위 선언이 실제와 달라 맞춤)` : '',
+    n.offset ? `이전 판본 원점 (${n.offset.map((x) => x.toFixed(2)).join(', ')}) m 옮겨 맞춤` : '',
+    '이름은 공백·유니코드 조합을 맞춰 견줌',
+  ].filter(Boolean).join(' · ')
+})
 
 /** 비교 목록에서 물리존을 고른다. 3D 에서 바닥을 누른 것과 같다(편집 모드가 아니어도 그 방에 맞춘다). */
 function showSpace(id: string) {
@@ -13369,14 +13390,21 @@ function rollbackFromReport() {
                 versionDiff.diff.storeyScale.storeys.slice(0, 3).map(([n, x, y]) => `${n} ${+x.toPrecision(4)}m → ${+y.toPrecision(4)}m`).join(', ')
               }}). {{ { first: '층간 높이로 보면 이전 판본', second: '층간 높이로 보면 지금 파일', none: '한 판본' }[versionDiff.diff.storeyScale.suspect ?? 'none'] }}의 길이 단위 선언이 실제 값과 다른 것 같습니다({{ versionDiff.diff.storeyScale.what }}, 요구사항 R6).
             </p>
+            <!-- 파일 역할(OE-BIM-19): 어느 쪽이 기준이고 어느 쪽이 견줄 판본인지. -->
+            <p class="hint" data-testid="version-roles">
+              기준: 지금 연 파일 <b>{{ fileName }}</b>(화면·내보내기) · 견줄 판본: <b>{{ versionDiff.name }}</b>(비교에만 씀)
+            </p>
+            <p class="hint" data-testid="version-normalized">비교 전에 맞춘 것: {{ versionNormalized }}</p>
             <table class="version-sum">
               <thead>
                 <tr>
                   <th></th>
                   <th class="num">이전 → 지금</th>
-                  <th class="num">양쪽에 있는 것</th>
-                  <th class="num" title="양쪽에 있는 것 중 GUID가 그대로인 비율(요구사항 R13)">GUID 유지</th>
+                  <th class="num" title="두 판본에서 짝지은 것. GUID 유지율의 분모입니다">양쪽에 있는 것(분모)</th>
+                  <th class="num" title="양쪽에 있는 것 중 GUID가 그대로인 것 / 양쪽에 있는 것(요구사항 R13)">GUID 유지</th>
                   <th>그중 GUID가 바뀐 것 <Src kind="calc" /></th>
+                  <th class="num" title="이전 판본에만 있음 · 지금 판본에만 있음 — 어느 열쇠로도 후보가 없던 것(미매칭)">없어짐 · 새것</th>
+                  <th class="num" title="후보가 여럿이라 짝짓지 않은 것(모호). 분모에 들지 않습니다">짝 후보 여럿</th>
                 </tr>
               </thead>
               <tbody>
@@ -13385,7 +13413,7 @@ function rollbackFromReport() {
                   <td class="num mono">{{ k.prevCount }} → {{ k.nextCount }}</td>
                   <td class="num mono">{{ k.by.guid + k.by.revitId + k.by.name + k.by.position }}</td>
                   <td class="num mono">
-                    {{ k.by.guid + k.by.revitId + k.by.name + k.by.position ? `${Math.round((k.by.guid / (k.by.guid + k.by.revitId + k.by.name + k.by.position)) * 100)}%` : '—' }}
+                    {{ k.by.guid + k.by.revitId + k.by.name + k.by.position ? `${k.by.guid}/${k.by.guid + k.by.revitId + k.by.name + k.by.position} · ${Math.round((k.by.guid / (k.by.guid + k.by.revitId + k.by.name + k.by.position)) * 100)}%` : '—' }}
                   </td>
                   <td>
                     <template v-if="k.by.revitId + k.by.name + k.by.position">
@@ -13396,13 +13424,15 @@ function rollbackFromReport() {
                     </template>
                     <span v-else class="muted">없음</span>
                   </td>
+                  <td class="num mono">{{ k.removed.length }} · {{ k.added.length }}</td>
+                  <td class="num mono">{{ k.ambiguous.length }}</td>
                 </tr>
               </tbody>
             </table>
             <p class="hint">
               GUID가 바뀌어도 편집 파일은 Revit 요소 ID·이름·위치로 찾아 적용합니다. 다만 DT 쪽에서는 다른 id가 됩니다(요구사항 R13 — 어느 것인지는
               [GUID가 바뀐 것] 목록, 고객사에 할 요청은 요구사항 칸의 R13).
-              기준 하나에 여러 개가 걸리면 짝짓지 않고 새것·없어진 것으로 셉니다.
+              기준 하나에 여러 개가 걸리면 짝짓지 않고 [짝 후보가 여럿] 으로 따로 셉니다(없어진 것·새것과 GUID 유지율의 분모에 들지 않습니다).
             </p>
             <div class="version-tabs" role="tablist">
               <button
