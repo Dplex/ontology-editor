@@ -9422,7 +9422,7 @@ function settleRelease(c: Connection, how: 'keep' | 'drop') {
 // 열자마자 지우면 안 된다. 연 직후에는 바뀐 것이 0 이라, 그대로 저장하면 되살릴 기록을 지운다. 사람이 편집을
 // 시작하거나 되살린 뒤부터 적는다.
 const AUTOSAVE_PREFIX = 'oe-autosave:'
-/** 되살릴 수 있는 편집 — 자동 저장에 남은 것이나 [저장 안 함] 으로 버린 것. 위 줄의 [이어서 하기] 가 쓴다. */
+/** 되살릴 수 있는 편집 — 자동 저장에 남은 것이나 [저장 안 함] 으로 버린 것. 위 줄의 자동 저장 질문([예]·[아니오], OE-HIST-04)이 쓴다. */
 const draft = shallowRef<{ file: EditFile; count: number; savedAt: string } | null>(null)
 let autosaveArmed = false
 let autosaveTimer: number | undefined
@@ -9474,7 +9474,7 @@ function restoreDraft() {
   mode.value = 'edit'
   // 되살릴 편집은 연 때 기준의 편집 전부다. 8084 저장본·임시 저장본을 이미 얹었으면 걷고 얹는다 — 안 그러면 더한 설비가 두 번 생긴다.
   resetToOpened()
-  applyEditFile(d.file, '이어서 하기')
+  applyEditFile(d.file, '자동 저장')
   // 모든 층의 편집이 들어왔으니 층에 들어갈 때 임시 저장본을 다시 얹지 않는다.
   for (const k of floorDrafts.keys()) appliedFloors.add(k)
 }
@@ -10172,12 +10172,12 @@ function exitDiscarding() {
   if (ask?.floor) {
     const n = discardFloors([ask.floor.from])
     goFloor(ask.floor.to)
-    note(`${floorName(ask.floor.from)}의 저장 안 한 편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 상단 바의 [이어서 하기]로 복구할 수 있습니다`)
+    note(`${floorName(ask.floor.from)}의 저장 안 한 편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 상단 바의 자동 저장 질문에서 [예]로 복구할 수 있습니다`)
     return
   }
   const n = discardFloors(dirtyKeys())
   mode.value = 'view'
-  note(`편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 상단 바의 [이어서 하기]로 복구할 수 있습니다`)
+  note(`편집 ${n}건을 버리고 마지막으로 저장한 때로 되돌렸습니다. 상단 바의 자동 저장 질문에서 [예]로 복구할 수 있습니다`)
 }
 
 /**
@@ -12116,12 +12116,14 @@ function rollbackFromReport() {
         </div>
         <!-- 편집 모드에서만. 좁은 폭에서는 마지막 편집 이름이 남는 폭을 쓰고 넘치면 자른다. 단축키는 title 과 ? 안내로. -->
         <!-- 자동 저장된 편집이 남아 있으면 연 직후에 묻는다. 새로 편집을 시작하면 그 편집이 기록을 대신한다. -->
+        <!-- 자동 저장 복구(OE-HIST-04). 묻는 말과 [예]·[아니오] 는 PRD 문구 그대로다. 아니오는 자동 저장을 지우고, 편집 모드에 들어가면
+             그 층의 임시 저장본이 있으면 그것이 얹힌다(enterFloors). -->
         <div v-if="draft" class="draft-bar" role="status">
           <span>
-            이 파일에서 저장하지 않은 편집 <b>{{ draft.count }}건</b>이 남아 있습니다({{ draftTime }}).
+            <b>자동 저장된 내용을 반영하시겠습니까?</b> 이 파일에서 저장하지 않은 편집 <b>{{ draft.count }}건</b>이 남아 있습니다({{ draftTime }}).
           </span>
-          <button type="button" class="ghost on" @click="restoreDraft">이어서 하기</button>
-          <button type="button" class="ghost" @click="discardDraft">버리기</button>
+          <button type="button" class="ghost on" title="자동 저장된 편집을 그대로 얹어 이어서 편집합니다" @click="restoreDraft">예</button>
+          <button type="button" class="ghost" title="자동 저장을 지웁니다. 다시 열어도 묻지 않습니다" @click="discardDraft">아니오</button>
         </div>
         <!-- 새 레이아웃 배너(OE-WF-15). 새로고침하기 전까지 남는다. -->
         <div v-if="newerLayout" class="layout-banner" role="status" data-testid="layout-banner">

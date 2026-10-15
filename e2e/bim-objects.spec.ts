@@ -83,12 +83,12 @@ test('BIM 가구는 편집 수에 들지 않고, 고친 크기와 지운 것만 
   expect(errors).toEqual([])
   await first.close()
 
-  // 같은 파일을 다시 열면 임포트는 두 개를 다시 세우고, 이어서 하기가 고친 크기와 지운 것을 얹는다.
+  // 같은 파일을 다시 열면 임포트는 두 개를 다시 세우고, [예] 가 고친 크기와 지운 것을 얹는다.
   const second = await context.newPage()
   second.on('pageerror', (e) => errors.push(e.message))
   await open(second)
   const bar = second.locator('.draft-bar')
-  await bar.getByRole('button', { name: '이어서 하기' }).click()
+  await bar.getByRole('button', { name: '예', exact: true }).click()
   await expect(bar).toHaveCount(0)
   const after = await exportObjects(second, info.outputPath('after-1F.geojson'))
   expect(after).toEqual(before)
