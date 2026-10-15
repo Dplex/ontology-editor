@@ -6,8 +6,8 @@ date: "2026-10-11"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-GEN-08", "OE-BIM-20"]
-criteria: []
-code: ["src/lib/issue-list.ts", "src/lib/export/bcf.ts", "src/lib/zip.ts", "src/lib/requirements.ts", "src/App.vue"]
+criteria: ["OE-BIM-20#1"]
+code: ["src/lib/issue-list.ts", "src/lib/issue-code.ts", "src/lib/export/bcf.ts", "src/lib/zip.ts", "src/lib/requirements.ts", "src/App.vue"]
 tests: ["src/lib/issue-list.test.ts", "e2e/reports.spec.ts"]
 related: ["ADR-0050"]
 ---
@@ -30,7 +30,8 @@ related: ["ADR-0050"]
   R21·R22·R23·R24). 단위·좌표계·IFC 버전·GUID 유지·층 이름 맞춤처럼 파일 하나에 대한 R 은 리포트(HTML)에만 둔다. 시험이 R 마다
   목록의 수와 보고서의 "대상 − 표준 자리" 가 같은지 본다(픽스처 7개 + Duplex·병원).
 - 완전성 검사(checks.ts)의 어긴 요소도 싣는다. R 은 issue-code.ts 의 표를 쓰고, 요청은 비운다 — 요구사항 줄의 요청(예: R2 의 외곽선)과
-  고칠 곳이 다르다. 사람이 더한 요소(added)는 BIM 에 없으니 싣지 않는다.
+  고칠 곳이 다르다. 사람이 더한 요소(added)는 BIM 에 없으니 싣지 않는다. 맞는 R 이 없는 검사(`connection-fluid`·`sprinkler-fp`)는 BIM 요구
+  위반이 아니라 에디터가 보정할 검증이라 싣지 않는다 — 화면 칩은 R 대신 "C-보정 · 검증 규칙 ID" 다(OE-BIM-20#1, 2026-10-15 더함).
 - 분류(X/A/B/C)는 리포트와 같은 `missingClass` 다. 다른 자리(속성에만 있는 계통·OmniClass, 이름으로만 정한 종류, Proxy)는 A-설정이다.
 - **CSV** 는 엑셀이 바로 여는 UTF-8 BOM 이다. 칸: R · 분류 · 규칙 · 무엇이 없나 · GlobalId · Revit 요소 ID(이름 끝 숫자, versions.ts) ·
   이름 · IFC 클래스 · 층 · X · Y · Z · 요청.
