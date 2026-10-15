@@ -34,6 +34,7 @@ import { customerReportHTML, generationReport, MISSING_LABEL, missingClass, sha2
 import { issueList, issueSummary, issuesCSV } from './lib/issue-list'
 import { issuesToBCF } from './lib/export/bcf'
 import { checkCode, issueText, issueTitle, warningCode } from './lib/issue-code'
+import { duplicateOf, duplicateText, partOf, type LoadedPart } from './lib/append-guard'
 import { setSegmentShaft, shaftCandidates, shaftDeviations, shaftOf } from './lib/shaft'
 import { moveShaftCarrying, planShaftCarry } from './lib/shaft-carry'
 import { ttlTriples } from './lib/export/read-export'
@@ -10404,6 +10405,7 @@ ${name} 파일을 열까요?`,
     baseline.value = baselineOf(result.model)
     pristine = structuredClone(result.model)
     model.value = result.model
+    loadedParts = isIdf(name) ? [] : [partOf(name, result.model)]
     fileName.value = name
     openedSources.value = [loadingPath]
     openedProject.value = projectLoading
@@ -10456,6 +10458,8 @@ const drawnSpaces = (m: Model) => m.storeys.reduce((n, s) => n + s.spaces.filter
 const canAppend = computed(() => !!model.value)
 /** 연 때(또는 마지막으로 합친 때)의 모델. 편집한 뒤 덧붙일 때 이것을 합치고 편집을 다시 얹는다. */
 let pristine: Model | null = null
+/** 지금 모델을 이룬 IFC 파일마다 분야·건물. 같은 건물의 같은 분야 파일을 또 덧붙이지 않게 본다(append-guard.ts, OE-HIST-06). */
+let loadedParts: LoadedPart[] = []
 
 /** 3D 형상을 연 때(pristine) 자리로 되돌린다. 덧붙이기 전과 편집 버리기가 쓴다. */
 function meshesToOpened() {
@@ -10518,6 +10522,13 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
       return
     }
     const next = await importInWorker(await read())
+    // 같은 건물의 같은 분야 파일이면 받지 않는다. 열린 모델·편집·되돌리기 이력은 그대로다.
+    const incomingPart = partOf(name, next.model)
+    const duplicate = duplicateOf(loadedParts, incomingPart)
+    if (duplicate) {
+      error.value = duplicateText(incomingPart, duplicate)
+      return
+    }
     progress.value = { label: '합치는 중' }
     await paint()
     const current = { name: fileName.value, model: unedited() }
@@ -10548,6 +10559,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     pristine = structuredClone(merged.model)
     model.value = merged.model
     mergeReport.value = merged.report
+    loadedParts = [...loadedParts, incomingPart]
     fileName.value = `${base.name} + ${overlay.name}`
     openedSources.value = [...openedSources.value, loadingPath]
     selectedId.value = null

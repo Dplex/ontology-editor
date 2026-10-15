@@ -143,3 +143,40 @@ test('덧붙이기가 실패하면 열린 모델·편집·되돌리기 이력이
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
   expect(errors).toEqual([])
 })
+
+// 추가 파일 불러오기(OE-HIST-06). 건축으로 시작해 보정하다 설비를 받으면 덧붙이고, 같은 건물의 건축을 또 덧붙이면 받지 않는다.
+test('건축 IFC 로 시작해 편집한 뒤 설비 IFC 를 덧붙이면 설비가 더해지고 편집이 남으며, 같은 건물의 건축 IFC 와 IFC 가 아닌 파일은 이유와 함께 받지 않는다 [OE-HIST-06#1,2,4~]', async ({ page }) => {
+  const errors = watchErrors(page)
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(ROOMS)
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
+  await expect(tile(page, '기기')).toHaveText('0')
+  await page.keyboard.press('e')
+  const name = page.locator('.rows input').first()
+  await name.fill('대회의실')
+  await name.press('Enter')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+
+  const append = page.locator('.appbar label.append input')
+  // 설비: 기기가 더해지고, 리포트의 편집 항목이 그대로다.
+  await append.setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+  await expect(tile(page, '기기')).toHaveText('5')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.locator('.report')).toContainText('대회의실')
+
+  // 같은 건물(같은 IfcBuilding)의 다른 건축 판본: 받지 않고 [새 프로젝트] 를 안내한다. 모델·편집은 그대로다.
+  await append.setInputFiles('src/lib/ifc/fixtures/foot.ifc')
+  const alert = page.getByRole('alert')
+  await expect(alert).toContainText('foot.ifc 는 이미 연 two-rooms.ifc 와 같은 건물')
+  await expect(alert).toContainText('[새 프로젝트]')
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc')
+  await expect(tile(page, '물리존')).toHaveText('4')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+
+  // IFC 가 아닌 파일: 이유를 보이고 받지 않는다.
+  await append.setInputFiles({ name: 'notes.ifc', mimeType: 'text/plain', buffer: Buffer.from('회의 메모') })
+  await expect(alert).toContainText('덧붙이지 못했습니다(notes.ifc): IFC(STEP) 파일이 아닙니다')
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc')
+  expect(errors).toEqual([])
+})

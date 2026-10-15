@@ -156,7 +156,7 @@ export function profileOf(model: Model, original?: GradeCounts): Profile {
   }
 }
 
-function extentOf(model: Model): [number, number, number, number] | null {
+export function extentOf(model: Model): [number, number, number, number] | null {
   let [x0, y0, x1, y1] = [Infinity, Infinity, -Infinity, -Infinity]
   const add = (x: number, y: number) => {
     if (!Number.isFinite(x) || !Number.isFinite(y)) return
