@@ -268,6 +268,7 @@ import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOO
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
 import { readIdf, type IdfModel } from './lib/idf/read'
 import { attachIdf, modelFromIdf, type IdfAttachReport } from './lib/idf/attach'
+import type { IdfPlacement } from './lib/idf/place'
 import { ASSIGN_SNAP_RANGE, assignEquipmentToSpaces, assignSnapNow, distanceToRing, interiorPoint, pointInPolygon, setAssignSnap, SNAP, spaceAssignable, spaceSetState } from './lib/mapping'
 import { bare, parsePlan, previewPlan, resolveEquipment, resolveSpace, type EditCommand, type Preview } from './lib/edit-commands'
 
@@ -601,6 +602,34 @@ const MOVED_NAMES = 5
 const isIdf = (name: string) => /\.idf$/i.test(name)
 let idfSource: { name: string; idf: IdfModel } | null = null
 const idfReport = shallowRef<IdfAttachReport | null>(null)
+/**
+ * 사람이 정한 IDF 평면 놓는 법(idf/place.ts). 없으면 겹친 넓이로 찾은 값을 쓴다. IFC 를 덧붙여 다시 얹을 때도 이 값을 쓴다.
+ * 이번 탭에서만이다 — 편집 파일에는 아직 남지 않는다.
+ */
+let idfPlacement: IdfPlacement | null = null
+const idfPlacementForm = ref<{ dx: number; dy: number; rotation: number } | null>(null)
+watch(idfReport, (r) => {
+  idfPlacementForm.value = r?.placement ? { dx: r.placement.dx, dy: r.placement.dy, rotation: r.placement.rotation } : null
+})
+
+/**
+ * IDF 를 다른 놓는 법으로 지금 모델에 다시 얹는다. IDF 공조존은 편집 대상이 아니라(hvac-zone.ts 의 findHvacZone) 다시 얹어도
+ * 사람의 편집과 섞이지 않는다. 연 때 모델(pristine)에도 같이 얹어, 편집을 버리거나 IFC 를 덧붙여도 같은 자리다.
+ * `null` 이면 사람이 정한 값을 버리고 다시 찾는다.
+ */
+function placeIdf(placement: IdfPlacement | null) {
+  if (!idfSource || !model.value) return
+  idfPlacement = placement
+  const { name, idf } = idfSource
+  const strip = (m: Model): Model => ({ ...m, hvac: undefined, warnings: m.warnings.filter((w) => !w.startsWith(`[${name}]`)) })
+  const options = placement ? { placement } : {}
+  const done = attachIdf(strip(model.value), idf, name, options)
+  if (pristine) pristine = attachIdf(strip(pristine), idf, name, options).model
+  idfReport.value = done.report
+  model.value = done.model
+  sceneVersion.value++
+  note(placement ? `IDF 를 x ${placement.dx}m · y ${placement.dy}m · ${placement.rotation}° 로 다시 얹었습니다` : 'IDF 놓는 자리를 겹친 넓이로 다시 찾았습니다')
+}
 const showZones = ref(true)
 /**
  * 물리존 → 담당 공조존들. 물리존과 공조존은 N:M 이라(OE-MAP-03) 한 물리존을 여러 공조존이 담당할 수 있다 — 하나만 담으면 마지막
@@ -624,6 +653,8 @@ const zoneRows = computed(() => {
   const label = (id: string) => {
     const e = byId.get(id)
     if (!e) return id
+    // 존 안의 BIM 기기 여럿으로 푼 IDF 존 설비(ADR-0069). 첫 대 이름과 대수를 보인다.
+    if (e.bimIds?.length) return `${equipmentById.value.get(e.bimIds[0])?.name ?? e.bimIds[0]}${e.bimIds.length > 1 ? ` 등 ${e.bimIds.length}대` : ''}(BIM)`
     const bim = e.bimId ? equipmentById.value.get(e.bimId) : null
     return bim ? `${bim.name}(BIM)` : e.name
   }
@@ -641,6 +672,9 @@ const zoneRows = computed(() => {
         const share = z.spaceShares?.[id]
         return share !== undefined && share < 0.995 ? `${spaceNameOf(id)} ${Math.round(share * 100)}%` : spaceNameOf(id)
       }),
+      // 든 방(절반 넘게 덮음) 말고 겹친 방. 방이 존보다 커서 존 여럿이 나누는 것이 여기 있다. 몫은 방 바닥 중 이 존의 몫이다.
+      overlaps: (z.overlaps ?? []).filter((o) => !z.spaceIds.includes(o.spaceId)).map((o) => `${spaceNameOf(o.spaceId)} ${Math.round(o.spaceShare * 100)}%`),
+      airflow: z.idfAirflowCMH ?? null,
       terminals: terminals.map(label),
       sources: sources.map(label),
     }
@@ -10114,6 +10148,7 @@ ${name} 파일을 열까요?`,
     let result: { model: Model; meshes: MeshMap }
     idfReport.value = null
     idfSource = null
+    idfPlacement = null
     if (isIdf(name)) {
       // IDF 만 연 것. 공조존과 담당 관계만 있고 방·설비 형상은 없다. 글이라 워커 없이 바로 읽는다.
       idfSource = { name, idf: readIdf(new TextDecoder().decode(await read())) }
@@ -10231,6 +10266,7 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     if (isIdf(name)) {
       // IDF 는 모델에 공조존과 담당 관계를 얹는다(idf/attach.ts). 방·설비는 그대로다.
       idfSource = { name, idf: readIdf(new TextDecoder().decode(await read())) }
+      idfPlacement = null
       const done = attachIdf(unedited(), idfSource.idf, name)
       restoreMeshes()
       idfReport.value = done.report
@@ -10261,7 +10297,12 @@ async function append(name: string, read: () => Promise<ArrayBuffer>) {
     const merged = mergeModels(base.model, overlay.model, { base: base.name, overlay: overlay.name })
     // 공조존은 층·방에 이어 둔 것이라, 합쳐서 층·방이 바뀌면 IDF 를 다시 얹는다(합치기는 공조존을 모른다).
     if (idfSource) {
-      const again = attachIdf({ ...merged.model, hvac: undefined, storeys: merged.model.storeys.filter((s) => !s.id.startsWith('IDF_storey_')) }, idfSource.idf, idfSource.name)
+      const again = attachIdf(
+        { ...merged.model, hvac: undefined, storeys: merged.model.storeys.filter((s) => !s.id.startsWith('IDF_storey_')) },
+        idfSource.idf,
+        idfSource.name,
+        idfPlacement ? { placement: idfPlacement } : {},
+      )
       merged.model = again.model
       idfReport.value = again.report
     }
@@ -15676,15 +15717,35 @@ function rollbackFromReport() {
         <!-- 공조존(IDF, F12). 존마다 든 방과 담당(말단 → 원천). IDF 가 말한 것이라 규칙 방향과 달리 확정 없이 나간다. -->
         <Fold v-if="zoneRows.length" title="공조존 (IDF)" :meta="`${zoneRows.length}개 · ${model.hvac!.source}`" :default-open="zoneRows.length <= SMALL">
           <p class="hint">
-            IDF 의 Zone 이 공조존이고, 존 설비 목록 → 말단 → 공조기(급기 분기)·실외기(실내기 목록)로 담당을 잇습니다. 방은 안쪽 점이
-            존 바닥 안에 들면 그 존의 일부입니다. 이름이 BIM 설비 하나와 맞는 IDF 설비는 BIM 설비에 담당 관계를 얹습니다
-            (IDF 설비 {{ idfReport?.equipment ?? model.hvac!.equipment.length }}대 중 {{ idfReport?.matchedEquipment ?? model.hvac!.equipment.filter((e) => e.bimId).length }}대).
-            바닥면 넓이는 IDF 가 적은 넓이보다 큰 것이 보통입니다(DesignBuilder 는 순 넓이를 적고 바닥면은 벽 중심선까지 그립니다).
+            IDF 의 Zone 이 공조존입니다. 시뮬레이션의 열 존이라 방과 단위가 달라서, 겹친 방을 몫과 함께 모두 적고 방 바닥의 절반 넘게를 덮으면
+            그 방을 존의 일부로 둡니다. 담당은 존 설비 목록 → 말단 → 공조기(급기 분기)·실외기(실내기 목록)로 잇습니다. IDF 설비는 BIM 설비와
+            이름 → 존 안의 같은 종류 → 같은 층에 하나뿐인 같은 종류 순으로 잇습니다
+            (IDF 설비 {{ idfReport?.equipment ?? model.hvac!.equipment.length }}대 중 {{ idfReport?.matchedEquipment ?? model.hvac!.equipment.filter((e) => e.bimId || e.bimIds).length }}대<template v-if="idfReport"
+              >: 이름 {{ idfReport.byName }} · 존 {{ idfReport.byZone }}(BIM {{ idfReport.bimInZones }}대) · 층 {{ idfReport.byStorey }}</template
+            >). 바닥면 넓이는 IDF 가 적은 넓이보다 큰 것이 보통입니다(DesignBuilder 는 순 넓이를 적고 바닥면은 벽 중심선까지 그립니다).
           </p>
+          <!-- IDF 평면을 BIM 에 놓은 법(idf/place.ts). 찾은 값을 보이고 사람이 고친다. -->
+          <form v-if="idfPlacementForm && idfReport?.placement" class="idf-placement" data-testid="idf-placement" @submit.prevent="placeIdf({ ...idfPlacementForm })">
+            <span>IDF 위치 <Src :kind="idfReport.placement.source === 'edit' ? 'edit' : 'calc'" /></span>
+            <label>x <input v-model.number="idfPlacementForm.dx" type="number" step="0.01" aria-label="IDF x 이동(m)" /> m</label>
+            <label>y <input v-model.number="idfPlacementForm.dy" type="number" step="0.01" aria-label="IDF y 이동(m)" /> m</label>
+            <label>
+              회전
+              <select v-model.number="idfPlacementForm.rotation" aria-label="IDF 회전">
+                <option :value="0">0°</option>
+                <option :value="90">90°</option>
+                <option :value="180">180°</option>
+                <option :value="270">270°</option>
+              </select>
+            </label>
+            <small v-if="idfReport.placement.overlap !== null">기준층 존 넓이의 {{ Math.round(idfReport.placement.overlap * 100) }}% 가 방과 겹침</small>
+            <button type="submit" class="ghost">다시 얹기</button>
+            <button v-if="idfReport.placement.source === 'edit'" type="button" class="ghost" @click="placeIdf(null)">자동으로</button>
+          </form>
           <div class="table-box">
             <table class="equipment zones">
               <thead>
-                <tr><th>공조존</th><th>층</th><th class="num">바닥면 ㎡</th><th class="num">IDF ㎡</th><th>포함 공간</th><th>말단</th><th>원천</th></tr>
+                <tr><th>공조존</th><th>층</th><th class="num">바닥면 ㎡</th><th class="num">IDF ㎡</th><th>포함 공간</th><th>겹친 공간</th><th>말단</th><th class="num">IDF 풍량 CMH</th><th>원천</th></tr>
               </thead>
               <tbody>
                 <tr v-for="z in zoneRows.slice(0, ZONE_LIMIT)" :key="z.id">
@@ -15693,7 +15754,9 @@ function rollbackFromReport() {
                   <td class="num mono">{{ z.area.toFixed(1) }}</td>
                   <td class="num mono">{{ z.declared?.toFixed(1) ?? '' }}</td>
                   <td :title="z.spaces.join(', ')">{{ z.spaces.length ? z.spaces.slice(0, 3).join(', ') + (z.spaces.length > 3 ? ` 외 ${z.spaces.length - 3}` : '') : '' }}</td>
+                  <td :title="z.overlaps.join(', ')">{{ z.overlaps.length ? z.overlaps.slice(0, 2).join(', ') + (z.overlaps.length > 2 ? ` 외 ${z.overlaps.length - 2}` : '') : '' }}</td>
                   <td :title="z.terminals.join(', ')">{{ z.terminals.slice(0, 2).join(', ') }}{{ z.terminals.length > 2 ? ` 외 ${z.terminals.length - 2}` : '' }}</td>
+                  <td class="num mono">{{ z.airflow?.toFixed(0) ?? '' }}</td>
                   <td :title="z.sources.join(', ')">{{ z.sources.join(', ') }}</td>
                 </tr>
               </tbody>

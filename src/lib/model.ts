@@ -528,6 +528,18 @@ export type HvacZone = {
   spaceIds: string[]
   /** 든 물리존마다 이 존이 덮는 몫(0~1). 외곽선이 자기 교차해 넓이를 못 잰 방은 없다. */
   spaceShares?: Record<string, number>
+  /**
+   * 이 존과 겹친 물리존 전부(IDF 공조존, idf/attach.ts). 공조존은 시뮬레이션의 열 존이라 방과 단위가 다르다 — 성수 기준층은
+   * 방 하나(Business Facility 969㎡)를 창가 띠 넷과 안쪽 하나, 존 다섯이 나눈다. 그런 방은 `spaceIds`(방 바닥의 절반 넘게를 덮는
+   * 존 하나)로는 한 존에만 들거나 어디에도 안 들어서, 겹친 몫을 모두 둔다. `spaceShare` 는 방 바닥 중 이 존의 몫, `zoneShare` 는
+   * 존 바닥 중 이 방의 몫이다. 계산이라 TTL 에는 없고 GeoJSON 에 나간다(ADR-0069).
+   */
+  overlaps?: { spaceId: string; spaceShare: number; zoneShare: number }[]
+  /**
+   * 이 존을 담당하는 IDF 존 설비(FCU·실내기·VAV)가 숫자로 적은 설계 풍량의 합(CMH). IDF 의 존 설비는 존 안의 여러 대를 하나로 뭉친
+   * 계산 모형이라, BIM 기기로 풀면 용량은 존에 남긴다(ADR-0069). 숫자가 하나도 없으면 칸이 없다.
+   */
+  idfAirflowCMH?: number
   /** 사람이 만든 공조존이면 `edit`(OE-ZON-01·02, hvac-zone.ts). IDF 로 불러온 것은 칸이 없다. */
   source?: 'edit'
   /** 담당 설비(BIM 설비 id). TTL 에서 그 설비가 이 존을 `brick:feeds` 한다. 사람이 만든 공조존만 갖는다(IDF 는 HvacEquipment.feeds). */
@@ -549,6 +561,15 @@ export type HvacEquipment = {
   kind: string | null
   /** 이름이 하나의 BIM 설비와 맞으면 그 id. TTL 은 이 설비에 담당 관계를 얹는다. */
   bimId: string | null
+  /**
+   * 존 하나를 뭉쳐 계산한 IDF 존 설비(FCU 등)를 그 존 안의 같은 종류 BIM 기기 여럿으로 푼 것. 있으면 이 IDF 설비는 TTL 에 따로
+   * 나가지 않고, 이 BIM 기기들이 담당 관계를 대신 진다(ADR-0069).
+   */
+  bimIds?: string[]
+  /** BIM 설비와 무엇으로 이었나. `name` 이름 · `zone` 존 안의 같은 종류 · `storey` 같은 층에 하나뿐인 같은 종류. */
+  pairedBy?: 'name' | 'zone' | 'storey'
+  /** IDF 가 숫자로 적은 설계 풍량(CMH). Autosize 면 null. */
+  airflowCMH?: number | null
   /** 공급하는 공조존·IDF 설비의 id. */
   feeds: string[]
   /** 담당하는 존이 한 층에만 있으면 그 층(말단). 공조기·실외기는 모른다. */
@@ -768,7 +789,16 @@ export type Model = {
    */
   skipped?: ('walls' | 'doors' | 'windows')[]
   /** IDF 에서 얹은 공조존과 담당 관계(idf/attach.ts). IFC 만 연 모델에는 없다. */
-  hvac?: { source: string; zones: HvacZone[]; equipment: HvacEquipment[] }
+  hvac?: {
+    source: string
+    zones: HvacZone[]
+    equipment: HvacEquipment[]
+    /**
+     * IDF 평면을 BIM 에 놓은 법(idf/place.ts). `auto` 는 겹친 넓이로 찾은 것, `edit` 는 사람이 정한 것이다. `overlap` 은 기준층에서 존 넓이 중
+     * 방과 겹친 몫이다. IDF 만 열었으면 칸이 없다.
+     */
+    placement?: { dx: number; dy: number; rotation: number; source: 'auto' | 'edit'; overlap: number | null }
+  }
   /** 사람이 넣은 3D 모델 라이브러리 항목(OE-P3-08). 층에 속하지 않는다. */
   objectLibrary?: CustomObjectItem[]
   /**

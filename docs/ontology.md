@@ -72,6 +72,7 @@ DT 화면이 묻는 질문에 답하는 데이터다. 이상 알림("이 설비�
 | `brick:hasPoint` | 설비→관제점 | 읽지만 **우리는 내지 않는다**(관제점은 BAS 몫, F13) |
 | `ex:roomNumber` | 방 번호 | 버림 |
 | `ex:areaM2` | 면적(㎡) — 방·공조존 | 버림 |
+| `ex:nominalAirFlowRate`(공조존) | IDF 존 설비를 존 안의 BIM 기기로 풀었을 때 IDF 가 적은 설계 풍량 합(CMH, ADR-0069) | 버림 |
 | `ex:elevation` | 층 바닥 높이(m) | 버림 |
 | `ex:ifcClass` | 원래 IFC 클래스 | 버림 |
 | `ex:systemKind` | 계통 종류(사전) | 버림 |
@@ -92,7 +93,7 @@ DT 화면이 묻는 질문에 답하는 데이터다. 이상 알림("이 설비�
 | `door` · `window` | Point — **기본 설정에서는 null**(문·창 자리를 읽을 때만) | `wallId`·`width`·`height`·`passable`, 문은 `connects`(+`connectsSource`) | 없음 |
 | `equipment` | Point(기기) · LineString(덕트·배관 구간) | `ifcClass`·`spaceId`(+`spaceSource`)·`systemId`·`capacity`, 덕트·배관은 `flowType`(+`flowTypeSource`, ADR-0067) | 있음 |
 | `vertical` | Polygon · Point | `verticalKind`·`parentId`·`spaceIds`·`entry`·`exit` | 계단실·승강로 방만 |
-| `hvacZone` · `customZone` | Polygon | `spaceIds`(든 방), 공조존은 `source`(`IDF`·`edit`), 커스텀존은 `equipmentIds` | 있음(존) |
+| `hvacZone` · `customZone` | Polygon | `spaceIds`(든 방), 공조존은 `source`(`IDF`·`edit`), IDF 공조존은 `overlaps`(겹친 방 전부와 몫, `overlapsSource: calc`)·`idfAirflowCMH`(ADR-0069), 커스텀존은 `equipmentIds` | 있음(존) |
 | `room` · `spaceObject` | Polygon | `spaceId`, 오브젝트는 `height`·`size`·`item` | 없음(ADR-0023) |
 
 ### 얼마나 읽히나 — 2026-10-10 측정

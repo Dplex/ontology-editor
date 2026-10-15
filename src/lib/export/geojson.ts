@@ -218,6 +218,9 @@ function hvacZoneFeature(zone: HvacZone, storey: Storey): Feature {
       // 사람이 만든 공조존(OE-ZON-01·02)은 `edit` 이고 담당 설비를 적는다. IDF 공조존의 담당 설비는 TTL 의 feeds 에만 있다.
       source: zone.source === 'edit' ? 'edit' : 'IDF',
       ...(zone.servedBy ? { servedBy: [...zone.servedBy] } : {}),
+      // IDF 공조존과 겹친 방 전부와 몫(계산, ADR-0069). 방 하나를 존 여럿이 나누는 것도 여기 있다 — TTL 의 hasPart 는 절반 넘게 덮은 방뿐이다.
+      ...(zone.overlaps ? { overlaps: zone.overlaps.map((o) => ({ ...o })), overlapsSource: 'calc' } : {}),
+      ...(zone.idfAirflowCMH ? { idfAirflowCMH: zone.idfAirflowCMH } : {}),
     },
   }
 }

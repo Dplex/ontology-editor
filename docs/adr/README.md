@@ -130,3 +130,4 @@ related: []             # 같이 읽어야 하는 ADR(바꾸거나 바뀐 ADR �
 | [0066](0066-platform-prototype-local-workspace.md) | 플랫폼 프로토타입은 별도 진입점과 층별 브라우저 저장을 사용한다 | 제안 |
 | [0067](0067-bim-conduit-flow-type-from-system.md) | BIM 덕트·배관의 Flow Type 은 저장하지 않고 계통 종류·유체로 계산하며, 정하지 못한 구간은 사람이 구간마다 고르고 그 값만 편집 파일에 남긴다 | 제안 |
 | [0068](0068-slab-openings-computed-from-shape.md) | 슬래브 개구부는 저장하지 않고 수직 관통 오브젝트의 지금 형상과 슬래브 윗면에서 층 바닥마다 계산하며, 손대지 않은 BIM 오브젝트는 슬래브 형상을 그대로 믿는다 | 제안 |
+| [0069](0069-idf-on-bim-placement-and-pairing.md) | IDF 를 BIM 에 얹을 때 층은 높이가 맞는 층을 닻으로 순서대로, 평면은 겹친 넓이가 가장 큰 이동·회전으로 맞추고, 공조존은 방과 단위가 다른 시뮬레이션 존으로 겹친 몫을 모두 두며, IDF 존 설비는 존 안의 같은 종류 BIM 기기들로 푼다 | 채택 |

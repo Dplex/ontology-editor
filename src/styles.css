@@ -6660,3 +6660,8 @@ button.done::after {
   max-width: calc(50% - 9rem);
   border-radius: var(--radius-sm);
 }
+
+/* IDF 위치(공조존 IDF 접이 안). 찾은 이동·회전을 보이고 고친다. */
+.idf-placement { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 6px 0 10px; font-size: 12px; }
+.idf-placement input { width: 80px; }
+.idf-placement small { color: var(--muted); }
