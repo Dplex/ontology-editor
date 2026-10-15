@@ -134,6 +134,9 @@ const PREVIEW_WARN = 0xd1495b
 /** 이어 놓을 수 있는 지점(후보)과 유효한 연속 연결의 색(OE-ML-06 AC4). */
 const PREVIEW_CANDIDATE = 0xe0803a
 const PREVIEW_OK = 0x1f9d7a
+/** 만드는 동안 보이는 슬래브 개구부(OE-ML-06 AC5) — 확정은 보라, 초안(확인 전)은 노랑. */
+const PREVIEW_CUT = 0x8a4fd8
+const PREVIEW_DRAFT = 0xc99a12
 export const ARCH_COLORS = { wall: 0xb7bec7, door: 0x39424e, window: 0x7fa6cf, selected: 0x2f6fed }
 /** 공조존(IDF) 외곽선 색. 계통 색과 헷갈리지 않게 한 가지로만 그린다. */
 const ZONE_COLOR = 0x6b7280
@@ -356,7 +359,7 @@ export type SpaceHandles = {
  */
 export type RotateHandle = { center: Vec2; elevation: number; radius: number; angle: number; guide: number | null; label: string }
 /** 점선 미리보기. `warn` 이면 경고 색(빨강)으로 그린다 — 만들기 미리보기가 건물 밖으로 나갈 때(OE-ML-06 AC3). */
-export type VerticalPreview = { storeyId: string; elevation: number; footprint?: readonly Vec2[]; point?: Vec2; path?: readonly Vec3[]; warn?: boolean; tone?: 'candidate' | 'ok' }
+export type VerticalPreview = { storeyId: string; elevation: number; footprint?: readonly Vec2[]; point?: Vec2; path?: readonly Vec3[]; warn?: boolean; tone?: 'candidate' | 'ok' | 'cut' | 'draft' }
 
 /** 마우스 아래에 있는 것. 설비·물리존(편집 모드)·연결 화살표(편집 모드). */
 export type HoverTarget = { kind: 'equipment'; id: string } | { kind: 'space'; id: string } | { kind: 'arrow'; key: string }
@@ -3850,7 +3853,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
               ? [[p.point[0] - r, p.point[1] - r], [p.point[0] + r, p.point[1] - r], [p.point[0] + r, p.point[1] + r], [p.point[0] - r, p.point[1] + r]]
               : null
         if (!pts) continue
-        const line = new LineLoop(new BufferGeometry().setFromPoints(pts.map((q) => new Vector3(q[0], y, -q[1]))), new LineDashedMaterial({ color: p.warn ? PREVIEW_WARN : p.tone === 'candidate' ? PREVIEW_CANDIDATE : p.tone === 'ok' ? PREVIEW_OK : ARCH_COLORS.selected, dashSize: 0.25, gapSize: 0.15, depthTest: false }))
+        const line = new LineLoop(new BufferGeometry().setFromPoints(pts.map((q) => new Vector3(q[0], y, -q[1]))), new LineDashedMaterial({ color: p.warn ? PREVIEW_WARN : p.tone === 'candidate' ? PREVIEW_CANDIDATE : p.tone === 'ok' ? PREVIEW_OK : p.tone === 'cut' ? PREVIEW_CUT : p.tone === 'draft' ? PREVIEW_DRAFT : ARCH_COLORS.selected, dashSize: 0.25, gapSize: 0.15, depthTest: false }))
         line.computeLineDistances()
         line.renderOrder = 4
         line.userData.storeyId = p.storeyId
