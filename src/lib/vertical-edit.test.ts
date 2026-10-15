@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Connection, Equipment, Model, Space, Storey, Vec2, Vec3, Wall } from './model'
 import { partSpaces, stairParts, verticalObjects, explicitSpaceLinks } from './vertical-object'
-import { COMMON_AXIS_LOCKED, createVertical, faceLanding, landingFace, setElevatorLanding, planElevator, planFlight, rotateVertical, storeyAbove, VERTICAL_DEFAULTS, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, setElevatorStop, setEscalatorDirection, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
+import { COMMON_AXIS_LOCKED, createVertical, escalatorTravel, faceLanding, landingFace, setElevatorLanding, planElevator, planFlight, rotateVertical, storeyAbove, VERTICAL_DEFAULTS, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, setElevatorStop, setEscalatorDirection, deleteVertical, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, verticalRef } from './vertical-edit'
 import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
 import { BUILDING, joinParts, splitByStorey } from './storey-drafts'
@@ -532,6 +532,22 @@ describe('구간 바꾸기 (OE-ML-08)', () => {
     expect(shape(m, 'st2')).toEqual([['1F', 4, true, false], ['2F', 0, false, true]])
   })
 
+  it('에스컬레이터 구간을 줄이면 새 끝 층의 종료 지점을 받기 전에는 적용하지 않고, 받으면 운행 구간이 새 범위 안이다 [OE-ML-08#4~]', () => {
+    const m = tower()
+    const es: Vec2[] = [[3, 0], [4, 0], [4, 4], [3, 4]]
+    expect(createVertical(m, { id: 'U_es', kind: 'escalator', name: 'ES-1', from: '1F', to: '3F' }, new Map([['1F', { footprint: es, entry: [3.5, 0.2] as Vec2 }], ['2F', { footprint: es }], ['3F', { exit: [3.5, 3.8] as Vec2 }]]))).toEqual({ id: 'U_es' })
+    setEscalatorDirection(m, 'U_es', 'up')
+    expect(escalatorTravel(m, 'U_es')?.to[2]).toBe(9)
+    // 3F 에서 끝나던 운행이 새 범위(1F~2F) 밖이다. 2F 종료 지점을 받기 전에는 바꾸지 않는다.
+    const plan = planRange(m, 'U_es', '1F', '2F')
+    if ('refused' in plan) throw new Error(plan.refused)
+    expect(plan.needs.map((n) => [n.storey.id, n.what])).toEqual([['2F', ['exit']]])
+    expect(setVerticalRange(m, 'U_es', '1F', '2F')).toEqual({ refused: expect.stringContaining('2F') })
+    expect(escalatorTravel(m, 'U_es')?.to[2]).toBe(9)
+    expect(setVerticalRange(m, 'U_es', '1F', '2F', new Map([['2F', { exit: [3.5, 3.8] as Vec2 }]]))).toBe(true)
+    expect(escalatorTravel(m, 'U_es')).toEqual({ from: [3.5, 0.2, 0], to: [3.5, 3.8, 4.5] })
+  })
+
   it('시작 층을 올리면 새 시작 층은 형상과 진입 지점을 받아야 한다', () => {
     const m = tower()
     setVerticalRange(m, 'st', '1F', '3F', new Map([['2F', { footprint: [[0, 0], [1, 0], [1, 4], [0, 4]] as Vec2[] }], ['3F', { exit: [0.5, 3] as Vec2 }]]))
@@ -700,7 +716,7 @@ describe('엘리베이터 정차 층(OE-ML-10)과 로봇 통과(OE-ML-04)', () =
     expect(setElevatorStop(m, 'st', '1F', 'stop')).toBe(false)
   })
 
-  it('구간을 넓혀 새로 생긴 층은 미확인이고 통과 가능으로 나가지 않는다. 줄이면 빠진 층이 정차 목록에서 빠진다 [OE-ML-10#2~,4~] [OE-ML-04#2]', () => {
+  it('구간을 넓혀 새로 생긴 층은 미확인이고 통과 가능으로 나가지 않는다. 줄이면 빠진 층이 정차 목록에서 빠진다 [OE-ML-10#2~,4~] [OE-ML-04#2] [OE-ML-08#4~]', () => {
     const m = withElevator()
     expect(setVerticalRange(m, 'U_el', '1F', '3F')).toBe(true)
     expect(stops(m)).toEqual([['1F', 'stop'], ['2F', 'stop'], ['3F', 'unknown']])

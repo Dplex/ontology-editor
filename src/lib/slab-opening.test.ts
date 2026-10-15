@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Slab, Storey, Vec2, VerticalPart } from './model'
 import { slabOpenings } from './slab-opening'
 import { verticalObjects } from './vertical-object'
-import { createVertical, draftVertical, planCreate, planFlight, rotateVertical, setPartVertex } from './vertical-edit'
+import { createVertical, draftVertical, planCreate, planFlight, rotateVertical, setPartVertex, setVerticalRange } from './vertical-edit'
 
 // 슬래브 개구부 판정(OE-ML-03). 층 셋(0m · 3m · 6m)과 2m×2m 샤프트. 슬래브 윗면은 삼각형 둘로 된 사각형이다.
 const square = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
@@ -124,6 +124,26 @@ describe('돌리기·크기 수정 뒤 개구부 (OE-ML-07 AC4)', () => {
     const [after, cut] = judge()[0]
     expect(after).toBe('cut')
     expect(cut as number).toBeCloseTo(6, 0)
+  })
+})
+
+describe('구간을 줄인 뒤 개구부 (OE-ML-08 AC3)', () => {
+  it('구간을 줄이면 빠진 층의 편집 개구부만 사라지고, 그 층 슬래브의 BIM 개구부는 원본 그대로 남는다 [OE-ML-08#3~]', () => {
+    const s3 = slab('S3', 6, [0, 0, 10, 10], { id: 'OP3', at: [4, 4, 6, 6] })
+    const model = {
+      storeys: [
+        storey('1F', 0, [part(SHAFT)], [slab('S1', 0, [0, 0, 10, 10])]),
+        storey('2F', 3, [part(SHAFT)], [slab('S2', 3, [0, 0, 10, 10])]),
+        storey('3F', 6, [part(SHAFT)], [s3]),
+        storey('4F', 9, [part(SHAFT)], [slab('S4', 9, [0, 0, 10, 10])]),
+      ],
+    }
+    const judge = () => slabOpenings(model, verticalObjects(model)[0]).map((o) => [o.storeyId, o.state])
+    expect(judge()).toEqual([['2F', 'cut'], ['3F', 'bim'], ['4F', 'cut']])
+    // 1F~4F → 1F~2F. 4F 의 편집 개구부는 계산에서 빠지고, 3F 의 BIM 개구부는 슬래브에 그대로다(이 오브젝트가 더는 쓰지 않을 뿐).
+    expect(setVerticalRange(model, 'SH', '1F', '2F')).toBe(true)
+    expect(judge()).toEqual([['2F', 'cut']])
+    expect(s3.openings.map((o) => o.id)).toEqual(['OP3'])
   })
 })
 
