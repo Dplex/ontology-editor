@@ -257,8 +257,9 @@ import {
   resizeSpaceObject,
 } from './lib/space-object'
 import type { Object3D } from 'three'
-import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL } from './lib/vertical-object'
+import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL, verticalObjects as verticalObjectsOf } from './lib/vertical-object'
 import type { VerticalKind } from './lib/model'
+import { anchoredFlight, LINK_RELEASE, LINK_SNAP, linkCandidates, linkStatus, nearestCandidate, relinkShift, unlink, verticalLinks, type LinkCandidate, type VerticalLink } from './lib/vertical-link'
 import { COMMON_AXIS, createVertical, deleteVertical, planElevator, planFlight, storeyAbove, VERTICAL_DEFAULTS, rotateVertical, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, DIRECTION_LABEL, escalatorTravel, setElevatorStop, setEscalatorDirection, STOP_LABEL, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
@@ -2805,7 +2806,18 @@ function applyVerticalShift() {
  * 만들기 초안. 계단·ES·EL 은 `at`(계단·ES 시작점, EL 승강로 가운데) 하나와 방위 `heading`(°)으로 기본 형상을 계산한다(OE-ML-06, 2026-10-14
  * PRD). 샤프트는 지금처럼 공통 축 형상을 그린다. `direction`·`directionOk` 는 ES 운행 방향과 그 확인이다(OE-ML-11 AC2).
  */
-type VerticalDraft = { kind: VerticalKind; name: string; from: string; to: string; at: Vec2 | null; heading: number; direction: 'up' | 'down'; directionOk: boolean }
+type VerticalDraft = {
+  kind: VerticalKind
+  name: string
+  from: string
+  to: string
+  at: Vec2 | null
+  heading: number
+  direction: 'up' | 'down'
+  directionOk: boolean
+  /** 이어 놓은 구간(OE-ML-06 AC4). `start` 는 시작점이 그 구간의 끝점에, `end` 는 끝점이 그 구간의 시작점에 고정됐다. */
+  link: { kind: 'start' | 'end'; to: string; name: string; heading: number | null } | null
+}
 const verticalCreate = ref<VerticalDraft | null>(null)
 /** 시작점·위치 하나로 만드는 종류. 샤프트만 형상을 그린다. */
 const placesByPoint = (kind: VerticalKind) => kind !== 'shaft'
@@ -2831,18 +2843,25 @@ const rotateTarget = computed(() => {
     const shape = draftShape(c, c.at, c.heading)
     if (!home || !shape || 'refused' in shape) return null
     const ring = shape.given.get(c.from)?.footprint ?? []
-    const reach = Math.max(1.2, ...ring.map((p) => Math.hypot(p[0] - c.at![0], p[1] - c.at![1])))
-    return { draft: true, id: '', name: c.name, pivot: c.at, heading: c.heading, storey: home, radius: reach * 1.2 }
+    // 끝점을 위 구간에 고정했으면 끝점이 중심이다 — 돌려도 이어진 자리가 그대로다(OE-ML-06 "회전 중심은 고정된 지점").
+    const exit = c.link?.kind === 'end' && shape.flight ? shape.flight.exit : null
+    const pivot: Vec2 = exit ?? c.at
+    const reach = Math.max(1.2, ...ring.map((p) => Math.hypot(p[0] - pivot[0], p[1] - pivot[1])))
+    return { draft: true, id: '', name: c.name, pivot, heading: c.heading, storey: home, radius: reach * 1.2, linkHeading: c.link?.heading ?? null }
   }
   if (!v || !m || !multiView.value || !editing.value) return null
-  const pivot = verticalPivot(m, v.object.id)
+  // 위 구간이 이어져 끝점이 고정된 계단·ES(아래 구간이기만 한 것)는 끝점이 중심이다. 시작점이 이어진 것은 시작점(기본) 그대로다.
+  const links = verticalLinks(m).filter((l) => l.lower === v.object.id || l.upper === v.object.id)
+  const exitPivot = links.length && links.every((l) => l.lower === v.object.id) ? v.object.parts.at(-1)?.part.exit : null
+  const pivot = exitPivot ? ([exitPivot[0], exitPivot[1]] as Vec2) : verticalPivot(m, v.object.id)
   const heading = verticalHeading(m, v.object.id)
   if (!pivot || heading === null) return null
   // 손잡이 높이는 시작 층 바닥이다. 계단·ES 의 회전 중심(시작점)이 거기 있다.
   const home = v.object.parts[0].storey
   const ring = v.object.parts.find((x) => x.part.footprint.length)?.part.footprint ?? []
   const reach = Math.max(1.2, ...ring.map((p) => Math.hypot(p[0] - pivot[0], p[1] - pivot[1])))
-  return { draft: false, id: v.object.id, name: v.part.name || v.label, pivot, heading, storey: home, radius: reach * 1.2 }
+  const linkHeading = links.length === 1 ? verticalHeading(m, links[0].lower === v.object.id ? links[0].upper : links[0].lower) : null
+  return { draft: false, id: v.object.id, name: v.part.name || v.label, pivot, heading, storey: home, radius: reach * 1.2, linkHeading }
 })
 /** 끄는 동안 돌린 모양. 모든 층 조각의 형상과 진입·종료 지점이다. */
 const rotatePreview = computed(() => {
@@ -2880,7 +2899,17 @@ function rotateSelectedVertical(to: number): boolean {
   const m = model.value
   if (!t || !m || !Number.isFinite(to)) return false
   if (t.draft && verticalCreate.value) {
-    verticalCreate.value.heading = Math.round((((to % 360) + 360) % 360) * 10) / 10
+    const c = verticalCreate.value
+    const heading = Math.round((((to % 360) + 360) % 360) * 10) / 10
+    // 끝점 고정이면 끝점(중심)은 그대로 두고 시작점을 새 방위의 반대쪽 길이만큼에 둔다.
+    if (c.link?.kind === 'end' && c.at) {
+      const shape = draftShape(c, c.at, c.heading)
+      if (shape && !('refused' in shape) && shape.flight) {
+        const r = (heading * Math.PI) / 180
+        c.at = [cm(t.pivot[0] - Math.cos(r) * shape.flight.length), cm(t.pivot[1] - Math.sin(r) * shape.flight.length)]
+      }
+    }
+    c.heading = heading
     return true
   }
   if (selectedVertical.value?.object.kind === 'shaft') {
@@ -2892,7 +2921,7 @@ function rotateSelectedVertical(to: number): boolean {
     }
   }
   const angle = ((to % 360) + 360) % 360
-  return changeVerticals(`${t.name} ${angle.toFixed(1)}°로 돌림`, (mm) => setVerticalHeading(mm, t.id, angle))
+  return changeVerticals(`${t.name} ${angle.toFixed(1)}°로 돌림`, (mm) => setVerticalHeading(mm, t.id, angle, t.pivot))
 }
 function onRotate(phase: 'move' | 'end' | 'cancel', raw: number, free: boolean) {
   const t = rotateTarget.value
@@ -2903,7 +2932,9 @@ function onRotate(phase: 'move' | 'end' | 'cancel', raw: number, free: boolean) 
   }
   if (phase === 'move') {
     const home = model.value?.storeys.find((st) => st.id === t.storey.id)
-    const snap = snapHeading(raw, home ? wallHeadings(home, t.pivot) : [], free)
+    // 이어진 구간이 있으면 그 방향과 반대 방향(꺾어 오르기)에도 ±8° 로 붙는다(OE-ML-06).
+    const extra = t.linkHeading === null || t.linkHeading === undefined ? [] : [{ angle: t.linkHeading, by: '이어진 구간 방향', tol: LINK_SNAP }, { angle: t.linkHeading + 180, by: '꺾어 오르기(반대 방향)', tol: LINK_SNAP }]
+    const snap = snapHeading(raw, home ? wallHeadings(home, t.pivot) : [], free, extra)
     rotating.value = { angle: snap.angle, by: snap.by, free }
     return
   }
@@ -2922,6 +2953,49 @@ function applyVerticalHeading(input: HTMLInputElement) {
     return
   }
   if (!rotateSelectedVertical(value)) input.value = t.heading.toFixed(1)
+}
+// --- 이어진 구간 (OE-ML-19 AC8 · OE-ML-07 AC6 · OE-ML-11 AC6) ---
+// 고른 오브젝트가 낀 연속 연결과 지금 유효한지. 어긋나면 지우지 않고 재검토로 보이고, [다시 붙이기] 로 이 오브젝트를 옮겨 붙이거나 [연결 풀기]
+// 로 푼다. 둘 다 되돌리기 한 번이다.
+const selectedLinks = computed(() => {
+  void sceneVersion.value
+  const v = selectedVertical.value
+  const m = model.value
+  if (!v || !m) return []
+  const names = new Map(verticalObjectsOf(m).map((o) => [o.id, o.name]))
+  return verticalLinks(m)
+    .filter((l) => l.lower === v.object.id || l.upper === v.object.id)
+    .map((link) => {
+      const role: 'lower' | 'upper' = link.lower === v.object.id ? 'lower' : 'upper'
+      const other = role === 'lower' ? link.upper : link.lower
+      return { link, role, other, otherName: names.get(other) ?? other, storey: m.storeys.find((st) => st.id === link.storeyId)?.name ?? link.storeyId, status: linkStatus(m, link) }
+    })
+})
+/** 고른 오브젝트의 연결 지점 표시(초록 유효 · 빨강 재검토). */
+const linkMarks = computed(() =>
+  selectedLinks.value.flatMap((x) => {
+    const at = x.status.at
+    const st = model.value?.storeys.find((s) => s.id === x.link.storeyId)
+    return at && st ? [{ storeyId: st.id, elevation: st.elevation + 0.05, point: [at[0], at[1]] as Vec2, ...(x.status.ok ? { tone: 'ok' as const } : { warn: true }) }] : []
+  }),
+)
+function relinkSelected(x: (typeof selectedLinks.value)[number]) {
+  const m = model.value
+  if (!m) return
+  if (!x.status.ok && x.status.why === '운행 방향이 다릅니다') {
+    editNotice.value = '운행 방향이 달라 붙이지 않았습니다. 방향부터 맞춥니다'
+    return
+  }
+  const d = relinkShift(m, x.link, x.role)
+  if (!d) {
+    editNotice.value = '만나는 지점이 없어 다시 붙이지 못했습니다'
+    return
+  }
+  const name = selectedVertical.value?.part.name || selectedVertical.value?.label || ''
+  if (changeVerticals(`${name} 다시 붙이기`, (mm) => moveVertical(mm, x.role === 'lower' ? x.link.lower : x.link.upper, d))) note(`${name}을(를) 옮겨 ${x.otherName}에 다시 붙였습니다`)
+}
+function unlinkSelected(x: (typeof selectedLinks.value)[number]) {
+  if (changeVerticals(`${x.otherName} 연결 풀기`, (mm) => unlink(mm, x.link))) note(`${x.otherName}과(와)의 연결을 풀었습니다`)
 }
 /** V-03 다중층 이동 충돌 경고(OE-ML-07). 연 때 형상과 견준다. 막지는 않는다. */
 const verticalWarnings = computed(() => {
@@ -3094,7 +3168,7 @@ async function startCreateVertical(kind: VerticalKind = 'stair') {
 }
 function draftFor(kind: VerticalKind, name: string, from: string, to: string): VerticalDraft {
   const above = flightKind(kind) && model.value ? storeyAbove(model.value, from) : null
-  return { kind, name, from, to: above?.id ?? to, at: null, heading: 0, direction: 'up', directionOk: false }
+  return { kind, name, from, to: above?.id ?? to, at: null, heading: 0, direction: 'up', directionOk: false, link: null }
 }
 const createSteps = computed(() => {
   const c = verticalCreate.value
@@ -3123,7 +3197,22 @@ watch(
     const c = verticalCreate.value
     if (!c || !from || from === was || !model.value) return
     if (flightKind(c.kind)) c.to = storeyAbove(model.value, from)?.id ?? from
-    if (placesByPoint(c.kind)) c.at = null
+    if (placesByPoint(c.kind)) {
+      c.at = null
+      c.link = null
+    }
+  },
+)
+
+// ES 운행 방향을 바꾸면 이어 놓은 연결이 풀린다 — 같은 방향끼리만 잇는다(OE-ML-11 AC6). 고정한 자리도 비운다.
+watch(
+  () => verticalCreate.value?.direction,
+  (now, was) => {
+    const c = verticalCreate.value
+    if (!c || !now || now === was || !c.link) return
+    c.link = null
+    c.at = null
+    note('운행 방향을 바꿔 이어 놓은 연결이 풀렸습니다. 같은 방향 구간에 다시 붙입니다')
   },
 )
 
@@ -3132,6 +3221,16 @@ watch(
 // 계산한 형상·지점은 구간 바꾸기와 같은 rangeGiven 에 넣어, 채울 것·미리보기·[만들기] 가 그 길을 그대로 탄다.
 const placingVertical = ref(false)
 const createHover = ref<Vec2 | null>(null)
+/** 찍는 동안 고정한 이어 놓기 후보와, 그 고정에서 커서로 정한 시작점·방위(OE-ML-06 AC4). */
+const createAnchor = ref<LinkCandidate | null>(null)
+const createAnchored = ref<{ at: Vec2; heading: number; by: string | null; length: number } | null>(null)
+/** 지금 찍는 구간이 붙을 수 있는 지점. 계단은 계단끼리, ES 는 같은 운행 방향끼리다. */
+const createCandidates = computed(() => {
+  const c = verticalCreate.value
+  const m = model.value
+  if (!c || !m || !placingVertical.value || !flightKind(c.kind)) return []
+  return linkCandidates(m, c.kind, c.from, c.kind === 'escalator' ? c.direction : null)
+})
 // 찍는 동안 시작 층 위를 걷는다(applyStoreyFilter). 위의 watch 들보다 뒤에 선언되어 여기서 건다.
 watch(placingVertical, applyStoreyFilter)
 function startPlaceVertical() {
@@ -3146,6 +3245,8 @@ function stopPlaceVertical() {
   if (!placingVertical.value) return
   placingVertical.value = false
   createHover.value = null
+  createAnchor.value = null
+  createAnchored.value = null
   viewer?.setPlaceMode(null)
 }
 /** 초안 하나의 기본 형상. 계단·ES 는 planFlight(거절 가능), EL 은 planElevator 다. */
@@ -3164,6 +3265,23 @@ function draftShape(c: VerticalDraft, at: Vec2, heading: number) {
   return null
 }
 type RangeGivenMap = Map<string, { footprint?: Vec2[]; entry?: Vec2; exit?: Vec2 }>
+/**
+ * 찍는 동안 커서가 후보 지점에 1m 안으로 가면 고정하고(Alt 면 고정하지 않음), 고정한 뒤에는 커서 쪽으로 방위를 정한다. 고정점에서 구간 길이
+ * + 6m 보다 멀어지거나 Alt 를 누르면 푼다(OE-ML-06 AC4).
+ */
+function onPlaceVerticalHover(at: Vec2 | null, alt: boolean) {
+  createHover.value = at
+  const c = verticalCreate.value
+  const m = model.value
+  if (!at || !c || !m || !flightKind(c.kind)) {
+    createAnchored.value = null
+    return
+  }
+  const anchor = createAnchor.value
+  if (anchor && (alt || Math.hypot(at[0] - anchor.at[0], at[1] - anchor.at[1]) > (createAnchored.value?.length ?? 0) + LINK_RELEASE)) createAnchor.value = null
+  if (!createAnchor.value && !alt) createAnchor.value = nearestCandidate(createCandidates.value, at)
+  createAnchored.value = createAnchor.value ? anchoredFlight(m, c.kind, c.from, createAnchor.value, at) : null
+}
 /** 찍은 초안의 형상. 손잡이를 끄는 동안은 끄는 각도로 계산해 미리보기가 따라 돈다. */
 const createDraft = computed(() => {
   const c = verticalCreate.value
@@ -3179,17 +3297,22 @@ watch(createDraft, (d) => {
 const createHoverPreview = computed(() => {
   const c = verticalCreate.value
   const at = createHover.value
-  if (!c || !at || !placingVertical.value) return []
-  const d = draftShape(c, at, c.heading)
-  if (!d || 'refused' in d) return []
-  return [...d.given].flatMap(([storeyId, g]) => {
+  if (!c || !placingVertical.value) return []
+  // 붙일 수 있는 지점(주황). 고정한 지점은 그 자리에 하나 더 그려 두껍게 보인다.
+  const marks = createCandidates.value.map((k) => ({ storeyId: k.storey.id, elevation: k.storey.elevation, point: k.at, tone: 'candidate' as const }))
+  if (createAnchor.value) marks.push({ storeyId: createAnchor.value.storey.id, elevation: createAnchor.value.storey.elevation + 0.05, point: createAnchor.value.at, tone: 'candidate' })
+  if (!at) return marks
+  const a = createAnchored.value
+  const d = a ? draftShape(c, a.at, a.heading) : draftShape(c, at, c.heading)
+  if (!d || 'refused' in d) return marks
+  return [...marks, ...[...d.given].flatMap(([storeyId, g]) => {
     const st = model.value?.storeys.find((x) => x.id === storeyId)
     if (!st) return []
     return [
       ...(g.footprint ? [{ storeyId, elevation: st.elevation, footprint: g.footprint, warn: d.outside }] : []),
       ...[g.entry, g.exit].filter((p): p is Vec2 => !!p).map((point) => ({ storeyId, elevation: st.elevation, point, warn: d.outside })),
     ]
-  })
+  })]
 })
 /** 초안이 만들 수 있는가. 못 만들면 그 까닭. */
 const draftBlock = computed(() => {
@@ -3219,6 +3342,12 @@ function applyCreateVertical() {
     if ('refused' in r) refused = r.refused
     // ES 운행 방향은 확인한 값으로 만든다(OE-ML-11 AC2). 같은 되돌리기 한 번이다.
     if ('id' in r && c.kind === 'escalator') setEscalatorDirection(m, id, c.direction)
+    // 이어 놓은 연결(OE-ML-19 AC8)을 새 구간의 조각에 적는다. 시작점 고정은 시작 층 조각, 끝점 고정은 끝 층 조각이다.
+    if ('id' in r && c.link) {
+      const part = m.storeys.find((st) => st.id === (c.link!.kind === 'start' ? c.from : c.to))?.verticalParts?.find((p) => p.parentId === id)
+      if (part && c.link.kind === 'start') part.continuesFrom = c.link.to
+      if (part && c.link.kind === 'end') part.continuesTo = c.link.to
+    }
     return 'id' in r
   })
   if (!done) {
@@ -3583,10 +3712,10 @@ function alignAt(at: Vec2, storeyId: string | null, skip?: string): SnapHit | nu
 /** 그리는 층. 그리는 중이면 그 층, 아니면 보는 층(층이 하나면 그 층). */
 const alignStorey = computed(() => drawing.value?.storeyId ?? viewStorey.value ?? (model.value?.storeys.length === 1 ? model.value.storeys[0].id : null))
 // 그리는 동안 마우스가 가리키는 자리가 어디에 붙을지 3D 에 미리 보인다(OE-UI-06 "달라붙었음을 인지할 수 있는 시각적 피드백").
-function onPlaceHover(at: Vec2 | null) {
+function onPlaceHover(at: Vec2 | null, alt = false) {
   const d = drawing.value
   if (!viewer) return
-  if (placingVertical.value) createHover.value = at
+  if (placingVertical.value) onPlaceVerticalHover(at, alt)
   const hit = d && at && !multiView.value ? alignAt(at, d.storeyId) : null
   const st = d && model.value?.storeys.find((x) => x.id === d.storeyId)
   viewer.setSnapMarker(hit && st ? { at: hit.at, kind: hit.kind, edge: hit.kind === 'edge' ? hit.edge : undefined, elevation: d.elevation ?? st.elevation } : null)
@@ -3622,8 +3751,8 @@ const riserPreview = computed(() => {
   const path: Vec3[] = [...(d.branchOf ? [] : [from.position]), ...d.points.map((p, i): Vec3 => [p[0], p[1], z(d.levels![i])])]
   return path.length > 1 && path.every((p) => Number.isFinite(p[2])) ? [{ storeyId: d.storeyId, elevation: from.position[2], path }] : []
 })
-watch([model, sceneVersion, verticalHighlight, verticalPreview, riserPreview, rotatePreview, createHoverPreview], () =>
-  viewer?.setVerticalParts(model.value, verticalHighlight.value, [...verticalPreview.value, ...riserPreview.value, ...rotatePreview.value, ...createHoverPreview.value]),
+watch([model, sceneVersion, verticalHighlight, verticalPreview, riserPreview, rotatePreview, createHoverPreview, linkMarks], () =>
+  viewer?.setVerticalParts(model.value, verticalHighlight.value, [...verticalPreview.value, ...riserPreview.value, ...rotatePreview.value, ...createHoverPreview.value, ...linkMarks.value]),
 )
 /** 꼭짓점을 고치는 공조존 id 와 [ ] 로 짚은 꼭짓점. 아래 "수동 공조존" 의 startZoneVertices 참조. */
 const zoneVertexEdit = ref<string | null>(null)
@@ -6098,7 +6227,18 @@ watch([selectedId, editing, viewStorey], () => {
 function placeAt(at: Vec2) {
   // 수직 관통 오브젝트의 시작점·승강로 위치(OE-ML-06). 한 번 찍으면 끝난다.
   if (placingVertical.value && verticalCreate.value) {
-    verticalCreate.value.at = [cm(at[0]), cm(at[1])]
+    const c = verticalCreate.value
+    const a = createAnchored.value
+    const k = createAnchor.value
+    if (a && k) {
+      // 고정한 지점은 반올림하지 않는다 — cm 로 깎으면 이어진 지점이 그만큼 어긋난 채로 시작한다.
+      c.at = [a.at[0], a.at[1]]
+      c.heading = a.heading
+      c.link = { kind: k.kind, to: k.parentId, name: k.name, heading: k.heading }
+    } else {
+      c.at = [cm(at[0]), cm(at[1])]
+      c.link = null
+    }
     stopPlaceVertical()
     return
   }
@@ -13240,6 +13380,14 @@ function rollbackFromReport() {
               <label><input v-model="verticalCreate.direction" type="radio" value="down" @change="verticalCreate.directionOk = false" /> 하행</label>
               <label><input v-model="verticalCreate.directionOk" type="checkbox" /> 이 방향이 맞습니다</label>
             </fieldset>
+            <!-- 이어 놓기(OE-ML-06 AC4). 찍는 동안 고정했으면 안내를, 찍은 뒤에는 무엇에 이어 붙었는지 보인다. -->
+            <p v-if="placingVertical && createAnchor" class="vertical-move" data-testid="vertical-create-anchor">
+              {{ createAnchor.name }}의 {{ createAnchor.kind === 'start' ? '끝점에 시작점' : '시작점에 끝점' }} 고정 · 커서로 방향{{ createAnchored ? ` ${createAnchored.heading.toFixed(1)}°` : '' }}{{ createAnchored?.by ? `(${createAnchored.by})` : '' }} · 클릭 확정 · 멀리 빼거나 Alt 로 해제
+            </p>
+            <p v-else-if="placingVertical && createCandidates.length" class="muted">주황 점이 이어 놓을 수 있는 지점입니다. 커서를 1m 안으로 가져가면 붙습니다</p>
+            <p v-if="verticalCreate.link && !placingVertical" class="vertical-move" data-testid="vertical-create-link">
+              이어 붙음: {{ verticalCreate.link.name }}의 {{ verticalCreate.link.kind === 'start' ? '끝점에 이 구간 시작점' : '시작점에 이 구간 끝점' }}
+            </p>
             <p v-if="draftBlock && (verticalCreate.at || draftBlock.includes('최상층'))" :class="draftOutside || draftBlock.includes('최상층') ? 'edit-warn' : 'muted'" data-testid="vertical-create-block">{{ draftBlock }}</p>
             <p v-if="createPlan && !('refused' in createPlan) && createPlan.link && verticalCreate.at" class="vertical-move">연결 물리존: {{ createPlan.link.from ?? '없음' }} ↔ {{ createPlan.link.to ?? '없음' }}</p>
           </div>
@@ -13383,6 +13531,21 @@ function rollbackFromReport() {
             다중층 뷰입니다. 이 {{ selectedVertical.label }}의 관통 층 {{ selectedVertical.object.parts.length }}개 조각을 함께 칠했습니다.
             <button type="button" class="link" @click="closeMultiView">층 편집으로</button>
           </p>
+          <!-- 이어진 구간(OE-ML-19 AC8 · OE-ML-07 AC6). 어긋나면 지우지 않고 재검토로 보인다. 고치는 단추는 다중층 뷰의 편집에서만. -->
+          <div v-if="selectedLinks.length" class="vertical-links" data-testid="vertical-links">
+            <h4 class="picked-sub">이어진 구간 <Src kind="edit" /></h4>
+            <ul>
+              <li v-for="x in selectedLinks" :key="`${x.link.lower}>${x.link.upper}`" :class="x.status.ok ? 'ok' : 'review'">
+                {{ x.role === 'upper' ? '아래' : '위' }} 구간 <b>{{ x.otherName }}</b> · {{ x.storey }}:
+                <span v-if="x.status.ok">이어짐</span>
+                <span v-else class="edit-warn inline">재검토 — {{ x.status.why }}</span>
+                <template v-if="multiView && editing">
+                  <button v-if="!x.status.ok" type="button" class="link" @click="relinkSelected(x)">다시 붙이기</button>
+                  <button type="button" class="link" @click="unlinkSelected(x)">연결 풀기</button>
+                </template>
+              </li>
+            </ul>
+          </div>
           <!-- 다중층 뷰의 편집(OE-ML-07·09). 모든 층 조각이 같이 움직이고, 지우기는 영향을 보이고 확인을 받는다. -->
           <template v-if="multiView && editing">
             <!-- 샤프트를 옮기면 같이 가는 배관(OE-ML-17). 옮기기 전에 보인다. 막히는 까닭이 있으면 옮기지 않는다. -->

@@ -237,7 +237,8 @@ export type EditFile = {
     move?: Vec2
     removed?: true
     /** `stop` 은 엘리베이터 정차 상태(OE-ML-10). 미확인이면 적지 않는다. */
-    parts?: { storeyId: string; footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null; stop?: 'stop' | 'skip'; direction?: 'up' | 'down' }[]
+    /** `continuesFrom`·`continuesTo` 는 이어 놓기의 연속 연결(OE-ML-19, model.ts 의 VerticalPart). 이어 놓은 조각에만 있다. */
+    parts?: { storeyId: string; footprint: Vec2[]; entry: Vec3 | null; exit: Vec3 | null; stop?: 'stop' | 'skip'; direction?: 'up' | 'down'; continuesFrom?: string; continuesTo?: string }[]
     /** 사람이 만든 오브젝트(OE-ML-06). 연 때 없던 것이라 종류·이름과 모든 층 조각(`parts`)을 적는다. id 는 에디터가 지은 `U_…` 다. */
     created?: { kind: VerticalKind; name: string }
   }[]
@@ -371,6 +372,8 @@ export function exportEdits(model: Model, baseline: Baseline, source: string, no
           exit: p.exit ? ([p.exit[0], p.exit[1], p.exit[2]] as Vec3) : null,
           ...(p.stop === 'stop' || p.stop === 'skip' ? { stop: p.stop } : {}),
           ...(p.direction ? { direction: p.direction } : {}),
+          ...(p.continuesFrom ? { continuesFrom: p.continuesFrom } : {}),
+          ...(p.continuesTo ? { continuesTo: p.continuesTo } : {}),
         })),
     )
     return { id: v.id, parts, ...(v.created ? { created: { kind: v.created, name: v.name } } : {}) }
@@ -1048,6 +1051,11 @@ export function applyEdits(model: Model, file: EditFile): ApplyResult {
         if (p.direction === 'up' || p.direction === 'down') part.direction = p.direction
         else delete part.direction
       }
+      // 이어 놓기의 연속 연결(OE-ML-19). 적히지 않았으면 없다 — 풀었거나 이어 놓지 않은 조각이다.
+      if (typeof p.continuesFrom === 'string') part.continuesFrom = p.continuesFrom
+      else delete part.continuesFrom
+      if (typeof p.continuesTo === 'string') part.continuesTo = p.continuesTo
+      else delete part.continuesTo
       done = true
     }
     if (done) result.applied++

@@ -7,8 +7,8 @@ deciders: ["정희록"]
 prd: []
 tickets: ["OE-ML-06", "OE-ML-07", "OE-OBJ-15", "OE-ML-10", "OE-ML-11", "OE-ML-08", "OE-ML-09", "OE-ML-01", "OE-ML-02", "OE-ML-05", "OE-HIST-03", "OE-ML-19"]
 criteria: []
-code: ["src/lib/edit.ts", "src/lib/vertical-edit.ts", "src/lib/edit-file.ts", "src/lib/viewer.ts", "src/lib/export/geojson.ts"]
-tests: ["e2e/vertical-edit.spec.ts", "e2e/elevator-stops.spec.ts"]
+code: ["src/lib/edit.ts", "src/lib/vertical-edit.ts", "src/lib/vertical-link.ts", "src/lib/edit-file.ts", "src/lib/viewer.ts", "src/lib/export/geojson.ts"]
+tests: ["e2e/vertical-edit.spec.ts", "e2e/elevator-stops.spec.ts", "src/lib/vertical-link.test.ts"]
 related: ["ADR-0033", "ADR-0032", "ADR-0008"]
 ---
 
@@ -59,6 +59,18 @@ ADR-0033 은 오브젝트를 층별 조각(`Storey.verticalParts`)으로 두고 
   벽 두께에 드는 것(위 표의 병원 계단 0.26㎡)을 밖으로 치지 않으려는 여유다. 물리존이 없는 층은 잴 수 없어 막지 않는다. ES 는 상행이 처음
   선택이고 사람이 확인해야 만든다. 처음 모양은 출처 `edit` 라 `edited` 를 달지 않는다. 되돌리려면 `vertical-edit.ts` 의 `--- 기본 형상으로
   만들기` 절과 App.vue 의 `--- 시작점·위치 찍기와 기본 형상` 절을 빼고 `placesByPoint` 를 거짓으로 둔다(층마다 그리는 옛 길이 그대로 남아 있다).
+- **이어 놓기는 새 구간의 조각에 연결을 적고, 유효한지는 그때 잰다**(OE-ML-06 AC4 · OE-ML-19 AC8 · OE-ML-11 AC6 · OE-ML-07 AC6, 2026-10-14
+  더함). 계단·ES 를 찍는 동안 같은 종류(ES 는 같은 운행 방향)의 아직 이어지지 않은 지점이 후보다 — 시작 층에서 끝나는 구간의 끝점(새 구간의
+  시작점이 붙음), 위층에서 시작하는 구간의 시작점(새 구간의 끝점이 붙음). 커서가 후보 1m 안이면 고정하고, 커서 쪽으로 방위를 정한다(이어진
+  구간 방향·반대 ±8°, 건물 축·벽 ±3°). 구간 길이 + 6m 보다 멀어지거나 Alt 면 푼다. 숫자는 PM 프로토타입의 시험용 값이고, 프로토타입의 화면
+  거리 28px 는 놓기 모드가 바닥 평면의 점만 알려 쓰지 않았다. 클릭하면 새 구간의 시작 층 조각에 `continuesFrom`(또는 끝 층 조각에
+  `continuesTo`)을 적는다. 연결 목록을 모델에 따로 두지 않고 조각에 적은 것은, 되돌리기 스냅샷·편집 파일(`parts`)·층별 임시 저장본이 이미
+  조각을 다루어 따로 길을 낼 것이 없어서다. 유효한지(같은 층에서 두 지점이 5cm 안·같은 종류·ES 같은 방향)는 저장하지 않고 그때 잰다
+  (`vertical-link.ts` 의 `linkStatus`) — 옮기거나 돌리거나 방향을 바꿔 어긋나도 연결을 지우지 않고 재검토로 보이며, [다시 붙이기] 는 고른
+  구간을 옮겨 붙이고 [연결 풀기] 는 적은 것을 지운다. 위 구간만 이어진 계단을 돌리면 끝점이 중심이다(이어진 자리가 그대로). GeoJSON 은 유효한
+  연결을 두 조각의 `continuesWith`(출처 `edit`)로, 재검토는 `continuesReview` 에 까닭과 함께 낸다 — 같은 층의 두 오브젝트를 잇는 것이라 층
+  사이 구조 연결인 `verticalConnects` 와 섞지 않는다. 되돌리려면 `vertical-link.ts`, model.ts 의 `continuesFrom`·`continuesTo`, App.vue 의
+  `createAnchor`·`--- 이어진 구간` 절을 뺀다.
 - **평면 회전각은 GeoJSON 에 계산값으로 낸다**(OE-ML-02, 2026-10-14 더함). 층 조각마다 오브젝트의 `heading`(°)과 `headingSource: "calc"` 다.
   위 "돌리기" 처럼 각도를 저장하지 않고 형상에서 잰 값이라 출처가 계산이다.
 - **샤프트·엘리베이터 승강로는 공통 축 하나다**(OE-ML-02 "공통 수직 축"). 형상을 한 번 그리면 구간의 모든 층에 같은 형상을 둔다 — 아래층을
