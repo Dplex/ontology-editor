@@ -32,7 +32,7 @@ test('흐름 없는 기기에 이은 연결은 지우지 않고 "검토" 로 보
   await pickRow('AHU-1').click()
   await expect(joined).toContainText('수동 연결')
   await expect(joined.getByTestId('flow-review')).toHaveCount(0)
-  // 위반이 없으면 "·" 로 보인다.
-  await expect(check.locator('.num').last()).toHaveText('·')
+  // 위반이 없으면 0 이다.
+  await expect(check.locator('.num').last()).toHaveText('0')
   expect(errors).toEqual([])
 })

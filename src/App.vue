@@ -32,7 +32,7 @@ import { facadeOf, moveFacade } from './lib/facade'
 import { customerReportHTML, generationReport, MISSING_LABEL, missingClass, sha256Hex, type ReportInput, type ReportSectionB } from './lib/build-report'
 import { issueList, issueSummary, issuesCSV } from './lib/issue-list'
 import { issuesToBCF } from './lib/export/bcf'
-import { checkCode, issueText, warningCode } from './lib/issue-code'
+import { checkCode, issueText, issueTitle, warningCode } from './lib/issue-code'
 import { setSegmentShaft, shaftCandidates, shaftDeviations, shaftOf } from './lib/shaft'
 import { moveShaftCarrying, planShaftCarry } from './lib/shaft-carry'
 import { ttlTriples } from './lib/export/read-export'
@@ -4708,6 +4708,9 @@ const checks = pausedInReplay(() => {
   if (!m) return []
   return completenessChecks(m, airServiceList.value, showRules.value && hasRules.value ? withInferred(m.connections) : m.connections)
 })
+/** 표에 두는 규칙(잰 것·건너뛴 까닭이 있는 것)과, 이 파일에 잴 대상이 없어 접어 두는 규칙. */
+const checksMeasured = computed(() => checks.value.filter((c) => c.skipped || c.total > 0))
+const checksEmpty = computed(() => checks.value.filter((c) => !c.skipped && c.total === 0))
 const openCheckKey = ref<string | null>(null)
 const openCheck = computed(() => checks.value.find((c) => c.key === openCheckKey.value) ?? null)
 const CHECK_LIMIT = 100
@@ -11301,7 +11304,7 @@ function rollbackFromReport() {
           <h1>ontology-editor</h1>
           <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다. 내보낸 TTL·GeoJSON 은 <a href="./viewer.html">내보낸 파일 보기</a>에서 다시 열어 봅니다.</p>
         </div>
-        <button type="button" class="theme" :aria-pressed="dark" @click="toggleTheme">
+        <button type="button" class="theme" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">
           {{ dark ? '라이트' : '다크' }}
         </button>
       </div>
@@ -11561,7 +11564,7 @@ function rollbackFromReport() {
             <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" :class="{ done: justDone === 'obj' }" @click="export3D('obj')">{{ exporting3d === 'obj' ? 'OBJ…' : 'OBJ' }}</button>
             <button type="button" class="ghost" aria-label="3D 형상 내보내기 (FBX)" :title="fbxServer.enabled ? '3D 형상 내보내기 (FBX 파일 하나, 요소 이름은 GlobalId, 서버에서 GLB 를 변환)' : fbxServer.reason" :disabled="busy || !!exporting3d || !fbxServer.enabled" :aria-busy="exporting3d === 'fbx'" :class="{ done: justDone === 'fbx' }" @click="export3D('fbx')">{{ exporting3d === 'fbx' ? 'FBX…' : 'FBX' }}</button>
             <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
-            <button type="button" class="ghost theme" :aria-pressed="dark" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
+            <button type="button" class="ghost theme" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
           </div>
         </div>
         <!-- 편집 모드에서만. 좁은 폭에서는 마지막 편집 이름이 남는 폭을 쓰고 넘치면 자른다. 단축키는 title 과 ? 안내로. -->
@@ -11687,7 +11690,8 @@ function rollbackFromReport() {
         <HoverTip ref="hoverTip" />
         <section :class="['viewport', { theater: replayOpen }]">
           <div class="canvas-wrap">
-            <canvas v-show="activeTab === '3d'" ref="canvas"></canvas>
+            <!-- 3D 는 마우스로만 다룬다. 같은 내용(층·물리존·설비·경고)은 오른쪽 패널과 아래 목록이 글로 준다 — 캔버스는 그 사실만 이름으로 알린다. -->
+            <canvas v-show="activeTab === '3d'" ref="canvas" role="img" :aria-label="`${fileName} 3D 보기 — 같은 내용은 오른쪽 패널과 3D 아래 목록에 있습니다`"></canvas>
             <p v-if="flying" class="fly-badge" role="status" data-testid="fly-badge">
               <b>비행 모드</b> · WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게 · <kbd>G</kbd>·<kbd>Esc</kbd> 나가기
             </p>
@@ -11723,10 +11727,12 @@ function rollbackFromReport() {
                 type="button"
                 :class="['dock-btn', { on: filterOpen || filterOn }]"
                 :aria-expanded="filterOpen"
+                aria-label="Filter (보기 필터)"
+                data-testid="filter-toggle"
                 title="층 · Brick 클래스 · 계통 탐색 및 필터 패널을 엽니다"
                 @click="filterOpen = !filterOpen"
               >
-                <span class="dock-icon">⧩</span>
+                <span class="dock-icon" aria-hidden="true">⧩</span>
                 <span>Filter</span>
                 <b v-if="filterOn" class="dock-dot" aria-label="필터 켜짐"></b>
               </button>
@@ -11734,21 +11740,23 @@ function rollbackFromReport() {
                 type="button"
                 :class="['dock-btn', { on: exploded }]"
                 :aria-pressed="exploded"
+                aria-label="Cluster (분해도)"
                 title="보이는 기기를 Brick 클래스별로 공중에 펼쳐 봅니다"
                 @click="toggleExplode"
               >
-                <span class="dock-icon">❖</span>
+                <span class="dock-icon" aria-hidden="true">❖</span>
                 <span>Cluster</span>
               </button>
               <button
                 v-if="drawnWalls"
                 type="button"
-                :class="['dock-btn', { on: showWalls }]"
+                :class="['dock-btn', 'walls-toggle', { on: showWalls }]"
                 :aria-pressed="showWalls"
+                aria-label="Walls (3D 벽)"
                 title="3D 벽 표시 켜기·끄기 (W)"
                 @click="showWalls = !showWalls"
               >
-                <span class="dock-icon">▣</span>
+                <span class="dock-icon" aria-hidden="true">▣</span>
                 <span>Walls</span>
               </button>
               <button
@@ -11765,7 +11773,7 @@ function rollbackFromReport() {
             <aside v-if="filterOpen && viewFacets && filteredExplorerFacets && activeTab === '3d'" class="filter-panel" data-testid="filter-panel" aria-label="보기 필터">
               <div class="filter-head">
                 <div class="filter-brand">
-                  <span class="brand-badge">EXPLORER</span>
+                  <span class="brand-badge" aria-hidden="true">EXPLORER</span>
                   <b>보기 필터</b>
                 </div>
                 <button type="button" class="link" :disabled="!filterOn && !exploded" @click="clearViewFilter">모두 보이기</button>
@@ -11792,9 +11800,9 @@ function rollbackFromReport() {
               </p>
               <details v-if="viewFacets.storeys.length > 1" open class="filter-group">
                 <summary>
-                  <span class="group-tag">LEVELS</span> 층 <span class="muted">{{ viewFilter.storeys ? `${viewFilter.storeys.length}/${viewFacets.storeys.length}` : '전부' }}</span>
-                  <button type="button" class="link" @click.prevent="viewStorey = null; setFacetAll('storeys', true)">전부</button>
-                  <button type="button" class="link" @click.prevent="viewStorey = null; setFacetAll('storeys', false)">CLEAR</button>
+                  <span class="group-tag" aria-hidden="true">LEVELS</span> 층 <span class="muted">{{ viewFilter.storeys ? `${viewFilter.storeys.length}/${viewFacets.storeys.length}` : '전부' }}</span>
+                  <button type="button" class="link" @click.prevent="viewStorey = null; setFacetAll('storeys', true)">All</button>
+                  <button type="button" class="link" @click.prevent="viewStorey = null; setFacetAll('storeys', false)">Clear</button>
                 </summary>
                 <p v-if="!filterStoreysUsable && multiView" class="muted filter-note">다중층 뷰에서는 상단 범위 선택기가 층을 정합니다.</p>
                 <p v-else-if="viewStorey" class="muted filter-note">단일 층 보기 중입니다. 아래 체크박스를 누르면 다중 층 필터로 바로 전환됩니다.</p>
@@ -11805,10 +11813,10 @@ function rollbackFromReport() {
               </details>
               <details open class="filter-group">
                 <summary>
-                  <span class="group-tag">CATEGORY</span> Brick 클래스 <span class="muted">{{ viewFilter.classes ? `${viewFilter.classes.length}/${viewFacets.classes.length}` : '전부' }}</span>
+                  <span class="group-tag" aria-hidden="true">CATEGORY</span> Brick 클래스 <span class="muted">{{ viewFilter.classes ? `${viewFilter.classes.length}/${viewFacets.classes.length}` : '전부' }}</span>
                   <button type="button" class="link" @click.prevent="setFacetAll('classes', true, viewFacets.classes.filter((c) => !c.conduit).map((c) => c.id))">기기 전부</button>
                   <button type="button" class="link" @click.prevent="setFacetAll('classes', false, viewFacets.classes.filter((c) => c.conduit).map((c) => c.id))">덕트·배관 빼기</button>
-                  <button type="button" class="link" @click.prevent="setFacetAll('classes', true)">전부</button>
+                  <button type="button" class="link" @click.prevent="setFacetAll('classes', true)">All</button>
                 </summary>
                 <label v-for="c in filteredExplorerFacets.classes" :key="c.id" :class="{ conduit: c.conduit }">
                   <input type="checkbox" :checked="facetOn('classes', c.id)" @change="toggleFacet('classes', c.id, viewFacets.classes.map((x) => x.id))" />
@@ -11817,9 +11825,9 @@ function rollbackFromReport() {
               </details>
               <details open class="filter-group">
                 <summary>
-                  <span class="group-tag">SYSTEMS</span> 계통 <span class="muted">{{ viewFilter.systems ? `${viewFilter.systems.length}/${viewFacets.systems.length}` : '전부' }}</span>
-                  <button type="button" class="link" @click.prevent="setFacetAll('systems', true)">전부</button>
-                  <button type="button" class="link" @click.prevent="setFacetAll('systems', false)">CLEAR</button>
+                  <span class="group-tag" aria-hidden="true">SYSTEMS</span> 계통 <span class="muted">{{ viewFilter.systems ? `${viewFilter.systems.length}/${viewFacets.systems.length}` : '전부' }}</span>
+                  <button type="button" class="link" @click.prevent="setFacetAll('systems', true)">All</button>
+                  <button type="button" class="link" @click.prevent="setFacetAll('systems', false)">Clear</button>
                 </summary>
                 <label v-for="s in filteredExplorerFacets.systems" :key="s.id">
                   <input type="checkbox" :checked="facetOn('systems', s.id)" @change="toggleFacet('systems', s.id, viewFacets.systems.map((x) => x.id))" />
@@ -12094,14 +12102,15 @@ function rollbackFromReport() {
                   />
                   편집
                 </label>
+                <!-- 3D 벽은 왼쪽 위 독의 [Walls] 가 켜고 끈다. 독이 없는 리플레이 동안에만 여기에 둔다 — 같은 단추가 한 화면에 둘이었다. -->
                 <button
-                  v-if="drawnWalls"
+                  v-if="drawnWalls && activeTab === '3d' && replayOpen"
                   type="button"
-                  :class="['ghost', 'walls-toggle', { on: showWalls }]"
+                  :class="['ghost', { on: showWalls }]"
                   :aria-pressed="showWalls"
                   @click="showWalls = !showWalls"
                 >
-                  벽
+                  Walls
                 </button>
                 <!-- 공조존(IDF) 외곽선. IDF 를 열거나 덧붙였을 때만. -->
                 <button
@@ -12114,13 +12123,13 @@ function rollbackFromReport() {
                 >
                   공조존
                 </button>
-                <!-- 보기 필터(ui-notes 보기 필터). 층 여러 개·Brick 클래스·계통으로 거르고, 숨기기·격리·분해도. 화면에만 적용된다. -->
+                <!-- 보기 필터(ui-notes 보기 필터). 층 여러 개·Brick 클래스·계통으로 거르고, 숨기기·격리·분해도. 화면에만 적용된다.
+                     평소에는 왼쪽 위 독의 [Filter] 가 연다. 독이 없는 리플레이 동안에만 여기에 둔다. -->
                 <button
-                  v-if="activeTab === '3d'"
+                  v-if="activeTab === '3d' && replayOpen"
                   type="button"
                   :class="['ghost', 'filter-toggle', { on: filterOpen || filterOn || exploded }]"
                   :aria-expanded="filterOpen"
-                  data-testid="filter-toggle"
                   title="층·Brick 클래스·계통으로 걸러 봅니다. 화면에서만이고 편집 파일·TTL·GeoJSON 에는 남지 않습니다"
                   @click="filterOpen = !filterOpen"
                 >
@@ -12220,6 +12229,7 @@ function rollbackFromReport() {
                   type="button"
                   :class="{ on: viewStorey === c.id, clean: !c.unplaced && !c.noSpace && !c.failed }"
                   :aria-pressed="viewStorey === c.id"
+                  :aria-label="!c.unplaced && !c.noSpace && !c.failed ? `${c.name} — 손볼 것 없음` : `${c.name} — 미배치 ${c.unplaced} · 소속 없음 ${c.noSpace} · 위반 ${c.failed}`"
                   :title="`${c.name} — 미배치 ${c.unplaced} · 소속 없음 ${c.noSpace} · 그 밖의 검사 위반 ${c.failed}. 누르면 이 층만 봅니다`"
                   @click="pickStoreyChip(c.id)"
                 >
@@ -14173,12 +14183,14 @@ function rollbackFromReport() {
           <!-- 수용 기준선 판정(OE-BIM-21, D1·D12 제안안). 게이트(등급 0~3) 통과/미달과 목표선(등급 4). 미달이면 재제출 항목. 등급 칩 바로 아래 —
              위쪽 막대에 두면 3D 가 밀린다. -->
           <div v-if="grades" class="grade-banner" :class="{ fail: !grades.gate }" role="status" data-testid="grade-banner">
-            <span>
-              <b>수용 기준선</b> · 게이트(등급 0~{{ GATE }}) <b>{{ grades.gate ? '통과' : '미달' }}</b> · 목표선(등급 {{ TARGET }}) {{ grades.target ? '도달' : '미도달' }}
-              <span class="muted">(D1·D12 제안안)</span>
-              <template v-if="grades.rows.some((r) => r.ratio === null)"> · 평가 불가 등급 {{ grades.rows.filter((r) => r.ratio === null).map((r) => r.grade).join('·') }}(셀 대상 없음)</template>
-              <template v-if="grades.gate && !grades.bimGate"> · 원본 BIM 은 미달(보정 후 통과)</template>
-              <template v-if="!grades.bimGate"> — 재제출: {{ grades.bimFailing.map((r) => `등급 ${r.grade} ${r.label} ${r.why && !r.why.includes('<') ? r.why : percent(r.ratio)}`).join(' · ') }}</template>
+            <!-- 결론(통과/미달) 한 줄을 먼저, 세부(게이트·목표선·평가 불가)와 재제출은 그 아래 줄로 나눈다. 한 줄에 개념 다섯 개가 이어져 읽히지 않았다.
+                 기준값이 PRD 열린 결정(D1·D12)의 제안안이라는 것은 화면 글이 아니라 툴팁으로 둔다. -->
+            <span class="grade-lines" title="게이트·목표선 기준값은 PRD 열린 결정 D1·D12 의 제안안입니다">
+              <span class="grade-head"><b>수용 기준선 {{ grades.gate ? '통과' : '미달' }}</b><template v-if="grades.gate && !grades.bimGate"> · 원본 BIM 은 미달(보정 후 통과)</template></span>
+              <span class="grade-detail muted">
+                게이트(등급 0~{{ GATE }}) {{ grades.gate ? '통과' : '미달' }} · 목표선(등급 {{ TARGET }}) {{ grades.target ? '도달' : '미도달' }}<template v-if="grades.rows.some((r) => r.ratio === null)"> · 등급 {{ grades.rows.filter((r) => r.ratio === null).map((r) => r.grade).join('·') }} 은 잴 대상이 없어 평가하지 않음</template>
+              </span>
+              <span v-if="!grades.bimGate" class="grade-detail">재제출: {{ grades.bimFailing.map((r) => `등급 ${r.grade} ${r.label} ${r.why && !r.why.includes('<') ? r.why : percent(r.ratio)}`).join(' · ') }}</span>
             </span>
             <button type="button" class="link" :aria-expanded="gradesOpen" @click="gradesOpen = !gradesOpen">{{ gradesOpen ? '접기' : '등급 판정 보기' }}</button>
             <div v-if="gradesOpen" class="grade-table" data-testid="grade-table">
@@ -14569,7 +14581,7 @@ function rollbackFromReport() {
             <ul v-show="!warningsCollapsed" id="warnings" class="warnings">
               <!-- 누락 분류 코드와 R 번호(OE-BIM-20). 어느 R 을 고쳐 달라고 할지가 경고마다 보인다. -->
               <li v-for="w in filteredWarnings" :key="w" :data-class="warningCode(w)?.cls ?? 'other'">
-                <span v-if="warningCode(w)" class="issue-code" :data-class="warningCode(w)!.cls">{{ issueText(warningCode(w)!) }}</span>
+                <span v-if="warningCode(w)" class="issue-code" :data-class="warningCode(w)!.cls" :title="issueTitle(warningCode(w)!)">{{ issueText(warningCode(w)!) }}</span>
                 <span class="warn-body"><b v-if="splitWarning(w).prefix" class="warn-file">{{ splitWarning(w).prefix }}</b><span class="warn-main">{{ splitWarning(w).main }}</span><span v-if="splitWarning(w).rest" class="warn-rest">{{ splitWarning(w).rest }}</span></span>
               </li>
             </ul>
@@ -14841,7 +14853,7 @@ function rollbackFromReport() {
             </thead>
             <tbody>
               <tr
-                v-for="c in checks"
+                v-for="c in checksMeasured"
                 :key="c.key"
                 v-flash="c.failed.length"
                 :class="{ chosen: openCheckKey === c.key, skipped: !!c.skipped }"
@@ -14851,7 +14863,7 @@ function rollbackFromReport() {
                   <i :class="c.skipped || c.total === 0 ? 'none' : c.failed.length ? 'warn' : 'ok'"></i>
                 </td>
                 <td>
-                  <span v-if="checkCode(c.key)" class="issue-code" :data-class="checkCode(c.key)!.cls">{{ issueText(checkCode(c.key)!) }}</span>
+                  <span v-if="checkCode(c.key)" class="issue-code" :data-class="checkCode(c.key)!.cls" :title="issueTitle(checkCode(c.key)!)">{{ issueText(checkCode(c.key)!) }}</span>
                   {{ c.rule }}
                   <small class="muted">{{ c.skipped ?? (c.total === 0 ? '이 파일에는 검사할 대상이 없습니다.' : `영향: ${c.why}`) }}</small>
                 </td>
@@ -14874,11 +14886,21 @@ function rollbackFromReport() {
                   >
                     <Roll :value="c.failed.length" :count-up="false" />
                   </button>
-                  <span v-else class="muted">·</span>
+                  <span v-else class="muted">{{ c.skipped ? '—' : 0 }}</span>
                 </td>
               </tr>
             </tbody>
           </table>
+          <!-- 이 파일에 잴 대상이 없는 규칙(열원·스프링클러가 없는 건축 파일 등). 표에 "검사할 대상이 없습니다" 줄이 열 줄씩 이어져 위반을 가렸다. -->
+          <details v-if="checksEmpty.length" class="checks-empty" data-testid="checks-empty">
+            <summary>이 파일에 검사할 대상이 없는 규칙 {{ checksEmpty.length }}개</summary>
+            <ul class="plain">
+              <li v-for="c in checksEmpty" :key="c.key">
+                <span v-if="checkCode(c.key)" class="issue-code" :data-class="checkCode(c.key)!.cls" :title="issueTitle(checkCode(c.key)!)">{{ issueText(checkCode(c.key)!) }}</span>
+                {{ c.rule }}
+              </li>
+            </ul>
+          </details>
           <div v-if="openCheck && openCheck.failed.length" class="check-list">
             <h4>{{ openCheck.rule }} <span class="muted">위반 {{ openCheck.failed.length }}개(3D에 표시)</span></h4>
             <ul class="plain">

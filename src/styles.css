@@ -25,12 +25,14 @@
 
   /* 잉크 — 순흑을 피하되 색은 섞지 않는다. */
   --fg: #1a1d21;
-  --muted: #6b7280;
+  /* 보조 글씨. #6b7280 은 옅은 회색 면(--surface-soft)에서 4.35:1 로 AA(4.5) 아래였다. */
+  --muted: #5f6673;
   --line: #e3e6ea;
   --line-soft: #eef0f3;
 
   /* 액센트 하나. 파란 계열이라 경고(주황)·오류(붉은색)와 안 부딪친다. */
-  --accent: #2f6fed;
+  /* #2f6fed 는 --accent-soft 위 글씨(켠 탭·칩)가 4.0:1 이었다. 한 단 진하게 두어 흰 면 5.5 · 옅은 파랑 면 4.9 다. */
+  --accent: #2a62d4;
   --accent-soft: #eaf1fe;
   --on-accent: #ffffff;
 
@@ -1277,16 +1279,17 @@ th {
   text-align: center;
 }
 
+/* 흰 숫자가 읽히게 한 단 진하게(흰 글씨 대비 5 이상). 주황 #d9822b 는 2.9:1 이었다. */
 .storey-chips .unplaced {
-  background: #8a63d2;
+  background: #7a52c4;
 }
 
 .storey-chips .nospace {
-  background: #d9822b;
+  background: #a65812;
 }
 
 .storey-chips .failed {
-  background: #d64545;
+  background: #c53a3a;
 }
 
 .storey-chips .sc-ok {
@@ -1300,7 +1303,7 @@ th {
   gap: 0.1rem 0.3rem;
   margin: 0.15rem 0 0;
   color: var(--muted);
-  font-size: 0.65rem;
+  font-size: 0.72rem;
 }
 
 .storey-chips .sc-key i {
@@ -1858,6 +1861,12 @@ th {
   color: var(--accent);
 }
 
+/* 다크 면에서 #b45309 는 3.3:1 이었다. */
+:root[data-theme='dark'] .issue-code[data-class='A'],
+:root[data-theme='dark'] .issue-code[data-class='B'] {
+  color: #e9a35a;
+}
+
 /* 미리보기(OE-WF-07~09). 편집 막대 바로 아래. */
 .preview-panel {
   margin: 0.4rem 0;
@@ -1916,6 +1925,16 @@ th {
   border-radius: var(--radius);
   background: var(--surface);
   font-size: 0.85rem;
+}
+
+.grade-banner .grade-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.grade-banner .grade-detail {
+  font-size: 0.8rem;
 }
 
 .grade-banner.fail {
@@ -2089,8 +2108,16 @@ th {
 }
 
 /* 한 층의 방 이름이 수십 개면 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로 본다. */
+/* max-width 0 이면 이 칸이 표의 남는 폭만 쓴다(32rem 으로 두면 성수·병원에서 표가 화면보다 넓어져 [구축] 열이 잘리고 가로 스크롤이 생겼다). */
+/* 열이 열 개라 기본 칸 여백(0.85rem)이면 1024 폭에서 표가 화면을 넘었다. */
+.storeys th,
+.storeys td {
+  padding-inline: 0.5rem;
+}
+
 .storeys td.names {
-  max-width: 32rem;
+  min-width: 6rem;
+  max-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3197,6 +3224,20 @@ th {
   background: var(--accent-soft);
 }
 
+.checks .checks-empty {
+  margin-top: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.checks .checks-empty summary {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.checks .checks-empty li {
+  padding: 0.2rem 0;
+}
+
 .checks td small {
   display: block;
   margin-top: 0.15rem;
@@ -3293,6 +3334,13 @@ fieldset.read-option.features label {
   gap: 0.25rem;
   margin-right: 0.4rem;
   cursor: pointer;
+}
+
+/* 브라우저 기본 13px 상자는 누르기 작다. */
+fieldset.read-option.features input[type='checkbox'] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
 }
 
 fieldset.read-option.features label.off {
@@ -6018,6 +6066,20 @@ button.done::after {
   top: 3.05rem;
 }
 
+/* 3D 칸이 좁으면(1024 폭 화면) 시점 조작 안내가 두 줄로 꺾여 독·시점 막대 밑에 깔렸다. 그 폭에서는 빼고 [?] 단축키 안내에 맡긴다. */
+.viewport {
+  container-type: inline-size;
+}
+@container (max-width: 760px) {
+  .view-controls-hint {
+    display: none;
+  }
+}
+/* 아래 클릭 안내는 오른쪽 층 칩·범례 열(약 7rem) 밑으로 들어가지 않는다. 좁은 폭에서 "위반" 범례와 글자가 겹쳤다. */
+.viewport .pick-hint {
+  max-width: calc(100% - 9.5rem);
+}
+
 /* 좌측 슬라이드아웃 탐색 드로어 — 영상(00:03~00:28)처럼 3D 캔버스 왼쪽에 다크 글래스 카드로 열린다. */
 .viewport .filter-panel {
   top: 3.05rem;
@@ -6281,4 +6343,9 @@ button.done::after {
   content: '●';
   margin-right: 0.3rem;
   color: var(--error);
+}
+
+/* 첫 화면 설명 줄의 링크(내보낸 파일 보기). 스타일이 없어 브라우저 기본 파랑·보라였다. */
+.sub a {
+  color: var(--accent);
 }
