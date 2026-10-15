@@ -6,7 +6,7 @@ import { replayOpen } from '../lib/replay-player'
 import { needsSystem } from '../lib/served'
 import { isFull, type SpaceChecklist } from '../lib/space-checklist'
 import { spaceInfluence, spaceViewHidden, storeySpaces } from '../lib/space-view'
-import { EMPTY_FILTER, explodeGroups, facets, filterActive, filteredOut, filterSummary, type ViewFilter } from '../lib/view-filter'
+import { EMPTY_FILTER, explodeGroups, facets, filterActive, filteredOut, filterSummary, sourceGroups, type TintSource, type ViewFilter } from '../lib/view-filter'
 import { baseline } from './changes'
 import { checks, checksByStorey, selectedSpaceInfluence } from './checks'
 import { activeTab } from './context-menu'
@@ -280,6 +280,30 @@ export const UNKNOWN_CLASS = '(종류 모름)'
 /** 종류 모름은 눈에 띄는 자홍이다 — 짙은 회색으로 두었더니 벽·바닥과 섞여 채울 것이 안 보였다. 팔레트에는 이 색과 비슷한 분홍을 두지 않는다. */
 const UNKNOWN_CLASS_COLOR = 0xc2185b
 export const classTintOn = ref(false)
+/**
+ * 무엇으로 칠하나. `class` 는 Brick 클래스, `kind`·`space` 는 종류·소속을 어디서 알았나(lib/view-filter.ts 의 tintSourceOf).
+ * 출처로 칠하면 "BIM 이 어디까지 주나" 가 3D 위에 보인다 — Revit 파일은 대개 종류가 사전 색, 소속이 계산 색이다.
+ */
+export const classTintBy = ref<'class' | 'kind' | 'space'>('class')
+export const TINT_BY_LABEL = { class: '종류', kind: '종류 출처', space: '소속 출처' } as const
+/** 출처 색. 화면의 출처 꼬리표(BIM·계산·사전·사람)와 같은 넷에 모름을 더한다. 모름은 종류 모름과 같은 자홍이다. */
+const SOURCE_TINT: Record<TintSource, number> = { bim: 0x2563eb, calc: 0x16a34a, dict: 0xf59e0b, edit: 0x9333ea, none: 0xc2185b }
+const SOURCE_LABEL: Record<'kind' | 'space', Record<TintSource, { label: string; note: string }>> = {
+  kind: {
+    bim: { label: 'BIM', note: 'IFC 클래스·PredefinedType 이 Brick 클래스를 정했습니다' },
+    calc: { label: '계산', note: '' },
+    dict: { label: '사전', note: '패밀리 이름을 사전으로 읽어 Brick 클래스를 정했습니다' },
+    edit: { label: '사람', note: '사람이 종류를 정했습니다' },
+    none: { label: '종류 모름', note: 'Brick 클래스가 없어 TTL 클래스가 ex: 입니다(종류를 모르거나, 사전에 그 종류의 Brick 클래스가 없음)' },
+  },
+  space: {
+    bim: { label: 'BIM', note: 'BIM 이 공간 소속을 적었습니다' },
+    calc: { label: '계산', note: '좌표가 그 방 외곽선 안이라 소속을 정했습니다' },
+    dict: { label: '사전', note: '' },
+    edit: { label: '사람', note: '사람이 소속 방을 지정했습니다' },
+    none: { label: '방 없음', note: '소속 방이 없어 TTL 의 hasLocation 이 층입니다' },
+  },
+}
 /** 범례에서 누른 종류. 그 종류만 색으로 남긴다. */
 export const classFocus = ref<string | null>(null)
 export const classLegend = computed(() => {
@@ -287,6 +311,14 @@ export const classLegend = computed(() => {
   const m = model.value
   if (!classTintOn.value || !m) return []
   const rows: { key: string; label: string; cls: string; ids: string[]; color: number }[] = []
+  const by = classTintBy.value
+  if (by !== 'class') {
+    for (const g of sourceGroups(m, by)) {
+      const l = SOURCE_LABEL[by][g.source]
+      rows.push({ key: `src:${g.source}`, label: l.label, cls: l.note, ids: g.ids, color: SOURCE_TINT[g.source] })
+    }
+    return rows
+  }
   const unknown: { ids: string[]; classes: string[] } = { ids: [], classes: [] }
   for (const g of explodeGroups(m, () => true)) {
     if (g.cls.startsWith('ex:')) {
@@ -336,6 +368,8 @@ export function setupViewFilter() {
   watch([model, sceneVersion], () => {
     if (exploded.value && !viewer?.exploded()) exploded.value = false
   })
+  // 기준을 바꾸면 앞 기준에서 누른 줄은 뜻이 없다.
+  watch(classTintBy, () => (classFocus.value = null))
   watch(classTintOn, (on) => {
     if (!on) classFocus.value = null
     else if (activeTab.value !== '3d') activeTab.value = '3d'

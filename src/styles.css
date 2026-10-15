@@ -6682,6 +6682,41 @@ button.done::after {
   margin-left: auto;
 }
 
+/* 색 기준(종류 · 종류 출처 · 소속 출처). 세그먼트 단추 셋. */
+.class-key-by {
+  display: flex;
+  gap: 0;
+  margin: 0 0 0.35rem;
+}
+.class-key-by button {
+  flex: 1;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.class-key-by button + button {
+  border-left: 0;
+}
+.class-key-by button:first-child {
+  border-radius: 0.35rem 0 0 0.35rem;
+}
+.class-key-by button:last-child {
+  border-radius: 0 0.35rem 0.35rem 0;
+}
+.class-key-by button.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.class-key li small {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .class-key ul {
   margin: 0;
   padding: 0;
