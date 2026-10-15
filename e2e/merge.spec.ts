@@ -109,3 +109,37 @@ test('편집한 뒤에 덧붙여도 편집이 합친 모델에 그대로 남는�
   await expect(picked.locator('.stats')).toContainText('(계통 없음)')
   expect(errors).toEqual([])
 })
+
+test('덧붙이기가 실패하면 열린 모델·편집·되돌리기 이력이 그대로이고, 성공하면 되돌리기 이력이 끊긴다고 알린다 [OE-HIST-03#3~]', async ({ page }) => {
+  const errors = watchErrors(page)
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+  await page.keyboard.press('e')
+  const name = page.locator('.rows input').first()
+  await name.fill('대회의실')
+  await name.press('Enter')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+
+  const append = page.locator('.appbar label.append input')
+  await append.setInputFiles({ name: 'broken.ifc', mimeType: 'application/octet-stream', buffer: Buffer.from('ISO-10303-21;\nHEADER;\n깨진 파일\n') })
+  await expect(page.getByRole('alert')).toContainText('덧붙이지 못했습니다(broken.ifc)')
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  // 되돌리기 이력이 남아 있다 — 되돌리면 편집 전으로, 다시 하면 편집으로.
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await page.keyboard.press('Control+y')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+
+  // 성공하면 편집은 합친 모델에 다시 얹히고, 되돌리기 이력은 끊긴다고 알린다.
+  await append.setInputFiles(ROOMS)
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByText('되돌리기 이력은 여기서 끊깁니다')).toBeVisible()
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  expect(errors).toEqual([])
+})
