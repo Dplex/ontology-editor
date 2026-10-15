@@ -11744,12 +11744,12 @@ function rollbackFromReport() {
                 type="button"
                 :class="['dock-btn', { on: exploded }]"
                 :aria-pressed="exploded"
-                aria-label="Cluster (분해도)"
+                aria-label="Explode (분해도)"
                 title="보이는 기기를 Brick 클래스별로 공중에 펼쳐 봅니다"
                 @click="toggleExplode"
               >
                 <span class="dock-icon" aria-hidden="true">❖</span>
-                <span>Cluster</span>
+                <span>Explode</span>
               </button>
               <button
                 v-if="drawnWalls"
