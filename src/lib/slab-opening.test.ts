@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Slab, Storey, Vec2, VerticalPart } from './model'
 import { slabOpenings } from './slab-opening'
 import { verticalObjects } from './vertical-object'
-import { createVertical, draftVertical, planCreate, planFlight } from './vertical-edit'
+import { createVertical, draftVertical, planCreate, planFlight, rotateVertical, setPartVertex } from './vertical-edit'
 
 // 슬래브 개구부 판정(OE-ML-03). 층 셋(0m · 3m · 6m)과 2m×2m 샤프트. 슬래브 윗면은 삼각형 둘로 된 사각형이다.
 const square = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
@@ -97,6 +97,33 @@ describe('슬래브 개구부 (OE-ML-03)', () => {
     const got = slabOpenings(model, verticalObjects(model)[0])
     expect(got.map((o) => [o.state, o.coverM2])).toEqual([['cut', 4]])
     expect(s3.openings.map((o) => o.id)).toEqual(['OP'])
+  })
+})
+
+describe('돌리기·크기 수정 뒤 개구부 (OE-ML-07 AC4)', () => {
+  it('돌리거나 층 조각 크기를 바꾸면 그 형상으로 다시 재고, 앞 판정을 이어받지 않는다 [OE-ML-07#4~]', () => {
+    // 2F 슬래브가 (4..6, 4..6) 을 비워 두었다(외곽선으로, 구멍 요소 없이). 그 자리의 사람이 만든 계단.
+    const holed = slab('S2', 3, [0, 0, 10, 10], { id: 'unused', at: [4, 4, 6, 6] })
+    holed.openings = []
+    const stair = (footprint: Vec2[]): VerticalPart => ({ ...part(footprint), kind: 'stair', name: '계단' })
+    const model = { storeys: [storey('1F', 0, [stair(SHAFT)]), storey('2F', 3, [stair(SHAFT)], [holed])] }
+    const judge = () => slabOpenings(model, verticalObjects(model)[0]).map((o) => [o.state, o.coverM2])
+    expect(judge()).toEqual([['open', 0]])
+
+    // 가운데를 축으로 45° 돌리면 모서리 넷이 슬래브에 걸치지만(정확히는 0.69㎡, 격자로 재 0.78㎡ / 4㎡) 문턱(25%) 밑이라 여전히 비어 있음이다.
+    expect(rotateVertical(model, 'SH', 45, [5, 5])).toBe(true)
+    const [state, cover] = judge()[0]
+    expect(state).toBe('open')
+    expect(cover as number).toBeGreaterThan(0.5)
+    expect(cover as number).toBeLessThan(1)
+    expect(rotateVertical(model, 'SH', -45, [5, 5])).toBe(true)
+
+    // 2F 조각을 슬래브가 덮는 쪽(x 9 까지)으로 늘리면 덮은 넓이로 다시 재어 확정 개구부가 된다. 늘린 몫만큼(6..9 × 4..6 = 6㎡, 격자로 재 5.94㎡) 뚫는다.
+    expect(setPartVertex(model, 'SH@2F', 1, [9, 4])).toBe(true)
+    expect(setPartVertex(model, 'SH@2F', 2, [9, 6])).toBe(true)
+    const [after, cut] = judge()[0]
+    expect(after).toBe('cut')
+    expect(cut as number).toBeCloseTo(6, 0)
   })
 })
 
