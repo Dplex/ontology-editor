@@ -450,6 +450,10 @@ export type Viewer = {
   onPickSpace(handler: (spaceId: string | null) => void): void
   /** 고른 물리존의 꼭짓점 손잡이. null 이면 지운다. */
   setSpaceHandles(space: SpaceHandles | null): void
+  /** 꼭짓점 손잡이를 누르면 부른다. 바로 방향키로 옮길 수 있게 고른 꼭짓점으로 잡는다. */
+  onVertexPick(handler: (index: number) => void): void
+  /** 손잡이·외곽선·바닥 미리보기 채움을 즉시 옮긴다(방향키 연타 중 프레임 배칭 전 미리보기). */
+  previewVertex(index: number, to: Vec2): void
   /** 손잡이를 끌어 놓으면 부른다. IFC 평면 좌표로 넘긴다. */
   onVertexMove(handler: (spaceId: string, index: number, to: Vec2) => void): void
   /** 회전 손잡이를 그린다. null 이면 지운다. 화면은 끄는 동안 이 값을 다시 넣어 손잡이·기준선·글을 옮긴다. */
@@ -813,6 +817,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let spaceTargets: { id: string; storeyId: string; y: number; ring: readonly Vec2[] }[] = []
   let moveHandler: (id: string, delta: Vec3) => void = () => {}
   let spacePickHandler: (id: string | null) => void = () => {}
+  let vertexPickHandler: (index: number) => void = () => {}
   let vertexHandler: (spaceId: string, index: number, to: Vec2) => void = () => {}
   let rotateHandler: (phase: 'move' | 'end' | 'cancel', angle: number, free: boolean) => void = () => {}
   let arrowHandler: (key: string) => void = () => {}
@@ -930,6 +935,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let handleSpace: SpaceHandles | null = null
   let handles: Mesh[] = []
   let outline: LineLoop | null = null
+  let dragFill: Mesh | null = null
   // 마우스 아래 있는 것의 표시. 설비는 상자 테두리(액센트), 방은 바닥 외곽선(점선)이라 무엇 위에 있는지 모양으로 갈린다.
   let hoverMark: Line | null = null
   let hoverMarkKey = ''
@@ -1043,6 +1049,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     handles = []
     if (outline) disposeObject(outline)
     outline = null
+    if (dragFill) disposeObject(dragFill)
+    dragFill = null
     dirty = true
     // 보기 모드에서는 고른 방의 테두리만 긋고 손잡이는 달지 않는다.
     if (!handleSpace || handleSpace.ring.length < 3) return
@@ -1117,6 +1125,34 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const position = outline.geometry.getAttribute('position') as BufferAttribute
       position.setXYZ(index, at.x, h.position.y, at.z)
       position.needsUpdate = true
+    }
+    if (handleSpace && handles.length >= 3) {
+      const pts = handles.map((m) => new Vector2(m.position.x, -m.position.z))
+      const geom = new ShapeGeometry(new Shape(pts))
+      geom.rotateX(-Math.PI / 2)
+      if (dragFill) {
+        dragFill.geometry.dispose()
+        dragFill.geometry = geom
+      } else {
+        dragFill = new Mesh(
+          geom,
+          new MeshBasicMaterial({
+            color: handleColor(dark),
+            transparent: true,
+            opacity: 0.22,
+            depthTest: false,
+            depthWrite: false,
+            side: DoubleSide,
+          }),
+        )
+        dragFill.position.y = handleSpace.elevation + 0.11
+        dragFill.renderOrder = 8
+        overlay.add(dragFill)
+      }
+      if (focusFill && focusSpaceId === handleSpace.id) {
+        focusFill.geometry.dispose()
+        focusFill.geometry = geom.clone()
+      }
     }
     scaleHandles()
   }
@@ -1730,6 +1766,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         const plane = new Plane(new Vector3(0, 1, 0), -at.y)
         if (!ray.intersectPlane(plane, start)) return
         next = { kind: 'vertex', index, plane, offset: at.clone().sub(start), at }
+        vertexPickHandler(index)
       } else {
         // 고른 설비만 끈다. 아무 설비나 끌리면 시점을 돌리려다 덕트를 옮긴다. 고른 설비는 앞에 다른 것이
         // 가려도 잡힌다 — 덕트 사이의 VAV 처럼 가운데가 늘 가려진 설비가 있다. 끌지 않고 떼면 맨 앞의 것을
@@ -2870,7 +2907,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const t = focusSpaceId ? spaceTargets.find((x) => x.id === focusSpaceId) : null
     for (const o of slabs.children) {
       const mat = (o as Mesh).material as MeshLambertMaterial
-      mat.opacity = t && o.userData.storeyId === t.storeyId ? Math.min(slabOpacity, 0.08) : slabOpacity
+      mat.opacity = t && o.userData.storeyId === t.storeyId ? Math.min(slabOpacity, 0.08) : ceilingPlanes.children.length ? Math.min(slabOpacity, 0.12) : slabOpacity
     }
     for (const o of walls?.children ?? []) {
       const mat = (o as Mesh).material as MeshLambertMaterial
@@ -2905,7 +2942,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     return out.join(',')
   }
 
+  const storeySlabCache = new Map<string, { key: string; mesh: Mesh }>()
+
   function disposeContent() {
+    storeySlabCache.clear()
     content.traverse((o) => {
       if (o instanceof Mesh) {
         o.geometry.dispose()
@@ -2938,27 +2978,37 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     return g
   }
 
-  /** 공간 판. 층마다 하나로 합친다. 성수는 방이 934개다. 편집 모드에서 바닥을 눌러 고를 자리도 같이 만든다. */
+  /** 공간 판. 층마다 하나로 합치고, 안 바뀐 층의 합친 메시는 그대로 재사용한다. 성수는 19개 층에 방이 934개라 한 방의 꼭짓점을 옮길 때 그 층 하나만 다시 합친다. */
   function buildSlabs(model: Model) {
     lastSlabsKey = slabsKey(model)
-    slabs.traverse((o) => {
-      if (o instanceof Mesh) {
-        o.geometry.dispose()
-        ;(o.material as { dispose(): void }).dispose()
-      }
-    })
     content.remove(slabs)
     slabs = new Group()
     spaceTargets = []
+    const seen = new Set<string>()
     model.storeys.forEach((storey, i) => {
+      seen.add(storey.id)
       const color = STOREY_COLORS[i % STOREY_COLORS.length]
+      const sKey = `${color}|${slabOpacity}|${storey.elevation}|${storey.spaces.map((sp) => `${sp.id}:${sp.footprint.map((p) => `${p[0]},${p[1]}`).join(';')}`).join('|')}`
+      for (const space of storey.spaces) {
+        if (space.footprint.length < 3) continue
+        // 판 두께가 0.1 이다(spaceMesh). 윗면에서 잰다.
+        spaceTargets.push({ id: space.id, storeyId: storey.id, y: storey.elevation + 0.1, ring: space.footprint })
+      }
+      const cached = storeySlabCache.get(storey.id)
+      if (cached && cached.key === sKey) {
+        slabs.add(cached.mesh)
+        return
+      }
+      if (cached) {
+        cached.mesh.geometry.dispose()
+        ;(cached.mesh.material as { dispose(): void }).dispose()
+        storeySlabCache.delete(storey.id)
+      }
       const pieces: BufferGeometry[] = []
       for (const space of storey.spaces) {
         const piece = slabPiece(space.footprint, storey.elevation)
         if (!piece) continue
         pieces.push(piece)
-        // 판 두께가 0.1 이다(spaceMesh). 윗면에서 잰다.
-        spaceTargets.push({ id: space.id, storeyId: storey.id, y: storey.elevation + 0.1, ring: space.footprint })
       }
       if (pieces.length === 0) return
       // 조각은 slabPiece 가 기억해 두고 다시 쓴다 — 합치기는 복사라 놓지 않는다.
@@ -2966,9 +3016,17 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (merged) {
         const slab = new Mesh(merged, new MeshLambertMaterial({ color, transparent: true, opacity: slabOpacity, side: DoubleSide }))
         slab.userData.storeyId = storey.id
+        storeySlabCache.set(storey.id, { key: sKey, mesh: slab })
         slabs.add(slab)
       }
     })
+    for (const [id, cached] of storeySlabCache) {
+      if (!seen.has(id)) {
+        cached.mesh.geometry.dispose()
+        ;(cached.mesh.material as { dispose(): void }).dispose()
+        storeySlabCache.delete(id)
+      }
+    }
     content.add(slabs)
     applyStoreyVisibility()
     applySpaceFocus()
@@ -3429,7 +3487,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     isDragging() {
-      return drag !== null
+      return drag !== null && drag.moved
     },
 
     shiftEquipment(id, delta, glide = false) {
@@ -3483,8 +3541,23 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     setSpaceHandles(space) {
+      if (drag?.kind === 'vertex' && !drag.moved && space && drag.index < space.ring.length) {
+        const p = space.ring[drag.index]
+        drag.at.set(p[0], drag.at.y, -p[1])
+      }
       handleSpace = space
       drawHandles()
+    },
+
+    onVertexPick(handler) {
+      vertexPickHandler = handler
+    },
+
+    previewVertex(index, to) {
+      if (!handleSpace || index < 0 || index >= handles.length) return
+      const y = handleSpace.elevation + 0.12
+      moveHandle(index, new Vector3(to[0], y, -to[1]))
+      dirty = true
     },
 
     onVertexMove(handler) {

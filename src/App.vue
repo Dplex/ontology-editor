@@ -2237,9 +2237,22 @@ function nudge(code: string, step: number): boolean {
 // 방향키는 한 프레임에 모아 한 번에 옮긴다. 성수에서 한 번 옮기는 데 0.2초가 들어서, 꾹 누른 키(초당 수십 번)를
 // 하나씩 옮기면 키가 줄을 서서 손을 뗀 뒤에도 몇 초씩 따라 움직였다.
 let pendingNudge: { id: string; dx: number; dy: number } | null = null
+let pendingVertexNudge: { spaceId: string; index: number; to: Vec2 } | null = null
 // 마우스로 하는 편집(끌기, 버튼)도 모아 둔 방향키 뒤에 온다.
 window.addEventListener('pointerdown', () => flushNudge(), { capture: true })
 function flushNudge() {
+  const pv = pendingVertexNudge
+  pendingVertexNudge = null
+  if (pv && model.value) {
+    if (!wouldSelfIntersect(model.value, pv.spaceId, pv.index, pv.to)) {
+      moveVertex(pv.spaceId, pv.index, pv.to, `vertex:${pv.spaceId}:${pv.index}`)
+      const sp = selectedSpace.value?.space.id === pv.spaceId ? selectedSpace.value.space : null
+      if (sp) note(`꼭짓점 ${pv.index + 1} → (${pv.to[0].toFixed(2)}, ${pv.to[1].toFixed(2)}) · ${sp.areaM2.toFixed(1)}㎡`)
+    } else {
+      note('경계선이 교차해서 옮기지 않았습니다')
+      sceneVersion.value++
+    }
+  }
   const p = pendingNudge
   pendingNudge = null
   const e = p ? equipmentById.value.get(p.id) : undefined
@@ -2261,17 +2274,26 @@ function nudgeVertex(code: string, step: number): boolean {
     note('[ ]로 꼭짓점을 먼저 고르세요')
     return true
   }
-  const p = picked.space.footprint[index]
+  const base =
+    pendingVertexNudge && pendingVertexNudge.spaceId === picked.space.id && pendingVertexNudge.index === index
+      ? pendingVertexNudge.to
+      : picked.space.footprint[index]
   const { right, up } = viewer!.planeAxes()
   const [ax, ay] = code === 'ArrowLeft' || code === 'ArrowRight' ? snapAxis(...right) : snapAxis(...up)
   const sign = code === 'ArrowLeft' || code === 'ArrowDown' ? -1 : 1
-  const to: Vec2 = [cm(p[0] + sign * ax * step), cm(p[1] + sign * ay * step)]
+  const to: Vec2 = [cm(base[0] + sign * ax * step), cm(base[1] + sign * ay * step)]
   if (wouldSelfIntersect(model.value!, picked.space.id, index, to)) {
     note('경계선이 교차해서 옮기지 않았습니다')
     return true
   }
-  moveVertex(picked.space.id, index, to, `vertex:${picked.space.id}:${index}`)
-  note(`꼭짓점 ${index + 1} → (${to[0].toFixed(2)}, ${to[1].toFixed(2)}) · ${picked.space.areaM2.toFixed(1)}㎡`)
+  viewer?.previewVertex(index, to)
+  if (pendingVertexNudge && pendingVertexNudge.spaceId === picked.space.id && pendingVertexNudge.index === index) {
+    pendingVertexNudge.to = to
+    return true
+  }
+  flushNudge()
+  pendingVertexNudge = { spaceId: picked.space.id, index, to }
+  requestAnimationFrame(flushNudge)
   return true
 }
 
@@ -2437,6 +2459,16 @@ function dropVertex(spaceId: string, index: number, raw: Vec2) {
   }
   editNotice.value = ''
   moveVertex(spaceId, index, to)
+}
+
+/** 3D·평면도에서 꼭짓점 손잡이를 누르면 그 꼭짓점을 고른다 — [ ] 를 누르지 않고도 바로 방향키로 옮긴다. */
+function pickVertex(index: number) {
+  if (zoneEdited.value) {
+    zoneActiveVertex.value = index
+    return
+  }
+  if (!selectedSpace.value) return
+  activeVertex.value = index
 }
 
 // --- 편집 목록을 좁히기 ----------------------------------------------------------
@@ -2657,6 +2689,7 @@ watch([model, canvas], ([m, el]) => {
       const o = model.value && findSpaceObject(model.value, id)
       if (o) changeObjects(id, `${o.object.name} 옮김`, (m) => moveSpaceObject(m, id, [cm(delta[0]), cm(delta[1])]))
     })
+    viewer.onVertexPick(pickVertex)
     viewer.onVertexMove(dropVertex)
     viewer.onRotate(onRotate)
     viewer.setRotateHandle(rotateHandle.value)
@@ -12491,6 +12524,7 @@ function rollbackFromReport() {
               @select-box="addBoxToGroup"
               @pick-space="pickSpace"
               @pick-element="selectedElementId = $event"
+              @pick-vertex="pickVertex"
               @move-vertex="dropVertex"
             />
             <p v-else-if="activeTab === 'plan'" class="plan-empty">
