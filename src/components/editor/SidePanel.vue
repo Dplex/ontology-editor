@@ -21,6 +21,7 @@ import FlowBasis from '../FlowBasis.vue'
 import Src from '../Src.vue'
 import CustomZoneInspector from './CustomZoneInspector.vue'
 import ElementInspector from './ElementInspector.vue'
+import ExportLines from './ExportLines.vue'
 import EquipmentInspector from './EquipmentInspector.vue'
 import GroupInspector from './GroupInspector.vue'
 import ObjectInspector from './ObjectInspector.vue'
@@ -80,6 +81,8 @@ defineProps({
   <!-- 아무것도 고르지 않았을 때. 이 파일이 어디까지 찼는지와, 무엇을 누르면 여기 무엇이 뜨는지. -->
   <OverviewPanel v-else key="overview" :counts="counts" :model="model" />
   </Transition>
+  <!-- 고른 것이 내보내는 TTL·GeoJSON 의 줄. 계통만 고른 때는 그 계통의 블록이다. -->
+  <ExportLines />
   </div>
   <!-- 현재 층 현황(OE-UI-04 ③). 고른 것의 속성은 위에, 이것은 늘 그 아래에 보인다. -->
   <FloorSummary
