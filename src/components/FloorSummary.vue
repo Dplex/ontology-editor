@@ -10,6 +10,8 @@ const props = defineProps<{
   /** 미편집 · 저장 안 된 편집 · 임시 저장. 모든 층이면 층마다 센 것. */
   status: string
   summary: FloorSummary
+  /** 방별 체크리스트(lib/space-checklist.ts)가 다 찬 방 / 방. 방이 없으면 null. */
+  fullRooms?: { have: number; of: number } | null
 }>()
 const emit = defineEmits<{ pick: [kind: 'space' | 'room' | 'customZone', id: string] }>()
 /** 앞의 벽·문·창(floor-summary.ts 의 fixed). */
@@ -34,6 +36,9 @@ const restCount = computed(() => props.summary.objects.slice(FIXED).reduce((a, o
         <li v-for="x in summary.hvacZones" :key="x.id">{{ x.name }} <span class="muted">공조존</span></li>
       </ul>
     </details>
+    <p v-if="fullRooms" class="muted" data-testid="floor-full-rooms" title="외곽선·공간명·방번호·종류·미소속 기기·말단–원천·급기 TTL·계통·공조존 중 해당하는 것이 다 찬 방">
+      온톨로지 체크리스트 — 다 찬 방 <b>{{ fullRooms.have.toLocaleString() }}</b> / {{ fullRooms.of.toLocaleString() }}
+    </p>
     <details>
       <summary>설비 {{ summary.equipmentTotal }}대 · 미배치 {{ summary.unplaced }}대</summary>
       <ul class="plain">

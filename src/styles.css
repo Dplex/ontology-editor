@@ -6769,3 +6769,88 @@ button.done::after {
 .zone-legend small { color: var(--muted); }
 table.zones tr.pickable { cursor: pointer; }
 table.zones tr.chosen td { background: var(--accent-soft); }
+
+/* 방별 체크리스트(lib/space-checklist.ts). 방 패널 머리 아래 카드, 공간 칸의 점수. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.space-checklist {
+  margin: 0.6rem 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+}
+
+.space-checklist .checklist-head {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 0.3rem;
+}
+
+.checklist-score,
+.space-score {
+  color: #b45309;
+  font-variant-numeric: tabular-nums;
+}
+
+.checklist-score.full,
+.space-score.full {
+  color: #15803d;
+}
+
+.space-checklist .check-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.4rem;
+  padding: 0.12rem 0;
+}
+
+.space-checklist .check-mark {
+  width: 1rem;
+  text-align: center;
+}
+
+.space-checklist .check-row.ok .check-mark {
+  color: #15803d;
+}
+
+.space-checklist .check-row.empty .check-mark {
+  color: #dc2626;
+}
+
+.space-checklist .check-row.na {
+  opacity: 0.6;
+}
+
+.space-checklist .check-note {
+  flex-basis: 100%;
+  padding-left: 1.4rem;
+}
+
+.space-checklist .check-fix {
+  margin-left: auto;
+}
+
+.viewport .filter-panel .space-facet .space-score {
+  flex: none;
+  min-width: 2.2rem;
+  text-align: right;
+  color: #fbbf24;
+}
+
+.viewport .filter-panel .space-facet .space-score.full {
+  color: #4ade80;
+}
+
+.viewport .filter-panel .filter-group summary .link.on {
+  color: #38bdf8;
+  text-decoration: underline;
+}

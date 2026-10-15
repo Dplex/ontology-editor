@@ -65,6 +65,7 @@ import { neighbors, trace, traceBySystem, traceRoutes, TOLERANCE, type Neighbor,
 import { flowIndex, ladder, supplyChain, type FlowIndex, type Hop, type Step } from './lib/flow-ladder'
 import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
 import { spaceInfluence, spaceViewHidden, storeySpaces } from './lib/space-view'
+import { CHECK_LABELS, checklistContext, isFull, storeyChecklists, type SpaceCheckItem, type SpaceChecklist } from './lib/space-checklist'
 import { storeyHeights, type StoreyHeight } from './lib/storey-height'
 import { resetStoreyName, setStoreyName, storeyNamed } from './lib/storey-name'
 import { storeyFiles } from './lib/export/storey-export'
@@ -1937,6 +1938,19 @@ function runShortcut(s: Shortcut | Shortcut['id'], e?: KeyboardEvent): boolean {
       return true
     case 'replay':
       void replay.open()
+      return true
+    case 'spaceNext':
+    case 'spacePrev':
+    case 'spaceNextEmpty':
+    case 'spacePrevEmpty':
+      if (activeTab.value !== '3d' || replayOpen.value) return false
+      stepSpace(id === 'spaceNext' || id === 'spaceNextEmpty' ? 1 : -1, id === 'spaceNextEmpty' || id === 'spacePrevEmpty')
+      return true
+    case 'spaceView':
+      if (activeTab.value !== '3d' || replayOpen.value) return false
+      if (spaceView.value) exitSpaceView()
+      else if (selectedSpaceId.value) enterSpaceView(selectedSpaceId.value)
+      else note('방을 먼저 고르세요 — 바닥을 누르거나 , . 로 옮겨 다닙니다')
       return true
     case 'mode':
       if (editing.value) {
@@ -4767,6 +4781,42 @@ const selectedService = pausedInReplay(() => {
 // --- 공간 보기 상태(lib/space-view.ts) — 켜고 끄는 것은 보기 필터 옆(enterSpaceView) ---
 /** 공간 보기 중인 방과 들어올 때 남긴 설비. 화면 상태다. */
 const spaceView = shallowRef<{ id: string; keep: ReadonlySet<string> } | null>(null)
+// --- 방별 체크리스트(lib/space-checklist.ts, docs/plans/space-checklist.md) ---
+// 방 하나가 온톨로지로 얼마나 찼는지. 건물을 한 번 훑은 것(checkCtx)을 층마다 방으로 나눈다. 리플레이 동안은 다시 세지 않는다.
+const checkCtx = pausedInReplay(() => {
+  void flowVersion.value
+  void sceneVersion.value
+  const m = model.value
+  return m ? checklistContext(m, airServiceList.value) : null
+})
+/** 층마다 방의 체크리스트. 고른 층만 센다(층 요약·공간 칸·방 사이 이동이 같이 쓴다). */
+const checksByStorey = (storeyId: string): Map<string, SpaceChecklist> => {
+  const m = model.value
+  const ctx = checkCtx.value
+  const st = m?.storeys.find((s) => s.id === storeyId)
+  return st && ctx ? storeyChecklists(st, ctx) : new Map()
+}
+/** 고른 방의 체크리스트. */
+const selectedChecklist = computed(() => {
+  const sp = selectedSpace.value
+  return sp ? (checksByStorey(sp.storey.id).get(sp.space.id) ?? null) : null
+})
+/** 방 하나만 보여도 되는 [고치기]. 고칠 편집이 이미 있는 곳으로 데려간다. 되돌리기는 그 편집 그대로다. */
+function fixCheck(item: SpaceCheckItem) {
+  const focus = (selector: string) => {
+    if (!editing.value) mode.value = 'edit'
+    void nextTick(() => document.querySelector<HTMLElement>(selector)?.focus())
+  }
+  if (item.key === 'label') return focus('.space-name input')
+  if (item.key === 'number') return focus('[data-testid="space-number"]')
+  if (item.key === 'kind') return focus('[data-testid="space-kind"]')
+  const id = item.ids?.[0]
+  if (!id) return
+  select(id)
+  if (item.key === 'supplyTtl') note('이 원천 계통의 규칙 방향을 확정하면(C) 이 방 급기가 TTL 에 나갑니다')
+}
+const checkFixLabel = (item: SpaceCheckItem) =>
+  item.key === 'label' || item.key === 'number' ? '이름 칸으로' : item.key === 'kind' ? '종류 고르기' : item.key === 'supplyTtl' ? '원천 고르기' : item.ids?.length ? `설비 고르기${item.ids.length > 1 ? ` (${item.ids.length})` : ''}` : ''
 /** 고른 방에 영향을 주는 설비 — 안에 있는 것과 이 방 말단에 닿는 공기 원천. 패널·3D 칠하기·공간 보기가 같이 쓴다. */
 const selectedSpaceInfluence = computed(() => {
   const m = model.value
@@ -6183,13 +6233,18 @@ const facetOn = (key: 'storeys' | 'classes' | 'systems', id: string) => viewFilt
 // 대는 공기 원천만 3D 에 남긴다. 고르기·편집은 여느 때와 같다 — 보이는 것만 줄인다. 화면 상태라 모델·TTL·GeoJSON 에 남지 않는다.
 /** 공간 칸이 방을 보이는 층. 층 하나를 볼 때만 — 모든 층이면 방이 수백 개라 고를 수 없다. 층이 하나뿐인 파일은 그 층이다. */
 const spacesStoreyId = computed(() => viewStorey.value ?? (model.value?.storeys.length === 1 ? model.value.storeys[0].id : null))
+/** 공간 칸이 보이는 층의 방별 체크리스트. 칸의 점수·[빈칸 있는 방만]·방 사이 이동(, .)이 쓴다. */
+const spacesChecks = computed(() => (spacesStoreyId.value && !multiView.value ? checksByStorey(spacesStoreyId.value) : new Map<string, SpaceChecklist>()))
+/** 공간 칸에서 빈칸 있는 방만 보기. 화면 상태다. */
+const spacesEmptyOnly = ref(false)
 const viewSpaces = computed(() => {
   const m = model.value
   const id = spacesStoreyId.value
   if (!m || !id || multiView.value || !filterOpen.value) return []
-  const rows = storeySpaces(m, id, (e) => isConduit(e.role))
+  const checks = spacesChecks.value
+  const rows = storeySpaces(m, id, (e) => isConduit(e.role)).map((r) => ({ ...r, check: checks.get(r.id) ?? null }))
   const q = explorerQuery.value.trim().toLowerCase()
-  return q ? rows.filter((r) => `${r.name} ${r.longName}`.toLowerCase().includes(q)) : rows
+  return rows.filter((r) => (!q || `${r.name} ${r.longName}`.toLowerCase().includes(q)) && (!spacesEmptyOnly.value || (r.check && !isFull(r.check)) || r.id === spaceView.value?.id))
 })
 const spaceViewName = computed(() => {
   const id = spaceView.value?.id
@@ -6209,6 +6264,35 @@ function enterSpaceView(id: string) {
   spaceView.value = { id, keep: new Set([...inf.inside, ...inf.sources.map((x) => x.id)]) }
   // 층을 바꾸면 그 층 전체에 맞추는 것(watch viewStorey)보다 뒤에 방으로 간다.
   void nextTick(() => viewer?.frameSpace(id, true))
+}
+/**
+ * 방 사이 이동(, . · Shift+, Shift+.). 순서는 공간 칸과 같은 방번호 순이고 층 끝에서는 처음으로 돈다(D 1안). 공간 보기 중이면 옮긴 방을
+ * 공간 보기로, 아니면 그 방을 골라 시점만 맞춘다. `emptyOnly` 면 체크리스트에 빈칸 있는 방만 밟는다.
+ */
+function stepSpace(dir: 1 | -1, emptyOnly: boolean) {
+  const m = model.value
+  const storeyId = spacesStoreyId.value
+  if (!m || !storeyId || multiView.value) return note('층 하나를 고르면 그 층의 방 사이를 옮겨 다닙니다')
+  const checks = spacesChecks.value
+  const all = storeySpaces(m, storeyId, (e) => isConduit(e.role))
+  const order = emptyOnly ? all.filter((r) => { const c = checks.get(r.id); return c && !isFull(c) }) : all
+  if (!order.length) return note(emptyOnly ? '이 층에는 빈칸 있는 방이 없습니다' : '이 층에는 물리존이 없습니다')
+  const now = spaceView.value?.id ?? selectedSpaceId.value
+  // 지금 방의 자리는 빈칸 없는 방이어도 전체 순서로 잡는다 — 그 뒤의 첫 빈칸 있는 방으로 간다.
+  const at = now ? all.findIndex((r) => r.id === now) : -1
+  let next = order[dir > 0 ? 0 : order.length - 1]
+  if (at >= 0) {
+    const pos = (id: string) => all.findIndex((r) => r.id === id)
+    const ahead = order.filter((r) => (dir > 0 ? pos(r.id) > at : pos(r.id) < at))
+    if (ahead.length) next = dir > 0 ? ahead[0] : ahead[ahead.length - 1]
+  }
+  if (spaceView.value) enterSpaceView(next.id)
+  else {
+    pickSpace(next.id)
+    void nextTick(() => viewer?.frameSpace(next.id))
+  }
+  const c = checks.get(next.id)
+  note(`${[next.name, next.longName].filter(Boolean).join(' ')} — ${all.findIndex((r) => r.id === next.id) + 1}/${all.length}${c ? ` · 체크리스트 ${c.have}/${c.of}` : ''}`)
 }
 function exitSpaceView() {
   if (!spaceView.value) return
@@ -9507,6 +9591,19 @@ const storeyGroup = computed(() => {
 })
 /** 오른쪽 패널의 현재 층 현황(OE-UI-04 AC9). */
 const floorNow = computed(() => (model.value ? floorSummary(model.value, viewStorey.value ? [viewStorey.value] : null, (e) => whatIs(e)?.label ?? null) : null))
+/** 층 요약의 "다 찬 방". 한 층이면 그 층, 모든 층이면 층마다 센 합이다. */
+const floorFullRooms = computed(() => {
+  const m = model.value
+  if (!m) return null
+  const ids = viewStorey.value ? [viewStorey.value] : m.storeys.map((s) => s.id)
+  let have = 0
+  let of = 0
+  for (const id of ids) for (const c of checksByStorey(id).values()) {
+    of++
+    if (isFull(c)) have++
+  }
+  return of ? { have, of } : null
+})
 const floorNowStatus = computed(() => {
   const states = floorStates.value
   if (viewStorey.value) return states.get(viewStorey.value) ?? ''
@@ -12303,9 +12400,10 @@ function rollbackFromReport() {
                   <span class="group-tag" aria-hidden="true">SPACES</span> 공간
                   <span class="muted">{{ spaceView ? spaceViewName : spacesStoreyId ? `${viewSpaces.length}개` : '층 하나를 고르면' }}</span>
                   <button v-if="spaceView" type="button" class="link" @click.prevent="exitSpaceView">층 전체</button>
+                  <button v-if="spacesStoreyId" type="button" :class="['link', { on: spacesEmptyOnly }]" :aria-pressed="spacesEmptyOnly" data-testid="spaces-empty-only" title="체크리스트에 빈칸이 있는 방만 (Shift+, · Shift+. 로 옮겨 다닙니다)" @click.prevent="spacesEmptyOnly = !spacesEmptyOnly">빈칸 있는 방만</button>
                 </summary>
                 <p v-if="!spacesStoreyId" class="muted filter-note">층 하나를 고르면 그 층의 방을 골라 그 방만 볼 수 있습니다.</p>
-                <p v-else-if="!viewSpaces.length" class="muted filter-note">{{ explorerQuery ? '찾는 방이 없습니다.' : '이 층에는 물리존이 없습니다.' }}</p>
+                <p v-else-if="!viewSpaces.length" class="muted filter-note">{{ spacesEmptyOnly ? '빈칸 있는 방이 없습니다.' : explorerQuery ? '찾는 방이 없습니다.' : '이 층에는 물리존이 없습니다.' }}</p>
                 <div v-if="viewSpaces.length" class="space-list">
                 <button
                   v-for="r in viewSpaces"
@@ -12318,6 +12416,7 @@ function rollbackFromReport() {
                 >
                   <span class="facet-name">{{ r.longName && r.longName !== r.name ? `${r.name} ${r.longName}` : r.name }}</span>
                   <span class="muted">{{ r.devices.toLocaleString() }}<template v-if="r.conduits"> · 관 {{ r.conduits.toLocaleString() }}</template></span>
+                  <span v-if="r.check" :class="['space-score', { full: isFull(r.check) }]" :title="`온톨로지 체크리스트 ${r.check.have}/${r.check.of} 채움`">{{ r.check.have }}/{{ r.check.of }}</span>
                 </button>
                 </div>
               </details>
@@ -12729,7 +12828,13 @@ function rollbackFromReport() {
               </div>
               <!-- 공간 보기 중임을 3D 위에 늘 보인다. 보기 필터 띠와 같은 까닭이다. -->
               <p v-if="spaceView && activeTab === '3d' && !replayOpen" class="filter-chip space-chip" role="status" data-testid="space-chip">
-                <b>공간 보기</b> {{ spaceViewName }} — 방 안 설비와 공기 원천만 · 화면에서만
+                <b>공간 보기</b>
+                <span class="space-crumbs" data-testid="space-crumbs">
+                  <button type="button" class="link" title="모든 층으로" @click="viewStorey = null">{{ breadcrumb?.building || '건물' }}</button> ›
+                  <button type="button" class="link" title="층 전체로 (Esc)" @click="exitSpaceView">{{ breadcrumb?.storey }}</button> ›
+                  <b>{{ spaceViewName }}</b>
+                </span>
+                · 방 안 설비와 공기 원천만 · 화면에서만
                 <button type="button" class="link" title="이 방에 다시 맞춥니다" @click="viewer?.frameSpace(spaceView.id, true)">방에 맞추기</button>
                 <button type="button" class="link" title="층 전체로 (Esc)" @click="exitSpaceView">층 전체</button>
               </p>
@@ -14711,6 +14816,23 @@ function rollbackFromReport() {
               <button type="button" class="ghost" @click="selectedSpaceId = null">선택 해제</button>
             </div>
           </div>
+          <!-- 방별 체크리스트(lib/space-checklist.ts). 이 방이 온톨로지로 얼마나 찼는지 — 해당 없음은 점수에서 뺀다. [고치기] 는 이미 있는 편집으로 데려간다. -->
+          <div v-if="selectedChecklist" class="space-checklist" data-testid="space-checklist">
+            <p class="checklist-head">
+              <b>온톨로지 체크리스트</b>
+              <span :class="['checklist-score', { full: isFull(selectedChecklist) }]" data-testid="checklist-score">{{ selectedChecklist.have }} / {{ selectedChecklist.of }} 채움</span>
+            </p>
+            <ul class="plain">
+              <li v-for="it in selectedChecklist.items" :key="it.key" :class="['check-row', it.state]" :data-check="it.key" :data-state="it.state">
+                <span class="check-mark" aria-hidden="true">{{ it.state === 'ok' ? '✓' : it.state === 'empty' ? '✗' : '–' }}</span>
+                <span class="check-name">{{ CHECK_LABELS[it.key] }}<span class="sr-only">{{ it.state === 'ok' ? ' 채움' : it.state === 'empty' ? ' 빔' : ' 해당 없음' }}</span></span>
+                <Src v-if="it.source" :kind="it.source" />
+                <small v-if="it.key === 'number' && it.state === 'ok'" class="muted" title="받는 쪽 파서(ttl.go)는 ex: 속성을 읽지 않습니다">받는 쪽이 버림</small>
+                <small v-if="it.note" class="muted check-note">{{ it.note }}</small>
+                <button v-if="it.state === 'empty' && checkFixLabel(it)" type="button" class="link check-fix" @click="fixCheck(it)">{{ checkFixLabel(it) }}</button>
+              </li>
+            </ul>
+          </div>
           <!-- 방번호(OE-OBJ-02). IfcSpace 의 Name 이고 한 층 안에서 겹치지 않는다. 공간명(아래)은 겹쳐도 된다. -->
           <label v-if="editing" class="space-number">
             방번호
@@ -14944,6 +15066,7 @@ function rollbackFromReport() {
           :storey="breadcrumb.storey"
           :status="floorNowStatus"
           :summary="floorNow"
+          :full-rooms="floorFullRooms"
           @pick="pickFromSummary"
         />
 

@@ -43,11 +43,16 @@ export type ShortcutId =
   | 'vertexDelete'
   | 'drawFinish'
   | 'replay'
+  | 'spaceNext'
+  | 'spacePrev'
+  | 'spaceNextEmpty'
+  | 'spacePrevEmpty'
+  | 'spaceView'
 
 /** 키 하나의 조합. `ctrl` 은 Ctrl 또는 ⌘ 다. `shift: 'any'` 는 Shift 를 눌렀든 말든 받는다(처리하는 쪽이 본다). */
 type Combo = ({ code: string; key?: never } | { key: string; code?: never }) & { shift?: boolean | 'any'; ctrl?: boolean }
 
-export type ShortcutGroup = '어디서나' | '3D 시점' | '편집 · 설비' | '편집 · 물리존' | '편집 · 연결 방향' | '편집 · 종류'
+export type ShortcutGroup = '어디서나' | '3D 시점' | '공간 보기' | '편집 · 설비' | '편집 · 물리존' | '편집 · 연결 방향' | '편집 · 종류'
 
 export type Shortcut = {
   id: ShortcutId
@@ -148,9 +153,16 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'kind', combos: [{ code: 'KeyK' }], keys: ['K'], label: '고른 설비의 종류 선택 (같은 패밀리 전체)', group: '편집 · 종류', edit: true },
   { id: 'nextUnknown', combos: [{ code: 'KeyU' }], keys: ['U'], label: '종류를 모르는 다음 패밀리의 설비로', group: '편집 · 종류', edit: true },
   { id: 'prevUnknown', combos: [{ code: 'KeyU', shift: true }], keys: ['Shift+U'], label: '종류를 모르는 이전 패밀리의 설비로', group: '편집 · 종류', edit: true },
+  // 방 사이 이동(docs/plans/space-checklist.md). [ ] 는 편집 모드에서 연결·꼭짓점 이동이라 쓰지 않는다. 순서는 보기 필터 공간 칸(방번호 순)과 같고,
+  // 층의 끝에서는 그 층 처음으로 돈다 — 층은 사람이 바꾼다.
+  { id: 'spaceNext', combos: [{ code: 'Period' }], keys: ['.'], label: '이 층의 다음 방으로(공간 보기 중이면 그 방을 공간 보기로)', group: '공간 보기' },
+  { id: 'spacePrev', combos: [{ code: 'Comma' }], keys: [','], label: '이 층의 이전 방으로', group: '공간 보기' },
+  { id: 'spaceNextEmpty', combos: [{ code: 'Period', shift: true }], keys: ['Shift+.'], label: '체크리스트에 빈칸 있는 다음 방으로', group: '공간 보기' },
+  { id: 'spacePrevEmpty', combos: [{ code: 'Comma', shift: true }], keys: ['Shift+,'], label: '체크리스트에 빈칸 있는 이전 방으로', group: '공간 보기' },
+  { id: 'spaceView', combos: [{ code: 'KeyI' }], keys: ['I'], label: '고른 방의 공간 보기 켜기·끄기', group: '공간 보기' },
 ]
 
-export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ['어디서나', '3D 시점', '편집 · 설비', '편집 · 물리존', '편집 · 연결 방향', '편집 · 종류']
+export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ['어디서나', '3D 시점', '공간 보기', '편집 · 설비', '편집 · 물리존', '편집 · 연결 방향', '편집 · 종류']
 
 type KeyLike = Pick<KeyboardEvent, 'code' | 'key' | 'shiftKey' | 'ctrlKey' | 'metaKey' | 'altKey'>
 
