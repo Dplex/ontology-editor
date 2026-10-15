@@ -15,7 +15,7 @@ e2e 는 CI 에서 돌지 않으니(Actions 는 PRD·보드 검사만 한다) 이
 | 임포터·소속·규칙·사전의 **숫자나 판정**(`src/lib/ifc/`·`mapping.ts`·`topology.ts`·`flow-rules.ts`·`kinds.ts`·`placement.ts` 등) | 위에 더해 `npm run check:sample`. 한 BIM 이 오르고 다른 BIM 이 내려가면 넣지 않는다(아래 "숫자를 고치면") |
 | 내보내기(`src/lib/export/`) | `npm test` · `check:sample` · e2e 의 `export*`·`onto-screen` spec |
 | 화면 한 곳(컴포넌트·패널 하나, 그 기능의 함수) | `vue-tsc --noEmit` · 그 기능의 e2e spec |
-| 화면 뼈대(`App.vue` 의 공용 상태·선택·되돌리기·단축키, `viewer.ts`, `styles.css` 의 공용 규칙, `model.ts`·`edit.ts`), 의존성(vue·three·web-ifc·playwright) 올리기, 여러 기능을 한 번에 건드린 PR | `npm test` · `vue-tsc --noEmit` · **e2e 전체**(`npm run e2e`) |
+| 화면 뼈대(`App.vue`, 여러 조각이 같이 읽는 `src/editor/` 모듈 — `core`·`changes`·`edit-report`·`history`·`keyboard`·`scene`·`multi-select`(`app-structure.md`), `viewer.ts`, `styles.css` 의 공용 규칙, `model.ts`·`edit.ts`), 의존성(vue·three·web-ifc·playwright) 올리기, 여러 기능을 한 번에 건드린 PR | `npm test` · `vue-tsc --noEmit` · **e2e 전체**(`npm run e2e`) |
 | 편집 리플레이(`replay-player.ts`·`ReplayHud.vue`·`replay-*`) | 위에 더해 `npm run e2e:serial`(2분) |
 | 큰 파일에서 느려질 수 있는 것 — 3D 그리기·형상 올리기, 열기·워커, 편집 뒤 재계산, 반응형 구조(`computed`·`watch`·`shallowRef`·`v-memo`), 저장·내보내기 | 위에 더해 `npm run e2e:seongsu`(GPU, 4분). 직전 `data/성수/화면-결과.md` 와 숫자를 견준다 |
 | 반영·버전·층 잠금(`src/server/layouts.ts`·`floor-state.ts`, 반영 흐름) | 위에 더해 `npm run e2e:seongsu:publish` |
