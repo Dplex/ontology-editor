@@ -9,6 +9,7 @@ import { parseIdf } from './parse'
 import { readIdf } from './read'
 import { attachIdf, modelFromIdf, nameKey } from './attach'
 import { matchLevels, storeyHint } from './place'
+import { zoneDevices, zoneServes, zonesOverSpaces } from './zone-view'
 import type { Equipment, Model, Space, Vec2 } from '../model'
 import type { IdfModel } from './read'
 
@@ -326,6 +327,22 @@ describe('attachIdf — 성수 모양: 방 하나를 존 다섯이 나누고, FC
     // 같은 층에 공조기가 둘(성수 B1F 의 AHU1·OHU1)이면 고르지 않는다.
     const two = attachIdf(bim([...fcus, ahu, device('ohu1', 'ahu', 26, 5)]), idf, 'f.idf')
     expect(two.model.hvac!.equipment.find((e) => e.name === 'AirLoopHVAC_4F')!.bimId).toBeNull()
+  })
+
+  it('겹쳐 보기: 존 색은 담당 방식이고, 존을 고르면 담당 BIM 기기와 원천을 짚으며, 방마다 겹친 존을 많이 덮는 순으로 안다', () => {
+    const { model } = attachIdf(bim([...fcus, ahu]), idf, 'f.idf')
+    const id = (name: string) => model.hvac!.zones.find((z) => z.name === name)!.id
+    const serve = zoneServes(model)
+    expect(serve.get(id('4F_office-N_FCU_a'))).toBe('fcu')
+    expect(serve.get(id('4F_office-C_AHU_a'))).toBe('ahu')
+    // W·E 존에는 IDF 존 설비가 없다(픽스처).
+    expect(serve.get(id('4F_office-W_FCU_a'))).toBe('none')
+    expect(zoneDevices(model, id('4F_office-N_FCU_a'))).toEqual({ terminals: ['fcu_n1', 'fcu_n2', 'fcu_n3'], sources: [] })
+    // 안쪽 존: 말단 VAV 는 BIM 에 없고, 그 위 공조기는 BIM AHU2 다.
+    expect(zoneDevices(model, id('4F_office-C_AHU_a'))).toEqual({ terminals: [], sources: ['ahu2'] })
+    const over = zonesOverSpaces(model.hvac!.zones).get('office')!
+    expect(over.map((o) => o.name)).toEqual(['4F_office-C_AHU_a', '4F_office-S_FCU_a', '4F_office-N_FCU_a', '4F_office-W_FCU_a', '4F_office-E_FCU_a'])
+    expect(over[0].share).toBe(0.48)
   })
 
   it('이름이 맞으면 이름이 먼저다 — 존 안의 같은 종류로 다시 풀지 않는다', () => {

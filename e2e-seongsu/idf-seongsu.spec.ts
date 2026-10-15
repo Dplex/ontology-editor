@@ -5,7 +5,8 @@ import { expect, test } from '@playwright/test'
 //   1. IDF 원점이 BIM 과 달라도 겹친 넓이로 찾아 옮겨 놓고, 그 값을 공조존 접이의 "IDF 위치" 에 보인다(x 16.66 · y 18.06 · 0°).
 //   2. 층고가 달라도(IDF 3m · BIM 4.3m) 공조존 79개가 모두 층을 찾는다.
 //   3. 기준층 창가 존의 IDF FCU 한 대는 존 안의 BIM FCU 여러 대로 풀려 "말단" 칸에 BIM 이름과 대수가 보인다.
-//   4. 위치를 고쳐 다시 얹으면 출처가 사람(편집)이 되고, [자동으로] 로 되돌린다.
+//   4. 겹쳐 보기: 표의 줄이나 평면도의 존 이름을 누르면 그 층에서 존을 칠하고 담당 BIM 기기와 겹친 방을 보인다.
+//   5. 위치를 고쳐 다시 얹으면 출처가 사람(편집)이 되고, [자동으로] 로 되돌린다.
 const DIR = process.env.SEONGSU_DIR ?? 'data/성수'
 const FILES = ['Factorial_기계.ifc', 'Factorial_건축.ifc', 'Factorial.idf'].map((f) => `${DIR}/${f}`)
 
@@ -47,6 +48,35 @@ test('성수 + IDF: 원점·층고가 달라도 공조존이 제자리·제층�
   await page.keyboard.press('o')
   await page.waitForTimeout(1500)
   await page.screenshot({ path: 'test-results/idf-seongsu-4f.png' })
+
+  // 겹쳐 보기: 표에서 존을 누르면 그 층으로 가서 존을 칠하고 담당 BIM 기기를 짚는다. 평면도에는 존 이름이 붙는다.
+  await expect(page.getByTestId('zone-legend')).toContainText('FCU')
+  await north.click()
+  const chip = page.getByTestId('zone-chip')
+  await expect(chip).toContainText('4F_office-N_FCU_a')
+  await expect(chip).toContainText('담당 BIM 기기 6대')
+  await expect(chip).toContainText('Business Facility 22%')
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
+  await page.waitForTimeout(1000)
+  await page.screenshot({ path: 'test-results/idf-seongsu-4f-zone.png' })
+  await page.getByRole('button', { name: '평면도', exact: true }).click()
+  const plan = page.getByTestId('plan-hvac-zones')
+  await expect(plan.locator('polygon')).toHaveCount(7)
+  await expect(page.locator('[data-zone-label]')).toHaveCount(7)
+  await page.screenshot({ path: 'test-results/idf-seongsu-4f-plan.png' })
+  // 평면도에서 존 이름을 누르면 그 존으로 바뀐다.
+  await page.locator('[data-zone-label]', { hasText: 'office-C_AHU_a' }).click()
+  await expect(chip).toContainText('4F_office-C_AHU_a')
+  await expect(chip).toContainText('공조기(VAV)')
+  await page.screenshot({ path: 'test-results/idf-seongsu-4f-plan-c.png' })
+  // BIM 에 방이 거의 없는 2F: 공조존만 있는 자리가 그대로 보인다.
+  await fold.locator('tbody tr', { has: page.locator('td', { hasText: /^2F_store-C_GSHP\.SAC_a$/ }) }).click()
+  await expect(chip).toContainText('2F_store-C_GSHP.SAC_a')
+  await page.locator('.canvas-wrap').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: 'test-results/idf-seongsu-2f-plan.png' })
+  await page.getByRole('button', { name: '3D', exact: true }).click()
+  await chip.getByRole('button', { name: '공조존 고르기 풀기' }).click()
+  await expect(chip).toHaveCount(0)
 
   // 고쳐 다시 얹으면 출처가 편집이 되고, 자동으로 되돌릴 수 있다.
   await form.scrollIntoViewIfNeeded()

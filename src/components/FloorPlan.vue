@@ -13,6 +13,9 @@
 // 켰을 때만 눌러 고른다 — 아니면 벽 위를 눌러도 밑의 방이 골라진다. 문·창은 도면 기호로 그린다 — 벽을 그 폭만큼 비우고 문은 문틀
 // 두 선과 닫힌 문짝 선, 창은 유리 선이다. 여닫는 방향(호)은 BIM 에서 읽지 않아 그리지 않는다(틀린 방향을 그리지 않는다).
 //
+// IDF 공조존(ADR-0069)은 방 위·벽 아래에 담당 방식 색으로 옅게 칠하고 존 이름을 단다. 칠한 면은 누르지 않는다(밑의 방이 골라진다) —
+// 존 이름을 누르면 그 존이 골라진다(pickZone).
+//
 // 수직 관통 오브젝트(계단)의 이 층 조각은 방 위에 분홍으로 그리고, 진입 지점은 채운 원·종료 지점은 빈 원이다(OE-ML-05). 누르면 조각이
 // 골라지고(pickSpace 로 조각 id), 고른 조각을 다시 누르면 그 자리의 방이 골라진다. 끌어 옮기지 않는다.
 import { computed, ref, watch } from 'vue'
@@ -40,6 +43,10 @@ const props = defineProps<{
   group?: readonly string[]
   /** 그리드 선(IFC x·y 값, OE-UI-07). null 이면 그리지 않는다. */
   grid?: { x: readonly number[]; y: readonly number[] } | null
+  /** 이 층의 IDF 공조존. 색은 담당 방식(idf/zone-view.ts), `chosen` 은 고른 존이다. 없으면 그리지 않는다. */
+  zones?: readonly { id: string; name: string; rings: readonly (readonly Vec2[])[]; color: string; chosen: boolean }[]
+  /** 고른 공조존을 담당하는 BIM 기기. 고른 색 테두리로 그린다. */
+  zoneDevices?: readonly string[]
   /** 고른 벽의 치수(OE-UI-08). 중심선 치수선과 가까운 벽까지의 거리선. */
   dimension?: { axis: { a: Vec2; b: Vec2 }; length: number; thickness: number | null; nearest: { from: Vec2; to: Vec2; distance: number } | null } | null
 }>()
@@ -51,6 +58,7 @@ const emit = defineEmits<{
   pickSpace: [id: string | null]
   pickElement: [id: string]
   moveVertex: [spaceId: string, index: number, to: Vec2]
+  pickZone: [id: string]
 }>()
 
 const svg = ref<SVGSVGElement | null>(null)
@@ -239,6 +247,15 @@ const shownLabels = computed(() =>
   labels.value.filter((l) => l.id === spaceId.value || (l.em * fontSize.value <= l.w * 0.95 && fontSize.value * 1.2 <= l.h)),
 )
 const devices = computed(() => props.storey.equipment.filter((e) => e.position && !isConduit(e.role)))
+/** 공조존 이름 자리. 가장 큰 조각 안쪽이다. 층 머리(`4F_`)는 떼어 짧게 쓴다 — 이 평면도가 이미 그 층이다. */
+const zoneLabels = computed(() =>
+  (props.zones ?? []).flatMap((z) => {
+    const ring = [...z.rings].sort((a, b) => b.length - a.length)[0]
+    const at = ring ? (labelPoint(ring as Vec2[]) ?? ring[0]) : null
+    return at ? [{ id: z.id, text: z.name.replace(/^B?\d{1,3}F[_:\- ]/i, ''), x: sx(at[0]), y: sy(at[1]), color: z.color, chosen: z.chosen }] : []
+  }),
+)
+const zoneDeviceSet = computed(() => new Set(props.zoneDevices ?? []))
 const selectedSpace = computed(() => spaces.value.find((s) => s.id === spaceId.value) ?? null)
 /** 끄는 중이면 미리보기 고리. 닫는 점(첫 점과 같은 끝 점)도 같이 옮긴다. */
 const previewRing = computed(() => {
@@ -322,6 +339,19 @@ function pickVertical(event: MouseEvent, id: string) {
         @click.stop="pickSpace(s.id)"
       />
     </g>
+    <g v-if="zones?.length" class="hvac-zones" data-testid="plan-hvac-zones">
+      <template v-for="z in zones" :key="z.id">
+        <polygon
+          v-for="(r, i) in z.rings"
+          :key="i"
+          :points="points(r)"
+          :class="{ chosen: z.chosen }"
+          :style="{ fill: z.color, stroke: z.color }"
+          :stroke-width="unit * (z.chosen ? 3 : 1.5)"
+          :data-zone="z.id"
+        />
+      </template>
+    </g>
     <g class="walls">
       <template v-for="w in storey.walls" :key="w.id">
         <polygon
@@ -381,6 +411,22 @@ function pickVertical(event: MouseEvent, id: string) {
         {{ l.text }}
       </text>
     </g>
+    <g v-if="zoneLabels.length" class="zone-labels" :font-size="fontSize * 0.95">
+      <text
+        v-for="l in zoneLabels"
+        :key="l.id"
+        :x="l.x"
+        :y="l.y + fontSize * 1.2"
+        :class="{ chosen: l.chosen }"
+        :style="{ fill: l.color }"
+        text-anchor="middle"
+        dominant-baseline="middle"
+        :data-zone-label="l.id"
+        @click.stop="!moved && emit('pickZone', l.id)"
+      >
+        {{ l.text }}
+      </text>
+    </g>
     <g class="devices">
       <circle
         v-for="e in devices"
@@ -388,7 +434,7 @@ function pickVertical(event: MouseEvent, id: string) {
         :cx="sx(e.position![0])"
         :cy="sy(e.position![1])"
         :r="unit * (e.id === selectedId || group?.includes(e.id) ? 6 : 4)"
-        :class="{ chosen: e.id === selectedId || group?.includes(e.id) }"
+        :class="{ chosen: e.id === selectedId || group?.includes(e.id), served: zoneDeviceSet.has(e.id) }"
         :data-equipment="e.id"
         @click.stop="!moved && emit('select', e.id, isMultiSelect($event))"
       >
