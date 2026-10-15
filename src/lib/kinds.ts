@@ -187,6 +187,17 @@ export function equipmentKindOfIfc(declared: string | null | undefined): Equipme
   return (value ? EQUIPMENT_BY_IFC.get(`${cls}.${value}`) : undefined) ?? EQUIPMENT_BY_IFC.get(cls) ?? null
 }
 
+/**
+ * IFC 가 클래스와 값을 둘 다 말했고 그 `클래스.값` 이 `ifc` 표에 그대로 있을 때의 종류. 클래스만 표에 있는 것(`Fan`, `Boiler.WATER` →
+ * `Boiler`)은 null 이다 — 그건 이름 사전이 더 좁게 말할 수 있다(`resolveEquipmentKind` 2번).
+ */
+function equipmentKindOfIfcValue(declared: string | null | undefined): EquipmentKindInfo | null {
+  const dot = declared?.indexOf('.') ?? -1
+  if (!declared || dot < 0) return null
+  const value = declared.slice(dot + 1).trim().toUpperCase()
+  return value ? (EQUIPMENT_BY_IFC.get(`${declared.slice(0, dot)}.${value}`) ?? null) : null
+}
+
 export type KindSource = 'bim' | 'dict'
 
 /**
@@ -197,12 +208,15 @@ export type KindSource = 'bim' | 'dict'
 export const IFC_REJECTED: readonly string[] = ['UnitaryEquipment.SPLITSYSTEM']
 
 /**
- * 설비 종류와 그 출처. 순서가 뜻을 가진다.
+ * 설비 종류와 그 출처. 순서가 뜻을 가진다(ADR-0071).
  *
- * 1. **이름 사전.** 사전은 좁아서 맞으면 대개 더 구체적이다 — 성수의 `EF-11` 은 IFC 로는 `IfcFan` 이지만 배기팬이다.
- * 2. **IFC 가 말한 종류**(`declared`, 없으면 `ifcClass`). 출처가 BIM 이다. IFC2x3 도 타입 객체에는 종류가 있다
+ * 1. **IFC 가 클래스와 값으로 말한 표준 값**(`UnitaryEquipment.AIRHANDLER` 처럼 `ifc` 표에 `클래스.값` 그대로 있는 것). 출처가 BIM 이고
+ *    이름 사전이 다른 종류를 말해도 바꾸지 않는다(OE-BIM-14#1, OE-REQ-03#3). 가진 BIM 9벌에서 이 자리의 설비가 이름 때문에 다른 종류가 된
+ *    것은 0대였다(2026-10-15 실측) — 순서를 바꿔도 지금 결과는 그대로이고, 앞으로 이름이 표준 값을 덮지 못하게 막는 줄이다.
+ * 2. **이름 사전.** 사전은 좁아서 맞으면 대개 더 구체적이다 — 성수의 `EF-11` 은 IFC 로는 클래스(`IfcFan`)만 말하지만 배기팬이다.
+ * 3. **IFC 가 말한 클래스**(`declared` 의 클래스, 없으면 `ifcClass`). 출처가 BIM 이다. IFC2x3 도 타입 객체에는 종류가 있다
  *    (병원 HVAC 의 `IfcAirTerminalType` DIFFUSER 231·REGISTER 184, `IfcAirTerminalBoxType` VAV 115).
- * 3. **PredefinedType 을 말하지 않은 클래스의 추측**(`CLASS_GUESS`). BIM 이 값을 말했는데(`AirTerminal.SD-1200mm`)
+ * 4. **PredefinedType 을 말하지 않은 클래스의 추측**(`CLASS_GUESS`). BIM 이 값을 말했는데(`AirTerminal.SD-1200mm`)
  *    표에 없으면 추측하지 않는다 — BIM 이 다른 것이라고 한 것을 우리가 덮으면 안 된다.
  */
 export function resolveEquipmentKind(
@@ -211,6 +225,8 @@ export function resolveEquipmentKind(
   ifcClass = '',
   declared: string | null = null,
 ): { info: EquipmentKindInfo; source: KindSource } | null {
+  const exact = equipmentKindOfIfcValue(declared)
+  if (exact) return { info: exact, source: 'bim' }
   const text = `${name} ${objectType}`
   const byName = EQUIPMENT_KINDS.find((k) => k.test.test(text))
   if (byName) return { info: byName, source: 'dict' }

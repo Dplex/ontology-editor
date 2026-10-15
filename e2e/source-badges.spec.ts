@@ -29,9 +29,9 @@ test('설비 패널의 값마다 출처가 보이고, 좌표·종류를 고치�
   await expect(position.locator('.src')).toHaveText('사람')
   await expect(position.locator('.src')).toHaveAttribute('title', '사람이 직접 고친 값입니다.')
 
-  // 종류: 사전 → 고르면 사람.
+  // 종류: BIM(IFC 가 AIRHANDLER 라고 말했다, ADR-0071) → 고르면 사람.
   const kind = facts.filter({ hasText: '종류' }).first()
-  await expect(kind.locator('.src').first()).toHaveText('사전')
+  await expect(kind.locator('.src').first()).toHaveText('BIM')
   await panel.getByRole('combobox', { name: '종류' }).first().selectOption({ label: '팬' })
   await expect(kind.locator('.src').first()).toHaveText('사람')
   expect(errors).toEqual([])

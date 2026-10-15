@@ -108,9 +108,19 @@ describe('IFC 가 말한 종류', () => {
     },
   )
 
-  it('이름 사전이 먼저다 — 이름이 더 좁게 말한다', () => {
-    // 성수의 EF-11 은 IFC 로는 팬이지만 배기팬이다.
+  it('IFC 가 클래스와 값으로 말한 표준 값은 이름 사전이 다른 종류를 말해도 바뀌지 않는다 [OE-BIM-14#1]', () => {
+    // 이름은 FCU·디퓨저·VAV 를 말하지만 IFC 가 표에 있는 클래스.값으로 다른 종류를 말했다.
+    expect(resolveEquipmentKind('FCU-3F-01', '', 'UnitaryEquipment', 'UnitaryEquipment.AIRHANDLER')).toEqual({ info: expect.objectContaining({ kind: 'ahu' }), source: 'bim' })
+    expect(resolveEquipmentKind('Supply Diffuser 600x600', '', 'AirTerminal', 'AirTerminal.GRILLE')).toEqual({ info: expect.objectContaining({ kind: 'air_grille' }), source: 'bim' })
+    expect(resolveEquipmentKind('VAV-2', '', 'UnitaryEquipment', 'UnitaryEquipment.fancoilunit')).toEqual({ info: expect.objectContaining({ kind: 'fcu' }), source: 'bim' })
+    // 같은 이름이라도 IFC 가 값을 말하지 않았으면 사전이 정한다.
+    expect(resolveEquipmentKind('FCU-3F-01', '', 'UnitaryEquipment', 'UnitaryEquipment')).toEqual({ info: expect.objectContaining({ kind: 'fcu' }), source: 'dict' })
+  })
+
+  it('IFC 가 클래스만 말했으면(값이 없거나 표에 클래스만 있으면) 이름 사전이 먼저다 — 이름이 더 좁게 말한다', () => {
+    // 성수의 EF-11 은 IFC 로는 팬이지만 배기팬이다. 팬의 값(CENTRIFUGAL…)은 생김새라 종류를 가르지 않는다.
     expect(resolveEquipmentKind('EF-11:EF-11:1', '', 'FlowMovingDevice', 'Fan')).toEqual({ info: expect.objectContaining({ kind: 'exhaust_fan' }), source: 'dict' })
+    expect(resolveEquipmentKind('EF-11:EF-11:1', '', 'Fan', 'Fan.CENTRIFUGALFORWARDCURVED')).toEqual({ info: expect.objectContaining({ kind: 'exhaust_fan' }), source: 'dict' })
   })
 
   it('이름이 모르면 IFC 가 말한 것을 쓰고, 출처는 BIM 이다', () => {
