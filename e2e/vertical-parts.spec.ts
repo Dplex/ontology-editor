@@ -102,7 +102,7 @@ test('병원 건축: 계단 조각을 평면도·3D 에서 고르면 읽기 전�
   expect(errors).toEqual([])
 })
 
-test('Duplex: 다중층 뷰에서 만든 샤프트는 층 편집 화면에서 고르면 읽기 전용이고, 끌기·방향키·Delete 가 데이터를 바꾸지 않는다. 만들 때 채울 것과 그리는 형상이 종류마다 다르다 [OE-ML-05#1~] [OE-ML-02#3]', async ({ page }) => {
+test('Duplex: 다중층 뷰에서 만든 샤프트는 층 편집 화면에서 고르면 읽기 전용이고, 끌기·방향키·Delete 가 데이터를 바꾸지 않는다. 만들 때 채울 것과 그리는 형상이 종류마다 다르다 [OE-ML-05#1~] [OE-ML-02#3] [OE-OBJ-14#2]', async ({ page }) => {
   const DUPLEX = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc'
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)

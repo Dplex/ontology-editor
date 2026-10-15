@@ -200,7 +200,7 @@ describe('에스컬레이터와 엘리베이터 (OE-ML-02 · OE-ML-07)', () => {
     return { m, base }
   }
 
-  it('1층 진입과 2층 종료가 다른 자리인 에스컬레이터를 만들고, 편집 파일로 새로 연 BIM 에 얹으면 같다 [OE-ML-02#2]', () => {
+  it('1층 진입과 2층 종료가 다른 자리인 에스컬레이터를 만들고, 편집 파일로 새로 연 BIM 에 얹으면 같다 [OE-ML-02#2] [OE-OBJ-14#1~]', () => {
     const { m, base } = made()
     const [low, high] = partsOf(m, 'U_es')
     expect([low.entry, low.exit, high.entry, high.exit]).toEqual([[0, 0.2, 0], null, null, [0, 2.8, 4.5]])
@@ -211,7 +211,7 @@ describe('에스컬레이터와 엘리베이터 (OE-ML-02 · OE-ML-07)', () => {
     expect(again.storeys.map((s) => s.verticalParts)).toEqual(m.storeys.map((s) => s.verticalParts))
   })
 
-  it('에스컬레이터는 층 조각마다 형상·크기·진입/종료 지점을 고치고, 엘리베이터는 한 층만 고치지 못하며 통째로 옮겨도 모든 층 축이 같다 [OE-ML-07#3]', () => {
+  it('에스컬레이터는 층 조각마다 형상·크기·진입/종료 지점을 고치고, 엘리베이터는 한 층만 고치지 못하며 통째로 옮겨도 모든 층 축이 같다 [OE-ML-07#3] [OE-OBJ-14#1~,3~]', () => {
     const { m } = made()
     expect(movePart(m, 'U_es@1F', [0.5, 0])).toBe(true)
     expect(setPartVertex(m, 'U_es@1F', 2, [1.5, 3.5])).toBe(true)
@@ -609,7 +609,7 @@ describe('만들기 (OE-ML-06)', () => {
     expect(planCreate(m, 'shaft', '1F', '3F')).toEqual({ refused: expect.stringContaining('3F 의 층 높이를 모릅니다') })
   })
 
-  it('샤프트는 형상 하나가 모든 층의 공통 축이고 지점이 없다. 한 층만 고치지 못하고 통째로 옮기면 축이 같이 간다 [OE-ML-06#1~] [OE-ML-07#3~]', () => {
+  it('샤프트는 형상 하나가 모든 층의 공통 축이고 지점이 없다. 한 층만 고치지 못하고 통째로 옮기면 축이 같이 간다 [OE-ML-06#1~] [OE-ML-07#3~] [OE-OBJ-14#1~,3~]', () => {
     const m = tower()
     const plan = planCreate(m, 'shaft', '1F', '3F')
     expect('needs' in plan && plan.needs.map((n) => [n.storey.id, n.what])).toEqual([['1F', ['footprint']]])

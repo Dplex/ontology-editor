@@ -422,7 +422,7 @@ test('병원 건축: 층 편집의 팔레트 [계단·샤프트] 로 다중층 �
   expect(errors).toEqual([])
 })
 
-test('병원 건축: 다중층 뷰에서 샤프트를 만들면 한 번 그린 형상이 두 층의 공통 축이 되고, 취소하면 남는 것이 없으며, 되돌리기 한 번에 사라진다 [OE-ML-06#1~,6~,7~]', async ({ page }) => {
+test('병원 건축: 다중층 뷰에서 샤프트를 만들면 한 번 그린 형상이 두 층의 공통 축이 되고, 취소하면 남는 것이 없으며, 되돌리기 한 번에 사라진다 [OE-ML-06#1~,6~,7~] [OE-OBJ-14#1~]', async ({ page }) => {
   test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(240_000)
   const errors: string[] = []
