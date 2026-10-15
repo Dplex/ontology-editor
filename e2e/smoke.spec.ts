@@ -452,3 +452,37 @@ test('편집 뒤 화면이 다시 그려져도 치고 있던 칸은 지워지지
   await coords.nth(1).press('Enter')
   await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).locator('.coord').nth(1)).toHaveValue('3.5')
 })
+
+// 열려 있는 파일 위에 다른 파일을 열다 실패하면 열려 있던 모델·편집이 그대로 남는다(OE-BIM-01#2). 예전에는 모델을 비워서, 읽지 못한
+// 파일 하나 때문에 저장하지 않은 편집까지 잃었다. STEP 이 아닌 파일과 받지 않는 판(IFC2X2) 둘로 본다.
+test('다른 파일을 열다 실패하면 이유를 보이고 열려 있던 모델과 편집은 그대로다 [OE-BIM-01#2~]', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  // 편집이 있으면 열기 전에 "편집이 사라진다" 고 묻는다. 확인을 눌러도 실패하면 편집은 남아야 한다.
+  page.on('dialog', (d) => void d.accept())
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(FIXTURE)
+  await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  const name = page.locator('.rows input').first()
+  await name.fill('대회의실')
+  await name.press('Enter')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+
+  const open = page.locator('.appbar label', { hasText: '열기' }).locator('input[type=file]').first()
+  const v2x2 = ['ISO-10303-21;', 'HEADER;', "FILE_DESCRIPTION((''),'2;1');", "FILE_NAME('','',(''),(''),'','','');", "FILE_SCHEMA(('IFC2X2_FINAL'));", 'ENDSEC;', 'DATA;', 'ENDSEC;', 'END-ISO-10303-21;'].join('\n')
+  for (const [file, reason] of [
+    [{ name: 'not-ifc.ifc', mimeType: 'application/octet-stream', buffer: Buffer.from('이건 IFC 가 아니다') }, 'IFC(STEP) 파일이 아닙니다'],
+    [{ name: 'old.ifc', mimeType: 'application/octet-stream', buffer: Buffer.from(v2x2) }, '지원하지 않는 IFC 판입니다(IFC2X2_FINAL)'],
+  ] as const) {
+    await open.setInputFiles(file)
+    const alert = page.getByRole('alert').filter({ hasText: file.name })
+    await expect(alert).toContainText(reason, { timeout: 30_000 })
+    await expect(alert).toContainText('열려 있던 two-rooms.ifc 는 그대로입니다')
+    await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible()
+    await expect(page.locator('.tiles li', { hasText: '물리존' }).locator('b')).toHaveText('3')
+    await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+    await expect(page.locator('.report')).toContainText('대회의실')
+  }
+  expect(errors).toEqual([])
+})
