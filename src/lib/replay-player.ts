@@ -396,6 +396,32 @@ export function useReplay(host: ReplayPlayerHost) {
   }
 
   /**
+   * 다시 한 뒤(redo 직후) 남기는 출발 자리 유령(Before Ghost). 설비·문·벽이 새 자리로 옮겨간 뒤에도 원래 어디에 있었는지 반투명
+   * 윤곽을 남겨 치수선과 함께 전·후 이동 궤적이 한눈에 읽히게 한다.
+   */
+  function replayBeforeGhostsOf(step: ReplayStep | null): Ghost[] {
+    const m = model.value
+    if (!m) return []
+    const elevation = (sid: string) => m.storeys.find((s) => s.id === sid)?.elevation ?? 0
+    const byId = equipmentById.value
+    const out: Ghost[] = []
+    for (const c of step?.changes ?? []) {
+      const a = c.after
+      const b = c.before
+      if (a?.t === 'equip' && b?.t === 'equip' && !a.conduit && a.at && b.at && (a.at[0] !== b.at[0] || a.at[1] !== b.at[1]) && byId.has(a.id) && !isConduit(byId.get(a.id)!.role)) {
+        out.push({ key: `${a.id}:before`, id: a.id, delta: [b.at[0] - a.at[0], b.at[1] - a.at[1]] })
+      }
+    }
+    for (const sl of replaySlidesOf(step)) {
+      const c = step!.changes.find((x) => x.after && 'id' in x.after && x.after.id === sl.id)
+      const b = c?.before
+      if (b?.t === 'opening' && b.at) out.push({ key: `${b.id}:before`, at: sl.from, from: sl.to })
+      else if (b?.t === 'wall') for (const ring of b.rings) out.push({ key: `${b.id}:before`, ring, elevation: elevation(b.storeyId) })
+    }
+    return out
+  }
+
+  /**
    * 장면의 벽·문·창 변화를 비출 자리로. `side` 는 편집 전(카메라를 보낼 때)·후(다시 한 뒤). 후에는 옮긴 문·창이 옛 자리에서
    * 미끄러져 오게 from 을 붙인다. 바뀐 벽·문·창이 없으면 null.
    */
@@ -504,6 +530,9 @@ export function useReplay(host: ReplayPlayerHost) {
     else if (spaces.length) host.viewer?.spotlight([], spaces, replayColor(step))
     // 치수선은 비추기 다음에 — 비추기가 앞의 것(치수선 포함)을 옅게 걷는다.
     host.viewer?.dimensions(replayMovesOf(step), replayColor(step))
+    // 옮긴 뒤에는 원래 자리에 출발 유령(Before Ghost)을 남겨 전·후 위치와 이동 궤적이 동시에 보이게 한다.
+    const beforeGhosts = replayBeforeGhostsOf(step)
+    if (beforeGhosts.length) host.viewer?.ghosts(beforeGhosts, replayColor(step))
   }
 
   /**
@@ -820,6 +849,16 @@ export function useReplay(host: ReplayPlayerHost) {
     return skipped
   }
 
+  /** 장면 복잡도(바뀐 요소 수 · TTL 증감 줄 수 · 흐름 파급 여부)에 맞춰 다시 한 뒤 머무는 시간을 자동 조절한다. */
+  function stepHoldMs(step: ReplayStep | null): number {
+    const base = REPLAY_STEP_MS - REPLAY_AIM_MS
+    if (!step) return base
+    const ttlDelta = step.ttlCount.added + step.ttlCount.removed
+    if (step.category === '흐름 방향' || step.changes.length >= 10 || ttlDelta >= 12) return 4200
+    if (step.changes.length === 1 && ttlDelta <= 2 && step.category !== '물리존') return 3000
+    return base
+  }
+
   async function replayRun(token: number) {
     while (token === replayToken && replayPlaying.value && history.value.length < replayTotal.value) {
       await replaySkipOthers(token)
@@ -835,7 +874,7 @@ export function useReplay(host: ReplayPlayerHost) {
       redo()
       replayAiming.value = null
       replayLand(step)
-      if (!(await replayWait(REPLAY_STEP_MS - REPLAY_AIM_MS, token))) return
+      if (!(await replayWait(stepHoldMs(step), token))) return
     }
     if (token === replayToken && history.value.length >= replayTotal.value) await replayToDone()
   }
@@ -1353,6 +1392,8 @@ export function useReplay(host: ReplayPlayerHost) {
     highlights: after(replayToggleHighlights),
     stay: () => (replayAskClose.value = false),
     theme: replayToggleTheme,
+    compareDown: compareStart,
+    compareUp: compareEnd,
   }
 
   return { open: openReplay, close: closeReplay, key: replayKey, hud, hudOn }

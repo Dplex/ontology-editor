@@ -11,6 +11,12 @@ export type ShortcutId =
   | 'escape'
   | 'frame'
   | 'frameAll'
+  | 'topView'
+  | 'filterToggle'
+  | 'explodeToggle'
+  | 'labelsToggle'
+  | 'compareToggle'
+  | 'planToggle'
   | 'fly'
   | 'perf'
   | 'rules'
@@ -77,7 +83,13 @@ export const SHORTCUTS: readonly Shortcut[] = [
     group: '어디서나',
   },
   { id: 'frame', combos: [{ code: 'KeyF' }], keys: ['F'], label: '고른 연결망·물리존·계통에 시점 맞추기', group: '3D 시점' },
-  { id: 'frameAll', combos: [{ code: 'KeyF', shift: true }, { code: 'Home' }], keys: ['Shift+F', 'Home'], label: '건물 전체 보기', group: '3D 시점' },
+  { id: 'frameAll', combos: [{ code: 'KeyF', shift: true }, { code: 'Home' }, { code: 'Digit0' }], keys: ['Shift+F', 'Home', '0'], label: '건물 전체 보기', group: '3D 시점' },
+  { id: 'topView', combos: [{ code: 'KeyO' }], keys: ['O'], label: '위에서 똑바로 내려다보기', group: '3D 시점' },
+  { id: 'filterToggle', combos: [{ code: 'KeyV' }], keys: ['V'], label: '보기 필터(Filter) 열기·닫기', group: '3D 시점' },
+  { id: 'planToggle', combos: [{ code: 'KeyV', shift: true }], keys: ['Shift+V'], label: '3D ↔ 평면도', group: '3D 시점' },
+  { id: 'explodeToggle', combos: [{ code: 'KeyX' }], keys: ['X'], label: '종류별 색(Explode) 켜기·끄기', group: '3D 시점' },
+  { id: 'labelsToggle', combos: [{ code: 'KeyL' }], keys: ['L'], label: '설비 라벨 켜기·끄기(층 하나를 볼 때)', group: '3D 시점' },
+  { id: 'compareToggle', combos: [{ code: 'KeyB' }], keys: ['B'], label: '결과 비교(내보낸 TTL·GeoJSON) 열기·닫기', group: '3D 시점' },
   // 비행 중에는 W·A·S·D·Q·E 가 이동이다 — 그동안 W(벽)·E(보기↔편집)·D(방향 미리보기)는 쉰다(App.vue 의 onKey).
   {
     id: 'fly',

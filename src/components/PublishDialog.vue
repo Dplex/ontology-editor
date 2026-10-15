@@ -26,6 +26,7 @@ const props = defineProps<{
 const emit = defineEmits<{ publish: [by: string, how: 'all' | 'save' | 'saved']; cancel: []; preview: [] }>()
 
 const dialog = ref<HTMLDialogElement | null>(null)
+const primaryBtn = ref<HTMLButtonElement | null>(null)
 const name = ref(props.by)
 watch(
   () => [props.open, dialog.value] as const,
@@ -34,13 +35,14 @@ watch(
     if (open && !el.open) {
       name.value = props.by
       el.showModal()
+      primaryBtn.value?.focus()
     } else if (!open && el.open) el.close()
   },
 )
 </script>
 
 <template>
-  <dialog ref="dialog" class="publish-dialog" aria-labelledby="publish-title" @close="open && emit('cancel')">
+  <dialog ref="dialog" class="publish-dialog" aria-modal="true" aria-labelledby="publish-title" @close="open && emit('cancel')">
     <form class="exit-edit-body" @submit.prevent="name.trim() && emit('publish', name.trim(), first && unsaved?.length ? 'save' : 'all')">
       <h2 id="publish-title">{{ first ? '구축하기' : '반영하기' }} — v{{ next }}</h2>
       <p>

@@ -458,7 +458,9 @@ test('병원 건축: 다중층 뷰에서 샤프트를 만들면 한 번 그린 �
     await expect(plan).toContainText('다 채웠습니다')
   }
   await square()
-  expect((await viewer<{ preview: number }>(page, 'verticalMarks')).preview).toBe(1)
+  // 그린 형상 1 + 2층 바닥 개구부 초안 1(병원은 바닥 슬래브가 없어 초안이다, OE-ML-06 AC5).
+  await expect.poll(async () => (await viewer<{ preview: number }>(page, 'verticalMarks')).preview).toBe(2)
+  await expect(page.getByTestId('vertical-create-openings')).toContainText('초안')
   await form.getByRole('button', { name: '취소' }).click()
   await expect(form).toHaveCount(0)
   expect(await viewer<string[]>(page, 'verticals')).toEqual(before)
