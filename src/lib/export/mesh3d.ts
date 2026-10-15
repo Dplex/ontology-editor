@@ -11,10 +11,9 @@ import { BoxGeometry, BufferAttribute, BufferGeometry, DoubleSide, ExtrudeGeomet
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js'
 import type { ElementMesh, MeshMap } from '../ifc/import'
 import type { Model, Opening, Vec2, Vec3 } from '../model'
-import { ARCH_COLORS, spaceMesh, systemColors, toScene, WALL_COLORS } from '../viewer'
+import { ARCH_COLORS, equipmentColor, spaceMesh, systemColors, toScene, WALL_COLORS } from '../viewer'
 
 const SPACE_COLOR = 0x8fb3e8
-const NO_SYSTEM = 0x98a1ab
 /** 층 높이를 모를 때(맨 위층, 층이 하나) 벽 외곽선을 세우는 높이. */
 const FALLBACK_STOREY_HEIGHT = 3
 /** BIM 에 크기가 없는 문·창의 상자(너비, 높이, 미터). 표시용 자리 표시이고 extras 에 placeholder 를 단다. */
@@ -100,6 +99,8 @@ export function modelToScene(model: Model, meshes: MeshMap, options: Mesh3dOptio
   root.userData = { id: model.buildingId, kind: 'building', schema: model.schema }
 
   const colorOf = systemColors(model)
+  const systemById = new Map(model.systems.map((s) => [s.id, s]))
+  const systemOf = (id: string) => systemById.get(id)
   const materials = new Map<number, MeshStandardMaterial>()
   const material = (color: number) => {
     let m = materials.get(color)
@@ -173,7 +174,7 @@ export function modelToScene(model: Model, meshes: MeshMap, options: Mesh3dOptio
     }
 
     for (const e of storey.equipment) {
-      const color = e.systemId ? (colorOf.get(e.systemId) ?? NO_SYSTEM) : NO_SYSTEM
+      const color = equipmentColor(e, systemOf, colorOf)
       const extras = { kind: 'equipment', name: e.name, ifcClass: e.ifcClass, role: e.role, systemId: e.systemId, spaceId: e.spaceId }
       const data = meshes.get(e.id)
       if (data) {

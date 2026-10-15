@@ -1,34 +1,43 @@
 // 배관의 Flow Type(OE-OBJ-12, glossary "Flow Type"). 배관마다 하나를 가진다. 범례에 없는 값으로는 배관을 만들지 않는다.
 // 코드·한국어는 glossary 표 그대로다. `medium` 은 덕트(공기)인지 배관(물·냉매·증기)인지를 가른다 — 새 구간의 IFC 클래스와 굵기가 이것으로 정해진다.
+//
+// `color` 는 glossary 표의 "색 (UX v0.9)" 칸 그대로다(UX v0.9 계통도 범례, 2026-10-14 #641). 범례에 아직 없는 냉매·급탕·급수·소화·스팀·지열수는
+// glossary 가 "미정" 이라 null 로 둔다 — 정해질 때까지 임의의 색을 주지 않는다(OE-ML-15). null 이면 그리는 쪽이 계통 색으로 둔다.
 
 export type FlowMedium = 'air' | 'water' | 'refrigerant' | 'steam'
 
 export const FLOW_TYPES = [
-  { code: 'SA', label: '급기', medium: 'air' },
-  { code: 'RA', label: '리턴(還氣)', medium: 'air' },
-  { code: 'EA', label: '배기', medium: 'air' },
-  { code: 'OA', label: '외기', medium: 'air' },
-  { code: 'CHWS', label: '냉수 공급', medium: 'water' },
-  { code: 'CHWR', label: '냉수 환수', medium: 'water' },
-  { code: 'HWS', label: '온수 공급', medium: 'water' },
-  { code: 'HWR', label: '온수 환수', medium: 'water' },
-  { code: 'CWS', label: '냉각수 공급', medium: 'water' },
-  { code: 'CWR', label: '냉각수 환수', medium: 'water' },
-  { code: 'REF', label: '냉매', medium: 'refrigerant' },
-  { code: 'DHWS', label: '급탕 공급', medium: 'water' },
-  { code: 'DHWR', label: '급탕 환수', medium: 'water' },
-  { code: 'DCW', label: '급수', medium: 'water' },
-  { code: 'FP', label: '소화', medium: 'water' },
-  { code: 'STM', label: '증기 공급', medium: 'steam' },
-  { code: 'CR', label: '응축수 환수', medium: 'water' },
-  { code: 'GWS', label: '지열수 공급', medium: 'water' },
-  { code: 'GWR', label: '지열수 환수', medium: 'water' },
-] as const satisfies readonly { code: string; label: string; medium: FlowMedium }[]
+  { code: 'SA', label: '급기', medium: 'air', color: '#99FF00' },
+  { code: 'RA', label: '리턴(還氣)', medium: 'air', color: '#FFCD57' },
+  { code: 'EA', label: '배기', medium: 'air', color: '#E8C3B4' },
+  { code: 'OA', label: '외기', medium: 'air', color: '#0DFFB2' },
+  { code: 'CHWS', label: '냉수 공급', medium: 'water', color: '#2994FF' },
+  { code: 'CHWR', label: '냉수 환수', medium: 'water', color: '#58DBFF' },
+  { code: 'HWS', label: '온수 공급', medium: 'water', color: '#FD4466' },
+  { code: 'HWR', label: '온수 환수', medium: 'water', color: '#D459F9' },
+  { code: 'CWS', label: '냉각수 공급', medium: 'water', color: '#03E1A6' },
+  { code: 'CWR', label: '냉각수 환수', medium: 'water', color: '#FF8E56' },
+  { code: 'REF', label: '냉매', medium: 'refrigerant', color: null },
+  { code: 'DHWS', label: '급탕 공급', medium: 'water', color: null },
+  { code: 'DHWR', label: '급탕 환수', medium: 'water', color: null },
+  { code: 'DCW', label: '급수', medium: 'water', color: null },
+  { code: 'FP', label: '소화', medium: 'water', color: null },
+  { code: 'STM', label: '증기 공급', medium: 'steam', color: null },
+  { code: 'CR', label: '응축수 환수', medium: 'water', color: null },
+  { code: 'GWS', label: '지열수 공급', medium: 'water', color: null },
+  { code: 'GWR', label: '지열수 환수', medium: 'water', color: null },
+] as const satisfies readonly { code: string; label: string; medium: FlowMedium; color: `#${string}` | null }[]
 
 export type FlowTypeCode = (typeof FLOW_TYPES)[number]['code']
 
 export function flowType(code: string | null | undefined): (typeof FLOW_TYPES)[number] | null {
   return FLOW_TYPES.find((f) => f.code === code) ?? null
+}
+
+/** Flow Type 의 범례 색(0xRRGGBB). 범례에 없는 값이거나 glossary 에서 색이 미정이면 null. */
+export function flowTypeColor(code: string | null | undefined): number | null {
+  const hex = flowType(code)?.color
+  return hex ? parseInt(hex.slice(1), 16) : null
 }
 
 // --- BIM 배관의 Flow Type (OE-PIP-14) -------------------------------------------------------
