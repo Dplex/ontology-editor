@@ -2,6 +2,35 @@
 
 CLAUDE.md 에서 옮겼다. 테스트를 돌리거나 고칠 때, 임포터의 숫자를 바꿀 때, "느리다" 를 잴 때 연다.
 
+## 무엇을 고치면 무엇을 돌리나
+
+**바꾼 파일의 수가 아니라 무엇을 고쳤는지로 정한다.** 임포터 숫자 한 줄이 가진 BIM 전부의 결과를 바꾸고, PRD md 스무 장은
+화면에 아무것도 바꾸지 않는다. PR 을 열기 전에 아래 표에서 바꾼 곳마다 해당하는 줄을 모두 돌린다(겹치면 합친다).
+e2e 는 CI 에서 돌지 않으니(Actions 는 PRD·보드 검사만 한다) 이 표가 유일한 관문이다.
+
+| 고친 곳 | 돌릴 것 |
+|---|---|
+| `docs/`·주석·PRD md 만 | 없음. PRD md 는 CI 의 `prd-check` 가 본다 |
+| `src/lib/` 의 계산(화면 밖) | `npm test` · 그 기능의 e2e spec |
+| 임포터·소속·규칙·사전의 **숫자나 판정**(`src/lib/ifc/`·`mapping.ts`·`topology.ts`·`flow-rules.ts`·`kinds.ts`·`placement.ts` 등) | 위에 더해 `npm run check:sample`. 한 BIM 이 오르고 다른 BIM 이 내려가면 넣지 않는다(아래 "숫자를 고치면") |
+| 내보내기(`src/lib/export/`) | `npm test` · `check:sample` · e2e 의 `export*`·`onto-screen` spec |
+| 화면 한 곳(컴포넌트·패널 하나, 그 기능의 함수) | `vue-tsc --noEmit` · 그 기능의 e2e spec |
+| 화면 뼈대(`App.vue` 의 공용 상태·선택·되돌리기·단축키, `viewer.ts`, `styles.css` 의 공용 규칙, `model.ts`·`edit.ts`), 의존성(vue·three·web-ifc·playwright) 올리기, 여러 기능을 한 번에 건드린 PR | `npm test` · `vue-tsc --noEmit` · **e2e 전체**(`npm run e2e`) |
+| 편집 리플레이(`replay-player.ts`·`ReplayHud.vue`·`replay-*`) | 위에 더해 `npm run e2e:serial`(2분) |
+| 큰 파일에서 느려질 수 있는 것 — 3D 그리기·형상 올리기, 열기·워커, 편집 뒤 재계산, 반응형 구조(`computed`·`watch`·`shallowRef`·`v-memo`), 저장·내보내기 | 위에 더해 `npm run e2e:seongsu`(GPU, 4분). 직전 `data/성수/화면-결과.md` 와 숫자를 견준다 |
+| 반영·버전·층 잠금(`src/server/layouts.ts`·`floor-state.ts`, 반영 흐름) | 위에 더해 `npm run e2e:seongsu:publish` |
+| 플랫폼 화면(`src/platform/`) | `playwright test -c playwright.platform.config.ts` |
+
+- **걸리는 시간**(2026-10-15, 20코어 PC): `npm test` 9초 · `vue-tsc --noEmit` 8초 · e2e 전체 6.6분(339개) ·
+  `e2e:serial` 2분 · `e2e:seongsu` 4분. e2e 전체는 병렬이라 CPU 가 밀리면 시간에 기대는 시험(`riser`·`replay-full-view`·`nav-cube`)이 main 에서도 떨어진다 —
+  떨어진 것만 `--workers=1` 로 다시 돌려 통과하면 부하 탓이다(2026-10-15, #678 에서 main 과 같은 비율로 떨어지는 것을 확인).
+- **그 기능의 e2e spec 찾기.** 티켓이 있으면 `npm run ctx -- <티켓 id>` 가 수용 기준별 시험을 보여 준다(시험 제목의 `[OE-xxx#n]` 태그).
+  태그가 없는 기능은 화면에서 쓰는 `data-testid`·클래스 이름으로 `grep -l` 한다. 하나만 돌릴 때는 `npx playwright test e2e/<이름>.spec.ts`.
+- **`check:sample`·`e2e:seongsu` 는 BIM 이 있는 곳에서만 돈다.** 없으면 실패하지 않고 건너뛰므로, "통과" 가 아니라 "건너뜀" 인지 출력을 본다.
+  성수가 없는 PC 에서 성수 줄에 해당하면 PR 에 "성수 미측정" 이라고 적고 55 에서 잰다.
+- **PR 본문의 테스트 절에 어느 줄에 해당해 무엇을 돌렸는지를 적는다**(통과 수·걸린 시간·성수 숫자). 해당하는데 못 돌린 것은 이유와 함께 적는다.
+- **merge 하라고 한 PR 은 다시 돌리지 않는다.** PR 을 열 때 돌린 결과와 리뷰 코멘트로 판단한다(2026-10-15).
+
 ## 테스트 입력이 두 갈래다
 
 - `npm test` — 입력이 `src/lib/ifc/fixtures/two-rooms.ifc` 다. 손으로 쓴 최소 IFC4 라서
