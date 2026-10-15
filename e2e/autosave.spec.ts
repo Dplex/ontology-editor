@@ -43,3 +43,54 @@ test('편집이 자동으로 남고, 같은 파일을 다시 열면 이어서 �
   await fourth.waitForTimeout(300)
   await expect(fourth.locator('.draft-bar')).toHaveCount(0)
 })
+
+// 건축·설비를 합쳐 연 것(OE-BIM-22#2). 같은 두 파일을 다시 열면 고른 순서가 달라도 같은 조합이라 편집·출처·검토 상태(규칙 방향 확정)가
+// 이어진다. 한쪽 파일만 열면 다른 조합이다 — 그 조합의 편집을 원본 없이 얹지 않는다(보정만 남은 채로 이어 하지 않는다).
+const ROOMS = 'src/lib/ifc/fixtures/two-rooms.ifc'
+
+test('건축·설비를 합쳐 연 편집은 같은 두 파일을 다시 열면 순서가 달라도 편집·출처·확정 상태가 이어지고, 한쪽만 열면 묻지 않는다 [OE-BIM-22#2~]', async ({ context }) => {
+  const openPair = async (files: string[]) => {
+    const page = await context.newPage()
+    await page.goto('/')
+    await page.locator('.drop input[type=file]').setInputFiles(files)
+    await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+    return page
+  }
+  const first = await openPair([MEP, ROOMS])
+  await first.getByRole('button', { name: '편집', exact: true }).click()
+  // 편집: 방 이름(BIM 값을 사람이 고침) · 설비 종류(출처 사람) · 계통의 규칙 방향 확정(검토 상태).
+  const name = first.locator('.rows input').first()
+  await name.fill('대회의실')
+  await name.press('Enter')
+  await row(first, 'AHU-1').getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await first.locator('.picked').getByRole('combobox', { name: '종류' }).first().selectOption({ label: '팬' })
+  const rules = first.locator('.rule-systems')
+  const ruleFold = first.locator('.fold-head', { hasText: '규칙 방향 확정 (계통별)' }).first()
+  if ((await ruleFold.getAttribute('aria-expanded')) !== 'true') await ruleFold.click()
+  await rules.locator('tbody tr').first().getByRole('button', { name: '확정', exact: true }).click()
+  await expect(rules.locator('tbody tr', { hasText: '확정함' })).toHaveCount(1)
+  await expect(first.locator('.edit-bar')).toContainText('바뀐 것 3건')
+  await first.waitForTimeout(1000)
+
+  // 같은 두 파일을 반대 순서로 연다.
+  const second = await openPair([ROOMS, MEP])
+  const bar = second.locator('.draft-bar')
+  await expect(bar).toContainText('편집 3건')
+  await bar.getByRole('button', { name: '이어서 하기' }).click()
+  await expect(second.locator('.edit-bar')).toContainText('바뀐 것 3건')
+  await expect(second.locator('.report')).toContainText('대회의실')
+  await row(second, 'AHU-1').getByRole('button', { name: 'AHU-1', exact: true }).click()
+  const kind = second.locator('.picked dl.facts > div').filter({ hasText: '종류' }).first()
+  await expect(kind.locator('.src').first()).toHaveText('사람')
+  const ruleFold2 = second.locator('.fold-head', { hasText: '규칙 방향 확정 (계통별)' }).first()
+  if ((await ruleFold2.getAttribute('aria-expanded')) !== 'true') await ruleFold2.click()
+  await expect(second.locator('.rule-systems tbody tr', { hasText: '확정함' })).toHaveCount(1)
+
+  // 설비 파일만 열면 다른 조합이다. 두 파일을 합친 편집을 얹자고 묻지 않는다.
+  const third = await context.newPage()
+  await open(third)
+  await expect(third.locator('.appbar h2')).toHaveText('mep.ifc')
+  await third.waitForTimeout(300)
+  await expect(third.locator('.draft-bar')).toHaveCount(0)
+  await expect(third.getByText('대회의실')).toHaveCount(0)
+})
