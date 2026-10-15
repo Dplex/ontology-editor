@@ -122,7 +122,7 @@ import { boxAlong, boxAt, rigidPart, segmentAxisOf, stretchPositions } from './l
 import { drawPipe } from './lib/manual-pipe'
 import { storeyAtZ, storeyElevationProblem, storeysEntered, type PathPoint } from './lib/storey-z'
 import { insertPipeVertex, removePipeVertex } from './lib/pipe-vertex'
-import { SLAB_OPENING_LABEL, slabOpenings } from './lib/slab-opening'
+import { SLAB_OPENING_LABEL, slabOpenings, type SlabOpening } from './lib/slab-opening'
 import { branchPipe } from './lib/branch-pipe'
 import { planOffsetHeight, setOffsetHeight } from './lib/offset-edit'
 import { removalImpact } from './lib/removal-impact'
@@ -261,7 +261,7 @@ import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL, verticalObjects as v
 import type { VerticalKind } from './lib/model'
 import { anchoredFlight, LINK_RELEASE, LINK_SNAP, linkCandidates, linkStatus, nearestCandidate, relinkShift, unlink, verticalLinks, type LinkCandidate, type VerticalLink } from './lib/vertical-link'
 import { faceLanding, landingFace, setElevatorLanding } from './lib/vertical-edit'
-import { COMMON_AXIS, createVertical, deleteVertical, planElevator, planFlight, storeyAbove, VERTICAL_DEFAULTS, rotateVertical, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, DIRECTION_LABEL, escalatorTravel, setElevatorStop, setEscalatorDirection, STOP_LABEL, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
+import { COMMON_AXIS, createVertical, deleteVertical, planElevator, planFlight, storeyAbove, VERTICAL_DEFAULTS, rotateVertical, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, DIRECTION_LABEL, escalatorTravel, setElevatorStop, setEscalatorDirection, STOP_LABEL, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, draftVertical, type RangeGiven, type RangeNeed } from './lib/vertical-edit'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
 import { meshBox, overlapAt, overlapForNew, type Box3 } from './lib/overlap'
@@ -3361,6 +3361,40 @@ const createHoverPreview = computed(() => {
     ]
   })]
 })
+/**
+ * 만드는 동안의 슬래브 개구부(OE-ML-06 AC5). 만든 뒤 패널과 같은 판정(slabOpenings, OE-ML-03)을 초안 형상으로 미리 잰다 — 찍는 동안은 커서를
+ * 따라, 돌리는 동안은 끄는 각도를 따라(rangeGiven 이 createDraft 를 따른다) 다시 잰다. 모델은 [만들기] 전까지 그대로다.
+ */
+const createOpenings = computed<SlabOpening[]>(() => {
+  const c = verticalCreate.value
+  const m = model.value
+  const plan = createPlan.value
+  if (!c || !m || !plan || 'refused' in plan) return []
+  let given: RangeGiven = rangeGiven.value
+  if (placingVertical.value && createHover.value) {
+    const a = createAnchored.value
+    const d = a ? draftShape(c, a.at, a.heading) : draftShape(c, createHover.value, c.heading)
+    given = d && !('refused' in d) ? d.given : new Map()
+  }
+  if (![...given.values()].some((g) => g.footprint)) return []
+  return slabOpenings(m, draftVertical(c.kind, plan, given))
+})
+/** 개구부가 면적에 주는 영향(한 줄). 물리존 면적 차감은 아직 하지 않는다(ADR-0068) — 초안은 확인 전이라 그 뒤에도 빼지 않는다. */
+function openingImpact(o: SlabOpening): string {
+  if (o.state === 'cut') return `슬래브 ${o.coverM2!.toFixed(2)}㎡ 를 뚫음`
+  if (o.state === 'draft') return `확인 전 — 면적에 반영하지 않음`
+  if (o.state === 'bim') return '원본 개구부를 다시 씀 — 면적 그대로'
+  if (o.state === 'open') return '이미 비어 있음 — 면적 그대로'
+  return '형상 근거가 없어 산정하지 않음'
+}
+/** 3D 의 개구부 미리보기 — 뚫리는 층 바닥에 확정은 보라, 초안은 노랑 점선. 이미 비었거나 BIM 개구부인 자리는 새로 생기는 것이 없어 그리지 않는다. */
+const createOpeningPreview = computed(() =>
+  createOpenings.value.flatMap((o) => {
+    const st = model.value?.storeys.find((x) => x.id === o.storeyId)
+    if (!st || !o.footprint || (o.state !== 'cut' && o.state !== 'draft')) return []
+    return [{ storeyId: o.storeyId, elevation: st.elevation + 0.03, footprint: o.footprint, tone: o.state }]
+  }),
+)
 /** 초안이 만들 수 있는가. 못 만들면 그 까닭. */
 const draftBlock = computed(() => {
   const c = verticalCreate.value
@@ -3842,8 +3876,8 @@ const riserPreview = computed(() => {
   const path: Vec3[] = [...(d.branchOf ? [] : [from.position]), ...d.points.map((p, i): Vec3 => [p[0], p[1], z(d.levels![i])])]
   return path.length > 1 && path.every((p) => Number.isFinite(p[2])) ? [{ storeyId: d.storeyId, elevation: from.position[2], path }] : []
 })
-watch([model, sceneVersion, verticalHighlight, verticalPreview, riserPreview, rotatePreview, createHoverPreview, linkMarks, draftLandingPreview], () =>
-  viewer?.setVerticalParts(model.value, verticalHighlight.value, [...verticalPreview.value, ...riserPreview.value, ...rotatePreview.value, ...createHoverPreview.value, ...linkMarks.value, ...draftLandingPreview.value]),
+watch([model, sceneVersion, verticalHighlight, verticalPreview, riserPreview, rotatePreview, createHoverPreview, linkMarks, draftLandingPreview, createOpeningPreview], () =>
+  viewer?.setVerticalParts(model.value, verticalHighlight.value, [...verticalPreview.value, ...riserPreview.value, ...rotatePreview.value, ...createHoverPreview.value, ...linkMarks.value, ...draftLandingPreview.value, ...createOpeningPreview.value]),
 )
 /** 꼭짓점을 고치는 공조존 id 와 [ ] 로 짚은 꼭짓점. 아래 "수동 공조존" 의 startZoneVertices 참조. */
 const zoneVertexEdit = ref<string | null>(null)
@@ -13519,9 +13553,20 @@ function rollbackFromReport() {
               </ol>
               <p v-if="!createPlan.needs.length" class="muted">다 채웠습니다</p>
               <p v-if="createPlan.link" class="vertical-move">연결 물리존: {{ createPlan.link.from ?? '없음' }} ↔ {{ createPlan.link.to ?? '없음' }}</p>
-              <p class="muted">엘리베이터는 전 층 정차로 시작하고, 에스컬레이터 운행 방향은 만든 뒤 패널에서 정합니다(정하기 전에는 미확인). 슬래브 개구부는 아직 다루지 않습니다</p>
+              <p class="muted">엘리베이터는 전 층 정차로 시작하고, 에스컬레이터 운행 방향은 만든 뒤 패널에서 정합니다(정하기 전에는 미확인)</p>
             </div>
           </template>
+          <!-- 슬래브 개구부 미리보기(OE-ML-06 AC5). 만든 뒤 패널과 같은 판정이고, 찍거나 돌리면 다시 잰다. 3D 에는 확정 보라 · 초안 노랑 점선. -->
+          <table v-if="createOpenings.length" class="slab-openings" data-testid="vertical-create-openings">
+            <caption>슬래브 개구부 미리보기 <Src kind="calc" /></caption>
+            <tbody>
+              <tr v-for="o in createOpenings" :key="o.storeyId" :class="`slab-${o.state}`" :title="o.reason">
+                <th scope="row">{{ floorName(o.storeyId) }} 바닥</th>
+                <td><span :class="['slab-state', o.state]">{{ SLAB_OPENING_LABEL[o.state] }}</span></td>
+                <td class="muted" data-testid="vertical-create-opening-impact">{{ openingImpact(o) }}</td>
+              </tr>
+            </tbody>
+          </table>
           <p>
             <button v-if="!placesByPoint(verticalCreate.kind) && createPlan && !('refused' in createPlan) && createPlan.needs.length && !drawing" type="button" class="ghost go" data-testid="vertical-create-start" @click="fillNext">
               {{ createSteps.some((s) => s.done) ? '이어서 채우기' : '그리기 시작' }}

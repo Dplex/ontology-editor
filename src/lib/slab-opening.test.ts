@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Slab, Storey, Vec2, VerticalPart } from './model'
 import { slabOpenings } from './slab-opening'
 import { verticalObjects } from './vertical-object'
+import { createVertical, draftVertical, planCreate, planFlight } from './vertical-edit'
 
 // 슬래브 개구부 판정(OE-ML-03). 층 셋(0m · 3m · 6m)과 2m×2m 샤프트. 슬래브 윗면은 삼각형 둘로 된 사각형이다.
 const square = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
@@ -96,5 +97,49 @@ describe('슬래브 개구부 (OE-ML-03)', () => {
     const got = slabOpenings(model, verticalObjects(model)[0])
     expect(got.map((o) => [o.state, o.coverM2])).toEqual([['cut', 4]])
     expect(s3.openings.map((o) => o.id)).toEqual(['OP'])
+  })
+})
+
+describe('만드는 동안의 개구부 미리보기 (OE-ML-06 AC5)', () => {
+  // 1F(0m) → 2F(3m) 계단. 2F 바닥 슬래브는 x 0~10 을 덮고 x 10~20 은 계단 자리처럼 비워 두었다.
+  const floors = (withSlab: boolean) => ({
+    storeys: [
+      storey('1F', 0, [], [slab('S1', 0, [0, 0, 20, 10])]),
+      storey('2F', 3, [], withSlab ? [slab('S2', 3, [0, 0, 10, 10])] : undefined),
+    ],
+  })
+  const draftAt = (model: ReturnType<typeof floors>, start: Vec2) => {
+    const f = planFlight(model, 'stair', '1F', start, 0)
+    if ('refused' in f) throw new Error(f.refused)
+    const given = new Map([['1F', { footprint: f.footprint, entry: f.entry }], ['2F', { exit: f.exit }]])
+    const plan = planCreate(model, 'stair', '1F', '2F', given)
+    if ('refused' in plan) throw new Error(plan.refused)
+    return { given, plan, openings: slabOpenings(model, draftVertical('stair', plan, given)) }
+  }
+
+  it('초안 형상이 슬래브 아래면 위층 바닥이 확정, 비워 둔 자리면 이미 비어 있음, 바닥 슬래브가 없으면 초안이고, 모델은 그대로다 [OE-ML-06#5]', () => {
+    const model = floors(true)
+    const covered = draftAt(model, [2, 5]).openings
+    expect(covered.map((o) => [o.storeyId, o.state])).toEqual([['2F', 'cut']])
+    expect(covered[0].coverM2).toBeCloseTo(covered[0].areaM2!, 1)
+    // 계단 자리를 비워 둔 쪽으로 옮겨 찍으면(커서를 따라 다시 잰다) 새로 뚫지 않는다.
+    expect(draftAt(model, [12, 5]).openings.map((o) => o.state)).toEqual(['open'])
+    // 바닥 슬래브가 없는 BIM — 초안이고, 확인 전에는 면적에 반영하지 않는다고 까닭을 단다.
+    const draft = draftAt(floors(false), [2, 5]).openings
+    expect(draft.map((o) => o.state)).toEqual(['draft'])
+    expect(draft[0].reason).toContain('확인 전에는 면적에 반영하지 않습니다')
+    // 미리보기는 모델에 조각을 넣지 않는다.
+    expect(model.storeys.every((s) => !s.verticalParts?.length)).toBe(true)
+  })
+
+  it('미리보기 판정은 [만들기] 뒤 패널의 판정과 같다 [OE-ML-06#5]', () => {
+    for (const [withSlab, start] of [[true, [2, 5]], [true, [12, 5]], [false, [2, 5]]] as const) {
+      const model = floors(withSlab)
+      const { given, openings } = draftAt(model, [...start] as Vec2)
+      const made = createVertical(model, { id: 'NEW', kind: 'stair', name: '새 계단', from: '1F', to: '2F' }, given)
+      expect('id' in made).toBe(true)
+      const after = slabOpenings(model, verticalObjects(model).find((o) => o.id === 'NEW')!)
+      expect(after.map((o) => [o.storeyId, o.state])).toEqual(openings.map((o) => [o.storeyId, o.state]))
+    }
   })
 })

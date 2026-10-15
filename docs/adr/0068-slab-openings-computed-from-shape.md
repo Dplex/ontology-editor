@@ -5,9 +5,9 @@ status: "제안"
 date: "2026-10-14"
 deciders: ["정희록"]
 prd: []
-tickets: ["OE-ML-03", "OE-ML-07", "OE-ML-08", "OE-ML-09"]
-criteria: ["OE-ML-03#1", "OE-ML-03#2", "OE-ML-03#3", "OE-ML-03#5", "OE-ML-03#6"]
-code: ["src/lib/slab-opening.ts", "src/lib/ifc/import.ts", "src/lib/ifc/element-geometry.ts", "src/lib/polygon.ts", "src/lib/merge.ts", "src/App.vue"]
+tickets: ["OE-ML-03", "OE-ML-06", "OE-ML-07", "OE-ML-08", "OE-ML-09"]
+criteria: ["OE-ML-03#1", "OE-ML-03#2", "OE-ML-03#3", "OE-ML-03#5", "OE-ML-03#6", "OE-ML-06#5"]
+code: ["src/lib/slab-opening.ts", "src/lib/ifc/import.ts", "src/lib/ifc/element-geometry.ts", "src/lib/polygon.ts", "src/lib/merge.ts", "src/lib/vertical-edit.ts", "src/App.vue"]
 tests: ["src/lib/slab-opening.test.ts", "e2e/slab-opening.spec.ts", "scripts/check-sample.test.ts"]
 related: ["ADR-0032", "ADR-0034"]
 ---
@@ -89,6 +89,8 @@ OE-ML-03 은 수직 관통 오브젝트가 실제로 교차하는 슬래브에�
 ## 결과
 
 - 계단 패널에 지나는 층 바닥마다 판정·까닭이 보인다. 다중층 뷰에서 계단을 옮기면 바로 다시 잰다.
+- 만드는 동안에도 같은 판정이다(OE-ML-06 AC5, 2026-10-15). 초안 형상을 오브젝트 모양으로 묶어(`draftVertical`) 같은 `slabOpenings` 를 태운다 — 찍는
+  동안은 커서를, 돌리면 각도를 따라 다시 재고, 3D 의 뚫리는 층 바닥에 확정은 보라·초안은 노랑 점선으로 보인다. 그래서 미리보기와 만든 뒤 패널이 어긋날 수 없다.
 - 형상을 읽지 않는 임포트(`importIfc`, 시험·검사 스크립트)에는 슬래브가 없다. 계단도 그 임포트에서만 생기므로 맞물린다.
 - 면적 차감·초안 확인은 이 판정 위에 얹는다. 그때 `SlabOpening` 의 `coverM2`(확정 개구부가 뚫는 넓이)와 `footprint` 를 쓴다.
 - 되돌리려면 `slab-opening.ts` 와 패널의 표를 지우고, `import.ts` 의 `slabsOf` 묶음과 `Storey.slabs` 를 걷어낸다.

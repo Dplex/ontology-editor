@@ -15,7 +15,7 @@ import { distanceToRing, isSelfIntersecting, pointInPolygon } from './mapping'
 import { shaftMembers } from './shaft'
 import { overlapArea } from './polygon'
 import { polygonArea, type ElevatorStop, type Model, type Storey, type Vec2, type Vec3, type VerticalKind, type VerticalPart } from './model'
-import { partId, partSpaces, verticalObjects } from './vertical-object'
+import { partId, partSpaces, verticalObjects, type VerticalObject } from './vertical-object'
 
 const mm = (v: number) => Math.round(v * 1000) / 1000
 
@@ -631,6 +631,27 @@ export function setVerticalRange(model: Pick<Model, 'storeys'>, parentId: string
 /** 새로 만들 때의 계획(OE-ML-06). */
 export function planCreate(model: Pick<Model, 'storeys'>, kind: VerticalKind, fromId: string, toId: string, given: RangeGiven = new Map()): RangePlan | { refused: string } {
   return planFor(model, kind, fromId, toId, given, new Map())
+}
+
+/**
+ * 만들기 초안을 오브젝트 모양으로 묶는다(모델은 그대로). 만드는 동안의 개구부 미리보기(OE-ML-06 AC5)가 만든 뒤와 같은 `slabOpenings` 를
+ * 타게 한다. 층 조각은 writeParts 와 같은 규칙이다 — 공통 축이면 모든 층이 축 하나, 아니면 끝 층을 뺀 층의 그린 형상과 시작 층 진입·끝 층 종료.
+ */
+export function draftVertical(kind: VerticalKind, plan: Pick<RangePlan, 'storeys'>, given: RangeGiven): VerticalObject {
+  const axis = COMMON_AXIS.has(kind) ? [...given.values()].find((g) => g.footprint)?.footprint : undefined
+  return {
+    id: '',
+    kind,
+    name: '',
+    source: 'edit',
+    parts: plan.storeys.map((storey, k) => {
+      const g = given.get(storey.id)
+      const last = k === plan.storeys.length - 1
+      const at = (p: Vec2 | undefined): Vec3 | null => (p && !axis ? [p[0], p[1], storey.elevation] : null)
+      const footprint = axis ?? (last ? [] : (g?.footprint ?? []))
+      return { storey, part: { parentId: '', kind, name: '', source: 'edit', footprint: [...footprint], entry: k === 0 ? at(g?.entry) : null, exit: last ? at(g?.exit) : null } }
+    }),
+  }
 }
 
 /**
