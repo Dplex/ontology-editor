@@ -72,6 +72,10 @@ export const stage = ref<HTMLElement | null>(null)
  */
 export function selectAndShow(id: string) {
   select(id)
+  revealStage()
+}
+/** 작업 화면(3D·오른쪽 패널)이 가려져 있으면 올려 보인다. 이미 보이면 움직이지 않는다. */
+export function revealStage() {
   const el = stage.value
   if (!el) return
   const r = el.getBoundingClientRect()
