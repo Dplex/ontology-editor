@@ -1,0 +1,65 @@
+import { test, expect } from '@playwright/test'
+
+// E04 IDF 임포트·검토(OE-IDF-04·05·08·11, OE-ZON-07, OE-BIM-15) · 수동 공조존(OE-ZON-01·02·04, OE-MAN-05, OE-OBJ-13)
+const pick = (page: import('@playwright/test').Page) => page.getByLabel('IFC IDF 가져오기', { exact: true })
+
+test('hvac: IDF review — cancel keeps data, confirm applies', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', e => errors.push(e.message))
+  await page.goto('/')
+  await pick(page).setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.locator('.section-heading').filter({ hasText: '사이트 & 층' })).toContainText('mep.ifc', { timeout: 60000 })
+  await expect(page.getByTestId('hvac-guide')).toBeVisible()
+  await expect(page.getByRole('button', { name: /IDF 검토 열기/ })).toHaveCount(0)
+  // 추가로 가져오기 → 검토 → 취소: 기존 데이터 유지(OE-BIM-15 AC9)
+  await page.getByLabel('IDF 추가로 가져오기', { exact: true }).setInputFiles('src/lib/idf/fixtures/two-zones.idf')
+  await expect(page.getByTestId('idf-summary')).toContainText('공조존')
+  await expect(page.getByTestId('idf-summary')).toContainText('2')
+  await page.getByRole('button', { name: '취소' }).click()
+  await expect(page.getByRole('button', { name: /IDF 검토 열기/ })).toHaveCount(0)
+  // 다시 가져와 확인 → 반영(미확인 매칭은 확인 전까지 내보내기에 안 나간다)
+  await page.getByLabel('IDF 추가로 가져오기', { exact: true }).setInputFiles('src/lib/idf/fixtures/two-zones.idf')
+  await expect(page.getByText(/존↔물리존 매칭 초안/)).toBeVisible()
+  await page.getByRole('button', { name: '전부 확인' }).click()
+  await page.screenshot({ path: '.local/proto-idf-review.png', fullPage: true })
+  await page.getByRole('button', { name: '확인하고 반영' }).click()
+  await expect(page.getByRole('button', { name: /IDF 검토 열기/ })).toContainText('확인됨')
+  expect(errors).toEqual([])
+})
+
+test('hvac: manual zone — create from spaces, edit, validate, delete', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', e => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.floor-card').first().getByRole('button', { name: /→/ }).click()
+  await page.getByRole('button', { name: '＋ 공조존 만들기' }).click()
+  await page.getByLabel('새 공조존 이름').fill('AHU-1 담당')
+  const spaces = page.getByRole('group', { name: '담당 물리존 고르기' }).or(page.locator('[aria-label="담당 물리존 고르기"]'))
+  await spaces.locator('input[type=checkbox]').nth(0).check()
+  await spaces.locator('input[type=checkbox]').nth(1).check()
+  await page.getByRole('button', { name: '물리존으로 만들기' }).click()
+  const detail = page.getByTestId('hvac-detail')
+  await expect(page.locator('.hvac-panel')).toContainText('AHU-1 담당')
+  await expect(detail).toContainText('담당 물리존 2개')
+  // 담당 물리존 하나 빼기 → 1개
+  await detail.locator('[aria-label="담당 물리존 고르기"] input[type=checkbox]').nth(1).uncheck()
+  await expect(detail).toContainText('담당 물리존 1개')
+  await expect(page.getByTestId('zone-checks')).toBeVisible()
+  await page.screenshot({ path: '.local/proto-hvac-manual.png', fullPage: true })
+  await detail.getByRole('button', { name: '공조존 지우기' }).click()
+  await expect(page.locator('.object-list button')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('hvac: draw outline zone on plan overlaps spaces (OE-ZON-02)', async ({ page }) => {
+  await page.goto('/')
+  await page.locator('.floor-card').first().getByRole('button', { name: /→/ }).click()
+  await page.getByRole('button', { name: '＋ 공조존 만들기' }).click()
+  await page.getByRole('button', { name: '경계 직접 그리기' }).click()
+  const svg = page.locator('svg.plan')
+  await expect(svg).toBeVisible()
+  const box = (await svg.boundingBox())!
+  for (const [fx, fy] of [[0.25, 0.3], [0.6, 0.3], [0.6, 0.6], [0.25, 0.6]]) await page.mouse.click(box.x + box.width * fx, box.y + box.height * fy)
+  await page.getByRole('button', { name: '완성' }).click()
+  await expect(page.getByTestId('hvac-detail')).toBeVisible()
+})
