@@ -328,6 +328,8 @@ function verticalPartFeature(part: VerticalPart, storey: Storey, vertical?: Vert
       ...(part.edited ? { edited: true } : {}),
       entry: part.entry ? [...part.entry] : null,
       exit: part.exit ? [...part.exit] : null,
+      // 엘리베이터의 이 층 진입 지점(OE-ML-10). 그 층 바닥 높이의 점이고, spaceIds 가 그 점이 드는 물리존(엘리베이터 홀)이다.
+      ...(part.kind === 'elevator' ? { landing: part.landing ? [part.landing[0], part.landing[1], storey.elevation] : null } : {}),
       spaceIds: partSpaces(storey, part),
       // 평면 회전각(OE-ML-02 "평면 회전각(방위)"). +x 에서 반시계로 잰 도(°)이고 형상에서 잰 값이라 출처는 계산이다(vertical-edit.ts 의
       // verticalHeading — 계단·ES 는 시작점 → 끝점, EL·샤프트는 형상의 가장 긴 변). 잴 수 없으면 null.

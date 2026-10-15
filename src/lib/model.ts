@@ -662,6 +662,12 @@ export type VerticalPart = {
    */
   continuesFrom?: string
   continuesTo?: string
+  /**
+   * 엘리베이터의 이 층 진입 지점(OE-ML-10, 2026-10-14 PRD). 승강로 한 면의 가운데에서 바깥으로 조금 뺀 평면 점이다 — 그 층의 어느 물리존
+   * (엘리베이터 홀)으로 타고 내리는지 짚는다. 회전·이동을 따라 같이 돈다. 엘리베이터에만 둔다. 계단의 `entry`(시작 층에만, 오르기 시작하는
+   * 자리)와 뜻이 달라 따로 둔다.
+   */
+  landing?: Vec2
 }
 
 export type ElevatorStop = 'stop' | 'skip' | 'unknown'

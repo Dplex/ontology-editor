@@ -260,6 +260,7 @@ import type { Object3D } from 'three'
 import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL, verticalObjects as verticalObjectsOf } from './lib/vertical-object'
 import type { VerticalKind } from './lib/model'
 import { anchoredFlight, LINK_RELEASE, LINK_SNAP, linkCandidates, linkStatus, nearestCandidate, relinkShift, unlink, verticalLinks, type LinkCandidate, type VerticalLink } from './lib/vertical-link'
+import { faceLanding, landingFace, setElevatorLanding } from './lib/vertical-edit'
 import { COMMON_AXIS, createVertical, deleteVertical, planElevator, planFlight, storeyAbove, VERTICAL_DEFAULTS, rotateVertical, setVerticalHeading, snapHeading, verticalHeading, verticalPivot, wallHeadings, DIRECTION_LABEL, escalatorTravel, setElevatorStop, setEscalatorDirection, STOP_LABEL, movePart, moveVertical, planCreate, planRange, planSteps, setPartPoint, setPartVertex, setVerticalRange, verticalCollisions, verticalImpact, type RangeNeed } from './lib/vertical-edit'
 import { allowedLabel, allowedSurfaces, canMountOn, SURFACE_LABEL, surfaceOf, type Surface } from './lib/mount'
 import { ceilingGuess, ceilingOf, ceilingRange, ceilingZone, checkCeilingZ, FLOOR_BAND, judgeAll, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface, type Judged } from './lib/ceiling'
@@ -2014,6 +2015,9 @@ function clearSelection(): boolean {
               ? '계단 구간 채우기를 취소했습니다. 고르던 구간은 그대로입니다'
             : '외곽선 그리기를 취소했습니다',
     )
+  } else if (placingRangeAt.value) {
+    stopRangeStart()
+    note('시작점 찍기를 그만뒀습니다. 고르던 구간은 그대로입니다')
   } else if (placingVertical.value) {
     stopPlaceVertical()
     note('시작점·위치 찍기를 그만뒀습니다. 만들던 것은 그대로입니다')
@@ -2817,6 +2821,10 @@ type VerticalDraft = {
   directionOk: boolean
   /** 이어 놓은 구간(OE-ML-06 AC4). `start` 는 시작점이 그 구간의 끝점에, `end` 는 끝점이 그 구간의 시작점에 고정됐다. */
   link: { kind: 'start' | 'end'; to: string; name: string; heading: number | null } | null
+  /** EL 층별 정차(없으면 정차)와 진입 면(없으면 첫 면), 그리고 그 둘을 확인했는가(OE-ML-10 AC1). */
+  stops: Record<string, boolean>
+  faces: Record<string, number>
+  stopsOk: boolean
 }
 const verticalCreate = ref<VerticalDraft | null>(null)
 /** 시작점·위치 하나로 만드는 종류. 샤프트만 형상을 그린다. */
@@ -3100,6 +3108,44 @@ function fillRange(storeyId: string, what: RangeNeed, lead = '') {
   viewer?.setPlaceMode(st.elevation)
   note(lead + (what === 'footprint' ? `${st.name} 바닥에 형상의 꼭짓점을 찍고 Enter 로 마칩니다 (Esc 취소)` : `${st.name} 바닥에서 ${label}을 누릅니다 (Esc 취소)`))
 }
+/**
+ * 구간을 늘린 계단·ES 의 새 층은 그 층의 시작점 하나로 채운다(OE-ML-08, 2026-10-14 PRD "생성과 같은 기준(OE-ML-06)"). 찍은 점에서 지금 방위로
+ * 바로 위층까지의 기본 형상과 위층 종료 지점을 계산해 채운다. 그 층이 새 시작 층이면 진입 지점도 그 점이다. 형상을 손으로 그리는 길도 둔다.
+ */
+const placingRangeAt = ref<string | null>(null)
+function fillRangeStart(storeyId: string) {
+  const st = model.value?.storeys.find((s) => s.id === storeyId)
+  if (!st) return
+  stopPlace()
+  stopAdd()
+  if (drawing.value) stopDraw()
+  placingRangeAt.value = storeyId
+  viewer?.setPlaceMode(st.elevation)
+  note(`${st.name} 바닥에서 이 층 구간의 시작점을 누릅니다. 지금 방위로 위층까지 계산합니다 (Esc 취소)`)
+}
+function stopRangeStart() {
+  if (!placingRangeAt.value) return
+  placingRangeAt.value = null
+  viewer?.setPlaceMode(null)
+}
+function placeRangeStart(at: Vec2) {
+  const storeyId = placingRangeAt.value
+  const v = selectedVertical.value
+  const m = model.value
+  stopRangeStart()
+  if (!storeyId || !v || !m || (v.object.kind !== 'stair' && v.object.kind !== 'escalator')) return
+  const f = planFlight(m, v.object.kind, storeyId, at, verticalHeading(m, v.object.id) ?? 0)
+  if ('refused' in f) {
+    editNotice.value = f.refused
+    return
+  }
+  const next = new Map(rangeGiven.value)
+  const needsEntry = rangePlan.value && !('refused' in rangePlan.value) && rangePlan.value.needs.some((n) => n.storey.id === storeyId && n.what.includes('entry'))
+  next.set(storeyId, { ...next.get(storeyId), footprint: f.footprint, ...(needsEntry ? { entry: f.entry } : {}) })
+  next.set(f.to.id, { ...next.get(f.to.id), exit: f.exit })
+  rangeGiven.value = next
+  note(`${f.from.name} 시작점에서 ${f.to.name}까지 계산했습니다(수평 길이 ${f.length.toFixed(2)}m). 다 채웠으면 [구간 적용] 을 누릅니다`)
+}
 /** 만들기·구간 바꾸기에서 아직 채우지 않은 첫 번째 것. 하나를 채우면 이것을 이어서 그린다 — 층마다 단추를 찾아 누르지 않게. */
 function nextFill(): { storeyId: string; what: RangeNeed } | null {
   const plan = verticalCreate.value ? createPlan.value : rangePlan.value
@@ -3168,7 +3214,7 @@ async function startCreateVertical(kind: VerticalKind = 'stair') {
 }
 function draftFor(kind: VerticalKind, name: string, from: string, to: string): VerticalDraft {
   const above = flightKind(kind) && model.value ? storeyAbove(model.value, from) : null
-  return { kind, name, from, to: above?.id ?? to, at: null, heading: 0, direction: 'up', directionOk: false, link: null }
+  return { kind, name, from, to: above?.id ?? to, at: null, heading: 0, direction: 'up', directionOk: false, link: null, stops: {}, faces: {}, stopsOk: false }
 }
 const createSteps = computed(() => {
   const c = verticalCreate.value
@@ -3233,6 +3279,7 @@ const createCandidates = computed(() => {
 })
 // 찍는 동안 시작 층 위를 걷는다(applyStoreyFilter). 위의 watch 들보다 뒤에 선언되어 여기서 건다.
 watch(placingVertical, applyStoreyFilter)
+watch(placingRangeAt, applyStoreyFilter)
 function startPlaceVertical() {
   const c = verticalCreate.value
   const st = c && model.value?.storeys.find((x) => x.id === c.from)
@@ -3326,8 +3373,45 @@ const draftBlock = computed(() => {
   if ('refused' in d) return d.refused
   if (d.outside) return flightKind(c.kind) ? '형상이 건물(물리존) 밖으로 나갑니다. 돌리거나 다른 자리에 찍습니다' : '승강로가 건물(물리존) 밖으로 나갑니다. 다른 자리에 찍습니다'
   if (c.kind === 'escalator' && !c.directionOk) return '운행 방향을 확인합니다'
+  if (c.kind === 'elevator' && !c.stopsOk) return '정차 층·진입 지점을 확인합니다'
   return null
 })
+/** 만들 EL 의 층들(구간). 정차·진입 면을 층마다 고른다. */
+const draftFloors = computed(() => {
+  const plan = createPlan.value
+  return verticalCreate.value?.kind === 'elevator' && plan && !('refused' in plan) ? plan.storeys : []
+})
+/** 만들 EL 의 승강로 형상(진입 면을 고르는 기준). */
+const draftRing = computed(() => {
+  const d = createDraft.value
+  const c = verticalCreate.value
+  return c && d && !('refused' in d) ? (d.given.get(c.from)?.footprint ?? []) : []
+})
+/** 면 이름. 바깥 방향이 가장 가까운 평면 축이다(`면 1 · -y 쪽`). */
+function faceLabel(ring: readonly Vec2[], face: number): string {
+  const p = faceLanding(ring, face)
+  const a = ring[face]
+  const b = ring[(face + 1) % ring.length]
+  if (!p || !a || !b) return `면 ${face + 1}`
+  const deg = (((Math.atan2(p[1] - (a[1] + b[1]) / 2, p[0] - (a[0] + b[0]) / 2) * 180) / Math.PI) + 360) % 360
+  const dir = ['+x', '+y', '-x', '-y'][Math.round(deg / 90) % 4]
+  return `면 ${face + 1} · ${dir} 쪽`
+}
+/** 만들 EL 의 층별 진입 지점 미리보기(초록 점). */
+const draftLandingPreview = computed(() => {
+  const c = verticalCreate.value
+  const ring = draftRing.value
+  if (!c || c.kind !== 'elevator' || ring.length < 3) return []
+  return draftFloors.value.flatMap((st) => {
+    const at = faceLanding(ring, c.faces[st.id] ?? 0)
+    return at ? [{ storeyId: st.id, elevation: st.elevation, point: at, tone: 'ok' as const }] : []
+  })
+})
+/** 고른 EL 한 층의 진입 면을 바꾼다(OE-ML-10). 되돌리기 한 번이다. */
+function setLandingFrom(parentId: string, storeyId: string, face: number) {
+  const name = model.value?.storeys.find((st) => st.id === storeyId)?.name ?? storeyId
+  changeVerticals(`엘리베이터 ${name} 진입 면 ${face + 1}`, (m) => setElevatorLanding(m, parentId, storeyId, face))
+}
 function applyCreateVertical() {
   const c = verticalCreate.value
   if (!c) return
@@ -3342,6 +3426,13 @@ function applyCreateVertical() {
     if ('refused' in r) refused = r.refused
     // ES 운행 방향은 확인한 값으로 만든다(OE-ML-11 AC2). 같은 되돌리기 한 번이다.
     if ('id' in r && c.kind === 'escalator') setEscalatorDirection(m, id, c.direction)
+    // EL 층별 정차·진입 면(OE-ML-10). 고른 그대로 같은 되돌리기 한 번에 넣는다.
+    if ('id' in r && c.kind === 'elevator') {
+      for (const st of draftFloors.value) {
+        setElevatorStop(m, id, st.id, c.stops[st.id] === false ? 'skip' : 'stop')
+        setElevatorLanding(m, id, st.id, c.faces[st.id] ?? 0)
+      }
+    }
     // 이어 놓은 연결(OE-ML-19 AC8)을 새 구간의 조각에 적는다. 시작점 고정은 시작 층 조각, 끝점 고정은 끝 층 조각이다.
     if ('id' in r && c.link) {
       const part = m.storeys.find((st) => st.id === (c.link!.kind === 'start' ? c.from : c.to))?.verticalParts?.find((p) => p.parentId === id)
@@ -3751,8 +3842,8 @@ const riserPreview = computed(() => {
   const path: Vec3[] = [...(d.branchOf ? [] : [from.position]), ...d.points.map((p, i): Vec3 => [p[0], p[1], z(d.levels![i])])]
   return path.length > 1 && path.every((p) => Number.isFinite(p[2])) ? [{ storeyId: d.storeyId, elevation: from.position[2], path }] : []
 })
-watch([model, sceneVersion, verticalHighlight, verticalPreview, riserPreview, rotatePreview, createHoverPreview, linkMarks], () =>
-  viewer?.setVerticalParts(model.value, verticalHighlight.value, [...verticalPreview.value, ...riserPreview.value, ...rotatePreview.value, ...createHoverPreview.value, ...linkMarks.value]),
+watch([model, sceneVersion, verticalHighlight, verticalPreview, riserPreview, rotatePreview, createHoverPreview, linkMarks, draftLandingPreview], () =>
+  viewer?.setVerticalParts(model.value, verticalHighlight.value, [...verticalPreview.value, ...riserPreview.value, ...rotatePreview.value, ...createHoverPreview.value, ...linkMarks.value, ...draftLandingPreview.value]),
 )
 /** 꼭짓점을 고치는 공조존 id 와 [ ] 로 짚은 꼭짓점. 아래 "수동 공조존" 의 startZoneVertices 참조. */
 const zoneVertexEdit = ref<string | null>(null)
@@ -5881,7 +5972,11 @@ function applyStoreyFilter() {
     // 위층 방이 떠서 어느 층에 찍는지 헷갈렸다(2026-10-13, 병원 1층에 계단을 그릴 때).
     // 시작점·승강로 위치를 찍는 동안(OE-ML-06)도 같다.
     const d = drawing.value
-    const placingAt = placingVertical.value ? m.storeys.find((st) => st.id === verticalCreate.value?.from)?.elevation ?? null : null
+    const placingAt = placingVertical.value
+      ? (m.storeys.find((st) => st.id === verticalCreate.value?.from)?.elevation ?? null)
+      : placingRangeAt.value
+        ? (m.storeys.find((st) => st.id === placingRangeAt.value)?.elevation ?? null)
+        : null
     const cut = d && (d.purpose === 'verticalFootprint' || d.purpose === 'verticalPoint') ? d.elevation : placingAt
     const ids = new Set(range.filter((st) => cut === null || st.elevation <= cut + 1e-6).map((st) => st.id))
     send(ids, merge(new Set(m.storeys.filter((s) => !ids.has(s.id)).flatMap((s) => s.equipment.map((e) => e.id)))))
@@ -6225,6 +6320,11 @@ watch([selectedId, editing, viewStorey], () => {
   if (placing.value && (selectedId.value !== placing.value || !editing.value)) stopPlace()
 })
 function placeAt(at: Vec2) {
+  // 구간을 늘린 계단·ES 의 새 층 시작점(OE-ML-08).
+  if (placingRangeAt.value) {
+    placeRangeStart(at)
+    return
+  }
   // 수직 관통 오브젝트의 시작점·승강로 위치(OE-ML-06). 한 번 찍으면 끝난다.
   if (placingVertical.value && verticalCreate.value) {
     const c = verticalCreate.value
@@ -13373,6 +13473,17 @@ function rollbackFromReport() {
               층고 차 {{ createDraft.flight.rise.toFixed(2) }}m ÷ tan {{ VERTICAL_DEFAULTS[verticalCreate.kind as 'stair' | 'escalator'].slope }}° = 수평 길이 {{ createDraft.flight.length.toFixed(2) }}m · 폭 {{ VERTICAL_DEFAULTS[verticalCreate.kind as 'stair' | 'escalator'].width }}m
             </p>
             <p v-else-if="verticalCreate.kind === 'elevator'" class="muted">승강로 {{ VERTICAL_DEFAULTS.elevator.size }} × {{ VERTICAL_DEFAULTS.elevator.size }}m · 관통 구간 전 층 정차로 시작합니다</p>
+            <!-- EL 정차 층·진입 지점(OE-ML-10 AC1). 처음은 전 층 정차·첫 면이고, 층마다 고친 뒤 확인해야 만든다. 진입 지점은 3D 에 초록 점. -->
+            <fieldset v-if="verticalCreate.kind === 'elevator' && verticalCreate.at && draftRing.length" class="vertical-move elevator-draft" data-testid="vertical-create-stops">
+              <legend>정차 층·진입 지점</legend>
+              <span v-for="st in draftFloors" :key="st.id" class="elevator-stop">
+                <label><input type="checkbox" :checked="verticalCreate.stops[st.id] !== false" :aria-label="`${st.name} 정차`" @change="verticalCreate.stops[st.id] = ($event.target as HTMLInputElement).checked; verticalCreate.stopsOk = false" /> {{ st.name }}</label>
+                <select :value="verticalCreate.faces[st.id] ?? 0" :aria-label="`${st.name} 진입 면`" @change="verticalCreate.faces[st.id] = Number(($event.target as HTMLSelectElement).value); verticalCreate.stopsOk = false">
+                  <option v-for="(_, i) in draftRing" :key="i" :value="i">{{ faceLabel(draftRing, i) }}</option>
+                </select>
+              </span>
+              <label><input v-model="verticalCreate.stopsOk" type="checkbox" /> 정차 층·진입 지점을 확인했습니다</label>
+            </fieldset>
             <!-- ES 운행 방향(OE-ML-11 AC2). 상행이 처음 선택이고, 확인해야 만든다. -->
             <fieldset v-if="verticalCreate.kind === 'escalator'" class="vertical-move" data-testid="vertical-create-direction">
               <legend>운행 방향</legend>
@@ -13453,7 +13564,7 @@ function rollbackFromReport() {
                   <dt>종료</dt>
                   <dd class="mono" data-testid="vertical-exit">{{ selectedVertical.part.exit.map((v) => v.toFixed(2)).join(', ') }} <Src kind="calc" /></dd>
                 </div>
-                <div v-if="selectedVertical.part.entry || selectedVertical.part.exit">
+                <div v-if="selectedVertical.part.entry || selectedVertical.part.exit || selectedVertical.part.landing">
                   <dt>물리존</dt>
                   <dd data-testid="vertical-spaces">
                     <template v-if="selectedVertical.spaces.length">
@@ -13478,6 +13589,16 @@ function rollbackFromReport() {
                         <option v-for="(label, k) in STOP_LABEL" :key="k" :value="k">{{ label }}</option>
                       </select>
                       <b v-else>{{ STOP_LABEL[p.part.stop ?? 'unknown'] }}</b>
+                      <!-- 진입 면(OE-ML-10). 승강로 면 바깥의 점이 그 층 홀을 짚는다. -->
+                      <select
+                        v-if="multiView && editing && p.part.footprint.length >= 3"
+                        :value="landingFace(p.part.footprint, p.part.landing) ?? 0"
+                        :aria-label="`${p.storey.name} 진입 면`"
+                        @change="setLandingFrom(selectedVertical.object.id, p.storey.id, Number(($event.target as HTMLSelectElement).value))"
+                      >
+                        <option v-for="(_, i) in p.part.footprint" :key="i" :value="i">{{ faceLabel(p.part.footprint, i) }}</option>
+                      </select>
+                      <span v-else-if="p.part.landing" class="muted">{{ faceLabel(p.part.footprint, landingFace(p.part.footprint, p.part.landing) ?? 0) }}</span>
                     </span>
                     <Src kind="edit" />
                   </dd>
@@ -13626,9 +13747,15 @@ function rollbackFromReport() {
                     <li v-if="rangePlan.removed.length">빠지는 층: {{ rangePlan.removed.map((s) => s.name).join(' · ') }} — 해당 층 형상을 삭제합니다</li>
                     <li v-for="n in rangePlan.needs" :key="n.storey.id">
                       {{ n.storey.name }}:
+                      <!-- 계단·ES 는 그 층 시작점 하나로 형상·위층 종료 지점을 계산한다(OE-ML-08). 손으로 그리는 길도 남긴다. -->
+                      <template v-if="flightKind(selectedVertical.object.kind) && n.what.includes('footprint')">
+                        <span v-if="placingRangeAt === n.storey.id" class="step-now">시작점 찍는 중</span>
+                        <button v-else type="button" class="link go" data-testid="range-start" :disabled="!!drawing || !!placingRangeAt" @click="fillRangeStart(n.storey.id)">시작점 찍기</button>
+                        ·
+                      </template>
                       <template v-for="(w, i) in n.what" :key="w">
                         {{ i ? ' · ' : '' }}<span v-if="isFilling(n.storey.id, w)" class="step-now">{{ RANGE_NEED[w] }} {{ w === 'footprint' ? '그리는 중' : '찍는 중' }}</span>
-                        <button v-else type="button" class="link" :disabled="!!drawing" @click="fillRange(n.storey.id, w)">{{ RANGE_NEED[w] }} {{ w === 'footprint' ? '그리기' : '찍기' }}</button>
+                        <button v-else type="button" class="link" :disabled="!!drawing || !!placingRangeAt" @click="fillRange(n.storey.id, w)">{{ RANGE_NEED[w] }} {{ w === 'footprint' ? '그리기' : '찍기' }}</button>
                       </template>
                       <span class="muted">(채워야 적용됩니다)</span>
                     </li>
