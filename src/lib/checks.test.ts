@@ -60,7 +60,7 @@ describe('완전성 검사', () => {
     })
   })
 
-  it('한쪽 끝만 이어진 덕트·배관을 찾는다 — 연결망이 끊긴 자리다', () => {
+  it('한쪽 끝만 이어진 덕트·배관을 찾는다 — 연결망이 끊긴 자리다 [OE-OBJ-12#2]', () => {
     const m = model(
       [eq('ahu', 'ahu', 'conversion'), eq('d1', null, 'segment', null), eq('d2', null, 'segment', null), eq('elbow', null, 'fitting', null), eq('diff', 'air_diffuser', 'terminal')],
       // 공조기 → d1 → 엘보 → d2 … 끝(디퓨저와 떨어짐). 같은 쌍의 포트 연결이 둘이어도 상대 하나로 센다.

@@ -69,6 +69,7 @@ import { type LibraryItem, type ObjectMaterial } from './space-object'
 import { CONTEXT_ITEMS } from './object-names'
 import { partId } from './vertical-object'
 import { flowPulseMesh, setFlowTime, type FlowEdge, type FlowSegment } from './flow-pulse'
+import { conduitFlowType, flowTypeColor, systemFlowType } from './flow-type'
 
 /**
  * 층을 구분하는 색. 층 수만큼 순환한다.
@@ -93,13 +94,33 @@ const SYSTEM_COLORS = [
   0x2f6fed, 0x1f9d7a, 0x9b59d0, 0xe0803a, 0xd1495b, 0x2aa8c4, 0x7a8b3f, 0xc2467f, 0x4a5bd4, 0x3f8f4a,
 ]
 
-/** 계통에 색을 배정한다. 범례와 3D 가 같은 값을 봐야 해서 한 곳에서 만든다. */
+/**
+ * 계통에 색을 배정한다. 범례와 3D 가 같은 값을 봐야 해서 한 곳에서 만든다.
+ *
+ * 계통 종류·유체로 Flow Type 이 정해지고 그 색이 glossary 범례에 있으면 그 색이다(OE-OBJ-12 — 급기 계통은 어느 건물이든 `#99FF00`).
+ * 종류를 모르거나 범례 색이 미정(냉매·급수 …)인 계통만 SYSTEM_COLORS 를 순환한다.
+ */
 export function systemColors(model: Model): Map<string, number> {
-  return new Map(model.systems.map((s, i) => [s.id, SYSTEM_COLORS[i % SYSTEM_COLORS.length]]))
+  return new Map(model.systems.map((s, i) => [s.id, flowTypeColor(systemFlowType(s.kind, s.fluid)) ?? SYSTEM_COLORS[i % SYSTEM_COLORS.length]]))
 }
 
 /** 계통이 없는 설비. 색을 안 주면 안 보이므로 중립 회색으로 둔다. */
 const NO_SYSTEM = 0x98a1ab
+
+/**
+ * 설비 하나의 색. 덕트·배관은 그 구간의 Flow Type 색(사람이 그리거나 고른 값이 계통 계산보다 앞선다 — `conduitFlowType`)이고,
+ * Flow Type 을 모르거나 색이 미정이면 기기처럼 계통 색이다. 공급·환수가 한 계통에 섞인 BIM 계통에서 사람이 구간마다 고른 Flow Type 이
+ * 색으로 갈려 보이게 하려는 것이다. 3D 화면과 GLB 내보내기(export/mesh3d.ts)가 같이 쓴다.
+ */
+export function equipmentColor(
+  e: Model['storeys'][number]['equipment'][number],
+  systemOf: (id: string) => Model['systems'][number] | undefined,
+  colorOf: Map<string, number>,
+): number {
+  const flow = flowTypeColor(conduitFlowType(e, systemOf)?.code)
+  if (flow !== null) return flow
+  return e.systemId ? (colorOf.get(e.systemId) ?? NO_SYSTEM) : NO_SYSTEM
+}
 
 /**
  * 선택과 연결을 나타내는 색.
@@ -2635,9 +2656,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   /** 설비: 형상이 있으면 그 형상, 없고 좌표만 있으면 작은 상자. 좌표도 없으면 찍지 않는다 — 원점에 찍으면 거기 있는 것처럼 보인다. */
   function piecesOf(model: Model, meshes: MeshMap | undefined, colorOf: Map<string, number>): Piece[] {
     const pieces: Piece[] = []
+    const systemById = new Map(model.systems.map((s) => [s.id, s]))
+    const systemOf = (id: string) => systemById.get(id)
     for (const storey of model.storeys) {
       for (const equipment of storey.equipment) {
-        const color = equipment.systemId ? (colorOf.get(equipment.systemId) ?? NO_SYSTEM) : NO_SYSTEM
+        const color = equipmentColor(equipment, systemOf, colorOf)
         const data = meshes?.get(equipment.id)
         if (data) {
           pieces.push({ id: equipment.id, color, p: data.positions, n: data.normals, i: data.indices, src: data })
