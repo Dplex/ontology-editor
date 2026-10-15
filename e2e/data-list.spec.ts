@@ -69,17 +69,23 @@ test('목록 아래쪽의 파일을 열어도 작업 화면은 맨 위(3D)부터
   await expect(page.locator('.canvas-wrap > canvas')).toBeInViewport()
 })
 
-test('열 수 없는 파일은 이유를 보이고, 눌렀을 때 오류가 화면 안에 뜬다', async ({ page }) => {
+test('열 수 없는 파일은 목록에서 빼고, 등급은 잰 파일이 열다 실패하면 오류가 화면 안에 뜬다', async ({ page }) => {
+  // 등급을 재다 오류가 난 파일(STEP 구문 오류)은 열어도 오류뿐이라 목록에 두지 않는다(2026-10-15).
   // 오류 문구는 목록 뒤에 뜬다. 목록 가운데서 누른 사람에게는 화면 밖이라 아무 일이 없는 것처럼 보였다.
-  const why = 'STEP 구문 오류로 열 수 없습니다.'
   const filler: Row[] = Array.from({ length: 30 }, (_, i) => ({ path: `샘플/${String(i).padStart(2, '0')}.ifc`, bytes: ROOMS, ...arch }))
-  await serveData(page, [{ path: '깨짐/broken.ifc', bytes: 'ISO-10303-21;\nHEADER;\n', profile: { error: why } }, ...filler])
+  await serveData(page, [
+    { path: '깨짐/broken.ifc', bytes: 'ISO-10303-21;\nHEADER;\n', profile: { error: 'STEP 구문 오류로 열 수 없습니다.' } },
+    { path: '깨짐/opens-badly.ifc', bytes: 'ISO-10303-21;\nHEADER;\n', ...arch },
+    ...filler,
+  ])
   await page.goto('/')
-  const broken = row(page, '깨짐/broken.ifc')
-  await expect(broken.getByText('열 수 없음')).toHaveAttribute('title', why)
+  const bad = row(page, '깨짐/opens-badly.ifc')
+  await expect(bad).toBeVisible()
+  await expect(row(page, '깨짐/broken.ifc')).toHaveCount(0)
+  await expect(page.getByText('열 수 없음')).toHaveCount(0)
   // 오류는 목록 뒤에 뜨므로, 목록 위쪽에서 누르면 화면 밖이다.
-  await broken.scrollIntoViewIfNeeded()
-  await broken.getByRole('button', { name: '열기', exact: true }).click()
+  await bad.scrollIntoViewIfNeeded()
+  await bad.getByRole('button', { name: '열기', exact: true }).click()
   const error = page.getByRole('alert').filter({ hasText: 'IFC를 읽지 못했습니다' })
   await expect(error).toBeVisible({ timeout: 30_000 })
   await expect(error).toBeInViewport()

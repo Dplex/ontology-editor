@@ -11,6 +11,7 @@ import { crossCheck, readGeoJSON, type ExportFloor, type ReadFeature } from '../
 import { check3D, read3D, type Reading3D } from '../lib/export/read-3d'
 import { KIND_LABEL, planOf } from '../lib/export/plan-shapes'
 import Scene3D from './Scene3D.vue'
+import ThemeIcon from '../components/ThemeIcon.vue'
 
 const ttl = shallowRef<TtlReading | null>(null)
 const ttlName = ref('')
@@ -304,7 +305,7 @@ const PARTS_SHOWN = 40
         </div>
         <div class="actions">
           <a class="ghost" href="./">에디터</a>
-          <button type="button" class="ghost" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
+          <button type="button" class="ghost icon-btn" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme"><ThemeIcon :dark="dark" /></button>
         </div>
       </div>
     </header>

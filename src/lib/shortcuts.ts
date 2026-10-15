@@ -56,11 +56,11 @@ export type Shortcut = {
 
 export const SHORTCUTS: readonly Shortcut[] = [
   // '?' 는 자판마다 자리가 달라 글자로도 받는다.
-  { id: 'help', combos: [{ key: '?', shift: 'any' }, { code: 'Slash', shift: true }], keys: ['?'], label: '단축키 안내 열기·닫기', group: '어디서나' },
+  { id: 'help', combos: [{ key: '?', shift: 'any' }, { code: 'Slash', shift: true }], keys: ['?'], label: '조작·단축키 안내 열기·닫기', group: '어디서나' },
   { id: 'mode', combos: [{ code: 'KeyE' }], keys: ['E'], label: '보기 ↔ 편집', group: '어디서나' },
   { id: 'save', combos: [{ code: 'KeyS', ctrl: true }], keys: ['Ctrl+S'], label: '편집 저장(파일로 내려받기)', group: '어디서나' },
   { id: 'search', combos: [{ code: 'Slash' }], keys: ['/'], label: '이름 찾기 칸으로 이동', group: '어디서나' },
-  { id: 'replay', combos: [{ code: 'KeyP' }], keys: ['P'], label: '편집 리플레이 — 3D 에서 이번 세션의 편집을 고친 순서대로 다시 틀기(PoC)', group: '어디서나' },
+  { id: 'replay', combos: [{ code: 'KeyP' }], keys: ['P'], label: '편집 리플레이 — 이번 세션의 편집을 고친 순서대로 3D 에서 다시 보기(시험 기능)', group: '어디서나' },
   {
     id: 'nextIssue',
     combos: [{ code: 'KeyN' }],
@@ -89,7 +89,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   // 개발용. 성수 성능을 e2e:seongsu 없이 화면에서 바로 본다.
   { id: 'perf', combos: [{ code: 'Backquote' }], keys: ['`'], label: '성능 표 켜기·끄기(FPS·렌더링 시간·draw call·삼각형, 개발용)', group: '3D 시점' },
   { id: 'rules', combos: [{ code: 'KeyR' }], keys: ['R'], label: '규칙 방향 표시 켜기·끄기', group: '3D 시점' },
-  { id: 'walls', combos: [{ code: 'KeyW' }], keys: ['W'], label: '벽 켜기·끄기', group: '3D 시점' },
+  { id: 'walls', combos: [{ code: 'KeyW' }], keys: ['W'], label: '3D 벽(Walls) 켜기·끄기', group: '3D 시점' },
 
   { id: 'undo', combos: [{ code: 'KeyZ', ctrl: true }], keys: ['Ctrl+Z'], label: '되돌리기', group: '편집 · 설비', edit: true },
   {
@@ -127,7 +127,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
     edit: true,
   },
   { id: 'confirm', combos: [{ code: 'KeyC' }], keys: ['C'], label: '고른 설비 계통의 규칙 방향 확정', group: '편집 · 연결 방향', edit: true },
-  { id: 'editPart', combos: [{ code: 'KeyM' }], keys: ['M'], label: '공간 ↔ 설비 편집 모드 (OE-UI-04)', group: '편집 · 설비', edit: true },
+  { id: 'editPart', combos: [{ code: 'KeyM' }], keys: ['M'], label: '공간 ↔ 설비 편집 모드', group: '편집 · 설비', edit: true },
   { id: 'ceiling', combos: [{ code: 'KeyT' }], keys: ['T'], label: '천장 편집 모드 들어가기·나오기', group: '편집 · 설비', edit: true },
 
   { id: 'vertexInsert', combos: [{ code: 'Insert' }], keys: ['Insert'], label: '짚은 꼭짓점과 다음 꼭짓점 사이에 꼭짓점 넣기', group: '편집 · 물리존', edit: true },

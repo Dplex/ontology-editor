@@ -13,6 +13,7 @@ import Src, { type SrcKind } from './components/Src.vue'
 import FlowBasis from './components/FlowBasis.vue'
 import FlowLadder, { type LadderChip, type LadderLine, type LadderPart, type LadderRow } from './components/FlowLadder.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
+import ThemeIcon from './components/ThemeIcon.vue'
 import ReplayHud from './components/ReplayHud.vue'
 import ExportCompare from './components/ExportCompare.vue'
 import type { CompareReading } from './lib/export/compare'
@@ -5564,6 +5565,9 @@ fetch('./__data/')
     }
   })
   .catch(() => {})
+
+/** 목록에 보이는 data/ 파일. 등급을 재다 오류가 난(열 수 없는) 파일은 뺀다. 재기 전에는 보인다. */
+const openableDataFiles = computed(() => dataFiles.value.filter((f) => !errorAt(f.path)))
 
 const baseName = (path: string) => path.split('/').pop() ?? path
 const profileAt = (path: string): Profile | null => {
@@ -11304,8 +11308,8 @@ function rollbackFromReport() {
           <h1>ontology-editor</h1>
           <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다. 내보낸 TTL·GeoJSON 은 <a href="./viewer.html">내보낸 파일 보기</a>에서 다시 열어 봅니다.</p>
         </div>
-        <button type="button" class="theme" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">
-          {{ dark ? '라이트' : '다크' }}
+        <button type="button" class="theme icon-btn" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">
+          <ThemeIcon :dark="dark" />
         </button>
       </div>
     </header>
@@ -11398,7 +11402,7 @@ function rollbackFromReport() {
     <!-- data/ 의 샘플. 파일마다 온톨로지를 어디까지 채우는지 먼저 보고 고른다. -->
     <section v-if="dataFiles.length" class="catalog">
       <!-- 파일을 연 뒤에는 접어 둔다. 목록이 3D 와 검토 화면을 아래로 밀어낸다. 덧붙일 때 다시 편다. -->
-      <Fold :key="model ? 'loaded' : 'empty'" title="data/ 의 IFC" :meta="`${dataFiles.length}개`" :default-open="!model">
+      <Fold :key="model ? 'loaded' : 'empty'" title="data/ 의 IFC" :meta="`${openableDataFiles.length}개`" :default-open="!model">
         <p v-if="dataPicked.length" class="catalog-pick">
           <button type="button" class="pick" :disabled="busy" @click="openDataSet(dataPicked)">
             고른 {{ dataPicked.length }}개 {{ dataPicked.length > 1 ? '합쳐서 열기' : '열기' }}
@@ -11413,7 +11417,8 @@ function rollbackFromReport() {
         </p>
         <table>
           <tbody>
-            <tr v-for="f in dataFiles" :key="f.path" :class="{ picked: dataPicked.includes(f.path) }">
+            <!-- 열 수 없는 파일(STEP 구문 오류 등 — 55 의 Duplex COBie 셋)은 목록에서 뺀다. 열어도 오류뿐이라 고를 까닭이 없다(2026-10-15 사용자). -->
+            <tr v-for="f in openableDataFiles" :key="f.path" :class="{ picked: dataPicked.includes(f.path) }">
               <td class="pick-cell">
                 <input type="checkbox" :checked="dataPicked.includes(f.path)" :aria-label="`${f.path} 같이 열기`" @change="toggleDataPick(f.path)" />
               </td>
@@ -11423,7 +11428,6 @@ function rollbackFromReport() {
               </td>
               <td class="chips">
                 <span v-if="!profiles[f.path]" class="muted">분석 중…</span>
-                <span v-else-if="errorAt(f.path)" class="unreadable" :title="errorAt(f.path)">열 수 없음</span>
                 <!-- 모양이 다른 응답(옛 서버 등)이 오면 칩 없이 둔다. `!` 로 밀어붙였더니 목록 렌더가 멈춰 그 뒤 화면 갱신이 꼬였다. -->
                 <template v-else-if="profileAt(f.path)">
                   <TierChips :tiers="profileAt(f.path)!.tiers" />
@@ -11563,8 +11567,8 @@ function rollbackFromReport() {
             <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'glb'" :class="{ done: justDone === 'glb' }" @click="export3D('glb')">{{ exporting3d === 'glb' ? 'GLB…' : 'GLB' }}</button>
             <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" :class="{ done: justDone === 'obj' }" @click="export3D('obj')">{{ exporting3d === 'obj' ? 'OBJ…' : 'OBJ' }}</button>
             <button type="button" class="ghost" aria-label="3D 형상 내보내기 (FBX)" :title="fbxServer.enabled ? '3D 형상 내보내기 (FBX 파일 하나, 요소 이름은 GlobalId, 서버에서 GLB 를 변환)' : fbxServer.reason" :disabled="busy || !!exporting3d || !fbxServer.enabled" :aria-busy="exporting3d === 'fbx'" :class="{ done: justDone === 'fbx' }" @click="export3D('fbx')">{{ exporting3d === 'fbx' ? 'FBX…' : 'FBX' }}</button>
-            <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
-            <button type="button" class="ghost theme" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
+            <button type="button" class="ghost keys-help" title="조작·단축키 안내 (?)" aria-label="조작·단축키 안내" @click="helpOpen = true">?</button>
+            <button type="button" class="ghost theme icon-btn" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme"><ThemeIcon :dark="dark" /></button>
           </div>
         </div>
         <!-- 편집 모드에서만. 좁은 폭에서는 마지막 편집 이름이 남는 폭을 쓰고 넘치면 자른다. 단축키는 title 과 ? 안내로. -->
@@ -12186,7 +12190,7 @@ function rollbackFromReport() {
                   <button type="button" class="ghost" @click="setMultiAll">전체</button>
                   <button type="button" class="ghost" @click="closeMultiView">층 편집으로</button>
                 </span>
-                <button v-if="fullscreen" type="button" class="ghost keys-help" title="단축키 안내" aria-label="단축키 안내" @click="helpOpen = true">?</button>
+                <button v-if="fullscreen" type="button" class="ghost keys-help" title="조작·단축키 안내 (?)" aria-label="조작·단축키 안내" @click="helpOpen = true">?</button>
                 <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
                   {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
                 </button>
