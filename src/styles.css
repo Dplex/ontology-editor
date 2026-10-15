@@ -6358,3 +6358,86 @@ button.done::after {
 .sub a {
   color: var(--accent);
 }
+
+/* 종류별 색의 범례(독의 [Explode]). 3D 왼쪽 아래, 클릭 안내 위. 종류가 많으면 칸 안에서 굴린다. */
+.class-key {
+  position: absolute;
+  left: 0.75rem;
+  bottom: 3.2rem;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  max-width: 17rem;
+  max-height: 55%;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: var(--shadow);
+  font-size: 0.8rem;
+}
+
+.class-key-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.4rem;
+  margin: 0 0 0.3rem;
+}
+
+.class-key-head .link {
+  margin-left: auto;
+}
+
+.class-key ul {
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.class-key li button {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid transparent;
+  border-radius: 0.35rem;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.class-key li button:hover,
+.class-key li button.on {
+  border-color: var(--accent);
+}
+
+.class-key li button.off {
+  opacity: 0.45;
+}
+
+.class-key li button.unknown .class-name {
+  font-weight: 600;
+}
+
+.class-key li i {
+  flex: none;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 0.2rem;
+}
+
+.class-key .class-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.class-key li b {
+  font-variant-numeric: tabular-nums;
+}

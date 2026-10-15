@@ -5968,6 +5968,7 @@ function setViewFilter(patch: Partial<ViewFilter>) {
 function clearViewFilter() {
   viewFilter.value = EMPTY_FILTER
   if (exploded.value) toggleExplode()
+  classTintOn.value = false
   note('모두 보입니다')
 }
 /** 체크 목록 한 칸을 켜고 끈다. 전부 켜지면 null(거르지 않음)로 돌린다. */
@@ -6070,6 +6071,50 @@ watch(viewFilter, () => {
 })
 watch([model, sceneVersion], () => {
   if (exploded.value && !viewer?.exploded()) exploded.value = false
+})
+// --- 종류별 색(독의 [Explode], 2026-10-15) ---
+// 기기를 제자리에서 Brick 클래스(TTL 에 나가는 그 클래스, classOf)별 색으로 칠하고 범례에 종류 이름·대수를 보인다. 범례 줄을 누르면 그 종류만
+// 색으로 남기고 나머지는 흐린 회색이다. 덕트·배관은 흐린 회색이고 가구는 흐리게 한다. 사전이 종류를 모르는 기기(`ex:` 클래스)는 한 줄 "종류 모름" 으로 묶어 자홍이다 —
+// 종류를 채워야 할 기기가 어디에 얼마나 있는지 보이게. 화면에서만이고, 리플레이 동안은 끈다.
+/** 범례 순서대로 쓰는 색(많은 종류부터). 10개를 넘으면 돌려 쓴다 — 그때는 범례 줄을 눌러 하나씩 본다. */
+const CLASS_PALETTE = [0x4e79a7, 0xf28e2b, 0x59a14f, 0xe15759, 0x76b7b2, 0xedc948, 0xb07aa1, 0x9c755f, 0x2f8f9d, 0x8cd17d]
+const UNKNOWN_CLASS = '(종류 모름)'
+/** 종류 모름은 눈에 띄는 자홍이다 — 짙은 회색으로 두었더니 벽·바닥과 섞여 채울 것이 안 보였다. 팔레트에는 이 색과 비슷한 분홍을 두지 않는다. */
+const UNKNOWN_CLASS_COLOR = 0xc2185b
+const classTintOn = ref(false)
+/** 범례에서 누른 종류. 그 종류만 색으로 남긴다. */
+const classFocus = ref<string | null>(null)
+const classLegend = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  if (!classTintOn.value || !m) return []
+  const rows: { key: string; label: string; cls: string; ids: string[]; color: number }[] = []
+  const unknown: { ids: string[]; classes: string[] } = { ids: [], classes: [] }
+  for (const g of explodeGroups(m, () => true)) {
+    if (g.cls.startsWith('ex:')) {
+      unknown.ids.push(...g.ids)
+      unknown.classes.push(g.cls)
+      continue
+    }
+    const first = equipmentById.value.get(g.ids[0])
+    const label = (first && equipmentKind(first.kind)?.label) || g.cls.replace(/^brick:/, '').replace(/_/g, ' ')
+    rows.push({ key: g.cls, label, cls: g.cls, ids: g.ids, color: CLASS_PALETTE[rows.length % CLASS_PALETTE.length] })
+  }
+  if (unknown.ids.length) rows.push({ key: UNKNOWN_CLASS, label: '종류 모름', cls: unknown.classes.join(' · '), ids: unknown.ids, color: UNKNOWN_CLASS_COLOR })
+  return rows
+})
+watch(classTintOn, (on) => {
+  if (!on) classFocus.value = null
+  else if (activeTab.value !== '3d') activeTab.value = '3d'
+})
+watch([classLegend, classFocus, replayOpen], () => {
+  if (!classTintOn.value || replayOpen.value) {
+    viewer?.setTint(null)
+    return
+  }
+  const colors = new Map<string, number>()
+  for (const r of classLegend.value) if (!classFocus.value || classFocus.value === r.key) for (const id of r.ids) colors.set(id, r.color)
+  viewer?.setTint(colors)
 })
 // 리플레이 동안은 분해도를 접고 다중층 뷰의 손잡이를 끈다(건물 전체 3D 에서 튼다 — 보기 필터는 applyStoreyFilter). 닫으면 되살린다.
 // 닫을 때 리플레이가 뷰어 편집 모드를 editing 으로만 돌려서, 다중층 뷰였으면 여기서 다시 맞춘다(위 watch([multiView, editing]) 와 같은 값).
@@ -11740,13 +11785,15 @@ function rollbackFromReport() {
                 <span>Filter</span>
                 <b v-if="filterOn" class="dock-dot" aria-label="필터 켜짐"></b>
               </button>
+              <!-- 종류별 색(2026-10-15). 예전에는 Brick 클래스별로 공중에 띄웠는데(분해도) 높이에 뜻이 없어 읽히지 않았다. 띄우기는 서랍·우클릭에 남는다. -->
               <button
                 type="button"
-                :class="['dock-btn', { on: exploded }]"
-                :aria-pressed="exploded"
-                aria-label="Explode (분해도)"
-                title="보이는 기기를 Brick 클래스별로 공중에 펼쳐 봅니다"
-                @click="toggleExplode"
+                :class="['dock-btn', { on: classTintOn }]"
+                :aria-pressed="classTintOn"
+                aria-label="Explode (종류별 색)"
+                title="기기를 제자리에서 Brick 종류별 색으로 칠하고 범례에 종류·대수를 보입니다"
+                data-testid="class-tint-toggle"
+                @click="classTintOn = !classTintOn"
               >
                 <span class="dock-icon" aria-hidden="true">❖</span>
                 <span>Explode</span>
@@ -11764,10 +11811,10 @@ function rollbackFromReport() {
                 <span>Walls</span>
               </button>
               <button
-                v-if="filterOn || exploded"
+                v-if="filterOn || exploded || classTintOn"
                 type="button"
                 class="dock-btn reset"
-                title="적용된 모든 필터와 분해도를 초기화합니다"
+                title="적용된 모든 필터·분해도·종류별 색을 초기화합니다"
                 @click="clearViewFilter"
               >
                 Reset
@@ -12249,6 +12296,29 @@ function rollbackFromReport() {
             </div>
           </div>
 
+          <!-- 종류별 색의 범례(독의 [Explode]). 줄을 누르면 그 종류만 색으로 남긴다. 클래스 원문은 TTL 에 나가는 그 클래스다. -->
+          <div v-if="classTintOn && activeTab === '3d' && !replayOpen" class="class-key" data-testid="class-key">
+            <p class="class-key-head">
+              <b>종류별 색</b> <span class="muted">기기 {{ classLegend.reduce((n, r) => n + r.ids.length, 0) }}대 · 덕트·배관은 회색</span>
+              <button v-if="classFocus" type="button" class="link" @click="classFocus = null">모두</button>
+            </p>
+            <p v-if="!classLegend.length" class="muted">칠할 기기가 없습니다(건축 파일이면 설비 IFC 를 덧붙입니다)</p>
+            <ul>
+              <li v-for="r in classLegend" :key="r.key">
+                <button
+                  type="button"
+                  :class="{ on: classFocus === r.key, off: !!classFocus && classFocus !== r.key, unknown: r.key === UNKNOWN_CLASS }"
+                  :aria-pressed="classFocus === r.key"
+                  :title="`${r.cls} — 누르면 이 종류만 색으로 남깁니다`"
+                  @click="classFocus = classFocus === r.key ? null : r.key"
+                >
+                  <i :style="{ background: hex(r.color) }" aria-hidden="true"></i>
+                  <span class="class-name">{{ r.label }}</span>
+                  <b>{{ r.ids.length }}</b>
+                </button>
+              </li>
+            </ul>
+          </div>
           <!-- 3D 색이 무엇을 뜻하는지. 진한 색은 BIM 포트가 말한 흐름, 옅은 색은 규칙으로 정한 흐름이다. -->
           <ul v-if="selected && activeTab === '3d'" class="color-key">
             <li><i :style="{ background: hex(PICK_COLORS.upstream) }"></i>상류 <Src kind="bim" /></li>

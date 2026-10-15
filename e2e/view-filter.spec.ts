@@ -128,3 +128,38 @@ test('Duplex: 왼쪽 위 탐색 독으로 연 필터에서, 한 층만 보던 �
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
   expect(errors).toEqual([])
 })
+
+test('Duplex: 독의 [Explode] 는 기기를 제자리에서 종류별 색으로 칠하고 범례에 종류·대수를 보이며, 범례 줄을 누르면 그 종류만 남기고, Reset 이면 끈다. 편집은 0건이다', async ({ page }) => {
+  test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(120_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
+  const toggle = page.getByTestId('class-tint-toggle')
+  await expect(toggle).toHaveAccessibleName('Explode (종류별 색)')
+  await toggle.click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  const key = page.getByTestId('class-key')
+  const rows = key.locator('li button')
+  await expect(rows.first()).toBeVisible()
+  // 범례 대수의 합 = 칠한 기기 수. 덕트·배관은 칠하지 않는다.
+  const counts = (await rows.locator('b').allInnerTexts()).map(Number)
+  const total = counts.reduce((a, b) => a + b, 0)
+  expect(total).toBeGreaterThan(0)
+  await expect(key.locator('.class-key-head')).toContainText(`기기 ${total}대`)
+  await expect.poll(() => viewer<number>(page, 'tinted')).toBe(total)
+  // 줄을 누르면 그 종류만 색으로 남는다. 다시 누르면 전부다.
+  await rows.first().click()
+  await expect(rows.first()).toHaveAttribute('aria-pressed', 'true')
+  await expect.poll(() => viewer<number>(page, 'tinted')).toBe(counts[0])
+  await rows.first().click()
+  await expect.poll(() => viewer<number>(page, 'tinted')).toBe(total)
+  // Reset 이면 끄고 계통 색으로 돌아간다.
+  await page.locator('.facade-dock').getByRole('button', { name: 'Reset' }).click()
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  await expect(key).toHaveCount(0)
+  await expect.poll(() => viewer<number>(page, 'tinted')).toBe(0)
+  expect(errors).toEqual([])
+})
