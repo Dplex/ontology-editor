@@ -114,7 +114,7 @@ test('완료만 눌러도 편집을 끝낼 때 묻고 자동 저장에 남으며
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
   expect(asked).toHaveLength(1) // 앞 파일의 편집을 버릴지는 물었다
   const draft = page.locator('.draft-bar')
-  if (await draft.isVisible()) await draft.getByRole('button', { name: '버리기' }).click()
+  if (await draft.isVisible()) await draft.getByRole('button', { name: '아니오', exact: true }).click()
   if (!(await page.getByRole('button', { name: '편집 종료' }).isVisible())) await page.getByRole('button', { name: '편집', exact: true }).click()
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+s')

@@ -136,7 +136,7 @@ test('저장 안 함은 연 때로 되돌리고, 버린 편집은 위 줄에서 
 
   const bar = page.locator('.draft-bar')
   await expect(bar).toContainText('편집 1건')
-  await bar.getByRole('button', { name: '이어서 하기' }).click()
+  await bar.getByRole('button', { name: '예', exact: true }).click()
   await expect(row(page, 'AHU-1').locator('.coord').first()).toHaveValue('2')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
 })

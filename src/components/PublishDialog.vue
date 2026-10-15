@@ -57,7 +57,7 @@ watch(
       </ul>
       <p v-if="first && unsaved?.length" class="publish-unsaved" data-testid="publish-unsaved">
         임시 저장하지 않은 편집이 있는 층: <b>{{ unsaved.join(' · ') }}</b>. 각 층은 임시 저장한 내용(없으면 임포트 결과)으로 구축합니다.
-        [저장한 내용으로 구축]을 선택하면 이 편집은 구축에서 제외하고 화면에서도 되돌립니다(상단 바의 [이어서 하기]로 복구할 수 있습니다).
+        [저장한 내용으로 구축]을 선택하면 이 편집은 구축에서 제외하고 화면에서도 되돌립니다(상단 바의 자동 저장 질문에서 [예]로 복구할 수 있습니다).
       </p>
       <p v-if="fixed" class="publish-by" data-testid="publisher">반영자 <b>{{ by || '(사용자를 선택하세요)' }}</b></p>
       <label v-else class="publish-by">반영자 <input v-model="name" type="text" aria-label="반영자" required /></label>

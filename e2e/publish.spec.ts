@@ -508,7 +508,7 @@ test('임시 저장하지 않은 편집이 있는 채 [구축하기] 에서 [저
   const edits = JSON.parse(await fromServer({ v: '1', file: 'edits.json' })) as { equipment: { position: number[] }[] }
   expect(edits.equipment).toHaveLength(1)
   expect(edits.equipment[0].position[0]).toBe(7.5)
-  // 화면도 저장한 때(7.5)로 돌아오고, 빠진 편집은 [이어서 하기]로 되살릴 수 있다.
+  // 화면도 저장한 때(7.5)로 돌아오고, 빠진 편집은 자동 저장 [예] 로 되살릴 수 있다.
   await expect(light(page)).toHaveValue('7.5')
   await expect(page.locator('.draft-bar')).toBeVisible()
   expect(errors).toEqual([])
