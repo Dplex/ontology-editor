@@ -1,4 +1,4 @@
-import { computed, ref, triggerRef } from 'vue'
+import { computed, ref, shallowRef, triggerRef } from 'vue'
 import { type BoundaryChange, type Change, deleteEquipment, EXTERIOR_ONLY, exteriorOnly, moveEquipment, moveEquipmentToStorey, onExteriorFace, type Snapshot, snapshotEquipment, snapshotEquipmentSet, snapshotServedZones } from '../lib/edit'
 import type { RuleReport } from '../lib/flow-rules'
 import { josa } from '../lib/josa'
@@ -221,5 +221,6 @@ export const storeyOf = (equipmentId: string) =>
 export const editNotice = ref('')
 
 // 경계 편집은 넓이와 설비 소속을 동시에 흔든다. 두 변화를 같은 자리에서 보여 준다.
-export const areaChanges = ref<BoundaryChange[]>([])
+// changes 처럼 새 배열로만 바꾼다(edit-report.ts).
+export const areaChanges = shallowRef<BoundaryChange[]>([])
 export const selfIntersecting = computed(() => areaChanges.value.some((c) => c.selfIntersecting))

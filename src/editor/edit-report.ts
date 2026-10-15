@@ -1,4 +1,4 @@
-import { computed, nextTick, ref, triggerRef } from 'vue'
+import { computed, nextTick, ref, shallowRef, triggerRef } from 'vue'
 import { ceilingGuess, ceilingOf, FLOOR_BAND, judgeAll, type Judged, judgeSurface, outsideAllowed, setCeiling, setEquipmentSurface } from '../lib/ceiling'
 import { type BoundaryChange, type Change, snapshotEquipment, summarize } from '../lib/edit'
 import { exteriorDevices } from '../lib/exterior'
@@ -21,7 +21,8 @@ import { areaChanges, storeyOf } from './multi-select'
 //
 // 편집은 모델을 그 자리에서 고친다. shallowRef 는 안쪽 변화를 못 보므로 편집한 뒤에
 // triggerRef 로 알린다. 모델을 통째로 복사하면 3D 가 매번 다시 만들어진다.
-export const changes = ref<Change[]>([])
+// 바뀐 것 목록은 늘 새 배열로 갈아 끼우고 원소를 고치지 않는다. 깊은 ref 면 리포트를 셀 때마다 쌓인 원소 하나하나에 프록시를 씌운다.
+export const changes = shallowRef<Change[]>([])
 export const report = computed(() => summarize(changes.value))
 
 // 넓이는 편집할 때마다 조금씩 움직인다. 매번 한 줄씩 쌓지 말고 처음과 끝만 적는다.
