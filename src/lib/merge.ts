@@ -17,7 +17,7 @@ import { ratioLabel, storeyScaleMismatch, type ScaleMismatch } from './unit-chec
 import { estimateOffset, offsetText, type Offset } from './align'
 import { assignEquipmentToSpaces, distanceToRing, interiorPoint, pointInPolygon } from './mapping'
 import { inferFlowByRules } from './flow-rules'
-import type { Connection, Model, Space, Storey, System, Vec2 } from './model'
+import { isConduit, type Connection, type Model, type Space, type Storey, type System, type Vec2 } from './model'
 
 /** 두 층의 높이가 이 안이면 같은 층으로 본다(미터). 저작 도구의 반올림을 흡수할 만큼만 둔다. */
 export const ELEVATION_TOLERANCE = 0.05
@@ -147,6 +147,27 @@ export function mergeModels(
    */
   const dropped = new Map<string, string | null>()
   const spaceTally = { dropped: 0, kept: 0, borrowed: 0 }
+
+  // **같은 방의 높이는 건축 판본 값을 쓴다**(OE-BIM-03, glossary "설비 판본의 방 높이는 쓰지 않는다"). 기준 모델은 방을 더 많이 그린
+  // 쪽이라 설비 판본이 기준이 될 수 있다 — Duplex 는 건축의 복도 둘에 외곽선이 없어 설비가 기준이고, 2층 복도 A201·B201 의 방 높이가
+  // 건축 2.9m 대신 설비 2.6m 로 남았다. 파일에 판본 표시가 없어 기기 수로 가른다: 덧붙인 쪽의 기기가 기준의 1/10 이하면 건축 판본이다
+  // (Duplex 0 · 926, 병원 건축 102 · 설비 16,012). 설비끼리(병원 HVAC 3,704 · MEP 16,012)는 건축으로 보지 않는다.
+  const devices = (m: Model) => m.storeys.reduce((n, s) => n + s.equipment.filter((e) => !isConduit(e.role)).length, 0)
+  const overlayIsArchitecture = devices(b) * 10 <= devices(a) && devices(a) > 0
+  /** 버리는 건축 판본 방의 높이를 남는 방에 옮기고, 남는 방에 없는 BIM 값(면적·분류)은 채운다. */
+  const takeArchitecture = (kept: Space, arch: Space) => {
+    if (arch.roomHeight) kept.roomHeight = { ...arch.roomHeight }
+    if (arch.ceilingHeight) kept.ceilingHeight = { ...arch.ceilingHeight }
+    if (!kept.bimArea && arch.bimArea) kept.bimArea = { ...arch.bimArea }
+    if (!kept.omniclass && arch.omniclass) {
+      kept.omniclass = arch.omniclass
+      if (arch.omniclassSource) kept.omniclassSource = arch.omniclassSource
+    }
+    if (!kept.kind && arch.kind) {
+      kept.kind = arch.kind
+      if (arch.kindSource) kept.kindSource = arch.kindSource
+    }
+  }
   const seenIds = new Set<string>(
     a.storeys.flatMap((s) => [
       ...s.spaces.map((x) => x.id),
@@ -204,6 +225,7 @@ export function mergeModels(
       if (sameSpot) {
         // 설계 풍량(R26)은 Revit 에서 설비 파일의 MEP 공간에 붙는다. 건축 방이 남고 설비 방이 빠지므로 값을 남는 방으로 옮긴다.
         if (!sameSpot.designAirflow && space.designAirflow) sameSpot.designAirflow = { ...space.designAirflow }
+        if (overlayIsArchitecture) takeArchitecture(sameSpot, space)
         dropped.set(space.id, sameSpot.id)
         spaceTally.dropped++
         continue
@@ -245,8 +267,9 @@ export function mergeModels(
     absorbSpaces(target, storey.spaces)
     // BIM 이 적은 층 높이는 바탕 파일 것을 쓰고, 바탕에 없을 때만 덧붙인 파일 것을 쓴다(OE-BIM-02).
     if (!target.declaredHeight && storey.declaredHeight) target.declaredHeight = { ...storey.declaredHeight }
-    // 반자 높이(OE-EQP-03)도 비어 있을 때만 채운다. 설비 판본의 방 높이는 임포터가 이미 거른다(ceiling.ts).
-    if (!target.ceiling && storey.ceiling) target.ceiling = { ...storey.ceiling }
+    // 반자 높이(OE-EQP-03)도 비어 있을 때만 채운다. 설비 판본의 방 높이는 임포터가 이미 거른다(ceiling.ts). 덧붙인 쪽이 건축
+    // 판본이면 그 값이 앞선다(위 takeArchitecture 와 같은 까닭).
+    if (storey.ceiling && (!target.ceiling || overlayIsArchitecture)) target.ceiling = { ...storey.ceiling }
     // 슬래브(OE-ML-03)도 바탕에 없을 때만 덧붙인 파일 것을 쓴다. 설비 판본에는 보통 슬래브가 없다.
     if (!target.slabs?.length && storey.slabs?.length) target.slabs = storey.slabs
     target.walls.push(...fresh(storey.walls))

@@ -225,6 +225,40 @@ describe('물리존이 양쪽에 있을 때', () => {
     expect(report.declaredRemapped).toEqual({ total: 1, remapped: 1 })
   })
 
+  it('설비 판본이 기준이 되어도 같은 방의 방 높이·반자 높이는 건축 판본 값이고, 설비 방에 없는 면적·분류는 건축에서 채운다 [OE-BIM-03#3~]', () => {
+    // Duplex 처럼 건축 판본의 방 몇 개에 외곽선이 없으면 설비 판본이 기준이 된다. 2층 복도는 건축 2.9m · 설비 2.6m 였다.
+    const a = arch()
+    Object.assign(a.storeys[0].spaces[0], { roomHeight: { m: 2.9, property: 'PSet_Revit_Dimensions.Unbounded Height' }, ceilingHeight: { m: 2.7, property: 'Pset_SpaceCommon.FinishCeilingHeight' }, bimArea: { m2: 29.5, property: 'Dimensions.Area' }, omniclass: '13-51 24 11', omniclassSource: 'property', kind: 'hallway', kindSource: 'dict' })
+    a.storeys[0].ceiling = { height: 2.7, property: 'Pset_SpaceCommon.FinishCeilingHeight', count: 1 }
+    const m = mep()
+    m.storeys[0].spaces = [{ ...space('living-mep', 'A102', rect(0, 0, 6, 5)), roomHeight: { m: 2.6, property: 'PSet_Revit_Dimensions.Unbounded Height' } }]
+    m.storeys[0].ceiling = { height: 2.6, property: 'PSet_Revit_Dimensions.Unbounded Height', count: 1 }
+
+    const { model: merged } = mergeModels(m, a)
+    const living = merged.storeys[0].spaces.find((s) => s.id === 'living-mep')!
+    // 남는 방(식별)은 기준 것 그대로이고, 높이·면적·분류는 건축 판본 값이다. 면적은 BIM 값을 그대로 옮긴다(덜어 내지 않는다).
+    expect(merged.storeys[0].spaces.map((s) => s.id)).toEqual(['living-mep', 'kitchen'])
+    expect(living).toMatchObject({ name: 'A102', roomHeight: { m: 2.9 }, ceilingHeight: { m: 2.7 }, bimArea: { m2: 29.5 }, omniclass: '13-51 24 11', kind: 'hallway', kindSource: 'dict' })
+    expect(living.areaM2).toBe(30)
+    expect(merged.storeys[0].ceiling).toMatchObject({ height: 2.7 })
+
+    // 건축이 기준이면 지금까지처럼 건축 값이 남는다(설비 방은 버려진다).
+    const { model: archBase } = mergeModels(a, m)
+    expect(archBase.storeys[0].spaces[0]).toMatchObject({ id: 'living', roomHeight: { m: 2.9 } })
+    expect(archBase.storeys[0].ceiling).toMatchObject({ height: 2.7 })
+  })
+
+  it('설비 판본끼리 합칠 때는 기준 쪽 높이를 바꾸지 않는다 — 기기 수가 1/10 넘게 차이 나야 건축 판본으로 본다', () => {
+    const hvac = mep()
+    hvac.storeys[0].spaces = [{ ...space('living-hvac', 'A102', rect(0, 0, 6, 5)), roomHeight: { m: 2.6, property: 'h' } }]
+    const plumbing = mep()
+    plumbing.storeys[0].equipment = plumbing.storeys[0].equipment.slice(0, 1)
+    plumbing.storeys[0].spaces = [{ ...space('living-plumb', 'A102', rect(0, 0, 6, 5)), roomHeight: { m: 3.1, property: 'h' } }]
+    const { model: merged } = mergeModels(hvac, plumbing)
+    expect(merged.storeys[0].spaces).toHaveLength(1)
+    expect(merged.storeys[0].spaces[0].roomHeight).toEqual({ m: 2.6, property: 'h' })
+  })
+
   it('기준 모델에 없는 자리를 채우는 방은 받는다', () => {
     // 건축 판본의 복도가 외곽선을 못 낸 경우. 설비 판본의 복도가 그 빈자리를 채운다.
     const b = mep()
