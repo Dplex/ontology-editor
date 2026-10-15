@@ -8,12 +8,15 @@ const props = defineProps<{ open: boolean; editing: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const dialog = ref<HTMLDialogElement | null>(null)
+const closeButton = ref<HTMLButtonElement | null>(null)
 watch(
   () => [props.open, dialog.value] as const,
   ([open, el]) => {
     if (!el) return
-    if (open && !el.open) el.showModal()
-    else if (!open && el.open) el.close()
+    if (open && !el.open) {
+      el.showModal()
+      closeButton.value?.focus()
+    } else if (!open && el.open) el.close()
   },
 )
 
@@ -28,11 +31,11 @@ function onClick(e: MouseEvent) {
 </script>
 
 <template>
-  <dialog ref="dialog" class="shortcut-help" aria-labelledby="shortcut-help-title" @close="emit('close')" @click="onClick">
+  <dialog ref="dialog" class="shortcut-help" aria-modal="true" aria-labelledby="shortcut-help-title" @close="emit('close')" @click="onClick">
     <div class="shortcut-help-body">
       <header>
         <h2 id="shortcut-help-title">조작·단축키 안내</h2>
-        <button type="button" class="ghost" @click="emit('close')">닫기 <kbd>Esc</kbd></button>
+        <button ref="closeButton" type="button" class="ghost" @click="emit('close')">닫기 <kbd>Esc</kbd></button>
       </header>
       <!-- 마우스가 먼저다 — 처음 쓰는 사람이 찾는 것은 "3D 를 어떻게 돌리나" 다. viewer.ts 의 mouseButtons(왼쪽 이동 · 가운데 확대 · 오른쪽 회전)와
            맞춘다. 예전 글은 "끌기로 회전 · 오른쪽 끌기로 이동" 이라 실제와 반대였다. -->

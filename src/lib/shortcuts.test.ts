@@ -60,6 +60,16 @@ describe('단축키 맞추기', () => {
   it('모든 단축키가 안내의 어느 무리엔가 들어 있다', () => {
     for (const s of SHORTCUTS) expect(SHORTCUT_GROUPS).toContain(s.group)
   })
+
+  it('뷰어 탐색·도구 단축키(V, Shift+V, X, L, B, O, 0)를 자판 위치로 맞춘다', () => {
+    expect(matchShortcut(key('KeyV'))?.id).toBe('filterToggle')
+    expect(matchShortcut(key('KeyV', { shiftKey: true }))?.id).toBe('planToggle')
+    expect(matchShortcut(key('KeyX'))?.id).toBe('explodeToggle')
+    expect(matchShortcut(key('KeyL'))?.id).toBe('labelsToggle')
+    expect(matchShortcut(key('KeyB'))?.id).toBe('compareToggle')
+    expect(matchShortcut(key('KeyO'))?.id).toBe('topView')
+    expect(matchShortcut(key('Digit0'))?.id).toBe('frameAll')
+  })
 })
 
 describe('화면 방향을 평면 축으로', () => {

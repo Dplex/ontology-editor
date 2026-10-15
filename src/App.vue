@@ -1842,8 +1842,9 @@ const searchInput = ref<HTMLInputElement | null>(null)
 const kindSelect = ref<HTMLSelectElement | null>(null)
 
 /** 단축키 하나를 한다. 할 것이 없어서 넘긴 키는 false 다(브라우저 기본 동작을 살린다). */
-function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
-  switch (s.id) {
+function runShortcut(s: Shortcut | Shortcut['id'], e?: KeyboardEvent): boolean {
+  const id = typeof s === 'string' ? s : s.id
+  switch (id) {
     case 'help':
       helpOpen.value = !helpOpen.value
       return true
@@ -1878,6 +1879,37 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
     case 'frameAll':
       viewer?.frameAll()
       return true
+    case 'topView':
+      if (activeTab.value !== '3d' || replayOpen.value) return false
+      viewer?.viewFrom([0, 1, 0])
+      note('위에서 내려다보는 시점으로 맞췄습니다')
+      return true
+    case 'filterToggle':
+      if (activeTab.value !== '3d' || replayOpen.value) return false
+      filterOpen.value = !filterOpen.value
+      return true
+    case 'planToggle':
+      if (replayOpen.value || multiView.value) return false
+      if (activeTab.value === '3d') showPlan()
+      else activeTab.value = '3d'
+      return true
+    case 'explodeToggle':
+      // 독의 [Explode](종류별 색)를 켜고 끈다. 공중에 띄우는 분해도는 서랍·우클릭 메뉴에서만 연다.
+      if (activeTab.value !== '3d' || replayOpen.value) return false
+      classTintOn.value = !classTintOn.value
+      return true
+    case 'labelsToggle':
+      if (activeTab.value !== '3d' || replayOpen.value) return false
+      if (!labelStorey.value) {
+        note('층 하나를 선택하면 설비 라벨을 표시할 수 있습니다')
+        return true
+      }
+      showLabels.value = !showLabels.value
+      return true
+    case 'compareToggle':
+      if (activeTab.value !== '3d' || replayOpen.value) return false
+      compareOpen.value = !compareOpen.value
+      return true
     case 'fly':
       if (activeTab.value !== '3d') return false
       setFlying(!flying.value)
@@ -1908,17 +1940,17 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       redo()
       return true
     case 'nudge':
-      return nudge(e.code, e.shiftKey ? 1 : 0.1)
+      return e ? nudge(e.code, e.shiftKey ? 1 : 0.1) : false
     case 'storeyUp':
     case 'storeyDown':
-      return stepStorey(s.id === 'storeyUp' ? 1 : -1)
+      return stepStorey(id === 'storeyUp' ? 1 : -1)
     case 'duplicate':
       if (!selected.value || selectedLock.value) return false
       startDuplicate(selected.value)
       return true
     case 'arrowPrev':
     case 'arrowNext':
-      return stepArrow(s.id === 'arrowNext' ? 1 : -1)
+      return stepArrow(id === 'arrowNext' ? 1 : -1)
     case 'flow':
       return flowByKey()
     case 'ceiling':
@@ -1947,10 +1979,10 @@ function runShortcut(s: Shortcut, e: KeyboardEvent): boolean {
       return true
     case 'nextUnknown':
     case 'prevUnknown':
-      return stepUnknown(s.id === 'nextUnknown' ? 1 : -1)
+      return stepUnknown(id === 'nextUnknown' ? 1 : -1)
     case 'nextIssue':
     case 'prevIssue':
-      return stepIssue(s.id === 'nextIssue' ? 1 : -1)
+      return stepIssue(id === 'nextIssue' ? 1 : -1)
     case 'vertexInsert':
       return editVertex('insert')
     case 'vertexDelete':
@@ -5943,6 +5975,24 @@ const filterOpen = ref(false)
 const explorerQuery = ref('')
 const filterOn = computed(() => filterActive(viewFilter.value))
 const viewFacets = computed(() => (model.value && filterOpen.value ? facets(model.value) : null))
+
+/**
+ * Brick 클래스의 한국어 이름(보기 필터·종류별 색 범례). 종류 사전(kinds.ts)이 그 클래스로 내보내는 종류 이름을 쓴다 — 따로 이름표를 두면
+ * 사전과 어긋난다(제미나이 판의 별칭 사전은 `brick:Terminal_Unit` 을 디퓨저로 불렀다. 디퓨저는 `brick:Air_Diffuser` 다).
+ * 사전에 없는 클래스는 클래스 이름 그대로, `ex:` 는 종류 모름, FSO 는 덕트·배관 구간·이음쇠다.
+ */
+const BRICK_KIND_NAMES = (() => {
+  const by = new Map<string, string[]>()
+  for (const k of EQUIPMENT_KINDS) if (k.brick) by.set(k.brick, [...(by.get(k.brick) ?? []), k.label])
+  return new Map([...by].map(([cls, labels]) => [cls, [...new Set(labels)].slice(0, 3).join('·')]))
+})()
+function classFriendlyLabel(cls: string): string {
+  if (cls.startsWith('ex:')) return '종류 모름'
+  if (cls === 'fso:Segment') return '덕트·배관 구간'
+  if (cls === 'fso:Fitting') return '덕트·배관 이음쇠'
+  return BRICK_KIND_NAMES.get(cls) ?? cls.replace(/^brick:/, '').replace(/_/g, ' ')
+}
+
 const filteredExplorerFacets = computed(() => {
   const f = viewFacets.value
   if (!f) return null
@@ -5950,11 +6000,41 @@ const filteredExplorerFacets = computed(() => {
   if (!q) return f
   return {
     storeys: f.storeys.filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)),
-    classes: f.classes.filter((c) => c.id.toLowerCase().includes(q)),
+    classes: f.classes.filter((c) => c.id.toLowerCase().includes(q) || classFriendlyLabel(c.id).toLowerCase().includes(q)),
     systems: f.systems.filter((s) => s.name.toLowerCase().includes(q) || s.id.toLowerCase().includes(q)),
   }
 })
 const filterText = computed(() => (model.value && filterOn.value ? filterSummary(model.value, viewFilter.value) : ''))
+/** 종류를 모르는 패밀리(U 로 도는 것과 같은 목록). */
+const unknownFamilies = computed(() => new Set(unknownTypes.value.map((t) => t.key)))
+/** 손볼 설비(소속 방 없음 · 종류 모름 · 계통이 있어야 하는데 없음 · 완전성 검사 위반)만 3D 에 남긴다(격리). 화면에서만이다. */
+function isolateIssuesOnly() {
+  const m = model.value
+  if (!m) return
+  const issueIds = new Set<string>()
+  for (const st of m.storeys) {
+    for (const e of st.equipment) {
+      if (!e.position) continue
+      if (!e.spaceId && !exteriorIds.value.has(e.id)) issueIds.add(e.id)
+      if (unknownFamilies.value.has(familyKeyOf(e))) issueIds.add(e.id)
+      if (needsSystem(e) && !e.systemId) issueIds.add(e.id)
+    }
+  }
+  for (const c of checks.value) {
+    for (const id of c.failed) issueIds.add(id)
+  }
+  if (!issueIds.size) {
+    note('손볼 설비가 없습니다(3D 에 놓인 설비 기준)')
+    return
+  }
+  setViewFilter({ isolate: [...issueIds] })
+  note(`손볼 설비 ${issueIds.size}대만 남겼습니다 — 화면에서만. [모두 보이기] 로 돌아옵니다`)
+}
+function topDownView() {
+  if (activeTab.value !== '3d') activeTab.value = '3d'
+  viewer?.viewFrom([0, 1, 0])
+  note('위에서 내려다봅니다')
+}
 /** 층 칸은 모든 층을 볼 때만 쓴다. 층 하나만 보거나 다중층 뷰면 그쪽이 보일 층을 정한다(편집할 층이 하나여야 한다). */
 const filterStoreysUsable = computed(() => !viewStorey.value && !multiView.value)
 watch(baseline, () => {
@@ -6096,9 +6176,7 @@ const classLegend = computed(() => {
       unknown.classes.push(g.cls)
       continue
     }
-    const first = equipmentById.value.get(g.ids[0])
-    const label = (first && equipmentKind(first.kind)?.label) || g.cls.replace(/^brick:/, '').replace(/_/g, ' ')
-    rows.push({ key: g.cls, label, cls: g.cls, ids: g.ids, color: CLASS_PALETTE[rows.length % CLASS_PALETTE.length] })
+    rows.push({ key: g.cls, label: classFriendlyLabel(g.cls), cls: g.cls, ids: g.ids, color: CLASS_PALETTE[rows.length % CLASS_PALETTE.length] })
   }
   if (unknown.ids.length) rows.push({ key: UNKNOWN_CLASS, label: '종류 모름', cls: unknown.classes.join(' · '), ids: unknown.ids, color: UNKNOWN_CLASS_COLOR })
   return rows
@@ -10399,6 +10477,153 @@ watch(hasInspectorSelection, (has) => {
   if (has && (sideTab.value === 'floor' || sideTab.value === 'systems')) sideTab.value = 'all'
 })
 
+/** 종류가 빈 설비를 한 문장으로. IFC 클래스로 큰 갈래(센서·조명)는 아는데 사전의 세부 종류를 안 정한 것과, 아무것도 모르는 것을 가른다. */
+function kindGap(e: Equipment): string {
+  const ifc = ifcClassLabel(e.declaredType) ?? ifcClassLabel(e.ifcClass)
+  return ifc ? `IFC 클래스로 '${ifc}' 까지만 알고, 세부 종류는 정하지 않은 설비입니다.` : '종류를 모르는 설비입니다.'
+}
+type SmartInsight = {
+  key: string
+  tone: 'warn' | 'info'
+  text: string
+  actionLabel?: string
+  run?: () => void
+}
+/** 도메인 지식이 없는 사용자도 선택된 설비의 문제 원인과 해결책을 한눈에 파악하고 원클릭으로 고칠 수 있도록 돕는 가이드. */
+const selectedInsights = computed((): SmartInsight[] => {
+  void flowVersion.value
+  void sceneVersion.value
+  const m = model.value
+  const e = selected.value
+  if (!m || !e) return []
+  const list: SmartInsight[] = []
+
+  // 1. 미배치 설비 (좌표 없음)
+  if (!e.position) {
+    list.push({
+      key: 'unplaced',
+      tone: 'warn',
+      text: 'BIM 에 좌표가 없어 3D 에 놓이지 않은 설비입니다. 바닥을 눌러 놓을 수 있습니다.',
+      actionLabel: !editBlock.value ? (placing.value === e.id ? '놓기 취소 (Esc)' : '3D 바닥에 놓기') : undefined,
+      run: !editBlock.value
+        ? () => {
+            if (!editing.value) mode.value = 'edit'
+            if (placing.value === e.id) stopPlace()
+            else placeFromList(e.id)
+          }
+        : undefined,
+    })
+  }
+
+  // 2. 소속 방(물리존) 누락
+  if (e.position && !e.spaceId && !exteriorIds.value.has(e.id)) {
+    const diag = diagnoseFailure('equipment-space', e.id, {
+      model: m,
+      connections: showRules.value && hasRules.value ? withInferred(m.connections) : m.connections,
+      services: airServiceList.value,
+      boxOf: currentBox,
+      label: (id) => shortName(equipmentById.value.get(id)?.name || id),
+    })
+    const fix = diag?.fix
+    if (fix && fix.kind === 'move-into') {
+      list.push({
+        key: 'space-near',
+        tone: 'warn',
+        text: `${diag.text} — '${fix.spaceName}' 안으로 옮기면 그 방 소속이 됩니다.`,
+        actionLabel: !editBlock.value ? `${fix.spaceName} 안으로 옮기기` : undefined,
+        run: !editBlock.value ? () => applyFix(e.id, fix) : undefined,
+      })
+    } else {
+      list.push({
+        key: 'space-missing',
+        tone: 'warn',
+        text: '어느 물리존(방)에도 들지 않아 소속이 비어 있습니다. 편집에서 방 안으로 옮기거나 소속을 직접 고릅니다.',
+        actionLabel: !editing.value && !editBlock.value ? '편집 모드 열기 (E)' : undefined,
+        run: !editing.value && !editBlock.value ? () => (mode.value = 'edit') : undefined,
+      })
+    }
+  }
+
+  // 3. 종류 모름 — U 로 도는 목록(unknownTypes)과 같은 판정이다. IFC 클래스로 종류가 서는 설비(Sensor → 센서)는 모름이 아니다.
+  if (unknownFamilies.value.has(familyKeyOf(e))) {
+    const topSug = suggestKinds(m).get(familyKeyOf(e))?.[0]
+    const sugLabel = topSug ? equipmentKind(topSug.kind)?.label : null
+    if (topSug && sugLabel) {
+      list.push({
+        key: 'kind-suggest',
+        tone: 'info',
+        text: `${kindGap(e)} 이름과 비슷한 패밀리로 보면 '${sugLabel}' 후보가 가장 앞섭니다. 정하면 같은 패밀리 전체에 붙습니다.`,
+        actionLabel: !editBlock.value ? `'${sugLabel}' 로 정하기` : undefined,
+        run: !editBlock.value
+          ? () => {
+              if (!editing.value) mode.value = 'edit'
+              setKind(familyKeyOf(e), topSug.kind, familyLabel(e))
+            }
+          : undefined,
+      })
+    } else {
+      list.push({
+        key: 'kind-missing',
+        tone: 'warn',
+        text: `${kindGap(e)} 고르면 같은 패밀리 설비 전체에 붙습니다.`,
+        actionLabel: !editBlock.value ? '종류 고르기 (K)' : undefined,
+        run: !editBlock.value
+          ? () => {
+              if (!editing.value) mode.value = 'edit'
+              void nextTick(() => runShortcut('kind'))
+            }
+          : undefined,
+      })
+    }
+  }
+
+  // 4. VAV·말단 설비의 계통 누락
+  if (needsSystem(e) && !e.systemId) {
+    const topSys = e.position ? systemCandidates(m, e.id)[0] : null
+    if (topSys) {
+      list.push({
+        key: 'system-suggest',
+        tone: 'warn',
+        text: `계통이 없는 VAV·공기 말단입니다. 가장 가까운 계통은 '${topSys.system.name}'(${topSys.distance.toFixed(1)}m)입니다.`,
+        actionLabel: !editBlock.value ? `'${topSys.system.name}' 에 넣기` : undefined,
+        run: !editBlock.value
+          ? () => {
+              if (!editing.value) mode.value = 'edit'
+              applySystem(e.id, topSys.system.id)
+            }
+          : undefined,
+      })
+    } else {
+      list.push({
+        key: 'system-missing',
+        tone: 'warn',
+        text: '계통이 없는 VAV·공기 말단입니다. 편집에서 아래 계통 칸으로 고릅니다.',
+        actionLabel: !editing.value && !editBlock.value ? '편집 모드 열기 (E)' : undefined,
+        run: !editing.value && !editBlock.value ? () => (mode.value = 'edit') : undefined,
+      })
+    }
+  }
+
+  // 5. 규칙으로 추정한 흐름 방향 미확정
+  const rule = selectedRule.value
+  if (rule && !rule.confirmed && rule.count > 0) {
+    list.push({
+      key: 'rule-confirm',
+      tone: 'info',
+      text: `'${rule.name}' 계통의 흐름 방향 ${rule.count}개는 설비 역할로 짐작한 것(사전)입니다. 확정해야 TTL 의 brick:feeds 로 나갑니다.`,
+      actionLabel: !editBlock.value ? '이 계통 방향 확정 (C)' : undefined,
+      run: !editBlock.value
+        ? () => {
+            if (!editing.value) mode.value = 'edit'
+            confirmRule(rule.systemId, rule.name)
+          }
+        : undefined,
+    })
+  }
+
+  return list
+})
+
 type WarnFilter = 'all' | 'A' | 'B' | 'C' | 'X' | 'other'
 const warnFilter = ref<WarnFilter>('all')
 const warnSearch = ref('')
@@ -11581,8 +11806,8 @@ function rollbackFromReport() {
             <a v-if="warnings.length" href="#warnings" class="warn-count" title="읽으면서 건너뛴 것. 목록은 아래 요약에 있습니다.">경고 {{ warnings.length }}</a>
             <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
             <div class="mode-switch" role="group" aria-label="화면 모드">
-              <button type="button" :aria-pressed="mode === 'view'" @click="leaveEdit()">보기</button>
-              <button type="button" :aria-pressed="mode === 'edit'" :disabled="busy || !!editBlock" :title="editBlock ?? undefined" @click="mode = 'edit'">편집</button>
+              <button type="button" :aria-pressed="mode === 'view'" title="보기 모드로 전환 (E)" @click="leaveEdit()">보기</button>
+              <button type="button" :aria-pressed="mode === 'edit'" :disabled="busy || !!editBlock" :title="editBlock ?? '편집 모드로 전환 (E)'" @click="mode = 'edit'">편집</button>
             </div>
             <!-- 사람(OE-COM-01). 서버의 사람 목록에서 고른다. 보기 전용은 편집에 들어가지 않는다. -->
             <!-- 알림(OE-WF-16, GNB 시스템 알림 대신). 레이아웃 반영·되돌리기. -->
@@ -11633,7 +11858,7 @@ function rollbackFromReport() {
           <button type="button" class="ghost primary-action" @click="reloadLayout">새로고침</button>
         </div>
         <div v-if="editing" class="edit-bar" role="status">
-          <span class="mode-chip" :class="editKind" data-testid="edit-kind" :title="editKind === 'operate' ? '반영된 온톨로지가 있는 층을 고칩니다(OE-UI-02)' : '온톨로지가 없는 층을 처음 만듭니다(OE-UI-02)'">
+          <span class="mode-chip" :class="editKind" data-testid="edit-kind" :title="editKind === 'operate' ? '반영된 온톨로지가 있는 층을 이어서 고칩니다' : '온톨로지가 없는 층을 처음 만듭니다'">
             {{ editKind === 'operate' ? `운영 편집${loadedVersion ? ` · v${loadedVersion}` : ''}` : '초기 구축' }}
           </span>
           <!-- 편집 대상(OE-UI-04). 팔레트의 도구가 바뀐다. 다른 쪽 오브젝트는 고르고 볼 수만 있다. -->
@@ -11778,7 +12003,7 @@ function rollbackFromReport() {
                 :aria-expanded="filterOpen"
                 aria-label="Filter (보기 필터)"
                 data-testid="filter-toggle"
-                title="층 · Brick 클래스 · 계통 탐색 및 필터 패널을 엽니다"
+                title="층 · Brick 클래스 · 계통 탐색 필터 열기·닫기 (V)"
                 @click="filterOpen = !filterOpen"
               >
                 <span class="dock-icon" aria-hidden="true">⧩</span>
@@ -11791,7 +12016,7 @@ function rollbackFromReport() {
                 :class="['dock-btn', { on: classTintOn }]"
                 :aria-pressed="classTintOn"
                 aria-label="Explode (종류별 색)"
-                title="기기를 제자리에서 Brick 종류별 색으로 칠하고 범례에 종류·대수를 보입니다"
+                title="기기를 제자리에서 Brick 종류별 색으로 칠하고 범례에 종류·대수를 보입니다 (X)"
                 data-testid="class-tint-toggle"
                 @click="classTintOn = !classTintOn"
               >
@@ -11827,8 +12052,8 @@ function rollbackFromReport() {
                   <span class="brand-badge" aria-hidden="true">EXPLORER</span>
                   <b>보기 필터</b>
                 </div>
-                <button type="button" class="link" :disabled="!filterOn && !exploded" @click="clearViewFilter">모두 보이기</button>
-                <button type="button" class="link" aria-label="보기 필터 닫기" @click="filterOpen = false">닫기</button>
+                <button type="button" class="link" :disabled="!filterOn && !exploded" title="적용된 필터와 분해도를 모두 해제합니다" @click="clearViewFilter">모두 보이기</button>
+                <button type="button" class="link" aria-label="보기 필터 닫기" title="보기 필터 닫기 (V · Esc)" @click="filterOpen = false">닫기</button>
               </div>
               <div class="filter-search-wrap">
                 <input
@@ -11836,14 +12061,48 @@ function rollbackFromReport() {
                   v-keep-typing
                   type="text"
                   class="filter-search"
-                  placeholder="층 · 클래스 · 계통 검색…"
+                  placeholder="층 · 설비 종류(한국어/Brick) · 계통 검색…"
                   aria-label="보기 필터 검색"
                 />
+              </div>
+              <div class="filter-presets" role="group" aria-label="빠른 탐색 프리셋">
+                <button
+                  type="button"
+                  class="preset-chip warn"
+                  title="소속 방 없음 · 종류 모름 · 계통 없음 · 완전성 검사 위반인 설비만 3D 에 남깁니다(화면에서만)"
+                  @click="isolateIssuesOnly"
+                >
+                  손볼 설비만
+                </button>
+                <button
+                  type="button"
+                  class="preset-chip"
+                  title="덕트·배관 구간을 숨기고 기기만 남깁니다"
+                  @click="setFacetAll('classes', true, viewFacets.classes.filter((c) => !c.conduit).map((c) => c.id)); setFacetAll('classes', false, viewFacets.classes.filter((c) => c.conduit).map((c) => c.id))"
+                >
+                  기기만
+                </button>
+                <button
+                  type="button"
+                  class="preset-chip"
+                  title="종류를 모르는 다음 패밀리의 설비를 고르고 시점을 옮깁니다 (U)"
+                  @click="runShortcut('nextUnknown')"
+                >
+                  종류 모름 다음 <kbd>U</kbd>
+                </button>
+                <button
+                  type="button"
+                  class="preset-chip"
+                  title="완전성 검사에서 어긴 다음 설비를 고릅니다(펼친 규칙, 없으면 첫 규칙) (N)"
+                  @click="runShortcut('nextIssue')"
+                >
+                  검사 위반 다음 <kbd>N</kbd>
+                </button>
               </div>
               <p class="muted filter-note">화면에서만 거릅니다. 편집 파일·TTL·GeoJSON 은 그대로입니다. Ctrl+끌기 상자는 보이는 것만 고릅니다.</p>
               <p v-if="filterOn" class="filter-now" data-testid="filter-summary">{{ filterText }}</p>
               <p class="filter-actions">
-                <button type="button" :class="['ghost', { on: exploded }]" :aria-pressed="exploded" data-testid="explode-toggle" @click="toggleExplode">
+                <button type="button" :class="['ghost', { on: exploded }]" :aria-pressed="exploded" data-testid="explode-toggle" title="보이는 기기를 Brick 클래스별로 건물 위에 한 켜씩 띄웁니다" @click="toggleExplode">
                   {{ exploded ? '분해도 접기' : 'Brick 클래스별 분해도' }}
                 </button>
                 <button v-if="viewFilter.isolate" type="button" class="ghost" @click="setViewFilter({ isolate: null })">격리 풀기 ({{ viewFilter.isolate.length }})</button>
@@ -11864,14 +12123,18 @@ function rollbackFromReport() {
               </details>
               <details open class="filter-group">
                 <summary>
-                  <span class="group-tag" aria-hidden="true">CATEGORY</span> Brick 클래스 <span class="muted">{{ viewFilter.classes ? `${viewFilter.classes.length}/${viewFacets.classes.length}` : '전부' }}</span>
+                  <span class="group-tag" aria-hidden="true">CATEGORY</span> 설비 분류 <span class="muted">{{ viewFilter.classes ? `${viewFilter.classes.length}/${viewFacets.classes.length}` : '전부' }}</span>
                   <button type="button" class="link" @click.prevent="setFacetAll('classes', true, viewFacets.classes.filter((c) => !c.conduit).map((c) => c.id))">기기 전부</button>
                   <button type="button" class="link" @click.prevent="setFacetAll('classes', false, viewFacets.classes.filter((c) => c.conduit).map((c) => c.id))">덕트·배관 빼기</button>
                   <button type="button" class="link" @click.prevent="setFacetAll('classes', true)">All</button>
                 </summary>
-                <label v-for="c in filteredExplorerFacets.classes" :key="c.id" :class="{ conduit: c.conduit }">
+                <label v-for="c in filteredExplorerFacets.classes" :key="c.id" :class="{ conduit: c.conduit }" :title="`${classFriendlyLabel(c.id)} (${c.id})`">
                   <input type="checkbox" :checked="facetOn('classes', c.id)" @change="toggleFacet('classes', c.id, viewFacets.classes.map((x) => x.id))" />
-                  <code>{{ c.id }}</code> <span class="muted">{{ c.count.toLocaleString() }}</span>
+                  <span class="cls-wrap">
+                    <span class="cls-ko">{{ classFriendlyLabel(c.id) }}</span>
+                    <code>{{ c.id }}</code>
+                  </span>
+                  <span class="muted">{{ c.count.toLocaleString() }}</span>
                 </label>
               </details>
               <details open class="filter-group">
@@ -11982,9 +12245,9 @@ function rollbackFromReport() {
               <span class="palette-head">공간 그리기</span>
               <!-- 두 버튼을 한 줄에 둔다. 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
               <span class="palette-row">
-                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="물리존 그리기" title="바닥에 꼭짓점을 찍어 새 물리존을 그립니다" @click="ceilingMode ? lockedTool() : startCreateSpace()">물리존</button>
-                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="룸 그리기" title="물리존 안에 대각선 두 꼭짓점을 찍어 룸을 그립니다(OE-SPC-11)" @click="ceilingMode ? lockedTool() : startRoom()">룸</button>
-                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="커스텀존 그리기" title="물리존 위에 운영 단위(임원석·식당 등)를 다각형으로 그립니다. 겹쳐도 됩니다(OE-OBJ-01)" @click="ceilingMode ? lockedTool() : startCustomZone()">커스텀존</button>
+                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="물리존 그리기" title="바닥에 꼭짓점을 찍어 새 물리존(방)을 그립니다" @click="ceilingMode ? lockedTool() : startCreateSpace()">물리존</button>
+                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="룸 그리기" title="물리존 안에 대각선 두 꼭짓점을 찍어 세부 룸을 그립니다" @click="ceilingMode ? lockedTool() : startRoom()">룸</button>
+                <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="커스텀존 그리기" title="물리존 위에 운영 구역(임원석·식당 등)을 다각형으로 그립니다. 서로 겹쳐도 됩니다" @click="ceilingMode ? lockedTool() : startCustomZone()">커스텀존</button>
               </span>
               <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). 옆의 [오브젝트] 는 추가 공간 오브젝트 라이브러리를 편다
                    (OE-SPC-14). 둘을 한 줄에 두고 머리말도 따로 두지 않는다 — 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
@@ -11996,7 +12259,7 @@ function rollbackFromReport() {
                   type="button"
                   :class="['ghost', 'objects-toggle', { on: objectsOpen || adding?.what === 'object', locked: ceilingMode }]"
                   :aria-expanded="objectsOpen"
-                  title="책상·의자 같은 추가 공간 오브젝트를 라이브러리에서 골라 놓습니다(OE-OBJ-09)"
+                  title="책상·의자 같은 추가 공간 오브젝트를 라이브러리에서 골라 놓습니다"
                   @click="ceilingMode ? lockedTool() : (objectsOpen = !objectsOpen)"
                 >
                   오브젝트
@@ -12016,7 +12279,7 @@ function rollbackFromReport() {
                 >
                   {{ item.name }}
                 </button>
-                <button type="button" class="ghost object-import" title="glb(또는 자료를 품은 glTF) 파일을 넣어 라이브러리 항목을 만듭니다(OE-P3-08)" @click="modelInput?.click()">
+                <button type="button" class="ghost object-import" title="GLB(또는 glTF) 3D 모델 파일을 불러와 라이브러리 항목을 추가합니다" @click="modelInput?.click()">
                   + 3D 모델
                 </button>
                 <input
@@ -12145,7 +12408,7 @@ function rollbackFromReport() {
               <div class="view-tools">
                 <!-- 보기 ↔ 편집, 단축키 안내. 위 도구막대와 같은 일이라 전체 화면(도구막대가 안 보인다)에서만 둔다.
                      평소에도 두었더니 같은 스위치가 한 화면에 둘이었다. -->
-                <label v-if="fullscreen" class="edit-toggle" title="켜면 3D에서 설비와 물리존 꼭짓점을 옮기고 연결 방향을 정할 수 있습니다.">
+                <label v-if="fullscreen" class="edit-toggle" title="켜면 3D에서 설비와 물리존 꼭짓점을 옮기고 연결 방향을 정할 수 있습니다 (E)">
                   <input
                     type="checkbox"
                     :checked="editing"
@@ -12159,6 +12422,7 @@ function rollbackFromReport() {
                   type="button"
                   :class="['ghost', { on: showWalls }]"
                   :aria-pressed="showWalls"
+                  title="3D 벽 표시 켜기·끄기 (W)"
                   @click="showWalls = !showWalls"
                 >
                   Walls
@@ -12169,7 +12433,7 @@ function rollbackFromReport() {
                   type="button"
                   :class="['ghost', { on: showZones }]"
                   :aria-pressed="showZones"
-                  title="IDF 공조존의 바닥 외곽선"
+                  title="IDF 공조존의 바닥 외곽선 표시 켜기·끄기"
                   @click="showZones = !showZones"
                 >
                   공조존
@@ -12181,7 +12445,7 @@ function rollbackFromReport() {
                   type="button"
                   :class="['ghost', 'filter-toggle', { on: filterOpen || filterOn || exploded }]"
                   :aria-expanded="filterOpen"
-                  title="층·Brick 클래스·계통으로 걸러 봅니다. 화면에서만이고 편집 파일·TTL·GeoJSON 에는 남지 않습니다"
+                  title="층·Brick 클래스·계통으로 걸러 봅니다 (V). 화면에서만이고 편집 파일·TTL·GeoJSON 에는 남지 않습니다"
                   @click="filterOpen = !filterOpen"
                 >
                   보기 필터<b v-if="filterOn || exploded" class="filter-dot" aria-label="켜짐">●</b>
@@ -12193,7 +12457,7 @@ function rollbackFromReport() {
                   :class="['ghost', 'labels-toggle', { on: showLabels }]"
                   :aria-pressed="showLabels"
                   :disabled="!labelStorey"
-                  :title="labelStorey ? '설비마다 이름과 소속·종류 출처를 3D 위에 띄웁니다' : '층 하나를 고르면 설비 라벨을 띄웁니다'"
+                  :title="labelStorey ? '설비마다 이름과 소속·종류 출처를 3D 위에 띄웁니다 (L)' : '층 하나를 고르면 설비 라벨을 띄웁니다 (L)'"
                   @click="showLabels = !showLabels"
                 >
                   라벨
@@ -12205,14 +12469,14 @@ function rollbackFromReport() {
                   :class="['ghost', { on: compareOpen }]"
                   :aria-pressed="compareOpen"
                   data-testid="compare-toggle"
-                  title="3D 오른쪽에 지금 모델을 내보낸 TTL·GeoJSON 을 DT 플랫폼처럼 읽어 나란히 봅니다. 고르면 양쪽이 같은 것을 짚습니다"
+                  title="3D 오른쪽에 지금 모델을 내보낸 TTL·GeoJSON 을 DT 플랫폼처럼 읽어 나란히 봅니다 (B). 고르면 양쪽이 같은 것을 짚습니다"
                   @click="compareOpen = !compareOpen"
                 >
                   결과 비교
                 </button>
                 <div class="tabs" role="group" aria-label="보기">
-                  <button type="button" :aria-pressed="activeTab === '3d'" @click="activeTab = '3d'">3D</button>
-                  <button type="button" :aria-pressed="activeTab === 'plan'" :disabled="!!multiView" :title="multiView ? '평면도는 층 하나를 그립니다. 다중층 뷰는 3D 입니다' : undefined" @click="showPlan">평면도</button>
+                  <button type="button" :aria-pressed="activeTab === '3d'" title="3D 입체 뷰로 보기 (Shift+V)" @click="activeTab = '3d'">3D</button>
+                  <button type="button" :aria-pressed="activeTab === 'plan'" :disabled="!!multiView" :title="multiView ? '평면도는 층 하나를 그립니다. 다중층 뷰는 3D 입니다' : '2D 평면도로 전환 (Shift+V)'" @click="showPlan">평면도</button>
                 </div>
                 <!-- 층별로 보기. 층이 하나면 둘 까닭이 없다. -->
                 <select v-if="model.storeys.length > 1 && !multiView" v-model="viewStorey" class="storey-view" aria-label="보일 층" title="이 층만 보기">
@@ -12223,7 +12487,7 @@ function rollbackFromReport() {
                   </optgroup>
                 </select>
                 <!-- 다중층 뷰(OE-ML-01 ①). 누르면 지금 층과 위층으로 열고, 범위는 시작·끝 층으로 고쳐 고른다. -->
-                <button v-if="model.storeys.length > 1 && !multiView" type="button" class="ghost multi-open" title="층 범위를 골라 여러 층을 함께 봅니다(OE-ML-01)" @click="openMultiView()">
+                <button v-if="model.storeys.length > 1 && !multiView" type="button" class="ghost multi-open" title="층 범위를 골라 여러 층과 수직 관통 요소를 함께 봅니다" @click="openMultiView()">
                   다중층 뷰에서 편집
                 </button>
                 <span v-if="multiView" class="multi-range" role="group" aria-label="다중층 보기 범위">
@@ -12238,14 +12502,14 @@ function rollbackFromReport() {
                   <button type="button" class="ghost" @click="closeMultiView">층 편집으로</button>
                 </span>
                 <button v-if="fullscreen" type="button" class="ghost keys-help" title="조작·단축키 안내 (?)" aria-label="조작·단축키 안내" @click="helpOpen = true">?</button>
-                <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
+                <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" title="작업 영역 전체 화면 전환 (나가기: Esc)" @click="toggleFullscreen">
                   {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
                 </button>
               </div>
               <!-- 걸러 보는 중임을 3D 위에 늘 보인다(패널을 닫아도). 안 보이는 것을 없는 것으로 오해하지 않게. -->
               <p v-if="(filterOn || exploded) && !filterOpen && activeTab === '3d'" class="filter-chip" role="status" data-testid="filter-chip">
                 <b>보기 필터</b> {{ exploded ? '분해도 · ' : '' }}{{ filterText || '전부' }} · 화면에서만
-                <button type="button" class="link" @click="filterOpen = true">고치기</button>
+                <button type="button" class="link" title="보기 필터 열기 (V)" @click="filterOpen = true">고치기</button>
                 <button type="button" class="link" @click="clearViewFilter">모두 보이기</button>
               </p>
               <div class="rail-row">
@@ -12264,7 +12528,7 @@ function rollbackFromReport() {
                     type="button"
                     :class="['ghost', 'fly-toggle', { on: flying }]"
                     :aria-pressed="flying"
-                    title="비행 모드 — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게"
+                    title="비행 모드 켜기·끄기 (G) — WASD 이동 · Q/E 내려가기·올라가기 · 드래그 둘러보기 · 휠 빠르기 · Shift 빠르게"
                     @click="setFlying(!flying)"
                   >
                     비행 <kbd>G</kbd>
@@ -12294,6 +12558,21 @@ function rollbackFromReport() {
                 <p class="sc-key"><i class="unplaced"></i>미배치 <i class="nospace"></i>소속 없음 <i class="failed"></i>위반</p>
               </nav>
             </div>
+            <!-- 시점 바로가기(아래 가운데). 3D 조작이 낯선 사람도 길을 잃으면 여기서 돌아온다. 평면도·비행은 위 막대에 이미 있어 두지 않는다.
+                 보기 모드에서만 — 편집 모드의 아래는 조작 안내·치수 풍선 자리라 겹쳤다. 키(0·O·F)는 편집에서도 먹는다. -->
+            <nav v-if="activeTab === '3d' && !replayOpen && !editing" class="bottom-view-dock" aria-label="시점 바로가기">
+              <button type="button" class="view-pill" title="건물 전체가 한눈에 들어오게 시점을 맞춥니다 (0 · Home)" @click="viewer?.frameAll()">전체 <kbd>0</kbd></button>
+              <button type="button" class="view-pill" title="위에서 똑바로 내려다봅니다 (O)" @click="topDownView">위에서 <kbd>O</kbd></button>
+              <button
+                type="button"
+                class="view-pill"
+                :disabled="!selectedId && !selectedSpaceId && !group.length"
+                title="고른 설비·물리존·계통에 시점을 맞춥니다 (F)"
+                @click="runShortcut('frame')"
+              >
+                고른 것 <kbd>F</kbd>
+              </button>
+            </nav>
           </div>
 
           <!-- 종류별 색의 범례(독의 [Explode]). 줄을 누르면 그 종류만 색으로 남긴다. 클래스 원문은 TTL 에 나가는 그 클래스다. -->
@@ -12320,7 +12599,7 @@ function rollbackFromReport() {
             </ul>
           </div>
           <!-- 3D 색이 무엇을 뜻하는지. 진한 색은 BIM 포트가 말한 흐름, 옅은 색은 규칙으로 정한 흐름이다. -->
-          <ul v-if="selected && activeTab === '3d'" class="color-key">
+          <ul v-if="selected && activeTab === '3d' && !classTintOn" class="color-key">
             <li><i :style="{ background: hex(PICK_COLORS.upstream) }"></i>상류 <Src kind="bim" /></li>
             <li><i :style="{ background: hex(PICK_COLORS.downstream) }"></i>하류 <Src kind="bim" /></li>
             <template v-if="showRules && tracedRules">
@@ -12597,9 +12876,25 @@ function rollbackFromReport() {
               </dl>
             </div>
             <div class="picked-actions">
-              <button type="button" class="ghost" @click="frameNetwork">연결망 보기</button>
-              <button type="button" class="ghost" @click="select(null)">선택 해제</button>
+              <button type="button" class="ghost" title="이어진 설비 전체가 보이게 시점을 맞춥니다 (F)" @click="frameNetwork">연결망 보기</button>
+              <button type="button" class="ghost" title="선택 해제 (Esc)" @click="select(null)">선택 해제</button>
             </div>
+          </div>
+
+          <!-- 고른 설비에서 고칠 것(smart-insights). 왜 비었는지 한 줄과 바로 고치는 단추. 단추는 편집 모드로 들어가 여느 편집 함수를 부른다. -->
+          <div v-if="selectedInsights.length" class="smart-insights" role="region" aria-label="이 설비에서 고칠 것">
+            <div class="insights-head">
+              <span class="insights-badge">고칠 것</span>
+              <span class="muted">{{ selectedInsights.length }}건</span>
+            </div>
+            <ul class="insights-list">
+              <li v-for="ins in selectedInsights" :key="ins.key" :class="['insight-item', ins.tone]">
+                <span class="insight-text">{{ ins.text }}</span>
+                <button v-if="ins.actionLabel && ins.run" type="button" class="ghost insight-btn" @click="ins.run()">
+                  {{ ins.actionLabel }}
+                </button>
+              </li>
+            </ul>
           </div>
 
           <!-- 천장 편집 모드(OE-OBJ-08). 지금 모드에서 고칠 수 없는 설비는 고르기·조회만 되고 편집 칸을 숨긴다. -->
@@ -15855,6 +16150,16 @@ function rollbackFromReport() {
           <template v-if="editing || changeCount > 0">
           <div class="changes-head">
             <h3 id="changes">바뀐 내용</h3>
+            <!-- 리플레이(P)를 단추로도 연다. 편집 막대는 1280 폭에서 이미 꽉 차서(단추 하나에 [편집 종료] 가 잘렸다) 바뀐 내용 머리에 둔다. -->
+            <button
+              type="button"
+              class="ghost replay-open-btn"
+              :disabled="!history.length"
+              :title="history.length ? '이번 세션의 편집을 고친 순서대로 3D 에서 다시 봅니다 (P)' : '편집한 것이 있어야 다시 볼 수 있습니다 (P)'"
+              @click="replay.open()"
+            >
+              ▶ 리플레이 <kbd>P</kbd>
+            </button>
             <button type="button" class="ghost" :disabled="changeCount === 0" @click="saveEdits()">편집 저장</button>
             <label class="ghost load-edits">
               편집 불러오기

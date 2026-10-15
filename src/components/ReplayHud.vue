@@ -48,9 +48,59 @@ const props = defineProps<{
   /** 판 모양: plan(도면) · show(중계). */
   theme?: 'plan' | 'show'
 }>()
-const emit = defineEmits<{ toggle: []; prev: []; next: []; restart: []; speed: [number]; close: []; scene: [number]; seek: [number]; filter: [Category | null]; record: []; diff: []; spread: []; highlights: []; stay: []; theme: [] }>()
+const emit = defineEmits<{
+  toggle: []
+  prev: []
+  next: []
+  restart: []
+  speed: [number]
+  close: []
+  scene: [number]
+  seek: [number]
+  filter: [Category | null]
+  record: []
+  diff: []
+  spread: []
+  highlights: []
+  stay: []
+  theme: []
+  compareDown: []
+  compareUp: []
+}>()
 
 const CAT_COLOR = CATEGORY_COLOR
+const logMode = ref<'all' | 'easy'>('all')
+
+/**
+ * 장면 한 줄 해설(자막·카드). 무엇이 바뀌어 TTL·GeoJSON 의 어디가 달라졌는지를 말한다. 편집의 까닭(실제 위치였다, 불필요했다)은 모르므로 적지 않는다.
+ * 숫자는 TTL 의 줄 수다(관계 수가 아니다).
+ */
+function plainStory(s: ReplayStep): string {
+  const g = geoCount(s)
+  const ttl = s.ttlCount.added || s.ttlCount.removed ? ` TTL +${s.ttlCount.added} −${s.ttlCount.removed}줄.` : ''
+  switch (s.category) {
+    case '물리존':
+      return g ? `물리존 경계·이름이 바뀌어 평면 도면 ${g}곳이 달라졌습니다. 그 안 설비의 소속은 새 경계로 다시 잽니다.${ttl}` : `물리존 속성이 바뀌었습니다.${ttl}`
+    case '설비 배치':
+      return ttl ? `설비를 옮겨 좌표와 소속이 바뀌었습니다.${ttl}` : '설비를 옮겼습니다. 좌표는 GeoJSON 에만 남고 TTL 은 그대로입니다.'
+    case '설비 추가·삭제':
+      return s.ttlCount.added >= s.ttlCount.removed ? `설비를 더했습니다.${ttl}` : `설비를 지웠습니다.${ttl}`
+    case '설비 종류':
+      return `설비 종류(Brick 클래스)를 정했습니다. 흐름 규칙이 이 종류를 근거로 씁니다.${ttl}`
+    case '계통':
+      return `설비가 속한 계통이 바뀌었습니다.${ttl}`
+    case '연결':
+      return `설비·배관 사이 연결이 바뀌었습니다.${ttl}`
+    case '흐름 방향':
+      return `흐름 방향(상류→하류)을 정해 brick:feeds 관계가 바뀌었습니다.${ttl}`
+    case '벽·문·창':
+      return `벽·문·창이 바뀌어 층 평면 도면(GeoJSON)이 달라졌습니다.${ttl}`
+    case '공간 오브젝트':
+      return '공간 오브젝트를 놓거나 옮겼습니다. GeoJSON 에만 남습니다.'
+    default:
+      return `편집이 반영됐습니다.${ttl}`
+  }
+}
 
 /**
  * 화면에 보이는 장면 수. B 로 편집 전을 보는 동안(comparing)은 편집 하나를 되돌려 at 이 하나 줄지만, 보는 것은 여전히 그 장면이라
@@ -388,6 +438,7 @@ const summary = computed(() => {
           <span v-for="(t, i) in words(scene.label)" :key="i" :class="['wd', { key: t.key }]" :style="{ animationDelay: `${380 + i * 70}ms` }">{{ t.w }}</span>
         </div>
         <div v-if="impactOf(scene)" class="scene-sub" :style="{ animationDelay: `${520 + words(scene.label).length * 70}ms` }">{{ impactOf(scene) }}</div>
+        <div class="scene-story" :style="{ animationDelay: `${600 + words(scene.label).length * 70}ms` }">{{ plainStory(scene) }}</div>
       </div>
     </transition>
 
@@ -417,15 +468,29 @@ const summary = computed(() => {
         <ReplayGeo v-if="geoStep" :key="`${geoStep.index}:${geoApplied}`" :step="geoStep" :applied="geoApplied" :color="CAT_COLOR[geoStep.category]" />
         <!-- 첫 장면 전(오프닝): 빈 칸 대신 무엇이 여기 뜰지 자리를 잡아 둔다. -->
         <div v-else class="geo-wait" aria-hidden="true">
-          <span class="wait-tag">GeoJSON</span>
+          <span class="wait-tag">GeoJSON (공간 도면)</span>
           <i class="sk w60"></i><i class="sk w85"></i><i class="sk w40"></i><i class="sk w70"></i>
-          <p>장면마다 층 파일(floor-*.geojson)에서 바뀐 feature 가 여기 뜹니다</p>
+          <p>장면마다 층 도면 파일(floor-*.geojson)에서 바뀐 형상이 여기에 표시됩니다</p>
         </div>
       </div>
       <div class="log-head">
-        <span>TTL 변경 기록</span>
-        <!-- 반복 중에는 되돌릴 때마다 하나 내려갔다 오르지 않게 반복하는 장면 번호에 둔다. -->
-        <b>{{ two(loop !== null ? loop + 1 : shownAt) }}<i>/{{ two(total) }}</i></b>
+        <span>TTL 변경 기록 <small class="log-sub">(관계 데이터)</small></span>
+        <span class="log-head-right">
+          <span v-if="steps.length < total" class="prep-badge" title="장면마다 TTL·GeoJSON 차이를 뒤에서 계산하는 중입니다">
+            분석 {{ steps.length }}/{{ total }}
+          </span>
+          <button
+            type="button"
+            class="log-mode-btn"
+            :aria-pressed="logMode === 'easy'"
+            :title="logMode === 'easy' ? 'TTL 코드 줄까지 모두 봅니다' : 'TTL 코드 줄을 숨기고 해설과 관계도만 봅니다'"
+            @click="logMode = logMode === 'all' ? 'easy' : 'all'"
+          >
+            {{ logMode === 'easy' ? '해설만' : '해설 + 코드' }}
+          </button>
+          <!-- 반복 중에는 되돌릴 때마다 하나 내려갔다 오르지 않게 반복하는 장면 번호에 둔다. -->
+          <b>{{ two(loop !== null ? loop + 1 : shownAt) }}<i>/{{ two(total) }}</i></b>
+        </span>
       </div>
       <div class="log">
         <transition name="next">
@@ -437,17 +502,22 @@ const summary = computed(() => {
         </transition>
         <div v-if="!cards.length && !upcoming" class="log-wait" aria-hidden="true">
           <i class="sk w70"></i><i class="sk w50"></i>
-          <p>편집 {{ total }}건을 고친 순서대로 다시 틉니다 — 장면마다 TTL 에서 바뀐 줄이 카드로 쌓입니다</p>
+          <p>편집 {{ total }}건을 고친 순서대로 다시 틉니다 — 장면마다 바뀐 관계(TTL)와 해설이 카드로 쌓입니다</p>
         </div>
         <transition-group name="card">
           <article
             v-for="c in cards"
             :key="c.step.index"
             class="card"
+            role="button"
+            tabindex="0"
+            :aria-label="`${c.step.index + 1}번 장면: ${c.step.label}`"
             :class="{ old: c.old, ahead: c.ahead, looping: c.step.index === loop }"
             :style="{ '--c': CAT_COLOR[c.step.category] }"
-            :title="c.step.index === loop ? '반복 중 — Space 로 다음 장면부터 이어서' : '이 장면만 반복해서 보기'"
+            :title="c.step.index === loop ? '반복 중 — Space 로 다음 장면부터 이어서' : '클릭하거나 Enter 를 누르면 이 장면만 반복해서 봅니다'"
             @click="emit('scene', c.step.index)"
+            @keydown.enter.prevent="emit('scene', c.step.index)"
+            @keydown.space.prevent="emit('scene', c.step.index)"
           >
             <div class="idx">{{ two(c.step.index + 1) }}</div>
             <div class="body">
@@ -457,10 +527,11 @@ const summary = computed(() => {
               </header>
               <h3>{{ c.step.label }}</h3>
               <template v-if="!c.old">
+                <p class="card-story">{{ plainStory(c.step) }}</p>
                 <div class="ttl-head">
-                  TTL <b class="add">+{{ c.step.ttlCount.added }}</b> <b class="del">−{{ c.step.ttlCount.removed }}</b>
+                  TTL(관계) <b class="add">+{{ c.step.ttlCount.added }}</b> <b class="del">−{{ c.step.ttlCount.removed }}</b>
                   <template v-if="c.step.geojson">
-                    · GeoJSON feature <b class="chg">~{{ c.step.geojson.count.changed }}</b> <b class="add">+{{ c.step.geojson.count.added }}</b>
+                    · GeoJSON(도면) <b class="chg">~{{ c.step.geojson.count.changed }}</b> <b class="add">+{{ c.step.geojson.count.added }}</b>
                     <b class="del">−{{ c.step.geojson.count.removed }}</b>
                   </template>
                 </div>
@@ -468,14 +539,16 @@ const summary = computed(() => {
                 <ReplayRelations v-if="c.rels.length" :rels="c.rels" :name="readable" />
                 <!-- 그 관계 변화가 DT 질의의 답을 어떻게 바꾸나(말로) -->
                 <div v-for="(l, i) in impactLines(c.rels, readable).slice(0, 2)" :key="`im${i}`" class="line query" :style="{ animationDelay: `${450 + i * 120}ms`, '--mk': `${900 + i * 120}ms` }">⇢ <span class="mk">{{ l }}</span></div>
-                <template v-if="c.rows.length">
-                  <!-- 더한 줄은 쳐진 뒤 형광펜이 왼쪽에서 오른쪽으로 그어진다(새로 들어간 값이 눈에 먼저 들어오게). -->
-                  <div v-for="(r, i) in c.rows.slice(0, c.rels.length ? ROWS - 3 : ROWS)" :key="i" :class="['line', r.kind]" :style="{ animationDelay: `${250 + i * 70}ms`, '--mk': `${700 + i * 70}ms` }">
-                    {{ r.kind === 'add' ? '+ ' : r.kind === 'del' ? '− ' : '▸ ' }}<span v-if="r.kind === 'add'" class="mk">{{ r.text }}</span><template v-else>{{ r.text }}</template>
-                  </div>
-                  <div v-if="c.rows.length > (c.rels.length ? ROWS - 3 : ROWS)" class="line more">… 외 {{ c.rows.length - (c.rels.length ? ROWS - 3 : ROWS) }}줄</div>
+                <template v-if="logMode === 'all'">
+                  <template v-if="c.rows.length">
+                    <!-- 더한 줄은 쳐진 뒤 형광펜이 왼쪽에서 오른쪽으로 그어진다(새로 들어간 값이 눈에 먼저 들어오게). -->
+                    <div v-for="(r, i) in c.rows.slice(0, c.rels.length ? ROWS - 3 : ROWS)" :key="i" :class="['line', r.kind]" :style="{ animationDelay: `${250 + i * 70}ms`, '--mk': `${700 + i * 70}ms` }">
+                      {{ r.kind === 'add' ? '+ ' : r.kind === 'del' ? '− ' : '▸ ' }}<span v-if="r.kind === 'add'" class="mk">{{ r.text }}</span><template v-else>{{ r.text }}</template>
+                    </div>
+                    <div v-if="c.rows.length > (c.rels.length ? ROWS - 3 : ROWS)" class="line more">… 외 {{ c.rows.length - (c.rels.length ? ROWS - 3 : ROWS) }}줄</div>
+                  </template>
+                  <div v-else class="line none">TTL 변화 없음<template v-if="c.step.geojson"> — 좌표·외곽선은 GeoJSON 에만 남는다</template></div>
                 </template>
-                <div v-else class="line none">TTL 변화 없음<template v-if="c.step.geojson"> — 좌표·외곽선은 GeoJSON 에만 남는다</template></div>
               </template>
             </div>
           </article>
@@ -526,7 +599,17 @@ const summary = computed(() => {
 
     <!-- 단축키 안내: GeoJSON 패널 바로 왼쪽에 붙어 열리고 닫힌다(가운데를 덮으면 보던 장면이 가린다). 끝 화면에서는 통계 타일 아래. -->
     <transition name="help">
-      <div v-if="help" :class="['hud-help', { below: phase === 'done' }]" title="누르면 닫기 (?)" @click="help = false">
+      <div
+        v-if="help"
+        :class="['hud-help', { below: phase === 'done' }]"
+        role="button"
+        tabindex="0"
+        aria-label="리플레이 단축키 안내 닫기"
+        title="누르면 닫기 (?)"
+        @click="help = false"
+        @keydown.enter.prevent="help = false"
+        @keydown.space.prevent="help = false"
+      >
         <h4>리플레이 단축키<i>?</i></h4>
         <div v-for="[k, what] in KEYS" :key="k" class="help-row"><kbd>{{ k }}</kbd><span>{{ what }}</span></div>
         <p>시간줄을 끌면 편집 하나씩 훑고, 눈금·카드·빛기둥을 누르면 그 장면을 반복합니다.</p>
@@ -535,7 +618,7 @@ const summary = computed(() => {
 
     <!-- Esc 로 닫기 전에 묻는다(실수로 누르면 보던 장면을 잃는다). -->
     <transition name="fade">
-      <div v-if="askClose" class="ask-close" role="alertdialog" aria-label="리플레이 닫기">
+      <div v-if="askClose" class="ask-close" role="alertdialog" aria-modal="true" aria-label="리플레이 닫기">
         <b>리플레이를 닫을까요?</b>
         <span>남은 편집을 다시 해서 리플레이 전 상태로 돌아갑니다.</span>
         <div class="ask-buttons">
@@ -545,16 +628,26 @@ const summary = computed(() => {
       </div>
     </transition>
 
-    <div v-if="error" class="hud-error">TTL 비교를 만들지 못했습니다: {{ error }}</div>
+    <div v-if="error" class="hud-error" role="alert">TTL 비교를 만들지 못했습니다: {{ error }}</div>
 
     <!-- 아래: 조작 막대와 시간줄 -->
     <div class="hud-bar">
-      <div class="track" :class="{ scrubbing: scrub?.moved }" title="끌어서 편집 하나씩 훑기" @pointerdown="onTrackDown" @pointermove="onTrackMove" @pointerup="onTrackUp" @pointercancel="onTrackUp">
+      <div
+        class="track"
+        :class="{ scrubbing: scrub?.moved }"
+        aria-label="리플레이 시간줄 — 끌어서 편집 하나씩 훑기. 키보드는 ←·→"
+        title="끌어서 편집 하나씩 훑기"
+        @pointerdown="onTrackDown"
+        @pointermove="onTrackMove"
+        @pointerup="onTrackUp"
+        @pointercancel="onTrackUp"
+      >
         <i class="fill" :style="{ width: `${(100 * shownAt) / Math.max(1, total)}%` }"></i>
         <i
           v-for="k in total"
           :key="k"
           class="tick"
+          :aria-label="steps[k - 1] ? `${k}번 장면: ${steps[k - 1].label}` : `${k}번 장면`"
           :class="{ done: k <= shownAt, looping: k - 1 === loop, off: (!!filter || !!highlights) && !!steps[k - 1] && !wanted(steps[k - 1]), star: !!highlights?.includes(k - 1) }"
           :title="steps[k - 1] ? `#${two(k)} ${steps[k - 1].label} · 바뀐 것 ${steps[k - 1].changes.length} — 이 장면만 반복해서 보기` : undefined"
           :style="{ left: `${(100 * (k - 0.5)) / total}%`, background: steps[k - 1] ? CAT_COLOR[steps[k - 1].category] : undefined, '--w': weights[k - 1] ?? 0 }"
@@ -577,9 +670,22 @@ const summary = computed(() => {
         <button type="button" title="이전 편집 (←)" @click="emit('prev')">◀</button>
         <button type="button" class="play" :title="playing ? '멈춤 (Space)' : loop !== null ? '다음 장면부터 이어서 재생 (Space)' : '재생 (Space)'" @click="emit('toggle')">{{ playing ? '❚❚' : '▶' }}</button>
         <button type="button" title="다음 편집 (→)" @click="emit('next')">▶▶</button>
-        <span class="speeds">
-          <button v-for="s in [0.5, 1, 2, 4]" :key="s" type="button" :aria-pressed="speed === s" @click="emit('speed', s)">{{ s }}×</button>
+        <span class="speeds" role="group" aria-label="재생 배속">
+          <button v-for="s in [0.5, 1, 2, 4]" :key="s" type="button" :aria-pressed="speed === s" :title="`${s}배속 재생`" @click="emit('speed', s)">{{ s }}×</button>
         </span>
+        <button
+          type="button"
+          :class="['cmp-btn', { on: comparing }]"
+          :aria-pressed="!!comparing"
+          :disabled="phase === 'opening' || (!at && loop === null)"
+          title="누르고 있는 동안 지금 장면의 편집 전 모습을 비교합니다 (B 키 길게 누르기)"
+          @pointerdown.prevent="emit('compareDown')"
+          @pointerup="emit('compareUp')"
+          @pointerleave="comparing && emit('compareUp')"
+          @pointercancel="emit('compareUp')"
+        >
+          ⇄ 전·후 <kbd>B</kbd>
+        </button>
         <span class="status">
           <template v-if="loop !== null">#{{ two(loop + 1) }} 반복 중 · <kbd>Space</kbd> 다음 장면부터 이어서</template>
           <template v-else-if="highlights && phase !== 'done'"><button type="button" class="filter-chip" style="--c: #9aa3ae" title="요약 풀기" @click="emit('highlights')">★ 요약 {{ highlights.length }}장면 ✕</button> · 편집 {{ at }}/{{ total }}</template>
@@ -591,11 +697,11 @@ const summary = computed(() => {
           <button type="button" :aria-pressed="(theme ?? 'plan') === 'plan'" title="도면 — 무채색 가는 선 (T)" @click="(theme ?? 'plan') !== 'plan' && emit('theme')">도면</button>
           <button type="button" :aria-pressed="theme === 'show'" title="중계 — 분류 색상과 빛 효과 (T)" @click="theme !== 'show' && emit('theme')">중계</button>
         </span>
-        <button type="button" class="help-btn" title="단축키 (?)" @click="help = !help">?</button>
+        <button type="button" class="help-btn" title="단축키 (?)" aria-label="리플레이 단축키 안내" @click="help = !help">?</button>
         <button
           type="button"
           :class="['rec', { on: recording != null }]"
-          :title="recording != null ? '녹화 멈추고 내려받기 (R)' : '처음부터 끝 화면까지 녹화해 webm 으로 내려받기 (R) — 브라우저가 이 탭을 공유할지 묻습니다'"
+          :title="recording != null ? '녹화 멈추고 내려받기 (R)' : '처음부터 끝 화면까지 녹화해 영상(mp4/webm)으로 내려받기 (R) — 브라우저가 이 탭을 공유할지 묻습니다'"
           @click="emit('record')"
         >
           <template v-if="recording != null">■ {{ Math.floor(recSec / 60) }}:{{ two(recSec % 60) }}</template>
@@ -646,8 +752,8 @@ const summary = computed(() => {
   --pink: #f07178;
   --chg: #e5c07b;
   --ink: #e8ebef;
-  --sub: #9aa3ae;
-  --mute: #6b7480;
+  --sub: #b0b8c4;
+  --mute: #8b95a5;
   --panel: #0c0f13;
   --card: #11151b;
   --line: #262d36;
@@ -2799,6 +2905,12 @@ button.sum-row.on span {
   background-image: linear-gradient(90deg, rgba(255, 200, 97, 0.32), rgba(244, 114, 182, 0.3));
 }
 @media (prefers-reduced-motion: reduce) {
+  .impact,
+  .swipe,
+  .wd,
+  .op-title .wd,
+  .scene-sub,
+  .scene-story,
   .replay-hud[data-theme='show'] .card::before,
   .replay-hud[data-theme='show'] .card::after,
   .replay-hud[data-theme='show'] .hud-done::before,
@@ -2812,6 +2924,90 @@ button.sum-row.on span {
   .replay-hud[data-theme='show'] .wd,
   .replay-hud[data-theme='show'] .op-title .wd {
     animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
   }
+}
+
+/* --- 자연어 내레이션 자막 & 카드 요약, 조작바 전·후 비교 버튼, 키보드 포커스 --- */
+.scene-story {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #dbe4f0;
+  line-height: 1.45;
+  opacity: 0;
+  animation: sub-in 320ms ease forwards;
+}
+.card-story {
+  margin: 4px 0 8px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--c);
+  background: rgba(255, 255, 255, 0.035);
+  color: #dbe4f0;
+  font-size: 12px;
+  line-height: 1.42;
+}
+.log-sub {
+  font-weight: 400;
+  color: var(--mute);
+  font-size: 11px;
+}
+.log-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.prep-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line-2);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--chg);
+  font-size: 11px;
+}
+.log-mode-btn {
+  padding: 2px 7px;
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--sub);
+  font-size: 11px;
+  cursor: pointer;
+}
+.log-mode-btn:hover,
+.log-mode-btn[aria-pressed='true'] {
+  border-color: var(--mint);
+  color: #ffffff;
+  background: rgba(123, 216, 143, 0.14);
+}
+.cmp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--line-2);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.cmp-btn.on {
+  border-color: var(--mint);
+  background: rgba(123, 216, 143, 0.2);
+  color: #ffffff;
+}
+.cmp-btn kbd {
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  font-size: 10px;
+}
+.tick:focus-visible,
+.card:focus-visible,
+.hud-help:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
 }
 </style>

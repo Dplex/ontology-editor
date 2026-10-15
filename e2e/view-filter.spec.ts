@@ -163,3 +163,51 @@ test('Duplex: 독의 [Explode] 는 기기를 제자리에서 종류별 색으로
   await expect.poll(() => viewer<number>(page, 'tinted')).toBe(0)
   expect(errors).toEqual([])
 })
+
+test('mep.ifc: 탐색 독·시점 바로가기·서랍의 한국어 분류와 바로가기·리플레이 단추가 보이고, V·X·Shift+V·O 단축키가 먹는다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+
+  // 독과 시점 바로가기의 툴팁에 단축키가 있다.
+  const dock = page.locator('.facade-dock')
+  await expect(dock.getByTestId('filter-toggle')).toHaveAttribute('title', /\(V\)/)
+  await expect(dock.getByTestId('class-tint-toggle')).toHaveAttribute('title', /\(X\)/)
+  const views = page.getByRole('navigation', { name: '시점 바로가기' })
+  await expect(views.getByRole('button')).toHaveText([/전체/, /위에서/, /고른 것/])
+  await expect(views.getByRole('button', { name: /고른 것/ })).toBeDisabled()
+
+  // V 로 서랍을 연다. 클래스 줄에 한국어 이름이 붙고(종류 사전의 이름), 바로가기가 있다.
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('v')
+  const panel = page.getByTestId('filter-panel')
+  await expect(panel).toBeVisible()
+  await expect(panel.locator('label', { hasText: 'brick:Air_Handling_Unit' }).locator('.cls-ko')).toHaveText('공조기')
+  await expect(panel.locator('.filter-presets').getByRole('button')).toHaveText(['손볼 설비만', '기기만', /종류 모름 다음/, /검사 위반 다음/])
+  await panel.getByRole('textbox', { name: '보기 필터 검색' }).fill('공조기')
+  await expect(panel.locator('label', { hasText: 'brick:Air_Handling_Unit' })).toBeVisible()
+  await panel.getByRole('textbox', { name: '보기 필터 검색' }).fill('')
+  await page.keyboard.press('Escape')
+
+  // X 는 종류별 색, Shift+V 는 평면도 ↔ 3D.
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('x')
+  await expect(dock.getByTestId('class-tint-toggle')).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('x')
+  await expect(dock.getByTestId('class-tint-toggle')).toHaveAttribute('aria-pressed', 'false')
+  await page.keyboard.press('Shift+V')
+  await expect(page.locator('.view-tools .tabs button', { hasText: '평면도' })).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Shift+V')
+  await expect(page.locator('.view-tools .tabs button', { hasText: '3D' })).toHaveAttribute('aria-pressed', 'true')
+
+  // 편집 모드에서는 시점 바로가기를 거두고(아래는 편집 안내 자리), 바뀐 내용 머리에 리플레이 단추가 있으며 편집 전에는 꺼져 있다.
+  await page.keyboard.press('e')
+  await expect(views).toHaveCount(0)
+  const replayBtn = page.locator('.changes-head .replay-open-btn')
+  await expect(replayBtn).toBeVisible()
+  await expect(replayBtn).toBeDisabled()
+  expect(errors).toEqual([])
+})
