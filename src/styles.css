@@ -3717,6 +3717,12 @@ main.has-model .catalog {
   flex-wrap: wrap;
 }
 
+/* [링크 복사](share-link.ts). 위치 표시 뒤의 작은 글자 단추다. */
+.appbar .share-link {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
 .appbar .file {
   display: flex;
   align-items: baseline;

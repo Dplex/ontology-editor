@@ -12,6 +12,7 @@ import { flying, note, setFlying } from './keyboard'
 import { group } from './multi-select'
 import { viewStorey } from './multi-view'
 import { viewer } from './scene'
+import { copyText } from './share-link'
 import { select } from './systems'
 import { clearViewFilter, filterOpen, setViewFilter, toggleExplode, viewFilter } from './view-filter'
 
@@ -77,12 +78,9 @@ export async function ctxCopy() {
   const c = ctxMenu.value
   if (!c) return
   closeContext()
-  try {
-    await navigator.clipboard.writeText(c.ids.join('\n'))
-    note(`GlobalId ${c.ids.length}개를 복사했습니다`)
-  } catch {
-    note(`복사하지 못했습니다(브라우저가 막음): ${c.ids.slice(0, 3).join(', ')}`)
-  }
+  // 55 같은 http 주소에서는 Clipboard API 가 없어 늘 실패했다 — copyText 가 다른 길로 넣는다.
+  if (await copyText(c.ids.join('\n'))) note(`GlobalId ${c.ids.length}개를 복사했습니다`)
+  else note(`복사하지 못했습니다(브라우저가 막음): ${c.ids.slice(0, 3).join(', ')}`)
 }
 export function ctxShowAll() {
   clearViewFilter()
