@@ -12,4 +12,4 @@ PRD #11 · 티켓 7건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | [OE-ZON-04](OE-ZON-04.md) | 공조존 편집 (E9) | R1 | P1 | prd-done |
 | [OE-ZON-05](OE-ZON-05.md) | 검증 Z-01~Z-06 | R1 | P1 | prd-done |
 | [OE-ZON-06](OE-ZON-06.md) | 용량 검증 입력값(설계 풍량 · 설비 용량) | R1 | P2 | prd-done |
-| [OE-ZON-07](OE-ZON-07.md) | 존↔방 매칭 확인 플로우 | R2 | P1 | prd-done |
+| [OE-ZON-07](OE-ZON-07.md) | 존↔방 매칭 확인 플로우 | R1 | P1 | prd-done |
