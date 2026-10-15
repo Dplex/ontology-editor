@@ -22,7 +22,7 @@ test('Duplex 건축: 3D 벽은 처음부터 켜져 있고 비내력벽까지 그
   test.setTimeout(120_000)
   await open(page, DUPLEX, 'NBU_Duplex-Apt_Arch.ifc')
   const toggle = page.locator('.walls-toggle')
-  await expect(toggle).toHaveText('벽')
+  await expect(toggle).toContainText('Walls')
   await expect(toggle).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('.wall-key')).toContainText('내력벽 7')
   await expect(page.locator('.wall-key')).toContainText('비내력벽 50')

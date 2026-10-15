@@ -384,7 +384,10 @@ test('완전성 검사는 규칙마다 통과 수를 세고, 어긴 것을 펼�
   const checks = page.locator('.checks')
   const rows = checks.locator('tbody tr')
   // 공기 계통 셋, 물 계통 둘, 도관 끝, 도관 경로(OE-PIP-13), 유체 흐름이 아닌 연결(OE-PIP-18), 소속, 연결망, 스프링클러 소화 배관 — 규칙이 열하나다.
-  await expect(rows).toHaveCount(11)
+  // 이 파일에 잴 대상이 없는 규칙은 표가 아니라 아래 접은 목록에 있다.
+  const empty = checks.getByTestId('checks-empty').locator('li')
+  await expect.poll(async () => (await rows.count()) + (await empty.count())).toBe(11)
+  expect(await empty.count()).toBeGreaterThan(0)
   await expect(checks).toContainText('공기 말단(디퓨저·그릴)이 원천(공조기·FCU 등)과 이어져 있다')
 
   // 어긴 것이 있는 첫 규칙을 펼치고, 목록에서 하나를 고르면 설비 패널이 뜬다.

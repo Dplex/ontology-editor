@@ -71,3 +71,12 @@ export function checkCode(key: string): IssueCode | null {
 
 /** 화면 칩의 글. "A-설정 · R6" */
 export const issueText = (c: IssueCode) => `${MISSING_LABEL[c.cls]} · ${c.r}`
+
+/** 분류가 무엇을 하라는 것인지(칩의 title). 칩 글은 보고서·요구사항 표와 같은 코드로 두고, 뜻은 마우스를 올리면 본다. */
+const CLASS_MEANING: Record<IssueCode['cls'], string> = {
+  X: 'IFC 밖의 자료(IDF·BAS)가 있어야 채웁니다',
+  A: 'BIM 내보내기 설정으로 고칩니다',
+  B: 'BIM 에 없어 다음 판본에 넣어 다시 받아야 합니다',
+  C: '에디터가 계산·사전으로 채우고 사람이 확인합니다',
+}
+export const issueTitle = (c: IssueCode) => `${MISSING_LABEL[c.cls]}: ${CLASS_MEANING[c.cls]} · ${c.r}: BIM 필수 요구사항 ${c.r}`
