@@ -1243,6 +1243,11 @@ function checkStep(bytes: Uint8Array) {
   if (!head.startsWith('ISO-10303-21')) throw new UnreadableIfcError('IFC(STEP) 파일이 아닙니다. 첫 줄이 ISO-10303-21 로 시작하지 않습니다.')
   if (!/FILE_SCHEMA\s*\(/i.test(head) || !/\bDATA\s*;/i.test(new TextDecoder().decode(bytes.subarray(0, Math.min(bytes.length, 1 << 20)))))
     throw new UnreadableIfcError('IFC 파일의 머리말(FILE_SCHEMA)이나 DATA 절이 없습니다. 저작 도구에서 다시 내보내야 합니다.')
+  // 받는 판은 IFC2x3 과 IFC4(IFC4X1~4X3 포함)다(OE-BIM-01). 그 밖의 판(IFC2X2 등)은 web-ifc 가 열어도 클래스 번호가 달라 한참 뒤
+  // 엉뚱한 곳에서 멈추므로, 여기서 판 이름을 말하고 멈춘다.
+  const schema = /FILE_SCHEMA\s*\(\s*\(\s*'([^']*)'/i.exec(head)?.[1]?.trim()
+  if (schema && !/^IFC(2X3|4)/i.test(schema))
+    throw new UnreadableIfcError(`지원하지 않는 IFC 판입니다(${schema}). IFC2x3 이나 IFC4 로 다시 내보내야 합니다.`)
 }
 
 /** IFC 바이트를 읽어 중간 모델을 만든다. 호출부가 api 를 넘겨 초기화를 통제한다. */

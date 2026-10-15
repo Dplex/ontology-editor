@@ -459,6 +459,19 @@ describe('구문이 깨진 파일', () => {
     // 머리말 첫 줄만 흉내 낸 파일. 예전에는 web-ifc 안쪽에서 "Cannot read properties of undefined" 로 죽었다.
     expect(() => importIfc(api, enc('ISO-10303-21;\nHEADER;\nthis is not ifc\n'))).toThrow(/FILE_SCHEMA/)
   })
+
+  it('IFC2x3·IFC4 가 아닌 판은 판 이름을 말하며 멈추고, 두 판(IFC4X3 포함)은 연다 [OE-BIM-01#2~]', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const file = (schema: string) =>
+      new TextEncoder().encode(
+        [`ISO-10303-21;`, `HEADER;`, `FILE_DESCRIPTION((''),'2;1');`, `FILE_NAME('','',(''),(''),'','','');`, `FILE_SCHEMA(('${schema}'));`, `ENDSEC;`, `DATA;`, `ENDSEC;`, `END-ISO-10303-21;`].join('\n'),
+      )
+    expect(() => importIfc(api, file('IFC2X2_FINAL'))).toThrow(/지원하지 않는 IFC 판입니다\(IFC2X2_FINAL\)/)
+    expect(() => importIfc(api, file('CIS2'))).toThrow(UnreadableIfcError)
+    // 판 검사는 받는 판을 막지 않는다. 내용이 비어 층·방은 없지만 판 때문에 멈추지는 않는다.
+    for (const schema of ['IFC2X3', 'IFC4', 'IFC4X3_ADD2']) expect(() => importIfc(api, file(schema)), schema).not.toThrow(/판/)
+  })
 })
 
 // 입력은 fixtures/proxy.ifc 다. Revit 이 공조기·FCU 를 IfcBuildingElementProxy 로 내보낸 경우를 줄였다.

@@ -10377,19 +10377,21 @@ ${name} 파일을 열까요?`,
   beginProgress('파일 읽는 중')
   try {
     let result: { model: Model; meshes: MeshMap }
-    idfReport.value = null
-    selectedZoneId.value = null
-    idfSource = null
-    idfPlacement = null
+    // 열려 있던 모델의 상태는 새 파일을 다 읽은 뒤에 바꾼다. 읽다가 실패하면 열려 있던 것이 그대로 남는다(OE-BIM-01#2).
+    let idf: { source: NonNullable<typeof idfSource>; report: IdfAttachReport } | null = null
     if (isIdf(name)) {
       // IDF 만 연 것. 공조존과 담당 관계만 있고 방·설비 형상은 없다. 글이라 워커 없이 바로 읽는다.
-      idfSource = { name, idf: readIdf(new TextDecoder().decode(await read())) }
-      const done = modelFromIdf(idfSource.idf, name)
-      idfReport.value = done.report
+      const source = { name, idf: readIdf(new TextDecoder().decode(await read())) }
+      const done = modelFromIdf(source.idf, name)
+      idf = { source, report: done.report }
       result = { model: done.model, meshes: new Map() }
     } else {
       result = await importInWorker(await read())
     }
+    idfReport.value = idf?.report ?? null
+    selectedZoneId.value = null
+    idfSource = idf?.source ?? null
+    idfPlacement = null
     progress.value = { label: '3D 그리는 중' }
     await paint()
     meshes = result.meshes
@@ -10420,20 +10422,18 @@ ${name} 파일을 열까요?`,
     await nextTick()
     await paint()
   } catch (e) {
-    // 실패한 채로 이전 모델을 남겨 두면 화면이 방금 연 파일을 보여 주는 것처럼 보인다.
-    model.value = null
-    baseline.value = null
-    meshes = new Map()
-    meshBase = new Map()
-    fileName.value = ''
-    mergeReport.value = null
+    // 열려 있던 모델·편집은 그대로 둔다(OE-BIM-01#2). 예전에는 모델을 비웠다 — 실패한 파일을 보여 주는 것처럼 보이지 않게 하려던
+    // 것인데, 그러면 읽지 못한 파일 하나 때문에 열려 있던 파일과 저장하지 않은 편집까지 잃었다. 대신 문구에 실패한 파일 이름과
+    // 아직 열려 있는 파일 이름을 같이 적는다.
     const detail = e instanceof Error ? e.message : String(e)
     // 워커 안쪽의 자바스크립트 오류 문구("Cannot read properties of undefined")는 사람에게 뜻이 없다. 무엇이 일어났는지
     // 먼저 말하고 원문은 괄호에 남긴다(버그 보고에 쓴다).
     const internal = /Cannot read properties|is not a function|is not iterable|undefined|null/.test(detail)
+    const kind = isIdf(name) ? 'IDF' : 'IFC'
+    const kept = model.value && fileName.value ? ` 열려 있던 ${fileName.value} 는 그대로입니다.` : ''
     error.value = internal
-      ? `${isIdf(name) ? 'IDF' : 'IFC'}를 읽다가 멈췄습니다. 파일 구조가 깨졌거나 에디터가 모르는 형태입니다(원문: ${detail}).`
-      : `${isIdf(name) ? 'IDF' : 'IFC'}를 읽지 못했습니다: ${detail}`
+      ? `${kind}를 읽다가 멈췄습니다(${name}). 파일 구조가 깨졌거나 에디터가 모르는 형태입니다(원문: ${detail}).${kept}`
+      : `${kind}를 읽지 못했습니다(${name}): ${detail}${kept}`
   } finally {
     busy.value = false
     endProgress()
