@@ -13,6 +13,7 @@ import Src, { type SrcKind } from './components/Src.vue'
 import FlowBasis from './components/FlowBasis.vue'
 import FlowLadder, { type LadderChip, type LadderLine, type LadderPart, type LadderRow } from './components/FlowLadder.vue'
 import ShortcutHelp from './components/ShortcutHelp.vue'
+import ThemeIcon from './components/ThemeIcon.vue'
 import ReplayHud from './components/ReplayHud.vue'
 import ExportCompare from './components/ExportCompare.vue'
 import type { CompareReading } from './lib/export/compare'
@@ -5565,6 +5566,9 @@ fetch('./__data/')
   })
   .catch(() => {})
 
+/** 목록에 보이는 data/ 파일. 등급을 재다 오류가 난(열 수 없는) 파일은 뺀다. 재기 전에는 보인다. */
+const openableDataFiles = computed(() => dataFiles.value.filter((f) => !errorAt(f.path)))
+
 const baseName = (path: string) => path.split('/').pop() ?? path
 const profileAt = (path: string): Profile | null => {
   const p = profiles.value[path]
@@ -5964,6 +5968,7 @@ function setViewFilter(patch: Partial<ViewFilter>) {
 function clearViewFilter() {
   viewFilter.value = EMPTY_FILTER
   if (exploded.value) toggleExplode()
+  classTintOn.value = false
   note('모두 보입니다')
 }
 /** 체크 목록 한 칸을 켜고 끈다. 전부 켜지면 null(거르지 않음)로 돌린다. */
@@ -6066,6 +6071,50 @@ watch(viewFilter, () => {
 })
 watch([model, sceneVersion], () => {
   if (exploded.value && !viewer?.exploded()) exploded.value = false
+})
+// --- 종류별 색(독의 [Explode], 2026-10-15) ---
+// 기기를 제자리에서 Brick 클래스(TTL 에 나가는 그 클래스, classOf)별 색으로 칠하고 범례에 종류 이름·대수를 보인다. 범례 줄을 누르면 그 종류만
+// 색으로 남기고 나머지는 흐린 회색이다. 덕트·배관은 흐린 회색이고 가구는 흐리게 한다. 사전이 종류를 모르는 기기(`ex:` 클래스)는 한 줄 "종류 모름" 으로 묶어 자홍이다 —
+// 종류를 채워야 할 기기가 어디에 얼마나 있는지 보이게. 화면에서만이고, 리플레이 동안은 끈다.
+/** 범례 순서대로 쓰는 색(많은 종류부터). 10개를 넘으면 돌려 쓴다 — 그때는 범례 줄을 눌러 하나씩 본다. */
+const CLASS_PALETTE = [0x4e79a7, 0xf28e2b, 0x59a14f, 0xe15759, 0x76b7b2, 0xedc948, 0xb07aa1, 0x9c755f, 0x2f8f9d, 0x8cd17d]
+const UNKNOWN_CLASS = '(종류 모름)'
+/** 종류 모름은 눈에 띄는 자홍이다 — 짙은 회색으로 두었더니 벽·바닥과 섞여 채울 것이 안 보였다. 팔레트에는 이 색과 비슷한 분홍을 두지 않는다. */
+const UNKNOWN_CLASS_COLOR = 0xc2185b
+const classTintOn = ref(false)
+/** 범례에서 누른 종류. 그 종류만 색으로 남긴다. */
+const classFocus = ref<string | null>(null)
+const classLegend = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  if (!classTintOn.value || !m) return []
+  const rows: { key: string; label: string; cls: string; ids: string[]; color: number }[] = []
+  const unknown: { ids: string[]; classes: string[] } = { ids: [], classes: [] }
+  for (const g of explodeGroups(m, () => true)) {
+    if (g.cls.startsWith('ex:')) {
+      unknown.ids.push(...g.ids)
+      unknown.classes.push(g.cls)
+      continue
+    }
+    const first = equipmentById.value.get(g.ids[0])
+    const label = (first && equipmentKind(first.kind)?.label) || g.cls.replace(/^brick:/, '').replace(/_/g, ' ')
+    rows.push({ key: g.cls, label, cls: g.cls, ids: g.ids, color: CLASS_PALETTE[rows.length % CLASS_PALETTE.length] })
+  }
+  if (unknown.ids.length) rows.push({ key: UNKNOWN_CLASS, label: '종류 모름', cls: unknown.classes.join(' · '), ids: unknown.ids, color: UNKNOWN_CLASS_COLOR })
+  return rows
+})
+watch(classTintOn, (on) => {
+  if (!on) classFocus.value = null
+  else if (activeTab.value !== '3d') activeTab.value = '3d'
+})
+watch([classLegend, classFocus, replayOpen], () => {
+  if (!classTintOn.value || replayOpen.value) {
+    viewer?.setTint(null)
+    return
+  }
+  const colors = new Map<string, number>()
+  for (const r of classLegend.value) if (!classFocus.value || classFocus.value === r.key) for (const id of r.ids) colors.set(id, r.color)
+  viewer?.setTint(colors)
 })
 // 리플레이 동안은 분해도를 접고 다중층 뷰의 손잡이를 끈다(건물 전체 3D 에서 튼다 — 보기 필터는 applyStoreyFilter). 닫으면 되살린다.
 // 닫을 때 리플레이가 뷰어 편집 모드를 editing 으로만 돌려서, 다중층 뷰였으면 여기서 다시 맞춘다(위 watch([multiView, editing]) 와 같은 값).
@@ -11304,8 +11353,8 @@ function rollbackFromReport() {
           <h1>ontology-editor</h1>
           <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다. 내보낸 TTL·GeoJSON 은 <a href="./viewer.html">내보낸 파일 보기</a>에서 다시 열어 봅니다.</p>
         </div>
-        <button type="button" class="theme" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">
-          {{ dark ? '라이트' : '다크' }}
+        <button type="button" class="theme icon-btn" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">
+          <ThemeIcon :dark="dark" />
         </button>
       </div>
     </header>
@@ -11398,7 +11447,7 @@ function rollbackFromReport() {
     <!-- data/ 의 샘플. 파일마다 온톨로지를 어디까지 채우는지 먼저 보고 고른다. -->
     <section v-if="dataFiles.length" class="catalog">
       <!-- 파일을 연 뒤에는 접어 둔다. 목록이 3D 와 검토 화면을 아래로 밀어낸다. 덧붙일 때 다시 편다. -->
-      <Fold :key="model ? 'loaded' : 'empty'" title="data/ 의 IFC" :meta="`${dataFiles.length}개`" :default-open="!model">
+      <Fold :key="model ? 'loaded' : 'empty'" title="data/ 의 IFC" :meta="`${openableDataFiles.length}개`" :default-open="!model">
         <p v-if="dataPicked.length" class="catalog-pick">
           <button type="button" class="pick" :disabled="busy" @click="openDataSet(dataPicked)">
             고른 {{ dataPicked.length }}개 {{ dataPicked.length > 1 ? '합쳐서 열기' : '열기' }}
@@ -11413,7 +11462,8 @@ function rollbackFromReport() {
         </p>
         <table>
           <tbody>
-            <tr v-for="f in dataFiles" :key="f.path" :class="{ picked: dataPicked.includes(f.path) }">
+            <!-- 열 수 없는 파일(STEP 구문 오류 등 — 55 의 Duplex COBie 셋)은 목록에서 뺀다. 열어도 오류뿐이라 고를 까닭이 없다(2026-10-15 사용자). -->
+            <tr v-for="f in openableDataFiles" :key="f.path" :class="{ picked: dataPicked.includes(f.path) }">
               <td class="pick-cell">
                 <input type="checkbox" :checked="dataPicked.includes(f.path)" :aria-label="`${f.path} 같이 열기`" @change="toggleDataPick(f.path)" />
               </td>
@@ -11423,7 +11473,6 @@ function rollbackFromReport() {
               </td>
               <td class="chips">
                 <span v-if="!profiles[f.path]" class="muted">분석 중…</span>
-                <span v-else-if="errorAt(f.path)" class="unreadable" :title="errorAt(f.path)">열 수 없음</span>
                 <!-- 모양이 다른 응답(옛 서버 등)이 오면 칩 없이 둔다. `!` 로 밀어붙였더니 목록 렌더가 멈춰 그 뒤 화면 갱신이 꼬였다. -->
                 <template v-else-if="profileAt(f.path)">
                   <TierChips :tiers="profileAt(f.path)!.tiers" />
@@ -11563,8 +11612,8 @@ function rollbackFromReport() {
             <button type="button" class="ghost" aria-label="3D 형상 내보내기 (GLB)" title="3D 형상 내보내기 (GLB 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'glb'" :class="{ done: justDone === 'glb' }" @click="export3D('glb')">{{ exporting3d === 'glb' ? 'GLB…' : 'GLB' }}</button>
             <button type="button" class="ghost" aria-label="3D 형상 내보내기 (OBJ)" title="3D 형상 내보내기 (OBJ 파일 하나, 요소 이름은 GlobalId)" :disabled="busy || !!exporting3d" :aria-busy="exporting3d === 'obj'" :class="{ done: justDone === 'obj' }" @click="export3D('obj')">{{ exporting3d === 'obj' ? 'OBJ…' : 'OBJ' }}</button>
             <button type="button" class="ghost" aria-label="3D 형상 내보내기 (FBX)" :title="fbxServer.enabled ? '3D 형상 내보내기 (FBX 파일 하나, 요소 이름은 GlobalId, 서버에서 GLB 를 변환)' : fbxServer.reason" :disabled="busy || !!exporting3d || !fbxServer.enabled" :aria-busy="exporting3d === 'fbx'" :class="{ done: justDone === 'fbx' }" @click="export3D('fbx')">{{ exporting3d === 'fbx' ? 'FBX…' : 'FBX' }}</button>
-            <button type="button" class="ghost keys-help" title="단축키 안내 (?)" aria-label="단축키 안내" @click="helpOpen = true">?</button>
-            <button type="button" class="ghost theme" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">{{ dark ? '라이트' : '다크' }}</button>
+            <button type="button" class="ghost keys-help" title="조작·단축키 안내 (?)" aria-label="조작·단축키 안내" @click="helpOpen = true">?</button>
+            <button type="button" class="ghost theme icon-btn" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme"><ThemeIcon :dark="dark" /></button>
           </div>
         </div>
         <!-- 편집 모드에서만. 좁은 폭에서는 마지막 편집 이름이 남는 폭을 쓰고 넘치면 자른다. 단축키는 title 과 ? 안내로. -->
@@ -11736,16 +11785,18 @@ function rollbackFromReport() {
                 <span>Filter</span>
                 <b v-if="filterOn" class="dock-dot" aria-label="필터 켜짐"></b>
               </button>
+              <!-- 종류별 색(2026-10-15). 예전에는 Brick 클래스별로 공중에 띄웠는데(분해도) 높이에 뜻이 없어 읽히지 않았다. 띄우기는 서랍·우클릭에 남는다. -->
               <button
                 type="button"
-                :class="['dock-btn', { on: exploded }]"
-                :aria-pressed="exploded"
-                aria-label="Cluster (분해도)"
-                title="보이는 기기를 Brick 클래스별로 공중에 펼쳐 봅니다"
-                @click="toggleExplode"
+                :class="['dock-btn', { on: classTintOn }]"
+                :aria-pressed="classTintOn"
+                aria-label="Explode (종류별 색)"
+                title="기기를 제자리에서 Brick 종류별 색으로 칠하고 범례에 종류·대수를 보입니다"
+                data-testid="class-tint-toggle"
+                @click="classTintOn = !classTintOn"
               >
                 <span class="dock-icon" aria-hidden="true">❖</span>
-                <span>Cluster</span>
+                <span>Explode</span>
               </button>
               <button
                 v-if="drawnWalls"
@@ -11760,10 +11811,10 @@ function rollbackFromReport() {
                 <span>Walls</span>
               </button>
               <button
-                v-if="filterOn || exploded"
+                v-if="filterOn || exploded || classTintOn"
                 type="button"
                 class="dock-btn reset"
-                title="적용된 모든 필터와 분해도를 초기화합니다"
+                title="적용된 모든 필터·분해도·종류별 색을 초기화합니다"
                 @click="clearViewFilter"
               >
                 Reset
@@ -12186,7 +12237,7 @@ function rollbackFromReport() {
                   <button type="button" class="ghost" @click="setMultiAll">전체</button>
                   <button type="button" class="ghost" @click="closeMultiView">층 편집으로</button>
                 </span>
-                <button v-if="fullscreen" type="button" class="ghost keys-help" title="단축키 안내" aria-label="단축키 안내" @click="helpOpen = true">?</button>
+                <button v-if="fullscreen" type="button" class="ghost keys-help" title="조작·단축키 안내 (?)" aria-label="조작·단축키 안내" @click="helpOpen = true">?</button>
                 <button type="button" class="ghost fullscreen" :aria-pressed="fullscreen" @click="toggleFullscreen">
                   {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
                 </button>
@@ -12245,6 +12296,29 @@ function rollbackFromReport() {
             </div>
           </div>
 
+          <!-- 종류별 색의 범례(독의 [Explode]). 줄을 누르면 그 종류만 색으로 남긴다. 클래스 원문은 TTL 에 나가는 그 클래스다. -->
+          <div v-if="classTintOn && activeTab === '3d' && !replayOpen" class="class-key" data-testid="class-key">
+            <p class="class-key-head">
+              <b>종류별 색</b> <span class="muted">기기 {{ classLegend.reduce((n, r) => n + r.ids.length, 0) }}대 · 덕트·배관은 회색</span>
+              <button v-if="classFocus" type="button" class="link" @click="classFocus = null">모두</button>
+            </p>
+            <p v-if="!classLegend.length" class="muted">칠할 기기가 없습니다(건축 파일이면 설비 IFC 를 덧붙입니다)</p>
+            <ul>
+              <li v-for="r in classLegend" :key="r.key">
+                <button
+                  type="button"
+                  :class="{ on: classFocus === r.key, off: !!classFocus && classFocus !== r.key, unknown: r.key === UNKNOWN_CLASS }"
+                  :aria-pressed="classFocus === r.key"
+                  :title="`${r.cls} — 누르면 이 종류만 색으로 남깁니다`"
+                  @click="classFocus = classFocus === r.key ? null : r.key"
+                >
+                  <i :style="{ background: hex(r.color) }" aria-hidden="true"></i>
+                  <span class="class-name">{{ r.label }}</span>
+                  <b>{{ r.ids.length }}</b>
+                </button>
+              </li>
+            </ul>
+          </div>
           <!-- 3D 색이 무엇을 뜻하는지. 진한 색은 BIM 포트가 말한 흐름, 옅은 색은 규칙으로 정한 흐름이다. -->
           <ul v-if="selected && activeTab === '3d'" class="color-key">
             <li><i :style="{ background: hex(PICK_COLORS.upstream) }"></i>상류 <Src kind="bim" /></li>

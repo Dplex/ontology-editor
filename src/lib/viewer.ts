@@ -394,6 +394,11 @@ export type Viewer = {
   setExplode(groups: readonly { label: string; ids: readonly string[] }[] | null): boolean
   /** 분해도가 펼쳐져 있나. 다시 그리기 등으로 저절로 접힐 수 있어 화면이 이것으로 맞춘다. */
   exploded(): boolean
+  /**
+   * 설비를 제자리에서 다른 색으로 칠한다(독의 [Explode] — Brick 클래스별 색, App.vue). 맵에 없는 설비(덕트·배관 등)는 흐린 회색이다.
+   * 고른 것·상류·하류 색은 그 위에 그대로 칠한다. `null` 이면 계통 색으로 돌아간다. 화면에서만이다.
+   */
+  setTint(colors: ReadonlyMap<string, number> | null): void
   /** 보기 모드 3D 의 벽을 켜고 끈다. 모델을 바꿔도 켜 둔 상태는 남는다. */
   setWallsVisible(on: boolean): void
   /** 편집 모드를 켜고 끈다. 끄면 3D 는 보기 전용이고, 누르고 끄는 것은 전부 시점 조작이다. */
@@ -874,6 +879,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let frozenIds: ReadonlySet<string> = new Set()
   let frozenGrabHandler: (id: string) => void = () => {}
   let lastHighlight: Highlight | null = null
+  /** setTint 의 덧칠. 있으면 설비의 바탕색이 계통 색 대신 이것이다. */
+  let tintColors: ReadonlyMap<string, number> | null = null
   /** 누를 수 있는 벽·문·창. 문·창은 자리(`at`)와, 가로를 알면 벽을 따라 편 반 폭(`half`, 방향 `dir`)을 든다. */
   let archTargets: { id: string; storeyId: string; y: number; rings?: readonly (readonly Vec2[])[]; at?: Vec2; dir?: Vec2; half?: number }[] = []
   /** 문·창까지의 평면 거리. 가로를 알면 그 폭의 선분까지다(넓힌 창의 끝을 눌러도 창이다). */
@@ -2541,6 +2548,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
   let fadedIds = new Set<string>()
 
+  /** 설비의 바탕색 — 덧칠(setTint)이 있으면 그 색, 없으면 계통 색. */
+  const baseColor = (part: Part) => (tintColors ? (tintColors.get(part.id) ?? DIM_COLOR) : part.color)
   /** 설비 하나의 색을 꼭짓점 색에 칠한다. */
   const tint = new Color()
   function paintPart(part: Part, hex: number) {
@@ -2716,7 +2725,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         g.setAttribute('normal', normalAttr)
         g.setAttribute('color', chunk.colors)
       }
-      for (const part of chunk.parts) paintPart(part, part.color)
+      for (const part of chunk.parts) paintPart(part, baseColor(part))
       // 합친 형상은 경계가 크고 켜 둔 채 시점을 돌린다. 화면 밖 판정은 꺼 둔다.
       chunk.solid.frustumCulled = false
       chunk.faded.frustumCulled = false
@@ -2749,7 +2758,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       }
       if (w.color !== part.color) {
         part.color = w.color
-        paintPart(part, w.color)
+        paintPart(part, baseColor(part))
       }
     }
     const added = [...want.values()].filter((w) => !partById.has(w.id))
@@ -2991,6 +3000,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       },
       /** 그린 룸의 id. */
       rooms: () => roomTargets.map((t) => t.id),
+      /** 종류별 색(setTint)으로 칠한 설비 수. 끄면 0. */
+      tinted: () => tintColors?.size ?? 0,
       /** 그린 수직 관통 오브젝트 조각의 id(보이는 층만)와, 조각을 누를 화면 자리(형상 가운데 또는 지점). */
       verticals: () => verticalTargets.filter((t) => !visibleStoreys || visibleStoreys.has(t.storeyId)).map((t) => t.id),
       vertical: (id: string) => {
@@ -3150,24 +3161,26 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const nextFaded = new Set<string>()
       for (const part of parts) {
         const id = part.id
-        let next = part.color
+        const base = baseColor(part)
+        let next = base
         if (highlight) {
           if (id === highlight.selected || highlight.group?.has(id)) next = PICK_COLORS.selected
           else if (highlight.upstream.has(id)) next = PICK_COLORS.upstream
           else if (highlight.downstream.has(id)) next = PICK_COLORS.downstream
           else if (highlight.ruleUpstream?.has(id)) next = PICK_COLORS.ruleUpstream
           else if (highlight.ruleDownstream?.has(id)) next = PICK_COLORS.ruleDownstream
-          else if (highlight.linked.has(id)) next = highlight.keepColor ? part.color : PICK_COLORS.linked
+          else if (highlight.linked.has(id)) next = highlight.keepColor ? base : PICK_COLORS.linked
           // 고른 것과 상관없는 설비는 흐리게 한다. 지우지 않으면 연결망이 숲에 묻힌다. 여러 개 고르는 중에는 흐리게 하지 않는다 —
           // 흐린 것은 고를 수 없다.
           else if (!highlight.group) nextFaded.add(id)
         }
         // 천장 편집 모드에서 천장 설비가 아닌 것은 회색이다(고른 것·상류·하류 색은 둔다).
-        if (next === part.color && dimIds.has(id)) next = DIM_COLOR
+        if (next === base && dimIds.has(id)) next = DIM_COLOR
         paintPart(part, next)
       }
       // 고른 것이 있으면 가구도 흐리게 한다. 여러 개 고르는 중에는 설비처럼 두고, 칠할 것이 없는 강조(빈 계통)도 둔다.
-      const fadeObjectsNow = !!highlight && !highlight.group && nextFaded.size > 0
+      // 종류별 색(setTint)일 때도 가구를 흐리게 한다 — 갈색 가구가 칠한 기기보다 먼저 눈에 들어왔다.
+      const fadeObjectsNow = (!!highlight && !highlight.group && nextFaded.size > 0) || !!tintColors
       if (fadeObjectsNow !== objectsFaded) {
         objectsFaded = fadeObjectsNow
         fadeObjects()
@@ -3185,6 +3198,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       dirty = true
       // 흐리게 칠한 것은 고를 수 없으니, 계통을 바꾸면 마우스 아래가 고를 수 있는지도 바뀐다.
       if (changed && hoverAt) hoverPending = true
+    },
+
+    setTint(colors) {
+      tintColors = colors && colors.size ? colors : null
+      api.setHighlight(lastHighlight)
     },
 
     setWallsVisible(on) {
