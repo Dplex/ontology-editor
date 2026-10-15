@@ -6,7 +6,7 @@ import { importIfcWithMeshes } from './ifc/import'
 import { mergeModels } from './merge'
 import { completenessChecks } from './checks'
 import { readIdf } from './idf/read'
-import { checkCode, issueText, warningCode } from './issue-code'
+import { checkCode, issueText, issueTitle, warningCode } from './issue-code'
 import type { Model } from './model'
 
 // 누락 분류 코드(OE-BIM-20). 픽스처를 모두 열고 서로 합쳐, 검토 화면에 뜨는 경고와 완전성 검사 규칙마다 코드와 R 번호가 붙는지 본다.
@@ -41,10 +41,24 @@ describe('누락 분류 코드 (OE-BIM-20)', () => {
     expect([...warnings].filter((w) => !warningCode(w))).toEqual([])
   })
 
-  it('완전성 검사 규칙마다 코드와 R 번호가 있다 [OE-BIM-20#1~,2]', () => {
+  it('완전성 검사 규칙마다 코드와 규칙 ID 가 있다 [OE-BIM-20#1~,2]', () => {
     const keys = new Set([...models.values()].flatMap((m) => completenessChecks(m, []).map((c) => c.key)))
     expect(keys.size).toBeGreaterThanOrEqual(10)
     expect([...keys].filter((k) => !checkCode(k))).toEqual([])
+    for (const k of keys) expect(checkCode(k)!.rule).toBe(k)
+  })
+
+  it('R 요구 위반과 검증 위반을 가르고, 맞는 R 이 없는 검증에는 R 을 붙이지 않고 규칙 ID 를 적는다 [OE-BIM-20#1]', () => {
+    // 경고는 BIM 요구(R)를 어긴 것이라 늘 R 이 있다. 완전성 검사는 검증이라 규칙 ID 가 있고, R 은 맞는 것만 붙는다.
+    expect(warningCode('길이 단위 선언이 없어 미터로 가정했습니다.')).toEqual({ cls: 'A', r: 'R6' })
+    expect(checkCode('device-space')).toEqual({ cls: 'B', r: 'R2', rule: 'device-space' })
+    // 흐름 없는 기기의 포트 연결·소화 배관 연결은 고객사 BIM 요구가 아니다. 에디터가 보정할 것(C)이다.
+    for (const k of ['connection-fluid', 'sprinkler-fp']) {
+      expect(checkCode(k)).toEqual({ cls: 'C', r: null, rule: k })
+      expect(issueText(checkCode(k)!)).toBe(`C-보정 · 검증 ${k}`)
+      expect(issueTitle(checkCode(k)!)).toContain('맞는 BIM 요구사항이 없는')
+    }
+    expect(issueTitle(checkCode('device-space')!)).toContain('BIM 필수 요구사항 R2')
   })
 
   it('분류는 R 번호로 정해 요구사항 보고서와 같다 — 단위 선언은 A-설정, 외곽선은 B-부재, 연결은 C-보정, 공조존(IDF)은 X-외부', () => {

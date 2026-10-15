@@ -303,7 +303,7 @@ test('등급 칩과 등급 판정은 판정에 쓰는 본 숫자 하나를 분�
   expect(errors).toEqual([])
 })
 
-test('경고와 완전성 검사 규칙마다 누락 분류 코드와 R 번호가 붙는다 [OE-BIM-20#1~,2]', async ({ page }) => {
+test('경고마다 누락 분류 코드와 R 번호가, 완전성 검사 규칙마다 코드와 R 번호 또는 검증 규칙 ID 가 붙는다 [OE-BIM-20#1~,2]', async ({ page }) => {
   const errors = await open(page)
   const items = page.locator('#warnings > li')
   await expect(items.first()).toBeVisible()
@@ -314,8 +314,12 @@ test('경고와 완전성 검사 규칙마다 누락 분류 코드와 R 번호�
   const rows = page.locator('.checks tbody tr')
   await expect(rows.first()).toBeVisible()
   const m = await rows.count()
-  for (let i = 0; i < m; i++) await expect(rows.nth(i).locator('.issue-code')).toHaveText(/^[XABC]-(외부|설정|부재|보정) · R\d+$/)
+  for (let i = 0; i < m; i++) await expect(rows.nth(i).locator('.issue-code')).toHaveText(/^[XABC]-(외부|설정|부재|보정) · (R\d+|검증 [a-z-]+)$/)
   await expect(rows.filter({ hasText: '소속 방이 있다' }).locator('.issue-code')).toHaveText('B-부재 · R2')
+  // 맞는 R 이 없는 검증은 R 을 억지로 붙이지 않고 규칙 ID 를 적는다(OE-BIM-20#1).
+  const fluid = rows.filter({ hasText: '유체가 흐르는' }).locator('.issue-code')
+  await expect(fluid).toHaveText('C-보정 · 검증 connection-fluid')
+  await expect(fluid).toHaveAttribute('title', /맞는 BIM 요구사항이 없는/)
   if (process.env.SHOT) await page.locator('#warnings').screenshot({ path: process.env.SHOT })
   expect(errors).toEqual([])
 })

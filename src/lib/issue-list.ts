@@ -145,7 +145,8 @@ export function issueList(model: Model, rows: readonly RequirementRow[], checks:
   for (const c of checks) {
     if (c.skipped || !c.failed.length) continue
     const code = checkCode(c.key)
-    if (!code) continue
+    // 고객사에 보내는 목록은 BIM 요구를 어긴 요소다. 맞는 R 이 없는 검증(OE-BIM-20#1)은 에디터에서 보정할 것이라 싣지 않는다.
+    if (!code?.r) continue
     for (const id of c.failed) {
       const el = byId.get(id)
       if (!el || ('added' in el.v && el.v.added)) continue

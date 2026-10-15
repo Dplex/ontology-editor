@@ -5,7 +5,11 @@
 
 import { MISSING_LABEL, missingClass, type MissingClass } from './build-report'
 
-export type IssueCode = { cls: MissingClass; r: string }
+/**
+ * 분류 코드와 그 근거. `r` 은 어긴 BIM 요구사항이다. 완전성 검사는 BIM 요구가 아니라 공간·연결 검증이라 규칙 ID(`rule`, checks.ts 의 key)를
+ * 늘 단다. 그 검사에 맞는 R 이 없으면 R 을 억지로 붙이지 않고(`r: null`) 에디터가 보정할 것(C)으로 둔다(OE-BIM-20#1).
+ */
+export type IssueCode = { cls: MissingClass; r: string | null; rule?: string }
 
 const codeOf = (r: string): IssueCode => ({ cls: missingClass({ id: r, state: 'partial' })!, r })
 
@@ -52,12 +56,18 @@ const CHECK_R: Readonly<Record<string, string>> = {
   'device-connected': 'R15',
   'conduit-ends': 'R15',
   'conduit-path': 'R15',
-  // 흐름 없는 기기나 매체가 다른 덕트·배관에 물린 포트(OE-PIP-18). 포트 연결의 문제라 R17 이다.
-  'connection-fluid': 'R17',
   'heat-source-user': 'R15',
   'hydronic-user-source': 'R15',
-  'sprinkler-fp': 'R16',
 }
+
+/**
+ * 맞는 R 이 없는 검사(OE-BIM-20#1 — 억지로 붙이지 않는다). 고객사 BIM 요구가 아니라 에디터가 보는 연결 검증이다.
+ * - `connection-fluid`: 흐름 없는 기기·매체가 다른 관을 이은 연결(OE-PIP-18). 전기·신호 포트면 정상이라 BIM 이 어긴 요구가 없다.
+ *   예전에는 R17(포트 흐름 방향)을 붙였지만 방향이 아니라 무엇을 이었는지의 문제다.
+ * - `sprinkler-fp`: 헤드가 소화 배관에 이어졌는가(OE-EQP-11). 연결(R15)이 없어서인지 계통 종류(R16)를 몰라서인지 한쪽으로 정할 수 없다.
+ *   예전에는 R16 을 붙였다.
+ */
+const CHECK_WITHOUT_R: readonly string[] = ['connection-fluid', 'sprinkler-fp']
 
 export function warningCode(text: string): IssueCode | null {
   const hit = WARNING_R.find(([re]) => re.test(text))
@@ -66,11 +76,12 @@ export function warningCode(text: string): IssueCode | null {
 
 export function checkCode(key: string): IssueCode | null {
   const r = CHECK_R[key]
-  return r ? codeOf(r) : null
+  if (r) return { ...codeOf(r), rule: key }
+  return CHECK_WITHOUT_R.includes(key) ? { cls: 'C', r: null, rule: key } : null
 }
 
-/** 화면 칩의 글. "A-설정 · R6" */
-export const issueText = (c: IssueCode) => `${MISSING_LABEL[c.cls]} · ${c.r}`
+/** 화면 칩의 글. "A-설정 · R6", R 이 없는 검증은 "C-보정 · 검증 connection-fluid". */
+export const issueText = (c: IssueCode) => `${MISSING_LABEL[c.cls]} · ${c.r ?? `검증 ${c.rule}`}`
 
 /** 분류가 무엇을 하라는 것인지(칩의 title). 칩 글은 보고서·요구사항 표와 같은 코드로 두고, 뜻은 마우스를 올리면 본다. */
 const CLASS_MEANING: Record<IssueCode['cls'], string> = {
@@ -79,4 +90,5 @@ const CLASS_MEANING: Record<IssueCode['cls'], string> = {
   B: 'BIM 에 없어 다음 판본에 넣어 다시 받아야 합니다',
   C: '에디터가 계산·사전으로 채우고 사람이 확인합니다',
 }
-export const issueTitle = (c: IssueCode) => `${MISSING_LABEL[c.cls]}: ${CLASS_MEANING[c.cls]} · ${c.r}: BIM 필수 요구사항 ${c.r}`
+export const issueTitle = (c: IssueCode) =>
+  `${MISSING_LABEL[c.cls]}: ${CLASS_MEANING[c.cls]} · ${c.r ? `${c.r}: BIM 필수 요구사항 ${c.r}` : `검증 규칙 ${c.rule}: 맞는 BIM 요구사항이 없는 공간·연결 검증입니다`}`
