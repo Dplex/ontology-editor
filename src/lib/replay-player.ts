@@ -992,31 +992,56 @@ export function useReplay(host: ReplayPlayerHost) {
    * 내보내기처럼, 리플레이를 PM 보고·공유에 그대로 쓴다. 3D 캔버스만 찍으면 장면 제목·카드(HTML)가 빠져서 탭을 통째로 잡고, 되면
    * 극장(.viewport)만 잘라 낸다(Region Capture). 끝 화면이 다 그려지면(REPLAY_RECORD_TAIL_MS) 멈추고 내려받는다. 닫거나 다시
    * 누르면 그때까지를 내려받는다.
+   * 화면 공유를 못 쓰면 3D 캔버스만 찍는다. 55(http://IP:8084)처럼 https 도 localhost 도 아닌 주소에서는 브라우저가
+   * getDisplayMedia 를 아예 주지 않아서, 전에는 눌러도 아무 일이 없었다. 캔버스만 찍으면 자막·카드가 빠지니 그 까닭을 HUD 에 남긴다.
+   * 사람이 공유를 거절한 것(NotAllowedError)은 거절대로 둔다.
    */
   const REPLAY_RECORD_TAIL_MS = 4000
   const replayRecording = ref<{ since: number } | null>(null)
+  /** 녹화가 3D 만 찍는(또는 못 찍는) 까닭. 리플레이 중에는 note 가 쉬어서 HUD 가 띄운다. */
+  const replayRecordNote = ref('')
   let recorder: MediaRecorder | null = null
   /** 공유 확인 창이 떠 있는 동안. 그 사이 다시 누른 것은 버린다 — 녹화가 둘 돌고 하나는 멈출 길이 없었다. */
   let recordAsking = false
+  /** 3D 캔버스 스트림. 화면 공유를 못 쓸 때 쓴다. */
+  function canvasStream(): MediaStream | null {
+    const canvas = document.querySelector<HTMLCanvasElement>('.canvas-wrap > canvas')
+    return canvas?.captureStream ? canvas.captureStream(30) : null
+  }
   async function replayRecord() {
     if (recorder) return void recorder.stop()
-    if (recordAsking || replayPhase.value === 'opening' || !navigator.mediaDevices?.getDisplayMedia) return
-    let stream: MediaStream
-    recordAsking = true
-    try {
-      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false, preferCurrentTab: true } as DisplayMediaStreamOptions)
-    } catch {
-      // 사람이 공유를 거절했다.
+    if (recordAsking || replayPhase.value === 'opening') return
+    let stream: MediaStream | null = null
+    let whole = false
+    replayRecordNote.value = ''
+    if (navigator.mediaDevices?.getDisplayMedia) {
+      recordAsking = true
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false, preferCurrentTab: true } as DisplayMediaStreamOptions)
+        whole = true
+      } catch (e) {
+        // 사람이 공유를 거절했다.
+        if ((e as DOMException)?.name === 'NotAllowedError') return
+        replayRecordNote.value = `화면 공유를 시작하지 못해(${(e as Error)?.name ?? e}) 3D 만 녹화합니다 — 자막·카드는 빠집니다`
+      } finally {
+        recordAsking = false
+      }
+    } else {
+      replayRecordNote.value = window.isSecureContext
+        ? '이 브라우저는 화면 공유 녹화를 지원하지 않아 3D 만 녹화합니다 — 자막·카드는 빠집니다'
+        : 'http 주소라 브라우저가 화면 공유를 막아 3D 만 녹화합니다 — 자막·카드까지 담으려면 https 나 localhost 로 여세요'
+    }
+    stream ??= canvasStream()
+    if (!stream) {
+      replayRecordNote.value = '녹화할 수 없습니다 — 이 브라우저는 화면 공유도, 3D 캔버스 녹화도 지원하지 않습니다'
       return
-    } finally {
-      recordAsking = false
     }
     // 묻는 동안 리플레이를 닫았으면 녹화하지 않는다.
     if (!replayOpen.value) return void stream.getTracks().forEach((tr) => tr.stop())
     const track = stream.getVideoTracks()[0]
     const theater = document.querySelector('.viewport.theater')
     const crop = (globalThis as { CropTarget?: { fromElement(e: Element): Promise<unknown> } }).CropTarget
-    if (theater && crop && 'cropTo' in track) await (track as unknown as { cropTo(t: unknown): Promise<void> }).cropTo(await crop.fromElement(theater)).catch(() => {})
+    if (whole && theater && crop && 'cropTo' in track) await (track as unknown as { cropTo(t: unknown): Promise<void> }).cropTo(await crop.fromElement(theater)).catch(() => {})
     // mp4(H.264)가 되면 그것으로 — 파워포인트·윈도우 기본 재생기에서 바로 열린다. 안 되면 webm.
     const type = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find((x) => MediaRecorder.isTypeSupported(x)) ?? ''
     const ext = type.startsWith('video/mp4') ? 'mp4' : 'webm'
@@ -1129,6 +1154,7 @@ export function useReplay(host: ReplayPlayerHost) {
     replayWorker = null
     replayAiming.value = null
     replayOpen.value = false
+    replayRecordNote.value = ''
     host.viewer?.setEditMode(host.editing.value)
     host.viewer?.setArrowsShown(false)
     host.viewer?.setCinema(false)
@@ -1364,6 +1390,7 @@ export function useReplay(host: ReplayPlayerHost) {
     filter: replayFilter.value,
     highlights: replayHighlights.value,
     recording: replayRecording.value?.since ?? null,
+    recordNote: replayRecordNote.value,
     helpToggles: replayHelp.value,
     diff: replayDiff.value,
     spread: replaySpreadable.value ? replaySpread.value : null,

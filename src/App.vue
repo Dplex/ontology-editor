@@ -64,6 +64,7 @@ import { ratioLabel } from './lib/unit-check'
 import { neighbors, trace, traceBySystem, traceRoutes, TOLERANCE, type Neighbor, type Route } from './lib/topology'
 import { flowIndex, ladder, supplyChain, type FlowIndex, type Hop, type Step } from './lib/flow-ladder'
 import { airBasis, airServices, needsSystem, servedSpaces, systemlessAir } from './lib/served'
+import { spaceInfluence, spaceViewHidden, storeySpaces } from './lib/space-view'
 import { storeyHeights, type StoreyHeight } from './lib/storey-height'
 import { resetStoreyName, setStoreyName, storeyNamed } from './lib/storey-name'
 import { storeyFiles } from './lib/export/storey-export'
@@ -2171,6 +2172,7 @@ function clearSelection(): boolean {
   else if (selectedId.value) select(null)
   else if (selectedSpaceId.value) selectedSpaceId.value = null
   else if (selectedSystemId.value) selectedSystemId.value = null
+  else if (spaceView.value) exitSpaceView()
   else if (openCheckKey.value) openCheckKey.value = null
   else return false
   return true
@@ -4762,6 +4764,16 @@ const selectedService = pausedInReplay(() => {
   if (!m || !service) return null
   return { ...service, rooms: servedSpaces(m, service, equipmentById.value) }
 })
+// --- 공간 보기 상태(lib/space-view.ts) — 켜고 끄는 것은 보기 필터 옆(enterSpaceView) ---
+/** 공간 보기 중인 방과 들어올 때 남긴 설비. 화면 상태다. */
+const spaceView = shallowRef<{ id: string; keep: ReadonlySet<string> } | null>(null)
+/** 고른 방에 영향을 주는 설비 — 안에 있는 것과 이 방 말단에 닿는 공기 원천. 패널·3D 칠하기·공간 보기가 같이 쓴다. */
+const selectedSpaceInfluence = computed(() => {
+  const m = model.value
+  const id = selectedSpaceId.value
+  if (!m || !id) return null
+  return spaceInfluence(m, id, airServiceList.value, equipmentById.value)
+})
 // VAV·말단의 계통과 담당 근거(OE-EQP-10). 계통이 있어야 하는 설비인데 없으면 패널과 검토 화면에서 경고한다. 담당은 흐름 방향을
 // 거슬러(급기)·따라(환기) 닿는 공기 원천이다 — 위 담당 공간을 말단 쪽에서 본 것이라 같은 방향을 쓰고, 추정이라 화면에만 보인다.
 const selectedBasis = computed(() => {
@@ -5450,7 +5462,7 @@ const highlightOnly = (): Set<string> | null => {
   return highlightRow()?.ids ?? null
 }
 const highlightCheck = () => (replayOpen.value ? null : openCheck.value)
-watch([selectedId, selectedSystemId, model, showRules, flowVersion, highlightRow, highlightOnly, highlightCheck, selectedSpace, sceneVersion, group, selectedZone], () => {
+watch([selectedId, selectedSystemId, model, showRules, flowVersion, highlightRow, highlightOnly, highlightCheck, selectedSpace, selectedSpaceInfluence, sceneVersion, group, selectedZone], () => {
   if (!viewer) return
 
   // 여러 개 고른 설비(OE-UI-09). 고른 색으로 칠하고 나머지는 흐리게 하지 않는다(흐린 것은 Ctrl+클릭으로 더할 수 없다).
@@ -5499,12 +5511,12 @@ watch([selectedId, selectedSystemId, model, showRules, flowVersion, highlightRow
     return
   }
 
-  // 고른 물리존에 속한 설비. 경계를 끄는 동안 무엇이 드나드는지 보인다.
+  // 고른 물리존에 속한 설비. 경계를 끄는 동안 무엇이 드나드는지 보인다. 이 방 말단에 바람을 대는 공기 원천은 상류 색이다.
   const space = selectedSpace.value
   if (space) {
     viewer.setHighlight({
       selected: null,
-      upstream: new Set(),
+      upstream: new Set(selectedSpaceInfluence.value?.sources.map((x) => x.id)),
       downstream: new Set(),
       linked: new Set(space.equipment.map((e) => e.id)),
       keepColor: true,
@@ -6132,6 +6144,7 @@ function topDownView() {
 const filterStoreysUsable = computed(() => !viewStorey.value && !multiView.value)
 watch(baseline, () => {
   viewFilter.value = EMPTY_FILTER
+  spaceView.value = null
   exploded.value = false
   explorerQuery.value = ''
 })
@@ -6140,6 +6153,7 @@ function setViewFilter(patch: Partial<ViewFilter>) {
 }
 function clearViewFilter() {
   viewFilter.value = EMPTY_FILTER
+  exitSpaceView()
   if (exploded.value) toggleExplode()
   classTintOn.value = false
   note('모두 보입니다')
@@ -6163,6 +6177,57 @@ function setFacetAll(key: 'storeys' | 'classes' | 'systems', on: boolean, ids?: 
   setViewFilter({ [key]: now.size === all.length ? null : [...now] })
 }
 const facetOn = (key: 'storeys' | 'classes' | 'systems', id: string) => viewFilter.value[key]?.includes(id) ?? true
+
+// --- 공간 보기 (lib/space-view.ts) ---
+// 층 보기(기본) 위에 방 하나로 좁힌다. 그 방을 고르고, 그 층만 보이며, 카메라를 그 방에 맞추고, 그 방 안의 설비와 그 방 말단에 바람을
+// 대는 공기 원천만 3D 에 남긴다. 고르기·편집은 여느 때와 같다 — 보이는 것만 줄인다. 화면 상태라 모델·TTL·GeoJSON 에 남지 않는다.
+/** 공간 칸이 방을 보이는 층. 층 하나를 볼 때만 — 모든 층이면 방이 수백 개라 고를 수 없다. 층이 하나뿐인 파일은 그 층이다. */
+const spacesStoreyId = computed(() => viewStorey.value ?? (model.value?.storeys.length === 1 ? model.value.storeys[0].id : null))
+const viewSpaces = computed(() => {
+  const m = model.value
+  const id = spacesStoreyId.value
+  if (!m || !id || multiView.value || !filterOpen.value) return []
+  const rows = storeySpaces(m, id, (e) => isConduit(e.role))
+  const q = explorerQuery.value.trim().toLowerCase()
+  return q ? rows.filter((r) => `${r.name} ${r.longName}`.toLowerCase().includes(q)) : rows
+})
+const spaceViewName = computed(() => {
+  const id = spaceView.value?.id
+  const sp = id ? model.value?.storeys.flatMap((st) => st.spaces).find((x) => x.id === id) : null
+  return sp ? [sp.name, sp.longName].filter(Boolean).join(' ') : ''
+})
+function enterSpaceView(id: string) {
+  const m = model.value
+  const storey = m?.storeys.find((st) => st.spaces.some((x) => x.id === id))
+  if (!m || !storey) return
+  // 다중층 뷰는 나가며 저장을 묻는다(closeMultiView) — 여기서 대신 나가지 않는다.
+  if (multiView.value) return note('다중층 뷰에서는 공간 보기를 쓸 수 없습니다 — [층 편집으로] 돌아온 뒤 고르세요')
+  if (activeTab.value !== '3d') activeTab.value = '3d'
+  viewStorey.value = storey.id
+  pickSpace(id)
+  const inf = spaceInfluence(m, id, airServiceList.value, equipmentById.value)
+  spaceView.value = { id, keep: new Set([...inf.inside, ...inf.sources.map((x) => x.id)]) }
+  // 층을 바꾸면 그 층 전체에 맞추는 것(watch viewStorey)보다 뒤에 방으로 간다.
+  void nextTick(() => viewer?.frameSpace(id, true))
+}
+function exitSpaceView() {
+  if (!spaceView.value) return
+  spaceView.value = null
+  viewer?.frameVisible(true)
+}
+// 공간 보기 중에 다른 방 바닥을 누르면 그 방으로 옮겨 간다. 설비를 고르면(방 고르기가 풀린다) 그대로 둔다 — 그 방 안에서 고치는 중이다.
+watch(selectedSpaceId, (id) => {
+  if (id && spaceView.value && id !== spaceView.value.id && model.value?.storeys.some((st) => st.spaces.some((x) => x.id === id))) enterSpaceView(id)
+})
+// 3D 에서 그 방 바닥을 채우고 그 층 판·벽을 흐린다. 리플레이 동안은 걷는다(리플레이는 보기 필터도 보지 않는다).
+watch([spaceView, replayOpen], () => viewer?.setSpaceFocus(spaceView.value && !replayOpen.value ? spaceView.value.id : null))
+// 층을 바꾸거나 다중층 뷰로 가면 푼다. 방이 지워져도 푼다.
+watch([viewStorey, multiView, model], () => {
+  const v = spaceView.value
+  if (!v) return
+  const storey = model.value?.storeys.find((st) => st.spaces.some((x) => x.id === v.id))
+  if (!storey || multiView.value || viewStorey.value !== storey.id) spaceView.value = null
+})
 /** 마지막으로 뷰어에 준 숨길 설비. 분해도가 보이는 것만 띄울 때 쓴다. */
 let shownHidden: ReadonlySet<string> = new Set()
 function applyStoreyFilter() {
@@ -6172,8 +6237,14 @@ function applyStoreyFilter() {
   // 상태라 리플레이 동안은 보지 않는다. 값을 고치지 않으니 닫으면 그대로 돌아온다.
   const replaying = replayOpen.value
   const extra = filterOn.value && !replaying ? filteredOut(m, viewFilter.value) : null
+  // 공간 보기면 들어올 때 남긴 것·지금 그 방 안에 있는 것·공기 원천 밖은 숨긴다.
+  const sv = replaying ? null : spaceView.value
+  const spaceHidden = sv
+    ? spaceViewHidden(m, new Set([...sv.keep, ...(sv.id === selectedSpaceId.value ? (selectedSpaceInfluence.value?.inside ?? []) : spaceInfluence(m, sv.id, airServiceList.value, equipmentById.value).inside)]))
+    : null
   const merge = (hidden: Set<string>) => {
     if (extra) for (const id of extra) hidden.add(id)
+    if (spaceHidden) for (const id of spaceHidden) hidden.add(id)
     return hidden
   }
   const send = (storeys: Set<string> | null, hidden: Set<string>) => {
@@ -6214,7 +6285,7 @@ const verticalDrawAt = computed(() => {
   const d = drawing.value
   return d && (d.purpose === 'verticalFootprint' || d.purpose === 'verticalPoint') ? d.storeyId : null
 })
-watch([viewStorey, model, sceneVersion, () => multiRange.value, viewFilter, verticalDrawAt, replayOpen], applyStoreyFilter)
+watch([viewStorey, model, sceneVersion, () => multiRange.value, viewFilter, verticalDrawAt, replayOpen, spaceView], applyStoreyFilter)
 // 걸러 보는 중에 고른 설비가 숨으면 고르기를 푼다 — 안 보이는 것이 패널에 남아 있으면 무엇을 고쳤는지 모른다.
 watch(viewFilter, () => {
   if (selectedId.value && shownHidden.has(selectedId.value)) selectedId.value = null
@@ -12226,6 +12297,30 @@ function rollbackFromReport() {
                   <span class="facet-name">{{ s.name }}</span> <span class="muted">{{ s.count.toLocaleString() }}</span>
                 </label>
               </details>
+              <!-- 공간 보기. 층 하나를 볼 때 그 층의 방을 고르면 그 방으로 가서 그 방과 영향을 주는 설비만 남긴다. -->
+              <details v-if="!multiView" open class="filter-group" data-testid="filter-spaces">
+                <summary>
+                  <span class="group-tag" aria-hidden="true">SPACES</span> 공간
+                  <span class="muted">{{ spaceView ? spaceViewName : spacesStoreyId ? `${viewSpaces.length}개` : '층 하나를 고르면' }}</span>
+                  <button v-if="spaceView" type="button" class="link" @click.prevent="exitSpaceView">층 전체</button>
+                </summary>
+                <p v-if="!spacesStoreyId" class="muted filter-note">층 하나를 고르면 그 층의 방을 골라 그 방만 볼 수 있습니다.</p>
+                <p v-else-if="!viewSpaces.length" class="muted filter-note">{{ explorerQuery ? '찾는 방이 없습니다.' : '이 층에는 물리존이 없습니다.' }}</p>
+                <div v-if="viewSpaces.length" class="space-list">
+                <button
+                  v-for="r in viewSpaces"
+                  :key="r.id"
+                  type="button"
+                  :class="['space-facet', { on: spaceView?.id === r.id }]"
+                  :aria-pressed="spaceView?.id === r.id"
+                  :title="`${r.name} ${r.longName} — 이 방으로 가서 방 안 설비와 바람을 대는 공기 원천만 봅니다`"
+                  @click="spaceView?.id === r.id ? exitSpaceView() : enterSpaceView(r.id)"
+                >
+                  <span class="facet-name">{{ r.longName && r.longName !== r.name ? `${r.name} ${r.longName}` : r.name }}</span>
+                  <span class="muted">{{ r.devices.toLocaleString() }}<template v-if="r.conduits"> · 관 {{ r.conduits.toLocaleString() }}</template></span>
+                </button>
+                </div>
+              </details>
               <details open class="filter-group">
                 <summary>
                   <span class="group-tag" aria-hidden="true">CATEGORY</span> 설비 분류 <span class="muted">{{ viewFilter.classes ? `${viewFilter.classes.length}/${viewFacets.classes.length}` : '전부' }}</span>
@@ -12632,6 +12727,12 @@ function rollbackFromReport() {
                   {{ fullscreen ? '전체 화면 나가기 (Esc)' : '전체 화면' }}
                 </button>
               </div>
+              <!-- 공간 보기 중임을 3D 위에 늘 보인다. 보기 필터 띠와 같은 까닭이다. -->
+              <p v-if="spaceView && activeTab === '3d' && !replayOpen" class="filter-chip space-chip" role="status" data-testid="space-chip">
+                <b>공간 보기</b> {{ spaceViewName }} — 방 안 설비와 공기 원천만 · 화면에서만
+                <button type="button" class="link" title="이 방에 다시 맞춥니다" @click="viewer?.frameSpace(spaceView.id, true)">방에 맞추기</button>
+                <button type="button" class="link" title="층 전체로 (Esc)" @click="exitSpaceView">층 전체</button>
+              </p>
               <!-- 걸러 보는 중임을 3D 위에 늘 보인다(패널을 닫아도). 안 보이는 것을 없는 것으로 오해하지 않게. -->
               <p v-if="(filterOn || exploded) && !filterOpen && activeTab === '3d'" class="filter-chip" role="status" data-testid="filter-chip">
                 <b>보기 필터</b> {{ exploded ? '분해도 · ' : '' }}{{ filterText || '전부' }} · 화면에서만
@@ -14597,6 +14698,16 @@ function rollbackFromReport() {
               </dl>
             </div>
             <div class="picked-actions">
+              <button
+                type="button"
+                :class="['ghost', { on: spaceView?.id === selectedSpace.space.id }]"
+                :aria-pressed="spaceView?.id === selectedSpace.space.id"
+                data-testid="space-view-toggle"
+                title="이 방으로 가서 방 안 설비와 바람을 대는 공기 원천만 3D 에 남깁니다 — 화면에서만"
+                @click="spaceView?.id === selectedSpace.space.id ? exitSpaceView() : enterSpaceView(selectedSpace.space.id)"
+              >
+                {{ spaceView?.id === selectedSpace.space.id ? '층 전체 보기' : '공간 보기' }}
+              </button>
               <button type="button" class="ghost" @click="selectedSpaceId = null">선택 해제</button>
             </div>
           </div>
@@ -14666,6 +14777,20 @@ function rollbackFromReport() {
             </ul>
           </details>
           <p v-if="!selectedSpace.equipment.length" class="empty">이 물리존에 속한 설비가 없습니다.</p>
+          <!-- 이 방에 바람을 대는 공기 원천(served.ts 를 방 쪽에서 본 것). 3D 에서는 상류 색이다. 흐름 방향이 추정이면 TTL 에 없을 수 있다. -->
+          <div v-if="selectedSpaceInfluence?.sources.length" class="space-sources" data-testid="space-sources">
+            <h4>바람을 대는 공기 원천 <Src kind="calc" /></h4>
+            <ul class="plain space-members">
+              <li v-for="x in selectedSpaceInfluence.sources" :key="x.id">
+                <button type="button" class="link" :title="equipmentById.get(x.id)?.name || x.id" @click="select(x.id)">{{ shortName(equipmentById.get(x.id)?.name || x.id) }}</button>
+                <span class="muted">
+                  {{ equipmentById.get(x.id) ? whatIs(equipmentById.get(x.id)!)?.label : '' }}
+                  · 급기 {{ x.supply }}<template v-if="x.extract"> · 환기 {{ x.extract }}</template>
+                  <template v-if="equipmentById.get(x.id)?.spaceId !== selectedSpace.space.id"> · {{ [equipmentStorey.get(x.id)?.name, equipmentById.get(x.id)?.spaceId ? spaceNameOf(equipmentById.get(x.id)!.spaceId) : '방 밖'].filter(Boolean).join(' ') }}</template>
+                </span>
+              </li>
+            </ul>
+          </div>
           <p v-if="editing" class="danger-zone">
             <button type="button" class="ghost danger" :disabled="selectedSpace.storey.spaces.length <= 1" title="이 물리존을 지웁니다. 안의 설비는 좌표로 다시 소속을 찾습니다" @click="removeSpace">
               물리존 지우기

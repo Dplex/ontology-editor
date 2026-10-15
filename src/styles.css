@@ -6300,6 +6300,59 @@ button.done::after {
   white-space: nowrap;
 }
 
+/* 보기 필터의 공간 칸. 성수 한 층은 방이 백 개를 넘어서 목록 높이를 막고 안에서 내린다. */
+.viewport .filter-panel .space-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.viewport .filter-panel .space-facet {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.18rem 0.3rem;
+  border: none;
+  border-radius: 0.35rem;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.viewport .filter-panel .space-facet:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.viewport .filter-panel .space-facet.on {
+  background: rgba(56, 189, 248, 0.18);
+  box-shadow: inset 2px 0 0 #38bdf8;
+}
+
+.viewport .filter-panel .space-facet .muted {
+  margin-left: auto;
+  flex: none;
+}
+
+.space-sources h4 {
+  margin: 0.6rem 0 0.2rem;
+  font-size: 0.8rem;
+}
+
+/* 원천은 이름 아래 줄에 종류·말단 수·자리를 둔다. 한 줄이면 자리(다른 층 기계실)가 길어 이름이 0 폭으로 밀렸다. */
+.space-sources .space-members li {
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+}
+
+.space-sources .space-members li .muted {
+  flex: initial;
+  font-size: 0.78rem;
+}
+
 /* 3D 캔버스 위 플로팅 UI(우클릭 메뉴, 콜아웃 라벨, 하단 안내, 시점 도구) 글래스모피즘 고도화 */
 .ctx-menu {
   border-color: rgba(255, 255, 255, 0.14);

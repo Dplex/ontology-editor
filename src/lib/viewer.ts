@@ -563,8 +563,13 @@ export type Viewer = {
    * 비교 판(ExportCompare.vue, ADR-0061)의 평면이 3D 를 따라간다. null 이면 뗀다.
    */
   onView(handler: ((view: { target: Vec2; halfWidth: number }) => void) | null): void
-  /** 물리존 하나가 화면에 들어오게 한다. */
-  frameSpace(id: string): void
+  /** 물리존 하나가 화면에 들어오게 한다. `steep` 이면 지금 방위 그대로 위에서 내려다보듯 높이 선다 — 벽이 방을 덜 가린다. */
+  frameSpace(id: string, steep?: boolean): void
+  /**
+   * 공간 보기(App.vue). 그 방 바닥을 강조색으로 채우고(벽 너머로도 보인다) 같은 층의 다른 방 판과 벽을 흐리게 한다. null 이면 되돌린다.
+   * 화면에서만이다. 판·벽을 다시 만들어도(편집) 다시 건다.
+   */
+  setSpaceFocus(id: string | null): void
   /**
    * 설비 형상 상자 가운데의 화면 좌표(창 기준 px). 그려지지 않았거나(다른 층·숨김) 카메라 뒤·캔버스 밖이면 null.
    * 3D 위 설비 라벨(App.vue 의 equipmentLabels)이 쓴다.
@@ -815,9 +820,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
    */
   let objectsFaded = false
   const OBJECT_FADED_OPACITY = 0.08
+  /** 흐리게 할 오브젝트인가. 설비·계통을 고른 동안, 또는 공간 보기(setSpaceFocus)에서 그 방 밖에 선 것. */
+  function objectFaded(node: Object3D): boolean {
+    if (node.userData.objectId === selectedObject) return false
+    if (objectsFaded) return true
+    const t = focusSpaceId ? spaceTargets.find((x) => x.id === focusSpaceId) : null
+    return !!t && !(node.userData.storeyId === t.storeyId && pointInPolygon([node.position.x, -node.position.z], t.ring))
+  }
   function fadeObjects() {
     for (const node of spaceObjects.children) {
-      const fade = objectsFaded && node.userData.objectId !== selectedObject
+      const fade = objectFaded(node)
       node.traverse((o) => {
         if (!(o instanceof Mesh)) return
         const base = o.userData.baseMaterial as Material | Material[] | undefined
@@ -846,7 +858,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const at = new Vector3()
     for (const target of objectTargets) {
       if (visibleStoreys && !visibleStoreys.has(target.storeyId)) continue
-      if (objectsFaded && target.id !== selectedObject) continue
+      if (objectFaded(target.node)) continue
       if (!ray.intersectBox(target.box, at)) continue
       const d = at.distanceToSquared(ray.origin)
       if (!best || d < best.d) best = { target, d }
@@ -2817,6 +2829,45 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       content.add(walls)
       applyStoreyVisibility()
     }
+    applySpaceFocus()
+  }
+
+  // --- 공간 보기(setSpaceFocus) ---
+  // 판은 층마다 한 덩어리라 방 하나만 흐리게 할 수 없다. 그 층 판·벽을 통째로 흐리게 하고 고른 방 위에 채움을 따로 얹는다.
+  let focusSpaceId: string | null = null
+  let focusFill: Mesh | null = null
+  const FOCUS_FILL = 0x38bdf8
+  function applySpaceFocus() {
+    if (focusFill) {
+      overlay.remove(focusFill)
+      focusFill.geometry.dispose()
+      ;(focusFill.material as { dispose(): void }).dispose()
+      focusFill = null
+    }
+    const t = focusSpaceId ? spaceTargets.find((x) => x.id === focusSpaceId) : null
+    for (const o of slabs.children) {
+      const mat = (o as Mesh).material as MeshLambertMaterial
+      mat.opacity = t && o.userData.storeyId === t.storeyId ? Math.min(slabOpacity, 0.08) : slabOpacity
+    }
+    for (const o of walls?.children ?? []) {
+      const mat = (o as Mesh).material as MeshLambertMaterial
+      const fade = !!t && o.userData.storeyId === t.storeyId
+      if (mat.transparent === fade) continue
+      mat.transparent = fade
+      mat.opacity = fade ? 0.18 : 1
+      mat.depthWrite = !fade
+      mat.needsUpdate = true
+    }
+    if (t && t.ring.length >= 3) {
+      const geometry = new ShapeGeometry(new Shape(t.ring.map(([x, y]) => new Vector2(x, y))))
+      // Shape 는 IFC 평면(x, y)이라 바닥(x, -z)으로 눕힌다(pulseSpaces 와 같다).
+      geometry.rotateX(-Math.PI / 2)
+      focusFill = new Mesh(geometry, new MeshBasicMaterial({ color: FOCUS_FILL, transparent: true, opacity: 0.42, depthTest: false, depthWrite: false, side: DoubleSide }))
+      focusFill.position.y = t.y + 0.02
+      focusFill.renderOrder = 7
+      overlay.add(focusFill)
+    }
+    fadeObjects()
   }
   let lastSlabsKey = ''
   function slabsKey(model: Model): string {
@@ -2897,11 +2948,14 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     })
     content.add(slabs)
     applyStoreyVisibility()
+    applySpaceFocus()
   }
 
   // e2e 모드에서만 연다. 3D 는 DOM 이 아니라서 테스트가 어디를 눌러야 하는지 알 길이 이것뿐이다.
   if (import.meta.env.MODE === 'e2e') {
     ;(window as unknown as { __viewer?: unknown }).__viewer = {
+      /** 공간 보기로 채운 방(setSpaceFocus)과 그 층 판의 불투명도. */
+      spaceFocus: () => ({ id: focusSpaceId, fill: !!focusFill, slab: Math.min(...slabs.children.map((o) => ((o as Mesh).material as MeshLambertMaterial).opacity)) }),
       /** 숨긴 설비 수·보이는 층·분해도 라벨(ui-notes 의 보기 필터 절을 잰다). */
       shown: () => ({ hidden: hiddenIds.size, parts: parts.length, storeys: visibleStoreys ? [...visibleStoreys] : null, labels: explodeLabels.children.filter((o) => o instanceof Sprite).length, exploded: explodedParts?.size ?? 0 }),
       /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */
@@ -3980,7 +4034,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           objectTargets.push({ id: o.id, storeyId: storey.id, box, node })
         }
       }
-      if (objectsFaded) fadeObjects()
+      if (objectsFaded || focusSpaceId) fadeObjects()
       applyStoreyVisibility()
     },
 
@@ -4085,14 +4139,24 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (hoverAt) hoverPending = true
     },
 
-    frameSpace(id) {
+    frameSpace(id, steep) {
       const target = spaceTargets.find((t) => t.id === id)
       if (!target || target.ring.length < 3) return
       const box = new Box3()
       for (const [x, y] of target.ring) box.expandByPoint(new Vector3(...toScene([x, y, 0])).setY(target.y))
       // 판만 맞추면 위에서 내려다보는 납작한 상자라 너무 가까이 간다. 층 높이쯤 띄운다.
       box.expandByPoint(box.max.clone().setY(target.y + 3))
-      fit(box)
+      if (!steep) return fit(box)
+      // 지금 보는 방위는 두고 60° 쯤 내려다본다. 옆에서 보면 방을 두른 벽이 방 안을 가린다.
+      const from = camera.position.clone().sub(controls.target).setY(0)
+      if (from.lengthSq() < 1e-9) from.set(1, 0, 1)
+      fit(box, true, from.normalize().setY(1.7))
+    },
+
+    setSpaceFocus(id) {
+      if (focusSpaceId === id) return
+      focusSpaceId = id
+      applySpaceFocus()
     },
 
     screenOf(ids) {

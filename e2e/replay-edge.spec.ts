@@ -142,6 +142,29 @@ test('녹화를 공유 확인 중에 한 번 더 눌러도 녹화는 하나다',
   expect(errors).toEqual([])
 })
 
+test('화면 공유를 못 쓰는 주소(55 의 http://IP)에서는 3D 캔버스만 녹화하고 그 까닭을 HUD 에 띄운다', async ({ page }) => {
+  test.setTimeout(120_000)
+  // https·localhost 가 아니면 브라우저가 getDisplayMedia 를 주지 않는다. 그 상태를 흉내 낸다.
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator.mediaDevices, 'getDisplayMedia', { value: undefined })
+    Object.defineProperty(window, 'isSecureContext', { value: false })
+  })
+  const { hud, errors } = await openReplay(page)
+  await expect(hud).toHaveAttribute('data-phase', 'play', { timeout: 30_000 })
+  await hud.getByRole('button', { name: /녹화/ }).click()
+  await expect(hud.locator('.rec.on')).toBeVisible()
+  await expect(hud.getByTestId('rec-note')).toContainText('http 주소라')
+  const d = page.waitForEvent('download')
+  await hud.locator('.rec.on').click()
+  const file = await d
+  const { size } = (await import('node:fs')).statSync((await file.path())!)
+  expect(size).toBeGreaterThan(1000)
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Enter')
+  await expect(hud).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
 test('리플레이 안에서 P 는 닫지 않고, Esc 는 한 번 묻는다 — Esc 로 계속 보고 Enter 로 닫는다', async ({ page }) => {
   test.setTimeout(120_000)
   const { hud, errors } = await openReplay(page)

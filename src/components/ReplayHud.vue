@@ -35,6 +35,8 @@ const props = defineProps<{
   filter?: Category | null
   /** 녹화 중이면 시작 시각(performance.now). */
   recording?: number | null
+  /** 녹화가 3D 만 찍거나 못 찍는 까닭(화면 공유를 못 쓸 때). 없으면 빈 문자열. */
+  recordNote?: string
   /** ? 를 누른 횟수. 바뀔 때마다 단축키 안내를 켜고 끈다. */
   helpToggles?: number
   /** 변경 지도를 켰으면 더한·고친·지운 것의 수. */
@@ -709,6 +711,7 @@ const summary = computed(() => {
         </button>
         <button type="button" class="close" title="닫기 (Esc 는 한 번 묻는다) — 남은 편집을 다시 해서 원래 상태로" @click="emit('close')">✕ 닫기</button>
       </div>
+      <p v-if="recordNote" class="rec-note" role="status" data-testid="rec-note">{{ recordNote }}</p>
     </div>
   </div>
 </template>
@@ -1715,6 +1718,13 @@ const summary = computed(() => {
 .ask-buttons kbd {
   margin-left: 4px;
   opacity: 0.7;
+}
+
+/* 녹화가 3D 만 찍는 까닭. 단추 줄 아래 한 줄로. */
+.rec-note {
+  margin: 6px 0 0;
+  color: #f5b14c;
+  font-size: 12px;
 }
 
 /* 녹화 버튼. 녹화 중에는 붉게 숨 쉰다. */
