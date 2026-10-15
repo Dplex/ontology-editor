@@ -76,7 +76,8 @@ test('건축·설비를 합쳐 연 편집은 같은 두 파일을 다시 열면 
   const second = await openPair([ROOMS, MEP])
   const bar = second.locator('.draft-bar')
   await expect(bar).toContainText('편집 3건')
-  await bar.getByRole('button', { name: '이어서 하기' }).click()
+  // 첫 단추가 되살리기다(이름은 OE-HIST-04 에서 [예] 로 바뀐다).
+  await bar.getByRole('button').first().click()
   await expect(second.locator('.edit-bar')).toContainText('바뀐 것 3건')
   await expect(second.locator('.report')).toContainText('대회의실')
   await row(second, 'AHU-1').getByRole('button', { name: 'AHU-1', exact: true }).click()
