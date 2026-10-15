@@ -422,7 +422,8 @@ test('고른 설비의 종류를 바꾸면 규칙 방향이 다시 서고, Ctrl+
   await pick(page, 'AHU-1')
   const kind = page.locator('.kind-edit select')
   await expect(kind).toHaveValue('ahu')
-  await expect(page.locator('.kind-edit .src.dict')).toBeVisible()
+  // IFC 가 AIRHANDLER 라고 말해서 출처는 BIM 이다. 이름 "AHU-1" 도 공조기지만 표준 값이 먼저다(ADR-0071).
+  await expect(page.locator('.kind-edit .src.bim')).toBeVisible()
   await kind.selectOption('')
   await expect(page.locator('.report')).toContainText('종류 공조기 → 모름')
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')

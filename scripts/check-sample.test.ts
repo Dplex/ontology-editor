@@ -35,7 +35,7 @@ import { verticalObjects } from '../src/lib/vertical-object'
 import { slabOpenings } from '../src/lib/slab-opening'
 import { storeyHeights } from '../src/lib/storey-height'
 import { markStoreyDone, storeyProgress } from '../src/lib/storey-progress'
-import { equipmentKind, isFlowlessKind, roomKind } from '../src/lib/kinds'
+import { equipmentKind, isFlowlessKind, resolveEquipmentKind, roomKind } from '../src/lib/kinds'
 import { ASK_SETTING, EXPORT_SETTING, requirementsReport } from '../src/lib/requirements'
 import { compareVersions, revitElementId } from '../src/lib/versions'
 import { storeyScaleMismatch } from '../src/lib/unit-check'
@@ -1887,14 +1887,15 @@ describe.skipIf(!existsSync(CLINIC_ARCH) || !existsSync(CLINIC_HVAC))('병원 �
     const hvac = importIfcWithMeshes(api, new Uint8Array(readFileSync(CLINIC_HVAC))).model
     const { model } = mergeModels(arch, hvac)
     const devices = model.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
-    // 병원 건축의 욕실 부속·소화기함 101대는 BIM 이 SanitaryTerminal 이라 했지만 이름이 먼저다(전에는 428).
-    expect(devices.filter((e) => e.kindSource === 'bim')).toHaveLength(327)
+    // 병원 건축의 욕실 부속·소화기함 101대는 BIM 이 SanitaryTerminal(클래스만)이라 했지만 이름이 먼저다(전에는 428).
+    // 클래스와 값으로 말한 표준 값은 이름보다 먼저라(ADR-0071) 이름과 IFC 가 같은 종류를 말한 231대도 출처가 BIM 이다(전에는 327, 종류는 그대로).
+    expect(devices.filter((e) => e.kindSource === 'bim')).toHaveLength(558)
     // 종류를 모르던 1대는 건축의 유압 엘리베이터였다. 이름 사전에 더해 0 이다(2026-10-03).
     expect(devices.filter((e) => !e.kind)).toHaveLength(0)
 
-    // 타입을 안 읽던 때와 같은 모델.
+    // 타입을 안 읽던 때와 같은 모델. BIM 출처 중 이름으로도 아는 것은 이름 값으로 둔다.
     const unread = structuredClone(model)
-    for (const e of unread.storeys.flatMap((s) => s.equipment)) if (e.kindSource === 'bim') e.kind = null
+    for (const e of unread.storeys.flatMap((s) => s.equipment)) if (e.kindSource === 'bim') e.kind = resolveEquipmentKind(e.name, e.objectType ?? '')?.info.kind ?? null
     expect(checksOf(unread)['terminal-source']).toBe('234/234')
     expect(checksOf(model)['terminal-source']).toBe('439/440')
 
