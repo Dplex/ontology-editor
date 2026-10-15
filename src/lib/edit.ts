@@ -617,10 +617,11 @@ function findSpace(model: Model, spaceId: string) {
   return null
 }
 
-/** 설비의 현재 소속을 한 장 떠 둔다. 편집 전후를 견주려면 이게 필요하다. */
-function snapshotSpaces(model: Model): Map<string, { name: string; spaceId: string | null }> {
+/** 설비의 현재 소속을 한 장 떠 둔다. 편집 전후를 견주려면 이게 필요하다. 한 층만 바뀌는 편집은 그 층만 뜬다. */
+function snapshotSpaces(model: Model, targetStorey?: Storey): Map<string, { name: string; spaceId: string | null }> {
   const out = new Map<string, { name: string; spaceId: string | null }>()
-  for (const storey of model.storeys) {
+  const storeys = targetStorey ? [targetStorey] : model.storeys
+  for (const storey of storeys) {
     for (const e of storey.equipment) out.set(e.id, { name: e.name, spaceId: e.spaceId })
   }
   return out
@@ -631,9 +632,11 @@ function diffSpaces(
   model: Model,
   before: Map<string, { name: string; spaceId: string | null }>,
   labelOf: (id: string | null) => string,
+  targetStorey?: Storey,
 ): Change[] {
   const out: Change[] = []
-  for (const storey of model.storeys) {
+  const storeys = targetStorey ? [targetStorey] : model.storeys
+  for (const storey of storeys) {
     for (const e of storey.equipment) {
       const was = before.get(e.id)
       if (!was || was.spaceId === e.spaceId) continue
@@ -686,10 +689,11 @@ export function moveSpaceVertex(
   vertexIndex: number,
   to: Vec2,
 ): BoundaryChange | null {
-  const space = findSpace(model, spaceId)
-  if (!space || vertexIndex < 0 || vertexIndex >= space.footprint.length) return null
+  const storey = storeyOfSpace(model, spaceId)
+  const space = storey?.spaces.find((s) => s.id === spaceId)
+  if (!storey || !space || vertexIndex < 0 || vertexIndex >= space.footprint.length) return null
 
-  const before = snapshotSpaces(model)
+  const before = snapshotSpaces(model, storey)
   const fromAreaM2 = space.areaM2
   const ring = ringWithVertex(space.footprint, vertexIndex, to)
   const release = shapeChanged(space.footprint, ring)
@@ -703,7 +707,7 @@ export function moveSpaceVertex(
     spaceName: space.longName || space.name,
     fromAreaM2,
     toAreaM2: space.areaM2,
-    equipment: diffSpaces(model, before, (id) => spaceLabel(model, id)),
+    equipment: diffSpaces(model, before, (id) => spaceLabel(model, id), storey),
     selfIntersecting: isSelfIntersecting(ring),
   }
 }
@@ -718,10 +722,11 @@ export function moveSpaceVertex(
  * 설비는 설비 줄의 `released` 가 따로 푼다.
  */
 export function replaceSpaceFootprint(model: Model, spaceId: string, ring: Vec2[], { release: mayRelease = true } = {}): BoundaryChange | null {
-  const space = findSpace(model, spaceId)
-  if (!space) return null
+  const storey = storeyOfSpace(model, spaceId)
+  const space = storey?.spaces.find((s) => s.id === spaceId)
+  if (!storey || !space) return null
 
-  const before = snapshotSpaces(model)
+  const before = snapshotSpaces(model, storey)
   const fromAreaM2 = space.areaM2
   const release = mayRelease && shapeChanged(space.footprint, ring)
 
@@ -734,7 +739,7 @@ export function replaceSpaceFootprint(model: Model, spaceId: string, ring: Vec2[
     spaceName: space.longName || space.name,
     fromAreaM2,
     toAreaM2: space.areaM2,
-    equipment: diffSpaces(model, before, (id) => spaceLabel(model, id)),
+    equipment: diffSpaces(model, before, (id) => spaceLabel(model, id), storey),
     selfIntersecting: isSelfIntersecting(ring),
   }
 }
@@ -2230,7 +2235,7 @@ function settleStorey(
   }
   for (const e of storey.equipment) assignEquipment(e, storey.spaces)
   relinkDoors(storey)
-  return diffSpaces(model, before, (id) => spaceLabel(model, id))
+  return diffSpaces(model, before, (id) => spaceLabel(model, id), storey)
 }
 
 export type NewSpace = { name: string; longName: string; footprint: readonly Vec2[]; id?: string }
@@ -2243,7 +2248,7 @@ export function createSpace(model: Model, storeyId: string, spec: NewSpace): Spa
   const id = spec.id ?? newId()
   if (findSpace(model, id)) return null
   const ring = withClosing(points, true)
-  const before = snapshotSpaces(model)
+  const before = snapshotSpaces(model, storey)
   storey.spaces.push({ id, name: spec.name, longName: spec.longName, footprint: ring, areaM2: polygonArea(ring), boundedBy: [], added: true })
   // 사람이 만든 방도 이름으로 종류를 읽는다. 이름을 고친 방과 같은 규칙이라야 편집 파일로 되살린 방과 같아진다.
   const made = storey.spaces[storey.spaces.length - 1]
@@ -2259,7 +2264,7 @@ export function deleteSpace(model: Model, spaceId: string): SpaceSetChange | { r
   const storey = storeyOfSpace(model, spaceId)
   if (!storey) return null
   if (storey.spaces.length <= 1) return { refused: '층에 하나 남은 물리존은 지울 수 없습니다.' }
-  const before = snapshotSpaces(model)
+  const before = snapshotSpaces(model, storey)
   storey.spaces = storey.spaces.filter((s) => s.id !== spaceId)
   remapZonesForSpaces(storey, { removed: spaceId })
   return { storeyId: storey.id, created: [], removed: [spaceId], equipment: settleStorey(model, storey, new Set([spaceId]), before) }
@@ -2295,7 +2300,7 @@ export function splitSpace(
   const [big, small] = [...cut.rings].sort((x, y) => polygonArea(y) - polygonArea(x))
   const id = newSpaceId ?? newId()
   if (findSpace(model, id)) return null
-  const before = snapshotSpaces(model)
+  const before = snapshotSpaces(model, storey)
   space.footprint = big
   space.areaM2 = polygonArea(big)
   // 새 조각은 목록 끝에 둔다. 원래 방 바로 뒤에 끼우면 편집 파일에서 되살린 층과 순서(hasPart)가 달라진다.
@@ -2337,7 +2342,7 @@ export function mergeSpaces(
   if (!other) return { refused: '같은 층의 물리존끼리만 합칩니다.' }
   const union = unionRings(keep.footprint, other.footprint)
   if (!union.ok) return { refused: union.reason }
-  const before = snapshotSpaces(model)
+  const before = snapshotSpaces(model, storey)
   keep.footprint = union.ring
   keep.areaM2 = polygonArea(union.ring)
   return { ...absorb(model, storey, keep, other, before), bridged: union.bridged }
@@ -2361,7 +2366,7 @@ export function absorbSpace(model: Model, keepId: string, otherId: string): Spac
   const keep = storey?.spaces.find((s) => s.id === keepId)
   const other = storey?.spaces.find((s) => s.id === otherId)
   if (!storey || !keep || !other) return null
-  return absorb(model, storey, keep, other, snapshotSpaces(model))
+  return absorb(model, storey, keep, other, snapshotSpaces(model, storey))
 }
 
 

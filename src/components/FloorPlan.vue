@@ -57,6 +57,7 @@ const emit = defineEmits<{
   selectBox: [ids: string[]]
   pickSpace: [id: string | null]
   pickElement: [id: string]
+  pickVertex: [index: number]
   moveVertex: [spaceId: string, index: number, to: Vec2]
   pickZone: [id: string]
 }>()
@@ -203,6 +204,7 @@ function onPointerUp() {
 function startVertex(event: PointerEvent, index: number) {
   if (!props.editing) return
   event.stopPropagation()
+  emit('pickVertex', index)
   ;(event.target as Element).setPointerCapture?.(event.pointerId)
   drag.value = { index, at: toModel(event) }
 }
@@ -332,7 +334,7 @@ function pickVertical(event: MouseEvent, id: string) {
       <polygon
         v-for="s in spaces"
         :key="s.id"
-        :points="points(s.footprint)"
+        :points="s.id === spaceId && previewRing ? points(previewRing) : points(s.footprint)"
         :class="{ chosen: s.id === spaceId }"
         :stroke-width="unit * 1.2"
         :data-space="s.id"
