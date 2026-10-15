@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs'
 // 수동 공조존(OE-ZON-01·02). 편집 화면의 "공조존" 에서 담당 물리존을 골라 만들거나 경계를 그려 만들고, 담당 설비를 고르면 TTL 에서 그 설비가
 // 공조존을 feeds 한다(계통도의 서비스 영역). mep.ifc 의 1F 사무실은 (0..10 × 0..8)이다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
+const ROOMS = 'src/lib/ifc/fixtures/two-rooms.ifc'
 
 async function ttlOf(page: Page, out: string): Promise<string> {
   const [d] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()])
@@ -366,6 +367,42 @@ test('검토 화면의 "공조존 생성 방법" 에는 직접 만들기만 있�
   await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
   await expect(fold.locator('.zone-list li[data-zone]')).toHaveCount(1)
   await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  expect(errors).toEqual([])
+})
+
+// R1 의 추가 임포트는 BIM 덧붙이기다(IDF·gbXML 은 R2). 만든 공조존은 편집이라, 덧붙이면 합친 모델에 다시 얹혀야 하고 덮어쓰이면 안 된다.
+// 건축 파일(two-rooms.ifc)이 방이 더 많아 합친 모델의 기준이 바뀌는 쪽을 고른다 — 공조존이 가리키는 물리존을 합친 모델에서 다시 찾아야 한다.
+test('만든 공조존은 읽지 못하는 파일을 덧붙여도, 건축 IFC 를 덧붙여 기준 모델이 바뀌어도 그대로 남는다 [OE-BIM-15#8~,10~]', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+  await page.getByTestId('zone-route').getByRole('button', { name: '공조존 직접 만들기' }).click()
+  const fold = page.getByTestId('hvac-zones')
+  await fold.getByLabel('사무실').check()
+  await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
+  const zones = fold.locator('.zone-list li[data-zone]')
+  await expect(zones).toHaveCount(1)
+  await expect(zones.first()).toContainText('80.0㎡')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+
+  // 읽지 못하는 파일: 사유를 보이고 열린 모델·공조존은 그대로다.
+  const append = page.locator('.appbar label.append input')
+  await append.setInputFiles({ name: 'broken.ifc', mimeType: 'application/octet-stream', buffer: Buffer.from('이건 IFC 가 아니다') })
+  await expect(page.locator('p.error[role=alert]')).toContainText('덧붙이지 못했습니다(broken.ifc)')
+  await expect(page.locator('.appbar h2')).toHaveText('mep.ifc')
+  await expect(zones).toHaveCount(1)
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+
+  // 건축 IFC 를 덧붙이면 공조존은 합친 모델의 사무실에 다시 얹힌다. 새로 생기거나 늘지 않는다.
+  await append.setInputFiles(ROOMS)
+  await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+  await expect(page.locator('.edit-file-note')).toContainText('덧붙이기 전에 한 편집')
+  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(zones).toHaveCount(1)
+  await expect(zones.first()).toContainText('80.0㎡')
+  await expect(zones.first()).toContainText('사무실')
   expect(errors).toEqual([])
 })
 
