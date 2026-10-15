@@ -5120,6 +5120,33 @@ main.has-model .catalog {
   fill: var(--accent);
 }
 
+/* IDF 공조존(ADR-0069). 칠한 면은 누르지 않고(밑의 방이 골라진다) 이름을 누른다. 색은 담당 방식이다(idf/zone-view.ts). */
+.floor-plan .hvac-zones polygon {
+  fill-opacity: 0.14;
+  stroke-opacity: 0.85;
+  stroke-dasharray: 0.6 0.3;
+  pointer-events: none;
+}
+.floor-plan .hvac-zones polygon.chosen {
+  fill-opacity: 0.32;
+  stroke-dasharray: none;
+}
+.floor-plan .zone-labels text {
+  font-weight: 600;
+  cursor: pointer;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 0.12;
+}
+.floor-plan .zone-labels text.chosen {
+  text-decoration: underline;
+}
+.floor-plan .devices circle.served {
+  stroke: var(--accent);
+  stroke-width: 0.12;
+  fill: var(--accent);
+}
+
 /* Ctrl+끌기 고르기 상자(OE-UI-09). */
 .floor-plan .box-select {
   fill: var(--accent-soft);
@@ -6660,3 +6687,32 @@ button.done::after {
   max-width: calc(50% - 9rem);
   border-radius: var(--radius-sm);
 }
+
+/* IDF 위치(공조존 IDF 접이 안). 찾은 이동·회전을 보이고 고친다. */
+.idf-placement { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: 6px 0 10px; font-size: 12px; }
+.idf-placement input { width: 80px; }
+.idf-placement small { color: var(--muted); }
+
+/* 고른 IDF 공조존(ADR-0069). 3D·평면도 왼쪽 위(독 아래)에 띄운다 — 아래쪽은 조작 안내와 시점 단추가 쓴다. */
+.zone-chip {
+  position: absolute;
+  left: 12px;
+  top: 96px;
+  z-index: 5;
+  max-width: min(560px, 70%);
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.zone-chip .close { float: right; margin: -4px -6px 0 8px; padding: 0 6px; }
+.zone-chip .muted { color: var(--muted); }
+.zone-swatch { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; }
+.zone-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin: 4px 0 8px; font-size: 12px; }
+.zone-legend i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 2px; vertical-align: -1px; }
+.zone-legend small { color: var(--muted); }
+table.zones tr.pickable { cursor: pointer; }
+table.zones tr.chosen td { background: var(--accent-soft); }

@@ -180,11 +180,12 @@ export function modelToTTL(model: Model, only?: { storeyId: string }): string {
   // IDF 가 말한 담당 관계(공조기 → 말단 → 공조존). BIM 설비와 이름이 맞은 IDF 설비는 BIM 설비의 블록에 적는다 — 받는 쪽은
   // 주어 자신의 블록만 읽는다(위 주석). IDF 가 말한 것이라 규칙 방향과 달리 확정 없이 나간다.
   const hvac = model.hvac
-  const subjectOf = new Map((hvac?.equipment ?? []).map((e) => [e.id, e.bimId ?? e.id]))
+  // 존 안의 BIM 기기 여럿으로 푼 IDF 존 설비(bimIds)는 그 기기들이 하나하나 주어가 된다(ADR-0069).
+  const subjectsOf = new Map((hvac?.equipment ?? []).map((e) => [e.id, e.bimIds ?? [e.bimId ?? e.id]]))
   for (const e of hvac?.equipment ?? []) {
-    const from = e.bimId ?? e.id
-    const targets = e.feeds.map((t) => subjectOf.get(t) ?? t)
-    if (targets.length) feeds.set(from, [...new Set([...(feeds.get(from) ?? []), ...targets])])
+    const targets = e.feeds.flatMap((t) => subjectsOf.get(t) ?? [t])
+    if (!targets.length) continue
+    for (const from of subjectsOf.get(e.id)!) feeds.set(from, [...new Set([...(feeds.get(from) ?? []), ...targets])])
   }
   // 사람이 만든 공조존의 담당 설비(OE-ZON-01). 설비가 공조존을 feeds 한다 — 계통도의 서비스 영역이다. 사람이 정한 것이라 확정 없이 나간다.
   for (const [from, zones] of zonesServedBy(model)) feeds.set(from, [...new Set([...(feeds.get(from) ?? []), ...zones])])
@@ -261,17 +262,20 @@ export function modelToTTL(model: Model, only?: { storeyId: string }): string {
     lines.push(`${ref(zone.id)} a brick:HVAC_Zone ;`)
     lines.push(`    rdfs:label ${label(zone.name)} ;`)
     if (zone.spaceIds.length) lines.push(`    brick:hasPart ${zone.spaceIds.map(ref).join(', ')} ;`)
+    // 존 안의 BIM 기기로 푼 IDF 존 설비의 설계 풍량(CMH). 기기마다 나눌 근거가 없어 존에 둔다.
+    if (zone.idfAirflowCMH) lines.push(`    ex:nominalAirFlowRate ${zone.idfAirflowCMH} ;`)
     lines.push(`    ex:areaM2 ${Number(zone.areaM2.toFixed(4))} .`)
     lines.push('')
   }
   // BIM 설비와 이어지지 않은 IDF 설비. 좌표가 없어 방은 모른다. 말단은 담당하는 존의 층에 있다고 보고 층을 적는다.
   for (const e of hvac?.equipment ?? []) {
-    if (e.bimId || !scope.storey(e.storeyId ?? null)) continue
+    if (e.bimId || e.bimIds || !scope.storey(e.storeyId ?? null)) continue
     lines.push(`${ref(e.id)} a ${equipmentKind(e.kind)?.brick ?? `ex:${e.idfClass.replace(/[^A-Za-z0-9_]+/g, '_')}`} ;`)
     lines.push(`    rdfs:label ${label(e.name)} ;`)
     if (e.storeyId) lines.push(`    brick:hasLocation ${ref(e.storeyId)} ;`)
     const targets = feeds.get(e.id)
     if (targets?.length) lines.push(`    brick:feeds ${targets.map(ref).join(', ')} ;`)
+    if (e.airflowCMH) lines.push(`    ex:nominalAirFlowRate ${e.airflowCMH} ;`)
     lines.push(`    ex:idfClass ${label(e.idfClass)} .`)
     lines.push('')
   }

@@ -32,6 +32,12 @@ describe('현재 층 현황 (OE-UI-04)', () => {
     expect(s.objects).toEqual([{ label: '벽', count: 2 }, { label: '문', count: 1 }, { label: '창', count: 2 }, { label: '책상', count: 2 }, { label: '의자', count: 1 }])
   })
 
+  it('IDF 공조존도 그 층의 공조존으로 센다 — 층을 못 찾은 IDF 공조존은 어느 층에도 없다', () => {
+    const withIdf = { ...model, hvac: { source: 'x.idf', equipment: [], zones: [{ id: 'Z_A', name: '2F_office', storeyId: '2F' }, { id: 'Z_B', name: '?', storeyId: null }] } } as unknown as Model
+    expect(floorSummary(withIdf, ['2F'], () => null).hvacZones).toEqual([{ id: 'Z_A', name: '2F_office' }])
+    expect(floorSummary(withIdf, ['1F'], () => null).hvacZones.map((z) => z.id)).toEqual(['H1'])
+  })
+
   it('모든 층이면 전부 더한다', () => {
     const s = floorSummary(model, null, (e) => e.kind ?? null)
     expect(s.spaces.map((x) => x.id)).toEqual(['S1', 'S2'])

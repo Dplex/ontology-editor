@@ -37,7 +37,11 @@ export function floorSummary(m: Model, storeyIds: readonly string[] | null, kind
     spaces: sts.flatMap((s) => s.spaces.map((sp) => ({ id: sp.id, name: [sp.name, sp.longName].filter(Boolean).join(' ') || '(이름 없음)' }))),
     rooms: sts.flatMap((s) => (s.rooms ?? []).map((r) => ({ id: r.id, name: r.name }))),
     customZones: sts.flatMap((s) => (s.customZones ?? []).map((z) => ({ id: z.id, name: z.name }))),
-    hvacZones: sts.flatMap((s) => (s.hvacZones ?? []).map((z) => ({ id: z.id, name: z.name }))),
+    // 사람이 만든 공조존과 IDF 공조존(층을 찾은 것) 둘 다다. IDF 공조존을 빼면 성수 + IDF 의 4F 가 "공조존 0" 으로 보였다.
+    hvacZones: [
+      ...sts.flatMap((s) => (s.hvacZones ?? []).map((z) => ({ id: z.id, name: z.name }))),
+      ...(m.hvac?.zones ?? []).filter((z) => sts.some((s) => s.id === z.storeyId)).map((z) => ({ id: z.id, name: z.name })),
+    ],
     equipment: tally(equipment.map((e) => kindOf(e) ?? '종류 모름')),
     equipmentTotal: equipment.length,
     unplaced: equipment.filter((e) => !e.position).length,

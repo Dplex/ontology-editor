@@ -7,6 +7,7 @@
 // 어디로 지나가는지가 사라져서, 연결을 추정한 것이 맞는지 눈으로 확인할 수가 없다.
 
 import { hvacZonesOf } from './hvac-zone'
+import { zoneServes, ZONE_SERVE_COLOR, type ZoneServe } from './idf/zone-view'
 import {
   Box3,
   MOUSE,
@@ -3476,24 +3477,40 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     setHvacZones(model, selected) {
       zoneLines.traverse((o) => {
-        if (o instanceof LineLoop) {
+        if (o instanceof LineLoop || o instanceof Mesh) {
           o.geometry.dispose()
           ;(o.material as { dispose(): void }).dispose()
         }
       })
       zoneLines.clear()
       const elevation = new Map((model?.storeys ?? []).map((s) => [s.id, s.elevation]))
+      // IDF 공조존은 담당 방식 색으로 바닥을 옅게 칠한다(idf/zone-view.ts). 존 다섯이 방 하나를 나누는 성수 기준층에서 외곽선만으로는
+      // 어느 띠가 어느 존인지 안 보였다. 사람이 만든 공조존은 예전처럼 외곽선만이다.
+      const serves = model ? zoneServes(model) : new Map<string, ZoneServe>()
       for (const zone of model ? hvacZonesOf(model) : []) {
         if (!zone.storeyId) continue
+        const on = zone.id === selected
+        const serve = serves.get(zone.id)
+        const color = on ? ARCH_COLORS.selected : serve ? new Color(ZONE_SERVE_COLOR[serve]).getHex() : ZONE_COLOR
         const y = (elevation.get(zone.storeyId) ?? 0) + 0.2
         for (const ring of zone.footprint) {
           const points = ring.map((p) => new Vector3(p[0], y, -p[1]))
-          const line = new LineLoop(
-            new BufferGeometry().setFromPoints(points),
-            new LineBasicMaterial({ color: zone.id === selected ? ARCH_COLORS.selected : ZONE_COLOR }),
-          )
+          const line = new LineLoop(new BufferGeometry().setFromPoints(points), new LineBasicMaterial({ color }))
           line.userData.storeyId = zone.storeyId
           zoneLines.add(line)
+          if ((serve || on) && ring.length >= 4) {
+            const shape = new Shape(ring.slice(0, -1).map((p) => new Vector2(p[0], p[1])))
+            const face = new Mesh(
+              new ShapeGeometry(shape),
+              new MeshBasicMaterial({ color, transparent: true, opacity: on ? 0.35 : 0.16, side: DoubleSide, depthWrite: false }),
+            )
+            // ShapeGeometry 는 xy 평면이다. IFC 평면(x, y)을 three 바닥(x, -z)으로 눕힌다.
+            face.rotation.x = -Math.PI / 2
+            face.position.y = y - 0.01
+            face.userData.storeyId = zone.storeyId
+            face.raycast = () => {}
+            zoneLines.add(face)
+          }
         }
       }
       applyStoreyVisibility()

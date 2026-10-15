@@ -28,6 +28,8 @@ export type IdfEquipment = {
   kind: string | null
   /** 이 설비가 공급하는 것. 존 이름이거나 다른 IDF 설비 이름이다. */
   feeds: { zone?: string; equipment?: string }[]
+  /** IDF 가 숫자로 적은 설계 풍량(m³/s). `Autosize` 처럼 시뮬레이션이 정하게 둔 것은 null 이다 — 지어내지 않는다. */
+  airflow: number | null
 }
 
 export type IdfModel = {
@@ -56,6 +58,17 @@ export function idfKind(cls: string): string | null {
   const key = cls.toLowerCase()
   return KIND_BY_CLASS.find(([re]) => re.test(key))?.[1] ?? null
 }
+
+/**
+ * 설계 풍량 칸의 자리(이름 칸이 0). EnergyPlus 24.2 입출력 참조서의 순서다 — 공조기는 Design Supply Air Flow Rate, FCU 는
+ * Maximum Supply Air Flow Rate, VAV 는 Maximum Air Flow Rate, VRF 실내기는 냉방 때 급기 풍량.
+ */
+const AIRFLOW_FIELD: [RegExp, number][] = [
+  [/^airloophvac$/, 3],
+  [/^zonehvac:fourpipefancoil$/, 3],
+  [/^airterminal:singleduct:vav:/, 4],
+  [/^zonehvac:terminalunit:variablerefrigerantflow$/, 4],
+]
 
 /** 시뮬레이션용 가상 설비. 실제 기기가 아니라 존 부하를 이상적으로 맞추는 장치라 담당 관계에 넣지 않는다. */
 const VIRTUAL = /^zonehvac:idealloadsairsystem$/i
@@ -118,7 +131,9 @@ export function readIdf(text: string): IdfModel {
     const key = name.toLowerCase()
     let e = equipment.get(key)
     if (!e) {
-      e = { name, idfClass, kind: idfKind(idfClass), feeds: [] }
+      const at = AIRFLOW_FIELD.find(([re]) => re.test(idfClass.toLowerCase()))?.[1]
+      const airflow = at === undefined ? null : num(idf.named(idfClass, name)?.fields[at])
+      e = { name, idfClass, kind: idfKind(idfClass), feeds: [], airflow: airflow !== null && airflow > 0 ? airflow : null }
       equipment.set(key, e)
     }
     return e

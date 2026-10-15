@@ -8,7 +8,9 @@ import { modelToGeoJSON } from '../export/geojson'
 import { parseIdf } from './parse'
 import { readIdf } from './read'
 import { attachIdf, modelFromIdf, nameKey } from './attach'
-import type { Model, Space, Vec2 } from '../model'
+import { matchLevels, storeyHint } from './place'
+import { zoneDevices, zoneServes, zonesOverSpaces } from './zone-view'
+import type { Equipment, Model, Space, Vec2 } from '../model'
 import type { IdfModel } from './read'
 
 // 픽스처는 손으로 쓴 IDF 다(fixtures/two-zones.idf). mep.ifc 와 같은 자리에 공조존 둘과 담당 사슬 둘이 있다.
@@ -67,8 +69,10 @@ describe('attachIdf — BIM 에 얹기', () => {
     expect(office.spaceIds).toEqual([mep.storeys[0].spaces[0].id])
     expect(zones.find((z) => z.name === '1F:STORE')!.spaceIds).toEqual([])
     expect(report).toMatchObject({ zones: 2, zonesOnStoreys: 2, createdStoreys: 0, zonesWithSpaces: 1, spacesInZones: 1, matchedEquipment: 1, equipment: 4 })
-    // 바닥 조각 셋 중 창고(가운데 x=12.1)만 BIM 방 범위(0..10, ±2m) 밖이다. 반을 넘으니 좌표계 경고는 없다.
-    expect(report.alignment).toBeCloseTo(2 / 3)
+    // 합친 바닥 둘(사무실 한 장 · 창고) 중 창고(가운데 x=12.1)만 BIM 방 범위(0..10, ±2m) 밖이다. 좌표계 경고는 없다.
+    expect(report.alignment).toBeCloseTo(1 / 2)
+    // 제자리에서 이미 존 넓이의 절반 넘게 방과 겹쳐 옮기지 않는다.
+    expect(report.placement).toMatchObject({ dx: 0, dy: 0, rotation: 0, source: 'auto' })
     expect(model.warnings.some((w) => w.includes('좌표계'))).toBe(false)
 
     // IDF 의 "AHU 1" 은 BIM 의 AHU-1 이다(기호·공백을 뗀 이름이 하나에만 맞는다).
@@ -96,11 +100,31 @@ describe('attachIdf — BIM 에 얹기', () => {
     expect(floor.map((f) => f.properties.name)).toEqual(['1F:OFFICE', '1F:STORE'])
   })
 
-  it('다른 자리의 IDF 는 좌표계가 다르다고 알린다', () => {
-    const far = text.replace('Zone, 1F:STORE, 0, 10.2, 0, 0', 'Zone, 1F:STORE, 0, 910.2, 0, 0').replace(/BuildingSurface:Detailed, 1F:OFFICE_Floor_(\d), Floor, Ground floor, 1F:OFFICE/g, 'BuildingSurface:Detailed, 1F:OFFICE_Floor_$1, Floor, Ground floor, 1F:STORE')
+  // 성수 IDF 는 건물 모서리를 원점에 두고 그려 BIM 과 16.76m · 18.08m 어긋났다. 같은 일을 사무실을 900m 옮겨 흉내 낸다.
+  const far = text.replace('Zone, 1F:STORE, 0, 10.2, 0, 0', 'Zone, 1F:STORE, 0, 910.2, 0, 0').replace(/BuildingSurface:Detailed, 1F:OFFICE_Floor_(\d), Floor, Ground floor, 1F:OFFICE/g, 'BuildingSurface:Detailed, 1F:OFFICE_Floor_$1, Floor, Ground floor, 1F:STORE')
+
+  it('[OE-IDF-05] 원점이 다른 IDF 는 겹친 넓이가 가장 큰 자리로 옮겨 놓고 그 값을 알린다', () => {
     const { report, model } = attachIdf(mep, readIdf(far), 'far.idf')
-    expect(report.alignment).toBeLessThan(0.5)
-    expect(model.warnings.some((w) => w.includes('좌표계'))).toBe(true)
+    expect(report.placement).toMatchObject({ dx: -910.2, dy: 0, rotation: 0, source: 'auto' })
+    expect(report.placement!.before).toBe(0)
+    expect(report.placement!.overlap).toBeGreaterThan(0.5)
+    expect(report.alignment).toBe(1)
+    expect(model.hvac!.placement).toMatchObject({ dx: -910.2, source: 'auto' })
+    expect(model.hvac!.zones.find((z) => z.name === '1F:STORE')!.spaceIds).toEqual([mep.storeys[0].spaces[0].id])
+    expect(model.warnings.some((w) => w.includes('x -910.2m'))).toBe(true)
+    expect(model.warnings.some((w) => w.includes('좌표계'))).toBe(false)
+  })
+
+  it('[OE-IDF-05] 사람이 정한 놓는 법을 주면 찾지 않고 그대로 쓴다 — 틀린 값이면 좌표계 경고가 남는다', () => {
+    const wrong = attachIdf(mep, readIdf(far), 'far.idf', { placement: { dx: 0, dy: 0, rotation: 0 } })
+    expect(wrong.report.placement).toMatchObject({ dx: 0, source: 'edit', overlap: 0 })
+    expect(wrong.report.alignment).toBeLessThan(0.5)
+    expect(wrong.model.warnings.some((w) => w.includes('좌표계'))).toBe(true)
+    // 90° 돌린 뒤 옮기는 값도 받는다: (x, y) → (-y, x) + (dx, dy).
+    const turned = attachIdf(mep, readIdf(far), 'far.idf', { placement: { dx: 8, dy: -910.2, rotation: 90 } })
+    const ring = turned.model.hvac!.zones.find((z) => z.name === '1F:STORE')!.footprint.flat()
+    expect(Math.min(...ring.map((p) => p[0]))).toBeCloseTo(0)
+    expect(Math.min(...ring.map((p) => p[1]))).toBeCloseTo(0)
   })
 })
 
@@ -165,5 +189,179 @@ describe('modelFromIdf — IDF 만 열기', () => {
     expect(model.storeys.map((s) => s.name)).toEqual(['IDF 바닥 0.00m'])
     expect(report).toMatchObject({ zones: 2, zonesOnStoreys: 2, createdStoreys: 1, matchedEquipment: 0 })
     expect(modelToTTL(model)).toContain('a brick:HVAC_Zone')
+  })
+})
+
+// 성수(Factorial.idf + 건축·기계 IFC)에서 본 모양을 줄여 옮긴다. 성수 IDF 는 3F 위로 층고 3m, BIM 은 4.3m 다. 기준층은 방 하나
+// (Business Facility)를 창가 띠 넷(N·E·S·W)과 안쪽(C), 존 다섯이 나누고, 창가 존마다 IDF FCU 한 대가 BIM FCU 여러 대를 뭉쳐 계산한다.
+describe('matchLevels — 층고가 다른 IDF 를 층에 맞추기', () => {
+  const st = (name: string, elevation: number) => ({ id: name, elevation })
+  const bim = [st('-', -24.9), st('B1F', -6), st('1F', 0), st('2F', 5), st('3F', 10), st('4F', 14.3), st('5F', 18.6), st('6F', 22.9), st('7F', 27.2), st('8F', 31.5), st('9F', 35.8), st('10F', 40.1), st('RFT', 44.6), st('RF', 49.6)]
+
+  it('[OE-IDF-04] 높이가 맞는 층을 닻으로 삼고 그 위는 순서로 맞춘다(성수: 높이 4 · 순서 7)', () => {
+    const idf = [-6, 0, 5, 10, 13, 16, 19, 22, 25, 28, 31]
+    const { storeyOf, byHeight, byOrder } = matchLevels(idf, bim, 0.5)
+    expect({ byHeight, byOrder }).toEqual({ byHeight: 4, byOrder: 7 })
+    expect(idf.map((z) => storeyOf.get(z))).toEqual(['B1F', '1F', '2F', '3F', '4F', '5F', '6F', '7F', '8F', '9F', '10F'])
+  })
+
+  it('[OE-IDF-04] 닻 사이의 바닥 수와 층 수가 다르면 그 사이는 맞추지 않는다 — 한 층을 빼고 그린 IDF 를 한 칸씩 밀지 않는다', () => {
+    // 1F(0)·5F(18.6) 가 닻. 그 사이 IDF 바닥은 둘인데 BIM 층은 셋(2F·3F·4F)이다.
+    const { storeyOf, byOrder } = matchLevels([0, 4, 8, 18.6], bim, 0.5)
+    expect(storeyOf.get(0)).toBe('1F')
+    expect(storeyOf.get(18.6)).toBe('5F')
+    expect(storeyOf.has(4)).toBe(false)
+    expect(storeyOf.has(8)).toBe(false)
+    expect(byOrder).toBe(0)
+  })
+
+  it('[OE-IDF-04] 위층에서 우연히 높이가 맞은 층은 닻으로 쓰지 않는다 — 10F(31m)가 BIM 8F(31.5m)에 붙지 않는다', () => {
+    const idf = [-6, 0, 5, 10, 13, 16, 19, 22, 25, 28, 31.4]
+    const { storeyOf, byHeight, byOrder } = matchLevels(idf, bim, 0.5)
+    expect({ byHeight, byOrder }).toEqual({ byHeight: 4, byOrder: 7 })
+    expect(storeyOf.get(31.4)).toBe('10F')
+  })
+
+  it('[OE-IDF-04] 높이가 맞는 층이 하나도 없으면 아무것도 맞추지 않는다', () => {
+    expect(matchLevels([100, 103], bim, 0.5).storeyOf.size).toBe(0)
+  })
+
+  it('존 이름의 층은 대 보는 데만 읽는다', () => {
+    expect(['4F_office-C_AHU_a', 'B1F_kitchen_AHU.GSHP.SAC', '1F:OFFICE', '10F_aux_AHU', 'Office', 'F4 room'].map(storeyHint)).toEqual(['4F', 'B1F', '1F', '10F', null, null])
+  })
+})
+
+describe('attachIdf — 성수 모양: 방 하나를 존 다섯이 나누고, FCU 는 존 안의 여러 대다', () => {
+  const sq = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+  const zone = (name: string, ring: Vec2[], z = 0): IdfModel['zones'][number] => ({ name, floors: [{ ring, z }], declaredArea: null, multiplier: 1 })
+  const device = (id: string, kind: string, x: number, y: number): Equipment => ({
+    id, name: id, kind, ifcClass: 'UnitaryEquipment', role: 'conversion', position: [x, y, 2.7], capacity: null, capacityProperty: null, systemId: null, spaceId: null, spaceSource: null,
+  })
+  // 20 x 10 방 하나. 창가 2m 띠 넷과 안쪽.
+  const office: Space = { id: 'office', name: 'office', longName: 'Business Facility', footprint: sq(0, 0, 20, 10), areaM2: 200, boundedBy: [] }
+  // 3F 는 높이가 맞고(10m) 4F 는 다르다(IDF 13m · BIM 14.3m). 3F 가 닻이 되어 4F 를 순서로 맞춘다.
+  const bim = (equipment: Equipment[]): Model => ({
+    schema: 'IFC2X3', siteName: '', buildingId: 'B', buildingName: '', systems: [], connections: [], warnings: [],
+    storeys: [
+      { id: '3F', name: '3F', elevation: 10, spaces: [], walls: [], openings: [], equipment: [] },
+      { id: '4F', name: '4F', elevation: 14.3, spaces: [office], walls: [], openings: [], equipment },
+    ],
+  })
+  // IDF 는 원점이 (-5, -5) 어긋났고 높이는 13m(층고 3m 로 다듬음)다.
+  const shift = (r: Vec2[]) => r.map(([x, y]) => [x - 5, y - 5] as Vec2)
+  const zones = [
+    zone('3F_aux_AHU', shift(sq(0, 0, 4, 4)), 10),
+    zone('4F_office-C_AHU_a', shift(sq(2, 2, 18, 8)), 13),
+    zone('4F_office-S_FCU_a', shift(sq(0, 0, 20, 2)), 13),
+    zone('4F_office-N_FCU_a', shift(sq(0, 8, 20, 10)), 13),
+    zone('4F_office-W_FCU_a', shift(sq(0, 2, 2, 8)), 13),
+    zone('4F_office-E_FCU_a', shift(sq(18, 2, 20, 8)), 13),
+  ]
+  const idf: IdfModel = {
+    version: '24.2',
+    warnings: [],
+    zones,
+    equipment: [
+      { name: '4F_office-N_FCU_a_FCU', idfClass: 'ZoneHVAC:FourPipeFanCoil', kind: 'fcu', feeds: [{ zone: '4F_office-N_FCU_a' }], airflow: 1.5 },
+      { name: '4F_office-S_FCU_a_FCU', idfClass: 'ZoneHVAC:FourPipeFanCoil', kind: 'fcu', feeds: [{ zone: '4F_office-S_FCU_a' }], airflow: null },
+      { name: 'Air Terminal Single Duct VAV No Reheat 1', idfClass: 'AirTerminal:SingleDuct:VAV:NoReheat', kind: 'vav', feeds: [{ zone: '4F_office-C_AHU_a' }], airflow: null },
+      { name: 'AirLoopHVAC_4F', idfClass: 'AirLoopHVAC', kind: 'ahu', feeds: [{ equipment: 'Air Terminal Single Duct VAV No Reheat 1' }], airflow: 6.69 },
+    ],
+  }
+  const fcus = [device('fcu_n1', 'fcu', 3, 9), device('fcu_n2', 'fcu', 10, 9), device('fcu_n3', 'fcu', 17, 9), device('fcu_c', 'fcu', 10, 5)]
+  const ahu = device('ahu2', 'ahu', 25, 5)
+
+  it('[OE-IDF-04][OE-IDF-05] 층은 순서로, 평면은 겹친 넓이로 찾아 방 하나와 존 다섯이 맞물린다', () => {
+    const { model, report } = attachIdf(bim([...fcus, ahu]), idf, 'f.idf')
+    expect(report).toMatchObject({ zonesOnStoreys: 6, zonesByOrder: 5, storeyNameMismatch: [] })
+    expect(report.placement).toMatchObject({ dx: 5, dy: 5, rotation: 0, source: 'auto' })
+    expect(report.placement!.overlap).toBeCloseTo(1)
+    expect(model.hvac!.zones.map((z) => z.storeyId)).toEqual(['3F', '4F', '4F', '4F', '4F', '4F'])
+    expect(model.warnings.some((w) => w.includes('순서로 층을 맞췄습니다'))).toBe(true)
+  })
+
+  it('[OE-IDF-06] 방 하나를 나눈 존 다섯이 모두 그 방과의 겹친 몫을 갖고, 절반 넘게 덮는 존이 없으면 어느 존의 일부도 아니다', () => {
+    const { model, report } = attachIdf(bim(fcus), idf, 'f.idf')
+    const zs = model.hvac!.zones.filter((z) => z.storeyId === '4F')
+    expect(zs.map((z) => z.overlaps?.map((o) => o.spaceId))).toEqual([['office'], ['office'], ['office'], ['office'], ['office']])
+    const c = zs.find((z) => z.name.includes('-C_'))!
+    expect(c.overlaps![0]).toEqual({ spaceId: 'office', spaceShare: 0.48, zoneShare: 1 })
+    expect(zs.reduce((n, z) => n + z.overlaps![0].spaceShare, 0)).toBeCloseTo(1)
+    // 48% 는 절반이 안 된다 — 지어내지 않는다.
+    expect(zs.flatMap((z) => z.spaceIds)).toEqual([])
+    expect(report).toMatchObject({ straddling: 1, partial: 1 })
+    const feature = modelToGeoJSON(model).flatMap((f) => f.collection.features).find((f) => f.id === c.id)!
+    expect(feature.properties).toMatchObject({ overlaps: [{ spaceId: 'office', spaceShare: 0.48, zoneShare: 1 }], overlapsSource: 'calc' })
+  })
+
+  it('[OE-IDF-08] IDF FCU 한 대는 그 존 안의 BIM FCU 여럿으로 풀리고, 그 FCU 들이 존을 담당하며 IDF 풍량은 존에 남는다', () => {
+    const { model, report } = attachIdf(bim(fcus), idf, 'f.idf')
+    const n = model.hvac!.equipment.find((e) => e.name === '4F_office-N_FCU_a_FCU')!
+    expect(n).toMatchObject({ bimIds: ['fcu_n1', 'fcu_n2', 'fcu_n3'], pairedBy: 'zone', bimId: null, airflowCMH: 5400 })
+    // S 존 안에는 BIM FCU 가 없다 — IDF 설비로 남는다. 안쪽(C)의 FCU 는 어느 IDF FCU 에도 들지 않는다.
+    expect(model.hvac!.equipment.find((e) => e.name === '4F_office-S_FCU_a_FCU')!.bimIds).toBeUndefined()
+    expect(report).toMatchObject({ byZone: 1, bimInZones: 3 })
+    const nZone = model.hvac!.zones.find((z) => z.name === '4F_office-N_FCU_a')!
+    expect(nZone.idfAirflowCMH).toBe(5400)
+
+    const ttl = modelToTTL(model)
+    const block = (id: string) => ttl.split('\n\n').find((b) => b.startsWith(`ex:${id} `)) ?? ''
+    for (const id of ['fcu_n1', 'fcu_n2', 'fcu_n3']) expect(block(id)).toContain(`brick:feeds ex:${nZone.id}`)
+    expect(block('fcu_c')).not.toContain('brick:feeds')
+    // 풀린 IDF FCU 는 따로 나가지 않는다. 풀리지 않은 S 존 FCU 는 IDF 설비로 나간다.
+    expect(ttl).not.toContain('ex:I_4F_office_N_FCU_a_FCU ')
+    expect(ttl).toContain('ex:I_4F_office_S_FCU_a_FCU a ')
+    expect(block(nZone.id)).toContain('ex:nominalAirFlowRate 5400 ;')
+  })
+
+  it('[OE-IDF-08] 공조기는 담당하는 존이 한 층뿐이고 그 층의 같은 종류 BIM 기기가 하나뿐이면 잇는다 — 층은 위치로 적지 않는다', () => {
+    const one = attachIdf(bim([...fcus, ahu]), idf, 'f.idf')
+    const loop = one.model.hvac!.equipment.find((e) => e.name === 'AirLoopHVAC_4F')!
+    expect(loop).toMatchObject({ bimId: 'ahu2', pairedBy: 'storey', airflowCMH: 24084 })
+    // 공조기가 놓인 곳(공조실·옥상)은 담당 층과 다를 수 있다.
+    expect(loop.storeyId).toBeUndefined()
+    expect(one.report.byStorey).toBe(1)
+    const ttl = modelToTTL(one.model)
+    expect(ttl.split('\n\n').find((b) => b.startsWith('ex:ahu2 '))).toContain('brick:feeds ex:I_Air_Terminal_Single_Duct_VAV_No_Reheat_1')
+
+    // 같은 층에 공조기가 둘(성수 B1F 의 AHU1·OHU1)이면 고르지 않는다.
+    const two = attachIdf(bim([...fcus, ahu, device('ohu1', 'ahu', 26, 5)]), idf, 'f.idf')
+    expect(two.model.hvac!.equipment.find((e) => e.name === 'AirLoopHVAC_4F')!.bimId).toBeNull()
+  })
+
+  it('겹쳐 보기: 존 색은 담당 방식이고, 존을 고르면 담당 BIM 기기와 원천을 짚으며, 방마다 겹친 존을 많이 덮는 순으로 안다', () => {
+    const { model } = attachIdf(bim([...fcus, ahu]), idf, 'f.idf')
+    const id = (name: string) => model.hvac!.zones.find((z) => z.name === name)!.id
+    const serve = zoneServes(model)
+    expect(serve.get(id('4F_office-N_FCU_a'))).toBe('fcu')
+    expect(serve.get(id('4F_office-C_AHU_a'))).toBe('ahu')
+    // W·E 존에는 IDF 존 설비가 없다(픽스처).
+    expect(serve.get(id('4F_office-W_FCU_a'))).toBe('none')
+    expect(zoneDevices(model, id('4F_office-N_FCU_a'))).toEqual({ terminals: ['fcu_n1', 'fcu_n2', 'fcu_n3'], sources: [] })
+    // 안쪽 존: 말단 VAV 는 BIM 에 없고, 그 위 공조기는 BIM AHU2 다.
+    expect(zoneDevices(model, id('4F_office-C_AHU_a'))).toEqual({ terminals: [], sources: ['ahu2'] })
+    const over = zonesOverSpaces(model.hvac!.zones).get('office')!
+    expect(over.map((o) => o.name)).toEqual(['4F_office-C_AHU_a', '4F_office-S_FCU_a', '4F_office-N_FCU_a', '4F_office-W_FCU_a', '4F_office-E_FCU_a'])
+    expect(over[0].share).toBe(0.48)
+  })
+
+  it('이름이 맞으면 이름이 먼저다 — 존 안의 같은 종류로 다시 풀지 않는다', () => {
+    const named = attachIdf(bim([...fcus, { ...device('x', 'fcu', 30, 30), name: '4F office-N FCU a FCU' }]), idf, 'f.idf')
+    expect(named.model.hvac!.equipment.find((e) => e.name === '4F_office-N_FCU_a_FCU')).toMatchObject({ bimId: 'x', pairedBy: 'name' })
+    expect(named.model.hvac!.equipment.find((e) => e.name === '4F_office-N_FCU_a_FCU')!.bimIds).toBeUndefined()
+  })
+})
+
+describe('readIdf — 설계 풍량', () => {
+  it('숫자로 적힌 풍량만 읽고 Autosize 는 비운다', () => {
+    const idf = readIdf(text)
+    // 픽스처의 VAV 는 최대 풍량이 autosize 다.
+    expect(idf.equipment.find((e) => e.name === 'VAV-101')!.airflow).toBeNull()
+    const fcu = readIdf(`Version, 24.2;
+Zone, Z1, 0, 0, 0, 0, 1, 1;
+ZoneHVAC:EquipmentConnections, Z1, Z1 Eq, , , Z1 Node, ;
+ZoneHVAC:EquipmentList, Z1 Eq, SequentialLoad, ZoneHVAC:FourPipeFanCoil, Z1 FCU, 1, 1, , ;
+ZoneHVAC:FourPipeFanCoil, Z1 FCU, Always On, CyclingFan, 1.5066666666666668, , , 0;`)
+    expect(fcu.equipment[0]).toMatchObject({ kind: 'fcu', airflow: 1.5066666666666668 })
   })
 })
