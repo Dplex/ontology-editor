@@ -44,7 +44,7 @@ describe('[지금 화면] 줄', () => {
       expect.stringMatching(/^\[지금 화면\] /),
       '- 보기: 2D 평면도 · 편집 모드(설비)',
       `- 보는 층: ex:${escapeLocalName(st.id)} (brick:Floor)`,
-      `- 고른 것: ex:${escapeLocalName(e.id)} (${subjects.get(escapeLocalName(e.id))})`,
+      `- 선택 항목: ex:${escapeLocalName(e.id)} (${subjects.get(escapeLocalName(e.id))})`,
     ])
   })
 
@@ -83,7 +83,7 @@ describe('[지금 화면] 줄', () => {
     expect(line).not.toContain('무시')
     expect(line).not.toContain('ex:x a')
     expect(line).not.toContain('보기:')
-    expect(line).toContain('- 고른 것: ')
+    expect(line).toContain('- 선택 항목: ')
     expect(line).toContain('이 출처 TTL 에 없는 id 8개는 뺐다')
   })
 
@@ -94,6 +94,6 @@ describe('[지금 화면] 줄', () => {
   it('고른 것은 열 개까지만 본다 — 나머지는 버리고 뺐다고도 세지 않는다', () => {
     const ids = Array.from({ length: 25 }, (_, i) => `E${i}`)
     const many = parseSubjects(ids.map((id) => `ex:${id} a brick:Fan ;`).join('\n'))
-    expect(viewLine({ selected: ids }, many).split('\n').slice(1)).toEqual([`- 고른 것: ${ids.slice(0, 10).map((id) => `ex:${id} (brick:Fan)`).join(', ')}`])
+    expect(viewLine({ selected: ids }, many).split('\n').slice(1)).toEqual([`- 선택 항목: ${ids.slice(0, 10).map((id) => `ex:${id} (brick:Fan)`).join(', ')}`])
   })
 })

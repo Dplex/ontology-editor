@@ -145,7 +145,7 @@ defineProps({
       <!-- 시점 조작 안내(OE-OBJ-15). 지도처럼 왼쪽 드래그가 화면 이동이다. 편집 모드의 Ctrl+드래그는 여러 개 고르기다(OE-UI-09). -->
       <!-- 다중층 뷰에서는 위쪽에 보기 범위 칸이 길게 들어와 이 안내를 덮는다. 다중층 뷰는 보기만 하니 뺀다. -->
       <p v-if="activeTab === '3d' && !multiView" class="view-controls-hint" aria-label="시점 조작 안내">
-        드래그: 이동 · Shift/우클릭 드래그: 회전 · {{ editing ? 'Ctrl+드래그: 여러 개 고르기 · ' : '' }}휠: 확대
+        드래그: 이동 · Shift/우클릭 드래그: 회전 · {{ editing ? 'Ctrl+드래그: 여러 개 선택 · ' : '' }}휠: 확대
       </p>
       <!-- 3D 오른쪽 위 세로 줄: 시점 막대 → 보기 필터 칩 → [벽 범례 | 방향 큐브] → 층별 칩. 한 줄에 차례로 쌓아서
          막대가 두 줄로 꺾이거나 층이 많아도(성수 20층) 서로 덮지 않는다. -->
@@ -239,24 +239,24 @@ defineProps({
     <!-- 다중층 뷰는 보기만 해서 편집 안내가 맞지 않는다. 그 자리는 다중층 안내 상자다. -->
     <p v-else-if="editing && !multiView && !editNotice" class="hint pick-hint">
       <template v-if="groupItems.length >= 2">
-        설비 {{ groupItems.length }}대 · <kbd>←↑→↓</kbd>·끌기: 같이 옮기기 · <kbd>Delete</kbd>: 같이 지우기 · <kbd>Ctrl</kbd>+클릭: 넣고 빼기 · <kbd>Esc</kbd>: 풀기
+        설비 {{ groupItems.length }}대 · <kbd>←↑→↓</kbd>·드래그: 같이 옮기기 · <kbd>Delete</kbd>: 같이 지우기 · <kbd>Ctrl</kbd>+클릭: 넣고 빼기 · <kbd>Esc</kbd>: 풀기
       </template>
       <template v-else-if="selectedSpace">
-        꼭짓점 핸들 끌기 또는 <kbd>[ ]</kbd> 후 <kbd>←↑→↓</kbd>: 꼭짓점 옮기기 · <kbd>F</kbd>: 이 물리존 보기
+        꼭짓점 핸들 드래그 또는 <kbd>[ ]</kbd> 후 <kbd>←↑→↓</kbd>: 꼭짓점 옮기기 · <kbd>F</kbd>: 이 물리존 보기
       </template>
       <template v-else-if="selected">
-        끌기 또는 <kbd>←↑→↓</kbd>: 옮기기 · <kbd>PageUp/Down</kbd>: 층 바꾸기 · 화살표 클릭 또는 <kbd>[ ]</kbd>: 연결 고르기 ·
+        드래그 또는 <kbd>←↑→↓</kbd>: 옮기기 · <kbd>PageUp/Down</kbd>: 층 바꾸기 · 화살표 클릭 또는 <kbd>[ ]</kbd>: 연결 고르기 ·
         <kbd>D</kbd>: 방향 미리보기 · <kbd>K</kbd>: 종류 고르기
       </template>
       <template v-else-if="selectedElement">
         <kbd>←↑→↓</kbd>: 옮기기(<kbd>Shift</kbd> 1m) · 다른 {{ activeTab === 'plan' ? '벽' : '벽·문·창' }} 클릭: 바꿔 고르기
       </template>
       <template v-else-if="archMode">
-        {{ activeTab === 'plan' ? '벽' : '벽·문·창' }} 클릭: 고르기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
+        {{ activeTab === 'plan' ? '벽' : '벽·문·창' }} 클릭: 선택 · 바닥 클릭: 물리존 꼭짓점 보기 ·
         <kbd>U</kbd>: 종류 모르는 설비로
       </template>
       <template v-else>
-        설비 클릭: 고르기 · <kbd>Ctrl</kbd>+클릭·끌기: 여러 개 · 고른 설비 끌기: 옮기기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
+        설비 클릭: 선택 · <kbd>Ctrl</kbd>+클릭·드래그: 여러 개 · 선택한 설비 드래그: 옮기기 · 바닥 클릭: 물리존 꼭짓점 보기 ·
         <kbd>U</kbd>: 종류 모르는 설비로
       </template>
       · <button type="button" class="link" @click="helpOpen = true">단축키 전체 <kbd>?</kbd></button>
@@ -264,7 +264,7 @@ defineProps({
     <p v-else-if="counts.equipment > 0 && !editNotice" class="hint pick-hint">
       {{
               activeTab === 'plan'
-                ? '방이나 설비(점)를 누르면 오른쪽에 뜹니다. 휠로 확대, 끌어서 이동합니다.'
+                ? '방이나 설비(점)를 클릭하면 오른쪽에 뜹니다. 휠로 확대, 드래그해서 이동합니다.'
                 : selectedSystemId
                   ? '계통 하나만 보는 중입니다. 다시 누르면 전체를 봅니다.'
                   : '설비·배관을 클릭하면 연결된 것이 색으로 표시됩니다. 바닥을 누르면 그 방이 뜹니다. 계통은 오른쪽 범례에서 고르세요.'

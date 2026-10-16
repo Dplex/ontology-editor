@@ -47,7 +47,7 @@ import TierChips from '../TierChips.vue'
   >
     <p v-if="busy">읽는 중…</p>
     <template v-else>
-      <p>IFC 파일을 여기에 끌어다 놓으세요.</p>
+      <p>IFC 파일을 여기에 드래그해서 놓으세요.</p>
       <p class="muted drop-multi">건축과 설비가 다른 파일이면 <b>둘을 같이</b> 놓거나 고르세요(Ctrl·Shift 로 여러 개). 하나로 합쳐 엽니다. IDF 도 같이 고르면 공조존까지 얹습니다.</p>
     </template>
     <label class="pick">
@@ -57,7 +57,7 @@ import TierChips from '../TierChips.vue'
 
   </section>
 
-  <!-- 읽을 것(피처 단위). 파일 상자 안에 두었더니 [파일 선택] 에만 걸리는 옵션처럼 보였다 — 파일 선택·끌어 놓기·바로 열기·data/ 목록·
+  <!-- 읽을 것(피처 단위). 파일 상자 안에 두었더니 [파일 선택] 에만 걸리는 옵션처럼 보였다 — 파일 선택·드래그 앤 드롭·바로 열기·data/ 목록·
        덧붙이기 어디서 열든 같은 값을 쓴다(load 의 options). 그래서 상자 밖 한 줄로 둔다. 다음에 여는 파일부터 적용된다. -->
   <section v-if="!model" class="read-settings" aria-label="읽을 것">
     <fieldset class="read-option features" :disabled="busy">
@@ -69,7 +69,7 @@ import TierChips from '../TierChips.vue'
         <input v-model="readOpenings" type="checkbox" :disabled="!readFeatures.doors && !readFeatures.windows" /> 문·창 자리(형상)
       </label>
       <span class="muted">
-        어디서 열든 적용됩니다(파일 선택·끌어 놓기·바로 열기·data/ 목록·덧붙이기). 물리존·설비는 늘 읽습니다. 벽·문·창은 GeoJSON에만
+        어디서 열든 적용됩니다(파일 선택·드래그 앤 드롭·바로 열기·data/ 목록·덧붙이기). 물리존·설비는 늘 읽습니다. 벽·문·창은 GeoJSON에만
         나가고 온톨로지(TTL)에는 필요 없어서, 끄면 큰 파일이 빨리 열립니다. 문·창 자리는 로봇 경로와 문·창 옮기기에 씁니다.
       </span>
     </fieldset>

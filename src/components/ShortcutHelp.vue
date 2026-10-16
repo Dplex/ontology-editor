@@ -43,9 +43,9 @@ function onClick(e: MouseEvent) {
         <section>
           <h3>마우스 · 3D</h3>
           <dl>
-            <dt>왼쪽 끌기</dt>
+            <dt>왼쪽 드래그</dt>
             <dd>화면 이동(지도처럼)</dd>
-            <dt>오른쪽 끌기 <span class="muted">또는</span> <kbd>Shift</kbd>+끌기</dt>
+            <dt>오른쪽 드래그 <span class="muted">또는</span> <kbd>Shift</kbd>+드래그</dt>
             <dd>돌려 보기</dd>
             <dt>휠</dt>
             <dd>확대·축소</dd>
@@ -62,11 +62,11 @@ function onClick(e: MouseEvent) {
         <section>
           <h3>마우스 · 편집 모드</h3>
           <dl>
-            <dt>고른 설비 끌기</dt>
+            <dt>선택한 설비 드래그</dt>
             <dd :class="{ muted: !editing }">옮기기</dd>
-            <dt><kbd>Ctrl</kbd>+끌기</dt>
-            <dd :class="{ muted: !editing }">상자 안의 설비 여러 개 고르기</dd>
-            <dt>꼭짓점 끌기</dt>
+            <dt><kbd>Ctrl</kbd>+드래그</dt>
+            <dd :class="{ muted: !editing }">상자 안의 설비 여러 개 선택</dd>
+            <dt>꼭짓점 드래그</dt>
             <dd :class="{ muted: !editing }">고른 물리존의 외곽선 고치기</dd>
             <dt>화살표 클릭</dt>
             <dd :class="{ muted: !editing }">연결의 흐름 방향 바꾸기</dd>

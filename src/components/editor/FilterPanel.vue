@@ -70,7 +70,7 @@ defineProps({
         검사 위반 다음 <kbd>N</kbd>
       </button>
     </div>
-    <p class="muted filter-note">화면에서만 거릅니다. 편집 파일·TTL·GeoJSON 은 그대로입니다. Ctrl+끌기 상자는 보이는 것만 고릅니다.</p>
+    <p class="muted filter-note">화면에서만 거릅니다. 편집 파일·TTL·GeoJSON 은 그대로입니다. Ctrl+드래그 상자는 보이는 것만 선택합니다.</p>
     <p v-if="filterOn" class="filter-now" data-testid="filter-summary">{{ filterText }}</p>
     <p class="filter-actions">
       <button type="button" :class="['ghost', { on: exploded }]" :aria-pressed="exploded" data-testid="explode-toggle" title="보이는 기기를 Brick 클래스별로 건물 위에 한 켜씩 띄웁니다" @click="toggleExplode">

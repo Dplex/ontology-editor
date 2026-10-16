@@ -317,7 +317,7 @@ const PARTS_SHOWN = 40
       @dragleave.prevent="dragging = false"
       @drop.prevent="onDrop"
     >
-      <p>TTL·층마다의 GeoJSON·GLB/OBJ/FBX 를 함께 끌어다 놓으세요. 더 놓으면 같은 이름의 파일은 바뀌고 나머지는 더해집니다.</p>
+      <p>TTL·층마다의 GeoJSON·GLB/OBJ/FBX 를 함께 드래그해서 놓으세요. 더 놓으면 같은 이름의 파일은 바뀌고 나머지는 더해집니다.</p>
       <label class="pick">
         파일 고르기
         <input type="file" multiple accept=".ttl,.geojson,.json,.glb,.obj,.fbx" aria-label="내보낸 파일 고르기" @change="onPick" />
@@ -420,7 +420,7 @@ const PARTS_SHOWN = 40
           <template v-if="view === '3d' && model3d">
             <Scene3D :root="model3d.scene" :colored="model3d.format !== 'obj'" :kind-of="kindOf" :selected-id="selectedId" :visible="visible3d" @select="select" />
             <p class="plan-note muted">
-              끌어서 돌리고, 휠로 당기고, 누르면 고릅니다. 객체 이름이 GlobalId 라 누른 것의 TTL·GeoJSON 이 오른쪽에 나옵니다.
+              드래그해서 돌리고, 휠로 당기고, 클릭하면 선택합니다. 객체 이름이 GlobalId 라 선택한 것의 TTL·GeoJSON 이 오른쪽에 나옵니다.
               {{ model3d.format === 'obj' ? 'OBJ 는 색이 없어 GeoJSON 종류로 칠했습니다.' : `${model3d.format.toUpperCase()} 의 색(계통·벽 종류)은 파일에 든 그대로입니다.` }}
             </p>
           </template>
@@ -458,7 +458,7 @@ const PARTS_SHOWN = 40
           </template>
         </div>
 
-        <aside class="detail card" aria-label="고른 것">
+        <aside class="detail card" aria-label="선택 항목">
           <template v-if="selected">
             <h2>{{ nameOf(selected.id) }}</h2>
             <p class="mono iri">{{ selected.id }}</p>

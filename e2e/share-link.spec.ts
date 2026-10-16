@@ -30,11 +30,11 @@ test('data/ 에서 연 파일은 [링크 복사] 로 파일·고른 설비를 �
 
   const at = await page.evaluate((id) => (window as any).__viewer.part(id), AHU)
   await page.mouse.click(at.x, at.y)
-  await expect(button).toHaveAttribute('title', /고른 것/)
+  await expect(button).toHaveAttribute('title', /선택 항목/)
   // localhost 는 안전한 주소라 Clipboard API 로 들어간다. 55(http)에서는 다른 길(execCommand)로 들어간다.
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   await button.click()
-  await expect(page.locator('.key-note')).toContainText('고른 것까지 여는 링크를 복사했습니다')
+  await expect(page.locator('.key-note')).toContainText('선택 항목까지 여는 링크를 복사했습니다')
   const url = new URL(await page.evaluate(() => navigator.clipboard.readText()))
   expect(url.searchParams.get('open')).toBe('현장/mep.ifc')
   expect(url.searchParams.get('select')).toBe(AHU)
@@ -71,7 +71,7 @@ test('Clipboard API 가 없는 주소(55 의 http)에서도 링크와 GlobalId �
   await page.goto(`/?open=${encodeURIComponent('현장/mep.ifc')}&select=${encodeURIComponent(AHU)}`)
   await expect(page.locator('.picked h3').first()).toContainText('AHU-1', { timeout: 30_000 })
   await page.getByTestId('share-link').click()
-  await expect(page.locator('.key-note')).toContainText('고른 것까지 여는 링크를 복사했습니다')
+  await expect(page.locator('.key-note')).toContainText('선택 항목까지 여는 링크를 복사했습니다')
   // 복사된 것은 Clipboard API 가 있는 다른 탭에서 읽는다.
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
   const reader = await context.newPage()

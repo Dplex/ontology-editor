@@ -37,7 +37,7 @@ defineProps({
       이름
       <input type="text" data-testid="room-name" v-keep-typing :value="selectedRoom.room.name" @change="applyRoomName(($event.target as HTMLInputElement).value)" />
     </label>
-    <p v-if="editing" class="hint">꼭짓점 손잡이를 끌어 크기를, 방향키로 자리를 바꿉니다(Shift 1m). 물리존 밖으로 나가거나 다른 룸과 겹칠 수 없습니다.</p>
+    <p v-if="editing" class="hint">꼭짓점 손잡이를 드래그해 크기를, 방향키로 자리를 바꿉니다(Shift 1m). 물리존 밖으로 나가거나 다른 룸과 겹칠 수 없습니다.</p>
     <p v-if="editing" class="danger-zone">
       <button type="button" class="ghost danger" @click="removeRoom">룸 지우기</button>
       <span class="muted">그 자리는 물리존으로 돌아갑니다. Ctrl+Z 로 되돌립니다.</span>
