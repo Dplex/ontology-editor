@@ -2222,6 +2222,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const tanV = Math.tan((camera.fov * Math.PI) / 360) * FILL
     const tanH = tanV * (camera.aspect || 1.6)
 
+    // 리플레이의 1인칭 몰입은 상자 밖에서 담지 않고 방 안 눈높이에 선다(replay-viewer 의 fitEye).
+    const eye = fx.fitEye(box, tanV, tanH)
+    if (eye) {
+      const reach = eye.position.distanceTo(eye.target) + sphere.radius
+      const clip = { near: 0.05, far: Math.max(reach * 10, 400) }
+      fly(eye.target, eye.position, animate ? clip : null)
+      if (!animate) {
+        camera.near = clip.near
+        camera.far = clip.far
+        camera.updateProjectionMatrix()
+      }
+      return
+    }
+
     const center = sphere.center
     let distance = 0
     const corner = new Vector3()

@@ -50,7 +50,7 @@ import {
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Model, Vec2, Vec3 } from './model'
-import { distanceToRing } from './mapping'
+import { distanceToRing, pointInPolygon } from './mapping'
 import { labelPoint } from './polygon'
 import { easeOut, still } from './motion'
 import type { Chunk, Part } from './viewer'
@@ -154,7 +154,7 @@ export type ReplayViewerApi = {
   setReplayTheme(theme: 'plan' | 'show'): void
   /** 리플레이 3D·연출 화질 단계. low(경량: 픽셀비 1.0·기본 기둥만) · medium(표준: 조준 링·포물선 아치) · high(울트라: 2중 역회전 조준 링·3D 상승 입자·고밀도 성좌). */
   setReplayQuality(quality: 'low' | 'medium' | 'high'): void
-  /** 리플레이 카메라 시점(인칭). orbit(3인칭 조감: 위쪽 40° 사선 비행) · pov(1인칭 공간 몰입: 눈높이 9° 수평 진입 + 62° 광각 시야). */
+  /** 리플레이 카메라 시점(인칭). orbit(3인칭 조감: 위쪽 40° 사선 비행) · pov(1인칭 공간 몰입: 그 방 안 눈높이에 서기(fitEye) + 62° 광각 시야). */
   setReplayPov(pov: 'orbit' | 'pov'): void
   /** 장면이 머무는 방(물리존)의 공간별 맞춤 무드 조명·볼류메트릭 오라·부유 입자. null 이면 걷는다. */
   setSpaceMood(mood: { id: string; ring: readonly Vec2[]; elevation: number; color: number } | null): void
@@ -964,13 +964,61 @@ export function createReplayFx(host: ReplayHost) {
    * "뚝 끊기며 옮겨지는" 것으로 보였다(2026-10-10 사용자). 설비·배관·벽·문 모두 같은 부드러운 가감속(easeInOut)으로 함께 간다.
    */
   const glideEase = easeInOut
-  /** 다음 비행이 들어갈 방향. 3인칭(orbit)은 40° 쯤 내려다보고, 1인칭 공간 몰입(pov)은 사람 눈높이(약 9° 낮은 각도)로 방 안으로 들어간다. */
+  /** 다음 비행이 들어갈 방향. 3인칭(orbit)은 40° 쯤 내려다보고, 1인칭 공간 몰입(pov)은 이 방위로 물러나 방 안 눈높이에 선다(fitEye). */
   function cinemaFrom(): Vector3 {
     const d = host.camera.position.clone().sub(host.controls.target)
     const az = Math.atan2(d.x, d.z) + (35 * Math.PI) / 180
     return new Vector3(Math.sin(az), pov === 'pov' ? 0.16 : 0.85, Math.cos(az))
   }
   const viewDistance = host.viewDistance
+
+  // --- 1인칭 몰입의 눈 자리 ---
+  // 처음에는 몰입도 조감과 같은 맞추기(상자 전체가 화면에 드는 거리)에 각도만 눕혔다. 그러면 카메라가 방 밖 멀리서 옆으로 보는
+  // 3인칭이 됐다(2026-10-16 사용자: "몰입이 더 멀어져서 3인칭 같다"). 몰입은 장면이 일어나는 방 안, 바닥에서 눈높이에 서서 본다.
+  // 대상에서 지금 방위 쪽으로 물러나되 방 외곽선 안에서 멈춘다(벽 너머로 나가지 않게). 그 방위로 물러날 자리가 모자라면 방위를 돌려
+  // 가장 길게 물러날 수 있는 쪽을 쓴다.
+  const EYE_HEIGHT = 1.6
+  const EYE_DIP = 0.7
+  const EYE_WALL_GAP = 0.4
+  const EYE_MIN = 1.2
+  const EYE_MAX = 9
+  let eyeRoom: { ring: readonly Vec2[]; elevation: number } | null = null
+  function fitEye(box: Box3, tanV: number, tanH: number): { target: Vector3; position: Vector3 } | null {
+    if (!cinema || pov !== 'pov') return null
+    const target = box.getCenter(new Vector3())
+    const size = box.getSize(new Vector3())
+    const half = Math.max(Math.hypot(size.x, size.z) / 2, 0.3)
+    // 대상이 화면에 들 만큼 물러날 거리. 방 안이라 이보다 짧으면 대상 일부가 화면 밖으로 나가도 둔다.
+    const want = Math.min(Math.max(half / Math.min(tanH, tanV) + half, EYE_MIN), EYE_MAX)
+    const floorY = eyeRoom ? host.toScene([0, 0, eyeRoom.elevation])[1] : box.min.y
+    const eyeY = floorY + EYE_HEIGHT
+    // 서서 보듯 살짝 내려다본다. 수평으로 보면 바뀐 바닥·설비가 화면 아래 끝에 걸린다. 천장의 것은 올려다본다.
+    if (target.y <= eyeY + 0.3) target.y = Math.min(target.y, eyeY - EYE_DIP)
+    const base = cinemaFrom()
+    const az0 = Math.atan2(base.x, base.z)
+    const ring = eyeRoom?.ring
+    const inside = (x: number, z: number) => !ring || pointInPolygon([x, -z], ring as Vec2[])
+    const startInside = inside(target.x, target.z)
+    let best = { run: -1, az: az0 }
+    for (let k = 0; k < 12; k++) {
+      const az = az0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 6)
+      if (!startInside) {
+        best = { run: want, az: az0 }
+        break
+      }
+      let run = 0
+      for (let d = 0.2; d <= want + EYE_WALL_GAP; d += 0.2) {
+        if (!inside(target.x + Math.sin(az) * d, target.z + Math.cos(az) * d)) break
+        run = d
+      }
+      run = Math.min(run - EYE_WALL_GAP, want)
+      if (run > best.run) best = { run, az }
+      if (run >= want) break
+    }
+    const run = Math.max(best.run, EYE_MIN)
+    const position = new Vector3(target.x + Math.sin(best.az) * run, eyeY, target.z + Math.cos(best.az) * run)
+    return { target, position }
+  }
 
   /** 시간에 따라 바뀌는 연출 하나. loop 면 group.userData.fade 가 0 이 될 때까지 돈다. */
   type Fx = { obj: Object3D; t0: number | null; ms: number; loop?: boolean; step: (k: number, t: number) => void }
@@ -2425,6 +2473,7 @@ export function createReplayFx(host: ReplayHost) {
 
     setSpaceMood(mood) {
       clearSpaceMood()
+      eyeRoom = mood && mood.ring.length >= 3 ? { ring: mood.ring, elevation: mood.elevation } : null
       if (!cinema || still() || !mood || mood.ring.length < 3) {
         host.invalidate()
         return
@@ -2732,6 +2781,8 @@ export function createReplayFx(host: ReplayHost) {
     },
     /** 다음 시점 맞추기가 들어갈 방향. 리플레이가 아니면 null(뷰어의 기본 방향). */
     fitFrom: (): Vector3 | null => (cinema ? cinemaFrom() : null),
+    /** 1인칭 몰입이면 다음 시점 맞추기의 눈 자리(방 안 눈높이). 아니면 null(상자를 다 담는 보통 맞추기). */
+    fitEye,
     /** 밤 다이오라마·층 펼치기로 층을 띄운 만큼 건물 전체 보기의 높이를 더한다. */
     fitHeight: (): number => Math.max(...liftTargets()),
     /** 화면 점 아래의 누를 수 있는 빛기둥·이름표. 누르기를 받는 쪽이 없으면 null. */
