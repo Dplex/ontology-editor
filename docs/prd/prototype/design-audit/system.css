@@ -1,0 +1,93 @@
+/* 디자인 시스템 시험판 — COMPONENTS.md 의 "제안 척도"와 "상태 규칙"을 앱 CSS 위에 얹어 본다. 앱 코드는 그대로.
+   themes.ts 의 Linear 토큰과 함께 쓴다. !important 는 앱의 더 구체적인 선택자를 이기려는 시험용이다.
+   실반영 때는 원본 규칙의 값을 이 토큰으로 바꾼다. 모바일(1024px 미만)은 범위 밖이라 다루지 않는다. */
+
+:root {
+  /* 척도 */
+  --fs-1: 12px; --fs-2: 13px; --fs-3: 14px; --fs-4: 16px; --fs-5: 20px;
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
+  --ctl-sm: 24px; --ctl-md: 32px; --ctl-lg: 36px;
+  --r-sm: 6px; --r-md: 8px;
+  /* 전환·눌림 */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --t-hover: 120ms; --t-press: 100ms; --press-scale: 0.97;
+  /* 포커스 고리: 라이트·다크 모두 면과 3:1 이상 */
+  --focus: var(--accent);
+}
+
+/* ── 1. 공통 상태 규칙 ─────────────────────────────────────────── */
+button, [role='button'], label.ghost, summary, select, input, a.link {
+  transition: background-color var(--t-hover) var(--ease-out), border-color var(--t-hover) var(--ease-out), color var(--t-hover) var(--ease-out), transform var(--t-press) var(--ease-out), box-shadow var(--t-hover) var(--ease-out) !important;
+}
+/* 눌림: 알약·분절·칩·독·주요 단추만. 표 안 링크 단추(.link)는 제외. */
+.ghost:not(:disabled):active, .mode-switch button:not(:disabled):active, .side-tabs button:active, .diag-chip:active, .dock-btn:active, .view-pill:active,
+.storey-chips button:active, .edit-part button:active, .fold-head:active, .tool-palette button:not(:disabled):active { transform: scale(var(--press-scale)) !important; }
+/* 포커스: 전 컴포넌트 공통. */
+:focus-visible { outline: 2px solid var(--focus) !important; outline-offset: 2px !important; }
+:root[data-theme='dark'] { --focus: #a5a8ff; }
+/* 비활성: 값 하나. 네이티브 단추도 포함. */
+button:disabled, select:disabled, input:disabled, [aria-disabled='true'] { opacity: 0.45 !important; cursor: not-allowed !important; }
+/* 호버 단서가 없던 컴포넌트에 배경 한 단 */
+.fold-head:hover, .diag-chip:hover, .mode-switch button[aria-pressed='false']:hover, .edit-part button:not(.on):hover { background-color: var(--surface-soft) !important; }
+
+/* ── 2. 컨트롤 높이·글자 ───────────────────────────────────────── */
+/* 알약 고스트(툴바·3D 위 도구·팔레트·편집 막대): 36/34/34 → 32 하나, 글자 13px. */
+.ghost, .view-tools .ghost, .tool-palette .ghost, .edit-bar .ghost, .bar-actions > .ghost, .bar-actions label.ghost {
+  min-height: var(--ctl-md) !important; height: var(--ctl-md); font-size: var(--fs-2) !important; padding-block: 0 !important; padding-inline: var(--sp-3) !important;
+  display: inline-flex; align-items: center; border-radius: 999px;
+}
+/* 분절·탭: 모드 스위치·편집 대상·사이드 탭·3D/평면도 — 높이 32, 글자 13. */
+.mode-switch button, .edit-part button, .side-tabs button, .tabs button {
+  min-height: var(--ctl-md) !important; font-size: var(--fs-2) !important; font-family: inherit !important; padding-block: 0 !important; padding-inline: var(--sp-3) !important; border-radius: 999px;
+}
+/* 칩 단추(진단·층·계통): 높이 28, 글자 12. */
+.diag-chip, .storey-chips button, .sys-chip, .legend-chip { min-height: 28px !important; font-size: var(--fs-1) !important; }
+/* 독(3D 위): 높이 28, 글자 12. */
+.dock-btn, .view-pill { min-height: 28px !important; font-size: var(--fs-1) !important; }
+/* 접기 머리: 하나로 — 투명·모서리 8. */
+button.fold-head { font-size: var(--fs-4) !important; border-radius: var(--r-md) !important; background: transparent !important; }
+/* 링크 단추: 클릭 영역 24px 보장. */
+button.link, a.link { min-height: var(--ctl-sm); display: inline-flex; align-items: center; font-size: inherit; }
+
+/* ── 3. 배지·칩·키캡: 12px 이상, 높이 20 ───────────────────────── */
+.src, .issue-code, kbd { font-size: var(--fs-1) !important; line-height: 1 !important; min-height: 20px; display: inline-flex; align-items: center; }
+.issue-code { border-radius: 999px !important; }
+kbd { border-radius: 4px; padding-inline: 5px; }
+.tiles li, li.partial, li.full { font-size: var(--fs-1) !important; }
+
+/* ── 4. 입력: 선택·검색·숫자·체크박스를 한 벌로 ─────────────────── */
+select, input[type='search'], input[type='text'], input[type='number'], .grade-line, .riser-height {
+  min-height: var(--ctl-md); font-size: var(--fs-2) !important; font-family: inherit; color: var(--fg); background: var(--surface);
+  border: 1px solid var(--line) !important; border-radius: var(--r-md) !important; padding-block: 0 !important; padding-inline: var(--sp-2) !important;
+}
+select.storey-view { border-radius: 999px !important; }
+input[type='checkbox'], input[type='radio'] { accent-color: var(--accent); width: 16px; height: 16px; }
+::placeholder { color: var(--muted); opacity: 1; }
+
+/* ── 5. 표: 촘촘하게(줄 간격 1.5, 셀 패딩 8/12) ──────────────────── */
+table { line-height: 1.5; }
+td, th { padding: var(--sp-2) var(--sp-3) !important; font-size: var(--fs-3); }
+th { font-weight: 500; color: var(--muted); }
+
+/* ── 6. 본문·제목 척도 ─────────────────────────────────────────── */
+body { font-size: var(--fs-3); line-height: 1.5; }
+h2 { font-size: var(--fs-4); }
+h3 { font-size: var(--fs-4); font-weight: 650; }
+h4 { font-size: var(--fs-2); font-weight: 650; }
+
+/* ── 7. 표 안 단추는 작게(24px) — 행 높이를 키우지 않는다(층별 요약의 완료·구축 단추 겹침 방지) ── */
+table .ghost, .storeys .ghost { min-height: var(--ctl-sm) !important; height: auto !important; padding-inline: var(--sp-2) !important; font-size: var(--fs-1) !important; }
+/* 편집 막대(accent-soft 바탕) 위 비선택 글자는 본문색으로 — muted 가 옅은 파랑 위에서 4.5 를 못 넘는다(다크). */
+.edit-bar .edit-part button:not(.on) { color: var(--fg) !important; }
+button[title*='계통 상세'] small { color: var(--fg) !important; opacity: 0.8; }
+/* 켠 분절 칸(.on)의 글자는 --on-accent. 다크의 accent 는 밝아서 흰 글자(하드코딩)가 2.9:1 로 떨어진다. */
+.edit-part button.on, .ceiling-toggle button.on { color: var(--on-accent) !important; }
+
+/* 팔레트의 천장·바닥 토글은 폭이 좁아(8.5rem) 줄이지 않고 그대로 둔다. 숫자 입력은 폭을 지정해 줄바꿈을 막는다. */
+.grade-line, .riser-height, .tool-palette input[type=number] { width: 4.5rem; min-height: var(--ctl-sm) !important; box-sizing: border-box; }
+.edit-bar input[type=number] { width: 4.5rem; }
+
+/* ── 8. 주요 단추: 채움(accent). 구축하기·반영하기가 화면에서 가장 강한 단추가 되도록(위계 3단: 채움 > 선 > 글자) ── */
+.primary-action:not(:disabled) { background: var(--accent) !important; border-color: var(--accent) !important; color: var(--on-accent) !important; }
+.primary-action:not(:disabled):hover { background: color-mix(in srgb, var(--accent) 88%, black) !important; color: var(--on-accent) !important; }
+.primary-action:disabled { background: transparent !important; }

@@ -4,6 +4,7 @@ import { test, expect } from '@playwright/test'
 test('warnings: W-01 threshold and W-02 toggle change targets', async ({ page }) => {
   await page.goto('/')
   await page.locator('.floor-card').first().getByRole('button', { name: /→/ }).click()
+  await page.getByTestId('check-open').click()                     // 규칙 경고는 헤더 [기준 …] 의 기준 · 검증 드로어에 있다
   const w = page.getByTestId('warnings')
   await expect(w).toBeVisible()
   await expect(page.getByTestId('w01')).toContainText('0')
