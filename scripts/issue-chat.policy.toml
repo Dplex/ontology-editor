@@ -1,0 +1,13 @@
+# /issue 챗봇(scripts/issue-chat.mjs)이 gemini 에 --admin-policy 로 넘기는 정책. docs-chat.policy.toml 과 같은 모양이다.
+# 8084 는 사내망 누구나 열기 때문에, 문서·소스를 읽는 MCP 서버(issue) 말고는 아무 도구도 못 쓰게 한다. 이슈는 gemini 가 아니라 서버가 올린다.
+
+[[rule]]
+toolName = "*"
+decision = "deny"
+priority = 100
+
+# toolName 을 같이 적지 않는다(docs-chat.policy.toml 의 주석 — gemini --acp 에서 서버 도구까지 막혔다).
+[[rule]]
+mcpName = "issue"
+decision = "allow"
+priority = 900
