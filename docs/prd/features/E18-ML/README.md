@@ -6,7 +6,7 @@ PRD #24 #25 · 티켓 19건 · [Epic 색인](../../PRD_011.md#3-요구사항--�
 
 | ID | 기능 | Rel | P | 상태 |
 |---|---|---|---|---|
-| [OE-ML-01](OE-ML-01.md) | 진입 경로 | R1 | P1 | prd-done |
+| [OE-ML-01](OE-ML-01.md) | 진입 경로 | R1 | P1 | prd-updated |
 | [OE-ML-02](OE-ML-02.md) | 수직 관통 오브젝트 데이터 모델 (#25) | R1 | P1 | prd-done |
 | [OE-ML-03](OE-ML-03.md) | 슬래브 개구부 자동 생성 | R1 | P1 | prd-done |
 | [OE-ML-04](OE-ML-04.md) | 로봇 통과 속성 | R1 | P1 | prd-done |
