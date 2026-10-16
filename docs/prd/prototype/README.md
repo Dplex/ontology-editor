@@ -24,4 +24,4 @@ npx vite --config docs/prd/prototype/vite.config.ts
 npx playwright test -c docs/prd/prototype/playwright.config.ts
 ```
 
-http://localhost:5176/ 에서 열린다. 한계는 `docs/dev/platform-prototype.md` 의 "저장 및 한계" 와 같다.
+http://localhost:5176/ 에서 열린다. 프로젝트 · 임시 저장 · 버전은 브라우저 IndexedDB 에 남는다(`src/store.ts`, 2026-10-16 — localStorage 5MB 한도로 성수가 저장되지 않던 것을 고침). 옛 localStorage 저장본은 처음 열 때 옮겨 온다. 형상 메시는 탭에만 남는다. 한계는 `docs/dev/platform-prototype.md` 의 "저장 및 한계" 와 같다.

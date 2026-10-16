@@ -48,7 +48,7 @@ defineProps({
           type="button"
           class="link share-link"
           data-testid="share-link"
-          :title="`이 파일${shareQuery?.get('storey') ? '·층' : ''}${shareQuery?.get('select') ? '·고른 것' : ''}을 여는 링크를 복사합니다(편집은 담지 않습니다)`"
+          :title="`이 파일${shareQuery?.get('storey') ? '·층' : ''}${shareQuery?.get('select') ? '·선택 항목' : ''}을 여는 링크를 복사합니다(편집은 담지 않습니다)`"
           @click="copyShareLink"
         >
           링크 복사
@@ -58,7 +58,7 @@ defineProps({
         <label
           class="ghost drop compact"
           :class="{ over: dragging }"
-          title="다른 IFC 열기 (여기에 끌어다 놓아도 됩니다)"
+          title="다른 IFC 열기 (여기에 드래그해서 놓아도 됩니다)"
           @dragover.prevent="dragging = true"
           @dragleave.prevent="dragging = false"
           @drop.prevent="onDrop"
@@ -86,8 +86,8 @@ defineProps({
           :aria-disabled="!canAppend"
           :title="
                 hasEdits
-                  ? '열린 파일에 합치기. 지금까지 한 편집은 합친 모델에 다시 얹습니다(되돌리기 이력은 끊깁니다). 여기에 끌어다 놓아도 됩니다'
-                  : '열린 파일에 합치기 — 건축·설비 IFC(합쳐야 설비가 어느 방에 있는지 나옵니다) 또는 IDF(공조존). 여기에 끌어다 놓아도 됩니다'
+                  ? '열린 파일에 합치기. 지금까지 한 편집은 합친 모델에 다시 얹습니다(되돌리기 이력은 끊깁니다). 여기에 드래그해서 놓아도 됩니다'
+                  : '열린 파일에 합치기 — 건축·설비 IFC(합쳐야 설비가 어느 방에 있는지 나옵니다) 또는 IDF(공조존). 여기에 드래그해서 놓아도 됩니다'
               "
           @dragover.prevent="appendOver = canAppend"
           @dragleave.prevent="appendOver = false"

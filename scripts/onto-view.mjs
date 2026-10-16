@@ -58,7 +58,7 @@ export function viewLine(view, subjects) {
   else if (view.storey === null && !view.range) rows.push('보는 층: 모든 층')
 
   const selected = many(view.selected, 10)
-  if (selected.length) rows.push(`고른 것: ${list(selected)}`)
+  if (selected.length) rows.push(`선택 항목: ${list(selected)}`)
   const zone = one(view.zone)
   if (zone) rows.push(`고른 커스텀존: ${show(zone)}`)
   const hvac = one(view.hvacZone)
@@ -82,7 +82,7 @@ export function viewLine(view, subjects) {
   if (!rows.length) return ''
   if (dropped) rows.push(`이 출처 TTL 에 없는 id ${dropped}개는 뺐다(반영 뒤에 만든 것이거나 온톨로지에 내지 않는 것).`)
   return [
-    '[지금 화면] 질문할 때 사용자가 편집 화면에서 보던 것이다. "이 층·여기·이거·지금 보는·고른 것" 은 이걸 가리킨다. 이름·속성은 도구로 찾는다.',
+    '[지금 화면] 질문할 때 사용자가 편집 화면에서 보던 것이다. "이 층·여기·이거·지금 보는·선택 항목" 은 이걸 가리킨다. 이름·속성은 도구로 찾는다.',
     ...rows.map((r) => `- ${r}`),
   ].join('\n')
 }

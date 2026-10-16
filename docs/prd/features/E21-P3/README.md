@@ -6,7 +6,7 @@ PRD 4. 부록 · 티켓 8건 · [Epic 색인](../../PRD_011.md#3-요구사항--�
 
 | ID | 기능 | Rel | P | 상태 |
 |---|---|---|---|---|
-| [OE-P3-01](OE-P3-01.md) | 규칙 기반 경고 프레임 | R1 | P2 | prd-done |
+| [OE-P3-01](OE-P3-01.md) | 규칙 기반 경고 프레임 | R1 | P2 | prd-updated |
 | [OE-P3-02](OE-P3-02.md) | W-01 물리존 최소 면적 | R1 | P3 | prd-done |
 | [OE-P3-03](OE-P3-03.md) | W-02 설비 0개 물리존 | R1 | P3 | prd-done |
 | [OE-P3-04](OE-P3-04.md) | W-03 공조존 미매핑 물리존 | R1 | P3 | prd-done |

@@ -18,7 +18,7 @@ import { topDownView } from '../../editor/view-filter'
       title="고른 설비·물리존·계통에 시점을 맞춥니다 (F)"
       @click="runShortcut('frame')"
     >
-      고른 것 <kbd>F</kbd>
+      선택 항목 <kbd>F</kbd>
     </button>
   </nav>
 </template>

@@ -13,7 +13,7 @@ PRD #3 · 티켓 16건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | [OE-OBJ-05](OE-OBJ-05.md) | 내벽 | R1 | P1 | prd-done |
 | [OE-OBJ-06](OE-OBJ-06.md) | 내력벽 | R1 | P2 | prd-done |
 | [OE-OBJ-07](OE-OBJ-07.md) | 문 / 창문 | R1 | P2 | prd-done |
-| [OE-OBJ-08](OE-OBJ-08.md) | 바닥 / 천장 | R1 | P1 | prd-done |
+| [OE-OBJ-08](OE-OBJ-08.md) | 바닥 / 천장 | R1 | P1 | prd-updated |
 | [OE-OBJ-09](OE-OBJ-09.md) | 추가 공간 오브젝트 | R1 | P2 | prd-done |
 | [OE-OBJ-10](OE-OBJ-10.md) | 배관 없는 설비 | R1 | P2 | prd-done |
 | [OE-OBJ-11](OE-OBJ-11.md) | 배관 있는 설비 | R1 | P2 | prd-done |

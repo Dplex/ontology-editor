@@ -5,7 +5,7 @@ import type { MeshMap } from '../../../../src/lib/ifc/import'
 import { createViewer, type Viewer, type CeilingView, type CeilingMark } from '../../../../src/lib/viewer'
 import { withReferenceWalls } from './refwalls'
 import { ceilingOf } from '../../../../src/lib/ceiling'
-const props = defineProps<{ model: Model; floorId: string; revision: number; selected: string; zoneShow?: {space:boolean;custom:boolean;hvac:boolean}; layers?: {walls:boolean;ceiling:boolean}; ceilingMode?: boolean; ceilingMarks?: CeilingMark[]; dim?: ReadonlySet<string>; hidden?: ReadonlySet<string>; selectedHvac?: string; place: boolean; meshes?: MeshMap; original?: Record<string,Storey> }>()
+const props = defineProps<{ model: Model; floorId: string; floorIds?: string[]; revision: number; selected: string; zoneShow?: {space:boolean;custom:boolean;hvac:boolean}; layers?: {walls:boolean;ceiling:boolean}; ceilingMode?: boolean; ceilingMarks?: CeilingMark[]; dim?: ReadonlySet<string>; hidden?: ReadonlySet<string>; selectedHvac?: string; place: boolean; meshes?: MeshMap; original?: Record<string,Storey> }>()
 const emit = defineEmits<{ pick: [id: string]; place: [at: Vec2]; failed: [message: string] }>()
 const canvas = ref<HTMLCanvasElement>()
 let viewer: Viewer | undefined
@@ -23,9 +23,11 @@ function draw(keepView = true) {
       viewer.shiftEquipment(e.id,[after[0]-before[0],after[1]-before[1],after[2]-before[2]])
   }
   const floor = props.model.storeys.find(s => s.id === props.floorId)
-  const hidden = new Set(props.model.storeys.filter(s => s.id !== props.floorId).flatMap(s => s.equipment.map(e => e.id)))
+  // 다중층 보기면 범위의 층을 함께 그린다(OE-ML-01). 아니면 한 층만(OE-UI-12).
+  const shownFloors = new Set(props.floorIds?.length ? props.floorIds : [props.floorId])
+  const hidden = new Set(props.model.storeys.filter(s => !shownFloors.has(s.id)).flatMap(s => s.equipment.map(e => e.id)))
   for(const id of props.hidden ?? [])hidden.add(id)
-  viewer.setStoreyFilter(new Set([props.floorId]),hidden)
+  viewer.setStoreyFilter(shownFloors,hidden)
   viewer.setCustomZones(show.custom ? props.model : null,props.selected)
   viewer.setHvacZones(show.hvac ? props.model : null,props.selectedHvac || null)
   const layers = props.layers ?? {walls:true,ceiling:true}
@@ -39,9 +41,11 @@ function draw(keepView = true) {
     const rings = st.spaces.filter(sp => sp.footprint.length>=4).map(sp => sp.footprint)
     if(rings.length) planes.push({storeyId:st.id,z:st.elevation+c.height,rings})
   }
-  // 천장면은 천장 편집 모드에서만 반투명으로 그린다(OE-OBJ-08). 평소에는 천장 설비를 바닥 링으로만 보인다(OE-EQP-04).
-  viewer.setCeilingView(props.ceilingMode && planes.length ? {planes,dim:props.dim ?? new Set()} : null)
-  viewer.setCeilingMarks(props.ceilingMode ? [] : (props.ceilingMarks ?? []),props.selected || null)
+  // 천장면은 천장 편집 모드이거나 레이어의 천장이 켜져 있으면 반투명으로 그린다(OE-OBJ-08 · OE-UI-19). 평소 천장 설비는 바닥 링으로도 보인다(OE-EQP-04).
+  const ceilingOn = props.ceilingMode || layers.ceiling
+  viewer.setCeilingView(ceilingOn && planes.length ? {planes,dim:props.ceilingMode ? (props.dim ?? new Set()) : new Set()} : null)
+  const hiddenSet = props.hidden ?? new Set<string>()
+  viewer.setCeilingMarks(props.ceilingMode ? [] : (props.ceilingMarks ?? []).filter(m => !hiddenSet.has(m.id)),props.selected || null)
   viewer.setPlaceMode(props.place ? floor?.elevation ?? 0 : null)
   viewer.setHighlight(props.selected ? {selected:props.selected,upstream:new Set(),downstream:new Set(),linked:new Set()} : null)
 }
@@ -55,7 +59,7 @@ onMounted(() => {
     viewer.frameAll()
   } catch(e) { emit('failed',e instanceof Error ? e.message : '3D 화면 초기화 실패') }
 })
-watch(() => [props.revision,props.floorId,props.selected,props.place,props.zoneShow?.space,props.zoneShow?.custom,props.zoneShow?.hvac,props.selectedHvac,props.layers?.walls,props.layers?.ceiling,props.ceilingMode,props.ceilingMarks,props.dim,props.hidden],() => draw())
+watch(() => [props.revision,props.floorId,props.floorIds?.join(','),props.selected,props.place,props.zoneShow?.space,props.zoneShow?.custom,props.zoneShow?.hvac,props.selectedHvac,props.layers?.walls,props.layers?.ceiling,props.ceilingMode,props.ceilingMarks,props.dim,props.hidden],() => draw())
 onBeforeUnmount(() => viewer?.dispose())
 defineExpose({frame:() => viewer?.frameAll(),top:() => viewer?.topView()})
 </script>

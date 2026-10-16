@@ -50,7 +50,7 @@ import {
 import type { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import type { Model, Vec2, Vec3 } from './model'
-import { distanceToRing } from './mapping'
+import { distanceToRing, pointInPolygon } from './mapping'
 import { labelPoint } from './polygon'
 import { easeOut, still } from './motion'
 import type { Chunk, Part } from './viewer'
@@ -154,7 +154,7 @@ export type ReplayViewerApi = {
   setReplayTheme(theme: 'plan' | 'show'): void
   /** 리플레이 3D·연출 화질 단계. low(경량: 픽셀비 1.0·기본 기둥만) · medium(표준: 조준 링·포물선 아치) · high(울트라: 2중 역회전 조준 링·3D 상승 입자·고밀도 성좌). */
   setReplayQuality(quality: 'low' | 'medium' | 'high'): void
-  /** 리플레이 카메라 시점(인칭). orbit(3인칭 조감: 위쪽 40° 사선 비행) · pov(1인칭 공간 몰입: 눈높이 9° 수평 진입 + 62° 광각 시야). */
+  /** 리플레이 카메라 시점(인칭). orbit(3인칭 조감: 위쪽 40° 사선 비행) · pov(1인칭 공간 몰입: 그 방 안 눈높이에 서기(fitEye) + 62° 광각 시야). */
   setReplayPov(pov: 'orbit' | 'pov'): void
   /** 장면이 머무는 방(물리존)의 공간별 맞춤 무드 조명·볼류메트릭 오라·부유 입자. null 이면 걷는다. */
   setSpaceMood(mood: { id: string; ring: readonly Vec2[]; elevation: number; color: number } | null): void
@@ -192,7 +192,8 @@ export type ReplayHost = {
   toScene: (p: readonly [number, number, number]) => [number, number, number]
   rayAt: (x: number, y: number) => Ray
   toScreen: (p: Vector3) => { x: number; y: number } | null
-  fit: (box: Box3) => void
+  /** eye: 장면 조준이라 리플레이 몰입의 눈 자리를 써도 되는가(기본 false). */
+  fit: (box: Box3, eye?: boolean) => void
   /** 픽셀비 상한(기본 2). 뷰어의 resize 가 매 프레임 이 값으로 맞춘다. */
   setPixelRatioCap: (cap: number) => void
   /** 지금(날아가는 중이면 도착할 자리의) 카메라와 바라보는 점 사이 거리. */
@@ -964,13 +965,165 @@ export function createReplayFx(host: ReplayHost) {
    * "뚝 끊기며 옮겨지는" 것으로 보였다(2026-10-10 사용자). 설비·배관·벽·문 모두 같은 부드러운 가감속(easeInOut)으로 함께 간다.
    */
   const glideEase = easeInOut
-  /** 다음 비행이 들어갈 방향. 3인칭(orbit)은 40° 쯤 내려다보고, 1인칭 공간 몰입(pov)은 사람 눈높이(약 9° 낮은 각도)로 방 안으로 들어간다. */
+  /** 다음 비행이 들어갈 방향. 3인칭(orbit)은 40° 쯤 내려다보고, 1인칭 공간 몰입(pov)은 이 방위로 물러나 방 안 눈높이에 선다(fitEye). */
   function cinemaFrom(): Vector3 {
     const d = host.camera.position.clone().sub(host.controls.target)
     const az = Math.atan2(d.x, d.z) + (35 * Math.PI) / 180
     return new Vector3(Math.sin(az), pov === 'pov' ? 0.16 : 0.85, Math.cos(az))
   }
   const viewDistance = host.viewDistance
+
+  // --- 1인칭 몰입의 눈 자리 ---
+  // 처음에는 몰입도 조감과 같은 맞추기(상자 전체가 화면에 드는 거리)에 각도만 눕혔다. 그러면 카메라가 방 밖 멀리서 옆으로 보는
+  // 3인칭이 됐다(2026-10-16 사용자: "몰입이 더 멀어져서 3인칭 같다"). 몰입은 장면이 일어나는 방 안, 바닥에서 눈높이에 서서 본다.
+  // 대상에서 지금 방위 쪽으로 물러나되 방 외곽선 안에서 멈춘다(벽 너머로 나가지 않게). 그 방위로 물러날 자리가 모자라면 방위를 돌려
+  // 가장 길게 물러날 수 있는 쪽을 쓴다.
+  const EYE_HEIGHT = 1.6
+  const EYE_DIP = 0.7
+  const EYE_WALL_GAP = 0.4
+  const EYE_MIN = 1.2
+  // 방 크기만큼 물러나되 이보다 멀리 가지 않는다. 큰 방(로비·사무실 층)에서 방 끝까지 물러나면 다시 멀리서 보는 시점이 된다
+  // (2026-10-16 사용자: "방의 사이즈로 하되 최대 m 를 제한해서 실제 거기 있는 현장감").
+  const EYE_MAX = 4.5
+  let eyeRoom: { ring: readonly Vec2[]; elevation: number } | null = null
+  /** 바닥의 점(고친 꼭짓점·놓일 자리)을 맞추는 중 — 몰입은 그 바닥 점을 바로 내려다본다(framePoints). */
+  let eyeOnFloor = false
+  function fitEye(box: Box3, tanV: number, tanH: number): { target: Vector3; position: Vector3 } | null {
+    if (!cinema || pov !== 'pov') return null
+    const target = box.getCenter(new Vector3())
+    const size = box.getSize(new Vector3())
+    // 물러날 거리: 방이 있으면 방의 긴 변의 절반(작은 방은 벽 가까이, 큰 방은 EYE_MAX 에서 멈춤), 없으면 대상이 화면에 들 만큼.
+    let reach: number
+    if (eyeRoom) {
+      const xs = eyeRoom.ring.map((p) => p[0])
+      const ys = eyeRoom.ring.map((p) => p[1])
+      reach = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2
+    } else {
+      const half = Math.max(Math.hypot(size.x, size.z) / 2, 0.3)
+      reach = half / Math.min(tanH, tanV) + half
+    }
+    const want = Math.min(Math.max(reach, EYE_MIN), EYE_MAX)
+    const floorY = eyeRoom ? host.toScene([0, 0, eyeRoom.elevation])[1] : box.min.y
+    const eyeY = floorY + EYE_HEIGHT
+    // 서서 보듯 살짝 내려다본다. 수평으로 보면 바뀐 바닥·설비가 화면 아래 끝에 걸린다. 천장의 것은 올려다본다.
+    if (eyeOnFloor) target.y = floorY + 0.05
+    else if (target.y <= eyeY + 0.3) target.y = Math.min(target.y, eyeY - EYE_DIP)
+    const base = cinemaFrom()
+    const az0 = Math.atan2(base.x, base.z)
+    const ring = eyeRoom?.ring
+    // 눈 자리가 될 수 있는 곳: 방 외곽선 안이고 벽에서 EYE_WALL_GAP 넘게 떨어진 곳. 대상이 방 가장자리(고친 꼭짓점)여도
+    // 방 안쪽에서 그쪽을 바라보게, 대상에서 물러난 끝점을 본다(대상 자체가 방 안일 필요는 없다).
+    const fits = (x: number, z: number) => !ring || (pointInPolygon([x, -z], ring as Vec2[]) && distanceToRing([x, -z], ring) >= EYE_WALL_GAP)
+    let best = { d: -1, az: az0 }
+    for (let k = 0; k < 12 && best.d < want; k++) {
+      const az = az0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 6)
+      for (let d = want; d >= EYE_MIN - 1e-6; d -= 0.2) {
+        if (!fits(target.x + Math.sin(az) * d, target.z + Math.cos(az) * d)) continue
+        if (d > best.d) best = { d, az }
+        break
+      }
+    }
+    let position: Vector3
+    if (best.d > 0) position = new Vector3(target.x + Math.sin(best.az) * best.d, eyeY, target.z + Math.cos(best.az) * best.d)
+    else {
+      // 방이 좁아 어느 쪽으로도 EYE_MIN 만큼 물러설 수 없으면 방 안쪽 한 점에 선다.
+      const inner = ring ? labelPoint(ring) : null
+      position = inner ? new Vector3(inner[0], eyeY, -inner[1]) : new Vector3(target.x + Math.sin(az0) * want, eyeY, target.z + Math.cos(az0) * want)
+    }
+    eyeBurst(position, target)
+    return { target, position }
+  }
+
+  // --- 1인칭 몰입의 주변 효과 ---
+  // 몰입은 "내가 그 방에 들어가 있고 옆에서 효과가 번쩍인다" 는 시점이다(2026-10-16 사용자). 대상의 빛기둥만으로는 눈앞 한 점이라
+  // 현장감이 없다. 비행이 끝나 눈 자리에 서는 순간, 시야 가장자리(보는 방향에서 25~60°)의 가까운 공중(0.7~2.6m)에 불티가 터져 깜빡이며
+  // 대상 쪽으로 흐르고, 양옆으로 빛줄기가 뒤에서 앞으로 스쳐 간다. 자리는 눈 자리 기준이라 카메라를 돌려도 그 방에 남는다. Low 는 뺀다.
+  const BURST_MS = 2600
+  let burstAt = 0
+  function eyeBurst(eye: Vector3, target: Vector3) {
+    if (quality === 'low' || still()) return
+    const now = performance.now()
+    if (now - burstAt < 800) return
+    burstAt = now
+    const color = new Color(moodColorHex ?? 0x7cc8ff)
+    const fwd = target.clone().sub(eye).normalize()
+    const right = new Vector3().crossVectors(fwd, new Vector3(0, 1, 0)).normalize()
+    const up = new Vector3().crossVectors(right, fwd)
+    const group = new Group()
+    // 불티: 점마다 밝기를 따로 깜빡이게 꼭짓점 색으로 칠한다.
+    const n = quality === 'high' ? 140 : 70
+    const base = new Float32Array(n * 3)
+    const drift = new Float32Array(n * 3)
+    const phase = new Float32Array(n)
+    for (let i = 0; i < n; i++) {
+      const off = ((25 + Math.random() * 35) * Math.PI) / 180
+      const around = Math.random() * Math.PI * 2
+      const r = 0.7 + Math.random() * 1.9
+      const dir = fwd.clone().multiplyScalar(Math.cos(off)).addScaledVector(right, Math.sin(off) * Math.cos(around)).addScaledVector(up, Math.sin(off) * Math.sin(around) * 0.7)
+      const at = eye.clone().addScaledVector(dir, r)
+      base.set([at.x, at.y, at.z], i * 3)
+      const flow = target.clone().sub(at).normalize().multiplyScalar(0.25 + Math.random() * 0.45)
+      drift.set([flow.x, flow.y + 0.15, flow.z], i * 3)
+      phase[i] = Math.random() * Math.PI * 2
+    }
+    const sparkGeo = new BufferGeometry()
+    const pos = new Float32Array(base)
+    const col = new Float32Array(n * 3)
+    sparkGeo.setAttribute('position', new BufferAttribute(pos, 3))
+    sparkGeo.setAttribute('color', new BufferAttribute(col, 3))
+    const sparks = new Points(sparkGeo, new PointsMaterial({ size: quality === 'high' ? 7 : 5, sizeAttenuation: false, vertexColors: true, transparent: true, depthTest: false, depthWrite: false, blending: AdditiveBlending }))
+    sparks.renderOrder = 30
+    group.add(sparks)
+    // 빛줄기: 양옆 1~1.8m 에서 뒤(-1m)에서 앞(+5m)으로 스친다.
+    const m = quality === 'high' ? 14 : 8
+    const lanes: { from: Vector3; len: number; delay: number }[] = []
+    for (let i = 0; i < m; i++) {
+      const side = i % 2 ? 1 : -1
+      const from = eye.clone().addScaledVector(right, side * (1 + Math.random() * 0.8)).addScaledVector(up, (Math.random() - 0.35) * 1.4).addScaledVector(fwd, -1)
+      lanes.push({ from, len: 0.5 + Math.random() * 0.9, delay: Math.random() * 0.35 })
+    }
+    const streakPos = new Float32Array(m * 6)
+    const streakGeo = new BufferGeometry()
+    streakGeo.setAttribute('position', new BufferAttribute(streakPos, 3))
+    const streaks = new LineSegments(streakGeo, new LineBasicMaterial({ color: color.clone().lerp(new Color(0xffffff), 0.45), transparent: true, opacity: 0, depthTest: false, depthWrite: false, blending: AdditiveBlending }))
+    streaks.renderOrder = 30
+    group.add(streaks)
+    host.overlay.add(group)
+    // 비행(CINEMA_FLY_MS)이 끝나 그 자리에 설 때 터진다.
+    const wait = CINEMA_FLY_MS - 150
+    const white = new Color(0xffffff)
+    const c = new Color()
+    fxs.push({ obj: group, t0: null, ms: wait + BURST_MS, step: (_k, t) => {
+      const u = (t - wait) / BURST_MS
+      if (u < 0) {
+        group.visible = false
+        return
+      }
+      group.visible = true
+      const env = u < 0.08 ? u / 0.08 : Math.max(0, 1 - (u - 0.08) / 0.92) ** 1.6
+      const sec = (t - wait) / 1000
+      for (let i = 0; i < n; i++) {
+        pos[i * 3] = base[i * 3] + drift[i * 3] * sec
+        pos[i * 3 + 1] = base[i * 3 + 1] + drift[i * 3 + 1] * sec
+        pos[i * 3 + 2] = base[i * 3 + 2] + drift[i * 3 + 2] * sec
+        const twinkle = 0.35 + 0.65 * Math.max(0, Math.sin(sec * 11 + phase[i])) ** 3
+        c.copy(color).lerp(white, twinkle * 0.5).multiplyScalar(env * twinkle)
+        col.set([c.r, c.g, c.b], i * 3)
+      }
+      sparkGeo.attributes.position.needsUpdate = true
+      sparkGeo.attributes.color.needsUpdate = true
+      for (let i = 0; i < m; i++) {
+        const l = lanes[i]
+        const v = Math.min(Math.max((u - l.delay) / 0.4, 0), 1)
+        const head = l.from.clone().addScaledVector(fwd, v * 6)
+        const tail = head.clone().addScaledVector(fwd, -l.len * Math.sin(v * Math.PI))
+        streakPos.set([tail.x, tail.y, tail.z, head.x, head.y, head.z], i * 6)
+      }
+      streakGeo.attributes.position.needsUpdate = true
+      ;(streaks.material as LineBasicMaterial).opacity = u < 0.75 ? 0.9 * Math.min(1, u / 0.05) : 0
+    } })
+    host.invalidate()
+  }
 
   /** 시간에 따라 바뀌는 연출 하나. loop 면 group.userData.fade 가 0 이 될 때까지 돈다. */
   type Fx = { obj: Object3D; t0: number | null; ms: number; loop?: boolean; step: (k: number, t: number) => void }
@@ -2425,6 +2578,7 @@ export function createReplayFx(host: ReplayHost) {
 
     setSpaceMood(mood) {
       clearSpaceMood()
+      eyeRoom = mood && mood.ring.length >= 3 ? { ring: mood.ring, elevation: mood.elevation } : null
       if (!cinema || still() || !mood || mood.ring.length < 3) {
         host.invalidate()
         return
@@ -2459,7 +2613,8 @@ export function createReplayFx(host: ReplayHost) {
       geometry.setAttribute('position', new BufferAttribute(new Float32Array(position), 3))
       geometry.setAttribute('uv', new BufferAttribute(new Float32Array(uv), 2))
       geometry.setIndex(index)
-      const wall = new Mesh(geometry, fxMaterial(mood.color, pov === 'pov' ? 0.28 : 0.16, true))
+      // 몰입은 이 판 안에 서므로 진하면 눈앞을 겹겹이 가려 화면이 뿌옇다(2026-10-16). 테두리 선으로 방을 두르고 판은 옅게.
+      const wall = new Mesh(geometry, fxMaterial(mood.color, pov === 'pov' ? 0.07 : 0.16, true))
       const edge = new LineLoop(
         new BufferGeometry().setFromPoints(pts.map((p) => p.clone().setY(0.04))),
         new LineBasicMaterial({ color: mood.color, transparent: true, opacity: 0.72, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
@@ -2535,7 +2690,7 @@ export function createReplayFx(host: ReplayHost) {
           const fadeIn = Math.min(1, t / 500)
           const pulse = 0.78 + 0.22 * Math.sin(k * Math.PI * 2)
           group.position.y = (group.userData.baseY as number) + explodeAt(group.userData.baseY as number)
-          ;(wall.material as MeshBasicMaterial).opacity = (pov === 'pov' ? 0.26 : 0.15) * fadeIn * pulse
+          ;(wall.material as MeshBasicMaterial).opacity = (pov === 'pov' ? 0.07 : 0.15) * fadeIn * pulse
           ;(edge.material as LineBasicMaterial).opacity = (pov === 'pov' ? 0.82 : 0.6) * fadeIn * pulse
           const sonarP = (t % 2400) / 2400
           sonarRing.scale.setScalar(0.3 + maxR * easeOut(sonarP))
@@ -2677,7 +2832,12 @@ export function createReplayFx(host: ReplayHost) {
       }
       if (box.isEmpty()) return
       if (margin > 0) box.expandByScalar(margin)
-      host.fit(box)
+      eyeOnFloor = true
+      try {
+        host.fit(box, true)
+      } finally {
+        eyeOnFloor = false
+      }
     },
 
   }
@@ -2732,6 +2892,8 @@ export function createReplayFx(host: ReplayHost) {
     },
     /** 다음 시점 맞추기가 들어갈 방향. 리플레이가 아니면 null(뷰어의 기본 방향). */
     fitFrom: (): Vector3 | null => (cinema ? cinemaFrom() : null),
+    /** 1인칭 몰입이면 다음 시점 맞추기의 눈 자리(방 안 눈높이). 아니면 null(상자를 다 담는 보통 맞추기). */
+    fitEye,
     /** 밤 다이오라마·층 펼치기로 층을 띄운 만큼 건물 전체 보기의 높이를 더한다. */
     fitHeight: (): number => Math.max(...liftTargets()),
     /** 화면 점 아래의 누를 수 있는 빛기둥·이름표. 누르기를 받는 쪽이 없으면 null. */

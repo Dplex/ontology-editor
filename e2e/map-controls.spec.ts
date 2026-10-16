@@ -74,7 +74,7 @@ test('편집 모드에서 고른 설비를 끄는 중 창이 포커스를 잃으
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.getByRole('button', { name: '편집', exact: true }).click()
-  await expect(page.locator('.view-controls-hint')).toContainText('Ctrl+드래그: 여러 개 고르기')
+  await expect(page.locator('.view-controls-hint')).toContainText('Ctrl+드래그: 여러 개 선택')
   await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(600)

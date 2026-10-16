@@ -421,7 +421,7 @@ test('공조존 꼭짓점을 3D 손잡이로 끌어 옮기고, [ ]·Insert·Dele
 
   const handles = () => page.evaluate(() => (window as any).__viewer.handles() as { x: number; y: number }[])
   await zone.getByRole('button', { name: '꼭짓점 고치기' }).click()
-  await expect(page.locator('.key-note')).toContainText('공조존 1의 꼭짓점을 끌어 옮깁니다')
+  await expect(page.locator('.key-note')).toContainText('공조존 1의 꼭짓점을 드래그해 옮깁니다')
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await expect.poll(async () => (await handles()).length).toBe(4)
 

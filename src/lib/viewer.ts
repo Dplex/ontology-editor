@@ -2211,7 +2211,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
    * 가장 가까운 거리를 잡는다.
    */
   const FILL = 0.88
-  function fit(box: Box3, animate = true, from = fx.fitFrom() ?? new Vector3(1, 0.65, 1)) {
+  /** `eye` 가 false 면 리플레이 몰입이어도 눈 자리를 쓰지 않는다 — 건물 전체 보기·끝 화면의 바뀐 곳 모아 보기는 장면이 아니다. */
+  function fit(box: Box3, animate = true, from = fx.fitFrom() ?? new Vector3(1, 0.65, 1), eye = true) {
     const sphere = box.getBoundingSphere(new Sphere())
     if (sphere.radius <= 0) return
 
@@ -2221,6 +2222,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const up = new Vector3().crossVectors(right, forward)
     const tanV = Math.tan((camera.fov * Math.PI) / 360) * FILL
     const tanH = tanV * (camera.aspect || 1.6)
+
+    // 리플레이의 1인칭 몰입은 상자 밖에서 담지 않고 방 안 눈높이에 선다(replay-viewer 의 fitEye).
+    const stand = eye ? fx.fitEye(box, tanV, tanH) : null
+    if (stand) {
+      const reach = stand.position.distanceTo(stand.target) + sphere.radius
+      const clip = { near: 0.05, far: Math.max(reach * 10, 400) }
+      fly(stand.target, stand.position, animate ? clip : null)
+      if (!animate) {
+        camera.near = clip.near
+        camera.far = clip.far
+        camera.updateProjectionMatrix()
+      }
+      return
+    }
 
     const center = sphere.center
     let distance = 0
@@ -3223,7 +3238,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     hiddenIds: () => hiddenIds,
     visibleStoreys: () => visibleStoreys,
     storeyShown, invalidate, writePart, paintPart, toScene, rayAt, toScreen,
-    fit: (box) => fit(box),
+    fit: (box, eye = false) => fit(box, true, undefined, eye),
     setPixelRatioCap: (cap) => {
       pixelRatioCap = cap
       invalidate()
@@ -4172,7 +4187,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (box.isEmpty()) box.setFromObject(content)
       // 밤 다이오라마로 층을 띄우면(여러 층이 보일 때) 건물이 그만큼 높아진다.
       if (!box.isEmpty()) box.max.y += fx.fitHeight()
-      if (!box.isEmpty()) fit(box)
+      if (!box.isEmpty()) fit(box, true, undefined, false)
     },
 
     setPlaceMode(elevation) {

@@ -1,0 +1,29 @@
+/* 디자인 토큰 — 두 층(docs/prd/design-system.md).
+   1) 공통: design-system.md A2·A3·A6(OE-UI-23)의 이름·값 그대로(에디터는 다크). 값을 바꾸면 design-system.md 를 먼저 고친다.
+   2) 에디터 확장: design-system.md 2.2·2.3·4장(OE-UI-17).
+   목록·검토 화면(platform.css)은 아직 옛 밝은 화면이라 에디터(.ed)와 그 위 팝업(.ed-modal)에만 건다. */
+.ed,.ed-modal{
+  /* ── 공통 · 색(다크) ── */
+  --bg:#0f1011;--surface:#17181a;--surface-soft:#1d1e21;
+  --fg:#eceef0;--muted:#a2a5ad;--line:#26272b;--line-soft:#1d1e21;
+  --accent:#8b8ef0;--accent-soft:#1f2036;--on-accent:#0f1011;--focus:#a5a8ff;
+  --warn-fg:#edc77e;--warn-bg:#2b2415;--warn-line:#463a1f;
+  --error:#f08076;--error-soft:#2c1d1c;
+  /* ── 공통 · 척도 ── */
+  --fs-1:12px;--fs-2:13px;--fs-3:14px;--fs-4:16px;--fs-5:20px;
+  --sp-1:4px;--sp-h:6px;--sp-2:8px;--sp-3:12px;--sp-4:16px;--sp-5:24px;
+  --ctl-sm:24px;--ctl-chip:28px;--ctl-md:32px;
+  --r-sm:6px;--r-md:8px;--r-pill:999px;
+  --shadow-overlay:0 8px 24px rgba(0,0,0,.45);
+  --ease:cubic-bezier(.22,1,.36,1);--t-hover:120ms;--t-press:100ms;--t-panel:180ms;
+  --disabled:.45;
+
+  /* ── 에디터 확장 · 의미 색 ── */
+  --ok:#6cc9a0;--ok-soft:#16261f;
+  /* ── 에디터 확장 · 존 분류 색(캔버스·목록 점·레이어 체크에만) ── */
+  --zone-space:#38bdf8;--zone-custom:#f472b6;--zone-hvac:#a3e635;
+  /* ── 에디터 확장 · 뼈대 크기 ── */
+  --head-h:56px;--infobar-h:36px;--status-h:28px;--rail-w:84px;--rpan-w:360px;--tabs-h:40px;--row-h:32px;
+  --mono:ui-monospace,Menlo,Consolas,monospace;
+  --font:system-ui,-apple-system,'Segoe UI','Malgun Gothic','Apple SD Gothic Neo',sans-serif;
+}
