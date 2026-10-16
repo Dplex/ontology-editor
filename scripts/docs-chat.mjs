@@ -76,6 +76,13 @@ export function createChat({
   context = null,
   // GET 이 enabled 와 같이 줄 것. 온톨로지 챗봇은 볼 수 있는 건물 목록을 준다.
   info = null,
+  // 켤 수 없는 다른 까닭(문자열이면 끈다). /issue 챗봇은 gh 로그인을 본다.
+  check = null,
+  // 답 글을 창에 흘리지 않고 모았다가 끝에 finish({ text, body, question, emit }) 로 넘긴다. /issue 챗봇은 답이 JSON 초안이라
+  // 창에 그대로 보이지 않고, 서버가 검사해 이슈를 올린 뒤 그 결과를 글로 보낸다. 돌려준 값은 서버 로그에 남는다.
+  finish = null,
+  // 질문에 붙이는 앞선 대화 수. /issue 는 0 이다 — 앞 질문이 이슈 본문에 섞이지 않게 요청 한 줄만 본다.
+  turns: maxTurns = MAX_TURNS,
 }) {
   const gemini = process.env.DOCS_CHAT_GEMINI || 'gemini'
   // .mjs·.js 를 주면 node 로 띄운다(gemini 대신 다른 스크립트를 붙여 볼 때). 셸은 거치지 않는다.
@@ -94,6 +101,7 @@ export function createChat({
   else if (spawnSync(...run(['--version'], { encoding: 'utf8', timeout: 20000 })).status !== 0) {
     reason = `이 서버에 gemini CLI 가 없다(${gemini})`
   }
+  if (!reason && check) reason = check() || null
 
   const work = join(root, `run/${tag}`)
   const system = join(work, 'system.md')
@@ -210,7 +218,7 @@ export function createChat({
   reaper.unref()
 
   function prompt(question, history, ctx) {
-    const turns = (Array.isArray(history) ? history : []).slice(-MAX_TURNS)
+    const turns = (maxTurns > 0 && Array.isArray(history) ? history : []).slice(-maxTurns)
       .filter(t => t && (t.role === 'user' || t.role === 'assistant') && typeof t.text === 'string')
       .map(t => `${t.role === 'user' ? '사용자' : '챗봇'}: ${t.text.slice(0, MAX_TURN_CHARS)}`)
     return [
@@ -337,10 +345,13 @@ export function createChat({
     res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store', 'x-accel-buffering': 'no' })
     const tools = []
     let emitted = 0
+    let held = ''
+    const send = ev => { if (!res.writableEnded) res.write(`${JSON.stringify(ev)}\n`) }
     const emit = ev => {
       if (ev.type === 'tool') tools.push(ev.name)
       if (ev.type === 'text' || ev.type === 'tool') emitted++
-      if (!res.writableEnded) res.write(`${JSON.stringify(ev)}\n`)
+      if (finish && ev.type === 'text') { held = ev.delta === false ? ev.text : held + ev.text; return }
+      send(ev)
     }
     const ctl = { aborted: false, cancel: () => {} }
     const abort = () => { ctl.aborted = true; ctl.cancel() }
@@ -369,12 +380,21 @@ export function createChat({
     }
     clearTimeout(timer)
     if (timedOut) { failed = true; emit({ type: 'error', message: `${timeoutMs / 1000}초 안에 답이 안 왔다` }) }
+    let result = null
+    if (finish && !failed && !ctl.aborted) {
+      try {
+        result = await finish({ text: held, body, question, emit: send })
+      } catch (e) {
+        failed = true
+        send({ type: 'error', message: e.message })
+      }
+    }
     running--
     lastUsed = Date.now()
     const ms = Date.now() - started
     emit({ type: 'done', ms })
     res.end()
     // 질문 내용은 남기지 않는다. 길이·도구·시간·토큰만
-    log({ msg: name === 'docs' ? 'chat' : `${name} chat`, q_len: question.length, turns: Array.isArray(body.history) ? body.history.length : 0, tools, ms, ok: !failed, stop: out.stop, tokens: out.usage, pid })
+    log({ msg: name === 'docs' ? 'chat' : `${name} chat`, q_len: question.length, turns: Array.isArray(body.history) ? body.history.length : 0, tools, ms, ok: !failed, stop: out.stop, tokens: out.usage, pid, ...(result ? { result } : {}) })
   }
 }

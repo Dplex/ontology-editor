@@ -12,6 +12,7 @@ import { systemColors } from '../lib/viewer'
 import type { SrcKind } from '../components/Src.vue'
 import { baseline } from './changes'
 import { openCheck, selectedSpaceInfluence, systemById } from './checks'
+import { openRequirementRow } from './requirement-items'
 import { connectFrom, connectTo } from './connections'
 import { editing, model } from './core'
 import { shortName } from './equipment-shape'
@@ -180,6 +181,11 @@ const highlightOnly = (): Set<string> | null => {
   return highlightRow()?.ids ?? null
 }
 const highlightCheck = () => (replayOpen.value ? null : openCheck.value)
+/** 요구사항 칸에서 펼친 줄의 설비(requirement-items.ts). 완전성 검사와 같은 자리에서 같은 색으로 칠한다. 둘은 하나만 펼쳐진다. */
+const highlightRequirement = () => {
+  const r = replayOpen.value ? null : openRequirementRow.value
+  return r?.items?.kind === 'equipment' ? [...r.items.elsewhere, ...r.items.missing] : null
+}
 
 // 고른 계통의 흐름을 3D 에서 달리는 빛으로 보인다(flow-pulse.ts). 방향은 화살표와 같은 차례로 읽는다 — BIM 포트, 사람이 정한 것,
 // 규칙(R 을 켰을 때만, 옅게). 방향을 모르는 연결은 그리지 않는다. 빛이 없는 배관이 곧 방향을 모르는 곳이다. 연결은 위의 흐름 근거
@@ -228,7 +234,7 @@ export function select(id: string | null) {
 /** 화면이 붙을 때 한 번 — 이 모듈의 watch·이벤트·타이머. App.vue 가 부른다. */
 export function setupSystems() {
   watch(selectedId, () => (systemFilter.value = ''))
-  watch([selectedId, selectedSystemId, model, showRules, flowVersion, highlightRow, highlightOnly, highlightCheck, selectedSpace, selectedSpaceInfluence, sceneVersion, group, selectedZone], () => {
+  watch([selectedId, selectedSystemId, model, showRules, flowVersion, highlightRow, highlightOnly, highlightCheck, highlightRequirement, selectedSpace, selectedSpaceInfluence, sceneVersion, group, selectedZone], () => {
     if (!viewer) return
 
     // 여러 개 고른 설비(OE-UI-09). 고른 색으로 칠하고 나머지는 흐리게 하지 않는다(흐린 것은 Ctrl+클릭으로 더할 수 없다).
@@ -294,6 +300,11 @@ export function setupSystems() {
     const check = highlightCheck()
     if (check && !check.skipped && check.failed.length) {
       viewer.setHighlight({ selected: null, upstream: new Set(), downstream: new Set(), linked: new Set(check.failed) })
+      return
+    }
+    const required = highlightRequirement()
+    if (required?.length) {
+      viewer.setHighlight({ selected: null, upstream: new Set(), downstream: new Set(), linked: new Set(required) })
       return
     }
 

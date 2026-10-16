@@ -530,8 +530,15 @@ describe('요구사항 상태 집계 — 필수 11 (OE-REQ-06)', () => {
     for (const [name, files, make, want] of cases) {
       if (!files.every(existsSync)) continue
       ran++
-      const must = make().filter((r) => r.level === '필수')
+      const rows = make()
+      const must = rows.filter((r) => r.level === '필수')
       expect(must, name).toHaveLength(11)
+      // 요구사항 칸이 3D·목록으로 짚는 id(items)가 칸의 숫자와 같은 판정에서 나왔는지 — 실제 BIM 에서 본다.
+      for (const r of rows) {
+        if (!r.items || !r.counts) continue
+        expect(r.counts.standard + r.items.elsewhere.length + r.items.missing.length, `${name} ${r.id} items`).toBe(r.counts.of)
+        expect(r.items.elsewhere.length, `${name} ${r.id} items`).toBe(r.counts.elsewhere)
+      }
       const ids = (state: string) => must.filter((r) => r.state === state).map((r) => r.id)
       for (const [state, list] of Object.entries(want)) expect(ids(state), `${name} ${state}`).toEqual(list)
       // 파일 하나로 잴 수 없는 것(R12 건축·설비 좌표계 · R13 GUID 유지)은 잴 수 없음이다 — 분모에 넣지 않는다. R12 는 합치면 잰다.

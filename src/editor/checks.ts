@@ -20,6 +20,7 @@ import { note } from './keyboard'
 import { selectedSystemId } from './kinds'
 import { meshes } from './open-file'
 import { currentBox, sceneVersion } from './redraw'
+import { openRequirement } from './requirement-items'
 import { selectedSpaceId } from './rooms'
 import { viewer } from './scene'
 import { selectedSpace } from './space-objects'
@@ -211,6 +212,8 @@ export function connectCandidate(id: string, other: string) {
 export const fixLabel = (fix: FailureFix) => (fix.kind === 'move-into' ? `${fix.spaceName} 안으로 옮기기` : '연결 후보 확인')
 export function toggleCheck(key: string) {
   openCheckKey.value = openCheckKey.value === key ? null : key
+  // 요구사항 칸에서 펼친 줄과 같은 자리(3D 칠하기)를 쓴다 — 하나만 펼친다.
+  if (openCheckKey.value) openRequirement.value = null
   const c = openCheck.value
   if (c && c.failed.length) {
     selectedId.value = null
