@@ -774,3 +774,5 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
 .ed-shell .appbar h2 { flex: 0 1 auto; min-width: 4rem; }
 @media (max-width: 1500px) { .ed-shell .appbar .crumbs-wrap { display: none; } }
 @media (max-width: 1360px) { .ed-shell .shell-brand { display: none; } }
+.ed-shell .shell-rail .ceiling-key { display: flex; flex-direction: column; align-items: center; gap: 2px; white-space: normal; }
+.ed-shell .shell-rail .palette-check { display: flex; flex-direction: column; align-items: center; gap: 2px; line-height: 1.2; }
