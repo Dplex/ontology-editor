@@ -8,7 +8,7 @@ import { selectedElementId } from '../../editor/equipment-edit'
 import { selectedElement } from '../../editor/export-compare'
 import { selected, selectedSystemBasis, showRules } from '../../editor/flow-rules'
 import { selectedSystem } from '../../editor/kinds'
-import { groupItems } from '../../editor/multi-select'
+import { groupItems, selfIntersecting } from '../../editor/multi-select'
 import { clearInspectorSelection, hasInspectorSelection, inspectorBadge } from '../../editor/panels'
 import { openDrawer } from '../../editor/shell'
 import { selectedRoom } from '../../editor/rooms'
@@ -46,6 +46,8 @@ defineProps({
     <h3>선택 오브젝트<template v-if="hasInspectorSelection"> · {{ inspectorBadge }}</template></h3>
     <button v-if="hasInspectorSelection" type="button" class="link side-clear" title="선택을 해제합니다 (Esc)" @click="clearInspectorSelection">선택 해제 ×</button>
   </header>
+  <!-- 물리존 경계가 서로 교차하면 넓이와 소속이 맞지 않는다. 예전에는 3D 아래 편집 표 위에 떴다. -->
+  <p v-if="editing && selfIntersecting" class="error shell-sel-error" role="alert">경계선이 서로 교차합니다. 이 상태에서는 넓이와 소속이 맞지 않습니다.</p>
   <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
   <!-- 고른 것이 바뀌면 패널을 살짝 갈아 끼운다. 같은 것을 고친 것은 key 가 같아 가만히 있고, 바뀐 값만 v-flash 가 번쩍인다. -->
   <div class="side-inspector-wrap">

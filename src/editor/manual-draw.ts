@@ -10,6 +10,7 @@ import type { PathPoint } from '../lib/storey-z'
 import { setEditPart } from './ceiling'
 import { nameOfId } from './connections'
 import { editing, mode, model } from './core'
+import { railPanel } from './shell'
 import { captureBase, placeStretched, shortName } from './equipment-shape'
 import { equipmentById, flowVersion, ruleReport, selected, selectedId } from './flow-rules'
 import { mark, remember } from './history'
@@ -52,10 +53,11 @@ export async function startManualZones() {
   await nextTick()
   if (!editing.value) return
   setEditPart('space')
+  // 공조존 칸은 레일의 펼침 칸(RailPanel)에 있다. 기준 · 검증 패널은 보기만 한다(2026-10-16).
+  railPanel.value = 'hvac'
   zoneReveal.value = true
   await nextTick()
   zoneReveal.value = false
-  document.querySelector('[data-testid="hvac-zones"]')?.scrollIntoView({ block: 'start' })
   note(zoneStorey.value ? `공조존 도구입니다 — ${zoneStorey.value.name}에서 담당 물리존을 골라 만들거나 경계를 그립니다` : '공조존 도구입니다 — 층 하나를 고른 뒤 담당 물리존을 골라 만듭니다')
 }
 /** 그 층의 사람이 만든 공조존. */

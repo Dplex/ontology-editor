@@ -1,19 +1,11 @@
 <script setup lang="ts">
 import type { PropType } from 'vue'
-import { OPENING_SNAP_RANGE } from '../../lib/edit'
 import { GATE, percent, TARGET } from '../../lib/grade'
-import { hvacZonesOf } from '../../lib/hvac-zone'
 import { replayMemo } from '../../lib/replay-player'
 import { appendData, baseName } from '../../editor/chat-view'
-import { busy, editing } from '../../editor/core'
-import { vKeepTyping } from '../../editor/edit-filter'
-import { archMode } from '../../editor/equipment-edit'
-import { startManualZones } from '../../editor/manual-draw'
-import { canAppend, currentTiers, onAppendPick, pairHint, warnings } from '../../editor/open-file'
-import { editBlock } from '../../editor/people'
+import { busy } from '../../editor/core'
+import { canAppend, currentTiers, onAppendPick, pairHint } from '../../editor/open-file'
 import { gradeLines, grades, gradesOpen, resetGradeLines } from '../../editor/publish'
-import { elementSettings, setOpeningSnap, setSiteWallThickness, WALL_FROM, wallThicknessHere } from '../../editor/read-settings'
-import { allCustomZones, selectedCustomZoneId } from '../../editor/space-edit'
 import Src from '../Src.vue'
 import TierChips from '../TierChips.vue'
 import type { counts as countsRef, model as modelRef } from '../../editor/core'
@@ -84,76 +76,8 @@ defineProps({
         <input type="file" accept=".ifc,.idf" multiple :disabled="busy" @change="onAppendPick" />
       </label>
     </div>
-    <ul class="overview-counts">
-      <li><b>{{ counts.storeys }}</b> 층</li>
-      <li><b>{{ counts.spaces }}</b> 물리존</li>
-      <li><b>{{ counts.devices }}</b> 기기</li>
-      <li><b>{{ counts.conduits }}</b> 덕트·배관</li>
-      <li><b>{{ counts.systems }}</b> 계통</li>
-      <li><b>{{ counts.connections }}</b> 연결</li>
-    </ul>
-    <!-- 공조존 생성 방법(OE-BIM-15). R1 은 직접 만들기만 보인다. IDF·gbXML 추가로 가져오기는 R2 에서 이 목록에 더한다. -->
-    <div v-if="counts.spaces" class="zone-route" data-testid="zone-route">
-      <h4>공조존 생성 방법</h4>
-      <p class="muted">
-        {{ model && hvacZonesOf(model).length ? `공조존 ${hvacZonesOf(model).length}개가 있습니다.` : '아직 공조존이 없습니다.' }} 나중에 만들어도 불러온 BIM 은 그대로입니다.
-      </p>
-      <p>
-        <button type="button" class="ghost" :disabled="busy || !!editBlock" @click="startManualZones">공조존 직접 만들기</button>
-        <span class="muted">공간 편집 모드에서 담당 물리존을 골라 공조존을 직접 구성합니다.</span>
-      </p>
-    </div>
-    <!-- 커스텀존(OE-OBJ-01). 3D 에서는 점선이라 누르기 어려워 여기서 고른다. -->
-    <div v-if="allCustomZones.length" class="overview-zones">
-      <h4>커스텀존 {{ allCustomZones.length }}</h4>
-      <ul class="plain">
-        <li v-for="x in allCustomZones" :key="x.zone.id">
-          <button type="button" class="link" @click="selectedCustomZoneId = x.zone.id">{{ x.zone.name }}</button>
-          <span class="muted">{{ x.storey.name }}</span>
-        </li>
-      </ul>
-    </div>
-    <!-- 벽·문·창 설정(OE-SPC-12 · OE-SPC-13). [벽·문·창] 을 켰을 때만. 3D 위 팔레트에 두면 바닥을 가린다. -->
-    <div v-if="editing && archMode" class="element-settings" data-testid="element-settings">
-      <h4>벽·문·창 설정</h4>
-      <label>
-        새 벽 사이트 기본 두께(내벽)
-        <input
-          type="number"
-          step="0.01"
-          min="0.01"
-          placeholder="없음"
-          data-testid="site-wall-thickness"
-          v-keep-typing
-          :value="elementSettings.interiorWall ?? ''"
-          @change="setSiteWallThickness(($event.target as HTMLInputElement).value)"
-        />
-        m
-      </label>
-      <p v-if="wallThicknessHere" class="hint" data-testid="wall-thickness-here">
-        {{ wallThicknessHere.storey }}에 새 벽을 그으면 <b class="mono">{{ wallThicknessHere.thickness }}m</b>({{ WALL_FROM[wallThicknessHere.from] }})입니다. 같은 층 BIM 내벽이 있으면 그 두께가 먼저입니다.
-      </p>
-      <label>
-        문·창 스냅 거리
-        <input
-          type="number"
-          step="0.1"
-          :min="OPENING_SNAP_RANGE.min"
-          :max="OPENING_SNAP_RANGE.max"
-          data-testid="opening-snap"
-          v-keep-typing
-          :value="elementSettings.openingSnap"
-          @change="setOpeningSnap(($event.target as HTMLInputElement).value); ($event.target as HTMLInputElement).value = String(elementSettings.openingSnap)"
-        />
-        m
-      </label>
-      <p class="hint">벽에서 이 거리 안을 눌러야 문·창이 가장 가까운 벽에 붙습니다. 이 브라우저에만 남습니다.</p>
-    </div>
-    <p class="hint">
-      3D에서 설비를 클릭하면 연결과 소속이, 바닥을 클릭하면 물리존 정보가 오른쪽 위 카드에 표시됩니다.
-      <template v-if="warnings.length"><a href="#warnings" class="link">경고 {{ warnings.length }}건</a>, </template>
-      요구사항, 검사, 표는 이 패널 아래에 있습니다.
-    </p>
+    <!-- 층 · 물리존 · 기기 수는 바로 아래 "요약" 카드에 출처와 같이 있다. 여기 따로 두었더니 같은 숫자가 세 번 나왔다(2026-10-16).
+         공조존 만들기 · 커스텀존 목록 · 벽·문·창 설정은 고치는 일이라 레일(ToolRail 의 펼침 칸)과 층 현황으로 옮겼다 — 이 패널은 보기만 한다. -->
     <!-- 출처 표. 숫자·표·3D 색에 붙는 꼬리표가 무엇을 뜻하는지. -->
     <p class="src-key">
       <Src kind="bim" /> 파일에 적힌 그대로<br />

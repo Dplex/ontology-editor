@@ -12,7 +12,7 @@ import { breadcrumb, canDiscardDraft, discardAsk, discardFloorDraft } from '../.
 import { canAppend, onAppendPick, warnings } from '../../editor/open-file'
 import { appendOver, exportGeoJSONDone, justDone, onAppendDrop, onDrop, onPick, previewChanges, previewData, previewOpen, previewText, ruleWarnings, siteRules } from '../../editor/open-many'
 import { currentUser, editBlock, people, PERSON_ROLE } from '../../editor/people'
-import { saveEdits } from '../../editor/progress'
+import { onEditFilePick, saveEdits } from '../../editor/progress'
 import { editKind, serverKey } from '../../editor/projects'
 import { buildBlock, firstPublish, grades, loadedVersion, newerLayout, notices, noticesOpen, openNotices, reloadLayout, unseenNotices } from '../../editor/publish'
 import { readFeatures, readOpenings } from '../../editor/read-settings'
@@ -114,10 +114,13 @@ defineProps({
                 <span class="muted">다음에 여는 파일부터, 어디서 열든(파일·data/ 목록·덧붙이기) 적용됩니다.</span>
               </fieldset>
             </details>
-            <template v-if="editing">
-              <span class="shell-menu-head">저장</span>
-              <button v-if="serverKey" type="button" class="ghost" title="서버에 저장하지 않고 편집 파일(JSON)로만 내려받습니다" @click="saveEdits(true)">파일로</button>
-            </template>
+            <span class="shell-menu-head">편집 파일</span>
+            <button v-if="editing && serverKey" type="button" class="ghost" title="서버에 저장하지 않고 편집 파일(JSON)로만 내려받습니다" @click="saveEdits(true)">파일로 내려받기</button>
+            <!-- 내려받은 편집 파일(JSON)을 지금 연 IFC 에 다시 얹는다. 예전에는 3D 아래 "바뀐 내용" 머리에 있었다. -->
+            <label class="ghost load-edits" title="내려받아 둔 편집 파일(JSON)을 지금 연 IFC 에 다시 얹습니다">
+              편집 불러오기
+              <input type="file" accept=".json,application/json" @change="onEditFilePick" />
+            </label>
             <span class="shell-menu-head">내보내기</span>
             <!-- 여는·합치는 중(busy)에는 막는다. 건축·설비를 같이 열 때 설비를 읽는 동안 누르면 건축만 든 파일이 나갔다. -->
             <span class="shell-menu-row">

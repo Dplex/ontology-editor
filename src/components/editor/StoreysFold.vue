@@ -5,11 +5,9 @@ import { equipmentKind } from '../../lib/kinds'
 import { allowedLabel } from '../../lib/mount'
 import { replayMemo } from '../../lib/replay-player'
 import { storeyNamed } from '../../lib/storey-name'
-import { busy, editing } from '../../editor/core'
-import { vKeepTyping } from '../../editor/edit-filter'
-import { ceilingEditing, ceilingGuessApart, ceilingGuessOf, ceilingInput, ceilingTitle, JUDGED_LABEL, meters, saveCeiling, startCeiling, storeyHeightOf, storeyHeightTitle, surfaceCounts, surfaceMismatch, surfaceRows, wallThicknessLabel, wallThicknessOf } from '../../editor/edit-report'
+import { busy } from '../../editor/core'
+import { ceilingGuessApart, ceilingGuessOf, ceilingTitle, JUDGED_LABEL, meters, storeyHeightOf, storeyHeightTitle, surfaceCounts, surfaceMismatch, surfaceRows, wallThicknessLabel, wallThicknessOf } from '../../editor/edit-report'
 import { justDone } from '../../editor/open-many'
-import { saveStoreyName, startStoreyName, storeyNameEditing, storeyNameInput } from '../../editor/storey-name'
 import { buildStorey, doneTime, progressById, setStoreyDone, storeyProgressRows, storeysDoneCount } from '../../editor/storey-progress'
 import { select } from '../../editor/systems'
 import Fold from '../Fold.vue'
@@ -51,31 +49,11 @@ defineProps({
       </thead>
       <tbody>
         <tr v-for="s in model.storeys" :key="s.id">
-          <!-- 층 이름. 편집 모드에서 고친다 — 이름 없는 층은 등급 0 을 떨어뜨려 [구축하기] 를 막는다. -->
+          <!-- 층 이름. 고치는 것은 층 현황 카드의 [층 이름 고치기](StoreyEdit) — 이 패널은 보기만 한다. 이름 없는 층은 등급 0 을 떨어뜨려 [구축하기] 를 막는다. -->
           <td class="storey-name-cell">
-            <template v-if="storeyNameEditing === s.id">
-              <input
-                v-model="storeyNameInput"
-                v-keep-typing
-                class="storey-name-input"
-                :aria-label="`${s.name || '이름 없는 층'} 층 이름`"
-                @keydown.enter.prevent="saveStoreyName(s.id)"
-                @keydown.esc.stop="storeyNameEditing = null"
-              />
-              <button type="button" class="link" @click="saveStoreyName(s.id)">확인</button>
-              <button type="button" class="link" @click="storeyNameEditing = null">취소</button>
-            </template>
-            <template v-else>
-              <span v-if="s.name.trim()">{{ s.name }}</span>
-              <span v-else class="height-mismatch" title="BIM 이 층 이름을 적지 않았습니다. 이름 없는 층이 있으면 등급 0 미달이라 구축하지 않습니다">이름 없음</span>
-              <Src v-if="storeyNamed(s)" kind="edit" />
-              <template v-if="editing">
-                <button type="button" class="link" :aria-label="`${s.name || '이름 없는 층'} 층 이름 ${s.name.trim() ? '고치기' : '넣기'}`" @click="startStoreyName(s.id)">
-                  {{ s.name.trim() ? '고치기' : '이름 넣기' }}
-                </button>
-                <button v-if="storeyNamed(s)" type="button" class="link" @click="saveStoreyName(s.id, true)">BIM 이름으로</button>
-              </template>
-            </template>
+            <span v-if="s.name.trim()">{{ s.name }}</span>
+            <span v-else class="height-mismatch" title="BIM 이 층 이름을 적지 않았습니다. 이름 없는 층이 있으면 등급 0 미달이라 구축하지 않습니다">이름 없음</span>
+            <Src v-if="storeyNamed(s)" kind="edit" />
           </td>
           <td class="num mono">{{ (Math.abs(s.elevation) < 0.005 ? 0 : s.elevation).toFixed(2) }} m</td>
           <!-- 층고(OE-BIM-02). 출처 BIM 이면 그 값, 계산이면 윗층 바닥과의 차. 둘이 다르면 계산한 값도 옆에 보인다. -->
@@ -90,33 +68,14 @@ defineProps({
             <span v-else class="muted" title="맨 위층이고 BIM 이 층 높이를 적지 않았습니다. 지어내지 않습니다.">모름</span>
           </td>
           <!-- 반자 높이(OE-EQP-03). 모르면 0 이나 층고로 채우지 않고 입력을 받는다. 후보(계산)는 입력창 기본값이다. -->
+          <!-- 천장고. 고치는 것은 층 현황 카드(StoreyEdit)와 천장 모드의 레일이다. -->
           <td class="num mono storey-ceiling">
-            <template v-if="ceilingEditing === s.id">
-              <input
-                v-model="ceilingInput"
-                type="number"
-                step="0.05"
-                min="0.3"
-                class="ceiling-input"
-                :aria-label="`${s.name} 천장고(m)`"
-                @keydown.enter.prevent="saveCeiling(s.id, Number(ceilingInput))"
-                @keydown.esc.stop="ceilingEditing = null"
-              />
-              m
-              <button type="button" class="link" @click="saveCeiling(s.id, Number(ceilingInput))">확인</button>
-              <button type="button" class="link" @click="ceilingEditing = null">취소</button>
-            </template>
-            <template v-else-if="ceilingOf(s)">
+            <template v-if="ceilingOf(s)">
               <span :title="ceilingTitle(s)">{{ meters(ceilingOf(s)!.height) }}</span>
               <Src :kind="ceilingOf(s)!.source" />
               <span v-if="ceilingGuessApart(s)" class="height-mismatch" :title="ceilingTitle(s)">후보 {{ meters(ceilingGuessOf.get(s.id)!.height) }}</span>
-              <button type="button" class="link" :aria-label="`${s.name} 천장고 고치기`" @click="startCeiling(s.id)">고치기</button>
-              <button v-if="s.ceilingSet != null" type="button" class="link" @click="saveCeiling(s.id, null)">{{ s.ceiling ? 'BIM 값으로' : '지우기' }}</button>
             </template>
-            <template v-else>
-              <span class="muted" :title="ceilingTitle(s)">모름</span>
-              <button type="button" class="link" :aria-label="`${s.name} 천장고 입력`" @click="startCeiling(s.id)">입력</button>
-            </template>
+            <span v-else class="muted" :title="ceilingTitle(s)">모름</span>
           </td>
           <!-- 한 층에 방이 수십 개면 이름이 줄을 넘친다. 한 줄로 자르고 전체는 툴팁으로. -->
           <td class="names" :title="s.spaces.map((x) => x.longName || x.name).join(', ')">

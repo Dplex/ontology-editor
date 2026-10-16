@@ -237,10 +237,11 @@ test('넓게 보기로 띄워도 고른 설비 패널이 같이 보이고, Esc �
   await page.goto('/')
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
-  // 설비 표는 기준 · 검증 패널 안에 있다.
-  await page.getByTestId('basis-button').click()
-  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
-  await page.getByRole('button', { name: '기준 · 검증 닫기' }).click()
+  // 층 현황의 설비 칸에서 하나 고른다.
+  await page.getByTestId('floor-status').getByRole('button', { name: /설비$/ }).click()
+  const first = page.locator('.shell-rows li > button').first()
+  const name = (await first.locator('.name').getAttribute('title'))!
+  await first.click()
 
   const button = page.locator('.viewport .fullscreen')
   await button.click()
@@ -251,7 +252,7 @@ test('넓게 보기로 띄워도 고른 설비 패널이 같이 보이고, Esc �
   const box = await page.locator('.stage').boundingBox()
   const view = page.viewportSize()!
   expect(box).toMatchObject({ x: 0, y: 0, width: view.width, height: view.height })
-  await expect(page.locator('.stage .picked')).toContainText('DUCT-01')
+  await expect(page.locator('.stage .picked').first()).toContainText(name)
 
   // Esc 는 선택 해제다. 넓게 보기는 그대로 남는다.
   await page.keyboard.press('Escape')

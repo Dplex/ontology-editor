@@ -41,6 +41,7 @@ import { setupLayoutStoreys } from './layout-storeys'
 import { setupProjects } from './projects'
 import { setupExitEdit } from './exit-edit'
 import { setupVersions } from './versions'
+import { setupShell } from './shell'
 import { setupOpenFile } from './open-file'
 import { setupPanels } from './panels'
 import { setupOpenMany } from './open-many'
@@ -95,4 +96,5 @@ export function setupEditor() {
   setupStoreyProgress()
   setupPublish()
   setupReports()
+  setupShell()
 }

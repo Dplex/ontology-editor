@@ -77,7 +77,8 @@ export function selectAndShow(id: string) {
 /** 작업 화면(3D·오른쪽 패널)이 가려져 있으면 올려 보인다. 이미 보이면 움직이지 않는다. */
 export function revealStage() {
   const el = stage.value
-  if (!el) return
+  // 편집 화면 뼈대(design-system.md 4장)는 페이지가 스크롤하지 않는다. 여기서 scrollIntoView 하면 페이지가 옆으로 밀려 헤더 왼쪽이 잘렸다.
+  if (!el || el.closest('.ed-shell')) return
   const r = el.getBoundingClientRect()
   const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--appbar-h')) || 0
   if (r.top < top - 1 || r.top > window.innerHeight * 0.5) el.scrollIntoView({ behavior: 'smooth', block: 'start' })

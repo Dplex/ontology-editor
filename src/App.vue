@@ -38,6 +38,7 @@ import ViewportPanel from './components/editor/ViewportPanel.vue'
 import OverviewPanel from './components/editor/OverviewPanel.vue'
 import StatusBar from './components/editor/StatusBar.vue'
 import ToolRail from './components/editor/ToolRail.vue'
+import RailPanel from './components/editor/RailPanel.vue'
 import { drawerOpen } from './editor/shell'
 import { setupEditor } from './editor/index'
 
@@ -62,6 +63,8 @@ setupEditor()
         <HoverTip ref="hoverTip" />
         <!-- 도구 레일은 편집 모드에서만. 보기 모드에는 쓸 도구가 없고, 그 폭을 캔버스가 쓴다. -->
         <ToolRail v-if="editing" :model="model" />
+        <!-- 레일의 펼침 칸(공조존 · 평면도 배경 · 벽·문·창 설정). 레일 오른쪽, 캔버스 왼쪽 위에 뜬다. -->
+        <RailPanel v-if="editing" />
         <ViewportPanel :counts="counts" :model="model" />
 
         <!-- 편집 리플레이 동안(극장이 창을 덮는다) 아래 패널은 다시 그리지 않는다(replayMemo). 닫으면 그때 상태로 한 번 그린다. -->

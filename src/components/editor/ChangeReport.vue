@@ -14,7 +14,7 @@ import { assignLines, kindEditLines } from '../../editor/kinds'
 import { replay } from '../../editor/labels'
 import { areaChanges } from '../../editor/multi-select'
 import { reportZoneChecks } from '../../editor/offset'
-import { editFileNote, onEditFilePick, saveEdits } from '../../editor/progress'
+import { editFileNote } from '../../editor/progress'
 import { roomLines } from '../../editor/rooms'
 import { bimObjectLines, objectLines } from '../../editor/space-objects'
 import { spaceKindLines, storeyNameLines } from '../../editor/storey-name'
@@ -40,11 +40,7 @@ defineProps({
     >
       ▶ 리플레이 <kbd>P</kbd>
     </button>
-    <button type="button" class="ghost" :disabled="changeCount === 0" @click="saveEdits()">편집 저장</button>
-    <label class="ghost load-edits">
-      편집 불러오기
-      <input type="file" accept=".json,application/json" @change="onEditFilePick" />
-    </label>
+    <!-- [편집 저장] 은 헤더, [편집 불러오기] 는 헤더의 [파일 ▾] 에 있다. 기준 · 검증 패널은 보기만 한다. -->
   </div>
   <p v-memo="replayMemo()" v-if="editFileNote" class="hint edit-file-note" role="status">{{ editFileNote }}</p>
   <ul v-memo="replayMemo()" v-if="changeCount > 0 || areaChanges.length" class="report">

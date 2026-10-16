@@ -13,6 +13,9 @@ import { FLOOR_ROWS_SHOWN, floorCollapsed, floorEquipKind, floorEquipment, floor
 import { selectedCustomZoneId } from '../../editor/space-edit'
 import { select, toggleSystem } from '../../editor/systems'
 import { shortName } from '../../editor/equipment-shape'
+// 이름 찾기(/)가 오는 칸. 예전에는 3D 아래 편집 표의 이름 칸이었다.
+import { searchInput } from '../../editor/keyboard'
+import StoreyEdit from './StoreyEdit.vue'
 
 const KINDS: { key: FloorKind; label: string }[] = [
   { key: 'space', label: '물리존' },
@@ -83,6 +86,7 @@ const many = computed(() => !shellStorey.value && (model.value?.storeys.length ?
       <button type="button" class="link shell-floor-toggle" :aria-expanded="!floorCollapsed" :title="floorCollapsed ? '층 현황을 펼칩니다' : '층 현황을 접고 위 카드를 넓힙니다'" @click="toggleFloorCollapsed">{{ floorCollapsed ? '펼치기 ▴' : '접기 ▾' }}</button>
     </header>
     <template v-if="!floorCollapsed">
+    <StoreyEdit />
     <div class="shell-kinds" role="group" aria-label="층 현황 종류">
       <button
         v-for="k in KINDS"
@@ -100,7 +104,7 @@ const many = computed(() => !shellStorey.value && (model.value?.storeys.length ?
     <p v-if="floorKind === 'equipment' && unplaced" class="shell-floor-note warn">미배치 {{ unplaced.toLocaleString() }}대 — 레일의 설비 도구에서 놓습니다</p>
 
     <template v-if="floorKind !== 'objects'">
-      <input v-model="floorSearch" type="search" class="shell-floor-search" :placeholder="placeholder" :aria-label="placeholder" />
+      <input ref="searchInput" v-model="floorSearch" type="search" class="shell-floor-search" :placeholder="placeholder" :aria-label="placeholder" />
       <div v-if="floorKind === 'equipment' && kindChips.length" :class="['shell-chips', { all: kindsAll }]" role="group" aria-label="설비 종류">
         <button
           v-for="k in kindsAll ? kindChips : kindChips.slice(0, CHIPS_SHOWN)"

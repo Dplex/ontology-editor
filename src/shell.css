@@ -728,7 +728,8 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
   z-index: 20;
   display: flex;
   flex-direction: column;
-  width: min(760px, calc(100% - var(--rpan-w) - var(--rail-w) - 120px));
+  /* 캔버스 폭을 거의 다 쓴다. 760px 로 두었더니 층별 요약 · 요구사항 표가 잘렸다. 드로어에서 무언가를 고르면 닫히니(shell.ts) 3D 를 덮어도 된다. */
+  width: min(1200px, calc(100% - var(--rpan-w) - var(--rail-w) - var(--sp-4)));
   border-left: 1px solid var(--line);
   border-right: 1px solid var(--line);
   background: var(--bg);
@@ -744,6 +745,12 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
 .ed-shell .shell-drawer-body > .actions { margin-top: var(--sp-3); }
 .ed-shell .shell-drawer-body > .overview { margin-top: 0; padding: var(--sp-4); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--surface); }
 .ed-shell .shell-drawer-body .catalog { margin-top: var(--sp-3); }
+/* 펼친 칸의 제목 줄은 드로어 맨 위에 붙는다. styles.css 는 페이지가 스크롤하던 때라 헤더 높이(--appbar-h)만큼 아래에 붙였고, 위 규칙이 배경을
+   투명으로 지워서 목록 한가운데 떠 글자와 겹쳤다(2026-10-16). */
+.ed-shell .shell-drawer .fold.open > .fold-head { top: calc(-1 * var(--sp-3)); z-index: 3; background: var(--bg) !important; }
+/* 표가 드로어보다 넓으면 표만 가로로 스크롤한다. */
+.ed-shell .shell-drawer .fold-body { overflow-x: auto; }
+.ed-shell .shell-drawer .fold-body > table { min-width: 100%; }
 @keyframes shell-slide { from { transform: translateX(16px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ed-shell .shell-drawer { animation: none; } }
 
@@ -800,3 +807,36 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
 
 /* 보기 모드에는 도구 레일이 없다 — 캔버스가 그 폭을 쓴다 */
 .ed-shell.mode-view .workspace { grid-template-columns: minmax(0, 1fr) var(--rpan-w); }
+
+/* 레일 펼침 칸(RailPanel) — 레일 오른쪽, 캔버스 왼쪽 위. 공조존 · 평면도 배경 · 벽·문·창 설정. */
+.ed-shell .shell-rail-panel {
+  position: absolute;
+  top: var(--sp-2);
+  left: calc(var(--rail-w) + var(--sp-2));
+  z-index: 25;
+  width: min(440px, calc(100% - var(--rpan-w) - var(--rail-w) - var(--sp-5)));
+  max-height: calc(100% - 2 * var(--sp-2));
+  overflow-y: auto;
+  padding: 0 var(--sp-3) var(--sp-3);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+}
+.ed-shell .shell-rail-panel-head { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; height: 40px; background: var(--surface); }
+.ed-shell .shell-rail-panel .fold { margin: 0; }
+.ed-shell .shell-rail-panel .fold.open > .fold-head { top: 40px; background: var(--surface) !important; }
+.ed-shell .shell-rail-panel .element-settings { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-2); }
+.ed-shell .rail-extra { margin-top: var(--sp-2); padding-top: var(--sp-2); border-top: 1px solid var(--line); }
+
+/* 층 현황 머리 아래의 층 이름 · 천장고(StoreyEdit). */
+.ed-shell .shell-storey-edit { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-3); padding: 0 var(--sp-4) var(--sp-2); font-size: var(--fs-1); }
+.ed-shell .shell-storey-edit .item { display: inline-flex; align-items: center; gap: var(--sp-1); }
+.ed-shell .shell-storey-edit input { width: 6rem; height: 24px; }
+.ed-shell .shell-storey-edit .ceiling-input { width: 4.5rem; }
+.ed-shell .shell-sel-error { margin: 0 var(--sp-4) var(--sp-2); }
+
+/* 편집 화면은 페이지가 스크롤하지 않는다. hidden 은 scrollIntoView 같은 코드 스크롤을 막지 못해 페이지가 옆으로 밀렸다 — clip 은 막는다. */
+html:has(main.ed-shell), body:has(main.ed-shell) { overflow: clip; }
+/* 헤더 왼쪽 칸은 내용이 몇 px 넘친다. 안의 단추([기준 ▾] · [경고 N])에 포커스가 가면 브라우저가 이 칸을 옆으로 스크롤해 로고 앞 글자가 잘렸다. */
+.ed-shell .shell-head .file { overflow: clip; }
