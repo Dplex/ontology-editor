@@ -14,7 +14,7 @@ PRD #4 · 티켓 29건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | [OE-UI-06](OE-UI-06.md) | 스냅 | R1 | P2 | prd-done |
 | [OE-UI-07](OE-UI-07.md) | 그리드 정렬 | R1 | P2 | prd-done |
 | [OE-UI-08](OE-UI-08.md) | 치수 표시 | R1 | P2 | prd-done |
-| [OE-UI-09](OE-UI-09.md) | 오브젝트 조작 | R1 | P1 | prd-done |
+| [OE-UI-09](OE-UI-09.md) | 오브젝트 조작 | R1 | P1 | prd-updated |
 | [OE-UI-10](OE-UI-10.md) | 설치면 필터 | R1 | P1 | prd-done |
 | [OE-UI-11](OE-UI-11.md) | 평면도 뷰 | R1 | P2 | prd-done |
 | [OE-UI-12](OE-UI-12.md) | 3D 단일 층 표시 | R1 | P2 | prd-done |
