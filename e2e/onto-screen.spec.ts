@@ -110,7 +110,7 @@ test('질문에 지금 화면(평면도·편집·고른 설비)을 id 로 싣고
   expect(line).toContain('- 보기: 2D 평면도 · 편집 모드(설비)')
   // mep.ifc 는 층이 하나라 층 보기가 없다(모든 층). 층 하나를 보는 줄은 scripts/onto-view.test.ts 가 본다.
   expect(line).toContain('- 보는 층: 모든 층')
-  expect(line).toContain('- 고른 것: ex:0MEP\\$Equip\\$AHU1\\$0000 (brick:Air_Handling_Unit)')
+  expect(line).toContain('- 선택 항목: ex:0MEP\\$Equip\\$AHU1\\$0000 (brick:Air_Handling_Unit)')
   expect(line).not.toContain('없는 id')
   expect(errors).toEqual([])
 })

@@ -125,7 +125,7 @@ export function viewLine(view) {
   if (view.editing) parts.push(`편집 모드${typeof view.part === 'string' && /^\w{1,20}$/.test(view.part) ? `(${view.part})` : ''}`)
   if (id(view.storey)) parts.push(`층 id ${view.storey}`)
   const sel = Array.isArray(view.selected) ? view.selected.map(id).filter(Boolean).slice(0, 5) : []
-  if (sel.length) parts.push(`고른 것 id ${sel.join(', ')}`)
+  if (sel.length) parts.push(`선택 항목 id ${sel.join(', ')}`)
   return parts.length ? `[지금 화면] ${parts.join(' · ')} — 이 id 는 code_search 가 아니라 요청을 이해하는 데만 쓴다.` : ''
 }
 

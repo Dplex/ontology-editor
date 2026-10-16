@@ -61,7 +61,7 @@ export function addBoxToGroup(ids: readonly string[]) {
   if (!devices.length) return note('상자 안에 고를 설비가 없습니다(덕트·배관은 빼고 셉니다)')
   const base = group.value.length ? group.value : selectedId.value ? [selectedId.value] : []
   setGroup([...base, ...devices])
-  if (group.value.length) note(`설비 ${group.value.length}대를 골랐습니다. 방향키·끌기로 같이 옮기고 Delete 로 같이 지웁니다`)
+  if (group.value.length) note(`설비 ${group.value.length}대를 골랐습니다. 방향키·드래그로 같이 옮기고 Delete 로 같이 지웁니다`)
 }
 export const groupItems = computed(() => group.value.map((id) => equipmentById.value.get(id)).filter((e): e is Equipment => !!e))
 

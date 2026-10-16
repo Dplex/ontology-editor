@@ -167,7 +167,7 @@ export function finishDraw(): boolean {
     }, d.storeyId)
     if (ok && created) {
       selectedRoomId.value = created
-      note('룸을 만들었습니다. 꼭짓점을 끌어 크기를, 방향키로 자리를 바꿉니다')
+      note('룸을 만들었습니다. 꼭짓점을 드래그해 크기를, 방향키로 자리를 바꿉니다')
     }
     return true
   }

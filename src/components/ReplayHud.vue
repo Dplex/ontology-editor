@@ -677,7 +677,7 @@ const stageState = computed(() => {
       >
         <h4>리플레이 단축키<i>?</i></h4>
         <div v-for="[k, what] in KEYS" :key="k" class="help-row"><kbd>{{ k }}</kbd><span>{{ what }}</span></div>
-        <p>시간줄을 끌면 편집 하나씩 훑고, 눈금·카드·빛기둥을 누르면 그 장면을 반복합니다.</p>
+        <p>타임라인을 드래그하면 편집 하나씩 훑고, 장면 마커·카드·빛기둥을 클릭하면 그 장면을 반복합니다.</p>
       </div>
     </transition>
 
@@ -700,8 +700,8 @@ const stageState = computed(() => {
       <div
         class="track"
         :class="{ scrubbing: scrub?.moved }"
-        aria-label="리플레이 시간줄 — 끌어서 편집 하나씩 훑기. 키보드는 ←·→"
-        title="끌어서 편집 하나씩 훑기"
+        aria-label="리플레이 타임라인 — 드래그해서 편집 하나씩 훑기. 키보드는 ←·→"
+        title="드래그해서 편집 하나씩 훑기"
         @pointerdown="onTrackDown"
         @pointermove="onTrackMove"
         @pointerup="onTrackUp"

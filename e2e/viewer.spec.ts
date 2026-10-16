@@ -47,7 +47,7 @@ test('에디터가 낸 두 파일을 열면 받는 쪽이 읽는 주어·관계�
 
   // 평면의 기기를 누르면 TTL 의 위치와 GeoJSON 의 소속이 나란히 보인다.
   await page.locator('circle.shape.equipment:not(.unread)').first().click()
-  const detail = page.getByRole('complementary', { name: '고른 것' })
+  const detail = page.getByRole('complementary', { name: '선택 항목' })
   await expect(detail).toContainText('hasLocation')
   await expect(detail).toContainText('spaceId')
 })
@@ -63,7 +63,7 @@ test('짝이 아닌 TTL 과 GeoJSON 을 같이 열면 TTL 에 없는 feature 를
   // 누르면 그 feature 를 고른다.
   await bad.locator('summary').click()
   await bad.locator('.ids button').first().click()
-  await expect(page.getByRole('complementary', { name: '고른 것' })).toContainText('TTL 에 이 id 의 엔티티가 없습니다')
+  await expect(page.getByRole('complementary', { name: '선택 항목' })).toContainText('TTL 에 이 id 의 엔티티가 없습니다')
 })
 
 test('GLB·OBJ 도 같이 열면 3D 로 보이고, GeoJSON 과 같은 id·자리인지 재며, 고른 것의 원문이 보인다', async ({ page }, info) => {
@@ -79,7 +79,7 @@ test('GLB·OBJ 도 같이 열면 3D 로 보이고, GeoJSON 과 같은 id·자리
   await page.locator('circle.shape.equipment:not(.unread)').first().click()
   await page.getByRole('tab', { name: '3D · GLB' }).click()
   await expect(page.getByRole('img', { name: '3D 형상' }).locator('canvas')).toBeVisible()
-  const detail = page.getByRole('complementary', { name: '고른 것' })
+  const detail = page.getByRole('complementary', { name: '선택 항목' })
   await expect(detail).toContainText('삼각형')
   await expect(detail.locator('pre.source').first()).toContainText(' a brick:')
   // OBJ 는 extras 가 없어 종류 없이 이름(GlobalId)만 있다.
@@ -106,7 +106,7 @@ test('FBX 를 같이 열면 3D 로 보이고, 사용자 속성으로 종류를 �
   await page.getByRole('tab', { name: '평면(GeoJSON)' }).click()
   await page.locator('circle.shape.equipment:not(.unread)').first().click()
   await page.getByRole('tab', { name: '3D · FBX' }).click()
-  const detail = page.getByRole('complementary', { name: '고른 것' })
+  const detail = page.getByRole('complementary', { name: '선택 항목' })
   await expect(detail).toContainText('mep.fbx')
   await expect(detail).toContainText(' · equipment')
   await expect(detail.locator('.props3d')).toContainText('kind = equipment')
@@ -239,7 +239,7 @@ test('챗봇의 [3D] 링크(?key=…&v=…&select=…)로 열면 서버의 그 �
   })
   await page.goto(`/viewer.html?key=${encodeURIComponent('현장/mep.ifc')}&v=3&select=${encodeURIComponent('0MEP$Equip$AHU1$0000')}`)
   await expect(page.getByTestId('published')).toHaveText('서버의 반영본 v3 · 현장/mep.ifc')
-  await expect(page.getByRole('complementary', { name: '고른 것' })).toContainText('AHU-1')
+  await expect(page.getByRole('complementary', { name: '선택 항목' })).toContainText('AHU-1')
   // GLB 는 &3d=1 일 때만 받는다(크다). edits.json 처럼 뷰어가 읽지 않는 것도 받지 않는다.
   expect(asked.some((q) => q.includes('model.glb') || q.includes('edits.json'))).toBe(false)
   await expect(page.locator('.checks li.bad')).toHaveCount(0)

@@ -268,7 +268,7 @@ export function toggleExplode() {
   }
   if (activeTab.value !== '3d') activeTab.value = '3d'
   exploded.value = explodeNow()
-  note(exploded.value ? 'Brick 클래스별로 띄웠습니다 — 화면에서만이고, 펼친 동안 3D 에서 끌어 옮기지 않습니다' : '띄울 기기가 없습니다(덕트·배관은 띄우지 않습니다)')
+  note(exploded.value ? 'Brick 클래스별로 띄웠습니다 — 화면에서만이고, 펼친 동안 3D 에서 드래그해 옮기지 않습니다' : '띄울 기기가 없습니다(덕트·배관은 띄우지 않습니다)')
 }
 // --- 종류별 색(독의 [Explode], 2026-10-15) ---
 // 기기를 제자리에서 Brick 클래스(TTL 에 나가는 그 클래스, classOf)별 색으로 칠하고 범례에 종류 이름·대수를 보인다. 범례 줄을 누르면 그 종류만

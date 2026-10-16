@@ -63,7 +63,7 @@ export async function copyText(text: string): Promise<boolean> {
 export async function copyShareLink() {
   const url = shareUrl.value
   if (!url) return
-  const what = shareQuery.value?.get('select') ? '고른 것까지' : shareQuery.value?.get('storey') ? '이 층까지' : '이 파일을'
+  const what = shareQuery.value?.get('select') ? '선택 항목까지' : shareQuery.value?.get('storey') ? '이 층까지' : '이 파일을'
   note((await copyText(url)) ? `${what} 여는 링크를 복사했습니다` : `복사하지 못했습니다(브라우저가 막음): ${url}`)
 }
 

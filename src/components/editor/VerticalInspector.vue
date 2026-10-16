@@ -191,7 +191,7 @@ defineProps({
         °
         <span class="muted">{{ COMMON_AXIS.has(selectedVertical.part.kind) ? '승강로 가운데' : '시작점' }} 기준</span>
       </form>
-      <p v-if="rotateTarget" class="hint">3D 의 파란 손잡이를 끌어 돌립니다. 건물 축·가까운 벽 방향 ±3° 안에서는 그 각도에 붙고, Alt 를 누르면 붙지 않습니다. 끄는 중 Esc 면 돌리지 않습니다.</p>
+      <p v-if="rotateTarget" class="hint">3D 의 파란 손잡이를 드래그해 돌립니다. 건물 축·가까운 벽 방향 ±3° 안에서는 그 각도에 붙고, Alt 를 누르면 붙지 않습니다. 끄는 중 Esc 면 돌리지 않습니다.</p>
       <!-- 이 층 조각만(OE-ML-07 "층별 형상·크기·진입/종료 위치"). 다른 층 조각은 그대로다. 형상은 3D 의 꼭짓점 손잡이로 고친다. -->
       <p v-if="COMMON_AXIS.has(selectedVertical.part.kind)" class="hint">모든 층이 같은 공통 축이라 한 층만 고치지 않습니다. 전체 이동으로 옮깁니다.</p>
       <div v-else class="vertical-part-edit" data-testid="vertical-part-edit">
@@ -220,7 +220,7 @@ defineProps({
             m
           </p>
         </template>
-        <p class="hint">{{ selectedVertical.part.footprint.length >= 3 ? '형상은 3D 의 꼭짓점 손잡이를 끌어 고칩니다. 변이 교차하면 되돌립니다.' : '이 층은 형상 없이 지점만 있습니다.' }}</p>
+        <p class="hint">{{ selectedVertical.part.footprint.length >= 3 ? '형상은 3D 의 꼭짓점 손잡이를 드래그해 고칩니다. 변이 교차하면 되돌립니다.' : '이 층은 형상 없이 지점만 있습니다.' }}</p>
       </div>
       <!-- 구간 바꾸기(OE-ML-08). 보기 범위와 따로인 데이터다. 빈 층은 사람이 그리거나 찍어 채워야 적용된다(베껴 채우지 않는다). -->
       <div v-if="verticalRange" class="vertical-range" data-testid="vertical-range">

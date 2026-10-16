@@ -32,7 +32,7 @@ defineProps({
       <li v-if="groupItems.length > 12" class="muted">외 {{ groupItems.length - 12 }}대</li>
     </ul>
     <p class="hint">
-      <kbd>←↑→↓</kbd>·끌기: 같이 옮기기(<kbd>Shift</kbd> 1m) · <kbd>Ctrl</kbd>+클릭: 넣고 빼기 · <kbd>Ctrl</kbd>+끌기: 상자로 더하기 ·
+      <kbd>←↑→↓</kbd>·드래그: 같이 옮기기(<kbd>Shift</kbd> 1m) · <kbd>Ctrl</kbd>+클릭: 넣고 빼기 · <kbd>Ctrl</kbd>+드래그: 상자로 더하기 ·
       <kbd>Esc</kbd>: 풀기. 붙은 배관은 따라오지 않습니다.
     </p>
     <p class="picked-actions">

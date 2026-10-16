@@ -177,9 +177,9 @@ defineProps({
     </div>
 
     <!-- 고른 설비에서 고칠 것(smart-insights). 왜 비었는지 한 줄과 바로 고치는 단추. 단추는 편집 모드로 들어가 여느 편집 함수를 부른다. -->
-    <div v-if="selectedInsights.length" class="smart-insights" role="region" aria-label="이 설비에서 고칠 것">
+    <div v-if="selectedInsights.length" class="smart-insights" role="region" aria-label="이 설비의 보정 항목">
       <div class="insights-head">
-        <span class="insights-badge">고칠 것</span>
+        <span class="insights-badge">보정 항목</span>
         <span class="muted">{{ selectedInsights.length }}건</span>
       </div>
       <ul class="insights-list">

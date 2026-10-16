@@ -188,7 +188,7 @@ export function startZoneVertices(zone: HvacZone) {
   if (model.value!.storeys.length > 1) viewStorey.value = storey.id
   zoneVertexEdit.value = zone.id
   stage.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-  note(`${zone.name}의 꼭짓점을 끌어 옮깁니다. [ ]로 꼭짓점을 짚으면 방향키·Insert·Delete 로 고칩니다 (Esc 마침)`)
+  note(`${zone.name}의 꼭짓점을 드래그해 옮깁니다. [ ]로 꼭짓점을 짚으면 방향키·Insert·Delete 로 고칩니다 (Esc 마침)`)
 }
 /** 공조존 꼭짓점 하나를 옮긴다. 막히면(변 엇갈림·겹치는 물리존 없음) 손잡이를 원래 자리로 다시 그린다. */
 export function moveZoneCorner(index: number, to: Vec2, coalesce?: string): boolean {
