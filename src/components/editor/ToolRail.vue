@@ -4,13 +4,20 @@
 import type { PropType } from 'vue'
 import { editPart, setEditPart } from '../../editor/ceiling'
 import { activeTab } from '../../editor/context-menu'
-import { busy, editing, mode } from '../../editor/core'
+import { editing } from '../../editor/core'
 import { future, history, redo, undo } from '../../editor/history'
-import { editBlock } from '../../editor/people'
 import { drawing } from '../../editor/space-objects'
 import { multiView } from '../../editor/vertical'
 import ToolPalette from './ToolPalette.vue'
 import type { model as modelRef } from '../../editor/core'
+
+// 평면도에서 그리기 · 놓기 도구를 누르면 먼저 3D 로 바꾼다. 도구는 3D 바닥을 찍어 그린다. 평면도에서도 되는 것(data-plan, 벽 · 문 · 창 고르기)과
+// 켜고 끄는 칸(천장 토글 · 체크)은 그대로 둔다.
+function onPlanTool(ev: MouseEvent) {
+  if (activeTab.value !== 'plan') return
+  const b = (ev.target as HTMLElement).closest('button[data-ico]')
+  if (b && !b.hasAttribute('data-plan')) activeTab.value = '3d'
+}
 
 defineProps({
   model: { type: null as unknown as PropType<NonNullable<typeof modelRef.value>>, required: true },
@@ -24,13 +31,14 @@ defineProps({
       <button type="button" :class="{ on: editing && editPart === 'equipment' }" :aria-pressed="editing && editPart === 'equipment'" :disabled="!editing" :title="editing ? '설비 · 배관 · 천장 설비를 고칩니다 (M)' : '편집 모드에서 고릅니다'" @click="setEditPart('equipment')">설비 편집</button>
     </div>
     <template v-if="editing">
-      <ToolPalette v-if="!drawing && activeTab === '3d' && !multiView" :model="model" />
-      <p v-else class="rail-note muted">{{ drawing ? '그리는 중' : multiView ? '다중층 보기' : '평면도' }}</p>
+      <!-- 평면도에서도 도구를 보인다. 그리기 · 놓기는 3D 에서 하므로 누르면 3D 로 바꿔 켠다(onPlanTool). 평면도에서 되는 것은 위 한 줄에 적는다. -->
+      <p v-if="activeTab === 'plan' && !drawing" class="rail-plan-note">평면도: 고르기 · 꼭짓점 끌기 · 벽 고르기<br />그리기는 3D 로 바뀝니다</p>
+      <div v-if="!drawing && !multiView" @click.capture="onPlanTool">
+        <ToolPalette :model="model" />
+      </div>
+      <p v-else class="rail-note muted">{{ drawing ? '그리는 중' : '다중층 보기' }}</p>
     </template>
-    <div v-else class="rail-view">
-      <p class="rail-note muted">보기 모드</p>
-      <button type="button" class="ghost rail-enter" :disabled="busy || !!editBlock" :title="editBlock ?? '편집 모드로 전환 (E)'" @click="mode = 'edit'">편집 시작</button>
-    </div>
+    <p v-else class="rail-note muted">보기 모드<br />헤더의 [편집 시작]</p>
     <div class="rail-history">
       <button type="button" class="ghost" :disabled="!editing || !history.length" :title="history.length ? `되돌리기 (Ctrl+Z): ${history.at(-1)!.label}` : '되돌릴 편집이 없습니다'" @click="undo">↶ 실행취소</button>
       <button type="button" class="ghost" :disabled="!editing || !future.length" :title="future.length ? `다시 하기 (Ctrl+Shift+Z): ${future.at(-1)!.entry.label}` : '다시 할 편집이 없습니다'" @click="redo">↷ 다시실행</button>

@@ -37,6 +37,8 @@ const props = defineProps<{
   /** 같이 고른 것으로 칠할 벽(외벽 에디터의 같은 면 묶음, OE-EXT-03). */
   alsoChosen?: readonly string[]
   editing: boolean
+  /** 고른 꼭짓점(물리존 외곽선의 몇 번째). 3D 와 같은 값이라, 어느 꼭짓점이 방향키로 움직일지 평면도에서도 보인다. */
+  activeVertex?: number | null
   /** 벽을 눌러 고를 수 있나. 3D 와 같이 편집 모드에서 [벽·문·창] 을 켰을 때만이다. */
   pickWalls: boolean
   /** 여러 개 고른 설비(OE-UI-09). 고른 색으로 그린다. */
@@ -151,7 +153,8 @@ function onWheel(event: WheelEvent) {
 let pan: { x: number; y: number; vx: number; vy: number } | null = null
 /** 끌어서 옮겼으면 뒤따르는 클릭을 고르기로 치지 않는다. */
 let moved = false
-const drag = ref<{ index: number; at: Vec2 } | null>(null)
+// `from` 은 누른 화면 좌표. 3px 넘게 끌어야 옮긴다 — 누르기만 해도 손잡이 안의 누른 자리로 꼭짓점이 몇 cm 옮겨졌다.
+const drag = ref<{ index: number; at: Vec2; from: [number, number]; moved: boolean } | null>(null)
 /** Ctrl+끌기로 그리는 고르기 상자(OE-UI-09). IFC 평면 좌표. */
 const box = ref<{ from: Vec2; to: Vec2 } | null>(null)
 
@@ -174,7 +177,8 @@ function onPointerMove(event: PointerEvent) {
     return
   }
   if (drag.value) {
-    drag.value = { index: drag.value.index, at: toModel(event) }
+    const far = drag.value.moved || Math.hypot(event.clientX - drag.value.from[0], event.clientY - drag.value.from[1]) > 3
+    drag.value = { ...drag.value, at: toModel(event), moved: far }
     return
   }
   if (!pan) return
@@ -193,7 +197,7 @@ function onPointerUp() {
     emit('selectBox', devices.value.filter((e) => e.position![0] >= x0 && e.position![0] <= x1 && e.position![1] >= y0 && e.position![1] <= y1).map((e) => e.id))
     return
   }
-  if (drag.value && spaceId.value) {
+  if (drag.value?.moved && spaceId.value) {
     const [x, y] = drag.value.at
     // 1mm 로 자른다. 끌기가 만든 소수점 끝자리가 편집 파일을 어지럽히지 않게.
     emit('moveVertex', spaceId.value, drag.value.index, [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000])
@@ -206,7 +210,7 @@ function startVertex(event: PointerEvent, index: number) {
   event.stopPropagation()
   emit('pickVertex', index)
   ;(event.target as Element).setPointerCapture?.(event.pointerId)
-  drag.value = { index, at: toModel(event) }
+  drag.value = { index, at: toModel(event), from: [event.clientX, event.clientY], moved: false }
 }
 
 // --- 그릴 것 -------------------------------------------------------------------------
@@ -263,7 +267,7 @@ const selectedSpace = computed(() => spaces.value.find((s) => s.id === spaceId.v
 const previewRing = computed(() => {
   const s = selectedSpace.value
   if (!s) return null
-  if (!drag.value) return s.footprint
+  if (!drag.value?.moved) return s.footprint
   const ring = [...s.footprint]
   const last = ring.length - 1
   ring[drag.value.index] = drag.value.at
@@ -461,11 +465,11 @@ function pickVertical(event: MouseEvent, id: string) {
         <circle
           v-for="(p, i) in previewRing.slice(0, -1)"
           :key="i"
-          class="handle"
+          :class="['handle', { on: i === activeVertex }]"
           :cx="sx(p[0])"
           :cy="sy(p[1])"
-          :r="unit * 6"
-          :stroke-width="unit * 1.5"
+          :r="unit * (i === activeVertex ? 9 : 6)"
+          :stroke-width="unit * (i === activeVertex ? 8 : 1.5)"
           :data-vertex="i"
           @pointerdown="startVertex($event, i)"
         />

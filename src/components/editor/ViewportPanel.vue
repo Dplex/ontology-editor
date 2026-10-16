@@ -11,7 +11,7 @@ import { acceptAddKind, adding, addKind, addMountHint, addName, addNameInput, ad
 import { compareError, compareOpen, comparePending, compareReading, compareSelected, compareShown, compareView, selectedElement, selectFromCompare, wallDims } from '../../editor/export-compare'
 import { facadeGroup } from '../../editor/facade'
 import { arrowPalette, flowDraft, hasArrows, selected, selectedId, showRules, tracedRules } from '../../editor/flow-rules'
-import { gridView } from '../../editor/grid-snap'
+import { activeVertex, gridView } from '../../editor/grid-snap'
 import { planZones, selectedZone, selectZone } from '../../editor/idf-zones'
 import { dropVertex, flying, helpOpen, keyNote, pickVertex } from '../../editor/keyboard'
 import { hex, selectedSystemId } from '../../editor/kinds'
@@ -76,6 +76,7 @@ defineProps({
         :selected-element-id="selectedElementId"
         :also-chosen="facadeGroup ? facadeGroup.map((x) => x.id) : undefined"
         :editing="editing"
+        :active-vertex="activeVertex"
         :pick-walls="editing && archMode"
         :group="group"
         :grid="gridView && gridView.storeyId === planStorey.id ? { x: gridView.x, y: gridView.y } : null"

@@ -41,7 +41,7 @@ defineProps({
     <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). 옆의 [오브젝트] 는 추가 공간 오브젝트 라이브러리를 편다
          (OE-SPC-14). 둘을 한 줄에 두고 머리말도 따로 두지 않는다 — 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
     <span class="palette-row">
-      <button data-ico="▥" type="button" :class="['ghost', { on: archMode, locked: ceilingMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="ceilingMode ? lockedTool() : (archMode = !archMode)">
+      <button data-plan data-ico="▥" type="button" :class="['ghost', { on: archMode, locked: ceilingMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="ceilingMode ? lockedTool() : (archMode = !archMode)">
         벽·문·창
       </button>
       <button data-ico="▦"

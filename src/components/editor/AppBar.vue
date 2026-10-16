@@ -47,7 +47,7 @@ defineProps({
           class="mode-chip"
           :class="editing ? editKind : 'view'"
           data-testid="edit-kind"
-          :title="editing ? (editKind === 'operate' ? '반영된 온톨로지가 있는 층을 이어서 고칩니다' : '온톨로지가 없는 층을 처음 만듭니다') : '보기 모드입니다. 고치려면 [편집] 을 누릅니다 (E)'"
+          :title="editing ? (editKind === 'operate' ? '반영된 온톨로지가 있는 층을 이어서 고칩니다' : '온톨로지가 없는 층을 처음 만듭니다') : '보기 모드입니다. 고치려면 [편집 시작] 을 누릅니다 (E)'"
         >
           {{ editing ? (editKind === 'operate' ? '운영 편집' : '초기 구축') : '보기' }}
         </span>
@@ -151,11 +151,8 @@ defineProps({
         <button type="button" class="ghost keys-help" title="조작·단축키 안내 (?)" aria-label="조작·단축키 안내" @click="helpOpen = true">?</button>
         <button type="button" class="ghost theme icon-btn" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme"><ThemeIcon :dark="dark" /></button>
         <span class="bar-sep" aria-hidden="true"></span>
-        <!-- 보기와 편집. 편집은 고치는 손잡이를 드러낼 뿐이고 편집한 결과는 모드를 바꿔도 남는다. -->
-        <div v-if="!editing" class="mode-switch" role="group" aria-label="화면 모드">
-          <button type="button" :aria-pressed="mode === 'view'" title="보기 모드로 전환 (E)" @click="leaveEdit()">보기</button>
-          <button type="button" :aria-pressed="mode === 'edit'" :disabled="busy || !!editBlock" :title="editBlock ?? '편집 모드로 전환 (E)'" @click="mode = 'edit'">편집</button>
-        </div>
+        <!-- 보기 모드에서는 [편집 시작] 하나. 편집에서 나가는 것은 [편집 종료] 다(보기/편집 스위치는 같은 일을 두 번 보였다). -->
+        <button v-if="!editing" type="button" class="ghost primary-action shell-enter" data-testid="edit-start" :disabled="busy || !!editBlock" :title="editBlock ?? '편집 모드로 전환 (E)'" @click="mode = 'edit'">편집 시작</button>
         <!-- PRD #9 의 액션바. 채움 단추는 [반영하기]/[구축하기] 하나, [편집 종료] 는 위험 선 단추(design-system.md 4장). -->
         <div v-else class="edit-bar shell-actions" role="group" aria-label="편집 동작">
           <!-- 편집 저장과 임시 저장은 둘 다 보인다. 하나만 보이면 둘이 무엇이 다른지 더 헷갈린다. -->
@@ -210,7 +207,7 @@ defineProps({
       <template v-else>
         <span class="shell-info-icon" aria-hidden="true">◇</span>
         <b>보기 모드</b>
-        <span class="muted">| 3D · 평면도에서 고르면 오른쪽에 뜹니다. 고치려면 [편집] 을 누릅니다 (E).</span>
+        <span class="muted">| 3D · 평면도에서 고르면 오른쪽에 뜹니다. 고치려면 [편집 시작] 을 누릅니다 (E).</span>
       </template>
     </div>
     <!-- 자동 저장 복구(OE-HIST-04). 묻는 말과 [예]·[아니오] 는 PRD 문구 그대로다. -->
