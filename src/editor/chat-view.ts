@@ -2,6 +2,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { josa } from '../lib/josa'
 import { partnerOf as findPartner, type Profile } from '../lib/profile'
 import { fileName, model } from './core'
+import { note } from './keyboard'
 import { shortName } from './equipment-shape'
 import { equipmentById } from './flow-rules'
 import { storeyOf } from './multi-select'
@@ -62,8 +63,7 @@ function showFromChat(ids: readonly string[]): Editor3dResult {
   return out
 }
 
-// 3D 와 고른 설비 패널을 같이 전체 화면으로 띄운다. 3D 만 띄우면 설비를 눌러도 무엇을 골랐는지 안 보인다.
-// Esc 로 나가는 것은 브라우저가 하므로, 상태는 버튼이 아니라 fullscreenchange 로 따라간다.
+// 3D 와 고른 설비 패널을 같이 창 가득 띄운다(넓게 보기). 3D 만 띄우면 설비를 눌러도 무엇을 골랐는지 안 보인다.
 export const stage = ref<HTMLElement | null>(null)
 
 /**
@@ -82,8 +82,12 @@ export function revealStage() {
   const top = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--appbar-h')) || 0
   if (r.top < top - 1 || r.top > window.innerHeight * 0.5) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
+/**
+ * 넓게 보기. 브라우저 전체 화면(requestFullscreen)이 아니라 작업 영역을 창 가득 키운다 — 브라우저 전체 화면은 Esc 를 브라우저가 먼저 받아
+ * 꺼 버려서, 설비를 고르고 Esc(선택 해제)를 누르면 전체 화면이 꺼졌다(2026-10-16). 페이지는 Esc 를 되찾을 수 없고(Keyboard Lock 은 https 만),
+ * F11 을 대신 누를 수도 없어서, 탭 · 주소창까지 숨기려면 사람이 F11 을 누르게 안내한다. 사람이 누른 F11 은 Esc 로 꺼지지 않는다.
+ */
 export const fullscreen = ref(false)
-const onFullscreenChange = () => (fullscreen.value = document.fullscreenElement === stage.value)
 
 // 도구막대 높이를 재서 작업 화면(3D + 오른쪽 패널)이 남은 높이를 쓰게 한다. 폭이 좁으면 막대가 두 줄이 되고, 편집 중에는
 // 편집 줄이 붙는다 — 높이를 고정값으로 빼면 그때마다 3D 아래가 잘린다.
@@ -92,8 +96,8 @@ const appbarObserver = new ResizeObserver(([entry]) => {
   document.documentElement.style.setProperty('--appbar-h', `${Math.ceil(entry.target.getBoundingClientRect().height)}px`)
 })
 export function toggleFullscreen() {
-  if (document.fullscreenElement) void document.exitFullscreen()
-  else void stage.value?.requestFullscreen()
+  fullscreen.value = !fullscreen.value
+  if (fullscreen.value) note('넓게 보기 — 나가기 Ctrl+\\ · 탭 · 주소창까지 숨기려면 F11')
 }
 
 // dev 서버가 data/ 의 .ifc 목록을 준다(vite.config.ts). 빌드 번들에선 실패하고 빈 목록이 된다.
@@ -166,8 +170,6 @@ export function mb(bytes: number) {
 export function setupChatView() {
   ;  (window as unknown as { __editor3d?: { show: typeof showFromChat } }).__editor3d = { show: showFromChat }
   onBeforeUnmount(() => delete (window as unknown as { __editor3d?: unknown }).__editor3d)
-  document.addEventListener('fullscreenchange', onFullscreenChange)
-  onBeforeUnmount(() => document.removeEventListener('fullscreenchange', onFullscreenChange))
   watch(appbar, (el, old) => {
     if (old) appbarObserver.unobserve(old)
     if (el) appbarObserver.observe(el)

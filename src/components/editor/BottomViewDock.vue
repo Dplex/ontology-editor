@@ -43,8 +43,8 @@ import AlignToggles from '../AlignToggles.vue'
     >
       결과 비교
     </button>
-    <button type="button" :class="['view-pill', 'fullscreen', { on: fullscreen }]" :aria-pressed="fullscreen" title="작업 영역 전체 화면 전환 (나가기: Esc)" @click="toggleFullscreen">
-      {{ fullscreen ? '전체 화면 나가기' : '전체 화면' }}
+    <button type="button" :class="['view-pill', 'fullscreen', { on: fullscreen }]" :aria-pressed="fullscreen" title="작업 영역을 창 가득 띄웁니다 (Ctrl+\). 탭 · 주소창까지 숨기려면 F11" @click="toggleFullscreen">
+      {{ fullscreen ? '넓게 보기 나가기' : '넓게 보기' }}
     </button>
   </nav>
 </template>

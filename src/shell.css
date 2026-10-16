@@ -356,7 +356,8 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
   margin: 0;
   scroll-margin-top: 0;
 }
-.ed-shell .stage.full.workspace { height: 100vh; padding: 0; }
+/* 넓게 보기(chat-view.ts) — 브라우저 전체 화면이 아니라 작업 영역을 창 가득 덮는다. 헤더 · 상태줄은 그 아래에 가려진다. */
+.ed-shell .stage.full.workspace { position: fixed; inset: 0; z-index: 60; height: auto; padding: 0; }
 @media (max-width: 1200px) { .ed-shell { --rpan-w: 300px; } }
 
 .ed-shell .workspace .viewport {
