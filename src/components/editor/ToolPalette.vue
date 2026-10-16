@@ -34,17 +34,17 @@ defineProps({
     <span class="palette-head">공간 그리기</span>
     <!-- 두 버튼을 한 줄에 둔다. 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
     <span class="palette-row">
-      <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="물리존 그리기" title="바닥에 꼭짓점을 찍어 새 물리존(방)을 그립니다" @click="ceilingMode ? lockedTool() : startCreateSpace()">물리존</button>
-      <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="룸 그리기" title="물리존 안에 대각선 두 꼭짓점을 찍어 세부 룸을 그립니다" @click="ceilingMode ? lockedTool() : startRoom()">룸</button>
-      <button type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="커스텀존 그리기" title="물리존 위에 운영 구역(임원석·식당 등)을 다각형으로 그립니다. 서로 겹쳐도 됩니다" @click="ceilingMode ? lockedTool() : startCustomZone()">커스텀존</button>
+      <button data-ico="▢" type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="물리존 그리기" title="바닥에 꼭짓점을 찍어 새 물리존(방)을 그립니다" @click="ceilingMode ? lockedTool() : startCreateSpace()">물리존</button>
+      <button data-ico="⊡" type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="룸 그리기" title="물리존 안에 대각선 두 꼭짓점을 찍어 세부 룸을 그립니다" @click="ceilingMode ? lockedTool() : startRoom()">룸</button>
+      <button data-ico="⬚" type="button" :class="['ghost', { locked: ceilingMode }]" aria-label="커스텀존 그리기" title="물리존 위에 운영 구역(임원석·식당 등)을 다각형으로 그립니다. 서로 겹쳐도 됩니다" @click="ceilingMode ? lockedTool() : startCustomZone()">커스텀존</button>
     </span>
     <!-- 켜면 3D 에 벽·문·창이 서고 바닥 누르기가 그것을 먼저 고른다(E4). 옆의 [오브젝트] 는 추가 공간 오브젝트 라이브러리를 편다
          (OE-SPC-14). 둘을 한 줄에 두고 머리말도 따로 두지 않는다 — 팔레트가 높아지면 3D 왼쪽 아래(작은 파일에서는 건물이 있는 자리)를 가린다. -->
     <span class="palette-row">
-      <button type="button" :class="['ghost', { on: archMode, locked: ceilingMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="ceilingMode ? lockedTool() : (archMode = !archMode)">
+      <button data-ico="▥" type="button" :class="['ghost', { on: archMode, locked: ceilingMode }]" :aria-pressed="archMode" title="벽·문·창을 3D에 세우고 고쳐 봅니다" @click="ceilingMode ? lockedTool() : (archMode = !archMode)">
         벽·문·창
       </button>
-      <button
+      <button data-ico="▦"
         type="button"
         :class="['ghost', 'objects-toggle', { on: objectsOpen || adding?.what === 'object', locked: ceilingMode }]"
         :aria-expanded="objectsOpen"
@@ -56,7 +56,7 @@ defineProps({
     </span>
     <!-- 수직 관통 오브젝트는 다중층 뷰에서 만든다(OE-ML-06). 여기서 누르면 지금 층과 위층으로 열고 만들기 칸을 띄운다 — 다중층 뷰
          안쪽에만 길이 있으면 찾지 못했다(2026-10-13). 위 줄에 붙이면 팔레트 밖으로 삐져나와 제 줄에 둔다. -->
-    <button v-if="model && model.storeys.length > 1" type="button" :class="['ghost', { locked: ceilingMode }]" title="다중층 뷰(지금 층과 위층)를 열어 계단·샤프트를 만듭니다" @click="ceilingMode ? lockedTool() : startCreateVertical('stair')">계단·샤프트</button>
+    <button data-ico="⫶" v-if="model && model.storeys.length > 1" type="button" :class="['ghost', { locked: ceilingMode }]" title="다중층 뷰(지금 층과 위층)를 열어 계단·샤프트를 만듭니다" @click="ceilingMode ? lockedTool() : startCreateVertical('stair')">계단·샤프트</button>
     <div v-if="objectsOpen && !ceilingMode" class="object-library" role="group" aria-label="오브젝트 라이브러리">
       <button
         v-for="item in objectLibrary"
@@ -81,11 +81,11 @@ defineProps({
       />
     </div>
     <template v-if="archMode">
-      <button type="button" class="ghost" title="바닥에 두 점을 찍어 벽을 긋습니다" @click="startWall">벽 긋기</button>
-      <button type="button" :class="['ghost', { on: adding?.what === 'door' }]" title="벽 가까이 눌러 문을 놓습니다" @click="adding?.what === 'door' ? stopAdd() : startOpening('door')">문 놓기</button>
-      <button type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
+      <button data-ico="╱" type="button" class="ghost" title="바닥에 두 점을 찍어 벽을 긋습니다" @click="startWall">벽 긋기</button>
+      <button data-ico="◫" type="button" :class="['ghost', { on: adding?.what === 'door' }]" title="벽 가까이 눌러 문을 놓습니다" @click="adding?.what === 'door' ? stopAdd() : startOpening('door')">문 놓기</button>
+      <button data-ico="▭" type="button" :class="['ghost', { on: adding?.what === 'window' }]" title="벽 가까이 눌러 창을 놓습니다" @click="adding?.what === 'window' ? stopAdd() : startOpening('window')">창 놓기</button>
       <!-- 외벽 에디터(OE-EXT-03). 외벽을 고르면 다른 층의 같은 면 외벽까지 묶어 함께 옮긴다. -->
-      <button
+      <button data-ico="⧉"
         type="button"
         :class="['ghost', { on: exteriorEditor }]"
         :aria-pressed="exteriorEditor"
@@ -126,7 +126,7 @@ defineProps({
     <span v-else-if="ceilingStorey && ceilingOf(ceilingStorey)" class="ceiling-now muted">
       천장고 {{ meters(ceilingOf(ceilingStorey)!.height) }} <Src :kind="ceilingOf(ceilingStorey)!.source" />
     </span>
-    <button
+    <button data-ico="＋"
       type="button"
       :class="['ghost', { on: adding?.what === 'equipment' }]"
       :aria-pressed="adding?.what === 'equipment'"
@@ -167,8 +167,8 @@ defineProps({
       <i class="ring" :style="{ color: hex(CEILING_RING_COLORS.plenum) }"></i>플레넘
     </span>
     <!-- 라이저(OE-UI-04 · OE-ML-12). 층간 배관은 다중층 뷰에서 그린다 — 설비를 고르면 다른 층 설비까지 잇는 칸이 뜬다. -->
-    <button v-if="model && model.storeys.length > 1" type="button" class="ghost" title="다중층 뷰를 열어 층간 배관(라이저)을 그립니다" @click="openMultiView()">라이저</button>
-    <button v-if="model && model.storeys.length > 1" type="button" class="ghost" title="다중층 뷰(지금 층과 위층)를 열어 엘리베이터·에스컬레이터를 만듭니다" @click="startCreateVertical('elevator')">EL·ES</button>
+    <button data-ico="⇅" v-if="model && model.storeys.length > 1" type="button" class="ghost" title="다중층 뷰를 열어 층간 배관(라이저)을 그립니다" @click="openMultiView()">라이저</button>
+    <button data-ico="⇕" v-if="model && model.storeys.length > 1" type="button" class="ghost" title="다중층 뷰(지금 층과 위층)를 열어 엘리베이터·에스컬레이터를 만듭니다" @click="startCreateVertical('elevator')">EL·ES</button>
     </template>
   </nav>
 </template>

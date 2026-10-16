@@ -32,10 +32,9 @@ import Src from '../Src.vue'
 import BottomViewDock from './BottomViewDock.vue'
 import ContextMenu from './ContextMenu.vue'
 import DrawBar from './DrawBar.vue'
-import FacadeDock from './FacadeDock.vue'
 import FilterPanel from './FilterPanel.vue'
 import RightCol from './RightCol.vue'
-import ToolPalette from './ToolPalette.vue'
+import ViewLayers from './ViewLayers.vue'
 import type { counts as countsRef, model as modelRef } from '../../editor/core'
 
 // 부모의 v-if 가 null 이 아님을 보장한 값(docs/dev/app-structure.md)
@@ -55,8 +54,8 @@ defineProps({
       </p>
       <!-- 3D 우클릭 메뉴(E3, ui-notes 보기 필터). 끌지 않은 우클릭만 — 오른쪽 드래그는 그대로 회전이다. -->
       <ContextMenu v-if="ctxMenu && activeTab === '3d'" :ctx-menu="ctxMenu" />
-      <!-- 좌측 상단 FACADE 스타일 플로팅 독(Dock). 3D 탐색·필터·분해도를 왼쪽에서 바로 열고 닫는다. -->
-      <FacadeDock v-if="activeTab === '3d' && !replayOpen" />
+      <!-- 왼쪽 위: [3D | 평면도] 와 레이어(OE-UI-19 · OE-UI-20). 편집 도구는 왼쪽 레일(ToolRail)에 있다. -->
+      <ViewLayers v-if="!replayOpen" :model="model" />
       <!-- 보기 필터 패널(V2 · FACADE 스타일 좌측 탐색 드로어). 항목마다 설비 대수. 클래스는 TTL 에 나가는 그 클래스다. -->
       <FilterPanel v-if="filterOpen && viewFacets && filteredExplorerFacets && activeTab === '3d'" :filtered-explorer-facets="filteredExplorerFacets" :view-facets="viewFacets" />
       <!-- 성능 표(개발용, ` 키). 3D 는 바뀔 때만 그려서 가만히 있으면 그린 장수가 0 이다. -->
@@ -126,7 +125,6 @@ defineProps({
         <span class="muted">보기 범위만 바꿉니다. 오브젝트의 관통 구간은 그대로입니다. {{ editing ? '여기서는 수직 관통 오브젝트를 만들고 옮기고 지우고 구간을 바꿉니다. 설비를 고르면 다른 층 설비까지 층간 배관을 그립니다.' : '' }}</span>
         <button v-if="editing && !verticalCreate" type="button" class="ghost banner-action" @click="startCreateVertical()">수직 관통 오브젝트 만들기</button>
       </p>
-      <ToolPalette v-if="editing && !drawing && activeTab === '3d' && !multiView" :model="model" />
       <!-- 설비 라벨(V4, lib/equipment-labels.ts). 점 위에 이름과 소속·종류 배지, 아래로 짧은 지시선. 누르면 그 설비를 고른다. -->
       <div v-if="equipmentLabels.length" class="eq-labels" data-testid="eq-labels">
         <button
@@ -142,17 +140,12 @@ defineProps({
           <span v-for="b in l.badges" :key="b.text" :class="['eq-badge', b.tone]" :title="b.title">{{ b.text }}</span>
         </button>
       </div>
-      <!-- 시점 조작 안내(OE-OBJ-15). 지도처럼 왼쪽 드래그가 화면 이동이다. 편집 모드의 Ctrl+드래그는 여러 개 고르기다(OE-UI-09). -->
-      <!-- 다중층 뷰에서는 위쪽에 보기 범위 칸이 길게 들어와 이 안내를 덮는다. 다중층 뷰는 보기만 하니 뺀다. -->
-      <p v-if="activeTab === '3d' && !multiView" class="view-controls-hint" aria-label="시점 조작 안내">
-        드래그: 이동 · Shift/우클릭 드래그: 회전 · {{ editing ? 'Ctrl+드래그: 여러 개 선택 · ' : '' }}휠: 확대
-      </p>
       <!-- 3D 오른쪽 위 세로 줄: 시점 막대 → 보기 필터 칩 → [벽 범례 | 방향 큐브] → 층별 칩. 한 줄에 차례로 쌓아서
          막대가 두 줄로 꺾이거나 층이 많아도(성수 20층) 서로 덮지 않는다. -->
       <RightCol :model="model" />
       <!-- 시점 바로가기(아래 가운데). 3D 조작이 낯선 사람도 길을 잃으면 여기서 돌아온다. 평면도·비행은 위 막대에 이미 있어 두지 않는다.
            보기 모드에서만 — 편집 모드의 아래는 조작 안내·치수 풍선 자리라 겹쳤다. 키(0·O·F)는 편집에서도 먹는다. -->
-      <BottomViewDock v-if="activeTab === '3d' && !replayOpen && !editing" />
+      <BottomViewDock v-if="!replayOpen" />
     </div>
 
     <!-- 종류별 색의 범례(독의 [Explode]). 줄을 누르면 그 종류만 색으로 남긴다. 클래스 원문은 TTL 에 나가는 그 클래스다. -->

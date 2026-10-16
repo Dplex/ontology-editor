@@ -150,9 +150,9 @@ defineProps({
       <p class="hint">벽에서 이 거리 안을 눌러야 문·창이 가장 가까운 벽에 붙습니다. 이 브라우저에만 남습니다.</p>
     </div>
     <p class="hint">
-      3D에서 설비를 클릭하면 연결과 소속이, 바닥을 클릭하면 물리존 정보가 여기에 표시됩니다.
+      3D에서 설비를 클릭하면 연결과 소속이, 바닥을 클릭하면 물리존 정보가 오른쪽 위 카드에 표시됩니다.
       <template v-if="warnings.length"><a href="#warnings" class="link">경고 {{ warnings.length }}건</a>, </template>
-      요구사항, 검사, 표는 3D 아래에 있습니다.
+      요구사항, 검사, 표는 이 패널 아래에 있습니다.
     </p>
     <!-- 출처 표. 숫자·표·3D 색에 붙는 꼬리표가 무엇을 뜻하는지. -->
     <p class="src-key">

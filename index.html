@@ -13,11 +13,13 @@
     <script>
       (function () {
         try {
-          if (localStorage.getItem('oe-theme') === 'dark') {
+          // 편집 화면 비교판(design-system.md): 에디터는 다크가 기본이다. 라이트를 고른 사람만 라이트.
+          if (localStorage.getItem('oe-theme') !== 'light') {
             document.documentElement.setAttribute('data-theme', 'dark')
           }
         } catch (e) {
-          // 사생활 보호 모드에서는 저장소를 못 읽는다. 그때는 기본값인 라이트로 둔다.
+          // 사생활 보호 모드에서는 저장소를 못 읽는다. 그때도 기본값인 다크로 둔다.
+          document.documentElement.setAttribute('data-theme', 'dark')
         }
       })()
     </script>
