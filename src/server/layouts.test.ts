@@ -139,7 +139,9 @@ describe('반영한 레이아웃과 버전', () => {
 
   it('v1 과 이후 반영 버전은 같은 메타 칸을 쓰고, 반영 버전은 기준 버전과 화면이 보낸 작업 id 를 적는다 [OE-GEN-05#3] [OE-GEN-05#1~]', async () => {
     // 앞 시험이 시계를 며칠 뒤로 돌려 두었다. 그대로면 방금 올린 판을 하루 넘게 묵은 판으로 보고 치운다.
-    clock = new Date()
+    // 실제 시각(new Date())은 쓰지 않는다 — v1(10-09)이 7일을 넘는 날부터 히스토리에서 빠져 이 시험이 깨졌다(2026-10-16).
+    // v1 이 보관 기간 안인 고정 시각이다. 방금 올린 판의 파일 시각(실제 시각)이 이보다 뒤라 묵은 판으로 치우지도 않는다.
+    clock = new Date('2026-10-12T00:00:00Z')
     const before = (await list()).current
     const stage = 'stagework01'
     for (const [file, body] of Object.entries({ 'ontology.ttl': '# w', 'edits.json': '{}', 'tree.json': '{"storeys":[]}', 'geojson/1F.geojson': '{"type":"FeatureCollection","features":[]}' }))
