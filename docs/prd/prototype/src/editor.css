@@ -1,5 +1,5 @@
 /* 에디터 화면(.ed) — 뼈대는 와이어프레임 v0.2 ⑥(헤더 · 안내 바 · [도구 레일 | 캔버스 | 우측 패널] · 상태줄),
-   모양은 공통 디자인 시스템(prototype/design-audit/DESIGN.md) + 에디터 확장(docs/prd/design-system.md).
+   모양은 docs/prd/design-system.md — 공통 층(A장) + 에디터 확장(1~8장).
    값은 tokens.css 의 변수만 쓴다. 에디터 밖 화면은 platform.css 그대로다. */
 
 /* 에디터일 때는 사이드바·상단바를 걷고 화면 전체를 쓴다 */
@@ -10,7 +10,7 @@
 .ed{height:100vh;min-height:620px;display:flex;flex-direction:column;background:var(--bg);color:var(--fg);font-family:var(--font);font-size:var(--fs-2);line-height:1.5;font-variant-numeric:tabular-nums;color-scheme:dark}
 .ed ::-webkit-scrollbar{width:8px;height:8px}.ed ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 
-/* ── 공통 컴포넌트(DESIGN.md 3·4장) ── */
+/* ── 공통 컴포넌트(design-system.md A4·A5) ── */
 /* 단추 — 보조(선)가 기본, .primary 채움, .ghost 글자, .danger 위험 선, .warn 주의 선 */
 .ed button,.ed-modal button{height:var(--ctl-md);padding:0 var(--sp-3);border-radius:var(--r-pill);border:1px solid var(--line);background:transparent;color:var(--fg);font:inherit;font-size:var(--fs-2);font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:var(--sp-h);white-space:nowrap;cursor:pointer;transition:background-color var(--t-hover) var(--ease),border-color var(--t-hover) var(--ease),color var(--t-hover) var(--ease),transform var(--t-press) var(--ease)}
 .ed button:hover:not(:disabled),.ed-modal button:hover:not(:disabled){background:var(--surface-soft);border-color:var(--line)}
@@ -248,7 +248,7 @@
 .ed-modal .idf-table{font-size:var(--fs-1)}.ed-modal .idf-table td{border-color:var(--line)}
 .ed-modal .warn-row span{background:var(--warn-bg);color:var(--warn-fg)}
 
-/* 움직임 끄기 — 이동·확대만 끄고 색 변화는 남긴다(DESIGN.md 5장) */
+/* 움직임 끄기 — 이동·확대만 끄고 색 변화는 남긴다(design-system.md A6) */
 @media(prefers-reduced-motion:reduce){.ed button,.ed-modal button{transition:background-color var(--t-hover),border-color var(--t-hover),color var(--t-hover)!important}.ed button:active,.ed-modal button:active{transform:none!important}}
 @media(max-width:1200px){.ed{--rpan-w:300px}.ed-crumb span{max-width:120px}.ed-head .hide-narrow{display:none}}
 

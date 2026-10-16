@@ -1,20 +1,16 @@
-# design-audit — 화면 디자인·인터랙션 진단과 시스템 시험
+# design-audit — 개발 앱 화면 진단 시험 코드와 이전 자료
 
-OE-UI-23(화면 디자인·모션 기준)의 근거 자료와 시험 코드다. 앱(`src/`)은 읽기만 하고 고치지 않는다. 결과물(스샷·JSON)은 gitignore 된 `.local/design-audit/` 에 쓴다(`components-sheet.png` 만 보기용으로 여기에 둠).
+디자인 시스템의 정본은 [`docs/prd/design-system.md`](../../design-system.md) 하나다(공통 층 A1~A7 = OE-UI-23, 에디터 확장 1~8 = OE-UI-17, 진단 · 후보 비교 · 시험 결과는 부록). 이 폴더는 그 공통 층을 정할 때 개발 앱(`src/`)을 잰 시험 코드와, 개발 앱에 옮길 때 쓰는 자료만 둔다. 앱은 읽기만 하고 고치지 않는다. 결과물(스샷 · JSON)은 gitignore 된 `.local/design-audit/` 에 쓴다.
 
 ## 문서
 
 | 문서 | 담는 것 | 읽는 때 |
 |---|---|---|
-| [DESIGN.md](DESIGN.md) | 디자인 시스템 초안 — 색 토큰·척도·컴포넌트·상태·모션 | 기준이 무엇인지 볼 때(정본) |
-| [COMPONENTS.md](COMPONENTS.md) | 컴포넌트 인벤토리(계열별 모양 수·어긋남), 상태·다크 측정, 시스템 시험 결과 | 왜 이 기준이 필요한지 볼 때 |
-| [TOKEN-MAP.md](TOKEN-MAP.md) | 현재 CSS 값이 척도로 얼마나 움직이는지 | 실제 반영 비용을 가늠할 때 |
-| [FINDINGS.md](FINDINGS.md) | 1단계 진단(글자 크기·클릭 영역·접근성) | 출발점 |
-| [COMPARE.md](COMPARE.md) | 후보 3종 비교(Linear·Vercel·Stripe), 레이아웃 시험, 편집 모드·큰 파일 점검 | 방향을 고른 근거 |
-| [MOTION.md](MOTION.md) | 모션 목록과 정리안 | 모션 기준 |
-| [HANDOFF.md](HANDOFF.md) | 다른 세션에 맥락을 넘기는 인수인계(위치·한 일·결정·제약·가져가는 방법) | 처음 읽을 때 |
-| `index-changes.patch` | E03 색인 3곳(건수·표 행·변경 이력)만의 패치. 새 브랜치에 적용할 때 쓴다 | HANDOFF 10장 |
-| `components-sheet.png` · `components-sheet-system.png` | 컴포넌트 29종 대표 사진(원본 / 시험 시스템 적용) | 한눈에 |
+| [TOKEN-MAP.md](TOKEN-MAP.md) | 개발 앱의 지금 CSS 값이 토큰 척도로 얼마나 움직이는지(글자 · gap · padding · 모서리 · 그림자 · z-index) | 개발 앱에 옮기는 비용을 가늠할 때 |
+| [MOTION.md](MOTION.md) | 개발 앱의 지금 모션을 남길 것 · 줄일 것 · 바꿀 것 · 더할 것으로 나눈 목록 | 개발 앱 모션을 고칠 때 |
+| `components-sheet.png` · `components-sheet-system.png` | 개발 앱 컴포넌트 29종 대표 사진(원본 / 시험 시스템 적용) | 한눈에 |
+
+2026-10-16 진단(FINDINGS) · 후보 비교(COMPARE) · 컴포넌트 인벤토리(COMPONENTS) · 시스템 초안(DESIGN) · 인수인계(HANDOFF) 문서는 design-system.md 로 합치고 지웠다(git 이력에 남음).
 
 ## 시험 코드
 
@@ -22,7 +18,7 @@ OE-UI-23(화면 디자인·모션 기준)의 근거 자료와 시험 코드다. 
 |---|---|
 | `themes.ts` | 후보 토큰 3종(Linear·Vercel·Stripe) — 앱의 `:root` 변수를 덮어 입힘 |
 | `fixes.css` · `layout.css` | 1단계 문제(작은 글자·클릭 영역·툴바 위계·편집 막대)를 고치는 시험용 오버라이드 |
-| `system.css` | DESIGN.md 의 척도·컴포넌트·상태 규칙을 앱 CSS 위에 얹는 시험판 |
+| `system.css` | design-system.md A3~A5 의 척도 · 컴포넌트 · 상태 규칙을 앱 CSS 위에 얹는 시험판 |
 | `audit.spec.ts` · `after.spec.ts` · `compare.spec.ts` · `edit-large.spec.ts` | 스샷 + axe + 전후 측정 |
 | `inventory.spec.ts` · `gallery.spec.ts` · `states.spec.ts` | 컴포넌트 계측·대표 사진·상태(호버·눌림·포커스·비활성)·다크 측정 |
 

@@ -1,5 +1,5 @@
 /* 디자인 토큰 — 두 층(docs/prd/design-system.md).
-   1) 공통: prototype/design-audit/DESIGN.md(OE-UI-23)의 이름·값 그대로(에디터는 다크). 값을 바꾸면 DESIGN.md 를 먼저 고친다.
+   1) 공통: design-system.md A2·A3·A6(OE-UI-23)의 이름·값 그대로(에디터는 다크). 값을 바꾸면 design-system.md 를 먼저 고친다.
    2) 에디터 확장: design-system.md 2.2·2.3·4장(OE-UI-17).
    목록·검토 화면(platform.css)은 아직 옛 밝은 화면이라 에디터(.ed)와 그 위 팝업(.ed-modal)에만 건다. */
 .ed,.ed-modal{
