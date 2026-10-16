@@ -1,0 +1,8 @@
+/* 1단계 "고칠 것" 시험용 오버라이드. 앱 CSS 는 그대로 두고 뒤에 얹어 전/후를 잰다. 실제 반영은 별도 결정.
+   !important 는 앱 쪽 더 구체적인 선택자(.src.bim, button.view-pill, 부모 속 kbd)를 이기려는 시험용 — 실반영 때는 원본 규칙의 값을 고친다. */
+/* 2. 글자 12px 바닥 — 앱이 하드코딩한 10~11.5px 클래스만 올린다. */
+.src, .src.bim, .src.calc, .src.dict, kbd, .sc-name, .sc-ok, .sc-key, .view-pill, button.view-pill, .issue-code, .view-controls-hint { font-size: 12px !important; }
+/* 3. 클릭 영역 24px(WCAG 2.2 AA 2.5.8). 링크형 버튼만 맞춘다. */
+button.link, a.link { min-height: 24px; min-width: 24px; display: inline-flex; align-items: center; justify-content: center; }
+/* 1. 모바일 가로 넘침 — 층별 표는 가로 스크롤 안으로 가둔다. */
+.storeys { overflow-x: auto; max-width: 100%; }

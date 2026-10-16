@@ -1,0 +1,58 @@
+/* 남은 문제 시험용 오버라이드(fixes.css 위에 얹는다). 앱 CSS 는 그대로. */
+
+/* ── 상단 툴바 위계 ─────────────────────────────────────────────
+   지금은 열기·읽을 것·덧붙이기·내보내기 5종·?·테마가 모두 같은 알약 테두리라 "보기/편집" 이 묻힌다.
+   주(보기/편집, 경고 칩)만 테두리를 두고, 나머지는 테두리 없는 글자 버튼으로 낮춘다. */
+.bar-actions > .ghost, .bar-actions .read-menu summary, .bar-actions .notices .ghost {
+  border-color: transparent !important; background: transparent !important; color: var(--muted) !important; box-shadow: none !important;
+}
+.bar-actions > .ghost:hover:not(:disabled), .bar-actions .read-menu summary:hover {
+  background: var(--surface-soft) !important; color: var(--fg) !important;
+}
+.bar-actions > .ghost.done { color: var(--accent) !important; }
+.bar-actions .bar-sep { margin-inline: .25rem; }
+/* 내보내기 묶음은 글자 크기를 한 단 낮춰 "도구 모음"으로 보이게 한다. */
+.bar-actions > button.ghost[aria-label*="내보내기"] { font-size: .8125rem; padding-inline: .5rem; }
+.mode-switch { box-shadow: 0 0 0 1px var(--line); }
+
+/* ── 모바일: 3D 영역 확보 ───────────────────────────────────────
+   문제: 상단 막대가 sticky 로 188px(화면의 22%)를 차지하고, 3D 는 28rem(448px)인데 오른쪽 세로 줄(.right-col)이
+   왼쪽 13rem 을 비워 두려고 폭 128px 로 몰려 툴바 버튼이 모델 위에 쌓인다. */
+@media (max-width: 640px) {
+  /* 막대: 고정하지 않고(스크롤하면 사라진다), 동작 줄은 가로로 한 줄 굴린다. */
+  .appbar { position: static !important; }
+  .appbar .bar-actions { flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; margin-inline: -.25rem; padding-inline: .25rem; width: 100%; }
+  .appbar .bar-actions > * { flex: none; }
+  .appbar-row { flex-direction: column; align-items: stretch !important; gap: .5rem !important; }
+
+  /* 3D: 화면 높이의 3분의 2. */
+  .workspace .viewport, .mode-view .workspace .viewport { height: max(26rem, 66svh) !important; }
+
+  /* 오른쪽 세로 줄: 왼쪽 여백을 없애고, 보기 도구는 한 줄 가로 스크롤(모델을 덮지 않는다). */
+  .right-col { left: .5rem !important; right: .5rem !important; top: 3.5rem !important; }
+  .appbar .mode-switch { order: -1; }
+  .appbar .file { min-width: 0; max-width: 100%; }
+  .appbar .file .muted { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .right-col .view-tools { flex-wrap: nowrap !important; overflow-x: auto; justify-content: flex-start !important; width: 100%; scrollbar-width: none;
+    padding: .25rem; border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 88%, transparent); }
+  .right-col .view-tools > * { flex: none; white-space: nowrap; }
+  /* 범례는 글자가 한 글자씩 꺾이지 않게 최소 폭을 준다. */
+  .right-col .wall-key { min-width: 9.5rem; max-width: 60vw; }
+  .right-col .wall-key * { white-space: nowrap; }
+  .facade-dock { max-width: calc(100% - 1rem); overflow-x: auto; }
+}
+
+/* ── 편집 모드(모바일) ───────────────────────────────────────────
+   편집 막대 단추 9개가 한 줄로 나열돼 페이지가 1280px 로 넘쳤고, 3D 아래 안내 글이 범례와 겹쳤다. */
+@media (max-width: 640px) {
+  .edit-bar { flex-wrap: nowrap !important; overflow-x: auto; scrollbar-width: none; }
+  .edit-bar > * { flex: none !important; white-space: nowrap; }
+  .edit-bar .last-edit { display: none; }
+  /* 조작 안내는 모바일에서 숨긴다(상단 ? 버튼에 전체 단축키가 있다). 막힌 이유를 알리는 .key-note 는 남긴다. */
+  .pick-hint:not(.key-note) { display: none !important; }
+}
+@media (max-width: 640px) {
+  /* 가로로 밀어야 보이는 줄이라 핵심 단추(구축하기·반영하기)를 앞으로 당긴다. */
+  .edit-bar .mode-chip { order: -2; }
+  .edit-bar .primary-action { order: -1; }
+}

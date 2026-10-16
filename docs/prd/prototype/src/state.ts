@@ -31,6 +31,8 @@ export function applyFloorSnapshot(model: Model, snapshot: FloorSnapshot) {
     ...system.memberIds.filter(id=>!touched.has(id)),...(graph.members[system.id]??[]).filter(id=>present.has(id))])]
 }
 export const STORAGE_KEY = 'ontology-platform-prototype-v1'
+/** 공유 테스트 빌드(VITE_GATE_BYPASS=1)에서만 생성 기준 미달이어도 구축 · 반영을 허용한다. 기본 빌드 · e2e 는 PRD 대로 막는다. */
+export const GATE_BYPASS = import.meta.env?.VITE_GATE_BYPASS === '1'
 export const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v))
 export type Report = ReturnType<typeof reportFor>
 export type Version = { number: number; at: string; author: string; summary: string; floor: FloorSnapshot; report: Report }
@@ -157,7 +159,7 @@ export function summaryFor(p: Project, floorId: string) {
   return changes
 }
 export function applyVersion(p: Project, floorId: string, summary?: string, now = new Date()) {
-  if (!gateFor(p.model,floorId).pass) throw new Error('생성 기준 미달: 검증 결과를 확인하세요.')
+  if (!GATE_BYPASS && !gateFor(p.model,floorId).pass) throw new Error('생성 기준 미달: 검증 결과를 확인하세요.')
   const floor = p.model.storeys.find(s => s.id === floorId)!
   const versions = p.versions[floorId] ?? []
   const version: Version = { number: Math.max(0,...versions.map(v => v.number)) + 1,

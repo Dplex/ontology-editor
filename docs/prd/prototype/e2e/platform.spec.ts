@@ -34,6 +34,7 @@ test('platform: edit, draft reload, preview, publish and rollback', async ({ pag
   await page.getByRole('textbox',{name:'선택 이름'}).fill('변경된 회의실')
   await page.getByRole('button',{name:'속성 적용'}).click()
   await page.getByRole('button',{name:'임시 저장',exact:true}).click()
+  await expect(page.locator('.notice.toast')).toContainText('임시 저장 완료')   // 브라우저 저장소(IndexedDB)에 다 쓴 뒤 알림
   await page.reload()
   await page.locator('.floor-card').first().getByRole('button',{name:'운영 편집 →'}).click()
   await expect(page.locator('.object-list')).toContainText('변경된 회의실')
