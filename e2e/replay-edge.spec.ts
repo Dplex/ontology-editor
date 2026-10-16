@@ -257,3 +257,51 @@ test.describe('화면 배율 2', () => {
     expect(errors).toEqual([])
   })
 })
+
+// 처음에는 몰입도 상자 전체를 담는 거리에 각도만 눕혀, 방 밖 멀리서 옆으로 보는 3인칭이 됐다. 1F(높이 0)의 사무실은 (0,0)~(10,8) 이다.
+for (const pov of ['pov', 'orbit'] as const) {
+  test(pov === 'pov' ? '몰입은 장면이 일어나는 방 안 눈높이에 서서 살짝 내려다본다' : '조감은 몰입보다 높이 떠서 내려다본다', async ({ page }) => {
+    test.setTimeout(150_000)
+    await page.addInitScript((p) => localStorage.setItem('oe-replay-pov', p), pov)
+    const { hud, errors } = await openReplay(page)
+    await expect(hud).toHaveAttribute('data-pov', pov)
+    // 셋째 장면(사무실 꼭짓점 지우기) — 물리존 장면이 몰입에서 가장 멀리 물러났었다.
+    await expect(hud).toHaveAttribute('data-at', '3', { timeout: 60_000 })
+    await page.locator('body').click({ position: { x: 5, y: 5 } })
+    await page.keyboard.press('Space')
+    await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().flying), { timeout: 10_000 }).toBe(false)
+    const { position, target } = (await page.evaluate(() => (window as any).__viewer.camera())) as { position: number[]; target: number[] }
+    const [x, y, z] = position
+    if (pov === 'pov') {
+      expect(y).toBeGreaterThan(1.4)
+      expect(y).toBeLessThan(1.8)
+      expect(x).toBeGreaterThan(0)
+      expect(x).toBeLessThan(10)
+      expect(-z).toBeGreaterThan(0)
+      expect(-z).toBeLessThan(8)
+      expect(target[1]).toBeLessThan(y)
+    } else {
+      expect(y).toBeGreaterThan(4)
+    }
+    expect(errors).toEqual([])
+  })
+}
+
+test('↻ 는 오프닝부터 다시 틀고(편집 전 상태로 되돌린 뒤 건물이 솟는다), Home 도 같다', async ({ page }) => {
+  test.setTimeout(150_000)
+  const { hud, errors } = await openReplay(page)
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 90_000 })
+  const fromTop = hud.getByRole('button', { name: '처음부터 다시 보기' })
+  await expect(fromTop).toHaveText('↻')
+  await fromTop.click()
+  await expect(hud).toHaveAttribute('data-phase', 'opening')
+  await expect(hud).toHaveAttribute('data-at', '0')
+  await expect(hud).toHaveAttribute('data-phase', 'play', { timeout: 15_000 })
+  // 재생 중 Home 도 오프닝으로 간다.
+  await expect(hud).toHaveAttribute('data-at', '1', { timeout: 30_000 })
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Home')
+  await expect(hud).toHaveAttribute('data-phase', 'opening')
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 90_000 })
+  expect(errors).toEqual([])
+})

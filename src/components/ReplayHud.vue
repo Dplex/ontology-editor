@@ -734,7 +734,7 @@ const stageState = computed(() => {
         </div>
       </div>
       <div class="buttons">
-        <button type="button" title="처음부터 (Home)" @click="emit('restart')">⏮</button>
+        <button type="button" class="from-top" title="처음부터 다시 보기 — 오프닝부터 (Home)" aria-label="처음부터 다시 보기" @click="emit('restart')">↻</button>
         <button type="button" title="이전 편집 (←)" @click="emit('prev')">◀</button>
         <button type="button" class="play" :title="playing ? '멈춤 (Space)' : loop !== null ? '다음 장면부터 이어서 재생 (Space)' : '재생 (Space)'" @click="emit('toggle')">{{ playing ? '❚❚' : '▶' }}</button>
         <button type="button" title="다음 편집 (→)" @click="emit('next')">▶▶</button>

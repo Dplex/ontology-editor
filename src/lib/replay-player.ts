@@ -87,7 +87,7 @@ function savedQuality(): ReplayQuality {
 /**
  * 리플레이 카메라 인칭 시점(POV).
  * - orbit(3인칭 조감, 기본값): 건물·층 위쪽 40° 사선에서 내려다보며 포물선 호를 그리며 이동
- * - pov(1인칭 공간 몰입): 사람 눈높이(9°)와 62° 광각 렌즈로 방 안에 직접 들어가 있는 듯한 시점 + 주변 벽/방 반투명 투시(setSpaceFocus)
+ * - pov(1인칭 공간 몰입): 그 방 안 눈높이(바닥 + 1.6m)에 서서 62° 광각 렌즈로 방 안에 직접 들어가 있는 듯한 시점 + 주변 벽/방 반투명 투시(setSpaceFocus)
  * - auto(AI 시네마토그래퍼 자동 시점): 전체 계통·흐름 장면은 3인칭 조감으로, 개별 방 내부 편집은 1인칭 몰입으로 자동 전환
  */
 export type ReplayPov = 'orbit' | 'pov' | 'auto'
@@ -500,10 +500,16 @@ export function useReplay(host: ReplayPlayerHost) {
       host.viewer.spotlight([], [], color, { points: zones.points, rings: zones.rings })
     } else if (spaces.length) {
       // 물리존 편집은 물리존을 본다. 같이 바뀐 설비(소속이 풀린 것)는 결과라서, 멀리 있는 하나가 시점을 끌고 가면 안 된다.
-      if (camera) host.viewer.frameSpace(spaces[0])
+      // 꼭짓점 몇 개를 고친 장면이면 그 꼭짓점(옮겼으면 옛 자리·새 자리)에 표시를 세우고, 몰입은 방 안에서 그 꼭짓점을 바라본다 —
+      // 방 한가운데를 보면 고친 모서리를 등지고 설 수 있었다(2026-10-16 사용자: "꼭지점을 수정했는데 다른 쪽을 비춘다").
+      const vertices = replayVerticesOf(step, spaces[0])
+      if (camera) {
+        if (inPov && vertices.length) host.viewer.framePoints(vertices, 0.4)
+        else host.viewer.frameSpace(spaces[0])
+      }
       selectedId.value = null
       selectedSpaceId.value = spaces[0]
-      host.viewer.spotlight([], spaces, color)
+      host.viewer.spotlight([], spaces, color, vertices.length ? { points: vertexSpots(spaces[0], vertices) } : undefined)
     } else if (devices.length || any.length) {
       // 첫 설비와 그 근처(12m)만 담는다. 계통 확정처럼 층 전체에 흩어진 편집도 한 자리를 크게 본다. 흐름 편집은 바뀐 연결이
       // 짧은 덕트 마디라 바짝 다가가야 화살표가 보인다.
@@ -535,6 +541,27 @@ export function useReplay(host: ReplayPlayerHost) {
     }
     host.viewer.ghosts(replayGhostsOf(step), color)
   }
+
+  /**
+   * 물리존 장면에서 고친 꼭짓점: 고친 뒤에만 있는 점(옮긴 새 자리·더한 점)과 고치기 전에만 있는 점(옮긴 옛 자리·지운 점). 경계를 통째로 바꿨으면
+   * (6개 넘게) 꼭짓점 장면이 아니라 빈 목록이다 — 그때는 방 전체를 본다.
+   */
+  function replayVerticesOf(step: ReplayStep | null, spaceId: string): Vec3[] {
+    const m = model.value
+    const c = step?.changes.find((x) => x.key === `sp:${spaceId}`)
+    const b = c?.before?.t === 'space' ? c.before : null
+    const a = c?.after?.t === 'space' ? c.after : null
+    if (!m || !b || !a) return []
+    const same = (p: Vec2, q: Vec2) => Math.abs(p[0] - q[0]) < 1e-6 && Math.abs(p[1] - q[1]) < 1e-6
+    const only = (ring: Vec2[], other: Vec2[]) => ring.filter((p, i) => !(i === ring.length - 1 && ring.length > 1 && same(p, ring[0])) && !other.some((q) => same(p, q)))
+    const pts = [...only(a.ring, b.ring), ...only(b.ring, a.ring)]
+    if (!pts.length || pts.length > 6) return []
+    const z = m.storeys.find((s) => s.id === a.storeyId)?.elevation ?? 0
+    return pts.map((p): Vec3 => [p[0], p[1], z])
+  }
+
+  /** 고친 꼭짓점의 빛기둥. 겨누기와 다시 한 뒤가 같은 열쇠를 써 같은 기둥이 이어진다. */
+  const vertexSpots = (spaceId: string, vertices: Vec3[]) => vertices.map((at, k) => ({ key: `vx:${spaceId}:${k}`, at, label: k === 0 ? '고친 꼭짓점' : undefined }))
 
   /** 옮기는 장면의 도착 자리(도착 유령): 설비는 옮길 만큼, 문·창은 도착 자리, 통째로 옮긴 벽은 도착 외곽선. */
   type Ghost = Parameters<Viewer['ghosts']>[0][number]
@@ -692,7 +719,11 @@ export function useReplay(host: ReplayPlayerHost) {
     const points = arch?.points.map((p) => (born.includes(p.key.slice(3)) ? { ...p, bare: true } : p))
     if (arch && (arch.points.length || arch.rings.length)) host.viewer?.spotlight([], [], replayColor(step), { points, rings: arch.rings })
     else if (zones) host.viewer?.spotlight([], [], replayColor(step), { points: zones.points, rings: zones.rings })
-    else if (spaces.length) host.viewer?.spotlight([], spaces, replayColor(step))
+    else if (spaces.length) {
+      // 꼭짓점 표시를 다시 넘긴다 — 빠뜨리면 다시 한 순간 꼭짓점의 빛기둥이 걷혀, 몰입에서 무엇을 보는지 사라졌다.
+      const vertices = replayVerticesOf(step, spaces[0])
+      host.viewer?.spotlight([], spaces, replayColor(step), vertices.length ? { points: vertexSpots(spaces[0], vertices) } : undefined)
+    }
     // 치수선은 비추기 다음에 — 비추기가 앞의 것(치수선 포함)을 옅게 걷는다.
     host.viewer?.dimensions(replayMovesOf(step), replayColor(step))
     // 옮긴 뒤에는 원래 자리에 출발 유령(Before Ghost)을 남겨 전·후 위치와 이동 궤적이 동시에 보이게 한다.
@@ -1083,6 +1114,34 @@ export function useReplay(host: ReplayPlayerHost) {
   }
 
   /** 앞뒤로 한 편집, 또는 처음부터. 되돌리기·다시 하기 한 번이라 3D 도 그만큼 움직인다. */
+  /**
+   * 맨 처음부터 다시 튼다 — 오프닝(건물 전체에서 솟아오르기·해 지기)부터. 조작 막대의 ↻ 와 Home 이다. 처음에는 ⏮ 가 첫 장면으로만
+   * 옮겨(`replayJump('restart')`), 오프닝을 다시 볼 길이 리플레이를 닫았다 여는 것뿐이었다(2026-10-16 사용자). 장면 카드는 이미 계산해 둔
+   * 것을 그대로 쓴다. 녹화·갈래 거르기·요약은 지금처럼 첫 장면부터다.
+   */
+  async function replayFromTop() {
+    if (replayPhase.value === 'opening' || !host.viewer) return
+    replayEndLoop()
+    const token = ++replayToken
+    replayPlaying.value = true
+    replayRewind()
+    replayPhase.value = 'opening'
+    host.viewer.setFlows([])
+    selectedId.value = null
+    selectedSpaceId.value = null
+    await nextTick()
+    await frames()
+    if (token !== replayToken) return
+    viewStorey.value = null
+    await nextTick()
+    host.viewer.frameAll()
+    host.viewer.buildUp()
+    host.viewer.nightFall(REPLAY_INTRO_MS - 700)
+    if (!(await replayWait(REPLAY_INTRO_MS, token))) return
+    replayPhase.value = 'play'
+    void replayRun(token)
+  }
+
   async function replayJump(to: 'prev' | 'next' | 'restart') {
     if (replayPhase.value === 'opening') return
     replayEndLoop()
@@ -1573,7 +1632,7 @@ export function useReplay(host: ReplayPlayerHost) {
     else if (e.code === 'Space') replayToggle()
     else if (e.code === 'ArrowRight') void replayJump('next')
     else if (e.code === 'ArrowLeft') void replayJump('prev')
-    else if (e.code === 'Home') void replayJump('restart')
+    else if (e.code === 'Home') void replayFromTop()
     else if (e.code === 'Escape') {
       compareEnd()
       replayAskClose.value = true
@@ -1633,7 +1692,7 @@ export function useReplay(host: ReplayPlayerHost) {
     toggle: after(replayToggle),
     prev: after(() => replayJump('prev')),
     next: after(() => replayJump('next')),
-    restart: after(() => replayJump('restart')),
+    restart: after(replayFromTop),
     speed: (v: number) => (replaySpeed.value = v),
     close: closeReplay,
     scene: after((i: number) => replayScene(i)),
