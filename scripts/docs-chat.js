@@ -1,6 +1,7 @@
 // 챗봇 창. Alt+Shift+K 로 열고 닫는다. 칸이 둘이다.
 //   [문서]     55 의 gemini 가 이 repo 의 PRD·티켓·ADR·intent.md 를 읽고 답한다(/__chat, docs/dev/deploy55.md).
 //   [온톨로지] 55 의 gemini 가 반영한 건물 온톨로지(TTL)를 읽고 답한다(/__ask, ADR-0050). 답 끝에 쓴 질의가 붙는다.
+//   [문서] 칸의 `/issue 요청` 은 문서·소스를 읽고 GitHub 이슈를 바로 올린다(/__issue, scripts/issue-chat.mjs, docs/dev/deploy55.md).
 //
 // 앱 코드(src)가 아니다. scripts/run.sh build 가 빌드한 dist/ 에 끼워 넣는다(review-info.js 와 같은 방식) —
 // 그래서 개발 서버(5174)에는 없고, 8084·8087 에는 있다. 서버 쪽은 같은 주소의 /__chat·/__ask(scripts/docs-chat.mjs).
@@ -18,7 +19,9 @@
     docs: {
       url: '/__chat', store: 'docs-chat:history', title: '문서 챗봇', sub: 'PRD · ADR · intent.md · 읽기 전용', wait: '문서를 찾는 중…',
       hint: '이 repo 의 <b>PRD·티켓·ADR·intent.md</b> 를 읽고 답합니다. 문서를 고치지는 않습니다.\n\n' +
-        '예) "내력벽 정보가 없으면 편집은 어떻게 돼?"\n    "D10 이 걸린 티켓들 알려줘"\n    "OE-BIM-12 수용 기준은?"',
+        '예) "내력벽 정보가 없으면 편집은 어떻게 돼?"\n    "D10 이 걸린 티켓들 알려줘"\n    "OE-BIM-12 수용 기준은?"\n\n' +
+        '<b>/issue 요청</b> 으로 보내면 문서·소스를 읽고 GitHub 이슈를 바로 올립니다(라벨도 붙입니다).\n' +
+        '예) "/issue 1280 폭에서 편집 막대의 마지막 편집 이름이 안 보여요"',
     },
     onto: {
       url: '/__ask', store: 'onto-chat:history', title: '온톨로지 질의', sub: '반영한 온톨로지 · 지금 화면(반영 전) · 읽기 전용', wait: '온톨로지를 읽는 중…',
@@ -193,6 +196,8 @@
         .replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
         .replace(/^#{1,6} (.*)$/gm, '<b>$1</b>')
         .replace(/(^|[\s(])((?:docs\/[\w./가-힣-]+|intent|CLAUDE)\.md)(?![^<]*<\/(?:a|code)>)/g, function (_, pre, path) { return pre + linkPath(path) })
+        // /issue 답의 이슈 주소(github.sec 만). 다른 주소는 글자 그대로 둔다 — 답 글이 아무 곳으로나 가는 링크를 만들지 않게.
+        .replace(/(^|[\s(])(https:\/\/github\.sec\.samsung\.net\/[\w./#?=&-]+)/g, function (_, pre, url) { return pre + '<a href="' + url + '" target="_blank" rel="noopener">' + url + '</a>' })
     }).join('')
   }
   function linkPath(s) {
@@ -202,6 +207,7 @@
 
   var TOOL_LABEL = {
     docs_map: '🗺️ 지도', docs_search: '🔎 찾기', docs_read: '📖 읽기', docs_ticket: '🎫 티켓', docs_links: '🔗 언급처',
+    code_files: '📁 파일', code_search: '🔎 소스 찾기', code_read: '📄 소스 읽기', 'gh issue create': '📮 이슈 올리기',
     onto_sources: '🏢 건물', onto_overview: '🗺️ 한눈에', onto_find: '🔎 찾기', onto_describe: '📇 관계', onto_walk: '🧭 따라가기', onto_query: '🧮 질의',
   }
   function toolLine(name, args) {
@@ -244,11 +250,13 @@
     history.push({ role: 'user', text: q })
     save()
     add('msg user', esc(q))
-    var bot = add('msg bot', '<span class="hint">' + MODES[mode].wait + '</span>')
+    var bot = add('msg bot', '<span class="hint">' + (mode === 'docs' && /^\/issue(\s|$)/.test(q) ? '문서·소스를 읽고 이슈를 쓰는 중…' : MODES[mode].wait) + '</span>')
     var text = ''
     var started = Date.now()
     var ctl = new AbortController()
     var asked = mode
+    // 문서 칸의 `/issue 요청` 은 /__issue 로 간다(scripts/issue-chat.mjs). 문서를 읽어 이슈 초안을 쓰고 서버가 바로 올린다.
+    var issue = mode === 'docs' && /^\/issue(\s|$)/.test(q)
     var askedSource = mode === 'onto' ? source : undefined
     // 물은 때의 화면이다. 화면 TTL 을 올리는 동안 사용자가 다른 층으로 옮겨도 질문은 그때 보던 것을 가리킨다.
     var askedView = mode === 'onto' ? currentView() : undefined
@@ -258,6 +266,17 @@
       ? (bot.innerHTML = '<span class="hint">지금 화면의 온톨로지를 올리는 중…</span>', uploadScreen().then(function (src) { bot.innerHTML = '<span class="hint">' + MODES.onto.wait + '</span>'; return src }))
       : Promise.resolve(askedSource)
     ready.then(function (src) {
+      if (issue) {
+        var req = q.replace(/^\/issue\s*/, '')
+        if (!req) throw new Error('/issue 뒤에 무엇을 이슈로 할지 적어 주세요')
+        return fetch('/__issue', {
+          method: 'POST', signal: ctl.signal,
+          headers: { 'content-type': 'application/json' },
+          // 지금 화면(보는 층·고른 것 id)과 다시 여는 주소(위치 표시 옆 [링크 복사] 와 같은 것)를 같이 보낸다. 서버가 거른다.
+          // 앞선 대화는 보내지 않는다 — 이슈에는 이 요청만 들어간다(서버도 붙이지 않는다).
+          body: JSON.stringify({ question: req, view: currentView(), link: location.href }),
+        })
+      }
       return fetch(MODES[asked].url, {
         method: 'POST', signal: ctl.signal,
         headers: { 'content-type': 'application/json' },
