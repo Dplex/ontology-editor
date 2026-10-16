@@ -986,6 +986,8 @@ export function createReplayFx(host: ReplayHost) {
   // (2026-10-16 사용자: "방의 사이즈로 하되 최대 m 를 제한해서 실제 거기 있는 현장감").
   const EYE_MAX = 4.5
   let eyeRoom: { ring: readonly Vec2[]; elevation: number } | null = null
+  /** 바닥의 점(고친 꼭짓점·놓일 자리)을 맞추는 중 — 몰입은 그 바닥 점을 바로 내려다본다(framePoints). */
+  let eyeOnFloor = false
   function fitEye(box: Box3, tanV: number, tanH: number): { target: Vector3; position: Vector3 } | null {
     if (!cinema || pov !== 'pov') return null
     const target = box.getCenter(new Vector3())
@@ -1004,30 +1006,30 @@ export function createReplayFx(host: ReplayHost) {
     const floorY = eyeRoom ? host.toScene([0, 0, eyeRoom.elevation])[1] : box.min.y
     const eyeY = floorY + EYE_HEIGHT
     // 서서 보듯 살짝 내려다본다. 수평으로 보면 바뀐 바닥·설비가 화면 아래 끝에 걸린다. 천장의 것은 올려다본다.
-    if (target.y <= eyeY + 0.3) target.y = Math.min(target.y, eyeY - EYE_DIP)
+    if (eyeOnFloor) target.y = floorY + 0.05
+    else if (target.y <= eyeY + 0.3) target.y = Math.min(target.y, eyeY - EYE_DIP)
     const base = cinemaFrom()
     const az0 = Math.atan2(base.x, base.z)
     const ring = eyeRoom?.ring
-    const inside = (x: number, z: number) => !ring || pointInPolygon([x, -z], ring as Vec2[])
-    const startInside = inside(target.x, target.z)
-    let best = { run: -1, az: az0 }
-    for (let k = 0; k < 12; k++) {
+    // 눈 자리가 될 수 있는 곳: 방 외곽선 안이고 벽에서 EYE_WALL_GAP 넘게 떨어진 곳. 대상이 방 가장자리(고친 꼭짓점)여도
+    // 방 안쪽에서 그쪽을 바라보게, 대상에서 물러난 끝점을 본다(대상 자체가 방 안일 필요는 없다).
+    const fits = (x: number, z: number) => !ring || (pointInPolygon([x, -z], ring as Vec2[]) && distanceToRing([x, -z], ring) >= EYE_WALL_GAP)
+    let best = { d: -1, az: az0 }
+    for (let k = 0; k < 12 && best.d < want; k++) {
       const az = az0 + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * (Math.PI / 6)
-      if (!startInside) {
-        best = { run: want, az: az0 }
+      for (let d = want; d >= EYE_MIN - 1e-6; d -= 0.2) {
+        if (!fits(target.x + Math.sin(az) * d, target.z + Math.cos(az) * d)) continue
+        if (d > best.d) best = { d, az }
         break
       }
-      let run = 0
-      for (let d = 0.2; d <= want + EYE_WALL_GAP; d += 0.2) {
-        if (!inside(target.x + Math.sin(az) * d, target.z + Math.cos(az) * d)) break
-        run = d
-      }
-      run = Math.min(run - EYE_WALL_GAP, want)
-      if (run > best.run) best = { run, az }
-      if (run >= want) break
     }
-    const run = Math.max(best.run, EYE_MIN)
-    const position = new Vector3(target.x + Math.sin(best.az) * run, eyeY, target.z + Math.cos(best.az) * run)
+    let position: Vector3
+    if (best.d > 0) position = new Vector3(target.x + Math.sin(best.az) * best.d, eyeY, target.z + Math.cos(best.az) * best.d)
+    else {
+      // 방이 좁아 어느 쪽으로도 EYE_MIN 만큼 물러설 수 없으면 방 안쪽 한 점에 선다.
+      const inner = ring ? labelPoint(ring) : null
+      position = inner ? new Vector3(inner[0], eyeY, -inner[1]) : new Vector3(target.x + Math.sin(az0) * want, eyeY, target.z + Math.cos(az0) * want)
+    }
     eyeBurst(position, target)
     return { target, position }
   }
@@ -2611,7 +2613,8 @@ export function createReplayFx(host: ReplayHost) {
       geometry.setAttribute('position', new BufferAttribute(new Float32Array(position), 3))
       geometry.setAttribute('uv', new BufferAttribute(new Float32Array(uv), 2))
       geometry.setIndex(index)
-      const wall = new Mesh(geometry, fxMaterial(mood.color, pov === 'pov' ? 0.28 : 0.16, true))
+      // 몰입은 이 판 안에 서므로 진하면 눈앞을 겹겹이 가려 화면이 뿌옇다(2026-10-16). 테두리 선으로 방을 두르고 판은 옅게.
+      const wall = new Mesh(geometry, fxMaterial(mood.color, pov === 'pov' ? 0.07 : 0.16, true))
       const edge = new LineLoop(
         new BufferGeometry().setFromPoints(pts.map((p) => p.clone().setY(0.04))),
         new LineBasicMaterial({ color: mood.color, transparent: true, opacity: 0.72, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
@@ -2687,7 +2690,7 @@ export function createReplayFx(host: ReplayHost) {
           const fadeIn = Math.min(1, t / 500)
           const pulse = 0.78 + 0.22 * Math.sin(k * Math.PI * 2)
           group.position.y = (group.userData.baseY as number) + explodeAt(group.userData.baseY as number)
-          ;(wall.material as MeshBasicMaterial).opacity = (pov === 'pov' ? 0.26 : 0.15) * fadeIn * pulse
+          ;(wall.material as MeshBasicMaterial).opacity = (pov === 'pov' ? 0.07 : 0.15) * fadeIn * pulse
           ;(edge.material as LineBasicMaterial).opacity = (pov === 'pov' ? 0.82 : 0.6) * fadeIn * pulse
           const sonarP = (t % 2400) / 2400
           sonarRing.scale.setScalar(0.3 + maxR * easeOut(sonarP))
@@ -2829,7 +2832,12 @@ export function createReplayFx(host: ReplayHost) {
       }
       if (box.isEmpty()) return
       if (margin > 0) box.expandByScalar(margin)
-      host.fit(box, true)
+      eyeOnFloor = true
+      try {
+        host.fit(box, true)
+      } finally {
+        eyeOnFloor = false
+      }
     },
 
   }
