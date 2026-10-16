@@ -104,7 +104,9 @@
 .ed-float{position:absolute;z-index:3;background:color-mix(in srgb,var(--surface) 92%,transparent);border:1px solid var(--line);border-radius:var(--r-md);box-shadow:var(--shadow-overlay)}
 
 /* 레이어 패널(왼쪽 위) */
-.ed-layers{left:var(--sp-4);top:var(--sp-4);padding:var(--sp-2) var(--sp-3);width:208px;font-size:var(--fs-2)}
+.ed-viewmode{left:var(--sp-4);top:var(--sp-4);width:208px}
+.ed .ed-viewmode button{flex:1}
+.ed-layers{left:var(--sp-4);top:56px;padding:var(--sp-2) var(--sp-3);width:208px;font-size:var(--fs-2)}
 .ed-layers .cap{font-size:var(--fs-1);color:var(--muted);margin-bottom:var(--sp-1);display:flex;justify-content:space-between}
 .ed .ed-layers button{width:100%;height:var(--ctl-chip);padding:0;border:0;border-radius:var(--r-sm);justify-content:flex-start;gap:var(--sp-2);font-weight:400;color:var(--fg)}
 .ed .ed-layers button:hover:not(:disabled){background:transparent}
@@ -117,12 +119,20 @@
 .ed-layers hr{border:0;border-top:1px solid var(--line);margin:var(--sp-1) 0}
 
 /* 3D/평면 전환(오른쪽 위) — 어두운 독 */
-.ed-viewswitch{right:var(--sp-4);top:var(--sp-4);padding:2px;display:flex;gap:2px;border-radius:var(--r-pill)}
+.ed-viewdock{position:absolute;right:var(--sp-4);top:var(--sp-4);z-index:3;display:flex;flex-direction:column;align-items:flex-end;gap:var(--sp-h)}
+.ed-viewdock .ed-float{position:static}
+.ed-viewswitch{padding:2px;display:flex;gap:2px;border-radius:var(--r-pill)}
+.ed-floor-cur{display:flex;align-items:center;border-radius:var(--r-pill)}
+.ed-floor-cur.active{background:var(--accent)}
+.ed .ed-floor-cur.active button,.ed .ed-floor-cur.active select{color:var(--on-accent);font-weight:600}
+.ed .ed-floor-cur select{height:var(--ctl-chip);border:0;background:transparent;color:var(--muted);padding:0 var(--sp-2) 0 0;font-size:var(--fs-2);cursor:pointer}
+.ed .ed-floor-cur select:disabled{cursor:default;opacity:1;appearance:none;padding-right:var(--sp-3)}
+.ed .ed-floor-cur select option{color:var(--fg);background:var(--surface)}
 .ed .ed-viewswitch button{height:var(--ctl-chip);border:0;color:var(--muted)}
 .ed .ed-viewswitch button.active{background:var(--accent);color:var(--on-accent);font-weight:600}
 
 /* 도구 안내 — 레이어 패널(왼쪽 240)과 3D/평면 전환(오른쪽 150) 사이에서만 가운데 */
-.ed-hint{left:240px;right:230px;top:var(--sp-4);width:max-content;max-width:calc(100% - 470px);margin:0 auto;color:var(--fg);padding:var(--sp-2) var(--sp-3);font-size:var(--fs-1);line-height:1.5;pointer-events:none}
+.ed-hint{left:240px;right:270px;top:var(--sp-4);width:max-content;max-width:calc(100% - 510px);margin:0 auto;color:var(--fg);padding:var(--sp-2) var(--sp-3);font-size:var(--fs-1);line-height:1.5;pointer-events:none}
 .ed-hint b{color:var(--accent);white-space:nowrap;margin-right:var(--sp-h)}
 
 /* 그리기 입력 바 */
@@ -262,4 +272,3 @@
 .ed-range .row{display:flex;gap:var(--sp-h);align-items:flex-end;flex-wrap:wrap}.ed-range .row.end{justify-content:flex-end}
 .ed-range label{display:flex;flex-direction:column;gap:2px;font-size:var(--fs-1);color:var(--muted);flex:1}
 .ed-range select{width:100%}
-.ed .ed-leave-multi{right:var(--sp-4);top:56px;height:var(--ctl-chip);font-size:var(--fs-1);border-radius:var(--r-pill)}
