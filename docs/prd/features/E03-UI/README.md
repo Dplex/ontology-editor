@@ -9,7 +9,7 @@ PRD #4 · 티켓 29건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | [OE-UI-01](OE-UI-01.md) | 별도 에디터 실행 | R1 | P1 | prd-done |
 | [OE-UI-02](OE-UI-02.md) | 프로젝트 기반 모드 분기 | R1 | P1 | prd-done |
 | [OE-UI-03](OE-UI-03.md) | 프로젝트 목록 · 층 선택 화면 | R1 | P1 | prd-done |
-| [OE-UI-04](OE-UI-04.md) | 화면 레이아웃 | R1 | P1 | prd-done |
+| [OE-UI-04](OE-UI-04.md) | 화면 레이아웃 | R1 | P1 | prd-updated |
 | [OE-UI-05](OE-UI-05.md) | 되돌리기 / 다시 실행 | R1 | P1 | prd-done |
 | [OE-UI-06](OE-UI-06.md) | 스냅 | R1 | P2 | prd-done |
 | [OE-UI-07](OE-UI-07.md) | 그리드 정렬 | R1 | P2 | prd-done |
