@@ -7,7 +7,7 @@ prd: "#4"
 release: "R1"
 priority: "P2"
 owner: "tbd"
-status: "prd-review"
+status: "prd-done"
 status_note: "2026-10-15 신설 — 디자인 진단·후보 비교·모션 조사 결과를 하나로 묶음. 모바일·태블릿 폭은 범위 밖. 성수는 상태·접근성·스샷만 확인(컴포넌트 계측은 Medical Clinic)"
 blocked_by: []
 depends: ["OE-UI-04", "OE-UI-13", "OE-UI-15"]

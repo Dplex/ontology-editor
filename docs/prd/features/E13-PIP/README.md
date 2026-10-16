@@ -24,4 +24,4 @@ PRD #14 · 티켓 19건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능
 | [OE-PIP-16](OE-PIP-16.md) | 규칙 방향 알려진 오류 보정 | R2 | P2 | prd-done |
 | [OE-PIP-17](OE-PIP-17.md) | 환수·급탕 원천 규칙 | R2 | P3 | prd-done |
 | [OE-PIP-18](OE-PIP-18.md) | 흐름 없는 기기 연결 추정 제외 | R1 | P2 | prd-done |
-| [OE-PIP-19](OE-PIP-19.md) | 계통 브라우저 | R1 | P1 | prd-review |
+| [OE-PIP-19](OE-PIP-19.md) | 계통 브라우저 | R1 | P1 | prd-done |
