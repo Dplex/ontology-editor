@@ -1083,6 +1083,34 @@ export function useReplay(host: ReplayPlayerHost) {
   }
 
   /** 앞뒤로 한 편집, 또는 처음부터. 되돌리기·다시 하기 한 번이라 3D 도 그만큼 움직인다. */
+  /**
+   * 맨 처음부터 다시 튼다 — 오프닝(건물 전체에서 솟아오르기·해 지기)부터. 조작 막대의 ↻ 와 Home 이다. 처음에는 ⏮ 가 첫 장면으로만
+   * 옮겨(`replayJump('restart')`), 오프닝을 다시 볼 길이 리플레이를 닫았다 여는 것뿐이었다(2026-10-16 사용자). 장면 카드는 이미 계산해 둔
+   * 것을 그대로 쓴다. 녹화·갈래 거르기·요약은 지금처럼 첫 장면부터다.
+   */
+  async function replayFromTop() {
+    if (replayPhase.value === 'opening' || !host.viewer) return
+    replayEndLoop()
+    const token = ++replayToken
+    replayPlaying.value = true
+    replayRewind()
+    replayPhase.value = 'opening'
+    host.viewer.setFlows([])
+    selectedId.value = null
+    selectedSpaceId.value = null
+    await nextTick()
+    await frames()
+    if (token !== replayToken) return
+    viewStorey.value = null
+    await nextTick()
+    host.viewer.frameAll()
+    host.viewer.buildUp()
+    host.viewer.nightFall(REPLAY_INTRO_MS - 700)
+    if (!(await replayWait(REPLAY_INTRO_MS, token))) return
+    replayPhase.value = 'play'
+    void replayRun(token)
+  }
+
   async function replayJump(to: 'prev' | 'next' | 'restart') {
     if (replayPhase.value === 'opening') return
     replayEndLoop()
@@ -1573,7 +1601,7 @@ export function useReplay(host: ReplayPlayerHost) {
     else if (e.code === 'Space') replayToggle()
     else if (e.code === 'ArrowRight') void replayJump('next')
     else if (e.code === 'ArrowLeft') void replayJump('prev')
-    else if (e.code === 'Home') void replayJump('restart')
+    else if (e.code === 'Home') void replayFromTop()
     else if (e.code === 'Escape') {
       compareEnd()
       replayAskClose.value = true
@@ -1633,7 +1661,7 @@ export function useReplay(host: ReplayPlayerHost) {
     toggle: after(replayToggle),
     prev: after(() => replayJump('prev')),
     next: after(() => replayJump('next')),
-    restart: after(() => replayJump('restart')),
+    restart: after(replayFromTop),
     speed: (v: number) => (replaySpeed.value = v),
     close: closeReplay,
     scene: after((i: number) => replayScene(i)),

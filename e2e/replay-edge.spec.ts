@@ -286,3 +286,22 @@ for (const pov of ['pov', 'orbit'] as const) {
     expect(errors).toEqual([])
   })
 }
+
+test('↻ 는 오프닝부터 다시 틀고(편집 전 상태로 되돌린 뒤 건물이 솟는다), Home 도 같다', async ({ page }) => {
+  test.setTimeout(150_000)
+  const { hud, errors } = await openReplay(page)
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 90_000 })
+  const fromTop = hud.getByRole('button', { name: '처음부터 다시 보기' })
+  await expect(fromTop).toHaveText('↻')
+  await fromTop.click()
+  await expect(hud).toHaveAttribute('data-phase', 'opening')
+  await expect(hud).toHaveAttribute('data-at', '0')
+  await expect(hud).toHaveAttribute('data-phase', 'play', { timeout: 15_000 })
+  // 재생 중 Home 도 오프닝으로 간다.
+  await expect(hud).toHaveAttribute('data-at', '1', { timeout: 30_000 })
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Home')
+  await expect(hud).toHaveAttribute('data-phase', 'opening')
+  await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 90_000 })
+  expect(errors).toEqual([])
+})
