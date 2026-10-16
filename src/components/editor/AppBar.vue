@@ -2,7 +2,7 @@
 import type { PropType } from 'vue'
 import { replayMemo } from '../../lib/replay-player'
 import { discardDraft, draft, restoreDraft } from '../../editor/autosave'
-import { appbar, selectAndShow } from '../../editor/chat-view'
+import { appbar, appendData, openableDataFiles, openData, selectAndShow } from '../../editor/chat-view'
 import { busy, dark, dragging, editing, fileName, mode, toggleTheme } from '../../editor/core'
 import { vKeepTyping } from '../../editor/edit-filter'
 import { reportPlace, spaceNameOf } from '../../editor/edit-report'
@@ -91,6 +91,17 @@ defineProps({
               덧붙이기
               <input type="file" accept=".ifc,.idf" multiple :disabled="busy || !canAppend" @change="onAppendPick" />
             </label>
+            <!-- data/ 의 파일(서버에 둔 샘플). 연 뒤에 다른 파일을 열거나 덧붙이는 길이다 — 예전에는 3D 아래 목록, 비교판 첫 판에서는 기준 · 검증 패널 안에 있었다. -->
+            <details v-if="openableDataFiles.length" class="read-menu data-menu">
+              <summary title="서버의 data/ 에 있는 IFC 를 열거나 지금 파일에 덧붙입니다">data/ 의 파일 {{ openableDataFiles.length }}개</summary>
+              <ul class="data-menu-list">
+                <li v-for="f in openableDataFiles" :key="f.path">
+                  <span class="name" :title="f.path">{{ f.path }}</span>
+                  <button type="button" class="ghost" :disabled="busy" @click="openData(f.path)">열기</button>
+                  <button v-if="canAppend" type="button" class="ghost" :disabled="busy" @click="appendData(f.path)">덧붙이기</button>
+                </li>
+              </ul>
+            </details>
             <details class="read-menu">
               <summary title="다음에 여는 파일에서 읽을 것">읽을 것</summary>
               <fieldset class="read-option features" :disabled="busy">

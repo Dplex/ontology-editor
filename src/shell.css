@@ -291,7 +291,7 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
   flex-direction: column;
   align-items: stretch;
   gap: var(--sp-1);
-  width: 18rem;
+  width: 22rem;
   padding: var(--sp-2);
   border: 1px solid var(--line);
   border-radius: var(--r-md);
@@ -304,6 +304,10 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
 .ed-shell .shell-menu-row { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
 .ed-shell .shell-menu-row .ghost { padding-inline: var(--sp-2) !important; }
 .ed-shell .shell-menu .read-menu { padding: 0 var(--sp-3); }
+.ed-shell .data-menu-list { max-height: 16rem; margin: 0 0 var(--sp-2); padding: 0; overflow-y: auto; list-style: none; }
+.ed-shell .data-menu-list li { display: flex; align-items: center; gap: var(--sp-1); min-height: var(--ctl-md); font-size: var(--fs-1); }
+.ed-shell .data-menu-list .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ed-shell .data-menu-list .ghost { flex: none; padding-inline: var(--sp-2) !important; }
 .ed-shell .shell-menu .read-menu summary { min-height: var(--ctl-md); display: flex; align-items: center; cursor: pointer; }
 .ed-shell .shell-menu .read-menu .read-option { position: static; display: flex; flex-direction: column; gap: var(--sp-1); margin: 0 0 var(--sp-2); padding: 0; border: 0; box-shadow: none; }
 
@@ -625,7 +629,7 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
   background: var(--surface);
 }
 .ed-shell .shell-sel { flex: 1 1 auto; overflow-y: auto; }
-.ed-shell .shell-floor { flex: 0 0 48%; min-height: 300px; overflow: hidden; }
+.ed-shell .shell-floor { flex: 0 0 48%; min-height: 300px; overflow-x: hidden; overflow-y: auto; /* 칩을 펴 칸이 모자라면 카드 안에서 스크롤 */ }
 .ed-shell .shell-card-head { display: flex; align-items: baseline; gap: var(--sp-2); padding: var(--sp-3) var(--sp-4) var(--sp-2); }
 .ed-shell .shell-card-head h3 { margin: 0; font-size: var(--fs-3); font-weight: 650; }
 .ed-shell .shell-card-head .muted { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-1); }
@@ -661,8 +665,10 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
 .ed-shell .shell-floor-note { margin: var(--sp-2) var(--sp-4) 0; font-size: var(--fs-1); }
 .ed-shell .shell-floor-note.warn { color: var(--warn-fg); }
 .ed-shell .shell-floor-search { margin: var(--sp-2) var(--sp-4) 0; width: auto; }
-.ed-shell .shell-chips, .ed-shell .shell-systems { display: flex; flex-wrap: wrap; gap: var(--sp-1); padding: var(--sp-2) var(--sp-4) 0; }
-.ed-shell .shell-systems { max-height: 5.5rem; overflow: auto; padding-bottom: var(--sp-2); border-top: 1px solid var(--line); align-items: center; }
+.ed-shell .shell-chips, .ed-shell .shell-systems { display: flex; flex: none; flex-wrap: wrap; gap: var(--sp-1); padding: var(--sp-2) var(--sp-4) 0; }
+/* 칩은 처음 여섯 개만(FloorStatus [+N]). 펴도 두세 줄 높이에서 스크롤 — 아래 목록 자리를 칩이 다 먹지 않게. */
+.ed-shell .shell-chips, .ed-shell .shell-systems { align-items: center; }
+.ed-shell .shell-chips.all, .ed-shell .shell-systems.all { max-height: 4rem; overflow-y: auto; }
 .ed-shell .shell-chips button, .ed-shell .shell-systems button {
   height: 24px;
   padding: 0 var(--sp-2);
@@ -677,11 +683,12 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
   white-space: nowrap;
   cursor: pointer;
 }
-.ed-shell .shell-chips button small { color: var(--muted); }
+.ed-shell .shell-chips button small, .ed-shell .shell-systems button small { color: var(--muted); }
+.ed-shell .shell-chips button.more, .ed-shell .shell-systems button.more { border-style: dashed; color: var(--muted); }
 .ed-shell .shell-chips button.on, .ed-shell .shell-systems button.on { border-color: var(--accent); background: var(--accent); color: var(--on-accent); }
-.ed-shell .shell-chips button.on small { color: var(--on-accent); }
+.ed-shell .shell-chips button.on small, .ed-shell .shell-systems button.on small { color: var(--on-accent); }
 .ed-shell .shell-systems i { width: 8px; height: 8px; border-radius: 2px; }
-.ed-shell .shell-rows { flex: 1; min-height: 0; margin: var(--sp-2) 0 0; padding: 0 var(--sp-2) var(--sp-2); overflow-y: auto; list-style: none; }
+.ed-shell .shell-rows { flex: 1; min-height: 6.5rem; /* 세 줄. 0 이면 칩에 밀려 목록이 한 줄도 남지 않았다 */ margin: var(--sp-2) 0 0; padding: 0 var(--sp-2) var(--sp-2); overflow-y: auto; list-style: none; }
 .ed-shell .shell-rows li > button, .ed-shell .shell-rows li > .row {
   display: flex;
   align-items: center;

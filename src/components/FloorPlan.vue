@@ -39,6 +39,8 @@ const props = defineProps<{
   editing: boolean
   /** 고른 꼭짓점(물리존 외곽선의 몇 번째). 3D 와 같은 값이라, 어느 꼭짓점이 방향키로 움직일지 평면도에서도 보인다. */
   activeVertex?: number | null
+  /** 끄는 꼭짓점을 그리드 · 스냅에 맞춘 자리. 놓을 때만 맞추면 끄는 동안의 점과 놓은 자리가 달라 스냅이 되는지 보이지 않았다. */
+  alignVertex?: (spaceId: string, index: number, at: Vec2) => Vec2
   /** 벽을 눌러 고를 수 있나. 3D 와 같이 편집 모드에서 [벽·문·창] 을 켰을 때만이다. */
   pickWalls: boolean
   /** 여러 개 고른 설비(OE-UI-09). 고른 색으로 그린다. */
@@ -178,7 +180,9 @@ function onPointerMove(event: PointerEvent) {
   }
   if (drag.value) {
     const far = drag.value.moved || Math.hypot(event.clientX - drag.value.from[0], event.clientY - drag.value.from[1]) > 3
-    drag.value = { ...drag.value, at: toModel(event), moved: far }
+    const raw = toModel(event)
+    const at = spaceId.value && props.alignVertex ? props.alignVertex(spaceId.value, drag.value.index, raw) : raw
+    drag.value = { ...drag.value, at, moved: far }
     return
   }
   if (!pan) return

@@ -102,8 +102,6 @@ setupEditor()
               </p>
             </section>
 
-            <!-- data/ 목록(덧붙일 파일 고르기). 파일을 연 뒤에는 여기서만 편다. -->
-            <StartScreen />
           </div>
         </aside>
       </div>

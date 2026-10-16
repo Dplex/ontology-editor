@@ -3,6 +3,8 @@
 import { computed, nextTick, ref } from 'vue'
 import { isConduit } from '../lib/model'
 import { model } from './core'
+import { conduitId } from './flow-rules'
+import { legend } from './kinds'
 import { viewStorey } from './multi-view'
 
 /** 기준 · 검증 드로어(OE-UI-18). 비모달이라 3D · 우측 패널은 그대로 다룬다. 3D 아래에 이어지던 리포트 · 검사 · 표가 이 안에 든다. */
@@ -59,3 +61,26 @@ export const floorEquipment = computed(() => {
   return sts.flatMap((s) => s.equipment.filter((e) => !isConduit(e.role)).map((e) => ({ e, storey: s })))
 })
 export const FLOOR_ROWS_SHOWN = 300
+
+/**
+ * 설비 칸의 계통 칩. 지금 층 설비(덕트 · 배관 포함)가 하나라도 든 계통만, 그 층 기기 수가 많은 차례로. 모든 층이면 파일 전체다.
+ * 범례(legend)를 그대로 쓰면 층을 바꿔도 파일 전체 계통이 남았다(성수 B5F 에서도 1039).
+ */
+export const floorSystems = computed(() => {
+  const m = model.value
+  if (!m) return []
+  const st = shellStorey.value
+  const here = st ? new Set(st.equipment.map((e) => e.id)) : null
+  const byId = new Map(legend.value.map((l) => [l.id, l]))
+  return m.systems
+    .map((s) => {
+      const l = byId.get(s.id)
+      if (!l) return null
+      const members = here ? s.memberIds.filter((id) => here.has(id)) : s.memberIds
+      if (!members.length) return null
+      const devices = members.filter((id) => !conduitId(id)).length
+      return { ...l, devices }
+    })
+    .filter((x): x is NonNullable<typeof x> => !!x)
+    .sort((a, b) => b.devices - a.devices || b.count - a.count)
+})
