@@ -20,6 +20,8 @@ import { askPublish, publishing, versionTime } from '../../editor/reports'
 import { export3D, exporting3d, exportTTLDone, fbxServer } from '../../editor/storey-progress'
 import { copyShareLink, shareQuery, shareUrl } from '../../editor/share-link'
 import { hasEdits } from '../../editor/versions'
+import { changeCount } from '../../editor/changes'
+import Roll from '../Roll.vue'
 import { drawerOpen, openDrawer } from '../../editor/shell'
 import ThemeIcon from '../ThemeIcon.vue'
 import type { model as modelRef } from '../../editor/core'
@@ -103,17 +105,6 @@ defineProps({
             </details>
             <template v-if="editing">
               <span class="shell-menu-head">저장</span>
-              <button
-                type="button"
-                class="ghost save-edits"
-                :class="{ done: justDone === 'save' }"
-                :title="serverKey
-                  ? '편집 저장 (Ctrl+S). 서버에 저장합니다 — 이 파일을 여는 모든 사용자가 같은 편집을 봅니다.'
-                  : '편집 저장 (Ctrl+S). 손으로 연 파일이라 바뀐 내용을 JSON으로 내려받습니다. 같은 IFC를 다시 열고 불러오면 이어서 편집할 수 있습니다.'"
-                @click="saveEdits()"
-              >
-                편집 저장
-              </button>
               <button v-if="serverKey" type="button" class="ghost" title="서버에 저장하지 않고 편집 파일(JSON)로만 내려받습니다" @click="saveEdits(true)">파일로</button>
             </template>
             <span class="shell-menu-head">내보내기</span>
@@ -167,6 +158,18 @@ defineProps({
         </div>
         <!-- PRD #9 의 액션바. 채움 단추는 [반영하기]/[구축하기] 하나, [편집 종료] 는 위험 선 단추(design-system.md 4장). -->
         <div v-else class="edit-bar shell-actions" role="group" aria-label="편집 동작">
+          <!-- 편집 저장과 임시 저장은 둘 다 보인다. 하나만 보이면 둘이 무엇이 다른지 더 헷갈린다. -->
+          <button
+            type="button"
+            class="ghost save-edits"
+            :class="{ done: justDone === 'save' }"
+            :title="serverKey
+              ? '편집 저장 (Ctrl+S). 서버에 저장합니다 — 이 파일을 여는 모든 사용자가 같은 편집을 봅니다.'
+              : '편집 저장 (Ctrl+S). 손으로 연 파일이라 바뀐 내용을 JSON으로 내려받습니다. 같은 IFC를 다시 열고 불러오면 이어서 편집할 수 있습니다.'"
+            @click="saveEdits()"
+          >
+            편집 저장
+          </button>
           <button type="button" class="ghost" :title="people ? '반영하지 않고 이 층의 편집을 서버에 남깁니다. 층마다 하나이고, 누가 이 층에 들어오든 이어서 편집합니다' : '웹에 반영하지 않고 이 층의 편집을 이 브라우저에 남깁니다. 층마다 하나이고, 이 층에 다시 들어오면 이어서 편집합니다'" @click="keepDraft()">임시 저장</button>
           <button type="button" class="ghost" :aria-pressed="previewOpen" title="반영 전에 결과를 봅니다 — 변경 요약과 소속이 바뀔 설비(반영은 바뀌지 않습니다)" @click="previewChanges">미리보기</button>
           <!-- 막힌 이유 칩(design-system.md 5장). 누르면 기준 · 검증 드로어. -->
@@ -192,6 +195,8 @@ defineProps({
         <b>{{ canDiscardDraft ? '임시 저장본에서 이어서 편집 중' : editKind === 'operate' && loadedVersion ? `반영본 v${loadedVersion} 에서 편집 중` : '임포트 결과에서 편집 중' }}</b>
         <span class="muted">| {{ editKind === 'operate' ? '[반영하기]로 이 층을 DT 에 반영합니다.' : serverKey ? '층마다 임시 저장하고 [구축하기]로 v1 을 만듭니다.' : '[구축하기]로 온톨로지 두 파일(GeoJSON · TTL)을 냅니다.' }}</span>
         <span class="grow"></span>
+        <!-- 바뀐 것의 수. 누르면 작업 화면 아래 바뀐 내용 목록으로 간다. -->
+        <button type="button" class="link shell-changes" data-testid="changes-link" title="바뀐 내용 목록으로 갑니다" @click="openDrawer('changes')"><b>편집 중</b> · 바뀐 것 <Roll :value="changeCount" :count-up="false" />건</button>
         <!-- 임시 저장본 폐기(OE-WF-04). 한 번 더 묻고, 반영된 레이아웃(없으면 BIM)으로 돌린다. 되돌릴 수 없다. -->
         <template v-if="canDiscardDraft">
           <template v-if="discardAsk">

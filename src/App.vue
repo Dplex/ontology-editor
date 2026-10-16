@@ -56,7 +56,7 @@ setupEditor()
            더 붙어 바뀐 것의 수와 되돌리기가 따라온다. 온종일 3D 를 보며 고치는 화면이라 큰 머리말과 파일 받는 칸은 접는다. -->
       <AppBar :model="model" />
 
-      <!-- 작업 화면(design-system.md 4장): 왼쪽 도구 레일 · 캔버스 · 우측 패널이 화면 높이를 나눠 쓰고 페이지는 스크롤하지 않는다.
+      <!-- 작업 화면(design-system.md 4장): 왼쪽 도구 레일 · 캔버스 · 우측 패널이 헤더 · 상태줄을 뺀 화면 높이를 나눠 쓴다. 표와 편집 칸은 그 아래다.
            3D 에서 누른 것이 스크롤 없이 바로 옆에 뜬다. 전체 화면도 이 셋을 같이 띄운다. -->
       <div ref="stage" :class="['stage', 'workspace', { full: fullscreen }]">
         <HoverTip ref="hoverTip" />
@@ -67,7 +67,8 @@ setupEditor()
         <SidePanel :counts="counts" :model="model" />
 
         <!-- 기준 · 검증 드로어(OE-UI-18). 헤더의 [기준 ▾] 가 연다. 비모달 — 우측 패널 바로 왼쪽, 캔버스 위에만 뜬다.
-             예전에 3D 아래로 이어지던 파일 개요 · 진단 · 요구사항 · 리포트 · 검사 · 층별 요약 · 설비 목록 · 편집이 전부 여기 있다. -->
+             기준 · 등급 · 경고 · 리포트(파일 개요 · 진단 · 요구사항 · 버전 비교)만 둔다. 3D 를 보며 쓰는 검사 · 층별 요약 · 설비 목록 · 편집은
+             원래처럼 작업 화면 아래에 있다 — 드로어에 넣으면 캔버스를 덮어 둘을 같이 못 본다. -->
         <aside v-show="drawerOpen" class="shell-drawer" aria-label="기준 · 검증" data-testid="basis-drawer" @keydown.esc="drawerOpen = false">
           <header class="shell-drawer-head">
             <b>{{ fileName }} · 기준 · 검증</b>
@@ -78,33 +79,37 @@ setupEditor()
 
             <ReviewPanel :counts="counts" :model="model" />
 
-            <!-- 행이 많은 목록은 처음부터 접혀 있다(SMALL). 파일이 바뀌면(key) 접힘 상태도 그 파일 기준으로 다시 정한다. -->
-            <div :key="fileName" v-memo="replayMemo()" class="folds">
-              <ChecksFold v-if="checks.length" :checks="checks" />
-              <RuleSystemsFold v-if="ruleSystems.length" :rule-systems="ruleSystems" />
-              <StoreysFold :model="model" />
-              <KindsFold v-if="kindSummary" :kind-summary="kindSummary" />
-              <IdfZonesFold v-if="zoneRows.length" :model="model" :zone-rows="zoneRows" />
-              <ServiceFold v-if="serviceSummary && serviceSummary.rows.length" :service-summary="serviceSummary" />
-              <!-- 편집. 3D 조작 대신 값을 직접 고친다. 보기 모드에서도 설비 목록은 남긴다(이름으로 찾아 고르는 길이다). -->
-              <EditorSection :counts="counts" :model="model" />
-            </div>
-
-            <section v-memo="replayMemo()" class="actions">
-              <p class="note">
-                <b>내보내기</b>(헤더의 [파일 ▾] — GeoJSON · TTL · GLB · OBJ · FBX).
-                두 파일은 같은 id로 연결됩니다. 형상은 GeoJSON, 설비와 계통의 관계는 TTL에 들어갑니다.
-                벽·문·창과 문이 연결하는 공간은 GeoJSON에만 있습니다(Brick에 건축 부재 클래스가 없음).
-                벽·문·창은 '읽을 것'에서 켠 것만 들어가고, 문·창 위치는 '문·창 자리'를 켜고 연 파일에서만 나갑니다.
-                TTL의 설비·방 클래스는 <Src kind="dict" /> 기준이고, 규칙 방향은 확정한 계통만 들어갑니다.
-                GLB · OBJ는 보여 주기용 3D 형상입니다. 요소 이름이 같은 id(GlobalId)이고, 좌표는 y가 위인 미터입니다.
-              </p>
-            </section>
-
-            <!-- data/ 목록(덧붙일 파일 고르기). 파일을 연 뒤에는 여기서만 편다. -->
-            <StartScreen />
           </div>
         </aside>
+      </div>
+
+      <!-- 작업 화면 아래: 3D 를 보며 쓰는 표와 편집 칸(원래 자리). 페이지를 내리면 나온다. -->
+      <div class="shell-below">
+      <!-- 행이 많은 목록은 처음부터 접혀 있다(SMALL). 파일이 바뀌면(key) 접힘 상태도 그 파일 기준으로 다시 정한다. -->
+      <div :key="fileName" v-memo="replayMemo()" class="folds">
+        <ChecksFold v-if="checks.length" :checks="checks" />
+        <RuleSystemsFold v-if="ruleSystems.length" :rule-systems="ruleSystems" />
+        <StoreysFold :model="model" />
+        <KindsFold v-if="kindSummary" :kind-summary="kindSummary" />
+        <IdfZonesFold v-if="zoneRows.length" :model="model" :zone-rows="zoneRows" />
+        <ServiceFold v-if="serviceSummary && serviceSummary.rows.length" :service-summary="serviceSummary" />
+        <!-- 편집. 3D 조작 대신 값을 직접 고친다. 보기 모드에서도 설비 목록은 남긴다(이름으로 찾아 고르는 길이다). -->
+        <EditorSection :counts="counts" :model="model" />
+      </div>
+
+      <section v-memo="replayMemo()" class="actions">
+        <p class="note">
+          <b>내보내기</b>(헤더의 [파일 ▾] — GeoJSON · TTL · GLB · OBJ · FBX).
+          두 파일은 같은 id로 연결됩니다. 형상은 GeoJSON, 설비와 계통의 관계는 TTL에 들어갑니다.
+          벽·문·창과 문이 연결하는 공간은 GeoJSON에만 있습니다(Brick에 건축 부재 클래스가 없음).
+          벽·문·창은 '읽을 것'에서 켠 것만 들어가고, 문·창 위치는 '문·창 자리'를 켜고 연 파일에서만 나갑니다.
+          TTL의 설비·방 클래스는 <Src kind="dict" /> 기준이고, 규칙 방향은 확정한 계통만 들어갑니다.
+          GLB · OBJ는 보여 주기용 3D 형상입니다. 요소 이름이 같은 id(GlobalId)이고, 좌표는 y가 위인 미터입니다.
+        </p>
+      </section>
+
+      <!-- data/ 목록(덧붙일 파일 고르기). 파일을 연 뒤에는 여기서만 편다. -->
+      <StartScreen />
       </div>
 
       <StatusBar />

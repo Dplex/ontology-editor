@@ -8,16 +8,38 @@ import { viewStorey } from './multi-view'
 /** 기준 · 검증 드로어(OE-UI-18). 비모달이라 3D · 우측 패널은 그대로 다룬다. 3D 아래에 이어지던 리포트 · 검사 · 표가 이 안에 든다. */
 export const drawerOpen = ref(false)
 
-/** 드로어를 열고 그 안의 자리(`#warnings` · `#changes` 등)로 간다. 이미 열려 있으면 자리만 옮긴다. */
+/**
+ * 그 자리(`#warnings` · `#changes` 등)로 간다. 드로어 안이면 드로어를 열고, 작업 화면 아래(표 · 편집 칸)면 페이지를 내린다.
+ * 자리를 안 주면 드로어만 연다.
+ */
 export function openDrawer(anchor?: string) {
-  drawerOpen.value = true
-  if (!anchor) return
-  void nextTick(() => document.getElementById(anchor)?.scrollIntoView({ block: 'start' }))
+  const el = anchor ? document.getElementById(anchor) : null
+  if (!anchor || el?.closest('.shell-drawer')) drawerOpen.value = true
+  if (!el) return
+  void nextTick(() => el.scrollIntoView({ block: 'start' }))
 }
 
 /** 층 현황(우측 아래)의 종류 칸. 다섯 칸이 design-system.md 4장 그대로다. */
 export type FloorKind = 'space' | 'custom' | 'hvac' | 'equipment' | 'objects'
 export const floorKind = ref<FloorKind>('space')
+/** 층 현황 접기. 접으면 위 카드(선택 오브젝트)가 열 전체를 쓴다 — 설비 인스펙터가 길다. 이 브라우저에만 남는다. */
+export const floorCollapsed = ref(
+  (() => {
+    try {
+      return localStorage.getItem('oe-floor-collapsed') === '1'
+    } catch {
+      return false
+    }
+  })(),
+)
+export function toggleFloorCollapsed() {
+  floorCollapsed.value = !floorCollapsed.value
+  try {
+    localStorage.setItem('oe-floor-collapsed', floorCollapsed.value ? '1' : '0')
+  } catch {
+    // 저장을 못 해도 이번 세션 동안은 그대로 쓴다.
+  }
+}
 export const floorSearch = ref('')
 /** 설비 칸의 종류 칩. 다시 누르면 풀린다. */
 export const floorEquipKind = ref<string | null>(null)

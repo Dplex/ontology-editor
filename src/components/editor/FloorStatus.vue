@@ -9,7 +9,7 @@ import { selectedZone, selectZone } from '../../editor/idf-zones'
 import { legend, selectedSystemId } from '../../editor/kinds'
 import { breadcrumb, floorNow, floorNowStatus, pickFromSummary } from '../../editor/layout-storeys'
 import { selectedSpaceId } from '../../editor/rooms'
-import { FLOOR_ROWS_SHOWN, floorEquipKind, floorEquipment, floorKind, floorSearch, shellStorey, type FloorKind } from '../../editor/shell'
+import { FLOOR_ROWS_SHOWN, floorCollapsed, floorEquipKind, floorEquipment, floorKind, floorSearch, shellStorey, toggleFloorCollapsed, type FloorKind } from '../../editor/shell'
 import { selectedCustomZoneId } from '../../editor/space-edit'
 import { select, toggleSystem } from '../../editor/systems'
 import { shortName } from '../../editor/equipment-shape'
@@ -68,12 +68,14 @@ const many = computed(() => !shellStorey.value && (model.value?.storeys.length ?
 </script>
 
 <template>
-  <section class="shell-floor" aria-label="층 현황" data-testid="floor-status">
+  <section :class="['shell-floor', { collapsed: floorCollapsed }]" aria-label="층 현황" data-testid="floor-status">
     <header class="shell-card-head">
       <h3>층 현황</h3>
       <span v-if="breadcrumb" class="muted">{{ breadcrumb.building }} · {{ breadcrumb.storey }}</span>
       <small v-if="floorNowStatus" class="muted shell-floor-state" :title="floorNowStatus">{{ floorNowStatus }}</small>
+      <button type="button" class="link shell-floor-toggle" :aria-expanded="!floorCollapsed" :title="floorCollapsed ? '층 현황을 펼칩니다' : '층 현황을 접고 위 카드를 넓힙니다'" @click="toggleFloorCollapsed">{{ floorCollapsed ? '펼치기 ▴' : '접기 ▾' }}</button>
     </header>
+    <template v-if="!floorCollapsed">
     <div class="shell-kinds" role="group" aria-label="층 현황 종류">
       <button
         v-for="k in KINDS"
@@ -159,5 +161,6 @@ const many = computed(() => !shellStorey.value && (model.value?.storeys.length ?
         <span class="row"><span class="name">{{ o.label }}</span><span class="val">{{ o.count.toLocaleString() }}</span></span>
       </li>
     </ul>
+    </template>
   </section>
 </template>

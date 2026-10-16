@@ -18,7 +18,9 @@ import { openDrawer } from '../../editor/shell'
     <span>{{ editing ? (editPart === 'space' ? '공간 편집' : ceilingMode ? '설비 편집 · 천장' : '설비 편집') : '보기' }}</span>
     <span v-if="multiRange">다중층 {{ multiRange[0].name }}~{{ multiRange.at(-1)!.name }}</span>
     <span class="grow"></span>
-    <span v-if="editing" :title="history.at(-1)?.label">편집 {{ history.length }}단계</span>
+    <span v-if="editing">편집 {{ history.length }}단계</span>
+    <!-- 마지막 편집 이름. 방금 한 일이 무엇으로 남았는지 보는 단서다(되돌리기 단추의 툴팁과 같은 글). -->
+    <span v-if="editing && history.length" class="last-edit" :title="history.at(-1)!.label" data-testid="last-edit">마지막 {{ history.at(-1)!.label }}</span>
     <button v-if="changeCount" type="button" class="warn" title="바뀐 내용을 기준 · 검증 패널에서 봅니다" @click="openDrawer('changes')">● 바뀐 것 {{ changeCount }}건</button>
     <span v-else>변경 없음</span>
     <span>좌표 건물 로컬 · m</span>
