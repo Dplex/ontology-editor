@@ -4708,11 +4708,12 @@ main.has-model .catalog {
   stroke: var(--surface);
 }
 
-/* 그리드(OE-UI-07). 평면도 선은 가늘게, 그리기 막대의 켜기 칸. */
+/* 그리드(OE-UI-07). 평면도 선은 가늘게, 그리기 막대의 켜기 칸.
+   non-scaling-stroke 라 두께는 화면 px 다 — 0.02 로 두었더니 선이 그려져도 보이지 않았다(2026-10-16). */
 .floor-plan .grid line {
   stroke: #8a93a3;
   stroke-opacity: 0.35;
-  stroke-width: 0.02;
+  stroke-width: 1;
   vector-effect: non-scaling-stroke;
 }
 
