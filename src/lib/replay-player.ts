@@ -13,6 +13,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRaw, watch, type ComputedRef, type Ref, type ShallowRef } from 'vue'
 import { isConduit, type Connection, type Equipment, type Model, type Storey, type Vec2, type Vec3 } from './model'
 import { pauseFlash } from './motion'
+import { pointInPolygon } from './mapping'
 import { labelPoint } from './polygon'
 import { roomKind } from './kinds'
 import type { Snapshot } from './edit'
@@ -63,6 +64,40 @@ function savedTheme(): ReplayTheme {
     return localStorage.getItem(THEME_KEY) === 'show' ? 'show' : 'plan'
   } catch {
     return 'plan'
+  }
+}
+
+/**
+ * 리플레이 3D·HUD 화질 단계.
+ * - low(경량): 픽셀비 1.0 고정, 기본 기둥·단일 바닥 물결만 표시, 유리 블러·오로라·성좌 생략 (대규모 BIM·노트북 내장 그래픽 최적화)
+ * - medium(표준): 픽셀비 최대 1.5, 조준 레티클·스캔 고리·포물선 아치·성좌 표시
+ * - high(울트라): 픽셀비 최대 2.0, 2중 역회전 궤도 레티클·3D 상승 발광 입자(Points)·고밀도 아치·스페큘러 홀로그램 HUD·애너모픽 플레어
+ */
+export type ReplayQuality = 'low' | 'medium' | 'high'
+const QUALITY_KEY = 'oe-replay-quality'
+function savedQuality(): ReplayQuality {
+  try {
+    const v = localStorage.getItem(QUALITY_KEY)
+    return v === 'low' || v === 'medium' || v === 'high' ? v : 'high'
+  } catch {
+    return 'high'
+  }
+}
+
+/**
+ * 리플레이 카메라 인칭 시점(POV).
+ * - orbit(3인칭 조감, 기본값): 건물·층 위쪽 40° 사선에서 내려다보며 포물선 호를 그리며 이동
+ * - pov(1인칭 공간 몰입): 사람 눈높이(9°)와 62° 광각 렌즈로 방 안에 직접 들어가 있는 듯한 시점 + 주변 벽/방 반투명 투시(setSpaceFocus)
+ * - auto(AI 시네마토그래퍼 자동 시점): 전체 계통·흐름 장면은 3인칭 조감으로, 개별 방 내부 편집은 1인칭 몰입으로 자동 전환
+ */
+export type ReplayPov = 'orbit' | 'pov' | 'auto'
+const POV_KEY = 'oe-replay-pov'
+function savedPov(): ReplayPov {
+  try {
+    const v = localStorage.getItem(POV_KEY)
+    return v === 'pov' || v === 'auto' || v === 'orbit' ? v : 'orbit'
+  } catch {
+    return 'orbit'
   }
 }
 
@@ -227,9 +262,15 @@ export function useReplay(host: ReplayPlayerHost) {
     host.viewer.setArrowsShown(true)
     // 극장 바탕이 어두워서 라이트 테마의 진한 화살표가 묻힌다.
     host.viewer.setDark(true)
+    host.viewer.setReplayQuality(replayQuality.value)
+    replayPovNow.value = replayPov.value === 'pov' ? 'pov' : 'orbit'
+    host.viewer.setReplayPov(replayPovNow.value)
     host.viewer.setCinema(true)
     host.viewer.setReplayTheme(replayTheme.value)
     host.viewer.setDiorama(true)
+    host.viewer.setSpaceMood(null)
+    host.viewer.setSpaceFocus(null)
+    replayRoom.value = null
     // 첫 벽 장면이 외곽선 층을 켤 때 벽 전부를 한 프레임에 압출하지 않게, 오프닝 동안 나눠 압출해 둔다.
     host.viewer.warmArchitecture(m)
     host.viewer.onSpotClick(replaySpotClick)
@@ -263,8 +304,11 @@ export function useReplay(host: ReplayPlayerHost) {
     replayAiming.value = null
     replayLoop.value = null
     replaySeen.value = 0
+    replayRoom.value = null
     host.viewer?.spotlight([], [], 0)
     host.viewer?.ghosts([], 0)
+    host.viewer?.setSpaceMood(null)
+    host.viewer?.setSpaceFocus(null)
     while (history.value.length > 0) undo()
   }
 
@@ -276,6 +320,113 @@ export function useReplay(host: ReplayPlayerHost) {
       await new Promise((r) => window.setTimeout(r, 50))
     }
     return replaySteps.value[i] ?? null
+  }
+
+  /** 지금 장면이 일어나는 물리존(방)과 공간 종류별 맞춤 무드 색상·면적·설비 수. */
+  type ReplayRoomInfo = { id: string; name: string; kind: string | null; areaM2: number; devices: number; color: string; colorHex: number; ring: readonly Vec2[]; elevation: number }
+  const replayRoom = ref<ReplayRoomInfo | null>(null)
+  function roomMoodColor(kind: string | null | undefined): { hex: string; num: number } {
+    switch (kind) {
+      case 'mechanical':
+        return { hex: '#38bdf8', num: 0x38bdf8 }
+      case 'electrical':
+      case 'telecom':
+      case 'server':
+        return { hex: '#a78bfa', num: 0xa78bfa }
+      case 'restroom':
+      case 'janitor':
+        return { hex: '#22d3ee', num: 0x22d3ee }
+      case 'lobby':
+      case 'hallway':
+      case 'staircase':
+      case 'elevator_shaft':
+        return { hex: '#34d399', num: 0x34d399 }
+      default:
+        return { hex: '#ffa65a', num: 0xffa65a }
+    }
+  }
+  function sceneSpaceOf(step: ReplayStep | null): ReplayRoomInfo | null {
+    const m = model.value
+    if (!m || !step) return null
+    const byId = equipmentById.value
+    const findSpace = (spaceId: string | null | undefined) => {
+      if (!spaceId) return null
+      for (const st of m.storeys) {
+        const sp = st.spaces.find((x) => x.id === spaceId)
+        if (sp && sp.footprint.length >= 3) return { st, sp }
+      }
+      return null
+    }
+    let found: { st: Storey; sp: Storey['spaces'][number] } | null = null
+    for (const c of step.changes) {
+      if (c.key.startsWith('sp:')) {
+        found = findSpace(c.key.slice(3))
+        if (found) break
+      }
+    }
+    if (!found) {
+      for (const c of step.changes) {
+        const it = c.after ?? c.before
+        if (it?.t === 'equip' && it.spaceId) {
+          found = findSpace(it.spaceId)
+          if (found) break
+        }
+        if (c.key.startsWith('eq:')) {
+          found = findSpace(byId.get(c.key.slice(3))?.spaceId)
+          if (found) break
+        }
+      }
+    }
+    if (!found) {
+      for (const c of step.changes) {
+        if (c.key.startsWith('wl:')) {
+          const wid = c.key.slice(3)
+          for (const st of m.storeys) {
+            const sp = st.spaces.find((x) => x.boundedBy.includes(wid) && x.footprint.length >= 3)
+            if (sp) {
+              found = { st, sp }
+              break
+            }
+          }
+          if (found) break
+        }
+      }
+    }
+    if (!found) {
+      for (const c of step.changes) {
+        const it = c.after ?? c.before
+        if (!it || it.t === 'link') continue
+        const st = m.storeys.find((s) => s.id === it.storeyId)
+        if (!st) continue
+        const pt: Vec2 | null =
+          it.t === 'equip' || it.t === 'opening'
+            ? it.at
+            : it.t === 'wall'
+              ? (it.rings[0]?.[0] ?? null)
+              : (it.ring[0] ?? null)
+        if (!pt) continue
+        const sp = st.spaces.find((x) => x.footprint.length >= 3 && pointInPolygon(pt, x.footprint))
+        if (sp) {
+          found = { st, sp }
+          break
+        }
+      }
+    }
+    if (!found) return null
+    const rk = roomKind(found.sp.kind)
+    const mood = roomMoodColor(rk?.kind ?? found.sp.kind)
+    const devices = found.st.equipment.filter((e) => e.spaceId === found!.sp.id && !isConduit(e.role)).length
+    return {
+      id: found.sp.id,
+      name: found.sp.longName || found.sp.name || '물리존',
+      kind: rk?.label ?? null,
+      areaM2: found.sp.areaM2,
+      devices,
+      color: mood.hex,
+      colorHex: mood.num,
+      ring: found.sp.footprint,
+      elevation: found.st.elevation,
+    }
   }
 
   /**
@@ -316,6 +467,20 @@ export function useReplay(host: ReplayPlayerHost) {
     await nextTick()
     // 다른 층이 숨은 뒤라 자르는 면을 풀어도 위층이 다시 보이지 않는다.
     if (cut) host.viewer.clearSection()
+    const rm = sceneSpaceOf(step)
+    replayRoom.value = rm
+    host.viewer.setSpaceMood(rm ? { id: rm.id, ring: rm.ring, elevation: rm.elevation, color: rm.colorHex } : null)
+    const wideScene =
+      !rm ||
+      step?.category === '흐름 방향' ||
+      step?.category === '연결' ||
+      step?.category === '계통' ||
+      (step?.changes.length ?? 0) >= 6
+    const inPov = replayPov.value === 'pov' || (replayPov.value === 'auto' && !wideScene)
+    replayPovNow.value = inPov ? 'pov' : 'orbit'
+    host.viewer.setReplayPov(replayPovNow.value)
+    host.viewer.setSpaceFocus(inPov && rm ? rm.id : null)
+    const ptMargin = inPov ? 1.2 : 3
     const color = replayColor(step)
     const lit = (ids: string[]) => ids.filter((id) => byId.has(id) && !isConduit(byId.get(id)!.role)).slice(0, 4).map((id) => ({ id, label: shortName(byId.get(id)!.name) }))
     const arch = replayArchOf(step, 'before')
@@ -325,13 +490,13 @@ export function useReplay(host: ReplayPlayerHost) {
       replayElement.value = arch.id
       selectedId.value = null
       selectedSpaceId.value = null
-      if (camera) host.viewer.framePoints([...arch.frame, ...(replayArchOf(step, 'after')?.frame ?? [])], 3)
+      if (camera) host.viewer.framePoints([...arch.frame, ...(replayArchOf(step, 'after')?.frame ?? [])], ptMargin)
       host.viewer.spotlight([], [], color, { points: arch.points, rings: arch.rings })
     } else if (zones) {
       // 룸·커스텀존: 그 외곽선이 들어오게 다가가 빛 울타리와 이름표를 세운다. 새로 만드는 것은 아직 없으니 들어설 자리를 비춘다.
       selectedId.value = null
       selectedSpaceId.value = null
-      if (camera) host.viewer.framePoints(zones.frame, 3)
+      if (camera) host.viewer.framePoints(zones.frame, ptMargin)
       host.viewer.spotlight([], [], color, { points: zones.points, rings: zones.rings })
     } else if (spaces.length) {
       // 물리존 편집은 물리존을 본다. 같이 바뀐 설비(소속이 풀린 것)는 결과라서, 멀리 있는 하나가 시점을 끌고 가면 안 된다.
@@ -346,7 +511,7 @@ export function useReplay(host: ReplayPlayerHost) {
       const list = flow ? any : devices.length ? devices : any
       const at = byId.get(list[0])?.position
       const near = at ? list.filter((id) => { const p = byId.get(id)?.position; return !p || Math.hypot(p[0] - at[0], p[1] - at[1]) < 12 }) : list
-      if (camera) host.viewer.frame(near.slice(0, 80), flow ? 1 : 4)
+      if (camera) host.viewer.frame(near.slice(0, 80), flow ? (inPov ? 0.8 : 1) : inPov ? 1.5 : 4)
       selectedSpaceId.value = null
       selectedId.value = devices[0] ?? null
       // 흐름 장면의 주인공은 바뀐 연결의 화살표다. 빛기둥은 시작 설비 하나만.
@@ -354,7 +519,7 @@ export function useReplay(host: ReplayPlayerHost) {
     } else if (newcomers.length) {
       // 더하기 장면: 다시 하기 전에는 설비가 아직 없어서 3D 에서 찾을 수 없다. 들어설 자리로 가서 그 자리를 비춘다.
       const at = newcomers.map((it): Vec3 => [it.at![0], it.at![1], m.storeys.find((st) => st.id === it.storeyId)?.elevation ?? 0])
-      if (camera) host.viewer.framePoints(at, 3)
+      if (camera) host.viewer.framePoints(at, ptMargin)
       selectedId.value = null
       selectedSpaceId.value = null
       // 기둥은 세우지 않는다 — 그 자리에서 납작한 발자국이 솟아 형체를 드러낸다(replayLand 의 revealElements).
@@ -886,6 +1051,9 @@ export function useReplay(host: ReplayPlayerHost) {
     selectedId.value = null
     selectedSpaceId.value = null
     viewStorey.value = null
+    replayRoom.value = null
+    host.viewer?.setSpaceMood(null)
+    host.viewer?.setSpaceFocus(null)
     // 끌어서 끝에 닿으면 큰 파일에서는 장면 카드 계산(워커)이 아직일 수 있다 — 빛기둥·변경 지도가 다 서게 마지막 장면을 기다린다.
     const token = replayToken
     await replayStepInfo(replayTotal.value - 1, token)
@@ -967,9 +1135,12 @@ export function useReplay(host: ReplayPlayerHost) {
     absEpoch++
     replayPlaying.value = false
     replayAiming.value = null
+    replayRoom.value = null
     host.viewer?.spotlight([], [], 0)
     host.viewer?.ghosts([], 0)
     host.viewer?.setFlows([])
+    host.viewer?.setSpaceMood(null)
+    host.viewer?.setSpaceFocus(null)
     // 끄는 동안 다른 조작(장면 반복·처음부터)이 끼면 그쪽에 맡기고 멈춘다 — 둘이 이력을 서로 당기지 않게.
     while (seekTarget !== null && token === replayToken && history.value.length !== seekTarget) {
       if (history.value.length > seekTarget) undo()
@@ -1145,6 +1316,7 @@ export function useReplay(host: ReplayPlayerHost) {
   function closeReplay() {
     if (!replayOpen.value) return
     replayDiff.value = null
+    replayRoom.value = null
     if (recorder?.state === 'recording') recorder.stop()
     compareEnd()
     replayToken++
@@ -1155,6 +1327,9 @@ export function useReplay(host: ReplayPlayerHost) {
     replayAiming.value = null
     replayOpen.value = false
     replayRecordNote.value = ''
+    host.viewer?.setSpaceMood(null)
+    host.viewer?.setSpaceFocus(null)
+    host.viewer?.setReplayPov('orbit')
     host.viewer?.setEditMode(host.editing.value)
     host.viewer?.setArrowsShown(false)
     host.viewer?.setCinema(false)
@@ -1337,6 +1512,42 @@ export function useReplay(host: ReplayPlayerHost) {
       // 저장이 막힌 브라우저(사생활 창)면 이번만 바뀐다.
     }
   }
+  const replayQuality = ref<ReplayQuality>(savedQuality())
+  function replaySetQuality(q: ReplayQuality) {
+    replayQuality.value = q
+    host.viewer?.setReplayQuality(q)
+    try {
+      localStorage.setItem(QUALITY_KEY, q)
+    } catch {
+      // 저장이 막힌 브라우저(사생활 창)면 이번만 바뀐다.
+    }
+  }
+  function replayCycleQuality() {
+    const order: ReplayQuality[] = ['low', 'medium', 'high']
+    const next = order[(order.indexOf(replayQuality.value) + 1) % order.length]
+    replaySetQuality(next)
+  }
+  const replayPov = ref<ReplayPov>(savedPov())
+  /** 지금 장면이 실제로 쓰는 시점. 자동이면 장면마다 replayAim 이 정한다. */
+  const replayPovNow = ref<'orbit' | 'pov'>('orbit')
+  function replaySetPov(p: ReplayPov) {
+    replayPov.value = p
+    try {
+      localStorage.setItem(POV_KEY, p)
+    } catch {
+      // 저장이 막힌 브라우저(사생활 창)면 이번만 바뀐다.
+    }
+    // 지금 장면은 다시 조준하지 않는다 — 재생 루프가 조준하는 중이면 카메라가 두 번 날고, 이미 다시 한 장면이면 편집 후 상태로 다시 조준한다.
+    // 렌즈와 벽 흐리기만 바로 바꾸고, 비행 각도·거리는 다음 장면부터 따른다. 자동은 다음 장면이 정할 때까지 지금 시점을 둔다.
+    if (p === 'auto') return
+    replayPovNow.value = p
+    host.viewer?.setReplayPov(p)
+    if (replayOpen.value && replayPhase.value === 'play') host.viewer?.setSpaceFocus(p === 'pov' && replayRoom.value ? replayRoom.value.id : null)
+  }
+  function replayCyclePov() {
+    const order: ReplayPov[] = ['orbit', 'pov', 'auto']
+    replaySetPov(order[(order.indexOf(replayPov.value) + 1) % order.length])
+  }
   const replayAskClose = ref(false)
   watch(replayOpen, (open) => !open && (replayAskClose.value = false))
   function replayKey(e: KeyboardEvent): boolean {
@@ -1356,6 +1567,8 @@ export function useReplay(host: ReplayPlayerHost) {
     else if (e.code === 'KeyE') replayToggleSpread()
     else if (e.code === 'KeyS') void replayToggleHighlights()
     else if (e.code === 'KeyT') replayToggleTheme()
+    else if (e.code === 'KeyQ') replayCycleQuality()
+    else if (e.code === 'KeyV') replayCyclePov()
     else if (e.code === 'KeyR') void replayRecord()
     else if (e.code === 'Space') replayToggle()
     else if (e.code === 'ArrowRight') void replayJump('next')
@@ -1386,6 +1599,16 @@ export function useReplay(host: ReplayPlayerHost) {
     seen: replaySeen.value,
     loop: replayLoop.value,
     storey: replayStorey.value,
+    room:
+      replayPhase.value === 'play' && replayRoom.value
+        ? {
+            name: replayRoom.value.name,
+            kind: replayRoom.value.kind,
+            areaM2: replayRoom.value.areaM2,
+            devices: replayRoom.value.devices,
+            color: replayRoom.value.color,
+          }
+        : null,
     comparing: replayComparing.value,
     filter: replayFilter.value,
     highlights: replayHighlights.value,
@@ -1396,6 +1619,9 @@ export function useReplay(host: ReplayPlayerHost) {
     spread: replaySpreadable.value ? replaySpread.value : null,
     askClose: replayAskClose.value,
     theme: replayTheme.value,
+    quality: replayQuality.value,
+    pov: replayPov.value,
+    povNow: replayPovNow.value,
   }))
   // B 로 편집 전을 보는 중에 마우스로 다른 조작을 하면 먼저 편집 후로 돌린다 — 그대로 두면 그 조작이 이력을 옮긴 뒤 B 를 뗄 때
   // 다시 하기가 한 번 더 되어 한 칸 어긋났다(키는 B 를 누르는 동안 받지 않는다).
@@ -1419,6 +1645,8 @@ export function useReplay(host: ReplayPlayerHost) {
     highlights: after(replayToggleHighlights),
     stay: () => (replayAskClose.value = false),
     theme: replayToggleTheme,
+    quality: (q: ReplayQuality) => replaySetQuality(q),
+    pov: (p?: ReplayPov) => (p ? replaySetPov(p) : replayCyclePov()),
     compareDown: compareStart,
     compareUp: compareEnd,
   }

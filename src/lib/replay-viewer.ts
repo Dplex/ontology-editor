@@ -152,6 +152,12 @@ export type ReplayViewerApi = {
   dimensions(items: readonly { key: string; from: Vec3; to: Vec3 }[], color: number): void
   /** 3D 위 이름표·방 표시·소속 카드의 모양. 도면(무채색 가는 선) · 중계(갈래 색 그라데이션과 빛). 다음에 그리는 것부터. */
   setReplayTheme(theme: 'plan' | 'show'): void
+  /** 리플레이 3D·연출 화질 단계. low(경량: 픽셀비 1.0·기본 기둥만) · medium(표준: 조준 링·포물선 아치) · high(울트라: 2중 역회전 조준 링·3D 상승 입자·고밀도 성좌). */
+  setReplayQuality(quality: 'low' | 'medium' | 'high'): void
+  /** 리플레이 카메라 시점(인칭). orbit(3인칭 조감: 위쪽 40° 사선 비행) · pov(1인칭 공간 몰입: 눈높이 9° 수평 진입 + 62° 광각 시야). */
+  setReplayPov(pov: 'orbit' | 'pov'): void
+  /** 장면이 머무는 방(물리존)의 공간별 맞춤 무드 조명·볼류메트릭 오라·부유 입자. null 이면 걷는다. */
+  setSpaceMood(mood: { id: string; ring: readonly Vec2[]; elevation: number; color: number } | null): void
 }
 
 /**
@@ -187,6 +193,8 @@ export type ReplayHost = {
   rayAt: (x: number, y: number) => Ray
   toScreen: (p: Vector3) => { x: number; y: number } | null
   fit: (box: Box3) => void
+  /** 픽셀비 상한(기본 2). 뷰어의 resize 가 매 프레임 이 값으로 맞춘다. */
+  setPixelRatioCap: (cap: number) => void
   /** 지금(날아가는 중이면 도착할 자리의) 카메라와 바라보는 점 사이 거리. */
   viewDistance: () => number
   /** 벽·문·창 외곽선 층을 마지막에 그린 그대로 다시 그린다(새로 생긴 벽을 따로 그리게). */
@@ -199,6 +207,31 @@ export function createReplayFx(host: ReplayHost) {
   const tint = new Color()
   /** 3D 위 글 판의 모양(setReplayTheme). */
   let theme: 'plan' | 'show' = 'plan'
+  /** 리플레이 3D 연출 화질 단계(setReplayQuality). */
+  let quality: 'low' | 'medium' | 'high' = 'high'
+  /** 리플레이 카메라 인칭 시점(setReplayPov). orbit(3인칭 조감) · pov(1인칭 공간 몰입). */
+  let pov: 'orbit' | 'pov' = 'orbit'
+  let savedFov: number | null = null
+  /** 화질 단계의 픽셀비 상한. 끄면 뷰어 기본(2)으로 돌린다. */
+  function applyQualityPixelRatio(on: boolean) {
+    host.setPixelRatioCap(!on ? 2 : quality === 'low' ? 1 : quality === 'medium' ? 1.5 : 2)
+  }
+  function applyPovFov(on: boolean) {
+    if (!on) {
+      if (savedFov !== null) {
+        host.camera.fov = savedFov
+        host.camera.updateProjectionMatrix()
+        savedFov = null
+      }
+      return
+    }
+    if (savedFov === null) savedFov = host.camera.fov
+    const target = pov === 'pov' ? 62 : savedFov
+    if (host.camera.fov !== target) {
+      host.camera.fov = target
+      host.camera.updateProjectionMatrix()
+    }
+  }
   const hex = (c: number) => `#${c.toString(16).padStart(6, '0')}`
   /** 중계 모양의 판: 둥근 모서리(반지름 r) 길. 테두리 선이 잘리지 않게 1px 안쪽에 그린다. */
   const chamfer = (g: CanvasRenderingContext2D, w: number, h: number, r: number) => {
@@ -514,11 +547,29 @@ export function createReplayFx(host: ReplayHost) {
   let nightFrom: number | null = null
   const NIGHT_MS = 900
   let nightLevel = 0
+  let moodColorHex: number | null = null
+  let moodGroup: Group | null = null
   function applyNight(level: number) {
     nightLevel = level
     host.hemi.intensity = 0.9 + (0.3 - 0.9) * level
     host.sun.intensity = 1.45 + (0.55 - 1.45) * level
     host.sun.color.setRGB(1, 1 + (0xd2 / 255 - 1) * level, 1 + (0xa6 / 255 - 1) * level)
+    host.hemi.color.setRGB(1, 1, 1)
+    if (moodColorHex !== null && level > 0) {
+      tint.setHex(moodColorHex)
+      host.sun.color.lerp(tint, 0.32 * level)
+      host.hemi.color.lerp(tint, 0.25 * level)
+    }
+  }
+  function clearSpaceMood() {
+    if (moodGroup) {
+      moodGroup.userData.dead = true
+      moodGroup = null
+    }
+    if (moodColorHex !== null) {
+      moodColorHex = null
+      applyNight(nightLevel)
+    }
   }
 
   // --- 흐르는 빛 알갱이(setFlows) ---
@@ -527,7 +578,7 @@ export function createReplayFx(host: ReplayHost) {
   const FLOW_SPEED = 0.9
   const FLOW_GAP = 0.7
   const FLOW_MIN = 0.6
-  const FLOW_MAX = 12
+  const flowMax = () => (quality === 'low' ? 6 : quality === 'medium' ? 12 : 24)
   let flows: { a: string; b: string }[] = []
   const flowPoints = new Points(
     // 처음부터 빈 position 을 둔다 — 없으면 셰이더 열쇠가 달라져 첫 흐름 때 새로 만든다.
@@ -913,11 +964,11 @@ export function createReplayFx(host: ReplayHost) {
    * "뚝 끊기며 옮겨지는" 것으로 보였다(2026-10-10 사용자). 설비·배관·벽·문 모두 같은 부드러운 가감속(easeInOut)으로 함께 간다.
    */
   const glideEase = easeInOut
-  /** 다음 비행이 들어갈 방향. 지금 보는 쪽에서 35° 돌리고 40° 쯤 내려다본다 — 장면마다 다른 쪽에서 들어간다. */
+  /** 다음 비행이 들어갈 방향. 3인칭(orbit)은 40° 쯤 내려다보고, 1인칭 공간 몰입(pov)은 사람 눈높이(약 9° 낮은 각도)로 방 안으로 들어간다. */
   function cinemaFrom(): Vector3 {
     const d = host.camera.position.clone().sub(host.controls.target)
     const az = Math.atan2(d.x, d.z) + (35 * Math.PI) / 180
-    return new Vector3(Math.sin(az), 0.85, Math.cos(az))
+    return new Vector3(Math.sin(az), pov === 'pov' ? 0.16 : 0.85, Math.cos(az))
   }
   const viewDistance = host.viewDistance
 
@@ -1196,18 +1247,108 @@ export function createReplayFx(host: ReplayHost) {
     const size = box.getSize(new Vector3())
     const r = Math.max(Math.hypot(size.x, size.z) * 0.45, d * 0.01)
     const h = Math.max(4, d * 0.3)
+    const qLevel = quality
     const group = new Group()
     group.position.copy(box.getCenter(new Vector3()))
     group.userData.fade = 1
     const base = -size.y / 2
-    const outer = new Mesh(new CylinderGeometry(r, r, h, 40, 1, true).translate(0, h / 2, 0), fxMaterial(color, 0.4, true))
+    const outer = new Mesh(new CylinderGeometry(r, r, h, qLevel === 'low' ? 20 : 40, 1, true).translate(0, h / 2, 0), fxMaterial(color, 0.4, true))
     const core = new Mesh(new CylinderGeometry(r * 0.22, r * 0.22, h * 1.15, 16, 1, true).translate(0, (h * 1.15) / 2, 0), fxMaterial(0xffffff, 0.6, true))
     outer.position.y = core.position.y = base
-    const rings = [0, 1].map(() => {
-      const ring = new Mesh(new RingGeometry(0.86, 1, 64).rotateX(-Math.PI / 2), fxMaterial(color, 0.8))
+    const rings = (qLevel === 'low' ? [0] : [0, 1]).map(() => {
+      const ring = new Mesh(new RingGeometry(0.86, 1, qLevel === 'low' ? 32 : 64).rotateX(-Math.PI / 2), fxMaterial(color, 0.8))
       ring.position.y = base + 0.02
       return ring
     })
+    // 홀로그램 조준 링(4분할 원호 + 십자 눈금)과 기둥을 타고 오르내리는 스캔 고리(medium·high), 역회전 외곽 링·3D 상승 입자(high).
+    let reticle: LineSegments | null = null
+    let outerReticle: LineSegments | null = null
+    let scanRing: Mesh | null = null
+    let sparks: Points | null = null
+    let helix: LineSegments | null = null
+    const sparkCount = 18
+    const sparkSeeds = new Float32Array(sparkCount * 3)
+    if (qLevel !== 'low') {
+      const retPts: Vector3[] = []
+      const rr = r * 1.32
+      for (let q = 0; q < 4; q++) {
+        const a0 = q * (Math.PI / 2) + 0.14
+        const a1 = (q + 1) * (Math.PI / 2) - 0.14
+        const segs = 10
+        for (let s = 0; s < segs; s++) {
+          const u0 = a0 + ((a1 - a0) * s) / segs
+          const u1 = a0 + ((a1 - a0) * (s + 1)) / segs
+          retPts.push(new Vector3(Math.cos(u0) * rr, 0, Math.sin(u0) * rr), new Vector3(Math.cos(u1) * rr, 0, Math.sin(u1) * rr))
+        }
+        const ax = q * (Math.PI / 2)
+        retPts.push(new Vector3(Math.cos(ax) * (rr * 0.78), 0, Math.sin(ax) * (rr * 0.78)), new Vector3(Math.cos(ax) * (rr * 1.14), 0, Math.sin(ax) * (rr * 1.14)))
+      }
+      reticle = new LineSegments(
+        new BufferGeometry().setFromPoints(retPts),
+        new LineBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
+      )
+      reticle.position.y = base + 0.03
+      scanRing = new Mesh(new RingGeometry(0.88, 1.02, 48).rotateX(-Math.PI / 2), fxMaterial(0xffffff, 0.75))
+      scanRing.position.y = base + 0.04
+      scanRing.scale.setScalar(r * 1.02)
+      if (qLevel === 'high') {
+        const outPts: Vector3[] = []
+        const orr = rr * 1.26
+        for (let q = 0; q < 8; q++) {
+          const a0 = q * (Math.PI / 4) + 0.08
+          const a1 = (q + 1) * (Math.PI / 4) - 0.18
+          for (let s = 0; s < 5; s++) {
+            const u0 = a0 + ((a1 - a0) * s) / 5
+            const u1 = a0 + ((a1 - a0) * (s + 1)) / 5
+            outPts.push(new Vector3(Math.cos(u0) * orr, 0, Math.sin(u0) * orr), new Vector3(Math.cos(u1) * orr, 0, Math.sin(u1) * orr))
+          }
+          const tickA = q * (Math.PI / 4)
+          outPts.push(new Vector3(Math.cos(tickA) * (orr * 0.92), 0, Math.sin(tickA) * (orr * 0.92)), new Vector3(Math.cos(tickA) * (orr * 1.06), 0, Math.sin(tickA) * (orr * 1.06)))
+        }
+        outerReticle = new LineSegments(
+          new BufferGeometry().setFromPoints(outPts),
+          new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
+        )
+        outerReticle.position.y = base + 0.035
+        if (!bare) {
+          for (let i = 0; i < sparkCount; i++) {
+            sparkSeeds[i * 3] = ((i * 0.618034) % 1) * Math.PI * 2
+            sparkSeeds[i * 3 + 1] = 0.25 + ((i * 0.381966) % 1) * 0.72
+            sparkSeeds[i * 3 + 2] = (i / sparkCount) % 1
+          }
+          const sparkGeo = new BufferGeometry()
+          sparkGeo.setAttribute('position', new BufferAttribute(new Float32Array(sparkCount * 3), 3))
+          sparks = new Points(
+            sparkGeo,
+            new PointsMaterial({ size: 5, sizeAttenuation: false, color, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
+          )
+          // 기둥 둘레를 이중 나선(Double Helix)으로 감아 오르는 네온 에너지 광선.
+          const turns = 2.5
+          const hSegs = 36
+          const hPts: Vector3[] = []
+          for (let strand = 0; strand < 2; strand++) {
+            const phase = strand * Math.PI
+            for (let s = 0; s < hSegs; s++) {
+              const u0 = s / hSegs
+              const u1 = (s + 1) / hSegs
+              const a0 = u0 * Math.PI * 2 * turns + phase
+              const a1 = u1 * Math.PI * 2 * turns + phase
+              const hr0 = r * (0.92 - u0 * 0.25)
+              const hr1 = r * (0.92 - u1 * 0.25)
+              hPts.push(
+                new Vector3(Math.cos(a0) * hr0, u0 * h * 0.85, Math.sin(a0) * hr0),
+                new Vector3(Math.cos(a1) * hr1, u1 * h * 0.85, Math.sin(a1) * hr1),
+              )
+            }
+          }
+          helix = new LineSegments(
+            new BufferGeometry().setFromPoints(hPts),
+            new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
+          )
+          helix.position.y = base
+        }
+      }
+    }
     // 이름표 글은 빛기둥이 솟는 동안 한 자씩 찍힌다(여럿이면 차례로 조금씩 늦게).
     const tag = label ? labelSprite(label, color, 150 + Math.min(nth, 12) * 70) : null
     // 리플레이 끝 화면에서 빛기둥·이름표를 누르면 그 장면을 다시 본다(onSpotClick).
@@ -1218,7 +1359,14 @@ export function createReplayFx(host: ReplayHost) {
     if (tag) tag.userData.nth = nth
     // 지시선(도면의 인출선): 이름표가 겹쳐 위로 비켜 서면 빛기둥 꼭대기의 점에서 이름표까지 가는 선을 잇는다.
     const leader = tag ? leaderFor(tag, color) : []
-    group.add(...(bare ? [] : [outer, core]), ...rings, ...(tag ? [tag] : []), ...leader)
+    group.add(
+      ...(bare ? [] : [outer, core, ...(scanRing ? [scanRing] : []), ...(sparks ? [sparks] : []), ...(helix ? [helix] : [])]),
+      ...(reticle ? [reticle] : []),
+      ...(outerReticle ? [outerReticle] : []),
+      ...rings,
+      ...(tag ? [tag] : []),
+      ...leader,
+    )
     for (const o of group.children) o.renderOrder = o.renderOrder || 18
     // 밤 다이오라마의 층 띄우기를 따라간다(stepDiorama).
     group.userData.baseY = group.position.y
@@ -1230,6 +1378,36 @@ export function createReplayFx(host: ReplayHost) {
       outer.scale.y = core.scale.y = rise
       ;(outer.material as MeshBasicMaterial).opacity = 0.4 * fade * (0.85 + 0.15 * Math.sin(t / 160))
       ;(core.material as MeshBasicMaterial).opacity = 0.6 * fade * rise
+      if (reticle) {
+        reticle.rotation.y = (t / 1800) * (Math.PI / 2)
+        ;(reticle.material as LineBasicMaterial).opacity = 0.8 * fade * rise
+      }
+      if (outerReticle) {
+        outerReticle.rotation.y = -(t / 2400) * (Math.PI / 2)
+        ;(outerReticle.material as LineBasicMaterial).opacity = 0.5 * fade * rise
+      }
+      if (!bare && scanRing) {
+        const wave = (Math.sin(t / 340) + 1) / 2
+        scanRing.position.y = base + h * 0.65 * wave * rise
+        scanRing.scale.setScalar(r * (0.95 + 0.22 * Math.sin(wave * Math.PI)))
+        ;(scanRing.material as MeshBasicMaterial).opacity = 0.7 * fade * rise * (1 - wave * 0.6)
+      }
+      if (!bare && helix) {
+        helix.rotation.y = -(t / 650)
+        helix.scale.y = rise
+        ;(helix.material as LineBasicMaterial).opacity = 0.68 * fade * rise * (0.75 + 0.25 * Math.sin(t / 140))
+      }
+      if (!bare && sparks) {
+        const attr = sparks.geometry.getAttribute('position') as BufferAttribute
+        for (let i = 0; i < sparkCount; i++) {
+          const ang = sparkSeeds[i * 3] + (t / 1200) * (i % 2 === 0 ? 1 : -0.8)
+          const rad = r * sparkSeeds[i * 3 + 1]
+          const prog = (sparkSeeds[i * 3 + 2] + t / 2100) % 1
+          attr.setXYZ(i, Math.cos(ang) * rad, base + prog * h * 0.82 * rise, Math.sin(ang) * rad)
+        }
+        attr.needsUpdate = true
+        ;(sparks.material as PointsMaterial).opacity = 0.85 * fade * rise
+      }
       rings.forEach((ring, i) => {
         const p = (k + i / 2) % 1
         ring.scale.setScalar(r * (1 + 2.4 * easeOut(p)))
@@ -1344,22 +1522,69 @@ export function createReplayFx(host: ReplayHost) {
     } })
     return { id: key, color, group }
   }
-  /** 바닥에 퍼지는 충격파 한 번. 미끄러진 설비가 도착할 때. */
+  /** 바닥에 퍼지는 3중 네온 충격파 + 공중으로 튀어 오르는 3D 스타버스트(Starburst) 발광 입자 폭발. */
   function shock(at: Vector3, color: number, r: number) {
-    const ring = new Mesh(new RingGeometry(0.9, 1, 72).rotateX(-Math.PI / 2), fxMaterial(color, 1))
-    const disc = new Mesh(new CircleGeometry(1, 48).rotateX(-Math.PI / 2), fxMaterial(0xffffff, 0.5))
+    const ring1 = new Mesh(new RingGeometry(0.88, 1, 72).rotateX(-Math.PI / 2), fxMaterial(color, 1))
+    const ring2 = new Mesh(new RingGeometry(0.92, 1, 64).rotateX(-Math.PI / 2), fxMaterial(0xffffff, 0.9))
+    const ring3 = new Mesh(new RingGeometry(0.94, 1, 64).rotateX(-Math.PI / 2), fxMaterial(0x22d3ee, 0.8))
+    const disc = new Mesh(new CircleGeometry(1, 48).rotateX(-Math.PI / 2), fxMaterial(0xffffff, 0.6))
     const group = new Group()
     group.position.copy(at)
-    group.add(ring, disc)
-    ring.renderOrder = disc.renderOrder = 19
+    group.add(ring1, ring2, ring3, disc)
+    ring1.renderOrder = ring2.renderOrder = ring3.renderOrder = disc.renderOrder = 19
+
+    // Medium · High 화질에서는 착지 순간 36개의 3D 스타버스트 입자가 분수처럼 공중으로 터져 나간다.
+    let burst: Points | null = null
+    const burstCount = quality === 'high' ? 36 : quality === 'medium' ? 20 : 0
+    const burstVel = new Float32Array(burstCount * 3)
+    if (burstCount > 0) {
+      for (let i = 0; i < burstCount; i++) {
+        const ang = (i / burstCount) * Math.PI * 2 + (i % 3) * 0.2
+        const spd = r * (1.8 + ((i * 0.618) % 1) * 3.2)
+        burstVel[i * 3] = Math.cos(ang) * spd
+        burstVel[i * 3 + 1] = 2.2 + ((i * 0.382) % 1) * 3.4
+        burstVel[i * 3 + 2] = Math.sin(ang) * spd
+      }
+      const bGeo = new BufferGeometry()
+      bGeo.setAttribute('position', new BufferAttribute(new Float32Array(burstCount * 3), 3))
+      burst = new Points(
+        bGeo,
+        new PointsMaterial({ size: 5.5, sizeAttenuation: false, color: 0xffffff, transparent: true, opacity: 1, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
+      )
+      burst.renderOrder = 20
+      group.add(burst)
+    }
+
     host.overlay.add(group)
-    fxs.push({ obj: group, t0: null, ms: 900, step: (k) => {
-      const e = easeOut(k)
-      ring.scale.setScalar(r * (1 + 7 * e))
-      disc.scale.setScalar(r * (0.5 + 2.5 * e))
-      ;(ring.material as MeshBasicMaterial).opacity = 1 - k
-      ;(disc.material as MeshBasicMaterial).opacity = 0.5 * (1 - e)
-    } })
+    fxs.push({
+      obj: group,
+      t0: null,
+      ms: 1050,
+      step: (k) => {
+        const e1 = easeOut(k)
+        const e2 = easeOut(Math.max(0, (k - 0.12) / 0.88))
+        const e3 = easeOut(Math.max(0, (k - 0.24) / 0.76))
+        ring1.scale.setScalar(r * (1 + 7.5 * e1))
+        ring2.scale.setScalar(r * (0.8 + 6.2 * e2))
+        ring3.scale.setScalar(r * (0.6 + 5.0 * e3))
+        disc.scale.setScalar(r * (0.5 + 2.8 * e1))
+        ;(ring1.material as MeshBasicMaterial).opacity = 1 - k
+        ;(ring2.material as MeshBasicMaterial).opacity = k < 0.12 ? 0 : 0.9 * (1 - e2)
+        ;(ring3.material as MeshBasicMaterial).opacity = k < 0.24 ? 0 : 0.75 * (1 - e3)
+        ;(disc.material as MeshBasicMaterial).opacity = 0.6 * (1 - e1)
+        if (burst) {
+          const attr = burst.geometry.getAttribute('position') as BufferAttribute
+          for (let i = 0; i < burstCount; i++) {
+            const vx = burstVel[i * 3]
+            const vy = burstVel[i * 3 + 1]
+            const vz = burstVel[i * 3 + 2]
+            attr.setXYZ(i, vx * e1, Math.max(0.02, vy * k - 3.8 * k * k), vz * e1)
+          }
+          attr.needsUpdate = true
+          ;(burst.material as PointsMaterial).opacity = Math.max(0, 1 - k * 1.05)
+        }
+      },
+    })
   }
   // --- 변경 지도(setDiffMap) ---
   // 애니메이션은 순서를 보이지만 "몇 개가, 어디가 바뀌었나" 를 세기에는 한 장의 차이 지도가 낫다(동적 그래프 시각화 연구).
@@ -1457,7 +1682,7 @@ export function createReplayFx(host: ReplayHost) {
     } })
   }
 
-  /** 비춘 설비가 미끄러질 때: 떠난 자리의 빈 상자, 지나간 궤적, 따라가는 빛기둥, 도착하면 충격파. */
+  /** 비춘 설비가 미끄러질 때: 떠난 자리의 빈 상자, 지나간 바닥 궤적과 공중 포물선 에너지 아치(medium·high), 따라가는 빛기둥, 도착하면 충격파. */
   function trace(id: string, fromBox: Box3, toBox: Box3) {
     const spot = spots.find((s) => s.id === id)
     if (!spot) return
@@ -1476,9 +1701,36 @@ export function createReplayFx(host: ReplayHost) {
     trail.position.copy(a)
     trail.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), b.clone().sub(a).normalize())
     trail.scale.y = 0.0001
+    // 출발점 → 도착점을 잇는 3D 포물선 아치와 그 끝을 달리는 광원 코어(comet). low 화질에서는 생략해 가볍게 유지한다.
+    const useArc = quality !== 'low'
+    const ARC_SEGS = quality === 'high' ? 28 : 18
+    const arcLift = Math.max(0.55, Math.min(3.2, length * 0.42))
+    const arcPoint = (u: number, out = new Vector3()) => {
+      out.lerpVectors(a, b, u)
+      out.y += 4 * u * (1 - u) * arcLift
+      return out
+    }
+    let arcGeo: BufferGeometry | null = null
+    let arcLine: LineSegments | null = null
+    let comet: Mesh | null = null
+    if (useArc) {
+      const arcPts: Vector3[] = []
+      for (let i = 0; i < ARC_SEGS; i++) {
+        arcPts.push(arcPoint(i / ARC_SEGS), arcPoint((i + 1) / ARC_SEGS))
+      }
+      arcGeo = new BufferGeometry().setFromPoints(arcPts)
+      arcGeo.setDrawRange(0, 0)
+      arcLine = new LineSegments(
+        arcGeo,
+        new LineBasicMaterial({ color: spot.color, transparent: true, opacity: 0.95, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
+      )
+      comet = new Mesh(new CircleGeometry(Math.max(0.08, r * 2.6), 24).rotateX(-Math.PI / 2), fxMaterial(0xffffff, 0.95))
+      comet.position.copy(a)
+      arcLine.renderOrder = comet.renderOrder = 19
+    }
     ghost.renderOrder = trail.renderOrder = 19
     const group = new Group()
-    group.add(ghost, trail)
+    group.add(ghost, trail, ...(arcLine && comet ? [arcLine, comet] : []))
     host.overlay.add(group)
     const follow = spot.group
     const bottom = b.clone().setY(toBox.min.y + 0.02)
@@ -1486,10 +1738,19 @@ export function createReplayFx(host: ReplayHost) {
     fxs.push({ obj: group, t0: null, ms: CINEMA_GLIDE_MS + 2400, step: (_k, t) => {
       const e = glideEase(Math.min(1, t / CINEMA_GLIDE_MS))
       trail.scale.y = Math.max(length * Math.min(1, e), 0.0001)
+      if (arcGeo && arcLine && comet) {
+        arcGeo.setDrawRange(0, Math.min(ARC_SEGS, Math.ceil(Math.min(1, e) * ARC_SEGS)) * 2)
+        arcPoint(Math.min(1, e), comet.position)
+        comet.scale.setScalar(0.85 + 0.35 * Math.sin(t / 85))
+      }
       if (!follow.userData.dead) follow.position.lerpVectors(a, b, e)
       const fade = t < CINEMA_GLIDE_MS ? 1 : 1 - (t - CINEMA_GLIDE_MS) / 2400
       ;(ghost.material as LineBasicMaterial).opacity = 0.9 * fade
       ;(trail.material as MeshBasicMaterial).opacity = 0.95 * fade
+      if (arcLine && comet) {
+        ;(arcLine.material as LineBasicMaterial).opacity = 0.9 * fade
+        ;(comet.material as MeshBasicMaterial).opacity = t < CINEMA_GLIDE_MS ? 0.95 : 0.95 * fade * 0.5
+      }
       if (!landed && t >= CINEMA_GLIDE_MS) {
         landed = true
         shock(bottom, spot.color, Math.max(0.4, d * 0.015))
@@ -1803,10 +2064,13 @@ export function createReplayFx(host: ReplayHost) {
   const api: ReplayViewerApi = {
     setCinema(on) {
       cinema = on
+      applyQualityPixelRatio(on)
+      applyPovFov(on)
       if (on) warmUp()
       host.controls.autoRotate = on && !still()
       host.controls.autoRotateSpeed = 0.35
       if (!on) {
+        clearSpaceMood()
         unpinPrograms()
         for (const f of fxs) disposeFx(f.obj)
         fxs.length = 0
@@ -1874,7 +2138,7 @@ export function createReplayFx(host: ReplayHost) {
     },
 
     setFlows(list) {
-      flows = list.slice(0, FLOW_MAX).map((f) => (f.from === f.b ? { a: f.b, b: f.a } : { a: f.a, b: f.b }))
+      flows = list.slice(0, flowMax()).map((f) => (f.from === f.b ? { a: f.b, b: f.a } : { a: f.a, b: f.b }))
       if (!flows.length) flowPoints.geometry.setAttribute('position', new BufferAttribute(new Float32Array(0), 3))
       host.invalidate()
     },
@@ -1967,9 +2231,17 @@ export function createReplayFx(host: ReplayHost) {
       fadeSpots()
       if (!cinema || still()) return
       const d = viewDistance()
+      const numbered: { order: number; spot: Spot }[] = []
+      const pushNumbered = (label: string | undefined, spot: Spot) => {
+        const m = label ? /^#(\d+)\b/.exec(label) : null
+        if (m) numbered.push({ order: Number(m[1]), spot })
+      }
       for (const [i, e] of equipment.slice(0, 8).entries()) {
         const s = deviceSpot(e.id, color, e.label, d, i)
-        if (s) spots.push(s)
+        if (s) {
+          spots.push(s)
+          pushNumbered(e.label, s)
+        }
       }
       for (const id of spaces.slice(0, 6)) {
         const s = spaceSpot(id, color)
@@ -1977,11 +2249,83 @@ export function createReplayFx(host: ReplayHost) {
       }
       for (const [i, p] of (extra?.points ?? []).slice(0, 8).entries()) {
         const s = pointSpot(p, color, d, equipment.length + i)
-        if (!p.from) spots.push(s)
+        if (!p.from) {
+          spots.push(s)
+          pushNumbered(p.label, s)
+        }
       }
       for (const r of (extra?.rings ?? []).slice(0, 6)) {
         const s = fenceSpot(r.key, r.ring, r.elevation, color)
         if (s) spots.push(s)
+      }
+      // 끝 화면(replayFinale)처럼 장면 번호(#01, #02 …)가 달린 빛기둥이 둘 이상 서면, 편집 동선을 따라 포물선 성좌 궤적과 흐르는 광원을 잇는다(low 에서는 생략).
+      if (numbered.length >= 2 && quality !== 'low') {
+        numbered.sort((a, b) => a.order - b.order)
+        const hops = numbered.length - 1
+        const SEGS = quality === 'high' ? 22 : 14
+        const posArr = new Float32Array(hops * SEGS * 2 * 3)
+        const arcGeo = new BufferGeometry()
+        arcGeo.setAttribute('position', new BufferAttribute(posArr, 3))
+        const arcLine = new LineSegments(
+          arcGeo,
+          new LineBasicMaterial({ color, transparent: true, opacity: 0.72, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
+        )
+        arcLine.frustumCulled = false
+        arcLine.renderOrder = 17
+        const orbs = Array.from({ length: hops }, () => {
+          const orb = new Mesh(new CircleGeometry(Math.max(0.12, d * 0.0045), 20).rotateX(-Math.PI / 2), fxMaterial(0xffffff, 0.9))
+          orb.renderOrder = 19
+          return orb
+        })
+        const constellation = new Group()
+        constellation.add(arcLine, ...orbs)
+        host.overlay.add(constellation)
+        const anchor = numbered[0].spot.group
+        const pA = new Vector3()
+        const pB = new Vector3()
+        const pt0 = new Vector3()
+        const pt1 = new Vector3()
+        fxs.push({
+          obj: constellation,
+          t0: null,
+          ms: 2200,
+          loop: true,
+          step: (k, t) => {
+            const fade = (anchor.userData.fade as number) ?? 0
+            if (anchor.userData.dead || fade <= 0.01) {
+              constellation.userData.dead = true
+              return
+            }
+            const reveal = easeOut(Math.min(1, t / 900))
+            const attr = arcGeo.getAttribute('position') as BufferAttribute
+            let idx = 0
+            for (let h = 0; h < hops; h++) {
+              pA.copy(numbered[h].spot.group.position)
+              pB.copy(numbered[h + 1].spot.group.position)
+              const dist = pA.distanceTo(pB)
+              const arch = Math.max(1.2, Math.min(12, dist * 0.28))
+              for (let s = 0; s < SEGS; s++) {
+                const u0 = s / SEGS
+                const u1 = (s + 1) / SEGS
+                pt0.lerpVectors(pA, pB, u0)
+                pt0.y += 4 * u0 * (1 - u0) * arch
+                pt1.lerpVectors(pA, pB, u1)
+                pt1.y += 4 * u1 * (1 - u1) * arch
+                attr.setXYZ(idx++, pt0.x, pt0.y, pt0.z)
+                attr.setXYZ(idx++, pt1.x, pt1.y, pt1.z)
+              }
+              const uOrb = (k + h * 0.28) % 1
+              const orb = orbs[h]
+              orb.position.lerpVectors(pA, pB, uOrb)
+              orb.position.y += 4 * uOrb * (1 - uOrb) * arch
+              orb.scale.setScalar(0.8 + 0.4 * Math.sin(uOrb * Math.PI))
+              ;(orb.material as MeshBasicMaterial).opacity = 0.9 * fade * reveal * Math.sin(uOrb * Math.PI)
+            }
+            attr.needsUpdate = true
+            arcGeo.setDrawRange(0, Math.floor(reveal * hops * SEGS) * 2)
+            ;(arcLine.material as LineBasicMaterial).opacity = 0.65 * fade * reveal
+          },
+        })
       }
       host.invalidate()
     },
@@ -2060,6 +2404,166 @@ export function createReplayFx(host: ReplayHost) {
 
     setReplayTheme(t) {
       theme = t
+    },
+
+    setReplayQuality(q) {
+      quality = q
+      if (cinema) {
+        applyQualityPixelRatio(true)
+        host.invalidate()
+      }
+    },
+
+    setReplayPov(p) {
+      pov = p
+      if (cinema) {
+        applyPovFov(true)
+        host.controls.autoRotateSpeed = p === 'pov' ? 0.18 : 0.35
+        host.invalidate()
+      }
+    },
+
+    setSpaceMood(mood) {
+      clearSpaceMood()
+      if (!cinema || still() || !mood || mood.ring.length < 3) {
+        host.invalidate()
+        return
+      }
+      moodColorHex = mood.color
+      applyNight(nightLevel)
+      if (quality === 'low' && pov !== 'pov') {
+        host.invalidate()
+        return
+      }
+      const pts = mood.ring.map(([x, z]) => new Vector3(...host.toScene([x, z, 0])).setY(0))
+      const h = pov === 'pov' ? 2.35 : 1.05
+      const position: number[] = []
+      const uv: number[] = []
+      const index: number[] = []
+      let minX = Infinity
+      let maxX = -Infinity
+      let minZ = Infinity
+      let maxZ = -Infinity
+      pts.forEach((a, i) => {
+        minX = Math.min(minX, a.x)
+        maxX = Math.max(maxX, a.x)
+        minZ = Math.min(minZ, a.z)
+        maxZ = Math.max(maxZ, a.z)
+        const b = pts[(i + 1) % pts.length]
+        const v = position.length / 3
+        position.push(a.x, 0, a.z, b.x, 0, b.z, a.x, h, a.z, b.x, h, b.z)
+        uv.push(0, 0, 1, 0, 0, 1, 1, 1)
+        index.push(v, v + 1, v + 2, v + 1, v + 3, v + 2)
+      })
+      const geometry = new BufferGeometry()
+      geometry.setAttribute('position', new BufferAttribute(new Float32Array(position), 3))
+      geometry.setAttribute('uv', new BufferAttribute(new Float32Array(uv), 2))
+      geometry.setIndex(index)
+      const wall = new Mesh(geometry, fxMaterial(mood.color, pov === 'pov' ? 0.28 : 0.16, true))
+      const edge = new LineLoop(
+        new BufferGeometry().setFromPoints(pts.map((p) => p.clone().setY(0.04))),
+        new LineBasicMaterial({ color: mood.color, transparent: true, opacity: 0.72, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
+      )
+      wall.renderOrder = edge.renderOrder = 15
+      const group = new Group()
+      const baseY = host.toScene([0, 0, mood.elevation])[1] + 0.08
+      group.position.y = baseY + explodeAt(baseY)
+      group.userData.baseY = baseY
+      group.add(wall, edge)
+      // 방 중심에서 외곽으로 퍼지는 소나 스캔 고리(sonarRing), 방 외곽을 위아래로 훑는 홀로그램 레이저 스캔 라인(laserLoop), 바닥 좌표 격자(holoGrid).
+      const cx = (minX + maxX) / 2
+      const cz = (minZ + maxZ) / 2
+      const maxR = Math.max(1.2, Math.hypot(maxX - minX, maxZ - minZ) * 0.5)
+      const sonarRing = new Mesh(new RingGeometry(0.92, 1, 64).rotateX(-Math.PI / 2), fxMaterial(mood.color, 0.75))
+      sonarRing.position.set(cx, 0.03, cz)
+      sonarRing.renderOrder = 16
+      const laserLoop = new LineLoop(
+        new BufferGeometry().setFromPoints(pts.map((p) => p.clone())),
+        new LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
+      )
+      laserLoop.renderOrder = 17
+      group.add(sonarRing, laserLoop)
+      let holoGrid: LineSegments | null = null
+      if (pov === 'pov' || quality === 'high') {
+        const step = Math.max(1.2, Math.round(maxR / 8))
+        const gridPts: Vector3[] = []
+        for (let x = Math.ceil(minX / step) * step; x <= maxX; x += step) {
+          gridPts.push(new Vector3(x, 0.025, minZ), new Vector3(x, 0.025, maxZ))
+        }
+        for (let z = Math.ceil(minZ / step) * step; z <= maxZ; z += step) {
+          gridPts.push(new Vector3(minX, 0.025, z), new Vector3(maxX, 0.025, z))
+        }
+        if (gridPts.length) {
+          holoGrid = new LineSegments(
+            new BufferGeometry().setFromPoints(gridPts),
+            new LineBasicMaterial({ color: mood.color, transparent: true, opacity: 0.24, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
+          )
+          holoGrid.renderOrder = 15
+          group.add(holoGrid)
+        }
+      }
+      // 1인칭 몰입(pov) 또는 High 화질에서는 방 안 공중에 공간 무드 색의 발광 먼지 입자(roomDust)를 띄워 실제 그 공간의 공기를 느끼게 한다.
+      let dust: Points | null = null
+      const dustCount = quality === 'low' ? 12 : 28
+      const dustSeeds = new Float32Array(dustCount * 4)
+      if (pov === 'pov' || quality === 'high') {
+        const spanX = Math.max(0.8, maxX - minX)
+        const spanZ = Math.max(0.8, maxZ - minZ)
+        for (let i = 0; i < dustCount; i++) {
+          dustSeeds[i * 4] = minX + ((i * 0.618034) % 1) * spanX
+          dustSeeds[i * 4 + 1] = 0.25 + ((i * 0.381966) % 1) * 2.1
+          dustSeeds[i * 4 + 2] = minZ + ((i * 0.754877) % 1) * spanZ
+          dustSeeds[i * 4 + 3] = (i / dustCount) * Math.PI * 2
+        }
+        const dustGeo = new BufferGeometry()
+        dustGeo.setAttribute('position', new BufferAttribute(new Float32Array(dustCount * 3), 3))
+        dust = new Points(
+          dustGeo,
+          new PointsMaterial({ size: pov === 'pov' ? 5.5 : 4, sizeAttenuation: false, color: mood.color, transparent: true, opacity: 0.75, depthTest: false, depthWrite: false, blending: AdditiveBlending }),
+        )
+        dust.renderOrder = 16
+        group.add(dust)
+      }
+      host.overlay.add(group)
+      moodGroup = group
+      fxs.push({
+        obj: group,
+        t0: null,
+        ms: 2400,
+        loop: true,
+        step: (k, t) => {
+          const fadeIn = Math.min(1, t / 500)
+          const pulse = 0.78 + 0.22 * Math.sin(k * Math.PI * 2)
+          group.position.y = (group.userData.baseY as number) + explodeAt(group.userData.baseY as number)
+          ;(wall.material as MeshBasicMaterial).opacity = (pov === 'pov' ? 0.26 : 0.15) * fadeIn * pulse
+          ;(edge.material as LineBasicMaterial).opacity = (pov === 'pov' ? 0.82 : 0.6) * fadeIn * pulse
+          const sonarP = (t % 2400) / 2400
+          sonarRing.scale.setScalar(0.3 + maxR * easeOut(sonarP))
+          ;(sonarRing.material as MeshBasicMaterial).opacity = (pov === 'pov' ? 0.55 : 0.35) * (1 - sonarP) * fadeIn
+          const scanWave = (Math.sin(t / 420) + 1) / 2
+          laserLoop.position.y = 0.06 + scanWave * (h - 0.1)
+          ;(laserLoop.material as LineBasicMaterial).opacity = (pov === 'pov' ? 0.78 : 0.45) * fadeIn * (1 - scanWave * 0.45)
+          if (holoGrid) (holoGrid.material as LineBasicMaterial).opacity = (pov === 'pov' ? 0.26 : 0.16) * fadeIn * pulse
+          if (dust) {
+            const attr = dust.geometry.getAttribute('position') as BufferAttribute
+            for (let i = 0; i < dustCount; i++) {
+              const bx = dustSeeds[i * 4]
+              const by = dustSeeds[i * 4 + 1]
+              const bz = dustSeeds[i * 4 + 2]
+              const ph = dustSeeds[i * 4 + 3]
+              attr.setXYZ(
+                i,
+                bx + Math.sin(t / 1400 + ph) * 0.18,
+                ((by + t / 4200) % 2.3) + 0.15,
+                bz + Math.cos(t / 1600 + ph) * 0.18,
+              )
+            }
+            attr.needsUpdate = true
+            ;(dust.material as PointsMaterial).opacity = (pov === 'pov' ? 0.78 : 0.52) * fadeIn * pulse
+          }
+        },
+      })
+      host.invalidate()
     },
 
     roomCards(cards) {
@@ -2204,10 +2708,11 @@ export function createReplayFx(host: ReplayHost) {
       storeyElevation = new Map(model.storeys.map((s) => [s.id, s.elevation]))
       equipmentStorey = new Map(model.storeys.flatMap((s) => s.equipment.map((e) => [e.id, s.id] as const)))
     },
-    /** 카메라 비행 하나의 시간·떠오름·감속. 리플레이에서는 길게, 가운데서 위로 떠오르는 호를 그리며 간다(먼 거리일수록 높이). */
+    /** 카메라 비행 하나의 시간·떠오름·감속. 3인칭(orbit)은 위로 떠오르는 호를 그리고, 1인칭 몰입(pov)은 방 천장 아래 눈높이로 낮게 미끄러져 들어간다. */
     flight(ms: number, distance: number): { ms: number; lift: number; ease: (k: number) => number } {
       if (!cinema) return { ms, lift: 0, ease: easeOut }
-      return { ms: CINEMA_FLY_MS, lift: Math.min(distance * 0.35, 80), ease: easeInOut }
+      const lift = pov === 'pov' ? Math.min(distance * 0.06, 2.2) : Math.min(distance * 0.35, 80)
+      return { ms: CINEMA_FLY_MS, lift, ease: easeInOut }
     },
     /**
      * 미끄러짐 하나의 시간·감속·늦은 출발. 리플레이에서 비춘 설비는 예비 동작·지나침·안착으로, 따라오는 배관은 조금 늦게

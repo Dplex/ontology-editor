@@ -111,6 +111,16 @@ const dot = computed(() => {
   const b = s.after ?? s.before!
   return { at: lerp(a, b, t.value), from: a, moved: !!(s.before && s.after) }
 })
+/** 미니맵 레이더 조준선 중심: 점이면 그 점, 다각형이면 현재 꼭짓점들의 중심. */
+const focusCenter = computed((): number[] | null => {
+  if (dot.value) return dot.value.at
+  const s = shape.value
+  if (!s || s.kind !== 'ring' || !s.from.length) return null
+  const pts = s.from.map((p, i) => lerp(p, s.to[i], t.value))
+  const cx = pts.reduce((acc, p) => acc + p[0], 0) / pts.length
+  const cy = pts.reduce((acc, p) => acc + p[1], 0) / pts.length
+  return [cx, cy]
+})
 
 // --- JSON ---
 type Token = { text: string; cls: string; from?: number; to?: number; digits?: number }
@@ -241,11 +251,24 @@ const others = computed(() => {
     </header>
     <template v-if="geo && main">
       <svg v-if="geo.map" class="map" :viewBox="viewBox" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <marker id="geo-arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="var(--c)" />
+          </marker>
+        </defs>
         <!-- 층 바탕은 장면 안에서 그대로다 — 모양이 바뀌는 매 프레임마다 벽·방 수백 개의 좌표 글자를 다시 만들지 않게 묶어 둔다. -->
         <g v-memo="[geo.map]">
           <polygon v-for="(r, i) in geo.map.walls" :key="`w${i}`" class="wall" :points="poly(r)" />
           <polygon v-for="(r, i) in geo.map.spaces" :key="`s${i}`" class="space" :points="poly(r)" :stroke-width="unit" />
           <circle v-for="(p, i) in geo.map.points" :key="`p${i}`" class="pt" :cx="sx(p[0])" :cy="sy(p[1])" :r="unit * 1.6" />
+        </g>
+        <!-- 레이더 타깃 조준 십자선 + 동심원 스캔 링 -->
+        <g v-if="focusCenter" class="radar-lock">
+          <line class="crosshair" :x1="sx(focusCenter[0]) - unit * 22" :y1="sy(focusCenter[1])" :x2="sx(focusCenter[0]) - unit * 7" :y2="sy(focusCenter[1])" :stroke-width="unit * 0.75" />
+          <line class="crosshair" :x1="sx(focusCenter[0]) + unit * 7" :y1="sy(focusCenter[1])" :x2="sx(focusCenter[0]) + unit * 22" :y2="sy(focusCenter[1])" :stroke-width="unit * 0.75" />
+          <line class="crosshair" :x1="sx(focusCenter[0])" :y1="sy(focusCenter[1]) - unit * 22" :x2="sx(focusCenter[0])" :y2="sy(focusCenter[1]) - unit * 7" :stroke-width="unit * 0.75" />
+          <line class="crosshair" :x1="sx(focusCenter[0])" :y1="sy(focusCenter[1]) + unit * 7" :x2="sx(focusCenter[0])" :y2="sy(focusCenter[1]) + unit * 22" :stroke-width="unit * 0.75" />
+          <circle class="radar-ring" :cx="sx(focusCenter[0])" :cy="sy(focusCenter[1])" :r="unit * (applied ? 11 + 14 * k : 12)" :stroke-width="unit * 0.7" :stroke-dasharray="`${unit * 4} ${unit * 2.5}`" />
         </g>
         <template v-for="(mv, i) in geo.map.moves" :key="`m${i}`">
           <line v-if="applied" class="trail minor" :x1="sx(mv[0][0])" :y1="sy(mv[0][1])" :x2="sx(lerp(mv[0], mv[1], k)[0])" :y2="sy(lerp(mv[0], mv[1], k)[1])" :stroke-width="unit * 0.9" />
@@ -258,7 +281,7 @@ const others = computed(() => {
         <template v-if="dot">
           <template v-if="dot.moved && applied">
             <circle class="ghost" :cx="sx(dot.from[0])" :cy="sy(dot.from[1])" :r="unit * 5" :stroke-width="unit" :stroke-dasharray="`${unit * 3} ${unit * 2}`" />
-            <line class="trail" :x1="sx(dot.from[0])" :y1="sy(dot.from[1])" :x2="sx(dot.at[0])" :y2="sy(dot.at[1])" :stroke-width="unit * 1.6" />
+            <line class="trail" :x1="sx(dot.from[0])" :y1="sy(dot.from[1])" :x2="sx(dot.at[0])" :y2="sy(dot.at[1])" :stroke-width="unit * 1.6" marker-end="url(#geo-arrow)" />
           </template>
           <circle class="halo" :cx="sx(dot.at[0])" :cy="sy(dot.at[1])" :r="unit * (applied ? 6 + 10 * k : 7)" :stroke-width="unit * 0.8" :opacity="applied ? 1 - k * 0.7 : 0.5" />
           <circle class="main" :cx="sx(dot.at[0])" :cy="sy(dot.at[1])" :r="unit * 4" />
@@ -365,10 +388,21 @@ header {
   width: 100%;
   height: clamp(90px, 17vh, 180px);
   margin: 10px 0 8px;
+  border: 1px solid rgba(120, 160, 220, 0.14);
   background:
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--c) 8%, transparent), transparent 72%),
     linear-gradient(rgba(120, 160, 220, 0.06) 1px, transparent 1px) 0 0 / 16px 16px,
     linear-gradient(90deg, rgba(120, 160, 220, 0.06) 1px, transparent 1px) 0 0 / 16px 16px,
     #070c15;
+}
+.map .crosshair {
+  stroke: var(--c);
+  opacity: 0.45;
+}
+.map .radar-ring {
+  fill: none;
+  stroke: var(--c);
+  opacity: 0.4;
 }
 .map .wall {
   fill: rgba(170, 190, 220, 0.28);
@@ -405,7 +439,7 @@ header {
 .map .trail {
   stroke: var(--c);
   stroke-linecap: round;
-  opacity: 0.8;
+  opacity: 0.88;
 }
 .feature {
   display: flex;

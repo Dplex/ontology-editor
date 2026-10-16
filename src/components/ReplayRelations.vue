@@ -43,8 +43,11 @@ const height = computed(() => blocks.value.reduce((h, b) => Math.max(h, b.cy + (
     <g v-for="(b, bi) in blocks" :key="b.key" :style="{ '--d': `${bi * 180}ms` }">
       <rect class="node subj" x="2" :y="b.cy - 10" width="120" height="20" rx="3" />
       <text class="t" x="10" :y="b.cy + 4">{{ b.subject }}</text>
+      <circle class="port subj-port" cx="122" :cy="b.cy" r="2.6" />
       <g v-for="x in b.objects" :key="x.o" :class="x.kind">
         <path class="edge" :d="x.path" pathLength="1" />
+        <path v-if="x.kind === 'came'" class="pulse" :d="x.path" pathLength="1" />
+        <circle class="port obj-port" cx="230" :cy="x.oy" r="2.4" />
         <rect class="node" x="230" :y="x.oy - 9" width="128" height="18" rx="3" />
         <text class="t" x="237" :y="x.oy + 4">{{ x.label }}</text>
       </g>
@@ -69,6 +72,12 @@ const height = computed(() => blocks.value.reduce((h, b) => Math.max(h, b.cy + (
 .node.subj {
   stroke: rgba(255, 255, 255, 0.7);
 }
+.port {
+  fill: #8a9ab3;
+}
+.subj-port {
+  fill: #e6ecf5;
+}
 .t {
   fill: #e6ecf5;
 }
@@ -83,6 +92,16 @@ const height = computed(() => blocks.value.reduce((h, b) => Math.max(h, b.cy + (
   fill: none;
   stroke-width: 1.6;
 }
+.pulse {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-dasharray: 0.14 0.86;
+  stroke-dashoffset: 1;
+  opacity: 0;
+  animation: packet 1.6s linear calc(var(--d) + 1200ms) infinite;
+}
 /* 끊긴 관계: 그어진 채로 있다가 빨간 점선이 되며 흐려진다. */
 .gone .edge {
   stroke: #f07178;
@@ -91,6 +110,10 @@ const height = computed(() => blocks.value.reduce((h, b) => Math.max(h, b.cy + (
 }
 .gone .node {
   stroke: #f07178;
+  animation: gone 700ms ease-out calc(var(--d) + 200ms) both;
+}
+.gone .obj-port {
+  fill: #f07178;
   animation: gone 700ms ease-out calc(var(--d) + 200ms) both;
 }
 .gone .t {
@@ -109,6 +132,12 @@ const height = computed(() => blocks.value.reduce((h, b) => Math.max(h, b.cy + (
   animation: pop 380ms cubic-bezier(0.2, 1.4, 0.35, 1) calc(var(--d) + 1100ms) both;
   transform-box: fill-box;
   transform-origin: left center;
+}
+.came .obj-port {
+  fill: #7bd88f;
+  animation: pop 380ms cubic-bezier(0.2, 1.4, 0.35, 1) calc(var(--d) + 1100ms) both;
+  transform-box: fill-box;
+  transform-origin: center;
 }
 .came .t {
   fill: #d6f5dc;
@@ -129,6 +158,22 @@ const height = computed(() => blocks.value.reduce((h, b) => Math.max(h, b.cy + (
     stroke-dashoffset: 0;
   }
 }
+@keyframes packet {
+  0% {
+    stroke-dashoffset: 1;
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.95;
+  }
+  85% {
+    opacity: 0.95;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
 @keyframes pop {
   from {
     opacity: 0;
@@ -138,6 +183,9 @@ const height = computed(() => blocks.value.reduce((h, b) => Math.max(h, b.cy + (
 @media (prefers-reduced-motion: reduce) {
   .rels * {
     animation: none !important;
+  }
+  .pulse {
+    display: none;
   }
 }
 </style>

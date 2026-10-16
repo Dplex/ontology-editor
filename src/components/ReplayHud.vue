@@ -49,6 +49,14 @@ const props = defineProps<{
   askClose?: boolean
   /** 판 모양: plan(도면) · show(중계). */
   theme?: 'plan' | 'show'
+  /** 화질 단계: low(경량) · medium(표준) · high(울트라). */
+  quality?: 'low' | 'medium' | 'high'
+  /** 카메라 인칭 시점: orbit(3인칭 조감) · pov(1인칭 공간 몰입) · auto(장면별 자동 전환). */
+  pov?: 'orbit' | 'pov' | 'auto'
+  /** 지금 장면이 실제로 쓰는 시점. 자동이면 장면마다 조감·몰입 중 하나다. */
+  povNow?: 'orbit' | 'pov'
+  /** 지금 장면이 속한 물리존(방)과 공간 종류별 맞춤 무드 색상·면적·설비 수. */
+  room?: { name: string; kind: string | null; areaM2?: number; devices?: number; color: string } | null
 }>()
 const emit = defineEmits<{
   toggle: []
@@ -66,6 +74,8 @@ const emit = defineEmits<{
   highlights: []
   stay: []
   theme: []
+  quality: ['low' | 'medium' | 'high']
+  pov: [p?: 'orbit' | 'pov' | 'auto']
   compareDown: []
   compareUp: []
 }>()
@@ -178,6 +188,10 @@ const spark = (vals: number[]) => {
   const max = Math.max(1, ...vals)
   return vals.map((v) => v / max)
 }
+const sparkLine = (vals: number[]) =>
+  vals.map((v, k) => `${k === 0 ? 'M' : 'L'}${(k + 0.5).toFixed(2)},${(1 - Math.max(v, 0.08)).toFixed(3)}`).join(' ')
+const sparkArea = (vals: number[]) =>
+  vals.length > 1 ? `${sparkLine(vals)} L${(vals.length - 0.5).toFixed(2)},1 L0.5,1 Z` : ''
 /** 층마다(아래층부터) 그 층을 고친 장면 수. 층이 하나면 막대 하나라 그리지 않는다. */
 const floorSpark = computed(() => {
   const storeys = [...(props.start?.storeys ?? [])].sort((a, b) => a.elevation - b.elevation)
@@ -241,6 +255,8 @@ const KEYS: [string, string][] = [
   ['E', '끝 화면에서 층 펼치기 — 편집된 층 위를 들어 올려 들여다보기'],
   ['S', '요약 재생 — 변경량이 큰 주요 장면만(분류별 하나씩 우선) 처음부터'],
   ['T', '테마 바꾸기 — 도면(가는 선) · 중계(색과 빛)'],
+  ['Q', '화질 바꾸기 — Low(경량) · Med(표준) · High(울트라)'],
+  ['V', '시점(인칭) 바꾸기 — 3인칭 조감 · 1인칭 공간 몰입 · 자동(장면별 전환)'],
   ['?', '이 안내'],
   ['Esc', '닫기 — 한 번 묻는다(Enter 로 닫기). 편집한 상태로 돌아감'],
 ]
@@ -358,22 +374,53 @@ const summary = computed(() => {
   const counts = new Map<Category, number>()
   for (const s of props.steps) counts.set(s.category, (counts.get(s.category) ?? 0) + 1)
   const max = Math.max(1, ...counts.values())
+  const totalSteps = Math.max(1, props.steps.length)
   return {
     bars: CATEGORIES.filter((c) => counts.get(c)).map((c) => ({ c, n: counts.get(c)!, w: (100 * counts.get(c)!) / max })),
+    ribbon: CATEGORIES.filter((c) => counts.get(c)).map((c) => ({ c, n: counts.get(c)!, pct: (100 * counts.get(c)!) / totalSteps })),
     added: props.steps.reduce((n, s) => n + s.ttlCount.added, 0),
     removed: props.steps.reduce((n, s) => n + s.ttlCount.removed, 0),
     geo: props.steps.reduce((n, s) => n + s.geo.length, 0),
   }
 })
+
+/** 현재 3D 무대의 진행 단계(좌측 상단 텔레메트리 배지). */
+const stageState = computed(() => {
+  if (props.phase === 'opening') return { label: '건물 생성 중', live: true }
+  if (props.phase === 'done') return { label: '전체 완료', live: false }
+  if (props.comparing) return { label: '편집 전 비교', live: true }
+  if (props.loop !== null) return { label: '구간 반복', live: true }
+  if (props.aiming !== null) return { label: '시점 이동', live: true }
+  return { label: props.playing ? '편집 반영' : '일시 정지', live: props.playing }
+})
 </script>
 
 <template>
-  <div class="replay-hud" :data-phase="phase" :data-at="at" :data-total="total" :data-ready="steps.length" :data-loop="loop ?? ''" :data-theme="theme ?? 'plan'" :style="{ '--scene-c': current && phase !== 'opening' ? CAT_COLOR[current.category] : '#7c5cff' }">
+  <div class="replay-hud" :data-phase="phase" :data-at="at" :data-total="total" :data-ready="steps.length" :data-loop="loop ?? ''" :data-theme="theme ?? 'plan'" :data-quality="quality ?? 'high'" :data-pov="pov ?? 'orbit'" :style="{ '--scene-c': current && phase !== 'opening' ? CAT_COLOR[current.category] : '#7c5cff', '--room-c': room?.color ?? '#ffa65a' }">
     <!-- 위아래 검은 띠(영화 화면비) -->
     <div class="lb top"></div>
     <div class="lb bottom"></div>
-    <!-- 다시 한 순간 -->
-    <div v-if="impact" :key="impact" class="impact" :style="{ '--c': current ? CAT_COLOR[current.category] : '#5ef2c2' }"></div>
+    <!-- 카메라가 다음 편집 장소로 날아가는 동안(aiming) 펼쳐지는 하이퍼스페이스 워프 스피드 라인 -->
+    <div v-if="aiming !== null && phase === 'play'" :key="`wp${aiming}`" class="warp-lines" aria-hidden="true"></div>
+    <!-- 1인칭 공간 몰입(POV) 시점일 때의 공간 바이저 비네팅 & 수평 눈높이 가이드 & 렌즈 텔레메트리 -->
+    <div v-if="povNow === 'pov' && phase === 'play'" class="pov-visor" aria-hidden="true">
+      <div class="visor-hud">
+        <span>{{ pov === 'auto' ? 'AUTO POV' : '1ST-PERSON' }}</span>
+        <i>·</i>
+        <span>FOV 62°</span>
+        <i>·</i>
+        <span>WALL X-RAY</span>
+      </div>
+      <i class="hz left"></i><i class="hz right"></i>
+    </div>
+    <!-- 3D 뷰파인더 코너 레티클 -->
+    <div class="hud-corners" aria-hidden="true">
+      <i class="c tl"></i><i class="c tr"></i><i class="c bl"></i><i class="c br"></i>
+    </div>
+    <!-- 다시 한 순간: 프리즘 쇼크웨이브 링 + 화면 임팩트 -->
+    <div v-if="impact" :key="impact" class="impact" :style="{ '--c': current ? CAT_COLOR[current.category] : '#5ef2c2' }">
+      <i class="impact-ring"></i>
+    </div>
 
     <!-- 왼쪽 위: 리플레이 표시(위 검은 띠 안). 가는 테두리 판 셋 — REPLAY · 몇 번째 · 갈래. -->
     <div class="bug" :style="{ '--c': current ? CAT_COLOR[current.category] : '#5ef2c2' }">
@@ -391,6 +438,15 @@ const summary = computed(() => {
           {{ storey.name }}<i>{{ storey.elevation >= 0 ? '+' : '' }}{{ storey.elevation.toFixed(2) }} m</i>
         </span>
       </transition>
+      <!-- 지금 장면이 일어나는 방(물리존)과 공간 종류별 맞춤 무드·면적·설비 수 표시 -->
+      <transition name="chip" mode="out-in">
+        <span v-if="room && phase === 'play'" :key="room.name" class="bug-room" :style="{ '--rc': room.color }">
+          <i class="rm-dot"></i>{{ room.name }}<i v-if="room.kind" class="rm-kind">{{ room.kind }}</i><i v-if="room.areaM2" class="rm-meta">{{ room.areaM2.toFixed(1) }}m² · 설비 {{ room.devices ?? 0 }}</i>
+        </span>
+      </transition>
+      <span v-if="phase !== 'opening'" class="bug-phase" :class="{ live: stageState.live }" aria-hidden="true">
+        <i class="led"></i>{{ stageState.label }}
+      </span>
     </div>
 
     <!-- 변경 지도 범례(D 로 켜고 끈다) -->
@@ -431,11 +487,13 @@ const summary = computed(() => {
 
     <!-- 장면 제목: 판이 펼쳐지고 낱말이 차례로 튀어 오른다(키네틱 캡션) -->
     <transition name="scene">
-      <div v-if="scene" :key="scene.index" class="scene" :style="{ '--c': CAT_COLOR[scene.category] }">
+      <div v-if="scene" :key="scene.index" class="scene" :style="{ '--c': CAT_COLOR[scene.category], '--scene-ms': `${Math.round(5000 / Math.max(0.5, speed))}ms` }">
+        <div class="scene-flare" aria-hidden="true"></div>
         <!-- 하단 자막: 번호 "03 / 12" · 갈래, 제목, 그 장면이 바꾼 출력 한 줄. 녹화물만 봐도 몇 번째 무엇이 어디에 남았는지 읽힌다(층은 위 막대에 있다). -->
         <div class="scene-kicker" data-testid="scene-kicker">
           <b>{{ two(scene.index + 1) }}<i class="of">/ {{ two(total) }}</i></b><span>{{ scene.category }}</span>
         </div>
+        <div class="scene-bar" aria-hidden="true"><i></i></div>
         <div class="scene-title">
           <span v-for="(t, i) in words(scene.label)" :key="i" :class="['wd', { key: t.key }]" :style="{ animationDelay: `${380 + i * 70}ms` }">{{ t.w }}</span>
         </div>
@@ -565,6 +623,8 @@ const summary = computed(() => {
           <div class="stat-n"><Roll :value="st.n" /></div>
           <span>{{ st.sub }}</span>
           <svg v-if="st.spark && st.spark.length > 1" class="spark" :viewBox="`0 0 ${st.spark.length} 1`" preserveAspectRatio="none" aria-hidden="true">
+            <path class="spark-area" :d="sparkArea(st.spark)" />
+            <path class="spark-line" :d="sparkLine(st.spark)" vector-effect="non-scaling-stroke" />
             <rect v-for="(v, k) in st.spark" :key="k" :x="k + 0.15" :y="1 - Math.max(v, 0.06)" width="0.7" :height="Math.max(v, 0.06)" :style="{ animationDelay: `${400 + k * 30}ms` }" />
           </svg>
         </div>
@@ -574,6 +634,9 @@ const summary = computed(() => {
       <div v-if="phase === 'done'" class="hud-done">
         <div class="done-head"><span>끝까지 봤습니다</span><b>편집 {{ total }}건</b></div>
         <h2>수정내역</h2>
+        <div v-if="summary.ribbon.length" class="sum-ribbon" aria-hidden="true">
+          <i v-for="r in summary.ribbon" :key="r.c" :style="{ width: `${r.pct}%`, background: CAT_COLOR[r.c] }"></i>
+        </div>
         <button
           v-for="b in summary.bars"
           :key="b.c"
@@ -650,7 +713,7 @@ const summary = computed(() => {
           :key="k"
           class="tick"
           :aria-label="steps[k - 1] ? `${k}번 장면: ${steps[k - 1].label}` : `${k}번 장면`"
-          :class="{ done: k <= shownAt, looping: k - 1 === loop, off: (!!filter || !!highlights) && !!steps[k - 1] && !wanted(steps[k - 1]), star: !!highlights?.includes(k - 1) }"
+          :class="{ done: k <= shownAt, active: k === (aiming !== null ? aiming + 1 : shownAt), looping: k - 1 === loop, off: (!!filter || !!highlights) && !!steps[k - 1] && !wanted(steps[k - 1]), star: !!highlights?.includes(k - 1) }"
           :title="steps[k - 1] ? `#${two(k)} ${steps[k - 1].label} · 바뀐 것 ${steps[k - 1].changes.length} — 이 장면만 반복해서 보기` : undefined"
           :style="{ left: `${(100 * (k - 0.5)) / total}%`, background: steps[k - 1] ? CAT_COLOR[steps[k - 1].category] : undefined, '--w': weights[k - 1] ?? 0 }"
           @click="onTick(k)"
@@ -664,6 +727,9 @@ const summary = computed(() => {
           <span class="tt-n">
             TTL +{{ hovered.ttlCount.added }} −{{ hovered.ttlCount.removed }}<template v-if="hovered.geojson"> · GeoJSON {{ hovered.geojson.count.changed + hovered.geojson.count.added + hovered.geojson.count.removed }}</template>
             · 바뀐 것 {{ hovered.changes.length }}
+          </span>
+          <span class="tt-meter" aria-hidden="true">
+            <i :style="{ width: `${Math.round(Math.max(14, (weights[hovered.index] ?? 0.25) * 100))}%` }"></i>
           </span>
         </div>
       </div>
@@ -695,6 +761,17 @@ const summary = computed(() => {
           <template v-else-if="comparing">편집 전 보는 중 · <kbd>B</kbd> 떼면 편집 후</template>
           <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }} · <kbd>B</kbd> 누르고 있으면 편집 전</template>
         </span>
+        <!-- 시점·화질은 고르는 일이 드물어 단추 여섯 개 대신 고르기 칸 둘로 둔다 — 단추로 두면 1440 폭에서 상태 글이 한 글자로 잘렸다. -->
+        <select class="pick povs" aria-label="리플레이 카메라 시점" title="시점 — 조감(위에서) · 몰입(눈높이, 주변 벽 흐리게) · 자동(계통·흐름은 조감, 방 안 편집은 몰입) (V)" :value="pov ?? 'orbit'" @change="emit('pov', ($event.target as HTMLSelectElement).value as 'orbit' | 'pov' | 'auto')">
+          <option value="orbit">조감</option>
+          <option value="pov">몰입</option>
+          <option value="auto">자동</option>
+        </select>
+        <select class="pick qualities" aria-label="리플레이 화질" title="화질 — Low(빛기둥만·픽셀비 1) · Med(조준 링·이동 아치) · High(입자·성좌·픽셀비 2) (Q)" :value="quality ?? 'high'" @change="emit('quality', ($event.target as HTMLSelectElement).value as 'low' | 'medium' | 'high')">
+          <option value="low">Low</option>
+          <option value="medium">Med</option>
+          <option value="high">High</option>
+        </select>
         <span class="themes" role="group" aria-label="테마">
           <button type="button" :aria-pressed="(theme ?? 'plan') === 'plan'" title="도면 — 무채색 가는 선 (T)" @click="(theme ?? 'plan') !== 'plan' && emit('theme')">도면</button>
           <button type="button" :aria-pressed="theme === 'show'" title="중계 — 분류 색상과 빛 효과 (T)" @click="theme !== 'show' && emit('theme')">중계</button>
@@ -3019,5 +3096,440 @@ button.sum-row.on span {
 .hud-help:focus-visible {
   outline: 2px solid #38bdf8;
   outline-offset: 2px;
+}
+
+/* --- 시네마틱 뷰파인더 코너 브래킷 · 진행 게이지 · 분류 리본 · 타임라인 플레이헤드 --- */
+/* 색 테두리·그라데이션은 중계 테마에만 — 도면 테마는 무채색 가는 선 그대로 */
+.replay-hud[data-theme='show'] .lb.top {
+  background: linear-gradient(180deg, rgba(4, 6, 10, 0.96) 0%, rgba(4, 6, 10, 0.72) 78%, transparent 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--scene-c) 24%, rgba(255, 255, 255, 0.06));
+}
+.replay-hud[data-theme='show'] .lb.bottom {
+  background: linear-gradient(0deg, rgba(4, 6, 10, 0.96) 0%, rgba(4, 6, 10, 0.76) 78%, transparent 100%);
+  border-top: 1px solid color-mix(in srgb, var(--scene-c) 24%, rgba(255, 255, 255, 0.06));
+}
+.hud-corners {
+  position: absolute;
+  inset: calc(8% + 10px) calc(var(--feed) + 14px) calc(8% + 84px) 14px;
+  pointer-events: none;
+}
+.hud-corners .c {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-color: color-mix(in srgb, var(--scene-c) 55%, rgba(232, 235, 239, 0.35));
+  border-style: solid;
+  border-width: 0;
+  opacity: 0.65;
+  transition: border-color 450ms ease;
+}
+.hud-corners .c.tl {
+  top: 0;
+  left: 0;
+  border-top-width: 1.5px;
+  border-left-width: 1.5px;
+}
+.hud-corners .c.tr {
+  top: 0;
+  right: 0;
+  border-top-width: 1.5px;
+  border-right-width: 1.5px;
+}
+.hud-corners .c.bl {
+  bottom: 0;
+  left: 0;
+  border-bottom-width: 1.5px;
+  border-left-width: 1.5px;
+}
+.hud-corners .c.br {
+  bottom: 0;
+  right: 0;
+  border-bottom-width: 1.5px;
+  border-right-width: 1.5px;
+}
+.bug-phase {
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--sub) !important;
+}
+.bug-phase .led {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #6b7480;
+}
+.bug-phase.live .led {
+  background: var(--c);
+  box-shadow: 0 0 8px var(--c);
+  animation: live-dot 1.4s ease-in-out infinite;
+}
+@keyframes live-dot {
+  50% {
+    opacity: 0.35;
+  }
+}
+.scene-bar {
+  width: min(320px, 68vw);
+  height: 2px;
+  margin: 0 auto 8px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  border-radius: 999px;
+}
+.scene-bar i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, var(--c), #ffffff);
+  transform-origin: left;
+  animation: scene-sweep var(--scene-ms, 4800ms) linear both;
+}
+@keyframes scene-sweep {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+.sum-ribbon {
+  display: flex;
+  height: 5px;
+  gap: 2px;
+  margin: 0 16px 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+.sum-ribbon i {
+  height: 100%;
+  animation: grow 700ms cubic-bezier(0.2, 0.9, 0.25, 1) both;
+  transform-origin: left;
+}
+.track .fill::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  translate: 0 -50%;
+  background: var(--ink);
+  box-shadow: 0 0 0 3px rgba(232, 235, 239, 0.22);
+}
+.track .tick.active {
+  opacity: 1;
+  transform: scaleY(1.38);
+  box-shadow: 0 0 8px var(--scene-c);
+}
+.tt-meter {
+  display: block;
+  width: 100%;
+  height: 3px;
+  margin-top: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.tt-meter i {
+  display: block;
+  height: 100%;
+  background: var(--c);
+  border-radius: 999px;
+}
+.replay-hud[data-theme='show'] .stat {
+  border-top: 2px solid color-mix(in srgb, var(--scene-c) 55%, var(--line-2));
+}
+.replay-hud[data-theme='show'] .card:not(.old) {
+  border-left: 3px solid var(--c);
+}
+@keyframes sub-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bug-phase.live .led,
+  .scene-bar i,
+  .sum-ribbon i,
+  .scene-flare {
+    animation: none !important;
+  }
+}
+
+/* --- 시점·화질 고르기 칸 --- */
+.pick {
+  flex: none;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid #344560;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pick:hover {
+  border-color: #fff;
+}
+.pick option {
+  background: #0c0f13;
+  color: #e8ebef;
+}
+/* 좁은 폭(1024 등)에서는 단추가 한 줄에 다 들지 않는다 — 상태 글을 둘째 줄로 내린다. 늘 한 줄이라 막대 높이는 폭마다 일정하다. */
+@media (max-width: 1280px) {
+  .buttons {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .buttons .status {
+    order: 99;
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+}
+.replay-hud[data-theme='show'] .pick {
+  border-color: var(--glass-edge);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0 8px;
+}
+
+/* 스파크라인 면적 채우기 + 추세선 (Petal Components 스타일) */
+.spark-area {
+  fill: color-mix(in srgb, var(--scene-c) 22%, transparent);
+  pointer-events: none;
+}
+.spark-line {
+  fill: none;
+  stroke: color-mix(in srgb, var(--scene-c) 82%, #ffffff);
+  stroke-width: 1.5px;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+/* 애너모픽 렌즈 플레어 스트릭 (High 화질에서 장면 등장 순간 수평 빛줄기 확산) */
+.scene-flare {
+  display: none;
+}
+.replay-hud[data-quality='high'] .scene-flare {
+  display: block;
+  width: min(440px, 78vw);
+  height: 2px;
+  margin: 0 auto 6px;
+  background: linear-gradient(90deg, transparent 0%, var(--c) 25%, #ffffff 50%, #22d3ee 75%, transparent 100%);
+  box-shadow:
+    0 0 18px 2px var(--c),
+    0 0 36px 4px rgba(34, 211, 238, 0.45);
+  animation: flare-sweep 950ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes flare-sweep {
+  0% {
+    opacity: 0;
+    transform: scaleX(0.15);
+  }
+  35% {
+    opacity: 1;
+    transform: scaleX(1.08);
+  }
+  100% {
+    opacity: 0.38;
+    transform: scaleX(0.72);
+  }
+}
+
+/* High 화질: visionOS 스페큘러 유리 테두리 & 홀로그램 이리데슨트 광택 */
+.replay-hud[data-quality='high'][data-theme='show'] .card:not(.old) {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 14px 34px rgba(0, 0, 0, 0.52),
+    0 0 24px -8px color-mix(in srgb, var(--c) 48%, transparent);
+}
+.replay-hud[data-quality='high'][data-theme='show'] .stat {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.2),
+    0 14px 32px rgba(0, 0, 0, 0.5),
+    0 0 22px -8px color-mix(in srgb, var(--scene-c) 45%, transparent);
+}
+.replay-hud[data-quality='high'] .hud-corners .c {
+  width: 20px;
+  height: 20px;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 6px var(--scene-c));
+}
+.replay-hud[data-quality='high'] .track .fill {
+  background: linear-gradient(90deg, #7c5cff, var(--scene-c), #22d3ee, #ffffff);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--scene-c) 70%, transparent);
+}
+
+/* Low 화질(경량 모드): 유리 블러·그림자·회전 오로라·코너 레티클을 모두 꺼서 대규모 모델/노트북에서도 프레임 드롭 없이 동작 */
+.replay-hud[data-quality='low'] .hud-corners,
+.replay-hud[data-quality='low'] .spark-area,
+.replay-hud[data-quality='low'] .spark-line,
+.replay-hud[data-quality='low'][data-theme='show'] .card::before,
+.replay-hud[data-quality='low'][data-theme='show'] .card::after,
+.replay-hud[data-quality='low'][data-theme='show'] .hud-done::before,
+.replay-hud[data-quality='low'][data-theme='show'] .hud-rewind.opening::before {
+  display: none !important;
+  animation: none !important;
+}
+.replay-hud[data-quality='low'] .bug > span,
+.replay-hud[data-quality='low'] .rail,
+.replay-hud[data-quality='low'] .hud-geo,
+.replay-hud[data-quality='low'] .log-head,
+.replay-hud[data-quality='low'] .card,
+.replay-hud[data-quality='low'] .stat,
+.replay-hud[data-quality='low'] .hud-done,
+.replay-hud[data-quality='low'] .hud-bar,
+.replay-hud[data-quality='low'] .hud-help,
+.replay-hud[data-quality='low'] .ask-close,
+.replay-hud[data-quality='low'] .diff-legend {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+/* --- 공간별 맞춤 무드 배지(.bug-room) · 1인칭 공간 몰입 바이저(.pov-visor) --- */
+.bug-room {
+  gap: 6px;
+  color: #f8fafc !important;
+  border-color: color-mix(in srgb, var(--rc) 50%, var(--line-2)) !important;
+  background: color-mix(in srgb, var(--rc) 14%, var(--panel)) !important;
+}
+.bug-room .rm-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--rc);
+  box-shadow: 0 0 8px var(--rc);
+}
+.bug-room .rm-kind {
+  font-style: normal;
+  font-size: 11px;
+  color: color-mix(in srgb, var(--rc) 75%, #ffffff);
+  padding-left: 4px;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+}
+.pov-visor {
+  position: absolute;
+  inset: 8% var(--feed) 8% 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse 78% 72% at 50% 50%, transparent 58%, color-mix(in srgb, var(--room-c) 14%, rgba(4, 8, 16, 0.55)) 100%);
+  box-shadow: inset 0 0 64px color-mix(in srgb, var(--room-c) 18%, transparent);
+}
+.pov-visor .hz {
+  position: absolute;
+  top: 50%;
+  width: 22px;
+  height: 1px;
+  background: color-mix(in srgb, var(--room-c) 75%, #ffffff);
+  box-shadow: 0 0 8px var(--room-c);
+  opacity: 0.55;
+}
+.pov-visor .hz.left {
+  left: 24px;
+}
+.pov-visor .hz.right {
+  right: 24px;
+}
+.bug-room .rm-meta {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--sub);
+  padding-left: 4px;
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+}
+.visor-hud {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  translate: -50% 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--room-c) 45%, rgba(255, 255, 255, 0.14));
+  background: rgba(6, 10, 18, 0.68);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--room-c) 80%, #ffffff);
+}
+/* 카메라 이동 중 하이퍼스페이스 워프 스피드 터널 */
+.warp-lines {
+  position: absolute;
+  inset: 8% var(--feed) 8% 0;
+  pointer-events: none;
+  background:
+    repeating-conic-gradient(
+      from 0deg at 50% 50%,
+      transparent 0deg 7.5deg,
+      color-mix(in srgb, var(--scene-c) 22%, rgba(255, 255, 255, 0.12)) 7.5deg 8deg,
+      transparent 8deg 16deg
+    );
+  mask-image: radial-gradient(circle at 50% 50%, transparent 0%, transparent 48%, #000 82%, transparent 100%);
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, transparent 0%, transparent 48%, #000 82%, transparent 100%);
+  animation: warp-zoom 1400ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes warp-zoom {
+  0% {
+    opacity: 0;
+    transform: scale(0.78);
+  }
+  30% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.28);
+  }
+}
+/* 편집 반영 순간 화면 중심에서 퍼져 나가는 RGB 프리즘 쇼크웨이브 링 */
+.impact-ring {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 140px;
+  height: 140px;
+  translate: -50% -50%;
+  border-radius: 50%;
+  border: 2px solid var(--c);
+  box-shadow:
+    0 0 28px 4px var(--c),
+    inset 0 0 24px 2px #22d3ee,
+    0 0 0 6px rgba(124, 92, 255, 0.28);
+  animation: prism-wave 760ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+@keyframes prism-wave {
+  0% {
+    opacity: 0.95;
+    transform: scale(0.25);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(4.2);
+  }
+}
+.replay-hud[data-quality='low'] .pov-visor,
+.replay-hud[data-quality='low'] .warp-lines,
+.replay-hud[data-quality='low'] .impact-ring {
+  display: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .warp-lines,
+  .impact-ring {
+    animation: none !important;
+    display: none !important;
+  }
 }
 </style>
