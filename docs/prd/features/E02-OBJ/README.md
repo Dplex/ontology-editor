@@ -6,7 +6,7 @@ PRD #3 · 티켓 16건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 
 | ID | 기능 | Rel | P | 상태 |
 |---|---|---|---|---|
-| [OE-OBJ-01](OE-OBJ-01.md) | 커스텀존 편집 범위 | R1 | P1 | prd-done |
+| [OE-OBJ-01](OE-OBJ-01.md) | 운영존 편집 범위 | R1 | P1 | prd-done |
 | [OE-OBJ-02](OE-OBJ-02.md) | 물리존 편집 범위 | R1 | P1 | prd-done |
 | [OE-OBJ-03](OE-OBJ-03.md) | 룸 편집 범위 | R1 | P1 | prd-done |
 | [OE-OBJ-04](OE-OBJ-04.md) | 외벽 | R1 | P1 | prd-done |
