@@ -321,3 +321,24 @@ Duplex·병원·성수를 1440·1024 폭, 라이트·다크로 열어 보고 고
   연결·꼭짓점 이동이라 쓰지 않았다. 공간 보기 중이면 옮긴 방도 공간 보기, 아니면 방만 고르고 시점을 맞춘다.
 - **경로.** 공간 보기 띠가 `건물 › 층 › 방` 이다. 건물을 누르면 모든 층, 층을 누르면 층 전체로 간다.
 - 리플레이 동안은 다시 세지 않는다(`pausedInReplay`). 층의 방마다 설비를 다시 훑지 않게 층에서 한 번 방별로 묶는다(`storeyChecklists`).
+
+## 리플레이 3D 포물선 궤적 · 피날레 편집 성좌 · HUD 뷰파인더 · 화질 선택 · 공간 몰입(POV) · 비주얼 마스터피스 (2026-10-15)
+
+Deck.gl TripsLayer · Palantir Foundry Contour · Autodesk Tandem Time Navigation · Vercel Liquid Glass · Spatial Web of Mesh · Petal Components · Apple Vision Pro Spatial UI 레퍼런스를 참고해 3D 공간 연출과 HUD 의 시각적 몰입감을 높이고, **Low / Medium / High 3단계 화질 선택(`Q` 키 · 하단 조작바 단추)** 및 **공간별 맞춤 무드 + 3인칭 조감 / 1인칭 공간 몰입 / AI 시네마토그래퍼 자동 시점 전환(`V` 키 · 하단 `조감 | 몰입 | 자동` 단추)**을 더했다.
+
+- **공간별 맞춤 무드(`setSpaceMood`)와 인칭 시점 전환(`setReplayPov`: `orbit` · `pov` · `auto`, `oe-replay-pov`)**:
+  - **공간별 맞춤 조명·오라·부유 입자·홀로그램 바닥 격자·소나 파동·수직 레이저 스캔(`sceneSpaceOf` + `setSpaceMood`)**: 장면마다 편집 대상이 속한 물리존(`Space`)과 방 종류(`roomKind`: 기계·공조실 시안 `#38bdf8`, 전기·통신·전산실 바이올렛 `#a78bfa`, 화장실·청소 아쿠아 `#22d3ee`, 로비·복도·계단 에메랄드 `#34d399`, 회의·사무·휴게실 웜앰버 `#ffa65a`)를 판별해 그 방의 조명 색온도를 물들이고, 방 외곽선을 따라 숨 쉬는 볼류메트릭 오라(`wall`·`edge`), 위아래로 공간을 훑는 수직 레이저 스캔 라인(`laserLoop`), 방 중심에서 퍼져 나가는 소나 스캔 파동(`sonarRing`), 바닥 홀로그램 좌표 격자(`holoGrid`), 방 공중에 떠다니는 발광 먼지 입자(`dust`, `Points` 28개)를 띄운다. 좌측 상단 `.bug` 바에는 지금 들어와 있는 방 이름·종류·면적(`m²`)·실내 설비 수 배지(`.bug-room`)가 함께 뜬다.
+  - **3인칭 조감(`orbit`, 기본값) vs 1인칭 공간 몰입(`pov`) vs 자동(`auto`, 단축키 `V`)**: `몰입`을 켜면 카메라가 위쪽 40° 사선(`y = 0.85`) 대신 **사람 눈높이 각도(`y = 0.16`, 약 9°)**와 **광각 렌즈(`FOV 62°`)**로 방 천장 아래를 스치듯 낮게 들어가 대상 바로 앞에 서고, 자동으로 `setSpaceFocus(room.id)`를 걸어 **주변 벽(`0.18`)과 이웃 방 바닥판(`0.08`)을 반투명하게 투시**한다. `자동(auto)`을 고르면 계통·흐름·대규모 변경(6개 이상) 장면은 `조감`으로 넓게 잡고, 개별 방 내부 편집은 `몰입`으로 자동 전환한다. HUD 에는 1인칭 AR 바이저 비네팅·렌즈 텔레메트리(`.visor-hud`)와 수평 눈높이 가이드(`.pov-visor`)가 더해진다.
+- **3중 시차 네온 충격파 + 3D 스타버스트 파티클 폭발(`shock`) & 빛기둥 이중 나선 에너지 빔(`helix`)**:
+  - 설비·문이 이동해 착지하는 순간 바닥에 3중 시차 네온 충격파 고리(`ring1`·`ring2`·`ring3`)가 연달아 퍼지고, 중심에서 36개의 3D 발광 입자(`burst`, `Points`)가 분수처럼 솟구쳤다 중력 포물선으로 흩어진다.
+  - `High` 화질에서 빛기둥(`boxSpot`) 둘레를 두 줄기 네온 에너지 광선(`helix`)이 이중 나선(Double Helix) 모양으로 회전하며 타고 올라간다.
+  - 카메라가 다음 편집 장소로 날아가는 동안(`aiming`) HUD 가장자리에 하이퍼스페이스 워프 스피드 라인(`.warp-lines`)이 흐르고, 편집 반영 순간(`impact`) 중앙에서 RGB 프리즘 쇼크웨이브 링(`.impact-ring`)이 퍼진다.
+- **화질 3단계(`low` · `medium` · `high`, `oe-replay-quality`)**:
+  - **Low (경량)**: 3D 렌더러 픽셀비를 `1.0` 으로 고정하고, 빛기둥을 기본 원기둥(세그먼트 20) + 단일 바닥 물결로 단순화하며, 조준 레티클·스캔 고리·3D 입자·포물선 아치·끝 화면 성좌를 생략한다. HUD 도 `backdrop-filter: blur(...)` 와 그림자·회전 오로라·뷰파인더 코너를 모두 꺼서 대규모 BIM(성수 등)이나 내장 그래픽 노트북에서도 가볍게 돌아간다.
+  - **Medium (표준)**: 픽셀비를 최대 `1.5` 까지 쓰고, 4분할 홀로그램 조준 링(`reticle`)·수직 스캔 고리(`scanRing`)·2중 바닥 물결·포물선 이동 아치(`arcLine`, 18분할)·끝 화면 성좌(14분할)·착지 스타버스트(20개)를 켠다.
+  - **High (울트라, 기본값)**: 픽셀비를 최대 `2.0` 까지 쓰고, 조준 링 바깥에 **역회전 외곽 궤도 링(`outerReticle`)**, **이중 나선 에너지 빔(`helix`)**, 빛기둥 안을 나선형으로 타고 오르는 **3D 부유 발광 입자(`sparks`, `Points` 18개)**, 착지 스타버스트(36개), 고밀도 포물선 아치(28분할)·성좌(22분할)·흐름 입자(최대 24개)를 켠다. HUD 에는 장면 등장 순간 수평으로 뻗는 **애너모픽 렌즈 플레어(`.scene-flare`)**, **visionOS 스페큘러 유리 테두리(`inset 0 1px 0`)**, **면적 그라데이션 + 추세선 스파크라인(`.spark-area`·`.spark-line`)**이 더해진다.
+- **3D 조준 레티클·역회전 궤도·스캔 고리·발광 입자(`boxSpot`)**: `Sprite` 가 아니라 `LineSegments`·`Mesh`·`Points` 이고 `userData.spot` 을 달지 않아 라벨 겹침 정리(`declutter`)·지시선(`stepLeaders`)·클릭 판정(`hitSpot`)과 섞이지 않는다. `warmUp()` 에서 이미 예열하는 `PointsMaterial`·`LineBasicMaterial`·`fxMaterial` 구성을 그대로 써서 재생 중 추가 셰이더 컴파일이 없다.
+- **3D 포물선 이동 아치(`trace`)와 끝 화면 3D 편집 동선 성좌(`spotlight` 의 `constellation`)**: 설비·문이 미끄러질 때 바닥 직선 궤적에 더해 공중 포물선 아치(`arcLine`)와 광원(`comet`)을 그리고, 끝 화면(`replayFinale`)에서는 `#01`·`#02`… 번호가 붙은 빛기둥 사이를 장면 순서대로 잇는 3D 성좌 궤적과 광원(`orbs`)을 띄운다.
+- **2D 미니맵 타깃 조준선(`ReplayGeo.vue`)과 관계 그래프 데이터 패킷(`ReplayRelations.vue`)**: GeoJSON 미니맵의 바뀐 형상 중심에 레이더 십자선과 동심원 링을, 이동 궤적 끝에 화살촉 마커를 달았다. 새로 이어진 TTL 관계 선(`.came`) 위로는 광선 패킷(`.pulse`)이 주어에서 대상으로 흐른다.
+- 되돌리려면 `replay-viewer.ts` 의 `quality`·`pov`·`setSpaceMood`·`applyQualityPixelRatio`·`reticle`·`outerReticle`·`helix`·`scanRing`·`sparks`·`arcLine`·`constellation`, `replay-player.ts` 의 `ReplayQuality`·`ReplayPov`·`sceneSpaceOf`, `ReplayGeo.vue` 의 `focusCenter`·`radar-lock`, `ReplayRelations.vue` 의 `.pulse`·`.port`, `ReplayHud.vue` 의 `.povs`·`.bug-room`·`.pov-visor`·`.warp-lines`·`.impact-ring`·`.qualities`·`.scene-flare`·`.spark-area`·`.hud-corners`·`.bug-phase`·`.scene-bar`·`.sum-ribbon`·`.tt-meter` 절을 뺀다.
+
