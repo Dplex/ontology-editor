@@ -4,7 +4,7 @@ import { exportEdits } from './edit-file'
 import { baselineOf } from './edit'
 import { modelToTTL } from './export/ttl'
 import type { Model } from './model'
-import { EMPTY_FILTER, NO_SYSTEM, explodeGroups, facets, filterActive, filteredOut, passes } from './view-filter'
+import { EMPTY_FILTER, NO_SYSTEM, explodeGroups, facets, filterActive, filteredOut, passes, sourceGroups, tintSourceOf } from './view-filter'
 
 // 3D 보기 필터(ui-notes 보기 필터). 화면 상태만 — 모델·편집 파일·TTL 은 그대로다.
 function building(): Model {
@@ -57,6 +57,38 @@ describe('보기 필터 (ui-notes 보기 필터)', () => {
     const m = building()
     expect(explodeGroups(m, () => true).map((g) => g.label)).toEqual(['brick:Fan_Coil_Unit · 2', 'brick:Fan · 1'])
     expect(explodeGroups(m, (e) => e.id !== 'fcu2').map((g) => [g.cls, g.ids])).toEqual([['brick:Fan', ['fan1']], ['brick:Fan_Coil_Unit', ['fcu1']]])
+  })
+
+  it('출처별 색 — 종류는 IFC·사전·사람·모름으로, 소속은 BIM·계산·사람·모름으로 묶고 덕트·배관은 뺀다', () => {
+    const m = building()
+    const [fan1, fcu1] = m.storeys[1].equipment
+    const fcu2 = m.storeys[0].equipment[0]
+    fan1.kindSource = 'bim'
+    fcu1.kindSource = 'dict'
+    fcu2.kind = null
+    fan1.spaceId = 'r1'
+    fan1.spaceSource = 'bim'
+    fcu1.spaceId = 'r1'
+    fcu1.spaceSource = 'computed'
+    fcu2.spaceId = null
+    expect(sourceGroups(m, 'kind')).toEqual([
+      { source: 'bim', ids: ['fan1'] },
+      { source: 'dict', ids: ['fcu1'] },
+      { source: 'none', ids: ['fcu2'] },
+    ])
+    expect(sourceGroups(m, 'space')).toEqual([
+      { source: 'bim', ids: ['fan1'] },
+      { source: 'calc', ids: ['fcu1'] },
+      { source: 'none', ids: ['fcu2'] },
+    ])
+    // 사람이 고친 종류는 사전·BIM 이 아니라 사람이다(화면의 출처 꼬리표와 같다).
+    fcu1.kindEdited = { from: 'fcu' }
+    expect(tintSourceOf(fcu1, 'kind')).toBe('edit')
+    // 종류별 색의 "종류 모름"(ex: 클래스)과 같은 기기가 모름이다 — 한 범례 안에서 기준을 바꿔도 그 수가 같다.
+    const exIds = explodeGroups(m, () => true).filter((g) => g.cls.startsWith('ex:')).flatMap((g) => g.ids)
+    expect(sourceGroups(m, 'kind').find((g) => g.source === 'none')?.ids ?? []).toEqual(exIds)
+    // 보이지 않는 것은 세지 않는다.
+    expect(sourceGroups(m, 'space', (e) => e.id !== 'fan1').map((g) => g.source)).toEqual(['calc', 'none'])
   })
 
   it('필터는 모델을 바꾸지 않는다 — TTL·편집 파일이 그대로다', () => {
