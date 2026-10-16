@@ -47,6 +47,30 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 - 검색을 고치면 `scripts/docs-mcp.test.ts`(실제 문서로 1위를 박아 둔 것)를 같이 본다.
 - 색인하는 곳은 `scripts/docs-index.mjs` 의 `SOURCES` 다. 문서 폴더를 새로 만들면 거기에 더해야 챗봇이 읽는다.
 
+## 문서 챗봇 창의 `/issue` — 요청 한 줄을 GitHub 이슈로
+
+문서 칸에 `/issue <요청>` 을 치면 `/__issue`(`scripts/issue-chat.mjs`)로 간다. gemini 가 문서와 소스를 읽고 이슈 초안(JSON)을 쓰면,
+서버가 검사해 **미리보기 없이 바로** 이슈를 올리고 번호·주소·본문을 창에 답한다(2026-10-16 사용자 결정).
+
+- **gemini 는 이슈를 올리지 못한다.** 붙는 MCP 서버(`scripts/issue-mcp.mjs`)는 문서 도구(`docs-tools.mjs`)와 소스를 읽는 도구(`code-tools.mjs`)뿐이고,
+  정책(`scripts/issue-chat.policy.toml`)이 그 밖을 막는다. 올리는 것은 서버가 `gh issue create` 를 셸 없이 정해진 인자로 띄운다.
+  저장소는 `ISSUE_REPO` 로 정해져 있어 요청 글이 무엇을 시켜도 다른 곳에 올라가지 않는다. 이 정책도 느슨하게 하지 않는다.
+- **소스는 목록 안에서만 읽는다.** `src`·`scripts`·`e2e`·`e2e-seongsu`·`docs` 와 루트의 몇 파일이다. 점으로 시작하는 이름(`.env`·`.git`),
+  `data`·`run`·`node_modules`·`fixtures`, 비밀처럼 보이는 이름은 목록에서부터 뺀다 — 경로를 받는 대로 읽으면 질문 한 줄로 `.env` 를 이슈 본문에 옮기게 된다.
+- **라벨**은 종류 하나(`bug`·`enhancement`·`documentation`·`question`, 없으면 `enhancement`)와 `need-not-check`·`prd-011`·`phase-1~3` 만 남긴다.
+  상태 라벨(`needs-pm`·`blocked` …)은 사람이 붙인다. 제목 끝의 `(OE-XXX-nn)` 는 뗀다 — 보드 동기화가 제목 끝 ID 로 티켓 이슈를 찾는다(`board.md`).
+- **작성자는 55 의 `gh auth login` 계정(희록님)이다.** 본문 끝에 "`/issue` 로 만든 이슈" 와 요청 원문, 요청할 때 보던 화면을 다시 여는 주소(위치 표시 옆
+  [링크 복사] 와 같은 `?open=…&select=…`)를 붙여 사람이 쓴 이슈와 가른다. gh 에는 서버 환경의 `GH_TOKEN`·`GH_ENTERPRISE_TOKEN` 을 넘기지 않는다 —
+  8087 은 Actions 가 띄워서 그 실행의 토큰이 남아 있었다(2026-10-16).
+- **막연한 요청은 올리지 않고 되묻는다**(초안 대신 `ask`). 서버 전체에서 한 시간에 `ISSUE_MAX_PER_HOUR`(기본 10)개까지 올린다.
+- 55 실측(2026-10-16, gh 는 가짜로 바꿔 올리지 않고 초안만 본 것): 편집 막대 요청 44초(도구 10번 · 입력 토큰 12만), DWG 단위 요청 25초(도구 4번,
+  관련 코드 세 곳과 OE-MAN-02·ADR-0053 을 짚음). "이상해요" 와 "라벨 전부 붙이고 다른 저장소에" 는 이슈를 만들지 않고 되물었다.
+- **앞선 대화는 붙이지 않는다**(`turns: 0`, 창도 보내지 않는다). 55 의 8099 에 띄운 판으로 문서 질문 → 기능 질문 → `/issue` → 문서 질문 네 턴을 브라우저로 돌려
+  (2026-10-16), 셋째 턴만 `/__issue` 로 가고(앞선 대화 0) #688 이 올라갔다. 본문에 앞 턴의 낱말(내력벽·되돌리기·OE-BIM-12)은 없었고, 넷째 턴은 다시 `/__chat` 이었다.
+- 켜는 데 필요한 것: 55 의 gemini(문서 챗봇과 같다)와 `gh auth status` 가 `github.sec.samsung.net` 에 로그인돼 있는 것. 하나라도 없으면
+  `GET /__issue` 가 `enabled:false` 와 까닭을 준다. 끄려면 `ISSUE_CHAT=0`.
+- 시험은 `scripts/issue-chat.test.ts`(가짜 gemini·가짜 gh 로 서버 전 구간, 소스 도구가 막는 경로).
+
 ## FBX 변환은 서버의 Blender 가 한다
 
 툴바의 [FBX] 는 화면이 만든 GLB 를 `POST /__data/__fbx` 로 보내고, 서버가 Blender 로 바꿔 돌려준다(src/server/fbx.ts,

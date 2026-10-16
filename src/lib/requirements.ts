@@ -39,6 +39,11 @@ export type RequirementRow = {
    * 둘은 대개 같고, 대상 중 판정하지 못한 것이 있으면 `target` 이 크다(R13 의 짝 후보가 여럿인 것). 셀 수 없는 요구는 null.
    */
   counts: { standard: number; elsewhere: number; of: number; target: number } | null
+  /**
+   * 표준 자리가 아닌 것의 id — 다른 자리(`elsewhere`)와 없음(`missing`). 요소 단위로 세는 요구에만 있고, `counts` 와 같은 판정식에서 나온다
+   * (`standard + elsewhere.length + missing.length = of`). 요구사항 칸이 그것을 3D·목록으로 짚는다(Tandem 의 데이터 완성도 대시보드처럼).
+   */
+  items?: RequirementItems
   /** 잴 수 없는 까닭이 임포트 때 그 피처를 읽지 않기로 한 것이면 true(OE-BIM-17 "측정 불가·읽지 않음"). 다시 읽으면 잴 수 있다. */
   unread?: true
   /** 무엇을 셌는지, 다른 자리면 어디인지, 없으면 우리가 무엇으로 메우는지. */
@@ -48,6 +53,16 @@ export type RequirementRow = {
    * 무엇을 바꿀지(EXPORT_SETTING)를 붙인다(OE-BIM-17).
    */
   ask: string
+}
+
+export type RequirementItemKind = 'equipment' | 'space' | 'wall' | 'opening'
+export type RequirementItems = { kind: RequirementItemKind; elsewhere: string[]; missing: string[] }
+
+/** 표준 자리가 아닌 것을 다른 자리·없음으로 가른다. `standard`·`elsewhere` 는 그 요구가 개수를 셀 때 쓴 판정과 같아야 한다. */
+function itemsOf<T extends { id: string }>(kind: RequirementItemKind, all: readonly T[], standard: (x: T) => boolean, elsewhere: (x: T) => boolean = () => false): RequirementItems {
+  const out: RequirementItems = { kind, elsewhere: [], missing: [] }
+  for (const x of all) if (!standard(x)) (elsewhere(x) ? out.elsewhere : out.missing).push(x.id)
+  return out
 }
 
 /** 다른 자리일 때 고객사에 하는 요청의 첫머리. 정본 4장 "상태" 표와 같은 말이다. */
@@ -192,6 +207,7 @@ export function requirementsReport(
     const drawn = spaces.filter((s) => s.footprint.length >= 3).length
     set('R2', {
       ...counted(drawn, 0, spaces.length),
+      items: itemsOf('space', spaces, (s) => s.footprint.length >= 3),
       note: spaces.length === 0
         ? '공간이 없습니다. 설비 파일이면 건축 파일을 덧붙이세요.'
         : '바닥 외곽선(FootPrint 또는 SweptSolid)이 있는 공간입니다. 나머지는 Brep·SurfaceModel이거나 형상이 없습니다.',
@@ -206,6 +222,7 @@ export function requirementsReport(
     const placeholders = named.length - both
     set('R3', {
       ...counted(both, 0, spaces.length),
+      items: itemsOf('space', spaces, (s) => !!s.name.trim() && !!s.longName.trim() && !isPlaceholder(s)),
       note: !spaces.length
         ? '공간이 없습니다.'
         : `방 번호(Name)와 이름(LongName)이 모두 있는 공간입니다.${placeholders ? ` 이름이 기본값("공간" 등)인 ${placeholders}개는 이름이 없는 것으로 셉니다.` : ''}`,
@@ -218,7 +235,7 @@ export function requirementsReport(
     set('R4', unread(skipped.has('walls') ? '벽을 읽지 않고 열었습니다. 벽·문·창을 읽도록 켜고 다시 여세요.' : '문·창을 읽지 않고 열었습니다.'))
   } else {
     const hung = openings.filter((o) => o.wallId !== null).length
-    set('R4', { ...counted(hung, 0, openings.length), note: openings.length ? '어느 벽에 있는지 아는 문·창입니다.' : '문·창이 없습니다. 설비 파일이면 건축 파일을 덧붙이세요.' })
+    set('R4', { ...counted(hung, 0, openings.length), items: itemsOf('opening', openings, (o) => o.wallId !== null), note: openings.length ? '어느 벽에 있는지 아는 문·창입니다.' : '문·창이 없습니다. 설비 파일이면 건축 파일을 덧붙이세요.' })
   }
 
   // 선언이 있어도 실제 값과 다를 수 있다. 덧붙인 파일·이전 판본과 같은 이름 층의 높이가 단위 배수로 다르면 일부다(OE-BIM-11, unit-check.ts).
@@ -265,6 +282,7 @@ export function requirementsReport(
     ].filter(Boolean)
     set('R11', {
       ...counted(placed.length - moved - inPanel, 0, devices.length),
+      items: itemsOf('equipment', devices, (e) => e.position !== null && e.positionSource !== 'geometry' && e.positionSource !== 'panel'),
       note: notes.length
         ? `${notes.join(' ')} 위치가 없는 설비는 미배치 목록으로 갑니다.`
         : '위치가 있는 설비입니다. 위치가 없는 설비는 미배치 목록으로 갑니다.',
@@ -291,6 +309,7 @@ export function requirementsReport(
     const byCoords = openings.filter((o) => o.connectsSource === 'calc').length
     set('R5', {
       ...counted(bounded, 0, spaces.length),
+      items: itemsOf('space', spaces, (s) => s.boundedBy.length > 0),
       note: bounded < spaces.length && byCoords > 0
         ? `공간 경계가 없는 곳은 문 ${byCoords}개 양쪽의 좌표로 방-문-방 연결을 채웠습니다(출처: 계산).`
         : '공간 경계가 있는 공간입니다.',
@@ -302,6 +321,7 @@ export function requirementsReport(
     const prop = spaces.filter((s) => s.omniclass && s.omniclassSource === 'property').length
     set('R14', {
       ...counted(std, prop, spaces.length),
+      items: itemsOf('space', spaces, (s) => !!s.omniclass && s.omniclassSource === 'classification', (s) => !!s.omniclass && s.omniclassSource === 'property'),
       note: prop > 0
         ? `${prop}개는 Revit 속성(Category Code)에 있습니다. 분류 관계(IfcClassificationReference)로 내보내면 표준 자리로 옮겨집니다.`
         : 'OmniClass Table 13 코드가 있는 공간입니다.',
@@ -324,6 +344,7 @@ export function requirementsReport(
     const unknown = devices.length - said.length - byName.length
     set('R24', {
       ...counted(said.length, byName.length, devices.length),
+      items: itemsOf('equipment', devices, (e) => said.includes(e), (e) => byName.includes(e)),
       note: [
         byName.length > 0 ? `${byName.length}대는 IFC에 종류가 없어 패밀리 이름으로 정했습니다.` : 'IFC 클래스·PredefinedType에 종류가 있는 설비입니다.',
         unknown > 0 ? `${unknown}대는 IFC에도 이름에도 종류가 없습니다(USERDEFINED에 유형 이름만 있는 경우 등).` : '',
@@ -344,6 +365,7 @@ export function requirementsReport(
       ? { state: 'none', counts: null, note: '설비가 없습니다.' }
       : {
           ...counted(unique, 0, devices.length),
+          items: itemsOf('equipment', devices, (e) => !!e.mark && times.get(e.mark) === 1),
           note: [
             `설비 태그(Mark)에 값이 있고 다른 설비와 겹치지 않는 설비입니다.`,
             shared ? `${shared}대는 다른 설비와 같은 값이라 세지 않았습니다(값 ${[...times].filter(([, n]) => n > 1).length}종).` : '',
@@ -360,6 +382,7 @@ export function requirementsReport(
     const left = p ? p.total - p.ported - p.named - louvers : 0
     set('R23', {
       ...counted(devices.length - proxies, proxies, devices.length),
+      items: itemsOf('equipment', devices, (e) => e.ifcClass !== 'BuildingElementProxy', () => true),
       note:
         (proxies > 0
           ? `${proxies}대가 IfcBuildingElementProxy입니다. 포트가 있거나 이름이 사전에 있어 설비로 읽었습니다.`
@@ -379,6 +402,7 @@ export function requirementsReport(
     const kindBim = kinds.filter((s) => s.kindSource === 'bim').length
     set('R16', {
       ...counted(std, prop, all.length),
+      items: itemsOf('equipment', all, (e) => !!e.systemId && systemById.get(e.systemId)?.source === 'ifc', (e) => !!e.systemId && systemById.get(e.systemId)?.source === 'property'),
       note: [
         prop > 0 ? `${prop}개는 IfcSystem 대신 Revit System Name 속성으로 묶었습니다.` : '계통에 묶인 설비·덕트·배관입니다.',
         `계통 ${model.systems.length}개 중 종류를 PredefinedType·약어로 안 것 ${kindBim}개, 이름으로 안 것 ${kinds.length - kindBim}개입니다.`,
@@ -422,6 +446,7 @@ export function requirementsReport(
     const names = [...new Set(other.map((e) => e.capacityProperty))].slice(0, 3).join(', ')
     set('R21', {
       ...counted(std, other.length, want.length),
+      items: itemsOf('equipment', want, (e) => e.capacity !== null && isStandardCapacity(e.capacityProperty), (e) => e.capacity !== null),
       note: other.length > 0
         ? `${other.length}대는 저작 도구 속성명(${names})으로 들어 있습니다. 표준 Pset으로 매핑하면 표준 자리로 옮겨집니다.`
         : '공조·열원 기기와 말단 중 용량이 있는 것입니다.',
@@ -435,6 +460,7 @@ export function requirementsReport(
     const uniform = known.length >= 20 && (trues === 0 || trues === known.length)
     set('R22', {
       ...counted(known.length, 0, walls.length),
+      items: itemsOf('wall', walls, (w) => w.loadBearing !== null),
       note: walls.length === 0
         ? '벽이 없습니다.'
         : uniform
@@ -453,6 +479,7 @@ export function requirementsReport(
     const rest = skippedRooms ? ` 계단실·승강로 ${skippedRooms}개는 해당 없음입니다.` : ''
     set('R26', {
       ...counted(std, other, want.length),
+      items: itemsOf('space', want, (sp) => isStandardSpaceAirflow(sp.designAirflow), (sp) => sp.designAirflow?.source === 'bim'),
       note: !spaces.length
         ? '공간이 없습니다.'
         : other

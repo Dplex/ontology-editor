@@ -52,13 +52,13 @@ main 에 App.vue 를 고친 PR 이 들어오면 그 main 으로 다시 돌리고
 | `changes` · `edit-report` | 바뀐 것의 수·연 때 기준(`baseline`), 편집 리포트 |
 | `scene` · `redraw` · `hover-tip` · `labels` | 3D 뷰어 만들기·다시 그리기·설명 풍선·설비 라벨 |
 | `history` · `keyboard` · `multi-select` | 되돌리기, 단축키·비행 모드·방향키, 여러 개 고르기 |
-| `open-file` · `open-many` · `versions` | 파일 열기(`load`)·덧붙이기, 여러 파일 한 번에·미리보기, 판본 비교 |
+| `open-file` · `open-many` · `versions` · `share-link` | 파일 열기(`load`)·덧붙이기, 여러 파일 한 번에·미리보기, 판본 비교, 지금 화면을 여는 링크 |
 | `autosave` · `layout-storeys` · `projects` · `exit-edit` · `publish` · `storey-progress` | 자동·임시 저장, 층 표시, 프로젝트, 편집 종료, 반영·잠금, 층 진행 |
 | `flow-rules` · `flow-map` · `systems` · `connections` | 규칙 방향, 흐름 지도·경로, 계통 편집, 연결 잇기·해제·말로 편집 |
 | `rooms` · `space-edit` · `space-objects` · `vertical` · `vertical-create` · `facade` · `ceiling` | 공간·룸·커스텀존, 추가 오브젝트, 수직 관통, 외벽, 천장 |
 | `equipment-edit` · `equipment-shape` · `place` · `pipe-handoff` · `cross-storey` · `offset` · `manual-draw` | 설비 편집·형상, 놓기, 배관(다중층·층간·오프셋·수동) |
 | `view-filter` · `multi-view` · `context-menu` · `grid-snap` · `background` | 보기 필터·공간 보기, 다중층 뷰, 우클릭, 그리드·스냅, 평면도 배경 |
-| `checks` · `kinds` · `panels` · `reports` · `chat-view` · `export-compare` · `idf-zones` · `progress` | 검사·종류·패널·리포트·챗 보기·나란히 보기·공조존·진행 |
+| `checks` · `kinds` · `panels` · `reports` · `requirement-items` · `chat-view` · `export-compare` · `export-lines` · `idf-zones` · `progress` | 검사·종류·패널·리포트·요구사항 줄 펴기·챗 보기·나란히 보기·고른 것의 내보내는 줄·공조존·진행 |
 
 화면 조각(`src/components/editor/`)은 이름이 곧 자리다 — `AppBar`, `ViewportPanel`(안에 `ToolPalette`·`FilterPanel`·`RightCol`…),
 `SidePanel`(안에 `EquipmentInspector`·`SpaceInspector`… 인스펙터들), `ReviewPanel`, 접는 칸(`…Fold`), `EditorSection`.
