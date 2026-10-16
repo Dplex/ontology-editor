@@ -3099,11 +3099,12 @@ button.sum-row.on span {
 }
 
 /* --- 시네마틱 뷰파인더 코너 브래킷 · 진행 게이지 · 분류 리본 · 타임라인 플레이헤드 --- */
-.lb.top {
+/* 색 테두리·그라데이션은 중계 테마에만 — 도면 테마는 무채색 가는 선 그대로 */
+.replay-hud[data-theme='show'] .lb.top {
   background: linear-gradient(180deg, rgba(4, 6, 10, 0.96) 0%, rgba(4, 6, 10, 0.72) 78%, transparent 100%);
   border-bottom: 1px solid color-mix(in srgb, var(--scene-c) 24%, rgba(255, 255, 255, 0.06));
 }
-.lb.bottom {
+.replay-hud[data-theme='show'] .lb.bottom {
   background: linear-gradient(0deg, rgba(4, 6, 10, 0.96) 0%, rgba(4, 6, 10, 0.76) 78%, transparent 100%);
   border-top: 1px solid color-mix(in srgb, var(--scene-c) 24%, rgba(255, 255, 255, 0.06));
 }
@@ -3238,10 +3239,10 @@ button.sum-row.on span {
   background: var(--c);
   border-radius: 999px;
 }
-.stat {
+.replay-hud[data-theme='show'] .stat {
   border-top: 2px solid color-mix(in srgb, var(--scene-c) 55%, var(--line-2));
 }
-.card:not(.old) {
+.replay-hud[data-theme='show'] .card:not(.old) {
   border-left: 3px solid var(--c);
 }
 @keyframes sub-in {
@@ -3347,13 +3348,13 @@ button.sum-row.on span {
 }
 
 /* High 화질: visionOS 스페큘러 유리 테두리 & 홀로그램 이리데슨트 광택 */
-.replay-hud[data-quality='high'] .card:not(.old) {
+.replay-hud[data-quality='high'][data-theme='show'] .card:not(.old) {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.22),
     0 14px 34px rgba(0, 0, 0, 0.52),
     0 0 24px -8px color-mix(in srgb, var(--c) 48%, transparent);
 }
-.replay-hud[data-quality='high'] .stat {
+.replay-hud[data-quality='high'][data-theme='show'] .stat {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.2),
     0 14px 32px rgba(0, 0, 0, 0.5),
