@@ -21,6 +21,7 @@
 // GET /__chat 이 enabled:false 를 주고 창이 그 이유를 보인다.
 // 같은 창의 [온톨로지] 칸은 /__ask 다(ADR-0050). gemini 가 반영한 온톨로지(data/.layouts 의 현재 버전 TTL)를 읽기만 하는
 // 도구(scripts/onto-mcp.mjs) 하나로 답한다.
+// 문서 칸의 `/issue 요청` 은 /__issue 다(scripts/issue-chat.mjs). gemini 는 읽기만 하고, 초안을 받은 이 서버가 gh 로 이슈를 올린다.
 //
 // **wasm 의 Content-Type 을 application/wasm 으로 준다.** 틀리면 브라우저가 스트리밍 컴파일을
 // 거절하고 web-ifc 가 느린 길로 돌거나 실패한다.
@@ -30,6 +31,7 @@ import { extname, join, normalize, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createChat } from './docs-chat.mjs'
+import { createIssueChat } from './issue-chat.mjs'
 import { sources } from './onto-sources.mjs'
 import { subjectsOf, viewLine } from './onto-view.mjs'
 import { createLayaProxy } from './laya-proxy.mjs'
@@ -71,6 +73,8 @@ function log(fields) {
 
 const REPO = fileURLToPath(new URL('..', import.meta.url))
 const chat = createChat({ root: REPO, log })
+// 문서 챗봇 창의 `/issue 요청`(scripts/issue-chat.mjs). gemini 가 문서·소스를 읽고 쓴 초안을 이 서버가 검사해 gh 로 올린다.
+const issue = createIssueChat({ root: REPO, log })
 const ask = createChat({
   root: REPO,
   log,
@@ -127,9 +131,9 @@ const server = createServer((req, res) => {
     })
     return
   }
-  if (path === '/__chat' || path === '/__ask') {
+  if (path === '/__chat' || path === '/__ask' || path === '/__issue') {
     res.on('finish', () => done(res.statusCode))
-    ;(path === '/__ask' ? ask : chat)(req, res).catch(e => {
+    ;(path === '/__ask' ? ask : path === '/__issue' ? issue : chat)(req, res).catch(e => {
       log({ msg: 'chat failed', error: String(e?.stack || e) })
       if (!res.headersSent) res.writeHead(500)
       res.end()

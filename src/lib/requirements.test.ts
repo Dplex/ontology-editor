@@ -296,3 +296,50 @@ describe('R25 설비 태그 (OE-REQ-05)', () => {
     expect(gradeReport(m)).toEqual(before)
   })
 })
+
+describe('표준 자리가 아닌 것의 id(items)', () => {
+  // 개수(counts)와 id 목록이 다른 판정에서 나오면 칸의 숫자와 3D 에 남긴 것이 어긋난다.
+  const fixtures = ['mep.ifc', 'two-rooms.ifc', 'proxy.ifc', 'space-airflow.ifc', 'foot.ifc']
+  let models: [string, Model][] = []
+  beforeAll(async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    models = fixtures.map((name) => [name, importIfc(api, new Uint8Array(readFileSync(fileURLToPath(new URL(`./ifc/fixtures/${name}`, import.meta.url)))))])
+  })
+
+  it('요소를 세는 요구마다 표준 + 다른 자리 + 없음 = 검사 수이고, 다른 자리 수가 같다', () => {
+    let rowsWithItems = 0
+    for (const [name, m] of models) {
+      for (const r of requirementsReport(m)) {
+        if (!r.items) continue
+        rowsWithItems++
+        expect(r.counts, `${name} ${r.id}`).not.toBeNull()
+        expect(r.counts!.standard + r.items.elsewhere.length + r.items.missing.length, `${name} ${r.id}`).toBe(r.counts!.of)
+        expect(r.items.elsewhere.length, `${name} ${r.id}`).toBe(r.counts!.elsewhere)
+      }
+    }
+    expect(rowsWithItems).toBeGreaterThan(20)
+  })
+
+  it('좌표 없는 센서가 R11 의 없음이고, 용량 없는 토출구가 R21 의 없음이다', () => {
+    const [, m] = models[0]
+    const rows = requirementsReport(m)
+    const all = m.storeys.flatMap((s) => s.equipment)
+    const name = (id: string) => all.find((e) => e.id === id)?.name
+    expect(row(rows, 'R11').items).toMatchObject({ kind: 'equipment', elsewhere: [] })
+    expect(row(rows, 'R11').items!.missing.map(name)).toEqual(['TEMP-101-01'])
+    expect(row(rows, 'R21').items!.missing).toHaveLength(1)
+    expect(all.find((e) => e.id === row(rows, 'R21').items!.missing[0])?.position).not.toBeNull()
+  })
+
+  it('공간·벽·문 기준의 요구는 그 종류의 id 다', () => {
+    const [, m] = models[1]
+    const rows = requirementsReport(m)
+    expect(row(rows, 'R2').items?.kind).toBe('space')
+    expect(row(rows, 'R22').items?.kind).toBe('wall')
+    expect(row(rows, 'R4').items?.kind).toBe('opening')
+    // 픽스처의 FootPrint 없는 방이 R2 의 없음이다.
+    const spaces = m.storeys.flatMap((s) => s.spaces)
+    expect(row(rows, 'R2').items!.missing.map((id) => spaces.find((s) => s.id === id)!.footprint.length)).toEqual([0])
+  })
+})

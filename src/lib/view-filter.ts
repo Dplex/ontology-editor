@@ -2,6 +2,7 @@
 // GeoJSON 에 아무것도 남지 않는다. 층 보기(viewStorey)·다중층 뷰가 정한 보일 층과 숨길 설비 위에 얹는다(App.vue 의 applyStoreyFilter).
 // 클래스는 내보내기와 같은 규칙(export/ttl.ts 의 classOf)으로 센다 — 필터에서 고른 `brick:Air_Diffuser` 가 TTL 의 그 클래스다.
 import { classOf } from './export/ttl'
+import { equipmentKind } from './kinds'
 import type { Equipment, Model } from './model'
 
 /** `null` 은 그 기준으로 거르지 않는다(전부). 빈 배열은 아무것도 안 고른 것이다(그 기준으로 다 숨는다). */
@@ -106,4 +107,33 @@ export function explodeGroups(model: Model, visible: (e: Equipment) => boolean):
   return [...by]
     .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
     .map(([cls, ids]) => ({ cls, ids, label: `${cls} · ${ids.length.toLocaleString()}` }))
+}
+
+/**
+ * 종류별 색의 다른 기준 — 그 값을 **어디서 알았나**(출처). 화면의 출처 꼬리표(Src.vue)와 같은 넷에 "모름" 을 더한다.
+ * - `kind`: TTL 에 나가는 Brick 클래스를 어디서 알았나. IFC 클래스·PredefinedType 이 말하면 BIM, 패밀리 이름 사전이면 사전, 사람이 정하면 사람,
+ *   Brick 클래스가 없으면(`ex:`) 모름.
+ * - `space`: `brick:hasLocation` 의 방. BIM 이 공간 소속을 적었으면 BIM, 좌표로 외곽선 안을 판정했으면 계산, 사람이 지정했으면 사람,
+ *   방이 없으면 모름(TTL 은 층을 적는다).
+ * Tandem 의 색 필터처럼 "BIM 이 어디까지 주나" 를 3D 위에서 본다. 덕트·배관은 explodeGroups 처럼 뺀다.
+ */
+export type TintSource = 'bim' | 'calc' | 'dict' | 'edit' | 'none'
+export const TINT_SOURCES: readonly TintSource[] = ['bim', 'calc', 'dict', 'edit', 'none']
+export function tintSourceOf(e: Equipment, by: 'kind' | 'space'): TintSource {
+  // 종류는 TTL 에 나가는 클래스(classOf)로 본다. 종류별 색의 "종류 모름"(ex: 클래스)과 같은 기기가 모름이어야 한 범례 안에서 숫자가 맞는다.
+  // 종류가 없어도 IFC 클래스가 Brick 클래스를 말하면(IfcAirTerminal → brick:Air_Diffuser) BIM 이다.
+  if (by === 'kind') {
+    if (classOf(e).startsWith('ex:')) return 'none'
+    if (!equipmentKind(e.kind)?.brick) return 'bim'
+    return e.kindEdited || e.added ? 'edit' : e.kindSource === 'bim' ? 'bim' : 'dict'
+  }
+  return !e.spaceId ? 'none' : e.spaceSource === 'bim' ? 'bim' : e.spaceSource === 'edit' ? 'edit' : 'calc'
+}
+export function sourceGroups(model: Model, by: 'kind' | 'space', visible: (e: Equipment) => boolean = () => true): { source: TintSource; ids: string[] }[] {
+  const out = new Map<TintSource, string[]>(TINT_SOURCES.map((s) => [s, []]))
+  for (const e of model.storeys.flatMap((s) => s.equipment)) {
+    if (!e.position || !visible(e) || isConduitClass(classOf(e))) continue
+    out.get(tintSourceOf(e, by))!.push(e.id)
+  }
+  return TINT_SOURCES.map((source) => ({ source, ids: out.get(source)! })).filter((g) => g.ids.length > 0)
 }

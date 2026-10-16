@@ -14,6 +14,7 @@ import { openMany } from './open-many'
 import { asMe, me, people } from './people'
 import { applyEditFile, editFileNote, progress } from './progress'
 import { layoutState, layoutsUrl, loadedVersion, refreshLayouts } from './publish'
+import { selectFromLink } from './share-link'
 import { multiView } from './vertical'
 
 // --- 프로젝트 (OE-UI-02·03·01, OE-WF-06, src/server/projects.ts · components/ProjectList.vue) ---
@@ -293,15 +294,17 @@ export function setupProjects() {
   refreshSavedSets()
   refreshPublished()
   // 주소로 열기(OE-UI-01): `?open=a.ifc|b.ifc&storey=<층 id>&mode=edit`. DT 의 [레이아웃 에디터] 가 보고 있던 사이트·층을 넘기는 자리다(D-INT 전에는 주소).
+  // `&select=<id>` 는 열고 나서 그것을 고른다 — 위치 표시 옆 [링크 복사] 가 만드는 주소다(share-link.ts).
   {
     const q = new URLSearchParams(location.search)
     const paths = (q.get('open') ?? '').split('|').filter(Boolean)
     // `?project=<id>[&storey=<층 id>]`: 프로젝트를 바로 연다(OE-UI-01 AC2, DT 없이 에디터 주소로 초기 구축에 들어간다).
     const projectId = q.get('project')
+    const pick = q.get('select')
     if (projectId)
       void refreshProjects().then(() => {
         const p = projectRows.value?.find((x) => x.id === projectId)
-        if (p) void openProject(p, q.get('storey'))
+        if (p) void openProject(p, q.get('storey')).then(() => pick && selectFromLink(pick))
         else error.value = `프로젝트 ${projectId} 가 없습니다`
       })
     else if (paths.length)
@@ -310,6 +313,7 @@ export function setupProjects() {
           const st = q.get('storey')
           if (st && model.value?.storeys.some((x) => x.id === st)) viewStorey.value = st
           if (q.get('mode') === 'edit' && model.value) mode.value = 'edit'
+          if (pick && model.value) selectFromLink(pick)
         }),
       )
   }

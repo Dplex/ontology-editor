@@ -322,6 +322,67 @@ Duplex·병원·성수를 1440·1024 폭, 라이트·다크로 열어 보고 고
 - **경로.** 공간 보기 띠가 `건물 › 층 › 방` 이다. 건물을 누르면 모든 층, 층을 누르면 층 전체로 간다.
 - 리플레이 동안은 다시 세지 않는다(`pausedInReplay`). 층의 방마다 설비를 다시 훑지 않게 층에서 한 번 방별로 묶는다(`storeyChecklists`).
 
+## 고른 것의 "내보내면" 칸 — TTL·GeoJSON 의 그 줄 (2026-10-15)
+
+"이 설비를 옮기면 무엇이 바뀌나", "이 방은 TTL 에 어떻게 나가나" 를 파일을 내려받아 id 로 찾지 않고 옆 패널에서 본다. Azure Digital Twins
+Explorer 의 Twin Properties·관계 패널(고른 트윈의 관계를 눌러 옆 트윈으로 건너감)에서 가져왔다(`reference.md`).
+
+- **내려받는 파일과 같은 것.** 칸이 따로 만드는 것이 아니라 `modelToTTL`·`modelToGeoJSON` 의 결과를 받는 쪽 규칙(`read-ttl.ts`)으로 다시 읽어 엔티티 단위로
+  나눈 것이다(`lib/export/entity-export.ts`). e2e 가 칸의 Turtle 원문과 [TTL] 이 내리는 파일의 그 블록을 줄마다 비교한다.
+- **받는 쪽이 읽는 것과 버리는 것을 가른다.** 위에 관계 넷(`hasLocation`·`feeds`·`hasPart`·`hasPoint`)과 이 엔티티를 가리키는 줄(← 표시),
+  아래에 "TTL 에 있지만 DT 플랫폼이 읽지 않는 줄"(`ex:` 속성). 덕트·배관(`fso:`)은 블록째 버려진다고, 벽·문·창·룸·공간 오브젝트는 TTL 에 없고
+  GeoJSON 에만 나간다고 적는다. 가리키는 줄은 받는 쪽이 읽는 블록에서만 센다 — 버려지는 블록의 관계는 받는 쪽 그래프에 없다.
+- **관계의 상대를 누르면 그것을 고른다.** 설비 → 방 → 그 방의 다른 설비처럼 그래프를 따라 건너간다. 층은 인스펙터가 없어 그 층 보기로만 옮긴다.
+  건물·IDF 공조존은 누를 수 없다. 이름은 rdfs:label 이고 Revit 설비 이름은 `shortName` 으로 줄인다. 방과 이름이 같은 층은 `층` 꼬리표를 단다(Duplex 의 Roof).
+- **접힌 채로 시작하고, 편 동안만 계산한다.** 몸통 컴포넌트(`ExportLinesBody.vue`)가 펼쳤을 때만 붙어서, 붙어 있는 동안 편집이 300ms 멎으면 다시 돈다.
+  성수 건축+기계에서 한 번에 약 200ms(TTL 136ms + GeoJSON·색인), 칸을 펴고 줄이 뜨기까지 258ms 다(2026-10-15, GPU 크롬). 접어 두면 편집 속도는 그대로다.
+  인스펙터 밖 같은 자리에 두어 한 번 펴면 다른 것을 골라도 편 채로 따라온다. 리플레이 동안은 `replayMemo` 로 멈춘다.
+- **화면 상태다.** 모델·편집 파일·TTL·GeoJSON 에 아무것도 더하지 않는다.
+
+## 요구사항 칸에서 표준 자리가 아닌 것을 펴 보기 (2026-10-15)
+
+"R24 설비 종류 8 / 141" 을 보고 나머지 133대가 어디 있는지를 숫자에서 바로 본다. Autodesk Tandem 의 데이터 완성도 대시보드(빠진 값의 요소를
+필터로 3D 에 격리하고 표·카드가 같이 바뀜)에서 가져왔다(`reference.md`).
+
+- **숫자와 같은 판정에서 나온 id.** 요구사항 보고서(`requirements.ts`)가 요소 단위로 세는 줄(R2·R3·R4·R5·R11·R14·R16·R21·R22·R23·R24·R25·R26)에
+  `items`(다른 자리 · 없음의 id)를 같이 낸다. 셀 때 쓴 판정식을 그대로 넘겨 받는 `itemsOf` 라, 표준 + 다른 자리 + 없음 = 검사 수가 늘 맞는다
+  (`requirements.test.ts`, `check:sample` 의 "필수 11" 이 실제 BIM 으로 본다). R1·R12·R13·R17 처럼 층·연결·판본 단위로 세는 줄은 펴지 않는다.
+- **펴기.** 숫자 아래 `설비 133개 보기` 를 누르면 표 아래 한 줄이 펴져 이름·층·다른 자리 여부가 보인다(앞 60개). 다른 자리(설정만 바꾸면 되는 것)가 먼저다.
+  이름을 누르면 그것을 고른다. 하나만 펴진다.
+- **3D.** 설비 줄은 펴는 것만으로 그 설비를 3D 에 칠한다 — 완전성 검사의 줄을 펼 때와 같은 자리·색이다. 둘은 하나만 펼쳐진다(`toggleCheck`·
+  `toggleRequirement`). [3D 에서 이것만 보기] 는 보기 필터의 격리라 [모두 보이기] 로 돌아온다. 여러 층에 걸치면 모든 층으로, 한 층이면 그 층으로 옮긴다.
+  좌표가 없는 설비는 3D 에 없으니 미배치 목록에서 본다고 알린다. 물리존은 3D 에서 잠깐 밝히고, 벽·문·창은 3D 벽을 켠다(내력 여부 모름은 노란 벽).
+- **속도.** 성수 건축+기계에서 줄 펴기 53~108ms, R24 의 3,640대 격리 513ms(2026-10-15, GPU 크롬).
+- **화면 상태다.** 모델·편집 파일·TTL·GeoJSON 은 그대로다.
+
+## 위치 표시 옆 [링크 복사] — 파일·층·고른 것을 주소 하나로 (2026-10-15)
+
+이슈 코멘트·메신저에 "성수 4F 의 이 FCU" 를 GlobalId 와 층 이름으로 적으면 받는 사람이 같은 파일을 열고 층을 바꾸고 찾아야 했다. Azure Digital
+Twins Explorer 의 "환경과 쿼리를 링크로 공유" 에서 가져왔다(`reference.md`).
+
+- **주소는 OE-UI-01 의 것에 하나를 더한다.** `?open=a.ifc|b.ifc` 또는 `?project=<id>`, `&storey=<층 id>`(층 하나를 볼 때), `&select=<id>`(고른 설비·물리존·벽·문·창·
+  존·오브젝트·계통). 열고 나서 `select` 를 고른다(`share-link.ts` 의 `selectFromLink`). 이 파일에 없는 id 면 "다른 버전의 BIM 일 수 있습니다" 라고 알린다 —
+  재내보내기로 GUID 가 바뀐 판본이면 생긴다(`intent.md`).
+- **data/ 목록·프로젝트로 연 파일만.** 손으로 고른 파일은 서버에 없어 단추가 없다. 편집은 담지 않는다 — 서버에 저장한 편집이 파일을 열 때 같이 얹힌다.
+  시점(카메라)도 담지 않는다. 고른 것을 고르면 그쪽으로 시점이 간다.
+- **http 에서도 복사된다.** 55 는 `isSecureContext` 가 거짓이라 Clipboard API 가 없다. 그때는 숨긴 textarea 를 골라 `execCommand('copy')` 로 넣는다(`copyText`).
+  우클릭 메뉴의 GlobalId 복사도 같은 길로 바꿨다 — 전에는 55 에서 늘 "복사하지 못했습니다" 였다.
+- **자리.** 맨 위 위치 표시(사이트 › 건물 › 층) 바로 뒤의 글자 단추다. 오른쪽 패널의 구역 탭 줄에 두었더니 1600 폭에서도 `파일 개요로 ×` 가 둘째 줄로 밀렸다.
+
+## 종류별 색의 다른 기준 — Brick 클래스·소속을 어디서 알았나 (2026-10-15)
+
+독의 [Explode](종류별 색) 범례 위에 `[종류 | 종류 출처 | 소속 출처]` 를 두었다. 출처로 칠하면 "BIM 이 어디까지 주나" 가 3D 위에 보인다.
+Autodesk Tandem 의 색 필터(매개변수 값으로 칠하고 범례 색을 바꿈)에서 가져왔다(`reference.md`).
+
+- **기준.** `lib/view-filter.ts` 의 `tintSourceOf`. 출처는 화면 꼬리표(`Src.vue`)와 같은 넷(BIM·계산·사전·사람)에 모름을 더한다.
+  - 종류 출처는 TTL 에 나가는 클래스(`classOf`)를 어디서 알았나다. `ex:` 클래스면 모름이라, 종류 기준의 "종류 모름" 과 같은 기기·같은 수다(`view-filter.test.ts`).
+    종류가 없어도 IFC 클래스가 Brick 클래스를 말하면(IfcAirTerminal → `brick:Air_Diffuser`) BIM 이다.
+  - 소속 출처는 `brick:hasLocation` 의 방을 어디서 알았나다. 방이 없으면 "방 없음"(TTL 은 층을 적는다).
+- **숫자.** 줄마다 대수와 몫(%)을 보인다. 성수 건축+기계 기기 4,677대: Brick 클래스 BIM 18% · 사전 69% · 모름 13%, 소속 BIM 24% · 계산 62% · 방 없음 13%.
+  Duplex 건축+MEP 141대: 클래스 BIM 3% · 사전 33% · 모름 65%, 소속 BIM 96% · 계산 4%(2026-10-15).
+- **색.** BIM 파랑 · 계산 초록 · 사전 주황 · 사람 보라 · 모름 자홍(종류 모름과 같은 색). 줄을 누르면 그 출처만 남는 것은 종류 기준과 같고, 기준을 바꾸면 누른 줄은 풀린다.
+- **화면 상태다.** 모델·편집 파일·TTL·GeoJSON 은 그대로다. 기준을 바꾸는 데 성수에서 약 360ms 다.
+
 ## 리플레이 화질 3단계 · 조감/몰입/자동 시점 · 방별 무드 · 이동 아치와 끝 화면 성좌 (2026-10-15)
 
 Deck.gl TripsLayer · Palantir Foundry Contour · Autodesk Tandem Time Navigation · Vercel Liquid Glass · Spatial Web of Mesh · Petal Components · Apple Vision Pro Spatial UI 레퍼런스를 참고해 3D 공간 연출과 HUD 의 시각적 몰입감을 높이고, **Low / Medium / High 3단계 화질(`Q` 키 · 하단 조작바의 화질 고르기 칸)** 과 **방별 무드 + 조감 / 몰입 / 자동 시점(`V` 키 · 하단 시점 고르기 칸)** 을 더했다.
@@ -343,4 +404,3 @@ Deck.gl TripsLayer · Palantir Foundry Contour · Autodesk Tandem Time Navigatio
 - **3D 포물선 이동 아치(`trace`)와 끝 화면 3D 편집 동선 성좌(`spotlight` 의 `constellation`)**: 설비·문이 미끄러질 때 바닥 직선 궤적에 더해 공중 포물선 아치(`arcLine`)와 광원(`comet`)을 그리고, 끝 화면(`replayFinale`)에서는 `#01`·`#02`… 번호가 붙은 빛기둥 사이를 장면 순서대로 잇는 3D 성좌 궤적과 광원(`orbs`)을 띄운다.
 - **2D 미니맵 타깃 조준선(`ReplayGeo.vue`)과 관계 그래프 데이터 패킷(`ReplayRelations.vue`)**: GeoJSON 미니맵의 바뀐 형상 중심에 레이더 십자선과 동심원 링을, 이동 궤적 끝에 화살촉 마커를 달았다. 새로 이어진 TTL 관계 선(`.came`) 위로는 광선 패킷(`.pulse`)이 주어에서 대상으로 흐른다.
 - 되돌리려면 `replay-viewer.ts` 의 `quality`·`pov`·`setSpaceMood`·`applyQualityPixelRatio`·`reticle`·`outerReticle`·`helix`·`scanRing`·`sparks`·`arcLine`·`constellation`, `replay-player.ts` 의 `ReplayQuality`·`ReplayPov`·`sceneSpaceOf`, `ReplayGeo.vue` 의 `focusCenter`·`radar-lock`, `ReplayRelations.vue` 의 `.pulse`·`.port`, `ReplayHud.vue` 의 `.pick`·`.bug-room`·`.pov-visor`·`.warp-lines`·`.impact-ring`·`.scene-flare`·`.spark-area`·`.hud-corners`·`.bug-phase`·`.scene-bar`·`.sum-ribbon`·`.tt-meter` 절을 뺀다.
-

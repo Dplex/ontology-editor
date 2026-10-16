@@ -24,7 +24,7 @@ import { drawing, selectedSpace } from '../../editor/space-objects'
 import { select } from '../../editor/systems'
 import { multiView, selectedVerticalId, verticalCreate } from '../../editor/vertical'
 import { startCreateVertical } from '../../editor/vertical-create'
-import { classFocus, classLegend, classTintOn, filteredExplorerFacets, filterOpen, UNKNOWN_CLASS, viewFacets } from '../../editor/view-filter'
+import { classFocus, classLegend, classTintBy, classTintOn, filteredExplorerFacets, filterOpen, TINT_BY_LABEL, UNKNOWN_CLASS, viewFacets } from '../../editor/view-filter'
 import ExportCompare from '../ExportCompare.vue'
 import FloorPlan from '../FloorPlan.vue'
 import ReplayHud from '../ReplayHud.vue'
@@ -158,22 +158,28 @@ defineProps({
     <!-- 종류별 색의 범례(독의 [Explode]). 줄을 누르면 그 종류만 색으로 남긴다. 클래스 원문은 TTL 에 나가는 그 클래스다. -->
     <div v-if="classTintOn && activeTab === '3d' && !replayOpen" class="class-key" data-testid="class-key">
       <p class="class-key-head">
-        <b>종류별 색</b> <span class="muted">기기 {{ classLegend.reduce((n, r) => n + r.ids.length, 0) }}대 · 덕트·배관은 회색</span>
+        <b>{{ classTintBy === 'class' ? '종류별 색' : classTintBy === 'kind' ? 'Brick 클래스를 어디서 알았나' : '소속을 어디서 알았나' }}</b> <span class="muted">기기 {{ classLegend.reduce((n, r) => n + r.ids.length, 0) }}대 · 덕트·배관은 회색</span>
         <button v-if="classFocus" type="button" class="link" @click="classFocus = null">모두</button>
+      </p>
+      <!-- 칠하는 기준. 출처로 칠하면 BIM 이 말한 것과 사전·계산으로 메운 것이 3D 에서 갈린다(view-filter.ts 의 classTintBy). -->
+      <p class="class-key-by" role="group" aria-label="색 기준" data-testid="tint-by">
+        <button v-for="(label, k) in TINT_BY_LABEL" :key="k" type="button" :class="{ on: classTintBy === k }" :aria-pressed="classTintBy === k" @click="classTintBy = k">{{ label }}</button>
       </p>
       <p v-if="!classLegend.length" class="muted">칠할 기기가 없습니다(건축 파일이면 설비 IFC 를 덧붙입니다)</p>
       <ul>
         <li v-for="r in classLegend" :key="r.key">
           <button
             type="button"
-            :class="{ on: classFocus === r.key, off: !!classFocus && classFocus !== r.key, unknown: r.key === UNKNOWN_CLASS }"
+            :class="{ on: classFocus === r.key, off: !!classFocus && classFocus !== r.key, unknown: r.key === UNKNOWN_CLASS || r.key === 'src:none' }"
             :aria-pressed="classFocus === r.key"
-            :title="`${r.cls} — 누르면 이 종류만 색으로 남깁니다`"
+            :title="`${r.cls} — 누르면 이것만 색으로 남깁니다`"
             @click="classFocus = classFocus === r.key ? null : r.key"
           >
             <i :style="{ background: hex(r.color) }" aria-hidden="true"></i>
             <span class="class-name">{{ r.label }}</span>
             <b>{{ r.ids.length }}</b>
+            <!-- 출처로 칠할 때는 몫도 — "BIM 이 종류를 적은 기기 12%" 가 고객사에 할 말이다. -->
+            <small v-if="classTintBy !== 'class'">{{ Math.round((r.ids.length / Math.max(1, classLegend.reduce((n, x) => n + x.ids.length, 0))) * 100) }}%</small>
           </button>
         </li>
       </ul>

@@ -18,6 +18,7 @@ import { currentRequirements, mergeLines, warnings } from '../../editor/open-fil
 import { justDone } from '../../editor/open-many'
 import { drawOutlineFromList, failedChecksTotal, outlineless, REQUIREMENT_STATE, requirementGroups, requirementsMeta, unplaced, UNPLACED_SHOWN } from '../../editor/panels'
 import { downloadCustomerReport, downloadIssuesBCF, downloadIssuesCSV, generation, issueItems, issueRows, makeGenerationReport } from '../../editor/reports'
+import { isolateRequirement, itemCount, ITEM_LABEL, ITEMS_SHOWN, openRequirement, openRequirementItems, pulseRequirement, showRequirementItem, toggleRequirement } from '../../editor/requirement-items'
 import { onVersionPick, showSpace, versionBusy, versionDiff, versionError, versionLists, versionNormalized, versionRows, versionView } from '../../editor/versions'
 import Fold from '../Fold.vue'
 import Meter from '../Meter.vue'
@@ -158,7 +159,8 @@ defineProps({
           <tr class="req-group">
             <th colspan="7">{{ g.level }}{{ g.level === '필수' ? ' — 없으면 대신 채울 방법이 없음' : ' — 없으면 계산·사전·수작업으로 채움' }}</th>
           </tr>
-          <tr v-for="r in g.rows" :key="r.id" v-flash="`${r.state}:${r.counts?.standard}:${r.counts?.elsewhere}`">
+          <template v-for="r in g.rows" :key="r.id">
+          <tr v-flash="`${r.state}:${r.counts?.standard}:${r.counts?.elsewhere}`" :class="{ chosen: openRequirement === r.id }">
             <td class="mono">{{ r.id }}</td>
             <td>{{ r.title }}</td>
             <td><span :class="['req-state', r.state]">{{ REQUIREMENT_STATE[r.state] }}<template v-if="r.unread"> · 읽지 않음</template></span></td>
@@ -173,11 +175,44 @@ defineProps({
                       ]"
                   :label="`표준 자리 ${r.counts.standard}, 다른 자리 ${r.counts.elsewhere} / ${r.counts.of}`"
                 />
+                <!-- 표준 자리가 아닌 것을 펼쳐 이름으로 보고, 3D 에서 짚는다(editor/requirement-items.ts). -->
+                <button
+                  v-if="itemCount(r)"
+                  type="button"
+                  class="link req-items-toggle"
+                  :aria-expanded="openRequirement === r.id"
+                  :data-testid="`req-items-${r.id}`"
+                  :title="`표준 자리가 아닌 ${ITEM_LABEL[r.items!.kind]} ${itemCount(r)}개를 펼칩니다`"
+                  @click="toggleRequirement(r.id)"
+                >
+                  {{ openRequirement === r.id ? '접기' : `${ITEM_LABEL[r.items!.kind]} ${itemCount(r).toLocaleString()}개 보기` }}
+                </button>
               </template>
             </td>
             <td class="muted">{{ r.note }}</td>
             <td class="req-ask" :class="{ setting: r.state === 'elsewhere' || (r.counts?.elsewhere ?? 0) > 0 }">{{ r.ask || '—' }}</td>
           </tr>
+          <tr v-if="openRequirement === r.id && r.items" class="req-items-row" data-testid="req-items">
+            <td colspan="7">
+              <p class="req-items-head">
+                <b>{{ r.id }} {{ r.title }}</b> — 표준 자리가 아닌 {{ ITEM_LABEL[r.items.kind] }}
+                <template v-if="r.items.elsewhere.length">다른 자리 {{ r.items.elsewhere.length.toLocaleString() }}</template>
+                <template v-if="r.items.elsewhere.length && r.items.missing.length"> · </template>
+                <template v-if="r.items.missing.length">없음 {{ r.items.missing.length.toLocaleString() }}</template>
+                <button v-if="r.items.kind === 'equipment'" type="button" class="ghost" data-testid="req-isolate" title="이 설비만 3D 에 남깁니다(화면에서만). [모두 보이기] 로 돌아옵니다" @click="isolateRequirement(r)">3D 에서 이것만 보기</button>
+                <button v-else-if="r.items.kind === 'space'" type="button" class="ghost" title="바닥 외곽선이 있는 물리존을 3D 에서 잠깐 밝힙니다" @click="pulseRequirement(r)">3D 에서 밝히기</button>
+                <button v-else type="button" class="ghost" title="3D 벽을 켭니다 — 고르면 그 자리로 갑니다" @click="pulseRequirement(r)">3D 벽 켜기</button>
+              </p>
+              <ul class="req-items-list">
+                <li v-for="x in openRequirementItems.slice(0, ITEMS_SHOWN)" :key="x.id">
+                  <button type="button" class="link" :title="`${x.name} · ${x.id}`" @click="showRequirementItem(r.items.kind, x.id)">{{ x.name }}</button>
+                  <small class="muted">{{ x.where }}<template v-if="x.elsewhere"> · 다른 자리</template><template v-if="!x.placed"> · {{ r.items.kind === 'space' ? '외곽선 없음' : '좌표 없음' }}</template></small>
+                </li>
+              </ul>
+              <p v-if="openRequirementItems.length > ITEMS_SHOWN" class="muted">앞 {{ ITEMS_SHOWN }}개만 보입니다(전체 {{ openRequirementItems.length.toLocaleString() }}개).</p>
+            </td>
+          </tr>
+          </template>
         </tbody>
       </table>
       <p class="hint">

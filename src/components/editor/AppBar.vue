@@ -22,6 +22,7 @@ import { buildBlock, firstPublish, loadedVersion, newerLayout, notices, noticesO
 import { readFeatures, readOpenings } from '../../editor/read-settings'
 import { askPublish, publishing, versionTime } from '../../editor/reports'
 import { export3D, exporting3d, exportTTLDone, fbxServer } from '../../editor/storey-progress'
+import { copyShareLink, shareQuery, shareUrl } from '../../editor/share-link'
 import { hasEdits } from '../../editor/versions'
 import AlignToggles from '../AlignToggles.vue'
 import Roll from '../Roll.vue'
@@ -41,6 +42,17 @@ defineProps({
         <h2 :title="fileName">{{ fileName }}</h2>
         <!-- 위치 표시 사이트 › 건물 › 층(OE-UI-04 AC14). 층은 보는 층(모든 층이면 "모든 층"). -->
         <span v-if="breadcrumb" class="muted">{{ model.schema }} · <span class="crumbs" data-testid="breadcrumb">{{ breadcrumb.site }} › {{ breadcrumb.building }} › {{ breadcrumb.storey }}</span></span>
+        <!-- 지금 파일·층·고른 것을 다시 여는 주소(share-link.ts). data/ 목록·프로젝트로 연 파일만 주소가 있다. 위치 표시 바로 뒤라 "이 자리의 링크" 로 읽힌다. -->
+        <button
+          v-if="shareUrl"
+          type="button"
+          class="link share-link"
+          data-testid="share-link"
+          :title="`이 파일${shareQuery?.get('storey') ? '·층' : ''}${shareQuery?.get('select') ? '·고른 것' : ''}을 여는 링크를 복사합니다(편집은 담지 않습니다)`"
+          @click="copyShareLink"
+        >
+          링크 복사
+        </button>
       </div>
       <div class="bar-actions">
         <label
