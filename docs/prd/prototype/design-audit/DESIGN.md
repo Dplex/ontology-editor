@@ -1,6 +1,6 @@
 # DESIGN.md — ontology-editor 디자인 시스템 초안 (Linear 계열)
 
-2026-10-15 작성, **제안·검토 전**. 근거: `FINDINGS.md`(진단) · `COMPARE.md`(후보 비교) · `COMPONENTS.md`(인벤토리·상태·다크·시험 결과) · `MOTION.md`(모션) · `TOKEN-MAP.md`(현재 값 → 토큰 매핑). 시험 구현은 `themes.ts`(색 토큰) + `fixes.css` + `system.css`(아래 규칙)이고, 앱 코드는 고치지 않았다.
+2026-10-15 작성, 2026-10-16 PM 검토를 거쳐 [OE-UI-23](../../features/E03-UI/OE-UI-23.md)(prd-done)의 정본이다. **적용 현황:** PRD 프로토타입의 에디터 화면(다크)만 [`../src/tokens.css`](../src/tokens.css)가 1장 다크 값 · 2장 척도 · 4장 상태 · 5장 모션을 이 문서 값 그대로 쓴다. 라이트 테마와 목록 · 층 선택 · 검토 화면, 개발 앱(`src/`)은 아직 옮기지 않았다. 에디터에서 이 공통 층을 어떻게 쓰는지는 [`../../design-system.md`](../../design-system.md)에 있다. 근거: `FINDINGS.md`(진단) · `COMPARE.md`(후보 비교) · `COMPONENTS.md`(인벤토리·상태·다크·시험 결과) · `MOTION.md`(모션) · `TOKEN-MAP.md`(현재 값 → 토큰 매핑). 시험 구현은 `themes.ts`(색 토큰) + `fixes.css` + `system.css`(아래 규칙)이고, 앱 코드는 고치지 않았다.
 
 성격: 차분하고 촘촘한 편집 도구. 색은 거의 중립, 강조색은 인디고 하나, 구분은 그림자가 아니라 선. 범위는 1024px 이상 화면(모바일·태블릿은 범위 밖, OE-UI-23).
 
