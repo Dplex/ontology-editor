@@ -25,7 +25,7 @@ PRD #4 · 티켓 29건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | [OE-UI-17](OE-UI-17.md) | 에디터 디자인 시스템 | R1 | P2 | prd-done |
 | [OE-UI-18](OE-UI-18.md) | 편집 상태 표시 — 안내 바 · 도구 안내 · 상태줄 | R1 | P2 | prd-done |
 | [OE-UI-19](OE-UI-19.md) | 레이어 패널 | R1 | P2 | prd-done |
-| [OE-UI-20](OE-UI-20.md) | 뷰 컨트롤 바 | R1 | P2 | prd-done |
+| [OE-UI-20](OE-UI-20.md) | 뷰 컨트롤 바 | R1 | P2 | prd-updated |
 | [OE-UI-21](OE-UI-21.md) | 우클릭 편집 메뉴 | R1 | P3 | prd-done |
 | [OE-UI-22](OE-UI-22.md) | 오브젝트 변경 표시 | R1 | P2 | prd-done |
 | [OE-UI-23](OE-UI-23.md) | 화면 디자인·모션 기준 | R1 | P2 | prd-done |
