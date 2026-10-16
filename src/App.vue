@@ -60,7 +60,8 @@ setupEditor()
            3D 에서 누른 것이 스크롤 없이 바로 옆에 뜬다. 전체 화면도 이 셋을 같이 띄운다. -->
       <div ref="stage" :class="['stage', 'workspace', { full: fullscreen }]">
         <HoverTip ref="hoverTip" />
-        <ToolRail :model="model" />
+        <!-- 도구 레일은 편집 모드에서만. 보기 모드에는 쓸 도구가 없고, 그 폭을 캔버스가 쓴다. -->
+        <ToolRail v-if="editing" :model="model" />
         <ViewportPanel :counts="counts" :model="model" />
 
         <!-- 편집 리플레이 동안(극장이 창을 덮는다) 아래 패널은 다시 그리지 않는다(replayMemo). 닫으면 그때 상태로 한 번 그린다. -->

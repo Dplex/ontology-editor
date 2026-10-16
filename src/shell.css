@@ -789,3 +789,6 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
 .ed-shell .rail-plan-note { width: 72px; margin: var(--sp-1) 0 var(--sp-2); color: var(--muted); font-size: var(--fs-1); line-height: 1.35; text-align: center; word-break: keep-all; }
 /* 평면도의 고른 꼭짓점 — 다른 손잡이보다 크고 채운다 */
 .floor-plan .edit-ring .handle.on { fill: var(--accent); stroke: var(--accent); stroke-opacity: 0.35; paint-order: stroke; }
+
+/* 보기 모드에는 도구 레일이 없다 — 캔버스가 그 폭을 쓴다 */
+.ed-shell.mode-view .workspace { grid-template-columns: minmax(0, 1fr) var(--rpan-w); }
