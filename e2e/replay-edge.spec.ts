@@ -209,3 +209,51 @@ test('판 모양은 T 나 조작 막대의 단추로 도면·중계를 바꾸고
   await page.keyboard.press('Enter')
   expect(errors).toEqual([])
 })
+
+test.describe('화면 배율 2', () => {
+  test.use({ deviceScaleFactor: 2 })
+  const ratio = (page: Page) =>
+    page.evaluate(() => {
+      const c = document.querySelector('.canvas-wrap > canvas') as HTMLCanvasElement
+      return +(c.width / c.clientWidth).toFixed(2)
+    })
+
+  test('화질 칸이 3D 픽셀비를 실제로 낮추고, 재생 중에 시점을 바꿔도 끝까지 가며, 몰입 바이저는 몰입 장면에만 뜬다', async ({ page }) => {
+    test.setTimeout(150_000)
+    await page.addInitScript(() => {
+      localStorage.removeItem('oe-replay-quality')
+      localStorage.removeItem('oe-replay-pov')
+    })
+    const { hud, errors } = await openReplay(page)
+    await expect(hud).toHaveAttribute('data-phase', 'play', { timeout: 30_000 })
+    // 뷰어의 resize 는 매 프레임 픽셀비를 맞춘다 — renderer 에 직접 넣으면 다음 프레임에 2 로 돌아갔다. 몇 프레임 뒤에도 그 값인지 본다.
+    const quality = hud.getByRole('combobox', { name: '리플레이 화질' })
+    await quality.selectOption('low')
+    await expect.poll(() => ratio(page)).toBe(1)
+    await page.waitForTimeout(300)
+    expect(await ratio(page)).toBe(1)
+    await quality.selectOption('medium')
+    await expect.poll(() => ratio(page)).toBe(1.5)
+    await quality.selectOption('high')
+    await expect.poll(() => ratio(page)).toBe(2)
+
+    const pov = hud.getByRole('combobox', { name: '리플레이 카메라 시점' })
+    await pov.selectOption('pov')
+    await expect(hud).toHaveAttribute('data-pov', 'pov')
+    await expect(hud.locator('.pov-visor')).toBeVisible()
+    await pov.selectOption('orbit')
+    await expect(hud.locator('.pov-visor')).toHaveCount(0)
+    // 재생 중에 V 를 거듭 눌러도 장면을 다시 조준하지 않고 끝 화면까지 간다.
+    await page.locator('body').click({ position: { x: 5, y: 5 } })
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press('v')
+      await page.waitForTimeout(300)
+    }
+    await expect(hud).toHaveAttribute('data-phase', 'done', { timeout: 60_000 })
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Enter')
+    await expect(hud).toHaveCount(0)
+    await expect.poll(() => ratio(page)).toBe(2)
+    expect(errors).toEqual([])
+  })
+})

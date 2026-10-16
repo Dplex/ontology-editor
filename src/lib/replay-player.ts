@@ -263,7 +263,8 @@ export function useReplay(host: ReplayPlayerHost) {
     // 극장 바탕이 어두워서 라이트 테마의 진한 화살표가 묻힌다.
     host.viewer.setDark(true)
     host.viewer.setReplayQuality(replayQuality.value)
-    host.viewer.setReplayPov(replayPov.value)
+    replayPovNow.value = replayPov.value === 'pov' ? 'pov' : 'orbit'
+    host.viewer.setReplayPov(replayPovNow.value)
     host.viewer.setCinema(true)
     host.viewer.setReplayTheme(replayTheme.value)
     host.viewer.setDiorama(true)
@@ -476,7 +477,8 @@ export function useReplay(host: ReplayPlayerHost) {
       step?.category === '계통' ||
       (step?.changes.length ?? 0) >= 6
     const inPov = replayPov.value === 'pov' || (replayPov.value === 'auto' && !wideScene)
-    host.viewer.setReplayPov(inPov ? 'pov' : 'orbit')
+    replayPovNow.value = inPov ? 'pov' : 'orbit'
+    host.viewer.setReplayPov(replayPovNow.value)
     host.viewer.setSpaceFocus(inPov && rm ? rm.id : null)
     const ptMargin = inPov ? 1.2 : 3
     const color = replayColor(step)
@@ -1526,6 +1528,8 @@ export function useReplay(host: ReplayPlayerHost) {
     replaySetQuality(next)
   }
   const replayPov = ref<ReplayPov>(savedPov())
+  /** 지금 장면이 실제로 쓰는 시점. 자동이면 장면마다 replayAim 이 정한다. */
+  const replayPovNow = ref<'orbit' | 'pov'>('orbit')
   function replaySetPov(p: ReplayPov) {
     replayPov.value = p
     try {
@@ -1533,13 +1537,12 @@ export function useReplay(host: ReplayPlayerHost) {
     } catch {
       // 저장이 막힌 브라우저(사생활 창)면 이번만 바뀐다.
     }
-    if (replayOpen.value && replayPhase.value === 'play') {
-      const idx = replayAiming.value ?? Math.max(0, history.value.length - 1)
-      const step = replaySteps.value[idx] ?? null
-      void replayAim(step, true)
-    } else {
-      host.viewer?.setReplayPov(p === 'pov' ? 'pov' : 'orbit')
-    }
+    // 지금 장면은 다시 조준하지 않는다 — 재생 루프가 조준하는 중이면 카메라가 두 번 날고, 이미 다시 한 장면이면 편집 후 상태로 다시 조준한다.
+    // 렌즈와 벽 흐리기만 바로 바꾸고, 비행 각도·거리는 다음 장면부터 따른다. 자동은 다음 장면이 정할 때까지 지금 시점을 둔다.
+    if (p === 'auto') return
+    replayPovNow.value = p
+    host.viewer?.setReplayPov(p)
+    if (replayOpen.value && replayPhase.value === 'play') host.viewer?.setSpaceFocus(p === 'pov' && replayRoom.value ? replayRoom.value.id : null)
   }
   function replayCyclePov() {
     const order: ReplayPov[] = ['orbit', 'pov', 'auto']
@@ -1618,6 +1621,7 @@ export function useReplay(host: ReplayPlayerHost) {
     theme: replayTheme.value,
     quality: replayQuality.value,
     pov: replayPov.value,
+    povNow: replayPovNow.value,
   }))
   // B 로 편집 전을 보는 중에 마우스로 다른 조작을 하면 먼저 편집 후로 돌린다 — 그대로 두면 그 조작이 이력을 옮긴 뒤 B 를 뗄 때
   // 다시 하기가 한 번 더 되어 한 칸 어긋났다(키는 B 를 누르는 동안 받지 않는다).

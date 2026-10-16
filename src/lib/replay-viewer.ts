@@ -193,6 +193,8 @@ export type ReplayHost = {
   rayAt: (x: number, y: number) => Ray
   toScreen: (p: Vector3) => { x: number; y: number } | null
   fit: (box: Box3) => void
+  /** 픽셀비 상한(기본 2). 뷰어의 resize 가 매 프레임 이 값으로 맞춘다. */
+  setPixelRatioCap: (cap: number) => void
   /** 지금(날아가는 중이면 도착할 자리의) 카메라와 바라보는 점 사이 거리. */
   viewDistance: () => number
   /** 벽·문·창 외곽선 층을 마지막에 그린 그대로 다시 그린다(새로 생긴 벽을 따로 그리게). */
@@ -209,20 +211,10 @@ export function createReplayFx(host: ReplayHost) {
   let quality: 'low' | 'medium' | 'high' = 'high'
   /** 리플레이 카메라 인칭 시점(setReplayPov). orbit(3인칭 조감) · pov(1인칭 공간 몰입). */
   let pov: 'orbit' | 'pov' = 'orbit'
-  let savedPixelRatio: number | null = null
   let savedFov: number | null = null
+  /** 화질 단계의 픽셀비 상한. 끄면 뷰어 기본(2)으로 돌린다. */
   function applyQualityPixelRatio(on: boolean) {
-    if (!on) {
-      if (savedPixelRatio !== null) {
-        host.renderer.setPixelRatio(savedPixelRatio)
-        savedPixelRatio = null
-      }
-      return
-    }
-    if (savedPixelRatio === null) savedPixelRatio = host.renderer.getPixelRatio()
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-    const target = quality === 'low' ? 1 : quality === 'medium' ? Math.min(dpr, 1.5) : Math.min(dpr, 2)
-    if (host.renderer.getPixelRatio() !== target) host.renderer.setPixelRatio(target)
+    host.setPixelRatioCap(!on ? 2 : quality === 'low' ? 1 : quality === 'medium' ? 1.5 : 2)
   }
   function applyPovFov(on: boolean) {
     if (!on) {

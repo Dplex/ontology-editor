@@ -2137,10 +2137,12 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     Object.assign(box.el.style, { left: `${l}px`, top: `${t}px`, width: `${Math.abs(x - box.x)}px`, height: `${Math.abs(y - box.y)}px` })
   }
 
+  /** 픽셀비 상한. 리플레이 화질(setReplayQuality)이 낮춘다 — 매 프레임 resize 가 이 값을 따르므로 renderer 에 직접 넣으면 되돌아간다. */
+  let pixelRatioCap = 2
   function resize() {
     const { clientWidth: w, clientHeight: h } = canvas
     if (w === 0 || h === 0) return
-    const ratio = Math.min(window.devicePixelRatio, 2)
+    const ratio = Math.min(window.devicePixelRatio, pixelRatioCap)
     if (canvas.width === Math.round(w * ratio) && canvas.height === Math.round(h * ratio)) return
     renderer.setPixelRatio(ratio)
     renderer.setSize(w, h, false)
@@ -3222,6 +3224,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     visibleStoreys: () => visibleStoreys,
     storeyShown, invalidate, writePart, paintPart, toScene, rayAt, toScreen,
     fit: (box) => fit(box),
+    setPixelRatioCap: (cap) => {
+      pixelRatioCap = cap
+      invalidate()
+    },
     viewDistance: () => (flight ? flight.toP.distanceTo(flight.toT) : camera.position.distanceTo(controls.target)),
     rebuildArchitecture: () => lastArch.model && buildArchitecture(lastArch.model, lastArch.selected, lastArch.also),
   })

@@ -53,6 +53,8 @@ const props = defineProps<{
   quality?: 'low' | 'medium' | 'high'
   /** 카메라 인칭 시점: orbit(3인칭 조감) · pov(1인칭 공간 몰입) · auto(장면별 자동 전환). */
   pov?: 'orbit' | 'pov' | 'auto'
+  /** 지금 장면이 실제로 쓰는 시점. 자동이면 장면마다 조감·몰입 중 하나다. */
+  povNow?: 'orbit' | 'pov'
   /** 지금 장면이 속한 물리존(방)과 공간 종류별 맞춤 무드 색상·면적·설비 수. */
   room?: { name: string; kind: string | null; areaM2?: number; devices?: number; color: string } | null
 }>()
@@ -401,9 +403,9 @@ const stageState = computed(() => {
     <!-- 카메라가 다음 편집 장소로 날아가는 동안(aiming) 펼쳐지는 하이퍼스페이스 워프 스피드 라인 -->
     <div v-if="aiming !== null && phase === 'play'" :key="`wp${aiming}`" class="warp-lines" aria-hidden="true"></div>
     <!-- 1인칭 공간 몰입(POV) 시점일 때의 공간 바이저 비네팅 & 수평 눈높이 가이드 & 렌즈 텔레메트리 -->
-    <div v-if="(pov === 'pov' || (pov === 'auto' && room)) && phase === 'play'" class="pov-visor" aria-hidden="true">
+    <div v-if="povNow === 'pov' && phase === 'play'" class="pov-visor" aria-hidden="true">
       <div class="visor-hud">
-        <span>{{ pov === 'auto' ? 'AUTO CINEMA POV' : '1ST-PERSON IMMERSIVE' }}</span>
+        <span>{{ pov === 'auto' ? 'AUTO POV' : '1ST-PERSON' }}</span>
         <i>·</i>
         <span>FOV 62°</span>
         <i>·</i>
@@ -759,16 +761,17 @@ const stageState = computed(() => {
           <template v-else-if="comparing">편집 전 보는 중 · <kbd>B</kbd> 떼면 편집 후</template>
           <template v-else>{{ phase === 'opening' ? '여는 중' : phase === 'done' ? '끝' : playing ? '재생 중' : '멈춤' }} · 편집 {{ at }}/{{ total }} · <kbd>B</kbd> 누르고 있으면 편집 전</template>
         </span>
-        <span class="povs" role="group" aria-label="리플레이 카메라 시점">
-          <button type="button" :aria-pressed="(pov ?? 'orbit') === 'orbit'" title="3인칭 조감 — 건물·층 위쪽에서 내려다보는 시점 (V)" @click="emit('pov', 'orbit')">조감</button>
-          <button type="button" :aria-pressed="pov === 'pov'" title="1인칭 공간 몰입 — 눈높이 광각(62°) + 주변 벽 반투명 투시로 방 안에 서 있는 시점 (V)" @click="emit('pov', 'pov')">몰입</button>
-          <button type="button" :aria-pressed="pov === 'auto'" title="AI 시네마토그래퍼 자동 시점 — 계통·흐름은 조감, 개별 방 내부 편집은 1인칭 몰입으로 자동 전환 (V)" @click="emit('pov', 'auto')">자동</button>
-        </span>
-        <span class="qualities" role="group" aria-label="리플레이 화질">
-          <button type="button" :aria-pressed="quality === 'low'" title="Low (경량) — 픽셀비 1.0 · 기본 빛기둥만 · 블러 생략 (Q)" @click="emit('quality', 'low')">Low</button>
-          <button type="button" :aria-pressed="quality === 'medium'" title="Medium (표준) — 조준 레티클 · 스캔 고리 · 포물선 아치 (Q)" @click="emit('quality', 'medium')">Med</button>
-          <button type="button" :aria-pressed="(quality ?? 'high') === 'high'" title="High (울트라) — 2중 역회전 레티클 · 3D 상승 발광 입자 · 스페큘러 홀로그램 HUD (Q)" @click="emit('quality', 'high')">High</button>
-        </span>
+        <!-- 시점·화질은 고르는 일이 드물어 단추 여섯 개 대신 고르기 칸 둘로 둔다 — 단추로 두면 1440 폭에서 상태 글이 한 글자로 잘렸다. -->
+        <select class="pick povs" aria-label="리플레이 카메라 시점" title="시점 — 조감(위에서) · 몰입(눈높이, 주변 벽 흐리게) · 자동(계통·흐름은 조감, 방 안 편집은 몰입) (V)" :value="pov ?? 'orbit'" @change="emit('pov', ($event.target as HTMLSelectElement).value as 'orbit' | 'pov' | 'auto')">
+          <option value="orbit">조감</option>
+          <option value="pov">몰입</option>
+          <option value="auto">자동</option>
+        </select>
+        <select class="pick qualities" aria-label="리플레이 화질" title="화질 — Low(빛기둥만·픽셀비 1) · Med(조준 링·이동 아치) · High(입자·성좌·픽셀비 2) (Q)" :value="quality ?? 'high'" @change="emit('quality', ($event.target as HTMLSelectElement).value as 'low' | 'medium' | 'high')">
+          <option value="low">Low</option>
+          <option value="medium">Med</option>
+          <option value="high">High</option>
+        </select>
         <span class="themes" role="group" aria-label="테마">
           <button type="button" :aria-pressed="(theme ?? 'plan') === 'plan'" title="도면 — 무채색 가는 선 (T)" @click="(theme ?? 'plan') !== 'plan' && emit('theme')">도면</button>
           <button type="button" :aria-pressed="theme === 'show'" title="중계 — 분류 색상과 빛 효과 (T)" @click="theme !== 'show' && emit('theme')">중계</button>
@@ -3260,44 +3263,43 @@ button.sum-row.on span {
   }
 }
 
-/* --- 화질 선택(Low · Med · High) 단추 묶음 및 단계별 모던 스페이셜 UI 연출 --- */
-.qualities {
-  display: inline-flex;
-  border: 1px solid var(--line-2);
-}
-.qualities button {
-  border: none;
-  border-right: 1px solid var(--line);
-  padding: 0 8px;
-  font-size: 11px;
-  letter-spacing: 0.02em;
-}
-.qualities button:last-child {
-  border-right: none;
-}
-.qualities button[aria-pressed='true'] {
-  background: var(--ink);
-  color: #080a0d;
-  font-weight: 600;
-}
-.replay-hud[data-theme='show'] .qualities {
-  border-radius: 999px;
-  padding: 2px;
-  gap: 2px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-.replay-hud[data-theme='show'] .qualities button {
-  height: 24px;
-  padding: 0 9px;
-  border: none;
-  border-radius: 999px;
+/* --- 시점·화질 고르기 칸 --- */
+.pick {
+  flex: none;
+  height: 28px;
+  padding: 0 6px;
+  border: 1px solid #344560;
   background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
 }
-.replay-hud[data-theme='show'] .qualities button[aria-pressed='true'] {
-  background: linear-gradient(135deg, #22d3ee, #7c5cff);
-  color: #ffffff;
-  box-shadow: 0 2px 10px rgba(34, 211, 238, 0.4);
+.pick:hover {
+  border-color: #fff;
+}
+.pick option {
+  background: #0c0f13;
+  color: #e8ebef;
+}
+/* 좁은 폭(1024 등)에서는 단추가 한 줄에 다 들지 않는다 — 상태 글을 둘째 줄로 내린다. 늘 한 줄이라 막대 높이는 폭마다 일정하다. */
+@media (max-width: 1280px) {
+  .buttons {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .buttons .status {
+    order: 99;
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+}
+.replay-hud[data-theme='show'] .pick {
+  border-color: var(--glass-edge);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  padding: 0 8px;
 }
 
 /* 스파크라인 면적 채우기 + 추세선 (Petal Components 스타일) */
@@ -3395,7 +3397,7 @@ button.sum-row.on span {
   box-shadow: none !important;
 }
 
-/* --- 공간별 맞춤 무드 배지(.bug-room) · 1인칭 공간 몰입 바이저(.pov-visor) · 시점 단추(.povs) --- */
+/* --- 공간별 맞춤 무드 배지(.bug-room) · 1인칭 공간 몰입 바이저(.pov-visor) --- */
 .bug-room {
   gap: 6px;
   color: #f8fafc !important;
@@ -3437,43 +3439,6 @@ button.sum-row.on span {
 }
 .pov-visor .hz.right {
   right: 24px;
-}
-.povs {
-  display: inline-flex;
-  border: 1px solid var(--line-2);
-}
-.povs button {
-  border: none;
-  border-right: 1px solid var(--line);
-  padding: 0 9px;
-  font-size: 12px;
-}
-.povs button:last-child {
-  border-right: none;
-}
-.povs button[aria-pressed='true'] {
-  background: var(--ink);
-  color: #080a0d;
-  font-weight: 600;
-}
-.replay-hud[data-theme='show'] .povs {
-  border-radius: 999px;
-  padding: 2px;
-  gap: 2px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-.replay-hud[data-theme='show'] .povs button {
-  height: 24px;
-  padding: 0 10px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-}
-.replay-hud[data-theme='show'] .povs button[aria-pressed='true'] {
-  background: linear-gradient(135deg, #34d399, #22d3ee);
-  color: #061018;
-  box-shadow: 0 2px 10px rgba(52, 211, 153, 0.4);
 }
 .bug-room .rm-meta {
   font-style: normal;
