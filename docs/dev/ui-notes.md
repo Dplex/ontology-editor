@@ -405,3 +405,21 @@ Deck.gl TripsLayer · Palantir Foundry Contour · Autodesk Tandem Time Navigatio
 - **3D 포물선 이동 아치(`trace`)와 끝 화면 3D 편집 동선 성좌(`spotlight` 의 `constellation`)**: 설비·문이 미끄러질 때 바닥 직선 궤적에 더해 공중 포물선 아치(`arcLine`)와 광원(`comet`)을 그리고, 끝 화면(`replayFinale`)에서는 `#01`·`#02`… 번호가 붙은 빛기둥 사이를 장면 순서대로 잇는 3D 성좌 궤적과 광원(`orbs`)을 띄운다.
 - **2D 미니맵 타깃 조준선(`ReplayGeo.vue`)과 관계 그래프 데이터 패킷(`ReplayRelations.vue`)**: GeoJSON 미니맵의 바뀐 형상 중심에 레이더 십자선과 동심원 링을, 이동 궤적 끝에 화살촉 마커를 달았다. 새로 이어진 TTL 관계 선(`.came`) 위로는 광선 패킷(`.pulse`)이 주어에서 대상으로 흐른다.
 - 되돌리려면 `replay-viewer.ts` 의 `quality`·`pov`·`setSpaceMood`·`applyQualityPixelRatio`·`reticle`·`outerReticle`·`helix`·`scanRing`·`sparks`·`arcLine`·`constellation`, `replay-player.ts` 의 `ReplayQuality`·`ReplayPov`·`sceneSpaceOf`, `ReplayGeo.vue` 의 `focusCenter`·`radar-lock`, `ReplayRelations.vue` 의 `.pulse`·`.port`, `ReplayHud.vue` 의 `.pick`·`.bug-room`·`.pov-visor`·`.warp-lines`·`.impact-ring`·`.scene-flare`·`.spark-area`·`.hud-corners`·`.bug-phase`·`.scene-bar`·`.sum-ribbon`·`.tt-meter` 절을 뺀다.
+
+## 3D 편집 화면의 겉모습 — 외곽선 · 모서리 선 · 바닥 격자 · 떨어져 앉기 (2026-10-19)
+
+ArtCraft(storytold/artcraft)의 3D 장면 편집기에서 넷을 가져왔다(`reference.md`). 기능은 그대로이고 3D 가 그리는 모양만 바뀐다. 장면을 한 번 더 그리는 후처리는
+쓰지 않았다 — 성수 설비가 정점 1천만 개라 시점을 돌릴 때마다 값이 든다.
+
+- **고른 것의 외곽선**(`selection-outline.ts`). 고른 설비(여러 개면 400개까지)·추가 공간 오브젝트·벽·문·창의 윤곽에 강조색(`--accent`, 라이트 `#5457c4` · 다크 `#8b8ef0`) 2px 선과
+  9px 빛을 두른다. 고른 것만 따로 마스크로 그리고(깊이 검사 없음 → 벽·천장 너머로도 윤곽이 보인다), 마스크까지의 거리를 가로·세로 두 번에 재서 칠한다. 둘 다 고른 것의 화면 상자로
+  가위질해 화면의 일부만 칠한다. 고르는 순간 빛이 18px 로 퍼졌다 0.28초 안에 9px 로 준다(움직임을 끄면 없다). 계속 깜박이게 하지 않았다 — 깜박이는 동안 3D 를 매 프레임 다시 그린다.
+  고른 오브젝트에 그리던 파란 상자 선은 뺐다. 겹쳐서 막은 상대의 붉은 상자 선은 그대로다.
+- **벽·가구의 모서리 선**(`model-edges.ts`). 보기 모드 IFC 벽(층마다 한 덩어리)·편집 벽·가구 조각에 25° 넘게 꺾이는 모서리마다 선을 긋는다(`EdgesGeometry`). 형상이 바뀔 때 한 번 뽑는다.
+  설비에는 긋지 않는다(형상이 크고 계통 색으로 이미 갈린다). 넣은 3D 모델(glb)과 주변 모델(지형·주변 건물)에도 긋지 않는다.
+- **바닥 아래 격자**(`ground-grid.ts`). 보이는 것의 상자 밑바닥에 1m · 10m 두 겹 격자를 깐다. 선은 화면 픽셀로 1px 안팎이고 건물에서 멀어지면 흐려진다. 칸이 화면에서 6px 보다 작아지면
+  그 겹은 사라진다. 편집용 스냅 격자(OE-UI-07)와 따로다. 리플레이 연출 중에는 걷는다.
+- **놓을 때 떨어져 앉기**(`drop-in.ts`). 편집으로 새로 생긴 설비·추가 공간 오브젝트(되돌리기로 되살아난 것 포함)가 0.52초 동안 작게 나타나 떠올랐다(큰 변의 절반, 0.2~0.6m) 떨어지고
+  한 번 눌렸다 돌아온다. 모양만 움직이고 자리·고르기 상자·소속은 처음부터 끝 자리다. 파일을 열 때 있던 것, 한 번에 60개 넘게 생긴 것, 리플레이 중, 움직임을 끈 사람에게는 움직이지 않는다.
+  ArtCraft 는 0.75초 · 큰 변의 22% 인데, 놓기는 자주 하는 편집이라 줄이고(디자인 시스템 A6), 층 전체를 내려다보는 거리에서는 22% 가 안 보여 높였다.
+- **e2e.** `__viewer.outline()`(두른 수 · 빛 퍼짐 · 고른 것) · `ground()` · `edges()` · `walls().edged` · `motion().dropping`·`started.drops` 를 `e2e/scene-polish.spec.ts` 가 본다.
