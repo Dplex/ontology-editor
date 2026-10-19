@@ -36,6 +36,8 @@ import { easeOut, still } from './motion'
 export const OUTLINE_LAYER = 30
 /** 미리 강조(HOVER_STYLE)의 층. 고른 것과 층이 같으면 두 마스크에 서로가 섞여 그려진다. */
 export const HOVER_LAYER = 29
+/** 겹쳐서 막은 상대(CONFLICT_STYLE)의 층. */
+export const CONFLICT_LAYER = 28
 const FLASH_MS = 280
 /**
  * 외곽선 모양. 선 두께·빛 반경은 CSS 픽셀이고 기기 픽셀비를 곱해 쓴다. `flash` 는 고르는 순간 퍼지는 빛 반경(없으면 퍼지지 않는다).
@@ -49,6 +51,11 @@ export const SELECTED_STYLE: OutlineStyle = { line: 2, glow: 9, flash: 18, opaci
  * (OE-UI-17 "고른 것의 강조와 구별되는 옅은 강조색"). 커서를 따라 자주 바뀌니 움직이면 시끄럽다.
  */
 export const HOVER_STYLE: OutlineStyle = { line: 1.5, glow: 5, flash: null, opacity: 0.6, colors: { light: 0x5457c4, dark: 0x8b8ef0 } }
+/**
+ * 겹쳐서 막은 상대(OE-SPC-15). 디자인 시스템의 위험 색이다(다크 `--error` #f08076, 라이트는 3D 가 써 온 #d1372b). 막히는 순간 빛이 퍼진다.
+ * 놓기 전 미리보기가 겹치는 자리에 있을 때도 이 선이 상대를 짚는다(그때는 같은 상대가 이어지는 동안 다시 퍼지지 않는다).
+ */
+export const CONFLICT_STYLE: OutlineStyle = { line: 2, glow: 9, flash: 18, opacity: 1, colors: { light: 0xd1372b, dark: 0xf08076 } }
 
 /** 빛 반경의 상한(드로잉 버퍼 픽셀). 셰이더가 이만큼 좌우·위아래를 훑는다. */
 const MAX_RADIUS = 24

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dropPose, poseVertices } from './drop-in'
+import { dropPose, poseVertices, shakeOffset, sinkPose } from './drop-in'
 
 describe('놓을 때 떨어져 앉기', () => {
   it('작게 나타나 떠올랐다가 끝에서는 제 크기·제자리다', () => {
@@ -34,5 +34,29 @@ describe('놓을 때 떨어져 앉기', () => {
     ;[0, 0.3, 0, 0.5, 1.3, 0.5].forEach((v, i) => expect(out[i]).toBeCloseTo(v))
     poseVertices(base, out, [0, 0, 0], dropPose(1, 1))
     expect([...out]).toEqual([...base])
+  })
+})
+
+describe('지울 때 가라앉기 · 막혔을 때 흔들기', () => {
+  it('가라앉기는 제 모양에서 시작해 줄며 내려가고 끝에서 다 흐려진다', () => {
+    expect(sinkPose(0, 1)).toEqual({ scale: 1, lift: -0, opacity: 1 })
+    const mid = sinkPose(0.5, 1)
+    expect(mid.scale).toBeCloseTo(0.7)
+    expect(mid.lift).toBeLessThan(0)
+    expect(mid.opacity).toBeGreaterThan(0)
+    const end = sinkPose(1, 1)
+    expect(end.opacity).toBe(0)
+    expect(end.lift).toBeCloseTo(-0.5)
+    expect(sinkPose(1, 10).lift).toBeCloseTo(-0.6)
+  })
+
+  it('흔들기는 제자리에서 시작해 제자리로 끝나고, 폭은 4~12cm 다', () => {
+    expect(shakeOffset(0, 1)).toBeCloseTo(0)
+    expect(shakeOffset(1, 1)).toBe(0)
+    const samples = Array.from({ length: 50 }, (_, i) => shakeOffset(i / 50, 0.1))
+    expect(Math.max(...samples.map(Math.abs))).toBeLessThanOrEqual(0.04)
+    expect(Math.max(...Array.from({ length: 50 }, (_, i) => Math.abs(shakeOffset(i / 50, 30))))).toBeLessThanOrEqual(0.12)
+    // 좌우로 오간다
+    expect(samples.some((v) => v > 0.01) && samples.some((v) => v < -0.01)).toBe(true)
   })
 })

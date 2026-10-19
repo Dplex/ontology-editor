@@ -164,3 +164,110 @@ test('커서를 올리면 클릭 전에 골라질 추가 공간 오브젝트가 
   await expect.poll(() => viewer<string>(page, 'hoverMark')).toBe(`object:${desk}`)
   expect(errors).toEqual([])
 })
+
+// 놓기 전 미리보기 · 겹쳐서 막혔을 때 피드백 · 지울 때 가라앉기(OE-SPC-14 · OE-SPC-15). 놓기 모드에서 커서를 따라 놓을 모양이 서고, 겹치는
+// 자리면 붉어지며 막을 상대가 붉은 외곽선으로 짚인다. 막힌 자리를 누르면 상대가 붉은 외곽선과 함께 흔들린다. 지우면 가라앉고 사라진다.
+async function startDesk(page: Page) {
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await toSpace(page)
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await page.getByRole('button', { name: /^오브젝트/ }).click()
+}
+async function hoverFloor(page: Page, x: number, y: number) {
+  const p = await viewer<{ x: number; y: number }>(page, 'point', [x, y, 0])
+  await page.mouse.move(p.x - 2, p.y)
+  await page.mouse.move(p.x, p.y)
+}
+type Ghost = { visible: boolean; blocked: boolean; at: number[] | null }
+
+test('놓기 모드에서 커서를 따라 미리보기가 서고, 겹치는 자리면 붉어지며 막을 상대가 붉은 외곽선으로 짚인다 [OE-SPC-15#1~]', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await open(page, ROOMS)
+  await startDesk(page)
+  const desk = () => page.locator('.object-library').getByRole('button', { name: '책상', exact: true }).click()
+  await desk()
+  await hoverFloor(page, 3, 2)
+  await expect.poll(() => viewer<Ghost>(page, 'ghost')).toMatchObject({ visible: true, blocked: false })
+  expect((await viewer<Ghost>(page, 'ghost')).at).toEqual([3, 2])
+  expect((await viewer<Outline>(page, 'conflictOutline')).objects).toBe(0)
+  await clickFloor(page, 3, 2)
+  await expect(page.locator('.object-picked h3')).toHaveText('책상 1')
+  // 놓으면 미리보기가 걷힌다.
+  expect((await viewer<Ghost>(page, 'ghost')).visible).toBe(false)
+  const [first] = await viewer<string[]>(page, 'objects')
+
+  // 두 번째 책상: 첫 책상과 겹치는 자리에 커서를 대면 붉어지고 첫 책상이 짚인다. 비키면 걷힌다.
+  await desk()
+  await hoverFloor(page, 3.2, 2.1)
+  await expect.poll(() => viewer<Ghost>(page, 'ghost')).toMatchObject({ visible: true, blocked: true })
+  await expect.poll(() => viewer<Outline>(page, 'conflictOutline')).toMatchObject({ objects: 1, key: `object:${first}` })
+  await hoverFloor(page, 3, 3.2)
+  await expect.poll(() => viewer<Ghost>(page, 'ghost')).toMatchObject({ visible: true, blocked: false })
+  await expect.poll(async () => (await viewer<Outline>(page, 'conflictOutline')).objects).toBe(0)
+  // Esc 로 그만두면 미리보기가 걷힌다.
+  await page.keyboard.press('Escape')
+  await expect.poll(async () => (await viewer<Ghost>(page, 'ghost')).visible).toBe(false)
+  expect(errors).toEqual([])
+})
+
+test('설비 더하기도 미리보기가 서고, 놓기 모드가 아니면 서지 않는다', async ({ page }) => {
+  await open(page, [MEP, ROOMS])
+  await hoverFloor(page, 5, 4)
+  expect((await viewer<Ghost>(page, 'ghost')).visible).toBe(false)
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await toEquipment(page)
+  await page.locator('.tool-palette').getByRole('button', { name: '설비 더하기' }).click()
+  await hoverFloor(page, 5, 4)
+  await expect.poll(() => viewer<Ghost>(page, 'ghost')).toMatchObject({ visible: true, blocked: false, at: [5, 4] })
+})
+
+test.describe('움직임을 켜면 (막힘 · 지우기)', () => {
+  test.use({ contextOptions: { reducedMotion: 'no-preference' } })
+
+  test('막힌 자리를 누르면 상대가 붉은 외곽선과 함께 흔들리고, 지운 오브젝트는 가라앉은 뒤 사라진다 [OE-SPC-15#1~]', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(e.message))
+    await open(page, ROOMS)
+    await startDesk(page)
+    const desk = () => page.locator('.object-library').getByRole('button', { name: '책상', exact: true }).click()
+    await desk()
+    await clickFloor(page, 3, 2)
+    await expect(page.locator('.object-picked h3')).toHaveText('책상 1')
+    const [first] = await viewer<string[]>(page, 'objects')
+    await expect.poll(async () => (await viewer<Motion>(page, 'motion')).dropping).toBe(0)
+
+    await desk()
+    await clickFloor(page, 3.2, 2.1)
+    await expect(page.locator('.edit-notice').first()).toContainText('이미 오브젝트가 있는 위치입니다')
+    await expect.poll(async () => (await viewer<Motion & { started: { shakes: number } }>(page, 'motion')).started.shakes).toBe(1)
+    await expect.poll(() => viewer<Outline>(page, 'conflictOutline')).toMatchObject({ objects: 1, key: `object:${first}` })
+    // 흔들림이 끝나면 첫 책상은 제자리다. 붉은 외곽선은 안내와 함께 걷힌다.
+    await expect.poll(async () => (await viewer<{ shaking: number }>(page, 'motion')).shaking).toBe(0)
+    await expect.poll(async () => (await viewer<Outline>(page, 'conflictOutline')).objects, { timeout: 4000 }).toBe(0)
+
+    // 첫 책상을 골라 지운다 → 가라앉고 사라진다.
+    const o = await viewer<{ x: number; y: number }>(page, 'object', first)
+    await page.mouse.click(o.x, o.y)
+    await expect(page.locator('.object-picked h3')).toHaveText('책상 1')
+    await page.keyboard.press('Delete')
+    await expect.poll(() => viewer<string[]>(page, 'objects')).toEqual([])
+    expect((await viewer<{ started: { sinks: number } }>(page, 'motion')).started.sinks).toBe(1)
+    await expect.poll(async () => (await viewer<{ sinking: number }>(page, 'motion')).sinking).toBe(0)
+    expect(errors).toEqual([])
+  })
+
+  test('더한 설비를 되돌리면(지워지면) 가라앉은 뒤 사라진다', async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', (e) => errors.push(e.message))
+    await open(page, [MEP, ROOMS])
+    const id = await addEquipment(page)
+    await expect.poll(async () => (await viewer<Motion>(page, 'motion')).dropping).toBe(0)
+    await page.locator('body').click({ position: { x: 5, y: 5 } })
+    await page.keyboard.press('Control+z')
+    await expect.poll(async () => (await ids(page)).includes(id)).toBe(false)
+    expect((await viewer<{ started: { sinks: number } }>(page, 'motion')).started.sinks).toBe(1)
+    await expect.poll(async () => (await viewer<{ sinking: number }>(page, 'motion')).sinking).toBe(0)
+    expect(errors).toEqual([])
+  })
+})

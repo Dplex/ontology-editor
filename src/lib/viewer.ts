@@ -69,9 +69,9 @@ import { type LibraryItem, type ObjectMaterial } from './space-object'
 import { CONTEXT_ITEMS } from './object-names'
 import { partId } from './vertical-object'
 import { flowPulseMesh, setFlowTime, type FlowEdge, type FlowSegment } from './flow-pulse'
-import { createSelectionOutline, HOVER_LAYER, HOVER_STYLE, OUTLINE_LAYER, SELECTED_STYLE } from './selection-outline'
+import { CONFLICT_LAYER, CONFLICT_STYLE, createSelectionOutline, HOVER_LAYER, HOVER_STYLE, OUTLINE_LAYER, SELECTED_STYLE } from './selection-outline'
 import { createGroundGrid } from './ground-grid'
-import { DROP_MAX, DROP_MS, dropPose, poseVertices } from './drop-in'
+import { DROP_MAX, DROP_MS, dropPose, poseVertices, SHAKE_MS, shakeOffset, SINK_MS, sinkPose } from './drop-in'
 import { addEdges, setEdgeTheme } from './model-edges'
 import { conduitFlowType, flowTypeColor, systemFlowType } from './flow-type'
 
@@ -146,7 +146,6 @@ export const PICK_COLORS = {
 /** 마우스 아래 표시. 설비는 액센트 상자, 방은 회색 점선 — 색만이 아니라 모양으로도 갈린다. */
 const HOVER_COLORS = { equipment: 0x2f6fed, space: 0x5b6470, spaceDark: 0xc0c6cd }
 /** 막힌 편집의 상대(겹친 설비, OE-OBJ-16). 오류 색 하나다. */
-const CONFLICT_COLOR = 0xd1372b
 /** 겹친 상대 표시가 떠 있는 시간(ms). 알림 줄(App 의 note)과 비슷하게 둔다. */
 const CONFLICT_MS = 2600
 
@@ -577,6 +576,12 @@ export type Viewer = {
   /** 놓기 모드에서 마우스가 가리키는 바닥 점(IFC x, y)과 Alt 를 눌렀는지. 벗어나면 null. 스냅 자리를 미리 보이는 데 쓴다(OE-UI-06). */
   onPlaceHover(handler: ((at: Vec2 | null, alt: boolean) => void) | null): void
   /**
+   * 놓기 전 미리보기(OE-SPC-14 · OE-SPC-15). 놓을 자리(`at`, IFC 평면)와 바닥 높이(`elevation`, IFC z)에 놓을 것의 반투명 모양을 세운다.
+   * `item` 이 있으면 그 라이브러리 항목의 조각 모양, 없으면 `size` 상자다(설비). `blocked` 면 붉게 칠하고 그 상대를 붉은 외곽선으로 짚는다.
+   * null 이면 걷는다.
+   */
+  setPlaceGhost(ghost: { at: Vec2; elevation: number; size: Vec3; item?: LibraryItem | null; blocked: { kind: 'equipment' | 'object'; id: string } | null } | null): void
+  /**
    * 스냅 표시(OE-UI-06). 붙을 자리(점)와, 변에 붙었으면 그 변을 높이 `elevation` 바닥 위에 그린다. 그리드 교점이면 점만이다.
    * null 이면 지운다.
    */
@@ -720,6 +725,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   const hoverOutline = createSelectionOutline(renderer, HOVER_STYLE, HOVER_LAYER)
   const hoverMasks = new Group()
   scene.add(hoverMasks)
+  // 겹쳐서 막은 상대(OE-SPC-15). 고른 것보다 위에 그린다 — 막혔다는 것이 지금 가장 먼저 읽혀야 한다.
+  const conflictOutline = createSelectionOutline(renderer, CONFLICT_STYLE, CONFLICT_LAYER)
+  const conflictMasks = new Group()
+  scene.add(conflictMasks)
+  // 놓기 전 미리보기(setPlaceGhost)와 지운 것의 가라앉는 사본(지울 때 가라앉기). 둘 다 고르기 대상이 아니다.
+  const placeGhost = new Group()
+  placeGhost.visible = false
+  scene.add(placeGhost)
+  const exiting = new Group()
+  scene.add(exiting)
   const ground = createGroundGrid()
   scene.add(ground.mesh)
   /** 외곽선 마스크로만 그리는 설비 형상(덩어리 형상을 나눠 쓴다). OUTLINE_LAYER 에만 있어 보통 장면에는 안 보인다. */
@@ -1120,60 +1135,212 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     overlay.add(hoverMark)
   }
 
-  let hoverOutlined: Object3D[] = []
-  function clearHoverOutline() {
-    for (const o of hoverMasks.children) {
+  // --- 외곽선 대상(미리 강조 · 겹침) ---
+  // 설비는 덩어리 꼭짓점을 나눠 쓰는 마스크를 만들고, 오브젝트는 묶음의 메시를 그 외곽선의 층에 올린다. 고른 것(refreshOutline)과 같은 방식이다.
+  type OutlineTarget = { kind: 'equipment' | 'object'; id: string }
+  type OutlineSet = { masks: Group; layer: number; enabled: Object3D[] }
+  const hoverSet: OutlineSet = { masks: hoverMasks, layer: HOVER_LAYER, enabled: [] }
+  const conflictSet: OutlineSet = { masks: conflictMasks, layer: CONFLICT_LAYER, enabled: [] }
+  function clearOutlineSet(set: OutlineSet) {
+    for (const o of set.masks.children) {
       // 꼭짓점은 덩어리 것이다(clearOutlineMasks 와 같다).
       const g = (o as Mesh).geometry
       g.deleteAttribute('position')
       g.dispose()
     }
-    hoverMasks.clear()
-    for (const o of hoverOutlined) o.layers.disable(HOVER_LAYER)
-    hoverOutlined = []
+    set.masks.clear()
+    for (const o of set.enabled) o.layers.disable(set.layer)
+    set.enabled = []
   }
-  function setHoverOutline(target: { kind: 'equipment' | 'object'; id: string } | null) {
-    clearHoverOutline()
+  function fillOutlineSet(set: OutlineSet, targets: readonly OutlineTarget[]): { object: Object3D; box?: Box3 }[] {
+    clearOutlineSet(set)
     const items: { object: Object3D; box?: Box3 }[] = []
-    if (target?.kind === 'equipment') {
-      const part = partById.get(target.id)
-      if (part && part.iCount && !part.box.isEmpty()) {
+    for (const t of targets) {
+      if (t.kind === 'equipment') {
+        const part = partById.get(t.id)
+        if (!part || !part.iCount || part.box.isEmpty()) continue
         const g = new BufferGeometry()
         g.setAttribute('position', part.chunk.position)
         g.setIndex(new BufferAttribute(part.chunk.index.slice(part.iStart, part.iStart + part.iCount), 1))
         const mask = new Mesh(g, outlineMaskMaterial)
         mask.frustumCulled = false
-        mask.layers.set(HOVER_LAYER)
-        hoverMasks.add(mask)
+        mask.layers.set(set.layer)
+        set.masks.add(mask)
         items.push({ object: mask, box: part.box })
-      }
-    } else if (target?.kind === 'object') {
-      const node = spaceObjects.children.find((n) => n.userData.objectId === target.id)
-      if (node) {
+      } else {
+        const node = spaceObjects.children.find((n) => n.userData.objectId === t.id)
+        if (!node) continue
         node.traverse((o) => {
           if (o instanceof Mesh) {
-            o.layers.enable(HOVER_LAYER)
-            hoverOutlined.push(o)
+            o.layers.enable(set.layer)
+            set.enabled.push(o)
           }
         })
         items.push({ object: node })
       }
     }
-    hoverOutline.set(items, target ? `${target.kind}:${target.id}` : '')
+    return items
+  }
+  function setHoverOutline(target: OutlineTarget | null) {
+    hoverOutline.set(fillOutlineSet(hoverSet, target ? [target] : []), target ? `${target.kind}:${target.id}` : '')
+  }
+  const clearHoverOutline = () => clearOutlineSet(hoverSet)
+
+  // --- 겹쳐서 막은 상대(OE-SPC-15) ---
+  // 세 곳에서 온다: 설비를 놓거나 옮기다 막힘(markConflict, CONFLICT_MS 동안), 오브젝트가 막힘(setSpaceObjects 의 conflict, 화면이 1.6초 뒤
+  // 거둔다), 놓기 전 미리보기가 겹치는 자리에 있음(setPlaceGhost 의 blocked, 커서가 비킬 때까지). 앞의 둘은 상대가 한 번 흔들린다.
+  let conflictEquipment: string | null = null
+  /** 모델을 다시 지어 막은 상대의 마스크를 다음 프레임에 다시 건다. */
+  let markConflictRefresh = false
+  let ghostBlocked: OutlineTarget | null = null
+  function refreshConflict() {
+    const targets: OutlineTarget[] = []
+    const seen = new Set<string>()
+    for (const t of [conflictEquipment ? { kind: 'equipment' as const, id: conflictEquipment } : null, objectConflictId ? { kind: 'object' as const, id: objectConflictId } : null, ghostBlocked]) {
+      if (!t || seen.has(`${t.kind}:${t.id}`)) continue
+      seen.add(`${t.kind}:${t.id}`)
+      targets.push(t)
+    }
+    conflictOutline.set(fillOutlineSet(conflictSet, targets), [...seen].join(','))
+    dirty = true
   }
 
-  let conflictMark: LineSegments | null = null
+  // 흔들기(drop-in.ts 의 shakeOffset). 설비는 꼭짓점을, 오브젝트는 묶음의 x 를 민다(떨어지기와 같은 장치).
+  const shakes = new Map<string, { part: Part; base: Float32Array; out: Float32Array; size: number; t0: number | null }>()
+  const objectShakes = new Map<string, { x: number; size: number; t0: number | null }>()
+  function startShake(target: OutlineTarget) {
+    if (still()) return
+    if (target.kind === 'equipment') {
+      const part = partById.get(target.id)
+      if (!part || part.box.isEmpty() || drops.has(part.id)) return
+      finishShake(part.id)
+      const base = (part.chunk.position.array as Float32Array).slice(part.vStart * 3, (part.vStart + part.vCount) * 3)
+      shakes.set(part.id, { part, base, out: new Float32Array(base.length), size: Math.max(...part.box.getSize(dropSize).toArray()), t0: null })
+      started.shakes++
+    } else {
+      const node = spaceObjects.children.find((n) => n.userData.objectId === target.id)
+      const t = objectTargets.find((x) => x.id === target.id)
+      if (!node || !t) return
+      objectShakes.set(target.id, { x: node.position.x, size: Math.max(...t.box.getSize(dropSize).toArray()), t0: null })
+      started.shakes++
+    }
+    dirty = true
+  }
+  function finishShake(id: string) {
+    const d = shakes.get(id)
+    if (!d) return
+    shakes.delete(id)
+    writePart(d.part, d.base)
+  }
+  function stepShakes(now: number) {
+    if (!shakes.size && !objectShakes.size) return
+    for (const [id, d] of shakes) {
+      if (d.t0 === null) d.t0 = now
+      const k = (now - d.t0) / SHAKE_MS
+      if (k >= 1) {
+        finishShake(id)
+        continue
+      }
+      const dx = shakeOffset(k, d.size)
+      for (let i = 0; i < d.out.length; i += 3) {
+        d.out[i] = d.base[i] + dx
+        d.out[i + 1] = d.base[i + 1]
+        d.out[i + 2] = d.base[i + 2]
+      }
+      writePart(d.part, d.out)
+    }
+    for (const [id, d] of objectShakes) {
+      const node = spaceObjects.children.find((n) => n.userData.objectId === id)
+      if (d.t0 === null) d.t0 = now
+      const k = (now - d.t0) / SHAKE_MS
+      if (node) node.position.x = d.x + shakeOffset(k, d.size)
+      if (k >= 1 || !node) objectShakes.delete(id)
+    }
+    dirty = true
+  }
+
+  // --- 지울 때 가라앉기(drop-in.ts 의 sinkPose) ---
+  // 모델에서 빠진 설비·오브젝트의 모양을 사본으로 떼어 SINK_MS 동안 줄이며 내리고 흐린 뒤 버린다. 떨어지기와 같은 조건에서만 한다(canDrop).
+  const exits: { node: Object3D; y: number; height: number; materials: Material[]; t0: number | null }[] = []
+  function startExit(node: Object3D, height: number) {
+    const materials: Material[] = []
+    node.traverse((o) => {
+      if (!(o instanceof Mesh || o instanceof LineSegments)) return
+      // 원래 재질은 넣은 모델과 나눠 쓸 수 있다 — 흐리게 할 사본을 따로 둔다.
+      const own = [o.material].flat().map((m: Material) => {
+        const c = m.clone()
+        c.userData.baseOpacity = m.opacity
+        c.transparent = true
+        c.depthWrite = false
+        return c
+      })
+      o.material = Array.isArray(o.material) ? own : own[0]
+      materials.push(...own)
+      o.layers.disableAll()
+      o.layers.enable(0)
+    })
+    exiting.add(node)
+    exits.push({ node, y: node.position.y, height, materials, t0: null })
+    started.sinks++
+    dirty = true
+  }
+  /** 설비 하나의 지금 모양(형상·색)을 따로 떼어 낸 메시. 바닥 가운데가 원점이다. */
+  function partCopy(part: Part): Mesh {
+    const arr = part.chunk.position.array as Float32Array
+    const c = part.box.getCenter(new Vector3())
+    const positions = arr.slice(part.vStart * 3, (part.vStart + part.vCount) * 3)
+    for (let i = 0; i < positions.length; i += 3) {
+      positions[i] -= c.x
+      positions[i + 1] -= part.box.min.y
+      positions[i + 2] -= c.z
+    }
+    const index = part.chunk.index.slice(part.iStart, part.iStart + part.iCount)
+    for (let i = 0; i < index.length; i++) index[i] -= part.vStart
+    const g = new BufferGeometry()
+    g.setAttribute('position', new BufferAttribute(positions, 3))
+    g.setIndex(new BufferAttribute(index, 1))
+    g.computeVertexNormals()
+    const mesh = new Mesh(g, new MeshLambertMaterial({ color: part.color, side: DoubleSide }))
+    mesh.position.set(c.x, part.box.min.y, c.z)
+    return mesh
+  }
+  function stepExits(now: number) {
+    if (!exits.length) return
+    for (let i = exits.length - 1; i >= 0; i--) {
+      const e = exits[i]
+      if (e.t0 === null) e.t0 = now
+      const k = (now - e.t0) / SINK_MS
+      if (k >= 1) {
+        exiting.remove(e.node)
+        e.node.traverse((o) => {
+          if ((o instanceof Mesh || o instanceof LineSegments) && !o.userData.shared) o.geometry.dispose()
+        })
+        for (const m of e.materials) m.dispose()
+        exits.splice(i, 1)
+        continue
+      }
+      const pose = sinkPose(k, e.height)
+      e.node.scale.setScalar(pose.scale)
+      e.node.position.y = e.y + pose.lift
+      for (const m of e.materials) m.opacity = pose.opacity * ((m.userData.baseOpacity as number | undefined) ?? 1)
+    }
+    dirty = true
+  }
+
+  // --- 놓기 전 미리보기(setPlaceGhost) ---
+  // 놓기 모드에서 커서를 따라 놓을 것의 반투명 모양이 서고, 겹치는 자리면 붉어진다(막을 상대는 conflictOutline 이 짚는다).
+  // 모양은 크기·항목·막힘이 바뀔 때만 다시 짓고, 커서가 움직이면 자리만 옮긴다.
+  let ghostKey = ''
+  const GHOST_OPACITY = 0.42
+
   /** 겹쳐서 막아 붉게 그린 공간 오브젝트(OE-SPC-15). e2e 가 읽는다. */
   let objectConflictId: string | null = null
   let conflictTimer: number | undefined
   function clearConflict() {
     window.clearTimeout(conflictTimer)
-    if (!conflictMark) return
-    overlay.remove(conflictMark)
-    conflictMark.geometry.dispose()
-    ;(conflictMark.material as LineBasicMaterial).dispose()
-    conflictMark = null
-    dirty = true
+    if (!conflictEquipment) return
+    conflictEquipment = null
+    refreshConflict()
   }
 
   function moveHandle(index: number, at: Vector3) {
@@ -2226,9 +2393,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     stepPivotMark(now)
     stepGlides(now)
     stepDrops(now)
+    stepShakes(now)
+    stepExits(now)
+    if (conflictOutline.step(now)) dirty = true
     stepPulses(now)
     if (selectionOutline.step(now)) dirty = true
     if (outlinePending) refreshOutline()
+    if (markConflictRefresh) {
+      markConflictRefresh = false
+      refreshConflict()
+    }
     // 리플레이 연출(밤 다이오라마·층 펼치기)에는 격자를 걷는다. 층을 띄우면 격자만 바닥에 남는다.
     const groundOn = groundPlaced && !fx.cinema()
     if (ground.mesh.visible !== groundOn) {
@@ -2256,6 +2430,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       renderer.render(scene, camera)
       hoverOutline.render(scene, camera)
       selectionOutline.render(scene, camera)
+      conflictOutline.render(scene, camera)
       renders++
       perf.renderMs = performance.now() - t0
       perf.calls = renderer.info.render.calls
@@ -2338,7 +2513,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 움직임을 끈 사람에게는 그대로 순간이동이다. 사람이 시점을 잡으면(controls 'start') 그 자리에서 멈춘다.
   const FLY_MS = 380
   /** 시작한 움직임 수(e2e 가 짧은 움직임을 놓치지 않게 센다). */
-  const started = { flights: 0, glides: 0, pulses: 0, cascades: 0, drops: 0 }
+  const started = { flights: 0, glides: 0, pulses: 0, cascades: 0, drops: 0, shakes: 0, sinks: 0 }
   let flight: { t0: number | null; ms: number; lift: number; ease: (k: number) => number; fromT: Vector3; fromP: Vector3; toT: Vector3; toP: Vector3; near: number; far: number } | null = null
   function fly(target: Vector3, position: Vector3, clip: { near: number; far: number } | null) {
     flight = null
@@ -2565,6 +2740,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   }
   function finishGlide(id: string) {
     finishDrop(id)
+    finishShake(id)
     const g = glides.get(id)
     if (!g) return
     glides.delete(id)
@@ -3031,6 +3207,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let lastMeshes: MeshMap | undefined
   function patchModel(model: Model, meshes: MeshMap | undefined): boolean {
     for (const id of [...drops.keys()]) finishDrop(id)
+    for (const id of [...shakes.keys()]) finishShake(id)
     const colorOf = systemColors(model)
     const want = new Map(piecesOf(model, meshes, colorOf).map((p) => [p.id, p]))
     for (const part of parts) {
@@ -3262,6 +3439,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       hoverMark: () => (hoverMark || hoverOutline.state().objects ? hoverMarkKey : ''),
       /** 미리 강조 외곽선(OE-UI-27): 두른 수와 무엇인가. */
       hoverOutline: () => hoverOutline.state(),
+      /** 막은 상대의 붉은 외곽선(OE-SPC-15)과 놓기 전 미리보기(보이나 · 붉은가 · 자리). */
+      conflictOutline: () => conflictOutline.state(),
+      ghost: () => ({ visible: placeGhost.visible, blocked: placeGhost.visible && !!ghostBlocked, at: placeGhost.visible ? [placeGhost.position.x, -placeGhost.position.z] : null }),
       /** 보기 모드 3D 의 벽(#599): 켜져 있나, 삼각형 수. 벽이 없으면 null. */
       walls: () =>
         walls
@@ -3304,7 +3484,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         })
         return n
       },
-      motion: () => ({ flying: !!flight, gliding: glides.size, dropping: drops.size + objectDrops.size, pulsing: pulses.length, cascading: cascade ? cascade.parts.length : 0, cascadeShown: cascade ? cascade.parts.filter((p) => p.objects[0].visible).length : 0, ...fx.motion(), started }),
+      motion: () => ({ flying: !!flight, gliding: glides.size, dropping: drops.size + objectDrops.size, shaking: shakes.size + objectShakes.size, sinking: exits.length, pulsing: pulses.length, cascading: cascade ? cascade.parts.length : 0, cascadeShown: cascade ? cascade.parts.filter((p) => p.objects[0].visible).length : 0, ...fx.motion(), started }),
       part: (id: string) => {
         const part = partById.get(id)
         return part ? toScreen(part.box.getCenter(new Vector3())) : null
@@ -3470,6 +3650,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setModel(model, meshes, options) {
       // 분해도는 화면에서만 띄운 것이다. 다시 그리기 전에 접는다(patchModel 은 안 바뀐 설비를 그대로 두니 띄운 채 남는다).
       collapseExplode(false)
+      // 편집으로 지운 설비는 지금 모양을 떼어 가라앉힌다(지울 때 가라앉기). 지우면 patchModel 이 못 하고 아래에서 다시 짓는다.
+      if (options?.keepView) {
+        const ids = new Set(model.storeys.flatMap((st) => st.equipment.map((e) => e.id)))
+        const removed = parts.filter((p) => !ids.has(p.id) && !hiddenIds.has(p.id) && !p.box.isEmpty())
+        if (canDrop(removed.length)) for (const p of removed) startExit(partCopy(p), p.box.max.y - p.box.min.y)
+      }
+      for (const id of [...shakes.keys()]) finishShake(id)
       // 편집 뒤 다시 그리기는 바뀐 설비만 고친다(patchModel). 안 되면 아래에서 처음부터 다시 짓는다.
       if (options?.keepView && meshes === lastMeshes && chunks.length && patchModel(model, meshes)) return
       lastMeshes = meshes
@@ -3483,6 +3670,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       clearHoverOutline()
       hoverOutline.set([], '')
       hoverMarkKey = ''
+      // 막은 상대의 마스크도 덩어리 꼭짓점을 나눠 쓴다. 다시 지은 덩어리로 다음 프레임에 다시 건다.
+      clearOutlineSet(conflictSet)
+      conflictOutline.set([], '')
+      if (conflictEquipment || objectConflictId || ghostBlocked) markConflictRefresh = true
       drops.clear()
       objectDrops.clear()
       prevObjectIds = null
@@ -3771,12 +3962,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       clearConflict()
       const part = partById.get(id)
       if (!part || part.box.isEmpty()) return
-      const size = part.box.getSize(new Vector3()).max(new Vector3(0.05, 0.05, 0.05)).addScalar(0.06)
-      conflictMark = new LineSegments(new EdgesGeometry(new BoxGeometry(size.x, size.y, size.z)), new LineBasicMaterial({ color: CONFLICT_COLOR, depthTest: false }))
-      part.box.getCenter(conflictMark.position)
-      conflictMark.renderOrder = 10
-      overlay.add(conflictMark)
-      dirty = true
+      // 붉은 외곽선(conflictOutline)이 상대를 짚고, 상대가 한 번 흔들린다(OE-SPC-15).
+      conflictEquipment = id
+      refreshConflict()
+      startShake({ kind: 'equipment', id })
       conflictTimer = window.setTimeout(clearConflict, CONFLICT_MS)
     },
 
@@ -4310,8 +4499,25 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     },
 
     setSpaceObjects(model, library, models, selected, conflict = null) {
+      const newConflict = !!conflict && conflict !== objectConflictId
       objectConflictId = conflict
-      if (drag?.kind === 'object') return // 끄는 중에 다시 그리면 잡은 것을 잃는다. 놓으면 다시 불린다.
+      if (drag?.kind === 'object') {
+        // 끄는 중에 다시 그리면 잡은 것을 잃는다. 놓으면 다시 불린다. 막은 상대는 지금 짚는다.
+        refreshConflict()
+        return
+      }
+      // 편집으로 지운 오브젝트는 묶음을 떼어 가라앉힌다(지울 때 가라앉기). 아래에서 버리는 묶음에 넣지 않는다.
+      if (prevObjectIds) {
+        const ids = new Set((model?.storeys ?? []).flatMap((st) => (st.spaceObjects ?? []).map((o) => o.id)))
+        const gone = spaceObjects.children.filter((n) => !ids.has(n.userData.objectId as string) && n.visible)
+        if (canDrop(gone.length)) {
+          for (const node of gone) {
+            spaceObjects.remove(node)
+            const t = objectTargets.find((x) => x.id === node.userData.objectId)
+            startExit(node, t ? t.box.max.y - t.box.min.y : 1)
+          }
+        }
+      }
       spaceObjects.traverse((o) => {
         if (o instanceof Mesh || o instanceof LineSegments) {
           // 흐리게 칠한 재질은 언제나 이 오브젝트 몫이다. 원래 재질은 넣은 모델과 나눠 쓰면 남긴다.
@@ -4367,13 +4573,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
               node.add(mesh)
             }
           }
-          // 고른 것은 외곽선(refreshOutline)이 두른다. 막은 상대만 붉은 상자 선으로 짚는다.
-          if (o.id === conflict) {
-            const edges = new LineSegments(new EdgesGeometry(new BoxGeometry(w, h, d)), new LineBasicMaterial({ color: OBJECT_CONFLICT, depthTest: false }))
-            edges.position.y = h / 2
-            edges.renderOrder = 2
-            node.add(edges)
-          }
+          // 고른 것은 외곽선(refreshOutline)이, 막은 상대는 붉은 외곽선(refreshConflict)이 두른다.
           node.userData.objectId = o.id
           spaceObjects.add(node)
           prevObjectIds.add(o.id)
@@ -4395,8 +4595,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           node.position.y += pose.lift
         }
       }
-      // 오브젝트 묶음을 새로 만들었으니 미리 강조도 새 묶음에 다시 건다.
+      // 오브젝트 묶음을 새로 만들었으니 미리 강조·막은 상대의 외곽선도 새 묶음에 다시 건다. 새로 막혔으면 상대가 한 번 흔들린다.
       if (hoverMarkKey.startsWith('object:')) setHoverOutline({ kind: 'object', id: hoverMarkKey.slice('object:'.length) })
+      refreshConflict()
+      if (newConflict && conflict) startShake({ kind: 'object', id: conflict })
       // 끝나지 않은 움직임은 새 묶음에서 이어 간다(stepDrops). 원래 높이는 새 묶음의 것이 맞다.
       for (const [id, d] of objectDrops) {
         const node = spaceObjects.children.find((n) => n.userData.objectId === id)
@@ -4422,6 +4624,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       dark = on
       selectionOutline.setDark(on)
       hoverOutline.setDark(on)
+      conflictOutline.setDark(on)
       ground.setDark(on)
       const lines: LineSegments[] = []
       scene.traverse((o) => {
@@ -4451,10 +4654,53 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setPlaceMode(elevation) {
       placeElevation = elevation
       canvas.style.cursor = elevation === null ? '' : 'crosshair'
+      // 놓기를 마치거나 그만두면 미리보기도 걷는다(놓은 뒤 화면이 따로 부르지 않아도 된다).
+      if (elevation === null && (placeGhost.visible || ghostBlocked)) api.setPlaceGhost(null)
     },
 
     onPlace(handler) {
       placeHandler = handler
+    },
+
+    setPlaceGhost(g) {
+      const blocked = g?.blocked ?? null
+      if (!g) {
+        placeGhost.visible = false
+        ghostKey = ''
+      } else {
+        const key = JSON.stringify([g.size, g.item?.key ?? null, !!blocked, dark])
+        if (key !== ghostKey) {
+          ghostKey = key
+          placeGhost.traverse((o) => {
+            if (o instanceof Mesh || o instanceof LineSegments) {
+              o.geometry.dispose()
+              ;(o.material as Material).dispose()
+            }
+          })
+          placeGhost.clear()
+          const [w, d, h] = g.size
+          const red = dark ? CONFLICT_STYLE.colors.dark : CONFLICT_STYLE.colors.light
+          const accent = dark ? SELECTED_STYLE.colors.dark : SELECTED_STYLE.colors.light
+          const pieces = g.item?.parts ?? [{ box: [0, 0, 0, 1, 1, 1] as const, material: null }]
+          for (const p of pieces) {
+            const [x0, y0, z0, x1, y1, z1] = p.box
+            const geometry = new BoxGeometry((x1 - x0) * w, (z1 - z0) * h, (y1 - y0) * d)
+            const color = blocked ? red : p.material ? OBJECT_COLORS[p.material] : accent
+            const mesh = new Mesh(geometry, new MeshLambertMaterial({ color, transparent: true, opacity: GHOST_OPACITY, depthWrite: false }))
+            mesh.position.set(((x0 + x1) / 2 - 0.5) * w, ((z0 + z1) / 2) * h, -((y0 + y1) / 2 - 0.5) * d)
+            const lines = new LineSegments(new EdgesGeometry(geometry), new LineBasicMaterial({ color: blocked ? red : accent, transparent: true, opacity: 0.9, depthTest: false }))
+            lines.renderOrder = 12
+            mesh.add(lines)
+            placeGhost.add(mesh)
+          }
+        }
+        placeGhost.position.set(g.at[0], toScene([0, 0, g.elevation])[1], -g.at[1])
+        placeGhost.visible = true
+      }
+      const was = ghostBlocked ? `${ghostBlocked.kind}:${ghostBlocked.id}` : ''
+      ghostBlocked = blocked
+      if ((blocked ? `${blocked.kind}:${blocked.id}` : '') !== was) refreshConflict()
+      dirty = true
     },
 
     onPlaceHover(handler) {
@@ -4575,6 +4821,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       selectionOutline.dispose()
       clearHoverOutline()
       hoverOutline.dispose()
+      clearOutlineSet(conflictSet)
+      conflictOutline.dispose()
       ground.dispose()
       outlineMaskMaterial.dispose()
       rotateLabel?.remove()

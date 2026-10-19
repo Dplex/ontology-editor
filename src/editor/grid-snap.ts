@@ -7,6 +7,7 @@ import { COMMON_AXIS } from '../lib/vertical-edit'
 import { editing, model } from './core'
 import { equipmentById } from './flow-rules'
 import { viewStorey } from './multi-view'
+import { updatePlaceGhost } from './place-ghost'
 import { zoneEdited } from './offset'
 import { sceneVersion } from './redraw'
 import { selectedRoom, selectedSpaceId } from './rooms'
@@ -78,6 +79,8 @@ export function onPlaceHover(at: Vec2 | null, alt = false) {
   const d = drawing.value
   if (!viewer) return
   if (placingVertical.value) onPlaceVerticalHover(at, alt)
+  // 설비·오브젝트를 놓는 중이면 커서를 따라 놓을 모양을 세운다(place-ghost.ts).
+  updatePlaceGhost(at)
   const hit = d && at && !multiView.value ? alignAt(at, d.storeyId) : null
   const st = d && model.value?.storeys.find((x) => x.id === d.storeyId)
   viewer.setSnapMarker(hit && st ? { at: hit.at, kind: hit.kind, edge: hit.kind === 'edge' ? hit.edge : undefined, elevation: d.elevation ?? st.elevation } : null)

@@ -174,6 +174,12 @@ function refusalAt(model: Model, elevation: number, at: Vec2, size: Vec3, except
   return null
 }
 
+/** 사람이 이 자리에 이 크기로 새로 놓으면 막히는가(놓기 전 미리보기). 막히면 이유와 상대, 되면 null. */
+export function placeRefusal(model: Model, storeyId: string, at: Vec2, size: Vec3): ObjectRefusal | null {
+  const storey = model.storeys.find((s) => s.id === storeyId)
+  return storey ? refusalAt(model, storey.elevation, at, size) : null
+}
+
 /** 오브젝트를 놓는다. 이름이 비면 "항목 이름 n". */
 export function addSpaceObject(model: Model, storeyId: string, itemKey: string, at: Vec2, spec: { name?: string; id?: string; size?: Vec3 } = {}): SpaceObject | ObjectRefusal | null {
   const storey = model.storeys.find((s) => s.id === storeyId)
