@@ -11,8 +11,11 @@
 // `overlaps` 에 둔다(N:M, OE-IDF-06). 그중 물리존 바닥의 절반 넘게를 덮는 공조존이 있으면 그 방은 그 공조존의 일부다
 // (`brick:hasPart`). 여럿이면 가장 많이 덮는 존이다. 예전에는 안쪽 점 하나로 정했는데, 그러면 두 존에 걸친 방을 알 수 없고
 // 방의 10% 만 덮는 존에도 방이 들어갔다. 절반을 못 넘으면 넣지 않고 "걸친 방" 으로 센다 — 어느 존인지 지어내지 않는다.
-// 넓이는 polygon.ts 가 직접 잰다(55 가 npm 에 닿지 않아 라이브러리를 들이지 않는다). 자기 교차한 외곽선은 넓이를 잴 수
-// 없어 안쪽 점으로 되돌아간다. 좌표계가 다르면 오류 없이 한 방도 안 들어가므로 따로 잰다.
+// 넓이는 polygon.ts 가 잰다. 자기 교차한 외곽선은 넓이를 잴 수 없어 안쪽 점으로 되돌아간다. 좌표계가 다르면 오류 없이 한 방도
+// 안 들어가므로 따로 잰다.
+//
+// **겹침을 재기 전에 존 바닥을 방에 맞춰 다듬는다(trim.ts, ADR-0072).** DesignBuilder 는 바닥을 벽 중심선까지 그려서 존 경계가 벽 두께 안을
+// 지나고, 그 띠가 이웃 방과의 겹침으로 잡힌다. 방이 없는 자리는 IDF 외곽선 그대로 두고 넓이를 알린다.
 //
 // **IDF 설비는 BIM 설비와 이름 → 존 → 층 순으로 잇는다(ADR-0069).** 이름이 하나에만 맞으면 잇는다(판본 짝짓기와 같은 원칙).
 // 시뮬레이션 모델의 이름은 대개 BIM 과 무관해서(성수 129개 중 0개) 둘을 더 본다.
@@ -28,6 +31,7 @@ import { isConduit, polygonArea, type HvacEquipment, type HvacZone, type Model, 
 import { overlapArea, unionRings } from '../polygon'
 import { estimatePlacement, matchLevels, placeRing, storeyHint, type IdfPlacement, type LevelPair } from './place'
 import type { IdfModel } from './read'
+import { trimZonesToRooms } from './trim'
 
 /** IDF 바닥 높이와 BIM 층 높이를 같다고 보는 차(미터). IDF 는 층고를 반올림해 적는 일이 흔하다. */
 export const STOREY_TOLERANCE = 0.5
@@ -56,6 +60,14 @@ export type IdfAttachReport = {
   partial: number
   /** 외곽선이 자기 교차해 넓이를 못 재고 안쪽 점으로 정한 방. */
   byPoint: number
+  /** 바닥을 방에 맞춰 다듬은 존과 줄어든 넓이(㎡, 벽 두께 띠·방 밖으로 나간 얇은 몫). */
+  trimmed: number
+  trimmedM2: number
+  /** BIM 에 방이 없는 자리를 IDF 외곽선 그대로 남긴 존(이름)과 그 넓이(㎡). */
+  noRoomZones: string[]
+  noRoomM2: number
+  /** 다각형 연산이 실패해 다듬지 못하고 IDF 외곽선 그대로 둔 층. */
+  trimFailed: string[]
   /** BIM 설비와 이은 IDF 설비(이름·존·층 합). */
   matchedEquipment: number
   byName: number
@@ -180,6 +192,43 @@ export function attachIdf(model: Model, idf: IdfModel, source: string, options: 
       declaredAreaM2: z.declaredArea,
       spaceIds: [],
     })
+  }
+
+  // --- 바닥 다듬기 ---------------------------------------------------------------------
+  let trimmed = 0
+  let trimmedM2 = 0
+  const noRoomZones: string[] = []
+  let noRoomM2 = 0
+  const trimFailed: string[] = []
+  for (const storey of m.storeys) {
+    const here = zones.filter((zz) => zz.storeyId === storey.id && zz.footprint.length)
+    const rooms = storey.spaces.map((sp) => sp.footprint).filter((r) => r.length >= 4)
+    if (!here.length || !rooms.length) continue
+    let result: ReturnType<typeof trimZonesToRooms>
+    try {
+      result = trimZonesToRooms(here, rooms, storey.walls.flatMap((w) => w.footprint ?? []))
+    } catch {
+      trimFailed.push(storey.name)
+      continue
+    }
+    for (const zone of here) {
+      const t = result.get(zone.id)
+      // 다 깎여 나간 존(벽 안에만 있던 것)은 지우지 않고 IDF 외곽선 그대로 둔다.
+      if (!t?.footprint.length) continue
+      const area = t.footprint.reduce((n, r) => n + polygonArea(r), 0)
+      if (Math.abs(area - zone.areaM2) >= 0.01) {
+        trimmed++
+        trimmedM2 += Math.max(0, zone.areaM2 - area)
+        zone.idfAreaM2 = round3(zone.areaM2)
+      }
+      zone.footprint = t.footprint
+      zone.areaM2 = area
+      if (t.noRoomM2 > 0) {
+        zone.noRoomM2 = t.noRoomM2
+        noRoomZones.push(zone.name)
+        noRoomM2 += t.noRoomM2
+      }
+    }
   }
 
   // --- 물리존 ------------------------------------------------------------------------
@@ -322,6 +371,11 @@ export function attachIdf(model: Model, idf: IdfModel, source: string, options: 
     straddling,
     partial,
     byPoint,
+    trimmed,
+    trimmedM2: Math.round(trimmedM2 * 10) / 10,
+    noRoomZones,
+    noRoomM2: Math.round(noRoomM2 * 10) / 10,
+    trimFailed,
     matchedEquipment: equipment.filter((e) => e.bimId || e.bimIds).length,
     byName: equipment.filter((e) => e.pairedBy === 'name').length,
     byZone: equipment.filter((e) => e.pairedBy === 'zone').length,
@@ -373,6 +427,17 @@ function attachWarnings(r: IdfAttachReport, source: string): string[] {
   }
   if (r.storeyNameMismatch.length) {
     out.push(`[${source}] 공조존 ${r.storeyNameMismatch.length}개는 이름에 적힌 층과 맞춘 층이 다릅니다(${r.storeyNameMismatch.slice(0, 3).join(', ')}${r.storeyNameMismatch.length > 3 ? ' 외' : ''}).`)
+  }
+  if (r.trimmed > 0) {
+    out.push(`[${source}] 공조존 ${r.trimmed}개의 바닥을 BIM 방 경계에 맞춰 ${r.trimmedM2}㎡ 줄였습니다(벽 두께 띠·방 밖으로 나간 얇은 몫). 창가·안쪽처럼 벽 없이 나눈 경계는 그대로입니다.`)
+  }
+  if (r.noRoomZones.length) {
+    out.push(
+      `[${source}] 공조존 ${r.noRoomZones.length}개는 BIM 에 방이 없는 자리 ${r.noRoomM2}㎡ 를 IDF 외곽선 그대로 둡니다(${r.noRoomZones.slice(0, 3).join(', ')}${r.noRoomZones.length > 3 ? ' 외' : ''}). 방이 빠졌는지 확인해 주세요.`,
+    )
+  }
+  if (r.trimFailed.length) {
+    out.push(`[${source}] ${r.trimFailed.join(', ')} 의 공조존은 바닥을 방에 맞추지 못해 IDF 외곽선 그대로 둡니다.`)
   }
   if (r.straddling > 0) {
     out.push(`[${source}] 물리존 ${r.straddling}개는 두 공조존에 걸칩니다(각각 바닥의 ${STRADDLE_SHARE * 100}% 넘게). 겹친 몫을 모두 적고, 절반 넘게 덮는 존이 있으면 그 존에 넣었습니다.`)

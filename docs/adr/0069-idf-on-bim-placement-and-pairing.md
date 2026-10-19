@@ -9,7 +9,7 @@ tickets: ["OE-IDF-04", "OE-IDF-05", "OE-IDF-06", "OE-IDF-08"]
 criteria: []
 code: ["src/lib/idf/place.ts", "src/lib/idf/attach.ts", "src/lib/idf/read.ts", "src/lib/export/ttl.ts", "src/lib/export/geojson.ts"]
 tests: ["src/lib/idf/idf.test.ts"]
-related: ["ADR-0026", "ADR-0046"]
+related: ["ADR-0026", "ADR-0046", "ADR-0072"]
 ---
 
 # ADR-0069 IDF 를 BIM 위에 얹기 — 층·평면 맞추기, 공조존과 방, 존 설비 풀기
@@ -40,7 +40,7 @@ BIM FCU 가 3·2·6·4대씩 들고(층마다 16대 중 15대), IDF 는 존마�
   90° 단위 회전마다 범위 중심을 맞춘 뒤 1m → 0.25m → 0.05m 격자로 좁혀 간다. 제자리에서 기준층 존 넓이의 절반 넘게가 방과 겹치면 찾지
   않고, 찾은 자리가 절반을 넘으면서 제자리의 두 배 이상일 때만 옮긴다. 찾은 값은 `hvac.placement` 와 경고 문장에 남기고, 사람이 화면에서
   고친 값을 주면(`attachIdf(…, { placement })`) 찾지 않고 그 값을 쓴다.
-- **공조존은 방과 단위가 다른 시뮬레이션 존이다.** 자기 바닥 외곽선을 갖고, 겹친 방을 몫과 함께 모두 `overlaps` 에 둔다(N:M,
+- **공조존은 방과 단위가 다른 시뮬레이션 존이다.** 자기 바닥 외곽선(BIM 방 경계에 맞춰 다듬은 것, ADR-0072)을 갖고, 겹친 방을 몫과 함께 모두 `overlaps` 에 둔다(N:M,
   OE-IDF-06) — 방 바닥 중 존의 몫(`spaceShare`)과 존 바닥 중 방의 몫(`zoneShare`)이다. 방을 존 경계로 잘라 물리존을 새로 만들지 않는다.
   TTL 의 `brick:hasPart` 는 지금처럼 방 바닥의 절반 넘게를 덮은 존 하나만이고(OE-IDF-05), 겹친 몫은 계산이라 GeoJSON
   (`overlaps`, `overlapsSource: "calc"`)에만 나간다.
