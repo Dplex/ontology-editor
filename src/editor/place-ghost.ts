@@ -6,10 +6,11 @@ import type { Vec2, Vec3 } from '../lib/model'
 import { MARKER_SIZE, overlapForNew } from '../lib/overlap'
 import { libraryItem, placeRefusal } from '../lib/space-object'
 import { model } from './core'
-import { adding } from './equipment-edit'
-import { cm } from './equipment-shape'
+import { addKind, adding } from './equipment-edit'
+import { borrowedShape, cm, kindShapeDonor } from './equipment-shape'
 import { equipmentById } from './flow-rules'
 import { multiView } from './vertical'
+import { meshes } from './open-file'
 import { currentBox } from './redraw'
 import { viewer } from './scene'
 
@@ -29,13 +30,13 @@ export function updatePlaceGhost(at: Vec2 | null) {
   const position: Vec3 = [p[0], p[1], cm(a.elevation)]
   const blocker = overlapForNew(m, a.storeyId, position, currentBox)
   const blocked = blocker ? { kind: 'equipment' as const, id: blocker.id } : null
-  // 같은 모양으로 더하기(ADR-0059)는 원본 형상의 상자, 아니면 3D 가 새 설비를 그리는 좌표 상자(가운데가 좌표)다.
+  // 놓일 모양 그대로 세운다(ADR-0059). 같은 모양으로 더하기는 원본(원본도 더한 설비면 그 설비가 빌린 BIM 설비), 종류를 골랐으면 같은 종류
+  // BIM 설비의 형상이다. 둘 다 없으면 3D 가 새 설비를 그리는 좌표 상자(가운데가 좌표)다.
   const src = a.copyOf ? equipmentById.value.get(a.copyOf) : null
-  const box = src?.position ? currentBox(src.id) : null
-  if (src?.position && box) {
-    const size: Vec3 = [box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2]]
-    const center: Vec2 = [p[0] + (box.min[0] + box.max[0]) / 2 - src.position[0], p[1] + (box.min[1] + box.max[1]) / 2 - src.position[1]]
-    viewer.setPlaceGhost({ at: center, elevation: position[2] + box.min[2] - src.position[2], size, blocked })
+  const srcShape = src ? (src.added ? equipmentById.value.get(borrowedShape.value.get(src.id) ?? src.shapeOf ?? '') : src) : null
+  const donor = srcShape?.position && meshes.has(srcShape.id) ? srcShape : src ? null : kindShapeDonor(addKind.value)
+  if (donor?.position) {
+    viewer.setPlaceGhost({ at: p, elevation: position[2], size: [0, 0, 0], shape: { id: donor.id, origin: donor.position }, blocked })
     return
   }
   viewer.setPlaceGhost({ at: p, elevation: position[2] - MARKER_SIZE / 2, size: [MARKER_SIZE, MARKER_SIZE, MARKER_SIZE], blocked })

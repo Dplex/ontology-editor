@@ -577,10 +577,11 @@ export type Viewer = {
   onPlaceHover(handler: ((at: Vec2 | null, alt: boolean) => void) | null): void
   /**
    * 놓기 전 미리보기(OE-SPC-14 · OE-SPC-15). 놓을 자리(`at`, IFC 평면)와 바닥 높이(`elevation`, IFC z)에 놓을 것의 반투명 모양을 세운다.
-   * `item` 이 있으면 그 라이브러리 항목의 조각 모양, 없으면 `size` 상자다(설비). `blocked` 면 붉게 칠하고 그 상대를 붉은 외곽선으로 짚는다.
-   * null 이면 걷는다.
+   * `item` 이 있으면 그 라이브러리 항목의 조각 모양, `shape` 가 있으면 그 설비 형상(ADR-0059 로 빌려 올 모양 — `origin` 은 그 설비의 좌표이고
+   * `elevation` 은 새 설비의 좌표 높이다), 둘 다 없으면 `size` 상자다(바닥이 `elevation`). `blocked` 면 붉게 칠하고 그 상대를 붉은 외곽선으로
+   * 짚는다. null 이면 걷는다.
    */
-  setPlaceGhost(ghost: { at: Vec2; elevation: number; size: Vec3; item?: LibraryItem | null; blocked: { kind: 'equipment' | 'object'; id: string } | null } | null): void
+  setPlaceGhost(ghost: { at: Vec2; elevation: number; size: Vec3; item?: LibraryItem | null; shape?: { id: string; origin: Vec3 }; blocked: { kind: 'equipment' | 'object'; id: string } | null } | null): void
   /**
    * 스냅 표시(OE-UI-06). 붙을 자리(점)와, 변에 붙었으면 그 변을 높이 `elevation` 바닥 위에 그린다. 그리드 교점이면 점만이다.
    * null 이면 지운다.
@@ -1331,6 +1332,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 놓기 모드에서 커서를 따라 놓을 것의 반투명 모양이 서고, 겹치는 자리면 붉어진다(막을 상대는 conflictOutline 이 짚는다).
   // 모양은 크기·항목·막힘이 바뀔 때만 다시 짓고, 커서가 움직이면 자리만 옮긴다.
   let ghostKey = ''
+  /** 미리보기가 빌려 온 설비 형상(e2e). 상자·오브젝트면 null. */
+  let ghostShape: string | null = null
   const GHOST_OPACITY = 0.42
 
   /** 겹쳐서 막아 붉게 그린 공간 오브젝트(OE-SPC-15). e2e 가 읽는다. */
@@ -3441,7 +3444,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       hoverOutline: () => hoverOutline.state(),
       /** 막은 상대의 붉은 외곽선(OE-SPC-15)과 놓기 전 미리보기(보이나 · 붉은가 · 자리). */
       conflictOutline: () => conflictOutline.state(),
-      ghost: () => ({ visible: placeGhost.visible, blocked: placeGhost.visible && !!ghostBlocked, at: placeGhost.visible ? [placeGhost.position.x, -placeGhost.position.z] : null }),
+      ghost: () => ({ visible: placeGhost.visible, blocked: placeGhost.visible && !!ghostBlocked, at: placeGhost.visible ? [placeGhost.position.x, -placeGhost.position.z] : null, shape: placeGhost.visible ? ghostShape : null }),
       /** 보기 모드 3D 의 벽(#599): 켜져 있나, 삼각형 수. 벽이 없으면 null. */
       walls: () =>
         walls
@@ -4668,7 +4671,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         placeGhost.visible = false
         ghostKey = ''
       } else {
-        const key = JSON.stringify([g.size, g.item?.key ?? null, !!blocked, dark])
+        const shapePart = g.shape ? partById.get(g.shape.id) : undefined
+        ghostShape = shapePart ? shapePart.id : null
+        const key = JSON.stringify([g.size, g.item?.key ?? null, shapePart ? g.shape : null, !!blocked, dark])
         if (key !== ghostKey) {
           ghostKey = key
           placeGhost.traverse((o) => {
@@ -4681,7 +4686,29 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           const [w, d, h] = g.size
           const red = dark ? CONFLICT_STYLE.colors.dark : CONFLICT_STYLE.colors.light
           const accent = dark ? SELECTED_STYLE.colors.dark : SELECTED_STYLE.colors.light
-          const pieces = g.item?.parts ?? [{ box: [0, 0, 0, 1, 1, 1] as const, material: null }]
+          if (shapePart && g.shape) {
+            // 빌려 올 설비의 형상을 그 설비 좌표 기준으로 떼어 온다. 놓으면 3D 가 이 형상을 새 좌표로 옮겨 그린다(shiftMesh 와 같다).
+            const o = toScene(g.shape.origin)
+            const arr = shapePart.chunk.position.array as Float32Array
+            const positions = arr.slice(shapePart.vStart * 3, (shapePart.vStart + shapePart.vCount) * 3)
+            for (let i = 0; i < positions.length; i += 3) {
+              positions[i] -= o[0]
+              positions[i + 1] -= o[1]
+              positions[i + 2] -= o[2]
+            }
+            const index = shapePart.chunk.index.slice(shapePart.iStart, shapePart.iStart + shapePart.iCount)
+            for (let i = 0; i < index.length; i++) index[i] -= shapePart.vStart
+            const geometry = new BufferGeometry()
+            geometry.setAttribute('position', new BufferAttribute(positions, 3))
+            geometry.setIndex(new BufferAttribute(index, 1))
+            geometry.computeVertexNormals()
+            const mesh = new Mesh(geometry, new MeshLambertMaterial({ color: blocked ? red : accent, transparent: true, opacity: GHOST_OPACITY, depthWrite: false, side: DoubleSide }))
+            const lines = new LineSegments(new EdgesGeometry(geometry, 30), new LineBasicMaterial({ color: blocked ? red : accent, transparent: true, opacity: 0.9, depthTest: false }))
+            lines.renderOrder = 12
+            mesh.add(lines)
+            placeGhost.add(mesh)
+          }
+          const pieces = shapePart ? [] : (g.item?.parts ?? [{ box: [0, 0, 0, 1, 1, 1] as const, material: null }])
           for (const p of pieces) {
             const [x0, y0, z0, x1, y1, z1] = p.box
             const geometry = new BoxGeometry((x1 - x0) * w, (z1 - z0) * h, (y1 - y0) * d)
@@ -4694,6 +4721,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
             placeGhost.add(mesh)
           }
         }
+        // 상자·오브젝트는 바닥 가운데가, 빌린 형상은 새 설비의 좌표가 이 자리다.
         placeGhost.position.set(g.at[0], toScene([0, 0, g.elevation])[1], -g.at[1])
         placeGhost.visible = true
       }

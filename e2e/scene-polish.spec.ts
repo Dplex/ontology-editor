@@ -271,3 +271,29 @@ test.describe('움직임을 켜면 (막힘 · 지우기)', () => {
     expect(errors).toEqual([])
   })
 })
+
+const DUPLEX_MEP = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc'
+test('Duplex MEP: 설비 더하기에서 종류를 고르면 미리보기가 같은 종류 BIM 설비의 모양을 따르고, 놓인 모양도 같다', async ({ page }) => {
+  test.skip(!existsSync(DUPLEX_MEP), `${DUPLEX_MEP} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(120_000)
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(DUPLEX_MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await toEquipment(page)
+  await page.locator('.tool-palette').getByRole('button', { name: '설비 더하기' }).click()
+  await page.getByRole('textbox', { name: '새 설비 이름' }).fill('펌프-신규')
+  await hoverFloor(page, 2, -12.6)
+  // 고르기 전에는 종류 미상으로 놓이므로 좌표 상자다.
+  await expect.poll(() => viewer<Ghost & { shape: string | null }>(page, 'ghost')).toMatchObject({ visible: true, shape: null })
+  await page.getByRole('group', { name: '새 설비 종류 후보' }).getByRole('button').first().click()
+  await hoverFloor(page, 2, -12.4)
+  await expect.poll(async () => (await viewer<{ shape: string | null }>(page, 'ghost')).shape).not.toBeNull()
+  const donor = (await viewer<{ shape: string }>(page, 'ghost')).shape
+  const before = new Set(await ids(page))
+  await clickFloor(page, 2, -12.4)
+  await expect(page.locator('.picked h3')).toHaveText('펌프-신규')
+  const id = (await ids(page)).find((x) => !before.has(x))!
+  expect(await viewer<number[]>(page, 'size', id)).toEqual(await viewer<number[]>(page, 'size', donor))
+})
