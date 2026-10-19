@@ -5,6 +5,7 @@ import { buildingsOf, summaryOf } from '../lib/projects'
 import { replayOpen } from '../lib/replay-player'
 import { isFull } from '../lib/space-checklist'
 import { BUILDING, joinParts, partSig, splitByStorey } from '../lib/storey-drafts'
+import { fullscreen } from './chat-view'
 import { appliedFloors, autosaveKey, currentParts, dirtyKeys, draft, draftKey, draftsVersion, editCount, editsIn, floorDrafts, floorName, floorsInView, homeOf, openSettled, publishedFile, savedParts, setFloorDrafts, setOpenSettled, unsavedCount } from './autosave'
 import { baseline } from './changes'
 import { checksByStorey, whatIs } from './checks'
@@ -229,7 +230,7 @@ export function setupLayoutStoreys() {
       switching = true
       viewStorey.value = was
       switching = false
-      if (document.fullscreenElement) void document.exitFullscreen()
+      fullscreen.value = false
       exitAsk.value = { count: unsavedCount([was], parts), floor: { from: was, to: now } }
     },
     { flush: 'sync' },

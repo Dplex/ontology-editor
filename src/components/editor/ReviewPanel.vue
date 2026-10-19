@@ -106,12 +106,14 @@ defineProps({
 
     <!-- 미배치 목록(OE-BIM-07). 좌표가 없어 3D 에 없는 설비. 층은 BIM 이 말한 것이고, TTL 에는 그 층까지만 나간다. 놓기는 편집
          팔레트의 미배치 목록에서 한다(OE-EQP-02 — 따로 [3D에서 놓기] 버튼을 두지 않는다). -->
+    <!-- 아래 세 목록은 처음에 접는다. 패널은 파일을 여는 동안 이미 그려져서, "30개 이하면 펼침" 이 0개일 때 정해져 성수 344대도 펼친 채였다
+         (패널이 13,000px 이 됐다, 2026-10-16). 진단 요약의 칩을 누르면 그 목록으로 가서 편다(jumpToSection). -->
     <!-- 외곽선 없는 물리존(OE-MAN-03). 모델을 합치며 다른 모델에서 외곽선을 빌려온 방은 이미 외곽선이 있어 나오지 않는다. -->
     <Fold
       v-if="outlineless.length"
       title="외곽선 없는 물리존"
       :meta="`${outlineless.length.toLocaleString()}개 — 3D 에 없고 설비 소속 판정에 쓰이지 않습니다`"
-      :default-open="outlineless.length <= 30"
+      :default-open="false"
       class="outlineless"
       data-testid="outlineless"
     >
@@ -128,7 +130,7 @@ defineProps({
       <p class="hint">누르면 그 층 3D 에서 점을 차례로 찍어 외곽선을 그립니다(Enter·첫 점으로 닫기, Esc 취소). 물리존 수는 늘지 않고 이름·번호·종류는 그대로입니다.</p>
     </Fold>
 
-    <Fold v-if="unplaced.length" title="미배치 설비" :meta="`${unplaced.length.toLocaleString()}대 — 좌표가 없어 3D에 없습니다`" :default-open="unplaced.length <= 30" class="unplaced">
+    <Fold v-if="unplaced.length" title="미배치 설비" :meta="`${unplaced.length.toLocaleString()}대 — 좌표가 없어 3D에 없습니다`" :default-open="false" class="unplaced">
       <ul class="unplaced-list">
         <li v-for="u in unplaced.slice(0, UNPLACED_SHOWN)" :key="u.equipment.id">
           <button type="button" class="link" @click="selectAndShow(u.equipment.id)">{{ u.equipment.name ? shortName(u.equipment.name) : '(이름 없음)' }}</button>
@@ -139,7 +141,7 @@ defineProps({
     </Fold>
 
     <!-- 계통 없는 VAV·토출구(OE-EQP-10). BIM 에서 연 그대로는 드물고, VAV 를 새로 놓거나 계통을 지우면 생긴다. -->
-    <Fold v-if="systemless.length" title="계통 없는 VAV·토출구" :meta="`${systemless.length.toLocaleString()}대 — 어느 계통에도 들지 않습니다`" :default-open="systemless.length <= 30" class="systemless">
+    <Fold v-if="systemless.length" title="계통 없는 VAV·토출구" :meta="`${systemless.length.toLocaleString()}대 — 어느 계통에도 들지 않습니다`" :default-open="false" class="systemless">
       <ul class="unplaced-list">
         <li v-for="x in systemless.slice(0, UNPLACED_SHOWN)" :key="x.equipment.id">
           <button type="button" class="link" @click="selectAndShow(x.equipment.id)">{{ x.equipment.name ? shortName(x.equipment.name) : '(이름 없음)' }}</button>

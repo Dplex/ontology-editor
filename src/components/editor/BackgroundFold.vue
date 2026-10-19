@@ -5,7 +5,7 @@ import Fold from '../Fold.vue'
 </script>
 
 <template>
-  <Fold v-memo="replayMemo()" title="평면도 배경" :meta="bgStorey ? (bgHere ? `${bgStorey.name} · ${bgHere.name}` : `${bgStorey.name} · 없음`) : '층을 고르세요'" :default-open="false" class="bg-plan" data-testid="bg-plan">
+  <Fold v-memo="replayMemo()" title="평면도 배경" :meta="bgStorey ? (bgHere ? `${bgStorey.name} · ${bgHere.name}` : `${bgStorey.name} · 없음`) : '층을 고르세요'" class="bg-plan" data-testid="bg-plan">
     <p class="hint">
       준공 도면(PNG·JPG·PDF·DWG)을 깔고 그 위에 물리존을 그립니다.
       <span v-if="dwgServer.enabled" data-testid="dwg-ready">DWG 는 서버가 그림으로 바꾸고, 도면 단위를 알면 실제 크기로 깝니다.</span>

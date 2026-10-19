@@ -183,6 +183,54 @@ describe('attachIdf — 공조존과 물리존을 겹친 넓이로 잇기', () =
   })
 })
 
+describe('attachIdf — 공조존 바닥을 방에 맞춰 다듬기(ADR-0072)', () => {
+  const sq = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+  const room = (id: string, footprint: Vec2[]): Space => ({ id, name: id, longName: id, footprint, areaM2: 0, boundedBy: [] })
+  const zone = (name: string, ring: Vec2[]): IdfModel['zones'][number] => ({ name, floors: [{ ring, z: 0 }], declaredArea: null, multiplier: 1 })
+  const wall = (id: string, ring: Vec2[]) => ({ id, name: id, thickness: 0.2, loadBearing: null, footprint: [ring] })
+  // 방 둘 사이에 벽(x 5.0~5.2), 위쪽(y 4.2~10)은 BIM 이 방을 안 그린 자리다.
+  const model: Model = {
+    schema: 'IFC4', siteName: '', buildingId: 'B', buildingName: '', systems: [], connections: [], warnings: [],
+    storeys: [{
+      id: 'S1', name: '1F', elevation: 0, openings: [], equipment: [],
+      spaces: [room('office', sq(0, 0, 5, 4)), room('meeting', sq(5.2, 0, 10, 4))],
+      walls: [wall('mid', sq(5, -0.2, 5.2, 4.2)), wall('top', sq(-0.2, 4, 10.2, 4.2))],
+    }],
+  }
+  const idf: IdfModel = {
+    version: null, warnings: [], equipment: [],
+    // A 는 벽 중심선까지 그렸고 이웃 방으로 0.3m 삐쳤다. B 는 위쪽 방 없는 자리까지 덮는다.
+    zones: [zone('A', sq(-0.1, -0.1, 5.5, 4.1)), zone('B', sq(5.5, -0.1, 10.1, 10))],
+  }
+
+  it('벽 두께 띠를 깎고 이웃 방으로 삐친 몫을 넘겨, 방 하나가 두 존에 걸친 것으로 잡히지 않는다', () => {
+    const { model: m, report } = attachIdf(model, idf, 'x.idf')
+    const [a, b] = m.hvac!.zones
+    expect(a.areaM2).toBeCloseTo(20, 6)
+    expect(a.idfAreaM2).toBeCloseTo(5.6 * 4.2, 3)
+    expect(a.overlaps!.map((o) => o.spaceId)).toEqual(['office'])
+    expect(b.spaceIds).toEqual(['meeting'])
+    expect(report).toMatchObject({ trimmed: 2, straddling: 0, noRoomZones: ['B'], trimFailed: [] })
+    expect(b.noRoomM2).toBeGreaterThan(20)
+    expect(m.warnings.some((w) => w.includes('BIM 방 경계에 맞춰'))).toBe(true)
+    expect(m.warnings.some((w) => w.includes('방이 없는 자리'))).toBe(true)
+  })
+
+  it('GeoJSON 에 다듬은 형상을 내고 출처는 계산, 다듬기 전 넓이와 방 없는 넓이를 같이 적는다', () => {
+    const { model: m } = attachIdf(model, idf, 'x.idf')
+    const features = modelToGeoJSON(m)[0].collection.features.filter((f) => f.properties.kind === 'hvacZone')
+    const b = features.find((f) => f.properties.name === 'B')!
+    expect(b.properties).toMatchObject({ footprintSource: 'calc', idfAreaM2: m.hvac!.zones[1].idfAreaM2, noRoomM2: m.hvac!.zones[1].noRoomM2 })
+  })
+
+  it('방이 없는 층의 존은 IDF 외곽선 그대로다', () => {
+    const { model: m, report } = attachIdf({ ...model, storeys: [{ ...model.storeys[0], spaces: [] }] }, idf, 'x.idf')
+    expect(m.hvac!.zones[0].footprint).toEqual([sq(-0.1, -0.1, 5.5, 4.1)])
+    expect(m.hvac!.zones[0].idfAreaM2).toBeUndefined()
+    expect(report.trimmed).toBe(0)
+  })
+})
+
 describe('modelFromIdf — IDF 만 열기', () => {
   it('바닥 높이마다 층을 세우고 존을 얹는다', () => {
     const { model, report } = modelFromIdf(readIdf(text), 'two-zones.idf')

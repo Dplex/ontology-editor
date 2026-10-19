@@ -141,8 +141,8 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 **dev 서버와 55 가 같은 코드로 낸다.** `src/server/data-catalog.ts`
 하나를 vite 플러그인이 쓰고, `npm run build:server` 로 묶은 판을 `serve.mjs` 가 `/__data` 에 붙인다.
 둘이 따로 구현하면 같은 파일에 다른 칩이 뜬다. 55 의 `data/` 는 gitignore 라 pull 로 오지 않는다.
-**55 에서 `npm run fetch:sample` 은 안 된다** — 2026-09-23 실측으로 GitHub·tib.eu·npm 레지스트리에 전부
-닿지 않았다. 개발 PC 의 `data/` 에서 IFC 만 복사한다:
+**55 에서 `npm run fetch:sample` 은 안 된다** — 2026-09-23 실측으로 GitHub·tib.eu 에 닿지 않았다(npm 레지스트리는 그때 닿지 않았고
+2026-10-20 에는 닿았다 — `npm view polygon-clipping version`). 개발 PC 의 `data/` 에서 IFC 만 복사한다:
 `rsync -a --prune-empty-dirs --include='*/' --include='*.ifc' --exclude='*' data/ 55:/home/dt/git/dt/ontology-editor/data/`.
 등급은 첫 요청 때 재서 `data/.profiles.json` 에 캐시하고(17개 18초), 임포터 코드가 바뀌면 다시 잰다.
 

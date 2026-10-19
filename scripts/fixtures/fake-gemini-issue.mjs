@@ -42,8 +42,8 @@ createInterface({ input: process.stdin }).on('line', async (line) => {
     if (question.includes('막연')) answer = '```json\n{"ask": "어느 화면인지 더 적어 주세요.' + (text.includes('[앞선 대화]') ? ' (앞선 대화 받음)' : '') + '"}\n```'
     else if (question.includes('망가진')) answer = '이슈를 쓸 수 없습니다.'
     else {
-      send({ method: 'session/update', params: { sessionId: 's1', update: { sessionUpdate: 'tool_call', title: 'mcp_issue_code_search(query: last-edit)' } } })
-      const { server, result } = await mcpCall('code_search', { query: 'last-edit' })
+      send({ method: 'session/update', params: { sessionId: 's1', update: { sessionUpdate: 'tool_call', title: 'mcp_issue_code_search(query: shell-basis)' } } })
+      const { server, result } = await mcpCall('code_search', { query: 'shell-basis' })
       const hit = JSON.parse(result.content[0].text).hits[0]
       const draft = {
         title: '1280 폭에서 마지막 편집 이름이 사라진다 (OE-UI-08)',

@@ -133,4 +133,5 @@ related: []             # 같이 읽어야 하는 ADR(바꾸거나 바뀐 ADR �
 | [0069](0069-idf-on-bim-placement-and-pairing.md) | IDF 를 BIM 에 얹을 때 층은 높이가 맞는 층을 닻으로 순서대로, 평면은 겹친 넓이가 가장 큰 이동·회전으로 맞추고, 공조존은 방과 단위가 다른 시뮬레이션 존으로 겹친 몫을 모두 두며, IDF 존 설비는 존 안의 같은 종류 BIM 기기들로 푼다 | 채택 |
 | [0070](0070-space-checklist-definition.md) | 방이 온톨로지로 다 찼는지는 이미 내보내는 아홉 항목을 채움·빔·해당 없음으로 세어 정하고, 급기는 내보내기와 같은 확정된 방향만 채움으로 센다 | 채택 |
 | [0071](0071-ifc-standard-value-before-name-dictionary.md) | 설비 종류는 IFC 가 클래스와 값으로 말한 표준 값을 이름 사전보다 먼저 읽고, IFC 가 클래스만 말했으면 이름 사전이 더 좁은 종류를 정한다 | 제안 |
+| [0072](0072-idf-zone-footprint-trimmed-to-rooms.md) | IDF 공조존 바닥은 BIM 방 경계에 맞춰 다듬는다 — 방과 겹친 몫은 방마다 조각으로 나눠 얇은 조각만 큰 조각의 존에 붙이고, 방 밖의 얇은 띠는 버리고 두꺼운 덩어리는 IDF 그대로 두며, 창가·안쪽 경계는 건드리지 않는다 | 채택 |
 | [0073](0073-zones-as-slabs-in-3d.md) | 3D 형상(GLB·OBJ·FBX)에 공조존·커스텀존을 물리존과 같은 판으로 넣고 kind(hvacZone·customZone)로 가르며, 판은 물리존 위로 띄우고 extras 에는 문자열 값만 둔다 | 채택 |
