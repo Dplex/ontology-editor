@@ -21,3 +21,4 @@
 | Petal Components — Charts & Sparklines | <https://petal.build/components/charts> | 다크 텔레메트리 타일용 면적 그라데이션(Area-Fill) + 추세선 스파크라인·보더 빔 UI |
 | Apple Vision Pro Spatial UI Kit | <https://gtcsys.com/insights/blogs/design-system-for-spatial-ui-ux-kit-apple-vision-pro/> | visionOS 스페큘러 유리 테두리(`inset 0 1px 0`)와 깊이 계층 설계 |
 
+| ArtCraft (storytold) | <https://github.com/storytold/artcraft> | AI 이미지·영상용 3D 장면 편집기(Three.js, MIT/Apache-2.0). 고른 것의 외곽선 후처리(`SelectionOutlinePass`) · 면 번호로 모서리를 찾는 윤곽선(`CustomOutlinePass`) · 무한 바닥 격자(`InfiniteGridHelper`) · 놓을 때 떨어져 앉기(`entrance/meshDrop`) |

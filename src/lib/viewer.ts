@@ -69,6 +69,10 @@ import { type LibraryItem, type ObjectMaterial } from './space-object'
 import { CONTEXT_ITEMS } from './object-names'
 import { partId } from './vertical-object'
 import { flowPulseMesh, setFlowTime, type FlowEdge, type FlowSegment } from './flow-pulse'
+import { createSelectionOutline, OUTLINE_LAYER } from './selection-outline'
+import { createGroundGrid } from './ground-grid'
+import { DROP_MAX, DROP_MS, dropPose, poseVertices } from './drop-in'
+import { addEdges, setEdgeTheme } from './model-edges'
 import { conduitFlowType, flowTypeColor, systemFlowType } from './flow-type'
 
 /**
@@ -218,7 +222,6 @@ const OBJECT_COLORS: Record<ObjectMaterial, number> = {
 }
 /** 넣은 모델을 못 읽었을 때(아직 읽는 중이거나 깨진 파일) 그리는 상자 색. */
 const OBJECT_FALLBACK = 0xa7adb7
-const OBJECT_SELECTED = 0x2f6fed
 const OBJECT_CONFLICT = 0xd93636
 
 /**
@@ -711,6 +714,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
   let content = new Group()
   scene.add(content)
+  // 고른 것의 외곽선(selection-outline.ts)과 바닥 아래 격자(ground-grid.ts). 둘 다 모델을 다시 지어도 남는다.
+  const selectionOutline = createSelectionOutline(renderer)
+  const ground = createGroundGrid()
+  scene.add(ground.mesh)
+  /** 외곽선 마스크로만 그리는 설비 형상(덩어리 형상을 나눠 쓴다). OUTLINE_LAYER 에만 있어 보통 장면에는 안 보인다. */
+  const outlineMasks = new Group()
+  scene.add(outlineMasks)
 
   // **설비는 한 덩어리로 합쳐 그린다.** 설비마다 메시·재질을 따로 두면 매 프레임 그리기 호출이 설비 수만큼
   // 나간다. 성수 기계 파일은 1만 8천 개라 시점을 돌릴 때마다 버벅였다. 지금은 형상을 하나로 합치고, 설비별
@@ -738,6 +748,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const o of ceilingMarks.children) o.visible = storeyShown(o)
     for (const o of ceilingPlanes.children) o.visible = storeyShown(o)
     for (const o of spaceObjects.children) o.visible = storeyShown(o)
+    placeGround()
+    markOutline()
     dirty = true
   }
   let pickHandler: (id: string | null, additive?: boolean) => void = () => {}
@@ -838,6 +850,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   type ObjectTarget = { id: string; storeyId: string; box: Box3; node: Object3D }
   let objectTargets: ObjectTarget[] = []
   let selectedObject: string | null = null
+  /** 지난 setSpaceObjects 에 있던 오브젝트. 새로 보이는 id 가 놓기로 생긴 것이다(떨어져 앉기). 파일을 새로 열면 null. */
+  let prevObjectIds: Set<string> | null = null
   let objectPickHandler: (id: string) => void = () => {}
   let objectMoveHandler: (id: string, delta: Vec2) => void = () => {}
   /**
@@ -857,6 +871,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const node of spaceObjects.children) {
       const fade = objectFaded(node)
       node.traverse((o) => {
+        if (o instanceof LineSegments && o.userData.edges) o.visible = !fade
         if (!(o instanceof Mesh)) return
         const base = o.userData.baseMaterial as Material | Material[] | undefined
         if (fade && !base) {
@@ -1649,6 +1664,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         if (!merged) continue
         const mesh = new Mesh(merged, new MeshLambertMaterial({ color, side: DoubleSide, transparent: true, opacity: color === GLASS_COLOR.color ? GLASS_COLOR.opacity : 0.7, depthWrite: false }))
         mesh.userData.storeyId = storey.id
+        mesh.userData.selected = color === ARCH_COLORS.selected
         arch.add(mesh)
       }
       for (const [color, pieces] of byColor) {
@@ -1657,6 +1673,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         if (!merged) continue
         const mesh = new Mesh(merged, new MeshLambertMaterial({ color, side: DoubleSide }))
         mesh.userData.storeyId = storey.id
+        mesh.userData.selected = color === ARCH_COLORS.selected
+        addEdges(mesh)
         arch.add(mesh)
       }
       if (tops.length) {
@@ -2162,7 +2180,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     stepCascade(now)
     stepPivotMark(now)
     stepGlides(now)
+    stepDrops(now)
     stepPulses(now)
+    if (selectionOutline.step(now)) dirty = true
+    if (outlinePending) refreshOutline()
+    // 리플레이 연출(밤 다이오라마·층 펼치기)에는 격자를 걷는다. 층을 띄우면 격자만 바닥에 남는다.
+    const groundOn = groundPlaced && !fx.cinema()
+    if (ground.mesh.visible !== groundOn) {
+      ground.mesh.visible = groundOn
+      dirty = true
+    }
     // 흐르는 빛은 움직임을 끈 사람에게는 멈춘 채(혜성 꼴만으로 방향을 읽는다) 둔다. 흐르는 동안은 매 프레임 그린다.
     if (flowMesh && !still()) {
       setFlowTime(flowMesh, now / 1000)
@@ -2182,6 +2209,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (rotateLabel) placeRotateLabel()
       const t0 = performance.now()
       renderer.render(scene, camera)
+      selectionOutline.render(scene, camera)
       renders++
       perf.renderMs = performance.now() - t0
       perf.calls = renderer.info.render.calls
@@ -2264,7 +2292,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   // 움직임을 끈 사람에게는 그대로 순간이동이다. 사람이 시점을 잡으면(controls 'start') 그 자리에서 멈춘다.
   const FLY_MS = 380
   /** 시작한 움직임 수(e2e 가 짧은 움직임을 놓치지 않게 센다). */
-  const started = { flights: 0, glides: 0, pulses: 0, cascades: 0 }
+  const started = { flights: 0, glides: 0, pulses: 0, cascades: 0, drops: 0 }
   let flight: { t0: number | null; ms: number; lift: number; ease: (k: number) => number; fromT: Vector3; fromP: Vector3; toT: Vector3; toP: Vector3; near: number; far: number } | null = null
   function fly(target: Vector3, position: Vector3, clip: { near: number; far: number } | null) {
     flight = null
@@ -2490,6 +2518,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     position.needsUpdate = true
   }
   function finishGlide(id: string) {
+    finishDrop(id)
     const g = glides.get(id)
     if (!g) return
     glides.delete(id)
@@ -2529,6 +2558,130 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     if (hoverMarkKey === `equipment:${part.id}`) markHover(null)
     drawArrows()
     dirty = true
+  }
+
+  // --- 놓을 때 떨어져 앉기(drop-in.ts) ---
+  // 편집으로 새로 생긴 설비(patchModel 이 더한 덩어리)와 추가 공간 오브젝트(setSpaceObjects 에 처음 보이는 id)만 움직인다. 파일을 열 때나
+  // 리플레이 중에는 움직이지 않는다. 설비는 꼭짓점을, 오브젝트는 묶음의 크기·높이를 고친다. 고르기 상자·소속은 처음부터 끝 자리다.
+  const drops = new Map<string, { part: Part; base: Float32Array; out: Float32Array; pivot: [number, number, number]; size: number; t0: number | null }>()
+  const objectDrops = new Map<string, { y: number; size: number; t0: number | null }>()
+  const dropSize = new Vector3()
+  const canDrop = (n: number) => editMode && n > 0 && n <= DROP_MAX && !still() && !fx.cinema()
+  function startDrop(part: Part) {
+    if (part.box.isEmpty()) return
+    const arr = part.chunk.position.array as Float32Array
+    const base = arr.slice(part.vStart * 3, (part.vStart + part.vCount) * 3)
+    const c = part.box.getCenter(new Vector3())
+    const d = { part, base, out: new Float32Array(base.length), pivot: [c.x, part.box.min.y, c.z] as [number, number, number], size: Math.max(...part.box.getSize(dropSize).toArray()), t0: null }
+    drops.set(part.id, d)
+    started.drops++
+    poseVertices(base, d.out, d.pivot, dropPose(0, d.size))
+    writePart(part, d.out)
+    dirty = true
+  }
+  function finishDrop(id: string) {
+    const d = drops.get(id)
+    if (!d) return
+    drops.delete(id)
+    writePart(d.part, d.base)
+  }
+  function stepDrops(now: number) {
+    if (!drops.size && !objectDrops.size) return
+    for (const [id, d] of drops) {
+      if (d.t0 === null) d.t0 = now
+      const k = (now - d.t0) / DROP_MS
+      if (k >= 1) {
+        finishDrop(id)
+        continue
+      }
+      poseVertices(d.base, d.out, d.pivot, dropPose(k, d.size))
+      writePart(d.part, d.out)
+    }
+    for (const [id, d] of objectDrops) {
+      // 오브젝트 묶음은 setSpaceObjects 마다 새로 만든다. 그때마다 id 로 다시 찾는다.
+      const node = spaceObjects.children.find((n) => n.userData.objectId === id)
+      if (d.t0 === null) d.t0 = now
+      const k = (now - d.t0) / DROP_MS
+      const pose = dropPose(k, d.size)
+      if (node) {
+        node.scale.set(pose.scale * pose.sxz, pose.scale * pose.sy, pose.scale * pose.sxz)
+        node.position.y = d.y + pose.lift
+      }
+      if (k >= 1 || !node) objectDrops.delete(id)
+    }
+    dirty = true
+  }
+
+  // --- 고른 것의 외곽선(selection-outline.ts) ---
+  // 고른 설비(여러 개 골랐으면 전부)·오브젝트·벽·문·창에 두른다. 고른 것·모델·숨기기·층 보기가 바뀌면 다음 프레임에 다시 모은다.
+  // 계통을 통째로 고르면 수백 개라 앞의 OUTLINE_MAX_PARTS 개까지만 두른다.
+  const OUTLINE_MAX_PARTS = 400
+  let outlinePending = false
+  let outlined: Object3D[] = []
+  const outlineMaskMaterial = new MeshBasicMaterial()
+  function markOutline() {
+    outlinePending = true
+    dirty = true
+  }
+  function clearOutlineMasks() {
+    for (const o of outlineMasks.children) {
+      // 꼭짓점은 덩어리 것이다. 떼고 버려야 덩어리의 GPU 버퍼가 남는다(dispose 는 형상의 속성 버퍼를 전부 지운다).
+      const g = (o as Mesh).geometry
+      g.deleteAttribute('position')
+      g.dispose()
+    }
+    outlineMasks.clear()
+    for (const o of outlined) o.layers.disable(OUTLINE_LAYER)
+    outlined = []
+  }
+  function refreshOutline() {
+    outlinePending = false
+    clearOutlineMasks()
+    const items: { object: Object3D; box?: Box3 }[] = []
+    let key = ''
+    const ids = grabIds.size ? [...grabIds] : selectedPart ? [selectedPart] : []
+    for (const id of ids.slice(0, OUTLINE_MAX_PARTS)) {
+      const part = partById.get(id)
+      if (!part || hiddenIds.has(id) || !part.iCount || !part.chunk.shown) continue
+      const g = new BufferGeometry()
+      g.setAttribute('position', part.chunk.position)
+      g.setIndex(new BufferAttribute(part.chunk.index.slice(part.iStart, part.iStart + part.iCount), 1))
+      const mask = new Mesh(g, outlineMaskMaterial)
+      mask.frustumCulled = false
+      mask.layers.set(OUTLINE_LAYER)
+      outlineMasks.add(mask)
+      items.push({ object: mask, box: part.box })
+    }
+    if (items.length) key = `equipment:${ids.join(',')}`
+    const node = selectedObject ? spaceObjects.children.find((n) => n.userData.objectId === selectedObject) : null
+    if (node?.visible) {
+      node.traverse((o) => {
+        if (o instanceof Mesh) {
+          o.layers.enable(OUTLINE_LAYER)
+          outlined.push(o)
+        }
+      })
+      items.push({ object: node })
+      key ||= `object:${selectedObject}`
+    }
+    for (const o of arch.children) {
+      if (!o.userData.selected || !o.visible) continue
+      o.layers.enable(OUTLINE_LAYER)
+      outlined.push(o)
+      items.push({ object: o })
+      key ||= `element:${lastArch.selected ?? ''}`
+    }
+    selectionOutline.set(items, key)
+    dirty = true
+  }
+
+  // --- 바닥 아래 격자(ground-grid.ts) ---
+  // 보이는 것(숨기지 않은 설비와 보이는 층의 판)의 상자 밑바닥에 깐다. 층 보기·숨기기·모델이 바뀌면 다시 깐다.
+  let groundPlaced = false
+  function placeGround() {
+    const box = shownBox()
+    groundPlaced = !box.isEmpty()
+    ground.place(box, groundPlaced ? box.min.y : 0)
   }
 
   // --- Brick 클래스별 분해도(setExplode, ui-notes 보기 필터) ---
@@ -2831,6 +2984,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
    */
   let lastMeshes: MeshMap | undefined
   function patchModel(model: Model, meshes: MeshMap | undefined): boolean {
+    for (const id of [...drops.keys()]) finishDrop(id)
     const colorOf = systemColors(model)
     const want = new Map(piecesOf(model, meshes, colorOf).map((p) => [p.id, p]))
     for (const part of parts) {
@@ -2857,6 +3011,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       for (const members of groupPieces(added)) made.add(buildChunk(members, chunks[0].solid.material as Material, chunks[0].faded.material as Material))
       splitIndex(made)
       for (const chunk of made) showChunk(chunk)
+      if (canDrop(added.length)) for (const chunk of made) for (const part of chunk.parts) startDrop(part)
     }
     movable = new Set(model.storeys.flatMap((s) => s.equipment.filter((e) => e.position).map((e) => e.id)))
     fx.modelChanged(model)
@@ -2872,7 +3027,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (walls) {
         content.remove(walls)
         walls.traverse((o) => {
-          if (o instanceof Mesh) {
+          if (o instanceof Mesh || o instanceof LineSegments) {
             o.geometry.dispose()
             ;(o.material as { dispose(): void }).dispose()
           }
@@ -2898,6 +3053,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const w = wallMesh(storey, meshes)
       if (!w) continue
       w.userData.storeyId = storey.id
+      addEdges(w)
       walls.add(w)
     }
     if (walls.children.length === 0) walls = null
@@ -2964,7 +3120,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   function disposeContent() {
     storeySlabCache.clear()
     content.traverse((o) => {
-      if (o instanceof Mesh) {
+      if (o instanceof Mesh || o instanceof LineSegments) {
         o.geometry.dispose()
         ;(o.material as { dispose(): void }).dispose()
       }
@@ -3064,6 +3220,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           ? {
               visible: walls.visible,
               triangles: walls.children.reduce((n, o) => n + ((o as Mesh).geometry.index?.count ?? 0) / 3, 0),
+              /** 층마다의 벽 덩어리 수와 모서리 선(model-edges.ts)을 붙인 덩어리 수. */
+              meshes: walls.children.length,
+              edged: walls.children.filter((o) => o.children.some((c) => c.userData.edges)).length,
               /** IFC 형상 대신 지금 외곽선으로 다시 세운 벽(편집한 벽만이어야 한다). */
               rebuilt: walls.children.flatMap((o) => o.userData.rebuilt as string[]),
             }
@@ -3086,7 +3245,18 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       flying: () => (flying ? { keys: [...flying.keys], scale: flying.scale } : null),
       /** 휠 클릭으로 정한 회전 중심 고리가 떠 있나. */
       pivot: () => (pivotMark ? pivotMark.at.toArray() : null),
-      motion: () => ({ flying: !!flight, gliding: glides.size, pulsing: pulses.length, cascading: cascade ? cascade.parts.length : 0, cascadeShown: cascade ? cascade.parts.filter((p) => p.objects[0].visible).length : 0, ...fx.motion(), started }),
+      /** 고른 것의 외곽선(두른 수 · 빛이 퍼지는 중인가 · 무엇을 골랐나)과 바닥 격자(보이나 · 높이). */
+      outline: () => selectionOutline.state(),
+      ground: () => ({ visible: ground.mesh.visible, y: ground.mesh.position.y }),
+      /** 모서리 선(model-edges.ts)을 붙인 메시 수. 벽·편집 벽·가구 조각마다 하나다. */
+      edges: () => {
+        let n = 0
+        scene.traverse((o) => {
+          if (o instanceof LineSegments && o.userData.edges) n++
+        })
+        return n
+      },
+      motion: () => ({ flying: !!flight, gliding: glides.size, dropping: drops.size + objectDrops.size, pulsing: pulses.length, cascading: cascade ? cascade.parts.length : 0, cascadeShown: cascade ? cascade.parts.filter((p) => p.objects[0].visible).length : 0, ...fx.motion(), started }),
       part: (id: string) => {
         const part = partById.get(id)
         return part ? toScreen(part.box.getCenter(new Vector3())) : null
@@ -3260,6 +3430,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       // 끄는 중에 모델이 바뀌면 끌던 것은 버린다. 형상을 새로 만드니 되돌릴 것도 없다.
       drag = null
       controls.enabled = true
+      // 외곽선 마스크는 덩어리 꼭짓점을 나눠 쓴다. 덩어리를 버리기 전에 뗀다. 새 파일의 오브젝트는 떨어지지 않는다(처음 보는 것이 아니다).
+      clearOutlineMasks()
+      drops.clear()
+      objectDrops.clear()
+      prevObjectIds = null
       // 이전 모델의 지오메트리를 놓아 준다. 파일을 여러 번 열면 GPU 메모리가 쌓인다.
       disposeContent()
       content = new Group()
@@ -3352,6 +3527,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       const changed = touched.size > 0
       fadedIds = nextFaded
       if (changed) splitIndex(touched)
+      markOutline()
       dirty = true
       // 흐리게 칠한 것은 고를 수 없으니, 계통을 바꾸면 마우스 아래가 고를 수 있는지도 바뀐다.
       if (changed && hoverAt) hoverPending = true
@@ -4097,6 +4273,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       spaceObjects.clear()
       objectTargets = []
       selectedObject = selected
+      const seenObjects = prevObjectIds
+      prevObjectIds = new Set()
+      const dropped: { node: Object3D; size: number }[] = []
       for (const storey of model?.storeys ?? []) {
         for (const o of storey.spaceObjects ?? []) {
           const [w, d, h] = o.size
@@ -4133,17 +4312,21 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
               const context = CONTEXT_ITEMS.has(o.item)
               const mesh = new Mesh(g, new MeshLambertMaterial({ color: tint ?? (item ? OBJECT_COLORS[p.material] : OBJECT_FALLBACK), ...(context ? { transparent: true, opacity: 0.28, depthWrite: false } : {}) }))
               mesh.position.set(((x0 + x1) / 2 - 0.5) * w, ((z0 + z1) / 2) * h, -((y0 + y1) / 2 - 0.5) * d)
+              if (!context) addEdges(mesh)
               node.add(mesh)
             }
           }
-          if (o.id === selected || o.id === conflict) {
-            const edges = new LineSegments(new EdgesGeometry(new BoxGeometry(w, h, d)), new LineBasicMaterial({ color: o.id === conflict ? OBJECT_CONFLICT : OBJECT_SELECTED, depthTest: false }))
+          // 고른 것은 외곽선(refreshOutline)이 두른다. 막은 상대만 붉은 상자 선으로 짚는다.
+          if (o.id === conflict) {
+            const edges = new LineSegments(new EdgesGeometry(new BoxGeometry(w, h, d)), new LineBasicMaterial({ color: OBJECT_CONFLICT, depthTest: false }))
             edges.position.y = h / 2
             edges.renderOrder = 2
             node.add(edges)
           }
           node.userData.objectId = o.id
           spaceObjects.add(node)
+          prevObjectIds.add(o.id)
+          if (seenObjects && !seenObjects.has(o.id)) dropped.push({ node, size: Math.max(w, d, h) })
           // 주변 모델(object-names.ts 의 CONTEXT_ITEMS)은 눌러도 고르지 않는다 — 바닥·설비를 가린다.
           if (CONTEXT_ITEMS.has(o.item)) continue
           const z0 = storey.elevation + (o.base ?? 0)
@@ -4152,6 +4335,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
         }
       }
       if (objectsFaded || focusSpaceId) fadeObjects()
+      if (canDrop(dropped.length)) {
+        for (const { node, size } of dropped) {
+          objectDrops.set(node.userData.objectId as string, { y: node.position.y, size, t0: null })
+          started.drops++
+          const pose = dropPose(0, size)
+          node.scale.setScalar(pose.scale)
+          node.position.y += pose.lift
+        }
+      }
+      // 끝나지 않은 움직임은 새 묶음에서 이어 간다(stepDrops). 원래 높이는 새 묶음의 것이 맞다.
+      for (const [id, d] of objectDrops) {
+        const node = spaceObjects.children.find((n) => n.userData.objectId === id)
+        if (node && !dropped.some((x) => x.node === node)) d.y = node.position.y
+      }
       applyStoreyVisibility()
     },
 
@@ -4170,6 +4367,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     setDark(on) {
       if (dark === on) return
       dark = on
+      selectionOutline.setDark(on)
+      ground.setDark(on)
+      const lines: LineSegments[] = []
+      scene.traverse((o) => {
+        if (o instanceof LineSegments && o.userData.edges) lines.push(o)
+      })
+      setEdgeTheme(on, lines)
       drawHandles()
       drawArrows()
       if (lastArch.model) buildArchitecture(lastArch.model, lastArch.selected, lastArch.also)
@@ -4313,6 +4517,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       canvas.removeEventListener('pointermove', onFlyMove)
       canvas.removeEventListener('wheel', onFlyWheel)
       navCube?.dispose()
+      clearOutlineMasks()
+      selectionOutline.dispose()
+      ground.dispose()
+      outlineMaskMaterial.dispose()
       rotateLabel?.remove()
       clearCascade()
       CASCADE_CONE.dispose()
