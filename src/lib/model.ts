@@ -519,9 +519,16 @@ export type HvacZone = {
   name: string
   /** 바닥 높이로 맞춘 층. 못 맞추면 null. */
   storeyId: string | null
-  /** 바닥 외곽선. 맞댄 조각은 합쳤고 떨어진 조각은 여럿으로 남는다. */
+  /**
+   * 바닥 외곽선. 맞댄 조각은 합쳤고 떨어진 조각은 여럿으로 남는다. IDF 공조존은 BIM 방 경계에 맞춰 다듬은 것이다(idf/trim.ts) — 벽 두께
+   * 띠를 깎고, 방이 없는 자리는 IDF 외곽선 그대로다.
+   */
   footprint: Vec2[][]
   areaM2: number
+  /** 다듬기 전 IDF 외곽선의 넓이(㎡). 다듬어 넓이가 바뀐 IDF 공조존만 갖는다. */
+  idfAreaM2?: number
+  /** BIM 에 방이 없는 자리를 IDF 외곽선 그대로 남긴 넓이(㎡). 방이 빠진 것일 수 있어 검토할 몫이다. */
+  noRoomM2?: number
   /** IDF 의 Zone 이 적은 바닥 넓이. DesignBuilder 는 순 넓이를 적고 바닥면은 벽 중심선까지 그려서 늘 작다. */
   declaredAreaM2: number | null
   /** 이 공조존에 든 물리존. 방 바닥의 절반 넘게를 이 존이 덮는다(idf/attach.ts). */

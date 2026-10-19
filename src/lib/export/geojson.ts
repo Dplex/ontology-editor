@@ -221,6 +221,9 @@ function hvacZoneFeature(zone: HvacZone, storey: Storey): Feature {
       // IDF 공조존과 겹친 방 전부와 몫(계산, ADR-0069). 방 하나를 존 여럿이 나누는 것도 여기 있다 — TTL 의 hasPart 는 절반 넘게 덮은 방뿐이다.
       ...(zone.overlaps ? { overlaps: zone.overlaps.map((o) => ({ ...o })), overlapsSource: 'calc' } : {}),
       ...(zone.idfAirflowCMH ? { idfAirflowCMH: zone.idfAirflowCMH } : {}),
+      // IDF 외곽선을 BIM 방에 맞춰 다듬었으면 형상은 계산이다(ADR-0072). 다듬기 전 넓이와 방이 없어 IDF 그대로 둔 넓이를 같이 낸다.
+      ...(zone.idfAreaM2 !== undefined ? { footprintSource: 'calc', idfAreaM2: zone.idfAreaM2 } : {}),
+      ...(zone.noRoomM2 ? { noRoomM2: zone.noRoomM2 } : {}),
     },
   }
 }

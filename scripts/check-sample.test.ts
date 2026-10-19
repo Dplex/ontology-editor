@@ -14,7 +14,7 @@ import { CAPACITY_PREDICATE } from '../src/lib/capacity'
 import { countOf, isConduit, polygonArea, segmentPath, unplacedOf, type Vec2 } from '../src/lib/model'
 import { segmentAxisOf } from '../src/lib/conduit-mesh'
 import { releaseConnection } from '../src/lib/connection-release'
-import { assignEquipment, assignEquipmentToSpaces, interiorPoint, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
+import { assignEquipment, assignEquipmentToSpaces, distanceToRing, interiorPoint, locate, pointInPolygon, scoreAgainstDeclared, SNAP } from '../src/lib/mapping'
 import { mergeModels } from '../src/lib/merge'
 import { outlinelessSpaces } from '../src/lib/outline-fill'
 import { escapeLocalName, modelToTTL } from '../src/lib/export/ttl'
@@ -2585,6 +2585,60 @@ describe.skipIf(!existsSync(SAMSUNG_IDF))('IDF 공조존 (삼성, DesignBuilder)
     const shares = again.model.hvac!.zones.flatMap((z) => Object.values(z.spaceShares ?? {}))
     expect(Math.min(...shares)).toBeGreaterThan(0.999)
   })
+})
+
+// 성수 IDF(Factorial.idf, EnergyPlus 24.2)를 성수 건축 IFC 에 얹어 공조존 바닥을 방에 맞춘 결과(ADR-0072). 존 경계를 25cm 간격으로 짚어
+// 벽 두께 안을 지나는 몫을 잰다 — 다듬기 전에는 30% 였다(2026-10-20, 같은 방법). 늘면 다듬기가 벽 중심선 띠를 놓친 것이다.
+const SEONGSU_IDF = 'data/성수/Factorial.idf'
+
+describe.skipIf(!existsSync(SEONGSU_IDF) || !existsSync(SEONGSU_ARCH))('IDF 공조존 바닥을 방에 맞추기 (성수)', () => {
+  it('벽 두께 띠를 깎고, 방이 없는 자리는 IDF 그대로 두며, 창가·안쪽 경계는 남긴다', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const bim = importIfcWithMeshes(api, new Uint8Array(readFileSync(SEONGSU_ARCH))).model
+    const t0 = performance.now()
+    const { model, report } = attachIdf(bim, readIdf(readFileSync(SEONGSU_IDF, 'utf8')), 'Factorial.idf')
+    const seconds = (performance.now() - t0) / 1000
+    // 같은 자리에 다듬지 않은 존: 방을 비운 모델에 찾은 놓는 법을 그대로 준다.
+    const untrimmed = attachIdf({ ...bim, storeys: bim.storeys.map((st) => ({ ...st, spaces: [] })) }, readIdf(readFileSync(SEONGSU_IDF, 'utf8')), 'Factorial.idf', {
+      placement: report.placement!,
+    }).model.hvac!.zones
+    // 경계 위 점 중 방 경계(5cm 안)가 아니면서 벽 안에 있는 몫. BIM 의 방 경계가 벽 형상 안으로 들어가 그려진 곳이 있어, 방 경계 위
+    // 점은 벽 안이어도 세지 않는다.
+    const inWallShare = (zones: typeof untrimmed) => {
+      let n = 0
+      let inWall = 0
+      for (const z of zones) {
+        const storey = model.storeys.find((st) => st.id === z.storeyId)
+        const walls = storey?.walls.flatMap((w) => w.footprint ?? []) ?? []
+        const rooms = storey?.spaces.map((sp) => sp.footprint).filter((r) => r.length >= 4) ?? []
+        for (const ring of z.footprint)
+          for (let i = 0; i + 1 < ring.length; i++) {
+            const [a, b] = [ring[i], ring[i + 1]]
+            const k = Math.max(1, Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]) / 0.25))
+            for (let j = 0; j < k; j++) {
+              const t = (j + 0.5) / k
+              const p: Vec2 = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
+              n++
+              if (!rooms.some((r) => distanceToRing(p, r) < 0.05) && walls.some((w) => pointInPolygon(p, w))) inWall++
+            }
+          }
+      }
+      return inWall / n
+    }
+    const zones = model.hvac!.zones
+    // 2026-10-20 실측. 다듬은 존 66 · 깎은 넓이 573㎡ · 방 없는 자리(1F·2F 매장, 기준층 aux 의 계단실, 10F 오른쪽 아래) 20개 2,047㎡.
+    expect.soft(inWallShare(untrimmed)).toBeGreaterThan(0.29)
+    expect.soft(inWallShare(zones)).toBeLessThan(0.06)
+    expect.soft(report).toMatchObject({ trimmed: 66, trimmedM2: 573.3, noRoomM2: 2046.7, straddling: 9, partial: 25, spacesInZones: 67 })
+    expect.soft(report.noRoomZones).toHaveLength(20)
+    // 창가·안쪽 경계는 남는다 — 기준층 존 일곱이 그대로 일곱이고, 창가 띠 넷이 사무실 방 하나를 나눈다.
+    const fourth = zones.filter((z) => z.name.startsWith('4F_'))
+    expect.soft(fourth).toHaveLength(7)
+    expect.soft(fourth.filter((z) => /office-[NESW]_/.test(z.name)).every((z) => z.areaM2 > 50 && z.overlaps?.length === 1)).toBe(true)
+    expect.soft(seconds).toBeLessThan(3)
+    expect(report.trimFailed).toEqual([])
+  }, 120_000)
 })
 
 // 외벽 판정(OE-EXT-01). IsExternal 이 없는 벽은 건물 바깥에 닿는지로 계산한다. Revit 은 벽마다 IsExternal 을 적으니
