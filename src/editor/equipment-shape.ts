@@ -41,6 +41,14 @@ function kindShapes(m: Model): Map<string, Equipment> {
   }
   return new Map([...groups].map(([kind, byType]) => [kind, [...byType.values()].reduce((a, b) => (b.length > a.length ? b : a))[0]]))
 }
+/** 이 종류로 더하면 모양을 빌려 줄 BIM 설비(놓기 전 미리보기가 쓴다). 형상이 있는 같은 종류 BIM 설비가 없으면 null(상자로 놓인다). */
+let donorCache: { model: Model; byKind: Map<string, Equipment> } | null = null
+export function kindShapeDonor(kind: string | null): Equipment | null {
+  const m = model.value
+  if (!m || !kind) return null
+  if (donorCache?.model !== m) donorCache = { model: m, byKind: kindShapes(m) }
+  return donorCache.byKind.get(kind) ?? null
+}
 function shapeSource(e: Equipment, byKind: () => Map<string, Equipment>): Equipment | null {
   if (!e.added || !e.position || e.flowType || isConduit(e.role)) return null
   // 복제한 원본. 종류를 바꿨으면 원본 모양이 맞지 않으니 새 종류로 고른다.

@@ -57,3 +57,34 @@ export function poseVertices(base: ArrayLike<number>, out: Float32Array, pivot: 
     out[i + 2] = pz + (base[i + 2] - pz) * sx
   }
 }
+
+// --- 지울 때 가라앉기 ---
+// 떨어져 앉기의 반대다. 지운 설비·오브젝트가 0.32초 동안 줄며 바닥 아래로 가라앉고 흐려진다. 지운 것이 갑자기 사라지면 큰 층에서 무엇이
+// 없어졌는지 다시 찾아야 했다. 모델에서는 이미 지워졌고, 남은 모양은 그리기만 하는 사본이다(고를 수 없다).
+
+/** 한 번 가라앉는 시간(ms). 떨어지기보다 짧다 — 없어지는 것을 오래 보여 줄 까닭이 없다. */
+export const SINK_MS = 320
+
+/**
+ * `t`(0..1)일 때의 모양. 바닥 가운데 기준으로 `scale` 을 곱하고 `lift`(음수, 미터)만큼 내리며 `opacity` 로 흐린다. 줄기는 처음부터
+ * 고르게(눈이 바로 따라간다), 가라앉기는 점점 빠르게(바닥으로 빠지는 느낌), 흐리기는 끝으로 갈수록 빠르게 한다.
+ */
+export function sinkPose(t: number, height: number): { scale: number; lift: number; opacity: number } {
+  const k = clamp01(t)
+  return { scale: 1 - 0.6 * k, lift: -Math.min(0.6, Math.max(0.15, 0.5 * (height || 1))) * k * k, opacity: 1 - k ** 1.5 }
+}
+
+// --- 겹쳐서 막혔을 때 흔들기 ---
+// 막은 상대(OE-SPC-15 "겹치는 상대 오브젝트가 붉게 표시")가 붉은 외곽선과 함께 좌우로 짧게 흔들린다. 붉은 선만으로는 큰 층에서
+// 어느 것이 막았는지 눈이 가지 않았다. 고개를 젓는 몸짓이라 "안 된다" 로 읽힌다.
+
+/** 한 번 흔드는 시간(ms). */
+export const SHAKE_MS = 360
+
+/** `t`(0..1)일 때의 좌우 밀림(미터). 세 번 오가며 줄어든다. 진폭은 큰 변의 12%, 4~12cm 다 — 층 하나를 내려다보는 거리에서 보이는 폭이다. */
+export function shakeOffset(t: number, maxDim: number): number {
+  const k = clamp01(t)
+  if (k >= 1) return 0
+  const amp = Math.min(0.12, Math.max(0.04, 0.12 * (maxDim || 1)))
+  return amp * Math.sin(k * Math.PI * 6) * (1 - k)
+}
