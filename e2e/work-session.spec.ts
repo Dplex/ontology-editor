@@ -51,6 +51,8 @@ async function release(page: Page, text: string, name: string, reason: string) {
   await search(page).fill(text)
   await page.locator('.equipment tbody tr', { hasText: name }).last().getByRole('button', { name, exact: true }).click()
   const picked = page.locator('.picked')
+  // 패널이 고른 설비로 바뀐 뒤에 센다. 바뀌기 전에 세면 앞에 고른 설비의 해제 수를 읽는다.
+  await expect(picked.locator('h3').first()).toContainText(text)
   const released = picked.getByTestId('released-connections').locator('tbody tr')
   const before = await released.count()
   await picked.getByTestId('release-connection').first().click()
