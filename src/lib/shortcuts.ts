@@ -48,6 +48,7 @@ export type ShortcutId =
   | 'spaceNextEmpty'
   | 'spacePrevEmpty'
   | 'spaceView'
+  | 'wide'
 
 /** 키 하나의 조합. `ctrl` 은 Ctrl 또는 ⌘ 다. `shift: 'any'` 는 Shift 를 눌렀든 말든 받는다(처리하는 쪽이 본다). */
 type Combo = ({ code: string; key?: never } | { key: string; code?: never }) & { shift?: boolean | 'any'; ctrl?: boolean }
@@ -87,6 +88,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
     label: '끌고 있으면 취소, 아니면 선택 해제',
     group: '어디서나',
   },
+  // 넓게 보기(chat-view.ts). Esc 는 선택 해제라 쓰지 않는다 — Figma 의 UI 숨기기와 같은 키다.
+  { id: 'wide', combos: [{ code: 'Backslash', ctrl: true }], keys: ['Ctrl+\\'], label: '넓게 보기 켜기·끄기(작업 영역을 창 가득) — 탭 · 주소창까지 숨기려면 F11', group: '어디서나' },
   { id: 'frame', combos: [{ code: 'KeyF' }], keys: ['F'], label: '고른 연결망·물리존·계통에 시점 맞추기', group: '3D 시점' },
   { id: 'frameAll', combos: [{ code: 'KeyF', shift: true }, { code: 'Home' }, { code: 'Digit0' }], keys: ['Shift+F', 'Home', '0'], label: '건물 전체 보기', group: '3D 시점' },
   { id: 'topView', combos: [{ code: 'KeyO' }], keys: ['O'], label: '위에서 똑바로 내려다보기', group: '3D 시점' },

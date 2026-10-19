@@ -8,7 +8,7 @@ import { matchShortcut, type Shortcut, snapAxis } from '../lib/shortcuts'
 import { setPartVertex } from '../lib/vertical-edit'
 import { findPart } from '../lib/vertical-object'
 import { ceilingMode, editPart, selectedLock, setCeilingMode, setEditPart, SPACE_IN_EQUIPMENT } from './ceiling'
-import { selectAndShow } from './chat-view'
+import { selectAndShow, toggleFullscreen } from './chat-view'
 import { checks, openCheck, openCheckKey, systemById } from './checks'
 import { connectFrom } from './connections'
 import { activeTab, closeContext, ctxMenu } from './context-menu'
@@ -152,6 +152,9 @@ export function runShortcut(s: Shortcut | Shortcut['id'], e?: KeyboardEvent): bo
   switch (id) {
     case 'help':
       helpOpen.value = !helpOpen.value
+      return true
+    case 'wide':
+      toggleFullscreen()
       return true
     case 'replay':
       void replay.open()

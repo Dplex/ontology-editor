@@ -35,6 +35,11 @@ import SidePanel from './components/editor/SidePanel.vue'
 import StartScreen from './components/editor/StartScreen.vue'
 import StoreysFold from './components/editor/StoreysFold.vue'
 import ViewportPanel from './components/editor/ViewportPanel.vue'
+import OverviewPanel from './components/editor/OverviewPanel.vue'
+import StatusBar from './components/editor/StatusBar.vue'
+import ToolRail from './components/editor/ToolRail.vue'
+import RailPanel from './components/editor/RailPanel.vue'
+import { drawerOpen } from './editor/shell'
 import { setupEditor } from './editor/index'
 
 setupEditor()
@@ -42,8 +47,8 @@ setupEditor()
 </script>
 
 <template>
-  <main :class="model ? ['has-model', `mode-${mode}`] : ''">
-    <StartScreen />
+  <main :class="model ? ['has-model', 'ed-shell', `mode-${mode}`] : ''">
+    <StartScreen v-if="!model" />
 
     <p v-if="error" ref="errorEl" class="error" role="alert">{{ error }}</p>
 
@@ -52,55 +57,59 @@ setupEditor()
            더 붙어 바뀐 것의 수와 되돌리기가 따라온다. 온종일 3D 를 보며 고치는 화면이라 큰 머리말과 파일 받는 칸은 접는다. -->
       <AppBar :model="model" />
 
-      <!-- 작업 화면: 3D 와 오른쪽 패널이 화면 높이를 나눠 쓴다. 3D 에서 누른 것이 스크롤 없이 바로 옆에 뜬다.
-           전체 화면도 이 둘을 같이 띄운다. -->
+      <!-- 작업 화면(design-system.md 4장): 왼쪽 도구 레일 · 캔버스 · 우측 패널이 화면 높이를 나눠 쓰고 페이지는 스크롤하지 않는다.
+           3D 에서 누른 것이 스크롤 없이 바로 옆에 뜬다. 전체 화면도 이 셋을 같이 띄운다. -->
       <div ref="stage" :class="['stage', 'workspace', { full: fullscreen }]">
         <HoverTip ref="hoverTip" />
+        <!-- 도구 레일은 편집 모드에서만. 보기 모드에는 쓸 도구가 없고, 그 폭을 캔버스가 쓴다. -->
+        <ToolRail v-if="editing" :model="model" />
+        <!-- 레일의 펼침 칸(공조존 · 평면도 배경 · 벽·문·창 설정). 레일 오른쪽, 캔버스 왼쪽 위에 뜬다. -->
+        <RailPanel v-if="editing" />
         <ViewportPanel :counts="counts" :model="model" />
 
         <!-- 편집 리플레이 동안(극장이 창을 덮는다) 아래 패널은 다시 그리지 않는다(replayMemo). 닫으면 그때 상태로 한 번 그린다. -->
         <SidePanel :counts="counts" :model="model" />
+
+        <!-- 기준 · 검증 드로어(OE-UI-18). 헤더의 [기준 ▾] 가 연다. 비모달 — 우측 패널 바로 왼쪽, 캔버스 위에만 뜬다.
+             예전에 3D 아래로 이어지던 파일 개요 · 진단 · 요구사항 · 리포트 · 검사 · 층별 요약 · 설비 목록 · 편집이 전부 여기 있다. -->
+        <aside v-show="drawerOpen" class="shell-drawer" aria-label="기준 · 검증" data-testid="basis-drawer" @keydown.esc="drawerOpen = false">
+          <header class="shell-drawer-head">
+            <b>{{ fileName }} · 기준 · 검증</b>
+            <button type="button" class="ghost close" aria-label="기준 · 검증 닫기" title="닫기 (Esc)" @click="drawerOpen = false">×</button>
+          </header>
+          <div class="shell-drawer-body">
+            <OverviewPanel :counts="counts" :model="model" />
+
+            <ReviewPanel :counts="counts" :model="model" />
+
+            <!-- 행이 많은 목록은 처음부터 접혀 있다(SMALL). 파일이 바뀌면(key) 접힘 상태도 그 파일 기준으로 다시 정한다. -->
+            <div :key="fileName" v-memo="replayMemo()" class="folds">
+              <ChecksFold v-if="checks.length" :checks="checks" />
+              <RuleSystemsFold v-if="ruleSystems.length" :rule-systems="ruleSystems" />
+              <StoreysFold :model="model" />
+              <KindsFold v-if="kindSummary" :kind-summary="kindSummary" />
+              <IdfZonesFold v-if="zoneRows.length" :model="model" :zone-rows="zoneRows" />
+              <ServiceFold v-if="serviceSummary && serviceSummary.rows.length" :service-summary="serviceSummary" />
+              <!-- 편집. 3D 조작 대신 값을 직접 고친다. 보기 모드에서도 설비 목록은 남긴다(이름으로 찾아 고르는 길이다). -->
+              <EditorSection :counts="counts" :model="model" />
+            </div>
+
+            <section v-memo="replayMemo()" class="actions">
+              <p class="note">
+                <b>내보내기</b>(헤더의 [파일 ▾] — GeoJSON · TTL · GLB · OBJ · FBX).
+                두 파일은 같은 id로 연결됩니다. 형상은 GeoJSON, 설비와 계통의 관계는 TTL에 들어갑니다.
+                벽·문·창과 문이 연결하는 공간은 GeoJSON에만 있습니다(Brick에 건축 부재 클래스가 없음).
+                벽·문·창은 '읽을 것'에서 켠 것만 들어가고, 문·창 위치는 '문·창 자리'를 켜고 연 파일에서만 나갑니다.
+                TTL의 설비·방 클래스는 <Src kind="dict" /> 기준이고, 규칙 방향은 확정한 계통만 들어갑니다.
+                GLB · OBJ는 보여 주기용 3D 형상입니다. 요소 이름이 같은 id(GlobalId)이고, 좌표는 y가 위인 미터입니다.
+              </p>
+            </section>
+
+          </div>
+        </aside>
       </div>
 
-      <ReviewPanel :counts="counts" :model="model" />
-
-      <!-- 3D 아래는 전부 접을 수 있다. 행이 많은 목록은 처음부터 접혀 있다(SMALL).
-           파일이 바뀌면(key) 접힘 상태도 그 파일 기준으로 다시 정한다. -->
-      <div :key="fileName" v-memo="replayMemo()" class="folds">
-        <!-- 완전성 검사. 규칙마다 통과 수와 어긴 것. 펼치면 목록과 3D 에 어긴 것이 뜬다. -->
-        <ChecksFold v-if="checks.length" :checks="checks" />
-
-        <!-- 규칙 방향을 계통별로. 확정할 것이 무엇이 남았는지와 그 근거(포트와의 일치율)를 한 표로 본다. -->
-        <RuleSystemsFold v-if="ruleSystems.length" :rule-systems="ruleSystems" />
-
-        <StoreysFold :model="model" />
-
-        <KindsFold v-if="kindSummary" :kind-summary="kindSummary" />
-
-        <!-- 공조존(IDF, F12). 존마다 든 방과 담당(말단 → 원천). IDF 가 말한 것이라 규칙 방향과 달리 확정 없이 나간다. -->
-        <IdfZonesFold v-if="zoneRows.length" :model="model" :zone-rows="zoneRows" />
-
-        <!-- 원천별 담당 공간. 계통도를 그리기 전에 "어느 기기가 어느 방을 맡는가" 를 한 장으로 본다. -->
-        <ServiceFold v-if="serviceSummary && serviceSummary.rows.length" :service-summary="serviceSummary" />
-
-        <!-- 편집. 3D 조작 대신 값을 직접 고친다. PoC 에서 확인할 것은 조작감이 아니라
-             한 번의 편집이 온톨로지의 어느 관계를 바꾸는가이기 때문이다. -->
-        <!-- 보기 모드에서도 설비 목록은 남긴다(이름으로 찾아 고르는 길이다). 고치는 칸과 물리존 편집만 숨긴다. -->
-        <EditorSection :counts="counts" :model="model" />
-      </div>
-
-      <!-- 내보내기 버튼은 위 도구막대에 있다. 여기는 두 파일이 무엇을 나눠 갖는지만 적는다. -->
-      <section v-memo="replayMemo()" class="actions">
-        <p class="note">
-          <b>내보내기</b>(툴바의 GeoJSON · TTL · GLB · OBJ).
-          두 파일은 같은 id로 연결됩니다. 형상은 GeoJSON, 설비와 계통의 관계는 TTL에 들어갑니다.
-          벽·문·창과 문이 연결하는 공간은 GeoJSON에만 있습니다(Brick에 건축 부재 클래스가 없음).
-          벽·문·창은 '읽을 것'에서 켠 것만 들어가고, 문·창 위치는 '문·창 자리'를 켜고 연 파일에서만 나갑니다.
-          TTL의 설비·방 클래스는 <Src kind="dict" /> 기준이고, 규칙 방향은 확정한 계통만 들어갑니다.
-          GLB · OBJ는 보여 주기용 3D 형상입니다. 요소 이름이 같은 id(GlobalId)이고, 좌표는 y가 위인 미터입니다.
-          고친 벽은 지금 외곽선을 층 높이로 세우고, 방은 얇은 판입니다. 큰 파일은 OBJ가 GLB보다 몇 배 크니 GLB를 권합니다.
-        </p>
-      </section>
+      <StatusBar />
     </template>
     <ShortcutHelp :open="helpOpen" :editing="editing" @close="helpOpen = false" />
     <PublishDialog

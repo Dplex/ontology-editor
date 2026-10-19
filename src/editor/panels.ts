@@ -13,6 +13,7 @@ import { systemCandidates } from '../lib/system-suggest'
 import { selectAndShow } from './chat-view'
 import { applyFix, checks } from './checks'
 import { editing, fileName, mode, model } from './core'
+import { scrollInDrawer } from './shell'
 import { exteriorIds } from './edit-report'
 import { selectedElementId } from './equipment-edit'
 import { shortName } from './equipment-shape'
@@ -269,7 +270,8 @@ export function jumpToSection(selector: string) {
   if (el.classList.contains('fold') && !el.classList.contains('open')) {
     el.querySelector<HTMLButtonElement>('.fold-head')?.click()
   }
-  el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  // 기준 · 검증 드로어 안이면 드로어 안에서만 스크롤한다 — scrollIntoView 는 페이지까지 옆으로 밀었다(shell.ts 의 scrollInDrawer).
+  if (!scrollInDrawer(el)) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
 // 미배치 목록(OE-BIM-07). BIM 에 좌표가 없어 3D·평면에 그려지지 않는 설비. 임포트 경고는 연 때의 수만 말하고, 이 목록은

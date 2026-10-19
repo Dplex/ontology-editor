@@ -230,25 +230,37 @@ test('설비 파일에 건축 파일을 덧붙이면 합쳐서 소속을 다시 
   expect(errors).toEqual([])
 })
 
-test('3D 를 전체 화면으로 띄워도 고른 설비 패널이 같이 보인다', async ({ page }) => {
+test('넓게 보기로 띄워도 고른 설비 패널이 같이 보이고, Esc 는 선택만 풀고 넓게 보기는 남는다', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
 
   await page.goto('/')
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
-  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
+  // 층 현황의 설비 칸에서 하나 고른다.
+  await page.getByTestId('floor-status').getByRole('button', { name: /설비$/ }).click()
+  const first = page.locator('.shell-rows li > button').first()
+  const name = (await first.locator('.name').getAttribute('title'))!
+  await first.click()
 
   const button = page.locator('.viewport .fullscreen')
   await button.click()
   await expect(button).toHaveAttribute('aria-pressed', 'true')
-  // 3D 만이 아니라 패널까지 든 칸이 전체 화면이어야 한다. 3D 만 띄우면 무엇을 골랐는지 안 보인다.
-  expect(await page.evaluate(() => document.fullscreenElement?.classList.contains('stage'))).toBe(true)
-  await expect(page.locator('.stage .picked')).toContainText('DUCT-01')
-
-  await button.click()
-  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  // 3D 만이 아니라 패널까지 든 칸이 창 가득이어야 한다. 3D 만 띄우면 무엇을 골랐는지 안 보인다.
+  // 브라우저 전체 화면은 쓰지 않는다 — Esc 를 브라우저가 먼저 받아 꺼 버린다.
   expect(await page.evaluate(() => document.fullscreenElement)).toBeNull()
+  const box = await page.locator('.stage').boundingBox()
+  const view = page.viewportSize()!
+  expect(box).toMatchObject({ x: 0, y: 0, width: view.width, height: view.height })
+  await expect(page.locator('.stage .picked').first()).toContainText(name)
+
+  // Esc 는 선택 해제다. 넓게 보기는 그대로 남는다.
+  await page.keyboard.press('Escape')
+  await expect(page.locator('.stage .picked')).toHaveCount(0)
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+
+  await page.keyboard.press('Control+Backslash')
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
 
   expect(errors).toEqual([])
 })
