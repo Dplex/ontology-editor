@@ -7,16 +7,15 @@ import { vKeepTyping } from '../../editor/edit-filter'
 import { selectedElementId } from '../../editor/equipment-edit'
 import { selectedElement } from '../../editor/export-compare'
 import { selected, selectedSystemBasis, showRules } from '../../editor/flow-rules'
-import { legend, selectedSystem, selectedSystemId } from '../../editor/kinds'
-import { breadcrumb, floorFullRooms, floorNow, floorNowStatus, pickFromSummary } from '../../editor/layout-storeys'
-import { groupItems } from '../../editor/multi-select'
-import { clearInspectorSelection, filteredLegend, hasInspectorSelection, inspectorBadge, legendOpen, legendSearch, sideTab } from '../../editor/panels'
+import { selectedSystem } from '../../editor/kinds'
+import { groupItems, selfIntersecting } from '../../editor/multi-select'
+import { clearInspectorSelection, hasInspectorSelection, inspectorBadge } from '../../editor/panels'
+import { openDrawer } from '../../editor/shell'
 import { selectedRoom } from '../../editor/rooms'
 import { selectedCustomZone } from '../../editor/space-edit'
 import { selectedObject, selectedSpace } from '../../editor/space-objects'
-import { removeSystem, renameSystemTo, setSystemKindTo, systemFlow, systemKindSrc, systemKindText, systemNameAtOpen, toggleSystem } from '../../editor/systems'
+import { removeSystem, renameSystemTo, setSystemKindTo, systemFlow, systemKindSrc, systemKindText, systemNameAtOpen } from '../../editor/systems'
 import { selectedVertical, selectedVerticalId, verticalCreate } from '../../editor/vertical'
-import FloorSummary from '../FloorSummary.vue'
 import FlowBasis from '../FlowBasis.vue'
 import Src from '../Src.vue'
 import CustomZoneInspector from './CustomZoneInspector.vue'
@@ -25,7 +24,7 @@ import ExportLines from './ExportLines.vue'
 import EquipmentInspector from './EquipmentInspector.vue'
 import GroupInspector from './GroupInspector.vue'
 import ObjectInspector from './ObjectInspector.vue'
-import OverviewPanel from './OverviewPanel.vue'
+import FloorStatus from './FloorStatus.vue'
 import RoomInspector from './RoomInspector.vue'
 import SpaceInspector from './SpaceInspector.vue'
 import VerticalCreatePanel from './VerticalCreatePanel.vue'
@@ -41,24 +40,17 @@ defineProps({
 
 <template>
   <aside v-memo="replayMemo()" class="side">
-  <nav class="side-tabs" aria-label="우측 패널 구역">
-    <button type="button" :class="{ on: sideTab === 'all' }" :aria-pressed="sideTab === 'all'" title="모든 우측 카드를 함께 표시합니다" @click="sideTab = 'all'">전체</button>
-    <button type="button" :class="{ on: sideTab === 'inspector' }" :aria-pressed="sideTab === 'inspector'" title="선택한 요소 속성 또는 파일 개요만 표시합니다" @click="sideTab = 'inspector'">
-      {{ inspectorBadge }}
-    </button>
-    <button v-if="floorNow && breadcrumb" type="button" :class="{ on: sideTab === 'floor' }" :aria-pressed="sideTab === 'floor'" title="현재 층의 공간·설비 현황만 표시합니다" @click="sideTab = 'floor'">
-      현재 층
-    </button>
-    <button v-if="legend.length" type="button" :class="{ on: sideTab === 'systems' }" :aria-pressed="sideTab === 'systems'" title="계통 상세와 색상 범례만 표시합니다" @click="sideTab = 'systems'">
-      계통 <small class="mono">{{ legend.length }}</small>
-    </button>
-    <button v-if="hasInspectorSelection" type="button" class="side-clear" title="선택을 해제하고 파일 개요로 돌아갑니다 (Esc)" @click="clearInspectorSelection">
-      파일 개요로 ×
-    </button>
-  </nav>
+  <!-- 위 카드 = 선택 오브젝트(design-system.md 4장, 2026-10-16 PM 결정). 늘 맨 위에 있고 고른 것의 종류에 따라 내용이 바뀐다. 넘치면 이 카드만 스크롤. -->
+  <section class="shell-sel" aria-label="선택 오브젝트">
+  <header class="shell-card-head">
+    <h3>선택 오브젝트<template v-if="hasInspectorSelection"> · {{ inspectorBadge }}</template></h3>
+    <button v-if="hasInspectorSelection" type="button" class="link side-clear" title="선택을 해제합니다 (Esc)" @click="clearInspectorSelection">선택 해제 ×</button>
+  </header>
+  <!-- 물리존 경계가 서로 교차하면 넓이와 소속이 맞지 않는다. 예전에는 3D 아래 편집 표 위에 떴다. -->
+  <p v-if="editing && selfIntersecting" class="error shell-sel-error" role="alert">경계선이 서로 교차합니다. 이 상태에서는 넓이와 소속이 맞지 않습니다.</p>
   <!-- 고른 설비의 연결. 상류·하류를 아는지 모르는지를 여기서 분명히 말한다. -->
   <!-- 고른 것이 바뀌면 패널을 살짝 갈아 끼운다. 같은 것을 고친 것은 key 가 같아 가만히 있고, 바뀐 값만 v-flash 가 번쩍인다. -->
-  <div v-show="sideTab === 'all' || sideTab === 'inspector'" class="side-inspector-wrap">
+  <div class="side-inspector-wrap">
   <Transition name="swap" mode="out-in">
   <!-- 여러 개 고른 설비(OE-UI-09). 방향키·끌기로 같이 옮기고 Delete 로 같이 지운다. 되돌리기 한 번에 전부. -->
   <GroupInspector v-if="groupItems.length >= 2" key="group" :group-items="groupItems" />
@@ -79,25 +71,18 @@ defineProps({
   <CustomZoneInspector v-else-if="selectedCustomZone" :key="`cz:${selectedCustomZone.zone.id}`" :selected-custom-zone="selectedCustomZone" />
   <SpaceInspector v-else-if="selectedSpace" :key="`s:${selectedSpace.space.id}`" :selected-space="selectedSpace" />
   <!-- 아무것도 고르지 않았을 때. 이 파일이 어디까지 찼는지와, 무엇을 누르면 여기 무엇이 뜨는지. -->
-  <OverviewPanel v-else key="overview" :counts="counts" :model="model" />
+  <div v-else key="overview" class="shell-empty-sel" data-testid="empty-selection">
+    <p class="shell-empty-title">고른 것 없음</p>
+    <p class="muted">캔버스나 아래 층 현황 목록에서 오브젝트를 고르면 여기에 그 정보가 보입니다. 물리존 · 커스텀존 · 공조존을 고르면 그 존의 정보를, 설비를 고르면 설비 정보를 보입니다.</p>
+    <p class="muted">생성 기준 · 수용 기준선 등급 · 규칙 경고는 위 <button type="button" class="link" @click="openDrawer()">[기준 ▾]</button> 에서 봅니다.</p>
+  </div>
   </Transition>
   <!-- 고른 것이 내보내는 TTL·GeoJSON 의 줄. 계통만 고른 때는 그 계통의 블록이다. -->
   <ExportLines />
   </div>
-  <!-- 현재 층 현황(OE-UI-04 ③). 고른 것의 속성은 위에, 이것은 늘 그 아래에 보인다. -->
-  <FloorSummary
-    v-if="floorNow && breadcrumb"
-    v-show="sideTab === 'all' || sideTab === 'floor'"
-    :building="breadcrumb.building"
-    :storey="breadcrumb.storey"
-    :status="floorNowStatus"
-    :summary="floorNow"
-    :full-rooms="floorFullRooms"
-    @pick="pickFromSummary"
-  />
 
       <!-- 범례에서 고른 계통. 종류·유체는 규칙 방향과 TTL 계통 클래스를 정한다. 편집 모드에서 고친다(E8). -->
-      <section v-if="selectedSystem" v-show="sideTab === 'all' || sideTab === 'systems'" class="picked system-picked">
+      <section v-if="selectedSystem" class="picked system-picked">
         <h3>{{ selectedSystem.name || '(이름 없는 계통)' }}</h3>
         <p v-if="systemNameAtOpen(selectedSystem.id) !== null && systemNameAtOpen(selectedSystem.id) !== selectedSystem.name" class="stats system-renamed">
           BIM 이름 {{ systemNameAtOpen(selectedSystem.id) || '(없음)' }} <Src kind="bim" /> → 고친 이름 <Src kind="edit" />
@@ -169,43 +154,8 @@ defineProps({
         </p>
       </section>
 
-      <!-- 계통 범례. 색이 스물이면 색만으로는 못 고르니, 여기서 짚는 쪽이 주된 길이다. -->
-      <div v-if="legend.length" v-show="sideTab === 'all' || sideTab === 'systems'" class="legend">
-        <div class="legend-head">
-          <h3>
-            계통 {{ legend.length }}
-            <span v-if="legend[0].source === 'property'" class="tag">System Name 속성</span>
-            <span v-else class="tag">IfcSystem</span>
-            <Src kind="bim" />
-          </h3>
-          <button type="button" class="link legend-collapse" :aria-expanded="legendOpen" @click="legendOpen = !legendOpen">
-            {{ legendOpen ? '접기 ▾' : '펼치기 ▸' }}
-          </button>
-        </div>
-        <input
-          v-if="legendOpen && legend.length > 6"
-          v-model="legendSearch"
-          v-keep-typing
-          type="text"
-          class="legend-search"
-          placeholder="계통 이름 검색…"
-          aria-label="계통 범례 검색"
-        />
-        <ul v-show="legendOpen">
-          <li v-for="s in filteredLegend" :key="s.id">
-            <button
-              type="button"
-              :class="{ on: s.id === selectedSystemId }"
-              :aria-pressed="s.id === selectedSystemId"
-              @click="toggleSystem(s.id)"
-            >
-              <i :style="{ background: s.color }"></i>
-              <span v-if="s.kind" class="kind">{{ s.kind }}</span>
-              <span class="name" :title="s.title">{{ s.name }}</span>
-              <span class="mono muted" :title="s.title">기기 {{ s.devices }}</span>
-            </button>
-          </li>
-        </ul>
-      </div>
+  </section>
+  <!-- 아래 카드 = 층 현황(OE-UI-04 ③). 높이 고정, 종류 칸 다섯. 계통 범례는 설비 칸의 계통 칩으로 옮겼다. -->
+  <FloorStatus />
   </aside>
 </template>

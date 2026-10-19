@@ -4,8 +4,7 @@ import { replayMemo } from '../../lib/replay-player'
 import { systemless } from '../../editor/checks'
 import { vKeepTyping } from '../../editor/edit-filter'
 import { warnings } from '../../editor/open-file'
-import { clearInspectorSelection, failedCheckRules, failedChecksTotal, filteredWarnings, jumpToSection, outlineless, sideTab, splitWarning, unplaced, warnCounts, warnFilter, warningsCollapsed, warnSearch } from '../../editor/panels'
-import { grades, gradesOpen } from '../../editor/publish'
+import { failedCheckRules, failedChecksTotal, filteredWarnings, jumpToSection, outlineless, splitWarning, unplaced, warnCounts, warnFilter, warningsCollapsed, warnSearch } from '../../editor/panels'
 </script>
 
 <template>
@@ -13,15 +12,7 @@ import { grades, gradesOpen } from '../../editor/publish'
     <!-- 행동 중심 진단 요약 바(P2): 어디부터 보정해야 하는지 한눈에 보고 클릭 시 해당 섹션으로 바로 이동·열기 -->
     <div class="diag-bar" role="region" aria-label="보정 할 일 요약">
       <span class="diag-title">진단 요약</span>
-      <button
-        v-if="grades"
-        type="button"
-        :class="['diag-chip', grades.gate ? 'ok' : 'fail']"
-        title="우측 파일 개요의 수용 기준선 등급 판정 표를 봅니다"
-        @click="sideTab = 'inspector'; clearInspectorSelection(); gradesOpen = true; jumpToSection('.overview .grade-banner')"
-      >
-        수용 기준선 <b>{{ grades.gate ? '통과' : '미달' }}</b>
-      </button>
+      <!-- 수용 기준선 통과/미달은 바로 위 "이 파일" 카드의 등급 줄에 있어 여기서 뺐다(같은 말이 두 번 나왔다, 2026-10-16). -->
       <button v-if="outlineless.length" type="button" class="diag-chip warn" title="외곽선 없는 물리존 목록으로 이동합니다" @click="jumpToSection('.fold.outlineless')">
         외곽선 없는 물리존 <b>{{ outlineless.length.toLocaleString() }}개</b>
       </button>

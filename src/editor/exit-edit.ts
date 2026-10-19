@@ -5,6 +5,7 @@ import { BUILDING, splitByStorey } from '../lib/storey-drafts'
 import { appliedFloors, autosaveArmed, currentParts, dirtyKeys, draft, draftKey, draftsVersion, editCount, floorDrafts, floorName, homeOf, savedParts, setAutosaveArmed, unsavedCount } from './autosave'
 import { baseline } from './changes'
 import { editing, fileName, mode, model } from './core'
+import { fullscreen } from './chat-view'
 import { changes } from './edit-report'
 import { selectedElementId } from './equipment-edit'
 import { positionDrafts } from './equipment-shape'
@@ -56,8 +57,8 @@ export function leaveEdit(): boolean {
     mode.value = 'view'
     return true
   }
-  // 대화상자는 전체 화면 요소 밖에 있어서 전체 화면에서는 안 보인다. 먼저 나온다.
-  if (document.fullscreenElement) void document.exitFullscreen()
+  // 대화상자는 작업 영역 밖에 있어서 넓게 보기에서는 가려진다. 먼저 나온다.
+  fullscreen.value = false
   exitAsk.value = { count: unsavedCount(dirty, parts) }
   return false
 }
