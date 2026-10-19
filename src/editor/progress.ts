@@ -136,7 +136,7 @@ export async function saveEdits(toFile = false) {
     markDone('save')
     return
   }
-  const stem = fileName.value.replace(/\.ifc/gi, '').replace(/[^\w가-힣.+-]+/g, '_') || 'model'
+  const stem = fileName.value.replace(/\.(ifc|idf)/gi, '').replace(/[^\w가-힣.+-]+/g, '_') || 'model'
   download(`${stem}.edits.json`, JSON.stringify(file, null, 2), 'application/json')
   committed()
   note(`편집을 파일로 내려받았습니다: ${stem}.edits.json`)

@@ -131,3 +131,25 @@ test('"읽을 것" 은 파일 상자 밖 한 줄이고, data/ 목록에서 열�
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
   await expect(page.locator('li.skipped', { hasText: '벽' })).toContainText('읽지 않음')
 })
+
+test('data/ 의 IDF 는 공조존 수를 보이고, 혼자 열어도 공조존이 3D 화면 안에 들어온다', async ({ page }) => {
+  // 손으로 쓴 IDF 를 원점에서 멀리(500m · 300m) 옮긴다. 원점 근처면 카메라를 맞추지 않아도 화면에 걸려 시험이 되지 않는다.
+  const idf = readFileSync('src/lib/idf/fixtures/two-zones.idf', 'utf8')
+    .replace(/0,( +)!- X Origin/, '500,$1!- X Origin')
+    .replace(/0,( +)!- Y Origin/, '300,$1!- Y Origin')
+    .replace('Zone, 1F:STORE, 0, 10.2, 0,', 'Zone, 1F:STORE, 0, 510.2, 300,')
+  await serveData(page, [{ path: '현장/two-zones.idf', bytes: idf, profile: { idf: { zones: 2, floors: 1, equipment: 4 } } }])
+  await page.goto('/')
+  await expect(row(page, '현장/two-zones.idf')).toContainText('IDF · 공조존 2 · 바닥 1 · 설비 4')
+  await row(page, '현장/two-zones.idf').getByRole('button', { name: '열기', exact: true }).click()
+  await expect(page.locator('.appbar h2')).toHaveText('two-zones.idf', { timeout: 30_000 })
+  // 방·벽·설비가 없어도 카메라가 공조존을 잡는다(viewer.ts). 1F:OFFICE 바닥의 가운데가 캔버스 안에 찍힌다.
+  const canvas = page.locator('.canvas-wrap > canvas')
+  await canvas.scrollIntoViewIfNeeded()
+  const box = (await canvas.boundingBox())!
+  const p = await page.evaluate(() => (window as any).__viewer.point([505, 304, 0]))
+  expect(p.x).toBeGreaterThan(box.x)
+  expect(p.x).toBeLessThan(box.x + box.width)
+  expect(p.y).toBeGreaterThan(box.y)
+  expect(p.y).toBeLessThan(box.y + box.height)
+})

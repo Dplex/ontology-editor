@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { josa } from '../../lib/josa'
-import { appendData, baseName, dataFiles, dataPicked, mb, openableDataFiles, openData, openDataSet, openSetList, partnerOf, profileAt, profiles, roleHint, toggleDataPick } from '../../editor/chat-view'
+import { appendData, baseName, dataFiles, dataPicked, idfAt, mb, openableDataFiles, openData, openDataSet, openSetList, partnerOf, profileAt, profiles, roleHint, toggleDataPick } from '../../editor/chat-view'
 import { busy, dark, dragging, model, toggleTheme } from '../../editor/core'
 import { canAppend } from '../../editor/open-file'
 import { onDrop, onPick } from '../../editor/open-many'
@@ -48,7 +48,7 @@ import TierChips from '../TierChips.vue'
     <p v-if="busy">읽는 중…</p>
     <template v-else>
       <p>IFC 파일을 여기에 드래그해서 놓으세요.</p>
-      <p class="muted drop-multi">건축과 설비가 다른 파일이면 <b>둘을 같이</b> 놓거나 고르세요(Ctrl·Shift 로 여러 개). 하나로 합쳐 엽니다. IDF 도 같이 고르면 공조존까지 얹습니다.</p>
+      <p class="muted drop-multi">건축과 설비가 다른 파일이면 <b>둘을 같이</b> 놓거나 고르세요(Ctrl·Shift 로 여러 개). 하나로 합쳐 엽니다. IDF 도 같이 고르면 공조존까지 얹고, IDF 만 열면 공조존을 3D 로 봅니다.</p>
     </template>
     <label class="pick">
       파일 선택
@@ -114,7 +114,7 @@ import TierChips from '../TierChips.vue'
   <!-- data/ 의 샘플. 파일마다 온톨로지를 어디까지 채우는지 먼저 보고 고른다. -->
   <section v-if="dataFiles.length" class="catalog">
     <!-- 파일을 연 뒤에는 접어 둔다. 목록이 3D 와 검토 화면을 아래로 밀어낸다. 덧붙일 때 다시 편다. -->
-    <Fold :key="model ? 'loaded' : 'empty'" title="data/ 의 IFC" :meta="`${openableDataFiles.length}개`" :default-open="!model">
+    <Fold :key="model ? 'loaded' : 'empty'" title="data/ 의 IFC·IDF" :meta="`${openableDataFiles.length}개`" :default-open="!model">
       <p v-if="dataPicked.length" class="catalog-pick">
         <button type="button" class="pick" :disabled="busy" @click="openDataSet(dataPicked)">
           고른 {{ dataPicked.length }}개 {{ dataPicked.length > 1 ? '합쳐서 열기' : '열기' }}
@@ -141,6 +141,9 @@ import TierChips from '../TierChips.vue'
             <td class="chips">
               <span v-if="!profiles[f.path]" class="muted">분석 중…</span>
               <!-- 모양이 다른 응답(옛 서버 등)이 오면 칩 없이 둔다. `!` 로 밀어붙였더니 목록 렌더가 멈춰 그 뒤 화면 갱신이 꼬였다. -->
+              <span v-else-if="idfAt(f.path)" class="muted">
+                IDF · 공조존 {{ idfAt(f.path)!.zones }} · 바닥 {{ idfAt(f.path)!.floors }} · 설비 {{ idfAt(f.path)!.equipment }} — 혼자 열면 공조존만, IFC 와 합쳐 열면 방에 얹습니다
+              </span>
               <template v-else-if="profileAt(f.path)">
                 <TierChips :tiers="profileAt(f.path)!.tiers" />
                 <span v-if="roleHint(profileAt(f.path)!)" class="muted role">{{ roleHint(profileAt(f.path)!) }}</span>

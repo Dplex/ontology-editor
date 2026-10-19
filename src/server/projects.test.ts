@@ -22,6 +22,7 @@ beforeAll(async () => {
   root = mkdtempSync(join(tmpdir(), 'projects-'))
   writeFileSync(join(root, 'a.ifc'), 'ISO-10303-21;')
   writeFileSync(join(root, 'b.ifc'), 'ISO-10303-21;')
+  writeFileSync(join(root, 'z.idf'), 'Version, 24.2;')
   const writer = (req: import('node:http').IncomingMessage, res: import('node:http').ServerResponse) => {
     const name = decodeURIComponent(String(req.headers['x-oe-user'] ?? ''))
     if (name === '보기 전용') {
@@ -57,7 +58,15 @@ describe('프로젝트 (OE-UI-02)', () => {
     expect((await create({ name: 'P', site: 'S', paths: ['없음.ifc'] })).status).toBe(400)
     expect((await create({ name: 'P', site: 'S', paths: ['../a.ifc'] })).status).toBe(400)
     expect((await create({ name: 'P', site: 'S', paths: ['a.ifc'] }, '보기 전용')).status).toBe(403)
+    // IDF 는 IFC 와 같이 올릴 때만 받는다(OE-UI-02 — 프로젝트는 반드시 IFC).
+    expect((await create({ name: 'P', site: 'S', paths: ['z.idf'] })).status).toBe(400)
     expect(await list()).toEqual([])
+  })
+
+  it('IFC 와 같이 고른 IDF 는 프로젝트 파일로 받는다', async () => {
+    const r = await create({ name: 'IDF 같이', site: 'S', paths: ['a.ifc', 'z.idf'] })
+    expect(r.status).toBe(200)
+    expect(((await r.json()) as { paths: string[] }).paths).toEqual(['a.ifc', 'z.idf'])
   })
 
   it('같은 IFC 로 프로젝트를 둘 만들면 열쇠가 달라 임시 저장본이 섞이지 않는다 [OE-UI-02#4]', async () => {
@@ -97,6 +106,9 @@ describe('IFC 올리기', () => {
     expect(path).toBe('uploads/20261013-120000-본관 건축.ifc')
     expect(readFileSync(join(root, path), 'utf-8')).toContain('ISO-10303-21')
     expect((await create({ name: '올린 것', site: 'S', paths: [path] })).status).toBe(200)
+    const idf = await fetch(`${base}/__upload?name=${encodeURIComponent('본관.idf')}`, { method: 'POST', headers: as('편집자'), body: 'Version, 24.2;' })
+    expect(idf.status).toBe(200)
+    expect(((await idf.json()) as { path: string }).path).toBe('uploads/20261013-120000-본관.idf')
   })
 
   it('IFC 가 아니거나 빈 파일, 보기 전용은 받지 않고 반쯤 쓴 파일을 남기지 않는다', async () => {
