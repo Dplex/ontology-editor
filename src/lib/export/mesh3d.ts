@@ -4,16 +4,27 @@
  * 객체 이름은 GlobalId 다. GeoJSON·TTL 과 같은 id 하나로 이어지게 하려는 것이고, 사람이 읽는 이름·종류는
  * GLB 의 `extras`(three 의 userData)에만 넣는다. OBJ 는 이름 칸 하나뿐이라 id 만 남는다.
  *
+ * 공조존·커스텀존(운영존)도 물리존과 같은 판으로 내고 `kind` 로 가른다(ADR-0073). 받는 쪽이 `kind: "space"` 를 방으로 읽으므로 존을
+ * space 로 내지 않는다. 판은 물리존 판 위로 띄워 겹쳐 보이게 한다. extras 는 FBX 사용자 속성으로 옮겨지는 값(문자열·숫자)만 둔다 — 든 방
+ * 같은 목록은 TTL(`hasPart`)과 GeoJSON(`spaceIds`)에 있다.
+ *
  * 좌표는 3D 화면과 같은 three 좌표다(y 가 위, 미터). glTF 가 y 위를 표준으로 둬서 그대로 맞는다.
  * IFC 좌표로 되돌리려면 (x, y, z) → (x, -z, y) 다(`toScene` 의 반대).
  */
 import { BoxGeometry, BufferAttribute, BufferGeometry, DoubleSide, ExtrudeGeometry, Group, Mesh, MeshStandardMaterial, Matrix4, Shape } from 'three'
 import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js'
 import type { ElementMesh, MeshMap } from '../ifc/import'
+import { hvacZonesOf } from '../hvac-zone'
 import type { Model, Opening, Vec2, Vec3 } from '../model'
-import { ARCH_COLORS, equipmentColor, spaceMesh, systemColors, toScene, WALL_COLORS } from '../viewer'
+import { ARCH_COLORS, CUSTOM_ZONE_COLOR, equipmentColor, spaceMesh, systemColors, toScene, WALL_COLORS, ZONE_COLOR } from '../viewer'
 
 const SPACE_COLOR = 0x8fb3e8
+/**
+ * 존 판을 층 바닥에서 띄우는 높이(미터). 물리존 판(0~0.1m) 위로 공조존(0.15~0.25m), 그 위에 커스텀존(0.3~0.4m)이다. 판 두께는 물리존과
+ * 같은 0.1m 다(`spaceMesh`).
+ */
+const HVAC_ZONE_LIFT = 0.15
+const CUSTOM_ZONE_LIFT = 0.3
 /** 층 높이를 모를 때(맨 위층, 층이 하나) 벽 외곽선을 세우는 높이. */
 const FALLBACK_STOREY_HEIGHT = 3
 /** BIM 에 크기가 없는 문·창의 상자(너비, 높이, 미터). 표시용 자리 표시이고 extras 에 placeholder 를 단다. */
@@ -108,6 +119,9 @@ export function modelToScene(model: Model, meshes: MeshMap, options: Mesh3dOptio
     return m
   }
   const spaceMaterial = new MeshStandardMaterial({ color: SPACE_COLOR, transparent: true, opacity: 0.5, side: DoubleSide })
+  const hvacZoneMaterial = new MeshStandardMaterial({ color: ZONE_COLOR, transparent: true, opacity: 0.35, side: DoubleSide })
+  const customZoneMaterial = new MeshStandardMaterial({ color: CUSTOM_ZONE_COLOR, transparent: true, opacity: 0.35, side: DoubleSide })
+  const hvacZones = hvacZonesOf(model)
 
   const before = new Map<string, { footprint?: Vec2[][]; position?: Vec3 | null }>()
   for (const s of options.pristine?.storeys ?? []) {
@@ -141,6 +155,24 @@ export function modelToScene(model: Model, meshes: MeshMap, options: Mesh3dOptio
       ;(slab.material as { dispose(): void }).dispose()
       slab.geometry.translate(0, storey.elevation, 0)
       put(group, slab.geometry, spaceMaterial, space.id, { kind: 'space', name: space.name, longName: space.longName })
+    }
+
+    // 존 판. 조각이 여럿인 공조존은 벽처럼 `id#0`, `id#1` 로 나간다.
+    const zoneSlab = (ring: readonly Vec2[], lift: number) => {
+      const slab = spaceMesh(ring, SPACE_COLOR)
+      if (!slab) return null
+      ;(slab.material as { dispose(): void }).dispose()
+      slab.geometry.translate(0, storey.elevation + lift, 0)
+      return slab.geometry
+    }
+    for (const zone of hvacZones.filter((z) => z.storeyId === storey.id)) {
+      const extras = { kind: 'hvacZone', name: zone.name, source: zone.source === 'edit' ? 'edit' : 'IDF' }
+      const pieces = zone.footprint.map((ring) => zoneSlab(ring, HVAC_ZONE_LIFT)).filter((g): g is BufferGeometry => !!g)
+      pieces.forEach((g, i) => put(group, g, hvacZoneMaterial, pieces.length > 1 ? `${zone.id}#${i}` : zone.id, extras))
+    }
+    for (const zone of storey.customZones ?? []) {
+      const g = zoneSlab(zone.footprint, CUSTOM_ZONE_LIFT)
+      if (g) put(group, g, customZoneMaterial, zone.id, { kind: 'customZone', name: zone.name })
     }
 
     for (const wall of storey.walls) {

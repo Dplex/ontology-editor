@@ -101,7 +101,7 @@ export const EQUIPMENT_TOLERANCE = 0.5
 export type Check3D = {
   /** 3D 객체인데 GeoJSON·TTL 어디에도 그 id 가 없다. */
   unknown: string[]
-  /** 형상이 있는 물리존·설비·벽·문·창 feature 인데 3D 객체가 없다. */
+  /** 형상이 있는 물리존·설비·벽·문·창·공조존·커스텀존 feature 인데 3D 객체가 없다. */
   missing: { id: string; kind: string }[]
   /** 같은 id 인데 자리가 다르다 — 방은 외곽선 범위, 설비는 GeoJSON 점이 3D 범위 안에 드는지. */
   misplaced: { id: string; kind: string; by: number }[]
@@ -109,7 +109,9 @@ export type Check3D = {
   kindMismatch: { id: string; kind3d: string; kind: string }[]
 }
 
-const IN_3D = new Set(['space', 'equipment', 'wall', 'door', 'window'])
+const IN_3D = new Set(['space', 'equipment', 'wall', 'door', 'window', 'hvacZone', 'customZone'])
+/** 외곽선을 그대로 판으로 까는 것. 외곽선 범위와 3D 범위가 같아야 한다. */
+const SLABS = new Set(['space', 'hvacZone', 'customZone'])
 
 export function check3D(parts: readonly Part3D[], floors: readonly ExportFloor[], ttl: TtlReading | null): Check3D {
   // 같은 id 의 조각(벽 여러 조각)은 범위를 합친다.
@@ -151,11 +153,11 @@ export function check3D(parts: readonly Part3D[], floors: readonly ExportFloor[]
     } else if (f.geometry.type === 'LineString') {
       // 덕트·배관 구간의 경로(OE-PIP-13). 두 끝이 다 형상 범위 안이어야 한다.
       by = Math.max(...(f.geometry.coordinates as number[][]).map((p) => outside(p[0], p[1])))
-    } else if (kind === 'space' && f.geometry.type === 'Polygon') {
-      // 방 판은 외곽선을 그대로 깐다. 외곽선 범위와 3D 범위가 같아야 한다.
-      const ring = (f.geometry.coordinates as number[][][])[0]
-      const xs = ring.map((p) => p[0])
-      const ys = ring.map((p) => p[1])
+    } else if (SLABS.has(kind) && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')) {
+      // 방·존 판은 외곽선을 그대로 깐다. 조각이 여럿인 존은 조각 범위를 합쳐 본다.
+      const rings = f.geometry.type === 'Polygon' ? [(f.geometry.coordinates as number[][][])[0]] : (f.geometry.coordinates as number[][][][]).map((p) => p[0])
+      const xs = rings.flat().map((p) => p[0])
+      const ys = rings.flat().map((p) => p[1])
       by = Math.max(
         Math.abs(Math.min(...xs) - box.min[0]),
         Math.abs(Math.max(...xs) - box.max[0]),

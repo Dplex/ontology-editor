@@ -10,6 +10,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import * as WebIFC from 'web-ifc'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { importIfcWithMeshes } from '../lib/ifc/import'
+import type { Vec2 } from '../lib/model'
 import { modelToScene, sceneToGLB } from '../lib/export/mesh3d'
 import { fbxConverter } from './fbx'
 
@@ -65,6 +66,11 @@ describe.skipIf(!have)('FBX 내보내기 — Blender 변환', () => {
     await api.Init()
     const bytes = new Uint8Array(readFileSync(fileURLToPath(new URL('../lib/ifc/fixtures/mep.ifc', import.meta.url))))
     const { model, meshes } = importIfcWithMeshes(api, bytes)
+    // 공조존·커스텀존 판(ADR-0073)도 실어 사용자 속성이 남는지 본다.
+    const s = model.storeys[0]
+    const sq: Vec2[] = [[0, 0], [3, 0], [3, 3], [0, 3], [0, 0]]
+    s.hvacZones = [{ id: 'U_hz', name: '공조존 1', storeyId: s.id, footprint: [sq], areaM2: 9, declaredAreaM2: null, spaceIds: [], source: 'edit', drawn: true }]
+    s.customZones = [{ id: 'U_cz', name: '임원석', footprint: sq }]
     glb = await sceneToGLB(modelToScene(model, meshes))
     ;({ server, url } = await serve(fbxConverter({ blender: BLENDER, script: fileURLToPath(new URL('../../scripts/glb2fbx.py', import.meta.url)) })))
     tmp = mkdtempSync(join(tmpdir(), 'fbx-test-'))
@@ -120,6 +126,8 @@ print('PROPS ' + json.dumps({o.name: dict(parent=o.parent.name if o.parent else 
     for (const s of storeys) expect(s).toMatchObject({ parent: null, buildingId: expect.any(String), schema: 'IFC4' })
     expect(Object.values(props).filter((p) => p.kind === 'building')).toHaveLength(0)
     expect(storeys.map((s) => s.id)).toContain(duct.parent)
+    expect(Object.values(props).find((p) => p.id === 'U_hz')).toMatchObject({ kind: 'hvacZone', name: '공조존 1', source: 'edit' })
+    expect(Object.values(props).find((p) => p.id === 'U_cz')).toMatchObject({ kind: 'customZone', name: '임원석' })
   }, 60_000)
 
   it('GLB 가 아니거나 비면 400 이다', async () => {

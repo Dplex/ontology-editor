@@ -4,7 +4,7 @@ import * as WebIFC from 'web-ifc'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { ANCHOR_MARGIN, importIfc, importIfcWithMeshes, type MeshMap } from '../ifc/import'
 import type { Mesh } from 'three'
-import { isConduit, type Model, type Opening } from '../model'
+import { isConduit, type Model, type Opening, type Vec2 } from '../model'
 import { addOpening, addWall, renameSpace } from '../edit'
 import { createCustomZone } from '../custom-zone'
 import { modelToGeoJSON } from './geojson'
@@ -197,6 +197,32 @@ describe('read3D·check3D — 3D 형상(GLB·OBJ)이 GeoJSON 과 같은 id·같�
     expect(obj.parts.every((p) => p.kind === null)).toBe(true)
   })
 
+  // 공조존·커스텀존(운영존)은 물리존과 같은 판으로 나가고 kind 로 갈린다(ADR-0073). PRD S2 — 물리존·설비·공조존을 DT(Unity)에서 같은 id 로 찾는다.
+  it('공조존·커스텀존도 GeoJSON 과 같은 id·같은 범위의 판으로 나가고, 조각이 여럿인 공조존은 id#n 으로 나뉜다', async () => {
+    const m = withZones(model)
+    const [glb, obj] = await both(modelToScene(m, meshes))
+    for (const r of [glb, obj]) expect(check3D(r.parts, floorsOf(m), readOntologyTTL(modelToTTL(m)))).toEqual({ unknown: [], missing: [], misplaced: [], kindMismatch: [] })
+    const byName = new Map(glb.parts.map((p) => [p.name, p]))
+    expect(byName.get('Z_A#0')).toMatchObject({ id: 'Z_A', kind: 'hvacZone', label: 'A', props: { source: 'IDF' } })
+    expect(byName.get('Z_A#1')).toMatchObject({ id: 'Z_A', kind: 'hvacZone' })
+    expect(byName.get('U_hz')).toMatchObject({ kind: 'hvacZone', props: { source: 'edit' } })
+    expect(byName.get('U_cz')).toMatchObject({ kind: 'customZone', label: '임원석' })
+    // 물리존 판(바닥 0~0.1m) 위로 공조존, 그 위에 커스텀존이 겹친다.
+    const floor = m.storeys[0].elevation
+    expect(byName.get('U_hz')!.min[2]).toBeCloseTo(floor + 0.15, 6)
+    expect(byName.get('U_cz')!.min[2]).toBeCloseTo(floor + 0.3, 6)
+  })
+
+  it('존 판이 빠지거나 외곽선과 다른 자리면 잡는다', async () => {
+    const m = withZones(model)
+    const scene = modelToScene(m, meshes)
+    scene.getObjectByName('U_cz')!.removeFromParent()
+    scene.getObjectByName('U_hz')!.position.x += 3
+    const c = check3D((await both(scene))[0].parts, floorsOf(m), readOntologyTTL(modelToTTL(m)))
+    expect(c.missing).toEqual([{ id: 'U_cz', kind: 'customZone' }])
+    expect(c.misplaced.map((x) => x.id)).toEqual(['U_hz'])
+  })
+
   it('빠진 객체·옮겨진 객체·모르는 이름을 잡는다', async () => {
     const scene = modelToScene(model, meshes)
     const device = model.storeys.flatMap((s) => s.equipment).find((e) => !isConduit(e.role) && e.position)!
@@ -231,3 +257,15 @@ describe('read3D·check3D — 3D 형상(GLB·OBJ)이 GeoJSON 과 같은 id·같�
     expect(EQUIPMENT_TOLERANCE).toBe(ANCHOR_MARGIN)
   })
 })
+
+const sq = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]
+/** 첫 층에 IDF 공조존(조각 둘)·사람이 만든 공조존·커스텀존을 하나씩 얹은 사본. */
+function withZones(base: Model): Model {
+  const m = structuredClone(base)
+  const s = m.storeys[0]
+  const zone = { declaredAreaM2: null, spaceIds: [], storeyId: s.id }
+  m.hvac = { source: 'x.idf', equipment: [], zones: [{ ...zone, id: 'Z_A', name: 'A', footprint: [sq(0, 0, 2, 2), sq(5, 5, 7, 7)], areaM2: 8 }] }
+  s.hvacZones = [{ ...zone, id: 'U_hz', name: '공조존 1', footprint: [sq(0, 0, 3, 3)], areaM2: 9, source: 'edit', drawn: true }]
+  s.customZones = [{ id: 'U_cz', name: '임원석', footprint: sq(1, 1, 4, 4) }]
+  return m
+}
