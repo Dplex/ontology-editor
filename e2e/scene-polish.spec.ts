@@ -119,3 +119,48 @@ test.describe('움직임을 켜면', () => {
     expect(errors).toEqual([])
   })
 })
+
+// 미리 강조(OE-UI-27 AC3). 커서 아래에서 누르면 골라질 설비·오브젝트에 옅은 외곽선이 서고, 커서가 떠나면 걷힌다. 평면도는 같은 뜻으로
+// 설비 점에 옅은 강조색 고리가 선다.
+test('커서를 올리면 클릭 전에 골라질 설비가 옅은 외곽선으로, 평면도 설비 점이 옅은 고리로 미리 강조된다 [OE-UI-27#3]', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await open(page, [MEP, ROOMS])
+  const at = await viewer<{ x: number; y: number }>(page, 'part', AHU)
+  await page.mouse.move(at.x, at.y)
+  await expect.poll(() => viewer<Outline>(page, 'hoverOutline')).toMatchObject({ objects: 1, key: `equipment:${AHU}`, flashes: 0 })
+  // 고른 것의 외곽선과 따로다 — 아직 아무것도 고르지 않았다.
+  expect((await viewer<Outline>(page, 'outline')).objects).toBe(0)
+  const box = (await page.locator('.canvas-wrap > canvas').boundingBox())!
+  await page.mouse.move(box.x + 8, box.y + box.height - 8)
+  await expect.poll(async () => (await viewer<Outline>(page, 'hoverOutline')).objects).toBe(0)
+
+  // 평면도: 설비 점 위에 커서를 올리면 옅은 고리가 선다.
+  await page.getByRole('button', { name: '평면도', exact: true }).click()
+  const dot = page.locator('.floor-plan .devices circle:not(.chosen)').first()
+  await dot.hover()
+  await expect.poll(() => dot.evaluate((el) => getComputedStyle(el).strokeOpacity)).toBe('0.45')
+  expect(errors).toEqual([])
+})
+
+test('커서를 올리면 클릭 전에 골라질 추가 공간 오브젝트가 옅은 외곽선으로 미리 강조된다 [OE-UI-27#3]', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await open(page, ROOMS)
+  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await toSpace(page)
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await page.getByRole('button', { name: /^오브젝트/ }).click()
+  await page.locator('.object-library').getByRole('button', { name: '책상', exact: true }).click()
+  await clickFloor(page, 3, 2)
+  await expect(page.locator('.object-picked h3')).toHaveText('책상 1')
+  const [desk] = await viewer<string[]>(page, 'objects')
+  const box = (await page.locator('.canvas-wrap > canvas').boundingBox())!
+  await page.mouse.move(box.x + 8, box.y + box.height - 8)
+  await expect.poll(async () => (await viewer<Outline>(page, 'hoverOutline')).objects).toBe(0)
+  const o = await viewer<{ x: number; y: number }>(page, 'object', desk)
+  await page.mouse.move(o.x, o.y)
+  await expect.poll(() => viewer<Outline>(page, 'hoverOutline')).toMatchObject({ objects: 1, key: `object:${desk}` })
+  await expect.poll(() => viewer<string>(page, 'hoverMark')).toBe(`object:${desk}`)
+  expect(errors).toEqual([])
+})

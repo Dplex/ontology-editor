@@ -69,7 +69,7 @@ import { type LibraryItem, type ObjectMaterial } from './space-object'
 import { CONTEXT_ITEMS } from './object-names'
 import { partId } from './vertical-object'
 import { flowPulseMesh, setFlowTime, type FlowEdge, type FlowSegment } from './flow-pulse'
-import { createSelectionOutline, OUTLINE_LAYER } from './selection-outline'
+import { createSelectionOutline, HOVER_LAYER, HOVER_STYLE, OUTLINE_LAYER, SELECTED_STYLE } from './selection-outline'
 import { createGroundGrid } from './ground-grid'
 import { DROP_MAX, DROP_MS, dropPose, poseVertices } from './drop-in'
 import { addEdges, setEdgeTheme } from './model-edges'
@@ -715,7 +715,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
   let content = new Group()
   scene.add(content)
   // 고른 것의 외곽선(selection-outline.ts)과 바닥 아래 격자(ground-grid.ts). 둘 다 모델을 다시 지어도 남는다.
-  const selectionOutline = createSelectionOutline(renderer)
+  const selectionOutline = createSelectionOutline(renderer, SELECTED_STYLE, OUTLINE_LAYER)
+  // 커서 아래에서 누르면 골라질 것(미리 강조, OE-UI-27). 같은 장치를 옅고 가늘게 쓴다. 고른 것보다 먼저 그려 고른 것이 위에 온다.
+  const hoverOutline = createSelectionOutline(renderer, HOVER_STYLE, HOVER_LAYER)
+  const hoverMasks = new Group()
+  scene.add(hoverMasks)
   const ground = createGroundGrid()
   scene.add(ground.mesh)
   /** 외곽선 마스크로만 그리는 설비 형상(덩어리 형상을 나눠 쓴다). OUTLINE_LAYER 에만 있어 보통 장면에는 안 보인다. */
@@ -1089,22 +1093,20 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     scaleHandles()
   }
 
-  function markHover(target: HoverTarget | null) {
+  /**
+   * 마우스 아래 표시(미리 강조, OE-UI-27). 설비·오브젝트는 옅은 외곽선(hoverOutline), 물리존·룸·수직 관통 조각은 바닥 외곽 점선이다.
+   * 오브젝트는 화면(hoverCb)에 알리지 않는다 — 설명 풍선은 설비·공간만 띄운다.
+   */
+  function markHover(target: HoverTarget | { kind: 'object'; id: string } | null) {
     const key = target ? (target.kind === 'arrow' ? '' : `${target.kind}:${target.id}`) : ''
     if (key === hoverMarkKey) return
     hoverMarkKey = key
     if (hoverMark) disposeObject(hoverMark)
     hoverMark = null
+    setHoverOutline(target && (target.kind === 'equipment' || target.kind === 'object') ? target : null)
     dirty = true
-    if (!target || target.kind === 'arrow') return
-    if (target.kind === 'equipment') {
-      const part = partById.get(target.id)
-      if (!part || part.box.isEmpty()) return
-      const size = part.box.getSize(new Vector3()).max(new Vector3(0.05, 0.05, 0.05))
-      const geometry = new EdgesGeometry(new BoxGeometry(size.x, size.y, size.z))
-      hoverMark = new LineSegments(geometry, new LineBasicMaterial({ color: HOVER_COLORS.equipment, depthTest: false }))
-      part.box.getCenter(hoverMark.position)
-    } else {
+    if (!target || target.kind === 'arrow' || target.kind === 'equipment' || target.kind === 'object') return
+    {
       const t = verticalTargets.find((x) => x.id === target.id) ?? roomTargets.find((x) => x.id === target.id) ?? spaceTargets.find((x) => x.id === target.id)
       if (!t || t.ring.length < 3) return
       const points = t.ring.map(([x, z]) => new Vector3(...toScene([x, z, 0])).setY(t.y + 0.1))
@@ -1116,6 +1118,48 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     }
     hoverMark.renderOrder = 9
     overlay.add(hoverMark)
+  }
+
+  let hoverOutlined: Object3D[] = []
+  function clearHoverOutline() {
+    for (const o of hoverMasks.children) {
+      // 꼭짓점은 덩어리 것이다(clearOutlineMasks 와 같다).
+      const g = (o as Mesh).geometry
+      g.deleteAttribute('position')
+      g.dispose()
+    }
+    hoverMasks.clear()
+    for (const o of hoverOutlined) o.layers.disable(HOVER_LAYER)
+    hoverOutlined = []
+  }
+  function setHoverOutline(target: { kind: 'equipment' | 'object'; id: string } | null) {
+    clearHoverOutline()
+    const items: { object: Object3D; box?: Box3 }[] = []
+    if (target?.kind === 'equipment') {
+      const part = partById.get(target.id)
+      if (part && part.iCount && !part.box.isEmpty()) {
+        const g = new BufferGeometry()
+        g.setAttribute('position', part.chunk.position)
+        g.setIndex(new BufferAttribute(part.chunk.index.slice(part.iStart, part.iStart + part.iCount), 1))
+        const mask = new Mesh(g, outlineMaskMaterial)
+        mask.frustumCulled = false
+        mask.layers.set(HOVER_LAYER)
+        hoverMasks.add(mask)
+        items.push({ object: mask, box: part.box })
+      }
+    } else if (target?.kind === 'object') {
+      const node = spaceObjects.children.find((n) => n.userData.objectId === target.id)
+      if (node) {
+        node.traverse((o) => {
+          if (o instanceof Mesh) {
+            o.layers.enable(HOVER_LAYER)
+            hoverOutlined.push(o)
+          }
+        })
+        items.push({ object: node })
+      }
+    }
+    hoverOutline.set(items, target ? `${target.kind}:${target.id}` : '')
   }
 
   let conflictMark: LineSegments | null = null
@@ -2056,7 +2100,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     const object = pickObject(ray)
     if (object && (!id || object.d < pickDistance(ray, id)) && object.d < archDistance(ray)) {
       canvas.style.cursor = editMode && object.target.id === selectedObject ? 'grab' : 'pointer'
-      hoverHandler(null, null)
+      markHover({ kind: 'object', id: object.target.id })
+      hoverCb(null, null)
       return
     }
     if (editMode && grabbable(ray)) canvas.style.cursor = 'grab'
@@ -2209,6 +2254,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (rotateLabel) placeRotateLabel()
       const t0 = performance.now()
       renderer.render(scene, camera)
+      hoverOutline.render(scene, camera)
       selectionOutline.render(scene, camera)
       renders++
       perf.renderMs = performance.now() - t0
@@ -3213,7 +3259,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       /** 숨긴 설비 수·보이는 층·분해도 라벨(ui-notes 의 보기 필터 절을 잰다). */
       shown: () => ({ hidden: hiddenIds.size, parts: parts.length, storeys: visibleStoreys ? [...visibleStoreys] : null, labels: explodeLabels.children.filter((o) => o instanceof Sprite).length, exploded: explodedParts?.size ?? 0 }),
       /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */
-      hoverMark: () => (hoverMark ? hoverMarkKey : ''),
+      hoverMark: () => (hoverMark || hoverOutline.state().objects ? hoverMarkKey : ''),
+      /** 미리 강조 외곽선(OE-UI-27): 두른 수와 무엇인가. */
+      hoverOutline: () => hoverOutline.state(),
       /** 보기 모드 3D 의 벽(#599): 켜져 있나, 삼각형 수. 벽이 없으면 null. */
       walls: () =>
         walls
@@ -3432,6 +3480,9 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       controls.enabled = true
       // 외곽선 마스크는 덩어리 꼭짓점을 나눠 쓴다. 덩어리를 버리기 전에 뗀다. 새 파일의 오브젝트는 떨어지지 않는다(처음 보는 것이 아니다).
       clearOutlineMasks()
+      clearHoverOutline()
+      hoverOutline.set([], '')
+      hoverMarkKey = ''
       drops.clear()
       objectDrops.clear()
       prevObjectIds = null
@@ -4344,6 +4395,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
           node.position.y += pose.lift
         }
       }
+      // 오브젝트 묶음을 새로 만들었으니 미리 강조도 새 묶음에 다시 건다.
+      if (hoverMarkKey.startsWith('object:')) setHoverOutline({ kind: 'object', id: hoverMarkKey.slice('object:'.length) })
       // 끝나지 않은 움직임은 새 묶음에서 이어 간다(stepDrops). 원래 높이는 새 묶음의 것이 맞다.
       for (const [id, d] of objectDrops) {
         const node = spaceObjects.children.find((n) => n.userData.objectId === id)
@@ -4368,6 +4421,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       if (dark === on) return
       dark = on
       selectionOutline.setDark(on)
+      hoverOutline.setDark(on)
       ground.setDark(on)
       const lines: LineSegments[] = []
       scene.traverse((o) => {
@@ -4519,6 +4573,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       navCube?.dispose()
       clearOutlineMasks()
       selectionOutline.dispose()
+      clearHoverOutline()
+      hoverOutline.dispose()
       ground.dispose()
       outlineMaskMaterial.dispose()
       rotateLabel?.remove()

@@ -32,15 +32,23 @@ import {
 } from 'three'
 import { easeOut, still } from './motion'
 
-/** 외곽선을 그릴 것만 올리는 층. 0 은 보통 장면, 1~29 는 three.js 기본 도구가 쓸 수 있어 비켜 둔다. */
+/** 외곽선을 그릴 것만 올리는 층. 0 은 보통 장면이고, 낮은 번호는 three.js 기본 도구가 쓸 수 있어 끝 번호를 쓴다. */
 export const OUTLINE_LAYER = 30
-/** 선 두께와 빛 반경(CSS 픽셀). 기기 픽셀비를 곱해 쓴다. */
-const LINE_PX = 2
-const GLOW_PX = 9
-const FLASH_GLOW_PX = 18
+/** 미리 강조(HOVER_STYLE)의 층. 고른 것과 층이 같으면 두 마스크에 서로가 섞여 그려진다. */
+export const HOVER_LAYER = 29
 const FLASH_MS = 280
-/** 강조색(디자인 시스템 A2 의 --accent). 라이트·다크가 다르다. */
-const ACCENT = { light: 0x5457c4, dark: 0x8b8ef0 }
+/**
+ * 외곽선 모양. 선 두께·빛 반경은 CSS 픽셀이고 기기 픽셀비를 곱해 쓴다. `flash` 는 고르는 순간 퍼지는 빛 반경(없으면 퍼지지 않는다).
+ * `opacity` 는 선·빛 전체에 곱한다.
+ */
+export type OutlineStyle = { line: number; glow: number; flash: number | null; opacity: number; colors: { light: number; dark: number } }
+/** 고른 것. 강조색(디자인 시스템 A2 의 --accent)이고 라이트·다크가 다르다. */
+export const SELECTED_STYLE: OutlineStyle = { line: 2, glow: 9, flash: 18, opacity: 1, colors: { light: 0x5457c4, dark: 0x8b8ef0 } }
+/**
+ * 커서 아래에서 누르면 골라질 것(미리 강조, OE-UI-27). 고른 것과 구별되게 같은 강조색을 옅고 가늘게 쓰고 빛은 좁게, 퍼지지 않는다
+ * (OE-UI-17 "고른 것의 강조와 구별되는 옅은 강조색"). 커서를 따라 자주 바뀌니 움직이면 시끄럽다.
+ */
+export const HOVER_STYLE: OutlineStyle = { line: 1.5, glow: 5, flash: null, opacity: 0.6, colors: { light: 0x5457c4, dark: 0x8b8ef0 } }
 
 /** 빛 반경의 상한(드로잉 버퍼 픽셀). 셰이더가 이만큼 좌우·위아래를 훑는다. */
 const MAX_RADIUS = 24
@@ -70,6 +78,7 @@ const verticalShader = /* glsl */ `
   uniform float line;
   uniform float glow;
   uniform vec3 color;
+  uniform float opacity;
   varying vec2 vUv;
   void main() {
     if (texture2D(tMask, vUv).r > 0.5) discard;
@@ -84,13 +93,15 @@ const verticalShader = /* glsl */ `
     // 선 안쪽은 가득, 바깥 빛은 반경까지 제곱으로 빠진다. 선 가장자리 1px 은 부드럽게 넘긴다(계단 무늬).
     float core = 1.0 - smoothstep(line - 0.5, line + 0.5, d);
     float halo = 0.6 * pow(max(0.0, 1.0 - (d - line) / max(glow - line, 1.0)), 2.0);
-    gl_FragColor = vec4(color, max(core, halo));
+    gl_FragColor = vec4(color, max(core, halo) * opacity);
   }
 `
 
 export type SelectionOutline = ReturnType<typeof createSelectionOutline>
 
-export function createSelectionOutline(renderer: WebGLRenderer) {
+export function createSelectionOutline(renderer: WebGLRenderer, style: OutlineStyle = SELECTED_STYLE, layer = OUTLINE_LAYER) {
+  const LINE_PX = style.line
+  const GLOW_PX = style.glow
   const target = new WebGLRenderTarget(1, 1, { minFilter: NearestFilter, magFilter: NearestFilter, depthBuffer: false })
   const rows = new WebGLRenderTarget(1, 1, { minFilter: NearestFilter, magFilter: NearestFilter, depthBuffer: false })
   const maskMaterial = new MeshBasicMaterial({ color: 0xffffff, depthTest: false, depthWrite: false })
@@ -108,7 +119,8 @@ export function createSelectionOutline(renderer: WebGLRenderer) {
       texel: { value: new Vector2(1, 1) },
       line: { value: LINE_PX },
       glow: { value: GLOW_PX },
-      color: { value: new Color(ACCENT.light) },
+      color: { value: new Color(style.colors.light) },
+      opacity: { value: style.opacity },
     },
     vertexShader,
     fragmentShader: verticalShader,
@@ -168,12 +180,12 @@ export function createSelectionOutline(renderer: WebGLRenderer) {
 
   return {
     /**
-     * 외곽선을 두를 것을 정한다. 각 물체(와 그 자식)는 OUTLINE_LAYER 에 올라가 있어야 한다(부르는 쪽이 올린다).
+     * 외곽선을 두를 것을 정한다. 각 물체(와 그 자식)는 이 외곽선의 층(`layer`)에 올라가 있어야 한다(부르는 쪽이 올린다).
      * `id` 가 바뀌면(다른 것을 골랐으면) 빛이 한 번 퍼졌다 준다. 같은 것을 다시 그리면(색·형상만 바뀜) 그러지 않는다.
      */
     set(next: { object: Object3D; box?: Box3 }[], id: string) {
       objects = next
-      if (id && id !== key && !still()) {
+      if (id && id !== key && style.flash !== null && !still()) {
         flash = { t0: null }
         flashes++
       }
@@ -182,7 +194,7 @@ export function createSelectionOutline(renderer: WebGLRenderer) {
     },
     /** 테마. 강조색이 라이트·다크에서 다르다. */
     setDark(on: boolean) {
-      ;(material.uniforms.color.value as Color).setHex(on ? ACCENT.dark : ACCENT.light)
+      ;(material.uniforms.color.value as Color).setHex(on ? style.colors.dark : style.colors.light)
     },
     /** 매 프레임. 빛이 줄어드는 중이면 참(그동안 다시 그린다). */
     step(now: number): boolean {
@@ -192,7 +204,8 @@ export function createSelectionOutline(renderer: WebGLRenderer) {
       }
       if (flash.t0 === null) flash.t0 = now
       const k = Math.min(1, (now - flash.t0) / FLASH_MS)
-      material.uniforms.glow.value = FLASH_GLOW_PX + (GLOW_PX - FLASH_GLOW_PX) * easeOut(k)
+      const from = style.flash ?? GLOW_PX
+      material.uniforms.glow.value = from + (GLOW_PX - from) * easeOut(k)
       if (k === 1) flash = null
       return true
     },
@@ -219,7 +232,7 @@ export function createSelectionOutline(renderer: WebGLRenderer) {
       renderer.clear(true, false, false)
       target.scissor.set(rect.x, rect.y, rect.w, rect.h)
       target.scissorTest = true
-      camera.layers.set(OUTLINE_LAYER)
+      camera.layers.set(layer)
       scene.overrideMaterial = maskMaterial
       scene.background = null
       renderer.render(scene, camera)

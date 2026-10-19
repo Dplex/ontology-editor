@@ -5174,6 +5174,41 @@ main.has-model .catalog {
   fill: var(--accent);
 }
 
+/*
+ * 미리 강조(OE-UI-27): 커서 아래에서 누르면 골라질 것을 옅은 강조색으로 짚는다. 고른 것(.chosen)과 구별되게 같은 강조색을 옅게만 쓴다
+ * (OE-UI-17). 3D 는 같은 뜻의 옅은 외곽선이다(selection-outline.ts 의 HOVER_STYLE). 커서를 따라 자주 바뀌니 전환 효과는 두지 않는다.
+ */
+.floor-plan .devices circle:not(.chosen):hover {
+  fill: var(--accent);
+  fill-opacity: 0.6;
+  /* 점이 4px 안팎이라 색만 바뀌면 안 보인다. 화면 픽셀 고정 두께의 옅은 고리를 두른다. */
+  stroke: var(--accent);
+  stroke-opacity: 0.45;
+  stroke-width: 8px;
+  vector-effect: non-scaling-stroke;
+}
+
+.floor-plan .spaces polygon:not(.chosen):hover {
+  stroke: var(--accent);
+  stroke-opacity: 0.7;
+}
+
+.floor-plan .walls polygon.pickable:not(.chosen):hover {
+  fill: var(--accent);
+  opacity: 0.5;
+}
+
+.floor-plan .openings g.pickable:not(.chosen):hover .gap,
+.floor-plan .openings g.pickable:not(.chosen):hover .leaf {
+  stroke: var(--accent);
+  stroke-opacity: 0.7;
+}
+
+.floor-plan .verticals polygon:not(.chosen):hover {
+  stroke: var(--accent);
+  stroke-opacity: 0.7;
+}
+
 /* IDF 공조존(ADR-0069). 칠한 면은 누르지 않고(밑의 방이 골라진다) 이름을 누른다. 색은 담당 방식이다(idf/zone-view.ts). */
 .floor-plan .hvac-zones polygon {
   fill-opacity: 0.14;
