@@ -24,7 +24,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
 import { dataKeyPaths } from './saved-edits'
 
-/** 버전 히스토리에 보이고 되돌릴 수 있는 기간(OE-WF-20). 지난 버전은 감추기만 하고 파일은 둔다. */
+/** 버전 히스토리에 보이고 되돌릴 수 있는 기간(OE-WF-20). 초기 구축 v1 은 기간과 무관하게 늘 남고, 지난 버전은 감추기만 하고 파일은 둔다. */
 export const KEEP_DAYS = 7
 /** 파일 하나의 상한. 성수 GLB 가 수백 MB 다. */
 const MAX_BYTES = 1024 * 1024 * 1024
@@ -120,7 +120,7 @@ export function layouts(root: string, options: LayoutOptions = {}) {
           .flatMap((n) => readJson<VersionMeta>(join(dir, n, 'meta.json')) ?? [])
           .sort((a, b) => b.version - a.version)
       : []
-  const fresh = (m: VersionMeta) => now().getTime() - new Date(m.at).getTime() <= KEEP_DAYS * 24 * 3600 * 1000
+  const fresh = (m: VersionMeta) => m.version === 1 || now().getTime() - new Date(m.at).getTime() <= KEEP_DAYS * 24 * 3600 * 1000
   const filesIn = (dir: string): string[] =>
     readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
       d.isDirectory() ? readdirSync(join(dir, d.name)).map((n) => `${d.name}/${n}`) : d.name === 'meta.json' ? [] : [d.name],
