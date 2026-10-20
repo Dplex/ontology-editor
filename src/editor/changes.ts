@@ -3,6 +3,7 @@ import { type Baseline, diffBaseline } from '../lib/edit'
 import { flowEditLines } from './checks'
 import { releaseLines } from './connections'
 import { model } from './core'
+import { objectChanges } from '../lib/change-state'
 import { areaLines, report } from './edit-report'
 import { confirmations } from './flow-rules'
 import { assignLines, kindEditLines } from './kinds'
@@ -88,4 +89,6 @@ export const sinceOpen = computed(() => {
         systemsRemoved: [],
       }
 })
+/** 오브젝트별 신규·변경 상태와 종류별 개수(OE-UI-22). 목록 태그·머리·선택 오브젝트 배지가 쓴다. */
+export const objectChangeState = computed(() => objectChanges(sinceOpen.value))
 export const MOVED_NAMES = 5

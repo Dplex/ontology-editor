@@ -132,3 +132,30 @@ test('좌표 칸에 건물에서 먼 값을 치면 옮기되 오타일 수 있�
   await expect(page.locator('.edit-notice')).toContainText('건물 범위에서 평면으로')
   await expect(page.locator('.edit-notice')).toContainText('Ctrl+Z')
 })
+
+test('물리존 이름을 고치면 목록 행·선택 오브젝트에 변경이 뜨고 머리에 개수가 보이며, 되돌리면 변경 없음으로 돌아온다 (OE-UI-22)', async ({ page }) => {
+  await page.goto('/')
+  await openFile(page, MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await enterEdit(page)
+  await pickSpace(page, '사무실')
+  const badge = page.locator('.space-picked').getByTestId('change-badge')
+  await expect(badge).toHaveText('변경 없음')
+  const head = page.getByTestId('floor-status').getByTestId('change-head')
+  await expect(head).toHaveCount(0)
+
+  const name = page.locator('.space-name input')
+  await name.fill('대회의실')
+  await name.press('Enter')
+  await expect(badge).toHaveText('변경')
+  await expect(head).toContainText('신규 0 · 변경 1 · 삭제 0')
+  // pickSpace 가 검색칸에 옛 이름을 넣어 두었으니 비워야 이름이 바뀐 행이 보인다.
+  await page.getByTestId('floor-status').locator('.shell-floor-search').fill('')
+  await expect(page.getByTestId('floor-status').locator('[data-testid^=change-tag-]')).toHaveText('변경')
+
+  // 되돌리기로 기준과 같아지면 변경 없음이다.
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await expect(badge).toHaveText('변경 없음')
+  await expect(head).toHaveCount(0)
+})

@@ -711,6 +711,14 @@ main.ed-shell > .error { position: fixed; top: calc(var(--head-h) + var(--infoba
 .ed-shell .shell-rows .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ed-shell .shell-rows small { font-size: var(--fs-1); }
 .ed-shell .shell-rows .val { flex: none; color: var(--muted); font-size: var(--fs-1); }
+.ed-shell .shell-rows .change-tag { flex: none; padding: 0 var(--sp-1); border-radius: var(--r-sm); font-size: var(--fs-1); font-weight: 600; }
+.ed-shell .shell-rows .change-tag.added { background: var(--accent-soft); color: var(--accent); }
+.ed-shell .shell-rows .change-tag.changed { background: var(--warn-bg); color: var(--warn-fg); }
+.ed-shell .change-badge { margin-left: var(--sp-1); padding: 0 var(--sp-1); border-radius: var(--r-sm); font-size: var(--fs-1); font-weight: 600; vertical-align: middle; }
+.ed-shell .change-badge.none { background: var(--surface-soft); color: var(--muted); }
+.ed-shell .change-badge.added { background: var(--accent-soft); color: var(--accent); }
+.ed-shell .change-badge.changed { background: var(--warn-bg); color: var(--warn-fg); }
+.ed-shell .shell-floor-note.change-head { color: var(--fg); }
 .ed-shell .shell-rows .dot { width: 8px; height: 8px; border-radius: 2px; flex: none; }
 .ed-shell .shell-rows .dot.space { background: var(--zone-space); }
 .ed-shell .shell-rows .dot.custom { background: var(--zone-custom); }

@@ -22,6 +22,7 @@ import { selectedImpact } from '../../editor/manual-draw'
 import { selectedInsights } from '../../editor/panels'
 import { frameNetwork, select, systemKindText } from '../../editor/systems'
 import Src from '../Src.vue'
+import ChangeBadge from './ChangeBadge.vue'
 import EquipmentEdits from './EquipmentEdits.vue'
 import EquipmentFlow from './EquipmentFlow.vue'
 import EquipmentPipeTools from './EquipmentPipeTools.vue'
@@ -42,7 +43,7 @@ defineProps({
   <section v-memo="replayMemo()" class="picked">
     <div class="picked-head">
       <div>
-        <h3>{{ selected.name || '(이름 없음)' }}</h3>
+        <h3>{{ selected.name || '(이름 없음)' }} <ChangeBadge :id="selected.id" /></h3>
         <!-- 무엇을 하는 설비인지 한 줄(흐름 지도의 공급 사슬). 이름은 Revit 패밀리 이름이라 공조기인지조차 안 보인다. -->
         <p v-if="flowMap?.summary" class="picked-summary" data-testid="flow-summary">
           <b>{{ whatIs(selected)?.label ?? '설비' }}</b> · {{ flowMap.summary }} <Src kind="calc" />
