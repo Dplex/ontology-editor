@@ -53,7 +53,7 @@ afterAll(() => {
 })
 
 describe('반영한 레이아웃과 버전', () => {
-  it('첫 반영이 v1 이고, 반영자·일시·대상 층·변경 요약·파일이 버전에 붙으며, 파일을 그 버전에서 받는다 [OE-GEN-05#1] [OE-WF-13#1~]', async () => {
+  it('첫 반영이 v1 이고, 반영자·일시·대상 층·변경 요약·파일이 버전에 붙으며, 파일을 그 버전에서 받는다 [OE-GEN-05#1] [OE-WF-13#1]', async () => {
     expect(await list()).toEqual({ current: null, versions: [] })
     const r = await publish('정희록', '# v1')
     expect(r.status).toBe(200)
@@ -90,7 +90,7 @@ describe('반영한 레이아웃과 버전', () => {
     expect((await fetch(url({ key: KEY, stage: 'stage9999', publish: '' }), { method: 'POST', body: '{}' })).status).toBe(400)
   })
 
-  it('되돌리기는 옛 버전을 새 버전으로 다시 반영하고 이력은 남는다 [OE-WF-19#1] [OE-WF-10#2] [OE-WF-18#1~]', async () => {
+  it('되돌리기는 옛 버전을 새 버전으로 다시 반영하고 이력은 남는다 [OE-WF-19#1] [OE-WF-10#2] [OE-WF-18#1] [OE-WF-18#2]', async () => {
     clock = new Date('2026-10-10T10:00:00Z')
     expect((await publish('김민주', '# v2')).status).toBe(200)
     const r = await fetch(url({ key: KEY, rollback: '1' }), { method: 'POST', body: JSON.stringify({ by: '김민주' }) })
@@ -117,17 +117,24 @@ describe('반영한 레이아웃과 버전', () => {
     expect((await fetch(url({ key: KEY, rollback: '3' }), { method: 'POST', body: JSON.stringify({ by: '김민주' }) })).status).toBe(400)
   })
 
-  it('1주일이 지난 버전은 히스토리에서 빠지고 되돌릴 수 없지만 파일은 남는다. 지금 버전은 오래돼도 보인다 [OE-WF-20#1]', async () => {
-    clock = new Date('2026-10-16T11:00:00Z')
+  it('1주일이 지난 버전은 히스토리에서 빠지고 되돌릴 수 없지만 파일은 남는다. 초기 구축 v1 과 지금 버전은 오래돼도 보이고 v1 으로 되돌릴 수 있다 [OE-WF-19#2] [OE-WF-20#1] [OE-WF-20#2]', async () => {
+    clock = new Date('2026-10-18T11:00:00Z')
     const now = await list()
-    // v1(10-09)·v2·v3(10-10) 중 v1 만 7일이 넘었다. v3 은 지금 버전이라 보인다.
-    expect(now.versions.map((v) => v.version)).toEqual([3, 2])
-    const r = await fetch(url({ key: KEY, rollback: '1' }), { method: 'POST', body: JSON.stringify({ by: '정희록' }) })
-    expect((await r.json()).error).toBe('v1 은 7일이 지나 되돌릴 수 없습니다')
+    // v1(10-09)·v2·v3(10-10) 모두 7일이 넘었지만, v3 은 지금 버전이고 v1 은 초기 구축이라 둘 다 남고 v2 만 빠진다.
+    expect(now.versions.map((v) => v.version)).toEqual([3, 1])
+    const r2 = await fetch(url({ key: KEY, rollback: '2' }), { method: 'POST', body: JSON.stringify({ by: '정희록' }) })
+    expect((await r2.json()).error).toBe('v2 은 7일이 지나 되돌릴 수 없습니다')
+    // 구축한 지 8일이 넘어도 v1 파일(구축 리포트·TTL)을 열 수 있고 v1 으로 되돌리기도 된다.
+    expect(await (await fetch(url({ key: KEY, v: '1', file: 'ontology.ttl' }))).text()).toBe('# v1')
+    clock = new Date('2026-10-10T12:00:00Z')
+    expect((await publish('김민주', '# v4')).status).toBe(200)
     clock = new Date('2026-10-30T00:00:00Z')
-    expect((await list()).versions.map((v) => v.version)).toEqual([3])
+    expect((await list()).versions.map((v) => v.version)).toEqual([4, 1])
+    const r1 = await fetch(url({ key: KEY, rollback: '1' }), { method: 'POST', body: JSON.stringify({ by: '정희록' }) })
+    expect(r1.status).toBe(200)
+    expect(await r1.json()).toMatchObject({ version: 5, kind: 'rollback', from: 1 })
     const dir = join(root, '.layouts', readdirSync(join(root, '.layouts'))[0])
-    expect(['v1', 'v2', 'v3'].every((v) => existsSync(join(dir, v)))).toBe(true)
+    expect(['v1', 'v2', 'v3', 'v4', 'v5'].every((v) => existsSync(join(dir, v)))).toBe(true)
   })
 
   it('data/ 에 없는 열쇠·위로 올라가는 파일 이름은 받지 않는다', async () => {

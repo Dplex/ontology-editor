@@ -65,7 +65,7 @@ async function editLight(page: Page, x: string) {
 }
 const fromServer = async (q: Record<string, string>) => (await fetch(`${base}/__layouts?${new URLSearchParams({ key: PATH, ...q })}`)).text()
 
-test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리기는 v1 을 v3 으로 다시 반영한다. 버전마다 반영자·대상 층·파일이 남는다 [OE-GEN-05#1] [OE-WF-10#2] [OE-WF-11#1~] [OE-WF-13#1~] [OE-WF-18#1] [OE-WF-19#1] [OE-GEN-09#1] [OE-SYNC-04#1~] [OE-SYNC-05#1] [OE-SYNC-03#1~]', async ({ page }) => {
+test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리기는 v1 을 v3 으로 다시 반영한다. 버전마다 반영자·대상 층·파일이 남는다 [OE-GEN-05#1] [OE-WF-10#2] [OE-WF-11#1] [OE-WF-13#1] [OE-WF-18#1] [OE-WF-18#2] [OE-WF-19#1] [OE-WF-22#1] [OE-WF-22#2] [OE-INT-01#1] [OE-GEN-09#1] [OE-SYNC-04#1] [OE-SYNC-05#1] [OE-SYNC-03#1] [OE-XPRD-03#1]', async ({ page }) => {
   test.setTimeout(120_000)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -188,7 +188,7 @@ test('보기 전용(Viewer)은 편집에 들어가지 못하고, 서버도 저�
   expect(r.status).toBe(403)
 })
 
-test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, [새로고침] 하면 새 레이아웃이 얹히고 배너가 사라진다. 알림에 반영이 쌓인다 [OE-WF-14#1] [OE-WF-15#1] [OE-WF-16#1~] [OE-WF-17#1~]', async ({ page, browser }) => {
+test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, [새로고침] 하면 새 레이아웃이 얹히고 배너가 사라진다. 알림에 반영이 쌓인다 [OE-WF-14#1] [OE-WF-15#1] [OE-WF-16#1] [OE-WF-17#1] [OE-XPRD-02#1] [OE-XPRD-02#2]', async ({ page, browser }) => {
   test.setTimeout(120_000)
   const open = async (p: Page, who: string, edit = true) => {
     await serve(p)
@@ -401,7 +401,7 @@ test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보
   await expect(preview).toBeVisible()
 })
 
-test('물리존 공간명을 고쳐 반영하면 그 버전의 공간 계층(탐색기 트리 대신)·TTL·GeoJSON 의 이름이 에디터의 공간명과 같고, 앞 버전은 옛 이름 그대로다 [OE-SPC-05#1]', async ({ page }) => {
+test('물리존 공간명을 고쳐 반영하면 그 버전의 공간 계층(탐색기 트리 대신)·TTL·GeoJSON 의 이름이 에디터의 공간명과 같고, 앞 버전은 옛 이름 그대로다 [OE-SPC-05#1] [OE-SYNC-01#1] [OE-SYNC-03#1]', async ({ page }) => {
   test.setTimeout(120_000)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
