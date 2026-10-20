@@ -172,11 +172,12 @@ export const siteRules = ref<SiteRules>(
     }
   })(),
 )
-/** 미리보기의 규칙 경고. 막지 않는다. */
+/** 규칙 기반 경고(OE-P3-01~04). 미리보기와 기준 · 검증 패널이 같이 보며 막지 않는다. */
 export const ruleWarnings = computed(() => {
   void sceneVersion.value
-  return previewOpen.value && model.value ? siteWarnings(model.value, siteRules.value) : []
+  return model.value ? siteWarnings(model.value, siteRules.value) : []
 })
+export const ruleWarningsTotal = computed(() => ruleWarnings.value.reduce((sum, w) => sum + w.items.length, 0))
 export function previewChanges() {
   previewOpen.value = !previewOpen.value
   if (!previewOpen.value || !model.value) return

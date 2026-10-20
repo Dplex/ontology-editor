@@ -362,7 +362,7 @@ test('수용 기준선(게이트 등급 0~3) 미달이면 [구축하기] 가 꺼
   await expect(build).toBeEnabled()
 })
 
-test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보이고, 누르면 그 설비를 고르며, 확인 창의 수치와 [미리보기] 가 같다 [OE-WF-07#1] [OE-WF-08#1] [OE-WF-08#3] [OE-WF-09#1] [OE-WF-11#1] [OE-WF-12#1] [OE-WF-12#2] [OE-P3-01#1~] [OE-MAP-01#2~]', async ({ page }) => {
+test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보이고, 누르면 그 설비를 고르며, 확인 창의 수치와 [미리보기] 가 같다 [OE-WF-07#1] [OE-WF-08#1] [OE-WF-08#3] [OE-WF-09#1] [OE-WF-11#1] [OE-WF-12#1] [OE-WF-12#2] [OE-P3-01#1] [OE-MAP-01#2~]', async ({ page }) => {
   await serve(page)
   await page.goto('/')
   await page.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
@@ -393,10 +393,11 @@ test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보
   expect(JSON.parse(await fromServer({}))).toEqual({ current: null, versions: [] })
   await preview.getByRole('button', { name: '닫기' }).click()
 
-  // 확인 창: 미리보기와 같은 요약, [미리보기] 를 누르면 창을 닫고 미리보기로.
+  // 확인 창: 미리보기와 같은 요약, [미리보기] 를 누르면 창을 닫고 미리보기로. 규칙 경고가 있어도 구축하기는 막히지 않는다(OE-P3-01#1).
   await bar.getByRole('button', { name: '구축하기' }).click()
   const dialog = page.locator('dialog.publish-dialog')
   await expect(dialog.getByTestId('publish-summary')).toContainText(`변경 요약: ${summary}`)
+  await expect(dialog.getByRole('button', { name: '임시 저장 후 구축' })).toBeEnabled()
   await dialog.getByRole('button', { name: '미리보기' }).click()
   await expect(dialog).not.toBeVisible()
   await expect(preview).toBeVisible()

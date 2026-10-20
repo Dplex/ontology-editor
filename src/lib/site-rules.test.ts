@@ -23,7 +23,7 @@ const split = () => {
 const rules = (ws: ReturnType<typeof siteWarnings>) => ws.map((w) => [w.rule, w.items.map((x) => x.id)])
 
 describe('규칙 기반 경고 (OE-P3)', () => {
-  it('W-01 은 사이트 설정 N㎡ 미만 물리존이고, N 을 바꾸면 대상이 바뀐다 [OE-P3-02#1] [OE-P3-01#1~]', () => {
+  it('W-01 은 사이트 설정 N㎡ 미만 물리존이고, N 을 바꾸면 대상이 바뀐다 [OE-P3-02#1]', () => {
     const { m, piece } = split()
     expect(siteWarnings(m, { ...DEFAULT_SITE_RULES, emptySpace: false }).find((w) => w.rule === 'W-01')).toBeUndefined()
     expect(rules(siteWarnings(m, { ...DEFAULT_SITE_RULES, minAreaM2: 10, emptySpace: false }))).toEqual([['W-01', [piece]]])
