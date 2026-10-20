@@ -21,9 +21,9 @@ const HEIGHT = 400;
 
 // 방 외곽선(m). 대기실 6×5 m 가 접수대 2.4×1.4 m 를 품고, 0.6 m 통로 건너 회의실 4×3.6 m 가 있다.
 const ROOMS = [
-  { id: "대기실", x: 0.8, y: 1.2, w: 6, d: 5, z0: 0, h: 0.16, tag: [1.3, 5.2] },
-  { id: "회의실", x: 7.4, y: 1.8, w: 4, d: 3.6, z0: 0, h: 0.16, tag: [7.9, 4.4] },
-  { id: "접수대", x: 4.0, y: 4.4, w: 2.4, d: 1.4, z0: 0.16, h: 0.14 },
+  { id: "대기실", x: 0.8, y: 1.2, w: 6, d: 5, z0: 0, h: 0.16, tag: [1.3, 5.1, 2.0] },
+  { id: "회의실", x: 7.4, y: 1.8, w: 4, d: 3.6, z0: 0, h: 0.16, tag: [7.9, 4.3, 2.0] },
+  { id: "접수대", x: 4.0, y: 4.4, w: 2.4, d: 1.4, z0: 0.16, h: 0.14, tag: [4.2, 4.8, 1.55] },
 ];
 const SPACES = ROOMS.map((r) => ({
   id: r.id,
@@ -92,7 +92,7 @@ function base() {
     out.push(S(k.cylinder(x, y, 7, -BASE_H - FOOT_H, 1.6, P, 28), { tone: "lo" }));
     out.push(S(k.cylinder(x, y, 5.4, -BASE_H - FOOT_H + 1.6, FOOT_H - 1.6, P, 28), { tone: "mid" }));
   }
-  out.push(S(k.slabOf(BASE, -BASE_H, BASE_H, P, 8, 1.6), { tone: "mid" }));
+  out.push(S(k.slabOf(BASE, -BASE_H, BASE_H, P, 8, 1.6), { tone: "lo" }));
   const groove = k.insetPlan(BASE, 5);
   out.push(L(k.planOutline(groove, 0, P), { tone: "faint" }));
   // 1 m 격자. 홈 선에서 홈 선까지 긋는다.
@@ -126,19 +126,19 @@ function roomPlate(room) {
   const p = plan(room.x, room.y, room.w, room.d, 0.6);
   const top = u(room.z0 + room.h);
   const inner = k.insetPlan(p, 2.2);
-  const out = [S(k.slabOf(p, u(room.z0), u(room.h), P, 3, 0.4), { tone: "hi", crease: "lo" })];
+  const out = [S(k.slabOf(p, u(room.z0), u(room.h), P, 3, 0.4), { tone: "hi", crease: "lo", className: "as-room-plate" })];
   out.push(L(k.planOutline(inner, top, P, 3), { tone: "faint" }));
   out.push(D(k.corners(p, 1.2).map(([x, y]) => at([x, y, top])), { size: 0.42, tone: "lo" }));
-  // 방 이름표 자리: 판에 박힌 작은 명판. 글자 대신 줄 세 개다.
+  // 방 이름표: 판에 박힌 명판에 방 이름(BIM 의 공간 이름)을 새긴다. TTL 의 목적어가 이 이름이다.
   if (room.tag) {
-    const tag = plan(room.tag[0], room.tag[1], 1.5, 0.62, 1);
-    out.push(S(k.slabOf(tag, top, 0.6, P, 3), { tone: "mid", crease: "none" }));
-    [[0.7, 0], [0.45, 1.9], [0.58, 3.8]].forEach(([share, dy]) => {
-      const x0 = tag.x + 2.4, y0 = tag.y + 2.4 + dy;
-      out.push(L(k.lineOnTop([x0, y0], [x0 + (tag.w - 4.8) * share, y0], top + 0.6, P), { tone: "lo", free: true }));
-    });
+    const [tx, ty, tw] = room.tag;
+    const tag = plan(tx, ty, tw, 0.85, 1.2);
+    const tagTop = top + 0.6;
+    out.push(S(k.slabOf(tag, top, 0.6, P, 3), { tone: "mid", crease: "none", className: "as-tag" }));
+    out.push(L(k.planOutline(k.insetPlan(tag, 1.2), tagTop, P, 3), { tone: "faint" }));
+    out.push(k.faceTextSvg(k.topMatrix([tag.x + 2.6, tag.y + tag.d - 3.0], tagTop, P, "x"), room.id, { size: 5.8, tone: "hi" }));
   }
-  return `<g data-room="${room.id}">${out.join("")}</g>`;
+  return `<g data-room="${room.id}" class="as-room">${out.join("")}</g>`;
 }
 
 function rulers() {
@@ -394,7 +394,7 @@ function surfaceAt(x, y) {
 // 투어: 대기실 안 → 접수대(겹친 방 중 작은 방) → 통로(0.05 m 로는 소속 없음) → 허용 거리를 0.4 m 로(가까운 대기실) → 회의실 쪽으로 → 빈 바닥.
 const TOUR = [
   { x: 2.5, y: 3.2, snap: 0.05, hold: 2.6 },
-  { x: 5.2, y: 5.1, snap: 0.05, hold: 2.8 },
+  { x: 6.05, y: 4.75, snap: 0.05, hold: 2.8 },
   { x: 7.05, y: 3.6, snap: 0.05, hold: 2.6 },
   { x: 7.05, y: 3.6, snap: 0.4, hold: 2.6 },
   { x: 7.25, y: 3.6, snap: 0.4, hold: 2.6 },
@@ -518,12 +518,28 @@ body{margin:0;background:transparent;color:var(--anatomy-text);font:14px/1.6 "No
 .iso-face-text{font-family:"Noto Sans CJK KR","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;letter-spacing:0}
 .iso-stage{outline:none;touch-action:pan-y;cursor:crosshair}
 .iso-stage:focus-visible{outline:1px solid var(--anatomy-muted);outline-offset:6px}
-.as-band{fill:var(--anatomy-shade-1);stroke:none}
-.iso[data-theme="dark"] .as-band{fill:#262626}
-[data-band][data-on] .as-band-edge{stroke:var(--anatomy-hi)}
+.iso[data-theme="light"]{--anatomy-shade-0:#cfcfcc;--anatomy-shade-1:#d9d9d6;--anatomy-shade-2:#e3e3e0;--anatomy-shade-3:#ececea;--anatomy-mid:#76767c;--anatomy-lo:#a4a4a9;--anatomy-faint:#cdcdd0;--anatomy-muted:#6b6b70;
+  --as-room-top:#f1f1ef;--as-room-side:#dcdcd9;--as-room-edge:#76767c;--as-lit-top:#8e8e95;--as-lit-side:#6e6e75;--as-lit-edge:#000000;--as-tag-top:#ffffff;
+  --as-band:#d6d6d9;--as-band-on:#b6b6bc;--as-band-edge:#8a8a90}
+.iso[data-theme="dark"]{--as-room-top:#1d1d1d;--as-room-side:#161616;--as-room-edge:#6a6a6a;--as-lit-top:#4a4a4a;--as-lit-side:#333333;--as-lit-edge:#ffffff;--as-tag-top:#2a2a2a;
+  --as-band:#262626;--as-band-on:#363636;--as-band-edge:#6a6a6a}
+.as-room-plate>.iso-top{fill:var(--as-room-top)}
+.as-room-plate>.iso-shade{fill:var(--as-room-side)}
+.as-room-plate>.iso-edge{stroke:var(--as-room-edge);stroke-width:1px}
+.as-room-plate[data-lit]>.iso-top{fill:var(--as-lit-top)}
+.as-room-plate[data-lit]>.iso-shade{fill:var(--as-lit-side)}
+.as-room-plate[data-lit]>.iso-edge{stroke:var(--as-lit-edge);stroke-width:1.6px}
+.as-tag>.iso-top{fill:var(--as-tag-top)}
+.as-room .iso-face-text{font-weight:500}
+.as-band{fill:var(--as-band);stroke:none}
+.as-band-edge{stroke:var(--as-band-edge)!important;stroke-width:.9px}
+[data-band][data-on] .as-band{fill:var(--as-band-on)}
+[data-band][data-on] .as-band-edge{stroke:var(--anatomy-hi)!important;stroke-width:1.3px}
 .as-hit{fill:transparent;stroke:none;pointer-events:all;cursor:ns-resize}
 .as-ttl{display:flex;flex-wrap:wrap;justify-content:space-between;gap:4px 16px;margin-top:10px;padding:7px 10px;background:var(--anatomy-card);box-shadow:0 0 0 1px var(--anatomy-faint);font:12px/1.5 var(--anatomy-mono);color:var(--anatomy-strong)}
-.as-ttl [data-snap]{color:var(--anatomy-muted)}
+.as-ttl [data-snap]{color:var(--anatomy-text)}
+.iso-plate-corner{color:var(--anatomy-text)}
+.iso-legend{color:var(--anatomy-text)}
 .iso-legend{margin-top:10px;font-size:13px;word-break:keep-all}
 .as-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 @media (max-width:560px){.iso-plate{padding:42px 8px 66px}.iso-plate .iso-svg{width:112%;margin:0 -6%}.iso-plate{overflow:hidden}.iso-plate-corner{font-size:10.5px}}
@@ -534,7 +550,7 @@ const caption =
 
 const keys = [
   { mark: "lit", label: "판정된 방" },
-  { mark: "raised", label: "방 외곽선: 왼쪽 대기실, 그 안 접수대, 오른쪽 회의실" },
+  { mark: "raised", label: "방 외곽선과 이름표" },
   { mark: "flat", label: "소속 허용 거리 띠" },
 ];
 

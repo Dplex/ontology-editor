@@ -378,7 +378,7 @@ const DATA = {
 };
 
 const CSS = `
-.iso{--fl-down:#1f9d7a;--fl-up:#e0803a;--fl-link:#9b59d0;--anatomy-mono:ui-monospace,"SF Mono",Menlo,Consolas,"Noto Sans Mono CJK KR","Noto Sans CJK KR",monospace}
+.iso{--fl-dim:#9a9a9a;--fl-down:#1f9d7a;--fl-up:#e0803a;--fl-link:#9b59d0;--anatomy-mono:ui-monospace,"SF Mono",Menlo,Consolas,"Noto Sans Mono CJK KR","Noto Sans CJK KR",monospace}
 html{background:#f2f2ef}html:has(body[data-theme="dark"]){background:#0b0b0b}html[data-embed]{background:transparent}html:has(body[data-theme="light"]),body[data-theme="light"]{color-scheme:light}body{background:transparent;font-family:system-ui,-apple-system,"Segoe UI","Noto Sans CJK KR","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
 .iso-page{width:100%;margin:0}
 .iso-figure{margin:0}
@@ -413,10 +413,12 @@ html{background:#f2f2ef}html:has(body[data-theme="dark"]){background:#0b0b0b}htm
 .iso-swatch[data-mark="green"] path{stroke:var(--fl-down)}
 .iso-swatch[data-mark="red"] path{stroke:var(--fl-up)}
 .iso-swatch[data-mark="blue"] path{stroke:var(--fl-link)}
-.fl-ttl{margin:10px 0 0;padding:10px 12px;border:1px solid var(--anatomy-faint);background:var(--anatomy-card);font:11.5px/1.65 var(--anatomy-mono);color:var(--anatomy-muted);white-space:pre-wrap;word-break:break-all;min-height:5.6em}
+.iso[data-theme="light"]{--fl-dim:#68686c}
+.iso-plate-corner[data-corner="title"],.iso-plate-corner[data-corner="hint"],.iso-legend{color:var(--fl-dim)}
+.fl-ttl{margin:10px 0 0;padding:10px 12px;border:1px solid var(--anatomy-faint);background:var(--anatomy-card);font:11.5px/1.65 var(--anatomy-mono);color:var(--fl-dim);white-space:pre-wrap;word-break:break-all;min-height:5.6em}
 .fl-ttl b{font-weight:400;color:var(--anatomy-text)}
-.fl-ttl [data-to]{transition:color .4s ease,opacity .4s ease;opacity:.25}
-.fl-ttl [data-to][data-on]{opacity:1;color:var(--anatomy-strong)}
+.fl-ttl [data-to]{transition:color .4s ease;color:var(--fl-dim)}
+.fl-ttl [data-to][data-on]{color:var(--anatomy-strong);font-weight:600}
 .fl-ttl .fl-c{opacity:0;transition:opacity .4s ease}
 .fl-ttl .fl-c[data-on]{opacity:1}
 .fl-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
