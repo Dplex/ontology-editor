@@ -132,15 +132,17 @@ function applySnapshot(s: Snapshot) {
   const m = model.value
   if (!m) return
   const drawnAt = s.kind === 'equipment' ? (equipmentById.value.get(s.id)?.position ?? null) : null
-  // 배관을 데리고 옮긴 설비. 형상은 설비마다 옮긴다.
-  const carried = s.kind === 'many' && s.parts.every((p) => p.kind === 'equipment') ? (s.parts as Extract<Snapshot, { kind: 'equipment' }>[]) : null
-  const drawn = new Map(carried?.map((p) => [p.id, equipmentById.value.get(p.id)?.position ?? null]))
+  // 배관·공조존·샤프트와 함께 옮긴 설비. 형상은 설비마다 옮긴다.
+  const movedParts = s.kind === 'many' ? s.parts.filter((p): p is Extract<Snapshot, { kind: 'equipment' }> => p.kind === 'equipment') : []
+  const drawn = new Map(movedParts.map((p) => [p.id, equipmentById.value.get(p.id)?.position ?? null]))
   // 벽을 되돌리면 붙은 설비도 같이 돌아온다. 형상도 따라 옮긴다.
-  const mounted = s.kind === 'many' || s.kind === 'storey-elements' ? mountedAt(m) : null
+  const hasArch = s.kind === 'storey-elements' || (s.kind === 'many' && s.parts.some((p) => p.kind === 'storey-elements' || p.kind === 'storey-spaces'))
+  const mounted = hasArch ? mountedAt(m) : null
   const rules = restore(m, s)
-  if (carried) {
+  if (s.kind === 'many' && s.parts.every((p) => p.kind === 'equipment' || p.kind === 'hvac-zones')) {
     triggerRef(model)
-    for (const p of carried) moveInScene(p.id, drawn.get(p.id) ?? null, p.position, true)
+    for (const p of movedParts) moveInScene(p.id, drawn.get(p.id) ?? null, p.position, true)
+    if (s.parts.some((p) => p.kind === 'hvac-zones')) sceneVersion.value++
   } else if (s.kind === 'equipment') {
     triggerRef(model)
     // 형상도 되돌린다. 안 하면 다시 그릴 때 옮긴 자리에 남는다.
@@ -157,13 +159,30 @@ function applySnapshot(s: Snapshot) {
     flowVersion.value++
     redraw()
   } else if (s.kind === 'many') {
-    // 벽과 함께 방 경계를 옮긴 것. 벽·방 둘 다 다시 그린다.
-    if (selectedSpaceId.value && !m.storeys.some((st) => st.spaces.some((x) => x.id === selectedSpaceId.value))) selectedSpaceId.value = null
-    setArchEdited(true)
-    triggerRef(model)
-    if (mounted) followMounted(mounted, true)
-    viewer?.updateSpaces(m)
-    sceneVersion.value++
+    if (rules) ruleReport.value = rules
+    for (const p of movedParts) moveInScene(p.id, drawn.get(p.id) ?? null, p.position, true)
+    if (s.parts.some((p) => p.kind === 'equipment-set')) {
+      if (selectedId.value && !m.storeys.some((st) => st.equipment.some((e) => e.id === selectedId.value))) selectedId.value = null
+      triggerRef(model)
+      flowVersion.value++
+      redraw()
+    } else if (hasArch) {
+      // 벽과 함께 방 경계를 옮긴 것. 벽·방 둘 다 다시 그린다.
+      if (selectedSpaceId.value && !m.storeys.some((st) => st.spaces.some((x) => x.id === selectedSpaceId.value))) selectedSpaceId.value = null
+      setArchEdited(true)
+      triggerRef(model)
+      if (mounted) followMounted(mounted, true)
+      viewer?.updateSpaces(m)
+      sceneVersion.value++
+    } else if (s.parts.some((p) => p.kind === 'space')) {
+      triggerRef(model)
+      viewer?.updateSpaces(m)
+      sceneVersion.value++
+    } else {
+      triggerRef(model)
+      if (s.parts.some((p) => p.kind === 'release' || p.kind === 'connection')) flowVersion.value++
+      sceneVersion.value++
+    }
   } else if (s.kind === 'storey-elements') {
     if (selectedElementId.value && !m.storeys.some((st) => st.walls.some((w) => w.id === selectedElementId.value) || st.openings.some((o) => o.id === selectedElementId.value))) {
       selectedElementId.value = null
