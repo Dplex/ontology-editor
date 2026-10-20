@@ -19,6 +19,7 @@ import { flowMap } from '../../editor/flow-map'
 import { deviceCount, traced } from '../../editor/flow-rules'
 import { applyAssign, ASSIGN_RELEASE_REASON, assignInfo, roleSrc, spaceSrc } from '../../editor/kinds'
 import { selectedImpact } from '../../editor/manual-draw'
+import { selectSameKind } from '../../editor/multi-select'
 import { selectedInsights } from '../../editor/panels'
 import { frameNetwork, select, systemKindText } from '../../editor/systems'
 import Src from '../Src.vue'
@@ -175,6 +176,11 @@ defineProps({
         <button type="button" class="ghost" title="선택 해제 (Esc)" @click="select(null)">선택 해제</button>
       </div>
     </div>
+    <!-- 같은 종류 모두 고르기(OE-UI-24). 고른 뒤에는 묶음 패널로 바뀌어 같이 옮기고 지울 수 있다. 덕트·배관은 넣지 않는다. -->
+    <p v-if="editing && !isConduit(selected.role)" class="picked-actions same-kind">
+      <button type="button" class="ghost" data-testid="same-kind-storey" title="이 층에서 같은 종류의 설비를 모두 고릅니다" @click="selectSameKind('storey')">같은 종류 모두 — 이 층</button>
+      <button type="button" class="ghost" data-testid="same-kind-building" title="건물 전체에서 같은 종류의 설비를 모두 고릅니다(화면에는 지금 층만 그립니다)" @click="selectSameKind('building')">같은 종류 모두 — 건물 전체</button>
+    </p>
 
     <!-- 고른 설비에서 고칠 것(smart-insights). 왜 비었는지 한 줄과 바로 고치는 단추. 단추는 편집 모드로 들어가 여느 편집 함수를 부른다. -->
     <div v-if="selectedInsights.length" class="smart-insights" role="region" aria-label="이 설비의 보정 항목">

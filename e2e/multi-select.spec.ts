@@ -388,3 +388,30 @@ test('보기 모드에서는 3D 의 Ctrl+클릭과 평면도의 Ctrl+끌기로 �
   await expect(page.locator('.group-picked')).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('같은 종류 모두 고르기 — 이 층·건물 전체로 고르고, 종류의 체크를 끄면 선택에서 빠진다 (OE-UI-24)', async ({ page }) => {
+  const errors = await open(page)
+  await enterCeiling(page)
+  await pickEquipment(page, 'AT-101-01')
+  const panel = page.locator('.group-picked')
+
+  // 이 층: 같은 종류(디퓨저) 둘이 골라지고, 종류별 개수와 상태줄 개수가 보인다.
+  await page.getByTestId('same-kind-storey').click()
+  await expect(panel.locator('h3')).toHaveText('설비 2대 고름')
+  const kinds = panel.getByTestId('group-kinds').locator('li')
+  await expect(kinds).toHaveCount(1)
+  await expect(kinds.first()).toContainText('2대')
+  await expect(page.getByTestId('status-bar')).toContainText('선택 2개 · 1종')
+  await page.screenshot({ path: test.info().outputPath('same-kind.png') })
+
+  // 종류의 체크를 끄면 그 종류가 선택에서 빠진다.
+  await kinds.first().locator('input').uncheck()
+  await expect(panel).toHaveCount(0)
+  await expect(page.getByTestId('status-bar')).not.toContainText('선택 2개')
+
+  // 건물 전체: 한 층뿐인 픽스처라 이 층과 같은 둘이다.
+  await pickEquipment(page, 'AT-101-01')
+  await page.getByTestId('same-kind-building').click()
+  await expect(panel.locator('h3')).toHaveText('설비 2대 고름')
+  expect(errors).toEqual([])
+})
