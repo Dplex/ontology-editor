@@ -237,7 +237,7 @@ const CEILING_RING_SIDES = 24
  * 설비가 든 평면 범위다 — `dim` 의 설비(천장 설비가 아닌 것)는 회색·투과로 칠한다. 회색 설비도 고를 수 있다(속성 조회).
  */
 export type CeilingView = { planes: { storeyId: string; z: number; rings: readonly (readonly Vec2[])[] }[]; dim: ReadonlySet<string> }
-const CEILING_PLANE = { color: 0x9fb3cc, opacity: 0.22 }
+const CEILING_PLANE = { color: 0x9fb3cc, opacity: 0.5 }
 const DIM_COLOR = 0xb4bac4
 
 /** 천장 설비 하나의 발자국(OE-EQP-04). `at` 은 설비의 IFC 좌표, `floor` 는 그 층 바닥 높이(IFC z)다. */
@@ -3445,6 +3445,8 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     ;(window as unknown as { __viewer?: unknown }).__viewer = {
       /** 공간 보기로 채운 방(setSpaceFocus)과 그 층 판의 불투명도. */
       spaceFocus: () => ({ id: focusSpaceId, fill: !!focusFill, slab: Math.min(...slabs.children.map((o) => ((o as Mesh).material as MeshLambertMaterial).opacity)) }),
+      /** 천장 편집 모드 · 천장 레이어의 반투명 천장면(OE-OBJ-08). */
+      ceilingPlanes: () => ceilingPlanes.children.map((o) => ({ y: o.position.y, visible: o.visible, opacity: ((o as Mesh).material as MeshBasicMaterial).opacity })),
       /** 숨긴 설비 수·보이는 층·분해도 라벨(ui-notes 의 보기 필터 절을 잰다). */
       shown: () => ({ hidden: hiddenIds.size, parts: parts.length, storeys: visibleStoreys ? [...visibleStoreys] : null, labels: explodeLabels.children.filter((o) => o instanceof Sprite).length, exploded: explodedParts?.size ?? 0 }),
       /** 마우스 아래 표시가 무엇에 그려져 있는지('equipment:id' · 'space:id' · ''). */

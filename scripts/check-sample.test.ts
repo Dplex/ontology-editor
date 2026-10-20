@@ -1628,6 +1628,7 @@ describe.skipIf(!hasIfctester)('IDS 를 ifctester 로 (OE-REQ-02)', () => {
         'R9 설비 포함 307개', 'R11 설비마다 배치 285/307', 'R16 설비·도관이 계통에 묶임 1714/2202', 'R16 계통 종류 9/15',
         'R16 공기 계통의 공급·환수 0/5', 'R16 물 계통의 공급·환수 0/2', 'R17 포트의 흐름 방향 4202/4232',
         'R21 용량 — IFCUNITARYEQUIPMENT 0/2', 'R21 용량 — IFCSPACEHEATER 30/30', 'R21 용량 — IFCAIRTERMINAL 43/43', 'R23 Proxy 를 쓰지 않음 49개',
+        'R25 설비 태그(BAS 매핑 키) 0/307',
         'R24 설비 종류 — IFCUNITARYEQUIPMENT 2/2', 'R24 설비 종류 — IFCAIRTERMINAL 43/43', 'R24 설비 종류 — IFCSPACEHEATER 30/30',
         'R24 설비 종류 — IFCELECTRICDISTRIBUTIONBOARD 3/3', 'R24 설비 종류 — IFCSENSOR 7/7', 'R24 설비 종류 — IFCOUTLET 48/48',
       ],
@@ -1639,26 +1640,26 @@ describe.skipIf(!hasIfctester)('IDS 를 ifctester 로 (OE-REQ-02)', () => {
       [DUPLEX_HVAC]: [
         'R1 층 이름 3/3', 'R2 공간이 층에 속함 1/1', 'R3 공간 이름과 방 번호 2/2', 'R6 길이 단위 선언 1/1', 'R9 설비 포함 40개',
         'R11 설비마다 배치 40/40', 'R14 방 분류 0/1', 'R16 설비·도관이 계통에 묶임 0/498', 'R17 포트의 흐름 방향 970/970', 'R19 공조존 0/1',
-        'R21 용량 — IFCPUMP 0/2',
+        'R21 용량 — IFCPUMP 0/2', 'R25 설비 태그(BAS 매핑 키) 40/40',
       ],
       // 필수 중 유일하게 떨어지는 것이 이 파일의 문 10개(개구부에 끼워지지 않음)다.
       [CLINIC_ARCH_]: [
         'R1 층 이름 4/4', 'R2 공간이 층에 속함 269/269', 'R3 공간 이름과 방 번호 538/538', 'R4 문·창이 벽 개구부에 끼워짐 302/312',
         'R6 길이 단위 선언 1/1', 'R9 설비 포함 102개', 'R11 설비마다 배치 102/102', 'R14 방 분류 0/269', 'R16 설비·도관이 계통에 묶임 0/102',
-        'R19 공조존 0/269', 'R22 벽의 내력 여부 1080/1080',
+        'R19 공조존 0/269', 'R22 벽의 내력 여부 1080/1080', 'R25 설비 태그(BAS 매핑 키) 100/102',
       ],
       [CLINIC_HVAC_]: [
         'R1 층 이름 4/4', 'R2 공간이 층에 속함 263/263', 'R3 공간 이름과 방 번호 526/526', 'R6 길이 단위 선언 1/1', 'R9 설비 포함 566개',
         'R11 설비마다 배치 566/566', 'R14 방 분류 0/263', 'R16 설비·도관이 계통에 묶임 0/3704', 'R17 포트의 흐름 방향 7390/7390', 'R19 공조존 0/263',
         'R21 용량 — IFCUNITARYEQUIPMENT 0/2', 'R21 용량 — IFCFAN 0/8', 'R21 용량 — IFCCHILLER 0/1', 'R21 용량 — IFCAIRTERMINALBOX 0/115',
-        'R21 용량 — IFCAIRTERMINAL 0/440', 'R24 설비 종류 — IFCUNITARYEQUIPMENT 0/2', 'R24 설비 종류 — IFCAIRTERMINAL 437/440',
+        'R21 용량 — IFCAIRTERMINAL 0/440', 'R25 설비 태그(BAS 매핑 키) 566/566', 'R24 설비 종류 — IFCUNITARYEQUIPMENT 0/2', 'R24 설비 종류 — IFCAIRTERMINAL 437/440',
         'R24 설비 종류 — IFCAIRTERMINALBOX 115/115',
       ],
     }
     const files = Object.keys(want).filter((f) => existsSync(f))
     expect(files.length).toBeGreaterThanOrEqual(2)
     const out = JSON.parse(execFileSync(PYTHON, ['scripts/ids-check.py', 'docs/requirements.ids', ...files], { maxBuffer: 1 << 26 }).toString())
-    expect(out.specifications).toBe(38)
+    expect(out.specifications).toBe(39)
     for (const f of files) expect(cells(out.files[f]), f).toEqual(want[f])
   }, 600_000)
 })

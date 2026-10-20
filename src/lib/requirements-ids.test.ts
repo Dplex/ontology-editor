@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest'
 import { CAPACITY_KINDS, CAPACITY_PROPERTIES } from './capacity'
 import { EQUIPMENT_KINDS, IFC_REJECTED, omniclassCode, ROOM_KINDS, SYSTEM_IFC } from './kinds'
 import { isPlaceholder, PLACEHOLDER_NAMES } from './merge'
-import { REQUIREMENTS } from './requirements'
+import { isConduit, type Model } from './model'
+import { REQUIREMENTS, requirementsReport } from './requirements'
 
 // docs/requirements.ids 는 정본(docs/bim-to-dt-ontology.md 4장)과 이름 사전(kinds.ts)·용량 표(capacity.ts)를 고객사가
 // 검사할 수 있게 옮긴 사본이다. 사본이 어긋나는 두 가지를 여기서 막는다.
@@ -238,5 +239,63 @@ describe('requirements.ids', () => {
     })
     expect(names.length).toBeGreaterThan(5)
     for (const n of names) expect([n, ours.has(n)]).toEqual([n, true])
+  })
+
+  it('R25 설비 태그 명세는 도관을 뺀 설비에 Mark 속성을 요구하며, 요구사항 보고서의 R25 판정과 같다 [OE-REQ-05#4]', () => {
+    const [r25] = specs('R25 설비 태그')
+    const [r11] = specs('R11 설비마다 배치')
+    expect(r25).toBeTruthy()
+    // 도관(덕트·배관 구간과 이음)을 뺀 기기 목록이 R11 과 같고, 요구하는 속성 이름은 Mark 다.
+    expect(enumerations(r25.applicability)).toEqual(enumerations(r11.applicability))
+    const baseName = /<baseName>([\s\S]*?)<\/baseName>/.exec(r25.requirements)?.[1] ?? ''
+    expect(simpleValues(baseName)).toEqual(['Mark'])
+
+    // IDS 가 검사하는 대상(도관 제외 기기)과 속성(Mark)으로 판정한 결과가 requirementsReport 의 R25 판정과 일치한다.
+    const idsPass = (m: Model) => {
+      const devices = m.storeys.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role))
+      return devices.length > 0 && devices.every((e) => Boolean(e.mark))
+    }
+    const base: Model = {
+      schema: 'IFC4',
+      siteName: '',
+      buildingId: 'B',
+      buildingName: '',
+      systems: [],
+      connections: [],
+      warnings: [],
+      storeys: [
+        {
+          id: 'S1',
+          name: '1F',
+          elevation: 0,
+          spaces: [],
+          walls: [],
+          openings: [],
+          equipment: [
+            { id: 'e1', name: 'AHU-1', ifcClass: 'UnitaryEquipment', role: 'conversion', position: [0, 0, 0], capacity: null, capacityProperty: null, systemId: null, spaceId: null, spaceSource: null },
+            { id: 'e2', name: 'VAV-1', ifcClass: 'AirTerminalBox', role: 'terminal', position: [1, 0, 0], capacity: null, capacityProperty: null, systemId: null, spaceId: null, spaceSource: null },
+          ],
+        },
+      ],
+    }
+    // 1) Mark 가 없을 때: IDS 불통과, 보고서 missing
+    const reportMissing = requirementsReport(base).find((r) => r.id === 'R25')!
+    expect(idsPass(base)).toBe(false)
+    expect(reportMissing.state === 'standard').toBe(idsPass(base))
+
+    // 2) 일부만 Mark 가 있을 때: IDS 불통과, 보고서 partial
+    const half = structuredClone(base)
+    half.storeys[0].equipment[0].mark = 'M-1'
+    const reportPartial = requirementsReport(half).find((r) => r.id === 'R25')!
+    expect(idsPass(half)).toBe(false)
+    expect(reportPartial.state === 'standard').toBe(idsPass(half))
+
+    // 3) 모든 기기에 고유한 Mark 가 있을 때: IDS 통과, 보고서 standard
+    const full = structuredClone(base)
+    full.storeys[0].equipment[0].mark = 'M-1'
+    full.storeys[0].equipment[1].mark = 'M-2'
+    const reportStd = requirementsReport(full).find((r) => r.id === 'R25')!
+    expect(idsPass(full)).toBe(true)
+    expect(reportStd.state === 'standard').toBe(idsPass(full))
   })
 })

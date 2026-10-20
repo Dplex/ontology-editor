@@ -1,6 +1,6 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import { modelToGeoJSON } from '../lib/export/geojson'
-import { previewSummary, summaryText } from '../lib/preview'
+import { previewSummary, publishBrief, summaryText } from '../lib/preview'
 import { DEFAULT_SITE_RULES, type SiteRules, siteWarnings } from '../lib/site-rules'
 import { currentParts, dirtyKeys } from './autosave'
 import { openedDataPath } from './chat-view'
@@ -157,7 +157,9 @@ export const previewData = computed(() => {
   const m = model.value
   if (!m || !pristine) return null
   const released = assignLines.value.filter((r) => r.released)
-  return { summary: previewSummary(pristine, m, report.value, released.length), moves: report.value.filter((c) => c.fromSpaceId !== c.toSpaceId), released }
+  const dirty = dirtyKeys(currentParts()).filter((k) => m.storeys.some((st) => st.id === k))
+  const summary = previewSummary(pristine, m, report.value, released.length, dirty)
+  return { summary, brief: publishBrief(summary), moves: report.value.filter((c) => c.fromSpaceId !== c.toSpaceId), released }
 })
 export const previewText = computed(() => (previewData.value ? summaryText(previewData.value.summary) : ''))
 /** 규칙 기반 경고의 사이트 설정(OE-P3-01~04). 이 브라우저에 남는다. */

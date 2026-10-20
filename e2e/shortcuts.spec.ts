@@ -74,7 +74,7 @@ test('E 는 보기와 편집을 오간다', async ({ page }) => {
   expect(errors).toEqual([])
 })
 
-test('방향키는 고른 설비를 10cm(Shift 1m) 옮기고, 누른 만큼이 되돌리기 한 번이며, 다시 하기로 돌아온다 [OE-UI-05#1,2]', async ({ page }) => {
+test('방향키는 고른 설비를 10cm(Shift 1m) 옮기고, 누른 만큼이 되돌리기 한 번이며, 다시 하기로 돌아온다 [OE-UI-05#1,2,6]', async ({ page }) => {
   const errors = await open(page)
   await page.keyboard.press('e')
   await pick(page, 'AHU-1')

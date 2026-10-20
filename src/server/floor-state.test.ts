@@ -51,7 +51,7 @@ describe('층마다 임시 저장본', () => {
     expect((await fetch(url('__drafts', { floor: '1F' }), { method: 'PUT', headers: as('A'), body: '{}' })).status).toBe(400)
   })
 
-  it('폐기는 그 층만, 반영 뒤에는 전부 지운다 [OE-WF-04#1~]', async () => {
+  it('폐기는 그 층만, 반영 뒤에는 전부 지운다 [OE-WF-04#1]', async () => {
     await fetch(url('__drafts', { floor: '1F' }), { method: 'DELETE', headers: as('B') })
     expect(Object.keys(await (await fetch(url('__drafts'))).json())).toEqual(['*'])
     await fetch(url('__drafts'), { method: 'DELETE', headers: as('B') })
