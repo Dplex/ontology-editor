@@ -35,6 +35,8 @@ function onClick(e: MouseEvent) {
     <div class="shortcut-help-body">
       <header>
         <h2 id="shortcut-help-title">조작·단축키 안내</h2>
+        <!-- 순서대로 따라 하는 화면 안내는 따로 있다(public/guide/). 상대 경로라 8084·8087 어디서 열어도 같은 판의 가이드다. -->
+        <a class="guide-link" href="./guide/index.html" target="_blank" rel="noopener">사용 가이드 ↗</a>
         <button ref="closeButton" type="button" class="ghost" @click="emit('close')">닫기 <kbd>Esc</kbd></button>
       </header>
       <!-- 마우스가 먼저다 — 처음 쓰는 사람이 찾는 것은 "3D 를 어떻게 돌리나" 다. viewer.ts 의 mouseButtons(왼쪽 이동 · 가운데 확대 · 오른쪽 회전)와
