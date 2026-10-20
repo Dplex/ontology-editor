@@ -1,4 +1,5 @@
-// data/ 에 받아 둔 샘플을 화면에서 고를 수 있게 목록과 파일을 내준다(`/__data/`).
+// data/ 에 받아 둔 샘플(IFC·IDF)을 화면에서 고를 수 있게 목록과 파일을 내준다(`/__data/`). IDF 는 혼자 열어도 공조존이 3D 에 보이고,
+// IFC 와 같이 열면 공조존을 얹는다(idf/attach.ts).
 // 파일마다 "온톨로지를 어디까지 채우는가" 를 미리 잰다(`?profile`). 화면이 목록 옆에 등급 칩으로 보인다.
 //
 // **두 서버가 이 모듈 하나를 같이 쓴다.** dev 서버(vite.config.ts 의 플러그인)와 55 의 정적 서버
@@ -16,6 +17,7 @@ import { join, relative, resolve, sep } from 'node:path'
 import * as WebIFC from 'web-ifc'
 import { importIfcWithMeshes } from '../lib/ifc/import'
 import { profileOf, type Profile } from '../lib/profile'
+import { readIdf } from '../lib/idf/read'
 import { savedEdits } from './saved-edits'
 import { layouts } from './layouts'
 import { users as userStore } from './users'
@@ -25,7 +27,12 @@ import { floorState } from './floor-state'
 import { fbxConverter } from './fbx'
 import { dwgConverter } from './dwg'
 
-type Profiled = { profile: Profile } | { error: string }
+/** IDF 는 등급을 재지 않는다(방·설비 형상이 없다). 목록에 공조존·바닥·설비 수만 보인다. */
+export type IdfSummary = { zones: number; floors: number; equipment: number }
+type Profiled = { profile: Profile } | { idf: IdfSummary } | { error: string }
+
+/** 받아 둔 파일 중 화면이 여는 것. */
+export const isDataFile = (name: string) => /\.(ifc|idf)$/i.test(name)
 
 function codeStamp(libDir: string): string {
   const hash = createHash('sha1')
@@ -80,7 +87,11 @@ function profiler(root: string, libDir: string) {
       })()
       let result: Profiled
       try {
-        result = { profile: profileOf(importIfcWithMeshes(await api, new Uint8Array(readFileSync(file))).model) }
+        if (/\.idf$/i.test(file)) {
+          const idf = readIdf(readFileSync(file, 'utf8'))
+          const floors = new Set(idf.zones.flatMap((z) => z.floors.map((f) => Math.round(f.z * 10) / 10)))
+          result = { idf: { zones: idf.zones.length, floors: floors.size, equipment: idf.equipment.length } }
+        } else result = { profile: profileOf(importIfcWithMeshes(await api, new Uint8Array(readFileSync(file))).model) }
       } catch (e) {
         result = { error: e instanceof Error ? e.message : String(e) }
       }
@@ -117,7 +128,7 @@ export function openSets(root: string): OpenSet[] {
     const paths: string[] = s.paths.filter((p: unknown): p is string => typeof p === 'string')
     const inside = paths.every((p) => {
       const f = resolve(root, p)
-      return f.startsWith(root + sep) && f.toLowerCase().endsWith('.ifc') && existsSync(f)
+      return f.startsWith(root + sep) && isDataFile(f) && existsSync(f)
     })
     return inside && paths.length === s.paths.length ? [{ title: s.title.slice(0, 80), paths }] : []
   })
@@ -136,7 +147,7 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
         ? []
         : d.isDirectory()
         ? list(join(dir, d.name))
-        : d.name.toLowerCase().endsWith('.ifc')
+        : isDataFile(d.name)
           ? [relative(root, join(dir, d.name)).split(sep).join('/')]
           : [],
     )
@@ -210,7 +221,7 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
     }
     const file = resolve(root, path)
     // data/ 밖을 가리키는 경로(../ 등)는 내주지 않는다.
-    if (!file.startsWith(root + sep) || !file.toLowerCase().endsWith('.ifc')) {
+    if (!file.startsWith(root + sep) || !isDataFile(file)) {
       res.statusCode = 404
       res.end()
       return

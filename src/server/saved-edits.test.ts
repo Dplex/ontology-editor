@@ -32,6 +32,7 @@ beforeAll(async () => {
   mkdirSync(join(root, 'sub'))
   writeFileSync(join(root, 'a.ifc'), 'ISO-10303-21;')
   writeFileSync(join(root, 'sub', 'b.ifc'), 'ISO-10303-21;')
+  writeFileSync(join(root, 'z.idf'), 'Version, 24.2;')
   const handle = savedEdits(root)
   server = createServer((req, res) => {
     const [path, query] = (req.url ?? '').split('?')
@@ -62,6 +63,12 @@ describe('8084 에 남기는 편집', () => {
     expect((await put('a.ifc|sub/b.ifc', editFile(1))).status).toBe(200)
     expect((await (await fetch(url('a.ifc'))).json()).equipment).toHaveLength(3)
     expect((await (await fetch(url('a.ifc|sub/b.ifc'))).json()).equipment).toHaveLength(1)
+  })
+
+  it('IDF 만 연 판·IFC 에 IDF 를 덧붙인 판도 열쇠가 된다', async () => {
+    expect((await put('z.idf', editFile(2))).status).toBe(200)
+    expect((await put('a.ifc|z.idf', editFile(1))).status).toBe(200)
+    expect((await (await fetch(url('z.idf'))).json()).equipment).toHaveLength(2)
   })
 
   it('덮어쓰면 앞 판을 history 에 남긴다', async () => {

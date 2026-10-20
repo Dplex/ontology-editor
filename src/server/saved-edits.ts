@@ -93,7 +93,7 @@ export function dataKeyPaths(root: string, key: string): string[] | null {
     return dataKeyPaths(root, rest.join('|'))
   }
   const paths = key.split('|')
-  if (!paths.length || paths.some((p) => !p || !p.toLowerCase().endsWith('.ifc'))) return null
+  if (!paths.length || paths.some((p) => !p || !/\.(ifc|idf)$/i.test(p))) return null
   for (const p of paths) {
     const file = resolve(root, p)
     if (!file.startsWith(root + sep) || !existsSync(file)) return null

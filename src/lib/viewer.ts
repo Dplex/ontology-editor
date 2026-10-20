@@ -2572,7 +2572,16 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
     for (const o of slabs.children) if (o.visible) box.expandByObject(o)
     if (box.isEmpty()) box.setFromObject(content)
+    if (box.isEmpty()) zoneBox(box)
     return box
+  }
+  /**
+   * 방·벽·설비가 하나도 없을 때(IDF 만 연 것) 보이는 공조존 외곽선으로 범위를 잡는다. 없으면 카메라가 원점에 남아 공조존이 화면 구석에
+   * 걸리거나 안 보였다.
+   */
+  function zoneBox(box: Box3) {
+    for (const o of zoneLines.children) if (o.visible) box.expandByObject(o)
+    if (box.isEmpty()) box.setFromObject(zoneLines)
   }
   /** 대상 둘레로 시점을 돌린다(px). 오른쪽으로 끌면 건물이 오른쪽으로 돈다 — 지도식 시점의 오른쪽 드래그와 같은 쪽이다. */
   const ORBIT_RAD_PER_PX = Math.PI / 240
@@ -3725,6 +3734,15 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       for (const part of parts) box.union(part.box)
       const own = new Set(chunks.flatMap((c) => [c.solid, c.faded]))
       for (const child of content.children) if (!own.has(child as Mesh)) box.expandByObject(child)
+      // IDF 만 연 것은 공조존 외곽선뿐이다. 외곽선 선은 setHvacZones 가 나중에 그리므로 모델의 공조존 바닥에서 바로 잰다.
+      if (box.isEmpty()) {
+        const elevation = new Map(model.storeys.map((s) => [s.id, s.elevation]))
+        for (const zone of hvacZonesOf(model)) {
+          const y = elevation.get(zone.storeyId ?? '')
+          if (y === undefined) continue
+          for (const ring of zone.footprint) for (const p of ring) box.expandByPoint(new Vector3(p[0], y, -p[1]))
+        }
+      }
       if (box.isEmpty()) return
       fit(box, false)
     },
@@ -4649,6 +4667,7 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       for (const part of parts) if (!hiddenIds.has(part.id)) box.union(part.box)
       for (const o of slabs.children) if (o.visible) box.expandByObject(o)
       if (box.isEmpty()) box.setFromObject(content)
+      if (box.isEmpty()) zoneBox(box)
       // 밤 다이오라마로 층을 띄우면(여러 층이 보일 때) 건물이 그만큼 높아진다.
       if (!box.isEmpty()) box.max.y += fx.fitHeight()
       if (!box.isEmpty()) fit(box, true, undefined, false)

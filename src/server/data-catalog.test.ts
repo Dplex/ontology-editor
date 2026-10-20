@@ -52,6 +52,23 @@ describe('파일 목록과 검토 화면의 등급 칩', () => {
   }, 120_000)
 })
 
+describe('IDF 도 목록에 보이고 내준다', () => {
+  it('IDF 는 등급 대신 공조존·바닥·설비 수를 내고, 파일을 그대로 내주며, 바로 열기 묶음에도 넣을 수 있다', async () => {
+    const { writeFileSync } = await import('node:fs')
+    copyFileSync('src/lib/idf/fixtures/two-zones.idf', join(root, 'two-zones.idf'))
+    writeFileSync(join(root, 'notes.txt'), 'x')
+    const files = (await (await fetch(`${base}/__data/`)).json()) as { path: string }[]
+    expect(files.map((f) => f.path)).toContain('two-zones.idf')
+    expect(files.map((f) => f.path)).not.toContain('notes.txt')
+    expect(await (await fetch(`${base}/__data/two-zones.idf?profile`)).json()).toEqual({ idf: { zones: 2, floors: 1, equipment: 4 } })
+    expect(await (await fetch(`${base}/__data/two-zones.idf`)).text()).toContain('1F:OFFICE')
+    expect((await fetch(`${base}/__data/notes.txt`)).status).toBe(404)
+    const one = FILES[0].split('/').pop()!
+    writeFileSync(join(root, '.open-sets.json'), JSON.stringify([{ title: 'IFC + IDF', paths: [one, 'two-zones.idf'] }]))
+    expect(await (await fetch(`${base}/__data/__sets`)).json()).toEqual([{ title: 'IFC + IDF', paths: [one, 'two-zones.idf'] }])
+  })
+})
+
 describe('[바로 열기] 묶음(data/.open-sets.json)', () => {
   it('파일이 다 있는 묶음만 내고, data/ 밖·없는 파일·틀린 모양은 뺀다', async () => {
     const { writeFileSync } = await import('node:fs')

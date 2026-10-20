@@ -109,7 +109,8 @@ export const openSetList = ref<{ title: string; paths: string[] }[]>([])
 
 // 파일마다 온톨로지를 어디까지 채우는지. dev 서버가 앱과 같은 임포터로 재서 준다(vite.config.ts).
 // 한 파일에 1초 남짓 걸려서 목록을 먼저 보이고, 요약은 하나씩 채운다.
-type Profiled = { profile: Profile } | { error: string }
+// IDF 는 등급 대신 공조존·바닥·설비 수만 온다.
+type Profiled = { profile: Profile } | { idf: { zones: number; floors: number; equipment: number } } | { error: string }
 export const profiles = ref<Record<string, Profiled>>({})
 
 /** 목록에 보이는 data/ 파일. 등급을 재다 오류가 난(열 수 없는) 파일은 뺀다. 재기 전에는 보인다. */
@@ -119,6 +120,10 @@ export const baseName = (path: string) => path.split('/').pop() ?? path
 export const profileAt = (path: string): Profile | null => {
   const p = profiles.value[path]
   return p && 'profile' in p ? p.profile : null
+}
+export const idfAt = (path: string) => {
+  const p = profiles.value[path]
+  return p && 'idf' in p ? p.idf : null
 }
 const errorAt = (path: string): string => {
   const p = profiles.value[path]

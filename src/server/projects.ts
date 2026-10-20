@@ -9,7 +9,7 @@
 // 목록이 그것으로 건물 수·층 수·층 범위를 보인다. 아직 연 적이 없으면 없다.
 //
 // data/.projects/<id>.json   { id, name, site, paths, createdAt, createdBy, summary? }
-// data/uploads/<시각>-<이름>.ifc   [새 프로젝트]에서 올린 IFC. data/ 목록에도 보인다.
+// data/uploads/<시각>-<이름>.ifc   [새 프로젝트]에서 올린 IFC(같이 올린 IDF 는 .idf). data/ 목록에도 보인다.
 //
 // 경로(`/__data` 아래):
 //   GET  /__projects                      [{ …프로젝트, built, drafts }] — 새것부터
@@ -128,22 +128,22 @@ export function projects(root: string, writer: Writer, now: () => Date = () => n
       const paths = Array.isArray(input.paths) ? input.paths.filter((x): x is string => typeof x === 'string') : []
       if (!name) return json(res, 400, { error: '프로젝트 이름을 넣으세요' })
       if (!site) return json(res, 400, { error: '사이트 이름을 넣으세요' })
-      // 프로젝트는 반드시 IFC 를 쓴다(OE-UI-02 "BIM(IFC 형식) 파일 업로드를 요구한다").
-      if (!paths.length || !dataKeyPaths(root, paths.join('|'))) return json(res, 400, { error: 'IFC 파일을 올리세요' })
+      // 프로젝트는 반드시 IFC 를 쓴다(OE-UI-02 "BIM(IFC 형식) 파일 업로드를 요구한다"). IDF 는 IFC 와 같이 올릴 때만 받는다.
+      if (!paths.some((p) => p.toLowerCase().endsWith('.ifc')) || !dataKeyPaths(root, paths.join('|'))) return json(res, 400, { error: 'IFC 파일을 올리세요' })
       const p: Project = { id: `p${randomBytes(6).toString('hex')}`, name, site, paths, createdAt: now().toISOString(), createdBy: who.name }
       write(p)
       json(res, 200, { ...p, key: projectKey(p), built: null, drafts: [] } satisfies ProjectRow)
     }, res)
   }
 
-  /** IFC 올리기. 몸통을 바로 디스크에 흘려 쓴다(수백 MB 를 메모리에 모으지 않는다). 다 받은 뒤에 이름을 붙여 반쯤 쓴 파일이 목록에 안 보이게 한다. */
+  /** IFC·IDF 올리기. 몸통을 바로 디스크에 흘려 쓴다(수백 MB 를 메모리에 모으지 않는다). 다 받은 뒤에 이름을 붙여 반쯤 쓴 파일이 목록에 안 보이게 한다. */
   function upload(req: IncomingMessage, res: ServerResponse, query: string) {
     if (req.method !== 'POST') return json(res, 405, { error: `${req.method} 은 받지 않습니다` })
     const who = writer(req, res)
     if (!who) return
     const raw = basename(new URLSearchParams(query).get('name') ?? '')
     const safe = raw.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(-80)
-    if (!safe.toLowerCase().endsWith('.ifc') || safe.startsWith('.')) return json(res, 400, { error: 'IFC 파일(.ifc)만 받습니다' })
+    if (!/\.(ifc|idf)$/i.test(safe) || safe.startsWith('.')) return json(res, 400, { error: 'IFC·IDF 파일(.ifc·.idf)만 받습니다' })
     const stamp = now().toISOString().replace(/[-:]/g, '').replace(/\..+$/, '').replace('T', '-')
     const rel = `uploads/${stamp}-${safe}`
     const target = join(root, rel)

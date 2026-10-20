@@ -27,17 +27,18 @@ function toggle(id: string) {
   expanded.value = next
 }
 
-// --- 새 프로젝트(시작 화면 OE-UI-15 ①) — 이름·사이트를 정하고 IFC 를 올리는 것뿐이다. ---
+// --- 새 프로젝트(시작 화면 OE-UI-15 ①) — 이름·사이트를 정하고 IFC 를 올리는 것뿐이다. IDF 는 IFC 와 같이 올리면 공조존을 얹는다 —
+// 프로젝트는 반드시 IFC 를 쓴다(OE-UI-02). ---
 const form = ref<{ name: string; site: string; files: File[] } | null>(null)
 const missing = computed(() => {
   const f = form.value
   if (!f) return ''
-  const need = [!f.name.trim() && '프로젝트 이름', !f.site.trim() && '사이트 이름', !f.files.length && 'IFC 파일'].filter(Boolean)
+  const need = [!f.name.trim() && '프로젝트 이름', !f.site.trim() && '사이트 이름', !f.files.some((x) => /\.ifc$/i.test(x.name)) && 'IFC 파일'].filter(Boolean)
   return need.length ? `${need.join(' · ')}을(를) 입력해 주세요` : ''
 })
 function pickFiles(e: Event) {
   if (!form.value) return
-  form.value = { ...form.value, files: Array.from((e.target as HTMLInputElement).files ?? []).filter((f) => f.name.toLowerCase().endsWith('.ifc')) }
+  form.value = { ...form.value, files: Array.from((e.target as HTMLInputElement).files ?? []).filter((f) => /\.(ifc|idf)$/i.test(f.name)) }
 }
 function submit() {
   const f = form.value
@@ -106,9 +107,9 @@ const pickBuildings = computed(() => (picking.value ? buildingsOf(picking.value)
         <label>사이트 이름 <input v-model="form.site" type="text" maxlength="100" aria-label="사이트 이름" /></label>
         <label class="pick">
           IFC 파일 올리기
-          <input type="file" accept=".ifc" multiple aria-label="IFC 파일" @change="pickFiles" />
+          <input type="file" accept=".ifc,.idf" multiple aria-label="IFC 파일" @change="pickFiles" />
         </label>
-        <span class="muted">{{ form.files.length ? form.files.map((f) => f.name).join(' + ') : '건축·설비 파일이 나뉘어 있으면 함께 선택하세요' }}</span>
+        <span class="muted">{{ form.files.length ? form.files.map((f) => f.name).join(' + ') : '건축·설비 파일이 나뉘어 있으면 함께 선택하세요. IDF 도 같이 고르면 공조존을 얹습니다' }}</span>
         <button type="submit" class="pick" :disabled="!!missing || busy" :title="missing || (busy ? '올리는 중입니다' : '')">만들기</button>
         <button type="button" class="ghost" @click="form = null">취소</button>
       </form>
