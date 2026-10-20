@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, pickEquipment, enterEdit } from './edit-part'
 
 // 평면도 탭. 층 하나를 위에서 그리고, 편집 모드에서 방 꼭짓점을 끌면 3D 에서 놓는 것과 같은 길(dropVertex)로 경계를 고친다.
 const FIXTURE = 'src/lib/ifc/fixtures/two-rooms.ifc'
@@ -11,14 +11,14 @@ test('평면도 탭은 고른 층을 위에서 그리고, 편집 모드에서 �
   await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible({ timeout: 30_000 })
 
   // 파일을 열면 방이 있는 가장 낮은 층(1F)만 보인다(OE-UI-12). 평면도도 바로 그 층을 그린다.
-  await expect(page.getByRole('combobox', { name: '보일 층' }).locator('option:checked')).toHaveText('1F만')
+  await expect(page.getByRole('combobox', { name: '보일 층' }).locator('option:checked')).toHaveText('1F')
   await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '평면도' }).click()
   const plan = page.getByRole('img', { name: '1F 평면도' })
   await expect(plan).toBeVisible()
   // "모든 층" 이면 평면도는 그리지 않고 층을 고르라고 한다.
   await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '모든 층' })
   await expect(page.locator('.plan-empty')).toBeVisible()
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
   await expect(plan).toBeVisible()
   const rooms = plan.locator('.spaces polygon')
   expect(await rooms.count()).toBeGreaterThan(0)
@@ -29,7 +29,7 @@ test('평면도 탭은 고른 층을 위에서 그리고, 편집 모드에서 �
   await expect(page.locator('.space-picked')).toBeVisible()
   await expect(page.locator('.space-picked .hint')).toHaveCount(0)
 
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
   await expect(plan.locator('.handle').first()).toBeVisible()
   const handle = plan.locator('.handle').nth(1)
@@ -55,9 +55,9 @@ test('평면도를 보는 동안 한 편집이 바로 그려지고, 층을 옮�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(['src/lib/ifc/fixtures/mep.ifc', FIXTURE])
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await enterEdit(page)
+  await pickEquipment(page, 'AHU-1')
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
   await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '평면도' }).click()
   const dot = page.locator('svg.floor-plan circle.chosen')
   const cx = async () => Number(await dot.getAttribute('cx'))
@@ -68,7 +68,7 @@ test('평면도를 보는 동안 한 편집이 바로 그려지고, 층을 옮�
   await expect.poll(async () => Math.hypot((await cx()) - x0, (await cy()) - y0)).toBeCloseTo(1, 1)
 
   await page.keyboard.press('PageUp')
-  await expect(page.getByRole('combobox', { name: '보일 층' }).locator('option:checked')).toHaveText('2F만')
+  await expect(page.getByRole('combobox', { name: '보일 층' }).locator('option:checked')).toHaveText('2F')
   await expect(page.getByRole('img', { name: '2F 평면도' }).locator('circle.chosen')).toHaveCount(1)
 })
 
@@ -77,9 +77,9 @@ test('설비를 고른 채 평면도의 방을 누르면 패널이 그 방으로
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(['src/lib/ifc/fixtures/mep.ifc', FIXTURE])
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await expect(page.locator('.picked h3')).toHaveText('AHU-1')
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
   await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '평면도' }).click()
   const room = page.getByRole('img', { name: '1F 평면도' }).locator('.spaces polygon').first()
   await room.click({ force: true })
@@ -106,7 +106,7 @@ test('병원 건축: 평면도에서 고른 방·설비가 패널에 뜨고, 패
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(CLINIC)
   await expect(page.locator('.appbar h2')).toHaveText('NBU_MedicalClinic_Arch.ifc', { timeout: 120_000 })
-  await storeyBox(page).selectOption({ label: 'Second Floor만' })
+  await storeyBox(page).selectOption({ label: 'Second Floor' })
   await tab(page, '평면도')
   const plan2 = page.getByRole('img', { name: 'Second Floor 평면도' })
   await expect(plan2.locator('.spaces polygon')).toHaveCount(106)
@@ -120,7 +120,7 @@ test('병원 건축: 평면도에서 고른 방·설비가 패널에 뜨고, 패
   await expect(plan2.locator('circle.chosen')).toHaveAttribute('data-equipment', deviceId)
 
   // 1층으로 간다. 고른 설비가 다른 층이라 평면도에는 골라진 점이 없다.
-  await storeyBox(page).selectOption({ label: 'First Floor만' })
+  await storeyBox(page).selectOption({ label: 'First Floor' })
   const plan = page.getByRole('img', { name: 'First Floor 평면도' })
   await expect(plan.locator('.spaces polygon')).toHaveCount(154)
   expect(await plan.locator('.walls polygon').count()).toBeGreaterThanOrEqual(656)
@@ -149,14 +149,10 @@ test('병원 건축: 평면도에서 고른 방·설비가 패널에 뜨고, 패
   await expect(plan.locator('.spaces polygon.chosen')).toHaveCount(0)
   // 패널의 [선택 해제] 도 평면도에서 푼다.
   await room.click({ force: true })
-  await page.locator('.space-picked').getByRole('button', { name: '선택 해제' }).click()
+  await page.locator('.shell-sel .side-clear').click()
   await expect(plan.locator('.spaces polygon.chosen')).toHaveCount(0)
 
-  // 목록에서 2층 설비를 고르면 평면도가 2층으로 바뀌고 그 점이 골라진다.
-  await page.locator('input[type=search]').fill(device)
-  await page.locator('.equipment tbody tr', { hasText: device }).first().getByRole('button', { name: device, exact: true }).click()
-  await expect(storeyBox(page).locator('option:checked')).toHaveText('Second Floor만')
-  await expect(plan2.locator('circle.chosen')).toHaveAttribute('data-equipment', deviceId)
+  // (예전 3D 아래 설비 표는 파일 전체라 다른 층 설비를 고르면 그 층으로 갔다. 층 현황은 지금 층만 싣는다 — #715 에서 그 길이 빠졌다.)
   expect(errors).toEqual([])
 })
 
@@ -186,17 +182,17 @@ test('Duplex 건축: 내력벽은 밝은·어두운 테마 모두 보통 벽보�
   const fdn = page.getByRole('img', { name: 'T/FDN 평면도' })
   const plan = page.getByRole('img', { name: 'Level 1 평면도' })
   const measure = async () => {
-    await storeyBox(page).selectOption({ label: 'T/FDN만' })
+    await storeyBox(page).selectOption({ label: 'T/FDN' })
     await expect(fdn.locator('.walls polygon.bearing').first()).toBeVisible()
     expect(await fdn.locator('.walls polygon:not(.bearing)').count()).toBe(0)
     const bearing = await contrast(page, 'svg.floor-plan .walls polygon.bearing')
-    await storeyBox(page).selectOption({ label: 'Level 1만' })
+    await storeyBox(page).selectOption({ label: 'Level 1' })
     await expect(plan.locator('.walls polygon').first()).toBeVisible()
     expect(await plan.locator('.walls polygon.bearing').count()).toBe(0)
     return { bearing, plain: await contrast(page, 'svg.floor-plan .walls polygon') }
   }
   // 기초 층(T/FDN)은 벽 7개가 전부 내력벽이고, 1층은 하나도 없다.
-  await storeyBox(page).selectOption({ label: 'T/FDN만' })
+  await storeyBox(page).selectOption({ label: 'T/FDN' })
   await tab(page, '평면도')
   const light = await measure()
   await page.locator('button.theme').first().click()
@@ -213,7 +209,7 @@ test('Duplex 건축: 내력벽은 밝은·어두운 테마 모두 보통 벽보�
   await wall.click({ force: true })
   await expect(page.locator('.element-picked')).toHaveCount(0)
   await tab(page, '3D')
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   // 편집 모드여도 [벽·문·창] 을 켜기 전에는 고르지 않는다.
   await tab(page, '평면도')
   await wall.click({ force: true })

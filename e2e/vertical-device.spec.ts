@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { countByLabel, enterEdit, pickEquipment, xOf } from './edit-part'
 
 // 엘리베이터·에스컬레이터는 수직 관통 오브젝트라 층 편집 화면에서는 고르고 보기만 한다(OE-EQP-07 · OE-ML-05). 끌어도 움직이지 않고,
 // 지우기·좌표 칸이 없으며, [다중층 뷰에서 편집] 을 안내한다. 종류는 고칠 수 있다(이름 사전이 잘못 읽은 것을 풀 길).
@@ -11,9 +12,8 @@ test('엘리베이터·에스컬레이터는 층 편집 화면에서 옮기거�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const row = page.locator('.equipment tbody tr', { hasText: 'AHU-1' })
-  await row.getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await enterEdit(page)
+  await pickEquipment(page, 'AHU-1')
   const kind = page.locator('.kind-edit select')
   await kind.selectOption('elevator')
 
@@ -26,26 +26,27 @@ test('엘리베이터·에스컬레이터는 층 편집 화면에서 옮기거�
   await expect(kind).toHaveValue('elevator')
 
   // 3D 에서 끌어도 그대로다.
-  const x = row.locator('.coord').first()
-  const before = await x.inputValue()
+  // 위치 칸이 없으니 3D 형상 가운데로 잰다(예전에는 설비 표의 좌표 칸).
+  const x = () => xOf(page, 'AHU-1')
+  const before = await x()
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const at = await page.evaluate((id) => (window as any).__viewer.part(id), AHU)
   await page.mouse.move(at.x, at.y)
   await page.mouse.down()
   await page.mouse.move(at.x + 80, at.y + 20, { steps: 6 })
   await page.mouse.up()
-  await expect(x).toHaveValue(before)
+  expect(await x()).toBe(before)
   // Delete 도 막힌다.
   await page.keyboard.press('Delete')
-  await expect(row).toHaveCount(1)
+  await expect.poll(() => countByLabel(page, /^AHU-1$/)).toBe(1)
 
   // 에스컬레이터도 같다.
   await kind.selectOption('escalator')
   await expect(lock).toContainText('수직 관통 오브젝트라 층 편집 화면에서는 옮기거나 지우지 않습니다')
   await expect(page.locator('.position-edit')).toHaveCount(0)
   await page.keyboard.press('Delete')
-  await expect(row).toHaveCount(1)
-  await expect(x).toHaveValue(before)
+  await expect.poll(() => countByLabel(page, /^AHU-1$/)).toBe(1)
+  expect(await x()).toBe(before)
 
   // 종류를 공조기로 되돌리면 다시 고칠 수 있다.
   await kind.selectOption('ahu')

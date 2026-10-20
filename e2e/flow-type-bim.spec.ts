@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { pickEquipment, enterEdit } from './edit-part'
 
 // BIM 배관의 Flow Type(OE-PIP-14). mep.ifc 의 DUCT-01 은 "AHU-1 급기 계통" 덕트라 계산하면 SA 다. 편집에서 구간마다 고칠 수 있다.
 test('BIM 덕트를 고르면 계통으로 계산한 Flow Type 이 출처와 함께 보이고, 편집에서 고르면 바뀌며 Ctrl+Z 로 돌아온다 [OE-PIP-14#1~]', async ({ page }) => {
@@ -7,16 +8,16 @@ test('BIM 덕트를 고르면 계통으로 계산한 Flow Type 이 출처와 함
   await page.goto('/')
   await page.locator('input[type=file]').first().setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  const pick = () => page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button', { name: 'DUCT-01', exact: true }).click()
+  const pick = () => pickEquipment(page, 'DUCT-01')
   await pick()
   const row = page.getByTestId('flow-type-row')
   await expect(row).toContainText('SA 급기')
   await expect(row.locator('.src')).toHaveText('계산')
   // 기기에는 Flow Type 줄이 없다.
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await expect(row).toHaveCount(0)
 
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await pick()
   const select = row.getByLabel('구간 Flow Type')
   await expect(select.locator('option').first()).toHaveText('계산: SA 급기')

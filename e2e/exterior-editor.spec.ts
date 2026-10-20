@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, enterEdit } from './edit-part'
 
 // 외벽 에디터(OE-EXT-03). 층 편집 화면에서 잠긴 외벽(OE-EXT-02)을, 외벽 에디터를 켜면 다른 층에서 같은 면에 쌓인 외벽까지 묶어 함께 옮긴다.
 // Duplex 건축(gitignore)은 4개 층에 외벽 23개가 쌓여 있고 그중 7개가 내력벽이다.
@@ -14,7 +14,7 @@ async function planPoints(page: Page, storeys: string[], ids: string[]) {
   const out: Record<string, number[][]> = {}
   const parse = (raw: string) => raw.trim().split(/\s+/).map((p) => p.split(',').map(Number))
   for (const name of storeys) {
-    await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: `${name}만` })
+    await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: name })
     await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '평면도' }).click()
     const all = page.locator('svg.floor-plan polygon[data-wall]')
     const n = await all.count()
@@ -39,7 +39,7 @@ test('외벽 에디터에서 외벽을 옮기면 같은 면에 쌓인 다른 층
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toHaveText('NBU_Duplex-Apt_Arch.ifc', { timeout: 90_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.getByTestId('exterior-editor').click()
@@ -53,7 +53,8 @@ test('외벽 에디터에서 외벽을 옮기면 같은 면에 쌓인 다른 층
   // 화면 방향이 벽 면에 수직이 아니면 벽 길이 방향으로 미끄러져 모서리 벽을 가로지를 수 있어(그러면 옮기지 않는다) 두 방향을 시도한다.
   const panel = page.locator('.element-picked')
   const group = panel.getByTestId('facade-group')
-  const bar = page.locator('.edit-bar')
+  // 마지막 편집 이름은 아래 상태줄에 있다.
+  const bar = page.getByTestId('status-bar')
   const ids = (await page.evaluate(() => (window as any).__viewer.elements())) as string[]
   let walls: string[] = []
   let storeys: string[] = []
@@ -94,7 +95,7 @@ test('외벽 에디터에서 외벽을 옮기면 같은 면에 쌓인 다른 층
   // 되돌리기 한 번에 모든 층이 돌아온다. 돌아온 자리와 옮긴 자리의 차가 층마다 같은 10cm 다.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   const before = await planPoints(page, storeys, walls)
   for (const id of walls) {
     const shift = after[id].map((p, i) => Math.hypot(p[0] - before[id][i][0], p[1] - before[id][i][1]))

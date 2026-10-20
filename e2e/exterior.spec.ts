@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, enterEdit } from './edit-part'
 
 // 외벽 판정(OE-EXT-01)을 화면에서 본다. mep.ifc 에는 벽이 없어서 벽을 긋는다 — 그은 벽은 IsExternal 이 없으니
 // 건물 바깥에 닿는지로 계산되고, 패널에 [계산] 출처가 붙는다. 바닥 자리는 e2e 모드의 window.__viewer.point 로 묻는다.
@@ -16,7 +16,7 @@ test('그은 벽은 방 사이면 내벽, 건물 밖이면 외벽으로 계산�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
 

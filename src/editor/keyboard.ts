@@ -90,6 +90,8 @@ function onKeyUp(e: KeyboardEvent) {
 
 function onKey(e: KeyboardEvent) {
   if (e.isComposing || !model.value) return
+  // 열린 대화상자(편집 종료 확인 등) 안의 키는 그 대화상자 몫이다. Esc 를 선택 해제가 먼저 받아 막으면 대화상자가 닫히지 않았다.
+  if (e.target instanceof Element && e.target.closest('dialog[open]')) return
   if (replayOpen.value) {
     if (replay.key(e)) e.preventDefault()
     return

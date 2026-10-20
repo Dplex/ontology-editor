@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { coordOf, pickEquipment, toEquipment, toSpace, enterEdit } from './edit-part'
 
 // 스냅(OE-UI-06)과 그리드 정렬(OE-UI-07)을 실제 마우스로 본다. mep.ifc 1F 사무실(0~10 × 0~8), 벽은 없다.
 // 계산(우선순위·반경)은 snap.test.ts 가 본다. 여기서는 그리기에서 찍은 점, 마우스 아래 표시, 끄기의 보정을 본다.
@@ -26,7 +26,7 @@ async function open(page: Page) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   return errors
 }
@@ -99,13 +99,13 @@ test('스냅을 켜면 사무실 변·꼭짓점 가까이 찍은 점이 거기 �
   expect(errors).toEqual([])
 })
 
-const row = (page: Page, name: string) => page.locator('.equipment tbody tr', { hasText: name }).last()
-const coord = (page: Page, name: string, axis: number) => row(page, name).locator('.coord').nth(axis)
+// 고른 설비의 위치 칸(오른쪽 위 선택 카드). 이 파일은 AHU-1 하나만 고른다.
+const coord = (page: Page, _name: string, axis: number) => coordOf(page, axis)
 
 test('그리드를 켜기만 해서는 어긋난 설비가 그대로이고, 끌어 옮기면 그때부터 배치점이 교점으로 간다 [OE-UI-07#2,3]', async ({ page }) => {
   const errors = await open(page)
   await toEquipment(page)
-  await row(page, 'AHU-1').getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await settle(page)
   // 그리드에 어긋난 자리로 옮겨 둔다(좌표 칸).
   for (const [axis, v] of [[0, '4.37'], [1, '2.61']] as const) {
@@ -114,15 +114,15 @@ test('그리드를 켜기만 해서는 어긋난 설비가 그대로이고, 끌�
   }
   await expect(coord(page, 'AHU-1', 0)).toHaveValue('4.37')
 
-  // 편집 막대에서 그리드를 켠다(1m). 놓인 설비는 그대로다.
-  const bar = page.locator('.edit-bar')
+  // 아래 뷰 컨트롤에서 그리드를 켠다(1m). 놓인 설비는 그대로다.
+  const bar = page.locator('.bottom-view-dock')
   await bar.getByLabel('그리드 간격(m)').fill('1')
   await bar.getByLabel('그리드 간격(m)').press('Tab')
   await bar.getByLabel('그리드 정렬').check()
   await settle(page)
   await expect(coord(page, 'AHU-1', 0)).toHaveValue('4.37')
   await expect(coord(page, 'AHU-1', 1)).toHaveValue('2.61')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   // 좌표 칸에 넣느라 페이지가 내려가 있다. 캔버스를 화면 안으로 올린 뒤 화면 좌표를 잰다.
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
@@ -144,7 +144,7 @@ test('그리드를 켜기만 해서는 어긋난 설비가 그대로이고, 끌�
 test('그리드·스냅을 켜고 물리존 꼭짓점을 끌면 놓는 자리가 교점으로 간다', async ({ page }) => {
   const errors = await open(page)
   await toSpace(page)
-  const bar = page.locator('.edit-bar')
+  const bar = page.locator('.bottom-view-dock')
   await bar.getByLabel('그리드 간격(m)').fill('1')
   await bar.getByLabel('그리드 간격(m)').press('Tab')
   await bar.getByLabel('그리드 정렬').check()

@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { enterEdit, pickEquipment } from './edit-part'
 
 // 흐름 경로(OE-ML-16). 고른 기기에서 확정한 방향만 따라 닿는 원천·말단을 경로와 함께 나열한다. mep.ifc: AHU-1 → DUCT-01 → AT-101-01·02(포트 방향).
 test('원천이 여럿이면 모두 경로와 함께 보이고, 대체 경로는 갈래 수로, 순환은 따로 알린다 [OE-ML-16#3]', async ({ page }) => {
@@ -7,8 +8,8 @@ test('원천이 여럿이면 모두 경로와 함께 보이고, 대체 경로는
   await page.goto('/')
   await page.locator('input[type=file]').first().setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const pickRow = (name: string) => page.locator('.equipment tbody tr', { hasText: name }).getByRole('button', { name, exact: true })
+  await enterEdit(page)
+  const pickRow = (name: string) => ({ click: () => pickEquipment(page, name) })
   const routes = page.getByTestId('trace-routes')
   const neighbor = (name: string) => page.locator('.picked .neighbors tr', { hasText: name })
   const connect = async (other: string) => {

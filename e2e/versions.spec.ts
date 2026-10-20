@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
+import { openDrawer } from './edit-part'
 
 // 판본 비교(PRD #6, 요구사항 R13). mep-v2.ifc 는 mep.ifc 를 다시 내보낸 판본이다 — 사무실·공조기 GUID 가 바뀌고,
 // 토출구 하나가 2m 옮겨지고, 센서가 빠지고, 토출구 하나가 더해졌다.
@@ -11,6 +12,7 @@ test('이전 판본을 열면 바뀐 것을 보이고, R13 을 잰다 [OE-BIM-19
   await expect(page.getByRole('heading', { name: 'mep-v2.ifc' })).toBeVisible({ timeout: 30_000 })
 
   // 비교 전에는 R13 을 잴 수 없다.
+  await openDrawer(page)
   await page.getByRole('button', { name: /^요구사항/ }).click()
   const r13 = page.locator('.req-table tr', { hasText: 'R13' })
   await expect(r13).toContainText('측정 불가')
@@ -49,6 +51,8 @@ test('이전 판본을 열면 바뀐 것을 보이고, R13 을 잰다 [OE-BIM-19
   await moved.getByRole('button').click()
   await expect(page.locator('.picked h3')).toHaveText('AT-101-02')
 
+  // 드로어 목록에서 고르면 드로어가 닫힌다(결과를 3D 에 보인다). 다시 연다.
+  await openDrawer(page)
   await page.getByRole('tab', { name: /없어진 설비/ }).click()
   await expect(page.locator('.version-rows')).toContainText('TEMP-101-01')
   await page.getByRole('tab', { name: /새 설비/ }).click()
@@ -66,6 +70,7 @@ test('이전 판본과 층 높이가 단위 배수로 다르면 경고하고 R6 
   await page.locator('input[type=file]').first().setInputFiles({ name: 'wrong-unit.ifc', mimeType: 'application/octet-stream', buffer: Buffer.from(wrong, 'latin1') })
   await expect(page.getByRole('heading', { name: 'wrong-unit.ifc' })).toBeVisible({ timeout: 30_000 })
 
+  await openDrawer(page)
   await page.getByRole('button', { name: /^요구사항/ }).click()
   const r6 = page.locator('.req-table tr', { hasText: 'R6' })
   await expect(r6).toContainText('길이 단위가 선언되어 있습니다')

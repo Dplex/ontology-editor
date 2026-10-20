@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, pickEquipment, enterEdit, idByName } from './edit-part'
 
 // 설비 더하기·이름·지우기(E7)와 물리존 그리기·나누기·합치기·지우기(E3)를 실제 마우스로 한다. 3D 의 바닥 자리는
 // e2e 모드에서만 열리는 window.__viewer.point 로 묻는다(viewer.ts).
@@ -11,7 +11,7 @@ async function open(page: Page) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   return errors
@@ -57,19 +57,18 @@ test('설비를 바닥에 더하고, 이름을 고치고, 지우고, Ctrl+Z 로 
 
 test('BIM 설비를 지우면 붙은 연결도 빠지고, 되돌리면 연결까지 돌아온다', async ({ page }) => {
   const errors = await open(page)
-  const row = page.locator('.equipment tbody tr', { hasText: 'DUCT-01' })
-  await row.getByRole('button', { name: 'DUCT-01', exact: true }).click()
+  await pickEquipment(page, 'DUCT-01')
   const picked = page.locator('.picked')
   const neighbors = picked.locator('table.neighbors tr')
   const before = await neighbors.count()
   expect(before).toBeGreaterThan(0)
   await picked.getByRole('button', { name: '설비 지우기' }).click()
   await expect(page.locator('.report')).toContainText('설비 DUCT-01을 지웠습니다')
-  await expect(page.locator('.equipment tbody tr', { hasText: 'DUCT-01' })).toHaveCount(0)
+  await expect.poll(() => idByName(page, 'DUCT-01')).toBeNull()
 
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
-  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button', { name: 'DUCT-01', exact: true }).click()
+  await pickEquipment(page, 'DUCT-01')
   await expect(picked.locator('table.neighbors tr')).toHaveCount(before)
   expect(errors).toEqual([])
 })

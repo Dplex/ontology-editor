@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openFileMenu, pickEquipment } from './edit-part'
 
 // 편집 리플레이의 조작이 서로 겹칠 때. 각 조작은 이력을 되돌리거나 다시 해서 상태를 옮기는데, 하나가 아직 끝나지 않았을 때 다른
 // 것이 끼면 이력이 한 칸 어긋날 수 있다. 어긋나면 닫았을 때 편집한 상태가 아니게 된다 — 그래서 끝에 늘 닫고 다시 견준다.
@@ -12,7 +13,7 @@ async function openReplay(page: Page) {
   await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.keyboard.press('e')
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   // 묶이지 않게 간격을 두고 두 번(되돌리기 두 단계).
   await page.keyboard.press('Shift+ArrowRight')
@@ -41,6 +42,7 @@ async function drag(page: Page, hud: ReturnType<Page['locator']>, from: number, 
   await page.mouse.up()
 }
 async function ttl(page: Page) {
+  await openFileMenu(page)
   const [d] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()])
   return (await import('node:fs')).readFileSync((await d.path())!, 'utf8')
 }

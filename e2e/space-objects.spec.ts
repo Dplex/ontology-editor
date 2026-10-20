@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, enterEdit } from './edit-part'
 
 // 추가 공간 오브젝트(OE-OBJ-09 · OE-SPC-14 · OE-SPC-15 · OE-SPC-16 · OE-P3-08). 팔레트의 라이브러리에서 항목을 골라 바닥을 누르면
 // 놓이고, 다른 오브젝트와 겹치는 놓기·끌기·키우기는 막혀 상대가 붉게 짚이며 오브젝트는 원래 자리에 남는다. 넣은 glb 는 라이브러리
@@ -26,14 +26,14 @@ test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(FIXTURE)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
 
   // 라이브러리(OE-SPC-16): 내장 항목 17개(ADR-0016)
-  await page.getByRole('button', { name: /^오브젝트/ }).click()
+  await page.locator('button.objects-toggle').click()
   await expect(page.locator('.object-library .ghost:not(.object-import)')).toHaveCount(17)
 
   // 책상을 (3, 2)에 놓는다
@@ -41,7 +41,7 @@ test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기�
   const panel = page.locator('.object-picked')
   await expect(panel.locator('h3')).toHaveText('책상 1')
   await expect(panel).toContainText('3.00, 2.00')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   // 책상과 겹치는 자리에는 의자를 놓지 못한다. 막은 상대(책상)가 붉게 그려지고 안내가 뜨며 놓이지 않는다 [OE-SPC-15#1]
   await place(page, '의자', 3.2, 2.1)
@@ -72,7 +72,7 @@ test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기�
   await page.mouse.down()
   await page.mouse.move(free.x, free.y, { steps: 8 })
   await page.mouse.up()
-  await expect(page.locator('.edit-bar')).toContainText('의자 1 옮김')
+  await expect(page.getByTestId('last-edit')).toContainText('의자 1 옮김')
   await expect(panel).toContainText('4.50, 3.00')
 
   // 책상을 골라 가로를 키운다. 의자까지 닿게 키우면 막힌다
@@ -81,8 +81,8 @@ test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기�
   await expect(panel.locator('h3')).toHaveText('책상 1')
   await panel.getByTestId('object-size-0').fill('1.6')
   await panel.getByTestId('object-size-0').press('Enter')
-  await expect(page.locator('.edit-bar')).toContainText('책상 1 크기')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  await expect(page.getByTestId('last-edit')).toContainText('책상 1 크기')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 2건')
   // 세로 2m 는 의자(4.5, 3)에 안 닿는다. 그다음 가로 3.5m 는 의자에 닿아 막힌다.
   await panel.getByTestId('object-size-1').fill('2')
   await panel.getByTestId('object-size-1').press('Enter')
@@ -103,7 +103,7 @@ test('라이브러리에서 골라 놓고, 겹치는 놓기·끌기·키우기�
   const ids = await objects(page)
   const box = (await page.evaluate((x) => (window as any).__viewer.objectBox(x), ids[2])) as { min: number[]; max: number[] }
   expect(box.max[1] - box.min[1]).toBeCloseTo(1.1, 2)
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 3건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 3건')
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.waitForTimeout(1800) // 막힌 상대의 붉은 표시가 사라진 뒤
   await page.screenshot({ path: 'test-results/space-objects.png' })

@@ -1,12 +1,14 @@
 import { expect, test, type Page } from '@playwright/test'
+import { coordOf, enterEdit, openFileMenu, openRailPanel, panClear, pickEquipment, pickSpace, toEquipment } from './edit-part'
 import { readFileSync } from 'node:fs'
 
-// 수동 공조존(OE-ZON-01·02). 편집 화면의 "공조존" 에서 담당 물리존을 골라 만들거나 경계를 그려 만들고, 담당 설비를 고르면 TTL 에서 그 설비가
+// 수동 공조존(OE-ZON-01·02). 공간 편집 레일의 펼침 칸 "공조존"(설비 편집 모드에서는 닫힌다)에서 담당 물리존을 골라 만들거나 경계를 그려 만들고, 담당 설비를 고르면 TTL 에서 그 설비가
 // 공조존을 feeds 한다(계통도의 서비스 영역). mep.ifc 의 1F 사무실은 (0..10 × 0..8)이다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 const ROOMS = 'src/lib/ifc/fixtures/two-rooms.ifc'
 
 async function ttlOf(page: Page, out: string): Promise<string> {
+  await openFileMenu(page)
   const [d] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()])
   await d.saveAs(out)
   return readFileSync(out, 'utf8')
@@ -21,8 +23,10 @@ test('담당 물리존을 골라 공조존을 만들고 담당 설비를 고르�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
 
+  await openRailPanel(page, '공조존')
+  await panClear(page)
   const fold = page.getByTestId('hvac-zones')
   const head = fold.locator('.fold-head')
   if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
@@ -60,7 +64,7 @@ test('담당 물리존을 골라 공조존을 만들고 담당 설비를 고르�
   // 지우고 Ctrl+Z 로 되돌린다.
   await zone.nth(2).getByRole('button', { name: '지우기' }).click()
   await expect(zone).toHaveCount(2)
-  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.locator('.appbar h2').click()
   await page.keyboard.press('Control+z')
   await expect(zone).toHaveCount(3)
   expect(errors).toEqual([])
@@ -72,7 +76,9 @@ test('공조존 검증이 공백·중복·설비 미지정을 보이고, 담당 
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  await openRailPanel(page, '공조존')
+  await panClear(page)
   const fold = page.getByTestId('hvac-zones')
   const checks = fold.getByTestId('zone-checks')
   await expect(checks).toContainText('공조존이 아직 없는 층은 Z-01 을 세지 않습니다: 1F')
@@ -107,7 +113,9 @@ test('공조존 경계를 다시 그리면 넓이와 담당 물리존 몫이 바
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  await openRailPanel(page, '공조존')
+  await panClear(page)
   const fold = page.getByTestId('hvac-zones')
   await fold.getByLabel('사무실').check()
   await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
@@ -123,10 +131,12 @@ test('공조존 경계를 다시 그리면 넓이와 담당 물리존 몫이 바
   }
   await page.keyboard.press('Enter')
   await expect(page.locator('.key-note')).toContainText('공조존 1의 경계를 다시 그렸습니다')
-  await expect(zone).toContainText('40.0㎡')
-  await expect(zone.getByRole('button', { name: '사무실 50% ×' })).toBeVisible()
+  // 찍은 자리는 화면 픽셀로 정해져 몇 cm 어긋난다(40.0 ± 0.5㎡).
+  const area = Number(/· ([\d.]+)㎡/.exec(await zone.innerText())?.[1])
+  expect(Math.abs(area - 40)).toBeLessThan(0.5)
+  await expect(zone.getByRole('button', { name: /^사무실 (49|50|51)% ×$/ })).toBeVisible()
 
-  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.locator('.appbar h2').click()
   await page.keyboard.press('Control+z')
   await expect(zone).toContainText('80.0㎡')
   await expect(zone.getByRole('button', { name: '사무실 ×' })).toBeVisible()
@@ -139,7 +149,7 @@ test('담당 설비의 흐름이 닿는 물리존이 후보로 보이고, 담당
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   const floor = async (x: number, y: number) => {
     const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
     await page.mouse.click(at.x, at.y)
@@ -153,6 +163,7 @@ test('담당 설비의 흐름이 닿는 물리존이 후보로 보이고, 담당
   await floor(2, 7.5)
   await expect(page.locator('.report')).toContainText('사무실-2')
 
+  await openRailPanel(page, '공조존')
   const fold = page.getByTestId('hvac-zones')
   await fold.getByLabel('사무실-2', { exact: true }).check()
   await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
@@ -169,18 +180,21 @@ test('담당 설비의 흐름이 닿는 물리존이 후보로 보이고, 담당
 })
 
 test('설비 패널에서 담당 공조존을 더하고 빼며, 흐름이 닿는 물리존으로 새 공조존을 만든다 (OE-ZON-01) [OE-ZON-04#2~]', async ({ page }) => {
-  const AHU = '0MEP$Equip$AHU1$0000'
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  // 설비 패널의 담당 공조존 칸은 설비 편집에, 공조존 목록은 공간 편집 레일의 공조존 칸에 있다. 둘을 오간다.
   const pickAhu = async () => {
-    await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
-    const at = await page.evaluate((id) => (window as any).__viewer.part(id), AHU)
-    await page.mouse.click(at.x, at.y)
+    await toEquipment(page)
+    await pickEquipment(page, 'AHU-1')
     await expect(page.locator('.picked h3')).toHaveText('AHU-1')
+  }
+  const zones = async () => {
+    await openRailPanel(page, '공조존')
+    return page.getByTestId('hvac-zones').locator('.zone-list li[data-zone]')
   }
   await pickAhu()
   const panel = page.getByTestId('served-zones')
@@ -188,27 +202,27 @@ test('설비 패널에서 담당 공조존을 더하고 빼며, 흐름이 닿는
   await panel.getByRole('button', { name: '흐름이 닿는 물리존으로 새 공조존 (사무실)' }).click()
   await expect(page.locator('.key-note')).toContainText('담당 물리존은 AHU-1의 흐름이 닿는 사무실입니다')
   await expect(panel.getByRole('button', { name: '공조존 1 ×' })).toBeVisible()
-  const fold = page.getByTestId('hvac-zones')
-  await expect(fold.locator('.zone-list li[data-zone]').first()).toContainText('AHU-1 ×')
+  await expect((await zones()).first()).toContainText('AHU-1 ×')
 
   // 경계를 그려 공조존 2 를 만들고, 공조기 패널에서 담당으로 더한다.
-  await fold.getByRole('button', { name: '경계를 그려 만들기' }).click()
-  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
+  await panClear(page)
+  await page.getByTestId('hvac-zones').getByRole('button', { name: '경계를 그려 만들기' }).click()
   await expect(page.locator('.key-note')).toContainText('공조존 경계를 그립니다')
   for (const [x, y] of [[1, 1], [4, 1], [4, 4], [1, 4]]) {
     const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
     await page.mouse.click(at.x, at.y)
   }
   await page.keyboard.press('Enter')
-  await expect(fold.locator('.zone-list li[data-zone]')).toHaveCount(2)
+  await expect(await zones()).toHaveCount(2)
   await pickAhu()
   await panel.getByLabel('담당할 공조존 더하기').selectOption({ label: '공조존 2' })
   await expect(panel).toContainText('담당 공조존 2')
-  await expect(fold.locator('.zone-list li[data-zone]').nth(1)).toContainText('AHU-1 ×')
+  await expect((await zones()).nth(1)).toContainText('AHU-1 ×')
   // 공조존 1 에서 빼면 공조존 목록의 담당 설비에서도 빠진다.
+  await pickAhu()
   await panel.getByRole('button', { name: '공조존 1 ×' }).click()
   await expect(panel).toContainText('담당 공조존 1')
-  await expect(fold.locator('.zone-list li[data-zone]').first()).not.toContainText('AHU-1 ×')
+  await expect((await zones()).first()).not.toContainText('AHU-1 ×')
   expect(errors).toEqual([])
 })
 
@@ -218,21 +232,26 @@ test('실내기를 담당 공조존 밖으로 옮기면 다시 지정하라는 �
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const row = page.locator('.equipment tbody tr', { hasText: 'AHU-1' })
-  await row.getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await enterEdit(page)
+  await toEquipment(page)
+  await pickEquipment(page, 'AHU-1')
   // 픽스처에 실내기가 없어 공조기를 시스템에어컨 실내기로 바꿔 쓴다. 덕트가 붙어 있다.
   await page.locator('.kind-edit select').selectOption('indoor_unit')
   const panel = page.getByTestId('served-zones')
   await panel.getByRole('button', { name: '흐름이 닿는 물리존으로 새 공조존 (사무실)' }).click()
+  // 공조존 검증은 공간 편집 레일의 공조존 칸에 있다. 옮기기는 설비 편집에서 한다.
+  await openRailPanel(page, '공조존')
   const checks = page.getByTestId('hvac-zones').getByTestId('zone-checks')
   await expect(checks.locator('li', { hasText: 'Z-06' })).toContainText('없음')
 
   // 사무실(0..10) 밖으로 옮긴다.
-  const x = row.locator('.coord').first()
+  await toEquipment(page)
+  await pickEquipment(page, 'AHU-1')
+  const x = coordOf(page, 0)
   await x.fill('11')
   await x.press('Enter')
   await expect(page.locator('.edit-notice')).toContainText('실내기를 옮겼습니다. 담당 공조존을 다시 지정하세요(Z-06: AHU-1 — 물리존 밖에 있고 공조존 1 담당)')
+  await openRailPanel(page, '공조존')
   await expect(checks.locator('li', { hasText: 'Z-06' })).toContainText('1개 — AHU-1 — 물리존 밖에 있고 공조존 1 담당')
   expect(errors).toEqual([])
 })
@@ -243,35 +262,42 @@ test('공조기를 다른 물리존으로 옮기면 담당 공조존에서 빠�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const row = page.locator('.equipment tbody tr', { hasText: 'AHU-1' })
-  await row.getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await enterEdit(page)
+  await toEquipment(page)
+  await pickEquipment(page, 'AHU-1')
   await page.getByTestId('served-zones').getByRole('button', { name: '흐름이 닿는 물리존으로 새 공조존 (사무실)' }).click()
-  const checks = page.getByTestId('hvac-zones').getByTestId('zone-checks')
-  await expect(checks.locator('li', { hasText: 'Z-04' })).toContainText('없음')
+  // 공조존 검증은 공간 편집 레일의 공조존 칸에 있고(설비 편집에서는 닫힌다), 옮기기는 설비 편집에서 한다.
+  const z04 = async () => {
+    await openRailPanel(page, '공조존')
+    return page.getByTestId('hvac-zones').getByTestId('zone-checks').locator('li', { hasText: 'Z-04' })
+  }
+  const move = async (to: string) => {
+    await toEquipment(page)
+    await pickEquipment(page, 'AHU-1')
+    await coordOf(page, 0).fill(to)
+    await coordOf(page, 0).press('Enter')
+  }
+  await expect(await z04()).toContainText('없음')
 
   // 사무실 안에서 1m 옮기면 담당은 그대로다.
-  const x = row.locator('.coord').first()
-  const was = Number(await x.inputValue())
-  await x.fill(String(was + 1))
-  await x.press('Enter')
-  await expect(checks.locator('li', { hasText: 'Z-04' })).toContainText('없음')
+  await toEquipment(page)
+  await pickEquipment(page, 'AHU-1')
+  const was = Number(await coordOf(page, 0).inputValue())
+  await move(String(was + 1))
+  await expect(await z04()).toContainText('없음')
 
   // 사무실(0..10) 밖으로 옮기면 담당에서 빠진다.
-  await x.fill('11')
-  await x.press('Enter')
+  await move('11')
   await expect(page.locator('.edit-notice')).toContainText('AHU-1을 다른 물리존으로 옮겨 담당하던 공조존(공조존 1)에서 뺐습니다(Z-04)')
-  await expect(checks.locator('li', { hasText: 'Z-04' })).toContainText('1개 — 공조존 1')
+  await expect(await z04()).toContainText('1개 — 공조존 1')
   await expect(page.getByTestId('report-zone-checks')).toContainText('Z-04 담당 설비가 없는 공조존: 1개 — 공조존 1')
-  if (process.env.SHOT_EQP09) {
-    await page.locator('.edit-notice').screenshot({ path: `${process.env.SHOT_EQP09}-notice.png` })
-    await checks.screenshot({ path: `${process.env.SHOT_EQP09}-checks.png` })
-  }
 
-  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.locator('.appbar h2').click()
   await page.keyboard.press('Control+z')
-  await expect(checks.locator('li', { hasText: 'Z-04' })).toContainText('없음')
-  await expect(x).toHaveValue(String(was + 1))
+  await expect(await z04()).toContainText('없음')
+  await toEquipment(page)
+  await pickEquipment(page, 'AHU-1')
+  await expect(coordOf(page, 0)).toHaveValue(String(was + 1))
   expect(errors).toEqual([])
 })
 
@@ -281,7 +307,9 @@ test('물리존 하나를 공조존 둘이 담당하면 물리존 패널에 둘 
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  await openRailPanel(page, '공조존')
+  await panClear(page)
   const fold = page.getByTestId('hvac-zones')
   for (let i = 0; i < 2; i++) {
     await fold.getByLabel('사무실').check()
@@ -304,7 +332,9 @@ test('담당 없는 물리존이 생기면 바뀐 내용 리포트에 Z-01 이 �
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  await openRailPanel(page, '공조존')
+  await panClear(page)
   const fold = page.getByTestId('hvac-zones')
   const report = page.getByTestId('report-zone-checks')
   // 공조존이 없으면 싣지 않는다.
@@ -332,41 +362,34 @@ test('담당 없는 물리존이 생기면 바뀐 내용 리포트에 Z-01 이 �
   expect(errors).toEqual([])
 })
 
-test('검토 화면의 "공조존 생성 방법" 에는 직접 만들기만 있고, 누르면 공간 편집 모드의 공조존 칸이 열려 바로 만들며, 먼저 한 편집은 그대로다 [OE-BIM-15#1,9] [OE-BIM-15#10~]', async ({ page }) => {
+test('레일의 [공조존] 을 누르면 공간 편집 모드의 공조존 칸이 열려 바로 만들며, 먼저 한 편집은 그대로다 [OE-BIM-15#9] [OE-BIM-15#10~]', async ({ page }) => {
+  // 검토 화면의 "공조존 생성 방법" 칸은 #715 에서 빠졌다. 직접 만들기는 레일의 공조존 칸이다(startManualZones).
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  const route = page.getByTestId('zone-route')
-  await expect(route).toContainText('공조존 생성 방법')
-  await expect(route).toContainText('아직 공조존이 없습니다')
-  await expect(route.getByRole('button')).toHaveText(['공조존 직접 만들기'])
-  await expect(route).not.toContainText('IDF')
-  await expect(route).not.toContainText('gbXML')
-  if (process.env.SHOT_ROUTE) await page.locator('.overview').screenshot({ path: process.env.SHOT_ROUTE })
 
-  // 편집에서 방 이름을 하나 고친 뒤 검토 화면으로 돌아와 직접 만들기를 누른다.
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const name = page.locator('.rows input').first()
+  // 편집에서 방 이름을 하나 고친 뒤 공조존 칸을 연다.
+  await enterEdit(page)
+  await pickSpace(page, '사무실')
+  const name = page.locator('.space-name input')
   await name.fill('대회의실')
   await name.press('Enter')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
-  await page.locator('body').click({ position: { x: 5, y: 5 } })
-  await page.keyboard.press('Escape')
-  await route.getByRole('button', { name: '공조존 직접 만들기' }).click()
-  await expect(page.getByRole('group', { name: '편집 대상' }).getByRole('button', { name: '공간', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
+  await openRailPanel(page, '공조존')
+  await expect(page.getByRole('group', { name: '편집 모드' }).getByRole('button', { name: '공간 편집' })).toHaveAttribute('aria-pressed', 'true')
   const fold = page.getByTestId('hvac-zones')
   await expect(fold.locator('.fold-head')).toHaveAttribute('aria-expanded', 'true')
   await expect(fold).toBeInViewport()
   // 아직 아무것도 바뀌지 않았다(나중에 만들어도 된다).
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
   await expect(page.locator('.report')).toContainText('사무실 → 대회의실')
 
   await fold.getByLabel('대회의실').check()
   await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
   await expect(fold.locator('.zone-list li[data-zone]')).toHaveCount(1)
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 2건')
   expect(errors).toEqual([])
 })
 
@@ -378,14 +401,15 @@ test('만든 공조존은 읽지 못하는 파일을 덧붙여도, 건축 IFC �
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
-  await page.getByTestId('zone-route').getByRole('button', { name: '공조존 직접 만들기' }).click()
+  await enterEdit(page)
+  await openRailPanel(page, '공조존')
   const fold = page.getByTestId('hvac-zones')
   await fold.getByLabel('사무실').check()
   await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
   const zones = fold.locator('.zone-list li[data-zone]')
   await expect(zones).toHaveCount(1)
   await expect(zones.first()).toContainText('80.0㎡')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   // 읽지 못하는 파일: 사유를 보이고 열린 모델·공조존은 그대로다.
   const append = page.locator('.appbar label.append input')
@@ -393,13 +417,13 @@ test('만든 공조존은 읽지 못하는 파일을 덧붙여도, 건축 IFC �
   await expect(page.locator('p.error[role=alert]')).toContainText('덧붙이지 못했습니다(broken.ifc)')
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc')
   await expect(zones).toHaveCount(1)
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   // 건축 IFC 를 덧붙이면 공조존은 합친 모델의 사무실에 다시 얹힌다. 새로 생기거나 늘지 않는다.
   await append.setInputFiles(ROOMS)
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
   await expect(page.locator('.edit-file-note')).toContainText('덧붙이기 전에 한 편집')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
   await expect(zones).toHaveCount(1)
   await expect(zones.first()).toContainText('80.0㎡')
   await expect(zones.first()).toContainText('사무실')
@@ -412,7 +436,9 @@ test('공조존 꼭짓점을 3D 손잡이로 끌어 옮기고, [ ]·Insert·Dele
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  await openRailPanel(page, '공조존')
+  await panClear(page)
   const fold = page.getByTestId('hvac-zones')
   await fold.getByLabel('사무실').check()
   await fold.getByRole('button', { name: '고른 물리존으로 만들기' }).click()
@@ -434,25 +460,31 @@ test('공조존 꼭짓점을 3D 손잡이로 끌어 옮기고, [ ]·Insert·Dele
   await page.mouse.down()
   await page.mouse.move(to.x, to.y, { steps: 8 })
   await page.mouse.up()
-  await expect(zone).toContainText('88.0㎡')
+  // 끈 자리는 화면 픽셀로 정해져 12m 에서 몇 cm 어긋난다(88.0 ± 0.5㎡).
+  const area = async () => Number(/· ([\d.]+)㎡/.exec(await zone.innerText())?.[1])
+  await expect.poll(area).toBeGreaterThan(87.5)
+  expect(await area()).toBeLessThan(88.5)
+  const dragged = await area()
   await expect(zone.getByRole('button', { name: '사무실 100% ×' })).toBeVisible()
 
   // 꼭짓점 넣기·지우기. 변 위에 넣고 지우니 넓이는 그대로다.
+  // 끈 꼭짓점이 짚인 채라 ] 는 그다음으로 간다. 넣으면 짚은 것 다음에 들어가 그것을 짚는다.
   await page.keyboard.press(']')
-  await expect(zone.locator('.vertex-tools')).toContainText('꼭짓점 1/4')
+  await expect(zone.locator('.vertex-tools')).toContainText(/꼭짓점 \d\/4/)
+  const k = Number(/꼭짓점 (\d)\/4/.exec(await zone.locator('.vertex-tools').innerText())![1])
   await page.keyboard.press('Insert')
   await expect.poll(async () => (await handles()).length).toBe(5)
-  await expect(zone.locator('.vertex-tools')).toContainText('꼭짓점 2/5')
+  await expect(zone.locator('.vertex-tools')).toContainText(`꼭짓점 ${k + 1}/5`)
   await page.keyboard.press('Delete')
   await expect.poll(async () => (await handles()).length).toBe(4)
-  await expect(zone).toContainText('88.0㎡')
+  expect(await area()).toBe(dragged)
 
   await page.keyboard.press('Escape')
   await expect(page.locator('.key-note')).toContainText('공조존 꼭짓점 고치기를 마쳤습니다')
   await expect.poll(async () => (await handles()).length).toBe(0)
   await expect(zone.getByRole('button', { name: '꼭짓점 고치기' })).toBeVisible()
 
-  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.locator('.appbar h2').click()
   for (let i = 0; i < 3; i++) await page.keyboard.press('Control+z')
   await expect(zone).toContainText('80.0㎡')
   await expect(zone.getByRole('button', { name: '사무실 ×' })).toBeVisible()

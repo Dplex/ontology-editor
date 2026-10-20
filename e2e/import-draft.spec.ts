@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { coordOf, enterEdit, openFileMenu, pickEquipment, pickSpace } from './edit-part'
 import { readFileSync } from 'node:fs'
 
 // 임포트 결과와 보정 내용이 닫았다 다시 열어도 그대로다(OE-WF-06). 임포트 결과는 같은 IFC 를 다시 읽으면 같은 것이 나오고(임포터는 같은
@@ -20,7 +21,9 @@ async function exportAll(page: Page, out: (name: string) => string): Promise<Rec
     saved.push(d.saveAs(path).then(() => void (files[d.suggestedFilename()] = readFileSync(path, 'utf8'))))
   }
   page.on('download', on)
+  await openFileMenu(page)
   await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
+  await openFileMenu(page)
   await page.getByRole('button', { name: '기하 내보내기 (GeoJSON)' }).click()
   await expect.poll(() => saved.length).toBeGreaterThanOrEqual(2)
   await page.waitForTimeout(300)
@@ -35,16 +38,18 @@ test('임포트 뒤 보정하고 탭을 닫았다가 같은 파일을 다시 열
   })
   const first = await context.newPage()
   await open(first)
-  await first.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(first)
   // 보정 셋: 설비 옮기기(소속이 바뀐다), 물리존 이름(방 종류가 따라 바뀐다), 방 종류 직접 정하기.
-  const x = first.locator('.equipment tbody tr', { hasText: 'AHU-1' }).locator('.coord').first()
+  await pickEquipment(first, 'AHU-1')
+  const x = coordOf(first, 0)
   await x.fill('50')
   await x.press('Enter')
-  const name = first.getByLabel('101 이름')
+  await pickSpace(first, '사무실')
+  const name = first.locator('.space-name input')
   await name.fill('대회의실')
   await name.press('Enter')
-  await first.getByLabel('101 종류').selectOption({ label: '창고' })
-  await expect(first.locator('.edit-bar')).toContainText('바뀐 것')
+  await first.getByTestId('space-kind').selectOption({ label: '창고' })
+  await expect(first.getByTestId('changes-link')).toContainText('바뀐 것')
   const before = await exportAll(first, (n) => info.outputPath(`before-${n}`))
   // 자동 저장은 편집이 멈추고 잠시 뒤에 한다.
   await first.waitForTimeout(1000)

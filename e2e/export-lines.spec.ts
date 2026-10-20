@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openFileMenu, enterEdit } from './edit-part'
 
 // 고른 것이 내보내는 TTL·GeoJSON 의 어디에 어떻게 남나(오른쪽 패널의 "내보내면" 칸). 칸의 Turtle 원문은 [TTL] 이 내려받는 파일의 그 블록과 같다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
@@ -41,6 +42,7 @@ test('고른 설비의 TTL 관계·DT 플랫폼이 버리는 줄·GeoJSON featur
   await box.getByText('Turtle 원문').click()
   const shown = (await box.locator('.export-source pre').first().innerText()).trim()
   const download = page.waitForEvent('download')
+  await openFileMenu(page)
   await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
   const ttl = Buffer.concat(await (await (await download).createReadStream()).toArray()).toString()
   const block = ttl.split(/\n\s*\n/).find((b) => b.trim().startsWith('ex:0MEP\\$Equip\\$AHU1\\$0000 '))!.trim()
@@ -62,7 +64,7 @@ test('관계의 상대를 누르면 그것을 고르고, 칸은 편 채로 따�
   await expect(box).toContainText('kind: space')
 
   // 편집 모드에서 이름을 고치면 TTL 의 rdfs:label 이 바뀐다.
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   const name = page.locator('.space-name', { hasText: '공간명' }).locator('input')
   await name.fill('대회의실')
   await name.press('Enter')

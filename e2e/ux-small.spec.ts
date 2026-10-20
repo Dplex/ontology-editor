@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { pickEquipment } from './edit-part'
 
 // 작은 화면 손질(docs/dev/ui-notes.md "층별 칩·휠 회전 중심·성능 표·리플레이 하단 자막"). 시점은 __viewer.camera() 로 잰다.
 const DUPLEX = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc'
@@ -24,7 +25,7 @@ const settled = async (page: Page) => {
     .toBe(true)
 }
 
-test('Duplex: 층별 칩은 위층부터 쌓이고 누르면 그 층만 보며, 휠 클릭은 각도를 둔 채 그 자리를 회전 중심으로, ` 는 성능 표를 켠다', async ({ page }) => {
+test('Duplex: 휠 클릭은 각도를 둔 채 그 자리를 회전 중심으로, ` 는 성능 표를 켠다', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []
@@ -34,17 +35,7 @@ test('Duplex: 층별 칩은 위층부터 쌓이고 누르면 그 층만 보며, 
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
 
-  // 층별 칩: Duplex 는 Level 1 · Level 2 · Roof. 위층이 위다.
-  const chips = page.getByTestId('storey-chips').getByRole('button')
-  await expect(chips).toHaveCount(3)
-  await expect(chips.locator('.sc-name')).toHaveText(['Roof', 'Level 2', 'Level 1'])
-  const storey = page.getByRole('combobox', { name: '보일 층' })
-  await chips.filter({ hasText: 'Level 2' }).click()
-  await expect(storey.locator('option:checked')).toHaveText('Level 2만')
-  await expect(chips.filter({ hasText: 'Level 2' })).toHaveAttribute('aria-pressed', 'true')
-  await chips.filter({ hasText: 'Level 2' }).click()
-  await expect(storey.locator('option:checked')).not.toHaveText('Level 2만')
-  await page.screenshot({ path: test.info().outputPath('storey-chips.png') })
+  // 층별 칩은 층 현황 · 층 선택과 겹쳐 #715 에서 뺐다(shell.css). 그 확인은 지웠다.
 
   // 휠 클릭: 시점 방향은 그대로, 대상(회전 중심)이 누른 자리로 옮겨 가고 고리가 잠깐 뜬다.
   await settled(page)
@@ -81,8 +72,7 @@ test('리플레이 장면 머리말은 "01 / 02" 번호·갈래, 제목 아래 �
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.keyboard.press('e')
-  const row = page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last()
-  await row.getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await page.keyboard.press('Shift+ArrowRight')
   await page.waitForTimeout(1800)
   await page.keyboard.press('Shift+ArrowUp')

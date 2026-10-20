@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit, toSpace } from './edit-part'
 
 // 슬래브 개구부(OE-ML-03, slab-opening.ts). 계단 패널에 지나는 층 바닥마다 판정과 까닭이 보인다.
 // Duplex 건축: Level 2 바닥 슬래브가 계단 자리를 외곽선으로 비워 두었다 → "이미 비어 있음". 계단을 슬래브가 덮는 자리로 옮기면 그 자리를
@@ -13,7 +14,7 @@ async function pickStair(page: Page, file: string, storey: string) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(file)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 120_000 })
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: `${storey}만` })
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: `${storey}` })
   const ids = await viewer<string[]>(page, 'verticals')
   const at = await viewer<{ x: number; y: number }>(page, 'vertical', ids[0])
   await page.mouse.click(at.x, at.y)
@@ -32,7 +33,7 @@ test('Duplex: 원본 계단 자리는 슬래브가 비워 두어 새로 뚫지 �
   await expect(rows.first()).toContainText('Level 2 바닥')
   await expect(rows.first()).toContainText('이미 비어 있음')
 
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.getByTestId('vertical-picked').locator('.ceiling-lock').getByRole('button', { name: '다중층 뷰에서 편집' }).click()
   await expect(page.getByTestId('multi-banner')).toBeVisible()
   await page.getByLabel('전체 이동 x(m)').fill(process.env.DX ?? '-3')
@@ -63,9 +64,9 @@ async function startStair(page: Page, file: string, storey: string) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(file)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 120_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: `${storey}만` })
-  await page.locator('.edit-part').getByRole('button', { name: '공간' }).click()
+  await enterEdit(page)
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: `${storey}` })
+  await toSpace(page)
   await page.locator('.tool-palette').getByRole('button', { name: '계단·샤프트' }).click()
   await page.getByTestId('vertical-create-start').click()
 }

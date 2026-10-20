@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { enterEdit, openDrawer, pickEquipment } from './edit-part'
 
 // 3D 아래 칸의 움직임(lib/motion.ts, Roll, Meter). 다른 e2e 는 값을 재려고 움직임을 끄고(playwright.config.ts) 돌므로
 // 여기서만 켠다. 원칙은 "바뀐 것만 움직인다" 다 — 연 직후에는 숫자가 0 에서 올라오고 막대가 차오르며, 그 뒤에는
@@ -13,6 +14,8 @@ test('숫자는 굴러 올라오고 막대는 차오르며, 편집으로 바뀐 
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
 
+  // 요약 타일·검사 막대는 기준 · 검증 드로어에 있다.
+  await openDrawer(page)
   // 요약 타일: 화면에 들어오면 0 에서 실제 값까지 굴러간다.
   const tile = page.locator('.tiles li', { hasText: '연결' }).locator('b')
   await tile.scrollIntoViewIfNeeded()
@@ -24,7 +27,8 @@ test('숫자는 굴러 올라오고 막대는 차오르며, 편집으로 바뀐 
   await expect.poll(async () => bar.evaluate((el) => el.getBoundingClientRect().width)).toBeGreaterThan(0)
 
   // 계통을 확정하면 그 줄만 번쩍이고 "확정함" 이 떠오른다. 다른 줄은 가만히 있다.
-  await page.keyboard.press('e')
+  await enterEdit(page)
+  await openDrawer(page)
   await page.getByRole('button', { name: /규칙 방향 확정 \(계통별\)/ }).click()
   const fold = page.locator('.rule-systems')
   const row = fold.locator('tbody tr', { hasText: 'AHU-1 급기 계통' })
@@ -46,10 +50,9 @@ test('카메라는 날아가고, 되돌리면 설비가 미끄러지며 돌아�
   const motion = () => page.evaluate(() => (window as any).__viewer.motion()) as Promise<{ flying: boolean; gliding: number; pulsing: number; started: { flights: number; glides: number; pulses: number } }>
   const AHU = '0MEP$Equip$AHU1$0000'
 
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const row = page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last()
+  await enterEdit(page)
   const flights = (await motion()).started.flights
-  await row.getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   expect((await motion()).started.flights).toBeGreaterThan(flights)
   await expect.poll(async () => (await motion()).flying).toBe(false)
   await expect(page.locator('.picked h3')).toHaveText('AHU-1')

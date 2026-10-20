@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openFileMenu, openDrawer } from './edit-part'
 
 // GeoJSON 은 층마다 한 파일이다. 연달아 내려받으면 크롬이 "여러 파일 다운로드"를 묻고, 거절하면 둘째 파일부터
 // 조용히 빠진다. 폴더를 고를 수 있으면 한 폴더에 쓰고, 못 하면 내려받는다. 두 길을 다 본다.
@@ -22,6 +23,7 @@ test('폴더를 고를 수 있으면 층마다 한 파일씩 그 폴더에 쓴�
   await page.locator('input[type=file]').setInputFiles(FIXTURE)
   await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible({ timeout: 30_000 })
 
+  await openFileMenu(page)
   await page.getByRole('button', { name: '기하 내보내기 (GeoJSON)' }).click()
   await expect.poll(() => page.evaluate(() => Object.keys((window as any).__written).sort())).toEqual(['floor-1F.geojson', 'floor-2F.geojson'])
   const first = await page.evaluate(() => JSON.parse((window as any).__written['floor-1F.geojson']))
@@ -39,6 +41,7 @@ test('폴더를 고를 수 없으면 층마다 내려받는다', async ({ page }
 
   const names: string[] = []
   page.on('download', (d) => names.push(d.suggestedFilename()))
+  await openFileMenu(page)
   await page.getByRole('button', { name: '기하 내보내기 (GeoJSON)' }).click()
   await expect.poll(() => names.slice().sort()).toEqual(['floor-1F.geojson', 'floor-2F.geojson'])
 })
@@ -48,6 +51,7 @@ test('TTL 은 한 파일로 내려받는다', async ({ page }) => {
   await page.locator('input[type=file]').setInputFiles(FIXTURE)
   await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible({ timeout: 30_000 })
   const download = page.waitForEvent('download')
+  await openFileMenu(page)
   await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
   expect((await download).suggestedFilename()).toBe('ontology.ttl')
 })
@@ -58,6 +62,7 @@ test('3D 형상은 GLB·OBJ 한 파일로 내려받고, 요소 이름이 GlobalI
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
 
   const glb = page.waitForEvent('download')
+  await openFileMenu(page)
   await page.getByRole('button', { name: '3D 형상 내보내기 (GLB)' }).click()
   const glbFile = await glb
   expect(glbFile.suggestedFilename()).toBe('mep.glb')
@@ -65,6 +70,7 @@ test('3D 형상은 GLB·OBJ 한 파일로 내려받고, 요소 이름이 GlobalI
   expect(Buffer.concat(bytes).subarray(0, 4).toString()).toBe('glTF')
 
   const obj = page.waitForEvent('download')
+  await openFileMenu(page)
   await page.getByRole('button', { name: '3D 형상 내보내기 (OBJ)' }).click()
   const objFile = await obj
   expect(objFile.suggestedFilename()).toBe('mep.obj')
@@ -87,6 +93,7 @@ test('FBX 는 GLB 를 서버에 보내 받은 파일을 내려받는다 (OE-INT-
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
 
   const fbx = page.waitForEvent('download')
+  await openFileMenu(page)
   await page.getByRole('button', { name: '3D 형상 내보내기 (FBX)' }).click()
   const file = await fbx
   expect(file.suggestedFilename()).toBe('mep.fbx')
@@ -99,6 +106,7 @@ test('FBX 변환 서버가 없으면 단추를 막고 까닭을 보이며, 변�
   await page.goto('/')
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  await openFileMenu(page)
   const button = page.getByRole('button', { name: '3D 형상 내보내기 (FBX)' })
   await expect(button).toBeDisabled()
   await expect(button).toHaveAttribute('title', /서버/)
@@ -111,9 +119,11 @@ test('FBX 변환 서버가 없으면 단추를 막고 까닭을 보이며, 변�
   await page.reload()
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
+  await openFileMenu(page)
   await page.getByRole('button', { name: '3D 형상 내보내기 (FBX)' }).click()
   await expect(page.getByText('FBX 로 바꾸지 못했습니다: 시험용 실패')).toBeVisible()
   // 실패해도 단추가 다시 풀린다.
+  await openFileMenu(page)
   await expect(page.getByRole('button', { name: '3D 형상 내보내기 (FBX)' })).toBeEnabled()
 })
 
@@ -124,6 +134,10 @@ test('층별 요약의 [구축] 은 그 층의 TTL·GeoJSON 한 쌍만 받는다
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
   const files = new Map<string, string>()
   page.on('download', async (d) => files.set(d.suggestedFilename(), Buffer.concat(await (await d.createReadStream()).toArray()).toString()))
+  // 층별 요약은 기준 · 검증 패널에 있다.
+  await openDrawer(page)
+  const head = page.getByRole('button', { name: /층별 요약/ })
+  if ((await head.getAttribute('aria-expanded')) === 'false') await head.click()
   await page.locator('.storeys tbody tr', { hasText: '1F' }).getByRole('button', { name: '1F 구축' }).click()
   await expect.poll(() => [...files.keys()].sort()).toEqual(['floor-1F.geojson', 'floor-1F.ttl'])
   const ttl = files.get('floor-1F.ttl')!

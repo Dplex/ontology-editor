@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
+import { pickEquipment, enterEdit } from './edit-part'
 
 // 편집기 3D 옆의 결과 비교 판(ADR-0061). 지금 모델을 내보낸 TTL·층 GeoJSON 을 받는 쪽처럼 다시 읽어 보이고, 고르기는 id 하나로
 // 양쪽이 같다. Duplex MEP 1층: 라디에이터 536919 · 계단실(Stair) 물리존.
@@ -15,7 +16,7 @@ test('Duplex: [결과 비교] 판은 받는 쪽이 읽은 TTL·GeoJSON 을 보�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1' })
 
   const pane = page.getByTestId('export-compare')
   await page.getByTestId('compare-toggle').click()
@@ -36,8 +37,7 @@ test('Duplex: [결과 비교] 판은 받는 쪽이 읽은 TTL·GeoJSON 을 보�
   await expect(pane.locator('path.space.sel')).toHaveCount(1)
 
   // 3D 쪽(설비 표)에서 라디에이터를 고르면 판이 그것을 칠하고 TTL·GeoJSON 을 보인다.
-  await page.locator('input[type=search]').fill('536919')
-  await page.locator('.equipment tbody tr', { hasText: RADIATOR }).last().getByRole('button', { name: RADIATOR, exact: true }).click()
+  await pickEquipment(page, RADIATOR)
   await expect(card.locator('h4')).toContainText('536919')
   await expect(page.getByTestId('export-compare-ttl')).toContainText(`rdfs:label "${RADIATOR}"`)
   await expect(page.getByTestId('export-compare-ttl')).toContainText('brick:hasLocation')
@@ -47,7 +47,7 @@ test('Duplex: [결과 비교] 판은 받는 쪽이 읽은 TTL·GeoJSON 을 보�
   expect(id).toBeTruthy()
 
   // 편집하면 다시 쓴다 — 이름을 고치면 판의 TTL 라벨이 새 이름이 된다.
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   const name = page.locator('.equipment-name-edit .name-input')
   await name.fill('RAD-1F-A')
   await name.press('Enter')

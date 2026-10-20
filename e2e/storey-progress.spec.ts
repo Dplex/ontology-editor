@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit, openDrawer, pickEquipment } from './edit-part'
 
 // 층 단위 진행(OE-MAN-06). 층별 요약에서 층마다 완료를 표시한다. 완료한 층을 고치면 "완료 뒤 고침" 으로 저절로 풀리고, Ctrl+Z 로
 // 되돌리면 다시 완료다. 표시는 편집 파일에 남아 다시 열어 불러오면 그대로다.
@@ -12,6 +13,7 @@ async function open(page: Page) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(FILES)
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
+  await openDrawer(page)
   const head = page.getByRole('button', { name: /층별 요약/ })
   if ((await head.getAttribute('aria-expanded')) === 'false') await head.click()
 }
@@ -20,34 +22,43 @@ test('층을 완료로 표시하고, 그 층을 고치면 저절로 풀리며, �
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await open(page)
+  await openDrawer(page)
   const head = page.getByRole('button', { name: /층별 요약/ })
+  await openDrawer(page)
   await expect(head).toContainText('완료 0/2')
   await expect(page.locator('.storey-progress')).toContainText('남은 층 1F, 2F')
 
+  await openDrawer(page)
   await row(page, '1F').getByRole('button', { name: '1F 완료 표시' }).click()
+  await openDrawer(page)
   await expect(progress(page, '1F')).toContainText('완료 ✓')
   await expect(head).toContainText('완료 1/2')
   await expect(page.locator('.storey-progress')).toContainText('남은 층 2F')
 
   // 1F 의 공조기를 옮기면 1F 완료가 풀린다.
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await enterEdit(page)
+  await pickEquipment(page, 'AHU-1')
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Shift+ArrowRight')
+  await openDrawer(page)
   await expect(progress(page, '1F')).toContainText('완료 뒤 고침')
   await expect(page.locator('.storey-progress')).toContainText('완료 뒤 고침 1F')
   await expect(head).toContainText('완료 0/2')
 
   // 되돌리면 1F 가 완료한 때와 같아져 다시 완료다.
   await page.keyboard.press('Control+z')
+  await openDrawer(page)
   await expect(progress(page, '1F')).toContainText('완료 ✓')
 
   // 다시 고치고 [다시 완료] — 지금 상태가 완료다.
   await page.keyboard.press('Shift+ArrowRight')
+  await openDrawer(page)
   await expect(progress(page, '1F')).toContainText('완료 뒤 고침')
   await row(page, '1F').getByRole('button', { name: '1F 다시 완료' }).click()
+  await openDrawer(page)
   await expect(progress(page, '1F')).toContainText('완료 ✓')
   await row(page, '2F').getByRole('button', { name: '2F 완료 표시' }).click()
+  await openDrawer(page)
   await expect(head).toContainText('완료 2/2')
   if (process.env.SHOT) await page.locator('.storeys').screenshot({ path: process.env.SHOT })
 
@@ -59,9 +70,11 @@ test('층을 완료로 표시하고, 그 층을 고치면 저절로 풀리며, �
   await file.saveAs(path)
   page.on('dialog', (d) => void d.accept())
   await open(page)
+  await openDrawer(page)
   await expect(head).toContainText('완료 0/2')
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.load-edits input').setInputFiles(path)
+  await openDrawer(page)
   await expect(head).toContainText('완료 2/2')
   await expect(progress(page, '1F')).toContainText('완료 ✓')
   expect(errors).toEqual([])
@@ -69,12 +82,14 @@ test('층을 완료로 표시하고, 그 층을 고치면 저절로 풀리며, �
 
 test('편집 없이 완료만 눌러도 저장할 것이 있고, 지우면 남은 층으로 돌아간다', async ({ page }) => {
   await open(page)
+  await openDrawer(page)
   await row(page, '2F').getByRole('button', { name: '2F 완료 표시' }).click()
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   const download = page.waitForEvent('download')
   await page.keyboard.press('Control+s')
   const text = Buffer.concat(await (await (await download).createReadStream()).toArray()).toString()
   expect(JSON.parse(text).storeysDone).toHaveLength(1)
+  await openDrawer(page)
   await row(page, '2F').getByRole('button', { name: '2F 완료 지우기' }).click()
   await expect(page.locator('.storey-progress')).toContainText('남은 층 1F, 2F')
 })
@@ -83,8 +98,9 @@ test('편집 없이 완료만 눌러도 저장할 것이 있고, 지우면 남�
 test('완료만 눌러도 편집을 끝낼 때 묻고 자동 저장에 남으며, 완료한 층을 고치면 알린다. 파일을 새로 열면 셈이 0 이다', async ({ context }) => {
   const page = await context.newPage()
   await open(page)
+  await openDrawer(page)
   await row(page, '1F').getByRole('button', { name: '1F 완료 표시' }).click()
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   // 자동 저장은 편집이 멈추고 잠시 뒤다. 새 탭에서 같은 파일을 열면 이어서 할 것이 있다.
   await page.waitForTimeout(1500)
   const other = await context.newPage()
@@ -99,7 +115,7 @@ test('완료만 눌러도 편집을 끝낼 때 묻고 자동 저장에 남으며
   await dialog.getByRole('button', { name: '취소' }).click()
 
   // 완료한 층의 설비를 옮기면 풀렸다고 알린다.
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Shift+ArrowRight')
   await expect(page.getByText('1F 층을 완료한 뒤 고쳤습니다 — 완료가 풀렸습니다')).toBeVisible()
@@ -115,7 +131,7 @@ test('완료만 눌러도 편집을 끝낼 때 묻고 자동 저장에 남으며
   expect(asked).toHaveLength(1) // 앞 파일의 편집을 버릴지는 물었다
   const draft = page.locator('.draft-bar')
   if (await draft.isVisible()) await draft.getByRole('button', { name: '아니오', exact: true }).click()
-  if (!(await page.getByRole('button', { name: '편집 종료' }).isVisible())) await page.getByRole('button', { name: '편집', exact: true }).click()
+  if (!(await page.getByRole('button', { name: '편집 종료' }).isVisible())) await enterEdit(page)
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+s')
   await expect(page.locator('.key-note').first()).toContainText('저장할 편집이 없습니다')

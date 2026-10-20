@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit } from './edit-part'
 
 // 3D 오른쪽 위 방향 큐브와 비행 모드(nav-cube.ts · viewer.ts 의 setFly). 시점은 __viewer.camera() 의 눈·대상으로 잰다.
 const DUPLEX = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc'
@@ -34,7 +35,7 @@ test('Duplex: 방향 큐브의 윗면을 누르면 위에서 보고, 끌면 돌�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   const cube = page.getByTestId('nav-cube').locator('canvas')
   await expect(cube).toBeVisible()
   await settled(page)
@@ -104,7 +105,7 @@ test('비행 중 Q Q·E E 로 아래층·위층 눈높이로 옮기고 보일 �
   await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   const storey = page.getByRole('combobox', { name: '보일 층' })
-  await storey.selectOption({ label: '1F만' })
+  await storey.selectOption({ label: '1F' })
   await settled(page)
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('g')
@@ -124,14 +125,14 @@ test('비행 중 Q Q·E E 로 아래층·위층 눈높이로 옮기고 보일 �
   const at2 = await cam(page)
   expect([at2.position[0], at2.position[2]].map((v) => +v.toFixed(3))).toEqual([start.position[0], start.position[2]].map((v) => +v.toFixed(3)))
   expect(at2.target[1] - at2.position[1]).toBeCloseTo(start.target[1] - start.position[1], 3)
-  await expect(storey.locator('option:checked')).toHaveText('2F만')
+  await expect(storey.locator('option:checked')).toHaveText('2F')
 
   await twice('q')
   expect(await eye()).toBeCloseTo(1.6, 3)
-  await expect(storey.locator('option:checked')).toHaveText('1F만')
-  // 맨 아래층에서는 더 가지 않는다.
+  await expect(storey.locator('option:checked')).toHaveText('1F')
+  // 맨 아래층에서는 더 가지 않는다. 첫 누름은 여느 Q 처럼 누르는 동안 내려가서, 프레임이 길면(바쁜 PC) 몇 cm 내려간다.
   await twice('q')
-  expect(await eye()).toBeCloseTo(1.6, 3)
+  expect(await eye()).toBeCloseTo(1.6, 1)
   await expect(page.locator('.key-note')).toContainText('맨 아래층입니다')
 
   // 한 번 누름은 층 이동이 아니라 지금처럼 오르내리기다(누르고 있는 만큼만).

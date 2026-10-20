@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, enterEdit } from './edit-part'
 
 // 에디터 내 외벽 불변(OE-EXT-02). 층 편집 화면에서 외벽은 고르고 속성을 볼 수 있지만, 옮기기·지우기·크기 바꾸기는 안 된다 — 외벽 형상은
 // 외벽 에디터(OE-EXT-03)의 일이다. 외벽 여부를 바꾸면 풀린다. Duplex 건축(gitignore)은 벽마다 IsExternal 을 적는다.
@@ -14,7 +14,7 @@ test('외벽은 크기 칸·지우기가 없고 방향키로 옮기지 않으며
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toHaveText('NBU_Duplex-Apt_Arch.ifc', { timeout: 90_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
@@ -46,7 +46,7 @@ test('외벽은 크기 칸·지우기가 없고 방향키로 옮기지 않으며
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('ArrowRight')
   await expect(page.locator('.key-note')).toContainText('외벽은 층 편집 화면에서 옮기거나')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
 
   // 내벽으로 바꾸면 풀린다
   await external.selectOption('false')

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit, openDrawer, pickEquipment } from './edit-part'
 
 // 3D 보기 필터 · 우클릭 메뉴 · 분해도(ui-notes 보기 필터). 화면 상태만 — 바뀐 것 0건이 그대로인지도 본다.
 // Duplex MEP: Level 1·2·Roof, 기기 141대 · 덕트·배관 785개.
@@ -19,7 +20,7 @@ test('Duplex: 보기 필터로 덕트·배관을 빼면 상자 선택이 기기�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '모든 층' })
   const canvas = page.locator('.canvas-wrap > canvas').first()
   const c = (await canvas.boundingBox())!
@@ -38,10 +39,11 @@ test('Duplex: 보기 필터로 덕트·배관을 빼면 상자 선택이 기기�
   // 상자 선택(Ctrl+끌기)은 보이는 것만 — 기기만 고른다.
   await page.getByRole('button', { name: '닫기' }).first().click()
   await expect(page.getByTestId('filter-chip')).toBeVisible()
+  // 왼쪽 위는 레이어 칸이 덮어서(#715) 오른쪽 위에서 왼쪽 아래로 끈다.
   await page.keyboard.down('Control')
-  await page.mouse.move(c.x + 20, c.y + 60)
+  await page.mouse.move(c.x + c.width - 20, c.y + 60)
   await page.mouse.down()
-  await page.mouse.move(c.x + c.width - 20, c.y + c.height - 20, { steps: 8 })
+  await page.mouse.move(c.x + 250, c.y + c.height - 20, { steps: 8 })
   await page.mouse.up()
   await page.keyboard.up('Control')
   const picked = Number(((await page.locator('.picked h3').first().textContent()) ?? '').match(/설비 (\d+)대 고름/)?.[1] ?? 0)
@@ -50,8 +52,7 @@ test('Duplex: 보기 필터로 덕트·배관을 빼면 상자 선택이 기기�
   await page.keyboard.press('Escape')
 
   // 우클릭: 라디에이터를 골라 시점을 맞춘 뒤 가운데를 우클릭 → 이것만 보기.
-  await page.locator('input[type=search]').fill('536919')
-  await page.locator('.equipment tbody tr', { hasText: RADIATOR }).last().getByRole('button', { name: RADIATOR, exact: true }).click()
+  await pickEquipment(page, RADIATOR)
   await page.locator('body').press('f')
   await page.waitForTimeout(700)
   // 라디에이터 형상 중심(IFC mm) 473, −13829, 159.
@@ -93,11 +94,11 @@ test('Duplex: 보기 필터로 덕트·배관을 빼면 상자 선택이 기기�
   await expect.poll(async () => (await shown(page)).exploded).toBe(0)
 
   // 화면 상태만이다 — 편집은 0건.
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   expect(errors).toEqual([])
 })
 
-test('Duplex: 왼쪽 위 탐색 독으로 연 필터에서, 한 층만 보던 중 다른 층을 누르면 모든 층 보기로 풀리며 보던 층과 누른 층 둘이 보이고, 검색칸이 목록을 거른다', async ({ page }, info) => {
+test('Duplex: 레이어 칸의 [보기 필터] 로 연 필터에서, 한 층만 보던 중 다른 층을 누르면 모든 층 보기로 풀리며 보던 층과 누른 층 둘이 보이고, 검색칸이 목록을 거른다', async ({ page }, info) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []
@@ -106,11 +107,12 @@ test('Duplex: 왼쪽 위 탐색 독으로 연 필터에서, 한 층만 보던 �
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   const storey = page.getByRole('combobox', { name: '보일 층' })
-  await storey.selectOption({ label: 'Level 1만' })
+  await storey.selectOption({ label: 'Level 1' })
 
-  await page.getByRole('navigation', { name: '3D 탐색 독' }).getByRole('button', { name: /Filter/ }).click()
+  // 왼쪽 위 탐색 독은 #715 에서 3D 레이어 칸이 됐다. 보기 필터는 그 아래 단추다.
+  await page.getByTestId('filter-toggle').click()
   const panel = page.getByTestId('filter-panel')
   const level = (name: string) => panel.locator('label', { hasText: name }).locator('input')
   await expect(level('Level 1')).toBeChecked()
@@ -125,11 +127,11 @@ test('Duplex: 왼쪽 위 탐색 독으로 연 필터에서, 한 층만 보던 �
   await panel.getByRole('textbox', { name: '보기 필터 검색' }).fill('roof')
   await expect(panel.locator('details').first().locator('label')).toHaveCount(1)
   await page.screenshot({ path: info.outputPath('facade-dock.png') })
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   expect(errors).toEqual([])
 })
 
-test('Duplex: 독의 [Explode] 는 기기를 제자리에서 종류별 색으로 칠하고 범례에 종류·대수를 보이며, 범례 줄을 누르면 그 종류만 남기고, Reset 이면 끈다. 편집은 0건이다', async ({ page }) => {
+test('Duplex: 레이어 칸의 [종류별 색] 은 기기를 제자리에서 종류별 색으로 칠하고 범례에 종류·대수를 보이며, 범례 줄을 누르면 그 종류만 남기고, Reset 이면 끈다. 편집은 0건이다', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors: string[] = []
@@ -137,10 +139,11 @@ test('Duplex: 독의 [Explode] 는 기기를 제자리에서 종류별 색으로
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
+  // 독의 [Explode] 는 #715 에서 3D 레이어 칸의 [종류별 색] 체크박스가 됐다.
   const toggle = page.getByTestId('class-tint-toggle')
-  await expect(toggle).toHaveAccessibleName('Explode (종류별 색)')
-  await toggle.click()
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true')
+  await expect(toggle).toHaveAccessibleName('종류별 색')
+  await toggle.check()
+  await expect(toggle).toBeChecked()
   const key = page.getByTestId('class-key')
   const rows = key.locator('li button')
   await expect(rows.first()).toBeVisible()
@@ -156,15 +159,15 @@ test('Duplex: 독의 [Explode] 는 기기를 제자리에서 종류별 색으로
   await expect.poll(() => viewer<number>(page, 'tinted')).toBe(counts[0])
   await rows.first().click()
   await expect.poll(() => viewer<number>(page, 'tinted')).toBe(total)
-  // Reset 이면 끄고 계통 색으로 돌아간다.
-  await page.locator('.facade-dock').getByRole('button', { name: 'Reset' }).click()
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  // [초기화] 면 끄고 계통 색으로 돌아간다.
+  await page.locator('.shell-layers').getByRole('button', { name: '초기화' }).click()
+  await expect(toggle).not.toBeChecked()
   await expect(key).toHaveCount(0)
   await expect.poll(() => viewer<number>(page, 'tinted')).toBe(0)
   expect(errors).toEqual([])
 })
 
-test('mep.ifc: 탐색 독·시점 바로가기·서랍의 한국어 분류와 바로가기·리플레이 단추가 보이고, V·X·Shift+V·O 단축키가 먹는다', async ({ page }) => {
+test('mep.ifc: 레이어 칸·뷰 컨트롤·서랍의 한국어 분류와 바로가기·리플레이 단추가 보이고, V·X·Shift+V·O 단축키가 먹는다', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.setViewportSize({ width: 1440, height: 900 })
@@ -172,13 +175,14 @@ test('mep.ifc: 탐색 독·시점 바로가기·서랍의 한국어 분류와 �
   await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
 
-  // 독과 시점 바로가기의 툴팁에 단축키가 있다.
-  const dock = page.locator('.facade-dock')
-  await expect(dock.getByTestId('filter-toggle')).toHaveAttribute('title', /\(V\)/)
-  await expect(dock.getByTestId('class-tint-toggle')).toHaveAttribute('title', /\(X\)/)
-  const views = page.getByRole('navigation', { name: '시점 바로가기' })
-  await expect(views.getByRole('button')).toHaveText([/전체/, /위에서/, /고른 것/])
-  await expect(views.getByRole('button', { name: /고른 것/ })).toBeDisabled()
+  // 레이어 칸(예전 탐색 독)과 캔버스 아래 뷰 컨트롤의 툴팁에 단축키가 있다(#715).
+  const layers = page.locator('.shell-layers')
+  const tint = page.getByTestId('class-tint-toggle')
+  await expect(layers.getByTestId('filter-toggle')).toHaveAttribute('title', /\(V\)/)
+  await expect(layers.locator('label', { has: tint })).toHaveAttribute('title', /\(X\)/)
+  const views = page.getByRole('navigation', { name: '뷰 컨트롤' })
+  await expect(views.locator('.view-pill').filter({ hasText: /전체 보기|위에서|선택 항목/ })).toHaveText([/전체 보기/, /위에서/, /선택 항목/])
+  await expect(views.getByRole('button', { name: /선택 항목/ })).toBeDisabled()
 
   // V 로 서랍을 연다. 클래스 줄에 한국어 이름이 붙고(종류 사전의 이름), 바로가기가 있다.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
@@ -195,17 +199,18 @@ test('mep.ifc: 탐색 독·시점 바로가기·서랍의 한국어 분류와 �
   // X 는 종류별 색, Shift+V 는 평면도 ↔ 3D.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('x')
-  await expect(dock.getByTestId('class-tint-toggle')).toHaveAttribute('aria-pressed', 'true')
+  await expect(tint).toBeChecked()
   await page.keyboard.press('x')
-  await expect(dock.getByTestId('class-tint-toggle')).toHaveAttribute('aria-pressed', 'false')
+  await expect(tint).not.toBeChecked()
+  const tabs = page.getByRole('group', { name: '보기' })
   await page.keyboard.press('Shift+V')
-  await expect(page.locator('.view-tools .tabs button', { hasText: '평면도' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(tabs.getByRole('button', { name: '평면도' })).toHaveAttribute('aria-pressed', 'true')
   await page.keyboard.press('Shift+V')
-  await expect(page.locator('.view-tools .tabs button', { hasText: '3D' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(tabs.getByRole('button', { name: '3D' })).toHaveAttribute('aria-pressed', 'true')
 
-  // 편집 모드에서는 시점 바로가기를 거두고(아래는 편집 안내 자리), 바뀐 내용 머리에 리플레이 단추가 있으며 편집 전에는 꺼져 있다.
+  // 편집 모드의 바뀐 내용 머리(기준 · 검증 드로어)에 리플레이 단추가 있으며 편집 전에는 꺼져 있다.
   await page.keyboard.press('e')
-  await expect(views).toHaveCount(0)
+  await openDrawer(page)
   const replayBtn = page.locator('.changes-head .replay-open-btn')
   await expect(replayBtn).toBeVisible()
   await expect(replayBtn).toBeDisabled()

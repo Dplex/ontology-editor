@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { systemChips } from './edit-part'
 
 // 범례에서 고른 계통의 흐름을 3D 에서 달리는 빛으로 보인다(flow-pulse.ts). 방향은 화살표와 같은 차례(포트 → 사람 → 규칙)로 읽고,
 // 규칙 방향은 R 로 끄면 빠진다. 방향을 모르는 연결은 그리지 않는다. mep.ifc 의 AHU-1 급기 계통은 포트 방향 2개와 규칙 방향 1개다.
@@ -12,7 +13,7 @@ test('계통을 고르면 방향 있는 연결에 흐르는 빛을 깔고, 규�
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   expect(await flow(page)).toBe(0)
 
-  const button = page.locator('.legend button', { hasText: 'AHU-1 급기 계통' })
+  const button = (await systemChips(page)).locator('button', { hasText: 'AHU-1 급기 계통' })
   await button.click()
   await expect.poll(() => flow(page)).toBe(3)
   // 패널은 빛이 방향을 아는 연결에만 있다고 말한다.

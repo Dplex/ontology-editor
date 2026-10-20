@@ -2,6 +2,7 @@
 // 우측 아래 층 현황(OE-UI-04 ③, design-system.md 4장 "아래 = 층 현황"). 종류 칸 다섯 · 검색 · 목록. 목록에서 고르면 위 카드(선택 오브젝트)가 바뀐다.
 // 늘 고정이고 고른 것이 바뀌어도 내용이 그대로다. 공간 오브젝트 칸은 목록 대신 벽 · 문 · 창과 추가 오브젝트의 수를 보인다.
 import { computed, ref } from 'vue'
+import { zoneNamesOfEquipment } from '../../lib/custom-zone'
 import { whatIs } from '../../editor/checks'
 import { model } from '../../editor/core'
 import { selectedId } from '../../editor/flow-rules'
@@ -57,10 +58,16 @@ const spacesWithoutOutline = computed(() => spaceRows.value.filter((r) => r.kind
 const q = computed(() => floorSearch.value.trim().toLowerCase())
 const hit = (name: string) => !q.value || name.toLowerCase().includes(q.value)
 
+// 검색은 든 커스텀존의 이름 · 별명에도 걸린다(ADR-0004) — "임원석" 으로 찾으면 그 존 안 설비가 나온다. 검색할 때만 잰다.
+const zoneText = computed(() => {
+  const out = new Map<string, string>()
+  if (q.value && model.value) for (const [id, names] of zoneNamesOfEquipment(model.value)) out.set(id, names.join(' '))
+  return out
+})
 const equipRows = computed(() =>
   floorEquipment.value
     .map(({ e, storey }) => ({ id: e.id, name: e.name ? shortName(e.name) : '(이름 없음)', full: e.name || '(이름 없음)', kind: whatIs(e)?.label ?? '종류 모름', placed: !!e.position, storey: storey.name }))
-    .filter((r) => (!floorEquipKind.value || r.kind === floorEquipKind.value) && hit(`${r.name} ${r.kind}`)),
+    .filter((r) => (!floorEquipKind.value || r.kind === floorEquipKind.value) && hit(`${r.name} ${r.kind} ${zoneText.value.get(r.id) ?? ''}`)),
 )
 
 const placeholder = computed(() => {

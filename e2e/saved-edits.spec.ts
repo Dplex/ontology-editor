@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { coordOf, enterEdit, pickEquipment, xOf } from './edit-part'
 
 // OE-COM-08. 저장은 8084 에 남아 다른 사람도 보고(웹에서 바로 확인), 임시 저장은 이 브라우저에 층마다 하나 남고(웹에 반영 안 됨)
 // 그 층에 편집 모드로 들어가면 묻지 않고 이어진다. e2e 서버는 data/ 목록을 붙이지 않아서(data-list.spec.ts 와 같은 까닭) `/__data` 와 저장본을 여기서
@@ -36,7 +37,8 @@ async function serve(page: Page, store: Store, puts: string[]) {
 }
 
 const listRow = (page: Page) => page.locator('.catalog tr').filter({ hasText: PATH }).last()
-const light = (page: Page) => page.locator('.equipment tbody tr', { hasText: 'LIGHT-101-01' }).last().locator('.coord').first()
+// 조명의 x 는 3D 형상 가운데로 읽고(xOf), 고칠 때는 골라서 위치 칸에 넣는다(예전 설비 표의 좌표 칸, #715 에서 빠졌다).
+const lightX = (page: Page) => xOf(page, 'LIGHT-101-01')
 
 async function openFromList(page: Page) {
   await listRow(page).getByRole('button', { name: '열기', exact: true }).click()
@@ -52,10 +54,11 @@ async function enterCeiling(page: Page) {
 }
 
 async function editLight(page: Page, x: string) {
-  if (!(await page.locator('.edit-bar').isVisible())) await page.getByRole('button', { name: '편집', exact: true }).click()
+  if (!(await page.locator('.edit-bar').isVisible())) await enterEdit(page)
   await enterCeiling(page)
-  await light(page).fill(x)
-  await light(page).press('Enter')
+  await pickEquipment(page, 'LIGHT-101-01')
+  await coordOf(page, 0).fill(x)
+  await coordOf(page, 0).press('Enter')
 }
 
 test('저장하면 8084 에 남고, 다른 사람이 같은 파일을 열면 그 편집이 얹혀 보인다', async ({ page, browser }) => {
@@ -75,8 +78,8 @@ test('저장하면 8084 에 남고, 다른 사람이 같은 파일을 열면 그
   await other.goto('/')
   await expect(listRow(other)).toContainText('저장 1건')
   await openFromList(other)
-  await other.getByRole('button', { name: '편집', exact: true }).click()
-  await expect(light(other)).toHaveValue('7.5')
+  await enterEdit(other)
+  await expect.poll(() => lightX(other)).toBe('7.5')
   // 얹은 저장본은 "저장하지 않은 편집" 이 아니다 — 바로 끝내도 묻지 않는다
   await other.getByRole('button', { name: '편집 종료' }).click()
   await expect(other.locator('dialog.exit-edit')).not.toBeVisible()
@@ -98,8 +101,8 @@ test('임시 저장은 8084 에 가지 않고, 다시 열어 편집에 들어가
   await expect(page.locator('.catalog.resume')).toHaveCount(0)
   await openFromList(page)
   await expect(page.locator('.draft-bar')).toHaveCount(0)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await expect(light(page)).toHaveValue('6.25')
+  await enterEdit(page)
+  await expect.poll(() => lightX(page)).toBe('6.25')
   await expect(page.locator('.key-note')).toContainText('임시 저장본을 열었습니다')
   await expect(page.locator('.draft-bar')).toHaveCount(0)
   // 연 임시 저장본은 저장된 상태다 — 바로 끝내도 묻지 않는다
@@ -114,7 +117,7 @@ test('[임시 저장] 은 편집을 이어 가고, 두 번 눌러도 층마다 �
   await page.goto('/')
   await openFromList(page)
   const keep = page.locator('.edit-bar').getByRole('button', { name: '임시 저장', exact: true })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await expect(keep).toBeVisible()
   const drafts = () => page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('oe-draft:mep.ifc@')).map((k) => [k, localStorage.getItem(k)!]))
   await editLight(page, '6.5')
@@ -148,6 +151,6 @@ test('저장 안 함은 8084 저장본까지만 되돌린다', async ({ page }) 
   // 저장본 위에서 더 고친 것만 센다
   await expect(page.locator('dialog.exit-edit')).toContainText('1건')
   await page.locator('dialog.exit-edit').getByRole('button', { name: '저장하지 않고 종료' }).click()
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await expect(light(page)).toHaveValue('7.5')
+  await enterEdit(page)
+  await expect.poll(() => lightX(page)).toBe('7.5')
 })

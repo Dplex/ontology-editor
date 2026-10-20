@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { coordOf, enterEdit, openDrawer, pickEquipment, placeOf } from './edit-part'
 
 // 고치기 전에 판단할 정보가 화면에 있는가. 이름만 있으면 무엇인지·왜 어겼는지·무슨 종류인지 알 수 없었다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
@@ -41,6 +42,7 @@ test('3D 에서 마우스를 올리면 무엇인지 보인다', async ({ page })
 
 test('완전성 검사의 위반마다 이유가 붙는다', async ({ page }) => {
   const errors = await open(page)
+  await openDrawer(page)
   const fold = page.getByRole('button', { name: /완전성 검사/ })
   if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
   await page.locator('.checks tbody tr', { hasText: '소속 방이 있다' }).click()
@@ -53,6 +55,7 @@ test('경로를 쓸 수 없는 덕트·배관 구간은 관으로 그리지 않�
   const errors = await open(page)
   // 배치점만 있는 덕트는 이웃 설비까지 틈을 메운 관이 아니라, "형상 없음" 을 뜻하는 0.4m 표시 상자 하나다.
   await expect.poll(() => page.evaluate(() => (window as any).__viewer.size('0MEP$Duct$D01$00000'))).toEqual([0.4, 0.4, 0.4])
+  await openDrawer(page)
   const fold = page.getByRole('button', { name: /완전성 검사/ })
   if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
   // mep.ifc 의 DUCT-01 은 배치점은 있지만 형상이 없어 경로(두 끝)를 모른다.
@@ -63,7 +66,8 @@ test('경로를 쓸 수 없는 덕트·배관 구간은 관으로 그리지 않�
 
 test('종류를 모르는 패밀리에 계통·이웃·위치 단서가 붙는다', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  await openDrawer(page)
   const fold = page.getByRole('button', { name: /종류와 관제점/ })
   if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
   const row = page.locator('.unknown-types tr', { hasText: 'TEMP-101-01' })
@@ -74,7 +78,11 @@ test('종류를 모르는 패밀리에 계통·이웃·위치 단서가 붙는�
 
 test('위반 목록에서 한 번에 고친다: 방 경계 바로 밖의 설비를 방 안으로. 목록만 열고 닫으면 아무것도 바뀌지 않고, 고치고 되돌리면 검사 표·리포트가 따라 바뀐다 [OE-BIM-18#1,2] [OE-BIM-18#3~]', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  // 고르면 드로어가 닫히니 먼저 고른다.
+  await pickEquipment(page, 'AHU-1')
+  const x = coordOf(page, 0)
+  await openDrawer(page)
   const fold = page.getByRole('button', { name: /완전성 검사/ })
   if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
   // 규칙별 통과/대상과 위반 수가 보인다. 기기 5대 중 좌표 없는 TEMP-101-01 하나가 소속 방이 없다.
@@ -88,35 +96,48 @@ test('위반 목록에서 한 번에 고친다: 방 경계 바로 밖의 설비�
   await expect(report).toHaveCount(0)
 
   // 공조기를 사무실(0..10) 경계 30cm 밖으로 옮기면 위반이 하나 는다.
-  const x = page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).locator('.coord').first()
   await x.fill('10.3')
   await x.press('Enter')
+  // 위치를 고치면 드로어가 닫힌다(고른 것이 다시 정해진다). 다시 연다.
+  await openDrawer(page)
   await expect(pass).toContainText('3 / 5')
   await expect(fail).toHaveText('2')
   await expect(report).toContainText('사무실 → (1F 층까지만)')
-  const changed = page.locator('.edit-bar').getByRole('link', { name: /바뀐 것/ })
-  const before = await changed.innerText()
+  const changed = page.getByTestId('changes-link')
+  const before = (await changed.textContent())!.replace(/\s+/g, ' ').trim()
+
+  // 검사 줄을 누르면 결과를 3D 에 보이려고 드로어가 닫히고 선택이 풀린다(shell.ts). 목록은 드로어를 다시 열어 본다.
+  // 공조기 위치는 위치 칸 대신 3D 형상 가운데(x)로 잰다 — 고른 것이 없어도 읽힌다.
+  const ahuX = async () => Math.round(((await page.evaluate((id) => (window as any).__viewer.center(id), AHU)) as number[])[0] * 100) / 100
+  const moved = await ahuX()
+  const toggle = async () => {
+    await openDrawer(page)
+    await row.click()
+    await openDrawer(page)
+  }
 
   // 목록만 열고 닫으면(취소) 바뀐 것이 없다.
-  await row.click()
+  await toggle()
   await expect(page.locator('.check-list li', { hasText: 'AHU-1' })).toBeVisible()
-  await row.click()
+  await toggle()
   await expect(page.locator('.check-list li', { hasText: 'AHU-1' })).toHaveCount(0)
   await expect(changed).toHaveText(before)
-  await expect(x).toHaveValue('10.3')
+  expect(await ahuX()).toBe(moved)
 
-  await row.click()
+  await toggle()
   const item = page.locator('.check-list li', { hasText: 'AHU-1' })
   await expect(item).toContainText('가장 가까운 방은 사무실(0.30m)')
   await item.getByRole('button', { name: '사무실 안으로 옮기기' }).click()
-  await expect(x).toHaveValue('9.9')
+  await openDrawer(page)
+  await expect.poll(ahuX).toBeCloseTo(moved - 0.4, 2)
   await expect(page.locator('.check-list li', { hasText: 'AHU-1' })).toHaveCount(0)
   await expect(pass).toContainText('4 / 5')
   await expect(report).toContainText('소속은 같고 좌표만 바뀐 설비 1대 (GeoJSON 위치): AHU-1')
   // 여느 편집과 같이 되돌릴 수 있고, 되돌리면 숫자도 돌아온다.
-  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.locator('.appbar h2').click()
   await page.keyboard.press('Control+z')
-  await expect(x).toHaveValue('10.3')
+  await openDrawer(page)
+  await expect.poll(ahuX).toBe(moved)
   await expect(pass).toContainText('3 / 5')
   await expect(report).toContainText('사무실 → (1F 층까지만)')
   expect(errors).toEqual([])
@@ -132,9 +153,9 @@ test('층이 여럿이면 한 층만 볼 수 있다', async ({ page }) => {
   // 이 파일은 1F 에만 방이 있다. 2F 만 보면 1F 판이 사라진다.
   expect(await visible()).toHaveLength(1)
   const pick = page.locator('.storey-view')
-  await pick.selectOption({ label: '2F만' })
+  await pick.selectOption({ label: '2F' })
   await expect.poll(async () => (await visible()).length).toBe(0)
-  await pick.selectOption({ label: '1F만' })
+  await pick.selectOption({ label: '1F' })
   await expect.poll(async () => (await visible()).length).toBe(1)
   await pick.selectOption({ label: '모든 층' })
   await expect.poll(async () => (await visible()).length).toBe(1)
@@ -143,9 +164,8 @@ test('층이 여럿이면 한 층만 볼 수 있다', async ({ page }) => {
 
 test('좌표가 없는 설비를 3D 바닥을 눌러 놓는다', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const row = page.locator('.equipment tbody tr', { hasText: 'TEMP-101-01' })
-  await row.getByRole('button', { name: 'TEMP-101-01', exact: true }).click()
+  await enterEdit(page)
+  await pickEquipment(page, 'TEMP-101-01')
   // 놓기는 편집 팔레트의 미배치 목록에서 한다(OE-EQP-02).
   await page.getByRole('button', { name: /미배치 \d+대/ }).click()
   await page.getByRole('list', { name: '미배치 설비' }).getByRole('button', { name: 'TEMP-101-01' }).click()
@@ -153,22 +173,26 @@ test('좌표가 없는 설비를 3D 바닥을 눌러 놓는다', async ({ page }
   await page.waitForTimeout(200)
   const at = await page.evaluate(() => (window as any).__viewer.point([6, 5, 0]))
   await page.mouse.click(at.x, at.y)
-  await expect.poll(async () => Number(await row.locator('.coord').nth(0).inputValue())).toBeCloseTo(6, 0)
-  await expect.poll(async () => Number(await row.locator('.coord').nth(1).inputValue())).toBeCloseTo(5, 0)
-  await expect(row).toContainText('사무실')
+  await expect.poll(async () => Number(await coordOf(page, 0).inputValue())).toBeCloseTo(6, 0)
+  await expect.poll(async () => Number(await coordOf(page, 1).inputValue())).toBeCloseTo(5, 0)
+  await expect.poll(() => placeOf(page, 'TEMP-101-01')).toBe('사무실')
   // 여느 이동처럼 되돌린다.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
-  await expect(row.locator('.coord').nth(0)).toHaveValue('')
+  await expect(coordOf(page, 0)).toHaveValue('')
   expect(errors).toEqual([])
 })
 
 test('좌표 없는 설비는 미배치 목록에 있고 3D 에 그리지 않으며, 바로 3D 바닥을 눌러 놓으면 목록에서 빠지고 그려진다 [OE-BIM-07#1]', async ({ page }) => {
   // OE-BIM-07 "좌표 없는 설비는 미배치 목록". 검토 화면의 목록을 보고, 편집 팔레트의 미배치 목록에서 놓는다.
   const errors = await open(page)
-  const fold = page.locator('.unplaced')
+  await openDrawer(page)
+  const fold = page.getByTestId('basis-drawer').locator('.unplaced')
   await expect(fold).toContainText('미배치 설비')
   await expect(fold).toContainText('1대')
+  // 드로어의 미배치 칸은 접혀서 시작한다.
+  const head = fold.locator('.fold-head')
+  if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
   // 원점(0,0,0)에 그리지 않는다 — 3D 에 형상이 없다. 공조기는 그려져 있다.
   const TEMP = '0MEP$Equip$SEN01$000'
   const drawn = (id: string) => page.evaluate((x) => (window as any).__viewer.center(x), id)
@@ -176,8 +200,9 @@ test('좌표 없는 설비는 미배치 목록에 있고 3D 에 그리지 않으
   expect(await drawn(TEMP)).toBeNull()
   const item = fold.locator('li', { hasText: 'TEMP-101-01' })
   await expect(item).toContainText('1F')
-  // 놓기는 편집 팔레트의 미배치 목록에서 한다(OE-EQP-02).
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  // 놓기는 편집 팔레트의 미배치 목록에서 한다(OE-EQP-02). 드로어는 닫는다.
+  await page.getByRole('button', { name: '기준 · 검증 닫기' }).click()
+  await enterEdit(page)
   await page.getByRole('button', { name: /미배치 \d+대/ }).click()
   await page.getByRole('list', { name: '미배치 설비' }).getByRole('button', { name: 'TEMP-101-01' }).click()
   await expect(page.locator('.picked')).toContainText('TEMP-101-01')
@@ -185,19 +210,23 @@ test('좌표 없는 설비는 미배치 목록에 있고 3D 에 그리지 않으
   await page.waitForTimeout(200)
   const at = await page.evaluate(() => (window as any).__viewer.point([6, 5, 0]))
   await page.mouse.click(at.x, at.y)
-  await expect(fold).toBeHidden()
   await expect(page.locator('.picked')).toContainText('사무실')
   await expect.poll(() => drawn(TEMP)).not.toBeNull()
+  // 고르면 드로어가 닫히니 다시 연다.
+  await openDrawer(page)
+  await expect(fold).toBeHidden()
   // 되돌리면 다시 목록에 든다.
-  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.locator('.appbar h2').click()
   await page.keyboard.press('Control+z')
+  await openDrawer(page)
+  if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
   await expect(fold.locator('li', { hasText: 'TEMP-101-01' })).toBeVisible()
   expect(errors).toEqual([])
 })
 
 test('물리존 꼭짓점을 넣고 지운다(Insert·Delete)', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const floor = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))
   await page.mouse.click(floor.x, floor.y)
@@ -216,26 +245,6 @@ test('물리존 꼭짓점을 넣고 지운다(Insert·Delete)', async ({ page })
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
   await expect.poll(handles).toBe(5)
-  expect(errors).toEqual([])
-})
-
-test('펼친 칸의 제목 줄은 스크롤을 따라와서 끝에서 바로 접는다', async ({ page }) => {
-  const errors = await open(page)
-  const head = page.getByRole('button', { name: /층별 요약/ })
-  if ((await head.getAttribute('aria-expanded')) === 'false') await head.click()
-  const fold = page.locator('section.fold', { has: head })
-  // 칸 머리가 도구막대 밑으로 들어가게 내린다. 제목 줄은 도구막대 바로 아래 붙어 있어야 한다.
-  await fold.evaluate((el) => {
-    const bar = document.querySelector('.appbar')!.getBoundingClientRect().height
-    window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - bar + 60)
-  })
-  const bar = await page.locator('.appbar').boundingBox()
-  const box = await head.boundingBox()
-  expect(Math.abs(box!.y - (bar!.y + bar!.height))).toBeLessThan(2)
-  // 접으면 칸 머리가 화면 안에 남는다.
-  await head.click()
-  await expect(head).toHaveAttribute('aria-expanded', 'false')
-  await expect(head).toBeInViewport()
   expect(errors).toEqual([])
 })
 
@@ -279,6 +288,7 @@ test('층별 요약에 층고를 출처와 같이 보이고, 모르면 모름이
 
 test('등급 칩과 등급 판정은 판정에 쓰는 본 숫자 하나를 분자/분모 (%) 로 보이고, 미확정 규칙 방향은 "목표에 안 셈" 보조 숫자로 따로 보인다 [OE-BIM-16#2] [OE-BIM-16#3] [OE-BIM-16#4]', async ({ page }) => {
   const errors = await open(page)
+  await openDrawer(page)
   // 칩: mep.ifc 는 연결망 기기 3대 중 BIM 포트로 방향을 아는 것이 2대, 확정 전 규칙 방향까지 넣으면 3대다.
   const chips = page.locator('.overview .tiers')
   const direction = chips.locator('li[data-tier=direction]')
@@ -305,10 +315,12 @@ test('등급 칩과 등급 판정은 판정에 쓰는 본 숫자 하나를 분�
 
 test('경고마다 누락 분류 코드와 R 번호가, 완전성 검사 규칙마다 코드와 R 번호 또는 검증 규칙 ID 가 붙는다 [OE-BIM-20#1~,2]', async ({ page }) => {
   const errors = await open(page)
+  await openDrawer(page)
   const items = page.locator('#warnings > li')
   await expect(items.first()).toBeVisible()
   const n = await items.count()
   for (let i = 0; i < n; i++) await expect(items.nth(i).locator('.issue-code')).toHaveText(/^[XABC]-(외부|설정|부재|보정) · R\d+$/)
+  await openDrawer(page)
   const fold = page.getByRole('button', { name: /완전성 검사/ })
   if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
   const rows = page.locator('.checks tbody tr')

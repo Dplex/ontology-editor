@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
+import { enterEdit, openDrawer } from './edit-part'
 
 // 생성 전 검증(OE-GEN-03, lib/pre-build.ts). 화면에서는 같은 층의 방번호로 바꾸지 못해(space-number.spec.ts) 겹침은 BIM 에서만 들어온다.
 // two-rooms.ifc 의 102(복도)를 101 로 바꾼 사본을 연다 — 1F 에 방번호 101 이 둘이다.
@@ -14,11 +15,12 @@ test('한 층 안에 방번호가 겹치면 [구축하기] 가 막히고 까닭�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles({ name: 'dup-rooms.ifc', mimeType: 'application/octet-stream', buffer: DUP })
   await expect(page.locator('.appbar h2')).toHaveText('dup-rooms.ifc', { timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   const build = page.locator('.edit-bar').getByRole('button', { name: '구축하기' })
   await expect(build).toBeDisabled()
   await expect(build).toHaveAttribute('title', /생성 전 검증에서 막혔습니다 — 방번호가 겹치는 물리존: 1F 101 ×2/)
 
+  await openDrawer(page)
   const box = page.getByTestId('reports')
   await box.getByRole('button', { name: /^리포트/ }).click()
   await box.getByRole('button', { name: '생성 리포트 만들기' }).click()

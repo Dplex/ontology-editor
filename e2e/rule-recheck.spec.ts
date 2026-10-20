@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { enterEdit, pickEquipment } from './edit-part'
 
 // 규칙 재계산(OE-PIP-07). 확정한 규칙 방향도 편집 뒤 다시 잰다. 근거가 바뀌면 재검토로 두고 내보내지 않으며, 다시 확정하면 새 판단을
 // 따른다. 일치율에 견줄 연결이 없으면 0% 가 아니라 비교 불가다.
@@ -8,8 +9,8 @@ test('확정한 계통의 원천이 사라지면 재검토로 보이고, 다시 
   await page.goto('/')
   await page.locator('input[type=file]').first().setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const pick = (name: string) => page.locator('.equipment tbody tr', { hasText: name }).getByRole('button', { name, exact: true }).click()
+  await enterEdit(page)
+  const pick = (name: string) => pickEquipment(page, name)
 
   await pick('DUCT-01')
   const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
