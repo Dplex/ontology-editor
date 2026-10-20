@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
+import { coordOf, pickEquipment, xOf } from './edit-part'
 import { createDataCatalog } from '../src/server/data-catalog'
 
 // 프로젝트 목록·[새 프로젝트]·층 선택(OE-UI-01~03, OE-WF-06, src/server/projects.ts). publish.spec.ts 처럼 진짜 data-catalog 를 임시 폴더에
@@ -53,15 +54,17 @@ async function serve(page: Page) {
     }
   })
 }
-const light = (page: Page) => page.locator('.equipment tbody tr', { hasText: 'LIGHT-101-01' }).last().locator('.coord').first()
+// 조명의 x 는 3D 형상 가운데로 읽는다(xOf). 보기 모드에서도 읽힌다(예전 설비 표의 좌표 칸, #715 에서 빠졌다).
+const lightX = (page: Page) => xOf(page, 'LIGHT-101-01')
 async function editLight(page: Page, x: string) {
   const on = page.getByRole('group', { name: '설비 편집 면' }).getByRole('button', { name: '천장' })
   if ((await on.getAttribute('aria-pressed')) !== 'true') {
     await page.locator('body').click({ position: { x: 5, y: 5 } })
     await page.keyboard.press('t')
   }
-  await light(page).fill(x)
-  await light(page).press('Enter')
+  await pickEquipment(page, 'LIGHT-101-01')
+  await coordOf(page, 0).fill(x)
+  await coordOf(page, 0).press('Enter')
 }
 async function newProject(page: Page, name: string) {
   const list = page.getByRole('region', { name: '프로젝트' })
@@ -104,7 +107,7 @@ test('[새 프로젝트]는 이름·사이트·IFC 올리기만 있고, 만들�
   expect(projects[0].paths[0]).toMatch(/^uploads\/\d{8}-\d{6}-mep\.ifc$/)
   await expect.poll(async () => ((await (await fetch(`${base}/__projects`)).json()) as { summary?: unknown }[])[0].summary).toBeTruthy()
   // 편집을 끝내 층 잠금을 푼다(편집 중인 층은 다른 사람이 열지 못한다, OE-COM-05).
-  await page.locator('.edit-bar').getByRole('button', { name: '편집 종료' }).click()
+  await page.getByRole('button', { name: '편집 종료' }).click()
 
   // 다른 사람이 목록을 열면: 구축 전 · 건물·층 수 · 임시 저장 1/1. 펼치면 건물별 줄.
   const other = await browser.newPage()
@@ -124,16 +127,17 @@ test('[새 프로젝트]는 이름·사이트·IFC 올리기만 있고, 만들�
   await row.getByRole('button', { name: '열기' }).click()
   await expect(other.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
   await expect(other.getByTestId('edit-kind')).toHaveText('초기 구축')
-  await expect(light(other)).toHaveValue('7.5')
-  await other.locator('.edit-bar').getByRole('button', { name: '편집 종료' }).click()
+  await expect.poll(() => lightX(other)).toBe('7.5')
+  await other.getByRole('button', { name: '편집 종료' }).click()
   await other.close()
 
   // 같은 IFC 로 프로젝트를 하나 더 만들면 앞 프로젝트의 임시 저장본이 얹히지 않는다(OE-UI-02 AC4). 앞 프로젝트를 고친 같은 창이라
   // 이 브라우저에 남은 임시 저장본도 섞이지 않는지 본다.
   await page.goto('/')
   await newProject(page, '본관 다시')
-  await expect(light(page)).not.toHaveValue('7.5')
-  await page.locator('.edit-bar').getByRole('button', { name: '편집 종료' }).click()
+  await expect.poll(() => lightX(page)).not.toBeNull()
+  expect(await lightX(page)).not.toBe('7.5')
+  await page.getByRole('button', { name: '편집 종료' }).click()
 
   // 주소로 바로 연다(DT 없이 에디터 URL, OE-UI-01 AC2).
   const direct = await browser.newPage()
@@ -142,7 +146,7 @@ test('[새 프로젝트]는 이름·사이트·IFC 올리기만 있고, 만들�
   await direct.goto(`/?project=${projects[0].id}`)
   await expect(direct.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
   await expect(direct.getByTestId('edit-kind')).toHaveText('초기 구축')
-  await expect(light(direct)).toHaveValue('7.5')
+  await expect.poll(() => lightX(direct)).toBe('7.5')
   await direct.close()
   expect(errors).toEqual([])
 })
@@ -182,7 +186,9 @@ test('구축을 마친 프로젝트는 층 선택 화면을 거쳐 운영 편집
   if (process.env.SHOT_STOREYS) await page.getByRole('region', { name: '프로젝트' }).screenshot({ path: process.env.SHOT_STOREYS })
   await storey.getByRole('button', { name: '운영 편집' }).click()
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
-  await expect(page.getByTestId('edit-kind')).toHaveText('운영 편집 · v1')
-  await expect(light(page)).toHaveValue('8')
+  await expect(page.getByTestId('edit-kind')).toHaveText('운영 편집')
+  // 반영본 번호는 안내 바에 있다(#715). 이 층은 임시 저장본이 있어 안내 바가 그것을 먼저 말한다.
+  await expect(page.getByTestId('info-bar')).toContainText('임시 저장본에서 이어서 편집 중')
+  await expect.poll(() => lightX(page)).toBe('8')
   expect(errors).toEqual([])
 })

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
+import { openDrawer } from './edit-part'
 
 // 생성 리포트(B-2)·고객사 결과 리포트(B-1)·누락 분류(OE-GEN-07·08, OE-BIM-20). mep.ifc 는 게이트 미달(설비 목록·소속 80%)이다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
@@ -12,11 +13,13 @@ test('리포트 칸에서 11항 생성 리포트를 만들고, 고객사 결과 
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
 
   // 요구사항 표의 분류 칸: 위반 줄마다 X/A/B/C.
+  await openDrawer(page)
   await page.getByRole('button', { name: /^요구사항/ }).click()
   const classes = await page.locator('.req-table td.req-class').allInnerTexts()
   expect(classes.length).toBeGreaterThan(10)
   expect(classes.some((x) => /^[XABC]-/.test(x))).toBe(true)
 
+  await openDrawer(page)
   const box = page.getByTestId('reports')
   await box.getByRole('button', { name: /^리포트/ }).click()
   await box.getByRole('button', { name: '생성 리포트 만들기' }).click()
@@ -41,6 +44,7 @@ test('리포트 칸에서 어긴 요소를 R 마다 세어 보이고, CSV(Global
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+  await openDrawer(page)
   const box = page.getByTestId('reports')
   await box.getByRole('button', { name: /^리포트/ }).click()
   const issues = box.getByTestId('issue-export')

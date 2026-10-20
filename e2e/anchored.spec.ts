@@ -1,5 +1,6 @@
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
+import { selectById } from './edit-part'
 
 // 배치점 보정(OE-BIM-12). Duplex HVAC(Revit → IFC2x3)는 배관 구간 231개의 배치점이 층 원점에 찍혀 형상 중심을 좌표로 쓴다.
 // 그 구간을 고르면 패널에 보정한 좌표(계산)와 BIM 원본 배치점, 떨어진 거리·기준(0.5m)이 같이 보인다.
@@ -15,11 +16,9 @@ test('Duplex HVAC: 보정한 배관 구간을 고르면 형상 중심(계산)과
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
   // 임포트 경고에 보정한 대수가 있다.
   await expect(page.locator('#warnings')).toContainText(/설비 \d+대는 배치점이 형상에서 0.5m 넘게 떨어져/)
-  await page.locator('input[type=search]').fill('582940')
-  const list = page.getByRole('button', { name: /^▸?\s*설비 목록/ })
-  if ((await list.getAttribute('aria-expanded')) === 'false') await list.click()
-  const name = 'Pipe Types:Waste:582940'
-  await page.locator('.equipment tbody tr', { hasText: name }).last().getByRole('button', { name, exact: true }).click()
+  // 층 현황 목록은 배관 구간을 싣지 않는다. 그 구간의 GlobalId 를 IFC 에서 찾아 고른다.
+  const id = /IFCFLOWSEGMENT\('([^']+)',[^,]*,'Pipe Types:Waste:582940'/.exec(readFileSync(HVAC, 'utf8'))![1]
+  await selectById(page, id)
   const anchored = page.getByTestId('anchored')
   await expect(anchored).toBeVisible()
   await expect(anchored.locator('.src.calc')).toHaveText('계산')

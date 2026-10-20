@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { pickEquipment, enterEdit } from './edit-part'
 
 // 연결별 방향 지정(OE-PIP-04). 'A → B' 를 고르면 먼저 미리보기이고 [적용] 해야 정해진다. 규칙과 반대면 보정 사유를 받는다.
 // [수동 지정 해제] 는 규칙 방향으로 돌아간다. 적용·해제는 연결 편집 이력에 남는다.
@@ -12,11 +13,11 @@ test('미리보기는 바뀐 것이 아니고, 규칙과 반대면 사유를 받
   await page.goto('/')
   await page.locator('input[type=file]').first().setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button', { name: 'DUCT-01', exact: true }).click()
+  await enterEdit(page)
+  await pickEquipment(page, 'DUCT-01')
 
   const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
-  const bar = page.locator('.edit-bar')
+  const bar = page.getByTestId('changes-link')
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
 
   // 규칙과 같은 방향의 미리보기. 사유 칸이 없고, 모델은 그대로라 바뀐 것 0건이며 3D 는 미리보기 화살표다.

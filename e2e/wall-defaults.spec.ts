@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { enterEdit, openRailPanel, panClear, toEquipment, toSpace } from './edit-part'
 
-// 새 벽 두께(OE-SPC-12)와 문·창 스냅 거리(OE-SPC-13). [벽·문·창] 을 켜면 개요 패널에 설정이 뜬다. mep.ifc 에는 벽이 없어서 새 벽
+// 새 벽 두께(OE-SPC-12)와 문·창 스냅 거리(OE-SPC-13). [벽·문·창] 을 켜고 [설정] 을 누르면 레일 펼침 칸에 설정이 뜬다. mep.ifc 에는 벽이 없어서 새 벽
 // 두께는 사이트 기본값(처음 0.15m) → 비우면 0.2m 다. 그은 벽(두께를 아는 BIM 벽이 아니다)은 세지 않으므로 둘째 벽도 같은 두께다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 
@@ -18,7 +18,7 @@ test('사이트 기본 두께로 새 벽을 긋고, 스냅 거리를 줄이면 �
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
 
@@ -26,6 +26,9 @@ test('사이트 기본 두께로 새 벽을 긋고, 스냅 거리를 줄이면 �
   await expect(settings).toHaveCount(0)
   await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
+  // 설정은 [벽·문·창] 아래 [설정] 이 여는 레일 펼침 칸이다(#715). 칸이 캔버스 왼쪽을 덮으니 모델을 옆으로 끌어 둔다.
+  await openRailPanel(page, '벽·문·창 설정')
+  await panClear(page)
   await expect(settings).toBeVisible()
   // 사이트 기본 내벽 두께의 처음 값은 0.15m 다(OE-SPC-12 "내벽 150mm"). 비우면 0.2m 로 긋는다.
   await expect(settings.getByTestId('site-wall-thickness')).toHaveValue('0.15')
@@ -64,9 +67,12 @@ test('사이트 기본 두께로 새 벽을 긋고, 스냅 거리를 줄이면 �
   await page.reload()
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
+  // 설정은 [벽·문·창] 아래 [설정] 이 여는 레일 펼침 칸이다(#715). 칸이 캔버스 왼쪽을 덮으니 모델을 옆으로 끌어 둔다.
+  await openRailPanel(page, '벽·문·창 설정')
+  await panClear(page)
   await expect(settings.getByTestId('site-wall-thickness')).toHaveValue('0.15')
   expect(errors).toEqual([])
 })
@@ -75,9 +81,12 @@ test('사이트 기본 내벽 두께를 비우면 비운 채로 남고, 처음 �
   const open = async () => {
     await page.locator('.drop input[type=file]').setInputFiles(MEP)
     await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-    await page.getByRole('button', { name: '편집', exact: true }).click()
+    await enterEdit(page)
     await toSpace(page)
     await page.getByRole('button', { name: '벽·문·창' }).click()
+    // 설정은 [벽·문·창] 아래 [설정] 이 여는 레일 펼침 칸이다(#715). 칸이 캔버스 왼쪽을 덮으니 모델을 옆으로 끌어 둔다.
+    await openRailPanel(page, '벽·문·창 설정')
+    await panClear(page)
   }
   const settings = page.getByTestId('element-settings')
   await page.goto('/')

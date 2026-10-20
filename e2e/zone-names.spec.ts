@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { enterEdit, pickFromFloor, toEquipment, toSpace } from './edit-part'
 
 // 커스텀존 이름·별명의 고유성(OE-SPC-06)과 나누기·합치기의 이름(OE-SPC-08). 다른 존이 쓰는 이름·별명으로 고치면 막고 쓰는 존을
 // 알리며 칸이 원래 값으로 돌아간다. 나누면 좁은 조각이 "이름-02" 이고, 합치면 넓은 쪽이 남아 고른 존이 그쪽으로 바뀐다.
@@ -23,7 +23,7 @@ test('다른 존이 쓰는 이름·별명은 막고 칸을 되돌리며, 나누�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   await clickFloor(page, 6, 4)
@@ -64,7 +64,8 @@ test('다른 존이 쓰는 이름·별명은 막고 칸을 되돌리며, 나누�
   // 임원석(좁다)을 골라 사무석과 합치면 넓은 사무석이 남고 임원석·경영진석은 별명이 된다.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Escape')
-  await page.locator('.overview').getByRole('button', { name: '임원석' }).click()
+  // 커스텀존은 층 현황 목록에서 고른다(#715 에서 개요의 커스텀존 목록이 빠졌다).
+  await pickFromFloor(page, '커스텀존', '임원석')
   await expect(panel.locator('h3')).toHaveText('임원석')
   await panel.locator('select[aria-label="합칠 커스텀존"]').selectOption({ label: '사무석' })
   await expect(panel.locator('h3')).toHaveText('사무석')

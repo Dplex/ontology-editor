@@ -67,11 +67,15 @@ export const floorSearch = ref('')
 /** 설비 칸의 종류 칩. 다시 누르면 풀린다. */
 export const floorEquipKind = ref<string | null>(null)
 
-/** 지금 보는 층(한 층일 때만). 모든 층이면 층 현황은 파일 전체를 센다. */
+/**
+ * 지금 보는 층(한 층일 때만). 모든 층이면 층 현황은 파일 전체를 센다. 층이 하나뿐인 파일은 층 고르기 칸이 없어(RightCol) 늘 "모든 층" 이라,
+ * 그 층으로 본다 — 아니면 층 이름 · 천장고를 고치는 칸(StoreyEdit)이 뜨지 않았다.
+ */
 export const shellStorey = computed(() => {
   const m = model.value
-  const id = viewStorey.value
-  return m && id ? (m.storeys.find((s) => s.id === id) ?? null) : null
+  if (!m) return null
+  const id = viewStorey.value ?? (m.storeys.length === 1 ? m.storeys[0].id : null)
+  return id ? (m.storeys.find((s) => s.id === id) ?? null) : null
 })
 
 /** 설비 칸 목록. 층 하나면 그 층, 모든 층이면 파일 전체의 기기(덕트 · 배관 빼고). 많으면 앞의 것만 그린다. */

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit, openDrawer } from './edit-part'
 
 // Laya 종류 후보(ADR-0057). 133 의 Laya 서버를 page.route 로 흉내 낸다 — e2e 는 133 에 닿지 않아도 돌아야 한다.
 // 서버는 편집 화면이 보낸 단서 글(family-clues.ts 의 clueText)을 받아 확률 순서의 종류를 돌려준다. 화면은 보이기만 하고,
@@ -19,7 +20,8 @@ async function open(page: Page, laya: { enabled: boolean; confidence?: number })
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  await openDrawer(page)
   const fold = page.getByRole('button', { name: /종류와 관제점 후보/ })
   if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
   return { errors, asked }

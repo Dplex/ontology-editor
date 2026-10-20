@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, pickEquipment, enterEdit } from './edit-part'
 
 // OE-UI-12 3D 단일 층 표시: "숨긴 층은 그리지도 고르지도 않는다". 방 둘짜리 fixture 는 층마다 설비가 없어 실제 BIM 으로 잰다.
 // 병원 건축+HVAC 의 1층만 볼 때, 2층 설비가 있던 화면 자리를 눌러도 2층 설비·방이 골라지지 않아야 한다. 2층은 1층 위에 있어서
@@ -14,7 +14,7 @@ const tab = (page: Page, name: '3D' | '평면도') => page.getByRole('group', { 
 
 /** 평면도에 그려진 그 층의 설비·방·벽 id. */
 async function onStorey(page: Page, label: string) {
-  await storeyBox(page).selectOption({ label: `${label}만` })
+  await storeyBox(page).selectOption({ label: `${label}` })
   await tab(page, '평면도')
   const plan = page.getByRole('img', { name: `${label} 평면도` })
   await expect(plan.locator('.spaces polygon').first()).toBeVisible()
@@ -55,7 +55,7 @@ test('병원: 한 층만 보면 다른 층 설비·방·벽은 그리지도 고�
   const all = await pickAll()
   expect(all.filter((p) => p.equipment && upstairs.devices.has(p.equipment)).length).toBeGreaterThan(sample.length / 3)
 
-  await storeyBox(page).selectOption({ label: 'First Floor만' })
+  await storeyBox(page).selectOption({ label: 'First Floor' })
   await expect.poll(() => viewer<string[]>('visibleStoreys')).toHaveLength(1)
   await page.waitForTimeout(300)
   const one = await pickAll()
@@ -73,7 +73,7 @@ test('병원: 한 층만 보면 다른 층 설비·방·벽은 그리지도 고�
   expect(ownPicked.length).toBeGreaterThan(30)
 
   // 편집 모드의 [벽·문·창] 도 같다. 2층 벽 자리를 눌러도 2층 벽은 안 골라지고, 1층 벽은 골라진다.
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await expect.poll(async () => (await viewer<string[]>('elements')).length).toBeGreaterThan(0)
@@ -107,9 +107,8 @@ test('Duplex MEP: 한 층만 보면 다른 층 끝으로 가는 화살표는 그
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX_MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('input[type=search]').fill('538562')
-  await page.locator('.equipment tbody tr', { hasText: RADIATOR }).last().getByRole('button', { name: RADIATOR, exact: true }).click()
+  await enterEdit(page)
+  await pickEquipment(page, RADIATOR)
   const arrows = () => page.evaluate(() => ((window as any).__viewer.arrows() as unknown[]).length)
   const rows = page.locator('.picked table.neighbors tr')
   await expect(rows).toHaveCount(2)
@@ -119,7 +118,7 @@ test('Duplex MEP: 한 층만 보면 다른 층 끝으로 가는 화살표는 그
   await expect.poll(arrows).toBe(2)
   await expect(page.locator('.picked .other-floor')).toHaveCount(0)
   // Level 2 만: Level 1 배관으로 가는 화살표는 없고, 그 줄에 다른 층이라고 적는다. 방향 단추는 그대로 있다.
-  await storeyBox(page).selectOption({ label: 'Level 2만' })
+  await storeyBox(page).selectOption({ label: 'Level 2' })
   await expect.poll(arrows).toBe(1)
   await expect(page.locator('.picked .other-floor')).toHaveCount(1)
   await expect(page.locator('.picked .other-floor')).toContainText('Level 1')
@@ -135,10 +134,10 @@ test('Duplex MEP: 한 층만 보면 다른 층 끝으로 가는 화살표는 그
 test('파일을 열면 방이 있는 가장 낮은 층만 보이고, 방이 없으면 설비가 놓인 가장 낮은 층이다', async ({ page }) => {
   // 기초 층(T/FDN · TOF Footing)은 방도 설비도 없다. 처음부터 그 층을 열면 빈 화면이다.
   const cases: [string, string][] = [
-    ['data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc', 'Level 1만'],
-    ['data/NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc', 'First Floor만'],
+    ['data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc', 'Level 1'],
+    ['data/NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc', 'First Floor'],
     // ifc4Mep 은 방이 없다. 설비가 놓인 가장 낮은 층이다(기초 -01. Fundering 을 건너뛴다).
-    ['data/ifc4Mep_IFC4.ifc', '00. Begane grond만'],
+    ['data/ifc4Mep_IFC4.ifc', '00. Begane grond'],
   ]
   test.skip(!cases.every(([f]) => existsSync(f)), '샘플 BIM 이 없다(npm run fetch:sample)')
   test.setTimeout(180_000)
@@ -149,6 +148,6 @@ test('파일을 열면 방이 있는 가장 낮은 층만 보이고, 방이 없�
     const checked = storeyBox(page).locator('option:checked')
     await expect(checked).toHaveText(label)
     await expect.poll(() => page.evaluate(() => ((window as any).__viewer.visibleStoreys() as string[]).length)).toBeLessThanOrEqual(1)
-    if (process.env.SHOT && label === 'Level 1만') await page.screenshot({ path: process.env.SHOT })
+    if (process.env.SHOT && label === 'Level 1') await page.screenshot({ path: process.env.SHOT })
   }
 })

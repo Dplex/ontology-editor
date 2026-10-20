@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit, idByName } from './edit-part'
 import { readFileSync } from 'node:fs'
 
 // 말로 편집 시키기(ADR-0060). [온톨로지] 칸의 gemini 가 답 끝에 붙인 ```oe-edit 계획을 창이 미리 보이고, [적용] 을 누르면 편집 화면이
@@ -39,7 +40,7 @@ test('"사무실에 공조기 놓고 AT-101-01 과 연결해줘" — 계획을 �
     { do: 'add_equipment', space: OFFICE, kind: 'ahu', name: '공조기-9' },
     { do: 'connect', from: '공조기-9', to: AT1 },
   ]))
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   const chat = await ask(page, '사무실에 공조기 놓고 AT-101-01 과 연결해줘')
   const box = chat.locator('.plan')
   await expect(box).toContainText('사무실에 공조기 "공조기-9" 더하기')
@@ -53,15 +54,14 @@ test('"사무실에 공조기 놓고 AT-101-01 과 연결해줘" — 계획을 �
   await chat.screenshot({ path: 'test-results/edit-commands.png' })
 
   await chat.getByRole('button', { name: '✕' }).click()
-  const row = page.locator('.equipment tbody tr', { hasText: '공조기-9' })
-  await expect(row).toHaveCount(1)
-  await expect(row).toContainText('공조기')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  // 더한 설비가 모델에 있다(화면 모델의 TTL 로 본다 — 설비 표는 #715 에서 빠졌다).
+  await expect.poll(() => idByName(page, '공조기-9')).not.toBeNull()
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 2건')
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
-  await expect(row).toHaveCount(0)
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect.poll(() => idByName(page, '공조기-9')).toBeNull()
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   expect(errors).toEqual([])
 })
 
@@ -74,7 +74,7 @@ test('편집 모드가 아니면 적용하지 않고 [편집] 을 누르라고 �
   await expect(box).toContainText('편집 모드에서 적용합니다')
   await expect(box.getByRole('button', { name: '적용' })).toBeEnabled()
   await chat.getByRole('button', { name: '✕' }).click()
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.keyboard.press('Alt+Shift+K')
   await box.getByRole('button', { name: '적용' }).click()
   await expect(box).toContainText('✔ 1F 사무실에 공조기-9를 더했습니다')
@@ -83,7 +83,7 @@ test('편집 모드가 아니면 적용하지 않고 [편집] 을 누르라고 �
 
 test('못 찾은 대상이 있으면 [적용] 이 막히고, 틀린 계획은 까닭을 보인다', async ({ page }) => {
   const errors = await open(page, plan([{ do: 'connect', from: 'AHU-1', to: 'VAV3' }]))
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   const chat = await ask(page, 'AHU-1 이랑 VAV3 연결해줘')
   const box = chat.locator('.plan')
   await expect(box).toContainText('설비 "VAV3" 을 지금 화면에서 찾지 못했습니다')

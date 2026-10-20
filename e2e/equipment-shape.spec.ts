@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { pickEquipment, enterEdit, toEquipment } from './edit-part'
 
 // 사람이 더한 설비의 3D 모양(ADR-0059). [같은 모양으로 더하기] 는 원본 형상을, [설비 더하기] 뒤 종류를 정하면 같은 종류 BIM 설비의 형상을
 // 빌린다. 형상 크기는 __viewer.size(형상 상자, 형상 없는 설비는 0.4m 상자)로 견준다.
@@ -22,12 +23,12 @@ test('Duplex: 라디에이터를 [같은 모양으로 더하기] 하면 원본 �
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.edit-part').getByRole('button', { name: '설비' }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1' })
+  await enterEdit(page)
+  await toEquipment(page)
 
   await page.locator('input[type=search]').fill('536919')
-  await page.locator('.equipment tbody tr', { hasText: RADIATOR }).last().getByRole('button', { name: RADIATOR, exact: true }).click()
+  await pickEquipment(page, RADIATOR)
   // 라디에이터는 사전에 종류가 없다. 이 한 대에만 종류를 정해 둔다 — 사람이 정한 종류도 같은 종류로 친다.
   await expect(page.locator('.kind-edit select')).toHaveValue('')
   const kind = 'heat_pump'
@@ -54,7 +55,7 @@ test('Duplex: 라디에이터를 [같은 모양으로 더하기] 하면 원본 �
   // Ctrl+D 로 한 번 더 — 단축키도 같은 길이다. Esc 로 취소하면 아무것도 안 생긴다.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.locator('input[type=search]').fill('536919')
-  await page.locator('.equipment tbody tr', { hasText: RADIATOR }).last().getByRole('button', { name: RADIATOR, exact: true }).click()
+  await pickEquipment(page, RADIATOR)
   await page.locator('body').press('Control+d')
   await expect(page.getByText(/같은 모양의 설비를 놓을 자리를 3D에서 클릭하세요/).first()).toBeVisible()
   await page.keyboard.press('Escape')

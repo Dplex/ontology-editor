@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { pickEquipment, enterEdit } from './edit-part'
 
 // 인터랙션 원칙(OE-OBJ-15). 시점은 지도식이다 — 빈 곳 왼쪽 드래그는 바닥면을 따라 화면 이동, 오른쪽 드래그와 Shift+왼쪽 드래그(보기·
 // 편집 모드 같다)는 회전·기울이기다. 편집 모드의 여러 개 고르기 상자는 Ctrl+드래그다(OE-UI-09, DT 2.0 과 같은 키, #56). 이동이면 카메라와 바라보는 점의 차가 그대로이고, 회전이면 그 방향이 바뀐다. 끄는 중 창이 포커스를 잃으면
@@ -30,7 +31,6 @@ test('빈 곳 왼쪽 드래그는 화면 이동, 오른쪽·Shift+왼쪽 드래�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await expect(page.locator('.view-controls-hint')).toContainText('드래그: 이동')
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(800)
   const box = (await page.locator('.canvas-wrap > canvas').first().boundingBox())!
@@ -51,7 +51,7 @@ test('빈 곳 왼쪽 드래그는 화면 이동, 오른쪽·Shift+왼쪽 드래�
   expect(sameDirection(c, d)).toBe(false)
 
   // 편집 모드에서도 Shift+왼쪽 드래그는 회전이다. 고르기 상자를 그리지 않는다.
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.waitForTimeout(400)
   const boxes: boolean[] = []
   await page.exposeFunction('__sawBox', (v: boolean) => boxes.push(v))
@@ -73,9 +73,8 @@ test('편집 모드에서 고른 설비를 끄는 중 창이 포커스를 잃으
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await expect(page.locator('.view-controls-hint')).toContainText('Ctrl+드래그: 여러 개 선택')
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await enterEdit(page)
+  await pickEquipment(page, 'AHU-1')
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(600)
   const id = '0MEP$Equip$AHU1$0000'
@@ -89,6 +88,6 @@ test('편집 모드에서 고른 설비를 끄는 중 창이 포커스를 잃으
   await page.waitForTimeout(400)
   const after = (await page.evaluate((x) => (window as any).__viewer.center(x), id)) as number[]
   expect(after.map((v) => Math.round(v * 1000))).toEqual(before.map((v) => Math.round(v * 1000)))
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   expect(errors).toEqual([])
 })

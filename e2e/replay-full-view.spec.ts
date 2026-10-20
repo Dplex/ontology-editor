@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { pickEquipment, enterEdit, openMultiView, toEquipment } from './edit-part'
 
 // 편집 리플레이는 건물 전체 3D 에서 연다. 편집 화면에서 보기 필터(층·클래스)·분해도·다중층 뷰를 켜 둔 채 P 를 누르면 그 상태로 열려서, 오프닝에
 // 건물 일부만 솟았다. 리플레이 동안은 그 상태를 보지 않고(값은 그대로 둔다), 닫으면 켜 둔 그대로 돌아오는지 뷰어가 실제로 그린 것(__viewer.shown)으로 잰다.
@@ -35,7 +36,7 @@ test('보기 필터로 클래스를 숨기고 분해도를 띄운 채 열어도 
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await page.keyboard.press('e')
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await page.keyboard.press('Shift+ArrowRight')
   await page.waitForTimeout(1800)
 
@@ -62,11 +63,10 @@ test('Duplex: 보기 필터로 한 층만 보거나 다중층 뷰여도 오프�
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
   const storeyBox = page.getByRole('combobox', { name: '보일 층' })
-  await storeyBox.selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.edit-part').getByRole('button', { name: '설비' }).click()
-  await page.locator('input[type=search]').fill('536919')
-  await page.locator('.equipment tbody tr', { hasText: RADIATOR }).last().getByRole('button', { name: RADIATOR, exact: true }).click()
+  await storeyBox.selectOption({ label: 'Level 1' })
+  await enterEdit(page)
+  await toEquipment(page)
+  await pickEquipment(page, RADIATOR)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.keyboard.press('Shift+ArrowRight')
   await page.waitForTimeout(1500)
@@ -86,8 +86,8 @@ test('Duplex: 보기 필터로 한 층만 보거나 다중층 뷰여도 오프�
   // 다중층 뷰(Level 1~2)
   await page.getByRole('button', { name: '보기 필터' }).click()
   await page.getByRole('button', { name: '모두 보이기' }).click()
-  await storeyBox.selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await storeyBox.selectOption({ label: 'Level 1' })
+  await openMultiView(page)
   await expect.poll(async () => (await shown(page)).storeys?.length).toBe(2)
   const multi = await shown(page)
   expect((await openReplay(page)).storeys).toBeNull()

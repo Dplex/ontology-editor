@@ -1,5 +1,5 @@
 import { expect, test, type Download, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { enterEdit, openDrawer, openFileMenu, toEquipment, toSpace } from './edit-part'
 
 // 내보낸 파일 뷰어(viewer.html). 에디터에서 내려받은 TTL·GeoJSON 을 그대로 다시 열어, 받는 쪽 규칙으로 읽은 것과 두 파일이
 // id 로 이어지는지를 본다. 파일을 고르는 길은 사람이 하는 것과 같다(내려받기 → 파일 고르기).
@@ -15,13 +15,17 @@ async function exported(page: Page, fixture: string, outputPath: (name: string) 
   const saved: Promise<string>[] = []
   const onDownload = (d: Download) => saved.push(d.saveAs(outputPath(d.suggestedFilename())).then(() => outputPath(d.suggestedFilename())))
   page.on('download', onDownload)
+  await openFileMenu(page)
   await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
+  await openFileMenu(page)
   await page.getByRole('button', { name: '기하 내보내기 (GeoJSON)' }).click()
   await expect.poll(() => saved.length).toBeGreaterThanOrEqual(2)
   if (with3d) {
     const before = saved.length
+    await openFileMenu(page)
     await page.getByRole('button', { name: '3D 형상 내보내기 (GLB)' }).click()
     await expect.poll(() => saved.length).toBe(before + 1)
+    await openFileMenu(page)
     await page.getByRole('button', { name: '3D 형상 내보내기 (OBJ)' }).click()
     await expect.poll(() => saved.length).toBe(before + 2)
   }
@@ -119,10 +123,15 @@ test('층별로 구축한 TTL 을 여럿 놓으면 쌓아 읽고, 건물 전체 
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
   const saved: Promise<string>[] = []
   page.on('download', (d) => saved.push(d.saveAs(info.outputPath(d.suggestedFilename())).then(() => info.outputPath(d.suggestedFilename()))))
+  // 층별 [구축] 은 기준 · 검증 드로어의 층별 요약 칸에 있다(#715). 누르면 드로어가 닫힐 수 있어 층마다 연다.
   for (const floor of ['1F', '2F']) {
+    await openDrawer(page)
+    const head = page.getByRole('button', { name: /층별 요약/ })
+    if ((await head.getAttribute('aria-expanded')) === 'false') await head.click()
     await page.getByRole('button', { name: `${floor} 구축` }).click()
     await expect.poll(() => saved.length).toBe(floor === '1F' ? 2 : 4)
   }
+  await openFileMenu(page)
   await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
   await expect.poll(() => saved.length).toBe(5)
   const files = await Promise.all(saved)
@@ -157,6 +166,7 @@ test('벽을 끄고 연 파일의 GeoJSON 을 놓으면 벽 0 이 "없음" 이 �
   await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible({ timeout: 30_000 })
   const saved: Promise<string>[] = []
   page.on('download', (d) => saved.push(d.saveAs(info.outputPath(d.suggestedFilename())).then(() => info.outputPath(d.suggestedFilename()))))
+  await openFileMenu(page)
   await page.getByRole('button', { name: '기하 내보내기 (GeoJSON)' }).click()
   await expect.poll(() => saved.length).toBe(2)
   const files = await Promise.all(saved)
@@ -179,8 +189,8 @@ test('사람이 그린 룸과 놓은 추가 공간 오브젝트가 GeoJSON 에 �
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await enterEdit(page)
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
   // 회의실(2..6, 1..4) 안에 룸 하나, 그 옆에 책상 하나
@@ -191,14 +201,16 @@ test('사람이 그린 룸과 놓은 추가 공간 오브젝트가 GeoJSON 에 �
   await expect(page.locator('.room-picked h3')).toHaveText('룸 1')
   await page.keyboard.press('Escape')
   await toSpace(page)
-  await page.getByRole('button', { name: /^오브젝트/ }).click()
+  await page.locator('button.objects-toggle').click()
   await page.locator('.object-library').getByRole('button', { name: '책상', exact: true }).click()
   await clickAt(5, 2)
   await expect(page.locator('.object-picked h3')).toHaveText('책상 1')
 
   const saved: Promise<string>[] = []
   page.on('download', (d) => saved.push(d.saveAs(info.outputPath(d.suggestedFilename())).then(() => info.outputPath(d.suggestedFilename()))))
+  await openFileMenu(page)
   await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
+  await openFileMenu(page)
   await page.getByRole('button', { name: '기하 내보내기 (GeoJSON)' }).click()
   await expect.poll(() => saved.length).toBeGreaterThanOrEqual(2)
   await page.waitForTimeout(500)

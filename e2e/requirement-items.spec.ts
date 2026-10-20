@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openDrawer } from './edit-part'
 
 // 요구사항 칸의 숫자에서 표준 자리가 아닌 것을 펴 보고 3D 에서 짚는다(editor/requirement-items.ts).
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
@@ -11,6 +12,7 @@ async function open(page: Page, file: string) {
   await page.goto('/')
   await page.locator('input[type=file]').first().setInputFiles(file)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await openDrawer(page)
   await page.locator('.requirements > .fold-head').click()
   return errors
 }
@@ -57,7 +59,8 @@ test('물리존 요구는 물리존 목록이고, 외곽선 없는 방은 그렇
   await expect(box.locator('li')).toContainText('외곽선 없음')
   await box.locator('li .link').click()
   await expect(page.locator('.picked').first()).toBeVisible()
-  // 접기.
+  // 접기. 목록에서 고르면 드로어가 닫히니 다시 연다.
+  await openDrawer(page)
   await page.getByTestId('req-items-R2').click()
   await expect(page.getByTestId('req-items')).toHaveCount(0)
   expect(errors).toEqual([])

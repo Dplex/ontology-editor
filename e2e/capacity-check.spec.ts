@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { enterEdit, openRailPanel, pickSpace } from './edit-part'
 
 // 용량 검증 Z-03(OE-ZON-05)과 그 입력값(OE-ZON-06). mep.ifc 의 1F 사무실(0..10 × 0..8)에 공조기 AHU-1 이 있고, 정격 풍량이
 // DT_Capacity.NominalAirFlowRate 1.6667 m³/s(= 6,000 CMH)다. 사무실에는 설계 풍량이 없다.
@@ -11,7 +12,7 @@ test('설계 풍량이 없으면 판정 불가, 사람이 넣으면 출처가 �
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
 
   // 공조기 패널: BIM 의 정격 풍량을 CMH 로 보이고 고칠 칸이 없다(OE-ZON-06#3).
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
@@ -24,6 +25,8 @@ test('설계 풍량이 없으면 판정 불가, 사람이 넣으면 출처가 �
   await expect(rated.getByLabel('정격 풍량(CMH)')).toHaveCount(0)
 
   // 사무실로 공조존을 만들고 AHU-1 을 담당으로 고른다. 사무실에 설계 풍량이 없어 판정 불가다 — 경고로 칠하지 않는다.
+  // 공조존 칸은 공간 편집 레일의 펼침 칸이다.
+  await openRailPanel(page, '공조존')
   const fold = page.getByTestId('hvac-zones')
   const head = fold.locator('.fold-head')
   if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
@@ -53,15 +56,13 @@ test('설계 풍량이 없으면 판정 불가, 사람이 넣으면 출처가 �
   await expect(page.getByTestId('report-zone-checks')).toContainText('AHU-1 정격 6,000 CMH < 공조존 1 설계 7,000 CMH(난방 기준)')
 
   // 되돌리면 판정 불가로 돌아온다.
-  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.locator('.appbar h2').click()
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
   await expect(undetermined).toContainText('AHU-1 — 공조존 1 설계 풍량 없음: 사무실')
 
-  // 물리존 패널에서 방 단위로 넣어도 같다. 출처가 편집이다.
-  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
-  const floor = await page.evaluate(() => (window as any).__viewer.point([6, 4, 0]))
-  await page.mouse.click(floor.x, floor.y)
+  // 물리존 패널에서 방 단위로 넣어도 같다. 출처가 편집이다. 공조존 칸이 캔버스 왼쪽을 덮어 층 현황에서 사무실을 고른다.
+  await pickSpace(page, '사무실')
   await expect(page.locator('.space-picked h3')).toHaveText('사무실')
   const spaceAir = page.getByTestId('space-airflow')
   await spaceAir.getByLabel('냉방 설계 풍량(CMH)').fill('6500')
@@ -82,7 +83,7 @@ test('방에 넣은 설계 풍량만 바꿔도 저장 안 한 편집으로 잡�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const pickOffice = async () => {
     const floor = await page.evaluate(() => (window as any).__viewer.point([6, 4, 0]))
@@ -101,7 +102,7 @@ test('방에 넣은 설계 풍량만 바꿔도 저장 안 한 편집으로 잡�
   await page.reload()
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await pickOffice()
   await expect(page.getByTestId('space-airflow').getByLabel('냉방 설계 풍량(CMH)')).toHaveValue('6500')

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { toSpace } from './edit-part'
+import { toSpace, enterEdit } from './edit-part'
 
 // 내력벽 속성(OE-BIM-06). LoadBearing 이 없는 벽은 "모름", false 인 벽은 "비내력벽(아니오)" 으로 갈리고, 내력벽은 잠긴 까닭이 보인다.
 // Duplex 건축: 내력벽 7 · 비내력벽 50. AC20(FZK-Haus): 벽 13개 전부 LoadBearing 이 없다.
@@ -11,7 +11,7 @@ async function openWalls(page: Page, file: string) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(file)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()

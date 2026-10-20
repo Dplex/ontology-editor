@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { coordOf, pickEquipment, pickSpace, enterEdit } from './edit-part'
 
 // 편집은 탭 안에만 있다. 새로 고침·탭 닫기·다른 파일 열기가 편집을 조용히 버리지 않는지 본다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
@@ -10,10 +11,10 @@ async function openFile(page: Page, file: string) {
 
 async function editOnce(page: Page) {
   await page.keyboard.press('e')
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await page.keyboard.press('Shift+ArrowRight')
   // 방 안에서 1m 라 소속(관계)은 그대로다. 그래도 좌표를 고친 편집이다.
-  await expect(page.locator('.edit-bar .last-edit')).toHaveText('AHU-1 옮김')
+  await expect(page.getByTestId('last-edit')).toHaveText('마지막 AHU-1 옮김')
 }
 
 test('편집이 남아 있으면 다른 파일을 열기 전에 묻고, 물리치면 편집이 그대로다', async ({ page }) => {
@@ -37,7 +38,7 @@ test('편집이 남아 있으면 다른 파일을 열기 전에 묻고, 물리�
   await openFile(page, ROOMS)
   await expect.poll(() => asked).toBe(1)
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc')
-  await expect(page.locator('.edit-bar .last-edit')).toHaveText('AHU-1 옮김')
+  await expect(page.getByTestId('last-edit')).toHaveText('마지막 AHU-1 옮김')
 
   // 받아들이면 연다. 같은 입력칸에 다른 파일을 고른다.
   await openFile(page, ROOMS)
@@ -62,11 +63,13 @@ test('편집을 저장하고 같은 파일을 다시 연 뒤 불러오면 편집
   await openFile(page, MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   await editOnce(page)
-  const name = page.locator('.rows input').first()
+  const x = await coordOf(page, 0).inputValue()
+  // 방 이름은 그 방을 고르면 오른쪽 카드에서 고친다.
+  await pickSpace(page, '사무실')
+  const name = page.locator('.space-name input')
   await name.fill('대회의실')
   await name.press('Enter')
-  const x = await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().locator('.coord').first().inputValue()
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 2건')
 
   // Ctrl+S 는 글자 칸에 커서가 있어도 편집 저장이다.
   const download = page.waitForEvent('download')
@@ -78,14 +81,15 @@ test('편집을 저장하고 같은 파일을 다시 연 뒤 불러오면 편집
 
   page.on('dialog', (d) => void d.accept())
   await openFile(page, MEP)
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건', { timeout: 30_000 })
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건', { timeout: 30_000 })
 
   await page.locator('.load-edits input').setInputFiles(path)
   await expect(page.locator('.edit-file-note')).toContainText('편집 2개를 적용했습니다')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 2건')
   await expect(page.locator('.report')).toContainText('사무실 → 대회의실')
-  await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().locator('.coord').first()).toHaveValue(x)
-  await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().locator('.src.edit')).toBeVisible()
+  await pickEquipment(page, 'AHU-1')
+  await expect(coordOf(page, 0)).toHaveValue(x)
+  await expect(page.locator('.position-edit .src.edit')).toBeVisible()
 
   // 다른 파일에 불러오면 못 찾은 것을 센다.
   await openFile(page, ROOMS)
@@ -102,10 +106,11 @@ test('방 이름만 고쳐도 덧붙이기는 열려 있다', async ({ page }) =
   await openFile(page, MEP)
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
   await page.keyboard.press('e')
-  const name = page.locator('.rows input').first()
+  await pickSpace(page, '사무실')
+  const name = page.locator('.space-name input')
   await name.fill('대회의실')
   await name.press('Enter')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
   await expect(page.locator('label.append:not(.disabled)')).toHaveCount(1)
   await expect(page.locator('label.append')).toHaveAttribute('title', /다시 얹습니다/)
 })
@@ -115,8 +120,8 @@ test('좌표 칸에 건물에서 먼 값을 치면 옮기되 오타일 수 있�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(['src/lib/ifc/fixtures/mep.ifc', 'src/lib/ifc/fixtures/two-rooms.ifc'])
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await enterEdit(page)
+  await pickEquipment(page, 'AHU-1')
   const x = page.locator('.picked .position-edit .coord').first()
   const x0 = await x.inputValue()
   await x.fill('')

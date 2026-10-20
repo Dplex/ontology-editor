@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, pickEquipment, enterEdit } from './edit-part'
 
 // 3D 편집 화면의 겉모습(ArtCraft 에서 가져온 넷, reference.md). 고른 것의 외곽선(selection-outline.ts) · 바닥 아래 격자(ground-grid.ts) ·
 // 벽·가구의 모서리 선(model-edges.ts) · 놓을 때 떨어져 앉기(drop-in.ts). 움직임을 끈 기본 설정에서는 외곽선이 빛 퍼짐 없이 바로 서고
@@ -27,7 +27,7 @@ async function clickFloor(page: Page, x: number, y: number) {
 }
 /** 새로 놓은 설비 하나를 [설비 더하기] 로 사무실 바닥에 놓고 그 id 를 돌려준다. */
 async function addEquipment(page: Page): Promise<string> {
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toEquipment(page)
   const before = new Set(await ids(page))
   await page.locator('.tool-palette').getByRole('button', { name: '설비 더하기' }).click()
@@ -43,7 +43,7 @@ test('고른 설비에 외곽선이 서고, 바닥 밑에 격자가 깔린다. �
   expect((await viewer<{ visible: boolean }>(page, 'ground')).visible).toBe(true)
   expect((await viewer<Outline>(page, 'outline')).objects).toBe(0)
 
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await expect.poll(() => viewer<Outline>(page, 'outline')).toMatchObject({ objects: 1, key: `equipment:${AHU}`, flashes: 0 })
 
   // 빈 곳을 누르면 풀린다.
@@ -77,7 +77,7 @@ test.describe('움직임을 켜면', () => {
     const errors: string[] = []
     page.on('pageerror', (e) => errors.push(e.message))
     await open(page, [MEP, ROOMS])
-    await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
+    await pickEquipment(page, 'AHU-1')
     await expect.poll(async () => (await viewer<Outline>(page, 'outline')).flashes).toBe(1)
     await expect.poll(async () => (await viewer<Outline>(page, 'outline')).flashing).toBe(false)
 
@@ -103,10 +103,10 @@ test.describe('움직임을 켜면', () => {
     page.on('pageerror', (e) => errors.push(e.message))
     await open(page, ROOMS)
     expect((await viewer<Motion>(page, 'motion')).started.drops).toBe(0)
-    await page.getByRole('button', { name: '편집', exact: true }).click()
+    await enterEdit(page)
     await toSpace(page)
-    await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-    await page.getByRole('button', { name: /^오브젝트/ }).click()
+    await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
+    await page.locator('button.objects-toggle').click()
     await page.locator('.object-library').getByRole('button', { name: '책상', exact: true }).click()
     await clickFloor(page, 3, 2)
     await expect(page.locator('.object-picked h3')).toHaveText('책상 1')
@@ -147,10 +147,10 @@ test('커서를 올리면 클릭 전에 골라질 추가 공간 오브젝트가 
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await open(page, ROOMS)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-  await page.getByRole('button', { name: /^오브젝트/ }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
+  await page.locator('button.objects-toggle').click()
   await page.locator('.object-library').getByRole('button', { name: '책상', exact: true }).click()
   await clickFloor(page, 3, 2)
   await expect(page.locator('.object-picked h3')).toHaveText('책상 1')
@@ -168,10 +168,10 @@ test('커서를 올리면 클릭 전에 골라질 추가 공간 오브젝트가 
 // 놓기 전 미리보기 · 겹쳐서 막혔을 때 피드백 · 지울 때 가라앉기(OE-SPC-14 · OE-SPC-15). 놓기 모드에서 커서를 따라 놓을 모양이 서고, 겹치는
 // 자리면 붉어지며 막을 상대가 붉은 외곽선으로 짚인다. 막힌 자리를 누르면 상대가 붉은 외곽선과 함께 흔들린다. 지우면 가라앉고 사라진다.
 async function startDesk(page: Page) {
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-  await page.getByRole('button', { name: /^오브젝트/ }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
+  await page.locator('button.objects-toggle').click()
 }
 async function hoverFloor(page: Page, x: number, y: number) {
   const p = await viewer<{ x: number; y: number }>(page, 'point', [x, y, 0])
@@ -215,7 +215,7 @@ test('설비 더하기도 미리보기가 서고, 놓기 모드가 아니면 서
   await open(page, [MEP, ROOMS])
   await hoverFloor(page, 5, 4)
   expect((await viewer<Ghost>(page, 'ghost')).visible).toBe(false)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toEquipment(page)
   await page.locator('.tool-palette').getByRole('button', { name: '설비 더하기' }).click()
   await hoverFloor(page, 5, 4)
@@ -279,8 +279,8 @@ test('Duplex MEP: 설비 더하기에서 종류를 고르면 미리보기가 같
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX_MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1' })
+  await enterEdit(page)
   await toEquipment(page)
   await page.locator('.tool-palette').getByRole('button', { name: '설비 더하기' }).click()
   await page.getByRole('textbox', { name: '새 설비 이름' }).fill('펌프-신규')

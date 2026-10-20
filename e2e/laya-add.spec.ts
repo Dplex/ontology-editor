@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { countByLabel, enterEdit } from './edit-part'
 
 // [설비 더하기] 에서 이름을 미리 치면 종류 후보가 뜬다(ADR-0057). 사전이 이름을 읽으면 그것이 먼저, 이어서 Laya 의 후보다.
 // 133 의 Laya 서버는 page.route 로 흉내 낸다. 고르지 않으면 지금처럼 종류 미상으로 놓인다(OE-EQP-13).
@@ -28,7 +29,7 @@ async function open(page: Page, enabled = true) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   return { errors, asked }
@@ -62,7 +63,7 @@ test('이름을 치면 Laya 후보가 뜨고, Enter 로 받아 놓으면 그 이
   // 놓고 나면 이름 칸은 비고 후보도 사라진다. 한 번 Ctrl+Z 면 설비가 빠진다.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
-  await expect(page.locator('.equipment tbody tr', { hasText: '천장형 냉난방기' })).toHaveCount(0)
+  await expect.poll(() => countByLabel(page, /천장형 냉난방기/)).toBe(0)
   expect(errors).toEqual([])
 })
 

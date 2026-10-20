@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, enterEdit, openDrawer, pickEquipment } from './edit-part'
 
 // 천장 편집 모드(OE-OBJ-08). 설비 편집의 [바닥·벽 / 천장] 토글(T). 바닥·벽 쪽에서 천장 설비는 고르기·조회만, 천장 쪽에서는 천장 설비만
 // 고친다. 반자 높이를 모르는 층은 천장 모드에서 입력을 받기 전에 천장 설비를 놓지 않는다. mep.ifc 에는 반자 높이가 없고, 사무실에
@@ -8,8 +8,7 @@ import { toEquipment, toSpace } from './edit-part'
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 const DUPLEX = 'data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc'
 
-const row = (page: Page, name: string) => page.locator('.equipment tbody tr', { hasText: name }).last()
-const pick = (page: Page, name: string) => row(page, name).getByRole('button', { name, exact: true }).click()
+const pick = (page: Page, name: string) => pickEquipment(page, name)
 const xOf = async (page: Page) => Number(await page.locator('.picked .position-edit .coord').first().inputValue())
 const keys = async (page: Page, ...combo: string[]) => {
   await page.locator('body').click({ position: { x: 5, y: 5 } })
@@ -23,7 +22,7 @@ async function open(page: Page, file = MEP) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(file)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   return errors
 }
 
@@ -36,7 +35,7 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
   await expect(page.locator('.picked .danger-zone')).toHaveCount(0)
   await keys(page, 'Shift+ArrowRight')
   await expect(page.locator('.edit-notice').first()).toContainText('천장 편집 모드에서 편집')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   // 종류는 놓기·옮기기가 아니라 패밀리 속성이라 잠겨도 고친다 — 숨기면 [U]→[K] 가 천장 설비에서 멈췄다(성수 H-2).
   await keys(page, 'k')
   await expect(page.locator('.picked .kind-edit select')).toBeFocused()
@@ -97,7 +96,7 @@ test('Duplex: 천장 모드는 위에서 내려다보고 천장고에 천장면�
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors = await open(page, DUPLEX)
-  await page.locator('select.storey-view').selectOption({ label: 'Level 1만' })
+  await page.locator('select.storey-view').selectOption({ label: 'Level 1' })
   await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
   await page.waitForTimeout(800)
   await page.locator('.viewport').first().screenshot({ path: 'test-results/ceiling-mode-floor-side.png' })
@@ -121,14 +120,20 @@ test('완전성 검사의 [방 안으로 옮기기]는 천장 설비도 바닥·
   await x.press('Enter')
   await keys(page, 'Escape', 't')
   await expect(toggle(page).getByRole('button', { name: '바닥·벽' })).toHaveAttribute('aria-pressed', 'true')
-  // 바닥·벽 쪽에서 검사의 고치기를 누른다. 모드 잠금에 막히면 안내만 뜨고 안 옮겨졌다(성수 J-1).
+  // 바닥·벽 쪽에서 검사의 고치기를 누른다. 모드 잠금에 막히면 안내만 뜨고 안 옮겨졌다(성수 J-1). 검사는 기준 · 검증 패널에 있다.
+  await openDrawer(page)
   const fold = page.getByRole('button', { name: /완전성 검사/ })
   if ((await fold.getAttribute('aria-expanded')) === 'false') await fold.click()
   await page.locator('.checks tbody tr', { hasText: '소속 방이 있다' }).click()
+  // 검사 줄을 누르면 걸린 설비를 3D 에 보이려고 패널이 닫힌다. 다시 열면 그 줄의 목록이 펼쳐져 있다.
+  await openDrawer(page)
   const item = page.locator('.check-list li', { hasText: 'AT-101-01' })
   await item.getByRole('button', { name: '사무실 안으로 옮기기' }).click()
   await expect(page.locator('.check-list li', { hasText: 'AT-101-01' })).toHaveCount(0)
-  const coords = row(page, 'AT-101-01').locator('.coord')
+  // 위치 칸은 그 설비를 고칠 수 있는 쪽(천장)에서만 보인다. 천장 모드로 가서 값을 읽는다.
+  await keys(page, 't')
+  await pick(page, 'AT-101-01')
+  const coords = page.locator('.picked .position-edit .coord')
   await expect(coords.first()).toHaveValue('9.9')
   await expect(coords.nth(2)).toHaveValue('2.7')
   expect(errors).toEqual([])

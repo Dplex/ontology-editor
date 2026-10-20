@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit, openMultiView } from './edit-part'
 
 // 수직 관통 오브젝트(계단)는 층 편집 화면에서 고르고 보기만 한다(OE-ML-05 · OE-OBJ-14). 층마다 그 층의 형상과 진입·종료 지점을 그리고,
 // 패널은 관통 층·연관 물리존을 말한다. 끌기·방향키·Delete 는 데이터를 바꾸지 않고 [다중층 뷰에서 편집] 을 안내한다.
@@ -16,7 +17,7 @@ test('병원 건축: 계단 조각을 평면도·3D 에서 고르면 읽기 전�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(CLINIC)
   await expect(page.locator('.appbar h2')).toHaveText('NBU_MedicalClinic_Arch.ifc', { timeout: 120_000 })
-  await storeyBox(page).selectOption({ label: 'First Floor만' })
+  await storeyBox(page).selectOption({ label: 'First Floor' })
   await tab(page, '평면도')
   const plan = page.getByRole('img', { name: 'First Floor 평면도' })
 
@@ -43,7 +44,7 @@ test('병원 건축: 계단 조각을 평면도·3D 에서 고르면 읽기 전�
   await expect(plan.locator('.verticals polygon.chosen')).toHaveAttribute('data-vertical', id)
 
   // 편집 모드: 안내와 누를 수 없는 [다중층 뷰에서 편집]. Delete·방향키는 데이터를 바꾸지 않는다.
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   const lock = panel.locator('.ceiling-lock')
   await expect(lock).toContainText('계단은 수직 관통 오브젝트라 층 편집 화면에서는 옮기거나 지우거나')
   await expect(lock.getByRole('button', { name: '다중층 뷰에서 편집' })).toBeEnabled()
@@ -56,7 +57,7 @@ test('병원 건축: 계단 조각을 평면도·3D 에서 고르면 읽기 전�
   expect(await stair.getAttribute('points')).toBe(ring)
   await expect(panel.getByTestId('vertical-entry')).toHaveText(entry!)
   // 되돌릴 것이 생기지 않았다.
-  await expect(page.locator('.edit-bar .undo')).toBeDisabled()
+  await expect(page.getByRole('navigation', { name: '도구 레일' }).getByRole('button', { name: /실행취소/ })).toBeDisabled()
 
   // 같은 계단을 다시 누르면 그 자리의 물리존(계단실)이 골라진다.
   await stair.click({ force: true })
@@ -66,7 +67,7 @@ test('병원 건축: 계단 조각을 평면도·3D 에서 고르면 읽기 전�
   // 패널의 관통 층에서 2층을 누르면 2층으로 가서 같은 계단의 끝 층 조각을 고른다. 2층은 종료 지점뿐이다.
   await stair.click({ force: true })
   await panel.getByTestId('vertical-storeys').getByRole('button', { name: 'Second Floor' }).click()
-  await expect(storeyBox(page).locator('option:checked')).toHaveText('Second Floor만')
+  await expect(storeyBox(page).locator('option:checked')).toHaveText('Second Floor')
   const plan2 = page.getByRole('img', { name: 'Second Floor 평면도' })
   await expect(plan2.locator('.verticals polygon')).toHaveCount(0)
   await expect(plan2.locator('.verticals circle.exit')).toHaveCount(3)
@@ -112,9 +113,9 @@ test('Duplex: 다중층 뷰에서 만든 샤프트는 층 편집 화면에서 �
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await storeyBox(page).selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await storeyBox(page).selectOption({ label: 'Level 1' })
+  await enterEdit(page)
+  await openMultiView(page)
   await page.getByTestId('multi-banner').getByRole('button', { name: '수직 관통 오브젝트 만들기' }).click()
   const form = page.getByTestId('vertical-create')
   const create = page.getByTestId('vertical-create-plan')
@@ -148,7 +149,7 @@ test('Duplex: 다중층 뷰에서 만든 샤프트는 층 편집 화면에서 �
   await page.getByRole('button', { name: '층 편집으로' }).first().click()
   await expect(page.getByTestId('multi-banner')).toHaveCount(0)
   // 계단·샤프트는 공간 편집 모드에서 다룬다(OE-ML-01).
-  await page.getByRole('group', { name: '편집 대상' }).getByRole('button', { name: '공간' }).click()
+  await page.getByRole('group', { name: '편집 모드' }).getByRole('button', { name: '공간 편집' }).click()
   await tab(page, '평면도')
   const plan = page.getByRole('img', { name: 'Level 1 평면도' })
   const shaft = plan.locator('.verticals polygon').first()
@@ -180,7 +181,7 @@ test('Duplex: 다중층 뷰에서 만든 샤프트는 층 편집 화면에서 �
   await expect(plan.locator('.verticals polygon').first()).toHaveAttribute('points', ring!)
   // 공통 축이라 2층에도 같은 형상이 그려진다(계단은 끝 층에 종료 지점만 있다 — 위 병원 건축 시험).
   await page.keyboard.press('Escape')
-  await storeyBox(page).selectOption({ label: 'Level 2만' })
+  await storeyBox(page).selectOption({ label: 'Level 2' })
   // 평면도 좌표는 층마다 그림 범위가 달라 원점이 다르다. 첫 꼭짓점에서 잰 모양을 비교한다.
   const shape = (pts: string) => {
     const xy = pts.trim().split(/\s+/).map((p) => p.split(',').map(Number))
@@ -190,6 +191,6 @@ test('Duplex: 다중층 뷰에서 만든 샤프트는 층 편집 화면에서 �
   await expect(upper).toHaveCount(1)
   expect(shape((await upper.getAttribute('points'))!)).toBe(shape(ring!))
   // 샤프트를 만든 것 말고는 되돌릴 것이 생기지 않았다.
-  await expect(page.locator('.edit-bar .undo')).toHaveAttribute('title', /샤프트|PS-1|만듦/)
+  await expect(page.getByRole('navigation', { name: '도구 레일' }).getByRole('button', { name: /실행취소/ })).toHaveAttribute('title', /샤프트|PS-1|만듦/)
   expect(errors).toEqual([])
 })

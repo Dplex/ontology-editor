@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, enterEdit, pickEquipment } from './edit-part'
 
 // 편집 대상 [공간 | 설비](OE-UI-04). 팔레트가 그 모드의 도구만 보이고, 다른 모드의 오브젝트는 고르고 볼 수 있지만 끌거나 방향키로 옮기면
 // 막고 어느 모드에서 고치는지 알린다. mep.ifc 는 한 층에 사무실(0~10 · 0~8)과 공조기 AHU-1 이 있다. storey-height.ifc 는 두 층이다.
@@ -14,7 +14,7 @@ async function open(page: Page, file = MEP) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(file)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
   return errors
@@ -29,7 +29,6 @@ async function drag(page: Page, from: Pt, to: Pt) {
   await page.mouse.up()
   await settle(page)
 }
-const row = (page: Page, name: string) => page.locator('.equipment tbody tr', { hasText: name }).last()
 
 test('모드를 바꾸면 팔레트 도구가 바뀌고, 초기 구축의 편집 막대에는 [임시 저장]·[미리보기]·[구축하기]·[편집 종료] 가 있다 [OE-UI-04#2,3]', async ({ page }) => {
   const errors = await open(page)
@@ -54,11 +53,10 @@ test('모드를 바꾸면 팔레트 도구가 바뀌고, 초기 구축의 편집
 
 test('공간 편집 모드에서 설비를 끌면 움직이지 않고 안내가 뜨며, 설비 편집 모드에서 물리존 꼭짓점을 끌어도 같다 [OE-UI-04#4]', async ({ page }) => {
   const errors = await open(page)
-  const bar = page.locator('.edit-bar')
+  const bar = page.getByTestId('changes-link')
   await toSpace(page)
   // 설비는 고르고 볼 수 있지만 끌면 제자리다.
-  await row(page, 'AHU-1').getByRole('button', { name: 'AHU-1', exact: true }).click()
-  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
+  await pickEquipment(page, 'AHU-1')
   await page.waitForTimeout(200)
   await expect(page.locator('.picked h3')).toHaveText('AHU-1')
   const center = (await viewer<number[]>(page, 'center', AHU))!
@@ -84,6 +82,7 @@ test('공간 편집 모드에서 설비를 끌면 움직이지 않고 안내가 
 test('설비 편집 모드에서 [라이저] 를 누르면 다중층 뷰가 열린다 [OE-UI-04#7]', async ({ page }) => {
   const errors = await open(page, TWO)
   await page.getByRole('navigation', { name: '편집 도구' }).getByRole('button', { name: '라이저' }).click()
-  await expect(page.getByRole('button', { name: '층 편집으로' })).toBeVisible()
+  // 다중층 뷰가 열리면 오른쪽 위 [다중층 ▾] 칩이 범위 이름으로 바뀌고 켜진다.
+  await expect(page.locator('.shell-range .multi-open')).toHaveClass(/\bon\b/)
   expect(errors).toEqual([])
 })

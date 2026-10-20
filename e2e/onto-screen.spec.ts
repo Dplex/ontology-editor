@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit, pickEquipment, pickSpace } from './edit-part'
 import { existsSync, readFileSync } from 'node:fs'
 // @ts-expect-error — 의존성 없는 node 모듈(.mjs)이라 타입이 없다
 import { parseSubjects, viewLine } from '../scripts/onto-view.mjs'
@@ -66,8 +67,9 @@ test('화면을 고치면 다음 질문 전에 다시 올린다', async ({ page 
   const chat = await askOnto(page, '물리존 몇 개야?')
   await expect(chat.locator('.msg.bot').last()).toContainText('screen-')
   await chat.getByRole('button', { name: '✕' }).click()
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const name = page.getByLabel('101 이름')
+  await enterEdit(page)
+  await pickSpace(page, '사무실')
+  const name = page.locator('.space-name input')
   await name.fill('대회의실')
   await name.press('Enter')
   await page.keyboard.press('Alt+Shift+K')
@@ -96,8 +98,8 @@ test('질문에 지금 화면(평면도·편집·고른 설비)을 id 로 싣고
   const { errors, uploads, questions } = await open(page)
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await enterEdit(page)
+  await pickEquipment(page, 'AHU-1')
   await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '평면도' }).click()
   const chat = await askOnto(page, '이거 어느 방에 있어?')
   await expect(chat.locator('.msg.bot').last()).toContainText('screen-')

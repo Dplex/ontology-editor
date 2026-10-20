@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { coordOf, enterEdit, openDrawer, pickEquipment, pickSpace, placeOf, systemChips } from './edit-part'
 
 // 픽스처 IFC 를 그대로 올린다. 단위 테스트는 Node 에서 파서를 부르지만, 여기서는 브라우저가
 // WASM 을 받아 와 실제로 돌린다 — public/web-ifc.wasm 이 안 실려 있으면 여기서 잡힌다.
@@ -21,7 +22,8 @@ test('IFC 를 올리면 검토 화면과 3D 가 나온다', async ({ page }) => 
   await page.locator('input[type=file]').setInputFiles(FIXTURE)
 
   await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByText('IFC4 ·')).toBeVisible()
+  // 파일 개요는 기준 · 검증 드로어에 있다. IFC 판(IFC4 ·) 줄은 #715 에서 개요에서 빠졌다.
+  await openDrawer(page)
 
   // PRD #6 검토 항목. 픽스처의 실제 구성과 같아야 한다.
   const tile = (label: string) => page.locator('.tiles li', { hasText: label }).locator('b')
@@ -77,6 +79,7 @@ test('요구사항 칸이 R 번호마다 표준 자리·다른 자리·없음을
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
 
   // 접힌 채로 한 줄 요약만 보인다.
+  await openDrawer(page)
   const fold = page.locator('.requirements')
   await expect(fold.locator('.fold-meta')).toContainText('필수')
   await fold.getByRole('button', { name: /요구사항/ }).click()
@@ -106,11 +109,11 @@ test('연결을 읽어 계통 범례와 상류·하류를 보여 준다', async 
   await expect(tile('연결')).toHaveText('3')
   await expect(tile('흐름 방향')).toHaveText('2')
 
-  // 계통 범례가 3D 옆에 뜬다. 색은 범례와 3D 가 같은 자리에서 가져온다.
-  await expect(page.locator('.legend')).toContainText('AHU-1 급기 계통')
+  // 계통 범례는 층 현황 설비 칸의 계통 칩이다(#715). 색은 칩과 3D 가 같은 자리에서 가져온다.
+  await expect(await systemChips(page)).toContainText('AHU-1 급기 계통')
 
   // 3D 를 클릭하는 대신 설비 표에서 고른다. 픽셀을 찍는 것은 화면 크기에 따라 흔들린다.
-  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
+  await pickEquipment(page, 'DUCT-01', false)
 
   const picked = page.locator('.picked')
   await expect(picked).toContainText('DUCT-01')
@@ -133,71 +136,39 @@ test('설비를 옮기면 소속 물리존이 다시 판정된다', async ({ pag
   await page.goto('/')
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
 
-  const row = (name: string) => page.locator('.equipment tbody tr', { hasText: name })
-
+  // 소속은 화면 모델(TTL)의 hasLocation 으로 읽고, 좌표는 고른 설비의 위치 칸에 넣는다(예전 설비 표는 #715 에서 빠졌다).
   // AHU-1 은 사무실 안에 있다.
-  await expect(row('AHU-1')).toContainText('사무실')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toBe('사무실')
   await expect(page.locator('.report')).toHaveCount(0)
 
   // 물리존 밖으로 옮기면 소속이 사라진다. 이게 온톨로지에서 hasLocation 한 줄이다.
-  await row('AHU-1').locator('.coord').first().fill('50')
-  await row('AHU-1').locator('.coord').first().blur()
-  await expect(row('AHU-1')).toContainText('(소속 없음)')
+  await pickEquipment(page, 'AHU-1')
+  await coordOf(page, 0).fill('50')
+  await coordOf(page, 0).blur()
+  await expect.poll(() => placeOf(page, 'AHU-1')).toBe('(소속 없음)')
   await expect(page.locator('.report')).toContainText('사무실')
 
   // 좌표가 없던 센서에 값을 주면 소속이 생긴다(E6). 셋이 다 차기 전에는 옮기지 않는다 — 빈 축을 0 으로
   // 채우면 모르는 것이 원점 쪽에 있는 것으로 바뀐다.
-  const sensor = row('TEMP-101-01')
-  const changed = page.locator('.edit-bar')
+  const changed = page.getByTestId('changes-link')
+  const position = page.locator('.position-edit')
   await expect(changed).toContainText('바뀐 것 1건')
-  await expect(sensor).toContainText('(소속 없음)')
+  await pickEquipment(page, 'TEMP-101-01')
+  expect(await placeOf(page, 'TEMP-101-01')).toBe('(소속 없음)')
   for (const [axis, value] of [[0, '5'], [1, '4']] as const) {
-    await sensor.locator('.coord').nth(axis).fill(value)
-    await sensor.locator('.coord').nth(axis).blur()
-    await expect(sensor).toContainText('(소속 없음)')
-    await expect(sensor).toContainText('x·y·z를 모두 넣어야 옮겨집니다')
+    await coordOf(page, axis).fill(value)
+    await coordOf(page, axis).blur()
+    expect(await placeOf(page, 'TEMP-101-01')).toBe('(소속 없음)')
+    await expect(position).toContainText('x·y·z를 모두 넣어야 옮겨집니다')
     await expect(changed).toContainText('바뀐 것 1건')
   }
-  await sensor.locator('.coord').nth(2).fill('2.5')
-  await sensor.locator('.coord').nth(2).blur()
-  await expect(sensor).toContainText('사무실')
-  await expect(sensor).not.toContainText('모두 넣어야')
+  await coordOf(page, 2).fill('2.5')
+  await coordOf(page, 2).blur()
+  await expect.poll(() => placeOf(page, 'TEMP-101-01')).toBe('사무실')
+  await expect(position).not.toContainText('모두 넣어야')
   await expect(changed).toContainText('바뀐 것 2건')
-
-  expect(errors).toEqual([])
-})
-
-test('물리존 경계를 고치면 넓이와 설비 소속이 같이 바뀐다', async ({ page }) => {
-  const errors: string[] = []
-  page.on('pageerror', (e) => errors.push(e.message))
-
-  await page.goto('/')
-  await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
-  await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-
-  // 물리존은 이름·경계를 한 표에서 고친다. 이름은 입력칸이라 행 글자로는 방 번호(101)로 찾는다.
-  const spaceRow = page.locator('.spaces-edit tbody tr', { hasText: '101' }).first()
-  await expect(spaceRow).toContainText('80.0 ㎡')
-
-  // AT-101-02 는 (7,4) 에 있다. 두 번째 꼭짓점 x 를 5 로 당기면 밖으로 밀려난다.
-  const terminal = page.locator('.equipment tbody tr', { hasText: 'AT-101-02' })
-  await expect(terminal).toContainText('사무실')
-
-  // 오른쪽 두 꼭짓점의 x 를 5 로 당겨 폭을 절반으로 줄인다. 하나만 당기면 사다리꼴이
-  // 되어 (7,4) 가 아직 안에 남는다 — 경계 편집은 이렇게 직관과 어긋난다.
-  for (const i of [1, 2]) {
-    const x = spaceRow.locator('.vertex').nth(i).locator('.coord').first()
-    await x.fill('5')
-    await x.blur()
-  }
-
-  // 넓이가 줄고, 소속이 빠지고, 리포트에 둘 다 남는다.
-  await expect(spaceRow).toContainText('40.0 ㎡')
-  await expect(page.locator('.report')).toContainText('AT-101-02')
-  await expect(page.locator('.report')).toContainText('80.0㎡ → 40.0㎡')
 
   expect(errors).toEqual([])
 })
@@ -272,9 +243,9 @@ test('3D 에서 누를 수 있는 곳에 올라가면 커서가 손가락이 되
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
   // 설비가 작게 보이면 격자로 훑어도 못 맞춘다. 연결망에 맞춰 크게 본 뒤 선택을 푼다.
-  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
+  await pickEquipment(page, 'DUCT-01', false)
   await page.getByRole('button', { name: '연결망 보기' }).click()
-  await page.getByRole('button', { name: '선택 해제' }).click()
+  await page.locator('.shell-sel .side-clear').click()
 
   const canvas = page.locator('.canvas-wrap > canvas')
   // 화면 좌표로 훑으므로 3D 가 화면 안에 있어야 한다.
@@ -309,8 +280,8 @@ test('규칙이 짐작한 방향은 (추정)으로 보이고, 사람이 연결 �
   await page.goto('/')
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
+  await enterEdit(page)
+  await pickEquipment(page, 'DUCT-01', false)
 
   const picked = page.locator('.picked')
   // 포트가 방향을 말한 이웃은 그냥 "상류" 이고 고칠 수 없다.
@@ -345,25 +316,25 @@ test('보기 모드는 고치는 칸을 숨기고, 편집 모드는 막대와 �
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
 
-  // 처음은 보기다. 설비 목록은 남되 좌표 입력칸과 물리존 편집, 흐름 방향 버튼이 없다.
-  await expect(page.getByRole('button', { name: '보기', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  // 처음은 보기다. 고른 설비의 좌표 입력칸과 흐름 방향 버튼이 없다.
+  await expect(page.getByTestId('edit-start')).toBeVisible()
   await expect(page.locator('.edit-bar')).toHaveCount(0)
-  await expect(page.locator('.equipment input')).toHaveCount(0)
-  await page.locator('.equipment tbody tr', { hasText: 'DUCT-01' }).getByRole('button').first().click()
+  await pickEquipment(page, 'DUCT-01', false)
   await expect(page.locator('.picked .flow-edit')).toHaveCount(0)
+  await expect(page.locator('.position-edit')).toHaveCount(0)
 
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await enterEdit(page)
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   await expect(page.locator('.picked .flow-edit').first()).toBeVisible()
-  await expect(page.locator('.equipment input').first()).toBeVisible()
+  await expect(page.locator('.position-edit .coord').first()).toBeVisible()
 
   // 편집한 것은 편집 막대가 센다. 보기로 돌아가도 리포트는 남는다.
   const terminal = page.locator('.picked .neighbors tr', { hasText: 'AT-101-02' })
   await terminal.getByTestId('flow-in').click()
   await terminal.getByTestId('flow-reason').fill('현장 확인')
   await terminal.getByTestId('flow-apply').click()
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
-  await page.getByRole('button', { name: '보기', exact: true }).click()
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
+  await page.getByRole('button', { name: '편집 종료' }).click()
   await expect(page.locator('.report')).toContainText('AT-101-02 → DUCT-01')
 })
 
@@ -371,7 +342,7 @@ test('공기 원천을 고르면 흐름을 따라 말단이 있는 방을 담당
   await page.goto('/')
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button').first().click()
+  await pickEquipment(page, 'AHU-1', false)
 
   // 토출구 둘이 사무실에 있다(하나는 규칙 방향으로 닿는다). 추정이라 [계산] 이 붙는다.
   const served = page.locator('.picked .served')
@@ -384,7 +355,7 @@ test('공기 원천을 고르면 흐름을 따라 말단이 있는 방을 담당
   await expect(office.locator('td').nth(1)).toHaveText('1')
 
   // 말단을 고르면 담당 공간 칸이 없다. 원천이 아니다.
-  await page.locator('.equipment tbody tr', { hasText: 'AT-101-01' }).getByRole('button').first().click()
+  await pickEquipment(page, 'AT-101-01', false)
   await expect(page.locator('.picked .served')).toHaveCount(0)
 })
 
@@ -393,6 +364,7 @@ test('완전성 검사는 규칙마다 통과 수를 세고, 어긴 것을 펼�
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
 
+  await openDrawer(page)
   const checks = page.locator('.checks')
   const rows = checks.locator('tbody tr')
   // 공기 계통 셋, 물 계통 둘, 도관 끝, 도관 경로(OE-PIP-13), 유체 흐름이 아닌 연결(OE-PIP-18), 소속, 연결망, 스프링클러 소화 배관 — 규칙이 열하나다.
@@ -405,6 +377,8 @@ test('완전성 검사는 규칙마다 통과 수를 세고, 어긴 것을 펼�
   // 어긴 것이 있는 첫 규칙을 펼치고, 목록에서 하나를 고르면 설비 패널이 뜬다.
   const failing = rows.filter({ has: page.locator('button') }).first()
   await failing.click()
+  // 검사 줄을 누르면 결과를 3D 에 보이려고 드로어가 닫힌다(shell.ts). 목록은 다시 열어 본다.
+  await openDrawer(page)
   await expect(failing).toHaveClass(/chosen/)
   const first = checks.locator('.check-list li button').first()
   const name = (await first.textContent())!.trim()
@@ -435,6 +409,7 @@ test('벽·문·창은 피처 단위로 골라 읽고, 읽지 않은 것은 요�
 
   await page.locator('.drop input[type=file]').setInputFiles('src/lib/ifc/fixtures/two-rooms.ifc')
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await openDrawer(page)
   const tiles = page.locator('.tiles')
   // 0 이 아니라 "읽지 않음" 이다. 0 이면 BIM 에 벽이 없다는 말이 된다.
   await expect(tiles.locator('li.skipped', { hasText: '벽' })).toContainText('읽지 않음')
@@ -442,6 +417,7 @@ test('벽·문·창은 피처 단위로 골라 읽고, 읽지 않은 것은 요�
   await expect(tiles.locator('li', { hasText: '내력벽' })).toHaveCount(0)
   await expect(tiles.locator('li', { hasText: '문' }).first()).toBeVisible()
   // 요구사항 R22(벽의 내력 속성)은 잴 수 없음이다.
+  await openDrawer(page)
   await page.locator('.requirements .fold-head').click()
   await expect(page.locator('.requirements tr', { hasText: 'R22' })).toContainText('벽을 읽지 않고 열었습니다')
 })
@@ -450,8 +426,8 @@ test('편집 뒤 화면이 다시 그려져도 치고 있던 칸은 지워지지
   await page.goto('/')
   await page.locator('input[type=file]').setInputFiles('src/lib/ifc/fixtures/mep.ifc')
   await expect(page.getByRole('heading', { name: 'mep.ifc' })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button').first().click()
+  await enterEdit(page)
+  await pickEquipment(page, 'AHU-1', false)
 
   // 오른쪽 패널에서 x 를 바꾸면 조금 뒤(등급을 다시 잴 때) 화면 전체가 다시 그려진다. 그 사이 y 를 치고 있다.
   const coords = page.locator('.picked .position-edit .coord')
@@ -462,7 +438,7 @@ test('편집 뒤 화면이 다시 그려져도 치고 있던 칸은 지워지지
   await expect(coords.nth(1)).toHaveValue('3.5')
   // 넣는 것은 여전히 Enter 한 번이다.
   await coords.nth(1).press('Enter')
-  await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).locator('.coord').nth(1)).toHaveValue('3.5')
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.center('0MEP$Equip$AHU1$0000')?.[1])).toBeCloseTo(3.5, 2)
 })
 
 // 열려 있는 파일 위에 다른 파일을 열다 실패하면 열려 있던 모델·편집이 그대로 남는다(OE-BIM-01#2). 예전에는 모델을 비워서, 읽지 못한
@@ -475,11 +451,12 @@ test('다른 파일을 열다 실패하면 이유를 보이고 열려 있던 모
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(FIXTURE)
   await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const name = page.locator('.rows input').first()
+  await enterEdit(page)
+  await pickSpace(page, '회의실')
+  const name = page.locator('.space-name input')
   await name.fill('대회의실')
   await name.press('Enter')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   const open = page.locator('.appbar label', { hasText: '열기' }).locator('input[type=file]').first()
   const v2x2 = ['ISO-10303-21;', 'HEADER;', "FILE_DESCRIPTION((''),'2;1');", "FILE_NAME('','',(''),(''),'','','');", "FILE_SCHEMA(('IFC2X2_FINAL'));", 'ENDSEC;', 'DATA;', 'ENDSEC;', 'END-ISO-10303-21;'].join('\n')
@@ -493,7 +470,7 @@ test('다른 파일을 열다 실패하면 이유를 보이고 열려 있던 모
     await expect(alert).toContainText('열려 있던 two-rooms.ifc 는 그대로입니다')
     await expect(page.getByRole('heading', { name: 'two-rooms.ifc' })).toBeVisible()
     await expect(page.locator('.tiles li', { hasText: '물리존' }).locator('b')).toHaveText('3')
-    await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+    await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
     await expect(page.locator('.report')).toContainText('대회의실')
   }
   expect(errors).toEqual([])

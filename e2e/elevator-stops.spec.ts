@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit, openMultiView } from './edit-part'
 
 // 엘리베이터 정차 층(OE-ML-10)과 로봇 통과(OE-ML-04). two-rooms.ifc + mep.ifc 를 합치면 층이 둘(1F·2F)이다.
 // 다중층 뷰에서 엘리베이터를 만들면 두 층 모두 정차로 시작하고, 2F 를 무정차로 바꾸면 그 층의 로봇 통과가 불가가 된다.
@@ -14,9 +15,9 @@ test('다중층 뷰에서 엘리베이터는 시작/끝 층을 고르고 위치�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles([MEP, ROOMS])
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await enterEdit(page)
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
+  await openMultiView(page)
   await expect(page.getByTestId('multi-banner')).toContainText('1F ~ 2F')
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
 
@@ -62,12 +63,12 @@ test('다중층 뷰에서 엘리베이터는 시작/끝 층을 고르고 위치�
 
   // 2F 를 무정차로. 2F 조각을 고르면 그 층은 통과 불가다.
   await stops.getByLabel('2F 정차').selectOption('skip')
-  await expect(page.locator('.edit-bar .last-edit')).toContainText('엘리베이터 2F 무정차')
+  await expect(page.getByTestId('last-edit')).toContainText('엘리베이터 2F 무정차')
   await panel.getByTestId('vertical-storeys').getByRole('button', { name: '2F' }).click()
   await expect(panel.getByTestId('vertical-passable')).toContainText('2F: 통과 불가 — 서지 않는 층입니다')
 
   // 되돌리면 정차로 돌아온다.
-  await page.locator('.edit-bar .undo').click()
+  await page.getByRole('navigation', { name: '도구 레일' }).getByRole('button', { name: /실행취소/ }).click()
   await expect(stops.getByLabel('2F 정차')).toHaveValue('stop')
   await expect(panel.getByTestId('vertical-passable')).toContainText('2F: 통과 가능')
   expect(errors).toEqual([])
@@ -79,9 +80,9 @@ test('다중층 뷰에서 에스컬레이터는 시작점만 찍으면 끝 층�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles([MEP, ROOMS])
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await enterEdit(page)
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
+  await openMultiView(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.getByTestId('multi-banner').getByRole('button', { name: '수직 관통 오브젝트 만들기' }).click()
   const form = page.getByTestId('vertical-create')
@@ -122,7 +123,7 @@ test('다중층 뷰에서 에스컬레이터는 시작점만 찍으면 끝 층�
   await expect(dir).toContainText(/11\.00, 2\.50, 0\.00 → 11\.00, 7\.70, 3\.00/)
   await expect(panel.getByTestId('vertical-passable')).toContainText('통과 불가')
   // 만들기와 방향이 되돌리기 한 번이다.
-  await page.locator('.edit-bar .undo').click()
+  await page.getByRole('navigation', { name: '도구 레일' }).getByRole('button', { name: /실행취소/ }).click()
   await expect(panel).toHaveCount(0)
   expect(errors).toEqual([])
 })

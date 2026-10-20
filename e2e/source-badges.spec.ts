@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { pickEquipment, enterEdit } from './edit-part'
 
 // 출처 표시(OE-UI-13). 패널의 값마다 출처(BIM · 계산 · 사전 · 사람 · 외부, glossary "출처")가 붙고, 사람이 고치면 "사람" 이 된다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
@@ -9,8 +10,8 @@ test('설비 패널의 값마다 출처가 보이고, 좌표·종류를 고치�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await enterEdit(page)
+  await pickEquipment(page, 'AHU-1')
   const panel = page.locator('.side .picked')
   await expect(panel.locator('h3')).toHaveText('AHU-1')
   // 값 줄마다 출처 칩이 있다(종류·역할·계통·소속·설치면). "지정" 줄은 값이 아니라 소속을 사람이 고르는 칸이다 — 고르면 "소속" 줄의

@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { coordOf, countByLabel, enterEdit, idByName, panClear, pickEquipment } from './edit-part'
 
-// 여러 개 고르기(OE-UI-09, 2026-10-03 사용자 결정). 설비만, 편집 모드에서 Ctrl+클릭(목록·3D·평면도)과 Ctrl+끌기 상자로 고르고, 방향키·끌기로
+// 여러 개 고르기(OE-UI-09, 2026-10-03 사용자 결정). 설비만, 편집 모드에서 Ctrl+클릭(3D·평면도)과 Ctrl+끌기 상자로 고르고, 방향키·끌기로
 // 같이 옮기고 Delete 로 같이 지운다 — 되돌리기 한 번에 전부. mep.ifc 의 사무실(0..10 × 0..8)에 디퓨저 둘 AT-101-01 (3,4)·AT-101-02 (7,4)이 있다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 
@@ -11,7 +12,7 @@ async function open(page: Page) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   return errors
 }
 // 디퓨저·조명은 천장 설비라 천장 편집 모드(T)에서 고친다(OE-OBJ-08).
@@ -23,22 +24,37 @@ async function enterCeiling(page: Page) {
   await expect(on).toHaveAttribute('aria-pressed', 'true')
 }
 
-const row = (page: Page, name: string) => page.locator('.equipment tbody tr', { hasText: name }).last()
-const coords = async (page: Page, name: string) => [0, 1].map(async (i) => Number(await row(page, name).locator('.coord').nth(i).inputValue()))
-const at = async (page: Page, name: string) => Promise.all(await coords(page, name))
+// 3D 아래 설비 표가 빠져서(#715) 목록 Ctrl+클릭은 없다. 그냥 고르기는 층 현황 목록으로, 더하기는 3D Ctrl+클릭으로 한다.
+// 자리는 3D 형상의 가운데(x·y, 소수 둘째 자리)로 잰다 — 고르기가 바뀌지 않는다.
+const at = async (page: Page, name: string) => {
+  const id = await idByName(page, name)
+  const c = (await page.evaluate((x) => (window as any).__viewer.center(x), id)) as number[]
+  return [Math.round(c[0] * 100) / 100, Math.round(c[1] * 100) / 100]
+}
+async function ctrlPick(page: Page, name: string) {
+  const id = await idByName(page, name)
+  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().flying)).toBe(false)
+  // 되돌리기로 다시 생긴 설비는 3D 형상이 한 박자 늦게 생긴다.
+  await expect.poll(() => page.evaluate((x) => (window as any).__viewer.part(x), id)).not.toBeNull()
+  const p = (await page.evaluate((x) => (window as any).__viewer.part(x), id)) as { x: number; y: number }
+  await page.keyboard.down('Control')
+  await page.mouse.click(p.x, p.y)
+  await page.keyboard.up('Control')
+}
+const gone = (page: Page, name: string) => expect.poll(() => countByLabel(page, new RegExp(`^${name}$`)))
 const keys = async (page: Page, ...combo: string[]) => {
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   for (const k of combo) await page.keyboard.press(k)
 }
 
-test('목록에서 Ctrl+클릭으로 둘을 고르면 방향키로 같이 옮기고, Delete 로 같이 지우며, 되돌리기 한 번에 둘 다 돌아온다', async ({ page }) => {
+test('Ctrl+클릭으로 둘을 고르면 방향키로 같이 옮기고, Delete 로 같이 지우며, 되돌리기 한 번에 둘 다 돌아온다', async ({ page }) => {
   const errors = await open(page)
   await enterCeiling(page)
-  await row(page, 'AT-101-01').getByRole('button', { name: 'AT-101-01', exact: true }).click()
-  await row(page, 'AT-101-02').getByRole('button', { name: 'AT-101-02', exact: true }).click({ modifiers: ['Control'] })
+  await pickEquipment(page, 'AT-101-01')
+  await ctrlPick(page, 'AT-101-02')
   const panel = page.locator('.group-picked')
   await expect(panel.locator('h3')).toHaveText('설비 2대 고름')
-  await expect(page.locator('.equipment tbody tr.chosen')).toHaveCount(2)
 
   const [a0, b0] = [await at(page, 'AT-101-01'), await at(page, 'AT-101-02')]
   await keys(page, 'Shift+ArrowRight')
@@ -47,34 +63,33 @@ test('목록에서 Ctrl+클릭으로 둘을 고르면 방향키로 같이 옮기
   // 같은 거리만큼(1m) 같은 쪽으로.
   expect([a1[0] - a0[0], a1[1] - a0[1]]).toEqual([b1[0] - b0[0], b1[1] - b0[1]])
   expect(Math.hypot(a1[0] - a0[0], a1[1] - a0[1])).toBeCloseTo(1, 2)
-  await expect(page.locator('.edit-bar')).toContainText('설비 2대 옮김')
+  await expect(page.getByTestId('last-edit')).toContainText('설비 2대 옮김')
   await keys(page, 'Control+z')
   await expect.poll(async () => (await at(page, 'AT-101-01')).join()).toBe(a0.join())
   expect((await at(page, 'AT-101-02')).join()).toBe(b0.join())
 
-  // 덕트는 넣지 않는다.
-  await row(page, 'DUCT-01').getByRole('button', { name: 'DUCT-01', exact: true }).click({ modifiers: ['Control'] })
-  await expect(panel.locator('h3')).toHaveText('설비 2대 고름')
-
-  // 같이 지우기 → 되돌리기 한 번에 둘 다.
-  await keys(page, 'Delete')
-  await expect(page.locator('.equipment tbody tr', { hasText: 'AT-101-01' })).toHaveCount(0)
-  await expect(page.locator('.equipment tbody tr', { hasText: 'AT-101-02' })).toHaveCount(0)
-  await expect(page.locator('.group-picked')).toHaveCount(0)
-  await keys(page, 'Control+z')
-  await expect(page.locator('.equipment tbody tr', { hasText: 'AT-101-01' })).not.toHaveCount(0)
-  await expect(page.locator('.equipment tbody tr', { hasText: 'AT-101-02' })).not.toHaveCount(0)
-
   // Ctrl+클릭으로 하나를 빼면 보통 고르기로 돌아가고, Esc 는 묶음을 푼다.
-  await row(page, 'AT-101-01').getByRole('button', { name: 'AT-101-01', exact: true }).click()
-  await row(page, 'AT-101-02').getByRole('button', { name: 'AT-101-02', exact: true }).click({ modifiers: ['Control'] })
-  await row(page, 'AT-101-02').getByRole('button', { name: 'AT-101-02', exact: true }).click({ modifiers: ['Control'] })
+  await pickEquipment(page, 'AT-101-01')
+  await ctrlPick(page, 'AT-101-02')
+  await ctrlPick(page, 'AT-101-02')
   await expect(page.locator('.group-picked')).toHaveCount(0)
   await expect(page.locator('.picked h3').first()).toHaveText('AT-101-01')
-  await row(page, 'AT-101-02').getByRole('button', { name: 'AT-101-02', exact: true }).click({ modifiers: ['Control'] })
+  await ctrlPick(page, 'AT-101-02')
   await expect(page.locator('.group-picked')).toBeVisible()
   await keys(page, 'Escape')
   await expect(page.locator('.group-picked')).toHaveCount(0)
+
+  // 같이 지우기 → 되돌리기 한 번에 둘 다. 되돌린 설비는 3D 에 다시 그려지지 않아(#715 전부터) 3D 로 고르는 구간을 앞에 둔다.
+  await pickEquipment(page, 'AT-101-01')
+  await ctrlPick(page, 'AT-101-02')
+  await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
+  await keys(page, 'Delete')
+  await gone(page, 'AT-101-01').toBe(0)
+  await gone(page, 'AT-101-02').toBe(0)
+  await expect(page.locator('.group-picked')).toHaveCount(0)
+  await keys(page, 'Control+z')
+  await gone(page, 'AT-101-01').toBe(1)
+  await gone(page, 'AT-101-02').toBe(1)
   expect(errors).toEqual([])
 })
 
@@ -105,17 +120,30 @@ test('평면도에서 Ctrl+끌기 상자로 디퓨저 둘을 고르고, 3D 에�
   await page.getByRole('group', { name: '보기' }).getByRole('button', { name: '3D' }).click()
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
+  // 처음 시점은 멀리 있는 덕트 표시 상자까지 담아 디퓨저가 몇 px 다. 방을 가운데로 끌어 오고 당겨 본다.
+  await panClear(page)
+  const mid = (await page.evaluate(() => (window as any).__viewer.point([5, 4, 0]))) as { x: number; y: number }
+  await page.mouse.move(mid.x, mid.y)
+  for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -200)
+  await page.waitForTimeout(500)
   const screen = (id: string) => page.evaluate((x) => (window as any).__viewer.part(x) as { x: number; y: number }, id)
-  const [pa, pb] = [await screen(idOf('AT-101-01')), await screen(idOf('AT-101-02'))]
+  const pa = await screen(idOf('AT-101-01'))
   await page.mouse.click(pa.x, pa.y)
   await expect(page.locator('.picked h3').first()).toHaveText('AT-101-01')
+  // 고르면 카메라가 그 설비로 날아간다. 멈춘 뒤에 둘째 자리를 읽는다(부하가 걸리면 비행이 길어 미리 읽은 자리가 빗나갔다).
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().flying)).toBe(false)
+  const pb = await screen(idOf('AT-101-02'))
   await page.keyboard.down('Control')
   await page.mouse.click(pb.x, pb.y)
   await page.keyboard.up('Control')
   await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
 
-  // 묶음 중 하나를 끌면 둘 다 같은 거리만큼 간다.
+  // 묶음 중 하나를 끌면 둘 다 같은 거리만큼 간다. 고르면 카메라가 날아가니 멈춘 뒤 자리를 다시 읽는다.
   const [a0, b0] = [await at(page, 'AT-101-01'), await at(page, 'AT-101-02')]
+  await expect.poll(() => page.evaluate(() => (window as any).__viewer.motion().flying)).toBe(false)
+  const pd = await screen(idOf('AT-101-01'))
+  pa.x = pd.x
+  pa.y = pd.y
   await page.mouse.move(pa.x, pa.y)
   await page.mouse.down()
   await page.mouse.move(pa.x + 40, pa.y, { steps: 6 })
@@ -143,8 +171,8 @@ test('평면도에서 Ctrl+끌기 상자로 디퓨저 둘을 고르고, 3D 에�
 test('묶음 중 하나라도 막히면(좌표 없는 설비 · 외벽 전용 설비가 방 안으로) 아무것도 옮기지 않는다', async ({ page }) => {
   const errors = await open(page)
   // 좌표가 없는 TEMP-101-01 이 묶음에 있으면 같이 옮기지 않는다.
-  await row(page, 'TEMP-101-01').getByRole('button', { name: 'TEMP-101-01', exact: true }).click()
-  await row(page, 'AT-101-01').getByRole('button', { name: 'AT-101-01', exact: true }).click({ modifiers: ['Control'] })
+  await pickEquipment(page, 'TEMP-101-01')
+  await ctrlPick(page, 'AT-101-01')
   await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
   const a0 = await at(page, 'AT-101-01')
   await keys(page, 'Shift+ArrowRight')
@@ -153,9 +181,9 @@ test('묶음 중 하나라도 막히면(좌표 없는 설비 · 외벽 전용 �
   await keys(page, 'Escape')
 
   // AHU-1 을 외기 온도 센서로 바꾼다 — 외벽 바깥 면이 아니면 옮길 수 없다(OE-OBJ-04). 디퓨저와 같이 옮기려 해도 둘 다 그대로다.
-  await row(page, 'AHU-1').getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await page.locator('.picked').first().locator('.kind-edit select').selectOption({ label: '외기 온도 센서' })
-  await row(page, 'AT-101-01').getByRole('button', { name: 'AT-101-01', exact: true }).click({ modifiers: ['Control'] })
+  await ctrlPick(page, 'AT-101-01')
   await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
   const h0 = await at(page, 'AHU-1')
   await keys(page, 'Shift+ArrowRight')
@@ -189,7 +217,6 @@ const shiftClick = async (page: Page, p: Pt) => {
   await page.keyboard.up('Control')
 }
 const panelTitle = (page: Page) => page.locator('.picked h3').first()
-const nameButton = (page: Page, n: string) => row(page, n).getByRole('button', { name: n, exact: true })
 /** 공조기·덕트와 이어지지 않은 설비 하나를 사무실 구석에 더한다. 디퓨저를 고르면 이것이 흐려진다. */
 async function addLone(page: Page) {
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
@@ -234,29 +261,28 @@ test('흐리게 칠한 설비도 Ctrl+클릭으로 더하고, 묶음 중에는 �
 test('다른 설비를 그냥 고르거나 편집을 끝내면 묶음이 풀리고, 되돌리기로 묶음의 설비가 없어지면 남은 하나를 고른다', async ({ page }) => {
   const errors = await open(page)
   // 그냥 누르면 그것 하나만.
-  await nameButton(page, 'AT-101-01').click()
-  await nameButton(page, 'AT-101-02').click({ modifiers: ['Control'] })
+  await pickEquipment(page, 'AT-101-01')
+  await ctrlPick(page, 'AT-101-02')
   await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
-  await nameButton(page, 'AHU-1').click()
+  await pickEquipment(page, 'AHU-1')
   await expect(page.locator('.group-picked')).toHaveCount(0)
   await expect(panelTitle(page)).toHaveText('AHU-1')
-  await expect(page.locator('.equipment tbody tr.chosen')).toHaveCount(1)
 
   // 편집을 끝내면 푼다 — 다시 들어와도 묶음이 없다.
-  await nameButton(page, 'AT-101-01').click()
-  await nameButton(page, 'AT-101-02').click({ modifiers: ['Control'] })
+  await pickEquipment(page, 'AT-101-01')
+  await ctrlPick(page, 'AT-101-02')
   await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
   await page.getByRole('button', { name: '편집 종료' }).click()
   await expect(page.locator('.group-picked')).toHaveCount(0)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await expect(page.locator('.group-picked')).toHaveCount(0)
 
   // 더한 설비와 디퓨저를 묶은 뒤 더하기를 되돌리면, 묶음에서 빠지고 디퓨저 하나가 골라진 채다.
   await addLone(page)
-  await nameButton(page, 'AT-101-01').click({ modifiers: ['Control'] })
+  await ctrlPick(page, 'AT-101-01')
   await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
   await keys(page, 'Control+z')
-  await expect(row(page, '새 설비 1')).toHaveCount(0)
+  await gone(page, '새 설비 1').toBe(0)
   await expect(page.locator('.group-picked')).toHaveCount(0)
   await expect(panelTitle(page)).toHaveText('AT-101-01')
   expect(errors).toEqual([])
@@ -275,8 +301,8 @@ test('묶음끼리는 서로의 옛 자리와 견주지 않는다 — 하나가 
   }
   const [A, B] = ['새 설비 1', '새 설비 2']
   const pick2 = async () => {
-    await nameButton(page, A).click()
-    await nameButton(page, B).click({ modifiers: ['Control'] })
+    await pickEquipment(page, A)
+    await ctrlPick(page, B)
     await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
   }
   // 방향키 한 번이 어느 쪽으로 가는지(카메라에 따라 다르다) 먼저 잰다.
@@ -291,13 +317,13 @@ test('묶음끼리는 서로의 옛 자리와 견주지 않는다 — 하나가 
 
   // B 를 A 가 한 걸음 가서 닿을 자리에 둔다. A 혼자 옮기면 거기서 막힌다(대조군).
   const next = [a0[0] + d[0], a0[1] + d[1]]
-  const b = row(page, B).locator('.coord')
+  await pickEquipment(page, B)
   for (const i of [0, 1]) {
-    await b.nth(i).fill(String(next[i]))
-    await b.nth(i).press('Enter')
+    await coordOf(page, i).fill(String(next[i]))
+    await coordOf(page, i).press('Enter')
   }
   await expect.poll(async () => (await at(page, B)).join()).toBe(next.join())
-  await nameButton(page, A).click()
+  await pickEquipment(page, A)
   await keys(page, 'Shift+ArrowRight')
   await expect(page.locator('.edit-notice').first()).toContainText('이미 오브젝트가 있는 위치입니다')
   expect((await at(page, A)).join()).toBe(a0.join())
@@ -318,9 +344,9 @@ test('Duplex MEP: 한 층만 볼 때 3D 의 Ctrl+끌기 상자는 숨긴 층 설
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX_MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   const storeyBox = page.getByRole('combobox', { name: '보일 층' })
-  await storeyBox.selectOption({ label: 'Level 1만' })
+  await storeyBox.selectOption({ label: 'Level 1' })
   const canvas = page.locator('.canvas-wrap > canvas')
   await canvas.scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
@@ -338,14 +364,14 @@ test('Duplex MEP: 한 층만 볼 때 3D 의 Ctrl+끌기 상자는 숨긴 층 설
   expect(errors).toEqual([])
 })
 
-test('보기 모드에서는 목록·평면도의 Ctrl+클릭과 평면도의 Ctrl+끌기로 여러 개를 고르지 않는다', async ({ page }) => {
+test('보기 모드에서는 3D 의 Ctrl+클릭과 평면도의 Ctrl+끌기로 여러 개를 고르지 않는다', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await nameButton(page, 'AT-101-01').click()
-  await nameButton(page, 'AT-101-02').click({ modifiers: ['Control'] })
+  await pickEquipment(page, 'AT-101-01')
+  await ctrlPick(page, 'AT-101-02')
   await expect(page.locator('.group-picked')).toHaveCount(0)
   await expect(panelTitle(page)).toHaveText('AT-101-02')
 

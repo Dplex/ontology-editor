@@ -81,7 +81,7 @@ test('병원 1층: 화장실을 고르면 바람을 대는 공기 원천(다른 
   test.skip(!CLINIC.every(existsSync), '병원 BIM 이 없다(npm run fetch:sample)')
   test.setTimeout(240_000)
   const errors = await open(page, CLINIC)
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'First Floor만' })
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'First Floor' })
   await page.getByTestId('filter-toggle').click()
   const spaces = page.getByTestId('filter-spaces')
   await expect(spaces.locator('.space-facet')).toHaveCount(154)
@@ -93,7 +93,7 @@ test('병원 1층: 화장실을 고르면 바람을 대는 공기 원천(다른 
   const s = await shown(page)
   expect(s.parts - s.hidden).toBeLessThan(20)
 
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Second Floor만' })
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Second Floor' })
   await expect(page.getByTestId('space-chip')).toHaveCount(0)
   expect((await focus(page)).fill).toBe(false)
   expect(errors).toEqual([])
@@ -131,20 +131,19 @@ test('방 사이 이동: . , 로 방번호 순으로 돌고, I 로 공간 보기
   expect(errors).toEqual([])
 })
 
-test('병원 1층 체크리스트: 빈칸 있는 방만 걸러 Shift+. 로 옮겨 가고, 종류를 고르면 점수와 층의 다 찬 방이 오르며, 되돌리면 내려간다', async ({ page }) => {
+test('병원 1층 체크리스트: 빈칸 있는 방만 걸러 Shift+. 로 옮겨 가고, 종류를 고르면 점수가 오르며, 되돌리면 내려간다', async ({ page }) => {
   test.skip(!CLINIC.every(existsSync), '병원 BIM 이 없다(npm run fetch:sample)')
   test.setTimeout(240_000)
   const errors = await open(page, CLINIC)
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'First Floor만' })
-  const full = page.getByTestId('floor-full-rooms')
-  await expect(full).toContainText('/ 154')
-  const fullBefore = Number((await full.locator('b').textContent())!.replace(/,/g, ''))
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'First Floor' })
+  // 층의 "다 찬 방 n / 154" 칸은 층 요약 카드와 같이 빠졌다(#715). 빈칸 있는 방 수는 거르기로 센다.
 
   await page.getByTestId('filter-toggle').click()
   const spaces = page.getByTestId('filter-spaces')
   await page.getByTestId('spaces-empty-only').click()
   const emptyRows = await spaces.locator('.space-facet').count()
-  expect(emptyRows).toBe(154 - fullBefore)
+  expect(emptyRows).toBeGreaterThan(0)
+  expect(emptyRows).toBeLessThanOrEqual(154)
   await page.getByTestId('filter-toggle').click()
 
   // 종류가 빈 방이 나올 때까지 빈칸 있는 다음 방으로.
@@ -164,11 +163,9 @@ test('병원 1층 체크리스트: 빈칸 있는 방만 걸러 Shift+. 로 옮�
   await select.selectOption({ label: '사무실' })
   await expect(kindRow).toHaveAttribute('data-state', 'ok')
   await expect(score).not.toHaveText(before!)
-  await expect.poll(async () => Number((await full.locator('b').textContent())!.replace(/,/g, ''))).toBeGreaterThanOrEqual(fullBefore)
 
   await page.keyboard.press('Control+z')
   await expect(kindRow).toHaveAttribute('data-state', 'empty')
   await expect(score).toHaveText(before!)
-  await expect(full.locator('b')).toHaveText(String(fullBefore))
   expect(errors).toEqual([])
 })

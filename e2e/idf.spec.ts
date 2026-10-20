@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { enterEdit } from './edit-part'
 
 // IDF(공조존)를 덧붙이거나 혼자 연다. 픽스처는 mep.ifc 와 같은 자리에 공조존 둘을 둔 손으로 쓴 IDF 다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
@@ -16,7 +17,7 @@ test('IFC 에 IDF 를 덧붙이면 공조존이 얹히고, 방을 누르면 그 
   const tile = page.locator('.tiles li', { hasText: '공조존' })
   await expect(tile.locator('b')).toHaveText('2')
   await expect(tile).toContainText('존에 든 방 1/1')
-  await expect(page.getByRole('button', { name: '공조존', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('checkbox', { name: /공조존\(IDF\)/ })).toBeChecked()
 
   // 표: 사무실 존은 VAV-101 이 담당하고 원천은 BIM 의 AHU-1 이다(IDF 의 "AHU 1").
   const fold = page.locator('.fold', { hasText: '공조존 (IDF)' })
@@ -26,7 +27,7 @@ test('IFC 에 IDF 를 덧붙이면 공조존이 얹히고, 방을 누르면 그 
   await expect(office).toContainText('AHU-1(BIM)')
 
   // 방을 누르면 그 방의 공조존이 패널에 뜬다(편집 모드에서 바닥 누르기).
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   const floor = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))
