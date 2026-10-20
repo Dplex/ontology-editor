@@ -9,9 +9,11 @@ import { spaceNameOf } from './edit-report'
 import { selectedId } from './flow-rules'
 import { history } from './history'
 import { selectedSystemId } from './kinds'
+import { viewStorey } from './multi-view'
 import { beginProgress, editFileNote, endProgress, importInWorker } from './progress'
 import { selectedSpaceId } from './rooms'
 import { viewer } from './scene'
+import { multiView } from './vertical'
 
 // --- 판본 비교 (PRD #6, 요구사항 R13) ----------------------------------------------------
 //
@@ -117,8 +119,10 @@ export const versionNormalized = computed(() => {
   ].filter(Boolean).join(' · ')
 })
 
-/** 비교 목록에서 물리존을 고른다. 3D 에서 바닥을 누른 것과 같다(편집 모드가 아니어도 그 방에 맞춘다). */
+/** 비교·규칙 경고 목록에서 물리존을 고른다. 3D 에서 바닥을 누른 것과 같다(편집 모드가 아니어도 그 방에 맞춘다). */
 export function showSpace(id: string) {
+  const home = model.value?.storeys.find((s) => s.spaces.some((x) => x.id === id))
+  if (home && viewStorey.value && !multiView.value) viewStorey.value = home.id
   selectedId.value = null
   selectedSystemId.value = null
   selectedSpaceId.value = id
