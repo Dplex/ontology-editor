@@ -8,8 +8,9 @@ export type LabelBadge = { text: string; tone: 'ok' | 'warn' | 'muted'; title: s
 
 /** 소속·종류 배지. 출처 낱말은 화면의 출처 칩(BIM·계산·사전·사람)과 같게 쓴다. */
 export function labelBadges(e: Pick<Equipment, 'spaceId' | 'spaceSource' | 'kind' | 'kindSource' | 'kindEdited' | 'added'>): { space: LabelBadge; kind: LabelBadge } {
+  // 소속 없음이어도 TTL 은 층을 hasLocation 으로 낸다(export/ttl.ts). 이상 알림이 위치를 아예 잃지 않게 하려는 것이다.
   const space: LabelBadge = !e.spaceId
-    ? { text: '소속 없음', tone: 'warn', title: '든 물리존이 없습니다 — TTL 에 brick:hasLocation 이 나가지 않습니다' }
+    ? { text: '소속 없음', tone: 'warn', title: '든 물리존이 없습니다. TTL 의 brick:hasLocation 에는 방 대신 층이 나갑니다' }
     : e.spaceSource === 'bim'
       ? { text: '소속 BIM', tone: 'ok', title: 'BIM 이 이 설비가 든 물리존을 말했습니다(IfcRelContainedInSpatialStructure)' }
       : e.spaceSource === 'edit'
