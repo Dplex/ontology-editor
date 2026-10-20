@@ -95,7 +95,7 @@ function hydronicLinks(model: Model, connections: readonly Connection[]): { sour
  * 상관없이 이어졌는지만 본다.
  */
 /** 냉매로 도는 기기. 배관 없이도 완전성 위반이 아니다(OE-OBJ-11). */
-const REFRIGERANT = new Set(['indoor_unit', 'outdoor_unit'])
+const REFRIGERANT = new Set(['pac', 'indoor_unit', 'outdoor_unit'])
 
 export function completenessChecks(model: Model, services: readonly AirService[], connections: readonly Connection[] = model.connections): CheckResult[] {
   const equipment = model.storeys.flatMap((s) => s.equipment)
