@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openRailPanel, enterEdit } from './edit-part'
 
 // 평면도 배경 이미지(OE-MAN-02). mep.ifc 1F 사무실은 (0..10 × 0..8)이다. plan-grid.png 는 400×200px 격자다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
@@ -12,7 +13,9 @@ test('도면 이미지를 깔면 건물 너비에 맞춰 놓이고, 두 점으�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  // 평면도 배경은 공간 편집 레일의 펼침 칸에 있다.
+  await openRailPanel(page, '평면도 배경')
   const fold = page.getByTestId('bg-plan')
   const head = fold.getByRole('button', { name: /평면도 배경/ })
   if ((await head.getAttribute('aria-expanded')) === 'false') await head.click()
@@ -47,7 +50,7 @@ test('도면 이미지를 깔면 건물 너비에 맞춰 놓이고, 두 점으�
   await expect(fold.getByTestId('bg-scale')).toContainText('왼쪽 위 (-4.00, 6.00)')
 
   // 온톨로지에는 나가지 않는다: 편집 막대의 바뀐 것이 0 이다.
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   await fold.getByRole('button', { name: '배경 제거' }).click()
   expect(await page.evaluate(() => (window as any).__viewer.background())).toBeNull()
   expect(errors).toEqual([])
@@ -59,7 +62,9 @@ test('PDF 도면은 첫 쪽을 그려 같은 길로 깔고, 맞춘 스케일·�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  // 평면도 배경은 공간 편집 레일의 펼침 칸에 있다.
+  await openRailPanel(page, '평면도 배경')
   const fold = page.getByTestId('bg-plan')
   const head = fold.getByRole('button', { name: /평면도 배경/ })
   if ((await head.getAttribute('aria-expanded')) === 'false') await head.click()
@@ -90,7 +95,7 @@ test('PDF 도면은 첫 쪽을 그려 같은 길로 깔고, 맞춘 스케일·�
   await expect(fold).toContainText('/ 2')
   await expect.poll(() => page.evaluate(() => (window as any).__viewer.background())).toEqual([[0, 12], [20, 12], [20, -8], [0, -8]])
   await expect(pageInput).toHaveValue('2')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   expect(errors).toEqual([])
 })
 
@@ -110,7 +115,9 @@ test('DWG 도면은 서버가 바꾼 그림을 도면 단위로 실제 크기에
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  // 평면도 배경은 공간 편집 레일의 펼침 칸에 있다.
+  await openRailPanel(page, '평면도 배경')
   const fold = page.getByTestId('bg-plan')
   const head = fold.getByRole('button', { name: /평면도 배경/ })
   if ((await head.getAttribute('aria-expanded')) === 'false') await head.click()
@@ -134,7 +141,9 @@ test('DWG 를 바꿀 수 없는 서버면 안내에 까닭이 보이고, 골라�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  // 평면도 배경은 공간 편집 레일의 펼침 칸에 있다.
+  await openRailPanel(page, '평면도 배경')
   const fold = page.getByTestId('bg-plan')
   const head = fold.getByRole('button', { name: /평면도 배경/ })
   if ((await head.getAttribute('aria-expanded')) === 'false') await head.click()

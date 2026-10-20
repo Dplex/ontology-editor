@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, enterEdit } from './edit-part'
 
 // 룸(OE-OBJ-03 · OE-SPC-11). 물리존 안에 대각선 두 꼭짓점으로 그리는 사각 편집 단위. 다른 룸과 겹치거나 물리존 밖으로 나가는 시도는
 // 막고 원래 상태로 둔다. 바닥을 누르면 룸이 물리존보다 먼저 골라지고, 꼭짓점 손잡이로 크기를, 방향키로 자리를 바꾼다.
@@ -25,8 +25,8 @@ test('룸을 그리고, 겹치거나 물리존 밖이면 막으며, 골라서 �
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(FIXTURE)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await enterEdit(page)
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
 
@@ -43,8 +43,8 @@ test('룸을 그리고, 겹치거나 물리존 밖이면 막으며, 골라서 �
   // 물리존 밖으로 나가는 룸도 막는다
   await drawRoom(page, [5, 2], [9, 3])
   await expect(page.locator('.edit-notice').first()).toContainText('물리존 경계 밖')
-  await expect(page.locator('.edit-bar')).toContainText('룸 만들기')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('last-edit')).toContainText('룸 만들기')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   // 바닥을 누르면 룸이 회의실보다 먼저 골라진다
   await page.keyboard.press('Escape')
@@ -52,7 +52,7 @@ test('룸을 그리고, 겹치거나 물리존 밖이면 막으며, 골라서 �
   await expect(panel.locator('h3')).toHaveText('룸 1')
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Shift+ArrowRight')
-  await expect(page.locator('.edit-bar')).toContainText('룸 1 옮김')
+  await expect(page.getByTestId('last-edit')).toContainText('룸 1 옮김')
   await expect(panel.getByTestId('room-size')).toContainText('1.50 × 1.50')
 
   // 오른쪽 위 꼭짓점(2)을 끌어 크기를 바꾼다

@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
+import { enterEdit, openDrawer } from './edit-part'
 
 // 규칙 방향 일괄 확정(OE-PIP-05). 포트와 견줄 연결이 20개 이상이고 일치율이 문턱 이상인 계통만 한꺼번에 확정하고, 되돌리기는 한 번이다.
 // 가진 BIM 중 규칙 방향과 포트 방향이 같이 많은 파일은 성수 기계뿐이다(일괄 확정 후보 2개).
@@ -13,8 +14,9 @@ test('포트와 20개 이상 견줘 문턱 이상 맞는 계통만 한꺼번에 
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(SEONGSU)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 300_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
 
+  await openDrawer(page)
   const fold = page.locator('.fold-head', { hasText: '규칙 방향 확정 (계통별)' }).first()
   if ((await fold.getAttribute('aria-expanded')) !== 'true') await fold.click()
   const section = page.locator('.rule-systems')

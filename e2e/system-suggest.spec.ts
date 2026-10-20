@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit } from './edit-part'
 
 // 계통이 없는 설비의 계통 후보(ADR-0057). 근처에 구성원이 있는 계통을 거리 순으로 셋 보인다. 성수처럼 계통이 1,037개면 상자에서
 // 고르기 어렵다. 누르면 패널의 계통 상자에서 고른 것과 같다(출처 편집, OE-PIP-02). Laya 는 쓰지 않는다 — 가장 가까운 계통보다 못했다.
@@ -10,7 +11,7 @@ async function open(page: Page) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   return errors

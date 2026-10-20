@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit, leaveMultiView, openMultiView, pickEquipment, toEquipment, toSpace } from './edit-part'
 
 // 저장이 작업에 묶이는 것(OE-HIST-03 AC3·4, OE-PIP-15 AC7·8). 층 편집과 다중층 세션은 다른 작업 id 로 8084 에 저장되고, 다중층에 들어가서
 // 나올 때까지의 저장은 층·모드가 달라도 한 작업이다. 들어가기 전 저장·나올 때 저장이 실패하면 화면을 옮기지 않고 편집을 남긴다.
@@ -41,15 +42,13 @@ async function serve(page: Page, puts: Put[], fail: { on: boolean }) {
   })
 }
 
-const search = (page: Page) => page.getByPlaceholder(/물리존·설비 이름/)
 const banner = (page: Page) => page.getByTestId('multi-banner')
-const toFloor = (page: Page) => page.getByRole('group', { name: '다중층 보기 범위' }).getByRole('button', { name: '층 편집으로' }).click()
-const undo = (page: Page) => page.locator('.edit-bar').getByRole('button', { name: /되돌리기/ })
+const toFloor = (page: Page) => leaveMultiView(page)
+const undo = (page: Page) => page.getByRole('navigation', { name: '도구 레일' }).getByRole('button', { name: /실행취소/ })
 const saveButton = (page: Page) => page.locator('.edit-bar').getByRole('button', { name: '편집 저장' })
 /** 그 설비의 BIM 포트 연결 하나를 해제 보정한다 — 편집 하나. */
 async function release(page: Page, text: string, name: string, reason: string) {
-  await search(page).fill(text)
-  await page.locator('.equipment tbody tr', { hasText: name }).last().getByRole('button', { name, exact: true }).click()
+  await pickEquipment(page, name)
   const picked = page.locator('.picked')
   // 패널이 고른 설비로 바뀐 뒤에 센다. 바뀌기 전에 세면 앞에 고른 설비의 해제 수를 읽는다.
   await expect(picked.locator('h3').first()).toContainText(text)
@@ -73,13 +72,13 @@ test('층 편집과 다중층 세션은 다른 작업으로 저장되고, 세션
   await page.getByRole('checkbox', { name: `${HVAC} 같이 열기` }).check()
   await page.getByRole('button', { name: '고른 2개 합쳐서 열기' }).click()
   await expect(page.locator('.appbar h2')).toContainText('+', { timeout: 180_000 })
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1' })
+  await enterEdit(page)
 
   // 층 편집(Level 1)에서 하나 고치고 다중층으로 → 들어가기 전에 층 작업으로 저장된다. 되돌리기 이력은 비워져 세션에서 앞 작업을 못 되돌린다.
   await release(page, '582915', WC1, '층 편집에서 해제')
   await expect(undo(page)).toBeEnabled()
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await openMultiView(page, { from: 'Level 1', to: 'Level 2' })
   await expect(banner(page)).toContainText('Level 1 ~ Level 2 (2개 층)')
   await expect.poll(() => puts.length).toBe(1)
   expect(puts[0].kind).toBe('floor')
@@ -94,12 +93,12 @@ test('층 편집과 다중층 세션은 다른 작업으로 저장되고, 세션
   expect(puts[1].kind).toBe('multi')
   expect(puts[1].storeys).toHaveLength(1)
   expect(puts[1].storeys).not.toContain(level1)
-  await page.locator('.edit-bar').getByRole('button', { name: '공간', exact: true }).click()
-  await page.locator('.edit-bar').getByRole('button', { name: '설비', exact: true }).click()
+  await toSpace(page)
+  await toEquipment(page)
   await release(page, '582915', WC1, '다중층에서 1층 해제')
   // 세션 안의 되돌리기는 세션의 편집만 — 한 번 되돌리고 다시 한다.
   await undo(page).click()
-  await page.locator('.edit-bar').getByRole('button', { name: /다시/ }).click()
+  await page.getByRole('navigation', { name: '도구 레일' }).getByRole('button', { name: /다시실행/ }).click()
   await toFloor(page)
   await expect(banner(page)).toHaveCount(0)
   await expect.poll(() => puts.length).toBe(3)
@@ -113,7 +112,7 @@ test('층 편집과 다중층 세션은 다른 작업으로 저장되고, 세션
   await expect.poll(() => puts.length).toBe(4)
   expect(puts[3].kind).toBe('floor')
   expect(new Set(puts.map((p) => p.work)).size).toBe(3)
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await openMultiView(page, { from: 'Level 1', to: 'Level 2' })
   await expect(banner(page)).toBeVisible()
   await toFloor(page)
   await expect(banner(page)).toHaveCount(0)
@@ -132,12 +131,12 @@ test('들어가기 전 저장이 실패하면 층 편집에 남고, 나올 때 �
   await page.getByRole('checkbox', { name: `${HVAC} 같이 열기` }).check()
   await page.getByRole('button', { name: '고른 2개 합쳐서 열기' }).click()
   await expect(page.locator('.appbar h2')).toContainText('+', { timeout: 180_000 })
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1' })
+  await enterEdit(page)
   const released = page.locator('.picked').getByTestId('released-connections').locator('tbody tr')
 
   await release(page, '582915', WC1, '층 편집에서 해제')
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await openMultiView(page, { from: 'Level 1', to: 'Level 2' })
   await expect(page.locator('.key-note')).toContainText('층 편집을 서버에 저장하지 못해 다중층 뷰로 가지 않았습니다')
   await expect(banner(page)).toHaveCount(0)
   await expect(released).toHaveCount(1)
@@ -145,7 +144,7 @@ test('들어가기 전 저장이 실패하면 층 편집에 남고, 나올 때 �
   expect(puts).toEqual([])
 
   fail.on = false
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await openMultiView(page, { from: 'Level 1', to: 'Level 2' })
   await expect(banner(page)).toBeVisible()
   await expect.poll(() => puts.length).toBe(1)
   await release(page, '582925', WC2, '다중층에서 2층 해제')

@@ -1,12 +1,13 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit, pickEquipment } from './edit-part'
 
 // 흐름 카드: 고른 설비에서 덕트·배관을 건너뛰고 받는 곳·보내는 곳 설비로 건너간다(flow-ladder.ts). 계통은 줄이 아니라 화살표 꼬리표다.
 // 계산은 flow-ladder.test.ts 가 보고, 여기서는 칸을 눌러 건너가기·목록 펼치기·편집 뒤 다시 그리기를 본다.
 // mep.ifc: AHU-1 → DUCT-01 → AT-101-01(포트 방향) · AT-101-02(SOURCEANDSINK, 방향 모름 — 규칙 방향이 정한다). 둘 다 사무실에 있다.
 const MEP = 'src/lib/ifc/fixtures/mep.ifc'
 const pick = (page: Page, name: string) =>
-  page.locator('.equipment tbody tr', { hasText: name }).last().getByRole('button', { name, exact: true }).click()
+  pickEquipment(page, name)
 /** 받는 곳·보내는 곳의 줄기(공급 사슬)와 방향 모름 줄. */
 const line = (page: Page, key: string) => page.locator(`.flow-map .ladder-row[data-line="${key}"]`)
 
@@ -66,7 +67,7 @@ test('보기 모드에서는 흐름 카드가 답하고 근거(규칙 방향·�
   await expect(page.locator('.picked .neighbors')).toBeVisible()
 
   // 편집 모드에서는 여기서 방향을 정하므로 접지 않는다(감싸는 칸이 없다).
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await pick(page, 'AHU-1')
   await expect(page.locator('.picked .picked-more')).toHaveCount(0)
   await expect(page.locator('.picked .neighbors')).toBeVisible()
@@ -79,7 +80,7 @@ test('방향을 모르는 연결은 방향 모름 줄로 따로 보이고, 방�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await pick(page, 'AHU-1')
   // 규칙 방향을 끄면 확정한 방향(포트·사람·확정한 규칙)만 남는다. 포트가 방향을 말하지 않고 규칙도 확정 전인 AT-101-02 는 방향 모름이다.
   await page.locator('.rule-toggle input').uncheck()
@@ -119,8 +120,7 @@ test('병원 공조기에서 VAV·냉동기로 건너가고, 공급·환수 두 
   await page.locator('.drop input[type=file]').setInputFiles(CLINIC)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
   const search = async (tag: string) => {
-    await page.locator('input[type=search]').fill(tag)
-    await page.locator('.equipment tbody tr', { hasText: tag }).first().getByRole('button').first().click()
+    await pickEquipment(page, tag, false)
   }
 
   await search('621849')

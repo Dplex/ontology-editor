@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, openFileMenu, enterEdit, pickFromFloor } from './edit-part'
 
 // 커스텀존(OE-OBJ-01)을 실제 마우스로 그리고, 이름을 고치고, 나누고, 합치고, 지우며 되돌린다. mep.ifc 의 사무실은 0..10 × 0..8 이고
 // 디퓨저 둘(AT-101-01 (3,4), AT-101-02 (7,4))과 공조기 AHU-1(1,1)이 그 안에 있다. 조명이 (50,50)에 있어 처음 시점에는 사무실이 작으니, 사무실을 눌러
@@ -18,7 +18,7 @@ test('커스텀존을 그리면 품는 방·든 설비가 계산되고, 이름·
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   await clickFloor(page, 6, 4)
@@ -49,7 +49,7 @@ test('커스텀존을 그리면 품는 방·든 설비가 계산되고, 이름·
   await clickFloor(page, 5, 9)
   await expect(panel.locator('h3')).toHaveText('개발팀')
   await expect(panel.getByTestId('zone-equipment')).toContainText('1대')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 2건')
 
   // 다시 합친다.
   const zones = await panel.locator('select[aria-label="합칠 커스텀존"] option').allTextContents()
@@ -62,8 +62,8 @@ test('커스텀존을 그리면 품는 방·든 설비가 계산되고, 이름·
   await expect(panel).toHaveCount(0)
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
-  await expect(page.locator('.overview')).toContainText('커스텀존 1')
-  await page.locator('.overview').getByRole('button', { name: '개발팀' }).click()
+  // 되살아난 존은 층 현황의 커스텀존 목록에 있다.
+  await pickFromFloor(page, '커스텀존', '개발팀')
   await expect(panel.locator('h3')).toHaveText('개발팀')
   expect(errors).toEqual([])
 })
@@ -74,7 +74,7 @@ test('커스텀존에 별명을 여럿 달면 패널·TTL 에 나온다 (ADR-000
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   await clickFloor(page, 6, 4)
@@ -97,6 +97,7 @@ test('커스텀존에 별명을 여럿 달면 패널·TTL 에 나온다 (ADR-000
 
   // 별명으로 설비 찾기는 아래 Duplex 시험이 본다 — 이 fixture 는 작아서 검색 칸이 없다.
   const ttl = page.waitForEvent('download')
+  await openFileMenu(page)
   await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
   const text = Buffer.concat(await (await (await ttl).createReadStream()).toArray()).toString()
   expect(text).toContain('rdfs:label "임원석" ;')
@@ -114,7 +115,7 @@ test('Duplex MEP: 커스텀존의 별명으로 검색하면 그 존 안의 설�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX_MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   // 처음 보이는 층(Level 1)의 설비 하나를 평면도에서 고른다 — 이름과 자리를 읽는다.
   const view = page.getByRole('group', { name: '보기' })
   await view.getByRole('button', { name: '평면도' }).click()
@@ -124,10 +125,13 @@ test('Duplex MEP: 커스텀존의 별명으로 검색하면 그 존 안의 설�
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(300)
   const [x, y] = (await page.evaluate((i) => (window as any).__viewer.center(i), id)) as number[]
-  // 이름으로는 안 나온다(대조군).
-  const search = page.locator('input[type=search]')
+  // 층 현황의 설비 칸에서 찾는다. 이름으로는 안 나온다(대조군).
+  const floor = page.getByTestId('floor-status')
+  const kinds = floor.getByRole('group', { name: '층 현황 종류' })
+  const search = floor.locator('.shell-floor-search')
+  await kinds.getByRole('button', { name: '설비', exact: true }).click()
   await search.fill('경영진석')
-  await expect(page.locator('.equipment tbody tr')).toHaveCount(0)
+  await expect(floor.locator('.shell-rows li > button')).toHaveCount(0)
   await search.fill('')
 
   // 그 설비를 둘러 커스텀존을 그리고 별명을 단다.
@@ -141,8 +145,9 @@ test('Duplex MEP: 커스텀존의 별명으로 검색하면 그 존 안의 설�
   await panel.getByTestId('zone-aliases-input').press('Enter')
   await expect(panel.getByTestId('zone-aliases')).toContainText('경영진석')
 
+  await kinds.getByRole('button', { name: '설비', exact: true }).click()
   await search.fill('경영진석')
-  await expect(page.locator('.equipment tbody tr', { hasText: name }).first()).toBeVisible()
-  if (process.env.SHOT) await page.locator('table.equipment').screenshot({ path: process.env.SHOT })
+  await expect(floor.locator('.shell-rows li > button').filter({ has: page.locator(`.name[title=${JSON.stringify(name)}]`) })).toBeVisible()
+  if (process.env.SHOT) await floor.screenshot({ path: process.env.SHOT })
   expect(errors).toEqual([])
 })

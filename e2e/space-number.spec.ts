@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { enterEdit } from './edit-part'
 
 // 물리존 방번호(OE-OBJ-02). 방번호(IfcSpace Name)는 한 층 안에서 겹치지 않고, 공간명은 겹쳐도 된다. 고른 물리존 패널에서 고치며
 // 되돌리기·연 때와 견주기에 든다. two-rooms.ifc 의 1F 에 회의실(101)과 복도(102)가 있다.
@@ -10,8 +11,8 @@ test('같은 층에 있는 방번호로는 바꾸지 않고 원래 번호로 돌
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(FIXTURE)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await enterEdit(page)
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
 
@@ -28,7 +29,7 @@ test('같은 층에 있는 방번호로는 바꾸지 않고 원래 번호로 돌
   await number.press('Enter')
   await expect(page.locator('.edit-notice').first()).toContainText('방번호 102가 이미 있습니다')
   await expect(number).toHaveValue('101')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   await page.screenshot({ path: 'test-results/space-number.png' })
 
   // 공간명은 겹쳐도 된다 — 회의실 공간명을 복도로

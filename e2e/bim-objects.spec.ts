@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { toSpace } from './edit-part'
+import { toSpace, openFileMenu, enterEdit } from './edit-part'
 
 // BIM 에서 받은 추가 공간 오브젝트(가구). 임포트가 IfcFurniture 를 오브젝트로 세우고(id 는 GlobalId), 연 때 있던 것이라 편집 수에 들지 않는다.
 // 사람이 고치거나 지운 것만 편집 파일의 `bimObjects` 로 남아(edit-file.ts), 탭을 닫았다가 같은 파일을 다시 열어 이어서 하면 고친 크기는
@@ -19,15 +19,16 @@ async function open(page: Page) {
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
 }
 async function toEdit(page: Page) {
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F만' })
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '1F' })
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(400)
 }
 /** GeoJSON 1F 를 내려받아 추가 공간 오브젝트만. */
 async function exportObjects(page: Page, path: string) {
   const download = page.waitForEvent('download', (d) => d.suggestedFilename() === 'floor-1F.geojson')
+  await openFileMenu(page)
   await page.getByRole('button', { name: '기하 내보내기 (GeoJSON)' }).click()
   await (await download).saveAs(path)
   const features = JSON.parse(readFileSync(path, 'utf8')).features as { id: string; properties: Record<string, unknown> }[]
@@ -48,7 +49,7 @@ test('BIM 가구는 편집 수에 들지 않고, 고친 크기와 지운 것만 
   expect((await objects(first)).sort()).toEqual([CABINET, DESK].sort())
   expect((await objectBox(first, CABINET)).min[1]).toBeCloseTo(1.4, 2)
   expect((await objectBox(first, DESK)).min[1]).toBeCloseTo(0, 2)
-  await expect(first.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(first.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   const opened = await exportObjects(first, info.outputPath('opened-1F.geojson'))
   expect(opened.map((f) => [f.id, f.properties.source, f.properties.base, f.properties.item]).sort()).toEqual(
     [
@@ -64,7 +65,7 @@ test('BIM 가구는 편집 수에 들지 않고, 고친 크기와 지운 것만 
   await expect(panel.locator('h3')).toHaveText('Desk:Office Desk')
   await panel.getByTestId('object-size-0').fill('1.6')
   await panel.getByTestId('object-size-0').press('Enter')
-  await expect(first.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(first.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   // 상부장을 골라 지운다
   await first.locator('body').click({ position: { x: 5, y: 5 } })
@@ -73,7 +74,7 @@ test('BIM 가구는 편집 수에 들지 않고, 고친 크기와 지운 것만 
   await expect(panel.locator('h3')).toHaveText('Cabinet:Upper')
   await first.keyboard.press('Delete')
   await expect.poll(() => objects(first)).toEqual([DESK])
-  await expect(first.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  await expect(first.getByTestId('changes-link')).toContainText('바뀐 것 2건')
   await expect(first.locator('.report, .changes').filter({ hasText: 'BIM 오브젝트 Cabinet:Upper — 지움' }).first()).toBeAttached()
 
   const before = await exportObjects(first, info.outputPath('before-1F.geojson'))
@@ -94,6 +95,6 @@ test('BIM 가구는 편집 수에 들지 않고, 고친 크기와 지운 것만 
   expect(after).toEqual(before)
   await toEdit(second)
   expect(await objects(second)).toEqual([DESK])
-  await expect(second.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  await expect(second.getByTestId('changes-link')).toContainText('바뀐 것 2건')
   expect(errors).toEqual([])
 })

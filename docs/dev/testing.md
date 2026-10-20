@@ -16,14 +16,15 @@ e2e 는 CI 에서 돌지 않으니(Actions 는 PRD·보드 검사만 한다) 이
 | 내보내기(`src/lib/export/`) | `npm test` · `check:sample` · e2e 의 `export*`·`onto-screen` spec |
 | 화면 한 곳(컴포넌트·패널 하나, 그 기능의 함수) | `vue-tsc --noEmit` · 그 기능의 e2e spec |
 | 화면 뼈대(`App.vue`, 여러 조각이 같이 읽는 `src/editor/` 모듈 — `core`·`changes`·`edit-report`·`history`·`keyboard`·`scene`·`multi-select`(`app-structure.md`), `viewer.ts`, `styles.css` 의 공용 규칙, `model.ts`·`edit.ts`), 의존성(vue·three·web-ifc·playwright) 올리기, 여러 기능을 한 번에 건드린 PR | `npm test` · `vue-tsc --noEmit` · **e2e 전체**(`npm run e2e`) |
-| 편집 리플레이(`replay-player.ts`·`ReplayHud.vue`·`replay-*`) | 위에 더해 `npm run e2e:serial`(2분) |
+| 편집 리플레이(`replay-player.ts`·`ReplayHud.vue`·`replay-*`) · 확정 연쇄 연출(`flow-cascade`) | 위에 더해 `npm run e2e:serial`(7분) |
 | 큰 파일에서 느려질 수 있는 것 — 3D 그리기·형상 올리기, 열기·워커, 편집 뒤 재계산, 반응형 구조(`computed`·`watch`·`shallowRef`·`v-memo`), 저장·내보내기 | 위에 더해 `npm run e2e:seongsu`(GPU, 4분). 직전 `data/성수/화면-결과.md` 와 숫자를 견준다 |
 | 반영·버전·층 잠금(`src/server/layouts.ts`·`floor-state.ts`, 반영 흐름) | 위에 더해 `npm run e2e:seongsu:publish` |
 | 플랫폼 화면(`src/platform/`) | `playwright test -c playwright.platform.config.ts` |
 
-- **걸리는 시간**(2026-10-15, 20코어 PC): `npm test` 9초 · `vue-tsc --noEmit` 8초 · e2e 전체 6.6분(339개) ·
-  `e2e:serial` 2분 · `e2e:seongsu` 4분. e2e 전체는 병렬이라 CPU 가 밀리면 시간에 기대는 시험(`riser`·`replay-full-view`·`nav-cube`)이 main 에서도 떨어진다 —
-  떨어진 것만 `--workers=1` 로 다시 돌려 통과하면 부하 탓이다(2026-10-15, #678 에서 main 과 같은 비율로 떨어지는 것을 확인).
+- **걸리는 시간**(2026-10-20, 20코어 PC): `npm test` 9초 · `vue-tsc --noEmit` 8초 · e2e 전체 7.7분(353개, worker 6개) ·
+  `e2e:serial` 7분(25개) · `e2e:seongsu` 4분. e2e 전체는 병렬이라 CPU 가 밀리면 시간에 기대는 시험(`riser`·`replay-full-view`·`nav-cube`)이 떨어진다.
+  기본 worker(코어 절반, 10개)로는 9개가 번갈아 떨어져 `playwright.config.ts` 에서 6개로 줄였다. 그래도 떨어지면 그것만
+  `--workers=1` 로 다시 돌려 통과하는지 본다(2026-10-15, #678 에서 main 과 같은 비율로 떨어지는 것을 확인).
 - **그 기능의 e2e spec 찾기.** 티켓이 있으면 `npm run ctx -- <티켓 id>` 가 수용 기준별 시험을 보여 준다(시험 제목의 `[OE-xxx#n]` 태그).
   태그가 없는 기능은 화면에서 쓰는 `data-testid`·클래스 이름으로 `grep -l` 한다. 하나만 돌릴 때는 `npx playwright test e2e/<이름>.spec.ts`.
 - **`check:sample`·`e2e:seongsu` 는 BIM 이 있는 곳에서만 돈다.** 없으면 실패하지 않고 건너뛰므로, "통과" 가 아니라 "건너뜀" 인지 출력을 본다.
@@ -60,8 +61,9 @@ e2e 는 5175 에 `--mode e2e` 로 띄운다(`playwright.config.ts`). 그 모드�
 목록에서 시작하는 흐름(짝 링크, 골라 합쳐 열기, 아래쪽에서 열기, 열 수 없는 파일)은 `e2e/data-list.spec.ts` 가
 `page.route('**/__data/**')` 로 목록·등급·파일을 흉내 내서 본다. 서버 측정을 거치지 않아 멈추지 않고, `data/` 가 없는 PC 에서도 돈다.
 
-실제 시간으로 흘러가는 화면을 재는 시험(편집 리플레이)은 기본 `npm run e2e` 에서 빼고 `npm run e2e:serial` 이 하나씩 돌린다
-(목록은 `playwright.config.ts` 의 `SERIAL`). 병렬로 돌면 CPU 가 밀려 장면을 놓치고, 합쳐 2분 걸린다. 리플레이를 고쳤을 때 돌린다.
+실제 시간으로 흘러가는 화면을 재는 시험(편집 리플레이, 확정한 연결이 물결로 퍼지는 flow-cascade)은 기본 `npm run e2e` 에서 빼고
+`npm run e2e:serial` 이 하나씩 돌린다(목록은 `playwright.config.ts` 의 `SERIAL`). 병렬로 돌면 CPU 가 밀려 장면 · 프레임을 놓친다.
+리플레이 · 규칙 방향 확정 연출을 고쳤을 때 돌린다.
 화면 좌표로 3D 를 누르는 시험은 누르기 전에 캔버스를 화면 안으로 올린다 — 바쁠 때는 앞 입력 뒤에 페이지가 내려가 있다.
 
 ## 큰 파일의 속도는 GPU 로 잰다

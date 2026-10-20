@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
-import { toSpace } from './edit-part'
+import { toSpace, enterEdit } from './edit-part'
 
 // 문·창의 모양(OE-OBJ-07). 3D 는 벽에 문·창 자리를 뚫고(opening-cut.ts) 문틀·문짝·유리를 세우며, 평면도는 벽을 비운 칸과 문짝·유리 선의
 // 도면 기호로 그린다. Duplex 건축(gitignore): 문 14 · 창 24, Level 1 에 문 6 · 창 4 · 지붕에 천창 2.
@@ -16,7 +16,7 @@ test('Duplex 건축: 평면도에 그 층 문·창이 도면 기호로 다 그�
   await page.reload()
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
   await page.getByRole('button', { name: '벽·문·창' }).click()
   await page.locator('.viewport').getByRole('button', { name: '평면도', exact: true }).click()

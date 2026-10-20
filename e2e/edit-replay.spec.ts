@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toSpace } from './edit-part'
+import { countByLabel, enterEdit, idByName, pickEquipment, pickSpace, toSpace } from './edit-part'
 
 // 편집 리플레이(PoC). P 를 누르면 3D 가 창 전체로 커지고(극장), 이번 세션의 편집을 되돌리기로 한 번에 되돌린 뒤 다시 하기로 하나씩
 // 다시 한다. 진행은 표시(.replay-hud)의 data-* 로, 모양은 스크린숏(REPLAY_SHOTS 가 있으면)으로 본다. 3D 의 미끄러짐·카메라
@@ -17,13 +17,15 @@ async function open(page: Page) {
   return errors
 }
 
-const row = (page: Page, name: string) => page.locator('.equipment tbody tr', { hasText: name }).last()
+// 설비는 층 현황 목록에서 고르고, 자리는 3D 형상 가운데(m, mm 반올림)로 잰다. 예전 설비 표는 #715 에서 빠졌다.
 async function pick(page: Page, name: string) {
-  await row(page, name).getByRole('button', { name, exact: true }).click()
+  await pickEquipment(page, name)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
 }
-const coords = async (page: Page, name: string) =>
-  Promise.all([0, 1, 2].map(async (i) => Number(await row(page, name).locator('.coord').nth(i).inputValue())))
+const coords = async (page: Page, name: string) => {
+  const id = await idByName(page, name)
+  return page.evaluate((x) => ((window as any).__viewer.center(x) as number[]).map((v) => Math.round(v * 1000) / 1000), id)
+}
 
 test('편집이 없으면 P 는 안내만 하고 리플레이를 띄우지 않는다', async ({ page }) => {
   const errors = await open(page)
@@ -44,8 +46,9 @@ test('P 로 3D 위에서 되감고 하나씩 다시 하며, 앞뒤로 넘기고,
   await page.keyboard.press('Shift+ArrowUp')
   await page.waitForTimeout(1800)
   // 물리존 꼭짓점 하나 지우기(사무실 80㎡ → 40㎡). mep.ifc 의 사무실은 (0,0)(10,0)(10,8)(0,8) 이다.
-  const floor = await page.evaluate(() => (window as any).__viewer.point([9.6, 7.6, 0.1]))
-  await page.mouse.click(floor.x, floor.y)
+  // 물리존 꼭짓점은 공간 편집에서 고친다(목록에서 고르면 설비 편집 모드 그대로라 Delete 가 물리존을 지웠다).
+  await toSpace(page)
+  await pickSpace(page, '사무실')
   await expect(page.locator('.space-picked')).toContainText('80.0')
   await page.keyboard.press(']')
   await page.keyboard.press('Delete')
@@ -123,7 +126,7 @@ test('P 로 3D 위에서 되감고 하나씩 다시 하며, 앞뒤로 넘기고,
 test('벽·문·창 장면은 그 자리로 카메라를 보내고 외곽선 층을 켜며, 카드를 누르면 그 장면만 다시 튼다', async ({ page }) => {
   test.setTimeout(120_000)
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   const clickFloor = async (x: number, y: number) => {
     const at = await page.evaluate(([px, py]) => (window as any).__viewer.point([px, py, 0]), [x, y])
@@ -207,7 +210,7 @@ test('벽·문·창 장면은 그 자리로 카메라를 보내고 외곽선 층
   await expect(hud).toHaveCount(0)
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   for (let i = 0; i < total; i++) await page.keyboard.press('Control+z')
-  await expect(page.locator('.edit-bar .undo')).toBeDisabled()
+  await expect(page.getByRole('navigation', { name: '도구 레일' }).getByRole('button', { name: /실행취소/ })).toBeDisabled()
   expect(errors).toEqual([])
 })
 
@@ -301,7 +304,7 @@ test('지운 설비는 다시 하는 순간 붉은 윤곽으로 가라앉으며 
   await page.keyboard.press('e')
   await pick(page, 'AHU-1')
   await page.locator('.picked').getByRole('button', { name: '설비 지우기' }).click()
-  await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' })).toHaveCount(0)
+  await expect.poll(() => countByLabel(page, /^AHU-1$/)).toBe(0)
 
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('p')
@@ -314,7 +317,7 @@ test('지운 설비는 다시 하는 순간 붉은 윤곽으로 가라앉으며 
   await page.keyboard.press('Escape')
   await page.keyboard.press('Enter')
   await expect(hud).toHaveCount(0)
-  await expect(page.locator('.equipment tbody tr', { hasText: 'AHU-1' })).toHaveCount(0)
+  await expect.poll(() => countByLabel(page, /^AHU-1$/)).toBe(0)
   expect(errors).toEqual([])
 })
 

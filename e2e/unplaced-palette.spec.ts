@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
+import { enterEdit } from './edit-part'
 
 // 미배치 설비 배치(OE-EQP-02). 편집 팔레트의 미배치 목록에서 설비를 누르면 바로 놓기 — 따로 [3D에서 놓기] 버튼이 없다. 같은 설비를
 // 다시 누르거나 Esc 면 취소이고 좌표가 생기지 않는다. 바닥을 누르면 그 자리에 놓이고 목록에서 빠지며, Ctrl+Z 한 번에 미배치로
@@ -17,8 +18,8 @@ test('팔레트의 미배치 설비를 누르면 바로 놓고, 다시 누르거
   // 검토 화면의 미배치 목록에는 [3D에서 놓기] 버튼이 없다
   await expect(page.locator('.unplaced').getByRole('button', { name: '3D에서 놓기' })).toHaveCount(0)
 
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '00. Begane grond만' })
+  await enterEdit(page)
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: '00. Begane grond' })
   const toggle = page.getByRole('button', { name: /미배치 \d+대/ })
   const count = async () => Number((await toggle.textContent())!.match(/(\d+)대/)![1])
   const before = await count()
@@ -37,9 +38,11 @@ test('팔레트의 미배치 설비를 누르면 바로 놓고, 다시 누르거
   await expect(item).toHaveAttribute('aria-pressed', 'false')
   // 취소한 뒤 바닥을 눌러도 놓이지 않는다 — 미배치 수·바뀐 것이 그대로다.
   await page.locator('.canvas-wrap > canvas').first().scrollIntoViewIfNeeded()
-  await page.locator('.canvas-wrap > canvas').first().click({ position: { x: 200, y: 200 } })
+  // 왼쪽 위는 레이어 칸이 덮어서(#715) 오른쪽 위 빈 곳을 누른다.
+  const cbox = (await page.locator('.canvas-wrap > canvas').first().boundingBox())!
+  await page.mouse.click(cbox.x + cbox.width * 0.8, cbox.y + cbox.height * 0.35)
   await expect.poll(count).toBe(before)
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
 
   // 누르고 바닥을 누르면 그 자리에 놓인다. 설비가 없는 자리(건물 바깥 1m)를 누른다.
   await item.click()
@@ -51,7 +54,7 @@ test('팔레트의 미배치 설비를 누르면 바로 놓고, 다시 누르거
   await page.mouse.click(spot.x, spot.y)
   await expect.poll(count).toBe(before - 1)
   await expect(page.locator('.key-note')).toContainText('종류를 모르는 설비라 바닥 높이에 놓았습니다')
-  await expect(page.locator('.edit-bar')).toContainText('옮김')
+  await expect(page.getByTestId('last-edit')).toContainText('옮김')
 
   // Ctrl+Z 한 번에 미배치로
   await page.locator('body').click({ position: { x: 5, y: 5 } })

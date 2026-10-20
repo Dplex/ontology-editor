@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { toEquipment, toSpace, enterEdit } from './edit-part'
 
 // 벽·문·창 편집(E4)을 실제 마우스로 한다. mep.ifc 에는 벽이 없어서 벽부터 긋는다. 바닥 자리는 e2e 모드에서만 열리는
 // window.__viewer.point 로 묻는다(viewer.ts).
@@ -11,7 +11,7 @@ async function open(page: Page) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
   return errors
@@ -164,14 +164,14 @@ test('다른 벽을 가로지르는 벽은 긋지 못하고, 맞댄 벽은 길�
   await expect(length).toHaveValue('5.00')
   await length.fill('3')
   await length.press('Enter')
-  await expect(page.locator('.edit-bar .last-edit')).toContainText('길이 3.00m')
+  await expect(page.getByTestId('last-edit')).toContainText('길이 3.00m')
   // 가운데(x=7.5)를 두고 7m 로 늘이면 x=11 까지 가서 세로 벽을 뚫는다.
   await length.fill('7')
   await length.press('Enter')
   await expect(page.locator('.key-note')).toContainText('가로지릅니다')
-  await expect(page.locator('.edit-bar .last-edit')).toContainText('길이 3.00m')
+  await expect(page.getByTestId('last-edit')).toContainText('길이 3.00m')
   // 바뀐 것은 그은 벽 둘뿐이다(거부된 긋기·늘이기는 쌓이지 않는다).
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 2건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 2건')
   expect(errors).toEqual([])
 })
 
@@ -191,15 +191,15 @@ test('창을 놓고 가로·세로를 바꾸며, 벽 끝을 넘는 가로는 막
   await expect(width).toHaveValue('')
   await width.fill('1.2')
   await width.press('Enter')
-  await expect(page.locator('.edit-bar .last-edit')).toContainText('가로 1.20m')
+  await expect(page.getByTestId('last-edit')).toContainText('가로 1.20m')
   await height.fill('1.5')
   await height.press('Enter')
-  await expect(page.locator('.edit-bar .last-edit')).toContainText('세로 1.50m')
+  await expect(page.getByTestId('last-edit')).toContainText('세로 1.50m')
   // 창 가운데가 y=2 라 가로 4.2 는 벽 아래 끝(y=0)을 넘는다.
   await width.fill('4.2')
   await width.press('Enter')
   await expect(page.locator('.key-note')).toContainText('벽 끝을 넘습니다')
   // 거부된 것은 되돌리기 이력에 쌓이지 않는다.
-  await expect(page.locator('.edit-bar .last-edit')).toContainText('세로 1.50m')
+  await expect(page.getByTestId('last-edit')).toContainText('세로 1.50m')
   expect(errors).toEqual([])
 })

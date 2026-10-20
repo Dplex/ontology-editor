@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { enterEdit, leaveMultiView, openMultiView, pickEquipment } from './edit-part'
 
 // 다중층 뷰의 세 진입 경로(OE-ML-01). ① 층 고르는 칸 옆 [다중층 뷰에서 편집] ② 계단 패널의 [다중층 뷰에서 편집] ③ 배관 그리기 중 전환.
 // 어느 길로 열어도 같은 배관 그리기(층간 배관·분기)와 같은 연결 패널(해제 보정·취소)을 쓰고, 해제한 연결은 화면을 오가도 그대로다.
@@ -12,11 +13,9 @@ const viewer = <T,>(page: Page, fn: string, ...args: unknown[]) =>
   page.evaluate(([f, a]) => (window as any).__viewer[f as string](...(a as unknown[])), [fn, args] as const) as Promise<T>
 const storeyBox = (page: Page) => page.getByRole('combobox', { name: '보일 층' })
 const banner = (page: Page) => page.getByTestId('multi-banner')
-const toFloor = (page: Page) => page.getByRole('group', { name: '다중층 보기 범위' }).getByRole('button', { name: '층 편집으로' }).click()
-const search = (page: Page) => page.getByPlaceholder(/물리존·설비 이름/)
-async function pick(page: Page, text: string, name: string) {
-  await search(page).fill(text)
-  await page.locator('.equipment tbody tr', { hasText: name }).last().getByRole('button', { name, exact: true }).click()
+const toFloor = (page: Page) => leaveMultiView(page)
+async function pick(page: Page, _text: string, name: string) {
+  await pickEquipment(page, name)
 }
 
 test('Duplex 건축+HVAC: 세 진입 경로 모두 같은 배관 그리기·연결 패널을 쓰고, 분기로 해제한 BIM 연결은 층 편집과 오가도 같고 되살아나지 않는다 [OE-ML-01#1,3,4,5,6]', async ({ page }) => {
@@ -27,11 +26,11 @@ test('Duplex 건축+HVAC: 세 진입 경로 모두 같은 배관 그리기·연�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles([ARCH, HVAC])
   await expect(page.locator('.appbar h2')).toContainText('+', { timeout: 180_000 })
-  await storeyBox(page).selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await storeyBox(page).selectOption({ label: 'Level 1' })
+  await enterEdit(page)
 
   // ① 층 고르는 칸 옆 버튼 → 지금 층과 위층.
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await openMultiView(page, { from: 'Level 1', to: 'Level 2' })
   await expect(banner(page)).toContainText('Level 1 ~ Level 2 (2개 층)')
   await pick(page, '583072', PIPE)
   const picked = page.locator('.picked')
@@ -54,7 +53,7 @@ test('Duplex 건축+HVAC: 세 진입 경로 모두 같은 배관 그리기·연�
   await expect(active).toHaveCount(2)
   await expect(released).toHaveCount(0)
   await toFloor(page)
-  await expect(storeyBox(page).locator('option:checked')).toHaveText('Level 1만')
+  await expect(storeyBox(page).locator('option:checked')).toHaveText('Level 1')
 
   // ② 계단 패널의 버튼 → 그 계단의 관통 층. 계단 조각 둘이 함께 칠해진다.
   const stair = (await viewer<string[]>(page, 'verticals'))[0]
@@ -108,7 +107,7 @@ test('Duplex 건축+HVAC: 세 진입 경로 모두 같은 배관 그리기·연�
   }
   await toFloor(page)
   await same()
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await openMultiView(page, { from: 'Level 1', to: 'Level 2' })
   await expect(banner(page)).toContainText('(2개 층)')
   await same()
   await toFloor(page)
@@ -138,13 +137,14 @@ test('Duplex 건축+HVAC: 세 진입 경로 모두 같은 배관 그리기·연�
   // 같은 연결 패널(BIM 변기의 포트 연결에 해제 보정)과, 같은 배관 편집(그린 오프셋의 높이 바꾸기)을 쓴다.
   await pick(page, '582915', 'M_Water Closet - Flush Tank:Private - 6.1 Lpf:Private - 6.1 Lpf:582915')
   expect(await picked.getByTestId('release-connection').count()).toBeGreaterThan(0)
-  await search(page).fill('DCW 배관')
-  const drawn = page.locator('.equipment tbody tr', { hasText: /DCW 배관 \d+/ })
+  // 그린 구간은 층 현황 목록에 없어 화면 모델(TTL)에서 이름을 찾아 하나씩 고른다(예전 설비 표의 줄).
+  const drawn = await page.evaluate(() =>
+    [...((window as any).__oe.screen().ttl as string).matchAll(/rdfs:label "(DCW 배관 \d+)"/g)].map((m) => m[1]),
+  )
   let offset = false
-  for (let i = 0; i < (await drawn.count()) && !offset; i++) {
-    const link = drawn.nth(i).locator('button.link').first()
-    const name = await link.innerText()
-    await link.click()
+  for (let i = 0; i < drawn.length && !offset; i++) {
+    const name = drawn[i]
+    await pickEquipment(page, name)
     // 패널이 누른 구간으로 바뀐 뒤에 읽는다. 앞 구간의 오프셋 칸을 읽다가 그 칸이 사라지면 기다리기만 하다 끝난다.
     await expect(picked).toContainText(name)
     const storeys = await page.getByTestId('offset-height').getByLabel('오프셋 층').evaluateAll((els) => els.map((s) => (s as HTMLSelectElement).selectedOptions[0]?.text ?? ''))

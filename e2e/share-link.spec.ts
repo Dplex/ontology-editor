@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { openFileMenu, pickEquipment } from './edit-part'
 
 // 위치 표시 옆 [링크 복사]가 만드는 주소(`?open=…&storey=…&select=…`)로 열면 같은 파일·층·고른 것이 열린다(editor/share-link.ts).
 // e2e 서버는 data/ 목록을 붙이지 않아서(testing.md) `/__data` 를 data-list.spec.ts 처럼 흉내 낸다.
@@ -24,12 +25,14 @@ test('data/ 에서 연 파일은 [링크 복사] 로 파일·고른 설비를 �
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
 
   // 고른 것이 없으면 파일만 담는다.
+  // [링크 복사] 는 헤더의 [파일 ▾] 메뉴 안에 있다(#715).
+  await openFileMenu(page)
   const button = page.getByTestId('share-link')
   await expect(button).toBeVisible()
   await expect(button).toHaveAttribute('title', /이 파일을 여는 링크/)
 
-  const at = await page.evaluate((id) => (window as any).__viewer.part(id), AHU)
-  await page.mouse.click(at.x, at.y)
+  await pickEquipment(page, 'AHU-1')
+  await openFileMenu(page)
   await expect(button).toHaveAttribute('title', /선택 항목/)
   // localhost 는 안전한 주소라 Clipboard API 로 들어간다. 55(http)에서는 다른 길(execCommand)로 들어간다.
   await context.grantPermissions(['clipboard-read', 'clipboard-write'])
@@ -70,6 +73,7 @@ test('Clipboard API 가 없는 주소(55 의 http)에서도 링크와 GlobalId �
   await serveData(page)
   await page.goto(`/?open=${encodeURIComponent('현장/mep.ifc')}&select=${encodeURIComponent(AHU)}`)
   await expect(page.locator('.picked h3').first()).toContainText('AHU-1', { timeout: 30_000 })
+  await openFileMenu(page)
   await page.getByTestId('share-link').click()
   await expect(page.locator('.key-note')).toContainText('선택 항목까지 여는 링크를 복사했습니다')
   // 복사된 것은 Clipboard API 가 있는 다른 탭에서 읽는다.

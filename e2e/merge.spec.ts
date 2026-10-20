@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { pickEquipment, pickSpace } from './edit-part'
 
 // 건축·설비가 다른 IFC 를 합치는 길. 예전에는 하나를 열고 도구막대의 [덧붙이기] 를 찾아야 했고, 둘을 같이 끌어다 놓으면
 // 첫 파일만 열리고 나머지는 조용히 버려졌다. 틀리기 쉬운 곳은 셋이다 — 고른 순서에 따라 결과가 달라지는 것, IDF 를 IFC
@@ -81,17 +82,18 @@ test('편집한 뒤에 덧붙여도 편집이 합친 모델에 그대로 남는�
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
   await page.keyboard.press('e')
-  const name = page.locator('.rows input').first()
+  await pickSpace(page, '사무실')
+  const name = page.locator('.space-name input')
   await name.fill('대회의실')
   await name.press('Enter')
   // 공조기를 옮기고 계통에서 뺀다. 합친 모델에서 소속·규칙 방향을 다시 재야 하는 편집이다.
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   const picked = page.locator('.picked')
   const x = picked.locator('.position-edit .coord').first()
   await x.fill('2.5')
   await x.press('Enter')
   await picked.locator('.system-edit select').selectOption('')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 3건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 3건')
 
   const append = page.locator('.appbar label.append')
   await expect(append).not.toHaveClass(/disabled/)
@@ -99,12 +101,12 @@ test('편집한 뒤에 덧붙여도 편집이 합친 모델에 그대로 남는�
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
   await expect(tile(page, '물리존')).toHaveText('4')
   // 편집이 합친 모델에 다시 얹혔다. 되돌리기 이력만 끊긴다.
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 3건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 3건')
   const report = page.locator('.report')
   await expect(report).toContainText('대회의실')
   await expect(report).toContainText('AHU-1: 계통')
   await expect(page.locator('.edit-file-note')).toContainText('덧붙이기 전에 한 편집')
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await expect(picked.locator('.position-edit .coord').first()).toHaveValue('2.5')
   await expect(picked.locator('.stats')).toContainText('(계통 없음)')
   expect(errors).toEqual([])
@@ -116,31 +118,32 @@ test('덧붙이기가 실패하면 열린 모델·편집·되돌리기 이력이
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
   await page.keyboard.press('e')
-  const name = page.locator('.rows input').first()
+  await pickSpace(page, '사무실')
+  const name = page.locator('.space-name input')
   await name.fill('대회의실')
   await name.press('Enter')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   const append = page.locator('.appbar label.append input')
   await append.setInputFiles({ name: 'broken.ifc', mimeType: 'application/octet-stream', buffer: Buffer.from('ISO-10303-21;\nHEADER;\n깨진 파일\n') })
   await expect(page.getByRole('alert')).toContainText('덧붙이지 못했습니다(broken.ifc)')
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
   // 되돌리기 이력이 남아 있다 — 되돌리면 편집 전으로, 다시 하면 편집으로.
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   await page.keyboard.press('Control+y')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   // 성공하면 편집은 합친 모델에 다시 얹히고, 되돌리기 이력은 끊긴다고 알린다.
   await append.setInputFiles(ROOMS)
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
   await expect(page.getByText('되돌리기 이력은 여기서 끊깁니다')).toBeVisible()
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
   expect(errors).toEqual([])
 })
 
@@ -152,17 +155,18 @@ test('건축 IFC 로 시작해 편집한 뒤 설비 IFC 를 덧붙이면 설비�
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc', { timeout: 30_000 })
   await expect(tile(page, '기기')).toHaveText('0')
   await page.keyboard.press('e')
-  const name = page.locator('.rows input').first()
+  await pickSpace(page, '회의실')
+  const name = page.locator('.space-name input')
   await name.fill('대회의실')
   await name.press('Enter')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   const append = page.locator('.appbar label.append input')
   // 설비: 기기가 더해지고, 리포트의 편집 항목이 그대로다.
   await append.setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
   await expect(tile(page, '기기')).toHaveText('5')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
   await expect(page.locator('.report')).toContainText('대회의실')
 
   // 같은 건물(같은 IfcBuilding)의 다른 건축 판본: 받지 않고 [새 프로젝트] 를 안내한다. 모델·편집은 그대로다.
@@ -172,7 +176,7 @@ test('건축 IFC 로 시작해 편집한 뒤 설비 IFC 를 덧붙이면 설비�
   await expect(alert).toContainText('[새 프로젝트]')
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc')
   await expect(tile(page, '물리존')).toHaveText('4')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   // IFC 가 아닌 파일: 이유를 보이고 받지 않는다.
   await append.setInputFiles({ name: 'notes.ifc', mimeType: 'text/plain', buffer: Buffer.from('회의 메모') })

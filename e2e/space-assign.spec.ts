@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { enterEdit, pickEquipment, toEquipment, toSpace } from './edit-part'
 
 // 사람의 소속 지정(OE-MAP-01 · K17). 사무실(0..10 × 0..8) 밖에 더한 설비는 소속이 없어 패널에서 소속을 정할 수 있고, 외곽선 안의
 // AHU-1 은 지정 칸이 막혀 까닭이 보인다. 지정한 설비 자리에 물리존을 그리면 "사람 지정 해제" 가 바뀐 내용에 보이고, Ctrl+Z 로
@@ -17,7 +17,7 @@ test('소속 없는 설비에 소속을 정하고, 외곽선 안 설비는 막�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.waitForTimeout(200)
 
@@ -31,7 +31,7 @@ test('소속 없는 설비에 소속을 정하고, 외곽선 안 설비는 막�
   await expect(page.locator('.report')).toContainText('설비 새 설비 1의 소속을 사무실(으)로 정했습니다')
 
   // 외곽선 안의 AHU-1 은 막힌다.
-  await page.getByRole('button', { name: 'AHU-1', exact: true }).first().click()
+  await pickEquipment(page, 'AHU-1')
   await expect(picked.locator('h3')).toHaveText('AHU-1')
   await expect(picked.getByTestId('assign-space')).toBeDisabled()
   await expect(picked.getByTestId('assign-blocked')).toContainText('외곽선 안')
@@ -59,7 +59,7 @@ test('사람이 정한 소속은 편집 저장·불러오기 뒤에도 그대로
     await page.locator('.drop input[type=file], input[type=file]').first().setInputFiles(MEP)
     await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('.edit-bar')).toHaveCount(0)
-    await page.getByRole('button', { name: '편집', exact: true }).click()
+    await enterEdit(page)
     await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
     await page.waitForTimeout(200)
   }
@@ -82,7 +82,7 @@ test('사람이 정한 소속은 편집 저장·불러오기 뒤에도 그대로
   await page.locator('.load-edits input').setInputFiles(path)
   await expect(page.locator('.edit-file-note')).toContainText('적용했습니다')
   await expect(page.locator('.edit-file-note')).not.toContainText('사람 지정 해제')
-  await page.getByRole('button', { name: '새 설비 1', exact: true }).first().click()
+  await pickEquipment(page, '새 설비 1')
   await expect(picked.getByTestId('assign-space').locator('option:checked')).toHaveText('사무실')
 
   // 다시 열어 그 자리에 물리존(로비)이 있는 모델에 불러오면, 외곽선 안이라 지정을 쓰지 않고 알린다.

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { openFileMenu, pickEquipment, enterEdit, systemChips, openDrawer } from './edit-part'
 
 // 계통 편집(E8). 고른 설비 패널에서 계통 한 자리를 바꾸고, 범례에서 고른 계통의 종류·유체를 고친다. 리포트에 줄이
 // 오르고 Ctrl+Z 로 한 단계씩 돌아온다.
@@ -10,7 +11,7 @@ async function open(page: Page) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   return errors
 }
 // 디퓨저·조명은 천장 설비라 천장 편집 모드(T)에서 고친다(OE-OBJ-08).
@@ -29,8 +30,7 @@ async function undo(page: Page) {
 
 test('설비를 계통에서 빼고, 계통 종류·유체를 고치고, 되돌린다 [OE-PIP-03#2]', async ({ page }) => {
   const errors = await open(page)
-  const row = page.locator('.equipment tbody tr', { hasText: 'DUCT-01' })
-  await row.getByRole('button', { name: 'DUCT-01', exact: true }).click()
+  await pickEquipment(page, 'DUCT-01')
   const picked = page.locator('.picked')
   await expect(picked.locator('.stats')).toContainText('AHU-1 급기 계통')
   await picked.locator('.system-edit select').selectOption('')
@@ -38,7 +38,7 @@ test('설비를 계통에서 빼고, 계통 종류·유체를 고치고, 되돌�
   await expect(page.locator('.report')).toContainText('DUCT-01: 계통 AHU-1 급기 계통 → (계통 없음)')
 
   // 범례에서 계통을 고르면 종류를 고칠 수 있다. 순환수면 유체 상자가 나온다.
-  await page.locator('.legend button', { hasText: 'AHU-1 급기 계통' }).click()
+  await (await systemChips(page)).locator('button', { hasText: 'AHU-1 급기 계통' }).click()
   const system = page.locator('.system-picked')
   await expect(system).toContainText('급기')
   await system.locator('.system-kind-edit select').first().selectOption('hydronic_supply')
@@ -59,7 +59,7 @@ test('설비를 계통에서 빼고, 계통 종류·유체를 고치고, 되돌�
 test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비가 계통 없음이 되며, 되돌리면 차례로 돌아온다 [OE-PIP-02#2]', async ({ page }) => {
   const errors = await open(page)
   await enterCeiling(page)
-  await page.locator('.equipment tbody tr', { hasText: 'AT-101-01' }).getByRole('button', { name: 'AT-101-01', exact: true }).click()
+  await pickEquipment(page, 'AT-101-01')
   const picked = page.locator('.picked')
   await picked.getByRole('button', { name: '새 계통…' }).click()
   const form = picked.locator('.new-system')
@@ -71,17 +71,17 @@ test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비�
   await expect(report).toContainText('계통 2층 급기를 만들었습니다')
   await expect(report).toContainText('AT-101-01: 계통 AHU-1 급기 계통 → 2층 급기')
 
-  await page.locator('.legend button', { hasText: '2층 급기' }).click()
+  await (await systemChips(page)).locator('button', { hasText: '2층 급기' }).click()
   await page.locator('.system-picked').getByRole('button', { name: '계통 지우기' }).click()
-  await expect(page.locator('.legend')).not.toContainText('2층 급기')
+  await expect(await systemChips(page)).not.toContainText('2층 급기')
   // 만들고 지운 계통은 리포트에 남지 않는다. 설비가 원래 계통을 떠난 것만 남는다.
   await expect(report).not.toContainText('2층 급기')
   await expect(report).toContainText('AT-101-01: 계통 AHU-1 급기 계통 → (계통 없음)')
 
   await undo(page)
-  await expect(page.locator('.legend')).toContainText('2층 급기')
+  await expect(await systemChips(page)).toContainText('2층 급기')
   await undo(page)
-  await expect(page.locator('.legend')).not.toContainText('2층 급기')
+  await expect(await systemChips(page)).not.toContainText('2층 급기')
   await expect(report).toHaveCount(0)
   expect(errors).toEqual([])
 })
@@ -89,8 +89,7 @@ test('새 계통을 만들어 설비를 넣고, 그 계통을 지우면 설비�
 test('계통 없는 토출구는 패널과 검토 화면에 경고하고, 담당 공조기를 흐름으로 보인다 [OE-EQP-10#1]', async ({ page }) => {
   const errors = await open(page)
   await enterCeiling(page)
-  const row = page.locator('.equipment tbody tr', { hasText: 'AT-101-01' })
-  await row.getByRole('button', { name: 'AT-101-01', exact: true }).click()
+  await pickEquipment(page, 'AT-101-01')
   const picked = page.locator('.picked')
   // BIM 에서 연 그대로는 계통이 있어 경고가 없다. 담당은 흐름을 거슬러 닿는 공조기다.
   await expect(picked.locator('.stats')).toContainText('AHU-1 급기 계통')
@@ -101,10 +100,14 @@ test('계통 없는 토출구는 패널과 검토 화면에 경고하고, 담당
   // 계통을 비우면 패널에 경고, 검토 화면에 목록이 뜬다. 목록에서 누르면 그 토출구로 간다.
   await picked.locator('.system-edit select').selectOption('')
   await expect(picked.locator('.system-missing')).toContainText('디퓨저에 계통이 없습니다')
+  // 계통 없는 토출구 목록은 기준 · 검증 패널에 접힌 채 있다.
   const list = page.locator('.systemless')
   await expect(list).toContainText('1대')
+  await page.locator('.shell-sel .side-clear').click()
+  await openDrawer(page)
+  const head = list.locator('.fold-head')
+  if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click()
   await expect(list).toContainText('AT-101-01')
-  await page.getByRole('button', { name: '선택 해제' }).click()
   await list.getByRole('button', { name: 'AT-101-01' }).click()
   await expect(picked.locator('h3')).toHaveText('AT-101-01')
 
@@ -119,18 +122,19 @@ test('계통 없는 토출구는 패널과 검토 화면에 경고하고, 담당
 test('BIM 계통의 이름을 고치면 TTL 이름이 바뀌고, 편집 파일로 저장·불러오면 그대로이며, 되돌리면 앞 이름이다 [OE-PIP-09#3~,4~]', async ({ page }, info) => {
   // 2026-10-03 사용자 결정: BIM 이 준 계통도 이름을 고친다.
   const errors = await open(page)
-  await page.locator('.legend button', { hasText: 'AHU-1 급기 계통' }).click()
+  await (await systemChips(page)).locator('button', { hasText: 'AHU-1 급기 계통' }).click()
   const system = page.locator('.system-picked')
   const name = system.getByLabel('계통 이름')
   await name.fill('1층 급기')
   await name.press('Enter')
   await expect(system.locator('h3')).toHaveText('1층 급기')
   await expect(system.locator('.system-renamed')).toContainText('BIM 이름 AHU-1 급기 계통')
-  await expect(page.locator('.legend')).toContainText('1층 급기')
+  await expect(await systemChips(page)).toContainText('1층 급기')
   await expect(page.locator('.report')).toContainText('계통 이름 AHU-1 급기 계통 → 1층 급기')
   if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT })
 
   const ttl = page.waitForEvent('download')
+  await openFileMenu(page)
   await page.getByRole('button', { name: '의미 내보내기 (Brick TTL)' }).click()
   const text = Buffer.concat(await (await (await ttl).createReadStream()).toArray()).toString()
   expect(text).toContain('rdfs:label "1층 급기"')
@@ -145,10 +149,10 @@ test('BIM 계통의 이름을 고치면 TTL 이름이 바뀌고, 편집 파일�
   page.on('dialog', (d) => void d.accept())
   await open(page)
   await page.locator('.load-edits input').setInputFiles(path)
-  await expect(page.locator('.legend')).toContainText('1층 급기')
+  await expect(await systemChips(page)).toContainText('1층 급기')
 
   // 되돌리기는 불러온 편집을 취소하지 않으므로, 새로 고친 것을 되돌려 본다.
-  await page.locator('.legend button', { hasText: '1층 급기' }).click()
+  await (await systemChips(page)).locator('button', { hasText: '1층 급기' }).click()
   await system.getByLabel('계통 이름').fill('잠깐 이름')
   await system.getByLabel('계통 이름').press('Enter')
   await expect(system.locator('h3')).toHaveText('잠깐 이름')

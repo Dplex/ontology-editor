@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { pickEquipment } from './edit-part'
 
 // 움직임 줄이기를 켠 사람(prefers-reduced-motion)도 리플레이를 끝까지 본다. 3D 연출(호 비행·빛기둥·층 쌓기·철거)은 꺼지고,
 // 장면 진행·카드·움직이지 않는 덧그림(변경 지도)은 그대로다. 기본 설정(playwright.config 의 reduce)으로 돈다.
@@ -11,7 +12,7 @@ test('움직임 줄이기에서도 리플레이가 끝까지 돌고, 빛기둥 �
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
   // 편집 둘(AHU-1 옮기기 · 사무실 꼭짓점 지우기). 움직임 줄이기라 옮기기는 미끄러지지 않고 바로 놓인다.
   await page.keyboard.press('e')
-  await page.locator('.equipment tbody tr', { hasText: 'AHU-1' }).last().getByRole('button', { name: 'AHU-1', exact: true }).click()
+  await pickEquipment(page, 'AHU-1')
   await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
   await page.keyboard.press('Shift+ArrowRight')
   await page.waitForTimeout(1800)

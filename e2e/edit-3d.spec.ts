@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { toEquipment, toSpace } from './edit-part'
+import { coordOf, enterEdit, openDrawer, pickedCard, pickEquipment, pickSpace, placeOf, toEquipment, toSpace } from './edit-part'
 
 // 3D 에서 고치는 네 가지(설비 끌기 E5, 꼭짓점 끌기 E2, 연결 방향, 층 옮기기 E6)를 실제 마우스로 재현한다.
 // 3D 는 DOM 이 아니라서 어디를 눌러야 하는지를 e2e 모드에서만 열리는 window.__viewer 로 묻는다
@@ -44,48 +44,33 @@ async function drag(page: Page, from: Pt, to: Pt) {
   await settle(page)
 }
 
-const row = (page: Page, name: string) => page.locator('.equipment tbody tr', { hasText: name }).last()
-const coord = (page: Page, name: string, axis: number) => row(page, name).locator('.coord').nth(axis).inputValue()
+// 고른 설비의 위치 칸(오른쪽 위 선택 카드). 그 설비를 고른 뒤에 읽는다.
+const coord = (page: Page, _name: string, axis: number) => coordOf(page, axis).inputValue()
 
-/** 표에서 설비를 고른다. 3D 가 그 자리로 시점을 옮긴다. 표는 3D 아래라 누르면 스크롤이 내려가니 3D 를 다시 띄운다. */
+/** 층 현황에서 설비를 고른다. 3D 가 그 자리로 시점을 옮긴다. */
 async function pick(page: Page, name: string) {
-  await row(page, name).getByRole('button', { name, exact: true }).click()
-  await page.locator('.canvas-wrap > canvas').scrollIntoViewIfNeeded()
+  await pickEquipment(page, name)
   await page.waitForTimeout(200)
   await settle(page)
 }
 
-test('3D 위 편집 체크박스는 전체 화면에서만 뜨고 보기/편집 버튼과 같은 상태이며, 보기 모드에서 끌면 아무것도 안 바뀐다', async ({ page }) => {
+// 3D 위 편집 체크박스(전체 화면에서만 뜨던 것)는 #715 에서 넓게 보기와 함께 빠졌다. 보기 모드에서 끌어도 안 바뀌는 것만 남긴다.
+test('보기 모드에서 고른 설비를 끌면 시점만 돌고 좌표는 그대로다', async ({ page }) => {
   const errors = await open(page)
-  const box = page.locator('.edit-toggle input')
-  const editButton = page.getByRole('button', { name: '편집', exact: true })
-  const viewButton = page.getByRole('button', { name: '보기', exact: true })
-
-  // 평소에는 도구막대의 보기/편집 하나만 있다.
-  await expect(box).toHaveCount(0)
-  await page.getByRole('button', { name: '전체 화면' }).click()
-  await expect(box).not.toBeChecked()
-  await box.check()
-  await expect(editButton).toHaveAttribute('aria-pressed', 'true')
-  await box.uncheck()
-  await expect(viewButton).toHaveAttribute('aria-pressed', 'true')
-  await page.getByRole('button', { name: /전체 화면 나가기/ }).click()
-  await expect(box).toHaveCount(0)
-
-  // 보기 모드에서 고른 설비를 끌면 시점만 돈다. 좌표는 그대로다.
+  await expect(page.getByTestId('edit-start')).toBeVisible()
   await pick(page, 'AHU-1')
-  const before = await row(page, 'AHU-1').locator('td.num').first().textContent()
+  const before = await viewer<number[]>(page, 'center', AHU)
   const at = (await viewer<Pt>(page, 'part', AHU))!
   await drag(page, at, { x: at.x + 150, y: at.y })
-  await expect(row(page, 'AHU-1').locator('td.num').first()).toHaveText(before!)
+  expect(await viewer<number[]>(page, 'center', AHU)).toEqual(before)
   expect(errors).toEqual([])
 })
 
 test('편집 모드에서 고른 설비를 3D 로 끌면 좌표와 소속이 바뀌고, 끄는 중 Esc 는 취소다 [OE-EQP-06#1] [OE-EQP-12#1] [OE-OBJ-15#2~]', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await pick(page, 'AHU-1')
-  await expect(row(page, 'AHU-1')).toContainText('사무실')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('사무실')
 
   // 끌기는 형상 중심 높이의 수평면 위다. 같은 높이에서 x 로 8m 옮긴 자리의 화면 좌표로 끈다.
   const center = (await viewer<number[]>(page, 'center', AHU))!
@@ -99,32 +84,32 @@ test('편집 모드에서 고른 설비를 3D 로 끌면 좌표와 소속이 바
   await page.keyboard.press('Escape')
   await page.mouse.up()
   await settle(page)
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
-  await expect(row(page, 'AHU-1')).toContainText('사무실')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('사무실')
 
   // 이번엔 놓는다. 사무실(0~10, 0~8) 밖이라 소속이 빠지고 리포트에 한 줄이 생긴다.
   const x0 = Number(await coord(page, 'AHU-1', 0))
   await drag(page, from, to)
-  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('(소속 없음)')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
   await expect(page.locator('.report')).toContainText('AHU-1')
   const x1 = Number(await coord(page, 'AHU-1', 0))
   expect(x1).toBeCloseTo(x0 - 8, 0)
   // 사람이 옮긴 좌표라 출처가 편집이다.
-  await expect(row(page, 'AHU-1').locator('.src.edit')).toBeVisible()
+  await expect(page.locator('.position-edit .src.edit')).toBeVisible()
 
   // 제자리로 끌어 오면 리포트에서 빠진다(되돌린 것은 변경이 아니다).
   const back = (await viewer<Pt>(page, 'part', AHU))!
   const home = (await viewer<Pt>(page, 'point', center))!
   await drag(page, back, home)
-  await expect(row(page, 'AHU-1')).toContainText('사무실')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('사무실')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   expect(errors).toEqual([])
 })
 
 test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓점을 끌면 넓이와 소속이 바뀌고, 소속을 잃은 설비를 알린다 [OE-SPC-03#1,4] [OE-OBJ-02#2~]', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await toSpace(page)
 
   // 사무실 모서리 근처 빈 바닥. 설비가 없는 자리를 눌러야 물리존이 골라진다.
@@ -140,13 +125,13 @@ test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓�
   await drag(page, (await viewer<Pt>(page, 'point', [0, 0, 0.12]))!, (await viewer<Pt>(page, 'point', [20, 4, 0.12]))!)
   await expect(page.locator('.edit-notice')).toContainText('교차')
   await expect(panel).toContainText('80.0')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
 
   // (10,0) 을 (4,4) 로 끈다. 넓이가 36㎡ 가 되고, (7,4) 의 AT-101-02 가 밖으로 밀려난다.
   await drag(page, (await viewer<Pt>(page, 'point', [10, 0, 0.12]))!, (await viewer<Pt>(page, 'point', [4, 4, 0.12]))!)
   await expect(panel).toContainText('36.0')
   await expect(panel.locator('.src.edit')).toBeVisible()
-  await expect(row(page, 'AT-101-02')).toContainText('(소속 없음)')
+  await expect.poll(() => placeOf(page, 'AT-101-02')).toContain('(소속 없음)')
   // 소속을 잃은 설비는 그 자리에서 알리고 합치기를 권한다(OE-OBJ-02 · OE-SPC-04).
   await expect(page.locator('.edit-notice')).toContainText('소속 물리존을 잃었습니다')
   await expect(page.locator('.edit-notice')).toContainText('AT-101-02')
@@ -168,7 +153,7 @@ test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓�
   await expect(page.locator('.report')).toContainText('물리존 이름 사무실 → 대회의실')
 
   // 보기 모드로 가면 손잡이가 사라진다. 저장하지 않은 편집이 있어 묻는다(OE-COM-08) — 임시 저장하고 끝낸다.
-  await page.getByRole('button', { name: '보기', exact: true }).click()
+  await page.getByRole('button', { name: '편집 종료' }).click()
   await page.locator('dialog.exit-edit').getByRole('button', { name: '임시 저장' }).click()
   expect(await viewer<unknown[]>(page, 'handles')).toHaveLength(0)
   expect(errors).toEqual([])
@@ -176,7 +161,7 @@ test('편집 모드에서 바닥을 누르면 물리존이 골라지고, 꼭짓�
 
 test('편집 모드에서 연결 화살표를 누르면 방향을 미리 보고 [적용] 으로 정하며, 포트 방향은 못 고친다', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await pick(page, 'DUCT-01')
 
   type ArrowAt = { key: string; a: string; b: string; source: string; at: Pt }
@@ -214,7 +199,7 @@ test('편집 모드에서 연결 화살표를 누르면 방향을 미리 보고 
   // 수동 지정 해제. 규칙 방향으로 돌아가고 리포트에서 빠진다.
   await terminal.getByTestId('flow-clear').click()
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
 
   // 포트가 말한 방향은 누르면 이유를 말하고 그대로 둔다.
   at = (await toward(AHU)).at
@@ -230,7 +215,7 @@ test('편집 모드에서 고른 설비의 층을 바꾸면 높이도 층 차만
   await page.locator('.append input[type=file]').setInputFiles(ROOMS)
   await expect(page.locator('.appbar h2')).toHaveText('two-rooms.ifc + mep.ifc', { timeout: 30_000 })
 
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await pick(page, 'AHU-1')
   const z0 = Number(await coord(page, 'AHU-1', 2))
 
@@ -244,7 +229,7 @@ test('편집 모드에서 고른 설비의 층을 바꾸면 높이도 층 차만
   await expect(page.locator('.storey-move .src.edit')).toBeVisible()
   await expect(page.locator('.storeys tbody tr', { hasText: '2F' }).locator('td.storey-equipment')).toHaveText('1')
   // 2F 의 창고에는 외곽선이 없어 소속이 빠진다.
-  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('(소속 없음)')
 
   // 되돌리면 1F·원래 높이·BIM 출처로 돌아온다. 선택 상자에 초점이 있어도 글자 칸이 아니라 받는다.
   await page.keyboard.press('Control+z')
@@ -264,14 +249,14 @@ async function dragAhuOut(page: Page) {
   const from = (await viewer<Pt>(page, 'part', AHU))!
   const to = (await viewer<Pt>(page, 'point', [center[0] - 8, center[1], center[2]]))!
   await drag(page, from, to)
-  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('(소속 없음)')
   return { center, from }
 }
 
 test('3D 로 끈 설비는 Ctrl+Z 로 좌표·출처·소속이 끌기 전으로 돌아가고 리포트에서 빠진다', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const undoButton = page.locator('.edit-bar .undo')
+  await enterEdit(page)
+  const undoButton = page.getByRole('navigation', { name: '도구 레일' }).getByRole('button', { name: /실행취소/ })
   await expect(undoButton).toBeDisabled()
 
   const x0 = await (async () => {
@@ -280,15 +265,15 @@ test('3D 로 끈 설비는 Ctrl+Z 로 좌표·출처·소속이 끌기 전으로
   })()
   const { from } = await dragAhuOut(page)
   await expect(undoButton).toBeEnabled()
-  await expect(page.locator('.edit-bar')).toContainText('AHU-1 옮김')
+  await expect(page.getByTestId('last-edit')).toContainText('AHU-1 옮김')
   await expect(page.locator('.report')).toContainText('AHU-1')
 
   await page.keyboard.press('Control+z')
-  await expect(row(page, 'AHU-1')).toContainText('사무실')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('사무실')
   expect(await coord(page, 'AHU-1', 0)).toBe(x0)
   // 출처도 편집에서 BIM 으로 돌아온다. 반대로 옮기는 식이면 여기가 편집으로 남는다.
-  await expect(row(page, 'AHU-1').locator('.src.edit')).toHaveCount(0)
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.locator('.position-edit .src.edit')).toHaveCount(0)
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   await expect(page.locator('.report')).toHaveCount(0)
   // 되돌린 것은 잠깐 뜨는 안내다(경고 칸에 남으면 다음 단축키 안내를 가린다).
   await expect(page.locator('.key-note')).toContainText('되돌렸습니다: AHU-1 옮김')
@@ -303,8 +288,7 @@ test('3D 로 끈 설비는 Ctrl+Z 로 좌표·출처·소속이 끌기 전으로
 
 test('설비 끌기 → 꼭짓점 → 연결 방향을 Ctrl+Z 세 번이면 한 단계씩 거꾸로 되돌린다 — 모드를 바꿔 한 편집도 같은 이력이다 [OE-UI-04#8]', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  const bar = page.locator('.edit-bar')
+  await enterEdit(page)
 
   // ① 설비 끌기
   await dragAhuOut(page)
@@ -322,58 +306,62 @@ test('설비 끌기 → 꼭짓점 → 연결 방향을 Ctrl+Z 세 번이면 한 
   await page.mouse.click(arrow.at.x, arrow.at.y)
   await terminal.getByTestId('flow-apply').click()
   await expect(terminal.locator('.rel')).toHaveText('하류')
-  await expect(bar).toContainText('방향')
+  await expect(page.getByTestId('last-edit')).toContainText('방향')
 
   // ③ 을 되돌린다 — 방향만 규칙으로 돌아가고 앞의 둘은 그대로다.
   await page.keyboard.press('Control+z')
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
-  await expect(row(page, 'AT-101-02')).toContainText('(소속 없음)')
-  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
+  await expect.poll(() => placeOf(page, 'AT-101-02')).toContain('(소속 없음)')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('(소속 없음)')
 
   // ② 를 되돌린다 — 넓이 80, AT-101-02 가 사무실로.
   await page.keyboard.press('Control+z')
-  await expect(row(page, 'AT-101-02')).toContainText('사무실')
-  await expect(page.locator('.spaces-edit tbody tr', { hasText: '101' }).first()).toContainText('80.0 ㎡')
-  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
+  await expect.poll(() => placeOf(page, 'AT-101-02')).toContain('사무실')
+  // 넓이는 층 현황의 물리존 목록에서 본다.
+  const floorList = page.getByTestId('floor-status')
+  await floorList.getByRole('group', { name: '층 현황 종류' }).getByRole('button', { name: '물리존', exact: true }).click()
+  await expect(floorList.locator('.shell-rows li > button', { hasText: '사무실' })).toContainText('80.0㎡')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('(소속 없음)')
 
   // ① 을 되돌린다 — 아무것도 안 바뀐 상태.
   await page.keyboard.press('Control+z')
-  await expect(row(page, 'AHU-1')).toContainText('사무실')
-  await expect(bar).toContainText('바뀐 것 0건')
-  await expect(page.locator('.edit-bar .undo')).toBeDisabled()
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('사무실')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
+  await expect(page.getByRole('navigation', { name: '도구 레일' }).getByRole('button', { name: /실행취소/ })).toBeDisabled()
   expect(errors).toEqual([])
 })
 
 test('글자를 치는 칸의 Ctrl+Z 와 보기 모드의 Ctrl+Z 는 편집을 되돌리지 않는다', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await dragAhuOut(page)
-  const bar = page.locator('.edit-bar')
+  const bar = page.getByTestId('changes-link')
   await expect(bar).toContainText('바뀐 것 1건')
 
-  // 물리존 이름 칸에 글자를 치고 Ctrl+Z. 그 칸의 실행취소일 뿐 3D 편집은 그대로다.
-  const name = page.locator('.rows input[type=text]').first()
+  // 물리존 이름 칸(물리존을 고르면 오른쪽 카드)에 글자를 치고 Ctrl+Z. 그 칸의 실행취소일 뿐 3D 편집은 그대로다.
+  await pickSpace(page, '사무실')
+  const name = page.locator('.space-name input')
   await name.click()
   await name.press('End')
   await page.keyboard.type('X')
   await page.keyboard.press('Control+z')
   await expect(bar).toContainText('바뀐 것 1건')
-  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('(소속 없음)')
 
   // 보기 모드에서는 고치는 손잡이가 없으니 되돌리지도 않는다. 임시 저장하고 보기로 간다(OE-COM-08).
-  await page.getByRole('button', { name: '보기', exact: true }).click()
+  await page.getByRole('button', { name: '편집 종료' }).click()
   await page.locator('dialog.exit-edit').getByRole('button', { name: '임시 저장' }).click()
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await expect(bar).toContainText('바뀐 것 1건')
-  await expect(row(page, 'AHU-1')).toContainText('(소속 없음)')
+  await expect.poll(() => placeOf(page, 'AHU-1')).toContain('(소속 없음)')
   expect(errors).toEqual([])
 })
 
 test('고른 설비는 앞에 다른 설비가 가려도 끌 수 있고, 끌지 않고 떼면 앞의 것을 고른다', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   // DUCT-01(z 3.0) 위에 AHU-1(z 3.2) 상자가 겹쳐 있다. 어느 점이 가리는지는 카메라 거리에 따라 달라서,
   // 덕트 둘레에서 맨 앞은 공조기이고 시선이 덕트도 지나는 점을 찾는다.
   await pick(page, 'DUCT-01')
@@ -411,7 +399,7 @@ test('고른 설비는 앞에 다른 설비가 가려도 끌 수 있고, 끌지 
 
 test('고른 설비의 종류를 바꾸면 규칙 방향이 다시 서고, Ctrl+Z 로 되돌린다 [OE-BIM-14#1~]', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
 
   // DUCT-01 → AT-101-02 는 공조기가 공기의 원천이라서 선 규칙 방향이다.
   await pick(page, 'DUCT-01')
@@ -426,20 +414,22 @@ test('고른 설비의 종류를 바꾸면 규칙 방향이 다시 서고, Ctrl+
   await expect(page.locator('.kind-edit .src.bim')).toBeVisible()
   await kind.selectOption('')
   await expect(page.locator('.report')).toContainText('종류 공조기 → 모름')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 1건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 1건')
 
   await pick(page, 'DUCT-01')
   await expect(terminal.locator('.rel')).toHaveText('방향 미지정')
 
   await page.keyboard.press('Control+z')
   await expect(terminal.locator('.rel')).toHaveText('하류(추정)')
-  await expect(page.locator('.edit-bar')).toContainText('바뀐 것 0건')
+  await expect(page.getByTestId('changes-link')).toContainText('바뀐 것 0건')
   expect(errors).toEqual([])
 })
 
 test('종류를 모르는 패밀리를 목록에서 한 번 고르면 그 패밀리 설비에 붙고 출처가 편집이 된다 [OE-BIM-14#1~,2]', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
+  // 종류와 관제점 후보는 기준 · 검증 패널에 있다.
+  await openDrawer(page)
   await page.getByRole('button', { name: /종류와 관제점 후보/ }).click()
 
   // 픽스처의 온도 센서는 사전에 없다. ObjectType 이 비어 있어 설비 이름이 곧 타입이다(그 한 대에만 붙는다).
@@ -450,16 +440,17 @@ test('종류를 모르는 패밀리를 목록에서 한 번 고르면 그 패밀
   await sensorType.locator('select').selectOption({ label: '열감지기' })
 
   await expect(list.locator('tr', { hasText: 'TEMP-101-01' })).toHaveCount(0)
-  const sensor = row(page, 'TEMP-101-01')
+  await pick(page, 'TEMP-101-01')
+  const sensor = pickedCard(page)
   await expect(sensor).toContainText('열감지기')
-  await expect(sensor.locator('.src.edit')).toBeVisible()
+  await expect(sensor.locator('.src.edit').first()).toBeVisible()
   await expect(page.locator('.report')).toContainText('종류 모름 → 열감지기')
   expect(errors).toEqual([])
 })
 
 test('종류를 바꿔 규칙 방향이 포트와 어긋나기 시작하면 그 계통을 바로 알린다', async ({ page }) => {
   const errors = await open(page)
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await enterEdit(page)
   await enterCeiling(page)
   await pick(page, 'AT-101-01')
   // 포트가 덕트 → 디퓨저라고 말한 디퓨저를 팬(공기의 원천)으로 바꾼다.

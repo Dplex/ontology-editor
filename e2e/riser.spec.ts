@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
+import { coordOf, countByLabel, enterEdit, leaveMultiView, openMultiView, pickEquipment } from './edit-part'
 
 // 층간 배관(라이저·오프셋, OE-ML-12·14·18 · OE-PIP-15). 다중층 뷰에서 설비를 고르면 같은 배관 그리기로 다른 층 설비까지 잇는다.
 // 꺾임점마다 작업 높이(층 + 바닥에서 m)를 정하고, 층을 지나는 구간은 [수직으로 찍기] 로 찍는다. 계산은 cross-storey-pipe.test.ts 가 본다.
@@ -9,7 +10,8 @@ const FROM = 'M_Radiator - Hosted:Readiator - 25:Readiator - 25:536919'
 const TO = '557522'
 const viewer = <T,>(page: Page, fn: string, ...args: unknown[]) =>
   page.evaluate(([f, a]) => (window as any).__viewer[f as string](...(a as unknown[])), [fn, args] as const) as Promise<T>
-const drawnRows = (page: Page) => page.locator('.equipment tbody tr', { hasText: /HWS (배관|이음) / })
+// 그린 배관 구간 · 이음쇠 수. 예전 설비 표의 줄 수 대신 화면 모델(TTL)에서 센다(#715 에서 표가 빠졌다).
+const drawnRows = (page: Page) => countByLabel(page, /^HWS (배관|이음) /)
 
 test('Duplex: 1층 라디에이터에서 수직으로 올라 2층에서 옆으로 옮겨 2층 라디에이터에 잇는다. 범위 밖이면 그리던 점을 둔 채 막고, 넓히면 마친다 [OE-ML-12#1,3,4,6] [OE-ML-14#1] [OE-PIP-15#1~,2~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
@@ -19,15 +21,14 @@ test('Duplex: 1층 라디에이터에서 수직으로 올라 2층에서 옆으�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1' })
+  await enterEdit(page)
+  await openMultiView(page, { from: 'Level 1', to: 'Level 2' })
   await expect(page.getByTestId('multi-banner')).toContainText('Level 1 ~ Level 2 (2개 층)')
   // 별도 라이저 도구는 없다 — 고른 설비 패널의 배관 그리기다.
   await expect(page.getByRole('button', { name: /라이저/ })).toHaveCount(0)
 
-  await page.locator('input[type=search]').fill('536919')
-  await page.locator('.equipment tbody tr', { hasText: FROM }).last().getByRole('button', { name: FROM, exact: true }).click()
+  await pickEquipment(page, FROM)
   const panel = page.getByTestId('riser-draw')
   await expect(panel).toBeVisible()
   // 끝 층은 시작 설비의 층이 아닌 첫 층(Level 2)이고, 끝 후보는 그 층 설비를 수평 거리 순으로 보인다.
@@ -54,31 +55,32 @@ test('Duplex: 1층 라디에이터에서 수직으로 올라 2층에서 옆으�
   if (process.env.SHOT_DRAW) await page.screenshot({ path: process.env.SHOT_DRAW })
 
   // 보기 범위를 1층만으로 줄이면 2층 끝 대상이 밖이다. 막고 그리던 점은 그대로 둔다.
-  const range = page.getByRole('group', { name: '다중층 보기 범위' })
-  await range.getByRole('combobox', { name: '다중층 끝 층' }).selectOption({ label: 'Level 1' })
+  // 범위는 [다중층 ▾] 팝오버에서 고친다(#715). 적용 단추에 남은 초점이 Enter 를 먹지 않게 푼다.
+  const blur = () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await openMultiView(page, { from: 'Level 1', to: 'Level 1' })
+  await blur()
   await page.keyboard.press('Enter')
   await expect(page.locator('.key-note')).toContainText('의 층(Level 2)이 보기 범위 밖입니다. 보기 범위를 넓힌 뒤 완료합니다')
   await expect(bar).toContainText('꺾임점 2개')
-  await expect(drawnRows(page)).toHaveCount(0)
+  await expect.poll(() => drawnRows(page)).toBe(0)
   // 넓히면 이어서 마친다. 수직 구간 · 수평 구간 · 2층 라디에이터로 내려가는 구간, 꺾인 자리 둘에 이음쇠.
-  await range.getByRole('combobox', { name: '다중층 끝 층' }).selectOption({ label: 'Level 2' })
+  await openMultiView(page, { from: 'Level 1', to: 'Level 2' })
+  await blur()
   await page.keyboard.press('Enter')
   await expect(page.locator('.key-note')).toContainText('HWS 배관을 그렸습니다: 구간 3개 · 이음쇠 2개')
   await expect(page.locator('.key-note')).toContainText('2개 층')
   await expect(bar).toHaveCount(0)
   expect(await viewer(page, 'verticalMarks')).toMatchObject({ preview: 0 })
-  await page.locator('input[type=search]').fill('HWS')
-  await expect(drawnRows(page)).toHaveCount(5)
+  await expect.poll(() => drawnRows(page)).toBe(5)
   if (process.env.SHOT) await page.locator('.viewport').screenshot({ path: process.env.SHOT })
 
   // 되돌리기 한 번에 층간 배관 전체가 빠진다.
-  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.locator('.appbar h2').click()
   await page.keyboard.press('Control+z')
-  await expect(drawnRows(page)).toHaveCount(0)
+  await expect.poll(() => drawnRows(page)).toBe(0)
 
   // 비스듬히 층을 지나면 막는다: 1층 라디에이터에서 곧장 2층 높이의 다른 자리를 찍으면 수직이 아니다.
-  await page.locator('input[type=search]').fill('536919')
-  await page.locator('.equipment tbody tr', { hasText: FROM }).last().getByRole('button', { name: FROM, exact: true }).click()
+  await pickEquipment(page, FROM)
   await panel.getByLabel('층간 배관 끝 대상').selectOption(await target.getAttribute('value'))
   await panel.getByRole('button', { name: '경로 찍기' }).click()
   await bar.getByLabel('작업 층').selectOption({ label: 'Level 2' })
@@ -90,8 +92,7 @@ test('Duplex: 1층 라디에이터에서 수직으로 올라 2층에서 옆으�
   await page.keyboard.press('Escape')
   await expect(bar).toHaveCount(0)
   await expect(page.locator('.key-note')).toContainText('배관 그리기를 취소했습니다. 아무것도 남기지 않았습니다')
-  await page.locator('input[type=search]').fill('HWS')
-  await expect(drawnRows(page)).toHaveCount(0)
+  await expect.poll(() => drawnRows(page)).toBe(0)
   expect(errors).toEqual([])
 })
 
@@ -103,14 +104,13 @@ test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 �
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1' })
+  await enterEdit(page)
+  await openMultiView(page, { from: 'Level 1', to: 'Level 2' })
   const bar = page.locator('.draw-bar')
 
   // 주 배관: 1층 라디에이터 → 수직으로 2층 바닥 + 0.3m → 2층 라디에이터(첫 시험과 같다).
-  await page.locator('input[type=search]').fill('536919')
-  await page.locator('.equipment tbody tr', { hasText: FROM }).last().getByRole('button', { name: FROM, exact: true }).click()
+  await pickEquipment(page, FROM)
   const riser = page.getByTestId('riser-draw')
   const target = riser.getByLabel('층간 배관 끝 대상').locator('option', { hasText: TO })
   await riser.getByLabel('층간 배관 끝 대상').selectOption(await target.getAttribute('value'))
@@ -129,17 +129,15 @@ test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 �
   await expect(page.locator('.key-note')).toContainText('HWS 배관을 그렸습니다: 구간 3개 · 이음쇠 2개')
 
   // 라이저 구간(HWS 배관 1)을 고르면 같은 칸이 분기 그리기가 된다. 끝은 1층 라디에이터 557620(2.57,-8.81,0.30).
-  await page.locator('input[type=search]').fill('HWS 배관 1')
-  await page.locator('.equipment tbody tr', { hasText: 'HWS 배관 1' }).first().getByRole('button', { name: 'HWS 배관 1', exact: true }).click()
+  await pickEquipment(page, 'HWS 배관 1')
   const branch = page.getByTestId('branch-draw')
   await expect(branch).toBeVisible()
   await branch.getByLabel('층간 배관 끝 층').selectOption({ label: 'Level 1' })
   const other = branch.getByLabel('층간 배관 끝 대상').locator('option', { hasText: '557620' })
   await branch.getByLabel('층간 배관 끝 대상').selectOption(await other.getAttribute('value'))
   // 분기 자리와 꺾임점 하나를 찍다가 Esc 로 그만두면 분기점·구간·연결이 남지 않는다(OE-ML-13 AC4).
-  const hws = page.locator('.equipment tbody tr', { hasText: /HWS (배관|이음|분기) / })
-  await page.locator('input[type=search]').fill('HWS')
-  await expect(hws).toHaveCount(5)
+  const hws = () => countByLabel(page, /^HWS (배관|이음|분기) /)
+  await expect.poll(hws).toBe(5)
   await branch.getByRole('button', { name: '분기 그리기' }).click()
   await bar.getByLabel('작업 층').selectOption({ label: 'Level 1' })
   await bar.getByLabel('층 바닥에서 높이(m)').fill('1.5')
@@ -150,9 +148,8 @@ test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 �
   await expect(bar).toContainText('분기 자리 + 꺾임점 1개')
   await page.keyboard.press('Escape')
   await expect(bar).toHaveCount(0)
-  await expect(hws).toHaveCount(5)
-  await page.locator('input[type=search]').fill('HWS 배관 1')
-  await page.locator('.equipment tbody tr', { hasText: 'HWS 배관 1' }).first().getByRole('button', { name: 'HWS 배관 1', exact: true }).click()
+  await expect.poll(hws).toBe(5)
+  await pickEquipment(page, 'HWS 배관 1')
   await expect(page.locator('.picked .neighbors:not(.released) tbody tr')).toHaveCount(2)
 
   await branch.getByRole('button', { name: '분기 그리기' }).click()
@@ -174,25 +171,22 @@ test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 �
   // F: 고른 라이저 구간의 연결망(라이저·분기)에 시점을 맞춘다.
   await page.keyboard.press('f')
   await expect.poll(() => viewer<{ flying: boolean }>(page, 'motion').then((m) => m.flying)).toBe(false)
-  await page.locator('input[type=search]').fill('HWS')
   // 라이저 다섯 조각 + 분기점 + 나눈 뒤 구간 + 분기 구간 셋·이음쇠 둘.
-  await expect(page.locator('.equipment tbody tr', { hasText: /HWS (배관|이음|분기) / })).toHaveCount(12)
+  await expect.poll(() => countByLabel(page, /^HWS (배관|이음|분기) /)).toBe(12)
   if (process.env.SHOT_BRANCH) await page.locator('.viewport').screenshot({ path: process.env.SHOT_BRANCH })
 
   // 층 편집 화면(1층)에도 같은 분기점이 있다 — 1.5m 높이라 1층의 이음쇠다.
-  await page.getByRole('button', { name: '층 편집으로' }).first().click()
-  await page.locator('input[type=search]').fill('HWS 분기')
-  await expect(page.locator('.equipment tbody tr', { hasText: 'HWS 분기 6' })).toHaveCount(1)
+  await leaveMultiView(page)
+  await expect.poll(() => countByLabel(page, /^HWS 분기 6$/)).toBe(1)
   const pickRow = async (name: string) => {
-    await page.locator('input[type=search]').fill(name)
-    await page.locator('.equipment tbody tr', { hasText: name }).first().getByRole('button', { name, exact: true }).click()
+    await pickEquipment(page, name)
   }
   // 분기점의 연결 상태: 라이저 아래·위 두 토막과 분기 구간 하나에 이어져 있다.
   await pickRow('HWS 분기 6')
   await expect(page.locator('.picked .neighbors:not(.released) tbody tr')).toHaveCount(3)
   // 분기는 여느 배관과 같은 편집으로 고친다: 1층 안의 분기 꺾임점(HWS 이음 8)을 옆으로 옮기면 붙은 구간이 따라 늘어난다.
-  const elbow = page.locator('.equipment tbody tr', { hasText: 'HWS 이음 8' }).first().locator('.coord').first()
   await pickRow('HWS 이음 8')
+  const elbow = coordOf(page, 0)
   const was = await elbow.inputValue()
   await elbow.fill(String(Number(was) + 0.2))
   await elbow.press('Enter')
@@ -208,15 +202,14 @@ test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 �
   await expect(page.locator('.picked .neighbors:not(.released) tbody tr')).toHaveCount(4)
 
   // 이어 그린 것과 옮긴 것을 되돌리고, 한 번 더 되돌리면 분기점·뒤 구간·분기가 빠진다(라이저 다섯 조각만 남는다).
-  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.locator('.appbar h2').click()
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
-  await page.locator('input[type=search]').fill('HWS 이음 8')
+  await pickRow('HWS 이음 8')
   await expect(elbow).toHaveValue(was)
-  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.locator('.appbar h2').click()
   await page.keyboard.press('Control+z')
-  await page.locator('input[type=search]').fill('HWS')
-  await expect(page.locator('.equipment tbody tr', { hasText: 'HWS 분기' })).toHaveCount(0)
+  await expect.poll(() => countByLabel(page, /^HWS 분기/)).toBe(0)
   expect(errors).toEqual([])
 })
 
@@ -225,11 +218,10 @@ async function drawRiser(page: Page) {
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
-  await page.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
-  await page.locator('input[type=search]').fill('536919')
-  await page.locator('.equipment tbody tr', { hasText: FROM }).last().getByRole('button', { name: FROM, exact: true }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1' })
+  await enterEdit(page)
+  await openMultiView(page, { from: 'Level 1', to: 'Level 2' })
+  await pickEquipment(page, FROM)
   const riser = page.getByTestId('riser-draw')
   const target = riser.getByLabel('층간 배관 끝 대상').locator('option', { hasText: TO })
   await riser.getByLabel('층간 배관 끝 대상').selectOption(await target.getAttribute('value'))
@@ -257,8 +249,7 @@ test('Duplex: 라이저의 2층 오프셋을 0.3m 올리면 양 끝 꺾임점이
   await drawRiser(page)
 
   // 오프셋(HWS 배관 3, 2층 바닥 + 0.3m 의 수평 구간)을 고른다.
-  await page.locator('input[type=search]').fill('HWS 배관 3')
-  await page.locator('.equipment tbody tr', { hasText: 'HWS 배관 3' }).first().getByRole('button', { name: 'HWS 배관 3', exact: true }).click()
+  await pickEquipment(page, 'HWS 배관 3')
   const form = page.getByTestId('offset-height')
   await expect(form.getByLabel('오프셋 층').locator('option:checked')).toHaveText('Level 2')
   await expect(form.getByLabel('오프셋 높이(m)')).toHaveValue('0.3')
@@ -283,7 +274,7 @@ test('Duplex: 라이저의 2층 오프셋을 0.3m 올리면 양 끝 꺾임점이
   await expect(form.getByRole('button', { name: '높이 바꾸기' })).toBeDisabled()
 
   // 되돌리면 0.3m 로 돌아온다.
-  await page.locator('.edit-bar').click({ position: { x: 2, y: 2 } })
+  await page.locator('.appbar h2').click()
   await page.keyboard.press('Control+z')
   await expect(form.getByLabel('오프셋 높이(m)')).toHaveValue('0.3')
   expect(errors).toEqual([])
@@ -297,11 +288,10 @@ test('Duplex: 층 편집에서 그리던 배관을 들고 다중층 뷰로 가�
   await page.goto('/')
   await page.locator('.drop input[type=file]').setInputFiles(DUPLEX)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1만' })
-  await page.getByRole('button', { name: '편집', exact: true }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1' })
+  await enterEdit(page)
   // 층 편집에서 라디에이터의 배관 그리기를 시작해 1층에서 꺾임점 하나를 찍는다.
-  await page.locator('input[type=search]').fill('536919')
-  await page.locator('.equipment tbody tr', { hasText: FROM }).last().getByRole('button', { name: FROM, exact: true }).click()
+  await pickEquipment(page, FROM)
   const panel = page.getByTestId('pipe-draw')
   await panel.getByLabel('배관 끝 대상').selectOption({ index: 1 })
   await panel.getByLabel('배관 Flow Type').selectOption('HWS')
@@ -317,7 +307,7 @@ test('Duplex: 층 편집에서 그리던 배관을 들고 다중층 뷰로 가�
   await expect(bar).toContainText('꺾임점 1개')
   await expect(bar.getByLabel('작업 층').locator('option:checked')).toHaveText('Level 1')
   // 전환 취소: [층 편집으로] → 원래 그리기(꺾임점 1개, 작업 높이 칸 없음).
-  await page.getByRole('button', { name: '층 편집으로' }).first().click()
+  await leaveMultiView(page)
   await expect(page.getByTestId('multi-banner')).toHaveCount(0)
   await expect(bar).toContainText('1개')
   await expect(bar.getByLabel('작업 층')).toHaveCount(0)
@@ -345,12 +335,10 @@ test('Duplex: 층 편집 화면에서 다른 층으로 이어진 구간은 잠�
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await drawRiser(page)
-  await page.getByRole('button', { name: '층 편집으로' }).first().click()
+  await leaveMultiView(page)
   await expect(page.getByTestId('multi-banner')).toHaveCount(0)
-  const search = page.getByPlaceholder(/물리존·설비 이름/)
-  const pickRow = async (text: string, name: string) => {
-    await search.fill(text)
-    await page.locator('.equipment tbody tr', { hasText: name }).first().getByRole('button', { name, exact: true }).click()
+  const pickRow = async (_text: string, name: string) => {
+    await pickEquipment(page, name)
   }
   const notice = page.locator('.edit-notice').first()
 
@@ -359,13 +347,8 @@ test('Duplex: 층 편집 화면에서 다른 층으로 이어진 구간은 잠�
   const lock = page.locator('.picked .ceiling-lock')
   await expect(lock).toContainText('다른 층으로 이어진 덕트·배관 구간이라 층 편집 화면에서는 형상을 바꾸지 않습니다')
   await expect(page.getByTestId('retarget')).toHaveCount(0)
-  // 표의 좌표 칸으로 옮기려 해도 막는다.
-  const segX = page.locator('.equipment tbody tr', { hasText: 'HWS 배관 1' }).first().locator('.coord').first()
-  const segBefore = await segX.inputValue()
-  await segX.fill(String(Number(segBefore) + 0.5))
-  await segX.press('Enter')
-  await expect(notice).toContainText('다른 층으로 이어진')
-  await expect(segX).toHaveValue(segBefore)
+  // 잠긴 구간은 위치 칸도 없다(예전에는 설비 표의 좌표 칸으로 옮기려 하면 막았다. 그 표는 #715 에서 빠졌다).
+  await expect(page.locator('.picked .position-edit')).toHaveCount(0)
 
   // 라이저 아래 라디에이터: [배관도 같이] 면 수직 구간이 늘어나므로 미리 알리고, 옮기면 막는다.
   await pickRow('536919', FROM)
@@ -374,7 +357,7 @@ test('Duplex: 층 편집 화면에서 다른 층으로 이어진 구간은 잠�
     await page.getByTestId('follow-preview').scrollIntoViewIfNeeded()
     await page.screenshot({ path: process.env.SHOT_CROSS })
   }
-  const x = page.locator('.equipment tbody tr', { hasText: FROM }).last().locator('.coord').first()
+  const x = coordOf(page, 0)
   const before = await x.inputValue()
   await x.fill(String(Number(before) + 0.3))
   await x.press('Enter')
@@ -385,12 +368,15 @@ test('Duplex: 층 편집 화면에서 다른 층으로 이어진 구간은 잠�
   await pickRow('HWS 배관 1', 'HWS 배관 1')
   await lock.getByRole('button', { name: '다중층 뷰에서 편집' }).click()
   await expect(page.getByTestId('multi-banner')).toContainText('Level 1 ~ Level 2 (2개 층)')
-  await page.getByRole('button', { name: '층 편집으로' }).first().click()
+  await leaveMultiView(page)
 
   // 2층: 라이저 꼭대기 이음쇠(HWS 이음 2)는 옮기면 수직 구간이 늘어나 막지만, 거기서 같은 층 설비로 배관을 이어 그리는 것은 된다.
-  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 2만' })
-  // 1층에 저장 안 한 편집(라이저)이 있어 층을 바꾸기 전에 묻는다(OE-COM-08). 임시 저장하고 간다.
-  await page.locator('dialog[open]').getByRole('button', { name: '임시 저장', exact: true }).click()
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 2' })
+  // 1층에 저장 안 한 편집이 있으면 층을 바꾸기 전에 묻는다(OE-COM-08). 라이저는 다중층 세션에서 그려 세션을 나올 때 저장되므로
+  // 묻지 않을 수도 있다. 물으면 임시 저장하고 간다.
+  const ask = page.locator('dialog[open]').getByRole('button', { name: '임시 저장', exact: true })
+  if (await ask.waitFor({ timeout: 3000 }).then(() => true, () => false)) await ask.click()
+  await expect(page.getByRole('combobox', { name: '보일 층' }).locator('option:checked')).toHaveText('Level 2')
   await pickRow('HWS 이음 2', 'HWS 이음 2')
   const draw = page.getByTestId('pipe-draw')
   await expect(draw).toBeVisible()
@@ -407,11 +393,7 @@ test('Duplex: 라이저 수직 구간을 둘러 샤프트를 만들고 그 구�
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await drawRiser(page)
-  const search = page.getByPlaceholder(/물리존·설비 이름/)
-  const pickRow = async (name: string) => {
-    await search.fill(name)
-    await page.locator('.equipment tbody tr', { hasText: name }).first().getByRole('button', { name, exact: true }).click()
-  }
+  const pickRow = (name: string) => pickEquipment(page, name)
   const shaftBox = page.getByTestId('segment-shaft')
   // 샤프트가 없으면 칸도 없다.
   await pickRow('HWS 배관 1')
@@ -467,8 +449,7 @@ test('Duplex: 라이저 수직 구간을 둘러 샤프트를 만들고 그 구�
   await panel.getByRole('button', { name: '샤프트 지우기' }).click()
   await expect(page.getByTestId('vertical-delete-pipes')).toContainText('안의 덕트·배관 1개와 그 연결은 남고 샤프트 소속만 풀립니다')
   await page.getByTestId('vertical-delete-ask').getByRole('button', { name: '지우기', exact: true }).click()
-  await search.fill('HWS')
-  await expect(page.locator('.equipment tbody tr', { hasText: /HWS (배관|이음) / })).toHaveCount(5)
+  await expect.poll(() => drawnRows(page)).toBe(5)
   await pickRow('HWS 배관 1')
   await expect(shaftBox).toHaveCount(0)
   await expect(page.locator('.picked .neighbors:not(.released) tbody tr')).toHaveCount(2)
