@@ -32,6 +32,15 @@ import { MULTI_VIEW_ONLY, multiView } from './vertical'
 // 반투명 천장면을 그린다. 천장 설비만 놓고·옮기고·지우고·이름과 종류를 고친다(옮기기는 x·y 만, z 는 패널). 나머지는 회색이고 고르기·
 // 조회만 된다. 바닥·벽 쪽(평소 편집)에서는 거꾸로 천장 설비가 고르기·조회만 된다. 모드는 화면 상태라 저장하지 않는다.
 export const ceilingMode = ref(false)
+/** 천장 레이어 표시 토글(OE-OBJ-08). 천장 편집 모드 밖에서도 반자 높이에 50% 반투명 천장면을 보일지 고른다(화면 상태). */
+export const showCeiling = ref(false)
+/** 반자 높이를 아는 층 수(레이어 패널의 천장 토글). */
+export const ceilingPlaneCount = computed(() => {
+  void sceneVersion.value
+  const m = model.value
+  if (!m) return 0
+  return m.storeys.filter((st) => !!ceilingOf(st)).length
+})
 /**
  * 편집 대상(OE-UI-04). 공간(물리존·룸·커스텀존·벽·문·창·추가 오브젝트)과 설비(설비·배관·천장). 팔레트가 그 모드의 도구만 보이고, 다른 모드의
  * 오브젝트는 고르고 볼 수 있지만 끌거나 방향키로 옮기면 막고 어느 모드에서 고치는지 알린다. 되돌리기 이력은 모드와 상관없이 하나다.
@@ -186,8 +195,9 @@ export const ceilingAskInput = ref('')
 
 /** 천장면과 회색 처리. 천장면은 반자 높이를 아는 층만, 면은 그 층 물리존 외곽선(없으면 설비가 든 평면 범위)이다. */
 const ceilingView = computed<CeilingView | null>(() => {
+  void sceneVersion.value
   const m = model.value
-  if (!ceilingMode.value || !m || replayOpen.value) return null
+  if ((!ceilingMode.value && !showCeiling.value) || !m || replayOpen.value) return null
   const planes: CeilingView['planes'] = []
   for (const st of m.storeys) {
     const c = ceilingOf(st)
@@ -204,7 +214,9 @@ const ceilingView = computed<CeilingView | null>(() => {
     planes.push({ storeyId: st.id, z: st.elevation + c.height, rings })
   }
   const dim = new Set<string>()
-  for (const st of m.storeys) for (const e of st.equipment) if (!ceilingIds.value.has(e.id)) dim.add(e.id)
+  if (ceilingMode.value) {
+    for (const st of m.storeys) for (const e of st.equipment) if (!ceilingIds.value.has(e.id)) dim.add(e.id)
+  }
   return { planes, dim }
 })
 // 끌지 못하는 설비. 모드 밖의 설비는 3D 에서 잡히지 않는다(고르기는 된다).
