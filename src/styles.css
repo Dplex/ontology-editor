@@ -3622,6 +3622,12 @@ kbd {
   font-size: 1.1rem;
 }
 
+/* 닫기 단추 옆에 붙인다. space-between 이면 제목과 닫기 사이 가운데에 떠 있었다. */
+.shortcut-help .guide-link {
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
 .shortcut-groups {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));

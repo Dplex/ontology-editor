@@ -1,0 +1,593 @@
+<!doctype html>
+<!--
+  에디터 사용 가이드. 화면 그림과 확대 컷은 scripts/guide/capture.mjs 가 실제 에디터에서 찍고(screens/), 원리 그림은
+  scripts/guide/figures/*/build.mjs 가 만든다(fig/). 이 파일은 빌드를 거치지 않고 public/ 그대로 dist/guide/ 로 나간다.
+  사내망에서 열리므로 글꼴·스크립트를 밖에서 받지 않는다.
+-->
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f6f7f9">
+<title>사용 가이드 · Ontology Editor</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --surface-soft: #f1f3f6;
+    --fg: #1a1d21;
+    --muted: #5f6673;
+    --line: #e3e6ea;
+    --accent: #2a62d4;
+    --accent-soft: #eaf1fe;
+    --warn-fg: #8a5300;
+    --warn-bg: #fff8e8;
+    --pin: #1a1d21;
+    --radius: 0.75rem;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 72px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 15px/1.7 system-ui, -apple-system, "Segoe UI", "Noto Sans CJK KR", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    word-break: keep-all;
+  }
+  code, kbd { font-family: ui-monospace, "JetBrains Mono", "SF Mono", monospace; font-size: 0.88em; }
+  kbd { padding: 0.05em 0.4em; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; background: var(--surface); }
+  a { color: var(--accent); }
+  h3 { font-size: 1.05rem; margin: 2rem 0 0.6rem; }
+
+  /* 위 띠: 단계 목차. 스크롤해도 붙어 있어서 지금 어디인지 보인다. */
+  .bar { position: sticky; top: 0; z-index: 5; background: rgba(246, 247, 249, 0.94); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); }
+  .bar-in { max-width: 1120px; margin: 0 auto; padding: 0.55rem 1.25rem; display: flex; gap: 1rem; align-items: center; }
+  .bar b { white-space: nowrap; }
+  .bar b span { color: var(--accent); }
+  .steps { display: flex; gap: 0.2rem; overflow-x: auto; margin: 0; padding: 0; list-style: none; scrollbar-width: none; }
+  .steps a { display: block; padding: 0.2rem 0.6rem; border-radius: 999px; color: var(--muted); text-decoration: none; white-space: nowrap; font-size: 0.84rem; }
+  .steps a:hover { background: var(--surface-soft); color: var(--fg); }
+  .steps a.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .steps .sep { color: var(--line); padding: 0.2rem 0.1rem; }
+  .bar .open { margin-left: auto; white-space: nowrap; font-size: 0.86rem; }
+
+  main { max-width: 1120px; margin: 0 auto; padding: 2.5rem 1.25rem 5rem; }
+  header.hero h1 { font-size: 1.9rem; margin: 0 0 0.4rem; letter-spacing: -0.01em; }
+  header.hero p { margin: 0.2rem 0; color: var(--muted); max-width: 48rem; }
+
+  /* 처음에 한 번: 무엇이 무엇이 되나 */
+  .pipeline { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.5rem; margin: 1.6rem 0 0.4rem; padding: 0; list-style: none; }
+  .pipeline li { flex: 1 1 150px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.7rem 0.9rem; box-shadow: var(--shadow); }
+  .pipeline li b { display: block; }
+  .pipeline li span { color: var(--muted); font-size: 0.86rem; }
+  .how { display: flex; flex-wrap: wrap; gap: 0.6rem 1.4rem; margin: 1rem 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 0.9rem; }
+  .how li::before { content: "·"; margin-right: 0.4rem; }
+
+  /* 큰 묶음(준비 · 고치기 · 내보내기) */
+  .part { margin: 5rem 0 0; padding-top: 1rem; border-top: 2px solid var(--fg); display: flex; gap: 1rem; align-items: baseline; }
+  .part h2 { margin: 0; font-size: 1.05rem; letter-spacing: 0.04em; }
+  .part p { margin: 0; color: var(--muted); }
+
+  section.step { margin-top: 3.5rem; }
+  .step-head { display: flex; gap: 0.8rem; align-items: baseline; }
+  .step-head .n { flex: none; width: 2rem; height: 2rem; border-radius: 50%; background: var(--fg); color: #fff; display: grid; place-items: center; font-weight: 700; font-size: 0.95rem; transform: translateY(-0.15rem); }
+  .step-head h2 { font-size: 1.35rem; margin: 0; letter-spacing: -0.01em; }
+  .lead { margin: 0.5rem 0 1rem 2.8rem; max-width: 52rem; }
+
+  /* 화면 그림과 번호 핀. 그림이 주인공이라 폭을 다 쓰고, 번호 설명(확대 컷 포함)은 그 아래 칸으로 둔다. */
+  .shot { position: relative; margin: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--surface); box-shadow: var(--shadow); }
+  .shot img { display: block; width: 100%; height: auto; }
+  .shot a.full { position: absolute; right: 0.5rem; bottom: 0.5rem; font-size: 0.75rem; background: rgba(255, 255, 255, 0.92); border: 1px solid var(--line); border-radius: 999px; padding: 0.05rem 0.55rem; text-decoration: none; color: var(--muted); }
+  .shot.narrow { max-width: 620px; }
+  .pin {
+    position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
+    background: var(--pin); color: #fff; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 2px 6px rgba(0, 0, 0, 0.25);
+    display: grid; place-items: center; font: 700 13px/1 system-ui, sans-serif; cursor: pointer; transition: transform 0.15s;
+  }
+  .pin.hot, .pin:hover { transform: scale(1.25); background: var(--accent); }
+  ol.pins { margin: 0.9rem 0 0; padding: 0; list-style: none; counter-reset: pin; display: grid; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); gap: 0.7rem; }
+  ol.pins li { counter-increment: pin; position: relative; padding: 0.55rem 0.7rem 0.6rem 2.5rem; border-radius: 0.6rem; background: var(--surface); border: 1px solid var(--line); scroll-margin-top: 90px; }
+  ol.pins li::before { content: counter(pin); position: absolute; left: 0.55rem; top: 0.65rem; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--pin); color: #fff; display: grid; place-items: center; font: 700 12px/1 system-ui, sans-serif; }
+  ol.pins li.hot { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+  ol.pins li.hot::before { background: var(--accent); }
+  ol.pins b { display: block; }
+  /* 확대 컷: 2배로 찍은 그 자리. 폰에서도 글씨가 읽힌다. */
+  ol.pins .zoom { display: block; margin: 0.5rem 0 0 -1.9rem; border: 1px solid var(--line); border-radius: 0.4rem; overflow: hidden; background: var(--surface-soft); }
+  ol.pins .zoom img { display: block; width: 100%; height: auto; }
+
+  /* 편집 전/후: 슬라이더로 덮개를 걷는다. */
+  .compare { position: relative; margin: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); background: var(--surface); --x: 50%; }
+  .compare img { display: block; width: 100%; height: auto; }
+  .compare .after { position: absolute; inset: 0; clip-path: inset(0 0 0 var(--x)); }
+  .compare .after img { height: 100%; object-fit: cover; object-position: left top; }
+  .compare .rule { position: absolute; top: 0; bottom: 0; left: var(--x); width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; }
+  .compare .tag { position: absolute; top: 0.6rem; padding: 0.1rem 0.6rem; border-radius: 999px; font-size: 0.8rem; font-weight: 600; background: rgba(26, 29, 33, 0.82); color: #fff; pointer-events: none; }
+  .compare .tag.b { left: 0.6rem; }
+  .compare .tag.a { right: 0.6rem; background: var(--accent); }
+  .compare input { position: absolute; inset: auto 0 0.6rem; width: calc(100% - 2rem); margin: 0 1rem; accent-color: var(--accent); }
+  .compare-note { margin: 0.4rem 0 0; color: var(--muted); font-size: 0.88rem; }
+
+  /* 어디에 남나: BIM · 브라우저 · TTL · GeoJSON */
+  .where { margin: 1rem 0 0 2.8rem; padding: 0.75rem 1rem; border-left: 3px solid var(--accent); background: var(--surface); border-radius: 0 0.5rem 0.5rem 0; max-width: 52rem; }
+  .where b { color: var(--accent); }
+  .where code, td code, .faq code { background: var(--surface-soft); padding: 0 0.35rem; border-radius: 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.8rem 0 0 2.8rem; }
+  .chip { display: inline-flex; gap: 0.45rem; align-items: baseline; background: var(--surface); border: 1px solid var(--line); border-radius: 0.5rem; padding: 0.35rem 0.7rem; font-size: 0.9rem; }
+  .chip i { font-style: normal; font-weight: 700; font-size: 0.78rem; color: var(--accent); background: var(--accent-soft); padding: 0 0.4rem; border-radius: 4px; }
+  .chip i.w { color: var(--warn-fg); background: var(--warn-bg); }
+
+  /* 원리 그림 */
+  .why { margin-top: 1.5rem; padding: 1.25rem; border: 1px dashed #cdd2d9; border-radius: var(--radius); background: rgba(255, 255, 255, 0.55); }
+  .why > p { margin: 0 0 0.9rem; color: var(--muted); max-width: 52rem; }
+  .why > p b { color: var(--fg); }
+  .why iframe { display: block; width: 100%; max-width: 760px; margin: 0 auto; border: 0; height: 720px; background: transparent; }
+
+  /* 표·자주 막히는 곳·용어 */
+  .table-wrap { overflow-x: auto; margin-top: 0.8rem; }
+  table { border-collapse: collapse; width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; font-size: 0.93rem; }
+  th, td { text-align: left; vertical-align: top; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--line); }
+  th { background: var(--surface-soft); font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { white-space: nowrap; font-weight: 600; }
+  .faq { display: grid; gap: 0.6rem; margin-top: 0.8rem; }
+  .faq details { background: var(--surface); border: 1px solid var(--line); border-radius: 0.6rem; padding: 0.6rem 0.9rem; }
+  .faq summary { cursor: pointer; font-weight: 600; }
+  .faq details[open] summary { margin-bottom: 0.4rem; }
+  .faq p { margin: 0.3rem 0; }
+  dl.terms { display: grid; grid-template-columns: max-content 1fr; gap: 0.5rem 1.2rem; margin: 0.8rem 0 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem 1.2rem; }
+  dl.terms dt { font-weight: 600; }
+  dl.terms dd { margin: 0; color: #343a44; }
+
+  footer { margin-top: 5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+
+  @media (max-width: 860px) {
+    .lead, .where, .chips { margin-left: 0; }
+    .pin { width: 20px; height: 20px; margin: -10px 0 0 -10px; font-size: 11px; }
+    .bar .open { display: none; }
+    dl.terms { grid-template-columns: 1fr; }
+    dl.terms dd { margin-bottom: 0.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="bar" aria-label="단계">
+  <div class="bar-in">
+    <b>Ontology Editor <span>가이드</span></b>
+    <ul class="steps">
+      <li><a href="#s0">시작 전에</a></li>
+      <li class="sep">|</li>
+      <li><a href="#s1">1 프로젝트</a></li>
+      <li><a href="#s2">2 화면</a></li>
+      <li><a href="#s3">3 등급</a></li>
+      <li><a href="#s4">4 경고·검사</a></li>
+      <li class="sep">|</li>
+      <li><a href="#s5">5 평면도</a></li>
+      <li><a href="#s6">6 설비</a></li>
+      <li><a href="#s7">7 옮기기</a></li>
+      <li><a href="#s8">8 방 이름</a></li>
+      <li><a href="#s9">9 결과 비교</a></li>
+      <li><a href="#s10">10 흐름</a></li>
+      <li class="sep">|</li>
+      <li><a href="#s11">11 미리보기</a></li>
+      <li><a href="#s12">12 구축</a></li>
+      <li><a href="#s13">13 운영 편집</a></li>
+      <li><a href="#s14">14 내보내기</a></li>
+      <li><a href="#s15">15 뷰어</a></li>
+      <li class="sep">|</li>
+      <li><a href="#saves">저장 정리</a></li>
+      <li><a href="#faq">막힐 때</a></li>
+      <li><a href="#terms">용어</a></li>
+    </ul>
+    <a class="open" href="../" target="_blank" rel="noopener">에디터 열기 ↗</a>
+  </div>
+</nav>
+
+<main>
+  <header class="hero">
+    <h1>BIM 하나로 DT 공간 온톨로지 만들기</h1>
+    <p>IFC 파일을 올려 층·방·벽·설비를 세우고, 틀린 곳을 고친 뒤, DT 플랫폼이 읽는 두 파일로 내보내는 순서를 실제 화면으로 따라갑니다.</p>
+    <p>예시는 Duplex 아파트(건축 + HVAC 두 파일)입니다. 흐름 방향 장면만 포트에 방향이 적힌 ifc4Mep 파일로 보입니다.</p>
+    <ol class="pipeline" aria-label="전체 흐름">
+      <li><b>IFC</b><span>건축·설비 파일</span></li>
+      <li><b>임포트</b><span>층 · 방 · 벽 · 설비 · 연결</span></li>
+      <li><b>검토 · 편집</b><span>등급 · 경고 · 이름 · 소속 · 흐름</span></li>
+      <li><b>구축 · 반영</b><span>서버에 v1, v2 …</span></li>
+      <li><b>TTL + GeoJSON</b><span>의미와 형상, id 로 이어짐</span></li>
+    </ol>
+    <ul class="how" aria-label="이 페이지 보는 법">
+      <li>그림 위 번호 핀을 누르면 아래 설명과 확대 컷으로 갑니다</li>
+      <li>전/후 그림은 가운데 슬라이더를 드래그합니다</li>
+      <li>점선 상자 안의 원리 그림은 직접 드래그하고 눌러 봅니다</li>
+    </ul>
+  </header>
+
+  <section class="step" id="s0">
+    <div class="step-head"><span class="n">0</span><h2>시작 전에: 이 BIM 으로 어디까지 되나</h2></div>
+    <p class="lead">온톨로지가 어디까지 만들어지는지는 에디터 솜씨보다 <b>BIM 에 무엇이 들어 있느냐</b>로 먼저 정해집니다. 에디터는 파일을 열 때 이것을 등급 0~5 로 잽니다. 등급은 아래부터 쌓여서, 위 등급은 아래 등급을 전제로 합니다.</p>
+    <div class="why">
+      <p><b>등급 사다리.</b> 샘플 파일을 선택하면 그 파일이 몇 등급까지 닿는지와, 그 등급에서 DT 가 무엇을 할 수 있는지가 보입니다. 고객사에 필수로 요구하는 범위는 등급 0·1·2 입니다. ifc4Mep 처럼 방이 없는 설비 파일은 흐름(4)까지 닿아도 0·2 칸이 비고, 건축 파일과 합쳐 열어야 채워집니다.</p>
+      <iframe src="fig/grade.html" title="등급 사다리 그림" loading="lazy" data-fig></iframe>
+    </div>
+  </section>
+
+  <div class="part" id="p1"><h2>준비</h2><p>파일을 올리고, 이 파일이 어디까지 되는지 확인합니다</p></div>
+
+  <section class="step" id="s1">
+    <div class="step-head"><span class="n">1</span><h2>프로젝트를 만든다</h2></div>
+    <p class="lead">첫 화면에서 사용자를 고르고 [새 프로젝트]로 IFC 를 올립니다. 만들면 바로 <b>초기 구축</b> 에디터가 열립니다.</p>
+    <figure class="shot" data-shot="project"><img src="screens/project.png" alt="새 프로젝트 입력 칸" loading="lazy"></figure>
+    <ol class="pins">
+      <li><b>사용자</b>먼저 고릅니다. 고르기 전에는 [새 프로젝트]가 꺼져 있습니다.</li>
+      <li><b>새 프로젝트</b>이름·사이트·파일 세 가지만 받습니다.</li>
+      <li><b>이름 · 사이트</b>목록에서 프로젝트를 찾는 이름입니다.</li>
+      <li><b>IFC 파일 올리기</b>건축과 설비가 다른 파일이면 함께 고릅니다. 합쳐야 설비가 어느 방에 있는지 나옵니다.</li>
+      <li><b>만들기</b>올린 파일은 서버에 남고, 다음에는 목록의 [열기]로 이어서 엽니다.</li>
+    </ol>
+  </section>
+
+  <section class="step" id="s2">
+    <div class="step-head"><span class="n">2</span><h2>에디터 화면 한눈에 보기</h2></div>
+    <p class="lead">가운데가 3D, 왼쪽이 편집 도구, 오른쪽이 선택 항목의 정보와 층 목록입니다. 3D 는 왼쪽 드래그로 옮기고, 오른쪽 드래그(또는 <kbd>Shift</kbd>+드래그)로 돌리고, 휠로 확대합니다. 단축키 전체는 <kbd>?</kbd> 로 봅니다.</p>
+    <figure class="shot" data-shot="editor"><img src="screens/editor.png" alt="에디터 전체 화면" loading="lazy"><a class="full" href="screens/editor.png" target="_blank">원본</a></figure>
+    <ol class="pins">
+      <li><b>모드 배지</b>초기 구축(구축 전) · 운영 편집(구축 후) · 보기 중 지금 모드입니다.</li>
+      <li><b>기준 · 경고</b>이 파일의 등급, 읽으면서 건너뛴 것, 규칙 경고를 엽니다(3·4단계).</li>
+      <li><b>편집 레일</b>공간 편집(방·벽·문·창)과 설비 편집(<kbd>M</kbd>)을 오갑니다.</li>
+      <li><b>3D · 평면도</b><kbd>Shift</kbd>+<kbd>V</kbd> 로도 바꿉니다.</li>
+      <li><b>현재층</b>보고 고칠 층을 고릅니다.</li>
+      <li><b>선택 오브젝트</b>3D 나 목록에서 선택한 방·설비의 정보가 여기 뜹니다.</li>
+      <li><b>층 현황</b>이 층의 물리존·설비 수와 목록입니다. 숫자를 누르면 목록이 바뀝니다.</li>
+      <li><b>구축하기</b>다 고치면 이 버튼으로 서버에 v1 을 만듭니다(12단계).</li>
+    </ol>
+  </section>
+
+  <section class="step" id="s3">
+    <div class="step-head"><span class="n">3</span><h2>이 파일의 등급을 본다</h2></div>
+    <p class="lead">위 띠의 [기준 ▾]를 누르면 기준 · 검증 패널이 열립니다. 맨 위 칩이 0단계 사다리의 실측값입니다. 이 파일은 설비 40대가 모두 방과 연결망에 들었지만, 흐름 방향을 아는 기기는 26대 중 0대입니다. 포트 연결 485개 중 190개에는 방향이 있지만, 피팅·덕트의 포트가 양방향(SOURCEANDSINK)으로 내보내져 사슬이 중간에서 끊기기 때문입니다. 그래서 게이트(등급 0~3)는 통과하고 목표선(등급 4)에는 못 미칩니다.</p>
+    <figure class="shot narrow" data-shot="criteria" style="max-width:980px"><img src="screens/criteria.png" alt="기준 · 검증 패널의 이 파일 요약" loading="lazy"></figure>
+    <ol class="pins">
+      <li><b>등급 칩</b>공간 · 설비 · 소속 · 연결망 · 방향 다섯 가지를 "채운 수/전체" 로 보입니다.</li>
+      <li><b>수용 기준선</b>게이트(등급 0~3)를 넘어야 [구축하기]가 열립니다. 미달이면 무엇이 모자란지 여기서 봅니다.</li>
+      <li><b>요약</b>층·물리존·벽·문·설비·연결 수와 출처(BIM·계산·사전)입니다.</li>
+      <li><b>합친 방법</b>건축·설비 두 파일을 층 이름·높이·좌표로 맞춰 합친 결과입니다.</li>
+    </ol>
+  </section>
+
+  <section class="step" id="s4">
+    <div class="step-head"><span class="n">4</span><h2>경고와 완전성 검사를 읽는다</h2></div>
+    <p class="lead">위 띠의 [경고]를 누르면 같은 패널이 경고 목록에서 열립니다. 경고 앞의 칩은 무엇이 모자라는지와 누가 고치는지를 나타냅니다. 그 아래 완전성 검사는 DT 에서 쓰려면 이어져 있어야 하는 것을 규칙별로 셉니다.</p>
+    <figure class="shot narrow" data-shot="checks" style="max-width:980px"><img src="screens/checks.png" alt="경고 목록과 완전성 검사" loading="lazy"></figure>
+    <ol class="pins">
+      <li><b>경고</b>"공간 2개에 바닥 외곽선이 없습니다" 처럼 파일에서 건너뛴 것입니다. 파일 이름이 앞에 붙습니다.</li>
+      <li><b>외곽선 없는 물리존</b>외곽선이 없으면 3D 에 없고 설비 소속 판정에도 쓰이지 않습니다. 공간 편집에서 그려 채웁니다.</li>
+      <li><b>완전성 검사</b>규칙 줄을 누르면 위반한 것이 3D 에 칠해지고, <kbd>N</kbd> 으로 하나씩 넘어갑니다.</li>
+      <li><b>소속 허용 거리</b>외곽선 밖이어도 이 거리 안이면 가장 가까운 방에 붙입니다. 사이트 설정입니다(7단계 그림).</li>
+    </ol>
+    <div class="chips" aria-label="경고 칩의 뜻">
+      <span class="chip"><i class="w">A-설정</i>내보내기 설정으로 고칩니다(고객사 재제출)</span>
+      <span class="chip"><i class="w">B-부재</i>그 부재가 파일에 없습니다(고객사 재제출)</span>
+      <span class="chip"><i class="w">C-보정</i>관계만 없습니다. 계산·사전이 채우고 사람이 확인합니다</span>
+      <span class="chip"><i class="w">X-외부</i>IFC 에 담을 자리가 없습니다(공조존·관제점)</span>
+    </div>
+    <p class="where"><b>R 번호</b> · 칩 뒤의 <code>R2</code>·<code>R11</code> 은 고객사에 요구하는 BIM 요구사항 번호입니다. 같은 패널의 [요구사항]에서 항목별 판정을 봅니다.</p>
+  </section>
+
+  <div class="part" id="p2"><h2>고치기</h2><p>방·설비를 고르고, 옮기고, 이름을 붙이고, 결과를 확인합니다</p></div>
+
+  <section class="step" id="s5">
+    <div class="step-head"><span class="n">5</span><h2>층을 고르고 평면도로 본다</h2></div>
+    <p class="lead">방 경계를 고칠 때는 위에서 내려다보는 평면도가 편합니다. 물리존은 BIM 의 방(IfcSpace)이고, 바닥 외곽선이 있어야 3D 에 보이고 설비 소속 판정에 쓰입니다.</p>
+    <figure class="shot" data-shot="plan"><img src="screens/plan.png" alt="Level 2 평면도" loading="lazy"><a class="full" href="screens/plan.png" target="_blank">원본</a></figure>
+    <ol class="pins">
+      <li><b>평면도</b>다시 누르면 3D 로 돌아갑니다.</li>
+      <li><b>현재층</b>Level 2 로 바꿨습니다.</li>
+      <li><b>물리존</b>이 층의 방 목록입니다. 이름을 누르면 그 방을 선택합니다.</li>
+    </ol>
+  </section>
+
+  <section class="step" id="s6">
+    <div class="step-head"><span class="n">6</span><h2>설비를 선택하면 값마다 출처가 보인다</h2></div>
+    <p class="lead">층 현황에서 설비 목록을 열고 보일러를 선택했습니다. 종류·계통·소속 옆의 작은 칩은 그 값의 출처입니다. 고칠 곳을 찾을 때 이 칩부터 봅니다.</p>
+    <figure class="shot" data-shot="equipment"><img src="screens/equipment.png" alt="보일러를 선택한 화면" loading="lazy"><a class="full" href="screens/equipment.png" target="_blank">원본</a></figure>
+    <ol class="pins">
+      <li><b>선택한 설비</b>목록에서 선택하면 3D 에서 테두리가 칠해집니다.</li>
+      <li><b>종류 · 사전</b>설비 이름을 사전이 읽어 "보일러" 로 정했습니다.</li>
+      <li><b>계통 · BIM</b>BIM 파일에 적힌 그대로입니다.</li>
+      <li><b>소속 · 계산</b>에디터가 좌표로 정한 방입니다(7단계).</li>
+      <li><b>색 범례</b>선택한 설비에 이어진 것을 상류·하류·방향 모름으로 나눠 칠합니다(10단계).</li>
+    </ol>
+    <div class="chips">
+      <span class="chip"><i>BIM</i>파일에 적힌 그대로</span>
+      <span class="chip"><i>사전</i>이름을 읽어 사전이 정함</span>
+      <span class="chip"><i>계산</i>좌표·형상으로 에디터가 계산</span>
+      <span class="chip"><i>사람</i>편집으로 정함</span>
+    </div>
+  </section>
+
+  <section class="step" id="s7">
+    <div class="step-head"><span class="n">7</span><h2>설비를 옮기면 소속이 바로 바뀐다</h2></div>
+    <p class="lead">설비 편집에서 선택한 설비를 드래그하거나 방향키로 옮깁니다. 보일러를 <kbd>↓</kbd> 로 <span data-moved="presses">몇</span>칸 옮기자 소속이 <b data-moved="from">Utility</b> 에서 <b data-moved="to">Bedroom 1</b> 로 바뀌었습니다. 따로 누를 것은 없습니다.</p>
+    <div class="compare" data-compare>
+      <img src="screens/equipment.png" alt="옮기기 전: 소속 Utility" loading="lazy">
+      <div class="after"><img src="screens/move.png" alt="옮긴 뒤: 소속 Bedroom 1" loading="lazy"></div>
+      <span class="rule"></span><span class="tag b">옮기기 전</span><span class="tag a">옮긴 뒤</span>
+      <input type="range" min="0" max="100" value="50" aria-label="옮기기 전과 뒤 견주기">
+    </div>
+    <p class="compare-note">세로선 왼쪽이 옮기기 전, 오른쪽이 옮긴 뒤입니다. 슬라이더를 오른쪽 패널 위로 오가면 소속 줄이 Utility 와 Bedroom 1 사이에서 바뀝니다.</p>
+    <figure class="shot" data-shot="move" style="margin-top:1rem"><img src="screens/move.png" alt="보일러를 옮긴 뒤 소속이 바뀐 화면" loading="lazy"><a class="full" href="screens/move.png" target="_blank">원본</a></figure>
+    <ol class="pins">
+      <li><b>소속</b>옮긴 자리에서 다시 판정한 방입니다.</li>
+      <li><b>바뀐 것</b>저장하기 전 바뀐 것의 수입니다. 누르면 목록으로 갑니다.</li>
+      <li><b>마지막 편집</b>방금 한 일이 아래 띠에 남습니다. <kbd>Ctrl</kbd>+<kbd>Z</kbd> 로 되돌립니다.</li>
+    </ol>
+    <p class="where"><b>어디에 남나</b> · 좌표는 GeoJSON 의 설비 점이 되고, 소속은 TTL 의 <code>brick:hasLocation</code> 한 줄이 됩니다. 저장하기 전에는 이 브라우저에만 자동 저장됩니다.</p>
+    <div class="why">
+      <p><b>왜 그 방이 되나.</b> 에디터는 설비 위치의 수평 좌표를 같은 층 방들의 외곽선에 대 봅니다. 안에 들면 그 방(겹치면 가장 작은 방), 밖이면 허용 거리 안의 가장 가까운 방, 그것도 없으면 소속 없음입니다. 아래 그림의 설비를 드래그해 보거나, 손잡이로 허용 거리를 바꿔 보세요.</p>
+      <iframe src="fig/assign.html" title="설비 소속 판정 그림" loading="lazy" data-fig></iframe>
+    </div>
+  </section>
+
+  <section class="step" id="s8">
+    <div class="step-head"><span class="n">8</span><h2>방 이름을 고친다</h2></div>
+    <p class="lead">공간 편집으로 바꾸고 방을 선택해 공간명을 고칩니다. "Bedroom 2" 를 "침실 2" 로 바꾸면 목록과 아래 띠가 함께 바뀝니다.</p>
+    <div class="compare" data-compare>
+      <img src="screens/room-before.png" alt="고치기 전: Bedroom 2" loading="lazy">
+      <div class="after"><img src="screens/room.png" alt="고친 뒤: 침실 2" loading="lazy"></div>
+      <span class="rule"></span><span class="tag b">고치기 전</span><span class="tag a">고친 뒤</span>
+      <input type="range" min="0" max="100" value="50" aria-label="고치기 전과 뒤 견주기">
+    </div>
+    <figure class="shot" data-shot="room" style="margin-top:1rem"><img src="screens/room.png" alt="방 이름을 고친 화면" loading="lazy"><a class="full" href="screens/room.png" target="_blank">원본</a></figure>
+    <ol class="pins">
+      <li><b>공간 편집</b>방·벽·문·창을 고치는 모드입니다.</li>
+      <li><b>공간명</b>여기서 고치고 <kbd>Enter</kbd> 를 누릅니다.</li>
+      <li><b>방 목록</b>바뀐 이름이 바로 보입니다.</li>
+      <li><b>마지막 편집</b>무엇이 무엇으로 바뀌었는지 남습니다.</li>
+    </ol>
+    <p class="where"><b>어디에 남나</b> · BIM 파일은 고치지 않습니다. 이름은 TTL 의 <code>rdfs:label "침실 2"</code> 가 됩니다. 다음 단계에서 그 줄을 직접 봅니다.</p>
+  </section>
+
+  <section class="step" id="s9">
+    <div class="step-head"><span class="n">9</span><h2>결과 비교로 내보낼 줄을 본다</h2></div>
+    <p class="lead">[결과 비교]를 누르면 3D 오른쪽에 지금 모델을 내보낸 TTL·GeoJSON 이 뜹니다. 방이나 설비를 선택하면 그것이 TTL 의 어느 블록, GeoJSON 의 어느 feature 가 되는지 보입니다.</p>
+    <figure class="shot" data-shot="compare"><img src="screens/compare.png" alt="결과 비교 화면" loading="lazy"><a class="full" href="screens/compare.png" target="_blank">원본</a></figure>
+    <ol class="pins">
+      <li><b>결과 비교</b>패널 오른쪽 위 [닫기]로 닫습니다.</li>
+      <li><b>TTL · GeoJSON</b>DT 플랫폼이 읽는 두 파일을 지금 모델로 만든 결과입니다.</li>
+      <li><b>TTL 블록</b>선택한 "침실 2" 가 <code>brick:Room</code> 블록이 되고 <code>rdfs:label "침실 2"</code> 가 들어 있습니다.</li>
+    </ol>
+  </section>
+
+  <section class="step" id="s10">
+    <div class="step-head"><span class="n">10</span><h2>흐름: 어디서 와서 어디로 가나</h2></div>
+    <p class="lead">설비를 선택하면 이어진 것이 칠해집니다. 하류는 초록, 상류는 주황, 이어졌지만 방향을 모르는 것은 보라입니다. 이 화면은 ifc4Mep 에서 냉수 밸브 하나를 선택한 것이고, 패널 첫 줄에 "위생기구 8대로 보냅니다" 가 보입니다.</p>
+    <figure class="shot" data-shot="network"><img src="screens/network.png" alt="밸브의 하류가 칠해진 화면" loading="lazy"><a class="full" href="screens/network.png" target="_blank">원본</a></figure>
+    <ol class="pins">
+      <li><b>보내는 곳</b>덕트·배관을 건너뛴 기기끼리의 관계입니다. TTL 의 <code>brick:feeds</code> 가 됩니다.</li>
+      <li><b>색 범례</b>하류(초록)는 흐름을 따라, 상류(주황)는 거슬러 닿은 것입니다. 방향 모름(보라)은 형상으로 이었다고 추정한 연결이라 <code>brick:feeds</code> 로 나가지 않습니다.</li>
+    </ol>
+    <p class="where"><b>파일에 따라 다르다</b> · Duplex HVAC 는 포트 연결의 39%에만 방향이 있고, 그마저 중간의 양방향(SOURCEANDSINK) 포트에서 끊겨 기기까지 닿는 방향이 0/26 입니다(3단계). 그래서 연결은 보여도 칠할 하류가 없습니다. 그런 계통은 규칙이 추정한 방향을 사람이 계통 단위로 확정해야 <code>brick:feeds</code> 로 나갑니다.</p>
+    <div class="why">
+      <p><b>왜 거기서 멈추나.</b> 흐름은 방향을 아는 연결만 따라갑니다. 아래 그림에서 기기를 눌러 보세요. 볼트로 조인 플랜지가 BIM 포트, 맨 슬리브가 형상으로 추정한 연결입니다.</p>
+      <iframe src="fig/flow.html" title="흐름 방향 그림" loading="lazy" data-fig></iframe>
+    </div>
+  </section>
+
+  <div class="part" id="p3"><h2>내보내기</h2><p>반영 전에 확인하고, 서버에 판을 만들고, 파일로 받습니다</p></div>
+
+  <section class="step" id="s11">
+    <div class="step-head"><span class="n">11</span><h2>미리보기로 반영 전 결과를 본다</h2></div>
+    <p class="lead">[미리보기]는 구축·반영을 하기 전에 무엇이 바뀌는지 보여 줍니다. 7단계에서 옮긴 보일러가 소속이 바뀔 설비로 올라와 있습니다. 미리보기만으로는 서버의 판이 바뀌지 않습니다.</p>
+    <figure class="shot narrow" data-shot="preview"><img src="screens/preview.png" alt="미리보기 패널" loading="lazy"></figure>
+    <ol class="pins">
+      <li><b>변경 요약</b>면적과 생성·분할·삭제·병합한 방, 소속이 바뀐 설비 수입니다.</li>
+      <li><b>소속이 바뀔 설비</b>지금 방 → 바뀔 방입니다. 누르면 3D 에서 그 설비를 선택합니다.</li>
+      <li><b>규칙 경고</b>막지는 않는 경고입니다(최소 면적, 설비 없는 방, 공조존 미매핑). 기준값은 여기서 바꿉니다.</li>
+    </ol>
+  </section>
+
+  <section class="step" id="s12">
+    <div class="step-head"><span class="n">12</span><h2>구축하기로 v1 을 만든다</h2></div>
+    <p class="lead">다 고치면 [구축하기]를 누릅니다. 층마다 임시 저장한 내용으로 서버에 v1 을 만듭니다. 저장하지 않은 편집이 있으면 [임시 저장 후 구축]으로 함께 넣습니다.</p>
+    <figure class="shot narrow" data-shot="build"><img src="screens/build.png" alt="구축하기 대화상자" loading="lazy"></figure>
+    <ol class="pins">
+      <li><b>대상 층</b>이번 구축에 들어가는 층입니다.</li>
+      <li><b>생성 항목</b>온톨로지(TTL) · 층별 GeoJSON · 3D 형상(GLB) · 편집 파일 · 공간 계층 · 리포트가 서버에 생깁니다.</li>
+      <li><b>임시 저장 후 구축</b>지금 화면의 편집까지 넣어 구축합니다.</li>
+    </ol>
+  </section>
+
+  <section class="step" id="s13">
+    <div class="step-head"><span class="n">13</span><h2>그다음은 운영 편집이다</h2></div>
+    <p class="lead">구축을 마치면 같은 화면이 운영 편집으로 바뀝니다. 이제부터 고친 것은 [반영하기]로 층마다 DT 에 반영하고, 반영할 때마다 판이 쌓입니다.</p>
+    <figure class="shot" data-shot="operate"><img src="screens/operate.png" alt="운영 편집 모드의 위 띠" loading="lazy"></figure>
+    <ol class="pins">
+      <li><b>운영 편집</b>배지가 바뀝니다.</li>
+      <li><b>기준 v1</b>지금 편집의 출발점이 반영본 v1 입니다.</li>
+      <li><b>반영하기</b>[구축하기] 자리에 이 버튼이 옵니다.</li>
+    </ol>
+    <h3>다시 열 때는 층을 고른다</h3>
+    <p class="lead" style="margin-left:0">구축한 프로젝트를 목록에서 [열기]로 열면 층 목록이 나옵니다. 고칠 층의 [운영 편집]을 누릅니다. 임시 저장본이 있는 층은 저장한 내용부터 이어서 엽니다.</p>
+    <figure class="shot" data-shot="storeys"><img src="screens/storeys.png" alt="구축한 프로젝트의 층 선택" loading="lazy"></figure>
+    <ol class="pins">
+      <li><b>구축 완료 v1</b>이 프로젝트의 마지막 반영본입니다.</li>
+      <li><b>층 목록</b>건물별로 층이 나열됩니다.</li>
+      <li><b>운영 편집</b>그 층만 운영 편집으로 엽니다.</li>
+      <li><b>프로젝트 목록</b>다른 프로젝트로 돌아갑니다.</li>
+    </ol>
+  </section>
+
+  <section class="step" id="s14">
+    <div class="step-head"><span class="n">14</span><h2>파일로 내보낸다</h2></div>
+    <p class="lead">서버를 거치지 않고 파일만 받을 때는 [파일 ▾]의 내보내기를 씁니다. 이 예시에서는 <code>ontology.ttl</code> 하나와 층마다 하나씩 <code>floor-T_FDN</code> · <code>floor-Level_1</code> · <code>floor-Level_2</code> · <code>floor-Roof.geojson</code> 네 개가 나왔습니다.</p>
+    <figure class="shot" data-shot="export"><img src="screens/export.png" alt="파일 메뉴를 연 화면" loading="lazy"><a class="full" href="screens/export.png" target="_blank">원본</a></figure>
+    <ol class="pins">
+      <li><b>파일 ▾</b>열기·덧붙이기·편집 파일·내보내기가 여기 있습니다.</li>
+      <li><b>GeoJSON</b>형상입니다. 층마다 파일이 하나씩 나옵니다. 브라우저가 지원하면 저장할 폴더를 묻습니다.</li>
+      <li><b>TTL</b>관계(Brick)입니다. 파일 하나로 나옵니다.</li>
+    </ol>
+    <p class="where"><b>두 파일은 id 하나로 이어진다</b> · GeoJSON 이 기하를, TTL 이 의미를 맡습니다. 좌표는 TTL 에 넣지 않고, 방·설비마다 같은 id 로 두 파일을 잇습니다. GLB·OBJ 는 보여 주기용 3D 형상이고 두 파일을 대신하지 않습니다.</p>
+  </section>
+
+  <section class="step" id="s15">
+    <div class="step-head"><span class="n">15</span><h2>내보낸 파일을 다시 열어 확인한다</h2></div>
+    <p class="lead"><a href="../viewer.html" target="_blank" rel="noopener">내보낸 파일 보기</a>에 받은 TTL·GeoJSON 을 함께 넣으면, DT 파서와 같은 규칙으로 다시 읽어 실제로 무엇이 적혔고 두 파일이 id 로 이어지는지 검사합니다. 파일은 이 브라우저 안에서만 읽습니다. 이 예시는 엔티티 100개, feature 679개, 검사 다섯 가지가 모두 0건입니다.</p>
+    <figure class="shot" data-shot="viewer"><img src="screens/viewer.png" alt="내보낸 파일 보기" loading="lazy"><a class="full" href="screens/viewer.png" target="_blank">원본</a></figure>
+    <ol class="pins">
+      <li><b>TTL</b>엔티티 수와 관계별 줄 수(hasPart · hasLocation · feeds · hasPoint)입니다.</li>
+      <li><b>GeoJSON</b>층 파일 수와 feature 종류별 수입니다.</li>
+      <li><b>검사</b>GeoJSON 모양, TTL 에 없는 feature, 끊긴 참조, 소속 어긋남, 문이 잇는 공간을 봅니다.</li>
+      <li><b>층 평면</b>층을 골라 GeoJSON 평면을 봅니다. 무엇이든 누르면 TTL·GeoJSON 원문을 나란히 봅니다.</li>
+    </ol>
+  </section>
+
+  <div class="part" id="p4"><h2>정리</h2><p>버튼이 헷갈릴 때, 막힐 때, 처음 보는 말이 나올 때</p></div>
+
+  <section class="step" id="saves">
+    <div class="step-head"><span class="n">↺</span><h2>저장 버튼은 무엇이 다른가</h2></div>
+    <p class="lead">편집은 네 곳 중 한 곳에 남습니다. 누가 보느냐와 DT 에 나가느냐로 고릅니다.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>버튼</th><th>어디에 남나</th><th>누가 보나</th><th>DT 에 나가나</th></tr></thead>
+      <tbody>
+        <tr><td>(자동 저장)</td><td>이 브라우저</td><td>나만</td><td>아니요. 다시 열면 이어 할지 묻습니다</td></tr>
+        <tr><td>임시 저장</td><td>서버, 층마다 하나</td><td>그 층에 들어오는 사람 누구나</td><td>아니요. 다시 저장하면 덮어씁니다</td></tr>
+        <tr><td>편집 저장 <kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>서버(손으로 연 파일이면 편집 파일 JSON 내려받기)</td><td>이 파일을 여는 모든 사람</td><td>아니요</td></tr>
+        <tr><td>구축하기 · 반영하기</td><td>서버의 반영본 v1, v2 …</td><td>DT 플랫폼</td><td>예. TTL · 층별 GeoJSON · GLB · 리포트가 생깁니다</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="step" id="faq">
+    <div class="step-head"><span class="n">?</span><h2>막힐 때</h2></div>
+    <div class="faq">
+      <details>
+        <summary>설비에 "소속 없음" 이 붙어 있다</summary>
+        <p>설비 위치가 어느 방 외곽선 안에도 없고, 소속 허용 거리 안에도 방이 없다는 뜻입니다. TTL 에는 방 대신 그 층이 <code>brick:hasLocation</code> 으로 나갑니다.</p>
+        <p>설비를 방 안으로 옮기거나(7단계), 외곽선 없는 방이 있으면 외곽선을 그리거나(4단계), 설비 패널의 [지정]에서 방을 직접 고릅니다. 외곽선 안에 든 설비는 좌표 판정이 이겨서 지정할 수 없습니다.</p>
+      </details>
+      <details>
+        <summary>설비를 선택해도 상류·하류가 칠해지지 않는다</summary>
+        <p>포트에 흐름 방향이 없거나, 있어도 중간의 양방향(SOURCEANDSINK) 포트에서 끊긴 경우입니다(3단계 칩의 "방향 0/n"). 연결은 보라(방향 모름)로만 보입니다. 규칙이 추정한 방향은 계통 단위로 확정해야 칠해지고 <code>brick:feeds</code> 로 나갑니다.</p>
+      </details>
+      <details>
+        <summary>[구축하기] 대신 "구축 막힘" 이 보인다</summary>
+        <p>두 가지 중 하나입니다. 수용 기준선 게이트(등급 0~3)에 못 미쳤거나, 생성 전 검증의 차단 항목(한 층 안에 방번호가 겹침, 물리존이 없는 층)에 걸렸습니다. 칩을 누르면 기준 · 검증 패널이 열리고 이유가 적혀 있습니다. 층 이름이 비어 있어도 등급 0 이 떨어집니다.</p>
+      </details>
+      <details>
+        <summary>방이 3D 에 보이지 않는다</summary>
+        <p>바닥 외곽선이 없는 물리존입니다. 기준 · 검증 패널의 [외곽선 없는 물리존]에 목록이 있고, 공간 편집에서 외곽선을 그리면 3D 와 소속 판정에 들어옵니다.</p>
+      </details>
+      <details>
+        <summary>편집하다 창을 닫았다</summary>
+        <p>편집은 이 브라우저에 자동 저장됩니다. 같은 파일을 다시 열면 위 띠에 이어 할지 묻는 질문이 뜨고, [예]를 누르면 돌아옵니다. 다른 사람과 이어 하려면 [임시 저장]을 씁니다.</p>
+      </details>
+    </div>
+  </section>
+
+  <section class="step" id="terms">
+    <div class="step-head"><span class="n">≡</span><h2>용어</h2></div>
+    <dl class="terms">
+      <dt>물리존</dt><dd>에디터가 편집하는 공간 구획입니다. BIM 을 불러오면 IfcSpace 하나가 물리존 하나가 됩니다. 이상 알림의 발생 위치와 탐색기의 단위입니다.</dd>
+      <dt>룸</dt><dd>BIM 에서 오지 않고, 사람이 물리존 안을 나눠 그린 편집 단위입니다.</dd>
+      <dt>공조존</dt><dd>공조 설비가 담당하는 구역입니다. 물리존과 별개이고, IDF 의 Zone 에서 읽습니다.</dd>
+      <dt>계통</dt><dd>공조기 → 덕트·배관 → 토출구 → 담당 공간으로 이어지는 묶음입니다.</dd>
+      <dt>포트</dt><dd>설비·덕트·배관에 붙은 연결 구멍(IfcDistributionPort)입니다. 흐름 방향(SOURCE·SINK)을 담는 유일한 BIM 근거입니다.</dd>
+      <dt>소속</dt><dd>설비가 든 물리존입니다. TTL 의 <code>brick:hasLocation</code> 이 됩니다.</dd>
+      <dt>소속 허용 거리</dt><dd>설비가 외곽선 밖에 있을 때, 이 거리 안의 가장 가까운 방에 붙이는 값입니다. 벽에 붙은 스위치처럼 배치점이 외곽선 위에 찍히는 설비 때문에 둡니다. 기본 0.05 m 입니다.</dd>
+      <dt>등급 · 수용 기준선</dt><dd>BIM 이 온톨로지를 어디까지 만들 수 있는지를 0~5 로 잰 것입니다. 게이트(등급 0~3)를 넘어야 구축합니다.</dd>
+      <dt>초기 구축 · 운영 편집</dt><dd>온톨로지가 없는 층을 처음 만드는 모드와, 있는 층을 고치는 모드입니다. 열 때 자동으로 정해집니다.</dd>
+      <dt>구축 · 반영</dt><dd>서버에 반영본을 만드는 일입니다. 처음이 구축(v1), 그다음부터가 반영(v2 …)입니다.</dd>
+      <dt>임시 저장본</dt><dd>층마다 하나 서버에 남기는 편집 중 상태입니다. DT 에는 반영되지 않습니다.</dd>
+      <dt>TTL (Brick)</dt><dd>방·설비·계통의 의미와 관계를 적은 파일입니다. 좌표는 넣지 않습니다.</dd>
+      <dt>GeoJSON</dt><dd>층마다 하나씩, 방·벽·문·창·설비의 형상을 적은 파일입니다. TTL 과 같은 id 로 이어집니다.</dd>
+    </dl>
+  </section>
+
+  <footer>
+    화면 그림은 지금 에디터에서 찍은 것입니다. 단축키 전체는 에디터에서 <kbd>?</kbd> 를 누르면 보입니다.
+  </footer>
+</main>
+
+<script src="screens/pins.js"></script>
+<script>
+  // 핀: screens/pins.js 의 자리(그림 크기에 대한 %)에 번호를 놓고, 아래 설명과 서로 강조한다. 설명마다 그 자리의 확대 컷을 붙인다.
+  const all = window.GUIDE_PINS || {}
+  for (const fig of document.querySelectorAll('.shot[data-shot]')) {
+    const data = all[fig.dataset.shot]
+    const list = fig.nextElementSibling?.matches('ol.pins') ? fig.nextElementSibling : null
+    const items = list ? list.querySelectorAll(':scope > li') : []
+    if (!data) continue
+    data.pins.forEach((p, i) => {
+      const pin = document.createElement('span')
+      pin.className = 'pin'
+      pin.textContent = i + 1
+      pin.style.left = p.x + '%'
+      pin.style.top = p.y + '%'
+      const li = items[i]
+      pin.title = li?.querySelector('b')?.textContent ?? p.label
+      fig.append(pin)
+      if (!li) return
+      if (p.zoom) {
+        const a = document.createElement('a')
+        a.className = 'zoom'
+        a.href = 'screens/' + p.zoom
+        a.target = '_blank'
+        a.innerHTML = `<img src="screens/${p.zoom}" alt="${pin.title} 확대" loading="lazy">`
+        li.append(a)
+      }
+      const on = (v) => { pin.classList.toggle('hot', v); li.classList.toggle('hot', v) }
+      for (const el of [pin, li]) {
+        el.addEventListener('mouseenter', () => on(true))
+        el.addEventListener('mouseleave', () => on(false))
+      }
+      pin.addEventListener('click', () => li.scrollIntoView({ behavior: 'smooth', block: 'center' }))
+    })
+  }
+  // 7단계 문장의 숫자·방 이름은 찍을 때 실제로 옮긴 결과다.
+  const moved = all.move?.moved
+  if (moved) for (const el of document.querySelectorAll('[data-moved]')) el.textContent = moved[el.dataset.moved]
+
+  // 전/후 슬라이더
+  for (const box of document.querySelectorAll('[data-compare]')) {
+    const range = box.querySelector('input')
+    const set = () => box.style.setProperty('--x', range.value + '%')
+    range.addEventListener('input', set)
+    set()
+  }
+
+  // 원리 그림: 같은 출처라 안의 높이를 읽어 iframe 을 맞춘다. 문서의 scrollHeight 는 iframe 높이보다 작아지지 않아서 body 를 잰다.
+  function fit(frame) {
+    try {
+      const body = frame.contentDocument?.body
+      if (body && body.childElementCount) frame.style.height = Math.ceil(body.getBoundingClientRect().height) + 'px'
+    } catch {}
+  }
+  for (const frame of document.querySelectorAll('iframe[data-fig]')) {
+    const watch = () => {
+      fit(frame)
+      try { new ResizeObserver(() => fit(frame)).observe(frame.contentDocument.body) } catch {}
+    }
+    frame.addEventListener('load', watch)
+    // 이 스크립트보다 먼저 다 불러온 그림은 load 를 다시 보내지 않는다.
+    if (frame.contentDocument?.readyState === 'complete' && frame.contentDocument.body?.childElementCount) watch()
+  }
+
+  // 위 띠: 지금 보는 단계를 칠한다.
+  const links = new Map([...document.querySelectorAll('.steps a')].map((a) => [a.hash.slice(1), a]))
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) {
+      for (const a of links.values()) a.classList.remove('on')
+      const a = links.get(e.target.id)
+      if (a) {
+        a.classList.add('on')
+        const bar = a.closest('.steps')
+        bar.scrollTo({ left: a.offsetLeft - bar.clientWidth / 2 + a.clientWidth / 2, behavior: 'smooth' })
+      }
+    }
+  }, { rootMargin: '-40% 0px -55% 0px' })
+  for (const s of document.querySelectorAll('section.step')) io.observe(s)
+</script>
+</body>
+</html>
