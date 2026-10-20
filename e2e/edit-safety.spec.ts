@@ -132,3 +132,17 @@ test('좌표 칸에 건물에서 먼 값을 치면 옮기되 오타일 수 있�
   await expect(page.locator('.edit-notice')).toContainText('건물 범위에서 평면으로')
   await expect(page.locator('.edit-notice')).toContainText('Ctrl+Z')
 })
+
+test('1280px 폭에서도 상태줄의 마지막 편집 이름이 잘리지 않고 보인다 (#688)', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('/')
+  await openFile(page, MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await editOnce(page)
+  const last = page.getByTestId('last-edit')
+  await expect(last).toBeVisible()
+  // 폭이 0 으로 눌리거나 글자가 말줄임으로 잘리면 scrollWidth 가 보이는 폭보다 크다.
+  const [shown, full] = await last.evaluate((el) => [el.getBoundingClientRect().width, el.scrollWidth])
+  expect(shown).toBeGreaterThan(60)
+  expect(full).toBeLessThanOrEqual(Math.ceil(shown))
+})
