@@ -247,6 +247,10 @@ defineProps({
         <button type="button" class="ghost" @click="previewOpen = false">닫기</button>
       </div>
       <p class="preview-summary" data-testid="preview-summary">{{ previewText }}</p>
+      <p v-if="previewData.summary.bySpace.length" class="preview-by-space muted" data-testid="preview-by-space">
+        물리존별 설비 이동:
+        <span v-for="(sp, i) in previewData.summary.bySpace" :key="sp.spaceId">{{ i ? ' · ' : '' }}{{ sp.spaceName }} 나감 {{ sp.outCount }}/들어옴 {{ sp.inCount }}</span>
+      </p>
       <ul v-if="previewData.moves.length || previewData.released.length" class="preview-impact" data-testid="preview-impact">
         <li v-for="c in previewData.moves" :key="c.equipmentId">
           <button type="button" class="link" @click="selectAndShow(c.equipmentId)">{{ c.equipmentName }}</button> · {{ reportPlace(c.fromSpaceId, c.equipmentId) }} → <b>{{ reportPlace(c.toSpaceId, c.equipmentId) }}</b>

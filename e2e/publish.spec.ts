@@ -362,7 +362,7 @@ test('수용 기준선(게이트 등급 0~3) 미달이면 [구축하기] 가 꺼
   await expect(build).toBeEnabled()
 })
 
-test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보이고, 누르면 그 설비를 고르며, 확인 창의 수치와 [미리보기] 가 같다 [OE-WF-07#1~] [OE-WF-08#1~] [OE-WF-09#1] [OE-WF-11#1] [OE-WF-12#1] [OE-P3-01#1~] [OE-MAP-01#2~]', async ({ page }) => {
+test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보이고, 누르면 그 설비를 고르며, 확인 창의 수치와 [미리보기] 가 같다 [OE-WF-07#1] [OE-WF-08#1] [OE-WF-08#3] [OE-WF-09#1] [OE-WF-11#1] [OE-WF-12#1] [OE-WF-12#2] [OE-P3-01#1~] [OE-MAP-01#2~]', async ({ page }) => {
   await serve(page)
   await page.goto('/')
   await page.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
@@ -376,6 +376,7 @@ test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보
   const summary = await preview.getByTestId('preview-summary').innerText()
   expect(summary).toContain('소속 변경 설비 1')
   expect(summary).toContain('분할 0')
+  await expect(preview.getByTestId('preview-by-space')).toContainText('사무실 나감 1/들어옴 0')
   await expect(preview.getByTestId('preview-impact')).toContainText('LIGHT-101-01 · 사무실 →')
   if (process.env.SHOT_PREVIEW) await page.screenshot({ path: process.env.SHOT_PREVIEW })
   // 규칙 경고(막지 않음): 사무실 80㎡ 라 W-01 은 기본(2㎡)에서 없고, 최소 면적을 100㎡ 로 올리면 걸린다.
