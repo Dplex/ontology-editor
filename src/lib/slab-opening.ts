@@ -19,11 +19,12 @@
 //              뚫을지 재는 것은 사람이 만들거나 옮기거나 형상을 고친(`edited`) 오브젝트다.
 // - `draft`    그 층 바닥에 슬래브가 없다(BIM 에 없거나 읽지 않음). 형상은 조각 형상으로 잡되 사람이 확인하기 전에는 확정하지 않는다.
 // - `unmeasured` 그 층과 아래 조각 모두 평면 형상이 없어 개구부 형상을 정할 근거가 없다. 임의 형상을 만들지 않는다.
+import polygonClipping, { type MultiPolygon, type Polygon, type Ring } from 'polygon-clipping'
 import type { Model, Slab, Storey, Vec2 } from './model'
 import { overlapArea } from './polygon'
 import { pointInPolygon } from './mapping'
 import { polygonArea } from './model'
-import type { VerticalObject } from './vertical-object'
+import { type VerticalObject, verticalObjects } from './vertical-object'
 import { josa } from './josa'
 
 /** 층 바닥 슬래브로 보는 윗면 높이 차(m). */
@@ -184,4 +185,43 @@ export const SLAB_OPENING_LABEL: Record<SlabOpeningState, string> = {
   open: '이미 비어 있음',
   draft: '초안',
   unmeasured: '산정 못 함',
+}
+
+const q = (v: number) => Math.round(v * 1000) / 1000
+const toRing = (ring: readonly Vec2[]): Ring => {
+  const pts: Ring = ring.map((p) => [q(p[0]), q(p[1])])
+  const [a, z] = [pts[0], pts.at(-1)]
+  return a && z && (a[0] !== z[0] || a[1] !== z[1]) ? [...pts, [a[0], a[1]]] : pts
+}
+const ringArea = (r: Ring) => {
+  let s = 0
+  for (let i = 0; i + 1 < r.length; i++) s += r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]
+  return Math.abs(s) / 2
+}
+const multiArea = (m: MultiPolygon) => m.reduce((n, p) => n + ringArea(p[0]) - p.slice(1).reduce((h, r) => h + ringArea(r), 0), 0)
+
+/**
+ * 물리존에서 확정 편집 개구부(`cut`)가 빼는 넓이와 남은 넓이(OE-ML-03 AC2~AC4 · OE-ML-09 AC3).
+ * 원본 BIM 개구부(`bim` · `open`)는 이미 원본 방 면적에 반영되어 다시 빼지 않고, 초안(`draft`)·미산정(`unmeasured`)도 빼지 않는다.
+ * 두 개구부가 겹치면 합집합과 물리존의 교차 면적만 한 번 차감한다.
+ */
+export function spaceCutArea(
+  model: Pick<Model, 'storeys'>,
+  storeyId: string,
+  space: { footprint: readonly Vec2[]; areaM2: number },
+): { cutM2: number; netM2: number } {
+  if (space.footprint.length < 3) return { cutM2: 0, netM2: space.areaM2 }
+  const cuts: Polygon[] = []
+  for (const obj of verticalObjects(model)) {
+    for (const o of slabOpenings(model, obj)) {
+      if (o.storeyId === storeyId && o.state === 'cut' && o.footprint && o.footprint.length >= 3) {
+        cuts.push([toRing(o.footprint)])
+      }
+    }
+  }
+  if (!cuts.length) return { cutM2: 0, netM2: space.areaM2 }
+  const unionCuts = cuts.length === 1 ? [cuts[0]] : polygonClipping.union([cuts[0]], ...cuts.slice(1).map((p) => [p]))
+  const clipped = polygonClipping.intersection([[toRing(space.footprint)]], unionCuts)
+  const cutM2 = multiArea(clipped)
+  return { cutM2, netM2: Math.max(0, space.areaM2 - cutM2) }
 }

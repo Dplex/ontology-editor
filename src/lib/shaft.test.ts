@@ -29,7 +29,7 @@ const seg = (m: Model, id: string) => m.storeys.flatMap((s) => s.equipment).find
 const feature = (m: Model, id: string) => modelToGeoJSON(m).flatMap((f) => f.collection.features).find((f) => f.id === id)!
 
 describe('샤프트 소속 (OE-ML-09·14)', () => {
-  it('축 안에 있어도 저절로 넣지 않고, 두 끝이 축 안인 구간만 사람이 넣는다. 축 밖 구간은 거절한다 [OE-ML-14#6] [OE-ML-17#1~]', () => {
+  it('축 안에 있어도 저절로 넣지 않고, 두 끝이 축 안인 구간만 사람이 넣는다. 축 밖 구간은 거절한다 [OE-ML-14#6] [OE-ML-17#1]', () => {
     const m = building()
     expect(shaftOf(m, seg(m, 'RISER'))).toBeNull()
     expect(shaftCandidates(m, 'RISER').map((o) => o.id)).toEqual(['U_ps'])

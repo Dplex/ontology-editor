@@ -16,7 +16,7 @@ async function pick(page: Page, name: string) {
   await expect(page.locator('.picked h3')).toHaveText(name)
 }
 
-test('다중층 뷰에서 층을 넘는 수직 구간에 꼭짓점을 넣어 옮겨 꺾고 지워 합치며, 층 편집을 오가도 같고 차례로 되돌린다 [OE-PIP-10#1] [OE-PIP-15#3~]', async ({ page }) => {
+test('다중층 뷰에서 층을 넘는 수직 구간에 꼭짓점을 넣어 옮겨 꺾고 지워 합치며, 층 편집을 오가도 같고 차례로 되돌린다 [OE-PIP-10#1] [OE-PIP-15#3]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)
   const errors: string[] = []

@@ -13,7 +13,7 @@ const viewer = <T,>(page: Page, fn: string, ...args: unknown[]) =>
 // 그린 배관 구간 · 이음쇠 수. 예전 설비 표의 줄 수 대신 화면 모델(TTL)에서 센다(#715 에서 표가 빠졌다).
 const drawnRows = (page: Page) => countByLabel(page, /^HWS (배관|이음) /)
 
-test('Duplex: 1층 라디에이터에서 수직으로 올라 2층에서 옆으로 옮겨 2층 라디에이터에 잇는다. 범위 밖이면 그리던 점을 둔 채 막고, 넓히면 마친다 [OE-ML-12#1,3,4,6] [OE-ML-14#1] [OE-PIP-15#1~,2~]', async ({ page }) => {
+test('Duplex: 1층 라디에이터에서 수직으로 올라 2층에서 옆으로 옮겨 2층 라디에이터에 잇는다. 범위 밖이면 그리던 점을 둔 채 막고, 넓히면 마친다 [OE-ML-12#1,3,4,6] [OE-ML-14#1] [OE-PIP-15#1,2]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)
   const errors: string[] = []
@@ -96,7 +96,7 @@ test('Duplex: 1층 라디에이터에서 수직으로 올라 2층에서 옆으�
   expect(errors).toEqual([])
 })
 
-test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 설비로 분기하고, 층 편집 화면에서도 같은 분기점과 연결이 보이고 배관을 이어 그리며 분기 꺾임점을 옮길 수 있으며, 그리다 그만두면 아무것도 남지 않고, 되돌리면 라이저가 하나로 돌아온다 [OE-ML-13#1~,4,5] [OE-PIP-15#4~] [OE-PIP-11#1~]', async ({ page }) => {
+test('Duplex: 그린 라이저의 1층 1.5m 자리에 분기점을 넣어 1층 설비로 분기하고, 층 편집 화면에서도 같은 분기점과 연결이 보이고 배관을 이어 그리며 분기 꺾임점을 옮길 수 있으며, 그리다 그만두면 아무것도 남지 않고, 되돌리면 라이저가 하나로 돌아온다 [OE-ML-13#1~,4,5] [OE-PIP-15#4,6] [OE-PIP-11#1~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(180_000)
   const errors: string[] = []

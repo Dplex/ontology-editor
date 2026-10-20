@@ -56,7 +56,7 @@ describe('샤프트 안 배관 연동 이동 (OE-ML-17)', () => {
     ])
   })
 
-  it('샤프트를 옮기면 안쪽 구간·분기점이 같은 거리만큼 가고, 바깥 배관은 샤프트 쪽 끝만 따라온다. 설비·먼 끝·상관없는 배관·연결은 그대로다 [OE-ML-17#2,3] [OE-ML-17#5~]', () => {
+  it('샤프트를 옮기면 안쪽 구간·분기점이 같은 거리만큼 가고, 바깥 배관은 샤프트 쪽 끝만 따라온다. 설비·먼 끝·상관없는 배관·연결은 그대로다 [OE-ML-17#2,3,5]', () => {
     const m = building()
     const links = JSON.stringify(m.connections)
     expect(moveShaftCarrying(m, 'U_ps', [1, 0], restAxis(m))).toBe(true)
@@ -89,7 +89,7 @@ describe('샤프트 안 배관 연동 이동 (OE-ML-17)', () => {
     expect(planShaftCarry(lost, 'U_ps', restAxis(lost)).reasons).toEqual([expect.stringContaining('바깥 배관 PIPE_B의 좌표가 없어')])
   })
 
-  it('되돌리기 한 번(샤프트와 배관을 함께 뜬 스냅숏)이면 옮기기 전과 같다 [OE-ML-17#6~]', () => {
+  it('되돌리기 한 번(샤프트와 배관을 함께 뜬 스냅숏)이면 옮기기 전과 같다 [OE-ML-17#6]', () => {
     const m = building()
     // 합성 모델은 소속을 판정하지 않은 채 시작해서(되돌리면 다시 판정한다) 위치·형상·샤프트만 견준다.
     const shape = (x: Model) => JSON.stringify([x.storeys.map((s) => s.verticalParts), x.storeys.flatMap((s) => s.equipment.map((q) => [q.id, q.position, q.endShift ?? null])), x.connections])

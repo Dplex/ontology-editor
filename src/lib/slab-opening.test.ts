@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Slab, Storey, Vec2, VerticalPart } from './model'
-import { slabOpenings } from './slab-opening'
+import { slabOpenings, spaceCutArea } from './slab-opening'
 import { verticalObjects } from './vertical-object'
-import { createVertical, draftVertical, planCreate, planFlight, rotateVertical, setPartVertex, setVerticalRange } from './vertical-edit'
+import { createVertical, deleteVertical, draftVertical, planCreate, planFlight, rotateVertical, setPartVertex, setVerticalRange } from './vertical-edit'
 
 // 슬래브 개구부 판정(OE-ML-03). 층 셋(0m · 3m · 6m)과 2m×2m 샤프트. 슬래브 윗면은 삼각형 둘로 된 사각형이다.
 const square = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
@@ -34,7 +34,7 @@ const storey = (id: string, elevation: number, parts: VerticalPart[], slabs?: Sl
 const SHAFT = square(4, 4, 6, 6)
 
 describe('슬래브 개구부 (OE-ML-03)', () => {
-  it('실제로 덮는 슬래브에만 개구부를 내고, 시작 층 바닥과 끝 층 위는 뚫지 않으며, BIM 개구부는 다시 쓴다 [OE-ML-03#1] [OE-ML-03#3~]', () => {
+  it('실제로 덮는 슬래브에만 개구부를 내고, 시작 층 바닥과 끝 층 위는 뚫지 않으며, BIM 개구부는 다시 쓴다 [OE-ML-03#1,3]', () => {
     const model = {
       storeys: [
         storey('1F', 0, [part(SHAFT)], [slab('S1', 0, [0, 0, 10, 10])]),
@@ -53,7 +53,7 @@ describe('슬래브 개구부 (OE-ML-03)', () => {
     expect(got[1]).toMatchObject({ bimOpeningId: 'OP3', slabId: 'S3', coverM2: 0 })
   })
 
-  it('그 층 바닥에 슬래브가 없으면 사유를 단 초안이고, 형상이 없으면 임의 형상 없이 산정 못 함이다 [OE-ML-03#2~]', () => {
+  it('그 층 바닥에 슬래브가 없으면 사유를 단 초안이고, 형상이 없으면 임의 형상 없이 산정 못 함이다 [OE-ML-03#2]', () => {
     const model = {
       storeys: [storey('1F', 0, [part(SHAFT)]), storey('2F', 3, [part(SHAFT)]), storey('3F', 6, [part([])]), storey('4F', 9, [part([])], [slab('S4', 9, [0, 0, 10, 10])])],
     }
@@ -88,7 +88,7 @@ describe('슬래브 개구부 (OE-ML-03)', () => {
     expect(states(build('bim', true))).toEqual(['open', 'cut'])
   })
 
-  it('옮기면 다시 잰다 — 덮인 자리로 옮기면 개구부가 생기고, BIM 개구부가 있던 자리를 떠나면 그 개구부는 쓰지 않는다(원본은 슬래브에 그대로) [OE-ML-03#5~]', () => {
+  it('옮기면 다시 잰다 — 덮인 자리로 옮기면 개구부가 생기고, BIM 개구부가 있던 자리를 떠나면 그 개구부는 쓰지 않는다(원본은 슬래브에 그대로) [OE-ML-03#5,6]', () => {
     const s3 = slab('S3', 3, [0, 0, 10, 10], { id: 'OP', at: [4, 4, 6, 6] })
     const model = { storeys: [storey('1F', 0, [part(SHAFT)]), storey('2F', 3, [part(SHAFT)], [s3])] }
     expect(slabOpenings(model, verticalObjects(model)[0]).map((o) => o.state)).toEqual(['bim'])
@@ -101,7 +101,7 @@ describe('슬래브 개구부 (OE-ML-03)', () => {
 })
 
 describe('돌리기·크기 수정 뒤 개구부 (OE-ML-07 AC4)', () => {
-  it('돌리거나 층 조각 크기를 바꾸면 그 형상으로 다시 재고, 앞 판정을 이어받지 않는다 [OE-ML-07#4~]', () => {
+  it('돌리거나 층 조각 크기를 바꾸면 그 형상으로 다시 재고, 앞 판정을 이어받지 않는다 [OE-ML-07#4]', () => {
     // 2F 슬래브가 (4..6, 4..6) 을 비워 두었다(외곽선으로, 구멍 요소 없이). 그 자리의 사람이 만든 계단.
     const holed = slab('S2', 3, [0, 0, 10, 10], { id: 'unused', at: [4, 4, 6, 6] })
     holed.openings = []
@@ -128,7 +128,7 @@ describe('돌리기·크기 수정 뒤 개구부 (OE-ML-07 AC4)', () => {
 })
 
 describe('구간을 줄인 뒤 개구부 (OE-ML-08 AC3)', () => {
-  it('구간을 줄이면 빠진 층의 편집 개구부만 사라지고, 그 층 슬래브의 BIM 개구부는 원본 그대로 남는다 [OE-ML-08#3~]', () => {
+  it('구간을 줄이면 빠진 층의 편집 개구부만 사라지고, 그 층 슬래브의 BIM 개구부는 원본 그대로 남는다 [OE-ML-08#3]', () => {
     const s3 = slab('S3', 6, [0, 0, 10, 10], { id: 'OP3', at: [4, 4, 6, 6] })
     const model = {
       storeys: [
@@ -188,5 +188,31 @@ describe('만드는 동안의 개구부 미리보기 (OE-ML-06 AC5)', () => {
       const after = slabOpenings(model, verticalObjects(model).find((o) => o.id === 'NEW')!)
       expect(after.map((o) => [o.storeyId, o.state])).toEqual(openings.map((o) => [o.storeyId, o.state]))
     }
+  })
+
+  it('두 개구부가 겹치면 합집합과 물리존의 교차 면적만 한 번 차감하고, 원본·초안 개구부는 추가 차감하지 않으며, 하나를 삭제하면 그 편집 개구부와 면적만 갱신된다 [OE-ML-03#2,3,4,5] [OE-ML-09#3]', () => {
+    const sh1 = (fp: Vec2[]): VerticalPart => ({ ...part(fp), parentId: 'SH1', name: '샤프트 1' })
+    const sh2 = (fp: Vec2[]): VerticalPart => ({ ...part(fp), parentId: 'SH2', name: '샤프트 2' })
+    const bimStair = (fp: Vec2[]): VerticalPart => ({ ...part(fp, 'bim'), parentId: 'ST_BIM', kind: 'stair', name: '원본 계단' })
+    const room = { footprint: square(0, 0, 10, 10), areaM2: 100 }
+    // SH1(4..6, 4..6 = 4㎡)과 SH2(5..7, 4..6 = 4㎡)가 (5..6, 4..6 = 2㎡)에서 겹친다 → 합집합 6㎡.
+    // ST_BIM 은 BIM 개구부(OP_BIM, 1..3, 1..3 = 4㎡) 자리에 있어 추가 차감하지 않는다.
+    const s2 = slab('S2', 3, [0, 0, 10, 10], { id: 'OP_BIM', at: [1, 1, 3, 3] })
+    const model = {
+      storeys: [
+        storey('1F', 0, [sh1(square(4, 4, 6, 6)), sh2(square(5, 4, 7, 6)), bimStair(square(1, 1, 3, 3))], [slab('S1', 0, [0, 0, 10, 10])]),
+        storey('2F', 3, [sh1(square(4, 4, 6, 6)), sh2(square(5, 4, 7, 6)), bimStair(square(1, 1, 3, 3))], [s2]),
+        storey('3F', 6, [sh1(square(4, 4, 6, 6)), sh2(square(5, 4, 7, 6)), bimStair(square(1, 1, 3, 3))]), // 슬래브 없음 → draft
+      ],
+    }
+    // 2F: SH1·SH2 합집합 6㎡만 한 번 차감되고 BIM 개구부 4㎡는 다시 빼지 않는다.
+    expect(spaceCutArea(model, '2F', room)).toEqual({ cutM2: 6, netM2: 94 })
+    // 3F: 바닥 슬래브가 없어 초안(draft)이므로 물리존 면적을 차감하지 않는다.
+    expect(spaceCutArea(model, '3F', room)).toEqual({ cutM2: 0, netM2: 100 })
+
+    // SH2 만 삭제하면 SH2 의 편집 개구부만 빠지고, SH1 의 개구부(4㎡)와 원본 BIM 개구부(OP_BIM)는 유지된다(OE-ML-09 AC3).
+    expect(deleteVertical(model, 'SH2')).toBe(true)
+    expect(spaceCutArea(model, '2F', room)).toEqual({ cutM2: 4, netM2: 96 })
+    expect(s2.openings.map((o) => o.id)).toEqual(['OP_BIM'])
   })
 })

@@ -60,7 +60,7 @@ async function release(page: Page, text: string, name: string, reason: string) {
   await expect(released).toHaveCount(before + 1)
 }
 
-test('층 편집과 다중층 세션은 다른 작업으로 저장되고, 세션 안의 여러 층·모드·저장은 한 작업이며, 세션의 되돌리기는 앞 작업을 되돌리지 않는다 [OE-HIST-03#3] [OE-PIP-15#8~] [OE-PIP-15#7~]', async ({ page }) => {
+test('층 편집과 다중층 세션은 다른 작업으로 저장되고, 세션 안의 여러 층·모드·저장은 한 작업이며, 세션의 되돌리기는 앞 작업을 되돌리지 않는다 [OE-HIST-03#3] [OE-PIP-15#7,8]', async ({ page }) => {
   test.skip(!existsSync(`data/${ARCH}`) || !existsSync(`data/${HVAC}`), `data/${ARCH}·${HVAC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(300_000)
   const errors: string[] = []
