@@ -163,13 +163,13 @@ const PREVIEW_OK = 0x1f9d7a
 const PREVIEW_CUT = 0x8a4fd8
 const PREVIEW_DRAFT = 0xc99a12
 export const ARCH_COLORS = { wall: 0xb7bec7, door: 0x39424e, window: 0x7fa6cf, selected: 0x2f6fed }
-/** 공조존(IDF) 외곽선 색. 계통 색과 헷갈리지 않게 한 가지로만 그린다. */
-const ZONE_COLOR = 0x6b7280
+/** 공조존(IDF) 외곽선 색. 계통 색과 헷갈리지 않게 한 가지로만 그린다. 3D 내보내기의 공조존 판도 이 색이다. */
+export const ZONE_COLOR = 0x6b7280
 /**
  * 커스텀존(OE-OBJ-01) 외곽선. 공조존과 같은 회색 계열이되 점선으로 가른다(색을 늘리지 않는다). 고른 존은 액센트 선과 옅은 면.
  * 물리존 판 위에 겹쳐 그리므로 판보다 조금 높게 띄운다.
  */
-const CUSTOM_ZONE_COLOR = 0x39424e
+export const CUSTOM_ZONE_COLOR = 0x39424e
 const CUSTOM_ZONE_LIFT = 0.25
 /** 벽을 세우는 높이(미터). 실제 벽 높이가 아니라 평면이 보일 만큼만 세운다 — 다 세우면 방 안이 가린다. */
 const ARCH_WALL_HEIGHT = 1.2
