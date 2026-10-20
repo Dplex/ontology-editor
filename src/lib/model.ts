@@ -805,6 +805,11 @@ export type Model = {
      * 방과 겹친 몫이다. IDF 만 열었으면 칸이 없다.
      */
     placement?: { dx: number; dy: number; rotation: number; source: 'auto' | 'edit'; overlap: number | null }
+    /**
+     * 사람이 확인한 존↔물리존 짝(`존id|방id`, idf/confirm.ts, OE-ZON-07). IDF 공조존의 든 방은 겹친 넓이로 계산한 초안이라 확인한 짝만
+     * 온톨로지에 나간다. 확인한 짝이 없으면 칸이 없다.
+     */
+    confirmed?: string[]
   }
   /** 사람이 넣은 3D 모델 라이브러리 항목(OE-P3-08). 층에 속하지 않는다. */
   objectLibrary?: CustomObjectItem[]

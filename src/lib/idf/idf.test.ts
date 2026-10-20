@@ -8,6 +8,7 @@ import { modelToGeoJSON } from '../export/geojson'
 import { parseIdf } from './parse'
 import { readIdf } from './read'
 import { attachIdf, modelFromIdf, nameKey } from './attach'
+import { confirmState, pairKey, setConfirmed } from './confirm'
 import { matchLevels, storeyHint } from './place'
 import { zoneDevices, zoneServes, zonesOverSpaces } from './zone-view'
 import type { Equipment, Model, Space, Vec2 } from '../model'
@@ -86,6 +87,8 @@ describe('attachIdf — BIM 에 얹기', () => {
 
   it('TTL 에 공조존과 담당 관계가 나가고, BIM 과 이어진 공조기는 BIM 설비 블록에 적힌다', () => {
     const { model } = attachIdf(mep, readIdf(text), 'two-zones.idf')
+    // 든 방은 계산한 초안이라 확인해야 나간다(OE-ZON-07). 설비↔존 담당(feeds)은 확인 없이 나간다.
+    setConfirmed(model, 'Z_1F_OFFICE', true)
     const ttl = modelToTTL(model)
     expect(ttl).toMatch(/ex:Z_1F_OFFICE a brick:HVAC_Zone ;\n {4}rdfs:label "1F:OFFICE" ;\n {4}brick:hasPart ex:\S+ ;/)
     const ahuBlock = ttl.split('\n\n').find((b) => b.includes('rdfs:label "AHU-1"'))!
@@ -411,5 +414,55 @@ ZoneHVAC:EquipmentConnections, Z1, Z1 Eq, , , Z1 Node, ;
 ZoneHVAC:EquipmentList, Z1 Eq, SequentialLoad, ZoneHVAC:FourPipeFanCoil, Z1 FCU, 1, 1, , ;
 ZoneHVAC:FourPipeFanCoil, Z1 FCU, Always On, CyclingFan, 1.5066666666666668, , , 0;`)
     expect(fcu.equipment[0]).toMatchObject({ kind: 'fcu', airflow: 1.5066666666666668 })
+  })
+})
+
+describe('존↔물리존 매칭 확인 (OE-ZON-07, D13)', () => {
+  const zoneBlock = (ttl: string, id: string) => ttl.split('\n\n').find((b) => b.startsWith(`ex:${id} a brick:HVAC_Zone`))!
+  const hvacFeatures = (m: Model) => modelToGeoJSON(m).flatMap((f) => f.collection.features).filter((f) => f.properties.kind === 'hvacZone')
+
+  it('확인하지 않은 매칭은 TTL·GeoJSON 에 나가지 않고, 담당 관계는 확인 없이 나간다 [OE-IDF-05#1,#2]', () => {
+    const { model } = attachIdf(mep, readIdf(text), 'two-zones.idf')
+    const office = model.hvac!.zones.find((z) => z.name === '1F:OFFICE')!
+    // 초안은 있다 — 확인 전에는 나가지 않을 뿐이다.
+    expect(office.spaceIds.length).toBeGreaterThan(0)
+    expect(confirmState(model, office)).toEqual({ confirmed: 0, total: office.spaceIds.length })
+    const ttl = modelToTTL(model)
+    expect(zoneBlock(ttl, office.id)).not.toContain('brick:hasPart')
+    expect(hvacFeatures(model).find((f) => f.properties.name === '1F:OFFICE')!.properties.spaceIds).toEqual([])
+    // 설비↔존 담당은 IDF 가 적은 값이라 그대로 나간다.
+    expect(ttl.split('\n\n').find((b) => b.startsWith('ex:I_VAV_101 '))).toContain(`brick:feeds ex:${office.id}`)
+  })
+
+  it('확인한 매칭만 나가고, 풀면 다시 빠진다', () => {
+    const { model } = attachIdf(mep, readIdf(text), 'two-zones.idf')
+    const office = model.hvac!.zones.find((z) => z.name === '1F:OFFICE')!
+    expect(setConfirmed(model, office.id, true)).toBe(office.spaceIds.length)
+    expect(zoneBlock(modelToTTL(model), office.id)).toContain(`brick:hasPart ${office.spaceIds.map((id) => `ex:${id.replace(/\$/g, '\\$')}`).join(', ')}`)
+    expect(hvacFeatures(model).find((f) => f.properties.name === '1F:OFFICE')!.properties.spaceIds).toEqual(office.spaceIds)
+    // 다른 존은 그대로다.
+    const store = model.hvac!.zones.find((z) => z.name === '1F:STORE')!
+    expect(confirmState(model, store).confirmed).toBe(0)
+    expect(setConfirmed(model, office.id, false)).toBe(office.spaceIds.length)
+    expect(model.hvac!.confirmed).toBeUndefined()
+    expect(zoneBlock(modelToTTL(model), office.id)).not.toContain('brick:hasPart')
+  })
+
+  it('존에 없는 방은 확인되지 않고, 다시 얹으면 남아 있는 짝만 확인한 채로 둔다', () => {
+    const idf = readIdf(text)
+    const { model } = attachIdf(mep, idf, 'two-zones.idf')
+    const office = model.hvac!.zones.find((z) => z.name === '1F:OFFICE')!
+    expect(setConfirmed(model, office.id, true, ['no-such-room'])).toBe(0)
+    setConfirmed(model, office.id, true)
+    const stale = pairKey(office.id, 'gone-room')
+    const again = attachIdf(mep, idf, 'two-zones.idf', { confirmed: [...model.hvac!.confirmed!, stale, pairKey('Z_nowhere', 'x')] })
+    const z = again.model.hvac!.zones.find((x) => x.id === office.id)!
+    expect(again.model.hvac!.confirmed).toEqual(office.spaceIds.map((id) => pairKey(office.id, id)))
+    expect(confirmState(again.model, z).confirmed).toBe(z.spaceIds.length)
+  })
+
+  it('사람이 만든 공조존은 담당 물리존을 사람이 골랐으니 확인 없이 나간다', () => {
+    const zone = { id: 'hand', name: '손', storeyId: null, footprint: [], areaM2: 0, declaredAreaM2: null, spaceIds: ['a', 'b'], source: 'edit' as const }
+    expect(confirmState({ hvac: undefined }, zone)).toEqual({ confirmed: 2, total: 2 })
   })
 })

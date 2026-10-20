@@ -15,6 +15,7 @@ import { judgeExternal, type ExternalJudgement } from '../exterior'
 import { zoneEquipment, zoneSpaces } from '../custom-zone'
 import { libraryOf } from '../space-object'
 import { hvacZonesOf } from '../hvac-zone'
+import { exportedSpaceIds } from '../idf/confirm'
 import { rectRing } from '../room'
 import { conduitFlowType } from '../flow-type'
 
@@ -420,7 +421,9 @@ export function geoContext(model: Model) {
       return h === null ? [] : [[o.id, Math.round(h * 10) / 10] as const]
     }),
   )
-  return [hvacZonesOf(model), verticalRefs(model), new Map(libraryOf(model).map((i) => [i.key, i.name])), shafts, new Map(model.systems.map((x) => [x.id, x])), travels, headings, linkFeatures(model)] as const
+  // IDF 공조존의 든 방은 사람이 확인한 것만 낸다(idf/confirm.ts, D13). 겹친 방(`overlaps`)은 계산이라고 밝힌 채 그대로 나간다.
+  const zones = hvacZonesOf(model).map((z) => ({ ...z, spaceIds: exportedSpaceIds(model, z) }))
+  return [zones, verticalRefs(model), new Map(libraryOf(model).map((i) => [i.key, i.name])), shafts, new Map(model.systems.map((x) => [x.id, x])), travels, headings, linkFeatures(model)] as const
 }
 
 /** 층 id → 층 파일 이름. 내보내기와 편집 리플레이가 같은 이름을 쓴다. */

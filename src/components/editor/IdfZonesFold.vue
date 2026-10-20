@@ -3,7 +3,7 @@ import type { PropType } from 'vue'
 import { ZONE_SERVE_COLOR, ZONE_SERVE_LABEL } from '../../lib/idf/zone-view'
 import { replayMemo } from '../../lib/replay-player'
 import { SMALL } from '../../editor/edit-filter'
-import { idfPlacementForm, idfReport, placeIdf, selectedZoneId, selectZone, ZONE_LIMIT, zoneLegend } from '../../editor/idf-zones'
+import { confirmZoneMatches, idfPlacementForm, idfReport, placeIdf, selectedZoneId, selectZone, ZONE_LIMIT, zoneLegend } from '../../editor/idf-zones'
 import Fold from '../Fold.vue'
 import Src from '../Src.vue'
 import type { model as modelRef } from '../../editor/core'
@@ -48,10 +48,17 @@ defineProps({
       <span v-for="l in zoneLegend" :key="l.key"><i :style="{ background: l.color }" />{{ l.label }} {{ l.count }}</span>
       <small>줄을 누르면 그 층의 3D·평면도에서 공조존과 담당 BIM 기기를 짚습니다.</small>
     </p>
+    <!-- 존↔물리존 매칭 확인(OE-ZON-07). 든 방은 계산한 초안이라 확인한 것만 TTL·GeoJSON 에 나간다. 설비↔존 담당은 IDF 가 적은 값이라 확인 없이 나간다(D13). -->
+    <p class="zone-confirm" data-testid="zone-confirm">
+      존↔물리존 매칭 {{ zoneRows.reduce((n, z) => n + z.match.confirmed, 0) }} / {{ zoneRows.reduce((n, z) => n + z.match.total, 0) }}쌍 확인 <Src kind="calc" />
+      <small>확인한 매칭만 온톨로지에 나갑니다.</small>
+      <button type="button" class="ghost" data-testid="zone-confirm-all" @click="confirmZoneMatches(null, true)">모두 확인</button>
+      <button type="button" class="ghost" @click="confirmZoneMatches(null, false)">모두 풀기</button>
+    </p>
     <div class="table-box">
       <table class="equipment zones">
         <thead>
-          <tr><th>공조존</th><th>층</th><th class="num">바닥면 ㎡</th><th class="num">IDF ㎡</th><th>포함 공간</th><th>겹친 공간</th><th>말단</th><th class="num">IDF 풍량 CMH</th><th>원천</th></tr>
+          <tr><th>공조존</th><th>층</th><th class="num">바닥면 ㎡</th><th class="num">IDF ㎡</th><th>포함 공간</th><th>확인</th><th>겹친 공간</th><th>말단</th><th class="num">IDF 풍량 CMH</th><th>원천</th></tr>
         </thead>
         <tbody>
           <tr
@@ -66,6 +73,19 @@ defineProps({
             <td class="num mono">{{ z.area.toFixed(1) }}</td>
             <td class="num mono">{{ z.declared?.toFixed(1) ?? '' }}</td>
             <td :title="z.spaces.join(', ')">{{ z.spaces.length ? z.spaces.slice(0, 3).join(', ') + (z.spaces.length > 3 ? ` 외 ${z.spaces.length - 3}` : '') : '' }}</td>
+            <td class="zone-match" @click.stop>
+              <template v-if="z.match.total">
+                <button
+                  type="button"
+                  class="ghost"
+                  :data-testid="`zone-match-${z.id}`"
+                  :title="z.match.confirmed === z.match.total ? '확인을 풉니다' : '이 존의 포함 공간 매칭을 확인합니다'"
+                  @click="confirmZoneMatches(z.id, z.match.confirmed !== z.match.total)"
+                >
+                  {{ z.match.confirmed === z.match.total ? '✓ 확인함' : '확인' }} {{ z.match.confirmed }}/{{ z.match.total }}
+                </button>
+              </template>
+            </td>
             <td :title="z.overlaps.join(', ')">{{ z.overlaps.length ? z.overlaps.slice(0, 2).join(', ') + (z.overlaps.length > 2 ? ` 외 ${z.overlaps.length - 2}` : '') : '' }}</td>
             <td :title="z.terminals.join(', ')">{{ z.terminals.slice(0, 2).join(', ') }}{{ z.terminals.length > 2 ? ` 외 ${z.terminals.length - 2}` : '' }}</td>
             <td class="num mono">{{ z.airflow?.toFixed(0) ?? '' }}</td>

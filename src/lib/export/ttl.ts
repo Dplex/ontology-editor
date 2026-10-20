@@ -10,6 +10,7 @@
 
 import { fluidConnections } from '../flow-review'
 import { hvacZonesOf, zonesServedBy } from '../hvac-zone'
+import { exportedSpaceIds } from '../idf/confirm'
 import { isConduit, type Equipment, type Model } from '../model'
 import { deviceFlows } from '../topology'
 import { equipmentKind, roomKind, systemBrickClass, systemKind } from '../kinds'
@@ -261,7 +262,9 @@ export function modelToTTL(model: Model, only?: { storeyId: string }): string {
     if (!scope.storey(zone.storeyId ?? null)) continue
     lines.push(`${ref(zone.id)} a brick:HVAC_Zone ;`)
     lines.push(`    rdfs:label ${label(zone.name)} ;`)
-    if (zone.spaceIds.length) lines.push(`    brick:hasPart ${zone.spaceIds.map(ref).join(', ')} ;`)
+    // IDF 공조존의 든 방은 겹친 넓이로 계산한 초안이라 사람이 확인한 방만 나간다(idf/confirm.ts, D13).
+    const parts = exportedSpaceIds(model, zone)
+    if (parts.length) lines.push(`    brick:hasPart ${parts.map(ref).join(', ')} ;`)
     // 존 안의 BIM 기기로 푼 IDF 존 설비의 설계 풍량(CMH). 기기마다 나눌 근거가 없어 존에 둔다.
     if (zone.idfAirflowCMH) lines.push(`    ex:nominalAirFlowRate ${zone.idfAirflowCMH} ;`)
     lines.push(`    ex:areaM2 ${Number(zone.areaM2.toFixed(4))} .`)
