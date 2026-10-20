@@ -134,11 +134,21 @@ function applySnapshot(s: Snapshot) {
   const drawnAt = s.kind === 'equipment' ? (equipmentById.value.get(s.id)?.position ?? null) : null
   // 배관을 데리고 옮긴 설비. 형상은 설비마다 옮긴다.
   const carried = s.kind === 'many' && s.parts.every((p) => p.kind === 'equipment') ? (s.parts as Extract<Snapshot, { kind: 'equipment' }>[]) : null
-  const drawn = new Map(carried?.map((p) => [p.id, equipmentById.value.get(p.id)?.position ?? null]))
+  // 설비를 더하거나 지운 묶음(여러 대 지우기 · 꼭짓점 넣기·지우기 · 끝 대상 바꾸기). 벽·방 묶음과 달리 설비 형상이 생기고 없어진다(#737).
+  const reshaped = s.kind === 'many' && !carried && s.parts.some((p) => p.kind === 'equipment-set' || p.kind === 'equipment')
+  const moved = s.kind === 'many' ? s.parts.filter((p): p is Extract<Snapshot, { kind: 'equipment' }> => p.kind === 'equipment') : []
+  const drawn = new Map(moved.map((p) => [p.id, equipmentById.value.get(p.id)?.position ?? null]))
   // 벽을 되돌리면 붙은 설비도 같이 돌아온다. 형상도 따라 옮긴다.
   const mounted = s.kind === 'many' || s.kind === 'storey-elements' ? mountedAt(m) : null
   const rules = restore(m, s)
-  if (carried) {
+  if (reshaped) {
+    if (rules) ruleReport.value = rules
+    if (selectedId.value && !m.storeys.some((st) => st.equipment.some((e) => e.id === selectedId.value))) selectedId.value = null
+    triggerRef(model)
+    for (const p of moved) moveInScene(p.id, drawn.get(p.id) ?? null, p.position)
+    flowVersion.value++
+    redraw()
+  } else if (carried) {
     triggerRef(model)
     for (const p of carried) moveInScene(p.id, drawn.get(p.id) ?? null, p.position, true)
   } else if (s.kind === 'equipment') {
