@@ -414,8 +414,9 @@ test('같은 종류 모두 고르기 — 이 층·건물 전체로 고르고, �
   await expect(page.getByTestId('status-bar')).toContainText('선택 2개 · 1종')
   await page.screenshot({ path: test.info().outputPath('same-kind.png') })
 
-  // 종류의 체크를 끄면 그 종류가 선택에서 빠진다.
-  await kinds.first().locator('input').uncheck()
+  // 종류의 체크를 끄면 그 종류가 선택에서 빠진다. 종류가 하나뿐이라 패널이 통째로 사라지므로 uncheck() 가 아니라 click() 이다 —
+  // uncheck() 는 누른 뒤 "꺼졌는지" 를 다시 보다가 요소가 이미 없으면 시간이 다 될 때까지 기다린다.
+  await kinds.first().locator('input').click()
   await expect(panel).toHaveCount(0)
   await expect(page.getByTestId('status-bar')).not.toContainText('선택 2개')
 
