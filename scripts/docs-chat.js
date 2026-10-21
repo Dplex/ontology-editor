@@ -360,6 +360,8 @@
         picker.value = source
       }
     }).catch(function () {
+      // 칸을 바꾼 뒤에 늦게 실패한 앞 칸의 확인이 지금 칸의 입력을 잠그지 않게 한다(위 then 과 같은 확인)
+      if (want !== mode) return
       add('msg bot', '<span class="err">' + MODES[mode].url + ' 이 없다 — 55 의 8084·8087 에서만 된다</span>')
       input.disabled = true
       sendBtn.disabled = true
