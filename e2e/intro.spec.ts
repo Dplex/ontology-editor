@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-// 첫 화면 인트로(src/editor/intro.ts · public/intro/). e2e 서버는 /__data 를 붙이지 않아 여기서 장면을 흉내 낸다(intro.ts 와 같은 모양).
+// 첫 화면 인트로(src/editor/intro.ts · public/intro/). 주소가 #intro 일 때만 뜬다. e2e 서버는 /__data 를 붙이지 않아 여기서 장면을 흉내 낸다(intro.ts 와 같은 모양).
 // 층 둘, 물리존 하나씩, 기기 셋(소속 찾은 것 둘·못 찾은 것 하나). 화면의 숫자가 이 장면에서 센 값인지 본다.
 const room = [[0, 0], [10, 0], [10, 8], [0, 8], [0, 0]]
 const wall = [[0, 0], [10, 0], [10, 0.2], [0, 0.2], [0, 0]]
@@ -31,13 +31,17 @@ async function serveIntro(page: Page, list: object[]) {
   })
 }
 
-test('구운 장면이 있으면 첫 화면에 인트로가 뜨고, 숫자는 장면에서 센 값이다. 닫으면 이 탭에서는 다시 안 뜨고 [인트로 다시 보기] 로 연다', async ({ page }) => {
+test('주소가 #intro 면 인트로가 뜨고, 숫자는 장면에서 센 값이다. 닫으면 주소가 / 로 돌아가고, 첫 화면의 [인트로 보기] 로 다시 연다', async ({ page }) => {
   // 소프트웨어 GL 에서는 kit 의 후처리가 무거워 조립 연출이 늦게 끝난다. 손을 놓으면 그리지 않게 한 뒤로(public/intro/index.html 의 "부하")
   // 혼자 13초, 병렬에서도 1분 안이다.
   test.setTimeout(90_000)
   await serveIntro(page, [{ name: 'tiny', building: 'Tiny', files: scene.files, bakedAt: scene.bakedAt }])
+  // 그냥 / 로 들어오면 에디터 첫 화면이다.
   await page.goto('/')
+  await expect(page.getByText('인트로 보기')).toBeVisible()
   const overlay = page.locator('.intro')
+  await expect(overlay).toHaveCount(0)
+  await page.goto('/#intro')
   await expect(overlay).toBeVisible()
   const lab = page.frameLocator('.intro iframe')
   // kit 은 WebGL·후처리 셰이더를 다 만든 뒤에야 첫 줄을 그린다. 소프트웨어 GL 인 e2e 브라우저에서는 몇 초 걸린다.
@@ -55,18 +59,22 @@ test('구운 장면이 있으면 첫 화면에 인트로가 뜨고, 숫자는 �
 
   await page.locator('.intro .go').dispatchEvent('click')
   await expect(overlay).toHaveCount(0)
+  expect(new URL(page.url()).hash).toBe('')
+  // 닫은 뒤 새로고침해도 다시 뜨지 않는다(주소에 #intro 가 없다).
   await page.reload()
-  await expect(page.getByText('인트로 다시 보기')).toBeVisible()
+  await expect(page.getByText('인트로 보기')).toBeVisible()
   await expect(overlay).toHaveCount(0)
-  await page.getByText('인트로 다시 보기').click()
+  await page.getByText('인트로 보기').click()
   await expect(overlay).toBeVisible()
+  expect(new URL(page.url()).hash).toBe('#intro')
   await page.keyboard.press('Escape')
   await expect(overlay).toHaveCount(0)
+  expect(new URL(page.url()).hash).toBe('')
 })
 
-test('구운 장면이 없으면 인트로도 링크도 없다', async ({ page }) => {
+test('구운 장면이 없으면 #intro 여도 인트로가 없고 링크도 없다', async ({ page }) => {
   await serveIntro(page, [])
-  await page.goto('/')
+  await page.goto('/#intro')
   await expect(page.locator('h1')).toBeVisible()
   await expect(page.locator('.intro')).toHaveCount(0)
   await expect(page.getByText('인트로 다시 보기')).toHaveCount(0)

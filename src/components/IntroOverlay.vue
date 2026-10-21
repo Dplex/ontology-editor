@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 첫 화면 인트로를 창 전체에 띄운다(src/editor/intro.ts). 그림은 iframe 안의 public/intro/ 가 그린다 — kit 이 창 전체를 쓰는
-// 한 장짜리 페이지라 앱 화면과 섞지 않는다. [에디터로] 를 누르거나 Esc 로 닫는다.
+// 한 장짜리 페이지라 앱 화면과 섞지 않는다. 주소가 #intro 일 때만 뜨고, [에디터로] 를 누르거나 Esc 로 닫으면 주소도 / 로 돌아간다.
 import { onBeforeUnmount, onMounted } from 'vue'
 import { closeIntro, introOpen, introScene, loadIntro } from '../editor/intro'
 

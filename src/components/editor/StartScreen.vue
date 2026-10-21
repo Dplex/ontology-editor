@@ -9,7 +9,7 @@ import { createProject, fieldOf, openProject, openWithMode, projectBlock, projec
 import { readFeatures, readOpenings } from '../../editor/read-settings'
 import Fold from '../Fold.vue'
 import IntroOverlay from '../IntroOverlay.vue'
-import { introOpen, introScene } from '../../editor/intro'
+import { introScene } from '../../editor/intro'
 import ProjectList from '../ProjectList.vue'
 import ThemeIcon from '../ThemeIcon.vue'
 import TierChips from '../TierChips.vue'
@@ -21,7 +21,7 @@ import TierChips from '../TierChips.vue'
     <div class="title">
       <div>
         <h1>ontology-editor</h1>
-        <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다. 내보낸 TTL·GeoJSON 은 <a href="./viewer.html">내보낸 파일 보기</a>에서 다시 열어 봅니다. 처음이면 <a href="./guide/index.html" target="_blank" rel="noopener">사용 가이드</a>부터 봅니다.<template v-if="introScene">{{ ' ' }}<a href="#" @click.prevent="introOpen = true">인트로 다시 보기</a></template></p>
+        <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다. 내보낸 TTL·GeoJSON 은 <a href="./viewer.html">내보낸 파일 보기</a>에서 다시 열어 봅니다. 처음이면 <a href="./guide/index.html" target="_blank" rel="noopener">사용 가이드</a>부터 봅니다.<template v-if="introScene">{{ ' ' }}<a href="#intro">인트로 보기</a></template></p>
       </div>
       <button type="button" class="theme icon-btn" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">
         <ThemeIcon :dark="dark" />
