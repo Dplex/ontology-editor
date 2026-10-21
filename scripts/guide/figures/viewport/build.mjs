@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as k from "../../anatomy/kit/iso-kit.mjs";
+import { springZ } from "../spring.mjs";
 import * as G from "../../anatomy/kit/lathe.mjs";
 import { tubePieces, tubeSvg } from "../../anatomy/kit/tube.mjs";
 import { kitScript } from "../../anatomy/scripts/inline-kit.mjs";
@@ -47,8 +48,10 @@ function base() {
   // 4개의 정밀 리드스크류 기둥 + 코일 스프링
   for (const [px, py] of [[12, 12], [160, 12], [12, 98], [160, 98]].sort((a, b) => k.depthOf([...a, 0], P) - k.depthOf([...b, 0], P))) {
     out.push(S(k.cylinder(px, py, 3.4, 0, 2.2, P, 18), { tone: "mid" }));
+    const spring = springZ(px, py, 2.3, 3.5, 16, 4, P);
+    out.push(L(spring.back, { tone: "lo" }));
     out.push(S(k.cylinder(px, py, 1.5, 2.2, 58, P, 14), { tone: "lo", crease: "none" }));
-    out.push(L(k.coil(px, py, 2.3, 3.5, 16, 4, P), { tone: "mid" }));
+    out.push(L(spring.front, { tone: "mid" }));
     out.push(S(k.cylinder(px, py, 2.6, 60, 2.0, P, 18), { tone: "mid" }));
   }
 

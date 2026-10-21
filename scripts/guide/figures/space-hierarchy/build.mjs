@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as k from "../../anatomy/kit/iso-kit.mjs";
+import { springZ } from "../spring.mjs";
 import * as G from "../../anatomy/kit/lathe.mjs";
 import { tubePieces, tubeSvg } from "../../anatomy/kit/tube.mjs";
 import { kitScript } from "../../anatomy/scripts/inline-kit.mjs";
@@ -46,8 +47,10 @@ function base() {
   // 4 모서리 가이드 기둥 + 코일 스프링
   for (const [px, py] of [[14, 12], [156, 12], [14, 98], [156, 98]].sort((a, b) => k.depthOf([...a, 0], P) - k.depthOf([...b, 0], P))) {
     out.push(S(k.cylinder(px, py, 3.2, 0, 2.2, P, 18), { tone: "mid" }));
+    const spring = springZ(px, py, 2.3, 3.5, 22, 5, P);
+    out.push(L(spring.back, { tone: "lo" }));
     out.push(S(k.cylinder(px, py, 1.4, 2.2, 78, P, 14), { tone: "lo", crease: "none" }));
-    out.push(L(k.coil(px, py, 2.3, 3.5, 22, 5, P), { tone: "mid" }));
+    out.push(L(spring.front, { tone: "mid" }));
     out.push(S(k.cylinder(px, py, 2.4, 80, 1.8, P, 16), { tone: "mid" }));
   }
   const ruler = box(14, 110, 144, 5, 1);

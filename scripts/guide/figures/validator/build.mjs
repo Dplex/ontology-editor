@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as k from "../../anatomy/kit/iso-kit.mjs";
+import { springZ } from "../spring.mjs";
 import * as G from "../../anatomy/kit/lathe.mjs";
 import { tubePieces, tubeSvg } from "../../anatomy/kit/tube.mjs";
 import { kitScript } from "../../anatomy/scripts/inline-kit.mjs";
@@ -103,7 +104,8 @@ function plungerHead() {
   const out = [];
   const head = box(-10, 44, 20, 16, 1.2);
   // 상부 코일 복원 스프링 (k.coil)
-  out.push(L(k.coil(0, 52, 3.6, 33.5, 43.5, 4, P), { tone: "hi" }));
+  const spring = springZ(0, 52, 3.6, 33.5, 43.5, 4, P);
+  out.push(L(spring.back, { tone: "mid" }), L(spring.front, { tone: "hi" }));
   out.push(S(k.slabOf(head, 24, 9.2, P, 3, 0.5), { tone: "hi", lit: true }));
   // 선반 가공 마이크로미터 검수 플런저 침 (G.solidOf)
   const F = G.frameAlong([0, 52, 11.2], [0, 0, 1]);

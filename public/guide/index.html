@@ -71,7 +71,7 @@
   }
   .bar-progress {
     height: 3px;
-    background: linear-gradient(90deg, #3b5bdb, #2563eb, #0d9488, #6d28d9);
+    background: var(--fg);
     width: var(--scroll-pct, 0%);
     transition: width 0.1s linear;
   }
@@ -134,12 +134,8 @@
 
   /* 히어로 영역 */
   header.hero {
-    background: linear-gradient(145deg, #ffffff 0%, #f6f9ff 100%);
-    border: 1px solid var(--card-line);
-    border-top: 4px solid var(--accent);
-    border-radius: 1.1rem;
-    padding: 2rem 2.2rem 1.8rem;
-    box-shadow: var(--shadow);
+    padding: 1.5rem 0 1.8rem;
+    border-bottom: 1px solid var(--card-line);
   }
   .hero-badge {
     display: inline-flex;
@@ -219,12 +215,8 @@
   /* 큰 묶음(파트 배너: 준비 · 편집 · 내보내기 · 참고) */
   .part {
     margin: 3.5rem 0 1.25rem;
-    padding: 1.1rem 1.4rem;
-    background: var(--surface);
-    border: 1px solid var(--card-line);
-    border-left: 6px solid var(--part-color, var(--fg));
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-sm);
+    padding: 1rem 0 0;
+    border-top: 2px solid var(--fg);
     display: flex;
     flex-wrap: wrap;
     gap: 0.5rem 1rem;
@@ -260,24 +252,9 @@
   .theme-out   { --step-accent: #6d28d9; --step-soft: #f3e8ff; --part-color: #6d28d9; --part-soft: #f3e8ff; }
   .theme-ref   { --step-accent: #b45309; --step-soft: #fef3c7; --part-color: #b45309; --part-soft: #fef3c7; }
 
-  /* 개별 섹션 카드: 아웃라인과 좌측 포인트 바로 명확히 구분 */
   section.step {
-    margin-top: 1.75rem;
-    padding: 1.75rem 2rem 1.9rem;
-    background: var(--surface);
-    border: 1px solid var(--card-line);
-    border-left: 5px solid var(--step-accent);
-    border-radius: 1rem;
-    box-shadow: var(--shadow);
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    margin-top: 3.5rem;
     position: relative;
-  }
-  section.step:hover {
-    border-color: #b4c2d8;
-    border-left-color: var(--step-accent);
-  }
-  section.step.in-view {
-    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.08), var(--shadow);
   }
 
   .step-head {
@@ -509,14 +486,12 @@
   .where {
     margin: 1.1rem 0 0;
     padding: 0.85rem 1.1rem;
-    border: 1px solid #d5e2f6;
-    border-left: 4px solid var(--step-accent);
     background: var(--surface-soft);
-    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    border-radius: var(--radius-sm);
     max-width: 58rem;
     font-size: 0.93rem;
   }
-  .where b { color: var(--step-accent); }
+  .where b { color: var(--fg); }
   .where code, td code, .faq code, .lead code, dd code {
     background: #eef2f8;
     border: 1px solid #dce3ee;
@@ -550,8 +525,7 @@
   .why {
     margin-top: 1.35rem;
     padding: 1.25rem 1.35rem;
-    border: 1px solid #cfd8e6;
-    border-top: 3px solid var(--step-accent);
+    border: 1px solid var(--card-line);
     border-radius: var(--radius);
     background: var(--surface-soft);
   }
@@ -738,15 +712,6 @@
     .bar .open { display: none; }
     dl.terms { grid-template-columns: 1fr; gap: 0.25rem; }
     dl.terms dd { margin-bottom: 0.65rem; }
-  }
-
-  /* === ANATOMY STAGE FOCUS & HOVER LINK === */
-  figure.fig-wrap {
-    transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.22s ease, border-color 0.22s ease;
-  }
-  figure.fig-wrap:hover {
-    border-color: var(--step-accent);
-    box-shadow: 0 8px 28px rgba(15, 23, 42, 0.09);
   }
 
 </style>
@@ -1483,7 +1448,7 @@
   }
   window.addEventListener('scroll', updateScroll, { passive: true })
   updateScroll()
-  toTop?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }))
+  toTop?.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
 
   /* 번호 카드에 마우스만 올려도 위 스크린샷의 해당 핀이 즉시 연동 */
   (() => {

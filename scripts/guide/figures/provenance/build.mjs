@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as k from "../../anatomy/kit/iso-kit.mjs";
+import { springZ } from "../spring.mjs";
 import * as G from "../../anatomy/kit/lathe.mjs";
 import { tubePieces, tubeSvg } from "../../anatomy/kit/tube.mjs";
 import { kitScript } from "../../anatomy/scripts/inline-kit.mjs";
@@ -72,7 +73,8 @@ function channels() {
     // 상부 선반 가공 솔레노이드 플런저 & 코일 스프링
     const F = G.frameAlong([ch.x, 42, h], [0, 0, 1]);
     const prof = [[0, 6.2], [1.4, 6.2], [1.8, 3.8], [5.8, 3.8], [6.8, 4.8]];
-    const turret = S(G.solidOf(prof, F, P), { tone: "mid" }) + L(k.coil(ch.x, 42, 4.4, h + 1.5, h + 5.6, 3, P), { tone: "lo" });
+    const spring = springZ(ch.x, 42, 4.4, h + 1.5, h + 5.6, 3, P);
+    const turret = L(spring.back, { tone: "faint" }) + S(G.solidOf(prof, F, P), { tone: "mid" }) + L(spring.front, { tone: "lo" });
 
     // 버스 연결 3D 케이블 (tubePieces)
     const cablePts = G.fillet([[ch.x, 32, h - 2], [ch.x, 26, h + 3], [ch.x, 22, 8.5]], 2.5, 6, { P, tube: 1.3 });

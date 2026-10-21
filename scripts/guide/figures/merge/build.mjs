@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as k from "../../anatomy/kit/iso-kit.mjs";
+import { springZ } from "../spring.mjs";
 import * as G from "../../anatomy/kit/lathe.mjs";
 import { tubePieces, tubeSvg } from "../../anatomy/kit/tube.mjs";
 import { kitScript } from "../../anatomy/scripts/inline-kit.mjs";
@@ -127,8 +128,10 @@ function archTray() {
 
   for (const [px, py] of [...POSTS].sort((a, b) => k.depthOf([...a, 0], P) - k.depthOf([...b, 0], P))) {
     out.push(S(k.cylinder(px, py, 3.6, top, 2.4, P, 20), { tone: "mid" }));
+    const spring = springZ(px, py, 2.6, top + 3.5, top + 18, 5, P);
+    out.push(L(spring.back, { tone: "lo" }));
     out.push(S(k.cylinder(px, py, 1.5, top + 2.4, POST_H - top - 2.4, P, 16), { tone: "lo", crease: "none" }));
-    out.push(L(k.coil(px, py, 2.6, top + 3.5, top + 18, 5, P), { tone: "mid" }));
+    out.push(L(spring.front, { tone: "mid" }));
     out.push(S(k.cylinder(px, py, 2.5, POST_H, 1.8, P, 18), { tone: "mid" }));
   }
   return out.join("");

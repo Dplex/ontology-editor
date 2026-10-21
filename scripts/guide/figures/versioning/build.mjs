@@ -4,6 +4,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as k from "../../anatomy/kit/iso-kit.mjs";
+import { springZ } from "../spring.mjs";
 import * as G from "../../anatomy/kit/lathe.mjs";
 import { tubePieces, tubeSvg } from "../../anatomy/kit/tube.mjs";
 import { kitScript } from "../../anatomy/scripts/inline-kit.mjs";
@@ -75,8 +76,10 @@ function stations() {
   out.push(S(k.slabOf(vault, 0, 5, P, 4, 0.6), { tone: "mid" }));
   // 스탬프 프레스 기둥 + 코일 스프링
   for (const px of [104, 168]) {
+    const spring = springZ(px, 18, 3.2, 26, 36, 4, P);
+    out.push(L(spring.back, { tone: "faint" }));
     out.push(S(k.cylinder(px, 18, 2.4, 5, 34, P, 18), { tone: "mid", crease: "none" }));
-    out.push(L(k.coil(px, 18, 3.2, 26, 36, 4, P), { tone: "lo" }));
+    out.push(L(spring.front, { tone: "lo" }));
   }
   out.push(S(k.slabOf(box(100, 14, 72, 8, 1), 39, 3.8, P, 2), { tone: "mid" }));
   out.push(k.faceTextSvg(k.topMatrix([108, 20], 42.8, P, "x"), "DT RELEASE VAULT", { size: 3.7, tone: "hi" }));
