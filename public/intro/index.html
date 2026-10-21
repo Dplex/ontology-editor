@@ -9,6 +9,7 @@
   화면의 틀(스튜디오·조립·Explode·Cut·X-ray·Labels·큰 숫자)은 machine-skill 의 kit(lab-kit.js, MIT, LICENSE-lab-kit)을 고치지 않고 쓴다.
   three 는 CDN 대신 scripts/sync-three.mjs 가 옮긴 ./three/ 에서 받는다 — 사내망 브라우저는 jsDelivr 에 못 닿는다.
   숫자는 전부 장면 JSON 에서 센다. 장면이 없으면 아무것도 그리지 않고 그렇다고 적는다.
+  첫 화면(#intro)은 건물이 서는 것만 보인다. 큰 숫자·층 슬라이더·[IfcSpace 빼기]·"어떻게 셌나" 같은 수치와 판정 기준은 가이드의 랩(?scene=)에만 띄운다.
   장면 이름과 같은 동네 지도(city/<이름>.json, scripts/intro-city.mjs)가 있으면 그 앞에 앞머리(prologue.js)를 붙인다:
   "Ontology-Editor" → 한강 위에서 본 동네 → 건물까지 비행 → 스캔선 → 이 페이지의 층 조립. ?prologue=0 이면 건너뛴다.
 
@@ -56,6 +57,8 @@ function empty(html) {
 
 // 가이드의 랩은 저장소에 든 장면(scenes/*.json)만 읽는다. 다른 주소의 JSON 을 그리게 두지 않는다.
 const sceneFile = /^scenes\/[\w-]+\.json$/.test(q.get('scene') ?? '') ? q.get('scene') : null
+// 가이드의 랩이면 숫자와 판정 기준을 띄운다. 첫 화면(#intro)은 띄우지 않는다.
+const LAB = !!sceneFile
 let S
 if (sceneFile) S = await fetch(sceneFile).then((r) => (r.ok ? r.json() : null)).catch(() => null)
 else {
@@ -210,7 +213,7 @@ const floors = storeys.map((s, i) => {
     count: s.spaces.length + s.walls.length + s.devices.length + s.conduits.length,
     label: s.spaces.length ? s.name : undefined,
     at: anchor(s, y),
-    value: () => `물리존 ${s.spaces.length} · 기기 ${located}/${s.devices.length}`,
+    value: LAB ? () => `물리존 ${s.spaces.length} · 기기 ${located}/${s.devices.length}` : undefined,
     // 왼쪽 라벨은 건물 위에 겹친다. 전부 오른쪽 여백에 세운다.
     side: 'right',
   })
@@ -235,7 +238,7 @@ const floorSlider = (label, cumulative) =>
     },
   })
 
-if (FOCUS === 'assign') {
+if (LAB && FOCUS === 'assign') {
   let spacesOut = false
   const show = () => {
     const f = only ? floors[only - 1] : null
@@ -274,7 +277,7 @@ if (FOCUS === 'assign') {
   lab.onTick(show)
 }
 
-if (FOCUS === 'flow') {
+if (LAB && FOCUS === 'flow') {
   // 연결 수는 그려지지 않는 것(평면 밖)까지 장면 그대로 센다.
   const by = [0, 0, 0, 0]
   const floorBy = floors.map((F) => { const n = [0, 0, 0, 0]; for (const f of F.s.flows ?? []) n[f[9]]++; return n })
@@ -310,7 +313,7 @@ if (FOCUS === 'flow') {
   lab.onTick(show)
 }
 
-if (FOCUS === 'floors') {
+if (LAB && FOCUS === 'floors') {
   const m2 = (v) => fmt(Math.round(v))
   const total = floors.reduce((n, F) => n + F.area, 0)
   const spaces = floors.reduce((n, F) => n + F.s.spaces.length, 0)
@@ -393,6 +396,7 @@ if (pro) {
   }
   lab._syncButtons()
   lab.$('.lab-how summary').textContent = '어떻게 셌나'
+  if (!LAB) lab.$('.lab-how').style.display = 'none'
   // 단축키도 같이 막는다. 숨긴 버튼의 상태가 키로만 바뀌면 화면에 표시가 없다. 앞머리가 떠 있는 동안의 Space(건너뛰기)는 건드리지 않는다.
   addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase()

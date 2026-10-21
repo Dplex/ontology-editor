@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 
 // 첫 화면 인트로(src/editor/intro.ts · public/intro/). 주소가 #intro 일 때만 뜬다. e2e 서버는 /__data 를 붙이지 않아 여기서 장면을 흉내 낸다(intro.ts 와 같은 모양).
-// 층 둘, 물리존 하나씩, 기기 셋(소속 찾은 것 둘·못 찾은 것 하나). 화면의 숫자가 이 장면에서 센 값인지 본다.
+// 층 둘, 물리존 하나씩, 기기 셋(소속 찾은 것 둘·못 찾은 것 하나). 가이드의 랩으로 띄우면 화면의 숫자가 이 장면에서 센 값인지 본다.
 const room = [[0, 0], [10, 0], [10, 8], [0, 8], [0, 0]]
 const wall = [[0, 0], [10, 0], [10, 0.2], [0, 0.2], [0, 0]]
 const scene = {
@@ -31,7 +31,7 @@ async function serveIntro(page: Page, list: object[]) {
   })
 }
 
-test('주소가 #intro 면 인트로가 뜨고, 숫자는 장면에서 센 값이다. 닫으면 주소가 / 로 돌아가고, 첫 화면의 [인트로 보기] 로 다시 연다', async ({ page }) => {
+test('주소가 #intro 면 인트로가 뜨고, 숫자·판정 기준 없이 건물만 선다. 닫으면 주소가 / 로 돌아가고, 첫 화면의 [인트로 보기] 로 다시 연다', async ({ page }) => {
   // 소프트웨어 GL 에서는 kit 의 후처리가 무거워 조립 연출이 늦게 끝난다. 손을 놓으면 그리지 않게 한 뒤로(public/intro/index.html 의 "부하")
   // 혼자 13초, 병렬에서도 1분 안이다.
   test.setTimeout(90_000)
@@ -46,16 +46,11 @@ test('주소가 #intro 면 인트로가 뜨고, 숫자는 장면에서 센 값�
   const lab = page.frameLocator('.intro iframe')
   // kit 은 WebGL·후처리 셰이더를 다 만든 뒤에야 첫 줄을 그린다. 소프트웨어 GL 인 e2e 브라우저에서는 몇 초 걸린다.
   await expect(lab.locator('.lab-title')).toContainText('작은 건물', { timeout: 20_000 })
-  // 조립이 끝나면 큰 숫자가 부품 수에서 소속 판정 수(2/3)로 돌아온다. 라벨은 조립 전에도 "소속 판정" 이라 숫자를 먼저 기다린다.
-  // 조립 연출은 실제 시간 3초 남짓이지만 병렬 실행의 소프트웨어 GL 에서는 프레임이 느려 더 걸린다.
-  await expect(lab.locator('.lab-big .v')).toHaveText('2', { timeout: 30_000 })
-  await expect(lab.locator('.lab-metric .lbl')).toContainText('소속 판정')
-  // 물리존을 빼면 소속을 댈 외곽선이 없어 0 이 된다.
-  // 인트로가 그리는 동안은 클릭을 이벤트로 보낸다. 소프트웨어 GL 에서는 kit 의 후처리가 프레임마다 메인 스레드를 오래 잡아
-  // Playwright 의 click 이 요소가 멈췄는지(두 프레임) 재다가 시간을 넘긴다.
-  await lab.locator('button[data-k="break"]').dispatchEvent('click')
-  await expect(lab.locator('.lab-big .v')).toHaveText('0')
-  await expect(lab.locator('.lab-metric .lbl')).toContainText('물리존 없음')
+  // 큰 숫자·[IfcSpace 빼기]·"어떻게 셌나" 는 가이드의 랩에만 있다(아래 소속 판정 랩 시험).
+  await expect(lab.locator('.lab-modes button[data-k="explode"]')).toBeVisible()
+  await expect(lab.locator('.lab-big')).toHaveCount(0)
+  await expect(lab.locator('button[data-k="break"]')).toHaveCount(0)
+  await expect(lab.locator('.lab-how')).toBeHidden()
 
   await page.locator('.intro .go').dispatchEvent('click')
   await expect(overlay).toHaveCount(0)
@@ -101,6 +96,21 @@ test.describe('앞머리', () => {
     await expect(page.locator('.pro')).toHaveCount(0, { timeout: 60_000 })
     await expect(page.locator('.lab-title')).toContainText('작은 건물')
   })
+})
+
+test('가이드의 소속 판정 랩은 장면에서 센 숫자를 띄우고, [IfcSpace 빼기] 를 누르면 0 이 된다', async ({ page }) => {
+  test.setTimeout(90_000)
+  // 저장소의 scenes/ 자리에 위의 작은 장면을 둔다. 층 둘에 기기 셋, 소속을 찾은 것 둘.
+  await page.route('**/intro/scenes/tiny.json', (route) => route.fulfill({ json: scene }))
+  await page.goto('/intro/index.html?scene=scenes/tiny.json&focus=assign')
+  // 조립이 끝나면 큰 숫자가 부품 수에서 소속 판정 수(2/3)로 돌아온다. 라벨은 조립 전에도 "소속 판정" 이라 숫자를 먼저 기다린다.
+  await expect(page.locator('.lab-big .v')).toHaveText('2', { timeout: 30_000 })
+  await expect(page.locator('.lab-metric .lbl')).toContainText('소속 판정')
+  // 그리는 동안은 클릭을 이벤트로 보낸다. 소프트웨어 GL 에서는 kit 의 후처리가 프레임마다 메인 스레드를 오래 잡아
+  // Playwright 의 click 이 요소가 멈췄는지(두 프레임) 재다가 시간을 넘긴다.
+  await page.locator('button[data-k="break"]').dispatchEvent('click')
+  await expect(page.locator('.lab-big .v')).toHaveText('0')
+  await expect(page.locator('.lab-metric .lbl')).toContainText('물리존 없음')
 })
 
 test('가이드의 흐름 랩은 저장소의 Duplex 장면에서 방향을 센다. [규칙 방향 빼기] 를 누르면 BIM 포트 방향만 남는다', async ({ page }) => {
