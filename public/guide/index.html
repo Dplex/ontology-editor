@@ -636,6 +636,9 @@
   .why > p { margin: 0 0 0.95rem; color: var(--muted); max-width: 56rem; font-size: 0.94rem; }
   .why > p b { color: var(--fg); }
   .why iframe { display: block; width: 100%; max-width: 760px; margin: 0 auto; border: 0; height: 640px; background: transparent; }
+  /* 3D 랩(../intro/index.html?focus=…, machine-skill 의 kit). kit 은 창 전체를 쓰는 화면이라 그림보다 넓고 낮게 둔다. */
+  .why iframe.lab { max-width: none; height: min(620px, 72vh); border-radius: 6px; background: #0d0e10; }
+  :root:not([data-theme="dark"]) .why iframe.lab { background: #efece6; }
 
   /* 표 · FAQ · 용어 사전 */
   .table-wrap { overflow-x: auto; margin-top: 0.85rem; }
@@ -1014,6 +1017,11 @@
       <p><b>3D 시점과 2D 평면도는 어떻게 다른가</b> · 3D 시점은 층간 설비 배치와 수직 배관을 입체로 파악할 때 유리하고, <b>평면도(<kbd>Shift</kbd>+<kbd>V</kbd>)</b>는 선택한 층 높이에 수평 절단면(Section Cut)을 내려 원근 왜곡 없이 방 외곽선과 벽·문 경계를 정밀하게 편집할 때 씁니다.</p>
       <iframe src="fig/viewport.html" title="3D 시점과 2D 평면도 단면 전환 그림" loading="lazy" data-fig="viewport"></iframe>
     </div>
+    <div class="why">
+      <span class="why-badge">MACHINE · 실제 BIM 3D 랩 · 층과 물리존</span>
+      <p><b>실제 BIM 으로 돌려 보기</b> · Duplex 건축·HVAC·MEP 세 파일을 에디터와 같은 임포터로 읽어 층(IfcBuildingStorey)마다 벌려 세운 모습입니다. 오른쪽 <b>층 고르기</b> 슬라이더로 한 층만 남기면, 그 층 물리존의 바닥 면적을 외곽선에서 다시 잽니다. 아래 버튼 줄의 <b>Cut away</b> 로 잘라 방 구획을 보고, 드래그로 돌려 봅니다.</p>
+      <iframe class="lab" data-lab="floors" title="층과 물리존 3D 랩" loading="lazy"></iframe>
+    </div>
   </section>
 
   <section class="step theme-edit" id="s6">
@@ -1073,6 +1081,11 @@
       <span class="why-badge">ANATOMY · 설비 소속 판정 갠트리와 허용 거리 다이얼</span>
       <p><b>소속 판정 원리</b> · 에디터는 설비 위치의 수평 좌표(x, y)를 같은 층 물리존들의 바닥 외곽선과 비교합니다. 외곽선 안에 포함되면 해당 물리존(겹치면 면적이 가장 작은 물리존), 외곽선 밖이면 허용 거리 안의 가장 가까운 물리존으로 배정하고, 그마저 없으면 '소속 없음'으로 처리합니다. 아래 그림에서 설비를 직접 드래그하거나 다이얼로 허용 거리를 조절해 보세요.</p>
       <iframe src="fig/assign.html" title="설비 소속 판정 그림" loading="lazy" data-fig="assign"></iframe>
+    </div>
+    <div class="why">
+      <span class="why-badge">MACHINE · 실제 BIM 3D 랩 · 소속 판정</span>
+      <p><b>실제 BIM 으로 돌려 보기</b> · 같은 Duplex 에서 기기마다 소속을 판정한 결과입니다. 노란 상자는 소속 물리존을 찾은 기기, 붉은 상자는 못 찾은 기기이고, 큰 숫자는 소속을 찾은 기기 수입니다. 아래 버튼 줄의 <b>[IfcSpace 빼기]</b>를 누르면 물리존 외곽선이 사라져 모든 기기가 '소속 없음'이 됩니다. BIM 에 방(IfcSpace)이 없으면 소속을 정할 수 없다는 뜻입니다.</p>
+      <iframe class="lab" data-lab="assign" title="설비 소속 판정 3D 랩" loading="lazy"></iframe>
     </div>
   </section>
 
@@ -1142,6 +1155,11 @@
       <span class="why-badge">ANATOMY · 공조기·VAV·디퓨저 흐름 추적 모형</span>
       <p><b>흐름 추적이 멈추는 원리</b> · 흐름 추적은 방향이 확인된 연결만 따라갑니다. 아래 그림에서 각 기기를 클릭해 보세요. 볼트로 체결된 플랜지는 <b>BIM 포트 방향 연결</b>이고, 민무늬 슬리브는 <b>형상으로 추정한 연결(방향 미상)</b>입니다.</p>
       <iframe src="fig/flow.html" title="흐름 방향 그림" loading="lazy" data-fig="flow"></iframe>
+    </div>
+    <div class="why">
+      <span class="why-badge">MACHINE · 실제 BIM 3D 랩 · 흐름 방향</span>
+      <p><b>실제 BIM 으로 돌려 보기</b> · 같은 Duplex 의 연결을 따라 흐름 방향으로 입자가 움직입니다. 푸른 입자는 IFC 포트가 말한 방향, 주황 입자는 규칙(계통·설비 종류)으로 정한 방향이고, 회색 선만 있는 곳은 방향을 모르는 연결입니다. 아래 버튼 줄의 <b>[규칙 방향 빼기]</b>를 누르면 BIM 포트가 말한 방향만 남아, 이 파일이 BIM 만으로는 흐름을 얼마나 모르는지 보입니다.</p>
+      <iframe class="lab" data-lab="flow" title="흐름 방향 3D 랩" loading="lazy"></iframe>
     </div>
   </section>
 
@@ -1534,6 +1552,17 @@
   }, { rootMargin: '-12% 0px -65% 0px', threshold: 0 })
   for (const s of sections) io.observe(s)
 
+  // 3D 랩: 흐름 랩은 입자를 계속 그리므로, 화면 밖으로 나가면 멈추라고 알린다(랩은 이 신호가 없으면 계속 그린다).
+  const labSeen = new Map()
+  const tellLab = (frame) => frame.contentWindow?.postMessage({ lab: 'visible', on: !!labSeen.get(frame) }, '*')
+  const labIo = new IntersectionObserver((entries) => {
+    for (const e of entries) { labSeen.set(e.target, e.isIntersecting); tellLab(e.target) }
+  })
+  for (const frame of document.querySelectorAll('iframe[data-lab]')) {
+    labIo.observe(frame)
+    frame.addEventListener('load', () => tellLab(frame))
+  }
+
   // 스크롤 진행률 및 맨 위로 버튼
   // 테마 토글. 원리 그림은 판이 둘(*.html · *-dark.html)이라 iframe 주소를 갈아 끼운다(다시 그려져 그림 상태는 처음으로 돌아간다).
   const themeBtn = document.getElementById('themeToggle')
@@ -1545,6 +1574,11 @@
     document.querySelector('meta[name="theme-color"]').content = t === 'dark' ? '#0b0b0b' : '#f1f4f9'
     for (const frame of document.querySelectorAll('iframe[data-fig]')) {
       const src = `fig/${frame.dataset.fig}${t === 'dark' ? '-dark' : ''}.html`
+      if (frame.getAttribute('src') !== src) frame.setAttribute('src', src)
+    }
+    // 3D 랩은 같은 페이지를 테마 인자만 바꿔 다시 연다(밝으면 kit 의 paper 스튜디오).
+    for (const frame of document.querySelectorAll('iframe[data-lab]')) {
+      const src = `../intro/index.html?scene=scenes/duplex.json&focus=${frame.dataset.lab}&theme=${t === 'dark' ? 'night' : 'paper'}`
       if (frame.getAttribute('src') !== src) frame.setAttribute('src', src)
     }
     // 화면 그림은 두 벌(screens/ · screens/dark/, capture.mjs 의 THEME)이고 핀 자리는 같다. 확대 컷·크게 보기 링크도 같이 바꾼다.

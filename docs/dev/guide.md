@@ -65,3 +65,14 @@ node scripts/guide/figures/space-hierarchy/build.mjs
 - 그림이 iframe 안에서 투명 바탕으로 보이도록 `html[data-embed]` 와 `color-scheme: light` 를 둔다. 빠지면 Chrome 이 캡션 뒤에 검은 바탕을 깐다. 다크판은 `html:has(body[data-theme="dark"])` 가 바탕을 칠해서, 투명 규칙을 `html[data-embed]:has(body)` 로 같은 우선순위에 한 번 더 둔다.
 - 다크 팔레트는 무채색이다. anatomy 판(`.iso-plate`)이 다크에서 `#131313` 이라 표면을 같은 색으로 두어야 그림이 상자로 떠 보이지 않는다.
 - 화면 그림(`screens/`)은 라이트로 찍은 것 한 벌이라 다크에서도 밝게 보인다.
+
+## 3D 랩
+
+가이드 세 곳(층을 선택하고 평면도로 보기 · 소속 판정 · 흐름 추적)에는 원리 그림 아래에 실제 BIM 으로 도는 3D 랩이 붙는다.
+`iframe[data-lab]` 이 `../intro/index.html?scene=scenes/duplex.json&focus=<floors|assign|flow>&theme=<paper|night>` 을 띄운다.
+틀은 첫 화면 인트로와 같은 machine-skill 의 kit(`public/intro/lab-kit.js`, MIT)이고, 숫자는 전부 저장소에 든 Duplex 장면에서 센다.
+장면을 다시 굽는 법과 무게는 `docs/dev/deploy55.md` 의 "가이드의 3D 랩" 에 있다.
+
+- 테마를 바꾸면 `theme` 인자만 바꿔 다시 연다(밝으면 kit 의 paper 스튜디오, 어두우면 night). 랩 상태는 처음으로 돌아간다.
+- 흐름 랩은 화면에 보이는 동안 계속 그린다. 가이드가 `IntersectionObserver` 로 iframe 이 화면 밖에 나가면 `{ lab: 'visible', on: false }` 를 보내 멈춘다.
+- `public/intro/` 가 없는 판본(인트로를 합치기 전)에서는 랩 자리가 빈 칸으로 남는다.
