@@ -44,7 +44,11 @@ defineProps({
   <section v-memo="replayMemo()" class="picked">
     <div class="picked-head">
       <div>
-        <h3>{{ selected.name || '(이름 없음)' }} <ChangeBadge :id="selected.id" /></h3>
+        <!-- 배지는 제목 글자 밖에 둔다. 제목(h3)은 이름만이라 시험·접근성 이름이 이름 그대로다. -->
+        <div class="picked-title">
+          <h3>{{ selected.name || '(이름 없음)' }}</h3>
+          <ChangeBadge :id="selected.id" />
+        </div>
         <!-- 무엇을 하는 설비인지 한 줄(흐름 지도의 공급 사슬). 이름은 Revit 패밀리 이름이라 공조기인지조차 안 보인다. -->
         <p v-if="flowMap?.summary" class="picked-summary" data-testid="flow-summary">
           <b>{{ whatIs(selected)?.label ?? '설비' }}</b> · {{ flowMap.summary }} <Src kind="calc" />
