@@ -70,6 +70,6 @@ defineProps({
         <li v-for="(a, i) in activity" :key="i">{{ versionTime(a.at) }} · {{ ACTIVITY_LABEL[a.type] ?? a.type }}{{ a.version ? ` v${a.version}` : '' }} · {{ a.user }}{{ a.floors.length ? ` · ${a.floors.join(' · ')}` : '' }}</li>
       </ul>
     </details>
-    <p class="hint">최근 {{ 7 }}일의 반영만 보입니다. 지난 버전은 파일만 서버에 남습니다. 되돌리기는 그 버전을 새 버전으로 다시 반영하고, 지금 화면의 편집은 그대로 둡니다.</p>
+    <p class="hint">최근 {{ 7 }}일의 반영과 초기 구축 v1 이 보입니다. 지난 버전은 파일만 서버에 남습니다. 되돌리기는 그 버전을 새 버전으로 다시 반영하고, 지금 화면의 편집은 그대로 둡니다.</p>
   </Fold>
 </template>

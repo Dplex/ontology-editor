@@ -11,7 +11,7 @@ async function clickFloor(page: Page, x: number, y: number) {
   await page.mouse.click(at.x, at.y)
 }
 
-test('소속 없는 설비에 소속을 정하고, 외곽선 안 설비는 막히며, 자리에 물리존을 그리면 사람 지정 해제가 보인다 [OE-MAP-01#13~,14~,15]', async ({ page }) => {
+test('소속 없는 설비에 소속을 정하고, 외곽선 안 설비는 막히며, 자리에 물리존을 그리면 사람 지정 해제가 보인다 [OE-MAP-01#13~,14~,15] [OE-WF-09#2]', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')
@@ -43,6 +43,9 @@ test('소속 없는 설비에 소속을 정하고, 외곽선 안 설비는 막�
   for (const [x, y] of [[11, 3], [13, 3], [13, 5], [11, 5]]) await clickFloor(page, x, y)
   await page.keyboard.press('Enter')
   await expect(page.locator('.report')).toContainText('사람 지정 해제: 새 설비 1 사무실 → 새 물리존 1(외곽선 안)')
+  await page.locator('.edit-bar').getByRole('button', { name: '미리보기' }).click()
+  await expect(page.getByTestId('preview').getByTestId('preview-impact')).toContainText('사람 지정 해제 새 설비 1 · 사무실 → 새 물리존 1 (외곽선 안)')
+  await page.getByTestId('preview').getByRole('button', { name: '닫기' }).click()
 
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')

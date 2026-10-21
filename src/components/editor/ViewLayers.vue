@@ -4,6 +4,7 @@
 import type { PropType } from 'vue'
 import { replayOpen } from '../../lib/replay-player'
 import { activeTab } from '../../editor/context-menu'
+import { ceilingMode, ceilingPlaneCount, showCeiling } from '../../editor/ceiling'
 import { drawnWalls, showWalls, showZones } from '../../editor/idf-zones'
 import { labelStorey, showLabels, showPlan } from '../../editor/labels'
 import { multiView } from '../../editor/vertical'
@@ -30,6 +31,9 @@ defineProps({
       <p class="layer-group">공간</p>
       <label :class="{ off: !drawnWalls }" title="3D 벽 표시 (W)">
         <input v-model="showWalls" type="checkbox" :disabled="!drawnWalls" /><i class="sw wall"></i>벽<small v-if="drawnWalls">{{ (drawnWalls.loadBearing ?? 0) + (drawnWalls.ordinary ?? 0) + (drawnWalls.unknown ?? 0) }}</small>
+      </label>
+      <label :class="{ off: !ceilingPlaneCount && !ceilingMode }" :title="ceilingPlaneCount ? '반자 높이에 50% 반투명 천장면을 보입니다 (천장 편집 모드에서는 자동 표시)' : '천장고가 있는 층에서 반투명 천장면을 보입니다'">
+        <input v-model="showCeiling" type="checkbox" data-testid="layer-ceiling" :disabled="!ceilingPlaneCount && !ceilingMode" /><i class="sw ceiling"></i>천장<small v-if="ceilingPlaneCount">{{ ceilingPlaneCount }}</small>
       </label>
       <p class="layer-group">설비</p>
       <label :class="{ off: !labelStorey }" :title="labelStorey ? '설비마다 이름과 소속 · 종류 출처를 3D 위에 띄웁니다 (L)' : '층 하나를 고르면 설비 라벨을 띄웁니다 (L)'">

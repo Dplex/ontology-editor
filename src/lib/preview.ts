@@ -3,8 +3,39 @@
 
 import type { Model } from './model'
 
+export type StoreyPreviewSummary = {
+  buildingId: string
+  buildingName: string
+  storeyId: string
+  storeyName: string
+  affected: boolean
+  area: { before: number; after: number; delta: number }
+  moved: number
+}
+
+export type BuildingPreviewSummary = {
+  buildingId: string
+  buildingName: string
+  storeys: string[]
+  area: { before: number; after: number; delta: number }
+  moved: number
+}
+
+export type SpaceMoveCount = {
+  spaceId: string
+  spaceName: string
+  outCount: number
+  inCount: number
+}
+
+export type PublishBrief = {
+  affectedStoreyCount: number
+  changedSpaces: number
+  movedEquipment: number
+}
+
 export type PreviewSummary = {
-  /** 물리존 넓이 합(㎡). */
+  /** 물리존 넓이 합(㎡) — 전체 사이트. */
   area: { before: number; after: number }
   /** 사람이 그려 만든 물리존(나눈 조각 빼고). */
   created: number
@@ -16,15 +47,29 @@ export type PreviewSummary = {
   merged: number
   /** 룸(OE-SPC-11) 만든 수·지운 수. */
   rooms: { added: number; removed: number }
-  /** 소속이 바뀔 설비 수. */
+  /** 소속이 바뀔 설비 수 — 전체 사이트. */
   moved: number
   /** 사람 지정이 풀릴 설비 수(OE-MAP-01, K17). */
   released: number
+  /** 영향 받는 층 목록(건물·층, OE-WF-08). */
+  affectedStoreys: { buildingId: string; buildingName: string; storeyId: string; storeyName: string }[]
+  /** 층별 면적 변화와 소속 변경 설비 수(OE-WF-08). */
+  byStorey: StoreyPreviewSummary[]
+  /** 건물별 면적 변화와 소속 변경 설비 수(OE-WF-08). */
+  byBuilding: BuildingPreviewSummary[]
+  /** 물리존별 나가는 설비 수·들어오는 설비 수(OE-WF-08). */
+  bySpace: SpaceMoveCount[]
 }
 
 export type SpaceMove = { equipmentId: string; fromSpaceId: string | null; toSpaceId: string | null }
 
-export function previewSummary(before: Model, now: Model, moves: readonly SpaceMove[], released: number): PreviewSummary {
+export function previewSummary(
+  before: Model,
+  now: Model,
+  moves: readonly SpaceMove[],
+  released: number,
+  dirtyStoreyIds: Iterable<string> = [],
+): PreviewSummary {
   const spacesOf = (m: Model) => new Map(m.storeys.flatMap((s) => s.spaces).map((sp) => [sp.id, sp]))
   const was = spacesOf(before)
   const is = spacesOf(now)
@@ -35,6 +80,100 @@ export function previewSummary(before: Model, now: Model, moves: readonly SpaceM
   const roomsWas = roomsOf(before)
   const roomsIs = roomsOf(now)
   const sum = (xs: Iterable<{ areaM2: number }>) => [...xs].reduce((n, sp) => n + sp.areaM2, 0)
+  const validMoves = moves.filter((m) => m.fromSpaceId !== m.toSpaceId)
+
+  // 설비·물리존이 속한 층을 찾는다. 설비 하나는 한 층에만 속하므로 층별 합 = 건물 합 = 전체 사이트 합이다(OE-WF-08).
+  const equipStorey = new Map<string, string>()
+  const spaceStorey = new Map<string, string>()
+  const spaceName = new Map<string, string>()
+  for (const m of [before, now]) {
+    for (const st of m.storeys) {
+      for (const eq of st.equipment) equipStorey.set(eq.id, st.id)
+      for (const sp of st.spaces) {
+        spaceStorey.set(sp.id, st.id)
+        spaceName.set(sp.id, sp.longName || sp.name)
+      }
+    }
+  }
+  const movedByStorey = new Map<string, number>()
+  const spaceCounts = new Map<string, { outCount: number; inCount: number }>()
+  for (const mv of validMoves) {
+    const stId = equipStorey.get(mv.equipmentId) ?? (mv.toSpaceId ? spaceStorey.get(mv.toSpaceId) : undefined) ?? (mv.fromSpaceId ? spaceStorey.get(mv.fromSpaceId) : undefined)
+    if (stId) movedByStorey.set(stId, (movedByStorey.get(stId) ?? 0) + 1)
+    if (mv.fromSpaceId) {
+      const cur = spaceCounts.get(mv.fromSpaceId) ?? { outCount: 0, inCount: 0 }
+      cur.outCount++
+      spaceCounts.set(mv.fromSpaceId, cur)
+    }
+    if (mv.toSpaceId) {
+      const cur = spaceCounts.get(mv.toSpaceId) ?? { outCount: 0, inCount: 0 }
+      cur.inCount++
+      spaceCounts.set(mv.toSpaceId, cur)
+    }
+  }
+
+  const dirtySet = new Set(dirtyStoreyIds)
+  const beforeStoreys = new Map(before.storeys.map((s) => [s.id, s]))
+  const buildingId = now.buildingId || before.buildingId || 'building'
+  const buildingName = now.buildingName || before.buildingName || '(건물)'
+  const byStorey: StoreyPreviewSummary[] = now.storeys.map((st) => {
+    const prev = beforeStoreys.get(st.id)
+    const beforeArea = sum(prev?.spaces ?? [])
+    const afterArea = sum(st.spaces)
+    const delta = afterArea - beforeArea
+    const prevSpaceIds = new Set((prev?.spaces ?? []).map((sp) => sp.id))
+    const nowSpaceIds = new Set(st.spaces.map((sp) => sp.id))
+    const spaceChanged =
+      st.spaces.some((sp) => !prevSpaceIds.has(sp.id)) ||
+      (prev?.spaces ?? []).some((sp) => !nowSpaceIds.has(sp.id)) ||
+      Math.abs(delta) > 1e-6
+    const prevRoomIds = new Set((prev?.rooms ?? []).map((r) => r.id))
+    const nowRoomIds = new Set((st.rooms ?? []).map((r) => r.id))
+    const roomChanged =
+      (st.rooms ?? []).some((r) => !prevRoomIds.has(r.id)) ||
+      (prev?.rooms ?? []).some((r) => !nowRoomIds.has(r.id))
+    const stMoved = movedByStorey.get(st.id) ?? 0
+    const affected = dirtySet.has(st.id) || spaceChanged || roomChanged || stMoved > 0
+    return {
+      buildingId,
+      buildingName,
+      storeyId: st.id,
+      storeyName: st.name,
+      affected,
+      area: { before: beforeArea, after: afterArea, delta },
+      moved: stMoved,
+    }
+  })
+
+  const affectedStoreys = byStorey
+    .filter((st) => st.affected)
+    .map(({ buildingId: bId, buildingName: bName, storeyId, storeyName }) => ({ buildingId: bId, buildingName: bName, storeyId, storeyName }))
+
+  const byBuildingMap = new Map<string, BuildingPreviewSummary>()
+  for (const st of byStorey) {
+    const b = byBuildingMap.get(st.buildingId) ?? {
+      buildingId: st.buildingId,
+      buildingName: st.buildingName,
+      storeys: [],
+      area: { before: 0, after: 0, delta: 0 },
+      moved: 0,
+    }
+    if (st.affected) b.storeys.push(st.storeyName)
+    b.area.before += st.area.before
+    b.area.after += st.area.after
+    b.area.delta = b.area.after - b.area.before
+    b.moved += st.moved
+    byBuildingMap.set(st.buildingId, b)
+  }
+  const byBuilding = [...byBuildingMap.values()]
+
+  const bySpace: SpaceMoveCount[] = [...spaceCounts.entries()].map(([spaceId, c]) => ({
+    spaceId,
+    spaceName: spaceName.get(spaceId) ?? spaceId,
+    outCount: c.outCount,
+    inCount: c.inCount,
+  }))
+
   return {
     area: { before: sum(was.values()), after: sum(is.values()) },
     created: added.filter((sp) => !sp.splitFrom).length,
@@ -42,8 +181,21 @@ export function previewSummary(before: Model, now: Model, moves: readonly SpaceM
     removed: gone.filter((id) => !mergedIds.has(id)).length,
     merged: gone.filter((id) => mergedIds.has(id)).length,
     rooms: { added: [...roomsIs].filter((id) => !roomsWas.has(id)).length, removed: [...roomsWas].filter((id) => !roomsIs.has(id)).length },
-    moved: moves.filter((m) => m.fromSpaceId !== m.toSpaceId).length,
+    moved: validMoves.length,
     released,
+    affectedStoreys,
+    byStorey,
+    byBuilding,
+    bySpace,
+  }
+}
+
+/** 반영 확인 팝업의 3가지 요약 수치(OE-WF-12). 미리보기 요약에서 합산한다. */
+export function publishBrief(s: PreviewSummary): PublishBrief {
+  return {
+    affectedStoreyCount: s.affectedStoreys.length,
+    changedSpaces: s.created + s.removed + s.split + s.merged,
+    movedEquipment: s.moved,
   }
 }
 

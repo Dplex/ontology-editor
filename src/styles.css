@@ -2585,18 +2585,10 @@ th {
   font-size: 0.85rem;
 }
 
-/* 편집 막대의 되돌리기. 마지막 편집을 한 줄로 옆에 둔다. */
+/* 편집 막대의 단추들. 마지막 편집 이름은 하단 상태줄(StatusBar.vue)에 있다. */
 .edit-bar > * {
   flex: none;
   white-space: nowrap;
-}
-
-/* 남는 폭을 다 쓰고, 넘치면 자른다. 버튼 줄이 두 줄로 꺾이지 않게 이것만 줄어든다. */
-.edit-bar .last-edit {
-  flex: 1 1 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .edit-bar .keys-help {

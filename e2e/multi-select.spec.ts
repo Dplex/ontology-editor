@@ -79,7 +79,7 @@ test('Ctrl+클릭으로 둘을 고르면 방향키로 같이 옮기고, Delete �
   await keys(page, 'Escape')
   await expect(page.locator('.group-picked')).toHaveCount(0)
 
-  // 같이 지우기 → 되돌리기 한 번에 둘 다. 되돌린 설비는 3D 에 다시 그려지지 않아(#715 전부터) 3D 로 고르는 구간을 앞에 둔다.
+  // 같이 지우기 → 되돌리기 한 번에 둘 다. 되돌린 뒤에도 3D 형상이 다시 그려져 3D 에서 Ctrl+클릭으로 고를 수 있다(#737).
   await pickEquipment(page, 'AT-101-01')
   await ctrlPick(page, 'AT-101-02')
   await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
@@ -90,6 +90,9 @@ test('Ctrl+클릭으로 둘을 고르면 방향키로 같이 옮기고, Delete �
   await keys(page, 'Control+z')
   await gone(page, 'AT-101-01').toBe(1)
   await gone(page, 'AT-101-02').toBe(1)
+  await pickEquipment(page, 'AT-101-01')
+  await ctrlPick(page, 'AT-101-02')
+  await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
   expect(errors).toEqual([])
 })
 

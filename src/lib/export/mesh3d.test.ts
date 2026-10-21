@@ -7,9 +7,14 @@ import { importIfcWithMeshes, type MeshMap } from '../ifc/import'
 import { BoxGeometry, type Mesh, type Object3D } from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { toScene } from '../viewer'
-import { addWall, moveOpening, moveWall, setFlowDirection, setWallExternal, setWallLoadBearing } from '../edit'
+import { addWall, moveEquipment, moveOpening, moveWall, setFlowDirection, setWallExternal, setWallLoadBearing } from '../edit'
 import type { Model, Wall } from '../model'
+import { modelToGeoJSON } from './geojson'
 import { modelToScene, sceneToGLB, sceneToOBJ } from './mesh3d'
+import { check3D, read3D } from './read-3d'
+import { readGeoJSON } from './read-export'
+import { readOntologyTTL } from './read-ttl'
+import { modelToTTL } from './ttl'
 
 let model: Model
 let meshes: MeshMap
@@ -148,6 +153,23 @@ describe('3D 내보내기', () => {
     const names = new Set<string>()
     modelToScene(model, meshes).traverse((o) => names.add(o.name))
     for (const e of lost) expect(names).not.toContain(e.id)
+  })
+
+  it('에디터에서 놓은 설비의 좌표가 DT 3D View 와 GeoJSON 의 같은 자리에 보인다 [OE-INT-04#1]', async () => {
+    const edited = structuredClone(model)
+    const sensor = edited.storeys.flatMap((s) => s.equipment).find((e) => !e.position && !meshes.has(e.id))!
+    expect(moveEquipment(edited, sensor.id, [3.5, 4.2, 1.5])).toBeTruthy()
+    const glb = await read3D('edited.glb', await sceneToGLB(modelToScene(edited, meshes, { pristine: model })))
+    const placed = glb.parts.find((p) => p.id === sensor.id)!
+    const center = placed.min.map((v, i) => +((v + placed.max[i]) / 2).toFixed(4))
+    expect(center).toEqual([3.5, 4.2, 1.5])
+    const floors = modelToGeoJSON(edited).map((f) => readGeoJSON(f.fileName, JSON.stringify(f.collection)))
+    expect(check3D(glb.parts, floors, readOntologyTTL(modelToTTL(edited)))).toEqual({
+      unknown: [],
+      missing: [],
+      misplaced: [],
+      kindMismatch: [],
+    })
   })
 
   it('OBJ 와 GLB 가 나온다', async () => {
