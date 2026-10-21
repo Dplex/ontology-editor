@@ -3,7 +3,7 @@
 //   GET  /__laya        → { enabled, reason? }   편집 화면이 후보 칸을 보일지 정한다
 //   POST /__laya/kinds  → serve.py 의 POST /kinds 를 그대로   { states: [단서 글…] } → { results, ms }
 //
-// 넘기는 길은 이 둘뿐이다(아무 경로나 133 으로 열어 주지 않는다). 주소는 LAYA_URL(예: http://10.251.31.133:8096). 없으면 꺼져 있고,
+// 넘기는 길은 이 둘뿐이다(아무 경로나 133 으로 열어 주지 않는다). 주소는 LAYA_URL(예: http://10.251.30.209:8096). 없으면 꺼져 있고,
 // 서버가 안 받으면 enabled:false 와 이유를 준다 — 화면은 후보 칸을 감추고 지금의 후보(kind-suggest.ts)만 보인다.
 //
 // fetch 가 아니라 node:http 로 부른다. 사내 PC 는 NODE_USE_ENV_PROXY=1 이라 fetch 가 사내 프록시로 나가는데, Node 가 NO_PROXY 의
