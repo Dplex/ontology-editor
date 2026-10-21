@@ -11,11 +11,11 @@
 <meta name="theme-color" content="#f1f4f9">
 <script>
   // 테마는 그리기 전에 정한다(늦으면 라이트로 한 번 그렸다가 다크로 튄다). 에디터와 같은 열쇠(oe-theme)를 쓰므로 에디터에서 고른
-  // 테마로 열린다. 고른 적이 없으면 시스템 설정을 따른다.
+  // 테마로 열린다. 고른 적이 없으면 다크로 연다.
   (function () {
     var t = null
     try { t = localStorage.getItem('oe-theme') } catch (e) {}
-    if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    if (t !== 'light') t = 'dark'
     document.documentElement.setAttribute('data-theme', t)
   })()
 </script>
@@ -51,7 +51,7 @@
     --on-accent: #fff;
     --counter: var(--pin);
   }
-  /* 다크: 에디터와 같은 열쇠(localStorage oe-theme)를 따른다. 고른 적이 없으면 시스템 설정을 따른다(머리의 스크립트).
+  /* 다크: 에디터와 같은 열쇠(localStorage oe-theme)를 따른다. 고른 적이 없으면 다크다(머리의 스크립트).
      무채색으로 둔다. 원리 그림(anatomy kit)의 다크 판이 #131313 이라, 표면을 같은 색으로 두면 그림이 상자로 떠 보이지 않는다. */
   :root[data-theme="dark"] {
     color-scheme: dark;
