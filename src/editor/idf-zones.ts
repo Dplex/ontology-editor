@@ -1,6 +1,7 @@
-import { computed, ref, shallowRef, watch } from 'vue'
+import { computed, ref, shallowRef, triggerRef, watch } from 'vue'
 import { hvacZonesOf } from '../lib/hvac-zone'
 import { attachIdf, type IdfAttachReport } from '../lib/idf/attach'
+import { confirmState, setConfirmed } from '../lib/idf/confirm'
 import type { IdfPlacement } from '../lib/idf/place'
 import { ZONE_SERVE_COLOR, ZONE_SERVE_LABEL, zoneDevices, type ZoneServe, zoneServes, zonesOverSpaces } from '../lib/idf/zone-view'
 import type { Model } from '../lib/model'
@@ -36,13 +37,36 @@ export function placeIdf(placement: IdfPlacement | null) {
   setIdfPlacement(placement)
   const { name, idf } = idfSource
   const strip = (m: Model): Model => ({ ...m, hvac: undefined, warnings: m.warnings.filter((w) => !w.startsWith(`[${name}]`)) })
-  const options = placement ? { placement } : {}
+  // 다시 얹어도 사람이 확인한 존↔방 짝은 남는다(lib/idf/confirm.ts).
+  const options = { ...(placement ? { placement } : {}), confirmed: model.value.hvac?.confirmed }
   const done = attachIdf(strip(model.value), idf, name, options)
   if (pristine) setPristine(attachIdf(strip(pristine), idf, name, options).model)
   idfReport.value = done.report
   model.value = done.model
   sceneVersion.value++
   note(placement ? `IDF 를 x ${placement.dx}m · y ${placement.dy}m · ${placement.rotation}° 로 다시 얹었습니다` : 'IDF 놓는 자리를 겹친 넓이로 다시 찾았습니다')
+}
+
+/**
+ * 존↔물리존 매칭 확인(OE-ZON-07, D13). IDF 공조존의 든 방은 겹친 넓이로 계산한 초안이라 확인한 존만 TTL·GeoJSON 에 나간다.
+ * 존 하나나 `null`(이 모델의 모든 존)을 확인하거나 풀어 바뀐 짝 수를 돌려준다. 연 때 모델(pristine)에도 같이 해서, 편집을 버려도 확인은 남는다.
+ */
+export function confirmZoneMatches(zoneId: string | null, on: boolean): number {
+  const m = model.value
+  if (!m?.hvac) return 0
+  let n = 0
+  for (const target of [m, pristine]) {
+    if (!target?.hvac) continue
+    let changed = 0
+    for (const z of target.hvac.zones) if (zoneId === null || z.id === zoneId) changed += setConfirmed(target, z.id, on)
+    if (target === m) n = changed
+  }
+  if (n) {
+    triggerRef(model)
+    sceneVersion.value++
+    note(`존↔물리존 ${n}쌍을 ${on ? '확인했습니다. 온톨로지에 나갑니다' : '확인에서 풀었습니다. 온톨로지에 나가지 않습니다'}`)
+  }
+  return n
 }
 export const showZones = ref(true)
 /**
@@ -138,6 +162,8 @@ export const zoneRows = computed(() => {
       }),
       // 든 방(절반 넘게 덮음) 말고 겹친 방. 방이 존보다 커서 존 여럿이 나누는 것이 여기 있다. 몫은 방 바닥 중 이 존의 몫이다.
       overlaps: (z.overlaps ?? []).filter((o) => !z.spaceIds.includes(o.spaceId)).map((o) => `${spaceNameOf(o.spaceId)} ${Math.round(o.spaceShare * 100)}%`),
+      // 확인한 방 수 / 든 방 수. 확인한 방만 TTL·GeoJSON 에 나간다(OE-ZON-07).
+      match: model.value ? confirmState(model.value, z) : { confirmed: 0, total: 0 },
       airflow: z.idfAirflowCMH ?? null,
       serve: zoneServe.value.get(z.id) ?? 'none',
       terminals: terminals.map(label),
