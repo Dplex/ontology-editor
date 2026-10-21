@@ -8,11 +8,19 @@
 - 화면 그림(`screens/`)은 손으로 찍지 않는다. `scripts/guide/capture.mjs` 가 실제 에디터를 조작하며 찍고, 번호 핀 자리와 핀마다의 확대 컷도 그때 잰다. 그래서 UI 가 바뀌면 스크립트만 다시 돌린다.
 - 원리 그림(`fig/`)은 `scripts/guide/figures/<이름>/build.mjs` 가 만든다. 판정 로직은 에디터 코드를 옮긴 `model.mjs` 에 있고, 그 코드가 바뀌면 같이 고친다.
 
-| 그림 | 옮긴 코드 | 숫자의 출처 |
-|---|---|---|
-| Fig 0 등급(`grade`) | — | `docs/bim-to-dt-ontology.md` 3.5, 가이드 3단계 패널의 실측값 |
-| Fig 1 소속 판정(`assign`) | `src/lib/mapping.ts` 의 `locateHow` | `SNAP`(0.05 m), `ASSIGN_SNAP_RANGE`(0~1 m) |
-| Fig 2 흐름 방향(`flow`) | `src/lib/topology.ts` 의 추적 | `docs/bim-to-dt-ontology.md` 3.4 |
+| 그림 | 들어가는 단계 | 옮긴 코드 · 원리 | 숫자의 출처 |
+|---|---|---|---|
+| `grade` (등급 사다리) | 0단계 (`#s0`) | — | `docs/bim-to-dt-ontology.md` 3.5, 가이드 3단계 패널의 실측값 |
+| `merge` (건축·설비 정합 지그) | 1단계 (`#s1`) | 층 표고(`Elevation`) · 원점 오프셋 정합 | Duplex 건축(19개 공간) + HVAC(40대 설비) |
+| `footprint` (바닥 외곽선 검수대) | 4단계 (`#s4`) | 외곽선 유무에 따른 3D·소속 판정과 경고 분류(`A·B·C·X`) | `R2` 요구사항, 외곽선 없는 물리존 2개 |
+| `viewport` (3D ↔ 2D 단면 슬라이서) | 5단계 (`#s5`) | 층 선택 및 `Shift+V` 수평 단면 직교 투영 | Duplex `Level 1`(0.0 m) · `Level 2`(+3.1 m) |
+| `provenance` (4채널 출처 계전기) | 6단계 (`#s6`) | `사람 > BIM > 계산·사전` 속성 채택 우선순위 | 보일러(`#557516`)의 종류·계통·소속 출처 |
+| `assign` (설비 소속 판정) | 7단계 (`#s7`) | `src/lib/mapping.ts` 의 `locateHow` | `SNAP`(0.05 m), `ASSIGN_SNAP_RANGE`(0~1 m) |
+| `dual-export` (TTL·GeoJSON 커플러) | 9단계 (`#s9`) | 기하(GeoJSON)와 의미(Brick TTL)의 단일 ID 결합 | `src/lib/export/ttl.ts`, `geojson.ts` |
+| `flow` (흐름 방향 추적) | 10단계 (`#s10`) | `src/lib/topology.ts` 의 추적 (`trace`, `deviceFlows`) | `docs/bim-to-dt-ontology.md` 3.4 |
+| `validator` (5종 정합성 게이트) | 15단계 (`#s15`) | `viewer.html` 의 5가지 교차 정합성 검사 규칙 | Duplex 엔티티 100개 · Feature 679개 · 위반 0건 |
+| `versioning` (4단계 저장·버전 스태커) | 저장 비교 (`#saves`) | 자동 저장 · 층별 임시 저장(`__drafts`) · 구축(`v1`) · 반영(`v2`) | `src/server/floor-state.ts`, `layouts.ts` |
+| `space-hierarchy` (공간·공조 4계층 분해) | 용어 사전 (`#terms`) | 물리존(`IfcSpace`) · 룸(분할) · 공조존(`IDF`) · 계통·포트 | `docs/ontology.md` |
 
 ## 화면 그림 다시 찍기
 
@@ -32,8 +40,16 @@ node scripts/guide/capture.mjs
 
 ```bash
 node scripts/guide/figures/grade/build.mjs
+node scripts/guide/figures/merge/build.mjs
+node scripts/guide/figures/footprint/build.mjs
+node scripts/guide/figures/viewport/build.mjs
+node scripts/guide/figures/provenance/build.mjs
 node scripts/guide/figures/assign/build.mjs
+node scripts/guide/figures/dual-export/build.mjs
 node scripts/guide/figures/flow/build.mjs --audit
+node scripts/guide/figures/validator/build.mjs
+node scripts/guide/figures/versioning/build.mjs
+node scripts/guide/figures/space-hierarchy/build.mjs
 ```
 
 - 그림 kit 은 [anatomy](https://github.com/wheresryan22/anatomy) 의 파일을 `scripts/guide/anatomy/` 에 원본 그대로 두었다(그 README).

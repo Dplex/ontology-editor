@@ -1,0 +1,1267 @@
+<!doctype html>
+<html lang="ko" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ontology Lab : The Tower — 3D BIM-to-DT Simulation</title>
+<style>
+  :root {
+    --bg: #0b0c0e;
+    --bg-grad: radial-gradient(circle at 50% 28%, #1a1d24 0%, #0b0c0e 74%);
+    --card: rgba(18, 20, 25, 0.84);
+    --card-solid: #14161b;
+    --line: rgba(255, 255, 255, 0.12);
+    --line-strong: rgba(255, 255, 255, 0.28);
+    --fg: #f3f4f6;
+    --muted: #9ca3af;
+    --faint: #6b7280;
+    --accent: #38bdf8;
+    --emerald: #34d399;
+    --amber: #fbbf24;
+    --danger: #f87171;
+    --serif: Georgia, "Times New Roman", "Noto Serif KR", serif;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    background: transparent;
+    color: var(--fg);
+    font: 13px/1.5 var(--sans);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+  }
+  .ms-shell {
+    position: relative;
+    width: 100%;
+    height: 590px;
+    background: var(--bg-grad);
+    border: 1px solid var(--line-strong);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 18px 42px rgba(0,0,0,0.55);
+  }
+  canvas.ms-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+    cursor: grab;
+  }
+  canvas.ms-canvas:active {
+    cursor: grabbing;
+  }
+
+  /* Editorial Top-Left Title & Live Big Number (Airsup Machine-Skill layout) */
+  .ms-header {
+    position: absolute;
+    top: 16px;
+    left: 18px;
+    z-index: 10;
+    pointer-events: none;
+    max-width: 390px;
+  }
+  .ms-eyebrow {
+    font: 600 10.5px/1.2 var(--mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .ms-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--emerald);
+    box-shadow: 0 0 8px var(--emerald);
+  }
+  .ms-dot.is-fault {
+    background: var(--danger);
+    box-shadow: 0 0 10px var(--danger);
+    animation: msPulse 0.9s infinite alternate;
+  }
+  @keyframes msPulse { to { opacity: 0.35; transform: scale(1.25); } }
+  .ms-title {
+    margin: 4px 0 2px;
+    font: 400 24px/1.15 var(--serif);
+    letter-spacing: -0.02em;
+    color: var(--fg);
+  }
+  .ms-sub {
+    margin: 0;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
+  /* Top-Right Solver Telemetry Card */
+  .ms-telemetry {
+    position: absolute;
+    top: 16px;
+    right: 18px;
+    z-index: 10;
+    background: var(--card);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 14px;
+    min-width: 245px;
+  }
+  .ms-kpi-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 6px;
+    margin-bottom: 7px;
+  }
+  .ms-kpi-big {
+    font: 600 21px/1 var(--mono);
+    letter-spacing: -0.03em;
+    color: var(--fg);
+  }
+  .ms-kpi-unit {
+    font: 500 11px/1 var(--mono);
+    color: var(--muted);
+  }
+  .ms-metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px 12px;
+    font: 500 11px/1.35 var(--mono);
+  }
+  .ms-metric-lbl { color: var(--muted); font-size: 10px; }
+  .ms-metric-val { color: var(--fg); font-weight: 600; }
+
+  /* Left Floor / Grade Stack (airsup.ai/lab Tower directory) */
+  .ms-floors {
+    position: absolute;
+    left: 18px;
+    top: 108px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 196px;
+  }
+  .ms-floor-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--card);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    color: var(--muted);
+    font: 500 11.5px/1.2 var(--sans);
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.16s ease;
+  }
+  .ms-floor-btn:hover {
+    border-color: var(--line-strong);
+    color: var(--fg);
+    transform: translateX(2px);
+  }
+  .ms-floor-btn[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+    font-weight: 600;
+  }
+  .ms-floor-code {
+    font: 600 10px/1 var(--mono);
+    opacity: 0.75;
+  }
+
+  /* Right Part Inspector & Live Ontology Triple Box */
+  .ms-inspector {
+    position: absolute;
+    right: 18px;
+    top: 146px;
+    z-index: 10;
+    width: 265px;
+    background: var(--card);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 11px 13px;
+    transition: border-color 0.2s ease;
+  }
+  .ms-insp-tag {
+    font: 600 10px/1 var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    margin-bottom: 3px;
+  }
+  .ms-insp-name {
+    font: 700 13.5px/1.25 var(--sans);
+    color: var(--fg);
+    margin-bottom: 4px;
+  }
+  .ms-insp-desc {
+    font-size: 11.5px;
+    color: var(--muted);
+    margin: 0 0 8px;
+    line-height: 1.45;
+  }
+  .ms-insp-code {
+    margin: 0;
+    padding: 7px 8px;
+    background: rgba(0,0,0,0.42);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font: 500 10.5px/1.48 var(--mono);
+    color: var(--fg);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  /* 3D Floating Pinned Labels */
+  .ms-labels {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+    overflow: hidden;
+  }
+  .ms-pin-label {
+    position: absolute;
+    transform: translate(-50%, -100%);
+    padding: 3px 7px;
+    border-radius: 5px;
+    background: var(--card);
+    border: 1px solid var(--line-strong);
+    font: 600 10px/1.25 var(--mono);
+    color: var(--fg);
+    white-space: nowrap;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    transition: opacity 0.18s ease;
+  }
+  .ms-pin-label::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -5px;
+    transform: translateX(-50%);
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid var(--line-strong);
+  }
+  .ms-pin-label.is-alert {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
+
+  /* Bottom Control Dock (Cut in half · Explode · X-Ray · Break · Equations + Sliders) */
+  .ms-dock {
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    bottom: 14px;
+    z-index: 10;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 14px;
+    padding: 9px 13px;
+    background: var(--card);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border: 1px solid var(--line);
+    border-radius: 11px;
+  }
+  .ms-modes {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px;
+  }
+  .ms-btn {
+    font: 600 11.5px/1 var(--sans);
+    padding: 7px 11px;
+    border-radius: 7px;
+    border: 1px solid var(--line-strong);
+    background: var(--card-solid);
+    color: var(--fg);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all 0.15s ease;
+  }
+  .ms-btn:hover {
+    border-color: var(--fg);
+  }
+  .ms-btn[aria-pressed="true"] {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+  .ms-btn.ms-btn-break[aria-pressed="true"] {
+    background: var(--danger);
+    color: #fff;
+    border-color: var(--danger);
+  }
+  .ms-sliders {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    font: 500 11px/1 var(--mono);
+    color: var(--muted);
+  }
+  .ms-slider-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .ms-slider-group input[type="range"] {
+    width: 82px;
+    accent-color: var(--fg);
+    cursor: pointer;
+  }
+
+  /* Scale bar */
+  .ms-scalebar {
+    position: absolute;
+    left: 22px;
+    bottom: 68px;
+    z-index: 8;
+    pointer-events: none;
+    font: 500 10px/1 var(--mono);
+    color: var(--muted);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .ms-scale-line {
+    width: 84px;
+    height: 4px;
+    border-left: 1.5px solid var(--muted);
+    border-right: 1.5px solid var(--muted);
+    border-bottom: 1.5px solid var(--muted);
+  }
+
+  /* "How it is computed" Equation Drawer */
+  .ms-eq-drawer {
+    position: absolute;
+    left: 18px;
+    right: 18px;
+    bottom: 66px;
+    z-index: 20;
+    background: var(--card-solid);
+    border: 1px solid var(--line-strong);
+    border-radius: 12px;
+    padding: 14px 16px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.35);
+    display: none;
+  }
+  .ms-eq-drawer.is-open { display: block; }
+  .ms-eq-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-top: 8px;
+  }
+  .ms-eq-card {
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--card);
+  }
+  .ms-eq-card h4 {
+    margin: 0 0 4px;
+    font: 600 11.5px/1.3 var(--sans);
+    color: var(--fg);
+  }
+  .ms-eq-math {
+    font: 600 11px/1.4 var(--mono);
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .ms-eq-card p {
+    margin: 0;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  @media (max-width: 760px) {
+    .ms-shell { height: 640px; }
+    .ms-inspector { display: none; }
+    .ms-eq-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="ms-shell" id="shell">
+  <canvas class="ms-canvas" id="gl"></canvas>
+
+  <!-- Editorial Header -->
+  <div class="ms-header">
+    <div class="ms-eyebrow">
+      <span class="ms-dot" id="statusDot"></span>
+      <span>ONTOLOGY LAB · THE TOWER · 6 FLOORS · 512 SOLID PARTS</span>
+    </div>
+    <h1 class="ms-title">BIM-to-DT Spatial &amp; MEP Twin</h1>
+    <p class="ms-sub">마우스로 3D 타워를 회전·확대하고, 단면 절개(Cut in half)·층간 분해(Explode)·투시(X-Ray)·설비 고장(Break)을 직접 작동시켜 보세요.</p>
+  </div>
+
+  <!-- Top-Right Real-Time Physics Solver Readout -->
+  <div class="ms-telemetry">
+    <div class="ms-kpi-row">
+      <div>
+        <div class="ms-metric-lbl" id="kpiLabel">TOTAL COOLING &amp; AIRFLOW</div>
+        <div class="ms-kpi-big" id="kpiMain">4,280 <span class="ms-kpi-unit">CMH</span></div>
+      </div>
+      <div style="text-align:right">
+        <div class="ms-metric-lbl">REACHED GRADE</div>
+        <div class="ms-kpi-big" id="kpiGrade" style="color:var(--emerald)">G5 <span class="ms-kpi-unit">완성</span></div>
+      </div>
+    </div>
+    <div class="ms-metrics">
+      <div><div class="ms-metric-lbl">SUPPLY AIR TEMP</div><div class="ms-metric-val" id="mSupTemp">12.4 °C</div></div>
+      <div><div class="ms-metric-lbl">ROOM 204B TEMP</div><div class="ms-metric-val" id="mZoneTemp">22.4 °C</div></div>
+      <div><div class="ms-metric-lbl">DUCT STATIC ΔP</div><div class="ms-metric-val" id="mStaticP">310 Pa</div></div>
+      <div><div class="ms-metric-lbl">ONTOLOGY TRIPLES</div><div class="ms-metric-val" id="mTriples">1,420 개</div></div>
+    </div>
+  </div>
+
+  <!-- Left Floor / Grade Selector Stack -->
+  <div class="ms-floors" role="group" aria-label="타워 층 및 등급 선택">
+    <button type="button" class="ms-floor-btn" data-floor="all" aria-pressed="true">
+      <span>Tower · 전체 조감도</span><span class="ms-floor-code">G0–G5</span>
+    </button>
+    <button type="button" class="ms-floor-btn" data-floor="4" aria-pressed="false">
+      <span>05 · RF 루프탑·BAS</span><span class="ms-floor-code">Grade 5</span>
+    </button>
+    <button type="button" class="ms-floor-btn" data-floor="3" aria-pressed="false">
+      <span>04 · 3F 덕트·포트망</span><span class="ms-floor-code">Grade 3·4</span>
+    </button>
+    <button type="button" class="ms-floor-btn" data-floor="2" aria-pressed="false">
+      <span>03 · 2F 룸·설비배정</span><span class="ms-floor-code">Grade 2</span>
+    </button>
+    <button type="button" class="ms-floor-btn" data-floor="1" aria-pressed="false">
+      <span>02 · 1F 공간 골격</span><span class="ms-floor-code">Grade 0</span>
+    </button>
+    <button type="button" class="ms-floor-btn" data-floor="0" aria-pressed="false">
+      <span>01 · B1F 열원 플랜트</span><span class="ms-floor-code">Grade 1</span>
+    </button>
+  </div>
+
+  <!-- Right Part Hover / Selection Inspector -->
+  <div class="ms-inspector" id="inspector">
+    <div class="ms-insp-tag" id="inspTag">IFC4 + BRICK SCHEMA + GEOJSON</div>
+    <div class="ms-insp-name" id="inspName">AHU-01 · 루프탑 외조기 (Rooftop AHU)</div>
+    <p class="ms-insp-desc" id="inspDesc">냉수 코일과 급·환기 원심 송풍기로 3F·2F 공조존에 냉풍을 공급합니다. 포트 플랜지(SOURCE)가 수직 입상 덕트와 연결되어 하류 흐름(brick:feeds)의 시작점이 됩니다.</p>
+    <pre class="ms-insp-code" id="inspCode">ex:AHU_01 a brick:AHU ;
+  brick:hasLocation ex:Roof_Deck ;
+  brick:feeds ex:VAV_301, ex:VAV_302, ex:VAV_303 .
+// GeoJSON id: "AHU_01" · Grade 3–5</pre>
+  </div>
+
+  <!-- 3D Floating Pinned Labels -->
+  <div class="ms-labels" id="labelLayer"></div>
+
+  <!-- Architectural Scale Bar -->
+  <div class="ms-scalebar">
+    <span>SCALE 1:100 · 5.0 m</span>
+    <div class="ms-scale-line"></div>
+  </div>
+
+  <!-- "How it is computed" Equation Drawer -->
+  <div class="ms-eq-drawer" id="eqDrawer">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <strong style="font-size:13px">작동 원리 및 실시간 물리·기하 수식 (How it is computed)</strong>
+      <button type="button" class="ms-btn" id="closeEqBtn" style="padding:4px 9px">닫기 ✕</button>
+    </div>
+    <div class="ms-eq-grid">
+      <div class="ms-eq-card">
+        <h4>1. 공간·설비 포함 판정 (G0·G2)</h4>
+        <div class="ms-eq-math">pip(x,y,Ω) ∨ d((x,y),∂Ω) ≤ ε</div>
+        <p>설비 배치점의 수평 좌표 (x, y)가 물리존·룸 폴리곤 Ω 내부에 있거나 허용 거리 ε(0~1 m) 이내이면 <code>brick:hasLocation</code>을 생성합니다.</p>
+      </div>
+      <div class="ms-eq-card">
+        <h4>2. 포트 방향 그래프 전파 (G3·G4)</h4>
+        <div class="ms-eq-math">u ─[SOURCE→SINK]*→ v ⇒ feeds</div>
+        <p>볼트 플랜지(IfcDistributionPort)는 방향이 있어 <code>brick:feeds</code>를 전파하고, 민무늬 슬리브(단순 접촉)에서는 추적을 멈춥니다.</p>
+      </div>
+      <div class="ms-eq-card">
+        <h4>3. 덕트 압력·풍량 밸런스</h4>
+        <div class="ms-eq-math">ΔP = f·(L/D)·(ρv²/2), Q = ΣQᵢ</div>
+        <p>송풍기 회전수(RPM)와 VAV 댐퍼 개도에 따라 정압(Pa)과 급기 풍량(CMH)이 계산되며, 고장(Break) 시 정압이 급등합니다.</p>
+      </div>
+      <div class="ms-eq-card">
+        <h4>4. 공조존 열평형 방정식 (G5)</h4>
+        <div class="ms-eq-math">C·dT₂/dt = ṁ·cₚ(Tₛ - T₂) + Q_load</div>
+        <p>IDF 공조존과 BAS 온도 센서가 결합되면 급기량 감소나 슬리브 단절 시 실내 온도(T₂) 상승 곡선을 실시간 예측합니다.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom Interactive Mode Dock -->
+  <div class="ms-dock">
+    <div class="ms-modes">
+      <button type="button" class="ms-btn" id="btnCut" aria-pressed="false">◐ Cut in half (단면 절개)</button>
+      <button type="button" class="ms-btn" id="btnExplode" aria-pressed="false">↕ Explode (층간 분해)</button>
+      <button type="button" class="ms-btn" id="btnXray" aria-pressed="false">◌ X-Ray (배관 투시)</button>
+      <button type="button" class="ms-btn ms-btn-break" id="btnBreak" aria-pressed="false">⚡ Break (포트 단절·고장)</button>
+      <button type="button" class="ms-btn" id="btnEq" aria-pressed="false">∑ 원리 수식</button>
+    </div>
+    <div class="ms-sliders">
+      <label class="ms-slider-group">
+        <span>절개 깊이</span>
+        <input type="range" id="rngCut" min="-100" max="100" value="100">
+      </label>
+      <label class="ms-slider-group">
+        <span>분해 간격</span>
+        <input type="range" id="rngExplode" min="0" max="100" value="0">
+      </label>
+      <label class="ms-slider-group">
+        <span>공조 부하</span>
+        <input type="range" id="rngLoad" min="40" max="120" value="85">
+      </label>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import * as THREE from "./three-lab.min.js";
+import { OrbitControls, RoomEnvironment } from "./three-lab.min.js";
+
+const canvas = document.getElementById("gl");
+const shell = document.getElementById("shell");
+const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: "high-performance" });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = isDark ? 1.12 : 1.05;
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.localClippingEnabled = true;
+
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+const camera = new THREE.PerspectiveCamera(36, 1, 0.5, 250);
+camera.position.set(25, 20, 27);
+
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.target.set(0, 7.2, 0);
+controls.maxPolarAngle = Math.PI * 0.49;
+controls.minDistance = 9;
+controls.maxDistance = 65;
+
+// Studio softbox lighting
+const keyLight = new THREE.DirectionalLight(0xfffbf2, isDark ? 2.4 : 2.1);
+keyLight.position.set(18, 32, 22);
+keyLight.castShadow = true;
+keyLight.shadow.mapSize.set(2048, 2048);
+keyLight.shadow.camera.near = 5;
+keyLight.shadow.camera.far = 75;
+const d = 18;
+keyLight.shadow.camera.left = -d;
+keyLight.shadow.camera.right = d;
+keyLight.shadow.camera.top = d;
+keyLight.shadow.camera.bottom = -d;
+keyLight.shadow.bias = -0.0005;
+scene.add(keyLight);
+
+const fillLight = new THREE.DirectionalLight(0xc7d8f8, isDark ? 0.9 : 0.75);
+fillLight.position.set(-22, 16, -14);
+scene.add(fillLight);
+
+const rimLight = new THREE.DirectionalLight(0xfde68a, isDark ? 0.75 : 0.55);
+rimLight.position.set(0, 25, -24);
+scene.add(rimLight);
+
+// Live Cutaway Clipping Plane (sweeps along Z/X to slice the tower and equipment in half)
+const cutPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 20);
+
+// AirsupHQ/machine-skill signature shader hook:
+// Backfaces exposed by the clipping plane are rendered as freshly machined solid section faces with diagonal hatch!
+function makeCuttableMaterial(opts, sectionHex = 0xd9534f) {
+  const mat = new THREE.MeshPhysicalMaterial({
+    ...opts,
+    side: THREE.DoubleSide,
+    clippingPlanes: [cutPlane],
+    clipShadows: true,
+  });
+  const secCol = new THREE.Color(sectionHex);
+  mat.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace(
+      "#include <dithering_fragment>",
+      ["#include <dithering_fragment>",
+      "if (!gl_FrontFacing) {",
+      "  float stripe = step(0.5, fract((gl_FragCoord.x + gl_FragCoord.y) * 0.14));",
+      "  vec3 capCol = mix(vec3(" + secCol.r.toFixed(3) + ", " + secCol.g.toFixed(3) + ", " + secCol.b.toFixed(3) + "), vec3(0.96, 0.88, 0.84), stripe * 0.22);",
+      "  gl_FragColor = vec4(capCol, 1.0);",
+      "}"].join(String.fromCharCode(10))
+    );
+  };
+  return mat;
+}
+
+const MATS = {
+  plinth: makeCuttableMaterial({ color: isDark ? 0x1c1e24 : 0xdeddd6, roughness: 0.78, metalness: 0.08 }, 0x8b8b83),
+  slab: makeCuttableMaterial({ color: isDark ? 0x282c35 : 0xeae9e3, roughness: 0.65, metalness: 0.1, clearcoat: 0.08 }, 0xb45309),
+  wall: makeCuttableMaterial({ color: isDark ? 0x363b47 : 0xf5f5f1, roughness: 0.55, metalness: 0.05 }, 0xc2410c),
+  column: makeCuttableMaterial({ color: isDark ? 0x4b5262 : 0xcfcfc8, roughness: 0.45, metalness: 0.35 }, 0x71717a),
+  steel: makeCuttableMaterial({ color: 0xb8c0cc, roughness: 0.24, metalness: 0.88, clearcoat: 0.2 }, 0xd9480f),
+  darkSteel: makeCuttableMaterial({ color: 0x3b4252, roughness: 0.32, metalness: 0.82 }, 0xe8590c),
+  copper: makeCuttableMaterial({ color: 0xd07a47, roughness: 0.22, metalness: 0.9, clearcoat: 0.25 }, 0xf97316),
+  supplyDuct: makeCuttableMaterial({ color: 0x10b981, roughness: 0.28, metalness: 0.62, clearcoat: 0.3 }, 0x047857),
+  returnDuct: makeCuttableMaterial({ color: 0xf59e0b, roughness: 0.3, metalness: 0.58, clearcoat: 0.25 }, 0xb45309),
+  chillPipe: makeCuttableMaterial({ color: 0x0ea5e9, roughness: 0.22, metalness: 0.78, clearcoat: 0.35 }, 0x0369a1),
+  basCab: makeCuttableMaterial({ color: 0x7c3aed, roughness: 0.3, metalness: 0.68, clearcoat: 0.3 }, 0x5b21b6),
+  zonePlate: makeCuttableMaterial({ color: isDark ? 0x1e3a5f : 0xdbeafe, roughness: 0.45, metalness: 0.15 }, 0x2563eb),
+  roomPlateA: makeCuttableMaterial({ color: isDark ? 0x064e3b : 0xd1fae5, roughness: 0.4, metalness: 0.15 }, 0x059669),
+  roomPlateB: makeCuttableMaterial({ color: isDark ? 0x134e4a : 0xccfbf1, roughness: 0.4, metalness: 0.15 }, 0x0d9488),
+  warnPlate: makeCuttableMaterial({ color: 0xef4444, roughness: 0.3, metalness: 0.35, emissive: 0x7f1d1d, emissiveIntensity: 0.45 }, 0xb91c1c),
+  glass: new THREE.MeshPhysicalMaterial({
+    color: isDark ? 0x93c5fd : 0xe0f2fe,
+    transparent: true,
+    opacity: 0.26,
+    roughness: 0.08,
+    metalness: 0.05,
+    transmission: 0.55,
+    ior: 1.48,
+    clippingPlanes: [cutPlane],
+  }),
+};
+
+// Track structural meshes for X-Ray mode toggle
+const xrayTargets = [];
+const interactiveParts = [];
+const floorGroups = [];
+const explodeParts = [];
+const spinningRotors = [];
+
+function tagPart(mesh, info) {
+  mesh.userData.info = info;
+  interactiveParts.push(mesh);
+  return mesh;
+}
+
+function addMesh(parent, geo, mat, pos = [0,0,0], rot = [0,0,0], opts = {}) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(...pos);
+  m.rotation.set(...rot);
+  m.castShadow = opts.shadow !== false;
+  m.receiveShadow = opts.shadow !== false;
+  if (opts.xray) xrayTargets.push({ mesh: m, origMat: mat, origOpacity: mat.opacity, origTrans: mat.transparent });
+  if (opts.explodeVec) {
+    m.userData.basePos = m.position.clone();
+    m.userData.explodeVec = new THREE.Vector3(...opts.explodeVec);
+    explodeParts.push(m);
+  }
+  if (opts.info) tagPart(m, opts.info);
+  parent.add(m);
+  return m;
+}
+
+// Studio Turntable Base & Contact Shadow Grid
+const baseGroup = new THREE.Group();
+scene.add(baseGroup);
+addMesh(baseGroup, new THREE.CylinderGeometry(11.6, 12.2, 0.7, 64), MATS.plinth, [0, -0.35, 0]);
+addMesh(baseGroup, new THREE.RingGeometry(10.8, 11.0, 64), MATS.steel, [0, 0.01, 0], [-Math.PI/2, 0, 0], { shadow: false });
+const gridHelper = new THREE.GridHelper(18, 18, isDark ? 0x3f4454 : 0xb5b5ad, isDark ? 0x252830 : 0xd4d4cc);
+gridHelper.position.y = 0.01;
+baseGroup.add(gridHelper);
+
+// Build 5 Tower Floors (y = 0, 3.2, 6.4, 9.6, 12.8)
+const FLOOR_H = 3.2;
+const W = 12.4;
+const D = 9.6;
+
+for (let f = 0; f < 5; f++) {
+  const fg = new THREE.Group();
+  fg.position.y = f * FLOOR_H;
+  fg.userData.baseY = f * FLOOR_H;
+  fg.userData.floorIdx = f;
+  scene.add(fg);
+  floorGroups.push(fg);
+
+  // Structural Floor Slab with riser shaft opening on back-left
+  addMesh(fg, new THREE.BoxGeometry(W, 0.24, D), MATS.slab, [0, 0.12, 0], [0,0,0], {
+    xray: true,
+    info: {
+      tag: `IfcBuildingStorey · Floor ${f === 0 ? "B1F" : f === 4 ? "RF" : f + "F"}`,
+      name: `${f === 0 ? "B1F 열원 기계실 슬래브" : f === 4 ? "RF 루프탑 데크 슬래브" : f + "F 구조 바닥 슬래브 (EL +" + (f * 3.2).toFixed(1) + "m)"}`,
+      desc: "건축 IFC(IfcBuildingStorey)의 기준 표고(Elevation) 슬래브입니다. 다중 IFC 병합 시 이 표고를 기준으로 설비 층을 정렬합니다.",
+      code: `ex:Storey_${f} a brick:Floor ;\n  rdfs:label "${f === 0 ? "B1F" : f === 4 ? "RF" : f + "F"}" ;\n  bldg:elevation ${(f * 3.2).toFixed(2)} .`
+    }
+  });
+
+  // 6 Structural Columns per floor (B1F ~ 3F)
+  if (f < 4) {
+    for (const cx of [-W/2 + 0.45, 0, W/2 - 0.45]) {
+      for (const cz of [-D/2 + 0.45, D/2 - 0.45]) {
+        addMesh(fg, new THREE.CylinderGeometry(0.2, 0.2, FLOOR_H - 0.24, 20), MATS.column, [cx, FLOOR_H/2, cz], [0,0,0], { xray: true });
+      }
+    }
+    // Curtain wall glass on front & right
+    addMesh(fg, new THREE.BoxGeometry(W - 0.6, FLOOR_H - 0.3, 0.08), MATS.glass, [0, FLOOR_H/2, D/2 - 0.15], [0,0,0], { shadow: false, explodeVec: [0, 0, 2.2] });
+    addMesh(fg, new THREE.BoxGeometry(0.08, FLOOR_H - 0.3, D - 0.6), MATS.glass, [W/2 - 0.15, FLOOR_H/2, 0], [0,0,0], { shadow: false, explodeVec: [2.2, 0, 0] });
+  }
+}
+
+// ============================================================================
+// FLOOR 0 (B1F): Chiller Plant & Primary Chilled Water Pumps (Grade 1 Equipment)
+// ============================================================================
+{
+  const fg = floorGroups[0];
+  const chInfo = {
+    tag: "GRADE 1 · IfcChiller · 열원 장비",
+    name: "CH-01 · 터보 냉동기 (Centrifugal Chiller)",
+    desc: "증발기와 응축기 쉘, 원심 압축기로 구성된 중앙 냉수 열원 장비입니다. 7.0 °C 냉수를 생산해 수직 입상 배관으로 루프탑 AHU-01 코일에 공급합니다.",
+    code: `ex:Chiller_01 a brick:Chiller ;\n  brick:hasLocation ex:Space_B1_Plant ;\n  brick:feeds ex:CHW_Pump_01, ex:AHU_01 .`
+  };
+  // Evaporator & Condenser Shells + Flanges
+  addMesh(fg, new THREE.CylinderGeometry(0.68, 0.68, 4.2, 32), MATS.chillPipe, [-1.8, 0.95, -1.2], [0, 0, Math.PI/2], { info: chInfo, explodeVec: [0, 0.4, -0.8] });
+  addMesh(fg, new THREE.CylinderGeometry(0.58, 0.58, 4.0, 32), MATS.darkSteel, [-1.8, 1.95, -1.6], [0, 0, Math.PI/2], { info: chInfo, explodeVec: [0, 0.9, -1.2] });
+  // Compressor scroll & end caps
+  addMesh(fg, new THREE.CylinderGeometry(0.52, 0.52, 1.4, 28), MATS.steel, [-1.8, 2.55, -0.9], [Math.PI/2, 0, 0], { info: chInfo, explodeVec: [0, 1.4, 0] });
+  for (const sx of [-3.8, 0.2]) {
+    addMesh(fg, new THREE.CylinderGeometry(0.76, 0.76, 0.14, 28), MATS.steel, [sx, 0.95, -1.2], [0, 0, Math.PI/2], { info: chInfo });
+  }
+  // 2 Chilled Water Pumps (API 610 style)
+  for (let i = 0; i < 2; i++) {
+    const pz = 1.1 + i * 1.9;
+    const pInfo = {
+      tag: `GRADE 1 · IfcPump · 냉수 펌프 #${i + 1}`,
+      name: `PMP-0${i + 1} · 냉수 순환 펌프 (CHW Pump)`,
+      desc: "냉동기에서 생산된 냉수를 루프탑 AHU-01 냉각 코일까지 압송하는 인라인 원심 펌프입니다.",
+      code: `ex:CHW_Pump_0${i + 1} a brick:Chilled_Water_Pump ;\n  brick:hasLocation ex:Space_B1_Plant ;\n  brick:feeds ex:AHU_01 .`
+    };
+    addMesh(fg, new THREE.BoxGeometry(1.8, 0.18, 0.9), MATS.darkSteel, [2.4, 0.33, pz], [0,0,0], { info: pInfo });
+    addMesh(fg, new THREE.CylinderGeometry(0.36, 0.36, 0.85, 24), MATS.chillPipe, [1.9, 0.78, pz], [0, 0, Math.PI/2], { info: pInfo, explodeVec: [-0.5, 0.3, 0] });
+    addMesh(fg, new THREE.CylinderGeometry(0.32, 0.32, 0.75, 24), MATS.steel, [2.9, 0.78, pz], [0, 0, Math.PI/2], { info: pInfo, explodeVec: [0.5, 0.3, 0] });
+  }
+}
+
+// ============================================================================
+// FLOOR 1 (1F): Spatial Skeleton & IfcSpace Footprints (Grade 0)
+// ============================================================================
+{
+  const fg = floorGroups[1];
+  const spaces = [
+    { id: "Lobby_101", name: "1F 메인 로비 (IfcSpace)", x: -2.2, z: 0.4, w: 6.2, d: 7.2, mat: MATS.zonePlate },
+    { id: "Meeting_102", name: "1F 대회의실 (IfcSpace)", x: 3.3, z: -1.4, w: 4.0, d: 3.8, mat: MATS.roomPlateA },
+    { id: "Sec_103", name: "1F 방재·보안실 (IfcSpace)", x: 3.3, z: 2.4, w: 4.0, d: 3.2, mat: MATS.roomPlateB },
+  ];
+  for (const sp of spaces) {
+    const info = {
+      tag: "GRADE 0 · IfcSpace · 물리존 바닥 외곽선",
+      name: `${sp.id} · ${sp.name}`,
+      desc: "BIM 원본(IfcSpace)에서 추출한 닫힌 2D 바닥 외곽선(Footprint) 프리즘입니다. 이 외곽선이 닫혀 있어야 면적이 계산되고 상부 설비 다림추를 받아냅니다.",
+      code: `ex:${sp.id} a brick:Space ;\n  brick:isPartOf ex:Storey_1 .\n// floor-1F.geojson: Polygon (${(sp.w * sp.d).toFixed(1)} m²)`
+    };
+    addMesh(fg, new THREE.BoxGeometry(sp.w, 0.14, sp.d), sp.mat, [sp.x, 0.31, sp.z], [0,0,0], { info });
+    // Interior partition walls
+    addMesh(fg, new THREE.BoxGeometry(sp.w, 1.8, 0.12), MATS.wall, [sp.x, 1.2, sp.z - sp.d/2], [0,0,0], { xray: true, explodeVec: [0, 0.6, -0.8] });
+  }
+  addMesh(fg, new THREE.BoxGeometry(0.12, 1.8, 7.2), MATS.wall, [1.1, 1.2, 0.4], [0,0,0], { xray: true });
+}
+
+// ============================================================================
+// FLOOR 2 (2F): Room Subdivision & Ceiling FCU Plumb-Bob Assignment (Grade 2)
+// ============================================================================
+let room204BMesh = null;
+{
+  const fg = floorGroups[2];
+  const rAInfo = {
+    tag: "GRADE 2 · brick:Room · 수동 분할 룸",
+    name: "Room_204A · 임원 회의실 A (분할 룸)",
+    desc: "하나의 큰 물리존(Zone_204)을 에디터의 [룸 채우기] 도구로 쪼갠 서쪽 방입니다. 천장 FCU-201의 다림추가 이 방 외곽선 안에 꽂혀 자동 배정됩니다.",
+    code: `ex:Room_204A a brick:Room ;\n  brick:isPartOf ex:Zone_204 .\nex:FCU_201 brick:hasLocation ex:Room_204A .`
+  };
+  const rBInfo = {
+    tag: "GRADE 2 · brick:Room · 수동 분할 룸 (고장 감시 대상)",
+    name: "Room_204B · 연구 브리핑실 B (분할 룸)",
+    desc: "물리존(Zone_204)에서 분할된 동쪽 방입니다. 하단 [Break] 버튼을 누르면 상류 VAV-302 댐퍼 고착으로 이 방의 온도가 급상승합니다.",
+    code: `ex:Room_204B a brick:Room ;\n  brick:isPartOf ex:Zone_204 .\nex:FCU_202 brick:hasLocation ex:Room_204B .`
+  };
+  addMesh(fg, new THREE.BoxGeometry(4.6, 0.16, 6.8), MATS.roomPlateA, [-1.4, 0.32, 0.4], [0,0,0], { info: rAInfo });
+  room204BMesh = addMesh(fg, new THREE.BoxGeometry(4.6, 0.16, 6.8), MATS.roomPlateB, [3.4, 0.32, 0.4], [0,0,0], { info: rBInfo });
+
+  // Partition blade between Room 204A and 204B
+  addMesh(fg, new THREE.BoxGeometry(0.14, 2.1, 6.8), MATS.glass, [1.0, 1.35, 0.4], [0,0,0], { shadow: false, explodeVec: [0, 0.9, 0] });
+
+  // Ceiling FCUs + Plumb-bob drop lines + Floor target rings
+  const fcus = [
+    { id: "FCU_201", room: "Room_204A", x: -1.4, z: -1.2 },
+    { id: "FCU_202", room: "Room_204A", x: -1.4, z: 2.0 },
+    { id: "FCU_203", room: "Room_204B", x: 3.4, z: -1.2 },
+    { id: "FCU_204", room: "Room_204B", x: 3.4, z: 2.0 },
+  ];
+  for (const fcu of fcus) {
+    const fInfo = {
+      tag: "GRADE 2 · IfcFanCoilUnit · 공간 소속 판정",
+      name: `${fcu.id} · 천장형 팬코일 유닛 (Plumb-Bob → ${fcu.room})`,
+      desc: "설비 중심 좌표에서 수직으로 내린 다림추(Plumb-Bob)가 바닥의 룸 폴리곤 안에 들어와 해당 방 소속(brick:hasLocation)으로 자동 판정되었습니다.",
+      code: `ex:${fcu.id} a brick:Fan_Coil_Unit ;\n  brick:hasLocation ex:${fcu.room} .`
+    };
+    addMesh(fg, new THREE.BoxGeometry(1.25, 0.38, 0.85), MATS.steel, [fcu.x, 2.55, fcu.z], [0,0,0], { info: fInfo, explodeVec: [0, 0.6, 0] });
+    addMesh(fg, new THREE.CylinderGeometry(0.03, 0.03, 2.0, 12), MATS.copper, [fcu.x, 1.38, fcu.z], [0,0,0], { shadow: false });
+    addMesh(fg, new THREE.ConeGeometry(0.16, 0.32, 20), MATS.copper, [fcu.x, 0.56, fcu.z], [Math.PI, 0, 0], { info: fInfo });
+    addMesh(fg, new THREE.RingGeometry(0.28, 0.38, 28), MATS.supplyDuct, [fcu.x, 0.41, fcu.z], [-Math.PI/2, 0, 0], { shadow: false });
+  }
+}
+
+// ============================================================================
+// FLOOR 3 (3F): HVAC Duct Network, Bolted Port Flanges vs Sleeve, VAVs (Grade 3 & 4)
+// ============================================================================
+let sleeveJointMesh = null;
+{
+  const fg = floorGroups[3];
+  // Main East-West Supply Trunk Duct
+  const trunkInfo = {
+    tag: "GRADE 3·4 · IfcDuctSegment · 주 급기 덕트",
+    name: "Supply_Trunk_3F · 3층 주 급기 덕트 본관",
+    desc: "수직 입상 덕트에서 3층 VAV 3대로 냉풍을 분배하는 주 급기관입니다. 볼트 플랜지(Port) 구간은 흐름 방향을 알고, 슬리브 구간은 보정 전까지 멈춥니다.",
+    code: `ex:Riser_Supply brick:feeds ex:VAV_301, ex:VAV_302, ex:VAV_303 .`
+  };
+  addMesh(fg, new THREE.CylinderGeometry(0.34, 0.34, 8.8, 28), MATS.supplyDuct, [0.4, 2.35, -2.2], [0, 0, Math.PI/2], { info: trunkInfo });
+
+  // Bolted flanges along main trunk
+  for (const fx of [-2.8, -0.4, 2.2]) {
+    addMesh(fg, new THREE.CylinderGeometry(0.48, 0.48, 0.12, 24), MATS.steel, [fx, 2.35, -2.2], [0, 0, Math.PI/2], { explodeVec: [0.25, 0, 0] });
+  }
+
+  // Sleeve coupling on branch 2 (highlights on Break!)
+  const sleeveInfo = {
+    tag: "GRADE 4 · Port vs Sleeve · 방향 모름 슬리브 이음",
+    name: "Joint_J7 · 민무늬 슬리브 이음 (포트 전환 대상)",
+    desc: "볼트 플랜지(IfcDistributionPort) 없이 형상 접촉으로만 이어진 슬리브 구간입니다. [계통 편집]에서 포트로 전환해야 하류 흐름(brick:feeds)이 개통됩니다.",
+    code: `# 슬리브(방향 모름) → 포트 전환 시:\nex:VAV_302 brick:feeds ex:Diffuser_302A, ex:Diffuser_302B .`
+  };
+  sleeveJointMesh = addMesh(fg, new THREE.CylinderGeometry(0.44, 0.44, 0.55, 24), MATS.returnDuct, [0.6, 2.35, 0.1], [Math.PI/2, 0, 0], { info: sleeveInfo });
+
+  // 3 VAV Boxes + Branch Ducts + 6 Spun-Cone Diffusers
+  const vavX = [-2.2, 0.6, 3.4];
+  vavX.forEach((vx, idx) => {
+    const vavId = `VAV_30${idx + 1}`;
+    const vInfo = {
+      tag: `GRADE 3·4 · IfcAirTerminalBox · 변풍량 유닛`,
+      name: `${vavId} · 변풍량 터미널 박스 (Damper + ΔP Sensor)`,
+      desc: "실내 냉방 부하에 따라 댐퍼 개도를 조절해 디퓨저 토출 풍량을 제어합니다. 상류 AHU-01로부터 공기를 공급받아 하류 디퓨저와 공조존으로 전달합니다.",
+      code: `ex:${vavId} a brick:VAV ;\n  brick:feeds ex:Diffuser_30${idx + 1}A, ex:Diffuser_30${idx + 1}B .`
+    };
+    // Branch duct from trunk to VAV + downstream to diffusers
+    addMesh(fg, new THREE.CylinderGeometry(0.24, 0.24, 5.2, 20), MATS.supplyDuct, [vx, 2.35, 0.5], [Math.PI/2, 0, 0], { info: vInfo });
+    // VAV Box body & controller
+    addMesh(fg, new THREE.BoxGeometry(0.95, 0.62, 1.15), MATS.steel, [vx, 2.35, -0.6], [0,0,0], { info: vInfo, explodeVec: [0, 0.45, 0] });
+    addMesh(fg, new THREE.BoxGeometry(0.18, 0.34, 0.42), MATS.copper, [vx + 0.52, 2.35, -0.6], [0,0,0], { info: vInfo, explodeVec: [0.4, 0.45, 0] });
+
+    // 2 Spun-cone ceiling diffusers per VAV
+    for (const dz of [1.2, 2.8]) {
+      addMesh(fg, new THREE.ConeGeometry(0.48, 0.36, 24), MATS.steel, [vx, 1.85, dz], [0,0,0], { info: vInfo, explodeVec: [0, -0.45, 0] });
+    }
+  });
+}
+
+// ============================================================================
+// FLOOR 4 (RF): Rooftop AHU-01 (with Spinning Fans & Copper Coils), Cooling Tower & IDF/BAS Cabinet (Grade 5)
+// ============================================================================
+{
+  const fg = floorGroups[4];
+  const ahuInfo = {
+    tag: "GRADE 5 · brick:AHU · 루프탑 공조기",
+    name: "AHU-01 · 중앙 외조기 (Spinning Centrifugal Fan & Coils)",
+    desc: "외기 도입 루버, 프리필터, 구리 냉온수 코일, 원심 급기 송풍기로 구성된 주 공조기입니다. 단면 절개(Cut in half)를 켜면 내부 코일과 회전 임펠러가 드러납니다.",
+    code: `ex:AHU_01 a brick:AHU ;\n  brick:feeds ex:VAV_301, ex:VAV_302, ex:VAV_303 ;\n  brick:hasPoint ex:Supply_Air_Temp_Sensor_01 .`
+  };
+  // AHU Outer Housing (clips open to reveal internal copper coil & spinning impeller!)
+  addMesh(fg, new THREE.BoxGeometry(5.6, 2.1, 2.8), MATS.steel, [-1.4, 1.3, -1.0], [0,0,0], { xray: true, info: ahuInfo, explodeVec: [0, 1.1, 0] });
+  // Internal Copper Cooling & Heating Finned Coils
+  for (let c = 0; c < 4; c++) {
+    addMesh(fg, new THREE.BoxGeometry(0.16, 1.65, 2.3), MATS.copper, [-2.6 + c * 0.45, 1.25, -1.0], [0,0,0], { info: ahuInfo });
+  }
+  // Internal Spinning Centrifugal Fan Rotor inside AHU
+  const fanGroup = new THREE.Group();
+  fanGroup.position.set(0.2, 1.25, -1.0);
+  fg.add(fanGroup);
+  addMesh(fanGroup, new THREE.CylinderGeometry(0.68, 0.68, 0.9, 24, 1, true), MATS.copper, [0,0,0], [Math.PI/2, 0, 0], { info: ahuInfo });
+  for (let b = 0; b < 12; b++) {
+    const a = (b / 12) * Math.PI * 2;
+    addMesh(fanGroup, new THREE.BoxGeometry(0.18, 0.04, 0.85), MATS.steel, [Math.cos(a)*0.58, Math.sin(a)*0.58, 0], [0, 0, a], { info: ahuInfo });
+  }
+  spinningRotors.push({ group: fanGroup, axis: "z", speed: 6.5 });
+
+  // Rooftop Cooling Tower (CT-01) with spinning top axial fan
+  const ctInfo = {
+    tag: "GRADE 1·5 · IfcCoolingTower · 냉각탑",
+    name: "CT-01 · 루프탑 대향류형 냉각탑 (Cooling Tower)",
+    desc: "지하 냉동기 응축기에서 올라온 냉각수의 열을 대기 중으로 방출하는 냉각탑입니다.",
+    code: `ex:Cooling_Tower_01 a brick:Cooling_Tower ;\n  brick:feeds ex:Chiller_01 .`
+  };
+  addMesh(fg, new THREE.CylinderGeometry(1.45, 1.65, 2.3, 32), MATS.darkSteel, [-3.8, 1.4, 2.2], [0,0,0], { xray: true, info: ctInfo });
+  const ctFan = new THREE.Group();
+  ctFan.position.set(-3.8, 2.6, 2.2);
+  fg.add(ctFan);
+  for (let b = 0; b < 6; b++) {
+    const a = (b / 6) * Math.PI * 2;
+    addMesh(ctFan, new THREE.BoxGeometry(1.15, 0.05, 0.24), MATS.copper, [Math.cos(a)*0.55, 0, Math.sin(a)*0.55], [0.25, a, 0], { info: ctInfo });
+  }
+  spinningRotors.push({ group: ctFan, axis: "y", speed: 4.8 });
+
+  // External IDF + BAS Control Cabinet (Grade 5)
+  const basInfo = {
+    tag: "GRADE 5 · IDF + BAS · 실시간 관제 및 공조존 결합",
+    name: "BAS-CAB-01 · 빌딩자동제어 & 에너지 모델(IDF) 통합반",
+    desc: "BIM 파일 바깥의 에너지 시뮬레이션(IDF) 공조존 정보와 BAS 실시간 센서·밸브 포인트(brick:hasPoint)를 온톨로지 최상위 계층(등급 5)으로 결합합니다.",
+    code: `ex:HVAC_Zone_2F a brick:HVAC_Zone ;\n  brick:hasPart ex:Room_204A, ex:Room_204B .\nex:ZNT_204B a brick:Zone_Air_Temperature_Sensor ;\n  brick:isPointOf ex:Room_204B .`
+  };
+  addMesh(fg, new THREE.BoxGeometry(1.7, 2.4, 1.3), MATS.basCab, [4.2, 1.45, 1.8], [0,0,0], { info: basInfo, explodeVec: [1.4, 0.6, 0] });
+}
+
+// ============================================================================
+// VERTICAL RISER SHAFT & 160 ANIMATED 3D FLOW PARTICLES
+// ============================================================================
+const riserGroup = new THREE.Group();
+scene.add(riserGroup);
+// Supply Air Riser (Emerald), Return Air Riser (Amber), Chilled Water Pipe (Cyan)
+addMesh(riserGroup, new THREE.CylinderGeometry(0.36, 0.36, 13.5, 24), MATS.supplyDuct, [-4.3, 7.2, -2.2]);
+addMesh(riserGroup, new THREE.CylinderGeometry(0.30, 0.30, 13.5, 24), MATS.returnDuct, [-4.9, 7.2, -1.2]);
+addMesh(riserGroup, new THREE.CylinderGeometry(0.22, 0.22, 14.2, 20), MATS.chillPipe, [-3.6, 7.0, -2.2]);
+
+// 3D Animated Flow Particles (InstancedMesh) along Chiller -> Riser -> AHU -> 3F Trunk -> VAVs -> 2F Rooms
+const PARTICLE_COUNT = 120;
+const pGeo = new THREE.SphereGeometry(0.11, 10, 10);
+const pMat = new THREE.MeshBasicMaterial({ color: 0x34d399 });
+const particleMesh = new THREE.InstancedMesh(pGeo, pMat, PARTICLE_COUNT);
+scene.add(particleMesh);
+
+const FLOW_PATHS = [
+  // Path 0: Chiller (B1F) up CHW riser to Rooftop AHU
+  [[-1.8, 1.0, -1.2], [-3.6, 1.0, -2.2], [-3.6, 14.0, -2.2], [-1.4, 14.0, -1.0]],
+  // Path 1: Rooftop AHU down Supply Air riser to 3F Trunk -> VAV 1 -> Room 204A
+  [[0.2, 14.0, -1.0], [-4.3, 14.0, -2.2], [-4.3, 11.95, -2.2], [-2.2, 11.95, -2.2], [-2.2, 11.95, 2.0], [-2.2, 8.9, 2.0]],
+  // Path 2: 3F Trunk -> VAV 2 (Sleeve branch) -> Room 204B
+  [[-4.3, 11.95, -2.2], [0.6, 11.95, -2.2], [0.6, 11.95, 2.0], [0.6, 8.9, 2.0]],
+  // Path 3: 3F Trunk -> VAV 3 -> East Zone
+  [[-4.3, 11.95, -2.2], [3.4, 11.95, -2.2], [3.4, 11.95, 2.0], [3.4, 8.9, 2.0]],
+];
+
+function samplePolyline(pts, u) {
+  const segs = pts.length - 1;
+  const f = Math.min(segs - 1e-5, Math.max(0, u * segs));
+  const idx = Math.floor(f);
+  const t = f - idx;
+  const a = pts[idx], b = pts[idx + 1];
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+}
+
+// ============================================================================
+// 3D PINNED LABELS IN SCREEN SPACE
+// ============================================================================
+const PIN_DEFS = [
+  { id: "ahu", pos: new THREE.Vector3(-1.4, 15.2, -1.0), text: () => `AHU-01 · 급기 ${state.supTemp.toFixed(1)}°C` },
+  { id: "bas", pos: new THREE.Vector3(4.2, 15.6, 1.8), text: () => `G5 · IDF+BAS 관제` },
+  { id: "vav2", pos: new THREE.Vector3(0.6, 12.6, 0.1), text: () => state.broken ? `⚠ J7 슬리브 단절 · 댐퍼 고착!` : `G3·G4 · VAV-302 & 포트망`, alert: () => state.broken },
+  { id: "rmB", pos: new THREE.Vector3(3.4, 7.1, 1.6), text: () => `G2 · Room 204B (${state.zoneTemp.toFixed(1)}°C)`, alert: () => state.broken },
+  { id: "ch", pos: new THREE.Vector3(-1.8, 2.2, -1.2), text: () => `G1 · CH-01 냉동기 (7.0°C)` },
+];
+const labelLayer = document.getElementById("labelLayer");
+const pinEls = PIN_DEFS.map((p) => {
+  const el = document.createElement("div");
+  el.className = "ms-pin-label";
+  labelLayer.appendChild(el);
+  return { ...p, el };
+});
+
+// ============================================================================
+// REAL-TIME PHYSICS SOLVER & INTERACTIVE CONTROLS
+// ============================================================================
+const state = {
+  cut: false,
+  cutVal: 20,
+  targetCutVal: 20,
+  explode: 0,
+  targetExplode: 0,
+  xray: false,
+  broken: false,
+  loadPct: 85,
+  supTemp: 12.4,
+  zoneTemp: 22.4,
+  staticP: 310,
+  airflow: 4280,
+  camPosTarget: null,
+  camLookTarget: null,
+};
+
+const btnCut = document.getElementById("btnCut");
+const btnExplode = document.getElementById("btnExplode");
+const btnXray = document.getElementById("btnXray");
+const btnBreak = document.getElementById("btnBreak");
+const btnEq = document.getElementById("btnEq");
+const closeEqBtn = document.getElementById("closeEqBtn");
+const eqDrawer = document.getElementById("eqDrawer");
+const rngCut = document.getElementById("rngCut");
+const rngExplode = document.getElementById("rngExplode");
+const rngLoad = document.getElementById("rngLoad");
+
+btnCut.addEventListener("click", () => {
+  state.cut = !state.cut;
+  btnCut.setAttribute("aria-pressed", String(state.cut));
+  state.targetCutVal = state.cut ? 0.2 : 20;
+  rngCut.value = state.cut ? "4" : "100";
+});
+
+rngCut.addEventListener("input", () => {
+  const v = Number(rngCut.value);
+  state.cut = v < 95;
+  btnCut.setAttribute("aria-pressed", String(state.cut));
+  state.targetCutVal = (v / 100) * 8.5;
+});
+
+btnExplode.addEventListener("click", () => {
+  const next = state.targetExplode > 0.1 ? 0 : 1;
+  state.targetExplode = next;
+  btnExplode.setAttribute("aria-pressed", String(next > 0));
+  rngExplode.value = String(Math.round(next * 100));
+});
+
+rngExplode.addEventListener("input", () => {
+  const v = Number(rngExplode.value) / 100;
+  state.targetExplode = v;
+  btnExplode.setAttribute("aria-pressed", String(v > 0.05));
+});
+
+btnXray.addEventListener("click", () => {
+  state.xray = !state.xray;
+  btnXray.setAttribute("aria-pressed", String(state.xray));
+  for (const item of xrayTargets) {
+    if (state.xray) {
+      item.mesh.material = MATS.glass;
+    } else {
+      item.mesh.material = item.origMat;
+    }
+  }
+});
+
+btnBreak.addEventListener("click", () => {
+  state.broken = !state.broken;
+  btnBreak.setAttribute("aria-pressed", String(state.broken));
+  document.getElementById("statusDot").classList.toggle("is-fault", state.broken);
+  const kpiGrade = document.getElementById("kpiGrade");
+  if (state.broken) {
+    kpiGrade.innerHTML = `FAULT <span class="ms-kpi-unit">J7 단절</span>`;
+    kpiGrade.style.color = "var(--danger)";
+    room204BMesh.material = MATS.warnPlate;
+    sleeveJointMesh.material = MATS.warnPlate;
+    showInspector({
+      tag: "FAULT SIMULATION · 포트 단절 및 댐퍼 고착 경보",
+      name: "⚠ Joint_J7 슬리브 단절 → Room_204B 냉방 상실",
+      desc: "3F 분기 덕트의 슬리브 이음(J7)이 단절되고 VAV-302 댐퍼가 닫히면서 덕트 정압이 685 Pa로 급등하고, 하류 Room_204B 실내 온도가 29.6 °C까지 치솟습니다.",
+      code: `# 온톨로지 역추적(Root-Cause Query):\nSELECT ?upstream WHERE {\n  ?upstream brick:feeds+ ex:Room_204B .\n}\n# → ex:AHU_01 -> ex:VAV_302 (J7 Fault!)`
+    });
+  } else {
+    kpiGrade.innerHTML = `G5 <span class="ms-kpi-unit">완성</span>`;
+    kpiGrade.style.color = "var(--emerald)";
+    room204BMesh.material = MATS.roomPlateB;
+    sleeveJointMesh.material = MATS.returnDuct;
+  }
+});
+
+btnEq.addEventListener("click", () => {
+  const open = eqDrawer.classList.toggle("is-open");
+  btnEq.setAttribute("aria-pressed", String(open));
+});
+closeEqBtn.addEventListener("click", () => {
+  eqDrawer.classList.remove("is-open");
+  btnEq.setAttribute("aria-pressed", "false");
+});
+
+rngLoad.addEventListener("input", () => {
+  state.loadPct = Number(rngLoad.value);
+});
+
+// Floor selector camera flight
+const floorBtns = [...document.querySelectorAll(".ms-floor-btn")];
+floorBtns.forEach((btn) => {
+  btn.addEventListener("click", () => {
+    floorBtns.forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+    const f = btn.dataset.floor;
+    if (f === "all") {
+      state.camPosTarget = new THREE.Vector3(25, 20, 27);
+      state.camLookTarget = new THREE.Vector3(0, 7.2, 0);
+    } else {
+      const idx = Number(f);
+      const y = idx * FLOOR_H + (state.explode * idx * 1.8) + 1.4;
+      state.camPosTarget = new THREE.Vector3(14.5, y + 4.2, 15.5);
+      state.camLookTarget = new THREE.Vector3(0, y, 0);
+    }
+  });
+});
+
+controls.addEventListener("start", () => {
+  state.camPosTarget = null;
+  state.camLookTarget = null;
+});
+
+// Raycast Hover & Click Part Inspection
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let hoveredMesh = null;
+
+function showInspector(info) {
+  document.getElementById("inspTag").textContent = info.tag;
+  document.getElementById("inspName").textContent = info.name;
+  document.getElementById("inspDesc").textContent = info.desc;
+  document.getElementById("inspCode").textContent = info.code;
+}
+
+canvas.addEventListener("pointermove", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(interactiveParts, false);
+  const hit = hits.find((h) => h.point.z <= cutPlane.constant + 0.05);
+  if (hit && hit.object.userData.info) {
+    if (hoveredMesh !== hit.object) {
+      hoveredMesh = hit.object;
+      showInspector(hoveredMesh.userData.info);
+    }
+  }
+});
+
+function resize() {
+  const w = shell.clientWidth;
+  const h = shell.clientHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", resize);
+resize();
+
+// Main Simulation & Render Loop
+const dummy = new THREE.Object3D();
+let lastTime = performance.now();
+let clock = 0;
+
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+  clock += dt;
+
+  // Smoothly interpolate Cutaway Plane & Explode factor
+  state.cutVal += (state.targetCutVal - state.cutVal) * Math.min(1, dt * 8);
+  cutPlane.constant = state.cutVal;
+
+  state.explode += (state.targetExplode - state.explode) * Math.min(1, dt * 7);
+  floorGroups.forEach((fg, idx) => {
+    fg.position.y = fg.userData.baseY + idx * state.explode * 2.1;
+  });
+  for (const m of explodeParts) {
+    m.position.copy(m.userData.basePos).addScaledVector(m.userData.explodeVec, state.explode);
+  }
+
+  // Smooth camera flight if floor button clicked
+  if (state.camPosTarget && state.camLookTarget) {
+    camera.position.lerp(state.camPosTarget, Math.min(1, dt * 5));
+    controls.target.lerp(state.camLookTarget, Math.min(1, dt * 5));
+    if (camera.position.distanceTo(state.camPosTarget) < 0.15) {
+      state.camPosTarget = null;
+      state.camLookTarget = null;
+    }
+  }
+  controls.update();
+
+  // Physics Solver (Thermal Zone ODE + Duct Darcy-Weisbach Pressure)
+  const loadFactor = state.loadPct / 85;
+  const targetAirflow = state.broken ? 2640 * loadFactor : 4280 * loadFactor;
+  const targetStaticP = state.broken ? 685 : Math.round(310 * loadFactor * loadFactor);
+  const targetSupTemp = state.broken ? 15.8 : 11.8 + (loadFactor - 1) * 1.8;
+  const targetZoneTemp = state.broken ? 29.6 : 21.8 + (loadFactor - 1) * 1.6;
+
+  state.airflow += (targetAirflow - state.airflow) * dt * 2.5;
+  state.staticP += (targetStaticP - state.staticP) * dt * 2.5;
+  state.supTemp += (targetSupTemp - state.supTemp) * dt * 1.2;
+  state.zoneTemp += (targetZoneTemp - state.zoneTemp) * dt * 0.9;
+
+  document.getElementById("kpiMain").innerHTML = `${Math.round(state.airflow).toLocaleString()} <span class="ms-kpi-unit">CMH</span>`;
+  document.getElementById("mSupTemp").textContent = `${state.supTemp.toFixed(1)} °C`;
+  const zEl = document.getElementById("mZoneTemp");
+  zEl.textContent = `${state.zoneTemp.toFixed(1)} °C`;
+  zEl.style.color = state.broken ? "var(--danger)" : "var(--fg)";
+  const pEl = document.getElementById("mStaticP");
+  pEl.textContent = `${Math.round(state.staticP)} Pa`;
+  pEl.style.color = state.broken ? "var(--danger)" : "var(--fg)";
+
+  // Spin AHU & Cooling Tower rotors proportional to airflow
+  const speedScale = state.broken ? 0.55 : loadFactor;
+  for (const r of spinningRotors) {
+    r.group.rotation[r.axis] += r.speed * speedScale * dt;
+  }
+
+  // Update 3D Flow Particles along ductwork & risers
+  for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const pathIdx = i % FLOW_PATHS.length;
+    // If broken, freeze particles on Path 2 (VAV-302 branch)
+    const speed = (state.broken && pathIdx === 2) ? 0.03 : 0.38 * speedScale;
+    const u = (clock * speed + i / PARTICLE_COUNT) % 1;
+    const pt = samplePolyline(FLOW_PATHS[pathIdx], u);
+    // Offset Y by floor explode
+    const approxFloor = Math.min(4, Math.max(0, Math.floor(pt[1] / 3.2)));
+    dummy.position.set(pt[0], pt[1] + approxFloor * state.explode * 2.1, pt[2]);
+    const s = (state.broken && pathIdx === 2) ? 0.45 : 1.0;
+    dummy.scale.set(s, s, s);
+    dummy.updateMatrix();
+    particleMesh.setMatrixAt(i, dummy.matrix);
+  }
+  particleMesh.instanceMatrix.needsUpdate = true;
+
+  // Project 3D Pinned Labels to 2D Screen Coordinates
+  const w = shell.clientWidth;
+  const h = shell.clientHeight;
+  for (const p of pinEls) {
+    const v = p.pos.clone();
+    const fIdx = Math.min(4, Math.max(0, Math.floor(v.y / 3.2)));
+    v.y += fIdx * state.explode * 2.1;
+    v.project(camera);
+    if (v.z > 1) {
+      p.el.style.opacity = "0";
+    } else {
+      const sx = (v.x * 0.5 + 0.5) * w;
+      const sy = (-v.y * 0.5 + 0.5) * h;
+      p.el.style.left = `${sx.toFixed(1)}px`;
+      p.el.style.top = `${sy.toFixed(1)}px`;
+      p.el.style.opacity = (sx > 210 && sx < w - 270 && sy > 70 && sy < h - 80) ? "1" : "0.18";
+      p.el.textContent = p.text();
+      p.el.classList.toggle("is-alert", !!(p.alert && p.alert()));
+    }
+  }
+
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(animate);
+
+// Report height to parent guide page
+const notifySize = () => parent !== window && parent.postMessage({ type: "guide-fig-size", fig: "tower-lab", height: document.documentElement.scrollHeight }, "*");
+window.addEventListener("load", notifySize);
+new ResizeObserver(notifySize).observe(document.body);
+</script>
+</body>
+</html>

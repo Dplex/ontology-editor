@@ -23,8 +23,8 @@ export const SAMPLES = [
   { id: "fzk", name: "AC20-FZK-Haus", lit: [0], top: 0, note: "설비 0 · 공간 골격만" },
   { id: "duplex-hvac", name: "Duplex 건축+HVAC", lit: [0, 1, 2, 3], top: 3, note: "소속 40/40 · 연결망 40/40 · 방향 0/26, 중간 포트에서 끊김" },
   { id: "duplex-mep", name: "Duplex MEP", lit: [0, 1, 2, 3], top: 3, note: "소속 141/141 · 연결 783 · 포트 없어 방향 없음" },
-  { id: "ifc4mep", name: "ifc4Mep", lit: [1, 3, 4], top: 4, note: "포트 방향 1,995/1,995 · 기기 37/103 · 방이 없어 칸 0·2 가 빈다" },
-  { id: "seongsu", name: "성수 건축+기계", lit: [0, 1, 2, 3, 4], top: 4, partial: true, note: "포트만으로 65% · 규칙 방향은 사람이 확정해야 나간다" },
+  { id: "ifc4mep", name: "ifc4Mep", lit: [1, 3, 4], top: 4, note: "포트 방향 1,995/1,995 · 기기 37/103 · 방이 없어 칸 0·2가 비어 있습니다" },
+  { id: "seongsu", name: "성수 건축+기계", lit: [0, 1, 2, 3, 4], top: 4, partial: true, note: "포트만으로 65% · 규칙 추정 방향은 사람이 확정해야 내보내집니다" },
 ];
 
 /** 카드 오른쪽 아래 읽음판 한 줄. */

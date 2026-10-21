@@ -487,7 +487,7 @@ function draw() {
     const c = ttl.querySelector(".fl-c");
     if (c) c.toggleAttribute("data-on", p.stops.some((s) => s.at <= e));
   }
-  const text = pick ? summary(pick, false, e) : "기기를 고르면 연결망을 칠한다";
+  const text = pick ? summary(pick, false, e) : "기기를 고르면 연결망을 따라 표시합니다";
   if (text !== said) { said = text; readout.textContent = text; }
 }
 function tick(now) {
@@ -537,11 +537,11 @@ const KEYS = [
   { mark: "blue", label: "이어짐: 방향 모름 이음 너머, 다음 기기까지" },
 ];
 const CAPTION =
-  "이 모형에서 볼트를 조인 플랜지 이음은 BIM 포트가 흐름 방향을 적은 연결이고, 맨 슬리브 이음은 편집기가 형상으로 맞닿았다고 추정한 연결이라 방향이 없다. 연결망 보기는 방향을 아는 연결만 따라 칠하다가 슬리브에서 멈추고, brick:feeds도 덕트를 건너뛰어 이 길로 닿는 기기 쌍만 나간다. 성수에서는 연결망 기기 3,094대 중 62%는 BIM 포트 방향이 있었고, 규칙이 추정한 28%는 사람이 계통 단위로 확정해야 brick:feeds로 나간다.";
+  "볼트를 조인 플랜지 이음은 BIM 포트가 흐름 방향까지 기록한 연결이고, 민무늬 슬리브 이음은 편집기가 형상 접촉으로 추정한 연결이라 방향 정보가 없습니다. 연결망 보기는 방향을 아는 연결만 따라가다가 슬리브에서 멈추며, 슬리브 구간은 [계통 편집]에서 포트로 전환하고 방향을 지정하면 끝까지 흐름이 이어집니다.";
 
 function page(theme) {
   const plate = k.plateHtml({
-    fig: "Fig 2",
+    fig: "Fig 7",
     title: "흐름은 어디까지 아나",
     hint: "기기를 눌러 연결망 보기",
     readout: "AHU-1 · 하류 3대 · feeds 3쌍 · 방향 모름에서 멈춤",
