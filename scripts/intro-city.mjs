@@ -2,9 +2,9 @@
 //
 //   node scripts/intro-city.mjs seongsu [--cache=<폴더>]
 //
-// --cache 를 주면 Overpass 응답을 그 폴더(ways.json·rels.json)에 남기고, 있으면 다시 받지 않는다. 숫자 손질만 고쳐 다시 구울 때 쓴다.
+// --cache 를 주면 Overpass 응답을 그 폴더(ways.json·rels.json·minor.json)에 남기고, 있으면 다시 받지 않는다. 숫자 손질만 고쳐 다시 구울 때 쓴다.
 //
-// 건물 외곽선·높이, 강·공원, 큰 길·다리만 남기고 좌표는 주인공 건물 가운데를 원점으로 한 미터(x 동쪽, y 북쪽)로 바꾼다.
+// 건물 외곽선·높이, 강·공원, 길(큰 길·다리와 골목)만 남기고 좌표는 주인공 건물 가운데를 원점으로 한 미터(x 동쪽, y 북쪽)로 바꾼다.
 // 고객사 BIM 이 아니라 공개 지도라 커밋한다. OSM 은 ODbL 이라 화면에 "© OpenStreetMap contributors" 를 적는다(prologue.js).
 // 높이가 적힌 건물은 1/6 남짓이다. 나머지는 쓰임새·바닥 넓이로 정하고, 건물 번호로 흔들어 같은 값이 다시 나오게 한다.
 // 다시 구울 일은 동네를 넓히거나 OSM 이 크게 바뀌었을 때뿐이다. Overpass 공개 서버가 자주 붐벼서 미러를 차례로 두드린다.
@@ -20,7 +20,7 @@ const PLACES = {
   seongsu: { bbox: [37.518, 127.025, 37.558, 127.078], hero: 564869565, heroName: '팩토리얼 성수', rivers: [152336, 16259781], parks: [17338887, 14528902, 16142677, 2525498] },
 }
 
-const MIRRORS = ['https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass-api.de/api/interpreter']
+const MIRRORS = ['https://overpass.private.coffee/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://overpass-api.de/api/interpreter']
 
 // Node 의 fetch 는 이 PC 에서 밖으로 나가지 못했다(ETIMEDOUT, curl 은 된다). 사내망의 프록시 설정도 curl 쪽에 있으므로 curl 로 받는다.
 function overpass(query) {
@@ -51,8 +51,13 @@ const cache = process.argv.find((a) => a.startsWith('--cache='))?.slice('--cache
 const P = PLACES[name]
 if (!P) throw new Error(`모르는 동네: ${name} (${Object.keys(PLACES).join(', ')})`)
 const B = P.bbox.join(',')
+// 길 등급. 번호가 화면의 폭·밝기·차 불빛을 정한다(prologue.js 의 ROAD_W). 앞 넷은 큰 길, 뒤 넷은 골목이다.
+const MAJOR = ['motorway', 'trunk', 'primary', 'secondary']
+const MINOR = ['tertiary', 'residential', 'unclassified', 'living_street']
 
 const ways = cached(cache && join(cache, 'ways.json'), `[out:json][timeout:170][bbox:${B}];(way["building"];way["natural"="water"];way["leisure"="park"];way["highway"~"^(motorway|trunk|primary|secondary)$"];);out geom(${B}) tags;`)
+// 골목은 따로 받는다. 큰 길과 한 질의로 묶으면 응답이 커져 공개 서버가 시간을 넘긴다. 밤 장면에서 골목 가로등이 동네의 결을 만든다.
+const minor = cached(cache && join(cache, 'minor.json'), `[out:json][timeout:170][bbox:${B}];way["highway"~"^(${MINOR.join('|')})$"];out geom(${B}) tags;`)
 const rels = cached(cache && join(cache, 'rels.json'), `[out:json][timeout:170];relation(id:${[...P.rivers, ...P.parks].join(',')});out body geom(${B});`)
 
 // ---------------------------------------------------------------- 좌표: 주인공 건물 가운데를 원점으로 한 미터
@@ -109,7 +114,7 @@ const roads = []
 const waters = []
 const parks = []
 let hero = -1
-for (const e of ways.elements) {
+for (const e of [...ways.elements, ...minor.elements]) {
   const g = e.geometry ?? []
   const t = e.tags ?? {}
   if (t.building) {
@@ -121,7 +126,7 @@ for (const e of ways.elements) {
     if (e.id === P.hero) hero = buildings.length
     buildings.push([Math.round(heightOf(e, a) * 2) / 2, ...flat(pts)])
   } else if (t.highway) {
-    const k = ['motorway', 'trunk', 'primary', 'secondary'].indexOf(t.highway)
+    const k = [...MAJOR, ...MINOR].indexOf(t.highway)
     if (k < 0) continue
     const runs = [[]]
     for (const p of g) p ? runs.at(-1).push(xy(p)) : runs.at(-1).length && runs.push([])

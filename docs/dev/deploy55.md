@@ -177,7 +177,9 @@ npm run intro:bake -- seongsu data/성수/Factorial_건축.ifc data/성수/Facto
 ```
 
 - 고객사 건물 형상이라 저장소에 커밋하지 않는다. `data/` 는 gitignore 이고, 구운 서버만 내준다.
-- 화면의 숫자(소속 판정·물리존·연결망·흐름 방향)는 구울 때 `gradeCounts`·`profileOf` 로 센 값이다. 임포터가 바뀌면 다시 굽는다.
+- 첫 화면 인트로는 건물이 층마다 서는 것만 보인다. 큰 숫자·층 슬라이더·[IfcSpace 빼기]·"어떻게 셌나" 같은 수치와 판정 기준은
+  가이드의 3D 랩(아래)에만 띄운다. 첫 화면에서 읽기에는 짐이라서다.
+- 장면에는 숫자(소속 판정·물리존·연결망·흐름 방향)도 같이 굽는다. 구울 때 `gradeCounts`·`profileOf` 로 센 값이라 임포터가 바뀌면 다시 굽는다.
   `.profiles.json` 처럼 코드 지문으로 무효화하지 않으므로, 굽지 않으면 낡은 숫자가 남는다.
 - 틀(조립 연출·Explode·Cut·X-ray·라벨·큰 숫자)은 machine-skill 의 kit(`public/intro/lab-kit.js`, MIT, `LICENSE-lab-kit`)을 고치지 않고 쓴다.
   kit 은 three 를 jsDelivr 에서 받게 되어 있어서, import map 이 `public/intro/three/` 를 가리킨다. 그 폴더는 `scripts/sync-three.mjs` 가
@@ -202,8 +204,11 @@ cp data/.intro/duplex.json public/intro/scenes/duplex.json
 아래에서 위로 훑으며 층선(장면의 IFC 층 높이)이 드러나고, 그 자리에서 층 조립으로 넘어간다. 오른쪽 아래 [건너뛰기]·Space·Enter 로 넘긴다.
 브라우저의 움직임 줄이기 설정이 켜져 있거나 주소에 `?prologue=0` 이 있으면 앞머리 없이 시작한다.
 
-- 동네 지도는 OpenStreetMap 에서 받은 건물 외곽선·높이, 한강·중랑천·서울숲, 큰 길이다. 고객사 BIM 이 아니라 공개 지도라 커밋한다(535KB, gzip 195KB).
-  ODbL 이라 화면 왼쪽 아래에 출처를 적는다.
+- 동네 지도는 OpenStreetMap 에서 받은 건물 외곽선·높이, 한강·중랑천·서울숲, 길(큰 길 378 · 골목 1,526)이다. 고객사 BIM 이 아니라 공개 지도라
+  커밋한다(592KB, gzip 214KB). ODbL 이라 화면 왼쪽 아래에 출처를 적는다.
+- 건물은 지도에 외곽선과 높이밖에 없어서 겉모습은 셰이더가 지어낸다. 건물 번호로 외벽 종류(돌·유리 사무동·아파트)를 고르고, 창은 벽 한 면마다
+  칸 수를 맞춰 모서리를 비운다. 1층 상가와 간판, 지붕 난간·계단실·실외기, 50m 넘는 건물의 들인 꼭대기, 60m 넘는 건물의 항공 장애등을 더한다.
+  땅은 길을 따라 번지는 가로등 빛으로 채우고, 큰 길에는 차 불빛이 차선을 따라 흐른다. 지도 밖은 불빛 점만 흩뿌려 지평선까지 동네가 이어 보이게 한다.
 - 건물 8,379동 중 6,747동은 OSM 에 높이가 없어 쓰임새·바닥 넓이로 정했다(`scripts/intro-city.mjs` 의 `heightOf`). 화면에도 "추정" 이라고 적는다.
 - 팩토리얼 성수는 OSM 에 옛 이름 "예진상사 물류센터"(way 564869565, 연무장7길 13)로 올라 있다. 스크립트의 `PLACES` 표에 번호로 박았다.
 - 다시 굽는 일은 동네를 넓히거나 OSM 이 크게 바뀌었을 때뿐이다. 개발 PC 에서 돌려 커밋하면 되고 55 에서 돌릴 일은 없다.
@@ -212,7 +217,7 @@ cp data/.intro/duplex.json public/intro/scenes/duplex.json
 npm run intro:city -- seongsu --cache=/tmp/osm-seongsu   # Overpass 공개 서버가 자주 붐빈다. --cache 로 받은 응답을 남겨 두면 손질만 다시 굽는다
 ```
 
-- 부하: 렌더 배율 1, bloom 절반 해상도, 강 반사는 512² 다. 1920×1080 실제 Chrome 에서 비행 내내 60fps 였고,
+- 부하: 렌더 배율 1, bloom 절반 해상도, 강 반사는 512² 다. 1920×1080 실제 Chrome 에서 비행 내내 59~60fps 였고,
   첫 0.5초는 도시 형상을 만드느라 멈추지만 글자 연출(합성 단계 전환)이라 보이지 않는다. 넘긴 뒤 앞머리의 WebGL 을 버려 그래픽 메모리를 돌려준다.
 
 ## WASM 은 커밋하지 않는다
