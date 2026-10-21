@@ -15,7 +15,7 @@ describe('objectChanges — 오브젝트별 신규·변경·삭제 (OE-UI-22)', 
     expect(r.counts.space).toEqual({ added: 0, changed: 0, removed: 0 })
   })
 
-  it('물리존 이름을 바꾸면 변경, 그려 만들면 신규, 지우면 삭제로 센다 [OE-UI-22#1,#2]', () => {
+  it('물리존 이름을 바꾸면 변경, 그려 만들면 신규, 지우면 삭제로 센다 [OE-UI-22#1,2]', () => {
     const r = objectChanges({ ...empty, renamed: [{ spaceId: 'a', from: 'x', to: 'y' }], spacesAdded: [{ id: 'b', name: 'n' }], spacesRemoved: [{ id: 'c', name: 'o' }] })
     expect(r.states.get('a')).toBe('changed')
     expect(r.states.get('b')).toBe('added')
@@ -51,5 +51,13 @@ describe('objectChanges — 오브젝트별 신규·변경·삭제 (OE-UI-22)', 
     expect(r.counts.custom).toEqual({ added: 1, changed: 0, removed: 1 })
     expect(r.counts.hvac).toEqual({ added: 0, changed: 1, removed: 0 })
     expect(r.states.get('h1')).toBe('changed')
+  })
+
+  it('외곽선 넓이·방 종류처럼 diffBaseline 이 id 로 내지 않는 편집도 변경으로 세고, 새로 만든 방이면 신규 그대로다 [OE-UI-22#1]', () => {
+    const r = objectChanges({ ...empty, spacesAdded: [{ id: 'b', name: 'n' }], renamed: [{ spaceId: 'a', from: 'x', to: 'y' }] }, { spaces: ['a', 'c', 'b'] })
+    expect(r.states.get('a')).toBe('changed')
+    expect(r.states.get('c')).toBe('changed')
+    expect(r.states.get('b')).toBe('added')
+    expect(r.counts.space).toEqual({ added: 1, changed: 2, removed: 0 })
   })
 })

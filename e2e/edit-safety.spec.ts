@@ -133,7 +133,7 @@ test('좌표 칸에 건물에서 먼 값을 치면 옮기되 오타일 수 있�
   await expect(page.locator('.edit-notice')).toContainText('Ctrl+Z')
 })
 
-test('물리존 이름을 고치면 목록 행·선택 오브젝트에 변경이 뜨고 머리에 개수가 보이며, 되돌리면 변경 없음으로 돌아온다 (OE-UI-22)', async ({ page }) => {
+test('물리존 이름을 고치면 목록 행·선택 오브젝트에 변경이 뜨고 머리에 개수가 보이며, 되돌리면 변경 없음으로 돌아온다. 방 종류를 고쳐도 같다 [OE-UI-22#1,4]', async ({ page }) => {
   await page.goto('/')
   await openFile(page, MEP)
   await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
@@ -158,6 +158,14 @@ test('물리존 이름을 고치면 목록 행·선택 오브젝트에 변경이
   await page.keyboard.press('Control+z')
   await expect(badge).toHaveText('변경 없음')
   await expect(head).toHaveCount(0)
+
+  // 방 종류는 diffBaseline 이 id 로 내지 않지만, 편집 막대처럼 변경으로 센다.
+  await page.locator('.space-picked').getByTestId('space-kind').selectOption({ label: '창고' })
+  await expect(badge).toHaveText('변경')
+  await expect(head).toContainText('신규 0 · 변경 1 · 삭제 0')
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await expect(badge).toHaveText('변경 없음')
 })
 
 test('1280px 폭에서도 상태줄의 마지막 편집 이름이 잘리지 않고 보인다 (#688)', async ({ page }) => {

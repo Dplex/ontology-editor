@@ -14,7 +14,11 @@ export type ObjectChanges = {
 
 const none = () => ({ added: 0, changed: 0, removed: 0 })
 
-export function objectChanges(since: BaselineDiff): ObjectChanges {
+/**
+ * `edited` 는 diffBaseline 이 id 로 내지 않는 편집이다 — 외곽선을 고쳐 넓이가 바뀐 물리존, 방 종류를 고른 물리존. 편집 막대는 이것을
+ * id 없는 줄(`areaLines` · `spaceKindLines`)로 세므로, 같은 기준으로 고른 id 를 받아 변경으로 센다.
+ */
+export function objectChanges(since: BaselineDiff, edited: { spaces: Iterable<string> } = { spaces: [] }): ObjectChanges {
   const states = new Map<string, ChangeState>()
   const counts = { space: none(), custom: none(), hvac: none(), equipment: none() }
   const mark = (kind: keyof typeof counts, id: string, state: ChangeState) => {
@@ -29,6 +33,7 @@ export function objectChanges(since: BaselineDiff): ObjectChanges {
   for (const s of since.spacesAdded) mark('space', s.id, 'added')
   for (const s of since.renamed) mark('space', s.spaceId, 'changed')
   for (const s of since.renumbered ?? []) mark('space', s.spaceId, 'changed')
+  for (const id of edited.spaces) mark('space', id, 'changed')
   counts.space.removed = since.spacesRemoved.length
 
   for (const z of since.customZones) {
