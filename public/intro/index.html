@@ -376,6 +376,29 @@ if (pro) {
   lab.start()
   pro.leave()
 } else lab.start()
+// kit 의 버튼은 기계 랩 기준이다. Pause·Slow 는 돌던 기계를 멈추고 늦추는 것이라, 움직이는 것이 없는 건물에서는 눌러도 아무 일이 없다.
+// 흐름 랩만 입자를 멈추는 뜻이 있어 남긴다. 이름은 우리말로 바꾼다(kit 은 그대로 두고 버튼 글자만 갈아 쓴다).
+{
+  const NAME = { explode: '펼치기', cut: '자르기', xray: '투시', labels: '이름표' }
+  for (const b of lab.ui.querySelectorAll('.lab-modes button')) {
+    const k = b.dataset.k
+    if (k === 'slow' || (k === 'run' && FOCUS !== 'flow')) b.remove()
+    else if (NAME[k]) b.firstChild.textContent = NAME[k]
+  }
+  const sync = lab._syncButtons.bind(lab)
+  lab._syncButtons = () => {
+    sync()
+    const run = lab.ui.querySelector('.lab-modes button[data-k="run"]')
+    if (run) run.firstChild.textContent = lab.paused ? '입자 흐르기' : '입자 멈춤'
+  }
+  lab._syncButtons()
+  lab.$('.lab-how summary').textContent = '어떻게 셌나'
+  // 단축키도 같이 막는다. 숨긴 버튼의 상태가 키로만 바뀌면 화면에 표시가 없다. 앞머리가 떠 있는 동안의 Space(건너뛰기)는 건드리지 않는다.
+  addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase()
+    if (!document.querySelector('.pro') && (k === 's' || (k === ' ' && FOCUS !== 'flow'))) e.stopImmediatePropagation()
+  }, true)
+}
 // 가이드의 랩은 볼 것이 보이는 상태로 시작한다. 소속·흐름은 벽을 유리로(X-ray) 바꿔 안의 기기·입자를 보이고, 층은 벌려 이름표를 단다.
 if (sceneFile && FOCUS !== 'floors') lab.toggle('xray', true)
 if (FOCUS === 'floors') { lab.toggle('explode', true); lab.toggle('labels', true) }

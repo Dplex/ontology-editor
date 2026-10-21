@@ -11,6 +11,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js'
 import { Reflector } from 'three/addons/objects/Reflector.js'
 
 // index.html 은 kit 의 프레임을 줄이려고 requestAnimationFrame 을 바꿔 끼운다. 앞머리는 그 전에 잡아 둔 원본으로 매 프레임 그린다.
@@ -21,13 +22,12 @@ const CSS = `
 .pro.leave { opacity: 0; pointer-events: none }
 .pro canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity 2.2s ease }
 .pro.city canvas { opacity: 1 }
-.pro-mark { position: absolute; left: 50%; top: 44%; transform: translate(-50%, -50%); text-align: center; color: #f4f2ee; pointer-events: none; transition: opacity 1.4s ease, transform 2.4s cubic-bezier(.3,.0,.2,1) }
+.pro-mark { position: absolute; left: 50%; top: 31%; transform: translate(-50%, -50%); text-align: center; color: #f4f2ee; pointer-events: none; transition: opacity 1.4s ease, transform 2.4s cubic-bezier(.3,.0,.2,1) }
 .pro-mark.off { opacity: 0; transform: translate(-50%, -50%) scale(1.08) }
-.pro-word { font-size: clamp(40px, 7.2vw, 128px); font-weight: 800; letter-spacing: 0.035em; opacity: 0; transform: scale(1.06); white-space: nowrap;
-  background: linear-gradient(180deg, #ffffff 0%, #dcd9d2 60%, #a9a59c 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
-  filter: drop-shadow(0 0 18px rgba(255, 236, 210, 0.25)); transition: opacity 1.6s ease .35s, transform 2.4s cubic-bezier(.2,.7,.1,1) .2s }
-.pro-line { height: 1px; width: min(46vw, 560px); margin: 0.9em auto 0; transform: scaleX(0); background: linear-gradient(90deg, transparent, rgba(244,242,238,.85), transparent); transition: transform 1.2s cubic-bezier(.4,0,.2,1) }
-.pro-sub { margin-top: 0.9em; font-size: clamp(12px, 1.05vw, 17px); letter-spacing: 0.32em; color: rgba(244,242,238,.72); opacity: 0; transition: opacity 1.2s ease 1.1s }
+.pro-word { font-size: clamp(34px, 5.4vw, 92px); font-weight: 300; letter-spacing: 0.16em; color: #f7f5f0; opacity: 0; transform: scale(1.04); white-space: nowrap;
+  transition: opacity 1.8s ease .35s, transform 2.8s cubic-bezier(.2,.7,.1,1) .2s }
+.pro-line { height: 1px; width: min(30vw, 360px); margin: 1.1em auto 0; transform: scaleX(0); background: linear-gradient(90deg, transparent, rgba(244,242,238,.55), transparent); transition: transform 1.2s cubic-bezier(.4,0,.2,1) }
+.pro-sub { margin-top: 1.1em; font-size: clamp(11px, 0.9vw, 14px); font-weight: 400; letter-spacing: 0.42em; color: rgba(244,242,238,.6); opacity: 0; transition: opacity 1.2s ease 1.1s }
 .pro.on .pro-word { opacity: 1; transform: none }
 .pro.on .pro-line { transform: none }
 .pro.on .pro-sub { opacity: 1 }
@@ -45,7 +45,7 @@ const CSS = `
 
 // ---------------------------------------------------------------- 하늘·물·건물 셰이더
 const SUN = new THREE.Vector3(-0.86, 0.035, -0.5).normalize() // 북쪽을 볼 때 왼쪽(서북서) 지평선 바로 위의 해
-const HORIZON = new THREE.Color(0.24, 0.16, 0.19)
+const HORIZON = new THREE.Color(0.15, 0.135, 0.15) // 지평선 안개. 먼 건물이 이 색으로 묻혀 깊이가 생긴다.
 
 const skyMaterial = () =>
   new THREE.ShaderMaterial({
@@ -59,15 +59,14 @@ const skyMaterial = () =>
       float hash(vec3 p) { return fract(sin(dot(p, vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
       void main() {
         vec3 d = normalize(vDir); float h = d.y;
-        vec3 zen = vec3(0.008, 0.016, 0.06), mid = vec3(0.04, 0.06, 0.19), hor = vec3(0.95, 0.46, 0.22);
+        // 채도를 낮춘 해 진 직후. 따뜻한 빛은 해 쪽 지평선에만 몰고, 반대편은 회청색 안개다(보라·파랑 띠와 별이 레트로하게 읽혔다).
+        vec3 zen = vec3(0.010, 0.016, 0.032), mid = vec3(0.055, 0.07, 0.10), haze = vec3(0.30, 0.29, 0.31), warm = vec3(1.0, 0.56, 0.30);
         float s = max(dot(d, sun), 0.0);
-        hor = mix(hor * 0.55, hor, pow(s, 3.0));
+        vec3 hor = mix(haze, warm, pow(s, 2.5));
         vec3 c = mix(hor, mid, smoothstep(-0.02, 0.16, h));
         c = mix(c, zen, smoothstep(0.16, 0.65, h));
-        c += vec3(1.0, 0.55, 0.25) * pow(s, 10.0) * 0.55 + vec3(1.0, 0.9, 0.7) * pow(s, 900.0) * 6.0;
-        float st = step(0.9985, hash(floor(d * 520.0))) * smoothstep(0.12, 0.45, h);
-        c += vec3(st) * 0.8;
-        if (h < 0.0) c = mix(hor * 0.35, vec3(0.02), smoothstep(0.0, -0.2, h));
+        c += vec3(1.0, 0.6, 0.32) * pow(s, 12.0) * 0.45 + vec3(1.0, 0.9, 0.75) * pow(s, 1200.0) * 5.0;
+        if (h < 0.0) c = mix(hor * 0.45, vec3(0.015), smoothstep(0.0, -0.2, h));
         gl_FragColor = vec4(c, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -93,11 +92,11 @@ const WATER = {
     void main() {
       // 가로로 길게 겹친 물결이 세로 줄무늬 반사를 만든다(강 건너 야경이 물에 길게 늘어지는 모양).
       float w = sin(vWorld.z * 0.42 + time * 1.6 + sin(vWorld.x * 0.013) * 3.0) + 0.6 * sin(vWorld.z * 0.95 - time * 2.1 + vWorld.x * 0.02);
-      vec2 uv = vUv.xy / vUv.w + vec2(w * 0.0045, sin(vWorld.z * 0.13 + time) * 0.0025);
+      vec2 uv = vUv.xy / vUv.w + vec2(w * 0.0022, sin(vWorld.z * 0.13 + time) * 0.0012);
       vec3 refl = texture2D(tDiffuse, uv).rgb;
       vec3 v = normalize(cameraPosition - vWorld);
       float fres = 0.25 + 0.75 * pow(1.0 - max(v.y, 0.0), 4.0);
-      vec3 c = mix(color, refl, fres * 0.9);
+      vec3 c = mix(color, refl, fres * 0.8);
       gl_FragColor = vec4(c, 1.0);
       #include <tonemapping_fragment>
       #include <colorspace_fragment>
@@ -107,7 +106,7 @@ const WATER = {
 
 /** 밤 건물: Lambert 에 창 불빛을 얹는다. 창은 벽 둘레 길이(u)·높이(v)로 칸을 나눠, 칸마다 건물 번호를 섞은 난수로 켠다. */
 function cityMaterial(opts = {}) {
-  const m = new THREE.MeshLambertMaterial({ color: 0x2b3038, ...opts })
+  const m = new THREE.MeshLambertMaterial({ color: 0x23272d, ...opts })
   m.onBeforeCompile = (sh) => {
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', '#include <common>\nattribute vec2 aWall; attribute float aSeed; attribute float aTop; varying vec2 vWall; varying float vSeed; varying float vTop; varying float vSide;')
@@ -124,11 +123,17 @@ function cityMaterial(opts = {}) {
           float win = step(0.16, f.x) * step(f.x, 0.84) * step(0.28, f.y) * step(f.y, 0.86);
           float busy = 0.16 + 0.34 * h3(vec3(seed, 1.7, 3.1));
           float on = step(1.0 - busy, h3(vec3(cell, seed)));
-          vec3 warm = vec3(1.0, 0.68, 0.36), cool = vec3(0.70, 0.84, 1.0);
-          vec3 wc = mix(warm, cool, step(0.78, h3(vec3(cell.yx, seed + 9.0)))) * (0.35 + 0.9 * h3(vec3(cell, seed + 3.0)));
+          vec3 warm = vec3(1.0, 0.76, 0.5), cool = vec3(0.78, 0.87, 1.0);
+          // 사무동처럼 한 층이 통째로 켜진 줄을 섞는다. 칸마다 따로 켜기만 하면 격자가 고르게 반복돼 오래된 게임처럼 읽혔다.
+          float office = step(0.62, h3(vec3(seed, 4.2, 0.0))) * step(0.55, h3(vec3(cell.y, seed, 7.0)));
+          vec3 wc = mix(warm, cool, max(office, step(0.7, h3(vec3(cell.yx, seed + 9.0))))) * (0.3 + 0.8 * h3(vec3(cell, seed + 3.0)));
           float roofBand = step(vTop - 2.2, vWall.y);
           float street = step(vWall.y, 3.4) * 0.6;
-          float lit = win * on * (1.0 - roofBand) * vSide;
+          float lit = max(win * on, office * step(0.08, f.x) * step(0.3, f.y) * step(f.y, 0.9)) * (1.0 - roofBand) * vSide;
+          // 유리 외벽에 비친 하늘: 비스듬히 볼수록, 위로 갈수록 밝다. 새까만 상자로 보이지 않게 한다.
+          vec3 nv = normalize(normal);
+          float fr = pow(1.0 - abs(dot(nv, normalize(vViewPosition))), 3.0);
+          totalEmissiveRadiance += vec3(0.11, 0.105, 0.12) * fr * vSide * (0.35 + 0.65 * vWall.y / max(vTop, 1.0)) * (0.6 + 0.8 * h3(vec3(seed, 2.0, 5.0)));
           // 멀어서 창 한 칸이 화소보다 작아지면 줄무늬가 번쩍인다. 500m 너머는 켜진 비율만큼의 평균 밝기로 바꾼다.
           float far = smoothstep(500.0, 1100.0, length(vViewPosition));
           vec3 glow = mix(wc * lit, warm * busy * 0.09 * vSide * (1.0 - roofBand), far);
@@ -306,10 +311,10 @@ export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → D
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
     renderer.setPixelRatio(1)
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 0.9
+    renderer.toneMappingExposure = 0.95
     renderer.localClippingEnabled = true
     const scene = new THREE.Scene()
-    scene.fog = new THREE.FogExp2(HORIZON, 0.00026)
+    scene.fog = new THREE.FogExp2(HORIZON, 0.00042)
     const camera = new THREE.PerspectiveCamera(34, 1, 2, 20000)
 
     scene.add(new THREE.Mesh(new THREE.SphereGeometry(15000, 32, 16), skyMaterial()))
@@ -326,7 +331,7 @@ export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → D
     scene.add(new THREE.Mesh(roadsGeometry(city.roads), new THREE.MeshLambertMaterial({ color: 0x17181c, side: THREE.DoubleSide })))
 
     // 물: 강을 비추는 Reflector. 반사 텍스처는 절반 해상도다.
-    const water = new Reflector(flatGeometry(city.waters, true), { shader: WATER, color: 0x0a1426, textureWidth: 512, textureHeight: 512, clipBias: 0.003 })
+    const water = new Reflector(flatGeometry(city.waters, true), { shader: WATER, color: 0x05080d, textureWidth: 512, textureHeight: 512, clipBias: 0.003 })
     water.rotation.x = -Math.PI / 2
     water.position.y = 0.35
     water.material.fog = true
@@ -386,6 +391,21 @@ export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → D
     composer.addPass(new RenderPass(scene, camera))
     const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.7, 0.45, 0.8)
     composer.addPass(bloom)
+    // 필름 질감: 가장자리를 어둡게(비네팅) 하고 아주 옅은 입자를 얹는다. 깨끗한 CG 판이 덜 장난감처럼 읽힌다.
+    const grade = new ShaderPass({
+      uniforms: { tDiffuse: { value: null }, time: { value: 0 } },
+      vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float time; varying vec2 vUv;
+        float h(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + time) * 43758.5453); }
+        void main() {
+          vec4 c = texture2D(tDiffuse, vUv);
+          vec2 q = vUv - 0.5;
+          c.rgb *= mix(1.0, 0.55, smoothstep(0.25, 0.85, length(q * vec2(1.25, 1.0))));
+          c.rgb += (h(vUv * 1024.0) - 0.5) * 0.018;
+          gl_FragColor = c;
+        }`,
+    })
+    composer.addPass(grade)
     composer.addPass(new OutputPass())
 
     function resize() {
@@ -402,8 +422,9 @@ export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → D
     // ---------------------------------------------------------------- 길: 한강 한가운데 → 북쪽 강변 → 성수 위 → kit 의 첫 시점
     // 좌표는 주인공 건물 가운데가 원점, z 가 클수록 남쪽이다. 성수 쪽 한강은 건물에서 남쪽 1.05~1.84km 다(city.json).
     const V = (x, y, z) => new THREE.Vector3(x, y, z)
-    const P0 = V(-170, 20, 1480), P0b = V(-160, 22, 1380)
-    const L0 = V(-120, 70, -400)
+    // 강 남쪽에서 조금 높이 떠서 본다. 왼쪽(서울숲 쪽) 고층이 하늘선에 들어오게 서쪽으로 비튼다.
+    const P0 = V(-300, 44, 1600), P0b = V(-280, 46, 1500)
+    const L0 = V(-420, 95, -300)
     let path, look
     function setEnd(end) {
       const ET = end?.target ? V(...end.target) : V(0, heroH * 0.5, 0)
@@ -444,6 +465,7 @@ export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → D
       const dt = Math.min(0.05, (now - (last || now)) / 1000); last = now
       const t = started ? (now - t0) / 1000 : 0
       water.material.uniforms.time.value = now / 1000
+      grade.uniforms.time.value = (now / 1000) % 100
 
       // 카메라: 머무는 동안 천천히 다가가고, 그다음 길을 따라 난다.
       const fly = clamp01((t - T_HOLD) / T_FLY)
