@@ -17,7 +17,7 @@
 } }
 </script>
 <style>
-  .intro-empty { position: fixed; inset: 0; display: grid; place-items: center; color: #8e8c86; font: 15px/1.6 system-ui, sans-serif; background: #0d0e10; text-align: center; padding: 16px }
+  .intro-empty { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; color: #8e8c86; font: 15px/1.6 system-ui, sans-serif; background: #0d0e10; text-align: center; padding: 16px }
   .intro-empty code { color: #f1efe9 }
   .lab-title { font-size: clamp(30px, 3.2vw, 60px) }
   /* 조립하는 동안 "14,683 of 14,683 parts" 가 옆 칸을 넘는다. kit 은 그대로 두고 크기만 줄인다. */
@@ -34,7 +34,7 @@ const q = new URLSearchParams(location.search)
 const API = q.get('data') ?? '../__data/__intro'
 
 function empty(html) {
-  const d = document.createElement('div'); d.className = 'intro-empty'; d.innerHTML = html; document.body.appendChild(d)
+  const d = document.createElement('div'); d.className = 'intro-empty'; d.innerHTML = `<div>${html}</div>`; document.body.appendChild(d)
   parent?.postMessage?.({ intro: 'empty' }, '*')
 }
 
@@ -73,6 +73,8 @@ const lab = new Lab({
   size,
   view: { az: 38, el: 14, dist: 2.75, target: [0, top * 0.52, 0], fov: 30 },
   cut: { a: [0, 0, 1], b: [1, 0, 0], reach: 0.9 },
+  // 손을 놓으면 멈춰 있게 한다. kit 은 9초 뒤 자동 회전을 켜서, 첫 화면에 띄워 둔 채로 GPU 를 계속 99% 로 썼다.
+  autoOrbit: false,
 })
 lab.$('.lab-prompt b').textContent = 'BIM'
 lab.$('.lab-no').textContent = 'BIM → DT 공간 온톨로지'
@@ -199,6 +201,38 @@ lab.how(
 )
 // kit 은 조립하는 동안 큰 숫자 칸을 부품 수로 쓴다. 틱마다 다시 써야 조립이 끝난 뒤 소속 숫자로 돌아온다.
 lab.onTick(show)
+
+// ---------------------------------------------------------------- 부하
+// kit 은 화면 배율(최대 2)대로 그리고 GTAO·bloom·4x MSAA 를 매 프레임 60fps 로 돌린다. 2560×1340·배율 2 에서 가만히 둬도 GPU 99%·13fps 였다.
+// 첫 화면에 떠 있는 인트로라 부하를 낮춘다(kit 은 그대로 두고 여기서 조절한다).
+//   1. 렌더 배율 1. 4x MSAA 가 계단을 지운다.
+//   2. GTAO 표본 16 → 8.
+//   3. 움직일 때(입력 뒤 2.5초·조립·모드 전환·카메라 감속 중)만 30fps, 그 밖에는 그리지 않는다.
+lab.renderer.setPixelRatio(1)
+lab.composer.setPixelRatio(1)
+lab._resize()
+lab.ao.updateGtaoMaterial({ samples: 8 })
+lab.ao.updatePdMaterial({ samples: 8 })
+// 그래픽 메모리가 모자라 WebGL 이 끊기면 화면이 까맣게 남는다. 까닭을 적고 다시 그리게 한다.
+lab.renderer.domElement.addEventListener('webglcontextlost', (e) => {
+  e.preventDefault()
+  empty('그래픽 메모리가 모자라 그림이 멈췄습니다. 다른 3D 탭을 닫고 <a href="" style="color:#f1efe9">다시 그리기</a>')
+})
+{
+  const raf = window.requestAnimationFrame.bind(window)
+  let last = 0
+  let touched = performance.now()
+  for (const e of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'input', 'click']) addEventListener(e, () => (touched = performance.now()), { capture: true, passive: true })
+  lab.controlsOrbit.addEventListener('change', () => (touched = performance.now()))
+  const settling = () => lab._assembly > 0 || Object.keys(lab.target).some((k) => Math.abs(lab.state[k] - lab.target[k]) > 1e-3)
+  window.requestAnimationFrame = (cb) =>
+    raf(function tick(t) {
+      const moving = t - touched < 2500 || settling()
+      if (!moving || t - last < 1000 / 30) return raf(tick)
+      last = t
+      cb(t)
+    })
+}
 lab.start()
 parent?.postMessage?.({ intro: 'ready', name: S.name }, '*')
 </script>
