@@ -23,6 +23,7 @@ import { applySpaceNumber } from '../../editor/storey-name'
 import { select } from '../../editor/systems'
 import { enterSpaceView, exitSpaceView } from '../../editor/view-filter'
 import Src from '../Src.vue'
+import ChangeBadge from './ChangeBadge.vue'
 import type { selectedSpace as selectedSpaceRef } from '../../editor/space-objects'
 
 // 부모의 v-if 가 null 이 아님을 보장한 값(docs/dev/app-structure.md)
@@ -35,7 +36,7 @@ defineProps({
   <section v-memo="replayMemo()" class="picked space-picked">
     <div class="picked-head">
       <div>
-        <h3>{{ selectedSpace.space.longName || selectedSpace.space.name }}</h3>
+        <h3>{{ selectedSpace.space.longName || selectedSpace.space.name }} <ChangeBadge :id="selectedSpace.space.id" /></h3>
         <dl class="stats facts">
           <div>
             <dt>물리존</dt>
