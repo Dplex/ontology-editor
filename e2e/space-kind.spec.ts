@@ -14,15 +14,20 @@ test('같은 공간명의 방을 한 번에 같은 종류로 바꾸고, 리포�
   await enterEdit(page)
 
   // 물리존 표가 빠져서(#715) 방 번호로 층 현황에서 골라 선택 카드의 이름 · 종류 칸을 고친다. 201 은 2F 라 모든 층으로 넓혀 찾는다.
-  for (const n of ['102', '201']) {
+  // 고른 방이 선택 카드에 뜰 때까지 기다린다. 201 은 모든 층으로 넓힌 뒤 눌러서, 바로 치면 아직 102 카드의 칸에 들어간다(이미 S.T 라 아무것도 안 바뀐다).
+  const pick = async (n: string) => {
     await pickSpace(page, n)
+    await expect(page.getByTestId('space-number')).toHaveValue(n)
+  }
+  for (const n of ['102', '201']) {
+    await pick(n)
     const name = page.locator('.space-name input')
     await name.fill('S.T')
     await name.press('Enter')
   }
   const select = page.getByTestId('space-kind')
   const kindOf = async (n: string) => {
-    await pickSpace(page, n)
+    await pick(n)
     return select
   }
   // 이름 사전은 S.T 를 모른다. 201 은 OmniClass 코드로 창고다.
