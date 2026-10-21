@@ -13,9 +13,10 @@ import { vKeepTyping } from '../../editor/edit-filter'
 import { closeMultiView, openMultiViewFor, storeysByHeight } from '../../editor/multi-view'
 import { pickSpace } from '../../editor/rooms'
 import { drawing } from '../../editor/space-objects'
-import { applyPartPoint, applyPartShift, applyVerticalHeading, applyVerticalShift, flightKind, multiView, partShift, relinkSelected, rotateTarget, selectedLinks, selectedVerticalId, selectVertical, setDirectionFrom, setStopFrom, shaftCarry, unlinkSelected, VERTICAL_PART_LOCKED, VERTICAL_ROLE, verticalDeleteAsk, verticalDeleteImpact, verticalShift, verticalWarnings } from '../../editor/vertical'
-import { applyRange, cancelRange, faceLabel, fillRange, fillRangeStart, isFilling, placingRangeAt, RANGE_NEED, rangePlan, removeSelectedVertical, setLandingFrom, setRangeEnd, verticalRange } from '../../editor/vertical-create'
+import { applyPartPoint, applyPartShift, applyVerticalHeading, applyVerticalShift, flightKind, multiView, partShift, relinkSelected, rotateTarget, selectedLinks, selectedVerticalId, selectVertical, setDirectionFrom, setStopFrom, shaftCarry, unlinkSelected, VERTICAL_PART_LOCKED, VERTICAL_ROLE, verticalDeleteAsk, verticalDeleteEffect, verticalDeleteImpact, verticalShift, verticalWarnings } from '../../editor/vertical'
+import { applyRange, cancelRange, faceLabel, fillRange, fillRangeStart, isFilling, placingRangeAt, RANGE_NEED, rangeEffect, rangePlan, removeSelectedVertical, setLandingFrom, setRangeEnd, verticalRange } from '../../editor/vertical-create'
 import Src from '../Src.vue'
+import VerticalEffectList from './VerticalEffectList.vue'
 import type { model as modelRef } from '../../editor/core'
 import type { selectedVertical as selectedVerticalRef } from '../../editor/vertical'
 
@@ -255,7 +256,11 @@ defineProps({
                 <span class="muted">(채워야 적용됩니다)</span>
               </li>
               <li v-if="rangePlan.link">적용 시 연결 물리존: {{ rangePlan.link.from ?? '없음' }} ↔ {{ rangePlan.link.to ?? '없음' }}</li>
-              <li class="muted">개구부·정차 층·운행 구간·샤프트 배관 소속은 아직 다루지 않습니다</li>
+              <VerticalEffectList v-if="rangeEffect" :effect="rangeEffect" mode="range" />
+              <li v-if="selectedVertical.object.kind === 'escalator' && rangePlan.storeys.length" data-testid="effect-run">
+                운행 구간: {{ rangePlan.storeys[0].name }} → {{ rangePlan.storeys[rangePlan.storeys.length - 1].name }}
+              </li>
+              <li v-if="selectedVertical.object.kind === 'shaft'" class="muted">샤프트 배관 소속은 아직 구간에 따라 바꾸지 않습니다</li>
             </ul>
           </template>
           <p>
@@ -272,6 +277,7 @@ defineProps({
           <li>영향 층: {{ verticalDeleteImpact.storeys.join(' · ') }} ({{ verticalDeleteImpact.parts }}개 조각이 빠집니다)</li>
           <li v-if="verticalDeleteImpact.pipes" data-testid="vertical-delete-pipes">안의 덕트·배관 {{ verticalDeleteImpact.pipes }}개와 그 연결은 남고 샤프트 소속만 풀립니다(되돌리면 돌아옵니다)</li>
           <li v-if="verticalDeleteImpact.link">이 {{ selectedVertical.label }}{{ josa(selectedVertical.label, '이/가') }} 이은 {{ verticalDeleteImpact.link.from }} ↔ {{ verticalDeleteImpact.link.to }} 연결이 빠지고, 겹침 추정이 다시 잽니다</li>
+          <VerticalEffectList v-if="verticalDeleteEffect" :effect="verticalDeleteEffect" mode="delete" />
           <li>계단실 같은 물리존과 BIM 원본은 그대로입니다. 편집 파일에 지움으로 남아 다시 열어도 되살아나지 않습니다</li>
         </ul>
         <button type="button" class="ghost danger" @click="removeSelectedVertical">지우기</button>

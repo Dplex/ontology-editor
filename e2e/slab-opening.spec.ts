@@ -50,6 +50,15 @@ test('Duplex: 원본 계단 자리는 슬래브가 비워 두어 새로 뚫지 �
   await page.keyboard.press('Control+Shift+z')
   await expect(rows.first()).toContainText('개구부 확정')
 
+  // 지우기 전에 확정 개구부와 그 개구부가 돌려줄 넓이를 보인다(OE-ML-09 AC1·3). 취소하면 그대로다.
+  await page.keyboard.press('Delete')
+  const ask = page.getByTestId('vertical-delete-ask')
+  await expect(ask.getByTestId('effect-openings')).toContainText('Level 2 바닥 개구부 확정')
+  await expect(ask.getByTestId('effect-openings')).toContainText('확정한 편집 개구부 1곳은 함께 사라지고')
+  await expect(ask.getByTestId('effect-areas')).toContainText('+1.63㎡')
+  await ask.getByRole('button', { name: '취소' }).click()
+  await expect(rows.first()).toContainText('개구부 확정')
+
   // 옮긴 계단과 겹친 Level 2 의 A204 는 확정 개구부와 겹친 넓이(1.63㎡)만큼 넓이가 준다(check:sample 과 같은 이동).
   await page.evaluate((id) => (window as any).__editor3d.show([id]), A204)
   const cut = page.getByTestId('space-slab-cut')

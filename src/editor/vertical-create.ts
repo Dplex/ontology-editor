@@ -3,7 +3,7 @@ import { newId } from '../lib/edit'
 import { josa } from '../lib/josa'
 import type { Vec2, VerticalKind } from '../lib/model'
 import { type SlabOpening, slabOpenings } from '../lib/slab-opening'
-import { createVertical, deleteVertical, draftVertical, faceLanding, planCreate, planElevator, planFlight, planRange, planSteps, type RangeGiven, type RangeNeed, setElevatorLanding, setElevatorStop, setEscalatorDirection, setVerticalRange, storeyAbove, verticalHeading } from '../lib/vertical-edit'
+import { createVertical, deleteVertical, draftVertical, faceLanding, planCreate, planElevator, planFlight, planRange, planSteps, type RangeGiven, type RangeNeed, setElevatorLanding, setElevatorStop, setEscalatorDirection, setVerticalRange, storeyAbove, verticalEffect, verticalHeading } from '../lib/vertical-edit'
 import { anchoredFlight, LINK_RELEASE, type LinkCandidate, linkCandidates, nearestCandidate } from '../lib/vertical-link'
 import { findPart, partId, VERTICAL_KIND_LABEL } from '../lib/vertical-object'
 import { model } from './core'
@@ -53,6 +53,13 @@ export const rangePlan = computed(() => {
   const r = rangeDraft.value
   if (!v || !r || !model.value) return null
   return planRange(model.value, v.object.id, r.from, r.to, rangeGiven.value)
+})
+/** 구간을 줄이면 빠지는 층의 개구부·돌아오는 면적·정차(OE-ML-08 AC1). 늘리거나 그대로면 null. */
+export const rangeEffect = computed(() => {
+  const v = selectedVertical.value
+  const plan = rangePlan.value
+  if (!v || !plan || 'refused' in plan || !plan.removed.length || !model.value) return null
+  return verticalEffect(model.value, v.object.id, new Set(plan.removed.map((s) => s.id)))
 })
 export function setRangeEnd(which: 'from' | 'to', storeyId: string) {
   const r = verticalRange.value
