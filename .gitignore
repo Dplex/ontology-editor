@@ -41,6 +41,8 @@ desktop.ini
 
 # web-ifc 릴리스 바이트 그대로다. scripts/sync-wasm.mjs 가 node_modules 에서 복사한다.
 public/web-ifc.wasm
+# 인트로가 쓰는 three.js. scripts/sync-three.mjs 가 node_modules 에서 옮긴다.
+public/intro/three/
 
 # ---- 정적 서버(scripts/run.sh) ----
 /run/

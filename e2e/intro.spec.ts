@@ -1,0 +1,72 @@
+import { expect, test, type Page } from '@playwright/test'
+
+// 첫 화면 인트로(src/editor/intro.ts · public/intro/). e2e 서버는 /__data 를 붙이지 않아 여기서 장면을 흉내 낸다(intro.ts 와 같은 모양).
+// 층 둘, 물리존 하나씩, 기기 셋(소속 찾은 것 둘·못 찾은 것 하나). 화면의 숫자가 이 장면에서 센 값인지 본다.
+const room = [[0, 0], [10, 0], [10, 8], [0, 8], [0, 0]]
+const wall = [[0, 0], [10, 0], [10, 0.2], [0, 0.2], [0, 0]]
+const scene = {
+  name: 'tiny',
+  building: 'Tiny',
+  title: '작은 건물',
+  files: ['a.ifc', 'b.ifc'],
+  bakedAt: '2026-10-21T00:00:00Z',
+  counts: { storeys: 2, spaces: 2, drawn: 2, devices: 3, placed: 3, indoor: 3, located: 2 },
+  tiers: [
+    { key: 'space', label: '공간', have: 2, of: 2, level: 'full' },
+    { key: 'location', label: '소속', have: 2, of: 3, level: 'partial' },
+  ],
+  systems: 1,
+  connections: 2,
+  storeys: [
+    { name: '1F', elevation: 0, height: 4, spaces: [{ kind: null, ring: room }], walls: [{ h: 4, ring: wall }], devices: [[2, 2, 3, 1], [5, 5, 3, 1]], conduits: [[1, 1, 3.5, 9, 1, 3.5]] },
+    { name: '2F', elevation: 4, height: 4, spaces: [{ kind: null, ring: room }], walls: [{ h: 4, ring: wall }], devices: [[3, 3, 7, 0]], conduits: [] },
+  ],
+}
+
+async function serveIntro(page: Page, list: object[]) {
+  await page.route('**/__data/__intro**', (route) => {
+    const name = new URL(route.request().url()).searchParams.get('name')
+    if (!name) return route.fulfill({ json: list })
+    return name === scene.name ? route.fulfill({ json: scene }) : route.fulfill({ status: 404 })
+  })
+}
+
+test('구운 장면이 있으면 첫 화면에 인트로가 뜨고, 숫자는 장면에서 센 값이다. 닫으면 이 탭에서는 다시 안 뜨고 [인트로 다시 보기] 로 연다', async ({ page }) => {
+  // 소프트웨어 GL 에서는 kit 의 그림자 맵·GTAO·bloom 이 한 프레임에 몇 초씩 걸린다(창을 640×400 으로 줄여도 같았다). 숫자는 프레임마다
+  // 갱신되어 혼자 돌려도 40초대라, 병렬에서는 90초를 넘겨 이 파일은 e2e:serial 에서 돈다(playwright.config.ts 의 SERIAL).
+  test.setTimeout(90_000)
+  await serveIntro(page, [{ name: 'tiny', building: 'Tiny', files: scene.files, bakedAt: scene.bakedAt }])
+  await page.goto('/')
+  const overlay = page.locator('.intro')
+  await expect(overlay).toBeVisible()
+  const lab = page.frameLocator('.intro iframe')
+  // kit 은 WebGL·후처리 셰이더를 다 만든 뒤에야 첫 줄을 그린다. 소프트웨어 GL 인 e2e 브라우저에서는 몇 초 걸린다.
+  await expect(lab.locator('.lab-title')).toContainText('작은 건물', { timeout: 20_000 })
+  // 조립이 끝나면 큰 숫자가 부품 수에서 소속 판정 수(2/3)로 돌아온다.
+  await expect(lab.locator('.lab-metric .lbl')).toContainText('소속 판정', { timeout: 15_000 })
+  await expect(lab.locator('.lab-big .v')).toHaveText('2')
+  // 물리존을 빼면 소속을 댈 외곽선이 없어 0 이 된다.
+  // 인트로가 그리는 동안은 클릭을 이벤트로 보낸다. 소프트웨어 GL 에서는 kit 의 후처리가 프레임마다 메인 스레드를 오래 잡아
+  // Playwright 의 click 이 요소가 멈췄는지(두 프레임) 재다가 시간을 넘긴다.
+  await lab.locator('button[data-k="break"]').dispatchEvent('click')
+  await expect(lab.locator('.lab-big .v')).toHaveText('0')
+  await expect(lab.locator('.lab-metric .lbl')).toContainText('물리존 없음')
+
+  await page.locator('.intro .go').dispatchEvent('click')
+  await expect(overlay).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByText('인트로 다시 보기')).toBeVisible()
+  await expect(overlay).toHaveCount(0)
+  await page.getByText('인트로 다시 보기').click()
+  await expect(overlay).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(overlay).toHaveCount(0)
+})
+
+test('구운 장면이 없으면 인트로도 링크도 없다', async ({ page }) => {
+  await serveIntro(page, [])
+  await page.goto('/')
+  await expect(page.locator('h1')).toBeVisible()
+  await expect(page.locator('.intro')).toHaveCount(0)
+  await expect(page.getByText('인트로 다시 보기')).toHaveCount(0)
+})

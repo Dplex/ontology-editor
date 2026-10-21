@@ -164,6 +164,24 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 들어가지 않으며 3D 에서 고르지도 못한다. 볼 일이 있으면 목록에서 따로 연다. 인테리어의 벽 94장은 10F 에 더해지고(76 → 170장),
 인테리어 파일에는 방(IfcSpace)이 없어 10F 물리존은 그대로다.
 
+## 첫 화면 인트로는 서버에서 구운 장면을 띄운다
+
+파일을 열기 전 첫 화면에 건물이 층마다 쌓이는 인트로(`public/intro/`)가 한 번 뜬다. 성수 원본(287MB)은 첫 화면에서 열 수 없어서,
+에디터와 같은 임포터로 한 번 읽어 층·물리존 외곽선·벽·기기 점·관로 선만 남긴 JSON(0.6MB)을 `data/.intro/` 에 굽고, 그것을
+`/__data/__intro`(`src/server/intro.ts`)로 내준다. **장면이 없는 서버에서는 인트로도 [인트로 다시 보기] 도 보이지 않는다.**
+
+```bash
+# 55 에서, 성수 파일이 data/성수/ 에 있을 때(개발 PC 실측 16초 · 메모리 1.5GB)
+npm run intro:bake -- seongsu data/성수/Factorial_건축.ifc data/성수/Factorial_기계.ifc --title=성수\ Factorial
+```
+
+- 고객사 건물 형상이라 저장소에 커밋하지 않는다. `data/` 는 gitignore 이고, 구운 서버만 내준다.
+- 화면의 숫자(소속 판정·물리존·연결망·흐름 방향)는 구울 때 `gradeCounts`·`profileOf` 로 센 값이다. 임포터가 바뀌면 다시 굽는다.
+  `.profiles.json` 처럼 코드 지문으로 무효화하지 않으므로, 굽지 않으면 낡은 숫자가 남는다.
+- 틀(조립 연출·Explode·Cut·X-ray·라벨·큰 숫자)은 machine-skill 의 kit(`public/intro/lab-kit.js`, MIT, `LICENSE-lab-kit`)을 고치지 않고 쓴다.
+  kit 은 three 를 jsDelivr 에서 받게 되어 있어서, import map 이 `public/intro/three/` 를 가리킨다. 그 폴더는 `scripts/sync-three.mjs` 가
+  node_modules 에서 kit 이 가져오는 파일만(24개, 2.4MB) 옮기고 커밋하지 않는다. 아래 WASM 과 같은 이유다.
+
 ## WASM 은 커밋하지 않는다
 
 `public/web-ifc.wasm` 은 `scripts/sync-wasm.mjs` 가 node_modules 에서 복사한다. 릴리스 바이트

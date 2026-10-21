@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BIM 에서 DT 온톨로지로</title>
+<!--
+  첫 화면 인트로. 서버가 구워 둔 건물 장면(/__data/__intro, scripts/intro-bake.ts)을 층마다 쌓아 보인다.
+  화면의 틀(스튜디오·조립·Explode·Cut·X-ray·Labels·큰 숫자)은 machine-skill 의 kit(lab-kit.js, MIT, LICENSE-lab-kit)을 고치지 않고 쓴다.
+  three 는 CDN 대신 scripts/sync-three.mjs 가 옮긴 ./three/ 에서 받는다 — 사내망 브라우저는 jsDelivr 에 못 닿는다.
+  숫자는 전부 장면 JSON 에서 센다. 장면이 없으면 아무것도 그리지 않고 그렇다고 적는다.
+-->
+<script type="importmap">
+{ "imports": {
+  "three": "./three/build/three.module.js",
+  "three/addons/": "./three/examples/jsm/"
+} }
+</script>
+<style>
+  .intro-empty { position: fixed; inset: 0; display: grid; place-items: center; color: #8e8c86; font: 15px/1.6 system-ui, sans-serif; background: #0d0e10; text-align: center; padding: 16px }
+  .intro-empty code { color: #f1efe9 }
+  .lab-title { font-size: clamp(30px, 3.2vw, 60px) }
+  /* 조립하는 동안 "14,683 of 14,683 parts" 가 옆 칸을 넘는다. kit 은 그대로 두고 크기만 줄인다. */
+  .lab-big { font-size: clamp(52px, 5.6vw, 108px) }
+</style>
+</head>
+<body>
+<script type="module">
+import LabKit from './lab-kit.js'
+import * as BGU from 'three/addons/utils/BufferGeometryUtils.js'
+
+const { THREE, Lab, MAT, fmt } = LabKit
+const q = new URLSearchParams(location.search)
+const API = q.get('data') ?? '../__data/__intro'
+
+function empty(html) {
+  const d = document.createElement('div'); d.className = 'intro-empty'; d.innerHTML = html; document.body.appendChild(d)
+  parent?.postMessage?.({ intro: 'empty' }, '*')
+}
+
+const list = await fetch(API).then((r) => (r.ok ? r.json() : [])).catch(() => [])
+const name = q.get('name') ?? list[0]?.name
+const S = name ? await fetch(`${API}?name=${encodeURIComponent(name)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null) : null
+if (!S) {
+  empty('구워 둔 건물 장면이 없습니다.<br><code>npm run intro:bake -- seongsu data/성수/Factorial_건축.ifc data/성수/Factorial_기계.ifc</code>')
+  throw new Error('no intro scene')
+}
+
+// ---------------------------------------------------------------- 좌표: IFC(x, y 평면, z 위) → 화면(x, y 위, z)
+const storeys = S.storeys.filter((s) => s.spaces.length || s.walls.length || s.devices.length || s.conduits.length)
+let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity
+for (const s of storeys) for (const r of [...s.spaces.map((p) => p.ring), ...s.walls.map((w) => w.ring)]) for (const [x, y] of r) {
+  x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y)
+}
+const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2
+const zBase = storeys[0].elevation
+const top = storeys.at(-1).elevation + storeys.at(-1).height - zBase
+const at = ([x, y, z]) => [x - cx, z - zBase, -(y - cy)]
+// 평면 밖으로 멀리 떨어진 점·관로는 그리지 않는다(성수에는 원점 근처에 놓인 관로가 있다). 숫자는 거르기 전 그대로 센다.
+const MARGIN = 6
+const inside = ([x, y]) => x > x0 - MARGIN && x < x1 + MARGIN && y > y0 - MARGIN && y < y1 + MARGIN
+const size = Math.max(x1 - x0, y1 - y0, top)
+
+const counts = S.counts
+const title = q.get('title') ?? S.title ?? S.building
+const lab = new Lab({
+  theme: 'night',
+  prompt: `${S.files.join(' + ')}  →  Brick TTL · GeoJSON`,
+  pills: ['IFC', 'Brick TTL', 'GeoJSON'],
+  no: 1,
+  title,
+  sub: S.files.length > 1 ? '건축 + 설비' : '',
+  size,
+  view: { az: 38, el: 14, dist: 2.75, target: [0, top * 0.52, 0], fov: 30 },
+  cut: { a: [0, 0, 1], b: [1, 0, 0], reach: 0.9 },
+})
+lab.$('.lab-prompt b').textContent = 'BIM'
+lab.$('.lab-no').textContent = 'BIM → DT 공간 온톨로지'
+
+// ---------------------------------------------------------------- 형상
+const shapeOf = (ring) => new THREE.Shape(ring.map(([x, y]) => new THREE.Vector2(x - cx, y - cy)))
+/** 외곽선 고리를 바닥 높이 y 에서 h 만큼 세운 닫힌 입체. 평면 (x, y) 가 화면 (x, -z) 로 간다. */
+function prism(ring, y, h) {
+  const g = new THREE.ExtrudeGeometry(shapeOf(ring), { depth: h, bevelEnabled: false, curveSegments: 1 })
+  g.rotateX(-Math.PI / 2); g.translate(0, y, 0)
+  return g
+}
+const merged = (geos) => {
+  if (!geos.length) return null
+  const g = BGU.mergeGeometries(geos.map((x) => { x.deleteAttribute('uv'); return x }), false)
+  g.computeVertexNormals(); return g
+}
+
+const mats = {
+  slab: MAT.ceramic({ color: [0.62, 0.61, 0.58] }),
+  wall: MAT.paint({ color: [0.86, 0.85, 0.82], clearcoat: 0.2 }),
+  // 밤 스튜디오에서 금속은 주변을 비춰 검게 읽힌다. 기기·관로는 칠한 색으로 둔다.
+  located: MAT.paint({ color: [0.93, 0.74, 0.28] }),
+  lost: MAT.paint({ color: [0.85, 0.24, 0.12] }),
+  duct: MAT.paint({ color: [0.55, 0.62, 0.7], clearcoat: 0.3 }),
+}
+const box = new THREE.BoxGeometry(0.55, 0.55, 0.55)
+const rod = new THREE.CylinderGeometry(0.16, 0.16, 1, 10, 1)
+const up = new THREE.Vector3(0, 1, 0)
+
+function instanced(geo, mat, items, place) {
+  if (!items.length) return null
+  const m = new THREE.InstancedMesh(geo, mat, items.length)
+  const M = new THREE.Matrix4()
+  items.forEach((it, i) => { place(it, M); m.setMatrixAt(i, M) })
+  m.instanceMatrix.needsUpdate = true
+  return m
+}
+
+/** 라벨을 꽂을 자리: 그 층에서 가장 오른쪽(화면 앞) 물리존의 가운데, 바닥판 위. */
+function anchor(s, y) {
+  const ring = s.spaces.map((p) => p.ring).sort((a, b) => Math.max(...b.map((p) => p[0])) - Math.max(...a.map((p) => p[0])))[0]
+  if (!ring) return [0, y, 0]
+  const [mx, my] = ring.reduce(([a, b], [x, yy]) => [a + x / ring.length, b + yy / ring.length], [0, 0])
+  return [mx - cx, y + 0.4, -(my - cy)]
+}
+
+const floors = storeys.map((s, i) => {
+  const y = s.elevation - zBase
+  const part = new THREE.Group(); part.name = s.name
+  const inner = new THREE.Group(); part.add(inner)
+  const slab = merged(s.spaces.map((p) => prism(p.ring, y, 0.3)))
+  const walls = merged(s.walls.map((w) => prism(w.ring, y + 0.3, Math.max(0.5, Math.min(w.h, s.height) - 0.3))))
+  const slabMesh = slab && new THREE.Mesh(slab, mats.slab)
+  const wallMesh = walls && new THREE.Mesh(walls, mats.wall)
+  const devices = instanced(box, mats.located, s.devices.filter((d) => d[3] && inside(d)), (d, M) => M.makeTranslation(...at(d)))
+  const lost = instanced(box, mats.lost, s.devices.filter((d) => !d[3] && inside(d)), (d, M) => M.makeTranslation(...at(d)))
+  const ducts = instanced(rod, mats.duct, s.conduits.filter((c) => inside(c) && inside(c.slice(3))), (c, M) => {
+    const a = new THREE.Vector3(...at(c.slice(0, 3))), b = new THREE.Vector3(...at(c.slice(3)))
+    const len = Math.max(0.05, a.distanceTo(b))
+    const qn = new THREE.Quaternion().setFromUnitVectors(up, b.clone().sub(a).normalize())
+    M.compose(a.add(b).multiplyScalar(0.5), qn, new THREE.Vector3(1, len, 1))
+  })
+  for (const m of [slabMesh, wallMesh, devices, lost, ducts]) if (m) inner.add(m)
+  const located = s.devices.filter((d) => d[3]).length
+  lab.add(part, {
+    name: s.name,
+    explode: [0, i * (size * 0.035), 0],
+    delay: i / storeys.length,
+    count: s.spaces.length + s.walls.length + s.devices.length + s.conduits.length,
+    label: s.spaces.length ? s.name : undefined,
+    at: anchor(s, y),
+    value: () => `물리존 ${s.spaces.length} · 기기 ${located}/${s.devices.length}`,
+    // 왼쪽 라벨은 건물 위에 겹친다. 전부 오른쪽 여백에 세운다.
+    side: 'right',
+  })
+  // X-ray 는 벽만 유리로 바꾼다. 안의 기기·관로가 보인다.
+  if (wallMesh) lab.ghosts.push(wallMesh)
+  return { s, inner, slabMesh, devices, located }
+})
+
+// ---------------------------------------------------------------- 숫자: 장면 JSON 에서 센 것뿐
+const pct = (a, b) => (b ? `${Math.round((a / b) * 1000) / 10}%` : '—')
+const tier = (k) => S.tiers.find((t) => t.key === k)
+let spacesOut = false
+let only = 0
+function show() {
+  const f = only ? floors[only - 1] : null
+  for (const [i, F] of floors.entries()) F.inner.visible = !only || i < only
+  for (const F of floors) {
+    if (F.slabMesh) F.slabMesh.visible = !spacesOut
+    // 물리존이 없으면 소속을 찾은 기기도 "모름" 이 된다. 노란 기기를 붉게 칠한다.
+    if (F.devices) F.devices.material = spacesOut ? mats.lost : mats.located
+  }
+  lab.heroO.max = f ? f.s.devices.length || 1 : counts.indoor || 1
+  if (spacesOut) {
+    lab.setHero(0, { state: '물리존 없음', bad: true, sub: `IfcSpace 가 없으면 기기를 댈 외곽선이 없어 소속 ${fmt(counts.indoor)}대가 모두 "모름" 입니다` })
+    return
+  }
+  if (f) {
+    const n = f.s.devices.length
+    lab.setHero(f.located, { state: `${f.s.name} · ${pct(f.located, n)}`, sub: `이 층 기기 ${fmt(n)}대 · 물리존 ${f.s.spaces.length} · 관로 ${fmt(f.s.conduits.length)}` })
+    return
+  }
+  lab.setHero(counts.located, {
+    state: pct(counts.located, counts.indoor),
+    sub: `실내 기기 ${fmt(counts.indoor)}대 중 · 연결망 ${fmt(tier('network')?.have ?? 0)} · 흐름 방향 ${fmt(tier('direction')?.have ?? 0)}`,
+  })
+}
+lab.hero({ label: '소속 판정', unit: '대', max: counts.indoor || 1 })
+lab.slider({
+  id: 'floor', label: '층까지 보기', min: 0, max: floors.length, step: 1, value: 0,
+  fmt: (v) => (v ? floors[v - 1].s.name : '전체'), ends: ['전체', floors.at(-1).s.name],
+  onInput: (v) => { only = Math.round(v); show() },
+})
+lab.breakIt({
+  label: 'IfcSpace 빼기',
+  run: () => { spacesOut = true; show() },
+  reset: () => { spacesOut = false; show() },
+})
+lab.how(
+  `${S.files.join(' + ')} 를 에디터와 같은 임포터로 읽어 합친 값입니다(${S.bakedAt.slice(0, 10)} 구움). 기기 소속은 기기 좌표를 같은 층 물리존 외곽선에 대 보아 정합니다. 노란 기기는 소속을 찾은 것, 붉은 기기는 못 찾은 것입니다.`,
+  S.tiers.map((t) => `${t.label.padEnd(4, ' ')} ${fmt(t.have)} / ${fmt(t.of)}  (${pct(t.have, t.of)})`),
+)
+// kit 은 조립하는 동안 큰 숫자 칸을 부품 수로 쓴다. 틱마다 다시 써야 조립이 끝난 뒤 소속 숫자로 돌아온다.
+lab.onTick(show)
+lab.start()
+parent?.postMessage?.({ intro: 'ready', name: S.name }, '*')
+</script>
+</body>
+</html>

@@ -26,6 +26,7 @@ import { activityLog } from './activity-log'
 import { floorState } from './floor-state'
 import { fbxConverter } from './fbx'
 import { dwgConverter } from './dwg'
+import { intro } from './intro'
 
 /** IDF 는 등급을 재지 않는다(방·설비 형상이 없다). 목록에 공조존·바닥·설비 수만 보인다. */
 export type IdfSummary = { zones: number; floors: number; equipment: number }
@@ -197,6 +198,8 @@ export function createDataCatalog(dataDir: string, libDir = resolve('src/lib')) 
     // DWG 를 받아 평면도 배경 PNG 로 바꿔 돌려준다(dwg.ts). data/ 에는 아무것도 남기지 않는다.
     if (path === '__dwg') return dwg(req, res)
     // 첫 화면의 [바로 열기] 묶음. data/.open-sets.json 의 [{ title, paths }] 중 파일이 다 있는 것만 낸다(openSets).
+    // 첫 화면 인트로의 장면(intro.ts). scripts/intro-bake.ts 가 data/.intro/ 에 구운 것만 낸다.
+    if (path === '__intro') return intro(root, req, res, query ?? '')
     if (path === '__sets') {
       res.setHeader('Content-Type', 'application/json')
       res.end(JSON.stringify(openSets(root)))

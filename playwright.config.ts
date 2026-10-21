@@ -9,7 +9,8 @@ const port = Number(process.env.E2E_PORT ?? 5175)
 // 실제 시간으로 흘러가는 화면(편집 리플레이 — 장면이 5초마다 넘어간다)을 재는 시험. 병렬로 돌면 CPU 가 밀려 장면을 놓치고,
 // 합쳐 2분 걸린다. 기본(npm run e2e)에서는 빼고 npm run e2e:serial 이 하나씩 돌린다(playwright.serial.config.ts).
 // flow-cascade 는 확정한 연결이 물결로 퍼지는 단계를 프레임마다 센다. 병렬로 돌면 Duplex 렌더가 4fps 까지 떨어져 단계가 뭉친다.
-export const SERIAL = ['**/edit-replay.spec.ts', '**/replay-edge.spec.ts', '**/replay-reduced.spec.ts', '**/flow-cascade.spec.ts']
+// intro 는 첫 화면 인트로(machine-skill kit)가 소프트웨어 GL 에서 한 프레임에 몇 초씩 걸려, 병렬로 돌면 숫자가 바뀌기 전에 시간을 넘긴다.
+export const SERIAL = ['**/edit-replay.spec.ts', '**/replay-edge.spec.ts', '**/replay-reduced.spec.ts', '**/flow-cascade.spec.ts', '**/intro.spec.ts']
 
 export default defineConfig({
   testDir: './e2e',
