@@ -47,7 +47,7 @@ test('IDF 만 열면 바닥 높이마다 층을 세우고 공조존을 보인다
   expect(errors).toEqual([])
 })
 
-test('존↔물리존 매칭은 확인해야 나가는 초안이고, 존 단위로 확인하고 풀 수 있다 (OE-ZON-07)', async ({ page }, info) => {
+test('존↔물리존 매칭은 확인해야 나가는 초안이고, 존 단위로 확인하고 풀 수 있다 [OE-IDF-05#1]', async ({ page }, info) => {
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   await page.goto('/')

@@ -7,6 +7,7 @@ import { airServices, isAirTerminal, needsSystem, type AirService } from './serv
 import { withInferred } from './flow-rules'
 import { fluidConnections } from './flow-review'
 import { hvacZonesOf } from './hvac-zone'
+import { exportedSpaceIds } from './idf/confirm'
 import { distanceToRing, pointInPolygon } from './mapping'
 import { isConduit, type Equipment, type Model, type Space, type Storey } from './model'
 
@@ -55,8 +56,10 @@ export type ChecklistContext = {
   suppliedTtl: ReadonlySet<string>
   /** 화면 방향으로 급기를 받는 방과 그 원천. */
   suppliedScreen: ReadonlyMap<string, string[]>
-  /** 공조존에 든 방과 그 존의 출처. */
+  /** 공조존에 든 방과 그 존의 출처. 온톨로지에 나가는 것만이다 — IDF 공조존의 든 방은 사람이 확인해야 나간다(idf/confirm.ts). */
   zoned: ReadonlyMap<string, 'idf' | 'edit'>
+  /** IDF 공조존에 들었지만 매칭을 아직 확인하지 않아 나가지 않는 방. */
+  unconfirmed: ReadonlySet<string>
   hasZones: boolean
 }
 
@@ -81,8 +84,15 @@ export function checklistContext(model: Model, screen?: readonly AirService[]): 
   const suppliedTtl = new Set(confirmed.flatMap((s) => s.supply.map((t) => spaceOf.get(t)).filter((x): x is string => !!x)))
   const zones = hvacZonesOf(model)
   const zoned = new Map<string, 'idf' | 'edit'>()
-  for (const z of zones) for (const id of z.spaceIds) zoned.set(id, z.source === 'edit' ? 'edit' : 'idf')
-  return { reached, supplyTerminals, suppliedTtl, suppliedScreen, zoned, hasZones: zones.length > 0 }
+  const unconfirmed = new Set<string>()
+  for (const z of zones) {
+    const out = new Set(exportedSpaceIds(model, z))
+    for (const id of z.spaceIds) {
+      if (out.has(id)) zoned.set(id, z.source === 'edit' ? 'edit' : 'idf')
+      else unconfirmed.add(id)
+    }
+  }
+  return { reached, supplyTerminals, suppliedTtl, suppliedScreen, zoned, unconfirmed, hasZones: zones.length > 0 }
 }
 
 const at2 = (e: Equipment) => [e.position![0], e.position![1]] as const
@@ -148,7 +158,8 @@ export function spaceChecklist(storey: Storey, space: Space, ctx: ChecklistConte
   const zone = ctx.zoned.get(space.id)
   if (!ctx.hasZones) items.push({ key: 'zone', state: 'na', note: '이 건물에 공조존이 없습니다' })
   else if (NON_AIR_KINDS.has(space.kind ?? '')) items.push({ key: 'zone', state: 'na', note: '공조 대상이 아닌 방입니다' })
-  else items.push({ key: 'zone', state: zone ? 'ok' : 'empty', source: zone })
+  else if (zone) items.push({ key: 'zone', state: 'ok', source: zone })
+  else items.push({ key: 'zone', state: 'empty', ...(ctx.unconfirmed.has(space.id) ? { note: 'IDF 공조존 매칭을 확인하기 전이라 온톨로지에 나가지 않습니다' } : {}) })
 
   const counted = items.filter((x) => x.state !== 'na')
   return { spaceId: space.id, items, have: counted.filter((x) => x.state === 'ok').length, of: counted.length }

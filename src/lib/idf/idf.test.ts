@@ -421,7 +421,7 @@ describe('존↔물리존 매칭 확인 (OE-ZON-07, D13)', () => {
   const zoneBlock = (ttl: string, id: string) => ttl.split('\n\n').find((b) => b.startsWith(`ex:${id} a brick:HVAC_Zone`))!
   const hvacFeatures = (m: Model) => modelToGeoJSON(m).flatMap((f) => f.collection.features).filter((f) => f.properties.kind === 'hvacZone')
 
-  it('확인하지 않은 매칭은 TTL·GeoJSON 에 나가지 않고, 담당 관계는 확인 없이 나간다 [OE-IDF-05#1,#2]', () => {
+  it('확인하지 않은 매칭은 TTL·GeoJSON 에 나가지 않고, 담당 관계는 확인 없이 나간다 [OE-IDF-05#1,2]', () => {
     const { model } = attachIdf(mep, readIdf(text), 'two-zones.idf')
     const office = model.hvac!.zones.find((z) => z.name === '1F:OFFICE')!
     // 초안은 있다 — 확인 전에는 나가지 않을 뿐이다.
