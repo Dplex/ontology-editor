@@ -9,6 +9,8 @@
   화면의 틀(스튜디오·조립·Explode·Cut·X-ray·Labels·큰 숫자)은 machine-skill 의 kit(lab-kit.js, MIT, LICENSE-lab-kit)을 고치지 않고 쓴다.
   three 는 CDN 대신 scripts/sync-three.mjs 가 옮긴 ./three/ 에서 받는다 — 사내망 브라우저는 jsDelivr 에 못 닿는다.
   숫자는 전부 장면 JSON 에서 센다. 장면이 없으면 아무것도 그리지 않고 그렇다고 적는다.
+  장면 이름과 같은 동네 지도(city/<이름>.json, scripts/intro-city.mjs)가 있으면 그 앞에 앞머리(prologue.js)를 붙인다:
+  "Ontology-Editor" → 한강 위에서 본 동네 → 건물까지 비행 → 스캔선 → 이 페이지의 층 조립. ?prologue=0 이면 건너뛴다.
 -->
 <script type="importmap">
 { "imports": {
@@ -27,6 +29,7 @@
 <body>
 <script type="module">
 import LabKit from './lab-kit.js'
+import { mountPrologue } from './prologue.js'
 import * as BGU from 'three/addons/utils/BufferGeometryUtils.js'
 
 const { THREE, Lab, MAT, fmt } = LabKit
@@ -45,6 +48,13 @@ if (!S) {
   empty('구워 둔 건물 장면이 없습니다.<br><code>npm run intro:bake -- seongsu data/성수/Factorial_건축.ifc data/성수/Factorial_기계.ifc</code>')
   throw new Error('no intro scene')
 }
+
+// 앞머리는 kit 을 만들기 전에 띄운다. 글자가 뜬 동안 동네와 kit 형상을 만든다.
+const quiet = q.get('prologue') === '0' || matchMedia('(prefers-reduced-motion: reduce)').matches
+const city = quiet ? null : await fetch(`./city/${encodeURIComponent(S.name)}.json`)
+  .then((r) => (r.ok && (r.headers.get('content-type') ?? '').includes('json') ? r.json() : null))
+  .catch(() => null)
+const pro = city ? mountPrologue(city, { caption: 'IFC 를 읽어 층마다 다시 세웁니다' }) : null
 
 // ---------------------------------------------------------------- 좌표: IFC(x, y 평면, z 위) → 화면(x, y 위, z)
 const storeys = S.storeys.filter((s) => s.spaces.length || s.walls.length || s.devices.length || s.conduits.length)
@@ -233,7 +243,18 @@ lab.renderer.domElement.addEventListener('webglcontextlost', (e) => {
       cb(t)
     })
 }
-lab.start()
+const toMeters = (v) => [v.x / lab.k, v.y / lab.k + zBase, v.z / lab.k]
+if (pro) {
+  // kit 의 첫 시점에서 비행을 끝낸다. 셰이더는 글자가 떠 있는 동안 미리 만들어 둔다(넘기는 순간 멈칫하지 않게).
+  lab.renderer.compile(lab.scene, lab.camera)
+  await pro.play({
+    // kit 은 건물을 lab.k 배로 줄이고 가장 낮은 층(지하) 바닥을 0 에 둔다. 앞머리는 미터·지면 0 이다.
+    end: { pos: toMeters(lab.camera.position), target: toMeters(lab.controlsOrbit.target), fov: lab.camera.fov },
+    levels: S.storeys.map((s) => s.elevation),
+  })
+  lab.start()
+  pro.leave()
+} else lab.start()
 parent?.postMessage?.({ intro: 'ready', name: S.name }, '*')
 </script>
 </body>

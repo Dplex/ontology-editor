@@ -79,3 +79,25 @@ test('구운 장면이 없으면 #intro 여도 인트로가 없고 링크도 없
   await expect(page.locator('.intro')).toHaveCount(0)
   await expect(page.getByText('인트로 다시 보기')).toHaveCount(0)
 })
+
+test.describe('앞머리', () => {
+  // e2e 는 움직임 줄이기(reducedMotion)로 돈다. 그 설정이면 앞머리를 건너뛰므로(index.html) 여기서만 끈다.
+  test.use({ contextOptions: { reducedMotion: 'no-preference' } })
+
+  test('장면 이름과 같은 동네 지도가 있으면 "Ontology-Editor" 앞머리가 먼저 뜨고, [건너뛰기] 로 층 조립 장면으로 넘어간다', async ({ page }) => {
+    // 성수 지도(public/intro/city/seongsu.json)는 커밋된 파일이라 장면 이름만 seongsu 로 바꿔 흉내 낸다.
+    test.setTimeout(120_000)
+    const seongsu = { ...scene, name: 'seongsu' }
+    await page.route('**/__data/__intro**', (route) => {
+      const name = new URL(route.request().url()).searchParams.get('name')
+      return route.fulfill({ json: name ? seongsu : [{ name: 'seongsu', building: 'Tiny', files: scene.files, bakedAt: scene.bakedAt }] })
+    })
+    await page.goto('/intro/index.html?name=seongsu')
+    await expect(page.locator('.pro-word')).toHaveText('Ontology-Editor')
+    await expect(page.locator('.pro-credit')).toContainText('OpenStreetMap')
+    // 소프트웨어 GL 에서는 8천 동을 그리는 프레임이 느려 비행을 다 기다리지 않는다.
+    await page.locator('.pro-skip').dispatchEvent('click')
+    await expect(page.locator('.pro')).toHaveCount(0, { timeout: 60_000 })
+    await expect(page.locator('.lab-title')).toContainText('작은 건물')
+  })
+})

@@ -3,7 +3,7 @@
 // 인트로의 kit(public/intro/lab-kit.js, machine-skill)은 앱 번들 밖의 한 장짜리 페이지라 import map 으로 three 를 받는다.
 // 원본은 jsDelivr 를 가리키지만 사내망 브라우저는 CDN 에 못 닿는다. 그래서 앱과 같은 node_modules/three 를 옮겨 둔다
 // (web-ifc.wasm 을 sync-wasm 이 옮기는 것과 같은 이유 — node_modules 가 정본이고 커밋하지 않는다).
-// kit 이 가져오는 addon 에서 시작해 import 를 따라가며 필요한 파일만 옮긴다. examples/jsm 전체는 20MB 가 넘는다.
+// kit·앞머리(prologue.js)가 가져오는 addon 에서 시작해 import 를 따라가며 필요한 파일만 옮긴다. examples/jsm 전체는 20MB 가 넘는다.
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -13,14 +13,14 @@ import { fileURLToPath } from 'node:url'
 const require = createRequire(import.meta.url)
 const three = dirname(dirname(require.resolve('three')))
 const here = dirname(fileURLToPath(import.meta.url))
-const kit = join(here, '..', 'public', 'intro', 'lab-kit.js')
+const pages = ['lab-kit.js', 'prologue.js'].map((f) => join(here, '..', 'public', 'intro', f))
 const out = join(here, '..', 'public', 'intro', 'three')
 
 const IMPORT = /(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]|import\s*['"]([^'"]+)['"]/g
 const specs = (file) => [...readFileSync(file, 'utf8').matchAll(IMPORT)].map((m) => m[1] ?? m[2])
 
 const todo = []
-for (const s of specs(kit)) {
+for (const s of pages.flatMap(specs)) {
   if (s === 'three') todo.push(join(three, 'build', 'three.module.js'))
   else if (s.startsWith('three/addons/')) todo.push(join(three, 'examples', 'jsm', s.slice('three/addons/'.length)))
 }

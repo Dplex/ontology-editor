@@ -6,6 +6,7 @@
   "scripts": {
     "sync:wasm": "node scripts/sync-wasm.mjs",
     "sync:three": "node scripts/sync-three.mjs",
+    "intro:city": "node scripts/intro-city.mjs",
     "intro:bake": "esbuild scripts/intro-bake.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=node_modules/.cache/intro-bake.mjs && node --max-old-space-size=8192 node_modules/.cache/intro-bake.mjs",
     "predev": "npm run sync:wasm && npm run sync:three",
     "dev": "vite",

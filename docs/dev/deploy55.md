@@ -181,7 +181,27 @@ npm run intro:bake -- seongsu data/성수/Factorial_건축.ifc data/성수/Facto
   `.profiles.json` 처럼 코드 지문으로 무효화하지 않으므로, 굽지 않으면 낡은 숫자가 남는다.
 - 틀(조립 연출·Explode·Cut·X-ray·라벨·큰 숫자)은 machine-skill 의 kit(`public/intro/lab-kit.js`, MIT, `LICENSE-lab-kit`)을 고치지 않고 쓴다.
   kit 은 three 를 jsDelivr 에서 받게 되어 있어서, import map 이 `public/intro/three/` 를 가리킨다. 그 폴더는 `scripts/sync-three.mjs` 가
-  node_modules 에서 kit 이 가져오는 파일만(24개, 2.4MB) 옮기고 커밋하지 않는다. 아래 WASM 과 같은 이유다.
+  node_modules 에서 kit·앞머리가 가져오는 파일만(25개) 옮기고 커밋하지 않는다. 아래 WASM 과 같은 이유다.
+
+### 앞머리: 한강을 건너 성수로 날아간다
+
+장면 이름과 같은 동네 지도(`public/intro/city/<이름>.json`)가 있으면 층 조립 앞에 13초 남짓한 앞머리(`public/intro/prologue.js`)가 붙는다.
+검은 화면에 "Ontology-Editor" 가 뜨고, 한강 위에서 성수 쪽 야경을 보다가 강을 건너 팩토리얼 성수까지 날아간다. 건물에 닿으면 스캔선이
+아래에서 위로 훑으며 층선(장면의 IFC 층 높이)이 드러나고, 그 자리에서 층 조립으로 넘어간다. 오른쪽 아래 [건너뛰기]·Space·Enter 로 넘긴다.
+브라우저의 움직임 줄이기 설정이 켜져 있거나 주소에 `?prologue=0` 이 있으면 앞머리 없이 시작한다.
+
+- 동네 지도는 OpenStreetMap 에서 받은 건물 외곽선·높이, 한강·중랑천·서울숲, 큰 길이다. 고객사 BIM 이 아니라 공개 지도라 커밋한다(535KB, gzip 195KB).
+  ODbL 이라 화면 왼쪽 아래에 출처를 적는다.
+- 건물 8,379동 중 6,747동은 OSM 에 높이가 없어 쓰임새·바닥 넓이로 정했다(`scripts/intro-city.mjs` 의 `heightOf`). 화면에도 "추정" 이라고 적는다.
+- 팩토리얼 성수는 OSM 에 옛 이름 "예진상사 물류센터"(way 564869565, 연무장7길 13)로 올라 있다. 스크립트의 `PLACES` 표에 번호로 박았다.
+- 다시 굽는 일은 동네를 넓히거나 OSM 이 크게 바뀌었을 때뿐이다. 개발 PC 에서 돌려 커밋하면 되고 55 에서 돌릴 일은 없다.
+
+```bash
+npm run intro:city -- seongsu --cache=/tmp/osm-seongsu   # Overpass 공개 서버가 자주 붐빈다. --cache 로 받은 응답을 남겨 두면 손질만 다시 굽는다
+```
+
+- 부하: 렌더 배율 1, bloom 절반 해상도, 강 반사는 512² 다. 1920×1080 실제 Chrome 에서 비행 내내 60fps 였고,
+  첫 0.5초는 도시 형상을 만드느라 멈추지만 글자 연출(합성 단계 전환)이라 보이지 않는다. 넘긴 뒤 앞머리의 WebGL 을 버려 그래픽 메모리를 돌려준다.
 
 ## WASM 은 커밋하지 않는다
 
