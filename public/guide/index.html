@@ -9,6 +9,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#f1f4f9">
+<script>
+  // 테마는 그리기 전에 정한다(늦으면 라이트로 한 번 그렸다가 다크로 튄다). 에디터와 같은 열쇠(oe-theme)를 쓰므로 에디터에서 고른
+  // 테마로 열린다. 고른 적이 없으면 시스템 설정을 따른다.
+  (function () {
+    var t = null
+    try { t = localStorage.getItem('oe-theme') } catch (e) {}
+    if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    document.documentElement.setAttribute('data-theme', t)
+  })()
+</script>
 <title>사용 가이드 · Ontology Editor</title>
 <style>
   :root {
@@ -33,6 +43,50 @@
     --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
     --step-accent: #2563eb;
     --step-soft: #eaf1ff;
+    --text-soft: #2b313b;
+    --soft-line: #dce3ee;
+    --line-strong: #b0bfd6;
+    --code-bg: #eef2f8;
+    --bar-bg: rgba(255, 255, 255, 0.92);
+    --on-accent: #fff;
+    --counter: var(--pin);
+  }
+  /* 다크: 에디터와 같은 열쇠(localStorage oe-theme)를 따른다. 고른 적이 없으면 시스템 설정을 따른다(머리의 스크립트).
+     무채색으로 둔다. 원리 그림(anatomy kit)의 다크 판이 #131313 이라, 표면을 같은 색으로 두면 그림이 상자로 떠 보이지 않는다. */
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0b0b0b;
+    --surface: #131313;
+    --surface-soft: #181818;
+    --surface-tint: #1f1f1f;
+    --fg: #ecebe8;
+    --muted: #a3a29d;
+    --line: #242424;
+    --card-line: #2e2e2e;
+    --accent: #7aa7ff;
+    --accent-soft: rgba(122, 167, 255, 0.14);
+    --warn-fg: #f5c46b;
+    --warn-bg: rgba(245, 196, 107, 0.08);
+    --warn-line: rgba(245, 196, 107, 0.35);
+    --shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --text-soft: #c9ced8;
+    --soft-line: #2a2a2a;
+    --line-strong: #4a4a4a;
+    --code-bg: #1f1f1f;
+    --bar-bg: rgba(11, 11, 11, 0.9);
+    --on-accent: #0b0b0b;
+    --counter: #3a3a3a;
+  }
+  /* 다크에서는 파트 색을 밝게 올리고, 옅은 바탕은 그 색을 표면에 섞어 만든다. */
+  :root[data-theme="dark"] .theme-intro { --step-accent: #8ea2ff; --part-color: #8ea2ff; }
+  :root[data-theme="dark"] .theme-prep { --step-accent: #7aa7ff; --part-color: #7aa7ff; }
+  :root[data-theme="dark"] .theme-edit { --step-accent: #2dd4bf; --part-color: #2dd4bf; }
+  :root[data-theme="dark"] .theme-out { --step-accent: #b794f6; --part-color: #b794f6; }
+  :root[data-theme="dark"] .theme-ref { --step-accent: #f0b35a; --part-color: #f0b35a; }
+  :root[data-theme="dark"] [class*="theme-"] {
+    --step-soft: color-mix(in srgb, var(--step-accent) 16%, var(--surface));
+    --part-soft: color-mix(in srgb, var(--part-color) 16%, var(--surface));
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; scroll-padding-top: 84px; }
@@ -64,7 +118,7 @@
     position: sticky;
     top: 0;
     z-index: 20;
-    background: rgba(255, 255, 255, 0.92);
+    background: var(--bar-bg);
     backdrop-filter: blur(10px);
     border-bottom: 1px solid var(--card-line);
     box-shadow: 0 1px 4px rgba(15, 23, 42, 0.04);
@@ -116,15 +170,27 @@
     font-weight: 700;
   }
   .steps .sep { color: var(--card-line); padding: 0 0.15rem; user-select: none; }
-  .bar .open {
+  .bar .theme {
     margin-left: auto;
+    flex: none;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 999px;
+    border: 1px solid var(--card-line);
+    background: transparent;
+    color: var(--fg);
+    font: 1rem/1 system-ui, sans-serif;
+    cursor: pointer;
+  }
+  .bar .theme:hover { background: var(--surface-tint); }
+  .bar .open {
     white-space: nowrap;
     font-size: 0.84rem;
     font-weight: 600;
     padding: 0.3rem 0.75rem;
     border-radius: 999px;
     background: var(--fg);
-    color: #fff;
+    color: var(--bg);
     text-decoration: none;
     transition: background 0.15s, transform 0.15s;
   }
@@ -273,7 +339,7 @@
     padding: 0 0.45rem;
     border-radius: 0.6rem;
     background: var(--step-accent);
-    color: #fff;
+    color: var(--on-accent);
     display: inline-grid;
     place-items: center;
     font-weight: 800;
@@ -288,13 +354,13 @@
     text-transform: uppercase;
   }
   .step-head h2 { font-size: 1.32rem; margin: 0; letter-spacing: -0.015em; line-height: 1.3; }
-  .lead { margin: 0 0 1.15rem; max-width: 58rem; color: #2b313b; }
+  .lead { margin: 0 0 1.15rem; max-width: 58rem; color: var(--text-soft); }
 
   /* 화면 그림과 번호 핀 */
   .shot {
     position: relative;
     margin: 0;
-    border: 1px solid #c5d0e0;
+    border: 1px solid var(--card-line);
     border-radius: var(--radius);
     overflow: hidden;
     background: var(--surface-soft);
@@ -367,14 +433,14 @@
     padding: 0.65rem 0.8rem 0.75rem 2.6rem;
     border-radius: 0.65rem;
     background: var(--surface-soft);
-    border: 1px solid #dce3ee;
+    border: 1px solid var(--soft-line);
     scroll-margin-top: 100px;
     cursor: pointer;
     transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
   }
   ol.pins li:hover {
-    background: #fff;
-    border-color: #b0bfd6;
+    background: var(--surface);
+    border-color: var(--line-strong);
     transform: translateY(-1px);
     box-shadow: var(--shadow-sm);
   }
@@ -386,7 +452,7 @@
     width: 1.45rem;
     height: 1.45rem;
     border-radius: 50%;
-    background: var(--pin);
+    background: var(--counter);
     color: #fff;
     display: grid;
     place-items: center;
@@ -394,7 +460,7 @@
     transition: background 0.15s, transform 0.15s;
   }
   ol.pins li.hot, ol.pins li.active {
-    background: #fff;
+    background: var(--surface);
     border-color: var(--step-accent);
     box-shadow: 0 0 0 3px var(--step-soft), var(--shadow-sm);
   }
@@ -408,7 +474,7 @@
   ol.pins .zoom {
     display: block;
     margin: 0.55rem 0 0 -1.8rem;
-    border: 1px solid #d5deeb;
+    border: 1px solid var(--soft-line);
     border-radius: 0.45rem;
     overflow: hidden;
     background: var(--surface);
@@ -420,7 +486,7 @@
   .compare {
     position: relative;
     margin: 0;
-    border: 1px solid #c5d0e0;
+    border: 1px solid var(--card-line);
     border-radius: var(--radius);
     overflow: hidden;
     box-shadow: 0 4px 14px rgba(15, 23, 42, 0.07);
@@ -493,8 +559,8 @@
   }
   .where b { color: var(--fg); }
   .where code, td code, .faq code, .lead code, dd code {
-    background: #eef2f8;
-    border: 1px solid #dce3ee;
+    background: var(--code-bg);
+    border: 1px solid var(--soft-line);
     padding: 0.05rem 0.38rem;
     border-radius: 4px;
   }
@@ -504,7 +570,7 @@
     gap: 0.45rem;
     align-items: baseline;
     background: var(--surface-soft);
-    border: 1px solid #dce3ee;
+    border: 1px solid var(--soft-line);
     border-radius: 0.55rem;
     padding: 0.4rem 0.75rem;
     font-size: 0.89rem;
@@ -548,7 +614,7 @@
     border-collapse: collapse;
     width: 100%;
     background: var(--surface);
-    border: 1px solid #dce3ee;
+    border: 1px solid var(--soft-line);
     border-radius: var(--radius-sm);
     overflow: hidden;
     font-size: 0.93rem;
@@ -561,7 +627,7 @@
   .faq { display: grid; gap: 0.65rem; margin-top: 0.85rem; }
   .faq details {
     background: var(--surface-soft);
-    border: 1px solid #dce3ee;
+    border: 1px solid var(--soft-line);
     border-radius: 0.65rem;
     padding: 0.75rem 1rem;
     transition: border-color 0.15s, background 0.15s;
@@ -596,7 +662,7 @@
   }
   .faq details[open] summary { margin-bottom: 0.55rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--line); }
   .faq details[open] summary::after { content: "−"; }
-  .faq p { margin: 0.35rem 0; color: #333b48; font-size: 0.94rem; }
+  .faq p { margin: 0.35rem 0; color: var(--text-soft); font-size: 0.94rem; }
 
   dl.terms {
     display: grid;
@@ -604,7 +670,7 @@
     gap: 0.65rem 1.4rem;
     margin: 0.85rem 0 0;
     background: var(--surface-soft);
-    border: 1px solid #dce3ee;
+    border: 1px solid var(--soft-line);
     border-radius: var(--radius-sm);
     padding: 1.15rem 1.35rem;
   }
@@ -612,12 +678,12 @@
     font-weight: 700;
     color: var(--fg);
     background: var(--surface);
-    border: 1px solid #dce3ee;
+    border: 1px solid var(--soft-line);
     padding: 0.15rem 0.6rem;
     border-radius: 6px;
     align-self: start;
   }
-  dl.terms dd { margin: 0; color: #333b48; padding: 0.15rem 0; }
+  dl.terms dd { margin: 0; color: var(--text-soft); padding: 0.15rem 0; }
 
   footer {
     margin-top: 4rem;
@@ -643,7 +709,7 @@
     padding: 0.5rem 0.85rem;
     border-radius: 999px;
     border: 1px solid var(--card-line);
-    background: rgba(255, 255, 255, 0.95);
+    background: var(--bar-bg);
     backdrop-filter: blur(6px);
     color: var(--fg);
     font: 600 0.83rem/1 system-ui, sans-serif;
@@ -655,7 +721,7 @@
     transition: opacity 0.2s, transform 0.2s, background 0.15s;
   }
   .to-top.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
-  .to-top:hover { background: var(--fg); color: #fff; }
+  .to-top:hover { background: var(--fg); color: var(--bg); }
 
   /* 화면 크게 보기 라이트박스 모달 */
   dialog.lightbox {
@@ -746,6 +812,7 @@
       <li><a href="#faq">막힐 때</a></li>
       <li><a href="#terms">용어</a></li>
     </ul>
+    <button type="button" class="theme" id="themeToggle" aria-label="다크 모드" aria-pressed="false"></button>
     <a class="open" href="../" target="_blank" rel="noopener">에디터 열기 ↗</a>
   </div>
   <div class="bar-progress" aria-hidden="true"></div>
@@ -1439,6 +1506,26 @@
   for (const s of sections) io.observe(s)
 
   // 스크롤 진행률 및 맨 위로 버튼
+  // 테마 토글. 원리 그림은 판이 둘(*.html · *-dark.html)이라 iframe 주소를 갈아 끼운다(다시 그려져 그림 상태는 처음으로 돌아간다).
+  const themeBtn = document.getElementById('themeToggle')
+  const applyTheme = (t) => {
+    document.documentElement.setAttribute('data-theme', t)
+    themeBtn.textContent = t === 'dark' ? '☀' : '☾'
+    themeBtn.title = t === 'dark' ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'
+    themeBtn.setAttribute('aria-pressed', String(t === 'dark'))
+    document.querySelector('meta[name="theme-color"]').content = t === 'dark' ? '#0b0b0b' : '#f1f4f9'
+    for (const frame of document.querySelectorAll('iframe[data-fig]')) {
+      const src = `fig/${frame.dataset.fig}${t === 'dark' ? '-dark' : ''}.html`
+      if (frame.getAttribute('src') !== src) frame.setAttribute('src', src)
+    }
+  }
+  applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light')
+  themeBtn.addEventListener('click', () => {
+    const t = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'
+    try { localStorage.setItem('oe-theme', t) } catch {}
+    applyTheme(t)
+  })
+
   const toTop = document.getElementById('toTop')
   const updateScroll = () => {
     const max = document.documentElement.scrollHeight - window.innerHeight

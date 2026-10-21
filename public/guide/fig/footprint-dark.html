@@ -113,7 +113,7 @@ body{margin:0;background:var(--anatomy-page);color:var(--anatomy-text);font:14px
 .iso-page{width:min(760px,100% - 32px);margin:64px auto 96px}
 </style></head><body class="iso" data-theme="dark"><main class="iso-page"><style>
 .iso{--anatomy-mono:ui-monospace,"SF Mono",Menlo,Consolas,"Noto Sans Mono CJK KR","Noto Sans CJK KR",monospace}
-html{background:#f2f2ef}html:has(body[data-theme="dark"]){background:#0b0b0b}html[data-embed]{background:transparent}html:has(body[data-theme="light"]),body[data-theme="light"]{color-scheme:light}body{background:transparent;font-family:system-ui,-apple-system,"Segoe UI","Noto Sans CJK KR","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+html{background:#f2f2ef}html:has(body[data-theme="dark"]){background:#0b0b0b}html[data-embed],html[data-embed]:has(body){background:transparent}html:has(body[data-theme="light"]),body[data-theme="light"]{color-scheme:light}body{background:transparent;font-family:system-ui,-apple-system,"Segoe UI","Noto Sans CJK KR","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
 .iso-page{width:100%;margin:0}.iso-figure{margin:0}.iso-plate{padding:46px 18px 44px}
 .fp-stage{outline:none;touch-action:pan-y;cursor:grab}
 .fp-stage:active{cursor:grabbing}
@@ -809,11 +809,11 @@ const D = {"modes":[{"id":"missing","name":"1 · 외곽선 누락 (경고 R2)","
 const P = D.P, KNOB = D.KNOB, KNOB_R = D.KNOB_R;
 const kit = { lineOnTop };
 const knobPointer = function knobPointer(kit, prog) {
-    const angle = Math.PI * 0.25 + prog * Math.PI * 1.5;
-    const [cx, cy] = KNOB;
-    const sx = Math.sin(angle), sy = -Math.cos(angle);
-    return kit.lineOnTop([cx + sx * 1.1, cy + sy * 1.1], [cx + sx * KNOB_R, cy + sy * KNOB_R], 8.7, P);
-  };
+  const angle = Math.PI * 0.25 + prog * Math.PI * 1.5;
+  const [cx, cy] = KNOB;
+  const sx = Math.sin(angle), sy = -Math.cos(angle);
+  return kit.lineOnTop([cx + sx * 1.1, cy + sy * 1.1], [cx + sx * KNOB_R, cy + sy * KNOB_R], 8.7, P);
+};
 const stage = document.querySelector(".fp-stage");
 const slab = stage.querySelector('[data-part="slab"]');
 const pointer = stage.querySelector('[data-part="pointer"]');

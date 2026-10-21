@@ -928,46 +928,46 @@ const DIAL_FROM = 0.7853981633974483, DIAL_SPAN = 4.71238898038469, SNAP_MAX = 1
 const u = (m) => m * K;
 const kit = { solidSvg, slabOf, dotsSvg, iso, lineOnTop, ring, planOutline };
 const armSegments = function armSegments(kit, cy) {
-    const half = ARM.half * 14, z = ARM.z * 14, h = ARM.h * 14;
-    const c0 = (cy - CAR.hy) * 14, c1 = (cy + CAR.hy) * 14;
-    const y0 = ARM.y0 * 14, y1 = ARM.y1 * 14;
-    const top = z + h;
-    const seg = (a, b, cap) => {
-      if (b - a < 0.2) return "";
-      const p = { x: -half, y: a, w: half * 2, d: b - a, r: 0.6 };
-      const parts = [kit.solidSvg(kit.slabOf(p, z, h, P, 2, 0.4), { tone: "mid" })];
-      const rivets = [];
-      for (let y = y0 + 6; y < y1 - 3; y += 14) if (y > a + 1.5 && y < b - 1.5) rivets.push(kit.iso([0, y, top], P));
-      if (rivets.length) parts.push(kit.dotsSvg(rivets, { size: 0.36, tone: "lo" }));
-      if (cap) {
-        const end = { x: -half - 0.8, y: y1 - 1.6, w: half * 2 + 1.6, d: 1.6, r: 0.4 };
-        parts.push(kit.solidSvg(kit.slabOf(end, z - 0.8, h + 1.6, P, 2, 0.3), { tone: "mid" }));
-      }
-      return parts.join("");
-    };
-    return { back: seg(y0, c0, false), front: seg(c1, y1 - 1.6, true) };
-  };
-const knobPointer = function knobPointer(kit, snap) {
-    const angle = DIAL_FROM + snap / SNAP_MAX * DIAL_SPAN;
-    const [cx, cy] = KNOB;
-    const sx = Math.sin(angle), sy = -Math.cos(angle);
-    return kit.lineOnTop([cx + sx * 1.4, cy + sy * 1.4], [cx + sx * KNOB_R, cy + sy * KNOB_R], KNOB_TOP, P);
-  };
-const markAt = function markAt(kit, x, y, z) {
-    const r = 3.2;
-    const ring2 = kit.ring(x, y, r, z, P, 24);
-    const cross = kit.lineOnTop([x - r, y], [x + r, y], z, P) + kit.lineOnTop([x, y - r], [x, y + r], z, P);
-    return `<path class="iso-line" data-tone="hi" d="${ring2}"/><path class="iso-line" data-tone="mid" d="${cross}"/>`;
-  };
-const readoutOf = function readoutOf(result, spaces) {
-    if (result.how === "inside") {
-      const n = result.containing.length;
-      return n > 1 ? `\uC678\uACFD\uC120 \uC548 \xB7 ${result.spaceId} (\uACB9\uCE5C ${n}\uACF3 \uC911 \uAC00\uC7A5 \uC791\uC740 \uBC29)` : `\uC678\uACFD\uC120 \uC548 \xB7 ${result.spaceId}`;
+  const half = ARM.half * 14, z = ARM.z * 14, h = ARM.h * 14;
+  const c0 = (cy - CAR.hy) * 14, c1 = (cy + CAR.hy) * 14;
+  const y0 = ARM.y0 * 14, y1 = ARM.y1 * 14;
+  const top = z + h;
+  const seg = (a, b, cap) => {
+    if (b - a < 0.2) return "";
+    const p = { x: -half, y: a, w: half * 2, d: b - a, r: 0.6 };
+    const parts = [kit.solidSvg(kit.slabOf(p, z, h, P, 2, 0.4), { tone: "mid" })];
+    const rivets = [];
+    for (let y = y0 + 6; y < y1 - 3; y += 14) if (y > a + 1.5 && y < b - 1.5) rivets.push(kit.iso([0, y, top], P));
+    if (rivets.length) parts.push(kit.dotsSvg(rivets, { size: 0.36, tone: "lo" }));
+    if (cap) {
+      const end = { x: -half - 0.8, y: y1 - 1.6, w: half * 2 + 1.6, d: 1.6, r: 0.4 };
+      parts.push(kit.solidSvg(kit.slabOf(end, z - 0.8, h + 1.6, P, 2, 0.3), { tone: "mid" }));
     }
-    if (result.how === "near") return `\uD5C8\uC6A9 \uAC70\uB9AC \uC548 ${result.distances[result.spaceId].toFixed(2)} m \xB7 ${result.spaceId}`;
-    const nearest = Math.min(...spaces.map((s) => result.distances[s.id]));
-    return `\uC18C\uC18D \uC5C6\uC74C \xB7 \uAC00\uC7A5 \uAC00\uAE4C\uC6B4 \uC678\uACFD\uC120 ${nearest.toFixed(2)} m`;
+    return parts.join("");
   };
+  return { back: seg(y0, c0, false), front: seg(c1, y1 - 1.6, true) };
+};
+const knobPointer = function knobPointer(kit, snap) {
+  const angle = DIAL_FROM + (snap / SNAP_MAX) * DIAL_SPAN;
+  const [cx, cy] = KNOB;
+  const sx = Math.sin(angle), sy = -Math.cos(angle);
+  return kit.lineOnTop([cx + sx * 1.4, cy + sy * 1.4], [cx + sx * KNOB_R, cy + sy * KNOB_R], KNOB_TOP, P);
+};
+const markAt = function markAt(kit, x, y, z) {
+  const r = 3.2;
+  const ring = kit.ring(x, y, r, z, P, 24);
+  const cross = kit.lineOnTop([x - r, y], [x + r, y], z, P) + kit.lineOnTop([x, y - r], [x, y + r], z, P);
+  return `<path class="iso-line" data-tone="hi" d="${ring}"/><path class="iso-line" data-tone="mid" d="${cross}"/>`;
+};
+const readoutOf = function readoutOf(result, spaces) {
+  if (result.how === "inside") {
+    const n = result.containing.length;
+    return n > 1 ? `외곽선 안 · ${result.spaceId} (겹친 ${n}곳 중 가장 작은 방)` : `외곽선 안 · ${result.spaceId}`;
+  }
+  if (result.how === "near") return `허용 거리 안 ${result.distances[result.spaceId].toFixed(2)} m · ${result.spaceId}`;
+  const nearest = Math.min(...spaces.map((s) => result.distances[s.id]));
+  return `소속 없음 · 가장 가까운 외곽선 ${nearest.toFixed(2)} m`;
+};
 const bandPaths = (room, snap) => { const t = Math.max(snap, 0.001); const d = planOutline({ x: u(room.x - t), y: u(room.y - t), w: u(room.w + 2 * t), d: u(room.d + 2 * t), r: u(t) }, 0, P, 10); return { fill: d, line: d }; };
 
 const stage = document.querySelector(".iso-stage");

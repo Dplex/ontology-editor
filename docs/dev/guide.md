@@ -54,4 +54,8 @@ node scripts/guide/figures/space-hierarchy/build.mjs
 
 - 그림 kit 은 [anatomy](https://github.com/wheresryan22/anatomy) 의 파일을 `scripts/guide/anatomy/` 에 원본 그대로 두었다(그 README).
 - 그림을 고치면 anatomy 저장소를 받아 그쪽 `scripts/lines.mjs` 로 선 끝 검사를 돌려 `line ends: 0` 을 확인한다. 흐름 그림은 `--audit` 이 `audit passed` 로 끝나야 한다.
-- 가이드 페이지는 라이트 테마다. 그림의 라이트판(`*.html`)이 iframe 안에서 투명 바탕으로 보이도록 `html[data-embed]` 와 `color-scheme: light` 를 둔다. 빠지면 Chrome 이 캡션 뒤에 검은 바탕을 깐다.
+- 가이드 페이지는 라이트·다크 둘 다다. 에디터와 같은 열쇠(`localStorage` 의 `oe-theme`)를 따르고, 고른 적이 없으면 시스템 설정을 따른다. 위 막대의 ☾/☀ 로 바꾸면 에디터 테마도 같이 바뀐다.
+- 그림은 판이 둘(`*.html`·`*-dark.html`)이라 테마에 맞춰 iframe 주소를 갈아 끼운다. 바꾸면 그림이 다시 그려져 고른 단계가 처음으로 돌아간다.
+- 그림이 iframe 안에서 투명 바탕으로 보이도록 `html[data-embed]` 와 `color-scheme: light` 를 둔다. 빠지면 Chrome 이 캡션 뒤에 검은 바탕을 깐다. 다크판은 `html:has(body[data-theme="dark"])` 가 바탕을 칠해서, 투명 규칙을 `html[data-embed]:has(body)` 로 같은 우선순위에 한 번 더 둔다.
+- 다크 팔레트는 무채색이다. anatomy 판(`.iso-plate`)이 다크에서 `#131313` 이라 표면을 같은 색으로 두어야 그림이 상자로 떠 보이지 않는다.
+- 화면 그림(`screens/`)은 라이트로 찍은 것 한 벌이라 다크에서도 밝게 보인다.
