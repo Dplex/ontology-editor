@@ -11,6 +11,13 @@
   숫자는 전부 장면 JSON 에서 센다. 장면이 없으면 아무것도 그리지 않고 그렇다고 적는다.
   장면 이름과 같은 동네 지도(city/<이름>.json, scripts/intro-city.mjs)가 있으면 그 앞에 앞머리(prologue.js)를 붙인다:
   "Ontology-Editor" → 한강 위에서 본 동네 → 건물까지 비행 → 스캔선 → 이 페이지의 층 조립. ?prologue=0 이면 건너뛴다.
+
+  사용 가이드(public/guide/)는 같은 페이지를 랩으로 띄운다.
+    ?focus=assign  소속 판정(기본) · 큰 숫자는 소속을 찾은 기기 수, [IfcSpace 빼기]
+    ?focus=flow    흐름 방향 · 연결을 따라 입자가 흐른다(kit 의 lab.flow), [규칙 방향 빼기]
+    ?focus=floors  층과 물리존 · 층을 벌려 세우고(Explode) 물리존 면적을 센다
+    ?scene=scenes/duplex.json  저장소에 든 공개 샘플(Duplex)을 읽는다. 서버가 구운 장면과 모양이 같다.
+    ?theme=paper   밝은 스튜디오(가이드 라이트 모드). 없으면 밤.
 -->
 <script type="importmap">
 { "imports": {
@@ -35,22 +42,34 @@ import * as BGU from 'three/addons/utils/BufferGeometryUtils.js'
 const { THREE, Lab, MAT, fmt } = LabKit
 const q = new URLSearchParams(location.search)
 const API = q.get('data') ?? '../__data/__intro'
+const FOCUS = ['assign', 'flow', 'floors'].includes(q.get('focus')) ? q.get('focus') : 'assign'
+// 가이드가 이 iframe 이 화면 밖으로 나가면 알려 준다({ lab: 'visible', on }). 장면을 읽는 동안 온 신호도 놓치지 않게 먼저 듣는다.
+let onScreen = true
+addEventListener('message', (e) => { if (e.data?.lab === 'visible') onScreen = !!e.data.on })
+// kit 은 제목·설명을 innerHTML 로 넣는다. 주소(?title=)나 장면 JSON 에서 온 글자는 걸러 넣는다.
+const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
 
 function empty(html) {
   const d = document.createElement('div'); d.className = 'intro-empty'; d.innerHTML = `<div>${html}</div>`; document.body.appendChild(d)
   parent?.postMessage?.({ intro: 'empty' }, '*')
 }
 
-const list = await fetch(API).then((r) => (r.ok ? r.json() : [])).catch(() => [])
-const name = q.get('name') ?? list[0]?.name
-const S = name ? await fetch(`${API}?name=${encodeURIComponent(name)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null) : null
+// 가이드의 랩은 저장소에 든 장면(scenes/*.json)만 읽는다. 다른 주소의 JSON 을 그리게 두지 않는다.
+const sceneFile = /^scenes\/[\w-]+\.json$/.test(q.get('scene') ?? '') ? q.get('scene') : null
+let S
+if (sceneFile) S = await fetch(sceneFile).then((r) => (r.ok ? r.json() : null)).catch(() => null)
+else {
+  const list = await fetch(API).then((r) => (r.ok ? r.json() : [])).catch(() => [])
+  const name = q.get('name') ?? list[0]?.name
+  S = name ? await fetch(`${API}?name=${encodeURIComponent(name)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null) : null
+}
 if (!S) {
   empty('구워 둔 건물 장면이 없습니다.<br><code>npm run intro:bake -- seongsu data/성수/Factorial_건축.ifc data/성수/Factorial_기계.ifc</code>')
   throw new Error('no intro scene')
 }
 
 // 앞머리는 kit 을 만들기 전에 띄운다. 글자가 뜬 동안 동네와 kit 형상을 만든다.
-const quiet = q.get('prologue') === '0' || matchMedia('(prefers-reduced-motion: reduce)').matches
+const quiet = sceneFile || q.get('prologue') === '0' || matchMedia('(prefers-reduced-motion: reduce)').matches
 const city = quiet ? null : await fetch(`./city/${encodeURIComponent(S.name)}.json`)
   .then((r) => (r.ok && (r.headers.get('content-type') ?? '').includes('json') ? r.json() : null))
   .catch(() => null)
@@ -72,9 +91,11 @@ const inside = ([x, y]) => x > x0 - MARGIN && x < x1 + MARGIN && y > y0 - MARGIN
 const size = Math.max(x1 - x0, y1 - y0, top)
 
 const counts = S.counts
-const title = q.get('title') ?? S.title ?? S.building
+const title = esc(q.get('title') ?? S.title ?? S.building)
+const files = esc(S.files.join(' + '))
+const FOCUS_NAME = { assign: '소속 판정', flow: '흐름 방향', floors: '층과 물리존' }[FOCUS]
 const lab = new Lab({
-  theme: 'night',
+  theme: q.get('theme') === 'paper' ? 'paper' : 'night',
   prompt: `${S.files.join(' + ')}  →  Brick TTL · GeoJSON`,
   pills: ['IFC', 'Brick TTL', 'GeoJSON'],
   no: 1,
@@ -87,7 +108,7 @@ const lab = new Lab({
   autoOrbit: false,
 })
 lab.$('.lab-prompt b').textContent = 'BIM'
-lab.$('.lab-no').textContent = 'BIM → DT 공간 온톨로지'
+lab.$('.lab-no').textContent = sceneFile ? `BIM → DT 공간 온톨로지 · ${FOCUS_NAME}` : 'BIM → DT 공간 온톨로지'
 
 // ---------------------------------------------------------------- 형상
 const shapeOf = (ring) => new THREE.Shape(ring.map(([x, y]) => new THREE.Vector2(x - cx, y - cy)))
@@ -111,6 +132,10 @@ const mats = {
   lost: MAT.paint({ color: [0.85, 0.24, 0.12] }),
   duct: MAT.paint({ color: [0.55, 0.62, 0.7], clearcoat: 0.3 }),
 }
+// 흐름 입자 색: 방향의 출처마다(scripts/intro-bake.ts 의 flows). 밝은 스튜디오에서는 덧셈 혼합이 안 보여 진하게 둔다.
+const paper = q.get('theme') === 'paper'
+const FLOW_COLOR = paper ? [[0.0, 0.35, 0.95], [0.05, 0.6, 0.25], [0.95, 0.4, 0.0]] : [[0.5, 1.1, 1.6], [0.6, 1.5, 0.8], [1.6, 0.95, 0.3]]
+const FLOW_NAME = ['BIM 포트', '사람', '규칙']
 const box = new THREE.BoxGeometry(0.55, 0.55, 0.55)
 const rod = new THREE.CylinderGeometry(0.16, 0.16, 1, 10, 1)
 const up = new THREE.Vector3(0, 1, 0)
@@ -140,9 +165,13 @@ const floors = storeys.map((s, i) => {
   const walls = merged(s.walls.map((w) => prism(w.ring, y + 0.3, Math.max(0.5, Math.min(w.h, s.height) - 0.3))))
   const slabMesh = slab && new THREE.Mesh(slab, mats.slab)
   const wallMesh = walls && new THREE.Mesh(walls, mats.wall)
-  const devices = instanced(box, mats.located, s.devices.filter((d) => d[3] && inside(d)), (d, M) => M.makeTranslation(...at(d)))
-  const lost = instanced(box, mats.lost, s.devices.filter((d) => !d[3] && inside(d)), (d, M) => M.makeTranslation(...at(d)))
-  const ducts = instanced(rod, mats.duct, s.conduits.filter((c) => inside(c) && inside(c.slice(3))), (c, M) => {
+  // 흐름 랩에서는 기기를 줄여 입자를 가리지 않게 한다.
+  const dk = FOCUS === 'flow' ? 0.45 : 1
+  const place = (d, M) => M.makeScale(dk, dk, dk).setPosition(...at(d))
+  const devices = instanced(box, mats.located, s.devices.filter((d) => d[3] && inside(d)), place)
+  const lost = instanced(box, mats.lost, s.devices.filter((d) => !d[3] && inside(d)), place)
+  // 흐름 랩은 관로 원기둥을 그리지 않는다. 입자가 관로 축을 따라 가므로 원기둥 속에 묻힌다. 대신 연결선을 옅게 깐다(아래).
+  const ducts = FOCUS === 'flow' ? null : instanced(rod, mats.duct, s.conduits.filter((c) => inside(c) && inside(c.slice(3))), (c, M) => {
     const a = new THREE.Vector3(...at(c.slice(0, 3))), b = new THREE.Vector3(...at(c.slice(3)))
     const len = Math.max(0.05, a.distanceTo(b))
     const qn = new THREE.Quaternion().setFromUnitVectors(up, b.clone().sub(a).normalize())
@@ -150,9 +179,33 @@ const floors = storeys.map((s, i) => {
   })
   for (const m of [slabMesh, wallMesh, devices, lost, ducts]) if (m) inner.add(m)
   const located = s.devices.filter((d) => d[3]).length
+  // 흐름: 출처마다 한 묶음. 층 묶음(inner) 아래에 달아서 층을 숨기면 입자도 같이 숨는다.
+  const streams = []
+  if (FOCUS === 'flow') {
+    const paths = [[], [], []]
+    for (const f of s.flows ?? []) {
+      if (f[9] > 2 || !inside(f) || !inside(f.slice(6))) continue
+      const [a, j, b] = [0, 3, 6].map((k) => new THREE.Vector3(...at(f.slice(k, k + 3))))
+      if (a.distanceTo(b) < 0.1) continue
+      paths[f[9]].push(a.distanceTo(j) < 0.05 || j.distanceTo(b) < 0.05 ? [a, b] : [a, j, b])
+    }
+    // 방향을 모르는 것까지 연결 전부를 옅은 선으로. 입자가 없는 선이 방향을 모르는 연결이다.
+    const net = []
+    for (const f of s.flows ?? []) if (inside(f) && inside(f.slice(6))) for (const [u, v] of [[0, 3], [3, 6]]) net.push(...at(f.slice(u, u + 3)), ...at(f.slice(v, v + 3)))
+    if (net.length) {
+      const g = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(net, 3))
+      inner.add(new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color: paper ? 0x8a8780 : 0x6d7480, transparent: true, opacity: 0.55 })))
+    }
+    paths.forEach((p, k) => {
+      if (!p.length) return
+      const c = FLOW_COLOR[k]
+      streams.push({ k, f: lab.flow({ paths: p.map((pts) => pts.map((v) => v.toArray())), parent: inner, count: Math.min(4000, p.length * 6), length: 0.5, speed: 0.5, segments: 10, seed: i * 3 + k + 1, color: () => c }) })
+    })
+  }
+  const area = s.spaces.reduce((n, p) => n + Math.abs(p.ring.reduce((a, [x, yy], k) => { const [x2, y2] = p.ring[(k + 1) % p.ring.length]; return a + x * y2 - x2 * yy }, 0)) / 2, 0)
   lab.add(part, {
     name: s.name,
-    explode: [0, i * (size * 0.035), 0],
+    explode: [0, i * (size * (FOCUS === 'floors' ? 0.1 : 0.035)), 0],
     delay: i / storeys.length,
     count: s.spaces.length + s.walls.length + s.devices.length + s.conduits.length,
     label: s.spaces.length ? s.name : undefined,
@@ -163,54 +216,118 @@ const floors = storeys.map((s, i) => {
   })
   // X-ray 는 벽만 유리로 바꾼다. 안의 기기·관로가 보인다.
   if (wallMesh) lab.ghosts.push(wallMesh)
-  return { s, inner, slabMesh, devices, located }
+  // 흐름 랩은 관로가 천장 속(위층 바닥판 아래)에 있어 바닥판도 유리로 바꾼다.
+  if (FOCUS === 'flow' && slabMesh) lab.ghosts.push(slabMesh)
+  return { s, inner, slabMesh, devices, located, streams, area }
 })
 
 // ---------------------------------------------------------------- 숫자: 장면 JSON 에서 센 것뿐
 const pct = (a, b) => (b ? `${Math.round((a / b) * 1000) / 10}%` : '—')
 const tier = (k) => S.tiers.find((t) => t.key === k)
-let spacesOut = false
 let only = 0
-function show() {
-  const f = only ? floors[only - 1] : null
-  for (const [i, F] of floors.entries()) F.inner.visible = !only || i < only
-  for (const F of floors) {
-    if (F.slabMesh) F.slabMesh.visible = !spacesOut
-    // 물리존이 없으면 소속을 찾은 기기도 "모름" 이 된다. 노란 기기를 붉게 칠한다.
-    if (F.devices) F.devices.material = spacesOut ? mats.lost : mats.located
-  }
-  lab.heroO.max = f ? f.s.devices.length || 1 : counts.indoor || 1
-  if (spacesOut) {
-    lab.setHero(0, { state: '물리존 없음', bad: true, sub: `IfcSpace 가 없으면 기기를 댈 외곽선이 없어 소속 ${fmt(counts.indoor)}대가 모두 "모름" 입니다` })
-    return
-  }
-  if (f) {
-    const n = f.s.devices.length
-    lab.setHero(f.located, { state: `${f.s.name} · ${pct(f.located, n)}`, sub: `이 층 기기 ${fmt(n)}대 · 물리존 ${f.s.spaces.length} · 관로 ${fmt(f.s.conduits.length)}` })
-    return
-  }
-  lab.setHero(counts.located, {
-    state: pct(counts.located, counts.indoor),
-    sub: `실내 기기 ${fmt(counts.indoor)}대 중 · 연결망 ${fmt(tier('network')?.have ?? 0)} · 흐름 방향 ${fmt(tier('direction')?.have ?? 0)}`,
+const floorSlider = (label, cumulative) =>
+  lab.slider({
+    id: 'floor', label, min: 0, max: floors.length, step: 1, value: 0,
+    fmt: (v) => (v ? floors[v - 1].s.name : '전체'), ends: ['전체', floors.at(-1).s.name],
+    onInput: (v) => {
+      only = Math.round(v)
+      for (const [i, F] of floors.entries()) F.inner.visible = !only || (cumulative ? i < only : i === only - 1)
+    },
   })
+
+if (FOCUS === 'assign') {
+  let spacesOut = false
+  const show = () => {
+    const f = only ? floors[only - 1] : null
+    for (const F of floors) {
+      if (F.slabMesh) F.slabMesh.visible = !spacesOut
+      // 물리존이 없으면 소속을 찾은 기기도 "모름" 이 된다. 노란 기기를 붉게 칠한다.
+      if (F.devices) F.devices.material = spacesOut ? mats.lost : mats.located
+    }
+    lab.heroO.max = f ? f.s.devices.length || 1 : counts.indoor || 1
+    if (spacesOut) {
+      lab.setHero(0, { state: '물리존 없음', bad: true, sub: `IfcSpace 가 없으면 기기를 댈 외곽선이 없어 소속 ${fmt(counts.indoor)}대가 모두 "모름" 입니다` })
+      return
+    }
+    if (f) {
+      const n = f.s.devices.length
+      lab.setHero(f.located, { state: `${f.s.name} · ${pct(f.located, n)}`, sub: `이 층 기기 ${fmt(n)}대 · 물리존 ${f.s.spaces.length} · 관로 ${fmt(f.s.conduits.length)}` })
+      return
+    }
+    lab.setHero(counts.located, {
+      state: pct(counts.located, counts.indoor),
+      sub: `실내 기기 ${fmt(counts.indoor)}대 중 · 연결망 ${fmt(tier('network')?.have ?? 0)} · 흐름 방향 ${fmt(tier('direction')?.have ?? 0)}`,
+    })
+  }
+  lab.hero({ label: '소속 판정', unit: '대', max: counts.indoor || 1 })
+  floorSlider('층까지 보기', true)
+  lab.breakIt({
+    label: 'IfcSpace 빼기',
+    run: () => { spacesOut = true; show() },
+    reset: () => { spacesOut = false; show() },
+  })
+  lab.how(
+    `${files} 를 에디터와 같은 임포터로 읽어 합친 값입니다(${S.bakedAt.slice(0, 10)} 구움). 기기 소속은 기기 좌표를 같은 층 물리존 외곽선에 대 보아 정합니다. 노란 기기는 소속을 찾은 것, 붉은 기기는 못 찾은 것입니다.`,
+    S.tiers.map((t) => `${t.label.padEnd(4, ' ')} ${fmt(t.have)} / ${fmt(t.of)}  (${pct(t.have, t.of)})`),
+  )
+  // kit 은 조립하는 동안 큰 숫자 칸을 부품 수로 쓴다. 틱마다 다시 써야 조립이 끝난 뒤 소속 숫자로 돌아온다.
+  lab.onTick(show)
 }
-lab.hero({ label: '소속 판정', unit: '대', max: counts.indoor || 1 })
-lab.slider({
-  id: 'floor', label: '층까지 보기', min: 0, max: floors.length, step: 1, value: 0,
-  fmt: (v) => (v ? floors[v - 1].s.name : '전체'), ends: ['전체', floors.at(-1).s.name],
-  onInput: (v) => { only = Math.round(v); show() },
-})
-lab.breakIt({
-  label: 'IfcSpace 빼기',
-  run: () => { spacesOut = true; show() },
-  reset: () => { spacesOut = false; show() },
-})
-lab.how(
-  `${S.files.join(' + ')} 를 에디터와 같은 임포터로 읽어 합친 값입니다(${S.bakedAt.slice(0, 10)} 구움). 기기 소속은 기기 좌표를 같은 층 물리존 외곽선에 대 보아 정합니다. 노란 기기는 소속을 찾은 것, 붉은 기기는 못 찾은 것입니다.`,
-  S.tiers.map((t) => `${t.label.padEnd(4, ' ')} ${fmt(t.have)} / ${fmt(t.of)}  (${pct(t.have, t.of)})`),
-)
-// kit 은 조립하는 동안 큰 숫자 칸을 부품 수로 쓴다. 틱마다 다시 써야 조립이 끝난 뒤 소속 숫자로 돌아온다.
-lab.onTick(show)
+
+if (FOCUS === 'flow') {
+  // 연결 수는 그려지지 않는 것(평면 밖)까지 장면 그대로 센다.
+  const by = [0, 0, 0, 0]
+  const floorBy = floors.map((F) => { const n = [0, 0, 0, 0]; for (const f of F.s.flows ?? []) n[f[9]]++; return n })
+  for (const n of floorBy) n.forEach((v, k) => (by[k] += v))
+  let rulesOut = false
+  const show = () => {
+    const n = only ? floorBy[only - 1] : by
+    const all = n[0] + n[1] + n[2] + n[3]
+    const known = n[0] + n[1] + (rulesOut ? 0 : n[2])
+    for (const F of floors) for (const st of F.streams) if (st.k === 2) { st.f.opacity = rulesOut ? 0 : 1 }
+    lab.heroO.max = all || 1
+    const where = only ? `${floors[only - 1].s.name} · ` : ''
+    lab.setHero(known, {
+      state: `${where}${pct(known, all)}`,
+      bad: rulesOut,
+      sub: rulesOut
+        ? `BIM 포트가 방향을 말한 연결 ${fmt(n[0])}개만 남습니다. 규칙 방향 ${fmt(n[2])}개는 계통·설비 종류로 정한 것이라 BIM 에 없습니다`
+        : `연결 ${fmt(all)}개 중 · ${FLOW_NAME[0]} ${fmt(n[0])} · ${FLOW_NAME[1]} ${fmt(n[1])} · ${FLOW_NAME[2]} ${fmt(n[2])} · 방향 모름 ${fmt(n[3])}`,
+    })
+  }
+  lab.hero({ label: '방향을 아는 연결', unit: '개', max: 1 })
+  floorSlider('층까지 보기', true)
+  lab.breakIt({
+    label: '규칙 방향 빼기',
+    run: () => { rulesOut = true; show() },
+    reset: () => { rulesOut = false; show() },
+  })
+  const swatch = (k) => `<b style="color:rgb(${FLOW_COLOR[k].map((v) => Math.round(v * 255)).join(',')})">${FLOW_NAME[k]}</b>`
+  lab.how(
+    `${files} 를 에디터와 같은 임포터로 읽고 규칙 방향까지 돌린 값입니다(${S.bakedAt.slice(0, 10)} 구움). 입자는 연결마다 흐름이 가는 쪽으로 움직이고, 색은 그 방향을 누가 정했는지입니다. ${swatch(0)} 는 IFC 포트가 방향을 말한 것, ${swatch(1)} 은 에디터에서 정한 것, ${swatch(2)} 은 계통 종류(급기면 원천 → 말단)와 설비 종류로 정한 것입니다. 방향을 모르는 연결에는 입자가 없습니다. 내보낼 때 TTL 의 brick:feeds 는 BIM 포트·사람이 정한 방향과, 사람이 확인한 규칙 방향으로만 나갑니다.`,
+    [`${FLOW_NAME[0].padEnd(6, ' ')} ${fmt(by[0])}`, `${FLOW_NAME[1].padEnd(6, ' ')} ${fmt(by[1])}`, `${FLOW_NAME[2].padEnd(6, ' ')} ${fmt(by[2])}`, `방향 모름 ${fmt(by[3])}`],
+  )
+  lab.onTick(show)
+}
+
+if (FOCUS === 'floors') {
+  const m2 = (v) => fmt(Math.round(v))
+  const total = floors.reduce((n, F) => n + F.area, 0)
+  const spaces = floors.reduce((n, F) => n + F.s.spaces.length, 0)
+  const show = () => {
+    const f = only ? floors[only - 1] : null
+    lab.heroO.max = f ? Math.max(...floors.map((F) => F.area)) || 1 : total || 1
+    if (f) lab.setHero(Math.round(f.area), { state: `${f.s.name} · 물리존 ${f.s.spaces.length}`, sub: `바닥 높이 ${f.s.elevation} m · 층고 ${f.s.height} m · 벽 ${fmt(f.s.walls.length)}` })
+    else lab.setHero(Math.round(total), { state: `물리존 ${fmt(spaces)}`, sub: `층 ${floors.length} · 층마다 IfcSpace 외곽선의 넓이를 더한 값입니다` })
+  }
+  lab.hero({ label: '물리존 바닥 면적', unit: 'm²', max: total || 1 })
+  floorSlider('층 고르기', false)
+  lab.how(
+    `${files} 의 IfcBuildingStorey 마다 IfcSpace 바닥 외곽선을 모아 층을 세웁니다(${S.bakedAt.slice(0, 10)} 구움). 넓이는 외곽선의 신발끈 공식으로 잰 값이라 IFC 의 면적 속성과 다를 수 있습니다. Explode 로 층을 벌리고, Cut away 로 잘라 안을 봅니다.`,
+    floors.map((F) => `${esc(F.s.name).padEnd(8, ' ')} ${m2(F.area).padStart(6, ' ')} m²  물리존 ${F.s.spaces.length}`),
+  )
+  lab.onTick(show)
+}
 
 // ---------------------------------------------------------------- 부하
 // kit 은 화면 배율(최대 2)대로 그리고 GTAO·bloom·4x MSAA 를 매 프레임 60fps 로 돌린다. 2560×1340·배율 2 에서 가만히 둬도 GPU 99%·13fps 였다.
@@ -235,9 +352,13 @@ lab.renderer.domElement.addEventListener('webglcontextlost', (e) => {
   for (const e of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'input', 'click']) addEventListener(e, () => (touched = performance.now()), { capture: true, passive: true })
   lab.controlsOrbit.addEventListener('change', () => (touched = performance.now()))
   const settling = () => lab._assembly > 0 || Object.keys(lab.target).some((k) => Math.abs(lab.state[k] - lab.target[k]) > 1e-3)
+  // 흐름 랩은 입자가 움직여야 뜻이 있어 화면에 보이는 동안 계속 그린다(onScreen 은 위에서 가이드가 알려 준다).
+  // 움직임 줄이기를 켠 브라우저에서는 다른 랩처럼 손댈 때만 그린다.
+  const still = matchMedia('(prefers-reduced-motion: reduce)').matches
+  const flowing = () => FOCUS === 'flow' && !still && onScreen && !document.hidden && !lab.paused
   window.requestAnimationFrame = (cb) =>
     raf(function tick(t) {
-      const moving = t - touched < 2500 || settling()
+      const moving = t - touched < 2500 || settling() || flowing()
       if (!moving || t - last < 1000 / 30) return raf(tick)
       last = t
       cb(t)
@@ -255,6 +376,9 @@ if (pro) {
   lab.start()
   pro.leave()
 } else lab.start()
+// 가이드의 랩은 볼 것이 보이는 상태로 시작한다. 소속·흐름은 벽을 유리로(X-ray) 바꿔 안의 기기·입자를 보이고, 층은 벌려 이름표를 단다.
+if (sceneFile && FOCUS !== 'floors') lab.toggle('xray', true)
+if (FOCUS === 'floors') { lab.toggle('explode', true); lab.toggle('labels', true) }
 parent?.postMessage?.({ intro: 'ready', name: S.name }, '*')
 </script>
 </body>

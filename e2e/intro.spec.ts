@@ -93,11 +93,28 @@ test.describe('앞머리', () => {
       return route.fulfill({ json: name ? seongsu : [{ name: 'seongsu', building: 'Tiny', files: scene.files, bakedAt: scene.bakedAt }] })
     })
     await page.goto('/intro/index.html?name=seongsu')
-    await expect(page.locator('.pro-word')).toHaveText('Ontology-Editor')
+    // 병렬 실행에서는 장면·지도(535KB)를 받는 데 몇 초 걸린다.
+    await expect(page.locator('.pro-word')).toHaveText('Ontology-Editor', { timeout: 20_000 })
     await expect(page.locator('.pro-credit')).toContainText('OpenStreetMap')
     // 소프트웨어 GL 에서는 8천 동을 그리는 프레임이 느려 비행을 다 기다리지 않는다.
     await page.locator('.pro-skip').dispatchEvent('click')
     await expect(page.locator('.pro')).toHaveCount(0, { timeout: 60_000 })
     await expect(page.locator('.lab-title')).toContainText('작은 건물')
   })
+})
+
+test('가이드의 흐름 랩은 저장소의 Duplex 장면에서 방향을 센다. [규칙 방향 빼기] 를 누르면 BIM 포트 방향만 남는다', async ({ page }) => {
+  // 숫자는 public/intro/scenes/duplex.json 의 flows 를 출처(0 BIM 포트 · 1 사람 · 2 규칙 · 3 모름)별로 센 값이다.
+  test.setTimeout(90_000)
+  await page.goto('/intro/index.html?scene=scenes/duplex.json&focus=flow&theme=paper')
+  await expect(page.locator('.lab-big .v')).toHaveText('518', { timeout: 30_000 })
+  await expect(page.locator('.lab-sub')).toContainText('연결 1,253개 중')
+  await page.locator('button[data-k="break"]').dispatchEvent('click')
+  await expect(page.locator('.lab-big .v')).toHaveText('190')
+})
+
+test('scene 인자는 저장소의 scenes/ 안 JSON 만 받는다', async ({ page }) => {
+  await page.route('**/__data/__intro**', (route) => route.fulfill({ json: [] }))
+  await page.goto('/intro/index.html?scene=https://example.com/x.json&focus=flow')
+  await expect(page.locator('.intro-empty')).toBeVisible()
 })

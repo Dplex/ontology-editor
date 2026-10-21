@@ -183,6 +183,18 @@ npm run intro:bake -- seongsu data/성수/Factorial_건축.ifc data/성수/Facto
   kit 은 three 를 jsDelivr 에서 받게 되어 있어서, import map 이 `public/intro/three/` 를 가리킨다. 그 폴더는 `scripts/sync-three.mjs` 가
   node_modules 에서 kit·앞머리가 가져오는 파일만(25개) 옮기고 커밋하지 않는다. 아래 WASM 과 같은 이유다.
 
+### 가이드의 3D 랩
+
+사용 가이드(`public/guide/`)는 같은 페이지를 랩으로 세 번 띄운다(`?focus=assign|flow|floors`). 장면은 서버가 구운 성수가 아니라
+저장소에 든 공개 샘플 Duplex(`public/intro/scenes/duplex.json`, 건축·HVAC·MEP 세 파일, 0.1MB)다. 성수(1.7MB)를 랩 셋이 각자 띄우면
+가이드 한 장에 kit 세 벌이 성수를 그려 무거워서다. 흐름 랩은 입자가 움직여야 해서 화면에 보이는 동안 30fps 로 계속 그리고,
+가이드가 iframe 이 화면 밖으로 나갔다고 알리면 멈춘다. 장면에 연결별 흐름 방향(`flows`)이 들어 있어 임포터가 바뀌면 다시 굽는다.
+
+```bash
+npm run intro:bake -- duplex data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc data/NBU_Duplex/NBU_Duplex-Apt_Eng-HVAC.ifc data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc --title=Duplex
+cp data/.intro/duplex.json public/intro/scenes/duplex.json
+```
+
 ### 앞머리: 한강을 건너 성수로 날아간다
 
 장면 이름과 같은 동네 지도(`public/intro/city/<이름>.json`)가 있으면 층 조립 앞에 13초 남짓한 앞머리(`public/intro/prologue.js`)가 붙는다.
