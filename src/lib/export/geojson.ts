@@ -18,6 +18,7 @@ import { hvacZonesOf } from '../hvac-zone'
 import { exportedSpaceIds } from '../idf/confirm'
 import { rectRing } from '../room'
 import { conduitFlowType } from '../flow-type'
+import { spaceSlabCuts } from '../slab-opening'
 
 export type Geometry =
   | { type: 'Polygon'; coordinates: number[][][] }
@@ -70,7 +71,7 @@ function verticalPassable(
   return null
 }
 
-function spaceFeature(space: Space, storey: Storey, vertical?: VerticalRef): Feature {
+function spaceFeature(space: Space, storey: Storey, vertical: VerticalRef | undefined, cutM2: number): Feature {
   // 외곽선을 못 만든 공간도 빼지 않는다. geometry 를 null 로 둔 Feature 는 GeoJSON 에서
   // 적법하고, 빼 버리면 "온톨로지에는 있는데 지도에는 없는" 공간이 조용히 생긴다.
   const ring = space.footprint
@@ -89,7 +90,9 @@ function spaceFeature(space: Space, storey: Storey, vertical?: VerticalRef): Fea
       longName: space.longName,
       storeyId: storey.id,
       elevation: storey.elevation,
-      areaM2: Number(space.areaM2.toFixed(4)),
+      // 수직 관통 오브젝트가 뚫은 확정 편집 개구부(OE-ML-03)를 뺀 넓이. 뺀 것이 있으면 그 넓이를 같이 둔다(slab-opening.ts 의 spaceSlabCuts).
+      areaM2: Number(Math.max(0, space.areaM2 - cutM2).toFixed(4)),
+      ...(cutM2 > 0 ? { slabOpeningM2: Number(cutM2.toFixed(4)) } : {}),
       // 계단실·승강로가 아래·위층에서 이어진 방(vertical.ts). 방-문-방 연결이 층 안에서만 서므로, 로봇 경로가 층을
       // 옮길 자리다. 다른 층 파일의 물리존 id 를 가리킨다. 출처는 계단 오브젝트가 말한 것(bim)과 겹침 추정(calc)을
       // 가른다(ADR-0032·0033). 모호 후보는 여기 오지 않는다.
@@ -370,12 +373,14 @@ export function storeyToGeoJSON(
   headings: ReadonlyMap<string, number> = new Map(),
   /** feature id → 연속 연결(vertical-link.ts 의 linkFeatures). */
   links: ReadonlyMap<string, { with: string[]; review: { id: string; reason: string }[] }> = new Map(),
+  /** 물리존 id → 확정 편집 개구부가 빼는 넓이(slab-opening.ts 의 spaceSlabCuts). 여러 층의 슬래브를 보므로 모델에서 미리 잰다. */
+  slabCuts: ReadonlyMap<string, number> = new Map(),
 ): FeatureCollection {
   const external = judgeExternal(storey)
   return {
     type: 'FeatureCollection',
     features: [
-      ...storey.spaces.map((s) => spaceFeature(s, storey, vertical.get(s.id))),
+      ...storey.spaces.map((s) => spaceFeature(s, storey, vertical.get(s.id), slabCuts.get(s.id) ?? 0)),
       ...storey.equipment.map((e) => equipmentFeature(e, storey, shafts, systems)),
       ...storey.walls.map((w) => wallFeature(w, storey, external.get(w.id))),
       ...storey.openings.map((o) => openingFeature(o, storey)),
@@ -423,7 +428,7 @@ export function geoContext(model: Model) {
   )
   // IDF 공조존의 든 방은 사람이 확인한 것만 낸다(idf/confirm.ts, D13). 겹친 방(`overlaps`)은 계산이라고 밝힌 채 그대로 나간다.
   const zones = hvacZonesOf(model).map((z) => ({ ...z, spaceIds: exportedSpaceIds(model, z) }))
-  return [zones, verticalRefs(model), new Map(libraryOf(model).map((i) => [i.key, i.name])), shafts, new Map(model.systems.map((x) => [x.id, x])), travels, headings, linkFeatures(model)] as const
+  return [zones, verticalRefs(model), new Map(libraryOf(model).map((i) => [i.key, i.name])), shafts, new Map(model.systems.map((x) => [x.id, x])), travels, headings, linkFeatures(model), spaceSlabCuts(model)] as const
 }
 
 /** 층 id → 층 파일 이름. 내보내기와 편집 리플레이가 같은 이름을 쓴다. */

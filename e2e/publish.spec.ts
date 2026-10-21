@@ -65,7 +65,7 @@ async function editLight(page: Page, x: string) {
 }
 const fromServer = async (q: Record<string, string>) => (await fetch(`${base}/__layouts?${new URLSearchParams({ key: PATH, ...q })}`)).text()
 
-test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리기는 v1 을 v3 으로 다시 반영한다. 버전마다 반영자·대상 층·파일이 남는다 [OE-GEN-05#1] [OE-WF-10#2] [OE-WF-11#1~] [OE-WF-13#1~] [OE-WF-18#1] [OE-WF-19#1] [OE-GEN-09#1] [OE-SYNC-04#1~] [OE-SYNC-05#1] [OE-SYNC-03#1~]', async ({ page }) => {
+test('구축하기는 서버에 v1 을 만들고, 반영하기는 v2, 되돌리기는 v1 을 v3 으로 다시 반영한다. 버전마다 반영자·대상 층·파일이 남는다 [OE-GEN-05#1] [OE-WF-10#2] [OE-WF-11#1] [OE-WF-13#1] [OE-WF-18#1] [OE-WF-18#2] [OE-WF-19#1] [OE-WF-22#1] [OE-WF-22#2] [OE-INT-01#1] [OE-GEN-09#1] [OE-SYNC-04#1] [OE-SYNC-05#1] [OE-SYNC-03#1] [OE-XPRD-03#1]', async ({ page }) => {
   test.setTimeout(120_000)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -188,7 +188,7 @@ test('보기 전용(Viewer)은 편집에 들어가지 못하고, 서버도 저�
   expect(r.status).toBe(403)
 })
 
-test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, [새로고침] 하면 새 레이아웃이 얹히고 배너가 사라진다. 알림에 반영이 쌓인다 [OE-WF-14#1] [OE-WF-15#1] [OE-WF-16#1~] [OE-WF-17#1~]', async ({ page, browser }) => {
+test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, [새로고침] 하면 새 레이아웃이 얹히고 배너가 사라진다. 알림에 반영이 쌓인다 [OE-WF-14#1] [OE-WF-15#1] [OE-WF-16#1] [OE-WF-17#1] [OE-XPRD-02#1] [OE-XPRD-02#2]', async ({ page, browser }) => {
   test.setTimeout(120_000)
   const open = async (p: Page, who: string, edit = true) => {
     await serve(p)
@@ -233,7 +233,7 @@ test('다른 사람이 반영해도 화면은 그대로이고 배너가 뜨며, 
   await other.close()
 })
 
-test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 편집하고, 편집 중인 층은 잠기며, 폐기하면 반영된 레이아웃으로 돌아간다 [OE-WF-01#2] [OE-WF-02#1] [OE-WF-04#1~] [OE-WF-05#1] [OE-COM-03#1] [OE-COM-03#2] [OE-COM-03#3] [OE-COM-05#1~] [OE-COM-06#1] [OE-COM-08#3]', async ({ page, browser }) => {
+test('임시 저장본은 서버에 층마다 하나라 다른 사람이 이어 편집하고, 편집 중인 층은 잠기며, 폐기하면 반영된 레이아웃으로 돌아간다 [OE-WF-01#1,2] [OE-WF-02#1] [OE-WF-04#1] [OE-WF-05#1] [OE-COM-03#1] [OE-COM-03#2] [OE-COM-03#3] [OE-COM-05#1~] [OE-COM-06#1] [OE-COM-08#3]', async ({ page, browser }) => {
   test.setTimeout(120_000)
   const open = async (p: Page, who: string, edit = true) => {
     await serve(p)
@@ -362,7 +362,7 @@ test('수용 기준선(게이트 등급 0~3) 미달이면 [구축하기] 가 꺼
   await expect(build).toBeEnabled()
 })
 
-test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보이고, 누르면 그 설비를 고르며, 확인 창의 수치와 [미리보기] 가 같다 [OE-WF-07#1~] [OE-WF-08#1~] [OE-WF-09#1] [OE-WF-11#1] [OE-WF-12#1] [OE-P3-01#1~] [OE-MAP-01#2~]', async ({ page }) => {
+test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보이고, 누르면 그 설비를 고르며, 확인 창의 수치와 [미리보기] 가 같다 [OE-WF-07#1] [OE-WF-08#1] [OE-WF-08#3] [OE-WF-09#1] [OE-WF-11#1] [OE-WF-12#1] [OE-WF-12#2] [OE-P3-01#1] [OE-MAP-01#2~]', async ({ page }) => {
   await serve(page)
   await page.goto('/')
   await page.locator('.catalog tr').filter({ hasText: PATH }).last().getByRole('button', { name: '열기', exact: true }).click()
@@ -376,6 +376,7 @@ test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보
   const summary = await preview.getByTestId('preview-summary').innerText()
   expect(summary).toContain('소속 변경 설비 1')
   expect(summary).toContain('분할 0')
+  await expect(preview.getByTestId('preview-by-space')).toContainText('사무실 나감 1/들어옴 0')
   await expect(preview.getByTestId('preview-impact')).toContainText('LIGHT-101-01 · 사무실 →')
   if (process.env.SHOT_PREVIEW) await page.screenshot({ path: process.env.SHOT_PREVIEW })
   // 규칙 경고(막지 않음): 사무실 80㎡ 라 W-01 은 기본(2㎡)에서 없고, 최소 면적을 100㎡ 로 올리면 걸린다.
@@ -392,16 +393,17 @@ test('미리보기는 반영 전 변경 요약과 소속이 바뀔 설비를 보
   expect(JSON.parse(await fromServer({}))).toEqual({ current: null, versions: [] })
   await preview.getByRole('button', { name: '닫기' }).click()
 
-  // 확인 창: 미리보기와 같은 요약, [미리보기] 를 누르면 창을 닫고 미리보기로.
+  // 확인 창: 미리보기와 같은 요약, [미리보기] 를 누르면 창을 닫고 미리보기로. 규칙 경고가 있어도 구축하기는 막히지 않는다(OE-P3-01#1).
   await bar.getByRole('button', { name: '구축하기' }).click()
   const dialog = page.locator('dialog.publish-dialog')
   await expect(dialog.getByTestId('publish-summary')).toContainText(`변경 요약: ${summary}`)
+  await expect(dialog.getByRole('button', { name: '임시 저장 후 구축' })).toBeEnabled()
   await dialog.getByRole('button', { name: '미리보기' }).click()
   await expect(dialog).not.toBeVisible()
   await expect(preview).toBeVisible()
 })
 
-test('물리존 공간명을 고쳐 반영하면 그 버전의 공간 계층(탐색기 트리 대신)·TTL·GeoJSON 의 이름이 에디터의 공간명과 같고, 앞 버전은 옛 이름 그대로다 [OE-SPC-05#1]', async ({ page }) => {
+test('물리존 공간명을 고쳐 반영하면 그 버전의 공간 계층(탐색기 트리 대신)·TTL·GeoJSON 의 이름이 에디터의 공간명과 같고, 앞 버전은 옛 이름 그대로다 [OE-SPC-05#1] [OE-SYNC-01#1] [OE-SYNC-03#1]', async ({ page }) => {
   test.setTimeout(120_000)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))

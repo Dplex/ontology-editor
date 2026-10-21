@@ -26,7 +26,7 @@ async function open(page: Page, file = MEP) {
   return errors
 }
 
-test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장 모드에서 천장고를 넣은 뒤 x·y 로 옮긴다 [OE-EQP-02#6] [OE-EQP-04#2,3] [OE-EQP-04#1~] [OE-OBJ-08#1,5] [OE-OBJ-08#3~,4~]', async ({ page }) => {
+test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장 모드에서 천장고(50% 반투명 면)를 넣은 뒤 x·y 로 옮긴다 [OE-EQP-02#6] [OE-EQP-04#2,3] [OE-EQP-04#1~] [OE-OBJ-08#1,2,3,4,5,6]', async ({ page }) => {
   const errors = await open(page)
   // 바닥·벽 쪽: 디퓨저는 잠겨 있다
   await pick(page, 'AT-101-01')
@@ -53,6 +53,10 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
   await page.getByLabel('천장 모드 천장고(m)').press('Enter')
   await expect(page.locator('.ceiling-now')).toContainText('천장고 2.70 m')
   await expect(page.getByRole('button', { name: '설비 더하기' })).toBeEnabled()
+  // 천장 편집 모드 진입 시 물리존 외곽선 자리에 50% 반투명(opacity 0.5) 천장면이 반자 높이(2.7m)로 표시된다(OE-OBJ-08 AC1·AC3·AC4·AC6)
+  const planesInMode = await page.evaluate(() => (window as any).__viewer.ceilingPlanes())
+  expect(planesInMode.length).toBeGreaterThan(0)
+  expect(planesInMode[0]).toMatchObject({ y: 2.7, visible: true, opacity: 0.5 })
   await page.waitForTimeout(800)
   await page.screenshot({ path: 'test-results/ceiling-mode-mep.png' })
 
@@ -84,15 +88,22 @@ test('바닥·벽 쪽에서 천장 설비는 고르기·조회만 되고, 천장
   await pick(page, 'AHU-1')
   await expect(page.locator('.picked .ceiling-lock')).toContainText('천장에 설치할 수 없는 설비입니다')
 
-  // T 로 나오면 공조기를 다시 고친다
+  // T 로 나오면 천장면이 숨김으로 전환되고(레이어 패널에서 켜면 50% 반투명으로 표시, AC2), 공조기를 다시 고친다
   await keys(page, 't')
   await expect(toggle(page).getByRole('button', { name: '바닥·벽' })).toHaveAttribute('aria-pressed', 'true')
+  expect(await page.evaluate(() => (window as any).__viewer.ceilingPlanes())).toEqual([])
+  await page.getByTestId('layer-ceiling').check()
+  const planesFromLayer = await page.evaluate(() => (window as any).__viewer.ceilingPlanes())
+  expect(planesFromLayer.length).toBeGreaterThan(0)
+  expect(planesFromLayer[0]).toMatchObject({ y: 2.7, visible: true, opacity: 0.5 })
+  await page.getByTestId('layer-ceiling').uncheck()
+  expect(await page.evaluate(() => (window as any).__viewer.ceilingPlanes())).toEqual([])
   await pick(page, 'AHU-1')
   await expect(page.locator('.picked .position-edit')).toBeVisible()
   expect(errors).toEqual([])
 })
 
-test('Duplex: 천장 모드는 위에서 내려다보고 천장고에 천장면을 그린다 (스샷) [OE-OBJ-08#2~]', async ({ page }) => {
+test('Duplex: 천장 모드는 위에서 내려다보고 천장고에 50% 반투명 천장면을 그린다 (스샷) [OE-OBJ-08#1,2,6]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(120_000)
   const errors = await open(page, DUPLEX)

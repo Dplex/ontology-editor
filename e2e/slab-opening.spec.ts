@@ -7,6 +7,8 @@ import { enterEdit, toSpace } from './edit-part'
 // 다시 재 "개구부 확정" 이 되고, 되돌리면 돌아온다. 병원 건축은 바닥 슬래브가 없어 "초안" 과 그 까닭이다.
 const DUPLEX = 'data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc'
 const CLINIC = 'data/NBU_MedicalClinic/NBU_MedicalClinic_Arch.ifc'
+/** Duplex Level 2 의 A204 Bathroom 2(외곽선 4.73㎡). */
+const A204 = '0BTBFw6f90Nfh9rP1dlXre'
 const viewer = <T,>(page: Page, fn: string, ...args: unknown[]) =>
   page.evaluate(([f, a]) => (window as any).__viewer[f as string](...(a as unknown[])), [fn, args] as const) as Promise<T>
 
@@ -21,7 +23,7 @@ async function pickStair(page: Page, file: string, storey: string) {
   await expect(page.getByTestId('vertical-picked')).toBeVisible()
 }
 
-test('Duplex: 원본 계단 자리는 슬래브가 비워 두어 새로 뚫지 않고, 슬래브가 덮는 자리로 옮기면 개구부가 확정되며, 되돌리면 돌아온다 [OE-ML-03#1] [OE-ML-03#5~] [OE-ML-03#6~]', async ({ page }) => {
+test('Duplex: 원본 계단 자리는 슬래브가 비워 두어 새로 뚫지 않고, 슬래브가 덮는 자리로 옮기면 개구부가 확정되어 겹친 방의 넓이가 줄며, 되돌리면 돌아온다 [OE-ML-03#1] [OE-ML-03#4] [OE-ML-03#5~] [OE-ML-03#6~]', async ({ page }) => {
   test.skip(!existsSync(DUPLEX), `${DUPLEX} 이 없다(npm run fetch:sample)`)
   test.setTimeout(240_000)
   const errors: string[] = []
@@ -45,6 +47,20 @@ test('Duplex: 원본 계단 자리는 슬래브가 비워 두어 새로 뚫지 �
   await page.locator('body').click({ position: { x: 5, y: 5 } })
   await page.keyboard.press('Control+z')
   await expect(rows.first()).toContainText('이미 비어 있음')
+  await page.keyboard.press('Control+Shift+z')
+  await expect(rows.first()).toContainText('개구부 확정')
+
+  // 옮긴 계단과 겹친 Level 2 의 A204 는 확정 개구부와 겹친 넓이(1.63㎡)만큼 넓이가 준다(check:sample 과 같은 이동).
+  await page.evaluate((id) => (window as any).__editor3d.show([id]), A204)
+  const cut = page.getByTestId('space-slab-cut')
+  await expect(cut).toContainText('외곽선 4.7㎡ − 슬래브 개구부 1.63㎡')
+  await expect(page.locator('.space-picked .stats dd').filter({ has: cut }).locator('b')).toHaveText('3.1')
+  // 되돌리면 넓이가 같이 돌아온다.
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Control+z')
+  await page.evaluate((id) => (window as any).__editor3d.show([id]), A204)
+  await expect(page.locator('.space-picked')).toBeVisible()
+  await expect(cut).toHaveCount(0)
   expect(errors).toEqual([])
 })
 

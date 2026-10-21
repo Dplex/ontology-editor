@@ -3,7 +3,7 @@ import type { PropType } from 'vue'
 import { replayMemo } from '../../lib/replay-player'
 import { whatIs } from '../../editor/checks'
 import { shortName } from '../../editor/equipment-shape'
-import { deleteGroup, group, storeyOf } from '../../editor/multi-select'
+import { deleteGroup, dropKindFromGroup, group, groupKinds, storeyOf } from '../../editor/multi-select'
 import { select } from '../../editor/systems'
 import type { groupItems as groupItemsRef } from '../../editor/multi-select'
 
@@ -24,6 +24,15 @@ defineProps({
         <button type="button" class="ghost" @click="group = []">선택 해제</button>
       </div>
     </div>
+    <!-- 선택 필터(OE-UI-24). 종류의 체크를 끄면 그 종류가 선택에서 빠진다. -->
+    <ul class="plain group-kinds" data-testid="group-kinds" aria-label="고른 설비의 종류">
+      <li v-for="k in groupKinds" :key="k.key">
+        <label>
+          <input type="checkbox" checked :data-testid="`group-kind-${k.key || 'unknown'}`" :aria-label="`${k.label} 선택에서 빼기`" @change="dropKindFromGroup(k.key)" />
+          {{ k.label }} <span class="muted">{{ k.count }}대</span>
+        </label>
+      </li>
+    </ul>
     <ul class="group-list">
       <li v-for="e in groupItems.slice(0, 12)" :key="e.id">
         <button type="button" class="link" :title="'이 설비만 고르기'" @click="select(e.id)">{{ shortName(e.name) }}</button>

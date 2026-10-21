@@ -39,6 +39,16 @@ export const areaLines = computed(() => {
   return parts
 })
 export const areaSummary = computed(() => areaLines.value.join(' · '))
+/** 넓이가 처음과 달라진 물리존(위 `areaLines` 와 같은 기준). 오브젝트 변경 표시(OE-UI-22)가 쓴다. */
+export const areaChangedSpaceIds = computed(() => {
+  const first = new Map<string, BoundaryChange>()
+  const last = new Map<string, BoundaryChange>()
+  for (const c of areaChanges.value) {
+    if (!first.has(c.spaceId)) first.set(c.spaceId, c)
+    last.set(c.spaceId, c)
+  }
+  return [...first].filter(([id, start]) => Math.abs(last.get(id)!.toAreaM2 - start.fromAreaM2) >= 0.005).map(([id]) => id)
+})
 
 // 층의 벽 두께 종류를 한 줄로 요약한다. 값이 여럿이면 내벽과 외벽이 섞인 것이다.
 export const wallThicknessOf = (storey: { walls: { thickness: number | null }[] }) => {

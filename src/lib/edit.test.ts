@@ -296,13 +296,13 @@ describe('결과 리포트 (PRD #21)', () => {
     summary: '',
   })
 
-  it('같은 설비는 마지막 상태만 남긴다', () => {
-    const out = summarize([change('a', 'S1', 'S2'), change('a', 'S2', 'S3')])
+  it('같은 설비는 마지막 상태만 남긴다 [OE-SYNC-06#2]', () => {
+    const out = summarize([change('a', 'S1', 'S2'), change('a', 'S2', 'S3'), change('a', 'S3', 'S4')])
     expect(out).toHaveLength(1)
-    expect(out[0]).toMatchObject({ fromSpaceId: 'S1', toSpaceId: 'S3' })
+    expect(out[0]).toMatchObject({ fromSpaceId: 'S1', toSpaceId: 'S4' })
   })
 
-  it('제자리로 돌아온 설비는 목록에서 빠진다', () => {
+  it('제자리로 돌아온 설비는 목록에서 빠진다 [OE-SYNC-06#1]', () => {
     // 옮겼다가 되돌린 것을 변경으로 적으면 리포트가 거짓이 된다.
     expect(summarize([change('a', 'S1', 'S2'), change('a', 'S2', 'S1')])).toEqual([])
   })
@@ -686,7 +686,7 @@ describe('타입 단위 종류 지정', () => {
 })
 
 describe('연 때와 견주기', () => {
-  it('이름·좌표·층이 바뀐 것을 연 때의 값과 견줘 찾고, 제자리로 돌리면 빠진다', () => {
+  it('이름·좌표·층이 바뀐 것을 연 때의 값과 견줘 찾고, 제자리로 돌리면 빠진다 [OE-SYNC-04#2] [OE-SYNC-06#1] [OE-SYNC-06#2]', () => {
     model.storeys.push({ id: 'up', name: '2F', elevation: 3.5, spaces: [], walls: [], openings: [], equipment: [] })
     const base = baselineOf(model)
     const office = model.storeys[0].spaces[0]
