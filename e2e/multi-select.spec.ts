@@ -79,20 +79,27 @@ test('Ctrl+클릭으로 둘을 고르면 방향키로 같이 옮기고, Delete �
   await keys(page, 'Escape')
   await expect(page.locator('.group-picked')).toHaveCount(0)
 
-  // 같이 지우기 → 되돌리기 한 번에 둘 다. 되돌린 뒤에도 3D 형상이 다시 그려져 3D 에서 Ctrl+클릭으로 고를 수 있다(#737).
+  // 같이 지우기 → 되돌리기 한 번에 둘 다. 3D 형상도 돌아와서 다시 Ctrl+클릭으로 고를 수 있다(#737). 다시 하기는 3D 에서도 지운다.
   await pickEquipment(page, 'AT-101-01')
   await ctrlPick(page, 'AT-101-02')
   await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
+  const ids = [await idByName(page, 'AT-101-01'), await idByName(page, 'AT-101-02')]
+  const drawn = () => page.evaluate((xs) => xs.filter((x) => (window as any).__viewer.part(x)).length, ids)
   await keys(page, 'Delete')
   await gone(page, 'AT-101-01').toBe(0)
   await gone(page, 'AT-101-02').toBe(0)
+  await expect.poll(drawn).toBe(0)
   await expect(page.locator('.group-picked')).toHaveCount(0)
   await keys(page, 'Control+z')
   await gone(page, 'AT-101-01').toBe(1)
   await gone(page, 'AT-101-02').toBe(1)
+  await expect.poll(drawn).toBe(2)
   await pickEquipment(page, 'AT-101-01')
   await ctrlPick(page, 'AT-101-02')
   await expect(page.locator('.group-picked h3')).toHaveText('설비 2대 고름')
+  await keys(page, 'Escape', 'Control+y')
+  await gone(page, 'AT-101-01').toBe(0)
+  await expect.poll(drawn).toBe(0)
   expect(errors).toEqual([])
 })
 
