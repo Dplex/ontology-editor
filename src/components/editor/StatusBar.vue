@@ -5,6 +5,7 @@ import { changeCount } from '../../editor/changes'
 import { editing } from '../../editor/core'
 import { grid, snap } from '../../editor/grid-snap'
 import { history } from '../../editor/history'
+import { groupItems, groupKinds } from '../../editor/multi-select'
 import { multiRange } from '../../editor/multi-view'
 import { hasInspectorSelection, inspectorBadge } from '../../editor/panels'
 import { openDrawer } from '../../editor/shell'
@@ -14,7 +15,7 @@ import { openDrawer } from '../../editor/shell'
   <footer class="shell-status" role="status" aria-label="상태줄" data-testid="status-bar">
     <span>그리드 {{ grid.on ? `${grid.spacing} m` : '끔' }}</span>
     <span>스냅 {{ snap.on ? `${snap.radius} m` : '끔' }}</span>
-    <span>선택 {{ hasInspectorSelection ? inspectorBadge : '—' }}</span>
+    <span>선택 {{ groupItems.length ? `${groupItems.length}개 · ${groupKinds.length}종` : hasInspectorSelection ? inspectorBadge : '—' }}</span>
     <span>{{ editing ? (editPart === 'space' ? '공간 편집' : ceilingMode ? '설비 편집 · 천장' : '설비 편집') : '보기' }}</span>
     <span v-if="multiRange">다중층 {{ multiRange[0].name }}~{{ multiRange.at(-1)!.name }}</span>
     <span class="grow"></span>

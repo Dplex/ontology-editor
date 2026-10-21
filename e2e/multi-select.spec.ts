@@ -398,3 +398,60 @@ test('보기 모드에서는 3D 의 Ctrl+클릭과 평면도의 Ctrl+끌기로 �
   await expect(page.locator('.group-picked')).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+test('같은 종류 모두 고르기 — 이 층·건물 전체로 고르고, 종류의 체크를 끄면 선택에서 빠진다 [OE-UI-24#1~,2]', async ({ page }) => {
+  const errors = await open(page)
+  await enterCeiling(page)
+  await pickEquipment(page, 'AT-101-01')
+  const panel = page.locator('.group-picked')
+
+  // 이 층: 같은 종류(디퓨저) 둘이 골라지고, 종류별 개수와 상태줄 개수가 보인다.
+  await page.getByTestId('same-kind-storey').click()
+  await expect(panel.locator('h3')).toHaveText('설비 2대 고름')
+  const kinds = panel.getByTestId('group-kinds').locator('li')
+  await expect(kinds).toHaveCount(1)
+  await expect(kinds.first()).toContainText('2대')
+  await expect(page.getByTestId('status-bar')).toContainText('선택 2개 · 1종')
+  await page.screenshot({ path: test.info().outputPath('same-kind.png') })
+
+  // 종류의 체크를 끄면 그 종류가 선택에서 빠진다.
+  await kinds.first().locator('input').uncheck()
+  await expect(panel).toHaveCount(0)
+  await expect(page.getByTestId('status-bar')).not.toContainText('선택 2개')
+
+  // 건물 전체: 한 층뿐인 픽스처라 이 층과 같은 둘이다.
+  await pickEquipment(page, 'AT-101-01')
+  await page.getByTestId('same-kind-building').click()
+  await expect(panel.locator('h3')).toHaveText('설비 2대 고름')
+  expect(errors).toEqual([])
+})
+
+test('Duplex MEP: 연기감지기 하나를 고르고 같은 종류 모두 — 이 층이면 Level 1 의 2대, 건물 전체면 두 층의 6대이고 상태줄에 6개다 [OE-UI-24#2,3]', async ({ page }) => {
+  test.skip(!existsSync(DUPLEX_MEP), `${DUPLEX_MEP} 이 없다(npm run fetch:sample)`)
+  test.setTimeout(120_000)
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/')
+  await page.locator('.drop input[type=file]').setInputFiles(DUPLEX_MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 90_000 })
+  await enterEdit(page)
+  await page.getByRole('combobox', { name: '보일 층' }).selectOption({ label: 'Level 1' })
+  // Level 1 의 연기감지기(Level 1 에 2대, Level 2 에 4대).
+  const pickDetector = () => page.evaluate((id) => (window as any).__editor3d.show([id]), '1d7reBWpf0fORIZse0_foY')
+  const panel = page.locator('.group-picked')
+
+  await pickDetector()
+  await page.getByTestId('same-kind-storey').click()
+  await expect(panel.locator('h3')).toHaveText('설비 2대 고름')
+  await expect(page.getByTestId('status-bar')).toContainText('선택 2개 · 1종')
+
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('Escape')
+  await pickDetector()
+  await page.getByTestId('same-kind-building').click()
+  await expect(panel.locator('h3')).toHaveText('설비 6대 고름')
+  await expect(panel.getByTestId('group-kinds').locator('li')).toHaveCount(1)
+  await expect(panel.getByTestId('group-kinds').locator('li').first()).toContainText('6대')
+  await expect(page.getByTestId('status-bar')).toContainText('선택 6개 · 1종')
+  expect(errors).toEqual([])
+})

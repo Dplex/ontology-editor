@@ -6,6 +6,7 @@ import { type Equipment, isConduit, type Vec3 } from '../lib/model'
 import { overlapAt } from '../lib/overlap'
 import { snapAxis } from '../lib/shortcuts'
 import { editLock, refuseLock } from './ceiling'
+import { kindLabel } from './checks'
 import { model } from './core'
 import { changes } from './edit-report'
 import { selectedElementId } from './equipment-edit'
@@ -64,6 +65,46 @@ export function addBoxToGroup(ids: readonly string[]) {
   if (group.value.length) note(`설비 ${group.value.length}대를 골랐습니다. 방향키·드래그로 같이 옮기고 Delete 로 같이 지웁니다`)
 }
 export const groupItems = computed(() => group.value.map((id) => equipmentById.value.get(id)).filter((e): e is Equipment => !!e))
+
+// --- 종류로 거르고 같은 종류 모두 고르기 (OE-UI-24) ---------------------------------------------
+// 종류는 설비 종류(OE-EQP-14, `Equipment.kind`)다. 사전에 없는 것(`null`)은 "종류 모름" 한 줄로 센다. 선택은 화면에만 있고 저장본·TTL·GeoJSON 에 남지 않는다.
+export const UNKNOWN_KIND = '종류 모름'
+const kindKey = (e: Equipment) => e.kind ?? ''
+const kindText = (e: Equipment) => (e.kind ? kindLabel(e) || e.kind : UNKNOWN_KIND)
+/** 고른 묶음의 종류별 개수. 많은 것부터, 같으면 이름 순. */
+export const groupKinds = computed(() => {
+  const n = new Map<string, { key: string; label: string; count: number }>()
+  for (const e of groupItems.value) {
+    const row = n.get(kindKey(e)) ?? { key: kindKey(e), label: kindText(e), count: 0 }
+    row.count++
+    n.set(kindKey(e), row)
+  }
+  return [...n.values()].sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'ko'))
+})
+/** 묶음에서 한 종류를 뺀다. 하나만 남으면 보통 고르기로 돌아가고, 다 빠지면 선택이 풀린다. */
+export function dropKindFromGroup(key: string) {
+  setGroup(groupItems.value.filter((e) => kindKey(e) !== key).map((e) => e.id))
+}
+/**
+ * 고른 설비와 같은 종류를 모두 고른다. `building` 이면 다른 층 것까지 고르고(화면에는 지금 층만 그린다, OE-UI-12), 아니면 그 설비가 있는 층만이다.
+ * 덕트·배관은 여러 개 고르기에 넣지 않는다(위 `groupable`). 같은 종류가 자기 하나뿐이면 아무것도 바꾸지 않는다.
+ */
+export function selectSameKind(scope: 'storey' | 'building'): boolean {
+  const m = model.value
+  const base = selectedId.value ? equipmentById.value.get(selectedId.value) : null
+  if (!m || !base) return false
+  const home = storeyOf(base.id)
+  const pool = scope === 'building' ? m.storeys : m.storeys.filter((s) => s.id === home?.id)
+  const ids = pool.flatMap((s) => s.equipment).filter((e) => !isConduit(e.role) && kindKey(e) === kindKey(base)).map((e) => e.id)
+  if (ids.length < 2) {
+    note(`같은 종류(${kindText(base)})가 ${scope === 'building' ? '건물에' : '이 층에'} 하나뿐입니다`)
+    return false
+  }
+  setGroup(ids)
+  const floors = new Set(groupItems.value.map((e) => storeyOf(e.id)?.id)).size
+  note(`${kindText(base)} ${group.value.length}대를 골랐습니다${scope === 'building' ? `(${floors}개 층)` : ''}`)
+  return true
+}
 
 /**
  * 묶음을 평면으로 같이 옮긴다. 하나라도 막히면(겹침 OE-OBJ-16 · 외벽 전용 OE-OBJ-04) 아무것도 옮기지 않는다 — 일부만 옮기면 묶음의
