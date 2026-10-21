@@ -17,6 +17,7 @@ import { CAPACITY_PREDICATE, capacityQuantity } from '../capacity'
 import { withInferred } from '../flow-rules'
 import { airServices } from '../served'
 import { customZonesOfEquipment, zoneSpaces } from '../custom-zone'
+import { netAreaM2, spaceSlabCuts } from '../slab-opening'
 
 const PREFIXES = [
   '@prefix brick: <https://brickschema.org/schema/Brick#> .',
@@ -199,6 +200,8 @@ export function modelToTTL(model: Model, only?: { storeyId: string }): string {
 
   // 커스텀존(OE-OBJ-01)에 든 설비. 방과 별도로 hasLocation 을 하나 더 건다(custom-zone.ts).
   const inCustomZones = customZonesOfEquipment(model)
+  // 물리존 넓이는 수직 관통 오브젝트가 뚫은 확정 편집 개구부를 뺀 값이다(OE-ML-03, GeoJSON 의 areaM2 와 같다).
+  const slabCuts = spaceSlabCuts(model)
   for (const storey of storeys) {
     lines.push(`${ref(storey.id)} a brick:Floor ;`)
     lines.push(`    rdfs:label ${label(storey.name)} ;`)
@@ -217,7 +220,7 @@ export function modelToTTL(model: Model, only?: { storeyId: string }): string {
       lines.push(`${ref(space.id)} a ${roomKind(space.kind)?.brick ?? 'brick:Room'} ;`)
       lines.push(`    rdfs:label ${label(space.longName || space.name)} ;`)
       lines.push(`    ex:roomNumber ${label(space.name)} ;`)
-      lines.push(`    ex:areaM2 ${Number(space.areaM2.toFixed(4))} .`)
+      lines.push(`    ex:areaM2 ${Number(netAreaM2(space, slabCuts).toFixed(4))} .`)
       lines.push('')
     }
 

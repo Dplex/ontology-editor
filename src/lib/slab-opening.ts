@@ -19,11 +19,12 @@
 //              뚫을지 재는 것은 사람이 만들거나 옮기거나 형상을 고친(`edited`) 오브젝트다.
 // - `draft`    그 층 바닥에 슬래브가 없다(BIM 에 없거나 읽지 않음). 형상은 조각 형상으로 잡되 사람이 확인하기 전에는 확정하지 않는다.
 // - `unmeasured` 그 층과 아래 조각 모두 평면 형상이 없어 개구부 형상을 정할 근거가 없다. 임의 형상을 만들지 않는다.
-import type { Model, Slab, Storey, Vec2 } from './model'
+import polygonClipping, { type MultiPolygon, type Polygon, type Ring } from 'polygon-clipping'
+import type { Model, Slab, Space, Storey, Vec2 } from './model'
 import { overlapArea } from './polygon'
 import { pointInPolygon } from './mapping'
 import { polygonArea } from './model'
-import type { VerticalObject } from './vertical-object'
+import { type VerticalObject, verticalObjects } from './vertical-object'
 import { josa } from './josa'
 
 /** 층 바닥 슬래브로 보는 윗면 높이 차(m). */
@@ -112,10 +113,13 @@ export function floorSlabs(model: Pick<Model, 'storeys'>, storey: Storey): Slab[
   return model.storeys.flatMap((s) => s.slabs ?? []).filter((slab) => Math.abs(slab.top - storey.elevation) <= SLAB_LEVEL_TOLERANCE)
 }
 
+/** 사람이 만들거나 옮기거나 형상을 고치지 않은 BIM 오브젝트. 슬래브 형상을 그대로 믿어 새로 뚫지 않는다(위 `open`). */
+const isPristine = (object: VerticalObject) => object.source === 'bim' && object.parts.every((p) => !p.part.edited)
+
 /** 오브젝트 하나가 지나는 층 바닥마다의 개구부 판정(층 높이 순). 시작 층은 넣지 않는다. */
 export function slabOpenings(model: Pick<Model, 'storeys'>, object: VerticalObject): SlabOpening[] {
   const out: SlabOpening[] = []
-  const pristine = object.source === 'bim' && object.parts.every((p) => !p.part.edited)
+  const pristine = isPristine(object)
   for (let i = 1; i < object.parts.length; i++) {
     const { storey, part } = object.parts[i]
     const below = object.parts[i - 1].part
@@ -185,3 +189,48 @@ export const SLAB_OPENING_LABEL: Record<SlabOpeningState, string> = {
   draft: '초안',
   unmeasured: '산정 못 함',
 }
+
+const q = (v: number) => Math.round(v * 1000) / 1000
+const toRing = (ring: readonly Vec2[]): Ring => {
+  const pts: Ring = ring.map((p) => [q(p[0]), q(p[1])])
+  const [a, z] = [pts[0], pts.at(-1)]
+  return a && z && (a[0] !== z[0] || a[1] !== z[1]) ? [...pts, [a[0], a[1]]] : pts
+}
+const ringArea = (r: Ring) => {
+  let s = 0
+  for (let i = 0; i + 1 < r.length; i++) s += r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]
+  return Math.abs(s) / 2
+}
+const multiArea = (m: MultiPolygon) => m.reduce((n, p) => n + ringArea(p[0]) - p.slice(1).reduce((h, r) => h + ringArea(r), 0), 0)
+
+/**
+ * 물리존 id → 확정 편집 개구부(`cut`)가 그 물리존에서 빼는 넓이(㎡). 뺄 것이 있는 물리존만 든다(OE-ML-03 AC2~4 · OE-ML-09 AC3).
+ * 원본 BIM 개구부(`bim` · `open`)는 원본 외곽선이 이미 비워 두어 다시 빼지 않고, 초안(`draft`)·산정 못 함(`unmeasured`)도 빼지 않는다.
+ * 그 층 바닥의 확정 개구부를 합집합으로 합친 뒤 물리존 외곽선과 겹친 넓이를 잰다 — 두 샤프트가 겹치면 겹친 자리는 한 번만 빠진다.
+ * 손대지 않은 BIM 오브젝트는 `cut` 이 나오지 않아(slabOpenings) 재지 않는다.
+ */
+export function spaceSlabCuts(model: Pick<Model, 'storeys'>): Map<string, number> {
+  const cuts = new Map<string, Polygon[]>()
+  for (const obj of verticalObjects(model)) {
+    if (isPristine(obj)) continue
+    for (const o of slabOpenings(model, obj)) {
+      if (o.state !== 'cut' || !o.footprint || o.footprint.length < 3) continue
+      cuts.set(o.storeyId, [...(cuts.get(o.storeyId) ?? []), [toRing(o.footprint)]])
+    }
+  }
+  const out = new Map<string, number>()
+  for (const storey of model.storeys) {
+    const polys = cuts.get(storey.id)
+    if (!polys) continue
+    const union = polygonClipping.union(polys[0], ...polys.slice(1))
+    for (const space of storey.spaces) {
+      if (space.footprint.length < 3) continue
+      const cut = multiArea(polygonClipping.intersection([toRing(space.footprint)], union))
+      if (cut > 1e-6) out.set(space.id, cut)
+    }
+  }
+  return out
+}
+
+/** 확정 편집 개구부를 뺀 물리존 넓이(㎡). TTL·GeoJSON 의 `areaM2` 와 물리존 패널이 이 값이다. 외곽선 넓이(`Space.areaM2`)는 그대로 둔다. */
+export const netAreaM2 = (space: Pick<Space, 'id' | 'areaM2'>, cuts: ReadonlyMap<string, number>) => Math.max(0, space.areaM2 - (cuts.get(space.id) ?? 0))

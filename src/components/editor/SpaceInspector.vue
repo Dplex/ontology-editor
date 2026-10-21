@@ -75,7 +75,11 @@ defineProps({
           </div>
           <div>
             <dt>넓이</dt>
-            <dd v-flash="selectedSpace.space.areaM2.toFixed(1)"><b class="mono">{{ selectedSpace.space.areaM2.toFixed(1) }}</b> ㎡ <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" /></dd>
+            <dd v-flash="(selectedSpace.space.areaM2 - selectedSpace.slabCutM2).toFixed(1)">
+              <b class="mono">{{ Math.max(0, selectedSpace.space.areaM2 - selectedSpace.slabCutM2).toFixed(1) }}</b> ㎡ <Src :kind="selectedSpace.edited ? 'edit' : 'calc'" />
+              <!-- 수직 관통 오브젝트가 뚫은 확정 편집 개구부를 뺀 넓이가 내보내는 값이다(OE-ML-03). 외곽선 넓이와 뺀 넓이를 같이 보인다. -->
+              <span v-if="selectedSpace.slabCutM2 > 0" class="muted" data-testid="space-slab-cut">(외곽선 {{ selectedSpace.space.areaM2.toFixed(1) }}㎡ − 슬래브 개구부 {{ selectedSpace.slabCutM2.toFixed(2) }}㎡)</span>
+            </dd>
           </div>
           <!-- 방 높이·반자 높이(OE-BIM-03). 방이 BIM 에 적은 값만 보인다. 없으면 "모름" 이고 0 이나 층고로 채우지 않는다.
                반자 높이는 방 값이 없으면 층 값(층별 요약에서 고친다)을 괄호로 같이 보인다 — 설정 단위가 층이라서다(Q7). -->

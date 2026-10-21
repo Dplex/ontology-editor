@@ -6,8 +6,8 @@ date: "2026-10-14"
 deciders: ["정희록"]
 prd: []
 tickets: ["OE-ML-03", "OE-ML-06", "OE-ML-07", "OE-ML-08", "OE-ML-09"]
-criteria: ["OE-ML-03#1", "OE-ML-03#2", "OE-ML-03#3", "OE-ML-03#5", "OE-ML-03#6", "OE-ML-06#5"]
-code: ["src/lib/slab-opening.ts", "src/lib/ifc/import.ts", "src/lib/ifc/element-geometry.ts", "src/lib/polygon.ts", "src/lib/merge.ts", "src/lib/vertical-edit.ts", "src/App.vue"]
+criteria: ["OE-ML-03#1", "OE-ML-03#2", "OE-ML-03#3", "OE-ML-03#4", "OE-ML-03#5", "OE-ML-03#6", "OE-ML-06#5", "OE-ML-09#3"]
+code: ["src/lib/slab-opening.ts", "src/lib/ifc/import.ts", "src/lib/ifc/element-geometry.ts", "src/lib/polygon.ts", "src/lib/merge.ts", "src/lib/vertical-edit.ts", "src/lib/export/ttl.ts", "src/lib/export/geojson.ts", "src/editor/space-objects.ts", "src/App.vue"]
 tests: ["src/lib/slab-opening.test.ts", "e2e/slab-opening.spec.ts", "scripts/check-sample.test.ts"]
 related: ["ADR-0032", "ADR-0034"]
 ---
@@ -72,9 +72,17 @@ OE-ML-03 은 수직 관통 오브젝트가 실제로 교차하는 슬래브에�
 가진 파일에서 원본 계단은 모두 새로 뚫지 않는다. 성수 34곳은 이미 비어 있음, Duplex 2곳은 이미 비어 있음, FZK 1곳·Institute 4곳은 BIM 개구부,
 병원 3곳·치과 3곳·Office_A 2곳은 초안이다. `check:sample` 이 이 숫자를 잰다.
 
-**면적은 아직 빼지 않는다.** 물리존 넓이(`areaM2`)는 TTL·GeoJSON 에 나가는 값이다. 확정 개구부와 물리존이 겹친 넓이를 빼는 것(OE-ML-03 AC2·4)과
-초안을 사람이 확인해 확정하는 것은, 그 확인을 어디에 남기는지(편집 파일)와 함께 정해야 한다. 판정이 화면에 보이기만 하고 내보내는 값은
-바꾸지 않는다.
+**확정 개구부만 물리존 넓이에서 뺀다**(`spaceSlabCuts`, 2026-10-21 더함). 그 층 바닥의 확정 개구부(`cut`) 형상을 합집합으로 합치고, 물리존
+외곽선과 겹친 넓이를 뺀다. 두 샤프트가 겹친 자리는 한 번만 빠진다(OE-ML-03 AC4). 빼는 넓이는 슬래브가 덮은 넓이(`coverM2`)가 아니라 물리존과
+겹친 넓이다. 줄어드는 것은 방 바닥이고, 방 외곽선이 이미 샤프트를 비켜 그렸으면 겹친 넓이가 0 이라 두 번 빠지지 않는다.
+
+- BIM 개구부(`bim`)·이미 비어 있음(`open`)은 빼지 않는다. 원본 외곽선과 원본 면적이 이미 그 자리를 비워 두었다(AC3).
+- 초안(`draft`)·산정 못 함(`unmeasured`)도 빼지 않는다. 초안을 사람이 확인해 확정하는 동작은 아직 없어서, 지금은 초안이 넓이에 들어가지 않는다(AC2 의 앞 절반).
+- **모델의 `Space.areaM2` 는 외곽선 넓이 그대로 둔다.** 합치기(`merge.ts`)의 같은 방 판정, 외곽선 그리기의 BIM 면적 대조, W-01 작은 방 경고가 외곽선
+  넓이를 쓴다. 뺀 넓이는 내보낼 때(TTL `ex:areaM2`, GeoJSON `areaM2`)와 물리존 패널에서만 쓴다. GeoJSON 은 뺀 것이 있으면 `slabOpeningM2` 로 그 넓이를 같이 둔다.
+- 저장하지 않으므로 옮기거나 지우면 다음 계산에서 넓이가 따라 바뀐다. 되돌리기도 오브젝트를 되돌리면 넓이가 같이 돌아온다(AC5·AC6, OE-ML-09 AC3).
+
+2026-10-14 에는 초안 확인을 남길 곳과 함께 정하려고 면적을 빼지 않았다. 확정 개구부는 사람의 확인이 필요 없는 판정이라 먼저 뺀다.
 
 ## 고려한 다른 길
 
@@ -92,5 +100,6 @@ OE-ML-03 은 수직 관통 오브젝트가 실제로 교차하는 슬래브에�
 - 만드는 동안에도 같은 판정이다(OE-ML-06 AC5, 2026-10-15). 초안 형상을 오브젝트 모양으로 묶어(`draftVertical`) 같은 `slabOpenings` 를 태운다 — 찍는
   동안은 커서를, 돌리면 각도를 따라 다시 재고, 3D 의 뚫리는 층 바닥에 확정은 보라·초안은 노랑 점선으로 보인다. 그래서 미리보기와 만든 뒤 패널이 어긋날 수 없다.
 - 형상을 읽지 않는 임포트(`importIfc`, 시험·검사 스크립트)에는 슬래브가 없다. 계단도 그 임포트에서만 생기므로 맞물린다.
-- 면적 차감·초안 확인은 이 판정 위에 얹는다. 그때 `SlabOpening` 의 `coverM2`(확정 개구부가 뚫는 넓이)와 `footprint` 를 쓴다.
-- 되돌리려면 `slab-opening.ts` 와 패널의 표를 지우고, `import.ts` 의 `slabsOf` 묶음과 `Storey.slabs` 를 걷어낸다.
+- 물리존 패널의 넓이는 뺀 값이고, 뺀 것이 있으면 외곽선 넓이와 뺀 넓이를 괄호로 같이 보인다. 초안 확인은 이 판정 위에 얹는다.
+- 면적 차감만 되돌리려면 `ttl.ts`·`geojson.ts` 의 `spaceSlabCuts` 호출과 `space-objects.ts` 의 `slabCutM2` 를 걷어낸다.
+- 전부 되돌리려면 `slab-opening.ts` 와 패널의 표를 지우고, `import.ts` 의 `slabsOf` 묶음과 `Storey.slabs` 를 걷어낸다.
