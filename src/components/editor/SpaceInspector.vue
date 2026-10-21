@@ -36,7 +36,10 @@ defineProps({
   <section v-memo="replayMemo()" class="picked space-picked">
     <div class="picked-head">
       <div>
-        <h3>{{ selectedSpace.space.longName || selectedSpace.space.name }} <ChangeBadge :id="selectedSpace.space.id" /></h3>
+        <div class="picked-title">
+          <h3>{{ selectedSpace.space.longName || selectedSpace.space.name }}</h3>
+          <ChangeBadge :id="selectedSpace.space.id" />
+        </div>
         <dl class="stats facts">
           <div>
             <dt>물리존</dt>
