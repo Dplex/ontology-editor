@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Slab, Storey, Vec2, VerticalPart } from './model'
-import { slabOpenings, spaceCutArea } from './slab-opening'
+import { modelToGeoJSON } from './export/geojson'
+import { modelToTTL } from './export/ttl'
+import type { Model, Slab, Storey, Vec2, VerticalPart } from './model'
+import { netAreaM2, slabOpenings, spaceSlabCuts } from './slab-opening'
 import { verticalObjects } from './vertical-object'
 import { createVertical, deleteVertical, draftVertical, planCreate, planFlight, rotateVertical, setPartVertex, setVerticalRange } from './vertical-edit'
 
@@ -34,7 +36,7 @@ const storey = (id: string, elevation: number, parts: VerticalPart[], slabs?: Sl
 const SHAFT = square(4, 4, 6, 6)
 
 describe('슬래브 개구부 (OE-ML-03)', () => {
-  it('실제로 덮는 슬래브에만 개구부를 내고, 시작 층 바닥과 끝 층 위는 뚫지 않으며, BIM 개구부는 다시 쓴다 [OE-ML-03#1,3]', () => {
+  it('실제로 덮는 슬래브에만 개구부를 내고, 시작 층 바닥과 끝 층 위는 뚫지 않으며, BIM 개구부는 다시 쓴다 [OE-ML-03#1] [OE-ML-03#3~]', () => {
     const model = {
       storeys: [
         storey('1F', 0, [part(SHAFT)], [slab('S1', 0, [0, 0, 10, 10])]),
@@ -53,7 +55,7 @@ describe('슬래브 개구부 (OE-ML-03)', () => {
     expect(got[1]).toMatchObject({ bimOpeningId: 'OP3', slabId: 'S3', coverM2: 0 })
   })
 
-  it('그 층 바닥에 슬래브가 없으면 사유를 단 초안이고, 형상이 없으면 임의 형상 없이 산정 못 함이다 [OE-ML-03#2]', () => {
+  it('그 층 바닥에 슬래브가 없으면 사유를 단 초안이고, 형상이 없으면 임의 형상 없이 산정 못 함이다 [OE-ML-03#2~]', () => {
     const model = {
       storeys: [storey('1F', 0, [part(SHAFT)]), storey('2F', 3, [part(SHAFT)]), storey('3F', 6, [part([])]), storey('4F', 9, [part([])], [slab('S4', 9, [0, 0, 10, 10])])],
     }
@@ -88,7 +90,7 @@ describe('슬래브 개구부 (OE-ML-03)', () => {
     expect(states(build('bim', true))).toEqual(['open', 'cut'])
   })
 
-  it('옮기면 다시 잰다 — 덮인 자리로 옮기면 개구부가 생기고, BIM 개구부가 있던 자리를 떠나면 그 개구부는 쓰지 않는다(원본은 슬래브에 그대로) [OE-ML-03#5,6]', () => {
+  it('옮기면 다시 잰다 — 덮인 자리로 옮기면 개구부가 생기고, BIM 개구부가 있던 자리를 떠나면 그 개구부는 쓰지 않는다(원본은 슬래브에 그대로) [OE-ML-03#5~]', () => {
     const s3 = slab('S3', 3, [0, 0, 10, 10], { id: 'OP', at: [4, 4, 6, 6] })
     const model = { storeys: [storey('1F', 0, [part(SHAFT)]), storey('2F', 3, [part(SHAFT)], [s3])] }
     expect(slabOpenings(model, verticalObjects(model)[0]).map((o) => o.state)).toEqual(['bim'])
@@ -101,7 +103,7 @@ describe('슬래브 개구부 (OE-ML-03)', () => {
 })
 
 describe('돌리기·크기 수정 뒤 개구부 (OE-ML-07 AC4)', () => {
-  it('돌리거나 층 조각 크기를 바꾸면 그 형상으로 다시 재고, 앞 판정을 이어받지 않는다 [OE-ML-07#4]', () => {
+  it('돌리거나 층 조각 크기를 바꾸면 그 형상으로 다시 재고, 앞 판정을 이어받지 않는다 [OE-ML-07#4~]', () => {
     // 2F 슬래브가 (4..6, 4..6) 을 비워 두었다(외곽선으로, 구멍 요소 없이). 그 자리의 사람이 만든 계단.
     const holed = slab('S2', 3, [0, 0, 10, 10], { id: 'unused', at: [4, 4, 6, 6] })
     holed.openings = []
@@ -128,7 +130,7 @@ describe('돌리기·크기 수정 뒤 개구부 (OE-ML-07 AC4)', () => {
 })
 
 describe('구간을 줄인 뒤 개구부 (OE-ML-08 AC3)', () => {
-  it('구간을 줄이면 빠진 층의 편집 개구부만 사라지고, 그 층 슬래브의 BIM 개구부는 원본 그대로 남는다 [OE-ML-08#3]', () => {
+  it('구간을 줄이면 빠진 층의 편집 개구부만 사라지고, 그 층 슬래브의 BIM 개구부는 원본 그대로 남는다 [OE-ML-08#3~]', () => {
     const s3 = slab('S3', 6, [0, 0, 10, 10], { id: 'OP3', at: [4, 4, 6, 6] })
     const model = {
       storeys: [
@@ -190,29 +192,44 @@ describe('만드는 동안의 개구부 미리보기 (OE-ML-06 AC5)', () => {
     }
   })
 
-  it('두 개구부가 겹치면 합집합과 물리존의 교차 면적만 한 번 차감하고, 원본·초안 개구부는 추가 차감하지 않으며, 하나를 삭제하면 그 편집 개구부와 면적만 갱신된다 [OE-ML-03#2,3,4,5] [OE-ML-09#3]', () => {
+  it('두 개구부가 겹치면 합집합과 물리존의 교차 면적만 한 번 빼고, 원본·초안 개구부는 빼지 않으며, 하나를 지우면 그 편집 개구부 몫만 돌아온다. TTL·GeoJSON 의 넓이가 그 값이다 [OE-ML-03#2~,3~,4] [OE-ML-09#3~]', () => {
     const sh1 = (fp: Vec2[]): VerticalPart => ({ ...part(fp), parentId: 'SH1', name: '샤프트 1' })
     const sh2 = (fp: Vec2[]): VerticalPart => ({ ...part(fp), parentId: 'SH2', name: '샤프트 2' })
     const bimStair = (fp: Vec2[]): VerticalPart => ({ ...part(fp, 'bim'), parentId: 'ST_BIM', kind: 'stair', name: '원본 계단' })
-    const room = { footprint: square(0, 0, 10, 10), areaM2: 100 }
+    const parts = () => [sh1(square(4, 4, 6, 6)), sh2(square(5, 4, 7, 6)), bimStair(square(1, 1, 3, 3))]
+    const room = (id: string, x0: number) => ({ id, name: id, longName: '', footprint: square(x0, 0, x0 + 10, 10), areaM2: 100 })
     // SH1(4..6, 4..6 = 4㎡)과 SH2(5..7, 4..6 = 4㎡)가 (5..6, 4..6 = 2㎡)에서 겹친다 → 합집합 6㎡.
-    // ST_BIM 은 BIM 개구부(OP_BIM, 1..3, 1..3 = 4㎡) 자리에 있어 추가 차감하지 않는다.
+    // ST_BIM 은 BIM 개구부(OP_BIM, 1..3, 1..3 = 4㎡) 자리라 원본 외곽선이 이미 비워 둔 것으로 보고 빼지 않는다.
     const s2 = slab('S2', 3, [0, 0, 10, 10], { id: 'OP_BIM', at: [1, 1, 3, 3] })
     const model = {
+      schema: 'IFC4',
+      siteName: '',
+      buildingId: 'B',
+      buildingName: '',
+      warnings: [],
+      connections: [],
+      systems: [],
       storeys: [
-        storey('1F', 0, [sh1(square(4, 4, 6, 6)), sh2(square(5, 4, 7, 6)), bimStair(square(1, 1, 3, 3))], [slab('S1', 0, [0, 0, 10, 10])]),
-        storey('2F', 3, [sh1(square(4, 4, 6, 6)), sh2(square(5, 4, 7, 6)), bimStair(square(1, 1, 3, 3))], [s2]),
-        storey('3F', 6, [sh1(square(4, 4, 6, 6)), sh2(square(5, 4, 7, 6)), bimStair(square(1, 1, 3, 3))]), // 슬래브 없음 → draft
+        storey('1F', 0, parts(), [slab('S1', 0, [0, 0, 10, 10])]),
+        // R2B 는 샤프트와 겹치지 않는 옆 방이다.
+        { ...storey('2F', 3, parts(), [s2]), spaces: [room('R2', 0), room('R2B', 10)] },
+        // 3F 는 바닥 슬래브가 없어 초안(draft)이라 빼지 않는다.
+        { ...storey('3F', 6, parts()), spaces: [room('R3', 0)] },
       ],
-    }
-    // 2F: SH1·SH2 합집합 6㎡만 한 번 차감되고 BIM 개구부 4㎡는 다시 빼지 않는다.
-    expect(spaceCutArea(model, '2F', room)).toEqual({ cutM2: 6, netM2: 94 })
-    // 3F: 바닥 슬래브가 없어 초안(draft)이므로 물리존 면적을 차감하지 않는다.
-    expect(spaceCutArea(model, '3F', room)).toEqual({ cutM2: 0, netM2: 100 })
+    } as unknown as Model
+    expect([...spaceSlabCuts(model)]).toEqual([['R2', 6]])
+    expect(netAreaM2(model.storeys[1].spaces[0], spaceSlabCuts(model))).toBe(94)
+    // 내보내는 넓이가 뺀 값이다. 외곽선 넓이(Space.areaM2)는 그대로다.
+    expect(modelToTTL(model)).toMatch(/ex:R2 a brick:Room ;[^.]*ex:areaM2 94 \./)
+    expect(modelToTTL(model)).toMatch(/ex:R2B a brick:Room ;[^.]*ex:areaM2 100 \./)
+    const r2 = modelToGeoJSON(model)[1].collection.features.find((f) => f.id === 'R2')!
+    expect(r2.properties).toMatchObject({ areaM2: 94, slabOpeningM2: 6 })
+    expect(modelToGeoJSON(model)[2].collection.features.find((f) => f.id === 'R3')!.properties).not.toHaveProperty('slabOpeningM2')
+    expect(model.storeys[1].spaces[0].areaM2).toBe(100)
 
-    // SH2 만 삭제하면 SH2 의 편집 개구부만 빠지고, SH1 의 개구부(4㎡)와 원본 BIM 개구부(OP_BIM)는 유지된다(OE-ML-09 AC3).
+    // SH2 만 지우면 SH2 의 편집 개구부 몫만 돌아오고, SH1(4㎡)과 원본 BIM 개구부(OP_BIM)는 그대로다(OE-ML-09 AC3).
     expect(deleteVertical(model, 'SH2')).toBe(true)
-    expect(spaceCutArea(model, '2F', room)).toEqual({ cutM2: 4, netM2: 96 })
+    expect([...spaceSlabCuts(model)]).toEqual([['R2', 4]])
     expect(s2.openings.map((o) => o.id)).toEqual(['OP_BIM'])
   })
 })

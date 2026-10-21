@@ -99,7 +99,7 @@ describe('저장이 속한 작업 (OE-HIST-03 · OE-PIP-15)', () => {
     })
   const works = async (key: string) => (await (await fetch(`${url(key)}&works`)).json()) as Work[]
 
-  it('층 작업과 다중층 세션은 다른 작업이고, 세션 안에서 여러 층·여러 번 저장해도 작업은 하나다 [OE-HIST-03#3~] [OE-PIP-15#8]', async () => {
+  it('층 작업과 다중층 세션은 다른 작업이고, 세션 안에서 여러 층·여러 번 저장해도 작업은 하나다 [OE-HIST-03#3~] [OE-PIP-15#8~]', async () => {
     const key = 'sub/b.ifc'
     expect(await works(key)).toEqual([])
     // 층 편집을 저장(다중층 진입 전) → 다중층 세션에서 1층·2층을 따로 두 번 저장 → 종료 저장 → 다시 층 편집.

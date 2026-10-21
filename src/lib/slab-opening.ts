@@ -20,7 +20,7 @@
 // - `draft`    그 층 바닥에 슬래브가 없다(BIM 에 없거나 읽지 않음). 형상은 조각 형상으로 잡되 사람이 확인하기 전에는 확정하지 않는다.
 // - `unmeasured` 그 층과 아래 조각 모두 평면 형상이 없어 개구부 형상을 정할 근거가 없다. 임의 형상을 만들지 않는다.
 import polygonClipping, { type MultiPolygon, type Polygon, type Ring } from 'polygon-clipping'
-import type { Model, Slab, Storey, Vec2 } from './model'
+import type { Model, Slab, Space, Storey, Vec2 } from './model'
 import { overlapArea } from './polygon'
 import { pointInPolygon } from './mapping'
 import { polygonArea } from './model'
@@ -113,10 +113,13 @@ export function floorSlabs(model: Pick<Model, 'storeys'>, storey: Storey): Slab[
   return model.storeys.flatMap((s) => s.slabs ?? []).filter((slab) => Math.abs(slab.top - storey.elevation) <= SLAB_LEVEL_TOLERANCE)
 }
 
+/** 사람이 만들거나 옮기거나 형상을 고치지 않은 BIM 오브젝트. 슬래브 형상을 그대로 믿어 새로 뚫지 않는다(위 `open`). */
+const isPristine = (object: VerticalObject) => object.source === 'bim' && object.parts.every((p) => !p.part.edited)
+
 /** 오브젝트 하나가 지나는 층 바닥마다의 개구부 판정(층 높이 순). 시작 층은 넣지 않는다. */
 export function slabOpenings(model: Pick<Model, 'storeys'>, object: VerticalObject): SlabOpening[] {
   const out: SlabOpening[] = []
-  const pristine = object.source === 'bim' && object.parts.every((p) => !p.part.edited)
+  const pristine = isPristine(object)
   for (let i = 1; i < object.parts.length; i++) {
     const { storey, part } = object.parts[i]
     const below = object.parts[i - 1].part
@@ -201,27 +204,33 @@ const ringArea = (r: Ring) => {
 const multiArea = (m: MultiPolygon) => m.reduce((n, p) => n + ringArea(p[0]) - p.slice(1).reduce((h, r) => h + ringArea(r), 0), 0)
 
 /**
- * 물리존에서 확정 편집 개구부(`cut`)가 빼는 넓이와 남은 넓이(OE-ML-03 AC2~AC4 · OE-ML-09 AC3).
- * 원본 BIM 개구부(`bim` · `open`)는 이미 원본 방 면적에 반영되어 다시 빼지 않고, 초안(`draft`)·미산정(`unmeasured`)도 빼지 않는다.
- * 두 개구부가 겹치면 합집합과 물리존의 교차 면적만 한 번 차감한다.
+ * 물리존 id → 확정 편집 개구부(`cut`)가 그 물리존에서 빼는 넓이(㎡). 뺄 것이 있는 물리존만 든다(OE-ML-03 AC2~4 · OE-ML-09 AC3).
+ * 원본 BIM 개구부(`bim` · `open`)는 원본 외곽선이 이미 비워 두어 다시 빼지 않고, 초안(`draft`)·산정 못 함(`unmeasured`)도 빼지 않는다.
+ * 그 층 바닥의 확정 개구부를 합집합으로 합친 뒤 물리존 외곽선과 겹친 넓이를 잰다 — 두 샤프트가 겹치면 겹친 자리는 한 번만 빠진다.
+ * 손대지 않은 BIM 오브젝트는 `cut` 이 나오지 않아(slabOpenings) 재지 않는다.
  */
-export function spaceCutArea(
-  model: Pick<Model, 'storeys'>,
-  storeyId: string,
-  space: { footprint: readonly Vec2[]; areaM2: number },
-): { cutM2: number; netM2: number } {
-  if (space.footprint.length < 3) return { cutM2: 0, netM2: space.areaM2 }
-  const cuts: Polygon[] = []
+export function spaceSlabCuts(model: Pick<Model, 'storeys'>): Map<string, number> {
+  const cuts = new Map<string, Polygon[]>()
   for (const obj of verticalObjects(model)) {
+    if (isPristine(obj)) continue
     for (const o of slabOpenings(model, obj)) {
-      if (o.storeyId === storeyId && o.state === 'cut' && o.footprint && o.footprint.length >= 3) {
-        cuts.push([toRing(o.footprint)])
-      }
+      if (o.state !== 'cut' || !o.footprint || o.footprint.length < 3) continue
+      cuts.set(o.storeyId, [...(cuts.get(o.storeyId) ?? []), [toRing(o.footprint)]])
     }
   }
-  if (!cuts.length) return { cutM2: 0, netM2: space.areaM2 }
-  const unionCuts = cuts.length === 1 ? [cuts[0]] : polygonClipping.union([cuts[0]], ...cuts.slice(1).map((p) => [p]))
-  const clipped = polygonClipping.intersection([[toRing(space.footprint)]], unionCuts)
-  const cutM2 = multiArea(clipped)
-  return { cutM2, netM2: Math.max(0, space.areaM2 - cutM2) }
+  const out = new Map<string, number>()
+  for (const storey of model.storeys) {
+    const polys = cuts.get(storey.id)
+    if (!polys) continue
+    const union = polygonClipping.union(polys[0], ...polys.slice(1))
+    for (const space of storey.spaces) {
+      if (space.footprint.length < 3) continue
+      const cut = multiArea(polygonClipping.intersection([toRing(space.footprint)], union))
+      if (cut > 1e-6) out.set(space.id, cut)
+    }
+  }
+  return out
 }
+
+/** 확정 편집 개구부를 뺀 물리존 넓이(㎡). TTL·GeoJSON 의 `areaM2` 와 물리존 패널이 이 값이다. 외곽선 넓이(`Space.areaM2`)는 그대로 둔다. */
+export const netAreaM2 = (space: Pick<Space, 'id' | 'areaM2'>, cuts: ReadonlyMap<string, number>) => Math.max(0, space.areaM2 - (cuts.get(space.id) ?? 0))

@@ -82,7 +82,7 @@ describe('수직 관통 오브젝트 전체 이동 (OE-ML-07)', () => {
     expect(partsOf(m, 'st')).toEqual(before)
   })
 
-  it('V-03: 연 때보다 벽과 더 겹치거나 물리존 경계를 넘은 층을 적고, 연 때 자리에서는 적지 않는다 [OE-ML-07#5]', () => {
+  it('V-03: 연 때보다 벽과 더 겹치거나 물리존 경계를 넘은 층을 적고, 연 때 자리에서는 적지 않는다 [OE-ML-07#5~]', () => {
     const m = building()
     const base = baselineOf(m)
     const original = base.verticals!.get('st')!.footprints
@@ -100,7 +100,7 @@ describe('수직 관통 오브젝트 전체 이동 (OE-ML-07)', () => {
 })
 
 describe('수직 관통 오브젝트 삭제 (OE-ML-09)', () => {
-  it('지우기 전 영향(층·조각·이은 물리존)을 보이고, 지우면 모든 층 조각이 빠지되 물리존은 그대로다 [OE-ML-09#1,2]', () => {
+  it('지우기 전 영향(층·조각·이은 물리존)을 보이고, 지우면 모든 층 조각이 빠지되 물리존은 그대로다 [OE-ML-09#1~,2]', () => {
     const m = building()
     expect(verticalImpact(m, 'st')).toEqual({ storeys: ['1F', '2F'], parts: 2, link: { from: 'stair1', to: 'stair2' }, pipes: 0 })
     expect(deleteVertical(m, 'st')).toBe(true)
@@ -146,7 +146,7 @@ describe('되돌리기·편집 파일 (OE-ML-07·09)', () => {
     expect(m.storeys.map((s) => s.verticalParts)).toEqual(before)
   })
 
-  it('연 때와 견준 이동량·지움을 편집 파일에 적고, 새로 연 같은 BIM 에 얹으면 같은 모습이며 지운 계단은 되살아나지 않는다 [OE-ML-09#5] [OE-ML-07#7]', () => {
+  it('연 때와 견준 이동량·지움을 편집 파일에 적고, 새로 연 같은 BIM 에 얹으면 같은 모습이며 지운 계단은 되살아나지 않는다 [OE-ML-09#5~] [OE-ML-07#7~]', () => {
     const a = building()
     const base = baselineOf(a)
     moveVertical(a, 'st', [0.4, 0])
@@ -279,7 +279,7 @@ describe('전체 회전 (OE-ML-07 · OE-OBJ-15)', () => {
     expect(headingOf('U_el').every(([h]) => h === 0)).toBe(true)
   })
 
-  it('건물 축과 가까운 벽 방향에 ±3° 안이면 붙고, Alt 면 붙지 않으며, 먼 벽에는 붙지 않는다 [OE-ML-07#2] [OE-OBJ-15#6~]', () => {
+  it('건물 축과 가까운 벽 방향에 ±3° 안이면 붙고, Alt 면 붙지 않으며, 먼 벽에는 붙지 않는다 [OE-ML-07#2~] [OE-OBJ-15#6~]', () => {
     expect(snapHeading(2.5)).toEqual({ angle: 0, by: '건물 축' })
     expect(snapHeading(268)).toEqual({ angle: 270, by: '건물 축' })
     expect(snapHeading(3.5)).toEqual({ angle: 3.5, by: null })
@@ -494,7 +494,7 @@ describe('구간 바꾸기 (OE-ML-08)', () => {
     expect(shape(m, 'st')).toEqual([['1F', 4, true, false], ['2F', 0, false, true]])
   })
 
-  it('끝 층을 3층으로 늘리면 2층 형상과 3층 종료 지점을 채워야 하고, 아래층 형상을 베껴 채우지 않는다. 채우면 적용된다 [OE-ML-08#2]', () => {
+  it('끝 층을 3층으로 늘리면 2층 형상과 3층 종료 지점을 채워야 하고, 아래층 형상을 베껴 채우지 않는다. 채우면 적용된다 [OE-ML-08#2~]', () => {
     const m = tower()
     const plan = planRange(m, 'st', '1F', '3F')
     if ('refused' in plan) throw new Error(plan.refused)
@@ -518,7 +518,7 @@ describe('구간 바꾸기 (OE-ML-08)', () => {
     expect(explicitSpaceLinks(verticalObjects(m)).find((l) => l.parentId === 'st')).toMatchObject({ a: 'stair1', b: 'stair3' })
   })
 
-  it('구간을 줄이면 빠진 층 조각을 걷고, 새 끝 층은 종료 지점을 다시 받는다 — 그 층의 형상은 지운다 [OE-ML-08#1]', () => {
+  it('구간을 줄이면 빠진 층 조각을 걷고, 새 끝 층은 종료 지점을 다시 받는다 — 그 층의 형상은 지운다 [OE-ML-08#1~]', () => {
     const m = tower()
     setVerticalRange(m, 'st', '1F', '3F', new Map([['2F', { footprint: [[0, 0], [1, 0], [1, 4], [0, 4]] as Vec2[] }], ['3F', { exit: [0.5, 3] as Vec2 }]]))
     const plan = planRange(m, 'st', '1F', '2F')
@@ -532,7 +532,7 @@ describe('구간 바꾸기 (OE-ML-08)', () => {
     expect(shape(m, 'st2')).toEqual([['1F', 4, true, false], ['2F', 0, false, true]])
   })
 
-  it('에스컬레이터 구간을 줄이면 새 끝 층의 종료 지점을 받기 전에는 적용하지 않고, 받으면 운행 구간이 새 범위 안이다 [OE-ML-08#4]', () => {
+  it('에스컬레이터 구간을 줄이면 새 끝 층의 종료 지점을 받기 전에는 적용하지 않고, 받으면 운행 구간이 새 범위 안이다 [OE-ML-08#4~]', () => {
     const m = tower()
     const es: Vec2[] = [[3, 0], [4, 0], [4, 4], [3, 4]]
     expect(createVertical(m, { id: 'U_es', kind: 'escalator', name: 'ES-1', from: '1F', to: '3F' }, new Map([['1F', { footprint: es, entry: [3.5, 0.2] as Vec2 }], ['2F', { footprint: es }], ['3F', { exit: [3.5, 3.8] as Vec2 }]]))).toEqual({ id: 'U_es' })
@@ -558,7 +558,7 @@ describe('구간 바꾸기 (OE-ML-08)', () => {
     expect(shape(m, 'st')).toEqual([['2F', 4, true, false], ['3F', 0, false, true]])
   })
 
-  it('바꾼 구간은 되돌리기 한 번에 돌아오고, 편집 파일로 새로 연 BIM 에 얹으면 없던 층 조각이 생기고 빠진 층 조각이 걷힌다 [OE-ML-08#5]', () => {
+  it('바꾼 구간은 되돌리기 한 번에 돌아오고, 편집 파일로 새로 연 BIM 에 얹으면 없던 층 조각이 생기고 빠진 층 조각이 걷힌다 [OE-ML-08#5~]', () => {
     const a = tower()
     const base = baselineOf(a)
     const before = structuredClone(a.storeys.map((s) => s.verticalParts))
@@ -716,7 +716,7 @@ describe('엘리베이터 정차 층(OE-ML-10)과 로봇 통과(OE-ML-04)', () =
     expect(setElevatorStop(m, 'st', '1F', 'stop')).toBe(false)
   })
 
-  it('구간을 넓혀 새로 생긴 층은 미확인이고 통과 가능으로 나가지 않는다. 줄이면 빠진 층이 정차 목록에서 빠진다 [OE-ML-10#2,4] [OE-ML-04#2] [OE-ML-08#4]', () => {
+  it('구간을 넓혀 새로 생긴 층은 미확인이고 통과 가능으로 나가지 않는다. 줄이면 빠진 층이 정차 목록에서 빠진다 [OE-ML-10#2~,4~] [OE-ML-04#2] [OE-ML-08#4~]', () => {
     const m = withElevator()
     expect(setVerticalRange(m, 'U_el', '1F', '3F')).toBe(true)
     expect(stops(m)).toEqual([['1F', 'stop'], ['2F', 'stop'], ['3F', 'unknown']])

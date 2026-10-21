@@ -25,7 +25,7 @@ const eq = (id: string, role: Equipment['role'], systemId: string | null, extra:
   ({ id, name: id, ifcClass: 'X', role, position: null, capacity: null, systemId, spaceId: null, spaceSource: null, ...extra }) as Equipment
 
 describe('Flow Type 색과 다중층·층 편집 공통 범례 (OE-OBJ-12 · OE-ML-15)', () => {
-  it('19종의 색은 glossary 표와 같다. DCW·FP 등 급수·소화 값도 공통 범례에 들어 있고 미정인 9종은 임의의 색을 주지 않는다 [OE-ML-15#1,2,3]', () => {
+  it('19종의 색은 glossary 표와 같다. DCW·FP 등 급수·소화 값도 공통 범례에 들어 있고 미정인 9종은 임의의 색을 주지 않는다 [OE-ML-15#1,2,3~]', () => {
     const glossary = glossaryColors()
     expect([...glossary.keys()].sort()).toEqual(FLOW_TYPES.map((f) => f.code).sort())
     for (const f of FLOW_TYPES) expect([f.code, f.color]).toEqual([f.code, glossary.get(f.code)])
@@ -37,7 +37,7 @@ describe('Flow Type 색과 다중층·층 편집 공통 범례 (OE-OBJ-12 · OE-
     expect(flowTypeColor('XX')).toBe(null)
   })
 
-  it('계통은 종류·유체로 정한 Flow Type 의 색을 쓰고, 모르거나 색이 미정이면 계통 색을 순환하며 선택·연결 상태 색과 섞이지 않는다 [OE-ML-15#2,3]', () => {
+  it('계통은 종류·유체로 정한 Flow Type 의 색을 쓰고, 모르거나 색이 미정이면 계통 색을 순환하며 선택·연결 상태 색과 섞이지 않는다 [OE-ML-15#2,3~]', () => {
     const sys = (id: string, kind: string | null, fluid: string | null = null) => ({ id, name: id, memberIds: [], source: 'ifc' as const, kind, fluid })
     const m = {
       systems: [sys('sa', 'supply_air'), sys('chw', 'hydronic_supply', 'chilled'), sys('hyd', 'hydronic_supply'), sys('fp', 'fire_protection'), sys('dcw', 'domestic_cold_water'), sys('none', null)],

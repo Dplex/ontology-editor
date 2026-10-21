@@ -173,7 +173,7 @@ describe('층별 분기 (OE-ML-13)', () => {
     expect(JSON.stringify(m)).toBe(before)
   })
 
-  it('나눈 끝이 BIM 포트 연결이면 지우지 않고 해제 보정으로 남긴다 [OE-PIP-15#6]', () => {
+  it('나눈 끝이 BIM 포트 연결이면 지우지 않고 해제 보정으로 남긴다 [OE-PIP-15#6~]', () => {
     const { m, riser, top } = withRiser()
     const c = m.connections.find((x) => (x.from === riser.id && x.to === top.id) || (x.to === riser.id && x.from === top.id))!
     c.source = 'port'

@@ -33,7 +33,7 @@ describe('BIM 배관의 Flow Type (OE-PIP-14)', () => {
     expect(systemFlowType(null, null)).toBe(null)
   })
 
-  it('BIM 덕트는 계통으로 계산한 Flow Type 이 GeoJSON 에 출처와 함께 들어가고, 계통 종류를 바꾸면 따라 바뀐다 [OE-PIP-14#1]', () => {
+  it('BIM 덕트는 계통으로 계산한 Flow Type 이 GeoJSON 에 출처와 함께 들어가고, 계통 종류를 바꾸면 따라 바뀐다 [OE-PIP-14#1~]', () => {
     const m = read()
     const duct = equip(m, 'DUCT-01')
     // 계통 종류를 BIM(PredefinedType + SUP)이 말했으니 계산(calc)이다.
