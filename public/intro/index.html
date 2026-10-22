@@ -9,7 +9,7 @@
   화면의 틀(스튜디오·조립·Explode·Cut·X-ray·Labels·큰 숫자)은 machine-skill 의 kit(lab-kit.js, MIT, LICENSE-lab-kit)을 고치지 않고 쓴다.
   three 는 CDN 대신 scripts/sync-three.mjs 가 옮긴 ./three/ 에서 받는다 — 사내망 브라우저는 jsDelivr 에 못 닿는다.
   숫자는 전부 장면 JSON 에서 센다. 장면이 없으면 아무것도 그리지 않고 그렇다고 적는다.
-  첫 화면(#intro)은 건물이 서는 것만 보인다. 큰 숫자·층 슬라이더·[IfcSpace 빼기]·"어떻게 셌나" 같은 수치와 판정 기준은 가이드의 랩(?scene=)에만 띄운다.
+  첫 화면(#intro)은 건물이 서는 것만 보인다. 큰 숫자·층 슬라이더·[IfcSpace 빼기]·"산출 기준" 같은 수치와 판정 기준은 가이드의 랩(?scene=)에만 띄운다.
   장면 이름과 같은 동네 지도(city/<이름>.json, scripts/intro-city.mjs)가 있으면 그 앞에 앞머리(prologue.js)를 붙인다:
   "Ontology-Editor" → 한강 위에서 본 동네 → 건물까지 비행 → 스캔선 → 이 페이지의 층 조립. ?prologue=0 이면 건너뛴다.
 
@@ -59,24 +59,29 @@ function empty(html) {
 const sceneFile = /^scenes\/[\w-]+\.json$/.test(q.get('scene') ?? '') ? q.get('scene') : null
 // 가이드의 랩이면 숫자와 판정 기준을 띄운다. 첫 화면(#intro)은 띄우지 않는다.
 const LAB = !!sceneFile
-let S
+// 노트북 내장 그래픽처럼 느린 GPU 에서는 아래 "부하" 가 화질을 단계적으로 내린다. ?gpu=low 면 처음부터 가장 낮은 단계다.
+const GPU_LOW = q.get('gpu') === 'low'
+const quiet = sceneFile || q.get('prologue') === '0' || matchMedia('(prefers-reduced-motion: reduce)').matches
+// 동네 지도는 장면 이름으로 찾는다. 장면(성수는 수 MB)과 같이 받는다.
+const cityOf = (name) => quiet ? null : fetch(`./city/${encodeURIComponent(name)}.json`)
+  .then((r) => (r.ok && (r.headers.get('content-type') ?? '').includes('json') ? r.json() : null))
+  .catch(() => null)
+let S, cityP = null
 if (sceneFile) S = await fetch(sceneFile).then((r) => (r.ok ? r.json() : null)).catch(() => null)
 else {
   const list = await fetch(API).then((r) => (r.ok ? r.json() : [])).catch(() => [])
   const name = q.get('name') ?? list[0]?.name
+  cityP = name ? cityOf(name) : null
   S = name ? await fetch(`${API}?name=${encodeURIComponent(name)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null) : null
 }
 if (!S) {
-  empty('구워 둔 건물 장면이 없습니다.<br><code>npm run intro:bake -- seongsu data/성수/Factorial_건축.ifc data/성수/Factorial_기계.ifc</code>')
+  empty('생성된 인트로 장면이 없습니다.<br><code>npm run intro:bake -- seongsu data/성수/Factorial_건축.ifc data/성수/Factorial_기계.ifc</code>')
   throw new Error('no intro scene')
 }
 
 // 앞머리는 kit 을 만들기 전에 띄운다. 글자가 뜬 동안 동네와 kit 형상을 만든다.
-const quiet = sceneFile || q.get('prologue') === '0' || matchMedia('(prefers-reduced-motion: reduce)').matches
-const city = quiet ? null : await fetch(`./city/${encodeURIComponent(S.name)}.json`)
-  .then((r) => (r.ok && (r.headers.get('content-type') ?? '').includes('json') ? r.json() : null))
-  .catch(() => null)
-const pro = city ? mountPrologue(city, { caption: 'IFC 를 읽어 층마다 다시 세웁니다' }) : null
+const city = await cityP
+const pro = city ? mountPrologue(city, { caption: 'IFC 를 불러와 층별로 재구성합니다', low: GPU_LOW }) : null
 
 // ---------------------------------------------------------------- 좌표: IFC(x, y 평면, z 위) → 화면(x, y 위, z)
 const storeys = S.storeys.filter((s) => s.spaces.length || s.walls.length || s.devices.length || s.conduits.length)
@@ -138,7 +143,7 @@ const mats = {
 // 흐름 입자 색: 방향의 출처마다(scripts/intro-bake.ts 의 flows). 밝은 스튜디오에서는 덧셈 혼합이 안 보여 진하게 둔다.
 const paper = q.get('theme') === 'paper'
 const FLOW_COLOR = paper ? [[0.0, 0.35, 0.95], [0.05, 0.6, 0.25], [0.95, 0.4, 0.0]] : [[0.5, 1.1, 1.6], [0.6, 1.5, 0.8], [1.6, 0.95, 0.3]]
-const FLOW_NAME = ['BIM 포트', '사람', '규칙']
+const FLOW_NAME = ['BIM 포트', '사용자 지정', '규칙 추정']
 const box = new THREE.BoxGeometry(0.55, 0.55, 0.55)
 const rod = new THREE.CylinderGeometry(0.16, 0.16, 1, 10, 1)
 const up = new THREE.Vector3(0, 1, 0)
@@ -249,7 +254,7 @@ if (LAB && FOCUS === 'assign') {
     }
     lab.heroO.max = f ? f.s.devices.length || 1 : counts.indoor || 1
     if (spacesOut) {
-      lab.setHero(0, { state: '물리존 없음', bad: true, sub: `IfcSpace 가 없으면 기기를 댈 외곽선이 없어 소속 ${fmt(counts.indoor)}대가 모두 "모름" 입니다` })
+      lab.setHero(0, { state: '물리존 없음', bad: true, sub: `IfcSpace 가 없으면 기기 좌표와 비교할 물리존 외곽선이 없어, 실내 기기 ${fmt(counts.indoor)}대 모두 소속을 판정할 수 없습니다` })
       return
     }
     if (f) {
@@ -263,14 +268,14 @@ if (LAB && FOCUS === 'assign') {
     })
   }
   lab.hero({ label: '소속 판정', unit: '대', max: counts.indoor || 1 })
-  floorSlider('층까지 보기', true)
+  floorSlider('표시할 층', true)
   lab.breakIt({
     label: 'IfcSpace 빼기',
     run: () => { spacesOut = true; show() },
     reset: () => { spacesOut = false; show() },
   })
   lab.how(
-    `${files} 를 에디터와 같은 임포터로 읽어 합친 값입니다(${S.bakedAt.slice(0, 10)} 구움). 기기 소속은 기기 좌표를 같은 층 물리존 외곽선에 대 보아 정합니다. 노란 기기는 소속을 찾은 것, 붉은 기기는 못 찾은 것입니다.`,
+    `${files} 를 에디터와 같은 임포터로 불러와 합친 결과입니다(${S.bakedAt.slice(0, 10)} 기준). 기기 소속은 기기 좌표를 같은 층 물리존 외곽선과 비교해 판정합니다. 노란 기기는 소속이 판정된 기기, 붉은 기기는 판정되지 않은 기기입니다.`,
     S.tiers.map((t) => `${t.label.padEnd(4, ' ')} ${fmt(t.have)} / ${fmt(t.of)}  (${pct(t.have, t.of)})`),
   )
   // kit 은 조립하는 동안 큰 숫자 칸을 부품 수로 쓴다. 틱마다 다시 써야 조립이 끝난 뒤 소속 숫자로 돌아온다.
@@ -294,12 +299,12 @@ if (LAB && FOCUS === 'flow') {
       state: `${where}${pct(known, all)}`,
       bad: rulesOut,
       sub: rulesOut
-        ? `BIM 포트가 방향을 말한 연결 ${fmt(n[0])}개만 남습니다. 규칙 방향 ${fmt(n[2])}개는 계통·설비 종류로 정한 것이라 BIM 에 없습니다`
+        ? `BIM 포트 방향 ${fmt(n[0])}개${n[1] ? `와 사용자 지정 방향 ${fmt(n[1])}개` : ''}만 남습니다. 규칙 추정 방향 ${fmt(n[2])}개는 계통·설비 종류로 추정한 값이라 BIM 에는 없습니다`
         : `연결 ${fmt(all)}개 중 · ${FLOW_NAME[0]} ${fmt(n[0])} · ${FLOW_NAME[1]} ${fmt(n[1])} · ${FLOW_NAME[2]} ${fmt(n[2])} · 방향 모름 ${fmt(n[3])}`,
     })
   }
-  lab.hero({ label: '방향을 아는 연결', unit: '개', max: 1 })
-  floorSlider('층까지 보기', true)
+  lab.hero({ label: '방향이 정해진 연결', unit: '개', max: 1 })
+  floorSlider('표시할 층', true)
   lab.breakIt({
     label: '규칙 방향 빼기',
     run: () => { rulesOut = true; show() },
@@ -307,8 +312,8 @@ if (LAB && FOCUS === 'flow') {
   })
   const swatch = (k) => `<b style="color:rgb(${FLOW_COLOR[k].map((v) => Math.round(v * 255)).join(',')})">${FLOW_NAME[k]}</b>`
   lab.how(
-    `${files} 를 에디터와 같은 임포터로 읽고 규칙 방향까지 돌린 값입니다(${S.bakedAt.slice(0, 10)} 구움). 입자는 연결마다 흐름이 가는 쪽으로 움직이고, 색은 그 방향을 누가 정했는지입니다. ${swatch(0)} 는 IFC 포트가 방향을 말한 것, ${swatch(1)} 은 에디터에서 정한 것, ${swatch(2)} 은 계통 종류(급기면 원천 → 말단)와 설비 종류로 정한 것입니다. 방향을 모르는 연결에는 입자가 없습니다. 내보낼 때 TTL 의 brick:feeds 는 BIM 포트·사람이 정한 방향과, 사람이 확인한 규칙 방향으로만 나갑니다.`,
-    [`${FLOW_NAME[0].padEnd(6, ' ')} ${fmt(by[0])}`, `${FLOW_NAME[1].padEnd(6, ' ')} ${fmt(by[1])}`, `${FLOW_NAME[2].padEnd(6, ' ')} ${fmt(by[2])}`, `방향 모름 ${fmt(by[3])}`],
+    `${files} 를 에디터와 같은 임포터로 불러와 규칙 추정까지 적용한 결과입니다(${S.bakedAt.slice(0, 10)} 기준). 입자는 연결마다 흐름 방향으로 움직이고, 색은 방향의 출처를 나타냅니다. ${swatch(0)} 는 IFC 포트에 기록된 방향, ${swatch(1)} 은 에디터에서 사용자가 지정한 방향, ${swatch(2)} 은 계통 종류(급기는 원천 → 말단)와 설비 종류로 추정한 방향입니다. 방향이 정해지지 않은 연결에는 입자가 없습니다. 내보낸 TTL 의 brick:feeds 에는 BIM 포트 방향, 사용자 지정 방향, 사용자가 확인한 규칙 추정 방향만 들어갑니다.`,
+    [`${FLOW_NAME[0].padEnd(7, ' ')} ${fmt(by[0])}`, `${FLOW_NAME[1].padEnd(7, ' ')} ${fmt(by[1])}`, `${FLOW_NAME[2].padEnd(7, ' ')} ${fmt(by[2])}`, `${'방향 모름'.padEnd(7, ' ')} ${fmt(by[3])}`],
   )
   lab.onTick(show)
 }
@@ -321,12 +326,12 @@ if (LAB && FOCUS === 'floors') {
     const f = only ? floors[only - 1] : null
     lab.heroO.max = f ? Math.max(...floors.map((F) => F.area)) || 1 : total || 1
     if (f) lab.setHero(Math.round(f.area), { state: `${f.s.name} · 물리존 ${f.s.spaces.length}`, sub: `바닥 높이 ${f.s.elevation} m · 층고 ${f.s.height} m · 벽 ${fmt(f.s.walls.length)}` })
-    else lab.setHero(Math.round(total), { state: `물리존 ${fmt(spaces)}`, sub: `층 ${floors.length} · 층마다 IfcSpace 외곽선의 넓이를 더한 값입니다` })
+    else lab.setHero(Math.round(total), { state: `물리존 ${fmt(spaces)}`, sub: `층 ${floors.length} · 층별 IfcSpace 외곽선 면적의 합계입니다` })
   }
   lab.hero({ label: '물리존 바닥 면적', unit: 'm²', max: total || 1 })
-  floorSlider('층 고르기', false)
+  floorSlider('층 선택', false)
   lab.how(
-    `${files} 의 IfcBuildingStorey 마다 IfcSpace 바닥 외곽선을 모아 층을 세웁니다(${S.bakedAt.slice(0, 10)} 구움). 넓이는 외곽선의 신발끈 공식으로 잰 값이라 IFC 의 면적 속성과 다를 수 있습니다. Explode 로 층을 벌리고, Cut away 로 잘라 안을 봅니다.`,
+    `${files} 의 IfcBuildingStorey 마다 IfcSpace 바닥 외곽선을 모아 층을 구성합니다(${S.bakedAt.slice(0, 10)} 기준). 면적은 외곽선 좌표로 계산한 값(신발끈 공식)이라 IFC 의 면적 속성과 다를 수 있습니다. [펼치기] 로 층 간격을 벌리고, [자르기] 로 단면을 봅니다.`,
     floors.map((F) => `${esc(F.s.name).padEnd(8, ' ')} ${m2(F.area).padStart(6, ' ')} m²  물리존 ${F.s.spaces.length}`),
   )
   lab.onTick(show)
@@ -338,15 +343,39 @@ if (LAB && FOCUS === 'floors') {
 //   1. 렌더 배율 1. 4x MSAA 가 계단을 지운다.
 //   2. GTAO 표본 16 → 8.
 //   3. 움직일 때(입력 뒤 2.5초·조립·모드 전환·카메라 감속 중)만 30fps, 그 밖에는 그리지 않는다.
+//   4. 그림자(해 그림자 지도·바닥 접지 그림자)는 카메라와 상관없다. 건물이 움직일 때(조립·모드 전환·버튼·슬라이더)만 다시 그린다.
+//      돌려 보는 동안 한 프레임의 1/6 이었다(RTX 2080 Ti 1920×1080 에서 6.6ms 중 1.1ms).
+//   5. 그래도 느리면(노트북 내장 그래픽) 30fps 를 못 지키는 동안 한 단계씩 내린다: AO 끔 → MSAA 끔 → 렌더 배율 0.75.
 lab.renderer.setPixelRatio(1)
 lab.composer.setPixelRatio(1)
 lab._resize()
 lab.ao.updateGtaoMaterial({ samples: 8 })
 lab.ao.updatePdMaterial({ samples: 8 })
+const settling = () => lab._assembly > 0 || Object.keys(lab.target).some((k) => Math.abs(lab.state[k] - lab.target[k]) > 1e-3)
+let shadowDirty = 0
+{
+  for (const e of ['input', 'click', 'keydown']) addEventListener(e, () => (shadowDirty = performance.now() + 1500), { capture: true, passive: true })
+  lab.renderer.shadowMap.autoUpdate = false
+  const contact = lab._contact.update.bind(lab._contact)
+  // 흐름 랩의 입자는 그림자에 들지 않는다(kit 의 FX 층).
+  lab._contact.update = () => {
+    if (!settling() && performance.now() > shadowDirty) return
+    lab.renderer.shadowMap.needsUpdate = true
+    contact()
+  }
+}
+let gpuTier = 0
+function lowerGpu() {
+  gpuTier++
+  if (gpuTier === 1) lab.ao.enabled = false
+  if (gpuTier === 2) for (const rt of [lab.composer.renderTarget1, lab.composer.renderTarget2]) { rt.samples = 0; rt.dispose() }
+  if (gpuTier === 3) { lab.renderer.setPixelRatio(0.75); lab.composer.setPixelRatio(0.75); lab._resize() }
+}
+if (GPU_LOW) while (gpuTier < 3) lowerGpu()
 // 그래픽 메모리가 모자라 WebGL 이 끊기면 화면이 까맣게 남는다. 까닭을 적고 다시 그리게 한다.
 lab.renderer.domElement.addEventListener('webglcontextlost', (e) => {
   e.preventDefault()
-  empty('그래픽 메모리가 모자라 그림이 멈췄습니다. 다른 3D 탭을 닫고 <a href="" style="color:#f1efe9">다시 그리기</a>')
+  empty('그래픽 메모리가 부족해 화면을 표시할 수 없습니다. 다른 3D 탭을 닫고 <a href="" style="color:#f1efe9">새로고침</a>')
 })
 {
   const raf = window.requestAnimationFrame.bind(window)
@@ -354,7 +383,16 @@ lab.renderer.domElement.addEventListener('webglcontextlost', (e) => {
   let touched = performance.now()
   for (const e of ['pointerdown', 'pointermove', 'wheel', 'keydown', 'input', 'click']) addEventListener(e, () => (touched = performance.now()), { capture: true, passive: true })
   lab.controlsOrbit.addEventListener('change', () => (touched = performance.now()))
-  const settling = () => lab._assembly > 0 || Object.keys(lab.target).some((k) => Math.abs(lab.state[k] - lab.target[k]) > 1e-3)
+  // 이어서 그린 프레임 간격의 중앙값이 45ms 를 넘으면(30fps 를 못 지킴) 한 단계 내린다. 탭이 가려졌다 돌아온 간격은 세지 않는다.
+  const gaps = [], seen = new WeakMap()
+  const watch = (gap) => {
+    if (gpuTier >= 3 || gap > 250) return
+    gaps.push(gap)
+    if (gaps.length < 24) return
+    const mid = gaps.sort((a, b) => a - b)[12]
+    gaps.length = 0
+    if (mid > 45) lowerGpu()
+  }
   // 흐름 랩은 입자가 움직여야 뜻이 있어 화면에 보이는 동안 계속 그린다(onScreen 은 위에서 가이드가 알려 준다).
   // 움직임 줄이기를 켠 브라우저에서는 다른 랩처럼 손댈 때만 그린다.
   const still = matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -362,7 +400,12 @@ lab.renderer.domElement.addEventListener('webglcontextlost', (e) => {
   window.requestAnimationFrame = (cb) =>
     raf(function tick(t) {
       const moving = t - touched < 2500 || settling() || flowing()
-      if (!moving || t - last < 1000 / 30) return raf(tick)
+      // 1ms 여유: 60Hz 의 두 프레임 간격(33.33ms)이 반올림으로 1000/30 보다 짧게 찍히면 세 프레임(20fps)마다 그렸다.
+      if (!moving || t - last < 1000 / 30 - 1) return raf(tick)
+      // 간격은 같은 콜백(kit 의 그리기 고리)이 다시 불린 사이로 잰다.
+      const prev = seen.get(cb)
+      seen.set(cb, t)
+      if (prev) watch(t - prev)
       last = t
       cb(t)
     })
@@ -370,7 +413,14 @@ lab.renderer.domElement.addEventListener('webglcontextlost', (e) => {
 const toMeters = (v) => [v.x / lab.k, v.y / lab.k + zBase, v.z / lab.k]
 if (pro) {
   // kit 의 첫 시점에서 비행을 끝낸다. 셰이더는 글자가 떠 있는 동안 미리 만들어 둔다(넘기는 순간 멈칫하지 않게).
-  lab.renderer.compile(lab.scene, lab.camera)
+  // compileAsync 는 드라이버가 셰이더를 따로 링크하게 두어 메인 스레드를 막지 않는다. 후처리(AO·bloom)와 그림자 셰이더는
+  // 장면 compile 에 들지 않아 한 번 그려 둔다. kit 화면은 앞머리 밑에 가려져 있다. 이것을 빼면 넘기는 순간 0.2초(CPU 4배 느리게 0.4초) 멈췄다.
+  // X-ray 의 유리벽 모서리(EdgesGeometry)도 kit 이 첫 프레임에 만든다. 성수 벽 전부라 CPU 4배 느리게 0.17초였다. 같이 미리 만든다.
+  lab._updateXray()
+  await lab.renderer.compileAsync(lab.scene, lab.camera)
+  shadowDirty = performance.now() + 1
+  lab._contact.update()
+  lab.composer.render(0)
   await pro.play({
     // kit 은 건물을 lab.k 배로 줄이고 가장 낮은 층(지하) 바닥을 0 에 둔다. 앞머리는 미터·지면 0 이다.
     end: { pos: toMeters(lab.camera.position), target: toMeters(lab.controlsOrbit.target), fov: lab.camera.fov },
@@ -395,7 +445,7 @@ if (pro) {
     if (run) run.firstChild.textContent = lab.paused ? '입자 흐르기' : '입자 멈춤'
   }
   lab._syncButtons()
-  lab.$('.lab-how summary').textContent = '어떻게 셌나'
+  lab.$('.lab-how summary').textContent = '산출 기준'
   if (!LAB) lab.$('.lab-how').style.display = 'none'
   // 단축키도 같이 막는다. 숨긴 버튼의 상태가 키로만 바뀌면 화면에 표시가 없다. 앞머리가 떠 있는 동안의 Space(건너뛰기)는 건드리지 않는다.
   addEventListener('keydown', (e) => {

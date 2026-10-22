@@ -9,6 +9,8 @@
 // 1층 상가·간판, 옥상 기계실, 탑의 왕관을 더하고, 땅은 길을 따라 번지는 가로등 빛으로 채운다.
 //
 // 부하: kit 과 같은 이유로 렌더 배율 1 이고 bloom 은 절반 해상도다. 앞머리는 13초 남짓만 그리고, 넘긴 뒤 렌더러를 버려 그래픽 메모리를 돌려준다.
+// RTX 2080 Ti·1920×1080 에서 GPU 0.8ms/프레임이다. 노트북 내장 그래픽은 그 6~10배로 본다. 그래도 60fps 를 못 지키면(govern) 한 단계씩 내린다.
+// 멈칫함은 GPU 보다 셰이더 링크에서 났다. 글자가 떠 있는 동안 compileAsync 로 링크하고 한 프레임 그려 둔다(play).
 
 import * as THREE from 'three'
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
@@ -313,6 +315,33 @@ const rnd = (i) => { const x = Math.sin(i * 12.9898) * 43758.5453; return x - Ma
 const inside = (r, x, y) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const [xi, yi] = r[i], [xj, yj] = r[j]; if (yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) c = !c } return c }
 
 /**
+ * 정점 속성 11개(위치 3 · 법선 3 · aWall 2 · aEdge · aSeed · aTop)를 한 Float32Array 에 차례로 쌓는다.
+ * 성수는 정점이 85만 개다. JS 배열 여섯에 펼쳐 넣던 것보다 빠르고, 그대로 GPU 에 올린다(InterleavedBuffer).
+ */
+function vertexSink() {
+  let a = new Float32Array(11 * 65536), n = 0
+  return {
+    put(x, y, z, nx, ny, nz, u, v, e, s, t) {
+      if (n + 11 > a.length) { const b = new Float32Array(a.length * 2); b.set(a); a = b }
+      a[n] = x; a[n + 1] = y; a[n + 2] = z; a[n + 3] = nx; a[n + 4] = ny; a[n + 5] = nz; a[n + 6] = u; a[n + 7] = v; a[n + 8] = e; a[n + 9] = s; a[n + 10] = t
+      n += 11
+    },
+    geometry() {
+      const ib = new THREE.InterleavedBuffer(a.slice(0, n), 11)
+      const g = new THREE.BufferGeometry()
+      g.setAttribute('position', new THREE.InterleavedBufferAttribute(ib, 3, 0))
+      g.setAttribute('normal', new THREE.InterleavedBufferAttribute(ib, 3, 3))
+      g.setAttribute('aWall', new THREE.InterleavedBufferAttribute(ib, 2, 6))
+      g.setAttribute('aEdge', new THREE.InterleavedBufferAttribute(ib, 1, 8))
+      g.setAttribute('aSeed', new THREE.InterleavedBufferAttribute(ib, 1, 9))
+      g.setAttribute('aTop', new THREE.InterleavedBufferAttribute(ib, 1, 10))
+      g.computeBoundingSphere()
+      return g
+    },
+  }
+}
+
+/**
  * 바닥 고리 r 을 y0~y1 로 세운 기둥(벽 + 지붕)을 out 에 더한다. 평면 (x 동, y 북) → 화면 (x, -z).
  * lip 을 주면 벽을 지붕보다 그만큼 올려 난간을 세운다. 난간 안쪽 면은 창 없는 면(top 음수)이다. 지붕 둘레에 턱이 없으면 상자 뚜껑처럼 읽혔다.
  */
@@ -323,8 +352,10 @@ function prismInto(out, r, y0, y1, seed, top, lip = 0) {
       const L = Math.hypot(x2 - x1, z2 - z1)
       if (L < 0.01) continue
       const nx = -(z2 - z1) / L, nz = -(x2 - x1) / L
-      const A = [x1, y1, -z1], B = [x2, y1, -z2], C = [x2, y1 + lip, -z2], D = [x1, y1 + lip, -z1]
-      for (const p of [A, C, B, A, D, C]) { out.pos.push(...p); out.nor.push(nx, 0, nz); out.wall.push(0, y1 + 8); out.edge.push(L); out.seed.push(seed); out.top.push(-Math.abs(top)) }
+      const yl = y1 + lip, eq = -Math.abs(top)
+      // A C B · A D C (A·B 는 지붕 높이, C·D 는 난간 끝)
+      out.put(x1, y1, -z1, nx, 0, nz, 0, y1 + 8, L, seed, eq); out.put(x2, yl, -z2, nx, 0, nz, 0, y1 + 8, L, seed, eq); out.put(x2, y1, -z2, nx, 0, nz, 0, y1 + 8, L, seed, eq)
+      out.put(x1, y1, -z1, nx, 0, nz, 0, y1 + 8, L, seed, eq); out.put(x1, yl, -z1, nx, 0, nz, 0, y1 + 8, L, seed, eq); out.put(x2, yl, -z2, nx, 0, nz, 0, y1 + 8, L, seed, eq)
     }
   }
   const yTop = y1 + lip
@@ -333,15 +364,14 @@ function prismInto(out, r, y0, y1, seed, top, lip = 0) {
     const dx = x2 - x1, dy = z2 - z1, L = Math.hypot(dx, dy)
     if (L < 0.01) continue
     const nx = dy / L, nz = dx / L
-    const A = [x1, y0, -z1], B = [x2, y0, -z2], C = [x2, yTop, -z2], D = [x1, yTop, -z1]
-    for (const [p, uu, vv] of [[A, 0, y0], [B, L, y0], [C, L, yTop], [A, 0, y0], [C, L, yTop], [D, 0, yTop]]) {
-      out.pos.push(...p); out.nor.push(nx, 0, nz); out.wall.push(uu, vv); out.edge.push(L); out.seed.push(seed); out.top.push(top)
-    }
+    // A B C · A C D (A·B 바닥, C·D 꼭대기). aWall 은 그 면 안의 (가로 m, 높이 m) 다.
+    out.put(x1, y0, -z1, nx, 0, nz, 0, y0, L, seed, top); out.put(x2, y0, -z2, nx, 0, nz, L, y0, L, seed, top); out.put(x2, yTop, -z2, nx, 0, nz, L, yTop, L, seed, top)
+    out.put(x1, y0, -z1, nx, 0, nz, 0, y0, L, seed, top); out.put(x2, yTop, -z2, nx, 0, nz, L, yTop, L, seed, top); out.put(x1, yTop, -z1, nx, 0, nz, 0, yTop, L, seed, top)
   }
   for (const t of THREE.ShapeUtils.triangulateShape(r.map(([x, y]) => new THREE.Vector2(x, y)), [])) {
     const [a, b, c] = t.map((k) => r[k])
     const up = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]) > 0
-    for (const p of up ? [a, b, c] : [a, c, b]) { out.pos.push(p[0], y1, -p[1]); out.nor.push(0, 1, 0); out.wall.push(0, y1); out.edge.push(0); out.seed.push(seed); out.top.push(top) }
+    for (const p of up ? [a, b, c] : [a, c, b]) out.put(p[0], y1, -p[1], 0, 1, 0, 0, y1, 0, seed, top)
   }
 }
 
@@ -364,7 +394,7 @@ function boxRing(r, x, y, w, d) {
  * 높이 60m 이상의 꼭대기 자리를 tops 로 돌려준다(항공 장애등).
  */
 function buildingsGeometry(list, tops = []) {
-  const out = { pos: [], nor: [], wall: [], edge: [], seed: [], top: [] }
+  const out = vertexSink()
   for (const [bi, b] of list) {
     const h = b[0]
     let r = ringOf(b.slice(1))
@@ -401,15 +431,7 @@ function buildingsGeometry(list, tops = []) {
       }
     }
   }
-  const g = new THREE.BufferGeometry()
-  g.setAttribute('position', new THREE.Float32BufferAttribute(out.pos, 3))
-  g.setAttribute('normal', new THREE.Float32BufferAttribute(out.nor, 3))
-  g.setAttribute('aWall', new THREE.Float32BufferAttribute(out.wall, 2))
-  g.setAttribute('aEdge', new THREE.Float32BufferAttribute(out.edge, 1))
-  g.setAttribute('aSeed', new THREE.Float32BufferAttribute(out.seed, 1))
-  g.setAttribute('aTop', new THREE.Float32BufferAttribute(out.top, 1))
-  g.computeBoundingSphere()
-  return g
+  return out.geometry()
 }
 
 /** 평면 다각형들을 높이 y 의 한 판으로. Reflector 는 자기 평면이 xy 라서 local 좌표를 (x, y) 로 두고 밖에서 눕힌다. */
@@ -560,7 +582,7 @@ const T_SCAN = 2.2 // 스캔선이 건물을 훑는 시간
  * @returns {{ play(end): Promise<void>, leave(): Promise<void> }}
  *   play 는 건물을 다 훑었거나 [건너뛰기] 를 누르면 풀린다. 그때 kit 을 시작하고 leave 로 앞머리를 걷는다.
  */
-export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → DT 공간 온톨로지', pin = city.heroName, pinSub = '', caption = '' } = {}) {
+export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → DT 공간 온톨로지', pin = city.heroName, pinSub = '', caption = '', low = false } = {}) {
   const style = document.createElement('style'); style.textContent = CSS; document.head.appendChild(style)
   const root = document.createElement('div'); root.className = 'pro'
   root.innerHTML = `<canvas></canvas>
@@ -588,7 +610,8 @@ export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → D
 
   function build() {
     const canvas = $('canvas')
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' })
+    // 장면은 composer 의 렌더 타깃(MSAA 없음)에 그린다. 캔버스의 MSAA 는 마지막 한 장만 받아 계단을 못 지우고 대역폭만 쓴다.
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: 'high-performance' })
     renderer.setPixelRatio(1)
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = 1.0
@@ -675,9 +698,9 @@ export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → D
     composer.addPass(bloom)
     // 필름 질감: 가장자리 색 번짐·비네팅·옅은 입자, 그리고 어두운 곳은 청록·밝은 곳은 주황으로 나누는 색보정.
     const grade = new ShaderPass({
-      uniforms: { tDiffuse: { value: null }, time: { value: 0 } },
+      uniforms: { tDiffuse: { value: null }, time: { value: 0 }, grain: { value: 0.018 } },
       vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
-      fragmentShader: `uniform sampler2D tDiffuse; uniform float time; varying vec2 vUv;
+      fragmentShader: `uniform sampler2D tDiffuse; uniform float time; uniform float grain; varying vec2 vUv;
         float h(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233)) + time) * 43758.5453); }
         void main() {
           vec2 q = vUv - 0.5;
@@ -686,23 +709,50 @@ export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → D
           float lum = dot(c, vec3(0.299, 0.587, 0.114));
           c *= mix(vec3(0.92, 1.0, 1.08), vec3(1.08, 1.0, 0.9), smoothstep(0.04, 0.5, lum));
           c *= mix(1.0, 0.55, smoothstep(0.25, 0.85, length(q * vec2(1.25, 1.0))));
-          c += (h(vUv * 1024.0) - 0.5) * 0.018;
+          c += (h(vUv * 1024.0) - 0.5) * grain;
           gl_FragColor = vec4(c, 1.0);
         }`,
     })
     composer.addPass(grade)
     composer.addPass(new OutputPass())
 
+    // 느린 GPU: 1단계 렌더 배율 0.75 · 2단계 배율 0.6 에 물 반사를 두 프레임에 한 번 · 3단계 bloom 끔.
+    let tier = 0, scale = 1, tick = 0
+    const reflect = water.onBeforeRender
+    water.onBeforeRender = (...a) => { if (tier < 2 || tick % 2 === 0) reflect.apply(water, a) }
+    function lower() {
+      tier++
+      if (tier === 1) scale = 0.75
+      if (tier === 2) scale = 0.6
+      // 입자는 낮은 해상도에서 늘어나 얼룩으로 보인다. 배율만큼 옅게 한다.
+      grade.uniforms.grain.value = 0.018 * scale * scale
+      if (tier === 3) bloom.enabled = false
+      renderer.setPixelRatio(scale)
+      composer.setPixelRatio(scale)
+      resize()
+    }
+    // 프레임 간격의 중앙값이 24ms(약 40fps)를 넘으면 내린다. 처음 몇 프레임은 버린다(첫 그림·탭 전환).
+    const gaps = []
+    function govern(gap) {
+      if (tier >= 3 || gap > 250 || tick < 10) return
+      gaps.push(gap)
+      if (gaps.length < 30) return
+      const mid = gaps.sort((a, b) => a - b)[15]
+      gaps.length = 0
+      if (mid > 24) lower()
+    }
+
     function resize() {
       const w = innerWidth, h = innerHeight
       renderer.setSize(w, h, false)
       composer.setSize(w, h)
-      bloom.resolution.set(w / 2, h / 2)
+      bloom.resolution.set((w * scale) / 2, (h * scale) / 2)
       camera.aspect = w / h
       camera.updateProjectionMatrix()
     }
     resize()
     addEventListener('resize', resize)
+    if (low) while (tier < 3) lower()
 
     // ---------------------------------------------------------------- 길: 한강 한가운데 → 북쪽 강변 → 성수 위 → kit 의 첫 시점
     // 좌표는 주인공 건물 가운데가 원점, z 가 클수록 남쪽이다. 성수 쪽 한강은 건물에서 남쪽 1.05~1.84km 다(city.json).
@@ -748,6 +798,8 @@ export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → D
 
     function frame(now) {
       if (stopped) return
+      if (last) govern(now - last)
+      tick++
       const dt = Math.min(0.05, (now - (last || now)) / 1000); last = now
       const t = started ? (now - t0) / 1000 : 0
       const sec = now / 1000
@@ -810,7 +862,12 @@ export function mountPrologue(city, { word = 'Ontology-Editor', sub = 'BIM → D
       async play({ end, levels } = {}) {
         setEnd(end)
         setFloors(levels)
-        renderer.compile(scene, camera)
+        // 첫 시점에서 한 번 그려 둔다(캔버스는 아직 투명하다). 물 반사·bloom 의 셰이더와 렌더 타깃이 여기서 만들어진다.
+        camera.position.copy(P0)
+        camera.lookAt(L0)
+        camera.updateMatrixWorld()
+        await renderer.compileAsync(scene, camera)
+        composer.render(0)
         const wait = 1800 - (performance.now() - mountedAt)
         if (wait > 0) await new Promise((ok) => setTimeout(ok, wait))
         root.classList.add('city')

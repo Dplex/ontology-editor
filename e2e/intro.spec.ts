@@ -46,7 +46,7 @@ test('주소가 #intro 면 인트로가 뜨고, 숫자·판정 기준 없이 건
   const lab = page.frameLocator('.intro iframe')
   // kit 은 WebGL·후처리 셰이더를 다 만든 뒤에야 첫 줄을 그린다. 소프트웨어 GL 인 e2e 브라우저에서는 몇 초 걸린다.
   await expect(lab.locator('.lab-title')).toContainText('작은 건물', { timeout: 20_000 })
-  // 큰 숫자·[IfcSpace 빼기]·"어떻게 셌나" 는 가이드의 랩에만 있다(아래 소속 판정 랩 시험).
+  // 큰 숫자·[IfcSpace 빼기]·"산출 기준" 은 가이드의 랩에만 있다(아래 소속 판정 랩 시험).
   await expect(lab.locator('.lab-modes button[data-k="explode"]')).toBeVisible()
   await expect(lab.locator('.lab-big')).toHaveCount(0)
   await expect(lab.locator('button[data-k="break"]')).toHaveCount(0)
@@ -88,7 +88,7 @@ test.describe('앞머리', () => {
       return route.fulfill({ json: name ? seongsu : [{ name: 'seongsu', building: 'Tiny', files: scene.files, bakedAt: scene.bakedAt }] })
     })
     await page.goto('/intro/index.html?name=seongsu')
-    // 병렬 실행에서는 장면·지도(535KB)를 받는 데 몇 초 걸린다.
+    // 병렬 실행에서는 장면·지도(592KB)를 받는 데 몇 초 걸린다.
     await expect(page.locator('.pro-word')).toHaveText('Ontology-Editor', { timeout: 20_000 })
     await expect(page.locator('.pro-credit')).toContainText('OpenStreetMap')
     // 소프트웨어 GL 에서는 8천 동을 그리는 프레임이 느려 비행을 다 기다리지 않는다.
