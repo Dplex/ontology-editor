@@ -31,7 +31,7 @@ async function serveIntro(page: Page, list: object[]) {
   })
 }
 
-test('주소가 #intro 면 인트로가 뜨고, 숫자·판정 기준 없이 건물만 선다. 닫으면 주소가 / 로 돌아가고, 첫 화면의 [인트로 보기] 로 다시 연다', async ({ page }) => {
+test('주소가 #intro 면 인트로가 뜨고, 큰 숫자·판정 기준 없이 건물만 서고 [층 정보] 는 층별 개수만 단다. 닫으면 주소가 / 로 돌아가고, 첫 화면의 [인트로 보기] 로 다시 연다', async ({ page }) => {
   // 소프트웨어 GL 에서는 kit 의 후처리가 무거워 조립 연출이 늦게 끝난다. 손을 놓으면 그리지 않게 한 뒤로(public/intro/index.html 의 "부하")
   // 혼자 13초, 병렬에서도 1분 안이다.
   test.setTimeout(90_000)
@@ -51,6 +51,10 @@ test('주소가 #intro 면 인트로가 뜨고, 숫자·판정 기준 없이 건
   await expect(lab.locator('.lab-big')).toHaveCount(0)
   await expect(lab.locator('button[data-k="break"]')).toHaveCount(0)
   await expect(lab.locator('.lab-how')).toBeHidden()
+  // [층 정보] 를 켜면 층마다 무엇이 몇 개 들었나만 단다. 판정 결과(소속된 기기 몇 대)는 없고, 0 인 것은 빠진다.
+  await lab.getByRole('button', { name: /층 정보/ }).click()
+  await expect(lab.locator('.lab-lab', { hasText: '1F' }).locator('small')).toHaveText('물리존 1 · 설비 2 · 관로 1')
+  await expect(lab.locator('.lab-lab', { hasText: '2F' }).locator('small')).toHaveText('물리존 1 · 설비 1')
 
   // 조립이 끝나면 들어가기 패널이 뜨고, 오른쪽 제목 칸은 패널 바로 아래로 옮긴다. 이 서버에는 사람 목록이 없어 고를 것 없이 들어간다.
   const panel = page.getByRole('complementary', { name: '에디터에 들어가기' })
