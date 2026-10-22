@@ -362,7 +362,7 @@ const groups = R.items.map((item, index) => {
 });
 
 const LABEL_TEXT =
-  "공조기 한 대가 주 덕트로 VAV 세 대에 급기를 보내고, VAV마다 덕트 하나로 디퓨저에 잇는 모형이다. 볼트를 조인 플랜지 이음은 BIM 포트가 흐름 방향을 적은 연결이고, 맨 슬리브 이음은 형상으로 맞닿았다고 추정한 연결이다. 기기를 고르면 방향을 아는 연결만 따라 하류와 상류를 칠하고 슬리브에서 멈춘다.";
+  "공조기 한 대가 주 덕트로 VAV 세 대에 급기를 보내고, VAV마다 덕트 하나로 디퓨저에 연결된 모형이다. 볼트로 조인 플랜지 이음은 BIM 포트에 흐름 방향이 기록된 연결이고, 볼트 없는 슬리브 이음은 형상이 맞닿아 있어 연결로 추정한 것이다. 기기를 선택하면 방향이 정해진 연결만 따라 하류와 상류를 강조하고, 슬리브에서 멈춘다.";
 const svg = k.figureSvg({ width: W, height: H, label: LABEL_TEXT, body: [...back, `<g class="fl-rig">${groups.join("")}</g>`] });
 
 // --- 쪽 -----------------------------------------------------------------------
@@ -379,7 +379,7 @@ const DATA = {
 
 const CSS = `
 .iso{--fl-dim:#9a9a9a;--fl-down:#1f9d7a;--fl-up:#e0803a;--fl-link:#9b59d0;--anatomy-mono:ui-monospace,"SF Mono",Menlo,Consolas,"Noto Sans Mono CJK KR","Noto Sans CJK KR",monospace}
-html{background:#f2f2ef}html:has(body[data-theme="dark"]){background:#0b0b0b}html[data-embed]{background:transparent}html:has(body[data-theme="light"]),body[data-theme="light"]{color-scheme:light}body{background:transparent;font-family:system-ui,-apple-system,"Segoe UI","Noto Sans CJK KR","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+html{background:#f2f2ef}html:has(body[data-theme="dark"]){background:#0b0b0b}html[data-embed],html[data-embed]:has(body){background:transparent}html:has(body[data-theme="light"]),body[data-theme="light"]{color-scheme:light}body{background:transparent;font-family:system-ui,-apple-system,"Segoe UI","Noto Sans CJK KR","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
 .iso-page{width:100%;margin:0}
 .iso-figure{margin:0}
 .iso-plate{padding:46px 18px 44px}
@@ -443,14 +443,14 @@ function ttlFor(id) {
   const p = D.picks[id];
   const subjects = [...new Set(p.lines.map((l) => l[0]))];
   const rows = subjects.map((s) => "<b>ex:" + s + "</b> brick:feeds " + p.lines.filter((l) => l[0] === s).map((l) => '<span data-to="' + l[1] + '">ex:' + l[1] + "</span>").join(", ") + " ;");
-  if (!rows.length) rows.push("# 칠한 범위 안에 brick:feeds 쌍이 없다");
+  if (!rows.length) rows.push("# 강조한 범위 안에 brick:feeds 쌍이 없습니다");
   if (p.linked.length) rows.push('<span class="fl-c"># ' + p.linked.map((d) => "ex:" + d).join(", ") + " : 방향 모름 이음 너머, feeds 없음</span>");
   ttl.innerHTML = rows.join("\\n");
 }
 function select(id) {
   pick = id;
   t0 = clock;
-  if (id) ttlFor(id); else ttl.innerHTML = "# 기기를 고르면 그 연결망에서 나가는 brick:feeds를 보인다";
+  if (id) ttlFor(id); else ttl.innerHTML = "# 기기를 선택하면 그 연결망에서 내보내는 brick:feeds 를 표시합니다";
   stage.setAttribute("aria-valuetext", id ? summary(id, true) : "고른 기기 없음");
   status.textContent = id ? summary(id, true) : "";
   run();
@@ -487,7 +487,7 @@ function draw() {
     const c = ttl.querySelector(".fl-c");
     if (c) c.toggleAttribute("data-on", p.stops.some((s) => s.at <= e));
   }
-  const text = pick ? summary(pick, false, e) : "기기를 고르면 연결망을 칠한다";
+  const text = pick ? summary(pick, false, e) : "기기를 선택하면 연결망을 따라 표시합니다";
   if (text !== said) { said = text; readout.textContent = text; }
 }
 function tick(now) {
@@ -532,26 +532,26 @@ new ResizeObserver(size).observe(document.body);
 `;
 
 const KEYS = [
-  { mark: "green", label: "하류: 방향을 아는 연결로 흐름을 따라 닿은 곳" },
-  { mark: "red", label: "상류: 흐름을 거슬러 닿은 곳" },
-  { mark: "blue", label: "이어짐: 방향 모름 이음 너머, 다음 기기까지" },
+  { mark: "green", label: "하류: 방향이 정해진 연결을 따라 흐름 방향으로 닿은 기기" },
+  { mark: "red", label: "상류: 흐름 반대 방향으로 닿은 기기" },
+  { mark: "blue", label: "이어짐: 방향 모름 이음 너머의 다음 기기" },
 ];
 const CAPTION =
-  "이 모형에서 볼트를 조인 플랜지 이음은 BIM 포트가 흐름 방향을 적은 연결이고, 맨 슬리브 이음은 편집기가 형상으로 맞닿았다고 추정한 연결이라 방향이 없다. 연결망 보기는 방향을 아는 연결만 따라 칠하다가 슬리브에서 멈추고, brick:feeds도 덕트를 건너뛰어 이 길로 닿는 기기 쌍만 나간다. 성수에서는 연결망 기기 3,094대 중 62%는 BIM 포트 방향이 있었고, 규칙이 추정한 28%는 사람이 계통 단위로 확정해야 brick:feeds로 나간다.";
+  "볼트로 조인 플랜지 이음은 BIM 포트에 흐름 방향까지 기록된 연결이고, 볼트 없는 슬리브 이음은 에디터가 형상 접촉으로 추정한 연결이라 방향 정보가 없습니다. 연결망 보기는 방향이 정해진 연결만 따라가다 슬리브에서 멈춥니다. 슬리브 구간을 [계통 편집]에서 포트로 바꾸고 방향을 지정하면 흐름이 끝까지 이어집니다.";
 
 function page(theme) {
   const plate = k.plateHtml({
-    fig: "Fig 2",
-    title: "흐름은 어디까지 아나",
-    hint: "기기를 눌러 연결망 보기",
+    fig: "Fig 7",
+    title: "흐름 방향을 추적할 수 있는 범위",
+    hint: "기기를 클릭해 연결망 보기",
     readout: "AHU-1 · 하류 3대 · feeds 3쌍 · 방향 모름에서 멈춤",
     keys: KEYS,
     caption: CAPTION,
-    body: `<div class="iso-stage fl-stage" tabindex="0" role="slider" aria-label="흐름 방향 모형. 기기를 누르거나 화살표 키로 기기를 고르면 연결망을 칠한다. Esc 는 선택을 푼다." aria-valuetext="AHU-1">${svg}<span class="fl-sr" role="status" aria-live="polite" data-status></span></div>`,
+    body: `<div class="iso-stage fl-stage" tabindex="0" role="slider" aria-label="흐름 방향 모형. 기기를 클릭하거나 화살표 키로 선택하면 연결망을 강조한다. Esc 로 선택을 해제한다." aria-valuetext="AHU-1">${svg}<span class="fl-sr" role="status" aria-live="polite" data-status></span></div>`,
   });
   const ttl = `<pre class="fl-ttl" data-ttl aria-label="이 연결망에서 TTL 로 나가는 brick:feeds"></pre>`;
   const body = `<style>${CSS}</style>` + plate.replace("</figure>", `${ttl}</figure>`);
-  return k.pageHtml({ title: "흐름은 어디까지 아나", theme, body, script: LIVE, width: 760 }).replace('<html lang="en">', '<html lang="ko">');
+  return k.pageHtml({ title: "흐름 방향을 추적할 수 있는 범위", theme, body, script: LIVE, width: 760 }).replace('<html lang="en">', '<html lang="ko">');
 }
 
 mkdirSync(OUT, { recursive: true });

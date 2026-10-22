@@ -411,7 +411,7 @@ function token(n) {
 
 const FIRST = SAMPLES[1];
 const LABEL_TEXT =
-  "받침판 위에 여섯 칸짜리 계단식 진열대가 있다. 아래 칸부터 차례로 벽으로 둘러싼 방, 설비 상자, 이름표에 묶인 설비, 덕트로 이은 설비, 덕트 위 흐름 화살표가 놓여 있고, 맨 위 칸은 뚜껑으로 덮여 진열대 밖의 IDF·BAS 함에서 케이블을 받는다. 앞쪽 거치대의 파일 토큰을 고르면 오른쪽 레일의 승강기가 그 파일의 가장 높은 등급 칸까지 오르고, 파일이 채운 칸에 불이 들어온다.";
+  "받침판 위에 여섯 단짜리 계단 모형이 있다. 아래 칸부터 차례로 벽으로 둘러싼 방, 설비 상자, 이름표에 묶인 설비, 덕트로 이은 설비, 덕트 위 흐름 화살표가 놓여 있고, 맨 위 칸은 뚜껑으로 덮여 모형 밖의 IDF·BAS 함에서 케이블을 받는다. 앞쪽 거치대의 파일 토큰을 선택하면 오른쪽 레일의 승강기가 그 파일의 가장 높은 등급 칸까지 오르고, 파일이 채운 칸에 불이 들어온다.";
 
 const body = [
   base(),
@@ -429,7 +429,7 @@ const svg = k.figureSvg({ width: WIDTH, height: HEIGHT, label: LABEL_TEXT, body 
 
 const CSS = `
 .iso{--anatomy-mono:ui-monospace,"SF Mono",Menlo,Consolas,"Noto Sans Mono CJK KR","Noto Sans CJK KR",monospace}
-html{background:#f2f2ef}html:has(body[data-theme="dark"]){background:#0b0b0b}html[data-embed]{background:transparent}html:has(body[data-theme="light"]),body[data-theme="light"]{color-scheme:light}body{background:transparent;font-family:system-ui,-apple-system,"Segoe UI","Noto Sans CJK KR","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+html{background:#f2f2ef}html:has(body[data-theme="dark"]){background:#0b0b0b}html[data-embed],html[data-embed]:has(body){background:transparent}html:has(body[data-theme="light"]),body[data-theme="light"]{color-scheme:light}body{background:transparent;font-family:system-ui,-apple-system,"Segoe UI","Noto Sans CJK KR","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif}
 .iso-page{width:100%;margin:0}
 .iso-figure{margin:0}
 .iso-plate{padding:46px 18px 44px}
@@ -585,7 +585,7 @@ const KEYS = [
   { mark: "edge", label: "승강기가 선 칸(표의 ◂): 그 파일이 닿은 가장 높은 등급" },
 ];
 const CAPTION =
-  "계단 한 칸이 등급 하나이고, 위 칸은 아래 칸을 전제로 한다. 등급 0~2 는 어디에 무엇이 있는가, 3·4 는 무엇이 무엇과 연결되어 있는가이며, 고객사에 필수로 요구하는 범위는 0·1·2 다. 고객사 BIM 은 대부분 1~3 에 그칠 것으로 보고, 4 는 포트를 신경 써서 내보낸 파일에서만 나왔으며, 맨 위 5 는 BIM 이 아니라 IDF·BAS 에서 받는다.";
+  "계단 한 칸이 등급 하나이고, 위 칸은 아래 칸을 전제로 합니다. 등급 0~2는 어디에 무엇이 있는가, 등급 3·4는 무엇이 무엇과 연결되어 있는가를 나타내며, 고객사에 필수로 요구하는 범위는 등급 0·1·2입니다. 일반 BIM은 대부분 등급 1~3까지 채워지고, 등급 4는 포트 방향까지 설계된 파일이나 규칙 보정에서 채워지며, 맨 위 등급 5는 BIM 외부(IDF·BAS)에서 받아 합칩니다.";
 
 const GROUPS = { 5: ["BIM 밖", 1], 4: ["무엇이 무엇과 연결되어 있나", 2], 2: ["어디에 무엇이 있나", 3] };
 function tableHtml() {
@@ -601,11 +601,11 @@ function page(theme) {
   const plate = k.plateHtml({
     fig: "Fig 0",
     title: "이 BIM 으로 어디까지 되나",
-    hint: "파일을 골라 등급 보기",
+    hint: "파일을 선택해 등급 보기",
     readout: readoutOf(FIRST),
     keys: KEYS,
     caption: CAPTION,
-    body: `<div class="iso-stage gr-stage" tabindex="0" role="slider" aria-label="등급 진열대. 파일 토큰이나 아래 버튼을 누르거나 화살표 키로 파일을 고르면 승강기가 그 파일의 가장 높은 등급 칸까지 오른다." aria-valuetext="${readoutOf(FIRST)}">${svg}<span class="gr-sr" role="status" aria-live="polite" data-status></span></div>`,
+    body: `<div class="iso-stage gr-stage" tabindex="0" role="slider" aria-label="등급 계단 모형. 파일 토큰이나 아래 버튼을 클릭하거나 화살표 키로 파일을 선택하면 승강기가 그 파일의 가장 높은 등급 칸까지 오른다." aria-valuetext="${readoutOf(FIRST)}">${svg}<span class="gr-sr" role="status" aria-live="polite" data-status></span></div>`,
   });
   const files = `<div class="gr-files" role="group" aria-label="샘플 파일">${SAMPLES.map((s, n) => `<button type="button" aria-pressed="${s === FIRST}">${n + 1} · ${s.name}</button>`).join("")}</div>`;
   const extra = `${files}<p class="gr-note" data-note>${FIRST.note}</p>${tableHtml()}`;

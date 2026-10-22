@@ -501,6 +501,10 @@ if (still.matches) touring = false;
 // 검사 스크립트가 자세를 잡을 때 쓴다(drive.mjs 의 eval).
 window.__assignPose = (px, py, ps) => steer({ x: px, y: py, snap: ps });
 draw();
+if (parent !== window) document.documentElement.setAttribute("data-embed", "");
+const size = () => parent !== window && parent.postMessage({ type: "guide-fig-size", fig: "assign", height: document.documentElement.scrollHeight }, "*");
+addEventListener("load", size);
+new ResizeObserver(size).observe(document.body);
 `;
 
 const PAGE_CSS = `
@@ -546,7 +550,7 @@ body{margin:0;background:transparent;color:var(--anatomy-text);font:14px/1.6 "No
 `;
 
 const caption =
-  "설비 위치의 수평 좌표만 보고, 같은 층 방의 외곽선 안에 들면 그 방에 붙인다. 방이 겹치면 면적이 가장 작은 방이다. 어느 방에도 안 들면 소속 허용 거리(기본 0.05 m, 0~1 m) 안에서 가장 가까운 방에 붙이고, 그마저 없으면 소속 없음이라 TTL 에는 방 대신 층이 적힌다.";
+  "설비 위치의 수평 좌표만 보고 같은 층 방의 외곽선 안에 들어오면 그 방에 배정합니다. 방이 겹치면 면적이 가장 작은 방을 우선합니다. 어느 방 안에도 들지 않으면 소속 허용 거리(기본 0.05 m, 0~1 m) 안에서 가장 가까운 방에 배정하고, 그마저 없으면 소속 없음으로 분류되어 TTL에는 방 대신 층(Storey)이 기록됩니다.";
 
 const keys = [
   { mark: "lit", label: "판정된 방" },
@@ -559,7 +563,7 @@ const swatch = (mark) => k.plateHtml({ fig: "", keys: [{ mark, label: "" }], bod
 function page(theme) {
   const corner = (name, text, extra = "") => `<span class="iso-plate-corner" data-corner="${name}"${extra}>${text}</span>`;
   const stage = `<div class="iso-stage" tabindex="0" role="group" aria-label="설비 소속 판정 모형. 화살표 키로 설비를 옮기고(Shift 는 1 m), Page Up·Page Down 이나 +·- 로 소속 허용 거리를 바꾼다.">${svg}</div>`;
-  const body = `<figure class="iso-figure"><div class="iso-plate"><div class="iso-plate-corners" aria-hidden="true">${corner("fig", "Fig 1")}${corner("title", "설비는 어느 방에 있나")}${corner("hint", "드래그해서 설비 옮기기 · 손잡이로 허용 거리")}${corner("readout", readoutOf(first, SPACES), " data-readout")}</div>${stage}</div>` +
+  const body = `<figure class="iso-figure"><div class="iso-plate"><div class="iso-plate-corners" aria-hidden="true">${corner("fig", "Fig 5")}${corner("title", "설비는 어느 방에 있나")}${corner("hint", "드래그해서 설비 옮기기 · 손잡이로 허용 거리")}${corner("readout", readoutOf(first, SPACES), " data-readout")}</div>${stage}</div>` +
     `<div class="as-ttl"><code data-ttl>${ttlLine(EQUIPMENT, first.spaceId, STOREY)}</code><span data-snap>허용 거리 ${SNAP.toFixed(2)} m</span></div>` +
     `<figcaption class="iso-legend"><span class="iso-keys">${keys.map((key) => `<span class="iso-key">${swatch(key.mark)}${key.label}</span>`).join("")}</span><span class="iso-caption">${caption}</span></figcaption></figure>` +
     `<span class="as-sr" aria-live="polite" data-status></span>`;
