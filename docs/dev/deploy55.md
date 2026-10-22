@@ -166,6 +166,74 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 들어가지 않으며 3D 에서 고르지도 못한다. 볼 일이 있으면 목록에서 따로 연다. 인테리어의 벽 94장은 10F 에 더해지고(76 → 170장),
 인테리어 파일에는 방(IfcSpace)이 없어 10F 물리존은 그대로다.
 
+## 첫 화면 인트로는 서버에서 구운 장면을 띄운다
+
+주소 끝에 `#intro` 를 붙이면(`http://<서버>:8084/#intro`) 첫 화면 위에 건물이 층마다 쌓이는 인트로(`public/intro/`)가 뜬다.
+그냥 `/` 는 에디터 첫 화면이고, 거기의 [인트로 보기] 가 `#intro` 로 간다. 성수 원본(287MB)은 첫 화면에서 열 수 없어서,
+에디터와 같은 임포터로 한 번 읽어 층·물리존 외곽선·벽·기기 점·관로 선만 남긴 JSON(0.6MB)을 `data/.intro/` 에 굽고, 그것을
+`/__data/__intro`(`src/server/intro.ts`)로 내준다. **장면이 없는 서버에서는 `#intro` 여도 인트로가 뜨지 않고 [인트로 보기] 도 보이지 않는다.**
+
+```bash
+# 55 에서, 성수 파일이 data/성수/ 에 있을 때(개발 PC 실측 16초 · 메모리 1.5GB)
+npm run intro:bake -- seongsu data/성수/Factorial_건축.ifc data/성수/Factorial_기계.ifc --title=성수\ Factorial
+```
+
+- 고객사 건물 형상이라 저장소에 커밋하지 않는다. `data/` 는 gitignore 이고, 구운 서버만 내준다.
+- 첫 화면 인트로는 건물이 층마다 서는 것만 보인다. 큰 숫자·층 슬라이더·[IfcSpace 빼기]·"산출 기준" 같은 수치와 판정 기준은
+  가이드의 3D 랩(아래)에만 띄운다. 첫 화면에서 읽기에는 짐이라서다.
+- 장면에는 숫자(소속 판정·물리존·연결망·흐름 방향)도 같이 굽는다. 구울 때 `gradeCounts`·`profileOf` 로 센 값이라 임포터가 바뀌면 다시 굽는다.
+  `.profiles.json` 처럼 코드 지문으로 무효화하지 않으므로, 굽지 않으면 낡은 숫자가 남는다.
+- 틀(조립 연출·Explode·Cut·X-ray·라벨·큰 숫자)은 machine-skill 의 kit(`public/intro/lab-kit.js`, MIT, `LICENSE-lab-kit`)을 고치지 않고 쓴다.
+  kit 은 three 를 jsDelivr 에서 받게 되어 있어서, import map 이 `public/intro/three/` 를 가리킨다. 그 폴더는 `scripts/sync-three.mjs` 가
+  node_modules 에서 kit·앞머리가 가져오는 파일만(25개) 옮기고 커밋하지 않는다. 아래 WASM 과 같은 이유다.
+
+### 가이드의 3D 랩
+
+사용 가이드(`public/guide/`)는 같은 페이지를 랩으로 세 번 띄운다(`?focus=assign|flow|floors`). 장면은 서버가 구운 성수가 아니라
+저장소에 든 공개 샘플 Duplex(`public/intro/scenes/duplex.json`, 건축·HVAC·MEP 세 파일, 0.1MB)다. 성수(1.7MB)를 랩 셋이 각자 띄우면
+가이드 한 장에 kit 세 벌이 성수를 그려 무거워서다. 흐름 랩은 입자가 움직여야 해서 화면에 보이는 동안 30fps 로 계속 그리고,
+가이드가 iframe 이 화면 밖으로 나갔다고 알리면 멈춘다. 장면에 연결별 흐름 방향(`flows`)이 들어 있어 임포터가 바뀌면 다시 굽는다.
+
+```bash
+npm run intro:bake -- duplex data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc data/NBU_Duplex/NBU_Duplex-Apt_Eng-HVAC.ifc data/NBU_Duplex/NBU_Duplex-Apt_Eng-MEP.ifc --title=Duplex
+cp data/.intro/duplex.json public/intro/scenes/duplex.json
+```
+
+### 앞머리: 한강을 건너 성수로 날아간다
+
+장면 이름과 같은 동네 지도(`public/intro/city/<이름>.json`)가 있으면 층 조립 앞에 13초 남짓한 앞머리(`public/intro/prologue.js`)가 붙는다.
+검은 화면에 "Ontology-Editor" 가 뜨고, 한강 위에서 성수 쪽 야경을 보다가 강을 건너 팩토리얼 성수까지 날아간다. 건물에 닿으면 스캔선이
+아래에서 위로 훑으며 층선(장면의 IFC 층 높이)이 드러나고, 그 자리에서 층 조립으로 넘어간다. 오른쪽 아래 [건너뛰기]·Space·Enter 로 넘긴다.
+브라우저의 움직임 줄이기 설정이 켜져 있거나 주소에 `?prologue=0` 이 있으면 앞머리 없이 시작한다.
+
+- 동네 지도는 OpenStreetMap 에서 받은 건물 외곽선·높이, 한강·중랑천·서울숲, 길(큰 길 378 · 골목 1,526)이다. 고객사 BIM 이 아니라 공개 지도라
+  커밋한다(592KB, gzip 214KB). ODbL 이라 화면 왼쪽 아래에 출처를 적는다.
+- 건물은 지도에 외곽선과 높이밖에 없어서 겉모습은 셰이더가 지어낸다. 건물 번호로 외벽 종류(돌·유리 사무동·아파트)를 고르고, 창은 벽 한 면마다
+  칸 수를 맞춰 모서리를 비운다. 1층 상가와 간판, 지붕 난간·계단실·실외기, 50m 넘는 건물의 들인 꼭대기, 60m 넘는 건물의 항공 장애등을 더한다.
+  땅은 길을 따라 번지는 가로등 빛으로 채우고, 큰 길에는 차 불빛이 차선을 따라 흐른다. 지도 밖은 불빛 점만 흩뿌려 지평선까지 동네가 이어 보이게 한다.
+- 건물 8,379동 중 6,747동은 OSM 에 높이가 없어 쓰임새·바닥 넓이로 정했다(`scripts/intro-city.mjs` 의 `heightOf`). 화면에도 "추정" 이라고 적는다.
+- 팩토리얼 성수는 OSM 에 옛 이름 "예진상사 물류센터"(way 564869565, 연무장7길 13)로 올라 있다. 스크립트의 `PLACES` 표에 번호로 박았다.
+- 다시 굽는 일은 동네를 넓히거나 OSM 이 크게 바뀌었을 때뿐이다. 개발 PC 에서 돌려 커밋하면 되고 55 에서 돌릴 일은 없다.
+
+```bash
+npm run intro:city -- seongsu --cache=/tmp/osm-seongsu   # Overpass 공개 서버가 자주 붐빈다. --cache 로 받은 응답을 남겨 두면 손질만 다시 굽는다
+```
+
+### 노트북에서도 돌게 한 것
+
+노트북 내장 그래픽은 개발 PC(RTX 2080 Ti)보다 6~10배 느리다고 보고 맞췄다. 숫자는 1920×1080 실제 Chrome 에서 GPU 타이머(`EXT_disjoint_timer_query_webgl2`)로 쟀다.
+
+| | 프레임당 GPU | 노트북에서 걸리던 것 | 한 일 |
+|---|---|---|---|
+| 앞머리 | 0.8ms | 화면이 열릴 때·넘길 때 셰이더 링크로 0.2초씩 멈춤(CPU 4배 느리게 0.4초) | 글자가 떠 있는 동안 `compileAsync` 로 링크하고 한 프레임 그려 둔다. kit 의 후처리·X-ray 모서리도 같이 만든다 |
+| kit(층 조립) | 6.6 → 5.5ms | 돌려 볼 때마다 그림자를 다시 그림(1.1ms, 같은 실행에서 번갈아 잼) | 그림자는 카메라와 상관없어 건물이 움직일 때(조립·모드 전환·버튼·슬라이더)만 다시 그린다 |
+
+- 그래도 느리면 화질을 한 단계씩 내린다. 앞머리는 프레임 간격 중앙값이 24ms(약 40fps)를 넘으면 렌더 배율 0.75 → 0.6(강 반사는 두 프레임에 한 번) → bloom 끔,
+  kit 은 45ms(30fps 를 못 지킴)를 넘으면 AO 끔 → MSAA 끔 → 렌더 배율 0.75 다. 주소에 `?gpu=low` 를 붙이면 처음부터 가장 낮은 단계로 본다.
+- 도시 형상은 정점 85만 개를 한 Float32Array 에 쌓는다(0.21초 → 0.1초). 화면이 열리기 전 멈춤의 대부분은 WebGL 문맥 두 개(앞머리·kit)를 만드는 데
+  드는 1초 남짓이고, 글자 연출(합성 단계 전환)이 그동안 돌아서 보이지 않는다. 화면이 열리는 시각은 2.2초(CPU 4배 느리게 3.6초)다.
+- 넘긴 뒤 앞머리의 WebGL 을 버려 그래픽 메모리를 돌려준다.
+
 ## WASM 은 커밋하지 않는다
 
 `public/web-ifc.wasm` 은 `scripts/sync-wasm.mjs` 가 node_modules 에서 복사한다. 릴리스 바이트
