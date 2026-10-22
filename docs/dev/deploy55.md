@@ -133,8 +133,13 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
   `POST /kinds` 가 스모크 감지기·팬을 맞게 분류하는 것까지 확인했다. 아래 133 에 관한 줄(ssh 별칭·`start.sh`·crontab·llama-server)은 옮기기 전 기록이라 새 서버에서는 확인하지 않았다.
   dev 도 같다 — `LAYA_URL=… npm run dev`.
 - 133 에서: `~/laya/run/start.sh`(체크포인트 `~/laya/run/out-ko3/final`, 133 이 켜지면 crontab `@reboot` 가 부른다). venv 는 `~/laya/.venv`
-  (torch cu128 — 5090 은 CUDA 12.8 이상 판이 필요하다, `laya[serve]`).
+  (torch cu128 — 5090 은 CUDA 12.8 이상 판이 필요하다, `laya[serve]`). 새 서버(`10.251.30.209`)에도 `start.sh` 와 crontab `@reboot` 가 있다(2026-10-22 확인).
+- `start.sh` 는 `LAYA_CALIB=~/laya/run/out-ko3/calibration.json` 도 준다. 학습에 안 쓴 줄로 맞춘 온도다(ADR-0057, `GET /health` 의 `temperature`).
+  없으면 체크포인트 안의 온도로 돌고, 확률이 첫 후보에 몰려 [설비 더하기] 의 둘째 칩부터 안 보인다.
 - 다시 배우는 법은 `scripts/laya/train.py` 머리말. 재료는 개발 PC 에서 `npx vitest run --config scripts/laya/vitest.config.ts` 로 뽑아(`data/laya/`) 옮긴다.
+  다시 배우면 `--adds` 로 형제 체크포인트도 다시 만들고 `python calibrate.py data9 out-ko3-adds out-ko3/final --write out-ko3/calibration.json`
+  (폴더 이름은 새 판에 맞춰)으로 온도를 다시 맞춘 뒤 서버를 다시 띄운다.
+- 서버를 내릴 때 `pkill -f serve.py` 를 ssh 명령 줄에 쓰지 않는다. 그 ssh 셸의 명령 줄에도 `serve.py` 가 들어 있어 셸이 먼저 죽는다. PID 로 내린다.
 - 133 에는 llama-server(Qwen 27B, 8085)가 있었고 VRAM 을 27GB 잡았다. Laya 추론만이면 1.5GB 라 같이 돈다. 학습할 때 내렸다(2026-10-13) —
   다시 띄우려면 133 의 `~/llama_restart.sh`.
 
