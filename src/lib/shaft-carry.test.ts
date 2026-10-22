@@ -5,7 +5,9 @@ import { createVertical } from './vertical-edit'
 import { setSegmentShaft, shaftDeviations } from './shaft'
 import { moveShaftCarrying, planShaftCarry } from './shaft-carry'
 import { restAxis } from './branch-pipe'
-import { restore, snapshotEquipment, snapshotVerticals, type Snapshot } from './edit'
+import { baselineOf, restore, snapshotEquipment, snapshotVerticals, type Snapshot } from './edit'
+import { applyEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
+import { spaceSlabCuts } from './slab-opening'
 import { verticalObjects } from './vertical-object'
 
 // 샤프트 안 배관 연동 이동(OE-ML-17). 두 층(0 · 4m) 건물, 샤프트 PS-1(축 3~4 × 0~1). 배관 한 줄:
@@ -100,5 +102,48 @@ describe('샤프트 안 배관 연동 이동 (OE-ML-17)', () => {
     expect(shape(m)).not.toBe(before)
     restore(m, snap)
     expect(shape(m)).toBe(before)
+  })
+
+  it('샤프트를 옮긴 뒤 되돌리기 한 번과 편집 파일 복원이 형상·개구부·면적·연결·배관을 함께 돌려놓는다 [OE-ML-07#7]', () => {
+    // 2층 바닥 슬래브가 x 0~5 만 덮는다. 샤프트(x 3~4)는 덮인 자리라 개구부가 확정되어 2층 물리존에서 1㎡ 를 빼고, x 6~7 로 옮기면 슬래브 밖이다.
+    const withSlab = () => {
+      const m = building()
+      m.storeys[1].slabs = [{ id: 'S2', name: 'S2', kind: 'floor', top: 4, tris: [0, 0, 5, 0, 5, 10, 0, 0, 5, 10, 0, 10], openings: [] }] as unknown as Storey['slabs']
+      return m
+    }
+    const everything = (x: Model) =>
+      JSON.stringify([x.storeys.map((s) => s.verticalParts), x.storeys.flatMap((s) => s.equipment.map((q) => [q.id, q.position, q.endShift ?? null])), x.connections, [...spaceSlabCuts(x)]])
+    const a = withSlab()
+    const base = baselineOf(a)
+    const before = everything(a)
+    expect([...spaceSlabCuts(a)]).toEqual([['room-2F', 1]])
+    const plan = planShaftCarry(a, 'U_ps', restAxis(a))
+    const snap: Snapshot = { kind: 'many', parts: [snapshotVerticals(a), ...[...plan.rigid, ...plan.stretch.map((s) => s.id)].map((id) => snapshotEquipment(a, id)!)] }
+    expect(moveShaftCarrying(a, 'U_ps', [3, 0], restAxis(a))).toBe(true)
+    const moved = everything(a)
+    expect(moved).not.toBe(before)
+    expect([...spaceSlabCuts(a)]).toEqual([])
+
+    // 저장 복원: 같은 BIM 에 편집 파일을 얹으면 옮긴 뒤와 모든 것이 같다.
+    const b = withSlab()
+    applyEdits(b, parseEditFile(JSON.stringify(exportEdits(a, base, 'b.ifc'))) as EditFile)
+    expect(everything(b)).toBe(moved)
+
+    // 되돌리기 한 번: 옮기기 전과 모든 것이 같다. 개구부가 돌아와 물리존 넓이도 같이 줄어든다.
+    restore(a, snap)
+    expect(everything(a)).toBe(before)
+    expect([...spaceSlabCuts(a)]).toEqual([['room-2F', 1]])
+  })
+
+  it('샤프트를 배관과 함께 옮긴 것을 편집 파일로 저장해 새로 연 같은 BIM 에 얹으면 샤프트와 안쪽·바깥 배관이 같은 자리다 [OE-ML-17#6~] [OE-ML-07#7~]', () => {
+    const a = building()
+    const base = baselineOf(a)
+    expect(moveShaftCarrying(a, 'U_ps', [1, 0], restAxis(a))).toBe(true)
+    const file = parseEditFile(JSON.stringify(exportEdits(a, base, 'b.ifc'))) as EditFile
+    const b = building()
+    applyEdits(b, file)
+    const shape = (x: Model) => JSON.stringify([x.storeys.map((s) => s.verticalParts), x.storeys.flatMap((s) => s.equipment.map((q) => [q.id, q.position, q.endShift ?? null]))])
+    expect(shape(b)).toBe(shape(a))
+    expect(shape(b)).not.toBe(shape(building()))
   })
 })

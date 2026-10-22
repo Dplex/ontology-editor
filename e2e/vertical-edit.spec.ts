@@ -76,6 +76,9 @@ test('병원 건축: 다중층 뷰에서 계단을 통째로 옮기면 두 층�
   const ask = page.getByTestId('vertical-delete-ask')
   await expect(ask).toContainText('영향 층: First Floor · Second Floor (2개 조각이 빠집니다)')
   await expect(ask).toContainText('STAIR ↔ STAIR 연결이 빠지고')
+  // 개구부도 보인다(OE-ML-09 AC1). 이 BIM 은 바닥 슬래브가 없어 초안이고, BIM 원본 개구부는 그대로라고 알린다.
+  await expect(ask.getByTestId('effect-openings')).toContainText('Second Floor 바닥 초안')
+  await expect(ask.getByTestId('effect-openings')).toContainText('BIM 원본 개구부는 슬래브에 그대로 남습니다')
   await ask.getByRole('button', { name: '취소' }).click()
   await expect(ask).toHaveCount(0)
   await expect(undo).toBeDisabled()
@@ -155,7 +158,7 @@ async function dragKnob(page: Page, to: number, opts: { alt?: boolean; release?:
   if (opts.alt) await page.keyboard.up('Alt')
 }
 
-test('병원 건축: 다중층 뷰에서 계단을 회전 손잡이로 돌리면 시작점을 중심으로 두 층이 같이 돌고, 건물 축 ±3° 에 붙으며 Alt 면 붙지 않고, Esc·Shift 끌기는 돌리지 않으며, 숫자로도 돌린다 [OE-OBJ-15#6] [OE-ML-07#2~]', async ({ page }) => {
+test('병원 건축: 다중층 뷰에서 계단을 회전 손잡이로 돌리면 시작점을 중심으로 두 층이 같이 돌고, 건물 축 ±3° 에 붙으며 Alt 면 붙지 않고, Esc·Shift 끌기는 돌리지 않으며, 숫자로도 돌린다 [OE-OBJ-15#6] [OE-ML-07#2]', async ({ page }) => {
   test.skip(!existsSync(CLINIC), `${CLINIC} 이 없다(npm run fetch:sample)`)
   test.setTimeout(240_000)
   const errors: string[] = []
@@ -384,6 +387,14 @@ test('병원 건축: 계단 구간을 지붕층까지 늘리면 2층 형상과 �
   await expect(panel.getByTestId('vertical-storeys')).toContainText('First Floor → Second Floor')
   await expect(panel.getByTestId('vertical-storeys')).not.toContainText('Roof')
   await page.keyboard.press('Control+Shift+z')
+  await expect(panel.getByTestId('vertical-storeys')).toContainText('Roof - Main')
+
+  // 다시 줄이면 적용 전에 빠지는 층의 개구부를 보인다(OE-ML-08 AC1). 취소하면 구간은 그대로다.
+  await range.getByLabel('구간 끝 층').selectOption({ label: 'Second Floor' })
+  await expect(plan).toContainText('빠지는 층: Roof - Main')
+  await expect(plan.getByTestId('effect-openings')).toContainText('빠지는 층의 슬래브 개구부: Roof - Main 바닥 초안')
+  await expect(plan.getByTestId('effect-openings')).not.toContainText('Second Floor 바닥')
+  await range.getByRole('button', { name: '취소' }).click()
   await expect(panel.getByTestId('vertical-storeys')).toContainText('Roof - Main')
   expect(errors).toEqual([])
 })

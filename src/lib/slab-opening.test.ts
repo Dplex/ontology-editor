@@ -4,7 +4,7 @@ import { modelToTTL } from './export/ttl'
 import type { Model, Slab, Storey, Vec2, VerticalPart } from './model'
 import { netAreaM2, slabOpenings, spaceSlabCuts } from './slab-opening'
 import { verticalObjects } from './vertical-object'
-import { createVertical, deleteVertical, draftVertical, planCreate, planFlight, rotateVertical, setPartVertex, setVerticalRange } from './vertical-edit'
+import { createVertical, deleteVertical, draftVertical, planCreate, planFlight, rotateVertical, setPartVertex, setVerticalRange, verticalEffect } from './vertical-edit'
 
 // 슬래브 개구부 판정(OE-ML-03). 층 셋(0m · 3m · 6m)과 2m×2m 샤프트. 슬래브 윗면은 삼각형 둘로 된 사각형이다.
 const square = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
@@ -231,5 +231,79 @@ describe('만드는 동안의 개구부 미리보기 (OE-ML-06 AC5)', () => {
     expect(deleteVertical(model, 'SH2')).toBe(true)
     expect([...spaceSlabCuts(model)]).toEqual([['R2', 4]])
     expect(s2.openings.map((o) => o.id)).toEqual(['OP_BIM'])
+  })
+})
+
+describe('지우기·구간 줄이기 전 영향 (OE-ML-08 AC1 · OE-ML-09 AC1·3)', () => {
+  const room = (id: string) => ({ id, name: id, longName: '', footprint: square(0, 0, 10, 10), areaM2: 100 })
+  // 1F~4F 샤프트(2×2=4㎡). 2F·4F 바닥은 덮고 있어 편집 개구부가 확정이고, 3F 바닥은 BIM 개구부(OP3)가 이미 뚫려 있다.
+  const build = () => {
+    const s3 = slab('S3', 6, [0, 0, 10, 10], { id: 'OP3', at: [4, 4, 6, 6] })
+    const model = {
+      storeys: [
+        storey('1F', 0, [part(SHAFT)], [slab('S1', 0, [0, 0, 10, 10])]),
+        { ...storey('2F', 3, [part(SHAFT)], [slab('S2', 3, [0, 0, 10, 10])]), spaces: [room('R2')] },
+        storey('3F', 6, [part(SHAFT)], [s3]),
+        { ...storey('4F', 9, [part(SHAFT)], [slab('S4', 9, [0, 0, 10, 10])]), spaces: [room('R4')] },
+      ],
+    } as unknown as Pick<Model, 'storeys'>
+    return { model, s3 }
+  }
+  const total = (m: Map<string, number>) => [...m.values()].reduce((n, v) => n + v, 0)
+
+  it('지우기 전에 층 바닥마다의 개구부와 물리존에서 지금 빼고 있는 넓이를 보이고, 모델은 그대로다 [OE-ML-09#1]', () => {
+    const { model } = build()
+    const before = JSON.stringify(model)
+    const fx = verticalEffect(model, 'SH')!
+    expect(fx.openings.map((o) => [o.storey, o.state, o.gone])).toEqual([['2F', 'cut', false], ['3F', 'bim', false], ['4F', 'cut', false]])
+    expect(fx.spaces).toEqual([{ storey: '2F', space: 'R2', m2: 4 }, { storey: '4F', space: 'R4', m2: 4 }])
+    expect(fx.stops).toBeNull()
+    expect(verticalEffect(model, '없는 것')).toBeNull()
+    expect(JSON.stringify(model)).toBe(before)
+  })
+
+  it('보인 넓이가 지운 뒤 돌아오는 넓이와 같고, 원본 BIM 개구부는 슬래브에 그대로이며, 되돌리면 같은 영향이 다시 나온다 [OE-ML-09#3]', () => {
+    const { model, s3 } = build()
+    const fx = verticalEffect(model, 'SH')!
+    const cuts = spaceSlabCuts(model)
+    expect(total(cuts)).toBe(fx.spaces.reduce((n, s) => n + s.m2, 0))
+    const parts = model.storeys.map((s) => s.verticalParts)
+    expect(deleteVertical(model, 'SH')).toBe(true)
+    expect(spaceSlabCuts(model).size).toBe(0)
+    expect(s3.openings.map((o) => o.id)).toEqual(['OP3'])
+    model.storeys.forEach((s, i) => (s.verticalParts = parts[i]))
+    expect(verticalEffect(model, 'SH')).toEqual(fx)
+  })
+
+  it('구간을 줄이기 전에 빠지는 층의 개구부·돌아오는 넓이만 보이고, 남는 층 몫은 보이지 않으며 적용 뒤 실제와 같고, 샤프트 안 배관과 BIM 개구부는 그대로다 [OE-ML-08#1~] [OE-ML-08#3]', () => {
+    const { model, s3 } = build()
+    // 샤프트에 든 배관 구간(3F). 구간을 줄여도 설비는 건드리지 않는다.
+    model.storeys[2].equipment = [{ id: 'P1', name: '배관', role: 'segment', shaftId: 'SH' }] as unknown as Storey['equipment']
+    const pipes = JSON.stringify(model.storeys.map((s) => s.equipment))
+    const fx = verticalEffect(model, 'SH', new Set(['3F', '4F']))!
+    expect(fx.openings.map((o) => [o.storey, o.gone])).toEqual([['2F', false], ['3F', true], ['4F', true]])
+    // 돌아오는 것은 4F 의 R4 뿐이다 — 2F 개구부는 남는다. 3F 의 BIM 개구부는 슬래브 원본이라 넓이에 들지 않는다.
+    expect(fx.spaces).toEqual([{ storey: '4F', space: 'R4', m2: 4 }])
+    const before = total(spaceSlabCuts(model))
+    expect(setVerticalRange(model, 'SH', '1F', '2F')).toBe(true)
+    expect(before - total(spaceSlabCuts(model))).toBe(fx.spaces.reduce((n, s) => n + s.m2, 0))
+    expect(verticalEffect(model, 'SH')!.openings.map((o) => o.storey)).toEqual(['2F'])
+    expect(s3.openings.map((o) => o.id)).toEqual(['OP3'])
+    expect(JSON.stringify(model.storeys.map((s) => s.equipment))).toBe(pipes)
+  })
+
+  it('엘리베이터는 층별 정차를 보이고, 구간을 줄이면 빠지는 층이 정차 목록에서 빠진다고 알린다 [OE-ML-08#1~]', () => {
+    const { model } = build()
+    const stops = ['stop', 'skip', 'unknown', 'stop'] as const
+    model.storeys.forEach((s, i) => (s.verticalParts = [{ ...part(SHAFT), kind: 'elevator', stop: stops[i] }]))
+    const fx = verticalEffect(model, 'SH', new Set(['4F']))!
+    expect(fx.stops).toEqual([
+      { storeyId: '1F', storey: '1F', stop: 'stop', gone: false },
+      { storeyId: '2F', storey: '2F', stop: 'skip', gone: false },
+      { storeyId: '3F', storey: '3F', stop: 'unknown', gone: false },
+      { storeyId: '4F', storey: '4F', stop: 'stop', gone: true },
+    ])
+    expect(setVerticalRange(model, 'SH', '1F', '3F')).toBe(true)
+    expect(verticalEffect(model, 'SH')!.stops!.map((s) => s.storeyId)).toEqual(['1F', '2F', '3F'])
   })
 })

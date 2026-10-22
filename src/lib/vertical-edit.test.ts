@@ -6,6 +6,8 @@ import { baselineOf, diffBaseline, restore, snapshotVerticals } from './edit'
 import { applyEdits, countEdits, exportEdits, parseEditFile, type EditFile } from './edit-file'
 import { BUILDING, joinParts, splitByStorey } from './storey-drafts'
 import { modelToGeoJSON } from './export/geojson'
+import { spaceSlabCuts } from './slab-opening'
+import { verticalEffect } from './vertical-edit'
 
 const rect = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
 const space = (id: string, footprint: Vec2[]): Space => ({ id, name: id, longName: id, footprint, areaM2: 1, boundedBy: [], kind: 'staircase' })
@@ -97,6 +99,22 @@ describe('수직 관통 오브젝트 전체 이동 (OE-ML-07)', () => {
     moveVertical(m, 'st', [-1.5, 0])
     expect(verticalCollisions(m, 'st', original)).toEqual([])
   })
+
+  it('V-03 은 충돌한 층과 까닭을 알리되 이동은 막지 않고, 숫자가 아닌 이동량과 변이 엇갈리는 형상은 적용하지 않는다 [OE-ML-07#5]', () => {
+    const m = building()
+    const original = baselineOf(m).verticals!.get('st')!.footprints
+    // 충돌해도 이동은 적용된다 — 어느 층(1F)의 벽·경계인지만 알린다.
+    expect(moveVertical(m, 'st', [1.5, 0])).toBe(true)
+    const hits = verticalCollisions(m, 'st', original)
+    expect(hits.map((h) => [h.storeyId, h.storey, h.reasons])).toEqual([['1F', '1F', ['wall', 'boundary']]])
+    const moved = structuredClone(partsOf(m, 'st'))
+    // 유효하지 않은 것은 적용하지 않아 형상도 충돌 결과도 그대로다.
+    expect(moveVertical(m, 'st', [Number.NaN, 0])).toBe(false)
+    const i = partsOf(m, 'st')[0].footprint.length - 1
+    expect(setPartVertex(m, 'st@1F', i, [partsOf(m, 'st')[0].footprint[0][0], -9])).toMatchObject({ refused: expect.stringContaining('교차') })
+    expect(partsOf(m, 'st')).toEqual(moved)
+    expect(verticalCollisions(m, 'st', original)).toEqual(hits)
+  })
 })
 
 describe('수직 관통 오브젝트 삭제 (OE-ML-09)', () => {
@@ -167,6 +185,37 @@ describe('되돌리기·편집 파일 (OE-ML-07·09)', () => {
     // 옮겼다 제자리로 돌리면 적을 것이 없다.
     moveVertical(a, 'st', [-0.5, 0.2])
     expect(diffBaseline(a, base).verticals?.filter((v) => v.id === 'st')).toEqual([])
+  })
+
+  it('옮기고 지운 뒤의 개구부·면적이 되돌리기 한 번과 편집 파일 복원 뒤 같고, 지운 계단은 다시 열어도 되살아나지 않는다 [OE-ML-09#5]', () => {
+    // 2층 바닥 슬래브가 계단 자리를 덮고 있어, 옮긴(보정한) 계단은 개구부가 확정되어 2층 물리존에서 넓이를 뺀다.
+    const withSlab = () => {
+      const m = building()
+      const [x0, y0, x1, y1] = [-1, -1, 6, 5]
+      m.storeys[1].slabs = [{ id: 'S2', name: 'S2', kind: 'floor', top: 4.5, tris: [x0, y0, x1, y0, x1, y1, x0, y0, x1, y1, x0, y1], openings: [] }] as unknown as Storey['slabs']
+      return m
+    }
+    const cutsOf = (m: Model) => [...spaceSlabCuts(m)]
+    const a = withSlab()
+    const base = baselineOf(a)
+    const snap = snapshotVerticals(a)
+    expect(cutsOf(a)).toEqual([])
+    moveVertical(a, 'st', [0.5, 0])
+    deleteVertical(a, 'st2')
+    const moved = cutsOf(a)
+    expect(moved.length).toBeGreaterThan(0)
+    expect(verticalEffect(a, 'st2')).toBeNull()
+
+    // 저장 복원: 같은 BIM 에 편집 파일을 얹으면 같은 개구부·면적이고 지운 계단은 그대로 없다.
+    const b = withSlab()
+    applyEdits(b, parseEditFile(JSON.stringify(exportEdits(a, base, 'b.ifc'))) as EditFile)
+    expect(cutsOf(b)).toEqual(moved)
+    expect(verticalEffect(b, 'st2')).toBeNull()
+
+    // 되돌리기 한 번: 개구부·면적이 옮기기 전으로 돌아오고 지운 계단의 영향도 다시 보인다.
+    restore(a, snap)
+    expect(cutsOf(a)).toEqual([])
+    expect(verticalEffect(a, 'st2')).not.toBeNull()
   })
 
   it('층별 임시 저장본에서는 건물 조각에 들고, 이으면 그대로다', () => {
@@ -722,6 +771,43 @@ describe('엘리베이터 정차 층(OE-ML-10)과 로봇 통과(OE-ML-04)', () =
     expect(stops(m)).toEqual([['1F', 'stop'], ['2F', 'stop'], ['3F', 'unknown']])
     expect(passOf(m)).toEqual([['1F', true, 'elevator_stop'], ['2F', true, 'elevator_stop'], ['3F', false, 'elevator_stop_unconfirmed']])
     expect(setVerticalRange(m, 'U_el', '1F', '2F')).toBe(true)
+    expect(stops(m)).toEqual([['1F', 'stop'], ['2F', 'stop']])
+  })
+
+  it('BIM 에 정차 정보(승강장 문)가 없는 승강로와 구간을 넓혀 새로 생긴 층은 둘 다 미확인이라 통과 가능으로 나가지 않고, 정차를 확인해 주면 그때 바뀐다 [OE-ML-10#2]', () => {
+    const m = withElevator()
+    m.storeys[0].spaces.push({ ...space('bimEl', rect(8, 0, 9, 1)), kind: 'elevator_shaft' })
+    const bimEl = () => modelToGeoJSON(m).flatMap((f) => f.collection.features).find((f) => f.id === 'bimEl')!.properties
+    expect(bimEl()).toMatchObject({ passable: false, passableReason: 'elevator_stop_unconfirmed' })
+
+    expect(setVerticalRange(m, 'U_el', '1F', '3F')).toBe(true)
+    expect(passOf(m).at(-1)).toEqual(['3F', false, 'elevator_stop_unconfirmed'])
+    expect(stops(m).at(-1)).toEqual(['3F', 'unknown'])
+    // 확정 정차 목록(정차)에는 미확인 층이 들지 않는다. 사람이 정차를 확인하면 그 층만 바뀐다.
+    expect(passOf(m).filter((x) => x[1]).map((x) => x[0])).toEqual(['1F', '2F'])
+    setElevatorStop(m, 'U_el', '3F', 'stop')
+    expect(passOf(m).at(-1)).toEqual(['3F', true, 'elevator_stop'])
+    expect(bimEl()).toMatchObject({ passable: false, passableReason: 'elevator_stop_unconfirmed' })
+  })
+
+  it('한 번 줄이기에서 ES 는 새 범위 밖 운행을 조정하기 전에는 적용하지 않고, EL 은 빠지는 층을 적용 전에 알리고 적용 뒤 정차 목록에서 뺀다 [OE-ML-08#4]', () => {
+    const m = withElevator()
+    expect(setVerticalRange(m, 'U_el', '1F', '3F')).toBe(true)
+    setElevatorStop(m, 'U_el', '3F', 'stop')
+    const es: Vec2[] = rect(5, 0, 6, 4)
+    expect(createVertical(m, { id: 'U_es', kind: 'escalator', name: 'ES-1', from: '1F', to: '3F' }, new Map([['1F', { footprint: es, entry: [5.5, 0.2] as Vec2 }], ['2F', { footprint: es }], ['3F', { exit: [5.5, 3.8] as Vec2 }]]))).toMatchObject({ id: 'U_es' })
+    setEscalatorDirection(m, 'U_es', 'up')
+
+    // 적용 전: EL 은 빠지는 3F 의 정차를 알리고, 목록은 그대로다.
+    expect(verticalEffect(m, 'U_el', new Set(['3F']))!.stops!.filter((x) => x.gone)).toEqual([{ storeyId: '3F', storey: '3F', stop: 'stop', gone: true }])
+    expect(stops(m)).toEqual([['1F', 'stop'], ['2F', 'stop'], ['3F', 'stop']])
+    // ES 는 3F 에서 끝나던 운행이 새 범위 밖이라, 2F 종료 지점을 받기 전에는 적용하지 않는다.
+    expect(setVerticalRange(m, 'U_es', '1F', '2F')).toEqual({ refused: expect.stringContaining('2F') })
+    expect(escalatorTravel(m, 'U_es')?.to[2]).toBe(9)
+
+    expect(setVerticalRange(m, 'U_es', '1F', '2F', new Map([['2F', { exit: [5.5, 3.8] as Vec2 }]]))).toBe(true)
+    expect(setVerticalRange(m, 'U_el', '1F', '2F')).toBe(true)
+    expect(escalatorTravel(m, 'U_es')?.to[2]).toBe(4.5)
     expect(stops(m)).toEqual([['1F', 'stop'], ['2F', 'stop']])
   })
 

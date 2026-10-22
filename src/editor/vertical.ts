@@ -4,7 +4,7 @@ import type { ElevatorStop, Model, Vec2, Vec3, VerticalKind } from '../lib/model
 import { moveShaftCarrying, planShaftCarry } from '../lib/shaft-carry'
 import { snapAxis } from '../lib/shortcuts'
 import { slabOpenings } from '../lib/slab-opening'
-import { DIRECTION_LABEL, movePart, moveVertical, rotateVertical, setElevatorStop, setEscalatorDirection, setPartPoint, setVerticalHeading, snapHeading, STOP_LABEL, verticalCollisions, verticalHeading, verticalImpact, verticalPivot, wallHeadings } from '../lib/vertical-edit'
+import { DIRECTION_LABEL, movePart, moveVertical, rotateVertical, setElevatorStop, setEscalatorDirection, setPartPoint, setVerticalHeading, snapHeading, STOP_LABEL, verticalCollisions, verticalEffect, verticalHeading, verticalImpact, verticalPivot, wallHeadings } from '../lib/vertical-edit'
 import { LINK_SNAP, linkStatus, relinkShift, unlink, verticalLinks } from '../lib/vertical-link'
 import { findPart, partId, partSpaces, VERTICAL_KIND_LABEL, verticalObjects as verticalObjectsOf } from '../lib/vertical-object'
 import type { RotateHandle } from '../lib/viewer'
@@ -365,6 +365,7 @@ export const verticalWarnings = computed(() => {
 /** 지우기 확인(OE-ML-09). 취소하면 아무것도 바뀌지 않는다. */
 export const verticalDeleteAsk = ref(false)
 export const verticalDeleteImpact = computed(() => (verticalDeleteAsk.value && selectedVertical.value && model.value ? verticalImpact(model.value, selectedVertical.value.object.id) : null))
+export const verticalDeleteEffect = computed(() => (verticalDeleteAsk.value && selectedVertical.value && model.value ? verticalEffect(model.value, selectedVertical.value.object.id) : null))
 /** 이 층 조각만 옮기는 칸(Δx·Δy)과 진입·종료 지점 칸(x·y). 고른 조각이 바뀌면 비운다. */
 export const partShift = ref<[string, string]>(['', ''])
 export function applyPartShift() {

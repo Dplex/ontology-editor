@@ -208,13 +208,15 @@ const multiArea = (m: MultiPolygon) => m.reduce((n, p) => n + ringArea(p[0]) - p
  * 원본 BIM 개구부(`bim` · `open`)는 원본 외곽선이 이미 비워 두어 다시 빼지 않고, 초안(`draft`)·산정 못 함(`unmeasured`)도 빼지 않는다.
  * 그 층 바닥의 확정 개구부를 합집합으로 합친 뒤 물리존 외곽선과 겹친 넓이를 잰다 — 두 샤프트가 겹치면 겹친 자리는 한 번만 빠진다.
  * 손대지 않은 BIM 오브젝트는 `cut` 이 나오지 않아(slabOpenings) 재지 않는다.
+ * `only` 를 주면 그 개구부만 센다 — 오브젝트 하나가 지금 얼마를 빼는지, 구간을 줄이면 얼마가 돌아오는지 미리 볼 때 쓴다(OE-ML-07·08·09 영향 표시).
  */
-export function spaceSlabCuts(model: Pick<Model, 'storeys'>): Map<string, number> {
+export function spaceSlabCuts(model: Pick<Model, 'storeys'>, only?: (objectId: string, storeyId: string) => boolean): Map<string, number> {
   const cuts = new Map<string, Polygon[]>()
   for (const obj of verticalObjects(model)) {
     if (isPristine(obj)) continue
     for (const o of slabOpenings(model, obj)) {
       if (o.state !== 'cut' || !o.footprint || o.footprint.length < 3) continue
+      if (only && !only(o.objectId, o.storeyId)) continue
       cuts.set(o.storeyId, [...(cuts.get(o.storeyId) ?? []), [toRing(o.footprint)]])
     }
   }

@@ -13,6 +13,7 @@
 
 import { distanceToRing, isSelfIntersecting, pointInPolygon } from './mapping'
 import { shaftMembers } from './shaft'
+import { slabOpenings, spaceSlabCuts, type SlabOpeningState } from './slab-opening'
 import { overlapArea } from './polygon'
 import { polygonArea, type ElevatorStop, type Model, type Storey, type Vec2, type Vec3, type VerticalKind, type VerticalPart } from './model'
 import { partId, partSpaces, verticalObjects, type VerticalObject } from './vertical-object'
@@ -378,7 +379,7 @@ export function deleteVertical(model: Pick<Model, 'storeys'>, parentId: string):
   return hit
 }
 
-/** 지우기 전에 보이는 영향(OE-ML-09 "확인 화면에 영향 층·층별 표현·명시 연결·배관 소속"). 개구부·정차/운행은 아직 없는 데이터다. */
+/** 지우기 전에 보이는 영향(OE-ML-09 "확인 화면에 영향 층·층별 표현·명시 연결·배관 소속"). 개구부·면적·정차는 `verticalEffect` 가 따로 잰다. */
 export function verticalImpact(model: Pick<Model, 'storeys'>, parentId: string): {
   storeys: string[]
   parts: number
@@ -398,6 +399,37 @@ export function verticalImpact(model: Pick<Model, 'storeys'>, parentId: string):
   const a = name(first.storey, partSpaces(first.storey, first.part)[0])
   const b = first === last ? null : name(last.storey, partSpaces(last.storey, last.part)[0])
   return { storeys: o.parts.map((p) => p.storey.name), parts: o.parts.length, link: a && b ? { from: a, to: b } : null, pipes: o.kind === 'shaft' ? shaftMembers(model, o.id).length : 0 }
+}
+
+/** 오브젝트 하나가 지금 만드는 슬래브 개구부·물리존 면적·엘리베이터 정차(OE-ML-07 이동 전 · OE-ML-08 구간 줄이기 전 · OE-ML-09 지우기 전 영향). */
+export type VerticalEffect = {
+  /** 층 바닥마다 개구부 판정(시작 층은 없다). `gone` 이면 구간을 바꿔 그 층이 빠질 때 이 판정도 같이 없어진다. */
+  openings: { storeyId: string; storey: string; state: SlabOpeningState; areaM2: number | null; gone: boolean }[]
+  /** 이 오브젝트의 확정 편집 개구부가 물리존에서 지금 빼고 있는 넓이(㎡). `dropped` 를 주면 그 층 몫만이다 — 적용하면 돌아오는 넓이. */
+  spaces: { storey: string; space: string; m2: number }[]
+  /** 엘리베이터의 층별 정차. `gone` 이면 그 층이 빠져 정차 목록에서도 빠진다. 엘리베이터가 아니면 null. */
+  stops: { storeyId: string; storey: string; stop: ElevatorStop; gone: boolean }[] | null
+}
+
+/**
+ * 오브젝트가 지금 뚫고 있는 개구부, 그로 인해 물리존에서 빼고 있는 넓이, 엘리베이터 정차를 보인다. 모델은 건드리지 않는다.
+ * `dropped` 는 구간을 줄여 빠질 층 id 다 — 그 층의 편집 개구부만 사라지고(원본 BIM 개구부는 슬래브에 그대로) 정차도 목록에서 빠진다.
+ * 개구부는 저장하지 않고 지금 형상에서 계산하므로(ADR-0068) 옮기든 줄이든 적용 뒤에 같은 계산이 새 값을 낸다.
+ */
+export function verticalEffect(model: Pick<Model, 'storeys'>, parentId: string, dropped: ReadonlySet<string> = new Set()): VerticalEffect | null {
+  const o = verticalObjects(model).find((x) => x.id === parentId)
+  if (!o) return null
+  const name = new Map(model.storeys.map((s) => [s.id, s.name]))
+  const openings = slabOpenings(model, o).map((x) => ({ storeyId: x.storeyId, storey: name.get(x.storeyId) ?? x.storeyId, state: x.state, areaM2: x.areaM2, gone: dropped.has(x.storeyId) }))
+  const cuts = (storeyId: string) => spaceSlabCuts(model, (id, st) => id === parentId && st === storeyId)
+  const scope = dropped.size ? [...dropped] : o.parts.map((p) => p.storey.id)
+  const spaces = scope.flatMap((id) => {
+    const storey = model.storeys.find((s) => s.id === id)
+    if (!storey) return []
+    return [...cuts(id)].map(([space, m2]) => ({ storey: storey.name, space: storey.spaces.find((s) => s.id === space)?.longName || storey.spaces.find((s) => s.id === space)?.name || space, m2 }))
+  })
+  const stops = o.kind === 'elevator' ? o.parts.map((p) => ({ storeyId: p.storey.id, storey: p.storey.name, stop: p.part.stop ?? 'unknown', gone: dropped.has(p.storey.id) })) : null
+  return { openings, spaces, stops }
 }
 
 /** 형상이 벽과 겹친 넓이(㎡). */
