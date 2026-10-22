@@ -29,6 +29,7 @@
 import { interiorPoint, pointInPolygon } from '../mapping'
 import { isConduit, polygonArea, type HvacEquipment, type HvacZone, type Model, type Storey, type Vec2 } from '../model'
 import { overlapArea, unionRings } from '../polygon'
+import { carryConfirmed } from './confirm'
 import { estimatePlacement, matchLevels, placeRing, storeyHint, type IdfPlacement, type LevelPair } from './place'
 import type { IdfModel } from './read'
 import { trimZonesToRooms } from './trim'
@@ -95,6 +96,8 @@ const OVERLAP_MIN_SHARE = 0.1
 export type IdfAttachOptions = {
   /** 사람이 정한 평면 놓는 법. 없으면 겹친 넓이로 찾는다. */
   placement?: IdfPlacement
+  /** 사람이 확인한 존↔물리존 짝(confirm.ts). 다시 얹어도 같은 짝이 남아 있으면 확인한 채로 둔다. */
+  confirmed?: readonly string[]
 }
 
 export function attachIdf(model: Model, idf: IdfModel, source: string, options: IdfAttachOptions = {}): { model: Model; report: IdfAttachReport } {
@@ -358,7 +361,8 @@ export function attachIdf(model: Model, idf: IdfModel, source: string, options: 
     used.add(hits[0].id)
   }
 
-  m.hvac = { source, zones, equipment, ...(placement ? { placement: { dx: placement.dx, dy: placement.dy, rotation: placement.rotation, source: placement.source, overlap: placement.overlap } } : {}) }
+  const confirmed = carryConfirmed(options.confirmed, zones)
+  m.hvac = { source, zones, equipment, ...(confirmed.length ? { confirmed } : {}), ...(placement ? { placement: { dx: placement.dx, dy: placement.dy, rotation: placement.rotation, source: placement.source, overlap: placement.overlap } } : {}) }
   const report: IdfAttachReport = {
     zones: zones.length,
     zonesOnStoreys,

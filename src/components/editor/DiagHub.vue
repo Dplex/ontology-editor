@@ -4,6 +4,7 @@ import { replayMemo } from '../../lib/replay-player'
 import { systemless } from '../../editor/checks'
 import { vKeepTyping } from '../../editor/edit-filter'
 import { warnings } from '../../editor/open-file'
+import { ruleWarnings, ruleWarningsTotal } from '../../editor/open-many'
 import { failedCheckRules, failedChecksTotal, filteredWarnings, jumpToSection, outlineless, splitWarning, unplaced, warnCounts, warnFilter, warningsCollapsed, warnSearch } from '../../editor/panels'
 </script>
 
@@ -24,6 +25,9 @@ import { failedCheckRules, failedChecksTotal, filteredWarnings, jumpToSection, o
       </button>
       <button v-if="failedChecksTotal > 0" type="button" class="diag-chip warn" title="완전성 검사 위반 항목으로 이동합니다" @click="jumpToSection('.fold.checks')">
         검사 위반 <b>{{ failedChecksTotal.toLocaleString() }}건</b> <small>({{ failedCheckRules.length }}규칙)</small>
+      </button>
+      <button v-if="ruleWarningsTotal > 0" type="button" class="diag-chip warn" title="규칙 경고 목록으로 이동합니다" @click="jumpToSection('.fold.rule-warnings')">
+        규칙 경고 <b>{{ ruleWarningsTotal.toLocaleString() }}건</b> <small>({{ ruleWarnings.length }}규칙)</small>
       </button>
       <button type="button" class="diag-chip ghost-link" title="전체 요구사항 판정표를 봅니다" @click="jumpToSection('.fold.requirements')">
         판정표 →

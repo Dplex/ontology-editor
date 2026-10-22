@@ -77,7 +77,7 @@ async function newProject(page: Page, name: string) {
   await expect(page.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
 }
 
-test('[새 프로젝트]는 이름·사이트·IFC 올리기만 있고, 만들면 초기 구축 에디터가 열린다. 다시 누르면 시작 화면 없이 이전 편집이 보인다. 같은 IFC 로 만든 다른 프로젝트와 섞이지 않는다 [OE-UI-02#1,2,4] [OE-WF-06#1,2] [OE-UI-03#1,5] [OE-UI-01#2]', async ({ page, browser }) => {
+test('[새 프로젝트]는 이름·사이트·IFC 올리기만 있고, 만들면 초기 구축 에디터가 열린다. 다시 누르면 시작 화면 없이 이전 편집이 보인다. 같은 IFC 로 만든 다른 프로젝트와 섞이지 않는다 [OE-UI-02#1,2,4,5] [OE-WF-06#1,2] [OE-UI-03#1,5] [OE-UI-01#2] [OE-WF-02#2] [OE-WF-04#2]', async ({ page, browser }) => {
   test.setTimeout(120_000)
   const errors: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
@@ -85,6 +85,9 @@ test('[새 프로젝트]는 이름·사이트·IFC 올리기만 있고, 만들�
   await page.goto('/')
   const list = page.getByRole('region', { name: '프로젝트' })
   await expect(list).toContainText('프로젝트가 없습니다')
+  // 프로젝트 목록에는 [새 프로젝트] 버튼 하나뿐이고 다른 초기 구축 작업본 생성 경로가 없다(OE-UI-02#5).
+  await expect(list.getByRole('button')).toHaveCount(1)
+  await expect(list.getByRole('button')).toHaveText('새 프로젝트')
   // 사람을 고르기 전에는 못 만들고, 마우스를 올리면 까닭이 보인다(OE-UI-03 AC5).
   const create = list.getByRole('button', { name: '새 프로젝트' })
   await expect(create).toBeDisabled()
@@ -140,6 +143,8 @@ test('[새 프로젝트]는 이름·사이트·IFC 올리기만 있고, 만들�
   await page.getByRole('button', { name: '편집 종료' }).click()
 
   // 주소로 바로 연다(DT 없이 에디터 URL, OE-UI-01 AC2).
+  // 비정상 종료 뒤 다시 들어가면 자동 저장을 반영할지 먼저 묻고, 아니오를 고르면 임시 저장본(7.5)이 열린다(OE-WF-02#2).
+  // 초기 구축 프로젝트에서 층의 임시 저장본을 폐기하면 그 층이 임포트 결과(8.5)로 돌아간다(OE-WF-04#2).
   const direct = await browser.newPage()
   await serve(direct)
   await direct.addInitScript(() => localStorage.setItem('oe.user', '편집자'))
@@ -147,6 +152,18 @@ test('[새 프로젝트]는 이름·사이트·IFC 올리기만 있고, 만들�
   await expect(direct.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
   await expect(direct.getByTestId('edit-kind')).toHaveText('초기 구축')
   await expect.poll(() => lightX(direct)).toBe('7.5')
+  await editLight(direct, '9')
+  await direct.waitForTimeout(800)
+  await direct.reload()
+  await expect(direct.locator('.appbar h2')).toHaveText('mep.ifc', { timeout: 30_000 })
+  await expect(direct.locator('.draft-bar')).toContainText('자동 저장된 내용을 반영하시겠습니까?')
+  await direct.locator('.draft-bar').getByRole('button', { name: '아니오', exact: true }).click()
+  await expect(direct.locator('.draft-bar')).toHaveCount(0)
+  await expect.poll(() => lightX(direct)).toBe('7.5')
+  const infoBar = direct.getByTestId('info-bar')
+  await infoBar.getByRole('button', { name: '임시 저장본 폐기' }).click()
+  await infoBar.getByRole('button', { name: '폐기', exact: true }).click()
+  await expect.poll(() => lightX(direct)).not.toBe('7.5')
   await direct.close()
   expect(errors).toEqual([])
 })

@@ -9,13 +9,13 @@ import { MATCH_KEY_BY } from '../../lib/versions'
 import { selectAndShow } from '../../editor/chat-view'
 import { systemless, whatIs } from '../../editor/checks'
 import { busy, doorLinks, fileName, skipped } from '../../editor/core'
-import { EDIT_LIMIT } from '../../editor/edit-filter'
+import { EDIT_LIMIT, vKeepTyping } from '../../editor/edit-filter'
 import { shortName } from '../../editor/equipment-shape'
 import { equipmentById, ruleReport } from '../../editor/flow-rules'
 import { idfReport } from '../../editor/idf-zones'
 import { connectionSources, proxyDevices } from '../../editor/kinds'
 import { currentRequirements, mergeLines, warnings } from '../../editor/open-file'
-import { justDone } from '../../editor/open-many'
+import { justDone, ruleWarnings, ruleWarningsTotal, siteRules } from '../../editor/open-many'
 import { drawOutlineFromList, failedChecksTotal, outlineless, REQUIREMENT_STATE, requirementGroups, requirementsMeta, unplaced, UNPLACED_SHOWN } from '../../editor/panels'
 import { downloadCustomerReport, downloadIssuesBCF, downloadIssuesCSV, generation, issueItems, issueRows, makeGenerationReport } from '../../editor/reports'
 import { isolateRequirement, itemCount, ITEM_LABEL, ITEMS_SHOWN, openRequirement, openRequirementItems, pulseRequirement, showRequirementItem, toggleRequirement } from '../../editor/requirement-items'
@@ -102,7 +102,34 @@ defineProps({
       <li v-for="line in mergeLines" :key="line">{{ line }}</li>
     </ul>
 
-    <DiagHub v-if="warnings.length || outlineless.length || unplaced.length || systemless.length || failedChecksTotal > 0" />
+    <DiagHub v-if="warnings.length || outlineless.length || unplaced.length || systemless.length || failedChecksTotal > 0 || ruleWarningsTotal > 0" />
+
+    <!-- 규칙 기반 경고(OE-P3-01~04). 미리보기와 같은 사이트 규칙을 편집 중에도 보인다. 막지 않는다. -->
+    <Fold
+      title="규칙 경고"
+      :meta="ruleWarningsTotal ? `규칙 ${ruleWarnings.length}개 · ${ruleWarningsTotal.toLocaleString()}건 — 막지 않습니다` : '위반 없음 — 막지 않습니다'"
+      :default-open="ruleWarningsTotal > 0"
+      class="rule-warnings"
+      data-testid="drawer-rule-warnings"
+    >
+      <p class="hint">
+        사이트별 규칙(W-01~03)을 어긴 물리존입니다. 미리보기와 같으며 반영을 막지 않습니다. 항목을 누르면 그 물리존을 고르고 화면에 맞춥니다.
+      </p>
+      <div class="preview-rules">
+        <label>W-01 최소 면적 <input v-model.number="siteRules.minAreaM2" v-keep-typing type="number" min="0" step="0.5" class="riser-height" aria-label="W-01 최소 면적(㎡)" />㎡</label>
+        <label><input v-model="siteRules.emptySpace" type="checkbox" /> W-02 설비 0개</label>
+        <label><input v-model="siteRules.unmappedSpace" type="checkbox" /> W-03 공조존 미매핑</label>
+      </div>
+      <ul v-if="ruleWarnings.length" class="unplaced-list">
+        <li v-for="w in ruleWarnings" :key="w.rule" :data-rule="w.rule">
+          <b>{{ w.rule }}</b> {{ w.text }}: {{ w.items.length }}개
+          <span v-for="item in w.items" :key="item.id">
+            · <button type="button" class="link" @click="showSpace(item.id)">{{ item.label }}</button>
+          </span>
+        </li>
+      </ul>
+      <p v-else class="muted">규칙을 어긴 물리존이 없습니다.</p>
+    </Fold>
 
     <!-- 미배치 목록(OE-BIM-07). 좌표가 없어 3D 에 없는 설비. 층은 BIM 이 말한 것이고, TTL 에는 그 층까지만 나간다. 놓기는 편집
          팔레트의 미배치 목록에서 한다(OE-EQP-02 — 따로 [3D에서 놓기] 버튼을 두지 않는다). -->

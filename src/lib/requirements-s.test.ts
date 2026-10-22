@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { importIfc, importIfcWithMeshes } from './ifc/import'
 import { readIdf } from './idf/read'
 import { attachIdf } from './idf/attach'
+import { setConfirmed } from './idf/confirm'
 import { addEquipment, baselineOf, moveEquipment, renameSpace } from './edit'
 import { createCustomZone } from './custom-zone'
 import { applyEdits, exportEdits, parseEditFile } from './edit-file'
@@ -121,7 +122,11 @@ describe('S2 — 물리존·설비·공조존이 에디터·DT·Agent 에서 같
 
 describe('S3 — 물리존 ∩ 공조존 교집합 질의 (기하를 문자열로만 저장하면 불가)', () => {
   it('GeoJSON 만 읽어 물리존과 공조존의 겹친 넓이를 구할 수 있고, 그 답이 TTL 의 hasPart 와 맞는다', () => {
-    const x = exportOf(pristine)
+    // 든 방은 사람이 확인해야 나간다(OE-ZON-07). 확인 전에는 hasPart 가 없다.
+    expect(entity(exportOf(pristine), 'Z_1F_OFFICE').parts).toEqual([])
+    const confirmed = structuredClone(pristine)
+    setConfirmed(confirmed, 'Z_1F_OFFICE', true)
+    const x = exportOf(confirmed)
     const ring = (f: ReadFeature) => (f.geometry!.coordinates as number[][][])[0].map((p) => [p[0], p[1]] as Vec2)
     const office = ring(feature(x, OFFICE))
     const share = (zone: string) => overlapArea(office, ring(feature(x, zone)))! / overlapArea(office, office)!

@@ -6,9 +6,9 @@ date: "2026-10-13"
 deciders: []
 prd: ["D14"]
 tickets: ["OE-REQ-05", "OE-BIM-17"]
-criteria: ["OE-REQ-05#1", "OE-REQ-05#2", "OE-REQ-05#3"]
+criteria: ["OE-REQ-05#1", "OE-REQ-05#2", "OE-REQ-05#3", "OE-REQ-05#4"]
 code: ["src/lib/ifc/import.ts", "src/lib/requirements.ts"]
-tests: ["src/lib/requirements.test.ts", "e2e/requirements-report.spec.ts"]
+tests: ["src/lib/requirements.test.ts", "src/lib/requirements-ids.test.ts", "e2e/requirements-report.spec.ts"]
 related: ["ADR-0006"]
 ---
 
@@ -43,6 +43,5 @@ PRD 가 정하지 않았다. 가진 BIM 을 재 보면 칸마다 쓸 수 있는 
 
 ## 결과
 
-- 정본 4.2 표에 R25 를 더했다. IDS 명세는 아직 없다(정본 4장의 "옮기지 못했다" 줄). IDS 는 값이 겹치는지를 검사할 수 없어, 명세를 더해도 겹친 값은
-  보고서만 센다.
+- 정본 4.2 표와 `docs/requirements.ids` 에 R25 를 더했다(정본 4장의 "일부만 옮겼다" 줄). IDS 는 개체별 `Mark` 속성이 있는지를 검사하고, 값이 설비끼리 겹치는지는 보고서가 함께 잰다.
 - 되돌리려면 `requirements.ts` 의 R25 묶음과 `REQUIREMENTS` 의 R25 줄, `import.ts` 의 `marks`·`ifcTagOf` 를 걷는다.

@@ -90,3 +90,22 @@ test('못 찾은 대상이 있으면 [적용] 이 막히고, 틀린 계획은 �
   await expect(box.getByRole('button', { name: '적용' })).toBeDisabled()
   expect(errors).toEqual([])
 })
+
+test('[문서] 칸의 서버 확인이 늦게 실패해도 이미 바꾼 [온톨로지] 칸의 입력을 잠그지 않는다', async ({ page }) => {
+  const errors = await open(page, plan([]))
+  // 창은 처음에 [문서] 칸(/__chat)을 확인한다. 그 실패가 [온톨로지] 로 바꾼 뒤에 닿게 늦춘다 — 느린 실행에서 생기던 순서다.
+  await page.route('**/__chat', async (r) => {
+    await new Promise((done) => setTimeout(done, 600))
+    await r.fulfill({ status: 500, body: 'no' })
+  })
+  const docsCheck = page.waitForResponse('**/__chat')
+  await page.keyboard.press('Alt+Shift+K')
+  const chat = page.locator('#docs-chat')
+  await chat.getByRole('button', { name: '온톨로지' }).click()
+  await docsCheck
+  // 응답을 받은 다음 실패 처리(.catch)가 돌 틈을 준다.
+  await page.waitForTimeout(300)
+  await expect(chat.locator('textarea')).toBeEnabled()
+  await expect(chat).not.toContainText('/__chat 이 없다')
+  expect(errors).toEqual([])
+})
