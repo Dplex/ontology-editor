@@ -1,13 +1,31 @@
 <script setup lang="ts">
 import type { PropType } from 'vue'
 import { ZONE_SERVE_COLOR, ZONE_SERVE_LABEL } from '../../lib/idf/zone-view'
-import { equipmentKind } from '../../lib/kinds'
+import { EQUIPMENT_KINDS, equipmentKind } from '../../lib/kinds'
 import { LAYA_SURE } from '../../lib/laya'
 import { replayOpen } from '../../lib/replay-player'
 import { PICK_COLORS } from '../../lib/viewer'
 import { activeTab, ctxMenu } from '../../editor/context-menu'
 import { canvas, editing, fileName } from '../../editor/core'
-import { acceptAddKind, adding, addKind, addMountHint, addName, addNameInput, addSuggestions, archMode, cancelAddEquipment, selectedElementId } from '../../editor/equipment-edit'
+import {
+  adding,
+  addKind,
+  addMenuActive,
+  addMenuOpen,
+  addMenuPending,
+  addMenuRows,
+  addMenuUnsure,
+  addMountHint,
+  addName,
+  addNameInput,
+  addNameKey,
+  addSuggestions,
+  archMode,
+  chooseAddRow,
+  closeAddMenu,
+  hoverAddRow,
+  selectedElementId,
+} from '../../editor/equipment-edit'
 import { compareError, compareOpen, comparePending, compareReading, compareSelected, compareShown, compareView, selectedElement, selectFromCompare, wallDims } from '../../editor/export-compare'
 import { facadeGroup } from '../../editor/facade'
 import { arrowPalette, flowDraft, hasArrows, selected, selectedId, showRules, tracedRules } from '../../editor/flow-rules'
@@ -200,16 +218,22 @@ defineProps({
     </ul>
 
     <!-- 놓기 전에 이름을 치면 종류 후보(사전 → Laya, ADR-0057). 고른 것만 붙는다 — 안 고르면 종류 미상으로 놓인다.
-         3D 왼쪽 위에 띄운다. 팔레트(왼쪽 아래)에 두면 팔레트가 커져 바닥을 가리고, 바닥을 누른 것이 [천장] 토글에 떨어졌다. -->
+         3D 왼쪽 위에 띄운다. 팔레트(왼쪽 아래)에 두면 팔레트가 커져 바닥을 가리고, 바닥을 누른 것이 [천장] 토글에 떨어졌다.
+         Enter·↓ 는 종류 목록을 연다(combobox, WAI-ARIA APG). 목록의 줄은 mousedown 을 막아 이름 칸이 포커스를 잃지 않는다. -->
     <div v-if="adding?.what === 'equipment'" class="add-name">
       <input
         ref="addNameInput"
         v-model="addName"
         type="text"
+        role="combobox"
         aria-label="새 설비 이름"
-        placeholder="이름(선택) — 치면 종류 후보"
-        @keydown.enter.prevent="acceptAddKind"
-        @keydown.esc.stop.prevent="cancelAddEquipment"
+        aria-autocomplete="list"
+        aria-controls="add-kind-menu"
+        :aria-expanded="addMenuOpen"
+        :aria-activedescendant="addMenuOpen && addMenuActive >= 0 ? addMenuRows[addMenuActive]?.id : undefined"
+        placeholder="이름(선택) — Enter·↓ 종류 목록"
+        @keydown="addNameKey"
+        @blur="closeAddMenu"
       />
       <span v-if="addSuggestions.length" class="add-kinds" role="group" aria-label="새 설비 종류 후보">
         <button
@@ -218,14 +242,33 @@ defineProps({
           type="button"
           :class="['ghost', { on: addKind === s.kind, unsure: s.p !== null && s.p < LAYA_SURE }]"
           :aria-pressed="addKind === s.kind"
-          :title="s.p === null ? '이름 사전이 읽은 종류' : `Laya 가 이름으로 고른 종류 (${Math.round(s.p * 100)}%)`"
+          :title="s.from === 'dict' ? '이름 사전이 읽은 종류' : s.from === 'list' ? '목록에서 고른 종류' : `Laya 가 이름으로 고른 종류 (${Math.round(s.p! * 100)}%)`"
           @click="addKind = addKind === s.kind ? null : s.kind"
         >
           {{ equipmentKind(s.kind)?.label }}
-          <small class="muted">{{ s.p === null ? '사전' : `Laya ${Math.round(s.p * 100)}%` }}</small>
+          <small class="muted">{{ s.from === 'dict' ? '사전' : s.from === 'list' ? '목록' : `Laya ${Math.round(s.p! * 100)}%` }}</small>
         </button>
       </span>
       <small v-if="addMountHint" class="muted">{{ addMountHint }}</small>
+      <ul v-if="addMenuOpen" id="add-kind-menu" class="add-menu" role="listbox" aria-label="새 설비 종류 목록">
+        <li v-if="addMenuPending" class="note muted" role="presentation">Laya 에 묻는 중…</li>
+        <li v-else-if="addMenuUnsure" class="note muted" role="presentation">Laya 가 자신 없습니다. 맞는 종류가 없으면 미상으로 두세요</li>
+        <li
+          v-for="(r, i) in addMenuRows"
+          :id="r.id"
+          :key="r.id"
+          role="option"
+          :aria-selected="i === addMenuActive"
+          :class="{ active: i === addMenuActive, on: !!r.kind && addKind === r.kind, extra: !r.kind }"
+          @mousedown.prevent
+          @mousemove="hoverAddRow(i)"
+          @click="chooseAddRow(r)"
+        >
+          <span>{{ r.kind ? equipmentKind(r.kind)?.label : r.from === 'all' ? `전체 ${EQUIPMENT_KINDS.length}종 보기` : '종류 미상으로 두기' }}</span>
+          <small v-if="r.from === 'dict'" class="muted">사전</small>
+          <small v-else-if="r.from === 'laya'" class="muted">Laya {{ r.p! < 0.01 ? '<1' : Math.round(r.p! * 100) }}%</small>
+        </li>
+      </ul>
     </div>
     <p v-if="editNotice" class="edit-notice" :class="{ 'over-note': keyNote }" role="alert">{{ editNotice }}</p>
     <!-- 경고가 떠 있어도 키로 한 일은 보인다. 남아 있는 경고(소속을 잃은 설비 등)가 뒤이어 막힌 이유("꼭짓점이 셋이라 …")를
