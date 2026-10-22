@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { checklistContext, spaceChecklist, storeyChecklists, type SpaceChecklist } from './space-checklist'
 import { modelToTTL } from './export/ttl'
+import { setConfirmed } from './idf/confirm'
 import type { Connection, Equipment, EquipmentRole, Model, Space } from './model'
 
 const eq = (id: string, kind: string | null, role: EquipmentRole | null, spaceId: string | null, at: [number, number] | null = null, systemId: string | null = 'sys'): Equipment => ({
@@ -92,6 +93,15 @@ describe('방별 체크리스트', () => {
     expect(byKey(z.get('meet')!).zone).toBe('ok')
     expect(byKey(z.get('office')!).zone).toBe('empty')
     expect(byKey(z.get('stair')!).zone).toBe('na')
+  })
+
+  it('IDF 공조존에 든 방은 매칭을 확인해야 공조존이 채움이고, 확인 전에는 나가지 않는다는 까닭을 단 빔이다 [OE-IDF-05#1]', () => {
+    const zone = { id: 'z', name: 'Z1', storeyId: m.storeys[0].id, footprint: [], areaM2: 0, declaredAreaM2: null, spaceIds: ['meet'], source: 'IDF' as const }
+    const idf = { ...m, hvac: { source: 'a.idf', zones: [zone], equipment: [] } } as unknown as Model
+    const before = storeyChecklists(idf.storeys[0], checklistContext(idf)).get('meet')!.items.find((x) => x.key === 'zone')!
+    expect(before).toMatchObject({ state: 'empty', note: 'IDF 공조존 매칭을 확인하기 전이라 온톨로지에 나가지 않습니다' })
+    setConfirmed(idf, 'z', true)
+    expect(byKey(storeyChecklists(idf.storeys[0], checklistContext(idf)).get('meet')!).zone).toBe('ok')
   })
 
   it('외곽선이 없으면 빔이고 경계 근처 판정은 해당 없음이다', () => {

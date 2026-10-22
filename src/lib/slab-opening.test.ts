@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import type { Slab, Storey, Vec2, VerticalPart } from './model'
-import { slabOpenings } from './slab-opening'
+import { modelToGeoJSON } from './export/geojson'
+import { modelToTTL } from './export/ttl'
+import type { Model, Slab, Storey, Vec2, VerticalPart } from './model'
+import { netAreaM2, slabOpenings, spaceSlabCuts } from './slab-opening'
 import { verticalObjects } from './vertical-object'
-import { createVertical, draftVertical, planCreate, planFlight, rotateVertical, setPartVertex, setVerticalRange } from './vertical-edit'
+import { createVertical, deleteVertical, draftVertical, planCreate, planFlight, rotateVertical, setPartVertex, setVerticalRange } from './vertical-edit'
 
 // 슬래브 개구부 판정(OE-ML-03). 층 셋(0m · 3m · 6m)과 2m×2m 샤프트. 슬래브 윗면은 삼각형 둘로 된 사각형이다.
 const square = (x0: number, y0: number, x1: number, y1: number): Vec2[] => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
@@ -188,5 +190,46 @@ describe('만드는 동안의 개구부 미리보기 (OE-ML-06 AC5)', () => {
       const after = slabOpenings(model, verticalObjects(model).find((o) => o.id === 'NEW')!)
       expect(after.map((o) => [o.storeyId, o.state])).toEqual(openings.map((o) => [o.storeyId, o.state]))
     }
+  })
+
+  it('두 개구부가 겹치면 합집합과 물리존의 교차 면적만 한 번 빼고, 원본·초안 개구부는 빼지 않으며, 하나를 지우면 그 편집 개구부 몫만 돌아온다. TTL·GeoJSON 의 넓이가 그 값이다 [OE-ML-03#2~,3~,4] [OE-ML-09#3~]', () => {
+    const sh1 = (fp: Vec2[]): VerticalPart => ({ ...part(fp), parentId: 'SH1', name: '샤프트 1' })
+    const sh2 = (fp: Vec2[]): VerticalPart => ({ ...part(fp), parentId: 'SH2', name: '샤프트 2' })
+    const bimStair = (fp: Vec2[]): VerticalPart => ({ ...part(fp, 'bim'), parentId: 'ST_BIM', kind: 'stair', name: '원본 계단' })
+    const parts = () => [sh1(square(4, 4, 6, 6)), sh2(square(5, 4, 7, 6)), bimStair(square(1, 1, 3, 3))]
+    const room = (id: string, x0: number) => ({ id, name: id, longName: '', footprint: square(x0, 0, x0 + 10, 10), areaM2: 100 })
+    // SH1(4..6, 4..6 = 4㎡)과 SH2(5..7, 4..6 = 4㎡)가 (5..6, 4..6 = 2㎡)에서 겹친다 → 합집합 6㎡.
+    // ST_BIM 은 BIM 개구부(OP_BIM, 1..3, 1..3 = 4㎡) 자리라 원본 외곽선이 이미 비워 둔 것으로 보고 빼지 않는다.
+    const s2 = slab('S2', 3, [0, 0, 10, 10], { id: 'OP_BIM', at: [1, 1, 3, 3] })
+    const model = {
+      schema: 'IFC4',
+      siteName: '',
+      buildingId: 'B',
+      buildingName: '',
+      warnings: [],
+      connections: [],
+      systems: [],
+      storeys: [
+        storey('1F', 0, parts(), [slab('S1', 0, [0, 0, 10, 10])]),
+        // R2B 는 샤프트와 겹치지 않는 옆 방이다.
+        { ...storey('2F', 3, parts(), [s2]), spaces: [room('R2', 0), room('R2B', 10)] },
+        // 3F 는 바닥 슬래브가 없어 초안(draft)이라 빼지 않는다.
+        { ...storey('3F', 6, parts()), spaces: [room('R3', 0)] },
+      ],
+    } as unknown as Model
+    expect([...spaceSlabCuts(model)]).toEqual([['R2', 6]])
+    expect(netAreaM2(model.storeys[1].spaces[0], spaceSlabCuts(model))).toBe(94)
+    // 내보내는 넓이가 뺀 값이다. 외곽선 넓이(Space.areaM2)는 그대로다.
+    expect(modelToTTL(model)).toMatch(/ex:R2 a brick:Room ;[^.]*ex:areaM2 94 \./)
+    expect(modelToTTL(model)).toMatch(/ex:R2B a brick:Room ;[^.]*ex:areaM2 100 \./)
+    const r2 = modelToGeoJSON(model)[1].collection.features.find((f) => f.id === 'R2')!
+    expect(r2.properties).toMatchObject({ areaM2: 94, slabOpeningM2: 6 })
+    expect(modelToGeoJSON(model)[2].collection.features.find((f) => f.id === 'R3')!.properties).not.toHaveProperty('slabOpeningM2')
+    expect(model.storeys[1].spaces[0].areaM2).toBe(100)
+
+    // SH2 만 지우면 SH2 의 편집 개구부 몫만 돌아오고, SH1(4㎡)과 원본 BIM 개구부(OP_BIM)는 그대로다(OE-ML-09 AC3).
+    expect(deleteVertical(model, 'SH2')).toBe(true)
+    expect([...spaceSlabCuts(model)]).toEqual([['R2', 4]])
+    expect(s2.openings.map((o) => o.id)).toEqual(['OP_BIM'])
   })
 })

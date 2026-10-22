@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { coordOf, countByLabel, enterEdit, pickEquipment } from './edit-part'
+import { coordOf, countByLabel, enterEdit, idByName, pickEquipment } from './edit-part'
 
 // 배관 꼭짓점 옮기기(OE-PIP-10). 꺾임 이음쇠(엘보)를 옮기면 양쪽 구간의 엘보 쪽 끝이 따라 늘어나고, 연결 대상과 방향은 그대로다.
 // 설비에 바로 붙은 이음쇠는 배관 끝점이라 옮기지 않는다.
@@ -80,7 +80,11 @@ test('실제 BIM: 배관 구간 끝의 연결 대상을 바꾸면 옛 BIM 포트
   await enterEdit(page)
 
   // 배수관 #582951 은 샤워 #582917 에 BIM 포트로 붙어 있다. 0.7m 옆의 샤워 #582914 로 바꾼다.
+  // 바꾼 끝은 새 대상 자리로 늘어난다. 3D 형상의 가운데로 재서 되돌리면 제자리인지 본다(#737).
   await pick(page, '582951')
+  const pipe = await idByName(page, '582951', false)
+  const center = async () => ((await page.evaluate((x) => (window as any).__viewer.center(x), pipe)) as number[]).map((v) => v.toFixed(2)).join()
+  const pipeAt = await center()
   const box = page.getByTestId('retarget')
   await box.getByLabel('바꿀 끝').selectOption({ label: 'M_Shower Stall - Rectangular #582917 (BIM 포트)' })
   await box.getByLabel('새 대상').selectOption({ label: 'M_Shower Stall - Rectangular #582914 · 0.7m' })
@@ -88,6 +92,7 @@ test('실제 BIM: 배관 구간 끝의 연결 대상을 바꾸면 옛 BIM 포트
   await expect(page.getByTestId('retarget-preview')).toContainText('BIM 포트 연결이라 지우지 않고 해제 보정으로 남깁니다')
   await box.getByRole('button', { name: '바꾸기' }).click()
   await expect(page.getByTestId('last-edit')).toContainText('끝 대상 M_Shower Stall - Rectangular #582917 → M_Shower Stall - Rectangular #582914')
+  await expect.poll(center).not.toBe(pipeAt)
   await expect(page.locator('.picked-sub', { hasText: '해제한 연결' })).toContainText('1')
   // 바꾼 뒤 바꿀 끝 목록에는 새 대상이 있다.
   await expect(box.getByLabel('바꿀 끝').locator('option', { hasText: '#582914' })).toHaveCount(1)
@@ -96,5 +101,6 @@ test('실제 BIM: 배관 구간 끝의 연결 대상을 바꾸면 옛 BIM 포트
   await page.keyboard.press('Control+z')
   await expect(page.locator('.picked-sub', { hasText: '해제한 연결' })).toHaveCount(0)
   await expect(box.getByLabel('바꿀 끝').locator('option', { hasText: '#582917 (BIM 포트)' })).toHaveCount(1)
+  await expect.poll(center).toBe(pipeAt)
   expect(errors).toEqual([])
 })

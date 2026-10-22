@@ -3,6 +3,7 @@
 // 늘 고정이고 고른 것이 바뀌어도 내용이 그대로다. 공간 오브젝트 칸은 목록 대신 벽 · 문 · 창과 추가 오브젝트의 수를 보인다.
 import { computed, ref } from 'vue'
 import { zoneNamesOfEquipment } from '../../lib/custom-zone'
+import { objectChangeState } from '../../editor/changes'
 import { whatIs } from '../../editor/checks'
 import { model } from '../../editor/core'
 import { selectedId } from '../../editor/flow-rules'
@@ -81,6 +82,13 @@ const SYSTEMS_SHOWN = 4
 const kindsAll = ref(false)
 const systemsAll = ref(false)
 const kindChips = computed(() => floorNow.value?.equipment ?? [])
+// 변경 표시(OE-UI-22). 신규 · 변경은 행마다 태그로, 신규 · 변경 · 삭제 개수는 종류 머리에 보인다(파일 전체 기준 — 지운 것은 어느 층이었는지 기준에 없다).
+const TAG_LABEL = { added: '신규', changed: '변경' } as const
+const stateOf = (id: string) => objectChangeState.value.states.get(id)
+const headCounts = computed(() => {
+  const c = objectChangeState.value.counts[floorKind.value === 'objects' ? 'space' : floorKind.value]
+  return floorKind.value !== 'objects' && (c.added || c.changed || c.removed) ? c : null
+})
 const many = computed(() => !shellStorey.value && (model.value?.storeys.length ?? 0) > 1)
 </script>
 
@@ -107,6 +115,9 @@ const many = computed(() => !shellStorey.value && (model.value?.storeys.length ?
         <span>{{ k.label }}</span>
       </button>
     </div>
+    <p v-if="headCounts" class="shell-floor-note change-head" data-testid="change-head" title="연 때(기준)와 견준 개수입니다. 파일 전체 기준입니다.">
+      신규 {{ headCounts.added }} · 변경 {{ headCounts.changed }} · 삭제 {{ headCounts.removed }}
+    </p>
     <p v-if="floorKind === 'space' && spacesWithoutOutline" class="shell-floor-note warn">외곽선 없는 물리존 {{ spacesWithoutOutline }}개 — 3D 에 없고 소속 판정에 쓰이지 않습니다</p>
     <p v-if="floorKind === 'equipment' && unplaced" class="shell-floor-note warn">미배치 {{ unplaced.toLocaleString() }}대 — 레일의 설비 도구에서 놓습니다</p>
 
@@ -149,14 +160,14 @@ const many = computed(() => !shellStorey.value && (model.value?.storeys.length ?
         <template v-if="floorKind === 'space'">
           <li v-for="r in spaceRows.filter((x) => hit(x.name))" :key="r.id">
             <button type="button" :class="{ on: selectedSpaceId === r.id }" @click="pickFromSummary(r.kind, r.id)">
-              <i class="dot space" aria-hidden="true"></i><span class="name" :title="r.name">{{ r.name }}</span><small v-if="many" class="muted">{{ r.storey }}</small><span class="val">{{ r.value }}</span>
+              <i class="dot space" aria-hidden="true"></i><span class="name" :title="r.name">{{ r.name }}</span><small v-if="many" class="muted">{{ r.storey }}</small><span class="val">{{ r.value }}</span><b v-if="stateOf(r.id)" :class="['change-tag', stateOf(r.id)]" :data-testid="`change-tag-${r.id}`">{{ TAG_LABEL[stateOf(r.id)!] }}</b>
             </button>
           </li>
         </template>
         <template v-else-if="floorKind === 'custom'">
           <li v-for="r in customRows.filter((x) => hit(x.name))" :key="r.id">
             <button type="button" :class="{ on: selectedCustomZoneId === r.id }" @click="pickFromSummary('customZone', r.id)">
-              <i class="dot custom" aria-hidden="true"></i><span class="name" :title="r.name">{{ r.name }}</span><small v-if="many" class="muted">{{ r.storey }}</small>
+              <i class="dot custom" aria-hidden="true"></i><span class="name" :title="r.name">{{ r.name }}</span><small v-if="many" class="muted">{{ r.storey }}</small><b v-if="stateOf(r.id)" :class="['change-tag', stateOf(r.id)]">{{ TAG_LABEL[stateOf(r.id)!] }}</b>
             </button>
           </li>
           <li v-if="!customRows.length" class="muted shell-empty">커스텀존이 없습니다. 레일의 [커스텀존] 으로 그립니다.</li>
@@ -164,7 +175,7 @@ const many = computed(() => !shellStorey.value && (model.value?.storeys.length ?
         <template v-else-if="floorKind === 'hvac'">
           <li v-for="r in hvacRows.filter((x) => hit(x.name))" :key="r.id">
             <button type="button" :class="{ on: selectedZone?.zone.id === r.id }" :disabled="!idfZoneIds.has(r.id)" @click="selectZone(r.id)">
-              <i class="dot hvac" aria-hidden="true"></i><span class="name" :title="r.name">{{ r.name }}</span><span class="val">{{ idfZoneIds.has(r.id) ? 'IDF' : '직접' }}</span>
+              <i class="dot hvac" aria-hidden="true"></i><span class="name" :title="r.name">{{ r.name }}</span><span class="val">{{ idfZoneIds.has(r.id) ? 'IDF' : '직접' }}</span><b v-if="stateOf(r.id)" :class="['change-tag', stateOf(r.id)]">{{ TAG_LABEL[stateOf(r.id)!] }}</b>
             </button>
           </li>
           <li v-if="!hvacRows.length" class="muted shell-empty">공조존이 없습니다. IDF 를 덧붙이거나 직접 만듭니다.</li>
@@ -172,7 +183,7 @@ const many = computed(() => !shellStorey.value && (model.value?.storeys.length ?
         <template v-else>
           <li v-for="r in equipRows.slice(0, FLOOR_ROWS_SHOWN)" :key="r.id">
             <button type="button" :class="{ on: selectedId === r.id }" @click="select(r.id)">
-              <i class="dot equip" :class="{ unplaced: !r.placed }" aria-hidden="true"></i><span class="name" :title="r.full">{{ r.name }}</span><span class="val">{{ r.placed ? r.kind : '미배치' }}</span>
+              <i class="dot equip" :class="{ unplaced: !r.placed }" aria-hidden="true"></i><span class="name" :title="r.full">{{ r.name }}</span><span class="val">{{ r.placed ? r.kind : '미배치' }}</span><b v-if="stateOf(r.id)" :class="['change-tag', stateOf(r.id)]" :data-testid="`change-tag-${r.id}`">{{ TAG_LABEL[stateOf(r.id)!] }}</b>
             </button>
           </li>
           <li v-if="equipRows.length > FLOOR_ROWS_SHOWN" class="muted shell-empty">외 {{ (equipRows.length - FLOOR_ROWS_SHOWN).toLocaleString() }}대 — 검색으로 좁힙니다</li>

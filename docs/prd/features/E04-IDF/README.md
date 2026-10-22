@@ -1,6 +1,6 @@
 # E04 초기 구축 — IDF 임포트
 
-PRD #5 · 티켓 15건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-단위)
+PRD #5 · 티켓 16건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-단위)
 
 이 표는 티켓 파일의 머리 필드를 베낀 색인이다. 티켓을 고치면 여기도 고친다(`prd.test.ts` 가 일치를 확인한다).
 
@@ -21,3 +21,4 @@ PRD #5 · 티켓 15건 · [Epic 색인](../../PRD_011.md#3-요구사항--기능-
 | [OE-IDF-13](OE-IDF-13.md) | 출처 구분·재임포트 | R2 | P1 | prd-done |
 | [OE-IDF-14](OE-IDF-14.md) | 플랜트 계통 | R2 | P3 | prd-done |
 | [OE-IDF-15](OE-IDF-15.md) | gbXML 임포트 | R2 | P3 | prd-done |
+| [OE-IDF-16](OE-IDF-16.md) | IDF↔BIM 좌표 정합 | R2 | P1 | prd-review |

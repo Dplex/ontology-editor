@@ -2,6 +2,7 @@ import type { Object3D } from 'three'
 import { computed, ref, shallowRef, triggerRef, watch } from 'vue'
 import { snapshotSpaceObjects } from '../lib/edit'
 import { josa } from '../lib/josa'
+import { spaceSlabCuts } from '../lib/slab-opening'
 import type { Model, Vec2 } from '../lib/model'
 import { snapAxis } from '../lib/shortcuts'
 import { addCustomItem, addSpaceObject, deleteSpaceObject, findSpaceObject, libraryItem, libraryOf, MODEL_MAX_BYTES, moveSpaceObject, renameSpaceObject, resizeSpaceObject } from '../lib/space-object'
@@ -237,6 +238,8 @@ export const selectedSpace = computed(() => {
         space,
         equipment: storey.equipment.filter((e) => e.spaceId === id),
         edited: areaChanges.value.some((c) => c.spaceId === id),
+        // 수직 관통 오브젝트가 뚫은 확정 편집 개구부가 이 물리존에서 빼는 넓이(OE-ML-03). 내보내는 넓이가 이만큼 작다.
+        slabCutM2: spaceSlabCuts(m).get(id) ?? 0,
       }
     }
   }

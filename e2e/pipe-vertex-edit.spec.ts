@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { coordOf, countByLabel, enterEdit, pickEquipment } from './edit-part'
+import { coordOf, countByLabel, enterEdit, idByName, pickEquipment } from './edit-part'
 
 // 배관 꼭짓점 넣기·지우기(OE-PIP-10). mep.ifc 에서 AHU-1(1,1,3.2) → 꺾임 (7,1,3.2) → AT-101-02(7,4,2.7) 로 SA 덕트를 그린 뒤, 구간에 꼭짓점을
 // 넣고 옮겨 꺾고, 꺾임 엘보를 지워 두 구간을 합친다.
@@ -28,6 +28,11 @@ test('구간 가운데에 꼭짓점을 넣어 옮겨 꺾고, 꺾임 엘보를 �
   await expect.poll(rows).toBe(3)
 
   // 첫 구간(SA 덕트 1, (1,1) → (7,1))에 꼭짓점을 넣는다. 넣은 엘보가 골라지고 (4,1) 에 있다.
+  // 3D 형상은 화면 자리(part)와 가운데(center)로 잰다. 되돌리기도 3D 를 다시 그려야 한다(#737).
+  const part = (id: string) => page.evaluate((x) => (window as any).__viewer.part(x), id)
+  const center = async (id: string) => ((await page.evaluate((x) => (window as any).__viewer.center(x), id)) as number[]).map((v) => v.toFixed(2)).join()
+  const duct1 = await idByName(page, 'SA 덕트 1')
+  const duct1At = await center(duct1)
   await pick('SA 덕트 1')
   const vertex = page.getByTestId('pipe-vertex')
   await vertex.getByRole('button', { name: '가운데에 꼭짓점 넣기' }).click()
@@ -49,11 +54,14 @@ test('구간 가운데에 꼭짓점을 넣어 옮겨 꺾고, 꺾임 엘보를 �
     await page.locator('.viewport').screenshot({ path: process.env.SHOT_VERTEX })
   }
 
+  const elbow = await idByName(page, elbowName)
   // 처음 그린 꺾임 엘보((7,1))를 지우면 양쪽 구간이 하나로 합쳐진다.
+  const corner = await idByName(page, 'SA 이음 2')
   await pick('SA 이음 2')
   await page.getByTestId('pipe-vertex').getByRole('button', { name: '꼭짓점 지우기' }).click()
   await expect(page.locator('.key-note')).toContainText('하나로 합쳤습니다')
   await expect.poll(rows).toBe(3)
+  await expect.poll(() => part(corner)).toBeNull()
   // 설비에 붙은 끝 구간은 꼭짓점을 넣을 수 있어도, 이음쇠가 없는 공조기에는 꼭짓점 단추가 없다.
   await pick('AHU-1')
   await expect(page.getByTestId('pipe-vertex')).toHaveCount(0)
@@ -62,8 +70,11 @@ test('구간 가운데에 꼭짓점을 넣어 옮겨 꺾고, 꺾임 엘보를 �
   await page.locator('.appbar h2').click()
   await page.keyboard.press('Control+z')
   await expect.poll(rows).toBe(5)
+  await expect.poll(() => part(corner)).not.toBeNull()
   await page.keyboard.press('Control+z')
   await page.keyboard.press('Control+z')
   await expect.poll(rows).toBe(3)
+  await expect.poll(() => part(elbow)).toBeNull()
+  await expect.poll(() => center(duct1)).toBe(duct1At)
   expect(errors).toEqual([])
 })

@@ -32,7 +32,8 @@ import { warningCode } from '../src/lib/issue-code'
 import { evaluateSuggestions } from '../src/lib/kind-suggest'
 import { verticalConnections, verticalLinks, VERTICAL_KINDS } from '../src/lib/vertical'
 import { verticalObjects } from '../src/lib/vertical-object'
-import { slabOpenings } from '../src/lib/slab-opening'
+import { moveVertical } from '../src/lib/vertical-edit'
+import { slabOpenings, spaceSlabCuts } from '../src/lib/slab-opening'
 import { storeyHeights } from '../src/lib/storey-height'
 import { markStoreyDone, storeyProgress } from '../src/lib/storey-progress'
 import { equipmentKind, isFlowlessKind, resolveEquipmentKind, roomKind } from '../src/lib/kinds'
@@ -3141,6 +3142,18 @@ describe('슬래브 개구부 — 원본 계단은 새로 뚫지 않는다 (OE-M
       const states: Record<string, number> = {}
       for (const o of verticalObjects(model).flatMap((x) => slabOpenings(model, x))) states[o.state] = (states[o.state] ?? 0) + 1
       expect({ slabs: slabs.length, bimOpenings: slabs.reduce((n, s) => n + s.openings.length, 0), states }).toEqual(want)
+      // 확정 개구부가 없으니 내보내는 물리존 넓이는 외곽선 넓이 그대로다(ADR-0068).
+      expect(spaceSlabCuts(model).size).toBe(0)
     }, 900_000)
   }
+  // Duplex 계단 하나를 x -3m 로 옮기면 Level 2 바닥이 확정 개구부(3.45㎡ 중 슬래브가 2.48㎡ 덮음)가 되고, 그 형상과 겹친 두 방만 넓이가 준다.
+  // 형상의 나머지는 방 외곽선 밖(복도·벽 자리)이라 빼지 않는다. e2e/slab-opening.spec.ts 가 같은 이동을 화면에서 본다.
+  it.skipIf(!existsSync(DUPLEX_ARCH))('Duplex: 계단을 슬래브가 덮는 자리로 옮기면 겹친 방(A204 1.63㎡ · A203 0.45㎡)만 넓이가 준다 [OE-ML-03#4]', async () => {
+    const api = new WebIFC.IfcAPI()
+    await api.Init()
+    const model = importIfcWithMeshes(api, new Uint8Array(readFileSync(DUPLEX_ARCH))).model
+    expect(moveVertical(model, verticalObjects(model)[0].id, [-3, 0])).toBe(true)
+    const name = new Map(model.storeys.flatMap((s) => s.spaces.map((x) => [x.id, x.name])))
+    expect(Object.fromEntries([...spaceSlabCuts(model)].map(([id, m]) => [name.get(id), Math.round(m * 100) / 100]))).toEqual({ A204: 1.63, A203: 0.45 })
+  }, 900_000)
 })

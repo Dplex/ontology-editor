@@ -3,7 +3,8 @@ import { type Baseline, diffBaseline } from '../lib/edit'
 import { flowEditLines } from './checks'
 import { releaseLines } from './connections'
 import { model } from './core'
-import { areaLines, report } from './edit-report'
+import { objectChanges } from '../lib/change-state'
+import { areaChangedSpaceIds, areaLines, report } from './edit-report'
 import { confirmations } from './flow-rules'
 import { assignLines, kindEditLines } from './kinds'
 import { roomLines } from './rooms'
@@ -88,4 +89,11 @@ export const sinceOpen = computed(() => {
         systemsRemoved: [],
       }
 })
+/** 오브젝트별 신규·변경 상태와 종류별 개수(OE-UI-22). 목록 태그·머리·선택 오브젝트 배지가 쓴다. */
+export const objectChangeState = computed(() =>
+  objectChanges(sinceOpen.value, {
+    // 외곽선(넓이)과 방 종류는 diffBaseline 이 id 로 내지 않는다. 편집 막대가 세는 `areaLines` · `spaceKindLines` 와 같은 기준으로 고른다.
+    spaces: [...areaChangedSpaceIds.value, ...(model.value?.storeys.flatMap((st) => st.spaces.filter((sp) => sp.kindSource === 'edit').map((sp) => sp.id)) ?? [])],
+  }),
+)
 export const MOVED_NAMES = 5
