@@ -411,7 +411,7 @@ function token(n) {
 
 const FIRST = SAMPLES[1];
 const LABEL_TEXT =
-  "받침판 위에 여섯 칸짜리 계단식 진열대가 있다. 아래 칸부터 차례로 벽으로 둘러싼 방, 설비 상자, 이름표에 묶인 설비, 덕트로 이은 설비, 덕트 위 흐름 화살표가 놓여 있고, 맨 위 칸은 뚜껑으로 덮여 진열대 밖의 IDF·BAS 함에서 케이블을 받는다. 앞쪽 거치대의 파일 토큰을 고르면 오른쪽 레일의 승강기가 그 파일의 가장 높은 등급 칸까지 오르고, 파일이 채운 칸에 불이 들어온다.";
+  "받침판 위에 여섯 단짜리 계단 모형이 있다. 아래 칸부터 차례로 벽으로 둘러싼 방, 설비 상자, 이름표에 묶인 설비, 덕트로 이은 설비, 덕트 위 흐름 화살표가 놓여 있고, 맨 위 칸은 뚜껑으로 덮여 모형 밖의 IDF·BAS 함에서 케이블을 받는다. 앞쪽 거치대의 파일 토큰을 선택하면 오른쪽 레일의 승강기가 그 파일의 가장 높은 등급 칸까지 오르고, 파일이 채운 칸에 불이 들어온다.";
 
 const body = [
   base(),
@@ -601,11 +601,11 @@ function page(theme) {
   const plate = k.plateHtml({
     fig: "Fig 0",
     title: "이 BIM 으로 어디까지 되나",
-    hint: "파일을 골라 등급 보기",
+    hint: "파일을 선택해 등급 보기",
     readout: readoutOf(FIRST),
     keys: KEYS,
     caption: CAPTION,
-    body: `<div class="iso-stage gr-stage" tabindex="0" role="slider" aria-label="등급 진열대. 파일 토큰이나 아래 버튼을 누르거나 화살표 키로 파일을 고르면 승강기가 그 파일의 가장 높은 등급 칸까지 오른다." aria-valuetext="${readoutOf(FIRST)}">${svg}<span class="gr-sr" role="status" aria-live="polite" data-status></span></div>`,
+    body: `<div class="iso-stage gr-stage" tabindex="0" role="slider" aria-label="등급 계단 모형. 파일 토큰이나 아래 버튼을 클릭하거나 화살표 키로 파일을 선택하면 승강기가 그 파일의 가장 높은 등급 칸까지 오른다." aria-valuetext="${readoutOf(FIRST)}">${svg}<span class="gr-sr" role="status" aria-live="polite" data-status></span></div>`,
   });
   const files = `<div class="gr-files" role="group" aria-label="샘플 파일">${SAMPLES.map((s, n) => `<button type="button" aria-pressed="${s === FIRST}">${n + 1} · ${s.name}</button>`).join("")}</div>`;
   const extra = `${files}<p class="gr-note" data-note>${FIRST.note}</p>${tableHtml()}`;

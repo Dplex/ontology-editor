@@ -883,7 +883,7 @@
     </div>
     <p class="lead">온톨로지가 어디까지 자동으로 만들어지는지는 에디터에서의 수작업보다 <b>원본 BIM 파일에 어떤 정보가 담겨 있는지</b>에 따라 먼저 결정됩니다. 에디터는 파일을 불러올 때 데이터 수준을 <b>등급 0~5</b>로 자동 판정합니다. 등급은 아래 단계부터 차례대로 쌓이며, 상위 등급은 하위 등급 충족을 전제로 합니다.</p>
     <div class="why">
-      <span class="why-badge">ANATOMY · 등급 사다리 모형</span>
+      <span class="why-badge">ANATOMY · BIM 등급 단계</span>
       <p><b>등급 사다리</b> · 아래 그림에서 샘플 파일을 선택하면 해당 파일이 몇 등급까지 충족하는지와 그 등급에서 가능한 DT 기능이 표시됩니다. 고객사에 필수로 요구하는 범위는 <b>등급 0·1·2</b>입니다. <code>ifc4Mep</code>처럼 방(공간) 정보가 없는 설비 단독 파일은 흐름(등급 4)까지 도달하더라도 등급 0·2 칸이 비어 있으므로, 건축 파일과 함께 열어야 전체 단계가 채워집니다.</p>
       <iframe src="fig/grade.html" title="등급 사다리 그림" loading="lazy" data-fig="grade"></iframe>
     </div>
@@ -914,8 +914,8 @@
       <li><b>만들기</b>업로드한 파일은 서버에 저장되며, 다음부터는 프로젝트 목록의 [열기]로 이어서 작업할 수 있습니다.</li>
     </ol></div>
     <div class="why">
-      <span class="why-badge">ANATOMY · 건축 + 설비 파일 정합 지그</span>
-      <p><b>왜 건축과 설비 파일을 함께 올리나</b> · 건축 파일(<code>Arch.ifc</code>)에는 방(물리존)·벽·문이 들어 있고, 설비 파일(<code>HVAC.ifc</code>)에는 보일러·공조기·덕트가 들어 있습니다. 두 파일을 함께 올리면 에디터가 층 이름·표고(EL)와 수평 원점을 맞춰 하나로 포갠 뒤, 설비마다 수직 다림추를 내려 어느 방에 속하는지(<code>brick:hasLocation</code>) 자동 계산합니다.</p>
+      <span class="why-badge">ANATOMY · 건축 + 설비 파일 정합</span>
+      <p><b>왜 건축과 설비 파일을 함께 올리나</b> · 건축 파일(<code>Arch.ifc</code>)에는 방(물리존)·벽·문이 들어 있고, 설비 파일(<code>HVAC.ifc</code>)에는 보일러·공조기·덕트가 들어 있습니다. 두 파일을 함께 올리면 에디터가 층 이름·표고(EL)와 수평 원점을 맞춰 하나로 합친 뒤, 설비마다 수평 좌표(x, y)를 물리존 바닥 외곽선과 비교해 어느 방에 속하는지(<code>brick:hasLocation</code>) 자동으로 판정합니다.</p>
       <iframe src="fig/merge.html" title="건축·설비 파일 정합 원리 그림" loading="lazy" data-fig="merge"></iframe>
     </div>
   </section>
@@ -984,8 +984,8 @@
     </div>
     <p class="where"><b>R 번호 안내</b> · 배지 뒤의 <code>R2</code>·<code>R11</code> 등은 고객사 BIM 작성 기준의 요구사항 번호입니다. 같은 패널의 <b>[요구사항]</b> 탭에서 전체 항목별 판정을 확인할 수 있습니다.</p>
     <div class="why">
-      <span class="why-badge">ANATOMY · 바닥 외곽선(Footprint)과 다림추 검수대</span>
-      <p><b>바닥 외곽선이 왜 꼭 필요한가</b> · 물리존(<code>IfcSpace</code>)에 바닥 외곽선 폴리곤이 빠져 있으면 3D 공간이 생성되지 않을 뿐 아니라, 그 방 위에 놓인 설비(FCU 등)의 다림추가 받아 줄 바닥 판을 찾지 못해 <code>소속 없음</code>(층 직속)으로 빠집니다. 아래 모형에서 외곽선 누락 상태와 공간 편집 보정 후의 차이를 눌러 확인해 보세요.</p>
+      <span class="why-badge">ANATOMY · 바닥 외곽선(Footprint)과 소속 판정</span>
+      <p><b>바닥 외곽선이 왜 꼭 필요한가</b> · 물리존(<code>IfcSpace</code>)에 바닥 외곽선 폴리곤이 빠져 있으면 3D 공간이 생성되지 않을 뿐 아니라, 그 방 위에 놓인 설비(FCU 등)의 좌표와 비교할 외곽선이 없어 <code>소속 없음</code>(층 직속)으로 처리됩니다. 아래 모형에서 외곽선 누락 상태와 공간 편집 보정 후의 차이를 눌러 확인해 보세요.</p>
       <iframe src="fig/footprint.html" title="바닥 외곽선 검수대 원리 그림" loading="lazy" data-fig="footprint"></iframe>
     </div>
   </section>
@@ -1013,13 +1013,13 @@
       <li><b>물리존 목록</b>해당 층의 물리존(방) 목록입니다. 이름을 클릭하면 해당 공간이 선택됩니다.</li>
     </ol></div>
     <div class="why">
-      <span class="why-badge">ANATOMY · 3D 시점 ↔ 2D 평면도 단면 슬라이서</span>
+      <span class="why-badge">ANATOMY · 3D 시점과 2D 평면도 단면</span>
       <p><b>3D 시점과 2D 평면도는 어떻게 다른가</b> · 3D 시점은 층간 설비 배치와 수직 배관을 입체로 파악할 때 유리하고, <b>평면도(<kbd>Shift</kbd>+<kbd>V</kbd>)</b>는 선택한 층 높이에 수평 절단면(Section Cut)을 내려 원근 왜곡 없이 방 외곽선과 벽·문 경계를 정밀하게 편집할 때 씁니다.</p>
       <iframe src="fig/viewport.html" title="3D 시점과 2D 평면도 단면 전환 그림" loading="lazy" data-fig="viewport"></iframe>
     </div>
     <div class="why">
       <span class="why-badge">MACHINE · 실제 BIM 3D 랩 · 층과 물리존</span>
-      <p><b>실제 BIM 으로 돌려 보기</b> · Duplex 건축·HVAC·MEP 세 파일을 에디터와 같은 임포터로 읽어 층(IfcBuildingStorey)마다 벌려 세운 모습입니다. 오른쪽 <b>층 고르기</b> 슬라이더로 한 층만 남기면, 그 층 물리존의 바닥 면적을 외곽선에서 다시 잽니다. 아래 버튼 줄의 <b>[자르기]</b>로 잘라 방 구획을 보고, 드래그로 돌려 봅니다.</p>
+      <p><b>실제 BIM 으로 돌려 보기</b> · Duplex 건축·HVAC·MEP 세 파일을 에디터와 같은 임포터로 불러와 층(IfcBuildingStorey)별로 간격을 벌려 표시한 모습입니다. 오른쪽 <b>층 선택</b> 슬라이더로 한 층만 표시하면, 그 층 물리존의 바닥 면적을 외곽선 좌표로 다시 계산합니다. 아래 버튼 줄의 <b>[자르기]</b>로 단면을 열어 방 구획을 확인하고, 드래그해 시점을 돌릴 수 있습니다.</p>
       <iframe class="lab" data-lab="floors" title="층과 물리존 3D 랩" loading="lazy"></iframe>
     </div>
   </section>
@@ -1048,7 +1048,7 @@
       <span class="chip"><i>사람</i>사용자가 에디터에서 직접 지정·수정</span>
     </div>
     <div class="why">
-      <span class="why-badge">ANATOMY · 4채널 출처 우선순위 계전기</span>
+      <span class="why-badge">ANATOMY · 속성 출처 4종과 우선순위</span>
       <p><b>네 가지 출처 중 무엇이 우선하나</b> · 같은 속성이라도 여러 출처가 경합할 때는 <b>사람(수동 편집) &gt; BIM(파일 원본) &gt; 계산·사전(자동 보정)</b> 순서로 채택됩니다. 아래 계전기 모형에서 각 출처 블록을 눌러 어떤 규칙으로 값이 채워지고 TTL에 남는지 확인해 보세요.</p>
       <iframe src="fig/provenance.html" title="속성 출처 우선순위 계전기 그림" loading="lazy" data-fig="provenance"></iframe>
     </div>
@@ -1078,13 +1078,13 @@
     </ol></div>
     <p class="where"><b>어디에 반영되나</b> · 변경된 좌표는 층별 GeoJSON의 설비 점(Point)이 되고, 바뀐 소속은 TTL의 <code>brick:hasLocation</code> 구문이 됩니다. 서버에 저장하기 전까지는 현재 브라우저에 자동 저장됩니다.</p>
     <div class="why">
-      <span class="why-badge">ANATOMY · 설비 소속 판정 갠트리와 허용 거리 다이얼</span>
+      <span class="why-badge">ANATOMY · 설비 소속 판정과 허용 거리</span>
       <p><b>소속 판정 원리</b> · 에디터는 설비 위치의 수평 좌표(x, y)를 같은 층 물리존들의 바닥 외곽선과 비교합니다. 외곽선 안에 포함되면 해당 물리존(겹치면 면적이 가장 작은 물리존), 외곽선 밖이면 허용 거리 안의 가장 가까운 물리존으로 배정하고, 그마저 없으면 '소속 없음'으로 처리합니다. 아래 그림에서 설비를 직접 드래그하거나 다이얼로 허용 거리를 조절해 보세요.</p>
       <iframe src="fig/assign.html" title="설비 소속 판정 그림" loading="lazy" data-fig="assign"></iframe>
     </div>
     <div class="why">
       <span class="why-badge">MACHINE · 실제 BIM 3D 랩 · 소속 판정</span>
-      <p><b>실제 BIM 으로 돌려 보기</b> · 같은 Duplex 에서 기기마다 소속을 판정한 결과입니다. 노란 상자는 소속 물리존을 찾은 기기, 붉은 상자는 못 찾은 기기이고, 큰 숫자는 소속을 찾은 기기 수입니다. 아래 버튼 줄의 <b>[IfcSpace 빼기]</b>를 누르면 물리존 외곽선이 사라져 모든 기기가 '소속 없음'이 됩니다. BIM 에 방(IfcSpace)이 없으면 소속을 정할 수 없다는 뜻입니다.</p>
+      <p><b>실제 BIM 으로 돌려 보기</b> · 같은 Duplex 에서 기기마다 소속을 판정한 결과입니다. 노란 상자는 소속 물리존이 판정된 기기, 붉은 상자는 판정되지 않은 기기이고, 큰 숫자는 소속이 판정된 기기 수입니다. 아래 버튼 줄의 <b>[IfcSpace 빼기]</b>를 누르면 물리존 외곽선이 사라져 모든 기기가 '소속 없음'이 됩니다. BIM 에 방(IfcSpace)이 없으면 소속을 판정할 수 없습니다.</p>
       <iframe class="lab" data-lab="assign" title="설비 소속 판정 3D 랩" loading="lazy"></iframe>
     </div>
   </section>
@@ -1130,7 +1130,7 @@
       <li><b>TTL 블록</b>선택한 "침실 2"가 <code>brick:Room</code> 블록으로 생성되고 <code>rdfs:label "침실 2"</code>가 반영된 모습입니다.</li>
     </ol></div>
     <div class="why">
-      <span class="why-badge">ANATOMY · TTL(의미) + GeoJSON(형상) 공유 ID 커플러</span>
+      <span class="why-badge">ANATOMY · TTL(의미)과 GeoJSON(형상)의 공유 ID</span>
       <p><b>왜 두 파일로 나누어 내보내고 어떻게 다시 만나나</b> · GeoJSON은 층별 2D/3D 기하 좌표(<code>Polygon</code> · <code>Point</code> · <code>LineString</code>)만 담고, Brick TTL은 의미·계층·흐름 관계(<code>brick:hasLocation</code> · <code>brick:feeds</code>)만 담습니다. 아래 커플러 모형에서 객체를 클릭해 동일한 공유 ID 하나로 양쪽 코드가 어떻게 1:1 결합되는지 확인해 보세요.</p>
       <iframe src="fig/dual-export.html" title="TTL과 GeoJSON 공유 ID 커플러 그림" loading="lazy" data-fig="dual-export"></iframe>
     </div>
@@ -1152,13 +1152,13 @@
     </ol></div>
     <p class="where"><b>파일에 따른 차이</b> · Duplex HVAC 파일은 포트 연결의 39%에만 방향이 정의되어 있고, 중간의 양방향(<code>SOURCEANDSINK</code>) 포트에서 경로가 끊겨 기기까지 이어지는 방향이 <code>0/26</code>입니다(3단계 참고). 이처럼 포트 방향이 끊긴 계통은 규칙이 추정한 방향을 검토해 계통 단위로 확정해야 <code>brick:feeds</code>로 출력됩니다.</p>
     <div class="why">
-      <span class="why-badge">ANATOMY · 공조기·VAV·디퓨저 흐름 추적 모형</span>
+      <span class="why-badge">ANATOMY · 공조기·VAV·디퓨저 흐름 방향 추적</span>
       <p><b>흐름 추적이 멈추는 원리</b> · 흐름 추적은 방향이 확인된 연결만 따라갑니다. 아래 그림에서 각 기기를 클릭해 보세요. 볼트로 체결된 플랜지는 <b>BIM 포트 방향 연결</b>이고, 민무늬 슬리브는 <b>형상으로 추정한 연결(방향 미상)</b>입니다.</p>
       <iframe src="fig/flow.html" title="흐름 방향 그림" loading="lazy" data-fig="flow"></iframe>
     </div>
     <div class="why">
       <span class="why-badge">MACHINE · 실제 BIM 3D 랩 · 흐름 방향</span>
-      <p><b>실제 BIM 으로 돌려 보기</b> · 같은 Duplex 의 연결을 따라 흐름 방향으로 입자가 움직입니다. 푸른 입자는 IFC 포트가 말한 방향, 주황 입자는 규칙(계통·설비 종류)으로 정한 방향이고, 회색 선만 있는 곳은 방향을 모르는 연결입니다. 아래 버튼 줄의 <b>[규칙 방향 빼기]</b>를 누르면 BIM 포트가 말한 방향만 남아, 이 파일이 BIM 만으로는 흐름을 얼마나 모르는지 보입니다.</p>
+      <p><b>실제 BIM 으로 돌려 보기</b> · 같은 Duplex 의 연결을 따라 흐름 방향으로 입자가 움직입니다. 푸른 입자는 IFC 포트에 기록된 방향, 주황 입자는 규칙(계통·설비 종류)으로 추정한 방향이고, 회색 선만 있는 곳은 방향이 정해지지 않은 연결입니다. 아래 버튼 줄의 <b>[규칙 방향 빼기]</b>를 누르면 BIM 포트 방향만 남아, 이 파일의 BIM 정보만으로 흐름 방향을 알 수 있는 연결이 얼마나 되는지 확인할 수 있습니다.</p>
       <iframe class="lab" data-lab="flow" title="흐름 방향 3D 랩" loading="lazy"></iframe>
     </div>
   </section>
@@ -1265,7 +1265,7 @@
       <li><b>층 평면</b>층을 선택해 GeoJSON 평면을 확인하고, 객체를 클릭하면 해당 항목의 TTL·GeoJSON 원문을 나란히 비교합니다.</li>
     </ol></div>
     <div class="why">
-      <span class="why-badge">ANATOMY · 5종 정합성 핀 게이트 검수기</span>
+      <span class="why-badge">ANATOMY · 5종 정합성 검사</span>
       <p><b>뷰어의 5가지 검사는 무엇을 확인하나</b> · 내보낸 파일 보기(<code>viewer.html</code>)는 DT 플랫폼 파서와 동일한 규칙으로 ① 폴리곤 닫힘·넓이 ② TTL 미정의 Feature ③ 끊긴 참조(Dangling ID) ④ 소속 어긋남 ⑤ 문이 잇는 공간 유효성 5가지 게이트를 점검합니다. 아래 핀 게이트를 하나씩 눌러 보세요.</p>
       <iframe src="fig/validator.html" title="5종 정합성 게이트 검수기 그림" loading="lazy" data-fig="validator"></iframe>
     </div>
@@ -1297,7 +1297,7 @@
       </tbody>
     </table></div>
     <div class="why">
-      <span class="why-badge">ANATOMY · 4단계 저장 이송 레일과 반영본 스태커</span>
+      <span class="why-badge">ANATOMY · 저장 4단계와 반영본</span>
       <p><b>어디에 저장되고 언제 DT로 나가나</b> · 로컬 자동 저장과 서버 임시 저장은 작업 중인 초안을 보관하는 단계이고, 실제로 DT 플랫폼이 읽는 정식 버전(<code>v1</code>, <code>v2</code>…)은 <b>[구축하기]</b>와 <b>[반영하기]</b>를 실행할 때 서버 볼트 스태커에 적재됩니다.</p>
       <iframe src="fig/versioning.html" title="4단계 저장 및 버전 스태커 그림" loading="lazy" data-fig="versioning"></iframe>
     </div>
@@ -1346,7 +1346,7 @@
       </div>
     </div>
     <div class="why" style="margin-top:0;margin-bottom:1.2rem">
-      <span class="why-badge">ANATOMY · 물리존 · 룸 · 공조존 · 계통 4계층 분해 모형</span>
+      <span class="why-badge">ANATOMY · 물리존 · 룸 · 공조존 · 계통 4계층</span>
       <p><b>헷갈리기 쉬운 공간·설비 용어 한눈에 비교하기</b> · 같은 건물 바닥 위에서도 건축 BIM에서 온 <b>물리존(<code>IfcSpace</code>)</b>, 사람이 에디터에서 나눈 <b>룸(수동 분할)</b>, 에너지 시뮬레이션(IDF)에서 온 <b>공조존(<code>HVAC Zone</code>)</b>, 그리고 공기와 물을 보내는 <b>계통·포트</b>는 서로 다른 층위의 개념입니다. 아래 분해 모형에서 각 계층을 눌러 차이를 비교해 보세요.</p>
       <iframe src="fig/space-hierarchy.html" title="물리존·룸·공조존·계통 4계층 분해 그림" loading="lazy" data-fig="space-hierarchy"></iframe>
     </div>
