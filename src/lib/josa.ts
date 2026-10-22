@@ -1,7 +1,7 @@
 // 이름 뒤에 붙는 조사를 받침에 맞게 고른다. 알림과 리포트는 설비·방 이름을 그대로 끼워 넣어서, 고정된 "을" 이면
 // "OFFICE을", "FCU3 #958283을 지웠습니다" 처럼 틀린다. 영문·숫자는 읽는 소리로 가른다.
 
-type Pair = '을/를' | '이/가' | '은/는' | '과/와'
+type Pair = '을/를' | '이/가' | '은/는' | '과/와' | '으로/로'
 
 /** 끝 글자에 받침이 있나. 모르면(기호로 끝남) null. */
 export function hasBatchim(word: string): boolean | null {
@@ -23,9 +23,23 @@ export function hasBatchim(word: string): boolean | null {
   return null
 }
 
+/** 끝소리가 ㄹ 받침인가(서울·Hall·1·L). '으로/로' 는 ㄹ 받침 뒤에서도 '로' 다. */
+function endsInRieul(word: string): boolean {
+  const w = word.replace(/[\s)\]}"'”’.,:;!?-]+$/u, '')
+  const c = w.at(-1) ?? ''
+  const code = c.charCodeAt(0)
+  if (code >= 0xac00 && code <= 0xd7a3) return (code - 0xac00) % 28 === 8
+  // 일(1)·칠(7)·팔(8)
+  if (/[0-9]/.test(c)) return '178'.includes(c)
+  const letters = w.match(/[A-Za-z]+$/)?.[0]
+  if (!letters) return false
+  return letters.length <= 4 && letters === letters.toUpperCase() ? letters.endsWith('L') : /l$/i.test(letters)
+}
+
 /** 조사만 돌려준다. 받침을 모르면 "을(를)" 처럼 둘 다 적는다. */
 export function josa(word: string, pair: Pair): string {
   const [yes, no] = pair.split('/')
   const b = hasBatchim(word)
+  if (pair === '으로/로' && b && endsInRieul(word)) return no
   return b === null ? `${yes}(${no})` : b ? yes : no
 }

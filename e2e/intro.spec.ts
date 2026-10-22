@@ -52,7 +52,13 @@ test('주소가 #intro 면 인트로가 뜨고, 숫자·판정 기준 없이 건
   await expect(lab.locator('button[data-k="break"]')).toHaveCount(0)
   await expect(lab.locator('.lab-how')).toBeHidden()
 
-  await page.locator('.intro .go').dispatchEvent('click')
+  // 조립이 끝나면 [에디터로] 자리에 들어가기 패널이 뜨고, 오른쪽 제목 칸은 비운다. 이 서버에는 사람 목록이 없어 고를 것 없이 들어간다.
+  const panel = page.getByRole('complementary', { name: '에디터에 들어가기' })
+  await expect(panel).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('.intro .go')).toHaveCount(0)
+  await expect(lab.locator('.lab-side')).toHaveClass(/yield/)
+  await expect(panel).toContainText('사람 목록 없음')
+  await panel.getByRole('button', { name: '에디터 열기' }).click()
   await expect(overlay).toHaveCount(0)
   expect(new URL(page.url()).hash).toBe('')
   // 닫은 뒤 새로고침해도 다시 뜨지 않는다(주소에 #intro 가 없다).
@@ -65,6 +71,35 @@ test('주소가 #intro 면 인트로가 뜨고, 숫자·판정 기준 없이 건
   await page.keyboard.press('Escape')
   await expect(overlay).toHaveCount(0)
   expect(new URL(page.url()).hash).toBe('')
+})
+
+test('들어가기 패널에서 사람을 고르면(↑↓·클릭) API 를 부르지 않고 그 사람으로 에디터에 들어가며, 고르기 전에는 [계속하기] 가 막혀 있다', async ({ page }) => {
+  test.setTimeout(90_000)
+  await serveIntro(page, [{ name: 'tiny', building: 'Tiny', files: scene.files, bakedAt: scene.bakedAt }])
+  await page.route('**/__data/__users', (route) =>
+    route.fulfill({ json: [{ name: '편집자', role: 'admin' }, { name: '관리자', role: 'super_admin' }, { name: '보기 전용', role: 'viewer' }] }),
+  )
+  // 들어갈 때 서버에 보내는 것이 없다. 패널이 뜬 뒤의 /__data 요청을 센다.
+  const calls: string[] = []
+  await page.goto('/#intro')
+  const panel = page.getByRole('complementary', { name: '에디터에 들어가기' })
+  await expect(panel).toBeVisible({ timeout: 60_000 })
+  page.on('request', (r) => r.url().includes('/__data/') && r.method() !== 'GET' && calls.push(r.url()))
+  await expect(panel).toContainText('연결됨')
+  await expect(panel.getByRole('button', { name: '사람을 골라 주세요' })).toBeDisabled()
+  // 아래 화살표는 첫 사람부터, 한 번 더 누르면 다음 사람이다.
+  await panel.press('ArrowDown')
+  await panel.press('ArrowDown')
+  await expect(panel.getByRole('radio', { name: /관리자/ })).toHaveAttribute('aria-checked', 'true')
+  await panel.getByRole('radio', { name: /편집자/ }).click()
+  await expect(panel.getByRole('radio', { name: /편집자/ })).toHaveAttribute('aria-checked', 'true')
+  // 이름 뒤 조사는 받침에 맞춘다(편집자로 · 보기 전용으로).
+  await expect(panel.getByRole('button', { name: '편집자로 계속하기' })).toBeEnabled()
+  await panel.press('Enter')
+  await expect(page.locator('.intro')).toHaveCount(0)
+  expect(calls).toEqual([])
+  // 고른 사람은 에디터의 사용자 칸과 같은 값(oe.user)이다. 사용자 칸은 프로젝트 서버가 있을 때만 보여, 여기서는 남은 값으로 본다.
+  expect(await page.evaluate(() => localStorage.getItem('oe.user'))).toBe('편집자')
 })
 
 test('구운 장면이 없으면 #intro 여도 인트로가 없고 링크도 없다', async ({ page }) => {

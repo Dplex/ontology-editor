@@ -1,15 +1,29 @@
 <script setup lang="ts">
 // 첫 화면 인트로를 창 전체에 띄운다(src/editor/intro.ts). 그림은 iframe 안의 public/intro/ 가 그린다 — kit 이 창 전체를 쓰는
 // 한 장짜리 페이지라 앱 화면과 섞지 않는다. 주소가 #intro 일 때만 뜨고, [에디터로] 를 누르거나 Esc 로 닫으면 주소도 / 로 돌아간다.
-import { onBeforeUnmount, onMounted } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { closeIntro, introOpen, introScene, loadIntro } from '../editor/intro'
+import IntroSignIn, { type IntroMeta } from './IntroSignIn.vue'
+
+// 조립이 끝났다는 신호를 받으면 오른쪽에 들어가기 패널을 띄우고, iframe 에 오른쪽 제목 칸을 비우라고 알린다.
+const frame = ref<HTMLIFrameElement | null>(null)
+const meta = ref<IntroMeta | null>(null)
+watch(introOpen, (on) => {
+  if (!on) meta.value = null
+})
 
 function onKey(e: KeyboardEvent) {
   if (e.key === 'Escape' && introOpen.value) closeIntro()
 }
 // 장면을 못 읽으면 페이지가 알려 준다. 빈 화면을 덮어 두지 않고 닫는다.
 function onMessage(e: MessageEvent) {
+  if (e.source !== frame.value?.contentWindow) return
   if (e.data?.intro === 'empty') closeIntro()
+  if (e.data?.intro === 'assembled') {
+    const { title, files, place } = e.data
+    meta.value = { title: String(title ?? ''), files: Array.isArray(files) ? files.map(String) : [], place: place ?? null }
+    frame.value?.contentWindow?.postMessage({ intro: 'panel', on: true }, '*')
+  }
 }
 onMounted(() => {
   loadIntro()
@@ -24,8 +38,9 @@ onBeforeUnmount(() => {
 
 <template>
   <div v-if="introOpen && introScene" class="intro" role="dialog" aria-label="인트로">
-    <iframe :src="`./intro/index.html?name=${encodeURIComponent(introScene)}`" title="BIM 에서 DT 온톨로지로" />
-    <button type="button" class="go" @click="closeIntro">에디터로 <kbd>Esc</kbd></button>
+    <iframe ref="frame" :src="`./intro/index.html?name=${encodeURIComponent(introScene)}`" title="BIM 에서 DT 온톨로지로" />
+    <button v-if="!meta" type="button" class="go" @click="closeIntro">에디터로 <kbd>Esc</kbd></button>
+    <IntroSignIn v-else :meta="meta" @enter="closeIntro" />
   </div>
 </template>
 

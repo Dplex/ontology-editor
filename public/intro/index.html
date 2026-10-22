@@ -32,6 +32,9 @@
   .lab-title { font-size: clamp(30px, 3.2vw, 60px) }
   /* 조립하는 동안 "14,683 of 14,683 parts" 가 옆 칸을 넘는다. kit 은 그대로 두고 크기만 줄인다. */
   .lab-big { font-size: clamp(52px, 5.6vw, 108px) }
+  /* 첫 화면에서 들어가기 패널이 뜨면 오른쪽 제목 칸을 비운다. */
+  .lab-side { transition: opacity .5s ease, transform .5s ease }
+  .lab-side.yield { opacity: 0; transform: translate(16px, -50%); pointer-events: none }
 </style>
 </head>
 <body>
@@ -457,6 +460,17 @@ if (pro) {
 if (sceneFile && FOCUS !== 'floors') lab.toggle('xray', true)
 if (FOCUS === 'floors') { lab.toggle('explode', true); lab.toggle('labels', true) }
 parent?.postMessage?.({ intro: 'ready', name: S.name }, '*')
+// 첫 화면(#intro)은 조립이 끝나면 부모(IntroOverlay)에 알려 오른쪽에 들어가기 패널을 띄운다. 패널이 오른쪽 제목 자리를 이어받아 제목은 걷는다.
+if (!LAB) {
+  addEventListener('message', (e) => { if (e.data?.intro === 'panel') lab.$('.lab-side').classList.toggle('yield', !!e.data.on) })
+  // kit 의 start() 는 0.5초 뒤부터 2.6초 동안 조립한다(lab-kit.js). 다 선 뒤에 알린다.
+  setTimeout(() => parent?.postMessage?.({
+    intro: 'assembled',
+    title: S.title ?? S.building,
+    files: S.files,
+    place: city ? { name: city.heroName, origin: city.origin } : null,
+  }, '*'), 3300)
+}
 </script>
 </body>
 </html>
