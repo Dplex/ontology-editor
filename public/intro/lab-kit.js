@@ -1022,9 +1022,13 @@ export class Lab {
     // spread labels vertically per side so they never overlap
     for (const side of ['left', 'right']) {
       const list = items.filter((i) => i.side === side).sort((a, b) => a.y - b.y)
-      const gap = Math.max(34, H * 0.045)
+      // labels pushed below the bottom edge are pushed back up; with too many to fit, the gap shrinks to fit the height
+      const pad = 24
+      const gap = Math.min(Math.max(34, H * 0.045), (H - 2 * pad) / Math.max(1, list.length - 1))
       let last = -1e9
       for (const it of list) { it.ly = Math.max(it.y, last + gap); last = it.ly }
+      let next = H - pad + gap
+      for (const it of list.toReversed()) { it.ly = Math.min(it.ly, next - gap); next = it.ly }
       const xs = side === 'left' ? Math.min(...list.map((i) => i.x)) - W * 0.06 : Math.max(...list.map((i) => i.x)) + W * 0.06
       for (const it of list) it.lx = clamp(xs, W * 0.05, W * 0.7)
     }

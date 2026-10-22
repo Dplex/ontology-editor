@@ -31,10 +31,10 @@ async function serveIntro(page: Page, list: object[]) {
   })
 }
 
-test('주소가 #intro 면 인트로가 뜨고, 숫자·판정 기준 없이 건물만 선다. 닫으면 주소가 / 로 돌아가고, 첫 화면의 [인트로 보기] 로 다시 연다', async ({ page }) => {
+test('주소가 #intro 면 인트로가 뜨고, 큰 숫자·판정 기준 없이 건물만 서고 [층 정보] 는 층별 개수만 단다. 닫으면 주소가 / 로 돌아가고, 첫 화면의 [인트로 보기] 로 다시 연다', async ({ page }) => {
   // 소프트웨어 GL 에서는 kit 의 후처리가 무거워 조립 연출이 늦게 끝난다. 손을 놓으면 그리지 않게 한 뒤로(public/intro/index.html 의 "부하")
-  // 혼자 13초, 병렬에서도 1분 안이다.
-  test.setTimeout(90_000)
+  // 혼자 13초다. 병렬(e2e 전체)에서는 [층 정보]·들어가기 패널까지 보면 1분 반을 넘겨(2026-10-22, 1.7분) 넉넉히 둔다.
+  test.setTimeout(180_000)
   await serveIntro(page, [{ name: 'tiny', building: 'Tiny', files: scene.files, bakedAt: scene.bakedAt }])
   // 그냥 / 로 들어오면 에디터 첫 화면이다.
   await page.goto('/')
@@ -51,8 +51,19 @@ test('주소가 #intro 면 인트로가 뜨고, 숫자·판정 기준 없이 건
   await expect(lab.locator('.lab-big')).toHaveCount(0)
   await expect(lab.locator('button[data-k="break"]')).toHaveCount(0)
   await expect(lab.locator('.lab-how')).toBeHidden()
+  // [층 정보] 를 켜면 층마다 무엇이 몇 개 들었나만 단다. 판정 결과(소속된 기기 몇 대)는 없고, 0 인 것은 빠진다.
+  await lab.getByRole('button', { name: /층 정보/ }).click()
+  await expect(lab.locator('.lab-lab', { hasText: '1F' }).locator('small')).toHaveText('물리존 1 · 설비 2 · 관로 1')
+  await expect(lab.locator('.lab-lab', { hasText: '2F' }).locator('small')).toHaveText('물리존 1 · 설비 1')
 
-  await page.locator('.intro .go').dispatchEvent('click')
+  // 조립이 끝나면 들어가기 패널이 뜨고, 오른쪽 제목 칸은 패널 바로 아래로 옮긴다. 이 서버에는 사람 목록이 없어 고를 것 없이 들어간다.
+  const panel = page.getByRole('complementary', { name: '에디터에 들어가기' })
+  await expect(panel).toBeVisible({ timeout: 30_000 })
+  await expect(lab.locator('.lab-side')).toHaveClass(/below/)
+  const [p, t] = [await panel.boundingBox(), await lab.locator('.lab-side').boundingBox()]
+  expect(t!.y).toBeGreaterThan(p!.y + p!.height)
+  await expect(panel).toContainText('사람 목록 없음')
+  await panel.getByRole('button', { name: '에디터 열기' }).click()
   await expect(overlay).toHaveCount(0)
   expect(new URL(page.url()).hash).toBe('')
   // 닫은 뒤 새로고침해도 다시 뜨지 않는다(주소에 #intro 가 없다).
@@ -65,6 +76,35 @@ test('주소가 #intro 면 인트로가 뜨고, 숫자·판정 기준 없이 건
   await page.keyboard.press('Escape')
   await expect(overlay).toHaveCount(0)
   expect(new URL(page.url()).hash).toBe('')
+})
+
+test('들어가기 패널에서 사람을 고르면(↑↓·클릭) API 를 부르지 않고 그 사람으로 에디터에 들어가며, 고르기 전에는 [계속하기] 가 막혀 있다', async ({ page }) => {
+  test.setTimeout(90_000)
+  await serveIntro(page, [{ name: 'tiny', building: 'Tiny', files: scene.files, bakedAt: scene.bakedAt }])
+  await page.route('**/__data/__users', (route) =>
+    route.fulfill({ json: [{ name: '편집자', role: 'admin' }, { name: '관리자', role: 'super_admin' }, { name: '보기 전용', role: 'viewer' }] }),
+  )
+  // 들어갈 때 서버에 보내는 것이 없다. 패널이 뜬 뒤의 /__data 요청을 센다.
+  const calls: string[] = []
+  await page.goto('/#intro')
+  const panel = page.getByRole('complementary', { name: '에디터에 들어가기' })
+  await expect(panel).toBeVisible({ timeout: 60_000 })
+  page.on('request', (r) => r.url().includes('/__data/') && r.method() !== 'GET' && calls.push(r.url()))
+  await expect(panel).toContainText('연결됨')
+  await expect(panel.getByRole('button', { name: '사람을 골라 주세요' })).toBeDisabled()
+  // 아래 화살표는 첫 사람부터, 한 번 더 누르면 다음 사람이다.
+  await panel.press('ArrowDown')
+  await panel.press('ArrowDown')
+  await expect(panel.getByRole('radio', { name: /관리자/ })).toHaveAttribute('aria-checked', 'true')
+  await panel.getByRole('radio', { name: /편집자/ }).click()
+  await expect(panel.getByRole('radio', { name: /편집자/ })).toHaveAttribute('aria-checked', 'true')
+  // 이름 뒤 조사는 받침에 맞춘다(편집자로 · 보기 전용으로).
+  await expect(panel.getByRole('button', { name: '편집자로 계속하기' })).toBeEnabled()
+  await panel.press('Enter')
+  await expect(page.locator('.intro')).toHaveCount(0)
+  expect(calls).toEqual([])
+  // 고른 사람은 에디터의 사용자 칸과 같은 값(oe.user)이다. 사용자 칸은 프로젝트 서버가 있을 때만 보여, 여기서는 남은 값으로 본다.
+  expect(await page.evaluate(() => localStorage.getItem('oe.user'))).toBe('편집자')
 })
 
 test('구운 장면이 없으면 #intro 여도 인트로가 없고 링크도 없다', async ({ page }) => {

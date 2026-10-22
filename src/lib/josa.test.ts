@@ -17,4 +17,17 @@ describe('josa — 이름 뒤 조사', () => {
     expect(josa('(A)', '을/를')).toBe('를')
     expect(josa('#', '을/를')).toBe('을(를)')
   })
+
+  it("'으로/로' 는 받침이 없거나 ㄹ 받침이면 '로' 다", () => {
+    expect(josa('편집자', '으로/로')).toBe('로')
+    expect(josa('보기 전용', '으로/로')).toBe('으로')
+    expect(josa('서울', '으로/로')).toBe('로')
+    expect(josa('Hall', '으로/로')).toBe('로')
+    expect(josa('Room', '으로/로')).toBe('으로')
+    expect(josa('AHU', '으로/로')).toBe('로')
+    expect(josa('L', '으로/로')).toBe('로')
+    expect(josa('7', '으로/로')).toBe('로')
+    expect(josa('3', '으로/로')).toBe('으로')
+    expect(josa('#', '으로/로')).toBe('으로(로)')
+  })
 })

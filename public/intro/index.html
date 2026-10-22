@@ -9,7 +9,7 @@
   화면의 틀(스튜디오·조립·Explode·Cut·X-ray·Labels·큰 숫자)은 machine-skill 의 kit(lab-kit.js, MIT, LICENSE-lab-kit)을 고치지 않고 쓴다.
   three 는 CDN 대신 scripts/sync-three.mjs 가 옮긴 ./three/ 에서 받는다 — 사내망 브라우저는 jsDelivr 에 못 닿는다.
   숫자는 전부 장면 JSON 에서 센다. 장면이 없으면 아무것도 그리지 않고 그렇다고 적는다.
-  첫 화면(#intro)은 건물이 서는 것만 보인다. 큰 숫자·층 슬라이더·[IfcSpace 빼기]·"산출 기준" 같은 수치와 판정 기준은 가이드의 랩(?scene=)에만 띄운다.
+  첫 화면(#intro)은 건물이 서는 것만 보인다. [층 정보] 를 켜면 층마다 물리존·설비·관로 개수만 단다. 큰 숫자·층 슬라이더·[IfcSpace 빼기]·"산출 기준" 같은 수치와 판정 기준은 가이드의 랩(?scene=)에만 띄운다.
   장면 이름과 같은 동네 지도(city/<이름>.json, scripts/intro-city.mjs)가 있으면 그 앞에 앞머리(prologue.js)를 붙인다:
   "Ontology-Editor" → 한강 위에서 본 동네 → 건물까지 비행 → 스캔선 → 이 페이지의 층 조립. ?prologue=0 이면 건너뛴다.
 
@@ -32,6 +32,11 @@
   .lab-title { font-size: clamp(30px, 3.2vw, 60px) }
   /* 조립하는 동안 "14,683 of 14,683 parts" 가 옆 칸을 넘는다. kit 은 그대로 두고 크기만 줄인다. */
   .lab-big { font-size: clamp(52px, 5.6vw, 108px) }
+  /* 첫 화면에서 들어가기 패널이 뜨면 오른쪽 제목 칸을 패널 바로 아래로 옮긴다(자리는 부모가 재서 알려 준다). 옮기는 동안은 감췄다가 새 자리에서 띄운다. */
+  .lab-side { transition: opacity .45s ease }
+  .lab-side.moving { opacity: 0 }
+  .lab-side.below { transform: none }
+  .lab-side.below .lab-title { font-size: clamp(26px, 2.3vw, 40px) }
 </style>
 </head>
 <body>
@@ -210,6 +215,7 @@ const floors = storeys.map((s, i) => {
       streams.push({ k, f: lab.flow({ paths: p.map((pts) => pts.map((v) => v.toArray())), parent: inner, count: Math.min(4000, p.length * 6), length: 0.5, speed: 0.5, segments: 10, seed: i * 3 + k + 1, color: () => c }) })
     })
   }
+  const tally = [['물리존', s.spaces.length], ['설비', s.devices.length], ['관로', s.conduits.length]].filter(([, n]) => n).map(([k, n]) => `${k} ${n.toLocaleString('ko-KR')}`).join(' · ')
   const area = s.spaces.reduce((n, p) => n + Math.abs(p.ring.reduce((a, [x, yy], k) => { const [x2, y2] = p.ring[(k + 1) % p.ring.length]; return a + x * y2 - x2 * yy }, 0)) / 2, 0)
   lab.add(part, {
     name: s.name,
@@ -218,7 +224,8 @@ const floors = storeys.map((s, i) => {
     count: s.spaces.length + s.walls.length + s.devices.length + s.conduits.length,
     label: s.spaces.length ? s.name : undefined,
     at: anchor(s, y),
-    value: LAB ? () => `물리존 ${s.spaces.length} · 기기 ${located}/${s.devices.length}` : undefined,
+    // 첫 화면은 그 층에 무엇이 몇 개 들었나만 센다(판정 결과인 located 는 가이드의 랩 몫). 0 인 것은 뺀다.
+    value: LAB ? () => `물리존 ${s.spaces.length} · 기기 ${located}/${s.devices.length}` : () => tally,
     // 왼쪽 라벨은 건물 위에 겹친다. 전부 오른쪽 여백에 세운다.
     side: 'right',
   })
@@ -432,7 +439,7 @@ if (pro) {
 // kit 의 버튼은 기계 랩 기준이다. Pause·Slow 는 돌던 기계를 멈추고 늦추는 것이라, 움직이는 것이 없는 건물에서는 눌러도 아무 일이 없다.
 // 흐름 랩만 입자를 멈추는 뜻이 있어 남긴다. 이름은 우리말로 바꾼다(kit 은 그대로 두고 버튼 글자만 갈아 쓴다).
 {
-  const NAME = { explode: '펼치기', cut: '자르기', xray: '투시', labels: '이름표' }
+  const NAME = { explode: '펼치기', cut: '자르기', xray: '투시', labels: '층 정보' }
   for (const b of lab.ui.querySelectorAll('.lab-modes button')) {
     const k = b.dataset.k
     if (k === 'slow' || (k === 'run' && FOCUS !== 'flow')) b.remove()
@@ -453,10 +460,39 @@ if (pro) {
     if (!document.querySelector('.pro') && (k === 's' || (k === ' ' && FOCUS !== 'flow'))) e.stopImmediatePropagation()
   }, true)
 }
-// 가이드의 랩은 볼 것이 보이는 상태로 시작한다. 소속·흐름은 벽을 유리로(X-ray) 바꿔 안의 기기·입자를 보이고, 층은 벌려 이름표를 단다.
+// 가이드의 랩은 볼 것이 보이는 상태로 시작한다. 소속·흐름은 벽을 유리로(X-ray) 바꿔 안의 기기·입자를 보이고, 층은 벌려 층 정보를 단다.
 if (sceneFile && FOCUS !== 'floors') lab.toggle('xray', true)
 if (FOCUS === 'floors') { lab.toggle('explode', true); lab.toggle('labels', true) }
 parent?.postMessage?.({ intro: 'ready', name: S.name }, '*')
+// 첫 화면(#intro)은 조립이 끝나면 부모(IntroOverlay)에 알려 오른쪽에 들어가기 패널을 띄운다. 패널이 오른쪽 제목 자리를 이어받아 제목은 걷는다.
+if (!LAB) {
+  const side = lab.$('.lab-side')
+  let moved = 0
+  addEventListener('message', (e) => {
+    const box = e.data?.intro === 'panel' ? e.data.box : null
+    if (!box) return
+    const place = () => {
+      side.classList.add('below')
+      Object.assign(side.style, { top: `${box.bottom + 22}px`, right: `${box.right}px`, width: `${box.width}px` })
+      // 노트북처럼 낮은 화면에서는 남은 높이에 들어갈 때까지 제목 글자를 줄인다(18px 까지).
+      const t = side.querySelector('.lab-title')
+      t.style.fontSize = ''
+      for (let px = parseFloat(getComputedStyle(t).fontSize); side.getBoundingClientRect().bottom > innerHeight - 16 && px > 18; px -= 2) t.style.fontSize = `${px - 2}px`
+      side.classList.remove('moving')
+    }
+    // 처음 한 번만 감췄다 옮긴다. 그다음(창 크기 바뀜)은 바로 따라간다.
+    if (moved++) return place()
+    side.classList.add('moving')
+    setTimeout(place, 450)
+  })
+  // kit 의 start() 는 0.5초 뒤부터 2.6초 동안 조립한다(lab-kit.js). 다 선 뒤에 알린다.
+  setTimeout(() => parent?.postMessage?.({
+    intro: 'assembled',
+    title: S.title ?? S.building,
+    files: S.files,
+    place: city ? { name: city.heroName, origin: city.origin } : null,
+  }, '*'), 3300)
+}
 </script>
 </body>
 </html>
