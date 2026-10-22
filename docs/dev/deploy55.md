@@ -129,10 +129,10 @@ PRD·티켓·ADR·`intent.md` 를 읽고 답하는 개발용 부속이다. 지�
 `scripts/laya/serve.py` 로 넘긴다(`scripts/laya-proxy.mjs`). 55 는 GPU 드라이버가 없어서 133 에 둔다.
 
 - 55 의 `.env` 에 `LAYA_URL=http://10.251.30.209:8096` 을 두면 켜진다. 없거나 서버가 안 받으면 `enabled:false` 와 까닭을 주고 Laya 줄이 안 보인다.
-  서버를 133(`10.251.31.133`)에서 `10.251.30.209` 로 옮겼다(2026-10-21). 133 은 더 답하지 않는다. 새 서버는 `GET /health` 가 `out-all2/final`·라벨 39개로 답하고
+  서버를 133(`10.251.31.133`)에서 `10.251.30.209` 로 옮겼다(2026-10-21). 133 은 더 답하지 않는다. 새 서버는 `GET /health` 가 `out-ko3/final`·라벨 39개로 답하고
   `POST /kinds` 가 스모크 감지기·팬을 맞게 분류하는 것까지 확인했다. 아래 133 에 관한 줄(ssh 별칭·`start.sh`·crontab·llama-server)은 옮기기 전 기록이라 새 서버에서는 확인하지 않았다.
   dev 도 같다 — `LAYA_URL=… npm run dev`.
-- 133 에서: `~/laya/run/start.sh`(체크포인트 `~/laya/run/out-all2/final`, 133 이 켜지면 crontab `@reboot` 가 부른다). venv 는 `~/laya/.venv`
+- 133 에서: `~/laya/run/start.sh`(체크포인트 `~/laya/run/out-ko3/final`, 133 이 켜지면 crontab `@reboot` 가 부른다). venv 는 `~/laya/.venv`
   (torch cu128 — 5090 은 CUDA 12.8 이상 판이 필요하다, `laya[serve]`).
 - 다시 배우는 법은 `scripts/laya/train.py` 머리말. 재료는 개발 PC 에서 `npx vitest run --config scripts/laya/vitest.config.ts` 로 뽑아(`data/laya/`) 옮긴다.
 - 133 에는 llama-server(Qwen 27B, 8085)가 있었고 VRAM 을 27GB 잡았다. Laya 추론만이면 1.5GB 라 같이 돈다. 학습할 때 내렸다(2026-10-13) —

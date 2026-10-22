@@ -1,6 +1,6 @@
 """Laya 종류 후보 서버. 133(RTX 5090)에서 돈다(ADR-0057).
 
-    LAYA_CKPT=~/laya/run/out-all2/final LAYA_PORT=8096 python serve.py
+    LAYA_CKPT=~/laya/run/out-ko3/final LAYA_PORT=8096 python serve.py
 
 앱(8084 의 scripts/serve.mjs, dev 의 vite)이 /__laya/kinds 를 여기로 넘긴다. 받는 것은 단서 글뿐이고
 (src/lib/family-clues.ts 의 clueText), 질문(지시문·라벨)은 이 서버가 정한다 — 학습할 때와 같은 질문이어야 해서
@@ -20,7 +20,7 @@ from pydantic import BaseModel
 import laya
 from train import question
 
-CKPT = os.path.expanduser(os.environ.get("LAYA_CKPT", "~/laya/run/out-all2/final"))
+CKPT = os.path.expanduser(os.environ.get("LAYA_CKPT", "~/laya/run/out-ko3/final"))
 LABELS = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "labels.json"), encoding="utf8"))["equipment"]
 MAX_STATES = 200
 TOP = 5

@@ -148,7 +148,36 @@ function systemRows(model: Model, building: string) {
   }))
 }
 
+/**
+ * 사람이 [설비 더하기] 에 칠 법한 한국어 이름(ko-names.json). BIM 에서 뽑은 이름은 거의 영어 Revit 이름이라 한국어 줄이 없다.
+ * `train` 은 `ko.adds.jsonl` 로 써서 학습에 넣고(건물 이름 `ko`), `test` 는 `ko.test.jsonl` 에 써서 학습에는 넣지 않고 재는 데만 쓴다.
+ * 학습 줄은 이름 그대로 하나뿐이다. 층·번호를 붙인 변형을 함께 넣었더니(512줄) 영어 이름이 나빠졌다(건물 하나씩 빼고 잰 첫 후보
+ * 64→50, ifc4Mep 14→6). 이름만 넣은 254줄은 64→61(오차 안)이고 한국어는 51→102/132 로 올랐다(ADR-0057).
+ */
+function koreanNames() {
+  const { ceiling, kinds } = JSON.parse(readFileSync('scripts/laya/ko-names.json', 'utf8')) as { ceiling: string[]; kinds: Record<string, { train: string[]; test: string[] }> }
+  const row = (name: string, kind: string) => {
+    const up = ceiling.includes(kind)
+    return { building: 'ko', name, ceiling: up, state: newEquipmentText(name, up), kind, kindSource: 'ko', dictKind: resolveEquipmentKind(name)?.info.kind ?? null, baseline: suggestByName(name).map((s) => s.kind) }
+  }
+  const train: ReturnType<typeof row>[] = []
+  const test: ReturnType<typeof row>[] = []
+  for (const [kind, { train: t, test: x }] of Object.entries(kinds)) {
+    for (const name of t) train.push(row(name, kind))
+    for (const name of x) test.push(row(name, kind))
+  }
+  return { train, test }
+}
+
 describe('Laya 재료 뽑기', () => {
+  it('한국어 이름', () => {
+    mkdirSync(OUT, { recursive: true })
+    const { train, test } = koreanNames()
+    const lines = (rows: unknown[]) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n'
+    writeFileSync(`${OUT}/ko.adds.jsonl`, lines(train))
+    writeFileSync(`${OUT}/ko.test.jsonl`, lines(test))
+    console.log('ko', 'train', train.length, 'test', test.length)
+  })
   it('라벨', () => {
     mkdirSync(OUT, { recursive: true })
     const pick = (list: { kind: string; label: string }[]) => Object.fromEntries(list.map((k) => [k.kind, k.label]))
