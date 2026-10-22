@@ -8,8 +8,10 @@ export type LayaResult = { ranked: LayaPick[]; confidence: number }
 export type LayaStatus = { enabled: boolean; reason?: string; model?: string }
 
 /**
- * 이보다 자신이 없으면 흐리게 "자신 없음" 을 붙인다. **잰 값이 아니라 임시값이다**(ADR-0057). 학습 재료가 패밀리 362줄뿐이라
- * 버틸 만한 보정 집합이 없다. 맞는 라벨이 목록에 없을 때는 높게도 틀린다(Duplex 의 M_Thermostat → 조명 96%).
+ * 이보다 자신이 없으면 흐리게 "자신 없음" 을 붙이고, [설비 더하기] 의 종류 목록이 첫 줄을 미리 가리키지 않는다(ADR-0057).
+ * 서버가 학습에 안 쓴 줄로 맞춘 온도(scripts/laya/calibrate.py)로 확률을 펴서 내므로 이 문턱에 뜻이 있다. 그 449줄에서 첫 후보
+ * 확률이 0.5 이상인 답은 절반(50%)이고, 그 안에서 26%가 틀렸다(0.7 이면 40% · 19%). 맞는 라벨이 아예 없는 이름(온도조절기)은
+ * 보정해도 가까운 것을 고른다 — 다만 확률이 낮게 나온다.
  */
 export const LAYA_SURE = 0.5
 

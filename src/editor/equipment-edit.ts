@@ -2,8 +2,8 @@ import { computed, nextTick, ref, triggerRef, watch } from 'vue'
 import { ceilingOf } from '../lib/ceiling'
 import { addEquipment, deleteEquipment, renameEquipment, snapshotEquipment, snapshotEquipmentSet } from '../lib/edit'
 import { josa } from '../lib/josa'
-import { equipmentKind, resolveEquipmentKind } from '../lib/kinds'
-import { LAYA_MIN, layaKinds, type LayaPick, newEquipmentText } from '../lib/laya'
+import { EQUIPMENT_KINDS, equipmentKind, resolveEquipmentKind } from '../lib/kinds'
+import { LAYA_MIN, LAYA_SURE, layaKinds, type LayaPick, newEquipmentText } from '../lib/laya'
 import { type Equipment, isConduit, type Vec2, type Vec3 } from '../lib/model'
 import { allowedLabel, allowedSurfaces } from '../lib/mount'
 import { overlapForNew } from '../lib/overlap'
@@ -75,6 +75,7 @@ export function startDuplicate(e: Equipment) {
 export function stopAdd() {
   if (!adding.value) return
   adding.value = null
+  closeAddMenu()
   viewer?.setPlaceMode(null)
 }
 /** 사람이 [설비 더하기] 를 그만둔다(Esc·[더하기 취소]). 친 이름과 고른 종류도 버린다 — 다음 더하기에 묻지 않고 남지 않게. */
@@ -86,24 +87,151 @@ export function cancelAddEquipment() {
 
 /**
  * 놓기 전에 이름을 치면 종류 후보를 보인다(ADR-0057). 사전이 이름을 읽으면 그것이 먼저(출처 사전), 이어서 Laya 의 후보(확률).
- * **고르지 않으면 지금처럼 종류 미상으로 놓는다**(OE-EQP-13) — 사람이 칩을 누르거나 Enter 로 첫 후보를 받아야 그 종류로 놓인다.
+ * **고르지 않으면 지금처럼 종류 미상으로 놓는다**(OE-EQP-13) — 사람이 칩이나 목록에서 골라야 그 종류로 놓인다.
  */
 export const addName = ref('')
 export const addNameInput = ref<HTMLInputElement | null>(null)
 export const addKind = ref<string | null>(null)
 const addLaya = ref<LayaPick[]>([])
-export const addSuggestions = computed(() => {
+/** addLaya 가 어느 글의 답인가. 지금 이름의 글과 다르면 아직 묻는 중이다. */
+const addLayaText = ref('')
+const addText = computed(() => newEquipmentText(addName.value.trim(), ceilingMode.value))
+const addDict = computed(() => {
   const name = addName.value.trim()
-  if (!name) return []
-  const dict = resolveEquipmentKind(name)?.info.kind ?? null
-  const out: { kind: string; p: number | null }[] = dict ? [{ kind: dict, p: null }] : []
-  // 5% 아래는 보이지 않는다 — 0% 칩이 셋째 자리를 채워 고를 것처럼 보였다(Duplex 에서 쳐 본 12개 중 9개).
-  for (const s of addLaya.value) if (s.p >= LAYA_MIN && equipmentKind(s.kind) && !out.some((o) => o.kind === s.kind) && out.length < 3) out.push(s)
+  return name ? (resolveEquipmentKind(name)?.info.kind ?? null) : null
+})
+export const addSuggestions = computed(() => {
+  const out: { kind: string; p: number | null; from: 'dict' | 'laya' | 'list' }[] = []
+  if (addName.value.trim()) {
+    if (addDict.value) out.push({ kind: addDict.value, p: null, from: 'dict' })
+    // 5% 아래는 보이지 않는다 — 0% 칩이 셋째 자리를 채워 고를 것처럼 보였다(Duplex 에서 쳐 본 12개 중 9개).
+    for (const s of addLaya.value)
+      if (s.p >= LAYA_MIN && equipmentKind(s.kind) && !out.some((o) => o.kind === s.kind) && out.length < 3) out.push({ ...s, from: 'laya' })
+  }
+  // 목록에서 칩 밖의 종류를 골랐으면 그것을 앞에 세운다. 안 그러면 무엇을 골랐는지 화면에 보이지 않는다.
+  if (addKind.value && !out.some((o) => o.kind === addKind.value)) out.unshift({ kind: addKind.value, p: null, from: 'list' })
   return out
 })
 let addAsk = 0
-export function acceptAddKind() {
-  if (!addKind.value && addSuggestions.value.length) addKind.value = addSuggestions.value[0].kind
+function askLaya(text: string, delay: number) {
+  const ask = ++addAsk
+  // 늦게 온 답이 새 이름의 답을 덮지 않게 번호를 본다.
+  setTimeout(() => {
+    if (ask !== addAsk) return
+    layaKinds([text])
+      .then((got) => {
+        if (ask !== addAsk) return
+        addLaya.value = got.get(text)?.ranked ?? []
+        addLayaText.value = text
+        if (addMenuOpen.value && !addMenuMoved) addMenuActive.value = addMenuFirst()
+      })
+      .catch(() => {
+        // 못 받았어도 "묻는 중" 에 머물지 않는다 — 목록은 사전과 전체 목록만으로 남는다.
+        if (ask === addAsk) addLayaText.value = text
+      })
+  }, delay)
+}
+
+/**
+ * 이름 칸 아래로 여는 종류 목록(WAI-ARIA APG 의 combobox). 사전이 못 읽은 이름에서 Enter, 아무 때나 ↓ 로 연다. 사전이 읽은 종류(있으면),
+ * 이어서 Laya 의 순위대로 ADD_MENU_TOP 개, 끝에 [전체 보기]·[종류 미상으로 두기]. 전체 보기도 Laya 의 순위다 — 서버가 라벨 39개를
+ * 다 돌려줘서, 첫 후보가 틀려도 맞는 종류가 대개 위쪽에 있다. Laya 가 모르는 종류(라벨에 없는 것)는 맨 뒤다.
+ */
+export const ADD_MENU_TOP = 5
+export type AddMenuRow = { id: string; kind: string | null; p: number | null; from: 'dict' | 'laya' | 'list' | 'all' | 'unknown' }
+export const addMenuOpen = ref(false)
+export const addMenuAll = ref(false)
+export const addMenuActive = ref(-1)
+/** 사람이 ↑↓·마우스로 줄을 옮겼는가. 옮겼으면 늦게 온 Laya 답이 가리킨 줄을 바꾸지 않는다. */
+let addMenuMoved = false
+export const addMenuPending = computed(() => !!layaState.value?.enabled && !!addName.value.trim() && addLayaText.value !== addText.value)
+export const addMenuRows = computed<AddMenuRow[]>(() => {
+  const rows: AddMenuRow[] = []
+  const push = (kind: string, p: number | null, from: AddMenuRow['from']) => {
+    if (!equipmentKind(kind) || rows.some((r) => r.kind === kind)) return
+    rows.push({ id: `add-kind-${kind}`, kind, p, from })
+  }
+  if (addDict.value) push(addDict.value, null, 'dict')
+  const ranked = addMenuPending.value || !addName.value.trim() ? [] : addLaya.value
+  for (const s of ranked) {
+    if (!addMenuAll.value && rows.length >= ADD_MENU_TOP) break
+    push(s.kind, s.p, 'laya')
+  }
+  if (addMenuAll.value) for (const k of EQUIPMENT_KINDS) push(k.kind, null, 'list')
+  else rows.push({ id: 'add-kind-all', kind: null, p: null, from: 'all' })
+  rows.push({ id: 'add-kind-unknown', kind: null, p: null, from: 'unknown' })
+  return rows
+})
+/** Laya 가 자신 없다(보정한 첫 후보 확률이 LAYA_SURE 아래). 사전이 읽었으면 묻지 않는다. */
+export const addMenuUnsure = computed(() => {
+  const top = addMenuRows.value[0]
+  return !addDict.value && top?.from === 'laya' && top.p! < LAYA_SURE
+})
+/**
+ * 열 때 미리 가리킬 줄. 사전이 읽었거나 Laya 가 자신 있으면(보정한 확률 ≥ LAYA_SURE, ADR-0057) 첫 줄 — 그러면 Enter 두 번이 그 종류다.
+ * 자신 없으면 아무것도 가리키지 않는다. Enter 두 번이 버릇처럼 눌려도 아무것도 붙지 않고, ↓ 로 골라야 붙는다.
+ */
+function addMenuFirst() {
+  const top = addMenuRows.value[0]
+  return top?.from === 'dict' || (top?.from === 'laya' && top.p! >= LAYA_SURE) ? 0 : -1
+}
+export function openAddMenu() {
+  addMenuOpen.value = true
+  addMenuAll.value = false
+  addMenuMoved = false
+  // 치기를 멈추고 기다리는 0.15초를 건너뛰고 바로 묻는다 — 사람이 이미 답을 기다리고 있다.
+  if (addMenuPending.value) askLaya(addText.value, 0)
+  addMenuActive.value = addMenuFirst()
+}
+export function closeAddMenu() {
+  addMenuOpen.value = false
+  addMenuAll.value = false
+  addMenuActive.value = -1
+}
+export function hoverAddRow(i: number) {
+  addMenuMoved = true
+  addMenuActive.value = i
+}
+export function chooseAddRow(row: AddMenuRow) {
+  if (row.from === 'all') {
+    // 가리키던 자리에 펼쳐진 첫 종류가 온다. 목록은 열어 둔다.
+    addMenuAll.value = true
+    return
+  }
+  addKind.value = row.kind
+  closeAddMenu()
+}
+/** 이름 칸의 키. ↑↓ 는 목록, Enter 는 가리킨 줄 → 사전 후보 → 목록 열기 순, Esc 는 목록을 닫고 한 번 더면 더하기를 그만둔다. */
+export function addNameKey(e: KeyboardEvent) {
+  if (e.isComposing) return
+  const rows = addMenuRows.value
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    if (!addMenuOpen.value) return openAddMenu()
+    addMenuMoved = true
+    const n = rows.length
+    const at = addMenuActive.value
+    addMenuActive.value = e.key === 'ArrowDown' ? (at + 1) % n : at <= 0 ? n - 1 : at - 1
+    return
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    if (addMenuOpen.value) {
+      if (addMenuActive.value >= 0) chooseAddRow(rows[addMenuActive.value])
+      else closeAddMenu()
+      return
+    }
+    if (addKind.value) return
+    if (addDict.value) addKind.value = addDict.value
+    else openAddMenu()
+    return
+  }
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    e.stopPropagation()
+    if (addMenuOpen.value) closeAddMenu()
+    else cancelAddEquipment()
+  }
 }
 /** 고른 종류가 지금 놓는 면(천장 모드인가)에 놓이지 않는 종류면 알린다. 막지는 않는다. */
 export const addMountHint = computed(() => {
@@ -202,23 +330,25 @@ export function setupEquipmentEdit() {
     ([name, ceiling, on, enabled]) => {
       if (!name || !on || !enabled) {
         addLaya.value = []
+        addLayaText.value = ''
         return
       }
       // 이미 고른 종류가 있으면 다시 묻지 않는다 — 천장 모드를 바꾸면(T) 글이 바뀌어 다시 물었고, 새 답에 그 종류가 없으면 고른 것이 말없이 빠졌다.
       if (addKind.value) return
-      const ask = ++addAsk
-      const text = newEquipmentText(name, ceiling)
-      // 치는 동안은 묻지 않는다 — 멈추고 0.15초 뒤에 한 번. 늦게 온 답이 새 이름의 답을 덮지 않게 번호를 본다.
-      setTimeout(() => {
-        if (ask !== addAsk) return
-        layaKinds([text])
-          .then((got) => {
-            if (ask === addAsk) addLaya.value = got.get(text)?.ranked ?? []
-          })
-          .catch(() => {})
-      }, 150)
+      // 이름이 바뀌면 목록이 가리키던 줄은 다른 이름의 것이다. 답이 오면 다시 가리킨다.
+      if (addMenuOpen.value) {
+        addMenuMoved = false
+        addMenuActive.value = -1
+      }
+      // 치는 동안은 묻지 않는다 — 멈추고 0.15초 뒤에 한 번.
+      askLaya(newEquipmentText(name, ceiling), 150)
     },
   )
+  // 전체 목록은 상자 안에서 넘긴다. ↑↓ 로 가리킨 줄이 상자 밖에 있으면 따라 내린다.
+  watch(addMenuActive, (i) => {
+    const id = addMenuOpen.value && i >= 0 ? addMenuRows.value[i]?.id : null
+    if (id) void nextTick(() => document.getElementById(id)?.scrollIntoView({ block: 'nearest' }))
+  })
   watch(editing, (on) => {
     if (!on && drawing.value) stopDraw()
     if (!on) stopAdd()

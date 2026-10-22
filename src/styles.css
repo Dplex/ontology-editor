@@ -4413,6 +4413,44 @@ main.has-model .catalog {
   opacity: 0.6;
 }
 
+/* Enter·↓ 로 여는 종류 목록. 이름 칸 아래 한 줄을 다 쓴다. 전체 목록(40여 종)은 길어서 이 상자 안에서만 넘긴다. */
+.add-name .add-menu {
+  flex-basis: 100%;
+  max-height: 15rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.15rem 0;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+
+.add-name .add-menu li {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.add-name .add-menu li.active {
+  background: var(--accent-soft);
+}
+
+.add-name .add-menu li.on {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.add-name .add-menu li.extra {
+  color: var(--muted);
+}
+
+.add-name .add-menu li.note {
+  cursor: default;
+  font-size: 0.75rem;
+}
+
 /* Laya 후보(ADR-0057). 자신이 없으면 흐리게 — 눌러는 지지만 앞세우지 않는다. */
 .unknown-types td.clues .suggest.laya.unsure {
   color: var(--muted);

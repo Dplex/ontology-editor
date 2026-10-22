@@ -283,7 +283,7 @@ test('Duplex MEP: 설비 더하기에서 종류를 고르면 미리보기가 같
   await enterEdit(page)
   await toEquipment(page)
   await page.locator('.tool-palette').getByRole('button', { name: '설비 더하기' }).click()
-  await page.getByRole('textbox', { name: '새 설비 이름' }).fill('펌프-신규')
+  await page.getByRole('combobox', { name: '새 설비 이름' }).fill('펌프-신규')
   await hoverFloor(page, 2, -12.6)
   // 고르기 전에는 종류 미상으로 놓이므로 좌표 상자다.
   await expect.poll(() => viewer<Ghost & { shape: string | null }>(page, 'ghost')).toMatchObject({ visible: true, shape: null })
