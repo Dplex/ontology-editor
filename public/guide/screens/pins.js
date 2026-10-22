@@ -5,32 +5,32 @@ window.GUIDE_PINS = {
     "pins": [
       {
         "label": "사용자",
-        "x": 82.5,
-        "y": 29.05,
+        "x": 79.09,
+        "y": 9.19,
         "zoom": "project-1.jpg"
       },
       {
         "label": "새 프로젝트",
         "x": 85.37,
-        "y": 50.19,
+        "y": 37.55,
         "zoom": "project-2.jpg"
       },
       {
         "label": "이름·사이트",
         "x": 11.7,
-        "y": 67.18,
+        "y": 54.55,
         "zoom": "project-3.jpg"
       },
       {
         "label": "IFC 파일 올리기",
         "x": 57.89,
-        "y": 67.18,
+        "y": 54.55,
         "zoom": "project-4.jpg"
       },
       {
         "label": "만들기",
         "x": 37.82,
-        "y": 79.71,
+        "y": 67.08,
         "zoom": "project-5.jpg"
       }
     ]

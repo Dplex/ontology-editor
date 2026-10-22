@@ -309,10 +309,86 @@ th {
   margin-left: 0.25rem;
 }
 
-.projects-who {
-  display: block;
-  margin-top: 1rem;
-  text-align: right;
+/* 첫 화면 오른쪽 위: 다른 페이지 탭 · 사용자 · 테마. 탭은 글자만 두고 지금 페이지가 아니므로 밑줄 없이 흐리게, 올리면 진하게. */
+.start-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+}
+
+.start-nav a {
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  text-decoration: none;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.start-nav a:hover,
+.start-nav a:focus-visible {
+  color: var(--fg);
+  background: var(--surface-soft);
+}
+
+.start-nav .who {
+  margin-left: 1.1rem;
+}
+
+/* 폰 폭에서는 탭 줄을 제목 아래로 내린다. 옆에 두면 제목이 두 줄로 쪼개진다. */
+@media (max-width: 640px) {
+  header .title {
+    flex-wrap: wrap;
+  }
+
+  .start-nav {
+    justify-content: flex-start;
+  }
+
+  .start-nav a:first-child {
+    margin-left: -0.75rem;
+  }
+
+  .start-nav .who {
+    margin-left: 0;
+  }
+}
+
+.start-nav .who select {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85rem;
+}
+
+/* 긴 설명을 대신하는 ? 표시. 마우스를 올리거나 Tab 으로 가면 title 이 뜬다. */
+.info-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 1rem;
+  height: 1rem;
+  margin-left: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1;
+  vertical-align: 0.1em;
+  cursor: help;
+}
+
+.info-mark:hover,
+.info-mark:focus-visible {
+  color: var(--fg);
+  border-color: var(--accent);
 }
 
 .catalog {
@@ -6731,11 +6807,6 @@ button.done::after {
   content: '●';
   margin-right: 0.3rem;
   color: var(--error);
-}
-
-/* 첫 화면 설명 줄의 링크(내보낸 파일 보기). 스타일이 없어 브라우저 기본 파랑·보라였다. */
-.sub a {
-  color: var(--accent);
 }
 
 /* 종류별 색의 범례(독의 [Explode]). 3D 왼쪽 위 독 아래(색 안내 .color-key 자리 — 켜 있는 동안 색 안내는 숨긴다). 아래는 클릭 안내·시점 바로가기

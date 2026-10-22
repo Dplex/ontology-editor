@@ -6,6 +6,7 @@
 //   OE_DATA_ROOT=$(mktemp -d) npx vite --mode e2e --port 5179
 //   node scripts/guide/capture.mjs            # BASE=http://localhost:5179/ 가 기본
 //   THEME=dark node scripts/guide/capture.mjs # 다크 테마로 한 벌 더. screens/dark/ 에 같은 이름으로 남는다(가이드가 테마에 따라 고른다)
+//   ONLY=project node scripts/guide/capture.mjs # 첫 화면(1단계)만 다시 찍는다. 다른 그림과 핀은 그대로 둔다
 // 다크로 찍을 때는 서버의 data 폴더를 다시 비운다 — 같은 폴더면 프로젝트가 둘이 되어 첫 그림이 달라진다.
 // Duplex 와 ifc4Mep 파일이 data/ 에 있어야 한다(npm run fetch:sample).
 import { chromium } from '@playwright/test'
@@ -15,6 +16,7 @@ import { join, resolve } from 'node:path'
 
 const BASE = process.env.BASE ?? 'http://localhost:5179/'
 const THEME = process.env.THEME === 'dark' ? 'dark' : 'light'
+const ONLY = process.env.ONLY
 const OUT = resolve(THEME === 'dark' ? 'public/guide/screens/dark' : 'public/guide/screens')
 const ARCH = resolve('data/NBU_Duplex/NBU_Duplex-Apt_Arch.ifc')
 const HVAC = resolve('data/NBU_Duplex/NBU_Duplex-Apt_Eng-HVAC.ifc')
@@ -128,6 +130,10 @@ await shot(
   ],
   { x: 140, y: 30, width: 1160, height: 380 },
 )
+if (ONLY === 'project') {
+  await finish()
+  process.exit(0)
+}
 await form.getByRole('button', { name: '만들기' }).click()
 await page.locator('.appbar h2').waitFor({ timeout: 120_000 })
 await settle()
@@ -392,13 +398,21 @@ await shot('network', [
   ['색 범례', page.locator('.color-key').first()],
 ])
 
+await finish()
+
 // 가이드가 <script> 로 읽는다. fetch 로 JSON 을 읽으면 파일로 열었을 때(file://) 핀이 안 뜬다.
 // 핀 자리는 라이트판 하나(screens/pins.js)를 두 테마가 같이 쓴다. 다크로 찍을 때는 쓰지 않고 라이트판과 대 본다 — 테마가 배치를 바꿨으면
 // 다크 그림 위의 핀이 엉뚱한 곳을 가리키므로 멈춘다(2026-10-21 첫 다크 캡처는 16장 모두 0.5% 안에서 같았다).
-if (THEME === 'light') writeFileSync(`${OUT}/pins.js`, `window.GUIDE_PINS = ${JSON.stringify(pins, null, 2)}\n`)
-else {
+// ONLY 로 한 장면만 찍었으면 나머지 장면의 핀은 있던 것을 그대로 둔다.
+async function finish() {
   const light = {}
-  new Function('window', readFileSync(resolve('public/guide/screens/pins.js'), 'utf8'))(light)
+  const old = resolve('public/guide/screens/pins.js')
+  if (existsSync(old)) new Function('window', readFileSync(old, 'utf8'))(light)
+  if (THEME === 'light') {
+    const all = ONLY ? { ...light.GUIDE_PINS, ...pins } : pins
+    writeFileSync(`${OUT}/pins.js`, `window.GUIDE_PINS = ${JSON.stringify(all, null, 2)}\n`)
+    return browser.close()
+  }
   const off = Object.entries(pins).flatMap(([k, v]) =>
     v.pins.flatMap((p, i) => {
       const q = light.GUIDE_PINS?.[k]?.pins?.[i]
@@ -406,5 +420,5 @@ else {
     }),
   )
   if (off.length) throw new Error(`다크 그림의 핀 자리가 라이트판과 다르다. 라이트로 다시 찍고 맞춘다:\n${off.join('\n')}`)
+  return browser.close()
 }
-await browser.close()

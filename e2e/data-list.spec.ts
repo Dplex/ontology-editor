@@ -123,7 +123,8 @@ test('"읽을 것" 은 파일 상자 밖 한 줄이고, data/ 목록에서 열�
   await serveData(page, [{ path: '현장/two-rooms.ifc', bytes: ROOMS, ...arch }])
   await page.goto('/')
   const read = page.getByRole('region', { name: '읽을 것' })
-  await expect(read).toContainText('어디서 열든 적용됩니다')
+  // 설명은 본문이 아니라 ? 표시의 툴팁에 있다(첫 화면을 짧게).
+  await expect(read.locator('.info-mark')).toHaveAttribute('title', /어디서 열든 적용됩니다/)
   // 파일 상자(.drop) 안에는 없다 — 안에 두었더니 [파일 선택] 에만 걸리는 옵션처럼 보였다.
   await expect(page.locator('.drop fieldset.read-option')).toHaveCount(0)
   await read.getByLabel('벽').uncheck()

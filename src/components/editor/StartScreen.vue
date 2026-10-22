@@ -9,34 +9,48 @@ import { createProject, fieldOf, openProject, openWithMode, projectBlock, projec
 import { readFeatures, readOpenings } from '../../editor/read-settings'
 import Fold from '../Fold.vue'
 import IntroOverlay from '../IntroOverlay.vue'
-import { introScene } from '../../editor/intro'
 import ProjectList from '../ProjectList.vue'
 import ThemeIcon from '../ThemeIcon.vue'
 import TierChips from '../TierChips.vue'
+
+// 첫 화면의 긴 설명은 ? 표시에 마우스를 올려야 보인다. 본문에 두었더니 첫 화면이 설명 문단으로 길어졌다(2026-10-22 사용자).
+const READ_TIP =
+  '어디서 열든 적용됩니다(파일 선택·드래그 앤 드롭·바로 열기·data/ 목록·덧붙이기). 물리존·설비는 늘 읽습니다. ' +
+  '벽·문·창은 GeoJSON 에만 나가고 온톨로지(TTL)에는 필요 없어서, 끄면 큰 파일이 빨리 열립니다. 문·창 자리는 로봇 경로와 문·창 옮기기에 씁니다.'
+const CATALOG_TIP =
+  '건축·설비를 같이 쓰려면 둘 다 표시하고 [합쳐서 열기]를 누릅니다. 칸마다 얼마나 채워졌는지 보입니다.\n' +
+  '공간: 외곽선이 있는 물리존 · 설비: 좌표가 있는 기기 · 소속: 방을 찾은 기기 · 연결망: 연결 수 · 방향: 흐름 방향을 아는 기기 비율.\n' +
+  '칸에 마우스를 올리면 자세히 보입니다.'
 </script>
 
 <template>
   <IntroOverlay v-if="!model" />
+  <!-- 첫 화면 머리. 다른 페이지(내보낸 파일 보기·사용 가이드)는 오른쪽 위 탭으로 둔다. 설명 문장 속 링크로 두었더니 한 줄이 길어지고
+       눈에 안 띄었다(2026-10-22 사용자). 인트로는 링크를 두지 않는다 — 시연할 때 /#intro 로 바로 연다. -->
   <header v-if="!model">
     <div class="title">
       <div>
         <h1>ontology-editor</h1>
-        <p class="sub">BIM(IFC)을 읽어 공간 온톨로지 초안을 만듭니다. 내보낸 TTL·GeoJSON 은 <a href="./viewer.html">내보낸 파일 보기</a>에서 다시 열어 봅니다. 처음이면 <a href="./guide/index.html" target="_blank" rel="noopener">사용 가이드</a>부터 봅니다.<template v-if="introScene">{{ ' ' }}<a href="#intro">인트로 보기</a></template></p>
+        <p class="sub">BIM(IFC)으로 공간 온톨로지 초안을 만듭니다</p>
       </div>
-      <button type="button" class="theme icon-btn" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">
-        <ThemeIcon :dark="dark" />
-      </button>
+      <nav class="start-nav" aria-label="다른 페이지">
+        <a href="./viewer.html" title="내보낸 TTL·GeoJSON 을 받는 쪽 규칙으로 다시 열어 봅니다">내보낸 파일 보기</a>
+        <a href="./guide/index.html" target="_blank" rel="noopener" title="처음이면 여기부터 봅니다">사용 가이드 ↗</a>
+        <label v-if="people && projectRows" class="who" title="프로젝트를 만든 사람·임시 저장한 사람으로 남습니다(data/.users.json)">
+          <select v-model="currentUser" aria-label="사용자">
+            <option value="">사용자 고르기…</option>
+            <option v-for="p in people" :key="p.name" :value="p.name">{{ p.name }} · {{ PERSON_ROLE[p.role] }}</option>
+          </select>
+        </label>
+        <button type="button" class="theme icon-btn" :aria-pressed="dark" aria-label="다크 모드" :title="dark ? '라이트 모드로 바꿉니다' : '다크 모드로 바꿉니다'" @click="toggleTheme">
+          <ThemeIcon :dark="dark" />
+        </button>
+      </nav>
     </div>
   </header>
 
   <!-- 프로젝트 목록(OE-UI-02·03). 첫 화면이다. 서버가 없으면 보이지 않고 아래 파일 상자부터다. -->
   <template v-if="!model && projectRows">
-    <label v-if="people" class="who projects-who" title="프로젝트를 만든 사람·임시 저장한 사람으로 남습니다(data/.users.json)">
-      <select v-model="currentUser" aria-label="사용자">
-        <option value="">사용자 고르기…</option>
-        <option v-for="p in people" :key="p.name" :value="p.name">{{ p.name }} · {{ PERSON_ROLE[p.role] }}</option>
-      </select>
-    </label>
     <ProjectList ref="projectList" :rows="projectRows" :create-block="projectBlock" :busy="busy" :field-of="fieldOf" :when="when" @open="openProject" @create="createProject" />
   </template>
 
@@ -51,7 +65,10 @@ import TierChips from '../TierChips.vue'
     <p v-if="busy">읽는 중…</p>
     <template v-else>
       <p>IFC 파일을 여기에 드래그해서 놓으세요.</p>
-      <p class="muted drop-multi">건축과 설비가 다른 파일이면 <b>둘을 같이</b> 놓거나 고르세요(Ctrl·Shift 로 여러 개). 하나로 합쳐 엽니다. IDF 도 같이 고르면 공조존까지 얹고, IDF 만 열면 공조존을 3D 로 봅니다.</p>
+      <p class="muted drop-multi">
+        건축·설비는 <b>둘을 같이</b> 놓으면 하나로 합쳐 엽니다
+        <span class="info-mark" tabindex="0" role="img" aria-label="자세히" title="고를 때는 Ctrl·Shift 로 여러 개를 고릅니다. IDF 도 같이 고르면 공조존까지 얹고, IDF 만 열면 공조존을 3D 로 봅니다.">?</span>
+      </p>
     </template>
     <label class="pick">
       파일 선택
@@ -64,17 +81,16 @@ import TierChips from '../TierChips.vue'
        덧붙이기 어디서 열든 같은 값을 쓴다(load 의 options). 그래서 상자 밖 한 줄로 둔다. 다음에 여는 파일부터 적용된다. -->
   <section v-if="!model" class="read-settings" aria-label="읽을 것">
     <fieldset class="read-option features" :disabled="busy">
-      <legend>읽을 것</legend>
+      <legend>
+        읽을 것
+        <span class="info-mark" tabindex="0" role="img" aria-label="자세히" :title="READ_TIP">?</span>
+      </legend>
       <label><input v-model="readFeatures.walls" type="checkbox" /> 벽</label>
       <label><input v-model="readFeatures.doors" type="checkbox" /> 문</label>
       <label><input v-model="readFeatures.windows" type="checkbox" /> 창</label>
       <label :class="{ off: !readFeatures.doors && !readFeatures.windows }">
         <input v-model="readOpenings" type="checkbox" :disabled="!readFeatures.doors && !readFeatures.windows" /> 문·창 자리(형상)
       </label>
-      <span class="muted">
-        어디서 열든 적용됩니다(파일 선택·드래그 앤 드롭·바로 열기·data/ 목록·덧붙이기). 물리존·설비는 늘 읽습니다. 벽·문·창은 GeoJSON에만
-        나가고 온톨로지(TTL)에는 필요 없어서, 끄면 큰 파일이 빨리 열립니다. 문·창 자리는 로봇 경로와 문·창 옮기기에 씁니다.
-      </span>
     </fieldset>
   </section>
 
@@ -126,9 +142,8 @@ import TierChips from '../TierChips.vue'
         <button type="button" class="link" @click="dataPicked = []">고르기 취소</button>
       </p>
       <p class="hint">
-        건축·설비를 같이 쓰려면 왼쪽 칸에 둘 다 표시하고 [합쳐서 열기]를 누르세요.
-        칸마다 얼마나 채워졌는지 보입니다. 공간(외곽선이 있는 물리존) · 설비(좌표가 있는 기기) · 소속(방을 찾은 기기) ·
-        연결망(연결 수) · 방향(흐름 방향을 아는 기기 비율). 마우스를 올리면 자세히 보입니다.
+        왼쪽 칸에 여러 개를 표시하면 합쳐서 엽니다
+        <span class="info-mark" tabindex="0" role="img" aria-label="칸 읽는 법" :title="CATALOG_TIP">?</span>
       </p>
       <table>
         <tbody>
