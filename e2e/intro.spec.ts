@@ -52,10 +52,9 @@ test('주소가 #intro 면 인트로가 뜨고, 숫자·판정 기준 없이 건
   await expect(lab.locator('button[data-k="break"]')).toHaveCount(0)
   await expect(lab.locator('.lab-how')).toBeHidden()
 
-  // 조립이 끝나면 [에디터로] 자리에 들어가기 패널이 뜨고, 오른쪽 제목 칸은 비운다. 이 서버에는 사람 목록이 없어 고를 것 없이 들어간다.
+  // 조립이 끝나면 들어가기 패널이 뜨고, 오른쪽 제목 칸은 비운다. 이 서버에는 사람 목록이 없어 고를 것 없이 들어간다.
   const panel = page.getByRole('complementary', { name: '에디터에 들어가기' })
   await expect(panel).toBeVisible({ timeout: 30_000 })
-  await expect(page.locator('.intro .go')).toHaveCount(0)
   await expect(lab.locator('.lab-side')).toHaveClass(/yield/)
   await expect(panel).toContainText('사람 목록 없음')
   await panel.getByRole('button', { name: '에디터 열기' }).click()
