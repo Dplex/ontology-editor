@@ -33,8 +33,8 @@ async function serveIntro(page: Page, list: object[]) {
 
 test('주소가 #intro 면 인트로가 뜨고, 큰 숫자·판정 기준 없이 건물만 서고 [층 정보] 는 층별 개수만 단다. 닫으면 주소가 / 로 돌아가고, 첫 화면의 [인트로 보기] 로 다시 연다', async ({ page }) => {
   // 소프트웨어 GL 에서는 kit 의 후처리가 무거워 조립 연출이 늦게 끝난다. 손을 놓으면 그리지 않게 한 뒤로(public/intro/index.html 의 "부하")
-  // 혼자 13초, 병렬에서도 1분 안이다.
-  test.setTimeout(90_000)
+  // 혼자 13초다. 병렬(e2e 전체)에서는 [층 정보]·들어가기 패널까지 보면 1분 반을 넘겨(2026-10-22, 1.7분) 넉넉히 둔다.
+  test.setTimeout(180_000)
   await serveIntro(page, [{ name: 'tiny', building: 'Tiny', files: scene.files, bakedAt: scene.bakedAt }])
   // 그냥 / 로 들어오면 에디터 첫 화면이다.
   await page.goto('/')
