@@ -121,13 +121,11 @@ onMounted(() => root.value?.focus())
   --accent: #8bd3ff;
   --ok: #6ee7b7;
   position: absolute;
+  /* 위쪽 IFC·TTL·GeoJSON 줄 바로 밑에서 시작한다. 아래에는 iframe 이 건물 제목을 붙인다(IntroOverlay 의 sendBox). 스크롤 없이 한 화면에 둘 다 들어가게 줄였다. */
   right: clamp(16px, 4.2vw, 72px);
-  top: 50%;
-  translate: 0 -50%;
-  width: min(392px, calc(100vw - 32px));
-  max-height: calc(100vh - 140px);
-  overflow: auto;
-  padding: 28px 28px 22px;
+  top: clamp(84px, 12vh, 132px);
+  width: min(380px, calc(100vw - 32px));
+  padding: 22px 24px 18px;
   box-sizing: border-box;
   color: var(--ink);
   font: 400 14px/1.5 Inter, system-ui, -apple-system, sans-serif;
@@ -253,7 +251,7 @@ onMounted(() => root.value?.focus())
 }
 
 .head {
-  margin: 26px 0 18px;
+  margin: 20px 0 14px;
 }
 .eyebrow {
   margin: 0 0 6px;
@@ -280,11 +278,11 @@ h2 {
 }
 .person {
   display: grid;
-  grid-template-columns: 34px 1fr auto 16px;
+  grid-template-columns: auto 1fr auto 16px;
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border: 1px solid var(--faint);
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.025);
@@ -348,8 +346,8 @@ h2 {
   justify-content: center;
   gap: 10px;
   width: 100%;
-  margin-top: 18px;
-  padding: 13px 16px;
+  margin-top: 14px;
+  padding: 12px 16px;
   border: 0;
   border-radius: 14px;
   background: linear-gradient(180deg, #f4f7fa, #dde4ea);
@@ -378,8 +376,8 @@ h2 {
 }
 
 footer {
-  margin-top: 18px;
-  padding-top: 14px;
+  margin-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid var(--faint);
   color: var(--mute);
   font: 400 11px/1.6 'JetBrains Mono', ui-monospace, monospace;
@@ -405,7 +403,20 @@ footer p { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   .signin, .signin > *, .sweep, .status i, .beam { animation: none !important; }
 }
+/* 노트북처럼 낮은 화면: 아래 건물 제목까지 한 화면에 들어가게 더 줄인다. */
+@media (max-height: 760px) {
+  .signin { top: 76px; padding: 18px 20px 14px; }
+  .head { margin: 14px 0 10px; }
+  h2 { font-size: 23px; }
+  .lede { margin-top: 4px; }
+  .person { padding: 6px 10px; }
+  .avatar { width: 30px; height: 30px; }
+  .enter { margin-top: 10px; padding: 11px 16px; }
+  footer { margin-top: 10px; padding-top: 10px; }
+  .keys { display: none; }
+  .tele { margin-top: 0 !important; }
+}
 @media (max-width: 720px) {
-  .signin { top: auto; bottom: 16px; translate: none; left: 16px; right: 16px; width: auto; }
+  .signin { top: auto; bottom: 16px; left: 16px; right: 16px; width: auto; }
 }
 </style>

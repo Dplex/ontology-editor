@@ -32,9 +32,11 @@
   .lab-title { font-size: clamp(30px, 3.2vw, 60px) }
   /* 조립하는 동안 "14,683 of 14,683 parts" 가 옆 칸을 넘는다. kit 은 그대로 두고 크기만 줄인다. */
   .lab-big { font-size: clamp(52px, 5.6vw, 108px) }
-  /* 첫 화면에서 들어가기 패널이 뜨면 오른쪽 제목 칸을 비운다. */
-  .lab-side { transition: opacity .5s ease, transform .5s ease }
-  .lab-side.yield { opacity: 0; transform: translate(16px, -50%); pointer-events: none }
+  /* 첫 화면에서 들어가기 패널이 뜨면 오른쪽 제목 칸을 패널 바로 아래로 옮긴다(자리는 부모가 재서 알려 준다). 옮기는 동안은 감췄다가 새 자리에서 띄운다. */
+  .lab-side { transition: opacity .45s ease }
+  .lab-side.moving { opacity: 0 }
+  .lab-side.below { transform: none }
+  .lab-side.below .lab-title { font-size: clamp(26px, 2.3vw, 40px) }
 </style>
 </head>
 <body>
@@ -462,7 +464,25 @@ if (FOCUS === 'floors') { lab.toggle('explode', true); lab.toggle('labels', true
 parent?.postMessage?.({ intro: 'ready', name: S.name }, '*')
 // 첫 화면(#intro)은 조립이 끝나면 부모(IntroOverlay)에 알려 오른쪽에 들어가기 패널을 띄운다. 패널이 오른쪽 제목 자리를 이어받아 제목은 걷는다.
 if (!LAB) {
-  addEventListener('message', (e) => { if (e.data?.intro === 'panel') lab.$('.lab-side').classList.toggle('yield', !!e.data.on) })
+  const side = lab.$('.lab-side')
+  let moved = 0
+  addEventListener('message', (e) => {
+    const box = e.data?.intro === 'panel' ? e.data.box : null
+    if (!box) return
+    const place = () => {
+      side.classList.add('below')
+      Object.assign(side.style, { top: `${box.bottom + 22}px`, right: `${box.right}px`, width: `${box.width}px` })
+      // 노트북처럼 낮은 화면에서는 남은 높이에 들어갈 때까지 제목 글자를 줄인다(18px 까지).
+      const t = side.querySelector('.lab-title')
+      t.style.fontSize = ''
+      for (let px = parseFloat(getComputedStyle(t).fontSize); side.getBoundingClientRect().bottom > innerHeight - 16 && px > 18; px -= 2) t.style.fontSize = `${px - 2}px`
+      side.classList.remove('moving')
+    }
+    // 처음 한 번만 감췄다 옮긴다. 그다음(창 크기 바뀜)은 바로 따라간다.
+    if (moved++) return place()
+    side.classList.add('moving')
+    setTimeout(place, 450)
+  })
   // kit 의 start() 는 0.5초 뒤부터 2.6초 동안 조립한다(lab-kit.js). 다 선 뒤에 알린다.
   setTimeout(() => parent?.postMessage?.({
     intro: 'assembled',
