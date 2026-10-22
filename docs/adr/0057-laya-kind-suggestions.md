@@ -7,7 +7,7 @@ deciders: ["정희록"]
 prd: []
 tickets: ["OE-EQP-14", "OE-EQP-13", "OE-PIP-02"]
 criteria: ["OE-EQP-14#1"]
-code: ["src/lib/laya.ts", "src/lib/family-clues.ts", "src/lib/system-suggest.ts", "scripts/laya-proxy.mjs", "scripts/laya/serve.py", "scripts/laya/train.py", "src/App.vue"]
+code: ["src/lib/laya.ts", "src/lib/family-clues.ts", "src/lib/system-suggest.ts", "scripts/laya-proxy.mjs", "scripts/laya/serve.py", "scripts/laya/train.py", "scripts/laya/ko-names.json", "scripts/laya/ko_eval.py", "src/App.vue"]
 tests: ["e2e/laya-kinds.spec.ts", "e2e/laya-add.spec.ts", "e2e/system-suggest.spec.ts"]
 related: []
 ---
@@ -81,6 +81,23 @@ related: []
   방열기 45%, "냉온수 헤더" → 냉동기 83%, "온도조절기" → 디퓨저 39% 다. 학습한 이름이 거의 영어 Revit 이름이고, 헤더·온도조절기는 라벨이 없다.
   이름 하나에 칩이 뜨기까지 0.35초(치기를 멈추고 0.15초 기다림 포함)다. 5% 아래 Laya 후보(`LAYA_MIN`)는 보이지 않는다 — 0% 칩이 자리를 채웠다.
 - 이름 칸을 팔레트(3D 왼쪽 아래)에 두었더니 팔레트가 커져 바닥을 가렸고, 바닥을 누른 것이 [천장] 토글에 떨어져 더하기가 취소됐다. 3D 왼쪽 위에 띄운다.
+
+## 한국어 이름을 학습에 더했다 (2026-10-22 더함)
+
+[설비 더하기] 에서 "공기조화"·"씨씨티비"·"에어컨"·"소화기" 같은 한국어 이름이 후보에 안 떴다. 학습 재료가 BIM 의 영어 Revit 이름뿐이라서다
+(위 "사람이 칠 법한 한국어 이름 12개" 에서 이미 보인 한계다). 서버나 호출 쪽 문제가 아니었다.
+
+- **재료.** 라벨 39개마다 한국어 이름 6~8개(`scripts/laya/ko-names.json` 의 `train`, 256줄)를 이름 줄 형식(`newEquipmentText`) 그대로
+  `ko.adds.jsonl` 로 써서 학습에 더한다. 형식은 바꾸지 않았으니 다시 학습할 일이 늘지는 않는다. 줄임말·음역·영어 섞기도 넣었다.
+  사람이 지은 추정이고 정답지가 아니다 — 현장 이름이 모이면 `ko-names.json` 에 더한다.
+- **잰 방법.** 학습에 넣지 않은 한국어 이름 132개(`test`, 말 모양이 다른 것)를 `ko_eval.py` 로 쟀다. 첫 후보 / 셋 안:
+  이전 체크포인트 56 / 74, 한국어를 더한 것 96 / 111 이다. 영어 이름은 건물 하나씩 빼고 재는 방식(`--adds`)으로 한국어를 뺀 때와 견줬다
+  (같은 데이터·설정, 병원·Duplex·ifc4Mep·성수 합): 64 / 83 대 61 / 87 로 오차 안이다.
+- **버린 길.** 이름에 층·번호를 붙인 변형(`3층 CCTV`, `펌프 2`)을 함께 넣어 512줄로 학습하면 한국어는 100 / 118 이지만 영어 이름이
+  50 / 78 로 나빠진다(ifc4Mep 첫 후보 14→6). 한국어 줄이 영어 줄(435)보다 많아져 균형이 깨진 것으로 본다. 이름만 넣은 256줄로 했다.
+- **한계.** 틀린 것은 말이 라벨과 멀 때다("에이에이치유닛"·"천카세트"·"지열 천공"). 라벨에 없는 종류(헤더·온도조절기)는 여전히 가까운 것을
+  고른다. 시험 이름이 학습 이름과 같은 사람의 추정이라 실제 현장 이름으로 재면 더 낮을 수 있다.
+- 서버 체크포인트는 `out-all2/final` 에서 `out-ko3/final` 로 바꿨다(이전 것은 서버에 그대로 있다).
 
 ## 계통 후보는 Laya 없이 거리 순으로 (2026-10-13 더함)
 
