@@ -39,7 +39,10 @@ export function createHub(root: HTMLElement, host: HubHost) {
     const title = document.createElement('span')
     title.className = 'egg-title'
     title.textContent = egg.title
-    b.append(key, id, title)
+    const hint = document.createElement('span')
+    hint.className = 'egg-hint'
+    hint.textContent = egg.hint
+    b.append(key, id, title, hint)
     b.addEventListener('click', () => host.toggle(egg.id))
     const li = document.createElement('li')
     li.append(b)

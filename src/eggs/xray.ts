@@ -4,6 +4,8 @@
 // - 설비는 제자리의 점(종류별 색 X 와 같은 팔레트), 물리존은 바닥 중심의 고리, 층은 건물 옆에 세운 기둥의 마디다.
 // - feeds 는 흐르는 빛(flowPulseMesh), hasLocation 은 설비에서 방으로 가는 가는 선, hasPart 는 방에서 층 기둥으로 휘는 곡선이다.
 // - 어두운 막은 건물 재질을 바꾸지 않고 afterRender 에서 화면 전체 사각형(바탕 85%)을 그린 뒤 그래프 장면을 같은 카메라로 덧그린다.
+// - 한 층만 보고 있으면 그 층의 점·고리·선만 그린다. 층을 오가는 feeds 와 층 기둥의 다른 마디는 빼고, HUD 에 그 층 안의 수를 따로 적는다.
+//   건물 전체의 그래프를 한 층 위에 띄우면 보이는 층과 그래프가 어긋나 보였다.
 // - 3D 위에서 Space 를 누르고 있는 동안 0.25초에 서고, 놓으면 0.2초에 물러난다. 처음 켰을 때는 바로 보여 주어 ~ 판·콘솔·주소로도
 //   곧장 확인하고, Space 를 누르고 떼면 훑어보기처럼 여닫힌다.
 import {
@@ -30,6 +32,7 @@ import { flowPulseMesh, setFlowTime, type FlowSegment } from '../lib/flow-pulse'
 import { isConduit, type Model } from '../lib/model'
 import { easeOut } from '../lib/motion'
 import { toScene } from '../lib/viewer'
+import { storeyOfKeys } from './storey-of'
 import type { EggContext, EggHandle } from './types'
 
 /** 종류별 색(X, editor/view-filter.ts)과 같은 10색 팔레트와 종류 모름(ex:) 자홍. */
@@ -49,12 +52,15 @@ export type XrayStats = {
   unread: number
   /** 받는 쪽이 읽지 않는 것 가운데 fso: 가 아닌 것의 수. */
   unreadOther: number
+  /** 그린 것. 모든 층을 보면 위의 파일 수와 같고, 한 층만 보면 그 층 안의 것이다. */
   graph: {
     points: number
     feeds: number
     hasLocation: number
     hasPart: number
   }
+  /** 그린 층(한 층만 볼 때). 모든 층이면 null. */
+  storeyId: string | null
   buildMs: number
 }
 
@@ -95,12 +101,17 @@ function ringSegments(out: number[], center: Vector3, radius: number, sides: num
   }
 }
 
-/** 내보낼 TTL·GeoJSON 만 읽어 3D 그래프 장면을 짓는다. 단위 테스트에서도 직접 부른다. */
-export function buildXrayGraph(model: Readonly<Model>, dark: boolean): BuiltGraph {
+/**
+ * 내보낼 TTL·GeoJSON 만 읽어 3D 그래프 장면을 짓는다. 단위 테스트에서도 직접 부른다.
+ * `only` 가 층 id 면 그 층 것만 그린다(수는 파일 전체를 센다). feeds 는 양 끝이 다 그 층일 때만 그린다.
+ */
+export function buildXrayGraph(model: Readonly<Model>, dark: boolean, only: string | null = null): BuiltGraph {
   const t0 = performance.now()
   const ttl = modelToTTL(model as Model)
   const reading = readOntologyTTL(ttl)
   const geo = modelToGeoJSON(model as Model)
+  const storeyOf = only ? storeyOfKeys(model, geo) : null
+  const here = (key: string) => !storeyOf || storeyOf.get(key) === only
 
   let minX = Infinity
   let maxX = -Infinity
@@ -155,7 +166,7 @@ export function buildXrayGraph(model: Readonly<Model>, dark: boolean): BuiltGrap
         const cy = sy / n
         const v = new Vector3(...toScene([cx, cy, elev + 0.15]))
         posByKey.set(String(f.id), v)
-        if (f.properties.kind === 'space') spaceCenters.push(v)
+        if (f.properties.kind === 'space' && here(String(f.id))) spaceCenters.push(v)
       }
     }
   }
@@ -255,7 +266,7 @@ export function buildXrayGraph(model: Readonly<Model>, dark: boolean): BuiltGrap
     const fromPos = ensurePos(e.key, i + 100)
 
     const eq = equipById.get(e.key)
-    if (eq || hvacEquipIds.has(e.key)) {
+    if ((eq || hvacEquipIds.has(e.key)) && here(e.key)) {
       const cls = eq ? classOf(eq) : `${e.ns}:${e.cls}`
       const hex = cls.startsWith('ex:') ? UNKNOWN_CLASS_COLOR : (classColorMap.get(cls) ?? CLASS_PALETTE[0])
       tmpColor.setHex(hex)
@@ -265,16 +276,18 @@ export function buildXrayGraph(model: Readonly<Model>, dark: boolean): BuiltGrap
 
     for (const target of e.feeds) {
       const toPos = ensurePos(target, feedsCount + 1000)
-      feedSegments.push({ from: e.key, to: target, strong: true, a: fromPos, b: toPos })
+      if (here(e.key) && here(target)) feedSegments.push({ from: e.key, to: target, strong: true, a: fromPos, b: toPos })
       feedsCount++
     }
     for (const loc of e.locations) {
       const toPos = ensurePos(loc, locCount + 5000)
-      locPositions.push(fromPos.x, fromPos.y, fromPos.z, toPos.x, toPos.y, toPos.z)
+      if (here(e.key)) locPositions.push(fromPos.x, fromPos.y, fromPos.z, toPos.x, toPos.y, toPos.z)
       locCount++
     }
     for (const part of e.parts) {
       const p0 = ensurePos(part, partCount + 9000)
+      partCount++
+      if (!here(part)) continue
       const p1 = fromPos
       const dist = p0.distanceTo(p1)
       tmpMid.copy(p0).lerp(p1, 0.5)
@@ -296,14 +309,16 @@ export function buildXrayGraph(model: Readonly<Model>, dark: boolean): BuiltGrap
         )
         partPositions.push(tmpA.x, tmpA.y, tmpA.z, tmpB.x, tmpB.y, tmpB.z)
       }
-      partCount++
     }
   }
 
   // 물리존 바닥 중심 고리와 층 기둥 마디
   const markerPositions: number[] = []
   for (const c of spaceCenters) ringSegments(markerPositions, c, 0.55, 16)
-  if (storeyNodes.length) {
+  if (only) {
+    const node = posByKey.get(only)
+    if (node) ringSegments(markerPositions, node, 0.85, 12)
+  } else if (storeyNodes.length) {
     const low = storeyNodes[0]
     markerPositions.push(low.x, low.y, low.z, buildingTop.x, buildingTop.y, buildingTop.z)
     for (const node of storeyNodes) ringSegments(markerPositions, node, 0.85, 12)
@@ -360,13 +375,14 @@ export function buildXrayGraph(model: Readonly<Model>, dark: boolean): BuiltGrap
       hasLocation: locPositions.length / 6,
       hasPart: partPositions.length / (6 * CURVE_STEPS),
     },
+    storeyId: only,
     buildMs,
   }
 
   // 선이 많을수록 옅게 칠한다. 성수는 hasPart 가 2만 개라 같은 짙기면 보라색 덩어리가 되어 feeds·점을 덮었다. 수는 그대로다.
   const thin = (n: number) => Math.min(1, Math.sqrt(1500 / Math.max(1, n)))
-  const locBase = 0.42 * thin(locCount)
-  const partBase = 0.52 * thin(partCount)
+  const locBase = 0.42 * thin(stats.graph.hasLocation)
+  const partBase = 0.52 * thin(stats.graph.hasPart)
 
   return {
     scene,
@@ -402,10 +418,12 @@ export function enable(ctx: EggContext): EggHandle {
     'padding:0.45rem 0.65rem;border:1px solid var(--line);border-radius:6px;background:color-mix(in srgb,var(--surface) 90%,transparent);font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--fg)'
   const line1 = document.createElement('div')
   line1.dataset.testid = 'egg-xray-line1'
+  const lineStorey = document.createElement('div')
+  lineStorey.dataset.testid = 'egg-xray-storey'
   const line2 = document.createElement('div')
   line2.dataset.testid = 'egg-xray-line2'
   line2.style.color = 'var(--muted)'
-  hud.append(line1, line2)
+  hud.append(line1, lineStorey, line2)
 
   // 어두운 막(바탕색 85%): 건물 재질을 건드리지 않고 afterRender 에서 화면 전체 사각형으로 먼저 덮는다.
   const backdropScene = new Scene()
@@ -422,6 +440,7 @@ export function enable(ctx: EggContext): EggHandle {
 
   let built: BuiltGraph | null = null
   let builtVersion = -1
+  let builtStorey: string | null = null
   let pointerInViewport = true
   let pointerButtons = 0
   let holding = false
@@ -437,18 +456,25 @@ export function enable(ctx: EggContext): EggHandle {
     line1.textContent = `받는 쪽이 읽는 관계 · feeds ${stats.feeds.toLocaleString()} · hasLocation ${stats.hasLocation.toLocaleString()} · hasPart ${stats.hasPart.toLocaleString()} · 화면에서만`
     const other = stats.unreadOther ? ` · 그 밖에 ${stats.unreadOther.toLocaleString()}개도 같은 이유로 뺐습니다` : ''
     line2.textContent = `덕트·배관(fso:) ${stats.unread.toLocaleString()}개는 받는 쪽이 읽지 않아 그리지 않았습니다${other}`
+    const name = stats.storeyId ? (ctx.model()?.storeys.find((s) => s.id === stats.storeyId)?.name ?? stats.storeyId) : null
+    lineStorey.textContent = name
+      ? `${name} 만 그렸습니다 · feeds ${stats.graph.feeds.toLocaleString()} · hasLocation ${stats.graph.hasLocation.toLocaleString()} · hasPart ${stats.graph.hasPart.toLocaleString()} · 다른 층과 잇는 feeds 는 뺐습니다`
+      : ''
+    lineStorey.style.display = name ? '' : 'none'
   }
 
   function ensureGraph(): BuiltGraph | null {
     const m = ctx.model()
     if (!m) return null
     const v = ctx.modelVersion()
-    if (built && builtVersion === v) return built
+    const only = ctx.signals.storeyId.value
+    if (built && builtVersion === v && builtStorey === only) return built
     built?.dispose()
     line1.textContent = '그래프 짓는 중 · 화면에서만'
     line2.textContent = ''
-    built = buildXrayGraph(m, ctx.dark())
+    built = buildXrayGraph(m, ctx.dark(), only)
     builtVersion = v
+    builtStorey = only
     updateHud(built.stats)
     return built
   }
@@ -535,6 +561,14 @@ export function enable(ctx: EggContext): EggHandle {
     },
   )
 
+  // 보는 층을 바꾸면 바로 다시 짓는다(그 층만 그린다).
+  const stopStoreyWatch = watch(ctx.signals.storeyId, () => {
+    if (alpha > 0 || targetAlpha > 0) {
+      ensureGraph()
+      needsFrame = true
+    }
+  })
+
   ctx.addLayer({
     step(now) {
       if (ctx.still()) {
@@ -591,6 +625,7 @@ export function enable(ctx: EggContext): EggHandle {
   return {
     off() {
       stopModelWatch()
+      stopStoreyWatch()
       if (timer) clearTimeout(timer)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerdown', onPointerDown)
@@ -602,7 +637,7 @@ export function enable(ctx: EggContext): EggHandle {
     inspect() {
       // 여기서 짓지 않는다. 편집을 따라 다시 짓는지는 builtVersion 으로 본다.
       return {
-        ...(built?.stats ?? { feeds: 0, hasLocation: 0, hasPart: 0, unread: 0, unreadOther: 0, graph: { points: 0, feeds: 0, hasLocation: 0, hasPart: 0 }, buildMs: 0 }),
+        ...(built?.stats ?? { feeds: 0, hasLocation: 0, hasPart: 0, unread: 0, unreadOther: 0, graph: { points: 0, feeds: 0, hasLocation: 0, hasPart: 0 }, storeyId: null, buildMs: 0 }),
         builtVersion,
         modelVersion: ctx.modelVersion(),
         holding,

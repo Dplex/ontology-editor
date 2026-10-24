@@ -5,6 +5,10 @@
 // - 해 자리는 외부 라이브러리 없이 NOAA 근사식으로 계산한다(서울 기준 하지 최고 고도 약 75.9° · 동지 약 29.0°).
 // - 그림자 맵은 renderer.shadowMap.autoUpdate = false 로 두고 해 자리나 모델이 바뀔 때만 needsUpdate = true 를 걸어,
 //   카메라를 돌려도 그림자 맵을 다시 그리지 않고 가만히 있을 때는 0장이다.
+// - 땅은 불투명한 판이다(해가 비추고 그림자를 받는다). 내려다보면 화면 대부분이 지평선 아래인데 Sky 는 거기를 지평선의 옅은 연무색으로
+//   칠해서, 그림자만 받는 투명한 판일 때는 바탕 전체가 하얗게 떠 건물이 묻혔다.
+// - 하늘(Sky)은 제 셰이더 안에서 노출을 낮추고 ACES 로 눌러 칠한다. Sky 는 렌더러의 톤 매핑(ACES · 노출 0.5)을 전제로 밝기를 내는데
+//   편집기 3D 는 톤 매핑을 쓰지 않아서, 그대로 두면 하늘이 하얗게 타 건물·HUD 가 묻혔다. 렌더러 톤 매핑을 켜면 건물 재질 색이 다 바뀐다.
 import {
   BufferGeometry,
   DirectionalLight,
@@ -16,7 +20,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
-  ShadowMaterial,
+  MeshLambertMaterial,
   type ShaderMaterial,
   Vector3,
   type WebGLRenderer,
@@ -51,6 +55,29 @@ export type SolarPosition = {
   north: number
   up: number
 }
+
+/** 땅 색(테마별). 회색에 색을 섞지 않는다(ui-notes: 세피아로 보였다). */
+const GROUND_DARK = 0x2c2f35
+const GROUND_LIGHT = 0x9a9ea6
+/** 땅 판의 한 변(m). 내려다볼 때 지평선 아래를 거의 다 덮는 크기다. */
+const GROUND_SIZE = 4000
+
+/** 하늘에만 거는 노출(three 의 Sky 예제가 쓰는 값). */
+const SKY_EXPOSURE = 0.5
+/** three 의 ACESFilmicToneMapping 과 같은 식. 렌더러 톤 매핑이 꺼져 있으면 그 함수가 셰이더에 들지 않아 여기 따로 둔다. */
+const SKY_TONE_GLSL = /* glsl */ `
+vec3 eggSkyRrt(vec3 v) {
+  vec3 a = v * (v + 0.0245786) - 0.000090537;
+  vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+  return a / b;
+}
+vec3 eggSkyAces(vec3 color) {
+  const mat3 inM = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+  const mat3 outM = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+  color *= ${SKY_EXPOSURE.toFixed(2)} / 0.6;
+  return clamp(outM * eggSkyRrt(inM * color), 0.0, 1.0);
+}
+`
 
 const DEG_TO_RAD = Math.PI / 180
 const RAD_TO_DEG = 180 / Math.PI
@@ -321,6 +348,9 @@ export function enable(ctx: EggContext): EggHandle {
   skyUniforms.mieCoefficient.value = 0.005
   skyUniforms.mieDirectionalG.value = 0.8
   skyUniforms.cloudCoverage.value = 0
+  const skyMat = sky.material as ShaderMaterial
+  skyMat.fragmentShader =
+    SKY_TONE_GLSL + skyMat.fragmentShader.replace('#include <tonemapping_fragment>', 'gl_FragColor.rgb = eggSkyAces(gl_FragColor.rgb);')
   root.add(sky)
   disposables.push(sky.geometry, sky.material as ShaderMaterial)
 
@@ -328,11 +358,12 @@ export function enable(ctx: EggContext): EggHandle {
   sunLight.castShadow = true
   sunLight.shadow.mapSize.set(2048, 2048)
   sunLight.shadow.bias = -0.0005
-  root.add(sunLight, sunLight.target)
+  // 해는 렌더러의 그림자를 켠 다음에 얹는다(afterRender 의 첫 장). 재질 셰이더는 빛이 바뀔 때 다시 지어지는데, 그림자를 켜기 전에
+  // 해를 얹으면 그 한 번이 "그림자 꺼짐" 으로 지어지고, 그 뒤 그림자를 켜도 다시 짓지 않아 그림자가 하나도 안 생겼다.
 
   const groundGeo = new PlaneGeometry(1, 1)
   groundGeo.rotateX(-Math.PI / 2)
-  const groundMat = new ShadowMaterial({ opacity: 0.28, transparent: true, depthWrite: false })
+  const groundMat = new MeshLambertMaterial({ color: ctx.dark() ? GROUND_DARK : GROUND_LIGHT })
   const groundPlane = new Mesh(groundGeo, groundMat)
   groundPlane.receiveShadow = true
   root.add(groundPlane)
@@ -475,7 +506,7 @@ export function enable(ctx: EggContext): EggHandle {
     sunLight.shadow.camera.far = Math.max(80, bounds.radius * 6)
     sunLight.shadow.camera.updateProjectionMatrix()
 
-    groundPlane.scale.set(span * 2.4, 1, span * 2.4)
+    groundPlane.scale.set(GROUND_SIZE, 1, GROUND_SIZE)
     groundPlane.position.set(bounds.cx, bounds.minY - 0.02, bounds.cz)
 
     // 진북 화살표: 건물 앞바닥 가장자리에 놓고 진북 방향으로 돌린다.
@@ -508,6 +539,13 @@ export function enable(ctx: EggContext): EggHandle {
     () => ctx.modelVersion(),
     () => rebuildBoundsAndSite(true),
   )
+  const stopDarkWatch = watch(
+    () => ctx.dark(),
+    (d) => {
+      groundMat.color.setHex(d ? GROUND_DARK : GROUND_LIGHT)
+      needsFrame = true
+    },
+  )
 
   ctx.addLayer({
     object: root,
@@ -523,6 +561,8 @@ export function enable(ctx: EggContext): EggHandle {
         prevShadowAutoUpdate = renderer.shadowMap.autoUpdate
         renderer.shadowMap.enabled = true
         renderer.shadowMap.autoUpdate = false
+        root.add(sunLight, sunLight.target)
+        shadowDirty = true
       }
       // 그림자 맵은 다음 장에서 다시 그린다. 여기서 장면을 한 번 더 그리면 먼저 덧그린 다른 egg(xray 의 막)가 지워진다.
       if (shadowDirty) {
@@ -555,6 +595,7 @@ export function enable(ctx: EggContext): EggHandle {
   return {
     off() {
       stopModelWatch()
+      stopDarkWatch()
       for (const fn of cleanups) fn()
       restoreLights()
     },

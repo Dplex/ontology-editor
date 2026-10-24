@@ -5,7 +5,7 @@
   left: 50%;
   transform: translateX(-50%);
   min-width: 16rem;
-  max-width: min(28rem, calc(100% - 2rem));
+  max-width: min(34rem, calc(100% - 2rem));
   padding: 0.5rem 0.75rem 0.6rem;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -27,9 +27,11 @@
   padding: 0;
   list-style: none;
 }
+/* 숫자 · id · 이름 · on 한 줄, 그 아래 손짓 한 줄(id 칸부터). */
 .egg-hub button {
-  display: flex;
-  gap: 0.6rem;
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  column-gap: 0.6rem;
   align-items: baseline;
   width: 100%;
   min-height: 24px;
@@ -58,12 +60,20 @@
 .egg-hub .egg-title {
   color: var(--muted);
 }
+.egg-hub .egg-hint {
+  grid-row: 2;
+  grid-column: 2 / -1;
+  color: var(--muted);
+  font-size: 11px;
+  opacity: 0.8;
+}
 .egg-hub button[aria-pressed='true'] .egg-id {
   color: var(--accent);
 }
 .egg-hub button[aria-pressed='true']::after {
   content: 'on';
-  margin-left: auto;
+  grid-row: 1;
+  grid-column: 4;
   color: var(--accent);
   font-size: 12px;
 }

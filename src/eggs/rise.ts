@@ -1,12 +1,15 @@
-// A. 층이 올라앉는 오프닝(rise) — 파일을 연 뒤 층이 아래부터 0.08초 간격으로 0.4m 위에서 내려앉는다(docs/plans/easter-eggs.md).
+// A. 층이 올라앉는 오프닝(rise) — 파일을 연 뒤 층이 아래부터 0.08초 간격으로 한 층 높이 위에서 내려앉는다(docs/plans/easter-eggs.md).
 //
-// - 인트로(#intro)는 파일을 열기 전의 구운 장면이고 이것은 실제 파일을 연 편집기 3D 다. 조립과 겹치지 않게 짧고 작게 둔다.
+// - 인트로(#intro)는 파일을 열기 전의 구운 장면이고 이것은 실제 파일을 연 편집기 3D 다. 조립과 겹치지 않게 짧게 둔다.
+// - 드는 높이는 층 사이 간격의 가운데 값이다(1.5~6m). 처음엔 0.4m 였는데 성수(19개 층, 80m)에서는 건물 높이의 0.5% 라 움직이는 줄 몰랐다.
 // - 모양만 움직인다. 재질의 꼭짓점 셰이더에 "세계 y 가 속한 층만큼 위로" 를 꽂을 뿐, 형상·자리·고르기 상자(JS 배열)는
 //   처음부터 끝 자리다(drop-in.ts 와 같은 원칙, replay-viewer.ts 의 층 들기와 같은 관용구).
 // - 다 내려앉아도 꽂은 것은 egg 를 끌 때까지 둔다(들기 0). 빼면 그 자리에서 셰이더를 다시 지어 내려앉는 끝에 화면이 멈칫한다.
 //   층 수만큼 도는 짧은 반복이 꼭짓점마다 남는 값이고, 가만히 있을 때 0장은 그대로다. 새 파일의 재질은 처음 그리기 전에 꽂으니
 //   셰이더를 한 번만 짓는다.
-// - 시계는 꽂은 첫 장을 그린 다음 장부터 간다. 첫 장에 셰이더를 짓느라 걸린 시간이 내려앉는 시간을 먹지 않게 한다.
+// - 시계는 장 간격이 평소로 돌아온 장부터 간다(최대 10초 기다림). 꽂으면 재질 셰이더를 다시 짓는데 성수(재질 220개)는 그 멈춤이
+//   두 장에 걸쳐 3.4초 · 2.1초라 내려앉는 시간(2초)보다 길었다. 꽂은 다음 장부터 재면 두 장 만에 끝나 아무것도 안 보였다.
+//   CPU 로 그리는 e2e 의 평소 장 간격(0.15~0.2초)은 멈춤으로 보지 않게 문턱을 0.4초로 둔다.
 // - 켤 때 한 번, 그리고 켜 둔 동안 새 파일을 열 때마다 한 번 튼다(편집은 모델 객체가 그대로라 틀지 않는다).
 //   주소(?egg=rise)로 켜면 3D 첫 장 뒤에 켜지므로 곧 여는 장면이 된다. 열기 완료 신호는 건드리지 않는다.
 // - 움직임 끄기(still())면 틀지 않는다.
@@ -17,8 +20,14 @@ import type { Model } from '../lib/model'
 import type { EggContext, EggHandle } from './types'
 
 export const STAGGER_MS = 80
-export const DROP_MS = 420
-export const LIFT_M = 0.4
+export const DROP_MS = 600
+/** 층이 하나뿐이라 간격을 잴 수 없을 때 드는 높이. */
+export const LIFT_M = 3
+const LIFT_MIN = 1.5
+const LIFT_MAX = 6
+/** 이보다 긴 장 간격은 셰이더를 짓느라 멈춘 것으로 본다. */
+const STALL_MS = 400
+const STALL_WAIT_MAX = 10_000
 /** 셰이더 배열 크기. 층이 이보다 많으면 위층들은 맨 위 단과 같이 내려앉는다. */
 const MAX_LEVELS = 64
 
@@ -27,18 +36,25 @@ export function riseLevels(model: Readonly<Model>): number[] {
   return [...new Set(model.storeys.map((s) => s.elevation))].sort((a, b) => a - b).slice(0, MAX_LEVELS)
 }
 
+/** 드는 높이. 층 사이 간격의 가운데 값(1.5~6m). 층이 하나면 LIFT_M. */
+export function riseLift(levels: readonly number[]): number {
+  const gaps = levels.slice(1).map((y, i) => y - levels[i]).sort((a, b) => a - b)
+  if (!gaps.length) return LIFT_M
+  return Math.min(LIFT_MAX, Math.max(LIFT_MIN, gaps[Math.floor(gaps.length / 2)]))
+}
+
 /** 전체가 다 내려앉는 데 걸리는 시간. */
 export function riseDuration(levels: number): number {
   return levels > 0 ? (levels - 1) * STAGGER_MS + DROP_MS : 0
 }
 
 /** k 번째 단이 t(ms)에 떠 있는 높이. 셰이더와 같은 식이다(단위 테스트가 이것으로 잰다). */
-export function liftAt(k: number, t: number): number {
+export function liftAt(k: number, t: number, lift = LIFT_M): number {
   const u = Math.min(1, Math.max(0, (t - k * STAGGER_MS) / DROP_MS))
-  return LIFT_M * (1 - (1 - (1 - u) ** 3))
+  return lift * (1 - (1 - (1 - u) ** 3))
 }
 
-const VERT_HEAD = `uniform float uRiseT;\nuniform float uRiseLevels[${MAX_LEVELS}];\nuniform int uRiseCount;\n`
+const VERT_HEAD = `uniform float uRiseT;\nuniform float uRiseLift;\nuniform float uRiseLevels[${MAX_LEVELS}];\nuniform int uRiseCount;\n`
 // 세계 y 로 단을 찾는다. 층 높이보다 조금 아래(바닥판 두께)까지는 그 층으로 본다.
 const VERT_BODY = `
   {
@@ -50,7 +66,7 @@ const VERT_BODY = `
     }
     float u = clamp((uRiseT - float(k) * ${STAGGER_MS.toFixed(1)}) / ${DROP_MS.toFixed(1)}, 0.0, 1.0);
     float e = 1.0 - pow(1.0 - u, 3.0);
-    rw.y += ${LIFT_M.toFixed(2)} * (1.0 - e);
+    rw.y += uRiseLift * (1.0 - e);
     mvPosition = viewMatrix * rw;
     gl_Position = projectionMatrix * mvPosition;
   }`
@@ -60,13 +76,16 @@ type Saved = { onBeforeCompile: Material['onBeforeCompile']; customProgramCacheK
 export function enable(ctx: EggContext): EggHandle {
   const uniforms = {
     uRiseT: { value: 0 },
+    uRiseLift: { value: LIFT_M },
     uRiseLevels: { value: new Float32Array(MAX_LEVELS) },
     uRiseCount: { value: 0 },
   }
   const patched = new Map<Material, Saved>()
   let pending = !ctx.still()
-  /** 꽂고 첫 장(t = 0)을 그렸다. 다음 장에서 시계를 건다. */
+  /** 꽂고 첫 장(t = 0)을 그렸다. 장 간격이 평소로 돌아오면 시계를 건다. */
   let armed = false
+  let armedAt = 0
+  let lastStep = 0
   let startAt: number | null = null
   let duration = 0
   let runs = 0
@@ -119,10 +138,12 @@ export function enable(ctx: EggContext): EggHandle {
     uniforms.uRiseLevels.value.fill(0)
     uniforms.uRiseLevels.value.set(levels)
     uniforms.uRiseCount.value = levels.length
+    uniforms.uRiseLift.value = riseLift(levels)
     uniforms.uRiseT.value = 0
     patchScene()
     duration = riseDuration(levels.length)
     armed = true
+    armedAt = performance.now()
     runs++
   }
 
@@ -154,12 +175,16 @@ export function enable(ctx: EggContext): EggHandle {
   ctx.addLayer({
     object: anchor,
     step(now) {
+      const gap = now - lastStep
+      lastStep = now
       if (pending) {
         pending = false
         begin()
         return true
       }
       if (armed) {
+        // 셰이더를 짓느라 멈춘 장이면 t = 0 으로 한 장 더 그리고 기다린다.
+        if (gap > STALL_MS && now - armedAt < STALL_WAIT_MAX) return true
         armed = false
         startAt = now
       }
@@ -182,6 +207,6 @@ export function enable(ctx: EggContext): EggHandle {
 
   return {
     off: stop,
-    inspect: () => ({ runs, frames, running: pending || armed || startAt !== null, patched: patched.size, levels: uniforms.uRiseCount.value, duration }),
+    inspect: () => ({ runs, frames, running: pending || armed || startAt !== null, patched: patched.size, levels: uniforms.uRiseCount.value, lift: uniforms.uRiseLift.value, duration}),
   }
 }

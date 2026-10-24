@@ -1,11 +1,11 @@
-// B. 계통을 따라가는 대기 화면(tour) — 켜 둔 동안 60초 아무 입력이 없으면 UI 를 접고 계통을 따라 카메라가 천천히 간다(docs/plans/easter-eggs.md).
+// B. 계통을 따라가는 대기 화면(tour) — 켜 둔 동안 10초 아무 입력이 없으면 UI 를 접고 계통을 따라 카메라가 천천히 간다(docs/plans/easter-eggs.md).
 //
 // - 넓게 보기(ctx.wide)로 UI 를 접고 위아래 검은 띠(2.39:1)를 내린다. 발표 전 쉬는 시간에 두 판이 나란히 켜져 있을 때를 위한 화면이다.
 // - 길은 TTL `brick:feeds` 가 가장 많은 계통이다(readOntologyTTL 로 읽은 feeds 를 보내는 쪽 설비의 계통으로 묶는다). 그 계통의 원천에서 시작해
 //   feeds 가 닿는 설비를 가까운 순서로 최대 40곳 들른다(tourPath). 들르는 설비는 모두 파일의 feeds 줄로 원천에 이어진 것이다.
 // - 카메라는 그 설비들 위 3m 를 잇는 CatmullRom 곡선을 초속 4m 로 가고, 조금 앞을 본다. 끝에 닿으면 처음부터 다시 간다.
 //   지나가는 설비 이름이 화면 아래에 한 줄씩 뜬다.
-// - 아무 입력(포인터·키·휠)이 오면 바로 원래 시점과 화면으로 돌아가고, 다시 60초를 센다. 움직임 끄기면 돌지 않는다.
+// - 아무 입력(포인터·키·휠)이 오면 바로 원래 시점과 화면으로 돌아가고, 다시 10초를 센다. 움직임 끄기면 돌지 않는다.
 import { CatmullRomCurve3, Vector3 } from 'three'
 import { readOntologyTTL } from '../lib/export/read-ttl'
 import { modelToTTL } from '../lib/export/ttl'
@@ -13,8 +13,8 @@ import type { Model } from '../lib/model'
 import { toScene } from '../lib/viewer'
 import type { EggContext, EggHandle } from './types'
 
-/** 기다리는 시간. e2e 는 60초를 못 기다려 짧게 둔다. */
-export const IDLE_MS = import.meta.env.MODE === 'e2e' ? 1500 : 60_000
+/** 기다리는 시간. 60초는 켠 사람도 기다리다 지쳐서 10초로 줄였다. e2e 는 1.5초. */
+export const IDLE_MS = import.meta.env.MODE === 'e2e' ? 1500 : 10_000
 const SPEED = 4
 const HEIGHT = 3
 const ASPECT = 2.39

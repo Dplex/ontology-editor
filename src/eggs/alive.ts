@@ -6,6 +6,7 @@
 // - 규칙이 짐작했지만 아직 확정하지 않은 방향은 흐르지 않고 옅은 점선으로 멈춰 있다. 계통을 확정(C)하거나 방향을 적용하면
 //   modelVersion 이 올라 그 계통이 곧장 흐르기 시작한다.
 // - 움직임 끄기(still())면 혜성 꼴로 멈춘 채 두고 매 프레임 다시 그리지 않는다.
+// - 한 층만 보고 있으면 양 끝이 다 그 층인 feeds 만 흐른다(xray 와 같은 규칙). 수는 파일 전체를 세고 HUD 에 그 층 안의 수를 따로 적는다.
 import {
   BufferAttribute,
   BufferGeometry,
@@ -25,6 +26,7 @@ import { flowTypeColor, systemFlowType } from '../lib/flow-type'
 import { systemKind } from '../lib/kinds'
 import type { Model } from '../lib/model'
 import { toScene } from '../lib/viewer'
+import { storeyOfKeys } from './storey-of'
 import type { EggContext, EggHandle } from './types'
 
 const FALLBACK_KIND_COLORS: Record<string, number> = {
@@ -43,10 +45,14 @@ const FALLBACK_KIND_COLORS: Record<string, number> = {
 export const REBUILD_SETTLE_MS = 250
 
 export type AliveStats = {
+  /** TTL 의 feeds 전부(파일 전체). */
   feeds: number
+  /** 흐르게 그린 feeds. 모든 층을 보면 feeds 와 같다. */
   graphFeeds: number
   unconfirmed: number
   groups: number
+  /** 그린 층(한 층만 볼 때). 모든 층이면 null. */
+  storeyId: string | null
 }
 
 type BuiltAlive = {
@@ -72,11 +78,16 @@ function resolveKindColor(kind: string | null | undefined, fluid: string | null 
   }
 }
 
-/** 모델의 TTL feeds 와 미확정 규칙 방향을 읽어 계통 종류별 흐르는 빛 메시와 점선 메시를 짓는다. */
-export function buildAliveScene(model: Readonly<Model>, dark: boolean): BuiltAlive {
+/**
+ * 모델의 TTL feeds 와 미확정 규칙 방향을 읽어 계통 종류별 흐르는 빛 메시와 점선 메시를 짓는다.
+ * `only` 가 층 id 면 양 끝이 다 그 층인 것만 그린다.
+ */
+export function buildAliveScene(model: Readonly<Model>, dark: boolean, only: string | null = null): BuiltAlive {
   const ttl = modelToTTL(model as Model)
   const reading = readOntologyTTL(ttl)
   const geo = modelToGeoJSON(model as Model)
+  const storeyOf = only ? storeyOfKeys(model, geo) : null
+  const here = (key: string) => !storeyOf || storeyOf.get(key) === only
 
   const posByKey = new Map<string, Vector3>()
   for (const { collection } of geo) {
@@ -166,6 +177,10 @@ export function buildAliveScene(model: Readonly<Model>, dark: boolean): BuiltAli
     const sys = sysId ? systemById.get(sysId) : undefined
     for (const target of e.feeds) {
       const toPos = ensurePos(target, feedsCount + 1000)
+      if (!here(e.key) || !here(target)) {
+        feedsCount++
+        continue
+      }
       const targetSys = !sys ? (equipSystem.get(target) ? systemById.get(equipSystem.get(target)!) : undefined) : sys
       const { key, color } = resolveKindColor(targetSys?.kind, targetSys?.fluid)
       let g = groups.get(key)
@@ -187,8 +202,9 @@ export function buildAliveScene(model: Readonly<Model>, dark: boolean): BuiltAli
     const a = posByKey.get(c.inferred.from)
     const b = posByKey.get(c.inferred.to)
     if (!a || !b) continue
-    dashedPositions.push(a.x, a.y, a.z, b.x, b.y, b.z)
     unconfirmedCount++
+    if (!here(c.inferred.from) || !here(c.inferred.to)) continue
+    dashedPositions.push(a.x, a.y, a.z, b.x, b.y, b.z)
   }
 
   const root = new Group()
@@ -232,6 +248,7 @@ export function buildAliveScene(model: Readonly<Model>, dark: boolean): BuiltAli
       graphFeeds,
       unconfirmed: unconfirmedCount,
       groups: meshes.length,
+      storeyId: only,
     },
     setDark(isDark: boolean) {
       for (const m of meshes) {
@@ -253,25 +270,28 @@ export function enable(ctx: EggContext): EggHandle {
   const container = new Group()
   let built: BuiltAlive | null = null
   let builtVersion = -1
+  let builtStorey: string | null = null
   let frames = 0
 
   function rebuild() {
     const m = ctx.model()
     if (!m) return
     const v = ctx.modelVersion()
-    if (built && builtVersion === v) return
+    const only = ctx.signals.storeyId.value
+    if (built && builtVersion === v && builtStorey === only) return
     if (built) {
       container.remove(built.root)
       built.dispose()
     }
-    built = buildAliveScene(m, ctx.dark())
+    built = buildAliveScene(m, ctx.dark(), only)
     builtVersion = v
+    builtStorey = only
     container.add(built.root)
-    const { feeds, unconfirmed } = built.stats
-    hud.textContent =
-      unconfirmed > 0
-        ? `살아 있는 건물 · 흐르는 feeds ${feeds.toLocaleString()} · 미확정 규칙 방향 ${unconfirmed.toLocaleString()} · 화면에서만`
-        : `살아 있는 건물 · 흐르는 feeds ${feeds.toLocaleString()} · 화면에서만`
+    const { feeds, graphFeeds, unconfirmed } = built.stats
+    const name = only ? (m.storeys.find((s) => s.id === only)?.name ?? only) : null
+    const storeyPart = name ? ` · ${name} 안 ${graphFeeds.toLocaleString()} 만 그림` : ''
+    const rulePart = unconfirmed > 0 ? ` · 미확정 규칙 방향 ${unconfirmed.toLocaleString()}` : ''
+    hud.textContent = `살아 있는 건물 · 흐르는 feeds ${feeds.toLocaleString()}${storeyPart}${rulePart} · 화면에서만`
   }
 
   rebuild()
@@ -288,6 +308,7 @@ export function enable(ctx: EggContext): EggHandle {
       }, REBUILD_SETTLE_MS)
     },
   )
+  const stopStoreyWatch = watch(ctx.signals.storeyId, () => rebuild())
   const stopThemeWatch = watch(
     () => ctx.dark(),
     (d) => built?.setDark(d),
@@ -313,13 +334,14 @@ export function enable(ctx: EggContext): EggHandle {
   return {
     off() {
       stopModelWatch()
+      stopStoreyWatch()
       stopThemeWatch()
       if (timer) clearTimeout(timer)
     },
     inspect() {
       // 여기서 다시 짓지 않는다. 지으면 편집을 따라가지 못하는 버그를 e2e 가 못 본다.
       return {
-        ...(built?.stats ?? { feeds: 0, graphFeeds: 0, unconfirmed: 0, groups: 0 }),
+        ...(built?.stats ?? { feeds: 0, graphFeeds: 0, unconfirmed: 0, groups: 0, storeyId: null }),
         builtVersion,
         modelVersion: ctx.modelVersion(),
         frames,

@@ -517,7 +517,7 @@ test('tour — 입력 없이 기다리면 UI 를 접고 띠를 내려 feeds 가 
   await page.mouse.move(3, 500)
   const before = await page.evaluate(() => (window as any).__viewer.camera())
   expect(await oe(page, 'eggOn', 'tour')).toBe(true)
-  // e2e 는 60초 대신 1.5초를 기다린다(IDLE_MS).
+  // e2e 는 10초 대신 1.5초를 기다린다(IDLE_MS).
   await expect.poll(async () => (await eggs(page)).inspect.tour.touring, { timeout: 10_000 }).toBe(true)
   const info = (await eggs(page)).inspect.tour
   expect(info.path.feeds).toBeGreaterThan(0)

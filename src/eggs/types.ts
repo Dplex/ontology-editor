@@ -69,6 +69,11 @@ export type Egg = {
   id: string
   /** 우리말 이름(`~` 판, 콘솔 표). */
   title: string
+  /**
+   * 켠 뒤 어디를 보거나 무엇을 하면 보이는지(`~` 판에서 이름 아래 한 줄). 켜도 바로 바뀌지 않는 egg(wipe·rise·ticker·tour…)는
+   * 이것 없이는 켰는지조차 알 수 없었다.
+   */
+  hint: string
   /** 동적 import 라 켜기 전에는 내려받지도 않는다 — 기본 번들 크기가 그대로다. */
   load(): Promise<EggModule>
   /**

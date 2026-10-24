@@ -2,7 +2,7 @@ import { BoxGeometry, LineBasicMaterial, LineSegments, Mesh, MeshBasicMaterial, 
 import { describe, expect, it } from 'vitest'
 import type { Model } from '../lib/model'
 import { JITTER, SAMPLES } from './refine'
-import { DROP_MS, LIFT_M, liftAt, riseDuration, riseLevels, STAGGER_MS } from './rise'
+import { DROP_MS, LIFT_M, liftAt, riseDuration, riseLevels, riseLift, STAGGER_MS } from './rise'
 import { castsContact } from './shadow'
 import { coverRadius } from './wipe'
 
@@ -29,7 +29,7 @@ describe('A 등급 egg 의 계산', () => {
     expect(castsContact(own, own)).toBe(false)
   })
 
-  it('rise — 층 높이 순으로 단을 나누고(같은 높이는 한 단), 맨 아래 단부터 0.08초 간격으로 0.4m 에서 0 으로 내려앉는다', () => {
+  it('rise — 층 높이 순으로 단을 나누고(같은 높이는 한 단), 맨 아래 단부터 0.08초 간격으로 한 층 높이에서 0 으로 내려앉는다', () => {
     const storey = (id: string, elevation: number) => ({ id, elevation }) as Model['storeys'][number]
     const model = { storeys: [storey('b', 3), storey('a', 0), storey('c', 3), storey('d', 6.5)] } as unknown as Model
     expect(riseLevels(model)).toEqual([0, 3, 6.5])
@@ -38,6 +38,13 @@ describe('A 등급 egg 의 계산', () => {
     expect(liftAt(1, STAGGER_MS)).toBeCloseTo(LIFT_M)
     expect(liftAt(0, DROP_MS)).toBe(0)
     expect(liftAt(2, riseDuration(3))).toBe(0)
+    // 드는 높이는 층 간격의 가운데 값이고 1.5~6m 로 묶는다. 층이 하나면 LIFT_M.
+    expect(riseLift([0, 3, 6.5])).toBe(3.5)
+    expect(riseLift([0, 4.3, 8.6, 12.9])).toBeCloseTo(4.3)
+    expect(riseLift([0, 0.5, 1])).toBe(1.5)
+    expect(riseLift([0, 20, 40])).toBe(6)
+    expect(riseLift([0])).toBe(LIFT_M)
+    expect(liftAt(0, 0, 4.3)).toBeCloseTo(4.3)
     // 내려앉는 동안 높이는 줄기만 한다.
     const path = Array.from({ length: 20 }, (_, i) => liftAt(1, STAGGER_MS + (i * DROP_MS) / 19))
     for (let i = 1; i < path.length; i++) expect(path[i]).toBeLessThanOrEqual(path[i - 1])
