@@ -67,6 +67,8 @@ function makeContext(m: Model) {
       flying: ref(false),
       replaying: ref(false),
       storeyId: ref(null),
+      importing: ref(false),
+      importClasses: ref(null),
     },
   }
   return { ctx, hud, layers, lightCalls }

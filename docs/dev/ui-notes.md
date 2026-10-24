@@ -653,3 +653,17 @@ Duplex 20~24ms · 병원 22ms · 성수 19~21ms 다. 성수에서 egg 여덟 개
 - **`~` 판은 전부 보인다.** egg 가 아홉을 넘어 앞 아홉만 숫자 키를 받고 나머지는 판에서 눌러 켠다. e2e 의 probe 는 맨 앞(1)이다.
 - 병원 라이트에서 띠·자막·카메라를 눈으로 봤다. 시점이 덕트 3m 위라 가까이 내려다본다.
 - 되돌리려면 `src/eggs/tour.ts`, `registry.ts` 의 한 줄, `e2e/eggs.spec.ts` 의 tour 시험을 뺀다. `guardLayer` 는 남겨도 된다.
+
+## 숨은 연출 B `ticker` — 읽는 중인 IFC 클래스 (2026-10-24)
+
+주소 `?egg=ticker` 로 켜 두면 파일을 읽는 동안 진행 알림 곁에 `IfcDistributionPort 39,988` 같은 줄이 고정폭 글자로 0.12초마다 하나씩 오른다(많은 클래스부터 12줄).
+다 읽으면 걷힌다. 파일을 열기 전에 켜져 있어야 해서, 껍데기에 파일을 열기 전에도 켜지는 egg(`early`)를 더했다 — 주소에 있으면 바로 켜고, 파일을 닫아도 끄지 않는다.
+
+- **수는 파일 값 그대로다.** 임포터가 파일을 연 직후 IfcProduct 하위 클래스별 수를 한 번 센다(`ImportOptions.classCounts`, 진행 알림의 `classes`). 0 부터 굴려
+  올리지 않는다 — 줄이 아래에서 올라오는 것만 움직임이다. 클래스 이름은 클래스마다 한 줄을 읽어 스키마 클래스 이름(`IfcFlowFitting`)을 얻는다. web-ifc 의 타입 이름은
+  대문자(`IFCFLOWFITTING`)라 대소문자를 되살릴 수 없다.
+- **ticker 가 꺼져 있으면 세지 않는다.** 껍데기가 ticker 가 켜졌을 때만 `wantClassCounts` 를 세우고 `progress.ts` 가 그때만 옵션을 넘긴다. 기본 경로·`check:sample` 은 그대로다.
+- **자리.** 진행 알림(`.progress-toast`)은 Vue 가 그리는 것이라 그 안에 끼우지 않고 따로 띄워 자리만 따라간다. 알림이 화면 아래에 붙어 있어 아래에 자리가 없으면 위에 띄운다
+  (처음에는 아래에 띄워 화면 밖으로 나갔다). 성수를 여는 도중을 눈으로 봤다.
+- 되돌리려면 `src/eggs/ticker.ts`, `registry.ts` 의 한 줄, `ImportOptions.classCounts`·`productClasses`(`ifc/import.ts`), `progress.ts` 의 `wantClassCounts`·`importClasses`,
+  `editor/eggs.ts` 의 `early` 갈래와 `signals.importing`·`importClasses`, ticker 시험을 뺀다.

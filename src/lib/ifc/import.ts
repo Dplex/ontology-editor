@@ -55,7 +55,15 @@ import { meshBox } from '../overlap'
  * 임포트가 어디까지 왔는지. 브라우저는 임포트를 Web Worker 에서 돌리고 이 값을 받아 진행 막대를 그린다.
  * `total` 이 있으면 그 단계 안에서 몇 개 중 몇 개인지 알고, 없으면 단계 이름만 안다.
  */
-export type ImportProgress = { stage: string; step: number; steps: number; done?: number; total?: number }
+export type ImportProgress = {
+  stage: string
+  step: number
+  steps: number
+  done?: number
+  total?: number
+  /** 파일에 든 IfcProduct 하위 클래스별 수(많은 것부터). `ImportOptions.classCounts` 가 참일 때 파일을 연 직후 한 번만 실린다. */
+  classes?: readonly (readonly [string, number])[]
+}
 export type OnProgress = (p: ImportProgress) => void
 
 /** 임포트 단계. 화면이 "3/6" 처럼 몇 번째인지 보인다. 순서를 바꾸면 여기와 read() 를 같이 고친다. */
@@ -1296,6 +1304,30 @@ export type ImportOptions = {
   walls?: boolean
   doors?: boolean
   windows?: boolean
+  /**
+   * 파일을 연 직후 IfcProduct 하위 클래스별 수를 진행 알림에 한 번 싣는다(숨은 연출 `ticker`). 모델에는 아무것도 더하지 않는다.
+   * 꺼져 있으면(기본) 세지 않는다 — 성수에서 제품 수만큼 줄 종류를 묻는 값을 기본 경로에 더하지 않으려는 것이다.
+   */
+  classCounts?: boolean
+}
+
+/** IfcProduct 하위 클래스별 수(많은 것부터, 이름은 `IfcDuctSegment` 꼴). */
+function productClasses(api: Api, model: number): [string, number][] {
+  const counts = new Map<number, { n: number; first: number }>()
+  const ids = api.GetLineIDsWithType(model, WebIFC.IFCPRODUCT, true)
+  for (let i = 0; i < ids.size(); i++) {
+    const id = ids.get(i)
+    const t = api.GetLineType(model, id)
+    const c = counts.get(t)
+    if (c) c.n++
+    else counts.set(t, { n: 1, first: id })
+  }
+  // web-ifc 의 타입 이름은 대문자(IFCDUCTSEGMENT)다. 클래스마다 한 줄만 읽어 스키마 클래스 이름을 얻고, 못 얻으면 대문자 그대로 둔다.
+  const name = (code: number, first: number) => {
+    const ctor = (api.GetLine(model, first, false) as { constructor?: { name?: string } } | null)?.constructor?.name
+    return ctor && /^Ifc[A-Z]/.test(ctor) ? ctor : api.GetNameFromTypeCode(code)
+  }
+  return [...counts].sort((a, b) => b[1].n - a[1].n).map(([code, c]) => [name(code, c.first), c.n])
 }
 
 export function importIfcWithMeshes(
@@ -1324,6 +1356,7 @@ function read(
   // Duplex COBie 판본 5개 중 3개가 이랬다 — 문자열 속 피트·인치 표기(`'Atherton 6'8" Smooth'`)의
   // 작은따옴표가 STEP 규칙대로 `''` 로 이스케이프되지 않아, 문자열이 중간에 끝나 버린다.
   if (model < 0) throw new UnreadableIfcError()
+  if (options.classCounts && onProgress) onProgress({ stage: IMPORT_STAGES[0], step: 1, steps: IMPORT_STAGES.length, classes: productClasses(api, model) })
   try {
     const { scale, found: unitFound } = lengthScale(api, model)
     const r = new Reader(api, model, scale)

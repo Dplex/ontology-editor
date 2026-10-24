@@ -1,4 +1,4 @@
-import { computed, ref, triggerRef } from 'vue'
+import { computed, ref, shallowRef, triggerRef } from 'vue'
 import { applyEdits, type EditFile, exportEdits, parseEditFile } from '../lib/edit-file'
 import type { MeshMap } from '../lib/ifc/import'
 import type { Model } from '../lib/model'
@@ -81,13 +81,21 @@ export const paint = () => new Promise<void>((r) => requestAnimationFrame(() => 
 // wasm 경로는 페이지 기준의 절대 주소로 넘긴다. vite 설정이 `base: './'` 라 번들이 하위 경로에서도
 // 열리는데, 워커는 assets/ 아래에서 돌아서 상대 경로로 두면 wasm 을 엉뚱한 자리에서 찾는다.
 let worker: Worker | null = null
+/**
+ * 숨은 연출 `ticker` 가 켜져 있으면 임포터에게 클래스별 수를 세게 한다(editor/eggs.ts 가 켜고 끈다). 꺼져 있으면 세지 않는다 — 기본 경로에
+ * 값을 더하지 않는다. 받은 수는 `importClasses` 에 두고, 파일마다 처음으로 돌린다.
+ */
+export const wantClassCounts = ref(false)
+export const importClasses = shallowRef<readonly (readonly [string, number])[] | null>(null)
 export function importInWorker(bytes: ArrayBuffer): Promise<{ model: Model; meshes: MeshMap }> {
   worker ??= new Worker(new URL('../lib/ifc/import.worker.ts', import.meta.url), { type: 'module' })
   const w = worker
+  importClasses.value = null
   return new Promise((resolve, reject) => {
     w.onmessage = (e: MessageEvent) => {
       const d = e.data
       if (d.type === 'progress') {
+        if (d.progress.classes) importClasses.value = d.progress.classes
         progress.value = { label: d.progress.stage, step: d.progress.step, steps: d.progress.steps, done: d.progress.done, total: d.progress.total, unit: 'items' }
       } else if (d.type === 'done') {
         resolve({ model: d.model, meshes: new Map(d.meshes) })
@@ -104,7 +112,7 @@ export function importInWorker(bytes: ArrayBuffer): Promise<{ model: Model; mesh
       {
         bytes,
         wasmBase: new URL(import.meta.env.BASE_URL, location.href).href,
-        options: { openings: readOpeningShapes.value, ...readFeatures.value },
+        options: { openings: readOpeningShapes.value, ...readFeatures.value, ...(wantClassCounts.value ? { classCounts: true } : {}) },
       },
       [bytes],
     )

@@ -124,3 +124,13 @@ describe('title — 방 이름 자막', () => {
     }
   })
 })
+
+describe('ticker — 읽는 중인 IFC 클래스', () => {
+  it('많은 것부터 12줄, `클래스 수` 꼴이다', async () => {
+    const { tickerLines, MAX_LINES } = await import('./ticker')
+    const classes = Array.from({ length: 20 }, (_, i) => [`IfcThing${i}`, 2000 - i] as const)
+    const lines = tickerLines(classes)
+    expect(lines).toHaveLength(MAX_LINES)
+    expect(lines[0]).toBe(`IfcThing0 ${(2000).toLocaleString()}`)
+  })
+})

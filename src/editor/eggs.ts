@@ -20,6 +20,7 @@ import { isTextEntry } from './history'
 import { flying } from './keyboard'
 import { viewStorey } from './multi-view'
 import { storeyChips } from './panels'
+import { importClasses, progress, wantClassCounts } from './progress'
 import { grades } from './publish'
 import { sceneVersion } from './redraw'
 import { viewer } from './scene'
@@ -52,6 +53,8 @@ const signals: EggSignals = {
   flying: computed(() => flying.value),
   replaying: computed(() => replayOpen.value),
   storeyId: computed(() => viewStorey.value),
+  importing: computed(() => !!progress.value),
+  importClasses: computed(() => importClasses.value),
 }
 
 /**
@@ -97,7 +100,11 @@ function hudRoot(): HTMLElement {
 }
 
 function contextFor(id: string, run: Running): EggContext {
-  const v = viewer!
+  // 파일을 열기 전에 켜지는 egg(early)는 3D 가 없을 수 있다. 3D 를 쓰는 것은 부를 때 뷰어를 찾고, 없으면 던진다.
+  const view = () => {
+    if (!viewer) throw new Error(`[egg] '${id}' 가 3D 가 없을 때 3D 를 썼습니다`)
+    return viewer
+  }
   let hud: HTMLElement | null = null
   let overlay: HTMLElement | null = null
   let wideByEgg = false
@@ -105,13 +112,15 @@ function contextFor(id: string, run: Running): EggContext {
     model: () => model.value,
     modelVersion: () => version.value,
     addLayer(layer) {
-      const off = v.addLayer(layer)
+      const off = view().addLayer(layer)
       run.cleanup.push(off)
       return off
     },
-    camera: v.eggCamera,
+    get camera() {
+      return view().eggCamera
+    },
     lights(o) {
-      const off = v.setLights(o)
+      const off = view().setLights(o)
       run.cleanup.push(off)
       return off
     },
@@ -162,12 +171,13 @@ export async function enableEgg(id: string): Promise<boolean> {
     return false
   }
   if (running.has(id)) return true
-  if (loading.has(id) || !viewer || !model.value || replayOpen.value) return false
+  if (loading.has(id) || replayOpen.value) return false
+  if (!egg.early && (!viewer || !model.value)) return false
   loading.add(id)
   const run: Running = { handle: { off() {} }, cleanup: [] }
   try {
     const mod = await egg.load()
-    if (!loading.has(id) || !viewer || replayOpen.value) return false
+    if (!loading.has(id) || (!egg.early && !viewer) || replayOpen.value) return false
     run.handle = await mod.enable(contextFor(id, run))
     // enable 이 기다리는 사이 껐으면(loading 에서 빠졌으면) 켠 것을 바로 거둔다.
     if (!loading.has(id)) {
@@ -340,10 +350,10 @@ export function setupEggs() {
       void import('../eggs/banner').then(({ printBanner }) => printBanner(m, fileName.value))
     })
   }
-  // 파일을 닫으면 끈다. 3D 칸이 없는데 HUD·층이 남는다.
+  // 파일을 닫으면 끈다. 3D 칸이 없는데 HUD·층이 남는다. 파일을 열기 전부터 켜지는 것(early)은 그대로 둔다.
   watch(model, (m) => {
     if (m) return
-    for (const id of [...running.keys()]) disableEgg(id)
+    for (const id of [...running.keys()]) if (!EGGS.find((e) => e.id === id)?.early) disableEgg(id)
     closeHub()
   })
   // 리플레이를 여는 그 자리에서(sync) 거둔다. 늦으면 리플레이가 연출을 시작하는 첫 장에 egg 의 빛·층이 섞인다.
@@ -362,14 +372,17 @@ export function setupEggs() {
     { flush: 'sync' },
   )
   watch(eggsOn, () => hub?.update())
+  // ticker 가 켜져 있을 때만 임포터가 클래스별 수를 센다(progress.ts). 기본 경로에 값을 더하지 않는다.
+  watch(eggsOn, (on) => (wantClassCounts.value = on.includes('ticker')), { immediate: true })
 
-  // 주소로 켠 것은 3D 가 처음 그려진 뒤에 켠다.
+  // 주소로 켠 것은 3D 가 처음 그려진 뒤에 켠다. 파일을 읽는 동안이 무대인 것(early)은 바로 켠다.
   const fromUrl = eggsInUrl()
-  if (fromUrl.length) {
+  for (const id of fromUrl) if (EGGS.find((e) => e.id === id)?.early) void enableEgg(id)
+  if (fromUrl.some((id) => !EGGS.find((e) => e.id === id)?.early)) {
     const stop = watch(sceneVersion, (n) => {
       if (n < 1 || !viewer) return
       stop()
-      for (const id of fromUrl) void enableEgg(id)
+      for (const id of fromUrl) if (!EGGS.find((e) => e.id === id)?.early) void enableEgg(id)
     })
   }
 }

@@ -17,4 +17,5 @@ export const EGGS: readonly Egg[] = [
   { id: 'title', title: '방 이름 자막', load: () => import('./title') },
   { id: 'cube', title: '방향 큐브 튕기기', load: () => import('./cube') },
   { id: 'tour', title: '계통을 따라가는 대기 화면', load: () => import('./tour') },
+  { id: 'ticker', title: '읽는 중인 IFC 클래스', load: () => import('./ticker'), early: true },
 ]

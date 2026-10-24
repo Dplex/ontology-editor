@@ -22,6 +22,10 @@ export type EggSignals = {
   replaying: Readonly<Ref<boolean>>
   /** 한 층만 보고 있으면 그 층 id, 모든 층이면 null. */
   storeyId: Readonly<Ref<string | null>>
+  /** 파일을 읽는 중(진행 알림이 떠 있음). */
+  importing: Readonly<Ref<boolean>>
+  /** 지금 읽는 파일의 IfcProduct 하위 클래스별 수. ticker 가 켜져 있을 때만 임포터가 센다. 아직 없으면 null. */
+  importClasses: Readonly<Ref<readonly (readonly [string, number])[] | null>>
 }
 
 export type EggContext = {
@@ -67,4 +71,9 @@ export type Egg = {
   title: string
   /** 동적 import 라 켜기 전에는 내려받지도 않는다 — 기본 번들 크기가 그대로다. */
   load(): Promise<EggModule>
+  /**
+   * 파일을 열기 전에도 켜진다(ticker — 파일을 읽는 동안이 무대다). 이런 egg 는 3D 를 쓰지 않는다: `addLayer`·`lights`·`camera`·`hud`·`overlay` 를
+   * 3D 가 없을 때 부르면 던진다. 파일을 닫아도 꺼지지 않는다.
+   */
+  early?: boolean
 }

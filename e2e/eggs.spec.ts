@@ -535,6 +535,25 @@ test('tour — 입력 없이 기다리면 UI 를 접고 띠를 내려 feeds 가 
   expect(errors).toEqual([])
 })
 
+test('ticker — 주소로 켜 두면 파일을 읽는 동안 진행 알림 아래에 클래스별 수가 오르고, 다 읽으면 걷힌다', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await page.goto('/?egg=ticker')
+  // 파일을 열기 전에 켜진다(early).
+  await expect.poll(async () => (await eggs(page)).on).toEqual(['ticker'])
+  await page.locator('.drop input[type=file]').setInputFiles(MEP)
+  await expect(page.locator('.appbar h2')).toBeVisible({ timeout: 30_000 })
+  await expect.poll(async () => (await eggs(page)).inspect.ticker.files).toBe(1)
+  const info = (await eggs(page)).inspect.ticker
+  // mep.ifc 의 IfcProduct 하위 클래스는 포트가 가장 많다(6).
+  expect(info.lines[0]).toBe('IfcDistributionPort 6')
+  await expect(page.getByTestId('egg-ticker')).toHaveCount(0)
+  // 파일을 열어도 꺼지지 않는다 — 다음 파일에도 쓴다.
+  expect((await eggs(page)).on).toEqual(['ticker'])
+  await oe(page, 'eggOff', 'ticker')
+  expect(errors).toEqual([])
+})
+
 test.describe('움직임을 끈 사람', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } })
   test('rise 는 틀지 않고 wipe 는 전환 없이 테마만 바꾼다', async ({ page }) => {

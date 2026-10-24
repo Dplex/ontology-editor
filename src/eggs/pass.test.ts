@@ -111,6 +111,8 @@ describe('pass — 기준선 통과', () => {
         flying: ref(false),
         replaying: ref(false),
         storeyId: ref(null),
+      importing: ref(false),
+      importClasses: ref(null),
       },
     }
 
