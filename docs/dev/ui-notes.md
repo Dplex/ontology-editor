@@ -468,3 +468,16 @@ Unity 판과 나란히 보일 자리를 앞두고 3D 연출을 더하되, PRD �
 - **숫자.** `mep.ifc` 기준 그래프 짓기 약 2~5ms(`feeds` · `hasLocation` · `hasPart` 수와 그래프 선 수 일치), 가만히 있을 때 0장, 끄면 `renderer.info.memory` 가 켜기 전으로 돌아온다.
 - **하지 않은 것.** 힘 기반 배치(실제 자리를 떠나면 건물 안의 그래프가 아니게 된다), 점마다 라벨 달기(성수 2만 개에서 겹친다).
 - 되돌리려면 `src/eggs/xray.ts`·`src/eggs/xray.test.ts` 와 `src/eggs/registry.ts` 의 `xray` 줄, `e2e/eggs.spec.ts` 의 `xray` 시험을 뺀다.
+
+## 숨은 연출 S2 `alive` — 살아 있는 건물 (2026-10-24)
+
+TTL 에 `brick:feeds` 로 나가는 연결 전부가 원천 쪽부터 계통 종류별 색으로 흐르고, 아직 확정하지 않은 규칙 방향은 옅은 점선으로 멈춰 있다.
+
+- **데이터와 모양**(`src/eggs/alive.ts`). `readOntologyTTL(modelToTTL(model))` 의 `feeds` 와 `model.connections` 의 미확정 규칙 방향만 읽는다.
+  계통 종류·유체(`flow-type.ts` 의 `systemFlowType` · `flowTypeColor`, `kinds.ts` 의 `systemKind`)별로 묶어 종류마다 `flowPulseMesh` 하나씩만 두므로
+  그리기 호출은 계통 종류 수만큼이다. 미확정 규칙 방향은 `LineDashedMaterial` 점선 하나(`LineSegments`)다.
+- **반응과 움직임.** 계통을 확정(`C`)하거나 방향을 적용하면 `modelVersion` 이 올라 점선이던 계통이 곧장 흐르는 빛으로 바뀐다.
+  켜 있는 동안은 `setFlowTime` 으로 매 프레임 그리고, `still()` 이면 혜성 꼴로 멈춘 채 0장이다. HUD 에 `살아 있는 건물 · 흐르는 feeds … · 화면에서만` 을 적는다.
+- **숫자.** `mep.ifc` 기준 `feeds` 수와 `graphFeeds` 수가 일치하며, 끄면 0장과 켜기 전 GPU 메모리로 돌아온다.
+- **하지 않은 것.** 덕트·배관 형상 안을 따라 흐르게 하기(그 경로는 TTL 에 없고 설비 중심끼리 잇는 선이 정본이다).
+- 되돌리려면 `src/eggs/alive.ts`·`src/eggs/alive.test.ts` 와 `src/eggs/registry.ts` 의 `alive` 줄, `e2e/eggs.spec.ts` 의 `alive` 시험을 뺀다.

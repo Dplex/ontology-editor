@@ -170,6 +170,26 @@ test('xray — 꺼져 있을 때 Space 는 아무 일도 하지 않고, 켜면 T
   expect(errors).toEqual([])
 })
 
+test('alive — TTL 의 feeds 전부가 계통 종류별 메시로 흐르고, 끄면 다시 0장이 된다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  expect(await oe(page, 'eggOn', 'alive')).toBe(true)
+  const r0 = await viewer<number>(page, 'renders')
+  await page.waitForTimeout(500)
+  expect(await viewer<number>(page, 'renders')).toBeGreaterThan(r0 + 5)
+  const info = (await eggs(page)).inspect.alive
+  expect(info.feeds).toBeGreaterThan(0)
+  expect(info.graphFeeds).toBe(info.feeds)
+  expect(info.groups).toBeGreaterThan(0)
+  expect(info.frames).toBeGreaterThan(5)
+  await expect(page.getByTestId('egg-hud-alive')).toContainText(`살아 있는 건물 · 흐르는 feeds ${info.feeds.toLocaleString()}`)
+  await expect(page.getByTestId('egg-hud-alive')).toContainText('화면에서만')
+
+  await oe(page, 'eggOff', 'alive')
+  await settle(page)
+  expect(errors).toEqual([])
+})
+
 test.describe('움직임을 끈 사람', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } })
   test('probe 를 켜도 얹을 때 한 장만 그리고 0장이다', async ({ page }) => {
