@@ -310,11 +310,28 @@ function num(v: unknown): number | undefined {
   return typeof inner === 'number' ? inner : undefined
 }
 
-/** IFC 의 숫자 배열(좌표, 방향 비율)을 읽는다. 없으면 null. */
+/** IFC 의 숫자 배열(좌표, 방향 비율, 도·분·초 묶음)을 읽는다. IFC4 의 IfcCompoundPlaneAngleMeasure 는 `{ value: [...] }` 로 한 겹 싸여 온다. 없으면 null. */
 export function numbers(raw: unknown): number[] | null {
-  if (!Array.isArray(raw)) return null
-  const out = raw.map(num)
+  const arr = Array.isArray(raw)
+    ? raw
+    : Array.isArray((raw as { value?: unknown } | null | undefined)?.value)
+      ? (raw as { value: unknown[] }).value
+      : null
+  if (!arr) return null
+  const out = arr.map(num)
   return out.some((v) => v === undefined) ? null : (out as number[])
+}
+
+/**
+ * IfcCompoundPlaneAngleMeasure(도·분·초·백만분의 일초)를 십진법 도로 바꾼다.
+ * IFC 규격상 부호는 각 마디에 같이 붙거나 첫 마디에만 붙으므로 음수가 하나라도 있으면 음수로 본다.
+ */
+export function compoundAngleToDegrees(parts: readonly number[] | null | undefined): number | null {
+  if (!parts || parts.length < 3) return null
+  const [d = 0, m = 0, s = 0, us = 0] = parts
+  if (![d, m, s, us].every(Number.isFinite)) return null
+  const sign = parts.some((v) => v < 0) ? -1 : 1
+  return sign * (Math.abs(d) + Math.abs(m) / 60 + (Math.abs(s) + Math.abs(us) / 1_000_000) / 3600)
 }
 
 /**
@@ -1707,6 +1724,39 @@ function read(
       )
     }
 
+    let latitude: number | undefined
+    let longitude: number | undefined
+    for (const id of r.ids(WebIFC.IFCSITE)) {
+      const siteLine = r.line(id)
+      const lat = compoundAngleToDegrees(numbers(siteLine?.RefLatitude))
+      const lon = compoundAngleToDegrees(numbers(siteLine?.RefLongitude))
+      if (lat !== null && lon !== null) {
+        latitude = lat
+        longitude = lon
+        break
+      }
+    }
+    let trueNorth: Vec2 | undefined
+    for (const id of r.ids(WebIFC.IFCGEOMETRICREPRESENTATIONCONTEXT)) {
+      const ctx = r.tryLine(id)
+      const tnId = ref(ctx?.TrueNorth)
+      const dir = tnId !== null ? numbers(r.tryLine(tnId)?.DirectionRatios) : null
+      if (dir && dir.length >= 2) {
+        const len = Math.hypot(dir[0], dir[1])
+        if (len > 1e-9) {
+          trueNorth = [Math.round((dir[0] / len) * 1e6) / 1e6, Math.round((dir[1] / len) * 1e6) / 1e6]
+          break
+        }
+      }
+    }
+    const site =
+      latitude !== undefined || longitude !== undefined || trueNorth !== undefined
+        ? {
+            ...(latitude !== undefined && longitude !== undefined ? { latitude, longitude } : {}),
+            ...(trueNorth ? { trueNorth } : {}),
+          }
+        : undefined
+
     const result: Model = {
       schema: api.GetModelSchema(model),
       siteName: firstName(WebIFC.IFCSITE),
@@ -1717,11 +1767,12 @@ function read(
       connections: r.portConnections(globalIdOf),
       warnings,
       ...(skipped.length ? { skipped } : {}),
+      ...(site ? { site } : {}),
       facts: {
         lengthUnit: unitFound,
         // IfcMapConversion 은 IFC4 부터 있다. IFC2x3 에서는 늘 0 이다.
         mapConversion: r.ids(WebIFC.IFCMAPCONVERSION).length > 0,
-        siteLatLong: r.ids(WebIFC.IFCSITE).some((id) => (r.line(id)?.RefLatitude?.length ?? 0) > 0),
+        siteLatLong: r.ids(WebIFC.IFCSITE).some((id) => (numbers(r.line(id)?.RefLatitude)?.length ?? 0) > 0),
         ...(proxies.total ? { proxies: (({ context, ...rest }) => (context ? { ...rest, context } : rest))(proxies) } : {}),
       },
     }

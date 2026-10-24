@@ -341,6 +341,24 @@ export function mergeModels(
     ...(a.flowlessGeometry?.length || b.flowlessGeometry?.length ? { flowlessGeometry: [...(a.flowlessGeometry ?? []), ...(b.flowlessGeometry ?? [])] } : {}),
     warnings: [...a.warnings.map((w) => `[${labels.base}] ${w}`), ...b.warnings.map((w) => `[${labels.overlay}] ${w}`)],
     ...(a.skipped || b.skipped ? { skipped: [...new Set([...(a.skipped ?? []), ...(b.skipped ?? [])])] } : {}),
+    ...(a.site || b.site
+      ? {
+          site: {
+            ...(a.site?.latitude !== undefined && a.site?.longitude !== undefined
+              ? { latitude: a.site.latitude, longitude: a.site.longitude }
+              : b.site?.latitude !== undefined && b.site?.longitude !== undefined
+                ? { latitude: b.site.latitude, longitude: b.site.longitude }
+                : {}),
+            ...(a.site?.trueNorth && (a.site.trueNorth[0] !== 0 || a.site.trueNorth[1] !== 1)
+              ? { trueNorth: a.site.trueNorth }
+              : b.site?.trueNorth && (b.site.trueNorth[0] !== 0 || b.site.trueNorth[1] !== 1)
+                ? { trueNorth: b.site.trueNorth }
+                : (a.site?.trueNorth ?? b.site?.trueNorth)
+                  ? { trueNorth: (a.site?.trueNorth ?? b.site?.trueNorth)! }
+                  : {}),
+          },
+        }
+      : {}),
     ...(a.facts && b.facts
       ? {
           facts: {

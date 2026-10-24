@@ -215,6 +215,40 @@ test('pass — 수용 기준선이 미달에서 통과로 바뀌는 순간 한 �
   expect(errors).toEqual([])
 })
 
+test('sun — 대지 좌표가 없는 파일은 서울 기준으로 그리고, 시각 막대를 옮기면 해 고도·그림자가 바뀌며 가만히 있으면 0장이다', async ({ page }) => {
+  const errors = await open(page)
+  await settle(page)
+  expect(await oe(page, 'eggOn', 'sun')).toBe(true)
+  await settle(page)
+
+  const info0 = (await eggs(page)).inspect.sun
+  expect(info0.hasSiteCoords).toBe(false)
+  expect(info0.shadowAutoUpdate).toBe(false)
+  expect(info0.shadowUpdates).toBe(1)
+  await expect(page.getByTestId('egg-hud-sun')).toContainText('이 파일에는 대지 좌표가 없어 서울 기준으로 그렸습니다')
+  await expect(page.getByTestId('egg-hud-sun')).toContainText('화면에서만')
+
+  // 시각 막대를 오전 9시(540분)로 옮기면 고도·방위가 바뀌고 그림자 맵이 한 번만 다시 그려진다.
+  const timeSlider = page.getByTestId('egg-sun-time')
+  await timeSlider.fill('540')
+  await timeSlider.dispatchEvent('input')
+  await settle(page)
+
+  const info1 = (await eggs(page)).inspect.sun
+  expect(info1.minutesOfDay).toBe(540)
+  expect(info1.azimuthDeg).not.toBe(info0.azimuthDeg)
+  expect(info1.shadowUpdates).toBe(2)
+
+  // 가만히 있을 때는 0장이다.
+  const r0 = await viewer<number>(page, 'renders')
+  await page.waitForTimeout(500)
+  expect(await viewer<number>(page, 'renders')).toBe(r0)
+
+  await oe(page, 'eggOff', 'sun')
+  await settle(page)
+  expect(errors).toEqual([])
+})
+
 test.describe('움직임을 끈 사람', () => {
   test.use({ contextOptions: { reducedMotion: 'reduce' } })
   test('probe 를 켜도 얹을 때 한 장만 그리고 0장이다', async ({ page }) => {

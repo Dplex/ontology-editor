@@ -831,6 +831,15 @@ export type Model = {
     /** `louvers` 는 이름이 외부 루버인데 포트가 없어 건축 루버로 보고 받지 않은 수다(OE-EXT-05). 예전 파일에는 없다. */
     proxies?: { total: number; ported: number; named: number; louvers?: number; skipped: string[] }
   }
+  /**
+   * IfcSite 의 위도·경도(도, 십진법)와 IfcGeometricRepresentationContext 의 진북 방향(평면 단위 벡터).
+   * 해 자리 연출(sun) 등이 읽고, 편집 파일·TTL·GeoJSON 에는 나가지 않는다.
+   */
+  site?: {
+    latitude?: number
+    longitude?: number
+    trueNorth?: Vec2
+  }
 }
 
 /** 신발끈 공식. 고리의 방향과 무관하게 넓이를 돌려주려고 절댓값을 취한다. */

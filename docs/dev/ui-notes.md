@@ -493,3 +493,13 @@ TTL 에 `brick:feeds` 로 나가는 연결 전부가 원천 쪽부터 계통 종
 - **숫자.** 켜 둔 대기 중에는 0장, 통과 순간 1.2초 스캔 뒤 다시 0장으로 돌아오며, 끄면 GPU 메모리가 켜기 전과 같다.
 - **하지 않은 것.** 색종이(컨페티)와 소리.
 - 되돌리려면 `src/eggs/pass.ts`·`src/eggs/pass.test.ts` 와 `src/eggs/registry.ts` 의 `pass` 줄, `src/eggs/types.ts`·`src/editor/eggs.ts` 의 `storeyViolations`, `e2e/eggs.spec.ts` 의 `pass` 시험을 뺀다.
+
+## 숨은 연출 S4 `sun` — 해가 지나가는 건물 (2026-10-24)
+
+`IfcSite` 의 대지 위도·경도와 `IfcGeometricRepresentationContext.TrueNorth` 를 읽어 그 대지의 해 자리와 그림자를 그리고, 날짜·시각 막대로 하루의 그림자 이동을 본다.
+
+- **데이터와 임포터**(`src/lib/ifc/import.ts` · `src/lib/model.ts` · `src/lib/merge.ts`). `IfcSite.RefLatitude`·`RefLongitude`(`IfcCompoundPlaneAngleMeasure`, 도·분·초·백만분의 일초)를 십진법 도로 바꾸고(`compoundAngleToDegrees`), `IfcGeometricRepresentationContext.TrueNorth` 의 평면 방향 비율을 단위 벡터로 읽어 `model.site` 에 담는다(편집 파일·TTL·GeoJSON·`model.facts` 는 그대로다). 가진 샘플 중 AC20·ifc4Mep·Duplex 건축·HVAC 은 `IfcSite.RefLatitude` 가 채워져 있고(`check-sample.test.ts`), 픽스처(`mep.ifc`·`two-rooms.ifc`)처럼 대지 좌표가 없는 파일은 서울시청(`37.5665, 126.9780`)과 `+y` 를 북으로 쓰며 HUD 에 `이 파일에는 대지 좌표가 없어 서울 기준으로 그렸습니다 · … · 화면에서만` 을 적는다.
+- **해 자리와 그림자**(`src/eggs/sun.ts`). 외부 라이브러리 없이 NOAA 근사식으로 고도·방위를 계산한다(서울 위도에서 하루 최고 고도가 하지 75.9° · 동지 29.0° ±0.5°). 하늘은 Three.js `Sky` 셰이더이고, 세계에 고정한 `DirectionalLight`(2048 그림자 맵)와 바닥 그림자 판(`ShadowMaterial`), 바닥 진북 화살표(`N`)를 놓는다. 카메라 주광은 `ctx.lights({ hemi: 0.55, sun: 0.2 })` 로 낮추고 끄면 원래 세기로 돌아온다.
+- **숫자.** `renderer.shadowMap.autoUpdate = false` 로 두고 해 자리나 모델이 바뀔 때만 `shadowMap.needsUpdate = true` 를 걸어, 시점을 돌려도 그림자 맵을 다시 그리지 않고 가만히 있을 때는 0장이다. 끄면 `sunLight.shadow.map` 과 하늘·바닥·화살표 형상·재질을 모두 `dispose` 하고 장면 메시의 `castShadow`·`receiveShadow` 를 되돌려 `renderer.info.memory` 가 켜기 전 수로 돌아온다.
+- **하지 않은 것.** 사내망 밖의 HDR 하늘 텍스처 내려받기(`Sky` 셰이더만 쓴다), 회전할 때마다 그림자 맵 다시 그리기.
+- 되돌리려면 `src/eggs/sun.ts`·`src/eggs/sun.test.ts` 와 `src/eggs/registry.ts` 의 `sun` 줄, `src/lib/model.ts`·`src/lib/ifc/import.ts`·`src/lib/merge.ts` 의 `site` 추출, `e2e/eggs.spec.ts` 의 `sun` 시험을 뺀다.
