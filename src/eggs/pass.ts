@@ -262,7 +262,32 @@ export function enable(ctx: EggContext): EggHandle {
     sweeping = false
   }
 
+  /**
+   * 3D 가 보이나. 통과는 대개 기준·검증 서랍(등급 표)에서 통과선을 고칠 때 일어나는데, 그 서랍이 3D 를 거의 다 덮어 1.2초 연출과 HUD 가
+   * 서랍 뒤에서 지나가 버렸다. 3D 칸 가운데 점에 3D(또는 egg 의 HUD)가 맨 위에 있을 때만 보인다고 본다.
+   */
+  function visible(): boolean {
+    if (typeof document === 'undefined') return true
+    const canvas = document.querySelector<HTMLCanvasElement>('.viewport canvas[role=img]')
+    if (!canvas) return true
+    const r = canvas.getBoundingClientRect()
+    const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+    return !!top && (top === canvas || !!top.closest('.egg-hud'))
+  }
+
+  /** 통과했지만 3D 가 가려져 있어 아직 틀지 않았다. 보이게 되면(서랍을 닫으면) 그때 튼다. */
+  let waiting = false
+
   function trigger(violations: number) {
+    if (!visible()) {
+      waiting = true
+      return
+    }
+    fire(violations)
+  }
+
+  function fire(violations: number) {
+    waiting = false
     const m = ctx.model()
     if (!m) return
     triggered = true
@@ -290,6 +315,7 @@ export function enable(ctx: EggContext): EggHandle {
         lastViolations = v
         lastAccepted = acc
         triggered = false
+        waiting = false
         zeroStoreys = []
         litStoreys.clear()
         clearSweep()
@@ -312,6 +338,10 @@ export function enable(ctx: EggContext): EggHandle {
   ctx.addLayer({
     object: container,
     step(now) {
+      if (waiting && visible()) {
+        fire(ctx.signals.violations.value)
+        return true
+      }
       if (!sweeping || !sweep || ctx.still()) return false
       const elapsed = now - triggerAt
       if (elapsed > SWEEP_MS + PLATE_FADE_MS) {
@@ -353,6 +383,7 @@ export function enable(ctx: EggContext): EggHandle {
     inspect() {
       return {
         triggered,
+        waiting,
         sweeping,
         violations: ctx.signals.violations.value,
         accepted: ctx.signals.accepted.value,

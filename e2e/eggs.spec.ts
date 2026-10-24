@@ -216,6 +216,10 @@ test('pass — 수용 기준선이 미달에서 통과로 바뀌는 순간 한 �
     await table.getByLabel(`등급 ${g} 통과선(%)`).press('Tab')
   }
 
+  // 등급 표가 3D 를 덮고 있는 동안에는 틀지 않고 기다린다. 서랍을 닫아 3D 가 보이면 그때 튼다.
+  await expect.poll(async () => (await eggs(page)).inspect.pass.waiting).toBe(true)
+  expect((await eggs(page)).inspect.pass.triggered).toBe(false)
+  await page.getByTestId('basis-button').click()
   await expect.poll(async () => (await eggs(page)).inspect.pass.triggered).toBe(true)
   const info = (await eggs(page)).inspect.pass
   // mep.ifc 의 1F 에는 위반이 남아 있으므로 거짓 축하로 층판을 밝히지 않는다.
