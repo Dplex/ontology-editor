@@ -388,6 +388,21 @@ export type VerticalPreview = { storeyId: string; elevation: number; footprint?:
 /** 마우스 아래에 있는 것. 설비·물리존(편집 모드)·연결 화살표(편집 모드). */
 export type HoverTarget = { kind: 'equipment'; id: string } | { kind: 'space'; id: string } | { kind: 'arrow'; key: string }
 
+/**
+ * 3D 위에 얹는 화면 연출 한 층(숨은 연출, docs/plans/easter-eggs.md). 모델과 섞이지 않는다 — 고르기·상자 고르기·라벨 겹침 정리는
+ * 이 층을 보지 않고, 내보내는 GLB·OBJ 에도 들지 않는다.
+ */
+export type ViewerLayer = {
+  /** 장면에 얹을 것. 떼면 장면에서 뺀다. */
+  object?: Object3D
+  /** 매 프레임. 다시 그려야 하면 true — 움직이는 동안만 true 여야 가만히 있을 때 그리는 장수 0 이 지켜진다. */
+  step?(now: number): boolean
+  /** 본 장면을 그린 뒤, 외곽선을 그리기 전. 덮는 막·덧그리기가 여기다. renderer 의 autoClear 등을 바꿨으면 되돌려 놓는다. */
+  afterRender?(r: { renderer: WebGLRenderer; scene: Scene; camera: PerspectiveCamera }): void
+  /** 뗄 때 한 번. 형상·재질·텍스처를 여기서 버린다. */
+  dispose?(): void
+}
+
 export type Viewer = {
   /** keepView 면 시점을 그대로 둔다. 편집한 뒤 다시 그릴 때마다 건물 전체로 튀면 어디를 고치던 중인지 잃는다. */
   setModel(model: Model, meshes?: MeshMap, options?: { keepView?: boolean }): void
@@ -562,6 +577,13 @@ export type Viewer = {
    * 그린 장수가 0 이다.
    */
   stats(): { fps: number; renderMs: number; calls: number; triangles: number }
+  /** 화면 연출 층을 얹는다(ViewerLayer). 돌려준 함수가 층을 떼고 그 층의 dispose 를 부른다. 두 번 불러도 한 번만 뗀다. */
+  addLayer(layer: ViewerLayer): () => void
+  /**
+   * 바탕 빛(하늘빛·카메라에 붙은 주광)의 세기를 잠시 바꾼다. 여럿이 겹치면 나중에 건 값이 이긴다. 돌려준 함수가 그 몫만 거두고,
+   * 다 거두면 처음 값으로 돌아간다.
+   */
+  setLights(o: { hemi?: number; sun?: number }): () => void
   /**
    * 보일 층만 남긴다. storeys 가 null 이면 전부. hidden 은 숨길 설비 id(그 층에 없는 설비) — 층과 설비의 짝은 편집으로
    * 바뀌므로(층 옮기기) 화면이 셈해서 준다. 숨긴 것은 그리지도, 고르지도 않는다.
@@ -2384,6 +2406,27 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
     dirty = true
   }
 
+  // --- 화면 연출 층(ViewerLayer, docs/plans/easter-eggs.md) ---
+  // 숨은 연출이 3D 에 붙는 자리는 이것 하나다. 층은 제 step 이 참일 때만 다시 그리게 해서, 층이 없거나 층이 가만히 있으면
+  // 그리는 장수가 층이 없을 때와 같다.
+  const layers = new Set<ViewerLayer>()
+  const layerTarget = { renderer, scene, camera }
+  /** 바탕 빛을 잠시 바꾼 몫들(setLights). 처음 걸 때의 세기를 들고 있다가 다 거두면 그 세기로 돌린다. */
+  const lightHolds: { hemi?: number; sun?: number }[] = []
+  let lightBase: { hemi: number; sun: number } | null = null
+  function applyLights() {
+    if (!lightBase) return
+    let [h, s] = [lightBase.hemi, lightBase.sun]
+    for (const o of lightHolds) {
+      if (o.hemi !== undefined) h = o.hemi
+      if (o.sun !== undefined) s = o.sun
+    }
+    hemi.intensity = h
+    sun.intensity = s
+    if (!lightHolds.length) lightBase = null
+    dirty = true
+  }
+
   let running = true
   /** 다시 그린 횟수(viewVersion). */
   let renders = 0
@@ -2426,11 +2469,13 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       showChunk(next)
       dirty = true
     }
+    for (const layer of layers) if (layer.step?.(now)) dirty = true
     if (dirty) {
       if (handles.length || rotateKnob) scaleHandles()
       if (rotateLabel) placeRotateLabel()
       const t0 = performance.now()
       renderer.render(scene, camera)
+      for (const layer of layers) layer.afterRender?.(layerTarget)
       hoverOutline.render(scene, camera)
       selectionOutline.render(scene, camera)
       conflictOutline.render(scene, camera)
@@ -3538,6 +3583,10 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       flow: () => (flowMesh?.userData.flowSegments as number | undefined) ?? 0,
       /** 지금까지 3D 를 다시 그린 장수. 가만히 있으면 늘지 않아야 한다(흐르는 빛이 있을 때만 매 프레임). */
       renders: () => renders,
+      /** 숨은 연출 층(addLayer) 수 · GPU 에 올린 형상·텍스처 수 · 바탕 빛 세기. 연출을 끄면 켜기 전 값으로 돌아와야 한다. */
+      layers: () => layers.size,
+      memory: () => ({ geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures }),
+      lights: () => ({ hemi: hemi.intensity, sun: sun.intensity }),
       objects: () => objectTargets.map((t) => t.id),
       /** 겹쳐서 막아 붉게 그린 공간 오브젝트(OE-SPC-15). 없으면 null. */
       objectConflict: () => objectConflictId,
@@ -4663,6 +4712,33 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
       return { fps: perf.frames.length, renderMs: perf.renderMs, calls: perf.calls, triangles: perf.triangles }
     },
 
+    addLayer(layer) {
+      layers.add(layer)
+      if (layer.object) scene.add(layer.object)
+      dirty = true
+      // 뷰어를 먼저 버렸으면(dispose 가 층을 이미 거뒀으면) 할 일이 없다.
+      return () => {
+        if (!layers.delete(layer)) return
+        if (layer.object) scene.remove(layer.object)
+        layer.dispose?.()
+        dirty = true
+      }
+    },
+
+    setLights(o) {
+      lightBase ??= { hemi: hemi.intensity, sun: sun.intensity }
+      const hold = { ...o }
+      lightHolds.push(hold)
+      applyLights()
+      let gone = false
+      return () => {
+        if (gone) return
+        gone = true
+        lightHolds.splice(lightHolds.indexOf(hold), 1)
+        applyLights()
+      }
+    },
+
     frameAll() {
       // 보이는 것만. 한 층만 보는 중이면 그 층에 맞춘다.
       const box = new Box3()
@@ -4859,6 +4935,11 @@ export function createViewer(canvas: HTMLCanvasElement): Viewer {
 
     dispose() {
       running = false
+      for (const layer of [...layers]) {
+        if (layer.object) scene.remove(layer.object)
+        layer.dispose?.()
+      }
+      layers.clear()
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('blur', onBlur)
       window.removeEventListener('pointerup', onFlyUp)

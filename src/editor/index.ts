@@ -48,6 +48,7 @@ import { setupOpenMany } from './open-many'
 import { setupStoreyProgress } from './storey-progress'
 import { setupPublish } from './publish'
 import { setupReports } from './reports'
+import { setupEggs } from './eggs'
 
 /** App.vue 의 setup 에서 한 번 부른다. */
 export function setupEditor() {
@@ -97,4 +98,5 @@ export function setupEditor() {
   setupPublish()
   setupReports()
   setupShell()
+  setupEggs()
 }

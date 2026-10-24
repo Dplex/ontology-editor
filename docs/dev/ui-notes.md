@@ -436,3 +436,21 @@ ArtCraft(storytold/artcraft)의 3D 장면 편집기에서 넷을 가져왔다(`r
 - **지울 때 가라앉기**(`sinkPose`). 편집으로 빠진 설비(지우기·더한 것 되돌리기)와 추가 공간 오브젝트의 모양을 사본으로 떼어 0.32초 동안 줄이며 바닥 아래로 내리고 흐린 뒤
   버린다. 떨어져 앉기와 같은 조건(편집 모드, 60개 이하, 리플레이·움직임 끄기 아님)에서만 한다.
 - **e2e.** `__viewer.outline()`(두른 수 · 빛 퍼짐 · 고른 것) · `hoverOutline()` · `conflictOutline()` · `ghost()` · `ground()` · `edges()` · `walls().edged` · `motion()` 의 `dropping`·`shaking`·`sinking`·`started` 를 `e2e/scene-polish.spec.ts` 가 본다.
+
+## 숨은 연출(egg)의 껍데기 — 기본은 꺼짐, `~` 판 (2026-10-24)
+
+Unity 판과 나란히 보일 자리를 앞두고 3D 연출을 더하되, PRD 티켓의 화면과 기존 e2e 를 건드리지 않으려고 연출을 "일부러 켜는 모드" 로만 둔다
+(OE-UI-23 4항이 리플레이를 모션 한도에서 뺀 근거와 같다). 무엇을 넣을지·금지선·카탈로그는 `docs/plans/easter-eggs.md` 다.
+
+- **기본은 꺼짐.** 켜는 길은 주소 `?egg=a,b` · 콘솔 `__oe.egg('id')` · `~`(Shift+`) 판 셋이다. 켜지 않으면 늘 하는 일은 키 하나를 듣는 것과
+  `window.__oe` 에 이름(`egg`·`eggOn`·`eggOff`·`eggs`)을 더하는 것뿐이다. `__oe` 는 말로 편집과 같이 쓰는 자리라 덮지 않는다.
+- **`~` 판.** 3D 위쪽 가운데에 목록이 뜨고 `1`~`9` 로 켜고 끈다. 판이 떠 있을 때의 `Esc`·숫자는 capture 단계에서 받아 편집기 단축키까지 가지 않는다 —
+  `Esc` 가 판을 닫으며 고른 것까지 풀면 안 된다. 글자 칸에서 친 `~` 는 글자다. 리플레이 안에서는 열리지 않는다. `?` 안내에는 올리지 않는다.
+- **3D 이음매는 둘이다.** `viewer.addLayer`(층마다 `step` 이 참일 때만 다시 그리고, 본 장면 뒤·외곽선 앞에 `afterRender`)와 `viewer.setLights`
+  (바탕 빛을 잠시 바꾸고 다 거두면 처음 세기로). 층이 없거나 가만히 있으면 그리는 장수가 전과 같다.
+- **끄면 껍데기가 거둔다.** egg 가 `ctx` 로 얹은 층·빛·HUD·넓게 보기는 egg 의 `off()` 뒤에 껍데기가 모두 걷는다. 리플레이를 열면 그 자리에서(sync)
+  켠 egg 를 쉬게 하고 닫으면 되살린다. 파일을 닫아도 끈다.
+- **e2e**(`e2e/eggs.spec.ts`). e2e 에서만 목록에 드는 시험용 `probe` 로 잰다. 목록의 egg 를 하나씩 켰다 끄면 TTL·GeoJSON·모델 문자열(`__oe.exportSnapshot()`),
+  `__viewer.layers()`·`lights()`·`memory()`, HUD 가 켜기 전과 같다. probe 가 형상을 안 버리거나 모델을 고치게 바꿔 보면 이 시험이 떨어진다(2026-10-24 확인).
+- 되돌리려면 `src/editor/index.ts` 의 `setupEggs()` 와 `src/editor/eggs.ts`·`src/eggs/`·`e2e/eggs.spec.ts` 를 지우고, viewer.ts 의
+  `--- 화면 연출 층` 절과 `addLayer`·`setLights`·tick 의 `layers` 두 줄, `__viewer` 의 `layers`·`memory`·`lights` 를 뺀다.
