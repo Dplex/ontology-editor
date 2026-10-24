@@ -52,15 +52,12 @@ export default defineConfig(({ mode }) => ({
   // 최적화하느라 페이지를 새로 불러온다. 그러면 막 연 파일의 결과가 사라진다(새로 띄운 서버의 첫 e2e 가
   // 전부 실패했다). 미리 최적화해 둔다. 3D 내보내기 워커의 GLTFExporter 도 같다 — 내보내기를 처음 누른 순간
   // 새로 불러와서 같이 돌던 e2e 15개가 시간 초과로 떨어졌다. 숨은 연출(src/eggs/)이 켤 때에야 내려받는 three 부록도 같다 —
-  // `shadow` 를 처음 켠 순간 페이지가 새로 불러와져 연 파일이 사라졌다.
+  // egg 를 처음 켠 순간 페이지가 새로 불러와져 연 파일이 사라졌다.
   optimizeDeps: {
     include: [
       'web-ifc',
       'three/addons/exporters/GLTFExporter.js',
       'three/addons/objects/Sky.js',
-      'three/addons/postprocessing/Pass.js',
-      'three/addons/shaders/HorizontalBlurShader.js',
-      'three/addons/shaders/VerticalBlurShader.js',
     ],
   },
 

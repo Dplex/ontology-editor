@@ -7,6 +7,8 @@
 //   "값 없음" 이다. 일부 말단만 더하면 실제보다 작은 값이 정상인 것처럼 보이기 때문이다.
 // - 범례에 구간과 방 수, 값 없음의 까닭별 수, 출처(풍량 BIM·편집 · 면적 계산)를 적는다.
 // - 층마다 메시 둘(칠한 판·빗금 판)이다. 한 층만 보고 있으면 그 층만 보인다.
+// - 칠할 방이 하나도 없으면 범례 맨 위에 그렇다고 굵게 적는다. 성수는 정격 풍량이 있는 설비가 0대라 453개 방이 전부 빗금이었고,
+//   빗금은 물리존 판에 묻혀서 켰는지조차 몰랐다(2026-10-24 피드백).
 import {
   BufferAttribute,
   BufferGeometry,
@@ -228,8 +230,14 @@ export function enable(ctx: EggContext): EggHandle {
       hud.append(row)
       return row
     }
-    line('풍량 밀도 · 맡은 급기 말단의 정격 풍량 합 ÷ 면적 (CMH/㎡) · 화면에서만')
     const valued = r.rooms.filter((x) => x.value !== null) as Extract<RoomHeat, { value: number }>[]
+    if (!valued.length) {
+      const empty = line('이 파일에는 칠할 방이 없습니다 · 까닭은 아래 "값 없음" 줄에')
+      empty.dataset.testid = 'egg-heat-empty'
+      empty.style.fontWeight = '600'
+      empty.style.color = 'var(--warn-fg, var(--fg))'
+    }
+    line('풍량 밀도 · 맡은 급기 말단의 정격 풍량 합 ÷ 면적 (CMH/㎡) · 화면에서만')
     for (let i = 0; i < r.breaks.length - 1; i++) {
       const lo = r.breaks[i]
       const hi = r.breaks[i + 1]

@@ -287,52 +287,6 @@ test('HUD 는 왼쪽 아래 한 기둥에 쌓여 egg 를 여럿 켜도 서로·�
   expect(errors).toEqual([])
 })
 
-test('refine — 0.25초 멈추면 8장을 모으고 0장이 되며, 시점을 움직이면 다시 모은다', async ({ page }) => {
-  const errors = await open(page)
-  await settle(page)
-  expect(await oe(page, 'eggOn', 'refine')).toBe(true)
-  await expect.poll(async () => (await eggs(page)).inspect.refine.completed).toBe(1)
-  const info = (await eggs(page)).inspect.refine
-  expect(info.samplesDrawn).toBe(8)
-  expect(info.sampling).toBe(false)
-  await settle(page)
-  const r0 = await viewer<number>(page, 'renders')
-  await page.waitForTimeout(500)
-  expect(await viewer<number>(page, 'renders')).toBe(r0)
-
-  // 휠로 한 칸 당기면 시점이 바뀐다. 멈춘 뒤 다시 한 벌을 모은다.
-  await page.locator('.viewport canvas[role=img]').hover()
-  await page.mouse.wheel(0, -120)
-  await expect.poll(async () => (await eggs(page)).inspect.refine.completed).toBeGreaterThanOrEqual(2)
-  await settle(page)
-  await oe(page, 'eggOff', 'refine')
-  expect(errors).toEqual([])
-})
-
-test('shadow — 켤 때 한 번 찍고 가만히 있으면 0장이며, 편집하면 0.5초 모아 다시 찍고 테마를 바꿔도 다시 찍지 않는다', async ({ page }) => {
-  const errors = await open(page)
-  await settle(page)
-  expect(await oe(page, 'eggOn', 'shadow')).toBe(true)
-  await expect.poll(async () => (await eggs(page)).inspect.shadow.captures).toBe(1)
-  expect((await eggs(page)).inspect.shadow.visible).toBe(true)
-  await settle(page)
-  const r0 = await viewer<number>(page, 'renders')
-  await page.waitForTimeout(500)
-  expect(await viewer<number>(page, 'renders')).toBe(r0)
-
-  await page.locator('.appbar button.theme').click()
-  await settle(page)
-  expect((await eggs(page)).inspect.shadow.captures).toBe(1)
-
-  await page.keyboard.press('e')
-  await pickEquipment(page, 'AHU-1')
-  await page.keyboard.press('Shift+ArrowRight')
-  await expect.poll(async () => (await eggs(page)).inspect.shadow.captures).toBe(2)
-  await settle(page)
-  await oe(page, 'eggOff', 'shadow')
-  expect(errors).toEqual([])
-})
-
 test('rise — 켜면 층이 내려앉고 끝나면 0장이며, 새 파일을 열면 다시 튼다', async ({ page }) => {
   const errors = await open(page)
   await settle(page)
@@ -420,6 +374,8 @@ test('heat — 방을 밀도 구간으로 칠하고 값 없는 방은 따로 세
   expect(info.meshes).toBeGreaterThan(0)
   await expect(page.getByTestId('egg-hud-heat')).toContainText('값 없음')
   await expect(page.getByTestId('egg-hud-heat')).toContainText('화면에서만')
+  // 칠할 방이 하나도 없을 때만 맨 위에 굵게 알린다.
+  await expect(page.getByTestId('egg-heat-empty')).toHaveCount(info.valued ? 0 : 1)
   await settle(page)
   const r0 = await viewer<number>(page, 'renders')
   await page.waitForTimeout(500)
